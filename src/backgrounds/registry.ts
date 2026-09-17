@@ -7,7 +7,20 @@
 import type { BackgroundDefinition } from '../core/background'
 import { aurora } from './aurora'
 import { contour } from './contour'
+import { grid } from './grid'
 import { halftone } from './halftone'
 import { motes } from './motes'
+import { stripes } from './stripes'
+import { truchet } from './truchet'
+import { waves } from './waves'
 
-export const backgrounds: readonly BackgroundDefinition[] = [aurora, contour, halftone, motes]
+export const backgrounds: readonly BackgroundDefinition[] = [
+  aurora,
+  contour,
+  grid,
+  halftone,
+  motes,
+  stripes,
+  truchet,
+  waves,
+]
