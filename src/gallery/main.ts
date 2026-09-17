@@ -245,16 +245,22 @@ const selectFromHash = (): void => {
 
 resetButton.addEventListener('click', () => select(current))
 
+/** コピーできなかったことを伝え、手動でコピーできるようURL欄を選択状態にする */
+const reportCopyFailure = (): void => {
+  urlField.select()
+  copyStatus.textContent = 'URLをコピーできませんでした。URL欄を選択したので、手動でコピーしてください。'
+}
+
 copyButton.addEventListener('click', () => {
-  navigator.clipboard.writeText(urlField.value).then(
-    () => {
-      copyStatus.textContent = 'URLをコピーしました。OBSの「ソース > ブラウザ」のURL欄に貼り付けてください。'
-    },
-    () => {
-      urlField.select()
-      copyStatus.textContent = 'URLをコピーできませんでした。URL欄を選択したので、手動でコピーしてください。'
-    },
-  )
+  // Clipboard API は https か localhost でしか提供されず、それ以外では navigator.clipboard が undefined になる。
+  // 型定義上は常に存在する扱いだが、実行時には無い場合があるので確認する
+  if (!navigator.clipboard) {
+    reportCopyFailure()
+    return
+  }
+  navigator.clipboard.writeText(urlField.value).then(() => {
+    copyStatus.textContent = 'URLをコピーしました。OBSの「ソース > ブラウザ」のURL欄に貼り付けてください。'
+  }, reportCopyFailure)
 })
 
 // プレビューは 1920px 幅の実寸で描画し、表示枠の幅に合わせて縮小する
