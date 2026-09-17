@@ -58,6 +58,20 @@ export const withAlpha = (hexColor: string, alpha: number): string => {
 }
 
 /**
+ * 配色から、番号に応じた色を選ぶ。番号が配色の数を超えたら先頭へ戻って繰り返す。
+ *
+ * 注意: 配色が空の場合はエラーにする（スキーマの minCount を1以上にしていれば起こらない）。
+ *
+ * @param colors 配色（1色以上）
+ * @param index 0以上の整数
+ */
+export const pickColor = (colors: readonly string[], index: number): string => {
+  const color = colors[index % colors.length]
+  if (color === undefined) throw new Error('配色が空のため、色を選べませんでした')
+  return color
+}
+
+/**
  * 種（seed）から決まる擬似乱数列（mulberry32）を返す。
  * 再読み込みしても同じ配置になるよう、Math.random の代わりに使う。
  */
@@ -70,6 +84,21 @@ export const createRandom = (seed: number): (() => number) => {
     mixed ^= mixed + Math.imul(mixed ^ (mixed >>> 7), mixed | 61)
     return ((mixed ^ (mixed >>> 14)) >>> 0) / 2 ** 32
   }
+}
+
+/**
+ * 画面の端から反対の端へ進み、外へ抜けたら元の側から戻ってくるものの位置（px）。
+ * 端で突然現れたり消えたりしないよう、画面の両側に余白を足した範囲を循環する。
+ *
+ * @param progress 進み具合。1進むごとに1周する。負の値（逆向き）も指定できる
+ * @param length 画面の長さ（px）
+ * @param margin 画面の外に取る余白（px）。進むものの半分の大きさ以上にする
+ * @returns -margin 以上 length + margin 未満の位置
+ */
+export const loopPosition = (progress: number, length: number, margin: number): number => {
+  // JavaScript の % は負の数で負の余りを返すため、1を足してからもう一度余りを取る
+  const wrapped = ((progress % 1) + 1) % 1
+  return wrapped * (length + margin * 2) - margin
 }
 
 /**
