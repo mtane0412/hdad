@@ -5,7 +5,7 @@
  * cycle は「経過時間 × 回転の頻度 + タイルごとのずれ」で、1進むごとに90度回る。
  */
 import { describe, expect, it } from 'vitest'
-import { tileQuarterTurns, tilePhase } from './truchet'
+import { tileCycle, tileQuarterTurns, tilePhase } from './truchet'
 
 describe('tileQuarterTurns（タイルの回転量）', () => {
   it('cycle が整数のとき、回転量も同じ整数になる（曲線がつながった状態）', () => {
@@ -29,6 +29,19 @@ describe('tileQuarterTurns（タイルの回転量）', () => {
       expect(current).toBeGreaterThanOrEqual(previous)
       previous = current
     }
+  })
+})
+
+describe('tileCycle（タイルの回転の進み具合）', () => {
+  it('speed が0（静止）なら、タイルごとのずれを無視して0になる（回転途中の角度で止まらない）', () => {
+    // 前提: ずれ0.9のタイルは、ずれをそのまま足すと回転途中（止まる時間の割合0.85を超える）になる
+    expect(tileCycle(30, 0, 0.9)).toBe(0)
+    expect(tileQuarterTurns(tileCycle(30, 0, 0.9))).toBe(0)
+  })
+
+  it('speed が0より大きければ、時間の経過とタイルごとのずれの両方が反映される', () => {
+    expect(tileCycle(10, 1, 0.25)).toBeGreaterThan(tileCycle(5, 1, 0.25))
+    expect(tileCycle(10, 1, 0.75)).toBeCloseTo(tileCycle(10, 1, 0.25) + 0.5)
   })
 })
 

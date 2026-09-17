@@ -31,6 +31,19 @@ export const tileQuarterTurns = (cycle: number): number => {
 }
 
 /**
+ * タイルの回転の進み具合（tileQuarterTurns に渡す cycle）を求める。
+ *
+ * 注意: speed が0（静止）のときはタイルごとのずれを足さない。ずれを足すと、
+ * 一部のタイルが回転途中の角度のまま止まり、曲線が切れた状態で静止してしまう。
+ *
+ * @param time 経過時間（秒）
+ * @param speed 動きの速さ（0で静止）
+ * @param phase タイルごとの回転タイミングのずれ（0以上1未満）
+ */
+export const tileCycle = (time: number, speed: number, phase: number): number =>
+  speed === 0 ? 0 : time * speed * TURN_RATE + phase
+
+/**
  * タイルごとの擬似乱数列。列と行だけから決まるため、
  * 画面の大きさが変わっても各タイルの動きは変わらない。
  */
@@ -67,7 +80,7 @@ export const truchet = defineBackground({
         const phase = random()
         // 初期の向きは位相とは別の乱数で決める（同じ値から決めると向きが時間とともに偏る）
         const initialTurns = random() < 0.5 ? 0 : 1
-        const turns = initialTurns + tileQuarterTurns(time * speed * TURN_RATE + phase)
+        const turns = initialTurns + tileQuarterTurns(tileCycle(time, speed, phase))
 
         ctx.save()
         ctx.translate(column * size + half, row * size + half)
