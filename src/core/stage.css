@@ -1,0 +1,25 @@
+/* 背景ページ共通のスタイル。OBSのブラウザソースで透過できるよう、ページ自体は塗らない。 */
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+}
+
+canvas {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+}
+
+.stage-error {
+  position: fixed;
+  inset: 0;
+  margin: 0;
+  padding: 6vh 6vw;
+  background: #2b0a0a;
+  color: #ffd7d7;
+  font: 600 clamp(16px, 2.4vw, 40px) / 1.7 'Hiragino Sans', 'Yu Gothic UI', sans-serif;
+  white-space: pre-wrap;
+}

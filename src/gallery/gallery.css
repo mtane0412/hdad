@@ -1,0 +1,307 @@
+/*
+ * ギャラリー（トップページ）のスタイル
+ * 主役はプレビュー画面。周囲は機材ラックのように静かな灰緑でまとめ、
+ * 操作できる箇所だけを「オンエア」の赤紫で示す。
+ */
+:root {
+  --paper: #dfe5e1;
+  --panel: #f6f8f6;
+  --ink: #16211f;
+  --muted: #566562;
+  --line: #b9c4bf;
+  --on-air: #c2255c;
+  --display: 'Bricolage Grotesque', 'Zen Kaku Gothic New', sans-serif;
+  --body: 'Zen Kaku Gothic New', 'Hiragino Sans', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: clamp(16px, 3vw, 40px);
+  background: var(--paper);
+  color: var(--ink);
+  font: 400 16px / 1.75 var(--body);
+}
+
+:focus-visible {
+  outline: 3px solid var(--on-air);
+  outline-offset: 2px;
+}
+
+.masthead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 24px;
+  margin-bottom: clamp(20px, 3vw, 36px);
+}
+
+.masthead h1 {
+  margin: 0;
+  font: 800 clamp(28px, 4vw, 44px) / 1 var(--display);
+  letter-spacing: -0.03em;
+}
+
+.masthead p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.bench {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(0, 4fr) minmax(260px, 1.6fr);
+  grid-template-areas:
+    'shelf monitor controls'
+    'shelf output output';
+  gap: clamp(16px, 2.5vw, 32px);
+  align-items: start;
+}
+
+.shelf {
+  grid-area: shelf;
+}
+
+.shelf ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.shelf button {
+  display: block;
+  width: 100%;
+  padding: 6px 0 6px 14px;
+  border: 0;
+  border-left: 4px solid transparent;
+  background: none;
+  color: var(--muted);
+  font: 700 clamp(24px, 2.6vw, 38px) / 1.15 var(--display);
+  letter-spacing: -0.02em;
+  text-align: left;
+  cursor: pointer;
+}
+
+.shelf button:hover {
+  color: var(--ink);
+}
+
+.shelf button[aria-current='true'] {
+  border-left-color: var(--on-air);
+  color: var(--ink);
+}
+
+.monitor {
+  grid-area: monitor;
+  min-width: 0;
+}
+
+/* 透過背景を確認できるよう、プレビューの下地は市松模様にする */
+.screen {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 6px;
+  background: repeating-conic-gradient(#c9d1cd 0% 25%, #eef1ef 0% 50%) 0 0 / 24px 24px;
+  box-shadow: 0 0 0 1px var(--ink), 0 18px 40px -18px #16211f80;
+}
+
+/* 1920×1080 の実寸で描画させ、縮小して表示する（OBSでの見え方と揃えるため） */
+.screen iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border: 0;
+  transform-origin: 0 0;
+  transform: scale(var(--preview-scale, 0.5));
+}
+
+.monitor h2 {
+  margin: 18px 0 0;
+  font: 700 24px / 1.2 var(--display);
+}
+
+.monitor p {
+  margin: 4px 0 0;
+  max-width: 40em;
+  color: var(--muted);
+}
+
+.controls {
+  grid-area: controls;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.field {
+  margin: 0 0 18px;
+  padding: 0;
+  border: 0;
+}
+
+.field legend {
+  padding: 0;
+  font-weight: 700;
+}
+
+.slider-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.slider-row output {
+  min-width: 3.5ch;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.field code {
+  color: var(--muted);
+  font: 500 13px / 1 ui-monospace, monospace;
+}
+
+.field input[type='range'] {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--on-air);
+}
+
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.field input[type='color'] {
+  width: 44px;
+  height: 44px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.field input[type='color']:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.check input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--on-air);
+}
+
+button.quiet,
+.swatches button {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: none;
+  color: var(--ink);
+  font: 500 14px var(--body);
+  cursor: pointer;
+}
+
+button.quiet:hover,
+.swatches button:hover:not(:disabled) {
+  border-color: var(--ink);
+}
+
+.swatches button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.output {
+  grid-area: output;
+}
+
+.output label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 700;
+}
+
+.output-row {
+  display: flex;
+  gap: 8px;
+}
+
+.output input {
+  flex: 1;
+  min-width: 0;
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid var(--ink);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--ink);
+  font: 500 14px ui-monospace, monospace;
+}
+
+#copy {
+  min-height: 48px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--on-air);
+  color: #fff;
+  font: 700 15px var(--body);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+#copy:hover {
+  background: #a01d4a;
+}
+
+#copy-status {
+  min-height: 1.75em;
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
+@media (max-width: 960px) {
+  .bench {
+    grid-template-columns: 1fr;
+    grid-template-areas: 'shelf' 'monitor' 'controls' 'output';
+  }
+
+  .shelf ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 8px;
+  }
+
+  .shelf button {
+    width: auto;
+    padding: 8px 12px 8px 0;
+    border-left: 0;
+    border-bottom: 4px solid transparent;
+  }
+
+  .shelf button[aria-current='true'] {
+    border-bottom-color: var(--on-air);
+  }
+
+  .output-row {
+    flex-direction: column;
+  }
+}
