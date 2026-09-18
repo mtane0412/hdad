@@ -1,12 +1,12 @@
 /**
- * ギャラリー（トップページ）の操作
+ * 壁紙ギャラリー（wallpaper/）の操作
  *
  * レジストリの背景を一覧し、スキーマから調整用の入力欄を自動生成する。
  * 入力のたびにプレビューとOBS用URLを更新する。選択中の背景はURLのハッシュ（#contour など）に保持する。
  */
-import { backgrounds } from '../backgrounds/registry'
-import type { BackgroundDefinition } from '../core/background'
-import type { ColorParamSpec, ColorsParamSpec, NumberParamSpec, ParamSpec } from '../core/params'
+import { backgrounds } from '../registry'
+import type { BackgroundDefinition } from '../../core/background'
+import type { ColorParamSpec, ColorsParamSpec, NumberParamSpec, ParamSpec } from '../../core/params'
 import { buildBackgroundUrl } from './url'
 
 type Value = number | string | readonly string[]

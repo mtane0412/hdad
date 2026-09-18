@@ -4,49 +4,30 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex" />
-    <title>stream-assets | 配信背景</title>
+    <title>stream-assets</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap"
     />
-    <link rel="stylesheet" href="./src/gallery/gallery.css" />
+    <link rel="stylesheet" href="./src/hub/hub.css" />
   </head>
   <body>
     <header class="masthead">
       <h1>stream-assets</h1>
-      <p>OBSのブラウザソースに貼る配信背景。選んで、調整して、URLをコピーする。</p>
+      <p>Twitch配信用の素材置き場。OBSのブラウザソースからURLで読み込む。</p>
     </header>
 
-    <main class="bench">
-      <nav class="shelf" aria-label="背景の種類">
-        <ul id="shelf"></ul>
-      </nav>
-
-      <section class="monitor" aria-labelledby="current-title">
-        <div class="screen" id="screen">
-          <iframe id="preview" title="背景のプレビュー" width="1920" height="1080"></iframe>
-        </div>
-        <h2 id="current-title"></h2>
-        <p id="current-description"></p>
-      </section>
-
-      <section class="controls" aria-label="調整">
-        <form id="controls"></form>
-        <button type="button" id="reset" class="quiet">既定値に戻す</button>
-      </section>
-
-      <section class="output" aria-label="OBS用のURL">
-        <label for="url">OBSのブラウザソースに貼るURL（推奨サイズ 1920×1080）</label>
-        <div class="output-row">
-          <input id="url" type="text" readonly />
-          <button type="button" id="copy">URLをコピー</button>
-        </div>
-        <p id="copy-status" role="status"></p>
-      </section>
+    <main>
+      <ul class="catalog" aria-label="素材の種類">
+        <li>
+          <a href="./wallpaper/">
+            <span class="name">壁紙</span>
+            <span class="summary">配信画面の背景。色や速さを調整してURLをコピーする。</span>
+          </a>
+        </li>
+      </ul>
     </main>
-
-    <script type="module" src="./src/gallery/main.ts"></script>
   </body>
 </html>

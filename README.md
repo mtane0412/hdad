@@ -2,12 +2,18 @@
 
 Twitch配信用の各種素材を置くリポジトリです。GitHub Pagesで公開し、OBSのブラウザソースからURLで読み込みます。
 
-## 配信背景
+トップページ（`index.html`）は素材の種類一覧です。素材はカテゴリごとにディレクトリを分けて置きます。
 
-トップページ（ギャラリー）で背景を選び、パラメータを調整して、表示されたURLをOBSにコピーします。
+| パス | 内容 |
+| --- | --- |
+| `wallpaper/` | 配信画面の背景（壁紙）。ギャラリーと各背景のページ |
+
+## 壁紙（`wallpaper/`）
+
+ギャラリー（`wallpaper/`）で背景を選び、パラメータを調整して、表示されたURLをOBSにコピーします。
 
 ```
-https://<ユーザー名>.github.io/stream-assets/backgrounds/<背景ID>/?<パラメータ>=<値>&...
+https://<ユーザー名>.github.io/stream-assets/wallpaper/<背景ID>/?<パラメータ>=<値>&...
 ```
 
 - **パス**で背景の種類を、**クエリパラメータ**で色や速さを切り替えます
@@ -29,7 +35,7 @@ https://<ユーザー名>.github.io/stream-assets/backgrounds/<背景ID>/?<パ�
 | `truchet` | タイルの曲線がつながり、少しずつ組み変わる | `color`, `bg`, `size`（タイルの一辺px）, `speed` |
 | `waves` | 半透明の波が重なってゆらぐ | `color`, `bg`, `layers`（層の数）, `speed` |
 
-例: `backgrounds/contour/?color=ffd166&bg=transparent&levels=20&speed=0.5`
+例: `wallpaper/contour/?color=ffd166&bg=transparent&levels=20&speed=0.5`
 
 ### OBSでの設定
 
@@ -47,13 +53,13 @@ npm test            # テスト
 npm run build       # dist/ へビルド
 ```
 
-### 背景を追加する
+### 壁紙の背景を追加する
 
-1. `src/backgrounds/<id>.ts` に `defineBackground` で背景（パラメータのスキーマと描画関数）を定義する
-2. `src/backgrounds/registry.ts` に登録する
-3. 既存の `backgrounds/aurora/index.html` を `backgrounds/<id>/index.html` に複製し、`data-background` と `<title>` を `<id>` に変える
+1. `src/wallpaper/<id>.ts` に `defineBackground` で背景（パラメータのスキーマと描画関数）を定義する
+2. `src/wallpaper/registry.ts` に登録する
+3. 既存の `wallpaper/aurora/index.html` を `wallpaper/<id>/index.html` に複製し、`data-background` と `<title>` を `<id>` に変える
 
-2と3の対応は `src/backgrounds/registry.test.ts` が検証します。ギャラリーの調整欄はスキーマから自動生成されます。
+2と3の対応は `src/wallpaper/registry.test.ts` が検証します。ギャラリーの調整欄はスキーマから自動生成されます。
 
 ## デプロイ
 
