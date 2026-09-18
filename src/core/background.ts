@@ -22,7 +22,7 @@ export type Renderer = (frame: Frame) => void
 
 /** 背景1種類の定義 */
 export interface BackgroundDefinition<T extends ParamSchema = ParamSchema> {
-  /** URLのパスに使うID（backgrounds/<id>/） */
+  /** URLのパスに使うID（wallpaper/<id>/） */
   readonly id: string
   readonly title: string
   readonly description: string

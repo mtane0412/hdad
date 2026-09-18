@@ -2,10 +2,10 @@
  * OBSに貼る背景URLの組み立て（url.ts）のテスト
  */
 import { describe, expect, it } from 'vitest'
-import { parseParams, type ParamSchema } from '../core/params'
+import { parseParams, type ParamSchema } from '../../core/params'
 import { buildBackgroundUrl } from './url'
 
-const ギャラリーのURL = 'https://example.github.io/stream-assets/'
+const ギャラリーのURL = 'https://example.github.io/stream-assets/wallpaper/'
 
 const 背景スキーマ = {
   speed: { type: 'number', default: 1, min: 0, max: 10, description: '動きの速さ' },
@@ -18,13 +18,13 @@ const 既定値 = { speed: 1, bg: '#101820', colors: ['#ff0080', '#7928ca'] }
 describe('buildBackgroundUrl', () => {
   it('すべて既定値なら、パラメータなしの短いURLになる', () => {
     expect(buildBackgroundUrl(ギャラリーのURL, 'aurora', 背景スキーマ, 既定値)).toBe(
-      'https://example.github.io/stream-assets/backgrounds/aurora/',
+      'https://example.github.io/stream-assets/wallpaper/aurora/',
     )
   })
 
   it('既定値から変えたパラメータだけがURLに付く', () => {
     expect(buildBackgroundUrl(ギャラリーのURL, 'aurora', 背景スキーマ, { ...既定値, speed: 0.5 })).toBe(
-      'https://example.github.io/stream-assets/backgrounds/aurora/?speed=0.5',
+      'https://example.github.io/stream-assets/wallpaper/aurora/?speed=0.5',
     )
   })
 
@@ -35,14 +35,14 @@ describe('buildBackgroundUrl', () => {
       colors: ['#00ff00', '#0000ff', '#ffffff'],
     })
     expect(url).toBe(
-      'https://example.github.io/stream-assets/backgrounds/aurora/?bg=transparent&colors=00ff00,0000ff,ffffff',
+      'https://example.github.io/stream-assets/wallpaper/aurora/?bg=transparent&colors=00ff00,0000ff,ffffff',
     )
   })
 
   it('ギャラリーが index.html 付きのURLで開かれていても、同じ階層を基準にする', () => {
     expect(
-      buildBackgroundUrl('https://example.github.io/stream-assets/index.html', 'motes', 背景スキーマ, 既定値),
-    ).toBe('https://example.github.io/stream-assets/backgrounds/motes/')
+      buildBackgroundUrl('https://example.github.io/stream-assets/wallpaper/index.html', 'motes', 背景スキーマ, 既定値),
+    ).toBe('https://example.github.io/stream-assets/wallpaper/motes/')
   })
 
   it('組み立てたURLのパラメータは、背景側の解析で元の値に戻る', () => {

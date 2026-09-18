@@ -1,12 +1,12 @@
 /**
- * ギャラリー（トップページ）の操作
+ * 壁紙ギャラリー（wallpaper/）の操作
  *
  * レジストリの背景を一覧し、スキーマから調整用の入力欄を自動生成する。
  * 入力のたびにプレビューとOBS用URLを更新する。選択中の背景はURLのハッシュ（#contour など）に保持する。
  */
-import { backgrounds } from '../backgrounds/registry'
-import type { BackgroundDefinition } from '../core/background'
-import type { ColorParamSpec, ColorsParamSpec, NumberParamSpec, ParamSpec } from '../core/params'
+import { backgrounds } from '../registry'
+import type { BackgroundDefinition } from '../../core/background'
+import type { ColorParamSpec, ColorsParamSpec, NumberParamSpec, ParamSpec } from '../../core/params'
 import { buildBackgroundUrl } from './url'
 
 type Value = number | string | readonly string[]
@@ -236,6 +236,8 @@ const selectFromHash = (): void => {
   }
   const definition = backgrounds.find((background) => background.id === id)
   if (!definition) {
+    // 初回表示で未登録IDだった場合も、案内どおり一覧から選び直せるように棚だけは描画する
+    renderShelf()
     title.textContent = `背景「${id}」は登録されていません`
     description.textContent = '左の一覧から背景を選んでください。'
     return

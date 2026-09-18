@@ -1,11 +1,11 @@
 /**
  * 背景ページの起動処理
  *
- * backgrounds/<id>/index.html の canvas（data-background 属性に背景ID）を見つけ、
+ * wallpaper/<id>/index.html の canvas（data-background 属性に背景ID）を見つけ、
  * URLのクエリパラメータを解析して描画ループを開始する。
  * 起動に失敗した場合は、OBS上でも原因が分かるよう画面にエラー内容を表示する。
  */
-import { backgrounds } from '../backgrounds/registry'
+import { backgrounds } from '../wallpaper/registry'
 import { ParamError, parseParams } from './params'
 
 const MILLISECONDS_PER_SECOND = 1000
