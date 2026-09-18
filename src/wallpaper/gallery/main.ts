@@ -236,6 +236,8 @@ const selectFromHash = (): void => {
   }
   const definition = backgrounds.find((background) => background.id === id)
   if (!definition) {
+    // 初回表示で未登録IDだった場合も、案内どおり一覧から選び直せるように棚だけは描画する
+    renderShelf()
     title.textContent = `背景「${id}」は登録されていません`
     description.textContent = '左の一覧から背景を選んでください。'
     return
