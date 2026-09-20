@@ -6,4 +6,4 @@
 import { mountStage } from '../core/mount'
 import { clocks } from './registry'
 
-mountStage({ definitions: clocks, attribute: 'clock' })
+mountStage({ definitions: clocks, attribute: 'clock', noun: '時計' })

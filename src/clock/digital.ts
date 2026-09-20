@@ -4,7 +4,7 @@
  * 1行目に時刻、2行目に日付と曜日を中央ぞろえで描く。時刻は配信PCのローカル時刻を使う。
  * 文字サイズはピクセル指定ではなく、OBSのブラウザソースの幅・高さに収まる最大サイズから決めるため、
  * ソースの大きさを変えても文字がはみ出さない。
- * 表示内容は frame.now だけから決まり、フレーム間の状態は持たない。
+ * 表示内容は frame.now だけから決まり、フレーム間の状態は持たない（文字幅の計測結果だけは、同じ入力に同じ値を返すメモとして覚えておく）。
  */
 import { defineBackground, paintBackdrop } from '../core/background'
 
@@ -102,6 +102,21 @@ export const digital = defineBackground({
   create: ({ color, outline, bg, size, seconds, date, weekday, hour12 }) => {
     const fontOf = (fontSize: number): string => `bold ${fontSize}px ${FONT_FAMILY}`
 
+    /**
+     * 文字サイズ1pxあたりの文字列の幅。数字をすべて 0 に置き換えて測り、時刻が進んでも文字サイズが変わらないようにする。
+     * 置き換え後の文字列は桁数や曜日が変わらない限り同じなので、測った結果を覚えておき、毎フレーム測り直さない
+     */
+    const measuredWidths = new Map<string, number>()
+    const measure = (ctx: CanvasRenderingContext2D, text: string): number => {
+      const template = text.replace(/\d/g, '0')
+      const known = measuredWidths.get(template)
+      if (known !== undefined) return known
+      ctx.font = fontOf(MEASURE_FONT_SIZE)
+      const measured = ctx.measureText(template).width / MEASURE_FONT_SIZE
+      measuredWidths.set(template, measured)
+      return measured
+    }
+
     return (frame) => {
       const { ctx, width, height, now } = frame
       paintBackdrop(frame, bg)
@@ -110,16 +125,13 @@ export const digital = defineBackground({
       const dateLine = formatDateLine(now, { date, weekday })
       const hasDateLine = dateLine !== ''
 
-      // 数字をすべて 0 に置き換えて測り、時刻が進んでも文字サイズが変わらないようにする
-      const measure = (text: string): number => {
-        ctx.font = fontOf(MEASURE_FONT_SIZE)
-        return ctx.measureText(text.replace(/\d/g, '0')).width / MEASURE_FONT_SIZE
-      }
       const fontSize = fitFontSize(
         { width, height },
         {
-          // 縁取りは文字の外側にも太さの半分ずつはみ出すので、その分を幅に含める
-          width: Math.max(measure(timeLine), measure(dateLine) * DATE_SIZE_RATIO) + OUTLINE_RATIO,
+          // 縁取りは文字の外側にも太さの半分ずつはみ出すので、その分を幅に含める。
+          // 高さは、行の高さによる上下の余白（(LINE_HEIGHT - 1) / 2）が縁取りのはみ出し（OUTLINE_RATIO / 2）より大きいので足さない
+          width:
+            Math.max(measure(ctx, timeLine), measure(ctx, dateLine) * DATE_SIZE_RATIO) + OUTLINE_RATIO,
           height: LINE_HEIGHT * (1 + (hasDateLine ? DATE_SIZE_RATIO : 0)),
         },
         size,

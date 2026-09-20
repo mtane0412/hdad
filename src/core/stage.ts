@@ -6,4 +6,4 @@
 import { backgrounds } from '../wallpaper/registry'
 import { mountStage } from './mount'
 
-mountStage({ definitions: backgrounds, attribute: 'background' })
+mountStage({ definitions: backgrounds, attribute: 'background', noun: '背景' })

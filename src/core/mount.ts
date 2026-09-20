@@ -17,15 +17,17 @@ export interface MountTarget {
   readonly definitions: readonly BackgroundDefinition[]
   /** 素材IDを持つ data 属性の名前（background なら data-background） */
   readonly attribute: string
+  /** エラー表示で素材を指す呼び名（「背景」「時計」など） */
+  readonly noun: string
 }
 
-const start = ({ definitions, attribute }: MountTarget): void => {
+const start = ({ definitions, attribute, noun }: MountTarget): void => {
   const canvas = document.querySelector<HTMLCanvasElement>(`canvas[data-${attribute}]`)
   if (!canvas) throw new Error(`data-${attribute} 属性を持つ canvas 要素が見つかりません`)
 
   const id = canvas.dataset[attribute]
   const definition = definitions.find((candidate) => candidate.id === id)
-  if (!definition) throw new Error(`「${id}」はレジストリに登録されていません`)
+  if (!definition) throw new Error(`${noun}「${id}」はレジストリに登録されていません`)
 
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('canvas の2D描画コンテキストを取得できませんでした')
@@ -56,11 +58,11 @@ const start = ({ definitions, attribute }: MountTarget): void => {
   requestAnimationFrame(draw)
 }
 
-const showError = (error: unknown): void => {
+const showError = (error: unknown, noun: string): void => {
   const lines =
     error instanceof ParamError
       ? ['URLパラメータに問題があります', ...error.problems]
-      : ['素材を表示できません', error instanceof Error ? error.message : String(error)]
+      : [`${noun}を表示できません`, error instanceof Error ? error.message : String(error)]
   const panel = document.createElement('pre')
   panel.className = 'stage-error'
   panel.setAttribute('role', 'alert')
@@ -78,7 +80,7 @@ export const mountStage = (target: MountTarget): void => {
   try {
     start(target)
   } catch (error) {
-    showError(error)
+    showError(error, target.noun)
     throw error
   }
 }
