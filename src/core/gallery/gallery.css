@@ -69,8 +69,8 @@ body {
   display: grid;
   grid-template-columns: minmax(180px, 1fr) minmax(0, 4fr) minmax(260px, 1.6fr);
   grid-template-areas:
-    'shelf monitor controls'
-    'shelf output output';
+    'shelf output output'
+    'shelf monitor controls';
   gap: clamp(16px, 2.5vw, 32px);
   align-items: start;
 }
@@ -297,7 +297,7 @@ button.quiet:hover,
 @media (max-width: 960px) {
   .bench {
     grid-template-columns: 1fr;
-    grid-template-areas: 'shelf' 'monitor' 'controls' 'output';
+    grid-template-areas: 'shelf' 'output' 'monitor' 'controls';
   }
 
   .shelf ul {

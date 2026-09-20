@@ -25,6 +25,15 @@
         <ul id="shelf"></ul>
       </nav>
 
+      <section class="output" aria-label="OBS用のURL">
+        <label for="url">OBSのブラウザソースに貼るURL（サイズの例 600×240。文字や文字盤は幅と高さに収まる大きさになる）</label>
+        <div class="output-row">
+          <input id="url" type="text" readonly />
+          <button type="button" id="copy">URLをコピー</button>
+        </div>
+        <p id="copy-status" role="status"></p>
+      </section>
+
       <section class="monitor" aria-labelledby="current-title">
         <div class="screen" id="screen">
           <iframe id="preview" title="時計のプレビュー" width="600" height="240"></iframe>
@@ -36,15 +45,6 @@
       <section class="controls" aria-label="調整">
         <form id="controls"></form>
         <button type="button" id="reset" class="quiet">既定値に戻す</button>
-      </section>
-
-      <section class="output" aria-label="OBS用のURL">
-        <label for="url">OBSのブラウザソースに貼るURL（サイズの例 600×240。文字は幅と高さに収まる大きさになる）</label>
-        <div class="output-row">
-          <input id="url" type="text" readonly />
-          <button type="button" id="copy">URLをコピー</button>
-        </div>
-        <p id="copy-status" role="status"></p>
       </section>
     </main>
 
