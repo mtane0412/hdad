@@ -5,6 +5,7 @@
  * - 省略されたパラメータはスキーマに明記した既定値になる
  * - 不正な値・範囲外の値・未対応のパラメータ名は、既定値へ黙って戻さず ParamError にする（Fail-Fast）
  * - 色はURLで「#」がフラグメント扱いになるため、「#」なしの16進数（ff0080 / f08）で受け取る
+ * - 真偽値は true / false だけを受け取る
  */
 
 /** 数値パラメータの宣言 */
@@ -36,14 +37,23 @@ export interface ColorsParamSpec {
   readonly description: string
 }
 
-export type ParamSpec = NumberParamSpec | ColorParamSpec | ColorsParamSpec
+/** 真偽値パラメータの宣言（URLでは true / false で指定する） */
+export interface BooleanParamSpec {
+  readonly type: 'boolean'
+  readonly default: boolean
+  readonly description: string
+}
+
+export type ParamSpec = NumberParamSpec | ColorParamSpec | ColorsParamSpec | BooleanParamSpec
 export type ParamSchema = Readonly<Record<string, ParamSpec>>
 
 type ParamValue<S extends ParamSpec> = S extends NumberParamSpec
   ? number
   : S extends ColorParamSpec
     ? string
-    : readonly string[]
+    : S extends BooleanParamSpec
+      ? boolean
+      : readonly string[]
 
 /** スキーマから導かれる解析結果の型 */
 export type ParamValues<T extends ParamSchema> = { readonly [K in keyof T]: ParamValue<T[K]> }
@@ -109,6 +119,13 @@ const parseColors = (raw: string, spec: ColorsParamSpec): readonly string[] | Pr
   return colors
 }
 
+// 1 / yes / on などの別表記を受け付けると指定方法が曖昧になるため、true / false だけを認める
+const parseBoolean = (raw: string): boolean | Problem => {
+  if (raw === 'true') return true
+  if (raw === 'false') return false
+  return new Problem(`「${raw}」は真偽値として読めません（true または false）`)
+}
+
 const parseValue = (raw: string, spec: ParamSpec) => {
   switch (spec.type) {
     case 'number':
@@ -117,6 +134,8 @@ const parseValue = (raw: string, spec: ParamSpec) => {
       return parseColor(raw, spec.allowTransparent ?? false)
     case 'colors':
       return parseColors(raw, spec)
+    case 'boolean':
+      return parseBoolean(raw)
   }
 }
 

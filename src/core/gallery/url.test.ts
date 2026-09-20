@@ -2,7 +2,7 @@
  * OBSに貼る背景URLの組み立て（url.ts）のテスト
  */
 import { describe, expect, it } from 'vitest'
-import { parseParams, type ParamSchema } from '../../core/params'
+import { parseParams, type ParamSchema } from '../params'
 import { buildBackgroundUrl } from './url'
 
 const ギャラリーのURL = 'https://example.github.io/stream-assets/wallpaper/'
@@ -37,6 +37,16 @@ describe('buildBackgroundUrl', () => {
     expect(url).toBe(
       'https://example.github.io/stream-assets/wallpaper/aurora/?bg=transparent&colors=00ff00,0000ff,ffffff',
     )
+  })
+
+  it('真偽値は true / false の文字で出力し、解析すると元の値に戻る', () => {
+    // 前提: 秒の表示は既定で有効。これを無効に変えた場合だけURLに付く
+    const 時計スキーマ = {
+      seconds: { type: 'boolean', default: true, description: '秒を表示するか' },
+    } as const satisfies ParamSchema
+    const url = buildBackgroundUrl(ギャラリーのURL, 'digital', 時計スキーマ, { seconds: false })
+    expect(url).toBe('https://example.github.io/stream-assets/wallpaper/digital/?seconds=false')
+    expect(parseParams(時計スキーマ, new URL(url).searchParams)).toEqual({ seconds: false })
   })
 
   it('ギャラリーが index.html 付きのURLで開かれていても、同じ階層を基準にする', () => {

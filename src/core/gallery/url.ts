@@ -1,14 +1,14 @@
 /**
- * OBSのブラウザソースに貼る背景URLの組み立て
+ * OBSのブラウザソースに貼る素材URLの組み立て
  *
  * URLを短く保つため、既定値のままのパラメータは出力しない。
  */
-import type { ParamSchema, ParamValues } from '../../core/params'
+import type { ParamSchema, ParamValues } from '../params'
 
 const stripHash = (color: string): string => color.replace(/^#/, '')
 
-const serialize = (value: number | string | readonly string[]): string => {
-  if (typeof value === 'number') return String(value)
+const serialize = (value: number | string | boolean | readonly string[]): string => {
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
   if (typeof value === 'string') return stripHash(value)
   return value.map(stripHash).join(',')
 }
@@ -34,6 +34,6 @@ export const buildBackgroundUrl = <T extends ParamSchema>(
     const serialized = serialize(value)
     if (serialized !== serialize(spec.default)) pairs.push(`${name}=${serialized}`)
   }
-  // 値は数値・16進数・カンマだけなので、読みやすさを優先してエンコードせずに連結する
+  // 値は数値・16進数・カンマ・true / false だけなので、読みやすさを優先してエンコードせずに連結する
   return pairs.length > 0 ? `${url.href}?${pairs.join('&')}` : url.href
 }

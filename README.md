@@ -7,6 +7,7 @@ Twitch配信用の各種素材を置くリポジトリです。GitHub Pagesで�
 | パス | 内容 |
 | --- | --- |
 | `wallpaper/` | 配信画面の背景（壁紙）。ギャラリーと各背景のページ |
+| `clock/` | 配信画面に重ねる時計。ギャラリーと各時計のページ |
 
 ## 壁紙（`wallpaper/`）
 
@@ -42,6 +43,29 @@ https://<ユーザー名>.github.io/stream-assets/wallpaper/<背景ID>/?<パラ�
 1. ソースの追加 > ブラウザ
 2. URLにギャラリーでコピーしたURLを貼り、幅 1920・高さ 1080 にする
 
+## 時計（`clock/`）
+
+配信画面に重ねて使う時計です。時刻は配信PCのローカル時刻を表示します。背景は既定で透過です。
+ギャラリー（`clock/`）で時計を選び、パラメータを調整して、表示されたURLをOBSにコピーします。
+
+```
+https://<ユーザー名>.github.io/stream-assets/clock/<時計ID>/?<パラメータ>=<値>&...
+```
+
+- 表示の有無を切り替えるパラメータは `true` / `false` で指定します（`1` や `yes` はエラーになります）
+- 文字はブラウザソースの幅・高さに収まる最大の大きさで中央に表示されます。大きさはOBS側でソースの幅・高さを変えて調整します
+
+| 時計ID | 内容 | パラメータ |
+| --- | --- | --- |
+| `digital` | 現在時刻を数字で表示する | `color`（文字の色）, `outline`（縁取りの色、`transparent` で縁取りなし）, `bg`, `size`（収まる最大に対する倍率 0.1〜1）, `seconds`（秒）, `date`（日付）, `weekday`（曜日）, `hour12`（12時間制） |
+
+例: `clock/digital/?color=ffd166&seconds=false&hour12=true`
+
+### OBSでの設定
+
+1. ソースの追加 > ブラウザ
+2. URLにギャラリーでコピーしたURLを貼り、幅 600・高さ 240 など時計を置きたい大きさにする
+
 ## 開発
 
 ```bash
@@ -60,6 +84,14 @@ npm run build       # dist/ へビルド
 3. 既存の `wallpaper/aurora/index.html` を `wallpaper/<id>/index.html` に複製し、`data-background` と `<title>` を `<id>` に変える
 
 2と3の対応は `src/wallpaper/registry.test.ts` が検証します。ギャラリーの調整欄はスキーマから自動生成されます。
+
+### 時計を追加する
+
+1. `src/clock/<id>.ts` に `defineBackground` で時計を定義する（現在時刻は描画関数に渡される `frame.now` を使う）
+2. `src/clock/registry.ts` に登録する
+3. 既存の `clock/digital/index.html` を `clock/<id>/index.html` に複製し、`data-clock` と `<title>` を `<id>` に変える
+
+2と3の対応は `src/clock/registry.test.ts` が検証します。ギャラリーの調整欄はスキーマから自動生成されます。
 
 ## デプロイ
 

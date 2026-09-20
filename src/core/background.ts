@@ -15,6 +15,8 @@ export interface Frame {
   readonly height: number
   /** 表示開始からの経過時間（秒） */
   readonly time: number
+  /** そのフレームを描く時点の現在時刻（時計のように実時刻を表示する素材が使う） */
+  readonly now: Date
 }
 
 /** 1フレームを描画する関数 */
