@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex" />
-    <title>壁紙 | stream-assets</title>
+    <title>時計 | stream-assets</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -16,18 +16,18 @@
   <body>
     <header class="masthead">
       <a class="back" href="../">stream-assets</a>
-      <h1>壁紙</h1>
-      <p>OBSのブラウザソースに貼る配信背景。選んで、調整して、URLをコピーする。</p>
+      <h1>時計</h1>
+      <p>配信画面に重ねる時計。選んで、調整して、URLをコピーする。時刻は配信PCのローカル時刻。</p>
     </header>
 
     <main class="bench">
-      <nav class="shelf" aria-label="背景の種類">
+      <nav class="shelf" aria-label="時計の種類">
         <ul id="shelf"></ul>
       </nav>
 
       <section class="monitor" aria-labelledby="current-title">
         <div class="screen" id="screen">
-          <iframe id="preview" title="背景のプレビュー" width="1920" height="1080"></iframe>
+          <iframe id="preview" title="時計のプレビュー" width="600" height="240"></iframe>
         </div>
         <h2 id="current-title"></h2>
         <p id="current-description"></p>
@@ -39,7 +39,7 @@
       </section>
 
       <section class="output" aria-label="OBS用のURL">
-        <label for="url">OBSのブラウザソースに貼るURL（推奨サイズ 1920×1080）</label>
+        <label for="url">OBSのブラウザソースに貼るURL（サイズの例 600×240。文字は幅と高さに収まる大きさになる）</label>
         <div class="output-row">
           <input id="url" type="text" readonly />
           <button type="button" id="copy">URLをコピー</button>
@@ -48,6 +48,6 @@
       </section>
     </main>
 
-    <script type="module" src="../src/wallpaper/gallery.ts"></script>
+    <script type="module" src="../src/clock/gallery.ts"></script>
   </body>
 </html>

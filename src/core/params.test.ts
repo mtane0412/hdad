@@ -18,6 +18,7 @@ const 背景スキーマ = {
     maxCount: 4,
     description: '配色',
   },
+  seconds: { type: 'boolean', default: true, description: '秒を表示するか' },
 } as const satisfies ParamSchema
 
 /** クエリ文字列からスキーマに沿って解析するテスト用ヘルパー */
@@ -41,7 +42,19 @@ describe('parseParams', () => {
       count: 80,
       bg: '#101820',
       colors: ['#ff0080', '#7928ca'],
+      seconds: true,
     })
+  })
+
+  it('真偽値パラメータは true / false で指定できる', () => {
+    expect(解析する('seconds=false').seconds).toBe(false)
+    expect(解析する('seconds=true').seconds).toBe(true)
+  })
+
+  it('true / false 以外の真偽値は、1 や yes のような別表記も含めてエラーになる', () => {
+    expect(問題点を取得する('seconds=1')).toEqual([
+      'seconds: 「1」は真偽値として読めません（true または false）',
+    ])
   })
 
   it('数値パラメータを指定すると、その値が使われる', () => {
@@ -97,7 +110,7 @@ describe('parseParams', () => {
 
   it('スキーマにないパラメータ名は、打ち間違いに気づけるようエラーになる', () => {
     expect(問題点を取得する('sped=2')).toEqual([
-      'sped: 未対応のパラメータです（使用可能: speed, count, bg, colors）',
+      'sped: 未対応のパラメータです（使用可能: speed, count, bg, colors, seconds）',
     ])
   })
 
