@@ -1,0 +1,108 @@
+/*
+ * チャットボックス「plain」（文字だけ）の見た目。
+ * HTML構造は src/chat/view.ts、カスタムプロパティ（--chat-*）は src/chat/plain.ts を参照。
+ * 大きさはすべて文字の大きさ（--chat-size）を基準に em で決め、size パラメータだけで全体が拡大縮小するようにする。
+ *
+ * フチ取りは text-shadow を8方向に重ねて作る（-webkit-text-stroke は文字の内側まで削って細く見えるため）。
+ * フチの色は --outline で切り替える。名前は名前色の明暗に合わせた色（--name-text）でフチ取りし、
+ * 暗い名前色でも明るい名前色でも背景に埋もれないようにする。
+ */
+[data-chat='plain'] {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: flex-start;
+  gap: 0.2em;
+  margin: 0;
+  padding: 0.6em;
+  box-sizing: border-box;
+  overflow: hidden;
+  list-style: none;
+  color: var(--chat-text);
+  font: 800 var(--chat-size) / 1.45 'M PLUS Rounded 1c', 'Hiragino Maru Gothic ProN', 'Yu Gothic UI', sans-serif;
+  --outline: var(--chat-outline);
+}
+
+[data-chat='plain'] .chat-message {
+  display: block;
+  flex-shrink: 0;
+  max-width: 100%;
+  animation: plain-enter 0.3s ease-out both;
+}
+
+[data-chat='plain'] .chat-name,
+[data-chat='plain'] .chat-body,
+[data-chat='plain'] .chat-notice {
+  text-shadow:
+    0.07em 0 0 var(--outline),
+    -0.07em 0 0 var(--outline),
+    0 0.07em 0 var(--outline),
+    0 -0.07em 0 var(--outline),
+    0.05em 0.05em 0 var(--outline),
+    -0.05em 0.05em 0 var(--outline),
+    0.05em -0.05em 0 var(--outline),
+    -0.05em -0.05em 0 var(--outline),
+    0 0.12em 0.25em rgb(0 0 0 / 0.5);
+}
+
+[data-chat='plain'] .chat-name {
+  margin-right: 0.5em;
+  color: var(--name-color);
+  --outline: var(--name-text);
+}
+
+[data-chat='plain'] .chat-badge {
+  width: 0.9em;
+  height: 0.9em;
+  margin-right: 0.2em;
+  vertical-align: -0.08em;
+  overflow: visible;
+  fill: currentColor;
+  stroke: var(--outline);
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+  paint-order: stroke;
+}
+
+[data-chat='plain'] .chat-body {
+  display: inline;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+[data-chat='plain'] .is-action .chat-body {
+  font-style: italic;
+}
+
+[data-chat='plain'] .chat-emote {
+  height: 1.45em;
+  margin: -0.2em 0.05em;
+  vertical-align: middle;
+}
+
+[data-chat='plain'] .chat-notice {
+  flex-shrink: 0;
+  font-size: 0.7em;
+  opacity: 0.85;
+  animation: plain-enter 0.3s ease-out both;
+}
+
+/* 消えるまでの時間は view.ts の LEAVE_DURATION_MS と合わせる */
+[data-chat='plain'] .is-leaving {
+  animation: plain-leave 0.4s ease-in both;
+}
+
+@keyframes plain-enter {
+  from {
+    opacity: 0;
+    transform: translateX(-0.6em);
+  }
+}
+
+@keyframes plain-leave {
+  to {
+    opacity: 0;
+  }
+}

@@ -90,6 +90,10 @@ https://<ユーザー名>.github.io/stream-assets/chat/<デザインID>/?channel
 | デザインID | 内容 | パラメータ |
 | --- | --- | --- |
 | `bubble` | 名前色の名札が付いた、角の丸いふきだし | `size`（文字の大きさ px）, `panel`（ふきだしの色、`transparent` で透過）, `opacity`（ふきだしの不透明度 0〜1）, `text`（文字の色） |
+| `card` | 左端に名前色のラインが入った、半透明の落ち着いたカード | `size`（文字の大きさ px）, `panel`（カードの色、`transparent` で透過）, `opacity`（カードの不透明度 0〜1）, `text`（文字の色） |
+| `plain` | 地を塗らず、フチ取りした文字だけを並べる（ゲーム画面に直接重ねる用途向け） | `size`（文字の大きさ px）, `text`（本文の文字の色）, `outline`（本文の文字のフチの色） |
+| `sticker` | 太い白フチのシールに、少し傾いた名札を貼ったかわいいデザイン | `size`（文字の大きさ px）, `panel`（シールの色）, `border`（シールのフチの色）, `text`（文字の色） |
+| `terminal` | 等幅の文字が並ぶ、黒い端末風のデザイン（ブラウザソース全体を画面として塗る） | `size`（文字の大きさ px）, `panel`（画面の色、`transparent` で透過）, `opacity`（画面の不透明度 0〜1）, `text`（文字の色） |
 
 例: `chat/bubble/?channel=your_channel&size=32&lifetime=60`、配置の調整用に `chat/bubble/?demo=true`
 

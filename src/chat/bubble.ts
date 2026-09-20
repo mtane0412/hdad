@@ -5,8 +5,7 @@
  * 名前色は人によって明暗がまちまちなので、文字色ではなく名札の地色に使い、名札の文字色を自動で切り替えて読みやすさを保つ。
  * 見た目は bubble.css に書き、ここではパラメータをCSSのカスタムプロパティへ変換する。
  */
-import { withAlpha } from '../core/background'
-import { commonChatSchema, defineChat } from './definition'
+import { commonChatSchema, defineChat, panelColor } from './definition'
 
 export const bubble = defineChat({
   id: 'bubble',
@@ -21,7 +20,7 @@ export const bubble = defineChat({
   },
   cssVariables: ({ size, panel, opacity, text }) => ({
     '--chat-size': `${size}px`,
-    '--chat-panel': panel === 'transparent' ? panel : withAlpha(panel, opacity),
+    '--chat-panel': panelColor(panel, opacity),
     '--chat-text': text,
   }),
 })

@@ -1,0 +1,109 @@
+/*
+ * チャットボックス「card」（カード）の見た目。
+ * HTML構造は src/chat/view.ts、カスタムプロパティ（--chat-*）は src/chat/card.ts を参照。
+ * 大きさはすべて文字の大きさ（--chat-size）を基準に em で決め、size パラメータだけで全体が拡大縮小するようにする。
+ */
+[data-chat='card'] {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: stretch;
+  gap: 0.4em;
+  margin: 0;
+  padding: 0.6em;
+  box-sizing: border-box;
+  overflow: hidden;
+  list-style: none;
+  color: var(--chat-text);
+  font: 500 var(--chat-size) / 1.5 'Noto Sans JP', 'Hiragino Sans', 'Yu Gothic UI', sans-serif;
+}
+
+/* 縦ライン（.chat-name::before）をカードの左端いっぱいに置くため、カード自身を位置の基準にする */
+[data-chat='card'] .chat-message {
+  position: relative;
+  flex-shrink: 0;
+  padding: 0.45em 0.8em 0.5em 1.05em;
+  border-radius: 0.35em;
+  background: var(--chat-panel);
+  overflow: hidden;
+  box-shadow: 0 0.15em 0.5em rgb(0 0 0 / 0.2);
+  animation: card-enter 0.32s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+
+[data-chat='card'] .chat-name {
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+  font-size: 0.68em;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  opacity: 0.75;
+}
+
+/* 名前色（--name-color）は .chat-name に設定されるため、縦ラインは .chat-name の疑似要素として描く */
+[data-chat='card'] .chat-name::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0.45em;
+  background: var(--name-color);
+}
+
+[data-chat='card'] .chat-name > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+[data-chat='card'] .chat-badge {
+  flex-shrink: 0;
+  width: 1em;
+  height: 1em;
+  fill: currentColor;
+}
+
+[data-chat='card'] .chat-body {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+[data-chat='card'] .is-action .chat-body {
+  font-style: italic;
+}
+
+[data-chat='card'] .chat-emote {
+  height: 1.5em;
+  margin: -0.2em 0.05em;
+  vertical-align: middle;
+}
+
+[data-chat='card'] .chat-notice {
+  flex-shrink: 0;
+  padding: 0.3em 0.8em;
+  border-radius: 0.35em;
+  background: var(--chat-panel);
+  font-size: 0.65em;
+  opacity: 0.85;
+  animation: card-enter 0.32s ease-out both;
+}
+
+/* 消えるまでの時間は view.ts の LEAVE_DURATION_MS と合わせる */
+[data-chat='card'] .is-leaving {
+  animation: card-leave 0.4s ease-in both;
+}
+
+@keyframes card-enter {
+  from {
+    opacity: 0;
+    transform: translateX(-1.5em);
+  }
+}
+
+@keyframes card-leave {
+  to {
+    opacity: 0;
+    transform: translateX(-1.5em);
+  }
+}
