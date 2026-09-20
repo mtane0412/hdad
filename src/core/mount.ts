@@ -5,6 +5,7 @@
  * URLのクエリパラメータを解析して描画ループを開始する。
  * 起動に失敗した場合は、OBS上でも原因が分かるよう画面にエラー内容を表示する。
  * カテゴリごとのエントリスクリプト（core/stage.ts, clock/stage.ts）から、自分のレジストリを渡して呼び出す。
+ * canvas を使わないチャットボックス（chat/stage.ts）は、エラー表示（showError）だけをここから使う。
  */
 import type { BackgroundDefinition } from './background'
 import { ParamError, parseParams } from './params'
@@ -58,7 +59,11 @@ const start = ({ definitions, attribute, noun }: MountTarget): void => {
   requestAnimationFrame(draw)
 }
 
-const showError = (error: unknown, noun: string): void => {
+/**
+ * 起動に失敗した原因を画面に表示する（OBS上ではコンソールを見られないため）。
+ * canvas を使わない素材（チャットボックス）の起動処理からも使う。
+ */
+export const showError = (error: unknown, noun: string): void => {
   const lines =
     error instanceof ParamError
       ? ['URLパラメータに問題があります', ...error.problems]

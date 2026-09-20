@@ -1,5 +1,5 @@
 /**
- * ギャラリー（wallpaper/ や clock/ などカテゴリの一覧ページ）の操作
+ * ギャラリー（wallpaper/・clock/・chat/ などカテゴリの一覧ページ）の操作
  *
  * レジストリの素材を一覧し、スキーマから調整用の入力欄を自動生成する。
  * 入力のたびにプレビューとOBS用URLを更新する。選択中の素材はURLのハッシュ（#contour など）に保持する。
@@ -13,6 +13,7 @@ import type {
   ColorsParamSpec,
   NumberParamSpec,
   ParamSpec,
+  StringParamSpec,
 } from '../params'
 import { buildBackgroundUrl } from './url'
 
@@ -34,12 +35,20 @@ const byId = <T extends HTMLElement>(id: string, type: new () => T): T => {
   return element
 }
 
+/** ギャラリーが素材について知る必要のある項目（描画方法には関知しない） */
+export type GalleryItem = Pick<BackgroundDefinition, 'id' | 'title' | 'description' | 'schema'>
+
 /** ギャラリーに表示する対象の指定 */
 export interface GalleryTarget {
   /** そのカテゴリのレジストリ */
-  readonly definitions: readonly BackgroundDefinition[]
+  readonly definitions: readonly GalleryItem[]
   /** 案内文で素材を指す呼び名（「背景」「時計」など） */
   readonly noun: string
+  /**
+   * プレビューにだけ適用するパラメータ値。OBS用のURLには影響しない。
+   * チャットのように、本番では外部へ接続する素材を、プレビューではサンプル表示にするために使う。
+   */
+  readonly previewOverrides?: Readonly<Record<string, Value>>
 }
 
 /**
@@ -48,7 +57,7 @@ export interface GalleryTarget {
  * @param target 表示する対象（レジストリと呼び名）
  * @throws ページに必要な要素がない場合、レジストリが空の場合
  */
-export const mountGallery = ({ definitions, noun }: GalleryTarget): void => {
+export const mountGallery = ({ definitions, noun, previewOverrides }: GalleryTarget): void => {
   const shelf = byId('shelf', HTMLUListElement)
   const screen = byId('screen', HTMLDivElement)
   const preview = byId('preview', HTMLIFrameElement)
@@ -60,7 +69,7 @@ export const mountGallery = ({ definitions, noun }: GalleryTarget): void => {
   const copyButton = byId('copy', HTMLButtonElement)
   const copyStatus = byId('copy-status', HTMLParagraphElement)
 
-  const defaultsOf = (definition: BackgroundDefinition): Values =>
+  const defaultsOf = (definition: GalleryItem): Values =>
     Object.fromEntries(Object.entries(definition.schema).map(([name, spec]) => [name, spec.default]))
 
   const [firstDefinition] = definitions
@@ -73,12 +82,15 @@ export const mountGallery = ({ definitions, noun }: GalleryTarget): void => {
   /** 値の変更をURL欄とプレビューへ反映する。プレビューは入力が落ち着いてから読み込み直す */
   const publish = (): void => {
     const url = buildBackgroundUrl(location.href, current.id, current.schema, values)
+    const previewUrl = previewOverrides
+      ? buildBackgroundUrl(location.href, current.id, current.schema, { ...values, ...previewOverrides })
+      : url
     urlField.value = url
     copyStatus.textContent = ''
     window.clearTimeout(previewTimer)
     previewTimer = window.setTimeout(() => {
       // iframe の src を直接変えると履歴が積まれるため、replace で置き換える
-      preview.contentWindow?.location.replace(url)
+      preview.contentWindow?.location.replace(previewUrl)
     }, PREVIEW_DELAY_MS)
   }
 
@@ -219,6 +231,26 @@ export const mountGallery = ({ definitions, noun }: GalleryTarget): void => {
     return field
   }
 
+  const renderString = (name: string, spec: StringParamSpec): HTMLElement => {
+    const field = createField(name, spec.description)
+    const input = document.createElement('input')
+    input.type = 'text'
+    input.value = String(values[name])
+    input.placeholder = spec.example
+    input.spellcheck = false
+    input.autocapitalize = 'off'
+    input.setAttribute('aria-label', spec.description)
+    input.addEventListener('input', () => {
+      // 書式に合わない値もそのままURLへ反映する（素材ページ側がエラーとして表示する）。入力欄には誤りの印だけ付ける
+      const acceptable = input.value === spec.default || spec.pattern.test(input.value)
+      input.setCustomValidity(acceptable ? '' : `書式に合いません（例: ${spec.example}）`)
+      values[name] = input.value
+      publish()
+    })
+    field.append(input)
+    return field
+  }
+
   const renderParam = (name: string, spec: ParamSpec): HTMLElement => {
     switch (spec.type) {
       case 'number':
@@ -229,6 +261,8 @@ export const mountGallery = ({ definitions, noun }: GalleryTarget): void => {
         return renderColors(name, spec)
       case 'boolean':
         return renderBoolean(name, spec)
+      case 'string':
+        return renderString(name, spec)
     }
   }
 
@@ -255,7 +289,7 @@ export const mountGallery = ({ definitions, noun }: GalleryTarget): void => {
     )
   }
 
-  const select = (definition: BackgroundDefinition): void => {
+  const select = (definition: GalleryItem): void => {
     current = definition
     values = defaultsOf(definition)
     title.textContent = definition.title

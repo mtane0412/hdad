@@ -1,0 +1,113 @@
+/*
+ * チャットボックス「bubble」（ふきだし）の見た目。
+ * HTML構造は src/chat/view.ts、カスタムプロパティ（--chat-*）は src/chat/bubble.ts を参照。
+ * 大きさはすべて文字の大きさ（--chat-size）を基準に em で決め、size パラメータだけで全体が拡大縮小するようにする。
+ */
+[data-chat='bubble'] {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: flex-start;
+  gap: 0.55em;
+  margin: 0;
+  padding: 0.6em;
+  box-sizing: border-box;
+  overflow: hidden;
+  list-style: none;
+  color: var(--chat-text);
+  font: 500 var(--chat-size) / 1.5 'Zen Maru Gothic', 'Hiragino Maru Gothic ProN', 'Yu Gothic UI', sans-serif;
+}
+
+[data-chat='bubble'] .chat-message {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  flex-shrink: 0;
+  max-width: 100%;
+  animation: bubble-enter 0.36s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+
+[data-chat='bubble'] .chat-name {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  max-width: 100%;
+  margin: 0 0 -0.45em 0.7em;
+  padding: 0.05em 0.7em;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: var(--name-color);
+  color: var(--name-text);
+  font-size: 0.72em;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 0.1em 0.3em rgb(0 0 0 / 0.25);
+}
+
+[data-chat='bubble'] .chat-name > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+[data-chat='bubble'] .chat-badge {
+  flex-shrink: 0;
+  width: 1em;
+  height: 1em;
+  fill: currentColor;
+}
+
+[data-chat='bubble'] .chat-body {
+  margin: 0;
+  padding: 0.6em 0.9em 0.4em;
+  border-radius: 0.3em 1em 1em 1em;
+  background: var(--chat-panel);
+  overflow-wrap: anywhere;
+  box-shadow: 0 0.15em 0.5em rgb(0 0 0 / 0.18);
+}
+
+[data-chat='bubble'] .is-action .chat-body {
+  font-style: italic;
+}
+
+[data-chat='bubble'] .chat-emote {
+  height: 1.5em;
+  margin: -0.2em 0.05em;
+  vertical-align: middle;
+}
+
+[data-chat='bubble'] .chat-notice {
+  flex-shrink: 0;
+  padding: 0.2em 0.9em;
+  border-radius: 999px;
+  background: rgb(30 24 38 / 0.8);
+  color: #fff;
+  font-size: 0.65em;
+  animation: bubble-enter 0.36s ease-out both;
+}
+
+/* 消えるまでの時間は view.ts の LEAVE_DURATION_MS と合わせる */
+[data-chat='bubble'] .is-leaving {
+  animation: bubble-leave 0.4s ease-in both;
+}
+
+@keyframes bubble-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+    transform-origin: left bottom;
+  }
+  to {
+    transform-origin: left bottom;
+  }
+}
+
+@keyframes bubble-leave {
+  to {
+    opacity: 0;
+    transform: translateX(-1em);
+  }
+}
