@@ -6,6 +6,7 @@
  * そのためデザイン1種類は「スキーマ」と「専用のCSS（src/chat/<id>.css）」の組で表し、
  * パラメータはCSSのカスタムプロパティとしてCSSへ渡す。メッセージのHTML構造は全デザイン共通（view.ts）。
  */
+import { withAlpha } from '../core/background'
 import { ParamError, type ParamSchema, type ParamValues } from '../core/params'
 
 /** Twitchのログイン名に使える文字（英数字とアンダースコア、25文字まで） */
@@ -59,6 +60,16 @@ export interface ChatDefinition<T extends ChatSchema = ChatSchema> {
 export const defineChat = <T extends ChatSchema>(
   definition: ChatDefinition<T>,
 ): ChatDefinition<T> => definition
+
+/**
+ * 書き込みの地の色（ふきだし・カードなど）に不透明度を反映する。
+ * 透過（transparent）が指定された場合は、不透明度によらず透過のままにする。
+ *
+ * @param panel 地の色（#rrggbb または transparent）
+ * @param opacity 不透明度（0〜1）
+ */
+export const panelColor = (panel: string, opacity: number): string =>
+  panel === 'transparent' ? panel : withAlpha(panel, opacity)
 
 /** 書き込みの取得元 */
 export type ChatSource = { readonly type: 'demo' } | { readonly type: 'live'; readonly channel: string }

@@ -1,0 +1,118 @@
+/*
+ * チャットボックス「terminal」（端末）の見た目。
+ * HTML構造は src/chat/view.ts、カスタムプロパティ（--chat-*）は src/chat/terminal.ts を参照。
+ * 大きさはすべて文字の大きさ（--chat-size）を基準に em で決め、size パラメータだけで全体が拡大縮小するようにする。
+ *
+ * 書き込みごとに地を塗るのではなく、ブラウザソース全体を1枚の端末画面として塗る。
+ */
+[data-chat='terminal'] {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: stretch;
+  gap: 0.15em;
+  margin: 0;
+  padding: 0.7em 0.8em;
+  box-sizing: border-box;
+  overflow: hidden;
+  list-style: none;
+  background: var(--chat-panel);
+  color: var(--chat-text);
+  font: 400 var(--chat-size) / 1.55 'M PLUS 1 Code', 'Osaka-Mono', 'MS Gothic', monospace;
+}
+
+[data-chat='terminal'] .chat-message {
+  display: block;
+  flex-shrink: 0;
+  animation: terminal-enter 0.2s steps(3, end) both;
+}
+
+/* プロンプト */
+[data-chat='terminal'] .chat-message::before {
+  content: '>';
+  margin-right: 0.5em;
+  opacity: 0.55;
+}
+
+/* 端末の反転表示のように、名前色で地を塗る */
+[data-chat='terminal'] .chat-name {
+  margin-right: 0.6em;
+  padding: 0 0.4em;
+  background: var(--name-color);
+  color: var(--name-text);
+  font-weight: 700;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+[data-chat='terminal'] .chat-badge {
+  width: 0.85em;
+  height: 0.85em;
+  margin-right: 0.3em;
+  vertical-align: -0.08em;
+  fill: currentColor;
+}
+
+[data-chat='terminal'] .chat-body {
+  display: inline;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+[data-chat='terminal'] .is-action .chat-body {
+  font-style: italic;
+}
+
+/* 最新の書き込みの末尾にカーソルを点滅させる */
+[data-chat='terminal'] .chat-message:last-child .chat-body::after {
+  content: '';
+  display: inline-block;
+  width: 0.55em;
+  height: 1.05em;
+  margin-left: 0.2em;
+  vertical-align: -0.15em;
+  background: currentColor;
+  animation: terminal-cursor 1s steps(1, end) infinite;
+}
+
+[data-chat='terminal'] .chat-emote {
+  height: 1.5em;
+  margin: -0.2em 0.05em;
+  vertical-align: middle;
+}
+
+/* お知らせはコメント行として表示する */
+[data-chat='terminal'] .chat-notice {
+  flex-shrink: 0;
+  opacity: 0.6;
+  animation: terminal-enter 0.2s steps(3, end) both;
+}
+
+[data-chat='terminal'] .chat-notice::before {
+  content: '# ';
+}
+
+/* 消えるまでの時間は view.ts の LEAVE_DURATION_MS と合わせる */
+[data-chat='terminal'] .is-leaving {
+  animation: terminal-leave 0.4s steps(4, end) both;
+}
+
+@keyframes terminal-enter {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes terminal-leave {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes terminal-cursor {
+  50% {
+    opacity: 0;
+  }
+}

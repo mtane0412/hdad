@@ -1,0 +1,123 @@
+/*
+ * チャットボックス「sticker」（シール）の見た目。
+ * HTML構造は src/chat/view.ts、カスタムプロパティ（--chat-*）は src/chat/sticker.ts を参照。
+ * 大きさはすべて文字の大きさ（--chat-size）を基準に em で決め、size パラメータだけで全体が拡大縮小するようにする。
+ *
+ * 影はぼかさずに下へずらすだけにして、紙のシールを貼ったような厚みを出す。
+ */
+[data-chat='sticker'] {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: flex-start;
+  gap: 0.6em;
+  margin: 0;
+  padding: 0.7em;
+  box-sizing: border-box;
+  overflow: hidden;
+  list-style: none;
+  color: var(--chat-text);
+  font: 700 var(--chat-size) / 1.5 'Zen Maru Gothic', 'Hiragino Maru Gothic ProN', 'Yu Gothic UI', sans-serif;
+}
+
+[data-chat='sticker'] .chat-message {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  flex-shrink: 0;
+  max-width: 100%;
+  animation: sticker-enter 0.4s cubic-bezier(0.2, 1.5, 0.4, 1) both;
+}
+
+[data-chat='sticker'] .chat-name {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  max-width: 100%;
+  margin: 0 0 -0.55em -0.15em;
+  padding: 0.05em 0.75em;
+  box-sizing: border-box;
+  border: 0.2em solid var(--chat-border);
+  border-radius: 0.6em;
+  background: var(--name-color);
+  color: var(--name-text);
+  font-size: 0.7em;
+  font-weight: 900;
+  white-space: nowrap;
+  transform: rotate(-3deg);
+  box-shadow: 0 0.18em 0 rgb(0 0 0 / 0.18);
+}
+
+[data-chat='sticker'] .chat-name > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+[data-chat='sticker'] .chat-badge {
+  flex-shrink: 0;
+  width: 1em;
+  height: 1em;
+  fill: currentColor;
+}
+
+[data-chat='sticker'] .chat-body {
+  margin: 0 0 0 0.4em;
+  padding: 0.65em 0.9em 0.35em;
+  border: 0.2em solid var(--chat-border);
+  border-radius: 0.9em;
+  background: var(--chat-panel);
+  overflow-wrap: anywhere;
+  box-shadow: 0 0.2em 0 rgb(0 0 0 / 0.18);
+}
+
+[data-chat='sticker'] .is-action .chat-body {
+  font-style: italic;
+}
+
+[data-chat='sticker'] .chat-emote {
+  height: 1.5em;
+  margin: -0.2em 0.05em;
+  vertical-align: middle;
+}
+
+[data-chat='sticker'] .chat-notice {
+  flex-shrink: 0;
+  padding: 0.15em 0.9em;
+  border: 0.2em solid var(--chat-border);
+  border-radius: 999px;
+  background: #4a3340;
+  color: #fff;
+  font-size: 0.62em;
+  box-shadow: 0 0.2em 0 rgb(0 0 0 / 0.18);
+  animation: sticker-enter 0.4s ease-out both;
+}
+
+/* 消えるまでの時間は view.ts の LEAVE_DURATION_MS と合わせる */
+[data-chat='sticker'] .is-leaving {
+  animation: sticker-leave 0.4s ease-in both;
+}
+
+/* 少し大きく傾いた状態から、ぺたっと貼り付ける */
+@keyframes sticker-enter {
+  from {
+    opacity: 0;
+    transform: scale(1.25) rotate(4deg);
+    transform-origin: left center;
+  }
+  to {
+    transform-origin: left center;
+  }
+}
+
+/* 端からはがれて落ちる */
+@keyframes sticker-leave {
+  to {
+    opacity: 0;
+    transform: translateY(0.6em) rotate(-5deg);
+    transform-origin: left top;
+  }
+}
