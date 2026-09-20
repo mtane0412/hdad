@@ -8,6 +8,7 @@ Twitch配信用の各種素材を置くリポジトリです。GitHub Pagesで�
 | --- | --- |
 | `wallpaper/` | 配信画面の背景（壁紙）。ギャラリーと各背景のページ |
 | `clock/` | 配信画面に重ねる時計。ギャラリーと各時計のページ |
+| `chat/` | Twitchのチャット欄を配信画面に重ねるチャットボックス。ギャラリーと各デザインのページ |
 
 ## 壁紙（`wallpaper/`）
 
@@ -67,6 +68,36 @@ https://<ユーザー名>.github.io/stream-assets/clock/<時計ID>/?<パラメ�
 1. ソースの追加 > ブラウザ
 2. URLにギャラリーでコピーしたURLを貼り、幅 600・高さ 240 など時計を置きたい大きさにする
 
+## チャットボックス（`chat/`）
+
+Twitchのチャット欄を配信画面に重ねます。背景は透過です。
+ギャラリー（`chat/`）でチャンネル名を入れ、パラメータを調整して、表示されたURLをOBSにコピーします。ギャラリーのプレビューは常にサンプルの書き込みです。
+
+```
+https://<ユーザー名>.github.io/stream-assets/chat/<デザインID>/?channel=<チャンネル名>&<パラメータ>=<値>&...
+```
+
+- Twitchへは匿名（読み取り専用）で接続するため、ログインやトークンは不要です。`channel`（`twitch.tv/` の後ろの部分）だけ指定します
+- `channel` も `demo=true` もないURLはエラーを表示します（黙ってサンプル表示にはしません）
+- モデレーターによる削除・タイムアウト・BAN・`/clear` は、表示中の書き込みにも反映されます
+- 回線やTwitch側の都合で切断された場合は、間隔を延ばしながら自動で再接続し、切断と復帰をチャット欄に1行で知らせます
+- バッジは配信者・モデレーター・VIP・サブスクライバーを自前のアイコンで表示します（公式のバッジ画像は認証付きAPIが必要なため使いません）
+- 7TV・BTTV・FFZ のエモートは各サービスの公開APIから取得します。取得できなかったサービスがあればチャット欄に1行で知らせ、チャットの表示は続けます
+- サブスクやレイドなどのお知らせ（USERNOTICE）は表示しません
+
+全デザイン共通のパラメータ: `channel`, `demo`（サンプルの書き込みを流す）, `max`（同時に表示する件数 1〜50）, `lifetime`（消すまでの秒数、0 で消さない）, `badges`, `thirdparty`（7TV・BTTV・FFZ のエモート）
+
+| デザインID | 内容 | パラメータ |
+| --- | --- | --- |
+| `bubble` | 名前色の名札が付いた、角の丸いふきだし | `size`（文字の大きさ px）, `panel`（ふきだしの色、`transparent` で透過）, `opacity`（ふきだしの不透明度 0〜1）, `text`（文字の色） |
+
+例: `chat/bubble/?channel=your_channel&size=32&lifetime=60`、配置の調整用に `chat/bubble/?demo=true`
+
+### OBSでの設定
+
+1. ソースの追加 > ブラウザ
+2. URLにギャラリーでコピーしたURLを貼り、幅 480・高さ 800 などチャット欄を置きたい大きさにする。書き込みは下から入り、幅に合わせて折り返す
+
 ## 開発
 
 ```bash
@@ -93,6 +124,17 @@ npm run build       # dist/ へビルド
 3. 既存の `clock/digital/index.html` を `clock/<id>/index.html` に複製し、`data-clock` と `<title>` を `<id>` に変える
 
 2と3の対応は `src/clock/registry.test.ts` が検証します。ギャラリーの調整欄はスキーマから自動生成されます。
+
+### チャットボックスのデザインを追加する
+
+チャットボックスは canvas ではなくHTML要素で表示します。メッセージのHTML構造（`src/chat/view.ts`）は全デザイン共通で、デザインごとの違いはCSSで表します。
+
+1. `src/chat/<id>.ts` に `defineChat` でデザインを定義する（スキーマの先頭に `commonChatSchema` を展開し、`cssVariables` でパラメータをCSSのカスタムプロパティに変換する）
+2. `src/chat/<id>.css` に見た目を書く（セレクタは `[data-chat='<id>']` から始める）
+3. `src/chat/registry.ts` に登録する
+4. 既存の `chat/bubble/index.html` を `chat/<id>/index.html` に複製し、`data-chat`・CSSのパス・`<title>` を `<id>` に変える
+
+3と4の対応は `src/chat/registry.test.ts` が検証します。
 
 ## デプロイ
 

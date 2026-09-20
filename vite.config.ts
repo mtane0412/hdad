@@ -2,7 +2,7 @@
  * Viteビルド設定
  *
  * GitHub Pagesはパスごとに実ファイルが必要なため、トップ（index.html）・
- * 各カテゴリの一覧（wallpaper/index.html, clock/index.html）・各素材のページ（<カテゴリ>/<id>/index.html）の
+ * 各カテゴリの一覧（wallpaper/index.html, clock/index.html, chat/index.html）・各素材のページ（<カテゴリ>/<id>/index.html）の
  * すべてをエントリとするマルチページ構成でビルドする。
  * base を相対パスにしているので、リポジトリ名や独自ドメインが変わっても動作する。
  */
@@ -12,7 +12,7 @@ import { defineConfig } from 'vite'
 
 const root = import.meta.dirname
 /** カテゴリ名（＝公開ディレクトリ名）。カテゴリを増やしたらここに足す */
-const categories = ['wallpaper', 'clock']
+const categories = ['wallpaper', 'clock', 'chat']
 
 /** カテゴリの一覧ページ（<カテゴリ>/index.html）と、配下の素材ページ（<カテゴリ>/<id>/index.html）をエントリにする */
 const categoryEntries = Object.fromEntries(

@@ -211,6 +211,23 @@ body {
   cursor: not-allowed;
 }
 
+.field input[type='text'] {
+  width: 100%;
+  min-height: 44px;
+  margin-top: 6px;
+  padding: 0 12px;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #fff;
+  color: var(--ink);
+  font: 500 15px ui-monospace, monospace;
+}
+
+.field input[type='text']:invalid {
+  border-color: var(--on-air);
+}
+
 .check {
   display: inline-flex;
   align-items: center;

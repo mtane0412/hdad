@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>チャットボックス | stream-assets</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap"
+    />
+    <link rel="stylesheet" href="../src/core/gallery/gallery.css" />
+  </head>
+  <body>
+    <header class="masthead">
+      <a class="back" href="../">stream-assets</a>
+      <h1>チャットボックス</h1>
+      <p>Twitchのチャット欄を配信画面に重ねる。チャンネル名を入れて、調整して、URLをコピーする。プレビューはサンプルの書き込み。</p>
+    </header>
+
+    <main class="bench">
+      <nav class="shelf" aria-label="チャットボックスの種類">
+        <ul id="shelf"></ul>
+      </nav>
+
+      <section class="output" aria-label="OBS用のURL">
+        <label for="url">OBSのブラウザソースに貼るURL（サイズの例 480×800。書き込みは下から入り、幅に合わせて折り返す）</label>
+        <div class="output-row">
+          <input id="url" type="text" readonly />
+          <button type="button" id="copy">URLをコピー</button>
+        </div>
+        <p id="copy-status" role="status"></p>
+      </section>
+
+      <section class="monitor" aria-labelledby="current-title">
+        <div class="screen" id="screen">
+          <iframe id="preview" title="チャットボックスのプレビュー" width="480" height="800"></iframe>
+        </div>
+        <h2 id="current-title"></h2>
+        <p id="current-description"></p>
+      </section>
+
+      <section class="controls" aria-label="調整">
+        <form id="controls"></form>
+        <button type="button" id="reset" class="quiet">既定値に戻す</button>
+      </section>
+    </main>
+
+    <script type="module" src="../src/chat/gallery.ts"></script>
+  </body>
+</html>

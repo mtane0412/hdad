@@ -6,6 +6,7 @@
  * - 不正な値・範囲外の値・未対応のパラメータ名は、既定値へ黙って戻さず ParamError にする（Fail-Fast）
  * - 色はURLで「#」がフラグメント扱いになるため、「#」なしの16進数（ff0080 / f08）で受け取る
  * - 真偽値は true / false だけを受け取る
+ * - 文字列はスキーマに書いた書式（正規表現）に合うものだけを受け取る
  */
 
 /** 数値パラメータの宣言 */
@@ -44,12 +45,32 @@ export interface BooleanParamSpec {
   readonly description: string
 }
 
-export type ParamSpec = NumberParamSpec | ColorParamSpec | ColorsParamSpec | BooleanParamSpec
+/**
+ * 文字列パラメータの宣言
+ *
+ * 注意: 既定値は書式の確認対象にしない。「未指定」を空文字で表したい場合は default を '' にする。
+ */
+export interface StringParamSpec {
+  readonly type: 'string'
+  readonly default: string
+  /** 値の全体が合うべき書式（^ と $ で全体を囲むこと） */
+  readonly pattern: RegExp
+  /** 書式に合わなかったときにエラーで示す指定例 */
+  readonly example: string
+  readonly description: string
+}
+
+export type ParamSpec =
+  | NumberParamSpec
+  | ColorParamSpec
+  | ColorsParamSpec
+  | BooleanParamSpec
+  | StringParamSpec
 export type ParamSchema = Readonly<Record<string, ParamSpec>>
 
 type ParamValue<S extends ParamSpec> = S extends NumberParamSpec
   ? number
-  : S extends ColorParamSpec
+  : S extends ColorParamSpec | StringParamSpec
     ? string
     : S extends BooleanParamSpec
       ? boolean
@@ -126,6 +147,9 @@ const parseBoolean = (raw: string): boolean | Problem => {
   return new Problem(`「${raw}」は真偽値として読めません（true または false）`)
 }
 
+const parseString = (raw: string, spec: StringParamSpec): string | Problem =>
+  spec.pattern.test(raw) ? raw : new Problem(`「${raw}」は書式に合いません（例: ${spec.example}）`)
+
 const parseValue = (raw: string, spec: ParamSpec) => {
   switch (spec.type) {
     case 'number':
@@ -136,6 +160,8 @@ const parseValue = (raw: string, spec: ParamSpec) => {
       return parseColors(raw, spec)
     case 'boolean':
       return parseBoolean(raw)
+    case 'string':
+      return parseString(raw, spec)
   }
 }
 

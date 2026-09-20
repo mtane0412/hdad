@@ -121,4 +121,33 @@ describe('parseParams', () => {
   it('問題が複数あるときは、すべてまとめて報告する', () => {
     expect(問題点を取得する('speed=9&bg=red')).toHaveLength(2)
   })
+
+  describe('文字列パラメータ', () => {
+    // 前提: Twitchのチャンネル名は英数字とアンダースコアだけで構成される
+    const チャットスキーマ = {
+      channel: {
+        type: 'string',
+        default: '',
+        pattern: /^[a-z0-9_]{1,25}$/i,
+        example: 'your_channel',
+        description: 'チャンネル名',
+      },
+    } as const satisfies ParamSchema
+
+    it('書式に合う文字列は、そのまま受け取る', () => {
+      expect(parseParams(チャットスキーマ, new URLSearchParams('channel=tanenob_ch'))).toEqual({
+        channel: 'tanenob_ch',
+      })
+    })
+
+    it('省略すると既定値になる', () => {
+      expect(parseParams(チャットスキーマ, new URLSearchParams(''))).toEqual({ channel: '' })
+    })
+
+    it('書式に合わない文字列は、例を添えてエラーにする', () => {
+      expect(() => parseParams(チャットスキーマ, new URLSearchParams('channel=だめな名前'))).toThrow(
+        'channel: 「だめな名前」は書式に合いません（例: your_channel）',
+      )
+    })
+  })
 })

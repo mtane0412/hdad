@@ -60,4 +60,13 @@ describe('buildBackgroundUrl', () => {
     const url = new URL(buildBackgroundUrl(ギャラリーのURL, 'aurora', 背景スキーマ, 値))
     expect(parseParams(背景スキーマ, url.searchParams)).toEqual(値)
   })
+
+  it('文字列はURLエンコードして出力し、解析すると元の値に戻る', () => {
+    const チャットスキーマ = {
+      channel: { type: 'string', default: '', pattern: /^.{1,25}$/, example: 'your_channel', description: 'チャンネル名' },
+    } as const satisfies ParamSchema
+    const url = buildBackgroundUrl(ギャラリーのURL, 'bubble', チャットスキーマ, { channel: 'a&b=c' })
+    expect(url).toBe('https://example.github.io/stream-assets/wallpaper/bubble/?channel=a%26b%3Dc')
+    expect(parseParams(チャットスキーマ, new URL(url).searchParams)).toEqual({ channel: 'a&b=c' })
+  })
 })
