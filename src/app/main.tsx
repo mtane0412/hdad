@@ -6,6 +6,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { createAdminApi } from '@/admin/api'
+import { createBotApi } from '@/bot/api'
 import { createStatsApi } from '@/stats/api'
 import { App } from './app'
 import './app.css'
@@ -17,9 +18,10 @@ if (!root) throw new Error('index.html に #root がありません')
 const callWorker: typeof fetch = (input, init) => fetch(input, init)
 const api = createAdminApi(callWorker)
 const statsApi = createStatsApi(callWorker)
+const botApi = createBotApi(callWorker)
 
 createRoot(root).render(
   <StrictMode>
-    <App api={api} statsApi={statsApi} />
+    <App api={api} statsApi={statsApi} botApi={botApi} />
   </StrictMode>,
 )
