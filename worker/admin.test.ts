@@ -67,10 +67,13 @@ const 画像をアップロードする = async (env: Env, fileName = '乾杯.pn
 const トリガー = (mediaId: string) => ({
   event: REDEMPTION,
   rewardId: null,
-  mediaId,
-  durationSeconds: 5,
-  volume: 1,
-  message: '{user} さんが「{reward}」を交換しました',
+  actions: [{ type: 'alert', mediaId, durationSeconds: 5, volume: 1, message: '{user} さんが「{reward}」を交換しました' }],
+})
+
+/** 保存されたあとの形（アラートの動作に素材の種類が書き足される） */
+const 保存済みのトリガー = (mediaId: string, mediaKind: string) => ({
+  ...トリガー(mediaId),
+  actions: [{ ...トリガー(mediaId).actions[0], mediaKind }],
 })
 
 const エラーコード = async (response: Response): Promise<unknown> => {
@@ -191,7 +194,7 @@ describe('設定（/api/admin/config）', () => {
     expect(saved.status).toBe(200)
 
     const loaded = await 呼び出す(await 配信者のリクエスト(env, '/api/admin/config'), env)
-    expect(await loaded.json()).toEqual({ triggers: [{ ...トリガー(id), mediaKind: 'image' }] })
+    expect(await loaded.json()).toEqual({ triggers: [保存済みのトリガー(id, 'image')] })
   })
 
   it('一度も保存していなければ、トリガーなしの設定を返す', async () => {
@@ -210,7 +213,7 @@ describe('設定（/api/admin/config）', () => {
     expect(response.status).toBe(400)
     const body = (await response.json()) as { error: { code: string; problems: string[] } }
     expect(body.error.code).toBe('invalid-config')
-    expect(body.error.problems).toEqual(['triggers[0].mediaId: 素材「nai-sozai」が存在しません'])
+    expect(body.error.problems).toEqual(['triggers[0].actions[0].mediaId: 素材「nai-sozai」が存在しません'])
     expect(store.entries.has('alert-config')).toBe(false)
   })
 

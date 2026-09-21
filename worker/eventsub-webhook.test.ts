@@ -40,12 +40,13 @@ describe('ensureWebhookSubscriptions', () => {
   const 揃える = (twitch: ReturnType<typeof Twitchの代役>, botUserId: string | null = null) =>
     ensureWebhookSubscriptions({ twitch, broadcasterId: '12345', botUserId, callbackUrl: コールバック, secret: シークレット })
 
-  it('何も登録されていなければ、サブスク・ポイント交換・レイド・配信の開始と終了を、アプリアクセストークンでWebhook宛てに登録する', async () => {
+  it('何も登録されていなければ、サブスク・ポイント交換・フォロー・レイド・配信の開始と終了を、アプリアクセストークンでWebhook宛てに登録する', async () => {
     const twitch = Twitchの代役([])
     const created = await 揃える(twitch)
 
     expect(created).toEqual([
       'channel.channel_points_custom_reward_redemption.add',
+      'channel.follow',
       'channel.subscribe',
       'channel.subscription.message',
       'channel.raid',
@@ -59,6 +60,9 @@ describe('ensureWebhookSubscriptions', () => {
     }
     const raid = twitch.createSubscription.mock.calls.find(([, subscription]) => subscription.type === 'channel.raid')?.[1]
     expect(raid?.condition).toEqual({ to_broadcaster_user_id: '12345' })
+    // フォローは件数を数えないが、アラートのトリガー（チャットへのお礼）のために購読する。条件には自分自身をモデレーターとして渡す
+    const follow = twitch.createSubscription.mock.calls.find(([, subscription]) => subscription.type === 'channel.follow')?.[1]
+    expect(follow?.condition).toEqual({ broadcaster_user_id: '12345', moderator_user_id: '12345' })
   })
 
   it('有効な購読と確認待ちの購読は、登録し直さない', async () => {
@@ -70,7 +74,7 @@ describe('ensureWebhookSubscriptions', () => {
 
     expect(created).not.toContain('stream.online')
     expect(created).not.toContain('stream.offline')
-    expect(created).toHaveLength(4)
+    expect(created).toHaveLength(5)
     expect(twitch.deleteSubscription).not.toHaveBeenCalled()
   })
 
@@ -100,7 +104,7 @@ describe('ensureWebhookSubscriptions', () => {
     const created = await 揃える(twitch)
 
     expect(twitch.deleteSubscription).not.toHaveBeenCalled()
-    expect(created).toHaveLength(6)
+    expect(created).toHaveLength(7)
   })
 
   it('Twitchが購読を拒否したら、どのイベントかを示すエラーになる', async () => {

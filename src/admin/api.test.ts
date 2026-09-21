@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest'
 import { ApiError } from '@/core/api'
 import { ALERT_EVENTS as OVERLAY_ALERT_EVENTS } from '@/alerts/trigger'
-import { ALERT_EVENTS, createAdminApi } from './api'
+import { ALERT_EVENTS, createAdminApi, type TriggerInput } from './api'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const サイト = 'https://stream-assets.example.com'
@@ -17,11 +17,7 @@ const 乾杯の動画 = { id: 'sozai-1', name: '乾杯.webm', kind: 'video', con
 const 乾杯のトリガー = {
   event: REDEMPTION,
   rewardId: '報酬ID-乾杯',
-  mediaId: 'sozai-1',
-  mediaKind: 'video',
-  durationSeconds: 8,
-  volume: 0.5,
-  message: '{user} さん、乾杯！',
+  actions: [{ type: 'alert', mediaId: 'sozai-1', mediaKind: 'video', durationSeconds: 8, volume: 0.5, message: '{user} さん、乾杯！' }],
 }
 
 /** 送られたリクエストを記録し、決めた応答を返す fetch。body が null なら本文のない応答にする */
@@ -69,14 +65,18 @@ describe('config・saveConfig（トリガーの設定）', () => {
   })
 
   it('応答が想定した形でなければエラーにする（黙って空の設定にしない）', async () => {
-    const 種類のないトリガー = { ...乾杯のトリガー, mediaKind: 'pdf' }
+    const 種類のないトリガー = { ...乾杯のトリガー, actions: [{ ...乾杯のトリガー.actions[0], mediaKind: 'pdf' }] }
     await expect(createAdminApi(応答を返すfetch(200, { triggers: [種類のないトリガー] }).fetchImpl).config()).rejects.toThrow('triggers[0]')
     await expect(createAdminApi(応答を返すfetch(200, { triggers: 'なし' }).fetchImpl).config()).rejects.toThrow('triggers')
   })
 
   it('トリガーの一覧をまるごとPUTで保存し、Workerが整えた一覧を返す', async () => {
     const { requests, fetchImpl } = 応答を返すfetch(200, { triggers: [乾杯のトリガー] })
-    const 入力 = { event: REDEMPTION, rewardId: '報酬ID-乾杯', mediaId: 'sozai-1', durationSeconds: 8, volume: 0.5, message: '{user} さん、乾杯！' } as const
+    const 入力: TriggerInput = {
+      event: REDEMPTION,
+      rewardId: '報酬ID-乾杯',
+      actions: [{ type: 'alert', mediaId: 'sozai-1', durationSeconds: 8, volume: 0.5, message: '{user} さん、乾杯！' }],
+    }
 
     const saved = await createAdminApi(fetchImpl).saveConfig([入力])
 
@@ -89,9 +89,12 @@ describe('config・saveConfig（トリガーの設定）', () => {
   })
 
   it('チャンネルポイント交換以外のイベントは、報酬IDを持たない形で送受信する', async () => {
-    const フォローのトリガー = { event: 'channel.follow', mediaId: 'sozai-1', mediaKind: 'video', durationSeconds: 5, volume: 1, message: '{user} さん、ありがとう！' }
+    const フォローのトリガー = {
+      event: 'channel.follow',
+      actions: [{ type: 'chat', message: '{user} さん、フォローありがとうございます！' }],
+    }
     const { requests, fetchImpl } = 応答を返すfetch(200, { triggers: [フォローのトリガー] })
-    const 入力 = { event: 'channel.follow', mediaId: 'sozai-1', durationSeconds: 5, volume: 1, message: '{user} さん、ありがとう！' } as const
+    const 入力: TriggerInput = { event: 'channel.follow', actions: [{ type: 'chat', message: '{user} さん、フォローありがとうございます！' }] }
 
     const saved = await createAdminApi(fetchImpl).saveConfig([入力])
 

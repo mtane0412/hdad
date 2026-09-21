@@ -1,8 +1,12 @@
 /**
  * アラートの設定
  *
- * 「どのイベントで、どの素材を、どう出すか」（トリガー）の一覧を、管理画面から受け取って検証し、ストア（KV）に保存する。
- * オーバーレイへ渡すときは、素材IDをオーバーレイ用キー付きの素材のURLへ置き換える（toOverlayConfig）。
+ * 「どのイベントで、何をするか」（トリガー）の一覧を、管理画面から受け取って検証し、ストア（KV）に保存する。
+ * トリガーは「条件」（どのイベントか。いまは報酬IDだけが条件を持つ）と「動作」（actions）に分かれる。
+ * 動作は種類ごとに実行者が違う。
+ * - alert: オーバーレイが素材を再生する。toOverlayConfig で素材のURLを付けた平坦な形へ展開して渡す
+ * - chat: Workerがbotとしてチャットへ送る（オーバーレイには渡さない。オーバーレイに送信の役目を持たせないため）
+ *
  * 対応しているイベントは、Workerが購読している5種類（ALERT_EVENTS）。
  * 条件（いまは報酬IDだけ）はイベント種別ごとに違うため、event で判別する union にする。
  *
@@ -18,15 +22,23 @@ export const ALERT_EVENTS = [REDEMPTION, 'channel.follow', 'channel.subscribe', 
 
 export type AlertEvent = (typeof ALERT_EVENTS)[number]
 
+/** 動作の種類。同じ種類は1トリガーに1件まで */
+export const ACTION_TYPES = ['alert', 'chat'] as const
+
+export type ActionType = (typeof ACTION_TYPES)[number]
+
 const MAX_TRIGGERS = 100
 const MIN_DURATION_SECONDS = 1
 const MAX_DURATION_SECONDS = 60
-const MAX_MESSAGE_LENGTH = 200
+const MAX_ALERT_MESSAGE_LENGTH = 200
+/** チャット1通の上限（Twitchの POST /helix/chat/messages の制限） */
+const MAX_CHAT_MESSAGE_LENGTH = 500
 
 export type MediaKind = 'image' | 'video' | 'audio'
 
-/** 出し方（イベント種別によらず共通） */
-interface StoredAppearance {
+/** オーバーレイに素材を出す動作 */
+export interface StoredAlertAction {
+  type: 'alert'
   mediaId: string
   /** 素材の種類。保存時にサーバーが素材から調べて書き足す（オーバーレイへ渡すたびに素材を調べ直さないため） */
   mediaKind: MediaKind
@@ -37,6 +49,15 @@ interface StoredAppearance {
   message: string
 }
 
+/** botとしてチャットへ送る動作 */
+export interface StoredChatAction {
+  type: 'chat'
+  /** 送る文言。アラートと違い、送るものがないので空文字は許さない */
+  message: string
+}
+
+export type StoredAction = StoredAlertAction | StoredChatAction
+
 /** 条件（イベント種別ごとに違う。いま条件を持つのはチャンネルポイント交換だけ） */
 type StoredCondition =
   /** 対象の報酬ID。null はすべての報酬 */
@@ -44,7 +65,7 @@ type StoredCondition =
   | { event: Exclude<AlertEvent, typeof REDEMPTION> }
 
 /** 保存するトリガー */
-export type StoredTrigger = StoredAppearance & StoredCondition
+export type StoredTrigger = StoredCondition & { actions: StoredAction[] }
 
 export interface AlertConfig {
   triggers: StoredTrigger[]
@@ -76,8 +97,87 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 
 const isAlertEvent = (value: unknown): value is AlertEvent => ALERT_EVENTS.some((event) => event === value)
 
+const isActionType = (value: unknown): value is ActionType => ACTION_TYPES.some((type) => type === value)
+
 const isNumberBetween = (value: unknown, min: number, max: number): value is number =>
   typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max
+
+const isStringWithin = (value: unknown, min: number, max: number): value is string => typeof value === 'string' && value.length >= min && value.length <= max
+
+/**
+ * 動作1件を検証して保存用の形にする。
+ *
+ * @param at 問題点に付ける位置（例: triggers[0].actions[1]）
+ * @param problems 見つけた問題点の記録先（最初の1件で止めず、すべて集めるため呼び出し側と共有する）
+ * @returns 問題があれば null
+ */
+const parseAction = (
+  candidate: unknown,
+  at: string,
+  kindOfMedia: (mediaId: string) => MediaKind | null,
+  problems: string[],
+): StoredAction | null => {
+  if (!isRecord(candidate)) {
+    problems.push(`${at}: オブジェクトで指定してください`)
+    return null
+  }
+  const { type } = candidate
+  if (!isActionType(type)) {
+    problems.push(`${at}.type: ${ACTION_TYPES.join(' / ')} のいずれかを指定してください`)
+    return null
+  }
+
+  if (type === 'chat') {
+    const { message } = candidate
+    if (!isStringWithin(message, 1, MAX_CHAT_MESSAGE_LENGTH)) {
+      problems.push(`${at}.message: 1〜${MAX_CHAT_MESSAGE_LENGTH}文字の文字列で指定してください`)
+      return null
+    }
+    return { type, message }
+  }
+
+  const { mediaId, durationSeconds, volume, message } = candidate
+  const mediaKind = typeof mediaId === 'string' ? kindOfMedia(mediaId) : null
+
+  // 判定結果を変数に置くのは、問題点の記録と、下の if での型の絞り込みの両方に使うため
+  const mediaOk = typeof mediaId === 'string' && mediaKind !== null
+  const durationOk = isNumberBetween(durationSeconds, MIN_DURATION_SECONDS, MAX_DURATION_SECONDS)
+  const volumeOk = isNumberBetween(volume, 0, 1)
+  const messageOk = isStringWithin(message, 0, MAX_ALERT_MESSAGE_LENGTH)
+
+  if (!mediaOk) problems.push(`${at}.mediaId: 素材「${String(mediaId)}」が存在しません`)
+  if (!durationOk) problems.push(`${at}.durationSeconds: ${MIN_DURATION_SECONDS}〜${MAX_DURATION_SECONDS} の数値で指定してください`)
+  if (!volumeOk) problems.push(`${at}.volume: 0〜1 の数値で指定してください`)
+  if (!messageOk) problems.push(`${at}.message: ${MAX_ALERT_MESSAGE_LENGTH}文字以内の文字列で指定してください`)
+
+  if (mediaOk && durationOk && volumeOk && messageOk) return { type, mediaId, mediaKind, durationSeconds, volume, message }
+  return null
+}
+
+/**
+ * 動作の一覧を検証して保存用の形にする。1件以上あり、同じ種類が重複しないことを確かめる。
+ *
+ * 同じ種類を1件までにするのは、オーバーレイへは「1トリガー = 1アラート」の平坦な形で渡すため
+ * （オーバーレイは最初に一致したトリガーだけを再生するので、2件目は出ないまま設定だけが残ってしまう）。
+ *
+ * @returns 問題があれば null
+ */
+const parseActions = (candidate: unknown, at: string, kindOfMedia: (mediaId: string) => MediaKind | null, problems: string[]): StoredAction[] | null => {
+  if (!Array.isArray(candidate) || candidate.length === 0) {
+    problems.push(`${at}.actions: 1件以上の配列で指定してください`)
+    return null
+  }
+
+  const actions = candidate.flatMap((action: unknown, index): StoredAction[] => {
+    const parsed = parseAction(action, `${at}.actions[${index}]`, kindOfMedia, problems)
+    return parsed === null ? [] : [parsed]
+  })
+
+  const duplicated = ACTION_TYPES.filter((type) => actions.filter((action) => action.type === type).length > 1)
+  for (const type of duplicated) problems.push(`${at}.actions: 同じ種類の動作（${type}）は1件までにしてください`)
+
+  return actions.length === candidate.length && duplicated.length === 0 ? actions : null
+}
 
 /**
  * 管理画面から送られてきた設定を検証し、保存用の形にする。
@@ -96,8 +196,7 @@ export const parseAlertConfig = (input: unknown, kindOfMedia: (mediaId: string) 
       problems.push(`${at}: オブジェクトで指定してください`)
       return []
     }
-    const { event, rewardId, mediaId, durationSeconds, volume, message } = candidate
-    const mediaKind = typeof mediaId === 'string' ? kindOfMedia(mediaId) : null
+    const { event, rewardId } = candidate
 
     // 判定結果を変数に置くのは、問題点の記録と、下の if での型の絞り込みの両方に使うため
     const eventOk = isAlertEvent(event)
@@ -105,23 +204,16 @@ export const parseAlertConfig = (input: unknown, kindOfMedia: (mediaId: string) 
     const reward = rewardId === null || (typeof rewardId === 'string' && rewardId !== '') ? rewardId : undefined
     // 報酬IDはチャンネルポイント交換にしか意味を持たないので、そのときだけ確かめる
     const rewardOk = event !== REDEMPTION || reward !== undefined
-    const mediaOk = typeof mediaId === 'string' && mediaKind !== null
-    const durationOk = isNumberBetween(durationSeconds, MIN_DURATION_SECONDS, MAX_DURATION_SECONDS)
-    const volumeOk = isNumberBetween(volume, 0, 1)
-    const messageOk = typeof message === 'string' && message.length <= MAX_MESSAGE_LENGTH
 
     if (!eventOk) problems.push(`${at}.event: ${ALERT_EVENTS.join(' / ')} のいずれかを指定してください`)
     if (!rewardOk) problems.push(`${at}.rewardId: 報酬IDの文字列か、すべての報酬を表す null を指定してください`)
-    if (!mediaOk) problems.push(`${at}.mediaId: 素材「${String(mediaId)}」が存在しません`)
-    if (!durationOk) problems.push(`${at}.durationSeconds: ${MIN_DURATION_SECONDS}〜${MAX_DURATION_SECONDS} の数値で指定してください`)
-    if (!volumeOk) problems.push(`${at}.volume: 0〜1 の数値で指定してください`)
-    if (!messageOk) problems.push(`${at}.message: ${MAX_MESSAGE_LENGTH}文字以内の文字列で指定してください`)
 
-    if (eventOk && rewardOk && mediaOk && durationOk && volumeOk && messageOk) {
-      const appearance = { mediaId, mediaKind, durationSeconds, volume, message }
+    const actions = parseActions(candidate.actions, at, kindOfMedia, problems)
+
+    if (eventOk && rewardOk && actions !== null) {
       // 報酬IDは、他のイベントへ引きずらないようチャンネルポイント交換のときだけ保存する
-      if (event === REDEMPTION) return reward === undefined ? [] : [{ event, rewardId: reward, ...appearance }]
-      return [{ event, ...appearance }]
+      if (event === REDEMPTION) return reward === undefined ? [] : [{ event, rewardId: reward, actions }]
+      return [{ event, actions }]
     }
     return []
   })
@@ -133,25 +225,75 @@ export const parseAlertConfig = (input: unknown, kindOfMedia: (mediaId: string) 
 export const saveAlertConfig = (store: KeyValueStore, config: AlertConfig): Promise<void> => store.put(CONFIG_KEY, JSON.stringify(config))
 
 /**
+ * 動作に分ける前の形で保存されているトリガーを、いまの形へ読み替える。
+ *
+ * 動作（actions）を入れる前は、出し方（mediaId など）がトリガーに直接ぶら下がっていた。保存済みの設定を失わないための読み替えで、
+ * 管理画面から一度保存すればいまの形で書き戻る。旧形式でも新形式でもない内容は、黙って捨てずにエラーにする（Fail-Fast）。
+ *
+ * 注意: この読み替えは、保存済みの設定がすべていまの形に入れ替わったら外してよい。
+ */
+const migrateTrigger = (trigger: Record<string, unknown>): StoredTrigger => {
+  if (Array.isArray(trigger.actions)) return trigger as unknown as StoredTrigger
+
+  const { event, rewardId, mediaId, mediaKind, durationSeconds, volume, message } = trigger
+  if (typeof mediaId !== 'string' || typeof mediaKind !== 'string' || typeof durationSeconds !== 'number' || typeof volume !== 'number' || typeof message !== 'string') {
+    throw new ConfigError(SUBJECT, [`保存されているトリガー（${String(event)}）を読めません`])
+  }
+
+  const action: StoredAlertAction = { type: 'alert', mediaId, mediaKind: mediaKind as MediaKind, durationSeconds, volume, message }
+  if (event === REDEMPTION) return { event, rewardId: typeof rewardId === 'string' ? rewardId : null, actions: [action] }
+  return { event: event as Exclude<AlertEvent, typeof REDEMPTION>, actions: [action] }
+}
+
+/**
  * 保存済みの設定を読む。未保存ならトリガーなしの設定を返す。
  *
  * 注意: 保存時に検証済みの内容しか書き込まないため、読み出し時の再検証はしない。
+ * 動作に分ける前の形だけは、いまの形へ読み替える（migrateTrigger）。
  */
 export const loadAlertConfig = async (store: KeyValueStore): Promise<AlertConfig> => {
   const text = await store.get(CONFIG_KEY)
-  return text === null ? EMPTY_CONFIG : (JSON.parse(text) as AlertConfig)
+  if (text === null) return EMPTY_CONFIG
+
+  const config = JSON.parse(text) as { triggers: Record<string, unknown>[] }
+  return { triggers: config.triggers.map(migrateTrigger) }
 }
+
+/** トリガーからチャットに送る動作を取り出す。なければ null */
+export const chatActionOf = (trigger: StoredTrigger): StoredChatAction | null =>
+  trigger.actions.find((action): action is StoredChatAction => action.type === 'chat') ?? null
+
+/** トリガーからアラートを出す動作を取り出す。なければ null */
+export const alertActionOf = (trigger: StoredTrigger): StoredAlertAction | null =>
+  trigger.actions.find((action): action is StoredAlertAction => action.type === 'alert') ?? null
+
+/** オーバーレイが受け取るトリガー1件（条件と出し方が平坦に並ぶ。src/alerts/trigger.ts の AlertTrigger に対応する） */
+type OverlayTrigger = {
+  media: { kind: MediaKind; url: string }
+  durationSeconds: number
+  volume: number
+  message: string
+} & ({ event: typeof REDEMPTION; rewardId: string | null } | { event: Exclude<AlertEvent, typeof REDEMPTION> })
 
 /** 素材をオーバーレイから読むためのパス。キーが違えばWorkerが拒否する */
 export const mediaPath = (mediaId: string, overlayKey: string): string =>
   `/api/media/${encodeURIComponent(mediaId)}?key=${encodeURIComponent(overlayKey)}`
 
-/** オーバーレイ（src/alerts/trigger.ts の AlertTrigger）が受け取る形へ変換する。条件の欄はイベント種別ごとに通す */
+/**
+ * オーバーレイ（src/alerts/trigger.ts の AlertTrigger）が受け取る形へ変換する。
+ *
+ * オーバーレイは「条件 + 出し方」の平坦なトリガーしか知らないので、アラートを出す動作をここで展開する。
+ * チャットに送る動作は渡さない（送るのはWorkerの役目で、オーバーレイに送信の権限を持たせないため）。
+ * アラートを出す動作を持たないトリガー（チャットに送るだけ）は一覧から落とす。
+ */
 export const toOverlayConfig = (config: AlertConfig, overlayKey: string) => ({
-  triggers: config.triggers.map((trigger) => {
-    const { mediaId, mediaKind, durationSeconds, volume, message } = trigger
+  triggers: config.triggers.flatMap((trigger): OverlayTrigger[] => {
+    const action = alertActionOf(trigger)
+    if (action === null) return []
+
+    const { mediaId, mediaKind, durationSeconds, volume, message } = action
     const appearance = { media: { kind: mediaKind, url: mediaPath(mediaId, overlayKey) }, durationSeconds, volume, message }
-    if (trigger.event === REDEMPTION) return { event: trigger.event, rewardId: trigger.rewardId, ...appearance }
-    return { event: trigger.event, ...appearance }
+    if (trigger.event === REDEMPTION) return [{ event: trigger.event, rewardId: trigger.rewardId, ...appearance }]
+    return [{ event: trigger.event, ...appearance }]
   }),
 })

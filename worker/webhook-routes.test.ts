@@ -14,6 +14,7 @@ import { createFakeStore } from './fake-store'
 import { handleRequest, type Env } from './index'
 import { getSession, listFailures, listSessions, recordLiveStream } from './stats-store'
 import { saveBotConfig } from './bot-config'
+import { saveAlertConfig, type StoredTrigger } from './alert-config'
 import { saveToken } from './token'
 
 const 現在時刻 = Date.parse('2026-09-21T12:30:00Z')
@@ -444,5 +445,135 @@ describe('チャットの応答の設定・連打・再送', () => {
 
     expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM replied_chat_messages').get()).toEqual({ count: 0 })
     expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM command_uses').get()).toEqual({ count: 0 })
+  })
+})
+
+describe('アラートのトリガーによるチャット送信', () => {
+  const botのID = '67890'
+
+  /** botを接続済みで、アラートのトリガーが保存されている環境を作る */
+  const トリガーのある環境 = async (triggers: StoredTrigger[]) => {
+    const { env, db } = 環境を作る()
+    await saveAlertConfig(env.STORE, { triggers })
+    await saveToken(env.STORE, 'bot', {
+      accessToken: 'bot-access-token',
+      refreshToken: 'bot-refresh-token',
+      expiresAt: 現在時刻 + 60 * 60 * 1000,
+      scopes: ['user:bot', 'user:read:chat', 'user:write:chat'],
+      userId: botのID,
+      login: 'haishinsha_bot',
+    })
+    return { env, db }
+  }
+
+  const 送信に応えるTwitch = (chatResponse: Response = Response.json({ data: [{ message_id: 'sent', is_sent: true }] })) => {
+    const 送信したチャット: Request[] = []
+    const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const request = new Request(input, init)
+      if (request.url === 'https://api.twitch.tv/helix/chat/messages') {
+        送信したチャット.push(request.clone())
+        return chatResponse.clone()
+      }
+      throw new Error(`テストで想定していない通信です: ${request.url}`)
+    }
+    return { 送信したチャット, fetchImpl }
+  }
+
+  const フォローの通知 = { subscription: { type: 'channel.follow' }, event: { user_name: '田中太郎' } }
+  const フォローでお礼を言う: StoredTrigger = {
+    event: 'channel.follow',
+    actions: [{ type: 'chat', message: '{user} さん、フォローありがとうございます！' }],
+  }
+  const フォローで音を鳴らす: StoredTrigger = {
+    event: 'channel.follow',
+    actions: [{ type: 'alert', mediaId: '素材ID-拍手の音', mediaKind: 'audio', durationSeconds: 5, volume: 0.5, message: '' }],
+  }
+
+  it('チャットに送る動作を持つトリガーに当てはまれば、botの名前で送る', async () => {
+    const { env } = await トリガーのある環境([フォローでお礼を言う])
+    const twitch = 送信に応えるTwitch()
+
+    const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+
+    expect(response.status).toBe(204)
+    expect(await twitch.送信したチャット[0]!.json()).toEqual({
+      broadcaster_id: 配信者のID,
+      sender_id: botのID,
+      message: '田中太郎 さん、フォローありがとうございます！',
+    })
+  })
+
+  it('アラートを出すだけのトリガーでは、チャットへ何も送らない（オーバーレイが再生する）', async () => {
+    const { env } = await トリガーのある環境([フォローで音を鳴らす])
+    const twitch = 送信に応えるTwitch()
+
+    await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+
+    expect(twitch.送信したチャット).toHaveLength(0)
+  })
+
+  it('件数を数えるイベント（レイド）でも、記録とチャット送信の両方を行う', async () => {
+    const レイドにお礼を言う: StoredTrigger = { event: 'channel.raid', actions: [{ type: 'chat', message: '{user} さん、{viewers}人でのレイドありがとう！' }] }
+    const { env, db } = await トリガーのある環境([レイドにお礼を言う])
+    await recordLiveStream(db, 雑談配信, Date.parse('2026-09-21T12:05:00Z'))
+    const twitch = 送信に応えるTwitch()
+
+    await 呼び出す(Twitchからの通知({ body: レイドの通知 }), env, twitch.fetchImpl)
+
+    expect(await twitch.送信したチャット[0]!.json()).toMatchObject({ message: 'レイド元の配信者 さん、30人でのレイドありがとう！' })
+    expect((await listSessions(db, 現在時刻))[0]?.eventCounts).toEqual({ 'channel.raid': 1 })
+  })
+
+  it('フォローは件数を数えないが、購読していない種類として拒否もしない', async () => {
+    const { env, db } = await トリガーのある環境([])
+    await recordLiveStream(db, 雑談配信, Date.parse('2026-09-21T12:05:00Z'))
+
+    const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env)
+
+    expect(response.status).toBe(204)
+    expect((await listSessions(db, 現在時刻))[0]?.eventCounts).toEqual({})
+  })
+
+  it('同じ通知が再送されても、二度送らない', async () => {
+    const { env } = await トリガーのある環境([フォローでお礼を言う])
+    const twitch = 送信に応えるTwitch()
+
+    await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+    const 再送 = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+
+    expect(再送.status).toBe(204)
+    expect(twitch.送信したチャット).toHaveLength(1)
+  })
+
+  it('botを接続していなければ、送らずに受け取るだけにする', async () => {
+    const { env } = 環境を作る()
+    await saveAlertConfig(env.STORE, { triggers: [フォローでお礼を言う] })
+    const twitch = 送信に応えるTwitch()
+
+    const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+
+    expect(response.status).toBe(204)
+    expect(twitch.送信したチャット).toHaveLength(0)
+  })
+
+  it('送信に失敗しても2xxを返し、失敗として記録する（5xxだとTwitchが再送して二重投稿になるため）', async () => {
+    const { env } = await トリガーのある環境([フォローでお礼を言う])
+    const twitch = 送信に応えるTwitch(Response.json({ status: 401, message: 'Missing scope' }, { status: 401 }))
+
+    const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+
+    expect(response.status).toBe(204)
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'alert-chat-failed', message: expect.stringContaining('Missing scope') }])
+  })
+
+  it('イベントの中身が想定と違えば、黙って捨てずに400にする', async () => {
+    const { env } = await トリガーのある環境([フォローでお礼を言う])
+    const twitch = 送信に応えるTwitch()
+    const 名前のないフォロー = { subscription: { type: 'channel.follow' }, event: { user_login: 'tanaka' } }
+
+    const response = await 呼び出す(Twitchからの通知({ body: 名前のないフォロー }), env, twitch.fetchImpl)
+
+    expect(response.status).toBe(400)
+    expect(twitch.送信したチャット).toHaveLength(0)
   })
 })
