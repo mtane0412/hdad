@@ -1,58 +1,57 @@
 /*
  * 管理画面のスタイル
- * 色・書体・見出し・URLの出力欄はギャラリー（core/gallery/gallery.css）のものを使い、
- * ここでは操作盤のカード、素材とトリガーの一覧、知らせと失敗の表示だけを足す。
+ * 色・書体・ボタン・入力欄・URLの出力欄は core/ui/ui.css のもの。
+ * 設定の項目（.setting）を横線で区切って縦に並べ、左に見出しと説明、右に操作する欄を置く。
+ * 枠で囲むのは、ログインの案内と、一覧の中身（素材・トリガー）だけにする。
  */
-/* display を指定した要素（#console など）でも、hidden 属性で確実に隠れるようにする */
-[hidden] {
-  display: none !important;
-}
-
 .admin {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: clamp(24px, 4vw, 48px) var(--gutter) 64px;
+}
+
+.page-head h1 {
+  font: 600 28px / 1.3 var(--sans);
+  letter-spacing: -0.01em;
+}
+
+.page-head p {
+  max-width: 40em;
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+/* 知らせは出たり消えたりするので、下の項目が上下に動かないよう高さを取っておく */
+.notice {
+  min-height: 1.7em;
+  margin: 12px 0;
+  color: var(--accent-text);
+  font-weight: 500;
+}
+
+.failure {
+  margin-bottom: 24px;
+  padding: 12px 16px;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-control);
+  background: var(--danger-soft);
+  white-space: pre-wrap;
+}
+
+.login {
   display: grid;
-  gap: clamp(16px, 2.5vw, 28px);
-  max-width: 880px;
+  justify-items: start;
+  gap: 12px;
+  max-width: 440px;
+  padding: 28px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-frame);
+  background: var(--surface);
+  box-shadow: var(--shadow);
 }
 
-#console {
-  display: grid;
-  gap: inherit;
-}
-
-.card {
-  padding: 20px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--panel);
-}
-
-.card h2 {
-  margin: 0 0 8px;
-  font: 800 22px / 1.2 var(--display);
-  letter-spacing: -0.02em;
-}
-
-.card > label {
-  display: block;
-  margin-bottom: 6px;
-  font-weight: 700;
-}
-
-.card .output-row input {
-  flex: 1;
-  min-width: 0;
-  min-height: 48px;
-  padding: 0 14px;
-  border: 1px solid var(--ink);
-  border-radius: 4px;
-  background: #fff;
-  color: var(--ink);
-  font: 500 14px ui-monospace, monospace;
-}
-
-.card .output-row input[type='file'] {
-  padding: 10px 14px;
-  font-family: var(--body);
+.login h2 {
+  font: 600 20px / 1.3 var(--sans);
 }
 
 .account {
@@ -61,67 +60,41 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px 16px;
-}
-
-.account p {
-  margin: 0;
+  padding-bottom: 16px;
 }
 
 .account span {
-  font-weight: 700;
+  font: 600 15px / 1 var(--mono);
+}
+
+.setting {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 16px 48px;
+  padding: 32px 0;
+  border-top: 1px solid var(--line);
+}
+
+.setting-head h2 {
+  font: 600 16px / 1.4 var(--sans);
 }
 
 .hint {
-  margin: 8px 0 12px;
+  margin-top: 6px;
   color: var(--muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.setting-body > label {
+  display: block;
+  margin-bottom: 8px;
   font-size: 14px;
+  font-weight: 500;
 }
 
-.hint code {
-  font: 500 13px / 1 ui-monospace, monospace;
-}
-
-.action,
-.quiet {
-  min-height: 44px;
-  padding: 0 20px;
-  border-radius: 4px;
-  font: 700 15px var(--body);
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.action {
-  border: 0;
-  background: var(--on-air);
-  color: #fff;
-}
-
-.action:hover:not(:disabled) {
-  background: #a01d4a;
-}
-
-a.action {
-  display: inline-flex;
-  align-items: center;
-  text-decoration: none;
-}
-
-.quiet {
-  border: 1px solid var(--line);
-  background: #fff;
-  color: var(--ink);
-}
-
-.quiet:hover:not(:disabled) {
-  border-color: var(--on-air);
-  color: var(--on-air);
-}
-
-.action:disabled,
-.quiet:disabled {
-  opacity: 0.5;
-  cursor: progress;
+.setting-body > .hint {
+  margin: 12px 0;
 }
 
 .button-row {
@@ -132,49 +105,49 @@ a.action {
   margin-top: 16px;
 }
 
-.notice {
-  min-height: 1.75em;
-  margin: 0;
-  color: var(--muted);
-}
-
-.failure {
-  margin: 0;
-  padding: 12px 16px;
-  border-left: 4px solid var(--on-air);
-  background: #fbe9ef;
-  white-space: pre-wrap;
-}
-
 .media-list,
 .trigger-list {
-  display: grid;
-  gap: 12px;
-  margin: 16px 0 0;
+  margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.media-list li,
-.trigger-list li {
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: #fff;
-}
-
 .media-list li.empty,
 .trigger-list li.empty {
-  border-style: dashed;
-  background: none;
+  padding: 20px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-control);
   color: var(--muted);
+  text-align: center;
+}
+
+/* ---- 素材の一覧：1つの枠の中を横線で区切る ---- */
+.media-list {
+  margin-top: 20px;
 }
 
 .media-list li:not(.empty) {
   display: grid;
-  grid-template-columns: 160px minmax(0, 1fr) auto;
+  grid-template-columns: 128px minmax(0, 1fr) auto;
   align-items: center;
   gap: 16px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-bottom-width: 0;
+  background: var(--surface);
+}
+
+.media-list li:not(.empty):first-child {
+  border-radius: var(--radius-control) var(--radius-control) 0 0;
+}
+
+.media-list li:not(.empty):last-child {
+  border-bottom-width: 1px;
+  border-radius: 0 0 var(--radius-control) var(--radius-control);
+}
+
+.media-list li:not(.empty):only-child {
+  border-radius: var(--radius-control);
 }
 
 .media-preview img,
@@ -182,7 +155,7 @@ a.action {
 .media-preview audio {
   display: block;
   width: 100%;
-  max-height: 90px;
+  max-height: 72px;
   object-fit: contain;
 }
 
@@ -193,17 +166,20 @@ a.action {
 
 .media-caption strong {
   overflow: hidden;
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .media-caption span {
   color: var(--muted);
-  font-size: 14px;
+  font-size: 13px;
 }
 
-/* 何番目のトリガーか（上にあるものが優先）を番号で示す */
+/* ---- トリガーの一覧：何番目か（上にあるものが優先）を番号で示す ---- */
 .trigger-list {
+  display: grid;
+  gap: 12px;
   counter-reset: trigger;
 }
 
@@ -211,6 +187,10 @@ a.action {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px 16px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface);
   counter-increment: trigger;
 }
 
@@ -218,49 +198,37 @@ a.action {
   content: counter(trigger);
   grid-column: 1 / -1;
   color: var(--muted);
-  font: 800 18px / 1 var(--display);
+  font: 600 13px / 1 var(--mono);
 }
 
 .admin-field {
   display: grid;
-  gap: 4px;
-  font-weight: 700;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
 }
 
-.admin-field:nth-of-type(5) {
+.admin-field.wide {
   grid-column: 1 / -1;
 }
 
-.admin-field select,
-.admin-field input[type='number'],
-.admin-field input[type='text'] {
-  width: 100%;
-  min-height: 44px;
-  padding: 0 12px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: #fff;
-  color: var(--ink);
-  font: 500 15px var(--body);
-}
-
-.admin-field input[type='range'] {
-  flex: 1;
-  min-width: 0;
-  accent-color: var(--on-air);
-}
-
 .admin-field .slider-row {
-  min-height: 44px;
+  min-height: var(--control-h);
 }
 
 .trigger-list li > .quiet {
   justify-self: start;
 }
 
+@media (max-width: 800px) {
+  .setting {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 @media (max-width: 640px) {
   .media-list li:not(.empty),
   .trigger-list li:not(.empty) {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }

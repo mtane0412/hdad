@@ -1,0 +1,282 @@
+/*
+ * ページUI（トップ・ギャラリー・管理画面）で共通のスタイル
+ * 色・書体・寸法の変数、全ページ共通のトップバー、ボタン、入力欄、URLの出力欄を定める。
+ * 配色は青みのある中立のグレーを土台にし、操作できる箇所と選択中だけをコバルトブルーで示す。
+ * 赤は削除と失敗の表示だけに使う。明暗はOSの設定（prefers-color-scheme）に従う。
+ * 配信に載る素材側（core/stage.css・chat/*.css・alerts/alerts.css）からは読み込まない。
+ */
+:root {
+  color-scheme: light dark;
+
+  --bg: #f5f6f9;
+  --surface: #ffffff;
+  --sunken: #eceef3;
+  --text: #14171f;
+  --muted: #5b6272;
+  --line: #dcdfe7;
+  --line-strong: #c3c8d4;
+  --accent: #3d5afe;
+  --accent-hover: #2f47d6;
+  --accent-text: #2f47d6;
+  --accent-soft: #e8ecff;
+  --on-accent: #ffffff;
+  --danger: #c9283e;
+  --danger-soft: #fdecee;
+  /* 透過を確かめる市松模様の2色 */
+  --check-a: #e3e6ed;
+  --check-b: #f7f8fb;
+  --shadow: 0 1px 2px rgb(20 23 31 / 6%), 0 12px 32px -16px rgb(20 23 31 / 18%);
+
+  --sans: 'IBM Plex Sans JP', 'Hiragino Sans', 'Yu Gothic UI', sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  --radius-control: 6px;
+  --radius-frame: 10px;
+  --control-h: 40px;
+  --topbar-h: 56px;
+  --gutter: clamp(16px, 3vw, 40px);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14161c;
+    --surface: #1b1e26;
+    --sunken: #0f1116;
+    --text: #e8eaf0;
+    --muted: #9aa1b2;
+    --line: #2a2e39;
+    --line-strong: #3a3f4d;
+    --accent-text: #8c9cff;
+    --accent-soft: #1e2547;
+    --danger: #ff6b7d;
+    --danger-soft: #3a1a20;
+    --check-a: #23262f;
+    --check-b: #181a21;
+    --shadow: none;
+  }
+}
+
+/* 指で操作する端末では、押しやすい大きさにする */
+@media (pointer: coarse) {
+  :root {
+    --control-h: 44px;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* display を指定した要素でも、hidden 属性で確実に隠れるようにする */
+[hidden] {
+  display: none !important;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 400 15px / 1.7 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+/* 埋め込む側と素材ページ側で color-scheme が食い違うと、ブラウザが iframe に不透明な下地を敷き、
+   透過の素材が白地で映ってしまう。素材ページ（指定なし＝light）に合わせておく */
+iframe {
+  color-scheme: light;
+}
+
+code {
+  font: 500 0.87em / 1 var(--mono);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---- トップバー（全ページ共通） ---- */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px 32px;
+  min-height: var(--topbar-h);
+  padding: 0 var(--gutter);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  font: 600 15px / 1 var(--mono);
+  letter-spacing: -0.01em;
+  text-decoration: none;
+}
+
+.brand::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--accent);
+}
+
+.topbar nav {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+}
+
+.topbar nav a {
+  padding: 8px 12px;
+  border-radius: var(--radius-control);
+  color: var(--muted);
+  font-weight: 500;
+  line-height: 1.2;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.topbar nav a:hover {
+  color: var(--text);
+}
+
+.topbar nav a[aria-current='page'] {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+/* ---- ボタン：主（action）・副（quiet）・取り消せない操作（danger） ---- */
+.action,
+.quiet {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-h);
+  padding: 0 16px;
+  border-radius: var(--radius-control);
+  font: 500 14px / 1 var(--sans);
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.action {
+  border: 1px solid transparent;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.action:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.quiet {
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.quiet:hover:not(:disabled) {
+  border-color: var(--text);
+}
+
+.quiet.danger {
+  color: var(--danger);
+}
+
+.quiet.danger:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.action:disabled,
+.quiet:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ---- 入力欄 ---- */
+input[type='text'],
+input[type='password'],
+input[type='number'],
+input[type='file'],
+select {
+  width: 100%;
+  min-height: var(--control-h);
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text);
+  font: 400 14px var(--sans);
+}
+
+input[type='file'] {
+  padding: 8px 12px;
+}
+
+input[type='text']:invalid {
+  border-color: var(--danger);
+}
+
+input[type='range'],
+input[type='checkbox'] {
+  accent-color: var(--accent);
+}
+
+.slider-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.slider-row input[type='range'] {
+  flex: 1;
+  min-width: 0;
+}
+
+.slider-row output {
+  min-width: 4ch;
+  color: var(--muted);
+  font: 500 13px / 1 var(--mono);
+  text-align: right;
+}
+
+/* ---- URLの出力欄（入力欄とボタンを横に並べる） ---- */
+.output-row {
+  display: flex;
+  gap: 8px;
+}
+
+.output-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.output-row input[readonly] {
+  font-family: var(--mono);
+}
+
+@media (max-width: 640px) {
+  .topbar {
+    flex-wrap: wrap;
+    padding-block: 8px;
+  }
+
+  .output-row {
+    flex-direction: column;
+  }
+}

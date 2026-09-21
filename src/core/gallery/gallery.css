@@ -1,86 +1,42 @@
 /*
  * ギャラリー（wallpaper/ や clock/ などカテゴリの一覧ページ）のスタイル
- * 主役はプレビュー画面。周囲は機材ラックのように静かな灰緑でまとめ、
- * 操作できる箇所だけを「オンエア」の赤紫で示す。
+ * 画面を「素材の一覧｜プレビュー｜調整」の3列に分ける。色・書体・ボタン・入力欄は core/ui/ui.css のもの。
+ * 主役は中央の枠（.source）。OBSに貼るURLと、そのURLで表示される画面を1つの枠にまとめ、
+ * 「このURLがこの画面になる」ことを形で示す。左右の列は枠線だけで区切り、静かに保つ。
  */
-:root {
-  --paper: #dfe5e1;
-  --panel: #f6f8f6;
-  --ink: #16211f;
-  --muted: #566562;
-  --line: #b9c4bf;
-  --on-air: #c2255c;
-  --display: 'Bricolage Grotesque', 'Zen Kaku Gothic New', sans-serif;
-  --body: 'Zen Kaku Gothic New', 'Hiragino Sans', sans-serif;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-  padding: clamp(16px, 3vw, 40px);
-  background: var(--paper);
-  color: var(--ink);
-  font: 400 16px / 1.75 var(--body);
-}
-
-:focus-visible {
-  outline: 3px solid var(--on-air);
-  outline-offset: 2px;
-}
-
-.masthead {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 24px;
-  margin-bottom: clamp(20px, 3vw, 36px);
-}
-
-.masthead .back {
-  flex-basis: 100%;
-  color: var(--muted);
-  font: 500 14px / 1 var(--display);
-  text-decoration: none;
-}
-
-.masthead .back::before {
-  content: '← ';
-}
-
-.masthead .back:hover {
-  color: var(--on-air);
-}
-
-.masthead h1 {
-  margin: 0;
-  font: 800 clamp(28px, 4vw, 44px) / 1 var(--display);
-  letter-spacing: -0.03em;
-}
-
-.masthead p {
-  margin: 0;
-  color: var(--muted);
-}
-
-.bench {
+.workspace {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(0, 4fr) minmax(260px, 1.6fr);
-  grid-template-areas:
-    'shelf output output'
-    'shelf monitor controls';
-  gap: clamp(16px, 2.5vw, 32px);
-  align-items: start;
+  grid-template-columns: 232px minmax(0, 1fr) 320px;
+  min-height: calc(100dvh - var(--topbar-h));
 }
 
+/* ---- 左：カテゴリの見出しと素材の一覧 ---- */
 .shelf {
-  grid-area: shelf;
+  position: sticky;
+  top: var(--topbar-h);
+  align-self: start;
+  max-height: calc(100dvh - var(--topbar-h));
+  padding: 28px 12px;
+  overflow-y: auto;
+}
+
+.shelf h1 {
+  padding: 0 12px;
+  font: 600 20px / 1.3 var(--sans);
+}
+
+.shelf .lead {
+  margin-top: 6px;
+  padding: 0 12px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .shelf ul {
-  margin: 0;
+  display: grid;
+  gap: 2px;
+  margin: 20px 0 0;
   padding: 0;
   list-style: none;
 }
@@ -88,43 +44,92 @@ body {
 .shelf button {
   display: block;
   width: 100%;
-  padding: 6px 0 6px 14px;
+  padding: 8px 12px;
   border: 0;
-  border-left: 4px solid transparent;
+  border-radius: var(--radius-control);
   background: none;
   color: var(--muted);
-  font: 700 clamp(24px, 2.6vw, 38px) / 1.15 var(--display);
-  letter-spacing: -0.02em;
+  font: 500 14px / 1.4 var(--sans);
   text-align: left;
   cursor: pointer;
 }
 
 .shelf button:hover {
-  color: var(--ink);
+  background: var(--sunken);
+  color: var(--text);
 }
 
 .shelf button[aria-current='true'] {
-  border-left-color: var(--on-air);
-  color: var(--ink);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-weight: 600;
 }
 
+/* ---- 中央：選択中の素材の説明と、URL＋プレビューの枠 ---- */
 .monitor {
-  grid-area: monitor;
   min-width: 0;
+  padding: 28px var(--gutter) 48px;
+  border-inline: 1px solid var(--line);
 }
 
-/* 透過背景を確認できるよう、プレビューの下地は市松模様にする */
+.monitor h2 {
+  font: 600 28px / 1.25 var(--sans);
+  letter-spacing: -0.01em;
+}
+
+.monitor h2 + p {
+  max-width: 40em;
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.monitor label {
+  display: block;
+  margin: 24px 0 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.source {
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-frame);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.source .output-row {
+  padding: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.source .output-row input {
+  border-color: transparent;
+  background: var(--sunken);
+  font-size: 13px;
+}
+
+/* プレビューの実寸は素材ごとに違う（時計は横長、チャットは縦長）ので、下地の中央に置く */
+.source-stage {
+  display: grid;
+  justify-items: center;
+  padding: clamp(12px, 2vw, 24px);
+  background: var(--sunken);
+}
+
+/* 透過背景を確認できるよう、プレビューの下地は市松模様にする。
+   表示枠の縦横比と最大幅は gallery.ts が実寸に合わせて上書きする */
 .screen {
   position: relative;
+  width: 100%;
   aspect-ratio: 16 / 9;
   overflow: hidden;
-  border-radius: 6px;
-  background: repeating-conic-gradient(#c9d1cd 0% 25%, #eef1ef 0% 50%) 0 0 / 24px 24px;
-  box-shadow: 0 0 0 1px var(--ink), 0 18px 40px -18px #16211f80;
+  border-radius: 4px;
+  background: repeating-conic-gradient(var(--check-a) 0% 25%, var(--check-b) 0% 50%) 0 0 / 24px 24px;
+  box-shadow: 0 0 0 1px var(--line-strong);
 }
 
-/* iframe の width / height 属性の実寸で描画させ、縮小して表示する（OBSでの見え方と揃えるため）。
-   表示枠の縦横比と最大幅は gallery.ts が実寸に合わせて上書きする */
+/* iframe の width / height 属性の実寸で描画させ、縮小して表示する（OBSでの見え方と揃えるため） */
 .screen iframe {
   position: absolute;
   top: 0;
@@ -134,58 +139,47 @@ body {
   transform: scale(var(--preview-scale, 0.5));
 }
 
-.monitor h2 {
-  margin: 18px 0 0;
-  font: 700 24px / 1.2 var(--display);
-}
-
-.monitor p {
-  margin: 4px 0 0;
-  max-width: 40em;
+#copy-status {
+  min-height: 1.7em;
+  margin-top: 8px;
   color: var(--muted);
+  font-size: 13px;
 }
 
+/* ---- 右：調整 ---- */
 .controls {
-  grid-area: controls;
-  padding: 20px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--panel);
+  position: sticky;
+  top: var(--topbar-h);
+  align-self: start;
+  max-height: calc(100dvh - var(--topbar-h));
+  padding: 28px 20px;
+  overflow-y: auto;
 }
 
+.controls h2 {
+  margin-bottom: 16px;
+  font: 600 14px / 1.3 var(--sans);
+}
+
+/* fieldset の上枠線は legend に分断されるので、区切り線は影で引き、上の余白は legend 側で取る */
 .field {
-  margin: 0 0 18px;
-  padding: 0;
+  margin: 0;
+  padding: 0 0 14px;
   border: 0;
+  box-shadow: 0 -1px 0 var(--line);
 }
 
 .field legend {
-  padding: 0;
-  font-weight: 700;
+  margin-bottom: 8px;
+  padding: 14px 0 0;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.5;
 }
 
-.slider-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.slider-row output {
-  min-width: 3.5ch;
+.field legend code {
+  margin-left: 4px;
   color: var(--muted);
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-}
-
-.field code {
-  color: var(--muted);
-  font: 500 13px / 1 ui-monospace, monospace;
-}
-
-.field input[type='range'] {
-  flex: 1;
-  min-width: 0;
-  accent-color: var(--on-air);
 }
 
 .swatches {
@@ -193,16 +187,35 @@ body {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin-top: 6px;
+}
+
+.swatches button {
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text);
+  font: 500 13px / 1 var(--sans);
+  cursor: pointer;
+}
+
+.swatches button:hover:not(:disabled) {
+  border-color: var(--text);
+}
+
+.swatches button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .field input[type='color'] {
-  width: 44px;
-  height: 44px;
-  padding: 2px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: #fff;
+  width: var(--control-h);
+  height: var(--control-h);
+  padding: 3px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface);
   cursor: pointer;
 }
 
@@ -212,129 +225,58 @@ body {
 }
 
 .field input[type='text'] {
-  width: 100%;
-  min-height: 44px;
-  margin-top: 6px;
-  padding: 0 12px;
-  box-sizing: border-box;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: #fff;
-  color: var(--ink);
-  font: 500 15px ui-monospace, monospace;
-}
-
-.field input[type='text']:invalid {
-  border-color: var(--on-air);
+  font-family: var(--mono);
 }
 
 .check {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  font-size: 14px;
 }
 
 .check input {
-  width: 18px;
-  height: 18px;
-  accent-color: var(--on-air);
+  width: 16px;
+  height: 16px;
 }
 
-button.quiet,
-.swatches button {
-  min-height: 44px;
-  padding: 0 14px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: none;
-  color: var(--ink);
-  font: 500 14px var(--body);
-  cursor: pointer;
+#reset {
+  width: 100%;
+  margin-top: 8px;
 }
 
-button.quiet:hover,
-.swatches button:hover:not(:disabled) {
-  border-color: var(--ink);
-}
-
-.swatches button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.output {
-  grid-area: output;
-}
-
-.output label {
-  display: block;
-  margin-bottom: 6px;
-  font-weight: 700;
-}
-
-.output-row {
-  display: flex;
-  gap: 8px;
-}
-
-.output input {
-  flex: 1;
-  min-width: 0;
-  min-height: 48px;
-  padding: 0 14px;
-  border: 1px solid var(--ink);
-  border-radius: 4px;
-  background: var(--panel);
-  color: var(--ink);
-  font: 500 14px ui-monospace, monospace;
-}
-
-#copy {
-  min-height: 48px;
-  padding: 0 22px;
-  border: 0;
-  border-radius: 4px;
-  background: var(--on-air);
-  color: #fff;
-  font: 700 15px var(--body);
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-#copy:hover {
-  background: #a01d4a;
-}
-
-#copy-status {
-  min-height: 1.75em;
-  margin: 6px 0 0;
-  color: var(--muted);
-}
-
+/* 幅が足りないときは、一覧 → プレビュー → 調整 の順に縦に積む */
 @media (max-width: 960px) {
-  .bench {
-    grid-template-columns: 1fr;
-    grid-template-areas: 'shelf' 'output' 'monitor' 'controls';
+  .workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .shelf,
+  .controls {
+    position: static;
+    max-height: none;
+    padding: 20px var(--gutter);
+  }
+
+  .shelf h1,
+  .shelf .lead {
+    padding: 0;
   }
 
   .shelf ul {
     display: flex;
     flex-wrap: wrap;
-    gap: 0 8px;
+    gap: 4px;
+    margin-top: 12px;
   }
 
   .shelf button {
     width: auto;
-    padding: 8px 12px 8px 0;
-    border-left: 0;
-    border-bottom: 4px solid transparent;
   }
 
-  .shelf button[aria-current='true'] {
-    border-bottom-color: var(--on-air);
-  }
-
-  .output-row {
-    flex-direction: column;
+  .monitor {
+    padding-block: 20px 28px;
+    border-inline: 0;
+    border-block: 1px solid var(--line);
   }
 }

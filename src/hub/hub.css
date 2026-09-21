@@ -1,82 +1,110 @@
 /*
  * トップページ（素材カテゴリ一覧）のスタイル
- * 壁紙ギャラリーと同じ配色・書体で、カテゴリをカードとして並べる。
+ * 色・書体・トップバーは core/ui/ui.css のもの。カテゴリを1行ずつ並べ、
+ * 左に実際の素材ページを縮小した見本を映す（何が手に入るかを、説明より先に見せる）。
  */
-:root {
-  --paper: #dfe5e1;
-  --panel: #f6f8f6;
-  --ink: #16211f;
-  --muted: #566562;
-  --line: #b9c4bf;
-  --on-air: #c2255c;
-  --display: 'Bricolage Grotesque', 'Zen Kaku Gothic New', sans-serif;
-  --body: 'Zen Kaku Gothic New', 'Hiragino Sans', sans-serif;
+.hub {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: clamp(32px, 6vw, 72px) var(--gutter) 64px;
 }
 
-* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-  padding: clamp(16px, 3vw, 40px);
-  background: var(--paper);
-  color: var(--ink);
-  font: 400 16px / 1.75 var(--body);
-}
-
-:focus-visible {
-  outline: 3px solid var(--on-air);
-  outline-offset: 2px;
-}
-
-.masthead {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 24px;
-  margin-bottom: clamp(20px, 3vw, 36px);
-}
-
-.masthead h1 {
-  margin: 0;
-  font: 800 clamp(28px, 4vw, 44px) / 1 var(--display);
-  letter-spacing: -0.03em;
-}
-
-.masthead p {
-  margin: 0;
-  color: var(--muted);
+.hub h1 {
+  max-width: 22em;
+  font: 600 clamp(24px, 3.4vw, 34px) / 1.45 var(--sans);
+  letter-spacing: -0.01em;
+  /* 日本語を文節の切れ目で折り返す（対応していないブラウザでは通常の折り返しになる） */
+  word-break: auto-phrase;
+  text-wrap: balance;
 }
 
 .catalog {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: clamp(12px, 2vw, 24px);
-  margin: 0;
+  margin: clamp(28px, 4vw, 48px) 0 0;
   padding: 0;
+  border-bottom: 1px solid var(--line);
   list-style: none;
 }
 
-.catalog a {
+.catalog li {
+  position: relative;
   display: grid;
-  gap: 4px;
-  padding: 20px 24px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--panel);
-  color: inherit;
-  text-decoration: none;
+  grid-template-columns: 240px minmax(0, 1fr);
+  grid-template-rows: auto 1fr;
+  column-gap: 24px;
+  padding: 20px 12px;
+  border-top: 1px solid var(--line);
 }
 
-.catalog a:hover {
-  border-color: var(--on-air);
+.catalog li:hover {
+  background: var(--surface);
+}
+
+/* 見本の枠は 240×135 に固定し、素材ページを実寸で描かせてから縮小する（縮小率 = 枠に収まる倍率） */
+.thumb {
+  --thumb-scale: 0.125;
+  position: relative;
+  grid-row: 1 / -1;
+  width: 240px;
+  height: 135px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: repeating-conic-gradient(var(--check-a) 0% 25%, var(--check-b) 0% 50%) 0 0 / 16px 16px;
+  box-shadow: 0 0 0 1px var(--line-strong);
+}
+
+.thumb-half {
+  --thumb-scale: 0.25;
+}
+
+.thumb-clock {
+  --thumb-scale: 0.35;
+}
+
+.thumb-chat {
+  --thumb-scale: 0.16875;
+}
+
+.thumb iframe {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border: 0;
+  transform: translate(-50%, -50%) scale(var(--thumb-scale));
+  pointer-events: none;
 }
 
 .catalog .name {
-  font: 700 clamp(20px, 2.5vw, 26px) / 1.2 var(--display);
+  align-self: end;
+  color: var(--text);
+  font: 600 20px / 1.4 var(--sans);
+  text-decoration: none;
+}
+
+/* 行のどこを押しても移動できるよう、リンクの当たり判定を行全体に広げる */
+.catalog .name::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+
+.catalog li:hover .name {
+  color: var(--accent-text);
 }
 
 .catalog .summary {
+  max-width: 38em;
+  margin-top: 4px;
   color: var(--muted);
+}
+
+@media (max-width: 640px) {
+  .catalog li {
+    grid-template-columns: minmax(0, 1fr);
+    padding-inline: 0;
+  }
+
+  .thumb {
+    grid-row: auto;
+    margin-bottom: 12px;
+  }
 }
