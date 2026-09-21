@@ -10,12 +10,13 @@
  *
  * botの接続そのもの（Twitchの認可画面への往復）はここでは行わない。通常のリンクで /api/auth/login?role=bot を開く。
  */
-import { createCaller, isRecord } from '@/core/api'
+import { createCaller, isRecord, readList } from '@/core/api'
 
 const STATUS_PATH = '/api/admin/bot'
 const MESSAGES_PATH = '/api/admin/bot/messages'
 const DEVICE_CODE_PATH = '/api/admin/bot/device-code'
 const DEVICE_TOKEN_PATH = '/api/admin/bot/device-token'
+const COMMANDS_PATH = '/api/admin/bot/commands'
 
 /** 接続しているbotアカウント */
 export interface BotStatus {
@@ -23,6 +24,16 @@ export interface BotStatus {
   login: string
   /** 認可されていないスコープ。1つでもあれば接続し直しが要る */
   missingScopes: string[]
+}
+
+/** チャットのコマンド1つぶん */
+export interface BotCommandItem {
+  /** `!` を除いたコマンド名 */
+  name: string
+  /** 送り返す文言。{user} が発言者のログイン名に置き換わる */
+  reply: string
+  /** 同じコマンドに続けて応答しない秒数。0 なら毎回応答する */
+  cooldownSeconds: number
 }
 
 /** 別の端末で接続するために、利用者へ見せる内容 */
@@ -56,7 +67,14 @@ export interface BotApi {
   startDeviceCode(): Promise<DeviceCode>
   /** 利用者が認可を済ませたかを問い合わせる。まだなら pending */
   pollDeviceCode(deviceCode: string): Promise<DevicePoll>
+  /** 保存済みのコマンドの一覧 */
+  commands(): Promise<BotCommandItem[]>
+  /** コマンドの一覧をまるごと置き換えて保存する */
+  saveCommands(commands: readonly BotCommandItem[]): Promise<BotCommandItem[]>
 }
+
+const isBotCommandItem = (value: unknown): value is BotCommandItem =>
+  isRecord(value) && typeof value.name === 'string' && typeof value.reply === 'string' && typeof value.cooldownSeconds === 'number'
 
 const isDeviceCode = (value: unknown): value is DeviceCode =>
   isRecord(value) &&
@@ -113,6 +131,17 @@ export const createBotApi = (fetchImpl: typeof fetch): BotApi => {
       if (isRecord(body) && body.status === 'slow-down') return { status: 'slow-down' }
       if (isRecord(body) && body.status === 'connected' && isBotStatus(body.bot)) return { status: 'connected', bot: body.bot }
       throw new Error(`Workerの ${DEVICE_TOKEN_PATH} の応答が想定した形ではありません`)
+    },
+
+    commands: async () => readList(await call(COMMANDS_PATH), 'commands', isBotCommandItem),
+
+    saveCommands: async (commands) => {
+      const body = await call(COMMANDS_PATH, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ commands }),
+      })
+      return readList(body, 'commands', isBotCommandItem)
     },
   }
 }

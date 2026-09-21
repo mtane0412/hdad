@@ -5,6 +5,7 @@
  * 「失敗や想定外の応答をエラーとして扱うか（黙って未接続扱いにしないか）」を確認する。
  */
 import { describe, expect, it } from 'vitest'
+import { ApiError } from '@/core/api'
 import { createBotApi } from './api'
 
 const サイト = 'https://stream-assets.example.com'
@@ -134,5 +135,46 @@ describe('pollDeviceCode（認可されるまで待つ）', () => {
   it('コードの期限が切れていたら、そのメッセージを持つエラーにする', async () => {
     const { fetchImpl } = 応答を返すfetch(502, { error: { code: 'twitch-error', message: 'Twitchが 400 を返しました: expired_token' } })
     await expect(createBotApi(fetchImpl).pollDeviceCode('期限切れのコード')).rejects.toThrow('expired_token')
+  })
+})
+
+describe('commands（コマンドの取得と保存）', () => {
+  const 挨拶のコマンド = { name: 'aisatsu', reply: '@{user} こんばんは', cooldownSeconds: 10 }
+
+  it('保存済みのコマンドの一覧を返す', async () => {
+    const { requests, fetchImpl } = 応答を返すfetch(200, { commands: [挨拶のコマンド] })
+
+    expect(await createBotApi(fetchImpl).commands()).toEqual([挨拶のコマンド])
+    expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/bot/commands')
+  })
+
+  it('まだ1つも登録していなければ、空の一覧を返す', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { commands: [] })
+    expect(await createBotApi(fetchImpl).commands()).toEqual([])
+  })
+
+  it('応答が想定した形でなければエラーにする（黙って空の一覧にしない）', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { commands: [{ name: 'aisatsu' }] })
+    await expect(createBotApi(fetchImpl).commands()).rejects.toThrow('commands[0]')
+  })
+
+  it('一覧をまるごと置き換えて保存する', async () => {
+    const { requests, fetchImpl } = 応答を返すfetch(200, { commands: [挨拶のコマンド] })
+
+    expect(await createBotApi(fetchImpl).saveCommands([挨拶のコマンド])).toEqual([挨拶のコマンド])
+    const request = requests[0]!
+    expect(request.method).toBe('PUT')
+    expect(await request.json()).toEqual({ commands: [挨拶のコマンド] })
+  })
+
+  it('内容に問題があれば、問題点を持つエラーにする', async () => {
+    const { fetchImpl } = 応答を返すfetch(400, {
+      error: { code: 'invalid-config', message: 'コマンドの設定に問題があります', problems: ['commands[0].name: 空白と ! を含まない50文字以内の文字列で指定してください'] },
+    })
+
+    const error = await createBotApi(fetchImpl).saveCommands([{ name: '', reply: 'こんばんは', cooldownSeconds: 0 }]).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as ApiError).problems).toHaveLength(1)
   })
 })

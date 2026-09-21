@@ -52,14 +52,25 @@ export interface AlertConfig {
 
 export const EMPTY_CONFIG: AlertConfig = { triggers: [] }
 
-/** 設定の内容に問題がある。problems にすべての問題点を持つ */
+/**
+ * 設定の内容に問題がある。problems にすべての問題点を持つ。
+ *
+ * アラートの設定とチャットボットのコマンドの設定で使い回すため、何の設定かを subject で受け取る。
+ */
 export class ConfigError extends Error {
   override name = 'ConfigError'
 
-  constructor(readonly problems: readonly string[]) {
-    super(`アラートの設定に問題があります: ${problems.join(' / ')}`)
+  /** @param subject 何の設定か（例: アラートの設定） */
+  constructor(
+    readonly subject: string,
+    readonly problems: readonly string[],
+  ) {
+    super(`${subject}に問題があります: ${problems.join(' / ')}`)
   }
 }
+
+/** このファイルが扱う設定の名前 */
+const SUBJECT = 'アラートの設定'
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
 
@@ -75,8 +86,8 @@ const isNumberBetween = (value: unknown, min: number, max: number): value is num
  * @throws ConfigError 問題が1件でもある場合
  */
 export const parseAlertConfig = (input: unknown, kindOfMedia: (mediaId: string) => MediaKind | null): AlertConfig => {
-  if (!isRecord(input) || !Array.isArray(input.triggers)) throw new ConfigError(['triggers: 配列で指定してください'])
-  if (input.triggers.length > MAX_TRIGGERS) throw new ConfigError([`triggers: ${MAX_TRIGGERS}件以内にしてください`])
+  if (!isRecord(input) || !Array.isArray(input.triggers)) throw new ConfigError(SUBJECT, ['triggers: 配列で指定してください'])
+  if (input.triggers.length > MAX_TRIGGERS) throw new ConfigError(SUBJECT, [`triggers: ${MAX_TRIGGERS}件以内にしてください`])
 
   const problems: string[] = []
   const triggers = input.triggers.flatMap((candidate: unknown, index): StoredTrigger[] => {
@@ -115,7 +126,7 @@ export const parseAlertConfig = (input: unknown, kindOfMedia: (mediaId: string) 
     return []
   })
 
-  if (problems.length > 0) throw new ConfigError(problems)
+  if (problems.length > 0) throw new ConfigError(SUBJECT, problems)
   return { triggers }
 }
 

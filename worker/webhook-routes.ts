@@ -7,7 +7,9 @@
  *
  * 注意: 2xx 以外を返すとTwitchは再送し、失敗が続くと購読を失効させる。想定しない通知を黙って捨てず、失敗として返す（Fail-Fast）。
  */
-import { BUILT_IN_COMMANDS, readChatMessage, resolveReply } from './chat-command'
+import { applyReply, findCommand, readChatMessage } from './chat-command'
+import { loadBotConfig } from './bot-config'
+import { consumeCooldown, reserveChatReply } from './chat-store'
 import { CHAT_MESSAGE, COUNTED_EVENT_TYPES, STREAM_OFFLINE, STREAM_ONLINE, verifyWebhookSignature } from './eventsub-webhook'
 import { HttpError, STATUS, type Context } from './http'
 import { recordEvent, recordFailure, recordStreamOffline, recordStreamOnline } from './stats-store'
@@ -101,9 +103,16 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
   const bot = await loadToken(env.STORE, 'bot')
   if (!bot) return
 
-  const reply = resolveReply(BUILT_IN_COMMANDS, message, bot.userId)
-  if (reply === null) return
+  // コマンドに一致しない発言では、ここから先へ進まない（チャットの全件をD1に書かないため）
+  const { commands } = await loadBotConfig(env.STORE)
+  const command = findCommand(commands, message, bot.userId)
+  if (!command) return
 
+  // 鍵の確保はクールダウンの判定より先に行う。逆にすると、再送のたびに最後に使った時刻が更新され、いつまでも応答できなくなる
+  if (!(await reserveChatReply(env.DB, message.messageId, now))) return
+  if (!(await consumeCooldown(env.DB, command.name, command.cooldownSeconds, now))) return
+
+  const reply = applyReply(command, message)
   try {
     const token = await getAccessToken(env.STORE, 'bot', twitch, now)
     await twitch.sendChatMessage(token.accessToken, {

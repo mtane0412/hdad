@@ -12,12 +12,15 @@ import '@testing-library/jest-dom/vitest'
 import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, test, vi } from 'vitest'
+import { ApiError } from '@/core/api'
 import { BotPage } from './bot-page'
-import type { BotApi, BotStatus, DevicePoll } from './api'
+import type { BotApi, BotCommandItem, BotStatus, DevicePoll } from './api'
 
 const 接続済みのbot: BotStatus = { userId: '67890', login: 'haishinsha_bot', missingScopes: [] }
 
 /** botが接続済みのWorkerの代役 */
+const 挨拶のコマンド: BotCommandItem = { name: 'aisatsu', reply: '@{user} こんばんは', cooldownSeconds: 10 }
+
 const 発行されたコード = {
   deviceCode: 'device-code-0123456789',
   userCode: 'ABCDEFGH',
@@ -32,6 +35,8 @@ const 代役のAPI = (overrides: Partial<BotApi> = {}): BotApi => ({
   disconnect: vi.fn(async () => {}),
   sendMessage: vi.fn(async () => {}),
   startDeviceCode: vi.fn(async () => 発行されたコード),
+  commands: vi.fn(async () => [挨拶のコマンド]),
+  saveCommands: vi.fn(async (commands: readonly BotCommandItem[]) => [...commands]),
   pollDeviceCode: vi.fn(async (): Promise<DevicePoll> => ({ status: 'connected', bot: 接続済みのbot })),
   ...overrides,
 })
@@ -242,5 +247,68 @@ describe('別の端末での接続（デバイスコードフロー）', () => {
     await userEvent.click(await screen.findByRole('button', { name: '別の端末で接続する' }))
 
     expect(await お知らせ('invalid client')).toBeInTheDocument()
+  })
+})
+
+describe('コマンドの編集', () => {
+  test('保存済みのコマンドを入力欄に出す', async () => {
+    render(<BotPage api={代役のAPI()} />)
+
+    expect(await screen.findByDisplayValue('aisatsu')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('@{user} こんばんは')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('10')).toBeInTheDocument()
+  })
+
+  test('コマンドを足して保存すると、入力した値がWorkerへ送られる', async () => {
+    const api = 代役のAPI({ commands: vi.fn(async () => []) })
+    render(<BotPage api={api} />)
+    await screen.findByRole('button', { name: 'コマンドを足す' })
+
+    await userEvent.click(screen.getByRole('button', { name: 'コマンドを足す' }))
+    await userEvent.type(screen.getByLabelText('1番目のコマンド名'), 'discord')
+    await userEvent.type(screen.getByLabelText('1番目の応答文'), 'Discordはこちらです')
+    await userEvent.click(screen.getByRole('button', { name: 'コマンドを保存する' }))
+
+    expect(api.saveCommands).toHaveBeenCalledWith([{ name: 'discord', reply: 'Discordはこちらです', cooldownSeconds: 0 }])
+    expect(await お知らせ('保存しました')).toBeInTheDocument()
+  })
+
+  test('コマンドを外して保存できる', async () => {
+    const api = 代役のAPI()
+    render(<BotPage api={api} />)
+    await screen.findByDisplayValue('aisatsu')
+
+    await userEvent.click(screen.getByRole('button', { name: '1番目のコマンドを外す' }))
+    await userEvent.click(screen.getByRole('button', { name: 'コマンドを保存する' }))
+
+    expect(api.saveCommands).toHaveBeenCalledWith([])
+  })
+
+  test('保存に失敗したら、問題点を何番目のコマンドかが分かる形で出す', async () => {
+    const api = 代役のAPI({
+      saveCommands: vi.fn(async () => {
+        throw new ApiError(400, 'invalid-config', 'コマンドの設定に問題があります', [
+          'commands[0].reply: 500文字以内の文字列で指定してください',
+        ])
+      }),
+    })
+    render(<BotPage api={api} />)
+    await screen.findByDisplayValue('aisatsu')
+
+    await userEvent.click(screen.getByRole('button', { name: 'コマンドを保存する' }))
+
+    // 入力欄のラベルにも「1番目のコマンド」が出るので、問題点の行そのものを探す
+    expect(await お知らせ('・1番目のコマンド reply: 500文字以内')).toBeInTheDocument()
+  })
+
+  test('コマンドの一覧を読めなければ、理由を出す（黙って空の一覧にしない）', async () => {
+    const api = 代役のAPI({
+      commands: vi.fn(async () => {
+        throw new Error('Workerに接続できません')
+      }),
+    })
+    render(<BotPage api={api} />)
+
+    expect(await お知らせ('Workerに接続できません')).toBeInTheDocument()
   })
 })
