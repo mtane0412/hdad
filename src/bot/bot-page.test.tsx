@@ -105,6 +105,28 @@ describe('テスト送信', () => {
     expect(await お知らせ('送信しました')).toBeInTheDocument()
   })
 
+  test('送信中にEnterを押しても、二重に送らない', async () => {
+    let 送信を終える = (): void => {}
+    const api = 代役のAPI({
+      sendMessage: vi.fn(
+        async () =>
+          new Promise<void>((resolve) => {
+            送信を終える = resolve
+          }),
+      ),
+    })
+    render(<BotPage api={api} />)
+    await screen.findByText(/haishinsha_bot/)
+
+    const 入力欄 = screen.getByLabelText('テスト送信する文言')
+    await userEvent.type(入力欄, 'こんばんは{Enter}')
+    // 1回目の送信が終わらないうちに、もう一度Enterを押す
+    await userEvent.type(入力欄, '{Enter}')
+
+    expect(api.sendMessage).toHaveBeenCalledTimes(1)
+    送信を終える()
+  })
+
   test('本文が空なら、Workerへ送らずに入力を促す', async () => {
     const api = 代役のAPI()
     render(<BotPage api={api} />)

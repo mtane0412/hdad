@@ -177,9 +177,10 @@ export const BotPage = ({ api }: BotPageProps) => {
                 value={message}
                 placeholder="配信を始めました"
                 onChange={(event) => setMessage(event.currentTarget.value)}
-                // IMEの変換確定のEnterで送信しないよう、変換中かどうかを確かめる
+                // IMEの変換確定のEnterで送信しないよう、変換中かどうかを確かめる。
+                // 送信中のEnterも受け付けない（ボタンと違い、入力欄は押せなくならないため二重に送られてしまう）
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter' && !event.nativeEvent.isComposing) void run(sendMessage)
+                  if (event.key === 'Enter' && !event.nativeEvent.isComposing && !busy) void run(sendMessage)
                 }}
               />
             </div>
