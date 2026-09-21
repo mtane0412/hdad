@@ -251,12 +251,38 @@ describe('別の端末での接続（デバイスコードフロー）', () => {
 })
 
 describe('コマンドの編集', () => {
-  test('保存済みのコマンドを入力欄に出す', async () => {
+  test('保存済みのコマンドを表の行として出す', async () => {
     render(<BotPage api={代役のAPI()} />)
 
     expect(await screen.findByDisplayValue('aisatsu')).toBeInTheDocument()
     expect(screen.getByDisplayValue('@{user} こんばんは')).toBeInTheDocument()
     expect(screen.getByDisplayValue('10')).toBeInTheDocument()
+    expect(screen.getByRole('table', { name: 'コマンドの一覧' })).toBeInTheDocument()
+  })
+
+  test('1つも登録していなければ、表を出さずに足すボタンだけを出す', async () => {
+    render(<BotPage api={代役のAPI({ commands: vi.fn(async () => []) })} />)
+
+    expect(await screen.findByRole('button', { name: 'コマンドを足す' })).toBeInTheDocument()
+    expect(screen.queryByRole('table', { name: 'コマンドの一覧' })).not.toBeInTheDocument()
+  })
+
+  test('変更していないあいだは、保存ボタンを出さない', async () => {
+    render(<BotPage api={代役のAPI()} />)
+    await screen.findByDisplayValue('aisatsu')
+
+    expect(screen.queryByRole('button', { name: 'コマンドを保存する' })).not.toBeInTheDocument()
+  })
+
+  test('入力を変えると保存ボタンが出て、保存すると消える', async () => {
+    render(<BotPage api={代役のAPI()} />)
+    await screen.findByDisplayValue('aisatsu')
+
+    await userEvent.type(screen.getByLabelText('1番目の応答文'), 'です')
+    await userEvent.click(await screen.findByRole('button', { name: 'コマンドを保存する' }))
+
+    expect(await お知らせ('保存しました')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'コマンドを保存する' })).not.toBeInTheDocument()
   })
 
   test('コマンドを足して保存すると、入力した値がWorkerへ送られる', async () => {
@@ -297,6 +323,7 @@ describe('コマンドの編集', () => {
     render(<BotPage api={api} />)
     await screen.findByDisplayValue('aisatsu')
 
+    await userEvent.type(screen.getByLabelText('1番目の応答文'), 'です')
     await userEvent.click(screen.getByRole('button', { name: 'コマンドを保存する' }))
 
     expect(screen.getByLabelText('1番目のコマンド名')).toBeDisabled()
@@ -315,6 +342,7 @@ describe('コマンドの編集', () => {
     render(<BotPage api={api} />)
     await screen.findByDisplayValue('aisatsu')
 
+    await userEvent.type(screen.getByLabelText('1番目の応答文'), 'です')
     await userEvent.click(screen.getByRole('button', { name: 'コマンドを保存する' }))
 
     // 入力欄のラベルにも「1番目のコマンド」が出るので、問題点の行そのものを探す

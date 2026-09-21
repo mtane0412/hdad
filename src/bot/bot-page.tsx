@@ -9,6 +9,7 @@
  * アプリ内の移動（Link）ではなく `<a>` を使う。
  * 注意: 失敗は黙って無視せず、理由を画面に出す（Fail-Fast）。状態を読めなかったときも未接続扱いにしない。
  */
+import { Plus, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import {
@@ -26,6 +27,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { ApiError } from '@/core/api'
 import type { BotApi, BotCommandItem, BotStatus, DeviceCode } from './api'
 import { describeProblem, toCommandInput, toDraft, type CommandDraft } from './form'
@@ -61,54 +63,69 @@ interface CommandRowProps {
   onRemove(): void
 }
 
+/**
+ * コマンド1件ぶんの行。
+ *
+ * 表の中に入力欄を置くため、見出しは列（TableHead）が受け持ち、各欄の名前は aria-label で与える。
+ * 見出しだけでは「何番目の行か」が分からないので、ラベルには位置を含める。
+ */
 const CommandRow = ({ position, draft, disabled, onChange, onRemove }: CommandRowProps) => {
-  const id = useId()
   const update = (patch: Partial<CommandDraft>): void => onChange({ ...draft, ...patch })
 
   return (
-    <li aria-label={`${position}番目のコマンド`} className="grid gap-4 rounded-lg border p-4 sm:grid-cols-2">
-      <div className="flex flex-col gap-2">
-        <Label htmlFor={`${id}-name`}>{position}番目のコマンド名</Label>
+    <TableRow>
+      <TableCell>
+        <div className="flex items-center gap-1">
+          <span aria-hidden="true" className="text-muted-foreground">
+            !
+          </span>
+          <Input
+            type="text"
+            aria-label={`${position}番目のコマンド名`}
+            value={draft.name}
+            placeholder="discord"
+            disabled={disabled}
+            onChange={(event) => update({ name: event.currentTarget.value })}
+          />
+        </div>
+      </TableCell>
+      <TableCell>
         <Input
-          id={`${id}-name`}
           type="text"
-          value={draft.name}
-          placeholder="discord"
-          disabled={disabled}
-          onChange={(event) => update({ name: event.currentTarget.value })}
-        />
-        <p className="text-xs text-muted-foreground">チャットでは「!{draft.name === '' ? 'コマンド名' : draft.name}」と入力します</p>
-      </div>
-      <div className="flex flex-col gap-2">
-        <Label htmlFor={`${id}-cooldown`}>{position}番目のクールダウン（秒）</Label>
-        <Input
-          id={`${id}-cooldown`}
-          type="number"
-          min={0}
-          max={MAX_COOLDOWN_SECONDS}
-          value={draft.cooldownSeconds}
-          disabled={disabled}
-          onChange={(event) => update({ cooldownSeconds: event.currentTarget.value })}
-        />
-        <p className="text-xs text-muted-foreground">この秒数のあいだは、続けて打たれても応答しません（0なら毎回応答）</p>
-      </div>
-      <div className="flex flex-col gap-2 sm:col-span-2">
-        <Label htmlFor={`${id}-reply`}>{position}番目の応答文</Label>
-        <Input
-          id={`${id}-reply`}
-          type="text"
+          aria-label={`${position}番目の応答文`}
           maxLength={MAX_MESSAGE_LENGTH}
           value={draft.reply}
           placeholder="@{user} こんばんは"
           disabled={disabled}
           onChange={(event) => update({ reply: event.currentTarget.value })}
         />
-        <p className="text-xs text-muted-foreground">使える差し込み語: {'{user}'}（発言した人のログイン名）</p>
-      </div>
-      <Button type="button" variant="ghost" size="sm" className="justify-self-start text-destructive" disabled={disabled} onClick={onRemove}>
-        {position}番目のコマンドを外す
-      </Button>
-    </li>
+      </TableCell>
+      <TableCell>
+        <Input
+          type="number"
+          aria-label={`${position}番目のクールダウン（秒）`}
+          className="w-24"
+          min={0}
+          max={MAX_COOLDOWN_SECONDS}
+          value={draft.cooldownSeconds}
+          disabled={disabled}
+          onChange={(event) => update({ cooldownSeconds: event.currentTarget.value })}
+        />
+      </TableCell>
+      <TableCell>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label={`${position}番目のコマンドを外す`}
+          className="text-destructive"
+          disabled={disabled}
+          onClick={onRemove}
+        >
+          <Trash2 aria-hidden="true" />
+        </Button>
+      </TableCell>
+    </TableRow>
   )
 }
 
@@ -126,6 +143,8 @@ export const BotPage = ({ api }: BotPageProps) => {
   // 別の端末での接続を待っている間に見せるコード。待っていなければ undefined
   const [deviceCode, setDeviceCode] = useState<DeviceCode>()
   const [drafts, setDrafts] = useState<readonly CommandDraft[]>([])
+  // 最後に保存（または読み込み）した内容。いまの入力と比べて、保存するものがあるかを決める
+  const [savedDrafts, setSavedDrafts] = useState<readonly CommandDraft[]>([])
   // 画面を離れた後に問い合わせを続けないための目印
   const leftRef = useRef(false)
   const messageFieldId = useId()
@@ -136,7 +155,9 @@ export const BotPage = ({ api }: BotPageProps) => {
     Promise.all([api.status(), api.commands()]).then(
       ([bot, commands]) => {
         if (cancelled) return
-        setDrafts(commands.map(toDraft))
+        const loadedDrafts = commands.map(toDraft)
+        setDrafts(loadedDrafts)
+        setSavedDrafts(loadedDrafts)
         setLoaded({ status: 'ready', bot })
       },
       (error: unknown) => {
@@ -166,6 +187,8 @@ export const BotPage = ({ api }: BotPageProps) => {
   }
 
   const { bot } = loaded
+  /** 保存していない変更があるか。入力の中身をそのまま見比べる（件数も並び順も含めて確かめたいため） */
+  const dirty = JSON.stringify(drafts) !== JSON.stringify(savedDrafts)
 
   /** 操作を実行し、終わったら結果を知らせる。実行中はボタンを押せなくして二重の送信を防ぐ */
   const run = async (action: () => Promise<string>): Promise<void> => {
@@ -194,7 +217,9 @@ export const BotPage = ({ api }: BotPageProps) => {
         throw new Error(`${index + 1}番目のコマンド: ${errorMessage(error)}`, { cause: error })
       }
     })
-    setDrafts((await api.saveCommands(inputs)).map(toDraft))
+    const saved = (await api.saveCommands(inputs)).map(toDraft)
+    setDrafts(saved)
+    setSavedDrafts(saved)
     return `コマンドを${inputs.length}件保存しました`
   }
 
@@ -341,32 +366,47 @@ export const BotPage = ({ api }: BotPageProps) => {
             チャットで「!コマンド名」と打たれたときに、botが送り返す文言です。登録するまでは何にも応答しません
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          {drafts.length === 0 ? (
-            <p className="text-sm text-muted-foreground">コマンドを1つも登録していません。</p>
-          ) : (
-            <ul aria-label="コマンドの一覧" className="flex flex-col gap-4">
-              {drafts.map((draft, index) => (
-                <CommandRow
-                  // 入力中は名前が空だったり重複したりするので、並び順を鍵にする
-                  key={index}
-                  position={index + 1}
-                  draft={draft}
-                  disabled={busy}
-                  onChange={(next) => setDrafts(drafts.map((current, at) => (at === index ? next : current)))}
-                  onRemove={() => setDrafts(drafts.filter((_, at) => at !== index))}
-                />
-              ))}
-            </ul>
+        <CardContent className="flex flex-col items-start gap-4">
+          {drafts.length > 0 && (
+            <Table aria-label="コマンドの一覧">
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-48">コマンド</TableHead>
+                  <TableHead>応答文</TableHead>
+                  <TableHead className="w-32">クールダウン（秒）</TableHead>
+                  {/* 行を外すボタンの列。見出しの文言は要らないが、列の名前は読み上げのために置く */}
+                  <TableHead className="w-12">
+                    <span className="sr-only">操作</span>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {drafts.map((draft, index) => (
+                  <CommandRow
+                    // 入力中は名前が空だったり重複したりするので、並び順を鍵にする
+                    key={index}
+                    position={index + 1}
+                    draft={draft}
+                    disabled={busy}
+                    onChange={(next) => setDrafts(drafts.map((current, at) => (at === index ? next : current)))}
+                    onRemove={() => setDrafts(drafts.filter((_, at) => at !== index))}
+                  />
+                ))}
+              </TableBody>
+            </Table>
           )}
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" disabled={busy} onClick={() => void run(addCommand)}>
-              コマンドを足す
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="outline" size="icon" aria-label="コマンドを足す" disabled={busy} onClick={() => void run(addCommand)}>
+              <Plus aria-hidden="true" />
             </Button>
-            <Button type="button" disabled={busy} onClick={() => void run(saveCommands)}>
-              コマンドを保存する
-            </Button>
+            {/* 保存するものが無いときにボタンを出さない。変更したときだけ出す */}
+            {dirty && (
+              <Button type="button" disabled={busy} onClick={() => void run(saveCommands)}>
+                コマンドを保存する
+              </Button>
+            )}
           </div>
+          {drafts.length > 0 && <p className="text-xs text-muted-foreground">応答文では {'{user}'} が発言した人のログイン名に置き換わります</p>}
         </CardContent>
       </Card>
 
