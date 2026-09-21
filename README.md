@@ -187,12 +187,12 @@ R2は無料枠（保存10GB・転送無料）だけを使う場合でも、デ�
 
 1. [Twitch開発者コンソール](https://dev.twitch.tv/console/apps)でアプリを登録し、OAuthのリダイレクトURLに `https://<公開先のドメイン>/api/auth/callback` を指定する（ローカルで試す場合は `http://localhost:5173/api/auth/callback`（`npm run dev`）と `http://localhost:8787/api/auth/callback`（`npm run preview:worker`）も追加する）
 2. `.dev.vars.example` にある4つのシークレット（`TWITCH_CLIENT_ID`・`TWITCH_CLIENT_SECRET`・`TWITCH_BROADCASTER_ID`・`SESSION_SECRET`）を、`npx wrangler secret put <名前>` またはダッシュボードの Settings > Variables and Secrets で設定する。ローカルでは `.dev.vars.example` を `.dev.vars` にコピーして値を入れ、`npm run dev` で起動する
-3. `https://<公開先のドメイン>/admin/` を開き、「Twitchでログイン」から配信者のアカウントでログインする。`TWITCH_BROADCASTER_ID` と異なるアカウントは拒否される。ログインを終えると管理画面に戻る
+3. `https://<公開先のドメイン>/` を開き、「Twitchでログイン」から配信者のアカウントでログインする。`TWITCH_BROADCASTER_ID` と異なるアカウントは拒否される。ログインを終えるとトップ（ダッシュボード）に戻る
 
 | API | 役割 |
 |---|---|
 | `GET /api/auth/login` | Twitchの認可ページへ送る |
-| `GET /api/auth/callback` | トークンを保管し、オーバーレイ用キーを発行（発行済みなら維持）して、セッションを開始し、管理画面（`/admin/`）へ送る |
+| `GET /api/auth/callback` | トークンを保管し、オーバーレイ用キーを発行（発行済みなら維持）して、セッションを開始し、トップ（`/`。ダッシュボード）へ送る |
 | `POST /api/auth/logout` | セッションを終える |
 | `GET /api/me` | ログイン中の配信者とオーバーレイ用キーを返す（要セッション） |
 | `POST /api/eventsub/subscriptions` | 本文 `{ "key": オーバーレイ用キー, "sessionId": EventSubのWebSocketのセッションID }` を受け取り、保管しているトークンで購読（チャンネルポイント交換・フォロー・サブスク・レイド）を登録する |
