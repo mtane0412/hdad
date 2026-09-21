@@ -74,8 +74,8 @@ export const recordLiveStream = async (db: Database, stream: LiveStream, now: nu
          ON CONFLICT (id) DO UPDATE SET ended_at = NULL, title = excluded.title, category_name = excluded.category_name`,
       )
       .bind(stream.id, stream.startedAt, stream.title, stream.categoryName),
-    // 終了を見届けられなかった前の配信を閉じる
-    db.prepare('UPDATE stream_sessions SET ended_at = ?1 WHERE ended_at IS NULL AND id <> ?2').bind(sampledAt, stream.id),
+    // 終了を見届けられなかった前の配信を閉じる。遅くとも新しい配信が始まるまでには終わっているので、その開始時刻を使う
+    db.prepare('UPDATE stream_sessions SET ended_at = ?1 WHERE ended_at IS NULL AND id <> ?2').bind(stream.startedAt, stream.id),
     // 同じ時刻の実行が重なっても二重に記録しない
     db
       .prepare('INSERT INTO viewer_samples (session_id, sampled_at, viewer_count) VALUES (?1, ?2, ?3) ON CONFLICT DO NOTHING')

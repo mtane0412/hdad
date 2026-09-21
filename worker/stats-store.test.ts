@@ -60,12 +60,13 @@ describe('recordLiveStream', () => {
     ])
   })
 
-  it('別の配信が始まっていたら、開いたままの前のセッションを閉じる', async () => {
+  it('別の配信が始まっていたら、開いたままの前のセッションを、新しい配信の開始時刻で閉じる', async () => {
     const db = createFakeDatabase()
     await recordLiveStream(db, 雑談配信, 時刻('2026-09-21T12:05:00Z'))
     await recordLiveStream(db, { ...雑談配信, id: '40000000002', startedAt: '2026-09-21T15:00:00.000Z' }, 時刻('2026-09-21T15:05:00Z'))
 
-    expect((await getSession(db, '40000000001'))?.endedAt).toBe('2026-09-21T15:05:00.000Z')
+    // 前の配信は、遅くとも新しい配信が始まるまでには終わっている
+    expect((await getSession(db, '40000000001'))?.endedAt).toBe('2026-09-21T15:00:00.000Z')
     expect((await getSession(db, '40000000002'))?.endedAt).toBeNull()
   })
 
