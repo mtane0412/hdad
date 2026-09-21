@@ -199,12 +199,17 @@ const toReplyParent = (tags: IrcMessage['tags']): ReplyParent | undefined => {
  * 返信の本文の先頭にTwitchが付ける「@返信先 」を落とす。
  * 返信元は引用行として別に出すため、本文に残すと同じ名前が二度出てしまう。
  *
- * 注意: エモートの位置指定は元の本文を基準にしているため、断片に分けたあとで落とす。
+ * 注意:
+ * - エモートの位置指定は元の本文を基準にしているため、断片に分けたあとで落とす
+ * - 表示名が日本語などでログイン名と違う場合、Twitchは表示名ではなくログイン名を付けることがあるため、両方を試す
+ *
+ * @param names 返信先の呼び名の候補（表示名とログイン名）
  */
-const stripReplyMention = (fragments: readonly Fragment[], displayName: string): readonly Fragment[] => {
-  const mention = `@${displayName} `
+const stripReplyMention = (fragments: readonly Fragment[], names: readonly string[]): readonly Fragment[] => {
   const [first, ...rest] = fragments
-  if (first === undefined || first.type !== 'text' || !first.text.startsWith(mention)) return fragments
+  if (first === undefined || first.type !== 'text') return fragments
+  const mention = names.filter((name) => name !== '').map((name) => `@${name} `).find((candidate) => first.text.startsWith(candidate))
+  if (mention === undefined) return fragments
   const remainder = first.text.slice(mention.length)
   return remainder === '' ? rest : [{ type: 'text', text: remainder }, ...rest]
 }
@@ -235,7 +240,10 @@ export const toChatMessage = (irc: IrcMessage): ChatMessage => {
     displayName: tags['display-name'] || login,
     color: HEX_COLOR.test(color) ? color.toLowerCase() : defaultColorOf(login),
     badges: parseBadges(tags.badges ?? ''),
-    fragments: reply === undefined ? fragments : stripReplyMention(fragments, reply.displayName),
+    fragments:
+      reply === undefined
+        ? fragments
+        : stripReplyMention(fragments, [reply.displayName, tags['reply-parent-user-login'] ?? '']),
     action,
     sentAt: toNumberTag(tags['tmi-sent-ts'], 'tmi-sent-ts'),
     firstMessage: tags['first-msg'] === '1',

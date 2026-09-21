@@ -113,6 +113,28 @@ describe('GET /api/chat/badges', () => {
     expect(response.headers.get('Cache-Control')).toContain('public')
   })
 
+  it('KVに貯めた内容が壊れていたら、取り直して上書きする（500で落とさない）', async () => {
+    const { env, store } = 環境を作る()
+    await store.put(`chat-badges:${配信者のID}`, 'これはJSONではありません')
+    const { fetchImpl } = Twitchの代役()
+    const response = await 取得する(env, `/api/chat/badges?broadcaster=${配信者のID}`, fetchImpl)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toHaveProperty('badges')
+  })
+
+  it('この配信者以外のIDは、Twitchへ問い合わせる前に 403 で断る（キーの要らない経路から、他人のIDで呼ばせない）', async () => {
+    const { env, store } = 環境を作る()
+    const { urls, fetchImpl } = Twitchの代役()
+    const response = await 取得する(env, '/api/chat/badges?broadcaster=99999', fetchImpl)
+
+    expect(response.status).toBe(403)
+    expect(await response.json()).toMatchObject({ error: { code: 'unsupported-broadcaster' } })
+    expect(urls).toEqual([])
+    // KVに知らないIDの項目を作らせない
+    expect([...store.entries.keys()]).toEqual([])
+  })
+
   it('broadcaster の指定が無ければ、400 で断る（黙って全体のバッジだけ返さない）', async () => {
     const { env } = 環境を作る()
     const { fetchImpl } = Twitchの代役()

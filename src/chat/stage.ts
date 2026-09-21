@@ -86,7 +86,10 @@ const start = (): void => {
           view.add({
             ...event.message,
             // Cheermote を先に取り出してから、残った文字をエモートとして置き換える
-            fragments: applyEmotes(applyCheermotes(event.message.fragments, cheermotes), thirdPartyEmotes),
+            fragments: applyEmotes(
+              applyCheermotes(event.message.fragments, cheermotes, event.message.bits),
+              thirdPartyEmotes,
+            ),
           })
           break
         case 'clear-user':

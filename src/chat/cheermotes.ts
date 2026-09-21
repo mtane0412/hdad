@@ -71,10 +71,13 @@ const toCheerFragment = (token: string, cheermotes: CheermoteMap): Fragment | un
 /**
  * 本文中の「接頭辞＋ビッツ数」の単語を、Cheermote の断片に置き換える。
  * 公式エモート・サードパーティエモートの断片には手を付けない。
+ *
+ * @param bits この書き込みに付いていたビッツ数。0 なら Cheer ではないので置き換えない
+ *   （ビッツを使わずに「cheer100」と書いただけの発言を、絵にしてしまわないため）
  */
-export const applyCheermotes = (fragments: readonly Fragment[], cheermotes: CheermoteMap): Fragment[] =>
+export const applyCheermotes = (fragments: readonly Fragment[], cheermotes: CheermoteMap, bits: number): Fragment[] =>
   fragments.flatMap((fragment): Fragment[] => {
-    if (fragment.type !== 'text' || cheermotes.size === 0) return [fragment]
+    if (fragment.type !== 'text' || cheermotes.size === 0 || bits <= 0) return [fragment]
     const result: Fragment[] = []
     let pendingText = ''
     // 空白も要素として残る形で分割し、置き換えなかった部分は元の空白ごと1つの文字断片に戻す

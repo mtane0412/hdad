@@ -155,6 +155,18 @@ describe('toChatMessage（Twitchが送ってくる付帯情報）', () => {
     expect(message.fragments).toEqual([{ type: 'text', text: 'そうですね' }])
   })
 
+  it('返信先の表示名が日本語などで、本文の先頭にログイン名が付いている場合も、その「@返信先 」を落とす', () => {
+    const message = toChatMessage(
+      書き込み('@hanako_ch そうですね', {
+        'reply-parent-display-name': 'はなこ',
+        'reply-parent-user-login': 'hanako_ch',
+        'reply-parent-msg-body': 'きょうは暑いですね',
+        'reply-parent-msg-id': 'メッセージID-0',
+      }),
+    )
+    expect(message.fragments).toEqual([{ type: 'text', text: 'そうですね' }])
+  })
+
   it('返信でなければ reply は undefined にする', () => {
     expect(toChatMessage(書き込み('ふつうの書き込み')).reply).toBeUndefined()
   })
