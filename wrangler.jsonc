@@ -1,18 +1,24 @@
 /**
  * Cloudflare Workers の設定
  *
- * Viteのビルド出力（dist/）を Workers 静的アセットとして配信する。
- * Workerのコード（main）はまだ持たず、静的アセットだけをデプロイする。
+ * Viteのビルド出力（dist/）を Workers 静的アセットとして配信し、/api/* だけを Worker のコード（worker/index.ts）で処理する。
  * 素材ページは <カテゴリ>/<id>/index.html の形で、相対パスでアセットを参照するため、
  * 末尾スラッシュなしのURLは html_handling によって末尾スラッシュ付きへリダイレクトさせる。
+ *
+ * STORE（KV）にはTwitchのトークンとオーバーレイ用キーを保存する。id を書いていないのは、
+ * デプロイ時に wrangler が名前空間を自動で作成して結び付けるため（フォークした人が自分のIDへ書き換えずに済む）。
+ * シークレット（TWITCH_CLIENT_ID など）の一覧は .dev.vars.example を参照。
  */
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "stream-assets",
+  "main": "./worker/index.ts",
   "compatibility_date": "2026-09-01",
   "assets": {
     "directory": "./dist",
     "html_handling": "auto-trailing-slash",
-    "not_found_handling": "none"
-  }
+    "not_found_handling": "none",
+    "run_worker_first": ["/api/*"]
+  },
+  "kv_namespaces": [{ "binding": "STORE" }]
 }
