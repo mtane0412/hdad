@@ -10,12 +10,15 @@ import type { AdminApi, Me } from '@/admin/api'
 import { chats } from '@/chat/registry'
 import { clocks } from '@/clock/registry'
 import { Gallery } from '@/core/gallery/gallery'
+import type { StatsApi } from '@/stats/api'
+import { StatsPage } from '@/stats/stats-page'
 import { backgrounds } from '@/wallpaper/registry'
-import { Dashboard } from './dashboard'
 
 /** ページが中身を描くのに使うもの */
 export interface PageContext {
   api: AdminApi
+  /** 配信の記録の読み出し（ダッシュボードが使う） */
+  statsApi: StatsApi
   me: Me
   /** オーバーレイ用キーを再発行した。ほかのページから戻ってきても新しいキーを出せるよう、枠が持つログイン情報を書き換える */
   onOverlayKeyChange(overlayKey: string): void
@@ -32,7 +35,7 @@ export interface Page {
 
 /** サイドバーの項目。上から順に並ぶ */
 export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] = [
-  { label: '配信', pages: [{ path: '/', name: 'ダッシュボード', icon: LayoutDashboard, render: () => <Dashboard /> }] },
+  { label: '配信', pages: [{ path: '/', name: 'ダッシュボード', icon: LayoutDashboard, render: ({ statsApi }) => <StatsPage api={statsApi} /> }] },
   {
     label: '素材',
     pages: [

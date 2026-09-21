@@ -12,6 +12,7 @@
 import { LogOut } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { AdminApi, Me } from '@/admin/api'
+import type { StatsApi } from '@/stats/api'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { buttonVariants } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -140,7 +141,7 @@ const Shell = ({ context, onLogout }: { context: PageContext; onLogout: () => vo
   )
 }
 
-export const App = ({ api }: { api: AdminApi }) => {
+export const App = ({ api, statsApi }: { api: AdminApi; statsApi: StatsApi }) => {
   const [session, setSession] = useState<Session>({ status: 'checking' })
 
   useEffect(() => {
@@ -188,6 +189,7 @@ export const App = ({ api }: { api: AdminApi }) => {
         <Shell
           context={{
             api,
+            statsApi,
             me: session.me,
             onOverlayKeyChange: (overlayKey) => setSession({ status: 'signed-in', me: { ...session.me, overlayKey } }),
           }}

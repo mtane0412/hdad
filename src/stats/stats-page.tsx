@@ -1,0 +1,298 @@
+/**
+ * ダッシュボード（配信の記録）
+ *
+ * ログイン後に最初に出す画面。Workerが貯めた記録（/api/admin/stats/*）を読み、
+ * 期間の概要・フォロワー数の推移・配信の一覧を出す。配信を選ぶと、その配信の視聴者数の推移を読み込んで一覧の中に出す。
+ * 集計と整形は summary.ts、Workerの呼び出しは api.ts に任せ、ここは表示だけを受け持つ。
+ *
+ * 注意: 読み込みに失敗したら、記録が無いように見せず理由を出す（Fail-Fast）。
+ * 日時は配信者のブラウザのタイムゾーンで出す。グラフの色はテーマのトークン（--chart-2）を使い、明暗のどちらでも読める中間の濃さにする。
+ */
+import { useEffect, useState } from 'react'
+import { CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import type { FollowerSample, SessionDetail, SessionSummary, StatsApi } from './api'
+import {
+  eventTotals,
+  followerPoints,
+  formatCount,
+  formatDateTime,
+  formatDelta,
+  formatDuration,
+  formatShortTime,
+  PERIOD_DAYS,
+  sessionDurationMs,
+  summarize,
+  viewerPoints,
+  withinPeriod,
+} from './summary'
+
+/** 最初に出す期間（日数） */
+const DEFAULT_PERIOD_DAYS = 30
+/** 一覧の列の数。配信を選んだときに出す推移のグラフを、一覧の幅いっぱいに広げるのに使う */
+const COLUMN_COUNT = 10
+
+const VIEWER_CHART: ChartConfig = { viewers: { label: '視聴者数', color: 'var(--chart-2)' } }
+const FOLLOWER_CHART: ChartConfig = { followers: { label: 'フォロワー数', color: 'var(--chart-2)' } }
+
+const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error))
+
+/** 読み込んだ記録。失敗したら理由を持つ */
+type Loaded =
+  | { status: 'loading' }
+  | { status: 'ready'; sessions: readonly SessionSummary[]; followers: readonly FollowerSample[] }
+  | { status: 'failed'; message: string }
+
+/** 選んだ配信の視聴者数の推移 */
+type Selected = { id: string; state: { status: 'loading' } | { status: 'ready'; detail: SessionDetail } | { status: 'failed'; message: string } }
+
+/** 概要の数値をひとつ出す枠 */
+const StatCard = ({ label, value, note }: { label: string; value: string; note?: string }) => (
+  <Card role="group" aria-label={label} className="gap-2 py-4">
+    <CardHeader className="px-4">
+      <CardDescription>{label}</CardDescription>
+    </CardHeader>
+    <CardContent className="flex items-baseline gap-2 px-4">
+      <strong className="text-2xl font-semibold tabular-nums">{value}</strong>
+      {note !== undefined && <span className="text-sm text-muted-foreground tabular-nums">{note}</span>}
+    </CardContent>
+  </Card>
+)
+
+/** 時系列の折れ線グラフ。横軸は時刻（ミリ秒）で、目盛りはブラウザのタイムゾーンで出す */
+const TimeChart = <Point extends { at: number }>({
+  label,
+  config,
+  dataKey,
+  points,
+}: {
+  /** グラフ全体の説明（読み上げに使う） */
+  label: string
+  config: ChartConfig
+  dataKey: string
+  points: readonly Point[]
+}) => (
+  // グラフの中身（SVG）は読み上げても意味が通らないので、ひとつの図として説明だけを読ませる
+  <ChartContainer role="img" aria-label={label} config={config} className="aspect-auto h-56 w-full">
+    <LineChart data={[...points]} margin={{ left: 8, right: 8, top: 8, bottom: 8 }}>
+      <CartesianGrid vertical={false} />
+      <XAxis dataKey="at" type="number" domain={['dataMin', 'dataMax']} scale="time" tickFormatter={formatShortTime} tickMargin={8} minTickGap={32} />
+      <YAxis width={40} allowDecimals={false} tickMargin={8} />
+      <ChartTooltip content={<ChartTooltipContent labelFormatter={(_, payload) => formatShortTime(Number(payload[0]?.payload.at))} />} />
+      <Line dataKey={dataKey} type="monotone" stroke={`var(--color-${dataKey})`} strokeWidth={2} dot={false} isAnimationActive={false} />
+    </LineChart>
+  </ChartContainer>
+)
+
+/** 配信の一覧の1行と、選ばれていればその配信の視聴者数の推移 */
+const SessionRow = ({ session, now, selected, onSelect }: { session: SessionSummary; now: number; selected?: Selected; onSelect(): void }) => {
+  const totals = eventTotals(session)
+  const 選ばれている = selected?.id === session.id
+
+  return (
+    <>
+      <TableRow>
+        <TableCell className="whitespace-nowrap tabular-nums">{formatDateTime(session.startedAt)}</TableCell>
+        <TableCell className="whitespace-nowrap tabular-nums">{session.endedAt === null ? '配信中' : formatDuration(sessionDurationMs(session, now))}</TableCell>
+        <TableCell className="max-w-64 truncate">{session.title === '' ? '（タイトルの記録なし）' : session.title}</TableCell>
+        <TableCell className="max-w-48 truncate">{session.categoryName}</TableCell>
+        <TableCell className="text-right tabular-nums">{formatCount(session.averageViewers)}</TableCell>
+        <TableCell className="text-right tabular-nums">{formatCount(session.peakViewers)}</TableCell>
+        <TableCell className="text-right tabular-nums">{formatDelta(session.followerDelta)}</TableCell>
+        <TableCell className="text-right tabular-nums">{totals.subscriptions}</TableCell>
+        <TableCell className="text-right tabular-nums">{totals.redemptions}</TableCell>
+        <TableCell className="text-right tabular-nums">{totals.raids}</TableCell>
+        <TableCell className="text-right">
+          {/* 画面には短く出し、どの配信のボタンかは読み上げ用の名前（aria-label）で伝える */}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            aria-expanded={選ばれている}
+            aria-label={選ばれている ? `${session.title} の視聴者数の推移を閉じる` : `${session.title} の視聴者数の推移を見る`}
+            onClick={onSelect}
+          >
+            {選ばれている ? '閉じる' : '見る'}
+          </Button>
+        </TableCell>
+      </TableRow>
+      {選ばれている && selected && (
+        <TableRow>
+          <TableCell colSpan={COLUMN_COUNT + 1}>
+            {selected.state.status === 'loading' && <Skeleton className="h-56 w-full" aria-label={`${session.title} の視聴者数の推移を読み込んでいます`} />}
+            {selected.state.status === 'failed' && (
+              <Alert variant="destructive">
+                <AlertTitle>視聴者数の推移を読み込めませんでした</AlertTitle>
+                <AlertDescription>{selected.state.message}</AlertDescription>
+              </Alert>
+            )}
+            {selected.state.status === 'ready' &&
+              (selected.state.detail.samples.length === 0 ? (
+                <p className="text-sm text-muted-foreground">この配信には視聴者数の記録がありません。</p>
+              ) : (
+                <TimeChart
+                  label={`${session.title} の視聴者数の推移`}
+                  config={VIEWER_CHART}
+                  dataKey="viewers"
+                  points={viewerPoints(selected.state.detail.samples)}
+                />
+              ))}
+          </TableCell>
+        </TableRow>
+      )}
+    </>
+  )
+}
+
+export interface StatsPageProps {
+  api: StatsApi
+  /** 現在時刻（ミリ秒）。テストで固定するために受け取る。省略したら画面を開いた時刻 */
+  now?: number
+}
+
+export const StatsPage = ({ api, now }: StatsPageProps) => {
+  // 期間の境目が描き直しのたびにずれないよう、画面を開いた時刻を持ち続ける
+  const [currentTime] = useState(() => now ?? Date.now())
+  const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' })
+  const [days, setDays] = useState(DEFAULT_PERIOD_DAYS)
+  const [selected, setSelected] = useState<Selected>()
+
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([api.sessions(), api.followers()]).then(
+      ([sessions, followers]) => {
+        if (!cancelled) setLoaded({ status: 'ready', sessions, followers })
+      },
+      (error: unknown) => {
+        if (!cancelled) setLoaded({ status: 'failed', message: errorMessage(error) })
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [api])
+
+  if (loaded.status === 'loading') return <Skeleton className="h-64 w-full" aria-label="配信の記録を読み込んでいます" />
+  if (loaded.status === 'failed') {
+    return (
+      <Alert variant="destructive">
+        <AlertTitle>配信の記録を読み込めませんでした</AlertTitle>
+        <AlertDescription>{loaded.message}</AlertDescription>
+      </Alert>
+    )
+  }
+
+  /** 配信を選ぶ（もう一度選んだら閉じる）。推移はそのつど読み込む */
+  const select = (session: SessionSummary): void => {
+    if (selected?.id === session.id) {
+      setSelected(undefined)
+      return
+    }
+    setSelected({ id: session.id, state: { status: 'loading' } })
+    api.session(session.id).then(
+      (detail) => setSelected((current) => (current?.id === session.id ? { id: session.id, state: { status: 'ready', detail } } : current)),
+      (error: unknown) =>
+        setSelected((current) => (current?.id === session.id ? { id: session.id, state: { status: 'failed', message: errorMessage(error) } } : current)),
+    )
+  }
+
+  const { sessions, followers } = loaded
+  if (sessions.length === 0 && followers.length === 0) {
+    return (
+      <div className="flex flex-col gap-2">
+        <p className="font-medium">まだ配信の記録がありません</p>
+        <p className="text-sm text-muted-foreground">配信を始めると記録が貯まり、ここに視聴者数やフォロワー数の推移が出ます。</p>
+      </div>
+    )
+  }
+
+  const overview = summarize(sessions, followers, days, currentTime)
+  const 期間内の配信 = withinPeriod(sessions, days, currentTime)
+  const フォロワーの推移 = followerPoints(followers, days, currentTime)
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm text-muted-foreground">期間</span>
+        {PERIOD_DAYS.map((period) => (
+          <Button
+            key={period}
+            type="button"
+            size="sm"
+            variant={period === days ? 'default' : 'outline'}
+            aria-pressed={period === days}
+            onClick={() => setDays(period)}
+          >
+            {period}日
+          </Button>
+        ))}
+      </div>
+
+      <section aria-labelledby="overview-heading" className="flex flex-col gap-3">
+        <h2 id="overview-heading" className="text-lg font-semibold">
+          直近{days}日の概要
+        </h2>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <StatCard label="配信回数" value={`${overview.streamCount}回`} />
+          <StatCard label="配信時間" value={formatDuration(overview.totalDurationMs)} />
+          <StatCard label="平均視聴者数" value={formatCount(overview.averageViewers)} note="人" />
+          <StatCard label="最大視聴者数" value={formatCount(overview.peakViewers)} note="人" />
+          <StatCard label="フォロワー数" value={formatCount(overview.followerTotal)} note={formatDelta(overview.followerDelta)} />
+        </div>
+      </section>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>フォロワー数の推移</CardTitle>
+          <CardDescription>フォロワー数が変わった時点だけを記録しているため、変化のない間は横ばいの線になる。</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {フォロワーの推移.length === 0 ? (
+            <p className="text-sm text-muted-foreground">この期間のフォロワー数の記録がありません。</p>
+          ) : (
+            <TimeChart label={`直近${days}日のフォロワー数の推移`} config={FOLLOWER_CHART} dataKey="followers" points={フォロワーの推移} />
+          )}
+        </CardContent>
+      </Card>
+
+      <section aria-labelledby="sessions-heading" className="flex flex-col gap-3">
+        <h2 id="sessions-heading" className="text-lg font-semibold">
+          配信の一覧
+        </h2>
+        {期間内の配信.length === 0 ? (
+          <p className="text-sm text-muted-foreground">この期間に始まった配信はありません。</p>
+        ) : (
+          <div className="overflow-x-auto rounded-lg border">
+            <Table aria-label="配信の一覧">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>開始日時</TableHead>
+                  <TableHead>長さ</TableHead>
+                  <TableHead>タイトル</TableHead>
+                  <TableHead>カテゴリ</TableHead>
+                  <TableHead className="text-right">平均視聴者数</TableHead>
+                  <TableHead className="text-right">最大視聴者数</TableHead>
+                  <TableHead className="text-right">フォロワー増減</TableHead>
+                  <TableHead className="text-right">サブスク</TableHead>
+                  <TableHead className="text-right">ポイント交換</TableHead>
+                  <TableHead className="text-right">レイド</TableHead>
+                  <TableHead className="text-right">視聴者数の推移</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {期間内の配信.map((session) => (
+                  <SessionRow key={session.id} session={session} now={currentTime} selected={selected} onSelect={() => select(session)} />
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </section>
+    </div>
+  )
+}
