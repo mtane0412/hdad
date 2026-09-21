@@ -4,7 +4,7 @@
  * 配信者のセッションが必要。アラートの設定の取得と保存、素材の一覧・アップロード・削除、オーバーレイ用キーの再発行、
  * トリガーの設定で選ぶチャンネルポイント報酬の一覧を受け持つ。
  */
-import { loadAlertConfig, parseAlertConfig, saveAlertConfig } from './alert-config'
+import { alertActionOf, loadAlertConfig, parseAlertConfig, saveAlertConfig } from './alert-config'
 import { HttpError, STATUS, requireAdmin, type Context } from './http'
 import { listMedia, uploadMedia } from './media'
 import { rotateOverlayKey } from './overlay-key'
@@ -54,7 +54,7 @@ export const deleteMedia = async (context: Context): Promise<Response> => {
 
   if ((await env.MEDIA.head(id)) === null) throw new HttpError(STATUS.notFound, 'media-not-found', `素材「${id}」が存在しません`)
   const { triggers } = await loadAlertConfig(env.STORE)
-  if (triggers.some((trigger) => trigger.mediaId === id)) {
+  if (triggers.some((trigger) => alertActionOf(trigger)?.mediaId === id)) {
     throw new HttpError(STATUS.conflict, 'media-in-use', 'この素材はトリガーに使われています。先にトリガーの設定から外してください')
   }
 

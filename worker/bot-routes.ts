@@ -12,11 +12,12 @@
  * 注意: botのトークンは応答に含めない。管理画面に返すのは、接続しているアカウントの見分けがつく情報
  * （ログイン名・ユーザーID）と、接続し直しが要るかを判断するための不足スコープだけにする。
  */
+import { sendAsBot } from './bot-chat'
 import { loadBotConfig, parseBotConfig, saveBotConfig } from './bot-config'
 import { BOT_SCOPES } from './eventsub'
 import { syncWebhookSubscriptions } from './eventsub-webhook'
 import { HttpError, STATUS, requireAdmin, type Context } from './http'
-import { deleteToken, getAccessToken, loadToken, saveToken, type StoredToken } from './token'
+import { deleteToken, loadToken, saveToken, type StoredToken } from './token'
 
 /** Twitchが決めているチャット本文の上限（文字） */
 const MAX_MESSAGE_LENGTH = 500
@@ -73,15 +74,9 @@ export const deleteBot = async (context: Context): Promise<Response> => {
  */
 export const postBotMessage = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
-  const { request, env, twitch, now } = context
-  const message = await readMessage(request)
+  const message = await readMessage(context.request)
 
-  const token = await getAccessToken(env.STORE, 'bot', twitch, now)
-  await twitch.sendChatMessage(token.accessToken, {
-    broadcasterId: env.TWITCH_BROADCASTER_ID,
-    senderId: token.userId,
-    message,
-  })
+  await sendAsBot(context, message)
   return new Response(null, { status: STATUS.noContent })
 }
 

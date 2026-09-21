@@ -9,7 +9,7 @@
  *
  * 注意: 値の範囲（表示時間は1〜60秒など）の検証はWorkerが行い、問題点をまとめて返す。ここでは数として読めるかだけを確かめる。
  */
-import { ALERT_EVENTS, type AlertEvent, type Reward, type StoredTrigger, type TriggerInput } from './api'
+import { ALERT_EVENTS, type ActionInput, type AlertEvent, type Reward, type StoredTrigger, type TriggerInput } from './api'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const ALERTS_PATH = '/alerts/'
@@ -17,17 +17,29 @@ const PERCENT = 100
 const BYTES_PER_UNIT = 1024
 /** 「すべての報酬」を表す選択肢の値（保存時は null になる） */
 const ANY_REWARD = ''
+/** 新しく足したトリガーと、アラートを外したトリガーの表示時間の既定値（秒） */
+const DEFAULT_DURATION_SECONDS = 5
 
-/** トリガー1件分の入力欄の値 */
+/**
+ * トリガー1件分の入力欄の値
+ *
+ * 動作（アラートを出す・チャットに送る）は、保存する形では配列だが、入力欄では種類ごとに決まった欄を出すほうが分かりやすいため、
+ * 「行うかどうか」（alertEnabled・chatEnabled）と、それぞれの欄を平坦に持つ。外した動作の入力欄の値は保存時に送らない。
+ */
 export interface TriggerDraft {
   event: AlertEvent
   /** 空文字はすべての報酬。チャンネルポイント交換以外では使わない */
   rewardId: string
+  /** オーバーレイに素材を出すか */
+  alertEnabled: boolean
   mediaId: string
   durationSeconds: string
   /** 0〜100 */
   volumePercent: string
   message: string
+  /** botとしてチャットへ送るか */
+  chatEnabled: boolean
+  chatMessage: string
 }
 
 export interface SelectOption {
@@ -70,30 +82,66 @@ const toNumber = (text: string, label: string): number => {
 }
 
 /**
+ * 入力欄の値を、Workerへ送る動作の一覧にする。外した動作の入力欄の値は送らない（外したのに保存されるのを防ぐ）。
+ *
+ * @throws 表示時間・音量が数として読めない場合（アラートを出すときだけ確かめる）
+ */
+const toActions = (draft: TriggerDraft): ActionInput[] => {
+  const actions: ActionInput[] = []
+  if (draft.alertEnabled) {
+    actions.push({
+      type: 'alert',
+      mediaId: draft.mediaId,
+      durationSeconds: toNumber(draft.durationSeconds, '表示時間'),
+      volume: toNumber(draft.volumePercent, '音量') / PERCENT,
+      message: draft.message,
+    })
+  }
+  if (draft.chatEnabled) actions.push({ type: 'chat', message: draft.chatMessage })
+  return actions
+}
+
+/**
  * 入力欄の値を、Workerへ送る形にする。報酬IDはチャンネルポイント交換のときだけ送る。
+ *
+ * 動作が1件もない場合も、そのまま送ってWorkerに問題点を返させる（画面とWorkerで検証を二重に持たないため）。
  *
  * @throws 表示時間・音量が数として読めない場合
  */
 export const toTriggerInput = (draft: TriggerDraft): TriggerInput => {
-  const appearance = {
-    mediaId: draft.mediaId,
-    durationSeconds: toNumber(draft.durationSeconds, '表示時間'),
-    volume: toNumber(draft.volumePercent, '音量') / PERCENT,
-    message: draft.message,
-  }
-  if (draft.event === REDEMPTION) return { event: draft.event, rewardId: draft.rewardId === ANY_REWARD ? null : draft.rewardId, ...appearance }
-  return { event: draft.event, ...appearance }
+  const actions = toActions(draft)
+  if (draft.event === REDEMPTION) return { event: draft.event, rewardId: draft.rewardId === ANY_REWARD ? null : draft.rewardId, actions }
+  return { event: draft.event, actions }
 }
 
-/** 保存済みのトリガーを入力欄の値に戻す。報酬IDを持たないイベントは「すべての報酬」（空文字）にしておく */
-export const toDraft = (trigger: StoredTrigger): TriggerDraft => ({
-  event: trigger.event,
-  rewardId: trigger.event === REDEMPTION ? (trigger.rewardId ?? ANY_REWARD) : ANY_REWARD,
-  mediaId: trigger.mediaId,
-  durationSeconds: String(trigger.durationSeconds),
-  volumePercent: String(Math.round(trigger.volume * PERCENT)),
-  message: trigger.message,
-})
+/** 動作を外したときに入力欄へ残しておく既定値（画面で入れ直さずに済むように、形だけは保つ） */
+const DEFAULT_ALERT_DRAFT = { mediaId: '', durationSeconds: String(DEFAULT_DURATION_SECONDS), volumePercent: String(PERCENT), message: '' }
+
+/**
+ * 保存済みのトリガーを入力欄の値に戻す。
+ *
+ * 報酬IDを持たないイベントは「すべての報酬」（空文字）にしておく。持っていない動作の欄は既定値で埋め、行わない印を付ける。
+ */
+export const toDraft = (trigger: StoredTrigger): TriggerDraft => {
+  const alert = trigger.actions.find((action) => action.type === 'alert')
+  const chat = trigger.actions.find((action) => action.type === 'chat')
+
+  return {
+    event: trigger.event,
+    rewardId: trigger.event === REDEMPTION ? (trigger.rewardId ?? ANY_REWARD) : ANY_REWARD,
+    alertEnabled: alert !== undefined,
+    ...(alert === undefined
+      ? DEFAULT_ALERT_DRAFT
+      : {
+          mediaId: alert.mediaId,
+          durationSeconds: String(alert.durationSeconds),
+          volumePercent: String(Math.round(alert.volume * PERCENT)),
+          message: alert.message,
+        }),
+    chatEnabled: chat !== undefined,
+    chatMessage: chat?.message ?? '',
+  }
+}
 
 /**
  * 報酬の選択肢を作る。
@@ -113,9 +161,12 @@ export const formatBytes = (size: number): string => {
   return `${(size / BYTES_PER_UNIT ** 2).toFixed(1)} MB`
 }
 
-/** Workerが問題点の先頭に付ける位置（triggers[0]. の形。番号は0始まり） */
-const PROBLEM_POSITION = /^triggers\[(\d+)\]\./
+/** Workerが問題点の先頭に付ける位置（triggers[0]. や triggers[0].actions[1]. の形。番号は0始まり） */
+const PROBLEM_POSITION = /^triggers\[(\d+)\]\.(?:actions\[(\d+)\]\.)?/
 
 /** Workerが返した問題点の位置を、画面に振ってある番号（1始まり）に読み替える */
 export const describeProblem = (problem: string): string =>
-  problem.replace(PROBLEM_POSITION, (_, index: string) => `${Number(index) + 1}番目のトリガーの `)
+  problem.replace(PROBLEM_POSITION, (_, trigger: string, action: string | undefined) => {
+    const position = `${Number(trigger) + 1}番目のトリガーの `
+    return action === undefined ? position : `${position}${Number(action) + 1}つ目の動作の `
+  })

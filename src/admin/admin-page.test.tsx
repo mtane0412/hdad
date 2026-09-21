@@ -24,11 +24,7 @@ const 拍手の報酬: Reward = { id: 'reward-hakushu', title: '拍手を送る'
 const 拍手のトリガー: StoredTrigger = {
   event: REDEMPTION,
   rewardId: 'reward-hakushu',
-  mediaId: 'media-hakushu',
-  mediaKind: 'video',
-  durationSeconds: 8,
-  volume: 0.5,
-  message: '{user} さんが拍手を送りました',
+  actions: [{ type: 'alert', mediaId: 'media-hakushu', mediaKind: 'video', durationSeconds: 8, volume: 0.5, message: '{user} さんが拍手を送りました' }],
 }
 
 /** 素材2つ・報酬1つ・トリガー1つが保存されている状態のWorkerの代役 */
@@ -224,7 +220,10 @@ describe('トリガー', () => {
 
     expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
     expect(api.saveConfig).toHaveBeenCalledWith([
-      { event: 'channel.raid', mediaId: 'media-hakushu', durationSeconds: 8, volume: 0.5, message: '{user} さんが拍手を送りました' },
+      {
+        event: 'channel.raid',
+        actions: [{ type: 'alert', mediaId: 'media-hakushu', durationSeconds: 8, volume: 0.5, message: '{user} さんが拍手を送りました' }],
+      },
     ])
   })
 
@@ -242,16 +241,67 @@ describe('トリガー', () => {
 
     expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
     expect(api.saveConfig).toHaveBeenCalledWith([
-      { event: REDEMPTION, rewardId: null, mediaId: 'media-hanabi', durationSeconds: 12, volume: 0.3, message: 'ありがとう' },
+      { event: REDEMPTION, rewardId: null, actions: [{ type: 'alert', mediaId: 'media-hanabi', durationSeconds: 12, volume: 0.3, message: 'ありがとう' }] },
     ])
   })
 
-  test('素材がないうちは、トリガーを足せない理由を出す', async () => {
+  test('素材が1つもなければ、チャットに送るだけのトリガーとして足す', async () => {
     render(管理画面(代役のAPI({ media: async () => [], config: async () => [] })))
 
     await userEvent.click(await screen.findByRole('button', { name: 'トリガーを足す' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('先に素材をアップロードしてください')
+    const row = within(screen.getByRole('listitem', { name: '1番目のトリガー' }))
+    // Base UI のチェックボックスは span[role=checkbox] と隠しinputの2つになるため、役割で探す
+    expect(row.getByRole('checkbox', { name: 'アラートを出す' })).not.toBeChecked()
+    expect(row.getByRole('checkbox', { name: 'チャットに送る' })).toBeChecked()
+  })
+
+  test('チャットに送る文言を入れて保存すると、チャットの動作として送る', async () => {
+    const api = 代役のAPI()
+    render(管理画面(api))
+
+    const row = within((await screen.findAllByRole('listitem', { name: /番目のトリガー/ }))[0]!)
+    await userEvent.click(row.getByRole('checkbox', { name: 'アラートを出す' }))
+    await userEvent.click(row.getByRole('checkbox', { name: 'チャットに送る' }))
+    await userEvent.type(row.getByLabelText('チャットに送る文言'), '{{user} さん、ありがとうございます')
+    await userEvent.click(screen.getByRole('button', { name: 'トリガーを保存' }))
+
+    expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
+    expect(api.saveConfig).toHaveBeenCalledWith([
+      { event: REDEMPTION, rewardId: 'reward-hakushu', actions: [{ type: 'chat', message: '{user} さん、ありがとうございます' }] },
+    ])
+  })
+
+  test('アラートを出すを外すと、素材や表示時間の入力欄を隠す', async () => {
+    render(管理画面(代役のAPI()))
+
+    const row = within((await screen.findAllByRole('listitem', { name: /番目のトリガー/ }))[0]!)
+    await userEvent.click(row.getByRole('checkbox', { name: 'アラートを出す' }))
+
+    expect(row.queryByLabelText('素材')).not.toBeInTheDocument()
+    expect(row.queryByLabelText('表示時間（1〜60秒）')).not.toBeInTheDocument()
+  })
+
+  test('チャットに送るだけのトリガーでアラートを出すを付けると、選択欄に見えている最初の素材で保存する', async () => {
+    // 素材が未選択（空文字）のまま保存すると、選択欄には最初の素材が見えているのにWorkerが「素材が存在しません」と拒否してしまう
+    const チャットだけのトリガー: StoredTrigger = { event: 'channel.follow', actions: [{ type: 'chat', message: 'ありがとうございます' }] }
+    const api = 代役のAPI({ config: vi.fn(async () => [チャットだけのトリガー]) })
+    render(管理画面(api))
+
+    const row = within((await screen.findAllByRole('listitem', { name: /番目のトリガー/ }))[0]!)
+    await userEvent.click(row.getByRole('checkbox', { name: 'アラートを出す' }))
+    await userEvent.click(screen.getByRole('button', { name: 'トリガーを保存' }))
+
+    expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
+    expect(api.saveConfig).toHaveBeenCalledWith([
+      {
+        event: 'channel.follow',
+        actions: [
+          { type: 'alert', mediaId: 'media-hakushu', durationSeconds: 5, volume: 1, message: '' },
+          { type: 'chat', message: 'ありがとうございます' },
+        ],
+      },
+    ])
   })
 
   test('トリガーを外せる', async () => {

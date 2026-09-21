@@ -29,6 +29,15 @@ export const COUNTED_EVENT_TYPES: readonly string[] = [
   'channel.raid',
 ]
 
+/**
+ * 件数は数えないが、アラートのトリガー（チャットへのお礼）のために購読するイベント。
+ *
+ * フォローはフォロワー数の推移として cron が記録するので数えないが、オーバーレイを開いていなくても
+ * Workerがお礼を送れるように、Webhookでも受け取る。購読に要る moderator:read:followers は
+ * 配信者が既に認可済み（eventsub.ts の EVENT_TYPES 由来）なので、ログインし直す必要はない。
+ */
+export const UNCOUNTED_EVENT_TYPES: readonly string[] = ['channel.follow']
+
 export const STREAM_ONLINE = 'stream.online'
 export const STREAM_OFFLINE = 'stream.offline'
 export const CHAT_MESSAGE = 'channel.chat.message'
@@ -51,7 +60,7 @@ interface WantedEvent {
  */
 const buildWantedEvents = (broadcasterId: string, botUserId: string | null): WantedEvent[] => {
   const base: readonly EventType[] = [
-    ...EVENT_TYPES.filter((eventType) => COUNTED_EVENT_TYPES.includes(eventType.type)),
+    ...EVENT_TYPES.filter((eventType) => COUNTED_EVENT_TYPES.includes(eventType.type) || UNCOUNTED_EVENT_TYPES.includes(eventType.type)),
     { type: STREAM_ONLINE, version: '1', scope: null, condition: byBroadcaster },
     { type: STREAM_OFFLINE, version: '1', scope: null, condition: byBroadcaster },
   ]

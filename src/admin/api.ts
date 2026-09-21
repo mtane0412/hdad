@@ -41,8 +41,9 @@ export interface MediaItem {
   uploadedAt: string
 }
 
-/** 出し方（イベント種別によらず共通）。素材の種類（mediaKind）はWorkerが決めるので送らない */
-interface TriggerAppearance {
+/** オーバーレイに素材を出す動作。素材の種類（mediaKind）はWorkerが決めるので送らない */
+interface AlertActionInput {
+  type: 'alert'
   mediaId: string
   durationSeconds: number
   /** 0〜1 */
@@ -50,17 +51,30 @@ interface TriggerAppearance {
   message: string
 }
 
+/** botとしてチャットへ送る動作。実行するのはWorkerで、オーバーレイには渡らない */
+export interface ChatAction {
+  type: 'chat'
+  message: string
+}
+
+export type ActionInput = AlertActionInput | ChatAction
+
 /** 条件（イベント種別ごとに違う。いま条件を持つのはチャンネルポイント交換だけ） */
 type TriggerCondition =
   /** null はすべての報酬 */
   | { event: typeof REDEMPTION; rewardId: string | null }
   | { event: Exclude<AlertEvent, typeof REDEMPTION> }
 
-/** 保存するトリガー */
-export type TriggerInput = TriggerAppearance & TriggerCondition
+/** 保存するトリガー。条件（どのイベントか）と、そのとき行う動作の一覧からなる */
+export type TriggerInput = TriggerCondition & { actions: ActionInput[] }
+
+/** 保存済みの「アラートを出す」動作（Workerが素材の種類を書き足したもの） */
+export type StoredAlertAction = AlertActionInput & { mediaKind: MediaKind }
+
+export type StoredAction = StoredAlertAction | ChatAction
 
 /** 保存済みのトリガー */
-export type StoredTrigger = TriggerInput & { mediaKind: MediaKind }
+export type StoredTrigger = TriggerCondition & { actions: StoredAction[] }
 
 /** チャンネルポイント報酬 */
 export interface Reward {
@@ -105,15 +119,21 @@ export const isAlertEvent = (value: unknown): value is AlertEvent => ALERT_EVENT
 const hasCondition = (value: Record<string, unknown>): boolean =>
   value.event !== REDEMPTION || value.rewardId === null || typeof value.rewardId === 'string'
 
+/** 保存済みの動作1件の形。種類ごとに持つ項目が違う */
+const isStoredAction = (value: unknown): value is StoredAction => {
+  if (!isRecord(value) || typeof value.message !== 'string') return false
+  if (value.type === 'chat') return true
+  return (
+    value.type === 'alert' &&
+    typeof value.mediaId === 'string' &&
+    isMediaKind(value.mediaKind) &&
+    typeof value.durationSeconds === 'number' &&
+    typeof value.volume === 'number'
+  )
+}
+
 const isStoredTrigger = (value: unknown): value is StoredTrigger =>
-  isRecord(value) &&
-  isAlertEvent(value.event) &&
-  hasCondition(value) &&
-  typeof value.mediaId === 'string' &&
-  isMediaKind(value.mediaKind) &&
-  typeof value.durationSeconds === 'number' &&
-  typeof value.volume === 'number' &&
-  typeof value.message === 'string'
+  isRecord(value) && isAlertEvent(value.event) && hasCondition(value) && Array.isArray(value.actions) && value.actions.every(isStoredAction)
 
 const isReward = (value: unknown): value is Reward =>
   isRecord(value) && typeof value.id === 'string' && typeof value.title === 'string' && typeof value.cost === 'number'

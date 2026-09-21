@@ -6,6 +6,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { describeProblem, eventOptions, formatBytes, overlayUrl, placeholdersFor, rewardOptions, toDraft, toTriggerInput, type TriggerDraft } from './form'
+import type { StoredTrigger } from './api'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const FOLLOW = 'channel.follow'
@@ -15,10 +16,24 @@ const RAID = 'channel.raid'
 const 入力欄 = (overrides: Partial<TriggerDraft> = {}): TriggerDraft => ({
   event: REDEMPTION,
   rewardId: '',
+  alertEnabled: true,
   mediaId: 'sozai-1',
   durationSeconds: '5',
   volumePercent: '100',
   message: '',
+  chatEnabled: false,
+  chatMessage: '',
+  ...overrides,
+})
+
+/** 保存済みの「アラートを出す」動作 */
+const アラートの動作 = (overrides: Record<string, unknown> = {}) => ({
+  type: 'alert' as const,
+  mediaId: 'sozai-1',
+  mediaKind: 'video' as const,
+  durationSeconds: 8,
+  volume: 0.35,
+  message: '乾杯！',
   ...overrides,
 })
 
@@ -35,11 +50,27 @@ describe('toTriggerInput', () => {
     expect(toTriggerInput(draft)).toEqual({
       event: REDEMPTION,
       rewardId: '報酬ID-乾杯',
-      mediaId: 'sozai-1',
-      durationSeconds: 8,
-      volume: 0.5,
-      message: '{user} さん、乾杯！',
+      actions: [{ type: 'alert', mediaId: 'sozai-1', durationSeconds: 8, volume: 0.5, message: '{user} さん、乾杯！' }],
     })
+  })
+
+  it('チャットに送るを選んでいれば、チャットの動作も送る', () => {
+    const draft = 入力欄({ chatEnabled: true, chatMessage: '{user} さん、乾杯！ありがとうございます' })
+
+    expect(toTriggerInput(draft).actions).toEqual([
+      { type: 'alert', mediaId: 'sozai-1', durationSeconds: 5, volume: 1, message: '' },
+      { type: 'chat', message: '{user} さん、乾杯！ありがとうございます' },
+    ])
+  })
+
+  it('アラートを出すを外していれば、チャットの動作だけを送る（素材の入力欄が残っていても引きずらない）', () => {
+    const draft = 入力欄({ alertEnabled: false, chatEnabled: true, chatMessage: 'ありがとうございます' })
+
+    expect(toTriggerInput(draft).actions).toEqual([{ type: 'chat', message: 'ありがとうございます' }])
+  })
+
+  it('どちらの動作も選んでいなければ、動作なしで送る（Workerが問題点を返す）', () => {
+    expect(toTriggerInput(入力欄({ alertEnabled: false })).actions).toEqual([])
   })
 
   it('報酬を選んでいなければ（空文字）、すべての報酬を表す null にする', () => {
@@ -51,29 +82,45 @@ describe('toTriggerInput', () => {
 
     expect(toTriggerInput(draft)).toEqual({
       event: FOLLOW,
-      mediaId: 'sozai-1',
-      durationSeconds: 5,
-      volume: 1,
-      message: '{user} さん、ありがとう！',
+      actions: [{ type: 'alert', mediaId: 'sozai-1', durationSeconds: 5, volume: 1, message: '{user} さん、ありがとう！' }],
     })
   })
 
   it('表示時間が数として読めなければエラーにする（何番目のトリガーかは呼び出し側が添える）', () => {
     expect(() => toTriggerInput(入力欄({ durationSeconds: '' }))).toThrow('表示時間')
   })
+
+  it('アラートを出さないトリガーでは、表示時間が空欄でもエラーにしない', () => {
+    const draft = 入力欄({ alertEnabled: false, durationSeconds: '', chatEnabled: true, chatMessage: 'ありがとう' })
+
+    expect(() => toTriggerInput(draft)).not.toThrow()
+  })
 })
 
 describe('toDraft', () => {
   it('保存済みのチャンネルポイント交換のトリガーを入力欄の値に戻す（null の報酬は空文字、音量は百分率）', () => {
-    const stored = { event: REDEMPTION, rewardId: null, mediaId: 'sozai-1', mediaKind: 'video', durationSeconds: 8, volume: 0.35, message: '乾杯！' } as const
+    const stored: StoredTrigger = { event: REDEMPTION, rewardId: null, actions: [アラートの動作()] }
 
-    expect(toDraft(stored)).toEqual({ event: REDEMPTION, rewardId: '', mediaId: 'sozai-1', durationSeconds: '8', volumePercent: '35', message: '乾杯！' })
+    expect(toDraft(stored)).toEqual(
+      入力欄({ rewardId: '', alertEnabled: true, mediaId: 'sozai-1', durationSeconds: '8', volumePercent: '35', message: '乾杯！' }),
+    )
   })
 
   it('報酬IDを持たないイベントのトリガーは、報酬の入力欄を「すべての報酬」（空文字）にして戻す', () => {
-    const stored = { event: RAID, mediaId: 'sozai-2', mediaKind: 'image', durationSeconds: 5, volume: 1, message: '{user} さんがレイド！' } as const
+    const stored: StoredTrigger = {
+      event: RAID,
+      actions: [アラートの動作({ mediaId: 'sozai-2', mediaKind: 'image' as const, durationSeconds: 5, volume: 1, message: '{user} さんがレイド！' })],
+    }
 
-    expect(toDraft(stored)).toEqual({ event: RAID, rewardId: '', mediaId: 'sozai-2', durationSeconds: '5', volumePercent: '100', message: '{user} さんがレイド！' })
+    expect(toDraft(stored)).toEqual(
+      入力欄({ event: RAID, mediaId: 'sozai-2', durationSeconds: '5', volumePercent: '100', message: '{user} さんがレイド！' }),
+    )
+  })
+
+  it('チャットに送る動作を持つトリガーは、チャットの入力欄を埋めて戻す', () => {
+    const stored: StoredTrigger = { event: RAID, actions: [{ type: 'chat', message: '{user} さん、レイドありがとう！' }] }
+
+    expect(toDraft(stored)).toMatchObject({ alertEnabled: false, chatEnabled: true, chatMessage: '{user} さん、レイドありがとう！' })
   })
 })
 
@@ -135,6 +182,12 @@ describe('describeProblem', () => {
   it('Workerの問題点の位置（0始まりの triggers[0]）を、画面の番号（1番目のトリガー）に読み替える', () => {
     expect(describeProblem('triggers[0].durationSeconds: 1〜60 の数値で指定してください')).toBe('1番目のトリガーの durationSeconds: 1〜60 の数値で指定してください')
     expect(describeProblem('triggers[11].mediaId: 素材「sozai-9」が存在しません')).toBe('12番目のトリガーの mediaId: 素材「sozai-9」が存在しません')
+  })
+
+  it('動作の位置（actions[1]）も、画面の番号（2つ目の動作）に読み替える', () => {
+    expect(describeProblem('triggers[0].actions[1].message: 1〜500文字の文字列で指定してください')).toBe(
+      '1番目のトリガーの 2つ目の動作の message: 1〜500文字の文字列で指定してください',
+    )
   })
 
   it('トリガーの位置を含まない問題点は、そのまま返す', () => {

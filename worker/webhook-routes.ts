@@ -7,13 +7,16 @@
  *
  * 注意: 2xx 以外を返すとTwitchは再送し、失敗が続くと購読を失効させる。想定しない通知を黙って捨てず、失敗として返す（Fail-Fast）。
  */
+import { loadAlertConfig } from './alert-config'
+import { chatMessageFor } from './alert-event'
+import { sendAsBot } from './bot-chat'
 import { applyReply, findCommand, readChatMessage } from './chat-command'
 import { loadBotConfig } from './bot-config'
 import { consumeCooldown, reserveChatReply } from './chat-store'
-import { CHAT_MESSAGE, COUNTED_EVENT_TYPES, STREAM_OFFLINE, STREAM_ONLINE, verifyWebhookSignature } from './eventsub-webhook'
+import { CHAT_MESSAGE, COUNTED_EVENT_TYPES, STREAM_OFFLINE, STREAM_ONLINE, UNCOUNTED_EVENT_TYPES, verifyWebhookSignature } from './eventsub-webhook'
 import { HttpError, STATUS, type Context } from './http'
 import { recordEvent, recordFailure, recordStreamOffline, recordStreamOnline } from './stats-store'
-import { getAccessToken, loadToken } from './token'
+import { loadToken } from './token'
 
 export const WEBHOOK_PATH = '/api/eventsub/webhook'
 
@@ -77,6 +80,8 @@ const recordNotification = async ({ db, messageId, occurredAt, body }: Notificat
     await recordEvent(db, { id: messageId, type, occurredAt })
     return
   }
+  // アラートのために購読しているだけで、件数は数えないイベント（フォロー）。記録することはないが、拒否もしない
+  if (UNCOUNTED_EVENT_TYPES.includes(type)) return
   throw new HttpError(STATUS.badRequest, 'unexpected-event', `購読していない種類の通知です: ${type}`)
 }
 
@@ -90,7 +95,7 @@ const recordNotification = async ({ db, messageId, occurredAt, body }: Notificat
  * 黙って無視するのではなく収集の失敗として残し、管理画面（/api/admin/stats/failures）から気づけるようにする。
  */
 const replyToChatMessage = async (context: Context, body: Record<string, unknown>): Promise<void> => {
-  const { env, twitch, now } = context
+  const { env, now } = context
   // 通知の中身が想定と違えば、黙って捨てずに「不正な通知」として400で返す（Workerの不具合を表す500と区別する）
   const message = readChatMessage(body, invalid)
 
@@ -114,14 +119,47 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
 
   const reply = applyReply(command, message)
   try {
-    const token = await getAccessToken(env.STORE, 'bot', twitch, now)
-    await twitch.sendChatMessage(token.accessToken, {
-      broadcasterId: env.TWITCH_BROADCASTER_ID,
-      senderId: token.userId,
-      message: reply,
-    })
+    await sendAsBot(context, reply)
   } catch (error) {
     await recordFailure(env.DB, 'chat-reply-failed', error instanceof Error ? error.message : String(error), now)
+  }
+}
+
+/**
+ * アラートのトリガーに当てはまる通知なら、botとしてチャットへ送る。
+ *
+ * アラートのトリガーは「条件」と「動作」からなり、動作の種類ごとに実行者が違う。素材の再生はオーバーレイが受け持ち、
+ * チャットへの送信はここ（Worker）が受け持つ。オーバーレイを開いていなくても送れるのはこのためである。
+ *
+ * 注意: 送ると決めたあとの失敗は、コマンドへの応答と同じく2xxのまま記録に残す
+ * （2xx以外だとTwitchが同じ通知を再送し、送信が成功していた場合に二重投稿になる）。
+ *
+ * @param messageId 通知のメッセージID。再送で二度送らないための鍵に使う
+ * @throws HttpError イベントの中身が想定と違う場合（400。黙って捨てない）
+ */
+const sendAlertChat = async (context: Context, subscriptionType: string, body: Record<string, unknown>, messageId: string): Promise<void> => {
+  const { env, now } = context
+
+  const config = await loadAlertConfig(env.STORE)
+  // 中身の形が違えば「不正な通知」として400で返す（Workerの不具合を表す500と区別する）
+  const message = ((): string | null => {
+    try {
+      return chatMessageFor(config, subscriptionType, body.event)
+    } catch (error) {
+      throw invalid(error instanceof Error ? error.message : String(error))
+    }
+  })()
+  if (message === null) return
+
+  // botを切断していれば送る先がない。受け取り自体は成功として返す
+  if (!(await loadToken(env.STORE, 'bot'))) return
+  // 鍵の確保は送信の前に行う。Twitchの再送で同じお礼を二度送らないため
+  if (!(await reserveChatReply(env.DB, messageId, now))) return
+
+  try {
+    await sendAsBot(context, message)
+  } catch (error) {
+    await recordFailure(env.DB, 'alert-chat-failed', error instanceof Error ? error.message : String(error), now)
   }
 }
 
@@ -151,9 +189,13 @@ export const eventsubWebhook = async (context: Context): Promise<Response> => {
       return new Response(body.challenge, { status: STATUS.ok, headers: { 'Content-Type': 'text/plain' } })
     }
     case 'notification': {
-      // チャットは記録せず応答に回す。ほかのイベントは配信の記録として数える
-      if (readSubscription(body).type === CHAT_MESSAGE) await replyToChatMessage(context, body)
-      else await recordNotification({ db: env.DB, messageId, occurredAt, body })
+      // チャットは記録せず応答に回す。ほかのイベントは配信の記録として数えたうえで、アラートのトリガーにかける
+      const { type } = readSubscription(body)
+      if (type === CHAT_MESSAGE) await replyToChatMessage(context, body)
+      else {
+        await recordNotification({ db: env.DB, messageId, occurredAt, body })
+        await sendAlertChat(context, type, body, messageId)
+      }
       return new Response(null, { status: STATUS.noContent })
     }
     case 'revocation': {
