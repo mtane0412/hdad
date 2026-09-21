@@ -4,6 +4,7 @@
  * 環境（バインディングとシークレット）の型、経路の処理が受け取る文脈、状態コード、クッキー、
  * そして「誰からのリクエストか」の確認（配信者のセッション・オーバーレイ用キー・送信元のサイト）をまとめる。
  */
+import type { Database } from './database'
 import type { MediaBucket } from './media-bucket'
 import { isValidOverlayKey } from './overlay-key'
 import { verifySessionToken } from './session'
@@ -16,6 +17,8 @@ export interface Env {
   STORE: KeyValueStore
   /** アラートの素材（R2） */
   MEDIA: MediaBucket
+  /** 配信の記録（D1） */
+  DB: Database
   TWITCH_CLIENT_ID: string
   TWITCH_CLIENT_SECRET: string
   /** 管理画面へのログインを許す、配信者のTwitchユーザーID（数字） */

@@ -8,9 +8,11 @@
  * ページUI（/wallpaper/・/admin/ など）は実ファイルを持たず、not_found_handling によってトップの index.html を返してアプリに描かせる。
  * 存在しないパスでも index.html が返るので、「見つからない」画面はアプリが出す。
  *
- * STORE（KV）にはTwitchのトークン・オーバーレイ用キー・アラートの設定を、MEDIA（R2）にはアラートの素材を保存する。
+ * STORE（KV）にはTwitchのトークン・オーバーレイ用キー・アラートの設定を、MEDIA（R2）にはアラートの素材を、DB（D1）には配信の記録を保存する。
  * id やバケット名を書いていないのは、デプロイ時に wrangler が自動で作成して結び付けるため（フォークした人が書き換えずに済む）。
  * R2は無料枠だけを使う場合でも、事前にダッシュボードでR2を有効にしておく必要がある（README参照）。
+ * D1のテーブルは migrations/ にあり、デプロイとは別に適用する（README参照）。
+ * triggers.crons は配信の記録の収集（worker/collect.ts）を5分おきに動かす。止めるときはキーを消すのではなく空の配列にする。
  * シークレット（TWITCH_CLIENT_ID など）の一覧は .dev.vars.example を参照。
  */
 {
@@ -24,5 +26,7 @@
     "run_worker_first": ["/api/*"]
   },
   "kv_namespaces": [{ "binding": "STORE" }],
-  "r2_buckets": [{ "binding": "MEDIA" }]
+  "r2_buckets": [{ "binding": "MEDIA" }],
+  "d1_databases": [{ "binding": "DB" }],
+  "triggers": { "crons": ["*/5 * * * *"] }
 }

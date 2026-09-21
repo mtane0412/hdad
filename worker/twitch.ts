@@ -1,7 +1,8 @@
 /**
  * Twitch APIの呼び出し
  *
- * OAuth（認可コードの交換・トークンの更新・トークンの検証）と、HelixへのEventSub購読の登録、チャンネルポイント報酬の一覧の取得を受け持つ。
+ * OAuth（認可コードの交換・トークンの更新・トークンの検証）と、HelixへのEventSub購読の登録、チャンネルポイント報酬の一覧の取得、
+ * 配信の記録のための取得（いまの配信・フォロワー数）を受け持つ。
  * 失敗の応答はすべて TwitchApiError として投げ、呼び出し側が状態コードで扱いを決める。
  * fetch を引数で受け取るのは、テストで実際の通信を差し替えるため。
  */
@@ -10,6 +11,8 @@ const TOKEN_URL = 'https://id.twitch.tv/oauth2/token'
 const VALIDATE_URL = 'https://id.twitch.tv/oauth2/validate'
 const SUBSCRIPTIONS_URL = 'https://api.twitch.tv/helix/eventsub/subscriptions'
 const CUSTOM_REWARDS_URL = 'https://api.twitch.tv/helix/channel_points/custom_rewards'
+const STREAMS_URL = 'https://api.twitch.tv/helix/streams'
+const FOLLOWERS_URL = 'https://api.twitch.tv/helix/channels/followers'
 /** Twitchの応答として成り立っていない（必要な項目がない）ときに使う状態コード */
 const BAD_GATEWAY = 502
 
@@ -57,6 +60,18 @@ export interface CustomReward {
   cost: number
 }
 
+/** いま行われている配信 */
+export interface LiveStream {
+  /** Twitchの配信ID */
+  id: string
+  /** 配信を始めた日時（UTCのISO 8601。ミリ秒付きに揃えてある） */
+  startedAt: string
+  title: string
+  /** カテゴリ未設定なら空文字 */
+  categoryName: string
+  viewerCount: number
+}
+
 export interface TwitchClient {
   /** ユーザーをTwitchの認可ページへ送るためのURL */
   authorizeUrl(redirectUri: string, state: string, scopes: readonly string[]): string
@@ -66,6 +81,10 @@ export interface TwitchClient {
   createSubscription(accessToken: string, subscription: EventSubSubscription): Promise<void>
   /** 配信者のチャンネルポイント報酬の一覧（channel:read:redemptions が必要。Twitchの上限は50件で、ページ分けはない） */
   listCustomRewards(accessToken: string, broadcasterId: string): Promise<CustomReward[]>
+  /** 配信者がいま行っている配信。配信していなければ null */
+  getLiveStream(accessToken: string, broadcasterId: string): Promise<LiveStream | null>
+  /** 配信者のフォロワー数（moderator:read:followers が必要） */
+  getFollowerTotal(accessToken: string, broadcasterId: string): Promise<number>
 }
 
 interface TwitchClientOptions {
@@ -102,6 +121,28 @@ const toCustomReward = (value: unknown): CustomReward => {
   return { id: value.id, title: value.title, cost: value.cost }
 }
 
+const toLiveStream = (value: unknown): LiveStream => {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== 'string' ||
+    typeof value.started_at !== 'string' ||
+    typeof value.title !== 'string' ||
+    typeof value.game_name !== 'string' ||
+    typeof value.viewer_count !== 'number'
+  ) {
+    throw new TwitchApiError(BAD_GATEWAY, 'Twitchの配信の応答に id・started_at・title・game_name・viewer_count が揃っていません')
+  }
+  const startedAt = Date.parse(value.started_at)
+  if (Number.isNaN(startedAt)) throw new TwitchApiError(BAD_GATEWAY, `Twitchの配信の応答の started_at（${value.started_at}）を日時として読めません`)
+  return {
+    id: value.id,
+    startedAt: new Date(startedAt).toISOString(),
+    title: value.title,
+    categoryName: value.game_name,
+    viewerCount: value.viewer_count,
+  }
+}
+
 export const createTwitchClient = ({ clientId, clientSecret, fetch: fetchImpl }: TwitchClientOptions): TwitchClient => {
   const requestToken = async (params: Record<string, string>): Promise<TokenGrant> => {
     const response = await fetchImpl(TOKEN_URL, {
@@ -110,6 +151,9 @@ export const createTwitchClient = ({ clientId, clientSecret, fetch: fetchImpl }:
     })
     return toTokenGrant(await readJson(response))
   }
+
+  const getHelix = async (url: URL, accessToken: string): Promise<Record<string, unknown>> =>
+    readJson(await fetchImpl(url, { headers: { Authorization: `Bearer ${accessToken}`, 'Client-Id': clientId } }))
 
   return {
     authorizeUrl: (redirectUri, state, scopes) => {
@@ -153,6 +197,24 @@ export const createTwitchClient = ({ clientId, clientSecret, fetch: fetchImpl }:
       const { data } = await readJson(response)
       if (!Array.isArray(data)) throw new TwitchApiError(BAD_GATEWAY, 'Twitchの報酬の応答に data の配列がありません')
       return data.map(toCustomReward)
+    },
+
+    getLiveStream: async (accessToken, broadcasterId) => {
+      const url = new URL(STREAMS_URL)
+      url.searchParams.set('user_id', broadcasterId)
+      const { data } = await getHelix(url, accessToken)
+      if (!Array.isArray(data)) throw new TwitchApiError(BAD_GATEWAY, 'Twitchの配信の応答に data の配列がありません')
+      return data.length === 0 ? null : toLiveStream(data[0])
+    },
+
+    getFollowerTotal: async (accessToken, broadcasterId) => {
+      const url = new URL(FOLLOWERS_URL)
+      url.searchParams.set('broadcaster_id', broadcasterId)
+      // 数だけが要るので、フォロワーの一覧は最小の1件にする
+      url.searchParams.set('first', '1')
+      const { total } = await getHelix(url, accessToken)
+      if (typeof total !== 'number') throw new TwitchApiError(BAD_GATEWAY, 'Twitchのフォロワーの応答に total がありません')
+      return total
     },
   }
 }

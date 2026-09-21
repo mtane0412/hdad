@@ -14,9 +14,15 @@
  * | DELETE /api/admin/media/:id      | セッション     | 素材の削除 |
  * | POST /api/admin/overlay-key      | セッション     | オーバーレイ用キーの再発行 |
  * | GET  /api/admin/rewards          | セッション     | チャンネルポイント報酬の一覧 |
+ * | GET  /api/admin/stats/sessions   | セッション     | 配信セッションの一覧 |
+ * | GET  /api/admin/stats/sessions/:id | セッション   | 配信セッションと視聴者数の時系列 |
+ * | GET  /api/admin/stats/followers  | セッション     | フォロワー数の時系列 |
+ * | GET  /api/admin/stats/failures   | セッション     | 記録の収集の失敗の一覧 |
  * | POST /api/eventsub/subscriptions | オーバーレイ用キー | EventSubの購読を代行する |
  * | GET  /api/overlay/config         | オーバーレイ用キー | オーバーレイ向けの設定を返す |
  * | GET  /api/media/:id              | オーバーレイ用キーかセッション | 素材の中身を返す |
+ *
+ * これとは別に、cron（wrangler.jsonc の triggers.crons）から scheduled が呼ばれ、配信の記録を収集する（collect.ts）。
  *
  * Twitchのトークンは応答に含めない。失敗は { error: { code, message } } の形で返し、黙って成功扱いにしない。
  * fetch と現在時刻を引数で受け取るのは、テストで差し替えるため。
@@ -24,10 +30,12 @@
 import { deleteMedia, getConfig, getMedia, getRewards, postMedia, postOverlayKey, putConfig } from './admin-routes'
 import { ConfigError } from './alert-config'
 import { CALLBACK_PATH, callback, login, logout, me } from './auth-routes'
+import { collectStats } from './collect'
 import { HttpError, STATUS, errorResponse, type Context, type Env } from './http'
 import { media, overlayConfig, subscribe } from './overlay-routes'
+import { getStatsFailures, getStatsFollowers, getStatsSession, getStatsSessions } from './stats-routes'
 import { AuthError } from './token'
-import { TwitchApiError, createTwitchClient } from './twitch'
+import { TwitchApiError, createTwitchClient, type TwitchClient } from './twitch'
 
 export type { Env } from './http'
 
@@ -59,6 +67,10 @@ const ROUTES: readonly Route[] = [
   { method: 'DELETE', path: '/api/admin/media/:id', handle: deleteMedia },
   { method: 'POST', path: '/api/admin/overlay-key', handle: postOverlayKey },
   { method: 'GET', path: '/api/admin/rewards', handle: getRewards },
+  { method: 'GET', path: '/api/admin/stats/sessions', handle: getStatsSessions },
+  { method: 'GET', path: '/api/admin/stats/sessions/:id', handle: getStatsSession },
+  { method: 'GET', path: '/api/admin/stats/followers', handle: getStatsFollowers },
+  { method: 'GET', path: '/api/admin/stats/failures', handle: getStatsFailures },
   { method: 'POST', path: '/api/eventsub/subscriptions', handle: subscribe },
   { method: 'GET', path: '/api/overlay/config', handle: overlayConfig },
   { method: 'GET', path: '/api/media/:id', handle: media },
@@ -109,27 +121,39 @@ const toErrorResponse = (error: unknown): Response => {
   return errorResponse(STATUS.internalServerError, 'internal-error', error instanceof Error ? error.message : String(error))
 }
 
-export const handleRequest = async (
-  request: Request,
-  env: Env,
-  dependencies: Dependencies = { fetch: (input, init) => fetch(input, init), now: Date.now },
-): Promise<Response> => {
+const DEFAULT_DEPENDENCIES: Dependencies = { fetch: (input, init) => fetch(input, init), now: Date.now }
+
+/** 環境変数が揃っていることを確かめてから、Twitchのクライアントを作る */
+const createClient = (env: Env, dependencies: Dependencies): TwitchClient => {
+  const missing = REQUIRED_VARIABLES.filter((name) => !env[name])
+  if (missing.length > 0) {
+    throw new HttpError(STATUS.internalServerError, 'misconfigured', `Workerの環境変数が設定されていません: ${missing.join(', ')}`)
+  }
+  return createTwitchClient({ clientId: env.TWITCH_CLIENT_ID, clientSecret: env.TWITCH_CLIENT_SECRET, fetch: dependencies.fetch })
+}
+
+export const handleRequest = async (request: Request, env: Env, dependencies: Dependencies = DEFAULT_DEPENDENCIES): Promise<Response> => {
   try {
     const url = new URL(request.url)
     const { route, params } = findRoute(request.method, url.pathname)
-
-    const missing = REQUIRED_VARIABLES.filter((name) => !env[name])
-    if (missing.length > 0) {
-      throw new HttpError(STATUS.internalServerError, 'misconfigured', `Workerの環境変数が設定されていません: ${missing.join(', ')}`)
-    }
-
-    const twitch = createTwitchClient({ clientId: env.TWITCH_CLIENT_ID, clientSecret: env.TWITCH_CLIENT_SECRET, fetch: dependencies.fetch })
+    const twitch = createClient(env, dependencies)
     return await route.handle({ request, url, params, env, twitch, now: dependencies.now() })
   } catch (error) {
     return toErrorResponse(error)
   }
 }
 
+/**
+ * cron から呼ばれ、配信の記録を1回分収集する。
+ *
+ * 注意: 失敗を握りつぶさずに投げる。Cloudflare側でも cron の実行が失敗として残る。
+ */
+export const handleScheduled = async (env: Env, dependencies: Dependencies = DEFAULT_DEPENDENCIES): Promise<void> => {
+  const twitch = createClient(env, dependencies)
+  await collectStats({ db: env.DB, store: env.STORE, twitch, broadcasterId: env.TWITCH_BROADCASTER_ID, now: dependencies.now() })
+}
+
 export default {
   fetch: (request: Request, env: Env): Promise<Response> => handleRequest(request, env),
+  scheduled: (_controller: unknown, env: Env): Promise<void> => handleScheduled(env),
 }

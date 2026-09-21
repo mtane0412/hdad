@@ -175,3 +175,75 @@ describe('listCustomRewards', () => {
     await expect(クライアントを作る(fetchImpl).listCustomRewards('test-access-token', '12345')).rejects.toBeInstanceOf(TwitchApiError)
   })
 })
+
+describe('getLiveStream', () => {
+  it('配信中なら、配信ID・開始日時・タイトル・カテゴリ・視聴者数を返す', async () => {
+    const { requests, fetchImpl } = 応答を返すfetch(200, {
+      data: [
+        {
+          id: '40000000001',
+          user_id: '12345',
+          game_name: 'Just Chatting',
+          type: 'live',
+          title: '月曜の雑談配信',
+          viewer_count: 42,
+          started_at: '2026-09-21T12:00:00Z',
+        },
+      ],
+    })
+
+    const stream = await クライアントを作る(fetchImpl).getLiveStream('test-access-token', '12345')
+
+    // 開始日時はミリ秒付きのISO 8601に揃える（データベースで文字列のまま比べるため）
+    expect(stream).toEqual({
+      id: '40000000001',
+      startedAt: '2026-09-21T12:00:00.000Z',
+      title: '月曜の雑談配信',
+      categoryName: 'Just Chatting',
+      viewerCount: 42,
+    })
+    const request = requests[0]!
+    expect(request.url).toBe('https://api.twitch.tv/helix/streams?user_id=12345')
+    expect(request.headers.get('Authorization')).toBe('Bearer test-access-token')
+    expect(request.headers.get('Client-Id')).toBe('test-client-id')
+  })
+
+  it('配信していなければ null を返す', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { data: [] })
+    expect(await クライアントを作る(fetchImpl).getLiveStream('test-access-token', '12345')).toBeNull()
+  })
+
+  it.each([
+    ['必要な項目が欠けている', { data: [{ id: '40000000001', title: '月曜の雑談配信' }] }],
+    [
+      '開始日時が日時として読めない',
+      { data: [{ id: '40000000001', game_name: '', title: '', viewer_count: 1, started_at: 'きのうの夜' }] },
+    ],
+    ['data が配列でない', { data: null }],
+  ])('応答が想定した形でなければエラーになる（%s）', async (_説明, body) => {
+    const { fetchImpl } = 応答を返すfetch(200, body)
+    await expect(クライアントを作る(fetchImpl).getLiveStream('test-access-token', '12345')).rejects.toBeInstanceOf(TwitchApiError)
+  })
+
+  it('Twitchが失敗を返したら、状態コードを持つエラーになる', async () => {
+    const { fetchImpl } = 応答を返すfetch(401, { error: 'Unauthorized', status: 401, message: 'Invalid OAuth token' })
+    await expect(クライアントを作る(fetchImpl).getLiveStream('test-access-token', '12345')).rejects.toMatchObject({ status: 401 })
+  })
+})
+
+describe('getFollowerTotal', () => {
+  it('配信者のフォロワー数を返す', async () => {
+    const { requests, fetchImpl } = 応答を返すfetch(200, { total: 1234, data: [], pagination: {} })
+
+    expect(await クライアントを作る(fetchImpl).getFollowerTotal('test-access-token', '12345')).toBe(1234)
+    const request = requests[0]!
+    // 数だけが要るので、フォロワーの一覧は最小の1件にする
+    expect(request.url).toBe('https://api.twitch.tv/helix/channels/followers?broadcaster_id=12345&first=1')
+    expect(request.headers.get('Authorization')).toBe('Bearer test-access-token')
+  })
+
+  it('応答に total が無ければエラーになる（黙って0にしない）', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { data: [] })
+    await expect(クライアントを作る(fetchImpl).getFollowerTotal('test-access-token', '12345')).rejects.toBeInstanceOf(TwitchApiError)
+  })
+})
