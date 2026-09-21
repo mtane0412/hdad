@@ -164,7 +164,11 @@ const start = async (): Promise<void> => {
         throw new Error(`${index + 1}番目のトリガー: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
       }
     })
-    drafts = (await api.saveConfig(inputs)).map(toDraft)
+    const submitted = drafts
+    const saved = await api.saveConfig(inputs)
+    // 保存を待つ間に入力欄が書き換えられていたら、その内容を応答で上書きしない（書き換えた分は次の保存で送られる）
+    if (drafts !== submitted) return 'トリガーを保存しました。保存中に書き換えた内容はまだ保存されていません'
+    drafts = saved.map(toDraft)
     drawTriggers()
     return 'トリガーを保存しました。次の交換から反映されます'
   })
