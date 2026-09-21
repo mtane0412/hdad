@@ -128,6 +128,11 @@ describe('fillMessage', () => {
     )
   })
 
+  it('差し込む値に $ を含む文字列（報酬名など）が来ても、そのまま差し込む', () => {
+    const 交換: Extracted = { event: REDEMPTION, userName: 'たねのぶ', rewardId: '報酬ID-投げ銭', rewardTitle: '$&ボーナス' }
+    expect(fillMessage('「{reward}」を交換しました', 交換)).toBe('「$&ボーナス」を交換しました')
+  })
+
   it('そのイベントに存在しない差し込み語は置き換えず、そのまま残す（配信者が入力の誤りに気付けるようにする）', () => {
     expect(fillMessage('{user}／{reward}', { event: FOLLOW, userName: 'たねのぶ' })).toBe('たねのぶ／{reward}')
   })

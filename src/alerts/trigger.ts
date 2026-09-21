@@ -163,9 +163,14 @@ const placeholderValues = (extracted: Extracted): Record<string, string> => {
   }
 }
 
-/** 文言の差し込み語を置き換える。そのイベントに存在しない語は、配信者が入力の誤りに気付けるよう置き換えずに残す */
+/**
+ * 文言の差し込み語を置き換える。そのイベントに存在しない語は、配信者が入力の誤りに気付けるよう置き換えずに残す。
+ *
+ * 注意: 置き換える値は関数で渡す。文字列で渡すと `$&` などが置換の特殊な指定として解釈され、
+ * 報酬名にそうした文字が含まれるときに意図しない文言になる。
+ */
 export const fillMessage = (template: string, extracted: Extracted): string =>
-  Object.entries(placeholderValues(extracted)).reduce((text, [placeholder, value]) => text.replaceAll(placeholder, value), template)
+  Object.entries(placeholderValues(extracted)).reduce((text, [placeholder, value]) => text.replaceAll(placeholder, () => value), template)
 
 /**
  * 通知に当てはまるトリガーを探し、アラートへ変換する。
