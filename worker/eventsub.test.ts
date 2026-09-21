@@ -5,7 +5,7 @@
  * スコープ不足やTwitch側の拒否は、一部だけ登録して黙って進まずエラーにする。
  */
 import { describe, expect, it, vi } from 'vitest'
-import { buildSubscriptions, REQUIRED_SCOPES, subscribeAll } from './eventsub'
+import { BOT_SCOPES, buildSubscriptions, REQUIRED_SCOPES, subscribeAll } from './eventsub'
 import { createFakeStore } from './fake-store'
 import { saveToken, type StoredToken } from './token'
 import { TwitchApiError, type EventSubSubscription } from './twitch'
@@ -45,6 +45,24 @@ describe('buildSubscriptions', () => {
   it('レイドは「自分のチャンネルへ来たレイド」を指定する', () => {
     const raid = buildSubscriptions('12345', 'セッションID').find((subscription) => subscription.type === 'channel.raid')
     expect(raid?.condition).toEqual({ to_broadcaster_user_id: '12345' })
+  })
+})
+
+describe('REQUIRED_SCOPES / BOT_SCOPES', () => {
+  it('配信者には、イベントの購読に要るスコープと channel:bot を要求する', () => {
+    // channel:bot は、botのチャットをアプリアクセストークンで購読するために配信者が認可するもの（イベントには紐づかない）
+    expect(REQUIRED_SCOPES).toContain('channel:bot')
+    expect(REQUIRED_SCOPES).toContain('channel:read:redemptions')
+    expect(REQUIRED_SCOPES).toContain('moderator:read:followers')
+  })
+
+  it('配信者に要求するスコープに重複がない', () => {
+    expect(REQUIRED_SCOPES).toEqual([...new Set(REQUIRED_SCOPES)])
+  })
+
+  it('botには、チャットの読み書きに要るスコープを要求する', () => {
+    // user:read:chat と user:bot はチャットの受信（Phase 2）、user:write:chat は送信に要る
+    expect(BOT_SCOPES).toEqual(['user:bot', 'user:read:chat', 'user:write:chat'])
   })
 })
 

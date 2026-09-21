@@ -2,7 +2,7 @@
  * Twitch APIの呼び出し
  *
  * OAuth（認可コードの交換・トークンの更新・トークンの検証・アプリアクセストークンの発行）と、HelixへのEventSub購読の登録・一覧・削除、チャンネルポイント報酬の一覧の取得、
- * 配信の記録のための取得（いまの配信・フォロワー数）を受け持つ。
+ * 配信の記録のための取得（いまの配信・フォロワー数）、チャットへのメッセージ送信を受け持つ。
  * 失敗の応答はすべて TwitchApiError として投げ、呼び出し側が状態コードで扱いを決める。
  * fetch を引数で受け取るのは、テストで実際の通信を差し替えるため。
  */
@@ -17,6 +17,7 @@ const GLOBAL_BADGES_URL = 'https://api.twitch.tv/helix/chat/badges/global'
 const CHANNEL_BADGES_URL = 'https://api.twitch.tv/helix/chat/badges'
 const CHEERMOTES_URL = 'https://api.twitch.tv/helix/bits/cheermotes'
 const USERS_URL = 'https://api.twitch.tv/helix/users'
+const CHAT_MESSAGES_URL = 'https://api.twitch.tv/helix/chat/messages'
 /** バッジ・Cheermote の画像は複数の大きさで届く。オーバーレイでは2倍のものを使う */
 const IMAGE_SCALE = '2'
 /** Twitchの応答として成り立っていない（必要な項目がない）ときに使う状態コード */
@@ -94,6 +95,16 @@ export interface LiveStream {
   viewerCount: number
 }
 
+/** チャットへ送るメッセージ */
+export interface ChatMessageToSend {
+  /** 送り先のチャンネルの持ち主のユーザーID */
+  broadcasterId: string
+  /** 送信者のユーザーID。アクセストークンの持ち主と一致している必要がある */
+  senderId: string
+  /** 本文（Twitchの上限は500文字） */
+  message: string
+}
+
 export interface TwitchClient {
   /** ユーザーをTwitchの認可ページへ送るためのURL */
   authorizeUrl(redirectUri: string, state: string, scopes: readonly string[]): string
@@ -122,6 +133,12 @@ export interface TwitchClient {
   getCheermotes(accessToken: string, broadcasterId: string): Promise<Cheermote[]>
   /** ユーザーIDからログイン名（twitch.tv/ の後ろの部分）を引く。スコープは不要 */
   getUserLogin(accessToken: string, userId: string): Promise<string>
+  /**
+   * チャットへメッセージを送る。送信者（senderId）のユーザートークンと user:write:chat が必要。
+   *
+   * @throws TwitchApiError Twitchが拒否した、またはTwitchが受け取ったうえで送信しなかった（AutoModなど）
+   */
+  sendChatMessage(accessToken: string, message: ChatMessageToSend): Promise<void>
 }
 
 /** バッジの版（同じ種類でも、サブスクの階層やビッツの段階で絵が変わる） */
@@ -171,6 +188,13 @@ const readJson = async (response: Response): Promise<Record<string, unknown>> =>
   }
   if (!isRecord(body)) throw new TwitchApiError(BAD_GATEWAY, 'Twitchの応答がJSONのオブジェクトではありません')
   return body
+}
+
+/** チャットを送れなかった理由（Twitchの drop_reason）を、管理画面に出せる文にする */
+const readDropReason = (dropReason: unknown): string => {
+  if (!isRecord(dropReason)) return '理由は示されませんでした'
+  const { code, message } = dropReason
+  return typeof message === 'string' && message !== '' ? message : typeof code === 'string' ? code : '理由は示されませんでした'
 }
 
 const toTokenGrant = (body: Record<string, unknown>): TokenGrant => {
@@ -401,6 +425,21 @@ export const createTwitchClient = ({ clientId, clientSecret, fetch: fetchImpl }:
         throw new TwitchApiError(BAD_GATEWAY, `TwitchにユーザーID ${userId} のログイン名がありません`)
       }
       return user.login
+    },
+
+    sendChatMessage: async (accessToken, { broadcasterId, senderId, message }) => {
+      const response = await fetchImpl(CHAT_MESSAGES_URL, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Client-Id': clientId, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ broadcaster_id: broadcasterId, sender_id: senderId, message }),
+      })
+      const { data } = await readJson(response)
+      const result: unknown = Array.isArray(data) ? data[0] : undefined
+      if (!isRecord(result) || typeof result.is_sent !== 'boolean') {
+        throw new TwitchApiError(BAD_GATEWAY, 'Twitchのチャット送信の応答に is_sent がありません')
+      }
+      // Twitchは受け取ったうえで送らないことがある（AutoModの保留など）。200だからと成功扱いにしない
+      if (!result.is_sent) throw new TwitchApiError(BAD_GATEWAY, `Twitchがチャットを送信しませんでした: ${readDropReason(result.drop_reason)}`)
     },
   }
 }

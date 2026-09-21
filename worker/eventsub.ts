@@ -38,10 +38,26 @@ export const EVENT_TYPES: readonly EventType[] = [
   { type: 'channel.raid', version: '1', scope: null, condition: (broadcasterId) => ({ to_broadcaster_user_id: broadcasterId }) },
 ]
 
-/** ログイン時に要求するスコープ（重複なし） */
+/**
+ * イベントの購読には要らないが、配信者に認可してもらうスコープ。
+ *
+ * channel:bot は、botアカウントのチャットをアプリアクセストークンで購読する（Phase 2）ために、
+ * チャンネルの持ち主である配信者が与えるもの。イベントの種類には紐づかない。
+ */
+const EXTRA_BROADCASTER_SCOPES: readonly string[] = ['channel:bot']
+
+/** 配信者のログイン時に要求するスコープ（重複なし） */
 export const REQUIRED_SCOPES: readonly string[] = [
-  ...new Set(EVENT_TYPES.map((eventType) => eventType.scope).filter((scope) => scope !== null)),
+  ...new Set([...EVENT_TYPES.map((eventType) => eventType.scope).filter((scope) => scope !== null), ...EXTRA_BROADCASTER_SCOPES]),
 ]
+
+/**
+ * botアカウントの接続時に要求するスコープ。
+ *
+ * user:read:chat と user:bot はチャットの受信に、user:write:chat は送信（POST /helix/chat/messages）に要る。
+ * 受信は後の段階で使うが、スコープが足りないと接続し直しになるため、最初からまとめて認可してもらう。
+ */
+export const BOT_SCOPES: readonly string[] = ['user:bot', 'user:read:chat', 'user:write:chat']
 
 /** EventSubのWebSocketセッション宛ての購読を、受け取るイベントの数だけ組み立てる */
 export const buildSubscriptions = (broadcasterId: string, sessionId: string): EventSubSubscription[] =>
