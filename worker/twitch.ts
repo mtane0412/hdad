@@ -24,10 +24,14 @@ const DEVICE_CODE_GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:device_code'
 /**
  * トークン交換で「まだ認可されていない」ことを表す、Twitchの失敗メッセージ（RFC 8628 のエラーコード）。
  *
- * 注意: これ以外の失敗（期限切れ・拒否・設定の誤り）を待っている状態として飲み込まない。
+ * slow_down も待っている状態だが、RFC 8628 では受け取った側に「以降の問い合わせの間隔を5秒延ばす」ことを求めているため、
+ * authorization_pending とは区別して返す。同一視すると、速すぎるまま問い合わせ続けることになる。
+ *
+ * 注意: これら以外の失敗（期限切れ・拒否・設定の誤り）を待っている状態として飲み込まない。
  * 飲み込むと、いつまでも終わらないポーリングになる。
  */
-const PENDING_MESSAGES: readonly string[] = ['authorization_pending', 'slow_down']
+const PENDING_MESSAGE = 'authorization_pending'
+const SLOW_DOWN_MESSAGE = 'slow_down'
 /** バッジ・Cheermote の画像は複数の大きさで届く。オーバーレイでは2倍のものを使う */
 const IMAGE_SCALE = '2'
 /** Twitchの応答として成り立っていない（必要な項目がない）ときに使う状態コード */
@@ -119,8 +123,11 @@ export interface DeviceAuthorization {
   intervalSeconds: number
 }
 
-/** デバイスコードの交換の結果。まだ利用者が認可していない場合は失敗ではなく pending */
-export type DeviceCodeExchange = { status: 'pending' } | { status: 'granted'; grant: TokenGrant }
+/**
+ * デバイスコードの交換の結果。まだ利用者が認可していない場合は失敗ではなく pending。
+ * slow-down も待っている状態だが、呼び出し側は次から問い合わせの間隔を延ばす必要がある。
+ */
+export type DeviceCodeExchange = { status: 'pending' } | { status: 'slow-down' } | { status: 'granted'; grant: TokenGrant }
 
 /** チャットへ送るメッセージ */
 export interface ChatMessageToSend {
@@ -519,7 +526,8 @@ export const createTwitchClient = ({ clientId, clientSecret, fetch: fetchImpl }:
       if (!response.ok) {
         const body: unknown = await response.clone().json().catch(() => null)
         const message = isRecord(body) && typeof body.message === 'string' ? body.message : ''
-        if (PENDING_MESSAGES.includes(message)) return { status: 'pending' }
+        if (message === PENDING_MESSAGE) return { status: 'pending' }
+        if (message === SLOW_DOWN_MESSAGE) return { status: 'slow-down' }
         // 待っている状態ではない失敗（期限切れ・拒否・設定の誤り）は、readJson に TwitchApiError を投げさせる
       }
       return { status: 'granted', grant: toTokenGrant(await readJson(response)) }

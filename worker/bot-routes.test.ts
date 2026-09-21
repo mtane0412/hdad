@@ -378,6 +378,18 @@ describe('POST /api/admin/bot/device-token', () => {
     expect(await loadToken(store, 'bot')).toBeNull()
   })
 
+  it('問い合わせが速すぎると言われたら、間隔を延ばして待つよう伝える（エラーにしない）', async () => {
+    const { env, store } = 環境を作る()
+    const twitch = 交換に応えるTwitch(Response.json({ status: 400, message: 'slow_down' }, { status: 400 }))
+
+    const response = await 交換する(env, twitch.fetchImpl)
+
+    expect(response.status).toBe(200)
+    // 管理画面が間隔を延ばせるよう、pending とは区別して返す
+    expect(await response.json()).toEqual({ status: 'slow-down' })
+    expect(await loadToken(store, 'bot')).toBeNull()
+  })
+
   it('認可が済んでいれば、botのトークンを保存して接続状態を返す', async () => {
     const { env, store } = 環境を作る()
     const twitch = 交換に応えるTwitch(認可済みの応答())

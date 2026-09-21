@@ -39,8 +39,11 @@ export interface DeviceCode {
   intervalSeconds: number
 }
 
-/** 認可を待っている間の問い合わせの結果 */
-export type DevicePoll = { status: 'pending' } | { status: 'connected'; bot: BotStatus }
+/**
+ * 認可を待っている間の問い合わせの結果。
+ * slow-down は pending と同じく「まだ認可されていない」だが、次からの間隔を延ばす必要がある（RFC 8628）。
+ */
+export type DevicePoll = { status: 'pending' } | { status: 'slow-down' } | { status: 'connected'; bot: BotStatus }
 
 export interface BotApi {
   /** botの接続状態。未接続なら null */
@@ -107,6 +110,7 @@ export const createBotApi = (fetchImpl: typeof fetch): BotApi => {
         body: JSON.stringify({ deviceCode }),
       })
       if (isRecord(body) && body.status === 'pending') return { status: 'pending' }
+      if (isRecord(body) && body.status === 'slow-down') return { status: 'slow-down' }
       if (isRecord(body) && body.status === 'connected' && isBotStatus(body.bot)) return { status: 'connected', bot: body.bot }
       throw new Error(`Workerの ${DEVICE_TOKEN_PATH} の応答が想定した形ではありません`)
     },

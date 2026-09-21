@@ -27,6 +27,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { BotApi, BotStatus, DeviceCode } from './api'
+import { nextIntervalSeconds } from './poll'
 
 /** botの接続を始めるURL。Twitchの認可画面へ移動する */
 const CONNECT_PATH = '/api/auth/login?role=bot'
@@ -121,6 +122,7 @@ export const BotPage = ({ api }: BotPageProps) => {
   const connectWithDeviceCode = async (): Promise<string> => {
     const issued = await api.startDeviceCode()
     setDeviceCode(issued)
+    let intervalSeconds = issued.intervalSeconds
     try {
       for (;;) {
         // 画面を離れたら問い合わせをやめる（戻ってきたときは、読み込み時の status で接続状態が分かる）
@@ -130,7 +132,9 @@ export const BotPage = ({ api }: BotPageProps) => {
           setLoaded({ status: 'ready', bot: result.bot })
           return `botアカウント「${result.bot.login}」を接続しました`
         }
-        await wait(issued.intervalSeconds)
+        // 速すぎると言われた場合は、次からの間隔を延ばす
+        intervalSeconds = nextIntervalSeconds(intervalSeconds, result)
+        await wait(intervalSeconds)
       }
     } finally {
       setDeviceCode(undefined)

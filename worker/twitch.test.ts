@@ -577,10 +577,12 @@ describe('exchangeDeviceCode', () => {
     expect(await クライアントを作る(fetchImpl).exchangeDeviceCode('device-code-0123456789', ['user:bot'])).toEqual({ status: 'pending' })
   })
 
-  it('ポーリングが速すぎると言われた場合も、失敗ではなく「待っている」状態として返す', async () => {
+  it('ポーリングが速すぎると言われたら、待っている状態のうち「間隔を延ばす」ものとして区別して返す', async () => {
+    // RFC 8628 では slow_down を受け取った側は、以降の間隔を5秒延ばすことが求められる。
+    // authorization_pending と同一視すると、速すぎるまま問い合わせ続けてしまう
     const { fetchImpl } = 応答を返すfetch(400, { status: 400, message: 'slow_down' })
 
-    expect(await クライアントを作る(fetchImpl).exchangeDeviceCode('device-code-0123456789', ['user:bot'])).toEqual({ status: 'pending' })
+    expect(await クライアントを作る(fetchImpl).exchangeDeviceCode('device-code-0123456789', ['user:bot'])).toEqual({ status: 'slow-down' })
   })
 
   it('コードの期限が切れていたら、待ち続けずにエラーにする', async () => {

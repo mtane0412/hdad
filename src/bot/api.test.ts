@@ -114,6 +114,12 @@ describe('pollDeviceCode（認可されるまで待つ）', () => {
     expect(await requests[0]!.json()).toEqual({ deviceCode: 'device-code-0123456789' })
   })
 
+  it('問い合わせが速すぎると言われたら、pending と区別して返す', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { status: 'slow-down' })
+
+    expect(await createBotApi(fetchImpl).pollDeviceCode('device-code-0123456789')).toEqual({ status: 'slow-down' })
+  })
+
   it('認可が済んでいれば、接続したbotを返す', async () => {
     const { fetchImpl } = 応答を返すfetch(200, { status: 'connected', bot: 接続済みのbot })
 

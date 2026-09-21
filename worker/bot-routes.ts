@@ -98,7 +98,8 @@ export const postBotDeviceCode = async (context: Context): Promise<Response> => 
 /**
  * POST /api/admin/bot/device-token: デバイスコードをトークンに交換する。
  *
- * 利用者がまだ認可していなければ `{ status: 'pending' }` を返す（失敗にしない）。管理画面はこれを見て待ち続ける。
+ * 利用者がまだ認可していなければ `{ status: 'pending' }`、問い合わせが速すぎれば `{ status: 'slow-down' }` を返す（どちらも失敗にしない）。
+ * 管理画面はこれを見て待ち続け、slow-down なら次からの間隔を延ばす。
  *
  * @throws TwitchApiError コードの期限切れ・利用者が拒否・そのほかの失敗
  */
@@ -115,7 +116,8 @@ export const postBotDeviceToken = async (context: Context): Promise<Response> =>
   }
 
   const exchange = await twitch.exchangeDeviceCode(deviceCode, BOT_SCOPES)
-  if (exchange.status === 'pending') return Response.json({ status: 'pending' })
+  // まだ認可されていない。slow-down は「間隔を延ばして待つ」ことを管理画面へ伝えるため、pending と分けて返す
+  if (exchange.status !== 'granted') return Response.json({ status: exchange.status })
 
   const { grant } = exchange
   // どのアカウントが認可したかは、トークンを検証しないと分からない（デバイスコードフローには戻り先がないため）
