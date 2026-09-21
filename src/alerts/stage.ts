@@ -80,11 +80,15 @@ const start = async (): Promise<void> => {
   // 起動時に設定を取得できなければ（キーの誤りなど）、接続せずにエラーを表示する
   let triggers = await loadTriggers()
 
+  /** 通知の処理を届いた順に1件ずつ行うための列。設定の取得の速さによってアラートの順番が入れ替わらないようにする */
+  let processing: Promise<void> = Promise.resolve()
+
   connectEventSub(params.key, {
     onNotification: (notification) => {
       // 管理画面での変更をOBSの再読み込みなしで反映するため、通知のたびに設定を取り直す。
       // 取り直せなかった場合は画面に知らせたうえで、最後に取得できた設定で再生する
-      void loadTriggers()
+      processing = processing
+        .then(loadTriggers)
         .then((latest) => {
           triggers = latest
           // 前回の取得失敗のお知らせが残っていれば消す
