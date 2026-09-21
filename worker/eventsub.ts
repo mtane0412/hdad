@@ -43,8 +43,11 @@ export const EVENT_TYPES: readonly EventType[] = [
  *
  * channel:bot は、botアカウントのチャットをアプリアクセストークンで購読する（Phase 2）ために、
  * チャンネルの持ち主である配信者が与えるもの。イベントの種類には紐づかない。
+ *
+ * moderation:read は、botがこのチャンネルのモデレーターにされているかを
+ * 配信者のトークンで確かめる（GET /helix/moderation/moderators）ために要る。
  */
-const EXTRA_BROADCASTER_SCOPES: readonly string[] = ['channel:bot']
+const EXTRA_BROADCASTER_SCOPES: readonly string[] = ['channel:bot', 'moderation:read']
 
 /** 配信者のログイン時に要求するスコープ（重複なし） */
 export const REQUIRED_SCOPES: readonly string[] = [
@@ -55,9 +58,19 @@ export const REQUIRED_SCOPES: readonly string[] = [
  * botアカウントの接続時に要求するスコープ。
  *
  * user:read:chat と user:bot はチャットの受信に、user:write:chat は送信（POST /helix/chat/messages）に要る。
- * 受信は後の段階で使うが、スコープが足りないと接続し直しになるため、最初からまとめて認可してもらう。
+ * moderator:manage:* はモデレーション操作に要る（banned_users はBAN・タイムアウト、chat_messages は発言の削除、
+ * announcements はアナウンス）。いずれも、botがこのチャンネルのモデレーターにされていることが前提。
+ *
+ * 注意: スコープが足りないと接続し直しになるため、後の段階で使うものも最初からまとめて認可してもらう。
  */
-export const BOT_SCOPES: readonly string[] = ['user:bot', 'user:read:chat', 'user:write:chat']
+export const BOT_SCOPES: readonly string[] = [
+  'user:bot',
+  'user:read:chat',
+  'user:write:chat',
+  'moderator:manage:banned_users',
+  'moderator:manage:chat_messages',
+  'moderator:manage:announcements',
+]
 
 /** EventSubのWebSocketセッション宛ての購読を、受け取るイベントの数だけ組み立てる */
 export const buildSubscriptions = (broadcasterId: string, sessionId: string): EventSubSubscription[] =>

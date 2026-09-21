@@ -17,6 +17,16 @@ const 応答を返すfetch = (status: number, body: unknown) => {
   return { requests, fetchImpl }
 }
 
+/** 本文を返さない応答（204など）を返す fetch。モデレーション操作の成功はこの形で返る */
+const 本文のない応答を返すfetch = (status: number) => {
+  const requests: Request[] = []
+  const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    requests.push(new Request(input, init))
+    return new Response(null, { status })
+  }
+  return { requests, fetchImpl }
+}
+
 const クライアントを作る = (fetchImpl: typeof fetch) =>
   createTwitchClient({ clientId: 'test-client-id', clientSecret: 'テスト用シークレット', fetch: fetchImpl })
 
@@ -506,6 +516,184 @@ describe('sendChatMessage', () => {
     expect(error).toBeInstanceOf(TwitchApiError)
     // どうして送れなかったのかを管理画面で読めるよう、Twitchの理由をそのまま含める
     expect((error as TwitchApiError).message).toContain('メッセージがAutoModに保留されました')
+  })
+})
+
+describe('banUser', () => {
+  it('期間を指定するとタイムアウトになる（duration に秒数を載せる）', async () => {
+    const { requests, fetchImpl } = 応答を返すfetch(200, {
+      data: [{ broadcaster_id: '12345', moderator_id: 'botのユーザーID', user_id: '荒らしのユーザーID', end_time: '2026-09-21T12:10:00Z' }],
+    })
+
+    await クライアントを作る(fetchImpl).banUser('bot-access-token', {
+      broadcasterId: '12345',
+      moderatorId: 'botのユーザーID',
+      userId: '荒らしのユーザーID',
+      durationSeconds: 600,
+      reason: '宣伝のURLを繰り返し貼ったため',
+    })
+
+    const request = requests[0]!
+    const url = new URL(request.url)
+    expect(url.origin + url.pathname).toBe('https://api.twitch.tv/helix/moderation/bans')
+    expect(url.searchParams.get('broadcaster_id')).toBe('12345')
+    // moderator_id はアクセストークンの持ち主（bot）と一致している必要がある
+    expect(url.searchParams.get('moderator_id')).toBe('botのユーザーID')
+    expect(request.method).toBe('POST')
+    expect(await request.json()).toEqual({ data: { user_id: '荒らしのユーザーID', duration: 600, reason: '宣伝のURLを繰り返し貼ったため' } })
+  })
+
+  it('期間を省略すると永久BANになる（duration を載せない）', async () => {
+    const { requests, fetchImpl } = 応答を返すfetch(200, { data: [{ user_id: '荒らしのユーザーID' }] })
+
+    await クライアントを作る(fetchImpl).banUser('bot-access-token', {
+      broadcasterId: '12345',
+      moderatorId: 'botのユーザーID',
+      userId: '荒らしのユーザーID',
+    })
+
+    expect(await requests[0]!.json()).toEqual({ data: { user_id: '荒らしのユーザーID' } })
+  })
+
+  it('すでにBAN済み・タイムアウト中なら 409 の TwitchApiError になる', async () => {
+    // 呼び出し側が「処分済み」として扱えるよう、状態コードをそのまま残す
+    const { fetchImpl } = 応答を返すfetch(409, { error: 'Conflict', status: 409, message: 'user is already banned' })
+
+    await expect(
+      クライアントを作る(fetchImpl).banUser('bot-access-token', {
+        broadcasterId: '12345',
+        moderatorId: 'botのユーザーID',
+        userId: '荒らしのユーザーID',
+      }),
+    ).rejects.toMatchObject({ name: 'TwitchApiError', status: 409 })
+  })
+})
+
+describe('deleteChatMessage', () => {
+  it('メッセージIDを指定して1件だけ削除する', async () => {
+    // Twitchは成功時に 204（本文なし）を返す
+    const { requests, fetchImpl } = 本文のない応答を返すfetch(204)
+
+    await クライアントを作る(fetchImpl).deleteChatMessage('bot-access-token', {
+      broadcasterId: '12345',
+      moderatorId: 'botのユーザーID',
+      messageId: '消したい発言のID',
+    })
+
+    const request = requests[0]!
+    const url = new URL(request.url)
+    expect(url.origin + url.pathname).toBe('https://api.twitch.tv/helix/moderation/chat')
+    expect(url.searchParams.get('broadcaster_id')).toBe('12345')
+    expect(url.searchParams.get('moderator_id')).toBe('botのユーザーID')
+    // message_id を省略するとチャット全体が消えるため、必ず載せる
+    expect(url.searchParams.get('message_id')).toBe('消したい発言のID')
+    expect(request.method).toBe('DELETE')
+  })
+
+  it('Twitchが失敗を返したら TwitchApiError になる', async () => {
+    // 配信者や他のモデレーターの発言、6時間より古い発言は削除できない
+    const { fetchImpl } = 応答を返すfetch(400, { status: 400, message: 'You may not delete another moderator’s messages.' })
+
+    await expect(
+      クライアントを作る(fetchImpl).deleteChatMessage('bot-access-token', {
+        broadcasterId: '12345',
+        moderatorId: 'botのユーザーID',
+        messageId: 'モデレーターの発言のID',
+      }),
+    ).rejects.toMatchObject({ name: 'TwitchApiError', status: 400 })
+  })
+})
+
+describe('sendChatAnnouncement', () => {
+  it('色を指定してアナウンスを送る', async () => {
+    const { requests, fetchImpl } = 本文のない応答を返すfetch(204)
+
+    await クライアントを作る(fetchImpl).sendChatAnnouncement('bot-access-token', {
+      broadcasterId: '12345',
+      moderatorId: 'botのユーザーID',
+      message: 'たねのぶさんのフォローありがとうございます',
+      color: 'purple',
+    })
+
+    const request = requests[0]!
+    const url = new URL(request.url)
+    expect(url.origin + url.pathname).toBe('https://api.twitch.tv/helix/chat/announcements')
+    expect(url.searchParams.get('broadcaster_id')).toBe('12345')
+    expect(url.searchParams.get('moderator_id')).toBe('botのユーザーID')
+    expect(request.method).toBe('POST')
+    expect(await request.json()).toEqual({ message: 'たねのぶさんのフォローありがとうございます', color: 'purple' })
+  })
+
+  it('色を省略すると primary（チャンネルの色）で送る', async () => {
+    const { requests, fetchImpl } = 本文のない応答を返すfetch(204)
+
+    await クライアントを作る(fetchImpl).sendChatAnnouncement('bot-access-token', {
+      broadcasterId: '12345',
+      moderatorId: 'botのユーザーID',
+      message: '本日の配信はここまでです',
+    })
+
+    expect(await requests[0]!.json()).toEqual({ message: '本日の配信はここまでです', color: 'primary' })
+  })
+
+  it('Twitchが失敗を返したら TwitchApiError になる', async () => {
+    const { fetchImpl } = 応答を返すfetch(401, { status: 401, message: 'Missing scope: moderator:manage:announcements' })
+
+    await expect(
+      クライアントを作る(fetchImpl).sendChatAnnouncement('token-without-scope', {
+        broadcasterId: '12345',
+        moderatorId: 'botのユーザーID',
+        message: 'テスト',
+      }),
+    ).rejects.toMatchObject({ name: 'TwitchApiError', status: 401 })
+  })
+})
+
+describe('isModerator', () => {
+  it('モデレーターの一覧にそのユーザーが含まれていれば true を返す', async () => {
+    const { requests, fetchImpl } = 応答を返すfetch(200, {
+      data: [{ user_id: 'botのユーザーID', user_login: 'tanenob_bot', user_name: 'tanenob_bot' }],
+      pagination: {},
+    })
+
+    const isModerator = await クライアントを作る(fetchImpl).isModerator('broadcaster-access-token', {
+      broadcasterId: '12345',
+      userId: 'botのユーザーID',
+    })
+
+    const url = new URL(requests[0]!.url)
+    expect(url.origin + url.pathname).toBe('https://api.twitch.tv/helix/moderation/moderators')
+    expect(url.searchParams.get('broadcaster_id')).toBe('12345')
+    // user_id で絞り込むので、モデレーターが何人いても1件で判定できる
+    expect(url.searchParams.get('user_id')).toBe('botのユーザーID')
+    expect(isModerator).toBe(true)
+  })
+
+  it('一覧が空なら false を返す（モデレーターにされていない）', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { data: [], pagination: {} })
+
+    const isModerator = await クライアントを作る(fetchImpl).isModerator('broadcaster-access-token', {
+      broadcasterId: '12345',
+      userId: 'botのユーザーID',
+    })
+
+    expect(isModerator).toBe(false)
+  })
+
+  it('応答に data の配列が無ければエラーになる（モデレーターでないと決めつけない）', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { pagination: {} })
+
+    await expect(
+      クライアントを作る(fetchImpl).isModerator('broadcaster-access-token', { broadcasterId: '12345', userId: 'botのユーザーID' }),
+    ).rejects.toBeInstanceOf(TwitchApiError)
+  })
+
+  it('スコープが足りなければ TwitchApiError になる', async () => {
+    const { fetchImpl } = 応答を返すfetch(401, { status: 401, message: 'Missing scope: moderation:read' })
+
+    await expect(
+      クライアントを作る(fetchImpl).isModerator('token-without-scope', { broadcasterId: '12345', userId: 'botのユーザーID' }),
+    ).rejects.toMatchObject({ name: 'TwitchApiError', status: 401 })
   })
 })
 

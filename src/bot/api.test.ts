@@ -10,7 +10,7 @@ import { createBotApi } from './api'
 
 const サイト = 'https://stream-assets.example.com'
 
-const 接続済みのbot = { userId: '67890', login: 'haishinsha_bot', missingScopes: [] }
+const 接続済みのbot = { userId: '67890', login: 'haishinsha_bot', missingScopes: [], isModerator: true }
 
 /** 送られたリクエストを記録し、決めた応答を返す fetch */
 const 応答を返すfetch = (status: number, body: unknown) => {
@@ -40,8 +40,18 @@ describe('status（接続状態の取得）', () => {
     expect(await createBotApi(fetchImpl).status()).toMatchObject({ missingScopes: ['user:write:chat'] })
   })
 
+  it('モデレーターかどうかを受け取れる', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { bot: { ...接続済みのbot, isModerator: false } })
+    expect(await createBotApi(fetchImpl).status()).toMatchObject({ isModerator: false })
+  })
+
   it('応答が想定した形でなければエラーにする（黙って未接続扱いにしない）', async () => {
     const { fetchImpl } = 応答を返すfetch(200, { bot: { login: 'haishinsha_bot' } })
+    await expect(createBotApi(fetchImpl).status()).rejects.toThrow('/api/admin/bot')
+  })
+
+  it('isModerator が無ければエラーにする（モデレーターでないと決めつけない）', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { bot: { userId: '67890', login: 'haishinsha_bot', missingScopes: [] } })
     await expect(createBotApi(fetchImpl).status()).rejects.toThrow('/api/admin/bot')
   })
 

@@ -17,7 +17,7 @@ import { loadBotConfig, parseBotConfig, saveBotConfig } from './bot-config'
 import { BOT_SCOPES } from './eventsub'
 import { syncWebhookSubscriptions } from './eventsub-webhook'
 import { HttpError, STATUS, requireAdmin, type Context } from './http'
-import { deleteToken, loadToken, saveToken, type StoredToken } from './token'
+import { AuthError, deleteToken, getAccessToken, loadToken, saveToken, type StoredToken } from './token'
 
 /** Twitchが決めているチャット本文の上限（文字） */
 const MAX_MESSAGE_LENGTH = 500
@@ -38,18 +38,47 @@ const readMessage = async (request: Request): Promise<string> => {
   return message
 }
 
+/** botがモデレーターかどうかを確かめるために、配信者のトークンに要るスコープ */
+const MODERATION_READ_SCOPE = 'moderation:read'
+
 /** 管理画面へ返す接続状態。トークンそのものは含めない */
-const toBotStatus = (token: StoredToken): Record<string, unknown> => ({
+const toBotStatus = (token: StoredToken, isModerator: boolean): Record<string, unknown> => ({
   userId: token.userId,
   login: token.login,
   missingScopes: BOT_SCOPES.filter((scope) => !token.scopes.includes(scope)),
+  isModerator,
 })
+
+/**
+ * botがこのチャンネルのモデレーターにされているかを、配信者のトークンで確かめる。
+ *
+ * モデレーターでないとBAN・タイムアウト・発言の削除・アナウンスがすべてTwitchに拒否されるため、
+ * 管理画面で「配信者が /mod を実行してください」と案内できるようにする。
+ *
+ * 注意: スコープ不足を「モデレーターでない」と読み替えない。取り違えると、本当はモデレーターなのに
+ * 案内が出続けることになる。
+ *
+ * @throws AuthError 配信者が未ログイン・moderation:read が無い
+ * @throws TwitchApiError Twitchが拒否した
+ */
+const isBotModerator = async (context: Context, botUserId: string): Promise<boolean> => {
+  const { env, twitch, now } = context
+  const token = await getAccessToken(env.STORE, 'broadcaster', twitch, now)
+  if (!token.scopes.includes(MODERATION_READ_SCOPE)) {
+    throw new AuthError(
+      'missing-scope',
+      `配信者のトークンに ${MODERATION_READ_SCOPE} がありません。ログインし直してください（botがモデレーターかどうかを確かめられません）`,
+    )
+  }
+  return twitch.isModerator(token.accessToken, { broadcasterId: env.TWITCH_BROADCASTER_ID, userId: botUserId })
+}
 
 /** GET /api/admin/bot: botの接続状態。未接続なら bot は null */
 export const getBot = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
   const token = await loadToken(context.env.STORE, 'bot')
-  return Response.json({ bot: token ? toBotStatus(token) : null })
+  if (!token) return Response.json({ bot: null })
+  return Response.json({ bot: toBotStatus(token, await isBotModerator(context, token.userId)) })
 }
 
 /**
@@ -130,7 +159,7 @@ export const postBotDeviceToken = async (context: Context): Promise<Response> =>
   await saveToken(env.STORE, 'bot', token)
   // チャットの購読の条件にbotのユーザーIDが入るので、接続できた時点で揃え直す
   await syncWebhookSubscriptions(context)
-  return Response.json({ status: 'connected', bot: toBotStatus(token) })
+  return Response.json({ status: 'connected', bot: toBotStatus(token, await isBotModerator(context, token.userId)) })
 }
 
 /** GET /api/admin/bot/commands: 保存済みのコマンドの一覧 */

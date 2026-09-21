@@ -7,7 +7,7 @@
  * - 本文が空・長すぎる・botが未接続といった場合に、黙って何もせずエラーで伝えること
  */
 import { describe, expect, it } from 'vitest'
-import { BOT_SCOPES } from './eventsub'
+import { BOT_SCOPES, REQUIRED_SCOPES } from './eventsub'
 import { createFakeBucket } from './fake-bucket'
 import { createFakeDatabase } from './fake-database'
 import { createFakeStore } from './fake-store'
@@ -30,6 +30,25 @@ const botのトークン = (scopes: readonly string[] = BOT_SCOPES): StoredToken
   userId: botのID,
   login: 'haishinsha_bot',
 })
+
+const 配信者のトークン = (scopes: readonly string[] = REQUIRED_SCOPES): StoredToken => ({
+  accessToken: 'broadcaster-access-token',
+  refreshToken: 'broadcaster-refresh-token',
+  expiresAt: 現在時刻 + 60 * 60 * 1000,
+  scopes: [...scopes],
+  userId: 配信者のID,
+  login: 'haishinsha',
+})
+
+/**
+ * モデレーターの一覧の問い合わせに応える。botがモデレーターかどうかを、接続状態と一緒に返すために呼ばれる。
+ * 当てはまらないリクエストには null を返す。
+ */
+const モデレーターの問い合わせに応える = (request: Request, モデレーターである: boolean): Response | null => {
+  if (!request.url.startsWith('https://api.twitch.tv/helix/moderation/moderators')) return null
+  const data = モデレーターである ? [{ user_id: botのID, user_login: 'haishinsha_bot', user_name: 'haishinsha_bot' }] : []
+  return Response.json({ data, pagination: {} })
+}
 
 const 環境を作る = () => {
   const store = createFakeStore()
@@ -116,21 +135,67 @@ describe('GET /api/admin/bot', () => {
   it('接続済みなら、ログイン名とユーザーIDを返す。トークンは返さない', async () => {
     const { env, store } = 環境を作る()
     await saveToken(store, 'bot', botのトークン())
+    await saveToken(store, 'broadcaster', 配信者のトークン())
+
+    const response = await 呼び出す(await 配信者のリクエスト(env, '/api/admin/bot'), env, async (input, init) => {
+      const モデレーター = モデレーターの問い合わせに応える(new Request(input, init), true)
+      if (モデレーター) return モデレーター
+      throw new Error(`テストで想定していない通信です: ${String(input)}`)
+    })
+
+    const body = await response.json()
+    expect(body).toEqual({ bot: { userId: botのID, login: 'haishinsha_bot', missingScopes: [], isModerator: true } })
+    expect(JSON.stringify(body)).not.toContain('bot-access-token')
+  })
+
+  it('botがモデレーターにされていなければ isModerator は false になる（管理画面で /mod を促すため）', async () => {
+    const { env, store } = 環境を作る()
+    await saveToken(store, 'bot', botのトークン())
+    await saveToken(store, 'broadcaster', 配信者のトークン())
+
+    const response = await 呼び出す(await 配信者のリクエスト(env, '/api/admin/bot'), env, async (input, init) => {
+      const モデレーター = モデレーターの問い合わせに応える(new Request(input, init), false)
+      if (モデレーター) return モデレーター
+      throw new Error(`テストで想定していない通信です: ${String(input)}`)
+    })
+
+    expect(await response.json()).toMatchObject({ bot: { isModerator: false } })
+  })
+
+  it('配信者のトークンに moderation:read が無ければ、黙ってfalseにせずエラーで伝える', async () => {
+    const { env, store } = 環境を作る()
+    await saveToken(store, 'bot', botのトークン())
+    await saveToken(store, 'broadcaster', 配信者のトークン(REQUIRED_SCOPES.filter((scope) => scope !== 'moderation:read')))
 
     const response = await 呼び出す(await 配信者のリクエスト(env, '/api/admin/bot'), env)
 
-    const body = await response.json()
-    expect(body).toEqual({ bot: { userId: botのID, login: 'haishinsha_bot', missingScopes: [] } })
-    expect(JSON.stringify(body)).not.toContain('bot-access-token')
+    // 不足スコープは配信者のログインし直しでしか解決しないので、401（AuthError）で返す
+    expect(response.status).toBe(401)
+    expect(await エラーコード(response)).toBe('missing-scope')
   })
 
   it('スコープが足りなければ、不足しているスコープを示す（接続し直しが要ることを管理画面で伝えるため）', async () => {
     const { env, store } = 環境を作る()
     await saveToken(store, 'bot', botのトークン(['user:read:chat']))
+    await saveToken(store, 'broadcaster', 配信者のトークン())
 
-    const response = await 呼び出す(await 配信者のリクエスト(env, '/api/admin/bot'), env)
+    const response = await 呼び出す(await 配信者のリクエスト(env, '/api/admin/bot'), env, async (input, init) => {
+      const モデレーター = モデレーターの問い合わせに応える(new Request(input, init), true)
+      if (モデレーター) return モデレーター
+      throw new Error(`テストで想定していない通信です: ${String(input)}`)
+    })
 
-    expect(await response.json()).toMatchObject({ bot: { missingScopes: ['user:bot', 'user:write:chat'] } })
+    expect(await response.json()).toMatchObject({
+      bot: {
+        missingScopes: [
+          'user:bot',
+          'user:write:chat',
+          'moderator:manage:banned_users',
+          'moderator:manage:chat_messages',
+          'moderator:manage:announcements',
+        ],
+      },
+    })
   })
 })
 
@@ -349,6 +414,9 @@ describe('POST /api/admin/bot/device-token', () => {
       }
       const 購読 = 購読の問い合わせに応える(request)
       if (購読) return 購読
+      // 接続できた時点で、botがモデレーターにされているかも確かめる
+      const モデレーター = モデレーターの問い合わせに応える(request, true)
+      if (モデレーター) return モデレーター
       throw new Error(`テストで想定していない通信です: ${request.url}`)
     }
     return { fetchImpl }
@@ -412,13 +480,15 @@ describe('POST /api/admin/bot/device-token', () => {
 
   it('認可が済んでいれば、botのトークンを保存して接続状態を返す', async () => {
     const { env, store } = 環境を作る()
+    // モデレーターかどうかの確認には配信者のトークンが要る
+    await saveToken(store, 'broadcaster', 配信者のトークン())
     const twitch = 交換に応えるTwitch(認可済みの応答())
 
     const response = await 交換する(env, twitch.fetchImpl)
 
     expect(response.status).toBe(200)
     const body = await response.json()
-    expect(body).toEqual({ status: 'connected', bot: { userId: botのID, login: 'haishinsha_bot', missingScopes: [] } })
+    expect(body).toEqual({ status: 'connected', bot: { userId: botのID, login: 'haishinsha_bot', missingScopes: [], isModerator: true } })
     // トークンはWorkerの中に留め、ブラウザへ返さない
     expect(JSON.stringify(body)).not.toContain('bot-access-token')
     expect(await loadToken(store, 'bot')).toMatchObject({ accessToken: 'bot-access-token', userId: botのID, login: 'haishinsha_bot' })
