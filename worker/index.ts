@@ -6,7 +6,7 @@
  * | 経路 | 守り方 | 役割 |
  * |---|---|---|
  * | GET  /api/auth/login             | なし           | Twitchの認可ページへ送る |
- * | GET  /api/auth/callback          | OAuthのstate   | トークンを保管し、配信者本人ならセッションを開始して管理画面へ送る |
+ * | GET  /api/auth/callback          | OAuthのstate   | トークンを保管し、配信者本人ならセッションを開始してダッシュボードへ送る |
  * | POST /api/auth/logout            | なし           | セッションを終える |
  * | GET  /api/me                     | セッション     | ログイン中の配信者とオーバーレイ用キーを返す |
  * | GET・PUT /api/admin/config       | セッション     | アラートの設定の取得・保存 |

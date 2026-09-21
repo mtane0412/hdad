@@ -2,7 +2,7 @@
 
 Twitch配信用の各種素材を置くリポジトリです。Cloudflare Workers の静的アセットとして公開し、OBSのブラウザソースからURLで読み込みます。
 
-トップページ（`index.html`）は素材の種類一覧です。素材はカテゴリごとにディレクトリを分けて置きます。
+トップページ（`index.html`）は配信者のTwitchログインを前提にしたダッシュボードです（`npm run dev` の中でWorkerも動くので、開発サーバーでもログインできます）。OBSに載せる素材ページはログインなしで動きます。素材はカテゴリごとにディレクトリを分けて置きます。
 
 | パス | 内容 |
 | --- | --- |
@@ -130,11 +130,11 @@ https://stream-assets.<サブドメイン>.workers.dev/alerts/?key=<オーバー
 
 ```bash
 npm install
-npm run dev         # 開発サーバー
+npm run dev         # 開発サーバー（Workerも一緒に動く。http://localhost:5173/）
 npm run lint        # Lint（警告ゼロ必須）
 npm run type-check  # 型チェック
 npm test            # テスト
-npm run build       # dist/ へビルド
+npm run build       # dist/ へビルド（静的アセットは dist/client/、Workerとデプロイ用の設定は dist/stream_assets/）
 npm run preview:worker  # ビルドして、Workersと同じ配信挙動をローカルで確認（wrangler dev）
 ```
 
@@ -167,7 +167,7 @@ npm run preview:worker  # ビルドして、Workersと同じ配信挙動をロ�
 
 ## デプロイ
 
-Cloudflare Workers で公開します。設定は `wrangler.jsonc` にあり、Viteのビルド出力（`dist/`）を静的アセットとして配信し、`/api/*` だけを Worker のコード（`worker/`）で処理します。
+Cloudflare Workers で公開します。設定は `wrangler.jsonc` にあり、Viteのビルド出力（`dist/client/`）を静的アセットとして配信し、`/api/*` だけを Worker のコード（`worker/`）で処理します。
 
 `main` へのpushを受けて、Cloudflareの Workers Builds がビルドとデプロイを行います。初回だけ次の設定が必要です。
 
@@ -185,14 +185,14 @@ Cloudflare Workers で公開します。設定は `wrangler.jsonc` にあり、V
 
 R2は無料枠（保存10GB・転送無料）だけを使う場合でも、デプロイの前に一度、Cloudflareダッシュボードの Storage & databases > R2 でR2を有効にする必要があります（支払い方法の登録を求められますが、無料枠内なら請求は発生しません）。
 
-1. [Twitch開発者コンソール](https://dev.twitch.tv/console/apps)でアプリを登録し、OAuthのリダイレクトURLに `https://<公開先のドメイン>/api/auth/callback` を指定する（ローカルで試す場合は `http://localhost:8787/api/auth/callback` も追加する）
-2. `.dev.vars.example` にある4つのシークレット（`TWITCH_CLIENT_ID`・`TWITCH_CLIENT_SECRET`・`TWITCH_BROADCASTER_ID`・`SESSION_SECRET`）を、`npx wrangler secret put <名前>` またはダッシュボードの Settings > Variables and Secrets で設定する。ローカルでは `.dev.vars.example` を `.dev.vars` にコピーして値を入れ、`npm run preview:worker` で起動する
-3. `https://<公開先のドメイン>/admin/` を開き、「Twitchでログイン」から配信者のアカウントでログインする。`TWITCH_BROADCASTER_ID` と異なるアカウントは拒否される。ログインを終えると管理画面に戻る
+1. [Twitch開発者コンソール](https://dev.twitch.tv/console/apps)でアプリを登録し、OAuthのリダイレクトURLに `https://<公開先のドメイン>/api/auth/callback` を指定する（ローカルで試す場合は `http://localhost:5173/api/auth/callback`（`npm run dev`）と `http://localhost:8787/api/auth/callback`（`npm run preview:worker`）も追加する）
+2. `.dev.vars.example` にある4つのシークレット（`TWITCH_CLIENT_ID`・`TWITCH_CLIENT_SECRET`・`TWITCH_BROADCASTER_ID`・`SESSION_SECRET`）を、`npx wrangler secret put <名前>` またはダッシュボードの Settings > Variables and Secrets で設定する。ローカルでは `.dev.vars.example` を `.dev.vars` にコピーして値を入れ、`npm run dev` で起動する
+3. `https://<公開先のドメイン>/` を開き、「Twitchでログイン」から配信者のアカウントでログインする。`TWITCH_BROADCASTER_ID` と異なるアカウントは拒否される。ログインを終えるとトップ（ダッシュボード）に戻る
 
 | API | 役割 |
 |---|---|
 | `GET /api/auth/login` | Twitchの認可ページへ送る |
-| `GET /api/auth/callback` | トークンを保管し、オーバーレイ用キーを発行（発行済みなら維持）して、セッションを開始し、管理画面（`/admin/`）へ送る |
+| `GET /api/auth/callback` | トークンを保管し、オーバーレイ用キーを発行（発行済みなら維持）して、セッションを開始し、トップ（`/`。ダッシュボード）へ送る |
 | `POST /api/auth/logout` | セッションを終える |
 | `GET /api/me` | ログイン中の配信者とオーバーレイ用キーを返す（要セッション） |
 | `POST /api/eventsub/subscriptions` | 本文 `{ "key": オーバーレイ用キー, "sessionId": EventSubのWebSocketのセッションID }` を受け取り、保管しているトークンで購読（チャンネルポイント交換・フォロー・サブスク・レイド）を登録する |
@@ -217,6 +217,6 @@ R2は無料枠（保存10GB・転送無料）だけを使う場合でも、デ�
 | 素材 | 画像・動画・音声のアップロード（1ファイル50MBまで）、試し見・試し聴き、削除。トリガーに使われている素材は削除できない |
 | トリガー | 報酬（Twitchから取得した一覧、または「すべての報酬」）・素材・表示時間・音量・文言の組を並べて保存する。複数が当てはまる交換には、上にあるトリガーを使う |
 
-管理用API（`/api/admin/*`）は配信者のセッションが必要で、書き換えを伴うメソッドは管理画面と同じサイトからのリクエスト（`Origin` ヘッダーが一致するもの）だけを受け付けます。管理画面は `/api/*` を呼び出すので、ローカルでは `npm run dev` ではなく `npm run preview:worker`（`http://localhost:8787/admin/`）で確かめます。
+管理用API（`/api/admin/*`）は配信者のセッションが必要で、書き換えを伴うメソッドは管理画面と同じサイトからのリクエスト（`Origin` ヘッダーが一致するもの）だけを受け付けます。ローカルでは `npm run dev`（`http://localhost:5173/admin/`）で確かめます。`@cloudflare/vite-plugin` が開発サーバーの中でWorkerを動かします。
 
 `durationSeconds` は1〜60、`volume` は0〜1、`message` は200文字以内（`{user}` と `{reward}` が置き換わり、空文字なら文言を出さない）です。設定に問題があれば、保存せずに問題点の一覧（`error.problems`）を返します。

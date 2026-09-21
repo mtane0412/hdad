@@ -5,62 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex" />
     <title>stream-assets</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+JP:wght@400;500;600&display=swap"
-    />
-    <link rel="stylesheet" href="./src/core/ui/ui.css" />
-    <link rel="stylesheet" href="./src/hub/hub.css" />
   </head>
   <body>
-    <header class="topbar">
-      <a class="brand" href="./" aria-current="page">stream-assets</a>
-      <nav aria-label="サイト内の移動">
-        <a href="./wallpaper/">壁紙</a>
-        <a href="./clock/">時計</a>
-        <a href="./chat/">チャット</a>
-        <a href="./admin/">アラート</a>
-      </nav>
-    </header>
-
-    <main class="hub">
-      <h1>Twitch配信用の素材を、OBSのブラウザソースにURLで読み込む。</h1>
-
-      <!-- 見本は実際の素材ページをそのまま縮小して映す。リンクの中に iframe は置けないので、
-           リンクは見出しに付け、::after で行全体に広げる -->
-      <ul class="catalog" aria-label="素材の種類">
-        <li>
-          <!-- canvas の描画は画素数に比例して重くなるので、壁紙の見本は実寸の半分（画素数は4分の1）で描かせる -->
-          <span class="thumb thumb-half">
-            <iframe src="./wallpaper/aurora/" title="壁紙の見本" width="960" height="540" loading="lazy" tabindex="-1" aria-hidden="true"></iframe>
-          </span>
-          <a class="name" href="./wallpaper/">壁紙</a>
-          <span class="summary">配信画面の背景。色や速さを調整してURLをコピーする。</span>
-        </li>
-        <li>
-          <span class="thumb thumb-clock">
-            <iframe src="./clock/digital/" title="時計の見本" width="600" height="240" loading="lazy" tabindex="-1" aria-hidden="true"></iframe>
-          </span>
-          <a class="name" href="./clock/">時計</a>
-          <span class="summary">配信画面に重ねる時計。表示する項目や色をURLで指定する。</span>
-        </li>
-        <li>
-          <span class="thumb thumb-chat">
-            <iframe src="./chat/bubble/?demo=true" title="チャットボックスの見本" width="480" height="800" loading="lazy" tabindex="-1" aria-hidden="true"></iframe>
-          </span>
-          <a class="name" href="./chat/">チャットボックス</a>
-          <span class="summary">Twitchのチャット欄を配信画面に重ねる。チャンネル名をURLで指定する。</span>
-        </li>
-        <li>
-          <span class="thumb">
-            <iframe src="./alerts/?demo=true" title="アラートの見本" width="1920" height="1080" loading="lazy" tabindex="-1" aria-hidden="true"></iframe>
-          </span>
-          <a class="name" href="./admin/">アラート</a>
-          <span class="summary">チャンネルポイントの交換で画像・動画・音声を流す。管理画面で素材とトリガーを決めてURLをコピーする（配信者のログインが必要）。</span>
-        </li>
-      </ul>
-    </main>
+    <div id="root"></div>
+    <script type="module" src="./src/app/main.tsx"></script>
   </body>
 </html>

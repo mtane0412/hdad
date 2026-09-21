@@ -106,7 +106,7 @@ describe('GET /api/auth/callback', () => {
     const response = await ログインする(env, Twitchの代役(配信者のID).fetchImpl)
 
     expect(response.status).toBe(302)
-    expect(response.headers.get('Location')).toBe('/admin/')
+    expect(response.headers.get('Location')).toBe('/')
     expect(await loadToken(store)).toMatchObject({
       accessToken: 'test-access-token',
       refreshToken: 'リフレッシュトークン',
