@@ -6,13 +6,14 @@
  * | 経路 | 守り方 | 役割 |
  * |---|---|---|
  * | GET  /api/auth/login             | なし           | Twitchの認可ページへ送る |
- * | GET  /api/auth/callback          | OAuthのstate   | トークンを保管し、配信者本人ならセッションを開始する |
+ * | GET  /api/auth/callback          | OAuthのstate   | トークンを保管し、配信者本人ならセッションを開始して管理画面へ送る |
  * | POST /api/auth/logout            | なし           | セッションを終える |
  * | GET  /api/me                     | セッション     | ログイン中の配信者とオーバーレイ用キーを返す |
  * | GET・PUT /api/admin/config       | セッション     | アラートの設定の取得・保存 |
  * | GET・POST /api/admin/media       | セッション     | 素材の一覧・アップロード |
  * | DELETE /api/admin/media/:id      | セッション     | 素材の削除 |
  * | POST /api/admin/overlay-key      | セッション     | オーバーレイ用キーの再発行 |
+ * | GET  /api/admin/rewards          | セッション     | チャンネルポイント報酬の一覧 |
  * | POST /api/eventsub/subscriptions | オーバーレイ用キー | EventSubの購読を代行する |
  * | GET  /api/overlay/config         | オーバーレイ用キー | オーバーレイ向けの設定を返す |
  * | GET  /api/media/:id              | オーバーレイ用キーかセッション | 素材の中身を返す |
@@ -20,7 +21,7 @@
  * Twitchのトークンは応答に含めない。失敗は { error: { code, message } } の形で返し、黙って成功扱いにしない。
  * fetch と現在時刻を引数で受け取るのは、テストで差し替えるため。
  */
-import { deleteMedia, getConfig, getMedia, postMedia, postOverlayKey, putConfig } from './admin-routes'
+import { deleteMedia, getConfig, getMedia, getRewards, postMedia, postOverlayKey, putConfig } from './admin-routes'
 import { ConfigError } from './alert-config'
 import { CALLBACK_PATH, callback, login, logout, me } from './auth-routes'
 import { HttpError, STATUS, errorResponse, type Context, type Env } from './http'
@@ -57,6 +58,7 @@ const ROUTES: readonly Route[] = [
   { method: 'POST', path: '/api/admin/media', handle: postMedia },
   { method: 'DELETE', path: '/api/admin/media/:id', handle: deleteMedia },
   { method: 'POST', path: '/api/admin/overlay-key', handle: postOverlayKey },
+  { method: 'GET', path: '/api/admin/rewards', handle: getRewards },
   { method: 'POST', path: '/api/eventsub/subscriptions', handle: subscribe },
   { method: 'GET', path: '/api/overlay/config', handle: overlayConfig },
   { method: 'GET', path: '/api/media/:id', handle: media },

@@ -1,7 +1,7 @@
 /**
  * Twitch APIの呼び出し
  *
- * OAuth（認可コードの交換・トークンの更新・トークンの検証）と、HelixへのEventSub購読の登録を受け持つ。
+ * OAuth（認可コードの交換・トークンの更新・トークンの検証）と、HelixへのEventSub購読の登録、チャンネルポイント報酬の一覧の取得を受け持つ。
  * 失敗の応答はすべて TwitchApiError として投げ、呼び出し側が状態コードで扱いを決める。
  * fetch を引数で受け取るのは、テストで実際の通信を差し替えるため。
  */
@@ -9,6 +9,7 @@ const AUTHORIZE_URL = 'https://id.twitch.tv/oauth2/authorize'
 const TOKEN_URL = 'https://id.twitch.tv/oauth2/token'
 const VALIDATE_URL = 'https://id.twitch.tv/oauth2/validate'
 const SUBSCRIPTIONS_URL = 'https://api.twitch.tv/helix/eventsub/subscriptions'
+const CUSTOM_REWARDS_URL = 'https://api.twitch.tv/helix/channel_points/custom_rewards'
 /** Twitchの応答として成り立っていない（必要な項目がない）ときに使う状態コード */
 const BAD_GATEWAY = 502
 
@@ -48,6 +49,14 @@ export interface EventSubSubscription {
   transport: { method: 'websocket'; session_id: string }
 }
 
+/** チャンネルポイント報酬のうち、管理画面で選ぶのに必要な項目 */
+export interface CustomReward {
+  id: string
+  title: string
+  /** 交換に必要なポイント */
+  cost: number
+}
+
 export interface TwitchClient {
   /** ユーザーをTwitchの認可ページへ送るためのURL */
   authorizeUrl(redirectUri: string, state: string, scopes: readonly string[]): string
@@ -55,6 +64,8 @@ export interface TwitchClient {
   refresh(refreshToken: string): Promise<TokenGrant>
   validate(accessToken: string): Promise<TokenOwner>
   createSubscription(accessToken: string, subscription: EventSubSubscription): Promise<void>
+  /** 配信者のチャンネルポイント報酬の一覧（channel:read:redemptions が必要。Twitchの上限は50件で、ページ分けはない） */
+  listCustomRewards(accessToken: string, broadcasterId: string): Promise<CustomReward[]>
 }
 
 interface TwitchClientOptions {
@@ -82,6 +93,13 @@ const toTokenGrant = (body: Record<string, unknown>): TokenGrant => {
     throw new TwitchApiError(BAD_GATEWAY, 'Twitchのトークン応答に access_token・refresh_token・expires_in が揃っていません')
   }
   return { accessToken, refreshToken, expiresIn }
+}
+
+const toCustomReward = (value: unknown): CustomReward => {
+  if (!isRecord(value) || typeof value.id !== 'string' || typeof value.title !== 'string' || typeof value.cost !== 'number') {
+    throw new TwitchApiError(BAD_GATEWAY, 'Twitchの報酬の応答に id・title・cost が揃っていません')
+  }
+  return { id: value.id, title: value.title, cost: value.cost }
 }
 
 export const createTwitchClient = ({ clientId, clientSecret, fetch: fetchImpl }: TwitchClientOptions): TwitchClient => {
@@ -126,6 +144,15 @@ export const createTwitchClient = ({ clientId, clientSecret, fetch: fetchImpl }:
         body: JSON.stringify(subscription),
       })
       await readJson(response)
+    },
+
+    listCustomRewards: async (accessToken, broadcasterId) => {
+      const url = new URL(CUSTOM_REWARDS_URL)
+      url.searchParams.set('broadcaster_id', broadcasterId)
+      const response = await fetchImpl(url, { headers: { Authorization: `Bearer ${accessToken}`, 'Client-Id': clientId } })
+      const { data } = await readJson(response)
+      if (!Array.isArray(data)) throw new TwitchApiError(BAD_GATEWAY, 'Twitchの報酬の応答に data の配列がありません')
+      return data.map(toCustomReward)
     },
   }
 }

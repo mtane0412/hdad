@@ -4,7 +4,7 @@
  * Workers 静的アセットはパスごとに実ファイルが必要なため、トップ（index.html）・
  * 各カテゴリの一覧（wallpaper/index.html, clock/index.html, chat/index.html）・各素材のページ（<カテゴリ>/<id>/index.html）の
  * すべてをエントリとするマルチページ構成でビルドする。
- * アラート用オーバーレイ（alerts/index.html）は一覧を持たない単独のページなので、カテゴリとは別にエントリへ足す。
+ * アラート用オーバーレイ（alerts/index.html）と管理画面（admin/index.html）は一覧を持たない単独のページなので、カテゴリとは別にエントリへ足す。
  * base を相対パスにしているので、リポジトリ名や独自ドメインが変わっても動作する。
  */
 import { readdirSync } from 'node:fs'
@@ -33,6 +33,7 @@ export default defineConfig({
       input: {
         index: resolve(root, 'index.html'),
         alerts: resolve(root, 'alerts/index.html'),
+        admin: resolve(root, 'admin/index.html'),
         ...categoryEntries,
       },
     },

@@ -11,6 +11,7 @@ import { createFakeBucket } from './fake-bucket'
 import { createFakeStore } from './fake-store'
 import { handleRequest, type Env } from './index'
 import { createSessionToken } from './session'
+import { saveToken } from './token'
 
 const 現在時刻 = Date.UTC(2026, 8, 21, 12, 0, 0)
 const 配信者のID = '12345'
@@ -286,5 +287,49 @@ describe('POST /api/admin/overlay-key（キーの再発行）', () => {
     expect((await 呼び出す(new Request(`${サイト}/api/overlay/config?key=${発行済みのキー}`), env)).status).toBe(401)
     expect((await 呼び出す(new Request(`${サイト}/api/media/${id}?key=${発行済みのキー}`), env)).status).toBe(401)
     expect((await 呼び出す(new Request(`${サイト}/api/overlay/config?key=${overlayKey}`), env)).status).toBe(200)
+  })
+})
+
+describe('チャンネルポイント報酬の一覧（GET /api/admin/rewards）', () => {
+  const 保存済みのトークン = {
+    accessToken: 'test-access-token',
+    refreshToken: 'リフレッシュトークン',
+    expiresAt: 現在時刻 + 60 * 60 * 1000,
+    userId: 配信者のID,
+    login: 'haishinsha',
+    scopes: ['channel:read:redemptions'],
+  }
+
+  it('セッションがなければ401を返す', async () => {
+    const { env } = 環境を作る()
+    expect((await 呼び出す(new Request(`${サイト}/api/admin/rewards`), env)).status).toBe(401)
+  })
+
+  it('保管しているトークンでTwitchから報酬を取得し、管理画面で選べる形で返す', async () => {
+    const { env, store } = 環境を作る()
+    await saveToken(store, 保存済みのトークン)
+    const requests: Request[] = []
+    const Twitchの代役 = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      requests.push(new Request(input, init))
+      return Response.json({ data: [{ id: '報酬ID-乾杯', title: '乾杯する', cost: 500 }] })
+    }
+
+    const response = await handleRequest(await 配信者のリクエスト(env, '/api/admin/rewards'), env, { fetch: Twitchの代役, now: () => 現在時刻 })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ rewards: [{ id: '報酬ID-乾杯', title: '乾杯する', cost: 500 }] })
+    expect(new URL(requests[0]!.url).searchParams.get('broadcaster_id')).toBe(配信者のID)
+    expect(requests[0]!.headers.get('Authorization')).toBe('Bearer test-access-token')
+  })
+
+  it('Twitchが失敗を返したら、502でTwitchのメッセージを伝える', async () => {
+    const { env, store } = 環境を作る()
+    await saveToken(store, 保存済みのトークン)
+    const 失敗するTwitch = async (): Promise<Response> => Response.json({ message: 'channel points are not available' }, { status: 403 })
+
+    const response = await handleRequest(await 配信者のリクエスト(env, '/api/admin/rewards'), env, { fetch: 失敗するTwitch, now: () => 現在時刻 })
+
+    expect(response.status).toBe(502)
+    expect(await エラーコード(response)).toBe('twitch-error')
   })
 })

@@ -140,3 +140,38 @@ describe('createSubscription', () => {
     ).rejects.toMatchObject({ status: 403, message: expect.stringContaining('subscription missing proper authorization') })
   })
 })
+
+describe('listCustomRewards', () => {
+  it('Helixから配信者のチャンネルポイント報酬を取得し、ID・名前・必要ポイントだけを返す', async () => {
+    const { requests, fetchImpl } = 応答を返すfetch(200, {
+      data: [
+        { id: '報酬ID-乾杯', title: '乾杯する', cost: 500, is_enabled: true, prompt: '' },
+        { id: '報酬ID-おみくじ', title: 'おみくじを引く', cost: 100, is_enabled: false, prompt: '' },
+      ],
+    })
+
+    const rewards = await クライアントを作る(fetchImpl).listCustomRewards('test-access-token', '12345')
+
+    expect(rewards).toEqual([
+      { id: '報酬ID-乾杯', title: '乾杯する', cost: 500 },
+      { id: '報酬ID-おみくじ', title: 'おみくじを引く', cost: 100 },
+    ])
+    const request = requests[0]!
+    expect(request.url).toBe('https://api.twitch.tv/helix/channel_points/custom_rewards?broadcaster_id=12345')
+    expect(request.headers.get('Authorization')).toBe('Bearer test-access-token')
+    expect(request.headers.get('Client-Id')).toBe('test-client-id')
+  })
+
+  it('Twitchが失敗を返したら、状態コードを持つエラーになる（アフィリエイト未満のチャンネルなど）', async () => {
+    const { fetchImpl } = 応答を返すfetch(403, { error: 'Forbidden', status: 403, message: 'channel points are not available for the broadcaster' })
+    await expect(クライアントを作る(fetchImpl).listCustomRewards('test-access-token', '12345')).rejects.toMatchObject({
+      status: 403,
+      message: expect.stringContaining('channel points are not available'),
+    })
+  })
+
+  it('応答が想定した形でなければエラーになる（黙って空の一覧にしない）', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { data: [{ id: '報酬ID-乾杯' }] })
+    await expect(クライアントを作る(fetchImpl).listCustomRewards('test-access-token', '12345')).rejects.toBeInstanceOf(TwitchApiError)
+  })
+})
