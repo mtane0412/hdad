@@ -1,5 +1,5 @@
 /**
- * チャットボットの管理用の経路（/api/admin/bot・/api/admin/bot/messages・/api/admin/bot/device-*・/api/admin/bot/commands）
+ * チャットボットの管理用の経路（/api/admin/bot・/api/admin/bot/messages・/api/admin/bot/device-*・/api/admin/bot/commands・/api/admin/bot/moderation）
  *
  * 配信者のセッションが必要。botアカウントの接続状態の確認・切断、管理画面からの手打ちのチャット送信、
  * そしてデバイスコードフローによる接続を受け持つ。
@@ -17,6 +17,7 @@ import { loadBotConfig, parseBotConfig, saveBotConfig } from './bot-config'
 import { BOT_SCOPES } from './eventsub'
 import { syncWebhookSubscriptions } from './eventsub-webhook'
 import { HttpError, STATUS, requireAdmin, type Context } from './http'
+import { loadModerationConfig, parseModerationConfig, saveModerationConfig } from './moderation-config'
 import { AuthError, deleteToken, getAccessToken, loadToken, saveToken, type StoredToken } from './token'
 
 /** Twitchが決めているチャット本文の上限（文字） */
@@ -164,6 +165,27 @@ export const postBotDeviceToken = async (context: Context): Promise<Response> =>
   // チャットの購読の条件にbotのユーザーIDが入るので、接続できた時点で揃え直す
   await syncWebhookSubscriptions(context)
   return Response.json({ status: 'connected', bot: toBotStatus(token, isModerator) })
+}
+
+/** GET /api/admin/bot/moderation: 保存済みの自動モデレーションの設定（未保存なら既定の無効の設定） */
+export const getBotModeration = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  return Response.json(await loadModerationConfig(context.env.STORE))
+}
+
+/**
+ * PUT /api/admin/bot/moderation: 自動モデレーションの設定を検証して保存する。
+ *
+ * @throws ConfigError 設定に問題がある場合（index.ts が問題点付きの400にする）
+ */
+export const putBotModeration = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  const body: unknown = await context.request.json().catch(() => {
+    throw new HttpError(STATUS.badRequest, 'invalid-body', '本文はJSONにしてください')
+  })
+  const config = parseModerationConfig(body)
+  await saveModerationConfig(context.env.STORE, config)
+  return Response.json(config)
 }
 
 /** GET /api/admin/bot/commands: 保存済みのコマンドの一覧 */

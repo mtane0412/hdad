@@ -20,6 +20,7 @@ const 視聴者の発言 = (text: string): ChatMessage => ({
   chatterUserId: '11111',
   chatterUserLogin: 'shichousha',
   text,
+  badges: [],
 })
 
 describe('readChatMessage', () => {
@@ -31,6 +32,7 @@ describe('readChatMessage', () => {
         chatter_user_login: 'shichousha',
         message_id: 'message-id-0123456789',
         message: { text: '!ping', fragments: [{ type: 'text', text: '!ping' }] },
+        badges: [],
       },
     }
 
@@ -40,7 +42,40 @@ describe('readChatMessage', () => {
       chatterUserId: '11111',
       chatterUserLogin: 'shichousha',
       text: '!ping',
+      badges: [],
     })
+  })
+
+  it('通知のバッジを、種類の名前（set_id）の一覧として取り出す（自動モデレーションの対象外の判定に使う）', () => {
+    const body = {
+      event: {
+        broadcaster_user_id: '12345',
+        chatter_user_id: '11111',
+        chatter_user_login: 'moderator-san',
+        message_id: 'message-id-0123456789',
+        message: { text: 'こんばんは' },
+        badges: [
+          { set_id: 'moderator', id: '1', info: '' },
+          { set_id: 'subscriber', id: '12', info: '12' },
+        ],
+      },
+    }
+
+    expect(readChatMessage(body).badges).toEqual(['moderator', 'subscriber'])
+  })
+
+  it('バッジが無い通知は、バッジなしとして扱う（バッジは付いていないことのほうが多いため）', () => {
+    const body = {
+      event: {
+        broadcaster_user_id: '12345',
+        chatter_user_id: '11111',
+        chatter_user_login: 'shichousha',
+        message_id: 'message-id-0123456789',
+        message: { text: 'こんばんは' },
+      },
+    }
+
+    expect(readChatMessage(body).badges).toEqual([])
   })
 
   it('event が無ければエラーになる', () => {
@@ -90,6 +125,7 @@ describe('resolveReply', () => {
       chatterUserId: botのID,
       chatterUserLogin: 'haishinsha_bot',
       text: '!ping',
+      badges: [],
     }
 
     expect(resolveReply(コマンド一覧, botの発言, botのID)).toBeNull()

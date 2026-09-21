@@ -1,9 +1,9 @@
 /**
  * チャットボットの状態の読み書き
  *
- * 「この通知にはもう応答したか」と「このコマンドはクールダウン中か」をデータベース（D1）で持つ。
- * どちらもコマンドに一致した発言のときだけ書くので、書き込みの回数はコマンドが使われた回数に収まる。
- * テーブルの定義は migrations/0002_chat_bot.sql にある。日時は UTC の ISO 8601 の文字列で持つ。
+ * 「この通知にはもう応答したか」「このコマンドはクールダウン中か」「同じ文面が何件続いたか」をデータベース（D1）で持つ。
+ * 最初の2つはコマンドに一致した発言のとき、最後の1つは連投のルールが有効なときだけ書くので、チャットの全件は書かない。
+ * テーブルの定義は migrations/0002_chat_bot.sql・0003_chat_moderation.sql にある。日時は UTC の ISO 8601 の文字列で持つ。
  *
  * 注意: どちらの判定も SQLite の RETURNING を使い、1つの文の中で「書けたかどうか」を受け取る。
  * 「読んでから書く」に分けると、同時に届いた通知の間で判定が食い違う。
@@ -37,6 +37,55 @@ export const reserveChatReply = async (db: Database, messageId: string, now: num
     .bind(messageId, toIso(now))
     .first<{ message_id: string }>()
   return reserved !== null
+}
+
+/** 連投を数えるために記録する発言 */
+export interface RecentMessage {
+  chatterUserId: string
+  /** 本文。前後の空白と大文字小文字の違いは同じ文面として扱う */
+  text: string
+  /** 何秒さかのぼって数えるか（連投のルールの窓） */
+  windowSeconds: number
+}
+
+/**
+ * 本文を、連投の判定に使うハッシュ（SHA-256の16進）にする。
+ *
+ * 本文そのものをデータベースに置かないのは、数えるのに中身が要らないうえ、チャットの中身を貯め込まないため。
+ * 前後の空白と大文字小文字をそろえてから計算するので、「うおお」と「 うおお 」は同じ文面として数える。
+ */
+const hashText = async (text: string): Promise<string> => {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text.trim().toLowerCase()))
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
+/**
+ * この発言を記録し、同じ発言者が窓のあいだに送った同じ文面の件数を返す（この発言を含む）。
+ *
+ * 判定より先に自分の1件を書き込むのは、「読んでから書く」に分けると、同時に届いた通知の間で件数が食い違うため。
+ * あわせて、窓より古い行を消して増え続けないようにする。
+ *
+ * 注意: 呼び出し側は、連投のルールが有効なときだけこれを呼ぶ（チャットは件数の桁が違い、
+ * 1通ごとに書くと配信の記録とD1の書き込みの枠を食い合う）。
+ *
+ * @returns 窓の中にある同じ文面の件数（必ず1以上。自分の1件を含む）
+ */
+export const recordAndCountRecentMessage = async (db: Database, message: RecentMessage, now: number): Promise<number> => {
+  const since = toIso(now - message.windowSeconds * MILLISECONDS_PER_SECOND)
+  const textHash = await hashText(message.text)
+
+  await db.prepare('DELETE FROM chat_recent_messages WHERE sent_at < ?1').bind(since).run()
+  await db
+    .prepare('INSERT INTO chat_recent_messages (chatter_user_id, text_hash, sent_at) VALUES (?1, ?2, ?3)')
+    .bind(message.chatterUserId, textHash, toIso(now))
+    .run()
+
+  const counted = await db
+    .prepare('SELECT COUNT(*) AS count FROM chat_recent_messages WHERE chatter_user_id = ?1 AND text_hash = ?2 AND sent_at >= ?3')
+    .bind(message.chatterUserId, textHash, since)
+    .first<{ count: number }>()
+  // 直前に自分の1件を書いているので、数えられないことはない。それでも欠けたなら「連投ではない」側へ倒す
+  return counted?.count ?? 1
 }
 
 /**

@@ -6,7 +6,7 @@
  * - クールダウン中は応答せず、明けたら応答すること
  */
 import { describe, expect, it } from 'vitest'
-import { consumeCooldown, reserveChatReply } from './chat-store'
+import { consumeCooldown, recordAndCountRecentMessage, reserveChatReply } from './chat-store'
 import { createFakeDatabase } from './fake-database'
 
 const 現在時刻 = Date.UTC(2026, 8, 21, 12, 0, 0)
@@ -90,5 +90,61 @@ describe('consumeCooldown', () => {
 
     // 最初に使った時刻から60秒で明ける
     expect(await consumeCooldown(db, 'aisatsu', 60, 現在時刻 + 61 * 1000)).toBe(true)
+  })
+})
+
+describe('recordAndCountRecentMessage', () => {
+  const 連投 = { chatterUserId: '11111', text: 'うおおおお', windowSeconds: 30 }
+
+  it('はじめての文面なら、自分の1件だけを数える', async () => {
+    const db = createFakeDatabase()
+
+    expect(await recordAndCountRecentMessage(db, 連投, 現在時刻)).toBe(1)
+  })
+
+  it('同じ発言者が同じ文面を送るたびに、件数が増える', async () => {
+    const db = createFakeDatabase()
+    await recordAndCountRecentMessage(db, 連投, 現在時刻)
+    await recordAndCountRecentMessage(db, 連投, 現在時刻 + 1000)
+
+    expect(await recordAndCountRecentMessage(db, 連投, 現在時刻 + 2000)).toBe(3)
+  })
+
+  it('大文字小文字と前後の空白が違うだけの文面は、同じ文面として数える', async () => {
+    const db = createFakeDatabase()
+    await recordAndCountRecentMessage(db, { ...連投, text: 'CHECK THIS' }, 現在時刻)
+
+    expect(await recordAndCountRecentMessage(db, { ...連投, text: '  check this  ' }, 現在時刻 + 1000)).toBe(2)
+  })
+
+  it('文面が違えば別々に数える', async () => {
+    const db = createFakeDatabase()
+    await recordAndCountRecentMessage(db, 連投, 現在時刻)
+
+    expect(await recordAndCountRecentMessage(db, { ...連投, text: 'こんばんは' }, 現在時刻 + 1000)).toBe(1)
+  })
+
+  it('発言者が違えば別々に数える', async () => {
+    const db = createFakeDatabase()
+    await recordAndCountRecentMessage(db, 連投, 現在時刻)
+
+    expect(await recordAndCountRecentMessage(db, { ...連投, chatterUserId: '22222' }, 現在時刻 + 1000)).toBe(1)
+  })
+
+  it('窓（30秒）より古い発言は数えない', async () => {
+    const db = createFakeDatabase()
+    await recordAndCountRecentMessage(db, 連投, 現在時刻)
+
+    expect(await recordAndCountRecentMessage(db, 連投, 現在時刻 + 31 * 1000)).toBe(1)
+  })
+
+  it('窓より古い行は、数えるときに消す（増え続けないようにするため）', async () => {
+    const db = createFakeDatabase()
+    await recordAndCountRecentMessage(db, 連投, 現在時刻)
+
+    await recordAndCountRecentMessage(db, { ...連投, text: 'こんばんは' }, 現在時刻 + 31 * 1000)
+
+    // 残るのは、窓の中にある2件目だけ
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM chat_recent_messages').get()).toEqual({ count: 1 })
   })
 })

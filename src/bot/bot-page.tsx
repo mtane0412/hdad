@@ -29,8 +29,19 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { ApiError } from '@/core/api'
-import type { BotApi, BotCommandItem, BotStatus, DeviceCode } from './api'
-import { describeProblem, toCommandInput, toDraft, type CommandDraft } from './form'
+import { Checkbox } from '@/components/ui/checkbox'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import type { BotApi, BotCommandItem, BotStatus, DeviceCode, ModerationRuleItem, ModerationSettings, PunishmentItem } from './api'
+import {
+  NEW_MODERATION_RULE,
+  describeProblem,
+  toCommandInput,
+  toDraft,
+  toModerationRuleDraft,
+  toModerationRuleInput,
+  type CommandDraft,
+  type ModerationRuleDraft,
+} from './form'
 import { nextIntervalSeconds } from './poll'
 
 /** botの接続を始めるURL。Twitchの認可画面へ移動する */
@@ -41,18 +52,69 @@ const MILLISECONDS_PER_SECOND = 1000
 const SECONDS_PER_MINUTE = 60
 /** クールダウンの上限（秒）。Workerの検証と同じ値 */
 const MAX_COOLDOWN_SECONDS = 60 * 60
+/** タイムアウトの上限（秒）。Twitchの決まりで7日 */
+const MAX_TIMEOUT_SECONDS = 7 * 24 * 60 * 60
 
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
 /** 失敗の理由を、画面に出す行にする。設定の問題点があれば、1行ずつ並べる */
 const failureLines = (error: unknown): string[] =>
   error instanceof ApiError && error.problems.length > 0
-    ? ['コマンドの設定に問題があります。直してから保存し直してください', ...error.problems.map((problem) => `・${describeProblem(problem)}`)]
+    ? ['設定に問題があります。直してから保存し直してください', ...error.problems.map((problem) => `・${describeProblem(problem)}`)]
     : [errorMessage(error)]
+
+/** ルールの種類の選択肢。値は保存の形（api.ts の ModerationRuleItem）と同じ */
+const RULE_KINDS: { value: ModerationRuleItem['kind']; label: string }[] = [
+  { value: 'url', label: 'URLを含む' },
+  { value: 'word', label: '禁止語を含む' },
+  { value: 'repeat', label: '同じ文面の連投' },
+]
+
+/** 処分の選択肢。重い順ではなく、軽い順に並べる（選び間違いを減らすため） */
+const PUNISHMENT_TYPES: { value: PunishmentItem['type']; label: string }[] = [
+  { value: 'delete', label: '発言を削除' },
+  { value: 'timeout', label: 'タイムアウト' },
+  { value: 'ban', label: 'BAN' },
+]
+
+/** 自動モデレーションの除外のスイッチ。表示する順に並べる */
+const EXEMPTIONS: { key: 'exemptBroadcaster' | 'exemptVip' | 'exemptSubscriber'; label: string }[] = [
+  { key: 'exemptBroadcaster', label: '配信者とモデレーターを対象外にする' },
+  { key: 'exemptVip', label: 'VIPを対象外にする' },
+  { key: 'exemptSubscriber', label: 'サブスクライバーを対象外にする' },
+]
+
+/**
+ * 選択欄の値を、ルールの種類・処分の種類に読み替える。
+ *
+ * 選択欄が返すのは文字列なので、選択肢に無い値は受け取らない（型を偽らずに絞り込むため）。
+ * 選択肢は画面が作っているので、当てはまらないことは起きない。それでも起きたら、いちばん穏やかなものに倒す。
+ */
+const toRuleKind = (value: string): ModerationRuleDraft['kind'] => RULE_KINDS.find((kind) => kind.value === value)?.value ?? 'url'
+
+const toPunishmentType = (value: string): ModerationRuleDraft['punishmentType'] =>
+  PUNISHMENT_TYPES.find((punishment) => punishment.value === value)?.value ?? 'delete'
+
+/** 保存済みの設定を、入力欄の値にする */
+const toModerationDraft = (settings: ModerationSettings): ModerationDraft => ({
+  enabled: settings.enabled,
+  exemptBroadcaster: settings.exemptBroadcaster,
+  exemptVip: settings.exemptVip,
+  exemptSubscriber: settings.exemptSubscriber,
+  rules: settings.rules.map(toModerationRuleDraft),
+})
 
 const wait = (seconds: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, seconds * MILLISECONDS_PER_SECOND))
 
 type Loaded = { status: 'loading' } | { status: 'ready'; bot: BotStatus | null } | { status: 'failed'; message: string }
+
+/** 自動モデレーションの入力欄が持つ値。ルールだけが文字列の下書きで、スイッチはそのまま真偽値で持つ */
+interface ModerationDraft extends Omit<ModerationSettings, 'rules'> {
+  rules: ModerationRuleDraft[]
+}
+
+/** 読み込む前に使う値。読み込みが終わるまで画面には出さない */
+const EMPTY_MODERATION: ModerationDraft = { enabled: false, exemptBroadcaster: true, exemptVip: true, exemptSubscriber: true, rules: [] }
 
 interface CommandRowProps {
   position: number
@@ -129,6 +191,125 @@ const CommandRow = ({ position, draft, disabled, onChange, onRemove }: CommandRo
   )
 }
 
+interface ModerationRuleRowProps {
+  position: number
+  draft: ModerationRuleDraft
+  /** 保存を待っている間は操作させない（保存の応答で入力中の値が消えてしまうため） */
+  disabled: boolean
+  onChange(draft: ModerationRuleDraft): void
+  onRemove(): void
+}
+
+/**
+ * 自動モデレーションのルール1件ぶんの行。
+ *
+ * コマンドの行と同じく、見出しは列（TableHead）が受け持ち、各欄の名前は位置を含む aria-label で与える。
+ * 条件の欄は種類によって中身が変わる（URLは入力する値が無いので、何を見るかを文で添える）。
+ */
+const ModerationRuleRow = ({ position, draft, disabled, onChange, onRemove }: ModerationRuleRowProps) => {
+  const update = (patch: Partial<ModerationRuleDraft>): void => onChange({ ...draft, ...patch })
+
+  return (
+    <TableRow>
+      <TableCell>
+        <NativeSelect
+          className="w-full"
+          aria-label={`${position}番目のルールの種類`}
+          value={draft.kind}
+          disabled={disabled}
+          onChange={(event) => update({ kind: toRuleKind(event.currentTarget.value) })}
+        >
+          {RULE_KINDS.map((kind) => (
+            <NativeSelectOption key={kind.value} value={kind.value}>
+              {kind.label}
+            </NativeSelectOption>
+          ))}
+        </NativeSelect>
+      </TableCell>
+      <TableCell>
+        {draft.kind === 'word' && (
+          <Input
+            type="text"
+            aria-label={`${position}番目の禁止語`}
+            value={draft.word}
+            placeholder="宣伝"
+            disabled={disabled}
+            onChange={(event) => update({ word: event.currentTarget.value })}
+          />
+        )}
+        {draft.kind === 'repeat' && (
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              type="number"
+              aria-label={`${position}番目の連投とみなす回数`}
+              className="w-20"
+              min={2}
+              max={10}
+              value={draft.count}
+              disabled={disabled}
+              onChange={(event) => update({ count: event.currentTarget.value })}
+            />
+            <span className="text-sm text-muted-foreground">回を</span>
+            <Input
+              type="number"
+              aria-label={`${position}番目の連投を数える時間（秒）`}
+              className="w-24"
+              min={10}
+              max={600}
+              value={draft.windowSeconds}
+              disabled={disabled}
+              onChange={(event) => update({ windowSeconds: event.currentTarget.value })}
+            />
+            <span className="text-sm text-muted-foreground">秒のあいだに</span>
+          </div>
+        )}
+        {draft.kind === 'url' && <p className="text-sm text-muted-foreground">URLを含む発言が対象です</p>}
+      </TableCell>
+      <TableCell>
+        <div className="flex flex-wrap items-center gap-2">
+          <NativeSelect
+            aria-label={`${position}番目の処分`}
+            value={draft.punishmentType}
+            disabled={disabled}
+            onChange={(event) => update({ punishmentType: toPunishmentType(event.currentTarget.value) })}
+          >
+            {PUNISHMENT_TYPES.map((punishment) => (
+              <NativeSelectOption key={punishment.value} value={punishment.value}>
+                {punishment.label}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+          {draft.punishmentType === 'timeout' && (
+            <Input
+              type="number"
+              aria-label={`${position}番目のタイムアウトの長さ（秒）`}
+              className="w-24"
+              min={1}
+              max={MAX_TIMEOUT_SECONDS}
+              value={draft.durationSeconds}
+              disabled={disabled}
+              onChange={(event) => update({ durationSeconds: event.currentTarget.value })}
+            />
+          )}
+        </div>
+      </TableCell>
+      <TableCell>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label={`${position}番目のルールを外す`}
+          className="text-destructive"
+          disabled={disabled}
+          onClick={onRemove}
+        >
+          <Trash2 aria-hidden="true" />
+        </Button>
+      </TableCell>
+    </TableRow>
+  )
+}
+
 export interface BotPageProps {
   api: BotApi
 }
@@ -145,19 +326,26 @@ export const BotPage = ({ api }: BotPageProps) => {
   const [drafts, setDrafts] = useState<readonly CommandDraft[]>([])
   // 最後に保存（または読み込み）した内容。いまの入力と比べて、保存するものがあるかを決める
   const [savedDrafts, setSavedDrafts] = useState<readonly CommandDraft[]>([])
+  const [moderation, setModeration] = useState<ModerationDraft>(EMPTY_MODERATION)
+  // 最後に保存（または読み込み）した自動モデレーションの設定。いまの入力と比べて、保存するものがあるかを決める
+  const [savedModeration, setSavedModeration] = useState<ModerationDraft>(EMPTY_MODERATION)
   // 画面を離れた後に問い合わせを続けないための目印
   const leftRef = useRef(false)
   const messageFieldId = useId()
+  const moderationFieldId = useId()
 
   useEffect(() => {
     let cancelled = false
-    // コマンドの一覧も一緒に読む。片方でも読めなければ、黙って空の一覧にせず理由を出す
-    Promise.all([api.status(), api.commands()]).then(
-      ([bot, commands]) => {
+    // コマンドと自動モデレーションの設定も一緒に読む。1つでも読めなければ、黙って空の設定にせず理由を出す
+    Promise.all([api.status(), api.commands(), api.moderation()]).then(
+      ([bot, commands, moderationSettings]) => {
         if (cancelled) return
         const loadedDrafts = commands.map(toDraft)
         setDrafts(loadedDrafts)
         setSavedDrafts(loadedDrafts)
+        const loadedModeration = toModerationDraft(moderationSettings)
+        setModeration(loadedModeration)
+        setSavedModeration(loadedModeration)
         setLoaded({ status: 'ready', bot })
       },
       (error: unknown) => {
@@ -189,6 +377,8 @@ export const BotPage = ({ api }: BotPageProps) => {
   const { bot } = loaded
   /** 保存していない変更があるか。入力の中身をそのまま見比べる（件数も並び順も含めて確かめたいため） */
   const dirty = JSON.stringify(drafts) !== JSON.stringify(savedDrafts)
+  /** 自動モデレーションに、保存していない変更があるか */
+  const moderationDirty = JSON.stringify(moderation) !== JSON.stringify(savedModeration)
 
   /** 操作を実行し、終わったら結果を知らせる。実行中はボタンを押せなくして二重の送信を防ぐ */
   const run = async (action: () => Promise<string>): Promise<void> => {
@@ -221,6 +411,25 @@ export const BotPage = ({ api }: BotPageProps) => {
     setDrafts(saved)
     setSavedDrafts(saved)
     return `コマンドを${inputs.length}件保存しました`
+  }
+
+  const addModerationRule = async (): Promise<string> => {
+    setModeration({ ...moderation, rules: [...moderation.rules, NEW_MODERATION_RULE] })
+    return 'ルールを足しました。保存するまで反映されません'
+  }
+
+  const saveModeration = async (): Promise<string> => {
+    const rules: ModerationRuleItem[] = moderation.rules.map((draft, index) => {
+      try {
+        return toModerationRuleInput(draft)
+      } catch (error) {
+        throw new Error(`${index + 1}番目のルール: ${errorMessage(error)}`, { cause: error })
+      }
+    })
+    const saved = toModerationDraft(await api.saveModeration({ ...moderation, rules }))
+    setModeration(saved)
+    setSavedModeration(saved)
+    return '自動モデレーションの設定を保存しました'
   }
 
   const disconnect = async (): Promise<string> => {
@@ -416,6 +625,84 @@ export const BotPage = ({ api }: BotPageProps) => {
             )}
           </div>
           {drafts.length > 0 && <p className="text-xs text-muted-foreground">応答文では {'{user}'} が発言した人のログイン名に置き換わります</p>}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>自動モデレーション</CardTitle>
+          <CardDescription>
+            登録したルールに当てはまる発言を、botが自動で削除・タイムアウト・BANします。誤って処分すると取り返しがつかないので、
+            有効にする前にルールを確かめてください（TwitchのAutoModとは別のしくみです）
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col items-start gap-4">
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id={`${moderationFieldId}-enabled`}
+              checked={moderation.enabled}
+              disabled={busy}
+              onCheckedChange={(checked) => setModeration({ ...moderation, enabled: checked === true })}
+            />
+            <Label htmlFor={`${moderationFieldId}-enabled`}>自動モデレーションを有効にする</Label>
+          </div>
+          <div className="flex flex-col gap-2">
+            {EXEMPTIONS.map((exemption) => (
+              <div key={exemption.key} className="flex items-center gap-2">
+                <Checkbox
+                  id={`${moderationFieldId}-${exemption.key}`}
+                  checked={moderation[exemption.key]}
+                  disabled={busy}
+                  onCheckedChange={(checked) => setModeration({ ...moderation, [exemption.key]: checked === true })}
+                />
+                <Label htmlFor={`${moderationFieldId}-${exemption.key}`}>{exemption.label}</Label>
+              </div>
+            ))}
+          </div>
+          {/* 配信者とモデレーターへの処分はTwitch自身が断るので、除外を切ると失敗が積み上がるだけになる */}
+          <p className="text-xs text-muted-foreground">
+            「配信者とモデレーターを対象外にする」は切らないことをおすすめします。Twitchはモデレーターへの処分を受け付けないため、失敗が積み上がるだけになります
+          </p>
+
+          {moderation.rules.length > 0 && (
+            <Table aria-label="自動モデレーションのルールの一覧">
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-44">種類</TableHead>
+                  <TableHead>条件</TableHead>
+                  <TableHead className="w-64">処分</TableHead>
+                  {/* 行を外すボタンの列。見出しの文言は要らないが、列の名前は読み上げのために置く */}
+                  <TableHead className="w-12">
+                    <span className="sr-only">操作</span>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {moderation.rules.map((draft, index) => (
+                  <ModerationRuleRow
+                    // 入力中は中身が重なることがあるので、並び順を鍵にする
+                    key={index}
+                    position={index + 1}
+                    draft={draft}
+                    disabled={busy}
+                    onChange={(next) => setModeration({ ...moderation, rules: moderation.rules.map((current, at) => (at === index ? next : current)) })}
+                    onRemove={() => setModeration({ ...moderation, rules: moderation.rules.filter((_, at) => at !== index) })}
+                  />
+                ))}
+              </TableBody>
+            </Table>
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="outline" size="icon" aria-label="ルールを足す" disabled={busy} onClick={() => void run(addModerationRule)}>
+              <Plus aria-hidden="true" />
+            </Button>
+            {/* 保存するものが無いときにボタンを出さない。変更したときだけ出す */}
+            {moderationDirty && (
+              <Button type="button" disabled={busy} onClick={() => void run(saveModeration)}>
+                自動モデレーションを保存する
+              </Button>
+            )}
+          </div>
         </CardContent>
       </Card>
 

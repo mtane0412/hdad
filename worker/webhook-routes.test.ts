@@ -14,6 +14,8 @@ import { createFakeStore } from './fake-store'
 import { handleRequest, type Env } from './index'
 import { getSession, listFailures, listSessions, recordLiveStream } from './stats-store'
 import { saveBotConfig } from './bot-config'
+import { saveModerationConfig } from './moderation-config'
+import type { ModerationConfig, ModerationRule } from './chat-moderation'
 import { saveAlertConfig, type StoredTrigger } from './alert-config'
 import { saveToken } from './token'
 
@@ -655,5 +657,173 @@ describe('アラートのトリガーによるチャット送信', () => {
       expect(response.status).toBe(204)
       expect(await listFailures(env.DB)).toMatchObject([{ code: 'alert-announce-failed', message: expect.stringContaining('Missing scope') }])
     })
+  })
+})
+
+describe('チャットの自動モデレーション', () => {
+  const botのID = '67890'
+  const 荒らしのID = '11111'
+
+  /** botが接続済みで、自動モデレーションの設定が保存されている環境を作る */
+  const モデレーションの環境 = async (config: ModerationConfig) => {
+    const { env, db } = 環境を作る()
+    await saveModerationConfig(env.STORE, config)
+    await saveToken(env.STORE, 'bot', {
+      accessToken: 'bot-access-token',
+      refreshToken: 'bot-refresh-token',
+      expiresAt: 現在時刻 + 60 * 60 * 1000,
+      scopes: ['user:bot', 'moderator:manage:banned_users', 'moderator:manage:chat_messages'],
+      userId: botのID,
+      login: 'haishinsha_bot',
+    })
+    return { env, db }
+  }
+
+  /** 有効で、除外をすべて有効にした設定。ルールだけを足して使う */
+  const 設定 = (rules: ModerationRule[], 上書き: Partial<ModerationConfig> = {}): ModerationConfig => ({
+    enabled: true,
+    exemptBroadcaster: true,
+    exemptVip: true,
+    exemptSubscriber: true,
+    rules,
+    ...上書き,
+  })
+
+  const チャットの通知 = (
+    text: string,
+    { messageId = 'chat-message-1', badges = [] as { set_id: string }[], chatterUserId = 荒らしのID } = {},
+  ) => ({
+    subscription: { type: 'channel.chat.message' },
+    event: {
+      broadcaster_user_id: 配信者のID,
+      chatter_user_id: chatterUserId,
+      chatter_user_login: 'arashi',
+      message_id: messageId,
+      message: { text },
+      badges,
+    },
+  })
+
+  /** モデレーション操作とチャット送信に応えるTwitch。どのURLを呼んだかを記録する */
+  const モデレーションに応えるTwitch = (moderationResponse?: Response) => {
+    const 呼んだURL: string[] = []
+    const 送信したチャット: Request[] = []
+    const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const request = new Request(input, init)
+      const url = new URL(request.url)
+      if (url.pathname === '/helix/moderation/chat' || url.pathname === '/helix/moderation/bans') {
+        呼んだURL.push(`${request.method} ${url.pathname}`)
+        return moderationResponse ? moderationResponse.clone() : new Response(null, { status: 204 })
+      }
+      if (request.url === 'https://api.twitch.tv/helix/chat/messages') {
+        送信したチャット.push(request.clone())
+        return Response.json({ data: [{ message_id: 'sent', is_sent: true }] })
+      }
+      throw new Error(`テストで想定していない通信です: ${request.url}`)
+    }
+    return { 呼んだURL, 送信したチャット, fetchImpl }
+  }
+
+  const 通知を送る = (env: Env, fetchImpl: typeof fetch, body: unknown, messageId = 'chat-message-1') =>
+    呼び出す(Twitchからの通知({ body, messageId }), env, fetchImpl)
+
+  it('既定（無効）では、禁止語を含む発言でも処分しない', async () => {
+    const { env, db } = await モデレーションの環境({ ...設定([{ kind: 'word', word: '宣伝', punishment: { type: 'ban' } }]), enabled: false })
+    const twitch = モデレーションに応えるTwitch()
+
+    const response = await 通知を送る(env, twitch.fetchImpl, チャットの通知('宣伝です'))
+
+    expect(response.status).toBe(204)
+    expect(twitch.呼んだURL).toEqual([])
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM chat_recent_messages').get()).toEqual({ count: 0 })
+  })
+
+  it('禁止語を含む発言を削除する', async () => {
+    const { env } = await モデレーションの環境(設定([{ kind: 'word', word: '宣伝', punishment: { type: 'delete' } }]))
+    const twitch = モデレーションに応えるTwitch()
+
+    await 通知を送る(env, twitch.fetchImpl, チャットの通知('宣伝です'))
+
+    expect(twitch.呼んだURL).toEqual(['DELETE /helix/moderation/chat'])
+  })
+
+  it('BANの処分では、発言を削除してからBANする', async () => {
+    const { env } = await モデレーションの環境(設定([{ kind: 'url', punishment: { type: 'ban' } }]))
+    const twitch = モデレーションに応えるTwitch()
+
+    await 通知を送る(env, twitch.fetchImpl, チャットの通知('https://example.com/spam'))
+
+    expect(twitch.呼んだURL).toEqual(['DELETE /helix/moderation/chat', 'POST /helix/moderation/bans'])
+  })
+
+  it('モデレーターのバッジが付いた発言は処分しない', async () => {
+    const { env } = await モデレーションの環境(設定([{ kind: 'word', word: '宣伝', punishment: { type: 'ban' } }]))
+    const twitch = モデレーションに応えるTwitch()
+
+    await 通知を送る(env, twitch.fetchImpl, チャットの通知('宣伝です', { badges: [{ set_id: 'moderator' }] }))
+
+    expect(twitch.呼んだURL).toEqual([])
+  })
+
+  it('bot自身の発言は処分しない（自分の応答を処分して止まらなくなるのを防ぐ）', async () => {
+    const { env } = await モデレーションの環境(設定([{ kind: 'url', punishment: { type: 'delete' } }]))
+    const twitch = モデレーションに応えるTwitch()
+
+    await 通知を送る(env, twitch.fetchImpl, チャットの通知('Discordはこちらです https://example.com/discord', { chatterUserId: botのID }))
+
+    expect(twitch.呼んだURL).toEqual([])
+  })
+
+  it('処分した発言には、コマンドの応答をしない', async () => {
+    const { env } = await モデレーションの環境(設定([{ kind: 'url', punishment: { type: 'delete' } }]))
+    await saveBotConfig(env.STORE, { commands: [{ name: 'ping', reply: '@{user} pong', cooldownSeconds: 0 }] })
+    const twitch = モデレーションに応えるTwitch()
+
+    await 通知を送る(env, twitch.fetchImpl, チャットの通知('!ping https://example.com/spam'))
+
+    expect(twitch.呼んだURL).toEqual(['DELETE /helix/moderation/chat'])
+    expect(twitch.送信したチャット).toHaveLength(0)
+  })
+
+  it('同じ通知が再送されても、二度処分しない', async () => {
+    const { env } = await モデレーションの環境(設定([{ kind: 'url', punishment: { type: 'delete' } }]))
+    const twitch = モデレーションに応えるTwitch()
+
+    await 通知を送る(env, twitch.fetchImpl, チャットの通知('https://example.com/spam'))
+    const 再送 = await 通知を送る(env, twitch.fetchImpl, チャットの通知('https://example.com/spam'))
+
+    expect(再送.status).toBe(204)
+    expect(twitch.呼んだURL).toEqual(['DELETE /helix/moderation/chat'])
+  })
+
+  it('同じ文面の連投が回数に達したら処分する', async () => {
+    const { env } = await モデレーションの環境(設定([{ kind: 'repeat', count: 3, windowSeconds: 30, punishment: { type: 'timeout', durationSeconds: 600 } }]))
+    const twitch = モデレーションに応えるTwitch()
+
+    // 同じ文面を3回。3回目で連投とみなす
+    await 通知を送る(env, twitch.fetchImpl, チャットの通知('かいます', { messageId: 'chat-message-1' }), 'chat-message-1')
+    await 通知を送る(env, twitch.fetchImpl, チャットの通知('かいます', { messageId: 'chat-message-2' }), 'chat-message-2')
+    await 通知を送る(env, twitch.fetchImpl, チャットの通知('かいます', { messageId: 'chat-message-3' }), 'chat-message-3')
+
+    expect(twitch.呼んだURL).toEqual(['DELETE /helix/moderation/chat', 'POST /helix/moderation/bans'])
+  })
+
+  it('連投のルールが無ければ、直近の発言をD1に記録しない（チャット全件を書かないため）', async () => {
+    const { env, db } = await モデレーションの環境(設定([{ kind: 'word', word: '宣伝', punishment: { type: 'delete' } }]))
+    const twitch = モデレーションに応えるTwitch()
+
+    await 通知を送る(env, twitch.fetchImpl, チャットの通知('こんばんは'))
+
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM chat_recent_messages').get()).toEqual({ count: 0 })
+  })
+
+  it('処分に失敗しても204を返し、収集の失敗として記録する（2xx以外だと再送されて二重に処分される）', async () => {
+    const { env } = await モデレーションの環境(設定([{ kind: 'url', punishment: { type: 'delete' } }]))
+    const twitch = モデレーションに応えるTwitch(Response.json({ message: 'User is not a moderator' }, { status: 401 }))
+
+    const response = await 通知を送る(env, twitch.fetchImpl, チャットの通知('https://example.com/spam'))
+
+    expect(response.status).toBe(204)
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'moderation-failed', message: expect.stringContaining('401') }])
   })
 })

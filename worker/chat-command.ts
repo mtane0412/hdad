@@ -29,12 +29,26 @@ export interface ChatMessage {
   chatterUserLogin: string
   /** 本文（絵文字などを含まない平文） */
   text: string
+  /**
+   * 発言者に付いているバッジの種類の名前（`broadcaster`・`moderator`・`vip`・`subscriber` など）。
+   * 自動モデレーション（chat-moderation.ts）で、処分の対象外かどうかを見るのに使う
+   */
+  badges: string[]
 }
 
 /** コマンドの先頭に付ける文字 */
 const PREFIX = '!'
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
+
+/**
+ * 通知のバッジ（`{ set_id, id, info }` の配列）から、種類の名前だけを取り出す。
+ *
+ * バッジが1つも付いていない発言では `badges` が無い、または空の配列で届く。
+ * 本文や発言者と違って欠けていても判断に困らない（バッジなしとして扱えばよい）ので、揃っていなくてもエラーにしない。
+ */
+const readBadgeNames = (badges: unknown): string[] =>
+  Array.isArray(badges) ? badges.flatMap((badge: unknown) => (isRecord(badge) && typeof badge.set_id === 'string' ? [badge.set_id] : [])) : []
 
 /**
  * `channel.chat.message` の通知から、必要な項目を取り出す。
@@ -53,6 +67,7 @@ export const readChatMessage = (body: Record<string, unknown>, toError: (message
     chatter_user_login: chatterUserLogin,
     message_id: messageId,
     message,
+    badges,
   } = event
   const text = isRecord(message) ? message.text : undefined
   if (
@@ -64,7 +79,7 @@ export const readChatMessage = (body: Record<string, unknown>, toError: (message
   ) {
     throw toError('channel.chat.message の通知に broadcaster_user_id・chatter_user_id・chatter_user_login・message_id・message.text が揃っていません')
   }
-  return { broadcasterUserId, messageId, chatterUserId, chatterUserLogin, text }
+  return { broadcasterUserId, messageId, chatterUserId, chatterUserLogin, text, badges: readBadgeNames(badges) }
 }
 
 /**

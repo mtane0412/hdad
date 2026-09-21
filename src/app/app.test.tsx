@@ -16,7 +16,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeAll, describe, expect, test, vi } from 'vitest'
 import type { AdminApi, Me } from '@/admin/api'
-import type { BotApi } from '@/bot/api'
+import type { BotApi, ModerationSettings } from '@/bot/api'
 import type { StatsApi } from '@/stats/api'
 import { App } from './app'
 
@@ -49,6 +49,8 @@ const 代役のbotAPI: BotApi = {
   }),
   commands: vi.fn(async () => []),
   saveCommands: vi.fn(async () => []),
+  moderation: vi.fn(async () => ({ enabled: false, exemptBroadcaster: true, exemptVip: true, exemptSubscriber: true, rules: [] })),
+  saveModeration: vi.fn(async (settings: ModerationSettings) => ({ ...settings })),
 }
 
 const 代役の記録API: StatsApi = {
