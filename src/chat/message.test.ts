@@ -46,9 +46,17 @@ describe('toChatMessage', () => {
     expect(二回目).toBe(一回目)
   })
 
-  it('表示対象のバッジ（配信者・モデレーター・VIP・サブスク）だけを、届いた順によらず決まった順で取り出す', () => {
-    const message = toChatMessage(書き込み('どうも', { badges: 'subscriber/12,premium/1,broadcaster/1' }))
-    expect(message.badges).toEqual(['broadcaster', 'subscriber'])
+  it('バッジを「種類」と「版」の組として、Twitchが並べた順のまま取り出す（版ごとに公式の絵が違うため）', () => {
+    const message = toChatMessage(書き込み('どうも', { badges: 'broadcaster/1,subscriber/12,premium/1' }))
+    expect(message.badges).toEqual([
+      { setId: 'broadcaster', versionId: '1' },
+      { setId: 'subscriber', versionId: '12' },
+      { setId: 'premium', versionId: '1' },
+    ])
+  })
+
+  it('バッジが1つも付いていなければ、空にする', () => {
+    expect(toChatMessage(書き込み('どうも', { badges: '' })).badges).toEqual([])
   })
 
   it('エモートの位置指定に従って、本文を文字とエモートの断片に分ける', () => {

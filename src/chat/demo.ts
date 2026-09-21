@@ -23,19 +23,19 @@ const SAMPLES: readonly Sample[] = [
   {
     displayName: 'たねのぶ',
     color: '#ff69b4',
-    badges: ['broadcaster'],
+    badges: [{ setId: 'broadcaster', versionId: '1' }],
     fragments: [{ type: 'text', text: 'きてくれてありがとう！ゆっくりしていってね' }],
   },
   {
     displayName: 'mod_no_hito',
     color: '#2e8b57',
-    badges: ['moderator', 'subscriber'],
+    badges: [{ setId: 'moderator', versionId: '1' }, { setId: 'subscriber', versionId: '12' }],
     fragments: [{ type: 'text', text: 'こんばんは〜' }],
   },
   {
     displayName: 'ながぶんさん',
     color: '#1e90ff',
-    badges: ['subscriber'],
+    badges: [{ setId: 'subscriber', versionId: '12' }],
     subscriberMonths: 24,
     fragments: [
       {
@@ -54,7 +54,7 @@ const SAMPLES: readonly Sample[] = [
   {
     displayName: 'cheer_suru_hito',
     color: '#8a2be2',
-    badges: ['subscriber'],
+    badges: [{ setId: 'subscriber', versionId: '6' }],
     subscriberMonths: 6,
     bits: 500,
     fragments: [{ type: 'text', text: 'cheer500 おうえんしています！' }],
@@ -62,7 +62,7 @@ const SAMPLES: readonly Sample[] = [
   {
     displayName: 'emote_daisuki',
     color: '#daa520',
-    badges: ['vip'],
+    badges: [{ setId: 'vip', versionId: '1' }],
     fragments: [
       { type: 'text', text: 'ナイス ' },
       { type: 'emote', name: 'Kappa', url: twitchEmoteUrl(KAPPA_EMOTE_ID) },

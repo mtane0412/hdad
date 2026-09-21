@@ -11,10 +11,29 @@ import type { IrcMessage } from './irc'
 export type Fragment =
   | { readonly type: 'text'; readonly text: string }
   | { readonly type: 'emote'; readonly name: string; readonly url: string }
+  /** Cheermote（ビッツの絵）。絵の後ろに、段階の色でビッツ数を添えて表示する */
+  | {
+      readonly type: 'cheer'
+      /** 本文に書かれていた単語（例: cheer500） */
+      readonly name: string
+      readonly url: string
+      readonly amount: number
+      /** 段階の色（#rrggbb） */
+      readonly color: string
+    }
 
-/** 表示対象のバッジ。この並びが名札に表示する順になる */
+/** 自前の絵を用意しているバッジの種類（公式の絵を取得できなかったときの代わりに使う） */
 export const BADGES = ['broadcaster', 'moderator', 'vip', 'subscriber'] as const
 export type Badge = (typeof BADGES)[number]
+
+/**
+ * 書き込みに付いていたバッジ1つ。
+ * IRCの badges タグは「種類/版」（例: subscriber/12）の並びで届き、公式の絵は版ごとに違う。
+ */
+export interface BadgeRef {
+  readonly setId: string
+  readonly versionId: string
+}
 
 /** 返信元の書き込み（Twitchが reply-parent-* タグで知らせる） */
 export interface ReplyParent {
@@ -33,7 +52,8 @@ export interface ChatMessage {
   readonly displayName: string
   /** 名前の色（#rrggbb） */
   readonly color: string
-  readonly badges: readonly Badge[]
+  /** 付いていたバッジ。Twitchが並べた順のまま持つ */
+  readonly badges: readonly BadgeRef[]
   readonly fragments: readonly Fragment[]
   /** /me による書き込みかどうか */
   readonly action: boolean
@@ -153,6 +173,16 @@ const toNumberTag = (raw: string | undefined, name: string): number | undefined 
   return Number(raw)
 }
 
+/** badges タグ（例: broadcaster/1,subscriber/12）を、種類と版の組の並びにする */
+const parseBadges = (tag: string): BadgeRef[] => {
+  if (tag === '') return []
+  return tag.split(',').map((entry) => {
+    const [setId, versionId] = entry.split('/')
+    if (setId === undefined || versionId === undefined) throw new Error(`badges タグを読めません: ${tag}`)
+    return { setId, versionId }
+  })
+}
+
 /** 返信元のタグを読む。返信でなければ undefined */
 const toReplyParent = (tags: IrcMessage['tags']): ReplyParent | undefined => {
   const displayName = tags['reply-parent-display-name']
@@ -194,7 +224,6 @@ export const toChatMessage = (irc: IrcMessage): ChatMessage => {
   const action = body.startsWith(ACTION_START) && body.endsWith(ACTION_END)
   const text = action ? body.slice(ACTION_START.length, -ACTION_END.length) : body
   const color = tags.color ?? ''
-  const badgeNames = (tags.badges ?? '').split(',').map((badge) => badge.split('/')[0])
   const reply = toReplyParent(tags)
   const fragments = toFragments(text, parseEmoteRanges(tags.emotes ?? ''))
   const subscriberMonths = SUBSCRIBER_MONTHS.exec(tags['badge-info'] ?? '')?.[1]
@@ -205,7 +234,7 @@ export const toChatMessage = (irc: IrcMessage): ChatMessage => {
     // 表示名を設定していないユーザーは display-name が空で届く（Twitchの仕様）。その場合はログイン名が表示名になる
     displayName: tags['display-name'] || login,
     color: HEX_COLOR.test(color) ? color.toLowerCase() : defaultColorOf(login),
-    badges: BADGES.filter((badge) => badgeNames.includes(badge)),
+    badges: parseBadges(tags.badges ?? ''),
     fragments: reply === undefined ? fragments : stripReplyMention(fragments, reply.displayName),
     action,
     sentAt: toNumberTag(tags['tmi-sent-ts'], 'tmi-sent-ts'),

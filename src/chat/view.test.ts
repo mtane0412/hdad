@@ -47,6 +47,36 @@ beforeEach(() => {
   Element.prototype.animate = vi.fn(() => ({}) as Animation)
 })
 
+describe('createChatView（バッジ）', () => {
+  /** 公式のバッジ画像が1件だけ取得できている状態 */
+  const 公式のバッジ = (badge: { setId: string; versionId: string }) =>
+    badge.setId === 'subscriber' && badge.versionId === '12'
+      ? { url: 'https://example.test/badges/subscriber-12.png', title: '1-Year Subscriber' }
+      : undefined
+
+  it('公式のバッジ画像が取得できていれば、画像として表示する', () => {
+    const item = 表示する(書き込み({ badges: [{ setId: 'subscriber', versionId: '12' }] }), {
+      lookupBadge: 公式のバッジ,
+    })
+    const image = item.querySelector<HTMLImageElement>('img.chat-badge')
+    expect(image?.src).toBe('https://example.test/badges/subscriber-12.png')
+    expect(image?.alt).toBe('1-Year Subscriber')
+  })
+
+  it('公式の画像がまだ無い種類は、自前の絵（SVG）で表示する（画像の取得を待たずに出せるようにするため）', () => {
+    const item = 表示する(書き込み({ badges: [{ setId: 'moderator', versionId: '1' }] }), {
+      lookupBadge: 公式のバッジ,
+    })
+    expect(item.querySelector('img.chat-badge')).toBeNull()
+    expect(item.querySelector('svg.chat-badge')?.getAttribute('aria-label')).toBe('モデレーター')
+  })
+
+  it('公式の画像も自前の絵も無い種類は、何も表示しない（名札が知らない絵で埋まらないようにする）', () => {
+    const item = 表示する(書き込み({ badges: [{ setId: 'premium', versionId: '1' }] }), { lookupBadge: 公式のバッジ })
+    expect(item.querySelector('.chat-badge')).toBeNull()
+  })
+})
+
 describe('createChatView（名札）', () => {
   it('表示名には chat-name-text を付ける（各デザインのCSSが、目印や月数と区別して名前だけを省略表示するため）', () => {
     const item = 表示する(書き込み({ firstMessage: true }))
@@ -111,14 +141,14 @@ describe('createChatView（初回・久しぶりの視聴者）', () => {
 
 describe('createChatView（サブスクの継続月数）', () => {
   it('バッジを表示する設定なら、サブスクバッジの後ろに継続月数を出す', () => {
-    const item = 表示する(書き込み({ badges: ['subscriber'], subscriberMonths: 24 }))
+    const item = 表示する(書き込み({ badges: [{ setId: 'subscriber', versionId: '12' }], subscriberMonths: 24 }))
     const months = item.querySelector('.chat-months')
     expect(months?.textContent).toBe('24')
     expect(months?.getAttribute('title')).toBe('サブスク24ヶ月')
   })
 
   it('バッジを表示しない設定なら、継続月数も出さない', () => {
-    const item = 表示する(書き込み({ badges: ['subscriber'], subscriberMonths: 24 }), { badges: false })
+    const item = 表示する(書き込み({ badges: [{ setId: 'subscriber', versionId: '12' }], subscriberMonths: 24 }), { badges: false })
     expect(item.querySelector('.chat-months')).toBeNull()
   })
 
@@ -136,6 +166,26 @@ describe('createChatView（Cheer のビッツ）', () => {
 
   it('ビッツが付いていなければ、ビッツ数を出さない', () => {
     expect(表示する(書き込み()).querySelector('.chat-bits')).toBeNull()
+  })
+})
+
+describe('createChatView（本文の Cheermote）', () => {
+  it('Cheermote は、絵と、段階の色を付けたビッツ数の組で表示する', () => {
+    const item = 表示する(
+      書き込み({
+        bits: 500,
+        fragments: [
+          { type: 'cheer', name: 'cheer500', url: 'https://example.test/cheer/100.gif', amount: 500, color: '#9c3ee8' },
+          { type: 'text', text: ' ありがとう' },
+        ],
+      }),
+    )
+    const image = item.querySelector<HTMLImageElement>('img.chat-cheermote')
+    expect(image?.src).toBe('https://example.test/cheer/100.gif')
+    expect(image?.alt).toBe('cheer500')
+    const amount = item.querySelector<HTMLElement>('.chat-cheer-amount')
+    expect(amount?.textContent).toBe('500')
+    expect(amount?.style.color).toBe('rgb(156, 62, 232)')
   })
 })
 
