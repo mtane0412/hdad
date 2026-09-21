@@ -16,6 +16,14 @@ export type Fragment =
 export const BADGES = ['broadcaster', 'moderator', 'vip', 'subscriber'] as const
 export type Badge = (typeof BADGES)[number]
 
+/** 返信元の書き込み（Twitchが reply-parent-* タグで知らせる） */
+export interface ReplyParent {
+  readonly displayName: string
+  /** 返信元の本文（エモートの位置は届かないため、文字のまま扱う） */
+  readonly body: string
+  readonly messageId: string
+}
+
 /** チャット1件 */
 export interface ChatMessage {
   /** メッセージID（モデレーターによる削除の対象を特定するのに使う） */
@@ -29,6 +37,18 @@ export interface ChatMessage {
   readonly fragments: readonly Fragment[]
   /** /me による書き込みかどうか */
   readonly action: boolean
+  /** 書き込まれた時刻（エポックからのミリ秒）。時刻が付かない経路（デモ）では undefined */
+  readonly sentAt: number | undefined
+  /** このチャンネルで初めての書き込みかどうか */
+  readonly firstMessage: boolean
+  /** 久しぶりに戻ってきた視聴者かどうか */
+  readonly returningChatter: boolean
+  /** サブスクの継続月数。サブスクしていなければ 0 */
+  readonly subscriberMonths: number
+  /** Cheer のビッツ数。Cheer でなければ 0 */
+  readonly bits: number
+  /** 返信元。返信でなければ undefined */
+  readonly reply: ReplyParent | undefined
 }
 
 /** 名前の色を設定していないユーザーに割り当てる色（Twitchの既定の15色） */
@@ -115,6 +135,50 @@ const toFragments = (text: string, ranges: readonly EmoteRange[]): Fragment[] =>
   return fragments
 }
 
+const DIGITS = /^\d+$/
+/** badge-info タグ（例: subscriber/24,founder/0）からサブスクの継続月数を取り出す */
+const SUBSCRIBER_MONTHS = /(?:^|,)subscriber\/(\d+)(?:,|$)/
+
+/**
+ * 数字だけで届くタグを数値にする。
+ *
+ * @param raw タグの値。タグ自体が無い場合は undefined
+ * @param name エラーメッセージに出すタグ名
+ * @returns タグが無い（または空の）場合は undefined
+ * @throws 数字以外が混ざっている場合
+ */
+const toNumberTag = (raw: string | undefined, name: string): number | undefined => {
+  if (raw === undefined || raw === '') return undefined
+  if (!DIGITS.test(raw)) throw new Error(`${name} タグを読めません: ${raw}`)
+  return Number(raw)
+}
+
+/** 返信元のタグを読む。返信でなければ undefined */
+const toReplyParent = (tags: IrcMessage['tags']): ReplyParent | undefined => {
+  const displayName = tags['reply-parent-display-name']
+  if (displayName === undefined || displayName === '') return undefined
+  return {
+    displayName,
+    // タグのエスケープ（\s など）は irc.ts が解除済みなので、そのまま本文として扱える
+    body: tags['reply-parent-msg-body'] ?? '',
+    messageId: tags['reply-parent-msg-id'] ?? '',
+  }
+}
+
+/**
+ * 返信の本文の先頭にTwitchが付ける「@返信先 」を落とす。
+ * 返信元は引用行として別に出すため、本文に残すと同じ名前が二度出てしまう。
+ *
+ * 注意: エモートの位置指定は元の本文を基準にしているため、断片に分けたあとで落とす。
+ */
+const stripReplyMention = (fragments: readonly Fragment[], displayName: string): readonly Fragment[] => {
+  const mention = `@${displayName} `
+  const [first, ...rest] = fragments
+  if (first === undefined || first.type !== 'text' || !first.text.startsWith(mention)) return fragments
+  const remainder = first.text.slice(mention.length)
+  return remainder === '' ? rest : [{ type: 'text', text: remainder }, ...rest]
+}
+
 /**
  * PRIVMSG をチャットメッセージに変換する。
  *
@@ -131,6 +195,9 @@ export const toChatMessage = (irc: IrcMessage): ChatMessage => {
   const text = action ? body.slice(ACTION_START.length, -ACTION_END.length) : body
   const color = tags.color ?? ''
   const badgeNames = (tags.badges ?? '').split(',').map((badge) => badge.split('/')[0])
+  const reply = toReplyParent(tags)
+  const fragments = toFragments(text, parseEmoteRanges(tags.emotes ?? ''))
+  const subscriberMonths = SUBSCRIBER_MONTHS.exec(tags['badge-info'] ?? '')?.[1]
 
   return {
     id: tags.id ?? '',
@@ -139,7 +206,13 @@ export const toChatMessage = (irc: IrcMessage): ChatMessage => {
     displayName: tags['display-name'] || login,
     color: HEX_COLOR.test(color) ? color.toLowerCase() : defaultColorOf(login),
     badges: BADGES.filter((badge) => badgeNames.includes(badge)),
-    fragments: toFragments(text, parseEmoteRanges(tags.emotes ?? '')),
+    fragments: reply === undefined ? fragments : stripReplyMention(fragments, reply.displayName),
     action,
+    sentAt: toNumberTag(tags['tmi-sent-ts'], 'tmi-sent-ts'),
+    firstMessage: tags['first-msg'] === '1',
+    returningChatter: tags['returning-chatter'] === '1',
+    subscriberMonths: subscriberMonths === undefined ? 0 : Number(subscriberMonths),
+    bits: toNumberTag(tags.bits, 'bits') ?? 0,
+    reply,
   }
 }
