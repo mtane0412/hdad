@@ -186,6 +186,16 @@ describe('配信の一覧', () => {
   })
 })
 
+describe('フォロワー数の推移', () => {
+  it('グラフの読み込みが終わると、期間のフォロワー数の推移を出す', async () => {
+    // グラフ（Recharts）は React.lazy で切り離してあるので、出るまで待つ必要がある
+    render(<StatsPage api={代役のAPI()} now={現在} />)
+    await 表示を待つ()
+
+    expect(await screen.findByRole('img', { name: '直近30日のフォロワー数の推移' })).toBeInTheDocument()
+  })
+})
+
 describe('配信ごとの視聴者数の推移', () => {
   it('配信を選ぶと、その配信の推移を読み込んで出す', async () => {
     const 操作 = userEvent.setup()

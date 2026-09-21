@@ -6,14 +6,14 @@
  * 集計と整形は summary.ts、Workerの呼び出しは api.ts に任せ、ここは表示だけを受け持つ。
  *
  * 注意: 読み込みに失敗したら、記録が無いように見せず理由を出す（Fail-Fast）。
- * 日時は配信者のブラウザのタイムゾーンで出す。グラフの色はテーマのトークン（--chart-2）を使い、明暗のどちらでも読める中間の濃さにする。
+ * 日時は配信者のブラウザのタイムゾーンで出す。
+ * グラフ（time-chart.tsx）は Recharts を使うので重い。ここでは React.lazy で切り離して読み込み、
+ * ギャラリーや管理画面を開くときに Recharts を読み込まないようにする。
  */
-import { useEffect, useState } from 'react'
-import { CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import type { FollowerSample, SessionDetail, SessionSummary, StatsApi } from './api'
@@ -24,21 +24,32 @@ import {
   formatDateTime,
   formatDelta,
   formatDuration,
-  formatShortTime,
   PERIOD_DAYS,
   sessionDurationMs,
   summarize,
   viewerPoints,
   withinPeriod,
 } from './summary'
+import type { TimeChartProps } from './time-chart'
+
+/** グラフ本体。Recharts ごと別のファイルに分け、ダッシュボードを開いたときに初めて読み込む */
+const TimeChart = lazy(async () => ({ default: (await import('./time-chart')).TimeChart }))
+
+/**
+ * グラフを読み込んでいる間のつなぎ。
+ *
+ * グラフと同じ高さの Skeleton を出し、読み込みの前後で画面の高さが変わらないようにする。
+ */
+const LazyTimeChart = ({ label, dataKey, points }: TimeChartProps) => (
+  <Suspense fallback={<Skeleton className="h-56 w-full" aria-label={`${label}のグラフを読み込んでいます`} />}>
+    <TimeChart label={label} dataKey={dataKey} points={points} />
+  </Suspense>
+)
 
 /** 最初に出す期間（日数） */
 const DEFAULT_PERIOD_DAYS = 30
 /** 一覧の列の数。配信を選んだときに出す推移のグラフを、一覧の幅いっぱいに広げるのに使う */
 const COLUMN_COUNT = 10
-
-const VIEWER_CHART: ChartConfig = { viewers: { label: '視聴者数', color: 'var(--chart-2)' } }
-const FOLLOWER_CHART: ChartConfig = { followers: { label: 'フォロワー数', color: 'var(--chart-2)' } }
 
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
@@ -62,31 +73,6 @@ const StatCard = ({ label, value, note }: { label: string; value: string; note?:
       {note !== undefined && <span className="text-sm text-muted-foreground tabular-nums">{note}</span>}
     </CardContent>
   </Card>
-)
-
-/** 時系列の折れ線グラフ。横軸は時刻（ミリ秒）で、目盛りはブラウザのタイムゾーンで出す */
-const TimeChart = <Point extends { at: number }>({
-  label,
-  config,
-  dataKey,
-  points,
-}: {
-  /** グラフ全体の説明（読み上げに使う） */
-  label: string
-  config: ChartConfig
-  dataKey: string
-  points: readonly Point[]
-}) => (
-  // グラフの中身（SVG）は読み上げても意味が通らないので、ひとつの図として説明だけを読ませる
-  <ChartContainer role="img" aria-label={label} config={config} className="aspect-auto h-56 w-full">
-    <LineChart data={[...points]} margin={{ left: 8, right: 8, top: 8, bottom: 8 }}>
-      <CartesianGrid vertical={false} />
-      <XAxis dataKey="at" type="number" domain={['dataMin', 'dataMax']} scale="time" tickFormatter={formatShortTime} tickMargin={8} minTickGap={32} />
-      <YAxis width={40} allowDecimals={false} tickMargin={8} />
-      <ChartTooltip content={<ChartTooltipContent labelFormatter={(_, payload) => formatShortTime(Number(payload[0]?.payload.at))} />} />
-      <Line dataKey={dataKey} type="monotone" stroke={`var(--color-${dataKey})`} strokeWidth={2} dot={false} isAnimationActive={false} />
-    </LineChart>
-  </ChartContainer>
 )
 
 /** 配信の一覧の1行と、選ばれていればその配信の視聴者数の推移 */
@@ -137,12 +123,7 @@ const SessionRow = ({ session, now, selected, onSelect }: { session: SessionSumm
               (selected.state.detail.samples.length === 0 ? (
                 <p className="text-sm text-muted-foreground">この配信には視聴者数の記録がありません。</p>
               ) : (
-                <TimeChart
-                  label={`${表示するタイトル} の視聴者数の推移`}
-                  config={VIEWER_CHART}
-                  dataKey="viewers"
-                  points={viewerPoints(selected.state.detail.samples)}
-                />
+                <LazyTimeChart label={`${表示するタイトル} の視聴者数の推移`} dataKey="viewers" points={viewerPoints(selected.state.detail.samples)} />
               ))}
           </TableCell>
         </TableRow>
@@ -257,7 +238,7 @@ export const StatsPage = ({ api, now }: StatsPageProps) => {
           {フォロワーの推移.length === 0 ? (
             <p className="text-sm text-muted-foreground">この期間のフォロワー数の記録がありません。</p>
           ) : (
-            <TimeChart label={`直近${days}日のフォロワー数の推移`} config={FOLLOWER_CHART} dataKey="followers" points={フォロワーの推移} />
+            <LazyTimeChart label={`直近${days}日のフォロワー数の推移`} dataKey="followers" points={フォロワーの推移} />
           )}
         </CardContent>
       </Card>
