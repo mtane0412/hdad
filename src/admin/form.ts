@@ -9,7 +9,16 @@
  *
  * 注意: 値の範囲（表示時間は1〜60秒など）の検証はWorkerが行い、問題点をまとめて返す。ここでは数として読めるかだけを確かめる。
  */
-import { ALERT_EVENTS, type ActionInput, type AlertEvent, type Reward, type StoredTrigger, type TriggerInput } from './api'
+import {
+  ALERT_EVENTS,
+  ANNOUNCEMENT_COLORS,
+  type ActionInput,
+  type AlertEvent,
+  type AnnouncementColor,
+  type Reward,
+  type StoredTrigger,
+  type TriggerInput,
+} from './api'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const ALERTS_PATH = '/alerts/'
@@ -19,6 +28,20 @@ const BYTES_PER_UNIT = 1024
 const ANY_REWARD = ''
 /** 新しく足したトリガーと、アラートを外したトリガーの表示時間の既定値（秒） */
 const DEFAULT_DURATION_SECONDS = 5
+/** アナウンスを使わないトリガーの色の既定値（チャンネルの色） */
+const DEFAULT_ANNOUNCEMENT_COLOR: AnnouncementColor = 'primary'
+
+/** アナウンスの色の日本語のラベル */
+const COLOR_LABELS: Readonly<Record<AnnouncementColor, string>> = {
+  primary: 'チャンネルの色',
+  blue: '青',
+  green: '緑',
+  orange: 'オレンジ',
+  purple: '紫',
+}
+
+/** アナウンスの色の選択肢 */
+export const colorOptions: readonly SelectOption[] = ANNOUNCEMENT_COLORS.map((color) => ({ value: color, label: COLOR_LABELS[color] }))
 
 /**
  * トリガー1件分の入力欄の値
@@ -40,6 +63,10 @@ export interface TriggerDraft {
   /** botとしてチャットへ送るか */
   chatEnabled: boolean
   chatMessage: string
+  /** botとしてアナウンス（色の付いた帯）を送るか */
+  announceEnabled: boolean
+  announceMessage: string
+  announceColor: AnnouncementColor
 }
 
 export interface SelectOption {
@@ -98,6 +125,7 @@ const toActions = (draft: TriggerDraft): ActionInput[] => {
     })
   }
   if (draft.chatEnabled) actions.push({ type: 'chat', message: draft.chatMessage })
+  if (draft.announceEnabled) actions.push({ type: 'announce', message: draft.announceMessage, color: draft.announceColor })
   return actions
 }
 
@@ -125,6 +153,7 @@ const DEFAULT_ALERT_DRAFT = { mediaId: '', durationSeconds: String(DEFAULT_DURAT
 export const toDraft = (trigger: StoredTrigger): TriggerDraft => {
   const alert = trigger.actions.find((action) => action.type === 'alert')
   const chat = trigger.actions.find((action) => action.type === 'chat')
+  const announce = trigger.actions.find((action) => action.type === 'announce')
 
   return {
     event: trigger.event,
@@ -140,6 +169,9 @@ export const toDraft = (trigger: StoredTrigger): TriggerDraft => {
         }),
     chatEnabled: chat !== undefined,
     chatMessage: chat?.message ?? '',
+    announceEnabled: announce !== undefined,
+    announceMessage: announce?.message ?? '',
+    announceColor: announce?.color ?? DEFAULT_ANNOUNCEMENT_COLOR,
   }
 }
 

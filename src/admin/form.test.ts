@@ -23,6 +23,9 @@ const 入力欄 = (overrides: Partial<TriggerDraft> = {}): TriggerDraft => ({
   message: '',
   chatEnabled: false,
   chatMessage: '',
+  announceEnabled: false,
+  announceMessage: '',
+  announceColor: 'primary',
   ...overrides,
 })
 
@@ -69,8 +72,20 @@ describe('toTriggerInput', () => {
     expect(toTriggerInput(draft).actions).toEqual([{ type: 'chat', message: 'ありがとうございます' }])
   })
 
-  it('どちらの動作も選んでいなければ、動作なしで送る（Workerが問題点を返す）', () => {
+  it('どの動作も選んでいなければ、動作なしで送る（Workerが問題点を返す）', () => {
     expect(toTriggerInput(入力欄({ alertEnabled: false })).actions).toEqual([])
+  })
+
+  it('アナウンスを送るを選んでいれば、文言と色を送る', () => {
+    const draft = 入力欄({ alertEnabled: false, announceEnabled: true, announceMessage: '{user} さんがレイド！', announceColor: 'purple' })
+
+    expect(toTriggerInput(draft).actions).toEqual([{ type: 'announce', message: '{user} さんがレイド！', color: 'purple' }])
+  })
+
+  it('アナウンスを送るを外していれば、入力欄に文言が残っていても送らない', () => {
+    const draft = 入力欄({ announceEnabled: false, announceMessage: '外したアナウンス' })
+
+    expect(toTriggerInput(draft).actions).toEqual([{ type: 'alert', mediaId: 'sozai-1', durationSeconds: 5, volume: 1, message: '' }])
   })
 
   it('報酬を選んでいなければ（空文字）、すべての報酬を表す null にする', () => {
@@ -121,6 +136,18 @@ describe('toDraft', () => {
     const stored: StoredTrigger = { event: RAID, actions: [{ type: 'chat', message: '{user} さん、レイドありがとう！' }] }
 
     expect(toDraft(stored)).toMatchObject({ alertEnabled: false, chatEnabled: true, chatMessage: '{user} さん、レイドありがとう！' })
+  })
+
+  it('アナウンスを送る動作を持つトリガーは、文言と色の入力欄を埋めて戻す', () => {
+    const stored: StoredTrigger = { event: RAID, actions: [{ type: 'announce', message: '{user} さんがレイド！', color: 'orange' }] }
+
+    expect(toDraft(stored)).toMatchObject({ announceEnabled: true, announceMessage: '{user} さんがレイド！', announceColor: 'orange' })
+  })
+
+  it('アナウンスを送る動作を持たないトリガーは、色を既定（primary）にして戻す', () => {
+    const stored: StoredTrigger = { event: RAID, actions: [アラートの動作()] }
+
+    expect(toDraft(stored)).toMatchObject({ announceEnabled: false, announceMessage: '', announceColor: 'primary' })
   })
 })
 

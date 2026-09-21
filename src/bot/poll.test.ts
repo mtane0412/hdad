@@ -22,7 +22,7 @@ describe('nextIntervalSeconds', () => {
   })
 
   it('接続できたら、間隔を変えない（もう問い合わせないため）', () => {
-    const bot = { userId: '67890', login: 'haishinsha_bot', missingScopes: [] }
+    const bot = { userId: '67890', login: 'haishinsha_bot', missingScopes: [], isModerator: true }
     expect(nextIntervalSeconds(5, { status: 'connected', bot })).toBe(5)
   })
 })

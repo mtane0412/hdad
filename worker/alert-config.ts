@@ -6,6 +6,7 @@
  * 動作は種類ごとに実行者が違う。
  * - alert: オーバーレイが素材を再生する。toOverlayConfig で素材のURLを付けた平坦な形へ展開して渡す
  * - chat: Workerがbotとしてチャットへ送る（オーバーレイには渡さない。オーバーレイに送信の役目を持たせないため）
+ * - announce: Workerがbotとしてアナウンス（色の付いた帯）を送る。botがモデレーターにされている必要がある
  *
  * 対応しているイベントは、Workerが購読している5種類（ALERT_EVENTS）。
  * 条件（いまは報酬IDだけ）はイベント種別ごとに違うため、event で判別する union にする。
@@ -13,6 +14,7 @@
  * 注意: 検証は最初の1件で止めず、問題点をすべて集めてから拒否する（管理画面で一度に直せるようにする）。
  */
 import type { KeyValueStore } from './store'
+import { ANNOUNCEMENT_COLORS, type AnnouncementColor } from './twitch'
 
 const CONFIG_KEY = 'alert-config'
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
@@ -23,7 +25,7 @@ export const ALERT_EVENTS = [REDEMPTION, 'channel.follow', 'channel.subscribe', 
 export type AlertEvent = (typeof ALERT_EVENTS)[number]
 
 /** 動作の種類。同じ種類は1トリガーに1件まで */
-export const ACTION_TYPES = ['alert', 'chat'] as const
+export const ACTION_TYPES = ['alert', 'chat', 'announce'] as const
 
 export type ActionType = (typeof ACTION_TYPES)[number]
 
@@ -31,8 +33,10 @@ const MAX_TRIGGERS = 100
 const MIN_DURATION_SECONDS = 1
 const MAX_DURATION_SECONDS = 60
 const MAX_ALERT_MESSAGE_LENGTH = 200
-/** チャット1通の上限（Twitchの POST /helix/chat/messages の制限） */
+/** チャット1通の上限（Twitchの POST /helix/chat/messages の制限）。アナウンスも同じ500文字 */
 const MAX_CHAT_MESSAGE_LENGTH = 500
+/** 色を指定しなかったアナウンスの色（チャンネルの色） */
+const DEFAULT_ANNOUNCEMENT_COLOR: AnnouncementColor = 'primary'
 
 export type MediaKind = 'image' | 'video' | 'audio'
 
@@ -56,7 +60,21 @@ export interface StoredChatAction {
   message: string
 }
 
-export type StoredAction = StoredAlertAction | StoredChatAction
+/**
+ * botとしてチャットへアナウンス（色の付いた帯で出る発言）を送る動作。
+ *
+ * 通常のチャット送信と違い、botがこのチャンネルのモデレーターにされていることと、
+ * moderator:manage:announcements の認可が要る。
+ */
+export interface StoredAnnounceAction {
+  type: 'announce'
+  /** 送る文言。チャットと同じく、送るものがないので空文字は許さない */
+  message: string
+  /** 帯の色 */
+  color: AnnouncementColor
+}
+
+export type StoredAction = StoredAlertAction | StoredChatAction | StoredAnnounceAction
 
 /** 条件（イベント種別ごとに違う。いま条件を持つのはチャンネルポイント交換だけ） */
 type StoredCondition =
@@ -99,6 +117,8 @@ const isAlertEvent = (value: unknown): value is AlertEvent => ALERT_EVENTS.some(
 
 const isActionType = (value: unknown): value is ActionType => ACTION_TYPES.some((type) => type === value)
 
+const isAnnouncementColor = (value: unknown): value is AnnouncementColor => ANNOUNCEMENT_COLORS.some((color) => color === value)
+
 const isNumberBetween = (value: unknown, min: number, max: number): value is number =>
   typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max
 
@@ -127,13 +147,19 @@ const parseAction = (
     return null
   }
 
-  if (type === 'chat') {
+  if (type === 'chat' || type === 'announce') {
     const { message } = candidate
-    if (!isStringWithin(message, 1, MAX_CHAT_MESSAGE_LENGTH)) {
-      problems.push(`${at}.message: 1〜${MAX_CHAT_MESSAGE_LENGTH}文字の文字列で指定してください`)
-      return null
-    }
-    return { type, message }
+    const messageOk = isStringWithin(message, 1, MAX_CHAT_MESSAGE_LENGTH)
+    if (!messageOk) problems.push(`${at}.message: 1〜${MAX_CHAT_MESSAGE_LENGTH}文字の文字列で指定してください`)
+    if (type === 'chat') return messageOk ? { type, message } : null
+
+    // 色は省略できる（既定はチャンネルの色）。指定があればTwitchが受け付ける5色に限る
+    const { color } = candidate
+    const colorOk = color === undefined || isAnnouncementColor(color)
+    if (!colorOk) problems.push(`${at}.color: ${ANNOUNCEMENT_COLORS.join(' / ')} のいずれかを指定してください`)
+
+    if (messageOk && colorOk) return { type, message, color: color ?? DEFAULT_ANNOUNCEMENT_COLOR }
+    return null
   }
 
   const { mediaId, durationSeconds, volume, message } = candidate
@@ -262,6 +288,10 @@ export const loadAlertConfig = async (store: KeyValueStore): Promise<AlertConfig
 /** トリガーからチャットに送る動作を取り出す。なければ null */
 export const chatActionOf = (trigger: StoredTrigger): StoredChatAction | null =>
   trigger.actions.find((action): action is StoredChatAction => action.type === 'chat') ?? null
+
+/** トリガーからアナウンスを送る動作を取り出す。なければ null */
+export const announceActionOf = (trigger: StoredTrigger): StoredAnnounceAction | null =>
+  trigger.actions.find((action): action is StoredAnnounceAction => action.type === 'announce') ?? null
 
 /** トリガーからアラートを出す動作を取り出す。なければ null */
 export const alertActionOf = (trigger: StoredTrigger): StoredAlertAction | null =>

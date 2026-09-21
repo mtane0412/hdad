@@ -57,7 +57,19 @@ export interface ChatAction {
   message: string
 }
 
-export type ActionInput = AlertActionInput | ChatAction
+/** アナウンスの帯の色。Twitchが受け付けるのはこの5つで、primary はチャンネルの色 */
+export const ANNOUNCEMENT_COLORS = ['primary', 'blue', 'green', 'orange', 'purple'] as const
+
+export type AnnouncementColor = (typeof ANNOUNCEMENT_COLORS)[number]
+
+/** botとしてアナウンス（色の付いた帯）を送る動作。botがモデレーターにされている必要がある */
+export interface AnnounceAction {
+  type: 'announce'
+  message: string
+  color: AnnouncementColor
+}
+
+export type ActionInput = AlertActionInput | ChatAction | AnnounceAction
 
 /** 条件（イベント種別ごとに違う。いま条件を持つのはチャンネルポイント交換だけ） */
 type TriggerCondition =
@@ -71,7 +83,7 @@ export type TriggerInput = TriggerCondition & { actions: ActionInput[] }
 /** 保存済みの「アラートを出す」動作（Workerが素材の種類を書き足したもの） */
 export type StoredAlertAction = AlertActionInput & { mediaKind: MediaKind }
 
-export type StoredAction = StoredAlertAction | ChatAction
+export type StoredAction = StoredAlertAction | ChatAction | AnnounceAction
 
 /** 保存済みのトリガー */
 export type StoredTrigger = TriggerCondition & { actions: StoredAction[] }
@@ -100,6 +112,9 @@ export interface AdminApi {
 
 const isMediaKind = (value: unknown): value is MediaKind => MEDIA_KINDS.some((kind) => kind === value)
 
+/** アナウンスの色として使える値か。選択欄の値を色として扱う前の確認にも使う */
+export const isAnnouncementColor = (value: unknown): value is AnnouncementColor => ANNOUNCEMENT_COLORS.some((color) => color === value)
+
 const isMe = (value: unknown): value is Me =>
   isRecord(value) && typeof value.userId === 'string' && typeof value.login === 'string' && (value.overlayKey === null || typeof value.overlayKey === 'string')
 
@@ -123,6 +138,7 @@ const hasCondition = (value: Record<string, unknown>): boolean =>
 const isStoredAction = (value: unknown): value is StoredAction => {
   if (!isRecord(value) || typeof value.message !== 'string') return false
   if (value.type === 'chat') return true
+  if (value.type === 'announce') return isAnnouncementColor(value.color)
   return (
     value.type === 'alert' &&
     typeof value.mediaId === 'string' &&

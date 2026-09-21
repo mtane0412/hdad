@@ -466,17 +466,25 @@ describe('アラートのトリガーによるチャット送信', () => {
     return { env, db }
   }
 
-  const 送信に応えるTwitch = (chatResponse: Response = Response.json({ data: [{ message_id: 'sent', is_sent: true }] })) => {
+  const 送信に応えるTwitch = (
+    chatResponse: Response = Response.json({ data: [{ message_id: 'sent', is_sent: true }] }),
+    announcementResponse: Response = new Response(null, { status: 204 }),
+  ) => {
     const 送信したチャット: Request[] = []
+    const 送信したアナウンス: Request[] = []
     const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const request = new Request(input, init)
       if (request.url === 'https://api.twitch.tv/helix/chat/messages') {
         送信したチャット.push(request.clone())
         return chatResponse.clone()
       }
+      if (request.url.startsWith('https://api.twitch.tv/helix/chat/announcements')) {
+        送信したアナウンス.push(request.clone())
+        return announcementResponse.clone()
+      }
       throw new Error(`テストで想定していない通信です: ${request.url}`)
     }
-    return { 送信したチャット, fetchImpl }
+    return { 送信したチャット, 送信したアナウンス, fetchImpl }
   }
 
   const フォローの通知 = { subscription: { type: 'channel.follow' }, event: { user_name: '田中太郎' } }
@@ -575,5 +583,77 @@ describe('アラートのトリガーによるチャット送信', () => {
 
     expect(response.status).toBe(400)
     expect(twitch.送信したチャット).toHaveLength(0)
+  })
+
+  describe('アナウンスを送る動作', () => {
+    const フォローでアナウンスする: StoredTrigger = {
+      event: 'channel.follow',
+      actions: [{ type: 'announce', message: '{user} さん、フォローありがとうございます！', color: 'purple' }],
+    }
+
+    it('アナウンスを送る動作を持つトリガーに当てはまれば、botがモデレーターとしてアナウンスを送る', async () => {
+      const { env } = await トリガーのある環境([フォローでアナウンスする])
+      const twitch = 送信に応えるTwitch()
+
+      const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+
+      expect(response.status).toBe(204)
+      const request = twitch.送信したアナウンス[0]!
+      const url = new URL(request.url)
+      expect(url.searchParams.get('broadcaster_id')).toBe(配信者のID)
+      // アナウンスを送るのはbot自身なので、moderator_id はbotのID
+      expect(url.searchParams.get('moderator_id')).toBe(botのID)
+      expect(await request.json()).toEqual({ message: '田中太郎 さん、フォローありがとうございます！', color: 'purple' })
+      // アナウンスは通常のチャット送信とは別の経路なので、両方に送らない
+      expect(twitch.送信したチャット).toHaveLength(0)
+    })
+
+    it('チャットとアナウンスの両方を持つトリガーでは、どちらも送る', async () => {
+      const 両方する: StoredTrigger = {
+        event: 'channel.follow',
+        actions: [
+          { type: 'chat', message: '{user} さん、ありがとうございます' },
+          { type: 'announce', message: '{user} さんがフォローしました', color: 'primary' },
+        ],
+      }
+      const { env } = await トリガーのある環境([両方する])
+      const twitch = 送信に応えるTwitch()
+
+      await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+
+      expect(twitch.送信したチャット).toHaveLength(1)
+      expect(twitch.送信したアナウンス).toHaveLength(1)
+    })
+
+    it('同じ通知が再送されても、アナウンスを二度送らない', async () => {
+      const { env } = await トリガーのある環境([フォローでアナウンスする])
+      const twitch = 送信に応えるTwitch()
+
+      await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+      await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+
+      expect(twitch.送信したアナウンス).toHaveLength(1)
+    })
+
+    it('botを接続していなければ、送らずに受け取るだけにする', async () => {
+      const { env } = 環境を作る()
+      await saveAlertConfig(env.STORE, { triggers: [フォローでアナウンスする] })
+      const twitch = 送信に応えるTwitch()
+
+      const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+
+      expect(response.status).toBe(204)
+      expect(twitch.送信したアナウンス).toHaveLength(0)
+    })
+
+    it('送信に失敗しても2xxを返し、失敗として記録する（botがモデレーターでない場合など）', async () => {
+      const { env } = await トリガーのある環境([フォローでアナウンスする])
+      const twitch = 送信に応えるTwitch(undefined, Response.json({ status: 401, message: 'Missing scope' }, { status: 401 }))
+
+      const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+
+      expect(response.status).toBe(204)
+      expect(await listFailures(env.DB)).toMatchObject([{ code: 'alert-announce-failed', message: expect.stringContaining('Missing scope') }])
+    })
   })
 })

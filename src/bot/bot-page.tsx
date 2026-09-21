@@ -312,6 +312,15 @@ export const BotPage = ({ api }: BotPageProps) => {
                 <span className="font-medium">{bot.login}</span>
                 <span className="text-muted-foreground">（ユーザーID: {bot.userId}）</span>
               </p>
+              {!bot.isModerator && (
+                <Alert variant="destructive">
+                  <AlertTitle>モデレーター権限がありません</AlertTitle>
+                  <AlertDescription>
+                    配信者がTwitchのチャットで <code>/mod {bot.login}</code>{' '}
+                    を実行してください。モデレーターでないあいだは、BAN・タイムアウト・発言の削除・アナウンスがTwitchに拒否されます
+                  </AlertDescription>
+                </Alert>
+              )}
               {bot.missingScopes.length > 0 && (
                 <Alert variant="destructive">
                   <AlertTitle>権限が足りません</AlertTitle>

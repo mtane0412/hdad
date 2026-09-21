@@ -16,7 +16,7 @@ import { ApiError } from '@/core/api'
 import { BotPage } from './bot-page'
 import type { BotApi, BotCommandItem, BotStatus, DevicePoll } from './api'
 
-const 接続済みのbot: BotStatus = { userId: '67890', login: 'haishinsha_bot', missingScopes: [] }
+const 接続済みのbot: BotStatus = { userId: '67890', login: 'haishinsha_bot', missingScopes: [], isModerator: true }
 
 /** botが接続済みのWorkerの代役 */
 const 挨拶のコマンド: BotCommandItem = { name: 'aisatsu', reply: '@{user} こんばんは', cooldownSeconds: 10 }
@@ -65,6 +65,21 @@ describe('接続状態', () => {
 
     expect(await お知らせ('user:write:chat')).toBeInTheDocument()
     expect(await screen.findByRole('link', { name: /接続/ })).toBeInTheDocument()
+  })
+
+  test('botがモデレーターでなければ、配信者に /mod を実行してもらう案内を出す', async () => {
+    // モデレーターでないと、BAN・タイムアウト・発言の削除・アナウンスがすべてTwitchに拒否される
+    const api = 代役のAPI({ status: vi.fn(async () => ({ ...接続済みのbot, isModerator: false })) })
+    render(<BotPage api={api} />)
+
+    expect(await お知らせ('/mod haishinsha_bot')).toBeInTheDocument()
+  })
+
+  test('botがモデレーターなら、/mod の案内は出さない', async () => {
+    render(<BotPage api={代役のAPI()} />)
+
+    expect(await お知らせ('haishinsha_bot')).toBeInTheDocument()
+    expect(screen.queryByText(/\/mod /)).not.toBeInTheDocument()
   })
 
   test('状態を読めなければ、理由を出す（黙って未接続扱いにしない）', async () => {

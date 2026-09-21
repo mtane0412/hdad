@@ -7,9 +7,9 @@
  *
  * 注意: 2xx 以外を返すとTwitchは再送し、失敗が続くと購読を失効させる。想定しない通知を黙って捨てず、失敗として返す（Fail-Fast）。
  */
-import { loadAlertConfig } from './alert-config'
-import { chatMessageFor } from './alert-event'
-import { sendAsBot } from './bot-chat'
+import { loadAlertConfig, type StoredAnnounceAction } from './alert-config'
+import { announcementFor, chatMessageFor } from './alert-event'
+import { announceAsBot, sendAsBot } from './bot-chat'
 import { applyReply, findCommand, readChatMessage } from './chat-command'
 import { loadBotConfig } from './bot-config'
 import { consumeCooldown, reserveChatReply } from './chat-store'
@@ -126,10 +126,10 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
 }
 
 /**
- * アラートのトリガーに当てはまる通知なら、botとしてチャットへ送る。
+ * アラートのトリガーに当てはまる通知なら、botとしてチャット・アナウンスを送る。
  *
  * アラートのトリガーは「条件」と「動作」からなり、動作の種類ごとに実行者が違う。素材の再生はオーバーレイが受け持ち、
- * チャットへの送信はここ（Worker）が受け持つ。オーバーレイを開いていなくても送れるのはこのためである。
+ * チャットとアナウンスの送信はここ（Worker）が受け持つ。オーバーレイを開いていなくても送れるのはこのためである。
  *
  * 注意: 送ると決めたあとの失敗は、コマンドへの応答と同じく2xxのまま記録に残す
  * （2xx以外だとTwitchが同じ通知を再送し、送信が成功していた場合に二重投稿になる）。
@@ -137,29 +137,50 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
  * @param messageId 通知のメッセージID。再送で二度送らないための鍵に使う
  * @throws HttpError イベントの中身が想定と違う場合（400。黙って捨てない）
  */
-const sendAlertChat = async (context: Context, subscriptionType: string, body: Record<string, unknown>, messageId: string): Promise<void> => {
-  const { env, now } = context
+const sendAlertMessages = async (context: Context, subscriptionType: string, body: Record<string, unknown>, messageId: string): Promise<void> => {
+  const { env } = context
 
   const config = await loadAlertConfig(env.STORE)
   // 中身の形が違えば「不正な通知」として400で返す（Workerの不具合を表す500と区別する）
-  const message = ((): string | null => {
+  const [message, announcement] = ((): [string | null, StoredAnnounceAction | null] => {
     try {
-      return chatMessageFor(config, subscriptionType, body.event)
+      return [chatMessageFor(config, subscriptionType, body.event), announcementFor(config, subscriptionType, body.event)]
     } catch (error) {
       throw invalid(error instanceof Error ? error.message : String(error))
     }
   })()
-  if (message === null) return
+  if (message === null && announcement === null) return
 
   // botを切断していれば送る先がない。受け取り自体は成功として返す
   if (!(await loadToken(env.STORE, 'bot'))) return
-  // 鍵の確保は送信の前に行う。Twitchの再送で同じお礼を二度送らないため
-  if (!(await reserveChatReply(env.DB, messageId, now))) return
+
+  if (message !== null) await sendAndRecordFailure(context, messageId, 'chat', 'alert-chat-failed', () => sendAsBot(context, message))
+  if (announcement !== null) {
+    await sendAndRecordFailure(context, messageId, 'announce', 'alert-announce-failed', () => announceAsBot(context, announcement))
+  }
+}
+
+/**
+ * 鍵を確保してから送り、失敗は記録に残す（通知の受け取り自体は成功として返す）。
+ *
+ * 鍵の確保を送信より先に行うのは、Twitchの再送で同じお礼を二度送らないため。
+ * 鍵に動作の種類を混ぜるのは、同じ通知でチャットとアナウンスの両方を送るときに、片方が鍵を取って
+ * もう片方が送れなくなるのを防ぐため。
+ */
+const sendAndRecordFailure = async (
+  context: Context,
+  messageId: string,
+  actionType: 'chat' | 'announce',
+  failureCode: string,
+  send: () => Promise<void>,
+): Promise<void> => {
+  const { env, now } = context
+  if (!(await reserveChatReply(env.DB, `${messageId}:${actionType}`, now))) return
 
   try {
-    await sendAsBot(context, message)
+    await send()
   } catch (error) {
-    await recordFailure(env.DB, 'alert-chat-failed', error instanceof Error ? error.message : String(error), now)
+    await recordFailure(env.DB, failureCode, error instanceof Error ? error.message : String(error), now)
   }
 }
 
@@ -194,7 +215,7 @@ export const eventsubWebhook = async (context: Context): Promise<Response> => {
       if (type === CHAT_MESSAGE) await replyToChatMessage(context, body)
       else {
         await recordNotification({ db: env.DB, messageId, occurredAt, body })
-        await sendAlertChat(context, type, body, messageId)
+        await sendAlertMessages(context, type, body, messageId)
       }
       return new Response(null, { status: STATUS.noContent })
     }

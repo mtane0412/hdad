@@ -24,6 +24,11 @@ export interface BotStatus {
   login: string
   /** 認可されていないスコープ。1つでもあれば接続し直しが要る */
   missingScopes: string[]
+  /**
+   * このbotが配信者のチャンネルのモデレーターにされているか。
+   * false のあいだは、BAN・タイムアウト・発言の削除・アナウンスがTwitchに拒否される。
+   */
+  isModerator: boolean
 }
 
 /** チャットのコマンド1つぶん */
@@ -89,7 +94,8 @@ const isBotStatus = (value: unknown): value is BotStatus =>
   typeof value.userId === 'string' &&
   typeof value.login === 'string' &&
   Array.isArray(value.missingScopes) &&
-  value.missingScopes.every((scope: unknown) => typeof scope === 'string')
+  value.missingScopes.every((scope: unknown) => typeof scope === 'string') &&
+  typeof value.isModerator === 'boolean'
 
 export const createBotApi = (fetchImpl: typeof fetch): BotApi => {
   const call = createCaller(fetchImpl)

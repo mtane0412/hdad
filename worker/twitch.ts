@@ -18,6 +18,11 @@ const CHANNEL_BADGES_URL = 'https://api.twitch.tv/helix/chat/badges'
 const CHEERMOTES_URL = 'https://api.twitch.tv/helix/bits/cheermotes'
 const USERS_URL = 'https://api.twitch.tv/helix/users'
 const CHAT_MESSAGES_URL = 'https://api.twitch.tv/helix/chat/messages'
+const BANS_URL = 'https://api.twitch.tv/helix/moderation/bans'
+/** チャットのメッセージ削除。送信の /helix/chat/messages とは別の経路なので混同しない */
+const MODERATION_CHAT_URL = 'https://api.twitch.tv/helix/moderation/chat'
+const ANNOUNCEMENTS_URL = 'https://api.twitch.tv/helix/chat/announcements'
+const MODERATORS_URL = 'https://api.twitch.tv/helix/moderation/moderators'
 const DEVICE_URL = 'https://id.twitch.tv/oauth2/device'
 /** デバイスコードフローの grant_type（RFC 8628 の決まった文字列） */
 const DEVICE_CODE_GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:device_code'
@@ -34,6 +39,8 @@ const PENDING_MESSAGE = 'authorization_pending'
 const SLOW_DOWN_MESSAGE = 'slow_down'
 /** バッジ・Cheermote の画像は複数の大きさで届く。オーバーレイでは2倍のものを使う */
 const IMAGE_SCALE = '2'
+/** アナウンスの色を指定しなかったときに使う色（チャンネルの色） */
+const DEFAULT_ANNOUNCEMENT_COLOR = 'primary'
 /** Twitchの応答として成り立っていない（必要な項目がない）ときに使う状態コード */
 const BAD_GATEWAY = 502
 
@@ -139,6 +146,43 @@ export interface ChatMessageToSend {
   message: string
 }
 
+/** アナウンスの帯の色。Twitchが受け付けるのはこの5つで、primary はチャンネルの色 */
+export const ANNOUNCEMENT_COLORS = ['blue', 'green', 'orange', 'purple', 'primary'] as const
+
+export type AnnouncementColor = (typeof ANNOUNCEMENT_COLORS)[number]
+
+/** モデレーション操作で共通して要る、対象のチャンネルと操作するモデレーター */
+interface ModerationTarget {
+  /** 操作するチャンネルの持ち主のユーザーID */
+  broadcasterId: string
+  /** 操作するモデレーターのユーザーID。アクセストークンの持ち主と一致している必要がある */
+  moderatorId: string
+}
+
+/** BAN・タイムアウトの内容 */
+export interface BanToApply extends ModerationTarget {
+  /** 処分する相手のユーザーID */
+  userId: string
+  /** タイムアウトの長さ（1〜604800秒）。省略すると期限のないBANになる */
+  durationSeconds?: number
+  /** 処分の理由（Twitchの上限は500文字）。モデレーターの記録に残る */
+  reason?: string
+}
+
+/** 削除するチャットのメッセージ */
+export interface ChatMessageToDelete extends ModerationTarget {
+  /** 削除する発言のID。Twitchは省略するとチャット全体を消すため、必ず指定する */
+  messageId: string
+}
+
+/** チャットへ送るアナウンス */
+export interface AnnouncementToSend extends ModerationTarget {
+  /** 本文（Twitchの上限は500文字） */
+  message: string
+  /** 帯の色。省略すると primary */
+  color?: AnnouncementColor
+}
+
 export interface TwitchClient {
   /** ユーザーをTwitchの認可ページへ送るためのURL */
   authorizeUrl(redirectUri: string, state: string, scopes: readonly string[]): string
@@ -173,6 +217,33 @@ export interface TwitchClient {
    * @throws TwitchApiError Twitchが拒否した、またはTwitchが受け取ったうえで送信しなかった（AutoModなど）
    */
   sendChatMessage(accessToken: string, message: ChatMessageToSend): Promise<void>
+  /**
+   * ユーザーをBANまたはタイムアウトする。モデレーター（moderatorId）のユーザートークンと moderator:manage:banned_users が必要。
+   *
+   * @throws TwitchApiError Twitchが拒否した。すでにBAN済み・タイムアウト中の相手には 409 が返る
+   */
+  banUser(accessToken: string, ban: BanToApply): Promise<void>
+  /**
+   * チャットの発言を1件削除する。モデレーターのユーザートークンと moderator:manage:chat_messages が必要。
+   *
+   * 削除できるのは直近6時間以内の発言だけで、配信者と他のモデレーターの発言は削除できない。
+   *
+   * @throws TwitchApiError Twitchが拒否した（上の条件に当てはまらない発言を指定した場合を含む）
+   */
+  deleteChatMessage(accessToken: string, message: ChatMessageToDelete): Promise<void>
+  /**
+   * チャットへアナウンス（色の付いた帯で出る発言）を送る。
+   * モデレーターのユーザートークンと moderator:manage:announcements が必要。
+   *
+   * @throws TwitchApiError Twitchが拒否した
+   */
+  sendChatAnnouncement(accessToken: string, announcement: AnnouncementToSend): Promise<void>
+  /**
+   * 指定したユーザーがそのチャンネルのモデレーターかどうかを返す。配信者のユーザートークンと moderation:read が必要。
+   *
+   * @throws TwitchApiError Twitchが拒否した、または応答に一覧が無かった（モデレーターでないと決めつけない）
+   */
+  isModerator(accessToken: string, target: { broadcasterId: string; userId: string }): Promise<boolean>
   /**
    * デバイスコードフローを始める。利用者は別の端末で verificationUri を開き、userCode を入力して認可する。
    *
@@ -234,6 +305,17 @@ const readJson = async (response: Response): Promise<Record<string, unknown>> =>
   }
   if (!isRecord(body)) throw new TwitchApiError(BAD_GATEWAY, 'Twitchの応答がJSONのオブジェクトではありません')
   return body
+}
+
+/**
+ * 本文を返さない応答（モデレーション操作の成功は204）の成否を確かめる。
+ * 失敗ならTwitchのメッセージを添えて投げ、状態コードをそのまま残す（呼び出し側が409などで扱いを分けられるようにするため）。
+ */
+const ensureOk = async (response: Response): Promise<void> => {
+  if (response.ok) return
+  const body: unknown = await response.json().catch(() => null)
+  const detail = isRecord(body) && typeof body.message === 'string' ? body.message : response.statusText
+  throw new TwitchApiError(response.status, `Twitchが ${response.status} を返しました: ${detail}`)
 }
 
 /** チャットを送れなかった理由（Twitchの drop_reason）を、管理画面に出せる文にする */
@@ -360,6 +442,16 @@ export const createTwitchClient = ({ clientId, clientSecret, fetch: fetchImpl }:
       body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, ...params }),
     })
     return toTokenGrant(await readJson(response))
+  }
+
+  const helixHeaders = (accessToken: string): Record<string, string> => ({ Authorization: `Bearer ${accessToken}`, 'Client-Id': clientId })
+
+  /** モデレーション操作の経路に共通の、対象のチャンネルと操作するモデレーターをクエリに載せたURLを作る */
+  const moderationUrl = (base: string, { broadcasterId, moderatorId }: ModerationTarget): URL => {
+    const url = new URL(base)
+    url.searchParams.set('broadcaster_id', broadcasterId)
+    url.searchParams.set('moderator_id', moderatorId)
+    return url
   }
 
   const getHelix = async (url: URL, accessToken: string): Promise<Record<string, unknown>> =>
@@ -500,6 +592,43 @@ export const createTwitchClient = ({ clientId, clientSecret, fetch: fetchImpl }:
       }
       // Twitchは受け取ったうえで送らないことがある（AutoModの保留など）。200だからと成功扱いにしない
       if (!result.is_sent) throw new TwitchApiError(BAD_GATEWAY, `Twitchがチャットを送信しませんでした: ${readDropReason(result.drop_reason)}`)
+    },
+
+    banUser: async (accessToken, { broadcasterId, moderatorId, userId, durationSeconds, reason }) => {
+      const response = await fetchImpl(moderationUrl(BANS_URL, { broadcasterId, moderatorId }), {
+        method: 'POST',
+        headers: { ...helixHeaders(accessToken), 'Content-Type': 'application/json' },
+        // duration を省くと期限のないBANになるので、指定があるときだけ載せる
+        body: JSON.stringify({
+          data: { user_id: userId, ...(durationSeconds === undefined ? {} : { duration: durationSeconds }), ...(reason === undefined ? {} : { reason }) },
+        }),
+      })
+      await ensureOk(response)
+    },
+
+    deleteChatMessage: async (accessToken, { broadcasterId, moderatorId, messageId }) => {
+      const url = moderationUrl(MODERATION_CHAT_URL, { broadcasterId, moderatorId })
+      url.searchParams.set('message_id', messageId)
+      await ensureOk(await fetchImpl(url, { method: 'DELETE', headers: helixHeaders(accessToken) }))
+    },
+
+    sendChatAnnouncement: async (accessToken, { broadcasterId, moderatorId, message, color }) => {
+      const response = await fetchImpl(moderationUrl(ANNOUNCEMENTS_URL, { broadcasterId, moderatorId }), {
+        method: 'POST',
+        headers: { ...helixHeaders(accessToken), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, color: color ?? DEFAULT_ANNOUNCEMENT_COLOR }),
+      })
+      await ensureOk(response)
+    },
+
+    isModerator: async (accessToken, { broadcasterId, userId }) => {
+      const url = new URL(MODERATORS_URL)
+      url.searchParams.set('broadcaster_id', broadcasterId)
+      // user_id で絞り込むと、モデレーターが何人いてもページ分けを気にせず判定できる
+      url.searchParams.set('user_id', userId)
+      const { data } = await getHelix(url, accessToken)
+      if (!Array.isArray(data)) throw new TwitchApiError(BAD_GATEWAY, 'Twitchのモデレーターの応答に data の配列がありません')
+      return data.length > 0
     },
 
     startDeviceAuthorization: async (scopes) => {
