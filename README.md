@@ -116,7 +116,7 @@ https://stream-assets.<サブドメイン>.workers.dev/alerts/?key=<オーバー
 | `key` | オーバーレイ用キー（必須）。ログイン後に `/api/me` で表示される `overlayKey` の値。Twitchのトークンではないので、漏れてもTwitchアカウントには影響しない |
 | `demo` | `true` でサンプルのアラートを一定間隔で流す（配置の調整用。Twitchには接続しない） |
 
-いまはすべてのチャンネルポイント交換で、サンプル画像と「◯◯ さんが「報酬名」を交換しました」を表示します。設定は `src/alerts/config.ts` に直書きしており、報酬ごとの素材の設定は今後の管理画面で行えるようにします。
+どの報酬でどの素材を出すか（トリガー）は、配信者が管理用APIで保存します（「デプロイ」の節の「アラートの設定と素材」を参照。管理画面は今後追加します）。オーバーレイは通知が届くたびに最新の設定を取得するので、設定を変えてもOBSの再読み込みは不要です。トリガーが1件もなければ何も表示しません。
 
 キーの誤り・未ログイン・購読の取り消しなど人が直さないと直らない失敗は画面全体にエラーを表示し、切断などの一時的な失敗は左下にお知らせを出してつなぎ直します。
 
@@ -181,7 +181,9 @@ Cloudflare Workers で公開します。設定は `wrangler.jsonc` にあり、V
 
 ### Twitchログイン（`/api/*`）の設定
 
-チャンネルポイントなどのイベントを受け取るには配信者のTwitchトークンが必要です。Worker がTwitchログインを受け持ち、トークンを Cloudflare KV（`STORE`）に保管します。トークンはブラウザにもOBSのURLにも出しません。KVの名前空間はデプロイ時に wrangler が自動で作成します。
+チャンネルポイントなどのイベントを受け取るには配信者のTwitchトークンが必要です。Worker がTwitchログインを受け持ち、トークンを Cloudflare KV（`STORE`）に保管します。トークンはブラウザにもOBSのURLにも出しません。アラートの素材は Cloudflare R2（`MEDIA`）に置きます。KVの名前空間とR2のバケットは、デプロイ時に wrangler が自動で作成します。
+
+R2は無料枠（保存10GB・転送無料）だけを使う場合でも、デプロイの前に一度、Cloudflareダッシュボードの Storage & databases > R2 でR2を有効にする必要があります（支払い方法の登録を求められますが、無料枠内なら請求は発生しません）。
 
 1. [Twitch開発者コンソール](https://dev.twitch.tv/console/apps)でアプリを登録し、OAuthのリダイレクトURLに `https://<公開先のドメイン>/api/auth/callback` を指定する（ローカルで試す場合は `http://localhost:8787/api/auth/callback` も追加する）
 2. `.dev.vars.example` にある4つのシークレット（`TWITCH_CLIENT_ID`・`TWITCH_CLIENT_SECRET`・`TWITCH_BROADCASTER_ID`・`SESSION_SECRET`）を、`npx wrangler secret put <名前>` またはダッシュボードの Settings > Variables and Secrets で設定する。ローカルでは `.dev.vars.example` を `.dev.vars` にコピーして値を入れ、`npm run preview:worker` で起動する
@@ -195,4 +197,48 @@ Cloudflare Workers で公開します。設定は `wrangler.jsonc` にあり、V
 | `GET /api/me` | ログイン中の配信者とオーバーレイ用キーを返す（要セッション） |
 | `POST /api/eventsub/subscriptions` | 本文 `{ "key": オーバーレイ用キー, "sessionId": EventSubのWebSocketのセッションID }` を受け取り、保管しているトークンで購読（チャンネルポイント交換・フォロー・サブスク・レイド）を登録する |
 
+| `GET /api/overlay/config?key=` | オーバーレイ向けに、素材のURL付きのトリガーの一覧を返す（要オーバーレイ用キー） |
+| `GET /api/media/<素材ID>?key=` | 素材の中身を返す（要オーバーレイ用キー、または配信者のセッション） |
+| `GET`・`PUT /api/admin/config` | アラートの設定の取得・保存（要セッション） |
+| `GET`・`POST /api/admin/media` | 素材の一覧・アップロード（要セッション） |
+| `DELETE /api/admin/media/<素材ID>` | 素材の削除。トリガーに使われている素材は409で拒否する（要セッション） |
+| `POST /api/admin/overlay-key` | オーバーレイ用キーの再発行。古いキーを含むURLは使えなくなる（要セッション） |
+
 失敗は `{ "error": { "code", "message" } }` の形で返します。受け取るイベントを増やす場合は `worker/eventsub.ts` の `EVENT_TYPES` に足します（スコープが増えたら配信者の再ログインが必要です）。
+
+### アラートの設定と素材
+
+管理用API（`/api/admin/*`）は配信者のセッションが必要で、書き換えを伴うメソッドは管理画面と同じサイトからのリクエスト（`Origin` ヘッダーが一致するもの）だけを受け付けます。管理画面ができるまでは、ログイン済みのブラウザで公開先のページ（`/api/me` など）を開き、開発者ツールのコンソールから呼び出します。
+
+```js
+// 1. 素材をアップロードする（画像・動画・音声、1ファイル50MBまで）。返ってきた id を控える
+const [file] = await new Promise((resolve) => {
+  const input = Object.assign(document.createElement('input'), { type: 'file' })
+  input.addEventListener('change', () => resolve(input.files))
+  input.click()
+})
+const uploaded = await fetch('/api/admin/media', {
+  method: 'POST',
+  headers: { 'Content-Type': file.type, 'X-File-Name': encodeURIComponent(file.name) },
+  body: file,
+}).then((response) => response.json())
+
+// 2. トリガーを保存する（全体を置き換える）。rewardId が null ならすべての報酬が対象で、先に書いたものが優先される
+await fetch('/api/admin/config', {
+  method: 'PUT',
+  body: JSON.stringify({
+    triggers: [
+      {
+        event: 'channel.channel_points_custom_reward_redemption.add',
+        rewardId: null,
+        mediaId: uploaded.id,
+        durationSeconds: 6,
+        volume: 1,
+        message: '{user} さんが「{reward}」を交換しました',
+      },
+    ],
+  }),
+}).then((response) => response.json())
+```
+
+`durationSeconds` は1〜60、`volume` は0〜1、`message` は200文字以内（`{user}` と `{reward}` が置き換わり、空文字なら文言を出さない）です。設定に問題があれば、保存せずに問題点の一覧（`error.problems`）を返します。

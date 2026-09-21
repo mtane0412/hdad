@@ -8,6 +8,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { REQUIRED_SCOPES } from './eventsub'
+import { createFakeBucket } from './fake-bucket'
 import { createFakeStore } from './fake-store'
 import { handleRequest, type Env } from './index'
 import { createSessionToken } from './session'
@@ -20,6 +21,7 @@ const サイト = 'https://stream-assets.example.com'
 const 環境を作る = (store = createFakeStore()) => {
   const env = {
     STORE: store,
+    MEDIA: createFakeBucket(),
     TWITCH_CLIENT_ID: 'test-client-id',
     TWITCH_CLIENT_SECRET: 'テスト用シークレット',
     TWITCH_BROADCASTER_ID: 配信者のID,

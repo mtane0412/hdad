@@ -1,17 +1,19 @@
 /**
  * アラート用オーバーレイのページ（alerts/index.html）のエントリスクリプト
  *
- * URLの ?key=<オーバーレイ用キー> でEventSubに接続し、届いた通知を設定（config.ts）と照らし合わせて、
- * 当てはまったものを1件ずつ順番に再生する。?demo=true なら接続せず、サンプルの交換を一定間隔で流す（配置の調整用）。
+ * URLの ?key=<オーバーレイ用キー> でWorkerから設定（config.ts）を受け取り、EventSubに接続して、
+ * 届いた通知のうち設定に当てはまったものを1件ずつ順番に再生する。
+ * ?demo=true なら接続せず、サンプルの交換を一定間隔で流す（配置の調整用）。
  * 起動に失敗した場合や、人が直さないと直らない失敗は、OBS上でも原因が分かるよう画面にエラー内容を表示する。
  */
 import { showError } from '../core/mount'
 import { ParamError, parseParams, type ParamSchema } from '../core/params'
-import { triggers } from './config'
+import { fetchTriggers } from './config'
 import { connectEventSub } from './connection'
+import { demoNotification, demoTriggers } from './demo'
 import type { EventSubNotification } from './eventsub'
 import { EMPTY_QUEUE, advance, enqueue } from './queue'
-import { toAlert } from './trigger'
+import { toAlert, type AlertTrigger } from './trigger'
 import { createAlertView } from './view'
 
 const NOUN = 'アラート'
@@ -30,14 +32,9 @@ const schema = {
   demo: { type: 'boolean', default: false, description: 'サンプルのアラートを流す（配置の調整用。Twitchには接続しない）' },
 } as const satisfies ParamSchema
 
-const demoNotification: EventSubNotification = {
-  type: 'notification',
-  id: 'demo',
-  subscriptionType: 'channel.channel_points_custom_reward_redemption.add',
-  event: { user_name: 'たねのぶ', user_input: '', reward: { id: 'demo-reward', title: '水を飲む' } },
-}
+const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
-const start = (): void => {
+const start = async (): Promise<void> => {
   const root = document.querySelector<HTMLElement>('[data-alerts]')
   if (!root) throw new Error('data-alerts 属性を持つ要素が見つかりません')
 
@@ -58,14 +55,14 @@ const start = (): void => {
     void view
       .show(queue.current)
       // 素材が読めなくても後続のアラートは再生するが、黙って飛ばさず画面に知らせる
-      .catch((error: unknown) => view.setNotice(error instanceof Error ? error.message : String(error)))
+      .catch((error: unknown) => view.setNotice(messageOf(error)))
       .finally(() => {
         queue = advance(queue)
         play()
       })
   }
 
-  const handleNotification = (notification: EventSubNotification): void => {
+  const handleNotification = (triggers: readonly AlertTrigger[], notification: EventSubNotification): void => {
     const alert = toAlert(triggers, notification)
     if (!alert) return
     const idle = queue.current === null
@@ -74,18 +71,32 @@ const start = (): void => {
   }
 
   if (params.demo) {
-    handleNotification(demoNotification)
-    window.setInterval(() => handleNotification(demoNotification), DEMO_INTERVAL_MS)
+    handleNotification(demoTriggers, demoNotification)
+    window.setInterval(() => handleNotification(demoTriggers, demoNotification), DEMO_INTERVAL_MS)
     return
   }
 
+  const loadTriggers = (): Promise<AlertTrigger[]> => fetchTriggers(params.key, (input, init) => fetch(input, init))
+  // 起動時に設定を取得できなければ（キーの誤りなど）、接続せずにエラーを表示する
+  let triggers = await loadTriggers()
+
+  /** 通知の処理を届いた順に1件ずつ行うための列。設定の取得の速さによってアラートの順番が入れ替わらないようにする */
+  let processing: Promise<void> = Promise.resolve()
+
   connectEventSub(params.key, {
     onNotification: (notification) => {
-      try {
-        handleNotification(notification)
-      } catch (error) {
-        view.setNotice(error instanceof Error ? error.message : String(error))
-      }
+      // 管理画面での変更をOBSの再読み込みなしで反映するため、通知のたびに設定を取り直す。
+      // 取り直せなかった場合は画面に知らせたうえで、最後に取得できた設定で再生する
+      processing = processing
+        .then(loadTriggers)
+        .then((latest) => {
+          triggers = latest
+          // 前回の取得失敗のお知らせが残っていれば消す
+          view.setNotice(null)
+        })
+        .catch((error: unknown) => view.setNotice(`最新の設定を取得できませんでした: ${messageOf(error)}`))
+        .then(() => handleNotification(triggers, notification))
+        .catch((error: unknown) => view.setNotice(messageOf(error)))
     },
     onStatus: (status) => view.setNotice(status === 'disconnected' ? 'Twitchとの接続が切れました。再接続します…' : null),
     onWarning: (message) => view.setNotice(message),
@@ -93,9 +104,7 @@ const start = (): void => {
   })
 }
 
-try {
-  start()
-} catch (error) {
+start().catch((error: unknown) => {
   showError(error, NOUN)
   throw error
-}
+})
