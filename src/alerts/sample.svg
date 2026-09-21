@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" role="img" aria-label="きらめく星">
+  <!-- アラートのサンプル画像。このリポジトリで描いたもので、再配布の制限はない -->
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#fff6c2" stop-opacity="0.95" />
+      <stop offset="1" stop-color="#ffd24a" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="star" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe680" />
+      <stop offset="1" stop-color="#ff9f43" />
+    </linearGradient>
+  </defs>
+  <circle cx="200" cy="200" r="190" fill="url(#glow)" />
+  <path
+    d="M200 48 L239 146 L344 153 L263 221 L289 323 L200 267 L111 323 L137 221 L56 153 L161 146 Z"
+    fill="url(#star)"
+    stroke="#ffffff"
+    stroke-width="10"
+    stroke-linejoin="round"
+  />
+  <g fill="#ffffff">
+    <path d="M70 70 l8 22 l22 8 l-22 8 l-8 22 l-8 -22 l-22 -8 l22 -8 z" />
+    <path d="M335 60 l6 16 l16 6 l-16 6 l-6 16 l-6 -16 l-16 -6 l16 -6 z" />
+    <path d="M330 300 l7 19 l19 7 l-19 7 l-7 19 l-7 -19 l-19 -7 l19 -7 z" />
+  </g>
+</svg>

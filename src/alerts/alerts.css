@@ -1,0 +1,87 @@
+/*
+ * アラート用オーバーレイの見た目
+ *
+ * 素材を画面の中央に大きく出し、その下に文言を置く。背景は透過のまま（OBSで配信画面に重ねるため）。
+ * 文言はどんな配信画面の上でも読めるよう、濃い縁取りを付ける。
+ */
+.alerts {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-family: 'Zen Maru Gothic', 'Hiragino Maru Gothic ProN', 'Yu Gothic UI', sans-serif;
+}
+
+.alert {
+  /* 1件ずつ再生するので重ならないが、消える動きの途中で次が出てもずれないよう同じ枠に置く */
+  grid-area: 1 / 1;
+  display: grid;
+  justify-items: center;
+  gap: 3vh;
+  max-width: 90vw;
+  animation: alert-enter 500ms cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+
+.alert--leaving {
+  /* 長さは view.ts の LEAVE_MS と合わせる */
+  animation: alert-leave 400ms ease-in both;
+}
+
+.alert__media {
+  max-width: 70vw;
+  max-height: 60vh;
+  object-fit: contain;
+  filter: drop-shadow(0 1.2vh 2.4vh rgb(0 0 0 / 35%));
+}
+
+/* 音声だけのアラートは、再生用の要素を画面に出さない */
+audio.alert__media {
+  display: none;
+}
+
+.alert__text {
+  margin: 0;
+  color: #ffffff;
+  font-size: clamp(20px, 4.2vw, 72px);
+  font-weight: 700;
+  line-height: 1.4;
+  text-align: center;
+  overflow-wrap: anywhere;
+  paint-order: stroke fill;
+  -webkit-text-stroke: 0.22em #3b2a5c;
+  text-shadow: 0 0.12em 0.3em rgb(0 0 0 / 45%);
+}
+
+.alerts__notice {
+  position: fixed;
+  left: 2vw;
+  bottom: 2vh;
+  margin: 0;
+  padding: 0.5em 0.9em;
+  border-radius: 0.5em;
+  background: rgb(43 10 10 / 88%);
+  color: #ffd7d7;
+  font-size: clamp(14px, 1.6vw, 28px);
+  font-weight: 500;
+}
+
+@keyframes alert-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.6) translateY(6vh);
+  }
+}
+
+@keyframes alert-leave {
+  to {
+    opacity: 0;
+    transform: scale(0.9) translateY(-4vh);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .alert,
+  .alert--leaving {
+    animation-duration: 1ms;
+  }
+}
