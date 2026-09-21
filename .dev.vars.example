@@ -1,0 +1,14 @@
+# Workerのシークレットの見本。ローカルでは .dev.vars にコピーして値を入れる（.dev.vars はコミットしない）。
+# 本番では `npx wrangler secret put <名前>` か、Cloudflareダッシュボードの Settings > Variables and Secrets で設定する。
+
+# Twitch開発者コンソール（https://dev.twitch.tv/console/apps）で登録したアプリのクライアントIDとシークレット。
+# アプリの「OAuthのリダイレクトURL」には https://<デプロイ先のドメイン>/api/auth/callback を登録する
+# （ローカルで試すなら http://localhost:8787/api/auth/callback も追加する）。
+TWITCH_CLIENT_ID=
+TWITCH_CLIENT_SECRET=
+
+# ログインを許す配信者のTwitchユーザーID（ログイン名ではなく数字のID）
+TWITCH_BROADCASTER_ID=
+
+# セッションの署名に使うランダムな文字列。`openssl rand -hex 32` で作る
+SESSION_SECRET=

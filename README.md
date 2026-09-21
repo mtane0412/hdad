@@ -143,7 +143,7 @@ npm run preview:worker  # ビルドして、Workersと同じ配信挙動をロ�
 
 ## デプロイ
 
-Cloudflare Workers の静的アセットとして公開します。設定は `wrangler.jsonc` にあり、Viteのビルド出力（`dist/`）をそのまま配信します。
+Cloudflare Workers で公開します。設定は `wrangler.jsonc` にあり、Viteのビルド出力（`dist/`）を静的アセットとして配信し、`/api/*` だけを Worker のコード（`worker/`）で処理します。
 
 `main` へのpushを受けて、Cloudflareの Workers Builds がビルドとデプロイを行います。初回だけ次の設定が必要です。
 
@@ -154,3 +154,21 @@ Cloudflare Workers の静的アセットとして公開します。設定は `wr
 手元から直接デプロイする場合は、`npx wrangler login` のあとに `npm run deploy` を実行します。
 
 `.github/workflows/ci.yml` はLint・型チェック・テスト・ビルドと `wrangler deploy --dry-run` による設定の検証だけを行い、デプロイはしません。
+
+### Twitchログイン（`/api/*`）の設定
+
+チャンネルポイントなどのイベントを受け取るには配信者のTwitchトークンが必要です。Worker がTwitchログインを受け持ち、トークンを Cloudflare KV（`STORE`）に保管します。トークンはブラウザにもOBSのURLにも出しません。KVの名前空間はデプロイ時に wrangler が自動で作成します。
+
+1. [Twitch開発者コンソール](https://dev.twitch.tv/console/apps)でアプリを登録し、OAuthのリダイレクトURLに `https://<公開先のドメイン>/api/auth/callback` を指定する（ローカルで試す場合は `http://localhost:8787/api/auth/callback` も追加する）
+2. `.dev.vars.example` にある4つのシークレット（`TWITCH_CLIENT_ID`・`TWITCH_CLIENT_SECRET`・`TWITCH_BROADCASTER_ID`・`SESSION_SECRET`）を、`npx wrangler secret put <名前>` またはダッシュボードの Settings > Variables and Secrets で設定する。ローカルでは `.dev.vars.example` を `.dev.vars` にコピーして値を入れ、`npm run preview:worker` で起動する
+3. `https://<公開先のドメイン>/api/auth/login` を開き、配信者のアカウントでログインする。`TWITCH_BROADCASTER_ID` と異なるアカウントは拒否される
+
+| API | 役割 |
+|---|---|
+| `GET /api/auth/login` | Twitchの認可ページへ送る |
+| `GET /api/auth/callback` | トークンを保管し、オーバーレイ用キーを発行（発行済みなら維持）して、セッションを開始する |
+| `POST /api/auth/logout` | セッションを終える |
+| `GET /api/me` | ログイン中の配信者とオーバーレイ用キーを返す（要セッション） |
+| `POST /api/eventsub/subscriptions` | 本文 `{ "key": オーバーレイ用キー, "sessionId": EventSubのWebSocketのセッションID }` を受け取り、保管しているトークンで購読（チャンネルポイント交換・フォロー・サブスク・レイド）を登録する |
+
+失敗は `{ "error": { "code", "message" } }` の形で返します。受け取るイベントを増やす場合は `worker/eventsub.ts` の `EVENT_TYPES` に足します（スコープが増えたら配信者の再ログインが必要です）。
