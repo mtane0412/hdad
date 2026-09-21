@@ -4,9 +4,12 @@
  * 入力欄の値はすべて文字列で、音量は 0〜100 の百分率で見せる。Workerへ送る形（報酬なしは null、音量は 0〜1）との行き来と、
  * OBSに貼るURL・選択肢や大きさの文言の組み立てを受け持つ。DOMには触れない。
  *
+ * 入力欄はイベント種別によらず同じ項目を持ち（報酬の欄はチャンネルポイント交換のときだけ画面に出す）、
+ * Workerへ送るときにイベント種別ごとの形（union）へ直す。
+ *
  * 注意: 値の範囲（表示時間は1〜60秒など）の検証はWorkerが行い、問題点をまとめて返す。ここでは数として読めるかだけを確かめる。
  */
-import type { Reward, StoredTrigger, TriggerInput } from './api'
+import { ALERT_EVENTS, type AlertEvent, type Reward, type StoredTrigger, type TriggerInput } from './api'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const ALERTS_PATH = '/alerts/'
@@ -17,7 +20,8 @@ const ANY_REWARD = ''
 
 /** トリガー1件分の入力欄の値 */
 export interface TriggerDraft {
-  /** 空文字はすべての報酬 */
+  event: AlertEvent
+  /** 空文字はすべての報酬。チャンネルポイント交換以外では使わない */
   rewardId: string
   mediaId: string
   durationSeconds: string
@@ -31,6 +35,30 @@ export interface SelectOption {
   label: string
 }
 
+/** イベント種別の日本語のラベル */
+const EVENT_LABELS: Readonly<Record<AlertEvent, string>> = {
+  [REDEMPTION]: 'チャンネルポイントの交換',
+  'channel.follow': 'フォロー',
+  'channel.subscribe': 'サブスク（新規）',
+  'channel.subscription.message': 'サブスク（継続メッセージ）',
+  'channel.raid': 'レイド',
+}
+
+/** イベント種別ごとに、文言で使える差し込み語 */
+const EVENT_PLACEHOLDERS: Readonly<Record<AlertEvent, readonly string[]>> = {
+  [REDEMPTION]: ['{user}', '{reward}'],
+  'channel.follow': ['{user}'],
+  'channel.subscribe': ['{user}', '{tier}'],
+  'channel.subscription.message': ['{user}', '{tier}', '{months}'],
+  'channel.raid': ['{user}', '{viewers}'],
+}
+
+/** イベント種別の選択肢 */
+export const eventOptions: readonly SelectOption[] = ALERT_EVENTS.map((event) => ({ value: event, label: EVENT_LABELS[event] }))
+
+/** そのイベントの文言で使える差し込み語。選んだイベントに存在しない語は置き換わらないため、画面で知らせる */
+export const placeholdersFor = (event: AlertEvent): readonly string[] => EVENT_PLACEHOLDERS[event]
+
 /** OBSのブラウザソースに貼るURL */
 export const overlayUrl = (origin: string, overlayKey: string): string => `${origin}${ALERTS_PATH}?key=${encodeURIComponent(overlayKey)}`
 
@@ -42,22 +70,25 @@ const toNumber = (text: string, label: string): number => {
 }
 
 /**
- * 入力欄の値を、Workerへ送る形にする。
+ * 入力欄の値を、Workerへ送る形にする。報酬IDはチャンネルポイント交換のときだけ送る。
  *
  * @throws 表示時間・音量が数として読めない場合
  */
-export const toTriggerInput = (draft: TriggerDraft): TriggerInput => ({
-  event: REDEMPTION,
-  rewardId: draft.rewardId === ANY_REWARD ? null : draft.rewardId,
-  mediaId: draft.mediaId,
-  durationSeconds: toNumber(draft.durationSeconds, '表示時間'),
-  volume: toNumber(draft.volumePercent, '音量') / PERCENT,
-  message: draft.message,
-})
+export const toTriggerInput = (draft: TriggerDraft): TriggerInput => {
+  const appearance = {
+    mediaId: draft.mediaId,
+    durationSeconds: toNumber(draft.durationSeconds, '表示時間'),
+    volume: toNumber(draft.volumePercent, '音量') / PERCENT,
+    message: draft.message,
+  }
+  if (draft.event === REDEMPTION) return { event: draft.event, rewardId: draft.rewardId === ANY_REWARD ? null : draft.rewardId, ...appearance }
+  return { event: draft.event, ...appearance }
+}
 
-/** 保存済みのトリガーを入力欄の値に戻す */
+/** 保存済みのトリガーを入力欄の値に戻す。報酬IDを持たないイベントは「すべての報酬」（空文字）にしておく */
 export const toDraft = (trigger: StoredTrigger): TriggerDraft => ({
-  rewardId: trigger.rewardId ?? ANY_REWARD,
+  event: trigger.event,
+  rewardId: trigger.event === REDEMPTION ? (trigger.rewardId ?? ANY_REWARD) : ANY_REWARD,
   mediaId: trigger.mediaId,
   durationSeconds: String(trigger.durationSeconds),
   volumePercent: String(Math.round(trigger.volume * PERCENT)),

@@ -28,10 +28,30 @@ import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Slider } from '@/components/ui/slider'
 import { ApiError } from '@/core/api'
-import { type AdminApi, type MediaItem, type Reward } from './api'
-import { describeProblem, formatBytes, overlayUrl, rewardOptions, toDraft, toTriggerInput, type SelectOption, type TriggerDraft } from './form'
+import { isAlertEvent, type AdminApi, type AlertEvent, type MediaItem, type Reward } from './api'
+import {
+  describeProblem,
+  eventOptions,
+  formatBytes,
+  overlayUrl,
+  placeholdersFor,
+  rewardOptions,
+  toDraft,
+  toTriggerInput,
+  type SelectOption,
+  type TriggerDraft,
+} from './form'
 
 const MEDIA_PATH = '/api/media/'
+const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
+/** 文言欄の入力例。イベント種別ごとに、使える差し込み語だけを使った例を出す */
+const MESSAGE_PLACEHOLDERS: Readonly<Record<AlertEvent, string>> = {
+  [REDEMPTION]: '{user} さんが「{reward}」を交換しました',
+  'channel.follow': '{user} さんがフォローしました',
+  'channel.subscribe': '{user} さんがティア{tier}でサブスクしました',
+  'channel.subscription.message': '{user} さんが{months}か月目のサブスク（ティア{tier}）',
+  'channel.raid': '{user} さんが{viewers}人でレイドしました',
+}
 const KIND_LABELS = { image: '画像', video: '動画', audio: '音声' } as const
 const MIN_DURATION_SECONDS = 1
 const MAX_DURATION_SECONDS = 60
@@ -96,13 +116,22 @@ const TriggerRow = ({ position, draft, media, rewards, onChange, onRemove }: Tri
   const id = useId()
   const update = (patch: Partial<TriggerDraft>): void => onChange({ ...draft, ...patch })
   const mediaOptions = media.map((item) => ({ value: item.id, label: `${item.name}（${KIND_LABELS[item.kind]}）` }))
+  // 報酬を選べるのはチャンネルポイント交換だけ。ほかのイベントでは報酬の欄を出さない（保存時にも送られない）
+  const isRedemption = draft.event === REDEMPTION
 
   return (
     <li aria-label={`${position}番目のトリガー`} className="grid gap-4 rounded-lg border p-4 sm:grid-cols-2">
       <div className="flex flex-col gap-2">
-        <Label htmlFor={`${id}-reward`}>報酬</Label>
-        <Select id={`${id}-reward`} options={rewardOptions(rewards, draft.rewardId)} value={draft.rewardId} onChange={(rewardId) => update({ rewardId })} />
+        <Label htmlFor={`${id}-event`}>イベント</Label>
+        {/* 選択肢はイベント種別だけなので isAlertEvent は必ず通る。型を絞るための確認 */}
+        <Select id={`${id}-event`} options={eventOptions} value={draft.event} onChange={(event) => isAlertEvent(event) && update({ event })} />
       </div>
+      {isRedemption && (
+        <div className="flex flex-col gap-2">
+          <Label htmlFor={`${id}-reward`}>報酬</Label>
+          <Select id={`${id}-reward`} options={rewardOptions(rewards, draft.rewardId)} value={draft.rewardId} onChange={(rewardId) => update({ rewardId })} />
+        </div>
+      )}
       <div className="flex flex-col gap-2">
         <Label htmlFor={`${id}-media`}>素材</Label>
         <Select id={`${id}-media`} options={mediaOptions} value={draft.mediaId} onChange={(mediaId) => update({ mediaId })} />
@@ -140,9 +169,13 @@ const TriggerRow = ({ position, draft, media, rewards, onChange, onRemove }: Tri
           type="text"
           maxLength={MAX_MESSAGE_LENGTH}
           value={draft.message}
-          placeholder="{user} さんが「{reward}」を交換しました"
+          placeholder={MESSAGE_PLACEHOLDERS[draft.event]}
           onChange={(event) => update({ message: event.currentTarget.value })}
         />
+        {/* 選んだイベントに存在しない語は置き換わらないため、使える語をその場で知らせる */}
+        <p className="text-xs text-muted-foreground">
+          このイベントで使える差し込み語: {placeholdersFor(draft.event).join('・')}
+        </p>
       </div>
       <Button type="button" variant="ghost" size="sm" className="justify-self-start text-destructive" onClick={onRemove}>
         このトリガーを外す
@@ -277,7 +310,10 @@ export const AdminPage = ({ api, overlayKey, onOverlayKeyChange }: AdminPageProp
   const addTrigger = async (): Promise<string> => {
     const first = media[0]
     if (!first) throw new Error('先に素材をアップロードしてください')
-    replaceDrafts([...drafts, { rewardId: '', mediaId: first.id, durationSeconds: DEFAULT_DURATION_SECONDS, volumePercent: DEFAULT_VOLUME_PERCENT, message: '' }])
+    replaceDrafts([
+      ...drafts,
+      { event: REDEMPTION, rewardId: '', mediaId: first.id, durationSeconds: DEFAULT_DURATION_SECONDS, volumePercent: DEFAULT_VOLUME_PERCENT, message: '' },
+    ])
     return 'トリガーを足しました。保存するまで反映されません'
   }
 
@@ -299,7 +335,9 @@ export const AdminPage = ({ api, overlayKey, onOverlayKeyChange }: AdminPageProp
 
   return (
     <div className="flex max-w-4xl flex-col gap-6">
-      <p className="text-sm text-muted-foreground">チャンネルポイントの交換で流す素材を置き、どの報酬でどの素材を出すかを決める。</p>
+      <p className="text-sm text-muted-foreground">
+        チャンネルポイントの交換・フォロー・サブスク・レイドで流す素材を置き、どのイベントでどの素材を出すかを決める。
+      </p>
 
       <p role="status" className="min-h-5 text-sm">
         {notice}
@@ -408,8 +446,8 @@ export const AdminPage = ({ api, overlayKey, onOverlayKeyChange }: AdminPageProp
         <CardHeader>
           <CardTitle>トリガー</CardTitle>
           <CardDescription>
-            報酬が交換されたら、上から順に探して最初に当てはまったトリガーの素材を流す。文言の <code>{'{user}'}</code> は交換した人の名前、
-            <code>{'{reward}'}</code> は報酬の名前に置き換わる。
+            イベントが起きたら、上から順に探して最初に当てはまったトリガーの素材を流す。文言の <code>{'{user}'}</code> は相手の名前に置き換わる。
+            ほかに使える差し込み語はイベントごとに違い、それぞれの文言欄の下に出る。
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">

@@ -8,7 +8,7 @@
  * 注意: 応答が想定した形でなければエラーにする。黙って空の設定にすると、アラートが出ない原因に気付けない。
  */
 import { readErrorMessage } from './subscribe'
-import type { AlertMedia, AlertTrigger } from './trigger'
+import { ALERT_EVENTS, type AlertEvent, type AlertMedia, type AlertTrigger } from './trigger'
 
 const CONFIG_PATH = '/api/overlay/config'
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
@@ -19,10 +19,16 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 const isMedia = (value: unknown): value is AlertMedia =>
   isRecord(value) && MEDIA_KINDS.some((kind) => kind === value.kind) && typeof value.url === 'string'
 
+const isAlertEvent = (value: unknown): value is AlertEvent => ALERT_EVENTS.some((event) => event === value)
+
+/** 条件の欄はイベント種別ごとに違う。報酬IDを求めるのはチャンネルポイント交換のときだけ */
+const hasCondition = (value: Record<string, unknown>): boolean =>
+  value.event !== REDEMPTION || value.rewardId === null || typeof value.rewardId === 'string'
+
 const isTrigger = (value: unknown): value is AlertTrigger =>
   isRecord(value) &&
-  value.event === REDEMPTION &&
-  (value.rewardId === null || typeof value.rewardId === 'string') &&
+  isAlertEvent(value.event) &&
+  hasCondition(value) &&
   isMedia(value.media) &&
   typeof value.durationSeconds === 'number' &&
   typeof value.volume === 'number' &&

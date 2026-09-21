@@ -3,21 +3,21 @@
  *
  * URLの ?key=<オーバーレイ用キー> でWorkerから設定（config.ts）を受け取り、EventSubに接続して、
  * 届いた通知のうち設定に当てはまったものを1件ずつ順番に再生する。
- * ?demo=true なら接続せず、サンプルの交換を一定間隔で流す（配置の調整用）。
+ * ?demo=true なら接続せず、5種類のイベントのサンプルを一定間隔で順に流す（配置の調整用）。
  * 起動に失敗した場合や、人が直さないと直らない失敗は、OBS上でも原因が分かるよう画面にエラー内容を表示する。
  */
 import { showError } from '../core/mount'
 import { ParamError, parseParams, type ParamSchema } from '../core/params'
 import { fetchTriggers } from './config'
 import { connectEventSub } from './connection'
-import { demoNotification, demoTriggers } from './demo'
+import { demoNotifications, demoTriggers } from './demo'
 import type { EventSubNotification } from './eventsub'
 import { EMPTY_QUEUE, advance, enqueue } from './queue'
 import { toAlert, type AlertTrigger } from './trigger'
 import { createAlertView } from './view'
 
 const NOUN = 'アラート'
-/** デモでサンプルの交換を流す間隔（ミリ秒） */
+/** デモでサンプルの通知を流す間隔（ミリ秒） */
 const DEMO_INTERVAL_MS = 9000
 
 const schema = {
@@ -71,8 +71,15 @@ const start = async (): Promise<void> => {
   }
 
   if (params.demo) {
-    handleNotification(demoTriggers, demoNotification)
-    window.setInterval(() => handleNotification(demoTriggers, demoNotification), DEMO_INTERVAL_MS)
+    // サンプルの通知を先頭から順に、一巡したらまた先頭から流す
+    let demoIndex = 0
+    const playDemo = (): void => {
+      const notification = demoNotifications[demoIndex % demoNotifications.length]
+      demoIndex += 1
+      if (notification) handleNotification(demoTriggers, notification)
+    }
+    playDemo()
+    window.setInterval(playDemo, DEMO_INTERVAL_MS)
     return
   }
 

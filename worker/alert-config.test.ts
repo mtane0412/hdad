@@ -32,7 +32,7 @@ describe('parseAlertConfig', () => {
 
   it('報酬IDが null のトリガー（すべての報酬が対象）を受け付ける', () => {
     const config = parseAlertConfig({ triggers: [送られてきたトリガー({ rewardId: null })] }, 素材の種類)
-    expect(config.triggers[0]?.rewardId).toBeNull()
+    expect(config.triggers[0]).toMatchObject({ event: REDEMPTION, rewardId: null })
   })
 
   it('トリガーが1件もない設定を受け付ける（アラートをすべて止めたいとき）', () => {
@@ -58,9 +58,31 @@ describe('parseAlertConfig', () => {
     )
   })
 
+  it.each(['channel.follow', 'channel.subscribe', 'channel.subscription.message', 'channel.raid'])(
+    'チャンネルポイント交換以外のイベント（%s）は、報酬IDを持たない形で受け付ける',
+    (event) => {
+      const 送られてきた = { event, mediaId: '素材ID-乾杯の動画', durationSeconds: 8, volume: 0.5, message: '{user} さん、ありがとう！' }
+
+      expect(parseAlertConfig({ triggers: [送られてきた] }, 素材の種類)).toEqual({
+        triggers: [{ ...送られてきた, mediaKind: 'video' }],
+      })
+    },
+  )
+
+  it('チャンネルポイント交換以外のイベントに報酬IDが付いていても、保存する形には残さない', () => {
+    const config = parseAlertConfig({ triggers: [送られてきたトリガー({ event: 'channel.follow' })] }, 素材の種類)
+    expect(config.triggers[0]).not.toHaveProperty('rewardId')
+  })
+
   it('対応していないイベントの種類は拒否する', () => {
-    expect(() => parseAlertConfig({ triggers: [送られてきたトリガー({ event: 'channel.follow' })] }, 素材の種類)).toThrowError(
+    expect(() => parseAlertConfig({ triggers: [送られてきたトリガー({ event: 'channel.cheer' })] }, 素材の種類)).toThrowError(
       expect.objectContaining({ problems: [expect.stringContaining('triggers[0].event')] }),
+    )
+  })
+
+  it('チャンネルポイント交換で報酬IDが指定されていなければ拒否する（他のイベントでは求めない）', () => {
+    expect(() => parseAlertConfig({ triggers: [送られてきたトリガー({ rewardId: undefined })] }, 素材の種類)).toThrowError(
+      expect.objectContaining({ problems: [expect.stringContaining('triggers[0].rewardId')] }),
     )
   })
 
@@ -107,6 +129,19 @@ describe('toOverlayConfig', () => {
           message: '{user} さん、乾杯！',
         },
       ],
+    })
+  })
+
+  it('チャンネルポイント交換以外のトリガーは、報酬IDを付けずに渡す', () => {
+    const config: AlertConfig = {
+      triggers: [{ event: 'channel.raid', mediaId: '素材ID-乾杯の動画', mediaKind: 'video', durationSeconds: 8, volume: 0.5, message: '{user} さん、ありがとう！' }],
+    }
+    expect(toOverlayConfig(config, 'overlay-key_1').triggers[0]).toEqual({
+      event: 'channel.raid',
+      media: { kind: 'video', url: `/api/media/${encodeURIComponent('素材ID-乾杯の動画')}?key=overlay-key_1` },
+      durationSeconds: 8,
+      volume: 0.5,
+      message: '{user} さん、ありがとう！',
     })
   })
 })
