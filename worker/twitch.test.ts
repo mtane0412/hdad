@@ -357,3 +357,96 @@ describe('deleteSubscription', () => {
     await expect(クライアントを作る(fetchImpl).deleteSubscription('test-app-token', '購読1')).rejects.toMatchObject({ status: 404 })
   })
 })
+
+describe('getChatBadges', () => {
+  /** Twitchのバッジ応答1件分（グローバルの「配信者」バッジ） */
+  const 配信者バッジ = {
+    set_id: 'broadcaster',
+    versions: [
+      {
+        id: '1',
+        image_url_1x: 'https://static-cdn.jtvnw.net/badges/v1/broadcaster/1',
+        image_url_2x: 'https://static-cdn.jtvnw.net/badges/v1/broadcaster/2',
+        image_url_4x: 'https://static-cdn.jtvnw.net/badges/v1/broadcaster/3',
+        title: 'Broadcaster',
+      },
+    ],
+  }
+
+  it('全体のバッジは broadcaster_id を付けずに取得する', async () => {
+    const { requests, fetchImpl } = 応答を返すfetch(200, { data: [配信者バッジ] })
+    const badges = await クライアントを作る(fetchImpl).getChatBadges('test-app-token', undefined)
+
+    const url = new URL(requests[0]!.url)
+    expect(url.origin + url.pathname).toBe('https://api.twitch.tv/helix/chat/badges/global')
+    expect(url.searchParams.get('broadcaster_id')).toBeNull()
+    expect(badges).toEqual([
+      {
+        setId: 'broadcaster',
+        versions: [
+          { id: '1', imageUrl: 'https://static-cdn.jtvnw.net/badges/v1/broadcaster/2', title: 'Broadcaster' },
+        ],
+      },
+    ])
+  })
+
+  it('チャンネルのバッジは broadcaster_id を付けて取得する（サブスク階層など、そのチャンネル固有のバッジ）', async () => {
+    const { requests, fetchImpl } = 応答を返すfetch(200, { data: [] })
+    await クライアントを作る(fetchImpl).getChatBadges('test-app-token', '配信者ID-1')
+
+    const url = new URL(requests[0]!.url)
+    expect(url.origin + url.pathname).toBe('https://api.twitch.tv/helix/chat/badges')
+    expect(url.searchParams.get('broadcaster_id')).toBe('配信者ID-1')
+  })
+
+  it('応答が想定した形でなければエラーになる（黙って空の一覧にしない）', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { data: [{ set_id: 'broadcaster' }] })
+    await expect(クライアントを作る(fetchImpl).getChatBadges('test-app-token', undefined)).rejects.toBeInstanceOf(TwitchApiError)
+  })
+})
+
+describe('getCheermotes', () => {
+  /** Twitchの Cheermote 応答1件分（全体の「Cheer」。1ビッツ以上と100ビッツ以上の2段階） */
+  const cheer = {
+    prefix: 'Cheer',
+    tiers: [
+      {
+        min_bits: 1,
+        id: '1',
+        color: '#979797',
+        images: { dark: { animated: { '2': 'https://example.test/cheer/1/dark/animated/2.gif' } } },
+      },
+      {
+        min_bits: 100,
+        id: '100',
+        color: '#9c3ee8',
+        images: { dark: { animated: { '2': 'https://example.test/cheer/100/dark/animated/2.gif' } } },
+      },
+    ],
+  }
+
+  it('チャンネル固有のものも含めて取得し、段階ごとの最小ビッツ数・色・画像を取り出す', async () => {
+    const { requests, fetchImpl } = 応答を返すfetch(200, { data: [cheer] })
+    const cheermotes = await クライアントを作る(fetchImpl).getCheermotes('test-app-token', '配信者ID-1')
+
+    const url = new URL(requests[0]!.url)
+    expect(url.origin + url.pathname).toBe('https://api.twitch.tv/helix/bits/cheermotes')
+    expect(url.searchParams.get('broadcaster_id')).toBe('配信者ID-1')
+    expect(cheermotes).toEqual([
+      {
+        prefix: 'Cheer',
+        tiers: [
+          { minBits: 1, color: '#979797', imageUrl: 'https://example.test/cheer/1/dark/animated/2.gif' },
+          { minBits: 100, color: '#9c3ee8', imageUrl: 'https://example.test/cheer/100/dark/animated/2.gif' },
+        ],
+      },
+    ])
+  })
+
+  it('応答に画像のURLが無ければエラーになる（表示できないものを黙って混ぜない）', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, {
+      data: [{ prefix: 'Cheer', tiers: [{ min_bits: 1, color: '#979797', images: {} }] }],
+    })
+    await expect(クライアントを作る(fetchImpl).getCheermotes('test-app-token', '配信者ID-1')).rejects.toBeInstanceOf(TwitchApiError)
+  })
+})

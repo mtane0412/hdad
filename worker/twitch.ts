@@ -13,6 +13,11 @@ const SUBSCRIPTIONS_URL = 'https://api.twitch.tv/helix/eventsub/subscriptions'
 const CUSTOM_REWARDS_URL = 'https://api.twitch.tv/helix/channel_points/custom_rewards'
 const STREAMS_URL = 'https://api.twitch.tv/helix/streams'
 const FOLLOWERS_URL = 'https://api.twitch.tv/helix/channels/followers'
+const GLOBAL_BADGES_URL = 'https://api.twitch.tv/helix/chat/badges/global'
+const CHANNEL_BADGES_URL = 'https://api.twitch.tv/helix/chat/badges'
+const CHEERMOTES_URL = 'https://api.twitch.tv/helix/bits/cheermotes'
+/** バッジ・Cheermote の画像は複数の大きさで届く。オーバーレイでは2倍のものを使う */
+const IMAGE_SCALE = '2'
 /** Twitchの応答として成り立っていない（必要な項目がない）ときに使う状態コード */
 const BAD_GATEWAY = 502
 
@@ -106,6 +111,44 @@ export interface TwitchClient {
   getLiveStream(accessToken: string, broadcasterId: string): Promise<LiveStream | null>
   /** 配信者のフォロワー数（moderator:read:followers が必要） */
   getFollowerTotal(accessToken: string, broadcasterId: string): Promise<number>
+  /**
+   * チャットのバッジ画像の一覧。スコープは不要で、アプリアクセストークンでも読める。
+   *
+   * @param broadcasterId 指定するとそのチャンネル固有のバッジ（サブスク階層など）、undefined なら全体のバッジ
+   */
+  getChatBadges(accessToken: string, broadcasterId: string | undefined): Promise<ChatBadgeSet[]>
+  /** Cheermote（ビッツの絵）の一覧。全体のものと、指定したチャンネル固有のものが返る。スコープは不要 */
+  getCheermotes(accessToken: string, broadcasterId: string): Promise<Cheermote[]>
+}
+
+/** バッジの版（同じ種類でも、サブスクの階層やビッツの段階で絵が変わる） */
+export interface ChatBadgeVersion {
+  /** 版のID。IRCの badges タグの「種類/版」の版にあたる */
+  readonly id: string
+  readonly imageUrl: string
+  /** 英語の名前（例: Subscriber）。読み上げや代替テキストに使う */
+  readonly title: string
+}
+
+/** バッジの種類（例: broadcaster・subscriber）と、その版の一覧 */
+export interface ChatBadgeSet {
+  /** 種類のID。IRCの badges タグの「種類/版」の種類にあたる */
+  readonly setId: string
+  readonly versions: readonly ChatBadgeVersion[]
+}
+
+/** Cheermote の段階（ビッツ数が多いほど上の段階になる） */
+export interface CheermoteTier {
+  readonly minBits: number
+  /** 段階の色（#rrggbb）。ビッツ数の文字色に使う */
+  readonly color: string
+  readonly imageUrl: string
+}
+
+/** Cheermote 1種類（本文では「接頭辞＋ビッツ数」の形で書かれる。例: Cheer100） */
+export interface Cheermote {
+  readonly prefix: string
+  readonly tiers: readonly CheermoteTier[]
 }
 
 interface TwitchClientOptions {
@@ -140,6 +183,41 @@ const toCustomReward = (value: unknown): CustomReward => {
     throw new TwitchApiError(BAD_GATEWAY, 'Twitchの報酬の応答に id・title・cost が揃っていません')
   }
   return { id: value.id, title: value.title, cost: value.cost }
+}
+
+const toChatBadgeVersion = (value: unknown): ChatBadgeVersion => {
+  if (!isRecord(value) || typeof value.id !== 'string' || typeof value[`image_url_${IMAGE_SCALE}x`] !== 'string' || typeof value.title !== 'string') {
+    throw new TwitchApiError(BAD_GATEWAY, `Twitchのバッジの応答に id・image_url_${IMAGE_SCALE}x・title が揃っていません`)
+  }
+  return { id: value.id, imageUrl: String(value[`image_url_${IMAGE_SCALE}x`]), title: value.title }
+}
+
+const toChatBadgeSet = (value: unknown): ChatBadgeSet => {
+  if (!isRecord(value) || typeof value.set_id !== 'string' || !Array.isArray(value.versions)) {
+    throw new TwitchApiError(BAD_GATEWAY, 'Twitchのバッジの応答に set_id・versions が揃っていません')
+  }
+  return { setId: value.set_id, versions: value.versions.map(toChatBadgeVersion) }
+}
+
+const toCheermoteTier = (value: unknown): CheermoteTier => {
+  if (!isRecord(value) || typeof value.min_bits !== 'number' || typeof value.color !== 'string') {
+    throw new TwitchApiError(BAD_GATEWAY, 'TwitchのCheermoteの応答に min_bits・color が揃っていません')
+  }
+  // 画像は images.<テーマ>.<動きの有無>.<倍率> の入れ子で届く。暗い背景に合う、動きのある2倍の絵を使う
+  const { dark } = isRecord(value.images) ? value.images : {}
+  const animated = isRecord(dark) ? dark.animated : undefined
+  const imageUrl = isRecord(animated) ? animated[IMAGE_SCALE] : undefined
+  if (typeof imageUrl !== 'string') {
+    throw new TwitchApiError(BAD_GATEWAY, `TwitchのCheermoteの応答に images.dark.animated.${IMAGE_SCALE} がありません`)
+  }
+  return { minBits: value.min_bits, color: value.color, imageUrl }
+}
+
+const toCheermote = (value: unknown): Cheermote => {
+  if (!isRecord(value) || typeof value.prefix !== 'string' || !Array.isArray(value.tiers)) {
+    throw new TwitchApiError(BAD_GATEWAY, 'TwitchのCheermoteの応答に prefix・tiers が揃っていません')
+  }
+  return { prefix: value.prefix, tiers: value.tiers.map(toCheermoteTier) }
 }
 
 const toRegisteredSubscription = (value: unknown): RegisteredSubscription => {
@@ -293,6 +371,22 @@ export const createTwitchClient = ({ clientId, clientSecret, fetch: fetchImpl }:
       const { total } = await getHelix(url, accessToken)
       if (typeof total !== 'number') throw new TwitchApiError(BAD_GATEWAY, 'Twitchのフォロワーの応答に total がありません')
       return total
+    },
+
+    getChatBadges: async (accessToken, broadcasterId) => {
+      const url = new URL(broadcasterId === undefined ? GLOBAL_BADGES_URL : CHANNEL_BADGES_URL)
+      if (broadcasterId !== undefined) url.searchParams.set('broadcaster_id', broadcasterId)
+      const { data } = await getHelix(url, accessToken)
+      if (!Array.isArray(data)) throw new TwitchApiError(BAD_GATEWAY, 'Twitchのバッジの応答に data の配列がありません')
+      return data.map(toChatBadgeSet)
+    },
+
+    getCheermotes: async (accessToken, broadcasterId) => {
+      const url = new URL(CHEERMOTES_URL)
+      url.searchParams.set('broadcaster_id', broadcasterId)
+      const { data } = await getHelix(url, accessToken)
+      if (!Array.isArray(data)) throw new TwitchApiError(BAD_GATEWAY, 'TwitchのCheermoteの応答に data の配列がありません')
+      return data.map(toCheermote)
     },
   }
 }
