@@ -36,6 +36,7 @@ export const commonChatSchema = {
     description: '書き込みを消すまでの秒数（0 で消さない）',
   },
   badges: { type: 'boolean', default: true, description: 'バッジ（配信者・モデレーター・VIP・サブスク）を表示する' },
+  timestamps: { type: 'boolean', default: false, description: '書き込まれた時刻（時分）を表示する' },
   thirdparty: { type: 'boolean', default: true, description: '7TV・BTTV・FFZ のエモートを表示する' },
 } as const satisfies ParamSchema
 

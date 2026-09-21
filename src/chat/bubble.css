@@ -3,6 +3,10 @@
  * HTML構造は src/chat/view.ts、カスタムプロパティ（--chat-*）は src/chat/bubble.ts を参照。
  * 大きさはすべて文字の大きさ（--chat-size）を基準に em で決め、size パラメータだけで全体が拡大縮小するようにする。
  */
+
+/* 返信元・時刻・目印・継続月数・ビッツの共通の見た目 */
+@import './common.css';
+
 [data-chat='bubble'] {
   position: fixed;
   inset: 0;
@@ -48,7 +52,7 @@
   box-shadow: 0 0.1em 0.3em rgb(0 0 0 / 0.25);
 }
 
-[data-chat='bubble'] .chat-name > span {
+[data-chat='bubble'] .chat-name > .chat-name-text {
   overflow: hidden;
   text-overflow: ellipsis;
 }

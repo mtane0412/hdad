@@ -5,6 +5,10 @@
  *
  * 影はぼかさずに下へずらすだけにして、紙のシールを貼ったような厚みを出す。
  */
+
+/* 返信元・時刻・目印・継続月数・ビッツの共通の見た目 */
+@import './common.css';
+
 [data-chat='sticker'] {
   position: fixed;
   inset: 0;
@@ -52,7 +56,7 @@
   box-shadow: 0 0.18em 0 rgb(0 0 0 / 0.18);
 }
 
-[data-chat='sticker'] .chat-name > span {
+[data-chat='sticker'] .chat-name > .chat-name-text {
   overflow: hidden;
   text-overflow: ellipsis;
 }

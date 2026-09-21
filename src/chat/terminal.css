@@ -5,6 +5,10 @@
  *
  * 書き込みごとに地を塗るのではなく、ブラウザソース全体を1枚の端末画面として塗る。
  */
+
+/* 返信元・時刻・目印・継続月数・ビッツの共通の見た目 */
+@import './common.css';
+
 [data-chat='terminal'] {
   position: fixed;
   inset: 0;

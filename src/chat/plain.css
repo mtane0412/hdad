@@ -7,6 +7,10 @@
  * フチの色は --outline で切り替える。名前は名前色の明暗に合わせた色（--name-text）でフチ取りし、
  * 暗い名前色でも明るい名前色でも背景に埋もれないようにする。
  */
+
+/* 返信元・時刻・目印・継続月数・ビッツの共通の見た目 */
+@import './common.css';
+
 [data-chat='plain'] {
   position: fixed;
   inset: 0;

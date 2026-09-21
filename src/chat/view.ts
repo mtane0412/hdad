@@ -4,14 +4,18 @@
  * 全デザイン共通のHTML構造を作る。見た目は各デザインのCSS（src/chat/<id>.css）が決める。
  *   <ol class="chat" data-chat="<id>">
  *     <li class="chat-message" data-id data-login>
- *       <span class="chat-name">（バッジのSVG）<span>名前</span></span>
+ *       <p class="chat-reply">返信元の名前: 返信元の本文</p>
+ *       <span class="chat-name">
+ *         <time class="chat-time">時分</time>（バッジのSVG）<span class="chat-months">月数</span>
+ *         <span class="chat-flag">初見</span><span>名前</span><span class="chat-bits">ビッツ数</span>
+ *       </span>
  *       <p class="chat-body">文字 <img class="chat-emote" /> 文字</p>
  *     </li>
  *   </ol>
  *
  * 注意: 視聴者が書いた文字列は必ず textContent / 属性値として入れ、innerHTML は使わない（XSS対策）。
  */
-import { readableTextColor, type Badge, type ChatMessage } from './message'
+import { readableTextColor, type Badge, type ChatMessage, type ReplyParent } from './message'
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg'
 const MILLISECONDS_PER_SECOND = 1000
@@ -42,6 +46,8 @@ export interface ChatViewOptions {
   readonly lifetime: number
   /** バッジを表示するか */
   readonly badges: boolean
+  /** 書き込まれた時刻を表示するか */
+  readonly timestamps: boolean
 }
 
 /** チャット欄の操作 */
@@ -67,9 +73,53 @@ const createBadge = (badge: Badge): SVGElement => {
   return svg
 }
 
-const createMessageElement = (message: ChatMessage, showBadges: boolean): HTMLLIElement => {
+/** class と文字だけを持つ要素を作る（返信元・目印・月数・ビッツで使い回す） */
+const createLabel = (className: string, text: string): HTMLSpanElement => {
+  const element = document.createElement('span')
+  element.className = className
+  element.textContent = text
+  return element
+}
+
+/** 返信元の引用行。返信元の本文はエモートの位置が届かないため、文字のまま出す */
+const createReply = (reply: ReplyParent): HTMLParagraphElement => {
+  const element = document.createElement('p')
+  element.className = 'chat-reply'
+  element.textContent = `${reply.displayName}: ${reply.body}`
+  return element
+}
+
+/** 書き込まれた時刻（時分）。並べ替えや読み上げのため、datetime 属性に機械可読な時刻も入れる */
+const createTime = (sentAt: number): HTMLTimeElement => {
+  const element = document.createElement('time')
+  element.className = 'chat-time'
+  const sent = new Date(sentAt)
+  element.dateTime = sent.toISOString()
+  const hours = String(sent.getHours()).padStart(2, '0')
+  const minutes = String(sent.getMinutes()).padStart(2, '0')
+  element.textContent = `${hours}:${minutes}`
+  return element
+}
+
+/** 初回・久しぶりの視聴者に付ける目印。どちらでもなければ undefined */
+const flagOf = (message: ChatMessage): string | undefined => {
+  if (message.firstMessage) return '初見'
+  if (message.returningChatter) return 'おかえり'
+  return undefined
+}
+
+const classNameOf = (message: ChatMessage): string => {
+  const names = ['chat-message']
+  if (message.action) names.push('is-action')
+  if (message.firstMessage) names.push('is-first')
+  if (message.returningChatter) names.push('is-returning')
+  if (message.bits > 0) names.push('is-cheer')
+  return names.join(' ')
+}
+
+const createMessageElement = (message: ChatMessage, options: ChatViewOptions): HTMLLIElement => {
   const item = document.createElement('li')
-  item.className = message.action ? 'chat-message is-action' : 'chat-message'
+  item.className = classNameOf(message)
   item.dataset.id = message.id
   item.dataset.login = message.login
 
@@ -77,10 +127,23 @@ const createMessageElement = (message: ChatMessage, showBadges: boolean): HTMLLI
   name.className = 'chat-name'
   name.style.setProperty('--name-color', message.color)
   name.style.setProperty('--name-text', readableTextColor(message.color))
-  if (showBadges) name.append(...message.badges.map(createBadge))
-  const nameText = document.createElement('span')
-  nameText.textContent = message.displayName
-  name.append(nameText)
+  if (options.timestamps && message.sentAt !== undefined) name.append(createTime(message.sentAt))
+  if (options.badges) {
+    name.append(...message.badges.map(createBadge))
+    if (message.subscriberMonths > 0) {
+      const months = createLabel('chat-months', String(message.subscriberMonths))
+      months.title = `サブスク${message.subscriberMonths}ヶ月`
+      name.append(months)
+    }
+  }
+  const flag = flagOf(message)
+  if (flag !== undefined) name.append(createLabel('chat-flag', flag))
+  name.append(createLabel('chat-name-text', message.displayName))
+  if (message.bits > 0) {
+    const bits = createLabel('chat-bits', String(message.bits))
+    bits.title = `${message.bits}ビッツ`
+    name.append(bits)
+  }
 
   const body = document.createElement('p')
   body.className = 'chat-body'
@@ -95,6 +158,7 @@ const createMessageElement = (message: ChatMessage, showBadges: boolean): HTMLLI
     }),
   )
 
+  if (message.reply !== undefined) item.append(createReply(message.reply))
   item.append(name, body)
   return item
 }
@@ -127,7 +191,7 @@ export const createChatView = (root: HTMLElement, options: ChatViewOptions): Cha
   }
 
   return {
-    add: (message) => insert(createMessageElement(message, options.badges)),
+    add: (message) => insert(createMessageElement(message, options)),
     addNotice: (text) => {
       const item = document.createElement('li')
       item.className = 'chat-notice'
