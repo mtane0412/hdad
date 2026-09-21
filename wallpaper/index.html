@@ -9,40 +9,52 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+JP:wght@400;500;600&display=swap"
     />
+    <link rel="stylesheet" href="../src/core/ui/ui.css" />
     <link rel="stylesheet" href="../src/core/gallery/gallery.css" />
   </head>
   <body>
-    <header class="masthead">
-      <a class="back" href="../">stream-assets</a>
-      <h1>壁紙</h1>
-      <p>OBSのブラウザソースに貼る配信背景。選んで、調整して、URLをコピーする。</p>
+    <header class="topbar">
+      <a class="brand" href="../">stream-assets</a>
+      <nav aria-label="サイト内の移動">
+        <a href="../wallpaper/" aria-current="page">壁紙</a>
+        <a href="../clock/">時計</a>
+        <a href="../chat/">チャット</a>
+        <a href="../admin/">アラート</a>
+      </nav>
     </header>
 
-    <main class="bench">
-      <nav class="shelf" aria-label="背景の種類">
-        <ul id="shelf"></ul>
-      </nav>
+    <main class="workspace">
+      <div class="shelf">
+        <h1>壁紙</h1>
+        <p class="lead">OBSのブラウザソースに貼る配信背景。選んで、調整して、URLをコピーする。</p>
+        <nav aria-label="背景の種類">
+          <ul id="shelf"></ul>
+        </nav>
+      </div>
 
-      <section class="output" aria-label="OBS用のURL">
+      <section class="monitor" aria-labelledby="current-title">
+        <h2 id="current-title"></h2>
+        <p id="current-description"></p>
+
         <label for="url">OBSのブラウザソースに貼るURL（推奨サイズ 1920×1080）</label>
-        <div class="output-row">
-          <input id="url" type="text" readonly />
-          <button type="button" id="copy">URLをコピー</button>
+        <div class="source">
+          <div class="output-row">
+            <input id="url" type="text" readonly />
+            <button type="button" id="copy" class="action">URLをコピー</button>
+          </div>
+          <div class="source-stage">
+            <div class="screen" id="screen">
+              <iframe id="preview" title="背景のプレビュー" width="1920" height="1080"></iframe>
+            </div>
+          </div>
         </div>
         <p id="copy-status" role="status"></p>
       </section>
 
-      <section class="monitor" aria-labelledby="current-title">
-        <div class="screen" id="screen">
-          <iframe id="preview" title="背景のプレビュー" width="1920" height="1080"></iframe>
-        </div>
-        <h2 id="current-title"></h2>
-        <p id="current-description"></p>
-      </section>
-
-      <section class="controls" aria-label="調整">
+      <section class="controls" aria-labelledby="controls-title">
+        <h2 id="controls-title">調整</h2>
         <form id="controls"></form>
         <button type="button" id="reset" class="quiet">既定値に戻す</button>
       </section>

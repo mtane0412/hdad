@@ -14,6 +14,7 @@ npm run build       # Viteビルド（dist/）
 ## 構成上の約束
 
 - 素材はカテゴリごとに公開ディレクトリ（`wallpaper/` など）とソース（`src/<カテゴリ>/`）を分ける。`src/core/` はカテゴリ横断の共通部品（ギャラリーは `src/core/gallery/`、素材ページの起動は `src/core/mount.ts`）。トップ `index.html` はカテゴリ一覧（アラートは管理画面 `admin/` へ送る）
+- ページUI（トップ・ギャラリー・管理画面）の色・書体・トップバー・ボタン・入力欄は `src/core/ui/ui.css` にまとめ、各ページのCSS（`src/hub/hub.css`・`src/core/gallery/gallery.css`・`src/admin/admin.css`）より先に読み込む。色は変数で持ち、明暗はOSの設定に従う。配信に載る素材側のCSS（`src/core/stage.css`・`src/chat/*.css`・`src/alerts/alerts.css`）からは読み込まない。トップバーは各ページのHTMLに同じものを書いているので、カテゴリを増やしたら全ページのトップバーにも足す
 - Workers 静的アセットはパスごとに実ファイルが必要なため、壁紙の背景は `wallpaper/<id>/index.html` と `src/wallpaper/registry.ts` の両方に登録する。時計も同様に `clock/<id>/index.html` と `src/clock/registry.ts` の両方に登録する。カテゴリを増やしたら `vite.config.ts` の `categories` にも足す
 - URLパラメータは `src/core/params.ts` のスキーマで宣言する。不正値は既定値に戻さずエラー表示する（Fail-Fast）
 - チャットボックス（`chat/`）だけは canvas ではなくHTML要素で表示し、届いた書き込みという状態を持つ。デザインは `chat/<id>/index.html`・`src/chat/registry.ts`・`src/chat/<id>.css` の3か所に登録する。通信を伴わない変換（`irc.ts`・`event.ts`・`message.ts`・`emotes.ts`）と、DOM・WebSocketを扱う部分（`view.ts`・`connection.ts`・`stage.ts`）を分け、前者をテストする

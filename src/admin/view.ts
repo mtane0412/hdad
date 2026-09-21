@@ -57,7 +57,7 @@ export const renderMediaList = (list: HTMLElement, media: readonly MediaItem[], 
       const caption = element('div', 'media-caption')
       caption.append(element('strong', '', item.name), element('span', '', `${KIND_LABELS[item.kind]}・${formatBytes(item.size)}`))
 
-      const remove = element('button', 'quiet', '削除')
+      const remove = element('button', 'quiet danger', '削除')
       remove.type = 'button'
       remove.setAttribute('aria-label', `${item.name} を削除`)
       remove.addEventListener('click', () => onRemove(item))
@@ -81,9 +81,9 @@ const select = (options: readonly SelectOption[], selected: string): HTMLSelectE
   return node
 }
 
-/** ラベルと入力欄を1組にする */
-const field = (label: string, control: HTMLElement): HTMLLabelElement => {
-  const wrapper = element('label', 'admin-field')
+/** ラベルと入力欄を1組にする。wide なら2列ぶんの幅を使う（長い文を入れる欄向け） */
+const field = (label: string, control: HTMLElement, wide = false): HTMLLabelElement => {
+  const wrapper = element('label', wide ? 'admin-field wide' : 'admin-field')
   wrapper.append(element('span', '', label), control)
   return wrapper
 }
@@ -148,7 +148,7 @@ export const renderTriggerList = (list: HTMLElement, { drafts, media, rewards, o
       message.placeholder = '{user} さんが「{reward}」を交換しました'
       message.addEventListener('input', () => update({ message: message.value }))
 
-      const remove = element('button', 'quiet', 'このトリガーを外す')
+      const remove = element('button', 'quiet danger', 'このトリガーを外す')
       remove.type = 'button'
       remove.addEventListener('click', () => onRemove(index))
 
@@ -157,7 +157,7 @@ export const renderTriggerList = (list: HTMLElement, { drafts, media, rewards, o
         field('素材', mediaSelect),
         field('表示時間（1〜60秒）', duration),
         field('音量', volumeRow),
-        field('文言（空欄なら出さない）', message),
+        field('文言（空欄なら出さない）', message, true),
         remove,
       )
       return row
