@@ -13,15 +13,26 @@ import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { BotPage } from './bot-page'
-import type { BotApi, BotStatus } from './api'
+import type { BotApi, BotStatus, DevicePoll } from './api'
 
 const 接続済みのbot: BotStatus = { userId: '67890', login: 'haishinsha_bot', missingScopes: [] }
 
 /** botが接続済みのWorkerの代役 */
+const 発行されたコード = {
+  deviceCode: 'device-code-0123456789',
+  userCode: 'ABCDEFGH',
+  verificationUri: 'https://www.twitch.tv/activate?public=true&device-code=ABCDEFGH',
+  expiresIn: 1800,
+  // テストでは待ち時間を入れずに問い合わせ直す
+  intervalSeconds: 0,
+}
+
 const 代役のAPI = (overrides: Partial<BotApi> = {}): BotApi => ({
   status: vi.fn(async () => 接続済みのbot),
   disconnect: vi.fn(async () => {}),
   sendMessage: vi.fn(async () => {}),
+  startDeviceCode: vi.fn(async () => 発行されたコード),
+  pollDeviceCode: vi.fn(async (): Promise<DevicePoll> => ({ status: 'connected', bot: 接続済みのbot })),
   ...overrides,
 })
 
@@ -158,5 +169,78 @@ describe('テスト送信', () => {
     await screen.findByRole('link', { name: /接続/ })
 
     expect(screen.queryByLabelText('テスト送信する文言')).not.toBeInTheDocument()
+  })
+})
+
+describe('別の端末での接続（デバイスコードフロー）', () => {
+  /** 未接続の状態から始める代役。デバイスコードの部分だけ差し替えられる */
+  const 未接続のAPI = (overrides: Partial<BotApi> = {}): BotApi => 代役のAPI({ status: vi.fn(async () => null), ...overrides })
+
+  test('コードと案内先を出す', async () => {
+    const api = 未接続のAPI({ pollDeviceCode: vi.fn(async (): Promise<DevicePoll> => ({ status: 'pending' })) })
+    render(<BotPage api={api} />)
+
+    await userEvent.click(await screen.findByRole('button', { name: '別の端末で接続する' }))
+
+    expect(await screen.findByText('ABCDEFGH')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /twitch\.tv\/activate/ })).toHaveAttribute('href', 発行されたコード.verificationUri)
+  })
+
+  test('認可が済んだら、接続済みの表示に切り替わる', async () => {
+    const api = 未接続のAPI()
+    render(<BotPage api={api} />)
+
+    await userEvent.click(await screen.findByRole('button', { name: '別の端末で接続する' }))
+
+    // お知らせの文にもログイン名が出るので、アカウント名だけの要素を厳密に探す
+    expect(await screen.findByText('haishinsha_bot', { exact: true })).toBeInTheDocument()
+    expect(api.pollDeviceCode).toHaveBeenCalledWith('device-code-0123456789')
+  })
+
+  test('認可されるまで、繰り返し問い合わせる', async () => {
+    let 認可済み = false
+    const api = 未接続のAPI({
+      pollDeviceCode: vi.fn(async (): Promise<DevicePoll> => {
+        if (!認可済み) {
+          認可済み = true
+          return { status: 'pending' }
+        }
+        return { status: 'connected', bot: 接続済みのbot }
+      }),
+    })
+    render(<BotPage api={api} />)
+
+    await userEvent.click(await screen.findByRole('button', { name: '別の端末で接続する' }))
+
+    expect(await screen.findByText('haishinsha_bot', { exact: true })).toBeInTheDocument()
+    expect(api.pollDeviceCode).toHaveBeenCalledTimes(2)
+  })
+
+  test('コードの期限が切れたら、やり直しを促す（黙って待ち続けない）', async () => {
+    const api = 未接続のAPI({
+      pollDeviceCode: vi.fn(async () => {
+        throw new Error('Twitchが 400 を返しました: expired_token')
+      }),
+    })
+    render(<BotPage api={api} />)
+
+    await userEvent.click(await screen.findByRole('button', { name: '別の端末で接続する' }))
+
+    expect(await お知らせ('expired_token')).toBeInTheDocument()
+    // 待ち続けずに、コードの表示をやめる
+    expect(screen.queryByText('ABCDEFGH')).not.toBeInTheDocument()
+  })
+
+  test('コードの発行に失敗したら、理由を出す', async () => {
+    const api = 未接続のAPI({
+      startDeviceCode: vi.fn(async () => {
+        throw new Error('Twitchが 400 を返しました: invalid client')
+      }),
+    })
+    render(<BotPage api={api} />)
+
+    await userEvent.click(await screen.findByRole('button', { name: '別の端末で接続する' }))
+
+    expect(await お知らせ('invalid client')).toBeInTheDocument()
   })
 })

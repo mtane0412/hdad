@@ -18,6 +18,16 @@ const CHANNEL_BADGES_URL = 'https://api.twitch.tv/helix/chat/badges'
 const CHEERMOTES_URL = 'https://api.twitch.tv/helix/bits/cheermotes'
 const USERS_URL = 'https://api.twitch.tv/helix/users'
 const CHAT_MESSAGES_URL = 'https://api.twitch.tv/helix/chat/messages'
+const DEVICE_URL = 'https://id.twitch.tv/oauth2/device'
+/** デバイスコードフローの grant_type（RFC 8628 の決まった文字列） */
+const DEVICE_CODE_GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:device_code'
+/**
+ * トークン交換で「まだ認可されていない」ことを表す、Twitchの失敗メッセージ（RFC 8628 のエラーコード）。
+ *
+ * 注意: これ以外の失敗（期限切れ・拒否・設定の誤り）を待っている状態として飲み込まない。
+ * 飲み込むと、いつまでも終わらないポーリングになる。
+ */
+const PENDING_MESSAGES: readonly string[] = ['authorization_pending', 'slow_down']
 /** バッジ・Cheermote の画像は複数の大きさで届く。オーバーレイでは2倍のものを使う */
 const IMAGE_SCALE = '2'
 /** Twitchの応答として成り立っていない（必要な項目がない）ときに使う状態コード */
@@ -95,6 +105,23 @@ export interface LiveStream {
   viewerCount: number
 }
 
+/** デバイスコードフローの開始で受け取る内容 */
+export interface DeviceAuthorization {
+  /** トークンと交換するためのコード。利用者には見せず、交換のときにそのまま送り返す */
+  deviceCode: string
+  /** 利用者が認可の画面で入力するコード（8文字） */
+  userCode: string
+  /** 利用者を案内する先のURL */
+  verificationUri: string
+  /** コードが使えなくなるまでの秒数 */
+  expiresIn: number
+  /** 次に交換を試すまで空ける秒数 */
+  intervalSeconds: number
+}
+
+/** デバイスコードの交換の結果。まだ利用者が認可していない場合は失敗ではなく pending */
+export type DeviceCodeExchange = { status: 'pending' } | { status: 'granted'; grant: TokenGrant }
+
 /** チャットへ送るメッセージ */
 export interface ChatMessageToSend {
   /** 送り先のチャンネルの持ち主のユーザーID */
@@ -139,6 +166,18 @@ export interface TwitchClient {
    * @throws TwitchApiError Twitchが拒否した、またはTwitchが受け取ったうえで送信しなかった（AutoModなど）
    */
   sendChatMessage(accessToken: string, message: ChatMessageToSend): Promise<void>
+  /**
+   * デバイスコードフローを始める。利用者は別の端末で verificationUri を開き、userCode を入力して認可する。
+   *
+   * リダイレクトURLを使わないため、認可を行う端末と、トークンを受け取るこのWorkerを分けられる。
+   */
+  startDeviceAuthorization(scopes: readonly string[]): Promise<DeviceAuthorization>
+  /**
+   * デバイスコードをトークンに交換する。まだ利用者が認可していなければ pending を返す（失敗にしない）。
+   *
+   * @throws TwitchApiError コードの期限切れ・利用者が拒否・そのほかの失敗
+   */
+  exchangeDeviceCode(deviceCode: string, scopes: readonly string[]): Promise<DeviceCodeExchange>
 }
 
 /** バッジの版（同じ種類でも、サブスクの階層やビッツの段階で絵が変わる） */
@@ -195,6 +234,20 @@ const readDropReason = (dropReason: unknown): string => {
   if (!isRecord(dropReason)) return '理由は示されませんでした'
   const { code, message } = dropReason
   return typeof message === 'string' && message !== '' ? message : typeof code === 'string' ? code : '理由は示されませんでした'
+}
+
+const toDeviceAuthorization = (body: Record<string, unknown>): DeviceAuthorization => {
+  const { device_code: deviceCode, user_code: userCode, verification_uri: verificationUri, expires_in: expiresIn, interval } = body
+  if (
+    typeof deviceCode !== 'string' ||
+    typeof userCode !== 'string' ||
+    typeof verificationUri !== 'string' ||
+    typeof expiresIn !== 'number' ||
+    typeof interval !== 'number'
+  ) {
+    throw new TwitchApiError(BAD_GATEWAY, 'Twitchのデバイスコードの応答に device_code・user_code・verification_uri・expires_in・interval が揃っていません')
+  }
+  return { deviceCode, userCode, verificationUri, expiresIn, intervalSeconds: interval }
 }
 
 const toTokenGrant = (body: Record<string, unknown>): TokenGrant => {
@@ -440,6 +493,36 @@ export const createTwitchClient = ({ clientId, clientSecret, fetch: fetchImpl }:
       }
       // Twitchは受け取ったうえで送らないことがある（AutoModの保留など）。200だからと成功扱いにしない
       if (!result.is_sent) throw new TwitchApiError(BAD_GATEWAY, `Twitchがチャットを送信しませんでした: ${readDropReason(result.drop_reason)}`)
+    },
+
+    startDeviceAuthorization: async (scopes) => {
+      const response = await fetchImpl(DEVICE_URL, {
+        method: 'POST',
+        body: new URLSearchParams({ client_id: clientId, scopes: scopes.join(' ') }),
+      })
+      return toDeviceAuthorization(await readJson(response))
+    },
+
+    exchangeDeviceCode: async (deviceCode, scopes) => {
+      const response = await fetchImpl(TOKEN_URL, {
+        method: 'POST',
+        // Twitchのドキュメントの例には client_secret が無いが、それは秘密を持てない種類のアプリ（public）の場合。
+        // このアプリは秘密を持つ種類（confidential）なので、ほかのトークン取得と同じように添える
+        body: new URLSearchParams({
+          client_id: clientId,
+          client_secret: clientSecret,
+          scopes: scopes.join(' '),
+          device_code: deviceCode,
+          grant_type: DEVICE_CODE_GRANT_TYPE,
+        }),
+      })
+      if (!response.ok) {
+        const body: unknown = await response.clone().json().catch(() => null)
+        const message = isRecord(body) && typeof body.message === 'string' ? body.message : ''
+        if (PENDING_MESSAGES.includes(message)) return { status: 'pending' }
+        // 待っている状態ではない失敗（期限切れ・拒否・設定の誤り）は、readJson に TwitchApiError を投げさせる
+      }
+      return { status: 'granted', grant: toTokenGrant(await readJson(response)) }
     },
   }
 }

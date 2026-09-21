@@ -508,3 +508,99 @@ describe('sendChatMessage', () => {
     expect((error as TwitchApiError).message).toContain('メッセージがAutoModに保留されました')
   })
 })
+
+describe('startDeviceAuthorization', () => {
+  it('スコープを指定してデバイスコードの発行を求め、利用者に見せるコードと案内先を返す', async () => {
+    const { requests, fetchImpl } = 応答を返すfetch(200, {
+      device_code: 'device-code-0123456789',
+      expires_in: 1800,
+      interval: 5,
+      user_code: 'ABCDEFGH',
+      verification_uri: 'https://www.twitch.tv/activate?public=true&device-code=ABCDEFGH',
+    })
+
+    const authorization = await クライアントを作る(fetchImpl).startDeviceAuthorization(['user:bot', 'user:write:chat'])
+
+    expect(authorization).toEqual({
+      deviceCode: 'device-code-0123456789',
+      userCode: 'ABCDEFGH',
+      verificationUri: 'https://www.twitch.tv/activate?public=true&device-code=ABCDEFGH',
+      expiresIn: 1800,
+      intervalSeconds: 5,
+    })
+    const request = requests[0]!
+    expect(request.url).toBe('https://id.twitch.tv/oauth2/device')
+    expect(request.method).toBe('POST')
+    const form = new URLSearchParams(await request.text())
+    expect(form.get('client_id')).toBe('test-client-id')
+    expect(form.get('scopes')).toBe('user:bot user:write:chat')
+  })
+
+  it('Twitchが失敗を返したら TwitchApiError になる', async () => {
+    const { fetchImpl } = 応答を返すfetch(400, { status: 400, message: 'invalid client' })
+    await expect(クライアントを作る(fetchImpl).startDeviceAuthorization(['user:bot'])).rejects.toMatchObject({
+      name: 'TwitchApiError',
+      status: 400,
+    })
+  })
+
+  it('応答に必要な項目が揃っていなければエラーになる', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { device_code: 'device-code-0123456789' })
+    await expect(クライアントを作る(fetchImpl).startDeviceAuthorization(['user:bot'])).rejects.toBeInstanceOf(TwitchApiError)
+  })
+})
+
+describe('exchangeDeviceCode', () => {
+  it('利用者が認可を済ませていれば、トークンを受け取る', async () => {
+    const { requests, fetchImpl } = 応答を返すfetch(200, {
+      access_token: 'bot-access-token',
+      refresh_token: 'bot-refresh-token',
+      expires_in: 14400,
+    })
+
+    const result = await クライアントを作る(fetchImpl).exchangeDeviceCode('device-code-0123456789', ['user:bot'])
+
+    expect(result).toEqual({
+      status: 'granted',
+      grant: { accessToken: 'bot-access-token', refreshToken: 'bot-refresh-token', expiresIn: 14400 },
+    })
+    const form = new URLSearchParams(await requests[0]!.text())
+    expect(form.get('grant_type')).toBe('urn:ietf:params:oauth:grant-type:device_code')
+    expect(form.get('device_code')).toBe('device-code-0123456789')
+    expect(form.get('scopes')).toBe('user:bot')
+  })
+
+  it('利用者がまだ認可していなければ、失敗ではなく「待っている」状態として返す', async () => {
+    // まだ認可していない間、Twitchは400で authorization_pending を返す（RFC 8628）
+    const { fetchImpl } = 応答を返すfetch(400, { status: 400, message: 'authorization_pending' })
+
+    expect(await クライアントを作る(fetchImpl).exchangeDeviceCode('device-code-0123456789', ['user:bot'])).toEqual({ status: 'pending' })
+  })
+
+  it('ポーリングが速すぎると言われた場合も、失敗ではなく「待っている」状態として返す', async () => {
+    const { fetchImpl } = 応答を返すfetch(400, { status: 400, message: 'slow_down' })
+
+    expect(await クライアントを作る(fetchImpl).exchangeDeviceCode('device-code-0123456789', ['user:bot'])).toEqual({ status: 'pending' })
+  })
+
+  it('コードの期限が切れていたら、待ち続けずにエラーにする', async () => {
+    const { fetchImpl } = 応答を返すfetch(400, { status: 400, message: 'expired_token' })
+
+    await expect(クライアントを作る(fetchImpl).exchangeDeviceCode('期限切れのコード', ['user:bot'])).rejects.toBeInstanceOf(TwitchApiError)
+  })
+
+  it('利用者が認可を断ったら、待ち続けずにエラーにする', async () => {
+    const { fetchImpl } = 応答を返すfetch(400, { status: 400, message: 'access_denied' })
+
+    await expect(クライアントを作る(fetchImpl).exchangeDeviceCode('device-code-0123456789', ['user:bot'])).rejects.toBeInstanceOf(TwitchApiError)
+  })
+
+  it('想定していない失敗は、待っている状態として飲み込まずにエラーにする', async () => {
+    const { fetchImpl } = 応答を返すfetch(400, { status: 400, message: 'invalid client' })
+
+    await expect(クライアントを作る(fetchImpl).exchangeDeviceCode('device-code-0123456789', ['user:bot'])).rejects.toMatchObject({
+      name: 'TwitchApiError',
+      status: 400,
+    })
+  })
+})

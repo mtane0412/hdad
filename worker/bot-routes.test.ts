@@ -257,3 +257,158 @@ describe('POST /api/admin/bot/messages', () => {
     expect(await エラーコード(response)).toBe('twitch-error')
   })
 })
+
+describe('POST /api/admin/bot/device-code', () => {
+  /** デバイスコードの発行に応える Twitch の代役 */
+  const デバイスコードを発行するTwitch = () => {
+    const requests: Request[] = []
+    const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const request = new Request(input, init)
+      requests.push(request.clone())
+      if (request.url === 'https://id.twitch.tv/oauth2/device') {
+        return Response.json({
+          device_code: 'device-code-0123456789',
+          user_code: 'ABCDEFGH',
+          verification_uri: 'https://www.twitch.tv/activate?public=true&device-code=ABCDEFGH',
+          expires_in: 1800,
+          interval: 5,
+        })
+      }
+      throw new Error(`テストで想定していない通信です: ${request.url}`)
+    }
+    return { requests, fetchImpl }
+  }
+
+  it('セッションがなければ401を返し、Twitchへは問い合わせない', async () => {
+    const { env } = 環境を作る()
+    const twitch = デバイスコードを発行するTwitch()
+
+    const response = await 呼び出す(
+      new Request(`${サイト}/api/admin/bot/device-code`, { method: 'POST', headers: { Origin: サイト } }),
+      env,
+      twitch.fetchImpl,
+    )
+
+    expect(response.status).toBe(401)
+    expect(twitch.requests).toHaveLength(0)
+  })
+
+  it('利用者に見せるコードと案内先を返す', async () => {
+    const { env } = 環境を作る()
+    const twitch = デバイスコードを発行するTwitch()
+
+    const response = await 呼び出す(await 配信者のリクエスト(env, '/api/admin/bot/device-code', { method: 'POST' }), env, twitch.fetchImpl)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      deviceCode: 'device-code-0123456789',
+      userCode: 'ABCDEFGH',
+      verificationUri: 'https://www.twitch.tv/activate?public=true&device-code=ABCDEFGH',
+      expiresIn: 1800,
+      intervalSeconds: 5,
+    })
+  })
+
+  it('botに必要なスコープを指定して発行を求める', async () => {
+    const { env } = 環境を作る()
+    const twitch = デバイスコードを発行するTwitch()
+
+    await 呼び出す(await 配信者のリクエスト(env, '/api/admin/bot/device-code', { method: 'POST' }), env, twitch.fetchImpl)
+
+    const form = new URLSearchParams(await twitch.requests[0]!.text())
+    expect(form.get('scopes')).toBe(BOT_SCOPES.join(' '))
+  })
+})
+
+describe('POST /api/admin/bot/device-token', () => {
+  /** デバイスコードの交換に、決めた応答を返す Twitch の代役 */
+  const 交換に応えるTwitch = (tokenResponse: Response) => {
+    const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const request = new Request(input, init)
+      if (request.url === 'https://id.twitch.tv/oauth2/token') return tokenResponse.clone()
+      if (request.url === 'https://id.twitch.tv/oauth2/validate') {
+        return Response.json({ user_id: botのID, login: 'haishinsha_bot', scopes: BOT_SCOPES })
+      }
+      throw new Error(`テストで想定していない通信です: ${request.url}`)
+    }
+    return { fetchImpl }
+  }
+
+  const 認可済みの応答 = () =>
+    Response.json({ access_token: 'bot-access-token', refresh_token: 'bot-refresh-token', expires_in: 14400 })
+
+  /** 本文をそのまま指定して交換を求める。既定では正しい形の本文を送る */
+  const 交換する = async (env: Env, fetchImpl: typeof fetch, body: unknown = { deviceCode: 'device-code-0123456789' }) =>
+    呼び出す(
+      await 配信者のリクエスト(env, '/api/admin/bot/device-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+      env,
+      fetchImpl,
+    )
+
+  it('セッションがなければ401を返し、トークンを保存しない', async () => {
+    const { env, store } = 環境を作る()
+    const twitch = 交換に応えるTwitch(認可済みの応答())
+
+    const response = await 呼び出す(
+      new Request(`${サイト}/api/admin/bot/device-token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: サイト },
+        body: JSON.stringify({ deviceCode: 'device-code-0123456789' }),
+      }),
+      env,
+      twitch.fetchImpl,
+    )
+
+    expect(response.status).toBe(401)
+    expect(await loadToken(store, 'bot')).toBeNull()
+  })
+
+  it('利用者がまだ認可していなければ、待っている状態を返す（エラーにしない）', async () => {
+    const { env, store } = 環境を作る()
+    const twitch = 交換に応えるTwitch(Response.json({ status: 400, message: 'authorization_pending' }, { status: 400 }))
+
+    const response = await 交換する(env, twitch.fetchImpl)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ status: 'pending' })
+    expect(await loadToken(store, 'bot')).toBeNull()
+  })
+
+  it('認可が済んでいれば、botのトークンを保存して接続状態を返す', async () => {
+    const { env, store } = 環境を作る()
+    const twitch = 交換に応えるTwitch(認可済みの応答())
+
+    const response = await 交換する(env, twitch.fetchImpl)
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body).toEqual({ status: 'connected', bot: { userId: botのID, login: 'haishinsha_bot', missingScopes: [] } })
+    // トークンはWorkerの中に留め、ブラウザへ返さない
+    expect(JSON.stringify(body)).not.toContain('bot-access-token')
+    expect(await loadToken(store, 'bot')).toMatchObject({ accessToken: 'bot-access-token', userId: botのID, login: 'haishinsha_bot' })
+  })
+
+  it('コードの期限が切れていたら、待ち続けずにエラーを返す', async () => {
+    const { env } = 環境を作る()
+    const twitch = 交換に応えるTwitch(Response.json({ status: 400, message: 'expired_token' }, { status: 400 }))
+
+    const response = await 交換する(env, twitch.fetchImpl)
+
+    expect(response.status).toBe(502)
+    expect(await エラーコード(response)).toBe('twitch-error')
+  })
+
+  it('deviceCode がなければ、Twitchへ問い合わせずに400で拒否する', async () => {
+    const { env } = 環境を作る()
+    const twitch = 交換に応えるTwitch(認可済みの応答())
+
+    const response = await 交換する(env, twitch.fetchImpl, {})
+
+    expect(response.status).toBe(400)
+    expect(await エラーコード(response)).toBe('invalid-device-code')
+  })
+})
