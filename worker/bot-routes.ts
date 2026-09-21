@@ -156,10 +156,14 @@ export const postBotDeviceToken = async (context: Context): Promise<Response> =>
     expiresAt: now + grant.expiresIn * MILLISECONDS_PER_SECOND,
     ...owner,
   }
+  // モデレーターかどうかの確認は保存より先に行う。保存したあとに失敗すると、botは接続できているのに
+  // 画面にはエラーだけが出て、状態が半端になる
+  const isModerator = await isBotModerator(context, owner.userId)
+
   await saveToken(env.STORE, 'bot', token)
   // チャットの購読の条件にbotのユーザーIDが入るので、接続できた時点で揃え直す
   await syncWebhookSubscriptions(context)
-  return Response.json({ status: 'connected', bot: toBotStatus(token, await isBotModerator(context, token.userId)) })
+  return Response.json({ status: 'connected', bot: toBotStatus(token, isModerator) })
 }
 
 /** GET /api/admin/bot/commands: 保存済みのコマンドの一覧 */

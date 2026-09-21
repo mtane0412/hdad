@@ -494,6 +494,17 @@ describe('POST /api/admin/bot/device-token', () => {
     expect(await loadToken(store, 'bot')).toMatchObject({ accessToken: 'bot-access-token', userId: botのID, login: 'haishinsha_bot' })
   })
 
+  it('モデレーターかどうかを確かめられなければ、トークンを保存せずにエラーを返す（接続できたのに画面にはエラーだけ、という半端な状態にしない）', async () => {
+    const { env, store } = 環境を作る()
+    // 配信者のトークンが無いので、モデレーターかどうかを確かめられない
+    const twitch = 交換に応えるTwitch(認可済みの応答())
+
+    const response = await 交換する(env, twitch.fetchImpl)
+
+    expect(response.status).toBe(401)
+    expect(await loadToken(store, 'bot')).toBeNull()
+  })
+
   it('コードの期限が切れていたら、待ち続けずにエラーを返す', async () => {
     const { env } = 環境を作る()
     const twitch = 交換に応えるTwitch(Response.json({ status: 400, message: 'expired_token' }, { status: 400 }))
