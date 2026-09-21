@@ -13,6 +13,7 @@ import { createFakeDatabase } from './fake-database'
 import { createFakeStore } from './fake-store'
 import { handleRequest, type Env } from './index'
 import { getSession, listFailures, listSessions, recordLiveStream } from './stats-store'
+import { saveToken } from './token'
 
 const 現在時刻 = Date.parse('2026-09-21T12:30:00Z')
 const 配信者のID = '12345'
@@ -68,7 +69,8 @@ const Twitchからの通知 = ({
   })
 }
 
-const 呼び出す = (request: Request, env: Env) => handleRequest(request, env, { fetch: Twitchへは通信しない, now: () => 現在時刻 })
+const 呼び出す = (request: Request, env: Env, fetchImpl: typeof fetch = Twitchへは通信しない) =>
+  handleRequest(request, env, { fetch: fetchImpl, now: () => 現在時刻 })
 
 const エラーコード = async (response: Response): Promise<unknown> => {
   const body = (await response.json()) as { error?: { code?: unknown } }
@@ -195,5 +197,122 @@ describe('購読の失効', () => {
 
     expect(response.status).toBe(204)
     expect(await listFailures(db)).toMatchObject([{ code: 'subscription-revoked', message: expect.stringContaining('channel.raid') }])
+  })
+})
+
+describe('チャットの通知（channel.chat.message）', () => {
+  const botのID = '67890'
+
+  /** botを接続済みの環境を作る */
+  const bot接続済みの環境 = async () => {
+    const { env, db } = 環境を作る()
+    await saveToken(env.STORE, 'bot', {
+      accessToken: 'bot-access-token',
+      refreshToken: 'bot-refresh-token',
+      expiresAt: 現在時刻 + 60 * 60 * 1000,
+      scopes: ['user:bot', 'user:read:chat', 'user:write:chat'],
+      userId: botのID,
+      login: 'haishinsha_bot',
+    })
+    return { env, db }
+  }
+
+  /** 視聴者の発言としての通知 */
+  const チャットの通知 = (text: string, chatterUserId = '11111') => ({
+    subscription: { type: 'channel.chat.message' },
+    event: {
+      broadcaster_user_id: 配信者のID,
+      chatter_user_id: chatterUserId,
+      chatter_user_login: 'shichousha',
+      message_id: 'chat-message-1',
+      message: { text },
+    },
+  })
+
+  /** チャット送信に応える Twitch の代役 */
+  const 送信に応えるTwitch = (chatResponse: Response = Response.json({ data: [{ message_id: 'sent', is_sent: true }] })) => {
+    const 送信したチャット: Request[] = []
+    const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const request = new Request(input, init)
+      if (request.url === 'https://api.twitch.tv/helix/chat/messages') {
+        送信したチャット.push(request.clone())
+        return chatResponse.clone()
+      }
+      throw new Error(`テストで想定していない通信です: ${request.url}`)
+    }
+    return { 送信したチャット, fetchImpl }
+  }
+
+  it('コマンドに一致する発言には、botの名前で応答する', async () => {
+    const { env } = await bot接続済みの環境()
+    const twitch = 送信に応えるTwitch()
+
+    const response = await 呼び出す(Twitchからの通知({ body: チャットの通知('!ping') }), env, twitch.fetchImpl)
+
+    expect(response.status).toBe(204)
+    expect(await twitch.送信したチャット[0]!.json()).toEqual({
+      broadcaster_id: 配信者のID,
+      sender_id: botのID,
+      message: '@shichousha pong',
+    })
+  })
+
+  it('コマンドではない発言には、Twitchへ何も送らない', async () => {
+    const { env } = await bot接続済みの環境()
+    const twitch = 送信に応えるTwitch()
+
+    const response = await 呼び出す(Twitchからの通知({ body: チャットの通知('こんばんは') }), env, twitch.fetchImpl)
+
+    expect(response.status).toBe(204)
+    expect(twitch.送信したチャット).toHaveLength(0)
+  })
+
+  it('bot自身の発言には応答しない（応答し続けて止まらなくなるため）', async () => {
+    const { env } = await bot接続済みの環境()
+    const twitch = 送信に応えるTwitch()
+
+    await 呼び出す(Twitchからの通知({ body: チャットの通知('!ping', botのID) }), env, twitch.fetchImpl)
+
+    expect(twitch.送信したチャット).toHaveLength(0)
+  })
+
+  it('チャットは配信の記録（D1）に書かない（件数の桁が違い、書き込みの枠を食い合うため）', async () => {
+    const { env, db } = await bot接続済みの環境()
+    const twitch = 送信に応えるTwitch()
+
+    await 呼び出す(Twitchからの通知({ body: チャットの通知('!ping') }), env, twitch.fetchImpl)
+
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM stream_events').get()).toEqual({ count: 0 })
+  })
+
+  it('botを接続していなければ、応答せずに受け取るだけにする', async () => {
+    const { env } = 環境を作る()
+    const twitch = 送信に応えるTwitch()
+
+    const response = await 呼び出す(Twitchからの通知({ body: チャットの通知('!ping') }), env, twitch.fetchImpl)
+
+    expect(response.status).toBe(204)
+    expect(twitch.送信したチャット).toHaveLength(0)
+  })
+
+  it('応答の送信に失敗しても2xxを返し、失敗として記録する（5xxだとTwitchが再送して二重投稿になるため）', async () => {
+    const { env } = await bot接続済みの環境()
+    const twitch = 送信に応えるTwitch(Response.json({ status: 401, message: 'Missing scope' }, { status: 401 }))
+
+    const response = await 呼び出す(Twitchからの通知({ body: チャットの通知('!ping') }), env, twitch.fetchImpl)
+
+    expect(response.status).toBe(204)
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'chat-reply-failed', message: expect.stringContaining('Missing scope') }])
+  })
+
+  it('通知の中身が想定と違えば、黙って捨てずに400にする', async () => {
+    const { env } = await bot接続済みの環境()
+    const twitch = 送信に応えるTwitch()
+    const 本文のない通知 = { subscription: { type: 'channel.chat.message' }, event: { chatter_user_id: '11111' } }
+
+    const response = await 呼び出す(Twitchからの通知({ body: 本文のない通知 }), env, twitch.fetchImpl)
+
+    expect(response.status).toBe(400)
+    expect(twitch.送信したチャット).toHaveLength(0)
   })
 })

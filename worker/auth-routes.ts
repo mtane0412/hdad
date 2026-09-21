@@ -11,15 +11,12 @@
  * クエリだけで運ぶと、戻ってきた時点で役割を書き換えられてしまうため。
  */
 import { BOT_SCOPES, REQUIRED_SCOPES } from './eventsub'
-import { ensureWebhookSubscriptions } from './eventsub-webhook'
+import { syncWebhookSubscriptions } from './eventsub-webhook'
 import { HttpError, SESSION_COOKIE, STATUS, readCookie, requireSession, setCookie, type Context } from './http'
 import { ensureOverlayKey, loadOverlayKey } from './overlay-key'
 import { randomToken, timingSafeEqual } from './secret'
 import { SESSION_TTL_SECONDS, createSessionToken } from './session'
-import { recordFailure } from './stats-store'
 import { AuthError, loadToken, saveToken, type TokenRole } from './token'
-import { TwitchApiError } from './twitch'
-import { WEBHOOK_PATH } from './webhook-routes'
 
 const STATE_COOKIE = '__Host-oauth-state'
 /** Twitchの認可画面から戻ってくるまでの猶予（秒） */
@@ -74,28 +71,6 @@ export const login = async (context: Context): Promise<Response> => {
   })
 }
 
-/**
- * 配信の記録のためのWebhook宛ての購読を揃える。配信者がスコープを認可した直後（ログイン時）に行う。
- *
- * 注意: Twitchが失敗を返してもログインは止めない。ログインできないと、失敗の記録（/api/admin/stats/failures）を読む手段もなくなるため。
- * 黙って進むのではなく、収集の失敗として記録に残す。
- */
-const prepareWebhookSubscriptions = async ({ url, env, twitch, now }: Pick<Context, 'url' | 'env' | 'twitch' | 'now'>): Promise<void> => {
-  // Twitchは https のURLしかWebhookの宛先として受け付けない。ローカルの開発サーバー（http://localhost）では登録しない
-  if (url.protocol !== 'https:') return
-  try {
-    await ensureWebhookSubscriptions({
-      twitch,
-      broadcasterId: env.TWITCH_BROADCASTER_ID,
-      callbackUrl: `${url.origin}${WEBHOOK_PATH}`,
-      secret: env.EVENTSUB_SECRET,
-    })
-  } catch (error) {
-    if (!(error instanceof TwitchApiError)) throw error
-    await recordFailure(env.DB, 'webhook-subscription-failed', error.message, now)
-  }
-}
-
 export const callback = async (context: Context): Promise<Response> => {
   const { request, url, env, twitch, now } = context
   const denied = url.searchParams.get('error')
@@ -129,9 +104,10 @@ export const callback = async (context: Context): Promise<Response> => {
   const headers = new Headers({ Location: ROLES[role].returnPath })
   if (role === 'broadcaster') {
     await ensureOverlayKey(env.STORE)
-    await prepareWebhookSubscriptions({ url, env, twitch, now })
     headers.append('Set-Cookie', setCookie(SESSION_COOKIE, await createSessionToken(owner.userId, env.SESSION_SECRET, now), SESSION_TTL_SECONDS))
   }
+  // botを接続したときも揃え直す。チャットの購読の条件にbotのユーザーIDが入るため
+  await syncWebhookSubscriptions({ url, env, twitch, now })
   headers.append('Set-Cookie', setCookie(STATE_COOKIE, '', 0))
   return new Response(null, { status: STATUS.found, headers })
 }

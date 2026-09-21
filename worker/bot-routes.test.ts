@@ -55,6 +55,8 @@ const Twitchの代役 = (chatResponse: Response = Response.json({ data: [{ messa
       送信したチャット.push(request.clone())
       return chatResponse.clone()
     }
+    const 購読 = 購読の問い合わせに応える(request)
+    if (購読) return 購読
     throw new Error(`テストで想定していない通信です: ${request.url}`)
   }
   return { 送信したチャット, fetchImpl }
@@ -62,6 +64,19 @@ const Twitchの代役 = (chatResponse: Response = Response.json({ data: [{ messa
 
 const Twitchへは通信しない = async (input: RequestInfo | URL): Promise<Response> => {
   throw new Error(`テストで想定していない通信です: ${String(input)}`)
+}
+
+/**
+ * Webhook宛ての購読を揃える処理が使う通信に応える。
+ * botの接続・切断のたびに購読を揃え直すので、どの代役もこれを通す必要がある。
+ * 当てはまらないリクエストには null を返し、呼び出し側に任せる。
+ */
+const 購読の問い合わせに応える = (request: Request): Response | null => {
+  if (request.url === 'https://id.twitch.tv/oauth2/token') return Response.json({ access_token: 'test-app-token' })
+  if (request.url.startsWith('https://api.twitch.tv/helix/eventsub/subscriptions')) {
+    return request.method === 'GET' ? Response.json({ data: [] }) : Response.json({ data: [] }, { status: 202 })
+  }
+  return null
 }
 
 const 呼び出す = (request: Request, env: Env, fetchImpl: typeof fetch = Twitchへは通信しない) =>
@@ -135,7 +150,7 @@ describe('DELETE /api/admin/bot', () => {
     await saveToken(store, 'bot', botのトークン())
     await saveToken(store, 'broadcaster', { ...botのトークン(), userId: 配信者のID, login: 'haishinsha' })
 
-    const response = await 呼び出す(await 配信者のリクエスト(env, '/api/admin/bot', { method: 'DELETE' }), env)
+    const response = await 呼び出す(await 配信者のリクエスト(env, '/api/admin/bot', { method: 'DELETE' }), env, Twitchの代役().fetchImpl)
 
     expect(response.status).toBe(204)
     expect(await loadToken(store, 'bot')).toBeNull()
@@ -144,7 +159,7 @@ describe('DELETE /api/admin/bot', () => {
 
   it('接続していなくても204を返す（切断を何度押しても同じ結果になるように）', async () => {
     const { env } = 環境を作る()
-    const response = await 呼び出す(await 配信者のリクエスト(env, '/api/admin/bot', { method: 'DELETE' }), env)
+    const response = await 呼び出す(await 配信者のリクエスト(env, '/api/admin/bot', { method: 'DELETE' }), env, Twitchの代役().fetchImpl)
 
     expect(response.status).toBe(204)
   })
@@ -324,11 +339,16 @@ describe('POST /api/admin/bot/device-token', () => {
   /** デバイスコードの交換に、決めた応答を返す Twitch の代役 */
   const 交換に応えるTwitch = (tokenResponse: Response) => {
     const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-      const request = new Request(input, init)
-      if (request.url === 'https://id.twitch.tv/oauth2/token') return tokenResponse.clone()
+        const request = new Request(input, init)
+      // デバイスコードの交換と、購読を揃えるときのアプリアクセストークンの発行は、どちらも同じURLを使う。
+      // 交換は本文に device_code を含むので、それで見分ける
+      const body = request.method === 'POST' ? await request.clone().text() : ''
+      if (request.url === 'https://id.twitch.tv/oauth2/token' && body.includes('device_code')) return tokenResponse.clone()
       if (request.url === 'https://id.twitch.tv/oauth2/validate') {
         return Response.json({ user_id: botのID, login: 'haishinsha_bot', scopes: BOT_SCOPES })
       }
+      const 購読 = 購読の問い合わせに応える(request)
+      if (購読) return 購読
       throw new Error(`テストで想定していない通信です: ${request.url}`)
     }
     return { fetchImpl }
