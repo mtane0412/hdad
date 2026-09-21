@@ -1,11 +1,11 @@
 /**
  * Viteビルド設定
  *
- * Workers 静的アセットはパスごとに実ファイルが必要なため、トップ（index.html）・
- * 各カテゴリの一覧（wallpaper/index.html, clock/index.html, chat/index.html）・各素材のページ（<カテゴリ>/<id>/index.html）の
+ * ページUI（ダッシュボード・ギャラリー・管理画面）はトップの index.html ひとつで、パスに応じた中身をアプリ（src/app/）が描く。
+ * /wallpaper/ のように実ファイルのないパスには、Workers 静的アセットが index.html を返す（wrangler.jsonc の not_found_handling）。
+ * OBSに載せる素材のページ（<カテゴリ>/<id>/index.html）とアラート用オーバーレイ（alerts/index.html）は、パスごとに実ファイルが必要なので、
  * すべてをエントリとするマルチページ構成でビルドする。
- * アラート用オーバーレイ（alerts/index.html）と管理画面（admin/index.html）は一覧を持たない単独のページなので、カテゴリとは別にエントリへ足す。
- * base を相対パスにしているので、リポジトリ名や独自ドメインが変わっても動作する。
+ * index.html は /wallpaper/ などネストしたパスでも返されるので、base は絶対パス（/）にしてアセットをどのパスからでも解決できるようにする。
  *
  * @cloudflare/vite-plugin が `npm run dev` の中で Worker（worker/index.ts）を動かすので、開発サーバーでも /api/* とログインが使える。
  * ビルドの出力は dist/client/（静的アセット）と dist/stream_assets/（Workerとデプロイ用の wrangler.json）に分かれ、
@@ -22,19 +22,18 @@ const root = import.meta.dirname
 /** カテゴリ名（＝公開ディレクトリ名）。カテゴリを増やしたらここに足す */
 const categories = ['wallpaper', 'clock', 'chat']
 
-/** カテゴリの一覧ページ（<カテゴリ>/index.html）と、配下の素材ページ（<カテゴリ>/<id>/index.html）をエントリにする */
+/** カテゴリ配下の素材ページ（<カテゴリ>/<id>/index.html）をエントリにする */
 const categoryEntries = Object.fromEntries(
   categories.flatMap((category) => {
     const categoryDir = resolve(root, category)
-    const pages = readdirSync(categoryDir, { withFileTypes: true })
+    return readdirSync(categoryDir, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
       .map((entry) => [`${category}/${entry.name}`, resolve(categoryDir, entry.name, 'index.html')])
-    return [[category, resolve(categoryDir, 'index.html')], ...pages]
   }),
 )
 
 export default defineConfig({
-  base: './',
+  base: '/',
   // Vitest もこの設定を読むが、テストでは Worker を動かさないので cloudflare() を外す
   plugins: [react(), tailwindcss(), ...(process.env.VITEST ? [] : [cloudflare()])],
   resolve: { alias: { '@': resolve(root, 'src') } },
@@ -46,7 +45,6 @@ export default defineConfig({
           input: {
             index: resolve(root, 'index.html'),
             alerts: resolve(root, 'alerts/index.html'),
-            admin: resolve(root, 'admin/index.html'),
             ...categoryEntries,
           },
         },

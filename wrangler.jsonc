@@ -4,8 +4,9 @@
  * Viteのビルド出力を Workers 静的アセットとして配信し、/api/* だけを Worker のコード（worker/index.ts）で処理する。
  * これはビルドへの入力となる設定で、assets.directory は書かない。@cloudflare/vite-plugin がビルド時に
  * dist/stream_assets/wrangler.json を出力し、そこに静的アセットの場所（dist/client/）を書き込む。wrangler はそちらを使う。
- * 素材ページは <カテゴリ>/<id>/index.html の形で、相対パスでアセットを参照するため、
- * 末尾スラッシュなしのURLは html_handling によって末尾スラッシュ付きへリダイレクトさせる。
+ * 素材ページは <カテゴリ>/<id>/index.html の形の実ファイルで、末尾スラッシュなしのURLは html_handling によって末尾スラッシュ付きへリダイレクトさせる。
+ * ページUI（/wallpaper/・/admin/ など）は実ファイルを持たず、not_found_handling によってトップの index.html を返してアプリに描かせる。
+ * 存在しないパスでも index.html が返るので、「見つからない」画面はアプリが出す。
  *
  * STORE（KV）にはTwitchのトークン・オーバーレイ用キー・アラートの設定を、MEDIA（R2）にはアラートの素材を保存する。
  * id やバケット名を書いていないのは、デプロイ時に wrangler が自動で作成して結び付けるため（フォークした人が書き換えずに済む）。
@@ -19,7 +20,7 @@
   "compatibility_date": "2026-09-01",
   "assets": {
     "html_handling": "auto-trailing-slash",
-    "not_found_handling": "none",
+    "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*"]
   },
   "kv_namespaces": [{ "binding": "STORE" }],

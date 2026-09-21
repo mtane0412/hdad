@@ -6,6 +6,7 @@
  */
 import { buttonVariants } from '@/components/ui/button'
 import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import { Link } from './router'
 
 /** 素材の種類。カテゴリを増やしたらここに足す */
 const CATEGORIES: readonly { name: string; href: string; summary: string }[] = [
@@ -29,9 +30,9 @@ export const Dashboard = () => (
               <CardDescription>{category.summary}</CardDescription>
             </CardHeader>
             <CardFooter className="mt-auto">
-              <a className={buttonVariants({ variant: 'outline', size: 'sm' })} href={category.href}>
+              <Link className={buttonVariants({ variant: 'outline', size: 'sm' })} href={category.href}>
                 {category.name}の設定を開く
-              </a>
+              </Link>
             </CardFooter>
           </Card>
         </li>
