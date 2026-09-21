@@ -2,7 +2,7 @@
  * 時計のレジストリ
  *
  * 時計を追加するときは、ここへの登録に加えて clock/<id>/index.html も作成する。
- * GitHub PagesはURLのパスごとに実ファイルが必要なため、両者の対応は registry.test.ts で検証している。
+ * Workers 静的アセットはURLのパスごとに実ファイルが必要なため、両者の対応は registry.test.ts で検証している。
  * 時計も壁紙と同じ「canvas 1枚に描く素材」なので、定義の型は core/background.ts のものを共用する。
  */
 import type { BackgroundDefinition } from '../core/background'

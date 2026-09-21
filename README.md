@@ -1,6 +1,6 @@
 # stream-assets
 
-Twitch配信用の各種素材を置くリポジトリです。GitHub Pagesで公開し、OBSのブラウザソースからURLで読み込みます。
+Twitch配信用の各種素材を置くリポジトリです。Cloudflare Workers の静的アセットとして公開し、OBSのブラウザソースからURLで読み込みます。
 
 トップページ（`index.html`）は素材の種類一覧です。素材はカテゴリごとにディレクトリを分けて置きます。
 
@@ -15,7 +15,7 @@ Twitch配信用の各種素材を置くリポジトリです。GitHub Pagesで�
 ギャラリー（`wallpaper/`）で背景を選び、パラメータを調整して、表示されたURLをOBSにコピーします。
 
 ```
-https://<ユーザー名>.github.io/stream-assets/wallpaper/<背景ID>/?<パラメータ>=<値>&...
+https://stream-assets.<サブドメイン>.workers.dev/wallpaper/<背景ID>/?<パラメータ>=<値>&...
 ```
 
 - **パス**で背景の種類を、**クエリパラメータ**で色や速さを切り替えます
@@ -50,7 +50,7 @@ https://<ユーザー名>.github.io/stream-assets/wallpaper/<背景ID>/?<パラ�
 ギャラリー（`clock/`）で時計を選び、パラメータを調整して、表示されたURLをOBSにコピーします。
 
 ```
-https://<ユーザー名>.github.io/stream-assets/clock/<時計ID>/?<パラメータ>=<値>&...
+https://stream-assets.<サブドメイン>.workers.dev/clock/<時計ID>/?<パラメータ>=<値>&...
 ```
 
 - 表示の有無を切り替えるパラメータは `true` / `false` で指定します（`1` や `yes` はエラーになります）
@@ -74,7 +74,7 @@ Twitchのチャット欄を配信画面に重ねます。背景は透過です�
 ギャラリー（`chat/`）でチャンネル名を入れ、パラメータを調整して、表示されたURLをOBSにコピーします。ギャラリーのプレビューは常にサンプルの書き込みです。
 
 ```
-https://<ユーザー名>.github.io/stream-assets/chat/<デザインID>/?channel=<チャンネル名>&<パラメータ>=<値>&...
+https://stream-assets.<サブドメイン>.workers.dev/chat/<デザインID>/?channel=<チャンネル名>&<パラメータ>=<値>&...
 ```
 
 - Twitchへは匿名（読み取り専用）で接続するため、ログインやトークンは不要です。`channel`（`twitch.tv/` の後ろの部分）だけ指定します
@@ -111,6 +111,7 @@ npm run lint        # Lint（警告ゼロ必須）
 npm run type-check  # 型チェック
 npm test            # テスト
 npm run build       # dist/ へビルド
+npm run preview:worker  # ビルドして、Workersと同じ配信挙動をローカルで確認（wrangler dev）
 ```
 
 ### 壁紙の背景を追加する
@@ -142,5 +143,14 @@ npm run build       # dist/ へビルド
 
 ## デプロイ
 
-`main` へのpushで `.github/workflows/deploy.yml` がLint・型チェック・テスト・ビルドを行い、GitHub Pagesへ公開します。
-リポジトリの Settings > Pages > Source を「GitHub Actions」に設定してください。
+Cloudflare Workers の静的アセットとして公開します。設定は `wrangler.jsonc` にあり、Viteのビルド出力（`dist/`）をそのまま配信します。
+
+`main` へのpushを受けて、Cloudflareの Workers Builds がビルドとデプロイを行います。初回だけ次の設定が必要です。
+
+1. Cloudflareダッシュボードの Workers & Pages で「Import a repository」を選び、このリポジトリを接続する
+2. ビルドコマンドに `npm run build`、デプロイコマンドに `npx wrangler deploy` を指定する
+3. 公開されたURL（`https://stream-assets.<サブドメイン>.workers.dev/`）を開いて表示を確認する
+
+手元から直接デプロイする場合は、`npx wrangler login` のあとに `npm run deploy` を実行します。
+
+`.github/workflows/ci.yml` はLint・型チェック・テスト・ビルドと `wrangler deploy --dry-run` による設定の検証だけを行い、デプロイはしません。

@@ -2,7 +2,7 @@
  * チャットボックスのレジストリ
  *
  * デザインを追加するときは、ここへの登録に加えて chat/<id>/index.html と src/chat/<id>.css も作成する。
- * GitHub PagesはURLのパスごとに実ファイルが必要なため、両者の対応は registry.test.ts で検証している。
+ * Workers 静的アセットはURLのパスごとに実ファイルが必要なため、両者の対応は registry.test.ts で検証している。
  */
 import { bubble } from './bubble'
 import { card } from './card'
