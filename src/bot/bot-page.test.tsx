@@ -284,6 +284,26 @@ describe('コマンドの編集', () => {
     expect(api.saveCommands).toHaveBeenCalledWith([])
   })
 
+  test('保存している間は、入力欄と「外す」を操作できなくする（保存の応答で入力が消えないようにするため）', async () => {
+    let 保存を終える = (): void => {}
+    const api = 代役のAPI({
+      saveCommands: vi.fn(
+        async (commands: readonly BotCommandItem[]) =>
+          new Promise<BotCommandItem[]>((resolve) => {
+            保存を終える = () => resolve([...commands])
+          }),
+      ),
+    })
+    render(<BotPage api={api} />)
+    await screen.findByDisplayValue('aisatsu')
+
+    await userEvent.click(screen.getByRole('button', { name: 'コマンドを保存する' }))
+
+    expect(screen.getByLabelText('1番目のコマンド名')).toBeDisabled()
+    expect(screen.getByRole('button', { name: '1番目のコマンドを外す' })).toBeDisabled()
+    保存を終える()
+  })
+
   test('保存に失敗したら、問題点を何番目のコマンドかが分かる形で出す', async () => {
     const api = 代役のAPI({
       saveCommands: vi.fn(async () => {

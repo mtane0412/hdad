@@ -57,8 +57,25 @@ describe('parseBotConfig', () => {
     expect(問題点({ commands: [{ ...挨拶のコマンド, reply: '' }] })).toEqual([expect.stringContaining('commands[0].reply')])
   })
 
+  it('応答文が空白だけなら拒否する（Twitchは空白だけのメッセージを受け付けないため）', () => {
+    expect(問題点({ commands: [{ ...挨拶のコマンド, reply: '   ' }] })).toEqual([expect.stringContaining('commands[0].reply')])
+  })
+
   it('応答文が500文字を超えたら拒否する（Twitchが受け付けないため）', () => {
     expect(問題点({ commands: [{ ...挨拶のコマンド, reply: 'あ'.repeat(501) }] })).toEqual([expect.stringContaining('commands[0].reply')])
+  })
+
+  it('{user} が置き換わったときに500文字を超える応答文は拒否する（送る段になって失敗しないようにするため）', () => {
+    // {user} の6文字が、Twitchのログイン名の上限である25文字に置き換わると、500文字を超える
+    const 置き換えると超える応答文 = `${'あ'.repeat(490)}{user}`
+
+    expect(置き換えると超える応答文.length).toBeLessThanOrEqual(500)
+    expect(問題点({ commands: [{ ...挨拶のコマンド, reply: 置き換えると超える応答文 }] })).toEqual([expect.stringContaining('commands[0].reply')])
+  })
+
+  it('{user} を含んでいても、置き換わったあとが500文字以内なら通る', () => {
+    const 収まる応答文 = `${'あ'.repeat(400)}{user}`
+    expect(parseBotConfig({ commands: [{ ...挨拶のコマンド, reply: 収まる応答文 }] }).commands).toHaveLength(1)
   })
 
   it('クールダウンが負の数なら拒否する', () => {

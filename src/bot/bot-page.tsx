@@ -55,11 +55,13 @@ type Loaded = { status: 'loading' } | { status: 'ready'; bot: BotStatus | null }
 interface CommandRowProps {
   position: number
   draft: CommandDraft
+  /** 保存を待っている間は操作させない（保存の応答で入力中の値が消えてしまうため） */
+  disabled: boolean
   onChange(draft: CommandDraft): void
   onRemove(): void
 }
 
-const CommandRow = ({ position, draft, onChange, onRemove }: CommandRowProps) => {
+const CommandRow = ({ position, draft, disabled, onChange, onRemove }: CommandRowProps) => {
   const id = useId()
   const update = (patch: Partial<CommandDraft>): void => onChange({ ...draft, ...patch })
 
@@ -67,7 +69,14 @@ const CommandRow = ({ position, draft, onChange, onRemove }: CommandRowProps) =>
     <li aria-label={`${position}番目のコマンド`} className="grid gap-4 rounded-lg border p-4 sm:grid-cols-2">
       <div className="flex flex-col gap-2">
         <Label htmlFor={`${id}-name`}>{position}番目のコマンド名</Label>
-        <Input id={`${id}-name`} type="text" value={draft.name} placeholder="discord" onChange={(event) => update({ name: event.currentTarget.value })} />
+        <Input
+          id={`${id}-name`}
+          type="text"
+          value={draft.name}
+          placeholder="discord"
+          disabled={disabled}
+          onChange={(event) => update({ name: event.currentTarget.value })}
+        />
         <p className="text-xs text-muted-foreground">チャットでは「!{draft.name === '' ? 'コマンド名' : draft.name}」と入力します</p>
       </div>
       <div className="flex flex-col gap-2">
@@ -78,6 +87,7 @@ const CommandRow = ({ position, draft, onChange, onRemove }: CommandRowProps) =>
           min={0}
           max={MAX_COOLDOWN_SECONDS}
           value={draft.cooldownSeconds}
+          disabled={disabled}
           onChange={(event) => update({ cooldownSeconds: event.currentTarget.value })}
         />
         <p className="text-xs text-muted-foreground">この秒数のあいだは、続けて打たれても応答しません（0なら毎回応答）</p>
@@ -90,11 +100,12 @@ const CommandRow = ({ position, draft, onChange, onRemove }: CommandRowProps) =>
           maxLength={MAX_MESSAGE_LENGTH}
           value={draft.reply}
           placeholder="@{user} こんばんは"
+          disabled={disabled}
           onChange={(event) => update({ reply: event.currentTarget.value })}
         />
         <p className="text-xs text-muted-foreground">使える差し込み語: {'{user}'}（発言した人のログイン名）</p>
       </div>
-      <Button type="button" variant="ghost" size="sm" className="justify-self-start text-destructive" onClick={onRemove}>
+      <Button type="button" variant="ghost" size="sm" className="justify-self-start text-destructive" disabled={disabled} onClick={onRemove}>
         {position}番目のコマンドを外す
       </Button>
     </li>
@@ -341,6 +352,7 @@ export const BotPage = ({ api }: BotPageProps) => {
                   key={index}
                   position={index + 1}
                   draft={draft}
+                  disabled={busy}
                   onChange={(next) => setDrafts(drafts.map((current, at) => (at === index ? next : current)))}
                   onRemove={() => setDrafts(drafts.filter((_, at) => at !== index))}
                 />
