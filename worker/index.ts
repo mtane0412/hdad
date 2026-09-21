@@ -5,14 +5,17 @@
  *
  * | 経路 | 守り方 | 役割 |
  * |---|---|---|
- * | GET  /api/auth/login             | なし           | Twitchの認可ページへ送る |
- * | GET  /api/auth/callback          | OAuthのstate   | トークンを保管し、配信者本人ならセッションを開始してダッシュボードへ送る |
+ * | GET  /api/auth/login             | なし（?role=bot はセッション） | Twitchの認可ページへ送る |
+ * | GET  /api/auth/callback          | OAuthのstate（botはセッションも） | トークンを保管し、配信者本人ならセッションを開始してダッシュボードへ送る |
  * | POST /api/auth/logout            | なし           | セッションを終える |
  * | GET  /api/me                     | セッション     | ログイン中の配信者とオーバーレイ用キーを返す |
  * | GET・PUT /api/admin/config       | セッション     | アラートの設定の取得・保存 |
  * | GET・POST /api/admin/media       | セッション     | 素材の一覧・アップロード |
  * | DELETE /api/admin/media/:id      | セッション     | 素材の削除 |
  * | POST /api/admin/overlay-key      | セッション     | オーバーレイ用キーの再発行 |
+ * | GET  /api/admin/bot              | セッション     | チャットボットの接続状態 |
+ * | DELETE /api/admin/bot            | セッション     | チャットボットの切断 |
+ * | POST /api/admin/bot/messages     | セッション     | チャットボットの名前でチャットを送る |
  * | GET  /api/admin/rewards          | セッション     | チャンネルポイント報酬の一覧 |
  * | GET  /api/admin/stats/sessions   | セッション     | 配信セッションの一覧 |
  * | GET  /api/admin/stats/sessions/:id | セッション   | 配信セッションと視聴者数の時系列 |
@@ -29,6 +32,7 @@
  * fetch と現在時刻を引数で受け取るのは、テストで差し替えるため。
  */
 import { deleteMedia, getConfig, getMedia, getRewards, postMedia, postOverlayKey, putConfig } from './admin-routes'
+import { deleteBot, getBot, postBotMessage } from './bot-routes'
 import { ConfigError } from './alert-config'
 import { CALLBACK_PATH, callback, login, logout, me } from './auth-routes'
 import { collectStats } from './collect'
@@ -69,6 +73,9 @@ const ROUTES: readonly Route[] = [
   { method: 'POST', path: '/api/admin/media', handle: postMedia },
   { method: 'DELETE', path: '/api/admin/media/:id', handle: deleteMedia },
   { method: 'POST', path: '/api/admin/overlay-key', handle: postOverlayKey },
+  { method: 'GET', path: '/api/admin/bot', handle: getBot },
+  { method: 'DELETE', path: '/api/admin/bot', handle: deleteBot },
+  { method: 'POST', path: '/api/admin/bot/messages', handle: postBotMessage },
   { method: 'GET', path: '/api/admin/rewards', handle: getRewards },
   { method: 'GET', path: '/api/admin/stats/sessions', handle: getStatsSessions },
   { method: 'GET', path: '/api/admin/stats/sessions/:id', handle: getStatsSession },
