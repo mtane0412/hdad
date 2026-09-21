@@ -1,7 +1,7 @@
 /**
- * ページUI（トップ）の起動
+ * ページUI（ダッシュボード・ギャラリー・管理画面）の起動
  *
- * index.html の #root にアプリの枠を描く。Workerの呼び出しには管理画面と同じ api.ts を使う。
+ * index.html の #root にアプリの枠を描く。どのページUIのパスでもこの index.html が返される。
  */
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'

@@ -7,17 +7,35 @@
  * - ログインしていれば、サイドバーに配信者の名前と各ページへのリンクを出すこと
  * - ログインの確認に失敗したら、黙って未ログイン扱いにせずエラーを出すこと
  * - ログアウトしたら、ログインの入口に戻ること
+ * - サイドバーのリンクで、再読み込みなしにページが切り替わり、現在地の印が付け替わること
+ * - ページUIのURLを直接開いても、そのページが出ること（未ログインならログインの入口だけ）
+ * - 存在しないパスでは、見つからないことを伝える画面を出すこと
  */
 import '@testing-library/jest-dom/vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeAll, describe, expect, test, vi } from 'vitest'
-import type { Me } from '@/admin/api'
-import { App, type SessionApi } from './app'
+import type { AdminApi, Me } from '@/admin/api'
+import { App } from './app'
 
 const 配信者: Me = { userId: '12345', login: 'haishin_taro', overlayKey: 'overlay-key' }
 
-const 代役のAPI = (me: SessionApi['me']): SessionApi => ({ me, logout: vi.fn(async () => {}) })
+const 代役のAPI = (me: AdminApi['me']): AdminApi => ({
+  me,
+  logout: vi.fn(async () => {}),
+  config: vi.fn(async () => []),
+  saveConfig: vi.fn(async () => []),
+  media: vi.fn(async () => []),
+  upload: vi.fn(async () => {
+    throw new Error('このテストではアップロードしません')
+  }),
+  removeMedia: vi.fn(async () => {}),
+  rotateOverlayKey: vi.fn(async () => 'new-overlay-key'),
+  rewards: vi.fn(async () => []),
+})
+
+/** ページを開いた状態を作る（jsdom では実際の読み込みは起きない） */
+const 開く = (path: string): void => window.history.replaceState(null, '', path)
 
 beforeAll(() => {
   // jsdom には matchMedia がない。サイドバーが画面幅の判定に使うので、常に「広い画面」と答える代役を置く
@@ -31,9 +49,20 @@ beforeAll(() => {
     removeListener: () => {},
     dispatchEvent: () => false,
   })
+  // jsdom には ResizeObserver がない。ギャラリーがプレビューの縮小率を決めるのに使うので、何もしない代役を置く
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe(): void {}
+      disconnect(): void {}
+    },
+  )
 })
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  開く('/')
+})
 
 describe('ログインしていないとき', () => {
   test('Twitchログインへのリンクだけを出し、サイドバーは出さない', async () => {
@@ -71,6 +100,64 @@ describe('ログインしているとき', () => {
 
     expect(api.logout).toHaveBeenCalledOnce()
     expect(await screen.findByRole('link', { name: 'Twitchでログイン' })).toBeInTheDocument()
+  })
+})
+
+describe('ページの移動', () => {
+  test('サイドバーのリンクを押すと、再読み込みなしでページが切り替わり、現在地の印が付け替わる', async () => {
+    render(<App api={代役のAPI(async () => 配信者)} />)
+    expect(await screen.findByRole('link', { name: 'ダッシュボード' })).toHaveAttribute('aria-current', 'page')
+
+    await userEvent.click(screen.getByRole('link', { name: '壁紙' }))
+
+    expect(window.location.pathname).toBe('/wallpaper/')
+    expect(screen.getByRole('heading', { level: 1, name: '壁紙' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '壁紙' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('link', { name: 'ダッシュボード' })).not.toHaveAttribute('aria-current')
+  })
+
+  test('ブラウザの「戻る」で、前のページに戻る', async () => {
+    render(<App api={代役のAPI(async () => 配信者)} />)
+    await userEvent.click(await screen.findByRole('link', { name: '時計' }))
+    expect(screen.getByRole('heading', { level: 1, name: '時計' })).toBeInTheDocument()
+
+    window.history.back()
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'ダッシュボード' })).toBeInTheDocument()
+  })
+
+  test('ページUIのURLを直接開くと、そのページが出る', async () => {
+    開く('/admin/')
+    render(<App api={代役のAPI(async () => 配信者)} />)
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'アラート' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'アラート' })).toHaveAttribute('aria-current', 'page')
+  })
+
+  test('末尾のスラッシュがないURLでも、同じページが出る', async () => {
+    開く('/chat')
+    render(<App api={代役のAPI(async () => 配信者)} />)
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'チャット' })).toBeInTheDocument()
+  })
+
+  test('未ログインでページUIのURLを開くと、ログインの入口だけが出る', async () => {
+    開く('/wallpaper/')
+    render(<App api={代役のAPI(async () => null)} />)
+
+    expect(await screen.findByRole('link', { name: 'Twitchでログイン' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { level: 1, name: '壁紙' })).not.toBeInTheDocument()
+  })
+
+  test('存在しないパスでは、見つからないことを伝え、ダッシュボードへ戻れる', async () => {
+    開く('/nai-page/')
+    render(<App api={代役のAPI(async () => 配信者)} />)
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'ページが見つかりません' })).toBeInTheDocument()
+    expect(screen.getByText('/nai-page/')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('link', { name: 'ダッシュボードへ戻る' }))
+    expect(screen.getByRole('heading', { level: 1, name: 'ダッシュボード' })).toBeInTheDocument()
   })
 })
 

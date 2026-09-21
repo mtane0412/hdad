@@ -3,12 +3,13 @@
  *
  * ページUIはTwitchログインを前提にする。開いたらまず /api/me でログインを確かめ、
  * ログインしていなければ入口だけを出し、ログインしていればサイドバー付きの画面を出す。
+ * どのページUIのURL（/wallpaper/ など）を開いてもこの枠が出て、中身だけがパスに応じて切り替わる（ページの一覧は pages.tsx）。
  * OBSに載せる素材ページ（<カテゴリ>/<id>/・alerts/）はこの枠を通らないので、ログインなしで動く。
  *
  * 注意: ログインの確認に失敗したとき（Workerに届かないなど）は未ログイン扱いにせず、エラーを出す（Fail-Fast）。
  * api を引数で受け取るのは、テストで差し替えるため。
  */
-import { Clock, Image, LayoutDashboard, LogOut, MessageSquare, Siren, type LucideIcon } from 'lucide-react'
+import { LogOut } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { AdminApi, Me } from '@/admin/api'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -31,32 +32,10 @@ import {
 } from '@/components/ui/sidebar'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { Dashboard } from './dashboard'
-
-/** 枠が使うWorkerの呼び出し（ログインの確認とログアウト） */
-export type SessionApi = Pick<AdminApi, 'me' | 'logout'>
+import { findPage, PAGE_GROUPS, type PageContext } from './pages'
+import { Link, usePathname } from './router'
 
 const LOGIN_PATH = '/api/auth/login'
-
-interface NavItem {
-  name: string
-  href: string
-  icon: LucideIcon
-}
-
-/** サイドバーの項目。カテゴリを増やしたらここに足す */
-const NAV_GROUPS: readonly { label: string; items: readonly NavItem[] }[] = [
-  { label: '配信', items: [{ name: 'ダッシュボード', href: '/', icon: LayoutDashboard }] },
-  {
-    label: '素材',
-    items: [
-      { name: '壁紙', href: '/wallpaper/', icon: Image },
-      { name: '時計', href: '/clock/', icon: Clock },
-      { name: 'チャット', href: '/chat/', icon: MessageSquare },
-      { name: 'アラート', href: '/admin/', icon: Siren },
-    ],
-  },
-]
 
 type Session = { status: 'checking' } | { status: 'signed-out' } | { status: 'signed-in'; me: Me } | { status: 'failed'; message: string }
 
@@ -82,66 +61,86 @@ const LoginScreen = () => (
   </Centered>
 )
 
-const Shell = ({ me, onLogout }: { me: Me; onLogout: () => void }) => (
-  <TooltipProvider>
-    <SidebarProvider>
-      <Sidebar collapsible="icon">
-        <SidebarHeader>
-          <span className="px-2 py-1 font-mono text-sm font-semibold group-data-[collapsible=icon]:hidden">stream-assets</span>
-        </SidebarHeader>
-        <SidebarContent>
-          <nav aria-label="サイト内の移動">
-            {NAV_GROUPS.map((group) => (
-              <SidebarGroup key={group.label}>
-                <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
-                <SidebarGroupContent>
-                  <SidebarMenu>
-                    {group.items.map((item) => (
-                      <SidebarMenuItem key={item.href}>
-                        <SidebarMenuButton
-                          isActive={item.href === '/'}
-                          tooltip={item.name}
-                          render={<a href={item.href} aria-current={item.href === '/' ? 'page' : undefined} />}
-                        >
-                          <item.icon aria-hidden="true" />
-                          <span>{item.name}</span>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    ))}
-                  </SidebarMenu>
-                </SidebarGroupContent>
-              </SidebarGroup>
-            ))}
-          </nav>
-        </SidebarContent>
-        <SidebarFooter>
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <span className="truncate px-2 font-mono text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">{me.login}</span>
-            </SidebarMenuItem>
-            <SidebarMenuItem>
-              <SidebarMenuButton tooltip="ログアウト" onClick={onLogout}>
-                <LogOut aria-hidden="true" />
-                <span>ログアウト</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
-        </SidebarFooter>
-      </Sidebar>
-      <SidebarInset>
-        <header className="flex h-12 items-center gap-2 border-b px-4">
-          <SidebarTrigger aria-label="サイドバーを開閉する" />
-          <h1 className="text-sm font-medium">ダッシュボード</h1>
-        </header>
-        <div className="p-6">
-          <Dashboard />
-        </div>
-      </SidebarInset>
-    </SidebarProvider>
-  </TooltipProvider>
+/** パスに当たるページがないときの画面 */
+const NotFound = ({ pathname }: { pathname: string }) => (
+  <Alert className="max-w-md">
+    <AlertTitle>
+      <code>{pathname}</code> というページはありません
+    </AlertTitle>
+    <AlertDescription>
+      <Link href="/" className="underline underline-offset-4">
+        ダッシュボードへ戻る
+      </Link>
+    </AlertDescription>
+  </Alert>
 )
 
-export const App = ({ api }: { api: SessionApi }) => {
+const Shell = ({ context, onLogout }: { context: PageContext; onLogout: () => void }) => {
+  const pathname = usePathname()
+  const page = findPage(pathname)
+
+  return (
+    <TooltipProvider>
+      <SidebarProvider>
+        <Sidebar collapsible="icon">
+          <SidebarHeader>
+            <span className="px-2 py-1 font-mono text-sm font-semibold group-data-[collapsible=icon]:hidden">stream-assets</span>
+          </SidebarHeader>
+          <SidebarContent>
+            <nav aria-label="サイト内の移動">
+              {PAGE_GROUPS.map((group) => (
+                <SidebarGroup key={group.label}>
+                  <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
+                  <SidebarGroupContent>
+                    <SidebarMenu>
+                      {group.pages.map((item) => (
+                        <SidebarMenuItem key={item.path}>
+                          <SidebarMenuButton
+                            isActive={item.path === pathname}
+                            tooltip={item.name}
+                            render={<Link href={item.path} aria-current={item.path === pathname ? 'page' : undefined} />}
+                          >
+                            <item.icon aria-hidden="true" />
+                            <span>{item.name}</span>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      ))}
+                    </SidebarMenu>
+                  </SidebarGroupContent>
+                </SidebarGroup>
+              ))}
+            </nav>
+          </SidebarContent>
+          <SidebarFooter>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <span className="truncate px-2 font-mono text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">{context.me.login}</span>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton tooltip="ログアウト" onClick={onLogout}>
+                  <LogOut aria-hidden="true" />
+                  <span>ログアウト</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarFooter>
+        </Sidebar>
+        <SidebarInset>
+          <header className="flex h-12 items-center gap-2 border-b px-4">
+            <SidebarTrigger aria-label="サイドバーを開閉する" />
+            <h1 className="text-sm font-medium">{page ? page.name : 'ページが見つかりません'}</h1>
+          </header>
+          {/* ギャラリー同士は同じ部品なので、ページが変わったら key で作り直して前のページの状態を持ち越さない */}
+          <div key={pathname} className="p-6">
+            {page ? page.render(context) : <NotFound pathname={pathname} />}
+          </div>
+        </SidebarInset>
+      </SidebarProvider>
+    </TooltipProvider>
+  )
+}
+
+export const App = ({ api }: { api: AdminApi }) => {
   const [session, setSession] = useState<Session>({ status: 'checking' })
 
   useEffect(() => {
@@ -185,6 +184,15 @@ export const App = ({ api }: { api: SessionApi }) => {
         </Centered>
       )
     case 'signed-in':
-      return <Shell me={session.me} onLogout={logout} />
+      return (
+        <Shell
+          context={{
+            api,
+            me: session.me,
+            onOverlayKeyChange: (overlayKey) => setSession({ status: 'signed-in', me: { ...session.me, overlayKey } }),
+          }}
+          onLogout={logout}
+        />
+      )
   }
 }
