@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <meta name="referrer" content="no-referrer" />
+    <title>アラートの管理 | stream-assets</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap"
+    />
+    <link rel="stylesheet" href="../src/core/gallery/gallery.css" />
+    <link rel="stylesheet" href="../src/admin/admin.css" />
+  </head>
+  <body>
+    <header class="masthead">
+      <a class="back" href="../">stream-assets</a>
+      <h1>アラートの管理</h1>
+      <p>チャンネルポイントの交換で流す素材を置き、どの報酬でどの素材を出すかを決める。</p>
+    </header>
+
+    <main class="admin" data-admin>
+      <p id="notice" class="notice" role="status"></p>
+      <div id="failure" class="failure" role="alert" hidden></div>
+
+      <section id="login" class="card" aria-labelledby="login-title" hidden>
+        <h2 id="login-title">ログイン</h2>
+        <p>配信者のTwitchアカウントでログインしてください。ほかのアカウントではログインできません。</p>
+        <a class="action" href="/api/auth/login">Twitchでログイン</a>
+      </section>
+
+      <div id="console" hidden>
+        <section class="card account" aria-label="ログイン中のアカウント">
+          <p><span id="login-name"></span> でログイン中</p>
+          <button type="button" id="logout" class="quiet">ログアウト</button>
+        </section>
+
+        <section class="card" aria-labelledby="overlay-title">
+          <h2 id="overlay-title">OBS用のURL</h2>
+          <label for="overlay-url">
+            OBSのブラウザソースに貼るURL（幅と高さは配信のキャンバスと同じ大きさ、1920×1080 など。背景は透過で、素材は中央に表示される）
+          </label>
+          <div class="output-row">
+            <!-- URLにはオーバーレイ用キーが含まれる。配信画面に映り込んでも読めないよう、伏せ字で表示する -->
+            <input id="overlay-url" type="password" readonly autocomplete="off" />
+            <button type="button" id="copy-url" class="action">URLをコピー</button>
+          </div>
+          <p class="hint">
+            URLが他人に知られたら、キーを再発行してください。再発行すると今のURLは使えなくなり、OBSのURLを貼り替える必要があります（反映に最大1分かかります）。
+          </p>
+          <button type="button" id="rotate-key" class="quiet">キーを再発行する</button>
+        </section>
+
+        <section class="card" aria-labelledby="media-title">
+          <h2 id="media-title">素材</h2>
+          <label for="media-file">画像・動画・音声のファイル（1つ50MBまで）</label>
+          <div class="output-row">
+            <input id="media-file" type="file" accept="image/*,video/*,audio/*" />
+            <button type="button" id="upload" class="action">アップロード</button>
+          </div>
+          <ul id="media-list" class="media-list"></ul>
+        </section>
+
+        <section class="card" aria-labelledby="triggers-title">
+          <h2 id="triggers-title">トリガー</h2>
+          <p class="hint">
+            報酬が交換されたら、上から順に探して最初に当てはまったトリガーの素材を流す。文言の <code>{user}</code> は交換した人の名前、<code>{reward}</code>
+            は報酬の名前に置き換わる。
+          </p>
+          <ol id="trigger-list" class="trigger-list"></ol>
+          <div class="button-row">
+            <button type="button" id="add-trigger" class="quiet">トリガーを足す</button>
+            <button type="button" id="save-triggers" class="action">トリガーを保存</button>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <script type="module" src="../src/admin/stage.ts"></script>
+  </body>
+</html>

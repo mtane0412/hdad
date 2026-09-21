@@ -1,12 +1,14 @@
 /**
  * 管理用の経路（/api/admin/*）
  *
- * 配信者のセッションが必要。アラートの設定の取得と保存、素材の一覧・アップロード・削除、オーバーレイ用キーの再発行を受け持つ。
+ * 配信者のセッションが必要。アラートの設定の取得と保存、素材の一覧・アップロード・削除、オーバーレイ用キーの再発行、
+ * トリガーの設定で選ぶチャンネルポイント報酬の一覧を受け持つ。
  */
 import { loadAlertConfig, parseAlertConfig, saveAlertConfig } from './alert-config'
 import { HttpError, STATUS, requireAdmin, type Context } from './http'
 import { listMedia, uploadMedia } from './media'
 import { rotateOverlayKey } from './overlay-key'
+import { getAccessToken } from './token'
 
 /** GET /api/admin/config */
 export const getConfig = async (context: Context): Promise<Response> => {
@@ -64,4 +66,17 @@ export const deleteMedia = async (context: Context): Promise<Response> => {
 export const postOverlayKey = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
   return Response.json({ overlayKey: await rotateOverlayKey(context.env.STORE) })
+}
+
+/**
+ * GET /api/admin/rewards: 配信者のチャンネルポイント報酬の一覧。トークンは応答に含めない。
+ *
+ * @throws AuthError トークンが保管されていない・更新できない
+ * @throws TwitchApiError Twitchが失敗を返した（チャンネルポイントを使えないチャンネルなど）
+ */
+export const getRewards = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  const { env, twitch, now } = context
+  const token = await getAccessToken(env.STORE, twitch, now)
+  return Response.json({ rewards: await twitch.listCustomRewards(token.accessToken, env.TWITCH_BROADCASTER_ID) })
 }
