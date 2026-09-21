@@ -45,10 +45,10 @@ const mediaUrl = (id: string): string => `${MEDIA_PATH}${encodeURIComponent(id)}
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
 /** 失敗の理由を、画面に出す行にする。設定の問題点があれば、1行ずつ並べる */
-const failureLines = (error: unknown, lead = ''): string[] =>
+const failureLines = (error: unknown): string[] =>
   error instanceof ApiError && error.problems.length > 0
     ? ['トリガーの設定に問題があります。直してから保存し直してください', ...error.problems.map((problem) => `・${describeProblem(problem)}`)]
-    : [`${lead}${errorMessage(error)}`]
+    : [errorMessage(error)]
 
 /** 実行の前に確かめる操作。確かめてから run を実行する */
 interface Confirmation {
@@ -167,6 +167,8 @@ export const AdminPage = ({ api, overlayKey, onOverlayKeyChange }: AdminPageProp
   const [drafts, setDrafts] = useState<readonly TriggerDraft[]>([])
   const [notice, setNotice] = useState('')
   const [failure, setFailure] = useState<readonly string[]>([])
+  // 報酬の一覧を取得できなかった理由。操作の失敗（failure）と分けて持ち、ほかの操作が成功しても消さない
+  const [rewardsFailure, setRewardsFailure] = useState('')
   const [busy, setBusy] = useState(false)
   const [confirmation, setConfirmation] = useState<Confirmation>()
   const fileRef = useRef<HTMLInputElement>(null)
@@ -202,7 +204,7 @@ export const AdminPage = ({ api, overlayKey, onOverlayKeyChange }: AdminPageProp
         if (!cancelled) setRewards(loadedRewards)
       },
       (error: unknown) => {
-        if (!cancelled) setFailure(failureLines(error, 'チャンネルポイント報酬の一覧を取得できませんでした: '))
+        if (!cancelled) setRewardsFailure(`チャンネルポイント報酬の一覧を取得できませんでした: ${errorMessage(error)}`)
       },
     )
     return () => {
@@ -301,6 +303,12 @@ export const AdminPage = ({ api, overlayKey, onOverlayKeyChange }: AdminPageProp
       <p role="status" className="min-h-5 text-sm">
         {notice}
       </p>
+      {rewardsFailure !== '' && (
+        <Alert variant="destructive">
+          <AlertTitle>報酬を選べません</AlertTitle>
+          <AlertDescription>{rewardsFailure}（「すべての報酬」は選べます）</AlertDescription>
+        </Alert>
+      )}
       {failure.length > 0 && (
         <Alert variant="destructive">
           <AlertTitle>操作に失敗しました</AlertTitle>

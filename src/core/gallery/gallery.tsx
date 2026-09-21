@@ -61,8 +61,18 @@ const subscribeToHash = (onChange: () => void): (() => void) => {
   return () => window.removeEventListener('hashchange', onChange)
 }
 
+/** ハッシュを素材IDとして読む。% だけのようにデコードできないハッシュは、そのままの文字列を返して「登録されていないID」として扱わせる */
+const readHashId = (): string => {
+  const raw = window.location.hash.slice(1)
+  try {
+    return decodeURIComponent(raw)
+  } catch {
+    return raw
+  }
+}
+
 /** URLのハッシュが指す素材ID（ハッシュなしは空文字） */
-const useHashId = (): string => useSyncExternalStore(subscribeToHash, () => decodeURIComponent(window.location.hash.slice(1)))
+const useHashId = (): string => useSyncExternalStore(subscribeToHash, readHashId)
 
 /** 値の変化が delay ミリ秒のあいだ止まってから、その値を返す */
 const useSettled = <T,>(value: T, delay: number): T => {

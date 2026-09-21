@@ -278,7 +278,11 @@ describe('読み込みの失敗', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('チャンネルポイント報酬の一覧を取得できませんでした: チャンネルポイントを使えないチャンネルです')
     expect(screen.getByRole('button', { name: 'アップロード' })).toBeInTheDocument()
+    // ほかの操作が成功しても、報酬を選べない理由は出したままにする（報酬の一覧はまだ取得できていない）
+    await userEvent.click(screen.getByRole('button', { name: 'トリガーを足す' }))
+    expect(await お知らせ('トリガーを足しました')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('チャンネルポイント報酬の一覧を取得できませんでした')
     // 保存済みの報酬はTwitchの一覧にないものとして選択肢に残る（黙って「すべての報酬」に変えない）
-    expect(screen.getByLabelText('報酬')).toHaveValue('reward-hakushu')
+    expect(screen.getAllByLabelText('報酬')[0]).toHaveValue('reward-hakushu')
   })
 })

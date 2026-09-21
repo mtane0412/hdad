@@ -110,6 +110,13 @@ describe('素材の一覧', () => {
     expect(await screen.findByRole('heading', { level: 2, name: '水玉' })).toBeInTheDocument()
   })
 
+  test('URLとして読めないハッシュ（% だけなど）でも落ちずに、登録されていないIDとして伝える', () => {
+    window.history.replaceState(null, '', '/wallpaper/#%')
+    render(背景のギャラリー())
+
+    expect(screen.getByRole('alert')).toHaveTextContent('背景「%」は登録されていません')
+  })
+
   test('レジストリが空なら、起動をやめてエラーにする', () => {
     // React がエラーを console.error にも出すので、テストの出力を汚さないよう黙らせる
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
