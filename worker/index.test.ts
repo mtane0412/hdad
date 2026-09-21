@@ -7,7 +7,7 @@
  * - オーバーレイ用キーを知らない人が購読の代行を使えないこと
  */
 import { describe, expect, it } from 'vitest'
-import { REQUIRED_SCOPES } from './eventsub'
+import { BOT_SCOPES, REQUIRED_SCOPES } from './eventsub'
 import { WEBHOOK_EVENT_TYPES } from './eventsub-webhook'
 import { createFakeBucket } from './fake-bucket'
 import { createFakeDatabase } from './fake-database'
@@ -35,8 +35,8 @@ const 環境を作る = (store = createFakeStore()) => {
   return { env, store }
 }
 
-/** Twitchの代わりに応答する fetch。ログインしてきた人のユーザーIDだけ切り替えられる */
-const Twitchの代役 = (loginUserId: string) => {
+/** Twitchの代わりに応答する fetch。ログインしてきた人のユーザーID・ログイン名・スコープを切り替えられる */
+const Twitchの代役 = (loginUserId: string, owner: { login?: string; scopes?: readonly string[] } = {}) => {
   const requests: Request[] = []
   const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const request = new Request(input, init)
@@ -45,7 +45,7 @@ const Twitchの代役 = (loginUserId: string) => {
       return Response.json({ access_token: 'test-access-token', refresh_token: 'リフレッシュトークン', expires_in: 14400 })
     }
     if (request.url === 'https://id.twitch.tv/oauth2/validate') {
-      return Response.json({ user_id: loginUserId, login: 'haishinsha', scopes: REQUIRED_SCOPES })
+      return Response.json({ user_id: loginUserId, login: owner.login ?? 'haishinsha', scopes: owner.scopes ?? REQUIRED_SCOPES })
     }
     if (request.url === 'https://api.twitch.tv/helix/eventsub/subscriptions') {
       return Response.json({ data: [] }, { status: 202 })
@@ -70,6 +70,22 @@ const ログインする = async (env: Env, fetchImpl: typeof fetch) => {
   const stateCookie = login.headers.getSetCookie()[0]!.split(';')[0]!
   return 呼び出す(
     new Request(`${サイト}/api/auth/callback?code=認可コード&state=${state}`, { headers: { Cookie: stateCookie } }),
+    env,
+    fetchImpl,
+  )
+}
+
+/** 配信者としてログイン済みであることを表すセッションのクッキー */
+const 配信者のセッションクッキー = async (env: Env) => `__Host-session=${await createSessionToken(配信者のID, env.SESSION_SECRET, 現在時刻)}`
+
+/** botの接続を開始 → 返ってきた state を使ってコールバックを呼ぶ、までをまとめて行う */
+const botを接続する = async (env: Env, fetchImpl: typeof fetch) => {
+  const session = await 配信者のセッションクッキー(env)
+  const login = await 呼び出す(new Request(`${サイト}/api/auth/login?role=bot`, { headers: { Cookie: session } }), env, fetchImpl)
+  const state = new URL(login.headers.get('Location')!).searchParams.get('state')!
+  const stateCookie = login.headers.getSetCookie()[0]!.split(';')[0]!
+  return 呼び出す(
+    new Request(`${サイト}/api/auth/callback?code=認可コード&state=${state}`, { headers: { Cookie: `${session}; ${stateCookie}` } }),
     env,
     fetchImpl,
   )
@@ -102,6 +118,90 @@ describe('GET /api/auth/login', () => {
     expect(cookie).toContain(`__Host-oauth-state=${state}`)
     expect(cookie).toContain('HttpOnly')
     expect(cookie).toContain('Secure')
+  })
+})
+
+describe('GET /api/auth/login?role=bot', () => {
+  it('配信者のセッションがなければ401を返す（誰でもbotアカウントを差し替えられないようにする）', async () => {
+    const { env } = 環境を作る()
+    const response = await 呼び出す(new Request(`${サイト}/api/auth/login?role=bot`), env)
+
+    expect(response.status).toBe(401)
+    expect(await エラーコード(response)).toBe('unauthorized')
+  })
+
+  it('配信者のセッションがあれば、botのスコープでTwitchの認可ページへ送る', async () => {
+    const { env } = 環境を作る()
+    const response = await 呼び出す(
+      new Request(`${サイト}/api/auth/login?role=bot`, { headers: { Cookie: await 配信者のセッションクッキー(env) } }),
+      env,
+    )
+
+    expect(response.status).toBe(302)
+    const location = new URL(response.headers.get('Location')!)
+    expect(location.searchParams.get('scope')).toBe(BOT_SCOPES.join(' '))
+  })
+
+  it('知らない役割を指定されたら400で拒否する', async () => {
+    const { env } = 環境を作る()
+    const response = await 呼び出す(
+      new Request(`${サイト}/api/auth/login?role=moderator`, { headers: { Cookie: await 配信者のセッションクッキー(env) } }),
+      env,
+    )
+
+    expect(response.status).toBe(400)
+    expect(await エラーコード(response)).toBe('invalid-role')
+  })
+})
+
+describe('GET /api/auth/callback（botの接続）', () => {
+  it('配信者とは別のアカウントでも、botとして接続できる', async () => {
+    const { env, store } = 環境を作る()
+    const twitch = Twitchの代役('67890', { login: 'haishinsha_bot', scopes: BOT_SCOPES })
+
+    const response = await botを接続する(env, twitch.fetchImpl)
+
+    expect(response.status).toBe(302)
+    expect(await loadToken(store, 'bot')).toMatchObject({ userId: '67890', login: 'haishinsha_bot' })
+    // 配信者のトークンは書き換えない
+    expect(await loadToken(store, 'broadcaster')).toBeNull()
+  })
+
+  it('botの接続では、配信者のセッションを新たに発行しない', async () => {
+    const { env } = 環境を作る()
+    const twitch = Twitchの代役('67890', { login: 'haishinsha_bot', scopes: BOT_SCOPES })
+
+    const response = await botを接続する(env, twitch.fetchImpl)
+
+    expect(response.headers.getSetCookie().some((cookie) => cookie.startsWith('__Host-session='))).toBe(false)
+  })
+
+  it('botの接続では、配信の記録のためのWebhook宛ての購読を登録しない（配信者のログイン時に揃えるため）', async () => {
+    const { env } = 環境を作る()
+    const twitch = Twitchの代役('67890', { login: 'haishinsha_bot', scopes: BOT_SCOPES })
+
+    await botを接続する(env, twitch.fetchImpl)
+
+    expect(twitch.requests.filter((request) => request.url.includes('/helix/eventsub/subscriptions'))).toHaveLength(0)
+  })
+
+  it('配信者のセッションが切れていたら、botのトークンを保存しない', async () => {
+    const { env, store } = 環境を作る()
+    const twitch = Twitchの代役('67890', { login: 'haishinsha_bot', scopes: BOT_SCOPES })
+    const session = await 配信者のセッションクッキー(env)
+    const login = await 呼び出す(new Request(`${サイト}/api/auth/login?role=bot`, { headers: { Cookie: session } }), env, twitch.fetchImpl)
+    const state = new URL(login.headers.get('Location')!).searchParams.get('state')!
+    const stateCookie = login.headers.getSetCookie()[0]!.split(';')[0]!
+
+    // 認可画面にいる間にログアウトした（セッションのクッキーを付けずに戻ってきた）場合
+    const response = await 呼び出す(
+      new Request(`${サイト}/api/auth/callback?code=認可コード&state=${state}`, { headers: { Cookie: stateCookie } }),
+      env,
+      twitch.fetchImpl,
+    )
+
+    expect(response.status).toBe(401)
+    expect(await loadToken(store, 'bot')).toBeNull()
   })
 })
 
