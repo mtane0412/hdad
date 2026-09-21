@@ -14,8 +14,8 @@ import { AuthError, loadToken, saveToken } from './token'
 const STATE_COOKIE = '__Host-oauth-state'
 /** Twitchの認可画面から戻ってくるまでの猶予（秒） */
 const STATE_TTL_SECONDS = 10 * 60
-/** ログインを終えた配信者を送る先（管理画面） */
-const ADMIN_PATH = '/admin/'
+/** ログインを終えた配信者を送る先（ダッシュボード） */
+const HOME_PATH = '/'
 export const CALLBACK_PATH = '/api/auth/callback'
 const MILLISECONDS_PER_SECOND = 1000
 
@@ -55,7 +55,7 @@ export const callback = async ({ request, url, env, twitch, now }: Context): Pro
   })
   await ensureOverlayKey(env.STORE)
 
-  const headers = new Headers({ Location: ADMIN_PATH })
+  const headers = new Headers({ Location: HOME_PATH })
   headers.append('Set-Cookie', setCookie(SESSION_COOKIE, await createSessionToken(owner.userId, env.SESSION_SECRET, now), SESSION_TTL_SECONDS))
   headers.append('Set-Cookie', setCookie(STATE_COOKIE, '', 0))
   return new Response(null, { status: STATUS.found, headers })
