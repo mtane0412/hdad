@@ -5,7 +5,8 @@
  * 「失敗や想定外の応答をエラーとして扱うか」を確認する。
  */
 import { describe, expect, it } from 'vitest'
-import { ApiError, createAdminApi } from './api'
+import { ApiError } from '@/core/api'
+import { createAdminApi } from './api'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const サイト = 'https://stream-assets.example.com'

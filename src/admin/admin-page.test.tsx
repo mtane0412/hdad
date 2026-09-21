@@ -13,7 +13,8 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { AdminPage } from './admin-page'
-import { ApiError, type AdminApi, type MediaItem, type Reward, type StoredTrigger } from './api'
+import { ApiError } from '@/core/api'
+import { type AdminApi, type MediaItem, type Reward, type StoredTrigger } from './api'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 
