@@ -172,15 +172,36 @@ npm run preview:worker  # ビルドして、Workersと同じ配信挙動をロ�
 
 Cloudflare Workers で公開します。設定は `wrangler.jsonc` にあり、Viteのビルド出力（`dist/client/`）を静的アセットとして配信し、`/api/*` だけを Worker のコード（`worker/`）で処理します。
 
-`main` へのpushを受けて、Cloudflareの Workers Builds がビルドとデプロイを行います。初回だけ次の設定が必要です。
+### フォークして自分の配信で使う（Deploy to Cloudflare）
+
+下のボタンを押すと、このリポジトリがあなたのGitHubアカウントにフォークされ、Cloudflareが `wrangler.jsonc` を読んでKV（`STORE`）・R2（`MEDIA`）・D1（`DB`）を作り、`.dev.vars.example` にある5つのシークレットの入力を求めたうえで、デプロイまで行います（入力欄に出る説明は `package.json` の `cloudflare.bindings` に書いてあります）。
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/mtane0412/stream-assets)
+
+押す前に、次の2つを済ませてください。
+
+1. **R2を有効にする** — Cloudflareダッシュボードの Storage & databases > R2 で一度チェックアウトします。無料枠（保存10GB・転送無料）だけを使う場合でも支払い方法の登録を求められますが、無料枠内なら請求は発生しません
+2. **Twitchのアプリを登録する** — [Twitch開発者コンソール](https://dev.twitch.tv/console/apps)でアプリを作り、クライアントIDとクライアントシークレットを控えます。OAuthのリダイレクトURLは公開先のドメインが決まってからでよいので、ここでは仮の値（`http://localhost:5173/api/auth/callback` など）で構いません。あわせて配信者のTwitchユーザーID（数字）を調べます（[Twitch CLI](https://dev.twitch.tv/docs/cli/) なら `twitch api get users -q login=<ログイン名>`）
+
+ボタンを押したあとは、次の順で仕上げます。
+
+1. 画面の案内に従ってリソースを作り、5つのシークレット（`TWITCH_CLIENT_ID`・`TWITCH_CLIENT_SECRET`・`TWITCH_BROADCASTER_ID`・`SESSION_SECRET`・`EVENTSUB_SECRET`）を入力してデプロイする
+2. 公開されたURL（`https://stream-assets.<サブドメイン>.workers.dev/`）を控え、Twitch開発者コンソールのアプリのOAuthのリダイレクトURLを `https://<控えたドメイン>/api/auth/callback` に変える
+3. 公開されたURLを開き、「Twitchでログイン」から配信者のアカウントでログインする。`TWITCH_BROADCASTER_ID` と異なるアカウントは拒否されます。このログインで、配信の記録のためのWebhook宛ての購読も揃います
+4. `/admin/` で素材をアップロードしてトリガーを決め、OBS用のURLをコピーする
+
+以降は、フォークしたリポジトリの `main` へpushするたびに Workers Builds がビルドとデプロイを行います。
+
+### 自分でリポジトリを接続する場合
+
+ボタンを使わずに接続することもできます。初回だけ次の設定が必要です。
 
 1. Cloudflareダッシュボードの Workers & Pages で「Import a repository」を選び、このリポジトリを接続する
-2. ビルドコマンドに `npm run build`、デプロイコマンドに `npx wrangler deploy` を指定する
-3. 公開されたURL（`https://stream-assets.<サブドメイン>.workers.dev/`）を開いて表示を確認する
+2. ビルドコマンドに `npm run build`、デプロイコマンドに `npm run deploy` を指定する（`npm run deploy` はデプロイに続けて、配信の記録（後述）のテーブルのマイグレーションも適用します）
+3. `.dev.vars.example` にある5つのシークレットを、`npx wrangler secret put <名前>` かダッシュボードの Settings > Variables and Secrets で設定する
+4. 公開されたURL（`https://stream-assets.<サブドメイン>.workers.dev/`）を開いて表示を確認する
 
-2のデプロイコマンドは、配信の記録（後述）のテーブルも一緒に更新するなら `npx wrangler deploy && npx wrangler d1 migrations apply DB --remote` にします。
-
-手元から直接デプロイする場合は、`npx wrangler login` のあとに `npm run deploy` を実行します（デプロイに続けてD1のマイグレーションも適用します）。
+手元から直接デプロイする場合は、`npx wrangler login` のあとに `npm run build && npm run deploy` を実行します（`npm run deploy` 自体はビルドを行いません。Workers Builds とDeployボタンがビルドを別に実行するため、二重にビルドしないようにしてあります）。
 
 `.github/workflows/ci.yml` はLint・型チェック・テスト・ビルドと `wrangler deploy --dry-run` による設定の検証だけを行い、デプロイはしません。
 
