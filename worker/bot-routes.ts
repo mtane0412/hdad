@@ -13,6 +13,7 @@
  * （ログイン名・ユーザーID）と、接続し直しが要るかを判断するための不足スコープだけにする。
  */
 import { BOT_SCOPES } from './eventsub'
+import { syncWebhookSubscriptions } from './eventsub-webhook'
 import { HttpError, STATUS, requireAdmin, type Context } from './http'
 import { deleteToken, getAccessToken, loadToken, saveToken, type StoredToken } from './token'
 
@@ -58,6 +59,8 @@ export const getBot = async (context: Context): Promise<Response> => {
 export const deleteBot = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
   await deleteToken(context.env.STORE, 'bot')
+  // botがいなくなるとチャットを購読できないので、購読を揃え直して消す
+  await syncWebhookSubscriptions(context)
   return new Response(null, { status: STATUS.noContent })
 }
 
@@ -129,5 +132,7 @@ export const postBotDeviceToken = async (context: Context): Promise<Response> =>
     ...owner,
   }
   await saveToken(env.STORE, 'bot', token)
+  // チャットの購読の条件にbotのユーザーIDが入るので、接続できた時点で揃え直す
+  await syncWebhookSubscriptions(context)
   return Response.json({ status: 'connected', bot: toBotStatus(token) })
 }

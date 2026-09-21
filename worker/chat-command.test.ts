@@ -1,0 +1,117 @@
+/**
+ * チャットのコマンドの判定（chat-command.ts）のテスト
+ *
+ * 通知の中身を取り出す部分と、何を送り返すかを決める部分は通信を伴わないので、ここでまとめて確かめる。
+ * 特に重要なのは、bot自身の発言に応答しないこと（応答するとbotがbotに応答し続けて止まらなくなる）。
+ */
+import { describe, expect, it } from 'vitest'
+import { readChatMessage, resolveReply, type BotCommand, type ChatMessage } from './chat-command'
+
+const botのID = '67890'
+
+const コマンド一覧: readonly BotCommand[] = [
+  { name: 'ping', reply: '@{user} pong' },
+  { name: 'discord', reply: 'Discordはこちらです: https://example.com/discord' },
+]
+
+const 視聴者の発言 = (text: string): ChatMessage => ({
+  broadcasterUserId: '12345',
+  messageId: 'message-id-0123456789',
+  chatterUserId: '11111',
+  chatterUserLogin: 'shichousha',
+  text,
+})
+
+describe('readChatMessage', () => {
+  it('通知から、発言者とメッセージの本文を取り出す', () => {
+    const body = {
+      event: {
+        broadcaster_user_id: '12345',
+        chatter_user_id: '11111',
+        chatter_user_login: 'shichousha',
+        message_id: 'message-id-0123456789',
+        message: { text: '!ping', fragments: [{ type: 'text', text: '!ping' }] },
+      },
+    }
+
+    expect(readChatMessage(body)).toEqual({
+      broadcasterUserId: '12345',
+      messageId: 'message-id-0123456789',
+      chatterUserId: '11111',
+      chatterUserLogin: 'shichousha',
+      text: '!ping',
+    })
+  })
+
+  it('event が無ければエラーになる', () => {
+    expect(() => readChatMessage({})).toThrow()
+  })
+
+  it('本文（message.text）が無ければエラーになる', () => {
+    const body = {
+      event: { broadcaster_user_id: '12345', chatter_user_id: '11111', chatter_user_login: 'shichousha', message_id: 'message-id-0123456789', message: {} },
+    }
+    expect(() => readChatMessage(body)).toThrow()
+  })
+
+  it('発言者のIDが無ければエラーになる（bot自身の発言かを判別できないため）', () => {
+    const body = {
+      event: { broadcaster_user_id: '12345', chatter_user_login: 'shichousha', message_id: 'message-id-0123456789', message: { text: '!ping' } },
+    }
+    expect(() => readChatMessage(body)).toThrow()
+  })
+})
+
+describe('resolveReply', () => {
+  it('コマンドに一致すれば、送り返す文言を返す', () => {
+    expect(resolveReply(コマンド一覧, 視聴者の発言('!ping'), botのID)).toBe('@shichousha pong')
+  })
+
+  it('差し込み語のない応答文は、そのまま返す', () => {
+    expect(resolveReply(コマンド一覧, 視聴者の発言('!discord'), botのID)).toBe('Discordはこちらです: https://example.com/discord')
+  })
+
+  it('コマンドの後ろに文字が続いていても、コマンドとして扱う', () => {
+    expect(resolveReply(コマンド一覧, 視聴者の発言('!ping 元気ですか'), botのID)).toBe('@shichousha pong')
+  })
+
+  it('大文字で書かれていてもコマンドとして扱う', () => {
+    expect(resolveReply(コマンド一覧, 視聴者の発言('!PING'), botのID)).toBe('@shichousha pong')
+  })
+
+  it('前に空白があってもコマンドとして扱う', () => {
+    expect(resolveReply(コマンド一覧, 視聴者の発言('  !ping'), botのID)).toBe('@shichousha pong')
+  })
+
+  it('bot自身の発言には応答しない（応答し続けて止まらなくなるため）', () => {
+    const botの発言: ChatMessage = {
+      broadcasterUserId: '12345',
+      messageId: 'message-id-9999',
+      chatterUserId: botのID,
+      chatterUserLogin: 'haishinsha_bot',
+      text: '!ping',
+    }
+
+    expect(resolveReply(コマンド一覧, botの発言, botのID)).toBeNull()
+  })
+
+  it('コマンドではない普通の発言には応答しない', () => {
+    expect(resolveReply(コマンド一覧, 視聴者の発言('こんばんは'), botのID)).toBeNull()
+  })
+
+  it('知らないコマンドには応答しない', () => {
+    expect(resolveReply(コマンド一覧, 視聴者の発言('!shiranai'), botのID)).toBeNull()
+  })
+
+  it('感嘆符だけの発言には応答しない', () => {
+    expect(resolveReply(コマンド一覧, 視聴者の発言('!'), botのID)).toBeNull()
+  })
+
+  it('文中に出てきたコマンドには応答しない（先頭のときだけ）', () => {
+    expect(resolveReply(コマンド一覧, 視聴者の発言('さっき !ping と打ちました'), botのID)).toBeNull()
+  })
+
+  it('コマンドが1つも登録されていなければ、何にも応答しない', () => {
+    expect(resolveReply([], 視聴者の発言('!ping'), botのID)).toBeNull()
+  })
+})

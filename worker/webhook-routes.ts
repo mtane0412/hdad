@@ -7,9 +7,11 @@
  *
  * 注意: 2xx 以外を返すとTwitchは再送し、失敗が続くと購読を失効させる。想定しない通知を黙って捨てず、失敗として返す（Fail-Fast）。
  */
-import { COUNTED_EVENT_TYPES, STREAM_OFFLINE, STREAM_ONLINE, verifyWebhookSignature } from './eventsub-webhook'
+import { BUILT_IN_COMMANDS, readChatMessage, resolveReply } from './chat-command'
+import { CHAT_MESSAGE, COUNTED_EVENT_TYPES, STREAM_OFFLINE, STREAM_ONLINE, verifyWebhookSignature } from './eventsub-webhook'
 import { HttpError, STATUS, type Context } from './http'
 import { recordEvent, recordFailure, recordStreamOffline, recordStreamOnline } from './stats-store'
+import { getAccessToken, loadToken } from './token'
 
 export const WEBHOOK_PATH = '/api/eventsub/webhook'
 
@@ -76,7 +78,46 @@ const recordNotification = async ({ db, messageId, occurredAt, body }: Notificat
   throw new HttpError(STATUS.badRequest, 'unexpected-event', `購読していない種類の通知です: ${type}`)
 }
 
-export const eventsubWebhook = async ({ request, env, now }: Context): Promise<Response> => {
+/**
+ * チャットの通知に応答する。
+ *
+ * 配信の記録（D1）には書かない。チャットは件数の桁が違い、1通ごとに書くと配信の記録と書き込みの枠を食い合うため。
+ *
+ * 注意: 応答を送ると決めたあとの失敗は、Twitchへの応答を2xxのままにして記録に残す。
+ * 2xx以外を返すとTwitchは同じ通知を再送するので、送信が成功していた場合に二重投稿になってしまう。
+ * 黙って無視するのではなく収集の失敗として残し、管理画面（/api/admin/stats/failures）から気づけるようにする。
+ */
+const replyToChatMessage = async (context: Context, body: Record<string, unknown>): Promise<void> => {
+  const { env, twitch, now } = context
+  // 通知の中身が想定と違えば、黙って捨てずに「不正な通知」として400で返す（Workerの不具合を表す500と区別する）
+  const message = readChatMessage(body, invalid)
+
+  // このWorkerが扱う配信者以外のチャンネルのチャットには応答しない。
+  // 応答先は常に TWITCH_BROADCASTER_ID なので、古い購読が残っていると、他人のチャットの発言に対して
+  // こちらのチャンネルで応答してしまう。受け取り自体は成功として返す（2xx以外だとTwitchが再送し続ける）
+  if (message.broadcasterUserId !== env.TWITCH_BROADCASTER_ID) return
+
+  // botを切断した直後など、購読が残っていても応答できないことがある。その場合は受け取るだけにする
+  const bot = await loadToken(env.STORE, 'bot')
+  if (!bot) return
+
+  const reply = resolveReply(BUILT_IN_COMMANDS, message, bot.userId)
+  if (reply === null) return
+
+  try {
+    const token = await getAccessToken(env.STORE, 'bot', twitch, now)
+    await twitch.sendChatMessage(token.accessToken, {
+      broadcasterId: env.TWITCH_BROADCASTER_ID,
+      senderId: token.userId,
+      message: reply,
+    })
+  } catch (error) {
+    await recordFailure(env.DB, 'chat-reply-failed', error instanceof Error ? error.message : String(error), now)
+  }
+}
+
+export const eventsubWebhook = async (context: Context): Promise<Response> => {
+  const { request, env, now } = context
   const messageId = request.headers.get(HEADER.messageId)
   const timestamp = request.headers.get(HEADER.timestamp)
   const signature = request.headers.get(HEADER.signature)
@@ -100,9 +141,12 @@ export const eventsubWebhook = async ({ request, env, now }: Context): Promise<R
       if (typeof body.challenge !== 'string') throw invalid('購読の確認の通知に challenge がありません')
       return new Response(body.challenge, { status: STATUS.ok, headers: { 'Content-Type': 'text/plain' } })
     }
-    case 'notification':
-      await recordNotification({ db: env.DB, messageId, occurredAt, body })
+    case 'notification': {
+      // チャットは記録せず応答に回す。ほかのイベントは配信の記録として数える
+      if (readSubscription(body).type === CHAT_MESSAGE) await replyToChatMessage(context, body)
+      else await recordNotification({ db: env.DB, messageId, occurredAt, body })
       return new Response(null, { status: STATUS.noContent })
+    }
     case 'revocation': {
       // 購読が失効すると以後のイベントを数えられない。管理画面から気づけるよう、収集の失敗として残す
       const { type, status } = readSubscription(body)
