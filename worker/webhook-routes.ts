@@ -92,6 +92,11 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
   // 通知の中身が想定と違えば、黙って捨てずに「不正な通知」として400で返す（Workerの不具合を表す500と区別する）
   const message = readChatMessage(body, invalid)
 
+  // このWorkerが扱う配信者以外のチャンネルのチャットには応答しない。
+  // 応答先は常に TWITCH_BROADCASTER_ID なので、古い購読が残っていると、他人のチャットの発言に対して
+  // こちらのチャンネルで応答してしまう。受け取り自体は成功として返す（2xx以外だとTwitchが再送し続ける）
+  if (message.broadcasterUserId !== env.TWITCH_BROADCASTER_ID) return
+
   // botを切断した直後など、購読が残っていても応答できないことがある。その場合は受け取るだけにする
   const bot = await loadToken(env.STORE, 'bot')
   if (!bot) return

@@ -20,6 +20,8 @@ export interface BotCommand {
 
 /** 通知から取り出した、1件の発言 */
 export interface ChatMessage {
+  /** 発言があったチャンネルの持ち主のユーザーID。このWorkerが扱う配信者のものかを確かめるのに使う */
+  broadcasterUserId: string
   /** Twitchが振ったメッセージのID */
   messageId: string
   /** 発言者のユーザーID。bot自身かどうかの判別に使う */
@@ -54,12 +56,24 @@ export const readChatMessage = (body: Record<string, unknown>, toError: (message
   const { event } = body
   if (!isRecord(event)) throw toError('channel.chat.message の通知に event がありません')
 
-  const { chatter_user_id: chatterUserId, chatter_user_login: chatterUserLogin, message_id: messageId, message } = event
+  const {
+    broadcaster_user_id: broadcasterUserId,
+    chatter_user_id: chatterUserId,
+    chatter_user_login: chatterUserLogin,
+    message_id: messageId,
+    message,
+  } = event
   const text = isRecord(message) ? message.text : undefined
-  if (typeof chatterUserId !== 'string' || typeof chatterUserLogin !== 'string' || typeof messageId !== 'string' || typeof text !== 'string') {
-    throw toError('channel.chat.message の通知に chatter_user_id・chatter_user_login・message_id・message.text が揃っていません')
+  if (
+    typeof broadcasterUserId !== 'string' ||
+    typeof chatterUserId !== 'string' ||
+    typeof chatterUserLogin !== 'string' ||
+    typeof messageId !== 'string' ||
+    typeof text !== 'string'
+  ) {
+    throw toError('channel.chat.message の通知に broadcaster_user_id・chatter_user_id・chatter_user_login・message_id・message.text が揃っていません')
   }
-  return { messageId, chatterUserId, chatterUserLogin, text }
+  return { broadcasterUserId, messageId, chatterUserId, chatterUserLogin, text }
 }
 
 /**

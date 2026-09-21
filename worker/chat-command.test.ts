@@ -15,6 +15,7 @@ const コマンド一覧: readonly BotCommand[] = [
 ]
 
 const 視聴者の発言 = (text: string): ChatMessage => ({
+  broadcasterUserId: '12345',
   messageId: 'message-id-0123456789',
   chatterUserId: '11111',
   chatterUserLogin: 'shichousha',
@@ -34,6 +35,7 @@ describe('readChatMessage', () => {
     }
 
     expect(readChatMessage(body)).toEqual({
+      broadcasterUserId: '12345',
       messageId: 'message-id-0123456789',
       chatterUserId: '11111',
       chatterUserLogin: 'shichousha',
@@ -47,14 +49,14 @@ describe('readChatMessage', () => {
 
   it('本文（message.text）が無ければエラーになる', () => {
     const body = {
-      event: { chatter_user_id: '11111', chatter_user_login: 'shichousha', message_id: 'message-id-0123456789', message: {} },
+      event: { broadcaster_user_id: '12345', chatter_user_id: '11111', chatter_user_login: 'shichousha', message_id: 'message-id-0123456789', message: {} },
     }
     expect(() => readChatMessage(body)).toThrow()
   })
 
   it('発言者のIDが無ければエラーになる（bot自身の発言かを判別できないため）', () => {
     const body = {
-      event: { chatter_user_login: 'shichousha', message_id: 'message-id-0123456789', message: { text: '!ping' } },
+      event: { broadcaster_user_id: '12345', chatter_user_login: 'shichousha', message_id: 'message-id-0123456789', message: { text: '!ping' } },
     }
     expect(() => readChatMessage(body)).toThrow()
   })
@@ -82,7 +84,13 @@ describe('resolveReply', () => {
   })
 
   it('bot自身の発言には応答しない（応答し続けて止まらなくなるため）', () => {
-    const botの発言: ChatMessage = { messageId: 'message-id-9999', chatterUserId: botのID, chatterUserLogin: 'haishinsha_bot', text: '!ping' }
+    const botの発言: ChatMessage = {
+      broadcasterUserId: '12345',
+      messageId: 'message-id-9999',
+      chatterUserId: botのID,
+      chatterUserLogin: 'haishinsha_bot',
+      text: '!ping',
+    }
 
     expect(resolveReply(コマンド一覧, botの発言, botのID)).toBeNull()
   })

@@ -305,6 +305,27 @@ describe('チャットの通知（channel.chat.message）', () => {
     expect(await listFailures(env.DB)).toMatchObject([{ code: 'chat-reply-failed', message: expect.stringContaining('Missing scope') }])
   })
 
+  it('別のチャンネルのチャットには応答しない（古い購読が残っていても、他人のチャットで反応しないため）', async () => {
+    const { env } = await bot接続済みの環境()
+    const twitch = 送信に応えるTwitch()
+    const 別のチャンネルの通知 = {
+      subscription: { type: 'channel.chat.message' },
+      event: {
+        broadcaster_user_id: '99999',
+        chatter_user_id: '11111',
+        chatter_user_login: 'shichousha',
+        message_id: 'chat-message-2',
+        message: { text: '!ping' },
+      },
+    }
+
+    const response = await 呼び出す(Twitchからの通知({ body: 別のチャンネルの通知 }), env, twitch.fetchImpl)
+
+    // 受け取り自体は成功として返す（2xx以外だとTwitchが再送し続けるため）
+    expect(response.status).toBe(204)
+    expect(twitch.送信したチャット).toHaveLength(0)
+  })
+
   it('通知の中身が想定と違えば、黙って捨てずに400にする', async () => {
     const { env } = await bot接続済みの環境()
     const twitch = 送信に応えるTwitch()
