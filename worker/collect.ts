@@ -32,7 +32,7 @@ const toFailureCode = (error: unknown): string => {
 }
 
 const collect = async ({ db, store, twitch, broadcasterId, now }: CollectStatsOptions): Promise<void> => {
-  let token = await getAccessToken(store, twitch, now)
+  let token = await getAccessToken(store, 'broadcaster', twitch, now)
   let refreshed = false
 
   /** 保管しているトークンでTwitchを呼ぶ。期限内でもTwitch側で無効になっていることがあるので、401なら1回だけ取り直してやり直す */
@@ -43,7 +43,7 @@ const collect = async ({ db, store, twitch, broadcasterId, now }: CollectStatsOp
       const tokenRejected = error instanceof TwitchApiError && error.status === UNAUTHORIZED
       if (!tokenRejected || refreshed) throw error
       refreshed = true
-      token = await getAccessToken(store, twitch, now, { forceRefresh: true })
+      token = await getAccessToken(store, 'broadcaster', twitch, now, { forceRefresh: true })
       return await call(token.accessToken)
     }
   }

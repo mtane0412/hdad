@@ -5,7 +5,7 @@
  * スコープ不足やTwitch側の拒否は、一部だけ登録して黙って進まずエラーにする。
  */
 import { describe, expect, it, vi } from 'vitest'
-import { buildSubscriptions, REQUIRED_SCOPES, subscribeAll } from './eventsub'
+import { BOT_SCOPES, buildSubscriptions, REQUIRED_SCOPES, subscribeAll } from './eventsub'
 import { createFakeStore } from './fake-store'
 import { saveToken, type StoredToken } from './token'
 import { TwitchApiError, type EventSubSubscription } from './twitch'
@@ -48,6 +48,24 @@ describe('buildSubscriptions', () => {
   })
 })
 
+describe('REQUIRED_SCOPES / BOT_SCOPES', () => {
+  it('配信者には、イベントの購読に要るスコープと channel:bot を要求する', () => {
+    // channel:bot は、botのチャットをアプリアクセストークンで購読するために配信者が認可するもの（イベントには紐づかない）
+    expect(REQUIRED_SCOPES).toContain('channel:bot')
+    expect(REQUIRED_SCOPES).toContain('channel:read:redemptions')
+    expect(REQUIRED_SCOPES).toContain('moderator:read:followers')
+  })
+
+  it('配信者に要求するスコープに重複がない', () => {
+    expect(REQUIRED_SCOPES).toEqual([...new Set(REQUIRED_SCOPES)])
+  })
+
+  it('botには、チャットの読み書きに要るスコープを要求する', () => {
+    // user:read:chat と user:bot はチャットの受信（Phase 2）、user:write:chat は送信に要る
+    expect(BOT_SCOPES).toEqual(['user:bot', 'user:read:chat', 'user:write:chat'])
+  })
+})
+
 describe('subscribeAll', () => {
   const 更新できるTwitch = (createSubscription: (accessToken: string, subscription: EventSubSubscription) => Promise<void>) => ({
     refresh: vi.fn(async () => ({ accessToken: '新しいアクセストークン', refreshToken: '新しいリフレッシュトークン', expiresIn: 14400 })),
@@ -56,7 +74,7 @@ describe('subscribeAll', () => {
 
   it('すべての購読を登録し、登録したイベントの種類を返す', async () => {
     const store = createFakeStore()
-    await saveToken(store, 保存済みトークン(REQUIRED_SCOPES))
+    await saveToken(store, 'broadcaster', 保存済みトークン(REQUIRED_SCOPES))
     const twitch = 更新できるTwitch(async () => {})
 
     const types = await subscribeAll({ store, twitch, broadcasterId: '12345', sessionId: 'セッションID', now: 現在時刻 })
@@ -68,7 +86,7 @@ describe('subscribeAll', () => {
 
   it('保存済みトークンのスコープが足りなければ、Twitchへ送る前に不足分を示すエラーになる', async () => {
     const store = createFakeStore()
-    await saveToken(store, 保存済みトークン(['channel:read:redemptions']))
+    await saveToken(store, 'broadcaster', 保存済みトークン(['channel:read:redemptions']))
     const twitch = 更新できるTwitch(async () => {})
 
     await expect(
@@ -79,7 +97,7 @@ describe('subscribeAll', () => {
 
   it('Twitchに401（トークン無効）を返されたら、トークンを取り直して同じ購読をやり直す', async () => {
     const store = createFakeStore()
-    await saveToken(store, 保存済みトークン(REQUIRED_SCOPES))
+    await saveToken(store, 'broadcaster', 保存済みトークン(REQUIRED_SCOPES))
     const twitch = 更新できるTwitch(async (accessToken) => {
       if (accessToken === '保存済みのアクセストークン') throw new TwitchApiError(401, 'Invalid OAuth token')
     })
@@ -94,7 +112,7 @@ describe('subscribeAll', () => {
 
   it('取り直したトークンでも401なら、やり直しを繰り返さずエラーにする', async () => {
     const store = createFakeStore()
-    await saveToken(store, 保存済みトークン(REQUIRED_SCOPES))
+    await saveToken(store, 'broadcaster', 保存済みトークン(REQUIRED_SCOPES))
     const twitch = 更新できるTwitch(async () => {
       throw new TwitchApiError(401, 'Invalid OAuth token')
     })
@@ -107,7 +125,7 @@ describe('subscribeAll', () => {
 
   it('Twitchに拒否された購読があれば、どのイベントで失敗したかを含むエラーにする', async () => {
     const store = createFakeStore()
-    await saveToken(store, 保存済みトークン(REQUIRED_SCOPES))
+    await saveToken(store, 'broadcaster', 保存済みトークン(REQUIRED_SCOPES))
     const twitch = 更新できるTwitch(async (_accessToken, subscription) => {
       if (subscription.type === 'channel.follow') throw new TwitchApiError(403, 'subscription missing proper authorization')
     })

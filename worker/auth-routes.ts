@@ -1,18 +1,23 @@
 /**
  * Twitchログインの経路（/api/auth/* と /api/me）
  *
- * 認可コードフローでTwitchにログインし、配信者本人ならトークンを保管してセッションを開始する。
- * あわせて、配信の記録のためのWebhook宛てのEventSub購読を揃える（eventsub-webhook.ts）。
- * 環境変数で指定した配信者のユーザーID以外のアカウントは拒否する。
+ * 認可コードフローでTwitchにログインし、トークンを役割ごとに保管する。役割は2つある。
+ * - broadcaster（既定）: 配信者本人のログイン。環境変数で指定したユーザーID以外は拒否し、セッションを開始して
+ *   配信の記録のためのWebhook宛てのEventSub購読を揃える（eventsub-webhook.ts）
+ * - bot: チャットを読み書きするアカウントの接続。配信者とは別のアカウントが前提なのでユーザーIDは問わず、
+ *   そのぶん**配信者のセッションがある人しか開始・完了できない**ようにする（誰でもbotを差し替えられないようにするため）
+ *
+ * 注意: 役割はクエリではなく state（クッキーと突き合わせる値）に載せて認可画面の往復を渡す。
+ * クエリだけで運ぶと、戻ってきた時点で役割を書き換えられてしまうため。
  */
-import { REQUIRED_SCOPES } from './eventsub'
+import { BOT_SCOPES, REQUIRED_SCOPES } from './eventsub'
 import { ensureWebhookSubscriptions } from './eventsub-webhook'
 import { HttpError, SESSION_COOKIE, STATUS, readCookie, requireSession, setCookie, type Context } from './http'
 import { ensureOverlayKey, loadOverlayKey } from './overlay-key'
 import { randomToken, timingSafeEqual } from './secret'
 import { SESSION_TTL_SECONDS, createSessionToken } from './session'
 import { recordFailure } from './stats-store'
-import { AuthError, loadToken, saveToken } from './token'
+import { AuthError, loadToken, saveToken, type TokenRole } from './token'
 import { TwitchApiError } from './twitch'
 import { WEBHOOK_PATH } from './webhook-routes'
 
@@ -21,15 +26,49 @@ const STATE_COOKIE = '__Host-oauth-state'
 const STATE_TTL_SECONDS = 10 * 60
 /** ログインを終えた配信者を送る先（ダッシュボード） */
 const HOME_PATH = '/'
+/** botの接続を終えた配信者を送る先（管理画面のチャットボットのページ） */
+const BOT_PATH = '/bot/'
 export const CALLBACK_PATH = '/api/auth/callback'
 const MILLISECONDS_PER_SECOND = 1000
+/** state の中で、役割とランダムな値を区切る文字（ランダムな値には現れない） */
+const STATE_SEPARATOR = '.'
 
-export const login = ({ url, twitch }: Context): Response => {
-  const state = randomToken()
+/** 役割ごとの、認可画面で要求するスコープと、終わった後に送る先 */
+const ROLES: Record<TokenRole, { scopes: readonly string[]; returnPath: string }> = {
+  broadcaster: { scopes: REQUIRED_SCOPES, returnPath: HOME_PATH },
+  bot: { scopes: BOT_SCOPES, returnPath: BOT_PATH },
+}
+
+const isTokenRole = (value: string): value is TokenRole => value in ROLES
+
+/** クエリの ?role= を読む。省略時は配信者のログイン */
+const readRole = (url: URL): TokenRole => {
+  const role = url.searchParams.get('role')
+  if (role === null) return 'broadcaster'
+  if (!isTokenRole(role)) throw new HttpError(STATUS.badRequest, 'invalid-role', `${role} というログインの役割はありません`)
+  return role
+}
+
+/** state から役割を取り出す。役割の部分が壊れていれば、ログインのやり直しを促す */
+const roleFromState = (state: string): TokenRole => {
+  const role = state.slice(0, state.indexOf(STATE_SEPARATOR))
+  if (!isTokenRole(role)) {
+    throw new HttpError(STATUS.badRequest, 'invalid-state', 'ログインの手順が正しくありません。/api/auth/login からやり直してください')
+  }
+  return role
+}
+
+export const login = async (context: Context): Promise<Response> => {
+  const { url, twitch } = context
+  const role = readRole(url)
+  // botの接続は、配信者本人しか始められないようにする（Twitchの認可画面まで進ませない）
+  if (role === 'bot') await requireSession(context)
+
+  const state = `${role}${STATE_SEPARATOR}${randomToken()}`
   return new Response(null, {
     status: STATUS.found,
     headers: {
-      Location: twitch.authorizeUrl(`${url.origin}${CALLBACK_PATH}`, state, REQUIRED_SCOPES),
+      Location: twitch.authorizeUrl(`${url.origin}${CALLBACK_PATH}`, state, ROLES[role].scopes),
       'Set-Cookie': setCookie(STATE_COOKIE, state, STATE_TTL_SECONDS),
     },
   })
@@ -57,7 +96,8 @@ const prepareWebhookSubscriptions = async ({ url, env, twitch, now }: Pick<Conte
   }
 }
 
-export const callback = async ({ request, url, env, twitch, now }: Context): Promise<Response> => {
+export const callback = async (context: Context): Promise<Response> => {
+  const { request, url, env, twitch, now } = context
   const denied = url.searchParams.get('error')
   if (denied) throw new HttpError(STATUS.badRequest, 'authorization-denied', `Twitchでの認可が完了しませんでした（${denied}）`)
 
@@ -68,23 +108,30 @@ export const callback = async ({ request, url, env, twitch, now }: Context): Pro
     throw new HttpError(STATUS.badRequest, 'invalid-state', 'ログインの手順が正しくありません。/api/auth/login からやり直してください')
   }
 
+  const role = roleFromState(state)
+  // botの接続は、配信者本人しか完了できないようにする（認可画面にいる間にログアウトした場合もここで止まる）
+  if (role === 'bot') await requireSession(context)
+
   const grant = await twitch.exchangeCode(code, `${url.origin}${CALLBACK_PATH}`)
   const owner = await twitch.validate(grant.accessToken)
-  if (owner.userId !== env.TWITCH_BROADCASTER_ID) {
+  // 配信者のログインだけは本人確認する。botは別アカウントが前提なのでユーザーIDを問わない
+  if (role === 'broadcaster' && owner.userId !== env.TWITCH_BROADCASTER_ID) {
     throw new HttpError(STATUS.forbidden, 'not-broadcaster', `このTwitchアカウント（${owner.login}）ではログインできません`)
   }
 
-  await saveToken(env.STORE, {
+  await saveToken(env.STORE, role, {
     accessToken: grant.accessToken,
     refreshToken: grant.refreshToken,
     expiresAt: now + grant.expiresIn * MILLISECONDS_PER_SECOND,
     ...owner,
   })
-  await ensureOverlayKey(env.STORE)
-  await prepareWebhookSubscriptions({ url, env, twitch, now })
 
-  const headers = new Headers({ Location: HOME_PATH })
-  headers.append('Set-Cookie', setCookie(SESSION_COOKIE, await createSessionToken(owner.userId, env.SESSION_SECRET, now), SESSION_TTL_SECONDS))
+  const headers = new Headers({ Location: ROLES[role].returnPath })
+  if (role === 'broadcaster') {
+    await ensureOverlayKey(env.STORE)
+    await prepareWebhookSubscriptions({ url, env, twitch, now })
+    headers.append('Set-Cookie', setCookie(SESSION_COOKIE, await createSessionToken(owner.userId, env.SESSION_SECRET, now), SESSION_TTL_SECONDS))
+  }
   headers.append('Set-Cookie', setCookie(STATE_COOKIE, '', 0))
   return new Response(null, { status: STATUS.found, headers })
 }
@@ -94,7 +141,7 @@ export const logout = (): Response =>
 
 export const me = async (context: Context): Promise<Response> => {
   await requireSession(context)
-  const token = await loadToken(context.env.STORE)
+  const token = await loadToken(context.env.STORE, 'broadcaster')
   if (!token) throw new AuthError('not-logged-in', 'Twitchのトークンが保存されていません。ログインし直してください')
   return Response.json({ userId: token.userId, login: token.login, overlayKey: await loadOverlayKey(context.env.STORE) })
 }

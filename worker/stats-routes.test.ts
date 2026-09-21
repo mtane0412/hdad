@@ -164,7 +164,7 @@ describe('handleScheduled（cron の入口）', () => {
 
   it('保管しているトークンでTwitchから取得し、配信とフォロワー数を記録する', async () => {
     const { env, store } = 環境を作る()
-    await saveToken(store, {
+    await saveToken(store, 'broadcaster', {
       accessToken: '保管中のアクセストークン',
       refreshToken: '保管中のリフレッシュトークン',
       expiresAt: 現在時刻 + 60 * 60 * 1000,

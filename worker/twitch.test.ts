@@ -467,3 +467,44 @@ describe('getUserLogin', () => {
     await expect(クライアントを作る(fetchImpl).getUserLogin('test-app-token', '12345')).rejects.toBeInstanceOf(TwitchApiError)
   })
 })
+
+describe('sendChatMessage', () => {
+  it('チャットへメッセージを送る', async () => {
+    const { requests, fetchImpl } = 応答を返すfetch(200, { data: [{ message_id: 'abc', is_sent: true }] })
+
+    await クライアントを作る(fetchImpl).sendChatMessage('bot-access-token', {
+      broadcasterId: '12345',
+      senderId: '67890',
+      message: 'こんにちは、配信を見に来ました',
+    })
+
+    const request = requests[0]!
+    expect(request.url).toBe('https://api.twitch.tv/helix/chat/messages')
+    expect(request.method).toBe('POST')
+    expect(request.headers.get('Authorization')).toBe('Bearer bot-access-token')
+    expect(await request.json()).toEqual({ broadcaster_id: '12345', sender_id: '67890', message: 'こんにちは、配信を見に来ました' })
+  })
+
+  it('Twitchが失敗を返したら TwitchApiError になる', async () => {
+    const { fetchImpl } = 応答を返すfetch(401, { status: 401, message: 'Missing scope: user:write:chat' })
+
+    await expect(
+      クライアントを作る(fetchImpl).sendChatMessage('bot-access-token-without-scope', { broadcasterId: '12345', senderId: '67890', message: 'テスト' }),
+    ).rejects.toMatchObject({ name: 'TwitchApiError', status: 401 })
+  })
+
+  it('200で返ってきても is_sent が false なら、送信できなかったものとしてエラーにする', async () => {
+    // TwitchはAutoModに止められた場合などに、200のまま is_sent: false と drop_reason を返す
+    const { fetchImpl } = 応答を返すfetch(200, {
+      data: [{ message_id: '', is_sent: false, drop_reason: { code: 'msg_rejected', message: 'メッセージがAutoModに保留されました' } }],
+    })
+
+    const error = await クライアントを作る(fetchImpl)
+      .sendChatMessage('bot-access-token', { broadcasterId: '12345', senderId: '67890', message: 'あやしい文言' })
+      .catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(TwitchApiError)
+    // どうして送れなかったのかを管理画面で読めるよう、Twitchの理由をそのまま含める
+    expect((error as TwitchApiError).message).toContain('メッセージがAutoModに保留されました')
+  })
+})

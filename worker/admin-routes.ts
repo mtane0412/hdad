@@ -77,6 +77,6 @@ export const postOverlayKey = async (context: Context): Promise<Response> => {
 export const getRewards = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
   const { env, twitch, now } = context
-  const token = await getAccessToken(env.STORE, twitch, now)
+  const token = await getAccessToken(env.STORE, 'broadcaster', twitch, now)
   return Response.json({ rewards: await twitch.listCustomRewards(token.accessToken, env.TWITCH_BROADCASTER_ID) })
 }
