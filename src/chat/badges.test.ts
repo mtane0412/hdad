@@ -34,11 +34,11 @@ const 応答を返すfetch = (status: number, body: unknown) => {
 }
 
 describe('loadBadges', () => {
-  it('Workerに配信者IDを渡して取得し、「種類/版」から画像を引ける表にする', async () => {
+  it('Workerから取得し、「種類/版」から画像を引ける表にする', async () => {
     const { paths, fetchImpl } = 応答を返すfetch(200, 応答)
-    const badges = await loadBadges('配信者ID-1', fetchImpl)
+    const badges = await loadBadges(fetchImpl)
 
-    expect(paths).toEqual(['/api/chat/badges?broadcaster=%E9%85%8D%E4%BF%A1%E8%80%85ID-1'])
+    expect(paths).toEqual(['/api/chat/badges'])
     expect(badges.get(badgeKey({ setId: 'subscriber', versionId: '12' }))).toEqual({
       url: 'https://example.test/badges/sub-12.png',
       title: '1-Year Subscriber',
@@ -51,17 +51,17 @@ describe('loadBadges', () => {
 
   it('取得していない種類・版を引くと undefined になる（表示側が自前の絵に切り替えられるようにする）', async () => {
     const { fetchImpl } = 応答を返すfetch(200, 応答)
-    const badges = await loadBadges('配信者ID-1', fetchImpl)
+    const badges = await loadBadges(fetchImpl)
     expect(badges.get(badgeKey({ setId: 'subscriber', versionId: '99' }))).toBeUndefined()
   })
 
   it('Workerが失敗を返したらエラーにする（黙って空の表にしない）', async () => {
     const { fetchImpl } = 応答を返すfetch(400, { error: { code: 'invalid-broadcaster', message: '配信者IDが不正です' } })
-    await expect(loadBadges('配信者ID-1', fetchImpl)).rejects.toThrow('配信者IDが不正です')
+    await expect(loadBadges(fetchImpl)).rejects.toThrow('配信者IDが不正です')
   })
 
   it('応答が想定した形でなければエラーにする', async () => {
     const { fetchImpl } = 応答を返すfetch(200, { badges: [{ setId: 'broadcaster' }] })
-    await expect(loadBadges('配信者ID-1', fetchImpl)).rejects.toThrow()
+    await expect(loadBadges(fetchImpl)).rejects.toThrow()
   })
 })

@@ -90,21 +90,21 @@ describe('loadCheermotes', () => {
     ],
   }
 
-  it('Workerに配信者IDを渡して取得し、小文字の接頭辞から引ける表にする', async () => {
+  it('Workerから取得し、小文字の接頭辞から引ける表にする', async () => {
     const { paths, fetchImpl } = 応答を返すfetch(200, 応答)
-    const loaded = await loadCheermotes('12345', fetchImpl)
+    const loaded = await loadCheermotes(fetchImpl)
 
-    expect(paths).toEqual(['/api/chat/cheermotes?broadcaster=12345'])
+    expect(paths).toEqual(['/api/chat/cheermotes'])
     expect(loaded.get('cheer')?.prefix).toBe('Cheer')
   })
 
   it('Workerが失敗を返したらエラーにする（黙って空の表にしない）', async () => {
     const { fetchImpl } = 応答を返すfetch(400, { error: { code: 'invalid-broadcaster', message: '配信者IDが不正です' } })
-    await expect(loadCheermotes('12345', fetchImpl)).rejects.toThrow('配信者IDが不正です')
+    await expect(loadCheermotes(fetchImpl)).rejects.toThrow('配信者IDが不正です')
   })
 
   it('応答が想定した形でなければエラーにする', async () => {
     const { fetchImpl } = 応答を返すfetch(200, { cheermotes: [{ prefix: 'Cheer' }] })
-    await expect(loadCheermotes('12345', fetchImpl)).rejects.toThrow()
+    await expect(loadCheermotes(fetchImpl)).rejects.toThrow()
   })
 })

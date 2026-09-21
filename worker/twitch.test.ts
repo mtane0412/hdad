@@ -450,3 +450,20 @@ describe('getCheermotes', () => {
     await expect(クライアントを作る(fetchImpl).getCheermotes('test-app-token', '配信者ID-1')).rejects.toBeInstanceOf(TwitchApiError)
   })
 })
+
+describe('getUserLogin', () => {
+  it('ユーザーIDからログイン名を取得する', async () => {
+    const { requests, fetchImpl } = 応答を返すfetch(200, { data: [{ id: '12345', login: 'tanenob', display_name: 'たねのぶ' }] })
+    const login = await クライアントを作る(fetchImpl).getUserLogin('test-app-token', '12345')
+
+    const url = new URL(requests[0]!.url)
+    expect(url.origin + url.pathname).toBe('https://api.twitch.tv/helix/users')
+    expect(url.searchParams.get('id')).toBe('12345')
+    expect(login).toBe('tanenob')
+  })
+
+  it('そのIDのユーザーがいなければエラーになる', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { data: [] })
+    await expect(クライアントを作る(fetchImpl).getUserLogin('test-app-token', '12345')).rejects.toBeInstanceOf(TwitchApiError)
+  })
+})

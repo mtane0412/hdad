@@ -8,6 +8,7 @@
 import { showError } from '../core/mount'
 import { parseParams } from '../core/params'
 import { badgeKey, loadBadges, type BadgeMap } from './badges'
+import { loadChannel } from './channel'
 import { applyCheermotes, loadCheermotes, type CheermoteMap } from './cheermotes'
 import { connectChat } from './connection'
 import { sourceOf } from './definition'
@@ -21,7 +22,7 @@ const NOUN = 'チャットボックス'
 // fetch をそのまま渡すと this が外れて Illegal invocation になるブラウザがあるので、包んで渡す
 const callWorker: typeof fetch = (input, init) => fetch(input, init)
 
-const start = (): void => {
+const start = async (): Promise<void> => {
   const root = document.querySelector<HTMLElement>('[data-chat]')
   if (!root) throw new Error('data-chat 属性を持つ要素が見つかりません')
 
@@ -51,35 +52,38 @@ const start = (): void => {
   }
 
   /**
-   * チャンネルごとの素材（サードパーティエモート・公式バッジ・Cheermote）を読み込む。
+   * サードパーティエモートを読み込む。
    * ROOMSTATE は設定変更や再接続のたびに届くので、同じチャンネルでは1回だけにする。
-   * どれも取得できなくてもチャットは表示し続けるが、黙って無視せず画面に知らせる。
+   * 一部のサービスが落ちていてもチャットは表示し続けるが、黙って無視せず画面に知らせる。
    */
-  const loadChannelAssets = (roomId: string): void => {
-    if (roomId === loadedRoomId) return
+  const loadEmotes = (roomId: string): void => {
+    if (!params.thirdparty || roomId === loadedRoomId) return
     loadedRoomId = roomId
-
-    if (params.thirdparty) {
-      void loadThirdPartyEmotes(roomId, fetchJson).then(({ emotes, failures }) => {
-        thirdPartyEmotes = emotes
-        if (failures.length > 0) view.addNotice(`${failures.join('・')} のエモートを取得できませんでした`)
-      })
-    }
-    if (params.badges) {
-      void loadBadges(roomId, callWorker)
-        .then((badges) => {
-          officialBadges = badges
-        })
-        .catch(() => view.addNotice('公式のバッジ画像を取得できませんでした（自前の絵で表示します）'))
-    }
-    void loadCheermotes(roomId, callWorker)
-      .then((loaded) => {
-        cheermotes = loaded
-      })
-      .catch(() => view.addNotice('Cheermote（ビッツの絵）を取得できませんでした'))
+    void loadThirdPartyEmotes(roomId, fetchJson).then(({ emotes, failures }) => {
+      thirdPartyEmotes = emotes
+      if (failures.length > 0) view.addNotice(`${failures.join('・')} のエモートを取得できませんでした`)
+    })
   }
 
-  connectChat(source.channel, {
+  // 接続先はこのWorkerが扱う配信者のチャンネル。取得できなければ画面にエラーを出して止まる
+  const channel = await loadChannel(callWorker)
+
+  // 公式バッジと Cheermote は対象が決まっているので、ROOMSTATE を待たずに読み込む。
+  // 取得できなくてもチャットは表示し続ける（バッジは自前の絵、Cheermote は文字のまま）
+  if (params.badges) {
+    void loadBadges(callWorker)
+      .then((badges) => {
+        officialBadges = badges
+      })
+      .catch(() => view.addNotice('公式のバッジ画像を取得できませんでした（自前の絵で表示します）'))
+  }
+  void loadCheermotes(callWorker)
+    .then((loaded) => {
+      cheermotes = loaded
+    })
+    .catch(() => view.addNotice('Cheermote（ビッツの絵）を取得できませんでした'))
+
+  connectChat(channel.login, {
     onEvent: (event) => {
       switch (event.type) {
         case 'message':
@@ -102,7 +106,7 @@ const start = (): void => {
           view.removeById(event.id)
           break
         case 'room':
-          loadChannelAssets(event.roomId)
+          loadEmotes(event.roomId)
           break
         case 'notice':
           view.addNotice(event.text)
@@ -117,9 +121,8 @@ const start = (): void => {
   })
 }
 
-try {
-  start()
-} catch (error) {
+// 接続先の取得を待つため、起動は非同期になる。失敗は同期・非同期のどちらも画面に出す
+start().catch((error: unknown) => {
   showError(error, NOUN)
   throw error
-}
+})

@@ -37,7 +37,7 @@ import { media, overlayConfig, subscribe } from './overlay-routes'
 import { getStatsFailures, getStatsFollowers, getStatsSession, getStatsSessions } from './stats-routes'
 import { AuthError } from './token'
 import { WEBHOOK_PATH, eventsubWebhook } from './webhook-routes'
-import { chatBadges, chatCheermotes } from './chat-routes'
+import { chatBadges, chatChannel, chatCheermotes } from './chat-routes'
 import { TwitchApiError, createTwitchClient, type TwitchClient } from './twitch'
 
 export type { Env } from './http'
@@ -76,6 +76,7 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/admin/stats/failures', handle: getStatsFailures },
   { method: 'POST', path: '/api/eventsub/subscriptions', handle: subscribe },
   { method: 'POST', path: WEBHOOK_PATH, handle: eventsubWebhook },
+  { method: 'GET', path: '/api/chat/channel', handle: chatChannel },
   { method: 'GET', path: '/api/chat/badges', handle: chatBadges },
   { method: 'GET', path: '/api/chat/cheermotes', handle: chatCheermotes },
   { method: 'GET', path: '/api/overlay/config', handle: overlayConfig },

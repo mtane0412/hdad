@@ -54,6 +54,7 @@ const Twitchの代役 = () => {
     if (url.pathname === '/helix/chat/badges/global') return Response.json({ data: [全体のバッジ] })
     if (url.pathname === '/helix/chat/badges') return Response.json({ data: [チャンネルのバッジ] })
     if (url.pathname === '/helix/bits/cheermotes') return Response.json({ data: [cheermote] })
+    if (url.pathname === '/helix/users') return Response.json({ data: [{ id: 配信者のID, login: 'tanenob' }] })
     throw new Error(`テストで想定していない通信です: ${url.toString()}`)
   }
   return { urls, fetchImpl }
@@ -66,7 +67,7 @@ describe('GET /api/chat/badges', () => {
   it('全体のバッジとチャンネル固有のバッジをまとめて返す（ログインもキーも要らない）', async () => {
     const { env } = 環境を作る()
     const { fetchImpl } = Twitchの代役()
-    const response = await 取得する(env, `/api/chat/badges?broadcaster=${配信者のID}`, fetchImpl)
+    const response = await 取得する(env, '/api/chat/badges', fetchImpl)
 
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({
@@ -87,7 +88,7 @@ describe('GET /api/chat/badges', () => {
         data: [url.pathname === '/helix/chat/badges/global' ? { ...チャンネルのバッジ, versions: [{ id: '12', image_url_2x: 'https://example.test/全体の絵', title: 'Subscriber' }] } : チャンネルのバッジ],
       })
     }
-    const body = await 取得する(env, `/api/chat/badges?broadcaster=${配信者のID}`, fetchImpl).then((r) => r.json())
+    const body = await 取得する(env, '/api/chat/badges', fetchImpl).then((r) => r.json())
 
     expect(body).toEqual({
       badges: [{ setId: 'subscriber', versions: [{ id: '12', imageUrl: 'https://example.test/badges/subscriber-12/2', title: '1-Year Subscriber' }] }],
@@ -97,9 +98,9 @@ describe('GET /api/chat/badges', () => {
   it('一度取得した内容はKVに貯め、二度目はTwitchへ問い合わせない（キーの要らない経路なので、そのままでは呼ばれ放題になる）', async () => {
     const { env } = 環境を作る()
     const { urls, fetchImpl } = Twitchの代役()
-    await 取得する(env, `/api/chat/badges?broadcaster=${配信者のID}`, fetchImpl)
+    await 取得する(env, '/api/chat/badges', fetchImpl)
     const 一度目の通信回数 = urls.length
-    const 二度目 = await 取得する(env, `/api/chat/badges?broadcaster=${配信者のID}`, fetchImpl)
+    const 二度目 = await 取得する(env, '/api/chat/badges', fetchImpl)
 
     expect(urls.length).toBe(一度目の通信回数)
     expect(二度目.status).toBe(200)
@@ -109,7 +110,7 @@ describe('GET /api/chat/badges', () => {
   it('共有キャッシュに載せてよいことを伝える（誰が見ても同じ内容のため）', async () => {
     const { env } = 環境を作る()
     const { fetchImpl } = Twitchの代役()
-    const response = await 取得する(env, `/api/chat/badges?broadcaster=${配信者のID}`, fetchImpl)
+    const response = await 取得する(env, '/api/chat/badges', fetchImpl)
     expect(response.headers.get('Cache-Control')).toContain('public')
   })
 
@@ -117,48 +118,19 @@ describe('GET /api/chat/badges', () => {
     const { env, store } = 環境を作る()
     await store.put(`chat-badges:${配信者のID}`, 'これはJSONではありません')
     const { fetchImpl } = Twitchの代役()
-    const response = await 取得する(env, `/api/chat/badges?broadcaster=${配信者のID}`, fetchImpl)
+    const response = await 取得する(env, '/api/chat/badges', fetchImpl)
 
     expect(response.status).toBe(200)
     expect(await response.json()).toHaveProperty('badges')
   })
 
-  it('この配信者以外のIDは、Twitchへ問い合わせる前に 403 で断る（キーの要らない経路から、他人のIDで呼ばせない）', async () => {
-    const { env, store } = 環境を作る()
-    const { urls, fetchImpl } = Twitchの代役()
-    const response = await 取得する(env, '/api/chat/badges?broadcaster=99999', fetchImpl)
-
-    expect(response.status).toBe(403)
-    expect(await response.json()).toMatchObject({ error: { code: 'unsupported-broadcaster' } })
-    expect(urls).toEqual([])
-    // KVに知らないIDの項目を作らせない
-    expect([...store.entries.keys()]).toEqual([])
-  })
-
-  it('broadcaster の指定が無ければ、400 で断る（黙って全体のバッジだけ返さない）', async () => {
-    const { env } = 環境を作る()
-    const { fetchImpl } = Twitchの代役()
-    const response = await 取得する(env, '/api/chat/badges', fetchImpl)
-
-    expect(response.status).toBe(400)
-    expect(await response.json()).toMatchObject({ error: { code: 'invalid-broadcaster' } })
-  })
-
-  it('broadcaster が数字でなければ、Twitchへ問い合わせる前に 400 で断る', async () => {
-    const { env } = 環境を作る()
-    const { urls, fetchImpl } = Twitchの代役()
-    const response = await 取得する(env, '/api/chat/badges?broadcaster=あいうえお', fetchImpl)
-
-    expect(response.status).toBe(400)
-    expect(urls).toEqual([])
-  })
 })
 
 describe('GET /api/chat/cheermotes', () => {
   it('Cheermote の一覧を、段階ごとの最小ビッツ数・色・画像とともに返す', async () => {
     const { env } = 環境を作る()
     const { fetchImpl } = Twitchの代役()
-    const response = await 取得する(env, `/api/chat/cheermotes?broadcaster=${配信者のID}`, fetchImpl)
+    const response = await 取得する(env, '/api/chat/cheermotes', fetchImpl)
 
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({
@@ -169,16 +141,32 @@ describe('GET /api/chat/cheermotes', () => {
   it('一度取得した内容はKVに貯め、二度目はTwitchへ問い合わせない', async () => {
     const { env } = 環境を作る()
     const { urls, fetchImpl } = Twitchの代役()
-    await 取得する(env, `/api/chat/cheermotes?broadcaster=${配信者のID}`, fetchImpl)
+    await 取得する(env, '/api/chat/cheermotes', fetchImpl)
     const 一度目の通信回数 = urls.length
-    await 取得する(env, `/api/chat/cheermotes?broadcaster=${配信者のID}`, fetchImpl)
+    await 取得する(env, '/api/chat/cheermotes', fetchImpl)
 
     expect(urls.length).toBe(一度目の通信回数)
   })
 
-  it('broadcaster が数字でなければ 400 で断る', async () => {
+})
+
+describe('GET /api/chat/channel', () => {
+  it('このWorkerが扱う配信者のチャンネル名を返す（チャットボックスはURLにチャンネル名を持たないため）', async () => {
     const { env } = 環境を作る()
     const { fetchImpl } = Twitchの代役()
-    expect((await 取得する(env, '/api/chat/cheermotes?broadcaster=-1', fetchImpl)).status).toBe(400)
+    const response = await 取得する(env, '/api/chat/channel', fetchImpl)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ login: 'tanenob' })
+  })
+
+  it('一度取得した内容はKVに貯め、二度目はTwitchへ問い合わせない', async () => {
+    const { env } = 環境を作る()
+    const { urls, fetchImpl } = Twitchの代役()
+    await 取得する(env, '/api/chat/channel', fetchImpl)
+    const 一度目の通信回数 = urls.length
+    await 取得する(env, '/api/chat/channel', fetchImpl)
+
+    expect(urls.length).toBe(一度目の通信回数)
   })
 })

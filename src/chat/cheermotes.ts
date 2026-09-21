@@ -40,13 +40,12 @@ const isCheermote = (value: unknown): value is Cheermote =>
   isRecord(value) && typeof value.prefix === 'string' && Array.isArray(value.tiers) && value.tiers.every(isTier)
 
 /**
- * Cheermote の一覧を取得する。
+ * Cheermote の一覧を取得する。対象のチャンネルはWorker側で決まっている。
  *
- * @param broadcasterId TwitchのチャンネルID（ROOMSTATE の room-id）
  * @param fetchImpl 通信の実装。fetch をそのまま渡すと this が外れるブラウザがあるため、包んだものを受け取る
  */
-export const loadCheermotes = async (broadcasterId: string, fetchImpl: typeof fetch): Promise<CheermoteMap> => {
-  const body = await createCaller(fetchImpl)(`/api/chat/cheermotes?broadcaster=${encodeURIComponent(broadcasterId)}`)
+export const loadCheermotes = async (fetchImpl: typeof fetch): Promise<CheermoteMap> => {
+  const body = await createCaller(fetchImpl)('/api/chat/cheermotes')
   const cheermotes = readList(body, 'cheermotes', isCheermote)
   return new Map(cheermotes.map((cheermote) => [cheermote.prefix.toLowerCase(), cheermote]))
 }

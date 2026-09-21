@@ -16,6 +16,7 @@ const FOLLOWERS_URL = 'https://api.twitch.tv/helix/channels/followers'
 const GLOBAL_BADGES_URL = 'https://api.twitch.tv/helix/chat/badges/global'
 const CHANNEL_BADGES_URL = 'https://api.twitch.tv/helix/chat/badges'
 const CHEERMOTES_URL = 'https://api.twitch.tv/helix/bits/cheermotes'
+const USERS_URL = 'https://api.twitch.tv/helix/users'
 /** バッジ・Cheermote の画像は複数の大きさで届く。オーバーレイでは2倍のものを使う */
 const IMAGE_SCALE = '2'
 /** Twitchの応答として成り立っていない（必要な項目がない）ときに使う状態コード */
@@ -119,6 +120,8 @@ export interface TwitchClient {
   getChatBadges(accessToken: string, broadcasterId: string | undefined): Promise<ChatBadgeSet[]>
   /** Cheermote（ビッツの絵）の一覧。全体のものと、指定したチャンネル固有のものが返る。スコープは不要 */
   getCheermotes(accessToken: string, broadcasterId: string): Promise<Cheermote[]>
+  /** ユーザーIDからログイン名（twitch.tv/ の後ろの部分）を引く。スコープは不要 */
+  getUserLogin(accessToken: string, userId: string): Promise<string>
 }
 
 /** バッジの版（同じ種類でも、サブスクの階層やビッツの段階で絵が変わる） */
@@ -387,6 +390,17 @@ export const createTwitchClient = ({ clientId, clientSecret, fetch: fetchImpl }:
       const { data } = await getHelix(url, accessToken)
       if (!Array.isArray(data)) throw new TwitchApiError(BAD_GATEWAY, 'TwitchのCheermoteの応答に data の配列がありません')
       return data.map(toCheermote)
+    },
+
+    getUserLogin: async (accessToken, userId) => {
+      const url = new URL(USERS_URL)
+      url.searchParams.set('id', userId)
+      const { data } = await getHelix(url, accessToken)
+      const user: unknown = Array.isArray(data) ? data[0] : undefined
+      if (!isRecord(user) || typeof user.login !== 'string') {
+        throw new TwitchApiError(BAD_GATEWAY, `TwitchにユーザーID ${userId} のログイン名がありません`)
+      }
+      return user.login
     },
   }
 }

@@ -35,13 +35,12 @@ const isBadgeSet = (value: unknown): value is BadgeSetResponse =>
   isRecord(value) && typeof value.setId === 'string' && Array.isArray(value.versions) && value.versions.every(isBadgeVersion)
 
 /**
- * 公式のバッジ画像を取得する。
+ * 公式のバッジ画像を取得する。対象のチャンネルはWorker側で決まっている。
  *
- * @param broadcasterId TwitchのチャンネルID（ROOMSTATE の room-id）
  * @param fetchImpl 通信の実装。fetch をそのまま渡すと this が外れるブラウザがあるため、包んだものを受け取る
  */
-export const loadBadges = async (broadcasterId: string, fetchImpl: typeof fetch): Promise<BadgeMap> => {
-  const body = await createCaller(fetchImpl)(`/api/chat/badges?broadcaster=${encodeURIComponent(broadcasterId)}`)
+export const loadBadges = async (fetchImpl: typeof fetch): Promise<BadgeMap> => {
+  const body = await createCaller(fetchImpl)('/api/chat/badges')
   const sets = readList(body, 'badges', isBadgeSet)
   const badges = new Map<string, BadgeImage>()
   for (const set of sets) {

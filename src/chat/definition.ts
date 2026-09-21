@@ -7,20 +7,10 @@
  * パラメータはCSSのカスタムプロパティとしてCSSへ渡す。メッセージのHTML構造は全デザイン共通（view.ts）。
  */
 import { withAlpha } from '../core/background'
-import { ParamError, type ParamSchema, type ParamValues } from '../core/params'
-
-/** Twitchのログイン名に使える文字（英数字とアンダースコア、25文字まで） */
-const CHANNEL_NAME = /^[A-Za-z0-9_]{1,25}$/
+import type { ParamSchema, ParamValues } from '../core/params'
 
 /** 全デザイン共通のパラメータ。各デザインのスキーマの先頭に展開して使う */
 export const commonChatSchema = {
-  channel: {
-    type: 'string',
-    default: '',
-    pattern: CHANNEL_NAME,
-    example: 'your_channel',
-    description: 'Twitchのチャンネル名（必須。twitch.tv/ の後ろの部分）',
-  },
   demo: {
     type: 'boolean',
     default: false,
@@ -72,22 +62,13 @@ export const defineChat = <T extends ChatSchema>(
 export const panelColor = (panel: string, opacity: number): string =>
   panel === 'transparent' ? panel : withAlpha(panel, opacity)
 
-/** 書き込みの取得元 */
-export type ChatSource = { readonly type: 'demo' } | { readonly type: 'live'; readonly channel: string }
-
 /**
- * パラメータから書き込みの取得元を決める。
- *
- * @throws ParamError channel も demo も指定されていない場合（黙ってサンプル表示にはしない）
+ * 書き込みの取得元。
+ * 本番（live）の接続先はこのWorkerが扱う配信者のチャンネルに固定なので、ここでは持たない
+ * （チャンネル名は stage.ts が /api/chat/channel から受け取る）。
  */
-export const sourceOf = ({ channel, demo }: Pick<CommonChatParams, 'channel' | 'demo'>): ChatSource => {
-  if (demo) return { type: 'demo' }
-  if (channel === '') {
-    throw new ParamError([
-      'channel: Twitchのチャンネル名を指定してください（例: ?channel=your_channel）',
-      '配置の調整用にサンプルを表示する場合は ?demo=true を指定してください',
-    ])
-  }
-  // IRCのチャンネル名は小文字で指定する必要がある
-  return { type: 'live', channel: channel.toLowerCase() }
-}
+export type ChatSource = { readonly type: 'demo' } | { readonly type: 'live' }
+
+/** パラメータから書き込みの取得元を決める */
+export const sourceOf = ({ demo }: Pick<CommonChatParams, 'demo'>): ChatSource =>
+  demo ? { type: 'demo' } : { type: 'live' }

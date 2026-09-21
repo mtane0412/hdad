@@ -6,15 +6,14 @@
  * どちらもTwitchでは誰でも読める公開情報で、スコープも要らない（アプリアクセストークンで足りる）ため、
  * オーバーレイ用キーでは守らない。チャットボックスのURLに合言葉を埋めずに済ませるためでもある。
  *
+ * 対象はこのWorkerが扱う配信者（TWITCH_BROADCASTER_ID）に固定で、呼び出し側は配信者を指定しない。
  * 一方でキーが無い＝呼ばれ放題になるので、取得した内容はKVに貯めて、Twitchへの問い合わせを抑える。
  * バッジもCheermoteも滅多に変わらないため、しばらく古い内容を返しても実害はない。
  */
-import { HttpError, STATUS, type Context } from './http'
+import type { Context } from './http'
 import type { KeyValueStore } from './store'
 import type { ChatBadgeSet, Cheermote } from './twitch'
 
-/** TwitchのユーザーID（数字のみ）。チャットボックスはIRCの ROOMSTATE で受け取ったIDをそのまま渡してくる */
-const BROADCASTER_ID = /^\d+$/
 /** KVに貯めた内容を使い回す時間（ミリ秒）。バッジもCheermoteも滅多に変わらない */
 const CACHE_TTL_MS = 60 * 60 * 1000
 /** ブラウザと共有キャッシュに持たせる時間（秒）。KVの貯め置きと同じ長さにする */
@@ -60,42 +59,16 @@ const withCache = async <T>(store: KeyValueStore, key: string, now: number, load
   return value
 }
 
-/**
- * ?broadcaster= に指定された配信者のIDを読む。
- *
- * このWorkerは配信者1人のために動いているので、その配信者のID以外は断る。
- * キーが要らない経路なので、任意のIDを受けると、知らないIDぶんの問い合わせとKVの項目を
- * いくらでも作らせてしまうため（他のチャンネルを映す場合、バッジは自前の絵で表示される）。
- */
-const requireBroadcasterId = (url: URL, broadcasterId: string): string => {
-  const broadcaster = url.searchParams.get('broadcaster') ?? ''
-  if (!BROADCASTER_ID.test(broadcaster)) {
-    throw new HttpError(
-      STATUS.badRequest,
-      'invalid-broadcaster',
-      '?broadcaster= に、数字のTwitchユーザーID（チャットのチャンネルID）を指定してください',
-    )
-  }
-  if (broadcaster !== broadcasterId) {
-    throw new HttpError(
-      STATUS.forbidden,
-      'unsupported-broadcaster',
-      'このWorkerが扱えるのは、設定された配信者のチャンネルだけです',
-    )
-  }
-  return broadcaster
-}
-
 const jsonResponse = (body: unknown): Response => Response.json(body, { headers: { 'Cache-Control': CACHE_CONTROL } })
 
 /**
- * GET /api/chat/badges?broadcaster=: チャットのバッジ画像の一覧を返す。
+ * GET /api/chat/badges: チャットのバッジ画像の一覧を返す。
  *
  * 全体のバッジと、そのチャンネル固有のバッジ（サブスクの階層・ゲーム内バッジなど）を合わせて返す。
  * 同じ種類が両方にある場合は、チャンネル固有のものを優先する（配信者が用意した絵を出すため）。
  */
-export const chatBadges = async ({ url, env, twitch, now }: Context): Promise<Response> => {
-  const broadcasterId = requireBroadcasterId(url, env.TWITCH_BROADCASTER_ID)
+export const chatBadges = async ({ env, twitch, now }: Context): Promise<Response> => {
+  const broadcasterId = env.TWITCH_BROADCASTER_ID
   const badges = await withCache<ChatBadgeSet[]>(env.STORE, `chat-badges:${broadcasterId}`, now, async () => {
     const accessToken = await twitch.getAppAccessToken()
     const [global, channel] = await Promise.all([
@@ -109,9 +82,23 @@ export const chatBadges = async ({ url, env, twitch, now }: Context): Promise<Re
   return jsonResponse({ badges })
 }
 
-/** GET /api/chat/cheermotes?broadcaster=: Cheermote（ビッツの絵）の一覧を返す */
-export const chatCheermotes = async ({ url, env, twitch, now }: Context): Promise<Response> => {
-  const broadcasterId = requireBroadcasterId(url, env.TWITCH_BROADCASTER_ID)
+/**
+ * GET /api/chat/channel: このWorkerが扱う配信者のチャンネル名を返す。
+ *
+ * チャットボックスのURLにはチャンネル名を書かない（この配信者のチャンネルに固定する）ため、
+ * 接続先をここから受け取る。チャンネル名は公開情報なので、キーもセッションも要らない。
+ */
+export const chatChannel = async ({ env, twitch, now }: Context): Promise<Response> => {
+  const broadcasterId = env.TWITCH_BROADCASTER_ID
+  const login = await withCache<string>(env.STORE, `chat-channel:${broadcasterId}`, now, async () =>
+    twitch.getUserLogin(await twitch.getAppAccessToken(), broadcasterId),
+  )
+  return jsonResponse({ login })
+}
+
+/** GET /api/chat/cheermotes: Cheermote（ビッツの絵）の一覧を返す */
+export const chatCheermotes = async ({ env, twitch, now }: Context): Promise<Response> => {
+  const broadcasterId = env.TWITCH_BROADCASTER_ID
   const cheermotes = await withCache<Cheermote[]>(env.STORE, `chat-cheermotes:${broadcasterId}`, now, async () => {
     const accessToken = await twitch.getAppAccessToken()
     return twitch.getCheermotes(accessToken, broadcasterId)
