@@ -11,10 +11,37 @@ import type { IrcMessage } from './irc'
 export type Fragment =
   | { readonly type: 'text'; readonly text: string }
   | { readonly type: 'emote'; readonly name: string; readonly url: string }
+  /** Cheermote（ビッツの絵）。絵の後ろに、段階の色でビッツ数を添えて表示する */
+  | {
+      readonly type: 'cheer'
+      /** 本文に書かれていた単語（例: cheer500） */
+      readonly name: string
+      readonly url: string
+      readonly amount: number
+      /** 段階の色（#rrggbb） */
+      readonly color: string
+    }
 
-/** 表示対象のバッジ。この並びが名札に表示する順になる */
+/** 自前の絵を用意しているバッジの種類（公式の絵を取得できなかったときの代わりに使う） */
 export const BADGES = ['broadcaster', 'moderator', 'vip', 'subscriber'] as const
 export type Badge = (typeof BADGES)[number]
+
+/**
+ * 書き込みに付いていたバッジ1つ。
+ * IRCの badges タグは「種類/版」（例: subscriber/12）の並びで届き、公式の絵は版ごとに違う。
+ */
+export interface BadgeRef {
+  readonly setId: string
+  readonly versionId: string
+}
+
+/** 返信元の書き込み（Twitchが reply-parent-* タグで知らせる） */
+export interface ReplyParent {
+  readonly displayName: string
+  /** 返信元の本文（エモートの位置は届かないため、文字のまま扱う） */
+  readonly body: string
+  readonly messageId: string
+}
 
 /** チャット1件 */
 export interface ChatMessage {
@@ -25,10 +52,23 @@ export interface ChatMessage {
   readonly displayName: string
   /** 名前の色（#rrggbb） */
   readonly color: string
-  readonly badges: readonly Badge[]
+  /** 付いていたバッジ。Twitchが並べた順のまま持つ */
+  readonly badges: readonly BadgeRef[]
   readonly fragments: readonly Fragment[]
   /** /me による書き込みかどうか */
   readonly action: boolean
+  /** 書き込まれた時刻（エポックからのミリ秒）。時刻が付かない経路（デモ）では undefined */
+  readonly sentAt: number | undefined
+  /** このチャンネルで初めての書き込みかどうか */
+  readonly firstMessage: boolean
+  /** 久しぶりに戻ってきた視聴者かどうか */
+  readonly returningChatter: boolean
+  /** サブスクの継続月数。サブスクしていなければ 0 */
+  readonly subscriberMonths: number
+  /** Cheer のビッツ数。Cheer でなければ 0 */
+  readonly bits: number
+  /** 返信元。返信でなければ undefined */
+  readonly reply: ReplyParent | undefined
 }
 
 /** 名前の色を設定していないユーザーに割り当てる色（Twitchの既定の15色） */
@@ -115,6 +155,65 @@ const toFragments = (text: string, ranges: readonly EmoteRange[]): Fragment[] =>
   return fragments
 }
 
+const DIGITS = /^\d+$/
+/** badge-info タグ（例: subscriber/24,founder/0）からサブスクの継続月数を取り出す */
+const SUBSCRIBER_MONTHS = /(?:^|,)subscriber\/(\d+)(?:,|$)/
+
+/**
+ * 数字だけで届くタグを数値にする。
+ *
+ * @param raw タグの値。タグ自体が無い場合は undefined
+ * @param name エラーメッセージに出すタグ名
+ * @returns タグが無い（または空の）場合は undefined
+ * @throws 数字以外が混ざっている場合
+ */
+const toNumberTag = (raw: string | undefined, name: string): number | undefined => {
+  if (raw === undefined || raw === '') return undefined
+  if (!DIGITS.test(raw)) throw new Error(`${name} タグを読めません: ${raw}`)
+  return Number(raw)
+}
+
+/** badges タグ（例: broadcaster/1,subscriber/12）を、種類と版の組の並びにする */
+const parseBadges = (tag: string): BadgeRef[] => {
+  if (tag === '') return []
+  return tag.split(',').map((entry) => {
+    const [setId, versionId] = entry.split('/')
+    if (setId === undefined || versionId === undefined) throw new Error(`badges タグを読めません: ${tag}`)
+    return { setId, versionId }
+  })
+}
+
+/** 返信元のタグを読む。返信でなければ undefined */
+const toReplyParent = (tags: IrcMessage['tags']): ReplyParent | undefined => {
+  const displayName = tags['reply-parent-display-name']
+  if (displayName === undefined || displayName === '') return undefined
+  return {
+    displayName,
+    // タグのエスケープ（\s など）は irc.ts が解除済みなので、そのまま本文として扱える
+    body: tags['reply-parent-msg-body'] ?? '',
+    messageId: tags['reply-parent-msg-id'] ?? '',
+  }
+}
+
+/**
+ * 返信の本文の先頭にTwitchが付ける「@返信先 」を落とす。
+ * 返信元は引用行として別に出すため、本文に残すと同じ名前が二度出てしまう。
+ *
+ * 注意:
+ * - エモートの位置指定は元の本文を基準にしているため、断片に分けたあとで落とす
+ * - 表示名が日本語などでログイン名と違う場合、Twitchは表示名ではなくログイン名を付けることがあるため、両方を試す
+ *
+ * @param names 返信先の呼び名の候補（表示名とログイン名）
+ */
+const stripReplyMention = (fragments: readonly Fragment[], names: readonly string[]): readonly Fragment[] => {
+  const [first, ...rest] = fragments
+  if (first === undefined || first.type !== 'text') return fragments
+  const mention = names.filter((name) => name !== '').map((name) => `@${name} `).find((candidate) => first.text.startsWith(candidate))
+  if (mention === undefined) return fragments
+  const remainder = first.text.slice(mention.length)
+  return remainder === '' ? rest : [{ type: 'text', text: remainder }, ...rest]
+}
+
 /**
  * PRIVMSG をチャットメッセージに変換する。
  *
@@ -130,7 +229,9 @@ export const toChatMessage = (irc: IrcMessage): ChatMessage => {
   const action = body.startsWith(ACTION_START) && body.endsWith(ACTION_END)
   const text = action ? body.slice(ACTION_START.length, -ACTION_END.length) : body
   const color = tags.color ?? ''
-  const badgeNames = (tags.badges ?? '').split(',').map((badge) => badge.split('/')[0])
+  const reply = toReplyParent(tags)
+  const fragments = toFragments(text, parseEmoteRanges(tags.emotes ?? ''))
+  const subscriberMonths = SUBSCRIBER_MONTHS.exec(tags['badge-info'] ?? '')?.[1]
 
   return {
     id: tags.id ?? '',
@@ -138,8 +239,17 @@ export const toChatMessage = (irc: IrcMessage): ChatMessage => {
     // 表示名を設定していないユーザーは display-name が空で届く（Twitchの仕様）。その場合はログイン名が表示名になる
     displayName: tags['display-name'] || login,
     color: HEX_COLOR.test(color) ? color.toLowerCase() : defaultColorOf(login),
-    badges: BADGES.filter((badge) => badgeNames.includes(badge)),
-    fragments: toFragments(text, parseEmoteRanges(tags.emotes ?? '')),
+    badges: parseBadges(tags.badges ?? ''),
+    fragments:
+      reply === undefined
+        ? fragments
+        : stripReplyMention(fragments, [reply.displayName, tags['reply-parent-user-login'] ?? '']),
     action,
+    sentAt: toNumberTag(tags['tmi-sent-ts'], 'tmi-sent-ts'),
+    firstMessage: tags['first-msg'] === '1',
+    returningChatter: tags['returning-chatter'] === '1',
+    subscriberMonths: subscriberMonths === undefined ? 0 : Number(subscriberMonths),
+    bits: toNumberTag(tags.bits, 'bits') ?? 0,
+    reply,
   }
 }

@@ -1,0 +1,66 @@
+/*
+ * 全デザイン共通の追加要素の見た目。
+ * HTML構造は src/chat/view.ts を参照。各デザインのCSS（src/chat/<id>.css）が先頭で @import する。
+ *
+ * ここで扱うのは、名前・本文・バッジのような「デザインごとに大きく姿が変わるもの」ではなく、
+ * 返信元・時刻・目印・サブスク継続月数・ビッツのように、どのデザインでも同じ役割で添える小さな要素。
+ * 大きさはすべて em で決め、各デザインの文字の大きさに追従させる。
+ * 必要なら各デザインのCSSが、同じセレクタをより詳細度の高い形（[data-chat='<id>'] 付き）で上書きする。
+ */
+
+/* 返信元の引用。1行に収め、長ければ末尾を省略する */
+.chat-reply {
+  display: block;
+  margin: 0 0 0.1em;
+  max-width: 100%;
+  font-size: 0.68em;
+  line-height: 1.4;
+  opacity: 0.72;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-reply::before {
+  content: '↩ ';
+}
+
+/* 書き込まれた時刻。桁が揺れないよう等幅の数字にする */
+.chat-time {
+  flex-shrink: 0;
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+
+/* 初見・おかえりの目印と、サブスクの継続月数。名札の地色の上に薄く重ねる */
+.chat-flag,
+.chat-months {
+  flex-shrink: 0;
+  padding: 0 0.4em;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.28);
+  font-size: 0.82em;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+/* Cheer のビッツ数。ビッツらしい色で、数字のあとに単位を添える */
+.chat-bits {
+  flex-shrink: 0;
+  color: #ffce4a;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 0.3em rgb(0 0 0 / 0.5);
+}
+
+.chat-bits::after {
+  content: ' Bits';
+  font-size: 0.8em;
+}
+
+/* 本文中の Cheermote。大きさは各デザインの .chat-emote に合わせ、ビッツ数を続けて添える */
+.chat-cheer-amount {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}

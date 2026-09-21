@@ -3,6 +3,10 @@
  * HTML構造は src/chat/view.ts、カスタムプロパティ（--chat-*）は src/chat/card.ts を参照。
  * 大きさはすべて文字の大きさ（--chat-size）を基準に em で決め、size パラメータだけで全体が拡大縮小するようにする。
  */
+
+/* 返信元・時刻・目印・継続月数・ビッツの共通の見た目 */
+@import './common.css';
+
 [data-chat='card'] {
   position: fixed;
   inset: 0;
@@ -52,7 +56,7 @@
   background: var(--name-color);
 }
 
-[data-chat='card'] .chat-name > span {
+[data-chat='card'] .chat-name > .chat-name-text {
   overflow: hidden;
   text-overflow: ellipsis;
 }

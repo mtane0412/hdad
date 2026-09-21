@@ -26,6 +26,12 @@ describe('toChatMessage', () => {
       badges: [],
       fragments: [{ type: 'text', text: 'こんにちは' }],
       action: false,
+      sentAt: undefined,
+      firstMessage: false,
+      returningChatter: false,
+      subscriberMonths: 0,
+      bits: 0,
+      reply: undefined,
     })
   })
 
@@ -40,9 +46,17 @@ describe('toChatMessage', () => {
     expect(二回目).toBe(一回目)
   })
 
-  it('表示対象のバッジ（配信者・モデレーター・VIP・サブスク）だけを、届いた順によらず決まった順で取り出す', () => {
-    const message = toChatMessage(書き込み('どうも', { badges: 'subscriber/12,premium/1,broadcaster/1' }))
-    expect(message.badges).toEqual(['broadcaster', 'subscriber'])
+  it('バッジを「種類」と「版」の組として、Twitchが並べた順のまま取り出す（版ごとに公式の絵が違うため）', () => {
+    const message = toChatMessage(書き込み('どうも', { badges: 'broadcaster/1,subscriber/12,premium/1' }))
+    expect(message.badges).toEqual([
+      { setId: 'broadcaster', versionId: '1' },
+      { setId: 'subscriber', versionId: '12' },
+      { setId: 'premium', versionId: '1' },
+    ])
+  })
+
+  it('バッジが1つも付いていなければ、空にする', () => {
+    expect(toChatMessage(書き込み('どうも', { badges: '' })).badges).toEqual([])
   })
 
   it('エモートの位置指定に従って、本文を文字とエモートの断片に分ける', () => {
@@ -74,6 +88,87 @@ describe('toChatMessage', () => {
 
   it('エモートの位置指定が読めない場合はエラーにする', () => {
     expect(() => toChatMessage(書き込み('Kappa', { emotes: '25:こわれた' }))).toThrow('emotes タグを読めません')
+  })
+})
+
+describe('toChatMessage（Twitchが送ってくる付帯情報）', () => {
+  it('書き込まれた時刻（tmi-sent-ts）をミリ秒の数値として取り出す', () => {
+    // 2026-09-21T12:34:56.000Z のミリ秒表現
+    const message = toChatMessage(書き込み('こんばんは', { 'tmi-sent-ts': '1790080496000' }))
+    expect(message.sentAt).toBe(1790080496000)
+  })
+
+  it('時刻のタグが無い場合は undefined にする（デモ用の書き込みなど、時刻が付かない経路があるため）', () => {
+    expect(toChatMessage(書き込み('こんばんは')).sentAt).toBeUndefined()
+  })
+
+  it('このチャンネルで初めての書き込み（first-msg）を見分ける', () => {
+    expect(toChatMessage(書き込み('はじめまして', { 'first-msg': '1' })).firstMessage).toBe(true)
+    expect(toChatMessage(書き込み('またきました', { 'first-msg': '0' })).firstMessage).toBe(false)
+    expect(toChatMessage(書き込み('ふつうの書き込み')).firstMessage).toBe(false)
+  })
+
+  it('久しぶりに戻ってきた視聴者（returning-chatter）を見分ける', () => {
+    expect(toChatMessage(書き込み('おひさしぶり', { 'returning-chatter': '1' })).returningChatter).toBe(true)
+    expect(toChatMessage(書き込み('ふつうの書き込み')).returningChatter).toBe(false)
+  })
+
+  it('サブスクの継続月数（badge-info の subscriber）を取り出す', () => {
+    const message = toChatMessage(
+      書き込み('24ヶ月めです', { badges: 'subscriber/12', 'badge-info': 'subscriber/24' }),
+    )
+    expect(message.subscriberMonths).toBe(24)
+  })
+
+  it('サブスクしていない視聴者の継続月数は 0 にする', () => {
+    expect(toChatMessage(書き込み('こんにちは')).subscriberMonths).toBe(0)
+  })
+
+  it('Cheer のビッツ数（bits）を取り出す。Cheer でなければ 0 にする', () => {
+    expect(toChatMessage(書き込み('cheer100 おうえんしてます', { bits: '100' })).bits).toBe(100)
+    expect(toChatMessage(書き込み('ふつうの書き込み')).bits).toBe(0)
+  })
+
+  it('返信（reply-parent-*）なら、返信元の表示名と本文を取り出す', () => {
+    const message = toChatMessage(
+      書き込み('@はなこ そうですね', {
+        'reply-parent-display-name': 'はなこ',
+        'reply-parent-msg-body': 'きょうは暑いですね',
+        'reply-parent-msg-id': 'メッセージID-0',
+      }),
+    )
+    expect(message.reply).toEqual({
+      displayName: 'はなこ',
+      body: 'きょうは暑いですね',
+      messageId: 'メッセージID-0',
+    })
+  })
+
+  it('返信のとき、本文の先頭に付く「@返信先 」を落とす（返信元は引用行に出すため重複させない）', () => {
+    const message = toChatMessage(
+      書き込み('@はなこ そうですね', {
+        'reply-parent-display-name': 'はなこ',
+        'reply-parent-msg-body': 'きょうは暑いですね',
+        'reply-parent-msg-id': 'メッセージID-0',
+      }),
+    )
+    expect(message.fragments).toEqual([{ type: 'text', text: 'そうですね' }])
+  })
+
+  it('返信先の表示名が日本語などで、本文の先頭にログイン名が付いている場合も、その「@返信先 」を落とす', () => {
+    const message = toChatMessage(
+      書き込み('@hanako_ch そうですね', {
+        'reply-parent-display-name': 'はなこ',
+        'reply-parent-user-login': 'hanako_ch',
+        'reply-parent-msg-body': 'きょうは暑いですね',
+        'reply-parent-msg-id': 'メッセージID-0',
+      }),
+    )
+    expect(message.fragments).toEqual([{ type: 'text', text: 'そうですね' }])
+  })
+
+  it('返信でなければ reply は undefined にする', () => {
+    expect(toChatMessage(書き込み('ふつうの書き込み')).reply).toBeUndefined()
   })
 })
 

@@ -12,22 +12,17 @@ import { sourceOf } from './definition'
 const 解析する = (query: string) => parseParams(bubble.schema, new URLSearchParams(query))
 
 describe('sourceOf', () => {
-  it('channel を指定すると、そのチャンネルへ接続する（チャンネル名は小文字にそろえる）', () => {
-    expect(sourceOf(解析する('channel=Tanenob_CH'))).toEqual({ type: 'live', channel: 'tanenob_ch' })
+  it('何も指定しなければ、配信者のチャンネルへ接続する（接続先はWorkerから受け取る）', () => {
+    expect(sourceOf(解析する(''))).toEqual({ type: 'live' })
   })
 
-  it('demo=true なら、channel の有無によらずサンプル表示にする', () => {
+  it('demo=true なら、サンプル表示にする', () => {
     expect(sourceOf(解析する('demo=true'))).toEqual({ type: 'demo' })
-    expect(sourceOf(解析する('demo=true&channel=tanenob_ch'))).toEqual({ type: 'demo' })
   })
 
-  it('channel も demo もなければ、黙ってサンプル表示にはせずエラーにする', () => {
-    expect(() => sourceOf(解析する(''))).toThrow(ParamError)
-    expect(() => sourceOf(解析する(''))).toThrow('channel: Twitchのチャンネル名を指定してください')
-  })
-
-  it('チャンネル名に使えない文字が含まれていたらエラーにする', () => {
-    expect(() => 解析する('channel=たねのぶ')).toThrow('書式に合いません')
+  it('channel は受け付けない（このWorkerが扱う配信者のチャンネルに固定するため）', () => {
+    expect(() => 解析する('channel=tanenob_ch')).toThrow(ParamError)
+    expect(() => 解析する('channel=tanenob_ch')).toThrow('未対応のパラメータです')
   })
 })
 
