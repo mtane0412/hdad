@@ -11,6 +11,12 @@
 import { ApiError, createCaller, isRecord, readList } from '@/core/api'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
+
+/** アラートを出せるイベントの種類。worker/alert-config.ts の ALERT_EVENTS と同じ並び（worker/ の型は読み込めないのでここで定義する） */
+export const ALERT_EVENTS = [REDEMPTION, 'channel.follow', 'channel.subscribe', 'channel.subscription.message', 'channel.raid'] as const
+
+export type AlertEvent = (typeof ALERT_EVENTS)[number]
+
 const MEDIA_KINDS = ['image', 'video', 'audio'] as const
 const UNAUTHORIZED = 401
 
@@ -35,11 +41,8 @@ export interface MediaItem {
   uploadedAt: string
 }
 
-/** 保存するトリガー。素材の種類（mediaKind）はWorkerが決めるので送らない */
-export interface TriggerInput {
-  event: typeof REDEMPTION
-  /** null はすべての報酬 */
-  rewardId: string | null
+/** 出し方（イベント種別によらず共通）。素材の種類（mediaKind）はWorkerが決めるので送らない */
+interface TriggerAppearance {
   mediaId: string
   durationSeconds: number
   /** 0〜1 */
@@ -47,10 +50,17 @@ export interface TriggerInput {
   message: string
 }
 
+/** 条件（イベント種別ごとに違う。いま条件を持つのはチャンネルポイント交換だけ） */
+type TriggerCondition =
+  /** null はすべての報酬 */
+  | { event: typeof REDEMPTION; rewardId: string | null }
+  | { event: Exclude<AlertEvent, typeof REDEMPTION> }
+
+/** 保存するトリガー */
+export type TriggerInput = TriggerAppearance & TriggerCondition
+
 /** 保存済みのトリガー */
-export interface StoredTrigger extends TriggerInput {
-  mediaKind: MediaKind
-}
+export type StoredTrigger = TriggerInput & { mediaKind: MediaKind }
 
 /** チャンネルポイント報酬 */
 export interface Reward {
@@ -88,10 +98,17 @@ const isMediaItem = (value: unknown): value is MediaItem =>
   typeof value.size === 'number' &&
   typeof value.uploadedAt === 'string'
 
+/** アラートを出せるイベントの種類か。選択欄の値をイベント種別として扱う前の確認にも使う */
+export const isAlertEvent = (value: unknown): value is AlertEvent => ALERT_EVENTS.some((event) => event === value)
+
+/** 条件の欄はイベント種別ごとに違う。報酬IDを求めるのはチャンネルポイント交換のときだけ */
+const hasCondition = (value: Record<string, unknown>): boolean =>
+  value.event !== REDEMPTION || value.rewardId === null || typeof value.rewardId === 'string'
+
 const isStoredTrigger = (value: unknown): value is StoredTrigger =>
   isRecord(value) &&
-  value.event === REDEMPTION &&
-  (value.rewardId === null || typeof value.rewardId === 'string') &&
+  isAlertEvent(value.event) &&
+  hasCondition(value) &&
   typeof value.mediaId === 'string' &&
   isMediaKind(value.mediaKind) &&
   typeof value.durationSeconds === 'number' &&

@@ -52,6 +52,30 @@ describe('fetchTriggers', () => {
     await expect(fetchTriggers('古いキー', fetchImpl)).rejects.toThrow('オーバーレイ用キーが正しくありません')
   })
 
+  it('チャンネルポイント交換以外のイベントのトリガーも、報酬IDなしで受け取る', async () => {
+    const 他のイベントの設定 = {
+      triggers: [
+        { event: 'channel.follow', media: { kind: 'image', url: '/api/media/sozai-2?key=overlay-key' }, durationSeconds: 5, volume: 1, message: '{user} さん、ありがとう！' },
+        { event: 'channel.raid', media: { kind: 'video', url: '/api/media/sozai-3?key=overlay-key' }, durationSeconds: 5, volume: 1, message: '{user} さんが{viewers}人でレイド' },
+      ],
+    }
+    const { fetchImpl } = 応答を返すfetch(200, 他のイベントの設定)
+
+    expect(await fetchTriggers('overlay-key', fetchImpl)).toEqual(他のイベントの設定.triggers)
+  })
+
+  it('チャンネルポイント交換なのに報酬IDの欄がなければエラーにする', async () => {
+    const { event, media, durationSeconds, volume, message } = { ...設定の応答.triggers[0], event: REDEMPTION }
+    const { fetchImpl } = 応答を返すfetch(200, { triggers: [{ event, media, durationSeconds, volume, message }] })
+
+    await expect(fetchTriggers('overlay-key', fetchImpl)).rejects.toThrow('triggers[0]')
+  })
+
+  it('知らない種類のイベントのトリガーはエラーにする', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { triggers: [{ ...設定の応答.triggers[0], event: 'channel.cheer' }] })
+    await expect(fetchTriggers('overlay-key', fetchImpl)).rejects.toThrow('triggers[0]')
+  })
+
   it('応答が想定した形でなければエラーにする（黙って空の設定にしない）', async () => {
     const 素材のない設定 = { triggers: [{ ...設定の応答.triggers[0], media: { kind: 'pdf', url: '/api/media/x' } }] }
     await expect(fetchTriggers('overlay-key', 応答を返すfetch(200, 素材のない設定).fetchImpl)).rejects.toThrow('triggers[0]')

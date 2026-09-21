@@ -6,7 +6,8 @@
  */
 import { describe, expect, it } from 'vitest'
 import { ApiError } from '@/core/api'
-import { createAdminApi } from './api'
+import { ALERT_EVENTS as OVERLAY_ALERT_EVENTS } from '@/alerts/trigger'
+import { ALERT_EVENTS, createAdminApi } from './api'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const サイト = 'https://stream-assets.example.com'
@@ -52,6 +53,13 @@ describe('me（ログイン中の配信者）', () => {
   })
 })
 
+describe('ALERT_EVENTS', () => {
+  it('オーバーレイ側（src/alerts/trigger.ts）のイベントの一覧と食い違わない', () => {
+    // 管理画面・オーバーレイ・Worker はそれぞれ一覧を持つ（worker/ の型は読み込めないため）。ここでは src/ の2つが揃っていることを確かめる
+    expect(ALERT_EVENTS).toEqual(OVERLAY_ALERT_EVENTS)
+  })
+})
+
 describe('config・saveConfig（トリガーの設定）', () => {
   it('保存済みのトリガーの一覧を取得する', async () => {
     const { requests, fetchImpl } = 応答を返すfetch(200, { triggers: [乾杯のトリガー] })
@@ -78,6 +86,22 @@ describe('config・saveConfig（トリガーの設定）', () => {
     expect(new URL(request.url).pathname).toBe('/api/admin/config')
     expect(request.headers.get('Content-Type')).toBe('application/json')
     expect(await request.json()).toEqual({ triggers: [入力] })
+  })
+
+  it('チャンネルポイント交換以外のイベントは、報酬IDを持たない形で送受信する', async () => {
+    const フォローのトリガー = { event: 'channel.follow', mediaId: 'sozai-1', mediaKind: 'video', durationSeconds: 5, volume: 1, message: '{user} さん、ありがとう！' }
+    const { requests, fetchImpl } = 応答を返すfetch(200, { triggers: [フォローのトリガー] })
+    const 入力 = { event: 'channel.follow', mediaId: 'sozai-1', durationSeconds: 5, volume: 1, message: '{user} さん、ありがとう！' } as const
+
+    const saved = await createAdminApi(fetchImpl).saveConfig([入力])
+
+    expect(saved).toEqual([フォローのトリガー])
+    expect(await requests[0]!.json()).toEqual({ triggers: [入力] })
+  })
+
+  it('知らない種類のイベントのトリガーを受け取ったらエラーにする', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { triggers: [{ ...乾杯のトリガー, event: 'channel.cheer' }] })
+    await expect(createAdminApi(fetchImpl).config()).rejects.toThrow('triggers[0]')
   })
 
   it('設定に問題があれば、Workerが返した問題点をすべて持つ ApiError にする', async () => {

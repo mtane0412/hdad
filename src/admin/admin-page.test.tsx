@@ -189,6 +189,45 @@ describe('トリガー', () => {
     expect(row.getByLabelText('文言（空欄なら出さない）')).toHaveValue('{user} さんが拍手を送りました')
   })
 
+  test('イベントを切り替えると、報酬の選択欄はチャンネルポイント交換のときだけ出る', async () => {
+    render(管理画面(代役のAPI()))
+
+    const row = within((await screen.findAllByRole('listitem', { name: /番目のトリガー/ }))[0]!)
+    expect(row.getByLabelText('報酬')).toBeInTheDocument()
+
+    await userEvent.selectOptions(row.getByLabelText('イベント'), 'channel.follow')
+    expect(row.queryByLabelText('報酬')).not.toBeInTheDocument()
+
+    await userEvent.selectOptions(row.getByLabelText('イベント'), REDEMPTION)
+    expect(row.getByLabelText('報酬')).toBeInTheDocument()
+  })
+
+  test('選んだイベントで使える差し込み語を、文言欄のそばに出す', async () => {
+    render(管理画面(代役のAPI()))
+
+    const row = within((await screen.findAllByRole('listitem', { name: /番目のトリガー/ }))[0]!)
+    expect(row.getByText(/\{user\}/)).toHaveTextContent('{reward}')
+
+    await userEvent.selectOptions(row.getByLabelText('イベント'), 'channel.raid')
+    const 差し込み語 = row.getByText(/\{user\}/)
+    expect(差し込み語).toHaveTextContent('{viewers}')
+    expect(差し込み語).not.toHaveTextContent('{reward}')
+  })
+
+  test('チャンネルポイント交換以外のイベントのトリガーは、報酬IDを付けずに保存する', async () => {
+    const api = 代役のAPI()
+    render(管理画面(api))
+
+    const row = within((await screen.findAllByRole('listitem', { name: /番目のトリガー/ }))[0]!)
+    await userEvent.selectOptions(row.getByLabelText('イベント'), 'channel.raid')
+    await userEvent.click(screen.getByRole('button', { name: 'トリガーを保存' }))
+
+    expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
+    expect(api.saveConfig).toHaveBeenCalledWith([
+      { event: 'channel.raid', mediaId: 'media-hakushu', durationSeconds: 8, volume: 0.5, message: '{user} さんが拍手を送りました' },
+    ])
+  })
+
   test('トリガーを足して書き換え、Workerへ送る形で保存する', async () => {
     const api = 代役のAPI({ config: vi.fn(async () => []) })
     render(管理画面(api))
