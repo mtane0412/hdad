@@ -7,7 +7,17 @@
  * 動作の種類ごとに実行者が違う（アラートはオーバーレイ、チャットはWorker）ことも合わせて確認する。
  */
 import { describe, expect, it } from 'vitest'
-import { EMPTY_CONFIG, chatActionOf, loadAlertConfig, parseAlertConfig, saveAlertConfig, toOverlayConfig, type AlertConfig, type StoredTrigger } from './alert-config'
+import {
+  EMPTY_CONFIG,
+  announceActionOf,
+  chatActionOf,
+  loadAlertConfig,
+  parseAlertConfig,
+  saveAlertConfig,
+  toOverlayConfig,
+  type AlertConfig,
+  type StoredTrigger,
+} from './alert-config'
 import { createFakeStore } from './fake-store'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
@@ -26,6 +36,14 @@ const アラートの動作 = (overrides: Record<string, unknown> = {}) => ({
 const チャットの動作 = (overrides: Record<string, unknown> = {}) => ({
   type: 'chat',
   message: '{user} さん、乾杯！ありがとうございます',
+  ...overrides,
+})
+
+/** 送られてくる「アナウンスを送る」動作 */
+const アナウンスの動作 = (overrides: Record<string, unknown> = {}) => ({
+  type: 'announce',
+  message: '{user} さんがレイドしてくれました',
+  color: 'purple',
   ...overrides,
 })
 
@@ -59,6 +77,40 @@ describe('parseAlertConfig', () => {
     const config = parseAlertConfig({ triggers: [送られてきたトリガー({ actions: [チャットの動作()] })] }, 素材の種類)
 
     expect(config.triggers[0]?.actions).toEqual([{ type: 'chat', message: '{user} さん、乾杯！ありがとうございます' }])
+  })
+
+  it('アナウンスを送る動作を受け付ける', () => {
+    const config = parseAlertConfig({ triggers: [送られてきたトリガー({ actions: [アナウンスの動作()] })] }, 素材の種類)
+
+    expect(config.triggers[0]?.actions).toEqual([{ type: 'announce', message: '{user} さんがレイドしてくれました', color: 'purple' }])
+  })
+
+  it('アナウンスの色を省略したら primary（チャンネルの色）にする', () => {
+    const 色なし = { triggers: [送られてきたトリガー({ actions: [アナウンスの動作({ color: undefined })] })] }
+
+    expect(parseAlertConfig(色なし, 素材の種類).triggers[0]?.actions[0]).toMatchObject({ type: 'announce', color: 'primary' })
+  })
+
+  it('Twitchが受け付けない色は拒否する', () => {
+    const 変な色 = { triggers: [送られてきたトリガー({ actions: [アナウンスの動作({ color: 'きいろ' })] })] }
+
+    expect(() => parseAlertConfig(変な色, 素材の種類)).toThrowError(
+      expect.objectContaining({ problems: ['triggers[0].actions[0].color: blue / green / orange / purple / primary のいずれかを指定してください'] }),
+    )
+  })
+
+  it('アナウンスの文言が空なら拒否する（送るものがない）', () => {
+    const 空の文言 = { triggers: [送られてきたトリガー({ actions: [アナウンスの動作({ message: '' })] })] }
+
+    expect(() => parseAlertConfig(空の文言, 素材の種類)).toThrowError(
+      expect.objectContaining({ problems: ['triggers[0].actions[0].message: 1〜500文字の文字列で指定してください'] }),
+    )
+  })
+
+  it('チャットとアナウンスは別の種類なので、1つのトリガーに両方を置ける', () => {
+    const 両方 = { triggers: [送られてきたトリガー({ actions: [チャットの動作(), アナウンスの動作()] })] }
+
+    expect(parseAlertConfig(両方, 素材の種類).triggers[0]?.actions).toHaveLength(2)
   })
 
   it('報酬IDが null のトリガー（すべての報酬が対象）を受け付ける', () => {
@@ -129,7 +181,7 @@ describe('parseAlertConfig', () => {
 
   it('対応していない動作の種類は拒否する', () => {
     expect(() => parseAlertConfig({ triggers: [送られてきたトリガー({ actions: [アラートの動作({ type: 'ban' })] })] }, 素材の種類)).toThrowError(
-      expect.objectContaining({ problems: ['triggers[0].actions[0].type: alert / chat のいずれかを指定してください'] }),
+      expect.objectContaining({ problems: ['triggers[0].actions[0].type: alert / chat / announce のいずれかを指定してください'] }),
     )
   })
 
@@ -243,6 +295,21 @@ describe('toOverlayConfig', () => {
     const config: AlertConfig = { triggers: [{ event: 'channel.follow', actions: [{ type: 'chat', message: 'フォローありがとうございます' }] }] }
 
     expect(toOverlayConfig(config, 'overlay-key_1').triggers).toEqual([])
+  })
+})
+
+describe('announceActionOf', () => {
+  it('トリガーからアナウンスを送る動作を取り出す', () => {
+    const trigger: StoredTrigger = {
+      event: 'channel.raid',
+      actions: [保存済みのアラートの動作, { type: 'announce', message: '{user} さんがレイドしてくれました', color: 'purple' }],
+    }
+
+    expect(announceActionOf(trigger)).toEqual({ type: 'announce', message: '{user} さんがレイドしてくれました', color: 'purple' })
+  })
+
+  it('アナウンスを送る動作がなければ null を返す', () => {
+    expect(announceActionOf({ event: 'channel.raid', actions: [保存済みのアラートの動作] })).toBeNull()
   })
 })
 

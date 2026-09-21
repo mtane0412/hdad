@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { AlertConfig, StoredTrigger } from './alert-config'
-import { chatMessageFor, extract, fillMessage, matches } from './alert-event'
+import { announcementFor, chatMessageFor, extract, fillMessage, matches } from './alert-event'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 
@@ -140,5 +140,34 @@ describe('chatMessageFor', () => {
     const config = 設定([{ event: 'channel.follow', actions: [{ type: 'chat', message: 'ありがとう' }] }])
 
     expect(chatMessageFor(config, 'stream.online', { id: '配信ID' })).toBeNull()
+  })
+})
+
+describe('announcementFor', () => {
+  const 設定 = (triggers: StoredTrigger[]): AlertConfig => ({ triggers })
+  const レイドの通知 = { from_broadcaster_user_name: '山田花子', viewers: 25 }
+
+  it('当てはまるトリガーのアナウンスを、差し込み語を置き換えて色ごと返す', () => {
+    const config = 設定([
+      { event: 'channel.raid', actions: [{ type: 'announce', message: '{user} さんが {viewers} 人で来てくれました', color: 'purple' }] },
+    ])
+
+    expect(announcementFor(config, 'channel.raid', レイドの通知)).toEqual({
+      type: 'announce',
+      message: '山田花子 さんが 25 人で来てくれました',
+      color: 'purple',
+    })
+  })
+
+  it('アナウンスを送る動作を持たないトリガー（チャットに送るだけ）には反応しない', () => {
+    const チャットだけ: StoredTrigger = { event: 'channel.raid', actions: [{ type: 'chat', message: 'レイドありがとう' }] }
+
+    expect(announcementFor(設定([チャットだけ]), 'channel.raid', レイドの通知)).toBeNull()
+  })
+
+  it('当てはまるトリガーがなければ null を返す', () => {
+    const config = 設定([{ event: 'channel.follow', actions: [{ type: 'announce', message: 'ありがとう', color: 'primary' }] }])
+
+    expect(announcementFor(config, 'channel.raid', レイドの通知)).toBeNull()
   })
 })

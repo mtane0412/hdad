@@ -29,8 +29,9 @@ import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Slider } from '@/components/ui/slider'
 import { ApiError } from '@/core/api'
-import { isAlertEvent, type AdminApi, type AlertEvent, type MediaItem, type Reward } from './api'
+import { isAlertEvent, isAnnouncementColor, type AdminApi, type AlertEvent, type AnnouncementColor, type MediaItem, type Reward } from './api'
 import {
+  colorOptions,
   describeProblem,
   eventOptions,
   formatBytes,
@@ -62,6 +63,8 @@ const MAX_MESSAGE_LENGTH = 200
 const MAX_CHAT_MESSAGE_LENGTH = 500
 const DEFAULT_DURATION_SECONDS = '5'
 const DEFAULT_VOLUME_PERCENT = '100'
+/** 新しく足したトリガーのアナウンスの色（チャンネルの色） */
+const DEFAULT_ANNOUNCEMENT_COLOR: AnnouncementColor = 'primary'
 
 /** 素材の中身のURL。管理画面は配信者のセッションで読めるので、オーバーレイ用キーは付けない */
 const mediaUrl = (id: string): string => `${MEDIA_PATH}${encodeURIComponent(id)}`
@@ -219,6 +222,46 @@ const TriggerRow = ({ position, draft, media, rewards, onChange, onRemove }: Tri
         )}
       </div>
 
+      <div className="flex flex-col gap-4 rounded-md border border-dashed p-3 sm:col-span-2">
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id={`${id}-announce-enabled`}
+            checked={draft.announceEnabled}
+            onCheckedChange={(checked) => update({ announceEnabled: checked === true })}
+          />
+          <Label htmlFor={`${id}-announce-enabled`}>アナウンスを送る</Label>
+        </div>
+        {draft.announceEnabled && (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-2 sm:col-span-2">
+              <Label htmlFor={`${id}-announce-message`}>アナウンスの文言</Label>
+              <Input
+                id={`${id}-announce-message`}
+                type="text"
+                maxLength={MAX_CHAT_MESSAGE_LENGTH}
+                value={draft.announceMessage}
+                placeholder={MESSAGE_PLACEHOLDERS[draft.event]}
+                onChange={(event) => update({ announceMessage: event.currentTarget.value })}
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor={`${id}-announce-color`}>アナウンスの色</Label>
+              {/* 選択肢は色だけなので isAnnouncementColor は必ず通る。型を絞るための確認 */}
+              <Select
+                id={`${id}-announce-color`}
+                options={colorOptions}
+                value={draft.announceColor}
+                onChange={(color) => isAnnouncementColor(color) && update({ announceColor: color })}
+              />
+            </div>
+            {/* アナウンスは普通の発言と違い、botがモデレーターでないとTwitchに拒否される */}
+            <p className="text-xs text-muted-foreground sm:col-span-2">
+              接続しているbotアカウントが、モデレーターとして送ります（チャットボットのページで接続し、配信者がモデレーター権限を与えてください）。
+            </p>
+          </div>
+        )}
+      </div>
+
       {/* 選んだイベントに存在しない語は置き換わらないため、使える語をその場で知らせる（アラートとチャットで同じ語を使う） */}
       <p className="text-xs text-muted-foreground sm:col-span-2">
         このイベントで使える差し込み語: {placeholdersFor(draft.event).join('・')}
@@ -368,6 +411,9 @@ export const AdminPage = ({ api, overlayKey, onOverlayKeyChange }: AdminPageProp
         message: '',
         chatEnabled: first === undefined,
         chatMessage: '',
+        announceEnabled: false,
+        announceMessage: '',
+        announceColor: DEFAULT_ANNOUNCEMENT_COLOR,
       },
     ])
     return 'トリガーを足しました。保存するまで反映されません'

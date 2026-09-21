@@ -272,6 +272,35 @@ describe('トリガー', () => {
     ])
   })
 
+  test('アナウンスを送る文言と色を入れて保存すると、アナウンスの動作として送る', async () => {
+    const api = 代役のAPI()
+    render(管理画面(api))
+
+    const row = within((await screen.findAllByRole('listitem', { name: /番目のトリガー/ }))[0]!)
+    await userEvent.click(row.getByRole('checkbox', { name: 'アラートを出す' }))
+    await userEvent.click(row.getByRole('checkbox', { name: 'アナウンスを送る' }))
+    await userEvent.type(row.getByLabelText('アナウンスの文言'), '{{user} さん、ありがとうございます')
+    await userEvent.selectOptions(row.getByLabelText('アナウンスの色'), 'purple')
+    await userEvent.click(screen.getByRole('button', { name: 'トリガーを保存' }))
+
+    expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
+    expect(api.saveConfig).toHaveBeenCalledWith([
+      {
+        event: REDEMPTION,
+        rewardId: 'reward-hakushu',
+        actions: [{ type: 'announce', message: '{user} さん、ありがとうございます', color: 'purple' }],
+      },
+    ])
+  })
+
+  test('アナウンスを送るを外していれば、文言の入力欄を隠す', async () => {
+    render(管理画面(代役のAPI()))
+
+    const row = within((await screen.findAllByRole('listitem', { name: /番目のトリガー/ }))[0]!)
+
+    expect(row.queryByLabelText('アナウンスの文言')).not.toBeInTheDocument()
+  })
+
   test('アラートを出すを外すと、素材や表示時間の入力欄を隠す', async () => {
     render(管理画面(代役のAPI()))
 

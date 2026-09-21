@@ -7,7 +7,7 @@
  * 注意: オーバーレイ側の src/alerts/trigger.ts と同じ役目のコードを別に持っている。worker/ からは src/ を読み込まない約束のため。
  * 差し込み語（{user} など）とティアの表記は両方で同じにする（管理画面が案内する差し込み語が動作の種類で変わると混乱するため）。
  */
-import { chatActionOf, type AlertConfig, type StoredTrigger } from './alert-config'
+import { announceActionOf, chatActionOf, type AlertConfig, type StoredAnnounceAction, type StoredTrigger } from './alert-config'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const FOLLOW = 'channel.follow'
@@ -128,17 +128,22 @@ export const fillMessage = (template: string, extracted: Extracted): string =>
   Object.entries(placeholderValues(extracted)).reduce((text, [placeholder, value]) => text.replaceAll(placeholder, () => value), template)
 
 /**
- * 通知に当てはまるトリガーを探し、チャットへ送る文言を決める。
+ * 通知に当てはまるトリガーを探し、その動作の文言に差し込み語を置き換えて返す。
  *
- * @param triggers トリガーの一覧。チャットに送る動作を持つものだけが対象で、複数当てはまる場合は先に書かれたものを使う
- *   （当てはまるだけ送るとチャットを連投し、Twitchの送信のレート制限にもかかるため）
- * @returns 送る文言。アラートに使えないイベント種別、または当てはまるトリガーがなければ null
- * @throws 通知の中身が想定した形でない場合（チャットに送るトリガーがあるイベント種別に限る）
+ * @param actionOf トリガーから目的の動作を取り出す関数。この動作を持つトリガーだけが対象で、
+ *   複数当てはまる場合は先に書かれたものを使う（当てはまるだけ送るとチャットを連投し、Twitchの送信のレート制限にもかかるため）
+ * @returns 文言を置き換えた動作。アラートに使えないイベント種別、または当てはまるトリガーがなければ null
+ * @throws 通知の中身が想定した形でない場合（その動作を持つトリガーがあるイベント種別に限る）
  */
-export const chatMessageFor = (config: AlertConfig, subscriptionType: string, body: unknown): string | null => {
-  // チャットに送るトリガーが1件もないイベント種別なら、通知の中身は読まない。
+const filledActionFor = <Action extends { message: string }>(
+  config: AlertConfig,
+  subscriptionType: string,
+  body: unknown,
+  actionOf: (trigger: StoredTrigger) => Action | null,
+): Action | null => {
+  // その動作を持つトリガーが1件もないイベント種別なら、通知の中身は読まない。
   // 設定していないイベントの中身の形が想定と違うだけで、配信の記録まで止めてしまわないため
-  const candidates = config.triggers.filter((trigger) => trigger.event === subscriptionType && chatActionOf(trigger) !== null)
+  const candidates = config.triggers.filter((trigger) => trigger.event === subscriptionType && actionOf(trigger) !== null)
   if (candidates.length === 0) return null
 
   const extracted = extract(subscriptionType, body)
@@ -146,8 +151,28 @@ export const chatMessageFor = (config: AlertConfig, subscriptionType: string, bo
 
   for (const trigger of candidates) {
     if (!matches(trigger, extracted)) continue
-    const action = chatActionOf(trigger)
-    if (action !== null) return fillMessage(action.message, extracted)
+    const action = actionOf(trigger)
+    if (action !== null) return { ...action, message: fillMessage(action.message, extracted) }
   }
   return null
 }
+
+/**
+ * 通知に当てはまるトリガーを探し、チャットへ送る文言を決める。
+ *
+ * @returns 送る文言。当てはまるトリガーがなければ null
+ * @throws 通知の中身が想定した形でない場合（チャットに送るトリガーがあるイベント種別に限る）
+ */
+export const chatMessageFor = (config: AlertConfig, subscriptionType: string, body: unknown): string | null =>
+  filledActionFor(config, subscriptionType, body, chatActionOf)?.message ?? null
+
+/**
+ * 通知に当てはまるトリガーを探し、送るアナウンス（文言と色）を決める。
+ *
+ * 選び方は chatMessageFor と同じで、複数当てはまる場合は先に書かれたものを使う。
+ *
+ * @returns 送るアナウンス。当てはまるトリガーがなければ null
+ * @throws 通知の中身が想定した形でない場合（アナウンスを送るトリガーがあるイベント種別に限る）
+ */
+export const announcementFor = (config: AlertConfig, subscriptionType: string, body: unknown): StoredAnnounceAction | null =>
+  filledActionFor(config, subscriptionType, body, announceActionOf)

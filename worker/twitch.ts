@@ -147,7 +147,9 @@ export interface ChatMessageToSend {
 }
 
 /** アナウンスの帯の色。Twitchが受け付けるのはこの5つで、primary はチャンネルの色 */
-export type AnnouncementColor = 'blue' | 'green' | 'orange' | 'purple' | 'primary'
+export const ANNOUNCEMENT_COLORS = ['blue', 'green', 'orange', 'purple', 'primary'] as const
+
+export type AnnouncementColor = (typeof ANNOUNCEMENT_COLORS)[number]
 
 /** モデレーション操作で共通して要る、対象のチャンネルと操作するモデレーター */
 interface ModerationTarget {
@@ -445,7 +447,7 @@ export const createTwitchClient = ({ clientId, clientSecret, fetch: fetchImpl }:
   const helixHeaders = (accessToken: string): Record<string, string> => ({ Authorization: `Bearer ${accessToken}`, 'Client-Id': clientId })
 
   /** モデレーション操作の経路に共通の、対象のチャンネルと操作するモデレーターをクエリに載せたURLを作る */
-  const モデレーションのURL = (base: string, { broadcasterId, moderatorId }: ModerationTarget): URL => {
+  const moderationUrl = (base: string, { broadcasterId, moderatorId }: ModerationTarget): URL => {
     const url = new URL(base)
     url.searchParams.set('broadcaster_id', broadcasterId)
     url.searchParams.set('moderator_id', moderatorId)
@@ -593,7 +595,7 @@ export const createTwitchClient = ({ clientId, clientSecret, fetch: fetchImpl }:
     },
 
     banUser: async (accessToken, { broadcasterId, moderatorId, userId, durationSeconds, reason }) => {
-      const response = await fetchImpl(モデレーションのURL(BANS_URL, { broadcasterId, moderatorId }), {
+      const response = await fetchImpl(moderationUrl(BANS_URL, { broadcasterId, moderatorId }), {
         method: 'POST',
         headers: { ...helixHeaders(accessToken), 'Content-Type': 'application/json' },
         // duration を省くと期限のないBANになるので、指定があるときだけ載せる
@@ -605,13 +607,13 @@ export const createTwitchClient = ({ clientId, clientSecret, fetch: fetchImpl }:
     },
 
     deleteChatMessage: async (accessToken, { broadcasterId, moderatorId, messageId }) => {
-      const url = モデレーションのURL(MODERATION_CHAT_URL, { broadcasterId, moderatorId })
+      const url = moderationUrl(MODERATION_CHAT_URL, { broadcasterId, moderatorId })
       url.searchParams.set('message_id', messageId)
       await ensureOk(await fetchImpl(url, { method: 'DELETE', headers: helixHeaders(accessToken) }))
     },
 
     sendChatAnnouncement: async (accessToken, { broadcasterId, moderatorId, message, color }) => {
-      const response = await fetchImpl(モデレーションのURL(ANNOUNCEMENTS_URL, { broadcasterId, moderatorId }), {
+      const response = await fetchImpl(moderationUrl(ANNOUNCEMENTS_URL, { broadcasterId, moderatorId }), {
         method: 'POST',
         headers: { ...helixHeaders(accessToken), 'Content-Type': 'application/json' },
         body: JSON.stringify({ message, color: color ?? DEFAULT_ANNOUNCEMENT_COLOR }),
