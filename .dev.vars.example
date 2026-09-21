@@ -13,3 +13,7 @@ TWITCH_BROADCASTER_ID=
 
 # セッションの署名に使うランダムな文字列。`openssl rand -hex 32` で作る
 SESSION_SECRET=
+
+# EventSubのWebhook（POST /api/eventsub/webhook）の署名に使うランダムな文字列。`openssl rand -hex 32` で作る
+# （Twitchの決まりで10〜100文字のASCII）。あとから変えたら、登録済みの購読を消してログインし直す（README.md の「配信の記録」）
+EVENTSUB_SECRET=

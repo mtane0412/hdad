@@ -27,6 +27,7 @@ const 環境を作る = () => {
     TWITCH_CLIENT_SECRET: 'テスト用シークレット',
     TWITCH_BROADCASTER_ID: 配信者のID,
     SESSION_SECRET: 'テスト用のセッション秘密鍵',
+    EVENTSUB_SECRET: 'テスト用のWebhookシークレット',
   } satisfies Env
   return { env, db, store }
 }

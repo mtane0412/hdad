@@ -11,9 +11,12 @@ import {
   listFailures,
   listFollowerSamples,
   listSessions,
+  recordEvent,
   recordFailure,
   recordFollowerTotal,
   recordLiveStream,
+  recordStreamOffline,
+  recordStreamOnline,
 } from './stats-store'
 import type { LiveStream } from './twitch'
 
@@ -200,5 +203,94 @@ describe('recordFailure', () => {
       { occurredAt: '2026-09-21T00:00:00.000Z', code: 'relogin-required', message: 'ログインし直してください' },
       { occurredAt: '2026-09-20T00:00:00.000Z', code: 'twitch-error', message: 'Twitchが 500 を返しました' },
     ])
+  })
+})
+
+describe('recordStreamOnline', () => {
+  it('配信の開始を知らされたら、タイトルとカテゴリが空のセッションを開始する（次の cron が埋める）', async () => {
+    const db = createFakeDatabase()
+    await recordStreamOnline(db, { id: 雑談配信.id, startedAt: 時刻('2026-09-21T12:00:00Z') })
+
+    expect(await getSession(db, 雑談配信.id)).toEqual({
+      id: '40000000001',
+      startedAt: '2026-09-21T12:00:00.000Z',
+      endedAt: null,
+      title: '',
+      categoryName: '',
+      samples: [],
+    })
+
+    await recordLiveStream(db, 雑談配信, 時刻('2026-09-21T12:05:00Z'))
+    expect(await getSession(db, 雑談配信.id)).toMatchObject({ title: '月曜の雑談配信', categoryName: 'Just Chatting' })
+  })
+
+  it('cron が先に記録していたセッションは書き換えない。閉じ済みのセッションを開き直すこともしない（通知の再送に備える）', async () => {
+    const db = createFakeDatabase()
+    await recordLiveStream(db, 雑談配信, 時刻('2026-09-21T12:05:00Z'))
+    await closeOpenSessions(db, 時刻('2026-09-21T14:00:00Z'))
+    await recordStreamOnline(db, { id: 雑談配信.id, startedAt: 時刻('2026-09-21T12:00:00Z') })
+
+    expect(await getSession(db, 雑談配信.id)).toMatchObject({ title: '月曜の雑談配信', endedAt: '2026-09-21T14:00:00.000Z' })
+  })
+
+  it('開いたままの前のセッションは、新しい配信の開始時刻で閉じる', async () => {
+    const db = createFakeDatabase()
+    await recordLiveStream(db, 雑談配信, 時刻('2026-09-21T12:05:00Z'))
+    await recordStreamOnline(db, { id: '40000000002', startedAt: 時刻('2026-09-22T12:00:00Z') })
+
+    expect((await getSession(db, 雑談配信.id))?.endedAt).toBe('2026-09-22T12:00:00.000Z')
+    expect((await getSession(db, '40000000002'))?.endedAt).toBeNull()
+  })
+})
+
+describe('recordStreamOffline', () => {
+  it('配信の終了を知らされたら、開いているセッションをその時刻で閉じる。あとから cron が来ても終了時刻は変わらない', async () => {
+    const db = createFakeDatabase()
+    await recordLiveStream(db, 雑談配信, 時刻('2026-09-21T12:05:00Z'))
+    await recordStreamOffline(db, 時刻('2026-09-21T13:58:30Z'))
+    await closeOpenSessions(db, 時刻('2026-09-21T14:00:00Z'))
+
+    expect((await getSession(db, 雑談配信.id))?.endedAt).toBe('2026-09-21T13:58:30.000Z')
+  })
+
+  it('遅れて届いた前の配信の終了で、そのあとに始まった配信を閉じない', async () => {
+    const db = createFakeDatabase()
+    await recordStreamOnline(db, { id: '40000000002', startedAt: 時刻('2026-09-22T12:00:00Z') })
+    await recordStreamOffline(db, 時刻('2026-09-21T13:58:30Z'))
+
+    expect((await getSession(db, '40000000002'))?.endedAt).toBeNull()
+  })
+})
+
+describe('recordEvent', () => {
+  const イベントの行 = (db: ReturnType<typeof createFakeDatabase>) =>
+    db.sqlite.prepare('SELECT id, session_id AS sessionId, type, occurred_at AS occurredAt FROM stream_events ORDER BY occurred_at').all()
+
+  it('配信中のイベントは、開いているセッションに結び付けて記録する', async () => {
+    const db = createFakeDatabase()
+    await recordLiveStream(db, 雑談配信, 時刻('2026-09-21T12:05:00Z'))
+    await recordEvent(db, { id: 'メッセージ1', type: 'channel.raid', occurredAt: 時刻('2026-09-21T12:30:00Z') })
+
+    expect(イベントの行(db)).toEqual([
+      { id: 'メッセージ1', sessionId: '40000000001', type: 'channel.raid', occurredAt: '2026-09-21T12:30:00.000Z' },
+    ])
+    expect((await listSessions(db, 時刻('2026-09-21T13:00:00Z')))[0]?.eventCounts).toEqual({ 'channel.raid': 1 })
+  })
+
+  it('配信していないときのイベントは、セッションなしで記録する', async () => {
+    const db = createFakeDatabase()
+    await recordLiveStream(db, 雑談配信, 時刻('2026-09-21T12:05:00Z'))
+    await closeOpenSessions(db, 時刻('2026-09-21T14:00:00Z'))
+    await recordEvent(db, { id: 'メッセージ1', type: 'channel.subscribe', occurredAt: 時刻('2026-09-21T20:00:00Z') })
+
+    expect(イベントの行(db)).toMatchObject([{ id: 'メッセージ1', sessionId: null }])
+  })
+
+  it('同じメッセージIDが再送されても、二重に数えない', async () => {
+    const db = createFakeDatabase()
+    await recordEvent(db, { id: 'メッセージ1', type: 'channel.subscribe', occurredAt: 時刻('2026-09-21T20:00:00Z') })
+    await recordEvent(db, { id: 'メッセージ1', type: 'channel.subscribe', occurredAt: 時刻('2026-09-21T20:00:00Z') })
+
+    expect(イベントの行(db)).toHaveLength(1)
   })
 })

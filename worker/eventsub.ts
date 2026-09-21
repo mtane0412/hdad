@@ -13,7 +13,7 @@ import { TwitchApiError, type EventSubSubscription, type TwitchClient } from './
 
 const UNAUTHORIZED = 401
 
-interface EventType {
+export interface EventType {
   type: string
   version: string
   /** 購読に必要なスコープ（不要なら null） */
@@ -21,10 +21,10 @@ interface EventType {
   condition(broadcasterId: string): Record<string, string>
 }
 
-const byBroadcaster = (broadcasterId: string): Record<string, string> => ({ broadcaster_user_id: broadcasterId })
+export const byBroadcaster = (broadcasterId: string): Record<string, string> => ({ broadcaster_user_id: broadcasterId })
 
 /** 受け取るイベントの一覧。増やすときはここに足す（スコープが増えた場合は配信者の再ログインが必要） */
-const EVENT_TYPES: readonly EventType[] = [
+export const EVENT_TYPES: readonly EventType[] = [
   { type: 'channel.channel_points_custom_reward_redemption.add', version: '1', scope: 'channel:read:redemptions', condition: byBroadcaster },
   {
     type: 'channel.follow',
@@ -53,7 +53,7 @@ export const buildSubscriptions = (broadcasterId: string, sessionId: string): Ev
   }))
 
 /** Twitchのエラーに、どのイベントの購読で起きたかを書き足す */
-const withEventType = (error: unknown, type: string): unknown =>
+export const withEventType = (error: unknown, type: string): unknown =>
   error instanceof TwitchApiError ? new TwitchApiError(error.status, `${type} の購読に失敗しました: ${error.message}`) : error
 
 interface SubscribeAllOptions {

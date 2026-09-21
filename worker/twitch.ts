@@ -1,7 +1,7 @@
 /**
  * Twitch APIの呼び出し
  *
- * OAuth（認可コードの交換・トークンの更新・トークンの検証）と、HelixへのEventSub購読の登録、チャンネルポイント報酬の一覧の取得、
+ * OAuth（認可コードの交換・トークンの更新・トークンの検証・アプリアクセストークンの発行）と、HelixへのEventSub購読の登録・一覧・削除、チャンネルポイント報酬の一覧の取得、
  * 配信の記録のための取得（いまの配信・フォロワー数）を受け持つ。
  * 失敗の応答はすべて TwitchApiError として投げ、呼び出し側が状態コードで扱いを決める。
  * fetch を引数で受け取るのは、テストで実際の通信を差し替えるため。
@@ -44,12 +44,28 @@ export interface TokenOwner {
   scopes: string[]
 }
 
-/** Helixへ登録するEventSubの購読（WebSocket宛て） */
+/**
+ * Helixへ登録するEventSubの購読。
+ * WebSocket宛て（オーバーレイ）はユーザートークンで、Webhook宛て（配信の記録）はアプリアクセストークンで登録する。
+ */
 export interface EventSubSubscription {
   type: string
   version: string
   condition: Record<string, string>
-  transport: { method: 'websocket'; session_id: string }
+  transport: { method: 'websocket'; session_id: string } | { method: 'webhook'; callback: string; secret: string }
+}
+
+/** 登録済みのEventSubの購読のうち、Webhook宛ての購読の整理に必要な項目 */
+export interface RegisteredSubscription {
+  id: string
+  /** enabled・webhook_callback_verification_pending のほか、失効の理由（authorization_revoked など） */
+  status: string
+  type: string
+  version: string
+  /** 購読の条件（どの配信者のイベントか）。文字列でない値は含めない */
+  condition: Record<string, string>
+  /** Webhook宛てならコールバックのURL。それ以外は null */
+  callback: string | null
 }
 
 /** チャンネルポイント報酬のうち、管理画面で選ぶのに必要な項目 */
@@ -78,6 +94,11 @@ export interface TwitchClient {
   exchangeCode(code: string, redirectUri: string): Promise<TokenGrant>
   refresh(refreshToken: string): Promise<TokenGrant>
   validate(accessToken: string): Promise<TokenOwner>
+  /** アプリアクセストークン（ユーザーに紐づかないトークン）を発行する。Webhook宛ての購読の登録・一覧・削除に要る */
+  getAppAccessToken(): Promise<string>
+  /** このアプリが登録しているEventSubの購読をすべて返す（アプリアクセストークンならWebhook宛てが返る） */
+  listSubscriptions(accessToken: string): Promise<RegisteredSubscription[]>
+  deleteSubscription(accessToken: string, id: string): Promise<void>
   createSubscription(accessToken: string, subscription: EventSubSubscription): Promise<void>
   /** 配信者のチャンネルポイント報酬の一覧（channel:read:redemptions が必要。Twitchの上限は50件で、ページ分けはない） */
   listCustomRewards(accessToken: string, broadcasterId: string): Promise<CustomReward[]>
@@ -119,6 +140,30 @@ const toCustomReward = (value: unknown): CustomReward => {
     throw new TwitchApiError(BAD_GATEWAY, 'Twitchの報酬の応答に id・title・cost が揃っていません')
   }
   return { id: value.id, title: value.title, cost: value.cost }
+}
+
+const toRegisteredSubscription = (value: unknown): RegisteredSubscription => {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== 'string' ||
+    typeof value.status !== 'string' ||
+    typeof value.type !== 'string' ||
+    typeof value.version !== 'string' ||
+    !isRecord(value.condition) ||
+    !isRecord(value.transport)
+  ) {
+    throw new TwitchApiError(BAD_GATEWAY, 'Twitchの購読の応答に id・status・type・version・condition・transport が揃っていません')
+  }
+  const { callback } = value.transport
+  const condition = Object.fromEntries(Object.entries(value.condition).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
+  return {
+    id: value.id,
+    status: value.status,
+    type: value.type,
+    version: value.version,
+    condition,
+    callback: typeof callback === 'string' ? callback : null,
+  }
 }
 
 const toLiveStream = (value: unknown): LiveStream => {
@@ -179,6 +224,39 @@ export const createTwitchClient = ({ clientId, clientSecret, fetch: fetchImpl }:
         throw new TwitchApiError(BAD_GATEWAY, 'Twitchのトークン検証の応答に user_id・login・scopes が揃っていません')
       }
       return { userId, login, scopes: scopes.filter((scope): scope is string => typeof scope === 'string') }
+    },
+
+    getAppAccessToken: async () => {
+      const response = await fetchImpl(TOKEN_URL, {
+        method: 'POST',
+        body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, grant_type: 'client_credentials' }),
+      })
+      // アプリアクセストークンにはリフレッシュトークンが無い。切れたら発行し直す
+      const { access_token: accessToken } = await readJson(response)
+      if (typeof accessToken !== 'string') throw new TwitchApiError(BAD_GATEWAY, 'Twitchのトークン応答に access_token がありません')
+      return accessToken
+    },
+
+    listSubscriptions: async (accessToken) => {
+      const subscriptions: RegisteredSubscription[] = []
+      let cursor: string | null = null
+      do {
+        const url = new URL(SUBSCRIPTIONS_URL)
+        if (cursor) url.searchParams.set('after', cursor)
+        const { data, pagination } = await getHelix(url, accessToken)
+        if (!Array.isArray(data)) throw new TwitchApiError(BAD_GATEWAY, 'Twitchの購読の応答に data の配列がありません')
+        subscriptions.push(...data.map(toRegisteredSubscription))
+        cursor = isRecord(pagination) && typeof pagination.cursor === 'string' && pagination.cursor !== '' ? pagination.cursor : null
+      } while (cursor)
+      return subscriptions
+    },
+
+    deleteSubscription: async (accessToken, id) => {
+      const url = new URL(SUBSCRIPTIONS_URL)
+      url.searchParams.set('id', id)
+      const response = await fetchImpl(url, { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}`, 'Client-Id': clientId } })
+      // 成功の応答（204）には本文がない
+      if (!response.ok) await readJson(response)
     },
 
     createSubscription: async (accessToken, subscription) => {
