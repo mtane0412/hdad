@@ -81,3 +81,58 @@ describe('sendMessage（チャットの送信）', () => {
     await expect(createBotApi(fetchImpl).sendMessage('あやしい文言')).rejects.toThrow('AutoMod')
   })
 })
+
+describe('startDeviceCode（別の端末での接続を始める）', () => {
+  const 発行された内容 = {
+    deviceCode: 'device-code-0123456789',
+    userCode: 'ABCDEFGH',
+    verificationUri: 'https://www.twitch.tv/activate?public=true&device-code=ABCDEFGH',
+    expiresIn: 1800,
+    intervalSeconds: 5,
+  }
+
+  it('コードの発行を求め、利用者に見せる内容を返す', async () => {
+    const { requests, fetchImpl } = 応答を返すfetch(200, 発行された内容)
+
+    expect(await createBotApi(fetchImpl).startDeviceCode()).toEqual(発行された内容)
+    expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/bot/device-code')
+    expect(requests[0]!.method).toBe('POST')
+  })
+
+  it('応答が想定した形でなければエラーにする', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { userCode: 'ABCDEFGH' })
+    await expect(createBotApi(fetchImpl).startDeviceCode()).rejects.toThrow('/api/admin/bot/device-code')
+  })
+})
+
+describe('pollDeviceCode（認可されるまで待つ）', () => {
+  it('まだ認可されていなければ、待っている状態を返す', async () => {
+    const { requests, fetchImpl } = 応答を返すfetch(200, { status: 'pending' })
+
+    expect(await createBotApi(fetchImpl).pollDeviceCode('device-code-0123456789')).toEqual({ status: 'pending' })
+    expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/bot/device-token')
+    expect(await requests[0]!.json()).toEqual({ deviceCode: 'device-code-0123456789' })
+  })
+
+  it('問い合わせが速すぎると言われたら、pending と区別して返す', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { status: 'slow-down' })
+
+    expect(await createBotApi(fetchImpl).pollDeviceCode('device-code-0123456789')).toEqual({ status: 'slow-down' })
+  })
+
+  it('認可が済んでいれば、接続したbotを返す', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { status: 'connected', bot: 接続済みのbot })
+
+    expect(await createBotApi(fetchImpl).pollDeviceCode('device-code-0123456789')).toEqual({ status: 'connected', bot: 接続済みのbot })
+  })
+
+  it('応答が想定した形でなければエラーにする（黙って待ち続けない）', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { status: 'connected' })
+    await expect(createBotApi(fetchImpl).pollDeviceCode('device-code-0123456789')).rejects.toThrow('/api/admin/bot/device-token')
+  })
+
+  it('コードの期限が切れていたら、そのメッセージを持つエラーにする', async () => {
+    const { fetchImpl } = 応答を返すfetch(502, { error: { code: 'twitch-error', message: 'Twitchが 400 を返しました: expired_token' } })
+    await expect(createBotApi(fetchImpl).pollDeviceCode('期限切れのコード')).rejects.toThrow('expired_token')
+  })
+})

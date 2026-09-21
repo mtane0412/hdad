@@ -41,6 +41,12 @@ const 代役のbotAPI: BotApi = {
   status: vi.fn(async () => null),
   disconnect: vi.fn(async () => {}),
   sendMessage: vi.fn(async () => {}),
+  startDeviceCode: vi.fn(async () => {
+    throw new Error('このテストではデバイスコードを発行しません')
+  }),
+  pollDeviceCode: vi.fn(async () => {
+    throw new Error('このテストでは認可を待ちません')
+  }),
 }
 
 const 代役の記録API: StatsApi = {

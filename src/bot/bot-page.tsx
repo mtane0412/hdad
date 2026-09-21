@@ -9,7 +9,7 @@
  * アプリ内の移動（Link）ではなく `<a>` を使う。
  * 注意: 失敗は黙って無視せず、理由を画面に出す（Fail-Fast）。状態を読めなかったときも未接続扱いにしない。
  */
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import {
   AlertDialog,
@@ -26,14 +26,19 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
-import type { BotApi, BotStatus } from './api'
+import type { BotApi, BotStatus, DeviceCode } from './api'
+import { nextIntervalSeconds } from './poll'
 
 /** botの接続を始めるURL。Twitchの認可画面へ移動する */
 const CONNECT_PATH = '/api/auth/login?role=bot'
 /** Twitchが決めているチャット本文の上限（文字） */
 const MAX_MESSAGE_LENGTH = 500
+const MILLISECONDS_PER_SECOND = 1000
+const SECONDS_PER_MINUTE = 60
 
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error))
+
+const wait = (seconds: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, seconds * MILLISECONDS_PER_SECOND))
 
 type Loaded = { status: 'loading' } | { status: 'ready'; bot: BotStatus | null } | { status: 'failed'; message: string }
 
@@ -48,6 +53,10 @@ export const BotPage = ({ api }: BotPageProps) => {
   const [failure, setFailure] = useState('')
   const [busy, setBusy] = useState(false)
   const [confirming, setConfirming] = useState(false)
+  // 別の端末での接続を待っている間に見せるコード。待っていなければ undefined
+  const [deviceCode, setDeviceCode] = useState<DeviceCode>()
+  // 画面を離れた後に問い合わせを続けないための目印
+  const leftRef = useRef(false)
   const messageFieldId = useId()
 
   useEffect(() => {
@@ -64,6 +73,13 @@ export const BotPage = ({ api }: BotPageProps) => {
       cancelled = true
     }
   }, [api])
+
+  useEffect(
+    () => () => {
+      leftRef.current = true
+    },
+    [],
+  )
 
   if (loaded.status === 'loading') return <Skeleton className="h-48 w-full" aria-label="botの接続状態を読み込んでいます" />
   if (loaded.status === 'failed') {
@@ -95,6 +111,34 @@ export const BotPage = ({ api }: BotPageProps) => {
     await api.disconnect()
     setLoaded({ status: 'ready', bot: null })
     return 'botを切断しました'
+  }
+
+  /**
+   * 別の端末での接続を始め、認可が済むまで問い合わせ続ける。
+   *
+   * 注意: 認可が済んでいないこと（pending）は失敗ではないので待ち続けるが、
+   * 期限切れや拒否はエラーとして届くので、そのまま呼び出し元へ伝えてコードの表示をやめる。
+   */
+  const connectWithDeviceCode = async (): Promise<string> => {
+    const issued = await api.startDeviceCode()
+    setDeviceCode(issued)
+    let intervalSeconds = issued.intervalSeconds
+    try {
+      for (;;) {
+        // 画面を離れたら問い合わせをやめる（戻ってきたときは、読み込み時の status で接続状態が分かる）
+        if (leftRef.current) return ''
+        const result = await api.pollDeviceCode(issued.deviceCode)
+        if (result.status === 'connected') {
+          setLoaded({ status: 'ready', bot: result.bot })
+          return `botアカウント「${result.bot.login}」を接続しました`
+        }
+        // 速すぎると言われた場合は、次からの間隔を延ばす
+        intervalSeconds = nextIntervalSeconds(intervalSeconds, result)
+        await wait(intervalSeconds)
+      }
+    } finally {
+      setDeviceCode(undefined)
+    }
   }
 
   const sendMessage = async (): Promise<string> => {
@@ -130,9 +174,17 @@ export const BotPage = ({ api }: BotPageProps) => {
           {bot === null ? (
             <>
               <p className="text-sm text-muted-foreground">botアカウントを接続していません。</p>
-              <a href={CONNECT_PATH} className={`${buttonVariants()} self-start`}>
-                botアカウントを接続する
-              </a>
+              <div className="flex flex-wrap gap-2">
+                <a href={CONNECT_PATH} className={buttonVariants()}>
+                  botアカウントを接続する
+                </a>
+                <Button type="button" variant="outline" disabled={busy} onClick={() => void run(connectWithDeviceCode)}>
+                  別の端末で接続する
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                「botアカウントを接続する」は、このブラウザのTwitchのログインをbotに切り替えてから押してください。切り替えたくない場合は「別の端末で接続する」を使うと、botでログイン済みのスマホなどでコードを入力するだけで済みます
+              </p>
             </>
           ) : (
             <>
@@ -152,6 +204,9 @@ export const BotPage = ({ api }: BotPageProps) => {
                 <a href={CONNECT_PATH} className={buttonVariants({ variant: 'outline' })}>
                   別のアカウントで接続し直す
                 </a>
+                <Button type="button" variant="outline" disabled={busy} onClick={() => void run(connectWithDeviceCode)}>
+                  別の端末で接続する
+                </Button>
                 <Button type="button" variant="ghost" className="text-destructive" disabled={busy} onClick={() => setConfirming(true)}>
                   botを切断する
                 </Button>
@@ -160,6 +215,29 @@ export const BotPage = ({ api }: BotPageProps) => {
           )}
         </CardContent>
       </Card>
+
+      {deviceCode !== undefined && (
+        <Card>
+          <CardHeader>
+            <CardTitle>別の端末で認可してください</CardTitle>
+            <CardDescription>
+              botアカウントでログイン済みの端末（スマホなど）で下のリンクを開き、このコードを入力してください。認可が済むと、この画面が自動で切り替わります
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <p className="font-mono text-3xl tracking-[0.3em] tabular-nums">{deviceCode.userCode}</p>
+            <a
+              href={deviceCode.verificationUri}
+              target="_blank"
+              rel="noreferrer"
+              className={`${buttonVariants({ variant: 'outline' })} self-start`}
+            >
+              twitch.tv/activate を開く
+            </a>
+            <p className="text-xs text-muted-foreground">このコードは{Math.round(deviceCode.expiresIn / SECONDS_PER_MINUTE)}分で使えなくなります</p>
+          </CardContent>
+        </Card>
+      )}
 
       {bot !== null && (
         <Card>
