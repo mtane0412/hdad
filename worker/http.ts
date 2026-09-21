@@ -25,6 +25,8 @@ export interface Env {
   TWITCH_BROADCASTER_ID: string
   /** セッションの署名に使うランダムな文字列 */
   SESSION_SECRET: string
+  /** EventSubのWebhookの署名に使うランダムな文字列（Twitchの決まりで10〜100文字のASCII） */
+  EVENTSUB_SECRET: string
 }
 
 /** 経路の処理が受け取る文脈 */

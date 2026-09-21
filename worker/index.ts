@@ -19,6 +19,7 @@
  * | GET  /api/admin/stats/followers  | セッション     | フォロワー数の時系列 |
  * | GET  /api/admin/stats/failures   | セッション     | 記録の収集の失敗の一覧 |
  * | POST /api/eventsub/subscriptions | オーバーレイ用キー | EventSubの購読を代行する |
+ * | POST /api/eventsub/webhook       | Twitchの署名   | EventSubの通知を受け、イベントの件数と配信の開始・終了を記録する |
  * | GET  /api/overlay/config         | オーバーレイ用キー | オーバーレイ向けの設定を返す |
  * | GET  /api/media/:id              | オーバーレイ用キーかセッション | 素材の中身を返す |
  *
@@ -35,6 +36,7 @@ import { HttpError, STATUS, errorResponse, type Context, type Env } from './http
 import { media, overlayConfig, subscribe } from './overlay-routes'
 import { getStatsFailures, getStatsFollowers, getStatsSession, getStatsSessions } from './stats-routes'
 import { AuthError } from './token'
+import { WEBHOOK_PATH, eventsubWebhook } from './webhook-routes'
 import { TwitchApiError, createTwitchClient, type TwitchClient } from './twitch'
 
 export type { Env } from './http'
@@ -52,7 +54,7 @@ interface Route {
   handle(context: Context): Response | Promise<Response>
 }
 
-const REQUIRED_VARIABLES = ['TWITCH_CLIENT_ID', 'TWITCH_CLIENT_SECRET', 'TWITCH_BROADCASTER_ID', 'SESSION_SECRET'] as const
+const REQUIRED_VARIABLES = ['TWITCH_CLIENT_ID', 'TWITCH_CLIENT_SECRET', 'TWITCH_BROADCASTER_ID', 'SESSION_SECRET', 'EVENTSUB_SECRET'] as const
 const PARAM_PREFIX = ':'
 
 const ROUTES: readonly Route[] = [
@@ -72,6 +74,7 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/admin/stats/followers', handle: getStatsFollowers },
   { method: 'GET', path: '/api/admin/stats/failures', handle: getStatsFailures },
   { method: 'POST', path: '/api/eventsub/subscriptions', handle: subscribe },
+  { method: 'POST', path: WEBHOOK_PATH, handle: eventsubWebhook },
   { method: 'GET', path: '/api/overlay/config', handle: overlayConfig },
   { method: 'GET', path: '/api/media/:id', handle: media },
 ]

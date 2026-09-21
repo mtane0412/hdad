@@ -1,7 +1,7 @@
 /**
  * 配信の記録の読み書き
  *
- * 配信セッション・視聴者数・フォロワー数・収集の失敗をデータベース（D1）へ書き、管理用APIのために読み出す。
+ * 配信セッション・視聴者数・フォロワー数・イベント（サブスクなど）・収集の失敗をデータベース（D1）へ書き、管理用APIのために読み出す。
  * テーブルの定義は migrations/ にある。日時は UTC の ISO 8601 の文字列で持ち、文字列のまま大小を比べる。
  *
  * 注意: SQLに値を埋め込まず、必ずプレースホルダで渡す。
@@ -86,6 +86,48 @@ export const recordLiveStream = async (db: Database, stream: LiveStream, now: nu
 /** 配信していないときの記録。開いているセッションを現在時刻で閉じる */
 export const closeOpenSessions = async (db: Database, now: number): Promise<void> => {
   await db.prepare('UPDATE stream_sessions SET ended_at = ?1 WHERE ended_at IS NULL').bind(toIso(now)).run()
+}
+
+/**
+ * EventSub（stream.online）で配信の開始を知らされたときの記録。
+ *
+ * 通知にはタイトルとカテゴリが無いので空で始め、次の cron（recordLiveStream）が埋める。
+ * すでにあるセッションには触れない（cron が先に記録していた場合と、終了後に通知が再送された場合のため）。
+ */
+export const recordStreamOnline = async (db: Database, stream: { id: string; startedAt: number }): Promise<void> => {
+  const startedAt = toIso(stream.startedAt)
+  await db.batch([
+    db
+      .prepare(`INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?1, ?2, NULL, '', '') ON CONFLICT DO NOTHING`)
+      .bind(stream.id, startedAt),
+    // 終了を見届けられなかった前の配信を閉じる（recordLiveStream と同じ扱い）
+    db.prepare('UPDATE stream_sessions SET ended_at = ?1 WHERE ended_at IS NULL AND id <> ?2 AND started_at < ?1').bind(startedAt, stream.id),
+  ])
+}
+
+/**
+ * EventSub（stream.offline）で配信の終了を知らされたときの記録。開いているセッションをその時刻で閉じる。
+ *
+ * 注意: 通知には配信IDが無い。遅れて届いた通知でそのあとの配信を閉じないよう、終了時刻より前に始まったセッションだけを閉じる。
+ */
+export const recordStreamOffline = async (db: Database, occurredAt: number): Promise<void> => {
+  await db.prepare('UPDATE stream_sessions SET ended_at = ?1 WHERE ended_at IS NULL AND started_at <= ?1').bind(toIso(occurredAt)).run()
+}
+
+/**
+ * イベント（サブスク・ポイント交換・レイド）を1件記録する。配信中なら、開いているセッションに結び付ける。
+ *
+ * @param event id はEventSubのメッセージID。Twitchは同じ通知を再送することがあるので、同じIDは二重に数えない
+ */
+export const recordEvent = async (db: Database, event: { id: string; type: string; occurredAt: number }): Promise<void> => {
+  await db
+    .prepare(
+      `INSERT INTO stream_events (id, session_id, type, occurred_at)
+       VALUES (?1, (SELECT id FROM stream_sessions WHERE ended_at IS NULL AND started_at <= ?3 ORDER BY started_at DESC LIMIT 1), ?2, ?3)
+       ON CONFLICT DO NOTHING`,
+    )
+    .bind(event.id, event.type, toIso(event.occurredAt))
+    .run()
 }
 
 /** フォロワー数を記録する。直前の記録と同じ値なら何も足さない（行数を抑えるため） */

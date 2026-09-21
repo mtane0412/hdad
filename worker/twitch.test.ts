@@ -247,3 +247,104 @@ describe('getFollowerTotal', () => {
     await expect(クライアントを作る(fetchImpl).getFollowerTotal('test-access-token', '12345')).rejects.toBeInstanceOf(TwitchApiError)
   })
 })
+
+describe('getAppAccessToken', () => {
+  it('クライアントの資格情報でアプリアクセストークンを受け取る', async () => {
+    const { requests, fetchImpl } = 応答を返すfetch(200, { access_token: 'test-app-token', expires_in: 5000000, token_type: 'bearer' })
+    const accessToken = await クライアントを作る(fetchImpl).getAppAccessToken()
+
+    expect(accessToken).toBe('test-app-token')
+    const request = requests[0]!
+    expect(request.url).toBe('https://id.twitch.tv/oauth2/token')
+    expect(request.method).toBe('POST')
+    const form = new URLSearchParams(await request.text())
+    expect(form.get('grant_type')).toBe('client_credentials')
+    expect(form.get('client_id')).toBe('test-client-id')
+    expect(form.get('client_secret')).toBe('テスト用シークレット')
+  })
+
+  it('応答に access_token が無ければエラーになる', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { expires_in: 5000000 })
+    await expect(クライアントを作る(fetchImpl).getAppAccessToken()).rejects.toBeInstanceOf(TwitchApiError)
+  })
+})
+
+describe('createSubscription（Webhook宛て）', () => {
+  it('コールバックのURLとシークレットを載せて購読を登録する', async () => {
+    const { requests, fetchImpl } = 応答を返すfetch(202, { data: [] })
+    const subscription = {
+      type: 'stream.online',
+      version: '1',
+      condition: { broadcaster_user_id: '12345' },
+      transport: { method: 'webhook', callback: 'https://example.com/api/eventsub/webhook', secret: 'テスト用のWebhookシークレット' },
+    } as const
+    await クライアントを作る(fetchImpl).createSubscription('test-app-token', subscription)
+
+    expect(await requests[0]!.json()).toEqual(subscription)
+  })
+})
+
+describe('listSubscriptions', () => {
+  it('ページをたどって、登録済みの購読をすべて返す', async () => {
+    const requests: Request[] = []
+    const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const request = new Request(input, init)
+      requests.push(request)
+      const 二ページ目 = new URL(request.url).searchParams.get('after') === '次のページ'
+      return Response.json(
+        二ページ目
+          ? {
+              data: [
+                {
+                  id: '購読2',
+                  status: 'webhook_callback_verification_failed',
+                  type: 'channel.raid',
+                  transport: { method: 'webhook', callback: 'https://example.com/api/eventsub/webhook' },
+                },
+              ],
+              pagination: {},
+            }
+          : {
+              data: [{ id: '購読1', status: 'enabled', type: 'stream.online', transport: { method: 'websocket', session_id: 'セッションID' } }],
+              pagination: { cursor: '次のページ' },
+            },
+      )
+    }
+    const subscriptions = await クライアントを作る(fetchImpl).listSubscriptions('test-app-token')
+
+    expect(subscriptions).toEqual([
+      { id: '購読1', status: 'enabled', type: 'stream.online', callback: null },
+      { id: '購読2', status: 'webhook_callback_verification_failed', type: 'channel.raid', callback: 'https://example.com/api/eventsub/webhook' },
+    ])
+    expect(requests).toHaveLength(2)
+    expect(requests[0]!.method).toBe('GET')
+    expect(requests[0]!.headers.get('Authorization')).toBe('Bearer test-app-token')
+    expect(requests[0]!.headers.get('Client-Id')).toBe('test-client-id')
+  })
+
+  it('応答が想定した形でなければエラーになる（黙って空の一覧にしない）', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { data: [{ id: '購読1' }] })
+    await expect(クライアントを作る(fetchImpl).listSubscriptions('test-app-token')).rejects.toBeInstanceOf(TwitchApiError)
+  })
+})
+
+describe('deleteSubscription', () => {
+  it('購読をIDで削除する', async () => {
+    const requests: Request[] = []
+    const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      requests.push(new Request(input, init))
+      return new Response(null, { status: 204 })
+    }
+    await クライアントを作る(fetchImpl).deleteSubscription('test-app-token', '購読1')
+
+    const request = requests[0]!
+    expect(request.method).toBe('DELETE')
+    expect(new URL(request.url).searchParams.get('id')).toBe('購読1')
+    expect(request.headers.get('Authorization')).toBe('Bearer test-app-token')
+  })
+
+  it('Twitchが失敗を返したら、状態コードを持つエラーになる', async () => {
+    const { fetchImpl } = 応答を返すfetch(404, { error: 'Not Found', status: 404, message: 'subscription not found' })
+    await expect(クライアントを作る(fetchImpl).deleteSubscription('test-app-token', '購読1')).rejects.toMatchObject({ status: 404 })
+  })
+})

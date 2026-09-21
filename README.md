@@ -191,16 +191,17 @@ Cloudflare Workers で公開します。設定は `wrangler.jsonc` にあり、V
 R2は無料枠（保存10GB・転送無料）だけを使う場合でも、デプロイの前に一度、Cloudflareダッシュボードの Storage & databases > R2 でR2を有効にする必要があります（支払い方法の登録を求められますが、無料枠内なら請求は発生しません）。
 
 1. [Twitch開発者コンソール](https://dev.twitch.tv/console/apps)でアプリを登録し、OAuthのリダイレクトURLに `https://<公開先のドメイン>/api/auth/callback` を指定する（ローカルで試す場合は `http://localhost:5173/api/auth/callback`（`npm run dev`）と `http://localhost:8787/api/auth/callback`（`npm run preview:worker`）も追加する）
-2. `.dev.vars.example` にある4つのシークレット（`TWITCH_CLIENT_ID`・`TWITCH_CLIENT_SECRET`・`TWITCH_BROADCASTER_ID`・`SESSION_SECRET`）を、`npx wrangler secret put <名前>` またはダッシュボードの Settings > Variables and Secrets で設定する。ローカルでは `.dev.vars.example` を `.dev.vars` にコピーして値を入れ、`npm run dev` で起動する
+2. `.dev.vars.example` にある5つのシークレット（`TWITCH_CLIENT_ID`・`TWITCH_CLIENT_SECRET`・`TWITCH_BROADCASTER_ID`・`SESSION_SECRET`・`EVENTSUB_SECRET`）を、`npx wrangler secret put <名前>` またはダッシュボードの Settings > Variables and Secrets で設定する。ローカルでは `.dev.vars.example` を `.dev.vars` にコピーして値を入れ、`npm run dev` で起動する
 3. `https://<公開先のドメイン>/` を開き、「Twitchでログイン」から配信者のアカウントでログインする。`TWITCH_BROADCASTER_ID` と異なるアカウントは拒否される。ログインを終えるとトップ（ダッシュボード）に戻る
 
 | API | 役割 |
 |---|---|
 | `GET /api/auth/login` | Twitchの認可ページへ送る |
-| `GET /api/auth/callback` | トークンを保管し、オーバーレイ用キーを発行（発行済みなら維持）して、セッションを開始し、トップ（`/`。ダッシュボード）へ送る |
+| `GET /api/auth/callback` | トークンを保管し、オーバーレイ用キーを発行（発行済みなら維持）し、配信の記録のためのWebhook宛ての購読を揃えて、セッションを開始し、トップ（`/`。ダッシュボード）へ送る |
 | `POST /api/auth/logout` | セッションを終える |
 | `GET /api/me` | ログイン中の配信者とオーバーレイ用キーを返す（要セッション） |
 | `POST /api/eventsub/subscriptions` | 本文 `{ "key": オーバーレイ用キー, "sessionId": EventSubのWebSocketのセッションID }` を受け取り、保管しているトークンで購読（チャンネルポイント交換・フォロー・サブスク・レイド）を登録する |
+| `POST /api/eventsub/webhook` | Twitchから届くEventSubの通知を受け、イベントの件数と配信の開始・終了を記録する（Twitchの署名を `EVENTSUB_SECRET` で確かめる） |
 
 | `GET /api/overlay/config?key=` | オーバーレイ向けに、素材のURL付きのトリガーの一覧を返す（要オーバーレイ用キー） |
 | `GET /api/media/<素材ID>?key=` | 素材の中身を返す（要オーバーレイ用キー、または配信者のセッション） |
@@ -246,7 +247,7 @@ npx wrangler d1 migrations apply DB --local   # ローカル（npm run dev の�
 | `stream_sessions` | 配信セッション（Twitchの配信ID・開始と終了の日時・タイトル・カテゴリ）。配信中は `ended_at` が `NULL` |
 | `viewer_samples` | 配信中の視聴者数（5分おき） |
 | `follower_samples` | フォロワー数。前回から変わったときだけ1行足す |
-| `stream_events` | サブスク・ポイント交換・レイドなどのイベント（EventSubのWebhookで受ける。受け口は未実装） |
+| `stream_events` | サブスク・ポイント交換・レイドなどのイベントの1件ごとの記録（EventSubのWebhookで受ける。`id` はメッセージIDで、再送を二重に数えない）。配信外のイベントは `session_id` が `NULL` |
 | `collection_failures` | 収集の失敗（30日分） |
 
 1回の収集は、Helix の `GET /streams` で配信中かどうかを調べ、配信中ならセッションを開始（続いていれば更新）して視聴者数を1行足し、配信していなければ開いているセッションを閉じます。続けて `GET /channels/followers` の `total` を記録します。セッションの終了時刻は「配信していないことを最初に確かめた時刻」なので、最大5分遅れます。
@@ -254,5 +255,31 @@ npx wrangler d1 migrations apply DB --local   # ローカル（npm run dev の�
 配信者がログインしていない・トークンを更新できない・Twitchが失敗を返したときは、黙って飛ばさずに `collection_failures` へ記録し、cron の実行も失敗にします。記録が止まっていたら `GET /api/admin/stats/failures` か、Cloudflareダッシュボードの Worker の Settings > Trigger Events で確かめ、`relogin-required` ならログインし直してください。
 
 保持期間は設けていません。書き込みは1日あたり最大で「視聴者数288行＋フォロワー数288行＋セッションの更新」程度で、D1の無料枠（1日10万行の書き込み・保存5GB）に対して十分小さいためです。
+
+#### イベントの件数と、配信の開始・終了（Webhook）
+
+アラート用オーバーレイはブラウザのWebSocketでイベントを受け取るので、オーバーレイを開いていない間のイベントは数えられません。そこで配信の記録のためには、TwitchからWorkerへ直接届くWebhook宛ての購読を別に用意し、`POST /api/eventsub/webhook` で受けます。
+
+- 対象は `channel.subscribe`・`channel.subscription.message`・`channel.channel_points_custom_reward_redemption.add`・`channel.raid`（`stream_events` に1件ずつ記録）と、`stream.online`・`stream.offline`（セッションの開始・終了を cron より正確に記録）。フォローは数えません（フォロワー数の推移として cron が記録しているため）
+- 購読は、配信者がログインしたとき（`GET /api/auth/callback`）に揃えます。Webhook宛ての購読はユーザートークンでは作れないので、アプリアクセストークンを発行し、`https://<公開先のドメイン>/api/eventsub/webhook` 宛てに有効な購読がないイベントだけを登録します。失効した購読は消してから登録し直します。**初めてデプロイしたあとは、一度ログインし直してください**
+- 購読の登録にTwitchが失敗を返しても、ログインは止めません（ログインできないと失敗の記録を読めなくなるため）。失敗は `collection_failures` に `webhook-subscription-failed` として記録します。購読が失効したという通知（`revocation`）も `subscription-revoked` として記録するので、`GET /api/admin/stats/failures` に出ていたらログインし直してください
+- 受け口は誰でも呼べるURLなので、署名（`Twitch-Eventsub-Message-Signature`。`EVENTSUB_SECRET` によるHMAC-SHA256）を確かめ、10分より古い通知と、購読していない種類の通知は拒否します
+- `EVENTSUB_SECRET` は `openssl rand -hex 32` で作ります（Twitchの決まりで10〜100文字のASCII）。あとから変えると、登録済みの購読の通知は署名が合わず403になります。変えたときは `twitch api delete eventsub/subscriptions -q id=<購読ID>`（Twitch CLI）などで購読を消してからログインし直してください
+- `stream.online` の通知にはタイトルとカテゴリが無いので、セッションは空のタイトルで始まり、次の cron（5分以内）が埋めます。`stream.offline` の直後に Helix がまだ「配信中」と答えた場合は、cron がセッションを開き直し、次の回で閉じ直すので、その配信の終了時刻は最大5分遅れます
+
+Twitchは `https` のURLしかWebhookの宛先として受け付けないので、ローカル（`http://localhost`）ではログインしても購読を登録しません。受け口の動きは [Twitch CLI](https://dev.twitch.tv/docs/cli/) で確かめます。Twitch CLI は IPv4 でしか接続しないので、開発サーバーを `127.0.0.1` で待ち受けさせ（既定の `localhost` は IPv6 だけになることがあります）、`.dev.vars` の `EVENTSUB_SECRET` と同じ値を `-s` に渡します。
+
+```bash
+npm run dev -- --host 127.0.0.1
+# 購読の確認（challenge）に応答できるか
+twitch event verify-subscription channel.raid -F http://127.0.0.1:5173/api/eventsub/webhook -s <EVENTSUB_SECRET>
+# 通知を送る（streamup → channel.raid・channel.subscribe・add-redemption → streamdown の順に送ると、配信中のイベントとして記録される）
+twitch event trigger streamup -F http://127.0.0.1:5173/api/eventsub/webhook -s <EVENTSUB_SECRET>
+twitch event trigger channel.raid -F http://127.0.0.1:5173/api/eventsub/webhook -s <EVENTSUB_SECRET>
+twitch event trigger streamdown -F http://127.0.0.1:5173/api/eventsub/webhook -s <EVENTSUB_SECRET>
+npx wrangler d1 execute DB --local --command "SELECT * FROM stream_events"
+```
+
+#### ローカルで収集を試す
 
 ローカルで収集を試すには、`npm run dev` を起動した状態で `curl http://localhost:5173/cdn-cgi/handler/scheduled` を実行し、`npx wrangler d1 execute DB --local --command "SELECT * FROM follower_samples"` で中身を確かめます。

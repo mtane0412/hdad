@@ -8,11 +8,13 @@
  */
 import { describe, expect, it } from 'vitest'
 import { REQUIRED_SCOPES } from './eventsub'
+import { WEBHOOK_EVENT_TYPES } from './eventsub-webhook'
 import { createFakeBucket } from './fake-bucket'
 import { createFakeDatabase } from './fake-database'
 import { createFakeStore } from './fake-store'
 import { handleRequest, type Env } from './index'
 import { createSessionToken } from './session'
+import { listFailures } from './stats-store'
 import { loadToken, saveToken } from './token'
 
 const 現在時刻 = Date.UTC(2026, 8, 21, 12, 0, 0)
@@ -28,6 +30,7 @@ const 環境を作る = (store = createFakeStore()) => {
     TWITCH_CLIENT_SECRET: 'テスト用シークレット',
     TWITCH_BROADCASTER_ID: 配信者のID,
     SESSION_SECRET: 'テスト用のセッション秘密鍵',
+    EVENTSUB_SECRET: 'テスト用のWebhookシークレット',
   } satisfies Env
   return { env, store }
 }
@@ -150,6 +153,65 @@ describe('GET /api/auth/callback', () => {
     expect(response.status).toBe(400)
   })
 
+  it('ログインすると、配信の記録のためのWebhook宛ての購読を登録する', async () => {
+    const { env } = 環境を作る()
+    const twitch = Twitchの代役(配信者のID)
+    // fetch に渡した Request の本文は一度しか読めないので、送られた時点で控えておく
+    const 登録した購読: { type: string; transport: unknown }[] = []
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const request = new Request(input, init)
+      if (request.method === 'POST' && request.url === 'https://api.twitch.tv/helix/eventsub/subscriptions') {
+        登録した購読.push((await request.clone().json()) as { type: string; transport: unknown })
+      }
+      return twitch.fetchImpl(request)
+    }
+    await ログインする(env, fetchImpl)
+
+    expect(登録した購読.map((subscription) => subscription.type)).toEqual(WEBHOOK_EVENT_TYPES)
+    for (const subscription of 登録した購読) {
+      expect(subscription.transport).toEqual({
+        method: 'webhook',
+        callback: `${サイト}/api/eventsub/webhook`,
+        secret: 'テスト用のWebhookシークレット',
+      })
+    }
+  })
+
+  it('Webhook宛ての購読に失敗しても、ログインは続ける。失敗は収集の失敗として記録する（ログインできないと失敗の記録も読めないため）', async () => {
+    const { env } = 環境を作る()
+    const twitch = Twitchの代役(配信者のID)
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const request = new Request(input, init)
+      if (request.method === 'POST' && request.url === 'https://api.twitch.tv/helix/eventsub/subscriptions') {
+        return Response.json({ error: 'Forbidden', status: 403, message: 'subscription missing proper authorization' }, { status: 403 })
+      }
+      return twitch.fetchImpl(request)
+    }
+    const response = await ログインする(env, fetchImpl)
+
+    expect(response.status).toBe(302)
+    expect(await listFailures(env.DB)).toMatchObject([
+      { code: 'webhook-subscription-failed', message: expect.stringContaining('subscription missing proper authorization') },
+    ])
+  })
+
+  it('https でないサイト（ローカルの開発サーバー）では、Webhook宛ての購読を登録しない（Twitchが https のURLしか受け付けないため）', async () => {
+    const { env } = 環境を作る()
+    const twitch = Twitchの代役(配信者のID)
+    const ローカル = 'http://localhost:5173'
+    const login = await 呼び出す(new Request(`${ローカル}/api/auth/login`), env, twitch.fetchImpl)
+    const state = new URL(login.headers.get('Location')!).searchParams.get('state')!
+    const stateCookie = login.headers.getSetCookie()[0]!.split(';')[0]!
+    const response = await 呼び出す(
+      new Request(`${ローカル}/api/auth/callback?code=認可コード&state=${state}`, { headers: { Cookie: stateCookie } }),
+      env,
+      twitch.fetchImpl,
+    )
+
+    expect(response.status).toBe(302)
+    expect(twitch.requests.filter((request) => request.url.includes('/helix/eventsub/subscriptions'))).toHaveLength(0)
+  })
+
   it('再ログインしても、発行済みのオーバーレイ用キーは変えない（OBSに貼ったURLを無効にしないため）', async () => {
     const { env, store } = 環境を作る(createFakeStore({ 'overlay-key': '発行済みのオーバーレイ用キー' }))
     await ログインする(env, Twitchの代役(配信者のID).fetchImpl)
@@ -215,6 +277,8 @@ describe('POST /api/eventsub/subscriptions', () => {
     const twitch = Twitchの代役(配信者のID)
     await ログインする(env, twitch.fetchImpl)
     const overlayKey = env.STORE.entries.get('overlay-key')
+    // ログイン時のWebhook宛ての購読を数えないよう、ここまでの通信の記録を捨てる
+    twitch.requests.length = 0
 
     const response = await 呼び出す(購読を頼む({ key: overlayKey, sessionId: 'セッションID' }), env, twitch.fetchImpl)
 
