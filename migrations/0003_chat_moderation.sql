@@ -6,7 +6,10 @@
 -- 直近のチャットの文面。連投（同じ文面のくり返し）の判定だけに使う。
 -- 本文そのものではなくハッシュを持つのは、数えるのに本文が要らないうえ、チャットの中身を貯め込まないため。
 -- 書き込むのは連投のルールが有効なときだけで、判定のたびに窓（最大10分）より古い行を消すので増え続けない。
+-- メッセージIDを主キーにするのは、Twitchが同じ通知を再送しても行が増えないようにするため
+-- （増えると、1回の発言が連投とみなされて誤って処分してしまう）。
 CREATE TABLE chat_recent_messages (
+  message_id TEXT PRIMARY KEY,
   chatter_user_id TEXT NOT NULL,
   text_hash TEXT NOT NULL,
   sent_at TEXT NOT NULL

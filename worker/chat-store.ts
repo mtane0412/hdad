@@ -41,6 +41,8 @@ export const reserveChatReply = async (db: Database, messageId: string, now: num
 
 /** 連投を数えるために記録する発言 */
 export interface RecentMessage {
+  /** Twitchが振ったメッセージのID。再送で同じ発言を二重に数えないための鍵 */
+  messageId: string
   chatterUserId: string
   /** 本文。前後の空白と大文字小文字の違いは同じ文面として扱う */
   text: string
@@ -65,6 +67,9 @@ const hashText = async (text: string): Promise<string> => {
  * 判定より先に自分の1件を書き込むのは、「読んでから書く」に分けると、同時に届いた通知の間で件数が食い違うため。
  * あわせて、窓より古い行を消して増え続けないようにする。
  *
+ * 注意: 同じメッセージIDの行は増やさない（メッセージIDが主キー）。Twitchの再送で行が増えると、
+ * 1回しか発言していない人を連投とみなして誤って処分してしまう。
+ *
  * 注意: 呼び出し側は、連投のルールが有効なときだけこれを呼ぶ（チャットは件数の桁が違い、
  * 1通ごとに書くと配信の記録とD1の書き込みの枠を食い合う）。
  *
@@ -76,8 +81,11 @@ export const recordAndCountRecentMessage = async (db: Database, message: RecentM
 
   await db.prepare('DELETE FROM chat_recent_messages WHERE sent_at < ?1').bind(since).run()
   await db
-    .prepare('INSERT INTO chat_recent_messages (chatter_user_id, text_hash, sent_at) VALUES (?1, ?2, ?3)')
-    .bind(message.chatterUserId, textHash, toIso(now))
+    .prepare(
+      `INSERT INTO chat_recent_messages (message_id, chatter_user_id, text_hash, sent_at) VALUES (?1, ?2, ?3, ?4)
+       ON CONFLICT DO NOTHING`,
+    )
+    .bind(message.messageId, message.chatterUserId, textHash, toIso(now))
     .run()
 
   const counted = await db

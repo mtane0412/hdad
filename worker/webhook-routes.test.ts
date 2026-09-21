@@ -808,6 +808,18 @@ describe('チャットの自動モデレーション', () => {
     expect(twitch.呼んだURL).toEqual(['DELETE /helix/moderation/chat', 'POST /helix/moderation/bans'])
   })
 
+  it('同じ通知が再送されても、連投とみなさない（1回の発言が2件に数えられないため）', async () => {
+    const { env } = await モデレーションの環境(設定([{ kind: 'repeat', count: 3, windowSeconds: 30, punishment: { type: 'delete' } }]))
+    const twitch = モデレーションに応えるTwitch()
+
+    await 通知を送る(env, twitch.fetchImpl, チャットの通知('かいます', { messageId: 'chat-message-1' }), 'chat-message-1')
+    await 通知を送る(env, twitch.fetchImpl, チャットの通知('かいます', { messageId: 'chat-message-2' }), 'chat-message-2')
+    // Twitchが2通目を再送してきた。実際の発言は2回なので、3回目の連投にはならない
+    await 通知を送る(env, twitch.fetchImpl, チャットの通知('かいます', { messageId: 'chat-message-2' }), 'chat-message-2')
+
+    expect(twitch.呼んだURL).toEqual([])
+  })
+
   it('連投のルールが無ければ、直近の発言をD1に記録しない（チャット全件を書かないため）', async () => {
     const { env, db } = await モデレーションの環境(設定([{ kind: 'word', word: '宣伝', punishment: { type: 'delete' } }]))
     const twitch = モデレーションに応えるTwitch()

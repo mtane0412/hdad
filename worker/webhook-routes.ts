@@ -108,7 +108,11 @@ const moderateChatMessage = async (context: Context, message: ChatMessage, botUs
   const config = await loadModerationConfig(env.STORE)
   const repeat = repeatRuleOf(config)
   const recentSameTextCount = repeat
-    ? await recordAndCountRecentMessage(env.DB, { chatterUserId: message.chatterUserId, text: message.text, windowSeconds: repeat.windowSeconds }, now)
+    ? await recordAndCountRecentMessage(
+        env.DB,
+        { messageId: message.messageId, chatterUserId: message.chatterUserId, text: message.text, windowSeconds: repeat.windowSeconds },
+        now,
+      )
     : 1
 
   const punishment = judge(config, message, recentSameTextCount)

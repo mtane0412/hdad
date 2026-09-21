@@ -94,7 +94,7 @@ describe('consumeCooldown', () => {
 })
 
 describe('recordAndCountRecentMessage', () => {
-  const 連投 = { chatterUserId: '11111', text: 'うおおおお', windowSeconds: 30 }
+  const 連投 = { messageId: 'chat-message-1', chatterUserId: '11111', text: 'うおおおお', windowSeconds: 30 }
 
   it('はじめての文面なら、自分の1件だけを数える', async () => {
     const db = createFakeDatabase()
@@ -105,44 +105,52 @@ describe('recordAndCountRecentMessage', () => {
   it('同じ発言者が同じ文面を送るたびに、件数が増える', async () => {
     const db = createFakeDatabase()
     await recordAndCountRecentMessage(db, 連投, 現在時刻)
-    await recordAndCountRecentMessage(db, 連投, 現在時刻 + 1000)
+    await recordAndCountRecentMessage(db, { ...連投, messageId: 'chat-message-2' }, 現在時刻 + 1000)
 
-    expect(await recordAndCountRecentMessage(db, 連投, 現在時刻 + 2000)).toBe(3)
+    expect(await recordAndCountRecentMessage(db, { ...連投, messageId: 'chat-message-3' }, 現在時刻 + 2000)).toBe(3)
   })
 
   it('大文字小文字と前後の空白が違うだけの文面は、同じ文面として数える', async () => {
     const db = createFakeDatabase()
     await recordAndCountRecentMessage(db, { ...連投, text: 'CHECK THIS' }, 現在時刻)
 
-    expect(await recordAndCountRecentMessage(db, { ...連投, text: '  check this  ' }, 現在時刻 + 1000)).toBe(2)
+    expect(await recordAndCountRecentMessage(db, { ...連投, messageId: 'chat-message-2', text: '  check this  ' }, 現在時刻 + 1000)).toBe(2)
   })
 
   it('文面が違えば別々に数える', async () => {
     const db = createFakeDatabase()
     await recordAndCountRecentMessage(db, 連投, 現在時刻)
 
-    expect(await recordAndCountRecentMessage(db, { ...連投, text: 'こんばんは' }, 現在時刻 + 1000)).toBe(1)
+    expect(await recordAndCountRecentMessage(db, { ...連投, messageId: 'chat-message-2', text: 'こんばんは' }, 現在時刻 + 1000)).toBe(1)
   })
 
   it('発言者が違えば別々に数える', async () => {
     const db = createFakeDatabase()
     await recordAndCountRecentMessage(db, 連投, 現在時刻)
 
-    expect(await recordAndCountRecentMessage(db, { ...連投, chatterUserId: '22222' }, 現在時刻 + 1000)).toBe(1)
+    expect(await recordAndCountRecentMessage(db, { ...連投, messageId: 'chat-message-2', chatterUserId: '22222' }, 現在時刻 + 1000)).toBe(1)
   })
 
   it('窓（30秒）より古い発言は数えない', async () => {
     const db = createFakeDatabase()
     await recordAndCountRecentMessage(db, 連投, 現在時刻)
 
-    expect(await recordAndCountRecentMessage(db, 連投, 現在時刻 + 31 * 1000)).toBe(1)
+    expect(await recordAndCountRecentMessage(db, { ...連投, messageId: 'chat-message-2' }, 現在時刻 + 31 * 1000)).toBe(1)
+  })
+
+  it('同じ発言が再送されても、件数は増えない（Twitchの再送で連投とみなされないため）', async () => {
+    const db = createFakeDatabase()
+    await recordAndCountRecentMessage(db, 連投, 現在時刻)
+
+    // Twitchが同じ通知（同じメッセージID）をもう一度届けた
+    expect(await recordAndCountRecentMessage(db, 連投, 現在時刻 + 1000)).toBe(1)
   })
 
   it('窓より古い行は、数えるときに消す（増え続けないようにするため）', async () => {
     const db = createFakeDatabase()
     await recordAndCountRecentMessage(db, 連投, 現在時刻)
 
-    await recordAndCountRecentMessage(db, { ...連投, text: 'こんばんは' }, 現在時刻 + 31 * 1000)
+    await recordAndCountRecentMessage(db, { ...連投, messageId: 'chat-message-2', text: 'こんばんは' }, 現在時刻 + 31 * 1000)
 
     // 残るのは、窓の中にある2件目だけ
     expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM chat_recent_messages').get()).toEqual({ count: 1 })
