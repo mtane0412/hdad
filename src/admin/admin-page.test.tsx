@@ -282,6 +282,28 @@ describe('トリガー', () => {
     expect(row.queryByLabelText('表示時間（1〜60秒）')).not.toBeInTheDocument()
   })
 
+  test('チャットに送るだけのトリガーでアラートを出すを付けると、選択欄に見えている最初の素材で保存する', async () => {
+    // 素材が未選択（空文字）のまま保存すると、選択欄には最初の素材が見えているのにWorkerが「素材が存在しません」と拒否してしまう
+    const チャットだけのトリガー: StoredTrigger = { event: 'channel.follow', actions: [{ type: 'chat', message: 'ありがとうございます' }] }
+    const api = 代役のAPI({ config: vi.fn(async () => [チャットだけのトリガー]) })
+    render(管理画面(api))
+
+    const row = within((await screen.findAllByRole('listitem', { name: /番目のトリガー/ }))[0]!)
+    await userEvent.click(row.getByRole('checkbox', { name: 'アラートを出す' }))
+    await userEvent.click(screen.getByRole('button', { name: 'トリガーを保存' }))
+
+    expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
+    expect(api.saveConfig).toHaveBeenCalledWith([
+      {
+        event: 'channel.follow',
+        actions: [
+          { type: 'alert', mediaId: 'media-hakushu', durationSeconds: 5, volume: 1, message: '' },
+          { type: 'chat', message: 'ありがとうございます' },
+        ],
+      },
+    ])
+  })
+
   test('トリガーを外せる', async () => {
     render(管理画面(代役のAPI()))
 

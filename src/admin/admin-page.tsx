@@ -139,7 +139,15 @@ const TriggerRow = ({ position, draft, media, rewards, onChange, onRemove }: Tri
       {/* ここから下は、このイベントのときに行う動作。種類ごとに実行者が違う（アラートはオーバーレイ、チャットはWorker） */}
       <div className="flex flex-col gap-4 rounded-md border border-dashed p-3 sm:col-span-2">
         <div className="flex items-center gap-2">
-          <Checkbox id={`${id}-alert-enabled`} checked={draft.alertEnabled} onCheckedChange={(checked) => update({ alertEnabled: checked === true })} />
+          <Checkbox
+            id={`${id}-alert-enabled`}
+            checked={draft.alertEnabled}
+            // 素材が未選択のまま出すことにすると、選択欄には最初の素材が見えているのに保存時に拒まれる。
+            // そこで、出すことにした時点で選択欄が見せているとおりの素材（先頭）を選んでおく
+            onCheckedChange={(checked) =>
+              update(checked === true ? { alertEnabled: true, mediaId: draft.mediaId === '' ? (media[0]?.id ?? '') : draft.mediaId } : { alertEnabled: false })
+            }
+          />
           <Label htmlFor={`${id}-alert-enabled`}>アラートを出す</Label>
         </div>
         {draft.alertEnabled && (
