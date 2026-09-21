@@ -73,7 +73,7 @@ interface SubscribeAllOptions {
  * @throws TwitchApiError Twitchが購読を拒否した（どのイベントかをメッセージに含む）
  */
 export const subscribeAll = async ({ store, twitch, broadcasterId, sessionId, now }: SubscribeAllOptions): Promise<string[]> => {
-  let token = await getAccessToken(store, twitch, now)
+  let token = await getAccessToken(store, 'broadcaster', twitch, now)
 
   const missingScopes = REQUIRED_SCOPES.filter((scope) => !token.scopes.includes(scope))
   if (missingScopes.length > 0) {
@@ -89,7 +89,7 @@ export const subscribeAll = async ({ store, twitch, broadcasterId, sessionId, no
       if (!tokenRejected || refreshed) throw error
       // 期限内でもTwitch側で無効になっていることがある（パスワード変更など）。1回だけ取り直してやり直す
       refreshed = true
-      token = await getAccessToken(store, twitch, now, { forceRefresh: true })
+      token = await getAccessToken(store, 'broadcaster', twitch, now, { forceRefresh: true })
       await twitch.createSubscription(token.accessToken, subscription)
     }
   }

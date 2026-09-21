@@ -310,7 +310,7 @@ describe('チャンネルポイント報酬の一覧（GET /api/admin/rewards）
 
   it('保管しているトークンでTwitchから報酬を取得し、管理画面で選べる形で返す', async () => {
     const { env, store } = 環境を作る()
-    await saveToken(store, 保存済みのトークン)
+    await saveToken(store, 'broadcaster', 保存済みのトークン)
     const requests: Request[] = []
     const Twitchの代役 = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       requests.push(new Request(input, init))
@@ -327,7 +327,7 @@ describe('チャンネルポイント報酬の一覧（GET /api/admin/rewards）
 
   it('Twitchが失敗を返したら、502でTwitchのメッセージを伝える', async () => {
     const { env, store } = 環境を作る()
-    await saveToken(store, 保存済みのトークン)
+    await saveToken(store, 'broadcaster', 保存済みのトークン)
     const 失敗するTwitch = async (): Promise<Response> => Response.json({ message: 'channel points are not available' }, { status: 403 })
 
     const response = await handleRequest(await 配信者のリクエスト(env, '/api/admin/rewards'), env, { fetch: 失敗するTwitch, now: () => 現在時刻 })

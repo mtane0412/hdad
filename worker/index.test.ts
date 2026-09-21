@@ -112,7 +112,7 @@ describe('GET /api/auth/callback', () => {
 
     expect(response.status).toBe(302)
     expect(response.headers.get('Location')).toBe('/')
-    expect(await loadToken(store)).toMatchObject({
+    expect(await loadToken(store, 'broadcaster')).toMatchObject({
       accessToken: 'test-access-token',
       refreshToken: 'リフレッシュトークン',
       expiresAt: 現在時刻 + 14400 * 1000,
@@ -128,7 +128,7 @@ describe('GET /api/auth/callback', () => {
     const response = await ログインする(env, Twitchの代役('99999').fetchImpl)
 
     expect(response.status).toBe(403)
-    expect(await loadToken(store)).toBeNull()
+    expect(await loadToken(store, 'broadcaster')).toBeNull()
     expect(response.headers.getSetCookie().some((cookie) => cookie.startsWith('__Host-session='))).toBe(false)
   })
 
@@ -229,7 +229,7 @@ describe('GET /api/me', () => {
 
   it('配信者のセッションがあれば、ログイン名とオーバーレイ用キーを返す', async () => {
     const { env, store } = 環境を作る(createFakeStore({ 'overlay-key': '発行済みのオーバーレイ用キー' }))
-    await saveToken(store, {
+    await saveToken(store, 'broadcaster', {
       accessToken: 'test-access-token',
       refreshToken: 'リフレッシュトークン',
       expiresAt: 現在時刻 + 1000,

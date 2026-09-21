@@ -14,5 +14,8 @@ export const createFakeStore = (initial: Record<string, string> = {}): KeyValueS
     put: async (key, value) => {
       entries.set(key, value)
     },
+    delete: async (key) => {
+      entries.delete(key)
+    },
   }
 }

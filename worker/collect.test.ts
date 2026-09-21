@@ -45,7 +45,7 @@ const Twitchの代役 = (overrides: Partial<収集用のTwitch> = {}): 収集用
 const 環境を作る = async (token: StoredToken | null = 保管中のトークン) => {
   const db = createFakeDatabase()
   const store = createFakeStore()
-  if (token) await saveToken(store, token)
+  if (token) await saveToken(store, 'broadcaster', token)
   return { db, store }
 }
 
@@ -95,7 +95,7 @@ describe('collectStats', () => {
     await collectStats({ db, store, twitch, broadcasterId: 配信者のID, now: 現在時刻 })
 
     expect(使われたトークン).toEqual(['保管中のアクセストークン', '取り直したアクセストークン'])
-    expect((await loadToken(store))?.accessToken).toBe('取り直したアクセストークン')
+    expect((await loadToken(store, 'broadcaster'))?.accessToken).toBe('取り直したアクセストークン')
     expect(await listSessions(db, 現在時刻)).toHaveLength(1)
   })
 

@@ -56,7 +56,7 @@ describe('subscribeAll', () => {
 
   it('すべての購読を登録し、登録したイベントの種類を返す', async () => {
     const store = createFakeStore()
-    await saveToken(store, 保存済みトークン(REQUIRED_SCOPES))
+    await saveToken(store, 'broadcaster', 保存済みトークン(REQUIRED_SCOPES))
     const twitch = 更新できるTwitch(async () => {})
 
     const types = await subscribeAll({ store, twitch, broadcasterId: '12345', sessionId: 'セッションID', now: 現在時刻 })
@@ -68,7 +68,7 @@ describe('subscribeAll', () => {
 
   it('保存済みトークンのスコープが足りなければ、Twitchへ送る前に不足分を示すエラーになる', async () => {
     const store = createFakeStore()
-    await saveToken(store, 保存済みトークン(['channel:read:redemptions']))
+    await saveToken(store, 'broadcaster', 保存済みトークン(['channel:read:redemptions']))
     const twitch = 更新できるTwitch(async () => {})
 
     await expect(
@@ -79,7 +79,7 @@ describe('subscribeAll', () => {
 
   it('Twitchに401（トークン無効）を返されたら、トークンを取り直して同じ購読をやり直す', async () => {
     const store = createFakeStore()
-    await saveToken(store, 保存済みトークン(REQUIRED_SCOPES))
+    await saveToken(store, 'broadcaster', 保存済みトークン(REQUIRED_SCOPES))
     const twitch = 更新できるTwitch(async (accessToken) => {
       if (accessToken === '保存済みのアクセストークン') throw new TwitchApiError(401, 'Invalid OAuth token')
     })
@@ -94,7 +94,7 @@ describe('subscribeAll', () => {
 
   it('取り直したトークンでも401なら、やり直しを繰り返さずエラーにする', async () => {
     const store = createFakeStore()
-    await saveToken(store, 保存済みトークン(REQUIRED_SCOPES))
+    await saveToken(store, 'broadcaster', 保存済みトークン(REQUIRED_SCOPES))
     const twitch = 更新できるTwitch(async () => {
       throw new TwitchApiError(401, 'Invalid OAuth token')
     })
@@ -107,7 +107,7 @@ describe('subscribeAll', () => {
 
   it('Twitchに拒否された購読があれば、どのイベントで失敗したかを含むエラーにする', async () => {
     const store = createFakeStore()
-    await saveToken(store, 保存済みトークン(REQUIRED_SCOPES))
+    await saveToken(store, 'broadcaster', 保存済みトークン(REQUIRED_SCOPES))
     const twitch = 更新できるTwitch(async (_accessToken, subscription) => {
       if (subscription.type === 'channel.follow') throw new TwitchApiError(403, 'subscription missing proper authorization')
     })
