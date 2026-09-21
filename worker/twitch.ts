@@ -61,6 +61,9 @@ export interface RegisteredSubscription {
   /** enabled・webhook_callback_verification_pending のほか、失効の理由（authorization_revoked など） */
   status: string
   type: string
+  version: string
+  /** 購読の条件（どの配信者のイベントか）。文字列でない値は含めない */
+  condition: Record<string, string>
   /** Webhook宛てならコールバックのURL。それ以外は null */
   callback: string | null
 }
@@ -145,12 +148,22 @@ const toRegisteredSubscription = (value: unknown): RegisteredSubscription => {
     typeof value.id !== 'string' ||
     typeof value.status !== 'string' ||
     typeof value.type !== 'string' ||
+    typeof value.version !== 'string' ||
+    !isRecord(value.condition) ||
     !isRecord(value.transport)
   ) {
-    throw new TwitchApiError(BAD_GATEWAY, 'Twitchの購読の応答に id・status・type・transport が揃っていません')
+    throw new TwitchApiError(BAD_GATEWAY, 'Twitchの購読の応答に id・status・type・version・condition・transport が揃っていません')
   }
   const { callback } = value.transport
-  return { id: value.id, status: value.status, type: value.type, callback: typeof callback === 'string' ? callback : null }
+  const condition = Object.fromEntries(Object.entries(value.condition).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
+  return {
+    id: value.id,
+    status: value.status,
+    type: value.type,
+    version: value.version,
+    condition,
+    callback: typeof callback === 'string' ? callback : null,
+  }
 }
 
 const toLiveStream = (value: unknown): LiveStream => {

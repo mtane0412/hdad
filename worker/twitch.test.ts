@@ -299,13 +299,15 @@ describe('listSubscriptions', () => {
                   id: '購読2',
                   status: 'webhook_callback_verification_failed',
                   type: 'channel.raid',
+                  version: '1',
+                  condition: { to_broadcaster_user_id: '12345' },
                   transport: { method: 'webhook', callback: 'https://example.com/api/eventsub/webhook' },
                 },
               ],
               pagination: {},
             }
           : {
-              data: [{ id: '購読1', status: 'enabled', type: 'stream.online', transport: { method: 'websocket', session_id: 'セッションID' } }],
+              data: [{ id: '購読1', status: 'enabled', type: 'stream.online', version: '1', condition: { broadcaster_user_id: '12345' }, transport: { method: 'websocket', session_id: 'セッションID' } }],
               pagination: { cursor: '次のページ' },
             },
       )
@@ -313,8 +315,15 @@ describe('listSubscriptions', () => {
     const subscriptions = await クライアントを作る(fetchImpl).listSubscriptions('test-app-token')
 
     expect(subscriptions).toEqual([
-      { id: '購読1', status: 'enabled', type: 'stream.online', callback: null },
-      { id: '購読2', status: 'webhook_callback_verification_failed', type: 'channel.raid', callback: 'https://example.com/api/eventsub/webhook' },
+      { id: '購読1', status: 'enabled', type: 'stream.online', version: '1', condition: { broadcaster_user_id: '12345' }, callback: null },
+      {
+        id: '購読2',
+        status: 'webhook_callback_verification_failed',
+        type: 'channel.raid',
+        version: '1',
+        condition: { to_broadcaster_user_id: '12345' },
+        callback: 'https://example.com/api/eventsub/webhook',
+      },
     ])
     expect(requests).toHaveLength(2)
     expect(requests[0]!.method).toBe('GET')

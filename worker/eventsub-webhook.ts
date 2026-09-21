@@ -11,7 +11,7 @@
  */
 import { EVENT_TYPES, byBroadcaster, withEventType, type EventType } from './eventsub'
 import { signHex, timingSafeEqual } from './secret'
-import type { EventSubSubscription, TwitchClient } from './twitch'
+import type { EventSubSubscription, RegisteredSubscription, TwitchClient } from './twitch'
 
 const SIGNATURE_PREFIX = 'sha256='
 
@@ -54,6 +54,11 @@ interface WebhookMessage {
 export const verifyWebhookSignature = async ({ messageId, timestamp, body, signature, secret }: WebhookMessage): Promise<boolean> =>
   timingSafeEqual(signature, SIGNATURE_PREFIX + (await signHex(messageId + timestamp + body, secret)))
 
+const isSameCondition = (left: Record<string, string>, right: Record<string, string>): boolean => {
+  const keys = Object.keys(left)
+  return keys.length === Object.keys(right).length && keys.every((key) => left[key] === right[key])
+}
+
 interface EnsureWebhookSubscriptionsOptions {
   twitch: Pick<TwitchClient, 'getAppAccessToken' | 'listSubscriptions' | 'deleteSubscription' | 'createSubscription'>
   broadcasterId: string
@@ -64,7 +69,8 @@ interface EnsureWebhookSubscriptionsOptions {
 }
 
 /**
- * Webhook宛ての購読を揃える。callbackUrl 宛てに有効な購読がないイベントだけを登録し、失効した購読は消してから登録し直す。
+ * Webhook宛ての購読を揃える。callbackUrl 宛てに有効な購読（種類・バージョン・条件が一致するもの）がないイベントだけを登録し、
+ * 失効した購読と内容が合わない購読は消してから登録し直す。
  * 別のURL宛ての購読（同じTwitchアプリを使う別の環境のもの）には触れない。
  *
  * @returns 新しく登録したイベントの種類
@@ -74,17 +80,25 @@ export const ensureWebhookSubscriptions = async ({ twitch, broadcasterId, callba
   const accessToken = await twitch.getAppAccessToken()
   const registered = (await twitch.listSubscriptions(accessToken)).filter((subscription) => subscription.callback === callbackUrl)
 
-  for (const subscription of registered.filter(({ status }) => !USABLE_STATUSES.includes(status))) {
+  const wanted = WEBHOOK_EVENTS.map(({ type, version, condition }) => ({ type, version, condition: condition(broadcasterId) }))
+  /** 登録済みの購読が、そのまま使えるか（状態が有効で、種類・バージョン・条件が求めるものと一致する） */
+  const isUsableFor = (subscription: RegisteredSubscription, event: (typeof wanted)[number]): boolean =>
+    USABLE_STATUSES.includes(subscription.status) &&
+    subscription.type === event.type &&
+    subscription.version === event.version &&
+    isSameCondition(subscription.condition, event.condition)
+
+  // 失効した購読と、内容が合わない購読（配信者のIDを変えた場合など）は消す
+  for (const subscription of registered.filter((candidate) => !wanted.some((event) => isUsableFor(candidate, event)))) {
     await twitch.deleteSubscription(accessToken, subscription.id)
   }
 
-  const usableTypes = new Set(registered.filter(({ status }) => USABLE_STATUSES.includes(status)).map(({ type }) => type))
-  const missing = WEBHOOK_EVENTS.filter(({ type }) => !usableTypes.has(type))
+  const missing = wanted.filter((event) => !registered.some((subscription) => isUsableFor(subscription, event)))
   for (const { type, version, condition } of missing) {
     const subscription: EventSubSubscription = {
       type,
       version,
-      condition: condition(broadcasterId),
+      condition,
       transport: { method: 'webhook', callback: callbackUrl, secret },
     }
     await twitch.createSubscription(accessToken, subscription).catch((error: unknown) => {

@@ -62,8 +62,8 @@ describe('ensureWebhookSubscriptions', () => {
 
   it('有効な購読と確認待ちの購読は、登録し直さない', async () => {
     const twitch = Twitchの代役([
-      { id: '購読1', status: 'enabled', type: 'stream.online', callback: コールバック },
-      { id: '購読2', status: 'webhook_callback_verification_pending', type: 'stream.offline', callback: コールバック },
+      { id: '購読1', status: 'enabled', type: 'stream.online', version: '1', condition: { broadcaster_user_id: '12345' }, callback: コールバック },
+      { id: '購読2', status: 'webhook_callback_verification_pending', type: 'stream.offline', version: '1', condition: { broadcaster_user_id: '12345' }, callback: コールバック },
     ])
     const created = await 揃える(twitch)
 
@@ -74,17 +74,27 @@ describe('ensureWebhookSubscriptions', () => {
   })
 
   it('失効した購読は、消してから登録し直す', async () => {
-    const twitch = Twitchの代役([{ id: '購読1', status: 'authorization_revoked', type: 'channel.raid', callback: コールバック }])
+    const twitch = Twitchの代役([{ id: '購読1', status: 'authorization_revoked', type: 'channel.raid', version: '1', condition: { to_broadcaster_user_id: '12345' }, callback: コールバック }])
     const created = await 揃える(twitch)
 
     expect(twitch.deleteSubscription).toHaveBeenCalledWith('test-app-token', '購読1')
     expect(created).toContain('channel.raid')
   })
 
+  it('種類が同じでも、条件（配信者）やバージョンが違う購読は使わない。消してから正しい内容で登録する', async () => {
+    const twitch = Twitchの代役([
+      { id: '購読1', status: 'enabled', type: 'stream.online', version: '1', condition: { broadcaster_user_id: '99999' }, callback: コールバック },
+    ])
+    const created = await 揃える(twitch)
+
+    expect(twitch.deleteSubscription).toHaveBeenCalledWith('test-app-token', '購読1')
+    expect(created).toContain('stream.online')
+  })
+
   it('別のコールバック宛ての購読（別の環境のもの）には触れず、数にも入れない', async () => {
     const twitch = Twitchの代役([
-      { id: '購読1', status: 'notification_failures_exceeded', type: 'channel.raid', callback: 'https://other.example.com/api/eventsub/webhook' },
-      { id: '購読2', status: 'enabled', type: 'stream.online', callback: 'https://other.example.com/api/eventsub/webhook' },
+      { id: '購読1', status: 'notification_failures_exceeded', type: 'channel.raid', version: '1', condition: { to_broadcaster_user_id: '12345' }, callback: 'https://other.example.com/api/eventsub/webhook' },
+      { id: '購読2', status: 'enabled', type: 'stream.online', version: '1', condition: { broadcaster_user_id: '12345' }, callback: 'https://other.example.com/api/eventsub/webhook' },
     ])
     const created = await 揃える(twitch)
 
