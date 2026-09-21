@@ -4,8 +4,7 @@
  * EventSubの `channel.chat.message` の通知から発言を取り出し、何を送り返すかを決める。
  * 通信を伴わない変換だけをここに置き、購読・送信・記録は呼び出し側（webhook-routes.ts）が受け持つ。
  *
- * コマンドの一覧は引数で受け取る。いまは組み込みの定数（BUILT_IN_COMMANDS）を渡しているが、
- * 後の段階でストア（KV）から読んだものに差し替えられるよう、判定のしくみとは切り離しておく。
+ * コマンドの一覧は引数で受け取る（保存と検証は bot-config.ts が受け持つ）。判定のしくみと、一覧の出どころを切り離しておく。
  *
  * 注意: bot自身の発言には決して応答しない。応答すると、その応答にまたbotが応答して止まらなくなる。
  */
@@ -34,14 +33,6 @@ export interface ChatMessage {
 
 /** コマンドの先頭に付ける文字 */
 const PREFIX = '!'
-
-/**
- * 組み込みのコマンド。
- *
- * いまは動作確認のための最小限だけを持つ。配信者が自分で増やせるようにするのは後の段階で、
- * そのときはこの定数の代わりにストアから読んだ一覧を resolveReply へ渡す。
- */
-export const BUILT_IN_COMMANDS: readonly BotCommand[] = [{ name: 'ping', reply: '@{user} pong' }]
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
 
@@ -77,12 +68,19 @@ export const readChatMessage = (body: Record<string, unknown>, toError: (message
 }
 
 /**
- * 発言に対して送り返す文言を決める。送り返さない場合は null。
+ * 発言に当てはまるコマンドを探す。当てはまらなければ null。
+ *
+ * 呼び出し側は、当てはまったときだけクールダウンなどの記録へ進む（当てはまらない発言でデータベースに書かないため）。
+ * コマンドの型を保ったまま返すので、クールダウンなどの追加の項目も受け取れる。
  *
  * @param commands 登録されているコマンドの一覧
  * @param botUserId 接続しているbotのユーザーID。これと同じ発言者には応答しない
  */
-export const resolveReply = (commands: readonly BotCommand[], message: ChatMessage, botUserId: string): string | null => {
+export const findCommand = <Command extends BotCommand>(
+  commands: readonly Command[],
+  message: ChatMessage,
+  botUserId: string,
+): Command | null => {
   // botの応答にbotが応答するのを防ぐ。ここを外すと、1回のコマンドで延々と往復し続ける
   if (message.chatterUserId === botUserId) return null
 
@@ -93,7 +91,14 @@ export const resolveReply = (commands: readonly BotCommand[], message: ChatMessa
   const name = trimmed.slice(PREFIX.length).split(/\s/)[0]?.toLowerCase() ?? ''
   if (name === '') return null
 
-  const command = commands.find((candidate) => candidate.name.toLowerCase() === name)
-  if (!command) return null
-  return command.reply.replaceAll('{user}', message.chatterUserLogin)
+  return commands.find((candidate) => candidate.name.toLowerCase() === name) ?? null
+}
+
+/** コマンドの応答文の差し込み語を、実際の値に置き換える */
+export const applyReply = (command: BotCommand, message: ChatMessage): string => command.reply.replaceAll('{user}', message.chatterUserLogin)
+
+/** 発言に対して送り返す文言。送り返さない場合は null（findCommand と applyReply をまとめたもの） */
+export const resolveReply = (commands: readonly BotCommand[], message: ChatMessage, botUserId: string): string | null => {
+  const command = findCommand(commands, message, botUserId)
+  return command ? applyReply(command, message) : null
 }

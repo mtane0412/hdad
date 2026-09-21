@@ -444,3 +444,71 @@ describe('POST /api/admin/bot/device-token', () => {
     expect(await エラーコード(response)).toBe('invalid-device-code')
   })
 })
+
+describe('GET・PUT /api/admin/bot/commands', () => {
+  const 挨拶のコマンド = { name: 'aisatsu', reply: '@{user} こんばんは', cooldownSeconds: 10 }
+
+  const 保存する = async (env: Env, body: unknown) =>
+    呼び出す(
+      await 配信者のリクエスト(env, '/api/admin/bot/commands', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+      env,
+    )
+
+  it('セッションがなければ401を返す', async () => {
+    const { env } = 環境を作る()
+    const response = await 呼び出す(new Request(`${サイト}/api/admin/bot/commands`), env)
+
+    expect(response.status).toBe(401)
+    expect(await エラーコード(response)).toBe('unauthorized')
+  })
+
+  it('まだ保存していなければ、空の一覧を返す', async () => {
+    const { env } = 環境を作る()
+    const response = await 呼び出す(await 配信者のリクエスト(env, '/api/admin/bot/commands'), env)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ commands: [] })
+  })
+
+  it('保存したコマンドを読み出せる', async () => {
+    const { env } = 環境を作る()
+    await 保存する(env, { commands: [挨拶のコマンド] })
+
+    const response = await 呼び出す(await 配信者のリクエスト(env, '/api/admin/bot/commands'), env)
+
+    expect(await response.json()).toEqual({ commands: [挨拶のコマンド] })
+  })
+
+  it('セッションがなければ保存できない', async () => {
+    const { env, store } = 環境を作る()
+    const response = await 呼び出す(
+      new Request(`${サイト}/api/admin/bot/commands`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Origin: サイト },
+        body: JSON.stringify({ commands: [挨拶のコマンド] }),
+      }),
+      env,
+    )
+
+    expect(response.status).toBe(401)
+    expect(await store.get('bot-commands')).toBeNull()
+  })
+
+  it('内容に問題があれば、保存せずに問題点の一覧を返す', async () => {
+    const { env, store } = 環境を作る()
+
+    const response = await 保存する(env, { commands: [{ name: '', reply: '', cooldownSeconds: -1 }] })
+
+    expect(response.status).toBe(400)
+    // 応答の本文は一度しか読めないので、まとめて取り出してから確かめる
+    const body = (await response.json()) as { error: { code: string; problems: string[] } }
+    expect(body.error.code).toBe('invalid-config')
+    // 問題点は最初の1件で止めず、すべて返す（管理画面で一度に直せるようにするため）
+    expect(body.error.problems).toHaveLength(3)
+    expect(await store.get('bot-commands')).toBeNull()
+  })
+})

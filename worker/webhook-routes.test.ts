@@ -13,6 +13,7 @@ import { createFakeDatabase } from './fake-database'
 import { createFakeStore } from './fake-store'
 import { handleRequest, type Env } from './index'
 import { getSession, listFailures, listSessions, recordLiveStream } from './stats-store'
+import { saveBotConfig } from './bot-config'
 import { saveToken } from './token'
 
 const 現在時刻 = Date.parse('2026-09-21T12:30:00Z')
@@ -203,9 +204,10 @@ describe('購読の失効', () => {
 describe('チャットの通知（channel.chat.message）', () => {
   const botのID = '67890'
 
-  /** botを接続済みの環境を作る */
-  const bot接続済みの環境 = async () => {
+  /** botを接続済みで、コマンドが1つ登録されている環境を作る */
+  const bot接続済みの環境 = async (cooldownSeconds = 0) => {
     const { env, db } = 環境を作る()
+    await saveBotConfig(env.STORE, { commands: [{ name: 'ping', reply: '@{user} pong', cooldownSeconds }] })
     await saveToken(env.STORE, 'bot', {
       accessToken: 'bot-access-token',
       refreshToken: 'bot-refresh-token',
@@ -287,6 +289,7 @@ describe('チャットの通知（channel.chat.message）', () => {
 
   it('botを接続していなければ、応答せずに受け取るだけにする', async () => {
     const { env } = 環境を作る()
+    await saveBotConfig(env.STORE, { commands: [{ name: 'ping', reply: '@{user} pong', cooldownSeconds: 0 }] })
     const twitch = 送信に応えるTwitch()
 
     const response = await 呼び出す(Twitchからの通知({ body: チャットの通知('!ping') }), env, twitch.fetchImpl)
@@ -335,5 +338,111 @@ describe('チャットの通知（channel.chat.message）', () => {
 
     expect(response.status).toBe(400)
     expect(twitch.送信したチャット).toHaveLength(0)
+  })
+})
+
+describe('チャットの応答の設定・連打・再送', () => {
+  const botのID = '67890'
+
+  const bot接続済みの環境 = async (commands: { name: string; reply: string; cooldownSeconds: number }[]) => {
+    const { env, db } = 環境を作る()
+    await saveBotConfig(env.STORE, { commands })
+    await saveToken(env.STORE, 'bot', {
+      accessToken: 'bot-access-token',
+      refreshToken: 'bot-refresh-token',
+      expiresAt: 現在時刻 + 60 * 60 * 1000,
+      scopes: ['user:bot', 'user:read:chat', 'user:write:chat'],
+      userId: botのID,
+      login: 'haishinsha_bot',
+    })
+    return { env, db }
+  }
+
+  const チャットの通知 = (text: string, messageId = 'chat-message-1') => ({
+    subscription: { type: 'channel.chat.message' },
+    event: {
+      broadcaster_user_id: 配信者のID,
+      chatter_user_id: '11111',
+      chatter_user_login: 'shichousha',
+      message_id: messageId,
+      message: { text },
+    },
+  })
+
+  const 送信に応えるTwitch = () => {
+    const 送信したチャット: Request[] = []
+    const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const request = new Request(input, init)
+      if (request.url === 'https://api.twitch.tv/helix/chat/messages') {
+        送信したチャット.push(request.clone())
+        return Response.json({ data: [{ message_id: 'sent', is_sent: true }] })
+      }
+      throw new Error(`テストで想定していない通信です: ${request.url}`)
+    }
+    return { 送信したチャット, fetchImpl }
+  }
+
+  /** 通知を1件送る。届いた時刻（通知のタイムスタンプ）も指定できる */
+  const 通知を送る = (env: Env, fetchImpl: typeof fetch, body: unknown, messageId = 'chat-message-1') =>
+    呼び出す(Twitchからの通知({ body, messageId }), env, fetchImpl)
+
+  it('管理画面で登録したコマンドに応答する', async () => {
+    const { env } = await bot接続済みの環境([{ name: 'discord', reply: 'Discordはこちらです', cooldownSeconds: 0 }])
+    const twitch = 送信に応えるTwitch()
+
+    await 通知を送る(env, twitch.fetchImpl, チャットの通知('!discord'))
+
+    expect(await twitch.送信したチャット[0]!.json()).toMatchObject({ message: 'Discordはこちらです' })
+  })
+
+  it('コマンドを1つも登録していなければ、何にも応答しない', async () => {
+    const { env } = await bot接続済みの環境([])
+    const twitch = 送信に応えるTwitch()
+
+    await 通知を送る(env, twitch.fetchImpl, チャットの通知('!discord'))
+
+    expect(twitch.送信したチャット).toHaveLength(0)
+  })
+
+  it('同じ通知が再送されても、二度応答しない', async () => {
+    const { env } = await bot接続済みの環境([{ name: 'ping', reply: '@{user} pong', cooldownSeconds: 0 }])
+    const twitch = 送信に応えるTwitch()
+
+    await 通知を送る(env, twitch.fetchImpl, チャットの通知('!ping'))
+    const 再送 = await 通知を送る(env, twitch.fetchImpl, チャットの通知('!ping'))
+
+    expect(再送.status).toBe(204)
+    expect(twitch.送信したチャット).toHaveLength(1)
+  })
+
+  it('クールダウン中の連打には応答しない', async () => {
+    const { env } = await bot接続済みの環境([{ name: 'ping', reply: '@{user} pong', cooldownSeconds: 60 }])
+    const twitch = 送信に応えるTwitch()
+
+    // 別々のメッセージID（別の発言）として続けて届く
+    await 通知を送る(env, twitch.fetchImpl, チャットの通知('!ping', 'chat-message-1'), 'chat-message-1')
+    await 通知を送る(env, twitch.fetchImpl, チャットの通知('!ping', 'chat-message-2'), 'chat-message-2')
+
+    expect(twitch.送信したチャット).toHaveLength(1)
+  })
+
+  it('クールダウンが0なら、続けて応答する', async () => {
+    const { env } = await bot接続済みの環境([{ name: 'ping', reply: '@{user} pong', cooldownSeconds: 0 }])
+    const twitch = 送信に応えるTwitch()
+
+    await 通知を送る(env, twitch.fetchImpl, チャットの通知('!ping', 'chat-message-1'), 'chat-message-1')
+    await 通知を送る(env, twitch.fetchImpl, チャットの通知('!ping', 'chat-message-2'), 'chat-message-2')
+
+    expect(twitch.送信したチャット).toHaveLength(2)
+  })
+
+  it('コマンドに一致しない発言では、D1に何も書かない（チャット全件を記録しないため）', async () => {
+    const { env, db } = await bot接続済みの環境([{ name: 'ping', reply: '@{user} pong', cooldownSeconds: 0 }])
+    const twitch = 送信に応えるTwitch()
+
+    await 通知を送る(env, twitch.fetchImpl, チャットの通知('こんばんは'))
+
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM replied_chat_messages').get()).toEqual({ count: 0 })
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM command_uses').get()).toEqual({ count: 0 })
   })
 })

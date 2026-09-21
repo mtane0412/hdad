@@ -1,5 +1,5 @@
 /**
- * チャットボットの管理用の経路（/api/admin/bot・/api/admin/bot/messages・/api/admin/bot/device-*）
+ * チャットボットの管理用の経路（/api/admin/bot・/api/admin/bot/messages・/api/admin/bot/device-*・/api/admin/bot/commands）
  *
  * 配信者のセッションが必要。botアカウントの接続状態の確認・切断、管理画面からの手打ちのチャット送信、
  * そしてデバイスコードフローによる接続を受け持つ。
@@ -12,6 +12,7 @@
  * 注意: botのトークンは応答に含めない。管理画面に返すのは、接続しているアカウントの見分けがつく情報
  * （ログイン名・ユーザーID）と、接続し直しが要るかを判断するための不足スコープだけにする。
  */
+import { loadBotConfig, parseBotConfig, saveBotConfig } from './bot-config'
 import { BOT_SCOPES } from './eventsub'
 import { syncWebhookSubscriptions } from './eventsub-webhook'
 import { HttpError, STATUS, requireAdmin, type Context } from './http'
@@ -135,4 +136,25 @@ export const postBotDeviceToken = async (context: Context): Promise<Response> =>
   // チャットの購読の条件にbotのユーザーIDが入るので、接続できた時点で揃え直す
   await syncWebhookSubscriptions(context)
   return Response.json({ status: 'connected', bot: toBotStatus(token) })
+}
+
+/** GET /api/admin/bot/commands: 保存済みのコマンドの一覧 */
+export const getBotCommands = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  return Response.json(await loadBotConfig(context.env.STORE))
+}
+
+/**
+ * PUT /api/admin/bot/commands: コマンドを検証して保存する。
+ *
+ * @throws ConfigError 設定に問題がある場合（index.ts が問題点付きの400にする）
+ */
+export const putBotCommands = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  const body: unknown = await context.request.json().catch(() => {
+    throw new HttpError(STATUS.badRequest, 'invalid-body', '本文はJSONにしてください')
+  })
+  const config = parseBotConfig(body)
+  await saveBotConfig(context.env.STORE, config)
+  return Response.json(config)
 }

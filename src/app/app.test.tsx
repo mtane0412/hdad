@@ -47,6 +47,8 @@ const 代役のbotAPI: BotApi = {
   pollDeviceCode: vi.fn(async () => {
     throw new Error('このテストでは認可を待ちません')
   }),
+  commands: vi.fn(async () => []),
+  saveCommands: vi.fn(async () => []),
 }
 
 const 代役の記録API: StatsApi = {

@@ -26,7 +26,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
-import type { BotApi, BotStatus, DeviceCode } from './api'
+import { ApiError } from '@/core/api'
+import type { BotApi, BotCommandItem, BotStatus, DeviceCode } from './api'
+import { describeProblem, toCommandInput, toDraft, type CommandDraft } from './form'
 import { nextIntervalSeconds } from './poll'
 
 /** botの接続を始めるURL。Twitchの認可画面へ移動する */
@@ -35,12 +37,80 @@ const CONNECT_PATH = '/api/auth/login?role=bot'
 const MAX_MESSAGE_LENGTH = 500
 const MILLISECONDS_PER_SECOND = 1000
 const SECONDS_PER_MINUTE = 60
+/** クールダウンの上限（秒）。Workerの検証と同じ値 */
+const MAX_COOLDOWN_SECONDS = 60 * 60
 
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error))
+
+/** 失敗の理由を、画面に出す行にする。設定の問題点があれば、1行ずつ並べる */
+const failureLines = (error: unknown): string[] =>
+  error instanceof ApiError && error.problems.length > 0
+    ? ['コマンドの設定に問題があります。直してから保存し直してください', ...error.problems.map((problem) => `・${describeProblem(problem)}`)]
+    : [errorMessage(error)]
 
 const wait = (seconds: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, seconds * MILLISECONDS_PER_SECOND))
 
 type Loaded = { status: 'loading' } | { status: 'ready'; bot: BotStatus | null } | { status: 'failed'; message: string }
+
+interface CommandRowProps {
+  position: number
+  draft: CommandDraft
+  /** 保存を待っている間は操作させない（保存の応答で入力中の値が消えてしまうため） */
+  disabled: boolean
+  onChange(draft: CommandDraft): void
+  onRemove(): void
+}
+
+const CommandRow = ({ position, draft, disabled, onChange, onRemove }: CommandRowProps) => {
+  const id = useId()
+  const update = (patch: Partial<CommandDraft>): void => onChange({ ...draft, ...patch })
+
+  return (
+    <li aria-label={`${position}番目のコマンド`} className="grid gap-4 rounded-lg border p-4 sm:grid-cols-2">
+      <div className="flex flex-col gap-2">
+        <Label htmlFor={`${id}-name`}>{position}番目のコマンド名</Label>
+        <Input
+          id={`${id}-name`}
+          type="text"
+          value={draft.name}
+          placeholder="discord"
+          disabled={disabled}
+          onChange={(event) => update({ name: event.currentTarget.value })}
+        />
+        <p className="text-xs text-muted-foreground">チャットでは「!{draft.name === '' ? 'コマンド名' : draft.name}」と入力します</p>
+      </div>
+      <div className="flex flex-col gap-2">
+        <Label htmlFor={`${id}-cooldown`}>{position}番目のクールダウン（秒）</Label>
+        <Input
+          id={`${id}-cooldown`}
+          type="number"
+          min={0}
+          max={MAX_COOLDOWN_SECONDS}
+          value={draft.cooldownSeconds}
+          disabled={disabled}
+          onChange={(event) => update({ cooldownSeconds: event.currentTarget.value })}
+        />
+        <p className="text-xs text-muted-foreground">この秒数のあいだは、続けて打たれても応答しません（0なら毎回応答）</p>
+      </div>
+      <div className="flex flex-col gap-2 sm:col-span-2">
+        <Label htmlFor={`${id}-reply`}>{position}番目の応答文</Label>
+        <Input
+          id={`${id}-reply`}
+          type="text"
+          maxLength={MAX_MESSAGE_LENGTH}
+          value={draft.reply}
+          placeholder="@{user} こんばんは"
+          disabled={disabled}
+          onChange={(event) => update({ reply: event.currentTarget.value })}
+        />
+        <p className="text-xs text-muted-foreground">使える差し込み語: {'{user}'}（発言した人のログイン名）</p>
+      </div>
+      <Button type="button" variant="ghost" size="sm" className="justify-self-start text-destructive" disabled={disabled} onClick={onRemove}>
+        {position}番目のコマンドを外す
+      </Button>
+    </li>
+  )
+}
 
 export interface BotPageProps {
   api: BotApi
@@ -50,20 +120,24 @@ export const BotPage = ({ api }: BotPageProps) => {
   const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' })
   const [message, setMessage] = useState('')
   const [notice, setNotice] = useState('')
-  const [failure, setFailure] = useState('')
+  const [failure, setFailure] = useState<readonly string[]>([])
   const [busy, setBusy] = useState(false)
   const [confirming, setConfirming] = useState(false)
   // 別の端末での接続を待っている間に見せるコード。待っていなければ undefined
   const [deviceCode, setDeviceCode] = useState<DeviceCode>()
+  const [drafts, setDrafts] = useState<readonly CommandDraft[]>([])
   // 画面を離れた後に問い合わせを続けないための目印
   const leftRef = useRef(false)
   const messageFieldId = useId()
 
   useEffect(() => {
     let cancelled = false
-    api.status().then(
-      (bot) => {
-        if (!cancelled) setLoaded({ status: 'ready', bot })
+    // コマンドの一覧も一緒に読む。片方でも読めなければ、黙って空の一覧にせず理由を出す
+    Promise.all([api.status(), api.commands()]).then(
+      ([bot, commands]) => {
+        if (cancelled) return
+        setDrafts(commands.map(toDraft))
+        setLoaded({ status: 'ready', bot })
       },
       (error: unknown) => {
         if (!cancelled) setLoaded({ status: 'failed', message: errorMessage(error) })
@@ -95,16 +169,33 @@ export const BotPage = ({ api }: BotPageProps) => {
 
   /** 操作を実行し、終わったら結果を知らせる。実行中はボタンを押せなくして二重の送信を防ぐ */
   const run = async (action: () => Promise<string>): Promise<void> => {
-    setFailure('')
+    setFailure([])
     setNotice('')
     setBusy(true)
     try {
       setNotice(await action())
     } catch (error) {
-      setFailure(errorMessage(error))
+      setFailure(failureLines(error))
     } finally {
       setBusy(false)
     }
+  }
+
+  const addCommand = async (): Promise<string> => {
+    setDrafts([...drafts, { name: '', reply: '', cooldownSeconds: '0' }])
+    return 'コマンドを足しました。保存するまで反映されません'
+  }
+
+  const saveCommands = async (): Promise<string> => {
+    const inputs: BotCommandItem[] = drafts.map((draft, index) => {
+      try {
+        return toCommandInput(draft)
+      } catch (error) {
+        throw new Error(`${index + 1}番目のコマンド: ${errorMessage(error)}`, { cause: error })
+      }
+    })
+    setDrafts((await api.saveCommands(inputs)).map(toDraft))
+    return `コマンドを${inputs.length}件保存しました`
   }
 
   const disconnect = async (): Promise<string> => {
@@ -156,10 +247,14 @@ export const BotPage = ({ api }: BotPageProps) => {
           <AlertDescription>{notice}</AlertDescription>
         </Alert>
       )}
-      {failure !== '' && (
+      {failure.length > 0 && (
         <Alert variant="destructive">
           <AlertTitle>うまくいきませんでした</AlertTitle>
-          <AlertDescription>{failure}</AlertDescription>
+          <AlertDescription>
+            {failure.map((line) => (
+              <p key={line}>{line}</p>
+            ))}
+          </AlertDescription>
         </Alert>
       )}
 
@@ -238,6 +333,42 @@ export const BotPage = ({ api }: BotPageProps) => {
           </CardContent>
         </Card>
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>コマンド</CardTitle>
+          <CardDescription>
+            チャットで「!コマンド名」と打たれたときに、botが送り返す文言です。登録するまでは何にも応答しません
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          {drafts.length === 0 ? (
+            <p className="text-sm text-muted-foreground">コマンドを1つも登録していません。</p>
+          ) : (
+            <ul aria-label="コマンドの一覧" className="flex flex-col gap-4">
+              {drafts.map((draft, index) => (
+                <CommandRow
+                  // 入力中は名前が空だったり重複したりするので、並び順を鍵にする
+                  key={index}
+                  position={index + 1}
+                  draft={draft}
+                  disabled={busy}
+                  onChange={(next) => setDrafts(drafts.map((current, at) => (at === index ? next : current)))}
+                  onRemove={() => setDrafts(drafts.filter((_, at) => at !== index))}
+                />
+              ))}
+            </ul>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" disabled={busy} onClick={() => void run(addCommand)}>
+              コマンドを足す
+            </Button>
+            <Button type="button" disabled={busy} onClick={() => void run(saveCommands)}>
+              コマンドを保存する
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       {bot !== null && (
         <Card>

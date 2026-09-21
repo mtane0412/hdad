@@ -18,6 +18,7 @@
  * | POST /api/admin/bot/messages     | セッション     | チャットボットの名前でチャットを送る |
  * | POST /api/admin/bot/device-code  | セッション     | 別の端末で接続するためのコードを発行する |
  * | POST /api/admin/bot/device-token | セッション     | 発行したコードをトークンに交換する（未認可なら待っている状態を返す） |
+ * | GET・PUT /api/admin/bot/commands | セッション     | チャットのコマンドの取得・保存 |
  * | GET  /api/admin/rewards          | セッション     | チャンネルポイント報酬の一覧 |
  * | GET  /api/admin/stats/sessions   | セッション     | 配信セッションの一覧 |
  * | GET  /api/admin/stats/sessions/:id | セッション   | 配信セッションと視聴者数の時系列 |
@@ -34,7 +35,7 @@
  * fetch と現在時刻を引数で受け取るのは、テストで差し替えるため。
  */
 import { deleteMedia, getConfig, getMedia, getRewards, postMedia, postOverlayKey, putConfig } from './admin-routes'
-import { deleteBot, getBot, postBotDeviceCode, postBotDeviceToken, postBotMessage } from './bot-routes'
+import { deleteBot, getBot, getBotCommands, postBotDeviceCode, postBotDeviceToken, postBotMessage, putBotCommands } from './bot-routes'
 import { ConfigError } from './alert-config'
 import { CALLBACK_PATH, callback, login, logout, me } from './auth-routes'
 import { collectStats } from './collect'
@@ -80,6 +81,8 @@ const ROUTES: readonly Route[] = [
   { method: 'POST', path: '/api/admin/bot/messages', handle: postBotMessage },
   { method: 'POST', path: '/api/admin/bot/device-code', handle: postBotDeviceCode },
   { method: 'POST', path: '/api/admin/bot/device-token', handle: postBotDeviceToken },
+  { method: 'GET', path: '/api/admin/bot/commands', handle: getBotCommands },
+  { method: 'PUT', path: '/api/admin/bot/commands', handle: putBotCommands },
   { method: 'GET', path: '/api/admin/rewards', handle: getRewards },
   { method: 'GET', path: '/api/admin/stats/sessions', handle: getStatsSessions },
   { method: 'GET', path: '/api/admin/stats/sessions/:id', handle: getStatsSession },
