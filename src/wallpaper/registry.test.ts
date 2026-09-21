@@ -1,7 +1,7 @@
 /**
  * 背景レジストリ（registry.ts）の整合性テスト
  *
- * GitHub PagesではURLのパスごとに実ファイルが必要なため、
+ * Workers 静的アセットではURLのパスごとに実ファイルが必要なため、
  * レジストリの定義と wallpaper/<id>/index.html が1対1で対応していることを確認する。
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs'

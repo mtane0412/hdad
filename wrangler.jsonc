@@ -1,0 +1,18 @@
+/**
+ * Cloudflare Workers の設定
+ *
+ * Viteのビルド出力（dist/）を Workers 静的アセットとして配信する。
+ * Workerのコード（main）はまだ持たず、静的アセットだけをデプロイする。
+ * 素材ページは <カテゴリ>/<id>/index.html の形で、相対パスでアセットを参照するため、
+ * 末尾スラッシュなしのURLは html_handling によって末尾スラッシュ付きへリダイレクトさせる。
+ */
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "stream-assets",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "./dist",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "none"
+  }
+}

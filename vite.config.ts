@@ -1,7 +1,7 @@
 /**
  * Viteビルド設定
  *
- * GitHub Pagesはパスごとに実ファイルが必要なため、トップ（index.html）・
+ * Workers 静的アセットはパスごとに実ファイルが必要なため、トップ（index.html）・
  * 各カテゴリの一覧（wallpaper/index.html, clock/index.html, chat/index.html）・各素材のページ（<カテゴリ>/<id>/index.html）の
  * すべてをエントリとするマルチページ構成でビルドする。
  * base を相対パスにしているので、リポジトリ名や独自ドメインが変わっても動作する。
