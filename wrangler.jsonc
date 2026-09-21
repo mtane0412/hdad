@@ -5,8 +5,9 @@
  * 素材ページは <カテゴリ>/<id>/index.html の形で、相対パスでアセットを参照するため、
  * 末尾スラッシュなしのURLは html_handling によって末尾スラッシュ付きへリダイレクトさせる。
  *
- * STORE（KV）にはTwitchのトークンとオーバーレイ用キーを保存する。id を書いていないのは、
- * デプロイ時に wrangler が名前空間を自動で作成して結び付けるため（フォークした人が自分のIDへ書き換えずに済む）。
+ * STORE（KV）にはTwitchのトークン・オーバーレイ用キー・アラートの設定を、MEDIA（R2）にはアラートの素材を保存する。
+ * id やバケット名を書いていないのは、デプロイ時に wrangler が自動で作成して結び付けるため（フォークした人が書き換えずに済む）。
+ * R2は無料枠だけを使う場合でも、事前にダッシュボードでR2を有効にしておく必要がある（README参照）。
  * シークレット（TWITCH_CLIENT_ID など）の一覧は .dev.vars.example を参照。
  */
 {
@@ -20,5 +21,6 @@
     "not_found_handling": "none",
     "run_worker_first": ["/api/*"]
   },
-  "kv_namespaces": [{ "binding": "STORE" }]
+  "kv_namespaces": [{ "binding": "STORE" }],
+  "r2_buckets": [{ "binding": "MEDIA" }]
 }

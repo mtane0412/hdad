@@ -15,7 +15,7 @@ export type SubscribeResult =
   | { readonly ok: false; readonly retryable: boolean; readonly message: string }
 
 /** Workerのエラー応答 { error: { message } } からメッセージを取り出す。形が違えば null */
-const readErrorMessage = (body: unknown): string | null => {
+export const readErrorMessage = (body: unknown): string | null => {
   if (typeof body !== 'object' || body === null || !('error' in body)) return null
   const { error } = body
   if (typeof error !== 'object' || error === null || !('message' in error)) return null
