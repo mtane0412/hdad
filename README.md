@@ -178,7 +178,9 @@ Cloudflare Workers で公開します。設定は `wrangler.jsonc` にあり、V
 2. ビルドコマンドに `npm run build`、デプロイコマンドに `npx wrangler deploy` を指定する
 3. 公開されたURL（`https://stream-assets.<サブドメイン>.workers.dev/`）を開いて表示を確認する
 
-手元から直接デプロイする場合は、`npx wrangler login` のあとに `npm run deploy` を実行します。
+2のデプロイコマンドは、配信の記録（後述）のテーブルも一緒に更新するなら `npx wrangler deploy && npx wrangler d1 migrations apply DB --remote` にします。
+
+手元から直接デプロイする場合は、`npx wrangler login` のあとに `npm run deploy` を実行します（デプロイに続けてD1のマイグレーションも適用します）。
 
 `.github/workflows/ci.yml` はLint・型チェック・テスト・ビルドと `wrangler deploy --dry-run` による設定の検証だけを行い、デプロイはしません。
 
@@ -207,6 +209,10 @@ R2は無料枠（保存10GB・転送無料）だけを使う場合でも、デ�
 | `DELETE /api/admin/media/<素材ID>` | 素材の削除。トリガーに使われている素材は409で拒否する（要セッション） |
 | `POST /api/admin/overlay-key` | オーバーレイ用キーの再発行。古いキーを含むURLは使えなくなる（要セッション） |
 | `GET /api/admin/rewards` | 配信者のチャンネルポイント報酬の一覧（ID・名前・必要ポイント）。管理画面でトリガーの報酬を選ぶのに使う（要セッション） |
+| `GET /api/admin/stats/sessions` | 配信セッションの一覧（新しい順に100件まで）。平均・最大視聴者数、フォロワー増減、イベントの種類ごとの件数つき（要セッション） |
+| `GET /api/admin/stats/sessions/<配信ID>` | 配信セッションと、視聴者数の時系列（要セッション） |
+| `GET /api/admin/stats/followers` | フォロワー数の時系列。値が変わった時点だけが並ぶ（要セッション） |
+| `GET /api/admin/stats/failures` | 記録の収集の失敗の一覧（新しい順に50件まで。要セッション） |
 
 失敗は `{ "error": { "code", "message" } }` の形で返します。受け取るイベントを増やす場合は `worker/eventsub.ts` の `EVENT_TYPES` に足します（スコープが増えたら配信者の再ログインが必要です）。
 
@@ -223,3 +229,30 @@ R2は無料枠（保存10GB・転送無料）だけを使う場合でも、デ�
 管理用API（`/api/admin/*`）は配信者のセッションが必要で、書き換えを伴うメソッドは管理画面と同じサイトからのリクエスト（`Origin` ヘッダーが一致するもの）だけを受け付けます。ローカルでは `npm run dev`（`http://localhost:5173/admin/`）で確かめます。`@cloudflare/vite-plugin` が開発サーバーの中でWorkerを動かします。
 
 `durationSeconds` は1〜60、`volume` は0〜1、`message` は200文字以内（`{user}` と `{reward}` が置き換わり、空文字なら文言を出さない）です。設定に問題があれば、保存せずに問題点の一覧（`error.problems`）を返します。
+
+### 配信の記録
+
+Twitchには過去の視聴者数の推移を返すAPIがないため、Worker が cron（`wrangler.jsonc` の `triggers.crons`。5分おき）でいまの値を取得し、Cloudflare D1（`DB`）に貯めます。グラフにできるのは、記録を始めた時点より後の分だけです。D1のデータベースも、KV・R2と同じくデプロイ時に wrangler が自動で作成します（名前は `stream-assets-db`）。
+
+テーブルの定義は `migrations/` にあり、デプロイとは別に適用します。データベースは最初のデプロイで作られるので、順番は「デプロイ → マイグレーション」です。
+
+```bash
+npx wrangler d1 migrations apply DB --remote  # 本番（npm run deploy はこれも行う）
+npx wrangler d1 migrations apply DB --local   # ローカル（npm run dev の前に一度）
+```
+
+| テーブル | 内容 |
+|---|---|
+| `stream_sessions` | 配信セッション（Twitchの配信ID・開始と終了の日時・タイトル・カテゴリ）。配信中は `ended_at` が `NULL` |
+| `viewer_samples` | 配信中の視聴者数（5分おき） |
+| `follower_samples` | フォロワー数。前回から変わったときだけ1行足す |
+| `stream_events` | サブスク・ポイント交換・レイドなどのイベント（EventSubのWebhookで受ける。受け口は未実装） |
+| `collection_failures` | 収集の失敗（30日分） |
+
+1回の収集は、Helix の `GET /streams` で配信中かどうかを調べ、配信中ならセッションを開始（続いていれば更新）して視聴者数を1行足し、配信していなければ開いているセッションを閉じます。続けて `GET /channels/followers` の `total` を記録します。セッションの終了時刻は「配信していないことを最初に確かめた時刻」なので、最大5分遅れます。
+
+配信者がログインしていない・トークンを更新できない・Twitchが失敗を返したときは、黙って飛ばさずに `collection_failures` へ記録し、cron の実行も失敗にします。記録が止まっていたら `GET /api/admin/stats/failures` か、Cloudflareダッシュボードの Worker の Settings > Trigger Events で確かめ、`relogin-required` ならログインし直してください。
+
+保持期間は設けていません。書き込みは1日あたり最大で「視聴者数288行＋フォロワー数288行＋セッションの更新」程度で、D1の無料枠（1日10万行の書き込み・保存5GB）に対して十分小さいためです。
+
+ローカルで収集を試すには、`npm run dev` を起動した状態で `curl http://localhost:5173/cdn-cgi/handler/scheduled` を実行し、`npx wrangler d1 execute DB --local --command "SELECT * FROM follower_samples"` で中身を確かめます。

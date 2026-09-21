@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest'
 import { REQUIRED_SCOPES } from './eventsub'
 import { createFakeBucket } from './fake-bucket'
+import { createFakeDatabase } from './fake-database'
 import { createFakeStore } from './fake-store'
 import { handleRequest, type Env } from './index'
 import { createSessionToken } from './session'
@@ -22,6 +23,7 @@ const 環境を作る = (store = createFakeStore()) => {
   const env = {
     STORE: store,
     MEDIA: createFakeBucket(),
+    DB: createFakeDatabase(),
     TWITCH_CLIENT_ID: 'test-client-id',
     TWITCH_CLIENT_SECRET: 'テスト用シークレット',
     TWITCH_BROADCASTER_ID: 配信者のID,
