@@ -159,6 +159,16 @@ describe('配信の一覧', () => {
     expect(within(行).getByText('5')).toBeInTheDocument()
   })
 
+  it('タイトルの記録が無い配信は、一覧でもボタンの名前でも「（タイトルの記録なし）」と呼ぶ', async () => {
+    // 配信の開始の通知で始まった配信は、次の収集までタイトルが空のことがある
+    const タイトルのない配信: SessionSummary = { ...金曜の配信, id: '配信ID-無題', title: '', categoryName: '' }
+    render(<StatsPage api={代役のAPI({ sessions: vi.fn(async () => [タイトルのない配信]) })} now={現在} />)
+    await 表示を待つ()
+
+    expect(screen.getByText('（タイトルの記録なし）')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '（タイトルの記録なし） の視聴者数の推移を見る' })).toBeInTheDocument()
+  })
+
   it('期間を切り替えると、その期間に始まった配信だけを出す', async () => {
     const 操作 = userEvent.setup()
     render(<StatsPage api={代役のAPI()} now={現在} />)

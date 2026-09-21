@@ -93,13 +93,15 @@ const TimeChart = <Point extends { at: number }>({
 const SessionRow = ({ session, now, selected, onSelect }: { session: SessionSummary; now: number; selected?: Selected; onSelect(): void }) => {
   const totals = eventTotals(session)
   const 選ばれている = selected?.id === session.id
+  // EventSubの通知で始まった配信は、次の収集までタイトルが空のことがある。表示と読み上げで同じ呼び方にする
+  const 表示するタイトル = session.title === '' ? '（タイトルの記録なし）' : session.title
 
   return (
     <>
       <TableRow>
         <TableCell className="whitespace-nowrap tabular-nums">{formatDateTime(session.startedAt)}</TableCell>
         <TableCell className="whitespace-nowrap tabular-nums">{session.endedAt === null ? '配信中' : formatDuration(sessionDurationMs(session, now))}</TableCell>
-        <TableCell className="max-w-64 truncate">{session.title === '' ? '（タイトルの記録なし）' : session.title}</TableCell>
+        <TableCell className="max-w-64 truncate">{表示するタイトル}</TableCell>
         <TableCell className="max-w-48 truncate">{session.categoryName}</TableCell>
         <TableCell className="text-right tabular-nums">{formatCount(session.averageViewers)}</TableCell>
         <TableCell className="text-right tabular-nums">{formatCount(session.peakViewers)}</TableCell>
@@ -114,7 +116,7 @@ const SessionRow = ({ session, now, selected, onSelect }: { session: SessionSumm
             variant="ghost"
             size="sm"
             aria-expanded={選ばれている}
-            aria-label={選ばれている ? `${session.title} の視聴者数の推移を閉じる` : `${session.title} の視聴者数の推移を見る`}
+            aria-label={選ばれている ? `${表示するタイトル} の視聴者数の推移を閉じる` : `${表示するタイトル} の視聴者数の推移を見る`}
             onClick={onSelect}
           >
             {選ばれている ? '閉じる' : '見る'}
@@ -124,7 +126,7 @@ const SessionRow = ({ session, now, selected, onSelect }: { session: SessionSumm
       {選ばれている && selected && (
         <TableRow>
           <TableCell colSpan={COLUMN_COUNT + 1}>
-            {selected.state.status === 'loading' && <Skeleton className="h-56 w-full" aria-label={`${session.title} の視聴者数の推移を読み込んでいます`} />}
+            {selected.state.status === 'loading' && <Skeleton className="h-56 w-full" aria-label={`${表示するタイトル} の視聴者数の推移を読み込んでいます`} />}
             {selected.state.status === 'failed' && (
               <Alert variant="destructive">
                 <AlertTitle>視聴者数の推移を読み込めませんでした</AlertTitle>
@@ -136,7 +138,7 @@ const SessionRow = ({ session, now, selected, onSelect }: { session: SessionSumm
                 <p className="text-sm text-muted-foreground">この配信には視聴者数の記録がありません。</p>
               ) : (
                 <TimeChart
-                  label={`${session.title} の視聴者数の推移`}
+                  label={`${表示するタイトル} の視聴者数の推移`}
                   config={VIEWER_CHART}
                   dataKey="viewers"
                   points={viewerPoints(selected.state.detail.samples)}
