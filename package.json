@@ -12,7 +12,36 @@
     "type-check": "tsc --noEmit",
     "test": "vitest run",
     "preview:worker": "npm run build && wrangler dev",
-    "deploy": "npm run build && wrangler deploy && wrangler d1 migrations apply DB --remote"
+    "deploy": "wrangler deploy && npm run db:migrations:apply",
+    "db:migrations:apply": "wrangler d1 migrations apply DB --remote"
+  },
+  "cloudflare": {
+    "bindings": {
+      "STORE": {
+        "description": "Twitchのトークン・オーバーレイ用キー・アラートの設定を保存するKV名前空間です。新しく作って構いません。"
+      },
+      "MEDIA": {
+        "description": "アラートで流す画像・動画・音声を保存するR2バケットです。新しく作って構いません（R2はあらかじめ [Storage & databases > R2](https://dash.cloudflare.com/?to=/:account/r2) で有効にしてください）。"
+      },
+      "DB": {
+        "description": "配信の記録（セッション・視聴者数・フォロワー数・イベント）を保存するD1データベースです。新しく作って構いません。"
+      },
+      "TWITCH_CLIENT_ID": {
+        "description": "[Twitch開発者コンソール](https://dev.twitch.tv/console/apps)で登録したアプリのクライアントIDです。"
+      },
+      "TWITCH_CLIENT_SECRET": {
+        "description": "同じアプリのクライアントシークレットです（Twitch開発者コンソールの「New Secret」で発行します）。"
+      },
+      "TWITCH_BROADCASTER_ID": {
+        "description": "ログインを許す配信者のTwitchユーザーIDです。ログイン名ではなく数字のIDを入れてください。"
+      },
+      "SESSION_SECRET": {
+        "description": "セッションの署名に使うランダムな文字列です。`openssl rand -hex 32` で作ってください。"
+      },
+      "EVENTSUB_SECRET": {
+        "description": "EventSubのWebhookの署名に使うランダムな文字列です。`openssl rand -hex 32` で作ってください（Twitchの決まりで10〜100文字のASCII）。"
+      }
+    }
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.55.0",
