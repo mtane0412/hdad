@@ -10,6 +10,7 @@
  * 注意: 失敗は黙って無視せず、画面の上部に理由を出す（Fail-Fast）。
  * 素材や保存済みの設定を取得できなければ操作盤を出さない。報酬の一覧だけ取得できないときは、操作盤は出したまま理由を出す。
  */
+import { ChevronDown, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -33,6 +34,7 @@ import {
   rewardOptions,
   toDraft,
   toTriggerInput,
+  triggerSummary,
   type SelectOption,
   type TriggerDraft,
 } from './form'
@@ -79,11 +81,20 @@ interface TriggerRowProps {
   draft: TriggerDraft
   media: readonly MediaItem[]
   rewards: readonly Reward[]
+  /** 入力欄を開いているか。開くのは1件ずつなので、どれを開くかは一覧を持つページが決める */
+  open: boolean
+  onToggle(): void
   onChange(draft: TriggerDraft): void
   onRemove(): void
 }
 
-const TriggerRow = ({ position, draft, media, rewards, onChange, onRemove }: TriggerRowProps) => {
+/**
+ * トリガー1件ぶんの行。
+ *
+ * 項目が多いので、ふだんは要約だけを見出しに出して折りたたみ、見出しを押したときだけ入力欄を開く。
+ * 見出しの読み上げでは要約だけでは何番目か分からないため、位置を見えない文字で添える。
+ */
+const TriggerRow = ({ position, draft, media, rewards, open, onToggle, onChange, onRemove }: TriggerRowProps) => {
   const id = useId()
   const update = (patch: Partial<TriggerDraft>): void => onChange({ ...draft, ...patch })
   const mediaOptions = media.map((item) => ({ value: item.id, label: `${item.name}（${kindLabels[item.kind]}）` }))
@@ -91,149 +102,174 @@ const TriggerRow = ({ position, draft, media, rewards, onChange, onRemove }: Tri
   const isRedemption = draft.event === REDEMPTION
 
   return (
-    <li aria-label={`${position}番目のトリガー`} className="grid gap-4 rounded-lg border p-4 sm:grid-cols-2">
-      <div className="flex flex-col gap-2">
-        <Label htmlFor={`${id}-event`}>イベント</Label>
-        {/* 選択肢はイベント種別だけなので isAlertEvent は必ず通る。型を絞るための確認 */}
-        <Select id={`${id}-event`} options={eventOptions} value={draft.event} onChange={(event) => isAlertEvent(event) && update({ event })} />
+    <li aria-label={`${position}番目のトリガー`} className="rounded-lg border">
+      <div className="flex items-center gap-1 p-2">
+        <Button
+          type="button"
+          variant="ghost"
+          className="min-w-0 flex-1 justify-start gap-2 font-normal"
+          aria-expanded={open}
+          aria-controls={`${id}-detail`}
+          onClick={onToggle}
+        >
+          <ChevronDown aria-hidden="true" className={open ? 'rotate-180' : ''} />
+          <span className="sr-only">{position}番目のトリガー:</span>
+          <span className="truncate">{triggerSummary(draft, rewards)}</span>
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label={`${position}番目のトリガーを外す`}
+          className="text-destructive"
+          onClick={onRemove}
+        >
+          <Trash2 aria-hidden="true" />
+        </Button>
       </div>
-      {isRedemption && (
-        <div className="flex flex-col gap-2">
-          <Label htmlFor={`${id}-reward`}>報酬</Label>
-          <Select id={`${id}-reward`} options={rewardOptions(rewards, draft.rewardId)} value={draft.rewardId} onChange={(rewardId) => update({ rewardId })} />
+      {open && (
+        <div id={`${id}-detail`} className="grid gap-4 border-t p-4 sm:grid-cols-2">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor={`${id}-event`}>イベント</Label>
+            {/* 選択肢はイベント種別だけなので isAlertEvent は必ず通る。型を絞るための確認 */}
+            <Select id={`${id}-event`} options={eventOptions} value={draft.event} onChange={(event) => isAlertEvent(event) && update({ event })} />
+          </div>
+          {isRedemption && (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor={`${id}-reward`}>報酬</Label>
+              <Select id={`${id}-reward`} options={rewardOptions(rewards, draft.rewardId)} value={draft.rewardId} onChange={(rewardId) => update({ rewardId })} />
+            </div>
+          )}
+
+          {/* ここから下は、このイベントのときに行う動作。種類ごとに実行者が違う（アラートはオーバーレイ、チャットはWorker） */}
+          <div className="flex flex-col gap-4 rounded-md border border-dashed p-3 sm:col-span-2">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id={`${id}-alert-enabled`}
+                checked={draft.alertEnabled}
+                // 素材が未選択のまま出すことにすると、選択欄には最初の素材が見えているのに保存時に拒まれる。
+                // そこで、出すことにした時点で選択欄が見せているとおりの素材（先頭）を選んでおく
+                onCheckedChange={(checked) =>
+                  update(checked === true ? { alertEnabled: true, mediaId: draft.mediaId === '' ? (media[0]?.id ?? '') : draft.mediaId } : { alertEnabled: false })
+                }
+              />
+              <Label htmlFor={`${id}-alert-enabled`}>アラートを出す</Label>
+            </div>
+            {draft.alertEnabled && (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor={`${id}-media`}>素材</Label>
+                  <Select id={`${id}-media`} options={mediaOptions} value={draft.mediaId} onChange={(mediaId) => update({ mediaId })} />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor={`${id}-duration`}>表示時間（1〜60秒）</Label>
+                  <Input
+                    id={`${id}-duration`}
+                    type="number"
+                    min={MIN_DURATION_SECONDS}
+                    max={MAX_DURATION_SECONDS}
+                    value={draft.durationSeconds}
+                    onChange={(event) => update({ durationSeconds: event.currentTarget.value })}
+                  />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <span id={`${id}-volume`} className="text-sm leading-none font-medium">
+                    音量
+                  </span>
+                  <div className="flex h-8 items-center gap-3">
+                    <Slider
+                      aria-labelledby={`${id}-volume`}
+                      min={0}
+                      max={MAX_VOLUME_PERCENT}
+                      value={[Number(draft.volumePercent)]}
+                      onValueChange={(next) => update({ volumePercent: String(Array.isArray(next) ? next[0] : next) })}
+                    />
+                    <output className="w-12 text-right font-mono text-xs tabular-nums">{draft.volumePercent}%</output>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-2 sm:col-span-2">
+                  <Label htmlFor={`${id}-message`}>文言（空欄なら出さない）</Label>
+                  <Input
+                    id={`${id}-message`}
+                    type="text"
+                    maxLength={MAX_MESSAGE_LENGTH}
+                    value={draft.message}
+                    placeholder={MESSAGE_PLACEHOLDERS[draft.event]}
+                    onChange={(event) => update({ message: event.currentTarget.value })}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-4 rounded-md border border-dashed p-3 sm:col-span-2">
+            <div className="flex items-center gap-2">
+              <Checkbox id={`${id}-chat-enabled`} checked={draft.chatEnabled} onCheckedChange={(checked) => update({ chatEnabled: checked === true })} />
+              <Label htmlFor={`${id}-chat-enabled`}>チャットに送る</Label>
+            </div>
+            {draft.chatEnabled && (
+              <div className="flex flex-col gap-2">
+                <Label htmlFor={`${id}-chat-message`}>チャットに送る文言</Label>
+                <Input
+                  id={`${id}-chat-message`}
+                  type="text"
+                  maxLength={MAX_CHAT_MESSAGE_LENGTH}
+                  value={draft.chatMessage}
+                  placeholder={MESSAGE_PLACEHOLDERS[draft.event]}
+                  onChange={(event) => update({ chatMessage: event.currentTarget.value })}
+                />
+                {/* 送るのは接続しているbotアカウント。未接続だと何も送られないので、どこで接続するかを添える */}
+                <p className="text-xs text-muted-foreground">接続しているbotアカウントが送ります（チャットボットのページで接続します）。</p>
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-4 rounded-md border border-dashed p-3 sm:col-span-2">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id={`${id}-announce-enabled`}
+                checked={draft.announceEnabled}
+                onCheckedChange={(checked) => update({ announceEnabled: checked === true })}
+              />
+              <Label htmlFor={`${id}-announce-enabled`}>アナウンスを送る</Label>
+            </div>
+            {draft.announceEnabled && (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="flex flex-col gap-2 sm:col-span-2">
+                  <Label htmlFor={`${id}-announce-message`}>アナウンスの文言</Label>
+                  <Input
+                    id={`${id}-announce-message`}
+                    type="text"
+                    maxLength={MAX_CHAT_MESSAGE_LENGTH}
+                    value={draft.announceMessage}
+                    placeholder={MESSAGE_PLACEHOLDERS[draft.event]}
+                    onChange={(event) => update({ announceMessage: event.currentTarget.value })}
+                  />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor={`${id}-announce-color`}>アナウンスの色</Label>
+                  {/* 選択肢は色だけなので isAnnouncementColor は必ず通る。型を絞るための確認 */}
+                  <Select
+                    id={`${id}-announce-color`}
+                    options={colorOptions}
+                    value={draft.announceColor}
+                    onChange={(color) => isAnnouncementColor(color) && update({ announceColor: color })}
+                  />
+                </div>
+                {/* アナウンスは普通の発言と違い、botがモデレーターでないとTwitchに拒否される */}
+                <p className="text-xs text-muted-foreground sm:col-span-2">
+                  接続しているbotアカウントが、モデレーターとして送ります（チャットボットのページで接続し、配信者がモデレーター権限を与えてください）。
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* 選んだイベントに存在しない語は置き換わらないため、使える語をその場で知らせる（アラートとチャットで同じ語を使う） */}
+          <p className="text-xs text-muted-foreground sm:col-span-2">
+            このイベントで使える差し込み語: {placeholdersFor(draft.event).join('・')}
+          </p>
         </div>
       )}
-
-      {/* ここから下は、このイベントのときに行う動作。種類ごとに実行者が違う（アラートはオーバーレイ、チャットはWorker） */}
-      <div className="flex flex-col gap-4 rounded-md border border-dashed p-3 sm:col-span-2">
-        <div className="flex items-center gap-2">
-          <Checkbox
-            id={`${id}-alert-enabled`}
-            checked={draft.alertEnabled}
-            // 素材が未選択のまま出すことにすると、選択欄には最初の素材が見えているのに保存時に拒まれる。
-            // そこで、出すことにした時点で選択欄が見せているとおりの素材（先頭）を選んでおく
-            onCheckedChange={(checked) =>
-              update(checked === true ? { alertEnabled: true, mediaId: draft.mediaId === '' ? (media[0]?.id ?? '') : draft.mediaId } : { alertEnabled: false })
-            }
-          />
-          <Label htmlFor={`${id}-alert-enabled`}>アラートを出す</Label>
-        </div>
-        {draft.alertEnabled && (
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor={`${id}-media`}>素材</Label>
-              <Select id={`${id}-media`} options={mediaOptions} value={draft.mediaId} onChange={(mediaId) => update({ mediaId })} />
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor={`${id}-duration`}>表示時間（1〜60秒）</Label>
-              <Input
-                id={`${id}-duration`}
-                type="number"
-                min={MIN_DURATION_SECONDS}
-                max={MAX_DURATION_SECONDS}
-                value={draft.durationSeconds}
-                onChange={(event) => update({ durationSeconds: event.currentTarget.value })}
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <span id={`${id}-volume`} className="text-sm leading-none font-medium">
-                音量
-              </span>
-              <div className="flex h-8 items-center gap-3">
-                <Slider
-                  aria-labelledby={`${id}-volume`}
-                  min={0}
-                  max={MAX_VOLUME_PERCENT}
-                  value={[Number(draft.volumePercent)]}
-                  onValueChange={(next) => update({ volumePercent: String(Array.isArray(next) ? next[0] : next) })}
-                />
-                <output className="w-12 text-right font-mono text-xs tabular-nums">{draft.volumePercent}%</output>
-              </div>
-            </div>
-            <div className="flex flex-col gap-2 sm:col-span-2">
-              <Label htmlFor={`${id}-message`}>文言（空欄なら出さない）</Label>
-              <Input
-                id={`${id}-message`}
-                type="text"
-                maxLength={MAX_MESSAGE_LENGTH}
-                value={draft.message}
-                placeholder={MESSAGE_PLACEHOLDERS[draft.event]}
-                onChange={(event) => update({ message: event.currentTarget.value })}
-              />
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="flex flex-col gap-4 rounded-md border border-dashed p-3 sm:col-span-2">
-        <div className="flex items-center gap-2">
-          <Checkbox id={`${id}-chat-enabled`} checked={draft.chatEnabled} onCheckedChange={(checked) => update({ chatEnabled: checked === true })} />
-          <Label htmlFor={`${id}-chat-enabled`}>チャットに送る</Label>
-        </div>
-        {draft.chatEnabled && (
-          <div className="flex flex-col gap-2">
-            <Label htmlFor={`${id}-chat-message`}>チャットに送る文言</Label>
-            <Input
-              id={`${id}-chat-message`}
-              type="text"
-              maxLength={MAX_CHAT_MESSAGE_LENGTH}
-              value={draft.chatMessage}
-              placeholder={MESSAGE_PLACEHOLDERS[draft.event]}
-              onChange={(event) => update({ chatMessage: event.currentTarget.value })}
-            />
-            {/* 送るのは接続しているbotアカウント。未接続だと何も送られないので、どこで接続するかを添える */}
-            <p className="text-xs text-muted-foreground">接続しているbotアカウントが送ります（チャットボットのページで接続します）。</p>
-          </div>
-        )}
-      </div>
-
-      <div className="flex flex-col gap-4 rounded-md border border-dashed p-3 sm:col-span-2">
-        <div className="flex items-center gap-2">
-          <Checkbox
-            id={`${id}-announce-enabled`}
-            checked={draft.announceEnabled}
-            onCheckedChange={(checked) => update({ announceEnabled: checked === true })}
-          />
-          <Label htmlFor={`${id}-announce-enabled`}>アナウンスを送る</Label>
-        </div>
-        {draft.announceEnabled && (
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="flex flex-col gap-2 sm:col-span-2">
-              <Label htmlFor={`${id}-announce-message`}>アナウンスの文言</Label>
-              <Input
-                id={`${id}-announce-message`}
-                type="text"
-                maxLength={MAX_CHAT_MESSAGE_LENGTH}
-                value={draft.announceMessage}
-                placeholder={MESSAGE_PLACEHOLDERS[draft.event]}
-                onChange={(event) => update({ announceMessage: event.currentTarget.value })}
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor={`${id}-announce-color`}>アナウンスの色</Label>
-              {/* 選択肢は色だけなので isAnnouncementColor は必ず通る。型を絞るための確認 */}
-              <Select
-                id={`${id}-announce-color`}
-                options={colorOptions}
-                value={draft.announceColor}
-                onChange={(color) => isAnnouncementColor(color) && update({ announceColor: color })}
-              />
-            </div>
-            {/* アナウンスは普通の発言と違い、botがモデレーターでないとTwitchに拒否される */}
-            <p className="text-xs text-muted-foreground sm:col-span-2">
-              接続しているbotアカウントが、モデレーターとして送ります（チャットボットのページで接続し、配信者がモデレーター権限を与えてください）。
-            </p>
-          </div>
-        )}
-      </div>
-
-      {/* 選んだイベントに存在しない語は置き換わらないため、使える語をその場で知らせる（アラートとチャットで同じ語を使う） */}
-      <p className="text-xs text-muted-foreground sm:col-span-2">
-        このイベントで使える差し込み語: {placeholdersFor(draft.event).join('・')}
-      </p>
-      <Button type="button" variant="ghost" size="sm" className="justify-self-start text-destructive" onClick={onRemove}>
-        このトリガーを外す
-      </Button>
     </li>
   )
 }
@@ -253,6 +289,8 @@ export const TriggerPage = ({ api, overlayKey, onOverlayKeyChange }: TriggerPage
   const [media, setMedia] = useState<readonly MediaItem[]>([])
   const [rewards, setRewards] = useState<readonly Reward[]>([])
   const [drafts, setDrafts] = useState<readonly TriggerDraft[]>([])
+  // 入力欄を開いているトリガーの位置（0始まり）。項目が多いので、開くのは1件ずつにする
+  const [openPosition, setOpenPosition] = useState<number | null>(null)
   // 報酬の一覧を取得できなかった理由。操作の失敗（failure）と分けて持ち、ほかの操作が成功しても消さない
   const [rewardsFailure, setRewardsFailure] = useState('')
   const actions = usePageActions(failureLines)
@@ -347,6 +385,7 @@ export const TriggerPage = ({ api, overlayKey, onOverlayKeyChange }: TriggerPage
         announceColor: DEFAULT_ANNOUNCEMENT_COLOR,
       },
     ])
+    setOpenPosition(drafts.length)
     return 'トリガーを足しました。保存するまで反映されません'
   }
 
@@ -443,15 +482,21 @@ export const TriggerPage = ({ api, overlayKey, onOverlayKeyChange }: TriggerPage
                   draft={draft}
                   media={media}
                   rewards={rewards}
+                  open={openPosition === index}
+                  onToggle={() => setOpenPosition(openPosition === index ? null : index)}
                   onChange={(next) => replaceDrafts(drafts.map((other, position) => (position === index ? next : other)))}
-                  onRemove={() => replaceDrafts(drafts.filter((_, position) => position !== index))}
+                  onRemove={() => {
+                    // 外した行より後ろは1つ前へ詰まるので、開いている位置もずらす（別のトリガーが開いて見えないようにする）
+                    setOpenPosition(openPosition === null || openPosition === index ? null : openPosition > index ? openPosition - 1 : openPosition)
+                    replaceDrafts(drafts.filter((_, position) => position !== index))
+                  }}
                 />
               ))}
             </ol>
           )}
           <div className="flex gap-2">
-            <Button type="button" variant="outline" disabled={actions.busy} onClick={() => void actions.run(addTrigger)}>
-              トリガーを足す
+            <Button type="button" variant="outline" size="icon" aria-label="トリガーを足す" disabled={actions.busy} onClick={() => void actions.run(addTrigger)}>
+              <Plus aria-hidden="true" />
             </Button>
             <Button type="button" disabled={actions.busy} onClick={() => void actions.run(saveTriggers)}>
               トリガーを保存

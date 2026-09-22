@@ -190,6 +190,29 @@ export const rewardOptions = (rewards: readonly Reward[], selected: string): Sel
   return [...options, { value: selected, label: `Twitchの一覧にない報酬（${selected}）` }]
 }
 
+/**
+ * 折りたたんだトリガーの見出しに出す要約。「イベント（条件）→ 行う動作」の形にする。
+ *
+ * 報酬を選べるのはチャンネルポイントの交換だけなので、ほかのイベントでは条件を添えない。
+ * Twitchの一覧にない報酬は、黙って「すべての報酬」と書かずに報酬IDをそのまま出す（設定を取り違えないため）。
+ */
+export const triggerSummary = (draft: TriggerDraft, rewards: readonly Reward[]): string => {
+  const condition =
+    draft.event !== REDEMPTION
+      ? ''
+      : draft.rewardId === ANY_REWARD
+        ? '（すべての報酬）'
+        : `「${rewards.find((reward) => reward.id === draft.rewardId)?.title ?? draft.rewardId}」`
+  const actions = [
+    draft.alertEnabled ? 'アラート' : null,
+    draft.chatEnabled ? 'チャット' : null,
+    draft.announceEnabled ? 'アナウンス' : null,
+  ].filter((label) => label !== null)
+  // 条件を添えるときは「」や（）が区切りになるので、矢印の前に空白を入れない
+  const head = condition === '' ? `${EVENT_LABELS[draft.event]} ` : `${EVENT_LABELS[draft.event]}${condition}`
+  return `${head}→ ${actions.length === 0 ? '動作なし' : actions.join('・')}`
+}
+
 /** 素材の大きさを読みやすい単位で表す */
 export const formatBytes = (size: number): string => {
   if (size < BYTES_PER_UNIT) return `${size} B`
