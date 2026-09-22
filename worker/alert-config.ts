@@ -4,7 +4,7 @@
  * 「どのイベントで、何をするか」（トリガー）の一覧を、管理画面から受け取って検証し、ストア（KV）に保存する。
  * トリガーは「イベント種別」（event）と「条件のリスト」（conditions）と「動作」（actions）からなる。
  * 動作は種類ごとに実行者が違う。
- * - alert: オーバーレイが素材を再生する。toOverlayConfig で素材のURLを付けた平坦な形へ展開して渡す
+ * - alert: オーバーレイが素材を再生する。照合はWorkerが行い（alert-event.ts の alertFor）、素材のURLを付けたアラートを返す
  * - chat: Workerがbotとしてチャットへ送る（オーバーレイには渡さない。オーバーレイに送信の役目を持たせないため）
  * - announce: Workerがbotとしてアナウンス（色の付いた帯）を送る。botがモデレーターにされている必要がある
  *
@@ -13,7 +13,7 @@
  * 条件を1件も持たないトリガーは、そのイベントが起きればいつでも当てはまる。
  * 同じ種類の条件は1トリガーに1件までにする（動作と同じ扱い。「報酬Aかつ報酬B」のような満たせない条件を作らせないため）。
  *
- * 条件の種類には、そのイベントにしか意味を持たないものがある（reward はチャンネルポイントの交換、text はチャットの発言）。
+ * 条件の種類には、そのイベントにしか意味を持たないものがある（reward はチャンネルポイントの交換、text と firstChatOfStream はチャットの発言）。
  * ほかのイベントに付いていたら黙って捨てずに保存を拒む（配信者が設定したつもりの絞り込みが効かないまま保存されるのを防ぐ）。
  *
  * 注意: 検証は最初の1件で止めず、問題点をすべて集めてから拒否する（管理画面で一度に直せるようにする）。
@@ -27,13 +27,13 @@ const CONFIG_KEY = 'alert-config'
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const CHAT_MESSAGE = 'channel.chat.message'
 
-/** アラートを出せるイベントの種類。src/alerts/trigger.ts の ALERT_EVENTS と同じ並び（worker/ と src/ は互いに読み込まない約束） */
+/** アラートを出せるイベントの種類 */
 export const ALERT_EVENTS = [REDEMPTION, 'channel.follow', 'channel.subscribe', 'channel.subscription.message', 'channel.raid', CHAT_MESSAGE] as const
 
 export type AlertEvent = (typeof ALERT_EVENTS)[number]
 
 /** 条件の種類。同じ種類は1トリガーに1件まで */
-export const CONDITION_KINDS = ['reward', 'user', 'text'] as const
+export const CONDITION_KINDS = ['reward', 'user', 'text', 'firstChatOfStream'] as const
 
 export type ConditionKind = (typeof CONDITION_KINDS)[number]
 
@@ -97,8 +97,15 @@ export type StoredAction = StoredAlertAction | StoredChatAction | StoredAnnounce
  * - reward: 対象の報酬ID。チャンネルポイントの交換にしか付けられない。条件がなければすべての報酬が対象
  * - user: そのイベントの相手（交換した人・フォローした人・レイドした配信者・発言した人など）のTwitchのユーザー名（login）
  * - text: 発言の本文に含まれる文字。チャットの発言にしか付けられない（ほかのイベントは本文を持たない）
+ * - firstChatOfStream: その配信で初めての発言であること。チャットの発言にしか付けられない。
+ *   ほかの3種類と違って通知の中身だけでは決まらず、データベースに記録した「この配信で誰が発言したか」から決まる
+ *   （判定は worker/chat-store.ts の claimFirstChatOfStream。照合に渡す値は worker/alert-state.ts が用意する）
  */
-export type StoredCondition = { kind: 'reward'; rewardId: string } | { kind: 'user'; login: string } | { kind: 'text'; contains: string }
+export type StoredCondition =
+  | { kind: 'reward'; rewardId: string }
+  | { kind: 'user'; login: string }
+  | { kind: 'text'; contains: string }
+  | { kind: 'firstChatOfStream' }
 
 /** 保存するトリガー。条件はすべてを満たしたときだけ当てはまる（and） */
 export type StoredTrigger = { event: AlertEvent; conditions: StoredCondition[]; actions: StoredAction[] }
@@ -201,6 +208,14 @@ const parseCondition = (candidate: unknown, at: string, event: AlertEvent | null
         return null
       }
       return { kind, contains }
+    }
+    // 持つ項目がないので、種類が合っていて付けられるイベントであればそのまま通す
+    case 'firstChatOfStream': {
+      if (event !== null && event !== CHAT_MESSAGE) {
+        problems.push(`${at}: firstChatOfStream の条件はチャットの発言にしか付けられません`)
+        return null
+      }
+      return { kind }
     }
   }
 }
@@ -400,42 +415,6 @@ export const announceActionOf = (trigger: StoredTrigger): StoredAnnounceAction |
 export const alertActionOf = (trigger: StoredTrigger): StoredAlertAction | null =>
   trigger.actions.find((action): action is StoredAlertAction => action.type === 'alert') ?? null
 
-/** オーバーレイが受け取るトリガー1件（条件と出し方が平坦に並ぶ。src/alerts/trigger.ts の AlertTrigger に対応する） */
-interface OverlayTrigger {
-  event: AlertEvent
-  conditions: StoredCondition[]
-  media: { kind: MediaKind; url: string }
-  durationSeconds: number
-  volume: number
-  message: string
-}
-
 /** 素材をオーバーレイから読むためのパス。キーが違えばWorkerが拒否する */
 export const mediaPath = (mediaId: string, overlayKey: string): string =>
   `/api/media/${encodeURIComponent(mediaId)}?key=${encodeURIComponent(overlayKey)}`
-
-/**
- * オーバーレイ（src/alerts/trigger.ts の AlertTrigger）が受け取る形へ変換する。
- *
- * オーバーレイは「条件 + 出し方」の平坦なトリガーしか知らないので、アラートを出す動作をここで展開する。
- * チャットに送る動作は渡さない（送るのはWorkerの役目で、オーバーレイに送信の権限を持たせないため）。
- * アラートを出す動作を持たないトリガー（チャットに送るだけ）は一覧から落とす。
- */
-export const toOverlayConfig = (config: AlertConfig, overlayKey: string) => ({
-  triggers: config.triggers.flatMap((trigger): OverlayTrigger[] => {
-    const action = alertActionOf(trigger)
-    if (action === null) return []
-
-    const { mediaId, mediaKind, durationSeconds, volume, message } = action
-    return [
-      {
-        event: trigger.event,
-        conditions: trigger.conditions,
-        media: { kind: mediaKind, url: mediaPath(mediaId, overlayKey) },
-        durationSeconds,
-        volume,
-        message,
-      },
-    ]
-  }),
-})

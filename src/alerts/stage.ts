@@ -1,19 +1,18 @@
 /**
  * アラート用オーバーレイのページ（alerts/index.html）のエントリスクリプト
  *
- * URLの ?key=<オーバーレイ用キー> でWorkerから設定（config.ts）を受け取り、EventSubに接続して、
- * 届いた通知のうち設定に当てはまったものを1件ずつ順番に再生する。
- * ?demo=true なら接続せず、5種類のイベントのサンプルを一定間隔で順に流す（配置の調整用）。
+ * URLの ?key=<オーバーレイ用キー> でEventSubに接続し、届いた通知をそのままWorker（resolve.ts）へ送って、
+ * 返ってきたアラートを1件ずつ順番に再生する。どのトリガーに当てはまるかの判定はWorkerが受け持つ
+ * （条件に「その配信で初めての発言か」のように、データベースの記録からしか決められないものがあるため）。
+ * ?demo=true なら接続せず、6種類のイベントぶんのサンプルを一定間隔で順に流す（配置の調整用）。
  * 起動に失敗した場合や、人が直さないと直らない失敗は、OBS上でも原因が分かるよう画面にエラー内容を表示する。
  */
 import { showError } from '../core/mount'
 import { ParamError, parseParams, type ParamSchema } from '../core/params'
-import { fetchTriggers } from './config'
 import { connectEventSub } from './connection'
-import { demoNotifications, demoTriggers } from './demo'
-import type { EventSubNotification } from './eventsub'
+import { demoAlerts } from './demo'
 import { EMPTY_QUEUE, advance, enqueue } from './queue'
-import { toAlert, type AlertTrigger } from './trigger'
+import { resolveAlert, type Alert } from './resolve'
 import { createAlertView } from './view'
 
 const NOUN = 'アラート'
@@ -62,48 +61,41 @@ const start = async (): Promise<void> => {
       })
   }
 
-  const handleNotification = (triggers: readonly AlertTrigger[], notification: EventSubNotification): void => {
-    const alert = toAlert(triggers, notification)
-    if (!alert) return
+  /** 再生する列に1件積む。いま何も再生していなければ、その場で再生を始める */
+  const showAlert = (alert: Alert): void => {
     const idle = queue.current === null
     queue = enqueue(queue, alert)
     if (idle) play()
   }
 
   if (params.demo) {
-    // サンプルの通知を先頭から順に、一巡したらまた先頭から流す
+    // サンプルのアラートを先頭から順に、一巡したらまた先頭から流す
     let demoIndex = 0
     const playDemo = (): void => {
-      const notification = demoNotifications[demoIndex % demoNotifications.length]
+      const alert = demoAlerts[demoIndex % demoAlerts.length]
       demoIndex += 1
-      if (notification) handleNotification(demoTriggers, notification)
+      if (alert) showAlert(alert)
     }
     playDemo()
     window.setInterval(playDemo, DEMO_INTERVAL_MS)
     return
   }
 
-  const loadTriggers = (): Promise<AlertTrigger[]> => fetchTriggers(params.key, (input, init) => fetch(input, init))
-  // 起動時に設定を取得できなければ（キーの誤りなど）、接続せずにエラーを表示する
-  let triggers = await loadTriggers()
-
-  /** 通知の処理を届いた順に1件ずつ行うための列。設定の取得の速さによってアラートの順番が入れ替わらないようにする */
+  /** 通知の処理を届いた順に1件ずつ行うための列。問い合わせの速さによってアラートの順番が入れ替わらないようにする */
   let processing: Promise<void> = Promise.resolve()
 
   connectEventSub(params.key, {
     onNotification: (notification) => {
-      // 管理画面での変更をOBSの再読み込みなしで反映するため、通知のたびに設定を取り直す。
-      // 取り直せなかった場合は画面に知らせたうえで、最後に取得できた設定で再生する
+      // どのトリガーに当てはまるかはWorkerが決めるので、通知のたびに問い合わせる。
+      // 管理画面での変更がOBSの再読み込みなしで反映されるのもこのため
       processing = processing
-        .then(loadTriggers)
-        .then((latest) => {
-          triggers = latest
-          // 前回の取得失敗のお知らせが残っていれば消す
+        .then(() => resolveAlert(params.key, notification, (input, init) => fetch(input, init)))
+        .then((alert) => {
+          // 前回の問い合わせの失敗のお知らせが残っていれば消す
           view.setNotice(null)
+          if (alert) showAlert(alert)
         })
-        .catch((error: unknown) => view.setNotice(`最新の設定を取得できませんでした: ${messageOf(error)}`))
-        .then(() => handleNotification(triggers, notification))
-        .catch((error: unknown) => view.setNotice(messageOf(error)))
+        .catch((error: unknown) => view.setNotice(`アラートを問い合わせられませんでした: ${messageOf(error)}`))
     },
     onStatus: (status) => view.setNotice(status === 'disconnected' ? 'Twitchとの接続が切れました。再接続します…' : null),
     onWarning: (message) => view.setNotice(message),

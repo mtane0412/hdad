@@ -9,6 +9,7 @@
  */
 import { loadAlertConfig, type StoredAnnounceAction } from './alert-config'
 import { announcementFor, chatMessageFor } from './alert-event'
+import { resolveConditionState } from './alert-state'
 import { announceAsBot, sendAsBot } from './bot-chat'
 import { applyReply, findCommand, readChatMessage, type ChatMessage } from './chat-command'
 import { loadBotConfig } from './bot-config'
@@ -158,7 +159,7 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
 
   // bot自身の発言ではトリガーを引かない。引くと、その応答にまた反応して止まらなくなる（コマンドの応答と同じ考え方）。
   // botは接続済みなので、接続の確認はやり直さない（発言1通あたりのKVの読み出しを増やさないため）
-  if (message.chatterUserId !== bot.userId) await sendAlertMessages(context, CHAT_MESSAGE, body, message.messageId, () => Promise.resolve(true))
+  if (message.chatterUserId !== bot.userId) await sendAlertMessages(context, CHAT_MESSAGE, body, message.messageId, () => Promise.resolve(true), message)
 
   // コマンドに一致しない発言では、ここから先へ進まない（チャットの全件をD1に書かないため）
   const { commands } = await loadBotConfig(env.STORE)
@@ -197,6 +198,8 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
  * @param messageId 通知のメッセージID。再送で二度送らないための鍵に使う
  * @param botConnected botが接続されているかを調べる。判定を関数で渡すのは、送る動作が1件もないときに
  *   トークンを読まずに済ませるため（チャットの発言では1通ごとにここを通るので、余分なKVの読み出しを増やさない）
+ * @param chatMessage 通知がチャットの発言なら、読み取った発言。ほかのイベントなら null
+ *   （状態を持つ条件の判定に要る。同じ通知を2か所で読み解かないよう、読み取り済みのものを受け取る）
  * @throws HttpError イベントの中身が想定と違う場合（400。黙って捨てない）
  */
 const sendAlertMessages = async (
@@ -205,14 +208,17 @@ const sendAlertMessages = async (
   body: Record<string, unknown>,
   messageId: string,
   botConnected: () => Promise<boolean>,
+  chatMessage: ChatMessage | null,
 ): Promise<void> => {
-  const { env } = context
+  const { env, now } = context
 
   const config = await loadAlertConfig(env.STORE)
+  // 通知の中身だけでは決まらない条件（その配信で初めての発言か）は、照合の前にデータベースを見て決める
+  const state = await resolveConditionState(env.DB, config, chatMessage, now)
   // 中身の形が違えば「不正な通知」として400で返す（Workerの不具合を表す500と区別する）
   const [message, announcement] = ((): [string | null, StoredAnnounceAction | null] => {
     try {
-      return [chatMessageFor(config, subscriptionType, body.event), announcementFor(config, subscriptionType, body.event)]
+      return [chatMessageFor(config, subscriptionType, body.event, state), announcementFor(config, subscriptionType, body.event, state)]
     } catch (error) {
       throw invalid(error instanceof Error ? error.message : String(error))
     }
@@ -283,7 +289,7 @@ export const eventsubWebhook = async (context: Context): Promise<Response> => {
       if (type === CHAT_MESSAGE) await replyToChatMessage(context, body)
       else {
         await recordNotification({ db: env.DB, messageId, occurredAt, body })
-        await sendAlertMessages(context, type, body, messageId, async () => (await loadToken(env.STORE, 'bot')) !== null)
+        await sendAlertMessages(context, type, body, messageId, async () => (await loadToken(env.STORE, 'bot')) !== null, null)
       }
       return new Response(null, { status: STATUS.noContent })
     }

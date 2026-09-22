@@ -54,7 +54,12 @@ const COLOR_LABELS: Readonly<Record<AnnouncementColor, string>> = {
  * text は「その言葉を含む発言」に当てはまる（部分一致）ので、「文面」だけにせず「含む言葉」と書く。
  * 「文面」だけでは、発言全体がその文言と同じときに当てはまる（完全一致）と読めてしまう。
  */
-const CONDITION_LABELS: Readonly<Record<ConditionKind, string>> = { reward: '報酬', user: 'ユーザー', text: '文面に含む言葉' }
+const CONDITION_LABELS: Readonly<Record<ConditionKind, string>> = {
+  reward: '報酬',
+  user: 'ユーザー',
+  text: '文面に含む言葉',
+  firstChatOfStream: 'その配信で初めての発言',
+}
 
 /** 条件の種類の日本語のラベル。画面の見出しと要約で使う */
 export const conditionLabel = (kind: ConditionKind): string => CONDITION_LABELS[kind]
@@ -173,7 +178,7 @@ export const toTriggerInput = (draft: TriggerDraft): TriggerInput => ({
 /**
  * その条件の種類を、このイベント種別に付けられるか。
  *
- * reward はチャンネルポイントの交換（報酬IDを持つ）、text はチャットの発言（本文を持つ）にしか意味を持たない。
+ * reward はチャンネルポイントの交換（報酬IDを持つ）、text と firstChatOfStream はチャットの発言にしか意味を持たない。
  * Workerの検証（worker/alert-config.ts の parseCondition）と同じ判定を画面側でも持ち、付けられない種類を選択肢に出さない。
  */
 const isConditionKindFor = (kind: ConditionKind, event: AlertEvent): boolean => {
@@ -181,6 +186,7 @@ const isConditionKindFor = (kind: ConditionKind, event: AlertEvent): boolean => 
     case 'reward':
       return event === REDEMPTION
     case 'text':
+    case 'firstChatOfStream':
       return event === CHAT_MESSAGE
     case 'user':
       return true
@@ -191,8 +197,8 @@ const isConditionKindFor = (kind: ConditionKind, event: AlertEvent): boolean => 
  * まだ足していない条件の種類の選択肢。
  *
  * 同じ種類は1件までなので、すでに足してある種類は出さない。
- * reward はチャンネルポイントの交換に、text はチャットの発言にしか付けられない（ほかのイベントではWorkerが保存を拒否する）ので、
- * そのイベントのときだけ出す。
+ * reward はチャンネルポイントの交換に、text と firstChatOfStream はチャットの発言にしか付けられない
+ * （ほかのイベントではWorkerが保存を拒否する）ので、そのイベントのときだけ出す。
  */
 export const addableConditionKinds = (draft: TriggerDraft): readonly ConditionKindOption[] =>
   CONDITION_KINDS.filter((kind) => !draft.conditions.some((condition) => condition.kind === kind) && isConditionKindFor(kind, draft.event)).map((kind) => ({
@@ -214,13 +220,16 @@ export const createCondition = (kind: ConditionKind, rewards: readonly Reward[])
       return { kind, contains: '' }
     case 'user':
       return { kind, login: '' }
+    // 入れる値を持たない条件（その配信で初めての発言であること以外に指定するものがない）
+    case 'firstChatOfStream':
+      return { kind }
   }
 }
 
 /**
  * イベント種別を変える。
  *
- * 変えた先のイベントに付けられない条件（チャンネルポイントの交換以外の reward、チャットの発言以外の text）は外す。
+ * 変えた先のイベントに付けられない条件（チャンネルポイントの交換以外の reward、チャットの発言以外の text・firstChatOfStream）は外す。
  * 残したままでは保存がWorkerに拒否され、画面上は条件が見えているのに直し方が分からなくなるため。
  */
 export const changeEvent = (draft: TriggerDraft, event: AlertEvent): TriggerDraft => ({
@@ -289,6 +298,8 @@ const conditionSummary = (condition: TriggerCondition, rewards: readonly Reward[
       return `ユーザー「${condition.login}」`
     case 'text':
       return `文面に「${condition.contains}」を含む`
+    case 'firstChatOfStream':
+      return CONDITION_LABELS.firstChatOfStream
   }
 }
 

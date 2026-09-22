@@ -2,15 +2,20 @@
  * アラートのイベントの読み取り（alert-event.ts）のテスト
  *
  * Twitchから届いた通知の中身から、条件の照合と文言の差し込みに使う項目を取り出せること、
- * トリガーの一覧から「チャットに送る」動作を選べることを確認する。
- * オーバーレイ側（src/alerts/trigger.ts）と同じ役目のコードだが、worker/ は src/ を読み込まない約束のため別に持つ。
+ * トリガーの一覧から動作（チャットに送る・アナウンスを送る・アラートを出す）を選べることを確認する。
+ * 「その配信で初めての発言か」は通知の中身では決まらないので、判定結果（ConditionState）を値で受け取る形になっている。
  */
 import { describe, expect, it } from 'vitest'
 import type { AlertConfig, StoredCondition, StoredTrigger } from './alert-config'
-import { announcementFor, chatMessageFor, extract, fillMessage, matches } from './alert-event'
+import { alertFor, announcementFor, chatMessageFor, extract, fillMessage, matches, requiresFirstChatOfStream, type ConditionState } from './alert-event'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const CHAT_MESSAGE = 'channel.chat.message'
+
+/** 通知の中身だけでは決まらない条件の判定結果。この一群のテストではふだんの発言（その配信で2回目以降）として扱う */
+const 初回ではない: ConditionState = { firstChatOfStream: false }
+/** その配信で初めての発言だった場合の判定結果 */
+const 初回である: ConditionState = { firstChatOfStream: true }
 
 describe('extract', () => {
   it('チャンネルポイント交換から、交換した人と報酬を取り出す', () => {
@@ -96,25 +101,25 @@ describe('matches', () => {
   it('イベントの種類が違えば当てはまらない', () => {
     const フォローのトリガー: StoredTrigger = { event: 'channel.follow', conditions: [], actions: [{ type: 'chat', message: 'ありがとう' }] }
 
-    expect(matches(フォローのトリガー, 交換した)).toBe(false)
+    expect(matches(フォローのトリガー, 交換した, 初回ではない)).toBe(false)
   })
 
   it('条件が1件もないトリガーは、そのイベントならいつでも当てはまる', () => {
-    expect(matches(交換のトリガー([]), 交換した)).toBe(true)
+    expect(matches(交換のトリガー([]), 交換した, 初回ではない)).toBe(true)
   })
 
   it('reward の条件は、報酬IDが同じときだけ当てはまる', () => {
-    expect(matches(交換のトリガー([{ kind: 'reward', rewardId: '報酬ID-乾杯' }]), 交換した)).toBe(true)
-    expect(matches(交換のトリガー([{ kind: 'reward', rewardId: '報酬ID-別の報酬' }]), 交換した)).toBe(false)
+    expect(matches(交換のトリガー([{ kind: 'reward', rewardId: '報酬ID-乾杯' }]), 交換した, 初回ではない)).toBe(true)
+    expect(matches(交換のトリガー([{ kind: 'reward', rewardId: '報酬ID-別の報酬' }]), 交換した, 初回ではない)).toBe(false)
   })
 
   it('user の条件は、相手のユーザー名が同じときだけ当てはまる', () => {
-    expect(matches(交換のトリガー([{ kind: 'user', login: 'tanaka_taro' }]), 交換した)).toBe(true)
-    expect(matches(交換のトリガー([{ kind: 'user', login: 'yamada_hanako' }]), 交換した)).toBe(false)
+    expect(matches(交換のトリガー([{ kind: 'user', login: 'tanaka_taro' }]), 交換した, 初回ではない)).toBe(true)
+    expect(matches(交換のトリガー([{ kind: 'user', login: 'yamada_hanako' }]), 交換した, 初回ではない)).toBe(false)
   })
 
   it('user の条件は大文字小文字を区別しない（Twitchのユーザー名は小文字だが、配信者が表示名の綴りで入れても当てる）', () => {
-    expect(matches(交換のトリガー([{ kind: 'user', login: 'Tanaka_Taro' }]), 交換した)).toBe(true)
+    expect(matches(交換のトリガー([{ kind: 'user', login: 'Tanaka_Taro' }]), 交換した, 初回ではない)).toBe(true)
   })
 
   it('条件が2つあれば、すべてを満たしたときだけ当てはまる（and）', () => {
@@ -127,37 +132,37 @@ describe('matches', () => {
       { kind: 'user', login: 'yamada_hanako' },
     ]
 
-    expect(matches(交換のトリガー(報酬とユーザーの両方), 交換した)).toBe(true)
-    expect(matches(交換のトリガー(報酬だけ合う), 交換した)).toBe(false)
+    expect(matches(交換のトリガー(報酬とユーザーの両方), 交換した, 初回ではない)).toBe(true)
+    expect(matches(交換のトリガー(報酬だけ合う), 交換した, 初回ではない)).toBe(false)
   })
 
   it('text の条件は、本文にその文字を含むときだけ当てはまる（部分一致）', () => {
     const チャットのトリガー = (conditions: StoredCondition[]): StoredTrigger => ({ event: CHAT_MESSAGE, conditions, actions: [{ type: 'chat', message: 'やあ' }] })
     const 発言した = { event: CHAT_MESSAGE, userName: '田中太郎', userLogin: 'tanaka_taro', text: 'みなさんおはようございます' } as const
 
-    expect(matches(チャットのトリガー([{ kind: 'text', contains: 'おはよう' }]), 発言した)).toBe(true)
-    expect(matches(チャットのトリガー([{ kind: 'text', contains: 'こんばんは' }]), 発言した)).toBe(false)
+    expect(matches(チャットのトリガー([{ kind: 'text', contains: 'おはよう' }]), 発言した, 初回ではない)).toBe(true)
+    expect(matches(チャットのトリガー([{ kind: 'text', contains: 'こんばんは' }]), 発言した, 初回ではない)).toBe(false)
   })
 
   it('text の条件は大文字小文字を区別しない', () => {
     const チャットのトリガー: StoredTrigger = { event: CHAT_MESSAGE, conditions: [{ kind: 'text', contains: 'Hello' }], actions: [{ type: 'chat', message: 'やあ' }] }
     const 発言した = { event: CHAT_MESSAGE, userName: '田中太郎', userLogin: 'tanaka_taro', text: 'HELLO everyone' } as const
 
-    expect(matches(チャットのトリガー, 発言した)).toBe(true)
+    expect(matches(チャットのトリガー, 発言した, 初回ではない)).toBe(true)
   })
 
   it('text の条件はチャットの発言以外には当てはまらない（保存時に拒否するが、照合でも通さない）', () => {
     const フォローに文面: StoredTrigger = { event: 'channel.follow', conditions: [{ kind: 'text', contains: 'おはよう' }], actions: [{ type: 'chat', message: 'ありがとう' }] }
     const フォローした = { event: 'channel.follow', userName: '田中太郎', userLogin: 'tanaka_taro' } as const
 
-    expect(matches(フォローに文面, フォローした)).toBe(false)
+    expect(matches(フォローに文面, フォローした, 初回ではない)).toBe(false)
   })
 
   it('reward の条件はチャンネルポイント交換以外には当てはまらない（保存時に拒否するが、照合でも通さない）', () => {
     const フォローに報酬: StoredTrigger = { event: 'channel.follow', conditions: [{ kind: 'reward', rewardId: '報酬ID-乾杯' }], actions: [{ type: 'chat', message: 'ありがとう' }] }
     const フォローした = { event: 'channel.follow', userName: '田中太郎', userLogin: 'tanaka_taro' } as const
 
-    expect(matches(フォローに報酬, フォローした)).toBe(false)
+    expect(matches(フォローに報酬, フォローした, 初回ではない)).toBe(false)
   })
 })
 
@@ -192,13 +197,13 @@ describe('chatMessageFor', () => {
   it('当てはまるトリガーのチャットの文言を、差し込み語を置き換えて返す', () => {
     const config = 設定([{ event: 'channel.follow', conditions: [], actions: [{ type: 'chat', message: '{user} さん、フォローありがとうございます！' }] }])
 
-    expect(chatMessageFor(config, 'channel.follow', フォローの通知)).toBe('田中太郎 さん、フォローありがとうございます！')
+    expect(chatMessageFor(config, 'channel.follow', フォローの通知, 初回ではない)).toBe('田中太郎 さん、フォローありがとうございます！')
   })
 
   it('当てはまるトリガーがなければ null を返す', () => {
     const config = 設定([{ event: 'channel.raid', conditions: [], actions: [{ type: 'chat', message: 'レイドありがとう' }] }])
 
-    expect(chatMessageFor(config, 'channel.follow', フォローの通知)).toBeNull()
+    expect(chatMessageFor(config, 'channel.follow', フォローの通知, 初回ではない)).toBeNull()
   })
 
   it('チャットに送る動作を持たないトリガー（アラートを出すだけ）には反応しない', () => {
@@ -208,7 +213,7 @@ describe('chatMessageFor', () => {
       actions: [{ type: 'alert', mediaId: '素材ID-拍手の音', mediaKind: 'audio', durationSeconds: 5, volume: 0.5, message: '' }],
     }
 
-    expect(chatMessageFor(設定([アラートだけ]), 'channel.follow', フォローの通知)).toBeNull()
+    expect(chatMessageFor(設定([アラートだけ]), 'channel.follow', フォローの通知, 初回ではない)).toBeNull()
   })
 
   it('複数のトリガーが当てはまる場合は、先に書かれたものを使う（チャットを連投しない）', () => {
@@ -217,19 +222,19 @@ describe('chatMessageFor', () => {
       { event: 'channel.follow', conditions: [], actions: [{ type: 'chat', message: '2つ目の文言' }] },
     ])
 
-    expect(chatMessageFor(config, 'channel.follow', フォローの通知)).toBe('1つ目の文言')
+    expect(chatMessageFor(config, 'channel.follow', フォローの通知, 初回ではない)).toBe('1つ目の文言')
   })
 
   it('チャットに送るトリガーがないイベントなら、通知の中身が想定と違ってもエラーにしない（設定していないイベントで止めない）', () => {
     const config = 設定([{ event: 'channel.raid', conditions: [], actions: [{ type: 'chat', message: 'レイドありがとう' }] }])
 
-    expect(chatMessageFor(config, 'channel.follow', { user_login: 'tanaka' })).toBeNull()
+    expect(chatMessageFor(config, 'channel.follow', { user_login: 'tanaka' }, 初回ではない)).toBeNull()
   })
 
   it('対応していないイベントの種類なら null を返す', () => {
     const config = 設定([{ event: 'channel.follow', conditions: [], actions: [{ type: 'chat', message: 'ありがとう' }] }])
 
-    expect(chatMessageFor(config, 'stream.online', { id: '配信ID' })).toBeNull()
+    expect(chatMessageFor(config, 'stream.online', { id: '配信ID' }, 初回ではない)).toBeNull()
   })
 })
 
@@ -248,7 +253,7 @@ describe('チャットの発言のトリガー', () => {
       triggers: [{ event: CHAT_MESSAGE, conditions: [{ kind: 'text', contains: 'おはよう' }], actions: [{ type: 'chat', message: '{user} さん、おはよう！' }] }],
     }
 
-    expect(chatMessageFor(設定, CHAT_MESSAGE, 発言の通知)).toBe('田中太郎 さん、おはよう！')
+    expect(chatMessageFor(設定, CHAT_MESSAGE, 発言の通知, 初回ではない)).toBe('田中太郎 さん、おはよう！')
   })
 
   it('発言者の条件に当てはまらない発言では null を返す', () => {
@@ -256,7 +261,7 @@ describe('チャットの発言のトリガー', () => {
       triggers: [{ event: CHAT_MESSAGE, conditions: [{ kind: 'user', login: 'yamada_hanako' }], actions: [{ type: 'chat', message: 'やあ' }] }],
     }
 
-    expect(chatMessageFor(設定, CHAT_MESSAGE, 発言の通知)).toBeNull()
+    expect(chatMessageFor(設定, CHAT_MESSAGE, 発言の通知, 初回ではない)).toBeNull()
   })
 
   it('本文を差し込んでTwitchの上限（500文字）を超えたら、末尾を … にして収める', () => {
@@ -268,7 +273,7 @@ describe('チャットの発言のトリガー', () => {
       triggers: [{ event: CHAT_MESSAGE, conditions: [], actions: [{ type: 'chat', message: '{user} さんの発言: {message}' }] }],
     }
 
-    const 送る文言 = chatMessageFor(設定, CHAT_MESSAGE, 長い発言)
+    const 送る文言 = chatMessageFor(設定, CHAT_MESSAGE, 長い発言, 初回ではない)
 
     expect(送る文言).toHaveLength(500)
     expect(送る文言?.endsWith('…')).toBe(true)
@@ -281,7 +286,7 @@ describe('チャットの発言のトリガー', () => {
       triggers: [{ event: CHAT_MESSAGE, conditions: [], actions: [{ type: 'announce', message: '{message}', color: 'blue' }] }],
     }
 
-    expect(announcementFor(設定, CHAT_MESSAGE, 長い発言)?.message).toHaveLength(500)
+    expect(announcementFor(設定, CHAT_MESSAGE, 長い発言, 初回ではない)?.message).toHaveLength(500)
   })
 
   it('発言の本文をアナウンスの文言に差し込める', () => {
@@ -295,7 +300,7 @@ describe('チャットの発言のトリガー', () => {
       ],
     }
 
-    expect(announcementFor(設定, CHAT_MESSAGE, 発言の通知)).toEqual({ type: 'announce', message: '田中太郎: みなさんおはようございます', color: 'blue' })
+    expect(announcementFor(設定, CHAT_MESSAGE, 発言の通知, 初回ではない)).toEqual({ type: 'announce', message: '田中太郎: みなさんおはようございます', color: 'blue' })
   })
 })
 
@@ -308,7 +313,7 @@ describe('announcementFor', () => {
       { event: 'channel.raid', conditions: [], actions: [{ type: 'announce', message: '{user} さんが {viewers} 人で来てくれました', color: 'purple' }] },
     ])
 
-    expect(announcementFor(config, 'channel.raid', レイドの通知)).toEqual({
+    expect(announcementFor(config, 'channel.raid', レイドの通知, 初回ではない)).toEqual({
       type: 'announce',
       message: '山田花子 さんが 25 人で来てくれました',
       color: 'purple',
@@ -318,12 +323,122 @@ describe('announcementFor', () => {
   it('アナウンスを送る動作を持たないトリガー（チャットに送るだけ）には反応しない', () => {
     const チャットだけ: StoredTrigger = { event: 'channel.raid', conditions: [], actions: [{ type: 'chat', message: 'レイドありがとう' }] }
 
-    expect(announcementFor(設定([チャットだけ]), 'channel.raid', レイドの通知)).toBeNull()
+    expect(announcementFor(設定([チャットだけ]), 'channel.raid', レイドの通知, 初回ではない)).toBeNull()
   })
 
   it('当てはまるトリガーがなければ null を返す', () => {
     const config = 設定([{ event: 'channel.follow', conditions: [], actions: [{ type: 'announce', message: 'ありがとう', color: 'primary' }] }])
 
-    expect(announcementFor(config, 'channel.raid', レイドの通知)).toBeNull()
+    expect(announcementFor(config, 'channel.raid', レイドの通知, 初回ではない)).toBeNull()
+  })
+})
+
+describe('firstChatOfStream の条件', () => {
+  const 発言した = { event: CHAT_MESSAGE, userName: '田中太郎', userLogin: 'tanaka_taro', text: 'おはようございます' } as const
+  const 初回のトリガー: StoredTrigger = {
+    event: CHAT_MESSAGE,
+    conditions: [{ kind: 'firstChatOfStream' }],
+    actions: [{ type: 'chat', message: '{user} さん、おかえりなさい！' }],
+  }
+
+  it('その配信で初めての発言なら当てはまる', () => {
+    expect(matches(初回のトリガー, 発言した, 初回である)).toBe(true)
+  })
+
+  it('その配信で2回目以降の発言なら当てはまらない', () => {
+    expect(matches(初回のトリガー, 発言した, 初回ではない)).toBe(false)
+  })
+
+  it('チャットの発言以外には当てはまらない（保存時に拒否するが、照合でも通さない）', () => {
+    const フォローに初回: StoredTrigger = {
+      event: 'channel.follow',
+      conditions: [{ kind: 'firstChatOfStream' }],
+      actions: [{ type: 'chat', message: 'ありがとう' }],
+    }
+    const フォローした = { event: 'channel.follow', userName: '田中太郎', userLogin: 'tanaka_taro' } as const
+
+    expect(matches(フォローに初回, フォローした, 初回である)).toBe(false)
+  })
+
+  it('ほかの条件と組み合わせると、両方を満たしたときだけ当てはまる（and）', () => {
+    const 初回かつ文面: StoredTrigger = {
+      ...初回のトリガー,
+      conditions: [{ kind: 'firstChatOfStream' }, { kind: 'text', contains: 'おはよう' }],
+    }
+
+    expect(matches(初回かつ文面, 発言した, 初回である)).toBe(true)
+    expect(matches(初回かつ文面, { ...発言した, text: 'こんばんは' }, 初回である)).toBe(false)
+  })
+})
+
+describe('requiresFirstChatOfStream', () => {
+  const 初回のトリガー: StoredTrigger = {
+    event: CHAT_MESSAGE,
+    conditions: [{ kind: 'firstChatOfStream' }],
+    actions: [{ type: 'chat', message: 'おかえりなさい！' }],
+  }
+  const 条件なしのトリガー: StoredTrigger = { event: CHAT_MESSAGE, conditions: [], actions: [{ type: 'chat', message: 'どうも' }] }
+
+  it('そのイベントに firstChatOfStream の条件を持つトリガーがあれば true', () => {
+    expect(requiresFirstChatOfStream({ triggers: [条件なしのトリガー, 初回のトリガー] }, CHAT_MESSAGE)).toBe(true)
+  })
+
+  it('その条件を持つトリガーが1件もなければ false（データベースを触らずに済ませるため）', () => {
+    expect(requiresFirstChatOfStream({ triggers: [条件なしのトリガー] }, CHAT_MESSAGE)).toBe(false)
+  })
+
+  it('別のイベントの通知では false', () => {
+    expect(requiresFirstChatOfStream({ triggers: [初回のトリガー] }, 'channel.follow')).toBe(false)
+  })
+})
+
+describe('alertFor', () => {
+  const オーバーレイ用キー = 'overlay-key_1'
+  const フォローの通知 = { user_name: '田中太郎', user_login: 'tanaka_taro' }
+  const アラートの動作 = {
+    type: 'alert',
+    mediaId: '素材ID-乾杯の動画',
+    mediaKind: 'video',
+    durationSeconds: 8,
+    volume: 0.5,
+    message: '{user} さん、ありがとう！',
+  } as const
+
+  it('当てはまるトリガーのアラートを、素材のURLと差し込み後の文言で返す', () => {
+    const config: AlertConfig = { triggers: [{ event: 'channel.follow', conditions: [], actions: [アラートの動作] }] }
+
+    expect(alertFor(config, 'channel.follow', フォローの通知, オーバーレイ用キー, 初回ではない)).toEqual({
+      media: { kind: 'video', url: '/api/media/%E7%B4%A0%E6%9D%90ID-%E4%B9%BE%E6%9D%AF%E3%81%AE%E5%8B%95%E7%94%BB?key=overlay-key_1' },
+      durationSeconds: 8,
+      volume: 0.5,
+      text: '田中太郎 さん、ありがとう！',
+    })
+  })
+
+  it('アラートを出す動作を持たないトリガー（チャットに送るだけ）には反応しない', () => {
+    const config: AlertConfig = { triggers: [{ event: 'channel.follow', conditions: [], actions: [{ type: 'chat', message: 'ありがとう' }] }] }
+
+    expect(alertFor(config, 'channel.follow', フォローの通知, オーバーレイ用キー, 初回ではない)).toBeNull()
+  })
+
+  it('当てはまるトリガーがなければ null を返す', () => {
+    const config: AlertConfig = { triggers: [{ event: 'channel.raid', conditions: [], actions: [アラートの動作] }] }
+
+    expect(alertFor(config, 'channel.follow', フォローの通知, オーバーレイ用キー, 初回ではない)).toBeNull()
+  })
+
+  it('firstChatOfStream の条件を持つトリガーは、その配信で初めての発言のときだけ再生する', () => {
+    const 発言の通知 = {
+      broadcaster_user_id: '配信者ID',
+      chatter_user_id: '発言者ID',
+      chatter_user_login: 'tanaka_taro',
+      chatter_user_name: '田中太郎',
+      message_id: '発言ID-1',
+      message: { text: 'おはようございます' },
+    }
+    const config: AlertConfig = { triggers: [{ event: CHAT_MESSAGE, conditions: [{ kind: 'firstChatOfStream' }], actions: [アラートの動作] }] }
+
+    expect(alertFor(config, CHAT_MESSAGE, 発言の通知, オーバーレイ用キー, 初回である)?.text).toBe('田中太郎 さん、ありがとう！')
+    expect(alertFor(config, CHAT_MESSAGE, 発言の通知, オーバーレイ用キー, 初回ではない)).toBeNull()
   })
 })

@@ -6,8 +6,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { ApiError } from '@/core/api'
-import { ALERT_EVENTS as OVERLAY_ALERT_EVENTS } from '@/alerts/trigger'
-import { ALERT_EVENTS, createAdminApi, type TriggerInput } from './api'
+import { createAdminApi, type TriggerInput } from './api'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const サイト = 'https://stream-assets.example.com'
@@ -46,13 +45,6 @@ describe('me（ログイン中の配信者）', () => {
   it('401以外の失敗は、Workerのメッセージを持つエラーにする', async () => {
     const { fetchImpl } = 応答を返すfetch(500, { error: { code: 'misconfigured', message: 'Workerの環境変数が設定されていません: SESSION_SECRET' } })
     await expect(createAdminApi(fetchImpl).me()).rejects.toThrow('SESSION_SECRET')
-  })
-})
-
-describe('ALERT_EVENTS', () => {
-  it('オーバーレイ側（src/alerts/trigger.ts）のイベントの一覧と食い違わない', () => {
-    // 管理画面・オーバーレイ・Worker はそれぞれ一覧を持つ（worker/ の型は読み込めないため）。ここでは src/ の2つが揃っていることを確かめる
-    expect(ALERT_EVENTS).toEqual(OVERLAY_ALERT_EVENTS)
   })
 })
 

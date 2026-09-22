@@ -2,15 +2,29 @@
  * アラートのイベントの読み取り
  *
  * Twitchから届いた通知の中身から、条件の照合と文言の差し込みに使う項目をイベント種別ごとに取り出し、
- * トリガーの一覧と照らし合わせて「チャットに送る文言」を決める（送信そのものは呼び出し側が行う）。
+ * トリガーの一覧と照らし合わせて「何をするか」を決める（送信と再生そのものは呼び出し側が行う）。
+ * 動作の種類ごとに入口が分かれていて、chatMessageFor・announcementFor はWebhookの受け口（webhook-routes.ts）が、
+ * alertFor はオーバーレイの問い合わせ（overlay-routes.ts の overlayAlert）が使う。
  *
- * 条件の種類には、そのイベントにしか意味を持たないものがある（reward はチャンネルポイントの交換、text はチャットの発言）。
- * ほかのイベントでは満たさないものとして扱う（保存時にも拒否しているが、古い設定が残っていても意図しないイベントで動かないようにする）。
+ * 照合はこのファイルだけが持つ。オーバーレイ（src/alerts/）は通知をWorkerへ送って結果を受け取るだけで、
+ * トリガーも条件も知らない。条件に「その配信で初めての発言か」のようにデータベースの記録からしか決められないものがあり、
+ * オーバーレイでは判定できないためである。
  *
- * 注意: オーバーレイ側の src/alerts/trigger.ts と同じ役目のコードを別に持っている。worker/ からは src/ を読み込まない約束のため。
- * 差し込み語（{user} など）とティアの表記は両方で同じにする（管理画面が案内する差し込み語が動作の種類で変わると混乱するため）。
+ * 条件の種類には、そのイベントにしか意味を持たないものがある（reward はチャンネルポイントの交換、
+ * text と firstChatOfStream はチャットの発言）。ほかのイベントでは満たさないものとして扱う
+ * （保存時にも拒否しているが、古い設定が残っていても意図しないイベントで動かないようにする）。
  */
-import { announceActionOf, chatActionOf, type AlertConfig, type StoredAnnounceAction, type StoredCondition, type StoredTrigger } from './alert-config'
+import {
+  alertActionOf,
+  announceActionOf,
+  chatActionOf,
+  mediaPath,
+  type AlertConfig,
+  type MediaKind,
+  type StoredAnnounceAction,
+  type StoredCondition,
+  type StoredTrigger,
+} from './alert-config'
 import { readChatMessage } from './chat-command'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
@@ -49,6 +63,26 @@ export type Extracted =
     }
   | { readonly event: typeof RAID; readonly userName: string; readonly userLogin: string; readonly viewers: number }
   | { readonly event: typeof CHAT_MESSAGE; readonly userName: string; readonly userLogin: string; readonly text: string }
+
+/**
+ * 通知の中身だけでは決まらない条件の判定結果。呼び出し側（worker/alert-state.ts）が先に調べて渡す。
+ *
+ * 照合（matches）を通信も時刻も持たない純粋な関数のままにするために、こうして値で受け取る形にしている
+ * （worker/chat-moderation.ts の judge が連投の件数を引数で受け取っているのと同じ作り）。
+ */
+export interface ConditionState {
+  /** その配信で初めての発言か。発言以外のイベントでは false を渡す */
+  readonly firstChatOfStream: boolean
+}
+
+/**
+ * その通知の照合に、「その配信で初めての発言か」の判定が要るか。
+ *
+ * 要らなければ呼び出し側はデータベースを触らずに済む。チャットの発言は件数の桁が違うため、
+ * 1通ごとにD1へ書き込まないようにこれで絞る。
+ */
+export const requiresFirstChatOfStream = (config: AlertConfig, subscriptionType: string): boolean =>
+  config.triggers.some((trigger) => trigger.event === subscriptionType && trigger.conditions.some((condition) => condition.kind === 'firstChatOfStream'))
 
 type EventBody = Readonly<Record<string, unknown>>
 
@@ -128,7 +162,7 @@ export const extract = (subscriptionType: string, body: unknown): Extracted | nu
  * （保存時にも拒否しているが、照合でも通さない。古い設定が残っていても、意図しないイベントでアラートが出ないようにする）。
  * user の条件は大文字小文字を区別しない（Twitchのユーザー名は小文字だが、配信者が表示名の綴りで入れても当てられるようにする）。
  */
-const satisfiesCondition = (condition: StoredCondition, extracted: Extracted): boolean => {
+const satisfiesCondition = (condition: StoredCondition, extracted: Extracted, state: ConditionState): boolean => {
   switch (condition.kind) {
     case 'reward':
       return extracted.event === REDEMPTION && condition.rewardId === extracted.rewardId
@@ -137,12 +171,16 @@ const satisfiesCondition = (condition: StoredCondition, extracted: Extracted): b
     case 'text':
       // 本文を持つのはチャットの発言だけなので、ほかのイベントでは満たさないものとして扱う（reward と同じ扱い）
       return extracted.event === CHAT_MESSAGE && extracted.text.toLowerCase().includes(condition.contains.toLowerCase())
+    case 'firstChatOfStream':
+      // 判定そのものは呼び出し側（worker/alert-state.ts）が済ませている。ここでは受け取った結果を見るだけ。
+      // 発言以外のイベントでは意味を持たないので、ほかのイベントでは満たさないものとして扱う（text と同じ扱い）
+      return extracted.event === CHAT_MESSAGE && state.firstChatOfStream
   }
 }
 
 /** トリガーが、取り出した項目に当てはまるか。イベント種別が同じで、条件をすべて満たすときに当てはまる（and） */
-export const matches = (trigger: StoredTrigger, extracted: Extracted): boolean =>
-  trigger.event === extracted.event && trigger.conditions.every((condition) => satisfiesCondition(condition, extracted))
+export const matches = (trigger: StoredTrigger, extracted: Extracted, state: ConditionState): boolean =>
+  trigger.event === extracted.event && trigger.conditions.every((condition) => satisfiesCondition(condition, extracted, state))
 
 /**
  * ティアの表記。Twitchが返す "1000" などを 1 に直す。
@@ -191,6 +229,7 @@ const filledActionFor = <Action extends { message: string }>(
   subscriptionType: string,
   body: unknown,
   actionOf: (trigger: StoredTrigger) => Action | null,
+  state: ConditionState,
 ): Action | null => {
   // その動作を持つトリガーが1件もないイベント種別なら、通知の中身は読まない。
   // 設定していないイベントの中身の形が想定と違うだけで、配信の記録まで止めてしまわないため
@@ -201,7 +240,7 @@ const filledActionFor = <Action extends { message: string }>(
   if (extracted === null) return null
 
   for (const trigger of candidates) {
-    if (!matches(trigger, extracted)) continue
+    if (!matches(trigger, extracted, state)) continue
     const action = actionOf(trigger)
     if (action !== null) return { ...action, message: fillMessage(action.message, extracted) }
   }
@@ -225,8 +264,8 @@ const filledActionFor = <Action extends { message: string }>(
 const withinChatLimit = (message: string): string =>
   message.length <= MAX_CHAT_MESSAGE_LENGTH ? message : `${message.slice(0, MAX_CHAT_MESSAGE_LENGTH - 1)}…`
 
-export const chatMessageFor = (config: AlertConfig, subscriptionType: string, body: unknown): string | null => {
-  const action = filledActionFor(config, subscriptionType, body, chatActionOf)
+export const chatMessageFor = (config: AlertConfig, subscriptionType: string, body: unknown, state: ConditionState): string | null => {
+  const action = filledActionFor(config, subscriptionType, body, chatActionOf, state)
   return action === null ? null : withinChatLimit(action.message)
 }
 
@@ -238,7 +277,44 @@ export const chatMessageFor = (config: AlertConfig, subscriptionType: string, bo
  * @returns 送るアナウンス。当てはまるトリガーがなければ null
  * @throws 通知の中身が想定した形でない場合（アナウンスを送るトリガーがあるイベント種別に限る）
  */
-export const announcementFor = (config: AlertConfig, subscriptionType: string, body: unknown): StoredAnnounceAction | null => {
-  const action = filledActionFor(config, subscriptionType, body, announceActionOf)
+export const announcementFor = (config: AlertConfig, subscriptionType: string, body: unknown, state: ConditionState): StoredAnnounceAction | null => {
+  const action = filledActionFor(config, subscriptionType, body, announceActionOf, state)
   return action === null ? null : { ...action, message: withinChatLimit(action.message) }
+}
+
+/** オーバーレイが再生するアラート1件（src/alerts/resolve.ts の Alert に対応する） */
+export interface OverlayAlert {
+  media: { kind: MediaKind; url: string }
+  durationSeconds: number
+  volume: number
+  /** 画面に出す文言。差し込み語を置き換えたあとの文字列。空文字なら文言を出さない */
+  text: string
+}
+
+/**
+ * 通知に当てはまるトリガーを探し、オーバーレイが再生するアラートを決める。
+ *
+ * 照合をここ（Worker）で行うのは、条件に「その配信で初めての発言か」のようにデータベースの記録から決まるものがあり、
+ * オーバーレイでは判定できないためである。オーバーレイは通知をそのまま送ってきて、返ってきたアラートを再生するだけでよい。
+ *
+ * @param overlayKey 素材のURLに付けるオーバーレイ用キー（キーが違えば素材の取得をWorkerが拒否する）
+ * @returns 再生するアラート。当てはまるトリガーがなければ null
+ * @throws 通知の中身が想定した形でない場合（アラートを出すトリガーがあるイベント種別に限る）
+ */
+export const alertFor = (
+  config: AlertConfig,
+  subscriptionType: string,
+  body: unknown,
+  overlayKey: string,
+  state: ConditionState,
+): OverlayAlert | null => {
+  const action = filledActionFor(config, subscriptionType, body, alertActionOf, state)
+  if (action === null) return null
+
+  return {
+    media: { kind: action.mediaKind, url: mediaPath(action.mediaId, overlayKey) },
+    durationSeconds: action.durationSeconds,
+    volume: action.volume,
+    text: action.message,
+  }
 }

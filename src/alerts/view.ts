@@ -4,7 +4,7 @@
  * アラート1件を素材（画像・動画・音声）と文言のHTML要素として表示し、決まった秒数のあとに消す。
  * 見た目と出入りの動きは alerts.css が受け持つ。どの順で再生するかは呼び出し側（stage.ts と queue.ts）が決める。
  */
-import type { Alert, AlertMedia } from './trigger'
+import type { Alert, AlertMedia } from './resolve'
 
 /** 消えるときの動きの長さ（ミリ秒）。alerts.css の alert-leave と合わせる */
 const LEAVE_MS = 400
