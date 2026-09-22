@@ -1,8 +1,8 @@
 {
-  "name": "stream-assets",
+  "name": "hdad",
   "private": true,
   "version": "0.1.0",
-  "description": "Twitch配信用の各種素材（OBSブラウザソース向け背景など）",
+  "description": "HDAD (Hyperfocus-Driven Assistant Director) — Twitch配信用の素材とアシスタント（OBSブラウザソース向け背景・チャット・アラート、チャットボット）",
   "type": "module",
   "scripts": {
     "dev": "vite",

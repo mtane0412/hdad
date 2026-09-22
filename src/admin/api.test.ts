@@ -9,7 +9,7 @@ import { ApiError } from '@/core/api'
 import { createAdminApi, type TriggerInput } from './api'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
-const サイト = 'https://stream-assets.example.com'
+const サイト = 'https://hdad.example.com'
 
 const 乾杯の動画 = { id: 'sozai-1', name: '乾杯.webm', kind: 'video', contentType: 'video/webm', size: 1_234_567, uploadedAt: '2026-09-21T12:00:00.000Z' }
 

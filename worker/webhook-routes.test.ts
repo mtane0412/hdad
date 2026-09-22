@@ -29,7 +29,7 @@ interface 環境の条件 {
 
 const 現在時刻 = Date.parse('2026-09-21T12:30:00Z')
 const 配信者のID = '12345'
-const サイト = 'https://stream-assets.example.com'
+const サイト = 'https://hdad.example.com'
 const シークレット = 'テスト用のWebhookシークレット'
 
 const 発行済みのオーバーレイ用キー = 'issued-overlay-key-0123456789abcdefghij'

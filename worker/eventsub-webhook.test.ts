@@ -9,7 +9,7 @@ import { ensureWebhookSubscriptions, verifyWebhookSignature, webhookEventTypes }
 import { TwitchApiError, type EventSubSubscription, type RegisteredSubscription } from './twitch'
 
 const シークレット = 'テスト用のWebhookシークレット'
-const コールバック = 'https://stream-assets.example.com/api/eventsub/webhook'
+const コールバック = 'https://hdad.example.com/api/eventsub/webhook'
 
 describe('verifyWebhookSignature', () => {
   const 通知 = { messageId: 'メッセージ1', timestamp: '2026-09-21T12:00:00.123456789Z', body: '{"event":{}}' }

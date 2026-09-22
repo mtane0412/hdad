@@ -57,7 +57,7 @@ const アラートの動作 = (overrides: Record<string, unknown> = {}) => ({
 
 describe('overlayUrl', () => {
   it('サイトのオリジンとオーバーレイ用キーから、OBSに貼るURLを組み立てる', () => {
-    expect(overlayUrl('https://stream-assets.example.com', 'overlay-key_0123')).toBe('https://stream-assets.example.com/alerts/?key=overlay-key_0123')
+    expect(overlayUrl('https://hdad.example.com', 'overlay-key_0123')).toBe('https://hdad.example.com/alerts/?key=overlay-key_0123')
   })
 })
 

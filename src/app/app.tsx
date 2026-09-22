@@ -51,10 +51,11 @@ const LoginScreen = () => (
   <Centered>
     <Card className="w-full max-w-sm">
       <CardHeader>
-        <CardTitle>stream-assets</CardTitle>
-        <CardDescription>配信者のTwitchアカウントでログインしてください。</CardDescription>
+        <CardTitle>HDAD</CardTitle>
+        <CardDescription>Hyperfocus-Driven Assistant Director</CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">配信者のTwitchアカウントでログインしてください。</p>
         <a className={buttonVariants({ className: 'w-full' })} href={LOGIN_PATH}>
           Twitchでログイン
         </a>
@@ -86,7 +87,10 @@ const Shell = ({ context, onLogout }: { context: PageContext; onLogout: () => vo
       <SidebarProvider>
         <Sidebar collapsible="icon">
           <SidebarHeader>
-            <span className="px-2 py-1 font-mono text-sm font-semibold group-data-[collapsible=icon]:hidden">stream-assets</span>
+            <div className="px-2 py-1 group-data-[collapsible=icon]:hidden">
+              <span className="font-mono text-sm font-semibold">HDAD</span>
+              <span className="block text-[10px] leading-tight text-muted-foreground">Hyperfocus-Driven Assistant Director</span>
+            </div>
           </SidebarHeader>
           <SidebarContent>
             <nav aria-label="サイト内の移動">

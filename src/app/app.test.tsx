@@ -4,6 +4,7 @@
  *
  * 確かめること:
  * - ログインしていなければ、中身を出さずにTwitchログインへの入口だけを出すこと
+ * - ログインの入口とサイドバーに、アプリ名（HDAD）と正式名称を出すこと
  * - ログインしていれば、サイドバーに配信者の名前と各ページへのリンクを出すこと
  * - ログインの確認に失敗したら、黙って未ログイン扱いにせずエラーを出すこと
  * - ログアウトしたら、ログインの入口に戻ること
@@ -99,6 +100,13 @@ describe('ログインしていないとき', () => {
     expect(login).toHaveAttribute('href', '/api/auth/login')
     expect(screen.queryByRole('navigation', { name: 'サイト内の移動' })).not.toBeInTheDocument()
   })
+
+  test('アプリ名と正式名称を出す', async () => {
+    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} api={代役のAPI(async () => null)} />)
+
+    expect(await screen.findByText('HDAD')).toBeInTheDocument()
+    expect(screen.getByText('Hyperfocus-Driven Assistant Director')).toBeInTheDocument()
+  })
 })
 
 describe('ログインしているとき', () => {
@@ -108,6 +116,7 @@ describe('ログインしているとき', () => {
     const nav = await screen.findByRole('navigation', { name: 'サイト内の移動' })
     expect(nav).toBeInTheDocument()
     expect(screen.getByText('haishin_taro')).toBeInTheDocument()
+    expect(screen.getByText('HDAD')).toBeInTheDocument()
     for (const [name, href] of [
       ['ダッシュボード', '/'],
       ['壁紙', '/wallpaper/'],
