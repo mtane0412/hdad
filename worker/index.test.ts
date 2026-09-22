@@ -179,7 +179,7 @@ describe('GET /api/auth/callback（botの接続）', () => {
     expect(response.headers.getSetCookie().some((cookie) => cookie.startsWith('__Host-session='))).toBe(false)
   })
 
-  it('botを接続したら、そのbotのユーザーIDでチャットの購読を登録する', async () => {
+  it('botを接続しても、Webhook宛ての購読には触れない（チャットの購読は配信者だけで決まるため）', async () => {
     const { env } = 環境を作る()
     const twitch = Twitchの代役('67890', { login: 'haishinsha_bot', scopes: BOT_SCOPES })
     // fetch に渡した Request の本文は一度しか読めないので、送られた時点で控えておく
@@ -194,9 +194,7 @@ describe('GET /api/auth/callback（botの接続）', () => {
 
     await botを接続する(env, fetchImpl)
 
-    // チャットの購読の条件には「チャットを読む人」としてbotのユーザーIDが入る
-    const chat = 登録した購読.find((subscription) => subscription.type === 'channel.chat.message')
-    expect(chat?.condition).toEqual({ broadcaster_user_id: 配信者のID, user_id: '67890' })
+    expect(登録した購読).toEqual([])
   })
 
   it('配信者のセッションが切れていたら、botのトークンを保存しない', async () => {
@@ -282,7 +280,7 @@ describe('GET /api/auth/callback', () => {
     await ログインする(env, fetchImpl)
 
     // botを接続していない状態なので、チャットは購読しない
-    expect(登録した購読.map((subscription) => subscription.type)).toEqual(webhookEventTypes(null))
+    expect(登録した購読.map((subscription) => subscription.type)).toEqual(webhookEventTypes())
     for (const subscription of 登録した購読) {
       expect(subscription.transport).toEqual({
         method: 'webhook',

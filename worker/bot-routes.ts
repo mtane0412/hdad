@@ -15,7 +15,6 @@
 import { sendAsBot } from './bot-chat'
 import { loadBotConfig, parseBotConfig, saveBotConfig } from './bot-config'
 import { BOT_SCOPES } from './eventsub'
-import { syncWebhookSubscriptions } from './eventsub-webhook'
 import { HttpError, STATUS, requireAdmin, type Context } from './http'
 import { loadModerationConfig, parseModerationConfig, saveModerationConfig } from './moderation-config'
 import { AuthError, deleteToken, getAccessToken, loadToken, saveToken, type StoredToken } from './token'
@@ -91,8 +90,6 @@ export const getBot = async (context: Context): Promise<Response> => {
 export const deleteBot = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
   await deleteToken(context.env.STORE, 'bot')
-  // botがいなくなるとチャットを購読できないので、購読を揃え直して消す
-  await syncWebhookSubscriptions(context)
   return new Response(null, { status: STATUS.noContent })
 }
 
@@ -162,8 +159,6 @@ export const postBotDeviceToken = async (context: Context): Promise<Response> =>
   const isModerator = await isBotModerator(context, owner.userId)
 
   await saveToken(env.STORE, 'bot', token)
-  // チャットの購読の条件にbotのユーザーIDが入るので、接続できた時点で揃え直す
-  await syncWebhookSubscriptions(context)
   return Response.json({ status: 'connected', bot: toBotStatus(token, isModerator) })
 }
 
