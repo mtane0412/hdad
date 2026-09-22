@@ -98,8 +98,11 @@ const 購読の問い合わせに応える = (request: Request): Response | null
   return null
 }
 
+/** アナウンスの送信間隔を空けるための待ちは、テストでは実際に待たない */
+const 待たない = async (): Promise<void> => {}
+
 const 呼び出す = (request: Request, env: Env, fetchImpl: typeof fetch = Twitchへは通信しない) =>
-  handleRequest(request, env, { fetch: fetchImpl, now: () => 現在時刻 })
+  handleRequest(request, env, { fetch: fetchImpl, now: () => 現在時刻, wait: 待たない })
 
 /** 配信者としてログイン済みのリクエストを作る。書き換えを伴うメソッドには、ブラウザと同じく Origin を付ける */
 const 配信者のリクエスト = async (env: Env, path: string, init: RequestInit = {}): Promise<Request> => {

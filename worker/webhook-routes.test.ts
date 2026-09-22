@@ -73,8 +73,11 @@ const Twitchからの通知 = ({
   })
 }
 
-const 呼び出す = (request: Request, env: Env, fetchImpl: typeof fetch = Twitchへは通信しない) =>
-  handleRequest(request, env, { fetch: fetchImpl, now: () => 現在時刻 })
+/** テストでは実際に待たず、待つよう求められた時間だけを記録する */
+const 待たない = async (): Promise<void> => {}
+
+const 呼び出す = (request: Request, env: Env, fetchImpl: typeof fetch = Twitchへは通信しない, wait: (milliseconds: number) => Promise<void> = 待たない) =>
+  handleRequest(request, env, { fetch: fetchImpl, now: () => 現在時刻, wait })
 
 const エラーコード = async (response: Response): Promise<unknown> => {
   const body = (await response.json()) as { error?: { code?: unknown } }
@@ -646,6 +649,37 @@ describe('アラートのトリガーによるチャット送信', () => {
 
       expect(response.status).toBe(204)
       expect(twitch.送信したアナウンス).toHaveLength(0)
+    })
+
+    it('2秒以内に続いた2件目のアナウンスは、間隔が空くまで待ってから送る（アナウンスは2秒に1回しか送れない）', async () => {
+      const { env } = await トリガーのある環境([フォローでアナウンスする])
+      const twitch = 送信に応えるTwitch()
+      const 待った時間: number[] = []
+      const 待つ = async (milliseconds: number): Promise<void> => {
+        待った時間.push(milliseconds)
+      }
+
+      await 呼び出す(Twitchからの通知({ body: フォローの通知, messageId: 'message-1' }), env, twitch.fetchImpl, 待つ)
+      await 呼び出す(Twitchからの通知({ body: フォローの通知, messageId: 'message-2' }), env, twitch.fetchImpl, 待つ)
+
+      // 1件目は待たずに送り、2件目は2秒待ってから送るので、どちらも失われない
+      expect(twitch.送信したアナウンス).toHaveLength(2)
+      expect(待った時間).toEqual([2000])
+      expect(await listFailures(env.DB)).toEqual([])
+    })
+
+    it('待ち時間の上限を超えるほど詰まっていれば、送らずに失敗として記録する', async () => {
+      const { env } = await トリガーのある環境([フォローでアナウンスする])
+      const twitch = 送信に応えるTwitch()
+
+      // 同じ時刻に4件続くと、4件目の送信時刻は6秒後になり、上限（4秒）を超える
+      for (const messageId of ['message-1', 'message-2', 'message-3', 'message-4']) {
+        const response = await 呼び出す(Twitchからの通知({ body: フォローの通知, messageId }), env, twitch.fetchImpl)
+        expect(response.status).toBe(204)
+      }
+
+      expect(twitch.送信したアナウンス).toHaveLength(3)
+      expect(await listFailures(env.DB)).toMatchObject([{ code: 'alert-announce-failed', message: expect.stringContaining('2秒に1回') }])
     })
 
     it('送信に失敗しても2xxを返し、失敗として記録する（botがモデレーターでない場合など）', async () => {

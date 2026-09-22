@@ -55,8 +55,11 @@ const Twitchの代役 = (loginUserId: string, owner: { login?: string; scopes?: 
   return { requests, fetchImpl }
 }
 
+/** アナウンスの送信間隔を空けるための待ちは、テストでは実際に待たない */
+const 待たない = async (): Promise<void> => {}
+
 const 呼び出す = (request: Request, env: Env, fetchImpl: typeof fetch = Twitchの代役(配信者のID).fetchImpl) =>
-  handleRequest(request, env, { fetch: fetchImpl, now: () => 現在時刻 })
+  handleRequest(request, env, { fetch: fetchImpl, now: () => 現在時刻, wait: 待たない })
 
 const エラーコード = async (response: Response): Promise<unknown> => {
   const body = (await response.json()) as { error?: { code?: unknown } }

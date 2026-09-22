@@ -39,6 +39,13 @@ export interface Context {
   twitch: TwitchClient
   /** 現在時刻（ミリ秒） */
   now: number
+  /**
+   * 指定した時間だけ待つ。
+   *
+   * アナウンスは2秒に1回しか送れないため、枠を確保したうえで自分の順番まで待つのに使う（bot-chat.ts）。
+   * テストで差し替えられるよう、setTimeout を直接呼ばずにここから受け取る。
+   */
+  wait(milliseconds: number): Promise<void>
 }
 
 export const SESSION_COOKIE = '__Host-session'

@@ -185,8 +185,9 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
  * チャット送信（POST /helix/chat/messages）の「1チャンネルにつき1秒1通」は送り主が配信者・モデレーター・VIPでない場合の制限で、
  * アナウンスを送れるbotは必ずそのチャンネルのモデレーターなので当てはまらない（モデレーターの枠は30秒100通）。
  * アナウンス（POST /helix/chat/announcements）の「2秒に1回」はこのエンドポイント自身の制限で、チャット送信とは枠を共有しない。
- * そのため間隔を空ける必要はない。ただし別々の通知が2秒以内に続き、そのどちらもアナウンスを送る場合は
- * 2通目が429になり得る（その場合は下の sendAndRecordFailure が失敗として記録する）。
+ * そのためこの2回の間で間隔を空ける必要はない。一方、別々の通知が2秒以内に続き、そのどちらもアナウンスを送る場合は
+ * 2通目が429になり得るので、announceAsBot（bot-chat.ts）が送信枠を確保して間隔を空ける。
+ * 詰まって待ちきれないときは送らずに投げ、下の sendAndRecordFailure が失敗として記録する。
  *
  * @param messageId 通知のメッセージID。再送で二度送らないための鍵に使う
  * @throws HttpError イベントの中身が想定と違う場合（400。黙って捨てない）

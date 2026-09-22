@@ -60,8 +60,11 @@ const Twitchの代役 = () => {
   return { urls, fetchImpl }
 }
 
+/** アナウンスの送信間隔を空けるための待ちは、テストでは実際に待たない */
+const 待たない = async (): Promise<void> => {}
+
 const 取得する = (env: Env, path: string, fetchImpl: typeof fetch): Promise<Response> =>
-  handleRequest(new Request(`${サイト}${path}`, { headers: { Origin: サイト } }), env, { fetch: fetchImpl, now: () => 現在時刻 })
+  handleRequest(new Request(`${サイト}${path}`, { headers: { Origin: サイト } }), env, { fetch: fetchImpl, now: () => 現在時刻, wait: 待たない })
 
 describe('GET /api/chat/badges', () => {
   it('全体のバッジとチャンネル固有のバッジをまとめて返す（ログインもキーも要らない）', async () => {
