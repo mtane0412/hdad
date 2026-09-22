@@ -7,6 +7,7 @@
  *
  * 注意: 送り先は常に TWITCH_BROADCASTER_ID のチャンネルで、送り主は接続しているbot本人（呼び出し側は指定しない）。
  */
+import { reserveAnnouncementSlot } from './chat-store'
 import type { Context } from './http'
 import { getAccessToken } from './token'
 import type { AnnouncementColor } from './twitch'
@@ -33,14 +34,25 @@ export const sendAsBot = async (context: Pick<Context, 'env' | 'twitch' | 'now'>
  * 通常のチャット送信と違い、botがこのチャンネルのモデレーターにされていることが前提で、
  * されていなければTwitchが拒否する（呼び出し側は失敗として記録する）。
  *
+ * アナウンス（POST /helix/chat/announcements）はそのエンドポイント自身の制限として2秒に1回しか送れない。
+ * 別々のEventSub通知が2秒以内に続くと2通目が429で拒否されてしまうため、送る前に送信枠を確保し
+ * （reserveAnnouncementSlot。同時に届いた通知の間でも取り合いにならない）、自分の順番まで待ってから送る。
+ *
  * @throws AuthError botが未接続・トークンを更新できない
+ * @throws Error アナウンスが詰まっていて、待ち時間の上限までに送信枠を確保できない
  * @throws TwitchApiError Twitchが拒否した（botがモデレーターでない、スコープが足りないなど）
  */
 export const announceAsBot = async (
-  context: Pick<Context, 'env' | 'twitch' | 'now'>,
+  context: Pick<Context, 'env' | 'twitch' | 'now' | 'wait'>,
   announcement: { message: string; color: AnnouncementColor },
 ): Promise<void> => {
-  const { env, twitch, now } = context
+  const { env, twitch, now, wait } = context
+  const waitMilliseconds = await reserveAnnouncementSlot(env.DB, env.TWITCH_BROADCASTER_ID, now)
+  if (waitMilliseconds === null) {
+    throw new Error('アナウンスは2秒に1回しか送れません。短い間にアナウンスが続いたため、このアナウンスは送りませんでした')
+  }
+  if (waitMilliseconds > 0) await wait(waitMilliseconds)
+
   const token = await getAccessToken(env.STORE, 'bot', twitch, now)
   await twitch.sendChatAnnouncement(token.accessToken, {
     broadcasterId: env.TWITCH_BROADCASTER_ID,

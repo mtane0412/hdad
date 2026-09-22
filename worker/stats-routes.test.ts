@@ -36,7 +36,10 @@ const Twitchへは通信しない = async (input: RequestInfo | URL): Promise<Re
   throw new Error(`テストで想定していない通信です: ${String(input)}`)
 }
 
-const 呼び出す = (request: Request, env: Env) => handleRequest(request, env, { fetch: Twitchへは通信しない, now: () => 現在時刻 })
+/** アナウンスの送信間隔を空けるための待ちは、テストでは実際に待たない */
+const 待たない = async (): Promise<void> => {}
+
+const 呼び出す = (request: Request, env: Env) => handleRequest(request, env, { fetch: Twitchへは通信しない, now: () => 現在時刻, wait: 待たない })
 
 const 配信者として取得する = async (env: Env, path: string): Promise<Response> => {
   const session = await createSessionToken(配信者のID, env.SESSION_SECRET, 現在時刻)

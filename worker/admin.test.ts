@@ -40,7 +40,10 @@ const Twitchへは通信しない = async (input: RequestInfo | URL): Promise<Re
   throw new Error(`テストで想定していない通信です: ${String(input)}`)
 }
 
-const 呼び出す = (request: Request, env: Env) => handleRequest(request, env, { fetch: Twitchへは通信しない, now: () => 現在時刻 })
+/** アナウンスの送信間隔を空けるための待ちは、テストでは実際に待たない */
+const 待たない = async (): Promise<void> => {}
+
+const 呼び出す = (request: Request, env: Env) => handleRequest(request, env, { fetch: Twitchへは通信しない, now: () => 現在時刻, wait: 待たない })
 
 /** 配信者としてログイン済みのリクエストを作る。書き換えを伴うメソッドには、ブラウザと同じく Origin を付ける */
 const 配信者のリクエスト = async (env: Env, path: string, init: RequestInit = {}): Promise<Request> => {
@@ -320,7 +323,7 @@ describe('チャンネルポイント報酬の一覧（GET /api/admin/rewards）
       return Response.json({ data: [{ id: '報酬ID-乾杯', title: '乾杯する', cost: 500 }] })
     }
 
-    const response = await handleRequest(await 配信者のリクエスト(env, '/api/admin/rewards'), env, { fetch: Twitchの代役, now: () => 現在時刻 })
+    const response = await handleRequest(await 配信者のリクエスト(env, '/api/admin/rewards'), env, { fetch: Twitchの代役, now: () => 現在時刻, wait: 待たない })
 
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ rewards: [{ id: '報酬ID-乾杯', title: '乾杯する', cost: 500 }] })
@@ -333,7 +336,7 @@ describe('チャンネルポイント報酬の一覧（GET /api/admin/rewards）
     await saveToken(store, 'broadcaster', 保存済みのトークン)
     const 失敗するTwitch = async (): Promise<Response> => Response.json({ message: 'channel points are not available' }, { status: 403 })
 
-    const response = await handleRequest(await 配信者のリクエスト(env, '/api/admin/rewards'), env, { fetch: 失敗するTwitch, now: () => 現在時刻 })
+    const response = await handleRequest(await 配信者のリクエスト(env, '/api/admin/rewards'), env, { fetch: 失敗するTwitch, now: () => 現在時刻, wait: 待たない })
 
     expect(response.status).toBe(502)
     expect(await エラーコード(response)).toBe('twitch-error')

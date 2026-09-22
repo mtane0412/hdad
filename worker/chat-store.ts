@@ -1,11 +1,13 @@
 /**
  * チャットボットの状態の読み書き
  *
- * 「この通知にはもう応答したか」「このコマンドはクールダウン中か」「同じ文面が何件続いたか」をデータベース（D1）で持つ。
- * 最初の2つはコマンドに一致した発言のとき、最後の1つは連投のルールが有効なときだけ書くので、チャットの全件は書かない。
- * テーブルの定義は migrations/0002_chat_bot.sql・0003_chat_moderation.sql にある。日時は UTC の ISO 8601 の文字列で持つ。
+ * 「この通知にはもう応答したか」「このコマンドはクールダウン中か」「同じ文面が何件続いたか」
+ * 「次にアナウンスを送ってよいのはいつか」をデータベース（D1）で持つ。
+ * 最初の2つはコマンドに一致した発言のとき、3つ目は連投のルールが有効なときだけ書くので、チャットの全件は書かない。
+ * テーブルの定義は migrations/0002_chat_bot.sql・0003_chat_moderation.sql・0004_announcement_slots.sql にある。
+ * 日時は UTC の ISO 8601 の文字列で持つ。
  *
- * 注意: どちらの判定も SQLite の RETURNING を使い、1つの文の中で「書けたかどうか」を受け取る。
+ * 注意: どの判定も SQLite の RETURNING を使い、1つの文の中で「書けたかどうか」を受け取る。
  * 「読んでから書く」に分けると、同時に届いた通知の間で判定が食い違う。
  * 注意: SQLに値を埋め込まず、必ずプレースホルダで渡す。
  */
@@ -116,4 +118,48 @@ export const consumeCooldown = async (db: Database, commandName: string, cooldow
     .bind(commandName, toIso(now), usableBefore)
     .first<{ command_name: string }>()
   return consumed !== null
+}
+
+/** アナウンスを続けて送るときに空ける間隔（ミリ秒）。Twitchのアナウンスは2秒に1回しか送れない */
+const ANNOUNCEMENT_INTERVAL_MS = 2000
+/**
+ * 枠を確保するときに受け入れる待ち時間の上限（ミリ秒）。
+ *
+ * 待つあいだTwitchのWebhookへの応答を返せないため、Twitchが応答を待つ時間（10秒）に対して十分短くしている。
+ * これを超えるほど詰まっていれば、枠を確保せずに諦める（確保しないので、あとから届く通知を遅らせない）。
+ */
+const MAX_ANNOUNCEMENT_WAIT_MS = 4000
+
+/** SQLiteの日時の書式を、TypeScript の toISOString と同じ形（ミリ秒3桁＋Z）にそろえるための指定 */
+const SQLITE_ISO_FORMAT = '%Y-%m-%dT%H:%M:%fZ'
+
+/**
+ * アナウンスの送信枠を確保し、送るまでに待つ時間を返す。
+ *
+ * アナウンス（POST /helix/chat/announcements）は2秒に1回しか送れないため、別々のEventSub通知が
+ * 2秒以内に続くと2通目が429で拒否されてしまう。そこで「次に送ってよい時刻」をデータベースに1行持ち、
+ * 送る前にそれを2秒進めることで枠を確保する。呼び出し側は返ってきた時間だけ待ってから送る。
+ *
+ * 進めるのと同時に確保できたかを受け取るのは、consumeCooldown と同じく SQLite の RETURNING による。
+ * 「読んでから書く」に分けると、同時に届いた別々の通知が同じ枠を確保してしまう。
+ *
+ * @param broadcasterId 送り先のチャンネル。アナウンスの制限はチャンネルごとなので、枠もチャンネルごとに持つ
+ * @returns 送るまでに待つミリ秒（0 ならすぐ送れる）。待ち時間の上限を超えるほど詰まっていれば null
+ */
+export const reserveAnnouncementSlot = async (db: Database, broadcasterId: string, now: number): Promise<number | null> => {
+  const reserved = await db
+    .prepare(
+      `INSERT INTO announcement_slots (broadcaster_id, next_available_at) VALUES (?1, ?2)
+       ON CONFLICT (broadcaster_id) DO UPDATE
+         SET next_available_at = strftime('${SQLITE_ISO_FORMAT}', MAX(next_available_at, ?3), '+${ANNOUNCEMENT_INTERVAL_MS / MILLISECONDS_PER_SECOND} seconds')
+         WHERE next_available_at <= ?4
+       RETURNING next_available_at`,
+    )
+    .bind(broadcasterId, toIso(now + ANNOUNCEMENT_INTERVAL_MS), toIso(now), toIso(now + MAX_ANNOUNCEMENT_WAIT_MS))
+    .first<{ next_available_at: string }>()
+  if (reserved === null) return null
+
+  // 確保した枠の「次に送ってよい時刻」から間隔をさかのぼると、自分が送ってよい時刻になる
+  const sendAt = Date.parse(reserved.next_available_at) - ANNOUNCEMENT_INTERVAL_MS
+  return Math.max(0, sendAt - now)
 }

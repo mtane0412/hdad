@@ -6,7 +6,7 @@
  * - クールダウン中は応答せず、明けたら応答すること
  */
 import { describe, expect, it } from 'vitest'
-import { consumeCooldown, recordAndCountRecentMessage, reserveChatReply } from './chat-store'
+import { consumeCooldown, recordAndCountRecentMessage, reserveAnnouncementSlot, reserveChatReply } from './chat-store'
 import { createFakeDatabase } from './fake-database'
 
 const 現在時刻 = Date.UTC(2026, 8, 21, 12, 0, 0)
@@ -154,5 +154,72 @@ describe('recordAndCountRecentMessage', () => {
 
     // 残るのは、窓の中にある2件目だけ
     expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM chat_recent_messages').get()).toEqual({ count: 1 })
+  })
+})
+
+describe('reserveAnnouncementSlot', () => {
+  const 配信者のID = '12345'
+
+  it('直前にアナウンスを送っていなければ、待たずに送れる', async () => {
+    const db = createFakeDatabase()
+
+    expect(await reserveAnnouncementSlot(db, 配信者のID, 現在時刻)).toBe(0)
+  })
+
+  it('同じ時刻に続いた2件目は、2秒待ってから送る（アナウンスは2秒に1回しか送れないため）', async () => {
+    const db = createFakeDatabase()
+    await reserveAnnouncementSlot(db, 配信者のID, 現在時刻)
+
+    expect(await reserveAnnouncementSlot(db, 配信者のID, 現在時刻)).toBe(2000)
+  })
+
+  it('3件目は4秒待つ（確保した枠が積み上がる）', async () => {
+    const db = createFakeDatabase()
+    await reserveAnnouncementSlot(db, 配信者のID, 現在時刻)
+    await reserveAnnouncementSlot(db, 配信者のID, 現在時刻)
+
+    expect(await reserveAnnouncementSlot(db, 配信者のID, 現在時刻)).toBe(4000)
+  })
+
+  it('1件目から1秒後に届いた2件目は、残りの1秒だけ待つ', async () => {
+    const db = createFakeDatabase()
+    await reserveAnnouncementSlot(db, 配信者のID, 現在時刻)
+
+    expect(await reserveAnnouncementSlot(db, 配信者のID, 現在時刻 + 1000)).toBe(1000)
+  })
+
+  it('2秒より後に届いた2件目は、待たずに送れる', async () => {
+    const db = createFakeDatabase()
+    await reserveAnnouncementSlot(db, 配信者のID, 現在時刻)
+
+    expect(await reserveAnnouncementSlot(db, 配信者のID, 現在時刻 + 3000)).toBe(0)
+  })
+
+  it('待ち時間の上限（4秒）を超えるほど詰まっていれば、枠を確保できない', async () => {
+    const db = createFakeDatabase()
+    await reserveAnnouncementSlot(db, 配信者のID, 現在時刻)
+    await reserveAnnouncementSlot(db, 配信者のID, 現在時刻)
+    await reserveAnnouncementSlot(db, 配信者のID, 現在時刻)
+
+    // 4件目の送信時刻は6秒後になるため、確保せずに null を返す
+    expect(await reserveAnnouncementSlot(db, 配信者のID, 現在時刻)).toBeNull()
+  })
+
+  it('枠を確保できなかったことで、あとの予約が遅れたりはしない（確保していないため）', async () => {
+    const db = createFakeDatabase()
+    await reserveAnnouncementSlot(db, 配信者のID, 現在時刻)
+    await reserveAnnouncementSlot(db, 配信者のID, 現在時刻)
+    await reserveAnnouncementSlot(db, 配信者のID, 現在時刻)
+    await reserveAnnouncementSlot(db, 配信者のID, 現在時刻)
+
+    // 4件目は確保できていないので、6秒後に届いた5件目は待たずに送れる
+    expect(await reserveAnnouncementSlot(db, 配信者のID, 現在時刻 + 6000)).toBe(0)
+  })
+
+  it('別のチャンネルの枠は取り合わない（アナウンスの制限はチャンネルごと）', async () => {
+    const db = createFakeDatabase()
+    await reserveAnnouncementSlot(db, 配信者のID, 現在時刻)
+
+    expect(await reserveAnnouncementSlot(db, '99999', 現在時刻)).toBe(0)
   })
 })

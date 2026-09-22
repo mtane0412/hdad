@@ -64,6 +64,8 @@ interface Dependencies {
   fetch: typeof fetch
   /** 現在時刻（ミリ秒） */
   now(): number
+  /** 指定した時間だけ待つ。アナウンスの送信間隔を空けるのに使う（テストでは実際に待たせない） */
+  wait(milliseconds: number): Promise<void>
 }
 
 interface Route {
@@ -155,10 +157,14 @@ const toErrorResponse = (error: unknown): Response => {
   return errorResponse(STATUS.internalServerError, 'internal-error', error instanceof Error ? error.message : String(error))
 }
 
-const DEFAULT_DEPENDENCIES: Dependencies = { fetch: (input, init) => fetch(input, init), now: Date.now }
+const DEFAULT_DEPENDENCIES: Dependencies = {
+  fetch: (input, init) => fetch(input, init),
+  now: Date.now,
+  wait: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+}
 
 /** 環境変数が揃っていることを確かめてから、Twitchのクライアントを作る */
-const createClient = (env: Env, dependencies: Dependencies): TwitchClient => {
+const createClient = (env: Env, dependencies: Pick<Dependencies, 'fetch'>): TwitchClient => {
   const missing = REQUIRED_VARIABLES.filter((name) => !env[name])
   if (missing.length > 0) {
     throw new HttpError(STATUS.internalServerError, 'misconfigured', `Workerの環境変数が設定されていません: ${missing.join(', ')}`)
@@ -171,7 +177,7 @@ export const handleRequest = async (request: Request, env: Env, dependencies: De
     const url = new URL(request.url)
     const { route, params } = findRoute(request.method, url.pathname)
     const twitch = createClient(env, dependencies)
-    return await route.handle({ request, url, params, env, twitch, now: dependencies.now() })
+    return await route.handle({ request, url, params, env, twitch, now: dependencies.now(), wait: dependencies.wait })
   } catch (error) {
     return toErrorResponse(error)
   }
@@ -182,7 +188,7 @@ export const handleRequest = async (request: Request, env: Env, dependencies: De
  *
  * 注意: 失敗を握りつぶさずに投げる。Cloudflare側でも cron の実行が失敗として残る。
  */
-export const handleScheduled = async (env: Env, dependencies: Dependencies = DEFAULT_DEPENDENCIES): Promise<void> => {
+export const handleScheduled = async (env: Env, dependencies: Pick<Dependencies, 'fetch' | 'now'> = DEFAULT_DEPENDENCIES): Promise<void> => {
   const twitch = createClient(env, dependencies)
   await collectStats({ db: env.DB, store: env.STORE, twitch, broadcasterId: env.TWITCH_BROADCASTER_ID, now: dependencies.now() })
 }
