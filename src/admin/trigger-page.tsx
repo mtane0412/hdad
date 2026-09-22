@@ -127,7 +127,17 @@ const ConditionFields = ({ idPrefix, conditions, rewards, addable, onChange, onA
           // 同じ種類の条件は1件までなので、種類をキーにできる
           <li key={condition.kind} className="flex items-end gap-2">
             <div className="flex min-w-0 flex-1 flex-col gap-2">
-              <Label htmlFor={`${idPrefix}-${condition.kind}`}>{conditionLabel(condition.kind)}</Label>
+              {/* 入れる値を持つ条件だけがラベルの行き先（入力欄）を持つ。持たない条件は、行き先のないラベルにせず見出しとして出す */}
+              {condition.kind === 'firstChatOfStream' ? (
+                <span className="text-sm leading-none font-medium">{conditionLabel(condition.kind)}</span>
+              ) : (
+                <Label htmlFor={`${idPrefix}-${condition.kind}`}>{conditionLabel(condition.kind)}</Label>
+              )}
+              {condition.kind === 'firstChatOfStream' && (
+                <p className="text-xs text-muted-foreground">
+                  配信中の発言だけが対象です。配信していないあいだの発言では動きません（テスト配信のたびに動かないようにするため）。
+                </p>
+              )}
               {condition.kind === 'reward' && (
                 <Select
                   id={`${idPrefix}-reward`}

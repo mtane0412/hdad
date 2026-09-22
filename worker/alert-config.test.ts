@@ -1,7 +1,7 @@
 /**
  * アラートの設定（alert-config.ts）のテスト
  *
- * 管理画面から送られてくる設定を検証して保存用の形にすること、オーバーレイ向けに素材のURLを付けた形へ変換することを確認する。
+ * 管理画面から送られてくる設定を検証して保存用の形にすること、保存済みの設定を読み出せることを確認する。
  * 不正な設定を保存してしまうと配信中にアラートが出なくなるため、保存の前にすべての問題点を挙げて拒否する。
  * トリガーは「イベント種別」「条件のリスト（conditions）」「動作（アラートを出す・チャットに送る）」からなり、
  * 条件はすべてを満たしたときだけ当てはまる（and）。動作の種類ごとに実行者が違う（アラートはオーバーレイ、チャットはWorker）ことも合わせて確認する。
@@ -14,13 +14,13 @@ import {
   loadAlertConfig,
   parseAlertConfig,
   saveAlertConfig,
-  toOverlayConfig,
   type AlertConfig,
   type StoredTrigger,
 } from './alert-config'
 import { createFakeStore } from './fake-store'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
+const CHAT_MESSAGE = 'channel.chat.message'
 
 /** 送られてくる「アラートを出す」動作（素材の種類は保存時にサーバーが書き足すので送られてこない） */
 const アラートの動作 = (overrides: Record<string, unknown> = {}) => ({
@@ -164,7 +164,7 @@ describe('parseAlertConfig', () => {
 
   it('対応していない条件の種類は拒否する', () => {
     expect(() => parseAlertConfig({ triggers: [送られてきたトリガー({ conditions: [{ kind: 'bits' }] })] }, 素材の種類)).toThrowError(
-      expect.objectContaining({ problems: ['triggers[0].conditions[0].kind: reward / user / text のいずれかを指定してください'] }),
+      expect.objectContaining({ problems: ['triggers[0].conditions[0].kind: reward / user / text / firstChatOfStream のいずれかを指定してください'] }),
     )
   })
 
@@ -203,6 +203,23 @@ describe('parseAlertConfig', () => {
     expect(() => parseAlertConfig(報酬を付けたフォロー, 素材の種類)).toThrowError(
       expect.objectContaining({
         problems: ['triggers[0].conditions[0]: reward の条件はチャンネルポイントの交換にしか付けられません'],
+      }),
+    )
+  })
+
+  it('チャットの発言に firstChatOfStream の条件を付けられる', () => {
+    const 初回の条件 = [{ kind: 'firstChatOfStream' }]
+    const config = parseAlertConfig({ triggers: [送られてきたトリガー({ event: CHAT_MESSAGE, conditions: 初回の条件 })] }, 素材の種類)
+
+    expect(config.triggers[0]?.conditions).toEqual(初回の条件)
+  })
+
+  it('チャットの発言以外のイベントに firstChatOfStream の条件を付けたら拒否する', () => {
+    const 初回を付けたフォロー = { triggers: [送られてきたトリガー({ event: 'channel.follow', conditions: [{ kind: 'firstChatOfStream' }] })] }
+
+    expect(() => parseAlertConfig(初回を付けたフォロー, 素材の種類)).toThrowError(
+      expect.objectContaining({
+        problems: ['triggers[0].conditions[0]: firstChatOfStream の条件はチャットの発言にしか付けられません'],
       }),
     )
   })
@@ -346,49 +363,6 @@ describe('saveAlertConfig / loadAlertConfig', () => {
     await store.put('alert-config', JSON.stringify({ triggers: [{ event: REDEMPTION, rewardId: null }] }))
 
     await expect(loadAlertConfig(store)).rejects.toThrow(/alert-config/)
-  })
-})
-
-describe('toOverlayConfig', () => {
-  it('アラートを出す動作を、オーバーレイ用キー付きの素材のURLを持つ平坦な形に展開する（条件はそのまま渡す）', () => {
-    const config: AlertConfig = {
-      triggers: [{ event: REDEMPTION, conditions: [{ kind: 'reward', rewardId: '報酬ID-乾杯' }], actions: [保存済みのアラートの動作] }],
-    }
-
-    expect(toOverlayConfig(config, 'overlay-key_1')).toEqual({
-      triggers: [
-        {
-          event: REDEMPTION,
-          conditions: [{ kind: 'reward', rewardId: '報酬ID-乾杯' }],
-          media: { kind: 'video', url: `/api/media/${encodeURIComponent('素材ID-乾杯の動画')}?key=overlay-key_1` },
-          durationSeconds: 8,
-          volume: 0.5,
-          message: '{user} さん、乾杯！',
-        },
-      ],
-    })
-  })
-
-  it('条件が1件もないトリガーも、空の条件のまま渡す', () => {
-    const config: AlertConfig = {
-      triggers: [{ event: 'channel.raid', conditions: [], actions: [{ ...保存済みのアラートの動作, message: '{user} さん、ありがとう！' }] }],
-    }
-    expect(toOverlayConfig(config, 'overlay-key_1').triggers[0]).toEqual({
-      event: 'channel.raid',
-      conditions: [],
-      media: { kind: 'video', url: `/api/media/${encodeURIComponent('素材ID-乾杯の動画')}?key=overlay-key_1` },
-      durationSeconds: 8,
-      volume: 0.5,
-      message: '{user} さん、ありがとう！',
-    })
-  })
-
-  it('チャットに送るだけのトリガーはオーバーレイへ渡さない（オーバーレイに送信の役目はない）', () => {
-    const config: AlertConfig = {
-      triggers: [{ event: 'channel.follow', conditions: [], actions: [{ type: 'chat', message: 'フォローありがとうございます' }] }],
-    }
-
-    expect(toOverlayConfig(config, 'overlay-key_1').triggers).toEqual([])
   })
 })
 

@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { EMPTY_QUEUE, advance, enqueue } from './queue'
-import type { Alert } from './trigger'
+import type { Alert } from './resolve'
 
 const アラート = (text: string): Alert => ({
   media: { kind: 'image', url: 'https://example.com/kanpai.png' },

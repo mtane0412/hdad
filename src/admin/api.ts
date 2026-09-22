@@ -73,7 +73,7 @@ export interface AnnounceAction {
 export type ActionInput = AlertActionInput | ChatAction | AnnounceAction
 
 /** 条件の種類。worker/alert-config.ts の CONDITION_KINDS と同じ並び（worker/ の型は読み込めないのでここで定義する） */
-export const CONDITION_KINDS = ['reward', 'user', 'text'] as const
+export const CONDITION_KINDS = ['reward', 'user', 'text', 'firstChatOfStream'] as const
 
 export type ConditionKind = (typeof CONDITION_KINDS)[number]
 
@@ -84,7 +84,11 @@ export type ConditionKind = (typeof CONDITION_KINDS)[number]
  * - user: そのイベントの相手（交換した人・フォローした人・レイドした配信者・発言した人など）のTwitchのユーザー名
  * - text: 発言の本文に含まれる文字。チャットの発言にしか付けられない（ほかのイベントではWorkerが保存を拒否する）
  */
-export type TriggerCondition = { kind: 'reward'; rewardId: string } | { kind: 'user'; login: string } | { kind: 'text'; contains: string }
+export type TriggerCondition =
+  | { kind: 'reward'; rewardId: string }
+  | { kind: 'user'; login: string }
+  | { kind: 'text'; contains: string }
+  | { kind: 'firstChatOfStream' }
 
 /** 保存するトリガー。イベント種別・条件のリスト（すべて満たす）・そのとき行う動作の一覧からなる */
 export interface TriggerInput {
@@ -152,6 +156,8 @@ const isTriggerCondition = (value: unknown): value is TriggerCondition => {
   if (!isRecord(value)) return false
   if (value.kind === 'reward') return typeof value.rewardId === 'string'
   if (value.kind === 'text') return typeof value.contains === 'string'
+  // 入れる値を持たない条件なので、種類が合っていればそれでよい
+  if (value.kind === 'firstChatOfStream') return true
   return value.kind === 'user' && typeof value.login === 'string'
 }
 

@@ -163,3 +163,54 @@ export const reserveAnnouncementSlot = async (db: Database, broadcasterId: strin
   const sendAt = Date.parse(reserved.next_available_at) - ANNOUNCEMENT_INTERVAL_MS
   return Math.max(0, sendAt - now)
 }
+
+/** 「その配信で初めての発言」の判定に要る、発言の識別 */
+export interface FirstChatClaim {
+  /** 発言者のユーザーID。配信の区切りごと・人ごとに1行持つ */
+  chatterUserId: string
+  /** 発言そのもののID（通知の event.message_id）。同じ発言への問い合わせに同じ答えを返すための鍵 */
+  messageId: string
+}
+
+/**
+ * この発言が「その配信で初めての発言」かを判定し、初めてなら記録する。
+ *
+ * 配信の区切りは stream_sessions の「配信中の行」（ended_at が NULL）で、recordEvent（stats-store.ts）と同じ引き方をする。
+ * 配信中の行が無いとき（配信外の発言）は、初回と判定せず記録も残さない。テスト配信や配信前の雑談のたびに
+ * アラートが鳴ってしまうのを防ぐためである。
+ *
+ * 注意: 判定と記録は1つの文で行う。「読んでから書く」に分けると、同時に届いた通知の間で判定が食い違う。
+ * 注意: 同じ発言について二度問い合わせても、どちらにも true を返す（message_id が一致する行なら書き込み済みでも初回として扱う）。
+ * この判定は Webhook（チャット・アナウンスの送信）とオーバーレイ（素材の再生）の両方から呼ばれ、同じ発言が
+ * 別々の経路で届くため、先に問い合わせた側だけが初回になると片方の動作だけが実行されてしまう。
+ *
+ * @returns その配信で初めての発言なら true
+ */
+export const claimFirstChatOfStream = async (db: Database, claim: FirstChatClaim, now: number): Promise<boolean> => {
+  const at = toIso(now)
+  const claimed = await db
+    .prepare(
+      // INSERT ... SELECT にするのは、配信中の行が無ければ1行も書き込まずに済ませるため
+      // （SELECT が0行を返すので INSERT も起きず、RETURNING も何も返さない）
+      `INSERT INTO first_chatters (session_id, chatter_user_id, message_id, first_chatted_at)
+       SELECT id, ?1, ?2, ?3 FROM stream_sessions WHERE ended_at IS NULL AND started_at <= ?3 ORDER BY started_at DESC LIMIT 1
+       ON CONFLICT (session_id, chatter_user_id) DO UPDATE SET message_id = message_id
+         WHERE first_chatters.message_id = ?2
+       RETURNING message_id`,
+    )
+    .bind(claim.chatterUserId, claim.messageId, at)
+    .first<{ message_id: string }>()
+  return claimed !== null
+}
+
+/**
+ * 期限より古い「初めての発言」の記録を消す。
+ *
+ * 配信の区切りが増えるほど行が積み上がるので、cron（worker/collect.ts）から定期的に呼ぶ。
+ * 判定に使うのは配信中の区切りだけなので、終わった配信のぶんは残しておく意味がない。
+ *
+ * @param before この時刻より前に記録した行を消す
+ */
+export const deleteOldFirstChatters = async (db: Database, before: number): Promise<void> => {
+  await db.prepare('DELETE FROM first_chatters WHERE first_chatted_at < ?1').bind(toIso(before)).run()
+}

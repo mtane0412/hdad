@@ -27,7 +27,7 @@
  * | GET  /api/admin/stats/failures   | セッション     | 記録の収集の失敗の一覧 |
  * | POST /api/eventsub/subscriptions | オーバーレイ用キー | EventSubの購読を代行する |
  * | POST /api/eventsub/webhook       | Twitchの署名   | EventSubの通知を受け、イベントの件数と配信の開始・終了を記録する |
- * | GET  /api/overlay/config         | オーバーレイ用キー | オーバーレイ向けの設定を返す |
+ * | POST /api/overlay/alert          | オーバーレイ用キー | 届いた通知に対して、再生するアラートを返す |
  * | GET  /api/media/:id              | オーバーレイ用キーかセッション | 素材の中身を返す |
  *
  * これとは別に、cron（wrangler.jsonc の triggers.crons）から scheduled が呼ばれ、配信の記録を収集する（collect.ts）。
@@ -51,7 +51,7 @@ import { ConfigError } from './alert-config'
 import { CALLBACK_PATH, callback, login, logout, me } from './auth-routes'
 import { collectStats } from './collect'
 import { HttpError, STATUS, errorResponse, type Context, type Env } from './http'
-import { media, overlayConfig, subscribe } from './overlay-routes'
+import { media, overlayAlert, subscribe } from './overlay-routes'
 import { getStatsFailures, getStatsFollowers, getStatsSession, getStatsSessions } from './stats-routes'
 import { AuthError } from './token'
 import { WEBHOOK_PATH, eventsubWebhook } from './webhook-routes'
@@ -108,7 +108,7 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/chat/channel', handle: chatChannel },
   { method: 'GET', path: '/api/chat/badges', handle: chatBadges },
   { method: 'GET', path: '/api/chat/cheermotes', handle: chatCheermotes },
-  { method: 'GET', path: '/api/overlay/config', handle: overlayConfig },
+  { method: 'POST', path: '/api/overlay/alert', handle: overlayAlert },
   { method: 'GET', path: '/api/media/:id', handle: media },
 ]
 

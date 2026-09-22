@@ -138,3 +138,26 @@ describe('collectStats', () => {
     ])
   })
 })
+
+describe('古い記録の掃除', () => {
+  it('保持期間より古い「その配信で初めての発言」の記録を消す（配信を重ねても行が積み上がらないようにするため）', async () => {
+    const db = createFakeDatabase()
+    const store = createFakeStore()
+    await saveToken(store, 'broadcaster', 保管中のトークン)
+    const 三十日 = 30 * 24 * 60 * 60 * 1000
+    db.sqlite
+      .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, ?, ?, ?)')
+      .run('mukashi-no-haishin', new Date(現在時刻 - 三十日).toISOString(), new Date(現在時刻 - 三十日).toISOString(), '昔の配信', 'Just Chatting')
+    const 記録を足す = (chatterUserId: string, at: number): void => {
+      db.sqlite
+        .prepare('INSERT INTO first_chatters (session_id, chatter_user_id, message_id, first_chatted_at) VALUES (?, ?, ?, ?)')
+        .run('mukashi-no-haishin', chatterUserId, `hatsugen-${chatterUserId}`, new Date(at).toISOString())
+    }
+    記録を足す('mukashi-no-hito', 現在時刻 - 三十日)
+    記録を足す('kyou-no-hito', 現在時刻)
+
+    await collectStats({ db, store, twitch: Twitchの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+
+    expect(db.sqlite.prepare('SELECT chatter_user_id FROM first_chatters').all()).toEqual([{ chatter_user_id: 'kyou-no-hito' }])
+  })
+})

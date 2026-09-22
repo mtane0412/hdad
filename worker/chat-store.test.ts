@@ -6,7 +6,7 @@
  * - クールダウン中は応答せず、明けたら応答すること
  */
 import { describe, expect, it } from 'vitest'
-import { consumeCooldown, recordAndCountRecentMessage, reserveAnnouncementSlot, reserveChatReply } from './chat-store'
+import { claimFirstChatOfStream, consumeCooldown, deleteOldFirstChatters, recordAndCountRecentMessage, reserveAnnouncementSlot, reserveChatReply } from './chat-store'
 import { createFakeDatabase } from './fake-database'
 
 const 現在時刻 = Date.UTC(2026, 8, 21, 12, 0, 0)
@@ -221,5 +221,90 @@ describe('reserveAnnouncementSlot', () => {
     await reserveAnnouncementSlot(db, 配信者のID, 現在時刻)
 
     expect(await reserveAnnouncementSlot(db, '99999', 現在時刻)).toBe(0)
+  })
+})
+
+describe('claimFirstChatOfStream', () => {
+  /** 配信中の区切りを1件作る（stream.online の Webhook が記録するのと同じ形） */
+  const 配信を始める = (db: ReturnType<typeof createFakeDatabase>, id: string, startedAt: number): void => {
+    db.sqlite
+      .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, NULL, ?, ?)')
+      .run(id, new Date(startedAt).toISOString(), '朝配信', 'Just Chatting')
+  }
+
+  /** 配信中の区切りを終わらせる */
+  const 配信を終える = (db: ReturnType<typeof createFakeDatabase>, endedAt: number): void => {
+    db.sqlite.prepare('UPDATE stream_sessions SET ended_at = ? WHERE ended_at IS NULL').run(new Date(endedAt).toISOString())
+  }
+
+  it('配信中で、その人がまだ発言していなければ「初回」と判定する', async () => {
+    const db = createFakeDatabase()
+    配信を始める(db, 'haishin-1', 現在時刻 - 一分)
+
+    expect(await claimFirstChatOfStream(db, { chatterUserId: 'tanenobu-id', messageId: 'chat-message-1' }, 現在時刻)).toBe(true)
+  })
+
+  it('同じ人が同じ配信で2回目に発言したら「初回」ではない', async () => {
+    const db = createFakeDatabase()
+    配信を始める(db, 'haishin-1', 現在時刻 - 一分)
+    await claimFirstChatOfStream(db, { chatterUserId: 'tanenobu-id', messageId: 'chat-message-1' }, 現在時刻)
+
+    expect(await claimFirstChatOfStream(db, { chatterUserId: 'tanenobu-id', messageId: 'chat-message-2' }, 現在時刻 + 1000)).toBe(false)
+  })
+
+  it('別の人なら、同じ配信でもそれぞれ「初回」と判定する', async () => {
+    const db = createFakeDatabase()
+    配信を始める(db, 'haishin-1', 現在時刻 - 一分)
+    await claimFirstChatOfStream(db, { chatterUserId: 'tanenobu-id', messageId: 'chat-message-1' }, 現在時刻)
+
+    expect(await claimFirstChatOfStream(db, { chatterUserId: 'hanako-id', messageId: 'chat-message-2' }, 現在時刻 + 1000)).toBe(true)
+  })
+
+  it('配信が変われば、同じ人でもまた「初回」と判定する', async () => {
+    const db = createFakeDatabase()
+    配信を始める(db, 'haishin-1', 現在時刻 - 一分)
+    await claimFirstChatOfStream(db, { chatterUserId: 'tanenobu-id', messageId: 'chat-message-1' }, 現在時刻)
+    配信を終える(db, 現在時刻 + 一分)
+    配信を始める(db, 'haishin-2', 現在時刻 + 2 * 一分)
+
+    expect(await claimFirstChatOfStream(db, { chatterUserId: 'tanenobu-id', messageId: 'chat-message-3' }, 現在時刻 + 3 * 一分)).toBe(true)
+  })
+
+  it('同じ発言の通知が二度届いても、どちらも同じ答え（初回）を返す（Webhookとオーバーレイで判定が食い違わないため）', async () => {
+    const db = createFakeDatabase()
+    配信を始める(db, 'haishin-1', 現在時刻 - 一分)
+
+    expect(await claimFirstChatOfStream(db, { chatterUserId: 'tanenobu-id', messageId: 'chat-message-1' }, 現在時刻)).toBe(true)
+    expect(await claimFirstChatOfStream(db, { chatterUserId: 'tanenobu-id', messageId: 'chat-message-1' }, 現在時刻 + 1000)).toBe(true)
+  })
+
+  it('配信していないときの発言は「初回」と判定せず、記録も残さない（テスト配信のたびに鳴らないようにするため）', async () => {
+    const db = createFakeDatabase()
+
+    expect(await claimFirstChatOfStream(db, { chatterUserId: 'tanenobu-id', messageId: 'chat-message-1' }, 現在時刻)).toBe(false)
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM first_chatters').get()).toEqual({ count: 0 })
+  })
+
+  it('配信が終わったあとの発言は「初回」と判定しない', async () => {
+    const db = createFakeDatabase()
+    配信を始める(db, 'haishin-1', 現在時刻 - 一分)
+    配信を終える(db, 現在時刻)
+
+    expect(await claimFirstChatOfStream(db, { chatterUserId: 'tanenobu-id', messageId: 'chat-message-1' }, 現在時刻 + 1000)).toBe(false)
+  })
+})
+
+describe('deleteOldFirstChatters', () => {
+  it('期限より古い記録だけを消す', async () => {
+    const db = createFakeDatabase()
+    db.sqlite
+      .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, NULL, ?, ?)')
+      .run('haishin-1', new Date(現在時刻 - 一分).toISOString(), '朝配信', 'Just Chatting')
+    await claimFirstChatOfStream(db, { chatterUserId: 'furui-hito', messageId: 'chat-message-1' }, 現在時刻)
+    await claimFirstChatOfStream(db, { chatterUserId: 'atarashii-hito', messageId: 'chat-message-2' }, 現在時刻 + 100 * 一分)
+
+    await deleteOldFirstChatters(db, 現在時刻 + 50 * 一分)
+
+    expect(db.sqlite.prepare('SELECT chatter_user_id FROM first_chatters').all()).toEqual([{ chatter_user_id: 'atarashii-hito' }])
   })
 })

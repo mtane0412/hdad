@@ -297,6 +297,12 @@ describe('triggerSummary', () => {
     expect(triggerSummary(draft, [])).toBe('チャットの発言（文面に「おはよう」を含む）→ アラート')
   })
 
+  it('firstChatOfStream の条件は、要約に「その配信で初めての発言」と出す', () => {
+    const draft = 入力欄({ event: CHAT_MESSAGE, conditions: [{ kind: 'firstChatOfStream' }] })
+
+    expect(triggerSummary(draft, [])).toBe('チャットの発言（その配信で初めての発言）→ アラート')
+  })
+
   it('条件が2つあれば、すべてを満たす必要があることが分かるように並べる', () => {
     const draft = 入力欄({
       conditions: [
@@ -329,11 +335,16 @@ describe('addableConditionKinds', () => {
     expect(addableConditionKinds(入力欄({ event: FOLLOW }))).toEqual([{ value: 'user', label: 'ユーザー' }])
   })
 
-  it('チャットの発言では、user と text を足せる（reward は付けられない）', () => {
+  it('チャットの発言では、user と text と firstChatOfStream を足せる（reward は付けられない）', () => {
     expect(addableConditionKinds(入力欄({ event: CHAT_MESSAGE }))).toEqual([
       { value: 'user', label: 'ユーザー' },
       { value: 'text', label: '文面に含む言葉' },
+      { value: 'firstChatOfStream', label: 'その配信で初めての発言' },
     ])
+  })
+
+  it('チャットの発言以外では、firstChatOfStream を足せない（Workerが保存を拒否するため）', () => {
+    expect(addableConditionKinds(入力欄({ event: FOLLOW })).some((option) => option.value === 'firstChatOfStream')).toBe(false)
   })
 
   it('チャットの発言以外では、text を足せない（Workerが保存を拒否するため）', () => {
@@ -364,6 +375,10 @@ describe('createCondition', () => {
 
   it('text の条件は、文面が空の状態で足す', () => {
     expect(createCondition('text', rewards)).toEqual({ kind: 'text', contains: '' })
+  })
+
+  it('firstChatOfStream の条件は、入れる値がないのでそのまま足す', () => {
+    expect(createCondition('firstChatOfStream', rewards)).toEqual({ kind: 'firstChatOfStream' })
   })
 })
 

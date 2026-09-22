@@ -263,6 +263,32 @@ describe('トリガー', () => {
     expect(api.saveConfig).toHaveBeenCalledWith([expect.objectContaining({ event: CHAT_MESSAGE, conditions: [{ kind: 'text', contains: 'おはよう' }] })])
   })
 
+  test('チャットの発言のイベントでは、その配信で初めての発言の条件を足して保存できる（入れる値はない）', async () => {
+    const api = 代役のAPI({ config: async () => [{ ...拍手のトリガー, conditions: [] }] })
+    render(トリガーのページ(api))
+
+    const row = await 開いたトリガー()
+    await userEvent.selectOptions(row.getByLabelText('イベント'), CHAT_MESSAGE)
+    await userEvent.click(row.getByRole('button', { name: 'その配信で初めての発言の条件を足す' }))
+    await userEvent.click(screen.getByRole('button', { name: 'トリガーを保存' }))
+
+    expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
+    expect(api.saveConfig).toHaveBeenCalledWith([expect.objectContaining({ event: CHAT_MESSAGE, conditions: [{ kind: 'firstChatOfStream' }] })])
+  })
+
+  test('その配信で初めての発言の条件は、入れる値がないので説明だけを出す', async () => {
+    const 初回のトリガー: StoredTrigger = { ...拍手のトリガー, event: CHAT_MESSAGE, conditions: [{ kind: 'firstChatOfStream' }] }
+    render(トリガーのページ(代役のAPI({ config: async () => [初回のトリガー] })))
+
+    const row = await 開いたトリガー()
+
+    expect(row.getByText('その配信で初めての発言')).toBeInTheDocument()
+    expect(row.getByText(/配信中の発言だけが対象/)).toBeInTheDocument()
+    expect(row.getByRole('button', { name: 'その配信で初めての発言の条件を外す' })).toBeInTheDocument()
+    // 入れる値がないので、対応する入力欄のないラベルにしない（読み上げが行き先のないラベルを読んでしまう）
+    expect(row.getByText('その配信で初めての発言').closest('label')).toBeNull()
+  })
+
   test('チャットの発言以外のイベントでは、文面の条件を足せない（Workerが保存を拒否するため）', async () => {
     render(トリガーのページ(代役のAPI({ config: async () => [{ ...拍手のトリガー, conditions: [] }] })))
 
