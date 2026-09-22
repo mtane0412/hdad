@@ -3,6 +3,7 @@
  *
  * レジストリの素材を一覧し、スキーマから調整用の入力欄を自動生成する。
  * 入力のたびにプレビューとOBS用URLを更新する。選択中の素材はURLのハッシュ（#contour など）に保持する。
+ * URL欄には、ブラウザソースに設定する推奨の幅と高さ（プレビューの実寸と同じ値）を添える。
  * アプリのルート（src/app/pages.tsx）から、カテゴリごとのレジストリを渡して使う。
  *
  * 注意: ハッシュが登録されていないIDを指していたら、先頭の素材に置き換えずエラーとして伝える（Fail-Fast）。
@@ -294,6 +295,7 @@ const Editor = ({ definition, target }: { definition: GalleryItem; target: Galle
   const [copy, setCopy] = useState<{ url: string; result: CopyResult }>()
   const urlFieldRef = useRef<HTMLInputElement>(null)
   const urlFieldId = useId()
+  const sizeHintId = useId()
 
   const galleryUrl = new URL(basePath, window.location.origin).href
   const url = buildBackgroundUrl(galleryUrl, definition.id, definition.schema, values)
@@ -326,8 +328,12 @@ const Editor = ({ definition, target }: { definition: GalleryItem; target: Galle
         <Preview url={previewUrl} title={`${noun}のプレビュー`} size={previewSize} />
         <div className="flex flex-col gap-2">
           <Label htmlFor={urlFieldId}>OBSのブラウザソースに貼るURL</Label>
+          {/* ブラウザソースの幅・高さはプレビューの実寸と同じにすると、この画面の見た目どおりに映る */}
+          <p id={sizeHintId} className="text-sm text-muted-foreground">
+            推奨の大きさ: 幅 {previewSize.width} × 高さ {previewSize.height} px
+          </p>
           <div className="flex gap-2">
-            <Input ref={urlFieldRef} id={urlFieldId} readOnly value={url} className="font-mono" />
+            <Input ref={urlFieldRef} id={urlFieldId} readOnly value={url} aria-describedby={sizeHintId} className="font-mono" />
             <Button type="button" onClick={copyUrl}>
               URLをコピー
             </Button>
