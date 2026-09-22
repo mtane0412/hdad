@@ -5,9 +5,11 @@
  * 画面に出すアラート（素材・表示時間・音量・文言）へ変換する。
  * 対応しているイベントは、Workerが購読している5種類（ALERT_EVENTS）。
  *
- * 出し方（AlertAppearance）はイベント種別によらず共通で、条件（AlertCondition）だけがイベント種別ごとに違う。
- * 報酬ID（rewardId）はチャンネルポイント交換にしか意味を持たないため、フラットな項目として他のイベントへ引きずらず、
- * event で判別する union に分ける。
+ * 出し方（AlertAppearance）はイベント種別によらず共通で、絞り込みは条件（AlertCondition）のリストで表す。
+ * 条件はすべてを満たしたときだけトリガーが当てはまる（and）。条件を1件も持たないトリガーは、そのイベントが起きればいつでも当てはまる。
+ *
+ * 注意: Worker側（worker/alert-config.ts の StoredCondition・worker/alert-event.ts の matches）と同じ役目のコードを別に持っている。
+ * worker/ と src/ は互いに読み込まない約束のため、条件の種類と判定の内容は両方で同じにする。
  */
 import type { EventSubNotification } from './eventsub'
 
@@ -48,16 +50,21 @@ interface AlertAppearance {
   readonly message: string
 }
 
-/** 条件（イベント種別ごとに違う。いま条件を持つのはチャンネルポイント交換だけ） */
-type AlertCondition =
-  /** 対象の報酬ID。null はすべての報酬 */
-  | { readonly event: typeof REDEMPTION; readonly rewardId: string | null }
-  | { readonly event: typeof FOLLOW }
-  | { readonly event: typeof SUBSCRIBE }
-  | { readonly event: typeof SUBSCRIPTION_MESSAGE }
-  | { readonly event: typeof RAID }
+/**
+ * 条件1件。種類（kind）で判別する union（worker/alert-config.ts の StoredCondition と同じ形）。
+ *
+ * - reward: 対象の報酬ID。チャンネルポイントの交換にしか意味を持たない
+ * - user: そのイベントの相手（交換した人・フォローした人・レイドした配信者など）のTwitchのユーザー名（login）
+ */
+export type AlertCondition = { readonly kind: 'reward'; readonly rewardId: string } | { readonly kind: 'user'; readonly login: string }
 
-export type AlertTrigger = AlertAppearance & AlertCondition
+/** 条件（イベント種別と、すべて満たすべき条件のリスト） */
+interface AlertTriggerCondition {
+  readonly event: AlertEvent
+  readonly conditions: readonly AlertCondition[]
+}
+
+export type AlertTrigger = AlertAppearance & AlertTriggerCondition
 
 /** 画面に出すアラート1件 */
 export interface Alert {
@@ -67,13 +74,24 @@ export interface Alert {
   readonly text: string
 }
 
-/** イベント種別ごとに通知から取り出した項目。文言の差し込みと条件の照合の両方に使う */
+/**
+ * イベント種別ごとに通知から取り出した項目。文言の差し込みと条件の照合の両方に使う。
+ *
+ * userName は表示名（文言に差し込む）、userLogin はTwitchのユーザー名（user の条件と照らし合わせる）。
+ * 表示名は本人が変えられるため、条件の照合には変わらない userLogin を使う。
+ */
 export type Extracted =
-  | { readonly event: typeof REDEMPTION; readonly userName: string; readonly rewardId: string; readonly rewardTitle: string }
-  | { readonly event: typeof FOLLOW; readonly userName: string }
-  | { readonly event: typeof SUBSCRIBE; readonly userName: string; readonly tier: string }
-  | { readonly event: typeof SUBSCRIPTION_MESSAGE; readonly userName: string; readonly tier: string; readonly cumulativeMonths: number }
-  | { readonly event: typeof RAID; readonly userName: string; readonly viewers: number }
+  | { readonly event: typeof REDEMPTION; readonly userName: string; readonly userLogin: string; readonly rewardId: string; readonly rewardTitle: string }
+  | { readonly event: typeof FOLLOW; readonly userName: string; readonly userLogin: string }
+  | { readonly event: typeof SUBSCRIBE; readonly userName: string; readonly userLogin: string; readonly tier: string }
+  | {
+      readonly event: typeof SUBSCRIPTION_MESSAGE
+      readonly userName: string
+      readonly userLogin: string
+      readonly tier: string
+      readonly cumulativeMonths: number
+    }
+  | { readonly event: typeof RAID; readonly userName: string; readonly userLogin: string; readonly viewers: number }
 
 type EventBody = Readonly<Record<string, unknown>>
 
@@ -110,34 +128,50 @@ export const extract = (notification: EventSubNotification): Extracted | null =>
   const event = notification.event
   switch (notification.subscriptionType) {
     case REDEMPTION:
-      return { event: REDEMPTION, userName: readString(event, 'user_name'), ...readReward(event) }
+      return { event: REDEMPTION, userName: readString(event, 'user_name'), userLogin: readString(event, 'user_login'), ...readReward(event) }
     case FOLLOW:
-      return { event: FOLLOW, userName: readString(event, 'user_name') }
+      return { event: FOLLOW, userName: readString(event, 'user_name'), userLogin: readString(event, 'user_login') }
     case SUBSCRIBE:
-      return { event: SUBSCRIBE, userName: readString(event, 'user_name'), tier: readString(event, 'tier') }
+      return { event: SUBSCRIBE, userName: readString(event, 'user_name'), userLogin: readString(event, 'user_login'), tier: readString(event, 'tier') }
     case SUBSCRIPTION_MESSAGE:
       return {
         event: SUBSCRIPTION_MESSAGE,
         userName: readString(event, 'user_name'),
+        userLogin: readString(event, 'user_login'),
         tier: readString(event, 'tier'),
         cumulativeMonths: readNumber(event, 'cumulative_months'),
       }
     // レイドは通知を受け取る側（配信者）が to_broadcaster なので、レイドした配信者は from_broadcaster に入る
     case RAID:
-      return { event: RAID, userName: readString(event, 'from_broadcaster_user_name'), viewers: readNumber(event, 'viewers') }
+      return {
+        event: RAID,
+        userName: readString(event, 'from_broadcaster_user_name'),
+        userLogin: readString(event, 'from_broadcaster_user_login'),
+        viewers: readNumber(event, 'viewers'),
+      }
     default:
       return null
   }
 }
 
-/** トリガーが、取り出した項目に当てはまるか。イベント種別が同じで、条件（あれば）を満たすときに当てはまる */
-export const matches = (trigger: AlertTrigger, extracted: Extracted): boolean => {
-  if (trigger.event !== extracted.event) return false
-  if (trigger.event === REDEMPTION && extracted.event === REDEMPTION) {
-    return trigger.rewardId === null || trigger.rewardId === extracted.rewardId
+/**
+ * 条件1件が、取り出した項目を満たすか。
+ *
+ * reward の条件はチャンネルポイントの交換にしか意味を持たないため、ほかのイベントでは満たさないものとして扱う。
+ * user の条件は大文字小文字を区別しない（Twitchのユーザー名は小文字だが、配信者が表示名の綴りで入れても当てられるようにする）。
+ */
+const satisfiesCondition = (condition: AlertCondition, extracted: Extracted): boolean => {
+  switch (condition.kind) {
+    case 'reward':
+      return extracted.event === REDEMPTION && condition.rewardId === extracted.rewardId
+    case 'user':
+      return condition.login.toLowerCase() === extracted.userLogin.toLowerCase()
   }
-  return true
 }
+
+/** トリガーが、取り出した項目に当てはまるか。イベント種別が同じで、条件をすべて満たすときに当てはまる（and） */
+export const matches = (trigger: AlertTrigger, extracted: Extracted): boolean =>
+  trigger.event === extracted.event && trigger.conditions.every((condition) => satisfiesCondition(condition, extracted))
 
 /**
  * ティアの表記。Twitchが返す "1000" などを 1 に直す。

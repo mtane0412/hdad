@@ -23,9 +23,23 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Slider } from '@/components/ui/slider'
 import { Link } from '@/app/router'
 import { ApiError } from '@/core/api'
-import { isAlertEvent, isAnnouncementColor, type AdminApi, type AlertEvent, type AnnouncementColor, type MediaItem, type Reward } from './api'
 import {
+  isAlertEvent,
+  isAnnouncementColor,
+  type AdminApi,
+  type AlertEvent,
+  type AnnouncementColor,
+  type ConditionKind,
+  type MediaItem,
+  type Reward,
+  type TriggerCondition,
+} from './api'
+import {
+  addableConditionKinds,
+  changeEvent,
   colorOptions,
+  conditionLabel,
+  createCondition,
   describeProblem,
   eventOptions,
   kindLabels,
@@ -35,6 +49,7 @@ import {
   toDraft,
   toTriggerInput,
   triggerSummary,
+  type ConditionKindOption,
   type SelectOption,
   type TriggerDraft,
 } from './form'
@@ -53,6 +68,8 @@ const MIN_DURATION_SECONDS = 1
 const MAX_DURATION_SECONDS = 60
 const MAX_VOLUME_PERCENT = 100
 const MAX_MESSAGE_LENGTH = 200
+/** Twitchのユーザー名（login）の上限。Workerの検証と同じ値 */
+const MAX_LOGIN_LENGTH = 25
 /** チャットに送る文言の上限（Twitchのチャット1通の上限） */
 const MAX_CHAT_MESSAGE_LENGTH = 500
 const DEFAULT_DURATION_SECONDS = '5'
@@ -74,6 +91,82 @@ const Select = ({ id, options, value, onChange }: { id: string; options: readonl
       </NativeSelectOption>
     ))}
   </NativeSelect>
+)
+
+interface ConditionFieldsProps {
+  /** 入力欄のIDの前置き。1つの行の中で条件ごとに違うIDにする */
+  idPrefix: string
+  conditions: readonly TriggerCondition[]
+  rewards: readonly Reward[]
+  /** 足せる条件の種類（すでに足してある種類と、このイベントに付けられない種類は含まれない） */
+  addable: readonly ConditionKindOption[]
+  onChange(index: number, condition: TriggerCondition): void
+  onAdd(kind: ConditionKind): void
+  onRemove(index: number): void
+}
+
+/**
+ * 条件の一覧の入力欄。
+ *
+ * 条件はすべてを満たしたときだけ当てはまる（and）ので、その旨を見出しに書く。
+ * 条件が1件もないときは、そのイベントが起きればいつでも動くことを知らせる（設定漏れと取り違えないため）。
+ * 足せる種類は種類ごとのボタンで出す（種類は2つだけなので、選択欄と「足す」ボタンに分けるより手数が少ない）。
+ */
+const ConditionFields = ({ idPrefix, conditions, rewards, addable, onChange, onAdd, onRemove }: ConditionFieldsProps) => (
+  <div className="flex flex-col gap-3 rounded-md border border-dashed p-3 sm:col-span-2">
+    <span className="text-sm leading-none font-medium">条件（すべてを満たしたときだけ動く）</span>
+    {conditions.length === 0 ? (
+      <p className="text-xs text-muted-foreground">条件がないので、このイベントが起きればいつでも動きます。</p>
+    ) : (
+      <ul className="flex flex-col gap-3">
+        {conditions.map((condition, index) => (
+          // 同じ種類の条件は1件までなので、種類をキーにできる
+          <li key={condition.kind} className="flex items-end gap-2">
+            <div className="flex min-w-0 flex-1 flex-col gap-2">
+              <Label htmlFor={`${idPrefix}-${condition.kind}`}>{conditionLabel(condition.kind)}</Label>
+              {condition.kind === 'reward' ? (
+                <Select
+                  id={`${idPrefix}-reward`}
+                  options={rewardOptions(rewards, condition.rewardId)}
+                  value={condition.rewardId}
+                  onChange={(rewardId) => onChange(index, { kind: 'reward', rewardId })}
+                />
+              ) : (
+                <Input
+                  id={`${idPrefix}-user`}
+                  type="text"
+                  maxLength={MAX_LOGIN_LENGTH}
+                  value={condition.login}
+                  placeholder="tanenobu"
+                  onChange={(event) => onChange(index, { kind: 'user', login: event.currentTarget.value })}
+                />
+              )}
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={`${conditionLabel(condition.kind)}の条件を外す`}
+              className="text-destructive"
+              onClick={() => onRemove(index)}
+            >
+              <Trash2 aria-hidden="true" />
+            </Button>
+          </li>
+        ))}
+      </ul>
+    )}
+    {addable.length > 0 && (
+      <div className="flex flex-wrap gap-2">
+        {addable.map((option) => (
+          <Button key={option.value} type="button" variant="outline" size="sm" onClick={() => onAdd(option.value)}>
+            <Plus aria-hidden="true" />
+            {option.label}の条件を足す
+          </Button>
+        ))}
+      </div>
+    )}
+  </div>
 )
 
 interface TriggerRowProps {
@@ -98,8 +191,6 @@ const TriggerRow = ({ position, draft, media, rewards, open, onToggle, onChange,
   const id = useId()
   const update = (patch: Partial<TriggerDraft>): void => onChange({ ...draft, ...patch })
   const mediaOptions = media.map((item) => ({ value: item.id, label: `${item.name}（${kindLabels[item.kind]}）` }))
-  // 報酬を選べるのはチャンネルポイント交換だけ。ほかのイベントでは報酬の欄を出さない（保存時にも送られない）
-  const isRedemption = draft.event === REDEMPTION
 
   return (
     <li aria-label={`${position}番目のトリガー`} className="rounded-lg border">
@@ -132,14 +223,24 @@ const TriggerRow = ({ position, draft, media, rewards, open, onToggle, onChange,
           <div className="flex flex-col gap-2">
             <Label htmlFor={`${id}-event`}>イベント</Label>
             {/* 選択肢はイベント種別だけなので isAlertEvent は必ず通る。型を絞るための確認 */}
-            <Select id={`${id}-event`} options={eventOptions} value={draft.event} onChange={(event) => isAlertEvent(event) && update({ event })} />
+            <Select
+              id={`${id}-event`}
+              options={eventOptions}
+              value={draft.event}
+              onChange={(event) => isAlertEvent(event) && onChange(changeEvent(draft, event))}
+            />
           </div>
-          {isRedemption && (
-            <div className="flex flex-col gap-2">
-              <Label htmlFor={`${id}-reward`}>報酬</Label>
-              <Select id={`${id}-reward`} options={rewardOptions(rewards, draft.rewardId)} value={draft.rewardId} onChange={(rewardId) => update({ rewardId })} />
-            </div>
-          )}
+
+          {/* ここから下は、このトリガーが当てはまる条件。すべてを満たしたときだけ動く */}
+          <ConditionFields
+            idPrefix={`${id}-condition`}
+            conditions={draft.conditions}
+            rewards={rewards}
+            addable={addableConditionKinds(draft)}
+            onChange={(index, condition) => update({ conditions: draft.conditions.map((other, position) => (position === index ? condition : other)) })}
+            onAdd={(kind) => update({ conditions: [...draft.conditions, createCondition(kind, rewards)] })}
+            onRemove={(index) => update({ conditions: draft.conditions.filter((_, position) => position !== index) })}
+          />
 
           {/* ここから下は、このイベントのときに行う動作。種類ごとに実行者が違う（アラートはオーバーレイ、チャットはWorker） */}
           <div className="flex flex-col gap-4 rounded-md border border-dashed p-3 sm:col-span-2">
@@ -319,7 +420,7 @@ export const TriggerPage = ({ api, overlayKey, onOverlayKeyChange }: TriggerPage
       },
     )
     // 報酬の一覧はTwitchに問い合わせるので、素材や保存済みの設定より失敗しやすい（チャンネルポイントを使えないチャンネルなど）。
-    // 失敗しても素材の管理は続けられるよう画面は出し、理由を表示する。報酬を選べない間も「すべての報酬」は選べる
+    // 失敗しても素材の管理は続けられるよう画面は出し、理由を表示する。報酬を選べない間も、報酬の条件を付けなければトリガーは作れる
     api.rewards().then(
       (loadedRewards) => {
         if (!cancelled) setRewards(loadedRewards)
@@ -372,7 +473,7 @@ export const TriggerPage = ({ api, overlayKey, onOverlayKeyChange }: TriggerPage
       ...drafts,
       {
         event: REDEMPTION,
-        rewardId: '',
+        conditions: [],
         alertEnabled: first !== undefined,
         mediaId: first?.id ?? '',
         durationSeconds: DEFAULT_DURATION_SECONDS,
@@ -413,7 +514,7 @@ export const TriggerPage = ({ api, overlayKey, onOverlayKeyChange }: TriggerPage
       {rewardsFailure !== '' && (
         <Alert variant="destructive">
           <AlertTitle>報酬を選べません</AlertTitle>
-          <AlertDescription>{rewardsFailure}（「すべての報酬」は選べます）</AlertDescription>
+          <AlertDescription>{rewardsFailure}（報酬の条件を付けなければトリガーは作れます）</AlertDescription>
         </Alert>
       )}
       <Card>
@@ -456,8 +557,8 @@ export const TriggerPage = ({ api, overlayKey, onOverlayKeyChange }: TriggerPage
         <CardHeader>
           <CardTitle>トリガー</CardTitle>
           <CardDescription>
-            イベントが起きたら、上から順に探して最初に当てはまったトリガーの素材を流す。文言の <code>{'{user}'}</code> は相手の名前に置き換わる。
-            ほかに使える差し込み語はイベントごとに違い、それぞれの文言欄の下に出る。
+            イベントが起きたら、上から順に探して最初に当てはまったトリガーの素材を流す。条件を足すと、そのすべてを満たしたときだけ当てはまる。
+            文言の <code>{'{user}'}</code> は相手の名前に置き換わる。ほかに使える差し込み語はイベントごとに違い、それぞれの文言欄の下に出る。
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">

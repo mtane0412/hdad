@@ -7,7 +7,7 @@
  * 注意: オーバーレイ側の src/alerts/trigger.ts と同じ役目のコードを別に持っている。worker/ からは src/ を読み込まない約束のため。
  * 差し込み語（{user} など）とティアの表記は両方で同じにする（管理画面が案内する差し込み語が動作の種類で変わると混乱するため）。
  */
-import { announceActionOf, chatActionOf, type AlertConfig, type StoredAnnounceAction, type StoredTrigger } from './alert-config'
+import { announceActionOf, chatActionOf, type AlertConfig, type StoredAnnounceAction, type StoredCondition, type StoredTrigger } from './alert-config'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const FOLLOW = 'channel.follow'
@@ -18,13 +18,24 @@ const RAID = 'channel.raid'
 /** Twitchが返すティアの値と、文言に差し込む表記の対応 */
 const TIER_LABELS: Readonly<Record<string, string>> = { '1000': '1', '2000': '2', '3000': '3' }
 
-/** イベント種別ごとに通知から取り出した項目。文言の差し込みと条件の照合の両方に使う */
+/**
+ * イベント種別ごとに通知から取り出した項目。文言の差し込みと条件の照合の両方に使う。
+ *
+ * userName は表示名（文言に差し込む）、userLogin はTwitchのユーザー名（user の条件と照らし合わせる）。
+ * 表示名は配信者が変えられるため、条件の照合には変わらない userLogin を使う。
+ */
 export type Extracted =
-  | { readonly event: typeof REDEMPTION; readonly userName: string; readonly rewardId: string; readonly rewardTitle: string }
-  | { readonly event: typeof FOLLOW; readonly userName: string }
-  | { readonly event: typeof SUBSCRIBE; readonly userName: string; readonly tier: string }
-  | { readonly event: typeof SUBSCRIPTION_MESSAGE; readonly userName: string; readonly tier: string; readonly cumulativeMonths: number }
-  | { readonly event: typeof RAID; readonly userName: string; readonly viewers: number }
+  | { readonly event: typeof REDEMPTION; readonly userName: string; readonly userLogin: string; readonly rewardId: string; readonly rewardTitle: string }
+  | { readonly event: typeof FOLLOW; readonly userName: string; readonly userLogin: string }
+  | { readonly event: typeof SUBSCRIBE; readonly userName: string; readonly userLogin: string; readonly tier: string }
+  | {
+      readonly event: typeof SUBSCRIPTION_MESSAGE
+      readonly userName: string
+      readonly userLogin: string
+      readonly tier: string
+      readonly cumulativeMonths: number
+    }
+  | { readonly event: typeof RAID; readonly userName: string; readonly userLogin: string; readonly viewers: number }
 
 type EventBody = Readonly<Record<string, unknown>>
 
@@ -66,34 +77,51 @@ export const extract = (subscriptionType: string, body: unknown): Extracted | nu
 
   switch (subscriptionType) {
     case REDEMPTION:
-      return { event: REDEMPTION, userName: readString(body, 'user_name'), ...readReward(body) }
+      return { event: REDEMPTION, userName: readString(body, 'user_name'), userLogin: readString(body, 'user_login'), ...readReward(body) }
     case FOLLOW:
-      return { event: FOLLOW, userName: readString(body, 'user_name') }
+      return { event: FOLLOW, userName: readString(body, 'user_name'), userLogin: readString(body, 'user_login') }
     case SUBSCRIBE:
-      return { event: SUBSCRIBE, userName: readString(body, 'user_name'), tier: readString(body, 'tier') }
+      return { event: SUBSCRIBE, userName: readString(body, 'user_name'), userLogin: readString(body, 'user_login'), tier: readString(body, 'tier') }
     case SUBSCRIPTION_MESSAGE:
       return {
         event: SUBSCRIPTION_MESSAGE,
         userName: readString(body, 'user_name'),
+        userLogin: readString(body, 'user_login'),
         tier: readString(body, 'tier'),
         cumulativeMonths: readNumber(body, 'cumulative_months'),
       }
     // レイドは通知を受け取る側（配信者）が to_broadcaster なので、レイドした配信者は from_broadcaster に入る
     case RAID:
-      return { event: RAID, userName: readString(body, 'from_broadcaster_user_name'), viewers: readNumber(body, 'viewers') }
+      return {
+        event: RAID,
+        userName: readString(body, 'from_broadcaster_user_name'),
+        userLogin: readString(body, 'from_broadcaster_user_login'),
+        viewers: readNumber(body, 'viewers'),
+      }
     default:
       return null
   }
 }
 
-/** トリガーが、取り出した項目に当てはまるか。イベント種別が同じで、条件（あれば）を満たすときに当てはまる */
-export const matches = (trigger: StoredTrigger, extracted: Extracted): boolean => {
-  if (trigger.event !== extracted.event) return false
-  if (trigger.event === REDEMPTION && extracted.event === REDEMPTION) {
-    return trigger.rewardId === null || trigger.rewardId === extracted.rewardId
+/**
+ * 条件1件が、取り出した項目を満たすか。
+ *
+ * reward の条件はチャンネルポイントの交換にしか意味を持たないため、ほかのイベントでは満たさないものとして扱う
+ * （保存時にも拒否しているが、照合でも通さない。古い設定が残っていても、意図しないイベントでアラートが出ないようにする）。
+ * user の条件は大文字小文字を区別しない（Twitchのユーザー名は小文字だが、配信者が表示名の綴りで入れても当てられるようにする）。
+ */
+const satisfiesCondition = (condition: StoredCondition, extracted: Extracted): boolean => {
+  switch (condition.kind) {
+    case 'reward':
+      return extracted.event === REDEMPTION && condition.rewardId === extracted.rewardId
+    case 'user':
+      return condition.login.toLowerCase() === extracted.userLogin.toLowerCase()
   }
-  return true
 }
+
+/** トリガーが、取り出した項目に当てはまるか。イベント種別が同じで、条件をすべて満たすときに当てはまる（and） */
+export const matches = (trigger: StoredTrigger, extracted: Extracted): boolean =>
+  trigger.event === extracted.event && trigger.conditions.every((condition) => satisfiesCondition(condition, extracted))
 
 /**
  * ティアの表記。Twitchが返す "1000" などを 1 に直す。

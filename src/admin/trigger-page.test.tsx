@@ -5,6 +5,7 @@
  * 確かめること:
  * - OBS用のURLを伏せ字で出し、コピーとキーの再発行ができること（再発行は確認してから）
  * - トリガーは折りたたんで並び、見出しの要約を押すと入力欄が開くこと（開くのは1件ずつ）
+ * - 条件（報酬・ユーザー）を足す・書き換える・外せること
  * - トリガーを足し、入力欄の値をWorkerへ送る形にして保存できること
  * - 素材は一覧から選ぶだけで、ここでは足せないこと（アップロードのページへ案内する）
  * - 失敗は黙って無視せず、理由を出すこと（報酬の一覧だけ取れないときは、画面は出したまま理由を出す）
@@ -24,7 +25,7 @@ const 花火の画像: MediaItem = { id: 'media-hanabi', name: '花火.png', kin
 const 拍手の報酬: Reward = { id: 'reward-hakushu', title: '拍手を送る', cost: 100 }
 const 拍手のトリガー: StoredTrigger = {
   event: REDEMPTION,
-  rewardId: 'reward-hakushu',
+  conditions: [{ kind: 'reward', rewardId: 'reward-hakushu' }],
   actions: [{ type: 'alert', mediaId: 'media-hakushu', mediaKind: 'video', durationSeconds: 8, volume: 0.5, message: '{user} さんが拍手を送りました' }],
 }
 
@@ -133,17 +134,17 @@ describe('トリガー', () => {
     expect(row.getByLabelText('文言（空欄なら出さない）')).toHaveValue('{user} さんが拍手を送りました')
   })
 
-  test('イベントを切り替えると、報酬の選択欄はチャンネルポイント交換のときだけ出る', async () => {
+  test('チャンネルポイント交換以外のイベントに切り替えると、報酬の条件は外れる（そのままでは保存できないため）', async () => {
     render(トリガーのページ(代役のAPI()))
 
     const row = await 開いたトリガー()
     expect(row.getByLabelText('報酬')).toBeInTheDocument()
 
     await userEvent.selectOptions(row.getByLabelText('イベント'), 'channel.follow')
-    expect(row.queryByLabelText('報酬')).not.toBeInTheDocument()
 
-    await userEvent.selectOptions(row.getByLabelText('イベント'), REDEMPTION)
-    expect(row.getByLabelText('報酬')).toBeInTheDocument()
+    expect(row.queryByLabelText('報酬')).not.toBeInTheDocument()
+    // 報酬の条件は足せなくなる（チャンネルポイントの交換にしか付けられない）
+    expect(row.queryByRole('button', { name: '報酬の条件を足す' })).not.toBeInTheDocument()
   })
 
   test('選んだイベントで使える差し込み語を、文言欄のそばに出す', async () => {
@@ -158,7 +159,7 @@ describe('トリガー', () => {
     expect(差し込み語).not.toHaveTextContent('{reward}')
   })
 
-  test('チャンネルポイント交換以外のイベントのトリガーは、報酬IDを付けずに保存する', async () => {
+  test('チャンネルポイント交換以外のイベントのトリガーは、報酬の条件を付けずに保存する', async () => {
     const api = 代役のAPI()
     render(トリガーのページ(api))
 
@@ -170,9 +171,74 @@ describe('トリガー', () => {
     expect(api.saveConfig).toHaveBeenCalledWith([
       {
         event: 'channel.raid',
+        conditions: [],
         actions: [{ type: 'alert', mediaId: 'media-hakushu', durationSeconds: 8, volume: 0.5, message: '{user} さんが拍手を送りました' }],
       },
     ])
+  })
+
+  test('ユーザーの条件を足して名前を入れると、条件として保存する', async () => {
+    const api = 代役のAPI()
+    render(トリガーのページ(api))
+
+    const row = await 開いたトリガー()
+    await userEvent.click(row.getByRole('button', { name: 'ユーザーの条件を足す' }))
+    await userEvent.type(row.getByLabelText('ユーザー'), 'tanenobu')
+    await userEvent.click(screen.getByRole('button', { name: 'トリガーを保存' }))
+
+    expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
+    expect(api.saveConfig).toHaveBeenCalledWith([
+      {
+        event: REDEMPTION,
+        conditions: [
+          { kind: 'reward', rewardId: 'reward-hakushu' },
+          { kind: 'user', login: 'tanenobu' },
+        ],
+        actions: [{ type: 'alert', mediaId: 'media-hakushu', durationSeconds: 8, volume: 0.5, message: '{user} さんが拍手を送りました' }],
+      },
+    ])
+  })
+
+  test('同じ種類の条件は2件足せない（足したあとは選べなくなる）', async () => {
+    render(トリガーのページ(代役のAPI()))
+
+    const row = await 開いたトリガー()
+    // 報酬の条件は保存済みのトリガーにすでに付いている
+    expect(row.queryByRole('button', { name: '報酬の条件を足す' })).not.toBeInTheDocument()
+
+    await userEvent.click(row.getByRole('button', { name: 'ユーザーの条件を足す' }))
+
+    expect(row.queryByRole('button', { name: 'ユーザーの条件を足す' })).not.toBeInTheDocument()
+  })
+
+  test('条件を外せる', async () => {
+    const api = 代役のAPI()
+    render(トリガーのページ(api))
+
+    const row = await 開いたトリガー()
+    await userEvent.click(row.getByRole('button', { name: '報酬の条件を外す' }))
+    await userEvent.click(screen.getByRole('button', { name: 'トリガーを保存' }))
+
+    expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
+    expect(api.saveConfig).toHaveBeenCalledWith([expect.objectContaining({ conditions: [] })])
+  })
+
+  test('条件が1件もなければ、いつでも動くことを知らせる', async () => {
+    render(トリガーのページ(代役のAPI({ config: async () => [{ ...拍手のトリガー, conditions: [] }] })))
+
+    const row = await 開いたトリガー()
+
+    expect(row.getByText(/このイベントが起きればいつでも/)).toBeInTheDocument()
+  })
+
+  test('報酬の条件を足すと、置いてある報酬の先頭を選んだ状態になる（選択欄に見えているとおりで保存できる）', async () => {
+    const api = 代役のAPI({ config: async () => [{ ...拍手のトリガー, conditions: [] }] })
+    render(トリガーのページ(api))
+
+    const row = await 開いたトリガー()
+    await userEvent.click(row.getByRole('button', { name: '報酬の条件を足す' }))
+
+    expect(row.getByLabelText('報酬')).toHaveValue('reward-hakushu')
   })
 
   test('トリガーを足して書き換え、Workerへ送る形で保存する', async () => {
@@ -189,7 +255,7 @@ describe('トリガー', () => {
 
     expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
     expect(api.saveConfig).toHaveBeenCalledWith([
-      { event: REDEMPTION, rewardId: null, actions: [{ type: 'alert', mediaId: 'media-hanabi', durationSeconds: 12, volume: 0.3, message: 'ありがとう' }] },
+      { event: REDEMPTION, conditions: [], actions: [{ type: 'alert', mediaId: 'media-hanabi', durationSeconds: 12, volume: 0.3, message: 'ありがとう' }] },
     ])
   })
 
@@ -216,7 +282,11 @@ describe('トリガー', () => {
 
     expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
     expect(api.saveConfig).toHaveBeenCalledWith([
-      { event: REDEMPTION, rewardId: 'reward-hakushu', actions: [{ type: 'chat', message: '{user} さん、ありがとうございます' }] },
+      {
+        event: REDEMPTION,
+        conditions: [{ kind: 'reward', rewardId: 'reward-hakushu' }],
+        actions: [{ type: 'chat', message: '{user} さん、ありがとうございます' }],
+      },
     ])
   })
 
@@ -235,7 +305,7 @@ describe('トリガー', () => {
     expect(api.saveConfig).toHaveBeenCalledWith([
       {
         event: REDEMPTION,
-        rewardId: 'reward-hakushu',
+        conditions: [{ kind: 'reward', rewardId: 'reward-hakushu' }],
         actions: [{ type: 'announce', message: '{user} さん、ありがとうございます', color: 'purple' }],
       },
     ])
@@ -261,7 +331,7 @@ describe('トリガー', () => {
 
   test('チャットに送るだけのトリガーでアラートを出すを付けると、選択欄に見えている最初の素材で保存する', async () => {
     // 素材が未選択（空文字）のまま保存すると、選択欄には最初の素材が見えているのにWorkerが「素材が存在しません」と拒否してしまう
-    const チャットだけのトリガー: StoredTrigger = { event: 'channel.follow', actions: [{ type: 'chat', message: 'ありがとうございます' }] }
+    const チャットだけのトリガー: StoredTrigger = { event: 'channel.follow', conditions: [], actions: [{ type: 'chat', message: 'ありがとうございます' }] }
     const api = 代役のAPI({ config: vi.fn(async () => [チャットだけのトリガー]) })
     render(トリガーのページ(api))
 
@@ -273,6 +343,7 @@ describe('トリガー', () => {
     expect(api.saveConfig).toHaveBeenCalledWith([
       {
         event: 'channel.follow',
+        conditions: [],
         actions: [
           { type: 'alert', mediaId: 'media-hakushu', durationSeconds: 5, volume: 1, message: '' },
           { type: 'chat', message: 'ありがとうございます' },
@@ -321,7 +392,7 @@ describe('折りたたみ', () => {
   test('保存済みのトリガーは折りたたんで並び、見出しに「イベント・条件・動作」の要約を出す', async () => {
     render(トリガーのページ(代役のAPI()))
 
-    expect(await screen.findByRole('button', { name: /^1番目のトリガー:/ })).toHaveTextContent('チャンネルポイントの交換「拍手を送る」→ アラート')
+    expect(await screen.findByRole('button', { name: /^1番目のトリガー:/ })).toHaveTextContent('チャンネルポイントの交換（報酬「拍手を送る」）→ アラート')
     // 開くまでは入力欄を出さない（数が増えても一覧を見渡せるようにする）
     expect(screen.queryByLabelText('素材')).not.toBeInTheDocument()
   })
@@ -338,7 +409,10 @@ describe('折りたたみ', () => {
   })
 
   test('別のトリガーを開くと、先に開いていたトリガーは閉じる', async () => {
-    const トリガー2件 = [拍手のトリガー, { event: 'channel.follow' as const, actions: [{ type: 'chat' as const, message: 'ありがとうございます' }] }]
+    const トリガー2件: StoredTrigger[] = [
+      拍手のトリガー,
+      { event: 'channel.follow', conditions: [], actions: [{ type: 'chat', message: 'ありがとうございます' }] },
+    ]
     render(トリガーのページ(代役のAPI({ config: async () => トリガー2件 })))
 
     await 開いたトリガー(1)
@@ -406,7 +480,7 @@ describe('読み込みの失敗', () => {
     await userEvent.click(screen.getByRole('button', { name: 'トリガーを足す' }))
     expect(await お知らせ('トリガーを足しました')).toBeInTheDocument()
     expect(screen.getByRole('alert')).toHaveTextContent('チャンネルポイント報酬の一覧を取得できませんでした')
-    // 保存済みの報酬はTwitchの一覧にないものとして選択肢に残る（黙って「すべての報酬」に変えない）
+    // 保存済みの報酬はTwitchの一覧にないものとして選択肢に残る（黙って別の報酬に変えない）
     expect((await 開いたトリガー()).getByLabelText('報酬')).toHaveValue('reward-hakushu')
   })
 })

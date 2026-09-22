@@ -8,10 +8,9 @@
  * 注意: 応答が想定した形でなければエラーにする。黙って空の設定にすると、アラートが出ない原因に気付けない。
  */
 import { readErrorMessage } from './subscribe'
-import { ALERT_EVENTS, type AlertEvent, type AlertMedia, type AlertTrigger } from './trigger'
+import { ALERT_EVENTS, type AlertCondition, type AlertEvent, type AlertMedia, type AlertTrigger } from './trigger'
 
 const CONFIG_PATH = '/api/overlay/config'
-const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const MEDIA_KINDS: readonly AlertMedia['kind'][] = ['image', 'video', 'audio']
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
@@ -21,14 +20,18 @@ const isMedia = (value: unknown): value is AlertMedia =>
 
 const isAlertEvent = (value: unknown): value is AlertEvent => ALERT_EVENTS.some((event) => event === value)
 
-/** 条件の欄はイベント種別ごとに違う。報酬IDを求めるのはチャンネルポイント交換のときだけ */
-const hasCondition = (value: Record<string, unknown>): boolean =>
-  value.event !== REDEMPTION || value.rewardId === null || typeof value.rewardId === 'string'
+/** 条件1件の形。種類（kind）ごとに持つ項目が違う。知らない種類は受け取らない（黙って無視すると絞り込みが効かないまま出てしまう） */
+const isCondition = (value: unknown): value is AlertCondition => {
+  if (!isRecord(value)) return false
+  if (value.kind === 'reward') return typeof value.rewardId === 'string'
+  return value.kind === 'user' && typeof value.login === 'string'
+}
 
 const isTrigger = (value: unknown): value is AlertTrigger =>
   isRecord(value) &&
   isAlertEvent(value.event) &&
-  hasCondition(value) &&
+  Array.isArray(value.conditions) &&
+  value.conditions.every(isCondition) &&
   isMedia(value.media) &&
   typeof value.durationSeconds === 'number' &&
   typeof value.volume === 'number' &&

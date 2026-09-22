@@ -2,10 +2,13 @@
  * 入力欄と保存形式の変換（form.ts）のテスト
  *
  * 入力欄の値はすべて文字列で、音量は 0〜100 の百分率で見せる。
- * Workerへ送る形（報酬なしは null、音量は 0〜1）との行き来と、イベント種別ごとの選択肢・差し込み語、OBS用URL・表示用の文言を確認する。
+ * Workerへ送る形（音量は 0〜1）との行き来と、条件のリストの足し引き、イベント種別ごとの選択肢・差し込み語、OBS用URL・表示用の文言を確認する。
  */
 import { describe, expect, it } from 'vitest'
 import {
+  addableConditionKinds,
+  changeEvent,
+  createCondition,
   describeProblem,
   eventOptions,
   formatBytes,
@@ -17,7 +20,7 @@ import {
   triggerSummary,
   type TriggerDraft,
 } from './form'
-import type { StoredTrigger } from './api'
+import type { Reward, StoredTrigger } from './api'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const FOLLOW = 'channel.follow'
@@ -26,7 +29,7 @@ const RAID = 'channel.raid'
 /** トリガー1件分の入力欄の値。テストでは違いのある項目だけを重ねて書く */
 const 入力欄 = (overrides: Partial<TriggerDraft> = {}): TriggerDraft => ({
   event: REDEMPTION,
-  rewardId: '',
+  conditions: [],
   alertEnabled: true,
   mediaId: 'sozai-1',
   durationSeconds: '5',
@@ -59,13 +62,32 @@ describe('overlayUrl', () => {
 
 describe('toTriggerInput', () => {
   it('チャンネルポイント交換の入力欄の値を、Workerへ送る形にする（音量は百分率から0〜1へ）', () => {
-    const draft = 入力欄({ rewardId: '報酬ID-乾杯', durationSeconds: '8', volumePercent: '50', message: '{user} さん、乾杯！' })
+    const draft = 入力欄({
+      conditions: [{ kind: 'reward', rewardId: '報酬ID-乾杯' }],
+      durationSeconds: '8',
+      volumePercent: '50',
+      message: '{user} さん、乾杯！',
+    })
 
     expect(toTriggerInput(draft)).toEqual({
       event: REDEMPTION,
-      rewardId: '報酬ID-乾杯',
+      conditions: [{ kind: 'reward', rewardId: '報酬ID-乾杯' }],
       actions: [{ type: 'alert', mediaId: 'sozai-1', durationSeconds: 8, volume: 0.5, message: '{user} さん、乾杯！' }],
     })
+  })
+
+  it('条件を2つ足した入力欄の値は、その並びのまま送る', () => {
+    const draft = 入力欄({
+      conditions: [
+        { kind: 'reward', rewardId: '報酬ID-乾杯' },
+        { kind: 'user', login: 'tanenobu' },
+      ],
+    })
+
+    expect(toTriggerInput(draft).conditions).toEqual([
+      { kind: 'reward', rewardId: '報酬ID-乾杯' },
+      { kind: 'user', login: 'tanenobu' },
+    ])
   })
 
   it('チャットに送るを選んでいれば、チャットの動作も送る', () => {
@@ -99,17 +121,8 @@ describe('toTriggerInput', () => {
     expect(toTriggerInput(draft).actions).toEqual([{ type: 'alert', mediaId: 'sozai-1', durationSeconds: 5, volume: 1, message: '' }])
   })
 
-  it('報酬を選んでいなければ（空文字）、すべての報酬を表す null にする', () => {
-    expect(toTriggerInput(入力欄())).toMatchObject({ event: REDEMPTION, rewardId: null })
-  })
-
-  it('チャンネルポイント交換以外のイベントは、報酬IDを送らない（入力欄に残っていても引きずらない）', () => {
-    const draft = 入力欄({ event: FOLLOW, rewardId: '報酬ID-乾杯', message: '{user} さん、ありがとう！' })
-
-    expect(toTriggerInput(draft)).toEqual({
-      event: FOLLOW,
-      actions: [{ type: 'alert', mediaId: 'sozai-1', durationSeconds: 5, volume: 1, message: '{user} さん、ありがとう！' }],
-    })
+  it('条件を足していなければ、条件なし（そのイベントならいつでも）で送る', () => {
+    expect(toTriggerInput(入力欄())).toMatchObject({ event: REDEMPTION, conditions: [] })
   })
 
   it('表示時間が数として読めなければエラーにする（何番目のトリガーかは呼び出し側が添える）', () => {
@@ -124,39 +137,42 @@ describe('toTriggerInput', () => {
 })
 
 describe('toDraft', () => {
-  it('保存済みのチャンネルポイント交換のトリガーを入力欄の値に戻す（null の報酬は空文字、音量は百分率）', () => {
-    const stored: StoredTrigger = { event: REDEMPTION, rewardId: null, actions: [アラートの動作()] }
+  it('条件のない保存済みトリガーを入力欄の値に戻す（音量は百分率）', () => {
+    const stored: StoredTrigger = { event: REDEMPTION, conditions: [], actions: [アラートの動作()] }
 
-    expect(toDraft(stored)).toEqual(
-      入力欄({ rewardId: '', alertEnabled: true, mediaId: 'sozai-1', durationSeconds: '8', volumePercent: '35', message: '乾杯！' }),
-    )
+    expect(toDraft(stored)).toEqual(入力欄({ alertEnabled: true, mediaId: 'sozai-1', durationSeconds: '8', volumePercent: '35', message: '乾杯！' }))
   })
 
-  it('報酬IDを持たないイベントのトリガーは、報酬の入力欄を「すべての報酬」（空文字）にして戻す', () => {
+  it('保存済みの条件は、そのまま入力欄の条件のリストに戻す', () => {
     const stored: StoredTrigger = {
-      event: RAID,
-      actions: [アラートの動作({ mediaId: 'sozai-2', mediaKind: 'image' as const, durationSeconds: 5, volume: 1, message: '{user} さんがレイド！' })],
+      event: REDEMPTION,
+      conditions: [
+        { kind: 'reward', rewardId: '報酬ID-乾杯' },
+        { kind: 'user', login: 'tanenobu' },
+      ],
+      actions: [アラートの動作()],
     }
 
-    expect(toDraft(stored)).toEqual(
-      入力欄({ event: RAID, mediaId: 'sozai-2', durationSeconds: '5', volumePercent: '100', message: '{user} さんがレイド！' }),
-    )
+    expect(toDraft(stored).conditions).toEqual([
+      { kind: 'reward', rewardId: '報酬ID-乾杯' },
+      { kind: 'user', login: 'tanenobu' },
+    ])
   })
 
   it('チャットに送る動作を持つトリガーは、チャットの入力欄を埋めて戻す', () => {
-    const stored: StoredTrigger = { event: RAID, actions: [{ type: 'chat', message: '{user} さん、レイドありがとう！' }] }
+    const stored: StoredTrigger = { event: RAID, conditions: [], actions: [{ type: 'chat', message: '{user} さん、レイドありがとう！' }] }
 
     expect(toDraft(stored)).toMatchObject({ alertEnabled: false, chatEnabled: true, chatMessage: '{user} さん、レイドありがとう！' })
   })
 
   it('アナウンスを送る動作を持つトリガーは、文言と色の入力欄を埋めて戻す', () => {
-    const stored: StoredTrigger = { event: RAID, actions: [{ type: 'announce', message: '{user} さんがレイド！', color: 'orange' }] }
+    const stored: StoredTrigger = { event: RAID, conditions: [], actions: [{ type: 'announce', message: '{user} さんがレイド！', color: 'orange' }] }
 
     expect(toDraft(stored)).toMatchObject({ announceEnabled: true, announceMessage: '{user} さんがレイド！', announceColor: 'orange' })
   })
 
   it('アナウンスを送る動作を持たないトリガーは、色を既定（primary）にして戻す', () => {
-    const stored: StoredTrigger = { event: RAID, actions: [アラートの動作()] }
+    const stored: StoredTrigger = { event: RAID, conditions: [], actions: [アラートの動作()] }
 
     expect(toDraft(stored)).toMatchObject({ announceEnabled: false, announceMessage: '', announceColor: 'primary' })
   })
@@ -192,17 +208,19 @@ describe('rewardOptions', () => {
     { id: '報酬ID-おみくじ', title: 'おみくじを引く', cost: 100 },
   ]
 
-  it('先頭に「すべての報酬」を置き、報酬は名前と必要ポイントで見せる', () => {
-    expect(rewardOptions(rewards, '')).toEqual([
-      { value: '', label: 'すべての報酬' },
+  it('報酬を名前と必要ポイントで見せる', () => {
+    expect(rewardOptions(rewards, '報酬ID-乾杯')).toEqual([
       { value: '報酬ID-乾杯', label: '乾杯する（500pt）' },
       { value: '報酬ID-おみくじ', label: 'おみくじを引く（100pt）' },
     ])
   })
 
+  it('報酬を選べていない（空文字）ときは、選ぶよう促す選択肢を先頭に置く', () => {
+    expect(rewardOptions(rewards, '')[0]).toEqual({ value: '', label: '報酬を選んでください' })
+  })
+
   it('保存済みの報酬がTwitchの一覧にない（削除された）場合も、選択肢として残して分かるようにする', () => {
-    const options = rewardOptions(rewards, '報酬ID-消した報酬')
-    expect(options.at(-1)).toEqual({ value: '報酬ID-消した報酬', label: 'Twitchの一覧にない報酬（報酬ID-消した報酬）' })
+    expect(rewardOptions(rewards, '報酬ID-消した報酬')[0]).toEqual({ value: '報酬ID-消した報酬', label: 'Twitchの一覧にない報酬（報酬ID-消した報酬）' })
   })
 })
 
@@ -228,28 +246,57 @@ describe('describeProblem', () => {
     )
   })
 
+  it('条件の位置（conditions[1]）も、画面の番号（2つ目の条件）に読み替える', () => {
+    expect(describeProblem('triggers[0].conditions[1].login: 1〜25文字のTwitchのユーザー名で指定してください')).toBe(
+      '1番目のトリガーの 2つ目の条件の login: 1〜25文字のTwitchのユーザー名で指定してください',
+    )
+  })
+
+  it('条件そのものへの問題点（項目名が続かない形）も読み替える', () => {
+    expect(describeProblem('triggers[0].conditions[0]: reward の条件はチャンネルポイントの交換にしか付けられません')).toBe(
+      '1番目のトリガーの 1つ目の条件: reward の条件はチャンネルポイントの交換にしか付けられません',
+    )
+  })
+
   it('トリガーの位置を含まない問題点は、そのまま返す', () => {
     expect(describeProblem('triggers: 100件以内にしてください')).toBe('triggers: 100件以内にしてください')
   })
 })
 
 describe('triggerSummary', () => {
-  const 拍手の報酬 = { id: 'reward-hakushu', title: '拍手を送る', cost: 100 }
+  const 拍手の報酬: Reward = { id: 'reward-hakushu', title: '拍手を送る', cost: 100 }
 
-  it('チャンネルポイント交換では、選んだ報酬の名前を添える', () => {
-    expect(triggerSummary(入力欄({ rewardId: 'reward-hakushu' }), [拍手の報酬])).toBe('チャンネルポイントの交換「拍手を送る」→ アラート')
+  it('条件がなければ、イベントの名前だけを出す（そのイベントならいつでも当てはまる）', () => {
+    expect(triggerSummary(入力欄(), [拍手の報酬])).toBe('チャンネルポイントの交換 → アラート')
   })
 
-  it('報酬を選んでいなければ、すべての報酬が対象だと伝える', () => {
-    expect(triggerSummary(入力欄(), [拍手の報酬])).toBe('チャンネルポイントの交換（すべての報酬）→ アラート')
+  it('reward の条件では、選んだ報酬の名前を添える', () => {
+    const draft = 入力欄({ conditions: [{ kind: 'reward', rewardId: 'reward-hakushu' }] })
+
+    expect(triggerSummary(draft, [拍手の報酬])).toBe('チャンネルポイントの交換（報酬「拍手を送る」）→ アラート')
   })
 
-  it('Twitchの一覧にない報酬でも、報酬IDを出して黙って「すべての報酬」にしない', () => {
-    expect(triggerSummary(入力欄({ rewardId: 'reward-kieta' }), [拍手の報酬])).toBe('チャンネルポイントの交換「reward-kieta」→ アラート')
+  it('Twitchの一覧にない報酬でも、報酬IDを出して黙って省略しない', () => {
+    const draft = 入力欄({ conditions: [{ kind: 'reward', rewardId: 'reward-kieta' }] })
+
+    expect(triggerSummary(draft, [拍手の報酬])).toBe('チャンネルポイントの交換（報酬「reward-kieta」）→ アラート')
   })
 
-  it('チャンネルポイントの交換以外では、イベントの名前だけを出す', () => {
-    expect(triggerSummary(入力欄({ event: FOLLOW }), [])).toBe('フォロー → アラート')
+  it('user の条件では、ユーザー名を添える', () => {
+    const draft = 入力欄({ event: RAID, conditions: [{ kind: 'user', login: 'tanenobu' }] })
+
+    expect(triggerSummary(draft, [])).toBe('レイド（ユーザー「tanenobu」）→ アラート')
+  })
+
+  it('条件が2つあれば、すべてを満たす必要があることが分かるように並べる', () => {
+    const draft = 入力欄({
+      conditions: [
+        { kind: 'reward', rewardId: 'reward-hakushu' },
+        { kind: 'user', login: 'tanenobu' },
+      ],
+    })
+
+    expect(triggerSummary(draft, [拍手の報酬])).toBe('チャンネルポイントの交換（報酬「拍手を送る」かつユーザー「tanenobu」）→ アラート')
   })
 
   it('行う動作をすべて並べる', () => {
@@ -258,5 +305,59 @@ describe('triggerSummary', () => {
 
   it('動作を1つも選んでいなければ、何もしないことが分かるようにする', () => {
     expect(triggerSummary(入力欄({ event: FOLLOW, alertEnabled: false }), [])).toBe('フォロー → 動作なし')
+  })
+})
+
+describe('addableConditionKinds', () => {
+  it('チャンネルポイントの交換では、reward と user を足せる', () => {
+    expect(addableConditionKinds(入力欄())).toEqual([
+      { value: 'reward', label: '報酬' },
+      { value: 'user', label: 'ユーザー' },
+    ])
+  })
+
+  it('チャンネルポイントの交換以外では、reward を足せない（Workerが保存を拒否するため）', () => {
+    expect(addableConditionKinds(入力欄({ event: FOLLOW }))).toEqual([{ value: 'user', label: 'ユーザー' }])
+  })
+
+  it('すでに足してある種類は選べない（同じ種類は1件まで）', () => {
+    const draft = 入力欄({ conditions: [{ kind: 'reward', rewardId: 'reward-hakushu' }] })
+
+    expect(addableConditionKinds(draft)).toEqual([{ value: 'user', label: 'ユーザー' }])
+  })
+})
+
+describe('createCondition', () => {
+  const rewards: Reward[] = [{ id: '報酬ID-乾杯', title: '乾杯する', cost: 500 }]
+
+  it('reward の条件は、置いてある報酬の先頭を選んだ状態で足す（選択欄が見せているとおりの値にする）', () => {
+    expect(createCondition('reward', rewards)).toEqual({ kind: 'reward', rewardId: '報酬ID-乾杯' })
+  })
+
+  it('報酬の一覧が空なら、報酬を選んでいない状態で足す（保存時にWorkerが問題点を返す）', () => {
+    expect(createCondition('reward', [])).toEqual({ kind: 'reward', rewardId: '' })
+  })
+
+  it('user の条件は、ユーザー名が空の状態で足す', () => {
+    expect(createCondition('user', rewards)).toEqual({ kind: 'user', login: '' })
+  })
+})
+
+describe('changeEvent', () => {
+  it('チャンネルポイントの交換から別のイベントに変えたら、reward の条件を外す（そのままでは保存できないため）', () => {
+    const draft = 入力欄({
+      conditions: [
+        { kind: 'reward', rewardId: '報酬ID-乾杯' },
+        { kind: 'user', login: 'tanenobu' },
+      ],
+    })
+
+    expect(changeEvent(draft, FOLLOW)).toMatchObject({ event: FOLLOW, conditions: [{ kind: 'user', login: 'tanenobu' }] })
+  })
+
+  it('チャンネルポイントの交換のままなら、条件はそのまま残す', () => {
+    const draft = 入力欄({ conditions: [{ kind: 'reward', rewardId: '報酬ID-乾杯' }] })
+
+    expect(changeEvent(draft, REDEMPTION).conditions).toEqual([{ kind: 'reward', rewardId: '報酬ID-乾杯' }])
   })
 })

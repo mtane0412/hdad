@@ -3,8 +3,8 @@
  *
  * 管理画面から送られてくる設定を検証して保存用の形にすること、オーバーレイ向けに素材のURLを付けた形へ変換することを確認する。
  * 不正な設定を保存してしまうと配信中にアラートが出なくなるため、保存の前にすべての問題点を挙げて拒否する。
- * トリガーは「条件（どのイベントか）」と「動作（アラートを出す・チャットに送る）」に分かれており、
- * 動作の種類ごとに実行者が違う（アラートはオーバーレイ、チャットはWorker）ことも合わせて確認する。
+ * トリガーは「イベント種別」「条件のリスト（conditions）」「動作（アラートを出す・チャットに送る）」からなり、
+ * 条件はすべてを満たしたときだけ当てはまる（and）。動作の種類ごとに実行者が違う（アラートはオーバーレイ、チャットはWorker）ことも合わせて確認する。
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -49,7 +49,7 @@ const アナウンスの動作 = (overrides: Record<string, unknown> = {}) => ({
 
 const 送られてきたトリガー = (overrides: Record<string, unknown> = {}) => ({
   event: REDEMPTION,
-  rewardId: '報酬ID-乾杯',
+  conditions: [{ kind: 'reward', rewardId: '報酬ID-乾杯' }],
   actions: [アラートの動作()],
   ...overrides,
 })
@@ -63,7 +63,7 @@ const 保存済みのアラートの動作 = { ...アラートの動作(), type:
 describe('parseAlertConfig', () => {
   it('正しい設定は、アラートの動作に素材の種類を書き足した保存用の形になる', () => {
     expect(parseAlertConfig({ triggers: [送られてきたトリガー()] }, 素材の種類)).toEqual({
-      triggers: [{ event: REDEMPTION, rewardId: '報酬ID-乾杯', actions: [保存済みのアラートの動作] }],
+      triggers: [{ event: REDEMPTION, conditions: [{ kind: 'reward', rewardId: '報酬ID-乾杯' }], actions: [保存済みのアラートの動作] }],
     })
   })
 
@@ -113,9 +113,75 @@ describe('parseAlertConfig', () => {
     expect(parseAlertConfig(両方, 素材の種類).triggers[0]?.actions).toHaveLength(2)
   })
 
-  it('報酬IDが null のトリガー（すべての報酬が対象）を受け付ける', () => {
-    const config = parseAlertConfig({ triggers: [送られてきたトリガー({ rewardId: null })] }, 素材の種類)
-    expect(config.triggers[0]).toMatchObject({ event: REDEMPTION, rewardId: null })
+  it('条件が1件もないトリガー（そのイベントならいつでも当てはまる）を受け付ける', () => {
+    const config = parseAlertConfig({ triggers: [送られてきたトリガー({ conditions: [] })] }, 素材の種類)
+    expect(config.triggers[0]).toMatchObject({ event: REDEMPTION, conditions: [] })
+  })
+
+  it('発言者・相手を絞る user の条件を受け付ける', () => {
+    const config = parseAlertConfig({ triggers: [送られてきたトリガー({ conditions: [{ kind: 'user', login: 'tanenobu' }] })] }, 素材の種類)
+    expect(config.triggers[0]?.conditions).toEqual([{ kind: 'user', login: 'tanenobu' }])
+  })
+
+  it('reward と user の報酬とユーザーの条件を並べたトリガーを受け付ける（すべてを満たしたときだけ当てはまる）', () => {
+    const 報酬とユーザーの条件 = [
+      { kind: 'reward', rewardId: '報酬ID-乾杯' },
+      { kind: 'user', login: 'tanenobu' },
+    ]
+    const config = parseAlertConfig({ triggers: [送られてきたトリガー({ conditions: 報酬とユーザーの条件 })] }, 素材の種類)
+
+    expect(config.triggers[0]?.conditions).toEqual(報酬とユーザーの条件)
+  })
+
+  it('conditions が配列でなければ拒否する', () => {
+    expect(() => parseAlertConfig({ triggers: [送られてきたトリガー({ conditions: '報酬ID-乾杯' })] }, 素材の種類)).toThrowError(
+      expect.objectContaining({ problems: ['triggers[0].conditions: 配列で指定してください'] }),
+    )
+  })
+
+  it('対応していない条件の種類は拒否する', () => {
+    expect(() => parseAlertConfig({ triggers: [送られてきたトリガー({ conditions: [{ kind: 'bits' }] })] }, 素材の種類)).toThrowError(
+      expect.objectContaining({ problems: ['triggers[0].conditions[0].kind: reward / user のいずれかを指定してください'] }),
+    )
+  })
+
+  it('同じ種類の条件が2件あれば拒否する', () => {
+    const 重複 = {
+      triggers: [
+        送られてきたトリガー({
+          conditions: [
+            { kind: 'reward', rewardId: '報酬ID-乾杯' },
+            { kind: 'reward', rewardId: '報酬ID-水' },
+          ],
+        }),
+      ],
+    }
+
+    expect(() => parseAlertConfig(重複, 素材の種類)).toThrowError(
+      expect.objectContaining({ problems: ['triggers[0].conditions: 同じ種類の条件（reward）は1件までにしてください'] }),
+    )
+  })
+
+  it('報酬IDが空文字なら拒否する（報酬を選んでいない）', () => {
+    expect(() => parseAlertConfig({ triggers: [送られてきたトリガー({ conditions: [{ kind: 'reward', rewardId: '' }] })] }, 素材の種類)).toThrowError(
+      expect.objectContaining({ problems: ['triggers[0].conditions[0].rewardId: 報酬IDの文字列で指定してください'] }),
+    )
+  })
+
+  it('ユーザー名が空文字なら拒否する', () => {
+    expect(() => parseAlertConfig({ triggers: [送られてきたトリガー({ conditions: [{ kind: 'user', login: '' }] })] }, 素材の種類)).toThrowError(
+      expect.objectContaining({ problems: [`triggers[0].conditions[0].login: 1〜25文字のTwitchのユーザー名で指定してください`] }),
+    )
+  })
+
+  it('チャンネルポイント交換以外のイベントに reward の条件を付けたら拒否する', () => {
+    const 報酬を付けたフォロー = { triggers: [送られてきたトリガー({ event: 'channel.follow' })] }
+
+    expect(() => parseAlertConfig(報酬を付けたフォロー, 素材の種類)).toThrowError(
+      expect.objectContaining({
+        problems: ['triggers[0].conditions[0]: reward の条件はチャンネルポイントの交換にしか付けられません'],
+      }),
+    )
   })
 
   it('トリガーが1件もない設定を受け付ける（アラートをすべて止めたいとき）', () => {
@@ -142,28 +208,17 @@ describe('parseAlertConfig', () => {
   })
 
   it.each(['channel.follow', 'channel.subscribe', 'channel.subscription.message', 'channel.raid'])(
-    'チャンネルポイント交換以外のイベント（%s）は、報酬IDを持たない形で受け付ける',
+    'チャンネルポイント交換以外のイベント（%s）も、条件なしで受け付ける',
     (event) => {
-      expect(parseAlertConfig({ triggers: [{ event, actions: [アラートの動作()] }] }, 素材の種類)).toEqual({
-        triggers: [{ event, actions: [保存済みのアラートの動作] }],
+      expect(parseAlertConfig({ triggers: [{ event, conditions: [], actions: [アラートの動作()] }] }, 素材の種類)).toEqual({
+        triggers: [{ event, conditions: [], actions: [保存済みのアラートの動作] }],
       })
     },
   )
 
-  it('チャンネルポイント交換以外のイベントに報酬IDが付いていても、保存する形には残さない', () => {
-    const config = parseAlertConfig({ triggers: [送られてきたトリガー({ event: 'channel.follow' })] }, 素材の種類)
-    expect(config.triggers[0]).not.toHaveProperty('rewardId')
-  })
-
   it('対応していないイベントの種類は拒否する', () => {
     expect(() => parseAlertConfig({ triggers: [送られてきたトリガー({ event: 'channel.cheer' })] }, 素材の種類)).toThrowError(
       expect.objectContaining({ problems: [expect.stringContaining('triggers[0].event')] }),
-    )
-  })
-
-  it('チャンネルポイント交換で報酬IDが指定されていなければ拒否する（他のイベントでは求めない）', () => {
-    expect(() => parseAlertConfig({ triggers: [送られてきたトリガー({ rewardId: undefined })] }, 素材の種類)).toThrowError(
-      expect.objectContaining({ problems: [expect.stringContaining('triggers[0].rewardId')] }),
     )
   })
 
@@ -229,7 +284,9 @@ describe('parseAlertConfig', () => {
 })
 
 describe('saveAlertConfig / loadAlertConfig', () => {
-  const 保存用の設定: AlertConfig = { triggers: [{ event: REDEMPTION, rewardId: '報酬ID-乾杯', actions: [保存済みのアラートの動作] }] }
+  const 保存用の設定: AlertConfig = {
+    triggers: [{ event: REDEMPTION, conditions: [{ kind: 'reward', rewardId: '報酬ID-乾杯' }], actions: [保存済みのアラートの動作] }],
+  }
 
   it('保存した設定をそのまま読み出せる', async () => {
     const store = createFakeStore()
@@ -241,34 +298,37 @@ describe('saveAlertConfig / loadAlertConfig', () => {
     expect(await loadAlertConfig(createFakeStore())).toEqual(EMPTY_CONFIG)
   })
 
-  it('動作に分ける前の形で保存されていたら、アラートを出す動作1件に読み替える', async () => {
+  it('条件をリストにする前の形（rewardId が直接ぶら下がる）で保存されていたら、黙って読み替えずにエラーにする', async () => {
     const store = createFakeStore()
-    // 動作の概念を入れる前の保存内容（出し方がトリガーに直接ぶら下がっていた）
-    const 旧形式 = {
-      triggers: [{ event: REDEMPTION, rewardId: '報酬ID-乾杯', mediaId: '素材ID-乾杯の動画', mediaKind: 'video', durationSeconds: 8, volume: 0.5, message: '{user} さん、乾杯！' }],
-    }
+    // 条件をリストにする前の保存内容。管理画面から入れ直してもらう（暗黙の読み替えを増やさない）
+    const 旧形式 = { triggers: [{ event: REDEMPTION, rewardId: '報酬ID-乾杯', actions: [保存済みのアラートの動作] }] }
     await store.put('alert-config', JSON.stringify(旧形式))
 
-    expect(await loadAlertConfig(store)).toEqual({ triggers: [{ event: REDEMPTION, rewardId: '報酬ID-乾杯', actions: [保存済みのアラートの動作] }] })
+    await expect(loadAlertConfig(store)).rejects.toThrow(/入れ直して/)
   })
 
-  it('旧形式でも新形式でもない内容が保存されていたら、黙って捨てずにエラーにする', async () => {
+  it('動作に分ける前の形で保存されていたら、黙って読み替えずにエラーにする', async () => {
     const store = createFakeStore()
-    await store.put('alert-config', JSON.stringify({ triggers: [{ event: REDEMPTION, rewardId: '報酬ID-乾杯' }] }))
+    const 旧形式 = {
+      triggers: [{ event: REDEMPTION, rewardId: '報酬ID-乾杯', mediaId: '素材ID-乾杯の動画', mediaKind: 'video', durationSeconds: 8, volume: 0.5, message: '乾杯！' }],
+    }
+    await store.put('alert-config', JSON.stringify(旧形式))
 
     await expect(loadAlertConfig(store)).rejects.toThrow()
   })
 })
 
 describe('toOverlayConfig', () => {
-  it('アラートを出す動作を、オーバーレイ用キー付きの素材のURLを持つ平坦な形に展開する', () => {
-    const config: AlertConfig = { triggers: [{ event: REDEMPTION, rewardId: '報酬ID-乾杯', actions: [保存済みのアラートの動作] }] }
+  it('アラートを出す動作を、オーバーレイ用キー付きの素材のURLを持つ平坦な形に展開する（条件はそのまま渡す）', () => {
+    const config: AlertConfig = {
+      triggers: [{ event: REDEMPTION, conditions: [{ kind: 'reward', rewardId: '報酬ID-乾杯' }], actions: [保存済みのアラートの動作] }],
+    }
 
     expect(toOverlayConfig(config, 'overlay-key_1')).toEqual({
       triggers: [
         {
           event: REDEMPTION,
-          rewardId: '報酬ID-乾杯',
+          conditions: [{ kind: 'reward', rewardId: '報酬ID-乾杯' }],
           media: { kind: 'video', url: `/api/media/${encodeURIComponent('素材ID-乾杯の動画')}?key=overlay-key_1` },
           durationSeconds: 8,
           volume: 0.5,
@@ -278,12 +338,13 @@ describe('toOverlayConfig', () => {
     })
   })
 
-  it('チャンネルポイント交換以外のトリガーは、報酬IDを付けずに渡す', () => {
+  it('条件が1件もないトリガーも、空の条件のまま渡す', () => {
     const config: AlertConfig = {
-      triggers: [{ event: 'channel.raid', actions: [{ ...保存済みのアラートの動作, message: '{user} さん、ありがとう！' }] }],
+      triggers: [{ event: 'channel.raid', conditions: [], actions: [{ ...保存済みのアラートの動作, message: '{user} さん、ありがとう！' }] }],
     }
     expect(toOverlayConfig(config, 'overlay-key_1').triggers[0]).toEqual({
       event: 'channel.raid',
+      conditions: [],
       media: { kind: 'video', url: `/api/media/${encodeURIComponent('素材ID-乾杯の動画')}?key=overlay-key_1` },
       durationSeconds: 8,
       volume: 0.5,
@@ -292,7 +353,9 @@ describe('toOverlayConfig', () => {
   })
 
   it('チャットに送るだけのトリガーはオーバーレイへ渡さない（オーバーレイに送信の役目はない）', () => {
-    const config: AlertConfig = { triggers: [{ event: 'channel.follow', actions: [{ type: 'chat', message: 'フォローありがとうございます' }] }] }
+    const config: AlertConfig = {
+      triggers: [{ event: 'channel.follow', conditions: [], actions: [{ type: 'chat', message: 'フォローありがとうございます' }] }],
+    }
 
     expect(toOverlayConfig(config, 'overlay-key_1').triggers).toEqual([])
   })
@@ -302,6 +365,7 @@ describe('announceActionOf', () => {
   it('トリガーからアナウンスを送る動作を取り出す', () => {
     const trigger: StoredTrigger = {
       event: 'channel.raid',
+      conditions: [],
       actions: [保存済みのアラートの動作, { type: 'announce', message: '{user} さんがレイドしてくれました', color: 'purple' }],
     }
 
@@ -309,18 +373,22 @@ describe('announceActionOf', () => {
   })
 
   it('アナウンスを送る動作がなければ null を返す', () => {
-    expect(announceActionOf({ event: 'channel.raid', actions: [保存済みのアラートの動作] })).toBeNull()
+    expect(announceActionOf({ event: 'channel.raid', conditions: [], actions: [保存済みのアラートの動作] })).toBeNull()
   })
 })
 
 describe('chatActionOf', () => {
   it('トリガーからチャットに送る動作を取り出す', () => {
-    const trigger: StoredTrigger = { event: 'channel.follow', actions: [保存済みのアラートの動作, { type: 'chat', message: 'フォローありがとうございます' }] }
+    const trigger: StoredTrigger = {
+      event: 'channel.follow',
+      conditions: [],
+      actions: [保存済みのアラートの動作, { type: 'chat', message: 'フォローありがとうございます' }],
+    }
 
     expect(chatActionOf(trigger)).toEqual({ type: 'chat', message: 'フォローありがとうございます' })
   })
 
   it('チャットに送る動作がなければ null を返す', () => {
-    expect(chatActionOf({ event: 'channel.follow', actions: [保存済みのアラートの動作] })).toBeNull()
+    expect(chatActionOf({ event: 'channel.follow', conditions: [], actions: [保存済みのアラートの動作] })).toBeNull()
   })
 })
