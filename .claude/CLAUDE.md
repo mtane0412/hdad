@@ -1,6 +1,6 @@
 # プロジェクト固有設定
 
-Twitch配信用素材のリポジトリ。Vite（マルチページ）+ TypeScript + Canvas 2D。ページUIは React + Tailwind + shadcn/ui へ移行中。Cloudflare Workers の静的アセットで公開する。
+HDAD（Hyperfocus-Driven Assistant Director）。Twitch配信用素材と配信のアシスタント（チャットボット・アラート）のリポジトリ。Vite（マルチページ）+ TypeScript + Canvas 2D。ページUIは React + Tailwind + shadcn/ui へ移行中。Cloudflare Workers の静的アセットで公開する。
 
 ## 品質チェックコマンド
 
@@ -9,7 +9,7 @@ npm run lint        # ESLint（警告ゼロ必須）
 npm run type-check  # tsc --noEmit
 npm test            # Vitest
 npm run dev         # 開発サーバー（@cloudflare/vite-plugin がWorkerも動かすので /api/* とログインが使える）
-npm run build       # Viteビルド（dist/client/ と dist/stream_assets/）
+npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 ```
 
 ## 構成上の約束

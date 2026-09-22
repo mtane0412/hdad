@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest'
 import { ApiError } from '@/core/api'
 import { createBotApi, type ModerationSettings } from './api'
 
-const サイト = 'https://stream-assets.example.com'
+const サイト = 'https://hdad.example.com'
 
 const 接続済みのbot = { userId: '67890', login: 'haishinsha_bot', missingScopes: [], isModerator: true }
 

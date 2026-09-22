@@ -1,4 +1,6 @@
-# stream-assets
+# HDAD
+
+**Hyperfocus-Driven Assistant Director** — Twitch配信の進行を裏で受け持つアシスタントです。
 
 Twitch配信用の各種素材を置くリポジトリです。Cloudflare Workers の静的アセットとして公開し、OBSのブラウザソースからURLで読み込みます。
 
@@ -21,7 +23,7 @@ Twitch配信用の各種素材を置くリポジトリです。Cloudflare Worker
 ギャラリー（`wallpaper/`）で背景を選び、パラメータを調整して、表示されたURLをOBSにコピーします。
 
 ```
-https://stream-assets.<サブドメイン>.workers.dev/wallpaper/<背景ID>/?<パラメータ>=<値>&...
+https://hdad.<サブドメイン>.workers.dev/wallpaper/<背景ID>/?<パラメータ>=<値>&...
 ```
 
 - **パス**で背景の種類を、**クエリパラメータ**で色や速さを切り替えます
@@ -56,7 +58,7 @@ https://stream-assets.<サブドメイン>.workers.dev/wallpaper/<背景ID>/?<�
 ギャラリー（`clock/`）で時計を選び、パラメータを調整して、表示されたURLをOBSにコピーします。
 
 ```
-https://stream-assets.<サブドメイン>.workers.dev/clock/<時計ID>/?<パラメータ>=<値>&...
+https://hdad.<サブドメイン>.workers.dev/clock/<時計ID>/?<パラメータ>=<値>&...
 ```
 
 - 表示の有無を切り替えるパラメータは `true` / `false` で指定します（`1` や `yes` はエラーになります）
@@ -80,7 +82,7 @@ Twitchのチャット欄を配信画面に重ねます。背景は透過です�
 ギャラリー（`chat/`）でチャンネル名を入れ、パラメータを調整して、表示されたURLをOBSにコピーします。ギャラリーのプレビューは常にサンプルの書き込みです。
 
 ```
-https://stream-assets.<サブドメイン>.workers.dev/chat/<デザインID>/?channel=<チャンネル名>&<パラメータ>=<値>&...
+https://hdad.<サブドメイン>.workers.dev/chat/<デザインID>/?channel=<チャンネル名>&<パラメータ>=<値>&...
 ```
 
 - Twitchへは匿名（読み取り専用）で接続するため、ログインやトークンは不要です。`channel`（`twitch.tv/` の後ろの部分）だけ指定します
@@ -113,7 +115,7 @@ https://stream-assets.<サブドメイン>.workers.dev/chat/<デザインID>/?ch
 Twitchのイベントに合わせて、画像・動画・音声と文言を配信画面の中央に表示するオーバーレイです。1件ずつ順番に再生し、再生中に届いたものは待たせます。利用には「デプロイ」の節の Twitchログインの設定が必要です。
 
 ```text
-https://stream-assets.<サブドメイン>.workers.dev/alerts/?key=<オーバーレイ用キー>
+https://hdad.<サブドメイン>.workers.dev/alerts/?key=<オーバーレイ用キー>
 ```
 
 | パラメータ | 内容 |
@@ -143,7 +145,7 @@ npm run dev         # 開発サーバー（Workerも一緒に動く。http://loc
 npm run lint        # Lint（警告ゼロ必須）
 npm run type-check  # 型チェック
 npm test            # テスト
-npm run build       # dist/ へビルド（静的アセットは dist/client/、Workerとデプロイ用の設定は dist/stream_assets/）
+npm run build       # dist/ へビルド（静的アセットは dist/client/、Workerとデプロイ用の設定は dist/hdad/）
 npm run preview:worker  # ビルドして、Workersと同じ配信挙動をローカルで確認（wrangler dev）
 ```
 
@@ -182,7 +184,7 @@ Cloudflare Workers で公開します。設定は `wrangler.jsonc` にあり、V
 
 下のボタンを押すと、このリポジトリがあなたのGitHubアカウントにフォークされ、Cloudflareが `wrangler.jsonc` を読んでKV（`STORE`）・R2（`MEDIA`）・D1（`DB`）を作り、`.dev.vars.example` にある5つのシークレットの入力を求めたうえで、デプロイまで行います（入力欄に出る説明は `package.json` の `cloudflare.bindings` に書いてあります）。
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/mtane0412/stream-assets)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/mtane0412/hdad)
 
 押す前に、次の2つを済ませてください。
 
@@ -192,7 +194,7 @@ Cloudflare Workers で公開します。設定は `wrangler.jsonc` にあり、V
 ボタンを押したあとは、次の順で仕上げます。
 
 1. 画面の案内に従ってリソースを作り、5つのシークレット（`TWITCH_CLIENT_ID`・`TWITCH_CLIENT_SECRET`・`TWITCH_BROADCASTER_ID`・`SESSION_SECRET`・`EVENTSUB_SECRET`）を入力してデプロイする
-2. 公開されたURL（`https://stream-assets.<サブドメイン>.workers.dev/`）を控え、Twitch開発者コンソールのアプリのOAuthのリダイレクトURLを `https://<控えたドメイン>/api/auth/callback` に変える
+2. 公開されたURL（`https://hdad.<サブドメイン>.workers.dev/`）を控え、Twitch開発者コンソールのアプリのOAuthのリダイレクトURLを `https://<控えたドメイン>/api/auth/callback` に変える
 3. 公開されたURLを開き、「Twitchでログイン」から配信者のアカウントでログインする。`TWITCH_BROADCASTER_ID` と異なるアカウントは拒否されます。このログインで、配信の記録のためのWebhook宛ての購読も揃います
 4. `/media/` で素材をアップロードし、`/triggers/` でトリガーを決めて、OBS用のURLをコピーする
 
@@ -205,7 +207,7 @@ Cloudflare Workers で公開します。設定は `wrangler.jsonc` にあり、V
 1. Cloudflareダッシュボードの Workers & Pages で「Import a repository」を選び、このリポジトリを接続する
 2. ビルドコマンドに `npm run build`、デプロイコマンドに `npm run deploy` を指定する（`npm run deploy` はデプロイに続けて、配信の記録（後述）のテーブルのマイグレーションも適用します）
 3. `.dev.vars.example` にある5つのシークレットを、`npx wrangler secret put <名前>` かダッシュボードの Settings > Variables and Secrets で設定する
-4. 公開されたURL（`https://stream-assets.<サブドメイン>.workers.dev/`）を開いて表示を確認する
+4. 公開されたURL（`https://hdad.<サブドメイン>.workers.dev/`）を開いて表示を確認する
 
 手元から直接デプロイする場合は、`npx wrangler login` のあとに `npm run build && npm run deploy` を実行します（`npm run deploy` 自体はビルドを行いません。Workers Builds とDeployボタンがビルドを別に実行するため、二重にビルドしないようにしてあります）。
 
@@ -342,7 +344,7 @@ botを接続すると、チャットの発言（EventSubの `channel.chat.messag
 
 ### 配信の記録
 
-Twitchには過去の視聴者数の推移を返すAPIがないため、Worker が cron（`wrangler.jsonc` の `triggers.crons`。5分おき）でいまの値を取得し、Cloudflare D1（`DB`）に貯めます。グラフにできるのは、記録を始めた時点より後の分だけです。D1のデータベースも、KV・R2と同じくデプロイ時に wrangler が自動で作成します（名前は `stream-assets-db`）。
+Twitchには過去の視聴者数の推移を返すAPIがないため、Worker が cron（`wrangler.jsonc` の `triggers.crons`。5分おき）でいまの値を取得し、Cloudflare D1（`DB`）に貯めます。グラフにできるのは、記録を始めた時点より後の分だけです。D1のデータベースも、KV・R2と同じくデプロイ時に wrangler が自動で作成します（名前は `hdad-db`）。
 
 テーブルの定義は `migrations/` にあり、デプロイとは別に適用します。データベースは最初のデプロイで作られるので、順番は「デプロイ → マイグレーション」です。
 

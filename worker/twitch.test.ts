@@ -126,7 +126,7 @@ describe('createSubscription', () => {
       type: 'channel.raid',
       version: '1',
       condition: { to_broadcaster_user_id: '12345' },
-      transport: { method: 'webhook', callback: 'https://stream-assets.example.com/api/eventsub/webhook', secret: 'テスト用のWebhookシークレット' },
+      transport: { method: 'webhook', callback: 'https://hdad.example.com/api/eventsub/webhook', secret: 'テスト用のWebhookシークレット' },
     } as const
     await クライアントを作る(fetchImpl).createSubscription('test-access-token', subscription)
 
@@ -145,7 +145,7 @@ describe('createSubscription', () => {
         type: 'channel.follow',
         version: '2',
         condition: {},
-        transport: { method: 'webhook', callback: 'https://stream-assets.example.com/api/eventsub/webhook', secret: 'テスト用のWebhookシークレット' },
+        transport: { method: 'webhook', callback: 'https://hdad.example.com/api/eventsub/webhook', secret: 'テスト用のWebhookシークレット' },
       }),
     ).rejects.toMatchObject({ status: 403, message: expect.stringContaining('subscription missing proper authorization') })
   })

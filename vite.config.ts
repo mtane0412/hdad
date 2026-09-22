@@ -8,7 +8,7 @@
  * index.html は /wallpaper/ などネストしたパスでも返されるので、base は絶対パス（/）にしてアセットをどのパスからでも解決できるようにする。
  *
  * @cloudflare/vite-plugin が `npm run dev` の中で Worker（worker/index.ts）を動かすので、開発サーバーでも /api/* とログインが使える。
- * ビルドの出力は dist/client/（静的アセット）と dist/stream_assets/（Workerとデプロイ用の wrangler.json）に分かれ、
+ * ビルドの出力は dist/client/（静的アセット）と dist/hdad/（Workerとデプロイ用の wrangler.json）に分かれ、
  * `wrangler deploy` は .wrangler/deploy/config.json を通じて後者の設定を使う。
  */
 import { readdirSync } from 'node:fs'

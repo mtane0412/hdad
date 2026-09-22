@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest'
 import { createStatsApi } from './api'
 
-const サイト = 'https://stream-assets.example.com'
+const サイト = 'https://hdad.example.com'
 
 const 金曜夜の配信 = {
   id: '配信ID-2026-09-19',

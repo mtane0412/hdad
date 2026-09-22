@@ -3,7 +3,7 @@
  *
  * Viteのビルド出力を Workers 静的アセットとして配信し、/api/* だけを Worker のコード（worker/index.ts）で処理する。
  * これはビルドへの入力となる設定で、assets.directory は書かない。@cloudflare/vite-plugin がビルド時に
- * dist/stream_assets/wrangler.json を出力し、そこに静的アセットの場所（dist/client/）を書き込む。wrangler はそちらを使う。
+ * dist/hdad/wrangler.json を出力し、そこに静的アセットの場所（dist/client/）を書き込む。wrangler はそちらを使う。
  * 素材ページは <カテゴリ>/<id>/index.html の形の実ファイルで、末尾スラッシュなしのURLは html_handling によって末尾スラッシュ付きへリダイレクトさせる。
  * ページUI（/wallpaper/・/admin/ など）は実ファイルを持たず、not_found_handling によってトップの index.html を返してアプリに描かせる。
  * 存在しないパスでも index.html が返るので、「見つからない」画面はアプリが出す。
@@ -19,7 +19,7 @@
  */
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "stream-assets",
+  "name": "hdad",
   "main": "./worker/index.ts",
   "compatibility_date": "2026-09-01",
   "assets": {

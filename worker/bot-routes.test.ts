@@ -19,7 +19,7 @@ import { loadToken, saveToken, type StoredToken } from './token'
 const 現在時刻 = Date.UTC(2026, 8, 21, 12, 0, 0)
 const 配信者のID = '12345'
 const botのID = '67890'
-const サイト = 'https://stream-assets.example.com'
+const サイト = 'https://hdad.example.com'
 /** Twitchが決めているチャット本文の上限 */
 const 本文の上限 = 500
 
