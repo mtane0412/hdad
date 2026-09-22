@@ -15,6 +15,7 @@ import {
   type ActionInput,
   type AlertEvent,
   type AnnouncementColor,
+  type MediaKind,
   type Reward,
   type StoredTrigger,
   type TriggerInput,
@@ -30,6 +31,9 @@ const ANY_REWARD = ''
 const DEFAULT_DURATION_SECONDS = 5
 /** アナウンスを使わないトリガーの色の既定値（チャンネルの色） */
 const DEFAULT_ANNOUNCEMENT_COLOR: AnnouncementColor = 'primary'
+
+/** 素材の種類の日本語のラベル */
+export const kindLabels: Readonly<Record<MediaKind, string>> = { image: '画像', video: '動画', audio: '音声' }
 
 /** アナウンスの色の日本語のラベル */
 const COLOR_LABELS: Readonly<Record<AnnouncementColor, string>> = {
