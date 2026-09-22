@@ -8,7 +8,7 @@
  * ふだんの再生ではWorkerが差し込み語（{user} など）を置き換えたあとの文言を返すので、ここでも置き換え済みの文言を並べる。
  * 画像はこのリポジトリで描いたもので、再配布の制限はない。
  */
-import type { Alert } from './resolve'
+import type { Alert } from './alert'
 import sampleImageUrl from './sample.svg'
 
 /** サンプルの出し方。文言以外はどのイベントでも同じにする */

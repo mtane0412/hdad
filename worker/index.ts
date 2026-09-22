@@ -25,9 +25,8 @@
  * | GET  /api/admin/stats/sessions/:id | セッション   | 配信セッションと視聴者数の時系列 |
  * | GET  /api/admin/stats/followers  | セッション     | フォロワー数の時系列 |
  * | GET  /api/admin/stats/failures   | セッション     | 記録の収集の失敗の一覧 |
- * | POST /api/eventsub/subscriptions | オーバーレイ用キー | EventSubの購読を代行する |
  * | POST /api/eventsub/webhook       | Twitchの署名   | EventSubの通知を受け、イベントの件数と配信の開始・終了を記録する |
- * | POST /api/overlay/alert          | オーバーレイ用キー | 届いた通知に対して、再生するアラートを返す |
+ * | GET  /api/overlay/socket         | オーバーレイ用キー | オーバーレイからのWebSocketの接続を受け、アラートの配送先へ引き渡す |
  * | GET  /api/media/:id              | オーバーレイ用キーかセッション | 素材の中身を返す |
  *
  * これとは別に、cron（wrangler.jsonc の triggers.crons）から scheduled が呼ばれ、配信の記録を収集する（collect.ts）。
@@ -51,7 +50,7 @@ import { ConfigError } from './alert-config'
 import { CALLBACK_PATH, callback, login, logout, me } from './auth-routes'
 import { collectStats } from './collect'
 import { HttpError, STATUS, errorResponse, type Context, type Env } from './http'
-import { media, overlayAlert, subscribe } from './overlay-routes'
+import { media, overlaySocket } from './overlay-routes'
 import { getStatsFailures, getStatsFollowers, getStatsSession, getStatsSessions } from './stats-routes'
 import { AuthError } from './token'
 import { WEBHOOK_PATH, eventsubWebhook } from './webhook-routes'
@@ -59,6 +58,7 @@ import { chatBadges, chatChannel, chatCheermotes } from './chat-routes'
 import { TwitchApiError, createTwitchClient, type TwitchClient } from './twitch'
 
 export type { Env } from './http'
+export { AlertChannel } from './alert-channel'
 
 interface Dependencies {
   fetch: typeof fetch
@@ -103,12 +103,11 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/admin/stats/sessions/:id', handle: getStatsSession },
   { method: 'GET', path: '/api/admin/stats/followers', handle: getStatsFollowers },
   { method: 'GET', path: '/api/admin/stats/failures', handle: getStatsFailures },
-  { method: 'POST', path: '/api/eventsub/subscriptions', handle: subscribe },
   { method: 'POST', path: WEBHOOK_PATH, handle: eventsubWebhook },
   { method: 'GET', path: '/api/chat/channel', handle: chatChannel },
   { method: 'GET', path: '/api/chat/badges', handle: chatBadges },
   { method: 'GET', path: '/api/chat/cheermotes', handle: chatCheermotes },
-  { method: 'POST', path: '/api/overlay/alert', handle: overlayAlert },
+  { method: 'GET', path: '/api/overlay/socket', handle: overlaySocket },
   { method: 'GET', path: '/api/media/:id', handle: media },
 ]
 

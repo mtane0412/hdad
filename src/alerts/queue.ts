@@ -4,7 +4,7 @@
  * アラートは1件ずつ順番に再生する（重ねると素材も音も判別できなくなるため）。
  * 状態は「再生中の1件」と「待っているもの」だけで、どちらの操作も新しい状態を返す。
  */
-import type { Alert } from './resolve'
+import type { Alert } from './alert'
 
 export interface AlertQueue {
   /** 再生中のアラート。何も再生していなければ null */

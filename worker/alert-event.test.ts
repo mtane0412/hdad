@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { AlertConfig, StoredCondition, StoredTrigger } from './alert-config'
-import { alertFor, announcementFor, chatMessageFor, extract, fillMessage, matches, requiresFirstChatOfStream, type ConditionState } from './alert-event'
+import { alertFor, announcementFor, chatMessageFor, extract, fillMessage, hasAlertAction, matches, requiresFirstChatOfStream, type ConditionState } from './alert-event'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const CHAT_MESSAGE = 'channel.chat.message'
@@ -389,6 +389,27 @@ describe('requiresFirstChatOfStream', () => {
 
   it('別のイベントの通知では false', () => {
     expect(requiresFirstChatOfStream({ triggers: [初回のトリガー] }, 'channel.follow')).toBe(false)
+  })
+})
+
+describe('hasAlertAction', () => {
+  const アラートのトリガー: StoredTrigger = {
+    event: CHAT_MESSAGE,
+    conditions: [],
+    actions: [{ type: 'alert', mediaId: '素材ID', mediaKind: 'image', durationSeconds: 5, volume: 1, message: 'ありがとう' }],
+  }
+  const チャットだけのトリガー: StoredTrigger = { event: CHAT_MESSAGE, conditions: [], actions: [{ type: 'chat', message: 'どうも' }] }
+
+  it('そのイベントにアラートを出す動作を持つトリガーがあれば true', () => {
+    expect(hasAlertAction({ triggers: [チャットだけのトリガー, アラートのトリガー] }, CHAT_MESSAGE)).toBe(true)
+  })
+
+  it('アラートを出す動作が1件もなければ false（オーバーレイ用キーを読みに行かずに済ませるため）', () => {
+    expect(hasAlertAction({ triggers: [チャットだけのトリガー] }, CHAT_MESSAGE)).toBe(false)
+  })
+
+  it('別のイベントの通知では false', () => {
+    expect(hasAlertAction({ triggers: [アラートのトリガー] }, 'channel.follow')).toBe(false)
   })
 })
 

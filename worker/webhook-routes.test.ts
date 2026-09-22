@@ -18,16 +18,27 @@ import { saveModerationConfig } from './moderation-config'
 import type { ModerationConfig, ModerationRule } from './chat-moderation'
 import { saveAlertConfig, type StoredTrigger } from './alert-config'
 import { saveToken } from './token'
+import { createFakeAlertChannel } from './fake-alert-channel'
+
+interface 環境の条件 {
+  /** アラートの配送先（Durable Object）が失敗を返す場合 */
+  配送は失敗する?: boolean
+  /** オーバーレイ用キー。null なら未発行（一度もログインしていない状態） */
+  オーバーレイ用キー?: string | null
+}
 
 const 現在時刻 = Date.parse('2026-09-21T12:30:00Z')
 const 配信者のID = '12345'
 const サイト = 'https://stream-assets.example.com'
 const シークレット = 'テスト用のWebhookシークレット'
 
-const 環境を作る = () => {
+const 発行済みのオーバーレイ用キー = 'issued-overlay-key-0123456789abcdefghij'
+
+const 環境を作る = ({ 配送は失敗する = false, オーバーレイ用キー = 発行済みのオーバーレイ用キー }: 環境の条件 = {}) => {
   const db = createFakeDatabase()
+  const 配送 = createFakeAlertChannel({ 失敗する: 配送は失敗する })
   const env = {
-    STORE: createFakeStore(),
+    STORE: createFakeStore(オーバーレイ用キー === null ? {} : { 'overlay-key': オーバーレイ用キー }),
     MEDIA: createFakeBucket(),
     DB: db,
     TWITCH_CLIENT_ID: 'test-client-id',
@@ -35,8 +46,9 @@ const 環境を作る = () => {
     TWITCH_BROADCASTER_ID: 配信者のID,
     SESSION_SECRET: 'テスト用のセッション秘密鍵',
     EVENTSUB_SECRET: シークレット,
+    ALERTS: 配送.namespace,
   } satisfies Env
-  return { env, db }
+  return { env, db, 配送 }
 }
 
 const Twitchへは通信しない = async (input: RequestInfo | URL): Promise<Response> => {
@@ -1044,5 +1056,116 @@ describe('チャットの自動モデレーション', () => {
 
     expect(response.status).toBe(204)
     expect(await listFailures(env.DB)).toMatchObject([{ code: 'moderation-failed', message: expect.stringContaining('401') }])
+  })
+})
+
+describe('オーバーレイへのアラートの押し出し', () => {
+  const botのID = '67890'
+
+  const アラートを出すトリガー = (event: StoredTrigger['event']): StoredTrigger => ({
+    event,
+    conditions: [],
+    actions: [{ type: 'alert', mediaId: 'media-kanpai', mediaKind: 'video', durationSeconds: 5, volume: 0.5, message: '{user} さん、ありがとう！' }],
+  })
+
+  const フォローの通知 = { subscription: { type: 'channel.follow' }, event: { user_name: '田中太郎', user_login: 'tanaka_taro' } }
+
+  const 発言の通知 = (chatterUserId = '11111', messageId = 'chat-message-1') => ({
+    subscription: { type: 'channel.chat.message' },
+    event: {
+      broadcaster_user_id: 配信者のID,
+      chatter_user_id: chatterUserId,
+      chatter_user_login: 'shichousha',
+      chatter_user_name: '視聴者さん',
+      message_id: messageId,
+      message: { text: 'おはようございます' },
+      badges: [],
+    },
+  })
+
+  const botを接続する = (env: Env) =>
+    saveToken(env.STORE, 'bot', {
+      accessToken: 'bot-access-token',
+      refreshToken: 'bot-refresh-token',
+      expiresAt: 現在時刻 + 60 * 60 * 1000,
+      scopes: ['user:bot', 'user:read:chat', 'user:write:chat'],
+      userId: botのID,
+      login: 'haishinsha_bot',
+    })
+
+  it('当てはまるトリガーのアラートを、素材のURLにオーバーレイ用キーを付けて押し出す', async () => {
+    const { env, 配送 } = 環境を作る()
+    await saveAlertConfig(env.STORE, { triggers: [アラートを出すトリガー('channel.follow')] })
+
+    const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env)
+
+    expect(response.status).toBe(204)
+    expect(配送.押し出されたアラート).toEqual([
+      {
+        media: { kind: 'video', url: `/api/media/media-kanpai?key=${発行済みのオーバーレイ用キー}` },
+        durationSeconds: 5,
+        volume: 0.5,
+        text: '田中太郎 さん、ありがとう！',
+      },
+    ])
+  })
+
+  it('当てはまるトリガーがなければ、何も押し出さない', async () => {
+    const { env, 配送 } = 環境を作る()
+
+    await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env)
+
+    expect(配送.押し出されたアラート).toHaveLength(0)
+  })
+
+  it('botが未接続でも、チャットの発言でアラートを押し出す（アラートの再生にbotは要らない）', async () => {
+    const { env, 配送 } = 環境を作る()
+    await saveAlertConfig(env.STORE, { triggers: [アラートを出すトリガー('channel.chat.message')] })
+
+    const response = await 呼び出す(Twitchからの通知({ body: 発言の通知() }), env)
+
+    expect(response.status).toBe(204)
+    expect(配送.押し出されたアラート).toMatchObject([{ text: '視聴者さん さん、ありがとう！' }])
+  })
+
+  it('bot自身の発言ではアラートを押し出さない（自分の応答に反応して止まらなくなるため）', async () => {
+    const { env, 配送 } = 環境を作る()
+    await saveAlertConfig(env.STORE, { triggers: [アラートを出すトリガー('channel.chat.message')] })
+    await botを接続する(env)
+
+    await 呼び出す(Twitchからの通知({ body: 発言の通知(botのID) }), env)
+
+    expect(配送.押し出されたアラート).toHaveLength(0)
+  })
+
+  it('同じ通知が再送されても、二度は押し出さない', async () => {
+    const { env, 配送 } = 環境を作る()
+    await saveAlertConfig(env.STORE, { triggers: [アラートを出すトリガー('channel.follow')] })
+
+    await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env)
+    await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env)
+
+    expect(配送.押し出されたアラート).toHaveLength(1)
+  })
+
+  it('配送先が失敗しても、Twitchへは2xxを返して失敗として記録する（再送で二重に鳴らさないため）', async () => {
+    const { env } = 環境を作る({ 配送は失敗する: true })
+    await saveAlertConfig(env.STORE, { triggers: [アラートを出すトリガー('channel.follow')] })
+
+    const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env)
+
+    expect(response.status).toBe(204)
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'alert-push-failed' }])
+  })
+
+  it('オーバーレイ用キーが未発行なら押し出さず、失敗として記録する（素材のURLを作れないため）', async () => {
+    const { env, 配送 } = 環境を作る({ オーバーレイ用キー: null })
+    await saveAlertConfig(env.STORE, { triggers: [アラートを出すトリガー('channel.follow')] })
+
+    const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env)
+
+    expect(response.status).toBe(204)
+    expect(配送.押し出されたアラート).toHaveLength(0)
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'alert-push-failed' }])
   })
 })

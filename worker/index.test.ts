@@ -4,13 +4,14 @@
  * Twitchへの通信とKVを差し替え、経路ごとの振る舞いを確認する。特に重要なのは次の3点。
  * - 配信者本人以外のTwitchアカウントではログインできないこと
  * - セッションのない人が管理用APIを使えないこと
- * - オーバーレイ用キーを知らない人が購読の代行を使えないこと
+ * - 知らないパスや違うメソッドを黙って通さないこと
  */
 import { describe, expect, it } from 'vitest'
 import { BOT_SCOPES, REQUIRED_SCOPES } from './eventsub'
 import { webhookEventTypes } from './eventsub-webhook'
 import { createFakeBucket } from './fake-bucket'
 import { createFakeDatabase } from './fake-database'
+import { createFakeAlertChannel } from './fake-alert-channel'
 import { createFakeStore } from './fake-store'
 import { handleRequest, type Env } from './index'
 import { createSessionToken } from './session'
@@ -31,6 +32,7 @@ const 環境を作る = (store = createFakeStore()) => {
     TWITCH_BROADCASTER_ID: 配信者のID,
     SESSION_SECRET: 'テスト用のセッション秘密鍵',
     EVENTSUB_SECRET: 'テスト用のWebhookシークレット',
+    ALERTS: createFakeAlertChannel().namespace,
   } satisfies Env
   return { env, store }
 }
@@ -374,62 +376,6 @@ describe('POST /api/auth/logout', () => {
     const response = await 呼び出す(new Request(`${サイト}/api/auth/logout`, { method: 'POST' }), env)
     expect(response.status).toBe(204)
     expect(response.headers.getSetCookie()[0]).toContain('Max-Age=0')
-  })
-})
-
-describe('POST /api/eventsub/subscriptions', () => {
-  const 購読を頼む = (body: unknown) =>
-    new Request(`${サイト}/api/eventsub/subscriptions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-
-  it('正しいオーバーレイ用キーなら、保管しているトークンで購読を登録する', async () => {
-    const { env } = 環境を作る()
-    const twitch = Twitchの代役(配信者のID)
-    await ログインする(env, twitch.fetchImpl)
-    const overlayKey = env.STORE.entries.get('overlay-key')
-    // ログイン時のWebhook宛ての購読を数えないよう、ここまでの通信の記録を捨てる
-    twitch.requests.length = 0
-
-    const response = await 呼び出す(購読を頼む({ key: overlayKey, sessionId: 'セッションID' }), env, twitch.fetchImpl)
-
-    expect(response.status).toBe(200)
-    const body = (await response.json()) as { types: string[] }
-    expect(body.types).toContain('channel.channel_points_custom_reward_redemption.add')
-    const helixRequests = twitch.requests.filter((request) => request.url.includes('/helix/eventsub/subscriptions'))
-    expect(helixRequests).toHaveLength(body.types.length)
-  })
-
-  it('オーバーレイ用キーが違えば401で拒否し、Twitchへは何も送らない', async () => {
-    const { env } = 環境を作る(createFakeStore({ 'overlay-key': '発行済みのオーバーレイ用キー' }))
-    const twitch = Twitchの代役(配信者のID)
-
-    const response = await 呼び出す(購読を頼む({ key: '当てずっぽうのキー', sessionId: 'セッションID' }), env, twitch.fetchImpl)
-
-    expect(response.status).toBe(401)
-    expect(await エラーコード(response)).toBe('invalid-overlay-key')
-    expect(twitch.requests).toHaveLength(0)
-  })
-
-  it('キーがまだ発行されていない（一度もログインしていない）場合も401で拒否する', async () => {
-    const { env } = 環境を作る()
-    const response = await 呼び出す(購読を頼む({ key: '', sessionId: 'セッションID' }), env)
-    expect(response.status).toBe(401)
-  })
-
-  it('キーは正しいがトークンが保存されていなければ、未ログインのエラーを返す', async () => {
-    const { env } = 環境を作る(createFakeStore({ 'overlay-key': '発行済みのオーバーレイ用キー' }))
-    const response = await 呼び出す(購読を頼む({ key: '発行済みのオーバーレイ用キー', sessionId: 'セッションID' }), env)
-    expect(response.status).toBe(401)
-    expect(await エラーコード(response)).toBe('not-logged-in')
-  })
-
-  it('本文の形式が違えば400を返す', async () => {
-    const { env } = 環境を作る(createFakeStore({ 'overlay-key': '発行済みのオーバーレイ用キー' }))
-    const response = await 呼び出す(購読を頼む({ key: '発行済みのオーバーレイ用キー' }), env)
-    expect(response.status).toBe(400)
   })
 })
 

@@ -1,3 +1,9 @@
+/**
+ * ブラウザ向け（src/）の型チェック設定
+ *
+ * Worker（worker/）は Cloudflare のランタイムの型（@cloudflare/workers-types）を使い、DOMの型とは同時に読めないため、
+ * tsconfig.worker.json に分けてある。npm run type-check は両方を走らせる。
+ */
 {
   "compilerOptions": {
     "target": "ES2022",
@@ -15,5 +21,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src", "worker", "vite.config.ts", "eslint.config.js"]
+  "include": ["src", "vite.config.ts", "eslint.config.js"]
 }

@@ -9,6 +9,8 @@
  * 存在しないパスでも index.html が返るので、「見つからない」画面はアプリが出す。
  *
  * STORE（KV）にはTwitchのトークン・オーバーレイ用キー・アラートの設定を、MEDIA（R2）にはアラートの素材を、DB（D1）には配信の記録を保存する。
+ * ALERTS（Durable Object）はオーバーレイとのWebSocketの接続を保持し、Workerが当てはめたアラートを配る（worker/alert-channel.ts）。
+ * Durable Object はデプロイする人が用意するものではなく、migrations の指定から Cloudflare が作る（無料枠で使うため SQLite を土台にする）。
  * id やバケット名を書いていないのは、デプロイ時に wrangler が自動で作成して結び付けるため（フォークした人が書き換えずに済む）。
  * R2は無料枠だけを使う場合でも、事前にダッシュボードでR2を有効にしておく必要がある（README参照）。
  * D1のテーブルは migrations/ にあり、デプロイとは別に適用する（README参照）。
@@ -28,5 +30,7 @@
   "kv_namespaces": [{ "binding": "STORE" }],
   "r2_buckets": [{ "binding": "MEDIA" }],
   "d1_databases": [{ "binding": "DB" }],
+  "durable_objects": { "bindings": [{ "name": "ALERTS", "class_name": "AlertChannel" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["AlertChannel"] }],
   "triggers": { "crons": ["*/5 * * * *"] }
 }

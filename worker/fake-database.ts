@@ -5,10 +5,17 @@
  * テーブルの定義とSQLの両方を本物に近い形で確かめられる。Worker のテストだけが使う（プロダクションコードからは参照しない）。
  */
 import { readFileSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import type { Database, DatabaseStatement, DatabaseValue } from './database'
 
-const MIGRATIONS_DIR = new URL('../migrations/', import.meta.url)
+/**
+ * migrations/ の場所。
+ *
+ * URLではなく文字列のパスで持つのは、Worker用の型チェック（tsconfig.worker.json）では
+ * URL が Cloudflare のランタイムのものになり、node:fs が受け取る URL と別物として扱われるため。
+ */
+const MIGRATIONS_DIR = join(import.meta.dirname, '../migrations')
 
 /** fake が作った文だけが持つ、同期での実行 */
 interface FakeStatement extends DatabaseStatement {
@@ -21,7 +28,7 @@ const isFakeStatement = (statement: DatabaseStatement): statement is FakeStateme
 export const createFakeDatabase = (): Database & { sqlite: DatabaseSync } => {
   const sqlite = new DatabaseSync(':memory:')
   for (const fileName of readdirSync(MIGRATIONS_DIR).sort()) {
-    sqlite.exec(readFileSync(new URL(fileName, MIGRATIONS_DIR), 'utf8'))
+    sqlite.exec(readFileSync(join(MIGRATIONS_DIR, fileName), 'utf8'))
   }
 
   const createStatement = (sql: string, values: DatabaseValue[]): FakeStatement => ({
