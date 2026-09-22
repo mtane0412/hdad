@@ -20,6 +20,13 @@ const SUBSCRIPTION_MESSAGE = 'channel.subscription.message'
 const RAID = 'channel.raid'
 const CHAT_MESSAGE = 'channel.chat.message'
 
+/**
+ * Twitchへ送る1通の上限（チャットもアナウンスも500文字。worker/alert-config.ts の検証と同じ値）。
+ *
+ * 保存時に文言そのものは500文字以内に収めているが、{message}（発言の本文。最大500文字）を差し込むと超えることがある。
+ */
+const MAX_CHAT_MESSAGE_LENGTH = 500
+
 /** Twitchが返すティアの値と、文言に差し込む表記の対応 */
 const TIER_LABELS: Readonly<Record<string, string>> = { '1000': '1', '2000': '2', '3000': '3' }
 
@@ -204,19 +211,34 @@ const filledActionFor = <Action extends { message: string }>(
 /**
  * 通知に当てはまるトリガーを探し、チャットへ送る文言を決める。
  *
+ * 差し込みの結果がTwitchの上限（500文字）を超えていれば、末尾を … にして収める。
+ *
  * @returns 送る文言。当てはまるトリガーがなければ null
  * @throws 通知の中身が想定した形でない場合（チャットに送るトリガーがあるイベント種別に限る）
  */
-export const chatMessageFor = (config: AlertConfig, subscriptionType: string, body: unknown): string | null =>
-  filledActionFor(config, subscriptionType, body, chatActionOf)?.message ?? null
+/**
+ * Twitchへ送る文言を上限に収める。超えていれば末尾を … にする。
+ *
+ * 上限を超えたままではTwitchが1通まるごと拒み、お礼がまったく送られない（`alert-chat-failed` として記録されるだけになる）。
+ * 切れていることが配信者に分かるよう、黙って切らずに末尾へ … を付ける。
+ */
+const withinChatLimit = (message: string): string =>
+  message.length <= MAX_CHAT_MESSAGE_LENGTH ? message : `${message.slice(0, MAX_CHAT_MESSAGE_LENGTH - 1)}…`
+
+export const chatMessageFor = (config: AlertConfig, subscriptionType: string, body: unknown): string | null => {
+  const action = filledActionFor(config, subscriptionType, body, chatActionOf)
+  return action === null ? null : withinChatLimit(action.message)
+}
 
 /**
  * 通知に当てはまるトリガーを探し、送るアナウンス（文言と色）を決める。
  *
- * 選び方は chatMessageFor と同じで、複数当てはまる場合は先に書かれたものを使う。
+ * 選び方と上限への収め方は chatMessageFor と同じで、複数当てはまる場合は先に書かれたものを使う。
  *
  * @returns 送るアナウンス。当てはまるトリガーがなければ null
  * @throws 通知の中身が想定した形でない場合（アナウンスを送るトリガーがあるイベント種別に限る）
  */
-export const announcementFor = (config: AlertConfig, subscriptionType: string, body: unknown): StoredAnnounceAction | null =>
-  filledActionFor(config, subscriptionType, body, announceActionOf)
+export const announcementFor = (config: AlertConfig, subscriptionType: string, body: unknown): StoredAnnounceAction | null => {
+  const action = filledActionFor(config, subscriptionType, body, announceActionOf)
+  return action === null ? null : { ...action, message: withinChatLimit(action.message) }
+}

@@ -259,6 +259,31 @@ describe('チャットの発言のトリガー', () => {
     expect(chatMessageFor(設定, CHAT_MESSAGE, 発言の通知)).toBeNull()
   })
 
+  it('本文を差し込んでTwitchの上限（500文字）を超えたら、末尾を … にして収める', () => {
+    const 長い発言 = {
+      ...発言の通知,
+      message: { text: 'あ'.repeat(500) },
+    }
+    const 設定: AlertConfig = {
+      triggers: [{ event: CHAT_MESSAGE, conditions: [], actions: [{ type: 'chat', message: '{user} さんの発言: {message}' }] }],
+    }
+
+    const 送る文言 = chatMessageFor(設定, CHAT_MESSAGE, 長い発言)
+
+    expect(送る文言).toHaveLength(500)
+    expect(送る文言?.endsWith('…')).toBe(true)
+    expect(送る文言?.startsWith('田中太郎 さんの発言: ')).toBe(true)
+  })
+
+  it('アナウンスの文言も、Twitchの上限（500文字）に収める', () => {
+    const 長い発言 = { ...発言の通知, message: { text: 'あ'.repeat(500) } }
+    const 設定: AlertConfig = {
+      triggers: [{ event: CHAT_MESSAGE, conditions: [], actions: [{ type: 'announce', message: '{message}', color: 'blue' }] }],
+    }
+
+    expect(announcementFor(設定, CHAT_MESSAGE, 長い発言)?.message).toHaveLength(500)
+  })
+
   it('発言の本文をアナウンスの文言に差し込める', () => {
     const 設定: AlertConfig = {
       triggers: [
