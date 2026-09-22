@@ -4,6 +4,7 @@
  *
  * 確かめること:
  * - OBS用のURLを伏せ字で出し、コピーとキーの再発行ができること（再発行は確認してから）
+ * - URL欄に、ブラウザソースへ設定する推奨の幅と高さが添えられること
  * - トリガーは折りたたんで並び、見出しの要約を押すと入力欄が開くこと（開くのは1件ずつ）
  * - 条件（報酬・ユーザー）を足す・書き換える・外せること
  * - トリガーを足し、入力欄の値をWorkerへ送る形にして保存できること
@@ -83,6 +84,12 @@ describe('OBS用のURL', () => {
     expect(await screen.findByLabelText('OBSのブラウザソースに貼るURL')).toHaveValue(アラートのURL('ima-no-key'))
     expect(URL欄()).toHaveAttribute('type', 'password')
     expect(URL欄()).toHaveAttribute('readonly')
+  })
+
+  test('URL欄に、ブラウザソースへ設定する推奨の幅と高さを添える', async () => {
+    render(トリガーのページ(代役のAPI()))
+
+    expect(await screen.findByText('推奨の大きさ: 幅 1920 × 高さ 1080 px（配信のキャンバスと同じ大きさ）')).toBeInTheDocument()
   })
 
   test('URLをコピーできる', async () => {

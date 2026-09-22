@@ -6,6 +6,7 @@
  * - レジストリの素材を一覧し、先頭の素材を選んだ状態で始まること
  * - スキーマの型ごとに入力欄が作られ、値を変えるとOBS用のURLに反映されること
  * - 「既定値に戻す」で入力欄とURLが元に戻ること
+ * - URL欄に、ブラウザソースへ設定する推奨の幅と高さが添えられること
  * - URLをコピーできること。クリップボードを使えないときは、その旨を伝えること
  * - プレビューにだけ適用する値（previewOverrides）が、OBS用のURLには入らないこと
  * - ハッシュで素材を選べること。登録されていないIDは先頭の素材に置き換えず、エラーとして伝えること
@@ -226,6 +227,20 @@ describe('プレビュー', () => {
 
     expect(URL欄()).toHaveValue(素材ページ('/wallpaper/mizutama/'))
     await waitFor(() => expect(screen.getByTitle('背景のプレビュー')).toHaveAttribute('src', 素材ページ('/wallpaper/mizutama/?glow=true')))
+  })
+})
+
+describe('OBS用のURL', () => {
+  test('URL欄に、ブラウザソースへ設定する推奨の幅と高さを添える', () => {
+    render(背景のギャラリー())
+
+    expect(screen.getByText('推奨の大きさ: 幅 1920 × 高さ 1080 px')).toBeInTheDocument()
+  })
+
+  test('推奨の大きさは、カテゴリごとに渡された実寸をそのまま出す', () => {
+    render(背景のギャラリー({ previewSize: { width: 480, height: 800 } }))
+
+    expect(screen.getByText('推奨の大きさ: 幅 480 × 高さ 800 px')).toBeInTheDocument()
   })
 })
 

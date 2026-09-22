@@ -77,6 +77,8 @@ const MAX_LOGIN_LENGTH = 25
 const MAX_CHAT_MESSAGE_LENGTH = 500
 const DEFAULT_DURATION_SECONDS = '5'
 const DEFAULT_VOLUME_PERCENT = '100'
+/** ブラウザソースに設定する推奨の大きさ（配信のキャンバスと同じ大きさ。素材は中央に出るため、キャンバス全体を覆う） */
+const OVERLAY_SIZE = { width: 1920, height: 1080 }
 /** 新しく足したトリガーのアナウンスの色（チャンネルの色） */
 const DEFAULT_ANNOUNCEMENT_COLOR: AnnouncementColor = 'primary'
 
@@ -431,6 +433,7 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
   // 保存を待つ間に入力欄が書き換えられたかを、保存の応答が届いた時点で確かめるために持つ
   const draftsRef = useRef(drafts)
   const urlFieldId = useId()
+  const sizeHintId = useId()
 
   const replaceDrafts = (next: readonly TriggerDraft[]): void => {
     draftsRef.current = next
@@ -588,13 +591,16 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
       <Card>
         <CardHeader>
           <CardTitle>OBS用のURL</CardTitle>
-          <CardDescription>幅と高さは配信のキャンバスと同じ大きさ（1920×1080 など）にする。背景は透過で、素材は中央に表示される。</CardDescription>
+          <CardDescription>背景は透過で、素材は中央に表示される。</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <Label htmlFor={urlFieldId}>OBSのブラウザソースに貼るURL</Label>
+          <p id={sizeHintId} className="text-sm text-muted-foreground">
+            推奨の大きさ: 幅 {OVERLAY_SIZE.width} × 高さ {OVERLAY_SIZE.height} px（配信のキャンバスと同じ大きさ）
+          </p>
           <div className="flex gap-2">
             {/* URLにはオーバーレイ用キーが含まれる。配信画面に映り込んでも読めないよう、伏せ字で表示する */}
-            <Input id={urlFieldId} type="password" readOnly autoComplete="off" value={url} />
+            <Input id={urlFieldId} type="password" readOnly autoComplete="off" value={url} aria-describedby={sizeHintId} />
             <Button type="button" disabled={actions.busy} onClick={() => void actions.run(copyUrl)}>
               URLをコピー
             </Button>
