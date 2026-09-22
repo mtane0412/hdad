@@ -9,7 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint . --max-warnings 0",
-    "type-check": "tsc --noEmit",
+    "type-check": "tsc --noEmit && tsc --noEmit -p tsconfig.worker.json",
     "test": "vitest run",
     "preview:worker": "npm run build && wrangler dev",
     "deploy": "wrangler deploy && npm run db:migrations:apply",
@@ -45,6 +45,7 @@
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.55.0",
+    "@cloudflare/workers-types": "^5.20260919.1",
     "@eslint/js": "^10.0.1",
     "@tailwindcss/vite": "^4.3.3",
     "@testing-library/jest-dom": "^7.0.1",

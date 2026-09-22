@@ -1,0 +1,24 @@
+/**
+ * Worker（worker/）向けの型チェック設定
+ *
+ * Worker は Cloudflare のランタイムで動き、Durable Object・WebSocketPair のようにブラウザ（DOM）には無いものを使う。
+ * 一方 @cloudflare/workers-types は Request・Response などをDOMとは別に宣言するため、DOMの型と同時には読めない。
+ * そこでブラウザ用（tsconfig.json）とWorker用（この設定）で型チェックを分け、npm run type-check が両方を走らせる。
+ */
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "types": ["node", "@cloudflare/workers-types"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["worker"]
+}
