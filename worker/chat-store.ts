@@ -180,6 +180,10 @@ export interface FirstChatClaim {
  * アラートが鳴ってしまうのを防ぐためである。
  *
  * 注意: 判定と記録は1つの文で行う。「読んでから書く」に分けると、同時に届いた通知の間で判定が食い違う。
+ * 注意: 配信の区切りは、通知に書かれた発生時刻ではなく受け取った時刻（now）で引く。発生時刻で引くほうが厳密に見えるが、
+ * この判定はWebhookとオーバーレイの両方から呼ばれ、オーバーレイ（WebSocket）は信頼できる発生時刻を持たない。
+ * 両者が別の時刻を使うと別の区切りの行を取り合うことになり、「同じ発言には同じ答えを返す」が成り立たなくなる。
+ * 配信中の区切りは同時に1つしかない（recordStreamOnline がほかを閉じる）ので、受け取った時刻で引いても選ばれる区切りは同じである。
  * 注意: 同じ発言について二度問い合わせても、どちらにも true を返す（message_id が一致する行なら書き込み済みでも初回として扱う）。
  * この判定は Webhook（チャット・アナウンスの送信）とオーバーレイ（素材の再生）の両方から呼ばれ、同じ発言が
  * 別々の経路で届くため、先に問い合わせた側だけが初回になると片方の動作だけが実行されてしまう。
@@ -209,8 +213,14 @@ export const claimFirstChatOfStream = async (db: Database, claim: FirstChatClaim
  * 配信の区切りが増えるほど行が積み上がるので、cron（worker/collect.ts）から定期的に呼ぶ。
  * 判定に使うのは配信中の区切りだけなので、終わった配信のぶんは残しておく意味がない。
  *
+ * 注意: 配信中の区切りのぶんは、期限より古くても消さない。期限より長く続く配信（耐久配信など）の途中で消してしまうと、
+ * すでに発言した人がまた「初回」と判定され、配信の途中でアラートが鳴り直してしまう。
+ *
  * @param before この時刻より前に記録した行を消す
  */
 export const deleteOldFirstChatters = async (db: Database, before: number): Promise<void> => {
-  await db.prepare('DELETE FROM first_chatters WHERE first_chatted_at < ?1').bind(toIso(before)).run()
+  await db
+    .prepare('DELETE FROM first_chatters WHERE first_chatted_at < ?1 AND session_id NOT IN (SELECT id FROM stream_sessions WHERE ended_at IS NULL)')
+    .bind(toIso(before))
+    .run()
 }

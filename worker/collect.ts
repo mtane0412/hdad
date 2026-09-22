@@ -22,6 +22,7 @@ const UNAUTHORIZED = 401
  *
  * 判定に使うのは配信中の区切りのぶんだけなので、終わった配信のぶんは残しておく意味がない。
  * それでも1日ぶん残すのは、配信をまたいで遅れて届いた通知（Twitchの再送）にも同じ答えを返すためである。
+ * 配信中の区切りのぶんは、この期間を過ぎても消さない（deleteOldFirstChatters を参照）。
  */
 const FIRST_CHATTER_RETENTION_MS = 24 * 60 * 60 * 1000
 

@@ -11,7 +11,8 @@
 -- 同じ発言が別々の経路で届く（メッセージIDはTwitchの通知ごとに違うが、発言そのもののIDは同じ）。
 -- 先に問い合わせた側だけが「初回」になってしまうと、音が鳴るのにお礼が送られない（またはその逆）ことになる。
 --
--- 古い行は cron（worker/collect.ts）が消すので増え続けない。
+-- 古い行は cron（worker/collect.ts）が消すので増え続けない。ただし配信中の区切りのぶんは、古くても消さない
+-- （期限より長く続く配信の途中で消すと、すでに発言した人がまた「初回」と判定されてしまう）。
 CREATE TABLE first_chatters (
   session_id TEXT NOT NULL REFERENCES stream_sessions (id),
   chatter_user_id TEXT NOT NULL,

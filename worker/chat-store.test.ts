@@ -295,16 +295,31 @@ describe('claimFirstChatOfStream', () => {
 })
 
 describe('deleteOldFirstChatters', () => {
-  it('期限より古い記録だけを消す', async () => {
+  it('終わった配信の記録のうち、期限より古いものだけを消す', async () => {
     const db = createFakeDatabase()
     db.sqlite
       .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, NULL, ?, ?)')
       .run('haishin-1', new Date(現在時刻 - 一分).toISOString(), '朝配信', 'Just Chatting')
     await claimFirstChatOfStream(db, { chatterUserId: 'furui-hito', messageId: 'chat-message-1' }, 現在時刻)
     await claimFirstChatOfStream(db, { chatterUserId: 'atarashii-hito', messageId: 'chat-message-2' }, 現在時刻 + 100 * 一分)
+    // 配信が終われば、その区切りのぶんは掃除の対象になる
+    db.sqlite.prepare('UPDATE stream_sessions SET ended_at = ? WHERE id = ?').run(new Date(現在時刻 + 200 * 一分).toISOString(), 'haishin-1')
 
     await deleteOldFirstChatters(db, 現在時刻 + 50 * 一分)
 
     expect(db.sqlite.prepare('SELECT chatter_user_id FROM first_chatters').all()).toEqual([{ chatter_user_id: 'atarashii-hito' }])
+  })
+
+  it('配信中の区切りの記録は、期限より古くても消さない（長い配信の途中で全員が初回に戻らないようにするため）', async () => {
+    const db = createFakeDatabase()
+    db.sqlite
+      .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, NULL, ?, ?)')
+      .run('nagai-haishin', new Date(現在時刻).toISOString(), '耐久配信', 'Just Chatting')
+    await claimFirstChatOfStream(db, { chatterUserId: 'tanenobu-id', messageId: 'chat-message-1' }, 現在時刻)
+
+    // 記録から2日後に掃除しても、その配信はまだ続いているので消さない
+    await deleteOldFirstChatters(db, 現在時刻 + 2 * 24 * 60 * 一分)
+
+    expect(db.sqlite.prepare('SELECT chatter_user_id FROM first_chatters').all()).toEqual([{ chatter_user_id: 'tanenobu-id' }])
   })
 })
