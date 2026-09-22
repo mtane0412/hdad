@@ -47,13 +47,16 @@ export const announceAsBot = async (
   announcement: { message: string; color: AnnouncementColor },
 ): Promise<void> => {
   const { env, twitch, now, wait } = context
+  // トークンの取り出しを枠の確保より先に行う。逆にすると、トークンを取れずに送れなかったときでも
+  // 枠を消費してしまい、あとから届くアナウンスを無駄に待たせる
+  const token = await getAccessToken(env.STORE, 'bot', twitch, now)
+
   const waitMilliseconds = await reserveAnnouncementSlot(env.DB, env.TWITCH_BROADCASTER_ID, now)
   if (waitMilliseconds === null) {
     throw new Error('アナウンスは2秒に1回しか送れません。短い間にアナウンスが続いたため、このアナウンスは送りませんでした')
   }
   if (waitMilliseconds > 0) await wait(waitMilliseconds)
 
-  const token = await getAccessToken(env.STORE, 'bot', twitch, now)
   await twitch.sendChatAnnouncement(token.accessToken, {
     broadcasterId: env.TWITCH_BROADCASTER_ID,
     // アナウンスを送るモデレーターは bot 自身（トークンの持ち主と一致している必要がある）
