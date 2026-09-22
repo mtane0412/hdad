@@ -62,8 +62,11 @@ describe('REQUIRED_SCOPES / BOT_SCOPES', () => {
     expect(REQUIRED_SCOPES).toContain('moderator:read:followers')
   })
 
-  it('配信者には user:read:chat も要求する（オーバーレイがチャットの発言を受け取るため）', () => {
+  it('配信者には user:read:chat と user:bot を要求する（チャットの発言を配信者として読むため）', () => {
+    // Webhook宛てのチャットの購読はアプリアクセストークンで作り、「チャットを読む人」に配信者自身を指定する。
+    // その場合、読む人（＝配信者）から user:read:chat に加えて user:bot が要る
     expect(REQUIRED_SCOPES).toContain('user:read:chat')
+    expect(REQUIRED_SCOPES).toContain('user:bot')
   })
 
   it('配信者には moderation:read も要求する（botがモデレーターかどうかを確かめるため）', () => {

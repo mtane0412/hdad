@@ -105,9 +105,9 @@ export const callback = async (context: Context): Promise<Response> => {
   if (role === 'broadcaster') {
     await ensureOverlayKey(env.STORE)
     headers.append('Set-Cookie', setCookie(SESSION_COOKIE, await createSessionToken(owner.userId, env.SESSION_SECRET, now), SESSION_TTL_SECONDS))
+    // 購読の内容は配信者だけで決まるので、揃え直すのは配信者のログインのときだけでよい
+    await syncWebhookSubscriptions({ url, env, twitch, now })
   }
-  // botを接続したときも揃え直す。チャットの購読の条件にbotのユーザーIDが入るため
-  await syncWebhookSubscriptions({ url, env, twitch, now })
   headers.append('Set-Cookie', setCookie(STATE_COOKIE, '', 0))
   return new Response(null, { status: STATUS.found, headers })
 }

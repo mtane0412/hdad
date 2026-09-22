@@ -8,14 +8,13 @@
  *
  * 注意: Webhook宛ての購読はユーザートークンでは作れず、アプリアクセストークンが要る。
  * 配信者がこのアプリにスコープを認可済み（ログイン済み）であることが前提で、その場合は購読のコストを消費しない。
- * チャット（channel.chat.message）だけは購読の条件に「チャットを読む人」のユーザーIDが要るため、
- * botを接続しているときだけ購読する。botを付け替えたら購読も揃え直す。
+ * チャット（channel.chat.message）の購読の条件にある「チャットを読む人」には配信者自身を指定する。
+ * botを指定していた頃はbotの接続・切断のたびに購読を揃え直す必要があったが、配信者に固定したことでbotと無関係になった。
  */
 import { EVENT_TYPES, byBroadcaster, withEventType, type EventType } from './eventsub'
 import type { Context } from './http'
 import { signHex, timingSafeEqual } from './secret'
 import { recordFailure } from './stats-store'
-import { loadToken } from './token'
 import { TwitchApiError, type EventSubSubscription, type RegisteredSubscription, type TwitchClient } from './twitch'
 import { WEBHOOK_PATH } from './webhook-routes'
 
@@ -30,17 +29,20 @@ export const COUNTED_EVENT_TYPES: readonly string[] = [
 ]
 
 /**
- * 件数は数えないが、アラートのトリガー（チャットへのお礼）のために購読するイベント。
+ * 件数は数えないが、アラートのトリガー（チャットへのお礼・自動モデレーション・コマンドの応答）のために購読するイベント。
  *
  * フォローはフォロワー数の推移として cron が記録するので数えないが、オーバーレイを開いていなくても
  * Workerがお礼を送れるように、Webhookでも受け取る。購読に要る moderator:read:followers は
  * 配信者が既に認可済み（eventsub.ts の EVENT_TYPES 由来）なので、ログインし直す必要はない。
+ *
+ * チャットの発言（channel.chat.message）も、条件は eventsub.ts の EVENT_TYPES と同じものを使う。
+ * つまり「チャットを読む人」は配信者自身である。
  */
-export const UNCOUNTED_EVENT_TYPES: readonly string[] = ['channel.follow']
-
 export const STREAM_ONLINE = 'stream.online'
 export const STREAM_OFFLINE = 'stream.offline'
 export const CHAT_MESSAGE = 'channel.chat.message'
+
+export const UNCOUNTED_EVENT_TYPES: readonly string[] = ['channel.follow', CHAT_MESSAGE]
 
 /** 購読を1つ登録するのに要る内容（条件は解決済み） */
 interface WantedEvent {
@@ -52,26 +54,21 @@ interface WantedEvent {
 /**
  * Webhookで受け取るイベントを組み立てる。
  *
- * 件数を数えるものはオーバーレイと同じ定義を使い、配信の開始・終了（セッションを正確に記録するため）を足す。
- * チャット（channel.chat.message）は、購読の条件に「チャットを読む人」のユーザーIDが要るため、
- * botを接続しているときだけ加える。botを切断したら一覧から外れ、呼び出し側が購読を消す。
- *
- * @param botUserId 接続しているbotのユーザーID。未接続なら null
+ * 件数を数えるものとチャットはオーバーレイと同じ定義（eventsub.ts の EVENT_TYPES）を使い、
+ * 配信の開始・終了（セッションを正確に記録するため）を足す。
  */
-const buildWantedEvents = (broadcasterId: string, botUserId: string | null): WantedEvent[] => {
+const buildWantedEvents = (broadcasterId: string): WantedEvent[] => {
   const base: readonly EventType[] = [
     ...EVENT_TYPES.filter((eventType) => COUNTED_EVENT_TYPES.includes(eventType.type) || UNCOUNTED_EVENT_TYPES.includes(eventType.type)),
     { type: STREAM_ONLINE, version: '1', scope: null, condition: byBroadcaster },
     { type: STREAM_OFFLINE, version: '1', scope: null, condition: byBroadcaster },
   ]
-  const wanted = base.map(({ type, version, condition }) => ({ type, version, condition: condition(broadcasterId) }))
-  if (botUserId === null) return wanted
-  return [...wanted, { type: CHAT_MESSAGE, version: '1', condition: { broadcaster_user_id: broadcasterId, user_id: botUserId } }]
+  return base.map(({ type, version, condition }) => ({ type, version, condition: condition(broadcasterId) }))
 }
 
-/** Webhookで受け取るイベントの種類。botが未接続ならチャットを含まない */
-export const webhookEventTypes = (botUserId: string | null): string[] =>
-  buildWantedEvents('（種類を数えるだけなので配信者IDは使わない）', botUserId).map((event) => event.type)
+/** Webhookで受け取るイベントの種類 */
+export const webhookEventTypes = (): string[] =>
+  buildWantedEvents('（種類を数えるだけなので配信者IDは使わない）').map((event) => event.type)
 
 /** そのまま使える購読の状態（有効・コールバックの確認待ち）。これ以外は失効しているので登録し直す */
 const USABLE_STATUSES: readonly string[] = ['enabled', 'webhook_callback_verification_pending']
@@ -100,8 +97,6 @@ const isSameCondition = (left: Record<string, string>, right: Record<string, str
 interface EnsureWebhookSubscriptionsOptions {
   twitch: Pick<TwitchClient, 'getAppAccessToken' | 'listSubscriptions' | 'deleteSubscription' | 'createSubscription'>
   broadcasterId: string
-  /** 接続しているbotのユーザーID。未接続なら null（チャットを購読しない） */
-  botUserId: string | null
   /** 通知を受けるURL（https で、このWorkerの /api/eventsub/webhook） */
   callbackUrl: string
   /** 通知の署名に使うシークレット（EVENTSUB_SECRET） */
@@ -116,17 +111,11 @@ interface EnsureWebhookSubscriptionsOptions {
  * @returns 新しく登録したイベントの種類
  * @throws TwitchApiError Twitchが失敗を返した（購読の登録なら、どのイベントかをメッセージに含む）
  */
-export const ensureWebhookSubscriptions = async ({
-  twitch,
-  broadcasterId,
-  botUserId,
-  callbackUrl,
-  secret,
-}: EnsureWebhookSubscriptionsOptions): Promise<string[]> => {
+export const ensureWebhookSubscriptions = async ({ twitch, broadcasterId, callbackUrl, secret }: EnsureWebhookSubscriptionsOptions): Promise<string[]> => {
   const accessToken = await twitch.getAppAccessToken()
   const registered = (await twitch.listSubscriptions(accessToken)).filter((subscription) => subscription.callback === callbackUrl)
 
-  const wanted = buildWantedEvents(broadcasterId, botUserId)
+  const wanted = buildWantedEvents(broadcasterId)
   /** 登録済みの購読が、そのまま使えるか（状態が有効で、種類・バージョン・条件が求めるものと一致する） */
   const isUsableFor = (subscription: RegisteredSubscription, event: (typeof wanted)[number]): boolean =>
     USABLE_STATUSES.includes(subscription.status) &&
@@ -155,23 +144,21 @@ export const ensureWebhookSubscriptions = async ({
 }
 
 /**
- * このWorkerのWebhook宛ての購読を、いまの状態（配信者とbotの接続）に合わせて揃える。
+ * このWorkerのWebhook宛ての購読を揃える。
  *
- * 配信者のログイン時と、botの接続時・切断時に呼ぶ。botのユーザーIDは購読の条件に入るため、
- * botが変わったら購読も揃え直す必要がある。
+ * 配信者のログイン時に呼ぶ。購読の内容は配信者だけで決まる（botのユーザーIDは条件に入らない）ため、
+ * botの接続・切断では呼ばない。
  *
- * 注意: Twitchが失敗を返しても、呼び出し元の処理（ログイン・bot接続・切断）は止めない。
+ * 注意: Twitchが失敗を返しても、呼び出し元の処理（ログイン）は止めない。
  * 止めると、失敗の記録を読むための管理画面にも入れなくなる。黙って進むのではなく収集の失敗として記録に残す。
  */
 export const syncWebhookSubscriptions = async ({ url, env, twitch, now }: Pick<Context, 'url' | 'env' | 'twitch' | 'now'>): Promise<void> => {
   // Twitchは https のURLしかWebhookの宛先として受け付けない。ローカルの開発サーバー（http://localhost）では登録しない
   if (url.protocol !== 'https:') return
   try {
-    const bot = await loadToken(env.STORE, 'bot')
     await ensureWebhookSubscriptions({
       twitch,
       broadcasterId: env.TWITCH_BROADCASTER_ID,
-      botUserId: bot?.userId ?? null,
       callbackUrl: `${url.origin}${WEBHOOK_PATH}`,
       secret: env.EVENTSUB_SECRET,
     })

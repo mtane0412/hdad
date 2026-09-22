@@ -295,7 +295,7 @@ R2は無料枠（保存10GB・転送無料）だけを使う場合でも、デ�
 1. 同じ画面の「テスト送信」で、チャットへ実際に送れることを確かめる
 2. **Twitchのチャットから配信者が `/mod <botのログイン名>` を実行し、botにモデレーター権限を与える**。アナウンスなどのモデレーション操作は、権限がないとTwitchに拒否されます。権限がなければ `/bot/` の「接続しているアカウント」に案内が出ます
 
-botに要求するスコープは `user:bot`・`user:read:chat`・`user:write:chat` と、モデレーション操作のための `moderator:manage:banned_users`・`moderator:manage:chat_messages`・`moderator:manage:announcements`（`worker/eventsub.ts` の `BOT_SCOPES`）です。配信者側には `channel:bot` と、botがモデレーターかどうかを確かめるための `moderation:read`、アラート用オーバーレイがチャットの発言を受け取るための `user:read:chat` が要ります。
+botに要求するスコープは `user:bot`・`user:read:chat`・`user:write:chat` と、モデレーション操作のための `moderator:manage:banned_users`・`moderator:manage:chat_messages`・`moderator:manage:announcements`（`worker/eventsub.ts` の `BOT_SCOPES`）です。配信者側には `channel:bot` と、botがモデレーターかどうかを確かめるための `moderation:read`、チャットの発言を配信者として読むための `user:read:chat` と `user:bot` が要ります。
 
 > **すでに動かしている場合は、botの接続し直しと配信者のログインし直しの両方が必要です。** botのスコープに `moderator:manage:*` が、配信者のスコープに `moderation:read`・`user:read:chat` が増えたためです。足りないスコープは `/bot/` の画面に出ます。
 
@@ -303,7 +303,7 @@ botに要求するスコープは `user:bot`・`user:read:chat`・`user:write:ch
 
 #### チャットへの応答
 
-botを接続すると、チャットの発言（EventSubの `channel.chat.message`）を Webhook で受け取り、自動モデレーションの判定・アラートのトリガーの判定・コマンドの応答をこの順に行います（処分した発言にはトリガーも応答も返しません）。この購読は条件に「チャットを読む人」としてbotのユーザーIDが要るため、**botを接続・切断したタイミングで購読を揃え直します**（botが未接続のときは購読しません）。
+botを接続すると、チャットの発言（EventSubの `channel.chat.message`）を Webhook で受け取り、自動モデレーションの判定・アラートのトリガーの判定・コマンドの応答をこの順に行います（処分した発言にはトリガーも応答も返しません）。この購読は条件の「チャットを読む人」に配信者自身を指定するため、**botを接続していなくても購読します**（購読を揃え直すのは配信者のログインのときだけです）。
 
 コマンドは管理画面（`/bot/`）の「コマンド」の欄で登録します。**登録するまでは何にも応答しません**（組み込みのコマンドはありません）。
 

@@ -36,11 +36,10 @@ describe('ensureWebhookSubscriptions', () => {
     createSubscription: vi.fn<(accessToken: string, subscription: EventSubSubscription) => Promise<void>>(async () => undefined),
   })
 
-  /** botを接続していない状態で購読を揃える（既定）。botUserId を渡すとチャットの購読も加わる */
-  const 揃える = (twitch: ReturnType<typeof Twitchの代役>, botUserId: string | null = null) =>
-    ensureWebhookSubscriptions({ twitch, broadcasterId: '12345', botUserId, callbackUrl: コールバック, secret: シークレット })
+  const 揃える = (twitch: ReturnType<typeof Twitchの代役>) =>
+    ensureWebhookSubscriptions({ twitch, broadcasterId: '12345', callbackUrl: コールバック, secret: シークレット })
 
-  it('何も登録されていなければ、サブスク・ポイント交換・フォロー・レイド・配信の開始と終了を、アプリアクセストークンでWebhook宛てに登録する', async () => {
+  it('何も登録されていなければ、サブスク・ポイント交換・フォロー・レイド・チャット・配信の開始と終了を、アプリアクセストークンでWebhook宛てに登録する', async () => {
     const twitch = Twitchの代役([])
     const created = await 揃える(twitch)
 
@@ -50,10 +49,11 @@ describe('ensureWebhookSubscriptions', () => {
       'channel.subscribe',
       'channel.subscription.message',
       'channel.raid',
+      'channel.chat.message',
       'stream.online',
       'stream.offline',
     ])
-    expect(created).toEqual(webhookEventTypes(null))
+    expect(created).toEqual(webhookEventTypes())
     for (const [accessToken, subscription] of twitch.createSubscription.mock.calls) {
       expect(accessToken).toBe('test-app-token')
       expect(subscription.transport).toEqual({ method: 'webhook', callback: コールバック, secret: シークレット })
@@ -74,7 +74,7 @@ describe('ensureWebhookSubscriptions', () => {
 
     expect(created).not.toContain('stream.online')
     expect(created).not.toContain('stream.offline')
-    expect(created).toHaveLength(5)
+    expect(created).toHaveLength(6)
     expect(twitch.deleteSubscription).not.toHaveBeenCalled()
   })
 
@@ -104,7 +104,7 @@ describe('ensureWebhookSubscriptions', () => {
     const created = await 揃える(twitch)
 
     expect(twitch.deleteSubscription).not.toHaveBeenCalled()
-    expect(created).toHaveLength(7)
+    expect(created).toHaveLength(8)
   })
 
   it('Twitchが購読を拒否したら、どのイベントかを示すエラーになる', async () => {
@@ -126,58 +126,50 @@ describe('ensureWebhookSubscriptions（チャットの購読）', () => {
     createSubscription: vi.fn<(accessToken: string, subscription: EventSubSubscription) => Promise<void>>(async () => undefined),
   })
 
-  const 揃える = (twitch: ReturnType<typeof Twitchの代役>, botUserId: string | null) =>
-    ensureWebhookSubscriptions({ twitch, broadcasterId: '12345', botUserId, callbackUrl: コールバック, secret: シークレット })
+  const 揃える = (twitch: ReturnType<typeof Twitchの代役>) =>
+    ensureWebhookSubscriptions({ twitch, broadcasterId: '12345', callbackUrl: コールバック, secret: シークレット })
 
-  /** botが接続済みのときに登録される、チャットの購読 */
-  const チャットの購読 = (botUserId: string): RegisteredSubscription => ({
+  /** 「チャットを読む人」に指定したユーザーIDで登録済みの、チャットの購読 */
+  const チャットの購読 = (読む人のユーザーId: string): RegisteredSubscription => ({
     id: '購読チャット',
     status: 'enabled',
     type: 'channel.chat.message',
     version: '1',
-    condition: { broadcaster_user_id: '12345', user_id: botUserId },
+    condition: { broadcaster_user_id: '12345', user_id: 読む人のユーザーId },
     callback: コールバック,
   })
 
-  it('botを接続していれば、botのユーザーIDを「チャットを読む人」として購読する', async () => {
+  it('「チャットを読む人」には配信者自身を指定して購読する', async () => {
     const twitch = Twitchの代役([])
 
-    const created = await 揃える(twitch, '67890')
+    const created = await 揃える(twitch)
 
     expect(created).toContain('channel.chat.message')
     const chat = twitch.createSubscription.mock.calls.find(([, subscription]) => subscription.type === 'channel.chat.message')?.[1]
-    expect(chat).toMatchObject({ version: '1', condition: { broadcaster_user_id: '12345', user_id: '67890' } })
+    expect(chat).toMatchObject({ version: '1', condition: { broadcaster_user_id: '12345', user_id: '12345' } })
   })
 
-  it('botを接続していなければ、チャットは購読しない（購読の条件にbotのユーザーIDが要るため）', async () => {
+  it('botを接続していなくてもチャットを購読する（購読はbotと無関係になったため）', async () => {
     const twitch = Twitchの代役([])
 
-    expect(await 揃える(twitch, null)).not.toContain('channel.chat.message')
+    expect(await 揃える(twitch)).toContain('channel.chat.message')
   })
 
-  it('botを切断したら、チャットの購読を消す', async () => {
+  it('「チャットを読む人」がbotになっている古い購読は、消して配信者で登録し直す', async () => {
     const twitch = Twitchの代役([チャットの購読('67890')])
 
-    await 揃える(twitch, null)
-
-    expect(twitch.deleteSubscription).toHaveBeenCalledWith('test-app-token', '購読チャット')
-  })
-
-  it('botを別のアカウントに付け替えたら、古い購読を消して新しいユーザーIDで登録し直す', async () => {
-    const twitch = Twitchの代役([チャットの購読('67890')])
-
-    const created = await 揃える(twitch, '55555')
+    const created = await 揃える(twitch)
 
     expect(twitch.deleteSubscription).toHaveBeenCalledWith('test-app-token', '購読チャット')
     expect(created).toContain('channel.chat.message')
     const chat = twitch.createSubscription.mock.calls.find(([, subscription]) => subscription.type === 'channel.chat.message')?.[1]
-    expect(chat?.condition).toEqual({ broadcaster_user_id: '12345', user_id: '55555' })
+    expect(chat?.condition).toEqual({ broadcaster_user_id: '12345', user_id: '12345' })
   })
 
-  it('同じbotで揃え直しても、チャットの購読は登録し直さない', async () => {
-    const twitch = Twitchの代役([チャットの購読('67890')])
+  it('同じ内容で揃え直しても、チャットの購読は登録し直さない', async () => {
+    const twitch = Twitchの代役([チャットの購読('12345')])
 
-    const created = await 揃える(twitch, '67890')
+    const created = await 揃える(twitch)
 
     expect(twitch.deleteSubscription).not.toHaveBeenCalled()
     expect(created).not.toContain('channel.chat.message')
