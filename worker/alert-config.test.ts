@@ -298,40 +298,31 @@ describe('saveAlertConfig / loadAlertConfig', () => {
     expect(await loadAlertConfig(createFakeStore())).toEqual(EMPTY_CONFIG)
   })
 
-  it('条件をリストにする前の形（rewardId が直接ぶら下がる）で保存されていたら、reward の条件1件に読み替える', async () => {
+  it('条件をリストにする前の形（rewardId が直接ぶら下がる）で保存されていたら、黙って読み替えずにエラーにする', async () => {
     const store = createFakeStore()
-    // 条件をリストにする前の保存内容。報酬IDがトリガーに直接ぶら下がっていた
+    // 条件をリストにする前の保存内容。読み替えずにエラーにする（暗黙の読み替えを増やさない）
     const 旧形式 = { triggers: [{ event: REDEMPTION, rewardId: '報酬ID-乾杯', actions: [保存済みのアラートの動作] }] }
     await store.put('alert-config', JSON.stringify(旧形式))
 
-    expect(await loadAlertConfig(store)).toEqual({
-      triggers: [{ event: REDEMPTION, conditions: [{ kind: 'reward', rewardId: '報酬ID-乾杯' }], actions: [保存済みのアラートの動作] }],
-    })
+    await expect(loadAlertConfig(store)).rejects.toThrow(/古い形/)
   })
 
-  it('報酬IDが null（すべての報酬）で保存されていたら、条件なしに読み替える', async () => {
+  it('読めない内容のときは、何が保存されているのかを読み取れるよう、見つかった項目の名前を並べる', async () => {
     const store = createFakeStore()
-    await store.put('alert-config', JSON.stringify({ triggers: [{ event: REDEMPTION, rewardId: null, actions: [保存済みのアラートの動作] }] }))
-
-    expect(await loadAlertConfig(store)).toEqual({ triggers: [{ event: REDEMPTION, conditions: [], actions: [保存済みのアラートの動作] }] })
-  })
-
-  it('報酬IDを持たないイベントの旧形式も、条件なしに読み替える', async () => {
-    const store = createFakeStore()
-    await store.put('alert-config', JSON.stringify({ triggers: [{ event: 'channel.raid', actions: [保存済みのアラートの動作] }] }))
-
-    expect(await loadAlertConfig(store)).toEqual({ triggers: [{ event: 'channel.raid', conditions: [], actions: [保存済みのアラートの動作] }] })
-  })
-
-  it('旧形式でも新形式でもない内容が保存されていたら、黙って捨てずにエラーにする', async () => {
-    const store = createFakeStore()
-    // 動作（actions）に分ける前の、出し方がトリガーに直接ぶら下がっていた形。もう読み替えない
-    const 読めない形 = {
+    // 動作（actions）に分ける前の、出し方がトリガーに直接ぶら下がっていた形
+    const 旧形式 = {
       triggers: [{ event: REDEMPTION, rewardId: '報酬ID-乾杯', mediaId: '素材ID-乾杯の動画', mediaKind: 'video', durationSeconds: 8, volume: 0.5, message: '乾杯！' }],
     }
-    await store.put('alert-config', JSON.stringify(読めない形))
+    await store.put('alert-config', JSON.stringify(旧形式))
 
-    await expect(loadAlertConfig(store)).rejects.toThrow(/読めません/)
+    await expect(loadAlertConfig(store)).rejects.toThrow(/event・rewardId・mediaId・mediaKind・durationSeconds・volume・message/)
+  })
+
+  it('読めない内容のときは、復旧の手だて（KVの設定を消す）を示す（管理画面もこの読み出しを通るため、画面から直せない）', async () => {
+    const store = createFakeStore()
+    await store.put('alert-config', JSON.stringify({ triggers: [{ event: REDEMPTION, rewardId: null }] }))
+
+    await expect(loadAlertConfig(store)).rejects.toThrow(/alert-config/)
   })
 })
 
