@@ -8,7 +8,7 @@
  * 操作の実行と結果の表示は page-actions.tsx に任せる。
  *
  * 注意: 失敗は黙って無視せず、画面の上部に理由を出す（Fail-Fast）。
- * 素材や保存済みの設定を取得できなければ操作盤を出さない。報酬の一覧だけ取得できないときは、操作盤は出したまま理由を出す。
+ * 素材や保存済みの設定を取得できなければ操作盤を出さない。報酬の一覧とbotの接続状態だけ取得できないときは、操作盤は出したまま理由を出す。
  */
 import { ChevronDown, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
@@ -22,6 +22,7 @@ import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Slider } from '@/components/ui/slider'
 import { Link } from '@/app/router'
+import type { BotApi, BotStatus } from '@/bot/api'
 import { ApiError } from '@/core/api'
 import {
   isAlertEvent,
@@ -56,6 +57,7 @@ import {
 import { errorMessage, usePageActions } from './page-actions'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
+const CHAT_MESSAGE = 'channel.chat.message'
 /** 文言欄の入力例。イベント種別ごとに、使える差し込み語だけを使った例を出す */
 const MESSAGE_PLACEHOLDERS: Readonly<Record<AlertEvent, string>> = {
   [REDEMPTION]: '{user} さんが「{reward}」を交換しました',
@@ -63,6 +65,7 @@ const MESSAGE_PLACEHOLDERS: Readonly<Record<AlertEvent, string>> = {
   'channel.subscribe': '{user} さんがティア{tier}でサブスクしました',
   'channel.subscription.message': '{user} さんが{months}か月目のサブスク（ティア{tier}）',
   'channel.raid': '{user} さんが{viewers}人でレイドしました',
+  [CHAT_MESSAGE]: '{user} さんが「{message}」と言いました',
 }
 const MIN_DURATION_SECONDS = 1
 const MAX_DURATION_SECONDS = 60
@@ -110,7 +113,8 @@ interface ConditionFieldsProps {
  *
  * 条件はすべてを満たしたときだけ当てはまる（and）ので、その旨を見出しに書く。
  * 条件が1件もないときは、そのイベントが起きればいつでも動くことを知らせる（設定漏れと取り違えないため）。
- * 足せる種類は種類ごとのボタンで出す（種類は2つだけなので、選択欄と「足す」ボタンに分けるより手数が少ない）。
+ * 足せる種類は種類ごとのボタンで出す（そのイベントに付けられる種類は多くても2つなので、選択欄と「足す」ボタンに分けるより手数が少ない）。
+ * 入力欄は種類ごとに違うので、種類で分けて出す（文面は部分一致の文字列、ユーザーはTwitchのユーザー名、報酬は選択欄）。
  */
 const ConditionFields = ({ idPrefix, conditions, rewards, addable, onChange, onAdd, onRemove }: ConditionFieldsProps) => (
   <div className="flex flex-col gap-3 rounded-md border border-dashed p-3 sm:col-span-2">
@@ -124,14 +128,15 @@ const ConditionFields = ({ idPrefix, conditions, rewards, addable, onChange, onA
           <li key={condition.kind} className="flex items-end gap-2">
             <div className="flex min-w-0 flex-1 flex-col gap-2">
               <Label htmlFor={`${idPrefix}-${condition.kind}`}>{conditionLabel(condition.kind)}</Label>
-              {condition.kind === 'reward' ? (
+              {condition.kind === 'reward' && (
                 <Select
                   id={`${idPrefix}-reward`}
                   options={rewardOptions(rewards, condition.rewardId)}
                   value={condition.rewardId}
                   onChange={(rewardId) => onChange(index, { kind: 'reward', rewardId })}
                 />
-              ) : (
+              )}
+              {condition.kind === 'user' && (
                 <Input
                   id={`${idPrefix}-user`}
                   type="text"
@@ -139,6 +144,17 @@ const ConditionFields = ({ idPrefix, conditions, rewards, addable, onChange, onA
                   value={condition.login}
                   placeholder="tanenobu"
                   onChange={(event) => onChange(index, { kind: 'user', login: event.currentTarget.value })}
+                />
+              )}
+              {/* 文面は発言に含まれていればよい（部分一致）。大文字小文字は区別しない */}
+              {condition.kind === 'text' && (
+                <Input
+                  id={`${idPrefix}-text`}
+                  type="text"
+                  maxLength={MAX_CHAT_MESSAGE_LENGTH}
+                  value={condition.contains}
+                  placeholder="おはよう"
+                  onChange={(event) => onChange(index, { kind: 'text', contains: event.currentTarget.value })}
                 />
               )}
             </div>
@@ -377,15 +393,20 @@ const TriggerRow = ({ position, draft, media, rewards, open, onToggle, onChange,
 
 type Loaded = { status: 'loading' } | { status: 'ready' } | { status: 'failed'; message: string }
 
+/** botの接続状態の読み出し。loaded で bot が null なら未接続 */
+type BotConnection = { status: 'checking' } | { status: 'loaded'; bot: BotStatus | null } | { status: 'failed'; message: string }
+
 export interface TriggerPageProps {
   api: AdminApi
+  /** botの接続状態の読み出し。未接続ならチャットとアナウンスの動作が動かないので、画面で知らせる */
+  botApi: Pick<BotApi, 'status'>
   /** ログイン中の配信者のオーバーレイ用キー。発行されていなければ null */
   overlayKey: string | null
   /** キーを再発行した。アプリの枠が持つログイン情報を新しいキーに書き換えてもらう */
   onOverlayKeyChange(overlayKey: string): void
 }
 
-export const TriggerPage = ({ api, overlayKey, onOverlayKeyChange }: TriggerPageProps) => {
+export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: TriggerPageProps) => {
   const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' })
   const [media, setMedia] = useState<readonly MediaItem[]>([])
   const [rewards, setRewards] = useState<readonly Reward[]>([])
@@ -394,6 +415,8 @@ export const TriggerPage = ({ api, overlayKey, onOverlayKeyChange }: TriggerPage
   const [openPosition, setOpenPosition] = useState<number | null>(null)
   // 報酬の一覧を取得できなかった理由。操作の失敗（failure）と分けて持ち、ほかの操作が成功しても消さない
   const [rewardsFailure, setRewardsFailure] = useState('')
+  // botの接続状態。取得できていないあいだと、取得に失敗したときは知らせを出さない（未接続と取り違えないため）
+  const [bot, setBot] = useState<BotConnection>({ status: 'checking' })
   const actions = usePageActions(failureLines)
   // 保存を待つ間に入力欄が書き換えられたかを、保存の応答が届いた時点で確かめるために持つ
   const draftsRef = useRef(drafts)
@@ -429,10 +452,20 @@ export const TriggerPage = ({ api, overlayKey, onOverlayKeyChange }: TriggerPage
         if (!cancelled) setRewardsFailure(`チャンネルポイント報酬の一覧を取得できませんでした: ${errorMessage(error)}`)
       },
     )
+    // botの接続状態も、報酬と同じく取得できなくても操作盤は出す。
+    // 取得できなかったときは未接続扱いにせず理由を出す（接続済みのbotを未接続に見せてしまわないため）
+    botApi.status().then(
+      (status) => {
+        if (!cancelled) setBot({ status: 'loaded', bot: status })
+      },
+      (error: unknown) => {
+        if (!cancelled) setBot({ status: 'failed', message: errorMessage(error) })
+      },
+    )
     return () => {
       cancelled = true
     }
-  }, [api])
+  }, [api, botApi])
 
   if (overlayKey === null) {
     return (
@@ -508,9 +541,34 @@ export const TriggerPage = ({ api, overlayKey, onOverlayKeyChange }: TriggerPage
 
   return (
     <div className="flex max-w-4xl flex-col gap-6">
-      <p className="text-sm text-muted-foreground">チャンネルポイントの交換・フォロー・サブスク・レイドが起きたときに、何をするかを決める。</p>
+      <p className="text-sm text-muted-foreground">
+        チャンネルポイントの交換・フォロー・サブスク・レイド・チャットの発言が起きたときに、何をするかを決める。
+      </p>
 
       {actions.feedback}
+      {bot.status === 'failed' && (
+        <Alert variant="destructive">
+          <AlertTitle>botの接続状態が分かりません</AlertTitle>
+          <AlertDescription>botの接続状態を取得できませんでした: {bot.message}</AlertDescription>
+        </Alert>
+      )}
+      {bot.status === 'loaded' && bot.bot === null && (
+        <Alert variant="destructive">
+          <AlertTitle>botが接続されていません</AlertTitle>
+          <AlertDescription>
+            <span>
+              「チャットに送る」「アナウンスを送る」の動作は、接続しているbotアカウントが送るので動きません。とくに「チャットの発言」のトリガーは、
+              発言を受け取るのにbotのユーザーIDが要るため、Workerに発言そのものが届きません（アラートを出す動作はオーバーレイが受け取るので動きます）。
+            </span>
+            <span>
+              <Link href="/bot/" className="underline underline-offset-4">
+                チャットボット
+              </Link>
+              のページで接続してください。
+            </span>
+          </AlertDescription>
+        </Alert>
+      )}
       {rewardsFailure !== '' && (
         <Alert variant="destructive">
           <AlertTitle>報酬を選べません</AlertTitle>

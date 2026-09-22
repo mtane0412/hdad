@@ -31,6 +31,7 @@ const 発言 = (text: string, badges: readonly string[] = []): ChatMessage => ({
   messageId: 'message-id-0123456789',
   chatterUserId: '11111',
   chatterUserLogin: 'shichousha',
+  chatterUserName: '視聴者さん',
   text,
   badges: [...badges],
 })

@@ -235,6 +235,7 @@ describe('チャットの通知（channel.chat.message）', () => {
       broadcaster_user_id: 配信者のID,
       chatter_user_id: chatterUserId,
       chatter_user_login: 'shichousha',
+      chatter_user_name: '視聴者さん',
       message_id: 'chat-message-1',
       message: { text },
     },
@@ -326,6 +327,7 @@ describe('チャットの通知（channel.chat.message）', () => {
         broadcaster_user_id: '99999',
         chatter_user_id: '11111',
         chatter_user_login: 'shichousha',
+      chatter_user_name: '視聴者さん',
         message_id: 'chat-message-2',
         message: { text: '!ping' },
       },
@@ -373,6 +375,7 @@ describe('チャットの応答の設定・連打・再送', () => {
       broadcaster_user_id: 配信者のID,
       chatter_user_id: '11111',
       chatter_user_login: 'shichousha',
+      chatter_user_name: '視聴者さん',
       message_id: messageId,
       message: { text },
     },
@@ -701,6 +704,168 @@ describe('アラートのトリガーによるチャット送信', () => {
   })
 })
 
+describe('チャットの発言によるアラートのトリガー', () => {
+  const botのID = '67890'
+
+  /** botを接続済みで、チャットの発言のトリガーが保存されている環境を作る */
+  const チャットのトリガーのある環境 = async (triggers: StoredTrigger[], commands: { name: string; reply: string; cooldownSeconds: number }[] = []) => {
+    const { env, db } = 環境を作る()
+    await saveAlertConfig(env.STORE, { triggers })
+    if (commands.length > 0) await saveBotConfig(env.STORE, { commands })
+    await saveToken(env.STORE, 'bot', {
+      accessToken: 'bot-access-token',
+      refreshToken: 'bot-refresh-token',
+      expiresAt: 現在時刻 + 60 * 60 * 1000,
+      scopes: ['user:bot', 'user:read:chat', 'user:write:chat', 'moderator:manage:chat_messages'],
+      userId: botのID,
+      login: 'haishinsha_bot',
+    })
+    return { env, db }
+  }
+
+  const 発言の通知 = (text: string, { chatterUserId = '11111', messageId = 'chat-message-1' } = {}) => ({
+    body: {
+      subscription: { type: 'channel.chat.message' },
+      event: {
+        broadcaster_user_id: 配信者のID,
+        chatter_user_id: chatterUserId,
+        chatter_user_login: 'shichousha',
+        chatter_user_name: '視聴者さん',
+        message_id: messageId,
+        message: { text },
+        badges: [],
+      },
+    },
+    messageId,
+  })
+
+  /** チャット送信とモデレーション操作に応えるTwitchの代役 */
+  const 送信に応えるTwitch = () => {
+    const 送信したチャット: Request[] = []
+    const 呼んだURL: string[] = []
+    const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const request = new Request(input, init)
+      const url = new URL(request.url)
+      if (url.pathname === '/helix/chat/messages') {
+        送信したチャット.push(request.clone())
+        return Response.json({ data: [{ message_id: 'sent', is_sent: true }] })
+      }
+      if (url.pathname === '/helix/moderation/chat' || url.pathname === '/helix/moderation/bans') {
+        呼んだURL.push(`${request.method} ${url.pathname}`)
+        return new Response(null, { status: 204 })
+      }
+      throw new Error(`テストで想定していない通信です: ${request.url}`)
+    }
+    return { 送信したチャット, 呼んだURL, fetchImpl }
+  }
+
+  const 挨拶に応える: StoredTrigger = {
+    event: 'channel.chat.message',
+    conditions: [{ kind: 'text', contains: 'おはよう' }],
+    actions: [{ type: 'chat', message: '{user} さん、おはようございます！' }],
+  }
+
+  it('文面の条件に当てはまる発言に、botの名前で送る', async () => {
+    const { env } = await チャットのトリガーのある環境([挨拶に応える])
+    const twitch = 送信に応えるTwitch()
+
+    const response = await 呼び出す(Twitchからの通知(発言の通知('みなさんおはようございます')), env, twitch.fetchImpl)
+
+    expect(response.status).toBe(204)
+    expect(await twitch.送信したチャット[0]!.json()).toEqual({
+      broadcaster_id: 配信者のID,
+      sender_id: botのID,
+      message: '視聴者さん さん、おはようございます！',
+    })
+  })
+
+  it('文面の条件に当てはまらない発言には、何も送らない', async () => {
+    const { env } = await チャットのトリガーのある環境([挨拶に応える])
+    const twitch = 送信に応えるTwitch()
+
+    await 呼び出す(Twitchからの通知(発言の通知('こんばんは')), env, twitch.fetchImpl)
+
+    expect(twitch.送信したチャット).toHaveLength(0)
+  })
+
+  it('bot自身の発言では決してトリガーを引かない（応答し続けて止まらなくなるため）', async () => {
+    const { env } = await チャットのトリガーのある環境([挨拶に応える])
+    const twitch = 送信に応えるTwitch()
+
+    await 呼び出す(Twitchからの通知(発言の通知('おはようございます', { chatterUserId: botのID })), env, twitch.fetchImpl)
+
+    expect(twitch.送信したチャット).toHaveLength(0)
+  })
+
+  it('自動モデレーションで処分した発言では、トリガーを引かない', async () => {
+    const { env } = await チャットのトリガーのある環境([挨拶に応える])
+    await saveModerationConfig(env.STORE, {
+      enabled: true,
+      exemptBroadcaster: true,
+      exemptVip: true,
+      exemptSubscriber: true,
+      rules: [{ kind: 'word', word: '宣伝', punishment: { type: 'delete' } }],
+    })
+    const twitch = 送信に応えるTwitch()
+
+    await 呼び出す(Twitchからの通知(発言の通知('おはよう、宣伝です')), env, twitch.fetchImpl)
+
+    expect(twitch.呼んだURL).toEqual(['DELETE /helix/moderation/chat'])
+    expect(twitch.送信したチャット).toHaveLength(0)
+  })
+
+  it('同じ通知が再送されても、二度送らない', async () => {
+    const { env } = await チャットのトリガーのある環境([挨拶に応える])
+    const twitch = 送信に応えるTwitch()
+
+    await 呼び出す(Twitchからの通知(発言の通知('おはよう')), env, twitch.fetchImpl)
+    await 呼び出す(Twitchからの通知(発言の通知('おはよう')), env, twitch.fetchImpl)
+
+    expect(twitch.送信したチャット).toHaveLength(1)
+  })
+
+  it('コマンドにもトリガーにも当てはまる発言では、どちらも送る（鍵を取り合わない）', async () => {
+    const トリガー: StoredTrigger = {
+      event: 'channel.chat.message',
+      conditions: [{ kind: 'text', contains: '!ping' }],
+      actions: [{ type: 'chat', message: '{user} さんが ping しました' }],
+    }
+    const { env } = await チャットのトリガーのある環境([トリガー], [{ name: 'ping', reply: '@{user} pong', cooldownSeconds: 0 }])
+    const twitch = 送信に応えるTwitch()
+
+    await 呼び出す(Twitchからの通知(発言の通知('!ping')), env, twitch.fetchImpl)
+
+    const 送った文言 = await Promise.all(twitch.送信したチャット.map(async (request) => ((await request.json()) as { message: string }).message))
+    expect(送った文言).toEqual(['視聴者さん さんが ping しました', '@shichousha pong'])
+  })
+
+  it('アラートを出すだけのトリガーでは、チャットへ何も送らない（オーバーレイが再生する）', async () => {
+    const 音を鳴らす: StoredTrigger = {
+      event: 'channel.chat.message',
+      conditions: [{ kind: 'user', login: 'shichousha' }],
+      actions: [{ type: 'alert', mediaId: '素材ID-拍手の音', mediaKind: 'audio', durationSeconds: 5, volume: 0.5, message: '' }],
+    }
+    const { env, db } = await チャットのトリガーのある環境([音を鳴らす])
+    const twitch = 送信に応えるTwitch()
+
+    const response = await 呼び出す(Twitchからの通知(発言の通知('こんばんは')), env, twitch.fetchImpl)
+
+    expect(response.status).toBe(204)
+    expect(twitch.送信したチャット).toHaveLength(0)
+    // チャットは件数の桁が違うため、トリガーを引いても配信の記録には書かない
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM stream_events').get()).toEqual({ count: 0 })
+  })
+
+  it('botを接続していなければ、トリガーを引かずに受け取るだけにする', async () => {
+    const { env } = 環境を作る()
+    await saveAlertConfig(env.STORE, { triggers: [挨拶に応える] })
+
+    const response = await 呼び出す(Twitchからの通知(発言の通知('おはよう')), env)
+
+    expect(response.status).toBe(204)
+  })
+})
+
 describe('チャットの自動モデレーション', () => {
   const botのID = '67890'
   const 荒らしのID = '11111'
@@ -739,6 +904,7 @@ describe('チャットの自動モデレーション', () => {
       broadcaster_user_id: 配信者のID,
       chatter_user_id: chatterUserId,
       chatter_user_login: 'arashi',
+      chatter_user_name: '荒らしさん',
       message_id: messageId,
       message: { text },
       badges,

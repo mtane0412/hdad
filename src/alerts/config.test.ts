@@ -79,6 +79,15 @@ describe('fetchTriggers', () => {
     expect(await fetchTriggers('overlay-key', fetchImpl)).toEqual(ユーザー指定の設定.triggers)
   })
 
+  it('text の条件を持つトリガーも受け取る（チャットの発言の文面で絞り込む）', async () => {
+    const 文面の条件 = {
+      triggers: [{ ...設定の応答.triggers[0], event: 'channel.chat.message', conditions: [{ kind: 'text', contains: 'おはよう' }] }],
+    }
+    const { fetchImpl } = 応答を返すfetch(200, 文面の条件)
+
+    expect(await fetchTriggers('overlay-key', fetchImpl)).toEqual(文面の条件.triggers)
+  })
+
   it('conditions の欄がなければエラーにする（黙って条件なしとして扱わない）', async () => {
     const 条件のないトリガー: Record<string, unknown> = { ...設定の応答.triggers[0] }
     delete 条件のないトリガー.conditions

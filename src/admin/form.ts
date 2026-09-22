@@ -25,6 +25,7 @@ import {
 } from './api'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
+const CHAT_MESSAGE = 'channel.chat.message'
 const ALERTS_PATH = '/alerts/'
 const PERCENT = 100
 const BYTES_PER_UNIT = 1024
@@ -47,8 +48,13 @@ const COLOR_LABELS: Readonly<Record<AnnouncementColor, string>> = {
   purple: '紫',
 }
 
-/** 条件の種類の日本語のラベル */
-const CONDITION_LABELS: Readonly<Record<ConditionKind, string>> = { reward: '報酬', user: 'ユーザー' }
+/**
+ * 条件の種類の日本語のラベル。
+ *
+ * text は「その言葉を含む発言」に当てはまる（部分一致）ので、「文面」だけにせず「含む言葉」と書く。
+ * 「文面」だけでは、発言全体がその文言と同じときに当てはまる（完全一致）と読めてしまう。
+ */
+const CONDITION_LABELS: Readonly<Record<ConditionKind, string>> = { reward: '報酬', user: 'ユーザー', text: '文面に含む言葉' }
 
 /** 条件の種類の日本語のラベル。画面の見出しと要約で使う */
 export const conditionLabel = (kind: ConditionKind): string => CONDITION_LABELS[kind]
@@ -100,6 +106,7 @@ const EVENT_LABELS: Readonly<Record<AlertEvent, string>> = {
   'channel.subscribe': 'サブスク（新規）',
   'channel.subscription.message': 'サブスク（継続メッセージ）',
   'channel.raid': 'レイド',
+  [CHAT_MESSAGE]: 'チャットの発言',
 }
 
 /** イベント種別ごとに、文言で使える差し込み語 */
@@ -109,6 +116,7 @@ const EVENT_PLACEHOLDERS: Readonly<Record<AlertEvent, readonly string[]>> = {
   'channel.subscribe': ['{user}', '{tier}'],
   'channel.subscription.message': ['{user}', '{tier}', '{months}'],
   'channel.raid': ['{user}', '{viewers}'],
+  [CHAT_MESSAGE]: ['{user}', '{message}'],
 }
 
 /** イベント種別の選択肢 */
@@ -163,15 +171,34 @@ export const toTriggerInput = (draft: TriggerDraft): TriggerInput => ({
 })
 
 /**
+ * その条件の種類を、このイベント種別に付けられるか。
+ *
+ * reward はチャンネルポイントの交換（報酬IDを持つ）、text はチャットの発言（本文を持つ）にしか意味を持たない。
+ * Workerの検証（worker/alert-config.ts の parseCondition）と同じ判定を画面側でも持ち、付けられない種類を選択肢に出さない。
+ */
+const isConditionKindFor = (kind: ConditionKind, event: AlertEvent): boolean => {
+  switch (kind) {
+    case 'reward':
+      return event === REDEMPTION
+    case 'text':
+      return event === CHAT_MESSAGE
+    case 'user':
+      return true
+  }
+}
+
+/**
  * まだ足していない条件の種類の選択肢。
  *
  * 同じ種類は1件までなので、すでに足してある種類は出さない。
- * reward はチャンネルポイントの交換にしか付けられない（ほかのイベントではWorkerが保存を拒否する）ので、そのときだけ出す。
+ * reward はチャンネルポイントの交換に、text はチャットの発言にしか付けられない（ほかのイベントではWorkerが保存を拒否する）ので、
+ * そのイベントのときだけ出す。
  */
 export const addableConditionKinds = (draft: TriggerDraft): readonly ConditionKindOption[] =>
-  CONDITION_KINDS.filter(
-    (kind) => !draft.conditions.some((condition) => condition.kind === kind) && (kind !== 'reward' || draft.event === REDEMPTION),
-  ).map((kind) => ({ value: kind, label: CONDITION_LABELS[kind] }))
+  CONDITION_KINDS.filter((kind) => !draft.conditions.some((condition) => condition.kind === kind) && isConditionKindFor(kind, draft.event)).map((kind) => ({
+    value: kind,
+    label: CONDITION_LABELS[kind],
+  }))
 
 /**
  * 足したばかりの条件1件の値。
@@ -179,19 +206,27 @@ export const addableConditionKinds = (draft: TriggerDraft): readonly ConditionKi
  * 報酬は、選択欄が見せているとおりの値（置いてある報酬の先頭）を選んでおく。
  * そうしないと、選択欄には最初の報酬が見えているのに保存時に拒まれる。報酬が1つもなければ選べていない状態にする。
  */
-export const createCondition = (kind: ConditionKind, rewards: readonly Reward[]): TriggerCondition =>
-  kind === 'reward' ? { kind, rewardId: rewards[0]?.id ?? NO_REWARD } : { kind, login: '' }
+export const createCondition = (kind: ConditionKind, rewards: readonly Reward[]): TriggerCondition => {
+  switch (kind) {
+    case 'reward':
+      return { kind, rewardId: rewards[0]?.id ?? NO_REWARD }
+    case 'text':
+      return { kind, contains: '' }
+    case 'user':
+      return { kind, login: '' }
+  }
+}
 
 /**
  * イベント種別を変える。
  *
- * チャンネルポイントの交換から別のイベントへ変えたら reward の条件を外す。
+ * 変えた先のイベントに付けられない条件（チャンネルポイントの交換以外の reward、チャットの発言以外の text）は外す。
  * 残したままでは保存がWorkerに拒否され、画面上は条件が見えているのに直し方が分からなくなるため。
  */
 export const changeEvent = (draft: TriggerDraft, event: AlertEvent): TriggerDraft => ({
   ...draft,
   event,
-  conditions: event === REDEMPTION ? draft.conditions : draft.conditions.filter((condition) => condition.kind !== 'reward'),
+  conditions: draft.conditions.filter((condition) => isConditionKindFor(condition.kind, event)),
 })
 
 /** 動作を外したときに入力欄へ残しておく既定値（画面で入れ直さずに済むように、形だけは保つ） */
@@ -252,6 +287,8 @@ const conditionSummary = (condition: TriggerCondition, rewards: readonly Reward[
       return `報酬「${rewards.find((reward) => reward.id === condition.rewardId)?.title ?? condition.rewardId}」`
     case 'user':
       return `ユーザー「${condition.login}」`
+    case 'text':
+      return `文面に「${condition.contains}」を含む`
   }
 }
 

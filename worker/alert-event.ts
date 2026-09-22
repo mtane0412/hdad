@@ -4,16 +4,28 @@
  * Twitchから届いた通知の中身から、条件の照合と文言の差し込みに使う項目をイベント種別ごとに取り出し、
  * トリガーの一覧と照らし合わせて「チャットに送る文言」を決める（送信そのものは呼び出し側が行う）。
  *
+ * 条件の種類には、そのイベントにしか意味を持たないものがある（reward はチャンネルポイントの交換、text はチャットの発言）。
+ * ほかのイベントでは満たさないものとして扱う（保存時にも拒否しているが、古い設定が残っていても意図しないイベントで動かないようにする）。
+ *
  * 注意: オーバーレイ側の src/alerts/trigger.ts と同じ役目のコードを別に持っている。worker/ からは src/ を読み込まない約束のため。
  * 差し込み語（{user} など）とティアの表記は両方で同じにする（管理画面が案内する差し込み語が動作の種類で変わると混乱するため）。
  */
 import { announceActionOf, chatActionOf, type AlertConfig, type StoredAnnounceAction, type StoredCondition, type StoredTrigger } from './alert-config'
+import { readChatMessage } from './chat-command'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const FOLLOW = 'channel.follow'
 const SUBSCRIBE = 'channel.subscribe'
 const SUBSCRIPTION_MESSAGE = 'channel.subscription.message'
 const RAID = 'channel.raid'
+const CHAT_MESSAGE = 'channel.chat.message'
+
+/**
+ * Twitchへ送る1通の上限（チャットもアナウンスも500文字。worker/alert-config.ts の検証と同じ値）。
+ *
+ * 保存時に文言そのものは500文字以内に収めているが、{message}（発言の本文。最大500文字）を差し込むと超えることがある。
+ */
+const MAX_CHAT_MESSAGE_LENGTH = 500
 
 /** Twitchが返すティアの値と、文言に差し込む表記の対応 */
 const TIER_LABELS: Readonly<Record<string, string>> = { '1000': '1', '2000': '2', '3000': '3' }
@@ -36,6 +48,7 @@ export type Extracted =
       readonly cumulativeMonths: number
     }
   | { readonly event: typeof RAID; readonly userName: string; readonly userLogin: string; readonly viewers: number }
+  | { readonly event: typeof CHAT_MESSAGE; readonly userName: string; readonly userLogin: string; readonly text: string }
 
 type EventBody = Readonly<Record<string, unknown>>
 
@@ -69,7 +82,7 @@ const readReward = (event: EventBody): { rewardId: string; rewardTitle: string }
  *
  * @param subscriptionType 通知の subscription.type
  * @param body 通知の event（中身）
- * @returns アラートに使えないイベント種別なら null（配信の開始・終了やチャットもここへ来るため、例外にしない）
+ * @returns アラートに使えないイベント種別なら null（配信の開始・終了もここへ来るため、例外にしない）
  * @throws 通知の中身が想定した形でない場合
  */
 export const extract = (subscriptionType: string, body: unknown): Extracted | null => {
@@ -98,6 +111,11 @@ export const extract = (subscriptionType: string, body: unknown): Extracted | nu
         userLogin: readString(body, 'from_broadcaster_user_login'),
         viewers: readNumber(body, 'viewers'),
       }
+    // 発言の読み取りはチャットボットと同じものを使う（同じ通知を2か所で読み解かないため）
+    case CHAT_MESSAGE: {
+      const message = readChatMessage(body)
+      return { event: CHAT_MESSAGE, userName: message.chatterUserName, userLogin: message.chatterUserLogin, text: message.text }
+    }
     default:
       return null
   }
@@ -116,6 +134,9 @@ const satisfiesCondition = (condition: StoredCondition, extracted: Extracted): b
       return extracted.event === REDEMPTION && condition.rewardId === extracted.rewardId
     case 'user':
       return condition.login.toLowerCase() === extracted.userLogin.toLowerCase()
+    case 'text':
+      // 本文を持つのはチャットの発言だけなので、ほかのイベントでは満たさないものとして扱う（reward と同じ扱い）
+      return extracted.event === CHAT_MESSAGE && extracted.text.toLowerCase().includes(condition.contains.toLowerCase())
   }
 }
 
@@ -143,6 +164,8 @@ const placeholderValues = (extracted: Extracted): Record<string, string> => {
       return { '{user}': extracted.userName, '{tier}': tierLabel(extracted.tier), '{months}': String(extracted.cumulativeMonths) }
     case RAID:
       return { '{user}': extracted.userName, '{viewers}': String(extracted.viewers) }
+    case CHAT_MESSAGE:
+      return { '{user}': extracted.userName, '{message}': extracted.text }
   }
 }
 
@@ -188,19 +211,34 @@ const filledActionFor = <Action extends { message: string }>(
 /**
  * 通知に当てはまるトリガーを探し、チャットへ送る文言を決める。
  *
+ * 差し込みの結果がTwitchの上限（500文字）を超えていれば、末尾を … にして収める。
+ *
  * @returns 送る文言。当てはまるトリガーがなければ null
  * @throws 通知の中身が想定した形でない場合（チャットに送るトリガーがあるイベント種別に限る）
  */
-export const chatMessageFor = (config: AlertConfig, subscriptionType: string, body: unknown): string | null =>
-  filledActionFor(config, subscriptionType, body, chatActionOf)?.message ?? null
+/**
+ * Twitchへ送る文言を上限に収める。超えていれば末尾を … にする。
+ *
+ * 上限を超えたままではTwitchが1通まるごと拒み、お礼がまったく送られない（`alert-chat-failed` として記録されるだけになる）。
+ * 切れていることが配信者に分かるよう、黙って切らずに末尾へ … を付ける。
+ */
+const withinChatLimit = (message: string): string =>
+  message.length <= MAX_CHAT_MESSAGE_LENGTH ? message : `${message.slice(0, MAX_CHAT_MESSAGE_LENGTH - 1)}…`
+
+export const chatMessageFor = (config: AlertConfig, subscriptionType: string, body: unknown): string | null => {
+  const action = filledActionFor(config, subscriptionType, body, chatActionOf)
+  return action === null ? null : withinChatLimit(action.message)
+}
 
 /**
  * 通知に当てはまるトリガーを探し、送るアナウンス（文言と色）を決める。
  *
- * 選び方は chatMessageFor と同じで、複数当てはまる場合は先に書かれたものを使う。
+ * 選び方と上限への収め方は chatMessageFor と同じで、複数当てはまる場合は先に書かれたものを使う。
  *
  * @returns 送るアナウンス。当てはまるトリガーがなければ null
  * @throws 通知の中身が想定した形でない場合（アナウンスを送るトリガーがあるイベント種別に限る）
  */
-export const announcementFor = (config: AlertConfig, subscriptionType: string, body: unknown): StoredAnnounceAction | null =>
-  filledActionFor(config, subscriptionType, body, announceActionOf)
+export const announcementFor = (config: AlertConfig, subscriptionType: string, body: unknown): StoredAnnounceAction | null => {
+  const action = filledActionFor(config, subscriptionType, body, announceActionOf)
+  return action === null ? null : { ...action, message: withinChatLimit(action.message) }
+}

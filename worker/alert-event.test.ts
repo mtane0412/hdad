@@ -10,6 +10,7 @@ import type { AlertConfig, StoredCondition, StoredTrigger } from './alert-config
 import { announcementFor, chatMessageFor, extract, fillMessage, matches } from './alert-event'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
+const CHAT_MESSAGE = 'channel.chat.message'
 
 describe('extract', () => {
   it('チャンネルポイント交換から、交換した人と報酬を取り出す', () => {
@@ -57,6 +58,19 @@ describe('extract', () => {
     const event = { from_broadcaster_user_name: '山田花子', from_broadcaster_user_login: 'yamada_hanako', to_broadcaster_user_name: '配信者本人', viewers: 42 }
 
     expect(extract('channel.raid', event)).toEqual({ event: 'channel.raid', userName: '山田花子', userLogin: 'yamada_hanako', viewers: 42 })
+  })
+
+  it('チャットの発言から、発言者と本文を取り出す', () => {
+    const event = {
+      broadcaster_user_id: '配信者ID',
+      chatter_user_id: '発言者ID',
+      chatter_user_login: 'tanaka_taro',
+      chatter_user_name: '田中太郎',
+      message_id: '発言ID-1',
+      message: { text: 'おはようございます' },
+    }
+
+    expect(extract(CHAT_MESSAGE, event)).toEqual({ event: CHAT_MESSAGE, userName: '田中太郎', userLogin: 'tanaka_taro', text: 'おはようございます' })
   })
 
   it('対応していないイベントの種類は null を返す（Twitchが種類を増やしてもWorkerを止めない）', () => {
@@ -117,6 +131,28 @@ describe('matches', () => {
     expect(matches(交換のトリガー(報酬だけ合う), 交換した)).toBe(false)
   })
 
+  it('text の条件は、本文にその文字を含むときだけ当てはまる（部分一致）', () => {
+    const チャットのトリガー = (conditions: StoredCondition[]): StoredTrigger => ({ event: CHAT_MESSAGE, conditions, actions: [{ type: 'chat', message: 'やあ' }] })
+    const 発言した = { event: CHAT_MESSAGE, userName: '田中太郎', userLogin: 'tanaka_taro', text: 'みなさんおはようございます' } as const
+
+    expect(matches(チャットのトリガー([{ kind: 'text', contains: 'おはよう' }]), 発言した)).toBe(true)
+    expect(matches(チャットのトリガー([{ kind: 'text', contains: 'こんばんは' }]), 発言した)).toBe(false)
+  })
+
+  it('text の条件は大文字小文字を区別しない', () => {
+    const チャットのトリガー: StoredTrigger = { event: CHAT_MESSAGE, conditions: [{ kind: 'text', contains: 'Hello' }], actions: [{ type: 'chat', message: 'やあ' }] }
+    const 発言した = { event: CHAT_MESSAGE, userName: '田中太郎', userLogin: 'tanaka_taro', text: 'HELLO everyone' } as const
+
+    expect(matches(チャットのトリガー, 発言した)).toBe(true)
+  })
+
+  it('text の条件はチャットの発言以外には当てはまらない（保存時に拒否するが、照合でも通さない）', () => {
+    const フォローに文面: StoredTrigger = { event: 'channel.follow', conditions: [{ kind: 'text', contains: 'おはよう' }], actions: [{ type: 'chat', message: 'ありがとう' }] }
+    const フォローした = { event: 'channel.follow', userName: '田中太郎', userLogin: 'tanaka_taro' } as const
+
+    expect(matches(フォローに文面, フォローした)).toBe(false)
+  })
+
   it('reward の条件はチャンネルポイント交換以外には当てはまらない（保存時に拒否するが、照合でも通さない）', () => {
     const フォローに報酬: StoredTrigger = { event: 'channel.follow', conditions: [{ kind: 'reward', rewardId: '報酬ID-乾杯' }], actions: [{ type: 'chat', message: 'ありがとう' }] }
     const フォローした = { event: 'channel.follow', userName: '田中太郎', userLogin: 'tanaka_taro' } as const
@@ -134,6 +170,12 @@ describe('fillMessage', () => {
 
   it('そのイベントにない差し込み語は残す（入力の誤りに配信者が気付けるようにする）', () => {
     expect(fillMessage('{user} さん、{viewers}人', { event: 'channel.follow', userName: '田中太郎', userLogin: 'tanaka_taro' })).toBe('田中太郎 さん、{viewers}人')
+  })
+
+  it('チャットの発言では、{message} が本文に置き換わる', () => {
+    const 発言した = { event: CHAT_MESSAGE, userName: '田中太郎', userLogin: 'tanaka_taro', text: 'おはよう' } as const
+
+    expect(fillMessage('{user} さんが「{message}」と言いました', 発言した)).toBe('田中太郎 さんが「おはよう」と言いました')
   })
 
   it('報酬名に $& のような置換の特殊な指定が含まれていても、そのまま差し込む', () => {
@@ -188,6 +230,72 @@ describe('chatMessageFor', () => {
     const config = 設定([{ event: 'channel.follow', conditions: [], actions: [{ type: 'chat', message: 'ありがとう' }] }])
 
     expect(chatMessageFor(config, 'stream.online', { id: '配信ID' })).toBeNull()
+  })
+})
+
+describe('チャットの発言のトリガー', () => {
+  const 発言の通知 = {
+    broadcaster_user_id: '配信者ID',
+    chatter_user_id: '発言者ID',
+    chatter_user_login: 'tanaka_taro',
+    chatter_user_name: '田中太郎',
+    message_id: '発言ID-1',
+    message: { text: 'みなさんおはようございます' },
+  }
+
+  it('文面の条件に当てはまる発言で、チャットの文言を返す', () => {
+    const 設定: AlertConfig = {
+      triggers: [{ event: CHAT_MESSAGE, conditions: [{ kind: 'text', contains: 'おはよう' }], actions: [{ type: 'chat', message: '{user} さん、おはよう！' }] }],
+    }
+
+    expect(chatMessageFor(設定, CHAT_MESSAGE, 発言の通知)).toBe('田中太郎 さん、おはよう！')
+  })
+
+  it('発言者の条件に当てはまらない発言では null を返す', () => {
+    const 設定: AlertConfig = {
+      triggers: [{ event: CHAT_MESSAGE, conditions: [{ kind: 'user', login: 'yamada_hanako' }], actions: [{ type: 'chat', message: 'やあ' }] }],
+    }
+
+    expect(chatMessageFor(設定, CHAT_MESSAGE, 発言の通知)).toBeNull()
+  })
+
+  it('本文を差し込んでTwitchの上限（500文字）を超えたら、末尾を … にして収める', () => {
+    const 長い発言 = {
+      ...発言の通知,
+      message: { text: 'あ'.repeat(500) },
+    }
+    const 設定: AlertConfig = {
+      triggers: [{ event: CHAT_MESSAGE, conditions: [], actions: [{ type: 'chat', message: '{user} さんの発言: {message}' }] }],
+    }
+
+    const 送る文言 = chatMessageFor(設定, CHAT_MESSAGE, 長い発言)
+
+    expect(送る文言).toHaveLength(500)
+    expect(送る文言?.endsWith('…')).toBe(true)
+    expect(送る文言?.startsWith('田中太郎 さんの発言: ')).toBe(true)
+  })
+
+  it('アナウンスの文言も、Twitchの上限（500文字）に収める', () => {
+    const 長い発言 = { ...発言の通知, message: { text: 'あ'.repeat(500) } }
+    const 設定: AlertConfig = {
+      triggers: [{ event: CHAT_MESSAGE, conditions: [], actions: [{ type: 'announce', message: '{message}', color: 'blue' }] }],
+    }
+
+    expect(announcementFor(設定, CHAT_MESSAGE, 長い発言)?.message).toHaveLength(500)
+  })
+
+  it('発言の本文をアナウンスの文言に差し込める', () => {
+    const 設定: AlertConfig = {
+      triggers: [
+        {
+          event: CHAT_MESSAGE,
+          conditions: [{ kind: 'text', contains: 'おはよう' }],
+          actions: [{ type: 'announce', message: '{user}: {message}', color: 'blue' }],
+        },
+      ],
+    }
+
+    expect(announcementFor(設定, CHAT_MESSAGE, 発言の通知)).toEqual({ type: 'announce', message: '田中太郎: みなさんおはようございます', color: 'blue' })
   })
 })
 

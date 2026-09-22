@@ -19,81 +19,100 @@ const 視聴者の発言 = (text: string): ChatMessage => ({
   messageId: 'message-id-0123456789',
   chatterUserId: '11111',
   chatterUserLogin: 'shichousha',
+  chatterUserName: '視聴者さん',
   text,
   badges: [],
 })
 
 describe('readChatMessage', () => {
-  it('通知から、発言者とメッセージの本文を取り出す', () => {
-    const body = {
-      event: {
-        broadcaster_user_id: '12345',
-        chatter_user_id: '11111',
-        chatter_user_login: 'shichousha',
-        message_id: 'message-id-0123456789',
-        message: { text: '!ping', fragments: [{ type: 'text', text: '!ping' }] },
-        badges: [],
-      },
+  it('通知の event から、発言者とメッセージの本文を取り出す', () => {
+    const event = {
+      broadcaster_user_id: '12345',
+      chatter_user_id: '11111',
+      chatter_user_login: 'shichousha',
+      chatter_user_name: '視聴者さん',
+      message_id: 'message-id-0123456789',
+      message: { text: '!ping', fragments: [{ type: 'text', text: '!ping' }] },
+      badges: [],
     }
 
-    expect(readChatMessage(body)).toEqual({
+    expect(readChatMessage(event)).toEqual({
       broadcasterUserId: '12345',
       messageId: 'message-id-0123456789',
       chatterUserId: '11111',
       chatterUserLogin: 'shichousha',
+      chatterUserName: '視聴者さん',
       text: '!ping',
       badges: [],
     })
   })
 
   it('通知のバッジを、種類の名前（set_id）の一覧として取り出す（自動モデレーションの対象外の判定に使う）', () => {
-    const body = {
-      event: {
-        broadcaster_user_id: '12345',
-        chatter_user_id: '11111',
-        chatter_user_login: 'moderator-san',
-        message_id: 'message-id-0123456789',
-        message: { text: 'こんばんは' },
-        badges: [
-          { set_id: 'moderator', id: '1', info: '' },
-          { set_id: 'subscriber', id: '12', info: '12' },
-        ],
-      },
+    const event = {
+      broadcaster_user_id: '12345',
+      chatter_user_id: '11111',
+      chatter_user_login: 'moderator-san',
+      chatter_user_name: 'モデレーターさん',
+      message_id: 'message-id-0123456789',
+      message: { text: 'こんばんは' },
+      badges: [
+        { set_id: 'moderator', id: '1', info: '' },
+        { set_id: 'subscriber', id: '12', info: '12' },
+      ],
     }
 
-    expect(readChatMessage(body).badges).toEqual(['moderator', 'subscriber'])
+    expect(readChatMessage(event).badges).toEqual(['moderator', 'subscriber'])
   })
 
   it('バッジが無い通知は、バッジなしとして扱う（バッジは付いていないことのほうが多いため）', () => {
-    const body = {
-      event: {
-        broadcaster_user_id: '12345',
-        chatter_user_id: '11111',
-        chatter_user_login: 'shichousha',
-        message_id: 'message-id-0123456789',
-        message: { text: 'こんばんは' },
-      },
+    const event = {
+      broadcaster_user_id: '12345',
+      chatter_user_id: '11111',
+      chatter_user_login: 'shichousha',
+      chatter_user_name: '視聴者さん',
+      message_id: 'message-id-0123456789',
+      message: { text: 'こんばんは' },
     }
 
-    expect(readChatMessage(body).badges).toEqual([])
+    expect(readChatMessage(event).badges).toEqual([])
   })
 
   it('event が無ければエラーになる', () => {
-    expect(() => readChatMessage({})).toThrow()
+    expect(() => readChatMessage(undefined)).toThrow()
   })
 
   it('本文（message.text）が無ければエラーになる', () => {
-    const body = {
-      event: { broadcaster_user_id: '12345', chatter_user_id: '11111', chatter_user_login: 'shichousha', message_id: 'message-id-0123456789', message: {} },
+    const event = {
+      broadcaster_user_id: '12345',
+      chatter_user_id: '11111',
+      chatter_user_login: 'shichousha',
+      chatter_user_name: '視聴者さん',
+      message_id: 'message-id-0123456789',
+      message: {},
     }
-    expect(() => readChatMessage(body)).toThrow()
+    expect(() => readChatMessage(event)).toThrow()
   })
 
   it('発言者のIDが無ければエラーになる（bot自身の発言かを判別できないため）', () => {
-    const body = {
-      event: { broadcaster_user_id: '12345', chatter_user_login: 'shichousha', message_id: 'message-id-0123456789', message: { text: '!ping' } },
+    const event = {
+      broadcaster_user_id: '12345',
+      chatter_user_login: 'shichousha',
+      chatter_user_name: '視聴者さん',
+      message_id: 'message-id-0123456789',
+      message: { text: '!ping' },
     }
-    expect(() => readChatMessage(body)).toThrow()
+    expect(() => readChatMessage(event)).toThrow()
+  })
+
+  it('発言者の表示名が無ければエラーになる（アラートの文言に差し込むため）', () => {
+    const event = {
+      broadcaster_user_id: '12345',
+      chatter_user_id: '11111',
+      chatter_user_login: 'shichousha',
+      message_id: 'message-id-0123456789',
+      message: { text: '!ping' },
+    }
+    expect(() => readChatMessage(event)).toThrow(/chatter_user_name/)
   })
 })
 
@@ -124,6 +143,7 @@ describe('resolveReply', () => {
       messageId: 'message-id-9999',
       chatterUserId: botのID,
       chatterUserLogin: 'haishinsha_bot',
+      chatterUserName: '配信者のbot',
       text: '!ping',
       badges: [],
     }

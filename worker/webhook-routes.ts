@@ -130,8 +130,9 @@ const moderateChatMessage = async (context: Context, message: ChatMessage, botUs
 }
 
 /**
- * チャットの通知に応答する。
+ * チャットの通知を受けて、自動モデレーション・アラートのトリガー・コマンドの応答を順に行う。
  *
+ * この順にするのは、処分した発言にはトリガーも応答も返さないため（荒らしの発言でアラートを鳴らさない）。
  * 配信の記録（D1）には書かない。チャットは件数の桁が違い、1通ごとに書くと配信の記録と書き込みの枠を食い合うため。
  *
  * 注意: 応答を送ると決めたあとの失敗は、Twitchへの応答を2xxのままにして記録に残す。
@@ -141,7 +142,7 @@ const moderateChatMessage = async (context: Context, message: ChatMessage, botUs
 const replyToChatMessage = async (context: Context, body: Record<string, unknown>): Promise<void> => {
   const { env, now } = context
   // 通知の中身が想定と違えば、黙って捨てずに「不正な通知」として400で返す（Workerの不具合を表す500と区別する）
-  const message = readChatMessage(body, invalid)
+  const message = readChatMessage(body.event, invalid)
 
   // このWorkerが扱う配信者以外のチャンネルのチャットには応答しない。
   // 応答先は常に TWITCH_BROADCASTER_ID なので、古い購読が残っていると、他人のチャットの発言に対して
@@ -154,6 +155,10 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
 
   // 自動モデレーションはコマンドの応答より先に判定する。処分した発言には応答しない
   if (await moderateChatMessage(context, message, bot.userId)) return
+
+  // bot自身の発言ではトリガーを引かない。引くと、その応答にまた反応して止まらなくなる（コマンドの応答と同じ考え方）。
+  // botは接続済みなので、接続の確認はやり直さない（発言1通あたりのKVの読み出しを増やさないため）
+  if (message.chatterUserId !== bot.userId) await sendAlertMessages(context, CHAT_MESSAGE, body, message.messageId, () => Promise.resolve(true))
 
   // コマンドに一致しない発言では、ここから先へ進まない（チャットの全件をD1に書かないため）
   const { commands } = await loadBotConfig(env.STORE)
@@ -190,9 +195,17 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
  * 詰まって待ちきれないときは送らずに投げ、下の sendAndRecordFailure が失敗として記録する。
  *
  * @param messageId 通知のメッセージID。再送で二度送らないための鍵に使う
+ * @param botConnected botが接続されているかを調べる。判定を関数で渡すのは、送る動作が1件もないときに
+ *   トークンを読まずに済ませるため（チャットの発言では1通ごとにここを通るので、余分なKVの読み出しを増やさない）
  * @throws HttpError イベントの中身が想定と違う場合（400。黙って捨てない）
  */
-const sendAlertMessages = async (context: Context, subscriptionType: string, body: Record<string, unknown>, messageId: string): Promise<void> => {
+const sendAlertMessages = async (
+  context: Context,
+  subscriptionType: string,
+  body: Record<string, unknown>,
+  messageId: string,
+  botConnected: () => Promise<boolean>,
+): Promise<void> => {
   const { env } = context
 
   const config = await loadAlertConfig(env.STORE)
@@ -207,7 +220,7 @@ const sendAlertMessages = async (context: Context, subscriptionType: string, bod
   if (message === null && announcement === null) return
 
   // botを切断していれば送る先がない。受け取り自体は成功として返す
-  if (!(await loadToken(env.STORE, 'bot'))) return
+  if (!(await botConnected())) return
 
   if (message !== null) await sendAndRecordFailure(context, messageId, 'chat', 'alert-chat-failed', () => sendAsBot(context, message))
   if (announcement !== null) {
@@ -265,12 +278,12 @@ export const eventsubWebhook = async (context: Context): Promise<Response> => {
       return new Response(body.challenge, { status: STATUS.ok, headers: { 'Content-Type': 'text/plain' } })
     }
     case 'notification': {
-      // チャットは記録せず応答に回す。ほかのイベントは配信の記録として数えたうえで、アラートのトリガーにかける
+      // チャットは記録せず応答に回す（そちらでもトリガーにかける）。ほかのイベントは配信の記録として数えたうえで、アラートのトリガーにかける
       const { type } = readSubscription(body)
       if (type === CHAT_MESSAGE) await replyToChatMessage(context, body)
       else {
         await recordNotification({ db: env.DB, messageId, occurredAt, body })
-        await sendAlertMessages(context, type, body, messageId)
+        await sendAlertMessages(context, type, body, messageId, async () => (await loadToken(env.STORE, 'bot')) !== null)
       }
       return new Response(null, { status: STATUS.noContent })
     }

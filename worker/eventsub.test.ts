@@ -22,7 +22,7 @@ const 保存済みトークン = (scopes: readonly string[]): StoredToken => ({
 })
 
 describe('buildSubscriptions', () => {
-  it('チャンネルポイント交換・フォロー・サブスク・レイドの購読を、WebSocketのセッション宛てに組み立てる', () => {
+  it('チャンネルポイント交換・フォロー・サブスク・レイド・チャットの発言の購読を、WebSocketのセッション宛てに組み立てる', () => {
     const subscriptions = buildSubscriptions('12345', 'セッションID')
 
     expect(subscriptions.map((subscription) => subscription.type)).toEqual([
@@ -31,6 +31,7 @@ describe('buildSubscriptions', () => {
       'channel.subscribe',
       'channel.subscription.message',
       'channel.raid',
+      'channel.chat.message',
     ])
     for (const subscription of subscriptions) {
       expect(subscription.transport).toEqual({ method: 'websocket', session_id: 'セッションID' })
@@ -46,6 +47,11 @@ describe('buildSubscriptions', () => {
     const raid = buildSubscriptions('12345', 'セッションID').find((subscription) => subscription.type === 'channel.raid')
     expect(raid?.condition).toEqual({ to_broadcaster_user_id: '12345' })
   })
+
+  it('チャットの発言は、配信者自身を「チャットを読む人」として指定する（オーバーレイは配信者のトークンで購読する）', () => {
+    const chat = buildSubscriptions('12345', 'セッションID').find((subscription) => subscription.type === 'channel.chat.message')
+    expect(chat).toMatchObject({ version: '1', condition: { broadcaster_user_id: '12345', user_id: '12345' } })
+  })
 })
 
 describe('REQUIRED_SCOPES / BOT_SCOPES', () => {
@@ -54,6 +60,10 @@ describe('REQUIRED_SCOPES / BOT_SCOPES', () => {
     expect(REQUIRED_SCOPES).toContain('channel:bot')
     expect(REQUIRED_SCOPES).toContain('channel:read:redemptions')
     expect(REQUIRED_SCOPES).toContain('moderator:read:followers')
+  })
+
+  it('配信者には user:read:chat も要求する（オーバーレイがチャットの発言を受け取るため）', () => {
+    expect(REQUIRED_SCOPES).toContain('user:read:chat')
   })
 
   it('配信者には moderation:read も要求する（botがモデレーターかどうかを確かめるため）', () => {
@@ -91,8 +101,8 @@ describe('subscribeAll', () => {
 
     const types = await subscribeAll({ store, twitch, broadcasterId: '12345', sessionId: 'セッションID', now: 現在時刻 })
 
-    expect(types).toHaveLength(5)
-    expect(twitch.createSubscription).toHaveBeenCalledTimes(5)
+    expect(types).toHaveLength(6)
+    expect(twitch.createSubscription).toHaveBeenCalledTimes(6)
     expect(twitch.createSubscription).toHaveBeenCalledWith('保存済みのアクセストークン', expect.objectContaining({ type: 'channel.raid' }))
   })
 
@@ -116,10 +126,10 @@ describe('subscribeAll', () => {
 
     const types = await subscribeAll({ store, twitch, broadcasterId: '12345', sessionId: 'セッションID', now: 現在時刻 })
 
-    expect(types).toHaveLength(5)
+    expect(types).toHaveLength(6)
     expect(twitch.refresh).toHaveBeenCalledTimes(1)
-    // 1件目が401で失敗 → 取り直して1件目をやり直すので、合計6回
-    expect(twitch.createSubscription).toHaveBeenCalledTimes(6)
+    // 1件目が401で失敗 → 取り直して1件目をやり直すので、合計7回
+    expect(twitch.createSubscription).toHaveBeenCalledTimes(7)
   })
 
   it('取り直したトークンでも401なら、やり直しを繰り返さずエラーにする', async () => {

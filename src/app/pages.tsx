@@ -49,7 +49,10 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
         path: '/triggers/',
         name: 'トリガー',
         icon: Zap,
-        render: ({ api, me, onOverlayKeyChange }) => <TriggerPage api={api} overlayKey={me.overlayKey} onOverlayKeyChange={onOverlayKeyChange} />,
+        // botの接続状態も読む（未接続だとチャットとアナウンスの動作が動かないので、トリガーのページで知らせる）
+        render: ({ api, botApi, me, onOverlayKeyChange }) => (
+          <TriggerPage api={api} botApi={botApi} overlayKey={me.overlayKey} onOverlayKeyChange={onOverlayKeyChange} />
+        ),
       },
     ],
   },

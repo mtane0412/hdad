@@ -25,8 +25,10 @@ export interface ChatMessage {
   messageId: string
   /** 発言者のユーザーID。bot自身かどうかの判別に使う */
   chatterUserId: string
-  /** 発言者のログイン名。応答文の {user} に入る */
+  /** 発言者のログイン名。コマンドの応答文の {user} に入る */
   chatterUserLogin: string
+  /** 発言者の表示名。アラートのトリガーの文言の {user} に入る（表示名は本人が変えられるので、条件の照合には使わない） */
+  chatterUserName: string
   /** 本文（絵文字などを含まない平文） */
   text: string
   /**
@@ -51,20 +53,24 @@ const readBadgeNames = (badges: unknown): string[] =>
   Array.isArray(badges) ? badges.flatMap((badge: unknown) => (isRecord(badge) && typeof badge.set_id === 'string' ? [badge.set_id] : [])) : []
 
 /**
- * `channel.chat.message` の通知から、必要な項目を取り出す。
+ * `channel.chat.message` の通知の event（中身）から、必要な項目を取り出す。
  *
+ * 通知そのものではなく中身を受け取るのは、アラートのトリガー（alert-event.ts の extract）が
+ * イベントごとの中身だけを渡す形になっているため。同じ読み取りを2か所に書かずに済ませる。
+ *
+ * @param event 通知の event。オブジェクトでなければエラーにする
  * @param toError 問題を伝えるエラーの作り方。呼び出し側が「不正な通知」として扱える形にするために受け取る
  *   （既定では素の Error。Workerの経路からは400になるエラーを渡す）
  * @throws 必要な項目が揃っていない（想定と違う通知を黙って捨てないため）
  */
-export const readChatMessage = (body: Record<string, unknown>, toError: (message: string) => Error = (message) => new Error(message)): ChatMessage => {
-  const { event } = body
+export const readChatMessage = (event: unknown, toError: (message: string) => Error = (message) => new Error(message)): ChatMessage => {
   if (!isRecord(event)) throw toError('channel.chat.message の通知に event がありません')
 
   const {
     broadcaster_user_id: broadcasterUserId,
     chatter_user_id: chatterUserId,
     chatter_user_login: chatterUserLogin,
+    chatter_user_name: chatterUserName,
     message_id: messageId,
     message,
     badges,
@@ -74,12 +80,15 @@ export const readChatMessage = (body: Record<string, unknown>, toError: (message
     typeof broadcasterUserId !== 'string' ||
     typeof chatterUserId !== 'string' ||
     typeof chatterUserLogin !== 'string' ||
+    typeof chatterUserName !== 'string' ||
     typeof messageId !== 'string' ||
     typeof text !== 'string'
   ) {
-    throw toError('channel.chat.message の通知に broadcaster_user_id・chatter_user_id・chatter_user_login・message_id・message.text が揃っていません')
+    throw toError(
+      'channel.chat.message の通知に broadcaster_user_id・chatter_user_id・chatter_user_login・chatter_user_name・message_id・message.text が揃っていません',
+    )
   }
-  return { broadcasterUserId, messageId, chatterUserId, chatterUserLogin, text, badges: readBadgeNames(badges) }
+  return { broadcasterUserId, messageId, chatterUserId, chatterUserLogin, chatterUserName, text, badges: readBadgeNames(badges) }
 }
 
 /**
