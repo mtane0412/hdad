@@ -291,10 +291,10 @@ describe('triggerSummary', () => {
     expect(triggerSummary(draft, [])).toBe('レイド（ユーザー「tanenobu」）→ アラート')
   })
 
-  it('text の条件では、文面を添える', () => {
+  it('text の条件では、その言葉を含む発言が対象だと分かるように添える', () => {
     const draft = 入力欄({ event: CHAT_MESSAGE, conditions: [{ kind: 'text', contains: 'おはよう' }] })
 
-    expect(triggerSummary(draft, [])).toBe('チャットの発言（文面「おはよう」）→ アラート')
+    expect(triggerSummary(draft, [])).toBe('チャットの発言（文面に「おはよう」を含む）→ アラート')
   })
 
   it('条件が2つあれば、すべてを満たす必要があることが分かるように並べる', () => {
@@ -332,7 +332,7 @@ describe('addableConditionKinds', () => {
   it('チャットの発言では、user と text を足せる（reward は付けられない）', () => {
     expect(addableConditionKinds(入力欄({ event: CHAT_MESSAGE }))).toEqual([
       { value: 'user', label: 'ユーザー' },
-      { value: 'text', label: '文面' },
+      { value: 'text', label: '文面に含む言葉' },
     ])
   })
 

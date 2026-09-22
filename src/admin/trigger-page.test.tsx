@@ -255,8 +255,8 @@ describe('トリガー', () => {
 
     const row = await 開いたトリガー()
     await userEvent.selectOptions(row.getByLabelText('イベント'), CHAT_MESSAGE)
-    await userEvent.click(row.getByRole('button', { name: '文面の条件を足す' }))
-    await userEvent.type(row.getByLabelText('文面'), 'おはよう')
+    await userEvent.click(row.getByRole('button', { name: '文面に含む言葉の条件を足す' }))
+    await userEvent.type(row.getByLabelText('文面に含む言葉'), 'おはよう')
     await userEvent.click(screen.getByRole('button', { name: 'トリガーを保存' }))
 
     expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
@@ -268,18 +268,18 @@ describe('トリガー', () => {
 
     const row = await 開いたトリガー()
 
-    expect(row.queryByRole('button', { name: '文面の条件を足す' })).not.toBeInTheDocument()
+    expect(row.queryByRole('button', { name: '文面に含む言葉の条件を足す' })).not.toBeInTheDocument()
   })
 
   test('チャットの発言から別のイベントに切り替えると、文面の条件は外れる（そのままでは保存できないため）', async () => {
     render(トリガーのページ(代役のAPI({ config: async () => [{ ...拍手のトリガー, event: CHAT_MESSAGE, conditions: [{ kind: 'text', contains: 'おはよう' }] }] })))
 
     const row = await 開いたトリガー()
-    expect(row.getByLabelText('文面')).toHaveValue('おはよう')
+    expect(row.getByLabelText('文面に含む言葉')).toHaveValue('おはよう')
 
     await userEvent.selectOptions(row.getByLabelText('イベント'), 'channel.follow')
 
-    expect(row.queryByLabelText('文面')).not.toBeInTheDocument()
+    expect(row.queryByLabelText('文面に含む言葉')).not.toBeInTheDocument()
   })
 
   test('チャットの発言では、差し込み語に {message} を出す', async () => {

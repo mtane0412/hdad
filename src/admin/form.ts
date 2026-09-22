@@ -48,8 +48,13 @@ const COLOR_LABELS: Readonly<Record<AnnouncementColor, string>> = {
   purple: '紫',
 }
 
-/** 条件の種類の日本語のラベル */
-const CONDITION_LABELS: Readonly<Record<ConditionKind, string>> = { reward: '報酬', user: 'ユーザー', text: '文面' }
+/**
+ * 条件の種類の日本語のラベル。
+ *
+ * text は「その言葉を含む発言」に当てはまる（部分一致）ので、「文面」だけにせず「含む言葉」と書く。
+ * 「文面」だけでは、発言全体がその文言と同じときに当てはまる（完全一致）と読めてしまう。
+ */
+const CONDITION_LABELS: Readonly<Record<ConditionKind, string>> = { reward: '報酬', user: 'ユーザー', text: '文面に含む言葉' }
 
 /** 条件の種類の日本語のラベル。画面の見出しと要約で使う */
 export const conditionLabel = (kind: ConditionKind): string => CONDITION_LABELS[kind]
@@ -283,7 +288,7 @@ const conditionSummary = (condition: TriggerCondition, rewards: readonly Reward[
     case 'user':
       return `ユーザー「${condition.login}」`
     case 'text':
-      return `文面「${condition.contains}」`
+      return `文面に「${condition.contains}」を含む`
   }
 }
 
