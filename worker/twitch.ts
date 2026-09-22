@@ -74,13 +74,14 @@ export interface TokenOwner {
 
 /**
  * Helixへ登録するEventSubの購読。
- * WebSocket宛て（オーバーレイ）はユーザートークンで、Webhook宛て（配信の記録）はアプリアクセストークンで登録する。
+ *
+ * 通知の宛先はこのWorkerのWebhookだけで、アプリアクセストークンで登録する（eventsub-webhook.ts）。
  */
 export interface EventSubSubscription {
   type: string
   version: string
   condition: Record<string, string>
-  transport: { method: 'websocket'; session_id: string } | { method: 'webhook'; callback: string; secret: string }
+  transport: { method: 'webhook'; callback: string; secret: string }
 }
 
 /** 登録済みのEventSubの購読のうち、Webhook宛ての購読の整理に必要な項目 */

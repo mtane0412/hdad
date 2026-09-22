@@ -1,18 +1,18 @@
 /**
  * アラート用オーバーレイのページ（alerts/index.html）のエントリスクリプト
  *
- * URLの ?key=<オーバーレイ用キー> でEventSubに接続し、届いた通知をそのままWorker（resolve.ts）へ送って、
- * 返ってきたアラートを1件ずつ順番に再生する。どのトリガーに当てはまるかの判定はWorkerが受け持つ
+ * URLの ?key=<オーバーレイ用キー> でWorkerへつなぎ、押し出されてくるアラートを1件ずつ順番に再生する。
+ * Twitchの通知を受け取るのも、どのトリガーに当てはまるかを決めるのもWorkerで、このページは再生するだけでよい
  * （条件に「その配信で初めての発言か」のように、データベースの記録からしか決められないものがあるため）。
  * ?demo=true なら接続せず、6種類のイベントぶんのサンプルを一定間隔で順に流す（配置の調整用）。
  * 起動に失敗した場合や、人が直さないと直らない失敗は、OBS上でも原因が分かるよう画面にエラー内容を表示する。
  */
 import { showError } from '../core/mount'
 import { ParamError, parseParams, type ParamSchema } from '../core/params'
-import { connectEventSub } from './connection'
+import type { Alert } from './alert'
 import { demoAlerts } from './demo'
 import { EMPTY_QUEUE, advance, enqueue } from './queue'
-import { resolveAlert, type Alert } from './resolve'
+import { connectAlerts } from './socket'
 import { createAlertView } from './view'
 
 const NOUN = 'アラート'
@@ -81,25 +81,14 @@ const start = async (): Promise<void> => {
     return
   }
 
-  /** 通知の処理を届いた順に1件ずつ行うための列。問い合わせの速さによってアラートの順番が入れ替わらないようにする */
-  let processing: Promise<void> = Promise.resolve()
-
-  connectEventSub(params.key, {
-    onNotification: (notification) => {
-      // どのトリガーに当てはまるかはWorkerが決めるので、通知のたびに問い合わせる。
-      // 管理画面での変更がOBSの再読み込みなしで反映されるのもこのため
-      processing = processing
-        .then(() => resolveAlert(params.key, notification, (input, init) => fetch(input, init)))
-        .then((alert) => {
-          // 前回の問い合わせの失敗のお知らせが残っていれば消す
-          view.setNotice(null)
-          if (alert) showAlert(alert)
-        })
-        .catch((error: unknown) => view.setNotice(`アラートを問い合わせられませんでした: ${messageOf(error)}`))
+  connectAlerts(params.key, {
+    onAlert: (alert) => {
+      // 前回の失敗のお知らせが残っていれば消す
+      view.setNotice(null)
+      showAlert(alert)
     },
-    onStatus: (status) => view.setNotice(status === 'disconnected' ? 'Twitchとの接続が切れました。再接続します…' : null),
+    onStatus: (status) => view.setNotice(status === 'disconnected' ? 'Workerとの接続が切れました。再接続します…' : null),
     onWarning: (message) => view.setNotice(message),
-    onFatal: (message) => showError(new Error(message), NOUN),
   })
 }
 
