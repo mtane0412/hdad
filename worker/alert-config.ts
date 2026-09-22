@@ -8,10 +8,13 @@
  * - chat: Workerがbotとしてチャットへ送る（オーバーレイには渡さない。オーバーレイに送信の役目を持たせないため）
  * - announce: Workerがbotとしてアナウンス（色の付いた帯）を送る。botがモデレーターにされている必要がある
  *
- * 対応しているイベントは、Workerが購読している5種類（ALERT_EVENTS）。
+ * 対応しているイベントは、Workerが購読している6種類（ALERT_EVENTS）。チャットの発言は、botを接続しているときだけ通知が届く。
  * 条件は種類（kind）で判別する union のリストで、すべてを満たしたときだけトリガーが当てはまる（and）。
  * 条件を1件も持たないトリガーは、そのイベントが起きればいつでも当てはまる。
  * 同じ種類の条件は1トリガーに1件までにする（動作と同じ扱い。「報酬Aかつ報酬B」のような満たせない条件を作らせないため）。
+ *
+ * 条件の種類には、そのイベントにしか意味を持たないものがある（reward はチャンネルポイントの交換、text はチャットの発言）。
+ * ほかのイベントに付いていたら黙って捨てずに保存を拒む（配信者が設定したつもりの絞り込みが効かないまま保存されるのを防ぐ）。
  *
  * 注意: 検証は最初の1件で止めず、問題点をすべて集めてから拒否する（管理画面で一度に直せるようにする）。
  * 注意: 条件をリストにする前の保存内容（event と rewardId が直接ぶら下がる形）は読み替えず、読み込みで失敗させる（Fail-Fast）。
@@ -22,14 +25,15 @@ import { ANNOUNCEMENT_COLORS, type AnnouncementColor } from './twitch'
 
 const CONFIG_KEY = 'alert-config'
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
+const CHAT_MESSAGE = 'channel.chat.message'
 
 /** アラートを出せるイベントの種類。src/alerts/trigger.ts の ALERT_EVENTS と同じ並び（worker/ と src/ は互いに読み込まない約束） */
-export const ALERT_EVENTS = [REDEMPTION, 'channel.follow', 'channel.subscribe', 'channel.subscription.message', 'channel.raid'] as const
+export const ALERT_EVENTS = [REDEMPTION, 'channel.follow', 'channel.subscribe', 'channel.subscription.message', 'channel.raid', CHAT_MESSAGE] as const
 
 export type AlertEvent = (typeof ALERT_EVENTS)[number]
 
 /** 条件の種類。同じ種類は1トリガーに1件まで */
-export const CONDITION_KINDS = ['reward', 'user'] as const
+export const CONDITION_KINDS = ['reward', 'user', 'text'] as const
 
 export type ConditionKind = (typeof CONDITION_KINDS)[number]
 
@@ -42,7 +46,7 @@ const MAX_TRIGGERS = 100
 const MIN_DURATION_SECONDS = 1
 const MAX_DURATION_SECONDS = 60
 const MAX_ALERT_MESSAGE_LENGTH = 200
-/** チャット1通の上限（Twitchの POST /helix/chat/messages の制限）。アナウンスも同じ500文字 */
+/** チャット1通の上限（Twitchの POST /helix/chat/messages の制限）。アナウンスも同じ500文字で、text の条件の上限にも使う */
 const MAX_CHAT_MESSAGE_LENGTH = 500
 /** Twitchのユーザー名（login）の上限 */
 const MAX_LOGIN_LENGTH = 25
@@ -91,9 +95,10 @@ export type StoredAction = StoredAlertAction | StoredChatAction | StoredAnnounce
  * 条件1件。種類（kind）で判別する union。
  *
  * - reward: 対象の報酬ID。チャンネルポイントの交換にしか付けられない。条件がなければすべての報酬が対象
- * - user: そのイベントの相手（交換した人・フォローした人・レイドした配信者など）のTwitchのユーザー名（login）
+ * - user: そのイベントの相手（交換した人・フォローした人・レイドした配信者・発言した人など）のTwitchのユーザー名（login）
+ * - text: 発言の本文に含まれる文字。チャットの発言にしか付けられない（ほかのイベントは本文を持たない）
  */
-export type StoredCondition = { kind: 'reward'; rewardId: string } | { kind: 'user'; login: string }
+export type StoredCondition = { kind: 'reward'; rewardId: string } | { kind: 'user'; login: string } | { kind: 'text'; contains: string }
 
 /** 保存するトリガー。条件はすべてを満たしたときだけ当てはまる（and） */
 export type StoredTrigger = { event: AlertEvent; conditions: StoredCondition[]; actions: StoredAction[] }
@@ -160,27 +165,44 @@ const parseCondition = (candidate: unknown, at: string, event: AlertEvent | null
     return null
   }
 
-  if (kind === 'reward') {
-    // 報酬IDはチャンネルポイントの交換にしか意味を持たないので、ほかのイベントに付いていたら拒否する
-    // （黙って捨てると、配信者が設定したつもりの絞り込みが効かないまま保存される）
-    if (event !== null && event !== REDEMPTION) {
-      problems.push(`${at}: reward の条件はチャンネルポイントの交換にしか付けられません`)
-      return null
+  switch (kind) {
+    case 'reward': {
+      // 報酬IDはチャンネルポイントの交換にしか意味を持たないので、ほかのイベントに付いていたら拒否する
+      // （黙って捨てると、配信者が設定したつもりの絞り込みが効かないまま保存される）
+      if (event !== null && event !== REDEMPTION) {
+        problems.push(`${at}: reward の条件はチャンネルポイントの交換にしか付けられません`)
+        return null
+      }
+      const { rewardId } = candidate
+      if (!isNonEmptyString(rewardId)) {
+        problems.push(`${at}.rewardId: 報酬IDの文字列で指定してください`)
+        return null
+      }
+      return { kind, rewardId }
     }
-    const { rewardId } = candidate
-    if (!isNonEmptyString(rewardId)) {
-      problems.push(`${at}.rewardId: 報酬IDの文字列で指定してください`)
-      return null
+    case 'user': {
+      const { login } = candidate
+      if (!isStringWithin(login, 1, MAX_LOGIN_LENGTH)) {
+        problems.push(`${at}.login: 1〜${MAX_LOGIN_LENGTH}文字のTwitchのユーザー名で指定してください`)
+        return null
+      }
+      return { kind, login }
     }
-    return { kind, rewardId }
+    case 'text': {
+      // 本文を持つのはチャットの発言だけなので、ほかのイベントに付いていたら拒否する（reward と同じ扱い）
+      if (event !== null && event !== CHAT_MESSAGE) {
+        problems.push(`${at}: text の条件はチャットの発言にしか付けられません`)
+        return null
+      }
+      const { contains } = candidate
+      // 空文字はすべての発言に当てはまってしまう（条件なしと区別が付かない）ので、1文字以上を求める
+      if (!isStringWithin(contains, 1, MAX_CHAT_MESSAGE_LENGTH)) {
+        problems.push(`${at}.contains: 1〜${MAX_CHAT_MESSAGE_LENGTH}文字の文字列で指定してください`)
+        return null
+      }
+      return { kind, contains }
+    }
   }
-
-  const { login } = candidate
-  if (!isStringWithin(login, 1, MAX_LOGIN_LENGTH)) {
-    problems.push(`${at}.login: 1〜${MAX_LOGIN_LENGTH}文字のTwitchのユーザー名で指定してください`)
-    return null
-  }
-  return { kind, login }
 }
 
 /**

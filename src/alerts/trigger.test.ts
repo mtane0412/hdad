@@ -14,6 +14,7 @@ const FOLLOW = 'channel.follow'
 const SUBSCRIBE = 'channel.subscribe'
 const SUBSCRIPTION_MESSAGE = 'channel.subscription.message'
 const RAID = 'channel.raid'
+const CHAT_MESSAGE = 'channel.chat.message'
 
 /** 出し方（イベント種別によらず共通）の既定値。テストでは条件だけを重ねて書く */
 const 出し方 = {
@@ -37,6 +38,15 @@ const フォローの通知 = 通知(FOLLOW, { user_name: 'たねのぶ', user_l
 const サブスクの通知 = 通知(SUBSCRIBE, { user_name: 'たねのぶ', user_login: 'tanenobu', tier: '2000', is_gift: false })
 const 継続サブスクの通知 = 通知(SUBSCRIPTION_MESSAGE, { user_name: 'たねのぶ', user_login: 'tanenobu', tier: '1000', cumulative_months: 12, streak_months: 3 })
 const レイドの通知 = 通知(RAID, { from_broadcaster_user_name: 'たねのぶ', from_broadcaster_user_login: 'tanenobu', viewers: 42 })
+const 発言の通知 = (text: string): EventSubNotification =>
+  通知(CHAT_MESSAGE, {
+    broadcaster_user_id: '配信者ID',
+    chatter_user_id: '発言者ID',
+    chatter_user_login: 'tanenobu',
+    chatter_user_name: 'たねのぶ',
+    message_id: '発言ID-1',
+    message: { text },
+  })
 
 describe('extract', () => {
   it('チャンネルポイント交換の通知から、交換した人・報酬ID・報酬名を取り出す', () => {
@@ -63,6 +73,15 @@ describe('extract', () => {
 
   it('レイドの通知から、レイドした配信者と人数を取り出す（レイドは from_broadcaster_user_name に入る）', () => {
     expect(extract(レイドの通知)).toEqual({ event: RAID, userName: 'たねのぶ', userLogin: 'tanenobu', viewers: 42 })
+  })
+
+  it('チャットの発言の通知から、発言者と本文を取り出す', () => {
+    expect(extract(発言の通知('みなさんおはようございます'))).toEqual({
+      event: CHAT_MESSAGE,
+      userName: 'たねのぶ',
+      userLogin: 'tanenobu',
+      text: 'みなさんおはようございます',
+    })
   })
 
   it('知らない種類のイベントは null を返す（Twitchがイベントを増やしてもオーバーレイを止めない）', () => {
@@ -119,6 +138,21 @@ describe('matches', () => {
     expect(matches(交換のトリガー(ユーザーだけ違う), 交換)).toBe(false)
   })
 
+  it('text の条件は、本文にその文字を含む発言にだけ当てはまる（大文字小文字は区別しない）', () => {
+    const 発言 = { event: CHAT_MESSAGE, userName: 'たねのぶ', userLogin: 'tanenobu', text: 'HELLO みなさんおはよう' } as const satisfies Extracted
+    const チャットのトリガー = (conditions: AlertCondition[]): AlertTrigger => ({ ...出し方, event: CHAT_MESSAGE, conditions })
+
+    expect(matches(チャットのトリガー([{ kind: 'text', contains: 'おはよう' }]), 発言)).toBe(true)
+    expect(matches(チャットのトリガー([{ kind: 'text', contains: 'hello' }]), 発言)).toBe(true)
+    expect(matches(チャットのトリガー([{ kind: 'text', contains: 'こんばんは' }]), 発言)).toBe(false)
+  })
+
+  it('text の条件はチャットの発言以外には当てはまらない', () => {
+    const フォローに文面: AlertTrigger = { ...出し方, event: FOLLOW, conditions: [{ kind: 'text', contains: 'おはよう' }] }
+
+    expect(matches(フォローに文面, { event: FOLLOW, userName: 'たねのぶ', userLogin: 'tanenobu' })).toBe(false)
+  })
+
   it('reward の条件はチャンネルポイント交換以外には当てはまらない', () => {
     const フォローに報酬: AlertTrigger = { ...出し方, event: FOLLOW, conditions: [{ kind: 'reward', rewardId: '報酬ID-乾杯' }] }
 
@@ -151,6 +185,12 @@ describe('fillMessage', () => {
     expect(fillMessage('{user} さんが{viewers}人でレイドしました', { event: RAID, userName: 'たねのぶ', userLogin: 'tanenobu', viewers: 42 })).toBe(
       'たねのぶ さんが42人でレイドしました',
     )
+  })
+
+  it('チャットの発言では {message} に本文を差し込む', () => {
+    const 発言 = { event: CHAT_MESSAGE, userName: 'たねのぶ', userLogin: 'tanenobu', text: 'おはよう' } as const satisfies Extracted
+
+    expect(fillMessage('{user}「{message}」', 発言)).toBe('たねのぶ「おはよう」')
   })
 
   it('差し込む値に $ を含む文字列（報酬名など）が来ても、そのまま差し込む', () => {
@@ -192,6 +232,18 @@ describe('toAlert', () => {
     ]
     expect(toAlert(triggers, 交換の通知('報酬ID-乾杯', '乾杯する'))?.text).toBe('乾杯！')
     expect(toAlert(triggers, 交換の通知('報酬ID-水', '水を飲む'))?.text).toBe('その他の報酬')
+  })
+
+  it('チャットの発言でも、文面の条件に当てはまればアラートにする', () => {
+    const トリガー: AlertTrigger = {
+      ...出し方,
+      event: CHAT_MESSAGE,
+      conditions: [{ kind: 'text', contains: 'おはよう' }],
+      message: '{user} さん、おはよう！',
+    }
+
+    expect(toAlert([トリガー], 発言の通知('みなさんおはようございます'))?.text).toBe('たねのぶ さん、おはよう！')
+    expect(toAlert([トリガー], 発言の通知('こんばんは'))).toBeNull()
   })
 
   it('トリガーを設定していないイベントは null を返す', () => {

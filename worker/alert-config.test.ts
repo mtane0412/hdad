@@ -123,6 +123,29 @@ describe('parseAlertConfig', () => {
     expect(config.triggers[0]?.conditions).toEqual([{ kind: 'user', login: 'tanenobu' }])
   })
 
+  it('チャットの発言の文面を絞る text の条件を受け付ける', () => {
+    const チャットのトリガー = { event: 'channel.chat.message', conditions: [{ kind: 'text', contains: 'おはよう' }], actions: [アラートの動作()] }
+    const config = parseAlertConfig({ triggers: [チャットのトリガー] }, 素材の種類)
+
+    expect(config.triggers[0]?.conditions).toEqual([{ kind: 'text', contains: 'おはよう' }])
+  })
+
+  it('チャットの発言以外のイベントに text の条件を付けたら拒否する', () => {
+    const 文面を付けたフォロー = { triggers: [送られてきたトリガー({ event: 'channel.follow', conditions: [{ kind: 'text', contains: 'おはよう' }] })] }
+
+    expect(() => parseAlertConfig(文面を付けたフォロー, 素材の種類)).toThrowError(
+      expect.objectContaining({ problems: ['triggers[0].conditions[0]: text の条件はチャットの発言にしか付けられません'] }),
+    )
+  })
+
+  it('文面が空文字なら拒否する（すべての発言に当てはまってしまう）', () => {
+    const 空の文面 = { triggers: [{ event: 'channel.chat.message', conditions: [{ kind: 'text', contains: '' }], actions: [アラートの動作()] }] }
+
+    expect(() => parseAlertConfig(空の文面, 素材の種類)).toThrowError(
+      expect.objectContaining({ problems: ['triggers[0].conditions[0].contains: 1〜500文字の文字列で指定してください'] }),
+    )
+  })
+
   it('reward と user の報酬とユーザーの条件を並べたトリガーを受け付ける（すべてを満たしたときだけ当てはまる）', () => {
     const 報酬とユーザーの条件 = [
       { kind: 'reward', rewardId: '報酬ID-乾杯' },
@@ -141,7 +164,7 @@ describe('parseAlertConfig', () => {
 
   it('対応していない条件の種類は拒否する', () => {
     expect(() => parseAlertConfig({ triggers: [送られてきたトリガー({ conditions: [{ kind: 'bits' }] })] }, 素材の種類)).toThrowError(
-      expect.objectContaining({ problems: ['triggers[0].conditions[0].kind: reward / user のいずれかを指定してください'] }),
+      expect.objectContaining({ problems: ['triggers[0].conditions[0].kind: reward / user / text のいずれかを指定してください'] }),
     )
   })
 
@@ -207,7 +230,7 @@ describe('parseAlertConfig', () => {
     )
   })
 
-  it.each(['channel.follow', 'channel.subscribe', 'channel.subscription.message', 'channel.raid'])(
+  it.each(['channel.follow', 'channel.subscribe', 'channel.subscription.message', 'channel.raid', 'channel.chat.message'])(
     'チャンネルポイント交換以外のイベント（%s）も、条件なしで受け付ける',
     (event) => {
       expect(parseAlertConfig({ triggers: [{ event, conditions: [], actions: [アラートの動作()] }] }, 素材の種類)).toEqual({

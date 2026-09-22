@@ -11,9 +11,10 @@
 import { ApiError, createCaller, isRecord, readList } from '@/core/api'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
+const CHAT_MESSAGE = 'channel.chat.message'
 
 /** アラートを出せるイベントの種類。worker/alert-config.ts の ALERT_EVENTS と同じ並び（worker/ の型は読み込めないのでここで定義する） */
-export const ALERT_EVENTS = [REDEMPTION, 'channel.follow', 'channel.subscribe', 'channel.subscription.message', 'channel.raid'] as const
+export const ALERT_EVENTS = [REDEMPTION, 'channel.follow', 'channel.subscribe', 'channel.subscription.message', 'channel.raid', CHAT_MESSAGE] as const
 
 export type AlertEvent = (typeof ALERT_EVENTS)[number]
 
@@ -72,7 +73,7 @@ export interface AnnounceAction {
 export type ActionInput = AlertActionInput | ChatAction | AnnounceAction
 
 /** 条件の種類。worker/alert-config.ts の CONDITION_KINDS と同じ並び（worker/ の型は読み込めないのでここで定義する） */
-export const CONDITION_KINDS = ['reward', 'user'] as const
+export const CONDITION_KINDS = ['reward', 'user', 'text'] as const
 
 export type ConditionKind = (typeof CONDITION_KINDS)[number]
 
@@ -80,9 +81,10 @@ export type ConditionKind = (typeof CONDITION_KINDS)[number]
  * 条件1件。種類（kind）で判別する union。
  *
  * - reward: 対象の報酬ID。チャンネルポイントの交換にしか付けられない（ほかのイベントではWorkerが保存を拒否する）
- * - user: そのイベントの相手（交換した人・フォローした人・レイドした配信者など）のTwitchのユーザー名
+ * - user: そのイベントの相手（交換した人・フォローした人・レイドした配信者・発言した人など）のTwitchのユーザー名
+ * - text: 発言の本文に含まれる文字。チャットの発言にしか付けられない（ほかのイベントではWorkerが保存を拒否する）
  */
-export type TriggerCondition = { kind: 'reward'; rewardId: string } | { kind: 'user'; login: string }
+export type TriggerCondition = { kind: 'reward'; rewardId: string } | { kind: 'user'; login: string } | { kind: 'text'; contains: string }
 
 /** 保存するトリガー。イベント種別・条件のリスト（すべて満たす）・そのとき行う動作の一覧からなる */
 export interface TriggerInput {
@@ -149,6 +151,7 @@ export const isAlertEvent = (value: unknown): value is AlertEvent => ALERT_EVENT
 const isTriggerCondition = (value: unknown): value is TriggerCondition => {
   if (!isRecord(value)) return false
   if (value.kind === 'reward') return typeof value.rewardId === 'string'
+  if (value.kind === 'text') return typeof value.contains === 'string'
   return value.kind === 'user' && typeof value.login === 'string'
 }
 

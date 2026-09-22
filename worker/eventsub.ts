@@ -23,7 +23,12 @@ export interface EventType {
 
 export const byBroadcaster = (broadcasterId: string): Record<string, string> => ({ broadcaster_user_id: broadcasterId })
 
-/** 受け取るイベントの一覧。増やすときはここに足す（スコープが増えた場合は配信者の再ログインが必要） */
+/**
+ * 受け取るイベントの一覧。増やすときはここに足す（スコープが増えた場合は配信者の再ログインが必要）。
+ *
+ * ここに並ぶのはオーバーレイ（EventSubのWebSocket）が受け取るイベントで、購読は配信者のトークンで登録する。
+ * Webhook宛ての購読はこの一覧から件数を数えるものだけを拾い、配信の開始・終了とチャットを別に足す（eventsub-webhook.ts）。
+ */
 export const EVENT_TYPES: readonly EventType[] = [
   { type: 'channel.channel_points_custom_reward_redemption.add', version: '1', scope: 'channel:read:redemptions', condition: byBroadcaster },
   {
@@ -36,6 +41,15 @@ export const EVENT_TYPES: readonly EventType[] = [
   // 継続サブスクの共有メッセージ。channel.subscribe は新規サブスクのときしか届かない
   { type: 'channel.subscription.message', version: '1', scope: 'channel:read:subscriptions', condition: byBroadcaster },
   { type: 'channel.raid', version: '1', scope: null, condition: (broadcasterId) => ({ to_broadcaster_user_id: broadcasterId }) },
+  // 「チャットを読む人」（user_id）には配信者自身を指定する。オーバーレイの購読は配信者のトークンで登録するため、
+  // botのユーザーIDを指定するとTwitchが拒む（その場合は bot の user:read:chat が要る）。
+  // Webhook宛ての購読（eventsub-webhook.ts）だけは、アプリアクセストークンで botのユーザーIDを指定して別に作る
+  {
+    type: 'channel.chat.message',
+    version: '1',
+    scope: 'user:read:chat',
+    condition: (broadcasterId) => ({ broadcaster_user_id: broadcasterId, user_id: broadcasterId }),
+  },
 ]
 
 /**

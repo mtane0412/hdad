@@ -3,7 +3,7 @@
  *
  * トリガーは「どのイベントで、どの素材を、どう出すか」の設定1件。届いた通知をトリガーの一覧と照らし合わせ、
  * 画面に出すアラート（素材・表示時間・音量・文言）へ変換する。
- * 対応しているイベントは、Workerが購読している5種類（ALERT_EVENTS）。
+ * 対応しているイベントは、Workerが購読している6種類（ALERT_EVENTS）。
  *
  * 出し方（AlertAppearance）はイベント種別によらず共通で、絞り込みは条件（AlertCondition）のリストで表す。
  * 条件はすべてを満たしたときだけトリガーが当てはまる（and）。条件を1件も持たないトリガーは、そのイベントが起きればいつでも当てはまる。
@@ -20,6 +20,7 @@ export const ALERT_EVENTS = [
   'channel.subscribe',
   'channel.subscription.message',
   'channel.raid',
+  'channel.chat.message',
 ] as const
 
 export type AlertEvent = (typeof ALERT_EVENTS)[number]
@@ -29,6 +30,7 @@ const FOLLOW = 'channel.follow'
 const SUBSCRIBE = 'channel.subscribe'
 const SUBSCRIPTION_MESSAGE = 'channel.subscription.message'
 const RAID = 'channel.raid'
+const CHAT_MESSAGE = 'channel.chat.message'
 
 /** Twitchが返すティアの値と、文言に差し込む表記の対応 */
 const TIER_LABELS: Readonly<Record<string, string>> = { '1000': '1', '2000': '2', '3000': '3' }
@@ -54,9 +56,13 @@ interface AlertAppearance {
  * 条件1件。種類（kind）で判別する union（worker/alert-config.ts の StoredCondition と同じ形）。
  *
  * - reward: 対象の報酬ID。チャンネルポイントの交換にしか意味を持たない
- * - user: そのイベントの相手（交換した人・フォローした人・レイドした配信者など）のTwitchのユーザー名（login）
+ * - user: そのイベントの相手（交換した人・フォローした人・レイドした配信者・発言した人など）のTwitchのユーザー名（login）
+ * - text: 発言の本文に含まれる文字。チャットの発言にしか意味を持たない（ほかのイベントは本文を持たない）
  */
-export type AlertCondition = { readonly kind: 'reward'; readonly rewardId: string } | { readonly kind: 'user'; readonly login: string }
+export type AlertCondition =
+  | { readonly kind: 'reward'; readonly rewardId: string }
+  | { readonly kind: 'user'; readonly login: string }
+  | { readonly kind: 'text'; readonly contains: string }
 
 /** 条件（イベント種別と、すべて満たすべき条件のリスト） */
 interface AlertTriggerCondition {
@@ -92,6 +98,7 @@ export type Extracted =
       readonly cumulativeMonths: number
     }
   | { readonly event: typeof RAID; readonly userName: string; readonly userLogin: string; readonly viewers: number }
+  | { readonly event: typeof CHAT_MESSAGE; readonly userName: string; readonly userLogin: string; readonly text: string }
 
 type EventBody = Readonly<Record<string, unknown>>
 
@@ -107,6 +114,15 @@ const readNumber = (event: EventBody, key: string): number => {
   const value = event[key]
   if (typeof value !== 'number') throw new Error(`イベントの通知に ${key} がありません`)
   return value
+}
+
+/** チャットの発言の message（入れ子のオブジェクト）から本文を読む */
+const readMessageText = (event: EventBody): string => {
+  const { message } = event
+  if (typeof message !== 'object' || message === null) throw new Error('チャットの発言の通知に message がありません')
+  const { text } = message as Record<string, unknown>
+  if (typeof text !== 'string') throw new Error('チャットの発言の通知の message に text がありません')
+  return text
 }
 
 /** チャンネルポイント交換の reward（入れ子のオブジェクト）から報酬IDと報酬名を読む */
@@ -149,6 +165,13 @@ export const extract = (notification: EventSubNotification): Extracted | null =>
         userLogin: readString(event, 'from_broadcaster_user_login'),
         viewers: readNumber(event, 'viewers'),
       }
+    case CHAT_MESSAGE:
+      return {
+        event: CHAT_MESSAGE,
+        userName: readString(event, 'chatter_user_name'),
+        userLogin: readString(event, 'chatter_user_login'),
+        text: readMessageText(event),
+      }
     default:
       return null
   }
@@ -157,8 +180,9 @@ export const extract = (notification: EventSubNotification): Extracted | null =>
 /**
  * 条件1件が、取り出した項目を満たすか。
  *
- * reward の条件はチャンネルポイントの交換にしか意味を持たないため、ほかのイベントでは満たさないものとして扱う。
- * user の条件は大文字小文字を区別しない（Twitchのユーザー名は小文字だが、配信者が表示名の綴りで入れても当てられるようにする）。
+ * reward の条件はチャンネルポイントの交換にしか、text の条件はチャットの発言にしか意味を持たないため、
+ * ほかのイベントでは満たさないものとして扱う。
+ * user と text の条件は大文字小文字を区別しない（Twitchのユーザー名は小文字だが、配信者が表示名の綴りで入れても当てられるようにする）。
  */
 const satisfiesCondition = (condition: AlertCondition, extracted: Extracted): boolean => {
   switch (condition.kind) {
@@ -166,6 +190,9 @@ const satisfiesCondition = (condition: AlertCondition, extracted: Extracted): bo
       return extracted.event === REDEMPTION && condition.rewardId === extracted.rewardId
     case 'user':
       return condition.login.toLowerCase() === extracted.userLogin.toLowerCase()
+    case 'text':
+      // 本文を持つのはチャットの発言だけなので、ほかのイベントでは満たさないものとして扱う（reward と同じ扱い）
+      return extracted.event === CHAT_MESSAGE && extracted.text.toLowerCase().includes(condition.contains.toLowerCase())
   }
 }
 
@@ -194,6 +221,8 @@ const placeholderValues = (extracted: Extracted): Record<string, string> => {
       return { '{user}': extracted.userName, '{tier}': tierLabel(extracted.tier), '{months}': String(extracted.cumulativeMonths) }
     case RAID:
       return { '{user}': extracted.userName, '{viewers}': String(extracted.viewers) }
+    case CHAT_MESSAGE:
+      return { '{user}': extracted.userName, '{message}': extracted.text }
   }
 }
 

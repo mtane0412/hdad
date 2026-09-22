@@ -24,6 +24,7 @@ const isAlertEvent = (value: unknown): value is AlertEvent => ALERT_EVENTS.some(
 const isCondition = (value: unknown): value is AlertCondition => {
   if (!isRecord(value)) return false
   if (value.kind === 'reward') return typeof value.rewardId === 'string'
+  if (value.kind === 'text') return typeof value.contains === 'string'
   return value.kind === 'user' && typeof value.login === 'string'
 }
 

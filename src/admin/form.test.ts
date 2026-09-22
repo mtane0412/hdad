@@ -25,6 +25,7 @@ import type { Reward, StoredTrigger } from './api'
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const FOLLOW = 'channel.follow'
 const RAID = 'channel.raid'
+const CHAT_MESSAGE = 'channel.chat.message'
 
 /** トリガー1件分の入力欄の値。テストでは違いのある項目だけを重ねて書く */
 const 入力欄 = (overrides: Partial<TriggerDraft> = {}): TriggerDraft => ({
@@ -179,13 +180,14 @@ describe('toDraft', () => {
 })
 
 describe('eventOptions', () => {
-  it('5種類のイベントを、日本語のラベル付きで選べるようにする', () => {
+  it('6種類のイベントを、日本語のラベル付きで選べるようにする', () => {
     expect(eventOptions).toEqual([
       { value: REDEMPTION, label: 'チャンネルポイントの交換' },
       { value: FOLLOW, label: 'フォロー' },
       { value: 'channel.subscribe', label: 'サブスク（新規）' },
       { value: 'channel.subscription.message', label: 'サブスク（継続メッセージ）' },
       { value: RAID, label: 'レイド' },
+      { value: CHAT_MESSAGE, label: 'チャットの発言' },
     ])
   })
 })
@@ -197,6 +199,7 @@ describe('placeholdersFor', () => {
     ['channel.subscribe', ['{user}', '{tier}']],
     ['channel.subscription.message', ['{user}', '{tier}', '{months}']],
     [RAID, ['{user}', '{viewers}']],
+    [CHAT_MESSAGE, ['{user}', '{message}']],
   ] as const)('%s で使える差し込み語を返す', (event, expected) => {
     expect(placeholdersFor(event)).toEqual(expected)
   })
@@ -288,6 +291,12 @@ describe('triggerSummary', () => {
     expect(triggerSummary(draft, [])).toBe('レイド（ユーザー「tanenobu」）→ アラート')
   })
 
+  it('text の条件では、文面を添える', () => {
+    const draft = 入力欄({ event: CHAT_MESSAGE, conditions: [{ kind: 'text', contains: 'おはよう' }] })
+
+    expect(triggerSummary(draft, [])).toBe('チャットの発言（文面「おはよう」）→ アラート')
+  })
+
   it('条件が2つあれば、すべてを満たす必要があることが分かるように並べる', () => {
     const draft = 入力欄({
       conditions: [
@@ -320,6 +329,17 @@ describe('addableConditionKinds', () => {
     expect(addableConditionKinds(入力欄({ event: FOLLOW }))).toEqual([{ value: 'user', label: 'ユーザー' }])
   })
 
+  it('チャットの発言では、user と text を足せる（reward は付けられない）', () => {
+    expect(addableConditionKinds(入力欄({ event: CHAT_MESSAGE }))).toEqual([
+      { value: 'user', label: 'ユーザー' },
+      { value: 'text', label: '文面' },
+    ])
+  })
+
+  it('チャットの発言以外では、text を足せない（Workerが保存を拒否するため）', () => {
+    expect(addableConditionKinds(入力欄({ event: FOLLOW })).some((option) => option.value === 'text')).toBe(false)
+  })
+
   it('すでに足してある種類は選べない（同じ種類は1件まで）', () => {
     const draft = 入力欄({ conditions: [{ kind: 'reward', rewardId: 'reward-hakushu' }] })
 
@@ -341,6 +361,10 @@ describe('createCondition', () => {
   it('user の条件は、ユーザー名が空の状態で足す', () => {
     expect(createCondition('user', rewards)).toEqual({ kind: 'user', login: '' })
   })
+
+  it('text の条件は、文面が空の状態で足す', () => {
+    expect(createCondition('text', rewards)).toEqual({ kind: 'text', contains: '' })
+  })
 })
 
 describe('changeEvent', () => {
@@ -353,6 +377,24 @@ describe('changeEvent', () => {
     })
 
     expect(changeEvent(draft, FOLLOW)).toMatchObject({ event: FOLLOW, conditions: [{ kind: 'user', login: 'tanenobu' }] })
+  })
+
+  it('チャットの発言から別のイベントに変えたら、text の条件を外す（そのままでは保存できないため）', () => {
+    const draft = 入力欄({
+      event: CHAT_MESSAGE,
+      conditions: [
+        { kind: 'text', contains: 'おはよう' },
+        { kind: 'user', login: 'tanenobu' },
+      ],
+    })
+
+    expect(changeEvent(draft, FOLLOW)).toMatchObject({ event: FOLLOW, conditions: [{ kind: 'user', login: 'tanenobu' }] })
+  })
+
+  it('チャットの発言のままなら、text の条件はそのまま残す', () => {
+    const draft = 入力欄({ event: CHAT_MESSAGE, conditions: [{ kind: 'text', contains: 'おはよう' }] })
+
+    expect(changeEvent(draft, CHAT_MESSAGE).conditions).toEqual([{ kind: 'text', contains: 'おはよう' }])
   })
 
   it('チャンネルポイントの交換のままなら、条件はそのまま残す', () => {

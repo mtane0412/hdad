@@ -2,7 +2,7 @@
  * デモ用のサンプル（?demo=true）
  *
  * OBSでの配置を調整するために、Twitchにも Worker にも接続せず、サンプルの通知をサンプル画像で表示する。
- * 対応している5種類のイベント（チャンネルポイント交換・フォロー・サブスク・継続サブスク・レイド）を順に出し、
+ * 対応している6種類のイベント（チャンネルポイント交換・フォロー・サブスク・継続サブスク・レイド・チャットの発言）を順に出し、
  * イベントごとの差し込み語がどう見えるかを確かめられるようにする。
  * 画像はこのリポジトリで描いたもので、再配布の制限はない。
  */
@@ -11,6 +11,7 @@ import sampleImageUrl from './sample.svg'
 import type { AlertTrigger } from './trigger'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
+const CHAT_MESSAGE = 'channel.chat.message'
 
 /** サンプルの出し方。イベント種別によらず同じ素材・表示時間・音量で、条件は付けない（サンプルの通知に必ず当てる） */
 const 出し方 = { media: { kind: 'image', url: sampleImageUrl }, durationSeconds: 6, volume: 1, conditions: [] } as const
@@ -21,6 +22,7 @@ export const demoTriggers: readonly AlertTrigger[] = [
   { ...出し方, event: 'channel.subscribe', message: '{user} さんがティア{tier}でサブスクしました' },
   { ...出し方, event: 'channel.subscription.message', message: '{user} さんが{months}か月目のサブスク（ティア{tier}）' },
   { ...出し方, event: 'channel.raid', message: '{user} さんが{viewers}人でレイドしました' },
+  { ...出し方, event: CHAT_MESSAGE, message: '{user} さんが「{message}」と言いました' },
 ]
 
 const 通知 = (subscriptionType: string, event: Record<string, unknown>): EventSubNotification => ({
@@ -37,4 +39,12 @@ export const demoNotifications: readonly EventSubNotification[] = [
   通知('channel.subscribe', { user_name: 'たねのぶ', user_login: 'tanenobu', tier: '1000', is_gift: false }),
   通知('channel.subscription.message', { user_name: 'たねのぶ', user_login: 'tanenobu', tier: '2000', cumulative_months: 12, streak_months: 3 }),
   通知('channel.raid', { from_broadcaster_user_name: 'たねのぶ', from_broadcaster_user_login: 'tanenobu', viewers: 42 }),
+  通知(CHAT_MESSAGE, {
+    broadcaster_user_id: 'demo-broadcaster',
+    chatter_user_id: 'demo-chatter',
+    chatter_user_login: 'tanenobu',
+    chatter_user_name: 'たねのぶ',
+    message_id: 'demo-chat-message',
+    message: { text: 'みなさんおはようございます' },
+  }),
 ]

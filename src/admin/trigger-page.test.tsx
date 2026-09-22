@@ -17,8 +17,13 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import { TriggerPage } from './trigger-page'
 import { ApiError } from '@/core/api'
 import { type AdminApi, type MediaItem, type Reward, type StoredTrigger } from './api'
+import type { BotStatus } from '@/bot/api'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
+const CHAT_MESSAGE = 'channel.chat.message'
+
+/** 接続済みのbotアカウント */
+const 接続済みのbot: BotStatus = { userId: 'bot-user-id', login: 'haishinsha_bot', missingScopes: [], isModerator: true }
 
 const 拍手の動画: MediaItem = { id: 'media-hakushu', name: '拍手.webm', kind: 'video', contentType: 'video/webm', size: 2 * 1024 * 1024, uploadedAt: '2026-09-01T00:00:00Z' }
 const 花火の画像: MediaItem = { id: 'media-hanabi', name: '花火.png', kind: 'image', contentType: 'image/png', size: 2048, uploadedAt: '2026-09-02T00:00:00Z' }
@@ -43,8 +48,11 @@ const 代役のAPI = (overrides: Partial<AdminApi> = {}): AdminApi => ({
   ...overrides,
 })
 
+/** botの接続状態を返すWorkerの代役。既定では接続済み */
+const 代役のBotAPI = (status: () => Promise<BotStatus | null> = async () => 接続済みのbot) => ({ status: vi.fn(status) })
+
 const トリガーのページ = (api: AdminApi, props: Partial<React.ComponentProps<typeof TriggerPage>> = {}) => (
-  <TriggerPage api={api} overlayKey="ima-no-key" onOverlayKeyChange={() => {}} {...props} />
+  <TriggerPage api={api} botApi={代役のBotAPI()} overlayKey="ima-no-key" onOverlayKeyChange={() => {}} {...props} />
 )
 
 const URL欄 = (): HTMLElement => screen.getByLabelText('OBSのブラウザソースに貼るURL')
@@ -239,6 +247,48 @@ describe('トリガー', () => {
     await userEvent.click(row.getByRole('button', { name: '報酬の条件を足す' }))
 
     expect(row.getByLabelText('報酬')).toHaveValue('reward-hakushu')
+  })
+
+  test('チャットの発言のイベントでは、文面の条件を足して保存できる', async () => {
+    const api = 代役のAPI({ config: async () => [{ ...拍手のトリガー, conditions: [] }] })
+    render(トリガーのページ(api))
+
+    const row = await 開いたトリガー()
+    await userEvent.selectOptions(row.getByLabelText('イベント'), CHAT_MESSAGE)
+    await userEvent.click(row.getByRole('button', { name: '文面の条件を足す' }))
+    await userEvent.type(row.getByLabelText('文面'), 'おはよう')
+    await userEvent.click(screen.getByRole('button', { name: 'トリガーを保存' }))
+
+    expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
+    expect(api.saveConfig).toHaveBeenCalledWith([expect.objectContaining({ event: CHAT_MESSAGE, conditions: [{ kind: 'text', contains: 'おはよう' }] })])
+  })
+
+  test('チャットの発言以外のイベントでは、文面の条件を足せない（Workerが保存を拒否するため）', async () => {
+    render(トリガーのページ(代役のAPI({ config: async () => [{ ...拍手のトリガー, conditions: [] }] })))
+
+    const row = await 開いたトリガー()
+
+    expect(row.queryByRole('button', { name: '文面の条件を足す' })).not.toBeInTheDocument()
+  })
+
+  test('チャットの発言から別のイベントに切り替えると、文面の条件は外れる（そのままでは保存できないため）', async () => {
+    render(トリガーのページ(代役のAPI({ config: async () => [{ ...拍手のトリガー, event: CHAT_MESSAGE, conditions: [{ kind: 'text', contains: 'おはよう' }] }] })))
+
+    const row = await 開いたトリガー()
+    expect(row.getByLabelText('文面')).toHaveValue('おはよう')
+
+    await userEvent.selectOptions(row.getByLabelText('イベント'), 'channel.follow')
+
+    expect(row.queryByLabelText('文面')).not.toBeInTheDocument()
+  })
+
+  test('チャットの発言では、差し込み語に {message} を出す', async () => {
+    render(トリガーのページ(代役のAPI()))
+
+    const row = await 開いたトリガー()
+    await userEvent.selectOptions(row.getByLabelText('イベント'), CHAT_MESSAGE)
+
+    expect(row.getByText(/\{user\}/)).toHaveTextContent('{message}')
   })
 
   test('トリガーを足して書き換え、Workerへ送る形で保存する', async () => {
@@ -444,6 +494,35 @@ describe('素材', () => {
     render(トリガーのページ(代役のAPI({ media: async () => [], config: async () => [] })))
 
     expect(await screen.findByRole('link', { name: 'アップロード' })).toHaveAttribute('href', '/media/')
+  })
+})
+
+describe('botの接続状態', () => {
+  test('botが未接続なら、チャットとアナウンスの動作が動かないことを知らせる', async () => {
+    render(トリガーのページ(代役のAPI(), { botApi: 代役のBotAPI(async () => null) }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('botが接続されていません')
+    // チャットの発言のトリガーは、Workerが発言そのものを受け取れない（購読の条件にbotのユーザーIDが要る）
+    expect(alert).toHaveTextContent('チャットの発言')
+    expect(within(alert).getByRole('link', { name: 'チャットボット' })).toHaveAttribute('href', '/bot/')
+  })
+
+  test('botが接続済みなら、その知らせは出さない', async () => {
+    render(トリガーのページ(代役のAPI()))
+
+    expect(await screen.findByRole('button', { name: 'トリガーを足す' })).toBeInTheDocument()
+    expect(screen.queryByText(/botが接続されていません/)).not.toBeInTheDocument()
+  })
+
+  test('接続状態を取得できなければ、未接続扱いにせず理由を出す', async () => {
+    const botApi = 代役のBotAPI(async () => {
+      throw new Error('Workerに接続できません')
+    })
+    render(トリガーのページ(代役のAPI(), { botApi }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('botの接続状態を取得できませんでした: Workerに接続できません')
+    expect(screen.queryByText(/botが接続されていません/)).not.toBeInTheDocument()
   })
 })
 
