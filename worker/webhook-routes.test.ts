@@ -84,7 +84,10 @@ const エラーコード = async (response: Response): Promise<unknown> => {
   return body.error?.code
 }
 
-const レイドの通知 = { subscription: { type: 'channel.raid' }, event: { from_broadcaster_user_name: 'レイド元の配信者', viewers: 30 } }
+const レイドの通知 = {
+  subscription: { type: 'channel.raid' },
+  event: { from_broadcaster_user_name: 'レイド元の配信者', from_broadcaster_user_login: 'raid_moto', viewers: 30 },
+}
 const 雑談配信 = { id: '40000000001', startedAt: '2026-09-21T12:00:00.000Z', title: '月曜の雑談配信', categoryName: 'Just Chatting', viewerCount: 10 }
 
 describe('通知の検証', () => {
@@ -492,13 +495,15 @@ describe('アラートのトリガーによるチャット送信', () => {
     return { 送信したチャット, 送信したアナウンス, fetchImpl }
   }
 
-  const フォローの通知 = { subscription: { type: 'channel.follow' }, event: { user_name: '田中太郎' } }
+  const フォローの通知 = { subscription: { type: 'channel.follow' }, event: { user_name: '田中太郎', user_login: 'tanaka_taro' } }
   const フォローでお礼を言う: StoredTrigger = {
     event: 'channel.follow',
+    conditions: [],
     actions: [{ type: 'chat', message: '{user} さん、フォローありがとうございます！' }],
   }
   const フォローで音を鳴らす: StoredTrigger = {
     event: 'channel.follow',
+    conditions: [],
     actions: [{ type: 'alert', mediaId: '素材ID-拍手の音', mediaKind: 'audio', durationSeconds: 5, volume: 0.5, message: '' }],
   }
 
@@ -526,7 +531,7 @@ describe('アラートのトリガーによるチャット送信', () => {
   })
 
   it('件数を数えるイベント（レイド）でも、記録とチャット送信の両方を行う', async () => {
-    const レイドにお礼を言う: StoredTrigger = { event: 'channel.raid', actions: [{ type: 'chat', message: '{user} さん、{viewers}人でのレイドありがとう！' }] }
+    const レイドにお礼を言う: StoredTrigger = { event: 'channel.raid', conditions: [], actions: [{ type: 'chat', message: '{user} さん、{viewers}人でのレイドありがとう！' }] }
     const { env, db } = await トリガーのある環境([レイドにお礼を言う])
     await recordLiveStream(db, 雑談配信, Date.parse('2026-09-21T12:05:00Z'))
     const twitch = 送信に応えるTwitch()
@@ -593,6 +598,7 @@ describe('アラートのトリガーによるチャット送信', () => {
   describe('アナウンスを送る動作', () => {
     const フォローでアナウンスする: StoredTrigger = {
       event: 'channel.follow',
+      conditions: [],
       actions: [{ type: 'announce', message: '{user} さん、フォローありがとうございます！', color: 'purple' }],
     }
 
@@ -616,6 +622,7 @@ describe('アラートのトリガーによるチャット送信', () => {
     it('チャットとアナウンスの両方を持つトリガーでは、どちらも送る', async () => {
       const 両方する: StoredTrigger = {
         event: 'channel.follow',
+        conditions: [],
         actions: [
           { type: 'chat', message: '{user} さん、ありがとうございます' },
           { type: 'announce', message: '{user} さんがフォローしました', color: 'primary' },

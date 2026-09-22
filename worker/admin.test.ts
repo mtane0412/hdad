@@ -69,7 +69,7 @@ const 画像をアップロードする = async (env: Env, fileName = '乾杯.pn
 
 const トリガー = (mediaId: string) => ({
   event: REDEMPTION,
-  rewardId: null,
+  conditions: [],
   actions: [{ type: 'alert', mediaId, durationSeconds: 5, volume: 1, message: '{user} さんが「{reward}」を交換しました' }],
 })
 

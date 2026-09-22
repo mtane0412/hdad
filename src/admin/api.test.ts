@@ -16,7 +16,7 @@ const 乾杯の動画 = { id: 'sozai-1', name: '乾杯.webm', kind: 'video', con
 
 const 乾杯のトリガー = {
   event: REDEMPTION,
-  rewardId: '報酬ID-乾杯',
+  conditions: [{ kind: 'reward', rewardId: '報酬ID-乾杯' }],
   actions: [{ type: 'alert', mediaId: 'sozai-1', mediaKind: 'video', durationSeconds: 8, volume: 0.5, message: '{user} さん、乾杯！' }],
 }
 
@@ -74,7 +74,7 @@ describe('config・saveConfig（トリガーの設定）', () => {
     const { requests, fetchImpl } = 応答を返すfetch(200, { triggers: [乾杯のトリガー] })
     const 入力: TriggerInput = {
       event: REDEMPTION,
-      rewardId: '報酬ID-乾杯',
+      conditions: [{ kind: 'reward', rewardId: '報酬ID-乾杯' }],
       actions: [{ type: 'alert', mediaId: 'sozai-1', durationSeconds: 8, volume: 0.5, message: '{user} さん、乾杯！' }],
     }
 
@@ -88,13 +88,14 @@ describe('config・saveConfig（トリガーの設定）', () => {
     expect(await request.json()).toEqual({ triggers: [入力] })
   })
 
-  it('チャンネルポイント交換以外のイベントは、報酬IDを持たない形で送受信する', async () => {
+  it('条件を持たないトリガーも、そのまま送受信する', async () => {
     const フォローのトリガー = {
       event: 'channel.follow',
+      conditions: [],
       actions: [{ type: 'chat', message: '{user} さん、フォローありがとうございます！' }],
     }
     const { requests, fetchImpl } = 応答を返すfetch(200, { triggers: [フォローのトリガー] })
-    const 入力: TriggerInput = { event: 'channel.follow', actions: [{ type: 'chat', message: '{user} さん、フォローありがとうございます！' }] }
+    const 入力: TriggerInput = { event: 'channel.follow', conditions: [], actions: [{ type: 'chat', message: '{user} さん、フォローありがとうございます！' }] }
 
     const saved = await createAdminApi(fetchImpl).saveConfig([入力])
 
@@ -104,6 +105,11 @@ describe('config・saveConfig（トリガーの設定）', () => {
 
   it('知らない種類のイベントのトリガーを受け取ったらエラーにする', async () => {
     const { fetchImpl } = 応答を返すfetch(200, { triggers: [{ ...乾杯のトリガー, event: 'channel.cheer' }] })
+    await expect(createAdminApi(fetchImpl).config()).rejects.toThrow('triggers[0]')
+  })
+
+  it('知らない種類の条件を受け取ったらエラーにする（黙って無視すると絞り込みが効かないまま画面に出る）', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { triggers: [{ ...乾杯のトリガー, conditions: [{ kind: 'bits', amount: 100 }] }] })
     await expect(createAdminApi(fetchImpl).config()).rejects.toThrow('triggers[0]')
   })
 

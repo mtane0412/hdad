@@ -71,14 +71,25 @@ export interface AnnounceAction {
 
 export type ActionInput = AlertActionInput | ChatAction | AnnounceAction
 
-/** 条件（イベント種別ごとに違う。いま条件を持つのはチャンネルポイント交換だけ） */
-type TriggerCondition =
-  /** null はすべての報酬 */
-  | { event: typeof REDEMPTION; rewardId: string | null }
-  | { event: Exclude<AlertEvent, typeof REDEMPTION> }
+/** 条件の種類。worker/alert-config.ts の CONDITION_KINDS と同じ並び（worker/ の型は読み込めないのでここで定義する） */
+export const CONDITION_KINDS = ['reward', 'user'] as const
 
-/** 保存するトリガー。条件（どのイベントか）と、そのとき行う動作の一覧からなる */
-export type TriggerInput = TriggerCondition & { actions: ActionInput[] }
+export type ConditionKind = (typeof CONDITION_KINDS)[number]
+
+/**
+ * 条件1件。種類（kind）で判別する union。
+ *
+ * - reward: 対象の報酬ID。チャンネルポイントの交換にしか付けられない（ほかのイベントではWorkerが保存を拒否する）
+ * - user: そのイベントの相手（交換した人・フォローした人・レイドした配信者など）のTwitchのユーザー名
+ */
+export type TriggerCondition = { kind: 'reward'; rewardId: string } | { kind: 'user'; login: string }
+
+/** 保存するトリガー。イベント種別・条件のリスト（すべて満たす）・そのとき行う動作の一覧からなる */
+export interface TriggerInput {
+  event: AlertEvent
+  conditions: TriggerCondition[]
+  actions: ActionInput[]
+}
 
 /** 保存済みの「アラートを出す」動作（Workerが素材の種類を書き足したもの） */
 export type StoredAlertAction = AlertActionInput & { mediaKind: MediaKind }
@@ -86,7 +97,11 @@ export type StoredAlertAction = AlertActionInput & { mediaKind: MediaKind }
 export type StoredAction = StoredAlertAction | ChatAction | AnnounceAction
 
 /** 保存済みのトリガー */
-export type StoredTrigger = TriggerCondition & { actions: StoredAction[] }
+export interface StoredTrigger {
+  event: AlertEvent
+  conditions: TriggerCondition[]
+  actions: StoredAction[]
+}
 
 /** チャンネルポイント報酬 */
 export interface Reward {
@@ -130,9 +145,12 @@ const isMediaItem = (value: unknown): value is MediaItem =>
 /** アラートを出せるイベントの種類か。選択欄の値をイベント種別として扱う前の確認にも使う */
 export const isAlertEvent = (value: unknown): value is AlertEvent => ALERT_EVENTS.some((event) => event === value)
 
-/** 条件の欄はイベント種別ごとに違う。報酬IDを求めるのはチャンネルポイント交換のときだけ */
-const hasCondition = (value: Record<string, unknown>): boolean =>
-  value.event !== REDEMPTION || value.rewardId === null || typeof value.rewardId === 'string'
+/** 条件1件の形。種類ごとに持つ項目が違う。知らない種類は受け取らない（黙って無視すると絞り込みが効かないまま画面に出てしまう） */
+const isTriggerCondition = (value: unknown): value is TriggerCondition => {
+  if (!isRecord(value)) return false
+  if (value.kind === 'reward') return typeof value.rewardId === 'string'
+  return value.kind === 'user' && typeof value.login === 'string'
+}
 
 /** 保存済みの動作1件の形。種類ごとに持つ項目が違う */
 const isStoredAction = (value: unknown): value is StoredAction => {
@@ -149,7 +167,12 @@ const isStoredAction = (value: unknown): value is StoredAction => {
 }
 
 const isStoredTrigger = (value: unknown): value is StoredTrigger =>
-  isRecord(value) && isAlertEvent(value.event) && hasCondition(value) && Array.isArray(value.actions) && value.actions.every(isStoredAction)
+  isRecord(value) &&
+  isAlertEvent(value.event) &&
+  Array.isArray(value.conditions) &&
+  value.conditions.every(isTriggerCondition) &&
+  Array.isArray(value.actions) &&
+  value.actions.every(isStoredAction)
 
 const isReward = (value: unknown): value is Reward =>
   isRecord(value) && typeof value.id === 'string' && typeof value.title === 'string' && typeof value.cost === 'number'

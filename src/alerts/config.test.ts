@@ -13,7 +13,7 @@ const 設定の応答 = {
   triggers: [
     {
       event: REDEMPTION,
-      rewardId: '報酬ID-乾杯',
+      conditions: [{ kind: 'reward', rewardId: '報酬ID-乾杯' }],
       media: { kind: 'video', url: '/api/media/sozai-1?key=overlay-key' },
       durationSeconds: 8,
       volume: 0.5,
@@ -52,23 +52,45 @@ describe('fetchTriggers', () => {
     await expect(fetchTriggers('古いキー', fetchImpl)).rejects.toThrow('オーバーレイ用キーが正しくありません')
   })
 
-  it('チャンネルポイント交換以外のイベントのトリガーも、報酬IDなしで受け取る', async () => {
-    const 他のイベントの設定 = {
+  it('条件を1件も持たないトリガーも受け取る（そのイベントならいつでも出す）', async () => {
+    const 条件なしの設定 = {
       triggers: [
-        { event: 'channel.follow', media: { kind: 'image', url: '/api/media/sozai-2?key=overlay-key' }, durationSeconds: 5, volume: 1, message: '{user} さん、ありがとう！' },
-        { event: 'channel.raid', media: { kind: 'video', url: '/api/media/sozai-3?key=overlay-key' }, durationSeconds: 5, volume: 1, message: '{user} さんが{viewers}人でレイド' },
+        {
+          event: 'channel.follow',
+          conditions: [],
+          media: { kind: 'image', url: '/api/media/sozai-2?key=overlay-key' },
+          durationSeconds: 5,
+          volume: 1,
+          message: '{user} さん、ありがとう！',
+        },
       ],
     }
-    const { fetchImpl } = 応答を返すfetch(200, 他のイベントの設定)
+    const { fetchImpl } = 応答を返すfetch(200, 条件なしの設定)
 
-    expect(await fetchTriggers('overlay-key', fetchImpl)).toEqual(他のイベントの設定.triggers)
+    expect(await fetchTriggers('overlay-key', fetchImpl)).toEqual(条件なしの設定.triggers)
   })
 
-  it('チャンネルポイント交換なのに報酬IDの欄がなければエラーにする', async () => {
-    const { event, media, durationSeconds, volume, message } = { ...設定の応答.triggers[0], event: REDEMPTION }
-    const { fetchImpl } = 応答を返すfetch(200, { triggers: [{ event, media, durationSeconds, volume, message }] })
+  it('user の条件を持つトリガーも受け取る', async () => {
+    const ユーザー指定の設定 = {
+      triggers: [{ ...設定の応答.triggers[0], conditions: [{ kind: 'user', login: 'tanenobu' }] }],
+    }
+    const { fetchImpl } = 応答を返すfetch(200, ユーザー指定の設定)
+
+    expect(await fetchTriggers('overlay-key', fetchImpl)).toEqual(ユーザー指定の設定.triggers)
+  })
+
+  it('conditions の欄がなければエラーにする（黙って条件なしとして扱わない）', async () => {
+    const 条件のないトリガー: Record<string, unknown> = { ...設定の応答.triggers[0] }
+    delete 条件のないトリガー.conditions
+    const { fetchImpl } = 応答を返すfetch(200, { triggers: [条件のないトリガー] })
 
     await expect(fetchTriggers('overlay-key', fetchImpl)).rejects.toThrow('triggers[0]')
+  })
+
+  it('知らない種類の条件はエラーにする', async () => {
+    const 知らない条件 = { triggers: [{ ...設定の応答.triggers[0], conditions: [{ kind: 'bits', amount: 100 }] }] }
+
+    await expect(fetchTriggers('overlay-key', 応答を返すfetch(200, 知らない条件).fetchImpl)).rejects.toThrow('triggers[0]')
   })
 
   it('知らない種類のイベントのトリガーはエラーにする', async () => {
