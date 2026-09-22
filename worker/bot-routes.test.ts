@@ -593,3 +593,77 @@ describe('GET・PUT /api/admin/bot/commands', () => {
     expect(await store.get('bot-commands')).toBeNull()
   })
 })
+
+describe('GET・PUT /api/admin/bot/moderation', () => {
+  /** URLを含む発言を削除する、いちばん簡単な設定 */
+  const URLを削除する設定 = {
+    enabled: true,
+    exemptBroadcaster: true,
+    exemptVip: true,
+    exemptSubscriber: true,
+    rules: [{ kind: 'url', punishment: { type: 'delete' } }],
+  }
+
+  const 保存する = async (env: Env, body: unknown) =>
+    呼び出す(
+      await 配信者のリクエスト(env, '/api/admin/bot/moderation', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+      env,
+    )
+
+  it('セッションがなければ401を返す', async () => {
+    const { env } = 環境を作る()
+    const response = await 呼び出す(new Request(`${サイト}/api/admin/bot/moderation`), env)
+
+    expect(response.status).toBe(401)
+    expect(await エラーコード(response)).toBe('unauthorized')
+  })
+
+  it('まだ保存していなければ、無効で除外がすべて有効な既定の設定を返す', async () => {
+    const { env } = 環境を作る()
+    const response = await 呼び出す(await 配信者のリクエスト(env, '/api/admin/bot/moderation'), env)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ enabled: false, exemptBroadcaster: true, exemptVip: true, exemptSubscriber: true, rules: [] })
+  })
+
+  it('保存した設定を読み出せる', async () => {
+    const { env } = 環境を作る()
+    await 保存する(env, URLを削除する設定)
+
+    const response = await 呼び出す(await 配信者のリクエスト(env, '/api/admin/bot/moderation'), env)
+
+    expect(await response.json()).toEqual(URLを削除する設定)
+  })
+
+  it('セッションがなければ保存できない', async () => {
+    const { env, store } = 環境を作る()
+    const response = await 呼び出す(
+      new Request(`${サイト}/api/admin/bot/moderation`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Origin: サイト },
+        body: JSON.stringify(URLを削除する設定),
+      }),
+      env,
+    )
+
+    expect(response.status).toBe(401)
+    expect(await store.get('bot-moderation')).toBeNull()
+  })
+
+  it('内容に問題があれば、保存せずに問題点の一覧を返す', async () => {
+    const { env, store } = 環境を作る()
+
+    const response = await 保存する(env, { ...URLを削除する設定, rules: [{ kind: 'word', word: '', punishment: { type: 'warn' } }] })
+
+    expect(response.status).toBe(400)
+    const body = (await response.json()) as { error: { code: string; problems: string[] } }
+    expect(body.error.code).toBe('invalid-config')
+    // 処分と語句の両方が問題として返る（管理画面で一度に直せるようにするため）
+    expect(body.error.problems).toHaveLength(2)
+    expect(await store.get('bot-moderation')).toBeNull()
+  })
+})

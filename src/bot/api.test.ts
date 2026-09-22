@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { ApiError } from '@/core/api'
-import { createBotApi } from './api'
+import { createBotApi, type ModerationSettings } from './api'
 
 const サイト = 'https://stream-assets.example.com'
 
@@ -186,5 +186,60 @@ describe('commands（コマンドの取得と保存）', () => {
 
     expect(error).toBeInstanceOf(ApiError)
     expect((error as ApiError).problems).toHaveLength(1)
+  })
+})
+
+describe('moderation（自動モデレーションの設定）', () => {
+  const URLを削除する設定: ModerationSettings = {
+    enabled: true,
+    exemptBroadcaster: true,
+    exemptVip: true,
+    exemptSubscriber: false,
+    rules: [{ kind: 'url', punishment: { type: 'delete' } }],
+  }
+
+  it('保存済みの設定を読み出す', async () => {
+    const { requests, fetchImpl } = 応答を返すfetch(200, URLを削除する設定)
+
+    expect(await createBotApi(fetchImpl).moderation()).toEqual(URLを削除する設定)
+    expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/bot/moderation')
+  })
+
+  it('禁止語と連投のルールも読み出せる', async () => {
+    const rules = [
+      { kind: 'word', word: '宣伝', punishment: { type: 'timeout', durationSeconds: 600 } },
+      { kind: 'repeat', count: 3, windowSeconds: 30, punishment: { type: 'ban' } },
+    ]
+    const { fetchImpl } = 応答を返すfetch(200, { ...URLを削除する設定, rules })
+
+    expect((await createBotApi(fetchImpl).moderation()).rules).toEqual(rules)
+  })
+
+  it('設定を保存し、保存後の内容を返す', async () => {
+    const { requests, fetchImpl } = 応答を返すfetch(200, URLを削除する設定)
+
+    expect(await createBotApi(fetchImpl).saveModeration(URLを削除する設定)).toEqual(URLを削除する設定)
+    expect(requests[0]!.method).toBe('PUT')
+    expect(await requests[0]!.json()).toEqual(URLを削除する設定)
+  })
+
+  it('応答が想定した形でなければエラーにする（黙って無効扱いにしない）', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { enabled: true, rules: [] })
+
+    await expect(createBotApi(fetchImpl).moderation()).rejects.toThrow('/api/admin/bot/moderation')
+  })
+
+  it('知らない種類のルールが混ざっていればエラーにする', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { ...URLを削除する設定, rules: [{ kind: 'regexp', punishment: { type: 'ban' } }] })
+
+    await expect(createBotApi(fetchImpl).moderation()).rejects.toThrow()
+  })
+
+  it('保存で問題点が返ったら、問題点を持つエラーにする', async () => {
+    const { fetchImpl } = 応答を返すfetch(400, {
+      error: { code: 'invalid-config', message: '自動モデレーションの設定に問題があります', problems: ['rules[0].word: 語句を入力してください'] },
+    })
+
+    await expect(createBotApi(fetchImpl).saveModeration(URLを削除する設定)).rejects.toThrow(ApiError)
   })
 })

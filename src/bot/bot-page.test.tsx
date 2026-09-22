@@ -14,7 +14,16 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { ApiError } from '@/core/api'
 import { BotPage } from './bot-page'
-import type { BotApi, BotCommandItem, BotStatus, DevicePoll } from './api'
+import type { BotApi, BotCommandItem, BotStatus, DevicePoll, ModerationSettings } from './api'
+
+/** Workerが未保存のときに返す、自動モデレーションの既定の設定（無効・除外はすべて有効） */
+const 既定のモデレーション設定: ModerationSettings = {
+  enabled: false,
+  exemptBroadcaster: true,
+  exemptVip: true,
+  exemptSubscriber: true,
+  rules: [],
+}
 
 const 接続済みのbot: BotStatus = { userId: '67890', login: 'haishinsha_bot', missingScopes: [], isModerator: true }
 
@@ -38,6 +47,8 @@ const 代役のAPI = (overrides: Partial<BotApi> = {}): BotApi => ({
   commands: vi.fn(async () => [挨拶のコマンド]),
   saveCommands: vi.fn(async (commands: readonly BotCommandItem[]) => [...commands]),
   pollDeviceCode: vi.fn(async (): Promise<DevicePoll> => ({ status: 'connected', bot: 接続済みのbot })),
+  moderation: vi.fn(async () => 既定のモデレーション設定),
+  saveModeration: vi.fn(async (settings: ModerationSettings) => ({ ...settings })),
   ...overrides,
 })
 
@@ -181,7 +192,8 @@ describe('テスト送信', () => {
     await userEvent.type(screen.getByLabelText('テスト送信する文言'), 'あやしい文言')
     await userEvent.click(screen.getByRole('button', { name: '送信する' }))
 
-    expect(await お知らせ('AutoMod')).toBeInTheDocument()
+    // 「AutoMod」は自動モデレーションの説明文にも出てくるので、失敗の理由だけに出てくる文言で確かめる
+    expect(await お知らせ('AutoModに保留されました')).toBeInTheDocument()
   })
 
   test('未接続なら、テスト送信の欄を出さない', async () => {
@@ -373,5 +385,146 @@ describe('コマンドの編集', () => {
     render(<BotPage api={api} />)
 
     expect(await お知らせ('Workerに接続できません')).toBeInTheDocument()
+  })
+})
+
+describe('自動モデレーション', () => {
+  /** 自動モデレーションを触るテストでは、コマンドは無しにして表を1つに保つ */
+  const モデレーションのAPI = (overrides: Partial<BotApi> = {}): BotApi =>
+    代役のAPI({ commands: vi.fn(async () => []), ...overrides })
+
+  test('未保存なら、無効で除外がすべて有効の状態で出す（誤って視聴者を処分しないため）', async () => {
+    render(<BotPage api={モデレーションのAPI()} />)
+
+    expect(await screen.findByRole('checkbox', { name: '自動モデレーションを有効にする' })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '配信者とモデレーターを対象外にする' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'VIPを対象外にする' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'サブスクライバーを対象外にする' })).toBeChecked()
+  })
+
+  test('ルールが1件も無ければ、表を出さずに足すボタンだけを出す', async () => {
+    render(<BotPage api={モデレーションのAPI()} />)
+
+    expect(await screen.findByRole('button', { name: 'ルールを足す' })).toBeInTheDocument()
+    expect(screen.queryByRole('table', { name: '自動モデレーションのルールの一覧' })).not.toBeInTheDocument()
+  })
+
+  test('保存済みのルールを表の行として出す', async () => {
+    const api = モデレーションのAPI({
+      moderation: vi.fn(async () => ({
+        enabled: true,
+        exemptBroadcaster: true,
+        exemptVip: true,
+        exemptSubscriber: true,
+        rules: [{ kind: 'word' as const, word: '宣伝', punishment: { type: 'timeout' as const, durationSeconds: 600 } }],
+      })),
+    })
+    render(<BotPage api={api} />)
+
+    expect(await screen.findByDisplayValue('宣伝')).toBeInTheDocument()
+    expect(screen.getByRole('table', { name: '自動モデレーションのルールの一覧' })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: '自動モデレーションを有効にする' })).toBeChecked()
+  })
+
+  test('変更していないあいだは、保存ボタンを出さない', async () => {
+    render(<BotPage api={モデレーションのAPI()} />)
+    await screen.findByRole('button', { name: 'ルールを足す' })
+
+    expect(screen.queryByRole('button', { name: '自動モデレーションを保存する' })).not.toBeInTheDocument()
+  })
+
+  test('有効にして保存すると、Workerへ送られる', async () => {
+    const api = モデレーションのAPI()
+    render(<BotPage api={api} />)
+    await screen.findByRole('button', { name: 'ルールを足す' })
+
+    await userEvent.click(screen.getByRole('checkbox', { name: '自動モデレーションを有効にする' }))
+    await userEvent.click(screen.getByRole('button', { name: '自動モデレーションを保存する' }))
+
+    expect(api.saveModeration).toHaveBeenCalledWith({
+      enabled: true,
+      exemptBroadcaster: true,
+      exemptVip: true,
+      exemptSubscriber: true,
+      rules: [],
+    })
+    expect(await お知らせ('保存しました')).toBeInTheDocument()
+  })
+
+  test('禁止語のルールを足して保存すると、入力した語句と処分がWorkerへ送られる', async () => {
+    const api = モデレーションのAPI()
+    render(<BotPage api={api} />)
+    await screen.findByRole('button', { name: 'ルールを足す' })
+
+    await userEvent.click(screen.getByRole('button', { name: 'ルールを足す' }))
+    await userEvent.selectOptions(screen.getByLabelText('1番目のルールの種類'), 'word')
+    await userEvent.type(screen.getByLabelText('1番目の禁止語'), '宣伝')
+    await userEvent.selectOptions(screen.getByLabelText('1番目の処分'), 'ban')
+    await userEvent.click(screen.getByRole('button', { name: '自動モデレーションを保存する' }))
+
+    expect(api.saveModeration).toHaveBeenCalledWith(
+      expect.objectContaining({ rules: [{ kind: 'word', word: '宣伝', punishment: { type: 'ban' } }] }),
+    )
+  })
+
+  test('連投のルールでは、回数と数える時間を入力できる', async () => {
+    const api = モデレーションのAPI()
+    render(<BotPage api={api} />)
+    await screen.findByRole('button', { name: 'ルールを足す' })
+
+    await userEvent.click(screen.getByRole('button', { name: 'ルールを足す' }))
+    await userEvent.selectOptions(screen.getByLabelText('1番目のルールの種類'), 'repeat')
+    await userEvent.clear(screen.getByLabelText('1番目の連投とみなす回数'))
+    await userEvent.type(screen.getByLabelText('1番目の連投とみなす回数'), '5')
+    await userEvent.click(screen.getByRole('button', { name: '自動モデレーションを保存する' }))
+
+    expect(api.saveModeration).toHaveBeenCalledWith(
+      expect.objectContaining({ rules: [{ kind: 'repeat', count: 5, windowSeconds: 30, punishment: { type: 'delete' } }] }),
+    )
+  })
+
+  test('タイムアウトを選んだときだけ、長さの入力欄を出す', async () => {
+    render(<BotPage api={モデレーションのAPI()} />)
+    await screen.findByRole('button', { name: 'ルールを足す' })
+
+    await userEvent.click(screen.getByRole('button', { name: 'ルールを足す' }))
+    expect(screen.queryByLabelText('1番目のタイムアウトの長さ（秒）')).not.toBeInTheDocument()
+
+    await userEvent.selectOptions(screen.getByLabelText('1番目の処分'), 'timeout')
+    expect(screen.getByLabelText('1番目のタイムアウトの長さ（秒）')).toBeInTheDocument()
+  })
+
+  test('ルールを外して保存できる', async () => {
+    const api = モデレーションのAPI({
+      moderation: vi.fn(async () => ({
+        enabled: true,
+        exemptBroadcaster: true,
+        exemptVip: true,
+        exemptSubscriber: true,
+        rules: [{ kind: 'url' as const, punishment: { type: 'delete' as const } }],
+      })),
+    })
+    render(<BotPage api={api} />)
+    await screen.findByRole('table', { name: '自動モデレーションのルールの一覧' })
+
+    await userEvent.click(screen.getByRole('button', { name: '1番目のルールを外す' }))
+    await userEvent.click(screen.getByRole('button', { name: '自動モデレーションを保存する' }))
+
+    expect(api.saveModeration).toHaveBeenCalledWith(expect.objectContaining({ rules: [] }))
+  })
+
+  test('保存に失敗したら、問題点を何番目のルールかが分かる形で出す', async () => {
+    const api = モデレーションのAPI({
+      saveModeration: vi.fn(async () => {
+        throw new ApiError(400, 'invalid-config', '自動モデレーションの設定に問題があります', ['rules[0].word: 100文字以内の語句を入力してください'])
+      }),
+    })
+    render(<BotPage api={api} />)
+    await screen.findByRole('button', { name: 'ルールを足す' })
+
+    await userEvent.click(screen.getByRole('checkbox', { name: '自動モデレーションを有効にする' }))
+    await userEvent.click(screen.getByRole('button', { name: '自動モデレーションを保存する' }))
+
+    expect(await お知らせ('1番目のルール')).toBeInTheDocument()
   })
 })

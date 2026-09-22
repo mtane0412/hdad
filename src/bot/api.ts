@@ -17,6 +17,7 @@ const MESSAGES_PATH = '/api/admin/bot/messages'
 const DEVICE_CODE_PATH = '/api/admin/bot/device-code'
 const DEVICE_TOKEN_PATH = '/api/admin/bot/device-token'
 const COMMANDS_PATH = '/api/admin/bot/commands'
+const MODERATION_PATH = '/api/admin/bot/moderation'
 
 /** 接続しているbotアカウント */
 export interface BotStatus {
@@ -39,6 +40,29 @@ export interface BotCommandItem {
   reply: string
   /** 同じコマンドに続けて応答しない秒数。0 なら毎回応答する */
   cooldownSeconds: number
+}
+
+/** 自動モデレーションで与える処分 */
+export type PunishmentItem = { type: 'delete' } | { type: 'timeout'; durationSeconds: number } | { type: 'ban' }
+
+/** 自動モデレーションのルール1つぶん */
+export type ModerationRuleItem =
+  /** 本文に word を含む発言（大文字小文字を区別しない部分一致） */
+  | { kind: 'word'; word: string; punishment: PunishmentItem }
+  /** URLを含む発言 */
+  | { kind: 'url'; punishment: PunishmentItem }
+  /** 同じ文面を windowSeconds のあいだに count 回以上くり返した発言 */
+  | { kind: 'repeat'; count: number; windowSeconds: number; punishment: PunishmentItem }
+
+/** 自動モデレーションの設定。既定は無効で、除外はすべて有効 */
+export interface ModerationSettings {
+  enabled: boolean
+  /** 配信者とモデレーターを処分の対象外にする */
+  exemptBroadcaster: boolean
+  exemptVip: boolean
+  /** サブスクライバー（創設者を含む）を処分の対象外にする */
+  exemptSubscriber: boolean
+  rules: ModerationRuleItem[]
 }
 
 /** 別の端末で接続するために、利用者へ見せる内容 */
@@ -76,6 +100,46 @@ export interface BotApi {
   commands(): Promise<BotCommandItem[]>
   /** コマンドの一覧をまるごと置き換えて保存する */
   saveCommands(commands: readonly BotCommandItem[]): Promise<BotCommandItem[]>
+  /** 自動モデレーションの設定。未保存なら既定（無効）の設定が返る */
+  moderation(): Promise<ModerationSettings>
+  /** 自動モデレーションの設定をまるごと置き換えて保存する */
+  saveModeration(settings: ModerationSettings): Promise<ModerationSettings>
+}
+
+const isPunishmentItem = (value: unknown): value is PunishmentItem =>
+  isRecord(value) &&
+  (value.type === 'delete' || value.type === 'ban' || (value.type === 'timeout' && typeof value.durationSeconds === 'number'))
+
+const isModerationRuleItem = (value: unknown): value is ModerationRuleItem => {
+  if (!isRecord(value) || !isPunishmentItem(value.punishment)) return false
+  if (value.kind === 'url') return true
+  if (value.kind === 'word') return typeof value.word === 'string'
+  return value.kind === 'repeat' && typeof value.count === 'number' && typeof value.windowSeconds === 'number'
+}
+
+/**
+ * 自動モデレーションの設定として読む。想定した形でなければエラーにする。
+ *
+ * 黙って既定（無効）に倒さないのは、有効にしてあるのに画面では無効に見える、という食い違いを避けるため。
+ */
+const readModerationSettings = (body: unknown): ModerationSettings => {
+  const rules = readList(body, 'rules', isModerationRuleItem)
+  if (
+    !isRecord(body) ||
+    typeof body.enabled !== 'boolean' ||
+    typeof body.exemptBroadcaster !== 'boolean' ||
+    typeof body.exemptVip !== 'boolean' ||
+    typeof body.exemptSubscriber !== 'boolean'
+  ) {
+    throw new Error(`Workerの ${MODERATION_PATH} の応答が想定した形ではありません`)
+  }
+  return {
+    enabled: body.enabled,
+    exemptBroadcaster: body.exemptBroadcaster,
+    exemptVip: body.exemptVip,
+    exemptSubscriber: body.exemptSubscriber,
+    rules,
+  }
 }
 
 const isBotCommandItem = (value: unknown): value is BotCommandItem =>
@@ -149,5 +213,16 @@ export const createBotApi = (fetchImpl: typeof fetch): BotApi => {
       })
       return readList(body, 'commands', isBotCommandItem)
     },
+
+    moderation: async () => readModerationSettings(await call(MODERATION_PATH)),
+
+    saveModeration: async (settings) =>
+      readModerationSettings(
+        await call(MODERATION_PATH, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(settings),
+        }),
+      ),
   }
 }

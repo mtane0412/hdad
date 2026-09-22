@@ -10,9 +10,12 @@
 import { loadAlertConfig, type StoredAnnounceAction } from './alert-config'
 import { announcementFor, chatMessageFor } from './alert-event'
 import { announceAsBot, sendAsBot } from './bot-chat'
-import { applyReply, findCommand, readChatMessage } from './chat-command'
+import { applyReply, findCommand, readChatMessage, type ChatMessage } from './chat-command'
 import { loadBotConfig } from './bot-config'
-import { consumeCooldown, reserveChatReply } from './chat-store'
+import { punishAsBot } from './bot-moderation'
+import { judge, repeatRuleOf } from './chat-moderation'
+import { loadModerationConfig } from './moderation-config'
+import { consumeCooldown, recordAndCountRecentMessage, reserveChatReply } from './chat-store'
 import { CHAT_MESSAGE, COUNTED_EVENT_TYPES, STREAM_OFFLINE, STREAM_ONLINE, UNCOUNTED_EVENT_TYPES, verifyWebhookSignature } from './eventsub-webhook'
 import { HttpError, STATUS, type Context } from './http'
 import { recordEvent, recordFailure, recordStreamOffline, recordStreamOnline } from './stats-store'
@@ -86,6 +89,47 @@ const recordNotification = async ({ db, messageId, occurredAt, body }: Notificat
 }
 
 /**
+ * 自動モデレーションの判定を行い、処分すべき発言なら処分する。
+ *
+ * コマンドへの応答より先に呼び、処分した発言にはコマンドの応答をしない。
+ * 連投の判定に要る「直近の同じ文面の件数」は、連投のルールが有効なときだけ数える
+ * （チャットは件数の桁が違うため、必要なときだけD1の書き込みの枠を使う）。
+ *
+ * 注意: bot自身の発言は決して処分しない。自分の応答を処分してしまうと、処分と応答の連鎖が止まらなくなる。
+ * 注意: 処分すると決めたあとの失敗は、コマンドへの応答と同じく2xxのまま記録に残す
+ * （2xx以外だとTwitchが同じ通知を再送し、処分が成功していた場合に二重に処分される）。
+ *
+ * @returns 処分した（または再送で処分済みだった）なら true
+ */
+const moderateChatMessage = async (context: Context, message: ChatMessage, botUserId: string): Promise<boolean> => {
+  const { env, now } = context
+  if (message.chatterUserId === botUserId) return false
+
+  const config = await loadModerationConfig(env.STORE)
+  const repeat = repeatRuleOf(config)
+  const recentSameTextCount = repeat
+    ? await recordAndCountRecentMessage(
+        env.DB,
+        { messageId: message.messageId, chatterUserId: message.chatterUserId, text: message.text, windowSeconds: repeat.windowSeconds },
+        now,
+      )
+    : 1
+
+  const punishment = judge(config, message, recentSameTextCount)
+  if (punishment === null) return false
+
+  // 鍵に動作の種類を混ぜるのは、同じ発言でコマンドの応答とも鍵を取り合わないようにするため（アラートの送信と同じ）
+  if (!(await reserveChatReply(env.DB, `${message.messageId}:moderation`, now))) return true
+
+  try {
+    await punishAsBot(context, punishment, { messageId: message.messageId, userId: message.chatterUserId })
+  } catch (error) {
+    await recordFailure(env.DB, 'moderation-failed', error instanceof Error ? error.message : String(error), now)
+  }
+  return true
+}
+
+/**
  * チャットの通知に応答する。
  *
  * 配信の記録（D1）には書かない。チャットは件数の桁が違い、1通ごとに書くと配信の記録と書き込みの枠を食い合うため。
@@ -107,6 +151,9 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
   // botを切断した直後など、購読が残っていても応答できないことがある。その場合は受け取るだけにする
   const bot = await loadToken(env.STORE, 'bot')
   if (!bot) return
+
+  // 自動モデレーションはコマンドの応答より先に判定する。処分した発言には応答しない
+  if (await moderateChatMessage(context, message, bot.userId)) return
 
   // コマンドに一致しない発言では、ここから先へ進まない（チャットの全件をD1に書かないため）
   const { commands } = await loadBotConfig(env.STORE)
