@@ -7,9 +7,11 @@
  *
  * 注意: 2xx 以外を返すとTwitchは再送し、失敗が続くと購読を失効させる。想定しない通知を黙って捨てず、失敗として返す（Fail-Fast）。
  */
-import { loadAlertConfig, type StoredAnnounceAction } from './alert-config'
-import { announcementFor, chatMessageFor } from './alert-event'
+import { loadAlertConfig, type AlertConfig, type StoredAnnounceAction } from './alert-config'
+import { pushAlert } from './alert-channel'
+import { alertFor, announcementFor, chatMessageFor, hasAlertAction } from './alert-event'
 import { resolveConditionState } from './alert-state'
+import type { ConditionState } from './alert-event'
 import { announceAsBot, sendAsBot } from './bot-chat'
 import { applyReply, findCommand, readChatMessage, type ChatMessage } from './chat-command'
 import { loadBotConfig } from './bot-config'
@@ -19,6 +21,7 @@ import { loadModerationConfig } from './moderation-config'
 import { consumeCooldown, recordAndCountRecentMessage, reserveChatReply } from './chat-store'
 import { CHAT_MESSAGE, COUNTED_EVENT_TYPES, STREAM_OFFLINE, STREAM_ONLINE, UNCOUNTED_EVENT_TYPES, verifyWebhookSignature } from './eventsub-webhook'
 import { HttpError, STATUS, type Context } from './http'
+import { loadOverlayKey } from './overlay-key'
 import { recordEvent, recordFailure, recordStreamOffline, recordStreamOnline } from './stats-store'
 import { loadToken } from './token'
 
@@ -150,16 +153,20 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
   // こちらのチャンネルで応答してしまう。受け取り自体は成功として返す（2xx以外だとTwitchが再送し続ける）
   if (message.broadcasterUserId !== env.TWITCH_BROADCASTER_ID) return
 
-  // botを切断した直後など、購読が残っていても応答できないことがある。その場合は受け取るだけにする
+  // botを切断した直後など、購読が残っていても応答できないことがある。アラートの再生にbotは要らないので、
+  // 自動モデレーションとコマンドの応答だけを飛ばし、トリガーの判定は続ける
   const bot = await loadToken(env.STORE, 'bot')
+
+  // 自動モデレーションはコマンドの応答より先に判定する。処分した発言には応答もトリガーも返さない
+  if (bot && (await moderateChatMessage(context, message, bot.userId))) return
+
+  // bot自身の発言ではトリガーを引かない。引くと、その応答にまた反応して止まらなくなる（コマンドの応答と同じ考え方）
+  if (message.chatterUserId === bot?.userId) return
+
+  // botの接続はもう調べ済みなので、判定の関数はその結果を返すだけでよい
+  await runAlertActions(context, CHAT_MESSAGE, body, message.messageId, () => Promise.resolve(bot !== null), message)
+
   if (!bot) return
-
-  // 自動モデレーションはコマンドの応答より先に判定する。処分した発言には応答しない
-  if (await moderateChatMessage(context, message, bot.userId)) return
-
-  // bot自身の発言ではトリガーを引かない。引くと、その応答にまた反応して止まらなくなる（コマンドの応答と同じ考え方）。
-  // botは接続済みなので、接続の確認はやり直さない（発言1通あたりのKVの読み出しを増やさないため）
-  if (message.chatterUserId !== bot.userId) await sendAlertMessages(context, CHAT_MESSAGE, body, message.messageId, () => Promise.resolve(true), message)
 
   // コマンドに一致しない発言では、ここから先へ進まない（チャットの全件をD1に書かないため）
   const { commands } = await loadBotConfig(env.STORE)
@@ -179,10 +186,11 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
 }
 
 /**
- * アラートのトリガーに当てはまる通知なら、botとしてチャット・アナウンスを送る。
+ * アラートのトリガーに当てはまる通知なら、その動作を実行する。
  *
- * アラートのトリガーは「条件」と「動作」からなり、動作の種類ごとに実行者が違う。素材の再生はオーバーレイが受け持ち、
- * チャットとアナウンスの送信はここ（Worker）が受け持つ。オーバーレイを開いていなくても送れるのはこのためである。
+ * 素材の再生（alert）はオーバーレイ（OBSのブラウザソース）が受け持つので、当てはまったアラートを
+ * 配送先（Durable Object）へ押し出す。チャットとアナウンスの送信はWorkerがbotとして行うので、
+ * botが接続されているときだけ送る。オーバーレイを開いていなくてもチャットを送れるのはこのためである。
  *
  * 注意: 送ると決めたあとの失敗は、コマンドへの応答と同じく2xxのまま記録に残す
  * （2xx以外だとTwitchが同じ通知を再送し、送信が成功していた場合に二重投稿になる）。
@@ -202,7 +210,7 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
  *   （状態を持つ条件の判定に要る。同じ通知を2か所で読み解かないよう、読み取り済みのものを受け取る）
  * @throws HttpError イベントの中身が想定と違う場合（400。黙って捨てない）
  */
-const sendAlertMessages = async (
+const runAlertActions = async (
   context: Context,
   subscriptionType: string,
   body: Record<string, unknown>,
@@ -223,6 +231,9 @@ const sendAlertMessages = async (
       throw invalid(error instanceof Error ? error.message : String(error))
     }
   })()
+  // 素材の再生はbotと関わりなく行う（botを接続していなくてもアラートは鳴る）
+  await pushMatchedAlert(context, config, subscriptionType, body, messageId, state)
+
   if (message === null && announcement === null) return
 
   // botを切断していれば送る先がない。受け取り自体は成功として返す
@@ -235,6 +246,45 @@ const sendAlertMessages = async (
 }
 
 /**
+ * 当てはまるアラートがあれば、配送先（Durable Object）へ押し出す。
+ *
+ * 素材のURLにはオーバーレイ用キーが要るので、アラートを出す動作を持つトリガーがあるときだけキーを読む
+ * （チャットの発言は件数の桁が違うため、1通ごとに余分なKVの読み出しを増やさない）。
+ *
+ * 注意: 押し出しの失敗は、チャットの送信と同じく2xxのまま記録に残す。2xx以外だとTwitchが同じ通知を再送し、
+ * 押し出しが成功していた場合に同じアラートが二度鳴る。
+ */
+const pushMatchedAlert = async (
+  context: Context,
+  config: AlertConfig,
+  subscriptionType: string,
+  body: Record<string, unknown>,
+  messageId: string,
+  state: ConditionState,
+): Promise<void> => {
+  const { env, now } = context
+  if (!hasAlertAction(config, subscriptionType)) return
+
+  const overlayKey = await loadOverlayKey(env.STORE)
+  if (overlayKey === null) {
+    await recordFailure(env.DB, 'alert-push-failed', 'オーバーレイ用キーが未発行のため、素材のURLを作れません。管理画面にログインしてください', now)
+    return
+  }
+
+  // 中身の形が違えば「不正な通知」として400で返す（Workerの不具合を表す500と区別する）
+  const alert = ((): ReturnType<typeof alertFor> => {
+    try {
+      return alertFor(config, subscriptionType, body.event, overlayKey, state)
+    } catch (error) {
+      throw invalid(error instanceof Error ? error.message : String(error))
+    }
+  })()
+  if (alert === null) return
+
+  await sendAndRecordFailure(context, messageId, 'alert', 'alert-push-failed', () => pushAlert(env.ALERTS, alert))
+}
+
+/**
  * 鍵を確保してから送り、失敗は記録に残す（通知の受け取り自体は成功として返す）。
  *
  * 鍵の確保を送信より先に行うのは、Twitchの再送で同じお礼を二度送らないため。
@@ -244,7 +294,7 @@ const sendAlertMessages = async (
 const sendAndRecordFailure = async (
   context: Context,
   messageId: string,
-  actionType: 'chat' | 'announce',
+  actionType: 'chat' | 'announce' | 'alert',
   failureCode: string,
   send: () => Promise<void>,
 ): Promise<void> => {
@@ -289,7 +339,7 @@ export const eventsubWebhook = async (context: Context): Promise<Response> => {
       if (type === CHAT_MESSAGE) await replyToChatMessage(context, body)
       else {
         await recordNotification({ db: env.DB, messageId, occurredAt, body })
-        await sendAlertMessages(context, type, body, messageId, async () => (await loadToken(env.STORE, 'bot')) !== null, null)
+        await runAlertActions(context, type, body, messageId, async () => (await loadToken(env.STORE, 'bot')) !== null, null)
       }
       return new Response(null, { status: STATUS.noContent })
     }

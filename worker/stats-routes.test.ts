@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import { createFakeBucket } from './fake-bucket'
 import { createFakeDatabase } from './fake-database'
+import { createFakeAlertChannel } from './fake-alert-channel'
 import { createFakeStore } from './fake-store'
 import { handleRequest, handleScheduled, type Env } from './index'
 import { createSessionToken } from './session'
@@ -28,6 +29,7 @@ const 環境を作る = () => {
     TWITCH_BROADCASTER_ID: 配信者のID,
     SESSION_SECRET: 'テスト用のセッション秘密鍵',
     EVENTSUB_SECRET: 'テスト用のWebhookシークレット',
+    ALERTS: createFakeAlertChannel().namespace,
   } satisfies Env
   return { env, db, store }
 }

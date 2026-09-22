@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest'
 import { createFakeBucket } from './fake-bucket'
 import { createFakeDatabase } from './fake-database'
+import { createFakeAlertChannel } from './fake-alert-channel'
 import { createFakeStore } from './fake-store'
 import { handleRequest, type Env } from './index'
 import { createSessionToken } from './session'
@@ -23,6 +24,7 @@ const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const 環境を作る = () => {
   const store = createFakeStore({ 'overlay-key': 発行済みのキー })
   const bucket = createFakeBucket()
+  const 配送 = createFakeAlertChannel()
   const env = {
     STORE: store,
     MEDIA: bucket,
@@ -32,8 +34,9 @@ const 環境を作る = () => {
     TWITCH_BROADCASTER_ID: 配信者のID,
     SESSION_SECRET: 'テスト用のセッション秘密鍵',
     EVENTSUB_SECRET: 'テスト用のWebhookシークレット',
+    ALERTS: 配送.namespace,
   } satisfies Env
-  return { env, store, bucket }
+  return { env, store, bucket, 配送 }
 }
 
 const Twitchへは通信しない = async (input: RequestInfo | URL): Promise<Response> => {
@@ -228,104 +231,35 @@ describe('設定（/api/admin/config）', () => {
 })
 
 describe('オーバーレイ用API', () => {
-  /** 交換の通知（オーバーレイがWebSocketで受け取ったものを、そのままWorkerへ送る形） */
-  const 交換の通知 = {
-    subscriptionType: REDEMPTION,
-    event: { user_name: '田中太郎', user_login: 'tanaka_taro', reward: { id: '報酬ID-乾杯', title: '乾杯する' } },
-  }
+  const 接続を頼む = (env: Env, key: string, upgrade = true) =>
+    呼び出す(new Request(`${サイト}/api/overlay/socket?key=${key}`, { headers: upgrade ? { Upgrade: 'websocket' } : {} }), env)
 
-  const アラートを問い合わせる = (env: Env, key: string, body: unknown) =>
-    呼び出す(new Request(`${サイト}/api/overlay/alert?key=${key}`, { method: 'POST', body: JSON.stringify(body) }), env)
+  it('GET /api/overlay/socket は、正しいキーなら接続を配送先（Durable Object）へ引き渡す', async () => {
+    const { env, 配送 } = 環境を作る()
 
-  it('POST /api/overlay/alert は、当てはまるトリガーがあれば素材のURL付きのアラートを返す', async () => {
-    const { env } = 環境を作る()
-    const { id } = await 画像をアップロードする(env)
-    await 呼び出す(await 配信者のリクエスト(env, '/api/admin/config', { method: 'PUT', body: JSON.stringify({ triggers: [トリガー(id)] }) }), env)
-
-    const response = await アラートを問い合わせる(env, 発行済みのキー, 交換の通知)
+    const response = await 接続を頼む(env, 発行済みのキー)
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({
-      alert: {
-        media: { kind: 'image', url: `/api/media/${id}?key=${発行済みのキー}` },
-        durationSeconds: 5,
-        volume: 1,
-        text: '田中太郎 さんが「乾杯する」を交換しました',
-      },
-    })
-    // 設定は変わりうるので、古い内容を使い回させない
-    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    expect(配送.引き渡された接続).toHaveLength(1)
   })
 
-  it('POST /api/overlay/alert は、当てはまるトリガーがなければ alert に null を返す', async () => {
-    const { env } = 環境を作る()
+  it('GET /api/overlay/socket は、キーが違えば401を返し、配送先を呼ばない', async () => {
+    const { env, 配送 } = 環境を作る()
 
-    const response = await アラートを問い合わせる(env, 発行済みのキー, 交換の通知)
+    const response = await 接続を頼む(env, 'atezuppou')
 
-    expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ alert: null })
-  })
-
-  it('POST /api/overlay/alert は、キーが違えば401を返す', async () => {
-    const { env } = 環境を作る()
-    const response = await アラートを問い合わせる(env, 'atezuppou', 交換の通知)
     expect(response.status).toBe(401)
     expect(await エラーコード(response)).toBe('invalid-overlay-key')
+    expect(配送.引き渡された接続).toHaveLength(0)
   })
 
-  it('POST /api/overlay/alert は、本文の形が想定と違えば400を返す', async () => {
+  it('GET /api/overlay/socket は、WebSocketの接続でなければ400を返す', async () => {
     const { env } = 環境を作る()
-    const response = await アラートを問い合わせる(env, 発行済みのキー, { subscriptionType: REDEMPTION })
-    expect(response.status).toBe(400)
-    expect(await エラーコード(response)).toBe('invalid-body')
-  })
 
-  it('POST /api/overlay/alert は、通知の中身が想定と違えば400を返す（黙って捨てない）', async () => {
-    const { env } = 環境を作る()
-    const { id } = await 画像をアップロードする(env)
-    await 呼び出す(await 配信者のリクエスト(env, '/api/admin/config', { method: 'PUT', body: JSON.stringify({ triggers: [トリガー(id)] }) }), env)
-
-    const response = await アラートを問い合わせる(env, 発行済みのキー, { subscriptionType: REDEMPTION, event: { user_name: '田中太郎' } })
+    const response = await 接続を頼む(env, 発行済みのキー, false)
 
     expect(response.status).toBe(400)
-    expect(await エラーコード(response)).toBe('invalid-notification')
-  })
-
-  it('POST /api/overlay/alert は、その配信で初めての発言のときだけ firstChatOfStream のトリガーを返す', async () => {
-    const { env } = 環境を作る()
-    const { id } = await 画像をアップロードする(env)
-    env.DB.prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?1, ?2, NULL, ?3, ?4)')
-      .bind('haishin-1', new Date(現在時刻 - 60 * 1000).toISOString(), '朝配信', 'Just Chatting')
-      .run()
-    const 初回のトリガー = {
-      event: 'channel.chat.message',
-      conditions: [{ kind: 'firstChatOfStream' }],
-      actions: [{ type: 'alert', mediaId: id, durationSeconds: 5, volume: 1, message: '{user} さん、おかえりなさい！' }],
-    }
-    await 呼び出す(await 配信者のリクエスト(env, '/api/admin/config', { method: 'PUT', body: JSON.stringify({ triggers: [初回のトリガー] }) }), env)
-
-    const 発言の通知 = (messageId: string) => ({
-      subscriptionType: 'channel.chat.message',
-      event: {
-        broadcaster_user_id: 配信者のID,
-        chatter_user_id: '発言者ID',
-        chatter_user_login: 'tanaka_taro',
-        chatter_user_name: '田中太郎',
-        message_id: messageId,
-        message: { text: 'おはようございます' },
-      },
-    })
-
-    const 一度目 = (await (await アラートを問い合わせる(env, 発行済みのキー, 発言の通知('発言ID-1'))).json()) as { alert: { text: string } | null }
-    expect(一度目.alert?.text).toBe('田中太郎 さん、おかえりなさい！')
-
-    // 同じ発言について二度問い合わせても、同じ答えを返す（Webhookとオーバーレイで食い違わないため）
-    const 同じ発言 = (await (await アラートを問い合わせる(env, 発行済みのキー, 発言の通知('発言ID-1'))).json()) as { alert: { text: string } | null }
-    expect(同じ発言.alert?.text).toBe('田中太郎 さん、おかえりなさい！')
-
-    // 同じ配信での2回目の発言では鳴らさない
-    const 二度目 = (await (await アラートを問い合わせる(env, 発行済みのキー, 発言の通知('発言ID-2'))).json()) as { alert: null }
-    expect(二度目.alert).toBeNull()
+    expect(await エラーコード(response)).toBe('expected-websocket')
   })
 
   it('GET /api/media/:id は、正しいキーなら素材の中身を種類付きで返す', async () => {
@@ -372,11 +306,10 @@ describe('POST /api/admin/overlay-key（キーの再発行）', () => {
     const { overlayKey } = (await response.json()) as { overlayKey: string }
     expect(overlayKey).not.toBe(発行済みのキー)
     expect(overlayKey.length).toBeGreaterThanOrEqual(32)
-    const アラートを問い合わせる = (key: string) =>
-      呼び出す(new Request(`${サイト}/api/overlay/alert?key=${key}`, { method: 'POST', body: JSON.stringify({ subscriptionType: REDEMPTION, event: {} }) }), env)
-    expect((await アラートを問い合わせる(発行済みのキー)).status).toBe(401)
+    const 接続を頼む = (key: string) => 呼び出す(new Request(`${サイト}/api/overlay/socket?key=${key}`, { headers: { Upgrade: 'websocket' } }), env)
+    expect((await 接続を頼む(発行済みのキー)).status).toBe(401)
     expect((await 呼び出す(new Request(`${サイト}/api/media/${id}?key=${発行済みのキー}`), env)).status).toBe(401)
-    expect((await アラートを問い合わせる(overlayKey)).status).toBe(200)
+    expect((await 接続を頼む(overlayKey)).status).toBe(200)
   })
 })
 

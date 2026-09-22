@@ -6,6 +6,9 @@
  * cloudflare.bindings に書いた説明が入力欄に添えられるため、説明の書き漏れは押した人が値の意味を知る手がかりを失う。
  * そこで「wrangler.jsonc のバインディング」「.dev.vars.example のシークレット」「package.json の説明」の
  * 3つが過不足なく対応していることを、このテストで確認する。
+ *
+ * Durable Object（ALERTS）はここに含めない。押した人が用意するものではなく、wrangler.jsonc の migrations の
+ * 指定から Cloudflare が作るため、入力欄にも出ない。
  */
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'

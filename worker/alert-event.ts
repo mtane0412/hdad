@@ -84,6 +84,15 @@ export interface ConditionState {
 export const requiresFirstChatOfStream = (config: AlertConfig, subscriptionType: string): boolean =>
   config.triggers.some((trigger) => trigger.event === subscriptionType && trigger.conditions.some((condition) => condition.kind === 'firstChatOfStream'))
 
+/**
+ * その通知に、オーバーレイへ押し出すアラートを持つトリガーがあるか。
+ *
+ * 無ければ呼び出し側（webhook-routes.ts）はオーバーレイ用キーを読みに行かずに済む。
+ * チャットの発言は件数の桁が違うため、1通ごとに余分なKVの読み出しを増やさないようにこれで絞る。
+ */
+export const hasAlertAction = (config: AlertConfig, subscriptionType: string): boolean =>
+  config.triggers.some((trigger) => trigger.event === subscriptionType && alertActionOf(trigger) !== null)
+
 type EventBody = Readonly<Record<string, unknown>>
 
 const isRecord = (value: unknown): value is EventBody => typeof value === 'object' && value !== null
