@@ -1,18 +1,19 @@
 // @vitest-environment jsdom
 /**
- * アラートの管理画面（OBS用のURL・素材・トリガー）のテスト
+ * トリガーのページ（OBS用のURL・トリガー）のテスト
  *
  * 確かめること:
  * - OBS用のURLを伏せ字で出し、コピーとキーの再発行ができること（再発行は確認してから）
- * - 素材の一覧・アップロード・削除ができること（削除は確認してから）
+ * - トリガーは折りたたんで並び、見出しの要約を押すと入力欄が開くこと（開くのは1件ずつ）
  * - トリガーを足し、入力欄の値をWorkerへ送る形にして保存できること
+ * - 素材は一覧から選ぶだけで、ここでは足せないこと（アップロードのページへ案内する）
  * - 失敗は黙って無視せず、理由を出すこと（報酬の一覧だけ取れないときは、画面は出したまま理由を出す）
  */
 import '@testing-library/jest-dom/vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { AdminPage } from './admin-page'
+import { TriggerPage } from './trigger-page'
 import { ApiError } from '@/core/api'
 import { type AdminApi, type MediaItem, type Reward, type StoredTrigger } from './api'
 
@@ -41,8 +42,8 @@ const 代役のAPI = (overrides: Partial<AdminApi> = {}): AdminApi => ({
   ...overrides,
 })
 
-const 管理画面 = (api: AdminApi, props: Partial<React.ComponentProps<typeof AdminPage>> = {}) => (
-  <AdminPage api={api} overlayKey="ima-no-key" onOverlayKeyChange={() => {}} {...props} />
+const トリガーのページ = (api: AdminApi, props: Partial<React.ComponentProps<typeof TriggerPage>> = {}) => (
+  <TriggerPage api={api} overlayKey="ima-no-key" onOverlayKeyChange={() => {}} {...props} />
 )
 
 const URL欄 = (): HTMLElement => screen.getByLabelText('OBSのブラウザソースに貼るURL')
@@ -58,11 +59,17 @@ const アラートのURL = (key: string): string => `${window.location.origin}/a
 const スライダー = (name: string, scope: Pick<typeof screen, 'getByRole'> = screen): HTMLElement =>
   within(scope.getByRole('group', { name })).getByRole('slider', { hidden: true })
 
+/** position番目のトリガーの見出しを押して入力欄を開き、その中だけを探せるようにする */
+const 開いたトリガー = async (position = 1) => {
+  await userEvent.click(await screen.findByRole('button', { name: new RegExp(`^${position}番目のトリガー:`) }))
+  return within(screen.getByRole('listitem', { name: `${position}番目のトリガー` }))
+}
+
 afterEach(cleanup)
 
 describe('OBS用のURL', () => {
   test('キーが配信画面に映り込んでも読めないよう、伏せ字で出す', async () => {
-    render(管理画面(代役のAPI()))
+    render(トリガーのページ(代役のAPI()))
 
     expect(await screen.findByLabelText('OBSのブラウザソースに貼るURL')).toHaveValue(アラートのURL('ima-no-key'))
     expect(URL欄()).toHaveAttribute('type', 'password')
@@ -71,7 +78,7 @@ describe('OBS用のURL', () => {
 
   test('URLをコピーできる', async () => {
     const user = userEvent.setup()
-    render(管理画面(代役のAPI()))
+    render(トリガーのページ(代役のAPI()))
 
     await user.click(await screen.findByRole('button', { name: 'URLをコピー' }))
 
@@ -82,7 +89,7 @@ describe('OBS用のURL', () => {
   test('キーの再発行は確認してから行い、新しいキーを呼び出し元へ知らせる', async () => {
     const api = 代役のAPI()
     const onOverlayKeyChange = vi.fn()
-    render(管理画面(api, { onOverlayKeyChange }))
+    render(トリガーのページ(api, { onOverlayKeyChange }))
 
     await userEvent.click(await screen.findByRole('button', { name: 'キーを再発行する' }))
     const dialog = await screen.findByRole('alertdialog')
@@ -97,7 +104,7 @@ describe('OBS用のURL', () => {
 
   test('確認でやめたら、キーは再発行しない', async () => {
     const api = 代役のAPI()
-    render(管理画面(api))
+    render(トリガーのページ(api))
 
     await userEvent.click(await screen.findByRole('button', { name: 'キーを再発行する' }))
     await userEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'やめる' }))
@@ -106,77 +113,18 @@ describe('OBS用のURL', () => {
   })
 
   test('キーが発行されていなければ、操作盤を出さずに理由を出す', async () => {
-    render(管理画面(代役のAPI(), { overlayKey: null }))
+    render(トリガーのページ(代役のAPI(), { overlayKey: null }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('オーバーレイ用キーが発行されていません')
     expect(screen.queryByLabelText('OBSのブラウザソースに貼るURL')).not.toBeInTheDocument()
   })
 })
 
-describe('素材', () => {
-  test('素材の名前・種類・大きさを一覧に出す', async () => {
-    render(管理画面(代役のAPI()))
-
-    const list = await screen.findByRole('list', { name: '素材の一覧' })
-    expect(within(list).getByText('拍手.webm')).toBeInTheDocument()
-    expect(within(list).getByText('動画・2.0 MB')).toBeInTheDocument()
-    expect(within(list).getByText('花火.png')).toBeInTheDocument()
-    expect(within(list).getByText('画像・2.0 KB')).toBeInTheDocument()
-  })
-
-  test('素材がなければ、まだないことを伝える', async () => {
-    render(管理画面(代役のAPI({ media: async () => [], config: async () => [] })))
-
-    expect(await screen.findByText('素材はまだありません。')).toBeInTheDocument()
-  })
-
-  test('選んだファイルをアップロードすると、一覧の先頭に足される', async () => {
-    const 紙吹雪の画像: MediaItem = { ...花火の画像, id: 'media-kamifubuki', name: '紙吹雪.png' }
-    const api = 代役のAPI({ upload: vi.fn(async () => 紙吹雪の画像) })
-    render(管理画面(api))
-    const file = new File(['紙吹雪'], '紙吹雪.png', { type: 'image/png' })
-
-    await userEvent.upload(await screen.findByLabelText('画像・動画・音声のファイル（1つ50MBまで）'), file)
-    await userEvent.click(screen.getByRole('button', { name: 'アップロード' }))
-
-    expect(await お知らせ('素材「紙吹雪.png」をアップロードしました')).toBeInTheDocument()
-    expect(api.upload).toHaveBeenCalledWith(file)
-    const items = within(screen.getByRole('list', { name: '素材の一覧' })).getAllByRole('listitem')
-    expect(items[0]).toHaveTextContent('紙吹雪.png')
-  })
-
-  test('ファイルを選ばずにアップロードしようとしたら、理由を出す', async () => {
-    const api = 代役のAPI()
-    render(管理画面(api))
-
-    await userEvent.click(await screen.findByRole('button', { name: 'アップロード' }))
-
-    expect(await screen.findByRole('alert')).toHaveTextContent('アップロードするファイルを選んでください')
-    expect(api.upload).not.toHaveBeenCalled()
-  })
-
-  test('削除は確認してから行い、一覧から消す', async () => {
-    const api = 代役のAPI()
-    render(管理画面(api))
-
-    await userEvent.click(await screen.findByRole('button', { name: '花火.png を削除' }))
-    const dialog = await screen.findByRole('alertdialog')
-    expect(dialog).toHaveTextContent('素材「花火.png」を削除しますか？')
-    expect(api.removeMedia).not.toHaveBeenCalled()
-
-    await userEvent.click(within(dialog).getByRole('button', { name: '削除する' }))
-
-    expect(await お知らせ('素材「花火.png」を削除しました')).toBeInTheDocument()
-    expect(api.removeMedia).toHaveBeenCalledWith('media-hanabi')
-    expect(within(screen.getByRole('list', { name: '素材の一覧' })).queryByText('花火.png')).not.toBeInTheDocument()
-  })
-})
-
 describe('トリガー', () => {
   test('保存済みのトリガーを入力欄に出す（音量は百分率）', async () => {
-    render(管理画面(代役のAPI()))
+    render(トリガーのページ(代役のAPI()))
 
-    const row = within((await screen.findAllByRole('listitem', { name: /番目のトリガー/ }))[0]!)
+    const row = await 開いたトリガー()
     expect(await row.findByRole('option', { name: '拍手を送る（100pt）' })).toBeInTheDocument()
     expect(row.getByLabelText('報酬')).toHaveValue('reward-hakushu')
     expect(row.getByLabelText('素材')).toHaveValue('media-hakushu')
@@ -186,9 +134,9 @@ describe('トリガー', () => {
   })
 
   test('イベントを切り替えると、報酬の選択欄はチャンネルポイント交換のときだけ出る', async () => {
-    render(管理画面(代役のAPI()))
+    render(トリガーのページ(代役のAPI()))
 
-    const row = within((await screen.findAllByRole('listitem', { name: /番目のトリガー/ }))[0]!)
+    const row = await 開いたトリガー()
     expect(row.getByLabelText('報酬')).toBeInTheDocument()
 
     await userEvent.selectOptions(row.getByLabelText('イベント'), 'channel.follow')
@@ -199,9 +147,9 @@ describe('トリガー', () => {
   })
 
   test('選んだイベントで使える差し込み語を、文言欄のそばに出す', async () => {
-    render(管理画面(代役のAPI()))
+    render(トリガーのページ(代役のAPI()))
 
-    const row = within((await screen.findAllByRole('listitem', { name: /番目のトリガー/ }))[0]!)
+    const row = await 開いたトリガー()
     expect(row.getByText(/\{user\}/)).toHaveTextContent('{reward}')
 
     await userEvent.selectOptions(row.getByLabelText('イベント'), 'channel.raid')
@@ -212,9 +160,9 @@ describe('トリガー', () => {
 
   test('チャンネルポイント交換以外のイベントのトリガーは、報酬IDを付けずに保存する', async () => {
     const api = 代役のAPI()
-    render(管理画面(api))
+    render(トリガーのページ(api))
 
-    const row = within((await screen.findAllByRole('listitem', { name: /番目のトリガー/ }))[0]!)
+    const row = await 開いたトリガー()
     await userEvent.selectOptions(row.getByLabelText('イベント'), 'channel.raid')
     await userEvent.click(screen.getByRole('button', { name: 'トリガーを保存' }))
 
@@ -229,7 +177,7 @@ describe('トリガー', () => {
 
   test('トリガーを足して書き換え、Workerへ送る形で保存する', async () => {
     const api = 代役のAPI({ config: vi.fn(async () => []) })
-    render(管理画面(api))
+    render(トリガーのページ(api))
 
     await userEvent.click(await screen.findByRole('button', { name: 'トリガーを足す' }))
     const row = within(screen.getByRole('listitem', { name: '1番目のトリガー' }))
@@ -246,7 +194,7 @@ describe('トリガー', () => {
   })
 
   test('素材が1つもなければ、チャットに送るだけのトリガーとして足す', async () => {
-    render(管理画面(代役のAPI({ media: async () => [], config: async () => [] })))
+    render(トリガーのページ(代役のAPI({ media: async () => [], config: async () => [] })))
 
     await userEvent.click(await screen.findByRole('button', { name: 'トリガーを足す' }))
 
@@ -258,9 +206,9 @@ describe('トリガー', () => {
 
   test('チャットに送る文言を入れて保存すると、チャットの動作として送る', async () => {
     const api = 代役のAPI()
-    render(管理画面(api))
+    render(トリガーのページ(api))
 
-    const row = within((await screen.findAllByRole('listitem', { name: /番目のトリガー/ }))[0]!)
+    const row = await 開いたトリガー()
     await userEvent.click(row.getByRole('checkbox', { name: 'アラートを出す' }))
     await userEvent.click(row.getByRole('checkbox', { name: 'チャットに送る' }))
     await userEvent.type(row.getByLabelText('チャットに送る文言'), '{{user} さん、ありがとうございます')
@@ -274,9 +222,9 @@ describe('トリガー', () => {
 
   test('アナウンスを送る文言と色を入れて保存すると、アナウンスの動作として送る', async () => {
     const api = 代役のAPI()
-    render(管理画面(api))
+    render(トリガーのページ(api))
 
-    const row = within((await screen.findAllByRole('listitem', { name: /番目のトリガー/ }))[0]!)
+    const row = await 開いたトリガー()
     await userEvent.click(row.getByRole('checkbox', { name: 'アラートを出す' }))
     await userEvent.click(row.getByRole('checkbox', { name: 'アナウンスを送る' }))
     await userEvent.type(row.getByLabelText('アナウンスの文言'), '{{user} さん、ありがとうございます')
@@ -294,17 +242,17 @@ describe('トリガー', () => {
   })
 
   test('アナウンスを送るを外していれば、文言の入力欄を隠す', async () => {
-    render(管理画面(代役のAPI()))
+    render(トリガーのページ(代役のAPI()))
 
-    const row = within((await screen.findAllByRole('listitem', { name: /番目のトリガー/ }))[0]!)
+    const row = await 開いたトリガー()
 
     expect(row.queryByLabelText('アナウンスの文言')).not.toBeInTheDocument()
   })
 
   test('アラートを出すを外すと、素材や表示時間の入力欄を隠す', async () => {
-    render(管理画面(代役のAPI()))
+    render(トリガーのページ(代役のAPI()))
 
-    const row = within((await screen.findAllByRole('listitem', { name: /番目のトリガー/ }))[0]!)
+    const row = await 開いたトリガー()
     await userEvent.click(row.getByRole('checkbox', { name: 'アラートを出す' }))
 
     expect(row.queryByLabelText('素材')).not.toBeInTheDocument()
@@ -315,9 +263,9 @@ describe('トリガー', () => {
     // 素材が未選択（空文字）のまま保存すると、選択欄には最初の素材が見えているのにWorkerが「素材が存在しません」と拒否してしまう
     const チャットだけのトリガー: StoredTrigger = { event: 'channel.follow', actions: [{ type: 'chat', message: 'ありがとうございます' }] }
     const api = 代役のAPI({ config: vi.fn(async () => [チャットだけのトリガー]) })
-    render(管理画面(api))
+    render(トリガーのページ(api))
 
-    const row = within((await screen.findAllByRole('listitem', { name: /番目のトリガー/ }))[0]!)
+    const row = await 開いたトリガー()
     await userEvent.click(row.getByRole('checkbox', { name: 'アラートを出す' }))
     await userEvent.click(screen.getByRole('button', { name: 'トリガーを保存' }))
 
@@ -334,18 +282,19 @@ describe('トリガー', () => {
   })
 
   test('トリガーを外せる', async () => {
-    render(管理画面(代役のAPI()))
+    render(トリガーのページ(代役のAPI()))
 
-    await userEvent.click(await screen.findByRole('button', { name: 'このトリガーを外す' }))
+    await userEvent.click(await screen.findByRole('button', { name: '1番目のトリガーを外す' }))
 
     expect(screen.getByText('トリガーはまだありません。')).toBeInTheDocument()
   })
 
   test('表示時間が数として読めなければ、送らずに何番目かを添えて理由を出す', async () => {
     const api = 代役のAPI()
-    render(管理画面(api))
+    render(トリガーのページ(api))
 
-    fireEvent.change(await screen.findByLabelText('表示時間（1〜60秒）'), { target: { value: '' } })
+    const row = await 開いたトリガー()
+    fireEvent.change(row.getByLabelText('表示時間（1〜60秒）'), { target: { value: '' } })
     await userEvent.click(screen.getByRole('button', { name: 'トリガーを保存' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('1番目のトリガー: 表示時間を数で入力してください')
@@ -358,7 +307,7 @@ describe('トリガー', () => {
         throw new ApiError(400, 'invalid_config', '設定に問題があります', ['triggers[0].durationSeconds は 1〜60 で指定してください'])
       }),
     })
-    render(管理画面(api))
+    render(トリガーのページ(api))
 
     await userEvent.click(await screen.findByRole('button', { name: 'トリガーを保存' }))
 
@@ -368,10 +317,66 @@ describe('トリガー', () => {
   })
 })
 
+describe('折りたたみ', () => {
+  test('保存済みのトリガーは折りたたんで並び、見出しに「イベント・条件・動作」の要約を出す', async () => {
+    render(トリガーのページ(代役のAPI()))
+
+    expect(await screen.findByRole('button', { name: /^1番目のトリガー:/ })).toHaveTextContent('チャンネルポイントの交換「拍手を送る」→ アラート')
+    // 開くまでは入力欄を出さない（数が増えても一覧を見渡せるようにする）
+    expect(screen.queryByLabelText('素材')).not.toBeInTheDocument()
+  })
+
+  test('見出しを押すと入力欄が開き、もう一度押すと閉じる', async () => {
+    render(トリガーのページ(代役のAPI()))
+
+    const row = await 開いたトリガー()
+    expect(row.getByLabelText('素材')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /^1番目のトリガー:/ }))
+
+    expect(screen.queryByLabelText('素材')).not.toBeInTheDocument()
+  })
+
+  test('別のトリガーを開くと、先に開いていたトリガーは閉じる', async () => {
+    const トリガー2件 = [拍手のトリガー, { event: 'channel.follow' as const, actions: [{ type: 'chat' as const, message: 'ありがとうございます' }] }]
+    render(トリガーのページ(代役のAPI({ config: async () => トリガー2件 })))
+
+    await 開いたトリガー(1)
+    const フォローのトリガー = await 開いたトリガー(2)
+
+    expect(フォローのトリガー.getByLabelText('チャットに送る文言')).toBeInTheDocument()
+    expect(screen.queryByLabelText('素材')).not.toBeInTheDocument()
+  })
+
+  test('足したトリガーは、すぐ書き換えられるよう開いた状態で出る', async () => {
+    render(トリガーのページ(代役のAPI({ config: async () => [] })))
+
+    await userEvent.click(await screen.findByRole('button', { name: 'トリガーを足す' }))
+
+    expect(within(screen.getByRole('listitem', { name: '1番目のトリガー' })).getByLabelText('イベント')).toBeInTheDocument()
+  })
+
+  test('折りたたんだままでもトリガーを外せる', async () => {
+    render(トリガーのページ(代役のAPI()))
+
+    await userEvent.click(await screen.findByRole('button', { name: '1番目のトリガーを外す' }))
+
+    expect(screen.getByText('トリガーはまだありません。')).toBeInTheDocument()
+  })
+})
+
+describe('素材', () => {
+  test('素材が1つもなければ、アップロードのページへ案内する', async () => {
+    render(トリガーのページ(代役のAPI({ media: async () => [], config: async () => [] })))
+
+    expect(await screen.findByRole('link', { name: 'アップロード' })).toHaveAttribute('href', '/media/')
+  })
+})
+
 describe('読み込みの失敗', () => {
-  test('素材や設定を取得できなければ、操作盤を出さずに理由を出す', async () => {
+  test('素材の一覧や設定を取得できなければ、操作盤を出さずに理由を出す', async () => {
     render(
-      管理画面(
+      トリガーのページ(
         代役のAPI({
           media: async () => {
             throw new Error('Workerに接続できません')
@@ -380,13 +385,13 @@ describe('読み込みの失敗', () => {
       ),
     )
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('管理画面を表示できません: Workerに接続できません')
-    expect(screen.queryByRole('button', { name: 'アップロード' })).not.toBeInTheDocument()
+    expect(await screen.findByRole('alert')).toHaveTextContent('トリガーを表示できません: Workerに接続できません')
+    expect(screen.queryByRole('button', { name: 'トリガーを足す' })).not.toBeInTheDocument()
   })
 
   test('報酬の一覧だけ取得できないときは、操作盤は出したまま理由を出す', async () => {
     render(
-      管理画面(
+      トリガーのページ(
         代役のAPI({
           rewards: async () => {
             throw new Error('チャンネルポイントを使えないチャンネルです')
@@ -396,12 +401,12 @@ describe('読み込みの失敗', () => {
     )
 
     expect(await screen.findByRole('alert')).toHaveTextContent('チャンネルポイント報酬の一覧を取得できませんでした: チャンネルポイントを使えないチャンネルです')
-    expect(screen.getByRole('button', { name: 'アップロード' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'トリガーを足す' })).toBeInTheDocument()
     // ほかの操作が成功しても、報酬を選べない理由は出したままにする（報酬の一覧はまだ取得できていない）
     await userEvent.click(screen.getByRole('button', { name: 'トリガーを足す' }))
     expect(await お知らせ('トリガーを足しました')).toBeInTheDocument()
     expect(screen.getByRole('alert')).toHaveTextContent('チャンネルポイント報酬の一覧を取得できませんでした')
     // 保存済みの報酬はTwitchの一覧にないものとして選択肢に残る（黙って「すべての報酬」に変えない）
-    expect(screen.getAllByLabelText('報酬')[0]).toHaveValue('reward-hakushu')
+    expect((await 開いたトリガー()).getByLabelText('報酬')).toHaveValue('reward-hakushu')
   })
 })

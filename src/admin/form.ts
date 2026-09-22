@@ -15,6 +15,7 @@ import {
   type ActionInput,
   type AlertEvent,
   type AnnouncementColor,
+  type MediaKind,
   type Reward,
   type StoredTrigger,
   type TriggerInput,
@@ -30,6 +31,9 @@ const ANY_REWARD = ''
 const DEFAULT_DURATION_SECONDS = 5
 /** アナウンスを使わないトリガーの色の既定値（チャンネルの色） */
 const DEFAULT_ANNOUNCEMENT_COLOR: AnnouncementColor = 'primary'
+
+/** 素材の種類の日本語のラベル */
+export const kindLabels: Readonly<Record<MediaKind, string>> = { image: '画像', video: '動画', audio: '音声' }
 
 /** アナウンスの色の日本語のラベル */
 const COLOR_LABELS: Readonly<Record<AnnouncementColor, string>> = {
@@ -184,6 +188,29 @@ export const rewardOptions = (rewards: readonly Reward[], selected: string): Sel
   const options = [{ value: ANY_REWARD, label: 'すべての報酬' }, ...rewards.map((reward) => ({ value: reward.id, label: `${reward.title}（${reward.cost}pt）` }))]
   if (options.some((option) => option.value === selected)) return options
   return [...options, { value: selected, label: `Twitchの一覧にない報酬（${selected}）` }]
+}
+
+/**
+ * 折りたたんだトリガーの見出しに出す要約。「イベント（条件）→ 行う動作」の形にする。
+ *
+ * 報酬を選べるのはチャンネルポイントの交換だけなので、ほかのイベントでは条件を添えない。
+ * Twitchの一覧にない報酬は、黙って「すべての報酬」と書かずに報酬IDをそのまま出す（設定を取り違えないため）。
+ */
+export const triggerSummary = (draft: TriggerDraft, rewards: readonly Reward[]): string => {
+  const condition =
+    draft.event !== REDEMPTION
+      ? ''
+      : draft.rewardId === ANY_REWARD
+        ? '（すべての報酬）'
+        : `「${rewards.find((reward) => reward.id === draft.rewardId)?.title ?? draft.rewardId}」`
+  const actions = [
+    draft.alertEnabled ? 'アラート' : null,
+    draft.chatEnabled ? 'チャット' : null,
+    draft.announceEnabled ? 'アナウンス' : null,
+  ].filter((label) => label !== null)
+  // 条件を添えるときは「」や（）が区切りになるので、矢印の前に空白を入れない
+  const head = condition === '' ? `${EVENT_LABELS[draft.event]} ` : `${EVENT_LABELS[draft.event]}${condition}`
+  return `${head}→ ${actions.length === 0 ? '動作なし' : actions.join('・')}`
 }
 
 /** 素材の大きさを読みやすい単位で表す */

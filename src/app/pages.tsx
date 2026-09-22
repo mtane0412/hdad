@@ -4,9 +4,10 @@
  * サイドバーの項目と、パスごとに描く中身をここで決める。カテゴリを増やしたらここに足す。
  * ギャラリーの素材ページ（/wallpaper/<id>/ など）と alerts/ は実ファイルとして配信されるので、ここには載せない。
  */
-import { Bot, Clock, Image, LayoutDashboard, MessageSquare, Siren, type LucideIcon } from 'lucide-react'
-import { AdminPage } from '@/admin/admin-page'
+import { Bot, Clock, Image, LayoutDashboard, MessageSquare, Upload, Zap, type LucideIcon } from 'lucide-react'
 import type { AdminApi, Me } from '@/admin/api'
+import { MediaPage } from '@/admin/media-page'
+import { TriggerPage } from '@/admin/trigger-page'
 import type { BotApi } from '@/bot/api'
 import { BotPage } from '@/bot/bot-page'
 import { chats } from '@/chat/registry'
@@ -44,6 +45,12 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
     pages: [
       { path: '/', name: 'ダッシュボード', icon: LayoutDashboard, render: ({ statsApi }) => <StatsPage api={statsApi} /> },
       { path: '/bot/', name: 'チャットボット', icon: Bot, render: ({ botApi }) => <BotPage api={botApi} /> },
+      {
+        path: '/triggers/',
+        name: 'トリガー',
+        icon: Zap,
+        render: ({ api, me, onOverlayKeyChange }) => <TriggerPage api={api} overlayKey={me.overlayKey} onOverlayKeyChange={onOverlayKeyChange} />,
+      },
     ],
   },
   {
@@ -71,12 +78,7 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
           <Gallery definitions={chats} noun="チャットボックス" basePath="/chat/" previewSize={{ width: 480, height: 800 }} previewOverrides={{ demo: true }} />
         ),
       },
-      {
-        path: '/admin/',
-        name: 'アラート',
-        icon: Siren,
-        render: ({ api, me, onOverlayKeyChange }) => <AdminPage api={api} overlayKey={me.overlayKey} onOverlayKeyChange={onOverlayKeyChange} />,
-      },
+      { path: '/media/', name: 'アップロード', icon: Upload, render: ({ api }) => <MediaPage api={api} /> },
     ],
   },
 ]

@@ -5,7 +5,18 @@
  * Workerへ送る形（報酬なしは null、音量は 0〜1）との行き来と、イベント種別ごとの選択肢・差し込み語、OBS用URL・表示用の文言を確認する。
  */
 import { describe, expect, it } from 'vitest'
-import { describeProblem, eventOptions, formatBytes, overlayUrl, placeholdersFor, rewardOptions, toDraft, toTriggerInput, type TriggerDraft } from './form'
+import {
+  describeProblem,
+  eventOptions,
+  formatBytes,
+  overlayUrl,
+  placeholdersFor,
+  rewardOptions,
+  toDraft,
+  toTriggerInput,
+  triggerSummary,
+  type TriggerDraft,
+} from './form'
 import type { StoredTrigger } from './api'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
@@ -219,5 +230,33 @@ describe('describeProblem', () => {
 
   it('トリガーの位置を含まない問題点は、そのまま返す', () => {
     expect(describeProblem('triggers: 100件以内にしてください')).toBe('triggers: 100件以内にしてください')
+  })
+})
+
+describe('triggerSummary', () => {
+  const 拍手の報酬 = { id: 'reward-hakushu', title: '拍手を送る', cost: 100 }
+
+  it('チャンネルポイント交換では、選んだ報酬の名前を添える', () => {
+    expect(triggerSummary(入力欄({ rewardId: 'reward-hakushu' }), [拍手の報酬])).toBe('チャンネルポイントの交換「拍手を送る」→ アラート')
+  })
+
+  it('報酬を選んでいなければ、すべての報酬が対象だと伝える', () => {
+    expect(triggerSummary(入力欄(), [拍手の報酬])).toBe('チャンネルポイントの交換（すべての報酬）→ アラート')
+  })
+
+  it('Twitchの一覧にない報酬でも、報酬IDを出して黙って「すべての報酬」にしない', () => {
+    expect(triggerSummary(入力欄({ rewardId: 'reward-kieta' }), [拍手の報酬])).toBe('チャンネルポイントの交換「reward-kieta」→ アラート')
+  })
+
+  it('チャンネルポイントの交換以外では、イベントの名前だけを出す', () => {
+    expect(triggerSummary(入力欄({ event: FOLLOW }), [])).toBe('フォロー → アラート')
+  })
+
+  it('行う動作をすべて並べる', () => {
+    expect(triggerSummary(入力欄({ event: RAID, chatEnabled: true, announceEnabled: true }), [])).toBe('レイド → アラート・チャット・アナウンス')
+  })
+
+  it('動作を1つも選んでいなければ、何もしないことが分かるようにする', () => {
+    expect(triggerSummary(入力欄({ event: FOLLOW, alertEnabled: false }), [])).toBe('フォロー → 動作なし')
   })
 })

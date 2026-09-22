@@ -113,7 +113,7 @@ describe('ログインしているとき', () => {
       ['壁紙', '/wallpaper/'],
       ['時計', '/clock/'],
       ['チャット', '/chat/'],
-      ['アラート', '/admin/'],
+      ['アップロード', '/media/'],
     ] as const) {
       expect(screen.getByRole('link', { name })).toHaveAttribute('href', href)
     }
@@ -154,11 +154,11 @@ describe('ページの移動', () => {
   })
 
   test('ページUIのURLを直接開くと、そのページが出る', async () => {
-    開く('/admin/')
+    開く('/triggers/')
     render(<App statsApi={代役の記録API} botApi={代役のbotAPI} api={代役のAPI(async () => 配信者)} />)
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'アラート' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'アラート' })).toHaveAttribute('aria-current', 'page')
+    expect(await screen.findByRole('heading', { level: 1, name: 'トリガー' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'トリガー' })).toHaveAttribute('aria-current', 'page')
   })
 
   test('末尾のスラッシュがないURLでも、同じページが出る', async () => {
