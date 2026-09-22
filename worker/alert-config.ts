@@ -325,21 +325,54 @@ export const parseAlertConfig = (input: unknown, kindOfMedia: (mediaId: string) 
 
 export const saveAlertConfig = (store: KeyValueStore, config: AlertConfig): Promise<void> => store.put(CONFIG_KEY, JSON.stringify(config))
 
+/** 保存済みの条件の一覧か。保存時に検証済みなので、配列であることだけを確かめる */
+const isStoredConditions = (value: unknown): value is StoredCondition[] => Array.isArray(value)
+
+/** 保存済みの動作の一覧か。保存時に検証済みなので、配列であることだけを確かめる */
+const isStoredActions = (value: unknown): value is StoredAction[] => Array.isArray(value)
+
 /**
  * 保存されているトリガーが、いまの形（conditions と actions のリストを持つ）かどうか。
  *
  * 保存時に検証済みの内容しか書き込まないため、ここでは形だけを確かめる。
- * 条件をリストにする前の形（event と rewardId が直接ぶら下がる）や、動作に分ける前の形はここで弾かれる。
  */
-const hasCurrentShape = (value: unknown): value is StoredTrigger => isRecord(value) && Array.isArray(value.conditions) && Array.isArray(value.actions)
+const hasCurrentShape = (value: Record<string, unknown>): value is Record<string, unknown> & StoredTrigger =>
+  isStoredConditions(value.conditions) && isStoredActions(value.actions)
+
+/**
+ * 条件をリストにする前の形で保存されているトリガーを、いまの形へ読み替える。
+ *
+ * 条件をリストにする前は、報酬IDがトリガーに直接ぶら下がっていた（`{ event, rewardId, actions }`）。
+ * 報酬IDの文字列は reward の条件1件に、すべての報酬を表す null（と、報酬IDを持たないイベント）は条件なしになる。
+ * 旧形式でも新形式でもない内容は、黙って捨てずにエラーにする（Fail-Fast）。
+ *
+ * 注意: 管理画面（GET /api/admin/config）もこの読み出しを通るため、読み替えずにエラーにすると
+ * 「入れ直すための画面」自体が開けなくなる。そのため、読めるものは読み替えて画面を開けるようにする。
+ * 注意: この読み替えは、保存済みの設定がすべていまの形に入れ替わったら外してよい（管理画面から一度保存すれば書き戻る）。
+ *
+ * @throws ConfigError 旧形式としても読めない場合
+ */
+const migrateTrigger = (candidate: unknown, at: string): StoredTrigger => {
+  if (!isRecord(candidate)) throw new ConfigError(SUBJECT, [`${at}: 保存されているトリガーを読めません`])
+  if (hasCurrentShape(candidate)) return candidate
+
+  const { event, rewardId, actions } = candidate
+  if (!isAlertEvent(event) || !isStoredActions(actions)) {
+    throw new ConfigError(SUBJECT, [`${at}: 保存されているトリガー（${String(event)}）を読めません`])
+  }
+
+  // 報酬IDが無い・null のトリガーは「すべての報酬」が対象だったので、条件なしにする
+  const conditions: StoredCondition[] = isNonEmptyString(rewardId) ? [{ kind: 'reward', rewardId }] : []
+  return { event, conditions, actions }
+}
 
 /**
  * 保存済みの設定を読む。未保存ならトリガーなしの設定を返す。
  *
- * 注意: 古い形で保存されていたら、黙って読み替えずにエラーにする（Fail-Fast）。
- * 配信者には管理画面から入れ直してもらう。トリガーは数件なので、暗黙の読み替えを1つ増やすよりそのほうがよい。
+ * 注意: 保存時に検証済みの内容しか書き込まないため、読み出し時の再検証はしない。
+ * 条件をリストにする前の形だけは、いまの形へ読み替える（migrateTrigger）。
  *
- * @throws ConfigError 保存されている内容がいまの形でない場合
+ * @throws ConfigError 保存されている内容を読めない場合
  */
 export const loadAlertConfig = async (store: KeyValueStore): Promise<AlertConfig> => {
   const text = await store.get(CONFIG_KEY)
@@ -348,13 +381,7 @@ export const loadAlertConfig = async (store: KeyValueStore): Promise<AlertConfig
   const config: unknown = JSON.parse(text)
   if (!isRecord(config) || !Array.isArray(config.triggers)) throw new ConfigError(SUBJECT, ['保存されている設定に triggers の配列がありません'])
 
-  const triggers = config.triggers.map((candidate: unknown, index): StoredTrigger => {
-    if (!hasCurrentShape(candidate)) {
-      throw new ConfigError(SUBJECT, [`triggers[${index}]: 保存されているトリガーが古い形です。管理画面から入れ直してください`])
-    }
-    return candidate
-  })
-  return { triggers }
+  return { triggers: config.triggers.map((candidate: unknown, index) => migrateTrigger(candidate, `triggers[${index}]`)) }
 }
 
 /** トリガーからチャットに送る動作を取り出す。なければ null */
