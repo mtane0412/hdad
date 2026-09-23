@@ -1,0 +1,164 @@
+/**
+ * 視聴者ごとの記録の読み書き
+ *
+ * チャットで発言した人を1人1行で持ち（migrations/0006_viewers.sql の viewers）、配信者が振り返れるようにする。
+ * 発言そのものは貯めない。貯めるのは人で、1人1行なので数千人でも数MBに収まり、消さずに持ち続けられる。
+ *
+ * 記録の入口は webhook-routes.ts のチャットの受け口だけで、読み出しと書き換え（メモ・削除）は viewer-routes.ts が受け持つ。
+ * 日時は UTC の ISO 8601 の文字列で持つ。
+ *
+ * 注意: 発言のたびに書くとD1の書き込みの枠を食うので、前回の記録から UPDATE_INTERVAL_MS が空くまでは書き込まない
+ * （条件に合わない行は0行と数えられる）。そのぶん message_count は「一定時間ごとの発言のかたまり」の数になる。
+ * 注意: 記録と判定は1つの文で行う（INSERT ... ON CONFLICT DO UPDATE）。chat-store.ts と同じ考え方で、
+ * 「読んでから書く」に分けると、同時に届いた通知の間で判定が食い違う。
+ * 注意: SQLに値を埋め込まず、必ずプレースホルダで渡す。
+ */
+import type { Database, DatabaseValue } from './database'
+
+/** 同じ人の記録を更新する間隔（ミリ秒）。これより短い間隔で届いた発言では1行も書き込まない */
+const UPDATE_INTERVAL_MS = 10 * 60 * 1000
+
+/** 一覧の既定の件数。呼び出し側が指定しなければこの件数を返す */
+export const VIEWER_LIST_LIMIT = 50
+
+/** 一覧で一度に返せる件数の上限。D1の rows read を食い過ぎないための歯止め */
+export const VIEWER_LIST_MAX_LIMIT = 200
+
+/**
+ * ログイン名の前方一致の上限。Unicodeで最も大きい符号位置なので、
+ * どの名前も「前方一致の語 + この文字」より小さくなる（`login >= 語 AND login < 語+この文字` が前方一致と同じ意味になる）。
+ *
+ * LIKE '語%' ではなく大小比較にするのは、索引（viewers_login）を確実に使わせるためである。
+ */
+const PREFIX_UPPER_BOUND = '\u{10FFFF}'
+
+const toIso = (milliseconds: number): string => new Date(milliseconds).toISOString()
+
+/** 記録する発言。通知から取り出した値（chat-command.ts の ChatMessage）を組み替えて渡す */
+export interface ViewerMessage {
+  /** 発言者のユーザーID。名前は本人が変えられるので、これだけを鍵にする */
+  userId: string
+  login: string
+  displayName: string
+  /** 発言者に付いていたバッジの種類の名前。最後に見た値として記録する */
+  badges: readonly string[]
+  /** Twitchが振ったメッセージのID。再送で発言数を二重に増やさないための鍵 */
+  messageId: string
+}
+
+/** 一覧に出す、1人ぶんの記録 */
+export interface Viewer {
+  userId: string
+  login: string
+  displayName: string
+  /** このチャンネルで初めて発言した日時（ISO 8601） */
+  firstSeenAt: string
+  /** 最後に発言した日時（ISO 8601） */
+  lastSeenAt: string
+  /** 通算の発言数（更新の間隔を空けているので、実際の発言数より少なくなる） */
+  messageCount: number
+  /** 最後に見たバッジの種類の名前 */
+  badges: string[]
+  /** 配信者が手で書いたメモ */
+  note: string
+}
+
+/** 一覧の絞り込み */
+export interface ViewerQuery {
+  /** ログイン名の前方一致（大文字小文字は区別しない）。空や未指定なら絞り込まない */
+  loginPrefix?: string
+  /** この日時（ISO 8601）より前に発言した人だけを返す。続きを読むときの目印に使う */
+  before?: string
+  /** 返す件数（既定 VIEWER_LIST_LIMIT、上限 VIEWER_LIST_MAX_LIMIT） */
+  limit?: number
+}
+
+/** データベースから読んだ行。バッジはカンマ区切りの文字列で入っている */
+interface ViewerRow extends Omit<Viewer, 'badges'> {
+  badges: string
+}
+
+/**
+ * 発言を受けて、その人の記録を作る（初めてなら）か更新する。
+ *
+ * bot自身の発言では呼ばない（呼び出し側が確かめる）。処分した発言では呼ぶ（荒らしの履歴も配信者には有用なため）。
+ *
+ * 注意: 前回の記録から UPDATE_INTERVAL_MS が空いていなければ、1行も書き込まない。
+ * このとき login・display_name・last_badges も据え置きになるが、どれも「最後に見た値」なので困らない。
+ * 注意: 同じ発言のIDでの更新は行わない。Twitchが再送した通知で発言数が二重に増えるのを防ぐためである。
+ */
+export const recordViewerMessage = async (db: Database, message: ViewerMessage, now: number): Promise<void> => {
+  const at = toIso(now)
+  await db
+    .prepare(
+      `INSERT INTO viewers (user_id, login, display_name, first_seen_at, last_seen_at, message_count, last_badges, last_message_id)
+       VALUES (?1, ?2, ?3, ?4, ?4, 1, ?5, ?6)
+       ON CONFLICT (user_id) DO UPDATE
+         SET login = ?2, display_name = ?3, last_seen_at = ?4, message_count = viewers.message_count + 1, last_badges = ?5, last_message_id = ?6
+         WHERE viewers.last_message_id <> ?6 AND viewers.last_seen_at <= ?7`,
+    )
+    .bind(message.userId, message.login, message.displayName, at, message.badges.join(','), message.messageId, toIso(now - UPDATE_INTERVAL_MS))
+    .run()
+}
+
+/** カンマ区切りで持っているバッジを配列に戻す。1つも付いていなければ空文字列なので、空の配列にする */
+const readBadges = (badges: string): string[] => (badges === '' ? [] : badges.split(','))
+
+/**
+ * 記録のある人を、最後に発言した順（新しい順）に返す。
+ *
+ * 件数が多くなるので全件は返さず、`before` と `limit` で少しずつ読む。名前での絞り込みを前方一致にしているのは、
+ * 部分一致（LIKE '%...%'）だと索引が効かず全件走査になり、D1の rows read を食うためである。
+ */
+export const listViewers = async (db: Database, query: ViewerQuery): Promise<Viewer[]> => {
+  const conditions: string[] = []
+  const values: DatabaseValue[] = []
+
+  // Twitchのログイン名は小文字なので、検索の語を小文字にそろえれば大文字で検索しても当てられる
+  const prefix = query.loginPrefix?.toLowerCase() ?? ''
+  if (prefix !== '') {
+    conditions.push(`login >= ?${values.length + 1} AND login < ?${values.length + 2}`)
+    values.push(prefix, prefix + PREFIX_UPPER_BOUND)
+  }
+  if (query.before !== undefined && query.before !== '') {
+    conditions.push(`last_seen_at < ?${values.length + 1}`)
+    values.push(query.before)
+  }
+  values.push(Math.min(query.limit ?? VIEWER_LIST_LIMIT, VIEWER_LIST_MAX_LIMIT))
+
+  const { results } = await db
+    .prepare(
+      `SELECT user_id AS userId, login, display_name AS displayName, first_seen_at AS firstSeenAt,
+              last_seen_at AS lastSeenAt, message_count AS messageCount, last_badges AS badges, note
+       FROM viewers
+       ${conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''}
+       ORDER BY last_seen_at DESC
+       LIMIT ?${values.length}`,
+    )
+    .bind(...values)
+    .all<ViewerRow>()
+  return results.map((row) => ({ ...row, badges: readBadges(row.badges) }))
+}
+
+/**
+ * 配信者が書いたメモを書き換える。
+ *
+ * @returns 記録のある人なら true。無ければ false（呼び出し側が404にする）
+ */
+export const updateViewerNote = async (db: Database, userId: string, note: string): Promise<boolean> => {
+  const updated = await db
+    .prepare('UPDATE viewers SET note = ?2 WHERE user_id = ?1 RETURNING user_id')
+    .bind(userId, note)
+    .first<{ user_id: string }>()
+  return updated !== null
+}
+
+/**
+ * 人ごとの記録を消す。本人から求められたときに応じられるようにするためのもの。
+ *
+ * @returns 記録のある人なら true。無ければ false（呼び出し側が404にする）
+ */
+export const deleteViewer = async (db: Database, userId: string): Promise<boolean> => {
+  const deleted = await db.prepare('DELETE FROM viewers WHERE user_id = ?1 RETURNING user_id').bind(userId).first<{ user_id: string }>()
+  return deleted !== null
+}

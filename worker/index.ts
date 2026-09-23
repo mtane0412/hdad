@@ -21,6 +21,9 @@
  * | GET・PUT /api/admin/bot/commands | セッション     | チャットのコマンドの取得・保存 |
  * | GET・PUT /api/admin/bot/moderation | セッション   | チャットの自動モデレーションの設定の取得・保存 |
  * | GET  /api/admin/rewards          | セッション     | チャンネルポイント報酬の一覧 |
+ * | GET  /api/admin/viewers          | セッション     | 視聴者の記録の一覧（検索・ページ送り） |
+ * | PATCH /api/admin/viewers/:userId | セッション     | 視聴者へのメモの保存 |
+ * | DELETE /api/admin/viewers/:userId | セッション    | 視聴者の記録の削除 |
  * | GET  /api/admin/stats/sessions   | セッション     | 配信セッションの一覧 |
  * | GET  /api/admin/stats/sessions/:id | セッション   | 配信セッションと視聴者数の時系列 |
  * | GET  /api/admin/stats/followers  | セッション     | フォロワー数の時系列 |
@@ -35,6 +38,7 @@
  * fetch と現在時刻を引数で受け取るのは、テストで差し替えるため。
  */
 import { deleteMedia, getConfig, getMedia, getRewards, postMedia, postOverlayKey, putConfig } from './admin-routes'
+import { deleteViewerRoute, getViewers, patchViewer } from './viewer-routes'
 import {
   deleteBot,
   getBot,
@@ -99,6 +103,9 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/admin/bot/moderation', handle: getBotModeration },
   { method: 'PUT', path: '/api/admin/bot/moderation', handle: putBotModeration },
   { method: 'GET', path: '/api/admin/rewards', handle: getRewards },
+  { method: 'GET', path: '/api/admin/viewers', handle: getViewers },
+  { method: 'PATCH', path: '/api/admin/viewers/:userId', handle: patchViewer },
+  { method: 'DELETE', path: '/api/admin/viewers/:userId', handle: deleteViewerRoute },
   { method: 'GET', path: '/api/admin/stats/sessions', handle: getStatsSessions },
   { method: 'GET', path: '/api/admin/stats/sessions/:id', handle: getStatsSession },
   { method: 'GET', path: '/api/admin/stats/followers', handle: getStatsFollowers },

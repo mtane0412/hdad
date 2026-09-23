@@ -8,6 +8,7 @@ import { createRoot } from 'react-dom/client'
 import { createAdminApi } from '@/admin/api'
 import { createBotApi } from '@/bot/api'
 import { createStatsApi } from '@/stats/api'
+import { createViewerApi } from '@/viewers/api'
 import { App } from './app'
 import './app.css'
 
@@ -19,9 +20,10 @@ const callWorker: typeof fetch = (input, init) => fetch(input, init)
 const api = createAdminApi(callWorker)
 const statsApi = createStatsApi(callWorker)
 const botApi = createBotApi(callWorker)
+const viewerApi = createViewerApi(callWorker)
 
 createRoot(root).render(
   <StrictMode>
-    <App api={api} statsApi={statsApi} botApi={botApi} />
+    <App api={api} statsApi={statsApi} botApi={botApi} viewerApi={viewerApi} />
   </StrictMode>,
 )

@@ -17,6 +17,7 @@ import { applyReply, findCommand, readChatMessage, type ChatMessage } from './ch
 import { loadBotConfig } from './bot-config'
 import { punishAsBot } from './bot-moderation'
 import { judge, repeatRuleOf } from './chat-moderation'
+import { recordViewerMessage } from './viewer-store'
 import { loadModerationConfig } from './moderation-config'
 import { consumeCooldown, recordAndCountRecentMessage, reserveChatReply } from './chat-store'
 import { CHAT_MESSAGE, COUNTED_EVENT_TYPES, STREAM_OFFLINE, STREAM_ONLINE, UNCOUNTED_EVENT_TYPES, verifyWebhookSignature } from './eventsub-webhook'
@@ -137,7 +138,8 @@ const moderateChatMessage = async (context: Context, message: ChatMessage, botUs
  * チャットの通知を受けて、自動モデレーション・アラートのトリガー・コマンドの応答を順に行う。
  *
  * この順にするのは、処分した発言にはトリガーも応答も返さないため（荒らしの発言でアラートを鳴らさない）。
- * 配信の記録（D1）には書かない。チャットは件数の桁が違い、1通ごとに書くと配信の記録と書き込みの枠を食い合うため。
+ * 発言そのものは配信の記録（D1の stream_events）に書かない。チャットは件数の桁が違い、1通ごとに書くと
+ * 配信の記録と書き込みの枠を食い合うため。書くのは発言ではなく人で（viewers。viewer-store.ts）、これは1人1行に収まる。
  *
  * 注意: 応答を送ると決めたあとの失敗は、Twitchへの応答を2xxのままにして記録に残す。
  * 2xx以外を返すとTwitchは同じ通知を再送するので、送信が成功していた場合に二重投稿になってしまう。
@@ -156,6 +158,23 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
   // botを切断した直後など、購読が残っていても応答できないことがある。アラートの再生にbotは要らないので、
   // 自動モデレーションとコマンドの応答だけを飛ばし、トリガーの判定は続ける
   const bot = await loadToken(env.STORE, 'bot')
+
+  // 視聴者の記録は、処分や応答の判定より先に残す。処分した発言も記録に含めるのは、荒らしの履歴も配信者には有用なため。
+  // bot自身の発言だけは記録しない（人の記録に自分の応答を混ぜない）。発言のたびに書くことになるが、
+  // 前回から間隔が空くまで書き込まない作りなので（viewer-store.ts）、D1の書き込みの枠を食い続けることはない
+  if (message.chatterUserId !== bot?.userId) {
+    await recordViewerMessage(
+      env.DB,
+      {
+        userId: message.chatterUserId,
+        login: message.chatterUserLogin,
+        displayName: message.chatterUserName,
+        badges: message.badges,
+        messageId: message.messageId,
+      },
+      now,
+    )
+  }
 
   // 自動モデレーションはコマンドの応答より先に判定する。処分した発言には応答もトリガーも返さない
   if (bot && (await moderateChatMessage(context, message, bot.userId))) return
