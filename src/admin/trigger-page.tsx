@@ -702,7 +702,8 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
           <CardTitle>トリガー</CardTitle>
           <CardDescription>
             イベントが起きたら、上から順に探して最初に当てはまったトリガーの素材を流す。条件を足すと、そのすべてを満たしたときだけ当てはまる。
-            文言の <code>{'{user}'}</code> は相手の名前に置き換わる。ほかに使える差し込み語はイベントごとに違い、それぞれの文言欄の下に出る。
+            文言の <code>{'{user}'}</code> は相手の名前に、<code>{'{summary}'}</code> は配信の「これまでのあらすじ」に置き換わる。
+            ほかに使える差し込み語はイベントごとに違い、それぞれの文言欄の下に出る。
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">

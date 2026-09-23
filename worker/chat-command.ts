@@ -8,6 +8,7 @@
  *
  * 注意: bot自身の発言には決して応答しない。応答すると、その応答にまたbotが応答して止まらなくなる。
  */
+import { fillStreamSummary, STREAM_SUMMARY_PLACEHOLDER } from './stream-summary'
 
 /** コマンド1つぶんの定義 */
 export interface BotCommand {
@@ -118,17 +119,6 @@ export const findCommand = <Command extends BotCommand>(
   return commands.find((candidate) => candidate.name.toLowerCase() === name) ?? null
 }
 
-/** 配信の「これまでのあらすじ」（issue #65）に置き換わる差し込み語 */
-const SUMMARY_PLACEHOLDER = '{summary}'
-
-/**
- * あらすじがまだ無いときに、その差し込み語に入る文言。
- *
- * 空文字にせず文言を入れるのは、コマンドが無応答に見えないようにするためである。あらすじは cron が
- * 作るものなので、配信の直後や、LLMの無料枠を使い切った日には無いことがある。
- */
-const NO_SUMMARY = 'まだあらすじがありません'
-
 /**
  * その応答文があらすじを必要とするか。
  *
@@ -136,7 +126,7 @@ const NO_SUMMARY = 'まだあらすじがありません'
  * 使っていないコマンドのために毎回読みに行かないためである（alert-state.ts の
  * 「条件を使うトリガーが無ければデータベースを触らない」と同じ考え方）。
  */
-export const needsStreamSummary = (command: BotCommand): boolean => command.reply.includes(SUMMARY_PLACEHOLDER)
+export const needsStreamSummary = (command: BotCommand): boolean => command.reply.includes(STREAM_SUMMARY_PLACEHOLDER)
 
 /**
  * コマンドの応答文の差し込み語を、実際の値に置き換える。
@@ -144,7 +134,7 @@ export const needsStreamSummary = (command: BotCommand): boolean => command.repl
  * @param summary 貯めてあるあらすじ。配信していない・まだ作っていない・読む必要がない場合は null
  */
 export const applyReply = (command: BotCommand, message: ChatMessage, summary: string | null): string =>
-  command.reply.replaceAll('{user}', message.chatterUserLogin).replaceAll(SUMMARY_PLACEHOLDER, summary ?? NO_SUMMARY)
+  fillStreamSummary(command.reply.replaceAll('{user}', () => message.chatterUserLogin), summary)
 
 /** 発言に対して送り返す文言。送り返さない場合は null（findCommand と applyReply をまとめたもの） */
 export const resolveReply = (

@@ -18,6 +18,7 @@ import {
   matches,
   requiresChatHistory,
   requiresFirstChatOfStream,
+  requiresStreamSummary,
   type ConditionState,
 } from './alert-event'
 
@@ -182,23 +183,43 @@ describe('fillMessage', () => {
   it('イベントごとの差し込み語を値に置き換える', () => {
     const 継続サブスク = { event: 'channel.subscription.message', userName: '田中太郎', userLogin: 'tanaka_taro', tier: '2000', cumulativeMonths: 12 } as const
 
-    expect(fillMessage('{user} さん、ティア{tier}で{months}か月ありがとう！', 継続サブスク)).toBe('田中太郎 さん、ティア2で12か月ありがとう！')
+    expect(fillMessage('{user} さん、ティア{tier}で{months}か月ありがとう！', 継続サブスク, null)).toBe('田中太郎 さん、ティア2で12か月ありがとう！')
   })
 
   it('そのイベントにない差し込み語は残す（入力の誤りに配信者が気付けるようにする）', () => {
-    expect(fillMessage('{user} さん、{viewers}人', { event: 'channel.follow', userName: '田中太郎', userLogin: 'tanaka_taro' })).toBe('田中太郎 さん、{viewers}人')
+    expect(fillMessage('{user} さん、{viewers}人', { event: 'channel.follow', userName: '田中太郎', userLogin: 'tanaka_taro' }, null)).toBe('田中太郎 さん、{viewers}人')
   })
 
   it('チャットの発言では、{message} が本文に置き換わる', () => {
     const 発言した = { event: CHAT_MESSAGE, userName: '田中太郎', userLogin: 'tanaka_taro', text: 'おはよう' } as const
 
-    expect(fillMessage('{user} さんが「{message}」と言いました', 発言した)).toBe('田中太郎 さんが「おはよう」と言いました')
+    expect(fillMessage('{user} さんが「{message}」と言いました', 発言した, null)).toBe('田中太郎 さんが「おはよう」と言いました')
   })
 
   it('報酬名に $& のような置換の特殊な指定が含まれていても、そのまま差し込む', () => {
     const 交換した = { event: REDEMPTION, userName: '田中太郎', userLogin: 'tanaka_taro', rewardId: '報酬ID', rewardTitle: '$& と $1 の報酬' } as const
 
-    expect(fillMessage('{reward} を交換しました', 交換した)).toBe('$& と $1 の報酬 を交換しました')
+    expect(fillMessage('{reward} を交換しました', 交換した, null)).toBe('$& と $1 の報酬 を交換しました')
+  })
+
+  it('配信のあらすじを {summary} に差し込む（イベント種別によらず使える）', () => {
+    const フォローした = { event: 'channel.follow', userName: '田中太郎', userLogin: 'tanaka_taro' } as const
+
+    expect(fillMessage('{user} さん、いらっしゃい。{summary}', フォローした, '配信者は新しいゲームを遊んでいます')).toBe(
+      '田中太郎 さん、いらっしゃい。配信者は新しいゲームを遊んでいます',
+    )
+  })
+
+  it('あらすじが無ければ、{summary} を残さずその旨を差し込む（文言が欠けたように見せない）', () => {
+    const フォローした = { event: 'channel.follow', userName: '田中太郎', userLogin: 'tanaka_taro' } as const
+
+    expect(fillMessage('これまでのあらすじ: {summary}', フォローした, null)).toBe('これまでのあらすじ: まだあらすじがありません')
+  })
+
+  it('あらすじに $& のような置換の特殊な指定が含まれていても、そのまま差し込む', () => {
+    const フォローした = { event: 'channel.follow', userName: '田中太郎', userLogin: 'tanaka_taro' } as const
+
+    expect(fillMessage('{summary}', フォローした, '$& と $1 の話をしていました')).toBe('$& と $1 の話をしていました')
   })
 })
 
@@ -253,13 +274,21 @@ describe('chatMessageFor', () => {
   it('当てはまるトリガーのチャットの文言を、差し込み語を置き換えて返す', () => {
     const config = 設定([{ event: 'channel.follow', conditions: [], actions: [{ type: 'chat', message: '{user} さん、フォローありがとうございます！' }] }])
 
-    expect(chatMessageFor(config, 'channel.follow', フォローの通知, 初回ではない)).toBe('田中太郎 さん、フォローありがとうございます！')
+    expect(chatMessageFor(config, 'channel.follow', フォローの通知, 初回ではない, null)).toBe('田中太郎 さん、フォローありがとうございます！')
+  })
+
+  it('文言の {summary} に、渡された配信のあらすじを差し込む', () => {
+    const config = 設定([{ event: 'channel.follow', conditions: [], actions: [{ type: 'chat', message: '{user} さん、いま「{summary}」って話をしてます' }] }])
+
+    expect(chatMessageFor(config, 'channel.follow', フォローの通知, 初回ではない, '新しいゲームを遊んでいます')).toBe(
+      '田中太郎 さん、いま「新しいゲームを遊んでいます」って話をしてます',
+    )
   })
 
   it('当てはまるトリガーがなければ null を返す', () => {
     const config = 設定([{ event: 'channel.raid', conditions: [], actions: [{ type: 'chat', message: 'レイドありがとう' }] }])
 
-    expect(chatMessageFor(config, 'channel.follow', フォローの通知, 初回ではない)).toBeNull()
+    expect(chatMessageFor(config, 'channel.follow', フォローの通知, 初回ではない, null)).toBeNull()
   })
 
   it('チャットに送る動作を持たないトリガー（アラートを出すだけ）には反応しない', () => {
@@ -269,7 +298,7 @@ describe('chatMessageFor', () => {
       actions: [{ type: 'alert', mediaId: '素材ID-拍手の音', mediaKind: 'audio', durationSeconds: 5, volume: 0.5, message: '' }],
     }
 
-    expect(chatMessageFor(設定([アラートだけ]), 'channel.follow', フォローの通知, 初回ではない)).toBeNull()
+    expect(chatMessageFor(設定([アラートだけ]), 'channel.follow', フォローの通知, 初回ではない, null)).toBeNull()
   })
 
   it('複数のトリガーが当てはまる場合は、先に書かれたものを使う（チャットを連投しない）', () => {
@@ -278,19 +307,19 @@ describe('chatMessageFor', () => {
       { event: 'channel.follow', conditions: [], actions: [{ type: 'chat', message: '2つ目の文言' }] },
     ])
 
-    expect(chatMessageFor(config, 'channel.follow', フォローの通知, 初回ではない)).toBe('1つ目の文言')
+    expect(chatMessageFor(config, 'channel.follow', フォローの通知, 初回ではない, null)).toBe('1つ目の文言')
   })
 
   it('チャットに送るトリガーがないイベントなら、通知の中身が想定と違ってもエラーにしない（設定していないイベントで止めない）', () => {
     const config = 設定([{ event: 'channel.raid', conditions: [], actions: [{ type: 'chat', message: 'レイドありがとう' }] }])
 
-    expect(chatMessageFor(config, 'channel.follow', { user_login: 'tanaka' }, 初回ではない)).toBeNull()
+    expect(chatMessageFor(config, 'channel.follow', { user_login: 'tanaka' }, 初回ではない, null)).toBeNull()
   })
 
   it('対応していないイベントの種類なら null を返す', () => {
     const config = 設定([{ event: 'channel.follow', conditions: [], actions: [{ type: 'chat', message: 'ありがとう' }] }])
 
-    expect(chatMessageFor(config, 'stream.online', { id: '配信ID' }, 初回ではない)).toBeNull()
+    expect(chatMessageFor(config, 'stream.online', { id: '配信ID' }, 初回ではない, null)).toBeNull()
   })
 })
 
@@ -309,7 +338,7 @@ describe('チャットの発言のトリガー', () => {
       triggers: [{ event: CHAT_MESSAGE, conditions: [{ kind: 'text', contains: 'おはよう' }], actions: [{ type: 'chat', message: '{user} さん、おはよう！' }] }],
     }
 
-    expect(chatMessageFor(設定, CHAT_MESSAGE, 発言の通知, 初回ではない)).toBe('田中太郎 さん、おはよう！')
+    expect(chatMessageFor(設定, CHAT_MESSAGE, 発言の通知, 初回ではない, null)).toBe('田中太郎 さん、おはよう！')
   })
 
   it('発言者の条件に当てはまらない発言では null を返す', () => {
@@ -317,7 +346,7 @@ describe('チャットの発言のトリガー', () => {
       triggers: [{ event: CHAT_MESSAGE, conditions: [{ kind: 'user', login: 'yamada_hanako' }], actions: [{ type: 'chat', message: 'やあ' }] }],
     }
 
-    expect(chatMessageFor(設定, CHAT_MESSAGE, 発言の通知, 初回ではない)).toBeNull()
+    expect(chatMessageFor(設定, CHAT_MESSAGE, 発言の通知, 初回ではない, null)).toBeNull()
   })
 
   it('本文を差し込んでTwitchの上限（500文字）を超えたら、末尾を … にして収める', () => {
@@ -329,7 +358,7 @@ describe('チャットの発言のトリガー', () => {
       triggers: [{ event: CHAT_MESSAGE, conditions: [], actions: [{ type: 'chat', message: '{user} さんの発言: {message}' }] }],
     }
 
-    const 送る文言 = chatMessageFor(設定, CHAT_MESSAGE, 長い発言, 初回ではない)
+    const 送る文言 = chatMessageFor(設定, CHAT_MESSAGE, 長い発言, 初回ではない, null)
 
     expect(送る文言).toHaveLength(500)
     expect(送る文言?.endsWith('…')).toBe(true)
@@ -342,7 +371,7 @@ describe('チャットの発言のトリガー', () => {
       triggers: [{ event: CHAT_MESSAGE, conditions: [], actions: [{ type: 'announce', message: '{message}', color: 'blue' }] }],
     }
 
-    expect(announcementFor(設定, CHAT_MESSAGE, 長い発言, 初回ではない)?.message).toHaveLength(500)
+    expect(announcementFor(設定, CHAT_MESSAGE, 長い発言, 初回ではない, null)?.message).toHaveLength(500)
   })
 
   it('発言の本文をアナウンスの文言に差し込める', () => {
@@ -356,7 +385,19 @@ describe('チャットの発言のトリガー', () => {
       ],
     }
 
-    expect(announcementFor(設定, CHAT_MESSAGE, 発言の通知, 初回ではない)).toEqual({ type: 'announce', message: '田中太郎: みなさんおはようございます', color: 'blue' })
+    expect(announcementFor(設定, CHAT_MESSAGE, 発言の通知, 初回ではない, null)).toEqual({ type: 'announce', message: '田中太郎: みなさんおはようございます', color: 'blue' })
+  })
+
+  it('アナウンスの文言の {summary} に、渡された配信のあらすじを差し込む', () => {
+    const あらすじを流す: StoredTrigger = {
+      event: CHAT_MESSAGE,
+      conditions: [],
+      actions: [{ type: 'announce', message: 'これまでのあらすじ: {summary}', color: 'blue' }],
+    }
+
+    expect(announcementFor({ triggers: [あらすじを流す] }, CHAT_MESSAGE, 発言の通知, 初回ではない, '新しいゲームを遊んでいます')?.message).toBe(
+      'これまでのあらすじ: 新しいゲームを遊んでいます',
+    )
   })
 })
 
@@ -369,7 +410,7 @@ describe('announcementFor', () => {
       { event: 'channel.raid', conditions: [], actions: [{ type: 'announce', message: '{user} さんが {viewers} 人で来てくれました', color: 'purple' }] },
     ])
 
-    expect(announcementFor(config, 'channel.raid', レイドの通知, 初回ではない)).toEqual({
+    expect(announcementFor(config, 'channel.raid', レイドの通知, 初回ではない, null)).toEqual({
       type: 'announce',
       message: '山田花子 さんが 25 人で来てくれました',
       color: 'purple',
@@ -379,13 +420,13 @@ describe('announcementFor', () => {
   it('アナウンスを送る動作を持たないトリガー（チャットに送るだけ）には反応しない', () => {
     const チャットだけ: StoredTrigger = { event: 'channel.raid', conditions: [], actions: [{ type: 'chat', message: 'レイドありがとう' }] }
 
-    expect(announcementFor(設定([チャットだけ]), 'channel.raid', レイドの通知, 初回ではない)).toBeNull()
+    expect(announcementFor(設定([チャットだけ]), 'channel.raid', レイドの通知, 初回ではない, null)).toBeNull()
   })
 
   it('当てはまるトリガーがなければ null を返す', () => {
     const config = 設定([{ event: 'channel.follow', conditions: [], actions: [{ type: 'announce', message: 'ありがとう', color: 'primary' }] }])
 
-    expect(announcementFor(config, 'channel.raid', レイドの通知, 初回ではない)).toBeNull()
+    expect(announcementFor(config, 'channel.raid', レイドの通知, 初回ではない, null)).toBeNull()
   })
 })
 
@@ -550,6 +591,57 @@ describe('requiresFirstChatOfStream', () => {
   })
 })
 
+describe('requiresStreamSummary', () => {
+  const あらすじを使うトリガー: StoredTrigger = {
+    event: CHAT_MESSAGE,
+    conditions: [],
+    actions: [{ type: 'chat', message: 'これまでのあらすじ: {summary}' }],
+  }
+  const あらすじを使わないトリガー: StoredTrigger = { event: CHAT_MESSAGE, conditions: [], actions: [{ type: 'chat', message: 'どうも' }] }
+
+  it('そのイベントに {summary} を含む文言を持つトリガーがあれば true', () => {
+    expect(requiresStreamSummary({ triggers: [あらすじを使わないトリガー, あらすじを使うトリガー] }, CHAT_MESSAGE)).toBe(true)
+  })
+
+  it('アラートの文言（オーバーレイに出す文言）に含まれていても true', () => {
+    const アラートの文言: StoredTrigger = {
+      event: CHAT_MESSAGE,
+      conditions: [],
+      actions: [{ type: 'alert', mediaId: '素材ID', mediaKind: 'image', durationSeconds: 5, volume: 1, message: '{summary}' }],
+    }
+
+    expect(requiresStreamSummary({ triggers: [アラートの文言] }, CHAT_MESSAGE)).toBe(true)
+  })
+
+  it('アナウンスの文言に含まれていても true', () => {
+    const アナウンスの文言: StoredTrigger = {
+      event: CHAT_MESSAGE,
+      conditions: [],
+      actions: [{ type: 'announce', message: '{summary}', color: 'blue' }],
+    }
+
+    expect(requiresStreamSummary({ triggers: [アナウンスの文言] }, CHAT_MESSAGE)).toBe(true)
+  })
+
+  it('{summary} を使う文言が1件もなければ false（データベースを触らずに済ませるため）', () => {
+    expect(requiresStreamSummary({ triggers: [あらすじを使わないトリガー] }, CHAT_MESSAGE)).toBe(false)
+  })
+
+  it('文面をLLMに作らせる動作（aiChat）だけなら false（文言を持たないため）', () => {
+    const LLMに作らせる: StoredTrigger = {
+      event: CHAT_MESSAGE,
+      conditions: [],
+      actions: [{ type: 'aiChat', instruction: '{summary} を踏まえて返してください' }],
+    }
+
+    expect(requiresStreamSummary({ triggers: [LLMに作らせる] }, CHAT_MESSAGE)).toBe(false)
+  })
+
+  it('別のイベントの通知では false', () => {
+    expect(requiresStreamSummary({ triggers: [あらすじを使うトリガー] }, 'channel.follow')).toBe(false)
+  })
+})
+
 describe('hasAlertAction', () => {
   const アラートのトリガー: StoredTrigger = {
     event: CHAT_MESSAGE,
@@ -586,7 +678,7 @@ describe('alertFor', () => {
   it('当てはまるトリガーのアラートを、素材のURLと差し込み後の文言で返す', () => {
     const config: AlertConfig = { triggers: [{ event: 'channel.follow', conditions: [], actions: [アラートの動作] }] }
 
-    expect(alertFor(config, 'channel.follow', フォローの通知, オーバーレイ用キー, 初回ではない)).toEqual({
+    expect(alertFor(config, 'channel.follow', フォローの通知, オーバーレイ用キー, 初回ではない, null)).toEqual({
       media: { kind: 'video', url: '/api/media/%E7%B4%A0%E6%9D%90ID-%E4%B9%BE%E6%9D%AF%E3%81%AE%E5%8B%95%E7%94%BB?key=overlay-key_1' },
       durationSeconds: 8,
       volume: 0.5,
@@ -594,16 +686,25 @@ describe('alertFor', () => {
     })
   })
 
+  it('画面に出す文言の {summary} に、渡された配信のあらすじを差し込む', () => {
+    const あらすじを出す = { ...アラートの動作, message: 'これまでのあらすじ: {summary}' }
+    const config: AlertConfig = { triggers: [{ event: 'channel.follow', conditions: [], actions: [あらすじを出す] }] }
+
+    expect(alertFor(config, 'channel.follow', フォローの通知, オーバーレイ用キー, 初回ではない, '新しいゲームを遊んでいます')?.text).toBe(
+      'これまでのあらすじ: 新しいゲームを遊んでいます',
+    )
+  })
+
   it('アラートを出す動作を持たないトリガー（チャットに送るだけ）には反応しない', () => {
     const config: AlertConfig = { triggers: [{ event: 'channel.follow', conditions: [], actions: [{ type: 'chat', message: 'ありがとう' }] }] }
 
-    expect(alertFor(config, 'channel.follow', フォローの通知, オーバーレイ用キー, 初回ではない)).toBeNull()
+    expect(alertFor(config, 'channel.follow', フォローの通知, オーバーレイ用キー, 初回ではない, null)).toBeNull()
   })
 
   it('当てはまるトリガーがなければ null を返す', () => {
     const config: AlertConfig = { triggers: [{ event: 'channel.raid', conditions: [], actions: [アラートの動作] }] }
 
-    expect(alertFor(config, 'channel.follow', フォローの通知, オーバーレイ用キー, 初回ではない)).toBeNull()
+    expect(alertFor(config, 'channel.follow', フォローの通知, オーバーレイ用キー, 初回ではない, null)).toBeNull()
   })
 
   it('firstChatOfStream の条件を持つトリガーは、その配信で初めての発言のときだけ再生する', () => {
@@ -617,7 +718,7 @@ describe('alertFor', () => {
     }
     const config: AlertConfig = { triggers: [{ event: CHAT_MESSAGE, conditions: [{ kind: 'firstChatOfStream' }], actions: [アラートの動作] }] }
 
-    expect(alertFor(config, CHAT_MESSAGE, 発言の通知, オーバーレイ用キー, 初回である)?.text).toBe('田中太郎 さん、ありがとう！')
-    expect(alertFor(config, CHAT_MESSAGE, 発言の通知, オーバーレイ用キー, 初回ではない)).toBeNull()
+    expect(alertFor(config, CHAT_MESSAGE, 発言の通知, オーバーレイ用キー, 初回である, null)?.text).toBe('田中太郎 さん、ありがとう！')
+    expect(alertFor(config, CHAT_MESSAGE, 発言の通知, オーバーレイ用キー, 初回ではない, null)).toBeNull()
   })
 })

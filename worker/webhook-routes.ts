@@ -10,7 +10,7 @@
 import { loadAlertConfig, type AlertConfig, type StoredAnnounceAction } from './alert-config'
 import { pushAlert } from './alert-channel'
 import { generateChatMessage } from './ai-chat'
-import { aiChatFor, alertFor, announcementFor, chatMessageFor, hasAlertAction } from './alert-event'
+import { aiChatFor, alertFor, announcementFor, chatMessageFor, hasAlertAction, requiresStreamSummary } from './alert-event'
 import { resolveConditionState } from './alert-state'
 import type { ConditionState } from './alert-event'
 import { announceAsBot, sendAsBot } from './bot-chat'
@@ -256,10 +256,16 @@ const runAlertActions = async (
   const config = await loadAlertConfig(env.STORE)
   // 通知の中身だけでは決まらない条件（初めての発言か・前の発言から空いた日数）は、照合の前にデータベースを見て決める
   const state = await resolveConditionState(env.DB, config, chatMessage, now)
+  // あらすじ（{summary}）も通知の中身では決まらないので、差し込む文言を持つトリガーがあるときだけ先に読む。
+  // 読むのはここ1回だけで、チャット・アナウンス・アラートの差し込みで使い回す（コマンドの応答と同じく、ここでLLMは呼ばない）
+  const summary = requiresStreamSummary(config, subscriptionType) ? ((await readCurrentStreamSummary(env.DB, now))?.summary ?? null) : null
   // 中身の形が違えば「不正な通知」として400で返す（Workerの不具合を表す500と区別する）
   const [message, announcement] = ((): [string | null, StoredAnnounceAction | null] => {
     try {
-      return [chatMessageFor(config, subscriptionType, body.event, state), announcementFor(config, subscriptionType, body.event, state)]
+      return [
+        chatMessageFor(config, subscriptionType, body.event, state, summary),
+        announcementFor(config, subscriptionType, body.event, state, summary),
+      ]
     } catch (error) {
       throw invalid(error instanceof Error ? error.message : String(error))
     }
@@ -272,7 +278,7 @@ const runAlertActions = async (
     }
   })()
   // 素材の再生はbotと関わりなく行う（botを接続していなくてもアラートは鳴る）
-  await pushMatchedAlert(context, config, subscriptionType, body, messageId, state)
+  await pushMatchedAlert(context, config, subscriptionType, body, messageId, state, summary)
 
   if (message === null && announcement === null && aiChat === null) return
 
@@ -326,6 +332,9 @@ const sendAiChat = async (
  *
  * 注意: 押し出しの失敗は、チャットの送信と同じく2xxのまま記録に残す。2xx以外だとTwitchが同じ通知を再送し、
  * 押し出しが成功していた場合に同じアラートが二度鳴る。
+ *
+ * @param summary 画面に出す文言に差し込む配信のあらすじ。呼び出し側が読んだものを受け取る
+ *   （チャット・アナウンスと同じ値を使い回し、同じ通知でデータベースを二度読まない）
  */
 const pushMatchedAlert = async (
   context: Context,
@@ -334,6 +343,7 @@ const pushMatchedAlert = async (
   body: Record<string, unknown>,
   messageId: string,
   state: ConditionState,
+  summary: string | null,
 ): Promise<void> => {
   const { env, now } = context
   if (!hasAlertAction(config, subscriptionType)) return
@@ -347,7 +357,7 @@ const pushMatchedAlert = async (
   // 中身の形が違えば「不正な通知」として400で返す（Workerの不具合を表す500と区別する）
   const alert = ((): ReturnType<typeof alertFor> => {
     try {
-      return alertFor(config, subscriptionType, body.event, overlayKey, state)
+      return alertFor(config, subscriptionType, body.event, overlayKey, state, summary)
     } catch (error) {
       throw invalid(error instanceof Error ? error.message : String(error))
     }
