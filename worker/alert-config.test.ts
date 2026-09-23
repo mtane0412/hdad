@@ -164,7 +164,9 @@ describe('parseAlertConfig', () => {
 
   it('対応していない条件の種類は拒否する', () => {
     expect(() => parseAlertConfig({ triggers: [送られてきたトリガー({ conditions: [{ kind: 'bits' }] })] }, 素材の種類)).toThrowError(
-      expect.objectContaining({ problems: ['triggers[0].conditions[0].kind: reward / user / text / firstChatOfStream のいずれかを指定してください'] }),
+      expect.objectContaining({
+        problems: ['triggers[0].conditions[0].kind: reward / user / text / firstChatOfStream / firstChatEver / returningAfter のいずれかを指定してください'],
+      }),
     )
   })
 
@@ -221,6 +223,56 @@ describe('parseAlertConfig', () => {
       expect.objectContaining({
         problems: ['triggers[0].conditions[0]: firstChatOfStream の条件はチャットの発言にしか付けられません'],
       }),
+    )
+  })
+
+  it('チャットの発言に firstChatEver の条件を付けられる', () => {
+    const 初見の条件 = [{ kind: 'firstChatEver' }]
+    const config = parseAlertConfig({ triggers: [送られてきたトリガー({ event: CHAT_MESSAGE, conditions: 初見の条件 })] }, 素材の種類)
+
+    expect(config.triggers[0]?.conditions).toEqual(初見の条件)
+  })
+
+  it('チャットの発言以外のイベントに firstChatEver の条件を付けたら拒否する', () => {
+    const 初見を付けたフォロー = { triggers: [送られてきたトリガー({ event: 'channel.follow', conditions: [{ kind: 'firstChatEver' }] })] }
+
+    expect(() => parseAlertConfig(初見を付けたフォロー, 素材の種類)).toThrowError(
+      expect.objectContaining({ problems: ['triggers[0].conditions[0]: firstChatEver の条件はチャットの発言にしか付けられません'] }),
+    )
+  })
+
+  it('その配信で初めての発言と、このチャンネルで初めての発言を同じトリガーに並べられる（種類が違うので重複ではない）', () => {
+    const 両方の条件 = [{ kind: 'firstChatOfStream' }, { kind: 'firstChatEver' }]
+    const config = parseAlertConfig({ triggers: [送られてきたトリガー({ event: CHAT_MESSAGE, conditions: 両方の条件 })] }, 素材の種類)
+
+    expect(config.triggers[0]?.conditions).toEqual(両方の条件)
+  })
+
+  it('チャットの発言に returningAfter の条件を付けられる', () => {
+    const 久しぶりの条件 = [{ kind: 'returningAfter', days: 30 }]
+    const config = parseAlertConfig({ triggers: [送られてきたトリガー({ event: CHAT_MESSAGE, conditions: 久しぶりの条件 })] }, 素材の種類)
+
+    expect(config.triggers[0]?.conditions).toEqual(久しぶりの条件)
+  })
+
+  it('チャットの発言以外のイベントに returningAfter の条件を付けたら拒否する', () => {
+    const 久しぶりを付けたレイド = { triggers: [送られてきたトリガー({ event: 'channel.raid', conditions: [{ kind: 'returningAfter', days: 30 }] })] }
+
+    expect(() => parseAlertConfig(久しぶりを付けたレイド, 素材の種類)).toThrowError(
+      expect.objectContaining({ problems: ['triggers[0].conditions[0]: returningAfter の条件はチャットの発言にしか付けられません'] }),
+    )
+  })
+
+  it.each([
+    ['0日', 0],
+    ['366日', 366],
+    ['小数の日数', 1.5],
+    ['文字列の日数', '30'],
+  ])('returningAfter の日数が %s なら拒否する', (_名前, days) => {
+    const 設定 = { triggers: [送られてきたトリガー({ event: CHAT_MESSAGE, conditions: [{ kind: 'returningAfter', days }] })] }
+
+    expect(() => parseAlertConfig(設定, 素材の種類)).toThrowError(
+      expect.objectContaining({ problems: ['triggers[0].conditions[0].days: 1〜365の整数（日数）で指定してください'] }),
     )
   })
 

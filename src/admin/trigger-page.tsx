@@ -33,7 +33,6 @@ import {
   type ConditionKind,
   type MediaItem,
   type Reward,
-  type TriggerCondition,
 } from './api'
 import {
   addableConditionKinds,
@@ -50,6 +49,7 @@ import {
   toDraft,
   toTriggerInput,
   triggerSummary,
+  type ConditionDraft,
   type ConditionKindOption,
   type SelectOption,
   type TriggerDraft,
@@ -75,6 +75,9 @@ const MAX_MESSAGE_LENGTH = 200
 const MAX_LOGIN_LENGTH = 25
 /** チャットに送る文言の上限（Twitchのチャット1通の上限） */
 const MAX_CHAT_MESSAGE_LENGTH = 500
+/** 空いた日数の条件に入れられる日数の範囲（worker/alert-config.ts の検証と同じ値） */
+const MIN_RETURNING_DAYS = 1
+const MAX_RETURNING_DAYS = 365
 const DEFAULT_DURATION_SECONDS = '5'
 const DEFAULT_VOLUME_PERCENT = '100'
 /** ブラウザソースに設定する推奨の大きさ（配信のキャンバスと同じ大きさ。素材は中央に出るため、キャンバス全体を覆う） */
@@ -98,14 +101,17 @@ const Select = ({ id, options, value, onChange }: { id: string; options: readonl
   </NativeSelect>
 )
 
+/** 入れる値を持たない条件の種類（「初めての発言であること」以外に指定するものがない） */
+const NO_INPUT_KINDS: readonly ConditionKind[] = ['firstChatOfStream', 'firstChatEver']
+
 interface ConditionFieldsProps {
   /** 入力欄のIDの前置き。1つの行の中で条件ごとに違うIDにする */
   idPrefix: string
-  conditions: readonly TriggerCondition[]
+  conditions: readonly ConditionDraft[]
   rewards: readonly Reward[]
   /** 足せる条件の種類（すでに足してある種類と、このイベントに付けられない種類は含まれない） */
   addable: readonly ConditionKindOption[]
-  onChange(index: number, condition: TriggerCondition): void
+  onChange(index: number, condition: ConditionDraft): void
   onAdd(kind: ConditionKind): void
   onRemove(index: number): void
 }
@@ -115,8 +121,8 @@ interface ConditionFieldsProps {
  *
  * 条件はすべてを満たしたときだけ当てはまる（and）ので、その旨を見出しに書く。
  * 条件が1件もないときは、そのイベントが起きればいつでも動くことを知らせる（設定漏れと取り違えないため）。
- * 足せる種類は種類ごとのボタンで出す（そのイベントに付けられる種類は多くても2つなので、選択欄と「足す」ボタンに分けるより手数が少ない）。
- * 入力欄は種類ごとに違うので、種類で分けて出す（文面は部分一致の文字列、ユーザーはTwitchのユーザー名、報酬は選択欄）。
+ * 足せる種類は種類ごとのボタンで出す（そのイベントに付けられる種類は多くないので、選択欄と「足す」ボタンに分けるより手数が少ない）。
+ * 入力欄は種類ごとに違うので、種類で分けて出す（文面は部分一致の文字列、ユーザーはTwitchのユーザー名、報酬は選択欄、空いた日数は数）。
  */
 const ConditionFields = ({ idPrefix, conditions, rewards, addable, onChange, onAdd, onRemove }: ConditionFieldsProps) => (
   <div className="flex flex-col gap-3 rounded-md border border-dashed p-3 sm:col-span-2">
@@ -130,7 +136,7 @@ const ConditionFields = ({ idPrefix, conditions, rewards, addable, onChange, onA
           <li key={condition.kind} className="flex items-end gap-2">
             <div className="flex min-w-0 flex-1 flex-col gap-2">
               {/* 入れる値を持つ条件だけがラベルの行き先（入力欄）を持つ。持たない条件は、行き先のないラベルにせず見出しとして出す */}
-              {condition.kind === 'firstChatOfStream' ? (
+              {NO_INPUT_KINDS.some((kind) => kind === condition.kind) ? (
                 <span className="text-sm leading-none font-medium">{conditionLabel(condition.kind)}</span>
               ) : (
                 <Label htmlFor={`${idPrefix}-${condition.kind}`}>{conditionLabel(condition.kind)}</Label>
@@ -139,6 +145,28 @@ const ConditionFields = ({ idPrefix, conditions, rewards, addable, onChange, onA
                 <p className="text-xs text-muted-foreground">
                   配信中の発言だけが対象です。配信していないあいだの発言では動きません（テスト配信のたびに動かないようにするため）。
                 </p>
+              )}
+              {condition.kind === 'firstChatEver' && (
+                <p className="text-xs text-muted-foreground">
+                  視聴者の記録が残っていない人だけが対象です。この記録を始める前から来ている常連も「初めて」と扱われるので、
+                  しばらくは動作を控えめにしておくことをおすすめします。
+                </p>
+              )}
+              {condition.kind === 'returningAfter' && (
+                <>
+                  <Input
+                    id={`${idPrefix}-returningAfter`}
+                    type="number"
+                    min={MIN_RETURNING_DAYS}
+                    max={MAX_RETURNING_DAYS}
+                    value={condition.days}
+                    onChange={(event) => onChange(index, { kind: 'returningAfter', days: event.currentTarget.value })}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    この日数以上空けて発言した人だけが対象です（{MIN_RETURNING_DAYS}〜{MAX_RETURNING_DAYS}日）。
+                    このチャンネルで初めての人には当てはまりません。
+                  </p>
+                </>
               )}
               {condition.kind === 'reward' && (
                 <Select

@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { createFakeDatabase } from './fake-database'
-import { deleteViewer, listViewers, recordViewerMessage, updateViewerNote } from './viewer-store'
+import { deleteViewer, listViewers, readChatHistory, recordViewerMessage, updateViewerNote } from './viewer-store'
 
 const 現在時刻 = Date.UTC(2026, 8, 21, 12, 0, 0)
 const 一分 = 60 * 1000
@@ -207,5 +207,94 @@ describe('deleteViewer', () => {
     const db = createFakeDatabase()
 
     expect(await deleteViewer(db, '999')).toBe(false)
+  })
+})
+
+describe('readChatHistory', () => {
+  const 一日 = 24 * 60 * 一分
+
+  it('記録が1件もない人なら、このチャンネルで初めての発言として返す', async () => {
+    const db = createFakeDatabase()
+
+    expect(await readChatHistory(db, { userId: '100', messageId: 'chat-message-1' }, 現在時刻)).toEqual({
+      firstChatEver: true,
+      daysSinceLastChat: null,
+    })
+  })
+
+  it('記録を作った発言と同じ発言IDなら、再送されても初めての発言として返す', async () => {
+    const db = createFakeDatabase()
+    await recordViewerMessage(db, 発言(), 現在時刻)
+
+    expect(await readChatHistory(db, { userId: '100', messageId: 'chat-message-1' }, 現在時刻 + 一分)).toEqual({
+      firstChatEver: true,
+      daysSinceLastChat: null,
+    })
+  })
+
+  it('同じ人の2回目以降の発言は、初めての発言ではないとして返す', async () => {
+    const db = createFakeDatabase()
+    await recordViewerMessage(db, 発言(), 現在時刻)
+    await recordViewerMessage(db, 発言({ messageId: 'chat-message-2' }), 現在時刻 + 11 * 一分)
+
+    expect(await readChatHistory(db, { userId: '100', messageId: 'chat-message-2' }, 現在時刻 + 11 * 一分)).toEqual({
+      firstChatEver: false,
+      daysSinceLastChat: 11 * 一分 / 一日,
+    })
+  })
+
+  it('記録を更新した発言なら、その発言が空けた間隔を返す', async () => {
+    const db = createFakeDatabase()
+    await recordViewerMessage(db, 発言(), 現在時刻)
+
+    await recordViewerMessage(db, 発言({ messageId: 'chat-message-2' }), 現在時刻 + 30 * 一日)
+
+    expect(await readChatHistory(db, { userId: '100', messageId: 'chat-message-2' }, 現在時刻 + 30 * 一日)).toEqual({
+      firstChatEver: false,
+      daysSinceLastChat: 30,
+    })
+  })
+
+  it('同じ通知が再送されても、空けた間隔の答えを変えない（1通目が途中で失敗していてもアラートが鳴るようにするため）', async () => {
+    const db = createFakeDatabase()
+    await recordViewerMessage(db, 発言(), 現在時刻)
+    await recordViewerMessage(db, 発言({ messageId: 'chat-message-2' }), 現在時刻 + 30 * 一日)
+
+    // 再送では記録を更新しないので（last_message_id が同じ）、last_seen_at は30日後のまま据え置かれる
+    await recordViewerMessage(db, 発言({ messageId: 'chat-message-2' }), 現在時刻 + 30 * 一日 + 一分)
+
+    expect(await readChatHistory(db, { userId: '100', messageId: 'chat-message-2' }, 現在時刻 + 30 * 一日 + 一分)).toEqual({
+      firstChatEver: false,
+      daysSinceLastChat: 30,
+    })
+  })
+
+  it('間隔を空けるために記録しなかった発言では、いまの最後の発言時刻からの短い間隔を返す（久しぶりの発言に続く連投で二度当てはまらないようにするため）', async () => {
+    const db = createFakeDatabase()
+    await recordViewerMessage(db, 発言(), 現在時刻)
+    // 30日ぶりの発言。これは記録され、30日の間隔が読める
+    await recordViewerMessage(db, 発言({ messageId: 'chat-message-2' }), 現在時刻 + 30 * 一日)
+    // その1分後の発言。10分経っていないので記録されない
+    await recordViewerMessage(db, 発言({ messageId: 'chat-message-3' }), 現在時刻 + 30 * 一日 + 一分)
+
+    expect(await readChatHistory(db, { userId: '100', messageId: 'chat-message-3' }, 現在時刻 + 30 * 一日 + 一分)).toEqual({
+      firstChatEver: false,
+      daysSinceLastChat: 一分 / 一日,
+    })
+  })
+
+  it('この列を足す前からある行（記録を作った発言のIDを持たない）は、初めての発言ではないとして返す', async () => {
+    const db = createFakeDatabase()
+    db.sqlite
+      .prepare(
+        `INSERT INTO viewers (user_id, login, display_name, first_seen_at, last_seen_at, message_count, last_badges, last_message_id, first_message_id)
+         VALUES ('100', 'hanako', '花子', '2026-08-01T12:00:00.000Z', '2026-08-01T12:00:00.000Z', 5, '', 'chat-message-0', '')`,
+      )
+      .run()
+
+    expect(await readChatHistory(db, { userId: '100', messageId: 'chat-message-1' }, 現在時刻)).toEqual({
+      firstChatEver: false,
+      daysSinceLastChat: 51,
+    })
   })
 })

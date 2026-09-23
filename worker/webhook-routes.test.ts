@@ -18,7 +18,7 @@ import { saveModerationConfig } from './moderation-config'
 import type { ModerationConfig, ModerationRule } from './chat-moderation'
 import { saveAlertConfig, type StoredTrigger } from './alert-config'
 import { saveToken } from './token'
-import { listViewers } from './viewer-store'
+import { listViewers, recordViewerMessage } from './viewer-store'
 import { createFakeAlertChannel } from './fake-alert-channel'
 
 interface 環境の条件 {
@@ -905,6 +905,71 @@ describe('チャットの発言によるアラートのトリガー', () => {
     expect(twitch.送信したチャット).toHaveLength(0)
     // チャットは件数の桁が違うため、トリガーを引いても配信の記録には書かない
     expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM stream_events').get()).toEqual({ count: 0 })
+  })
+
+  /** このチャンネルで初めての発言に応えるトリガー */
+  const 初見に応える: StoredTrigger = {
+    event: 'channel.chat.message',
+    conditions: [{ kind: 'firstChatEver' }],
+    actions: [{ type: 'chat', message: '{user} さん、はじめまして！' }],
+  }
+
+  /** すでに視聴者の記録がある人を作る。日数は現在時刻から何日前に発言していたか */
+  const 発言の記録を残す = async (db: ReturnType<typeof createFakeDatabase>, 何日前: number) => {
+    await recordViewerMessage(
+      db,
+      { userId: '11111', login: 'shichousha', displayName: '視聴者さん', badges: [], messageId: 'chat-message-0' },
+      現在時刻 - 何日前 * 24 * 60 * 60 * 1000,
+    )
+  }
+
+  it('記録のない人の発言では、このチャンネルで初めての発言の条件に当てはまる', async () => {
+    const { env } = await チャットのトリガーのある環境([初見に応える])
+    const twitch = 送信に応えるTwitch()
+
+    await 呼び出す(Twitchからの通知(発言の通知('はじめまして')), env, twitch.fetchImpl)
+
+    expect(await twitch.送信したチャット[0]?.json()).toMatchObject({ message: '視聴者さん さん、はじめまして！' })
+  })
+
+  it('すでに記録のある人の発言では、このチャンネルで初めての発言の条件に当てはまらない', async () => {
+    const { env, db } = await チャットのトリガーのある環境([初見に応える])
+    await 発言の記録を残す(db, 3)
+    const twitch = 送信に応えるTwitch()
+
+    await 呼び出す(Twitchからの通知(発言の通知('こんばんは')), env, twitch.fetchImpl)
+
+    expect(twitch.送信したチャット).toHaveLength(0)
+  })
+
+  it('最後の発言から指定した日数以上空いていれば、空いた日数の条件に当てはまる', async () => {
+    const 久しぶりに応える: StoredTrigger = {
+      event: 'channel.chat.message',
+      conditions: [{ kind: 'returningAfter', days: 30 }],
+      actions: [{ type: 'chat', message: '{user} さん、お久しぶりです！' }],
+    }
+    const { env, db } = await チャットのトリガーのある環境([久しぶりに応える])
+    await 発言の記録を残す(db, 40)
+    const twitch = 送信に応えるTwitch()
+
+    await 呼び出す(Twitchからの通知(発言の通知('おひさしぶりです')), env, twitch.fetchImpl)
+
+    expect(await twitch.送信したチャット[0]?.json()).toMatchObject({ message: '視聴者さん さん、お久しぶりです！' })
+  })
+
+  it('最後の発言から日数が足りなければ、空いた日数の条件に当てはまらない', async () => {
+    const 久しぶりに応える: StoredTrigger = {
+      event: 'channel.chat.message',
+      conditions: [{ kind: 'returningAfter', days: 30 }],
+      actions: [{ type: 'chat', message: '{user} さん、お久しぶりです！' }],
+    }
+    const { env, db } = await チャットのトリガーのある環境([久しぶりに応える])
+    await 発言の記録を残す(db, 3)
+    const twitch = 送信に応えるTwitch()
+
+    await 呼び出す(Twitchからの通知(発言の通知('こんばんは')), env, twitch.fetchImpl)
+
+    expect(twitch.送信したチャット).toHaveLength(0)
   })
 
   it('botを接続していなければ、トリガーを引かずに受け取るだけにする', async () => {

@@ -160,6 +160,8 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
   const bot = await loadToken(env.STORE, 'bot')
 
   // 視聴者の記録は、処分や応答の判定より先に残す。処分した発言も記録に含めるのは、荒らしの履歴も配信者には有用なため。
+  // トリガーの条件のうち「このチャンネルで初めての発言か」「前の発言から空いた日数」は、この記録を読んで判定する。
+  // そのため記録はアラートの判定（runAlertActions）より先に済ませておく必要がある（viewer-store.ts の readChatHistory を参照）。
   // bot自身の発言だけは記録しない（人の記録に自分の応答を混ぜない）。発言のたびに書くことになるが、
   // 前回から間隔が空くまで書き込まない作りなので（viewer-store.ts）、D1の書き込みの枠を食い続けることはない
   if (message.chatterUserId !== bot?.userId) {
@@ -240,7 +242,7 @@ const runAlertActions = async (
   const { env, now } = context
 
   const config = await loadAlertConfig(env.STORE)
-  // 通知の中身だけでは決まらない条件（その配信で初めての発言か）は、照合の前にデータベースを見て決める
+  // 通知の中身だけでは決まらない条件（初めての発言か・前の発言から空いた日数）は、照合の前にデータベースを見て決める
   const state = await resolveConditionState(env.DB, config, chatMessage, now)
   // 中身の形が違えば「不正な通知」として400で返す（Workerの不具合を表す500と区別する）
   const [message, announcement] = ((): [string | null, StoredAnnounceAction | null] => {

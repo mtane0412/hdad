@@ -73,7 +73,7 @@ export interface AnnounceAction {
 export type ActionInput = AlertActionInput | ChatAction | AnnounceAction
 
 /** 条件の種類。worker/alert-config.ts の CONDITION_KINDS と同じ並び（worker/ の型は読み込めないのでここで定義する） */
-export const CONDITION_KINDS = ['reward', 'user', 'text', 'firstChatOfStream'] as const
+export const CONDITION_KINDS = ['reward', 'user', 'text', 'firstChatOfStream', 'firstChatEver', 'returningAfter'] as const
 
 export type ConditionKind = (typeof CONDITION_KINDS)[number]
 
@@ -83,12 +83,17 @@ export type ConditionKind = (typeof CONDITION_KINDS)[number]
  * - reward: 対象の報酬ID。チャンネルポイントの交換にしか付けられない（ほかのイベントではWorkerが保存を拒否する）
  * - user: そのイベントの相手（交換した人・フォローした人・レイドした配信者・発言した人など）のTwitchのユーザー名
  * - text: 発言の本文に含まれる文字。チャットの発言にしか付けられない（ほかのイベントではWorkerが保存を拒否する）
+ * - firstChatOfStream: その配信で初めての発言であること。チャットの発言にしか付けられない
+ * - firstChatEver: このチャンネルで初めての発言であること（視聴者の記録から決まる）。チャットの発言にしか付けられない
+ * - returningAfter: 最後の発言から days 日以上空いていること。チャットの発言にしか付けられない
  */
 export type TriggerCondition =
   | { kind: 'reward'; rewardId: string }
   | { kind: 'user'; login: string }
   | { kind: 'text'; contains: string }
   | { kind: 'firstChatOfStream' }
+  | { kind: 'firstChatEver' }
+  | { kind: 'returningAfter'; days: number }
 
 /** 保存するトリガー。イベント種別・条件のリスト（すべて満たす）・そのとき行う動作の一覧からなる */
 export interface TriggerInput {
@@ -157,7 +162,8 @@ const isTriggerCondition = (value: unknown): value is TriggerCondition => {
   if (value.kind === 'reward') return typeof value.rewardId === 'string'
   if (value.kind === 'text') return typeof value.contains === 'string'
   // 入れる値を持たない条件なので、種類が合っていればそれでよい
-  if (value.kind === 'firstChatOfStream') return true
+  if (value.kind === 'firstChatOfStream' || value.kind === 'firstChatEver') return true
+  if (value.kind === 'returningAfter') return typeof value.days === 'number'
   return value.kind === 'user' && typeof value.login === 'string'
 }
 

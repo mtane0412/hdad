@@ -33,6 +33,8 @@ const BYTES_PER_UNIT = 1024
 const NO_REWARD = ''
 /** 新しく足したトリガーと、アラートを外したトリガーの表示時間の既定値（秒） */
 const DEFAULT_DURATION_SECONDS = 5
+/** returningAfter の条件を足したときの日数の既定値（約1か月） */
+const DEFAULT_RETURNING_DAYS = 30
 /** アナウンスを使わないトリガーの色の既定値（チャンネルの色） */
 const DEFAULT_ANNOUNCEMENT_COLOR: AnnouncementColor = 'primary'
 
@@ -59,6 +61,8 @@ const CONDITION_LABELS: Readonly<Record<ConditionKind, string>> = {
   user: 'ユーザー',
   text: '文面に含む言葉',
   firstChatOfStream: 'その配信で初めての発言',
+  firstChatEver: 'このチャンネルで初めての発言',
+  returningAfter: '前の発言から空いた日数',
 }
 
 /** 条件の種類の日本語のラベル。画面の見出しと要約で使う */
@@ -73,10 +77,19 @@ export const colorOptions: readonly SelectOption[] = ANNOUNCEMENT_COLORS.map((co
  * 動作（アラートを出す・チャットに送る）は、保存する形では配列だが、入力欄では種類ごとに決まった欄を出すほうが分かりやすいため、
  * 「行うかどうか」（alertEnabled・chatEnabled）と、それぞれの欄を平坦に持つ。外した動作の入力欄の値は保存時に送らない。
  */
+/**
+ * 入力欄で持つ条件1件。
+ *
+ * 保存する形（TriggerCondition）とほぼ同じだが、returningAfter の日数だけは文字列で持つ。
+ * 数で持つと、入力欄を空にした瞬間に 0 日へ変わってしまい、配信者が入れ直せなくなる
+ * （表示時間・音量の入力欄を文字列で持っているのと同じ理由）。
+ */
+export type ConditionDraft = Exclude<TriggerCondition, { kind: 'returningAfter' }> | { kind: 'returningAfter'; days: string }
+
 export interface TriggerDraft {
   event: AlertEvent
   /** 絞り込みの条件。すべてを満たしたときだけ当てはまる。同じ種類は1件までにする */
-  conditions: TriggerCondition[]
+  conditions: ConditionDraft[]
   /** オーバーレイに素材を出すか */
   alertEnabled: boolean
   mediaId: string
@@ -162,23 +175,31 @@ const toActions = (draft: TriggerDraft): ActionInput[] => {
 }
 
 /**
+ * 入力欄の条件を、Workerへ送る形にする。日数だけは文字列から数に直す。
+ *
+ * @throws 日数が数として読めない場合（空欄のまま保存しようとしたときなど）
+ */
+const toCondition = (condition: ConditionDraft): TriggerCondition =>
+  condition.kind === 'returningAfter' ? { kind: condition.kind, days: toNumber(condition.days, '日数') } : condition
+
+/**
  * 入力欄の値を、Workerへ送る形にする。条件は並びを変えずにそのまま送る。
  *
  * 動作が1件もない場合や、報酬を選べていない場合も、そのまま送ってWorkerに問題点を返させる
  * （画面とWorkerで検証を二重に持たないため）。
  *
- * @throws 表示時間・音量が数として読めない場合
+ * @throws 表示時間・音量・日数が数として読めない場合
  */
 export const toTriggerInput = (draft: TriggerDraft): TriggerInput => ({
   event: draft.event,
-  conditions: draft.conditions,
+  conditions: draft.conditions.map(toCondition),
   actions: toActions(draft),
 })
 
 /**
  * その条件の種類を、このイベント種別に付けられるか。
  *
- * reward はチャンネルポイントの交換（報酬IDを持つ）、text と firstChatOfStream はチャットの発言にしか意味を持たない。
+ * reward はチャンネルポイントの交換（報酬IDを持つ）、text・firstChatOfStream・firstChatEver・returningAfter はチャットの発言にしか意味を持たない。
  * Workerの検証（worker/alert-config.ts の parseCondition）と同じ判定を画面側でも持ち、付けられない種類を選択肢に出さない。
  */
 const isConditionKindFor = (kind: ConditionKind, event: AlertEvent): boolean => {
@@ -187,6 +208,8 @@ const isConditionKindFor = (kind: ConditionKind, event: AlertEvent): boolean => 
       return event === REDEMPTION
     case 'text':
     case 'firstChatOfStream':
+    case 'firstChatEver':
+    case 'returningAfter':
       return event === CHAT_MESSAGE
     case 'user':
       return true
@@ -197,7 +220,7 @@ const isConditionKindFor = (kind: ConditionKind, event: AlertEvent): boolean => 
  * まだ足していない条件の種類の選択肢。
  *
  * 同じ種類は1件までなので、すでに足してある種類は出さない。
- * reward はチャンネルポイントの交換に、text と firstChatOfStream はチャットの発言にしか付けられない
+ * reward はチャンネルポイントの交換に、text・firstChatOfStream・firstChatEver・returningAfter はチャットの発言にしか付けられない
  * （ほかのイベントではWorkerが保存を拒否する）ので、そのイベントのときだけ出す。
  */
 export const addableConditionKinds = (draft: TriggerDraft): readonly ConditionKindOption[] =>
@@ -212,7 +235,7 @@ export const addableConditionKinds = (draft: TriggerDraft): readonly ConditionKi
  * 報酬は、選択欄が見せているとおりの値（置いてある報酬の先頭）を選んでおく。
  * そうしないと、選択欄には最初の報酬が見えているのに保存時に拒まれる。報酬が1つもなければ選べていない状態にする。
  */
-export const createCondition = (kind: ConditionKind, rewards: readonly Reward[]): TriggerCondition => {
+export const createCondition = (kind: ConditionKind, rewards: readonly Reward[]): ConditionDraft => {
   switch (kind) {
     case 'reward':
       return { kind, rewardId: rewards[0]?.id ?? NO_REWARD }
@@ -220,16 +243,19 @@ export const createCondition = (kind: ConditionKind, rewards: readonly Reward[])
       return { kind, contains: '' }
     case 'user':
       return { kind, login: '' }
-    // 入れる値を持たない条件（その配信で初めての発言であること以外に指定するものがない）
+    // 入れる値を持たない条件（初めての発言であること以外に指定するものがない）
     case 'firstChatOfStream':
+    case 'firstChatEver':
       return { kind }
+    case 'returningAfter':
+      return { kind, days: String(DEFAULT_RETURNING_DAYS) }
   }
 }
 
 /**
  * イベント種別を変える。
  *
- * 変えた先のイベントに付けられない条件（チャンネルポイントの交換以外の reward、チャットの発言以外の text・firstChatOfStream）は外す。
+ * 変えた先のイベントに付けられない条件（チャンネルポイントの交換以外の reward、チャットの発言以外の text・初めての発言・空いた日数）は外す。
  * 残したままでは保存がWorkerに拒否され、画面上は条件が見えているのに直し方が分からなくなるため。
  */
 export const changeEvent = (draft: TriggerDraft, event: AlertEvent): TriggerDraft => ({
@@ -240,6 +266,10 @@ export const changeEvent = (draft: TriggerDraft, event: AlertEvent): TriggerDraf
 
 /** 動作を外したときに入力欄へ残しておく既定値（画面で入れ直さずに済むように、形だけは保つ） */
 const DEFAULT_ALERT_DRAFT = { mediaId: '', durationSeconds: String(DEFAULT_DURATION_SECONDS), volumePercent: String(PERCENT), message: '' }
+
+/** 保存済みの条件を入力欄の値に戻す。日数は入力欄で扱う文字列にする */
+const toConditionDraft = (condition: TriggerCondition): ConditionDraft =>
+  condition.kind === 'returningAfter' ? { kind: condition.kind, days: String(condition.days) } : condition
 
 /**
  * 保存済みのトリガーを入力欄の値に戻す。
@@ -254,7 +284,7 @@ export const toDraft = (trigger: StoredTrigger): TriggerDraft => {
 
   return {
     event: trigger.event,
-    conditions: [...trigger.conditions],
+    conditions: trigger.conditions.map(toConditionDraft),
     alertEnabled: alert !== undefined,
     ...(alert === undefined
       ? DEFAULT_ALERT_DRAFT
@@ -290,7 +320,7 @@ export const rewardOptions = (rewards: readonly Reward[], selected: string): Sel
  *
  * Twitchの一覧にない報酬は、黙って省略せずに報酬IDをそのまま出す（設定を取り違えないため）。
  */
-const conditionSummary = (condition: TriggerCondition, rewards: readonly Reward[]): string => {
+const conditionSummary = (condition: ConditionDraft, rewards: readonly Reward[]): string => {
   switch (condition.kind) {
     case 'reward':
       return `報酬「${rewards.find((reward) => reward.id === condition.rewardId)?.title ?? condition.rewardId}」`
@@ -300,6 +330,11 @@ const conditionSummary = (condition: TriggerCondition, rewards: readonly Reward[
       return `文面に「${condition.contains}」を含む`
     case 'firstChatOfStream':
       return CONDITION_LABELS.firstChatOfStream
+    case 'firstChatEver':
+      return CONDITION_LABELS.firstChatEver
+    // 日数は言葉を添えないと「30日」が間隔なのか回数なのか読み取れないので、条件の意味ごと書く
+    case 'returningAfter':
+      return `前の発言から${condition.days}日以上空いている`
   }
 }
 

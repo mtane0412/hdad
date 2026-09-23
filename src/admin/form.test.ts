@@ -91,6 +91,18 @@ describe('toTriggerInput', () => {
     ])
   })
 
+  it('returningAfter の日数は、文字列の入力欄の値を数にして送る', () => {
+    const draft = 入力欄({ event: CHAT_MESSAGE, conditions: [{ kind: 'returningAfter', days: '30' }] })
+
+    expect(toTriggerInput(draft).conditions).toEqual([{ kind: 'returningAfter', days: 30 }])
+  })
+
+  it('returningAfter の日数が空欄なら、保存せずにエラーにする（0日として送ってしまわないため）', () => {
+    const draft = 入力欄({ event: CHAT_MESSAGE, conditions: [{ kind: 'returningAfter', days: '' }] })
+
+    expect(() => toTriggerInput(draft)).toThrow('日数')
+  })
+
   it('チャットに送るを選んでいれば、チャットの動作も送る', () => {
     const draft = 入力欄({ chatEnabled: true, chatMessage: '{user} さん、乾杯！ありがとうございます' })
 
@@ -158,6 +170,12 @@ describe('toDraft', () => {
       { kind: 'reward', rewardId: '報酬ID-乾杯' },
       { kind: 'user', login: 'tanenobu' },
     ])
+  })
+
+  it('保存済みの returningAfter の日数は、入力欄の値として文字列に戻す', () => {
+    const stored: StoredTrigger = { event: CHAT_MESSAGE, conditions: [{ kind: 'returningAfter', days: 30 }], actions: [アラートの動作()] }
+
+    expect(toDraft(stored).conditions).toEqual([{ kind: 'returningAfter', days: '30' }])
   })
 
   it('チャットに送る動作を持つトリガーは、チャットの入力欄を埋めて戻す', () => {
@@ -297,6 +315,18 @@ describe('triggerSummary', () => {
     expect(triggerSummary(draft, [])).toBe('チャットの発言（文面に「おはよう」を含む）→ アラート')
   })
 
+  it('firstChatEver の条件は、要約に「このチャンネルで初めての発言」と出す', () => {
+    const draft = 入力欄({ event: CHAT_MESSAGE, conditions: [{ kind: 'firstChatEver' }] })
+
+    expect(triggerSummary(draft, [])).toBe('チャットの発言（このチャンネルで初めての発言）→ アラート')
+  })
+
+  it('returningAfter の条件は、要約に日数を添えて出す', () => {
+    const draft = 入力欄({ event: CHAT_MESSAGE, conditions: [{ kind: 'returningAfter', days: '30' }] })
+
+    expect(triggerSummary(draft, [])).toBe('チャットの発言（前の発言から30日以上空いている）→ アラート')
+  })
+
   it('firstChatOfStream の条件は、要約に「その配信で初めての発言」と出す', () => {
     const draft = 入力欄({ event: CHAT_MESSAGE, conditions: [{ kind: 'firstChatOfStream' }] })
 
@@ -335,12 +365,18 @@ describe('addableConditionKinds', () => {
     expect(addableConditionKinds(入力欄({ event: FOLLOW }))).toEqual([{ value: 'user', label: 'ユーザー' }])
   })
 
-  it('チャットの発言では、user と text と firstChatOfStream を足せる（reward は付けられない）', () => {
+  it('チャットの発言では、発言にしか付けられない種類も足せる（reward は付けられない）', () => {
     expect(addableConditionKinds(入力欄({ event: CHAT_MESSAGE }))).toEqual([
       { value: 'user', label: 'ユーザー' },
       { value: 'text', label: '文面に含む言葉' },
       { value: 'firstChatOfStream', label: 'その配信で初めての発言' },
+      { value: 'firstChatEver', label: 'このチャンネルで初めての発言' },
+      { value: 'returningAfter', label: '前の発言から空いた日数' },
     ])
+  })
+
+  it.each(['firstChatEver', 'returningAfter'])('チャットの発言以外では、%s を足せない（Workerが保存を拒否するため）', (kind) => {
+    expect(addableConditionKinds(入力欄({ event: FOLLOW })).some((option) => option.value === kind)).toBe(false)
   })
 
   it('チャットの発言以外では、firstChatOfStream を足せない（Workerが保存を拒否するため）', () => {
@@ -379,6 +415,14 @@ describe('createCondition', () => {
 
   it('firstChatOfStream の条件は、入れる値がないのでそのまま足す', () => {
     expect(createCondition('firstChatOfStream', rewards)).toEqual({ kind: 'firstChatOfStream' })
+  })
+
+  it('firstChatEver の条件は、入れる値がないのでそのまま足す', () => {
+    expect(createCondition('firstChatEver', rewards)).toEqual({ kind: 'firstChatEver' })
+  })
+
+  it('returningAfter の条件は、日数の既定値（30日）を入れて足す', () => {
+    expect(createCondition('returningAfter', rewards)).toEqual({ kind: 'returningAfter', days: '30' })
   })
 })
 

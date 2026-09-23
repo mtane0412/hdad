@@ -5,6 +5,7 @@
  * 発言そのものは貯めない。貯めるのは人で、1人1行なので数千人でも数MBに収まり、消さずに持ち続けられる。
  *
  * 記録の入口は webhook-routes.ts のチャットの受け口だけで、読み出しと書き換え（メモ・削除）は viewer-routes.ts が受け持つ。
+ * この記録は、トリガーの条件「このチャンネルで初めての発言」「前の発言から空いた日数」の判定にも使う（readChatHistory）。
  * 日時は UTC の ISO 8601 の文字列で持つ。
  *
  * 注意: 発言のたびに書くとD1の書き込みの枠を食うので、前回の記録から UPDATE_INTERVAL_MS が空くまでは書き込まない
@@ -102,14 +103,69 @@ export const recordViewerMessage = async (db: Database, message: ViewerMessage, 
   const at = toIso(now)
   await db
     .prepare(
-      `INSERT INTO viewers (user_id, login, display_name, first_seen_at, last_seen_at, message_count, last_badges, last_message_id)
-       VALUES (?1, ?2, ?3, ?4, ?4, 1, ?5, ?6)
+      // 初めての発言で作る行は first_message_id にその発言のIDを入れ、更新では last_seen_at を上書きする前の値を
+      // previous_seen_at へ退避する（どちらも readChatHistory の判定に使う。DO UPDATE の中の viewers.列 は更新前の値を指す）
+      `INSERT INTO viewers (user_id, login, display_name, first_seen_at, last_seen_at, message_count, last_badges, last_message_id, first_message_id, previous_seen_at)
+       VALUES (?1, ?2, ?3, ?4, ?4, 1, ?5, ?6, ?6, NULL)
        ON CONFLICT (user_id) DO UPDATE
-         SET login = ?2, display_name = ?3, last_seen_at = ?4, message_count = viewers.message_count + 1, last_badges = ?5, last_message_id = ?6
+         SET login = ?2, display_name = ?3, previous_seen_at = viewers.last_seen_at, last_seen_at = ?4,
+             message_count = viewers.message_count + 1, last_badges = ?5, last_message_id = ?6
          WHERE viewers.last_message_id <> ?6 AND viewers.last_seen_at <= ?7`,
     )
     .bind(message.userId, message.login, message.displayName, at, message.badges.join(','), message.messageId, toIso(now - UPDATE_INTERVAL_MS))
     .run()
+}
+
+/** 発言の間隔を日数で表すための1日のミリ秒 */
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/** 「このチャンネルで初めての発言か」「最後の発言から何日空いているか」の判定に要る記録 */
+interface ChatHistoryRow {
+  firstMessageId: string
+  lastMessageId: string
+  lastSeenAt: string
+  previousSeenAt: string | null
+}
+
+/** readChatHistory が返す、その発言についての履歴の判定 */
+export interface ChatHistory {
+  /** このチャンネルで初めての発言か */
+  firstChatEver: boolean
+  /** その発言が、前の発言から何日空いていたか。初めての発言なら null（丸めていないので小数になる） */
+  daysSinceLastChat: number | null
+}
+
+/**
+ * その発言について、「このチャンネルで初めてか」と「前の発言から何日空いていたか」を読む。
+ *
+ * 書き込みはしない（記録は recordViewerMessage が行う）。トリガーの条件（firstChatEver・returningAfter）の
+ * 判定に使うため、呼ぶのは worker/alert-state.ts の resolveConditionState だけである。
+ *
+ * 注意: recordViewerMessage でその発言を記録したあとに呼ぶ前提で書いてある（Webhookの受け口が記録を先に済ませる）。
+ * 記録したあとは last_seen_at がその発言の時刻に変わっているため、間隔は退避した previous_seen_at から数える。
+ * 注意: 同じ発言について何度呼んでも同じ答えを返す。Twitchは同じ通知を再送することがあり、再送で答えが変わると、
+ * 1通目の処理が途中で失敗していた場合にアラートが鳴らなくなる（chat-store.ts の claimFirstChatOfStream と同じ考え方）。
+ * - 初めての発言は、その発言で作った行の first_message_id が一致することで分かる
+ * - 間隔は、記録を更新した発言（last_message_id が一致する）なら退避した previous_seen_at から last_seen_at まで、
+ *   記録しなかった発言（間隔を空けるために書き込まなかったもの）なら last_seen_at から now までを数える。
+ *   後者を now まで数えるのは、久しぶりの発言に続く連投で、同じ間隔を何度も当てはめないためである
+ * 注意: 0007 の列を足す前からある行は first_message_id が空文字、previous_seen_at が NULL である。
+ * 空文字はどの発言のIDとも一致しないので「初めてではない」と判定され、間隔は last_seen_at から数えられる。
+ */
+export const readChatHistory = async (db: Database, message: Pick<ViewerMessage, 'userId' | 'messageId'>, now: number): Promise<ChatHistory> => {
+  const row = await db
+    .prepare(
+      `SELECT first_message_id AS firstMessageId, last_message_id AS lastMessageId, last_seen_at AS lastSeenAt, previous_seen_at AS previousSeenAt
+       FROM viewers WHERE user_id = ?1`,
+    )
+    .bind(message.userId)
+    .first<ChatHistoryRow>()
+  if (row === null || row.firstMessageId === message.messageId) return { firstChatEver: true, daysSinceLastChat: null }
+
+  const [from, to] = row.lastMessageId === message.messageId ? [row.previousSeenAt, Date.parse(row.lastSeenAt)] : [row.lastSeenAt, now]
+  // 退避した時刻を持たない行（0007 より前からある行の、記録を作った発言の再送）では間隔が分からない
+  if (from === null) return { firstChatEver: false, daysSinceLastChat: null }
+  return { firstChatEver: false, daysSinceLastChat: (to - Date.parse(from)) / DAY_MS }
 }
 
 /** カンマ区切りで持っているバッジを配列に戻す。1つも付いていなければ空文字列なので、空の配列にする */
