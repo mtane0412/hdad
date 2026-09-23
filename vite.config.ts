@@ -45,6 +45,7 @@ export default defineConfig({
           input: {
             index: resolve(root, 'index.html'),
             alerts: resolve(root, 'alerts/index.html'),
+            'transcript/relay': resolve(root, 'transcript/relay/index.html'),
             ...categoryEntries,
           },
         },
