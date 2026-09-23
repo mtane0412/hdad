@@ -33,6 +33,33 @@ export const MAX_STREAM_SUMMARY_LENGTH = 400
 const MAX_TOKENS = 400
 
 /**
+ * あらすじに置き換わる差し込み語。
+ *
+ * コマンドの応答文（worker/chat-command.ts）とアラートのトリガーの文言（worker/alert-event.ts）の
+ * 両方で使えるので、語と「無いときの文言」はここ1か所に置いて共有する。
+ */
+export const STREAM_SUMMARY_PLACEHOLDER = '{summary}'
+
+/**
+ * あらすじがまだ無いときに、その差し込み語に入る文言。
+ *
+ * 空文字にせず文言を入れるのは、コマンドが無応答に見えたり、文言が欠けたように見えたりしないためである。
+ * あらすじは cron が作るものなので、配信の直後や、LLMの無料枠を使い切った日には無いことがある。
+ */
+export const NO_STREAM_SUMMARY = 'まだあらすじがありません'
+
+/**
+ * 文言の差し込み語 {summary} を、貯めてあるあらすじに置き換える。
+ *
+ * @param summary 貯めてあるあらすじ。配信していない・まだ作っていない・読む必要がない場合は null
+ *
+ * 注意: 置き換える値は関数で渡す。文字列で渡すと `$&` などが置換の特殊な指定として解釈され、
+ * あらすじにそうした文字が含まれるときに意図しない文言になる（alert-event.ts の fillMessage と同じ理由）。
+ */
+export const fillStreamSummary = (text: string, summary: string | null): string =>
+  text.replaceAll(STREAM_SUMMARY_PLACEHOLDER, () => summary ?? NO_STREAM_SUMMARY)
+
+/**
  * 返ってきたあらすじそのものに問題があったときの失敗（空・上限より長い）。
  *
  * LLMを呼べなかった失敗（無料枠切れ・通信の失敗）と区別するために分けている

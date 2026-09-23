@@ -20,7 +20,7 @@ import {
   triggerSummary,
   type TriggerDraft,
 } from './form'
-import type { Reward, StoredTrigger } from './api'
+import { ALERT_EVENTS, type Reward, type StoredTrigger } from './api'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const FOLLOW = 'channel.follow'
@@ -244,14 +244,18 @@ describe('eventOptions', () => {
 
 describe('placeholdersFor', () => {
   it.each([
-    [REDEMPTION, ['{user}', '{reward}']],
-    [FOLLOW, ['{user}']],
-    ['channel.subscribe', ['{user}', '{tier}']],
-    ['channel.subscription.message', ['{user}', '{tier}', '{months}']],
-    [RAID, ['{user}', '{viewers}']],
-    [CHAT_MESSAGE, ['{user}', '{message}']],
+    [REDEMPTION, ['{user}', '{reward}', '{summary}']],
+    [FOLLOW, ['{user}', '{summary}']],
+    ['channel.subscribe', ['{user}', '{tier}', '{summary}']],
+    ['channel.subscription.message', ['{user}', '{tier}', '{months}', '{summary}']],
+    [RAID, ['{user}', '{viewers}', '{summary}']],
+    [CHAT_MESSAGE, ['{user}', '{message}', '{summary}']],
   ] as const)('%s で使える差し込み語を返す', (event, expected) => {
     expect(placeholdersFor(event)).toEqual(expected)
+  })
+
+  it('配信のあらすじ（{summary}）は、どのイベントでも使える（通知の中身ではなく配信の状態から決まるため）', () => {
+    expect(ALERT_EVENTS.every((event) => placeholdersFor(event).includes('{summary}'))).toBe(true)
   })
 })
 

@@ -132,14 +132,22 @@ const EVENT_LABELS: Readonly<Record<AlertEvent, string>> = {
   [CHAT_MESSAGE]: 'チャットの発言',
 }
 
+/**
+ * イベント種別によらず使える差し込み語。
+ *
+ * 配信の「これまでのあらすじ」は通知の中身ではなく配信の状態から決まるので、どのイベントの文言にも書ける
+ * （差し込みは worker/alert-event.ts の fillMessage）。
+ */
+const COMMON_PLACEHOLDERS = ['{summary}'] as const
+
 /** イベント種別ごとに、文言で使える差し込み語 */
 const EVENT_PLACEHOLDERS: Readonly<Record<AlertEvent, readonly string[]>> = {
-  [REDEMPTION]: ['{user}', '{reward}'],
-  'channel.follow': ['{user}'],
-  'channel.subscribe': ['{user}', '{tier}'],
-  'channel.subscription.message': ['{user}', '{tier}', '{months}'],
-  'channel.raid': ['{user}', '{viewers}'],
-  [CHAT_MESSAGE]: ['{user}', '{message}'],
+  [REDEMPTION]: ['{user}', '{reward}', ...COMMON_PLACEHOLDERS],
+  'channel.follow': ['{user}', ...COMMON_PLACEHOLDERS],
+  'channel.subscribe': ['{user}', '{tier}', ...COMMON_PLACEHOLDERS],
+  'channel.subscription.message': ['{user}', '{tier}', '{months}', ...COMMON_PLACEHOLDERS],
+  'channel.raid': ['{user}', '{viewers}', ...COMMON_PLACEHOLDERS],
+  [CHAT_MESSAGE]: ['{user}', '{message}', ...COMMON_PLACEHOLDERS],
 }
 
 /** イベント種別の選択肢 */

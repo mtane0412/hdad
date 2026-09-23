@@ -29,6 +29,7 @@ import {
   type StoredTrigger,
 } from './alert-config'
 import { readChatMessage } from './chat-command'
+import { fillStreamSummary, STREAM_SUMMARY_PLACEHOLDER } from './stream-summary'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const FOLLOW = 'channel.follow'
@@ -126,6 +127,20 @@ export const requiresChatHistory = (config: AlertConfig, subscriptionType: strin
  */
 export const hasAlertAction = (config: AlertConfig, subscriptionType: string): boolean =>
   config.triggers.some((trigger) => trigger.event === subscriptionType && alertActionOf(trigger) !== null)
+
+/**
+ * その通知に、あらすじ（{summary}）を差し込む文言を持つトリガーがあるか。
+ *
+ * 無ければ呼び出し側（webhook-routes.ts）はあらすじをデータベースから読まずに済む
+ * （requiresFirstChatOfStream・requiresChatHistory と同じ要否の判定で、チャットの発言では1通ごとにここを通るため）。
+ * 見るのは文言を持つ動作（alert・chat・announce）だけで、文面をLLMに作らせる動作（aiChat）は差し込み語を持たない。
+ */
+export const requiresStreamSummary = (config: AlertConfig, subscriptionType: string): boolean =>
+  config.triggers.some(
+    (trigger) =>
+      trigger.event === subscriptionType &&
+      trigger.actions.some((action) => 'message' in action && action.message.includes(STREAM_SUMMARY_PLACEHOLDER)),
+  )
 
 type EventBody = Readonly<Record<string, unknown>>
 
@@ -259,11 +274,23 @@ const placeholderValues = (extracted: Extracted): Record<string, string> => {
 /**
  * 文言の差し込み語を置き換える。そのイベントに存在しない語は、配信者が入力の誤りに気付けるよう置き換えずに残す。
  *
+ * あらすじ（{summary}）だけはイベント種別によらず使える。通知の中身ではなく配信の状態から決まる語だからである。
+ * 値をデータベースから読むのは呼び出し側（webhook-routes.ts）で、ここは受け取った値を差し込むだけにして
+ * 純粋な関数のままにしておく（ConditionState を alert-state.ts が用意するのと同じ作り）。
+ *
  * 注意: 置き換える値は関数で渡す。文字列で渡すと `$&` などが置換の特殊な指定として解釈され、
  * 報酬名にそうした文字が含まれるときに意図しない文言になる。
+ * 注意: あらすじは最後に差し込む。先に差し込むと、あらすじの中の文字が差し込み語として読まれてしまう
+ * （あらすじはLLMが書くもので、配信者が書いた文言ではない）。
+ *
+ * @param summary 貯めてある配信のあらすじ。配信していない・まだ作っていない・読む必要がない場合は null で、
+ *   そのときは「まだあらすじがありません」が入る（stream-summary.ts）
  */
-export const fillMessage = (template: string, extracted: Extracted): string =>
-  Object.entries(placeholderValues(extracted)).reduce((text, [placeholder, value]) => text.replaceAll(placeholder, () => value), template)
+export const fillMessage = (template: string, extracted: Extracted, summary: string | null): string =>
+  fillStreamSummary(
+    Object.entries(placeholderValues(extracted)).reduce((text, [placeholder, value]) => text.replaceAll(placeholder, () => value), template),
+    summary,
+  )
 
 /**
  * 通知に当てはまるトリガーを探し、その動作の文言に差し込み語を置き換えて返す。
@@ -307,9 +334,10 @@ const filledActionFor = <Action extends { message: string }>(
   body: unknown,
   actionOf: (trigger: StoredTrigger) => Action | null,
   state: ConditionState,
+  summary: string | null,
 ): Action | null => {
   const matched = matchedActionFor(config, subscriptionType, body, actionOf, state)
-  return matched === null ? null : { ...matched.action, message: fillMessage(matched.action.message, matched.extracted) }
+  return matched === null ? null : { ...matched.action, message: fillMessage(matched.action.message, matched.extracted, summary) }
 }
 
 /**
@@ -348,8 +376,14 @@ export const aiChatFor = (
 const withinChatLimit = (message: string): string =>
   message.length <= MAX_CHAT_MESSAGE_LENGTH ? message : `${message.slice(0, MAX_CHAT_MESSAGE_LENGTH - 1)}…`
 
-export const chatMessageFor = (config: AlertConfig, subscriptionType: string, body: unknown, state: ConditionState): string | null => {
-  const action = filledActionFor(config, subscriptionType, body, chatActionOf, state)
+export const chatMessageFor = (
+  config: AlertConfig,
+  subscriptionType: string,
+  body: unknown,
+  state: ConditionState,
+  summary: string | null,
+): string | null => {
+  const action = filledActionFor(config, subscriptionType, body, chatActionOf, state, summary)
   return action === null ? null : withinChatLimit(action.message)
 }
 
@@ -361,8 +395,14 @@ export const chatMessageFor = (config: AlertConfig, subscriptionType: string, bo
  * @returns 送るアナウンス。当てはまるトリガーがなければ null
  * @throws 通知の中身が想定した形でない場合（アナウンスを送るトリガーがあるイベント種別に限る）
  */
-export const announcementFor = (config: AlertConfig, subscriptionType: string, body: unknown, state: ConditionState): StoredAnnounceAction | null => {
-  const action = filledActionFor(config, subscriptionType, body, announceActionOf, state)
+export const announcementFor = (
+  config: AlertConfig,
+  subscriptionType: string,
+  body: unknown,
+  state: ConditionState,
+  summary: string | null,
+): StoredAnnounceAction | null => {
+  const action = filledActionFor(config, subscriptionType, body, announceActionOf, state, summary)
   return action === null ? null : { ...action, message: withinChatLimit(action.message) }
 }
 
@@ -391,8 +431,9 @@ export const alertFor = (
   body: unknown,
   overlayKey: string,
   state: ConditionState,
+  summary: string | null,
 ): OverlayAlert | null => {
-  const action = filledActionFor(config, subscriptionType, body, alertActionOf, state)
+  const action = filledActionFor(config, subscriptionType, body, alertActionOf, state, summary)
   if (action === null) return null
 
   return {

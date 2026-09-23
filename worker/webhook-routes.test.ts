@@ -649,6 +649,42 @@ describe('アラートのトリガーによるチャット送信', () => {
     })
   })
 
+  it('文言に {summary} があれば、貯めてある配信中のあらすじを差し込んで送る', async () => {
+    const あらすじを流す: StoredTrigger = {
+      event: 'channel.follow',
+      conditions: [],
+      actions: [{ type: 'chat', message: '{user} さん、いま「{summary}」って話をしてます' }],
+    }
+    const { env, db } = await トリガーのある環境([あらすじを流す])
+    await recordLiveStream(db, 雑談配信, 現在時刻 - 60 * 1000)
+    await saveStreamSummary(
+      db,
+      { sessionId: 雑談配信.id, summary: '配信者は新しいゲームを遊んでいます', transcriptsUntil: { at: '', messageId: '' }, chatUntil: { at: '', messageId: '' } },
+      現在時刻 - 30 * 1000,
+    )
+    const twitch = 送信に応えるTwitch()
+
+    await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+
+    expect(await twitch.送信したチャット[0]!.json()).toMatchObject({
+      message: '田中太郎 さん、いま「配信者は新しいゲームを遊んでいます」って話をしてます',
+    })
+  })
+
+  it('あらすじがまだ無くても、文言は欠けずにその旨が入る', async () => {
+    const あらすじを流す: StoredTrigger = {
+      event: 'channel.follow',
+      conditions: [],
+      actions: [{ type: 'chat', message: 'これまでのあらすじ: {summary}' }],
+    }
+    const { env } = await トリガーのある環境([あらすじを流す])
+    const twitch = 送信に応えるTwitch()
+
+    await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+
+    expect(await twitch.送信したチャット[0]!.json()).toMatchObject({ message: 'これまでのあらすじ: まだあらすじがありません' })
+  })
+
   it('アラートを出すだけのトリガーでは、チャットへ何も送らない（オーバーレイが再生する）', async () => {
     const { env } = await トリガーのある環境([フォローで音を鳴らす])
     const twitch = 送信に応えるTwitch()
@@ -1286,6 +1322,26 @@ describe('オーバーレイへのアラートの押し出し', () => {
         text: '田中太郎 さん、ありがとう！',
       },
     ])
+  })
+
+  it('アラートの文言の {summary} に、貯めてある配信中のあらすじを差し込んで押し出す（OBSの画面に出す）', async () => {
+    const { env, db, 配送 } = 環境を作る()
+    const あらすじを出す: StoredTrigger = {
+      event: 'channel.follow',
+      conditions: [],
+      actions: [{ type: 'alert', mediaId: 'media-kanpai', mediaKind: 'video', durationSeconds: 5, volume: 0.5, message: 'これまでのあらすじ: {summary}' }],
+    }
+    await saveAlertConfig(env.STORE, { triggers: [あらすじを出す] })
+    await recordLiveStream(db, 雑談配信, 現在時刻 - 60 * 1000)
+    await saveStreamSummary(
+      db,
+      { sessionId: 雑談配信.id, summary: '配信者は新しいゲームを遊んでいます', transcriptsUntil: { at: '', messageId: '' }, chatUntil: { at: '', messageId: '' } },
+      現在時刻 - 30 * 1000,
+    )
+
+    await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env)
+
+    expect(配送.押し出されたアラート[0]?.text).toBe('これまでのあらすじ: 配信者は新しいゲームを遊んでいます')
   })
 
   it('当てはまるトリガーがなければ、何も押し出さない', async () => {
