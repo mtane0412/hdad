@@ -9,6 +9,7 @@
 import { createHmac } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { createFakeBucket } from './fake-bucket'
+import { createFakeAi } from './fake-ai'
 import { createFakeDatabase } from './fake-database'
 import { createFakeStore } from './fake-store'
 import { handleRequest, type Env } from './index'
@@ -18,7 +19,7 @@ import { saveModerationConfig } from './moderation-config'
 import type { ModerationConfig, ModerationRule } from './chat-moderation'
 import { saveAlertConfig, type StoredTrigger } from './alert-config'
 import { saveToken } from './token'
-import { listViewers, recordViewerMessage } from './viewer-store'
+import { listViewers, recordViewerMessage, updateViewerNote } from './viewer-store'
 import { createFakeAlertChannel } from './fake-alert-channel'
 
 interface 環境の条件 {
@@ -26,6 +27,10 @@ interface 環境の条件 {
   配送は失敗する?: boolean
   /** オーバーレイ用キー。null なら未発行（一度もログインしていない状態） */
   オーバーレイ用キー?: string | null
+  /** LLM（Workers AI）が失敗を返す場合（無料枠を使い切ったときなど） */
+  LLMは失敗する?: boolean
+  /** LLMが返す文面。省略すると代役の既定の文面になる */
+  LLMの文面?: string
 }
 
 const 現在時刻 = Date.parse('2026-09-21T12:30:00Z')
@@ -35,9 +40,10 @@ const シークレット = 'テスト用のWebhookシークレット'
 
 const 発行済みのオーバーレイ用キー = 'issued-overlay-key-0123456789abcdefghij'
 
-const 環境を作る = ({ 配送は失敗する = false, オーバーレイ用キー = 発行済みのオーバーレイ用キー }: 環境の条件 = {}) => {
+const 環境を作る = ({ 配送は失敗する = false, オーバーレイ用キー = 発行済みのオーバーレイ用キー, LLMは失敗する = false, LLMの文面 }: 環境の条件 = {}) => {
   const db = createFakeDatabase()
   const 配送 = createFakeAlertChannel({ 失敗する: 配送は失敗する })
+  const ai = createFakeAi({ 失敗する: LLMは失敗する, ...(LLMの文面 === undefined ? {} : { response: LLMの文面 }) })
   const env = {
     STORE: createFakeStore(オーバーレイ用キー === null ? {} : { 'overlay-key': オーバーレイ用キー }),
     MEDIA: createFakeBucket(),
@@ -48,8 +54,9 @@ const 環境を作る = ({ 配送は失敗する = false, オーバーレイ用�
     SESSION_SECRET: 'テスト用のセッション秘密鍵',
     EVENTSUB_SECRET: シークレット,
     ALERTS: 配送.namespace,
+    AI: ai,
   } satisfies Env
-  return { env, db, 配送 }
+  return { env, db, 配送, ai }
 }
 
 const Twitchへは通信しない = async (input: RequestInfo | URL): Promise<Response> => {
@@ -89,8 +96,29 @@ const Twitchからの通知 = ({
 /** テストでは実際に待たず、待つよう求められた時間だけを記録する */
 const 待たない = async (): Promise<void> => {}
 
+/**
+ * waitUntil で後回しにされた処理を集める。
+ *
+ * LLMに文面を作らせる動作は、Twitchへ2xxを返したあとに送る（応答が遅れると再送されるため）。
+ * テストではその「あとで走る処理」を取りこぼさないよう、ここへ集めて 後回しの処理を待つ() でまとめて待つ。
+ */
+let 後回しの処理: Promise<unknown>[] = []
+
+const 後回しの処理を待つ = async (): Promise<void> => {
+  const 待つもの = 後回しの処理
+  後回しの処理 = []
+  await Promise.all(待つもの)
+}
+
 const 呼び出す = (request: Request, env: Env, fetchImpl: typeof fetch = Twitchへは通信しない, wait: (milliseconds: number) => Promise<void> = 待たない) =>
-  handleRequest(request, env, { fetch: fetchImpl, now: () => 現在時刻, wait })
+  handleRequest(request, env, {
+    fetch: fetchImpl,
+    now: () => 現在時刻,
+    wait,
+    waitUntil: (promise) => {
+      後回しの処理.push(promise)
+    },
+  })
 
 const エラーコード = async (response: Response): Promise<unknown> => {
   const body = (await response.json()) as { error?: { code?: unknown } }
@@ -1271,5 +1299,201 @@ describe('オーバーレイへのアラートの押し出し', () => {
     expect(response.status).toBe(204)
     expect(配送.押し出されたアラート).toHaveLength(0)
     expect(await listFailures(env.DB)).toMatchObject([{ code: 'alert-push-failed' }])
+  })
+})
+
+describe('LLMに文面を作らせる動作（aiChat）', () => {
+  const botのID = '67890'
+  const フォローの通知 = { subscription: { type: 'channel.follow' }, event: { user_name: '田中太郎', user_login: 'tanaka_taro' } }
+
+  /** まだ記録のない人からのチャットの発言 */
+  const 初めての人の発言 = {
+    subscription: { type: 'channel.chat.message' },
+    event: {
+      broadcaster_user_id: 配信者のID,
+      chatter_user_id: '22222',
+      chatter_user_login: 'hatsumi',
+      chatter_user_name: 'はつみ',
+      message_id: 'chat-message-hatsumi',
+      message: { text: 'はじめまして！' },
+    },
+  }
+
+  const 文面を作らせるトリガー: StoredTrigger = {
+    event: 'channel.follow',
+    conditions: [],
+    actions: [{ type: 'aiChat', instruction: 'フォローしてくれた人にお礼を言ってください' }],
+  }
+
+  const botを接続する = (env: Env) =>
+    saveToken(env.STORE, 'bot', {
+      accessToken: 'bot-access-token',
+      refreshToken: 'bot-refresh-token',
+      expiresAt: 現在時刻 + 60 * 60 * 1000,
+      scopes: ['user:bot', 'user:write:chat'],
+      userId: botのID,
+      login: 'haishinsha_bot',
+    })
+
+  /** チャット送信に応える Twitch の代役 */
+  const 送信に応えるTwitch = (chatResponse: Response = Response.json({ data: [{ message_id: 'sent', is_sent: true }] })) => {
+    const 送信したチャット: Request[] = []
+    const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const request = new Request(input, init)
+      if (request.url === 'https://api.twitch.tv/helix/chat/messages') {
+        送信したチャット.push(request.clone())
+        return chatResponse.clone()
+      }
+      throw new Error(`テストで想定していない通信です: ${request.url}`)
+    }
+    return { 送信したチャット, fetchImpl }
+  }
+
+  it('当てはまったトリガーの指示でLLMに文面を作らせ、botの名前で送る', async () => {
+    const { env } = 環境を作る({ LLMの文面: '太郎さん、フォローありがとうございます！' })
+    await saveAlertConfig(env.STORE, { triggers: [文面を作らせるトリガー] })
+    await botを接続する(env)
+    const twitch = 送信に応えるTwitch()
+
+    const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+    await 後回しの処理を待つ()
+
+    expect(response.status).toBe(204)
+    expect(await twitch.送信したチャット[0]!.json()).toMatchObject({ message: '太郎さん、フォローありがとうございます！' })
+  })
+
+  it('LLMの応答を待たずにTwitchへ2xxを返す（応答が遅れると再送されるため）', async () => {
+    const { env } = 環境を作る()
+    await saveAlertConfig(env.STORE, { triggers: [文面を作らせるトリガー] })
+    await botを接続する(env)
+    const twitch = 送信に応えるTwitch()
+    // 文面ができあがるまで終わらないLLM。テストが合図するまで応答を返さない
+    let 文面を返す: (message: string) => void = () => {}
+    const 待たせるAI = { run: () => new Promise<unknown>((resolve) => (文面を返す = (message) => resolve({ response: message }))) }
+
+    const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), { ...env, AI: 待たせるAI }, twitch.fetchImpl)
+
+    // LLMがまだ文面を返していないのに、Twitchへの応答は返っている
+    expect(response.status).toBe(204)
+    expect(twitch.送信したチャット).toHaveLength(0)
+
+    文面を返す('太郎さん、ありがとう！')
+    await 後回しの処理を待つ()
+    expect(twitch.送信したチャット).toHaveLength(1)
+  })
+
+  it('発言した人の記録（メモ・発言数）を材料としてLLMへ渡す', async () => {
+    const { env, ai } = 環境を作る()
+    await saveAlertConfig(env.STORE, {
+      triggers: [{ event: 'channel.chat.message', conditions: [], actions: [{ type: 'aiChat', instruction: '一言返してください' }] }],
+    })
+    await botを接続する(env)
+    await recordViewerMessage(env.DB, { userId: '11111', login: 'shichousha', displayName: '視聴者さん', badges: [], messageId: '古い発言' }, 現在時刻 - 60 * 60 * 1000)
+    await updateViewerNote(env.DB, '11111', 'ギターの話が好き')
+    const twitch = 送信に応えるTwitch()
+
+    await 呼び出す(
+      Twitchからの通知({
+        body: {
+          subscription: { type: 'channel.chat.message' },
+          event: {
+            broadcaster_user_id: 配信者のID,
+            chatter_user_id: '11111',
+            chatter_user_login: 'shichousha',
+            chatter_user_name: '視聴者さん',
+            message_id: 'chat-message-1',
+            message: { text: 'こんばんは' },
+          },
+        },
+      }),
+      env,
+      twitch.fetchImpl,
+    )
+    await 後回しの処理を待つ()
+
+    expect(JSON.stringify(ai.呼び出し[0]?.input)).toContain('ギターの話が好き')
+  })
+
+  it('条件を持たないトリガーでも、来訪の別（初めて・お久しぶり）を材料に渡す', async () => {
+    const { env, ai } = 環境を作る()
+    // 条件は1件もない。それでも文面づくりには来訪の別が要るので、Workerは視聴者の記録を読む
+    await saveAlertConfig(env.STORE, {
+      triggers: [{ event: 'channel.chat.message', conditions: [], actions: [{ type: 'aiChat', instruction: '一言返してください' }] }],
+    })
+    await botを接続する(env)
+    const twitch = 送信に応えるTwitch()
+
+    await 呼び出す(Twitchからの通知({ body: 初めての人の発言 }), env, twitch.fetchImpl)
+    await 後回しの処理を待つ()
+
+    expect(JSON.stringify(ai.呼び出し[0]?.input)).toContain('このチャンネルで初めての発言')
+  })
+
+  it('鍵の確保そのものが失敗しても、取りこぼさずに記録する（2xxを返したあとなので再送では取り返せない）', async () => {
+    const { env } = 環境を作る()
+    await saveAlertConfig(env.STORE, { triggers: [文面を作らせるトリガー] })
+    await botを接続する(env)
+    const twitch = 送信に応えるTwitch()
+    // 鍵を持つテーブルを落として、reserveChatReply（送信の前に呼ぶ）を失敗させる
+    env.DB.sqlite.prepare('DROP TABLE replied_chat_messages').run()
+
+    const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+    await 後回しの処理を待つ()
+
+    expect(response.status).toBe(204)
+    expect(twitch.送信したチャット).toHaveLength(0)
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'alert-aichat-failed' }])
+  })
+
+  it('LLMが失敗したら（無料枠切れなど）送らず、2xxを返したうえで記録する', async () => {
+    const { env } = 環境を作る({ LLMは失敗する: true })
+    await saveAlertConfig(env.STORE, { triggers: [文面を作らせるトリガー] })
+    await botを接続する(env)
+    const twitch = 送信に応えるTwitch()
+
+    const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+    await 後回しの処理を待つ()
+
+    expect(response.status).toBe(204)
+    expect(twitch.送信したチャット).toHaveLength(0)
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'alert-aichat-failed' }])
+  })
+
+  it('500文字を超えた文面は、切り詰めずに送るのをやめて記録する', async () => {
+    const { env } = 環境を作る({ LLMの文面: 'あ'.repeat(501) })
+    await saveAlertConfig(env.STORE, { triggers: [文面を作らせるトリガー] })
+    await botを接続する(env)
+    const twitch = 送信に応えるTwitch()
+
+    await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+    await 後回しの処理を待つ()
+
+    expect(twitch.送信したチャット).toHaveLength(0)
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'alert-aichat-failed', message: expect.stringContaining('500文字') }])
+  })
+
+  it('同じ通知が再送されても、2通は送らない', async () => {
+    const { env } = 環境を作る()
+    await saveAlertConfig(env.STORE, { triggers: [文面を作らせるトリガー] })
+    await botを接続する(env)
+    const twitch = 送信に応えるTwitch()
+
+    await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+    await 後回しの処理を待つ()
+    await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+    await 後回しの処理を待つ()
+
+    expect(twitch.送信したチャット).toHaveLength(1)
+  })
+
+  it('botを接続していなければ、LLMも呼ばずに何もしない（送る先がないため）', async () => {
+    const { env, ai } = 環境を作る()
+    await saveAlertConfig(env.STORE, { triggers: [文面を作らせるトリガー] })
+
+    const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env)
+    await 後回しの処理を待つ()
+
+    expect(response.status).toBe(204)
+    expect(ai.呼び出し).toHaveLength(0)
   })
 })

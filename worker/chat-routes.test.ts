@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest'
 import { createFakeBucket } from './fake-bucket'
 import { createFakeDatabase } from './fake-database'
+import { createFakeAi } from './fake-ai'
 import { createFakeAlertChannel } from './fake-alert-channel'
 import { createFakeStore } from './fake-store'
 import { handleRequest, type Env } from './index'
@@ -28,6 +29,7 @@ const 環境を作る = () => {
     SESSION_SECRET: 'テスト用のセッション秘密鍵',
     EVENTSUB_SECRET: 'テスト用のWebhookシークレット',
     ALERTS: createFakeAlertChannel().namespace,
+    AI: createFakeAi(),
   } satisfies Env
   return { env, store }
 }
@@ -65,8 +67,16 @@ const Twitchの代役 = () => {
 /** アナウンスの送信間隔を空けるための待ちは、テストでは実際に待たない */
 const 待たない = async (): Promise<void> => {}
 
+/**
+ * これらの経路は応答のあとに続く処理（waitUntil）を使わない。
+ * 黙って捨てると気づけなくなるので、預けられたら失敗させる（使うのは webhook-routes.test.ts だけ）。
+ */
+const 後回しにしない = (): void => {
+  throw new Error('このテストでは、応答のあとに続く処理を使いません')
+}
+
 const 取得する = (env: Env, path: string, fetchImpl: typeof fetch): Promise<Response> =>
-  handleRequest(new Request(`${サイト}${path}`, { headers: { Origin: サイト } }), env, { fetch: fetchImpl, now: () => 現在時刻, wait: 待たない })
+  handleRequest(new Request(`${サイト}${path}`, { headers: { Origin: サイト } }), env, { fetch: fetchImpl, now: () => 現在時刻, wait: 待たない, waitUntil: 後回しにしない })
 
 describe('GET /api/chat/badges', () => {
   it('全体のバッジとチャンネル固有のバッジをまとめて返す（ログインもキーも要らない）', async () => {

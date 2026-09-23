@@ -7,8 +7,8 @@
  * そこで「wrangler.jsonc のバインディング」「.dev.vars.example のシークレット」「package.json の説明」の
  * 3つが過不足なく対応していることを、このテストで確認する。
  *
- * Durable Object（ALERTS）はここに含めない。押した人が用意するものではなく、wrangler.jsonc の migrations の
- * 指定から Cloudflare が作るため、入力欄にも出ない。
+ * Durable Object（ALERTS）と Workers AI（AI）はここに含めない。どちらも押した人が用意するものではなく、
+ * Cloudflare 側で割り当てられるため、入力欄にも出ない。
  */
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'

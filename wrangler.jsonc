@@ -30,6 +30,9 @@
   "kv_namespaces": [{ "binding": "STORE" }],
   "r2_buckets": [{ "binding": "MEDIA" }],
   "d1_databases": [{ "binding": "DB" }],
+  // トリガーの動作 aiChat がチャットの文面を作らせるLLM（Workers AI）。押した人が用意するものはないので、
+  // Deploy to Cloudflare ボタンの入力欄には出ない（Durable Object と同じ扱い）。
+  "ai": { "binding": "AI" },
   "durable_objects": { "bindings": [{ "name": "ALERTS", "class_name": "AlertChannel" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["AlertChannel"] }],
   "triggers": { "crons": ["*/5 * * * *"] }

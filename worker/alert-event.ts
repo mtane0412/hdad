@@ -5,6 +5,7 @@
  * トリガーの一覧と照らし合わせて「何をするか」を決める（送信と再生そのものは呼び出し側が行う）。
  * 動作の種類ごとに入口が分かれているが、呼ぶのはどれもWebhookの受け口（webhook-routes.ts）である。
  * chatMessageFor・announcementFor の結果はWorkerがbotとして送り、alertFor の結果はオーバーレイへ押し出す。
+ * aiChatFor だけは送る文言ではなく「文面の作り方の指示」を返し、文面づくりは worker/ai-chat.ts が受け持つ。
  *
  * 照合はこのファイルだけが持つ。オーバーレイ（src/alerts/）は押し出されてきたアラートを再生するだけで、
  * トリガーも条件も知らない。Twitchからの通知はすべてWebhookでWorkerに届くので、オーバーレイが照合に要る材料
@@ -15,12 +16,14 @@
  * （保存時にも拒否しているが、古い設定が残っていても意図しないイベントで動かないようにする）。
  */
 import {
+  aiChatActionOf,
   alertActionOf,
   announceActionOf,
   chatActionOf,
   mediaPath,
   type AlertConfig,
   type MediaKind,
+  type StoredAiChatAction,
   type StoredAnnounceAction,
   type StoredCondition,
   type StoredTrigger,
@@ -84,22 +87,36 @@ const uses = (config: AlertConfig, subscriptionType: string, kinds: readonly Sto
   config.triggers.some((trigger) => trigger.event === subscriptionType && trigger.conditions.some((condition) => kinds.includes(condition.kind)))
 
 /**
- * その通知の照合に、「その配信で初めての発言か」の判定が要るか。
+ * そのイベントに、LLMへ文面を作らせる動作（aiChat）を持つトリガーがあるか。
+ *
+ * この動作は条件の有無にかかわらず、来訪の別（初めて・お久しぶり）を文面づくりの材料として読む。
+ * 条件としては使っていなくても判定が要るのはこの動作だけなので、requires* から見分けられるようにしておく。
+ */
+const hasAiChatAction = (config: AlertConfig, subscriptionType: string): boolean =>
+  config.triggers.some((trigger) => trigger.event === subscriptionType && aiChatActionOf(trigger) !== null)
+
+/**
+ * その通知に、「その配信で初めての発言か」の判定が要るか。
  *
  * 要らなければ呼び出し側はデータベースを触らずに済む。チャットの発言は件数の桁が違うため、
  * 1通ごとにD1へ書き込まないようにこれで絞る。
+ *
+ * 条件（firstChatOfStream）として使っている場合のほかに、LLMへ文面を作らせる動作（aiChat）がある場合も要る。
+ * aiChat は条件を1件も持たないトリガーでも「初めての人か」で文面を変えるのが主な使い道なので、
+ * 条件に書かれていなくても判定して材料に渡す（渡さないと、来訪の別を知らないまま文面を作らせることになる）。
  */
-export const requiresFirstChatOfStream = (config: AlertConfig, subscriptionType: string): boolean => uses(config, subscriptionType, ['firstChatOfStream'])
+export const requiresFirstChatOfStream = (config: AlertConfig, subscriptionType: string): boolean =>
+  uses(config, subscriptionType, ['firstChatOfStream']) || hasAiChatAction(config, subscriptionType)
 
 /**
- * その通知の照合に、視聴者の記録（viewers）から決まる判定が要るか。
+ * その通知に、視聴者の記録（viewers）から決まる判定が要るか。
  *
  * 「このチャンネルで初めての発言か」（firstChatEver）と「最後の発言から何日空いているか」（returningAfter）は
  * どちらも viewers の同じ1行から決まるので、まとめて1つの読み出しで済ませられる。
- * どちらも使っていなければ、呼び出し側はその読み出しを省ける。
+ * どちらも使っておらず、LLMへ文面を作らせる動作もなければ、呼び出し側はその読み出しを省ける。
  */
 export const requiresChatHistory = (config: AlertConfig, subscriptionType: string): boolean =>
-  uses(config, subscriptionType, ['firstChatEver', 'returningAfter'])
+  uses(config, subscriptionType, ['firstChatEver', 'returningAfter']) || hasAiChatAction(config, subscriptionType)
 
 /**
  * その通知に、オーバーレイへ押し出すアラートを持つトリガーがあるか。
@@ -256,13 +273,13 @@ export const fillMessage = (template: string, extracted: Extracted): string =>
  * @returns 文言を置き換えた動作。アラートに使えないイベント種別、または当てはまるトリガーがなければ null
  * @throws 通知の中身が想定した形でない場合（その動作を持つトリガーがあるイベント種別に限る）
  */
-const filledActionFor = <Action extends { message: string }>(
+const matchedActionFor = <Action>(
   config: AlertConfig,
   subscriptionType: string,
   body: unknown,
   actionOf: (trigger: StoredTrigger) => Action | null,
   state: ConditionState,
-): Action | null => {
+): { action: Action; extracted: Extracted } | null => {
   // その動作を持つトリガーが1件もないイベント種別なら、通知の中身は読まない。
   // 設定していないイベントの中身の形が想定と違うだけで、配信の記録まで止めてしまわないため
   const candidates = config.triggers.filter((trigger) => trigger.event === subscriptionType && actionOf(trigger) !== null)
@@ -274,9 +291,44 @@ const filledActionFor = <Action extends { message: string }>(
   for (const trigger of candidates) {
     if (!matches(trigger, extracted, state)) continue
     const action = actionOf(trigger)
-    if (action !== null) return { ...action, message: fillMessage(action.message, extracted) }
+    if (action !== null) return { action, extracted }
   }
   return null
+}
+
+/**
+ * 通知に当てはまるトリガーを探し、その動作の文言に差し込み語を置き換えて返す。
+ *
+ * 文言を持つ動作（alert・chat・announce）のための入口で、文言を持たない aiChat は aiChatFor が受け持つ。
+ */
+const filledActionFor = <Action extends { message: string }>(
+  config: AlertConfig,
+  subscriptionType: string,
+  body: unknown,
+  actionOf: (trigger: StoredTrigger) => Action | null,
+  state: ConditionState,
+): Action | null => {
+  const matched = matchedActionFor(config, subscriptionType, body, actionOf, state)
+  return matched === null ? null : { ...matched.action, message: fillMessage(matched.action.message, matched.extracted) }
+}
+
+/**
+ * 通知に当てはまるトリガーを探し、LLMに文面を作らせる材料（配信者の指示と、読み取ったイベントの中身）を返す。
+ *
+ * ほかの動作と違って文言を持たないので、差し込み語の置き換えはしない。文面づくりは worker/ai-chat.ts が受け持ち、
+ * 相手の記録（viewers）は呼び出し側（webhook-routes.ts）が読んで足す（このファイルは通信を持たないため）。
+ *
+ * @returns 指示と読み取った中身。当てはまるトリガーがなければ null
+ * @throws 通知の中身が想定した形でない場合（この動作を持つトリガーがあるイベント種別に限る）
+ */
+export const aiChatFor = (
+  config: AlertConfig,
+  subscriptionType: string,
+  body: unknown,
+  state: ConditionState,
+): { instruction: StoredAiChatAction['instruction']; extracted: Extracted } | null => {
+  const matched = matchedActionFor(config, subscriptionType, body, aiChatActionOf, state)
+  return matched === null ? null : { instruction: matched.action.instruction, extracted: matched.extracted }
 }
 
 /**

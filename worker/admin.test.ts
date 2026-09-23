@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest'
 import { createFakeBucket } from './fake-bucket'
 import { createFakeDatabase } from './fake-database'
+import { createFakeAi } from './fake-ai'
 import { createFakeAlertChannel } from './fake-alert-channel'
 import { createFakeStore } from './fake-store'
 import { handleRequest, type Env } from './index'
@@ -35,6 +36,7 @@ const 環境を作る = () => {
     SESSION_SECRET: 'テスト用のセッション秘密鍵',
     EVENTSUB_SECRET: 'テスト用のWebhookシークレット',
     ALERTS: 配送.namespace,
+    AI: createFakeAi(),
   } satisfies Env
   return { env, store, bucket, 配送 }
 }
@@ -46,7 +48,15 @@ const Twitchへは通信しない = async (input: RequestInfo | URL): Promise<Re
 /** アナウンスの送信間隔を空けるための待ちは、テストでは実際に待たない */
 const 待たない = async (): Promise<void> => {}
 
-const 呼び出す = (request: Request, env: Env) => handleRequest(request, env, { fetch: Twitchへは通信しない, now: () => 現在時刻, wait: 待たない })
+/**
+ * これらの経路は応答のあとに続く処理（waitUntil）を使わない。
+ * 黙って捨てると気づけなくなるので、預けられたら失敗させる（使うのは webhook-routes.test.ts だけ）。
+ */
+const 後回しにしない = (): void => {
+  throw new Error('このテストでは、応答のあとに続く処理を使いません')
+}
+
+const 呼び出す = (request: Request, env: Env) => handleRequest(request, env, { fetch: Twitchへは通信しない, now: () => 現在時刻, wait: 待たない, waitUntil: 後回しにしない })
 
 /** 配信者としてログイン済みのリクエストを作る。書き換えを伴うメソッドには、ブラウザと同じく Origin を付ける */
 const 配信者のリクエスト = async (env: Env, path: string, init: RequestInit = {}): Promise<Request> => {
@@ -337,7 +347,7 @@ describe('チャンネルポイント報酬の一覧（GET /api/admin/rewards）
       return Response.json({ data: [{ id: '報酬ID-乾杯', title: '乾杯する', cost: 500 }] })
     }
 
-    const response = await handleRequest(await 配信者のリクエスト(env, '/api/admin/rewards'), env, { fetch: Twitchの代役, now: () => 現在時刻, wait: 待たない })
+    const response = await handleRequest(await 配信者のリクエスト(env, '/api/admin/rewards'), env, { fetch: Twitchの代役, now: () => 現在時刻, wait: 待たない, waitUntil: 後回しにしない })
 
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ rewards: [{ id: '報酬ID-乾杯', title: '乾杯する', cost: 500 }] })
@@ -350,7 +360,7 @@ describe('チャンネルポイント報酬の一覧（GET /api/admin/rewards）
     await saveToken(store, 'broadcaster', 保存済みのトークン)
     const 失敗するTwitch = async (): Promise<Response> => Response.json({ message: 'channel points are not available' }, { status: 403 })
 
-    const response = await handleRequest(await 配信者のリクエスト(env, '/api/admin/rewards'), env, { fetch: 失敗するTwitch, now: () => 現在時刻, wait: 待たない })
+    const response = await handleRequest(await 配信者のリクエスト(env, '/api/admin/rewards'), env, { fetch: 失敗するTwitch, now: () => 現在時刻, wait: 待たない, waitUntil: 後回しにしない })
 
     expect(response.status).toBe(502)
     expect(await エラーコード(response)).toBe('twitch-error')

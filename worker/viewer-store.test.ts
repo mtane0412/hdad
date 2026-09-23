@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { createFakeDatabase } from './fake-database'
-import { deleteViewer, listViewers, readChatHistory, recordViewerMessage, updateViewerNote } from './viewer-store'
+import { deleteViewer, listViewers, readChatHistory, readViewer, recordViewerMessage, updateViewerNote } from './viewer-store'
 
 const 現在時刻 = Date.UTC(2026, 8, 21, 12, 0, 0)
 const 一分 = 60 * 1000
@@ -174,6 +174,29 @@ describe('listViewers', () => {
     const 続き = await listViewers(db, { before: '2026-09-21T12:01:00.000Z' })
 
     expect(続き.map((viewer) => viewer.login)).toEqual(['hanako'])
+  })
+})
+
+describe('readViewer', () => {
+  it('ユーザーIDでその人ひとりの記録を返す（LLMに渡す材料を読むのに使う）', async () => {
+    const db = createFakeDatabase()
+    await recordViewerMessage(db, 発言(), 現在時刻)
+    await updateViewerNote(db, '100', 'ギターの話が好き')
+
+    expect(await readViewer(db, '100')).toEqual({
+      userId: '100',
+      login: 'hanako',
+      displayName: '花子',
+      firstSeenAt: '2026-09-21T12:00:00.000Z',
+      lastSeenAt: '2026-09-21T12:00:00.000Z',
+      messageCount: 1,
+      badges: ['subscriber'],
+      note: 'ギターの話が好き',
+    })
+  })
+
+  it('記録のない人には null を返す', async () => {
+    expect(await readViewer(createFakeDatabase(), '999')).toBeNull()
   })
 })
 

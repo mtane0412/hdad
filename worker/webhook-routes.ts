@@ -9,7 +9,8 @@
  */
 import { loadAlertConfig, type AlertConfig, type StoredAnnounceAction } from './alert-config'
 import { pushAlert } from './alert-channel'
-import { alertFor, announcementFor, chatMessageFor, hasAlertAction } from './alert-event'
+import { generateChatMessage } from './ai-chat'
+import { aiChatFor, alertFor, announcementFor, chatMessageFor, hasAlertAction } from './alert-event'
 import { resolveConditionState } from './alert-state'
 import type { ConditionState } from './alert-event'
 import { announceAsBot, sendAsBot } from './bot-chat'
@@ -17,7 +18,7 @@ import { applyReply, findCommand, readChatMessage, type ChatMessage } from './ch
 import { loadBotConfig } from './bot-config'
 import { punishAsBot } from './bot-moderation'
 import { judge, repeatRuleOf } from './chat-moderation'
-import { recordViewerMessage } from './viewer-store'
+import { readViewer, recordViewerMessage } from './viewer-store'
 import { loadModerationConfig } from './moderation-config'
 import { consumeCooldown, recordAndCountRecentMessage, reserveChatReply } from './chat-store'
 import { CHAT_MESSAGE, COUNTED_EVENT_TYPES, STREAM_OFFLINE, STREAM_ONLINE, UNCOUNTED_EVENT_TYPES, verifyWebhookSignature } from './eventsub-webhook'
@@ -252,10 +253,17 @@ const runAlertActions = async (
       throw invalid(error instanceof Error ? error.message : String(error))
     }
   })()
+  const aiChat = ((): ReturnType<typeof aiChatFor> => {
+    try {
+      return aiChatFor(config, subscriptionType, body.event, state)
+    } catch (error) {
+      throw invalid(error instanceof Error ? error.message : String(error))
+    }
+  })()
   // 素材の再生はbotと関わりなく行う（botを接続していなくてもアラートは鳴る）
   await pushMatchedAlert(context, config, subscriptionType, body, messageId, state)
 
-  if (message === null && announcement === null) return
+  if (message === null && announcement === null && aiChat === null) return
 
   // botを切断していれば送る先がない。受け取り自体は成功として返す
   if (!(await botConnected())) return
@@ -264,6 +272,39 @@ const runAlertActions = async (
   if (announcement !== null) {
     await sendAndRecordFailure(context, messageId, 'announce', 'alert-announce-failed', () => announceAsBot(context, announcement))
   }
+  if (aiChat !== null) {
+    // LLMの応答を待つとTwitchへの2xxが遅れ、同じ通知を再送されてしまう。応答を返してから続きを走らせる
+    context.waitUntil(
+      recordLateFailure(context, 'alert-aichat-failed', () =>
+        sendAndRecordFailure(context, messageId, 'aiChat', 'alert-aichat-failed', () => sendAiChat(context, aiChat, state, chatMessage)),
+      ),
+    )
+  }
+}
+
+/**
+ * LLMに文面を作らせて、botとしてチャットへ送る。
+ *
+ * 材料はイベントの中身（alert-event.ts が読み取り済み）と、その人の記録（viewers）である。
+ * 記録は「この動作が当てはまったとき」にだけ読むので、発言のたびの読み出しにはならない。
+ *
+ * 注意: 記録を引く鍵はTwitchのユーザーIDで、それが手元にあるのはチャットの発言の通知だけである
+ * （viewers はチャットで発言した人だけを貯めているため、そもそもフォローやレイドの相手には記録がないことが多い）。
+ * ほかのイベントでは記録なしとして、指示とイベントの中身だけから文面を作らせる。
+ *
+ * 注意: 失敗（LLMの失敗・無料枠切れ・500文字超過）は投げたままにして、呼び出し側が記録する。
+ * 黙って固定文言に落とすようなことはしない（配信者が気づけなくなるため）。
+ */
+const sendAiChat = async (
+  context: Context,
+  aiChat: NonNullable<ReturnType<typeof aiChatFor>>,
+  state: ConditionState,
+  chatMessage: ChatMessage | null,
+): Promise<void> => {
+  const { env } = context
+  const viewer = chatMessage === null ? null : await readViewer(env.DB, chatMessage.chatterUserId)
+  const message = await generateChatMessage(env.AI, { instruction: aiChat.instruction, extracted: aiChat.extracted, viewer, state })
+  await sendAsBot(context, message)
 }
 
 /**
@@ -312,10 +353,33 @@ const pushMatchedAlert = async (
  * 鍵に動作の種類を混ぜるのは、同じ通知でチャットとアナウンスの両方を送るときに、片方が鍵を取って
  * もう片方が送れなくなるのを防ぐため。
  */
+/**
+ * Twitchへ応答を返したあとに走らせる処理から、失敗を取りこぼさないようにする。
+ *
+ * ほかの動作は送信を待ってから応答を返すので、鍵の確保のような送信の手前での失敗は例外として上がり、
+ * 5xxを受けたTwitchが同じ通知を再送してくれる（鍵があるので二重送信にはならない）。
+ * 応答のあとに走らせる処理ではその手が使えず、投げたままでは誰も受け取らないまま消えてしまうので、
+ * ここで受け止めて記録まで引き受ける。
+ *
+ * 注意: 記録そのものが失敗したら（データベースに触れないときなど）、もう打つ手がないのでログに残すだけにする。
+ */
+const recordLateFailure = async (context: Context, failureCode: string, run: () => Promise<void>): Promise<void> => {
+  const { env, now } = context
+  try {
+    await run()
+  } catch (error) {
+    try {
+      await recordFailure(env.DB, failureCode, error instanceof Error ? error.message : String(error), now)
+    } catch (failure) {
+      console.error(failure)
+    }
+  }
+}
+
 const sendAndRecordFailure = async (
   context: Context,
   messageId: string,
-  actionType: 'chat' | 'announce' | 'alert',
+  actionType: 'chat' | 'announce' | 'alert' | 'aiChat',
   failureCode: string,
   send: () => Promise<void>,
 ): Promise<void> => {

@@ -11,6 +11,7 @@ import { BOT_SCOPES, REQUIRED_SCOPES } from './eventsub'
 import { webhookEventTypes } from './eventsub-webhook'
 import { createFakeBucket } from './fake-bucket'
 import { createFakeDatabase } from './fake-database'
+import { createFakeAi } from './fake-ai'
 import { createFakeAlertChannel } from './fake-alert-channel'
 import { createFakeStore } from './fake-store'
 import { handleRequest, type Env } from './index'
@@ -33,6 +34,7 @@ const 環境を作る = (store = createFakeStore()) => {
     SESSION_SECRET: 'テスト用のセッション秘密鍵',
     EVENTSUB_SECRET: 'テスト用のWebhookシークレット',
     ALERTS: createFakeAlertChannel().namespace,
+    AI: createFakeAi(),
   } satisfies Env
   return { env, store }
 }
@@ -60,8 +62,16 @@ const Twitchの代役 = (loginUserId: string, owner: { login?: string; scopes?: 
 /** アナウンスの送信間隔を空けるための待ちは、テストでは実際に待たない */
 const 待たない = async (): Promise<void> => {}
 
+/**
+ * これらの経路は応答のあとに続く処理（waitUntil）を使わない。
+ * 黙って捨てると気づけなくなるので、預けられたら失敗させる（使うのは webhook-routes.test.ts だけ）。
+ */
+const 後回しにしない = (): void => {
+  throw new Error('このテストでは、応答のあとに続く処理を使いません')
+}
+
 const 呼び出す = (request: Request, env: Env, fetchImpl: typeof fetch = Twitchの代役(配信者のID).fetchImpl) =>
-  handleRequest(request, env, { fetch: fetchImpl, now: () => 現在時刻, wait: 待たない })
+  handleRequest(request, env, { fetch: fetchImpl, now: () => 現在時刻, wait: 待たない, waitUntil: 後回しにしない })
 
 const エラーコード = async (response: Response): Promise<unknown> => {
   const body = (await response.json()) as { error?: { code?: unknown } }

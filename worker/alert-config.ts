@@ -7,6 +7,7 @@
  * - alert: オーバーレイが素材を再生する。照合はWorkerが行い（alert-event.ts の alertFor）、素材のURLを付けたアラートを返す
  * - chat: Workerがbotとしてチャットへ送る（オーバーレイには渡さない。オーバーレイに送信の役目を持たせないため）
  * - announce: Workerがbotとしてアナウンス（色の付いた帯）を送る。botがモデレーターにされている必要がある
+ * - aiChat: Workerが配信者の指示とその人の記録からLLMに文面を作らせ、botとしてチャットへ送る（worker/ai-chat.ts）
  *
  * 対応しているイベントは、Workerが購読している6種類（ALERT_EVENTS）。チャットの発言は、botを接続しているときだけ通知が届く。
  * 条件は種類（kind）で判別する union のリストで、すべてを満たしたときだけトリガーが当てはまる（and）。
@@ -38,7 +39,7 @@ export const CONDITION_KINDS = ['reward', 'user', 'text', 'firstChatOfStream', '
 export type ConditionKind = (typeof CONDITION_KINDS)[number]
 
 /** 動作の種類。同じ種類は1トリガーに1件まで */
-export const ACTION_TYPES = ['alert', 'chat', 'announce'] as const
+export const ACTION_TYPES = ['alert', 'chat', 'announce', 'aiChat'] as const
 
 export type ActionType = (typeof ACTION_TYPES)[number]
 
@@ -48,6 +49,8 @@ const MAX_DURATION_SECONDS = 60
 const MAX_ALERT_MESSAGE_LENGTH = 200
 /** チャット1通の上限（Twitchの POST /helix/chat/messages の制限）。アナウンスも同じ500文字で、text の条件の上限にも使う */
 const MAX_CHAT_MESSAGE_LENGTH = 500
+/** aiChat の指示（配信者が書く文章）の上限。文面そのものではなく作り方の指示なので、チャット1通より長くてよい */
+const MAX_AI_INSTRUCTION_LENGTH = 1000
 /** returningAfter に指定できる日数の下限（1日）。0日だと毎回当てはまり、条件なしと区別が付かない */
 const MIN_RETURNING_DAYS = 1
 /** returningAfter に指定できる日数の上限（1年）。これより長い間隔は「お久しぶり」として区別する意味が薄い */
@@ -93,7 +96,20 @@ export interface StoredAnnounceAction {
   color: AnnouncementColor
 }
 
-export type StoredAction = StoredAlertAction | StoredChatAction | StoredAnnounceAction
+/**
+ * LLMに文面を作らせて、botとしてチャットへ送る動作。
+ *
+ * 固定文言の chat と違い、送る文言そのものではなく「どう書くか」の指示を持つ。
+ * その人の記録（viewers のメモ・来訪の履歴）と発言の本文を材料に、Workerが実行のたびに文面を作る（worker/ai-chat.ts）。
+ * 同じトリガーに chat と並べることは許さない（同じ発言に2通返ってしまうため。parseActions で拒む）。
+ */
+export interface StoredAiChatAction {
+  type: 'aiChat'
+  /** 配信者が書く、文面の作り方の指示。空文字では作りようがないので許さない */
+  instruction: string
+}
+
+export type StoredAction = StoredAlertAction | StoredChatAction | StoredAnnounceAction | StoredAiChatAction
 
 /**
  * 条件1件。種類（kind）で判別する union。
@@ -296,6 +312,15 @@ const parseAction = (
     return null
   }
 
+  if (type === 'aiChat') {
+    const { instruction } = candidate
+    if (!isStringWithin(instruction, 1, MAX_AI_INSTRUCTION_LENGTH)) {
+      problems.push(`${at}.instruction: 1〜${MAX_AI_INSTRUCTION_LENGTH}文字の文字列で指定してください`)
+      return null
+    }
+    return { type, instruction }
+  }
+
   if (type === 'chat' || type === 'announce') {
     const { message } = candidate
     const messageOk = isStringWithin(message, 1, MAX_CHAT_MESSAGE_LENGTH)
@@ -351,7 +376,11 @@ const parseActions = (candidate: unknown, at: string, kindOfMedia: (mediaId: str
   const duplicated = ACTION_TYPES.filter((type) => actions.filter((action) => action.type === type).length > 1)
   for (const type of duplicated) problems.push(`${at}.actions: 同じ種類の動作（${type}）は1件までにしてください`)
 
-  return actions.length === candidate.length && duplicated.length === 0 ? actions : null
+  // 固定文言（chat）とLLMの文面（aiChat）はどちらもbotの発言として送られるので、並べると同じ発言に2通返ってしまう
+  const conflicting = actions.some((action) => action.type === 'chat') && actions.some((action) => action.type === 'aiChat')
+  if (conflicting) problems.push(`${at}.actions: chat と aiChat は同じトリガーに並べられません（同じ発言に2通返ってしまうため）、どちらか一方にしてください`)
+
+  return actions.length === candidate.length && duplicated.length === 0 && !conflicting ? actions : null
 }
 
 /**
@@ -434,6 +463,10 @@ export const loadAlertConfig = async (store: KeyValueStore): Promise<AlertConfig
 /** トリガーからチャットに送る動作を取り出す。なければ null */
 export const chatActionOf = (trigger: StoredTrigger): StoredChatAction | null =>
   trigger.actions.find((action): action is StoredChatAction => action.type === 'chat') ?? null
+
+/** トリガーからLLMに文面を作らせてチャットへ送る動作を取り出す。なければ null */
+export const aiChatActionOf = (trigger: StoredTrigger): StoredAiChatAction | null =>
+  trigger.actions.find((action): action is StoredAiChatAction => action.type === 'aiChat') ?? null
 
 /** トリガーからアナウンスを送る動作を取り出す。なければ null */
 export const announceActionOf = (trigger: StoredTrigger): StoredAnnounceAction | null =>

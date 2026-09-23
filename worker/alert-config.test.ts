@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   EMPTY_CONFIG,
+  aiChatActionOf,
   announceActionOf,
   chatActionOf,
   loadAlertConfig,
@@ -44,6 +45,13 @@ const アナウンスの動作 = (overrides: Record<string, unknown> = {}) => ({
   type: 'announce',
   message: '{user} さんがレイドしてくれました',
   color: 'purple',
+  ...overrides,
+})
+
+/** 送られてくる「LLMに文面を作らせてチャットへ送る」動作 */
+const AIチャットの動作 = (overrides: Record<string, unknown> = {}) => ({
+  type: 'aiChat',
+  instruction: '初めて来てくれた人に、配信の内容を一言添えて歓迎してください',
   ...overrides,
 })
 
@@ -89,6 +97,30 @@ describe('parseAlertConfig', () => {
     const 色なし = { triggers: [送られてきたトリガー({ actions: [アナウンスの動作({ color: undefined })] })] }
 
     expect(parseAlertConfig(色なし, 素材の種類).triggers[0]?.actions[0]).toMatchObject({ type: 'announce', color: 'primary' })
+  })
+
+  it('LLMに文面を作らせる動作（aiChat）を受け付ける', () => {
+    const config = parseAlertConfig({ triggers: [送られてきたトリガー({ actions: [AIチャットの動作()] })] }, 素材の種類)
+
+    expect(config.triggers[0]?.actions).toEqual([{ type: 'aiChat', instruction: '初めて来てくれた人に、配信の内容を一言添えて歓迎してください' }])
+  })
+
+  it('aiChat の指示が空文字なら拒否する（作らせる手がかりがないため）', () => {
+    const 指示なし = { triggers: [送られてきたトリガー({ actions: [AIチャットの動作({ instruction: '' })] })] }
+
+    expect(() => parseAlertConfig(指示なし, 素材の種類)).toThrowError(
+      expect.objectContaining({ problems: ['triggers[0].actions[0].instruction: 1〜1000文字の文字列で指定してください'] }),
+    )
+  })
+
+  it('chat と aiChat を同じトリガーに並べたら拒否する（同じ発言に2通返ってしまうため）', () => {
+    const 両方 = { triggers: [送られてきたトリガー({ actions: [チャットの動作(), AIチャットの動作()] })] }
+
+    expect(() => parseAlertConfig(両方, 素材の種類)).toThrowError(
+      expect.objectContaining({
+        problems: ['triggers[0].actions: chat と aiChat は同じトリガーに並べられません（同じ発言に2通返ってしまうため）、どちらか一方にしてください'],
+      }),
+    )
   })
 
   it('Twitchが受け付けない色は拒否する', () => {
@@ -328,7 +360,7 @@ describe('parseAlertConfig', () => {
 
   it('対応していない動作の種類は拒否する', () => {
     expect(() => parseAlertConfig({ triggers: [送られてきたトリガー({ actions: [アラートの動作({ type: 'ban' })] })] }, 素材の種類)).toThrowError(
-      expect.objectContaining({ problems: ['triggers[0].actions[0].type: alert / chat / announce のいずれかを指定してください'] }),
+      expect.objectContaining({ problems: ['triggers[0].actions[0].type: alert / chat / announce / aiChat のいずれかを指定してください'] }),
     )
   })
 
@@ -415,6 +447,22 @@ describe('saveAlertConfig / loadAlertConfig', () => {
     await store.put('alert-config', JSON.stringify({ triggers: [{ event: REDEMPTION, rewardId: null }] }))
 
     await expect(loadAlertConfig(store)).rejects.toThrow(/alert-config/)
+  })
+})
+
+describe('aiChatActionOf', () => {
+  it('トリガーからLLMに文面を作らせる動作を取り出す', () => {
+    const trigger: StoredTrigger = {
+      event: CHAT_MESSAGE,
+      conditions: [{ kind: 'firstChatEver' }],
+      actions: [保存済みのアラートの動作, { type: 'aiChat', instruction: '初めての人を歓迎してください' }],
+    }
+
+    expect(aiChatActionOf(trigger)).toEqual({ type: 'aiChat', instruction: '初めての人を歓迎してください' })
+  })
+
+  it('LLMに文面を作らせる動作がなければ null を返す', () => {
+    expect(aiChatActionOf({ event: CHAT_MESSAGE, conditions: [], actions: [保存済みのアラートの動作] })).toBeNull()
   })
 })
 

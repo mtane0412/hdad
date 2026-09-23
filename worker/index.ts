@@ -70,6 +70,13 @@ interface Dependencies {
   now(): number
   /** 指定した時間だけ待つ。アナウンスの送信間隔を空けるのに使う（テストでは実際に待たせない） */
   wait(milliseconds: number): Promise<void>
+  /**
+   * 応答を返したあとに続きを走らせる。本番では Cloudflare の ExecutionContext.waitUntil を渡す。
+   *
+   * LLMに文面を作らせる動作（aiChat）が使う。Webhookの応答を待たせるとTwitchが再送するため、
+   * 2xxを返してから文面づくりと送信を続ける。
+   */
+  waitUntil(promise: Promise<unknown>): void
 }
 
 interface Route {
@@ -163,10 +170,17 @@ const toErrorResponse = (error: unknown): Response => {
   return errorResponse(STATUS.internalServerError, 'internal-error', error instanceof Error ? error.message : String(error))
 }
 
+/**
+ * 本番で使う依存。waitUntil だけは Cloudflare のランタイムが渡してくる ExecutionContext からしか作れないため、
+ * ここでは「預かった処理を取りこぼさない」ことだけを守る形（そのまま待つ）にしておき、fetch の入口で差し替える。
+ */
 const DEFAULT_DEPENDENCIES: Dependencies = {
   fetch: (input, init) => fetch(input, init),
   now: Date.now,
   wait: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  waitUntil: () => {
+    throw new Error('waitUntil が渡されていません（fetch の ExecutionContext から渡してください）')
+  },
 }
 
 /** 環境変数が揃っていることを確かめてから、Twitchのクライアントを作る */
@@ -183,7 +197,16 @@ export const handleRequest = async (request: Request, env: Env, dependencies: De
     const url = new URL(request.url)
     const { route, params } = findRoute(request.method, url.pathname)
     const twitch = createClient(env, dependencies)
-    return await route.handle({ request, url, params, env, twitch, now: dependencies.now(), wait: dependencies.wait })
+    return await route.handle({
+      request,
+      url,
+      params,
+      env,
+      twitch,
+      now: dependencies.now(),
+      wait: dependencies.wait,
+      waitUntil: dependencies.waitUntil,
+    })
   } catch (error) {
     return toErrorResponse(error)
   }
@@ -200,6 +223,7 @@ export const handleScheduled = async (env: Env, dependencies: Pick<Dependencies,
 }
 
 export default {
-  fetch: (request: Request, env: Env): Promise<Response> => handleRequest(request, env),
+  fetch: (request: Request, env: Env, ctx: { waitUntil(promise: Promise<unknown>): void }): Promise<Response> =>
+    handleRequest(request, env, { ...DEFAULT_DEPENDENCIES, waitUntil: (promise) => ctx.waitUntil(promise) }),
   scheduled: (_controller: unknown, env: Env): Promise<void> => handleScheduled(env),
 }

@@ -1,0 +1,149 @@
+/**
+ * LLMによるチャットの文面づくり（ai-chat.ts）のテスト
+ *
+ * 材料（配信者の指示・相手の記録・来訪の別・発言の本文）が漏れなくLLMへ渡ること、
+ * 返ってきた文面をそのまま信用せず、Twitchへ送れる形かどうかを確かめてから返すことを確認する。
+ * Twitchのチャットは1通500文字までなので、超えた文面は切り詰めずに送るのをやめる（意味の壊れた文を流さないため）。
+ */
+import { describe, expect, it } from 'vitest'
+import { buildPrompt, generateChatMessage, type TextGenerator } from './ai-chat'
+import type { Extracted } from './alert-event'
+import type { Viewer } from './viewer-store'
+
+const 発言のイベント: Extracted = {
+  event: 'channel.chat.message',
+  userName: '花子',
+  userLogin: 'hanako',
+  text: 'こんばんは！',
+}
+
+const 記録: Viewer = {
+  userId: '100',
+  login: 'hanako',
+  displayName: '花子',
+  firstSeenAt: '2026-06-01T12:00:00.000Z',
+  lastSeenAt: '2026-09-21T12:00:00.000Z',
+  messageCount: 42,
+  badges: ['subscriber'],
+  note: 'ギターの話が好き',
+}
+
+const 常連の来訪 = { firstChatOfStream: false, firstChatEver: false, daysSinceLastChat: 1.5 }
+
+/** 決まった文面を返すLLMの代役。渡された引数を控えて、材料が漏れていないかを確かめられるようにする */
+const 代役 = (response: unknown): TextGenerator & { 呼ばれた: { model: string; input: Record<string, unknown> }[] } => {
+  const 呼ばれた: { model: string; input: Record<string, unknown> }[] = []
+  return {
+    呼ばれた,
+    run: (model, input) => {
+      呼ばれた.push({ model, input })
+      return Promise.resolve(response)
+    },
+  }
+}
+
+describe('buildPrompt', () => {
+  it('配信者の指示・相手の名前・発言の本文を材料に入れる', () => {
+    const prompt = buildPrompt({
+      instruction: '初めて来てくれた人を歓迎してください',
+      extracted: 発言のイベント,
+      viewer: null,
+      state: { firstChatOfStream: true, firstChatEver: true, daysSinceLastChat: null },
+    })
+
+    expect(prompt).toContain('初めて来てくれた人を歓迎してください')
+    expect(prompt).toContain('花子')
+    expect(prompt).toContain('こんばんは！')
+  })
+
+  it('記録のある人では、メモ・発言数・初回と最後の発言日時を材料に入れる', () => {
+    const prompt = buildPrompt({ instruction: '一言返してください', extracted: 発言のイベント, viewer: 記録, state: 常連の来訪 })
+
+    expect(prompt).toContain('ギターの話が好き')
+    expect(prompt).toContain('42')
+    expect(prompt).toContain('2026-06-01')
+  })
+
+  it('このチャンネルで初めての人だと分かるように書く', () => {
+    const prompt = buildPrompt({
+      instruction: '歓迎してください',
+      extracted: 発言のイベント,
+      viewer: null,
+      state: { firstChatOfStream: true, firstChatEver: true, daysSinceLastChat: null },
+    })
+
+    expect(prompt).toContain('このチャンネルで初めての発言')
+  })
+
+  it('久しぶりの人では、何日空いたかを書く', () => {
+    const prompt = buildPrompt({
+      instruction: '歓迎してください',
+      extracted: 発言のイベント,
+      viewer: 記録,
+      state: { firstChatOfStream: true, firstChatEver: false, daysSinceLastChat: 30.4 },
+    })
+
+    expect(prompt).toContain('30日ぶり')
+  })
+
+  it('発言以外のイベント（フォローなど）でも、そのイベントが分かるように書く', () => {
+    const prompt = buildPrompt({
+      instruction: 'お礼を言ってください',
+      extracted: { event: 'channel.follow', userName: '太郎', userLogin: 'taro' },
+      viewer: null,
+      state: { firstChatOfStream: false, firstChatEver: false, daysSinceLastChat: null },
+    })
+
+    expect(prompt).toContain('太郎')
+    expect(prompt).toContain('フォロー')
+  })
+
+  it('Twitchの上限（500文字）に収めるよう指示する', () => {
+    const prompt = buildPrompt({ instruction: '一言返してください', extracted: 発言のイベント, viewer: 記録, state: 常連の来訪 })
+
+    expect(prompt).toContain('500文字')
+  })
+})
+
+describe('generateChatMessage', () => {
+  const 材料 = { instruction: '一言返してください', extracted: 発言のイベント, viewer: 記録, state: 常連の来訪 }
+
+  it('LLMが返した文面を返す', async () => {
+    const ai = 代役({ response: '花子さん、こんばんは！' })
+
+    expect(await generateChatMessage(ai, 材料)).toBe('花子さん、こんばんは！')
+  })
+
+  it('前後の空白と改行を取り除く（Twitchのチャットは1行で流れるため）', async () => {
+    const ai = 代役({ response: '  花子さん、\nこんばんは！  ' })
+
+    expect(await generateChatMessage(ai, 材料)).toBe('花子さん、 こんばんは！')
+  })
+
+  it('500文字を超えた文面は、切り詰めずに送るのをやめる（意味の壊れた文を流さないため）', async () => {
+    const ai = 代役({ response: 'あ'.repeat(501) })
+
+    await expect(generateChatMessage(ai, 材料)).rejects.toThrow(/500文字/)
+  })
+
+  it('文面が空なら送るのをやめる', async () => {
+    const ai = 代役({ response: '   ' })
+
+    await expect(generateChatMessage(ai, 材料)).rejects.toThrow(/文面/)
+  })
+
+  it('返ってきた形が想定と違えば、黙って捨てずに失敗させる', async () => {
+    const ai = 代役({ 応答: 'これは想定した形ではない' })
+
+    await expect(generateChatMessage(ai, 材料)).rejects.toThrow(/応答/)
+  })
+
+  it('材料を組み立てたプロンプトをLLMへ渡す', async () => {
+    const ai = 代役({ response: 'こんばんは！' })
+
+    await generateChatMessage(ai, 材料)
+
+    expect(ai.呼ばれた).toHaveLength(1)
+    expect(JSON.stringify(ai.呼ばれた[0]?.input)).toContain('ギターの話が好き')
+  })
+})

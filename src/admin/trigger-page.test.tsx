@@ -447,6 +447,37 @@ describe('トリガー', () => {
     ])
   })
 
+  test('LLMへの指示を入れて保存すると、aiChat の動作として送る', async () => {
+    const api = 代役のAPI()
+    render(トリガーのページ(api))
+
+    const row = await 開いたトリガー()
+    await userEvent.click(row.getByRole('checkbox', { name: 'アラートを出す' }))
+    await userEvent.click(row.getByRole('checkbox', { name: 'AIに文面を作らせて送る' }))
+    await userEvent.type(row.getByLabelText('AIへの指示'), '初めて来てくれた人を歓迎してください')
+    await userEvent.click(screen.getByRole('button', { name: 'トリガーを保存' }))
+
+    expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
+    expect(api.saveConfig).toHaveBeenCalledWith([
+      {
+        event: REDEMPTION,
+        conditions: [{ kind: 'reward', rewardId: 'reward-hakushu' }],
+        actions: [{ type: 'aiChat', instruction: '初めて来てくれた人を歓迎してください' }],
+      },
+    ])
+  })
+
+  test('「チャットに送る」と「AIに文面を作らせて送る」は同時に選べない（同じ発言に2通返ってしまうため）', async () => {
+    render(トリガーのページ(代役のAPI()))
+
+    const row = await 開いたトリガー()
+    await userEvent.click(row.getByRole('checkbox', { name: 'チャットに送る' }))
+    await userEvent.click(row.getByRole('checkbox', { name: 'AIに文面を作らせて送る' }))
+
+    expect(row.getByRole('checkbox', { name: 'AIに文面を作らせて送る' })).toBeChecked()
+    expect(row.getByRole('checkbox', { name: 'チャットに送る' })).not.toBeChecked()
+  })
+
   test('アナウンスを送る文言と色を入れて保存すると、アナウンスの動作として送る', async () => {
     const api = 代役のAPI()
     render(トリガーのページ(api))

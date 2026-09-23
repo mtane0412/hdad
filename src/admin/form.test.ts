@@ -41,6 +41,8 @@ const 入力欄 = (overrides: Partial<TriggerDraft> = {}): TriggerDraft => ({
   announceEnabled: false,
   announceMessage: '',
   announceColor: 'primary',
+  aiChatEnabled: false,
+  aiChatInstruction: '',
   ...overrides,
 })
 
@@ -194,6 +196,36 @@ describe('toDraft', () => {
     const stored: StoredTrigger = { event: RAID, conditions: [], actions: [アラートの動作()] }
 
     expect(toDraft(stored)).toMatchObject({ announceEnabled: false, announceMessage: '', announceColor: 'primary' })
+  })
+})
+
+describe('LLMに文面を作らせる動作（aiChat）', () => {
+  it('入力欄の指示を、Workerへ送る aiChat の動作にする', () => {
+    const draft = 入力欄({ alertEnabled: false, aiChatEnabled: true, aiChatInstruction: '初めての人を歓迎してください' })
+
+    expect(toTriggerInput(draft).actions).toEqual([{ type: 'aiChat', instruction: '初めての人を歓迎してください' }])
+  })
+
+  it('印を外していれば、指示が残っていても送らない', () => {
+    const draft = 入力欄({ aiChatEnabled: false, aiChatInstruction: '書きかけの指示' })
+
+    expect(toTriggerInput(draft).actions).toEqual([{ type: 'alert', mediaId: 'sozai-1', durationSeconds: 5, volume: 1, message: '' }])
+  })
+
+  it('保存済みの aiChat の動作は、指示の入力欄を埋めて戻す', () => {
+    const stored: StoredTrigger = { event: RAID, conditions: [], actions: [{ type: 'aiChat', instruction: 'レイドのお礼を言ってください' }] }
+
+    expect(toDraft(stored)).toMatchObject({ aiChatEnabled: true, aiChatInstruction: 'レイドのお礼を言ってください' })
+  })
+
+  it('aiChat の動作を持たないトリガーは、指示を空にして戻す', () => {
+    const stored: StoredTrigger = { event: RAID, conditions: [], actions: [アラートの動作()] }
+
+    expect(toDraft(stored)).toMatchObject({ aiChatEnabled: false, aiChatInstruction: '' })
+  })
+
+  it('要約には「AIチャット」として出す', () => {
+    expect(triggerSummary(入力欄({ event: RAID, alertEnabled: false, aiChatEnabled: true }), [])).toBe('レイド → AIチャット')
   })
 })
 
