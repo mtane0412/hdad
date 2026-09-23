@@ -30,6 +30,15 @@ export const MAX_VIEWER_SUMMARY_LENGTH = 200
 /** 作らせる人物像の長さの上限（トークン）。上限の文字数に収めるうえで足りる長さにする */
 const MAX_TOKENS = 200
 
+/**
+ * 返ってきた人物像そのものに問題があったときの失敗（空・上限より長い）。
+ *
+ * LLMを呼べなかった失敗（無料枠切れ・通信の失敗）と区別するために分けている。呼び出し側（worker/collect.ts）は、
+ * この失敗ならその人を飛ばして次の人へ進む（同じ材料からは何度やっても同じ結果になりやすく、その人が
+ * 列の先頭を塞ぐとほかの人の人物像がいつまでも作られないため）。
+ */
+export class ViewerSummaryContentError extends Error {}
+
 /** 人物像を作るための材料 */
 export interface ViewerSummaryMaterial {
   /** その人の記録。前回までの人物像（summary）と配信者のメモ（note）もここから読む */
@@ -78,7 +87,8 @@ export const buildSummaryPrompt = (material: ViewerSummaryMaterial): string => {
 /**
  * 材料から人物像を1つ作る。
  *
- * @throws Error LLMが失敗した（無料枠切れを含む）、応答の形が違う、人物像が空、上限より長い場合。
+ * @throws ViewerSummaryContentError 返ってきた人物像が空、または上限より長い場合（その人を飛ばして次へ進める）
+ * @throws Error LLMが失敗した（無料枠切れを含む）、応答の形が違う場合。
  *   いずれも呼び出し側（worker/collect.ts）が viewer-summary-failed として記録し、材料は消さずに残す
  */
 export const generateViewerSummary = async (ai: TextGenerator, material: ViewerSummaryMaterial): Promise<string> => {
@@ -92,9 +102,9 @@ export const generateViewerSummary = async (ai: TextGenerator, material: ViewerS
 
   // 人物像は1行で貯めるので、改行はそのまま残さず空白へ直す
   const summary = readResponse(result).replaceAll(/\s*\n\s*/g, ' ').trim()
-  if (summary === '') throw new Error('LLMが空の人物像を返したため、記録しませんでした')
+  if (summary === '') throw new ViewerSummaryContentError('LLMが空の人物像を返したため、記録しませんでした')
   if (summary.length > MAX_VIEWER_SUMMARY_LENGTH) {
-    throw new Error(
+    throw new ViewerSummaryContentError(
       `LLMが作った人物像が${summary.length}文字で、上限（${MAX_VIEWER_SUMMARY_LENGTH}文字）を超えたため記録しませんでした: ${summary.slice(0, 100)}…`,
     )
   }

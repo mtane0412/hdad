@@ -326,6 +326,38 @@ describe('readChatHistory', () => {
   })
 })
 
+describe('deleteViewer（人物像の材料）', () => {
+  it('記録を消したら、まだ人物像にしていない発言の本文も、配信中のぶんまで含めて消す', async () => {
+    const db = createFakeDatabase()
+    await recordViewerMessage(db, 発言(), 現在時刻)
+    db.sqlite
+      .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, NULL, ?, ?)')
+      .run('haishin-1', new Date(現在時刻).toISOString(), '雑談配信', 'Just Chatting')
+    db.sqlite
+      .prepare('INSERT INTO stream_chat_messages (message_id, session_id, user_id, sent_at, text) VALUES (?, ?, ?, ?, ?)')
+      .run('hatsugen-1', 'haishin-1', '100', new Date(現在時刻).toISOString(), 'こんばんは')
+
+    expect(await deleteViewer(db, '100')).toBe(true)
+
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM stream_chat_messages').get()).toEqual({ count: 0 })
+  })
+
+  it('ほかの人の発言の本文は消さない', async () => {
+    const db = createFakeDatabase()
+    await recordViewerMessage(db, 発言(), 現在時刻)
+    db.sqlite
+      .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, NULL, ?, ?)')
+      .run('haishin-1', new Date(現在時刻).toISOString(), '雑談配信', 'Just Chatting')
+    db.sqlite
+      .prepare('INSERT INTO stream_chat_messages (message_id, session_id, user_id, sent_at, text) VALUES (?, ?, ?, ?, ?)')
+      .run('hatsugen-2', 'haishin-1', '200', new Date(現在時刻).toISOString(), 'べつの人の発言')
+
+    await deleteViewer(db, '100')
+
+    expect(db.sqlite.prepare('SELECT user_id FROM stream_chat_messages').all()).toEqual([{ user_id: '200' }])
+  })
+})
+
 describe('updateViewerSummary', () => {
   it('記録のある人の人物像と、それを作った日時を書き換える', async () => {
     const db = createFakeDatabase()

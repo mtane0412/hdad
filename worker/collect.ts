@@ -12,7 +12,7 @@ import type { TextGenerator } from './ai-chat'
 import { deleteOldFirstChatters } from './chat-store'
 import type { Database } from './database'
 import { deleteOldStreamChatMessages, deleteStreamChatMessages, listSummaryTargets, readViewerMessages } from './stream-chat-store'
-import { generateViewerSummary } from './viewer-summary'
+import { ViewerSummaryContentError, generateViewerSummary } from './viewer-summary'
 import { readViewer, updateViewerSummary } from './viewer-store'
 import { closeOpenSessions, recordFailure, recordFollowerTotal, recordLiveStream } from './stats-store'
 import type { KeyValueStore } from './store'
@@ -79,8 +79,12 @@ const toFailureCode = (error: unknown): string => {
  * 材料が残っていること自体が「まだ作っていない」という印なので、作り終えた人のぶんはその場で消す
  * （stream-chat-store.ts）。1回に処理する人数を SUMMARY_BATCH_SIZE までに抑え、残りは次の収集に回す。
  *
- * 注意: LLMの失敗（無料枠切れを含む）では、そこで打ち切って失敗を記録し、材料は消さずに残す。
+ * 注意: LLMを呼べなかった失敗（無料枠切れ・通信の失敗）では、そこで打ち切って失敗を記録し、材料は消さずに残す。
  * 枠切れならその後の人も必ず失敗するので、同じ失敗を人数分積み上げない。材料が残るので次の収集でやり直せる。
+ * 注意: 返ってきた人物像そのものに問題があった失敗（ViewerSummaryContentError）では、その人だけを飛ばして次へ進む。
+ * その人の材料からは何度やっても同じ結果になりやすいので、打ち切るとその人が列の先頭（発言の多い順）を塞ぎ続け、
+ * ほかの人の人物像がいつまでも作られない。飛ばした人の材料は残るので、次の収集でやり直され、
+ * それでも作れなければ保持期間（STREAM_CHAT_RETENTION_MS）で消える。
  * 注意: この失敗で収集そのものを止めない。LLMが使えない日に、配信の記録（視聴者数・フォロワー数）まで
  * 止まってしまうのを避けるためである。黙って飛ばすのではなく collection_failures に残し、管理画面から気づけるようにする。
  */
@@ -100,6 +104,7 @@ const summarizeViewers = async (db: Database, ai: TextGenerator, now: number): P
       summary = await generateViewerSummary(ai, { viewer, messages })
     } catch (error) {
       await recordFailure(db, 'viewer-summary-failed', error instanceof Error ? error.message : String(error), now)
+      if (error instanceof ViewerSummaryContentError) continue
       return
     }
 

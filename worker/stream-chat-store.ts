@@ -116,6 +116,17 @@ export const deleteStreamChatMessages = async (db: Database, userId: string): Pr
 }
 
 /**
+ * その人の材料を、配信中のぶんまで含めてすべて消す。
+ *
+ * 視聴者の記録を消すとき（本人から求められたときに応じる削除）に呼ぶ。人物像づくりのあとの掃除
+ * （deleteStreamChatMessages）と違って配信中のぶんも消すのは、いま進んでいる配信の発言を残すと、
+ * 記録を消したあとも本文が手元に残り続けてしまうためである。
+ */
+export const deleteAllStreamChatMessages = async (db: Database, userId: string): Promise<void> => {
+  await db.prepare('DELETE FROM stream_chat_messages WHERE user_id = ?1').bind(userId).run()
+}
+
+/**
  * 古くなった材料を消す。
  *
  * 人物像を作れないまま残った材料（LLMの無料枠を使い切った日など）が積み上がらないようにするためのもので、

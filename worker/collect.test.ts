@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { TextGenerator } from './ai-chat'
+import { MAX_VIEWER_SUMMARY_LENGTH } from './viewer-summary'
 import { STREAM_CHAT_RETENTION_MS, SUMMARY_BATCH_SIZE, collectStats } from './collect'
 import { createFakeDatabase } from './fake-database'
 import { createFakeStore } from './fake-store'
@@ -239,6 +240,31 @@ describe('人物像の生成', () => {
 
     expect(ai.呼ばれた数()).toBe(0)
     expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM stream_chat_messages').get()).toEqual({ count: 0 })
+  })
+
+  it('その人の発言が原因の失敗（長すぎる・空）では、次の人へ進む（1人で列の先頭を塞がないため）', async () => {
+    const { db, store } = await 環境を作る()
+    await 終わった配信と発言を作る(db, '100')
+    await recordViewerMessage(db, { userId: '200', login: 'taro', displayName: '太郎', badges: [], messageId: 'chat-200' }, 現在時刻 - 10 * 60 * 1000)
+    db.sqlite
+      .prepare('INSERT INTO stream_chat_messages (message_id, session_id, user_id, sent_at, text) VALUES (?, ?, ?, ?, ?)')
+      .run('hatsugen-200', 'owatta-haishin', '200', new Date(現在時刻 - 45 * 60 * 1000).toISOString(), 'こんばんは')
+    // 先頭に来るのは発言の多い人なので、その人だけ上限を超える人物像が返るようにする
+    db.sqlite
+      .prepare('INSERT INTO stream_chat_messages (message_id, session_id, user_id, sent_at, text) VALUES (?, ?, ?, ?, ?)')
+      .run('hatsugen-100b', 'owatta-haishin', '100', new Date(現在時刻 - 44 * 60 * 1000).toISOString(), 'もう一言')
+    let 回数 = 0
+    const ai: TextGenerator = {
+      run: async () => {
+        回数 += 1
+        return { response: 回数 === 1 ? 'あ'.repeat(MAX_VIEWER_SUMMARY_LENGTH + 1) : '元気な人' }
+      },
+    }
+
+    await collectStats({ db, store, twitch: Twitchの代役(), ai, broadcasterId: 配信者のID, now: 現在時刻 })
+
+    expect(await readViewer(db, '200')).toMatchObject({ summary: '元気な人' })
+    expect(await listFailures(db)).toMatchObject([{ code: 'viewer-summary-failed' }])
   })
 
   it('1回の収集で人物像を作る人数に上限を設ける（Workers AI の無料枠を一度に使い切らないため）', async () => {
