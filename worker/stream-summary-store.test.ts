@@ -33,16 +33,16 @@ describe('readStreamSummary', () => {
       {
         sessionId: '配信1',
         summary: '新しいゲームの導入部を遊んでいます',
-        transcriptsUntil: '2026-09-23T20:09:00.000Z',
-        chatUntil: '2026-09-23T20:08:30.000Z',
+        transcriptsUntil: { at: '2026-09-23T20:09:00.000Z', messageId: '発話9' },
+        chatUntil: { at: '2026-09-23T20:08:30.000Z', messageId: '発言8' },
       },
       作成時刻,
     )
 
     expect(await readStreamSummary(db, '配信1')).toEqual({
       summary: '新しいゲームの導入部を遊んでいます',
-      transcriptsUntil: '2026-09-23T20:09:00.000Z',
-      chatUntil: '2026-09-23T20:08:30.000Z',
+      transcriptsUntil: { at: '2026-09-23T20:09:00.000Z', messageId: '発話9' },
+      chatUntil: { at: '2026-09-23T20:08:30.000Z', messageId: '発言8' },
       updatedAt: '2026-09-23T20:10:00.000Z',
     })
   })
@@ -52,27 +52,27 @@ describe('saveStreamSummary', () => {
   it('同じ配信で二度保存すると、行が増えずに書き換わる', async () => {
     await saveStreamSummary(
       db,
-      { sessionId: '配信1', summary: '導入部を遊んでいます', transcriptsUntil: '2026-09-23T20:09:00.000Z', chatUntil: '' },
+      { sessionId: '配信1', summary: '導入部を遊んでいます', transcriptsUntil: { at: '2026-09-23T20:09:00.000Z', messageId: '発話9' }, chatUntil: { at: '', messageId: '' } },
       作成時刻,
     )
     await saveStreamSummary(
       db,
-      { sessionId: '配信1', summary: '2つめの街に着きました', transcriptsUntil: '2026-09-23T20:14:00.000Z', chatUntil: '' },
+      { sessionId: '配信1', summary: '2つめの街に着きました', transcriptsUntil: { at: '2026-09-23T20:14:00.000Z', messageId: '発話14' }, chatUntil: { at: '', messageId: '' } },
       Date.parse('2026-09-23T20:15:00.000Z'),
     )
 
     expect((db.sqlite.prepare('SELECT COUNT(*) AS count FROM stream_summaries').get() as { count: number }).count).toBe(1)
     expect(await readStreamSummary(db, '配信1')).toEqual({
       summary: '2つめの街に着きました',
-      transcriptsUntil: '2026-09-23T20:14:00.000Z',
-      chatUntil: '',
+      transcriptsUntil: { at: '2026-09-23T20:14:00.000Z', messageId: '発話14' },
+      chatUntil: { at: '', messageId: '' },
       updatedAt: '2026-09-23T20:15:00.000Z',
     })
   })
 
   it('配信ごとに別の行として持つので、前の配信のあらすじは残ったまま混ざらない', async () => {
-    await saveStreamSummary(db, { sessionId: '配信1', summary: '前の配信の話', transcriptsUntil: '', chatUntil: '' }, 作成時刻)
-    await saveStreamSummary(db, { sessionId: '配信2', summary: '今日の配信の話', transcriptsUntil: '', chatUntil: '' }, 作成時刻)
+    await saveStreamSummary(db, { sessionId: '配信1', summary: '前の配信の話', transcriptsUntil: { at: '', messageId: '' }, chatUntil: { at: '', messageId: '' } }, 作成時刻)
+    await saveStreamSummary(db, { sessionId: '配信2', summary: '今日の配信の話', transcriptsUntil: { at: '', messageId: '' }, chatUntil: { at: '', messageId: '' } }, 作成時刻)
 
     expect((await readStreamSummary(db, '配信1'))?.summary).toBe('前の配信の話')
     expect((await readStreamSummary(db, '配信2'))?.summary).toBe('今日の配信の話')
@@ -82,14 +82,14 @@ describe('saveStreamSummary', () => {
 describe('readCurrentStreamSummary', () => {
   it('いま進んでいる配信のあらすじを返す', async () => {
     配信を始める('配信1')
-    await saveStreamSummary(db, { sessionId: '配信1', summary: '導入部を遊んでいます', transcriptsUntil: '', chatUntil: '' }, 作成時刻)
+    await saveStreamSummary(db, { sessionId: '配信1', summary: '導入部を遊んでいます', transcriptsUntil: { at: '', messageId: '' }, chatUntil: { at: '', messageId: '' } }, 作成時刻)
 
     expect(await readCurrentStreamSummary(db, 作成時刻)).toEqual({ summary: '導入部を遊んでいます', updatedAt: '2026-09-23T20:10:00.000Z' })
   })
 
   it('配信していなければ null を返す（前の配信のあらすじを持ち越さない）', async () => {
     配信を始める('配信1')
-    await saveStreamSummary(db, { sessionId: '配信1', summary: '前の配信の話', transcriptsUntil: '', chatUntil: '' }, 作成時刻)
+    await saveStreamSummary(db, { sessionId: '配信1', summary: '前の配信の話', transcriptsUntil: { at: '', messageId: '' }, chatUntil: { at: '', messageId: '' } }, 作成時刻)
     配信を終える(作成時刻 + 1000)
 
     expect(await readCurrentStreamSummary(db, 作成時刻 + 2000)).toBeNull()

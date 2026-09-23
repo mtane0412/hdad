@@ -13,17 +13,22 @@
 -- 長い配信でも1回あたりの入力が一定に保たれ、Workers AI の無料枠（Neurons）を食い潰さないためである
 -- （viewers の summary を前回のものを踏まえて書き直すのと同じ考え方）。
 --
--- そのため「どこまでを材料にしたか」を材料ごとに持つ。1列にまとめて両方の最大時刻を入れると、
+-- そのため「どこまでを材料にしたか」を材料ごとに持つ。1組にまとめて両方の最大時刻を入れると、
 -- 遅れているほうのテーブルの行が次回の読み出しから漏れる（文字起こしと発言は別々に届くため）。
--- まだ一度も作っていない配信では、呼び出し側が空文字を渡して全件を読む（ISO 8601 の文字列比較では
--- 空文字がどの日時よりも小さい）。
+--
+-- 目印は日時だけでは足りず、メッセージIDと組で持つ。記録する時刻はWorkerが受け取った時刻なので、
+-- 立て続けに届いた2件が同じ時刻になることがあり、そこで読み出しの件数の上限に当たると、残った同時刻の行が
+-- 次からの「この日時より後」に一度も入らず永久に漏れる。読む順（日時・メッセージIDの順）と同じ組で比べる。
+-- まだ一度も作っていない配信では、呼び出し側が空文字の組を渡して全件を読む（文字列比較では空文字が最小）。
 CREATE TABLE stream_summaries (
   session_id TEXT PRIMARY KEY,
   summary TEXT NOT NULL,
-  -- 材料にした発話（transcripts）の spoken_at のうち最も新しいもの
+  -- 最後に材料にした発話（transcripts）の spoken_at と message_id
   transcripts_until TEXT NOT NULL,
-  -- 材料にした発言（stream_chat_messages）の sent_at のうち最も新しいもの
+  transcripts_until_id TEXT NOT NULL,
+  -- 最後に材料にした発言（stream_chat_messages）の sent_at と message_id
   chat_until TEXT NOT NULL,
+  chat_until_id TEXT NOT NULL,
   -- このあらすじを作った日時。コマンドの応答に「いつ時点か」を添えられるようにするために持つ
   updated_at TEXT NOT NULL
 );

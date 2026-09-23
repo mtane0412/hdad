@@ -86,9 +86,9 @@ describe('readTranscriptsSince', () => {
     await recordTranscript(db, { messageId: '発話2', text: '二番目' }, 発話時刻 + 1000)
     await recordTranscript(db, { messageId: '発話1', text: '一番目' }, 発話時刻)
 
-    expect(await readTranscriptsSince(db, '配信1', '', 10)).toEqual([
-      { text: '一番目', at: '2026-09-23T20:05:00.000Z' },
-      { text: '二番目', at: '2026-09-23T20:05:01.000Z' },
+    expect(await readTranscriptsSince(db, '配信1', { at: '', messageId: '' }, 10)).toEqual([
+      { text: '一番目', at: '2026-09-23T20:05:00.000Z', messageId: '発話1' },
+      { text: '二番目', at: '2026-09-23T20:05:01.000Z', messageId: '発話2' },
     ])
   })
 
@@ -97,8 +97,8 @@ describe('readTranscriptsSince', () => {
     await recordTranscript(db, { messageId: '発話1', text: '前回までに読んだ話' }, 発話時刻)
     await recordTranscript(db, { messageId: '発話2', text: 'まだ読んでいない話' }, 発話時刻 + 1000)
 
-    expect(await readTranscriptsSince(db, '配信1', '2026-09-23T20:05:00.000Z', 10)).toEqual([
-      { text: 'まだ読んでいない話', at: '2026-09-23T20:05:01.000Z' },
+    expect(await readTranscriptsSince(db, '配信1', { at: '2026-09-23T20:05:00.000Z', messageId: '発話1' }, 10)).toEqual([
+      { text: 'まだ読んでいない話', at: '2026-09-23T20:05:01.000Z', messageId: '発話2' },
     ])
   })
 
@@ -109,7 +109,21 @@ describe('readTranscriptsSince', () => {
     配信を始める('配信2', 発話時刻 + 2000)
     await recordTranscript(db, { messageId: '発話2', text: '今の配信の話' }, 発話時刻 + 3000)
 
-    expect(await readTranscriptsSince(db, '配信2', '', 10)).toEqual([{ text: '今の配信の話', at: '2026-09-23T20:05:03.000Z' }])
+    expect(await readTranscriptsSince(db, '配信2', { at: '', messageId: '' }, 10)).toEqual([{ text: '今の配信の話', at: '2026-09-23T20:05:03.000Z', messageId: '発話2' }])
+  })
+
+  it('同じ時刻の発話の途中で上限に当たっても、残りは次に読める（取りこぼさない）', async () => {
+    配信を始める('配信1')
+    // ゆかコネNEO からの押し込みが立て続けに届くと、記録する時刻（Workerが受け取った時刻）が同じになりうる
+    await recordTranscript(db, { messageId: '発話A', text: '同時刻の一件目' }, 発話時刻)
+    await recordTranscript(db, { messageId: '発話B', text: '同時刻の二件目' }, 発話時刻)
+
+    const 一度目 = await readTranscriptsSince(db, '配信1', { at: '', messageId: '' }, 1)
+    expect(一度目).toEqual([{ text: '同時刻の一件目', at: '2026-09-23T20:05:00.000Z', messageId: '発話A' }])
+
+    expect(await readTranscriptsSince(db, '配信1', 一度目.at(-1)!, 10)).toEqual([
+      { text: '同時刻の二件目', at: '2026-09-23T20:05:00.000Z', messageId: '発話B' },
+    ])
   })
 
   it('件数の上限を超えたぶんは、新しいほうを切る（次に作るときへ回す）', async () => {
@@ -117,7 +131,7 @@ describe('readTranscriptsSince', () => {
     await recordTranscript(db, { messageId: '発話1', text: '一番目' }, 発話時刻)
     await recordTranscript(db, { messageId: '発話2', text: '二番目' }, 発話時刻 + 1000)
 
-    expect(await readTranscriptsSince(db, '配信1', '', 1)).toEqual([{ text: '一番目', at: '2026-09-23T20:05:00.000Z' }])
+    expect(await readTranscriptsSince(db, '配信1', { at: '', messageId: '' }, 1)).toEqual([{ text: '一番目', at: '2026-09-23T20:05:00.000Z', messageId: '発話1' }])
   })
 })
 

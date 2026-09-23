@@ -156,9 +156,9 @@ describe('readSessionChatSince', () => {
     await recordStreamChatMessage(db, 発言({ messageId: '発言2', text: 'がんばってー' }), 配信開始 + 一分 * 2)
     await recordStreamChatMessage(db, 発言({ messageId: '発言1', text: 'こんばんは！' }), 配信開始 + 一分)
 
-    expect(await readSessionChatSince(db, 'stream-1', '', 10)).toEqual([
-      { text: 'こんばんは！', at: new Date(配信開始 + 一分).toISOString() },
-      { text: 'がんばってー', at: new Date(配信開始 + 一分 * 2).toISOString() },
+    expect(await readSessionChatSince(db, 'stream-1', { at: '', messageId: '' }, 10)).toEqual([
+      { text: 'こんばんは！', at: new Date(配信開始 + 一分).toISOString(), messageId: '発言1' },
+      { text: 'がんばってー', at: new Date(配信開始 + 一分 * 2).toISOString(), messageId: '発言2' },
     ])
   })
 
@@ -168,8 +168,8 @@ describe('readSessionChatSince', () => {
     await recordStreamChatMessage(db, 発言({ messageId: '発言1', text: '前回までに読んだ発言' }), 配信開始 + 一分)
     await recordStreamChatMessage(db, 発言({ messageId: '発言2', text: 'まだ読んでいない発言' }), 配信開始 + 一分 * 2)
 
-    expect(await readSessionChatSince(db, 'stream-1', new Date(配信開始 + 一分).toISOString(), 10)).toEqual([
-      { text: 'まだ読んでいない発言', at: new Date(配信開始 + 一分 * 2).toISOString() },
+    expect(await readSessionChatSince(db, 'stream-1', { at: new Date(配信開始 + 一分).toISOString(), messageId: '発言1' }, 10)).toEqual([
+      { text: 'まだ読んでいない発言', at: new Date(配信開始 + 一分 * 2).toISOString(), messageId: '発言2' },
     ])
   })
 
@@ -179,6 +179,23 @@ describe('readSessionChatSince', () => {
     await recordStreamChatMessage(db, 発言({ messageId: '発言1', text: '一番目' }), 配信開始 + 一分)
     await recordStreamChatMessage(db, 発言({ messageId: '発言2', text: '二番目' }), 配信開始 + 一分 * 2)
 
-    expect(await readSessionChatSince(db, 'stream-1', '', 1)).toEqual([{ text: '一番目', at: new Date(配信開始 + 一分).toISOString() }])
+    expect(await readSessionChatSince(db, 'stream-1', { at: '', messageId: '' }, 1)).toEqual([{ text: '一番目', at: new Date(配信開始 + 一分).toISOString(), messageId: '発言1' }])
+  })
+})
+
+describe('readSessionChatSince の取りこぼし', () => {
+  it('同じ時刻の発言の途中で上限に当たっても、残りは次に読める', async () => {
+    const db = createFakeDatabase()
+    await 配信を始める(db)
+    // 立て続けに届いた通知は、記録する時刻（Workerが受け取った時刻）が同じになりうる
+    await recordStreamChatMessage(db, 発言({ messageId: '発言A', text: '同時刻の一件目' }), 配信開始 + 一分)
+    await recordStreamChatMessage(db, 発言({ messageId: '発言B', text: '同時刻の二件目' }), 配信開始 + 一分)
+
+    const 一度目 = await readSessionChatSince(db, 'stream-1', { at: '', messageId: '' }, 1)
+    expect(一度目).toEqual([{ text: '同時刻の一件目', at: new Date(配信開始 + 一分).toISOString(), messageId: '発言A' }])
+
+    expect(await readSessionChatSince(db, 'stream-1', 一度目.at(-1)!, 10)).toEqual([
+      { text: '同時刻の二件目', at: new Date(配信開始 + 一分).toISOString(), messageId: '発言B' },
+    ])
   })
 })

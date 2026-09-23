@@ -554,7 +554,7 @@ describe('チャットの応答の設定・連打・再送', () => {
     await recordLiveStream(db, 雑談配信, 現在時刻 - 60 * 1000)
     await saveStreamSummary(
       db,
-      { sessionId: 雑談配信.id, summary: '配信者は新しいゲームを遊んでいます', transcriptsUntil: '', chatUntil: '' },
+      { sessionId: 雑談配信.id, summary: '配信者は新しいゲームを遊んでいます', transcriptsUntil: { at: '', messageId: '' }, chatUntil: { at: '', messageId: '' } },
       現在時刻 - 30 * 1000,
     )
     const twitch = 送信に応えるTwitch()

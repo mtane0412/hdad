@@ -120,8 +120,11 @@ const toFailureCode = (error: unknown): string => {
  */
 const summarizeStream = async (db: Database, ai: TextGenerator, sessionId: string, now: number): Promise<void> => {
   const previous = await readStreamSummary(db, sessionId)
-  const transcripts = await readTranscriptsSince(db, sessionId, previous?.transcriptsUntil ?? '', STREAM_SUMMARY_TRANSCRIPT_LIMIT)
-  const chats = await readSessionChatSince(db, sessionId, previous?.chatUntil ?? '', STREAM_SUMMARY_CHAT_LIMIT)
+  // まだ一度も作っていなければ、どの行よりも前を指す目印（空文字の組）から読む
+  const transcriptsFrom = previous?.transcriptsUntil ?? { at: '', messageId: '' }
+  const chatFrom = previous?.chatUntil ?? { at: '', messageId: '' }
+  const transcripts = await readTranscriptsSince(db, sessionId, transcriptsFrom, STREAM_SUMMARY_TRANSCRIPT_LIMIT)
+  const chats = await readSessionChatSince(db, sessionId, chatFrom, STREAM_SUMMARY_CHAT_LIMIT)
   if (transcripts.length === 0 && chats.length === 0) return
 
   let summary: string
@@ -138,15 +141,17 @@ const summarizeStream = async (db: Database, ai: TextGenerator, sessionId: strin
     return
   }
 
-  // 読めた材料の最後の時刻を「どこまで材料にしたか」として記録する。件数の上限で切れた残りは、
-  // この時刻より後ろにあるので次の収集で読まれる（取りこぼしにはならない）
+  // 読めた材料の最後の行を「どこまで材料にしたか」の目印として記録する。件数の上限で切れた残りは、
+  // 読む順（日時・メッセージIDの順）でこの目印より後ろにあるので、次の収集で読まれる（取りこぼしにはならない）
+  const 最後の発話 = transcripts.at(-1)
+  const 最後の発言 = chats.at(-1)
   await saveStreamSummary(
     db,
     {
       sessionId,
       summary,
-      transcriptsUntil: transcripts.at(-1)?.at ?? previous?.transcriptsUntil ?? '',
-      chatUntil: chats.at(-1)?.at ?? previous?.chatUntil ?? '',
+      transcriptsUntil: 最後の発話 ? { at: 最後の発話.at, messageId: 最後の発話.messageId } : transcriptsFrom,
+      chatUntil: 最後の発言 ? { at: 最後の発言.at, messageId: 最後の発言.messageId } : chatFrom,
     },
     now,
   )

@@ -348,8 +348,8 @@ describe('あらすじの生成', () => {
 
     expect(await readStreamSummary(db, 雑談配信.id)).toEqual({
       summary: '配信者は新しいゲームを始めたところです',
-      transcriptsUntil: new Date(現在時刻 - 2 * 60 * 1000).toISOString(),
-      chatUntil: new Date(現在時刻 - 60 * 1000).toISOString(),
+      transcriptsUntil: { at: new Date(現在時刻 - 2 * 60 * 1000).toISOString(), messageId: 'hatsuwa-1' },
+      chatUntil: { at: new Date(現在時刻 - 60 * 1000).toISOString(), messageId: 'hatsugen-1' },
       updatedAt: new Date(現在時刻).toISOString(),
     })
   })
