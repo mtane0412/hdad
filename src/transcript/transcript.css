@@ -46,7 +46,7 @@
 
 .transcript-line {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto 1fr auto;
   gap: 10px;
   padding: 3px 0;
 }
@@ -56,8 +56,28 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* 取り消された発話は消さずに残す。何が取り消されたかを確認できるようにするため */
-.transcript-line--deleted {
+.transcript-mark {
+  color: #8b93a3;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* Worker が記録した行は印だけ緑にする（本文はそのまま読めるようにしておく） */
+.transcript-line[data-state='recorded'] .transcript-mark {
+  color: #9be89b;
+}
+
+/* 配信していなくて捨てられた行は、記録済みの行と見分けが付くよう本文も薄くする */
+.transcript-line[data-state='discarded'] {
+  color: #8b93a3;
+}
+
+.transcript-line[data-state='failed'] .transcript-mark {
+  color: #ffb4b4;
+}
+
+/* 取り消された発話は画面からは消さずに残す。何が取り消されたかを確認できるようにするため */
+.transcript-line[data-state='deleted'] {
   color: #8b93a3;
   text-decoration: line-through;
 }

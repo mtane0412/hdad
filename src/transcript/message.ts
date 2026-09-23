@@ -130,3 +130,16 @@ export const nextTranscriptState = (
   handled.add(update.messageId)
   return { state: { handled }, action: { kind: 'send', messageId: update.messageId, text: update.text } }
 }
+
+/**
+ * 覚えている発話を1件忘れる。
+ *
+ * 送信に失敗したときに呼ぶ。ゆかコネNEO は確定したあとの1件を、表示の残り時間（KeepTime）が尽きるまで
+ * 繰り返し押し出してくるので、忘れておけば次の1件でひとりでに送り直される（やり直しの仕掛けを別に作らずに済む）。
+ */
+export const forgetTranscript = (state: TranscriptState, messageId: string): TranscriptState => {
+  if (!state.handled.has(messageId)) return state
+  const handled = new Set(state.handled)
+  handled.delete(messageId)
+  return { handled }
+}

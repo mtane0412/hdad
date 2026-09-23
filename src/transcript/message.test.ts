@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { EMPTY_TRANSCRIPT_STATE, TranscriptMessageError, nextTranscriptState, readTranscriptMessage } from './message'
+import { EMPTY_TRANSCRIPT_STATE, TranscriptMessageError, forgetTranscript, nextTranscriptState, readTranscriptMessage } from './message'
 
 /** ゆかコネNEO が送ってくる1件を組み立てる（省略した項目は既定の形にする） */
 const 受信データ = (overrides: Record<string, unknown> = {}): string =>
@@ -128,5 +128,20 @@ describe('nextTranscriptState', () => {
     const { state, action } = nextTranscriptState(EMPTY_TRANSCRIPT_STATE, { kind: 'ignored' })
     expect(action).toBeNull()
     expect(state).toBe(EMPTY_TRANSCRIPT_STATE)
+  })
+})
+
+describe('forgetTranscript', () => {
+  it('忘れた発話は、同じ1件がまた届いたときにもう一度送る', () => {
+    const 送信後 = nextTranscriptState(EMPTY_TRANSCRIPT_STATE, { kind: 'spoken', messageId: 'あいさつ', text: 'こんばんは' })
+    const 忘れたあと = forgetTranscript(送信後.state, 'あいさつ')
+
+    const { action } = nextTranscriptState(忘れたあと, { kind: 'spoken', messageId: 'あいさつ', text: 'こんばんは' })
+
+    expect(action).toEqual({ kind: 'send', messageId: 'あいさつ', text: 'こんばんは' })
+  })
+
+  it('覚えていない発話を忘れても、状態は変わらない', () => {
+    expect(forgetTranscript(EMPTY_TRANSCRIPT_STATE, '知らない発話')).toBe(EMPTY_TRANSCRIPT_STATE)
   })
 })

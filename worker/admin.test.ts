@@ -15,6 +15,7 @@ import { createFakeStore } from './fake-store'
 import { handleRequest, type Env } from './index'
 import { createSessionToken } from './session'
 import { saveToken } from './token'
+import { TRANSCRIPT_MAX_LENGTH } from './overlay-routes'
 
 const 現在時刻 = Date.UTC(2026, 8, 21, 12, 0, 0)
 const 配信者のID = '12345'
@@ -270,6 +271,131 @@ describe('オーバーレイ用API', () => {
 
     expect(response.status).toBe(400)
     expect(await エラーコード(response)).toBe('expected-websocket')
+  })
+
+  describe('POST /api/overlay/transcript（文字起こしの受け口）', () => {
+    /** 配信中の区切りを1件作る。ended_at が NULL なら配信中である */
+    const 配信を始める = (env: Env): void => {
+      ;(env.DB as ReturnType<typeof createFakeDatabase>).sqlite
+        .prepare('INSERT INTO stream_sessions (id, started_at, title, category_name) VALUES (?, ?, ?, ?)')
+        .run('配信1', new Date(現在時刻 - 60_000).toISOString(), '雑談配信', 'Just Chatting')
+    }
+
+    const 送る = (env: Env, body: unknown, key = 発行済みのキー) =>
+      呼び出す(
+        new Request(`${サイト}/api/overlay/transcript?key=${key}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: typeof body === 'string' ? body : JSON.stringify(body),
+        }),
+        env,
+      )
+
+    const 行を数える = (env: Env): number =>
+      (
+        (env.DB as ReturnType<typeof createFakeDatabase>).sqlite.prepare('SELECT COUNT(*) AS count FROM transcripts').get() as {
+          count: number
+        }
+      ).count
+
+    it('配信中なら、届いた発話を記録して記録したと答える', async () => {
+      const { env } = 環境を作る()
+      配信を始める(env)
+
+      const response = await 送る(env, { messageId: '発話1', text: 'こんばんは、配信を始めます' })
+
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({ recorded: true })
+      expect(行を数える(env)).toBe(1)
+    })
+
+    it('配信していなければ捨て、捨てたと答える', async () => {
+      const { env } = 環境を作る()
+
+      const response = await 送る(env, { messageId: '独り言', text: 'マイクの確認です' })
+
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({ recorded: false })
+      expect(行を数える(env)).toBe(0)
+    })
+
+    it('同じメッセージIDが二度届いても行が増えない', async () => {
+      const { env } = 環境を作る()
+      配信を始める(env)
+
+      await 送る(env, { messageId: '発話1', text: 'こんばんは' })
+      const response = await 送る(env, { messageId: '発話1', text: 'こんばんは' })
+
+      expect(response.status).toBe(200)
+      expect(行を数える(env)).toBe(1)
+    })
+
+    it('オーバーレイ用キーが違えば401を返し、記録しない', async () => {
+      const { env } = 環境を作る()
+      配信を始める(env)
+
+      const response = await 送る(env, { messageId: '発話1', text: 'こんばんは' }, 'atezuppou')
+
+      expect(response.status).toBe(401)
+      expect(await エラーコード(response)).toBe('invalid-overlay-key')
+      expect(行を数える(env)).toBe(0)
+    })
+
+    it('JSONでない本文は400で拒否する', async () => {
+      const { env } = 環境を作る()
+      const response = await 送る(env, 'JSONではない')
+      expect(response.status).toBe(400)
+      expect(await エラーコード(response)).toBe('invalid-body')
+    })
+
+    it('メッセージIDが無ければ400で拒否する', async () => {
+      const { env } = 環境を作る()
+      const response = await 送る(env, { text: 'こんばんは' })
+      expect(response.status).toBe(400)
+      expect(await エラーコード(response)).toBe('invalid-message-id')
+    })
+
+    it('本文が空なら400で拒否する', async () => {
+      const { env } = 環境を作る()
+      const response = await 送る(env, { messageId: '発話1', text: '   ' })
+      expect(response.status).toBe(400)
+      expect(await エラーコード(response)).toBe('invalid-text')
+    })
+
+    it('本文が長すぎれば400で拒否する', async () => {
+      const { env } = 環境を作る()
+      const response = await 送る(env, { messageId: '発話1', text: 'あ'.repeat(TRANSCRIPT_MAX_LENGTH + 1) })
+      expect(response.status).toBe(400)
+      expect(await エラーコード(response)).toBe('text-too-long')
+    })
+
+    it('DELETE は記録済みの発話を取り消す', async () => {
+      const { env } = 環境を作る()
+      配信を始める(env)
+      await 送る(env, { messageId: '言い間違い', text: 'えーと' })
+
+      const response = await 呼び出す(new Request(`${サイト}/api/overlay/transcript/言い間違い?key=${発行済みのキー}`, { method: 'DELETE' }), env)
+
+      expect(response.status).toBe(204)
+      expect(行を数える(env)).toBe(0)
+    })
+
+    it('DELETE も、オーバーレイ用キーが違えば401を返す', async () => {
+      const { env } = 環境を作る()
+      配信を始める(env)
+      await 送る(env, { messageId: '言い間違い', text: 'えーと' })
+
+      const response = await 呼び出す(new Request(`${サイト}/api/overlay/transcript/言い間違い?key=atezuppou`, { method: 'DELETE' }), env)
+
+      expect(response.status).toBe(401)
+      expect(行を数える(env)).toBe(1)
+    })
+
+    it('DELETE は、記録の無い発話でも204を返す（取り消しは何度届いても同じ結果にする）', async () => {
+      const { env } = 環境を作る()
+      const response = await 呼び出す(new Request(`${サイト}/api/overlay/transcript/知らない発話?key=${発行済みのキー}`, { method: 'DELETE' }), env)
+      expect(response.status).toBe(204)
+    })
   })
 
   it('GET /api/media/:id は、正しいキーなら素材の中身を種類付きで返す', async () => {

@@ -3,7 +3,7 @@
  *
  * Twitchには過去の視聴者数の推移を返すAPIがなく、取れるのは「いま」の値だけなので、定期的に取得してデータベースへ貯める。
  * 1回の収集で、配信の状態（配信中ならセッションの開始・継続と視聴者数、配信していなければセッションの終了）と、フォロワー数を記録し、
- * あわせて終わった配信の発言から視聴者の人物像を作り、古くなった記録（first_chatters・stream_chat_messages）を消す。
+ * あわせて終わった配信の発言から視聴者の人物像を作り、古くなった記録（first_chatters・stream_chat_messages・transcripts）を消す。
  *
  * 注意: トークンが無い・更新できない・Twitchが失敗を返したときは、黙って飛ばさない。
  * 失敗をデータベース（collection_failures）に記録したうえでエラーを投げ、cron の実行も失敗として残す（Fail-Fast）。
@@ -12,6 +12,7 @@ import type { TextGenerator } from './ai-chat'
 import { deleteOldFirstChatters } from './chat-store'
 import type { Database } from './database'
 import { deleteOldStreamChatMessages, deleteStreamChatMessages, listSummaryTargets, readViewerMessages } from './stream-chat-store'
+import { deleteOldTranscripts } from './transcript-store'
 import { ViewerSummaryContentError, generateViewerSummary } from './viewer-summary'
 import { readViewer, updateViewerSummary } from './viewer-store'
 import { closeOpenSessions, recordFailure, recordFollowerTotal, recordLiveStream } from './stats-store'
@@ -54,6 +55,15 @@ const SUMMARY_MESSAGE_LIMIT = 50
  * 配信中の発言まで巻き添えにしないよう、1回の配信より十分に長くとる。
  */
 export const STREAM_CHAT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
+
+/**
+ * 配信中の文字起こしを残しておく期間（ミリ秒）。
+ *
+ * 文字起こしはあらすじ（issue #65）の材料として配信中だけ持つもので、終わった配信のぶんを残しておく
+ * 意味はない。それでも1日ぶん残すのは、配信の直後にあらすじを読み返せるようにするためである。
+ * 配信中の区切りのぶんは、この期間を過ぎても消さない（deleteOldTranscripts を参照）。
+ */
+export const TRANSCRIPT_RETENTION_MS = 24 * 60 * 60 * 1000
 
 export interface CollectStatsOptions {
   db: Database
@@ -141,6 +151,7 @@ const collect = async ({ db, store, twitch, ai, broadcasterId, now }: CollectSta
   // 配信を重ねるほど行が積み上がるので、収集のついでに古いぶんを消す
   await deleteOldFirstChatters(db, now - FIRST_CHATTER_RETENTION_MS)
   await deleteOldStreamChatMessages(db, now - STREAM_CHAT_RETENTION_MS)
+  await deleteOldTranscripts(db, now - TRANSCRIPT_RETENTION_MS)
 
   // 人物像づくりは、配信の記録を残したあとに行う（LLMが使えなくても記録は残す）
   await summarizeViewers(db, ai, now)
