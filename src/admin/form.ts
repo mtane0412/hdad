@@ -75,7 +75,8 @@ export const colorOptions: readonly SelectOption[] = ANNOUNCEMENT_COLORS.map((co
  * トリガー1件分の入力欄の値
  *
  * 動作（アラートを出す・チャットに送る）は、保存する形では配列だが、入力欄では種類ごとに決まった欄を出すほうが分かりやすいため、
- * 「行うかどうか」（alertEnabled・chatEnabled）と、それぞれの欄を平坦に持つ。外した動作の入力欄の値は保存時に送らない。
+ * 「行うかどうか」（alertEnabled・chatEnabled・announceEnabled・aiChatEnabled）と、それぞれの欄を平坦に持つ。
+ * 外した動作の入力欄の値は保存時に送らない。
  */
 /**
  * 入力欄で持つ条件1件。
@@ -104,6 +105,10 @@ export interface TriggerDraft {
   announceEnabled: boolean
   announceMessage: string
   announceColor: AnnouncementColor
+  /** LLMに文面を作らせて、botとしてチャットへ送るか（固定文言の chatEnabled とは同時に選べない） */
+  aiChatEnabled: boolean
+  /** 配信者が書く、文面の作り方の指示 */
+  aiChatInstruction: string
 }
 
 export interface SelectOption {
@@ -171,6 +176,7 @@ const toActions = (draft: TriggerDraft): ActionInput[] => {
   }
   if (draft.chatEnabled) actions.push({ type: 'chat', message: draft.chatMessage })
   if (draft.announceEnabled) actions.push({ type: 'announce', message: draft.announceMessage, color: draft.announceColor })
+  if (draft.aiChatEnabled) actions.push({ type: 'aiChat', instruction: draft.aiChatInstruction })
   return actions
 }
 
@@ -281,6 +287,7 @@ export const toDraft = (trigger: StoredTrigger): TriggerDraft => {
   const alert = trigger.actions.find((action) => action.type === 'alert')
   const chat = trigger.actions.find((action) => action.type === 'chat')
   const announce = trigger.actions.find((action) => action.type === 'announce')
+  const aiChat = trigger.actions.find((action) => action.type === 'aiChat')
 
   return {
     event: trigger.event,
@@ -299,6 +306,8 @@ export const toDraft = (trigger: StoredTrigger): TriggerDraft => {
     announceEnabled: announce !== undefined,
     announceMessage: announce?.message ?? '',
     announceColor: announce?.color ?? DEFAULT_ANNOUNCEMENT_COLOR,
+    aiChatEnabled: aiChat !== undefined,
+    aiChatInstruction: aiChat?.instruction ?? '',
   }
 }
 
@@ -350,6 +359,7 @@ export const triggerSummary = (draft: TriggerDraft, rewards: readonly Reward[]):
     draft.alertEnabled ? 'アラート' : null,
     draft.chatEnabled ? 'チャット' : null,
     draft.announceEnabled ? 'アナウンス' : null,
+    draft.aiChatEnabled ? 'AIチャット' : null,
   ].filter((label) => label !== null)
   // 条件を添えるときは（）が区切りになるので、矢印の前に空白を入れない
   const head = conditions === '' ? `${EVENT_LABELS[draft.event]} ` : `${EVENT_LABELS[draft.event]}（${conditions}）`

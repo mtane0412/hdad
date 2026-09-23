@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import { createFakeBucket } from './fake-bucket'
 import { createFakeDatabase } from './fake-database'
+import { createFakeAi } from './fake-ai'
 import { createFakeAlertChannel } from './fake-alert-channel'
 import { createFakeStore } from './fake-store'
 import { handleRequest, handleScheduled, type Env } from './index'
@@ -30,6 +31,7 @@ const 環境を作る = () => {
     SESSION_SECRET: 'テスト用のセッション秘密鍵',
     EVENTSUB_SECRET: 'テスト用のWebhookシークレット',
     ALERTS: createFakeAlertChannel().namespace,
+    AI: createFakeAi(),
   } satisfies Env
   return { env, db, store }
 }
@@ -41,7 +43,15 @@ const Twitchへは通信しない = async (input: RequestInfo | URL): Promise<Re
 /** アナウンスの送信間隔を空けるための待ちは、テストでは実際に待たない */
 const 待たない = async (): Promise<void> => {}
 
-const 呼び出す = (request: Request, env: Env) => handleRequest(request, env, { fetch: Twitchへは通信しない, now: () => 現在時刻, wait: 待たない })
+/**
+ * これらの経路は応答のあとに続く処理（waitUntil）を使わない。
+ * 黙って捨てると気づけなくなるので、預けられたら失敗させる（使うのは webhook-routes.test.ts だけ）。
+ */
+const 後回しにしない = (): void => {
+  throw new Error('このテストでは、応答のあとに続く処理を使いません')
+}
+
+const 呼び出す = (request: Request, env: Env) => handleRequest(request, env, { fetch: Twitchへは通信しない, now: () => 現在時刻, wait: 待たない, waitUntil: 後回しにしない })
 
 const 配信者として取得する = async (env: Env, path: string): Promise<Response> => {
   const session = await createSessionToken(配信者のID, env.SESSION_SECRET, 現在時刻)

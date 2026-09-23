@@ -217,6 +217,26 @@ export const listViewers = async (db: Database, query: ViewerQuery): Promise<Vie
 }
 
 /**
+ * ユーザーIDで、その人ひとりの記録を読む。
+ *
+ * LLMに文面を作らせる動作（worker/ai-chat.ts）が、その人のメモと来訪の履歴を材料に渡すために呼ぶ。
+ * その動作を持つトリガーが当てはまったときだけ呼ばれるので、発言のたびの読み出しにはならない。
+ *
+ * @returns 記録のある人の記録。まだ記録のない人なら null
+ */
+export const readViewer = async (db: Database, userId: string): Promise<Viewer | null> => {
+  const row = await db
+    .prepare(
+      `SELECT user_id AS userId, login, display_name AS displayName, first_seen_at AS firstSeenAt,
+              last_seen_at AS lastSeenAt, message_count AS messageCount, last_badges AS badges, note
+       FROM viewers WHERE user_id = ?1`,
+    )
+    .bind(userId)
+    .first<ViewerRow>()
+  return row === null ? null : { ...row, badges: readBadges(row.badges) }
+}
+
+/**
  * 配信者が書いたメモを書き換える。
  *
  * @returns 記録のある人なら true。無ければ false（呼び出し側が404にする）

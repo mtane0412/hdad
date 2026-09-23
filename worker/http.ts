@@ -4,6 +4,7 @@
  * 環境（バインディングとシークレット）の型、経路の処理が受け取る文脈、状態コード、クッキー、
  * そして「誰からのリクエストか」の確認（配信者のセッション・オーバーレイ用キー・送信元のサイト）をまとめる。
  */
+import type { TextGenerator } from './ai-chat'
 import type { AlertChannelNamespace } from './alert-channel'
 import type { Database } from './database'
 import type { MediaBucket } from './media-bucket'
@@ -22,6 +23,8 @@ export interface Env {
   DB: Database
   /** オーバーレイへアラートを配る Durable Object。Workerは接続を保持できないため、配送だけをここに任せる */
   ALERTS: AlertChannelNamespace
+  /** チャットの文面を作らせるLLM（Workers AI）。トリガーの動作 aiChat だけが使う */
+  AI: TextGenerator
   TWITCH_CLIENT_ID: string
   TWITCH_CLIENT_SECRET: string
   /** 管理画面へのログインを許す、配信者のTwitchユーザーID（数字） */
@@ -49,6 +52,14 @@ export interface Context {
    * テストで差し替えられるよう、setTimeout を直接呼ばずにここから受け取る。
    */
   wait(milliseconds: number): Promise<void>
+  /**
+   * 応答を返したあとに続きを走らせる（Cloudflare の ExecutionContext.waitUntil）。
+   *
+   * EventSubのWebhookは、応答が遅れるとTwitchが同じ通知を再送し、失敗が続けば購読を失効させる。
+   * LLMに文面を作らせる動作（aiChat）はTwitchへ2xxを返してから走らせたいので、これに預ける。
+   * テストでは預けられた処理を集めて、まとめて待てるようにする。
+   */
+  waitUntil(promise: Promise<unknown>): void
 }
 
 export const SESSION_COOKIE = '__Host-session'

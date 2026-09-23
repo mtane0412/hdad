@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest'
 import { BOT_SCOPES, REQUIRED_SCOPES } from './eventsub'
 import { createFakeBucket } from './fake-bucket'
 import { createFakeDatabase } from './fake-database'
+import { createFakeAi } from './fake-ai'
 import { createFakeAlertChannel } from './fake-alert-channel'
 import { createFakeStore } from './fake-store'
 import { handleRequest, type Env } from './index'
@@ -63,6 +64,7 @@ const 環境を作る = () => {
     SESSION_SECRET: 'テスト用のセッション秘密鍵',
     EVENTSUB_SECRET: 'テスト用のWebhookシークレット',
     ALERTS: createFakeAlertChannel().namespace,
+    AI: createFakeAi(),
   } satisfies Env
   return { env, store }
 }
@@ -103,8 +105,16 @@ const 購読の問い合わせに応える = (request: Request): Response | null
 /** アナウンスの送信間隔を空けるための待ちは、テストでは実際に待たない */
 const 待たない = async (): Promise<void> => {}
 
+/**
+ * これらの経路は応答のあとに続く処理（waitUntil）を使わない。
+ * 黙って捨てると気づけなくなるので、預けられたら失敗させる（使うのは webhook-routes.test.ts だけ）。
+ */
+const 後回しにしない = (): void => {
+  throw new Error('このテストでは、応答のあとに続く処理を使いません')
+}
+
 const 呼び出す = (request: Request, env: Env, fetchImpl: typeof fetch = Twitchへは通信しない) =>
-  handleRequest(request, env, { fetch: fetchImpl, now: () => 現在時刻, wait: 待たない })
+  handleRequest(request, env, { fetch: fetchImpl, now: () => 現在時刻, wait: 待たない, waitUntil: 後回しにしない })
 
 /** 配信者としてログイン済みのリクエストを作る。書き換えを伴うメソッドには、ブラウザと同じく Origin を付ける */
 const 配信者のリクエスト = async (env: Env, path: string, init: RequestInit = {}): Promise<Request> => {

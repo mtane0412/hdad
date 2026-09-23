@@ -21,6 +21,7 @@ import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Slider } from '@/components/ui/slider'
+import { Textarea } from '@/components/ui/textarea'
 import { Link } from '@/app/router'
 import type { BotApi, BotStatus } from '@/bot/api'
 import { ApiError } from '@/core/api'
@@ -75,6 +76,8 @@ const MAX_MESSAGE_LENGTH = 200
 const MAX_LOGIN_LENGTH = 25
 /** チャットに送る文言の上限（Twitchのチャット1通の上限） */
 const MAX_CHAT_MESSAGE_LENGTH = 500
+/** AIへの指示の上限（worker/alert-config.ts の検証と同じ値） */
+const MAX_AI_INSTRUCTION_LENGTH = 1000
 /** 空いた日数の条件に入れられる日数の範囲（worker/alert-config.ts の検証と同じ値） */
 const MIN_RETURNING_DAYS = 1
 const MAX_RETURNING_DAYS = 365
@@ -361,7 +364,12 @@ const TriggerRow = ({ position, draft, media, rewards, open, onToggle, onChange,
 
           <div className="flex flex-col gap-4 rounded-md border border-dashed p-3 sm:col-span-2">
             <div className="flex items-center gap-2">
-              <Checkbox id={`${id}-chat-enabled`} checked={draft.chatEnabled} onCheckedChange={(checked) => update({ chatEnabled: checked === true })} />
+              {/* 固定文言とAIの文面はどちらもbotの発言として送られるので、並べると同じ発言に2通返ってしまう（Workerも保存を拒む） */}
+              <Checkbox
+                id={`${id}-chat-enabled`}
+                checked={draft.chatEnabled}
+                onCheckedChange={(checked) => update({ chatEnabled: checked === true, ...(checked === true ? { aiChatEnabled: false } : {}) })}
+              />
               <Label htmlFor={`${id}-chat-enabled`}>チャットに送る</Label>
             </div>
             {draft.chatEnabled && (
@@ -377,6 +385,38 @@ const TriggerRow = ({ position, draft, media, rewards, open, onToggle, onChange,
                 />
                 {/* 送るのは接続しているbotアカウント。未接続だと何も送られないので、どこで接続するかを添える */}
                 <p className="text-xs text-muted-foreground">接続しているbotアカウントが送ります（チャットボットのページで接続します）。</p>
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-4 rounded-md border border-dashed p-3 sm:col-span-2">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id={`${id}-aichat-enabled`}
+                checked={draft.aiChatEnabled}
+                onCheckedChange={(checked) => update({ aiChatEnabled: checked === true, ...(checked === true ? { chatEnabled: false } : {}) })}
+              />
+              <Label htmlFor={`${id}-aichat-enabled`}>AIに文面を作らせて送る</Label>
+            </div>
+            {draft.aiChatEnabled && (
+              <div className="flex flex-col gap-2">
+                <Label htmlFor={`${id}-aichat-instruction`}>AIへの指示</Label>
+                <Textarea
+                  id={`${id}-aichat-instruction`}
+                  maxLength={MAX_AI_INSTRUCTION_LENGTH}
+                  value={draft.aiChatInstruction}
+                  placeholder="初めて来てくれた人に、配信の内容を一言添えて歓迎してください"
+                  onChange={(event) => update({ aiChatInstruction: event.currentTarget.value })}
+                />
+                {/* 差し込み語は使わない（文面はAIが書く）ことと、材料に何が渡るかを知らせる */}
+                <p className="text-xs text-muted-foreground">
+                  接続しているbotアカウントが送ります。文面はそのつどAIが書くので、差し込み語は要りません。
+                  相手の名前・発言の本文と、視聴者の記録（メモ・来訪の履歴）を材料に渡します。
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  「チャットに送る」とは同時に選べません（同じ発言に2通返ってしまうため）。
+                  AIが作った文面が500文字を超えたときや、AIが失敗したときは送らず、配信の記録の「収集の失敗」に残します。
+                </p>
               </div>
             )}
           </div>
@@ -558,6 +598,8 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
         announceEnabled: false,
         announceMessage: '',
         announceColor: DEFAULT_ANNOUNCEMENT_COLOR,
+        aiChatEnabled: false,
+        aiChatInstruction: '',
       },
     ])
     setOpenPosition(drafts.length)
@@ -598,7 +640,7 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
           <AlertTitle>botが接続されていません</AlertTitle>
           <AlertDescription>
             <span>
-              「チャットに送る」「アナウンスを送る」の動作は、接続しているbotアカウントが送るので動きません。とくに「チャットの発言」のトリガーは、
+              「チャットに送る」「AIに文面を作らせて送る」「アナウンスを送る」の動作は、接続しているbotアカウントが送るので動きません。とくに「チャットの発言」のトリガーは、
               発言を受け取るのにbotのユーザーIDが要るため、Workerに発言そのものが届きません（アラートを出す動作はオーバーレイが受け取るので動きます）。
             </span>
             <span>

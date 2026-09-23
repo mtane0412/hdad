@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest'
 import type { AlertConfig, StoredCondition, StoredTrigger } from './alert-config'
 import {
+  aiChatFor,
   alertFor,
   announcementFor,
   chatMessageFor,
@@ -198,6 +199,50 @@ describe('fillMessage', () => {
     const 交換した = { event: REDEMPTION, userName: '田中太郎', userLogin: 'tanaka_taro', rewardId: '報酬ID', rewardTitle: '$& と $1 の報酬' } as const
 
     expect(fillMessage('{reward} を交換しました', 交換した)).toBe('$& と $1 の報酬 を交換しました')
+  })
+})
+
+describe('aiChatFor', () => {
+  const 設定 = (triggers: StoredTrigger[]): AlertConfig => ({ triggers })
+  const フォローの通知 = { user_name: '田中太郎', user_login: 'tanaka_taro' }
+
+  it('当てはまるトリガーの指示と、読み取ったイベントの中身を返す（文面づくりの材料になる）', () => {
+    const config = 設定([{ event: 'channel.follow', conditions: [], actions: [{ type: 'aiChat', instruction: 'お礼を言ってください' }] }])
+
+    expect(aiChatFor(config, 'channel.follow', フォローの通知, 初回ではない)).toEqual({
+      instruction: 'お礼を言ってください',
+      extracted: { event: 'channel.follow', userName: '田中太郎', userLogin: 'tanaka_taro' },
+    })
+  })
+
+  it('当てはまるトリガーがなければ null を返す', () => {
+    const config = 設定([{ event: 'channel.raid', conditions: [], actions: [{ type: 'aiChat', instruction: 'お礼を言ってください' }] }])
+
+    expect(aiChatFor(config, 'channel.follow', フォローの通知, 初回ではない)).toBeNull()
+  })
+
+  it('LLMに作らせる動作を持たないトリガー（固定文言のチャットだけ）には反応しない', () => {
+    const 固定文言だけ: StoredTrigger = { event: 'channel.follow', conditions: [], actions: [{ type: 'chat', message: 'ありがとう' }] }
+
+    expect(aiChatFor(設定([固定文言だけ]), 'channel.follow', フォローの通知, 初回ではない)).toBeNull()
+  })
+
+  it('条件を満たさないトリガーには反応しない', () => {
+    const 初回だけ: StoredTrigger = {
+      event: CHAT_MESSAGE,
+      conditions: [{ kind: 'firstChatEver' }],
+      actions: [{ type: 'aiChat', instruction: '初めての人を歓迎してください' }],
+    }
+    const 発言の通知 = {
+      message_id: 'chat-1',
+      broadcaster_user_id: '1',
+      chatter_user_id: '2',
+      chatter_user_login: 'hanako',
+      chatter_user_name: '花子',
+      message: { text: 'こんばんは' },
+    }
+
+    expect(aiChatFor(設定([初回だけ]), CHAT_MESSAGE, 発言の通知, 初回ではない)).toBeNull()
   })
 })
 

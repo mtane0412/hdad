@@ -70,7 +70,18 @@ export interface AnnounceAction {
   color: AnnouncementColor
 }
 
-export type ActionInput = AlertActionInput | ChatAction | AnnounceAction
+/**
+ * LLMに文面を作らせて、botとしてチャットへ送る動作。
+ *
+ * 固定文言の chat と違い、送る文言ではなく「どう書くか」の指示を持つ。同じトリガーに chat とは並べられない
+ * （同じ発言に2通返ってしまうため、Workerが保存を拒否する）。
+ */
+export interface AiChatAction {
+  type: 'aiChat'
+  instruction: string
+}
+
+export type ActionInput = AlertActionInput | ChatAction | AnnounceAction | AiChatAction
 
 /** 条件の種類。worker/alert-config.ts の CONDITION_KINDS と同じ並び（worker/ の型は読み込めないのでここで定義する） */
 export const CONDITION_KINDS = ['reward', 'user', 'text', 'firstChatOfStream', 'firstChatEver', 'returningAfter'] as const
@@ -105,7 +116,7 @@ export interface TriggerInput {
 /** 保存済みの「アラートを出す」動作（Workerが素材の種類を書き足したもの） */
 export type StoredAlertAction = AlertActionInput & { mediaKind: MediaKind }
 
-export type StoredAction = StoredAlertAction | ChatAction | AnnounceAction
+export type StoredAction = StoredAlertAction | ChatAction | AnnounceAction | AiChatAction
 
 /** 保存済みのトリガー */
 export interface StoredTrigger {
@@ -169,7 +180,10 @@ const isTriggerCondition = (value: unknown): value is TriggerCondition => {
 
 /** 保存済みの動作1件の形。種類ごとに持つ項目が違う */
 const isStoredAction = (value: unknown): value is StoredAction => {
-  if (!isRecord(value) || typeof value.message !== 'string') return false
+  if (!isRecord(value)) return false
+  // aiChat だけは送る文言を持たず、文面の作り方の指示を持つ
+  if (value.type === 'aiChat') return typeof value.instruction === 'string'
+  if (typeof value.message !== 'string') return false
   if (value.type === 'chat') return true
   if (value.type === 'announce') return isAnnouncementColor(value.color)
   return (
