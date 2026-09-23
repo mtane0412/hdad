@@ -275,7 +275,9 @@ const runAlertActions = async (
   if (aiChat !== null) {
     // LLMの応答を待つとTwitchへの2xxが遅れ、同じ通知を再送されてしまう。応答を返してから続きを走らせる
     context.waitUntil(
-      sendAndRecordFailure(context, messageId, 'aiChat', 'alert-aichat-failed', () => sendAiChat(context, aiChat, state, chatMessage)),
+      recordLateFailure(context, 'alert-aichat-failed', () =>
+        sendAndRecordFailure(context, messageId, 'aiChat', 'alert-aichat-failed', () => sendAiChat(context, aiChat, state, chatMessage)),
+      ),
     )
   }
 }
@@ -351,6 +353,29 @@ const pushMatchedAlert = async (
  * 鍵に動作の種類を混ぜるのは、同じ通知でチャットとアナウンスの両方を送るときに、片方が鍵を取って
  * もう片方が送れなくなるのを防ぐため。
  */
+/**
+ * Twitchへ応答を返したあとに走らせる処理から、失敗を取りこぼさないようにする。
+ *
+ * ほかの動作は送信を待ってから応答を返すので、鍵の確保のような送信の手前での失敗は例外として上がり、
+ * 5xxを受けたTwitchが同じ通知を再送してくれる（鍵があるので二重送信にはならない）。
+ * 応答のあとに走らせる処理ではその手が使えず、投げたままでは誰も受け取らないまま消えてしまうので、
+ * ここで受け止めて記録まで引き受ける。
+ *
+ * 注意: 記録そのものが失敗したら（データベースに触れないときなど）、もう打つ手がないのでログに残すだけにする。
+ */
+const recordLateFailure = async (context: Context, failureCode: string, run: () => Promise<void>): Promise<void> => {
+  const { env, now } = context
+  try {
+    await run()
+  } catch (error) {
+    try {
+      await recordFailure(env.DB, failureCode, error instanceof Error ? error.message : String(error), now)
+    } catch (failure) {
+      console.error(failure)
+    }
+  }
+}
+
 const sendAndRecordFailure = async (
   context: Context,
   messageId: string,

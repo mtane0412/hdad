@@ -1306,6 +1306,19 @@ describe('LLMに文面を作らせる動作（aiChat）', () => {
   const botのID = '67890'
   const フォローの通知 = { subscription: { type: 'channel.follow' }, event: { user_name: '田中太郎', user_login: 'tanaka_taro' } }
 
+  /** まだ記録のない人からのチャットの発言 */
+  const 初めての人の発言 = {
+    subscription: { type: 'channel.chat.message' },
+    event: {
+      broadcaster_user_id: 配信者のID,
+      chatter_user_id: '22222',
+      chatter_user_login: 'hatsumi',
+      chatter_user_name: 'はつみ',
+      message_id: 'chat-message-hatsumi',
+      message: { text: 'はじめまして！' },
+    },
+  }
+
   const 文面を作らせるトリガー: StoredTrigger = {
     event: 'channel.follow',
     conditions: [],
@@ -1399,6 +1412,37 @@ describe('LLMに文面を作らせる動作（aiChat）', () => {
     await 後回しの処理を待つ()
 
     expect(JSON.stringify(ai.呼び出し[0]?.input)).toContain('ギターの話が好き')
+  })
+
+  it('条件を持たないトリガーでも、来訪の別（初めて・お久しぶり）を材料に渡す', async () => {
+    const { env, ai } = 環境を作る()
+    // 条件は1件もない。それでも文面づくりには来訪の別が要るので、Workerは視聴者の記録を読む
+    await saveAlertConfig(env.STORE, {
+      triggers: [{ event: 'channel.chat.message', conditions: [], actions: [{ type: 'aiChat', instruction: '一言返してください' }] }],
+    })
+    await botを接続する(env)
+    const twitch = 送信に応えるTwitch()
+
+    await 呼び出す(Twitchからの通知({ body: 初めての人の発言 }), env, twitch.fetchImpl)
+    await 後回しの処理を待つ()
+
+    expect(JSON.stringify(ai.呼び出し[0]?.input)).toContain('このチャンネルで初めての発言')
+  })
+
+  it('鍵の確保そのものが失敗しても、取りこぼさずに記録する（2xxを返したあとなので再送では取り返せない）', async () => {
+    const { env } = 環境を作る()
+    await saveAlertConfig(env.STORE, { triggers: [文面を作らせるトリガー] })
+    await botを接続する(env)
+    const twitch = 送信に応えるTwitch()
+    // 鍵を持つテーブルを落として、reserveChatReply（送信の前に呼ぶ）を失敗させる
+    env.DB.sqlite.prepare('DROP TABLE replied_chat_messages').run()
+
+    const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+    await 後回しの処理を待つ()
+
+    expect(response.status).toBe(204)
+    expect(twitch.送信したチャット).toHaveLength(0)
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'alert-aichat-failed' }])
   })
 
   it('LLMが失敗したら（無料枠切れなど）送らず、2xxを返したうえで記録する', async () => {

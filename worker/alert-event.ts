@@ -87,22 +87,36 @@ const uses = (config: AlertConfig, subscriptionType: string, kinds: readonly Sto
   config.triggers.some((trigger) => trigger.event === subscriptionType && trigger.conditions.some((condition) => kinds.includes(condition.kind)))
 
 /**
- * その通知の照合に、「その配信で初めての発言か」の判定が要るか。
+ * そのイベントに、LLMへ文面を作らせる動作（aiChat）を持つトリガーがあるか。
+ *
+ * この動作は条件の有無にかかわらず、来訪の別（初めて・お久しぶり）を文面づくりの材料として読む。
+ * 条件としては使っていなくても判定が要るのはこの動作だけなので、requires* から見分けられるようにしておく。
+ */
+const hasAiChatAction = (config: AlertConfig, subscriptionType: string): boolean =>
+  config.triggers.some((trigger) => trigger.event === subscriptionType && aiChatActionOf(trigger) !== null)
+
+/**
+ * その通知に、「その配信で初めての発言か」の判定が要るか。
  *
  * 要らなければ呼び出し側はデータベースを触らずに済む。チャットの発言は件数の桁が違うため、
  * 1通ごとにD1へ書き込まないようにこれで絞る。
+ *
+ * 条件（firstChatOfStream）として使っている場合のほかに、LLMへ文面を作らせる動作（aiChat）がある場合も要る。
+ * aiChat は条件を1件も持たないトリガーでも「初めての人か」で文面を変えるのが主な使い道なので、
+ * 条件に書かれていなくても判定して材料に渡す（渡さないと、来訪の別を知らないまま文面を作らせることになる）。
  */
-export const requiresFirstChatOfStream = (config: AlertConfig, subscriptionType: string): boolean => uses(config, subscriptionType, ['firstChatOfStream'])
+export const requiresFirstChatOfStream = (config: AlertConfig, subscriptionType: string): boolean =>
+  uses(config, subscriptionType, ['firstChatOfStream']) || hasAiChatAction(config, subscriptionType)
 
 /**
- * その通知の照合に、視聴者の記録（viewers）から決まる判定が要るか。
+ * その通知に、視聴者の記録（viewers）から決まる判定が要るか。
  *
  * 「このチャンネルで初めての発言か」（firstChatEver）と「最後の発言から何日空いているか」（returningAfter）は
  * どちらも viewers の同じ1行から決まるので、まとめて1つの読み出しで済ませられる。
- * どちらも使っていなければ、呼び出し側はその読み出しを省ける。
+ * どちらも使っておらず、LLMへ文面を作らせる動作もなければ、呼び出し側はその読み出しを省ける。
  */
 export const requiresChatHistory = (config: AlertConfig, subscriptionType: string): boolean =>
-  uses(config, subscriptionType, ['firstChatEver', 'returningAfter'])
+  uses(config, subscriptionType, ['firstChatEver', 'returningAfter']) || hasAiChatAction(config, subscriptionType)
 
 /**
  * その通知に、オーバーレイへ押し出すアラートを持つトリガーがあるか。
