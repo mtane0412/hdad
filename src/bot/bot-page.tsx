@@ -624,7 +624,12 @@ export const BotPage = ({ api }: BotPageProps) => {
               </Button>
             )}
           </div>
-          {drafts.length > 0 && <p className="text-xs text-muted-foreground">応答文では {'{user}'} が発言した人のログイン名に置き換わります</p>}
+          {drafts.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              応答文では {'{user}'} が発言した人のログイン名に、{'{summary}'} がいまの配信の「これまでのあらすじ」に置き換わります
+              （あらすじは配信中に5分おきに作り直されます）
+            </p>
+          )}
         </CardContent>
       </Card>
 

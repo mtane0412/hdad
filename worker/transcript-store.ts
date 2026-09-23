@@ -68,24 +68,61 @@ export const deleteTranscript = async (db: Database, messageId: string): Promise
 }
 
 /**
- * その配信の発話を、喋った順に読む。
+ * あらすじの材料として読み出した1件。
  *
- * あらすじ（issue #65）の材料に使う。
- *
- * @param limit 読む件数の上限。長い配信ほど行が多いので、LLMへ渡す材料の量を一定に抑える
- *   （D1の rows read も食わない）。超えた分は古いほうから採り、新しいほうを切る
+ * 時刻とメッセージIDの両方を添えるのは、「どこまで材料にしたか」の記録に両方が要るためである
+ * （readTranscriptsSince の since を参照）。
  */
-export const readTranscripts = async (db: Database, sessionId: string, limit: number): Promise<string[]> => {
+export interface TranscriptLine {
+  text: string
+  /** 喋った日時（ISO 8601） */
+  at: string
+  /** ゆかコネNEO が振った MsgID */
+  messageId: string
+}
+
+/**
+ * どこまで材料にしたかの目印。
+ *
+ * 日時だけでは足りない。記録する時刻はWorkerが押し込みを受け取った時刻なので、立て続けに届いた
+ * 2件が同じ時刻になることがあり、そこで件数の上限に当たると、残った同時刻の行が次からの
+ * 「この日時より後」に一度も入らず、永久に材料から漏れる。読む順（日時・メッセージIDの順）と
+ * 同じ組で比べて、その取りこぼしを防ぐ。
+ */
+export interface TranscriptCursor {
+  at: string
+  messageId: string
+}
+
+/**
+ * その配信の発話のうち、まだあらすじの材料にしていないぶんを、喋った順に読む。
+ *
+ * あらすじ（issue #65）は前回のあらすじに新しい材料を積み上げて書き直させるので、読むのは続きだけでよい
+ * （worker/stream-summary-store.ts）。毎回すべてを読ませると、長い配信ほど1回あたりの入力が膨らみ、
+ * Workers AI の無料枠（Neurons）とD1の rows read の両方を食う。
+ *
+ * @param since この目印より後のぶんだけを読む。まだ一度もあらすじを作っていなければ、日時もメッセージIDも
+ *   空文字を渡す（どの値よりも小さいので全件が読める）
+ * @param limit 読む件数の上限。上限を超えたぶんは新しいほうを切り、次にあらすじを作るときへ回す
+ *   （呼び出し側は読めた行の最後を目印として記録するため、取りこぼしにはならない）
+ */
+export const readTranscriptsSince = async (
+  db: Database,
+  sessionId: string,
+  since: TranscriptCursor,
+  limit: number,
+): Promise<TranscriptLine[]> => {
   const { results } = await db
     .prepare(
-      `SELECT text FROM transcripts
-       WHERE session_id = ?1
+      // 並べ替えと同じ組で比べる。片方だけで比べると、同じ日時の行が目印の前後に分かれてしまう
+      `SELECT text, spoken_at AS at, message_id AS messageId FROM transcripts
+       WHERE session_id = ?1 AND (spoken_at, message_id) > (?2, ?3)
        ORDER BY spoken_at, message_id
-       LIMIT ?2`,
+       LIMIT ?4`,
     )
-    .bind(sessionId, limit)
-    .all<{ text: string }>()
-  return results.map((row) => row.text)
+    .bind(sessionId, since.at, since.messageId, limit)
+    .all<TranscriptLine>()
+  return results
 }
 
 /**

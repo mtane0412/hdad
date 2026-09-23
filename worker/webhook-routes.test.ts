@@ -15,6 +15,7 @@ import { createFakeStore } from './fake-store'
 import { handleRequest, type Env } from './index'
 import { getSession, listFailures, listSessions, recordLiveStream } from './stats-store'
 import { saveBotConfig } from './bot-config'
+import { saveStreamSummary } from './stream-summary-store'
 import { saveModerationConfig } from './moderation-config'
 import type { ModerationConfig, ModerationRule } from './chat-moderation'
 import { saveAlertConfig, type StoredTrigger } from './alert-config'
@@ -546,6 +547,30 @@ describe('チャットの応答の設定・連打・再送', () => {
     await 通知を送る(env, twitch.fetchImpl, チャットの通知('!ping', 'chat-message-2'), 'chat-message-2')
 
     expect(twitch.送信したチャット).toHaveLength(2)
+  })
+
+  it('{summary} を含むコマンドには、貯めてある配信中のあらすじを差し込んで応答する', async () => {
+    const { env, db } = await bot接続済みの環境([{ name: 'summary', reply: 'これまでのあらすじ: {summary}', cooldownSeconds: 0 }])
+    await recordLiveStream(db, 雑談配信, 現在時刻 - 60 * 1000)
+    await saveStreamSummary(
+      db,
+      { sessionId: 雑談配信.id, summary: '配信者は新しいゲームを遊んでいます', transcriptsUntil: { at: '', messageId: '' }, chatUntil: { at: '', messageId: '' } },
+      現在時刻 - 30 * 1000,
+    )
+    const twitch = 送信に応えるTwitch()
+
+    await 通知を送る(env, twitch.fetchImpl, チャットの通知('!summary'))
+
+    expect(await twitch.送信したチャット[0]!.json()).toMatchObject({ message: 'これまでのあらすじ: 配信者は新しいゲームを遊んでいます' })
+  })
+
+  it('あらすじがまだ無くても、コマンドは無応答にならない', async () => {
+    const { env } = await bot接続済みの環境([{ name: 'summary', reply: 'これまでのあらすじ: {summary}', cooldownSeconds: 0 }])
+    const twitch = 送信に応えるTwitch()
+
+    await 通知を送る(env, twitch.fetchImpl, チャットの通知('!summary'))
+
+    expect(await twitch.送信したチャット[0]!.json()).toMatchObject({ message: 'これまでのあらすじ: まだあらすじがありません' })
   })
 
   it('コマンドに一致しない発言では、D1に何も書かない（チャット全件を記録しないため）', async () => {

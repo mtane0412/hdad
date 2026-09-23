@@ -118,11 +118,41 @@ export const findCommand = <Command extends BotCommand>(
   return commands.find((candidate) => candidate.name.toLowerCase() === name) ?? null
 }
 
-/** コマンドの応答文の差し込み語を、実際の値に置き換える */
-export const applyReply = (command: BotCommand, message: ChatMessage): string => command.reply.replaceAll('{user}', message.chatterUserLogin)
+/** 配信の「これまでのあらすじ」（issue #65）に置き換わる差し込み語 */
+const SUMMARY_PLACEHOLDER = '{summary}'
+
+/**
+ * あらすじがまだ無いときに、その差し込み語に入る文言。
+ *
+ * 空文字にせず文言を入れるのは、コマンドが無応答に見えないようにするためである。あらすじは cron が
+ * 作るものなので、配信の直後や、LLMの無料枠を使い切った日には無いことがある。
+ */
+const NO_SUMMARY = 'まだあらすじがありません'
+
+/**
+ * その応答文があらすじを必要とするか。
+ *
+ * 呼び出し側（webhook-routes.ts）は、これが true のときだけデータベースからあらすじを読む。
+ * 使っていないコマンドのために毎回読みに行かないためである（alert-state.ts の
+ * 「条件を使うトリガーが無ければデータベースを触らない」と同じ考え方）。
+ */
+export const needsStreamSummary = (command: BotCommand): boolean => command.reply.includes(SUMMARY_PLACEHOLDER)
+
+/**
+ * コマンドの応答文の差し込み語を、実際の値に置き換える。
+ *
+ * @param summary 貯めてあるあらすじ。配信していない・まだ作っていない・読む必要がない場合は null
+ */
+export const applyReply = (command: BotCommand, message: ChatMessage, summary: string | null): string =>
+  command.reply.replaceAll('{user}', message.chatterUserLogin).replaceAll(SUMMARY_PLACEHOLDER, summary ?? NO_SUMMARY)
 
 /** 発言に対して送り返す文言。送り返さない場合は null（findCommand と applyReply をまとめたもの） */
-export const resolveReply = (commands: readonly BotCommand[], message: ChatMessage, botUserId: string): string | null => {
+export const resolveReply = (
+  commands: readonly BotCommand[],
+  message: ChatMessage,
+  botUserId: string,
+  summary: string | null = null,
+): string | null => {
   const command = findCommand(commands, message, botUserId)
-  return command ? applyReply(command, message) : null
+  return command ? applyReply(command, message, summary) : null
 }

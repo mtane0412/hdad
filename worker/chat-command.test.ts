@@ -5,7 +5,7 @@
  * 特に重要なのは、bot自身の発言に応答しないこと（応答するとbotがbotに応答し続けて止まらなくなる）。
  */
 import { describe, expect, it } from 'vitest'
-import { readChatMessage, resolveReply, type BotCommand, type ChatMessage } from './chat-command'
+import { needsStreamSummary, readChatMessage, resolveReply, type BotCommand, type ChatMessage } from './chat-command'
 
 const botのID = '67890'
 
@@ -169,5 +169,35 @@ describe('resolveReply', () => {
 
   it('コマンドが1つも登録されていなければ、何にも応答しない', () => {
     expect(resolveReply([], 視聴者の発言('!ping'), botのID)).toBeNull()
+  })
+})
+
+describe('あらすじの差し込み語', () => {
+  const あらすじのコマンド: BotCommand[] = [{ name: 'summary', reply: 'これまでのあらすじ: {summary}' }]
+
+  it('{summary} を、貯めてあるあらすじに置き換える', () => {
+    expect(resolveReply(あらすじのコマンド, 視聴者の発言('!summary'), botのID, '配信者は新しいゲームを遊んでいます')).toBe(
+      'これまでのあらすじ: 配信者は新しいゲームを遊んでいます',
+    )
+  })
+
+  it('あらすじがまだ無くても、無応答にならずその旨を返す', () => {
+    expect(resolveReply(あらすじのコマンド, 視聴者の発言('!summary'), botのID, null)).toBe('これまでのあらすじ: まだあらすじがありません')
+  })
+
+  it('{user} と一緒に使える', () => {
+    const コマンド: BotCommand[] = [{ name: 'summary', reply: '@{user} {summary}' }]
+
+    expect(resolveReply(コマンド, 視聴者の発言('!summary'), botのID, 'ボス戦の最中です')).toBe('@shichousha ボス戦の最中です')
+  })
+})
+
+describe('needsStreamSummary', () => {
+  it('応答文に {summary} があれば true', () => {
+    expect(needsStreamSummary({ name: 'summary', reply: 'これまでのあらすじ: {summary}' })).toBe(true)
+  })
+
+  it('応答文に {summary} が無ければ false（あらすじを読みに行かせないため）', () => {
+    expect(needsStreamSummary({ name: 'ping', reply: '@{user} pong' })).toBe(false)
   })
 })

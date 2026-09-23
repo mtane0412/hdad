@@ -100,6 +100,46 @@ export const readViewerMessages = async (db: Database, userId: string, limit: nu
   return results.map((row) => row.text)
 }
 
+/** あらすじの材料として読み出した1件。時刻とメッセージIDは「どこまで材料にしたか」の記録に使う */
+export interface StreamChatLine {
+  text: string
+  /** 届いた日時（ISO 8601） */
+  at: string
+  /** Twitchが振ったメッセージのID */
+  messageId: string
+}
+
+/**
+ * その配信の発言のうち、まだあらすじの材料にしていないぶんを、届いた順に読む。
+ *
+ * 人物像づくり（readViewerMessages）が終わった配信を人ごとに読むのに対し、あらすじ（issue #65）は
+ * いま進んでいる配信を時系列で読む。同じテーブルを、別の目的で別の切り口から読むことになる。
+ *
+ * 誰の発言かは読まない。あらすじに要るのは「どんな反応があったか」であって、視聴者の名前ではないためである
+ * （名前まで渡すと、LLMに個人の話として書かれてしまう）。
+ *
+ * @param since この目印より後のぶんだけを読む。日時とメッセージIDの組で比べるのは、同じ日時の行が
+ *   件数の上限で分かれたときに取りこぼさないためである（transcript-store.ts の TranscriptCursor を参照）
+ * @param limit 読む件数の上限。上限を超えたぶんは新しいほうを切り、次にあらすじを作るときへ回す
+ */
+export const readSessionChatSince = async (
+  db: Database,
+  sessionId: string,
+  since: { at: string; messageId: string },
+  limit: number,
+): Promise<StreamChatLine[]> => {
+  const { results } = await db
+    .prepare(
+      `SELECT text, sent_at AS at, message_id AS messageId FROM stream_chat_messages
+       WHERE session_id = ?1 AND (sent_at, message_id) > (?2, ?3)
+       ORDER BY sent_at, message_id
+       LIMIT ?4`,
+    )
+    .bind(sessionId, since.at, since.messageId, limit)
+    .all<StreamChatLine>()
+  return results
+}
+
 /**
  * 人物像を作り終えた人の材料を消す。
  *

@@ -14,11 +14,12 @@ import { aiChatFor, alertFor, announcementFor, chatMessageFor, hasAlertAction } 
 import { resolveConditionState } from './alert-state'
 import type { ConditionState } from './alert-event'
 import { announceAsBot, sendAsBot } from './bot-chat'
-import { applyReply, findCommand, readChatMessage, type ChatMessage } from './chat-command'
+import { applyReply, findCommand, needsStreamSummary, readChatMessage, type ChatMessage } from './chat-command'
 import { loadBotConfig } from './bot-config'
 import { punishAsBot } from './bot-moderation'
 import { judge, repeatRuleOf } from './chat-moderation'
 import { recordStreamChatMessage } from './stream-chat-store'
+import { readCurrentStreamSummary } from './stream-summary-store'
 import { readViewer, recordViewerMessage } from './viewer-store'
 import { loadModerationConfig } from './moderation-config'
 import { consumeCooldown, recordAndCountRecentMessage, reserveChatReply } from './chat-store'
@@ -204,7 +205,12 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
   if (!(await reserveChatReply(env.DB, message.messageId, now))) return
   if (!(await consumeCooldown(env.DB, command.name, command.cooldownSeconds, now))) return
 
-  const reply = applyReply(command, message)
+  // あらすじ（issue #65）は、それを使う応答文のときだけ読む。使っていないコマンドのために毎回D1を読まない。
+  // 貯めてあるものをそのまま返すだけなので、ここでLLMは呼ばない（応答を待たせないため）。
+  // 配信していない・まだ作っていないときは null のままで、応答文にはその旨が入る（無応答にはしない）
+  const summary = needsStreamSummary(command) ? ((await readCurrentStreamSummary(env.DB, now))?.summary ?? null) : null
+
+  const reply = applyReply(command, message, summary)
   try {
     await sendAsBot(context, reply)
   } catch (error) {
