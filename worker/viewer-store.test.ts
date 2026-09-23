@@ -153,6 +153,20 @@ describe('listViewers', () => {
     expect(await listViewers(db, { limit: 2 })).toHaveLength(2)
   })
 
+  it('最後の発言日時が同じ人がページの境目にいても、続きで取りこぼさない', async () => {
+    const db = createFakeDatabase()
+    // チャットが活発なときは、別々の人の発言が同じミリ秒に記録されうる
+    await recordViewerMessage(db, 発言({ userId: '100', login: 'ichiro', displayName: '一郎', messageId: 'm1' }), 現在時刻)
+    await recordViewerMessage(db, 発言({ userId: '200', login: 'jiro', displayName: '二郎', messageId: 'm2' }), 現在時刻)
+    await recordViewerMessage(db, 発言({ userId: '300', login: 'saburo', displayName: '三郎', messageId: 'm3' }), 現在時刻)
+
+    const 一ページ目 = await listViewers(db, { limit: 2 })
+    const 最後 = 一ページ目[一ページ目.length - 1]!
+    const 続き = await listViewers(db, { before: 最後.lastSeenAt, beforeUserId: 最後.userId })
+
+    expect([...一ページ目, ...続き].map((viewer) => viewer.userId).sort()).toEqual(['100', '200', '300'])
+  })
+
   it('続きを読むときは、指定した時刻より前に発言した人だけを返す', async () => {
     const db = createFakeDatabase()
     await 三人を記録する(db)

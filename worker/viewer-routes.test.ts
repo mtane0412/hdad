@@ -90,6 +90,17 @@ describe('GET /api/admin/viewers', () => {
     expect(await response.json()).toMatchObject({ viewers: [{ login: 'hanako' }] })
   })
 
+  it('beforeUserId で、同じ日時の人のどこまで読んだかを渡せる', async () => {
+    const { env } = 環境を作る()
+    await 発言を記録する(env, '100', 'hanako', '花子', 現在時刻)
+    await 発言を記録する(env, '200', 'taro', '太郎', 現在時刻)
+
+    const before = encodeURIComponent('2026-09-21T12:10:00.000Z')
+    const response = await 配信者として呼ぶ(env, `/api/admin/viewers?before=${before}&beforeUserId=200`)
+
+    expect(await response.json()).toMatchObject({ viewers: [{ userId: '100' }] })
+  })
+
   it('limit が数でなければ400にする（黙って既定に戻さない）', async () => {
     const { env } = 環境を作る()
 

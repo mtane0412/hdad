@@ -192,8 +192,13 @@ export const ViewerPage = ({ api }: { api: ViewerApi }) => {
               type="button"
               variant="outline"
               disabled={actions.busy}
-              // 続きは、いま出ている最後の人の「最後の発言日時」より前を取る（並びが最後の発言順なので、これで続きになる）
-              onClick={() => void actions.run(() => load({ search, before: viewers[viewers.length - 1]?.lastSeenAt }, true))}
+              // 続きは、いま出ている最後の人より後ろを取る（並びが最後の発言順なので、これで続きになる）。
+              // ユーザーIDも渡すのは、同じ日時に発言した人がここで途切れていても取りこぼさないため
+              onClick={() =>
+                void actions.run(() =>
+                  load({ search, before: viewers[viewers.length - 1]?.lastSeenAt, beforeUserId: viewers[viewers.length - 1]?.userId }, true),
+                )
+              }
             >
               もっと読み込む
             </Button>

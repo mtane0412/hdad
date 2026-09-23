@@ -132,7 +132,7 @@ describe('続きの読み込み', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'もっと読み込む' }))
 
-    expect(api.list).toHaveBeenLastCalledWith(expect.objectContaining({ before: 太郎.lastSeenAt }))
+    expect(api.list).toHaveBeenLastCalledWith(expect.objectContaining({ before: 太郎.lastSeenAt, beforeUserId: '1049' }))
   })
 
   test('続きが無ければ「もっと読み込む」を出さない', async () => {

@@ -34,6 +34,8 @@ export interface ViewerQuery {
   search?: string
   /** この日時より前に発言した人だけを返す。続きを読むときは一覧の最後の lastSeenAt を渡す */
   before?: string
+  /** `before` と同じ日時の人をどこまで読んだかの目印。続きを読むときは一覧の最後の userId を渡す */
+  beforeUserId?: string
   /** 一度に取る件数。指定しなければWorkerの既定（50件）になる */
   limit?: number
 }
@@ -64,11 +66,12 @@ export const createViewerApi = (fetchImpl: typeof fetch): ViewerApi => {
   const call = createCaller(fetchImpl)
 
   return {
-    list: async ({ search, before, limit }) => {
+    list: async ({ search, before, beforeUserId, limit }) => {
       // 空の値をクエリに載せないのは、Worker側の「指定なし」と区別する必要がないため（載せても同じ意味になる）
       const params = new URLSearchParams()
       if (search !== undefined && search !== '') params.set('search', search)
       if (before !== undefined && before !== '') params.set('before', before)
+      if (beforeUserId !== undefined && beforeUserId !== '') params.set('beforeUserId', beforeUserId)
       if (limit !== undefined) params.set('limit', String(limit))
       const query = params.toString()
       return readList(await call(query === '' ? VIEWERS_PATH : `${VIEWERS_PATH}?${query}`), 'viewers', isViewer)

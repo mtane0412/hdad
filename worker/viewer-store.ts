@@ -55,7 +55,7 @@ export interface Viewer {
   firstSeenAt: string
   /** 最後に発言した日時（ISO 8601） */
   lastSeenAt: string
-  /** 通算の発言数（更新の間隔を空けているので、実際の発言数より少なくなる） */
+  /** 通算の発言数（更新の間隔を空けているので、実際の発言数より少なくなる。おおよその数として扱う） */
   messageCount: number
   /** 最後に見たバッジの種類の名前 */
   badges: string[]
@@ -69,6 +69,13 @@ export interface ViewerQuery {
   loginPrefix?: string
   /** この日時（ISO 8601）より前に発言した人だけを返す。続きを読むときの目印に使う */
   before?: string
+  /**
+   * `before` と同じ日時に発言した人のうち、どこまで返したかの目印（そのユーザーID）。
+   *
+   * チャットが活発なときは別々の人の発言が同じミリ秒に記録されうるので、日時だけを目印にすると、
+   * 同じ日時の人がページの境目にまたがったときに取りこぼす（次のページの「その日時より前」に入らない）。
+   */
+  beforeUserId?: string
   /** 返す件数（既定 VIEWER_LIST_LIMIT、上限 VIEWER_LIST_MAX_LIMIT） */
   limit?: number
 }
@@ -85,7 +92,11 @@ interface ViewerRow extends Omit<Viewer, 'badges'> {
  *
  * 注意: 前回の記録から UPDATE_INTERVAL_MS が空いていなければ、1行も書き込まない。
  * このとき login・display_name・last_badges も据え置きになるが、どれも「最後に見た値」なので困らない。
- * 注意: 同じ発言のIDでの更新は行わない。Twitchが再送した通知で発言数が二重に増えるのを防ぐためである。
+ * 注意: 直前に記録した発言のIDと同じなら更新しない。Twitchが再送した通知で発言数が二重に増えるのを防ぐためである。
+ * ただし控えているのは直前の1件だけなので、防げるのは「最後に記録した発言」の再送までである。間隔を空けるために
+ * 書き込まなかった発言が、10分より後に再送されて届いた場合は、新しい発言として1回数えられる。
+ * すべての発言のIDを控えれば正確になるが、それには発言のたびに書き込みが要り、間隔を空ける意味が無くなる。
+ * message_count はもともと数え落とすことを承知のうえでの概数なので、この取りこぼしは許す。
  */
 export const recordViewerMessage = async (db: Database, message: ViewerMessage, now: number): Promise<void> => {
   const at = toIso(now)
@@ -107,8 +118,11 @@ const readBadges = (badges: string): string[] => (badges === '' ? [] : badges.sp
 /**
  * 記録のある人を、最後に発言した順（新しい順）に返す。
  *
- * 件数が多くなるので全件は返さず、`before` と `limit` で少しずつ読む。名前での絞り込みを前方一致にしているのは、
- * 部分一致（LIKE '%...%'）だと索引が効かず全件走査になり、D1の rows read を食うためである。
+ * 件数が多くなるので全件は返さず、`before`（と `beforeUserId`）と `limit` で少しずつ読む。名前での絞り込みを
+ * 前方一致にしているのは、部分一致（LIKE '%...%'）だと索引が効かず全件走査になり、D1の rows read を食うためである。
+ *
+ * 注意: 並び順にユーザーIDを添えるのは、最後の発言日時が同じ人どうしの順番を決めるためである。
+ * 順番が定まらないと、同じ日時の人がページの境目にまたがったときに、続きを読んでも出てこない人が生じる。
  */
 export const listViewers = async (db: Database, query: ViewerQuery): Promise<Viewer[]> => {
   const conditions: string[] = []
@@ -121,8 +135,14 @@ export const listViewers = async (db: Database, query: ViewerQuery): Promise<Vie
     values.push(prefix, prefix + PREFIX_UPPER_BOUND)
   }
   if (query.before !== undefined && query.before !== '') {
-    conditions.push(`last_seen_at < ?${values.length + 1}`)
-    values.push(query.before)
+    // 同じ日時の人は、ユーザーIDの降順（並び順と同じ）で「目印より後ろ」だけを続きとして取る
+    if (query.beforeUserId !== undefined && query.beforeUserId !== '') {
+      conditions.push(`(last_seen_at < ?${values.length + 1} OR (last_seen_at = ?${values.length + 1} AND user_id < ?${values.length + 2}))`)
+      values.push(query.before, query.beforeUserId)
+    } else {
+      conditions.push(`last_seen_at < ?${values.length + 1}`)
+      values.push(query.before)
+    }
   }
   values.push(Math.min(query.limit ?? VIEWER_LIST_LIMIT, VIEWER_LIST_MAX_LIMIT))
 
@@ -132,7 +152,7 @@ export const listViewers = async (db: Database, query: ViewerQuery): Promise<Vie
               last_seen_at AS lastSeenAt, message_count AS messageCount, last_badges AS badges, note
        FROM viewers
        ${conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''}
-       ORDER BY last_seen_at DESC
+       ORDER BY last_seen_at DESC, user_id DESC
        LIMIT ?${values.length}`,
     )
     .bind(...values)

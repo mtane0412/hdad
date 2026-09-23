@@ -33,7 +33,8 @@ const readLimit = (raw: string | null): number | undefined => {
  * GET /api/admin/viewers: 記録のある人を、最後に発言した順（新しい順）で返す。
  *
  * ?search はログイン名の前方一致（大文字小文字は区別しない）、?before は「この日時より前に発言した人」で、
- * 続きを読むときは一覧の最後の lastSeenAt を渡す。
+ * 続きを読むときは一覧の最後の lastSeenAt と userId（?beforeUserId）を渡す。ユーザーIDも渡すのは、
+ * 最後の発言日時が同じ人がページの境目にまたがったときに取りこぼさないためである。
  */
 export const getViewers = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
@@ -41,6 +42,7 @@ export const getViewers = async (context: Context): Promise<Response> => {
   const viewers = await listViewers(env.DB, {
     loginPrefix: url.searchParams.get('search') ?? '',
     before: url.searchParams.get('before') ?? '',
+    beforeUserId: url.searchParams.get('beforeUserId') ?? '',
     limit: readLimit(url.searchParams.get('limit')),
   })
   return Response.json({ viewers })

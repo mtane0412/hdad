@@ -41,11 +41,12 @@ describe('list（視聴者の一覧）', () => {
   it('検索の語と続きの目印をクエリに載せる', async () => {
     const { requests, fetchImpl } = 応答を返すfetch(200, { viewers: [] })
 
-    await createViewerApi(fetchImpl).list({ search: 'hana', before: '2026-09-21T12:00:00.000Z' })
+    await createViewerApi(fetchImpl).list({ search: 'hana', before: '2026-09-21T12:00:00.000Z', beforeUserId: '100' })
 
     const url = new URL(requests[0]!.url)
     expect(url.searchParams.get('search')).toBe('hana')
     expect(url.searchParams.get('before')).toBe('2026-09-21T12:00:00.000Z')
+    expect(url.searchParams.get('beforeUserId')).toBe('100')
   })
 
   it('一度に取る件数をクエリに載せる', async () => {
