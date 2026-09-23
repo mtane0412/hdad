@@ -18,6 +18,7 @@ import { saveModerationConfig } from './moderation-config'
 import type { ModerationConfig, ModerationRule } from './chat-moderation'
 import { saveAlertConfig, type StoredTrigger } from './alert-config'
 import { saveToken } from './token'
+import { listViewers } from './viewer-store'
 import { createFakeAlertChannel } from './fake-alert-channel'
 
 interface 環境の条件 {
@@ -307,6 +308,44 @@ describe('チャットの通知（channel.chat.message）', () => {
     await 呼び出す(Twitchからの通知({ body: チャットの通知('!ping') }), env, twitch.fetchImpl)
 
     expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM stream_events').get()).toEqual({ count: 0 })
+  })
+
+  it('発言した人を視聴者の記録に残す（発言そのものは貯めず、人だけを貯める）', async () => {
+    const { env } = await bot接続済みの環境()
+    const twitch = 送信に応えるTwitch()
+
+    await 呼び出す(Twitchからの通知({ body: チャットの通知('こんばんは') }), env, twitch.fetchImpl)
+
+    expect(await listViewers(env.DB, {})).toMatchObject([{ userId: '11111', login: 'shichousha', displayName: '視聴者さん', messageCount: 1 }])
+  })
+
+  it('bot自身の発言は視聴者の記録に残さない', async () => {
+    const { env } = await bot接続済みの環境()
+    const twitch = 送信に応えるTwitch()
+
+    await 呼び出す(Twitchからの通知({ body: チャットの通知('こんばんは', botのID) }), env, twitch.fetchImpl)
+
+    expect(await listViewers(env.DB, {})).toEqual([])
+  })
+
+  it('別のチャンネルのチャットは視聴者の記録に残さない（古い購読が残っていても、他人のチャンネルの人を貯めないため）', async () => {
+    const { env } = await bot接続済みの環境()
+    const twitch = 送信に応えるTwitch()
+    const 別のチャンネルの通知 = {
+      subscription: { type: 'channel.chat.message' },
+      event: {
+        broadcaster_user_id: '99999',
+        chatter_user_id: '11111',
+        chatter_user_login: 'shichousha',
+        chatter_user_name: '視聴者さん',
+        message_id: 'chat-message-3',
+        message: { text: 'こんばんは' },
+      },
+    }
+
+    await 呼び出す(Twitchからの通知({ body: 別のチャンネルの通知 }), env, twitch.fetchImpl)
+
+    expect(await listViewers(env.DB, {})).toEqual([])
   })
 
   it('botを接続していなければ、応答せずに受け取るだけにする', async () => {

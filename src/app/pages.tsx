@@ -4,7 +4,7 @@
  * サイドバーの項目と、パスごとに描く中身をここで決める。カテゴリを増やしたらここに足す。
  * ギャラリーの素材ページ（/wallpaper/<id>/ など）と alerts/ は実ファイルとして配信されるので、ここには載せない。
  */
-import { Bot, Clock, Image, LayoutDashboard, MessageSquare, Upload, Zap, type LucideIcon } from 'lucide-react'
+import { Bot, Clock, Image, LayoutDashboard, MessageSquare, Upload, Users, Zap, type LucideIcon } from 'lucide-react'
 import type { AdminApi, Me } from '@/admin/api'
 import { MediaPage } from '@/admin/media-page'
 import { TriggerPage } from '@/admin/trigger-page'
@@ -15,6 +15,8 @@ import { clocks } from '@/clock/registry'
 import { Gallery } from '@/core/gallery/gallery'
 import type { StatsApi } from '@/stats/api'
 import { StatsPage } from '@/stats/stats-page'
+import type { ViewerApi } from '@/viewers/api'
+import { ViewerPage } from '@/viewers/viewer-page'
 import { backgrounds } from '@/wallpaper/registry'
 
 /** ページが中身を描くのに使うもの */
@@ -24,6 +26,8 @@ export interface PageContext {
   statsApi: StatsApi
   /** チャットボットの接続状態と送信（チャットボットのページが使う） */
   botApi: BotApi
+  /** 視聴者の記録の読み書き（視聴者のページが使う） */
+  viewerApi: ViewerApi
   me: Me
   /** オーバーレイ用キーを再発行した。ほかのページから戻ってきても新しいキーを出せるよう、枠が持つログイン情報を書き換える */
   onOverlayKeyChange(overlayKey: string): void
@@ -45,6 +49,7 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
     pages: [
       { path: '/', name: 'ダッシュボード', icon: LayoutDashboard, render: ({ statsApi }) => <StatsPage api={statsApi} /> },
       { path: '/bot/', name: 'チャットボット', icon: Bot, render: ({ botApi }) => <BotPage api={botApi} /> },
+      { path: '/viewers/', name: '視聴者', icon: Users, render: ({ viewerApi }) => <ViewerPage api={viewerApi} /> },
       {
         path: '/triggers/',
         name: 'トリガー',

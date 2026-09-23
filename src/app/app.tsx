@@ -14,6 +14,7 @@ import { useEffect, useState } from 'react'
 import type { AdminApi, Me } from '@/admin/api'
 import type { BotApi } from '@/bot/api'
 import type { StatsApi } from '@/stats/api'
+import type { ViewerApi } from '@/viewers/api'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { buttonVariants } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -146,7 +147,7 @@ const Shell = ({ context, onLogout }: { context: PageContext; onLogout: () => vo
   )
 }
 
-export const App = ({ api, statsApi, botApi }: { api: AdminApi; statsApi: StatsApi; botApi: BotApi }) => {
+export const App = ({ api, statsApi, botApi, viewerApi }: { api: AdminApi; statsApi: StatsApi; botApi: BotApi; viewerApi: ViewerApi }) => {
   const [session, setSession] = useState<Session>({ status: 'checking' })
 
   useEffect(() => {
@@ -196,6 +197,7 @@ export const App = ({ api, statsApi, botApi }: { api: AdminApi; statsApi: StatsA
             api,
             statsApi,
             botApi,
+            viewerApi,
             me: session.me,
             onOverlayKeyChange: (overlayKey) => setSession({ status: 'signed-in', me: { ...session.me, overlayKey } }),
           }}
