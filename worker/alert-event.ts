@@ -11,7 +11,7 @@
  * （とくに「その配信で初めての発言か」のようにデータベースの記録からしか決まらないもの）を持つ必要はない。
  *
  * 条件の種類には、そのイベントにしか意味を持たないものがある（reward はチャンネルポイントの交換、
- * text と firstChatOfStream はチャットの発言）。ほかのイベントでは満たさないものとして扱う
+ * text・firstChatOfStream・firstChatEver・returningAfter はチャットの発言）。ほかのイベントでは満たさないものとして扱う
  * （保存時にも拒否しているが、古い設定が残っていても意図しないイベントで動かないようにする）。
  */
 import {
@@ -73,7 +73,15 @@ export type Extracted =
 export interface ConditionState {
   /** その配信で初めての発言か。発言以外のイベントでは false を渡す */
   readonly firstChatOfStream: boolean
+  /** このチャンネルで初めての発言か。発言以外のイベントでは false を渡す */
+  readonly firstChatEver: boolean
+  /** その発言が、前の発言から何日空いていたか。このチャンネルで初めての発言と、発言以外のイベントでは null を渡す */
+  readonly daysSinceLastChat: number | null
 }
+
+/** そのイベントのトリガーに、指定した種類の条件がひとつでも使われているか */
+const uses = (config: AlertConfig, subscriptionType: string, kinds: readonly StoredCondition['kind'][]): boolean =>
+  config.triggers.some((trigger) => trigger.event === subscriptionType && trigger.conditions.some((condition) => kinds.includes(condition.kind)))
 
 /**
  * その通知の照合に、「その配信で初めての発言か」の判定が要るか。
@@ -81,8 +89,17 @@ export interface ConditionState {
  * 要らなければ呼び出し側はデータベースを触らずに済む。チャットの発言は件数の桁が違うため、
  * 1通ごとにD1へ書き込まないようにこれで絞る。
  */
-export const requiresFirstChatOfStream = (config: AlertConfig, subscriptionType: string): boolean =>
-  config.triggers.some((trigger) => trigger.event === subscriptionType && trigger.conditions.some((condition) => condition.kind === 'firstChatOfStream'))
+export const requiresFirstChatOfStream = (config: AlertConfig, subscriptionType: string): boolean => uses(config, subscriptionType, ['firstChatOfStream'])
+
+/**
+ * その通知の照合に、視聴者の記録（viewers）から決まる判定が要るか。
+ *
+ * 「このチャンネルで初めての発言か」（firstChatEver）と「最後の発言から何日空いているか」（returningAfter）は
+ * どちらも viewers の同じ1行から決まるので、まとめて1つの読み出しで済ませられる。
+ * どちらも使っていなければ、呼び出し側はその読み出しを省ける。
+ */
+export const requiresChatHistory = (config: AlertConfig, subscriptionType: string): boolean =>
+  uses(config, subscriptionType, ['firstChatEver', 'returningAfter'])
 
 /**
  * その通知に、オーバーレイへ押し出すアラートを持つトリガーがあるか。
@@ -184,6 +201,12 @@ const satisfiesCondition = (condition: StoredCondition, extracted: Extracted, st
       // 判定そのものは呼び出し側（worker/alert-state.ts）が済ませている。ここでは受け取った結果を見るだけ。
       // 発言以外のイベントでは意味を持たないので、ほかのイベントでは満たさないものとして扱う（text と同じ扱い）
       return extracted.event === CHAT_MESSAGE && state.firstChatOfStream
+    // 判定は firstChatOfStream と同じく呼び出し側（worker/alert-state.ts）が済ませている
+    case 'firstChatEver':
+      return extracted.event === CHAT_MESSAGE && state.firstChatEver
+    // 初めての発言では空いた日数が決まらない（null）ので、当てはまらないものとして扱う
+    case 'returningAfter':
+      return extracted.event === CHAT_MESSAGE && state.daysSinceLastChat !== null && state.daysSinceLastChat >= condition.days
   }
 }
 

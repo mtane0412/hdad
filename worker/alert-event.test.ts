@@ -7,15 +7,26 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { AlertConfig, StoredCondition, StoredTrigger } from './alert-config'
-import { alertFor, announcementFor, chatMessageFor, extract, fillMessage, hasAlertAction, matches, requiresFirstChatOfStream, type ConditionState } from './alert-event'
+import {
+  alertFor,
+  announcementFor,
+  chatMessageFor,
+  extract,
+  fillMessage,
+  hasAlertAction,
+  matches,
+  requiresChatHistory,
+  requiresFirstChatOfStream,
+  type ConditionState,
+} from './alert-event'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const CHAT_MESSAGE = 'channel.chat.message'
 
 /** 通知の中身だけでは決まらない条件の判定結果。この一群のテストではふだんの発言（その配信で2回目以降）として扱う */
-const 初回ではない: ConditionState = { firstChatOfStream: false }
+const 初回ではない: ConditionState = { firstChatOfStream: false, firstChatEver: false, daysSinceLastChat: 0 }
 /** その配信で初めての発言だった場合の判定結果 */
-const 初回である: ConditionState = { firstChatOfStream: true }
+const 初回である: ConditionState = { firstChatOfStream: true, firstChatEver: false, daysSinceLastChat: 3 }
 
 describe('extract', () => {
   it('チャンネルポイント交換から、交換した人と報酬を取り出す', () => {
@@ -368,6 +379,108 @@ describe('firstChatOfStream の条件', () => {
 
     expect(matches(初回かつ文面, 発言した, 初回である)).toBe(true)
     expect(matches(初回かつ文面, { ...発言した, text: 'こんばんは' }, 初回である)).toBe(false)
+  })
+})
+
+describe('firstChatEver の条件', () => {
+  const 発言した = { event: CHAT_MESSAGE, userName: '田中太郎', userLogin: 'tanaka_taro', text: 'はじめまして' } as const
+  const 初見のトリガー: StoredTrigger = {
+    event: CHAT_MESSAGE,
+    conditions: [{ kind: 'firstChatEver' }],
+    actions: [{ type: 'chat', message: '{user} さん、はじめまして！' }],
+  }
+
+  it('このチャンネルで初めての発言なら当てはまる', () => {
+    expect(matches(初見のトリガー, 発言した, { ...初回ではない, firstChatEver: true, daysSinceLastChat: null })).toBe(true)
+  })
+
+  it('記録のある人（2回目以降）の発言なら当てはまらない', () => {
+    expect(matches(初見のトリガー, 発言した, 初回ではない)).toBe(false)
+  })
+
+  it('チャットの発言以外には当てはまらない（保存時に拒否するが、照合でも通さない）', () => {
+    const フォローに初見: StoredTrigger = {
+      event: 'channel.follow',
+      conditions: [{ kind: 'firstChatEver' }],
+      actions: [{ type: 'chat', message: 'ありがとう' }],
+    }
+    const フォローした = { event: 'channel.follow', userName: '田中太郎', userLogin: 'tanaka_taro' } as const
+
+    expect(matches(フォローに初見, フォローした, { ...初回ではない, firstChatEver: true })).toBe(false)
+  })
+
+  it('その配信で初めての発言であることと並べると、両方を満たしたときだけ当てはまる（and）', () => {
+    const 初回かつ初見: StoredTrigger = { ...初見のトリガー, conditions: [{ kind: 'firstChatOfStream' }, { kind: 'firstChatEver' }] }
+
+    expect(matches(初回かつ初見, 発言した, { firstChatOfStream: true, firstChatEver: true, daysSinceLastChat: null })).toBe(true)
+    expect(matches(初回かつ初見, 発言した, { firstChatOfStream: false, firstChatEver: true, daysSinceLastChat: null })).toBe(false)
+  })
+})
+
+describe('returningAfter の条件', () => {
+  const 発言した = { event: CHAT_MESSAGE, userName: '田中太郎', userLogin: 'tanaka_taro', text: 'おひさしぶりです' } as const
+  const 久しぶりのトリガー: StoredTrigger = {
+    event: CHAT_MESSAGE,
+    conditions: [{ kind: 'returningAfter', days: 30 }],
+    actions: [{ type: 'chat', message: '{user} さん、お久しぶりです！' }],
+  }
+
+  it('指定した日数ちょうど空いていれば当てはまる', () => {
+    expect(matches(久しぶりのトリガー, 発言した, { ...初回ではない, daysSinceLastChat: 30 })).toBe(true)
+  })
+
+  it('指定した日数より長く空いていれば当てはまる', () => {
+    expect(matches(久しぶりのトリガー, 発言した, { ...初回ではない, daysSinceLastChat: 45.5 })).toBe(true)
+  })
+
+  it('指定した日数に足りなければ当てはまらない', () => {
+    expect(matches(久しぶりのトリガー, 発言した, { ...初回ではない, daysSinceLastChat: 29.9 })).toBe(false)
+  })
+
+  it('このチャンネルで初めての発言（空いた日数が決まらない）には当てはまらない', () => {
+    expect(matches(久しぶりのトリガー, 発言した, { firstChatOfStream: true, firstChatEver: true, daysSinceLastChat: null })).toBe(false)
+  })
+
+  it('チャットの発言以外には当てはまらない（保存時に拒否するが、照合でも通さない）', () => {
+    const レイドに久しぶり: StoredTrigger = {
+      event: 'channel.raid',
+      conditions: [{ kind: 'returningAfter', days: 30 }],
+      actions: [{ type: 'chat', message: 'ありがとう' }],
+    }
+    const レイドされた = { event: 'channel.raid', userName: '田中太郎', userLogin: 'tanaka_taro', viewers: 10 } as const
+
+    expect(matches(レイドに久しぶり, レイドされた, { ...初回ではない, daysSinceLastChat: 40 })).toBe(false)
+  })
+})
+
+describe('requiresChatHistory', () => {
+  const 初見のトリガー: StoredTrigger = { event: CHAT_MESSAGE, conditions: [{ kind: 'firstChatEver' }], actions: [{ type: 'chat', message: 'はじめまして' }] }
+  const 久しぶりのトリガー: StoredTrigger = {
+    event: CHAT_MESSAGE,
+    conditions: [{ kind: 'returningAfter', days: 30 }],
+    actions: [{ type: 'chat', message: 'お久しぶりです' }],
+  }
+  /** 視聴者の記録を見なくても判定できる条件だけを持つトリガー */
+  const 記録を見ないトリガー: StoredTrigger = {
+    event: CHAT_MESSAGE,
+    conditions: [{ kind: 'firstChatOfStream' }],
+    actions: [{ type: 'chat', message: 'おかえりなさい' }],
+  }
+
+  it('そのイベントに firstChatEver の条件を持つトリガーがあれば true', () => {
+    expect(requiresChatHistory({ triggers: [記録を見ないトリガー, 初見のトリガー] }, CHAT_MESSAGE)).toBe(true)
+  })
+
+  it('そのイベントに returningAfter の条件を持つトリガーがあれば true', () => {
+    expect(requiresChatHistory({ triggers: [久しぶりのトリガー] }, CHAT_MESSAGE)).toBe(true)
+  })
+
+  it('どちらの条件も持つトリガーが1件もなければ false（データベースを触らずに済ませるため）', () => {
+    expect(requiresChatHistory({ triggers: [記録を見ないトリガー] }, CHAT_MESSAGE)).toBe(false)
+  })
+
+  it('別のイベントの通知では false', () => {
+    expect(requiresChatHistory({ triggers: [初見のトリガー] }, 'channel.follow')).toBe(false)
   })
 })
 

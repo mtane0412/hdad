@@ -13,7 +13,7 @@
  * 条件を1件も持たないトリガーは、そのイベントが起きればいつでも当てはまる。
  * 同じ種類の条件は1トリガーに1件までにする（動作と同じ扱い。「報酬Aかつ報酬B」のような満たせない条件を作らせないため）。
  *
- * 条件の種類には、そのイベントにしか意味を持たないものがある（reward はチャンネルポイントの交換、text と firstChatOfStream はチャットの発言）。
+ * 条件の種類には、そのイベントにしか意味を持たないものがある（reward はチャンネルポイントの交換、text・firstChatOfStream・firstChatEver・returningAfter はチャットの発言）。
  * ほかのイベントに付いていたら黙って捨てずに保存を拒む（配信者が設定したつもりの絞り込みが効かないまま保存されるのを防ぐ）。
  *
  * 注意: 検証は最初の1件で止めず、問題点をすべて集めてから拒否する（管理画面で一度に直せるようにする）。
@@ -33,7 +33,7 @@ export const ALERT_EVENTS = [REDEMPTION, 'channel.follow', 'channel.subscribe', 
 export type AlertEvent = (typeof ALERT_EVENTS)[number]
 
 /** 条件の種類。同じ種類は1トリガーに1件まで */
-export const CONDITION_KINDS = ['reward', 'user', 'text', 'firstChatOfStream'] as const
+export const CONDITION_KINDS = ['reward', 'user', 'text', 'firstChatOfStream', 'firstChatEver', 'returningAfter'] as const
 
 export type ConditionKind = (typeof CONDITION_KINDS)[number]
 
@@ -48,6 +48,10 @@ const MAX_DURATION_SECONDS = 60
 const MAX_ALERT_MESSAGE_LENGTH = 200
 /** チャット1通の上限（Twitchの POST /helix/chat/messages の制限）。アナウンスも同じ500文字で、text の条件の上限にも使う */
 const MAX_CHAT_MESSAGE_LENGTH = 500
+/** returningAfter に指定できる日数の下限（1日）。0日だと毎回当てはまり、条件なしと区別が付かない */
+const MIN_RETURNING_DAYS = 1
+/** returningAfter に指定できる日数の上限（1年）。これより長い間隔は「お久しぶり」として区別する意味が薄い */
+const MAX_RETURNING_DAYS = 365
 /** Twitchのユーザー名（login）の上限 */
 const MAX_LOGIN_LENGTH = 25
 /** 色を指定しなかったアナウンスの色（チャンネルの色） */
@@ -100,12 +104,19 @@ export type StoredAction = StoredAlertAction | StoredChatAction | StoredAnnounce
  * - firstChatOfStream: その配信で初めての発言であること。チャットの発言にしか付けられない。
  *   ほかの3種類と違って通知の中身だけでは決まらず、データベースに記録した「この配信で誰が発言したか」から決まる
  *   （判定は worker/chat-store.ts の claimFirstChatOfStream。照合に渡す値は worker/alert-state.ts が用意する）
+ * - firstChatEver: このチャンネルで初めての発言であること。チャットの発言にしか付けられない。
+ *   firstChatOfStream と違い、配信の区切りではなく視聴者の記録（viewers）から決まるので、常連は当てはまらない
+ *   （判定は worker/viewer-store.ts の readChatHistory）
+ * - returningAfter: 最後の発言から days 日以上空いていること。チャットの発言にしか付けられない。
+ *   初めての発言では当てはまらない（空いた日数が決まらないため）
  */
 export type StoredCondition =
   | { kind: 'reward'; rewardId: string }
   | { kind: 'user'; login: string }
   | { kind: 'text'; contains: string }
   | { kind: 'firstChatOfStream' }
+  | { kind: 'firstChatEver' }
+  | { kind: 'returningAfter'; days: number }
 
 /** 保存するトリガー。条件はすべてを満たしたときだけ当てはまる（and） */
 export type StoredTrigger = { event: AlertEvent; conditions: StoredCondition[]; actions: StoredAction[] }
@@ -148,6 +159,9 @@ const isAnnouncementColor = (value: unknown): value is AnnouncementColor => ANNO
 
 const isNumberBetween = (value: unknown, min: number, max: number): value is number =>
   typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max
+
+const isIntegerWithin = (value: unknown, min: number, max: number): value is number =>
+  typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max
 
 const isStringWithin = (value: unknown, min: number, max: number): value is string => typeof value === 'string' && value.length >= min && value.length <= max
 
@@ -210,12 +224,26 @@ const parseCondition = (candidate: unknown, at: string, event: AlertEvent | null
       return { kind, contains }
     }
     // 持つ項目がないので、種類が合っていて付けられるイベントであればそのまま通す
-    case 'firstChatOfStream': {
+    case 'firstChatOfStream':
+    case 'firstChatEver': {
       if (event !== null && event !== CHAT_MESSAGE) {
-        problems.push(`${at}: firstChatOfStream の条件はチャットの発言にしか付けられません`)
+        problems.push(`${at}: ${kind} の条件はチャットの発言にしか付けられません`)
         return null
       }
       return { kind }
+    }
+    case 'returningAfter': {
+      if (event !== null && event !== CHAT_MESSAGE) {
+        problems.push(`${at}: returningAfter の条件はチャットの発言にしか付けられません`)
+        return null
+      }
+      const { days } = candidate
+      // 日数は整数で受け取る（画面の入力欄も日数なので、時間単位の細かさは持たせない）
+      if (!isIntegerWithin(days, MIN_RETURNING_DAYS, MAX_RETURNING_DAYS)) {
+        problems.push(`${at}.days: ${MIN_RETURNING_DAYS}〜${MAX_RETURNING_DAYS}の整数（日数）で指定してください`)
+        return null
+      }
+      return { kind, days }
     }
   }
 }

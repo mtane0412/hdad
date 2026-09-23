@@ -296,6 +296,80 @@ describe('トリガー', () => {
     expect(row.getByText('その配信で初めての発言').closest('label')).toBeNull()
   })
 
+  test('チャットの発言のイベントでは、このチャンネルで初めての発言の条件を足して保存できる（入れる値はない）', async () => {
+    const api = 代役のAPI({ config: async () => [{ ...拍手のトリガー, conditions: [] }] })
+    render(トリガーのページ(api))
+
+    const row = await 開いたトリガー()
+    await userEvent.selectOptions(row.getByLabelText('イベント'), CHAT_MESSAGE)
+    await userEvent.click(row.getByRole('button', { name: 'このチャンネルで初めての発言の条件を足す' }))
+    await userEvent.click(screen.getByRole('button', { name: 'トリガーを保存' }))
+
+    expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
+    expect(api.saveConfig).toHaveBeenCalledWith([expect.objectContaining({ event: CHAT_MESSAGE, conditions: [{ kind: 'firstChatEver' }] })])
+  })
+
+  test('チャットの発言のイベントでは、空いた日数の条件を足して日数を書き換えて保存できる', async () => {
+    const api = 代役のAPI({ config: async () => [{ ...拍手のトリガー, conditions: [] }] })
+    render(トリガーのページ(api))
+
+    const row = await 開いたトリガー()
+    await userEvent.selectOptions(row.getByLabelText('イベント'), CHAT_MESSAGE)
+    await userEvent.click(row.getByRole('button', { name: '前の発言から空いた日数の条件を足す' }))
+    // 既定の30日を消してから入れ直す
+    await userEvent.clear(row.getByLabelText('前の発言から空いた日数'))
+    await userEvent.type(row.getByLabelText('前の発言から空いた日数'), '60')
+    await userEvent.click(screen.getByRole('button', { name: 'トリガーを保存' }))
+
+    expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
+    expect(api.saveConfig).toHaveBeenCalledWith([expect.objectContaining({ event: CHAT_MESSAGE, conditions: [{ kind: 'returningAfter', days: 60 }] })])
+  })
+
+  test('空いた日数の条件を足すと、既定の30日が入っている', async () => {
+    render(トリガーのページ(代役のAPI({ config: async () => [{ ...拍手のトリガー, conditions: [] }] })))
+
+    const row = await 開いたトリガー()
+    await userEvent.selectOptions(row.getByLabelText('イベント'), CHAT_MESSAGE)
+    await userEvent.click(row.getByRole('button', { name: '前の発言から空いた日数の条件を足す' }))
+
+    expect(row.getByLabelText('前の発言から空いた日数')).toHaveValue(30)
+  })
+
+  test('空いた日数を空欄にして保存しようとしたら、数を入れるよう知らせる（0日として送ってしまわないため）', async () => {
+    const api = 代役のAPI({ config: async () => [{ ...拍手のトリガー, event: CHAT_MESSAGE, conditions: [{ kind: 'returningAfter', days: 30 }] }] })
+    render(トリガーのページ(api))
+
+    const row = await 開いたトリガー()
+    await userEvent.clear(row.getByLabelText('前の発言から空いた日数'))
+    await userEvent.click(screen.getByRole('button', { name: 'トリガーを保存' }))
+
+    expect(await お知らせ('日数を数で入力してください')).toBeInTheDocument()
+    expect(api.saveConfig).not.toHaveBeenCalled()
+  })
+
+  test('このチャンネルで初めての発言の条件は、入れる値がないので説明だけを出す', async () => {
+    const 初見のトリガー: StoredTrigger = { ...拍手のトリガー, event: CHAT_MESSAGE, conditions: [{ kind: 'firstChatEver' }] }
+    render(トリガーのページ(代役のAPI({ config: async () => [初見のトリガー] })))
+
+    const row = await 開いたトリガー()
+
+    expect(row.getByText('このチャンネルで初めての発言')).toBeInTheDocument()
+    expect(row.getByText(/記録が残っていない人/)).toBeInTheDocument()
+    // 入れる値がないので、対応する入力欄のないラベルにしない（読み上げが行き先のないラベルを読んでしまう）
+    expect(row.getByText('このチャンネルで初めての発言').closest('label')).toBeNull()
+  })
+
+  test.each(['このチャンネルで初めての発言', '前の発言から空いた日数'])(
+    'チャットの発言以外のイベントでは、%s の条件を足せない（Workerが保存を拒否するため）',
+    async (名前) => {
+      render(トリガーのページ(代役のAPI({ config: async () => [{ ...拍手のトリガー, conditions: [] }] })))
+
+      const row = await 開いたトリガー()
+
+      expect(row.queryByRole('button', { name: `${名前}の条件を足す` })).not.toBeInTheDocument()
+    },
+  )
+
   test('チャットの発言以外のイベントでは、文面の条件を足せない（Workerが保存を拒否するため）', async () => {
     render(トリガーのページ(代役のAPI({ config: async () => [{ ...拍手のトリガー, conditions: [] }] })))
 

@@ -1,17 +1,19 @@
 /**
  * 状態を持つ条件の判定（alert-state.ts）のテスト
  *
- * 「その配信で初めての発言か」は通知の中身だけでは決まらないため、照合の前にデータベースを見て決める。
- * ここで確かめたいのは次の3点である。
+ * 「その配信で初めての発言か」「このチャンネルで初めての発言か」「最後の発言から何日空いているか」は
+ * 通知の中身だけでは決まらないため、照合の前にデータベースを見て決める。ここで確かめたいのは次の4点である。
  * - その条件を使うトリガーが1件もなければ、データベースを触らない（チャットは件数の桁が違うため）
- * - 同じ配信の2回目以降の発言では false になる
- * - 発言以外の通知では、常に false を返す
+ * - 同じ配信の2回目以降の発言では firstChatOfStream が false になる
+ * - 視聴者の記録から決まる条件（firstChatEver・returningAfter）を使うときだけ、その記録を読む
+ * - 発言以外の通知では、どの判定も「当てはまらない」を返す
  */
 import { describe, expect, it } from 'vitest'
 import type { AlertConfig } from './alert-config'
 import { resolveConditionState } from './alert-state'
 import type { ChatMessage } from './chat-command'
 import { createFakeDatabase } from './fake-database'
+import { recordViewerMessage } from './viewer-store'
 
 const CHAT_MESSAGE = 'channel.chat.message'
 const 現在時刻 = Date.UTC(2026, 8, 21, 12, 0, 0)
@@ -21,9 +23,27 @@ const 初回の設定: AlertConfig = {
   triggers: [{ event: CHAT_MESSAGE, conditions: [{ kind: 'firstChatOfStream' }], actions: [{ type: 'chat', message: 'おかえりなさい！' }] }],
 }
 
-/** firstChatOfStream の条件を持たない設定 */
+/** 状態を持つ条件をひとつも持たない設定 */
 const 条件なしの設定: AlertConfig = {
   triggers: [{ event: CHAT_MESSAGE, conditions: [], actions: [{ type: 'chat', message: 'どうも' }] }],
+}
+
+/** firstChatEver の条件を持つ設定（視聴者の記録を読む） */
+const 初見の設定: AlertConfig = {
+  triggers: [{ event: CHAT_MESSAGE, conditions: [{ kind: 'firstChatEver' }], actions: [{ type: 'chat', message: 'はじめまして！' }] }],
+}
+
+/** returningAfter の条件を持つ設定（視聴者の記録を読む） */
+const 久しぶりの設定: AlertConfig = {
+  triggers: [{ event: CHAT_MESSAGE, conditions: [{ kind: 'returningAfter', days: 30 }], actions: [{ type: 'chat', message: 'お久しぶりです！' }] }],
+}
+
+/** どの判定も「当てはまらない」状態 */
+const どれも当てはまらない = { firstChatOfStream: false, firstChatEver: false, daysSinceLastChat: null }
+
+/** 視聴者の記録を1件作る（発言の記録は webhook-routes.ts が照合より先に済ませる） */
+const 発言を記録する = async (db: ReturnType<typeof createFakeDatabase>, messageId: string, now: number): Promise<void> => {
+  await recordViewerMessage(db, { userId: '発言者ID', login: 'tanaka_taro', displayName: '田中太郎', badges: [], messageId }, now)
 }
 
 const 発言 = (overrides: Partial<ChatMessage> = {}): ChatMessage => ({
@@ -45,11 +65,11 @@ const 配信を始める = (db: ReturnType<typeof createFakeDatabase>): void => 
 }
 
 describe('resolveConditionState', () => {
-  it('firstChatOfStream の条件を使うトリガーがなければ、データベースを触らずに false を返す', async () => {
+  it('状態を持つ条件を使うトリガーがなければ、データベースを触らずにどれも当てはまらないと返す', async () => {
     const db = createFakeDatabase()
     配信を始める(db)
-
-    expect(await resolveConditionState(db, 条件なしの設定, 発言(), 現在時刻)).toEqual({ firstChatOfStream: false })
+    // 記録のない人なので、視聴者の記録を読んでいれば firstChatEver は true になるはず
+    expect(await resolveConditionState(db, 条件なしの設定, 発言(), 現在時刻)).toEqual(どれも当てはまらない)
     expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM first_chatters').get()).toEqual({ count: 0 })
   })
 
@@ -57,7 +77,7 @@ describe('resolveConditionState', () => {
     const db = createFakeDatabase()
     配信を始める(db)
 
-    expect(await resolveConditionState(db, 初回の設定, 発言(), 現在時刻)).toEqual({ firstChatOfStream: true })
+    expect(await resolveConditionState(db, 初回の設定, 発言(), 現在時刻)).toEqual({ ...どれも当てはまらない, firstChatOfStream: true })
   })
 
   it('同じ人の2回目の発言では false を返す', async () => {
@@ -65,13 +85,64 @@ describe('resolveConditionState', () => {
     配信を始める(db)
     await resolveConditionState(db, 初回の設定, 発言(), 現在時刻)
 
-    expect(await resolveConditionState(db, 初回の設定, 発言({ messageId: '発言ID-2' }), 現在時刻 + 1000)).toEqual({ firstChatOfStream: false })
+    expect(await resolveConditionState(db, 初回の設定, 発言({ messageId: '発言ID-2' }), 現在時刻 + 1000)).toEqual(どれも当てはまらない)
   })
 
-  it('発言以外の通知（発言を渡さない場合）では false を返す', async () => {
+  it('発言以外の通知（発言を渡さない場合）ではどれも当てはまらないと返す', async () => {
     const db = createFakeDatabase()
     配信を始める(db)
 
-    expect(await resolveConditionState(db, 初回の設定, null, 現在時刻)).toEqual({ firstChatOfStream: false })
+    expect(await resolveConditionState(db, 初回の設定, null, 現在時刻)).toEqual(どれも当てはまらない)
+  })
+
+  it('firstChatEver の条件を使うトリガーがあり、記録のない人の発言なら firstChatEver に true を返す', async () => {
+    const db = createFakeDatabase()
+
+    expect(await resolveConditionState(db, 初見の設定, 発言(), 現在時刻)).toEqual({ ...どれも当てはまらない, firstChatEver: true })
+  })
+
+  it('記録のある人の発言では firstChatEver に false を返し、空いた日数を添える', async () => {
+    const db = createFakeDatabase()
+    await 発言を記録する(db, '発言ID-1', 現在時刻 - 40 * 24 * 60 * 60 * 1000)
+    // webhook-routes.ts と同じ順序（記録してから照合）で、いまの発言も先に記録しておく
+    await 発言を記録する(db, '発言ID-2', 現在時刻)
+
+    expect(await resolveConditionState(db, 初見の設定, 発言({ messageId: '発言ID-2' }), 現在時刻)).toEqual({
+      firstChatOfStream: false,
+      firstChatEver: false,
+      daysSinceLastChat: 40,
+    })
+  })
+
+  it('returningAfter の条件だけを使うトリガーでも、視聴者の記録を読む', async () => {
+    const db = createFakeDatabase()
+    await 発言を記録する(db, '発言ID-1', 現在時刻 - 40 * 24 * 60 * 60 * 1000)
+    await 発言を記録する(db, '発言ID-2', 現在時刻)
+
+    expect(await resolveConditionState(db, 久しぶりの設定, 発言({ messageId: '発言ID-2' }), 現在時刻)).toEqual({
+      firstChatOfStream: false,
+      firstChatEver: false,
+      daysSinceLastChat: 40,
+    })
+  })
+
+  it('firstChatOfStream と firstChatEver の両方を使うトリガーでは、両方を判定する', async () => {
+    const db = createFakeDatabase()
+    配信を始める(db)
+    const 両方の設定: AlertConfig = {
+      triggers: [
+        {
+          event: CHAT_MESSAGE,
+          conditions: [{ kind: 'firstChatOfStream' }, { kind: 'firstChatEver' }],
+          actions: [{ type: 'chat', message: 'はじめまして！' }],
+        },
+      ],
+    }
+
+    expect(await resolveConditionState(db, 両方の設定, 発言(), 現在時刻)).toEqual({
+      firstChatOfStream: true,
+      firstChatEver: true,
+      daysSinceLastChat: null,
+    })
   })
 })
