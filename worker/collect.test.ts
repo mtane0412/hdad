@@ -4,11 +4,14 @@
  * Twitchのクライアント・KV・D1を差し替え、「配信中か」「トークンが使えるか」に応じて何が記録されるかを確かめる。
  */
 import { describe, expect, it } from 'vitest'
-import { collectStats } from './collect'
+import type { TextGenerator } from './ai-chat'
+import { MAX_VIEWER_SUMMARY_LENGTH } from './viewer-summary'
+import { STREAM_CHAT_RETENTION_MS, SUMMARY_BATCH_SIZE, collectStats } from './collect'
 import { createFakeDatabase } from './fake-database'
 import { createFakeStore } from './fake-store'
 import { getSession, listFailures, listFollowerSamples, listSessions } from './stats-store'
 import { AuthError, loadToken, saveToken, type StoredToken } from './token'
+import { deleteViewer, readViewer, recordViewerMessage } from './viewer-store'
 import { TwitchApiError, type LiveStream, type TwitchClient } from './twitch'
 
 const 現在時刻 = Date.parse('2026-09-21T12:05:00Z')
@@ -29,6 +32,19 @@ const 保管中のトークン: StoredToken = {
   scopes: ['moderator:read:followers'],
   userId: 配信者のID,
   login: 'haishinsha',
+}
+
+/** 決まった人物像を返すLLMの代役。呼ばれた回数を控えて、無駄に呼んでいないかを確かめられるようにする */
+const AIの代役 = (response: unknown = { response: 'ギターの話をよくする常連さん' }): TextGenerator & { 呼ばれた数: () => number } => {
+  let 回数 = 0
+  return {
+    呼ばれた数: () => 回数,
+    run: async () => {
+      回数 += 1
+      if (response instanceof Error) throw response
+      return response
+    },
+  }
 }
 
 type 収集用のTwitch = Pick<TwitchClient, 'refresh' | 'getLiveStream' | 'getFollowerTotal'>
@@ -60,7 +76,7 @@ describe('collectStats', () => {
       },
     })
 
-    await collectStats({ db, store, twitch, broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch, ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
 
     expect(受け取った引数).toEqual([['保管中のアクセストークン', '12345']])
     expect((await getSession(db, 雑談配信.id))?.samples).toEqual([{ sampledAt: '2026-09-21T12:05:00.000Z', viewerCount: 42 }])
@@ -70,10 +86,10 @@ describe('collectStats', () => {
 
   it('配信していなければ、開いているセッションを閉じ、フォロワー数だけを記録する', async () => {
     const { db, store } = await 環境を作る()
-    await collectStats({ db, store, twitch: Twitchの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
 
     const 五分後 = 現在時刻 + 5 * 60 * 1000
-    await collectStats({ db, store, twitch: Twitchの代役({ getLiveStream: async () => null }), broadcasterId: 配信者のID, now: 五分後 })
+    await collectStats({ db, store, twitch: Twitchの代役({ getLiveStream: async () => null }), ai: AIの代役(), broadcasterId: 配信者のID, now: 五分後 })
 
     const session = await getSession(db, 雑談配信.id)
     expect(session?.endedAt).toBe('2026-09-21T12:10:00.000Z')
@@ -92,7 +108,7 @@ describe('collectStats', () => {
       },
     })
 
-    await collectStats({ db, store, twitch, broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch, ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
 
     expect(使われたトークン).toEqual(['保管中のアクセストークン', '取り直したアクセストークン'])
     expect((await loadToken(store, 'broadcaster'))?.accessToken).toBe('取り直したアクセストークン')
@@ -102,7 +118,7 @@ describe('collectStats', () => {
   it('トークンが保管されていなければ、黙って飛ばさず、失敗を記録してエラーにする', async () => {
     const { db, store } = await 環境を作る(null)
 
-    await expect(collectStats({ db, store, twitch: Twitchの代役(), broadcasterId: 配信者のID, now: 現在時刻 })).rejects.toBeInstanceOf(AuthError)
+    await expect(collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })).rejects.toBeInstanceOf(AuthError)
 
     expect(await listFailures(db)).toEqual([
       { occurredAt: '2026-09-21T12:05:00.000Z', code: 'not-logged-in', message: expect.stringContaining('ログイン') },
@@ -117,7 +133,7 @@ describe('collectStats', () => {
       },
     })
 
-    await expect(collectStats({ db, store, twitch, broadcasterId: 配信者のID, now: 現在時刻 })).rejects.toBeInstanceOf(AuthError)
+    await expect(collectStats({ db, store, twitch, ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })).rejects.toBeInstanceOf(AuthError)
 
     expect((await listFailures(db))[0]?.code).toBe('relogin-required')
   })
@@ -130,7 +146,7 @@ describe('collectStats', () => {
       },
     })
 
-    await expect(collectStats({ db, store, twitch, broadcasterId: 配信者のID, now: 現在時刻 })).rejects.toBeInstanceOf(TwitchApiError)
+    await expect(collectStats({ db, store, twitch, ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })).rejects.toBeInstanceOf(TwitchApiError)
 
     expect(await listSessions(db, 現在時刻)).toHaveLength(1)
     expect(await listFailures(db)).toEqual([
@@ -156,8 +172,126 @@ describe('古い記録の掃除', () => {
     記録を足す('mukashi-no-hito', 現在時刻 - 三十日)
     記録を足す('kyou-no-hito', 現在時刻)
 
-    await collectStats({ db, store, twitch: Twitchの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
 
     expect(db.sqlite.prepare('SELECT chatter_user_id FROM first_chatters').all()).toEqual([{ chatter_user_id: 'kyou-no-hito' }])
+  })
+})
+
+describe('人物像の生成', () => {
+  /** 終わった配信と、その配信での発言の記録を1人分そろえる */
+  const 終わった配信と発言を作る = async (db: ReturnType<typeof createFakeDatabase>, userId = '100') => {
+    await recordViewerMessage(db, { userId, login: 'hanako', displayName: '花子', badges: [], messageId: `chat-${userId}` }, 現在時刻 - 10 * 60 * 1000)
+    db.sqlite
+      .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, ?, ?, ?)')
+      .run('owatta-haishin', new Date(現在時刻 - 60 * 60 * 1000).toISOString(), new Date(現在時刻 - 30 * 60 * 1000).toISOString(), '昨日の配信', 'Just Chatting')
+    db.sqlite
+      .prepare('INSERT INTO stream_chat_messages (message_id, session_id, user_id, sent_at, text) VALUES (?, ?, ?, ?, ?)')
+      .run(`hatsugen-${userId}`, 'owatta-haishin', userId, new Date(現在時刻 - 45 * 60 * 1000).toISOString(), 'そのギターいいですね')
+  }
+
+  it('終わった配信の発言から人物像を作り、使い終えた材料を消す', async () => {
+    const { db, store } = await 環境を作る()
+    await 終わった配信と発言を作る(db)
+
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+
+    expect(await readViewer(db, '100')).toMatchObject({ summary: 'ギターの話をよくする常連さん', summarizedAt: '2026-09-21T12:05:00.000Z' })
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM stream_chat_messages').get()).toEqual({ count: 0 })
+  })
+
+  it('配信中の発言では人物像を作らない（その配信の残りの発言が入らないため）', async () => {
+    const { db, store } = await 環境を作る()
+    await recordViewerMessage(db, { userId: '100', login: 'hanako', displayName: '花子', badges: [], messageId: 'chat-100' }, 現在時刻)
+    db.sqlite
+      .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, NULL, ?, ?)')
+      .run(雑談配信.id, 雑談配信.startedAt, '月曜の雑談配信', 'Just Chatting')
+    db.sqlite
+      .prepare('INSERT INTO stream_chat_messages (message_id, session_id, user_id, sent_at, text) VALUES (?, ?, ?, ?, ?)')
+      .run('hatsugen-1', 雑談配信.id, '100', new Date(現在時刻).toISOString(), 'こんばんは')
+    const ai = AIの代役()
+
+    await collectStats({ db, store, twitch: Twitchの代役(), ai, broadcasterId: 配信者のID, now: 現在時刻 })
+
+    expect(ai.呼ばれた数()).toBe(0)
+    expect(await readViewer(db, '100')).toMatchObject({ summary: '' })
+  })
+
+  it('LLMが失敗したら、収集自体は成功させたうえで失敗を記録し、材料は消さない（次の収集でやり直せるようにするため）', async () => {
+    const { db, store } = await 環境を作る()
+    await 終わった配信と発言を作る(db)
+
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(new Error('無料枠を使い切りました')), broadcasterId: 配信者のID, now: 現在時刻 })
+
+    expect(await listFailures(db)).toEqual([
+      { occurredAt: '2026-09-21T12:05:00.000Z', code: 'viewer-summary-failed', message: expect.stringContaining('無料枠') },
+    ])
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM stream_chat_messages').get()).toEqual({ count: 1 })
+    expect(await listSessions(db, 現在時刻)).toHaveLength(2)
+  })
+
+  it('記録を消された人の材料は、LLMを呼ばずに消す', async () => {
+    const { db, store } = await 環境を作る()
+    await 終わった配信と発言を作る(db)
+    await deleteViewer(db, '100')
+    const ai = AIの代役()
+
+    await collectStats({ db, store, twitch: Twitchの代役(), ai, broadcasterId: 配信者のID, now: 現在時刻 })
+
+    expect(ai.呼ばれた数()).toBe(0)
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM stream_chat_messages').get()).toEqual({ count: 0 })
+  })
+
+  it('その人の発言が原因の失敗（長すぎる・空）では、次の人へ進む（1人で列の先頭を塞がないため）', async () => {
+    const { db, store } = await 環境を作る()
+    await 終わった配信と発言を作る(db, '100')
+    await recordViewerMessage(db, { userId: '200', login: 'taro', displayName: '太郎', badges: [], messageId: 'chat-200' }, 現在時刻 - 10 * 60 * 1000)
+    db.sqlite
+      .prepare('INSERT INTO stream_chat_messages (message_id, session_id, user_id, sent_at, text) VALUES (?, ?, ?, ?, ?)')
+      .run('hatsugen-200', 'owatta-haishin', '200', new Date(現在時刻 - 45 * 60 * 1000).toISOString(), 'こんばんは')
+    // 先頭に来るのは発言の多い人なので、その人だけ上限を超える人物像が返るようにする
+    db.sqlite
+      .prepare('INSERT INTO stream_chat_messages (message_id, session_id, user_id, sent_at, text) VALUES (?, ?, ?, ?, ?)')
+      .run('hatsugen-100b', 'owatta-haishin', '100', new Date(現在時刻 - 44 * 60 * 1000).toISOString(), 'もう一言')
+    let 回数 = 0
+    const ai: TextGenerator = {
+      run: async () => {
+        回数 += 1
+        return { response: 回数 === 1 ? 'あ'.repeat(MAX_VIEWER_SUMMARY_LENGTH + 1) : '元気な人' }
+      },
+    }
+
+    await collectStats({ db, store, twitch: Twitchの代役(), ai, broadcasterId: 配信者のID, now: 現在時刻 })
+
+    expect(await readViewer(db, '200')).toMatchObject({ summary: '元気な人' })
+    expect(await listFailures(db)).toMatchObject([{ code: 'viewer-summary-failed' }])
+  })
+
+  it('1回の収集で人物像を作る人数に上限を設ける（Workers AI の無料枠を一度に使い切らないため）', async () => {
+    const { db, store } = await 環境を作る()
+    await 終わった配信と発言を作る(db)
+    for (const userId of ['200', '300', '400', '500', '600', '700']) {
+      await recordViewerMessage(db, { userId, login: `user${userId}`, displayName: userId, badges: [], messageId: `chat-${userId}` }, 現在時刻 - 10 * 60 * 1000)
+      db.sqlite
+        .prepare('INSERT INTO stream_chat_messages (message_id, session_id, user_id, sent_at, text) VALUES (?, ?, ?, ?, ?)')
+        .run(`hatsugen-${userId}`, 'owatta-haishin', userId, new Date(現在時刻 - 45 * 60 * 1000).toISOString(), 'こんばんは')
+    }
+    const ai = AIの代役()
+
+    await collectStats({ db, store, twitch: Twitchの代役(), ai, broadcasterId: 配信者のID, now: 現在時刻 })
+
+    expect(ai.呼ばれた数()).toBe(SUMMARY_BATCH_SIZE)
+  })
+
+  it('古い材料は、人物像を作れないまま積み上がらないように消す', async () => {
+    const { db, store } = await 環境を作る()
+    await 終わった配信と発言を作る(db)
+    db.sqlite
+      .prepare('UPDATE stream_chat_messages SET sent_at = ?')
+      .run(new Date(現在時刻 - STREAM_CHAT_RETENTION_MS - 1000).toISOString())
+
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(new Error('呼ばれないはず')), broadcasterId: 配信者のID, now: 現在時刻 })
+
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM stream_chat_messages').get()).toEqual({ count: 0 })
   })
 })

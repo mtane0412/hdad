@@ -26,6 +26,8 @@ const 記録: Viewer = {
   messageCount: 42,
   badges: ['subscriber'],
   note: 'ギターの話が好き',
+  summary: 'ギターの話をよくする常連さん',
+  summarizedAt: '2026-09-21T13:00:00.000Z',
 }
 
 const 常連の来訪 = { firstChatOfStream: false, firstChatEver: false, daysSinceLastChat: 1.5 }
@@ -145,5 +147,24 @@ describe('generateChatMessage', () => {
 
     expect(ai.呼ばれた).toHaveLength(1)
     expect(JSON.stringify(ai.呼ばれた[0]?.input)).toContain('ギターの話が好き')
+  })
+})
+
+describe('buildPrompt（人物像）', () => {
+  it('LLMが作った人物像を材料に入れる', () => {
+    const prompt = buildPrompt({ instruction: '常連さんに声をかけてください', extracted: 発言のイベント, viewer: 記録, state: 常連の来訪 })
+
+    expect(prompt).toContain('ギターの話をよくする常連さん')
+  })
+
+  it('人物像がまだ無い人では、その旨を書く', () => {
+    const prompt = buildPrompt({
+      instruction: '常連さんに声をかけてください',
+      extracted: 発言のイベント,
+      viewer: { ...記録, summary: '', summarizedAt: null },
+      state: 常連の来訪,
+    })
+
+    expect(prompt).toContain('人物像: なし')
   })
 })

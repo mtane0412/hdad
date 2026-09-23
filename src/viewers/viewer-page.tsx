@@ -2,6 +2,8 @@
  * 視聴者のページ
  *
  * チャットで発言した人の記録（Workerが貯めたもの）を一覧で出し、配信者がメモを書いたり、記録を消したりする。
+ * 配信が終わったあとにLLMが作った人物像（summary）も出すが、配信者が書いたメモ（note）とは別々に出す
+ * （機械の推測と人が書いたものを混ぜない。人物像はここからは書き換えられない）。
  * ログインの確認とログアウトはアプリの枠（src/app/app.tsx）が受け持つので、ここではログイン済みを前提にする。
  * Workerの呼び出しは api.ts、操作の実行と結果の表示は `@/admin/page-actions` に任せる。
  *
@@ -103,7 +105,7 @@ export const ViewerPage = ({ api }: { api: ViewerApi }) => {
       <Card>
         <CardHeader>
           <CardTitle>視聴者</CardTitle>
-          <CardDescription>最後に発言した順に並ぶ。メモは配信者だけが見られる。</CardDescription>
+          <CardDescription>最後に発言した順に並ぶ。メモと人物像は配信者だけが見られる。</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <form
@@ -146,6 +148,14 @@ export const ViewerPage = ({ api }: { api: ViewerApi }) => {
                   <p className="text-xs text-muted-foreground">
                     {`${viewer.messageCount}回発言・初回 ${formatDateTime(viewer.firstSeenAt)}・最後 ${formatDateTime(viewer.lastSeenAt)}`}
                   </p>
+                  {viewer.summary !== '' && (
+                    <p className="rounded-md bg-muted px-3 py-2 text-xs">
+                      <span className="text-muted-foreground">
+                        {`AIによる人物像${viewer.summarizedAt === null ? '' : `（${formatDateTime(viewer.summarizedAt)}時点）`}: `}
+                      </span>
+                      {viewer.summary}
+                    </p>
+                  )}
                   <Textarea
                     aria-label={`${viewer.displayName} へのメモ`}
                     rows={2}
@@ -173,7 +183,7 @@ export const ViewerPage = ({ api }: { api: ViewerApi }) => {
                       onClick={() =>
                         actions.ask({
                           title: `${viewer.displayName} の記録を削除しますか？`,
-                          description: 'メモを含めて消え、元に戻せません。また発言があれば、初めての人として記録し直します。',
+                          description: 'メモと人物像を含めて消え、元に戻せません。また発言があれば、初めての人として記録し直します。',
                           actionLabel: '削除する',
                           run: () => removeViewer(viewer),
                         })

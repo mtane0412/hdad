@@ -26,6 +26,10 @@ export interface Viewer {
   badges: string[]
   /** 配信者が手で書いたメモ */
   note: string
+  /** 配信が終わったあとにLLMが作った人物像。まだ作っていない人では空文字 */
+  summary: string
+  /** その人物像を作った日時（ISO 8601・UTC）。まだ作っていない人では null */
+  summarizedAt: string | null
 }
 
 /** 一覧の絞り込み */
@@ -60,7 +64,9 @@ const isViewer = (value: unknown): value is Viewer =>
   typeof value.lastSeenAt === 'string' &&
   typeof value.messageCount === 'number' &&
   isStringArray(value.badges) &&
-  typeof value.note === 'string'
+  typeof value.note === 'string' &&
+  typeof value.summary === 'string' &&
+  (value.summarizedAt === null || typeof value.summarizedAt === 'string')
 
 export const createViewerApi = (fetchImpl: typeof fetch): ViewerApi => {
   const call = createCaller(fetchImpl)

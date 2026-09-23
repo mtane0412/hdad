@@ -18,6 +18,8 @@ const 花子 = {
   messageCount: 42,
   badges: ['subscriber'],
   note: 'ゲームの話をよくする人',
+  summary: 'ギターの話をよくする常連さん',
+  summarizedAt: '2026-09-21T13:00:00.000Z',
 }
 
 /** 送られたリクエストを記録し、決めた応答を返す fetch。body が null なら本文のない応答にする */
@@ -103,5 +105,20 @@ describe('remove（記録の削除）', () => {
 
     expect(requests[0]!.method).toBe('DELETE')
     expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/viewers/100')
+  })
+})
+
+describe('人物像の受け取り', () => {
+  it('人物像をまだ作っていない人（summary が空・summarizedAt が null）も受け取れる', async () => {
+    const 新顔 = { ...花子, summary: '', summarizedAt: null }
+    const { fetchImpl } = 応答を返すfetch(200, { viewers: [新顔] })
+
+    expect(await createViewerApi(fetchImpl).list({})).toEqual([新顔])
+  })
+
+  it('人物像の形が違えば、黙って受け取らずエラーにする', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { viewers: [{ ...花子, summary: 123 }] })
+
+    await expect(createViewerApi(fetchImpl).list({})).rejects.toThrow()
   })
 })
