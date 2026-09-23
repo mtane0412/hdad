@@ -12,10 +12,11 @@
  *
  * 注意: 送信に失敗した発話は覚えているものから外す（forgetTranscript）。ゆかコネNEO は確定した1件を、
  * 表示の残り時間が尽きるまで繰り返し押し出してくるので、外しておけばひとりでに送り直される。
+ * 外すのはやり直せる失敗のときだけで（api.ts の isRetryable）、本文やキーの誤りでは外さない。
  */
 import { showError } from '../core/mount'
 import { ParamError, parseParams, type ParamSchema } from '../core/params'
-import { createTranscriptApi } from './api'
+import { createTranscriptApi, isRetryable } from './api'
 import { connectTranscript, transcriptSocketUrl } from './connection'
 import { EMPTY_TRANSCRIPT_STATE, forgetTranscript, nextTranscriptState, readTranscriptMessage, type TranscriptState } from './message'
 import { createTranscriptView } from './view'
@@ -74,8 +75,10 @@ const start = (): void => {
       .send(messageId, text)
       .then((recorded) => view.setLineState(messageId, recorded ? 'recorded' : 'discarded'))
       .catch((error: unknown) => {
-        // 送れなかった1件のために中継を止めない。覚えているものから外し、次に同じ1件が届いたら送り直す
-        state = forgetTranscript(state, messageId)
+        // 送れなかった1件のために中継を止めない。やり直せる失敗なら覚えているものから外し、
+        // ゆかコネNEO が同じ1件を押し出し直したときに送り直す。本文やキーの誤り（4xx）は送り直しても
+        // 同じ答えになるので忘れない（忘れると、押し出しのたびに同じ失敗を繰り返す）
+        if (isRetryable(error)) state = forgetTranscript(state, messageId)
         view.setLineState(messageId, 'failed')
         view.setNotice(`Workerへ送れませんでした: ${messageOf(error)}`)
       })

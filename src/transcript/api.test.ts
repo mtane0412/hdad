@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { ApiError } from '../core/api'
-import { createTranscriptApi } from './api'
+import { createTranscriptApi, isRetryable } from './api'
 
 const オーバーレイ用キー = 'overlay-key_0123456789abcdefghij'
 
@@ -72,5 +72,23 @@ describe('remove', () => {
   it('Workerが失敗を返したらエラーにする', async () => {
     const { fetchImpl } = 応答を返すfetch(401, { error: { code: 'invalid-overlay-key', message: 'オーバーレイ用キーが正しくありません' } })
     await expect(createTranscriptApi(fetchImpl, オーバーレイ用キー).remove('言い間違い')).rejects.toThrow(ApiError)
+  })
+})
+
+describe('isRetryable', () => {
+  it('通信そのものの失敗はやり直す', () => {
+    expect(isRetryable(new TypeError('Failed to fetch'))).toBe(true)
+  })
+
+  it('Workerの不具合（5xx）はやり直す', () => {
+    expect(isRetryable(new ApiError(500, 'internal-error', '失敗しました', []))).toBe(true)
+  })
+
+  it('本文の誤り（400）はやり直さない（同じものを送り直しても同じ答えになるため）', () => {
+    expect(isRetryable(new ApiError(400, 'text-too-long', '発話は1000文字までにしてください', []))).toBe(false)
+  })
+
+  it('キーの誤り（401）はやり直さない', () => {
+    expect(isRetryable(new ApiError(401, 'invalid-overlay-key', 'オーバーレイ用キーが正しくありません', []))).toBe(false)
   })
 })

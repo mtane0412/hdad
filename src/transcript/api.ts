@@ -9,7 +9,7 @@
  * 想定した形でなければエラーにする（Fail-Fast）。黙って「記録された」ことにすると、あらすじの材料が
  * 貯まっていないことに配信が終わるまで気づけない。
  */
-import { createCaller, isRecord } from '../core/api'
+import { ApiError, createCaller, isRecord } from '../core/api'
 
 const PATH = '/api/overlay/transcript'
 
@@ -49,4 +49,19 @@ export const createTranscriptApi = (fetchImpl: typeof fetch, key: string): Trans
       await call(`${PATH}/${encodeURIComponent(messageId)}${query}`, { method: 'DELETE' })
     },
   }
+}
+
+/**
+ * この失敗は、同じ1件をもう一度送れば直るかどうか。
+ *
+ * ゆかコネNEO は確定した1件を、表示の残り時間が尽きるまで繰り返し押し出してくる。送信に失敗した発話を
+ * 忘れる（message.ts の forgetTranscript）とその押し出しで送り直されるので、直る見込みのない失敗まで
+ * 忘れると、同じ失敗を何度も繰り返して画面がお知らせで埋まってしまう。
+ *
+ * Worker が本文の誤り（長すぎる・空）やキーの誤りとして4xxを返したなら、同じものを送り直しても
+ * 同じ答えが返る。通信そのものの失敗と、Worker 側の不具合（5xx）だけをやり直す。
+ */
+export const isRetryable = (error: unknown): boolean => {
+  if (!(error instanceof ApiError)) return true
+  return error.status >= 500
 }

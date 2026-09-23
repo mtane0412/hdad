@@ -86,14 +86,19 @@ export const postTranscript = async (context: Context): Promise<Response> => {
     throw new HttpError(STATUS.badRequest, 'invalid-message-id', 'messageId は空でない文字列にしてください（ゆかコネNEO の MsgID）')
   }
   const text: unknown = isRecord(body) ? body.text : undefined
-  if (typeof text !== 'string' || text.trim() === '') {
+  if (typeof text !== 'string') {
     throw new HttpError(STATUS.badRequest, 'invalid-text', 'text は空でない文字列にしてください')
   }
-  if (text.length > TRANSCRIPT_MAX_LENGTH) {
+  // 空かどうかも長さも、実際に保存する形（前後の空白を落としたもの）で判定する
+  const spoken = text.trim()
+  if (spoken === '') {
+    throw new HttpError(STATUS.badRequest, 'invalid-text', 'text は空でない文字列にしてください')
+  }
+  if (spoken.length > TRANSCRIPT_MAX_LENGTH) {
     throw new HttpError(STATUS.badRequest, 'text-too-long', `発話は${TRANSCRIPT_MAX_LENGTH}文字までにしてください`)
   }
 
-  const recorded = await recordTranscript(env.DB, { messageId, text: text.trim() }, now)
+  const recorded = await recordTranscript(env.DB, { messageId, text: spoken }, now)
   return Response.json({ recorded })
 }
 

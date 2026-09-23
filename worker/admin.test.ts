@@ -369,6 +369,16 @@ describe('オーバーレイ用API', () => {
       expect(await エラーコード(response)).toBe('text-too-long')
     })
 
+    it('前後の空白を落とせば上限に収まる本文は受け付ける（長さは保存する形で数える）', async () => {
+      const { env } = 環境を作る()
+      配信を始める(env)
+
+      const response = await 送る(env, { messageId: '発話1', text: `  ${'あ'.repeat(TRANSCRIPT_MAX_LENGTH)}  ` })
+
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({ recorded: true })
+    })
+
     it('DELETE は記録済みの発話を取り消す', async () => {
       const { env } = 環境を作る()
       配信を始める(env)
