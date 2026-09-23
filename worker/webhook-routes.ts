@@ -18,6 +18,7 @@ import { applyReply, findCommand, readChatMessage, type ChatMessage } from './ch
 import { loadBotConfig } from './bot-config'
 import { punishAsBot } from './bot-moderation'
 import { judge, repeatRuleOf } from './chat-moderation'
+import { recordStreamChatMessage } from './stream-chat-store'
 import { readViewer, recordViewerMessage } from './viewer-store'
 import { loadModerationConfig } from './moderation-config'
 import { consumeCooldown, recordAndCountRecentMessage, reserveChatReply } from './chat-store'
@@ -177,6 +178,10 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
       },
       now,
     )
+    // 配信中なら、人物像（viewers の summary）の材料として本文も貯める。配信が終わったあとに cron が
+    // 人ごとにまとめて人物像を作り、使い終えた材料を消す（stream-chat-store.ts・collect.ts）。
+    // チャットの全文は貯めないという方針の、意識して設けた例外である（集計値だけでは人物像を作れないため）
+    await recordStreamChatMessage(env.DB, { messageId: message.messageId, userId: message.chatterUserId, text: message.text }, now)
   }
 
   // 自動モデレーションはコマンドの応答より先に判定する。処分した発言には応答もトリガーも返さない

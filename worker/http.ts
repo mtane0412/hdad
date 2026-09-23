@@ -23,7 +23,7 @@ export interface Env {
   DB: Database
   /** オーバーレイへアラートを配る Durable Object。Workerは接続を保持できないため、配送だけをここに任せる */
   ALERTS: AlertChannelNamespace
-  /** チャットの文面を作らせるLLM（Workers AI）。トリガーの動作 aiChat だけが使う */
+  /** チャットの文面と視聴者の人物像を作らせるLLM（Workers AI）。トリガーの動作 aiChat と、cron の人物像づくりが使う */
   AI: TextGenerator
   TWITCH_CLIENT_ID: string
   TWITCH_CLIENT_SECRET: string

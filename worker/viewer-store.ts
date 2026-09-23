@@ -62,6 +62,14 @@ export interface Viewer {
   badges: string[]
   /** 配信者が手で書いたメモ */
   note: string
+  /**
+   * LLMが配信中の発言から作った人物像（worker/viewer-summary.ts）。まだ作っていない人では空文字。
+   *
+   * 配信者が書いた note とは別に持つ。機械の推測と人が書いたものを混ぜないためである（画面でも別々に出す）。
+   */
+  summary: string
+  /** その人物像を作った日時（ISO 8601）。まだ作っていない人では null */
+  summarizedAt: string | null
 }
 
 /** 一覧の絞り込み */
@@ -205,7 +213,8 @@ export const listViewers = async (db: Database, query: ViewerQuery): Promise<Vie
   const { results } = await db
     .prepare(
       `SELECT user_id AS userId, login, display_name AS displayName, first_seen_at AS firstSeenAt,
-              last_seen_at AS lastSeenAt, message_count AS messageCount, last_badges AS badges, note
+              last_seen_at AS lastSeenAt, message_count AS messageCount, last_badges AS badges, note,
+              summary, summarized_at AS summarizedAt
        FROM viewers
        ${conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''}
        ORDER BY last_seen_at DESC, user_id DESC
@@ -228,7 +237,8 @@ export const readViewer = async (db: Database, userId: string): Promise<Viewer |
   const row = await db
     .prepare(
       `SELECT user_id AS userId, login, display_name AS displayName, first_seen_at AS firstSeenAt,
-              last_seen_at AS lastSeenAt, message_count AS messageCount, last_badges AS badges, note
+              last_seen_at AS lastSeenAt, message_count AS messageCount, last_badges AS badges, note,
+              summary, summarized_at AS summarizedAt
        FROM viewers WHERE user_id = ?1`,
     )
     .bind(userId)
@@ -245,6 +255,21 @@ export const updateViewerNote = async (db: Database, userId: string, note: strin
   const updated = await db
     .prepare('UPDATE viewers SET note = ?2 WHERE user_id = ?1 RETURNING user_id')
     .bind(userId, note)
+    .first<{ user_id: string }>()
+  return updated !== null
+}
+
+/**
+ * LLMが作った人物像を書き換える。
+ *
+ * 配信が終わったあとに cron（worker/collect.ts）が呼ぶ。配信者が書いた note は触らない。
+ *
+ * @returns 記録のある人なら true。無ければ false（記録を消した直後に人物像だけ書き込まないための確認）
+ */
+export const updateViewerSummary = async (db: Database, userId: string, summary: string, now: number): Promise<boolean> => {
+  const updated = await db
+    .prepare('UPDATE viewers SET summary = ?2, summarized_at = ?3 WHERE user_id = ?1 RETURNING user_id')
+    .bind(userId, summary, toIso(now))
     .first<{ user_id: string }>()
   return updated !== null
 }

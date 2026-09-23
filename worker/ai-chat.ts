@@ -21,9 +21,9 @@ import type { Viewer } from './viewer-store'
  * 文面づくりに使うモデル。
  *
  * 無料枠（1日10,000 Neurons）の中で何度も呼べる軽さと、日本語の指示に従えることの兼ね合いで選んでいる。
- * 変えるときはここ1か所を書き換える（Neuronsの単価は https://developers.cloudflare.com/workers-ai/platform/pricing/ ）。
+ * 変えるときはここ1か所を書き換える（人物像づくり（viewer-summary.ts）も同じモデルを使う）（Neuronsの単価は https://developers.cloudflare.com/workers-ai/platform/pricing/ ）。
  */
-const MODEL = '@cf/meta/llama-3.1-8b-instruct-fp8'
+export const MODEL = '@cf/meta/llama-3.1-8b-instruct-fp8'
 
 /** 作らせる文面の長さの上限（トークン）。500文字に収めるうえで足りる長さにし、長話で Neurons を使わせない */
 const MAX_TOKENS = 300
@@ -101,6 +101,8 @@ const viewerDetails = (viewer: Viewer | null): string[] => {
     `これまでのおおよその発言数: ${viewer.messageCount}`,
     `最後に見たバッジ: ${viewer.badges.length === 0 ? 'なし' : viewer.badges.join('・')}`,
     `配信者が書いたメモ: ${viewer.note === '' ? 'なし' : viewer.note}`,
+    // 人物像は配信が終わったあとにLLMが作ったもの（viewer-summary.ts）で、配信者が書いたメモとは分けて読ませる
+    `人物像: ${viewer.summary === '' ? 'なし' : viewer.summary}`,
   ]
 }
 
@@ -131,8 +133,8 @@ export const buildPrompt = (material: AiChatMaterial): string => {
   ].join('\n')
 }
 
-/** Workers AI の応答から文面を読む。想定した形でなければ黙って捨てずに投げる */
-const readResponse = (result: unknown): string => {
+/** Workers AI の応答から文面を読む。想定した形でなければ黙って捨てずに投げる（人物像づくり（viewer-summary.ts）も使う） */
+export const readResponse = (result: unknown): string => {
   if (typeof result !== 'object' || result === null || !('response' in result) || typeof result.response !== 'string') {
     throw new Error(`LLMの応答を読めません（response の文字列がありません）: ${JSON.stringify(result)}`)
   }

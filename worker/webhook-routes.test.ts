@@ -347,6 +347,27 @@ describe('チャットの通知（channel.chat.message）', () => {
     expect(await listViewers(env.DB, {})).toMatchObject([{ userId: '11111', login: 'shichousha', displayName: '視聴者さん', messageCount: 1 }])
   })
 
+  it('配信中の発言は、人物像の材料として本文も貯める', async () => {
+    const { env } = await bot接続済みの環境()
+    const twitch = 送信に応えるTwitch()
+    env.DB.sqlite
+      .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, NULL, ?, ?)')
+      .run('haishin-1', new Date(現在時刻 - 60 * 1000).toISOString(), '雑談配信', 'Just Chatting')
+
+    await 呼び出す(Twitchからの通知({ body: チャットの通知('こんばんは') }), env, twitch.fetchImpl)
+
+    expect(env.DB.sqlite.prepare('SELECT user_id, text FROM stream_chat_messages').all()).toEqual([{ user_id: '11111', text: 'こんばんは' }])
+  })
+
+  it('配信していないときは、人物像の材料を貯めない', async () => {
+    const { env } = await bot接続済みの環境()
+    const twitch = 送信に応えるTwitch()
+
+    await 呼び出す(Twitchからの通知({ body: チャットの通知('こんばんは') }), env, twitch.fetchImpl)
+
+    expect(env.DB.sqlite.prepare('SELECT COUNT(*) AS count FROM stream_chat_messages').get()).toEqual({ count: 0 })
+  })
+
   it('bot自身の発言は視聴者の記録に残さない', async () => {
     const { env } = await bot接続済みの環境()
     const twitch = 送信に応えるTwitch()

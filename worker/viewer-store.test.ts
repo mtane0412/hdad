@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { createFakeDatabase } from './fake-database'
-import { deleteViewer, listViewers, readChatHistory, readViewer, recordViewerMessage, updateViewerNote } from './viewer-store'
+import { deleteViewer, listViewers, readChatHistory, readViewer, recordViewerMessage, updateViewerNote, updateViewerSummary } from './viewer-store'
 
 const 現在時刻 = Date.UTC(2026, 8, 21, 12, 0, 0)
 const 一分 = 60 * 1000
@@ -38,6 +38,8 @@ describe('recordViewerMessage', () => {
       messageCount: 1,
       badges: ['subscriber'],
       note: '',
+      summary: '',
+      summarizedAt: null,
     })
   })
 
@@ -192,6 +194,8 @@ describe('readViewer', () => {
       messageCount: 1,
       badges: ['subscriber'],
       note: 'ギターの話が好き',
+      summary: '',
+      summarizedAt: null,
     })
   })
 
@@ -319,5 +323,33 @@ describe('readChatHistory', () => {
       firstChatEver: false,
       daysSinceLastChat: 51,
     })
+  })
+})
+
+describe('updateViewerSummary', () => {
+  it('記録のある人の人物像と、それを作った日時を書き換える', async () => {
+    const db = createFakeDatabase()
+    await recordViewerMessage(db, 発言(), 現在時刻)
+
+    expect(await updateViewerSummary(db, '100', 'ギターの話をよくする常連さん', 現在時刻 + 一分)).toBe(true)
+
+    expect(await readViewer(db, '100')).toMatchObject({
+      summary: 'ギターの話をよくする常連さん',
+      summarizedAt: '2026-09-21T12:01:00.000Z',
+    })
+  })
+
+  it('配信者が書いたメモは書き換えない（機械の推測と人が書いたものを混ぜない）', async () => {
+    const db = createFakeDatabase()
+    await recordViewerMessage(db, 発言(), 現在時刻)
+    await updateViewerNote(db, '100', 'ギターの話が好き')
+
+    await updateViewerSummary(db, '100', '別人のような人物像', 現在時刻 + 一分)
+
+    expect(await readViewer(db, '100')).toMatchObject({ note: 'ギターの話が好き' })
+  })
+
+  it('記録のない人なら false を返す（記録を消した直後に人物像だけ書き込まないため）', async () => {
+    expect(await updateViewerSummary(createFakeDatabase(), '999', '人物像', 現在時刻)).toBe(false)
   })
 })

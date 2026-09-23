@@ -219,7 +219,7 @@ export const handleRequest = async (request: Request, env: Env, dependencies: De
  */
 export const handleScheduled = async (env: Env, dependencies: Pick<Dependencies, 'fetch' | 'now'> = DEFAULT_DEPENDENCIES): Promise<void> => {
   const twitch = createClient(env, dependencies)
-  await collectStats({ db: env.DB, store: env.STORE, twitch, broadcasterId: env.TWITCH_BROADCASTER_ID, now: dependencies.now() })
+  await collectStats({ db: env.DB, store: env.STORE, twitch, ai: env.AI, broadcasterId: env.TWITCH_BROADCASTER_ID, now: dependencies.now() })
 }
 
 export default {

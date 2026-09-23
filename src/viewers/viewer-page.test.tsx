@@ -25,6 +25,8 @@ const 花子: Viewer = {
   messageCount: 42,
   badges: ['subscriber'],
   note: 'ゲームの話をよくする人',
+  summary: 'ギターの話をよくする常連さん',
+  summarizedAt: '2026-09-21T13:00:00.000Z',
 }
 
 const 太郎: Viewer = {
@@ -36,6 +38,8 @@ const 太郎: Viewer = {
   messageCount: 3,
   badges: [],
   note: '',
+  summary: '',
+  summarizedAt: null,
 }
 
 const 代役のAPI = (overrides: Partial<ViewerApi> = {}): ViewerApi => ({
@@ -166,5 +170,22 @@ describe('記録の削除', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'やめる' }))
 
     expect(api.remove).not.toHaveBeenCalled()
+  })
+})
+
+describe('人物像', () => {
+  test('LLMが作った人物像を、配信者が書いたメモとは分けて出す', async () => {
+    render(<ViewerPage api={代役のAPI()} />)
+
+    expect(await screen.findByText('ギターの話をよくする常連さん')).toBeInTheDocument()
+    // 人が書いたものと混ざらないよう、機械の推測であることを添える
+    expect(screen.getByText(/AIによる人物像/)).toBeInTheDocument()
+  })
+
+  test('人物像をまだ作っていない人には、何も出さない', async () => {
+    render(<ViewerPage api={代役のAPI({ list: vi.fn(async () => [太郎]) })} />)
+
+    await screen.findByText('太郎')
+    expect(screen.queryByText(/AIによる人物像/)).not.toBeInTheDocument()
   })
 })
