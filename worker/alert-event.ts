@@ -129,18 +129,20 @@ export const hasAlertAction = (config: AlertConfig, subscriptionType: string): b
   config.triggers.some((trigger) => trigger.event === subscriptionType && alertActionOf(trigger) !== null)
 
 /**
- * その通知に、あらすじ（{summary}）を差し込む文言を持つトリガーがあるか。
+ * その通知に、配信のあらすじが要るトリガーがあるか。
  *
  * 無ければ呼び出し側（webhook-routes.ts）はあらすじをデータベースから読まずに済む
  * （requiresFirstChatOfStream・requiresChatHistory と同じ要否の判定で、チャットの発言では1通ごとにここを通るため）。
- * 見るのは文言を持つ動作（alert・chat・announce）だけで、文面をLLMに作らせる動作（aiChat）は差し込み語を持たない。
+ * 要るのは2通りで、文言を持つ動作（alert・chat・announce）が差し込み語 {summary} を含む場合と、
+ * 文面をLLMに作らせる動作（aiChat）がある場合である。後者は文言を持たないが、話の流れを知らないまま
+ * 文面を作らせないよう、指示に書かれていなくても材料として渡す（requiresChatHistory が来訪の別を必ず調べるのと同じ）。
  */
 export const requiresStreamSummary = (config: AlertConfig, subscriptionType: string): boolean =>
   config.triggers.some(
     (trigger) =>
       trigger.event === subscriptionType &&
       trigger.actions.some((action) => 'message' in action && action.message.includes(STREAM_SUMMARY_PLACEHOLDER)),
-  )
+  ) || hasAiChatAction(config, subscriptionType)
 
 type EventBody = Readonly<Record<string, unknown>>
 

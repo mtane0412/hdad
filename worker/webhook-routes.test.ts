@@ -1531,6 +1531,31 @@ describe('LLMに文面を作らせる動作（aiChat）', () => {
     expect(JSON.stringify(ai.呼び出し[0]?.input)).toContain('このチャンネルで初めての発言')
   })
 
+  it('いま進んでいる配信のあらすじを材料に渡す（トリガーの文言に書かれていなくても読む）', async () => {
+    const { env, db, ai } = 環境を作る()
+    await saveAlertConfig(env.STORE, {
+      triggers: [{ event: 'channel.chat.message', conditions: [], actions: [{ type: 'aiChat', instruction: '話の流れに合わせて一言返してください' }] }],
+    })
+    await botを接続する(env)
+    await recordLiveStream(db, 雑談配信, 現在時刻 - 60 * 1000)
+    await saveStreamSummary(
+      db,
+      {
+        sessionId: 雑談配信.id,
+        summary: '配信者はギターの弦を張り替えています',
+        transcriptsUntil: { at: '', messageId: '' },
+        chatUntil: { at: '', messageId: '' },
+      },
+      現在時刻 - 30 * 1000,
+    )
+    const twitch = 送信に応えるTwitch()
+
+    await 呼び出す(Twitchからの通知({ body: 初めての人の発言 }), env, twitch.fetchImpl)
+    await 後回しの処理を待つ()
+
+    expect(JSON.stringify(ai.呼び出し[0]?.input)).toContain('配信者はギターの弦を張り替えています')
+  })
+
   it('鍵の確保そのものが失敗しても、取りこぼさずに記録する（2xxを返したあとなので再送では取り返せない）', async () => {
     const { env } = 環境を作る()
     await saveAlertConfig(env.STORE, { triggers: [文面を作らせるトリガー] })

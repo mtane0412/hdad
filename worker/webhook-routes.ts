@@ -293,7 +293,7 @@ const runAlertActions = async (
     // LLMの応答を待つとTwitchへの2xxが遅れ、同じ通知を再送されてしまう。応答を返してから続きを走らせる
     context.waitUntil(
       recordLateFailure(context, 'alert-aichat-failed', () =>
-        sendAndRecordFailure(context, messageId, 'aiChat', 'alert-aichat-failed', () => sendAiChat(context, aiChat, state, chatMessage)),
+        sendAndRecordFailure(context, messageId, 'aiChat', 'alert-aichat-failed', () => sendAiChat(context, aiChat, state, chatMessage, summary)),
       ),
     )
   }
@@ -302,8 +302,9 @@ const runAlertActions = async (
 /**
  * LLMに文面を作らせて、botとしてチャットへ送る。
  *
- * 材料はイベントの中身（alert-event.ts が読み取り済み）と、その人の記録（viewers）である。
- * 記録は「この動作が当てはまったとき」にだけ読むので、発言のたびの読み出しにはならない。
+ * 材料はイベントの中身（alert-event.ts が読み取り済み）と、その人の記録（viewers）と、
+ * いま進んでいる配信のあらすじである。記録は「この動作が当てはまったとき」にだけ読むので、発言のたびの読み出しにはならない。
+ * あらすじは呼び出し側が読んだものを受け取る（固定文言の差し込みと同じ1回の読み出しを使い回す）。
  *
  * 注意: 記録を引く鍵はTwitchのユーザーIDで、それが手元にあるのはチャットの発言の通知だけである
  * （viewers はチャットで発言した人だけを貯めているため、そもそもフォローやレイドの相手には記録がないことが多い）。
@@ -317,10 +318,11 @@ const sendAiChat = async (
   aiChat: NonNullable<ReturnType<typeof aiChatFor>>,
   state: ConditionState,
   chatMessage: ChatMessage | null,
+  streamSummary: string | null,
 ): Promise<void> => {
   const { env } = context
   const viewer = chatMessage === null ? null : await readViewer(env.DB, chatMessage.chatterUserId)
-  const message = await generateChatMessage(env.AI, { instruction: aiChat.instruction, extracted: aiChat.extracted, viewer, state })
+  const message = await generateChatMessage(env.AI, { instruction: aiChat.instruction, extracted: aiChat.extracted, viewer, state, streamSummary })
   await sendAsBot(context, message)
 }
 
