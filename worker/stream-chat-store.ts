@@ -101,6 +101,36 @@ export const readViewerMessages = async (db: Database, userId: string, limit: nu
 }
 
 /**
+ * その配信の発言のうち、まだあらすじの材料にしていないぶんを、届いた順に読む。
+ *
+ * 人物像づくり（readViewerMessages）が終わった配信を人ごとに読むのに対し、あらすじ（issue #65）は
+ * いま進んでいる配信を時系列で読む。同じテーブルを、別の目的で別の切り口から読むことになる。
+ *
+ * 誰の発言かは読まない。あらすじに要るのは「どんな反応があったか」であって、視聴者の名前ではないためである
+ * （名前まで渡すと、LLMに個人の話として書かれてしまう）。
+ *
+ * @param since この日時より後に届いたぶんだけを読む。まだ一度もあらすじを作っていなければ空文字を渡す
+ * @param limit 読む件数の上限。上限を超えたぶんは新しいほうを切り、次にあらすじを作るときへ回す
+ */
+export const readSessionChatSince = async (
+  db: Database,
+  sessionId: string,
+  since: string,
+  limit: number,
+): Promise<{ text: string; at: string }[]> => {
+  const { results } = await db
+    .prepare(
+      `SELECT text, sent_at AS at FROM stream_chat_messages
+       WHERE session_id = ?1 AND sent_at > ?2
+       ORDER BY sent_at, message_id
+       LIMIT ?3`,
+    )
+    .bind(sessionId, since, limit)
+    .all<{ text: string; at: string }>()
+  return results
+}
+
+/**
  * 人物像を作り終えた人の材料を消す。
  *
  * 消すのは終わった配信のぶんだけである。配信中のぶんまで消すと、いま進んでいる配信の材料が失われる。

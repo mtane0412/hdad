@@ -78,6 +78,16 @@ describe('parseBotConfig', () => {
     expect(parseBotConfig({ commands: [{ ...挨拶のコマンド, reply: 収まる応答文 }] }).commands).toHaveLength(1)
   })
 
+  it('{summary} が置き換わったときに500文字を超える応答文は拒否する（あらすじは最大400文字になるため）', () => {
+    const 置き換えると超える応答文 = `${'あ'.repeat(101)}{summary}`
+
+    expect(問題点({ commands: [{ ...挨拶のコマンド, reply: 置き換えると超える応答文 }] })).toEqual([expect.stringContaining('commands[0].reply')])
+  })
+
+  it('{summary} を含んでいても、置き換わったあとが500文字以内なら通る', () => {
+    expect(parseBotConfig({ commands: [{ ...挨拶のコマンド, reply: 'これまでのあらすじ: {summary}' }] }).commands).toHaveLength(1)
+  })
+
   it('クールダウンが負の数なら拒否する', () => {
     expect(問題点({ commands: [{ ...挨拶のコマンド, cooldownSeconds: -1 }] })).toEqual([expect.stringContaining('commands[0].cooldownSeconds')])
   })

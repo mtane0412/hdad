@@ -11,8 +11,10 @@
 import type { TextGenerator } from './ai-chat'
 import { deleteOldFirstChatters } from './chat-store'
 import type { Database } from './database'
-import { deleteOldStreamChatMessages, deleteStreamChatMessages, listSummaryTargets, readViewerMessages } from './stream-chat-store'
-import { deleteOldTranscripts } from './transcript-store'
+import { deleteOldStreamChatMessages, deleteStreamChatMessages, listSummaryTargets, readSessionChatSince, readViewerMessages } from './stream-chat-store'
+import { readStreamSummary, saveStreamSummary } from './stream-summary-store'
+import { generateStreamSummary } from './stream-summary'
+import { deleteOldTranscripts, readTranscriptsSince } from './transcript-store'
 import { ViewerSummaryContentError, generateViewerSummary } from './viewer-summary'
 import { readViewer, updateViewerSummary } from './viewer-store'
 import { closeOpenSessions, recordFailure, recordFollowerTotal, recordLiveStream } from './stats-store'
@@ -48,6 +50,23 @@ export const SUMMARY_BATCH_SIZE = 5
 const SUMMARY_MESSAGE_LIMIT = 50
 
 /**
+ * 1回のあらすじづくりで読む、配信者の発話（文字起こし）の件数の上限。
+ *
+ * あらすじは前回のあらすじに積み上げる形なので、1回で読むのは前回からの5分ぶんだけでよい。
+ * それでも上限を置くのは、押し込みが溜まっていた場合（中継ページのやり直し）に1回の入力が
+ * 膨らむのを防ぐためである。超えたぶんは次の収集へ回る。
+ */
+const STREAM_SUMMARY_TRANSCRIPT_LIMIT = 100
+
+/**
+ * 1回のあらすじづくりで読む、視聴者の発言の件数の上限。
+ *
+ * 発言は文字起こしより短く、盛り上がると一気に増えるので、同じ上限でも入力への効き方が違う。
+ * それでも同じ数にしておくのは、どちらか一方だけで材料が埋まらないようにするためである。
+ */
+const STREAM_SUMMARY_CHAT_LIMIT = 100
+
+/**
  * 人物像の材料（配信中のチャット）を残しておく期間（ミリ秒）。
  *
  * ふつうは人物像を作った時点で消える（deleteStreamChatMessages）ので、ここで消えるのは、
@@ -81,6 +100,56 @@ const toFailureCode = (error: unknown): string => {
   if (error instanceof AuthError) return error.code
   if (error instanceof TwitchApiError) return 'twitch-error'
   return 'internal-error'
+}
+
+/**
+ * いま進んでいる配信の「これまでのあらすじ」を作り直す（issue #65）。
+ *
+ * 材料は、前回のあらすじと、そのあとに届いた配信者の発話（transcripts）・視聴者の発言
+ * （stream_chat_messages）である。毎回ゼロから作り直さず積み上げるので、長い配信でも1回あたりの
+ * 入力が一定に保たれる（worker/stream-summary.ts）。
+ *
+ * 注意: 新しい材料が1件も無ければLLMを呼ばない。配信していても喋りも発言もない時間帯はあるので、
+ * 5分おきに無駄な Neurons を使わないためである（alert-state.ts の「要らなければ読まない」と同じ考え方）。
+ * 注意: 失敗しても収集そのものを止めず、前回のあらすじも消さない。あらすじはチャットのコマンドが
+ * 読み出して返すものなので、作り直せなかったときに前回のものが残っていれば、コマンドは無応答にならない。
+ * 失敗を黙って飲み込まず collection_failures に残すのは、人物像づくりと同じである。
+ *
+ * @param sessionId いま進んでいる配信の区切り。Twitchが返した配信のIDがそのまま区切りのIDになる
+ *   （stats-store.ts の recordLiveStream）ので、配信中かどうかを引き直さずに済む
+ */
+const summarizeStream = async (db: Database, ai: TextGenerator, sessionId: string, now: number): Promise<void> => {
+  const previous = await readStreamSummary(db, sessionId)
+  const transcripts = await readTranscriptsSince(db, sessionId, previous?.transcriptsUntil ?? '', STREAM_SUMMARY_TRANSCRIPT_LIMIT)
+  const chats = await readSessionChatSince(db, sessionId, previous?.chatUntil ?? '', STREAM_SUMMARY_CHAT_LIMIT)
+  if (transcripts.length === 0 && chats.length === 0) return
+
+  let summary: string
+  try {
+    summary = await generateStreamSummary(ai, {
+      previous: previous?.summary ?? '',
+      transcripts: transcripts.map((line) => line.text),
+      chats: chats.map((line) => line.text),
+    })
+  } catch (error) {
+    // 返ってきた文そのものの問題（StreamSummaryContentError）も、LLMを呼べなかった失敗も同じ扱いでよい。
+    // 対象が1件しかないので、人物像づくりのような「その人を飛ばして次の人へ進む」という分かれ道がない
+    await recordFailure(db, 'stream-summary-failed', error instanceof Error ? error.message : String(error), now)
+    return
+  }
+
+  // 読めた材料の最後の時刻を「どこまで材料にしたか」として記録する。件数の上限で切れた残りは、
+  // この時刻より後ろにあるので次の収集で読まれる（取りこぼしにはならない）
+  await saveStreamSummary(
+    db,
+    {
+      sessionId,
+      summary,
+      transcriptsUntil: transcripts.at(-1)?.at ?? previous?.transcriptsUntil ?? '',
+      chatUntil: chats.at(-1)?.at ?? previous?.chatUntil ?? '',
+    },
+    now,
+  )
 }
 
 /**
@@ -153,7 +222,10 @@ const collect = async ({ db, store, twitch, ai, broadcasterId, now }: CollectSta
   await deleteOldStreamChatMessages(db, now - STREAM_CHAT_RETENTION_MS)
   await deleteOldTranscripts(db, now - TRANSCRIPT_RETENTION_MS)
 
-  // 人物像づくりは、配信の記録を残したあとに行う（LLMが使えなくても記録は残す）
+  // あらすじづくりと人物像づくりは、配信の記録を残したあとに行う（LLMが使えなくても記録は残す）。
+  // あらすじを先にするのは、配信中の視聴者がコマンドで読むものであり、待たせる相手がいるためである
+  // （人物像は終わった配信のぶんを作るので、1回遅れても誰も困らない）。無料枠は両者で分け合う
+  if (stream) await summarizeStream(db, ai, stream.id, now)
   await summarizeViewers(db, ai, now)
 }
 

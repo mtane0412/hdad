@@ -67,25 +67,36 @@ export const deleteTranscript = async (db: Database, messageId: string): Promise
   return deleted !== null
 }
 
+/** あらすじの材料として読み出した1件。時刻は「どこまで材料にしたか」を記録するために添える */
+export interface TranscriptLine {
+  text: string
+  /** 喋った日時（ISO 8601） */
+  at: string
+}
+
 /**
- * その配信の発話を、喋った順に読む。
+ * その配信の発話のうち、まだあらすじの材料にしていないぶんを、喋った順に読む。
  *
- * あらすじ（issue #65）の材料に使う。
+ * あらすじ（issue #65）は前回のあらすじに新しい材料を積み上げて書き直させるので、読むのは続きだけでよい
+ * （worker/stream-summary-store.ts）。毎回すべてを読ませると、長い配信ほど1回あたりの入力が膨らみ、
+ * Workers AI の無料枠（Neurons）とD1の rows read の両方を食う。
  *
- * @param limit 読む件数の上限。長い配信ほど行が多いので、LLMへ渡す材料の量を一定に抑える
- *   （D1の rows read も食わない）。超えた分は古いほうから採り、新しいほうを切る
+ * @param since この日時より後に喋ったぶんだけを読む。まだ一度もあらすじを作っていなければ空文字を渡す
+ *   （ISO 8601 の文字列比較では、空文字がどの日時よりも小さい）
+ * @param limit 読む件数の上限。上限を超えたぶんは新しいほうを切り、次にあらすじを作るときへ回す
+ *   （呼び出し側は読めた行の最後の時刻を「どこまで材料にしたか」として記録するため、取りこぼしにはならない）
  */
-export const readTranscripts = async (db: Database, sessionId: string, limit: number): Promise<string[]> => {
+export const readTranscriptsSince = async (db: Database, sessionId: string, since: string, limit: number): Promise<TranscriptLine[]> => {
   const { results } = await db
     .prepare(
-      `SELECT text FROM transcripts
-       WHERE session_id = ?1
+      `SELECT text, spoken_at AS at FROM transcripts
+       WHERE session_id = ?1 AND spoken_at > ?2
        ORDER BY spoken_at, message_id
-       LIMIT ?2`,
+       LIMIT ?3`,
     )
-    .bind(sessionId, limit)
-    .all<{ text: string }>()
-  return results.map((row) => row.text)
+    .bind(sessionId, since, limit)
+    .all<TranscriptLine>()
+  return results
 }
 
 /**

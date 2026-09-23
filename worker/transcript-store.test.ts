@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createFakeDatabase } from './fake-database'
-import { deleteOldTranscripts, deleteTranscript, readTranscripts, recordTranscript } from './transcript-store'
+import { deleteOldTranscripts, deleteTranscript, readTranscriptsSince, recordTranscript } from './transcript-store'
 
 const 配信開始 = Date.parse('2026-09-23T20:00:00.000Z')
 const 発話時刻 = Date.parse('2026-09-23T20:05:00.000Z')
@@ -80,13 +80,26 @@ describe('deleteTranscript', () => {
   })
 })
 
-describe('readTranscripts', () => {
-  it('その配信の発話を、喋った順に返す', async () => {
+describe('readTranscriptsSince', () => {
+  it('その配信の発話を、喋った順に、喋った時刻を添えて返す', async () => {
     配信を始める('配信1')
     await recordTranscript(db, { messageId: '発話2', text: '二番目' }, 発話時刻 + 1000)
     await recordTranscript(db, { messageId: '発話1', text: '一番目' }, 発話時刻)
 
-    expect(await readTranscripts(db, '配信1', 10)).toEqual(['一番目', '二番目'])
+    expect(await readTranscriptsSince(db, '配信1', '', 10)).toEqual([
+      { text: '一番目', at: '2026-09-23T20:05:00.000Z' },
+      { text: '二番目', at: '2026-09-23T20:05:01.000Z' },
+    ])
+  })
+
+  it('前回のあらすじが材料にした時刻までの発話は返さない', async () => {
+    配信を始める('配信1')
+    await recordTranscript(db, { messageId: '発話1', text: '前回までに読んだ話' }, 発話時刻)
+    await recordTranscript(db, { messageId: '発話2', text: 'まだ読んでいない話' }, 発話時刻 + 1000)
+
+    expect(await readTranscriptsSince(db, '配信1', '2026-09-23T20:05:00.000Z', 10)).toEqual([
+      { text: 'まだ読んでいない話', at: '2026-09-23T20:05:01.000Z' },
+    ])
   })
 
   it('ほかの配信の発話は混ぜない', async () => {
@@ -96,15 +109,15 @@ describe('readTranscripts', () => {
     配信を始める('配信2', 発話時刻 + 2000)
     await recordTranscript(db, { messageId: '発話2', text: '今の配信の話' }, 発話時刻 + 3000)
 
-    expect(await readTranscripts(db, '配信2', 10)).toEqual(['今の配信の話'])
+    expect(await readTranscriptsSince(db, '配信2', '', 10)).toEqual([{ text: '今の配信の話', at: '2026-09-23T20:05:03.000Z' }])
   })
 
-  it('件数の上限を超えたぶんは、新しいほうを切る', async () => {
+  it('件数の上限を超えたぶんは、新しいほうを切る（次に作るときへ回す）', async () => {
     配信を始める('配信1')
     await recordTranscript(db, { messageId: '発話1', text: '一番目' }, 発話時刻)
     await recordTranscript(db, { messageId: '発話2', text: '二番目' }, 発話時刻 + 1000)
 
-    expect(await readTranscripts(db, '配信1', 1)).toEqual(['一番目'])
+    expect(await readTranscriptsSince(db, '配信1', '', 1)).toEqual([{ text: '一番目', at: '2026-09-23T20:05:00.000Z' }])
   })
 })
 

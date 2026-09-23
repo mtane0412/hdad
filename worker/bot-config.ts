@@ -9,6 +9,7 @@
  */
 import { ConfigError } from './alert-config'
 import type { BotCommand } from './chat-command'
+import { MAX_STREAM_SUMMARY_LENGTH } from './stream-summary'
 import type { KeyValueStore } from './store'
 
 const CONFIG_KEY = 'bot-commands'
@@ -45,10 +46,11 @@ const isValidName = (value: unknown): value is string =>
 /**
  * 差し込み語が最も長い値に置き換わった場合の、応答文の長さ。
  *
- * 保存の時点では発言者が分からないため、ログイン名が上限いっぱいだった場合で見積もる。
+ * 保存の時点では発言者もあらすじの中身も分からないため、それぞれが上限いっぱいだった場合で見積もる。
  * こうしておくと、保存できた応答文は必ずTwitchへ送れる（送る段になって長さで弾かれない）。
  */
-const expandedLength = (reply: string): number => reply.replaceAll('{user}', 'x'.repeat(MAX_LOGIN_LENGTH)).length
+const expandedLength = (reply: string): number =>
+  reply.replaceAll('{user}', 'x'.repeat(MAX_LOGIN_LENGTH)).replaceAll('{summary}', 'x'.repeat(MAX_STREAM_SUMMARY_LENGTH)).length
 
 /**
  * 管理画面から送られてきた設定を検証し、保存用の形にする。
@@ -84,7 +86,9 @@ export const parseBotConfig = (input: unknown): BotConfig => {
     else if (duplicated) problems.push(`${at}.name: コマンド名「${name}」が重複しています（大文字小文字は区別しません）`)
     if (!replyFilled) problems.push(`${at}.reply: 送り返す文言を入力してください`)
     else if (!replyOk) {
-      problems.push(`${at}.reply: ${MAX_REPLY_LENGTH}文字以内にしてください（{user} は最大${MAX_LOGIN_LENGTH}文字に置き換わります）`)
+      problems.push(
+        `${at}.reply: ${MAX_REPLY_LENGTH}文字以内にしてください（{user} は最大${MAX_LOGIN_LENGTH}文字、{summary} は最大${MAX_STREAM_SUMMARY_LENGTH}文字に置き換わります）`,
+      )
     }
     if (!cooldownOk) problems.push(`${at}.cooldownSeconds: 0〜${MAX_COOLDOWN_SECONDS} の整数で指定してください`)
 

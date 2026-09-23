@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { createFakeDatabase } from './fake-database'
-import { deleteOldStreamChatMessages, deleteStreamChatMessages, listSummaryTargets, readViewerMessages, recordStreamChatMessage } from './stream-chat-store'
+import { deleteOldStreamChatMessages, deleteStreamChatMessages, listSummaryTargets, readSessionChatSince, readViewerMessages, recordStreamChatMessage } from './stream-chat-store'
 import { recordStreamOffline, recordStreamOnline } from './stats-store'
 
 const 配信開始 = Date.UTC(2026, 8, 21, 12, 0, 0)
@@ -146,5 +146,39 @@ describe('deleteOldStreamChatMessages', () => {
     await deleteOldStreamChatMessages(db, 配信開始 + 5 * 一分)
 
     expect(db.sqlite.prepare('SELECT message_id FROM stream_chat_messages').all()).toEqual([{ message_id: 'm2' }])
+  })
+})
+
+describe('readSessionChatSince', () => {
+  it('その配信の発言を、届いた順に、届いた時刻を添えて返す', async () => {
+    const db = createFakeDatabase()
+    await 配信を始める(db)
+    await recordStreamChatMessage(db, 発言({ messageId: '発言2', text: 'がんばってー' }), 配信開始 + 一分 * 2)
+    await recordStreamChatMessage(db, 発言({ messageId: '発言1', text: 'こんばんは！' }), 配信開始 + 一分)
+
+    expect(await readSessionChatSince(db, 'stream-1', '', 10)).toEqual([
+      { text: 'こんばんは！', at: new Date(配信開始 + 一分).toISOString() },
+      { text: 'がんばってー', at: new Date(配信開始 + 一分 * 2).toISOString() },
+    ])
+  })
+
+  it('前回のあらすじが材料にした時刻までの発言は返さない', async () => {
+    const db = createFakeDatabase()
+    await 配信を始める(db)
+    await recordStreamChatMessage(db, 発言({ messageId: '発言1', text: '前回までに読んだ発言' }), 配信開始 + 一分)
+    await recordStreamChatMessage(db, 発言({ messageId: '発言2', text: 'まだ読んでいない発言' }), 配信開始 + 一分 * 2)
+
+    expect(await readSessionChatSince(db, 'stream-1', new Date(配信開始 + 一分).toISOString(), 10)).toEqual([
+      { text: 'まだ読んでいない発言', at: new Date(配信開始 + 一分 * 2).toISOString() },
+    ])
+  })
+
+  it('件数の上限を超えたぶんは、新しいほうを切る（次に作るときへ回す）', async () => {
+    const db = createFakeDatabase()
+    await 配信を始める(db)
+    await recordStreamChatMessage(db, 発言({ messageId: '発言1', text: '一番目' }), 配信開始 + 一分)
+    await recordStreamChatMessage(db, 発言({ messageId: '発言2', text: '二番目' }), 配信開始 + 一分 * 2)
+
+    expect(await readSessionChatSince(db, 'stream-1', '', 1)).toEqual([{ text: '一番目', at: new Date(配信開始 + 一分).toISOString() }])
   })
 })
