@@ -627,14 +627,14 @@ describe('requiresStreamSummary', () => {
     expect(requiresStreamSummary({ triggers: [あらすじを使わないトリガー] }, CHAT_MESSAGE)).toBe(false)
   })
 
-  it('文面をLLMに作らせる動作（aiChat）だけなら false（文言を持たないため）', () => {
+  it('文面をLLMに作らせる動作（aiChat）があれば、文言に書かれていなくても true（あらすじも材料にするため）', () => {
     const LLMに作らせる: StoredTrigger = {
       event: CHAT_MESSAGE,
       conditions: [],
-      actions: [{ type: 'aiChat', instruction: '{summary} を踏まえて返してください' }],
+      actions: [{ type: 'aiChat', instruction: '話の流れに合わせて返してください' }],
     }
 
-    expect(requiresStreamSummary({ triggers: [LLMに作らせる] }, CHAT_MESSAGE)).toBe(false)
+    expect(requiresStreamSummary({ triggers: [LLMに作らせる] }, CHAT_MESSAGE)).toBe(true)
   })
 
   it('別のイベントの通知では false', () => {
