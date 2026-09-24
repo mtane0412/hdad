@@ -5,8 +5,9 @@
  * バラエティ番組のサイドスーパーに寄せて、白い地・太い黒文字・アクセント色の帯・濃い影という組み合わせにする
  * （映像の明るさに左右されず読めるのは、半透明の黒帯よりも不透明な白地のほうであるため）。
  * 寄せる向きは URLパラメータ position（src/side-super/stage.ts）から data-position に入る。
- * 1行あたりの文字数の上限（worker/side-super.ts の MAX_SIDE_SUPER_LINE_LENGTH）に合わせた文字の大きさにし、
- * 上限いっぱいの行でも画面の端からはみ出さないようにする。
+ * 文字の大きさは、1行あたりの文字数の上限（worker/side-super.ts の MAX_SIDE_SUPER_LINE_LENGTH は20文字）と
+ * 配信画面の幅（1920px）を前提に決めてある。全角20文字のときのボックスの幅は実測で約753pxで、
+ * 配信画面のおよそ4割に収まる。
  */
 .side-super {
   position: fixed;
@@ -15,8 +16,13 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  /* 上限いっぱいの20文字でも収まる幅に抑え、配信画面の中央を覆わないようにする */
-  max-width: 44vw;
+  /*
+   * 上限いっぱいの20文字（実測 約753px）が収まる幅にしておき、それ以上は広げない。
+   * 画面の幅に対する割合（vw）ではなくpxで持つのは、文字の大きさがpxで固定されているためである。
+   * 割合で持つと、配信画面が1920pxより狭いときに上限いっぱいの行が枠に入りきらず、
+   * 折り返さない（white-space: nowrap）ぶんそのまま切れてしまう。
+   */
+  max-width: 800px;
   font-family: 'Zen Maru Gothic', 'Hiragino Sans', 'Yu Gothic UI', sans-serif;
 }
 
