@@ -83,6 +83,10 @@ describe('speechTextOf（読む文の整え方）', () => {
     expect(読み上げ文('これ見て https://example.com/watch?v=1 おすすめ')).toBe('これ見て URL おすすめ')
   })
 
+  it('URLの直後に空白なしで本文が続いても、本文を巻き込まない', () => {
+    expect(読み上げ文('見てhttps://example.com/xyz面白いよ')).toBe('見てURL面白いよ')
+  })
+
   it('連続する空白は1つに詰める', () => {
     expect(読み上げ文('こんにちは　　　みなさん')).toBe('こんにちは みなさん')
   })

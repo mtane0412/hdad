@@ -19,11 +19,18 @@ export interface SpeechTextOptions {
   readonly ignoreLogins: readonly string[]
 }
 
+/** URLに使える文字。worker/chat-moderation.ts の `\S+` では日本語まで含んでしまうため、ここでは文字を限る */
+const URL_CHARACTERS = String.raw`[\w\-.~:/?#\[\]@!$&'()*+,;=%]`
+
 /**
- * URLとみなす書き方。worker/chat-moderation.ts の URL_PATTERN と同じ書き方だが、
- * ブラウザ用のコードから worker/ を読み込まない約束なのでここに置く（共有しない）。
+ * URLとみなす書き方。worker/chat-moderation.ts の URL_PATTERN に合わせているが、ブラウザ用のコードから worker/ を
+ * 読み込まない約束なのでここに置く（共有しない）。
+ *
+ * 注意: あちらは「URLが含まれるか」の真偽だけを見るので `\S+` で足りるが、こちらは実際に置き換えるため、
+ * URLに使える文字だけに限る。空白で区切らない日本語では「見てhttps://example.com/xyz面白いよ」のように
+ * URLの直後に本文が続くことがあり、`\S+` だと本文まで「URL」に置き換わって読み上げから消えてしまう。
  */
-const URL_PATTERN = /(?:https?:\/\/|www\.)\S+|[a-z0-9][a-z0-9-]*\.[a-z]{2,}\/\S*/gi
+const URL_PATTERN = new RegExp(`(?:https?://|www\\.)${URL_CHARACTERS}+|[a-z0-9][a-z0-9-]*\\.[a-z]{2,}/${URL_CHARACTERS}*`, 'gi')
 
 /** URLの代わりに読む語。URLそのものを読み上げても聞き取れないため */
 const URL_WORD = 'URL'
