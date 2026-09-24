@@ -3,7 +3,7 @@
  *
  * ページUI（ダッシュボード・ギャラリー・管理画面）はトップの index.html ひとつで、パスに応じた中身をアプリ（src/app/）が描く。
  * /wallpaper/ のように実ファイルのないパスには、Workers 静的アセットが index.html を返す（wrangler.jsonc の not_found_handling）。
- * OBSに載せる素材のページ（<カテゴリ>/<id>/index.html）と、一覧を持たない単独のオーバーレイ（alerts/index.html・side-super/overlay/index.html・transcript/relay/index.html）は、パスごとに実ファイルが必要なので、
+ * OBSに載せる素材のページ（<カテゴリ>/<id>/index.html）と、一覧を持たない単独のオーバーレイ（alerts/index.html・side-super/overlay/index.html・transcript/relay/index.html・speech/reader/index.html）は、パスごとに実ファイルが必要なので、
  * すべてをエントリとするマルチページ構成でビルドする。
  * index.html は /wallpaper/ などネストしたパスでも返されるので、base は絶対パス（/）にしてアセットをどのパスからでも解決できるようにする。
  *
@@ -47,6 +47,7 @@ export default defineConfig({
             alerts: resolve(root, 'alerts/index.html'),
             'transcript/relay': resolve(root, 'transcript/relay/index.html'),
             'side-super/overlay': resolve(root, 'side-super/overlay/index.html'),
+            'speech/reader': resolve(root, 'speech/reader/index.html'),
             ...categoryEntries,
           },
         },
