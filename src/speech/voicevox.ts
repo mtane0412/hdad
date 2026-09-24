@@ -12,6 +12,13 @@
  *
  * 注意: 失敗は黙って無音にせずエラーにする（Fail-Fast）。VOICEVOX を起動し忘れたまま配信を始めると、
  * 読み上げが動いていないことに気づけないためである。fetch を引数で受け取るのはテストで差し替えるため。
+ *
+ * 注意: ENGINE は既定（`--cors_policy_mode localapps`）では localhost・`app://`・ブラウザ拡張からの通信しか
+ * 受け付けないので、このサイト（https のオリジン）からの fetch は拒まれる。文字起こしの中継ページが同じ
+ * ループバックへつながるのは WebSocket が CORS の対象外だからで、fetch には同じ理屈が通らない。
+ * 配信者が設定ページ（`<ENGINEの起点>/setting`）でこのサイトのオリジンを許可し、ENGINE を再起動する必要がある。
+ * つながらない理由はブラウザからは見分けられないので（どれも `TypeError: Failed to fetch` になる）、
+ * 考えられる原因と直し方をすべて文面に並べる。
  */
 
 /** 読み方の問い合わせ（/audio_query の応答）。速度を差し替えるだけなので、中身は触らずそのまま渡す */
@@ -39,18 +46,34 @@ export interface VoicevoxOptions {
   readonly speaker: number
   /** 読み上げ速度（1 が標準） */
   readonly speed: number
+  /** このページのオリジン。つながらないときに、ENGINE で許可すべきオリジンとして文面に出す */
+  readonly pageOrigin: string
 }
 
 /** ENGINE の起点を組み立てる。ループバックなので http でよい（混在コンテンツはブラウザが例外扱いする） */
 export const voicevoxOrigin = (host: string, port: number): string => `http://${host}:${port}`
 
-/** 通信そのものの失敗（ENGINE が動いていない）も、応答の失敗も、同じ呼び名で包んで投げる */
-const callEngine = async (fetchImpl: typeof fetch, url: string, init: RequestInit, what: string): Promise<Response> => {
+/** つながらなかったときに、OBSの画面へ出す文面。考えられる原因を、多い順に直し方つきで並べる */
+const notReachableMessage = (url: string, origin: string, pageOrigin: string, error: unknown): string =>
+  [
+    `VOICEVOX（${url}）につながりません。考えられる原因は次の3つです。`,
+    `1. VOICEVOX が起動していない → 起動してから、このブラウザソースを再読み込みしてください`,
+    `2. ポート番号が違う → VOICEVOX が使っているポートを、このURLの port パラメータに合わせてください`,
+    `3. VOICEVOX がこのサイトからの通信を拒んでいる → ${origin}/setting を開いて CORS の許可に ${pageOrigin} を足し、VOICEVOX を再起動してください`,
+    `詳細: ${String(error)}`,
+  ].join('\n')
+
+/** 通信そのものの失敗（ENGINE が動いていない・拒まれた）も、応答の失敗も、同じ呼び名で包んで投げる */
+const callEngine = async (
+  fetchImpl: typeof fetch,
+  { url, origin, pageOrigin, what }: { url: string; origin: string; pageOrigin: string; what: string },
+  init: RequestInit,
+): Promise<Response> => {
   let response: Response
   try {
     response = await fetchImpl(url, init)
   } catch (error) {
-    throw new Error(`VOICEVOX（${url}）につながりません。VOICEVOX が起動しているか、ポート番号が合っているかを確かめてください: ${String(error)}`, { cause: error })
+    throw new Error(notReachableMessage(url, origin, pageOrigin, error), { cause: error })
   }
   if (!response.ok) throw new Error(`VOICEVOX が${what}に失敗しました（${response.status}）`)
   return response
@@ -61,20 +84,21 @@ const callEngine = async (fetchImpl: typeof fetch, url: string, init: RequestIni
  *
  * @param fetchImpl 通信の実装。fetch をそのまま渡すと this が外れるブラウザがあるため、包んだものを受け取る
  */
-export const createVoicevox = (fetchImpl: typeof fetch, { origin, speaker, speed }: VoicevoxOptions): Voicevox => {
+export const createVoicevox = (fetchImpl: typeof fetch, { origin, speaker, speed, pageOrigin }: VoicevoxOptions): Voicevox => {
   const speakerQuery = `speaker=${speaker}`
+  /** どの呼び出しでも同じ、失敗の文面に使う情報 */
+  const engine = { origin, pageOrigin }
 
   return {
     async checkReady() {
-      await callEngine(fetchImpl, `${origin}/version`, { method: 'GET' }, 'バージョンの読み出し')
+      await callEngine(fetchImpl, { ...engine, url: `${origin}/version`, what: 'バージョンの読み出し' }, { method: 'GET' })
     },
 
     async synthesize(text) {
       const queryResponse = await callEngine(
         fetchImpl,
-        `${origin}/audio_query?${speakerQuery}&text=${encodeURIComponent(text)}`,
+        { ...engine, url: `${origin}/audio_query?${speakerQuery}&text=${encodeURIComponent(text)}`, what: '読み方の問い合わせ' },
         { method: 'POST' },
-        '読み方の問い合わせ',
       )
       const parsed: unknown = await queryResponse.json()
       // 応答の形が変わっていたら、速度を差し込む先が無いことになるのでエラーにする（黙って標準速度で読まない）
@@ -83,9 +107,8 @@ export const createVoicevox = (fetchImpl: typeof fetch, { origin, speaker, speed
 
       const audioResponse = await callEngine(
         fetchImpl,
-        `${origin}/synthesis?${speakerQuery}`,
+        { ...engine, url: `${origin}/synthesis?${speakerQuery}`, what: '音声の合成' },
         { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'audio/wav' }, body: JSON.stringify(query) },
-        '音声の合成',
       )
       return await audioResponse.blob()
     },

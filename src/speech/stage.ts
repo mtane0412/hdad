@@ -69,6 +69,8 @@ const start = async (): Promise<void> => {
     origin: voicevoxOrigin(params.host, params.port),
     speaker: params.speaker,
     speed: params.speed,
+    // つながらないとき、ENGINE の設定で許可すべきオリジンとして画面に出すために渡す
+    pageOrigin: location.origin,
   })
   // 読み上げ先が動いていないまま配信を始めないよう、つなぎ始める前に確かめる
   await voicevox.checkReady()

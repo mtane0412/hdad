@@ -42,6 +42,8 @@ const 正常な応答 = (url: string): Response => {
 }
 
 const 起点 = voicevoxOrigin('localhost', 50021)
+/** 前提: 配信サイト（このページ）から、同じPCのENGINEを呼ぶ */
+const 読み上げの設定 = { origin: 起点, speaker: 3, speed: 1, pageOrigin: 'https://hdad.example.workers.dev' }
 
 describe('voicevoxOrigin', () => {
   it('ホストとポートから、同じPCのENGINEの起点を組み立てる', () => {
@@ -53,7 +55,7 @@ describe('synthesize', () => {
   it('読み方を問い合わせてから音声を合成し、話者IDを両方に渡す', async () => {
     const { 呼び出し一覧, fetchImpl } = 応答を返すfetch(正常な応答)
 
-    const 音声 = await createVoicevox(fetchImpl, { origin: 起点, speaker: 3, speed: 1 }).synthesize('こんにちは')
+    const 音声 = await createVoicevox(fetchImpl, 読み上げの設定).synthesize('こんにちは')
 
     expect(音声.type).toBe('audio/wav')
     expect(呼び出し一覧[0]).toEqual({
@@ -68,7 +70,7 @@ describe('synthesize', () => {
   it('読み上げ速度を、問い合わせの speedScale に差し替えて合成させる', async () => {
     const { 呼び出し一覧, fetchImpl } = 応答を返すfetch(正常な応答)
 
-    await createVoicevox(fetchImpl, { origin: 起点, speaker: 3, speed: 1.3 }).synthesize('こんにちは')
+    await createVoicevox(fetchImpl, { ...読み上げの設定, speed: 1.3 }).synthesize('こんにちは')
 
     expect(JSON.parse(呼び出し一覧[1]?.body ?? 'null')).toEqual({ ...読み方の問い合わせ, speedScale: 1.3 })
   })
@@ -76,13 +78,13 @@ describe('synthesize', () => {
   it('読み方の問い合わせに失敗したらエラーにする', async () => {
     const { fetchImpl } = 応答を返すfetch(() => new Response('話者が見つかりません', { status: 422 }))
 
-    await expect(createVoicevox(fetchImpl, { origin: 起点, speaker: 999, speed: 1 }).synthesize('こんにちは')).rejects.toThrow(/VOICEVOX/)
+    await expect(createVoicevox(fetchImpl, { ...読み上げの設定, speaker: 999 }).synthesize('こんにちは')).rejects.toThrow(/VOICEVOX/)
   })
 
   it('音声の合成に失敗したらエラーにする', async () => {
     const { fetchImpl } = 応答を返すfetch((url) => (url.includes('/audio_query') ? Response.json(読み方の問い合わせ) : new Response('', { status: 500 })))
 
-    await expect(createVoicevox(fetchImpl, { origin: 起点, speaker: 3, speed: 1 }).synthesize('こんにちは')).rejects.toThrow(/VOICEVOX/)
+    await expect(createVoicevox(fetchImpl, 読み上げの設定).synthesize('こんにちは')).rejects.toThrow(/VOICEVOX/)
   })
 })
 
@@ -90,16 +92,23 @@ describe('checkReady', () => {
   it('ENGINEのバージョンを読めれば、つながっていると分かる', async () => {
     const { 呼び出し一覧, fetchImpl } = 応答を返すfetch(正常な応答)
 
-    await createVoicevox(fetchImpl, { origin: 起点, speaker: 3, speed: 1 }).checkReady()
+    await createVoicevox(fetchImpl, 読み上げの設定).checkReady()
 
     expect(呼び出し一覧).toEqual([{ url: `${起点}/version`, method: 'GET', body: null }])
   })
 
-  it('つながらなければ、VOICEVOXの起動を促すエラーにする', async () => {
+  it('つながらなければ、考えられる原因（起動・ポート・CORSの許可）を並べたエラーにする', async () => {
     const { fetchImpl } = 応答を返すfetch(() => {
       throw new TypeError('Failed to fetch')
     })
 
-    await expect(createVoicevox(fetchImpl, { origin: 起点, speaker: 3, speed: 1 }).checkReady()).rejects.toThrow(/VOICEVOX/)
+    const 失敗 = createVoicevox(fetchImpl, 読み上げの設定).checkReady()
+
+    // OBSの画面にはこの文面しか出ないので、いちばん多い原因（別オリジンからの通信の拒否）と直し方まで含める
+    await expect(失敗).rejects.toThrow(/VOICEVOX が起動していない/)
+    await expect(失敗).rejects.toThrow(/ポート番号/)
+    await expect(失敗).rejects.toThrow(new RegExp(`${起点}/setting`))
+    await expect(失敗).rejects.toThrow(/https:\/\/hdad\.example\.workers\.dev/)
+    await expect(失敗).rejects.toThrow(/Failed to fetch/)
   })
 })
