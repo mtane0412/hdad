@@ -141,6 +141,33 @@ export const readSessionChatSince = async (
 }
 
 /**
+ * その配信の直近の発言を、届いた順（古い順）に本文だけで読む。
+ *
+ * サイドスーパー（worker/side-super.ts）の材料になる。あらすじと違って前回のものに積み上げないので、
+ * 「どこまで材料にしたか」ではなく「いま何が話されているか」だけが要る。そのため新しいほうから
+ * limit 件を取り、LLMへ渡す向き（古い順）に直して返す（transcript-store.ts の readRecentTranscripts と同じ作り）。
+ *
+ * 誰の発言かは返さない。サイドスーパーは配信画面に出るものなので、視聴者の名前を材料に含めない。
+ *
+ * 届いた時刻を添えるのは、呼び出し側が「前回サイドスーパーを作ったあとに新しい発言があるか」を
+ * 判定するためである（無ければLLMを呼ばない）。
+ *
+ * @param limit 読む件数の上限。超えたぶんは古いほうから落とす
+ */
+export const readRecentSessionChat = async (db: Database, sessionId: string, limit: number): Promise<StreamChatLine[]> => {
+  const { results } = await db
+    .prepare(
+      `SELECT text, sent_at AS at, message_id AS messageId FROM stream_chat_messages
+       WHERE session_id = ?1
+       ORDER BY sent_at DESC, message_id DESC
+       LIMIT ?2`,
+    )
+    .bind(sessionId, limit)
+    .all<StreamChatLine>()
+  return results.reverse()
+}
+
+/**
  * 人物像を作り終えた人の材料を消す。
  *
  * 消すのは終わった配信のぶんだけである。配信中のぶんまで消すと、いま進んでいる配信の材料が失われる。

@@ -32,6 +32,7 @@
  * | GET  /api/overlay/socket         | オーバーレイ用キー | オーバーレイからのWebSocketの接続を受け、アラートの配送先へ引き渡す |
  * | POST /api/overlay/transcript     | オーバーレイ用キー | 配信中の文字起こしを1件受け取る（中継ページから） |
  * | DELETE /api/overlay/transcript/:messageId | オーバーレイ用キー | 記録済みの発話を取り消す |
+ * | GET  /api/overlay/side-super    | オーバーレイ用キー | いま出すサイドスーパーの文言を返す |
  * | GET  /api/media/:id              | オーバーレイ用キーかセッション | 素材の中身を返す |
  *
  * これとは別に、cron（wrangler.jsonc の triggers.crons）から scheduled が呼ばれ、配信の記録を収集する（collect.ts）。
@@ -56,7 +57,7 @@ import { ConfigError } from './alert-config'
 import { CALLBACK_PATH, callback, login, logout, me } from './auth-routes'
 import { collectStats } from './collect'
 import { HttpError, STATUS, errorResponse, type Context, type Env } from './http'
-import { deleteTranscriptRoute, media, overlaySocket, postTranscript } from './overlay-routes'
+import { deleteTranscriptRoute, getSideSuper, media, overlaySocket, postTranscript } from './overlay-routes'
 import { getStatsFailures, getStatsFollowers, getStatsSession, getStatsSessions } from './stats-routes'
 import { AuthError } from './token'
 import { WEBHOOK_PATH, eventsubWebhook } from './webhook-routes'
@@ -126,6 +127,7 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/overlay/socket', handle: overlaySocket },
   { method: 'POST', path: '/api/overlay/transcript', handle: postTranscript },
   { method: 'DELETE', path: '/api/overlay/transcript/:messageId', handle: deleteTranscriptRoute },
+  { method: 'GET', path: '/api/overlay/side-super', handle: getSideSuper },
   { method: 'GET', path: '/api/media/:id', handle: media },
 ]
 

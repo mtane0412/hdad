@@ -6,6 +6,7 @@
 import { connectAlertSocket } from './alert-channel'
 import { HttpError, STATUS, hasSession, requireOverlayKey, type Context } from './http'
 import { kindOfContentType } from './media'
+import { readCurrentSideSuper } from './side-super-store'
 import { deleteTranscript, recordTranscript } from './transcript-store'
 
 /**
@@ -114,4 +115,20 @@ export const deleteTranscriptRoute = async (context: Context): Promise<Response>
   await requireOverlayKey(context)
   await deleteTranscript(context.env.DB, context.params.messageId ?? '')
   return new Response(null, { status: STATUS.noContent })
+}
+
+/**
+ * GET /api/overlay/side-super: いま出すサイドスーパーの文言を返す。
+ *
+ * OBSのブラウザソースに置いたオーバーレイ（side-super/index.html）が定期的に読みに来る。
+ * 文言は cron（worker/collect.ts）が5分おきに作って貯めてあるものをそのまま返すだけで、ここでLLMは呼ばない。
+ *
+ * 配信していない・まだ作っていないときは失敗にせず、空の行を返す（オーバーレイは何も映さない）。
+ * 配信の前後にOBSを開いたままにするのが普通の使い方なので、文言が無いことは失敗ではない
+ * （文字起こしの受け口が配信外の発話を捨てるのを失敗にしないのと同じ考え方）。
+ */
+export const getSideSuper = async (context: Context): Promise<Response> => {
+  await requireOverlayKey(context)
+  const sideSuper = await readCurrentSideSuper(context.env.DB, context.now)
+  return Response.json({ lines: sideSuper?.lines ?? [], updatedAt: sideSuper?.updatedAt ?? null })
 }

@@ -502,3 +502,55 @@ describe('チャンネルポイント報酬の一覧（GET /api/admin/rewards）
     expect(await エラーコード(response)).toBe('twitch-error')
   })
 })
+
+describe('GET /api/overlay/side-super（サイドスーパーの読み出し）', () => {
+  /** 配信中の区切りを1件作る */
+  const 配信を始める = (env: Env): void => {
+    ;(env.DB as ReturnType<typeof createFakeDatabase>).sqlite
+      .prepare('INSERT INTO stream_sessions (id, started_at, title, category_name) VALUES (?, ?, ?, ?)')
+      .run('配信1', new Date(現在時刻 - 60_000).toISOString(), '雑談配信', 'Just Chatting')
+  }
+
+  /** cron が作った体でサイドスーパーを1件貯める */
+  const 貯める = (env: Env, line1: string, line2: string): void => {
+    ;(env.DB as ReturnType<typeof createFakeDatabase>).sqlite
+      .prepare('INSERT INTO side_supers (session_id, line1, line2, updated_at) VALUES (?, ?, ?, ?)')
+      .run('配信1', line1, line2, new Date(現在時刻 - 30_000).toISOString())
+  }
+
+  const 読む = (env: Env, key = 発行済みのキー) => 呼び出す(new Request(`${サイト}/api/overlay/side-super?key=${key}`), env)
+
+  it('貯めてあるサイドスーパーを、作った日時とともに返す', async () => {
+    const { env } = 環境を作る()
+    配信を始める(env)
+    貯める(env, '新作ゲーム', '初見プレイ中')
+
+    const response = await 読む(env)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      lines: ['新作ゲーム', '初見プレイ中'],
+      updatedAt: new Date(現在時刻 - 30_000).toISOString(),
+    })
+  })
+
+  it('配信していない・まだ作っていないときは、空の行を返す（オーバーレイは何も映さない）', async () => {
+    const { env } = 環境を作る()
+
+    const response = await 読む(env)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ lines: [], updatedAt: null })
+  })
+
+  it('キーが違えば401を返す', async () => {
+    const { env } = 環境を作る()
+    配信を始める(env)
+    貯める(env, '新作ゲーム', '')
+
+    const response = await 読む(env, 'atezuppou')
+
+    expect(response.status).toBe(401)
+    expect(await エラーコード(response)).toBe('invalid-overlay-key')
+  })
+})

@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { createFakeDatabase } from './fake-database'
-import { deleteOldStreamChatMessages, deleteStreamChatMessages, listSummaryTargets, readSessionChatSince, readViewerMessages, recordStreamChatMessage } from './stream-chat-store'
+import { deleteOldStreamChatMessages, deleteStreamChatMessages, listSummaryTargets, readRecentSessionChat, readSessionChatSince, readViewerMessages, recordStreamChatMessage } from './stream-chat-store'
 import { recordStreamOffline, recordStreamOnline } from './stats-store'
 
 const 配信開始 = Date.UTC(2026, 8, 21, 12, 0, 0)
@@ -197,5 +197,40 @@ describe('readSessionChatSince の取りこぼし', () => {
     expect(await readSessionChatSince(db, 'stream-1', 一度目.at(-1)!, 10)).toEqual([
       { text: '同時刻の二件目', at: new Date(配信開始 + 一分).toISOString(), messageId: '発言B' },
     ])
+  })
+})
+
+describe('readRecentSessionChat', () => {
+  it('その配信の直近の発言を、届いた順（古い順）に、届いた時刻を添えて返す', async () => {
+    const db = createFakeDatabase()
+    await 配信を始める(db)
+    await recordStreamChatMessage(db, 発言({ messageId: '発言1', text: 'こんばんは！' }), 配信開始 + 一分)
+    await recordStreamChatMessage(db, 発言({ messageId: '発言2', text: 'がんばってー' }), 配信開始 + 一分 * 2)
+
+    expect(await readRecentSessionChat(db, 'stream-1', 10)).toEqual([
+      { text: 'こんばんは！', at: new Date(配信開始 + 一分).toISOString(), messageId: '発言1' },
+      { text: 'がんばってー', at: new Date(配信開始 + 一分 * 2).toISOString(), messageId: '発言2' },
+    ])
+  })
+
+  it('上限を超えたぶんは古いほうから落とす（サイドスーパーは直近の話題から作るため）', async () => {
+    const db = createFakeDatabase()
+    await 配信を始める(db)
+    await recordStreamChatMessage(db, 発言({ messageId: '発言1', text: '古い反応' }), 配信開始 + 一分)
+    await recordStreamChatMessage(db, 発言({ messageId: '発言2', text: '少し前の反応' }), 配信開始 + 一分 * 2)
+    await recordStreamChatMessage(db, 発言({ messageId: '発言3', text: 'いまの反応' }), 配信開始 + 一分 * 3)
+
+    expect((await readRecentSessionChat(db, 'stream-1', 2)).map((line) => line.text)).toEqual(['少し前の反応', 'いまの反応'])
+  })
+
+  it('ほかの配信の発言は混ぜない', async () => {
+    const db = createFakeDatabase()
+    await 配信を始める(db)
+    await recordStreamChatMessage(db, 発言({ messageId: '発言1', text: '前の配信の反応' }), 配信開始 + 一分)
+    await recordStreamOffline(db, 配信開始 + 一分 * 2)
+    await recordStreamOnline(db, { id: 'stream-2', startedAt: 配信開始 + 一分 * 3 })
+    await recordStreamChatMessage(db, 発言({ messageId: '発言2', text: '今の配信の反応' }), 配信開始 + 一分 * 4)
+
+    expect((await readRecentSessionChat(db, 'stream-2', 10)).map((line) => line.text)).toEqual(['今の配信の反応'])
   })
 })
