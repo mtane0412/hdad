@@ -2,9 +2,9 @@
  * アプリのページの一覧
  *
  * サイドバーの項目と、パスごとに描く中身をここで決める。カテゴリを増やしたらここに足す。
- * ギャラリーの素材ページ（/wallpaper/<id>/ など）と alerts/ は実ファイルとして配信されるので、ここには載せない。
+ * ギャラリーの素材ページ（/wallpaper/<id>/ など）と、実ファイルとして配信されるオーバーレイ（alerts/・side-super/overlay/・transcript/relay/）は、ここには載せない。
  */
-import { Bot, Captions, Clock, Image, LayoutDashboard, MessageSquare, Upload, Users, Zap, type LucideIcon } from 'lucide-react'
+import { Bot, Captions, Clock, Image, LayoutDashboard, MessageSquare, PanelTop, Upload, Users, Zap, type LucideIcon } from 'lucide-react'
 import type { AdminApi, Me } from '@/admin/api'
 import { MediaPage } from '@/admin/media-page'
 import { TriggerPage } from '@/admin/trigger-page'
@@ -17,6 +17,7 @@ import type { StatsApi } from '@/stats/api'
 import { StatsPage } from '@/stats/stats-page'
 import type { ViewerApi } from '@/viewers/api'
 import { ViewerPage } from '@/viewers/viewer-page'
+import { SideSuperPage } from '@/side-super/side-super-page'
 import { TranscriptPage } from '@/transcript/transcript-page'
 import { backgrounds } from '@/wallpaper/registry'
 
@@ -52,6 +53,7 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
       { path: '/bot/', name: 'チャットボット', icon: Bot, render: ({ botApi }) => <BotPage api={botApi} /> },
       { path: '/viewers/', name: '視聴者', icon: Users, render: ({ viewerApi }) => <ViewerPage api={viewerApi} /> },
       { path: '/transcript/', name: '文字起こし', icon: Captions, render: ({ me }) => <TranscriptPage overlayKey={me.overlayKey} /> },
+      { path: '/side-super/', name: 'サイドスーパー', icon: PanelTop, render: ({ me }) => <SideSuperPage overlayKey={me.overlayKey} /> },
       {
         path: '/triggers/',
         name: 'トリガー',

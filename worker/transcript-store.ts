@@ -142,3 +142,28 @@ export const deleteOldTranscripts = async (db: Database, before: number): Promis
     .bind(toIso(before))
     .run()
 }
+
+/**
+ * その配信の直近の発話を、喋った順（古い順）に本文だけで読む。
+ *
+ * サイドスーパー（worker/side-super.ts）の材料になる。あらすじと違って前回のものに積み上げないので、
+ * 「どこまで材料にしたか」ではなく「いま何を喋っているか」だけが要る。そのため新しいほうから
+ * limit 件を取り、LLMへ渡す向き（古い順）に直して返す。
+ *
+ * 喋った時刻を添えるのは、呼び出し側が「前回サイドスーパーを作ったあとに新しい発話があるか」を
+ * 判定するためである（無ければLLMを呼ばない）。
+ *
+ * @param limit 読む件数の上限。超えたぶんは古いほうから落とす
+ */
+export const readRecentTranscripts = async (db: Database, sessionId: string, limit: number): Promise<TranscriptLine[]> => {
+  const { results } = await db
+    .prepare(
+      `SELECT text, spoken_at AS at, message_id AS messageId FROM transcripts
+       WHERE session_id = ?1
+       ORDER BY spoken_at DESC, message_id DESC
+       LIMIT ?2`,
+    )
+    .bind(sessionId, limit)
+    .all<TranscriptLine>()
+  return results.reverse()
+}

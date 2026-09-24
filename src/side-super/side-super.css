@@ -1,0 +1,68 @@
+/*
+ * サイドスーパーの見た目
+ *
+ * 配信画面の隅に出しっぱなしにするテロップなので、地は透過のまま、行だけを帯にして置く。
+ * 寄せる向きは URLパラメータ position（src/side-super/stage.ts）から data-position に入る。
+ * 1行あたりの文字数の上限（worker/side-super.ts の MAX_SIDE_SUPER_LINE_LENGTH）に合わせた文字の大きさにし、
+ * 上限いっぱいの行でも画面の端からはみ出さないようにする。
+ */
+.side-super {
+  position: fixed;
+  top: 24px;
+  left: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+  /* 上限いっぱいの20文字でも収まる幅に抑え、配信画面の中央を覆わないようにする */
+  max-width: 40vw;
+  font-family: 'Zen Maru Gothic', 'Hiragino Sans', 'Yu Gothic UI', sans-serif;
+}
+
+.side-super[data-position='right'] {
+  right: 24px;
+  left: auto;
+  align-items: flex-end;
+}
+
+.side-super-line {
+  margin: 0;
+  padding: 6px 16px;
+  border-left: 4px solid #7dd3fc;
+  border-radius: 4px;
+  background: rgb(15 17 21 / 78%);
+  color: #fff;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.4;
+  white-space: nowrap;
+  /* 暗い映像の上でも輪郭が沈まないようにする */
+  text-shadow: 0 2px 4px rgb(0 0 0 / 60%);
+  animation: side-super-in 400ms ease-out;
+}
+
+/* 右上に置くときは、帯のアクセントも画面の外側（右）に寄せる */
+.side-super[data-position='right'] .side-super-line {
+  border-right: 4px solid #7dd3fc;
+  border-left: none;
+}
+
+/* 文言が変わったときだけ走る（同じ文言では要素を作り直さない。src/side-super/view.ts を参照） */
+@keyframes side-super-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 配信画面に映すものなので、動きを減らす設定の環境では出現の動きを止める */
+@media (prefers-reduced-motion: reduce) {
+  .side-super-line {
+    animation: none;
+  }
+}

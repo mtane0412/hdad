@@ -204,6 +204,26 @@ describe('recordFailure', () => {
       { occurredAt: '2026-09-20T00:00:00.000Z', code: 'twitch-error', message: 'Twitchが 500 を返しました' },
     ])
   })
+
+  it('1回の収集で種類の違う失敗が重なっても、どちらも残す', async () => {
+    const db = createFakeDatabase()
+    // cron は5分おきに複数の仕事（あらすじ・サイドスーパー・人物像）をまとめて行うので、
+    // LLMの無料枠が切れた回では同じ時刻に別々の失敗が並ぶ。あとから起きた失敗が先の失敗を消してはならない
+    await recordFailure(db, 'stream-summary-failed', 'あらすじを作れませんでした', 時刻('2026-09-21T12:05:00Z'))
+    await recordFailure(db, 'side-super-failed', 'サイドスーパーを作れませんでした', 時刻('2026-09-21T12:05:00Z'))
+
+    expect([...(await listFailures(db))].map((failure) => failure.code).sort()).toEqual(['side-super-failed', 'stream-summary-failed'])
+  })
+
+  it('同じ時刻に同じ種類の失敗が二度記録されても、行は増えない', async () => {
+    const db = createFakeDatabase()
+    await recordFailure(db, 'side-super-failed', '1回目の文面', 時刻('2026-09-21T12:05:00Z'))
+    await recordFailure(db, 'side-super-failed', '2回目の文面', 時刻('2026-09-21T12:05:00Z'))
+
+    expect(await listFailures(db)).toEqual([
+      { occurredAt: '2026-09-21T12:05:00.000Z', code: 'side-super-failed', message: '2回目の文面' },
+    ])
+  })
 })
 
 describe('recordStreamOnline', () => {

@@ -143,13 +143,19 @@ export const recordFollowerTotal = async (db: Database, followerTotal: number, n
     .run()
 }
 
-/** 収集の失敗を記録し、保持期間を過ぎた記録を消す */
+/**
+ * 収集の失敗を記録し、保持期間を過ぎた記録を消す。
+ *
+ * 1回の収集で種類の違う失敗が重なることがある（無料枠が切れた回では、あらすじ・サイドスーパー・人物像が
+ * 同時に失敗する）ので、行は「時刻と種類」の組で持つ。あとから起きた失敗が先の失敗を消さない
+ * （migrations/0012_collection_failures_key.sql）。同じ時刻に同じ種類が二度記録されたときだけ、文面を上書きする。
+ */
 export const recordFailure = async (db: Database, code: string, message: string, now: number): Promise<void> => {
   await db.batch([
     db
       .prepare(
         `INSERT INTO collection_failures (occurred_at, code, message) VALUES (?1, ?2, ?3)
-         ON CONFLICT (occurred_at) DO UPDATE SET code = excluded.code, message = excluded.message`,
+         ON CONFLICT (occurred_at, code) DO UPDATE SET message = excluded.message`,
       )
       .bind(toIso(now), code, message),
     db.prepare('DELETE FROM collection_failures WHERE occurred_at < ?1').bind(toIso(now - FAILURE_RETENTION_MS)),

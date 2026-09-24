@@ -8,6 +8,8 @@ import type { TextGenerator } from './ai-chat'
 import { MAX_VIEWER_SUMMARY_LENGTH } from './viewer-summary'
 import { STREAM_CHAT_RETENTION_MS, SUMMARY_BATCH_SIZE, collectStats } from './collect'
 import { readStreamSummary } from './stream-summary-store'
+import { readSideSuper } from './side-super-store'
+import { MAX_SIDE_SUPER_LINE_LENGTH } from './side-super'
 import { createFakeDatabase } from './fake-database'
 import { createFakeStore } from './fake-store'
 import { getSession, listFailures, listFollowerSamples, listSessions } from './stats-store'
@@ -402,5 +404,104 @@ describe('あらすじの生成', () => {
     expect((await listFailures(db)).map((failure) => failure.code)).toContain('stream-summary-failed')
     // 収集そのものは止まらないので、視聴者数は2回とも記録されている
     expect((await getSession(db, 雑談配信.id))?.samples).toHaveLength(2)
+  })
+})
+
+describe('サイドスーパーの生成', () => {
+  /** 配信中の区切りと、その配信の文字起こし・発言をそろえる */
+  const 配信中の材料を作る = (db: ReturnType<typeof createFakeDatabase>) => {
+    db.sqlite
+      .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, NULL, ?, ?)')
+      .run(雑談配信.id, 雑談配信.startedAt, 雑談配信.title, 雑談配信.categoryName)
+    db.sqlite
+      .prepare('INSERT INTO transcripts (message_id, session_id, spoken_at, text) VALUES (?, ?, ?, ?)')
+      .run('hatsuwa-1', 雑談配信.id, new Date(現在時刻 - 2 * 60 * 1000).toISOString(), '今日は新しいゲームを遊びます')
+    db.sqlite
+      .prepare('INSERT INTO stream_chat_messages (message_id, session_id, user_id, sent_at, text) VALUES (?, ?, ?, ?, ?)')
+      .run('hatsugen-1', 雑談配信.id, '100', new Date(現在時刻 - 60 * 1000).toISOString(), 'たのしみ！')
+  }
+
+  it('配信中なら、直近の材料からサイドスーパーを作って貯める', async () => {
+    const { db, store } = await 環境を作る()
+    配信中の材料を作る(db)
+
+    await collectStats({
+      db,
+      store,
+      twitch: Twitchの代役(),
+      ai: AIの代役({ response: '新作ゲーム\n初見プレイ中' }),
+      broadcasterId: 配信者のID,
+      now: 現在時刻,
+    })
+
+    expect(await readSideSuper(db, 雑談配信.id)).toEqual({
+      lines: ['新作ゲーム', '初見プレイ中'],
+      updatedAt: new Date(現在時刻).toISOString(),
+    })
+  })
+
+  it('配信していなければ、サイドスーパーを作らない', async () => {
+    const { db, store } = await 環境を作る()
+
+    await collectStats({
+      db,
+      store,
+      twitch: Twitchの代役({ getLiveStream: async () => null }),
+      ai: AIの代役(),
+      broadcasterId: 配信者のID,
+      now: 現在時刻,
+    })
+
+    expect(await readSideSuper(db, 雑談配信.id)).toBeNull()
+  })
+
+  it('前回作ったあとに新しい材料が無ければ、作り直さない', async () => {
+    const { db, store } = await 環境を作る()
+    配信中の材料を作る(db)
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+    const ai = AIの代役()
+
+    await collectStats({ db, store, twitch: Twitchの代役(), ai, broadcasterId: 配信者のID, now: 現在時刻 + 5 * 60 * 1000 })
+
+    expect(ai.呼ばれた数()).toBe(0)
+  })
+
+  it('LLMが失敗しても収集は止めず、失敗を記録して前回のサイドスーパーを残す', async () => {
+    const { db, store } = await 環境を作る()
+    配信中の材料を作る(db)
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役({ response: '新作ゲーム' }), broadcasterId: 配信者のID, now: 現在時刻 })
+    db.sqlite
+      .prepare('INSERT INTO transcripts (message_id, session_id, spoken_at, text) VALUES (?, ?, ?, ?)')
+      .run('hatsuwa-2', 雑談配信.id, new Date(現在時刻 + 60 * 1000).toISOString(), 'ボスに負けました')
+
+    await collectStats({
+      db,
+      store,
+      twitch: Twitchの代役(),
+      ai: AIの代役(new Error('Workers AI の無料枠を使い切りました')),
+      broadcasterId: 配信者のID,
+      now: 現在時刻 + 5 * 60 * 1000,
+    })
+
+    expect((await readSideSuper(db, 雑談配信.id))?.lines).toEqual(['新作ゲーム'])
+    expect((await listFailures(db)).map((failure) => failure.code)).toContain('side-super-failed')
+    expect((await getSession(db, 雑談配信.id))?.samples).toHaveLength(2)
+  })
+
+  it('上限より長い行が返ってきたら、切り詰めずに失敗として記録する', async () => {
+    const { db, store } = await 環境を作る()
+    配信中の材料を作る(db)
+
+    await collectStats({
+      db,
+      store,
+      twitch: Twitchの代役(),
+      ai: AIの代役({ response: 'あ'.repeat(MAX_SIDE_SUPER_LINE_LENGTH + 1) }),
+      broadcasterId: 配信者のID,
+      now: 現在時刻,
+    })
+
+    expect(await readSideSuper(db, 雑談配信.id)).toBeNull()
+    expect((await listFailures(db)).map((failure) => failure.code)).toContain('side-super-failed')
   })
 })

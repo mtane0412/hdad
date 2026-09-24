@@ -11,16 +11,25 @@
 import type { TextGenerator } from './ai-chat'
 import { deleteOldFirstChatters } from './chat-store'
 import type { Database } from './database'
-import { deleteOldStreamChatMessages, deleteStreamChatMessages, listSummaryTargets, readSessionChatSince, readViewerMessages } from './stream-chat-store'
+import {
+  deleteOldStreamChatMessages,
+  deleteStreamChatMessages,
+  listSummaryTargets,
+  readRecentSessionChat,
+  readSessionChatSince,
+  readViewerMessages,
+} from './stream-chat-store'
+import { readSideSuper, saveSideSuper } from './side-super-store'
+import { generateSideSuper } from './side-super'
 import { readStreamSummary, saveStreamSummary } from './stream-summary-store'
 import { generateStreamSummary } from './stream-summary'
-import { deleteOldTranscripts, readTranscriptsSince } from './transcript-store'
+import { deleteOldTranscripts, readRecentTranscripts, readTranscriptsSince } from './transcript-store'
 import { ViewerSummaryContentError, generateViewerSummary } from './viewer-summary'
 import { readViewer, updateViewerSummary } from './viewer-store'
 import { closeOpenSessions, recordFailure, recordFollowerTotal, recordLiveStream } from './stats-store'
 import type { KeyValueStore } from './store'
 import { AuthError, getAccessToken } from './token'
-import { TwitchApiError, type TwitchClient } from './twitch'
+import { TwitchApiError, type LiveStream, type TwitchClient } from './twitch'
 
 const UNAUTHORIZED = 401
 
@@ -158,6 +167,65 @@ const summarizeStream = async (db: Database, ai: TextGenerator, sessionId: strin
 }
 
 /**
+ * 1回のサイドスーパーづくりで読む、配信者の発話（文字起こし）の件数の上限。
+ *
+ * サイドスーパーは「いまの話題」を2行で言い表すものなので、材料も直近のぶんだけでよい。
+ * あらすじ（STREAM_SUMMARY_TRANSCRIPT_LIMIT）より少なくしているのは、古い話題まで混ぜると
+ * いま画面に出すべき言葉がぼやけるためである。
+ */
+const SIDE_SUPER_TRANSCRIPT_LIMIT = 20
+
+/**
+ * 1回のサイドスーパーづくりで読む、視聴者の発言の件数の上限。
+ *
+ * 発話と同じ数にして、どちらか一方だけで材料が埋まらないようにする（あらすじと同じ考え方）。
+ */
+const SIDE_SUPER_CHAT_LIMIT = 20
+
+/**
+ * いま進んでいる配信のサイドスーパーを作り直す。
+ *
+ * サイドスーパーは配信画面の隅に出しっぱなしにする短いテロップで、材料は直近の発話・発言と、
+ * 配信のカテゴリ・タイトルである。あらすじと違って前回のものに積み上げず、毎回その時点の材料から
+ * 作り直す（worker/side-super.ts）。
+ *
+ * 注意: 前回作ったあとに新しい材料が1件も無ければLLMを呼ばない。喋りも発言もない時間帯に5分おきの
+ * 作り直しで Neurons を使わないためである（あらすじの「新しい材料が無ければ呼ばない」と同じ考え方）。
+ * 注意: 失敗しても収集そのものを止めず、前回のサイドスーパーも消さない。消すと配信画面から文言が消えてしまう。
+ * 失敗を黙って飲み込まず collection_failures に残すのは、あらすじ・人物像づくりと同じである。
+ *
+ * @param stream いま進んでいる配信。カテゴリとタイトルを材料にするので、配信のIDだけでなくこの形で受け取る
+ */
+const makeSideSuper = async (db: Database, ai: TextGenerator, stream: LiveStream, now: number): Promise<void> => {
+  const previous = await readSideSuper(db, stream.id)
+  const transcripts = await readRecentTranscripts(db, stream.id, SIDE_SUPER_TRANSCRIPT_LIMIT)
+  const chats = await readRecentSessionChat(db, stream.id, SIDE_SUPER_CHAT_LIMIT)
+  // 前回より後に届いた材料があるかを、材料そのものの時刻で見る（どちらも同じ形の ISO 8601 なので文字列で比べられる）
+  const 新しい材料がある =
+    previous === null
+      ? transcripts.length > 0 || chats.length > 0
+      : [...transcripts, ...chats].some((line) => line.at > previous.updatedAt)
+  if (!新しい材料がある) return
+
+  let lines
+  try {
+    lines = await generateSideSuper(ai, {
+      categoryName: stream.categoryName,
+      title: stream.title,
+      transcripts: transcripts.map((line) => line.text),
+      chats: chats.map((line) => line.text),
+    })
+  } catch (error) {
+    // 返ってきた行そのものの問題（SideSuperContentError）も、LLMを呼べなかった失敗も同じ扱いでよい
+    // （対象が1件しかないので、人物像づくりのような「飛ばして次へ」という分かれ道がない）
+    await recordFailure(db, 'side-super-failed', error instanceof Error ? error.message : String(error), now)
+    return
+  }
+
+  await saveSideSuper(db, stream.id, lines, now)
+}
+
+/**
  * 終わった配信の発言から、視聴者の人物像を作る。
  *
  * 材料が残っていること自体が「まだ作っていない」という印なので、作り終えた人のぶんはその場で消す
@@ -230,7 +298,10 @@ const collect = async ({ db, store, twitch, ai, broadcasterId, now }: CollectSta
   // あらすじづくりと人物像づくりは、配信の記録を残したあとに行う（LLMが使えなくても記録は残す）。
   // あらすじを先にするのは、配信中の視聴者がコマンドで読むものであり、待たせる相手がいるためである
   // （人物像は終わった配信のぶんを作るので、1回遅れても誰も困らない）。無料枠は両者で分け合う
-  if (stream) await summarizeStream(db, ai, stream.id, now)
+  if (stream) {
+    await summarizeStream(db, ai, stream.id, now)
+    await makeSideSuper(db, ai, stream, now)
+  }
   await summarizeViewers(db, ai, now)
 }
 
