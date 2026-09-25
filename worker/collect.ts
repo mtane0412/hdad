@@ -134,7 +134,10 @@ const summarizeStream = async (db: Database, ai: TextGenerator, sessionId: strin
   const chatFrom = previous?.chatUntil ?? { at: '', messageId: '' }
   const transcripts = await readTranscriptsSince(db, sessionId, transcriptsFrom, STREAM_SUMMARY_TRANSCRIPT_LIMIT)
   const chats = await readSessionChatSince(db, sessionId, chatFrom, STREAM_SUMMARY_CHAT_LIMIT)
-  if (transcripts.length === 0 && chats.length === 0) return
+  // 配信者の発話が1件も無いときは、視聴者の発言があっても作らない。書き込みだけを材料にすると、
+  // 書き込みの中身が配信で起きたこととして書かれてしまうためである（ゆかコネNEO を動かし忘れた配信で実際に起きた）。
+  // 目印を進めないので、文字起こしが届いた回で、このあいだの発言もまとめて材料になる
+  if (transcripts.length === 0) return
 
   let summary: string
   try {

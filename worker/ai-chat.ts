@@ -154,12 +154,34 @@ export const buildPrompt = (material: AiChatMaterial): string => {
   ].join('\n')
 }
 
-/** Workers AI の応答から文面を読む。想定した形でなければ黙って捨てずに投げる（人物像づくり（viewer-summary.ts）も使う） */
+/**
+ * OpenAI互換の形（choices[0].message.content）から文面を読む。その形でなければ null。
+ *
+ * 新しいモデル（あらすじが使う llama-3.3-70b など）は response を持たず、この形だけで返す。
+ */
+const readChoice = (result: object): string | null => {
+  if (!('choices' in result) || !Array.isArray(result.choices)) return null
+  const first: unknown = result.choices[0]
+  if (typeof first !== 'object' || first === null || !('message' in first)) return null
+  const message: unknown = first.message
+  if (typeof message !== 'object' || message === null || !('content' in message)) return null
+  return typeof message.content === 'string' ? message.content : null
+}
+
+/**
+ * Workers AI の応答から文面を読む。想定した形でなければ黙って捨てずに投げる（人物像づくり（viewer-summary.ts）も使う）。
+ *
+ * モデルによって応答の形が違う。llama-3.1-8b のような従来のモデルは response に文面を入れて返すが、
+ * llama-3.3-70b のような新しいモデルは response を持たず、OpenAI互換の choices だけで返す。
+ * 読める形を1か所にまとめ、どのモデルを選んでも呼び出し側が場合分けを持たずに済むようにする。
+ */
 export const readResponse = (result: unknown): string => {
-  if (typeof result !== 'object' || result === null || !('response' in result) || typeof result.response !== 'string') {
-    throw new Error(`LLMの応答を読めません（response の文字列がありません）: ${JSON.stringify(result)}`)
+  if (typeof result === 'object' && result !== null) {
+    if ('response' in result && typeof result.response === 'string') return result.response
+    const content = readChoice(result)
+    if (content !== null) return content
   }
-  return result.response
+  throw new Error(`LLMの応答を読めません（response も choices の文面も見つかりません）: ${JSON.stringify(result)}`)
 }
 
 /**

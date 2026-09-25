@@ -365,6 +365,22 @@ describe('あらすじの生成', () => {
     })
   })
 
+  it('文字起こしが1件も無ければ、視聴者の発言があってもあらすじを作らない', async () => {
+    const { db, store } = await 環境を作る()
+    db.sqlite
+      .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, NULL, ?, ?)')
+      .run(雑談配信.id, 雑談配信.startedAt, '月曜の雑談配信', 'Just Chatting')
+    db.sqlite
+      .prepare('INSERT INTO stream_chat_messages (message_id, session_id, user_id, sent_at, text) VALUES (?, ?, ?, ?, ?)')
+      .run('hatsugen-1', 雑談配信.id, '100', new Date(現在時刻 - 60 * 1000).toISOString(), 'たのしみ！')
+    const ai = AIの代役(全部が成功する応答)
+
+    await collectStats({ db, store, twitch: Twitchの代役(), ai, broadcasterId: 配信者のID, now: 現在時刻 })
+
+    // 視聴者の書き込みだけを材料にすると、書き込みの中身が配信で起きたこととして書かれてしまう
+    expect(await readStreamSummary(db, 雑談配信.id)).toBeNull()
+  })
+
   it('配信していなければ、あらすじを作らない', async () => {
     const { db, store } = await 環境を作る()
     const ai = AIの代役()
