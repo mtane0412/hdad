@@ -47,7 +47,7 @@ export const saveSideSuper = async (db: Database, sessionId: string, lines: Side
  * 読み出した行を、保存の形（2列）から組に直す。
  *
  * サイドスーパーは必ず見出しと本文の2行なので（worker/side-super.ts の SIDE_SUPER_LINES）、
- * 場合分けは要らない。2行に固定する前に保存された1行だけの行は
+ * 場合分けは要らない。2行に固定する前に保存された行は
  * migrations/0013_side_super_two_lines.sql が消してあるので、ここに空の本文は来ない。
  */
 const toSideSuper = (row: { line1: string; line2: string; updatedAt: string }): SideSuper => ({
