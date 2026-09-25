@@ -9,7 +9,9 @@
  * - announce: Workerがbotとしてアナウンス（色の付いた帯）を送る。botがモデレーターにされている必要がある
  * - aiChat: Workerが配信者の指示とその人の記録からLLMに文面を作らせ、botとしてチャットへ送る（worker/ai-chat.ts）
  *
- * 対応しているイベントは、Workerが購読している6種類（ALERT_EVENTS）。チャットの発言は、botを接続しているときだけ通知が届く。
+ * 対応しているイベントは8種類（ALERT_EVENTS）。うち7種類はWorkerが購読している通知で、チャットの発言は
+ * botを接続しているときだけ通知が届く。広告の終了（AD_BREAK_END）だけはTwitchから届く通知ではなく、
+ * 広告の開始の通知に入っている長さからWorkerが作る擬似イベントである（worker/ad-break-timer.ts）。
  * 条件は種類（kind）で判別する union のリストで、すべてを満たしたときだけトリガーが当てはまる（and）。
  * 条件を1件も持たないトリガーは、そのイベントが起きればいつでも当てはまる。
  * 同じ種類の条件は1トリガーに1件までにする（動作と同じ扱い。「報酬Aかつ報酬B」のような満たせない条件を作らせないため）。
@@ -27,14 +29,32 @@ import { ANNOUNCEMENT_COLORS, type AnnouncementColor } from './twitch'
 const CONFIG_KEY = 'alert-config'
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const CHAT_MESSAGE = 'channel.chat.message'
+/** 広告の開始。Twitchから届く通知（channel.ad_break.begin）に対応する */
+export const AD_BREAK_BEGIN = 'channel.ad_break.begin'
+/**
+ * 広告の終了。Twitchにこの種類の通知はなく、Workerが自前で作る擬似イベントである。
+ *
+ * 開始の通知に入っている duration_seconds から終わる時刻を出し、そのときに同じ照合へ回す
+ * （worker/ad-break-timer.ts）。購読の一覧（worker/eventsub.ts の EVENT_TYPES）には入らない。
+ */
+export const AD_BREAK_END = 'channel.ad_break.end'
 
 /** アラートを出せるイベントの種類 */
-export const ALERT_EVENTS = [REDEMPTION, 'channel.follow', 'channel.subscribe', 'channel.subscription.message', 'channel.raid', CHAT_MESSAGE] as const
+export const ALERT_EVENTS = [
+  REDEMPTION,
+  'channel.follow',
+  'channel.subscribe',
+  'channel.subscription.message',
+  'channel.raid',
+  CHAT_MESSAGE,
+  AD_BREAK_BEGIN,
+  AD_BREAK_END,
+] as const
 
 export type AlertEvent = (typeof ALERT_EVENTS)[number]
 
 /** 条件の種類。同じ種類は1トリガーに1件まで */
-export const CONDITION_KINDS = ['reward', 'user', 'text', 'firstChatOfStream', 'firstChatEver', 'returningAfter'] as const
+export const CONDITION_KINDS = ['reward', 'user', 'text', 'firstChatOfStream', 'firstChatEver', 'returningAfter', 'automatic'] as const
 
 export type ConditionKind = (typeof CONDITION_KINDS)[number]
 
@@ -125,6 +145,9 @@ export type StoredAction = StoredAlertAction | StoredChatAction | StoredAnnounce
  *   （判定は worker/viewer-store.ts の readChatHistory）
  * - returningAfter: 最後の発言から days 日以上空いていること。チャットの発言にしか付けられない。
  *   初めての発言では当てはまらない（空いた日数が決まらないため）
+ * - automatic: 自動で入った広告か（true）、配信者が手動で打った広告か（false）。広告の開始・終了にしか付けられない。
+ *   Twitchの通知の is_automatic をそのまま見る。手動で打った広告は配信者が自分で告知できるので、
+ *   告知を自動広告だけに絞れるようにするための条件である
  */
 export type StoredCondition =
   | { kind: 'reward'; rewardId: string }
@@ -133,6 +156,7 @@ export type StoredCondition =
   | { kind: 'firstChatOfStream' }
   | { kind: 'firstChatEver' }
   | { kind: 'returningAfter'; days: number }
+  | { kind: 'automatic'; automatic: boolean }
 
 /** 保存するトリガー。条件はすべてを満たしたときだけ当てはまる（and） */
 export type StoredTrigger = { event: AlertEvent; conditions: StoredCondition[]; actions: StoredAction[] }
@@ -260,6 +284,19 @@ const parseCondition = (candidate: unknown, at: string, event: AlertEvent | null
         return null
       }
       return { kind, days }
+    }
+    case 'automatic': {
+      // 自動か手動かを持つのは広告の通知だけなので、ほかのイベントに付いていたら拒否する（reward と同じ扱い）
+      if (event !== null && event !== AD_BREAK_BEGIN && event !== AD_BREAK_END) {
+        problems.push(`${at}: automatic の条件は広告の開始・終了にしか付けられません`)
+        return null
+      }
+      const { automatic } = candidate
+      if (typeof automatic !== 'boolean') {
+        problems.push(`${at}.automatic: true（自動で入った広告）か false（手動で打った広告）で指定してください`)
+        return null
+      }
+      return { kind, automatic }
     }
   }
 }

@@ -104,6 +104,20 @@ describe('buildPrompt', () => {
     expect(prompt).toContain('フォロー')
   })
 
+  it('広告のイベントでは、広告の長さと自動で入ったかどうかを材料に書く', () => {
+    const prompt = buildPrompt({
+      instruction: '広告が始まったことを伝えてください',
+      extracted: { event: 'channel.ad_break.begin', userName: 'たねのぶ', userLogin: 'tanenobu', durationSeconds: 180, automatic: true },
+      viewer: null,
+      state: { firstChatOfStream: false, firstChatEver: false, daysSinceLastChat: null },
+      streamSummary: null,
+    })
+
+    expect(prompt).toContain('広告の開始')
+    expect(prompt).toContain('180')
+    expect(prompt).toContain('自動で入った広告')
+  })
+
   it('Twitchの上限（500文字）に収めるよう指示する', () => {
     const prompt = buildPrompt({ instruction: '一言返してください', extracted: 発言のイベント, viewer: 記録, state: 常連の来訪, streamSummary: null })
 

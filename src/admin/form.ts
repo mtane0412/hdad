@@ -26,6 +26,8 @@ import {
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const CHAT_MESSAGE = 'channel.chat.message'
+const AD_BREAK_BEGIN = 'channel.ad_break.begin'
+const AD_BREAK_END = 'channel.ad_break.end'
 const ALERTS_PATH = '/alerts/'
 const PERCENT = 100
 const BYTES_PER_UNIT = 1024
@@ -62,6 +64,7 @@ const CONDITION_LABELS: Readonly<Record<ConditionKind, string>> = {
   text: '文面に含む言葉',
   firstChatOfStream: 'その配信で初めての発言',
   firstChatEver: 'このチャンネルで初めての発言',
+  automatic: '自動で入った広告か',
   returningAfter: '前の発言から空いた日数',
 }
 
@@ -130,6 +133,8 @@ const EVENT_LABELS: Readonly<Record<AlertEvent, string>> = {
   'channel.subscription.message': 'サブスク（継続メッセージ）',
   'channel.raid': 'レイド',
   [CHAT_MESSAGE]: 'チャットの発言',
+  [AD_BREAK_BEGIN]: '広告の開始',
+  [AD_BREAK_END]: '広告の終了',
 }
 
 /**
@@ -148,6 +153,9 @@ const EVENT_PLACEHOLDERS: Readonly<Record<AlertEvent, readonly string[]>> = {
   'channel.subscription.message': ['{user}', '{tier}', '{months}', ...COMMON_PLACEHOLDERS],
   'channel.raid': ['{user}', '{viewers}', ...COMMON_PLACEHOLDERS],
   [CHAT_MESSAGE]: ['{user}', '{message}', ...COMMON_PLACEHOLDERS],
+  // {duration} は広告の長さ（秒）。{user} は広告を打った人で、自動で入った広告では配信者自身になる
+  [AD_BREAK_BEGIN]: ['{user}', '{duration}', ...COMMON_PLACEHOLDERS],
+  [AD_BREAK_END]: ['{user}', '{duration}', ...COMMON_PLACEHOLDERS],
 }
 
 /** イベント種別の選択肢 */
@@ -225,6 +233,8 @@ const isConditionKindFor = (kind: ConditionKind, event: AlertEvent): boolean => 
     case 'firstChatEver':
     case 'returningAfter':
       return event === CHAT_MESSAGE
+    case 'automatic':
+      return event === AD_BREAK_BEGIN || event === AD_BREAK_END
     case 'user':
       return true
   }
@@ -263,6 +273,9 @@ export const createCondition = (kind: ConditionKind, rewards: readonly Reward[])
       return { kind }
     case 'returningAfter':
       return { kind, days: String(DEFAULT_RETURNING_DAYS) }
+    // 手で打った広告は配信者が自分で告知できるので、告知したいのはふつう自動で入った広告のほうである
+    case 'automatic':
+      return { kind, automatic: true }
   }
 }
 
@@ -352,6 +365,9 @@ const conditionSummary = (condition: ConditionDraft, rewards: readonly Reward[])
     // 日数は言葉を添えないと「30日」が間隔なのか回数なのか読み取れないので、条件の意味ごと書く
     case 'returningAfter':
       return `前の発言から${condition.days}日以上空いている`
+    // 真偽値そのままでは「自動: true」と読めてしまうので、どちらの広告かを言葉で書く
+    case 'automatic':
+      return condition.automatic ? '自動で入った広告' : '配信者が手動で打った広告'
   }
 }
 

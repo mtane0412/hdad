@@ -67,6 +67,8 @@ const EVENT_LABELS: Readonly<Record<Extracted['event'], string>> = {
   'channel.subscription.message': 'サブスクライブの継続',
   'channel.raid': 'レイド',
   'channel.chat.message': 'チャットの発言',
+  'channel.ad_break.begin': '広告の開始',
+  'channel.ad_break.end': '広告の終了',
 }
 
 /** イベントごとに、文面の手がかりになる中身を並べる */
@@ -84,6 +86,10 @@ const eventDetails = (extracted: Extracted): string[] => {
       return [`その人の発言: ${extracted.text}`]
     case 'channel.follow':
       return []
+    // 自動で入った広告か配信者が手動で打った広告かで、視聴者への言い方が変わるので両方を渡す
+    case 'channel.ad_break.begin':
+    case 'channel.ad_break.end':
+      return [`広告の長さ: ${extracted.durationSeconds}秒`, extracted.automatic ? '自動で入った広告です' : '配信者が手動で打った広告です']
   }
 }
 

@@ -59,6 +59,8 @@ import { errorMessage, usePageActions } from './page-actions'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const CHAT_MESSAGE = 'channel.chat.message'
+const AD_BREAK_BEGIN = 'channel.ad_break.begin'
+const AD_BREAK_END = 'channel.ad_break.end'
 /** 文言欄の入力例。イベント種別ごとに、使える差し込み語だけを使った例を出す */
 const MESSAGE_PLACEHOLDERS: Readonly<Record<AlertEvent, string>> = {
   [REDEMPTION]: '{user} さんが「{reward}」を交換しました',
@@ -67,6 +69,8 @@ const MESSAGE_PLACEHOLDERS: Readonly<Record<AlertEvent, string>> = {
   'channel.subscription.message': '{user} さんが{months}か月目のサブスク（ティア{tier}）',
   'channel.raid': '{user} さんが{viewers}人でレイドしました',
   [CHAT_MESSAGE]: '{user} さんが「{message}」と言いました',
+  [AD_BREAK_BEGIN]: 'ここで{duration}秒の広告が入ります',
+  [AD_BREAK_END]: '広告が終わりました。おかえりなさい',
 }
 const MIN_DURATION_SECONDS = 1
 const MAX_DURATION_SECONDS = 60
@@ -103,6 +107,17 @@ const Select = ({ id, options, value, onChange }: { id: string; options: readonl
     ))}
   </NativeSelect>
 )
+
+/**
+ * 自動で入った広告かどうかの選択肢。
+ *
+ * 選択欄の値は文字列しか持てないので、真偽値との行き来はここで行う（'true' / 'false'）。
+ * 配信者が手で打った広告は自分で告知できるので、告知したいのはふつう自動で入った広告のほうである。
+ */
+const AUTOMATIC_OPTIONS: readonly SelectOption[] = [
+  { value: 'true', label: '自動で入った広告' },
+  { value: 'false', label: '配信者が手動で打った広告' },
+]
 
 /** 入れる値を持たない条件の種類（「初めての発言であること」以外に指定するものがない） */
 const NO_INPUT_KINDS: readonly ConditionKind[] = ['firstChatOfStream', 'firstChatEver']
@@ -198,6 +213,15 @@ const ConditionFields = ({ idPrefix, conditions, rewards, addable, onChange, onA
                   value={condition.contains}
                   placeholder="おはよう"
                   onChange={(event) => onChange(index, { kind: 'text', contains: event.currentTarget.value })}
+                />
+              )}
+              {/* 自動広告か手動広告かは二択なので選択欄にする（選択欄の値は文字列なので真偽値へ読み替える） */}
+              {condition.kind === 'automatic' && (
+                <Select
+                  id={`${idPrefix}-automatic`}
+                  options={AUTOMATIC_OPTIONS}
+                  value={String(condition.automatic)}
+                  onChange={(value) => onChange(index, { kind: 'automatic', automatic: value === 'true' })}
                 />
               )}
             </div>

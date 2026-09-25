@@ -10,7 +10,7 @@ import { BOT_SCOPES, EVENT_TYPES, REQUIRED_SCOPES } from './eventsub'
 const 条件を作る = (type: string): Record<string, string> | undefined => EVENT_TYPES.find((eventType) => eventType.type === type)?.condition('12345')
 
 describe('EVENT_TYPES', () => {
-  it('チャンネルポイント交換・フォロー・サブスク・レイド・チャットの発言を受け取る', () => {
+  it('チャンネルポイント交換・フォロー・サブスク・レイド・チャットの発言・広告の開始を受け取る', () => {
     expect(EVENT_TYPES.map((eventType) => eventType.type)).toEqual([
       'channel.channel_points_custom_reward_redemption.add',
       'channel.follow',
@@ -18,7 +18,12 @@ describe('EVENT_TYPES', () => {
       'channel.subscription.message',
       'channel.raid',
       'channel.chat.message',
+      'channel.ad_break.begin',
     ])
+  })
+
+  it('広告の開始は、配信者のチャンネルを指定する（終了はTwitchから届かないので購読しない）', () => {
+    expect(条件を作る('channel.ad_break.begin')).toEqual({ broadcaster_user_id: '12345' })
   })
 
   it('フォローはバージョン2で、モデレーターとして配信者自身を指定する', () => {
@@ -53,6 +58,10 @@ describe('REQUIRED_SCOPES / BOT_SCOPES', () => {
 
   it('配信者には moderation:read も要求する（botがモデレーターかどうかを確かめるため）', () => {
     expect(REQUIRED_SCOPES).toContain('moderation:read')
+  })
+
+  it('配信者には channel:read:ads も要求する（広告の開始を受け取るため）', () => {
+    expect(REQUIRED_SCOPES).toContain('channel:read:ads')
   })
 
   it('配信者に要求するスコープに重複がない', () => {

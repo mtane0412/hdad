@@ -41,6 +41,9 @@ export const EVENT_TYPES: readonly EventType[] = [
     scope: 'user:read:chat',
     condition: (broadcasterId) => ({ broadcaster_user_id: broadcasterId, user_id: broadcasterId }),
   },
+  // 広告の開始。終了に相当する通知はTwitchにないので、開始の duration_seconds から自前で計る
+  // （worker/ad-break-timer.ts が時刻を持ち、擬似イベント channel.ad_break.end として照合へ回す）
+  { type: 'channel.ad_break.begin', version: '1', scope: 'channel:read:ads', condition: byBroadcaster },
 ]
 
 /**

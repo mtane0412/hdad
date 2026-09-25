@@ -33,7 +33,17 @@
   // トリガーの動作 aiChat がチャットの文面を作らせるLLM（Workers AI）。押した人が用意するものはないので、
   // Deploy to Cloudflare ボタンの入力欄には出ない（Durable Object と同じ扱い）。
   "ai": { "binding": "AI" },
-  "durable_objects": { "bindings": [{ "name": "ALERTS", "class_name": "AlertChannel" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["AlertChannel"] }],
+  // ALERTS はオーバーレイへアラートを配る接続の保持、AD_BREAKS は広告の終了の時刻を預かるタイマー
+  // （Workerは接続もタイマーも持てない）。どちらも押した人が用意するものはないので入力欄には出ない
+  "durable_objects": {
+    "bindings": [
+      { "name": "ALERTS", "class_name": "AlertChannel" },
+      { "name": "AD_BREAKS", "class_name": "AdBreakTimer" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["AlertChannel"] },
+    { "tag": "v2", "new_sqlite_classes": ["AdBreakTimer"] }
+  ],
   "triggers": { "crons": ["*/5 * * * *"] }
 }

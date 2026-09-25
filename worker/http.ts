@@ -5,6 +5,7 @@
  * そして「誰からのリクエストか」の確認（配信者のセッション・オーバーレイ用キー・送信元のサイト）をまとめる。
  */
 import type { TextGenerator } from './ai-chat'
+import type { AdBreakTimerNamespace } from './ad-break-timer'
 import type { AlertChannelNamespace } from './alert-channel'
 import type { Database } from './database'
 import type { MediaBucket } from './media-bucket'
@@ -23,6 +24,13 @@ export interface Env {
   DB: Database
   /** オーバーレイへアラートを配る Durable Object。Workerは接続を保持できないため、配送だけをここに任せる */
   ALERTS: AlertChannelNamespace
+  /**
+   * 広告の終了の時刻を預かる Durable Object。
+   *
+   * Twitchは広告の開始しか知らせてこないので、終わる時刻に起こしてもらうタイマーとして使う
+   * （Workerはタイマーを持てない。worker/ad-break-timer.ts）。
+   */
+  AD_BREAKS: AdBreakTimerNamespace
   /** チャットの文面と視聴者の人物像を作らせるLLM（Workers AI）。トリガーの動作 aiChat と、cron の人物像づくりが使う */
   AI: TextGenerator
   TWITCH_CLIENT_ID: string

@@ -8,6 +8,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { createFakeBucket } from './fake-bucket'
+import { createFakeAdBreakTimer } from './fake-ad-break-timer'
 import { createFakeDatabase } from './fake-database'
 import { createFakeAi } from './fake-ai'
 import { createFakeAlertChannel } from './fake-alert-channel'
@@ -37,6 +38,7 @@ const 環境を作る = () => {
     SESSION_SECRET: 'テスト用のセッション秘密鍵',
     EVENTSUB_SECRET: 'テスト用のWebhookシークレット',
     ALERTS: 配送.namespace,
+    AD_BREAKS: createFakeAdBreakTimer().namespace,
     AI: createFakeAi(),
   } satisfies Env
   return { env, store, bucket, 配送 }

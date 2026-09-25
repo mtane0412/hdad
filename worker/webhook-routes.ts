@@ -7,25 +7,21 @@
  *
  * 注意: 2xx 以外を返すとTwitchは再送し、失敗が続くと購読を失効させる。想定しない通知を黙って捨てず、失敗として返す（Fail-Fast）。
  */
-import { loadAlertConfig, type AlertConfig, type StoredAnnounceAction } from './alert-config'
-import { pushAlert } from './alert-channel'
-import { generateChatMessage } from './ai-chat'
-import { aiChatFor, alertFor, announcementFor, chatMessageFor, hasAlertAction, requiresStreamSummary } from './alert-event'
-import { resolveConditionState } from './alert-state'
-import type { ConditionState } from './alert-event'
-import { announceAsBot, sendAsBot } from './bot-chat'
+import { scheduleAdBreakEnd } from './ad-break-timer'
+import { runAlertActions } from './alert-actions'
+import { AD_BREAK_END, loadAlertConfig } from './alert-config'
+import { sendAsBot } from './bot-chat'
 import { applyReply, findCommand, needsStreamSummary, readChatMessage, type ChatMessage } from './chat-command'
 import { loadBotConfig } from './bot-config'
 import { punishAsBot } from './bot-moderation'
 import { judge, repeatRuleOf } from './chat-moderation'
 import { recordStreamChatMessage } from './stream-chat-store'
 import { readCurrentStreamSummary } from './stream-summary-store'
-import { readViewer, recordViewerMessage } from './viewer-store'
+import { recordViewerMessage } from './viewer-store'
 import { loadModerationConfig } from './moderation-config'
 import { consumeCooldown, recordAndCountRecentMessage, reserveChatReply } from './chat-store'
-import { CHAT_MESSAGE, COUNTED_EVENT_TYPES, STREAM_OFFLINE, STREAM_ONLINE, UNCOUNTED_EVENT_TYPES, verifyWebhookSignature } from './eventsub-webhook'
+import { AD_BREAK_BEGIN, CHAT_MESSAGE, COUNTED_EVENT_TYPES, STREAM_OFFLINE, STREAM_ONLINE, UNCOUNTED_EVENT_TYPES, verifyWebhookSignature } from './eventsub-webhook'
 import { HttpError, STATUS, type Context } from './http'
-import { loadOverlayKey } from './overlay-key'
 import { recordEvent, recordFailure, recordStreamOffline, recordStreamOnline } from './stats-store'
 import { loadToken } from './token'
 
@@ -40,6 +36,9 @@ const HEADER = {
 
 /** これより古い通知は受け付けない（ミリ秒）。盗み見た通知の使い回しへの備えで、Twitchの案内どおり10分 */
 const MAX_MESSAGE_AGE_MS = 10 * 60 * 1000
+
+/** 秒で届く値（広告の長さ）をミリ秒に直すための倍率 */
+const MILLISECONDS_PER_SECOND = 1000
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
 
@@ -219,200 +218,37 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
 }
 
 /**
- * アラートのトリガーに当てはまる通知なら、その動作を実行する。
+ * 広告の開始の通知から「広告が終わる時刻」を読み、終了のトリガーがあればタイマーへ預ける。
  *
- * 素材の再生（alert）はオーバーレイ（OBSのブラウザソース）が受け持つので、当てはまったアラートを
- * 配送先（Durable Object）へ押し出す。チャットとアナウンスの送信はWorkerがbotとして行うので、
- * botが接続されているときだけ送る。オーバーレイを開いていなくてもチャットを送れるのはこのためである。
+ * Twitchには広告の終了に相当する通知がないため、終わる時刻は開始の通知（started_at と duration_seconds）から
+ * 自前で出す。預け先は Durable Object で、時刻が来るとアラームで起きて擬似イベントとして照合へ回す
+ * （worker/ad-break-timer.ts）。
  *
- * 注意: 送ると決めたあとの失敗は、コマンドへの応答と同じく2xxのまま記録に残す
- * （2xx以外だとTwitchが同じ通知を再送し、送信が成功していた場合に二重投稿になる）。
+ * 終了のトリガーが1件もなければ預けない。鳴らす先がないタイマーで Durable Object を起こさないためである
+ * （アラートを出す動作があるときだけオーバーレイ用キーを読むのと同じ考え方）。
  *
- * 注意: チャットとアナウンスを続けて送るが、この2回でTwitchのレート制限には当たらない。
- * チャット送信（POST /helix/chat/messages）の「1チャンネルにつき1秒1通」は送り主が配信者・モデレーター・VIPでない場合の制限で、
- * アナウンスを送れるbotは必ずそのチャンネルのモデレーターなので当てはまらない（モデレーターの枠は30秒100通）。
- * アナウンス（POST /helix/chat/announcements）の「2秒に1回」はこのエンドポイント自身の制限で、チャット送信とは枠を共有しない。
- * そのためこの2回の間で間隔を空ける必要はない。一方、別々の通知が2秒以内に続き、そのどちらもアナウンスを送る場合は
- * 2通目が429になり得るので、announceAsBot（bot-chat.ts）が送信枠を確保して間隔を空ける。
- * 詰まって待ちきれないときは送らずに投げ、下の sendAndRecordFailure が失敗として記録する。
+ * 注意: 預けるのに失敗しても、Twitchへは2xxを返して収集の失敗として記録する。2xx以外だとTwitchが同じ通知を再送し、
+ * 開始の告知が二度送られてしまう（終了の告知が1回出ないことより悪い）。
  *
- * @param messageId 通知のメッセージID。再送で二度送らないための鍵に使う
- * @param botConnected botが接続されているかを調べる。判定を関数で渡すのは、送る動作が1件もないときに
- *   トークンを読まずに済ませるため（チャットの発言では1通ごとにここを通るので、余分なKVの読み出しを増やさない）
- * @param chatMessage 通知がチャットの発言なら、読み取った発言。ほかのイベントなら null
- *   （状態を持つ条件の判定に要る。同じ通知を2か所で読み解かないよう、読み取り済みのものを受け取る）
- * @throws HttpError イベントの中身が想定と違う場合（400。黙って捨てない）
+ * @throws HttpError 通知の中身に started_at・duration_seconds が揃っていない場合（400。黙って捨てない）
  */
-const runAlertActions = async (
-  context: Context,
-  subscriptionType: string,
-  body: Record<string, unknown>,
-  messageId: string,
-  botConnected: () => Promise<boolean>,
-  chatMessage: ChatMessage | null,
-): Promise<void> => {
+const scheduleAdBreakEndIfNeeded = async (context: Context, body: Record<string, unknown>, messageId: string): Promise<void> => {
   const { env, now } = context
-
   const config = await loadAlertConfig(env.STORE)
-  // 通知の中身だけでは決まらない条件（初めての発言か・前の発言から空いた日数）は、照合の前にデータベースを見て決める
-  const state = await resolveConditionState(env.DB, config, chatMessage, now)
-  // あらすじ（{summary}）も通知の中身では決まらないので、差し込む文言を持つトリガーがあるときだけ先に読む。
-  // 読むのはここ1回だけで、チャット・アナウンス・アラートの差し込みで使い回す（コマンドの応答と同じく、ここでLLMは呼ばない）
-  const summary = requiresStreamSummary(config, subscriptionType) ? ((await readCurrentStreamSummary(env.DB, now))?.summary ?? null) : null
-  // 中身の形が違えば「不正な通知」として400で返す（Workerの不具合を表す500と区別する）
-  const [message, announcement] = ((): [string | null, StoredAnnounceAction | null] => {
-    try {
-      return [
-        chatMessageFor(config, subscriptionType, body.event, state, summary),
-        announcementFor(config, subscriptionType, body.event, state, summary),
-      ]
-    } catch (error) {
-      throw invalid(error instanceof Error ? error.message : String(error))
-    }
-  })()
-  const aiChat = ((): ReturnType<typeof aiChatFor> => {
-    try {
-      return aiChatFor(config, subscriptionType, body.event, state)
-    } catch (error) {
-      throw invalid(error instanceof Error ? error.message : String(error))
-    }
-  })()
-  // 素材の再生はbotと関わりなく行う（botを接続していなくてもアラートは鳴る）
-  await pushMatchedAlert(context, config, subscriptionType, body, messageId, state, summary)
+  if (!config.triggers.some((trigger) => trigger.event === AD_BREAK_END)) return
 
-  if (message === null && announcement === null && aiChat === null) return
-
-  // botを切断していれば送る先がない。受け取り自体は成功として返す
-  if (!(await botConnected())) return
-
-  if (message !== null) await sendAndRecordFailure(context, messageId, 'chat', 'alert-chat-failed', () => sendAsBot(context, message))
-  if (announcement !== null) {
-    await sendAndRecordFailure(context, messageId, 'announce', 'alert-announce-failed', () => announceAsBot(context, announcement))
+  const { event } = body
+  if (!isRecord(event)) throw invalid('広告の開始の通知に event がありません')
+  const startedAt = typeof event.started_at === 'string' ? Date.parse(event.started_at) : Number.NaN
+  const durationSeconds = event.duration_seconds
+  if (Number.isNaN(startedAt) || typeof durationSeconds !== 'number') {
+    throw invalid('広告の開始の通知に started_at・duration_seconds が揃っていません')
   }
-  if (aiChat !== null) {
-    // LLMの応答を待つとTwitchへの2xxが遅れ、同じ通知を再送されてしまう。応答を返してから続きを走らせる
-    context.waitUntil(
-      recordLateFailure(context, 'alert-aichat-failed', () =>
-        sendAndRecordFailure(context, messageId, 'aiChat', 'alert-aichat-failed', () => sendAiChat(context, aiChat, state, chatMessage, summary)),
-      ),
-    )
-  }
-}
-
-/**
- * LLMに文面を作らせて、botとしてチャットへ送る。
- *
- * 材料はイベントの中身（alert-event.ts が読み取り済み）と、その人の記録（viewers）と、
- * いま進んでいる配信のあらすじである。記録は「この動作が当てはまったとき」にだけ読むので、発言のたびの読み出しにはならない。
- * あらすじは呼び出し側が読んだものを受け取る（固定文言の差し込みと同じ1回の読み出しを使い回す）。
- *
- * 注意: 記録を引く鍵はTwitchのユーザーIDで、それが手元にあるのはチャットの発言の通知だけである
- * （viewers はチャットで発言した人だけを貯めているため、そもそもフォローやレイドの相手には記録がないことが多い）。
- * ほかのイベントでは記録なしとして、指示とイベントの中身だけから文面を作らせる。
- *
- * 注意: 失敗（LLMの失敗・無料枠切れ・500文字超過）は投げたままにして、呼び出し側が記録する。
- * 黙って固定文言に落とすようなことはしない（配信者が気づけなくなるため）。
- */
-const sendAiChat = async (
-  context: Context,
-  aiChat: NonNullable<ReturnType<typeof aiChatFor>>,
-  state: ConditionState,
-  chatMessage: ChatMessage | null,
-  streamSummary: string | null,
-): Promise<void> => {
-  const { env } = context
-  const viewer = chatMessage === null ? null : await readViewer(env.DB, chatMessage.chatterUserId)
-  const message = await generateChatMessage(env.AI, { instruction: aiChat.instruction, extracted: aiChat.extracted, viewer, state, streamSummary })
-  await sendAsBot(context, message)
-}
-
-/**
- * 当てはまるアラートがあれば、配送先（Durable Object）へ押し出す。
- *
- * 素材のURLにはオーバーレイ用キーが要るので、アラートを出す動作を持つトリガーがあるときだけキーを読む
- * （チャットの発言は件数の桁が違うため、1通ごとに余分なKVの読み出しを増やさない）。
- *
- * 注意: 押し出しの失敗は、チャットの送信と同じく2xxのまま記録に残す。2xx以外だとTwitchが同じ通知を再送し、
- * 押し出しが成功していた場合に同じアラートが二度鳴る。
- *
- * @param summary 画面に出す文言に差し込む配信のあらすじ。呼び出し側が読んだものを受け取る
- *   （チャット・アナウンスと同じ値を使い回し、同じ通知でデータベースを二度読まない）
- */
-const pushMatchedAlert = async (
-  context: Context,
-  config: AlertConfig,
-  subscriptionType: string,
-  body: Record<string, unknown>,
-  messageId: string,
-  state: ConditionState,
-  summary: string | null,
-): Promise<void> => {
-  const { env, now } = context
-  if (!hasAlertAction(config, subscriptionType)) return
-
-  const overlayKey = await loadOverlayKey(env.STORE)
-  if (overlayKey === null) {
-    await recordFailure(env.DB, 'alert-push-failed', 'オーバーレイ用キーが未発行のため、素材のURLを作れません。管理画面にログインしてください', now)
-    return
-  }
-
-  // 中身の形が違えば「不正な通知」として400で返す（Workerの不具合を表す500と区別する）
-  const alert = ((): ReturnType<typeof alertFor> => {
-    try {
-      return alertFor(config, subscriptionType, body.event, overlayKey, state, summary)
-    } catch (error) {
-      throw invalid(error instanceof Error ? error.message : String(error))
-    }
-  })()
-  if (alert === null) return
-
-  await sendAndRecordFailure(context, messageId, 'alert', 'alert-push-failed', () => pushAlert(env.ALERTS, alert))
-}
-
-/**
- * 鍵を確保してから送り、失敗は記録に残す（通知の受け取り自体は成功として返す）。
- *
- * 鍵の確保を送信より先に行うのは、Twitchの再送で同じお礼を二度送らないため。
- * 鍵に動作の種類を混ぜるのは、同じ通知でチャットとアナウンスの両方を送るときに、片方が鍵を取って
- * もう片方が送れなくなるのを防ぐため。
- */
-/**
- * Twitchへ応答を返したあとに走らせる処理から、失敗を取りこぼさないようにする。
- *
- * ほかの動作は送信を待ってから応答を返すので、鍵の確保のような送信の手前での失敗は例外として上がり、
- * 5xxを受けたTwitchが同じ通知を再送してくれる（鍵があるので二重送信にはならない）。
- * 応答のあとに走らせる処理ではその手が使えず、投げたままでは誰も受け取らないまま消えてしまうので、
- * ここで受け止めて記録まで引き受ける。
- *
- * 注意: 記録そのものが失敗したら（データベースに触れないときなど）、もう打つ手がないのでログに残すだけにする。
- */
-const recordLateFailure = async (context: Context, failureCode: string, run: () => Promise<void>): Promise<void> => {
-  const { env, now } = context
-  try {
-    await run()
-  } catch (error) {
-    try {
-      await recordFailure(env.DB, failureCode, error instanceof Error ? error.message : String(error), now)
-    } catch (failure) {
-      console.error(failure)
-    }
-  }
-}
-
-const sendAndRecordFailure = async (
-  context: Context,
-  messageId: string,
-  actionType: 'chat' | 'announce' | 'alert' | 'aiChat',
-  failureCode: string,
-  send: () => Promise<void>,
-): Promise<void> => {
-  const { env, now } = context
-  if (!(await reserveChatReply(env.DB, `${messageId}:${actionType}`, now))) return
 
   try {
-    await send()
+    await scheduleAdBreakEnd(env.AD_BREAKS, { event, messageId, endsAt: startedAt + durationSeconds * MILLISECONDS_PER_SECOND })
   } catch (error) {
-    await recordFailure(env.DB, failureCode, error instanceof Error ? error.message : String(error), now)
+    await recordFailure(env.DB, 'ad-break-end-schedule-failed', error instanceof Error ? error.message : String(error), now)
   }
 }
 
@@ -448,6 +284,8 @@ export const eventsubWebhook = async (context: Context): Promise<Response> => {
       else {
         await recordNotification({ db: env.DB, messageId, occurredAt, body })
         await runAlertActions(context, type, body, messageId, async () => (await loadToken(env.STORE, 'bot')) !== null, null)
+        // 広告は開始しか届かないので、終了の告知に使う時刻をここで預ける（開始の告知そのものは上で済んでいる）
+        if (type === AD_BREAK_BEGIN) await scheduleAdBreakEndIfNeeded(context, body, messageId)
       }
       return new Response(null, { status: STATUS.noContent })
     }
