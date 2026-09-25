@@ -54,27 +54,6 @@ describe('send', () => {
   })
 })
 
-describe('remove', () => {
-  it('オーバーレイ用キー付きの経路へ、取り消すメッセージIDを送る', async () => {
-    const { 呼び出し, fetchImpl } = 応答を返すfetch(204, null)
-
-    await createTranscriptApi(fetchImpl, オーバーレイ用キー).remove('言い間違い')
-
-    expect(呼び出し).toEqual([
-      {
-        path: `/api/overlay/transcript/${encodeURIComponent('言い間違い')}?key=${encodeURIComponent(オーバーレイ用キー)}`,
-        method: 'DELETE',
-        body: '',
-      },
-    ])
-  })
-
-  it('Workerが失敗を返したらエラーにする', async () => {
-    const { fetchImpl } = 応答を返すfetch(401, { error: { code: 'invalid-overlay-key', message: 'オーバーレイ用キーが正しくありません' } })
-    await expect(createTranscriptApi(fetchImpl, オーバーレイ用キー).remove('言い間違い')).rejects.toThrow(ApiError)
-  })
-})
-
 describe('isRetryable', () => {
   it('通信そのものの失敗はやり直す', () => {
     expect(isRetryable(new TypeError('Failed to fetch'))).toBe(true)

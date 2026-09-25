@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createFakeDatabase } from './fake-database'
-import { deleteOldTranscripts, deleteTranscript, readRecentTranscripts, readTranscriptsSince, recordTranscript } from './transcript-store'
+import { deleteOldTranscripts, readRecentTranscripts, readTranscriptsSince, recordTranscript } from './transcript-store'
 
 const 配信開始 = Date.parse('2026-09-23T20:00:00.000Z')
 const 発話時刻 = Date.parse('2026-09-23T20:05:00.000Z')
@@ -63,20 +63,6 @@ describe('recordTranscript', () => {
 
     expect(行を数える()).toBe(1)
     expect(db.sqlite.prepare('SELECT spoken_at FROM transcripts').all()).toEqual([{ spoken_at: '2026-09-23T20:05:00.000Z' }])
-  })
-})
-
-describe('deleteTranscript', () => {
-  it('記録済みの発話を取り消す', async () => {
-    配信を始める('配信1')
-    await recordTranscript(db, { messageId: '言い間違い', text: 'えーと' }, 発話時刻)
-
-    expect(await deleteTranscript(db, '言い間違い')).toBe(true)
-    expect(行を数える()).toBe(0)
-  })
-
-  it('記録の無い発話の取り消しは、消したと答えない', async () => {
-    expect(await deleteTranscript(db, '知らない発話')).toBe(false)
   })
 })
 

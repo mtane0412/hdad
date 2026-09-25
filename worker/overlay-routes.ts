@@ -7,7 +7,7 @@ import { connectAlertSocket } from './alert-channel'
 import { HttpError, STATUS, hasSession, requireOverlayKey, type Context } from './http'
 import { kindOfContentType } from './media'
 import { readCurrentSideSuper } from './side-super-store'
-import { deleteTranscript, recordTranscript } from './transcript-store'
+import { recordTranscript } from './transcript-store'
 
 /**
  * GET /api/overlay/socket?key=: オーバーレイからのWebSocketの接続を受け、配送先（Durable Object）へ引き渡す。
@@ -101,20 +101,6 @@ export const postTranscript = async (context: Context): Promise<Response> => {
 
   const recorded = await recordTranscript(env.DB, { messageId, text: spoken }, now)
   return Response.json({ recorded })
-}
-
-/**
- * DELETE /api/overlay/transcript/:messageId: 記録済みの発話を取り消す。
- *
- * ゆかコネNEO は、いったん確定した発話をあとから取り消すことがある（isDeleted）。
- *
- * 注意: 記録の無い発話でも204を返す。取り消しは何度届いても同じ結果になるようにしておくと、
- * 中継ページが送り直しても失敗として扱わずに済む。
- */
-export const deleteTranscriptRoute = async (context: Context): Promise<Response> => {
-  await requireOverlayKey(context)
-  await deleteTranscript(context.env.DB, context.params.messageId ?? '')
-  return new Response(null, { status: STATUS.noContent })
 }
 
 /**

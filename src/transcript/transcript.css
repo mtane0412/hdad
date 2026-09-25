@@ -75,9 +75,3 @@
 .transcript-line[data-state='failed'] .transcript-mark {
   color: #ffb4b4;
 }
-
-/* 取り消された発話は画面からは消さずに残す。何が取り消されたかを確認できるようにするため */
-.transcript-line[data-state='deleted'] {
-  color: #8b93a3;
-  text-decoration: line-through;
-}

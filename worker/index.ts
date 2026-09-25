@@ -57,7 +57,7 @@ import { ConfigError } from './alert-config'
 import { CALLBACK_PATH, callback, login, logout, me } from './auth-routes'
 import { collectStats } from './collect'
 import { HttpError, STATUS, errorResponse, type Context, type Env } from './http'
-import { deleteTranscriptRoute, getSideSuper, media, overlaySocket, postTranscript } from './overlay-routes'
+import { getSideSuper, media, overlaySocket, postTranscript } from './overlay-routes'
 import { getStatsFailures, getStatsFollowers, getStatsSession, getStatsSessions } from './stats-routes'
 import { AuthError } from './token'
 import { WEBHOOK_PATH, eventsubWebhook } from './webhook-routes'
@@ -126,7 +126,6 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/chat/cheermotes', handle: chatCheermotes },
   { method: 'GET', path: '/api/overlay/socket', handle: overlaySocket },
   { method: 'POST', path: '/api/overlay/transcript', handle: postTranscript },
-  { method: 'DELETE', path: '/api/overlay/transcript/:messageId', handle: deleteTranscriptRoute },
   { method: 'GET', path: '/api/overlay/side-super', handle: getSideSuper },
   { method: 'GET', path: '/api/media/:id', handle: media },
 ]
