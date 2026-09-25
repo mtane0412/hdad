@@ -21,8 +21,6 @@ export type LineState =
   | 'discarded'
   /** 送信に失敗した（ゆかコネNEO が同じ1件を押し出し直せばやり直される） */
   | 'failed'
-  /** ゆかコネNEO があとから取り消した */
-  | 'deleted'
 
 export interface TranscriptView {
   /** 接続の状態を書き換える */
@@ -41,7 +39,6 @@ const STATE_MARKS: Readonly<Record<LineState, string>> = {
   recorded: '✓',
   discarded: '配信外',
   failed: '送信失敗',
-  deleted: '取り消し',
 }
 
 /**

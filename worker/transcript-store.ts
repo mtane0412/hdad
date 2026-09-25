@@ -52,22 +52,6 @@ export const recordTranscript = async (db: Database, transcript: Transcript, now
 }
 
 /**
- * 記録済みの発話を取り消す。
- *
- * ゆかコネNEO は、いったん確定した発話をあとから取り消すことがある（isDeleted）。あらすじの材料に
- * 取り消された発話が残らないよう、中継ページからの知らせに従って消す。
- *
- * @returns 消す行があったなら true
- */
-export const deleteTranscript = async (db: Database, messageId: string): Promise<boolean> => {
-  const deleted = await db
-    .prepare('DELETE FROM transcripts WHERE message_id = ?1 RETURNING message_id')
-    .bind(messageId)
-    .first<{ message_id: string }>()
-  return deleted !== null
-}
-
-/**
  * あらすじの材料として読み出した1件。
  *
  * 時刻とメッセージIDの両方を添えるのは、「どこまで材料にしたか」の記録に両方が要るためである

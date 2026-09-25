@@ -84,21 +84,12 @@ const start = (): void => {
       })
   }
 
-  /** ゆかコネNEO があとから取り消した発話を、Worker からも消す */
-  const remove = (messageId: string): void => {
-    view.setLineState(messageId, 'deleted')
-    void api.remove(messageId).catch((error: unknown) => {
-      view.setNotice(`Workerから取り消せませんでした: ${messageOf(error)}`)
-    })
-  }
-
   connectTranscript(params.host, params.port, {
     onData: (data) => {
       try {
         const { state: next, action } = nextTranscriptState(state, readTranscriptMessage(data))
         state = next
-        if (action?.kind === 'send') send(action.messageId, action.text)
-        if (action?.kind === 'remove') remove(action.messageId)
+        if (action) send(action.messageId, action.text)
       } catch (error) {
         // 読めない1件のために中継全体を止めない。画面に知らせたうえで、原因を追えるよう記録する
         view.setNotice(messageOf(error))

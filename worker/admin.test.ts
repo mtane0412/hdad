@@ -378,34 +378,6 @@ describe('オーバーレイ用API', () => {
       expect(response.status).toBe(200)
       expect(await response.json()).toEqual({ recorded: true })
     })
-
-    it('DELETE は記録済みの発話を取り消す', async () => {
-      const { env } = 環境を作る()
-      配信を始める(env)
-      await 送る(env, { messageId: '言い間違い', text: 'えーと' })
-
-      const response = await 呼び出す(new Request(`${サイト}/api/overlay/transcript/言い間違い?key=${発行済みのキー}`, { method: 'DELETE' }), env)
-
-      expect(response.status).toBe(204)
-      expect(行を数える(env)).toBe(0)
-    })
-
-    it('DELETE も、オーバーレイ用キーが違えば401を返す', async () => {
-      const { env } = 環境を作る()
-      配信を始める(env)
-      await 送る(env, { messageId: '言い間違い', text: 'えーと' })
-
-      const response = await 呼び出す(new Request(`${サイト}/api/overlay/transcript/言い間違い?key=atezuppou`, { method: 'DELETE' }), env)
-
-      expect(response.status).toBe(401)
-      expect(行を数える(env)).toBe(1)
-    })
-
-    it('DELETE は、記録の無い発話でも204を返す（取り消しは何度届いても同じ結果にする）', async () => {
-      const { env } = 環境を作る()
-      const response = await 呼び出す(new Request(`${サイト}/api/overlay/transcript/知らない発話?key=${発行済みのキー}`, { method: 'DELETE' }), env)
-      expect(response.status).toBe(204)
-    })
   })
 
   it('GET /api/media/:id は、正しいキーなら素材の中身を種類付きで返す', async () => {

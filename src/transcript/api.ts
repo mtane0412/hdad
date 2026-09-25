@@ -20,8 +20,6 @@ export interface TranscriptApi {
    * @returns 記録されたなら true。配信していなくてWorkerが捨てたなら false
    */
   send(messageId: string, text: string): Promise<boolean>
-  /** 記録済みの発話を取り消す */
-  remove(messageId: string): Promise<void>
 }
 
 /**
@@ -44,9 +42,6 @@ export const createTranscriptApi = (fetchImpl: typeof fetch, key: string): Trans
       const recorded: unknown = isRecord(body) ? body.recorded : undefined
       if (typeof recorded !== 'boolean') throw new Error('Workerの応答に recorded がありません')
       return recorded
-    },
-    async remove(messageId) {
-      await call(`${PATH}/${encodeURIComponent(messageId)}${query}`, { method: 'DELETE' })
     },
   }
 }

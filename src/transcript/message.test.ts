@@ -30,18 +30,13 @@ describe('readTranscriptMessage', () => {
     expect(readTranscriptMessage(受信データ({ TextFixed: false }))).toEqual({ kind: 'ignored' })
   })
 
-  it('取り消された発話は取り消しとして返す', () => {
-    expect(readTranscriptMessage(受信データ({ isDeleted: true }))).toEqual({
-      kind: 'deleted',
-      messageId: 'f4ad2560-11c0-494f-be04-5734bec5ea41',
-    })
+  it('isDeleted が真の1件は、表示を消す知らせなので送る対象にしない', () => {
+    expect(readTranscriptMessage(受信データ({ isDeleted: true }))).toEqual({ kind: 'ignored' })
   })
 
-  it('取り消しは、確定していない発話についても取り消しとして返す', () => {
-    expect(readTranscriptMessage(受信データ({ TextFixed: false, isDeleted: true }))).toEqual({
-      kind: 'deleted',
-      messageId: 'f4ad2560-11c0-494f-be04-5734bec5ea41',
-    })
+  it('isDeleted が真なら、本文や確定フラグが無くてもエラーにしない', () => {
+    // 表示を消す知らせは本文を伴わないことがある。読まない項目の有無で中継を止めない
+    expect(readTranscriptMessage(受信データ({ isDeleted: true, TextFixed: undefined, Text1: undefined }))).toEqual({ kind: 'ignored' })
   })
 
   it('翻訳（Text2〜Text6）は読み取らない', () => {
@@ -106,25 +101,7 @@ describe('nextTranscriptState', () => {
     expect(二度目.action).toBeNull()
   })
 
-  it('送ったあとの取り消しは取り消しとして返す', () => {
-    const 送信後 = nextTranscriptState(EMPTY_TRANSCRIPT_STATE, { kind: 'spoken', messageId: 'あいさつ', text: 'こんばんは' })
-    const { action } = nextTranscriptState(送信後.state, { kind: 'deleted', messageId: 'あいさつ' })
-    expect(action).toEqual({ kind: 'remove', messageId: 'あいさつ' })
-  })
-
-  it('送っていない発話の取り消しは何もしない', () => {
-    const { action } = nextTranscriptState(EMPTY_TRANSCRIPT_STATE, { kind: 'deleted', messageId: '暫定のまま消えた発話' })
-    expect(action).toBeNull()
-  })
-
-  it('取り消したメッセージIDが同じ本文で届き直しても送らない', () => {
-    const 送信後 = nextTranscriptState(EMPTY_TRANSCRIPT_STATE, { kind: 'spoken', messageId: 'あいさつ', text: 'こんばんは' })
-    const 取り消し後 = nextTranscriptState(送信後.state, { kind: 'deleted', messageId: 'あいさつ' })
-    const { action } = nextTranscriptState(取り消し後.state, { kind: 'spoken', messageId: 'あいさつ', text: 'こんばんは' })
-    expect(action).toBeNull()
-  })
-
-  it('読み取る対象でない1件（暫定の認識）では何もしない', () => {
+  it('読み取る対象でない1件（暫定の認識・表示を消す知らせ）では何もしない', () => {
     const { state, action } = nextTranscriptState(EMPTY_TRANSCRIPT_STATE, { kind: 'ignored' })
     expect(action).toBeNull()
     expect(state).toBe(EMPTY_TRANSCRIPT_STATE)

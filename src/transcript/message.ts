@@ -7,7 +7,13 @@
  * WebSocket も DOM も持たないので、そのままテストできる（chat/message.ts と同じ分け方）。
  *
  * つなぐ先を `/textonly` ではなく `/` にしているのは、`/textonly` が本文だけのプレーンテキストを返し、
- * 重複を防ぐ鍵（MsgID）も取り消し（isDeleted）も読めないためである。
+ * 重複を防ぐ鍵（MsgID）が読めないためである。
+ *
+ * 注意: `isDeleted` が真の1件は Worker へ何も伝えない。公式ドキュメントに「実際に消えるタイミングは、
+ * isDeleted が true の別のデータで通知されます」とあるとおり、これは表示時間（KeepTime）が尽きて字幕が
+ * 消えるときにも届く通常の知らせであり、編集者による取り消しとは区別できない。取り消しとして扱うと、
+ * 記録した発話が数秒後にすべて消えてしまい、あらすじ・サイドスーパーの材料が残らない。
+ * まれな編集者の取り消しが材料に残るほうを受け入れる（材料は cron が1日で消す一時的な記録である）。
  *
  * 読み取るのは母国語（Text1）だけで、翻訳（Text2〜Text6）は捨てる。あらすじ（issue #65）の材料には要らない。
  *
@@ -19,9 +25,7 @@
 export type TranscriptUpdate =
   /** 確定した発話。Worker へ送る対象 */
   | { readonly kind: 'spoken'; readonly messageId: string; readonly text: string }
-  /** 取り消された発話。すでに送っていれば取り消しを伝える */
-  | { readonly kind: 'deleted'; readonly messageId: string }
-  /** 送る対象にならない1件（暫定の認識・本文が空の発話） */
+  /** 送る対象にならない1件（暫定の認識・本文が空の発話・表示を消す知らせ） */
   | { readonly kind: 'ignored' }
 
 /** 届いたデータを読み取れなかったことを表すエラー */
@@ -63,8 +67,8 @@ export const readTranscriptMessage = (data: string): TranscriptUpdate => {
   if (typeof deleted !== 'boolean') {
     throw new TranscriptMessageError(`ゆかコネNEO から届いたデータの isDeleted が真偽値ではありません（MsgID: ${messageId}）`)
   }
-  // 取り消しは確定より先に見る。暫定のまま取り消された発話も、送っていなければ何もしないだけで済む
-  if (deleted) return { kind: 'deleted', messageId }
+  // 表示を消す知らせは確定より先に見る。本文や TextFixed を伴わないことがあるので、読まずに済ませる
+  if (deleted) return { kind: 'ignored' }
 
   const fixed = record.TextFixed
   if (typeof fixed !== 'boolean') {
@@ -90,11 +94,10 @@ export const readTranscriptMessage = (data: string): TranscriptUpdate => {
  * そのまま送ると同じ発話を何度も送ることになるので、送ったメッセージIDを覚えて二度目からは送らない。
  * Worker 側でも主キーで弾くが（migrations の transcripts.message_id）、無駄な呼び出しをそもそも出さない。
  *
- * 注意: 取り消したメッセージIDも覚えたままにする。忘れると、取り消しのあとに届き直した同じ1件を送り直してしまう。
  * 注意: 覚える件数は配信中に増え続けるが、確定文は1分に数件なので、長い配信でも数百件にとどまる。
  */
 export interface TranscriptState {
-  /** すでに送ったか、送ったうえで取り消したメッセージIDの集合 */
+  /** すでに送ったメッセージIDの集合 */
   readonly handled: ReadonlySet<string>
 }
 
@@ -102,11 +105,11 @@ export interface TranscriptState {
 export const EMPTY_TRANSCRIPT_STATE: TranscriptState = { handled: new Set() }
 
 /** 読み解いた1件に対して、Worker へ向けて実際に行うこと */
-export type TranscriptAction =
-  /** この発話を送る */
-  | { readonly kind: 'send'; readonly messageId: string; readonly text: string }
-  /** 送り済みの発話の取り消しを伝える */
-  | { readonly kind: 'remove'; readonly messageId: string }
+export interface TranscriptAction {
+  readonly kind: 'send'
+  readonly messageId: string
+  readonly text: string
+}
 
 /**
  * 読み解いた1件を状態に取り込み、行うことを決める。
@@ -118,12 +121,6 @@ export const nextTranscriptState = (
   update: TranscriptUpdate,
 ): { readonly state: TranscriptState; readonly action: TranscriptAction | null } => {
   if (update.kind === 'ignored') return { state, action: null }
-
-  if (update.kind === 'deleted') {
-    // 送っていない発話（暫定のまま消えたもの）の取り消しは、伝える相手に記録が無いので何もしない
-    if (!state.handled.has(update.messageId)) return { state, action: null }
-    return { state, action: { kind: 'remove', messageId: update.messageId } }
-  }
 
   if (state.handled.has(update.messageId)) return { state, action: null }
   const handled = new Set(state.handled)
