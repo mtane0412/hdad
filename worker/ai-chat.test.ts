@@ -6,7 +6,7 @@
  * Twitchのチャットは1通500文字までなので、超えた文面は切り詰めずに送るのをやめる（意味の壊れた文を流さないため）。
  */
 import { describe, expect, it } from 'vitest'
-import { buildPrompt, generateChatMessage, type TextGenerator } from './ai-chat'
+import { buildPrompt, generateChatMessage, readResponse, type TextGenerator } from './ai-chat'
 import type { Extracted } from './alert-event'
 import type { Viewer } from './viewer-store'
 
@@ -209,5 +209,20 @@ describe('buildPrompt（人物像）', () => {
     })
 
     expect(prompt).toContain('人物像: なし')
+  })
+})
+
+describe('readResponse', () => {
+  it('response に文面を入れて返すモデルから読む', () => {
+    expect(readResponse({ response: 'こんばんは！' })).toBe('こんばんは！')
+  })
+
+  it('OpenAI互換の形（choices）で返すモデルからも読む', () => {
+    // llama-3.3-70b のような新しいモデルは response を持たず、この形だけで返す
+    expect(readResponse({ choices: [{ message: { role: 'assistant', content: 'こんばんは！' } }] })).toBe('こんばんは！')
+  })
+
+  it('どちらの形でもなければ、黙って捨てずに投げる', () => {
+    expect(() => readResponse({ choices: [] })).toThrow('LLMの応答を読めません')
   })
 })
