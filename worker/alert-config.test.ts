@@ -178,6 +178,36 @@ describe('parseAlertConfig', () => {
     )
   })
 
+  it('広告のトリガーに、自動で入った広告だけを選ぶ automatic の条件を受け付ける', () => {
+    const 自動広告の開始 = { event: 'channel.ad_break.begin', conditions: [{ kind: 'automatic', automatic: true }], actions: [チャットの動作()] }
+    const config = parseAlertConfig({ triggers: [自動広告の開始] }, 素材の種類)
+
+    expect(config.triggers[0]?.conditions).toEqual([{ kind: 'automatic', automatic: true }])
+  })
+
+  it('広告の終了のトリガーにも automatic の条件を受け付ける（手動で打った広告だけを選ぶ）', () => {
+    const 手動広告の終了 = { event: 'channel.ad_break.end', conditions: [{ kind: 'automatic', automatic: false }], actions: [チャットの動作()] }
+    const config = parseAlertConfig({ triggers: [手動広告の終了] }, 素材の種類)
+
+    expect(config.triggers[0]?.conditions).toEqual([{ kind: 'automatic', automatic: false }])
+  })
+
+  it('広告以外のイベントに automatic の条件を付けたら拒否する', () => {
+    const 自動かどうかを付けたフォロー = { triggers: [送られてきたトリガー({ event: 'channel.follow', conditions: [{ kind: 'automatic', automatic: true }] })] }
+
+    expect(() => parseAlertConfig(自動かどうかを付けたフォロー, 素材の種類)).toThrowError(
+      expect.objectContaining({ problems: ['triggers[0].conditions[0]: automatic の条件は広告の開始・終了にしか付けられません'] }),
+    )
+  })
+
+  it('automatic に真偽値以外を指定したら拒否する', () => {
+    const 文字列の自動かどうか = { triggers: [{ event: 'channel.ad_break.begin', conditions: [{ kind: 'automatic', automatic: 'はい' }], actions: [チャットの動作()] }] }
+
+    expect(() => parseAlertConfig(文字列の自動かどうか, 素材の種類)).toThrowError(
+      expect.objectContaining({ problems: ['triggers[0].conditions[0].automatic: true（自動で入った広告）か false（手動で打った広告）で指定してください'] }),
+    )
+  })
+
   it('reward と user の報酬とユーザーの条件を並べたトリガーを受け付ける（すべてを満たしたときだけ当てはまる）', () => {
     const 報酬とユーザーの条件 = [
       { kind: 'reward', rewardId: '報酬ID-乾杯' },
@@ -197,7 +227,9 @@ describe('parseAlertConfig', () => {
   it('対応していない条件の種類は拒否する', () => {
     expect(() => parseAlertConfig({ triggers: [送られてきたトリガー({ conditions: [{ kind: 'bits' }] })] }, 素材の種類)).toThrowError(
       expect.objectContaining({
-        problems: ['triggers[0].conditions[0].kind: reward / user / text / firstChatOfStream / firstChatEver / returningAfter のいずれかを指定してください'],
+        problems: [
+          'triggers[0].conditions[0].kind: reward / user / text / firstChatOfStream / firstChatEver / returningAfter / automatic のいずれかを指定してください',
+        ],
       }),
     )
   })
@@ -331,7 +363,7 @@ describe('parseAlertConfig', () => {
     )
   })
 
-  it.each(['channel.follow', 'channel.subscribe', 'channel.subscription.message', 'channel.raid', 'channel.chat.message'])(
+  it.each(['channel.follow', 'channel.subscribe', 'channel.subscription.message', 'channel.raid', 'channel.chat.message', 'channel.ad_break.begin', 'channel.ad_break.end'])(
     'チャンネルポイント交換以外のイベント（%s）も、条件なしで受け付ける',
     (event) => {
       expect(parseAlertConfig({ triggers: [{ event, conditions: [], actions: [アラートの動作()] }] }, 素材の種類)).toEqual({

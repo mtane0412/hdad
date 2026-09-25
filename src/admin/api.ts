@@ -12,9 +12,21 @@ import { ApiError, createCaller, isRecord, readList } from '@/core/api'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const CHAT_MESSAGE = 'channel.chat.message'
+const AD_BREAK_BEGIN = 'channel.ad_break.begin'
+/** 広告の終了。Twitchから届く通知ではなく、Workerが広告の長さから作る擬似イベント（worker/ad-break-timer.ts） */
+const AD_BREAK_END = 'channel.ad_break.end'
 
 /** アラートを出せるイベントの種類。worker/alert-config.ts の ALERT_EVENTS と同じ並び（worker/ の型は読み込めないのでここで定義する） */
-export const ALERT_EVENTS = [REDEMPTION, 'channel.follow', 'channel.subscribe', 'channel.subscription.message', 'channel.raid', CHAT_MESSAGE] as const
+export const ALERT_EVENTS = [
+  REDEMPTION,
+  'channel.follow',
+  'channel.subscribe',
+  'channel.subscription.message',
+  'channel.raid',
+  CHAT_MESSAGE,
+  AD_BREAK_BEGIN,
+  AD_BREAK_END,
+] as const
 
 export type AlertEvent = (typeof ALERT_EVENTS)[number]
 
@@ -84,7 +96,7 @@ export interface AiChatAction {
 export type ActionInput = AlertActionInput | ChatAction | AnnounceAction | AiChatAction
 
 /** 条件の種類。worker/alert-config.ts の CONDITION_KINDS と同じ並び（worker/ の型は読み込めないのでここで定義する） */
-export const CONDITION_KINDS = ['reward', 'user', 'text', 'firstChatOfStream', 'firstChatEver', 'returningAfter'] as const
+export const CONDITION_KINDS = ['reward', 'user', 'text', 'firstChatOfStream', 'firstChatEver', 'returningAfter', 'automatic'] as const
 
 export type ConditionKind = (typeof CONDITION_KINDS)[number]
 
@@ -97,6 +109,7 @@ export type ConditionKind = (typeof CONDITION_KINDS)[number]
  * - firstChatOfStream: その配信で初めての発言であること。チャットの発言にしか付けられない
  * - firstChatEver: このチャンネルで初めての発言であること（視聴者の記録から決まる）。チャットの発言にしか付けられない
  * - returningAfter: 最後の発言から days 日以上空いていること。チャットの発言にしか付けられない
+ * - automatic: 自動で入った広告か（true）、配信者が手動で打った広告か（false）。広告の開始・終了にしか付けられない
  */
 export type TriggerCondition =
   | { kind: 'reward'; rewardId: string }
@@ -105,6 +118,7 @@ export type TriggerCondition =
   | { kind: 'firstChatOfStream' }
   | { kind: 'firstChatEver' }
   | { kind: 'returningAfter'; days: number }
+  | { kind: 'automatic'; automatic: boolean }
 
 /** 保存するトリガー。イベント種別・条件のリスト（すべて満たす）・そのとき行う動作の一覧からなる */
 export interface TriggerInput {
@@ -175,6 +189,7 @@ const isTriggerCondition = (value: unknown): value is TriggerCondition => {
   // 入れる値を持たない条件なので、種類が合っていればそれでよい
   if (value.kind === 'firstChatOfStream' || value.kind === 'firstChatEver') return true
   if (value.kind === 'returningAfter') return typeof value.days === 'number'
+  if (value.kind === 'automatic') return typeof value.automatic === 'boolean'
   return value.kind === 'user' && typeof value.login === 'string'
 }
 

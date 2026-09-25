@@ -26,6 +26,8 @@ const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const FOLLOW = 'channel.follow'
 const RAID = 'channel.raid'
 const CHAT_MESSAGE = 'channel.chat.message'
+const AD_BREAK_BEGIN = 'channel.ad_break.begin'
+const AD_BREAK_END = 'channel.ad_break.end'
 
 /** トリガー1件分の入力欄の値。テストでは違いのある項目だけを重ねて書く */
 const 入力欄 = (overrides: Partial<TriggerDraft> = {}): TriggerDraft => ({
@@ -230,7 +232,7 @@ describe('LLMに文面を作らせる動作（aiChat）', () => {
 })
 
 describe('eventOptions', () => {
-  it('6種類のイベントを、日本語のラベル付きで選べるようにする', () => {
+  it('8種類のイベントを、日本語のラベル付きで選べるようにする', () => {
     expect(eventOptions).toEqual([
       { value: REDEMPTION, label: 'チャンネルポイントの交換' },
       { value: FOLLOW, label: 'フォロー' },
@@ -238,6 +240,8 @@ describe('eventOptions', () => {
       { value: 'channel.subscription.message', label: 'サブスク（継続メッセージ）' },
       { value: RAID, label: 'レイド' },
       { value: CHAT_MESSAGE, label: 'チャットの発言' },
+      { value: AD_BREAK_BEGIN, label: '広告の開始' },
+      { value: AD_BREAK_END, label: '広告の終了' },
     ])
   })
 })
@@ -250,6 +254,8 @@ describe('placeholdersFor', () => {
     ['channel.subscription.message', ['{user}', '{tier}', '{months}', '{summary}']],
     [RAID, ['{user}', '{viewers}', '{summary}']],
     [CHAT_MESSAGE, ['{user}', '{message}', '{summary}']],
+    [AD_BREAK_BEGIN, ['{user}', '{duration}', '{summary}']],
+    [AD_BREAK_END, ['{user}', '{duration}', '{summary}']],
   ] as const)('%s で使える差し込み語を返す', (event, expected) => {
     expect(placeholdersFor(event)).toEqual(expected)
   })
@@ -278,6 +284,16 @@ describe('rewardOptions', () => {
 
   it('保存済みの報酬がTwitchの一覧にない（削除された）場合も、選択肢として残して分かるようにする', () => {
     expect(rewardOptions(rewards, '報酬ID-消した報酬')[0]).toEqual({ value: '報酬ID-消した報酬', label: 'Twitchの一覧にない報酬（報酬ID-消した報酬）' })
+  })
+})
+
+describe('triggerSummary（広告）', () => {
+  it('automatic の条件は、自動で入った広告か手動で打った広告かを言葉で書く', () => {
+    const 自動 = 入力欄({ event: AD_BREAK_BEGIN, conditions: [{ kind: 'automatic', automatic: true }] })
+    const 手動 = 入力欄({ event: AD_BREAK_END, conditions: [{ kind: 'automatic', automatic: false }] })
+
+    expect(triggerSummary(自動, [])).toBe('広告の開始（自動で入った広告）→ アラート')
+    expect(triggerSummary(手動, [])).toBe('広告の終了（配信者が手動で打った広告）→ アラート')
   })
 })
 
@@ -423,6 +439,18 @@ describe('addableConditionKinds', () => {
     expect(addableConditionKinds(入力欄({ event: FOLLOW })).some((option) => option.value === 'text')).toBe(false)
   })
 
+  it('広告の開始・終了では、automatic（自動で入った広告か）を足せる', () => {
+    expect(addableConditionKinds(入力欄({ event: AD_BREAK_BEGIN }))).toEqual([
+      { value: 'user', label: 'ユーザー' },
+      { value: 'automatic', label: '自動で入った広告か' },
+    ])
+    expect(addableConditionKinds(入力欄({ event: AD_BREAK_END })).some((option) => option.value === 'automatic')).toBe(true)
+  })
+
+  it('広告以外では、automatic を足せない（Workerが保存を拒否するため）', () => {
+    expect(addableConditionKinds(入力欄({ event: FOLLOW })).some((option) => option.value === 'automatic')).toBe(false)
+  })
+
   it('すでに足してある種類は選べない（同じ種類は1件まで）', () => {
     const draft = 入力欄({ conditions: [{ kind: 'reward', rewardId: 'reward-hakushu' }] })
 
@@ -460,6 +488,10 @@ describe('createCondition', () => {
   it('returningAfter の条件は、日数の既定値（30日）を入れて足す', () => {
     expect(createCondition('returningAfter', rewards)).toEqual({ kind: 'returningAfter', days: '30' })
   })
+
+  it('automatic の条件は、自動で入った広告（true）を選んだ状態で足す（配信者が手で打った広告は自分で告知できるため）', () => {
+    expect(createCondition('automatic', rewards)).toEqual({ kind: 'automatic', automatic: true })
+  })
 })
 
 describe('changeEvent', () => {
@@ -490,6 +522,18 @@ describe('changeEvent', () => {
     const draft = 入力欄({ event: CHAT_MESSAGE, conditions: [{ kind: 'text', contains: 'おはよう' }] })
 
     expect(changeEvent(draft, CHAT_MESSAGE).conditions).toEqual([{ kind: 'text', contains: 'おはよう' }])
+  })
+
+  it('広告の開始から広告の終了に変えても、automatic の条件は残す（どちらにも付けられるため）', () => {
+    const draft = 入力欄({ event: AD_BREAK_BEGIN, conditions: [{ kind: 'automatic', automatic: true }] })
+
+    expect(changeEvent(draft, AD_BREAK_END).conditions).toEqual([{ kind: 'automatic', automatic: true }])
+  })
+
+  it('広告から別のイベントに変えたら、automatic の条件を外す（そのままでは保存できないため）', () => {
+    const draft = 入力欄({ event: AD_BREAK_BEGIN, conditions: [{ kind: 'automatic', automatic: true }] })
+
+    expect(changeEvent(draft, FOLLOW).conditions).toEqual([])
   })
 
   it('チャンネルポイントの交換のままなら、条件はそのまま残す', () => {

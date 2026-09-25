@@ -41,8 +41,16 @@ export const COUNTED_EVENT_TYPES: readonly string[] = [
 export const STREAM_ONLINE = 'stream.online'
 export const STREAM_OFFLINE = 'stream.offline'
 export const CHAT_MESSAGE = 'channel.chat.message'
+/**
+ * 広告の開始。件数は数えず、トリガー（広告の告知）のために購読する。
+ *
+ * 広告の終了に相当する通知はTwitchにないため、購読するのは開始だけである。
+ * 終了は開始の通知に入っている duration_seconds から自前で計り、擬似イベント（AD_BREAK_END）として
+ * 同じ照合に回す（worker/ad-break-timer.ts）。
+ */
+export const AD_BREAK_BEGIN = 'channel.ad_break.begin'
 
-export const UNCOUNTED_EVENT_TYPES: readonly string[] = ['channel.follow', CHAT_MESSAGE]
+export const UNCOUNTED_EVENT_TYPES: readonly string[] = ['channel.follow', CHAT_MESSAGE, AD_BREAK_BEGIN]
 
 /** 購読を1つ登録するのに要る内容（条件は解決済み） */
 interface WantedEvent {

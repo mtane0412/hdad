@@ -24,6 +24,21 @@ import {
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const CHAT_MESSAGE = 'channel.chat.message'
+const AD_BREAK_BEGIN = 'channel.ad_break.begin'
+const AD_BREAK_END = 'channel.ad_break.end'
+
+/** Twitchから届く広告の開始の通知の中身。自動で入った3分の広告を表す */
+const 広告の通知 = {
+  duration_seconds: 180,
+  started_at: '2026-09-25T12:00:00Z',
+  is_automatic: true,
+  broadcaster_user_id: '配信者ID',
+  broadcaster_user_login: 'tanenobu',
+  broadcaster_user_name: 'たねのぶ',
+  requester_user_id: '配信者ID',
+  requester_user_login: 'tanenobu',
+  requester_user_name: 'たねのぶ',
+}
 
 /** 通知の中身だけでは決まらない条件の判定結果。この一群のテストではふだんの発言（その配信で2回目以降）として扱う */
 const 初回ではない: ConditionState = { firstChatOfStream: false, firstChatEver: false, daysSinceLastChat: 0 }
@@ -89,6 +104,26 @@ describe('extract', () => {
     }
 
     expect(extract(CHAT_MESSAGE, event)).toEqual({ event: CHAT_MESSAGE, userName: '田中太郎', userLogin: 'tanaka_taro', text: 'おはようございます' })
+  })
+
+  it('広告の開始から、長さ（秒）と自動かどうか、打った人を取り出す', () => {
+    expect(extract(AD_BREAK_BEGIN, 広告の通知)).toEqual({
+      event: AD_BREAK_BEGIN,
+      userName: 'たねのぶ',
+      userLogin: 'tanenobu',
+      durationSeconds: 180,
+      automatic: true,
+    })
+  })
+
+  it('広告の終了も開始と同じ中身から取り出す（終了はWorkerが同じ中身で作る擬似イベントなので）', () => {
+    expect(extract(AD_BREAK_END, 広告の通知)).toEqual({
+      event: AD_BREAK_END,
+      userName: 'たねのぶ',
+      userLogin: 'tanenobu',
+      durationSeconds: 180,
+      automatic: true,
+    })
   })
 
   it('対応していないイベントの種類は null を返す（Twitchが種類を増やしてもWorkerを止めない）', () => {
@@ -171,6 +206,25 @@ describe('matches', () => {
     expect(matches(フォローに文面, フォローした, 初回ではない)).toBe(false)
   })
 
+  it('automatic の条件は、広告が自動で入ったかどうかが一致するときだけ当てはまる', () => {
+    const 広告のトリガー = (conditions: StoredCondition[]): StoredTrigger => ({ event: AD_BREAK_BEGIN, conditions, actions: [{ type: 'chat', message: '広告です' }] })
+    const 自動で入った = { event: AD_BREAK_BEGIN, userName: 'たねのぶ', userLogin: 'tanenobu', durationSeconds: 180, automatic: true } as const
+
+    expect(matches(広告のトリガー([{ kind: 'automatic', automatic: true }]), 自動で入った, 初回ではない)).toBe(true)
+    expect(matches(広告のトリガー([{ kind: 'automatic', automatic: false }]), 自動で入った, 初回ではない)).toBe(false)
+  })
+
+  it('automatic の条件は広告以外には当てはまらない（保存時に拒否するが、照合でも通さない）', () => {
+    const フォローに自動かどうか: StoredTrigger = {
+      event: 'channel.follow',
+      conditions: [{ kind: 'automatic', automatic: true }],
+      actions: [{ type: 'chat', message: 'ありがとう' }],
+    }
+    const フォローした = { event: 'channel.follow', userName: '田中太郎', userLogin: 'tanaka_taro' } as const
+
+    expect(matches(フォローに自動かどうか, フォローした, 初回ではない)).toBe(false)
+  })
+
   it('reward の条件はチャンネルポイント交換以外には当てはまらない（保存時に拒否するが、照合でも通さない）', () => {
     const フォローに報酬: StoredTrigger = { event: 'channel.follow', conditions: [{ kind: 'reward', rewardId: '報酬ID-乾杯' }], actions: [{ type: 'chat', message: 'ありがとう' }] }
     const フォローした = { event: 'channel.follow', userName: '田中太郎', userLogin: 'tanaka_taro' } as const
@@ -194,6 +248,18 @@ describe('fillMessage', () => {
     const 発言した = { event: CHAT_MESSAGE, userName: '田中太郎', userLogin: 'tanaka_taro', text: 'おはよう' } as const
 
     expect(fillMessage('{user} さんが「{message}」と言いました', 発言した, null)).toBe('田中太郎 さんが「おはよう」と言いました')
+  })
+
+  it('広告では、{duration} が広告の長さ（秒）に置き換わる', () => {
+    const 広告が始まった = { event: AD_BREAK_BEGIN, userName: 'たねのぶ', userLogin: 'tanenobu', durationSeconds: 180, automatic: true } as const
+
+    expect(fillMessage('広告が{duration}秒入ります。終わるまでお待ちください', 広告が始まった, null)).toBe('広告が180秒入ります。終わるまでお待ちください')
+  })
+
+  it('広告の終了でも {duration} が使える', () => {
+    const 広告が終わった = { event: AD_BREAK_END, userName: 'たねのぶ', userLogin: 'tanenobu', durationSeconds: 90, automatic: false } as const
+
+    expect(fillMessage('{duration}秒の広告が終わりました。おかえりなさい', 広告が終わった, null)).toBe('90秒の広告が終わりました。おかえりなさい')
   })
 
   it('報酬名に $& のような置換の特殊な指定が含まれていても、そのまま差し込む', () => {

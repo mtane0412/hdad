@@ -66,6 +66,7 @@ import { TwitchApiError, createTwitchClient, type TwitchClient } from './twitch'
 
 export type { Env } from './http'
 export { AlertChannel } from './alert-channel'
+export { AdBreakTimer } from './ad-break-timer'
 
 interface Dependencies {
   fetch: typeof fetch

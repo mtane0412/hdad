@@ -283,6 +283,39 @@ describe('トリガー', () => {
     expect(api.saveConfig).toHaveBeenCalledWith([expect.objectContaining({ event: CHAT_MESSAGE, conditions: [{ kind: 'firstChatOfStream' }] })])
   })
 
+  test('広告の開始のイベントでは、自動で入った広告かの条件を足して保存できる', async () => {
+    const api = 代役のAPI({ config: async () => [{ ...拍手のトリガー, conditions: [] }] })
+    render(トリガーのページ(api))
+
+    const row = await 開いたトリガー()
+    await userEvent.selectOptions(row.getByLabelText('イベント'), 'channel.ad_break.begin')
+    await userEvent.click(row.getByRole('button', { name: '自動で入った広告かの条件を足す' }))
+    // 足したばかりの条件は「自動で入った広告」を選んだ状態になっている
+    expect(row.getByLabelText('自動で入った広告か')).toHaveValue('true')
+    await userEvent.click(screen.getByRole('button', { name: 'トリガーを保存' }))
+
+    expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
+    expect(api.saveConfig).toHaveBeenCalledWith([
+      expect.objectContaining({ event: 'channel.ad_break.begin', conditions: [{ kind: 'automatic', automatic: true }] }),
+    ])
+  })
+
+  test('自動で入った広告かの条件で「手動で打った広告」を選ぶと、false として保存する', async () => {
+    const api = 代役のAPI({ config: async () => [{ ...拍手のトリガー, conditions: [] }] })
+    render(トリガーのページ(api))
+
+    const row = await 開いたトリガー()
+    await userEvent.selectOptions(row.getByLabelText('イベント'), 'channel.ad_break.end')
+    await userEvent.click(row.getByRole('button', { name: '自動で入った広告かの条件を足す' }))
+    await userEvent.selectOptions(row.getByLabelText('自動で入った広告か'), 'false')
+    await userEvent.click(screen.getByRole('button', { name: 'トリガーを保存' }))
+
+    expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
+    expect(api.saveConfig).toHaveBeenCalledWith([
+      expect.objectContaining({ event: 'channel.ad_break.end', conditions: [{ kind: 'automatic', automatic: false }] }),
+    ])
+  })
+
   test('その配信で初めての発言の条件は、入れる値がないので説明だけを出す', async () => {
     const 初回のトリガー: StoredTrigger = { ...拍手のトリガー, event: CHAT_MESSAGE, conditions: [{ kind: 'firstChatOfStream' }] }
     render(トリガーのページ(代役のAPI({ config: async () => [初回のトリガー] })))

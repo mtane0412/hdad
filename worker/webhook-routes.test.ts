@@ -22,6 +22,7 @@ import { saveAlertConfig, type StoredTrigger } from './alert-config'
 import { saveToken } from './token'
 import { listViewers, recordViewerMessage, updateViewerNote } from './viewer-store'
 import { createFakeAlertChannel } from './fake-alert-channel'
+import { createFakeAdBreakTimer } from './fake-ad-break-timer'
 
 interface 環境の条件 {
   /** アラートの配送先（Durable Object）が失敗を返す場合 */
@@ -44,6 +45,7 @@ const 発行済みのオーバーレイ用キー = 'issued-overlay-key-012345678
 const 環境を作る = ({ 配送は失敗する = false, オーバーレイ用キー = 発行済みのオーバーレイ用キー, LLMは失敗する = false, LLMの文面 }: 環境の条件 = {}) => {
   const db = createFakeDatabase()
   const 配送 = createFakeAlertChannel({ 失敗する: 配送は失敗する })
+  const 広告のタイマー = createFakeAdBreakTimer()
   const ai = createFakeAi({ 失敗する: LLMは失敗する, ...(LLMの文面 === undefined ? {} : { response: LLMの文面 }) })
   const env = {
     STORE: createFakeStore(オーバーレイ用キー === null ? {} : { 'overlay-key': オーバーレイ用キー }),
@@ -55,9 +57,10 @@ const 環境を作る = ({ 配送は失敗する = false, オーバーレイ用�
     SESSION_SECRET: 'テスト用のセッション秘密鍵',
     EVENTSUB_SECRET: シークレット,
     ALERTS: 配送.namespace,
+    AD_BREAKS: 広告のタイマー.namespace,
     AI: ai,
   } satisfies Env
-  return { env, db, 配送, ai }
+  return { env, db, 配送, ai, 広告のタイマー }
 }
 
 const Twitchへは通信しない = async (input: RequestInfo | URL): Promise<Response> => {
@@ -164,6 +167,122 @@ describe('通知の検証', () => {
 
     expect(response.status).toBe(500)
     expect(await エラーコード(response)).toBe('misconfigured')
+  })
+})
+
+describe('広告の通知（channel.ad_break.begin）', () => {
+  /** Twitchから届く広告の開始の通知。自動で入った3分の広告 */
+  const 広告の開始の通知 = {
+    subscription: { type: 'channel.ad_break.begin' },
+    event: {
+      duration_seconds: 180,
+      started_at: '2026-09-21T12:29:50.000Z',
+      is_automatic: true,
+      broadcaster_user_id: 配信者のID,
+      broadcaster_user_login: 'tanenobu',
+      broadcaster_user_name: 'たねのぶ',
+      requester_user_id: 配信者のID,
+      requester_user_login: 'tanenobu',
+      requester_user_name: 'たねのぶ',
+    },
+  }
+
+  /** 広告のトリガーを1件だけ持ち、botを接続済みにした環境を作る */
+  const 広告のトリガーがある環境 = async (トリガー: StoredTrigger) => {
+    const { env, db, 広告のタイマー } = 環境を作る()
+    await saveAlertConfig(env.STORE, { triggers: [トリガー] })
+    await saveToken(env.STORE, 'bot', {
+      accessToken: 'bot-access-token',
+      refreshToken: 'bot-refresh-token',
+      expiresAt: 現在時刻 + 60 * 60 * 1000,
+      scopes: ['user:bot', 'user:read:chat', 'user:write:chat'],
+      userId: '67890',
+      login: 'haishinsha_bot',
+    })
+    return { env, db, 広告のタイマー }
+  }
+
+  /** チャット送信に応える Twitch の代役 */
+  const 送信に応えるTwitch = () => {
+    const 送信したチャット: Request[] = []
+    const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const request = new Request(input, init)
+      if (request.url === 'https://api.twitch.tv/helix/chat/messages') {
+        送信したチャット.push(request.clone())
+        return Response.json({ data: [{ message_id: 'sent', is_sent: true }] })
+      }
+      throw new Error(`テストで想定していない通信です: ${request.url}`)
+    }
+    return { 送信したチャット, fetchImpl }
+  }
+
+  it('広告が始まったら、当てはまるトリガーの文言をbotの名前で送る', async () => {
+    const { env } = await 広告のトリガーがある環境({
+      event: 'channel.ad_break.begin',
+      conditions: [],
+      actions: [{ type: 'chat', message: 'ここで{duration}秒の広告が入ります' }],
+    })
+    const twitch = 送信に応えるTwitch()
+
+    const response = await 呼び出す(Twitchからの通知({ body: 広告の開始の通知 }), env, twitch.fetchImpl)
+
+    expect(response.status).toBe(204)
+    expect(await twitch.送信したチャット[0]?.json()).toMatchObject({ message: 'ここで180秒の広告が入ります' })
+  })
+
+  it('自動で入った広告だけを選ぶ条件（automatic）を満たさなければ、何も送らない', async () => {
+    const { env } = await 広告のトリガーがある環境({
+      event: 'channel.ad_break.begin',
+      conditions: [{ kind: 'automatic', automatic: false }],
+      actions: [{ type: 'chat', message: '手動で広告を打ちました' }],
+    })
+    const twitch = 送信に応えるTwitch()
+
+    const response = await 呼び出す(Twitchからの通知({ body: 広告の開始の通知 }), env, twitch.fetchImpl)
+
+    expect(response.status).toBe(204)
+    expect(twitch.送信したチャット).toEqual([])
+  })
+
+  it('広告の終了のトリガーがあれば、広告が終わる時刻（開始 + 長さ）に予約する', async () => {
+    const { env, 広告のタイマー } = await 広告のトリガーがある環境({
+      event: 'channel.ad_break.end',
+      conditions: [],
+      actions: [{ type: 'chat', message: '広告が終わりました' }],
+    })
+
+    const response = await 呼び出す(Twitchからの通知({ body: 広告の開始の通知 }), env, 送信に応えるTwitch().fetchImpl)
+
+    expect(response.status).toBe(204)
+    expect(広告のタイマー.渡された予約).toEqual([
+      { event: 広告の開始の通知.event, messageId: 'message-1', endsAt: Date.parse('2026-09-21T12:29:50.000Z') + 180 * 1000 },
+    ])
+  })
+
+  it('広告の終了のトリガーが1件もなければ、予約しない（タイマーを無駄に起こさない）', async () => {
+    const { env, 広告のタイマー } = await 広告のトリガーがある環境({
+      event: 'channel.ad_break.begin',
+      conditions: [],
+      actions: [{ type: 'chat', message: 'ここで広告が入ります' }],
+    })
+
+    await 呼び出す(Twitchからの通知({ body: 広告の開始の通知 }), env, 送信に応えるTwitch().fetchImpl)
+
+    expect(広告のタイマー.渡された予約).toEqual([])
+  })
+
+  it('予約に失敗しても、Twitchへは成功を返して収集の失敗として記録する（再送されても広告の告知は二度送らない）', async () => {
+    const { env, db } = await 広告のトリガーがある環境({
+      event: 'channel.ad_break.end',
+      conditions: [],
+      actions: [{ type: 'chat', message: '広告が終わりました' }],
+    })
+    const 予約に失敗する環境: Env = { ...env, AD_BREAKS: createFakeAdBreakTimer({ 失敗する: true }).namespace }
+
+    const response = await 呼び出す(Twitchからの通知({ body: 広告の開始の通知 }), 予約に失敗する環境, 送信に応えるTwitch().fetchImpl)
+
+    expect(response.status).toBe(204)
+    expect((await listFailures(db)).map((failure) => failure.code)).toEqual(['ad-break-end-schedule-failed'])
   })
 })
 

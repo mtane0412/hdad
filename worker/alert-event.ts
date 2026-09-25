@@ -37,6 +37,8 @@ const SUBSCRIBE = 'channel.subscribe'
 const SUBSCRIPTION_MESSAGE = 'channel.subscription.message'
 const RAID = 'channel.raid'
 const CHAT_MESSAGE = 'channel.chat.message'
+const AD_BREAK_BEGIN = 'channel.ad_break.begin'
+const AD_BREAK_END = 'channel.ad_break.end'
 
 /**
  * Twitchへ送る1通の上限（チャットもアナウンスも500文字。worker/alert-config.ts の検証と同じ値）。
@@ -67,6 +69,14 @@ export type Extracted =
     }
   | { readonly event: typeof RAID; readonly userName: string; readonly userLogin: string; readonly viewers: number }
   | { readonly event: typeof CHAT_MESSAGE; readonly userName: string; readonly userLogin: string; readonly text: string }
+  // 広告の開始と終了。userName・userLogin は広告を打った人（自動で入った広告では配信者自身が入る）
+  | {
+      readonly event: typeof AD_BREAK_BEGIN | typeof AD_BREAK_END
+      readonly userName: string
+      readonly userLogin: string
+      readonly durationSeconds: number
+      readonly automatic: boolean
+    }
 
 /**
  * 通知の中身だけでは決まらない条件の判定結果。呼び出し側（worker/alert-state.ts）が先に調べて渡す。
@@ -162,6 +172,13 @@ const readNumber = (event: EventBody, key: string): number => {
   return value
 }
 
+/** イベントの中身から真偽値の項目を読む */
+const readBoolean = (event: EventBody, key: string): boolean => {
+  const value = event[key]
+  if (typeof value !== 'boolean') throw new Error(`イベントの通知に ${key} がありません`)
+  return value
+}
+
 /** チャンネルポイント交換の reward（入れ子のオブジェクト）から報酬IDと報酬名を読む */
 const readReward = (event: EventBody): { rewardId: string; rewardTitle: string } => {
   const { reward } = event
@@ -210,6 +227,17 @@ export const extract = (subscriptionType: string, body: unknown): Extracted | nu
       const message = readChatMessage(body)
       return { event: CHAT_MESSAGE, userName: message.chatterUserName, userLogin: message.chatterUserLogin, text: message.text }
     }
+    // 広告の終了はTwitchから届かない擬似イベントで、開始と同じ中身をWorkerが渡してくる（worker/ad-break-timer.ts）。
+    // そのため読み取り方も開始と同じにする
+    case AD_BREAK_BEGIN:
+    case AD_BREAK_END:
+      return {
+        event: subscriptionType,
+        userName: readString(body, 'requester_user_name'),
+        userLogin: readString(body, 'requester_user_login'),
+        durationSeconds: readNumber(body, 'duration_seconds'),
+        automatic: readBoolean(body, 'is_automatic'),
+      }
     default:
       return null
   }
@@ -241,6 +269,9 @@ const satisfiesCondition = (condition: StoredCondition, extracted: Extracted, st
     // 初めての発言では空いた日数が決まらない（null）ので、当てはまらないものとして扱う
     case 'returningAfter':
       return extracted.event === CHAT_MESSAGE && state.daysSinceLastChat !== null && state.daysSinceLastChat >= condition.days
+    // 自動か手動かを持つのは広告だけなので、ほかのイベントでは満たさないものとして扱う（reward と同じ扱い）
+    case 'automatic':
+      return (extracted.event === AD_BREAK_BEGIN || extracted.event === AD_BREAK_END) && extracted.automatic === condition.automatic
   }
 }
 
@@ -270,6 +301,10 @@ const placeholderValues = (extracted: Extracted): Record<string, string> => {
       return { '{user}': extracted.userName, '{viewers}': String(extracted.viewers) }
     case CHAT_MESSAGE:
       return { '{user}': extracted.userName, '{message}': extracted.text }
+    // 広告の長さは秒で差し込む（Twitchが秒で知らせてくるので、分に丸めずそのまま出す）
+    case AD_BREAK_BEGIN:
+    case AD_BREAK_END:
+      return { '{user}': extracted.userName, '{duration}': String(extracted.durationSeconds) }
   }
 }
 
