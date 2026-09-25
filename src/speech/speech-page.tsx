@@ -186,7 +186,13 @@ export const SpeechPage = ({ botApi }: SpeechPageProps) => {
           <CardTitle>使うときの前提</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-2 text-sm text-muted-foreground">
-          <p>配信に使うPCで VOICEVOX を起動しておく。起動していないと、ブラウザソースに理由が表示される。</p>
+          <p>配信に使うPCで VOICEVOX を起動しておく。つながらないときは、ブラウザソースに原因と直し方が表示される。</p>
+          <p>
+            <strong className="text-foreground">VOICEVOX 側でこのサイトを許可する</strong>のが最初の1回だけ必要。
+            配信に使うPCで <code>http://127.0.0.1:50021/setting</code> を開き、CORSの許可するオリジンに{' '}
+            <code>{window.location.origin}</code> を足して保存し、VOICEVOX を再起動する。
+            VOICEVOX は既定で localhost 以外からの読み出しを拒むため、これをしないとつながらない。
+          </p>
           <p>読み上げるのはこのチャンネルのチャットで、コマンド（!で始まる発言）・エモートだけの発言は読まない。</p>
           <p>URLは「URL」と読み替え、同じ文字の連打は2文字に縮める。聞いても分からないものを読ませないため。</p>
           <p>チャットが速いときは古い発言を捨てて、新しい発言から読む。</p>
