@@ -1,74 +1,89 @@
 /*
  * サイドスーパーの見た目
  *
- * 配信画面の隅に出しっぱなしにするテロップなので、地は透過のまま、文言だけをひとつのボックスにして置く。
- * バラエティ番組のサイドスーパーに寄せて、白い地・太い黒文字・アクセント色の帯・濃い影という組み合わせにする
- * （映像の明るさに左右されず読めるのは、半透明の黒帯よりも不透明な白地のほうであるため）。
+ * 配信画面の隅に出しっぱなしにするテロップなので、地は透過のまま、文言だけを置く。
+ * テレビ（とくにバラエティ番組）のサイドスーパーに寄せて、次の3つを守る。
+ * - 上段（見出し＝コーナー名）と下段（本文＝いまの話題）を、ひとつの箱に入れず別々の帯として置く
+ *   （ひとつの箱にまとめると、テロップではなくWebの通知カードに見える）
+ * - 下段は地を持たず、太い黒フチの袋文字にする（映像に焼き込まれた文字に見え、
+ *   背景が明るくても暗くても同じように読める。白い箱を敷くと箱のほうが目立ってしまう）
+ * - 書体は丸ゴシックではなく太い角ゴシック（Zen Kaku Gothic New の900）にする
+ *
  * 寄せる向きは URLパラメータ position（src/side-super/stage.ts）から data-position に入る。
- * 文字の大きさは、1行あたりの文字数の上限（worker/side-super.ts の MAX_SIDE_SUPER_LINE_LENGTH は20文字）と
- * 配信画面の幅（1920px）を前提に決めてある。全角20文字のときのボックスの幅は実測で約753pxで、
- * 配信画面のおよそ4割に収まる。
+ * 文字の大きさは、行ごとの文字数の上限（worker/side-super.ts の MAX_SIDE_SUPER_HEAD_LENGTH は14文字、
+ * MAX_SIDE_SUPER_BODY_LENGTH は20文字）と配信画面の幅（1920px）を前提に決めてある。
+ * 上限いっぱいの全角文字を入れたときの幅は実測で見出しが約420px・本文が約808pxで、
+ * テロップ全体は配信画面のおよそ4割・高さ約100pxに収まる。
  */
 .side-super {
   position: fixed;
-  top: 24px;
-  left: 24px;
+  top: 28px;
+  left: 28px;
   display: flex;
   flex-direction: column;
+  /* 見出しの帯と本文の袋文字が触れないだけの隙間。テレビのテロップと同じく上下は近づける */
+  gap: 6px;
   align-items: flex-start;
   /*
-   * 上限いっぱいの20文字（実測 約753px）が収まる幅にしておき、それ以上は広げない。
+   * 上限いっぱいの本文（20文字。実測で約808px）が収まる幅にしておき、それ以上は広げない。
    * 画面の幅に対する割合（vw）ではなくpxで持つのは、文字の大きさがpxで固定されているためである。
    * 割合で持つと、配信画面が1920pxより狭いときに上限いっぱいの行が枠に入りきらず、
    * 折り返さない（white-space: nowrap）ぶんそのまま切れてしまう。
    */
-  max-width: 800px;
-  font-family: 'Zen Maru Gothic', 'Hiragino Sans', 'Yu Gothic UI', sans-serif;
+  max-width: 880px;
+  font-family: 'Zen Kaku Gothic New', 'Hiragino Sans', 'Yu Gothic UI', sans-serif;
 }
 
 .side-super[data-position='right'] {
-  right: 24px;
+  right: 28px;
   left: auto;
   align-items: flex-end;
 }
 
-/* 行をまとめて入れる白いボックス。これ自体がテロップの枠になる */
-.side-super-box {
-  padding: 10px 22px 12px;
-  border: 3px solid #14171f;
-  /* 外側の黒枠の内側にアクセント色の帯を入れる（テロップの「見出しの色」にあたる） */
-  border-left: 12px solid #e4344f;
-  border-radius: 6px;
-  background: #fff;
-  /* 明るい映像の上でも枠が溶けないよう、濃いめの影を短く落とす */
-  box-shadow: 0 6px 0 rgb(0 0 0 / 22%), 0 8px 20px rgb(0 0 0 / 35%);
+/*
+ * 見出し（コーナー名）。赤い帯に白抜きで、白いフチと段差の影を付ける。
+ * 本文より小さく短いので、上下の大きさの差がそのまま「見出しと中身」の階層になる。
+ */
+.side-super-head {
+  margin: 0;
+  padding: 5px 18px 7px;
+  border: 3px solid #fff;
+  border-radius: 4px;
+  background: linear-gradient(#f0556d, #d2233d);
+  box-shadow:
+    0 3px 0 #3d0812,
+    0 6px 14px rgb(0 0 0 / 55%);
+  color: #fff;
+  font-size: 25px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  white-space: nowrap;
   animation: side-super-in 400ms ease-out;
 }
 
-/* 右上に置くときは、アクセントの帯も画面の外側（右）に寄せる */
-.side-super[data-position='right'] .side-super-box {
-  border-right: 12px solid #e4344f;
-  border-left: 3px solid #14171f;
-}
-
-.side-super-line {
-  margin: 0;
-  color: #14171f;
-  font-size: 34px;
-  font-weight: 700;
-  line-height: 1.3;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-}
-
 /*
- * 2行あるときの1行目は、番組のテロップと同じく「小さな見出し」として扱う。
- * 1行しか無いときは :last-child に当たるのでこの指定が外れ、大きい文字のまま出る。
+ * 本文（いまの話題）。地を持たず、白〜薄い金のグラデーションを文字に載せ、黒フチで縁取る。
+ *
+ * 縁取りに -webkit-text-stroke を使わないのは、グラデーションを載せるために塗りを透明
+ * （-webkit-text-fill-color: transparent）にする必要があり、塗りが透明だと paint-order を指定しても
+ * 縁取りの内側まで透けてしまうためである。代わりに drop-shadow を上下左右の4方向にずらして重ね、
+ * 描かれた文字の形そのものを縁取る。最後の2つは、テレビのテロップと同じ「真下への段差」と、
+ * 明るい映像の上でも文字が浮くための薄いぼかしである。
  */
-.side-super-line:not(:last-child) {
-  margin-bottom: 2px;
-  color: #e4344f;
-  font-size: 22px;
+.side-super-body {
+  margin: 0;
+  background: linear-gradient(#fff 45%, #ffd772);
+  background-clip: text;
+  font-size: 40px;
+  font-weight: 900;
+  letter-spacing: 0.01em;
+  line-height: 1.15;
+  white-space: nowrap;
+  filter: drop-shadow(3px 0 0 #14171f) drop-shadow(-3px 0 0 #14171f) drop-shadow(0 3px 0 #14171f) drop-shadow(0 -3px 0 #14171f)
+    drop-shadow(0 6px 0 rgb(0 0 0 / 85%)) drop-shadow(0 8px 16px rgb(0 0 0 / 55%));
+  animation: side-super-in 400ms ease-out;
+  -webkit-text-fill-color: transparent;
 }
 
 /* 文言が変わったときだけ走る（同じ文言では要素を作り直さない。src/side-super/view.ts を参照） */
@@ -86,7 +101,8 @@
 
 /* 配信画面に映すものなので、動きを減らす設定の環境では出現の動きを止める */
 @media (prefers-reduced-motion: reduce) {
-  .side-super-box {
+  .side-super-head,
+  .side-super-body {
     animation: none;
   }
 }

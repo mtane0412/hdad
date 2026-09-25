@@ -4,7 +4,7 @@
  * 画面（side-super-page.tsx）から分けてテストする（transcript/url.ts と同じ扱い）。
  */
 import { describe, expect, it } from 'vitest'
-import { sideSuperUrl } from './url'
+import { sideSuperDemoUrl, sideSuperUrl } from './url'
 
 const オーバーレイ用キー = 'overlay-key_0123456789abcdefghij'
 const サイト = 'https://hdad.example.com'
@@ -22,5 +22,19 @@ describe('sideSuperUrl', () => {
 
   it('左上（既定）なら書き足さない（URLを短く保つ）', () => {
     expect(sideSuperUrl(サイト, オーバーレイ用キー, 'left')).not.toContain('position=')
+  })
+})
+
+describe('sideSuperDemoUrl', () => {
+  it('サンプルを流すURLには、オーバーレイ用キーを付けない（デモはWorkerに接続しないため）', () => {
+    expect(sideSuperDemoUrl(サイト, 'left')).toBe(`${サイト}/side-super/overlay/?demo=true`)
+  })
+
+  it('右上に出すときは、寄せる向きをURLに書き足す', () => {
+    expect(sideSuperDemoUrl(サイト, 'right')).toBe(`${サイト}/side-super/overlay/?demo=true&position=right`)
+  })
+
+  it('左上（既定）なら書き足さない（URLを短く保つ）', () => {
+    expect(sideSuperDemoUrl(サイト, 'left')).not.toContain('position=')
   })
 })

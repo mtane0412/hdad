@@ -34,10 +34,13 @@ describe('readSideSuper', () => {
 
   it('配信が終わっていても、その配信のサイドスーパーは読める（作り直しの判定に使うため）', async () => {
     配信を始める('配信1')
-    await saveSideSuper(db, '配信1', ['2つめの街に到着'], 作成時刻)
+    await saveSideSuper(db, '配信1', ['初見プレイ中', '2つめの街に到着'], 作成時刻)
     配信を終える(作成時刻 + 60000)
 
-    expect(await readSideSuper(db, '配信1')).toEqual({ lines: ['2つめの街に到着'], updatedAt: '2026-09-23T20:10:00.000Z' })
+    expect(await readSideSuper(db, '配信1')).toEqual({
+      lines: ['初見プレイ中', '2つめの街に到着'],
+      updatedAt: '2026-09-23T20:10:00.000Z',
+    })
   })
 })
 
@@ -54,32 +57,28 @@ describe('readCurrentSideSuper', () => {
 
   it('いま進んでいる配信のサイドスーパーを、作った日時とともに返す', async () => {
     配信を始める('配信1')
-    await saveSideSuper(db, '配信1', ['2つめの街に到着', 'ボス戦へ向けて装備集め'], 作成時刻)
+    await saveSideSuper(db, '配信1', ['初見プレイ中', 'ボス戦へ向けて装備集め'], 作成時刻)
 
     expect(await readCurrentSideSuper(db, 作成時刻)).toEqual({
-      lines: ['2つめの街に到着', 'ボス戦へ向けて装備集め'],
+      lines: ['初見プレイ中', 'ボス戦へ向けて装備集め'],
       updatedAt: '2026-09-23T20:10:00.000Z',
     })
   })
 
-  it('1行だけのサイドスーパーは1行のまま返す', async () => {
-    配信を始める('配信1')
-    await saveSideSuper(db, '配信1', ['雑談しています'], 作成時刻)
-
-    expect(await readCurrentSideSuper(db, 作成時刻)).toEqual({ lines: ['雑談しています'], updatedAt: '2026-09-23T20:10:00.000Z' })
-  })
-
   it('作り直すと上書きされ、行は1件のままになる', async () => {
     配信を始める('配信1')
-    await saveSideSuper(db, '配信1', ['2つめの街に到着'], 作成時刻)
-    await saveSideSuper(db, '配信1', ['ボスに挑戦中'], 作成時刻 + 300000)
+    await saveSideSuper(db, '配信1', ['初見プレイ中', '2つめの街に到着'], 作成時刻)
+    await saveSideSuper(db, '配信1', ['初見プレイ中', 'ボスに挑戦中'], 作成時刻 + 300000)
 
-    expect(await readCurrentSideSuper(db, 作成時刻 + 300000)).toEqual({ lines: ['ボスに挑戦中'], updatedAt: '2026-09-23T20:15:00.000Z' })
+    expect(await readCurrentSideSuper(db, 作成時刻 + 300000)).toEqual({
+      lines: ['初見プレイ中', 'ボスに挑戦中'],
+      updatedAt: '2026-09-23T20:15:00.000Z',
+    })
   })
 
   it('配信が終わっていれば、その配信のサイドスーパーは返さない', async () => {
     配信を始める('配信1')
-    await saveSideSuper(db, '配信1', ['2つめの街に到着'], 作成時刻)
+    await saveSideSuper(db, '配信1', ['初見プレイ中', '2つめの街に到着'], 作成時刻)
     配信を終える(作成時刻 + 60000)
 
     expect(await readCurrentSideSuper(db, 作成時刻 + 120000)).toBeNull()
@@ -87,7 +86,7 @@ describe('readCurrentSideSuper', () => {
 
   it('前の配信のサイドスーパーは次の配信に持ち越さない', async () => {
     配信を始める('配信1')
-    await saveSideSuper(db, '配信1', ['2つめの街に到着'], 作成時刻)
+    await saveSideSuper(db, '配信1', ['初見プレイ中', '2つめの街に到着'], 作成時刻)
     配信を終える(作成時刻 + 60000)
     配信を始める('配信2', 作成時刻 + 120000)
 

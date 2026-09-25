@@ -6,16 +6,20 @@
  *
  * URLの組み立ては url.ts に分けてテストする。オーバーレイ用キーはアプリの枠から受け取り、
  * 再発行はトリガーのページ（/triggers/）が受け持つ（キーはアラート・文字起こしと共通のため、出し先を増やさない）。
+ *
+ * 文言は cron が作るものなので、配信していないあいだや作られる前は何も映らない。それでは見栄えを
+ * 確かめられないため、サンプルを流すデモ（?demo=true）へのリンクも出す。オーバーレイはアプリの外なので、
+ * 画面の移動（router.tsx の Link）ではなく普通の `<a>` で、別のタブに開く。
  */
 import { useId, useState } from 'react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { usePageActions } from '@/admin/page-actions'
-import { DEFAULT_SIDE_SUPER_POSITION, sideSuperUrl, type SideSuperPosition } from './url'
+import { DEFAULT_SIDE_SUPER_POSITION, sideSuperDemoUrl, sideSuperUrl, type SideSuperPosition } from './url'
 
 /** ブラウザソースに設定する推奨の大きさ。配信画面と同じ大きさにして、隅の余白ごと重ねる */
 const OVERLAY_SIZE = { width: 1920, height: 1080 }
@@ -43,6 +47,7 @@ export const SideSuperPage = ({ overlayKey }: { overlayKey: string | null }) => 
   }
 
   const url = sideSuperUrl(window.location.origin, overlayKey, position)
+  const demoUrl = sideSuperDemoUrl(window.location.origin, position)
 
   const copyUrl = async (): Promise<string> => {
     // Clipboard API は https か localhost でしか提供されず、それ以外では navigator.clipboard が undefined になる
@@ -58,7 +63,7 @@ export const SideSuperPage = ({ overlayKey }: { overlayKey: string | null }) => 
       <Card>
         <CardHeader>
           <CardTitle>OBS用のURL</CardTitle>
-          <CardDescription>配信画面の隅に、いま何をしているかを2行までで出し続ける。</CardDescription>
+          <CardDescription>配信画面の隅に、いま何をしているかを2行のテロップで出し続ける。</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <Label htmlFor={positionFieldId}>出す位置</Label>
@@ -90,6 +95,16 @@ export const SideSuperPage = ({ overlayKey }: { overlayKey: string | null }) => 
           <p className="text-sm text-muted-foreground">
             キーの再発行はトリガーのページで行う。再発行するとこのURLも使えなくなるので、貼り替える必要がある。
           </p>
+
+          <div className="flex items-center gap-3">
+            {/* オーバーレイはアプリの外なので、router.tsx の Link ではなく普通の `<a>` で開く */}
+            <a className={buttonVariants({ variant: 'outline' })} href={demoUrl} target="_blank" rel="noreferrer">
+              デモを開く
+            </a>
+            <p className="text-sm text-muted-foreground">
+              サンプルの文言を順に切り替えて出す。文言が作られるのを待たずに見栄えと配置を決められる。
+            </p>
+          </div>
         </CardContent>
       </Card>
 
@@ -99,7 +114,8 @@ export const SideSuperPage = ({ overlayKey }: { overlayKey: string | null }) => 
         </CardHeader>
         <CardContent className="flex flex-col gap-2 text-sm text-muted-foreground">
           <p>材料は、配信中の文字起こし・視聴者の発言と、配信のカテゴリ・タイトル。</p>
-          <p>1行20文字まで、最大2行。長すぎる文言が返ってきた回は、前の文言をそのまま出し続ける。</p>
+          <p>上の段はコーナー名（14文字まで）、下の段はいまの話題（20文字まで）。</p>
+          <p>行が足りない・長すぎる文言が返ってきた回は、前の文言をそのまま出し続ける。</p>
           <p>5分おきに作り直す。文字起こしを取り込んでいると、いまの話題をより正しく言い当てられる。</p>
           <p>配信していないあいだは何も映らないので、OBSのソースは開いたままでよい。</p>
         </CardContent>
