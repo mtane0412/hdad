@@ -9,7 +9,7 @@ import { MAX_VIEWER_SUMMARY_LENGTH } from './viewer-summary'
 import { STREAM_CHAT_RETENTION_MS, SUMMARY_BATCH_SIZE, collectStats } from './collect'
 import { readStreamSummary } from './stream-summary-store'
 import { readSideSuper } from './side-super-store'
-import { MAX_SIDE_SUPER_LINE_LENGTH } from './side-super'
+import { MAX_SIDE_SUPER_BODY_LENGTH } from './side-super'
 import { createFakeDatabase } from './fake-database'
 import { createFakeStore } from './fake-store'
 import { getSession, listFailures, listFollowerSamples, listSessions } from './stats-store'
@@ -38,6 +38,15 @@ const 保管中のトークン: StoredToken = {
 }
 
 /** 決まった人物像を返すLLMの代役。呼ばれた回数を控えて、無駄に呼んでいないかを確かめられるようにする */
+/**
+ * 1回の収集で作られるものすべてが成功する応答。
+ *
+ * サイドスーパーはちょうど2行でなければ保存されない（worker/side-super.ts の SIDE_SUPER_LINES）。
+ * 「前回作ったあとに新しい材料が無ければ作り直さない」ことを確かめるテストでは、1回目の収集で
+ * サイドスーパーまで保存されている必要があるため、既定の1行の応答ではなく2行のこれを使う。
+ */
+const 全部が成功する応答 = { response: '初見プレイ中\nボス戦へ向けて装備集め' }
+
 const AIの代役 = (response: unknown = { response: 'ギターの話をよくする常連さん' }): TextGenerator & { 呼ばれた数: () => number } => {
   let 回数 = 0
   return {
@@ -375,7 +384,7 @@ describe('あらすじの生成', () => {
   it('前回のあらすじのあとに新しい材料が無ければ、作り直さない', async () => {
     const { db, store } = await 環境を作る()
     配信中の材料を作る(db)
-    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(全部が成功する応答), broadcasterId: 配信者のID, now: 現在時刻 })
     const ai = AIの代役()
 
     await collectStats({ db, store, twitch: Twitchの代役(), ai, broadcasterId: 配信者のID, now: 現在時刻 + 5 * 60 * 1000 })
@@ -458,7 +467,7 @@ describe('サイドスーパーの生成', () => {
   it('前回作ったあとに新しい材料が無ければ、作り直さない', async () => {
     const { db, store } = await 環境を作る()
     配信中の材料を作る(db)
-    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(全部が成功する応答), broadcasterId: 配信者のID, now: 現在時刻 })
     const ai = AIの代役()
 
     await collectStats({ db, store, twitch: Twitchの代役(), ai, broadcasterId: 配信者のID, now: 現在時刻 + 5 * 60 * 1000 })
@@ -469,7 +478,7 @@ describe('サイドスーパーの生成', () => {
   it('LLMが失敗しても収集は止めず、失敗を記録して前回のサイドスーパーを残す', async () => {
     const { db, store } = await 環境を作る()
     配信中の材料を作る(db)
-    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役({ response: '新作ゲーム' }), broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役({ response: '新作ゲーム\n初見プレイ中' }), broadcasterId: 配信者のID, now: 現在時刻 })
     db.sqlite
       .prepare('INSERT INTO transcripts (message_id, session_id, spoken_at, text) VALUES (?, ?, ?, ?)')
       .run('hatsuwa-2', 雑談配信.id, new Date(現在時刻 + 60 * 1000).toISOString(), 'ボスに負けました')
@@ -483,7 +492,7 @@ describe('サイドスーパーの生成', () => {
       now: 現在時刻 + 5 * 60 * 1000,
     })
 
-    expect((await readSideSuper(db, 雑談配信.id))?.lines).toEqual(['新作ゲーム'])
+    expect((await readSideSuper(db, 雑談配信.id))?.lines).toEqual(['新作ゲーム', '初見プレイ中'])
     expect((await listFailures(db)).map((failure) => failure.code)).toContain('side-super-failed')
     expect((await getSession(db, 雑談配信.id))?.samples).toHaveLength(2)
   })
@@ -496,7 +505,7 @@ describe('サイドスーパーの生成', () => {
       db,
       store,
       twitch: Twitchの代役(),
-      ai: AIの代役({ response: 'あ'.repeat(MAX_SIDE_SUPER_LINE_LENGTH + 1) }),
+      ai: AIの代役({ response: `新作ゲーム\n${'あ'.repeat(MAX_SIDE_SUPER_BODY_LENGTH + 1)}` }),
       broadcasterId: 配信者のID,
       now: 現在時刻,
     })

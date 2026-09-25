@@ -17,7 +17,7 @@ const toIso = (milliseconds: number): string => new Date(milliseconds).toISOStri
 
 /** 読み出したサイドスーパー */
 export interface SideSuper {
-  /** 表示する行（1行または2行） */
+  /** 表示する行（見出しと本文の2行） */
   lines: SideSuperLines
   /** この文言を作った日時 */
   updatedAt: string
@@ -39,14 +39,19 @@ export const saveSideSuper = async (db: Database, sessionId: string, lines: Side
          line2 = excluded.line2,
          updated_at = excluded.updated_at`,
     )
-    // 2行目が無いサイドスーパーでは空文字を入れる（列は NOT NULL）
-    .bind(sessionId, line1, line2 ?? '', toIso(now))
+    .bind(sessionId, line1, line2, toIso(now))
     .run()
 }
 
-/** 読み出した行を、保存の形（2列）から組に直す */
+/**
+ * 読み出した行を、保存の形（2列）から組に直す。
+ *
+ * サイドスーパーは必ず見出しと本文の2行なので（worker/side-super.ts の SIDE_SUPER_LINES）、
+ * 場合分けは要らない。2行に固定する前に保存された1行だけの行は
+ * migrations/0013_side_super_two_lines.sql が消してあるので、ここに空の本文は来ない。
+ */
 const toSideSuper = (row: { line1: string; line2: string; updatedAt: string }): SideSuper => ({
-  lines: row.line2 === '' ? [row.line1] : [row.line1, row.line2],
+  lines: [row.line1, row.line2],
   updatedAt: row.updatedAt,
 })
 
