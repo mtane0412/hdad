@@ -13,6 +13,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { AdBreakTimer, scheduleAdBreakEnd, type AdBreakEnd, type AdBreakTimerState } from './ad-break-timer'
 import { saveAlertConfig } from './alert-config'
+import { listFailures } from './stats-store'
 import { createFakeAi } from './fake-ai'
 import { createFakeAlertChannel } from './fake-alert-channel'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
@@ -171,6 +172,21 @@ describe('AdBreakTimer', () => {
     await timer.alarm()
 
     expect(通信しない).not.toHaveBeenCalled()
+  })
+
+  it('動作の実行が失敗しても投げずに、収集の失敗として記録する（予約を消したあとなので、再試行では取り返せない）', async () => {
+    const { state } = 保管の代役()
+    const env = await 環境を作る()
+    // トリガーの設定を読めない状態（保存されている形が古い）にして、照合の手前で失敗させる
+    await env.STORE.put('alert-config', JSON.stringify({ triggers: [{ event: 'channel.ad_break.end', rewardId: '報酬ID' }] }))
+    const timer = new AdBreakTimer(state, env, { fetch: 送信に応えるTwitch().fetchImpl, now: () => 現在時刻, wait: 待たない })
+
+    await timer.fetch(
+      new Request('https://ad-break-timer/schedule', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(予約()) }),
+    )
+    await expect(timer.alarm()).resolves.toBeUndefined()
+
+    expect((await listFailures(env.DB)).map((failure) => failure.code)).toEqual(['ad-break-end-failed'])
   })
 
   it('知らないパスは404を返す（この Durable Object を呼ぶのは Worker だけ）', async () => {

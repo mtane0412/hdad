@@ -18,7 +18,7 @@
  * 注意: アラームは1回しか鳴らないので、鳴ったら予約を消す。消してから実行するのは、実行が失敗したときに
  * アラームの再試行で同じ告知を二度送らないためである（送信そのものの二重防止は alert-actions.ts の鍵が受け持つ）。
  */
-import { runAlertActions } from './alert-actions'
+import { recordLateFailure, runAlertActions } from './alert-actions'
 import { AD_BREAK_END } from './alert-config'
 import { STATUS, type Env } from './http'
 import { loadToken } from './token'
@@ -115,6 +115,10 @@ export const scheduleAdBreakEnd = async (namespace: AdBreakTimerNamespace, end: 
  *
  * 注意: LLMに文面を作らせる動作（aiChat）は応答を待つと遅いため、ふだんはTwitchへの応答後に回している。
  * アラームには待たせる相手がいないので、ここでは後回しにされた処理も最後まで待つ（待たずに終えると取りこぼす）。
+ *
+ * 注意: 失敗は投げずに収集の失敗（ad-break-end-failed）として記録する。呼び出し側は予約を消したあとなので、
+ * 投げてアラームを再試行させても予約が無く空振りするだけで、失敗が誰にも届かないまま消えてしまう
+ * （送信そのものの失敗は runAlertActions の中で動作ごとに記録される。ここで受け止めるのはその手前の失敗である）。
  */
 const runAdBreakEnd = async (env: Env, end: AdBreakEnd, dependencies: AdBreakDependencies): Promise<void> => {
   const 後回しの処理: Promise<unknown>[] = []
@@ -127,10 +131,12 @@ const runAdBreakEnd = async (env: Env, end: AdBreakEnd, dependencies: AdBreakDep
     waitUntil: (promise: Promise<unknown>): void => void 後回しの処理.push(promise),
   }
 
-  // botの接続はここで調べる（チャット・アナウンスの動作は送り主のアカウントが要る）。
-  // 通知の中身は預かったものをそのまま渡し、状態を持つ条件（初めての発言かなど）は発言ではないので使わない
-  await runAlertActions(context, AD_BREAK_END, { event: end.event }, `${end.messageId}:ad-end`, async () => (await loadToken(env.STORE, 'bot')) !== null, null)
-  await Promise.all(後回しの処理)
+  await recordLateFailure(context, 'ad-break-end-failed', async () => {
+    // botの接続はここで調べる（チャット・アナウンスの動作は送り主のアカウントが要る）。
+    // 通知の中身は預かったものをそのまま渡し、状態を持つ条件（初めての発言かなど）は発言ではないので使わない
+    await runAlertActions(context, AD_BREAK_END, { event: end.event }, `${end.messageId}:ad-end`, async () => (await loadToken(env.STORE, 'bot')) !== null, null)
+    await Promise.all(後回しの処理)
+  })
 }
 
 /**

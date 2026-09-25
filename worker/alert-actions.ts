@@ -203,9 +203,12 @@ const pushMatchedAlert = async (
  * 応答のあとに走らせる処理ではその手が使えず、投げたままでは誰も受け取らないまま消えてしまうので、
  * ここで受け止めて記録まで引き受ける。
  *
+ * 広告の終了のタイマー（worker/ad-break-timer.ts）も同じ立場にある。アラームが鳴った時点で予約を消しているので、
+ * そこから先の失敗は再試行では取り返せない。そのためアラームの実行そのものもこれで包む。
+ *
  * 注意: 記録そのものが失敗したら（データベースに触れないときなど）、もう打つ手がないのでログに残すだけにする。
  */
-const recordLateFailure = async (context: AlertActionContext, failureCode: string, run: () => Promise<void>): Promise<void> => {
+export const recordLateFailure = async (context: AlertActionContext, failureCode: string, run: () => Promise<void>): Promise<void> => {
   const { env, now } = context
   try {
     await run()
