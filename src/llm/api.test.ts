@@ -4,17 +4,27 @@
  * 実際の通信はせず、fetch を差し替える（speech/api.test.ts と同じ形）。
  * 確かめること:
  * - 管理用の経路（/api/admin/llm）を読み書きすること
+ * - AIを使う4か所ぶんの設定を、そのまま受け取れること
  * - 応答が想定した形でなければエラーにすること（黙って既定の提供元に倒さない）
  */
 import { describe, expect, it } from 'vitest'
 import { ApiError } from '../core/api'
 import { createLlmApi, type LlmSettings } from './api'
 
-/** Workerが返す、保存済みの設定 */
+/** 短い文を作る3か所の既定のモデル */
+const 軽いモデル = { 'workers-ai': '@cf/meta/llama-3.1-8b-instruct-fp8', openrouter: 'meta-llama/llama-3.1-8b-instruct' }
+
+/** Workerが返す、保存済みの設定。あらすじだけ OpenRouter に切り替えている */
 const 保存済みの設定: LlmSettings = {
-  provider: 'openrouter',
-  workersAi: { chat: '@cf/meta/llama-3.1-8b-instruct-fp8', summary: '@cf/meta/llama-3.3-70b-instruct-fp8-fast' },
-  openrouter: { chat: 'meta-llama/llama-3.1-8b-instruct', summary: 'anthropic/claude-3.5-haiku' },
+  usages: {
+    aiChat: { provider: 'workers-ai', models: { ...軽いモデル } },
+    sideSuper: { provider: 'workers-ai', models: { ...軽いモデル } },
+    viewerSummary: { provider: 'workers-ai', models: { ...軽いモデル } },
+    streamSummary: {
+      provider: 'openrouter',
+      models: { 'workers-ai': '@cf/meta/llama-3.3-70b-instruct-fp8-fast', openrouter: 'anthropic/claude-3.5-haiku' },
+    },
+  },
 }
 
 /** 呼ばれた内容を記録し、決めた応答を返す fetch */
@@ -44,20 +54,35 @@ describe('createLlmApi', () => {
 
   it('Workerが問題点を返したら ApiError にする（画面が理由を並べられるようにする）', async () => {
     const { fetchImpl } = 応答を返すfetch(400, {
-      error: { code: 'invalid-config', message: 'LLMの設定に問題があります', problems: ['openrouter.chat: モデル名を200文字以内で指定してください'] },
+      error: {
+        code: 'invalid-config',
+        message: 'LLMの設定に問題があります',
+        problems: ['aiChat.models.openrouter: モデル名を200文字以内で指定してください'],
+      },
     })
 
     await expect(createLlmApi(fetchImpl).save(保存済みの設定)).rejects.toThrow(ApiError)
   })
 
   it('知らない提供元が返ってきたらエラーにする（黙って Workers AI に倒さない）', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, { ...保存済みの設定, provider: 'openai' })
+    const { fetchImpl } = 応答を返すfetch(200, {
+      usages: { ...保存済みの設定.usages, aiChat: { provider: 'openai', models: { ...軽いモデル } } },
+    })
 
     await expect(createLlmApi(fetchImpl).load()).rejects.toThrow('/api/admin/llm')
   })
 
-  it('用途ごとのモデル名が足りなければエラーにする', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, { ...保存済みの設定, openrouter: { chat: 'meta-llama/llama-3.1-8b-instruct' } })
+  it('使う箇所が1つでも欠けていればエラーにする', async () => {
+    const 残り = { ...保存済みの設定.usages, streamSummary: undefined }
+    const { fetchImpl } = 応答を返すfetch(200, { usages: 残り })
+
+    await expect(createLlmApi(fetchImpl).load()).rejects.toThrow('/api/admin/llm')
+  })
+
+  it('提供元ごとのモデル名が足りなければエラーにする', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, {
+      usages: { ...保存済みの設定.usages, sideSuper: { provider: 'workers-ai', models: { 'workers-ai': '@cf/meta/llama-3.1-8b-instruct-fp8' } } },
+    })
 
     await expect(createLlmApi(fetchImpl).load()).rejects.toThrow('/api/admin/llm')
   })

@@ -6,7 +6,7 @@
  * 応答の形の読み分け（provider ごとの違い）はここではなく worker/llm.ts の担当なので、そちらのテストで確かめる。
  */
 import { describe, expect, it } from 'vitest'
-import type { LlmPurpose } from './llm-config'
+import type { LlmUsage } from './llm-config'
 import type { LlmRequest, TextGenerator } from './llm'
 import { MAX_VIEWER_SUMMARY_LENGTH, buildSummaryPrompt, generateViewerSummary } from './viewer-summary'
 import type { Viewer } from './viewer-store'
@@ -30,13 +30,13 @@ const 材料 = (上書き: Partial<Parameters<typeof buildSummaryPrompt>[0]> = {
   ...上書き,
 })
 
-/** 決まった文面を返すLLMの代役。渡された引数を控えて、用途の指名と材料が漏れていないかを確かめられるようにする */
-const 代役 = (response: string): TextGenerator & { 呼ばれた: { purpose: LlmPurpose; request: LlmRequest }[] } => {
-  const 呼ばれた: { purpose: LlmPurpose; request: LlmRequest }[] = []
+/** 決まった文面を返すLLMの代役。渡された引数を控えて、箇所の指名と材料が漏れていないかを確かめられるようにする */
+const 代役 = (response: string): TextGenerator & { 呼ばれた: { usage: LlmUsage; request: LlmRequest }[] } => {
+  const 呼ばれた: { usage: LlmUsage; request: LlmRequest }[] = []
   return {
     呼ばれた,
-    run: (purpose, request) => {
-      呼ばれた.push({ purpose, request })
+    run: (usage, request) => {
+      呼ばれた.push({ usage, request })
       return Promise.resolve(response)
     },
   }

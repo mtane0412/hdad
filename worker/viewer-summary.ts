@@ -7,7 +7,7 @@
  *
  * 材料の組み立て（buildSummaryPrompt）はLLMを呼ばない純粋な関数として分けてテストし、
  * 呼び出し（generateViewerSummary）はLLM（worker/llm.ts の TextGenerator）を引数で受け取って差し替えられるようにする。
- * 用途（chat）を指名するだけにして、どの提供元（Workers AI・OpenRouter）のどのモデルを使うかは設定（llm-config.ts）に任せる。
+ * どこで使うかを指名するだけにして、どの提供元（Workers AI・OpenRouter）のどのモデルを使うかは設定（llm-config.ts）に任せる。
  * ここは ai-chat.ts と同じ作りで、モデルとバインディングの型もそちらと共有する。
  *
  * 注意: 返ってきた人物像をそのまま信用しない。上限より長ければ切り詰めずに投げる（呼び出し側が記録する）。
@@ -93,7 +93,7 @@ export const buildSummaryPrompt = (material: ViewerSummaryMaterial): string => {
  *   いずれも呼び出し側（worker/collect.ts）が viewer-summary-failed として記録し、材料は消さずに残す
  */
 export const generateViewerSummary = async (ai: TextGenerator, material: ViewerSummaryMaterial): Promise<string> => {
-  const result = await ai.run('chat', {
+  const result = await ai.run('viewerSummary', {
     messages: [
       { role: 'system', content: 'あなたはTwitchの配信者の助手です。視聴者の発言と記録から、その人がどんな人かを短くまとめます。' },
       { role: 'user', content: buildSummaryPrompt(material) },

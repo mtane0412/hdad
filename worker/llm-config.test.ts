@@ -1,25 +1,33 @@
 /**
  * LLMの設定（llm-config.ts）のテスト
  *
- * どの提供元（Workers AI・OpenRouter）のどのモデルに文面を作らせるかを、管理画面から受け取って検証する。
- * 特に重要なのは次の3点。
+ * AIを使う4か所（トリガーの動作 aiChat・サイドスーパー・視聴者の人物像・配信のあらすじ）それぞれについて、
+ * どの提供元（Workers AI・OpenRouter）のどのモデルに作らせるかを、管理画面から受け取って検証する。
+ * 特に重要なのは次の4点。
+ * - 使う箇所ごとに提供元を選べること（あらすじだけ OpenRouter にする、といった使い方ができる）
  * - 提供元ごとにモデル名を別に持つこと（提供元を切り替えて戻したときに、前のモデル名が消えないため）
  * - 問題点を最初の1件で止めず、すべて集めてから拒否すること（管理画面で一度に直せるようにするため）
- * - 未保存なら既定の設定（Workers AI）で動くこと（設定していない配信者のあらすじづくりを止めないため）
+ * - 未保存なら既定の設定（すべて Workers AI）で動くこと（設定していない配信者のあらすじづくりを止めないため）
  */
 import { describe, expect, it } from 'vitest'
 import { createFakeStore } from './fake-store'
-import { DEFAULT_LLM_SETTINGS, loadLlmSettings, parseLlmSettings, saveLlmSettings, type LlmSettings } from './llm-config'
+import { DEFAULT_LLM_SETTINGS, LLM_USAGES, loadLlmSettings, parseLlmSettings, saveLlmSettings, type LlmSettings } from './llm-config'
 
-/** 配信者が画面で組み立てた、OpenRouter を使う設定 */
+/** 既定の設定のうち、1か所だけを差し替えたものを作る */
+const 差し替える = (usage: 'aiChat' | 'sideSuper' | 'viewerSummary' | 'streamSummary', settings: unknown): unknown => ({
+  usages: { ...DEFAULT_LLM_SETTINGS.usages, [usage]: settings },
+})
+
+/** 配信者が画面で組み立てた設定。あらすじだけ OpenRouter に切り替えている */
 const 配信者の設定: LlmSettings = {
-  provider: 'openrouter',
-  workersAi: { chat: '@cf/meta/llama-3.1-8b-instruct-fp8', summary: '@cf/meta/llama-3.3-70b-instruct-fp8-fast' },
-  openrouter: { chat: 'meta-llama/llama-3.1-8b-instruct', summary: 'anthropic/claude-3.5-haiku' },
+  usages: {
+    ...DEFAULT_LLM_SETTINGS.usages,
+    streamSummary: {
+      provider: 'openrouter',
+      models: { 'workers-ai': '@cf/meta/llama-3.3-70b-instruct-fp8-fast', openrouter: 'anthropic/claude-3.5-haiku' },
+    },
+  },
 }
-
-/** 既定の設定に、変えたい項目だけを上書きしたものを送る */
-const 送る = (上書き: Record<string, unknown> = {}): unknown => ({ ...DEFAULT_LLM_SETTINGS, ...上書き })
 
 /** 検証で見つかった問題点の一覧を取り出す */
 const 問題点 = (input: unknown): readonly string[] => {
@@ -37,55 +45,83 @@ describe('parseLlmSettings', () => {
   })
 
   it('既定の設定もそのまま通る', () => {
-    expect(parseLlmSettings(送る())).toEqual(DEFAULT_LLM_SETTINGS)
+    expect(parseLlmSettings(DEFAULT_LLM_SETTINGS)).toEqual(DEFAULT_LLM_SETTINGS)
   })
 
   it('オブジェクトでなければ拒否する', () => {
     expect(問題点('openrouter')).toEqual([expect.stringContaining('オブジェクト')])
   })
 
-  it('知らない提供元は拒否する（黙って Workers AI に倒さない）', () => {
-    expect(問題点(送る({ provider: 'openai' }))).toEqual([expect.stringContaining('provider')])
+  it('使う箇所が1つでも欠けていれば拒否する（黙って既定で埋めない）', () => {
+    const 残り = { ...DEFAULT_LLM_SETTINGS.usages, streamSummary: undefined }
+
+    expect(問題点({ usages: 残り })).toEqual([expect.stringContaining('streamSummary')])
   })
 
-  it('提供元ごとのモデル名が無ければ拒否する', () => {
-    expect(問題点(送る({ openrouter: undefined }))).toEqual([expect.stringContaining('openrouter')])
+  it('知らない提供元は拒否する（黙って Workers AI に倒さない）', () => {
+    expect(問題点(差し替える('aiChat', { ...DEFAULT_LLM_SETTINGS.usages.aiChat, provider: 'openai' }))).toEqual([
+      expect.stringContaining('aiChat.provider'),
+    ])
   })
 
   it('空のモデル名は拒否する', () => {
-    expect(問題点(送る({ workersAi: { chat: '', summary: '@cf/meta/llama-3.3-70b-instruct-fp8-fast' } }))).toEqual([
-      expect.stringContaining('workersAi.chat'),
-    ])
+    expect(
+      問題点(差し替える('sideSuper', { provider: 'workers-ai', models: { 'workers-ai': '', openrouter: 'meta-llama/llama-3.1-8b-instruct' } })),
+    ).toEqual([expect.stringContaining('sideSuper.models.workers-ai')])
   })
 
   it('モデル名の前後の空白は落としてから保存する', () => {
-    expect(parseLlmSettings(送る({ openrouter: { chat: '  meta-llama/llama-3.1-8b-instruct  ', summary: 'openai/gpt-4o-mini' } })).openrouter).toEqual({
-      chat: 'meta-llama/llama-3.1-8b-instruct',
-      summary: 'openai/gpt-4o-mini',
-    })
-  })
+    const 設定 = parseLlmSettings(
+      差し替える('viewerSummary', {
+        provider: 'openrouter',
+        models: { 'workers-ai': '  @cf/meta/llama-3.1-8b-instruct-fp8  ', openrouter: '  openai/gpt-4o-mini  ' },
+      }),
+    )
 
-  it('問題点は最初の1件で止めず、すべて集めてから拒否する', () => {
-    expect(問題点({ provider: 'openai', workersAi: { chat: 1, summary: '' }, openrouter: null })).toHaveLength(4)
+    expect(設定.usages.viewerSummary.models).toEqual({ 'workers-ai': '@cf/meta/llama-3.1-8b-instruct-fp8', openrouter: 'openai/gpt-4o-mini' })
   })
 
   it('使っていない提供元のモデル名も検証する（切り替えたときに初めて拒まれることがないようにする）', () => {
-    expect(問題点(送る({ provider: 'workers-ai', openrouter: { chat: '', summary: '' } }))).toEqual([
-      expect.stringContaining('openrouter.chat'),
-      expect.stringContaining('openrouter.summary'),
-    ])
+    expect(問題点(差し替える('aiChat', { provider: 'workers-ai', models: { 'workers-ai': '@cf/meta/llama-3.1-8b-instruct-fp8', openrouter: '' } }))).toEqual(
+      [expect.stringContaining('aiChat.models.openrouter')],
+    )
+  })
+
+  it('問題点は最初の1件で止めず、すべて集めてから拒否する', () => {
+    expect(問題点({ usages: { aiChat: { provider: 'openai', models: { 'workers-ai': 1, openrouter: '' } } } })).toHaveLength(6)
+  })
+
+  it('使う箇所は4つで、それぞれ既定の提供元は Workers AI である', () => {
+    expect(LLM_USAGES).toEqual(['aiChat', 'sideSuper', 'viewerSummary', 'streamSummary'])
+    for (const usage of LLM_USAGES) expect(DEFAULT_LLM_SETTINGS.usages[usage].provider).toBe('workers-ai')
+  })
+
+  it('既定では、あらすじだけ大きいモデルを使う（ほかの3か所とモデル名が違う）', () => {
+    const { aiChat, sideSuper, viewerSummary, streamSummary } = DEFAULT_LLM_SETTINGS.usages
+
+    expect(sideSuper.models).toEqual(aiChat.models)
+    expect(viewerSummary.models).toEqual(aiChat.models)
+    expect(streamSummary.models['workers-ai']).not.toBe(aiChat.models['workers-ai'])
   })
 })
 
 describe('loadLlmSettings', () => {
-  it('未保存なら既定の設定（Workers AI）を返す', async () => {
+  it('未保存なら既定の設定を返す', async () => {
     expect(await loadLlmSettings(createFakeStore())).toEqual(DEFAULT_LLM_SETTINGS)
-    expect(DEFAULT_LLM_SETTINGS.provider).toBe('workers-ai')
   })
 
   it('保存した設定をそのまま読み出せる', async () => {
     const store = createFakeStore()
     await saveLlmSettings(store, 配信者の設定)
     expect(await loadLlmSettings(store)).toEqual(配信者の設定)
+  })
+
+  it('保存されている形が古ければ、読み替えずにエラーにする（直し方を文面に出す）', async () => {
+    // 用途を chat・summary の2つにまとめていたころの形
+    const store = createFakeStore({
+      'llm-settings': JSON.stringify({ provider: 'workers-ai', workersAi: { chat: 'a', summary: 'b' }, openrouter: { chat: 'c', summary: 'd' } }),
+    })
+
+    await expect(loadLlmSettings(store)).rejects.toThrow('llm-settings')
   })
 })

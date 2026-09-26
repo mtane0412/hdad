@@ -599,11 +599,20 @@ describe('読み上げの設定（/api/admin/speech・/api/overlay/speech）', (
 })
 
 describe('LLMの設定（/api/admin/llm）', () => {
-  /** 配信者が画面で組み立てた、OpenRouter を使う設定 */
+  /** 配信者が画面で組み立てた設定。あらすじだけ OpenRouter に切り替えている */
   const 配信者の設定 = {
-    provider: 'openrouter',
-    workersAi: { chat: '@cf/meta/llama-3.1-8b-instruct-fp8', summary: '@cf/meta/llama-3.3-70b-instruct-fp8-fast' },
-    openrouter: { chat: 'meta-llama/llama-3.1-8b-instruct', summary: 'anthropic/claude-3.5-haiku' },
+    usages: {
+      aiChat: { provider: 'workers-ai', models: { 'workers-ai': '@cf/meta/llama-3.1-8b-instruct-fp8', openrouter: 'meta-llama/llama-3.1-8b-instruct' } },
+      sideSuper: { provider: 'workers-ai', models: { 'workers-ai': '@cf/meta/llama-3.1-8b-instruct-fp8', openrouter: 'meta-llama/llama-3.1-8b-instruct' } },
+      viewerSummary: {
+        provider: 'workers-ai',
+        models: { 'workers-ai': '@cf/meta/llama-3.1-8b-instruct-fp8', openrouter: 'meta-llama/llama-3.1-8b-instruct' },
+      },
+      streamSummary: {
+        provider: 'openrouter',
+        models: { 'workers-ai': '@cf/meta/llama-3.3-70b-instruct-fp8-fast', openrouter: 'anthropic/claude-3.5-haiku' },
+      },
+    },
   }
 
   const 保存する = async (env: Env, settings: unknown) =>
@@ -633,13 +642,14 @@ describe('LLMの設定（/api/admin/llm）', () => {
     expect(await (await 読む(env)).json()).toMatchObject(配信者の設定)
   })
 
-  it('まだ保存していなければ、既定の設定（Workers AI）を返す', async () => {
+  it('まだ保存していなければ、既定の設定（すべて Workers AI）を返す', async () => {
     const { env } = 環境を作る()
 
     const response = await 読む(env)
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toMatchObject({ provider: 'workers-ai' })
+    const body = (await response.json()) as { usages: Record<string, { provider: string }> }
+    expect(Object.values(body.usages).map(({ provider }) => provider)).toEqual(['workers-ai', 'workers-ai', 'workers-ai', 'workers-ai'])
   })
 
   it('OpenRouter のAPIキーが設定されているかを添えて返す（鍵そのものは返さない）', async () => {
@@ -656,10 +666,15 @@ describe('LLMの設定（/api/admin/llm）', () => {
   it('知らない提供元や空のモデル名は400で拒み、問題点をすべて返す（画面で一度に直せるようにする）', async () => {
     const { env } = 環境を作る()
 
-    const response = await 保存する(env, { ...配信者の設定, provider: 'openai', openrouter: { chat: '', summary: '' } })
+    const response = await 保存する(env, {
+      usages: {
+        ...配信者の設定.usages,
+        aiChat: { provider: 'openai', models: { 'workers-ai': '', openrouter: 'meta-llama/llama-3.1-8b-instruct' } },
+      },
+    })
 
     expect(response.status).toBe(400)
     const body = (await response.json()) as { error: { problems: string[] } }
-    expect(body.error.problems).toHaveLength(3)
+    expect(body.error.problems).toEqual([expect.stringContaining('aiChat.provider'), expect.stringContaining('aiChat.models.workers-ai')])
   })
 })

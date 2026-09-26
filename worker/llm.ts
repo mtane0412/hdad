@@ -1,13 +1,13 @@
 /**
  * LLMの呼び出し
  *
- * 文面づくり（ai-chat.ts）・あらすじ（stream-summary.ts）・サイドスーパー（side-super.ts）・人物像（viewer-summary.ts）から
- * 呼ばれる、LLMへの唯一の入口である。呼び出し側は用途（chat・summary）だけを指名し、どの提供元
+ * 文面づくり（ai-chat.ts）・サイドスーパー（side-super.ts）・人物像（viewer-summary.ts）・あらすじ（stream-summary.ts）から
+ * 呼ばれる、LLMへの唯一の入口である。呼び出し側は「どこで使うか」（LlmUsage）だけを指名し、どの提供元
  * （Cloudflare の Workers AI・OpenRouter）のどのモデルを使うかは、保存された設定（llm-config.ts）が決める。
  * 提供元を増やしても、材料を組み立てる側を書き換えずに済む形にしてある。
  *
- * 用途は2つだけである。chat はチャットの文面・サイドスーパー・人物像（短く安く作りたいもの）、
- * summary は配信のあらすじ（長い材料をまとめるので大きいモデルを使う。stream-summary.ts）である。
+ * 提供元は箇所ごとに選べるので、1回の cron の中で Workers AI と OpenRouter の両方を呼ぶこともある
+ * （あらすじだけ賢いモデルに任せ、発言ごとに呼ばれるチャットの文面は無料枠に留める、といった使い分け）。
  *
  * 注意: モデルによって応答の形が違う（従来のモデルは response、新しいモデルと OpenRouter は OpenAI互換の choices）。
  * 読み分け（readResponse）はここ1か所に持ち、呼び出し側が場合分けを持たずに済むようにする。
@@ -16,7 +16,7 @@
  * 注意: 失敗は黙って別の提供元へ落とさずに投げる（Fail-Fast）。呼び出し側が失敗として記録するので、
  * 配信者が「鍵が無い」「残高が足りない」といった理由に気づける。
  */
-import { loadLlmSettings, type LlmModels, type LlmPurpose, type LlmSettings } from './llm-config'
+import { loadLlmSettings, type LlmSettings, type LlmUsage } from './llm-config'
 import type { KeyValueStore } from './store'
 
 /** OpenRouter のチャット補完（OpenAI互換） */
@@ -34,18 +34,18 @@ export interface LlmMessage {
 /** LLMへの注文 */
 export interface LlmRequest {
   readonly messages: readonly LlmMessage[]
-  /** 作らせる文面の長さの上限（トークン）。用途ごとに呼び出し側が決める */
+  /** 作らせる文面の長さの上限（トークン）。箇所ごとに呼び出し側が決める */
   readonly maxTokens: number
 }
 
 /**
- * 用途を指名して文面を1つ作らせるもの。
+ * 使う箇所を指名して文面を1つ作らせるもの。
  *
  * KV・R2・D1 と同じく、テストでは代役に差し替える（worker/fake-ai.ts）。
  */
 export interface TextGenerator {
   /** @throws Error LLMが失敗した（無料枠切れ・残高不足を含む）、応答の形が違う場合 */
-  run(purpose: LlmPurpose, request: LlmRequest): Promise<string>
+  run(usage: LlmUsage, request: LlmRequest): Promise<string>
 }
 
 /**
@@ -86,9 +86,6 @@ export const readResponse = (result: unknown): string => {
   }
   throw new Error(`LLMの応答を読めません（response も choices の文面も見つかりません）: ${JSON.stringify(result)}`)
 }
-
-/** 設定から、いま使う提供元のモデル名を取り出す */
-const modelsOf = (settings: LlmSettings): LlmModels => (settings.provider === 'openrouter' ? settings.openrouter : settings.workersAi)
 
 /** Workers AI のバインディングへ送る */
 const runWorkersAi = async (ai: WorkersAi, model: string, request: LlmRequest): Promise<string> =>
@@ -138,11 +135,11 @@ export const createLlm = ({ ai, store, fetch: fetchImpl, apiKey }: LlmOptions): 
   let 設定: Promise<LlmSettings> | null = null
 
   return {
-    run: async (purpose, request) => {
+    run: async (usage, request) => {
       設定 ??= loadLlmSettings(store)
-      const settings = await 設定
-      const model = modelsOf(settings)[purpose]
-      return settings.provider === 'openrouter' ? runOpenRouter(fetchImpl, apiKey, model, request) : runWorkersAi(ai, model, request)
+      const { provider, models } = (await 設定).usages[usage]
+      const model = models[provider]
+      return provider === 'openrouter' ? runOpenRouter(fetchImpl, apiKey, model, request) : runWorkersAi(ai, model, request)
     },
   }
 }

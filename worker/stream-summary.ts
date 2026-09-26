@@ -8,7 +8,7 @@
  *
  * 材料の組み立て（buildStreamSummaryPrompt）はLLMを呼ばない純粋な関数として分けてテストし、
  * 呼び出し（generateStreamSummary）はLLM（worker/llm.ts の TextGenerator）を引数で受け取って差し替えられるようにする。
- * 用途（summary）を指名するだけにして、どの提供元（Workers AI・OpenRouter）のどのモデルを使うかは設定（llm-config.ts）に任せる。
+ * どこで使うかを指名するだけにして、どの提供元（Workers AI・OpenRouter）のどのモデルを使うかは設定（llm-config.ts）に任せる。
  * ここは ai-chat.ts・viewer-summary.ts と同じ作りで、モデルと応答の読み取りもそちらと共有する。
  *
  * 注意: あらすじは前回のあらすじを踏まえて書き直させる（積み上げる）。長い配信でも1回あたりの入力が一定に保たれ、
@@ -145,7 +145,7 @@ export const buildStreamSummaryPrompt = (material: StreamSummaryMaterial): strin
  *   いずれも呼び出し側（worker/collect.ts）が stream-summary-failed として記録し、前回のあらすじを残す
  */
 export const generateStreamSummary = async (ai: TextGenerator, material: StreamSummaryMaterial): Promise<string> => {
-  const result = await ai.run('summary', {
+  const result = await ai.run('streamSummary', {
     messages: [
       {
         role: 'system',

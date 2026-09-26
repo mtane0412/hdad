@@ -18,7 +18,7 @@
  *
  * 材料の組み立て（buildSideSuperPrompt）はLLMを呼ばない純粋な関数として分けてテストし、
  * 呼び出し（generateSideSuper）はLLM（worker/llm.ts の TextGenerator）を引数で受け取って差し替えられるようにする。
- * 用途（chat）を指名するだけにして、どの提供元（Workers AI・OpenRouter）のどのモデルを使うかは設定（llm-config.ts）に任せる。
+ * どこで使うかを指名するだけにして、どの提供元（Workers AI・OpenRouter）のどのモデルを使うかは設定（llm-config.ts）に任せる。
  * ここは ai-chat.ts・viewer-summary.ts・stream-summary.ts と同じ作りで、モデルと応答の読み取りもそちらと共有する。
  *
  * 注意: 返ってきた行をそのまま信用しない。行数が足りない・多い・1行が長いまま配信画面に出すと、
@@ -149,7 +149,7 @@ const 長さを確かめる = (line: string, 名前: string, 上限: number): vo
  *   いずれも呼び出し側（worker/collect.ts）が side-super-failed として記録し、前回のものを残す
  */
 export const generateSideSuper = async (ai: TextGenerator, material: SideSuperMaterial): Promise<SideSuperLines> => {
-  const result = await ai.run('chat', {
+  const result = await ai.run('sideSuper', {
     messages: [
       {
         role: 'system',

@@ -1,8 +1,9 @@
 /**
  * LLMの設定の読み書き（Workerの呼び出し）
  *
- * どの提供元（Cloudflare の Workers AI・OpenRouter）のどのモデルに文面を作らせるかは Worker
- * （KVの llm-settings）が持ち、管理画面（/llm/ のページ）が配信者のセッションで /api/admin/llm を読み書きする。
+ * AIを使う4か所（トリガーの動作 aiChat・サイドスーパー・視聴者の人物像・配信のあらすじ）それぞれについて、
+ * どの提供元（Cloudflare の Workers AI・OpenRouter）のどのモデルに作らせるかは Worker（KVの llm-settings）が持ち、
+ * 管理画面（/llm/ のページ）が配信者のセッションで /api/admin/llm を読み書きする。
  * 呼び出しと失敗の扱いは `../core/api` に任せ、fetch を引数で受け取るのはテストで差し替えるためである。
  *
  * 注意: worker/ の型はブラウザ用のコードから読み込まない約束なので、応答の型はここで定義して形を確かめる。
@@ -19,23 +20,26 @@ const ADMIN_PATH = '/api/admin/llm'
 /** 呼び先。worker/llm-config.ts の LLM_PROVIDERS と合わせる */
 export const LLM_PROVIDERS = ['workers-ai', 'openrouter'] as const
 
-/** 文面を作らせる用途。worker/llm-config.ts の LLM_PURPOSES と合わせる */
-export const LLM_PURPOSES = ['chat', 'summary'] as const
+/** LLMに文面を作らせる箇所。並び順も worker/llm-config.ts の LLM_USAGES と合わせる（画面に出す順になる） */
+export const LLM_USAGES = ['aiChat', 'sideSuper', 'viewerSummary', 'streamSummary'] as const
 
 export type LlmProvider = (typeof LLM_PROVIDERS)[number]
-export type LlmPurpose = (typeof LLM_PURPOSES)[number]
+export type LlmUsage = (typeof LLM_USAGES)[number]
 
-/** 用途ごとのモデル名 */
-export type LlmModels = Record<LlmPurpose, string>
+/** 提供元ごとのモデル名 */
+export type LlmModels = Record<LlmProvider, string>
+
+/** 1か所ぶんの設定 */
+export interface LlmUsageSettings {
+  /** いま使う提供元 */
+  provider: LlmProvider
+  /** 提供元ごとのモデル名。選んでいないほうも覚えておく */
+  models: LlmModels
+}
 
 /** LLMの設定。項目は worker/llm-config.ts と合わせる */
 export interface LlmSettings {
-  /** いま使う提供元 */
-  provider: LlmProvider
-  /** Workers AI を使うときのモデル名 */
-  workersAi: LlmModels
-  /** OpenRouter を使うときのモデル名 */
-  openrouter: LlmModels
+  usages: Record<LlmUsage, LlmUsageSettings>
 }
 
 /** 読み出しの結果。鍵の有無は設定ではなくWorkerの状態なので、設定とは分けて持つ */
@@ -45,22 +49,29 @@ export interface LlmState {
   apiKeyConfigured: boolean
 }
 
-/** 用途ごとのモデル名として読む。足りなければ null */
+/** 提供元ごとのモデル名として読む。足りなければ null */
 const readModels = (value: unknown): LlmModels | null => {
   if (!isRecord(value)) return null
-  const models = LLM_PURPOSES.map((purpose): [LlmPurpose, unknown] => [purpose, value[purpose]])
+  const models = LLM_PROVIDERS.map((provider): [LlmProvider, unknown] => [provider, value[provider]])
   if (!models.every(([, model]) => typeof model === 'string')) return null
   return Object.fromEntries(models) as LlmModels
 }
 
+/** 1か所ぶんの設定として読む。足りなければ null */
+const readUsage = (value: unknown): LlmUsageSettings | null => {
+  if (!isRecord(value) || !LLM_PROVIDERS.includes(value.provider as LlmProvider)) return null
+  const models = readModels(value.models)
+  return models === null ? null : { provider: value.provider as LlmProvider, models }
+}
+
 /** LLMの設定として読む。想定した形でなければエラーにする */
 const readLlmSettings = (body: unknown, path: string): LlmSettings => {
-  const workersAi = isRecord(body) ? readModels(body.workersAi) : null
-  const openrouter = isRecord(body) ? readModels(body.openrouter) : null
-  if (!isRecord(body) || !LLM_PROVIDERS.includes(body.provider as LlmProvider) || workersAi === null || openrouter === null) {
+  const given = isRecord(body) && isRecord(body.usages) ? body.usages : null
+  const usages = given === null ? null : LLM_USAGES.map((usage): [LlmUsage, LlmUsageSettings | null] => [usage, readUsage(given[usage])])
+  if (usages === null || usages.some(([, settings]) => settings === null)) {
     throw new Error(`Workerの ${path} の応答が想定した形ではありません`)
   }
-  return { provider: body.provider as LlmProvider, workersAi, openrouter }
+  return { usages: Object.fromEntries(usages) as Record<LlmUsage, LlmUsageSettings> }
 }
 
 /** 管理画面からの読み書き */

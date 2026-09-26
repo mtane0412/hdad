@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { buildPrompt, generateChatMessage } from './ai-chat'
-import type { LlmPurpose } from './llm-config'
+import type { LlmUsage } from './llm-config'
 import type { LlmRequest, TextGenerator } from './llm'
 import type { Extracted } from './alert-event'
 import type { Viewer } from './viewer-store'
@@ -35,13 +35,13 @@ const 記録: Viewer = {
 
 const 常連の来訪 = { firstChatOfStream: false, firstChatEver: false, daysSinceLastChat: 1.5 }
 
-/** 決まった文面を返すLLMの代役。渡された引数を控えて、用途の指名と材料が漏れていないかを確かめられるようにする */
-const 代役 = (response: string): TextGenerator & { 呼ばれた: { purpose: LlmPurpose; request: LlmRequest }[] } => {
-  const 呼ばれた: { purpose: LlmPurpose; request: LlmRequest }[] = []
+/** 決まった文面を返すLLMの代役。渡された引数を控えて、箇所の指名と材料が漏れていないかを確かめられるようにする */
+const 代役 = (response: string): TextGenerator & { 呼ばれた: { usage: LlmUsage; request: LlmRequest }[] } => {
+  const 呼ばれた: { usage: LlmUsage; request: LlmRequest }[] = []
   return {
     呼ばれた,
-    run: (purpose, request) => {
-      呼ばれた.push({ purpose, request })
+    run: (usage, request) => {
+      呼ばれた.push({ usage, request })
       return Promise.resolve(response)
     },
   }
@@ -161,8 +161,8 @@ describe('generateChatMessage', () => {
     await generateChatMessage(ai, 材料)
 
     expect(ai.呼ばれた).toHaveLength(1)
-    // モデル名ではなく用途を指名する（どの提供元のどのモデルを使うかは設定（llm-config.ts）が決める）
-    expect(ai.呼ばれた[0]?.purpose).toBe('chat')
+    // モデル名ではなく、どこで使うかを指名する（どの提供元のどのモデルを使うかは設定（llm-config.ts）が決める）
+    expect(ai.呼ばれた[0]?.usage).toBe('aiChat')
     expect(JSON.stringify(ai.呼ばれた[0]?.request)).toContain('ギターの話が好き')
   })
 })

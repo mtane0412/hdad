@@ -74,14 +74,24 @@ const 代役の視聴者API: ViewerApi = {
 }
 
 const 代役のLLM_API: LlmApi = {
-  load: vi.fn(async () => ({
-    settings: {
-      provider: 'workers-ai' as const,
-      workersAi: { chat: '@cf/meta/llama-3.1-8b-instruct-fp8', summary: '@cf/meta/llama-3.3-70b-instruct-fp8-fast' },
-      openrouter: { chat: 'meta-llama/llama-3.1-8b-instruct', summary: 'meta-llama/llama-3.3-70b-instruct' },
-    },
-    apiKeyConfigured: true,
-  })),
+  load: vi.fn(async () => {
+    const 軽いモデル = { 'workers-ai': '@cf/meta/llama-3.1-8b-instruct-fp8', openrouter: 'meta-llama/llama-3.1-8b-instruct' }
+    const 使う箇所 = { provider: 'workers-ai' as const, models: 軽いモデル }
+    return {
+      settings: {
+        usages: {
+          aiChat: 使う箇所,
+          sideSuper: 使う箇所,
+          viewerSummary: 使う箇所,
+          streamSummary: {
+            provider: 'workers-ai' as const,
+            models: { 'workers-ai': '@cf/meta/llama-3.3-70b-instruct-fp8-fast', openrouter: 'meta-llama/llama-3.3-70b-instruct' },
+          },
+        },
+      },
+      apiKeyConfigured: true,
+    }
+  }),
   save: vi.fn(async (settings) => settings),
 }
 

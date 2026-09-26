@@ -7,7 +7,7 @@
  *
  * 材料の組み立て（buildPrompt）はLLMを呼ばない純粋な関数として分けてテストし、
  * 呼び出し（generateChatMessage）はLLM（worker/llm.ts の TextGenerator）を引数で受け取って差し替えられるようにする。
- * どの提供元（Workers AI・OpenRouter）のどのモデルを使うかはここでは決めず、用途（chat）を指名するだけにする。
+ * どの提供元（Workers AI・OpenRouter）のどのモデルを使うかはここでは決めず、どこで使うか（aiChat）を指名するだけにする。
  *
  * 注意: 返ってきた文面をそのまま信用しない。Twitchのチャットは1通500文字までで、超えたままではTwitchが1通まるごと拒む。
  * 超えていたら切り詰めずに投げる（呼び出し側が alert-aichat-failed として記録する）。切り詰めて送ると意味の壊れた文が流れるためである。
@@ -152,7 +152,7 @@ export const buildPrompt = (material: AiChatMaterial): string => {
  *   いずれも呼び出し側が alert-aichat-failed として記録し、Twitchへは2xxを返す
  */
 export const generateChatMessage = async (ai: TextGenerator, material: AiChatMaterial): Promise<string> => {
-  const result = await ai.run('chat', {
+  const result = await ai.run('aiChat', {
     messages: [
       { role: 'system', content: 'あなたはTwitchの配信のチャットボットです。配信者の指示に従って、視聴者へ送るチャットの文面を1つだけ作ります。' },
       { role: 'user', content: buildPrompt(material) },

@@ -3,9 +3,10 @@
  * LLMのページのテスト
  *
  * 確かめること:
- * - 保存済みの設定を読み込んで入力欄に出し、提供元とモデル名を変えて保存できること
+ * - AIを使う4か所ぶんの設定を読み込んで、箇所ごとに提供元とモデル名を出すこと
+ * - 箇所ごとに別の提供元を選んで保存できること（あらすじだけ OpenRouter にする使い方）
  * - 提供元ごとのモデル名を別々に持つこと（切り替えて戻しても前のモデル名が消えない）
- * - OpenRouter を選んでいるのに鍵が設定されていなければ、その場で知らせること
+ * - OpenRouter を選んでいる箇所があるのに鍵が設定されていなければ、その場で知らせること
  * - Workerが返した問題点を、そのまま画面に並べること（検証はWorkerだけが持つ）
  * - 設定を読めなかったときは、黙って既定に倒さず理由を出すこと
  */
@@ -19,11 +20,19 @@ import type { LlmApi, LlmSettings, LlmState } from './api'
 
 afterEach(cleanup)
 
-/** 前提: Workerに保存されている、既定のままの設定（Workers AI） */
+/** 短い文を作る3か所の既定のモデル */
+const 軽いモデル = { 'workers-ai': '@cf/meta/llama-3.1-8b-instruct-fp8', openrouter: 'meta-llama/llama-3.1-8b-instruct' }
+/** あらすじの既定のモデル */
+const 大きいモデル = { 'workers-ai': '@cf/meta/llama-3.3-70b-instruct-fp8-fast', openrouter: 'meta-llama/llama-3.3-70b-instruct' }
+
+/** 前提: Workerに保存されている、既定のままの設定（どこも Workers AI） */
 const 保存済みの設定: LlmSettings = {
-  provider: 'workers-ai',
-  workersAi: { chat: '@cf/meta/llama-3.1-8b-instruct-fp8', summary: '@cf/meta/llama-3.3-70b-instruct-fp8-fast' },
-  openrouter: { chat: 'meta-llama/llama-3.1-8b-instruct', summary: 'meta-llama/llama-3.3-70b-instruct' },
+  usages: {
+    aiChat: { provider: 'workers-ai', models: { ...軽いモデル } },
+    sideSuper: { provider: 'workers-ai', models: { ...軽いモデル } },
+    viewerSummary: { provider: 'workers-ai', models: { ...軽いモデル } },
+    streamSummary: { provider: 'workers-ai', models: { ...大きいモデル } },
+  },
 }
 
 /** 読み書きを記録する、LLMの設定のAPI */
@@ -43,40 +52,51 @@ const 描く = (api: LlmApi = llmApi()) => render(<LlmPage api={api} />)
 
 /** 設定が読み込まれて、入力欄が出るまで待つ */
 const 読み込みを待つ = async () => {
-  await waitFor(() => expect(screen.getByLabelText('提供元')).toBeInTheDocument())
+  await waitFor(() => expect(screen.getByLabelText('チャットの文面の提供元')).toBeInTheDocument())
 }
 
 const 保存する = async () => userEvent.click(screen.getByRole('button', { name: '設定を保存' }))
 
 describe('LlmPage', () => {
-  test('保存済みの設定を入力欄に出す', async () => {
+  test('AIを使う4か所ぶんの提供元とモデル名を出す', async () => {
     描く()
     await 読み込みを待つ()
 
-    expect(screen.getByLabelText('提供元')).toHaveValue('workers-ai')
-    expect(screen.getByLabelText('チャットの文面・サイドスーパー・人物像のモデル')).toHaveValue('@cf/meta/llama-3.1-8b-instruct-fp8')
+    for (const 名前 of ['チャットの文面', 'サイドスーパー', '視聴者の人物像', '配信のあらすじ']) {
+      expect(screen.getByLabelText(`${名前}の提供元`)).toHaveValue('workers-ai')
+    }
+    expect(screen.getByLabelText('チャットの文面のモデル')).toHaveValue('@cf/meta/llama-3.1-8b-instruct-fp8')
     expect(screen.getByLabelText('配信のあらすじのモデル')).toHaveValue('@cf/meta/llama-3.3-70b-instruct-fp8-fast')
   })
 
-  test('提供元を切り替えると、その提供元のモデル名に入れ替わる（両方を持っているため）', async () => {
+  test('提供元を切り替えると、その箇所だけがその提供元のモデル名に入れ替わる', async () => {
     描く()
     await 読み込みを待つ()
 
-    await userEvent.selectOptions(screen.getByLabelText('提供元'), 'openrouter')
+    await userEvent.selectOptions(screen.getByLabelText('配信のあらすじの提供元'), 'openrouter')
 
-    expect(screen.getByLabelText('チャットの文面・サイドスーパー・人物像のモデル')).toHaveValue('meta-llama/llama-3.1-8b-instruct')
-
-    // 戻しても、Workers AI 側のモデル名は消えていない
-    await userEvent.selectOptions(screen.getByLabelText('提供元'), 'workers-ai')
-    expect(screen.getByLabelText('チャットの文面・サイドスーパー・人物像のモデル')).toHaveValue('@cf/meta/llama-3.1-8b-instruct-fp8')
+    expect(screen.getByLabelText('配信のあらすじのモデル')).toHaveValue('meta-llama/llama-3.3-70b-instruct')
+    // ほかの箇所は変わらない
+    expect(screen.getByLabelText('チャットの文面の提供元')).toHaveValue('workers-ai')
+    expect(screen.getByLabelText('チャットの文面のモデル')).toHaveValue('@cf/meta/llama-3.1-8b-instruct-fp8')
   })
 
-  test('提供元とモデル名を変えて保存すると、両方の提供元のモデル名を添えて送る', async () => {
+  test('提供元を切り替えて戻しても、前の提供元のモデル名は消えていない', async () => {
+    描く()
+    await 読み込みを待つ()
+
+    await userEvent.selectOptions(screen.getByLabelText('視聴者の人物像の提供元'), 'openrouter')
+    await userEvent.selectOptions(screen.getByLabelText('視聴者の人物像の提供元'), 'workers-ai')
+
+    expect(screen.getByLabelText('視聴者の人物像のモデル')).toHaveValue('@cf/meta/llama-3.1-8b-instruct-fp8')
+  })
+
+  test('箇所ごとに提供元とモデル名を変えて保存すると、4か所ぶんをまとめて送る', async () => {
     const api = llmApi()
     描く(api)
     await 読み込みを待つ()
 
-    await userEvent.selectOptions(screen.getByLabelText('提供元'), 'openrouter')
+    await userEvent.selectOptions(screen.getByLabelText('配信のあらすじの提供元'), 'openrouter')
     await userEvent.clear(screen.getByLabelText('配信のあらすじのモデル'))
     await userEvent.type(screen.getByLabelText('配信のあらすじのモデル'), 'anthropic/claude-3.5-haiku')
     await 保存する()
@@ -84,23 +104,32 @@ describe('LlmPage', () => {
     await waitFor(() =>
       expect(api.saved).toEqual([
         {
-          provider: 'openrouter',
-          workersAi: 保存済みの設定.workersAi,
-          openrouter: { chat: 'meta-llama/llama-3.1-8b-instruct', summary: 'anthropic/claude-3.5-haiku' },
+          usages: {
+            ...保存済みの設定.usages,
+            streamSummary: {
+              provider: 'openrouter',
+              models: { 'workers-ai': '@cf/meta/llama-3.3-70b-instruct-fp8-fast', openrouter: 'anthropic/claude-3.5-haiku' },
+            },
+          },
         },
       ]),
     )
     expect(await screen.findByText('LLMの設定を保存しました')).toBeInTheDocument()
   })
 
-  test('OpenRouter を選んでいるのに鍵が設定されていなければ、設定の仕方を知らせる', async () => {
-    描く(llmApi({ settings: { ...保存済みの設定, provider: 'openrouter' }, apiKeyConfigured: false }))
+  test('OpenRouter を選んでいる箇所があるのに鍵が設定されていなければ、設定の仕方を知らせる', async () => {
+    描く(
+      llmApi({
+        settings: { usages: { ...保存済みの設定.usages, sideSuper: { provider: 'openrouter', models: { ...軽いモデル } } } },
+        apiKeyConfigured: false,
+      }),
+    )
     await 読み込みを待つ()
 
     expect(await screen.findByRole('alert')).toHaveTextContent('OPENROUTER_API_KEY')
   })
 
-  test('鍵が無くても、Workers AI を選んでいるあいだは知らせない（要らない警告を出さないため）', async () => {
+  test('鍵が無くても、どこも Workers AI のままなら知らせない（要らない警告を出さないため）', async () => {
     描く(llmApi({ apiKeyConfigured: false }))
     await 読み込みを待つ()
 
@@ -111,7 +140,7 @@ describe('LlmPage', () => {
     描く(llmApi({ apiKeyConfigured: false }))
     await 読み込みを待つ()
 
-    await userEvent.selectOptions(screen.getByLabelText('提供元'), 'openrouter')
+    await userEvent.selectOptions(screen.getByLabelText('チャットの文面の提供元'), 'openrouter')
 
     expect(await screen.findByRole('alert')).toHaveTextContent('OPENROUTER_API_KEY')
   })
@@ -122,20 +151,22 @@ describe('LlmPage', () => {
       ...api,
       save: () =>
         Promise.reject(
-          new ApiError(400, 'invalid-config', 'LLMの設定に問題があります', ['openrouter.chat: モデル名を200文字以内で指定してください']),
+          new ApiError(400, 'invalid-config', 'LLMの設定に問題があります', [
+            'aiChat.models.openrouter: モデル名を200文字以内で指定してください',
+          ]),
         ),
     })
     await 読み込みを待つ()
 
     await 保存する()
 
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('openrouter.chat: モデル名を200文字以内で指定してください'))
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('aiChat.models.openrouter: モデル名を200文字以内で指定してください'))
   })
 
   test('設定を読めなければ、黙って既定に倒さず理由を出す', async () => {
     描く({ load: () => Promise.reject(new Error('通信できませんでした')), save: () => Promise.reject(new Error('呼ばれない')) })
 
     expect(await screen.findByText('通信できませんでした')).toBeInTheDocument()
-    expect(screen.queryByLabelText('提供元')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('チャットの文面の提供元')).not.toBeInTheDocument()
   })
 })

@@ -5,11 +5,11 @@
  * （worker/llm.ts）を挟んでいるためである。
  * - createFakeWorkersAi: Cloudflare の Workers AI のバインディング（Env.AI）の代役。Env を組み立てる経路のテストが使う
  *   （呼び先の決定と用途からモデル名への読み替えも通るので、既定の設定（Workers AI）で動くことまで確かめられる）
- * - createFakeAi: 用途を指名して呼ぶ側（worker/llm.ts の TextGenerator）の代役。材料を組み立てる関数のテストが使う
+ * - createFakeAi: 使う箇所を指名して呼ぶ側（worker/llm.ts の TextGenerator）の代役。材料を組み立てる関数のテストが使う
  *
- * どちらも渡された引数を控えるので、用途の指名が正しいか、材料が漏れていないかも確かめられる。
+ * どちらも渡された引数を控えるので、箇所の指名が正しいか、材料が漏れていないかも確かめられる。
  */
-import type { LlmPurpose } from './llm-config'
+import type { LlmUsage } from './llm-config'
 import type { LlmRequest, TextGenerator, WorkersAi } from './llm'
 
 interface 代役の条件 {
@@ -37,15 +37,15 @@ export const createFakeWorkersAi = ({ response = 既定の文面, 失敗する =
   }
 }
 
-/** 呼び出しの記録を添えた、用途を指名して呼ぶ側の代役を作る */
+/** 呼び出しの記録を添えた、使う箇所を指名して呼ぶ側の代役を作る */
 export const createFakeAi = ({ response = 既定の文面, 失敗する = false }: 代役の条件 = {}): TextGenerator & {
-  呼び出し: { purpose: LlmPurpose; request: LlmRequest }[]
+  呼び出し: { usage: LlmUsage; request: LlmRequest }[]
 } => {
-  const 呼び出し: { purpose: LlmPurpose; request: LlmRequest }[] = []
+  const 呼び出し: { usage: LlmUsage; request: LlmRequest }[] = []
   return {
     呼び出し,
-    run: (purpose, request) => {
-      呼び出し.push({ purpose, request })
+    run: (usage, request) => {
+      呼び出し.push({ usage, request })
       if (失敗する) return Promise.reject(new Error('LLMの無料枠を使い切りました'))
       return Promise.resolve(response)
     },

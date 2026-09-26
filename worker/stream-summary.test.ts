@@ -67,12 +67,12 @@ describe('buildStreamSummaryPrompt', () => {
 })
 
 describe('generateStreamSummary', () => {
-  it('あらすじ用（summary）の用途を指名する（どのモデルを使うかは設定（llm-config.ts）が決める）', async () => {
+  it('あらすじ（streamSummary）の箇所を指名する（どの提供元のどのモデルを使うかは設定（llm-config.ts）が決める）', async () => {
     const ai = createFakeAi({ response: '配信者は2つめの街に着きました' })
 
     await generateStreamSummary(ai, 材料)
 
-    expect(ai.呼び出し[0]?.purpose).toBe('summary')
+    expect(ai.呼び出し[0]?.usage).toBe('streamSummary')
   })
 
   it('LLMが返したあらすじを返す', async () => {
