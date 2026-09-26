@@ -234,7 +234,17 @@ export interface TriggerDraft {
   aiChatEnabled: boolean
   /** 配信者が書く、文面の作り方の指示 */
   aiChatInstruction: string
+  /** botとしてシャウトアウト（相手の配信者を紹介する）を送るか。レイドの項目でだけ選べる */
+  shoutoutEnabled: boolean
 }
+
+/**
+ * その項目にシャウトアウトを置けるか。
+ *
+ * 置けるのはレイドだけである（Workerも保存時にそれ以外を拒む）。ほかのイベントの相手は配信者とは限らず、
+ * 紹介しても意味を持たないためで、すべての項目に出すと意味のない組み合わせを作れてしまう。
+ */
+export const supportsShoutout = (kind: TriggerKind): boolean => kind === 'raid'
 
 export interface SelectOption {
   value: string
@@ -311,6 +321,7 @@ const toActions = (draft: TriggerDraft): ActionInput[] => {
   if (draft.chatEnabled) actions.push({ type: 'chat', message: draft.chatMessage })
   if (draft.announceEnabled) actions.push({ type: 'announce', message: draft.announceMessage, color: draft.announceColor })
   if (draft.aiChatEnabled) actions.push({ type: 'aiChat', instruction: draft.aiChatInstruction })
+  if (draft.shoutoutEnabled) actions.push({ type: 'shoutout' })
   return actions
 }
 
@@ -391,6 +402,7 @@ export const toDraft = (trigger: StoredTrigger): TriggerDraft => {
   const chat = trigger.actions.find((action) => action.type === 'chat')
   const announce = trigger.actions.find((action) => action.type === 'announce')
   const aiChat = trigger.actions.find((action) => action.type === 'aiChat')
+  const shoutout = trigger.actions.find((action) => action.type === 'shoutout')
 
   return {
     kind: trigger.kind,
@@ -412,6 +424,7 @@ export const toDraft = (trigger: StoredTrigger): TriggerDraft => {
     announceColor: announce?.color ?? DEFAULT_ANNOUNCEMENT_COLOR,
     aiChatEnabled: aiChat !== undefined,
     aiChatInstruction: aiChat?.instruction ?? '',
+    shoutoutEnabled: shoutout !== undefined,
   }
 }
 
@@ -444,6 +457,7 @@ export const createDraft = (kind: TriggerKind, media: readonly MediaItem[]): Tri
     announceColor: DEFAULT_ANNOUNCEMENT_COLOR,
     aiChatEnabled: false,
     aiChatInstruction: '',
+    shoutoutEnabled: false,
   }
 }
 
@@ -465,11 +479,12 @@ export const emptyDraft = (kind: TriggerKind): TriggerDraft => ({
   announceColor: DEFAULT_ANNOUNCEMENT_COLOR,
   aiChatEnabled: false,
   aiChatInstruction: '',
+  shoutoutEnabled: false,
 })
 
 /** その行が効果をひとつでも持つか。持たない行は何も起きないので保存しない */
 export const hasAnyAction = (draft: TriggerDraft): boolean =>
-  draft.alertEnabled || draft.chatEnabled || draft.announceEnabled || draft.aiChatEnabled
+  draft.alertEnabled || draft.chatEnabled || draft.announceEnabled || draft.aiChatEnabled || draft.shoutoutEnabled
 
 /**
  * 保存済みの行に、パラメータを持たない項目の行を足し、一覧の並び順にそろえる。
@@ -567,6 +582,7 @@ export const rowActionLabels = (draft: TriggerDraft): readonly string[] =>
     draft.chatEnabled ? 'チャット' : null,
     draft.announceEnabled ? 'アナウンス' : null,
     draft.aiChatEnabled ? 'AIチャット' : null,
+    draft.shoutoutEnabled ? 'シャウトアウト' : null,
   ].filter((label) => label !== null)
 
 /** 素材の大きさを読みやすい単位で表す */

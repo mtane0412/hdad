@@ -22,6 +22,7 @@ const BANS_URL = 'https://api.twitch.tv/helix/moderation/bans'
 /** チャットのメッセージ削除。送信の /helix/chat/messages とは別の経路なので混同しない */
 const MODERATION_CHAT_URL = 'https://api.twitch.tv/helix/moderation/chat'
 const ANNOUNCEMENTS_URL = 'https://api.twitch.tv/helix/chat/announcements'
+const SHOUTOUTS_URL = 'https://api.twitch.tv/helix/chat/shoutouts'
 const MODERATORS_URL = 'https://api.twitch.tv/helix/moderation/moderators'
 const DEVICE_URL = 'https://id.twitch.tv/oauth2/device'
 /** デバイスコードフローの grant_type（RFC 8628 の決まった文字列） */
@@ -184,6 +185,12 @@ export interface AnnouncementToSend extends ModerationTarget {
   color?: AnnouncementColor
 }
 
+/** 送るシャウトアウト（配信画面の告知と、チャットへの「配信者を紹介しました」の表示） */
+export interface ShoutoutToSend extends ModerationTarget {
+  /** シャウトアウトで紹介する相手（配信者）のユーザーID */
+  toBroadcasterId: string
+}
+
 export interface TwitchClient {
   /** ユーザーをTwitchの認可ページへ送るためのURL */
   authorizeUrl(redirectUri: string, state: string, scopes: readonly string[]): string
@@ -239,6 +246,16 @@ export interface TwitchClient {
    * @throws TwitchApiError Twitchが拒否した
    */
   sendChatAnnouncement(accessToken: string, announcement: AnnouncementToSend): Promise<void>
+  /**
+   * シャウトアウト（相手の配信者を紹介する、Twitch組み込みの機能）を送る。
+   * モデレーターのユーザートークンと moderator:manage:shoutouts が必要。
+   *
+   * Twitchは送る間隔を制限している（同じチャンネルから2分に1回、同じ相手には60分に1回）。
+   * 制限に当たると 429 が返るので、呼び出し側は失敗として記録する（黙って無かったことにしない）。
+   *
+   * @throws TwitchApiError Twitchが拒否した（botがモデレーターでない・スコープが足りない・間隔の制限に当たった）
+   */
+  sendShoutout(accessToken: string, shoutout: ShoutoutToSend): Promise<void>
   /**
    * 指定したユーザーがそのチャンネルのモデレーターかどうかを返す。配信者のユーザートークンと moderation:read が必要。
    *
@@ -620,6 +637,16 @@ export const createTwitchClient = ({ clientId, clientSecret, fetch: fetchImpl }:
         body: JSON.stringify({ message, color: color ?? DEFAULT_ANNOUNCEMENT_COLOR }),
       })
       await ensureOk(response)
+    },
+
+    sendShoutout: async (accessToken, { broadcasterId, moderatorId, toBroadcasterId }) => {
+      // シャウトアウトは本文を持たず、誰から誰へ送るかをすべてクエリで渡す。
+      // 送る側のチャンネルの項目名がほかのモデレーション操作（broadcaster_id）と違うので、moderationUrl は使えない
+      const url = new URL(SHOUTOUTS_URL)
+      url.searchParams.set('from_broadcaster_id', broadcasterId)
+      url.searchParams.set('to_broadcaster_id', toBroadcasterId)
+      url.searchParams.set('moderator_id', moderatorId)
+      await ensureOk(await fetchImpl(url, { method: 'POST', headers: helixHeaders(accessToken) }))
     },
 
     isModerator: async (accessToken, { broadcasterId, userId }) => {

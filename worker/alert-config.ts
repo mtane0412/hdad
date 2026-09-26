@@ -9,6 +9,8 @@
  * - chat: Workerがbotとしてチャットへ送る（オーバーレイには渡さない。オーバーレイに送信の役目を持たせないため）
  * - announce: Workerがbotとしてアナウンス（色の付いた帯）を送る。botがモデレーターにされている必要がある
  * - aiChat: Workerが配信者の指示とその人の記録からLLMに文面を作らせ、botとしてチャットへ送る（worker/ai-chat.ts）
+ * - shoutout: Workerがbotとしてシャウトアウト（相手の配信者を紹介するTwitch組み込みの機能）を送る。
+ *   紹介する相手が配信者であるレイドのトリガーにだけ置ける
  *
  * メニュー項目は13種類（worker/trigger-menu.ts の TRIGGER_KINDS）で、そのうちチャットの発言を対象にするものは
  * botを接続しているときだけ通知が届く。広告の終了（adBreakEnd）だけはTwitchから届く通知ではなく、
@@ -25,7 +27,7 @@ import { ANNOUNCEMENT_COLORS, type AnnouncementColor } from './twitch'
 const CONFIG_KEY = 'alert-config'
 
 /** 動作の種類。同じ種類は1トリガーに1件まで */
-export const ACTION_TYPES = ['alert', 'chat', 'announce', 'aiChat'] as const
+export const ACTION_TYPES = ['alert', 'chat', 'announce', 'aiChat', 'shoutout'] as const
 
 export type ActionType = (typeof ACTION_TYPES)[number]
 
@@ -95,7 +97,18 @@ export interface StoredAiChatAction {
   instruction: string
 }
 
-export type StoredAction = StoredAlertAction | StoredChatAction | StoredAnnounceAction | StoredAiChatAction
+/**
+ * botとしてシャウトアウト（相手の配信者を紹介するTwitch組み込みの機能）を送る動作。
+ *
+ * 紹介する相手はイベントの中身から決まる（レイドならレイドしてきた配信者）ので、配信者が決める項目を持たない。
+ * 置けるのはレイドのトリガーだけである（ほかのイベントの相手は配信者とは限らず、紹介しても意味を持たない）。
+ * アナウンスと同じく、botがこのチャンネルのモデレーターにされていることと moderator:manage:shoutouts の認可が要る。
+ */
+export interface StoredShoutoutAction {
+  type: 'shoutout'
+}
+
+export type StoredAction = StoredAlertAction | StoredChatAction | StoredAnnounceAction | StoredAiChatAction | StoredShoutoutAction
 
 /**
  * 保存するトリガー。
@@ -267,6 +280,10 @@ const parseAction = (
     return null
   }
 
+  // シャウトアウトは配信者が決める項目を持たないので、種類が分かれば読み取れる
+  // （レイドのトリガーにだけ置けるという決まりは、きっかけも見える parseAlertConfig で確かめる）
+  if (type === 'shoutout') return { type }
+
   if (type === 'aiChat') {
     const { instruction } = candidate
     if (!isStringWithin(instruction, 1, MAX_AI_INSTRUCTION_LENGTH)) {
@@ -359,7 +376,12 @@ export const parseAlertConfig = (input: unknown, kindOfMedia: (mediaId: string) 
     const source = parseSource(candidate, at, problems)
     const actions = parseActions(candidate.actions, at, kindOfMedia, problems)
 
-    if (source !== null && actions !== null) return [{ ...source, actions }]
+    // シャウトアウトは相手が配信者であることを前提にするので、レイド以外のきっかけには置かせない
+    const hasShoutout = actions !== null && actions.some((action) => action.type === 'shoutout')
+    const shoutoutOk = !hasShoutout || source === null || source.kind === 'raid'
+    if (!shoutoutOk) problems.push(`${at}.actions: シャウトアウト（shoutout）はレイドのトリガーにだけ置けます`)
+
+    if (source !== null && actions !== null && shoutoutOk) return [{ ...source, actions }]
     return []
   })
 
@@ -429,6 +451,10 @@ export const aiChatActionOf = (trigger: WithActions): StoredAiChatAction | null 
 /** トリガーからアナウンスを送る動作を取り出す。なければ null */
 export const announceActionOf = (trigger: WithActions): StoredAnnounceAction | null =>
   trigger.actions.find((action): action is StoredAnnounceAction => action.type === 'announce') ?? null
+
+/** トリガーからシャウトアウトを送る動作を取り出す。なければ null */
+export const shoutoutActionOf = (trigger: WithActions): StoredShoutoutAction | null =>
+  trigger.actions.find((action): action is StoredShoutoutAction => action.type === 'shoutout') ?? null
 
 /** トリガーからアラートを出す動作を取り出す。なければ null */
 export const alertActionOf = (trigger: WithActions): StoredAlertAction | null =>

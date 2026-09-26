@@ -22,6 +22,7 @@ import {
   overlayUrl,
   placeholdersFor,
   rewardOptions,
+  supportsShoutout,
   toDraft,
   toTriggerInput,
   type TriggerDraft,
@@ -48,6 +49,7 @@ const 入力欄 = (overrides: Partial<TriggerDraft> = {}): TriggerDraft => ({
   announceColor: 'primary',
   aiChatEnabled: false,
   aiChatInstruction: '',
+  shoutoutEnabled: false,
   ...overrides,
 })
 
@@ -197,6 +199,12 @@ describe('toTriggerInput', () => {
     expect(toTriggerInput(draft).actions).toEqual([{ type: 'alert', mediaId: 'sozai-1', durationSeconds: 5, volume: 1, message: '' }])
   })
 
+  it('シャウトアウトを送るを選んでいれば、項目を持たない動作として送る', () => {
+    const draft = 入力欄({ kind: 'raid', alertEnabled: false, shoutoutEnabled: true })
+
+    expect(toTriggerInput(draft).actions).toEqual([{ type: 'shoutout' }])
+  })
+
   it('表示時間が数として読めなければエラーにする（何番目のトリガーかは呼び出し側が添える）', () => {
     expect(() => toTriggerInput(入力欄({ durationSeconds: '' }))).toThrowError(/表示時間/)
   })
@@ -247,6 +255,12 @@ describe('toDraft', () => {
     expect(toDraft({ kind: 'follow', actions: [アラートの動作()] })).toMatchObject({ announceEnabled: false, announceColor: 'primary' })
   })
 
+  it('シャウトアウトを送る動作を持つトリガーは、その印を付けて戻す', () => {
+    const trigger: StoredTrigger = { kind: 'raid', actions: [{ type: 'shoutout' }] }
+
+    expect(toDraft(trigger)).toMatchObject({ kind: 'raid', alertEnabled: false, shoutoutEnabled: true })
+  })
+
   it('LLMに文面を作らせる動作を持つトリガーは、指示の入力欄を埋めて戻す', () => {
     const trigger: StoredTrigger = { kind: 'newViewer', actions: [{ type: 'aiChat', instruction: '歓迎してください' }] }
 
@@ -257,6 +271,13 @@ describe('toDraft', () => {
     const trigger: StoredTrigger = { kind: 'keyword', contains: 'おはよう', actions: [{ type: 'chat', message: 'おはよう！' }] }
 
     expect(toTriggerInput(toDraft(trigger))).toEqual(trigger)
+  })
+})
+
+describe('supportsShoutout', () => {
+  it('レイドの項目だけがシャウトアウトを置ける（ほかのイベントの相手は配信者とは限らないため）', () => {
+    expect(supportsShoutout('raid')).toBe(true)
+    expect(TRIGGER_KINDS.filter((kind) => kind !== 'raid').filter(supportsShoutout)).toEqual([])
   })
 })
 
@@ -347,7 +368,14 @@ describe('emptyDraft', () => {
     const draft = emptyDraft('follow')
 
     expect(hasAnyAction(draft)).toBe(false)
-    expect(draft).toMatchObject({ kind: 'follow', alertEnabled: false, chatEnabled: false, announceEnabled: false, aiChatEnabled: false })
+    expect(draft).toMatchObject({
+      kind: 'follow',
+      alertEnabled: false,
+      chatEnabled: false,
+      announceEnabled: false,
+      aiChatEnabled: false,
+      shoutoutEnabled: false,
+    })
   })
 })
 
@@ -375,6 +403,10 @@ describe('rowActionLabels', () => {
     const 入力 = 入力欄({ kind: 'follow', chatEnabled: true, announceEnabled: true })
 
     expect(rowActionLabels(入力)).toEqual(['アラート', 'チャット', 'アナウンス'])
+  })
+
+  it('シャウトアウトの効果は「シャウトアウト」として出す', () => {
+    expect(rowActionLabels(入力欄({ kind: 'raid', alertEnabled: false, shoutoutEnabled: true }))).toEqual(['シャウトアウト'])
   })
 
   it('AIに文面を作らせる効果は「AIチャット」として出す', () => {

@@ -3,7 +3,7 @@
  *
  * 「botのトークンを取り出して、配信者のチャンネルへ送る」という定型を1か所に置く。
  * 管理画面からの手打ち（bot-routes.ts）、コマンドへの応答、アラートのトリガーによる送信（webhook-routes.ts）で使う。
- * 普通の発言（sendAsBot）と、モデレーターとして送るアナウンス（announceAsBot）の2通りがある。
+ * 普通の発言（sendAsBot）と、モデレーターとして送るアナウンス（announceAsBot）・シャウトアウト（shoutoutAsBot）がある。
  *
  * 注意: 送り先は常に TWITCH_BROADCASTER_ID のチャンネルで、送り主は接続しているbot本人（呼び出し側は指定しない）。
  */
@@ -62,5 +62,30 @@ export const announceAsBot = async (
     // アナウンスを送るモデレーターは bot 自身（トークンの持ち主と一致している必要がある）
     moderatorId: token.userId,
     ...announcement,
+  })
+}
+
+/**
+ * botの名前でシャウトアウト（相手の配信者を紹介するTwitch組み込みの機能）を1件送る。
+ *
+ * アナウンスと同じく、botがこのチャンネルのモデレーターにされていることが前提である
+ * （されていなければTwitchが拒否し、呼び出し側が失敗として記録する）。
+ *
+ * アナウンスと違って送信枠の確保はしない。Twitchはシャウトアウトの間隔を制限している（同じチャンネルから2分に1回、
+ * 同じ相手には60分に1回）が、待てば送れるアナウンスの2秒とは桁が違い、待つあいだTwitchへ応答を返せないためである。
+ * 制限に当たった場合は 429 が上がり、呼び出し側が失敗として記録する。
+ *
+ * @param toBroadcasterId 紹介する相手（配信者）のユーザーID
+ * @throws AuthError botが未接続・トークンを更新できない
+ * @throws TwitchApiError Twitchが拒否した（botがモデレーターでない、スコープが足りない、間隔の制限に当たった）
+ */
+export const shoutoutAsBot = async (context: Pick<Context, 'env' | 'twitch' | 'now'>, toBroadcasterId: string): Promise<void> => {
+  const { env, twitch, now } = context
+  const token = await getAccessToken(env.STORE, 'bot', twitch, now)
+  await twitch.sendShoutout(token.accessToken, {
+    broadcasterId: env.TWITCH_BROADCASTER_ID,
+    // シャウトアウトを送るモデレーターは bot 自身（トークンの持ち主と一致している必要がある）
+    moderatorId: token.userId,
+    toBroadcasterId,
   })
 }

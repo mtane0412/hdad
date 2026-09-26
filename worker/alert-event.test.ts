@@ -21,6 +21,7 @@ import {
   requiresChatHistory,
   requiresFirstChatOfStream,
   requiresStreamSummary,
+  shoutoutsFor,
   type ConditionState,
 } from './alert-event'
 
@@ -90,9 +91,21 @@ describe('extract', () => {
   })
 
   it('レイドから、レイドしてきた配信者と人数を取り出す（受け取る側は to_broadcaster なので from_broadcaster を読む）', () => {
-    const event = { from_broadcaster_user_name: '山田花子', from_broadcaster_user_login: 'yamada_hanako', to_broadcaster_user_name: '配信者本人', viewers: 42 }
+    const event = {
+      from_broadcaster_user_id: 'レイド元のユーザーID',
+      from_broadcaster_user_name: '山田花子',
+      from_broadcaster_user_login: 'yamada_hanako',
+      to_broadcaster_user_name: '配信者本人',
+      viewers: 42,
+    }
 
-    expect(extract('channel.raid', event)).toEqual({ event: 'channel.raid', userName: '山田花子', userLogin: 'yamada_hanako', viewers: 42 })
+    expect(extract('channel.raid', event)).toEqual({
+      event: 'channel.raid',
+      userId: 'レイド元のユーザーID',
+      userName: '山田花子',
+      userLogin: 'yamada_hanako',
+      viewers: 42,
+    })
   })
 
   it('チャットの発言から、発言者と本文を取り出す', () => {
@@ -134,7 +147,13 @@ describe('extract', () => {
 
   it('通知の中身が想定と違えば、どの項目が足りないかを示してエラーにする', () => {
     expect(() => extract('channel.follow', { user_login: 'tanaka' })).toThrowError(/user_name/)
-    expect(() => extract('channel.raid', { from_broadcaster_user_name: '山田花子', from_broadcaster_user_login: 'yamada_hanako' })).toThrowError(/viewers/)
+    expect(() =>
+      extract('channel.raid', {
+        from_broadcaster_user_id: 'レイド元のユーザーID',
+        from_broadcaster_user_name: '山田花子',
+        from_broadcaster_user_login: 'yamada_hanako',
+      }),
+    ).toThrowError(/viewers/)
     expect(() => extract(REDEMPTION, { user_name: '田中太郎', user_login: 'tanaka_taro' })).toThrowError(/reward/)
   })
 })
@@ -567,7 +586,12 @@ describe('挨拶の段（当てはまったうち最も細かい1つだけが発
 
 describe('announcementsFor', () => {
   const 設定 = (triggers: StoredTrigger[]): AlertConfig => ({ triggers })
-  const レイドの通知 = { from_broadcaster_user_name: '山田花子', from_broadcaster_user_login: 'yamada_hanako', viewers: 25 }
+  const レイドの通知 = {
+    from_broadcaster_user_id: 'レイド元のユーザーID',
+    from_broadcaster_user_name: '山田花子',
+    from_broadcaster_user_login: 'yamada_hanako',
+    viewers: 25,
+  }
 
   it('当てはまるトリガーのアナウンスを、差し込み語を置き換えて色ごと返す', () => {
     const config = 設定([
@@ -591,6 +615,36 @@ describe('announcementsFor', () => {
     const config = 設定([{ kind: 'follow', actions: [{ type: 'announce', message: 'ありがとう', color: 'primary' }] }])
 
     expect(announcementsFor(config, 'channel.raid', レイドの通知, 初回ではない, null)).toEqual([])
+  })
+})
+
+describe('shoutoutsFor', () => {
+  const 設定 = (triggers: StoredTrigger[]): AlertConfig => ({ triggers })
+  const レイドの通知 = {
+    from_broadcaster_user_id: 'レイド元のユーザーID',
+    from_broadcaster_user_name: '山田花子',
+    from_broadcaster_user_login: 'yamada_hanako',
+    viewers: 25,
+  }
+
+  it('当てはまるトリガーのシャウトアウトを、紹介する相手ごと返す', () => {
+    const config = 設定([{ kind: 'raid', actions: [{ type: 'shoutout' }] }])
+
+    expect(shoutoutsFor(config, 'channel.raid', レイドの通知, 初回ではない)).toEqual([
+      { userId: 'レイド元のユーザーID', userLogin: 'yamada_hanako' },
+    ])
+  })
+
+  it('シャウトアウトを送る動作を持たないトリガー（チャットに送るだけ）には反応しない', () => {
+    const チャットだけ: StoredTrigger = { kind: 'raid', actions: [{ type: 'chat', message: 'レイドありがとう' }] }
+
+    expect(shoutoutsFor(設定([チャットだけ]), 'channel.raid', レイドの通知, 初回ではない)).toEqual([])
+  })
+
+  it('レイド以外のイベントのトリガーには反応しない', () => {
+    const config = 設定([{ kind: 'raid', actions: [{ type: 'shoutout' }] }])
+
+    expect(shoutoutsFor(config, 'channel.follow', { user_name: '田中太郎', user_login: 'tanaka_taro' }, 初回ではない)).toEqual([])
   })
 })
 
@@ -671,7 +725,7 @@ describe('returningAfter の条件', () => {
       conditions: [{ kind: 'returningAfter', days: 30 }],
       actions: [{ type: 'chat', message: 'ありがとう' }],
     }
-    const レイドされた = { event: 'channel.raid', userName: '田中太郎', userLogin: 'tanaka_taro', viewers: 10 } as const
+    const レイドされた = { event: 'channel.raid', userId: 'レイド元のユーザーID', userName: '田中太郎', userLogin: 'tanaka_taro', viewers: 10 } as const
 
     expect(matches(レイドに久しぶり, レイドされた, { ...初回ではない, daysSinceLastChat: 40 })).toBe(false)
   })

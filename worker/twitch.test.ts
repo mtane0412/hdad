@@ -649,6 +649,38 @@ describe('sendChatAnnouncement', () => {
   })
 })
 
+describe('sendShoutout', () => {
+  it('シャウトアウトの相手・チャンネル・モデレーターをクエリに載せて送る', async () => {
+    const { requests, fetchImpl } = 本文のない応答を返すfetch(204)
+
+    await クライアントを作る(fetchImpl).sendShoutout('bot-access-token', {
+      broadcasterId: '12345',
+      moderatorId: 'botのユーザーID',
+      toBroadcasterId: 'レイド元の配信者のユーザーID',
+    })
+
+    const request = requests[0]!
+    const url = new URL(request.url)
+    expect(url.origin + url.pathname).toBe('https://api.twitch.tv/helix/chat/shoutouts')
+    expect(url.searchParams.get('from_broadcaster_id')).toBe('12345')
+    expect(url.searchParams.get('to_broadcaster_id')).toBe('レイド元の配信者のユーザーID')
+    expect(url.searchParams.get('moderator_id')).toBe('botのユーザーID')
+    expect(request.method).toBe('POST')
+  })
+
+  it('Twitchが失敗を返したら TwitchApiError になる（間隔の制限に当たった場合を含む）', async () => {
+    const { fetchImpl } = 応答を返すfetch(429, { status: 429, message: 'shoutout ratelimit exceeded' })
+
+    await expect(
+      クライアントを作る(fetchImpl).sendShoutout('bot-access-token', {
+        broadcasterId: '12345',
+        moderatorId: 'botのユーザーID',
+        toBroadcasterId: 'レイド元の配信者のユーザーID',
+      }),
+    ).rejects.toMatchObject({ name: 'TwitchApiError', status: 429 })
+  })
+})
+
 describe('isModerator', () => {
   it('モデレーターの一覧にそのユーザーが含まれていれば true を返す', async () => {
     const { requests, fetchImpl } = 応答を返すfetch(200, {

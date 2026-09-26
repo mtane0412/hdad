@@ -377,6 +377,25 @@ describe('効果の付け外し', () => {
     expect(api.saveConfig).toHaveBeenCalledWith([{ kind: 'raid', actions: [{ type: 'announce', message: 'レイドありがとう', color: 'purple' }] }])
   })
 
+  test('レイドの項目でシャウトアウトを選んで保存すると、シャウトアウトの効果として送る', async () => {
+    const api = 代役のAPI({ config: vi.fn(async () => []) })
+    render(トリガーのページ(api))
+
+    const row = await 開いた項目('レイドされた')
+    await userEvent.click(row.getByRole('checkbox', { name: 'シャウトアウトを送る' }))
+    await 保存する()
+
+    expect(api.saveConfig).toHaveBeenCalledWith([{ kind: 'raid', actions: [{ type: 'shoutout' }] }])
+  })
+
+  test('レイド以外の項目にはシャウトアウトを出さない（紹介する相手が配信者でないため）', async () => {
+    render(トリガーのページ(代役のAPI()))
+
+    const row = await 開いた項目('フォローされた')
+
+    expect(row.queryByRole('checkbox', { name: 'シャウトアウトを送る' })).not.toBeInTheDocument()
+  })
+
   test('アナウンスを送るを外していれば、文言の入力欄を隠す', async () => {
     render(トリガーのページ(代役のAPI()))
 
