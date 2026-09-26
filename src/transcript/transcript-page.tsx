@@ -61,7 +61,9 @@ export const TranscriptPage = ({ overlayKey }: { overlayKey: string | null }) =>
       <Card>
         <CardHeader>
           <CardTitle>OBS用のURL</CardTitle>
-          <CardDescription>ゆかコネNEO の音声認識の結果を取り込む。配信画面には映らないので、表示はオフでよい。</CardDescription>
+          {/* 「表示をオフにしてよい」とは書かない。OBSの「非アクティブ時にソースをシャットダウン」が有効だと、
+              非表示にした時点で中継ページが閉じられ、取り込みが止まってしまう */}
+          <CardDescription>ゆかコネNEO の音声認識の結果を取り込む。配信画面には映らないので、見えない位置に置いてよい。</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <Label htmlFor={portFieldId}>ゆかコネNEO のポート番号</Label>
