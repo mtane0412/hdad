@@ -521,6 +521,23 @@ describe('絞り込みのパラメータ', () => {
     expect(within(await 項目の枠('広告')).getByText(/対象の広告が食い違って保存されています/)).toBeInTheDocument()
   })
 
+  test('食い違ったまま保存しても、勝手に片方へ寄せない（選び直したときだけ揃える）', async () => {
+    const 食い違い: StoredTrigger[] = [
+      { kind: 'adBreakBegin', automatic: true, actions: [{ type: 'chat', message: '広告が入ります' }] },
+      { kind: 'adBreakEnd', automatic: false, actions: [{ type: 'chat', message: 'おかえりなさい' }] },
+    ]
+    const api = 代役のAPI({ config: async () => 食い違い })
+    render(トリガーのページ(api))
+
+    await 項目の枠('広告')
+    await 保存する()
+
+    expect(api.saveConfig).toHaveBeenCalledWith([
+      expect.objectContaining({ kind: 'adBreakBegin', automatic: true }),
+      expect.objectContaining({ kind: 'adBreakEnd', automatic: false }),
+    ])
+  })
+
   test('広告の見出しでは、効果のバッジがどちらのときのものか分かる', async () => {
     const 終了だけ: StoredTrigger = { kind: 'adBreakEnd', automatic: true, actions: [{ type: 'chat', message: 'おかえりなさい' }] }
     render(トリガーのページ(代役のAPI({ config: async () => [終了だけ] })))

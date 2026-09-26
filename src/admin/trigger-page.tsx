@@ -460,8 +460,8 @@ const TriggerRow = ({ label, heading, description, note, phases, media, rewards,
   // （項目の名前は枠の見出しに出ているので、繰り返さない）
   const title = heading ?? (param === null || param === '' ? 'まだ決めていません' : param)
   const withActions = phases.map((phase) => ({ phase, actions: rowActionLabels(phase.draft) })).filter(({ actions }) => actions.length > 0)
-  // 絞り込みの入力欄は行に1つしかないので、イベント種別ごとに違う値が保存されていると、保存した時点で片方に寄ってしまう。
-  // 開始と終了が別々の項目だったころの設定では起こりうるので、黙って寄せずに知らせる（Fail-Fast）
+  // 絞り込みの入力欄は行に1つしかないので、イベント種別ごとに違う値が保存されていると、先頭の種別の値しか画面に出ない。
+  // 保存しても食い違いはそのまま残る（送る値は種別ごとに持っているため）ので、黙って寄せも直しもせず、選び直せば揃うことを知らせる（Fail-Fast）
   const conflicted = new Set(phases.map((phase) => rowParamSummary(phase.draft, rewards))).size > 1
 
   return (
@@ -512,7 +512,7 @@ const TriggerRow = ({ label, heading, description, note, phases, media, rewards,
       {note !== null && <p className="px-3 pb-2 text-xs text-muted-foreground">{note}</p>}
       {conflicted && (
         <p className="px-3 pb-2 text-xs text-destructive">
-          対象の広告が食い違って保存されています（始まったときと終わったときで別々の絞り込みになっています）。このまま保存すると、上に出ている絞り込みに揃います。
+          対象の広告が食い違って保存されています（始まったときと終わったときで別々の絞り込みになっています）。上に出ているのは始まったときの絞り込みです。そのまま保存すれば食い違ったままなので、揃えたいときは対象の広告を選び直してください。
         </p>
       )}
       {open && (
