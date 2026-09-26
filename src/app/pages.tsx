@@ -18,6 +18,7 @@ import { StatsPage } from '@/stats/stats-page'
 import type { ViewerApi } from '@/viewers/api'
 import { ViewerPage } from '@/viewers/viewer-page'
 import { SideSuperPage } from '@/side-super/side-super-page'
+import type { SpeechApi } from '@/speech/api'
 import { SpeechPage } from '@/speech/speech-page'
 import { TranscriptPage } from '@/transcript/transcript-page'
 import { backgrounds } from '@/wallpaper/registry'
@@ -31,6 +32,8 @@ export interface PageContext {
   botApi: BotApi
   /** 視聴者の記録の読み書き（視聴者のページが使う） */
   viewerApi: ViewerApi
+  /** 読み上げの設定の読み書き（読み上げのページが使う） */
+  speechApi: SpeechApi
   me: Me
   /** オーバーレイ用キーを再発行した。ほかのページから戻ってきても新しいキーを出せるよう、枠が持つログイン情報を書き換える */
   onOverlayKeyChange(overlayKey: string): void
@@ -55,8 +58,13 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
       { path: '/viewers/', name: '視聴者', icon: Users, render: ({ viewerApi }) => <ViewerPage api={viewerApi} /> },
       { path: '/transcript/', name: '文字起こし', icon: Captions, render: ({ me }) => <TranscriptPage overlayKey={me.overlayKey} /> },
       { path: '/side-super/', name: 'サイドスーパー', icon: PanelTop, render: ({ me }) => <SideSuperPage overlayKey={me.overlayKey} /> },
-      // 読み上げはVOICEVOXに任せるのでオーバーレイ用キーは要らない。接続しているbotの発言を読み上げないためにbotの状態だけを読む
-      { path: '/speech/', name: '読み上げ', icon: Volume2, render: ({ botApi }) => <SpeechPage botApi={botApi} /> },
+      {
+        path: '/speech/',
+        name: '読み上げ',
+        icon: Volume2,
+        // 読み上げのページはWorkerに置いた設定をオーバーレイ用キーで読む。botの状態は「読み上げない人」に足すために読む
+        render: ({ speechApi, botApi, me }) => <SpeechPage api={speechApi} botApi={botApi} overlayKey={me.overlayKey} />,
+      },
       {
         path: '/triggers/',
         name: 'トリガー',

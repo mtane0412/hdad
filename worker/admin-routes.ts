@@ -2,12 +2,13 @@
  * 管理用の経路（/api/admin/*）
  *
  * 配信者のセッションが必要。アラートの設定の取得と保存、素材の一覧・アップロード・削除、オーバーレイ用キーの再発行、
- * トリガーの設定で選ぶチャンネルポイント報酬の一覧を受け持つ。
+ * トリガーの設定で選ぶチャンネルポイント報酬の一覧、チャットの読み上げの設定の取得と保存を受け持つ。
  */
 import { alertActionOf, loadAlertConfig, parseAlertConfig, saveAlertConfig } from './alert-config'
 import { HttpError, STATUS, requireAdmin, type Context } from './http'
 import { listMedia, uploadMedia } from './media'
 import { rotateOverlayKey } from './overlay-key'
+import { loadSpeechSettings, parseSpeechSettings, saveSpeechSettings } from './speech-config'
 import { getAccessToken } from './token'
 
 /** GET /api/admin/config */
@@ -79,4 +80,27 @@ export const getRewards = async (context: Context): Promise<Response> => {
   const { env, twitch, now } = context
   const token = await getAccessToken(env.STORE, 'broadcaster', twitch, now)
   return Response.json({ rewards: await twitch.listCustomRewards(token.accessToken, env.TWITCH_BROADCASTER_ID) })
+}
+
+/** GET /api/admin/speech: チャットの読み上げの設定。未保存なら既定の設定が返る */
+export const getSpeech = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  return Response.json(await loadSpeechSettings(context.env.STORE))
+}
+
+/**
+ * PUT /api/admin/speech: チャットの読み上げの設定を検証して保存する。
+ *
+ * 検証は Worker だけが持ち、画面とWorkerで二重に持たない（issue #86）。
+ *
+ * @throws ConfigError 設定に問題がある場合（index.ts が問題点付きの400にする）
+ */
+export const putSpeech = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  const body: unknown = await context.request.json().catch(() => {
+    throw new HttpError(STATUS.badRequest, 'invalid-body', '本文はJSONにしてください')
+  })
+  const settings = parseSpeechSettings(body)
+  await saveSpeechSettings(context.env.STORE, settings)
+  return Response.json(settings)
 }

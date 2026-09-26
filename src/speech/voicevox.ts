@@ -5,6 +5,9 @@
  * （ゆかコネNEO へつなぐ src/transcript/connection.ts と同じ考え方）。Workers AI に合成させないのは、
  * 発言のたびに無料枠を消費させないためである。
  *
+ * つなぎ先（起点）は起動のときに決まるが、話者と読み上げ速度は合成のたびに受け取る。読み上げの設定は
+ * Worker に置いてあり、配信中に管理画面から変えられるためである（issue #86）。
+ *
  * ENGINE は2段で呼ぶ。まず /audio_query で読み方（アクセント・速度などの問い合わせ）を作らせ、
  * その内容に読み上げ速度を差し込んでから /synthesis へ渡して wav を受け取る。
  * 読み上げ速度を音声側（再生速度）で変えると声の高さまで上がってしまうため、合成の時点で指定する。
@@ -34,18 +37,25 @@ export interface Voicevox {
   /**
    * 読み上げ文から音声（wav）を作る。
    *
+   * @param text 読み上げ文
+   * @param voice そのとき有効な声の設定。合成のたびに受け取るのは、配信中に管理画面から変えられるようにするため
    * @throws ENGINE が失敗を返した場合、またはつながらない場合
    */
-  synthesize(text: string): Promise<Blob>
+  synthesize(text: string, voice: SpeechVoice): Promise<Blob>
 }
 
-export interface VoicevoxOptions {
-  /** ENGINE の起点（http://localhost:50021） */
-  readonly origin: string
+/** 1件を合成するときの声の指定 */
+export interface SpeechVoice {
   /** 話者ID（VOICEVOX のキャラクターとスタイルの組み合わせ） */
   readonly speaker: number
   /** 読み上げ速度（1 が標準） */
   readonly speed: number
+}
+
+/** ENGINE へのつなぎ先。起動のときに決まり、途中では変えられない（変えるにはOBSの再読み込みが要る） */
+export interface VoicevoxOptions {
+  /** ENGINE の起点（http://localhost:50021） */
+  readonly origin: string
   /** このページのオリジン。つながらないときに、ENGINE で許可すべきオリジンとして文面に出す */
   readonly pageOrigin: string
 }
@@ -58,7 +68,7 @@ const notReachableMessage = (url: string, origin: string, pageOrigin: string, er
   [
     `VOICEVOX（${url}）につながりません。考えられる原因は次の3つです。`,
     `1. VOICEVOX が起動していない → 起動してから、このブラウザソースを再読み込みしてください`,
-    `2. ポート番号が違う → VOICEVOX が使っているポートを、このURLの port パラメータに合わせてください`,
+    `2. ポート番号が違う → 管理画面の「読み上げ」で VOICEVOX が使っているポートに直し、このブラウザソースを再読み込みしてください`,
     `3. VOICEVOX がこのサイトからの通信を拒んでいる → ${origin}/setting を開いて CORS の許可に ${pageOrigin} を足し、VOICEVOX を再起動してください`,
     `詳細: ${String(error)}`,
   ].join('\n')
@@ -84,8 +94,7 @@ const callEngine = async (
  *
  * @param fetchImpl 通信の実装。fetch をそのまま渡すと this が外れるブラウザがあるため、包んだものを受け取る
  */
-export const createVoicevox = (fetchImpl: typeof fetch, { origin, speaker, speed, pageOrigin }: VoicevoxOptions): Voicevox => {
-  const speakerQuery = `speaker=${speaker}`
+export const createVoicevox = (fetchImpl: typeof fetch, { origin, pageOrigin }: VoicevoxOptions): Voicevox => {
   /** どの呼び出しでも同じ、失敗の文面に使う情報 */
   const engine = { origin, pageOrigin }
 
@@ -94,7 +103,8 @@ export const createVoicevox = (fetchImpl: typeof fetch, { origin, speaker, speed
       await callEngine(fetchImpl, { ...engine, url: `${origin}/version`, what: 'バージョンの読み出し' }, { method: 'GET' })
     },
 
-    async synthesize(text) {
+    async synthesize(text, { speaker, speed }) {
+      const speakerQuery = `speaker=${speaker}`
       const queryResponse = await callEngine(
         fetchImpl,
         { ...engine, url: `${origin}/audio_query?${speakerQuery}&text=${encodeURIComponent(text)}`, what: '読み方の問い合わせ' },
