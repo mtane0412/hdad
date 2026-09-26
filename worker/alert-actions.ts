@@ -15,7 +15,7 @@
 import { loadAlertConfig, type AlertConfig, type StoredAnnounceAction } from './alert-config'
 import { pushAlert } from './alert-channel'
 import { generateChatMessage } from './ai-chat'
-import { aiChatFor, alertFor, announcementFor, chatMessageFor, hasAlertAction, requiresStreamSummary } from './alert-event'
+import { aiChatsFor, alertsFor, announcementsFor, chatMessagesFor, hasAlertAction, requiresStreamSummary } from './alert-event'
 import { resolveConditionState } from './alert-state'
 import type { ConditionState } from './alert-event'
 import { announceAsBot, sendAsBot } from './bot-chat'
@@ -79,40 +79,43 @@ export const runAlertActions = async (
   // 読むのはここ1回だけで、チャット・アナウンス・アラートの差し込みで使い回す（コマンドの応答と同じく、ここでLLMは呼ばない）
   const summary = requiresStreamSummary(config, subscriptionType) ? ((await readCurrentStreamSummary(env.DB, now))?.summary ?? null) : null
   // 中身の形が違えば「不正な通知」として400で返す（Workerの不具合を表す500と区別する）
-  const [message, announcement] = ((): [string | null, StoredAnnounceAction | null] => {
+  const [messages, announcements] = ((): [string[], StoredAnnounceAction[]] => {
     try {
       return [
-        chatMessageFor(config, subscriptionType, body.event, state, summary),
-        announcementFor(config, subscriptionType, body.event, state, summary),
+        chatMessagesFor(config, subscriptionType, body.event, state, summary),
+        announcementsFor(config, subscriptionType, body.event, state, summary),
       ]
     } catch (error) {
       throw invalid(error instanceof Error ? error.message : String(error))
     }
   })()
-  const aiChat = ((): ReturnType<typeof aiChatFor> => {
+  const aiChats = ((): ReturnType<typeof aiChatsFor> => {
     try {
-      return aiChatFor(config, subscriptionType, body.event, state)
+      return aiChatsFor(config, subscriptionType, body.event, state)
     } catch (error) {
       throw invalid(error instanceof Error ? error.message : String(error))
     }
   })()
   // 素材の再生はbotと関わりなく行う（botを接続していなくてもアラートは鳴る）
-  await pushMatchedAlert(context, config, subscriptionType, body, messageId, state, summary)
+  await pushMatchedAlerts(context, config, subscriptionType, body, messageId, state, summary)
 
-  if (message === null && announcement === null && aiChat === null) return
+  if (messages.length === 0 && announcements.length === 0 && aiChats.length === 0) return
 
   // botを切断していれば送る先がない。受け取り自体は成功として返す
   if (!(await botConnected())) return
 
-  if (message !== null) await sendAndRecordFailure(context, messageId, 'chat', 'alert-chat-failed', () => sendAsBot(context, message))
-  if (announcement !== null) {
-    await sendAndRecordFailure(context, messageId, 'announce', 'alert-announce-failed', () => announceAsBot(context, announcement))
+  // 当てはまった行はすべて実行する。鍵には並びの位置を混ぜ、同じ通知で2通送るときに片方が送れなくならないようにする
+  for (const [index, message] of messages.entries()) {
+    await sendAndRecordFailure(context, messageId, 'chat', index, 'alert-chat-failed', () => sendAsBot(context, message))
   }
-  if (aiChat !== null) {
+  for (const [index, announcement] of announcements.entries()) {
+    await sendAndRecordFailure(context, messageId, 'announce', index, 'alert-announce-failed', () => announceAsBot(context, announcement))
+  }
+  for (const [index, aiChat] of aiChats.entries()) {
     // LLMの応答を待つとTwitchへの2xxが遅れ、同じ通知を再送されてしまう。応答を返してから続きを走らせる
     context.waitUntil(
       recordLateFailure(context, 'alert-aichat-failed', () =>
-        sendAndRecordFailure(context, messageId, 'aiChat', 'alert-aichat-failed', () => sendAiChat(context, aiChat, state, chatMessage, summary)),
+        sendAndRecordFailure(context, messageId, 'aiChat', index, 'alert-aichat-failed', () => sendAiChat(context, aiChat, state, chatMessage, summary)),
       ),
     )
   }
@@ -134,7 +137,7 @@ export const runAlertActions = async (
  */
 const sendAiChat = async (
   context: AlertActionContext,
-  aiChat: NonNullable<ReturnType<typeof aiChatFor>>,
+  aiChat: ReturnType<typeof aiChatsFor>[number],
   state: ConditionState,
   chatMessage: ChatMessage | null,
   streamSummary: string | null,
@@ -146,7 +149,7 @@ const sendAiChat = async (
 }
 
 /**
- * 当てはまるアラートがあれば、配送先（Durable Object）へ押し出す。
+ * 当てはまるアラートがあれば、配送先（Durable Object）へすべて押し出す。
  *
  * 素材のURLにはオーバーレイ用キーが要るので、アラートを出す動作を持つトリガーがあるときだけキーを読む
  * （チャットの発言は件数の桁が違うため、1通ごとに余分なKVの読み出しを増やさない）。
@@ -157,7 +160,7 @@ const sendAiChat = async (
  * @param summary 画面に出す文言に差し込む配信のあらすじ。呼び出し側が読んだものを受け取る
  *   （チャット・アナウンスと同じ値を使い回し、同じ通知でデータベースを二度読まない）
  */
-const pushMatchedAlert = async (
+const pushMatchedAlerts = async (
   context: AlertActionContext,
   config: AlertConfig,
   subscriptionType: string,
@@ -176,16 +179,18 @@ const pushMatchedAlert = async (
   }
 
   // 中身の形が違えば「不正な通知」として400で返す（Workerの不具合を表す500と区別する）
-  const alert = ((): ReturnType<typeof alertFor> => {
+  const alerts = ((): ReturnType<typeof alertsFor> => {
     try {
-      return alertFor(config, subscriptionType, body.event, overlayKey, state, summary)
+      return alertsFor(config, subscriptionType, body.event, overlayKey, state, summary)
     } catch (error) {
       throw invalid(error instanceof Error ? error.message : String(error))
     }
   })()
-  if (alert === null) return
 
-  await sendAndRecordFailure(context, messageId, 'alert', 'alert-push-failed', () => pushAlert(env.ALERTS, alert))
+  // 当てはまった行はすべて押し出す。オーバーレイは受け取った順に並べて再生する（src/alerts/queue.ts）
+  for (const [index, alert] of alerts.entries()) {
+    await sendAndRecordFailure(context, messageId, 'alert', index, 'alert-push-failed', () => pushAlert(env.ALERTS, alert))
+  }
 }
 
 /**
@@ -193,7 +198,10 @@ const pushMatchedAlert = async (
  *
  * 鍵の確保を送信より先に行うのは、Twitchの再送で同じお礼を二度送らないため。
  * 鍵に動作の種類を混ぜるのは、同じ通知でチャットとアナウンスの両方を送るときに、片方が鍵を取って
- * もう片方が送れなくなるのを防ぐため。
+ * もう片方が送れなくなるのを防ぐため。当てはまった行をすべて実行するので、同じ種類の動作が同じ通知で
+ * 何度も走る。そのため並びの位置（index）も混ぜる。位置は当てはまった動作の並び順なので、
+ * 同じ設定と同じ通知であれば再送でも同じ鍵になる（設定を書き換えたあとの再送では鍵がずれるが、
+ * それは設定を書き換えたこと自体の帰結であり、二重送信を防ぐ範囲はTwitchの再送に限る）。
  */
 /**
  * Twitchへ応答を返したあとに走らせる処理から、失敗を取りこぼさないようにする。
@@ -225,11 +233,12 @@ const sendAndRecordFailure = async (
   context: AlertActionContext,
   messageId: string,
   actionType: 'chat' | 'announce' | 'alert' | 'aiChat',
+  index: number,
   failureCode: string,
   send: () => Promise<void>,
 ): Promise<void> => {
   const { env, now } = context
-  if (!(await reserveChatReply(env.DB, `${messageId}:${actionType}`, now))) return
+  if (!(await reserveChatReply(env.DB, `${messageId}:${actionType}:${index}`, now))) return
 
   try {
     await send()

@@ -636,7 +636,7 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
         <CardHeader>
           <CardTitle>トリガー</CardTitle>
           <CardDescription>
-            「トリガーを足す」から、きっかけになる出来事を選ぶ。出来事が起きたら、上から順に探して最初に当てはまったトリガーの素材を流す。
+            「トリガーを足す」から、きっかけになる出来事を選ぶ。出来事が起きたら、当てはまったトリガーの動作をすべて行う。
             きっかけは後から変えられないので、変えたいときは外して足し直す。
             文言の <code>{'{user}'}</code> は相手の名前に、<code>{'{summary}'}</code> は配信の「これまでのあらすじ」に置き換わる。
             ほかに使える差し込み語はきっかけごとに違い、それぞれの文言欄の下に出る。

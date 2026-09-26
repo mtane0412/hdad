@@ -761,6 +761,33 @@ describe('アラートのトリガーによるチャット送信', () => {
     })
   })
 
+  it('当てはまるトリガーが2件あれば、どちらも送る（一覧の下にある行が黙って動かないことがない）', async () => {
+    const 別のお礼: StoredTrigger = { kind: 'follow', actions: [{ type: 'chat', message: 'これからよろしくお願いします' }] }
+    const { env } = await トリガーのある環境([フォローでお礼を言う, 別のお礼])
+    const twitch = 送信に応えるTwitch()
+
+    const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+
+    expect(response.status).toBe(204)
+    // 鍵に並びの位置を混ぜているので、同じ通知でも2通とも送信の枠を取れる
+    expect(await Promise.all(twitch.送信したチャット.map(async (request) => ((await request.json()) as { message: string }).message))).toEqual([
+      '田中太郎 さん、フォローありがとうございます！',
+      'これからよろしくお願いします',
+    ])
+  })
+
+  it('当てはまるトリガーが2件あっても、同じ通知が再送されたら二度送らない', async () => {
+    const 別のお礼: StoredTrigger = { kind: 'follow', actions: [{ type: 'chat', message: 'これからよろしくお願いします' }] }
+    const { env } = await トリガーのある環境([フォローでお礼を言う, 別のお礼])
+    const twitch = 送信に応えるTwitch()
+
+    await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+    const 再送 = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+
+    expect(再送.status).toBe(204)
+    expect(twitch.送信したチャット).toHaveLength(2)
+  })
+
   it('文言に {summary} があれば、貯めてある配信中のあらすじを差し込んで送る', async () => {
     const あらすじを流す: StoredTrigger = {
       kind: 'follow',
@@ -1423,6 +1450,20 @@ describe('オーバーレイへのアラートの押し出し', () => {
         text: '田中太郎 さん、ありがとう！',
       },
     ])
+  })
+
+  it('当てはまるトリガーが2件あれば、どちらのアラートも押し出す（オーバーレイが順に再生する）', async () => {
+    const { env, 配送 } = 環境を作る()
+    await saveAlertConfig(env.STORE, {
+      triggers: [
+        { kind: 'follow', actions: [{ type: 'alert', mediaId: 'media-kanpai', mediaKind: 'video', durationSeconds: 5, volume: 0.5, message: '1つ目' }] },
+        { kind: 'follow', actions: [{ type: 'alert', mediaId: 'media-kanpai', mediaKind: 'video', durationSeconds: 5, volume: 0.5, message: '2つ目' }] },
+      ],
+    })
+
+    await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env)
+
+    expect(配送.押し出されたアラート.map((alert) => alert.text)).toEqual(['1つ目', '2つ目'])
   })
 
   it('アラートの文言の {summary} に、貯めてある配信中のあらすじを差し込んで押し出す（OBSの画面に出す）', async () => {
