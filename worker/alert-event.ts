@@ -25,10 +25,11 @@ import {
   type MediaKind,
   type StoredAiChatAction,
   type StoredAnnounceAction,
-  type StoredCondition,
-  type StoredTrigger,
+  resolveTrigger,
+  type ResolvedTrigger,
 } from './alert-config'
 import { readChatMessage } from './chat-command'
+import type { StoredCondition } from './trigger-menu'
 import { fillStreamSummary, STREAM_SUMMARY_PLACEHOLDER } from './stream-summary'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
@@ -93,9 +94,18 @@ export interface ConditionState {
   readonly daysSinceLastChat: number | null
 }
 
+/**
+ * その通知のイベント種別を対象にするトリガーを、照合に使う形へ展開して取り出す。
+ *
+ * 保存されているのは既定メニューの項目（kind とパラメータ）なので、イベント種別と条件はここで展開する
+ * （展開は通信も時刻も持たない純粋な処理なので、必要になったその場で行ってよい）。
+ */
+const triggersFor = (config: AlertConfig, subscriptionType: string): ResolvedTrigger[] =>
+  config.triggers.map(resolveTrigger).filter((trigger) => trigger.event === subscriptionType)
+
 /** そのイベントのトリガーに、指定した種類の条件がひとつでも使われているか */
 const uses = (config: AlertConfig, subscriptionType: string, kinds: readonly StoredCondition['kind'][]): boolean =>
-  config.triggers.some((trigger) => trigger.event === subscriptionType && trigger.conditions.some((condition) => kinds.includes(condition.kind)))
+  triggersFor(config, subscriptionType).some((trigger) => trigger.conditions.some((condition) => kinds.includes(condition.kind)))
 
 /**
  * そのイベントに、LLMへ文面を作らせる動作（aiChat）を持つトリガーがあるか。
@@ -104,7 +114,7 @@ const uses = (config: AlertConfig, subscriptionType: string, kinds: readonly Sto
  * 条件としては使っていなくても判定が要るのはこの動作だけなので、requires* から見分けられるようにしておく。
  */
 const hasAiChatAction = (config: AlertConfig, subscriptionType: string): boolean =>
-  config.triggers.some((trigger) => trigger.event === subscriptionType && aiChatActionOf(trigger) !== null)
+  triggersFor(config, subscriptionType).some((trigger) => aiChatActionOf(trigger) !== null)
 
 /**
  * その通知に、「その配信で初めての発言か」の判定が要るか。
@@ -136,7 +146,7 @@ export const requiresChatHistory = (config: AlertConfig, subscriptionType: strin
  * チャットの発言は件数の桁が違うため、1通ごとに余分なKVの読み出しを増やさないようにこれで絞る。
  */
 export const hasAlertAction = (config: AlertConfig, subscriptionType: string): boolean =>
-  config.triggers.some((trigger) => trigger.event === subscriptionType && alertActionOf(trigger) !== null)
+  triggersFor(config, subscriptionType).some((trigger) => alertActionOf(trigger) !== null)
 
 /**
  * その通知に、配信のあらすじが要るトリガーがあるか。
@@ -148,10 +158,8 @@ export const hasAlertAction = (config: AlertConfig, subscriptionType: string): b
  * 文面を作らせないよう、指示に書かれていなくても材料として渡す（requiresChatHistory が来訪の別を必ず調べるのと同じ）。
  */
 export const requiresStreamSummary = (config: AlertConfig, subscriptionType: string): boolean =>
-  config.triggers.some(
-    (trigger) =>
-      trigger.event === subscriptionType &&
-      trigger.actions.some((action) => 'message' in action && action.message.includes(STREAM_SUMMARY_PLACEHOLDER)),
+  triggersFor(config, subscriptionType).some((trigger) =>
+    trigger.actions.some((action) => 'message' in action && action.message.includes(STREAM_SUMMARY_PLACEHOLDER)),
   ) || hasAiChatAction(config, subscriptionType)
 
 type EventBody = Readonly<Record<string, unknown>>
@@ -275,8 +283,13 @@ const satisfiesCondition = (condition: StoredCondition, extracted: Extracted, st
   }
 }
 
-/** トリガーが、取り出した項目に当てはまるか。イベント種別が同じで、条件をすべて満たすときに当てはまる（and） */
-export const matches = (trigger: StoredTrigger, extracted: Extracted, state: ConditionState): boolean =>
+/**
+ * 展開したトリガーが、取り出した項目に当てはまるか。イベント種別が同じで、条件をすべて満たすときに当てはまる（and）。
+ *
+ * 受け取るのは展開後の形（ResolvedTrigger）である。既定メニューの項目から条件を作るのは worker/trigger-menu.ts の
+ * 役目で、当てはまるかどうかの判定はこの関数だけが持つ（判定を2か所に置かないため）。
+ */
+export const matches = (trigger: ResolvedTrigger, extracted: Extracted, state: ConditionState): boolean =>
   trigger.event === extracted.event && trigger.conditions.every((condition) => satisfiesCondition(condition, extracted, state))
 
 /**
@@ -341,12 +354,12 @@ const matchedActionFor = <Action>(
   config: AlertConfig,
   subscriptionType: string,
   body: unknown,
-  actionOf: (trigger: StoredTrigger) => Action | null,
+  actionOf: (trigger: ResolvedTrigger) => Action | null,
   state: ConditionState,
 ): { action: Action; extracted: Extracted } | null => {
   // その動作を持つトリガーが1件もないイベント種別なら、通知の中身は読まない。
   // 設定していないイベントの中身の形が想定と違うだけで、配信の記録まで止めてしまわないため
-  const candidates = config.triggers.filter((trigger) => trigger.event === subscriptionType && actionOf(trigger) !== null)
+  const candidates = triggersFor(config, subscriptionType).filter((trigger) => actionOf(trigger) !== null)
   if (candidates.length === 0) return null
 
   const extracted = extract(subscriptionType, body)
@@ -369,7 +382,7 @@ const filledActionFor = <Action extends { message: string }>(
   config: AlertConfig,
   subscriptionType: string,
   body: unknown,
-  actionOf: (trigger: StoredTrigger) => Action | null,
+  actionOf: (trigger: ResolvedTrigger) => Action | null,
   state: ConditionState,
   summary: string | null,
 ): Action | null => {

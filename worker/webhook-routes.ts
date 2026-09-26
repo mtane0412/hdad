@@ -9,7 +9,7 @@
  */
 import { scheduleAdBreakEnd } from './ad-break-timer'
 import { runAlertActions } from './alert-actions'
-import { AD_BREAK_END, loadAlertConfig } from './alert-config'
+import { loadAlertConfig } from './alert-config'
 import { sendAsBot } from './bot-chat'
 import { applyReply, findCommand, needsStreamSummary, readChatMessage, type ChatMessage } from './chat-command'
 import { loadBotConfig } from './bot-config'
@@ -235,7 +235,8 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
 const scheduleAdBreakEndIfNeeded = async (context: Context, body: Record<string, unknown>, messageId: string): Promise<void> => {
   const { env, now } = context
   const config = await loadAlertConfig(env.STORE)
-  if (!config.triggers.some((trigger) => trigger.event === AD_BREAK_END)) return
+  // 広告の終了を待つトリガーが1件も無ければ、鳴らす先の無いタイマーで Durable Object を起こさない
+  if (!config.triggers.some((trigger) => trigger.kind === 'adBreakEnd')) return
 
   const { event } = body
   if (!isRecord(event)) throw invalid('広告の開始の通知に event がありません')

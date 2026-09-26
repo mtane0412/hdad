@@ -19,7 +19,7 @@
  * アラームの再試行で同じ告知を二度送らないためである（送信そのものの二重防止は alert-actions.ts の鍵が受け持つ）。
  */
 import { recordLateFailure, runAlertActions } from './alert-actions'
-import { AD_BREAK_END } from './alert-config'
+import { AD_BREAK_END } from './trigger-menu'
 import { STATUS, type Env } from './http'
 import { loadToken } from './token'
 import { createTwitchClient } from './twitch'

@@ -15,27 +15,26 @@ import type { ChatMessage } from './chat-command'
 import { createFakeDatabase } from './fake-database'
 import { recordViewerMessage } from './viewer-store'
 
-const CHAT_MESSAGE = 'channel.chat.message'
 const 現在時刻 = Date.UTC(2026, 8, 21, 12, 0, 0)
 
 /** firstChatOfStream の条件を持つ設定 */
 const 初回の設定: AlertConfig = {
-  triggers: [{ event: CHAT_MESSAGE, conditions: [{ kind: 'firstChatOfStream' }], actions: [{ type: 'chat', message: 'おかえりなさい！' }] }],
+  triggers: [{ kind: 'firstChatOfStream', actions: [{ type: 'chat', message: 'おかえりなさい！' }] }],
 }
 
 /** 状態を持つ条件をひとつも持たない設定 */
 const 条件なしの設定: AlertConfig = {
-  triggers: [{ event: CHAT_MESSAGE, conditions: [], actions: [{ type: 'chat', message: 'どうも' }] }],
+  triggers: [{ kind: 'chat', actions: [{ type: 'chat', message: 'どうも' }] }],
 }
 
 /** firstChatEver の条件を持つ設定（視聴者の記録を読む） */
 const 初見の設定: AlertConfig = {
-  triggers: [{ event: CHAT_MESSAGE, conditions: [{ kind: 'firstChatEver' }], actions: [{ type: 'chat', message: 'はじめまして！' }] }],
+  triggers: [{ kind: 'firstChatEver', actions: [{ type: 'chat', message: 'はじめまして！' }] }],
 }
 
 /** returningAfter の条件を持つ設定（視聴者の記録を読む） */
 const 久しぶりの設定: AlertConfig = {
-  triggers: [{ event: CHAT_MESSAGE, conditions: [{ kind: 'returningAfter', days: 30 }], actions: [{ type: 'chat', message: 'お久しぶりです！' }] }],
+  triggers: [{ kind: 'returningAfter', days: 30, actions: [{ type: 'chat', message: 'お久しぶりです！' }] }],
 }
 
 /** どの判定も「当てはまらない」状態 */
@@ -126,16 +125,14 @@ describe('resolveConditionState', () => {
     })
   })
 
-  it('firstChatOfStream と firstChatEver の両方を使うトリガーでは、両方を判定する', async () => {
+  it('firstChatOfStream と firstChatEver のトリガーが並んでいれば、両方を判定する', async () => {
     const db = createFakeDatabase()
     配信を始める(db)
+    // 1つのメニュー項目が持つ条件は1件までなので、2つのトリガーを並べて両方の判定が要る状態を作る
     const 両方の設定: AlertConfig = {
       triggers: [
-        {
-          event: CHAT_MESSAGE,
-          conditions: [{ kind: 'firstChatOfStream' }, { kind: 'firstChatEver' }],
-          actions: [{ type: 'chat', message: 'はじめまして！' }],
-        },
+        { kind: 'firstChatOfStream', actions: [{ type: 'chat', message: 'おかえりなさい！' }] },
+        { kind: 'firstChatEver', actions: [{ type: 'chat', message: 'はじめまして！' }] },
       ],
     }
 
