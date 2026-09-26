@@ -11,7 +11,8 @@ import {
   createDraft,
   emptyDraft,
   hasAnyAction,
-  rowSummary,
+  rowActionLabels,
+  rowParamSummary,
   toTriggerInputs,
   withFixedRows,
   describeProblem,
@@ -68,14 +69,30 @@ describe('overlayUrl', () => {
 })
 
 describe('menuGroups', () => {
-  it('メニュー項目を「チャット・応援・配信」の3つに分けて並べる', () => {
-    expect(menuGroups.map((group) => group.label)).toEqual(['チャット', '応援', '配信'])
+  it('メニュー項目を「チャット・イベント」の2つに分けて並べる', () => {
+    // 広告は配信者から見れば「配信中に起きる出来事」の1つなので、応援と同じ「イベント」にまとめる
+    expect(menuGroups.map((group) => group.label)).toEqual(['チャット', 'イベント'])
   })
 
-  it('すべてのメニュー項目がどれかの区分に1回だけ出る（足し忘れ・重複を防ぐ）', () => {
-    const 並んでいる項目 = menuGroups.flatMap((group) => group.items.map((item) => item.kind))
+  it('すべてのイベント種別がどれかの区分に1回だけ出る（足し忘れ・重複を防ぐ）', () => {
+    const 並んでいる種別 = menuGroups.flatMap((group) => group.items.flatMap((item) => item.phases.map((phase) => phase.kind)))
 
-    expect([...並んでいる項目].sort()).toEqual([...TRIGGER_KINDS].sort())
+    expect([...並んでいる種別].sort()).toEqual([...TRIGGER_KINDS].sort())
+  })
+
+  it('広告の開始と終了は、1つの項目にまとめて設定する', () => {
+    const 広告 = menuGroups.flatMap((group) => group.items).find((item) => item.label === '広告')
+
+    expect(広告?.phases.map((phase) => phase.kind)).toEqual(['adBreakBegin', 'adBreakEnd'])
+    // 効果は開始と終了で別々に持つので、それぞれに見出しを付ける
+    expect(広告?.phases.map((phase) => phase.heading)).toEqual(['広告が始まったときの効果', '広告が終わったときの効果'])
+  })
+
+  it('広告のほかの項目は、イベント種別を1つだけ持つ', () => {
+    const 広告以外 = menuGroups.flatMap((group) => group.items).filter((item) => item.label !== '広告')
+
+    // 1つしか持たない項目では、効果のまとまりを分けないので見出しを持たない
+    expect(広告以外.every((item) => item.phases.length === 1 && item.phases[0]?.heading === null)).toBe(true)
   })
 
   it('チャットの区分は、挨拶の3項目を細かい順に先頭へ置き、そのあとに「すべての発言」を置く', () => {
@@ -286,6 +303,16 @@ describe('withFixedRows', () => {
     expect(rows.every((row) => !hasAnyAction(row))).toBe(true)
   })
 
+  it('広告の片方だけが保存されていたら、もう片方の行にも同じ絞り込みを入れる（1つの枠で共通に見せるため）', () => {
+    // 広告の開始と終了は1つの枠にまとまり、絞り込み（自動・手動）の入力欄も1つしかない。
+    // 埋める側を既定値のままにすると、保存済みの値と食い違ったまま画面に出てしまう
+    const 終了だけ保存済み: TriggerDraft = { ...emptyDraft('adBreakEnd'), automatic: 'true', chatEnabled: true, chatMessage: 'おかえりなさい' }
+
+    const 広告の行 = withFixedRows([終了だけ保存済み]).filter((row) => row.kind === 'adBreakBegin' || row.kind === 'adBreakEnd')
+
+    expect(広告の行.map((row) => row.automatic)).toEqual(['true', 'true'])
+  })
+
   it('保存済みの行はそのまま残し、足りない項目だけを効果なしの行で埋める', () => {
     const 保存済み = toDraft({ kind: 'follow', actions: [{ type: 'chat', message: 'ありがとう' }] })
 
@@ -343,19 +370,19 @@ describe('toTriggerInputs', () => {
   })
 })
 
-describe('rowSummary', () => {
-  const 報酬 = [{ id: '報酬ID-乾杯', title: '乾杯する', cost: 500 }]
+describe('rowActionLabels', () => {
+  it('付けた効果を決まった順で並べる（画面ではバッジとして1つずつ出す）', () => {
+    const 入力 = 入力欄({ kind: 'follow', chatEnabled: true, announceEnabled: true })
 
-  it('項目の名前は添えず、絞り込みと効果だけを出す（名前は項目の見出しに出ているため）', () => {
-    expect(rowSummary(入力欄({ kind: 'reward', rewardId: '報酬ID-乾杯' }), 報酬)).toBe('乾杯する → アラート')
+    expect(rowActionLabels(入力)).toEqual(['アラート', 'チャット', 'アナウンス'])
   })
 
-  it('絞り込みを持たない行は、効果だけを出す', () => {
-    expect(rowSummary(入力欄({ kind: 'follow' }), [])).toBe('→ アラート')
+  it('AIに文面を作らせる効果は「AIチャット」として出す', () => {
+    expect(rowActionLabels(入力欄({ kind: 'follow', alertEnabled: false, aiChatEnabled: true }))).toEqual(['AIチャット'])
   })
 
-  it('効果がひとつもなければ、何も起きないことが分かるようにする', () => {
-    expect(rowSummary(emptyDraft('follow'), [])).toBe('効果なし')
+  it('効果がひとつもなければ空にする（画面では「効果なし」と出す）', () => {
+    expect(rowActionLabels(emptyDraft('follow'))).toEqual([])
   })
 })
 
@@ -398,46 +425,41 @@ describe('rewardOptions', () => {
   })
 })
 
-describe('rowSummary（絞り込みの出し方）', () => {
+describe('rowParamSummary', () => {
   const 報酬 = [{ id: '報酬ID-乾杯', title: '乾杯する', cost: 500 }]
 
+  it('選んでいる報酬の名前を出す', () => {
+    expect(rowParamSummary(入力欄({ kind: 'reward', rewardId: '報酬ID-乾杯' }), 報酬)).toBe('乾杯する')
+  })
+
   it('報酬を選んでいなければ、すべての報酬が対象だと分かるように出す', () => {
-    expect(rowSummary(入力欄({ kind: 'reward', rewardId: '' }), 報酬)).toBe('すべての報酬 → アラート')
+    expect(rowParamSummary(入力欄({ kind: 'reward', rewardId: '' }), 報酬)).toBe('すべての報酬')
   })
 
   it('Twitchの一覧にない報酬でも、報酬IDを出して黙って省略しない', () => {
-    expect(rowSummary(入力欄({ kind: 'reward', rewardId: '報酬ID-消した報酬' }), 報酬)).toBe('報酬ID-消した報酬 → アラート')
+    expect(rowParamSummary(入力欄({ kind: 'reward', rewardId: '報酬ID-消した報酬' }), 報酬)).toBe('報酬ID-消した報酬')
   })
 
   it('決まった人が発言した行は、ユーザー名を出す', () => {
-    expect(rowSummary(入力欄({ kind: 'fromUser', login: 'tanenobu' }), [])).toBe('tanenobu → アラート')
+    expect(rowParamSummary(入力欄({ kind: 'fromUser', login: 'tanenobu' }), [])).toBe('tanenobu')
   })
 
   it('決まった言葉を含む発言の行は、その言葉を出す', () => {
-    expect(rowSummary(入力欄({ kind: 'keyword', contains: 'おはよう' }), [])).toBe('おはよう → アラート')
+    expect(rowParamSummary(入力欄({ kind: 'keyword', contains: 'おはよう' }), [])).toBe('おはよう')
   })
 
   it('久しぶりの人が発言した行は、日数を出す', () => {
-    expect(rowSummary(入力欄({ kind: 'comeback', days: '45' }), [])).toBe('45日以上 → アラート')
+    expect(rowParamSummary(入力欄({ kind: 'comeback', days: '45' }), [])).toBe('45日以上')
   })
 
   it('広告の行は、自動で入った広告か手動で打った広告かを言葉で出す', () => {
-    expect(rowSummary(入力欄({ kind: 'adBreakBegin', automatic: 'true' }), [])).toBe('自動で入った広告 → アラート')
-    expect(rowSummary(入力欄({ kind: 'adBreakEnd', automatic: 'false' }), [])).toBe('配信者が手動で打った広告 → アラート')
+    expect(rowParamSummary(入力欄({ kind: 'adBreakBegin', automatic: 'true' }), [])).toBe('自動で入った広告')
+    expect(rowParamSummary(入力欄({ kind: 'adBreakEnd', automatic: 'false' }), [])).toBe('配信者が手動で打った広告')
   })
 
-  it('自動・手動を問わない広告は、絞り込みを出さない', () => {
-    expect(rowSummary(入力欄({ kind: 'adBreakEnd', automatic: '' }), [])).toBe('→ アラート')
-  })
-
-  it('付けた効果をすべて並べる', () => {
-    const draft = 入力欄({ kind: 'follow', chatEnabled: true, announceEnabled: true })
-
-    expect(rowSummary(draft, [])).toBe('→ アラート・チャット・アナウンス')
-  })
-
-  it('AIに文面を作らせる効果は「AIチャット」として出す', () => {
-    expect(rowSummary(入力欄({ kind: 'follow', alertEnabled: false, aiChatEnabled: true }), [])).toBe('→ AIチャット')
+  it('絞り込みを持たない行では null を返す', () => {
+    expect(rowParamSummary(入力欄({ kind: 'follow' }), [])).toBeNull()
+    expect(rowParamSummary(入力欄({ kind: 'adBreakEnd', automatic: '' }), [])).toBeNull()
   })
 })
 

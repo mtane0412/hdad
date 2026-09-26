@@ -82,8 +82,26 @@ const MENU_LABELS: Readonly<Record<TriggerKind, string>> = {
 /** メニュー項目の日本語の名前。画面の見出しと要約で使う */
 export const menuLabel = (kind: TriggerKind): string => MENU_LABELS[kind]
 
-export interface MenuItem {
+export interface MenuPhase {
   kind: TriggerKind
+  /**
+   * 効果のまとまりに付ける見出し。イベント種別を1つしか持たない項目では null（まとまりを分けない）。
+   */
+  heading: string | null
+  /** 折りたたんだ見出しで、効果のバッジがどちらのときのものかを示す短い名前。heading が null なら null */
+  summary: string | null
+}
+
+export interface MenuItem {
+  /** その項目を代表するイベント種別。一覧の並び順と、絞り込みのパラメータの出し分けに使う */
+  kind: TriggerKind
+  /**
+   * 1つの枠でまとめて設定するイベント種別。ふつうは1つで、広告だけが開始と終了の2つを持つ。
+   *
+   * 効果は種別ごとに分けて持つが、**絞り込みのパラメータは種別をまたいで共通**である
+   * （広告の「自動で入ったものだけ」を開始と終了で別々に選べても、食い違った設定に意味がないため）。
+   */
+  phases: readonly MenuPhase[]
   label: string
   /** その項目が何をきっかけにするかの補足。一覧の項目に小さく添える */
   description: string
@@ -108,6 +126,7 @@ export interface MenuGroup {
 
 const item = (kind: TriggerKind, description: string, addLabel: string | null = null): MenuItem => ({
   kind,
+  phases: [{ kind, heading: null, summary: null }],
   label: MENU_LABELS[kind],
   description,
   multiple: addLabel !== null,
@@ -115,13 +134,32 @@ const item = (kind: TriggerKind, description: string, addLabel: string | null = 
 })
 
 /**
+ * 広告の項目。開始と終了を1つの枠にまとめる。
+ *
+ * 別々の項目として並べていたころは、同じ絞り込み（自動・手動）を2か所で選ぶことになり、
+ * 食い違った設定も作れてしまった。配信者から見れば「広告が入った」という1つの出来事なので、
+ * 枠を1つにして、効果だけを始まったとき・終わったときに分ける。
+ */
+const AD_BREAK_ITEM: MenuItem = {
+  kind: 'adBreakBegin',
+  phases: [
+    { kind: 'adBreakBegin', heading: '広告が始まったときの効果', summary: '開始' },
+    { kind: 'adBreakEnd', heading: '広告が終わったときの効果', summary: '終了' },
+  ],
+  label: '広告',
+  description: '配信中に広告が入ったとき。始まったときと終わったときで、別々の効果を付けられる',
+  multiple: false,
+  addLabel: null,
+}
+
+/**
  * 画面に固定で並べるトリガーの一覧。
  *
  * 配信者はトリガーを作るのではなく、**並んでいる出来事に効果を足していく**。
  * そのため項目の増減は配信者の操作では起きず、この一覧がそのまま画面の構成になる。
  *
- * 区分は配信者から見た関心ごと（視聴者・応援・配信）で分ける。
- * 並びは絞り込みの細かいものからにして、「誰かが発言した」は視聴者の区分の最後に置く。
+ * 区分は配信者から見た関心ごと（チャットの書き込みか、それ以外のイベントか）で分ける。
+ * 並びは絞り込みの細かいものからにして、「誰かが発言した」はチャットの区分の最後に置く。
  * 当てはまった行はすべて実行されるので動く・動かないは順番に左右されないが、
  * 何にでも当てはまる行が先頭にあると、一覧が読みにくくなるためである。
  */
@@ -141,7 +179,7 @@ export const menuGroups: readonly MenuGroup[] = [
     ],
   },
   {
-    label: '応援',
+    label: 'イベント',
     description: null,
     items: [
       item('reward', 'チャンネルポイントの交換。報酬ごとに違う効果を付けられる', '報酬を足す'),
@@ -149,12 +187,8 @@ export const menuGroups: readonly MenuGroup[] = [
       item('subscribe', '新しくサブスクされたとき'),
       item('resubscribe', '継続のサブスクがメッセージ付きで届いたとき'),
       item('raid', 'ほかの配信からレイドで来てくれたとき'),
+      AD_BREAK_ITEM,
     ],
-  },
-  {
-    label: '配信',
-    description: null,
-    items: [item('adBreakBegin', '広告が流れ始めたとき'), item('adBreakEnd', '広告が終わって配信に戻ったとき')],
   },
 ]
 
@@ -319,6 +353,15 @@ const DEFAULT_ALERT_DRAFT = { mediaId: '', durationSeconds: String(DEFAULT_DURAT
 /** どのメニュー項目でも使わないパラメータの既定値 */
 const DEFAULT_PARAMS = { rewardId: ALL_REWARDS, login: '', contains: '', days: String(DEFAULT_RETURNING_DAYS), automatic: ANY_AD_BREAK }
 
+/** 絞り込みのパラメータだけを取り出す。1つの項目が複数のイベント種別を持つとき、行をまたいで同じ値にするために使う */
+const paramsOf = (draft: TriggerDraft): typeof DEFAULT_PARAMS => ({
+  rewardId: draft.rewardId,
+  login: draft.login,
+  contains: draft.contains,
+  days: draft.days,
+  automatic: draft.automatic,
+})
+
 /** 保存済みのパラメータを入力欄の値に戻す。「絞り込まない」を表す null は空文字にする */
 const toParams = (trigger: StoredTrigger): Partial<typeof DEFAULT_PARAMS> => {
   switch (trigger.kind) {
@@ -437,9 +480,18 @@ export const hasAnyAction = (draft: TriggerDraft): boolean =>
  */
 export const withFixedRows = (drafts: readonly TriggerDraft[]): TriggerDraft[] =>
   MENU_ITEMS.flatMap((menuItem) => {
-    const rows = drafts.filter((draft) => draft.kind === menuItem.kind)
-    if (rows.length > 0) return rows
-    return menuItem.multiple ? [] : [emptyDraft(menuItem.kind)]
+    // 広告のように1つの項目が2つのイベント種別を持つことがあるので、種別ごとに行をそろえる
+    const byPhase = menuItem.phases.map((phase) => drafts.filter((draft) => draft.kind === phase.kind))
+    // 絞り込みは項目の中で共通なので、足りない種別の行を作るときは保存済みの行から引き継ぐ。
+    // 既定値のまま作ると、広告の終了だけが保存されていたときに開始の行と食い違ったまま画面に出てしまう
+    const stored = byPhase.flat()[0]
+    return menuItem.phases.flatMap((phase, index) => {
+      const rows = byPhase[index] ?? []
+      if (rows.length > 0) return rows
+      if (menuItem.multiple) return []
+      const empty = emptyDraft(phase.kind)
+      return [stored === undefined ? empty : { ...empty, ...paramsOf(stored) }]
+    })
   })
 
 /**
@@ -475,11 +527,12 @@ export const rewardOptions = (rewards: readonly Reward[], selected: string): Sel
 }
 
 /**
- * 要約の中に出す、メニュー項目のパラメータの文言。絞り込んでいなければ null（何も添えない）。
+ * 折りたたんだ行の見出しに出す、メニュー項目のパラメータの文言。絞り込んでいなければ null（何も添えない）。
  *
+ * メニュー項目の名前は添えない（項目の枠の見出しにすでに出ているため）。
  * Twitchの一覧にない報酬は、黙って省略せずに報酬IDをそのまま出す（設定を取り違えないため）。
  */
-const paramSummary = (draft: TriggerDraft, rewards: readonly Reward[]): string | null => {
+export const rowParamSummary = (draft: TriggerDraft, rewards: readonly Reward[]): string | null => {
   switch (draft.kind) {
     case 'reward':
       if (draft.rewardId === ALL_REWARDS) return 'すべての報酬'
@@ -502,23 +555,19 @@ const paramSummary = (draft: TriggerDraft, rewards: readonly Reward[]): string |
 }
 
 /**
- * 折りたたんだ行の見出しに出す要約。「絞り込み → 効果」の形にする。
+ * その行が持つ効果の名前。付けている順ではなく、いつも同じ並びで返す。
  *
- * メニュー項目の名前は添えない（一覧の項目の見出しにすでに出ているため）。
- * 効果をひとつも持たない行は、保存されず何も起きないことが分かるように「効果なし」と出す。
+ * 画面ではバッジとして1つずつ出し、絞り込みの文言（rowParamSummary）と見た目で分ける
+ * （ひと続きの文にすると、効果が付いているかどうかを読み取るのに文末まで読むことになる）。
+ * ひとつも持たない行は保存されず何も起きないので、空の配列を返して呼び出し側に「効果なし」と出させる。
  */
-export const rowSummary = (draft: TriggerDraft, rewards: readonly Reward[]): string => {
-  const actions = [
+export const rowActionLabels = (draft: TriggerDraft): readonly string[] =>
+  [
     draft.alertEnabled ? 'アラート' : null,
     draft.chatEnabled ? 'チャット' : null,
     draft.announceEnabled ? 'アナウンス' : null,
     draft.aiChatEnabled ? 'AIチャット' : null,
   ].filter((label) => label !== null)
-  if (actions.length === 0) return '効果なし'
-
-  const param = paramSummary(draft, rewards)
-  return `${param === null ? '' : `${param} `}→ ${actions.join('・')}`
-}
 
 /** 素材の大きさを読みやすい単位で表す */
 export const formatBytes = (size: number): string => {

@@ -6,6 +6,10 @@
  * - OBS用のURLを伏せ字で出し、コピーとキーの再発行ができること（再発行は確認してから）
  * - URL欄に、ブラウザソースへ設定する推奨の幅と高さが添えられること
  * - トリガーは折りたたんで並び、見出しの要約を押すと入力欄が開くこと（開くのは1件ずつ）
+ * - どの項目も同じ枠に入って並び、効果はバッジで出ること（複数の設定を持てる項目だけ見た目が変わらない）
+ * - 区分（チャット・イベント）を畳めること
+ * - 広告の開始と終了を1つの枠で設定でき、対象の広告（自動・手動）は両方で共通になること
+ * - 未保存の変更があることを知らせること
  * - きっかけを既定メニューから選んでトリガーを足せること（イベント種別と条件は画面から組み立てない）
  * - メニュー項目が要求するパラメータ（報酬・ユーザー名・言葉・日数・広告の絞り込み）を書き換えられること
  * - トリガーを足し、入力欄の値をWorkerへ送る形にして保存できること
@@ -88,6 +92,9 @@ const 開いた設定 = async (item: string, position = 1) => {
 /** 開閉を変えずに、その設定の中だけを探せるようにする（足した直後の行はすでに開いている） */
 const 設定の行 = (item: string, position = 1) => within(screen.getByRole('listitem', { name: `${item}の${position}番目の設定` }))
 
+/** メニュー項目1つぶんの枠。1行だけの項目も複数の設定を持てる項目も、同じ枠で並ぶ */
+const 項目の枠 = (label: string): Promise<HTMLElement> => screen.findByRole('listitem', { name: label })
+
 /** 複数の設定を持てる項目に、設定を1つ足す */
 const 設定を足す = async (label: string): Promise<void> => {
   await userEvent.click(await screen.findByRole('button', { name: label }))
@@ -163,8 +170,7 @@ describe('一覧', () => {
     render(トリガーのページ(代役のAPI()))
 
     expect(await screen.findByRole('region', { name: 'チャット' })).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: '応援' })).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: '配信' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'イベント' })).toBeInTheDocument()
     // 配信者はトリガーを作らず、並んでいる出来事に効果を足していく
     expect(screen.queryByRole('button', { name: 'トリガーを足す' })).not.toBeInTheDocument()
   })
@@ -172,13 +178,40 @@ describe('一覧', () => {
   test('効果をひとつも付けていない項目も並び、何も起きないことが分かる', async () => {
     render(トリガーのページ(代役のAPI()))
 
-    expect(await screen.findByRole('button', { name: /フォローされた効果なし/ })).toBeInTheDocument()
+    expect(within(await 項目の枠('フォローされた')).getByText('効果なし')).toBeInTheDocument()
   })
 
-  test('効果を付けてある項目は、見出しに効果を出す', async () => {
-    render(トリガーのページ(代役のAPI({ config: async (): Promise<StoredTrigger[]> => [{ kind: 'follow', actions: [{ type: 'chat', message: 'ありがとう' }] }] })))
+  test('効果を付けてある項目は、付けた効果をバッジで出す（要約の文を読まなくても分かるようにする）', async () => {
+    const 挨拶とアナウンス: StoredTrigger = {
+      kind: 'follow',
+      actions: [
+        { type: 'chat', message: 'ありがとう' },
+        { type: 'announce', message: 'フォローありがとう', color: 'purple' },
+      ],
+    }
+    render(トリガーのページ(代役のAPI({ config: async () => [挨拶とアナウンス] })))
 
-    expect(await screen.findByRole('button', { name: /フォローされた→ チャット/ })).toBeInTheDocument()
+    const 枠 = within(await 項目の枠('フォローされた'))
+    expect(枠.getByText('チャット')).toBeInTheDocument()
+    expect(枠.getByText('アナウンス')).toBeInTheDocument()
+    expect(枠.queryByText('効果なし')).not.toBeInTheDocument()
+  })
+
+  test('複数の設定を持てる項目も、1行だけの項目と同じ枠に入れて並べる（見た目が2種類に分かれないようにする）', async () => {
+    render(トリガーのページ(代役のAPI()))
+
+    // 枠の中に、項目の名前・設定の行・設定を足すボタンがすべて入る
+    const 枠 = within(await 項目の枠('チャンネルポイントが交換された'))
+    expect(枠.getByRole('listitem', { name: 'チャンネルポイントが交換されたの1番目の設定' })).toBeInTheDocument()
+    expect(枠.getByRole('button', { name: '報酬を足す' })).toBeInTheDocument()
+  })
+
+  test('どの項目にも、何をきっかけにするかの説明を添える', async () => {
+    render(トリガーのページ(代役のAPI()))
+
+    // 1行だけの項目（フォロー）でも、複数の設定を持てる項目（報酬）と同じように説明を出す
+    expect(within(await 項目の枠('フォローされた')).getByText('新しくフォローされたとき')).toBeInTheDocument()
+    expect(within(await 項目の枠('チャンネルポイントが交換された')).getByText(/報酬ごとに違う効果を付けられる/)).toBeInTheDocument()
   })
 
   test('1行だけの項目は外せない（効果をすべて外せば何も起きないため）', async () => {
@@ -235,7 +268,7 @@ describe('効果の付け外し', () => {
     const api = 代役のAPI({ config: vi.fn(async () => []) })
     render(トリガーのページ(api))
 
-    await screen.findByRole('button', { name: /フォローされた効果なし/ })
+    await 項目の枠('フォローされた')
     await 保存する()
 
     expect(api.saveConfig).toHaveBeenCalledWith([])
@@ -443,16 +476,77 @@ describe('絞り込みのパラメータ', () => {
     expect(api.saveConfig).not.toHaveBeenCalled()
   })
 
-  test('広告は、自動・手動の絞り込みを選んで保存できる（1行だけの項目）', async () => {
+  test('広告の開始と終了は1つの枠にまとまり、対象の広告は両方で共通になる', async () => {
     const api = 代役のAPI({ config: async (): Promise<StoredTrigger[]> => [{ kind: 'adBreakEnd', automatic: true, actions: [{ type: 'chat', message: 'おかえりなさい' }] }] })
     render(トリガーのページ(api))
 
-    const row = await 開いた項目('広告が終わった')
+    const row = await 開いた項目('広告')
+    // 絞り込みは開始と終了で1つしかないので、入力欄も1つだけ出す
     expect(row.getByLabelText('対象の広告')).toHaveValue('true')
     await userEvent.selectOptions(row.getByLabelText('対象の広告'), '')
     await 保存する()
 
+    // 開始には効果が付いていないので送られず、終了だけが送られる。絞り込みの変更は両方に効く
     expect(api.saveConfig).toHaveBeenCalledWith([expect.objectContaining({ kind: 'adBreakEnd', automatic: null })])
+  })
+
+  test('広告の開始と終了には、別々の効果を付けられる', async () => {
+    const api = 代役のAPI({ config: async () => [] })
+    render(トリガーのページ(api))
+
+    const row = await 開いた項目('広告')
+    const 開始 = within(row.getByRole('group', { name: '広告が始まったときの効果' }))
+    const 終了 = within(row.getByRole('group', { name: '広告が終わったときの効果' }))
+    await userEvent.click(開始.getByRole('checkbox', { name: 'チャットに送る' }))
+    await userEvent.type(開始.getByLabelText('チャットに送る文言'), '{{duration}秒の広告が入ります')
+    await userEvent.click(終了.getByRole('checkbox', { name: 'アナウンスを送る' }))
+    await userEvent.type(終了.getByLabelText('アナウンスの文言'), 'おかえりなさい')
+    await 保存する()
+
+    expect(api.saveConfig).toHaveBeenCalledWith([
+      { kind: 'adBreakBegin', automatic: null, actions: [{ type: 'chat', message: '{duration}秒の広告が入ります' }] },
+      { kind: 'adBreakEnd', automatic: null, actions: [{ type: 'announce', message: 'おかえりなさい', color: 'primary' }] },
+    ])
+  })
+
+  test('広告の開始と終了で絞り込みが食い違って保存されていたら、黙って片方に寄せず知らせる', async () => {
+    // 開始と終了が別々の項目だったころに保存された設定では、食い違いが起こりうる。
+    // 画面の絞り込みの入力欄は1つしかないので、保存すると片方の値に寄ってしまう
+    const 食い違い: StoredTrigger[] = [
+      { kind: 'adBreakBegin', automatic: true, actions: [{ type: 'chat', message: '広告が入ります' }] },
+      { kind: 'adBreakEnd', automatic: false, actions: [{ type: 'chat', message: 'おかえりなさい' }] },
+    ]
+    render(トリガーのページ(代役のAPI({ config: async () => 食い違い })))
+
+    expect(within(await 項目の枠('広告')).getByText(/対象の広告が食い違って保存されています/)).toBeInTheDocument()
+  })
+
+  test('食い違ったまま保存しても、勝手に片方へ寄せない（選び直したときだけ揃える）', async () => {
+    const 食い違い: StoredTrigger[] = [
+      { kind: 'adBreakBegin', automatic: true, actions: [{ type: 'chat', message: '広告が入ります' }] },
+      { kind: 'adBreakEnd', automatic: false, actions: [{ type: 'chat', message: 'おかえりなさい' }] },
+    ]
+    const api = 代役のAPI({ config: async () => 食い違い })
+    render(トリガーのページ(api))
+
+    await 項目の枠('広告')
+    await 保存する()
+
+    expect(api.saveConfig).toHaveBeenCalledWith([
+      expect.objectContaining({ kind: 'adBreakBegin', automatic: true }),
+      expect.objectContaining({ kind: 'adBreakEnd', automatic: false }),
+    ])
+  })
+
+  test('広告の見出しでは、効果のバッジがどちらのときのものか分かる', async () => {
+    const 終了だけ: StoredTrigger = { kind: 'adBreakEnd', automatic: true, actions: [{ type: 'chat', message: 'おかえりなさい' }] }
+    render(トリガーのページ(代役のAPI({ config: async () => [終了だけ] })))
+
+    const 枠 = within(await 項目の枠('広告'))
+    expect(枠.getByText('終了')).toBeInTheDocument()
+    expect(枠.getByText('チャット')).toBeInTheDocument()
+    // 開始には効果が付いていないので、開始のバッジは出さない
+    expect(枠.queryByText('開始')).not.toBeInTheDocument()
   })
 })
 
@@ -464,7 +558,7 @@ describe('保存', () => {
     await 設定を足す('言葉を足す')
     await 保存する()
 
-    // 「決まった言葉を含む発言があった」は視聴者の区分、「フォローされた」は応援の区分なので、言葉が先に来る
+    // 「決まった言葉を含む発言があった」はチャットの区分、「フォローされた」はイベントの区分なので、言葉が先に来る
     expect(api.saveConfig).toHaveBeenCalledWith([expect.objectContaining({ kind: 'keyword' }), expect.objectContaining({ kind: 'follow' })])
   })
 
@@ -483,6 +577,60 @@ describe('保存', () => {
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent('トリガーの設定に問題があります')
     expect(alert).toHaveTextContent('「久しぶりの人の発言」の設定の days: 1〜365の整数（日数）で指定してください')
+  })
+})
+
+describe('未保存の変更', () => {
+  test('入力を変えると未保存だと知らせ、保存すると消える（一覧の一番下まで見なくても分かるようにする）', async () => {
+    render(トリガーのページ(代役のAPI({ config: async () => [], saveConfig: async () => [] })))
+
+    const row = await 開いた項目('フォローされた')
+    expect(screen.queryByText('未保存の変更があります')).not.toBeInTheDocument()
+
+    await userEvent.click(row.getByRole('checkbox', { name: 'チャットに送る' }))
+
+    expect(screen.getByText('未保存の変更があります')).toBeInTheDocument()
+
+    await 保存する()
+
+    expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
+    expect(screen.queryByText('未保存の変更があります')).not.toBeInTheDocument()
+  })
+
+  test('保存中に書き換えたら、Workerが保存した内容を基準にして未保存かどうかを決める', async () => {
+    // 保存を待つあいだの書き換えは応答で上書きしないが、「保存済みの内容」はWorkerが受け取ったものに進んでいる。
+    // 基準を読み込んだ時点のままにすると、書き換えを元に戻したときに「未保存の変更なし」と見えてしまう
+    let 保存を終える: (triggers: StoredTrigger[]) => void = () => {}
+    const api = 代役のAPI({
+      config: async () => [],
+      saveConfig: vi.fn(() => new Promise<StoredTrigger[]>((resolve) => (保存を終える = resolve))),
+    })
+    render(トリガーのページ(api))
+
+    const row = await 開いた項目('フォローされた')
+    await userEvent.click(row.getByRole('checkbox', { name: 'チャットに送る' }))
+    await userEvent.type(row.getByLabelText('チャットに送る文言'), 'ありがとう')
+    await 保存する()
+    // 応答が届く前に書き換える
+    await userEvent.type(row.getByLabelText('チャットに送る文言'), '！')
+    保存を終える([{ kind: 'follow', actions: [{ type: 'chat', message: 'ありがとう' }] }])
+
+    expect(await お知らせ('保存中に書き換えた内容はまだ保存されていません')).toBeInTheDocument()
+    expect(screen.getByText('未保存の変更があります')).toBeInTheDocument()
+
+    // Workerが保存したのは「ありがとう」なので、そこへ戻せば未保存の変更はなくなる
+    await userEvent.clear(row.getByLabelText('チャットに送る文言'))
+    await userEvent.type(row.getByLabelText('チャットに送る文言'), 'ありがとう')
+
+    expect(screen.queryByText('未保存の変更があります')).not.toBeInTheDocument()
+  })
+
+  test('設定を足しただけでも未保存だと知らせる（足しただけでは保存されないため）', async () => {
+    render(トリガーのページ(代役のAPI({ config: async () => [] })))
+
+    await 設定を足す('言葉を足す')
+
+    expect(screen.getByText('未保存の変更があります')).toBeInTheDocument()
   })
 })
 
@@ -513,6 +661,21 @@ describe('折りたたみ', () => {
 
     expect(フォロー.getByRole('checkbox', { name: 'アラートを出す' })).toBeInTheDocument()
     expect(screen.queryByLabelText('素材')).not.toBeInTheDocument()
+  })
+
+  test('区分の見出しを押すと、その区分の項目ごと畳める（使わない区分を閉じておける）', async () => {
+    render(トリガーのページ(代役のAPI()))
+
+    await 項目の枠('フォローされた')
+    await userEvent.click(screen.getByRole('button', { name: 'イベント' }))
+
+    expect(screen.queryByRole('listitem', { name: 'フォローされた' })).not.toBeInTheDocument()
+    // 畳んでいるあいだも、ほかの区分の項目は並んだままにする
+    expect(screen.getByRole('listitem', { name: '初めて来た人の発言' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'イベント' }))
+
+    expect(screen.getByRole('listitem', { name: 'フォローされた' })).toBeInTheDocument()
   })
 
   test('足した設定は、すぐ書き換えられるよう開いた状態で出る', async () => {
