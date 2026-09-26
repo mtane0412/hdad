@@ -527,3 +527,73 @@ describe('GET /api/overlay/side-super（サイドスーパーの読み出し）'
     expect(await エラーコード(response)).toBe('invalid-overlay-key')
   })
 })
+
+describe('読み上げの設定（/api/admin/speech・/api/overlay/speech）', () => {
+  /** 配信者が画面で組み立てた、既定とは違う設定 */
+  const 配信者の設定 = {
+    host: '127.0.0.1',
+    port: 50022,
+    speaker: 8,
+    speed: 1.2,
+    volume: 0.8,
+    maxLength: 80,
+    readName: true,
+    ignoreLogins: ['hdad_bot'],
+  }
+
+  const 保存する = async (env: Env, settings: unknown) =>
+    呼び出す(
+      await 配信者のリクエスト(env, '/api/admin/speech', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings),
+      }),
+      env,
+    )
+
+  const 読み上げのページが読む = (env: Env, key = 発行済みのキー) => 呼び出す(new Request(`${サイト}/api/overlay/speech?key=${key}`), env)
+
+  it('セッションがなければ、取得も保存も401を返す', async () => {
+    const { env } = 環境を作る()
+
+    expect((await 呼び出す(new Request(`${サイト}/api/admin/speech`), env)).status).toBe(401)
+    expect((await 呼び出す(new Request(`${サイト}/api/admin/speech`, { method: 'PUT', body: '{}' }), env)).status).toBe(401)
+  })
+
+  it('保存した設定を、管理画面からも読み上げのページからも読める', async () => {
+    const { env } = 環境を作る()
+
+    expect((await 保存する(env, 配信者の設定)).status).toBe(200)
+
+    expect(await (await 呼び出す(await 配信者のリクエスト(env, '/api/admin/speech'), env)).json()).toEqual(配信者の設定)
+    expect(await (await 読み上げのページが読む(env)).json()).toEqual(配信者の設定)
+  })
+
+  it('まだ保存していなければ、既定の設定を返す（読み上げが止まらないようにする）', async () => {
+    const { env } = 環境を作る()
+
+    const response = await 読み上げのページが読む(env)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ host: 'localhost', port: 50021, speaker: 3, volume: 1, ignoreLogins: [] })
+  })
+
+  it('値が範囲の外なら400で拒み、問題点をすべて返す（画面で一度に直せるようにする）', async () => {
+    const { env } = 環境を作る()
+
+    const response = await 保存する(env, { ...配信者の設定, port: 0, volume: 2 })
+
+    expect(response.status).toBe(400)
+    const body = (await response.json()) as { error: { problems: string[] } }
+    expect(body.error.problems).toHaveLength(2)
+  })
+
+  it('読み上げのページのキーが違えば401を返す', async () => {
+    const { env } = 環境を作る()
+
+    const response = await 読み上げのページが読む(env, 'atezuppou')
+
+    expect(response.status).toBe(401)
+    expect(await エラーコード(response)).toBe('invalid-overlay-key')
+  })
+})

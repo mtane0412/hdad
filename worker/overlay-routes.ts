@@ -7,6 +7,7 @@ import { connectAlertSocket } from './alert-channel'
 import { HttpError, STATUS, hasSession, requireOverlayKey, type Context } from './http'
 import { kindOfContentType } from './media'
 import { readCurrentSideSuper } from './side-super-store'
+import { loadSpeechSettings } from './speech-config'
 import { recordTranscript } from './transcript-store'
 
 /**
@@ -117,4 +118,19 @@ export const getSideSuper = async (context: Context): Promise<Response> => {
   await requireOverlayKey(context)
   const sideSuper = await readCurrentSideSuper(context.env.DB, context.now)
   return Response.json({ lines: sideSuper?.lines ?? [], updatedAt: sideSuper?.updatedAt ?? null })
+}
+
+/**
+ * GET /api/overlay/speech: チャットの読み上げの設定を返す。
+ *
+ * OBSのブラウザソースに置いた読み上げのページ（speech/reader/）が、起動のときと、その後は定期的に読みに来る
+ * （サイドスーパーと同じポーリング。押し出しを使うほどの即時性は要らない）。未保存なら既定の設定が返るので、
+ * 何も設定していない配信者でも読み上げは動く。
+ *
+ * 注意: ホストとポートは読み上げのページが起動のときにしか使わない（つなぎ先が変わるので、つなぎ直しが要る）。
+ * それ以外の項目は、読みに来るたびに次の1件から効く。
+ */
+export const getSpeech = async (context: Context): Promise<Response> => {
+  await requireOverlayKey(context)
+  return Response.json(await loadSpeechSettings(context.env.STORE))
 }

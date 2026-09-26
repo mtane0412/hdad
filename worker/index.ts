@@ -21,6 +21,7 @@
  * | GET・PUT /api/admin/bot/commands | セッション     | チャットのコマンドの取得・保存 |
  * | GET・PUT /api/admin/bot/moderation | セッション   | チャットの自動モデレーションの設定の取得・保存 |
  * | GET  /api/admin/rewards          | セッション     | チャンネルポイント報酬の一覧 |
+ * | GET・PUT /api/admin/speech       | セッション     | チャットの読み上げの設定の取得・保存 |
  * | GET  /api/admin/viewers          | セッション     | 視聴者の記録の一覧（検索・ページ送り） |
  * | PATCH /api/admin/viewers/:userId | セッション     | 視聴者へのメモの保存 |
  * | DELETE /api/admin/viewers/:userId | セッション    | 視聴者の記録の削除 |
@@ -33,6 +34,7 @@
  * | POST /api/overlay/transcript     | オーバーレイ用キー | 配信中の文字起こしを1件受け取る（中継ページから） |
  * | DELETE /api/overlay/transcript/:messageId | オーバーレイ用キー | 記録済みの発話を取り消す |
  * | GET  /api/overlay/side-super    | オーバーレイ用キー | いま出すサイドスーパーの文言を返す |
+ * | GET  /api/overlay/speech         | オーバーレイ用キー | チャットの読み上げの設定を返す |
  * | GET  /api/media/:id              | オーバーレイ用キーかセッション | 素材の中身を返す |
  *
  * これとは別に、cron（wrangler.jsonc の triggers.crons）から scheduled が呼ばれ、配信の記録を収集する（collect.ts）。
@@ -40,7 +42,7 @@
  * Twitchのトークンは応答に含めない。失敗は { error: { code, message } } の形で返し、黙って成功扱いにしない。
  * fetch と現在時刻を引数で受け取るのは、テストで差し替えるため。
  */
-import { deleteMedia, getConfig, getMedia, getRewards, postMedia, postOverlayKey, putConfig } from './admin-routes'
+import { deleteMedia, getConfig, getMedia, getRewards, getSpeech, postMedia, postOverlayKey, putConfig, putSpeech } from './admin-routes'
 import { deleteViewerRoute, getViewers, patchViewer } from './viewer-routes'
 import {
   deleteBot,
@@ -57,7 +59,7 @@ import { ConfigError } from './alert-config'
 import { CALLBACK_PATH, callback, login, logout, me } from './auth-routes'
 import { collectStats } from './collect'
 import { HttpError, STATUS, errorResponse, type Context, type Env } from './http'
-import { getSideSuper, media, overlaySocket, postTranscript } from './overlay-routes'
+import { getSideSuper, getSpeech as getOverlaySpeech, media, overlaySocket, postTranscript } from './overlay-routes'
 import { getStatsFailures, getStatsFollowers, getStatsSession, getStatsSessions } from './stats-routes'
 import { AuthError } from './token'
 import { WEBHOOK_PATH, eventsubWebhook } from './webhook-routes'
@@ -114,6 +116,8 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/admin/bot/moderation', handle: getBotModeration },
   { method: 'PUT', path: '/api/admin/bot/moderation', handle: putBotModeration },
   { method: 'GET', path: '/api/admin/rewards', handle: getRewards },
+  { method: 'GET', path: '/api/admin/speech', handle: getSpeech },
+  { method: 'PUT', path: '/api/admin/speech', handle: putSpeech },
   { method: 'GET', path: '/api/admin/viewers', handle: getViewers },
   { method: 'PATCH', path: '/api/admin/viewers/:userId', handle: patchViewer },
   { method: 'DELETE', path: '/api/admin/viewers/:userId', handle: deleteViewerRoute },
@@ -128,6 +132,7 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/overlay/socket', handle: overlaySocket },
   { method: 'POST', path: '/api/overlay/transcript', handle: postTranscript },
   { method: 'GET', path: '/api/overlay/side-super', handle: getSideSuper },
+  { method: 'GET', path: '/api/overlay/speech', handle: getOverlaySpeech },
   { method: 'GET', path: '/api/media/:id', handle: media },
 ]
 
