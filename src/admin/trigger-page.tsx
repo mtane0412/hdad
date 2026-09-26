@@ -14,6 +14,7 @@
 import { ChevronDown, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -38,7 +39,8 @@ import {
   placeholdersFor,
   rewardOptions,
   hasAnyAction,
-  rowSummary,
+  rowActionLabels,
+  rowParamSummary,
   toDraft,
   toTriggerInputs,
   withFixedRows,
@@ -112,6 +114,13 @@ const AUTOMATIC_OPTIONS: readonly SelectOption[] = [
   { value: 'false', label: '配信者が手動で打った広告だけ' },
   { value: '', label: '自動・手動どちらでも' },
 ]
+
+/**
+ * メニュー項目1つぶんの枠の見た目。
+ *
+ * 1行だけの項目も複数の設定を持てる項目も同じ枠に入れて、一覧の中で見た目が2種類に分かれないようにする。
+ */
+const ITEM_BOX = 'overflow-hidden rounded-lg border'
 
 /** メニュー項目に添える注意書き。一覧の項目の見出しの下に出す */
 const KIND_NOTES: Partial<Readonly<Record<TriggerKind, string>>> = {
@@ -206,8 +215,10 @@ const TriggerParamField = ({ idPrefix, draft, rewards, onChange }: TriggerParamF
 interface TriggerRowProps {
   /** 行の呼び名（読み上げと操作の目印）。項目が1行だけなら項目の名前、複数持てる項目なら何番目の設定か */
   label: string
-  /** 見出しに出す項目の名前。複数持てる項目では項目の見出しが別にあるので渡さない */
+  /** 見出しに出す項目の名前。複数持てる項目では、行の見出しが絞り込みの文言になるので渡さない */
   heading: string | null
+  /** 見出しの下に小さく出す、その項目が何をきっかけにするかの説明。複数持てる項目では枠の見出しに出ているので渡さない */
+  description: string | null
   /** 見出しの下に出す注意書き。無ければ null（開かなくても読めるように、折りたたみの外に出す） */
   note: string | null
   draft: TriggerDraft
@@ -219,6 +230,8 @@ interface TriggerRowProps {
   onChange(draft: TriggerDraft): void
   /** その行を外す。外せない行（複数持てない項目の行）では null。効果をすべて外せば何も起きない */
   onRemove: (() => void) | null
+  /** 行の枠の見た目。1行だけの項目ではその行が項目の枠そのもの、複数持てる項目では枠の中で区切り線だけを持つ */
+  className: string
 }
 
 /**
@@ -227,25 +240,48 @@ interface TriggerRowProps {
  * 項目が多いので、ふだんは要約だけを見出しに出して折りたたみ、見出しを押したときだけ入力欄を開く。
  * 効果をひとつも持たない行は保存されないので、要約には「効果なし」と出す。
  */
-const TriggerRow = ({ label, heading, note, draft, media, rewards, open, onToggle, onChange, onRemove }: TriggerRowProps) => {
+const TriggerRow = ({ label, heading, description, note, draft, media, rewards, open, onToggle, onChange, onRemove, className }: TriggerRowProps) => {
   const id = useId()
   const update = (patch: Partial<TriggerDraft>): void => onChange({ ...draft, ...patch })
   const mediaOptions = media.map((item) => ({ value: item.id, label: `${item.name}（${kindLabels[item.kind]}）` }))
+  const param = rowParamSummary(draft, rewards)
+  const actions = rowActionLabels(draft)
+  // 行の呼び名は、1行だけの項目では項目の名前、複数持てる項目では絞り込みの文言にする
+  // （項目の名前は枠の見出しに出ているので、繰り返さない）
+  const title = heading ?? (param === null || param === '' ? 'まだ決めていません' : param)
 
   return (
-    <li aria-label={label} className="rounded-lg border">
+    <li aria-label={label} className={className}>
       <div className="flex items-center gap-1 p-2">
         <Button
           type="button"
           variant="ghost"
-          className="min-w-0 flex-1 justify-start gap-2 font-normal"
+          className="h-auto min-w-0 flex-1 justify-start gap-2 py-1.5 font-normal"
           aria-expanded={open}
           aria-controls={`${id}-detail`}
           onClick={onToggle}
         >
           <ChevronDown aria-hidden="true" className={open ? 'rotate-180' : ''} />
-          {heading === null ? <span className="sr-only">{label}:</span> : <span className="truncate">{heading}</span>}
-          <span className="truncate text-muted-foreground">{rowSummary(draft, rewards)}</span>
+          {/* 読み上げでは、どの行の見出しかが分かるように呼び名から始める（見出しに出ていない複数持ての行だけ） */}
+          {heading === null && <span className="sr-only">{label}:</span>}
+          <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
+            <span className="truncate font-medium">{title}</span>
+            {description !== null && <span className="truncate text-xs font-normal text-muted-foreground">{description}</span>}
+            {/* 1行だけの項目でも絞り込みを持つことがある（久しぶりの人の日数・広告の自動と手動） */}
+            {heading !== null && param !== null && <span className="truncate text-xs font-normal text-muted-foreground">{param}</span>}
+          </span>
+          {/* 効果は文につながず、ひとつずつバッジで出す（付いているかどうかを文末まで読まずに済ませる） */}
+          <span className="flex shrink-0 flex-wrap justify-end gap-1">
+            {actions.length === 0 ? (
+              <span className="text-xs text-muted-foreground">効果なし</span>
+            ) : (
+              actions.map((action) => (
+                <Badge key={action} variant="secondary">
+                  {action}
+                </Badge>
+              ))
+            )}
+          </span>
         </Button>
         {onRemove !== null && (
           <Button type="button" variant="ghost" size="icon" aria-label={`${label}を外す`} className="text-destructive" onClick={onRemove}>
@@ -453,12 +489,13 @@ interface TriggerItemProps {
  * パラメータを持つ項目は、配信者が足したぶんだけ行が並ぶ（報酬ごとに違う効果を付けられるようにするため）。
  */
 const TriggerItem = ({ item, rows, media, rewards, openPosition, busy, onToggle, onChange, onRemove, onAdd }: TriggerItemProps) => {
-  const row = (position: number, draft: TriggerDraft, label: string, heading: string | null, removable: boolean) => (
+  const row = (position: number, draft: TriggerDraft, label: string, heading: string | null, removable: boolean, className: string) => (
     <TriggerRow
       key={position}
       label={label}
       heading={heading}
-      note={KIND_NOTES[item.kind] ?? null}
+      description={heading === null ? null : item.description}
+      note={heading === null ? null : (KIND_NOTES[item.kind] ?? null)}
       draft={draft}
       media={media}
       rewards={rewards}
@@ -466,43 +503,77 @@ const TriggerItem = ({ item, rows, media, rewards, openPosition, busy, onToggle,
       onToggle={() => onToggle(position)}
       onChange={(next) => onChange(position, next)}
       onRemove={removable ? () => onRemove(position) : null}
+      className={className}
     />
   )
 
-  // ちょうど1行のときは、その行の見出しが項目の見出しを兼ねる
+  // ちょうど1行のときは、その行が項目の枠そのものになる
   // （見出しを2段重ねると、1行しかない項目でも入れ子があるように見えてしまう）。その行は外せない
   const only = rows[0]
-  if (!item.multiple && rows.length === 1 && only !== undefined) return row(only.position, only.draft, item.label, item.label, false)
+  if (!item.multiple && rows.length === 1 && only !== undefined) return row(only.position, only.draft, item.label, item.label, false, ITEM_BOX)
 
   // 複数持てない項目に設定が2つ以上あるのは画面からは作れない形だが、KVを手で直せば起こりうる。
   // 1つ目だけを出すと、2つ目は画面に出ないまま保存され続けてしまうので、すべて出して外せるようにする
   const duplicated = !item.multiple && rows.length > 1
+  const note = KIND_NOTES[item.kind] ?? null
 
+  // 複数の設定を持てる項目も、1行だけの項目と同じ枠に入れる（一覧の中で見た目が2種類に分かれないようにする）
   return (
-    <li className="flex flex-col gap-2">
-      <div className="flex flex-col gap-0.5">
+    <li aria-label={item.label} className={ITEM_BOX}>
+      <div className="flex flex-col gap-0.5 p-3">
         <span className="text-sm font-medium">{item.label}</span>
         <span className="text-xs text-muted-foreground">{item.description}</span>
+        {note !== null && <span className="text-xs text-muted-foreground">{note}</span>}
+        {duplicated && (
+          <span className="text-xs text-destructive">
+            この出来事の設定が2つ以上保存されています。ひとつだけ残して、ほかは外してください（どちらも当てはまるので、両方の効果が起きます）。
+          </span>
+        )}
       </div>
-      {duplicated && (
-        <p className="text-xs text-destructive">
-          この出来事の設定が2つ以上保存されています。ひとつだけ残して、ほかは外してください（どちらも当てはまるので、両方の効果が起きます）。
-        </p>
-      )}
       {rows.length > 0 && (
-        <ul className="flex flex-col gap-2">
-          {rows.map(({ position, draft }, index) => row(position, draft, `${item.label}の${index + 1}番目の設定`, null, true))}
+        <ul className="flex flex-col">
+          {rows.map(({ position, draft }, index) => row(position, draft, `${item.label}の${index + 1}番目の設定`, null, true, 'border-t'))}
         </ul>
       )}
       {item.addLabel !== null && (
-        <Button type="button" variant="outline" size="sm" className="self-start" disabled={busy} onClick={onAdd}>
-          <Plus aria-hidden="true" />
-          {item.addLabel}
-        </Button>
+        <div className="border-t p-2">
+          <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onAdd}>
+            <Plus aria-hidden="true" />
+            {item.addLabel}
+          </Button>
+        </div>
       )}
     </li>
   )
 }
+
+interface TriggerGroupProps {
+  group: (typeof menuGroups)[number]
+  /** 畳んでいるか。使わない区分を閉じておけるようにする */
+  collapsed: boolean
+  onToggle(): void
+  children: React.ReactNode
+}
+
+/**
+ * 区分（チャット・応援・配信）1つぶん。
+ *
+ * 区分の見出しは項目の見出しより大きくして、どこまでが1つのまとまりかを字の大きさで示す
+ * （同じ大きさで並べていたころは、区分と項目の見分けが付かなかった）。
+ */
+const TriggerGroup = ({ group, collapsed, onToggle, children }: TriggerGroupProps) => (
+  <section aria-label={group.label} className="flex flex-col gap-3">
+    <div className="flex flex-col gap-1 border-b pb-2">
+      <Button type="button" variant="ghost" className="h-auto justify-start gap-2 self-start px-2 py-1 text-base font-semibold" aria-expanded={!collapsed} onClick={onToggle}>
+        <ChevronDown aria-hidden="true" className={collapsed ? '-rotate-90' : ''} />
+        {group.label}
+      </Button>
+      {/* 説明はボタンの外に出す（読み上げの名前が説明で埋まらないようにする） */}
+      {group.description !== null && <p className="px-2 text-xs text-muted-foreground">{group.description}</p>}
+    </div>
+    {!collapsed && <ul className="flex flex-col gap-3">{children}</ul>}
+  </section>
+)
 
 type Loaded = { status: 'loading' } | { status: 'ready' } | { status: 'failed'; message: string }
 
@@ -528,6 +599,10 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
   const [openPosition, setOpenPosition] = useState<number | null>(null)
   // 報酬の一覧を取得できなかった理由。操作の失敗（failure）と分けて持ち、ほかの操作が成功しても消さない
   const [rewardsFailure, setRewardsFailure] = useState('')
+  // 畳んでいる区分の名前。使わない区分を閉じておけるようにする（既定はすべて開く）
+  const [collapsedGroups, setCollapsedGroups] = useState<readonly string[]>([])
+  // 最後に保存した（または読み込んだ）入力欄の中身。今の中身と食い違えば、未保存の変更があると知らせる
+  const [savedSignature, setSavedSignature] = useState('')
   // botの接続状態。取得できていないあいだと、取得に失敗したときは知らせを出さない（未接続と取り違えないため）
   const [bot, setBot] = useState<BotConnection>({ status: 'checking' })
   // 保存したときに送った項目の名前。Workerが返す問題点の位置を読み替えるのに使う
@@ -552,6 +627,7 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
         const loadedDrafts = withFixedRows(triggers.map(toDraft))
         draftsRef.current = loadedDrafts
         setDrafts(loadedDrafts)
+        setSavedSignature(JSON.stringify(loadedDrafts))
         setLoaded({ status: 'ready' })
       },
       (error: unknown) => {
@@ -602,6 +678,8 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
   }
 
   const url = overlayUrl(window.location.origin, overlayKey)
+  // 足した設定も書き換えた値も、保存するまで反映されない。読み込んだ（保存した）時点の中身と比べて知らせる
+  const unsaved = JSON.stringify(drafts) !== savedSignature
 
   const copyUrl = async (): Promise<string> => {
     // Clipboard API は https か localhost でしか提供されず、それ以外では navigator.clipboard が undefined になる
@@ -651,7 +729,9 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
     const saved = await api.saveConfig(inputs)
     // 保存を待つ間に入力欄が書き換えられていたら、その内容を応答で上書きしない（書き換えた分は次の保存で送られる）
     if (draftsRef.current !== submitted) return 'トリガーを保存しました。保存中に書き換えた内容はまだ保存されていません'
-    replaceDrafts(withFixedRows(saved.map(toDraft)))
+    const savedDrafts = withFixedRows(saved.map(toDraft))
+    replaceDrafts(savedDrafts)
+    setSavedSignature(JSON.stringify(savedDrafts))
     return 'トリガーを保存しました。次の出来事から反映されます'
   }
 
@@ -751,33 +831,38 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
             </p>
           )}
           {menuGroups.map((group) => (
-            <section key={group.label} aria-label={group.label} className="flex flex-col gap-3">
-              <div className="flex flex-col gap-0.5">
-                <h3 className="text-sm font-medium">{group.label}</h3>
-                {group.description !== null && <p className="text-xs text-muted-foreground">{group.description}</p>}
-              </div>
-              <ul className="flex flex-col gap-3">
-                {group.items.map((item) => (
-                  <TriggerItem
-                    key={item.kind}
-                    item={item}
-                    rows={rowsOf(item.kind)}
-                    media={media}
-                    rewards={rewards}
-                    openPosition={openPosition}
-                    busy={actions.busy}
-                    onToggle={togglePosition}
-                    onChange={changeDraft}
-                    onRemove={removeDraft}
-                    onAdd={() => void actions.run(() => addRow(item.kind))}
-                  />
-                ))}
-              </ul>
-            </section>
+            <TriggerGroup
+              key={group.label}
+              group={group}
+              collapsed={collapsedGroups.includes(group.label)}
+              onToggle={() =>
+                setCollapsedGroups(collapsedGroups.includes(group.label) ? collapsedGroups.filter((label) => label !== group.label) : [...collapsedGroups, group.label])
+              }
+            >
+              {group.items.map((item) => (
+                <TriggerItem
+                  key={item.kind}
+                  item={item}
+                  rows={rowsOf(item.kind)}
+                  media={media}
+                  rewards={rewards}
+                  openPosition={openPosition}
+                  busy={actions.busy}
+                  onToggle={togglePosition}
+                  onChange={changeDraft}
+                  onRemove={removeDraft}
+                  onAdd={() => void actions.run(() => addRow(item.kind))}
+                />
+              ))}
+            </TriggerGroup>
           ))}
-          <Button type="button" className="self-start" disabled={actions.busy} onClick={() => void actions.run(saveTriggers)}>
-            トリガーを保存
-          </Button>
+          {/* 一覧が長いので、保存ボタンは下に貼り付けておく（一番下まで送らないと保存できない状態を避ける） */}
+          <div className="sticky bottom-0 -mx-6 flex items-center gap-3 border-t bg-card px-6 py-3">
+            <Button type="button" disabled={actions.busy} onClick={() => void actions.run(saveTriggers)}>
+              トリガーを保存
+            </Button>
+            {unsaved && <span className="text-sm text-muted-foreground">未保存の変更があります</span>}
+          </div>
         </CardContent>
       </Card>
 

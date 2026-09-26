@@ -11,7 +11,8 @@ import {
   createDraft,
   emptyDraft,
   hasAnyAction,
-  rowSummary,
+  rowActionLabels,
+  rowParamSummary,
   toTriggerInputs,
   withFixedRows,
   describeProblem,
@@ -343,19 +344,19 @@ describe('toTriggerInputs', () => {
   })
 })
 
-describe('rowSummary', () => {
-  const 報酬 = [{ id: '報酬ID-乾杯', title: '乾杯する', cost: 500 }]
+describe('rowActionLabels', () => {
+  it('付けた効果を決まった順で並べる（画面ではバッジとして1つずつ出す）', () => {
+    const 入力 = 入力欄({ kind: 'follow', chatEnabled: true, announceEnabled: true })
 
-  it('項目の名前は添えず、絞り込みと効果だけを出す（名前は項目の見出しに出ているため）', () => {
-    expect(rowSummary(入力欄({ kind: 'reward', rewardId: '報酬ID-乾杯' }), 報酬)).toBe('乾杯する → アラート')
+    expect(rowActionLabels(入力)).toEqual(['アラート', 'チャット', 'アナウンス'])
   })
 
-  it('絞り込みを持たない行は、効果だけを出す', () => {
-    expect(rowSummary(入力欄({ kind: 'follow' }), [])).toBe('→ アラート')
+  it('AIに文面を作らせる効果は「AIチャット」として出す', () => {
+    expect(rowActionLabels(入力欄({ kind: 'follow', alertEnabled: false, aiChatEnabled: true }))).toEqual(['AIチャット'])
   })
 
-  it('効果がひとつもなければ、何も起きないことが分かるようにする', () => {
-    expect(rowSummary(emptyDraft('follow'), [])).toBe('効果なし')
+  it('効果がひとつもなければ空にする（画面では「効果なし」と出す）', () => {
+    expect(rowActionLabels(emptyDraft('follow'))).toEqual([])
   })
 })
 
@@ -398,46 +399,41 @@ describe('rewardOptions', () => {
   })
 })
 
-describe('rowSummary（絞り込みの出し方）', () => {
+describe('rowParamSummary', () => {
   const 報酬 = [{ id: '報酬ID-乾杯', title: '乾杯する', cost: 500 }]
 
+  it('選んでいる報酬の名前を出す', () => {
+    expect(rowParamSummary(入力欄({ kind: 'reward', rewardId: '報酬ID-乾杯' }), 報酬)).toBe('乾杯する')
+  })
+
   it('報酬を選んでいなければ、すべての報酬が対象だと分かるように出す', () => {
-    expect(rowSummary(入力欄({ kind: 'reward', rewardId: '' }), 報酬)).toBe('すべての報酬 → アラート')
+    expect(rowParamSummary(入力欄({ kind: 'reward', rewardId: '' }), 報酬)).toBe('すべての報酬')
   })
 
   it('Twitchの一覧にない報酬でも、報酬IDを出して黙って省略しない', () => {
-    expect(rowSummary(入力欄({ kind: 'reward', rewardId: '報酬ID-消した報酬' }), 報酬)).toBe('報酬ID-消した報酬 → アラート')
+    expect(rowParamSummary(入力欄({ kind: 'reward', rewardId: '報酬ID-消した報酬' }), 報酬)).toBe('報酬ID-消した報酬')
   })
 
   it('決まった人が発言した行は、ユーザー名を出す', () => {
-    expect(rowSummary(入力欄({ kind: 'fromUser', login: 'tanenobu' }), [])).toBe('tanenobu → アラート')
+    expect(rowParamSummary(入力欄({ kind: 'fromUser', login: 'tanenobu' }), [])).toBe('tanenobu')
   })
 
   it('決まった言葉を含む発言の行は、その言葉を出す', () => {
-    expect(rowSummary(入力欄({ kind: 'keyword', contains: 'おはよう' }), [])).toBe('おはよう → アラート')
+    expect(rowParamSummary(入力欄({ kind: 'keyword', contains: 'おはよう' }), [])).toBe('おはよう')
   })
 
   it('久しぶりの人が発言した行は、日数を出す', () => {
-    expect(rowSummary(入力欄({ kind: 'comeback', days: '45' }), [])).toBe('45日以上 → アラート')
+    expect(rowParamSummary(入力欄({ kind: 'comeback', days: '45' }), [])).toBe('45日以上')
   })
 
   it('広告の行は、自動で入った広告か手動で打った広告かを言葉で出す', () => {
-    expect(rowSummary(入力欄({ kind: 'adBreakBegin', automatic: 'true' }), [])).toBe('自動で入った広告 → アラート')
-    expect(rowSummary(入力欄({ kind: 'adBreakEnd', automatic: 'false' }), [])).toBe('配信者が手動で打った広告 → アラート')
+    expect(rowParamSummary(入力欄({ kind: 'adBreakBegin', automatic: 'true' }), [])).toBe('自動で入った広告')
+    expect(rowParamSummary(入力欄({ kind: 'adBreakEnd', automatic: 'false' }), [])).toBe('配信者が手動で打った広告')
   })
 
-  it('自動・手動を問わない広告は、絞り込みを出さない', () => {
-    expect(rowSummary(入力欄({ kind: 'adBreakEnd', automatic: '' }), [])).toBe('→ アラート')
-  })
-
-  it('付けた効果をすべて並べる', () => {
-    const draft = 入力欄({ kind: 'follow', chatEnabled: true, announceEnabled: true })
-
-    expect(rowSummary(draft, [])).toBe('→ アラート・チャット・アナウンス')
-  })
-
-  it('AIに文面を作らせる効果は「AIチャット」として出す', () => {
-    expect(rowSummary(入力欄({ kind: 'follow', alertEnabled: false, aiChatEnabled: true }), [])).toBe('→ AIチャット')
+  it('絞り込みを持たない行では null を返す', () => {
+    expect(rowParamSummary(入力欄({ kind: 'follow' }), [])).toBeNull()
+    expect(rowParamSummary(入力欄({ kind: 'adBreakEnd', automatic: '' }), [])).toBeNull()
   })
 })
 

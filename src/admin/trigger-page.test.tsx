@@ -6,6 +6,9 @@
  * - OBS用のURLを伏せ字で出し、コピーとキーの再発行ができること（再発行は確認してから）
  * - URL欄に、ブラウザソースへ設定する推奨の幅と高さが添えられること
  * - トリガーは折りたたんで並び、見出しの要約を押すと入力欄が開くこと（開くのは1件ずつ）
+ * - どの項目も同じ枠に入って並び、効果はバッジで出ること（複数の設定を持てる項目だけ見た目が変わらない）
+ * - 区分（チャット・応援・配信）を畳めること
+ * - 未保存の変更があることを知らせること
  * - きっかけを既定メニューから選んでトリガーを足せること（イベント種別と条件は画面から組み立てない）
  * - メニュー項目が要求するパラメータ（報酬・ユーザー名・言葉・日数・広告の絞り込み）を書き換えられること
  * - トリガーを足し、入力欄の値をWorkerへ送る形にして保存できること
@@ -87,6 +90,9 @@ const 開いた設定 = async (item: string, position = 1) => {
 
 /** 開閉を変えずに、その設定の中だけを探せるようにする（足した直後の行はすでに開いている） */
 const 設定の行 = (item: string, position = 1) => within(screen.getByRole('listitem', { name: `${item}の${position}番目の設定` }))
+
+/** メニュー項目1つぶんの枠。1行だけの項目も複数の設定を持てる項目も、同じ枠で並ぶ */
+const 項目の枠 = (label: string): Promise<HTMLElement> => screen.findByRole('listitem', { name: label })
 
 /** 複数の設定を持てる項目に、設定を1つ足す */
 const 設定を足す = async (label: string): Promise<void> => {
@@ -172,13 +178,40 @@ describe('一覧', () => {
   test('効果をひとつも付けていない項目も並び、何も起きないことが分かる', async () => {
     render(トリガーのページ(代役のAPI()))
 
-    expect(await screen.findByRole('button', { name: /フォローされた効果なし/ })).toBeInTheDocument()
+    expect(within(await 項目の枠('フォローされた')).getByText('効果なし')).toBeInTheDocument()
   })
 
-  test('効果を付けてある項目は、見出しに効果を出す', async () => {
-    render(トリガーのページ(代役のAPI({ config: async (): Promise<StoredTrigger[]> => [{ kind: 'follow', actions: [{ type: 'chat', message: 'ありがとう' }] }] })))
+  test('効果を付けてある項目は、付けた効果をバッジで出す（要約の文を読まなくても分かるようにする）', async () => {
+    const 挨拶とアナウンス: StoredTrigger = {
+      kind: 'follow',
+      actions: [
+        { type: 'chat', message: 'ありがとう' },
+        { type: 'announce', message: 'フォローありがとう', color: 'purple' },
+      ],
+    }
+    render(トリガーのページ(代役のAPI({ config: async () => [挨拶とアナウンス] })))
 
-    expect(await screen.findByRole('button', { name: /フォローされた→ チャット/ })).toBeInTheDocument()
+    const 枠 = within(await 項目の枠('フォローされた'))
+    expect(枠.getByText('チャット')).toBeInTheDocument()
+    expect(枠.getByText('アナウンス')).toBeInTheDocument()
+    expect(枠.queryByText('効果なし')).not.toBeInTheDocument()
+  })
+
+  test('複数の設定を持てる項目も、1行だけの項目と同じ枠に入れて並べる（見た目が2種類に分かれないようにする）', async () => {
+    render(トリガーのページ(代役のAPI()))
+
+    // 枠の中に、項目の名前・設定の行・設定を足すボタンがすべて入る
+    const 枠 = within(await 項目の枠('チャンネルポイントが交換された'))
+    expect(枠.getByRole('listitem', { name: 'チャンネルポイントが交換されたの1番目の設定' })).toBeInTheDocument()
+    expect(枠.getByRole('button', { name: '報酬を足す' })).toBeInTheDocument()
+  })
+
+  test('どの項目にも、何をきっかけにするかの説明を添える', async () => {
+    render(トリガーのページ(代役のAPI()))
+
+    // 1行だけの項目（フォロー）でも、複数の設定を持てる項目（報酬）と同じように説明を出す
+    expect(within(await 項目の枠('フォローされた')).getByText('新しくフォローされたとき')).toBeInTheDocument()
+    expect(within(await 項目の枠('チャンネルポイントが交換された')).getByText(/報酬ごとに違う効果を付けられる/)).toBeInTheDocument()
   })
 
   test('1行だけの項目は外せない（効果をすべて外せば何も起きないため）', async () => {
@@ -235,7 +268,7 @@ describe('効果の付け外し', () => {
     const api = 代役のAPI({ config: vi.fn(async () => []) })
     render(トリガーのページ(api))
 
-    await screen.findByRole('button', { name: /フォローされた効果なし/ })
+    await 項目の枠('フォローされた')
     await 保存する()
 
     expect(api.saveConfig).toHaveBeenCalledWith([])
@@ -486,6 +519,32 @@ describe('保存', () => {
   })
 })
 
+describe('未保存の変更', () => {
+  test('入力を変えると未保存だと知らせ、保存すると消える（一覧の一番下まで見なくても分かるようにする）', async () => {
+    render(トリガーのページ(代役のAPI({ config: async () => [], saveConfig: async () => [] })))
+
+    const row = await 開いた項目('フォローされた')
+    expect(screen.queryByText('未保存の変更があります')).not.toBeInTheDocument()
+
+    await userEvent.click(row.getByRole('checkbox', { name: 'チャットに送る' }))
+
+    expect(screen.getByText('未保存の変更があります')).toBeInTheDocument()
+
+    await 保存する()
+
+    expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
+    expect(screen.queryByText('未保存の変更があります')).not.toBeInTheDocument()
+  })
+
+  test('設定を足しただけでも未保存だと知らせる（足しただけでは保存されないため）', async () => {
+    render(トリガーのページ(代役のAPI({ config: async () => [] })))
+
+    await 設定を足す('言葉を足す')
+
+    expect(screen.getByText('未保存の変更があります')).toBeInTheDocument()
+  })
+})
+
 describe('折りたたみ', () => {
   test('開くまでは入力欄を出さない（一覧を見渡せるようにする）', async () => {
     render(トリガーのページ(代役のAPI()))
@@ -513,6 +572,21 @@ describe('折りたたみ', () => {
 
     expect(フォロー.getByRole('checkbox', { name: 'アラートを出す' })).toBeInTheDocument()
     expect(screen.queryByLabelText('素材')).not.toBeInTheDocument()
+  })
+
+  test('区分の見出しを押すと、その区分の項目ごと畳める（使わない区分を閉じておける）', async () => {
+    render(トリガーのページ(代役のAPI()))
+
+    await 項目の枠('フォローされた')
+    await userEvent.click(screen.getByRole('button', { name: '応援' }))
+
+    expect(screen.queryByRole('listitem', { name: 'フォローされた' })).not.toBeInTheDocument()
+    // 畳んでいるあいだも、ほかの区分の項目は並んだままにする
+    expect(screen.getByRole('listitem', { name: '初めて来た人の発言' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: '応援' }))
+
+    expect(screen.getByRole('listitem', { name: 'フォローされた' })).toBeInTheDocument()
   })
 
   test('足した設定は、すぐ書き換えられるよう開いた状態で出る', async () => {

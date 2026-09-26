@@ -475,11 +475,12 @@ export const rewardOptions = (rewards: readonly Reward[], selected: string): Sel
 }
 
 /**
- * 要約の中に出す、メニュー項目のパラメータの文言。絞り込んでいなければ null（何も添えない）。
+ * 折りたたんだ行の見出しに出す、メニュー項目のパラメータの文言。絞り込んでいなければ null（何も添えない）。
  *
+ * メニュー項目の名前は添えない（項目の枠の見出しにすでに出ているため）。
  * Twitchの一覧にない報酬は、黙って省略せずに報酬IDをそのまま出す（設定を取り違えないため）。
  */
-const paramSummary = (draft: TriggerDraft, rewards: readonly Reward[]): string | null => {
+export const rowParamSummary = (draft: TriggerDraft, rewards: readonly Reward[]): string | null => {
   switch (draft.kind) {
     case 'reward':
       if (draft.rewardId === ALL_REWARDS) return 'すべての報酬'
@@ -502,23 +503,19 @@ const paramSummary = (draft: TriggerDraft, rewards: readonly Reward[]): string |
 }
 
 /**
- * 折りたたんだ行の見出しに出す要約。「絞り込み → 効果」の形にする。
+ * その行が持つ効果の名前。付けている順ではなく、いつも同じ並びで返す。
  *
- * メニュー項目の名前は添えない（一覧の項目の見出しにすでに出ているため）。
- * 効果をひとつも持たない行は、保存されず何も起きないことが分かるように「効果なし」と出す。
+ * 画面ではバッジとして1つずつ出し、絞り込みの文言（rowParamSummary）と見た目で分ける
+ * （ひと続きの文にすると、効果が付いているかどうかを読み取るのに文末まで読むことになる）。
+ * ひとつも持たない行は保存されず何も起きないので、空の配列を返して呼び出し側に「効果なし」と出させる。
  */
-export const rowSummary = (draft: TriggerDraft, rewards: readonly Reward[]): string => {
-  const actions = [
+export const rowActionLabels = (draft: TriggerDraft): readonly string[] =>
+  [
     draft.alertEnabled ? 'アラート' : null,
     draft.chatEnabled ? 'チャット' : null,
     draft.announceEnabled ? 'アナウンス' : null,
     draft.aiChatEnabled ? 'AIチャット' : null,
   ].filter((label) => label !== null)
-  if (actions.length === 0) return '効果なし'
-
-  const param = paramSummary(draft, rewards)
-  return `${param === null ? '' : `${param} `}→ ${actions.join('・')}`
-}
 
 /** 素材の大きさを読みやすい単位で表す */
 export const formatBytes = (size: number): string => {
