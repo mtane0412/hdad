@@ -61,7 +61,7 @@ export interface WorkersAi {
   run(model: string, input: Record<string, unknown>): Promise<unknown>
 }
 
-/** OpenAI互換の応答（choices）から文面を取り出す。読めなければ null */
+/** OpenAI互換の応答（choices）から文面を取り出す。読めない・空なら null（空の文面は作れなかったものとして扱う） */
 const readChoice = (result: Record<string, unknown>): string | null => {
   const choices = result.choices
   if (!Array.isArray(choices)) return null
@@ -70,7 +70,8 @@ const readChoice = (result: Record<string, unknown>): string | null => {
   const message = (first as { message: unknown }).message
   if (typeof message !== 'object' || message === null || !('content' in message)) return null
   const content = (message as { content: unknown }).content
-  return typeof content === 'string' ? content : null
+  // 上限で切れたとき、content を null ではなく空の文字列で返す提供元がある。どちらも「文面が無い」として扱う
+  return typeof content === 'string' && content.trim() !== '' ? content : null
 }
 
 /**

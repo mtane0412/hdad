@@ -164,6 +164,10 @@ describe('readResponse', () => {
     expect(() => readResponse(応答)).toThrow(/上限.*推論モデル/s)
   })
 
+  it('上限に当たって本文が空の文字列でも、同じ文面で投げる（空の文面を作らせたことにしない）', () => {
+    expect(() => readResponse({ choices: [{ finish_reason: 'length', message: { role: 'assistant', content: '' } }] })).toThrow(/上限.*推論モデル/s)
+  })
+
   it('response に文面を入れて返すモデルから読む', () => {
     expect(readResponse({ response: 'こんばんは！' })).toBe('こんばんは！')
   })
