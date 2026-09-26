@@ -68,16 +68,18 @@ export type StoredCondition =
 /**
  * メニュー項目の識別子。
  *
- * 画面ではこれを区分（視聴者・応援・配信）に分けて並べる。区分と日本語の名前は管理画面（src/admin/）が持つ
+ * 画面ではこれを区分（チャット・応援・配信）に分けて並べる。区分と日本語の名前は管理画面（src/admin/）が持つ
  * （Workerはブラウザ向けの表示を持たない）。
+ *
+ * 並びは絞り込みの細かいものからにする。挨拶の段（GREETING_KINDS）ではこの並びが優先順位そのものになる。
  */
 export const TRIGGER_KINDS = [
-  'chat',
-  'firstChatEver',
-  'firstChatOfStream',
-  'returningAfter',
-  'chatFromUser',
-  'chatContains',
+  'newViewer',
+  'comeback',
+  'welcome',
+  'everyMessage',
+  'keyword',
+  'fromUser',
   'reward',
   'follow',
   'subscribe',
@@ -90,28 +92,42 @@ export const TRIGGER_KINDS = [
 export type TriggerKind = (typeof TRIGGER_KINDS)[number]
 
 /**
+ * 挨拶の段。**当てはまったうちの最も細かい1つだけが発動する**（細かい順に並べてある）。
+ *
+ * 初めて来た人の発言は必ず「その配信で最初の発言」でもあり、久しぶりの人の発言もそうである。
+ * すべて発動させると同じ1通に挨拶が二重・三重に飛ぶので、ここだけは「当てはまった行はすべて実行する」の例外にする
+ * （判定は worker/alert-event.ts の matchedTriggers）。
+ *
+ * 「すべての発言」（everyMessage）はこの段に入れない。読み上げや効果音は、初めて来た人の発言でも鳴ってほしいためである。
+ */
+export const GREETING_KINDS: readonly TriggerKind[] = ['newViewer', 'comeback', 'welcome']
+
+/** その項目が挨拶の段に属するか */
+export const isGreeting = (kind: TriggerKind): boolean => GREETING_KINDS.includes(kind)
+
+/**
  * トリガーのきっかけ（メニュー項目と、そのパラメータ）。
  *
  * パラメータは入れ子にせず、kind と同じ階層に平たく持つ（StoredCondition・StoredAction と同じ持ち方）。
  * null を取るパラメータは「絞り込まない」を表す（rewardId ならすべての報酬、automatic なら自動・手動のどちらでも）。
  */
 export type TriggerSource =
-  | { kind: 'chat' | 'firstChatEver' | 'firstChatOfStream' }
-  | { kind: 'returningAfter'; days: number }
-  | { kind: 'chatFromUser'; login: string }
-  | { kind: 'chatContains'; contains: string }
+  | { kind: 'newViewer' | 'welcome' | 'everyMessage' }
+  | { kind: 'comeback'; days: number }
+  | { kind: 'fromUser'; login: string }
+  | { kind: 'keyword'; contains: string }
   | { kind: 'reward'; rewardId: string | null }
   | { kind: 'follow' | 'subscribe' | 'resubscribe' | 'raid' }
   | { kind: 'adBreakBegin' | 'adBreakEnd'; automatic: boolean | null }
 
 /** メニュー項目が対象にするイベント種別 */
 const EVENT_OF_KIND: Readonly<Record<TriggerKind, AlertEvent>> = {
-  chat: CHAT_MESSAGE,
-  firstChatEver: CHAT_MESSAGE,
-  firstChatOfStream: CHAT_MESSAGE,
-  returningAfter: CHAT_MESSAGE,
-  chatFromUser: CHAT_MESSAGE,
-  chatContains: CHAT_MESSAGE,
+  newViewer: CHAT_MESSAGE,
+  comeback: CHAT_MESSAGE,
+  welcome: CHAT_MESSAGE,
+  everyMessage: CHAT_MESSAGE,
+  keyword: CHAT_MESSAGE,
+  fromUser: CHAT_MESSAGE,
   reward: REDEMPTION,
   follow: FOLLOW,
   subscribe: SUBSCRIBE,
@@ -137,20 +153,21 @@ export const expandSource = (source: TriggerSource): { event: AlertEvent; condit
   const event = eventOf(source.kind)
   switch (source.kind) {
     // 絞り込みを持たないメニュー項目。そのイベントが起きればいつでも当てはまる
-    case 'chat':
+    case 'everyMessage':
     case 'follow':
     case 'subscribe':
     case 'resubscribe':
     case 'raid':
       return { event, conditions: [] }
-    case 'firstChatEver':
-    case 'firstChatOfStream':
-      return { event, conditions: [{ kind: source.kind }] }
-    case 'returningAfter':
+    case 'newViewer':
+      return { event, conditions: [{ kind: 'firstChatEver' }] }
+    case 'welcome':
+      return { event, conditions: [{ kind: 'firstChatOfStream' }] }
+    case 'comeback':
       return { event, conditions: [{ kind: 'returningAfter', days: source.days }] }
-    case 'chatFromUser':
+    case 'fromUser':
       return { event, conditions: [{ kind: 'user', login: source.login }] }
-    case 'chatContains':
+    case 'keyword':
       return { event, conditions: [{ kind: 'text', contains: source.contains }] }
     // 報酬を選んでいなければ（null）すべての報酬が対象なので、絞り込みを付けない
     case 'reward':

@@ -68,8 +68,8 @@ describe('overlayUrl', () => {
 })
 
 describe('menuGroups', () => {
-  it('メニュー項目を「視聴者・応援・配信」の3つに分けて並べる', () => {
-    expect(menuGroups.map((group) => group.label)).toEqual(['視聴者', '応援', '配信'])
+  it('メニュー項目を「チャット・応援・配信」の3つに分けて並べる', () => {
+    expect(menuGroups.map((group) => group.label)).toEqual(['チャット', '応援', '配信'])
   })
 
   it('すべてのメニュー項目がどれかの区分に1回だけ出る（足し忘れ・重複を防ぐ）', () => {
@@ -78,23 +78,28 @@ describe('menuGroups', () => {
     expect([...並んでいる項目].sort()).toEqual([...TRIGGER_KINDS].sort())
   })
 
-  it('絞り込みの細かい項目から並べ、「誰かが発言した」は視聴者の区分の最後に置く', () => {
-    // 当てはまった行はすべて実行するので動く・動かないは順番に左右されないが、
-    // 細かいものから並べないと、一覧が「何にでも当てはまる行」から始まって読みにくい
-    const 視聴者 = menuGroups[0]?.items.map((item) => item.kind)
+  it('チャットの区分は、挨拶の3項目を細かい順に先頭へ置き、そのあとに「すべての発言」を置く', () => {
+    // 挨拶（上の3つ）は当てはまるうち一番上だけが動くので、並び順がそのまま優先順位になる。
+    // 「すべての発言」は挨拶と同時に動くので、挨拶のあとに置いて別のものだと分かるようにする
+    const チャット = menuGroups[0]?.items.map((item) => item.kind)
 
-    expect(視聴者?.at(-1)).toBe('chat')
-    expect(視聴者?.[0]).toBe('firstChatEver')
+    expect(チャット).toEqual(['newViewer', 'comeback', 'welcome', 'everyMessage', 'keyword', 'fromUser'])
   })
 
-  it('パラメータを持つ項目だけ、中に複数の設定を持てる', () => {
+  it('挨拶が排他であることを、区分の説明で知らせる', () => {
+    expect(menuGroups[0]?.description).toMatch(/一番上のものだけが動く/)
+  })
+
+  it('「別のもの」を指す絞り込みを持つ項目だけ、中に複数の設定を持てる', () => {
+    // 久しぶりの人（日数）と広告（自動・手動）は絞り込みが1つで足りるので、複数持てなくする
+    // （「どちらでも」の行と「自動だけ」の行が並ぶと、同じ重複の分かりにくさが戻ってしまう）
     const 複数持てる = menuGroups.flatMap((group) => group.items.filter((item) => item.multiple).map((item) => item.kind))
 
-    expect([...複数持てる].sort()).toEqual(['adBreakBegin', 'adBreakEnd', 'chatContains', 'chatFromUser', 'returningAfter', 'reward'])
+    expect([...複数持てる].sort()).toEqual(['fromUser', 'keyword', 'reward'])
   })
 
   it('メニュー項目には日本語の名前が付く', () => {
-    expect(menuLabel('firstChatEver')).toBe('このチャンネルで初めての人が発言した')
+    expect(menuLabel('newViewer')).toBe('初めて来た人の発言')
     expect(menuLabel('adBreakEnd')).toBe('広告が終わった')
   })
 })
@@ -115,25 +120,25 @@ describe('toTriggerInput', () => {
   })
 
   it('パラメータを持たないメニュー項目は、kind と動作だけを送る（ほかの入力欄の値を引きずらない）', () => {
-    const draft = 入力欄({ kind: 'firstChatEver', login: 'tanenobu', contains: 'おはよう' })
+    const draft = 入力欄({ kind: 'newViewer', login: 'tanenobu', contains: 'おはよう' })
 
-    expect(toTriggerInput(draft)).toEqual({ kind: 'firstChatEver', actions: [{ type: 'alert', mediaId: 'sozai-1', durationSeconds: 5, volume: 1, message: '' }] })
+    expect(toTriggerInput(draft)).toEqual({ kind: 'newViewer', actions: [{ type: 'alert', mediaId: 'sozai-1', durationSeconds: 5, volume: 1, message: '' }] })
   })
 
   it('久しぶりの人が発言したメニュー項目は、日数を文字列から数にして送る', () => {
-    expect(toTriggerInput(入力欄({ kind: 'returningAfter', days: '45' }))).toMatchObject({ kind: 'returningAfter', days: 45 })
+    expect(toTriggerInput(入力欄({ kind: 'comeback', days: '45' }))).toMatchObject({ kind: 'comeback', days: 45 })
   })
 
   it('日数が空欄なら、保存せずにエラーにする（0日として送ってしまわないため）', () => {
-    expect(() => toTriggerInput(入力欄({ kind: 'returningAfter', days: '' }))).toThrowError(/日数/)
+    expect(() => toTriggerInput(入力欄({ kind: 'comeback', days: '' }))).toThrowError(/日数/)
   })
 
   it('決まった人が発言したメニュー項目は、ユーザー名を送る', () => {
-    expect(toTriggerInput(入力欄({ kind: 'chatFromUser', login: 'tanenobu' }))).toMatchObject({ kind: 'chatFromUser', login: 'tanenobu' })
+    expect(toTriggerInput(入力欄({ kind: 'fromUser', login: 'tanenobu' }))).toMatchObject({ kind: 'fromUser', login: 'tanenobu' })
   })
 
   it('決まった言葉を含む発言のメニュー項目は、言葉を送る', () => {
-    expect(toTriggerInput(入力欄({ kind: 'chatContains', contains: 'おはよう' }))).toMatchObject({ kind: 'chatContains', contains: 'おはよう' })
+    expect(toTriggerInput(入力欄({ kind: 'keyword', contains: 'おはよう' }))).toMatchObject({ kind: 'keyword', contains: 'おはよう' })
   })
 
   it.each([
@@ -198,7 +203,7 @@ describe('toDraft', () => {
   })
 
   it('保存済みの日数は、入力欄の値として文字列に戻す', () => {
-    expect(toDraft({ kind: 'returningAfter', days: 45, actions: [アラートの動作()] })).toMatchObject({ kind: 'returningAfter', days: '45' })
+    expect(toDraft({ kind: 'comeback', days: 45, actions: [アラートの動作()] })).toMatchObject({ kind: 'comeback', days: '45' })
   })
 
   it.each([
@@ -226,13 +231,13 @@ describe('toDraft', () => {
   })
 
   it('LLMに文面を作らせる動作を持つトリガーは、指示の入力欄を埋めて戻す', () => {
-    const trigger: StoredTrigger = { kind: 'firstChatEver', actions: [{ type: 'aiChat', instruction: '歓迎してください' }] }
+    const trigger: StoredTrigger = { kind: 'newViewer', actions: [{ type: 'aiChat', instruction: '歓迎してください' }] }
 
     expect(toDraft(trigger)).toMatchObject({ aiChatEnabled: true, aiChatInstruction: '歓迎してください' })
   })
 
   it('保存と読み出しを往復しても、送る形が変わらない', () => {
-    const trigger: StoredTrigger = { kind: 'chatContains', contains: 'おはよう', actions: [{ type: 'chat', message: 'おはよう！' }] }
+    const trigger: StoredTrigger = { kind: 'keyword', contains: 'おはよう', actions: [{ type: 'chat', message: 'おはよう！' }] }
 
     expect(toTriggerInput(toDraft(trigger))).toEqual(trigger)
   })
@@ -254,7 +259,7 @@ describe('createDraft', () => {
   })
 
   it('久しぶりの人が発言したメニュー項目は、日数の既定値（30日）を入れて作る', () => {
-    expect(createDraft('returningAfter', 素材)).toMatchObject({ days: '30' })
+    expect(createDraft('comeback', 素材)).toMatchObject({ days: '30' })
   })
 
   it('広告のメニュー項目は、自動で入った広告に絞った状態で作る（手動の広告は配信者が自分で告知できるため）', () => {
@@ -266,7 +271,18 @@ describe('withFixedRows', () => {
   it('パラメータを持たない項目は、効果がなくても1行ずつ並ぶ（一覧が固定されている）', () => {
     const rows = withFixedRows([])
 
-    expect(rows.map((row) => row.kind)).toEqual(['firstChatEver', 'firstChatOfStream', 'chat', 'follow', 'subscribe', 'resubscribe', 'raid'])
+    expect(rows.map((row) => row.kind)).toEqual([
+      'newViewer',
+      'comeback',
+      'welcome',
+      'everyMessage',
+      'follow',
+      'subscribe',
+      'resubscribe',
+      'raid',
+      'adBreakBegin',
+      'adBreakEnd',
+    ])
     expect(rows.every((row) => !hasAnyAction(row))).toBe(true)
   })
 
@@ -284,11 +300,11 @@ describe('withFixedRows', () => {
 
   it('行はメニューの並び順にそろえる（保存したときに画面の並びと同じ順になる）', () => {
     const 報酬 = toDraft({ kind: 'reward', rewardId: null, actions: [{ type: 'chat', message: 'ありがとう' }] })
-    const 言葉 = toDraft({ kind: 'chatContains', contains: 'おはよう', actions: [{ type: 'chat', message: 'おはよう' }] })
+    const 言葉 = toDraft({ kind: 'keyword', contains: 'おはよう', actions: [{ type: 'chat', message: 'おはよう' }] })
 
     const rows = withFixedRows([報酬, 言葉])
 
-    expect(rows.findIndex((row) => row.kind === 'chatContains')).toBeLessThan(rows.findIndex((row) => row.kind === 'reward'))
+    expect(rows.findIndex((row) => row.kind === 'keyword')).toBeLessThan(rows.findIndex((row) => row.kind === 'reward'))
   })
 
   it('同じ項目の中の並びは変えない（配信者が足した順に出す）', () => {
@@ -321,8 +337,8 @@ describe('toTriggerInputs', () => {
   })
 
   it('数として読めない値があれば、どの項目の設定かを添えてエラーにする', () => {
-    expect(() => toTriggerInputs([emptyDraft('follow'), 入力欄({ kind: 'returningAfter', days: '' })])).toThrowError(
-      '「久しぶりの人が発言した」の設定: 日数を数で入力してください',
+    expect(() => toTriggerInputs([emptyDraft('follow'), 入力欄({ kind: 'comeback', days: '' })])).toThrowError(
+      '「久しぶりの人の発言」の設定: 日数を数で入力してください',
     )
   })
 })
@@ -350,8 +366,8 @@ describe('placeholdersFor', () => {
     ['subscribe', ['{user}', '{tier}', '{summary}']],
     ['resubscribe', ['{user}', '{tier}', '{months}', '{summary}']],
     ['raid', ['{user}', '{viewers}', '{summary}']],
-    ['chat', ['{user}', '{message}', '{summary}']],
-    ['firstChatEver', ['{user}', '{message}', '{summary}']],
+    ['everyMessage', ['{user}', '{message}', '{summary}']],
+    ['newViewer', ['{user}', '{message}', '{summary}']],
     ['adBreakBegin', ['{user}', '{duration}', '{summary}']],
     ['adBreakEnd', ['{user}', '{duration}', '{summary}']],
   ] as const)('%s で使える差し込み語を返す', (kind, expected) => {
@@ -394,15 +410,15 @@ describe('rowSummary（絞り込みの出し方）', () => {
   })
 
   it('決まった人が発言した行は、ユーザー名を出す', () => {
-    expect(rowSummary(入力欄({ kind: 'chatFromUser', login: 'tanenobu' }), [])).toBe('tanenobu → アラート')
+    expect(rowSummary(入力欄({ kind: 'fromUser', login: 'tanenobu' }), [])).toBe('tanenobu → アラート')
   })
 
   it('決まった言葉を含む発言の行は、その言葉を出す', () => {
-    expect(rowSummary(入力欄({ kind: 'chatContains', contains: 'おはよう' }), [])).toBe('おはよう → アラート')
+    expect(rowSummary(入力欄({ kind: 'keyword', contains: 'おはよう' }), [])).toBe('おはよう → アラート')
   })
 
   it('久しぶりの人が発言した行は、日数を出す', () => {
-    expect(rowSummary(入力欄({ kind: 'returningAfter', days: '45' }), [])).toBe('45日以上 → アラート')
+    expect(rowSummary(入力欄({ kind: 'comeback', days: '45' }), [])).toBe('45日以上 → アラート')
   })
 
   it('広告の行は、自動で入った広告か手動で打った広告かを言葉で出す', () => {
@@ -437,8 +453,8 @@ describe('formatBytes', () => {
 
 describe('describeProblem', () => {
   it('Workerの問題点の位置（0始まりの triggers[0]）を、送った項目の名前に読み替える', () => {
-    expect(describeProblem('triggers[0].days: 1〜365の整数（日数）で指定してください', ['久しぶりの人が発言した'])).toBe(
-      '「久しぶりの人が発言した」の設定の days: 1〜365の整数（日数）で指定してください',
+    expect(describeProblem('triggers[0].days: 1〜365の整数（日数）で指定してください', ['久しぶりの人の発言'])).toBe(
+      '「久しぶりの人の発言」の設定の days: 1〜365の整数（日数）で指定してください',
     )
   })
 

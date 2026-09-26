@@ -98,16 +98,16 @@ export type ActionInput = AlertActionInput | ChatAction | AnnounceAction | AiCha
 /**
  * 既定メニューの項目。worker/trigger-menu.ts の TRIGGER_KINDS と同じ並び（worker/ の型は読み込めないのでここで定義する）。
  *
- * 配信者はイベント種別と条件を自由に組み合わせず、この一覧から選ぶ。
+ * 配信者はイベント種別と条件を自由に組み合わせず、この一覧に効果を足していく。
  * どのイベントを対象にするか（差し込み語がどれになるか）は kind から決まる（src/admin/form.ts の EVENT_OF_KIND）。
  */
 export const TRIGGER_KINDS = [
-  'chat',
-  'firstChatEver',
-  'firstChatOfStream',
-  'returningAfter',
-  'chatFromUser',
-  'chatContains',
+  'newViewer',
+  'comeback',
+  'welcome',
+  'everyMessage',
+  'keyword',
+  'fromUser',
   'reward',
   'follow',
   'subscribe',
@@ -125,10 +125,10 @@ export type TriggerKind = (typeof TRIGGER_KINDS)[number]
  * null を取るパラメータは「絞り込まない」を表す（rewardId ならすべての報酬、automatic なら自動・手動のどちらでも）。
  */
 export type TriggerSource =
-  | { kind: 'chat' | 'firstChatEver' | 'firstChatOfStream' }
-  | { kind: 'returningAfter'; days: number }
-  | { kind: 'chatFromUser'; login: string }
-  | { kind: 'chatContains'; contains: string }
+  | { kind: 'newViewer' | 'welcome' | 'everyMessage' }
+  | { kind: 'comeback'; days: number }
+  | { kind: 'fromUser'; login: string }
+  | { kind: 'keyword'; contains: string }
   | { kind: 'reward'; rewardId: string | null }
   | { kind: 'follow' | 'subscribe' | 'resubscribe' | 'raid' }
   | { kind: 'adBreakBegin' | 'adBreakEnd'; automatic: boolean | null }
@@ -190,9 +190,9 @@ const isMediaItem = (value: unknown): value is MediaItem =>
  */
 const isTriggerSource = (value: unknown): value is TriggerSource => {
   if (!isRecord(value)) return false
-  if (value.kind === 'returningAfter') return typeof value.days === 'number'
-  if (value.kind === 'chatFromUser') return typeof value.login === 'string'
-  if (value.kind === 'chatContains') return typeof value.contains === 'string'
+  if (value.kind === 'comeback') return typeof value.days === 'number'
+  if (value.kind === 'fromUser') return typeof value.login === 'string'
+  if (value.kind === 'keyword') return typeof value.contains === 'string'
   // null は「すべての報酬」を表す
   if (value.kind === 'reward') return value.rewardId === null || typeof value.rewardId === 'string'
   // null は「自動・手動のどちらでも」を表す

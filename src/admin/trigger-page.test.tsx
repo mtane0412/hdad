@@ -162,7 +162,7 @@ describe('一覧', () => {
   test('配信で起きる出来事が、区分ごとに最初から並ぶ（トリガーを作る操作はない）', async () => {
     render(トリガーのページ(代役のAPI()))
 
-    expect(await screen.findByRole('region', { name: '視聴者' })).toBeInTheDocument()
+    expect(await screen.findByRole('region', { name: 'チャット' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: '応援' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: '配信' })).toBeInTheDocument()
     // 配信者はトリガーを作らず、並んでいる出来事に効果を足していく
@@ -312,12 +312,12 @@ describe('効果の付け外し', () => {
     const api = 代役のAPI({ config: vi.fn(async () => []) })
     render(トリガーのページ(api))
 
-    const row = await 開いた項目('このチャンネルで初めての人が発言した')
+    const row = await 開いた項目('初めて来た人の発言')
     await userEvent.click(row.getByRole('checkbox', { name: 'AIに文面を作らせて送る' }))
     await userEvent.type(row.getByLabelText('AIへの指示'), '初めて来てくれた人を歓迎してください')
     await 保存する()
 
-    expect(api.saveConfig).toHaveBeenCalledWith([{ kind: 'firstChatEver', actions: [{ type: 'aiChat', instruction: '初めて来てくれた人を歓迎してください' }] }])
+    expect(api.saveConfig).toHaveBeenCalledWith([{ kind: 'newViewer', actions: [{ type: 'aiChat', instruction: '初めて来てくれた人を歓迎してください' }] }])
   })
 
   test('「チャットに送る」と「AIに文面を作らせて送る」は同時に選べない（同じ発言に2通返ってしまうため）', async () => {
@@ -355,7 +355,7 @@ describe('効果の付け外し', () => {
   test('チャットの発言をきっかけにする項目では、差し込み語に {message} を出す', async () => {
     render(トリガーのページ(代役のAPI()))
 
-    const row = await 開いた項目('誰かが発言した')
+    const row = await 開いた項目('すべての発言')
 
     expect(row.getByText(/\{user\}/)).toHaveTextContent('{message}')
   })
@@ -397,57 +397,57 @@ describe('絞り込みのパラメータ', () => {
   })
 
   test('決まった人が発言した設定は、ユーザー名を書き換えて保存できる', async () => {
-    const api = 代役のAPI({ config: async (): Promise<StoredTrigger[]> => [{ kind: 'chatFromUser', login: 'tanenobu', actions: [{ type: 'chat', message: 'やあ' }] }] })
+    const api = 代役のAPI({ config: async (): Promise<StoredTrigger[]> => [{ kind: 'fromUser', login: 'tanenobu', actions: [{ type: 'chat', message: 'やあ' }] }] })
     render(トリガーのページ(api))
 
-    const row = await 開いた設定('決まった人が発言した')
+    const row = await 開いた設定('決まった人の発言')
     await userEvent.clear(row.getByLabelText('対象のユーザー名'))
     await userEvent.type(row.getByLabelText('対象のユーザー名'), 'yamada_hanako')
     await 保存する()
 
-    expect(api.saveConfig).toHaveBeenCalledWith([{ kind: 'chatFromUser', login: 'yamada_hanako', actions: [{ type: 'chat', message: 'やあ' }] }])
+    expect(api.saveConfig).toHaveBeenCalledWith([{ kind: 'fromUser', login: 'yamada_hanako', actions: [{ type: 'chat', message: 'やあ' }] }])
   })
 
   test('決まった言葉を含む発言の設定は、言葉を書き換えて保存できる', async () => {
-    const api = 代役のAPI({ config: async (): Promise<StoredTrigger[]> => [{ kind: 'chatContains', contains: 'おはよう', actions: [{ type: 'chat', message: 'おはよう！' }] }] })
+    const api = 代役のAPI({ config: async (): Promise<StoredTrigger[]> => [{ kind: 'keyword', contains: 'おはよう', actions: [{ type: 'chat', message: 'おはよう！' }] }] })
     render(トリガーのページ(api))
 
-    const row = await 開いた設定('決まった言葉を含む発言があった')
+    const row = await 開いた設定('決まった言葉を含む発言')
     await userEvent.clear(row.getByLabelText('発言に含まれる言葉'))
     await userEvent.type(row.getByLabelText('発言に含まれる言葉'), 'こんばんは')
     await 保存する()
 
-    expect(api.saveConfig).toHaveBeenCalledWith([expect.objectContaining({ kind: 'chatContains', contains: 'こんばんは' })])
+    expect(api.saveConfig).toHaveBeenCalledWith([expect.objectContaining({ kind: 'keyword', contains: 'こんばんは' })])
   })
 
   test('久しぶりの人が発言した設定は、日数を書き換えて保存できる', async () => {
-    const api = 代役のAPI({ config: async (): Promise<StoredTrigger[]> => [{ kind: 'returningAfter', days: 30, actions: [{ type: 'chat', message: 'お久しぶり' }] }] })
+    const api = 代役のAPI({ config: async (): Promise<StoredTrigger[]> => [{ kind: 'comeback', days: 30, actions: [{ type: 'chat', message: 'お久しぶり' }] }] })
     render(トリガーのページ(api))
 
-    const row = await 開いた設定('久しぶりの人が発言した')
+    const row = await 開いた項目('久しぶりの人の発言')
     fireEvent.change(row.getByLabelText('前の発言から空いた日数'), { target: { value: '60' } })
     await 保存する()
 
-    expect(api.saveConfig).toHaveBeenCalledWith([expect.objectContaining({ kind: 'returningAfter', days: 60 })])
+    expect(api.saveConfig).toHaveBeenCalledWith([expect.objectContaining({ kind: 'comeback', days: 60 })])
   })
 
   test('日数を空欄にして保存しようとしたら、どの項目かを添えて数を入れるよう知らせる', async () => {
-    const api = 代役のAPI({ config: async (): Promise<StoredTrigger[]> => [{ kind: 'returningAfter', days: 30, actions: [{ type: 'chat', message: 'お久しぶり' }] }] })
+    const api = 代役のAPI({ config: async (): Promise<StoredTrigger[]> => [{ kind: 'comeback', days: 30, actions: [{ type: 'chat', message: 'お久しぶり' }] }] })
     render(トリガーのページ(api))
 
-    const row = await 開いた設定('久しぶりの人が発言した')
+    const row = await 開いた項目('久しぶりの人の発言')
     await userEvent.clear(row.getByLabelText('前の発言から空いた日数'))
     await 保存する()
 
-    expect(await お知らせ('「久しぶりの人が発言した」の設定: 日数を数で入力してください')).toBeInTheDocument()
+    expect(await お知らせ('「久しぶりの人の発言」の設定: 日数を数で入力してください')).toBeInTheDocument()
     expect(api.saveConfig).not.toHaveBeenCalled()
   })
 
-  test('広告の設定は、自動・手動の絞り込みを選んで保存できる', async () => {
+  test('広告は、自動・手動の絞り込みを選んで保存できる（1行だけの項目）', async () => {
     const api = 代役のAPI({ config: async (): Promise<StoredTrigger[]> => [{ kind: 'adBreakEnd', automatic: true, actions: [{ type: 'chat', message: 'おかえりなさい' }] }] })
     render(トリガーのページ(api))
 
-    const row = await 開いた設定('広告が終わった')
+    const row = await 開いた項目('広告が終わった')
     expect(row.getByLabelText('対象の広告')).toHaveValue('true')
     await userEvent.selectOptions(row.getByLabelText('対象の広告'), '')
     await 保存する()
@@ -465,24 +465,24 @@ describe('保存', () => {
     await 保存する()
 
     // 「決まった言葉を含む発言があった」は視聴者の区分、「フォローされた」は応援の区分なので、言葉が先に来る
-    expect(api.saveConfig).toHaveBeenCalledWith([expect.objectContaining({ kind: 'chatContains' }), expect.objectContaining({ kind: 'follow' })])
+    expect(api.saveConfig).toHaveBeenCalledWith([expect.objectContaining({ kind: 'keyword' }), expect.objectContaining({ kind: 'follow' })])
   })
 
   test('Workerが設定の問題点を返したら、どの項目の設定かに読み替えて並べる', async () => {
     const api = 代役のAPI({
-      config: vi.fn(async (): Promise<StoredTrigger[]> => [{ kind: 'returningAfter', days: 30, actions: [{ type: 'chat', message: 'お久しぶり' }] }]),
+      config: vi.fn(async (): Promise<StoredTrigger[]> => [{ kind: 'comeback', days: 30, actions: [{ type: 'chat', message: 'お久しぶり' }] }]),
       saveConfig: vi.fn(async () => {
         throw new ApiError(400, 'invalid_config', '設定に問題があります', ['triggers[0].days: 1〜365の整数（日数）で指定してください'])
       }),
     })
     render(トリガーのページ(api))
 
-    await screen.findByRole('button', { name: /^久しぶりの人が発言したの1番目の設定:/ })
+    await screen.findByRole('button', { name: /^久しぶりの人の発言/ })
     await 保存する()
 
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent('トリガーの設定に問題があります')
-    expect(alert).toHaveTextContent('「久しぶりの人が発言した」の設定の days: 1〜365の整数（日数）で指定してください')
+    expect(alert).toHaveTextContent('「久しぶりの人の発言」の設定の days: 1〜365の整数（日数）で指定してください')
   })
 })
 
@@ -520,7 +520,7 @@ describe('折りたたみ', () => {
 
     await 設定を足す('言葉を足す')
 
-    expect(within(screen.getByRole('listitem', { name: '決まった言葉を含む発言があったの1番目の設定' })).getByLabelText('発言に含まれる言葉')).toBeInTheDocument()
+    expect(within(screen.getByRole('listitem', { name: '決まった言葉を含む発言の1番目の設定' })).getByLabelText('発言に含まれる言葉')).toBeInTheDocument()
   })
 })
 

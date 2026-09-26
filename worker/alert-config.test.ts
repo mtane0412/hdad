@@ -148,7 +148,7 @@ describe('parseAlertConfig', () => {
     expect(parseAlertConfig(両方, 素材の種類).triggers[0]?.actions).toHaveLength(2)
   })
 
-  it.each([['chat'], ['firstChatEver'], ['firstChatOfStream'], ['follow'], ['subscribe'], ['resubscribe'], ['raid']])(
+  it.each([['everyMessage'], ['newViewer'], ['welcome'], ['follow'], ['subscribe'], ['resubscribe'], ['raid']])(
     'パラメータを持たないメニュー項目（%s）を受け付ける',
     (kind) => {
       const config = parseAlertConfig({ triggers: [{ kind, actions: [チャットの動作()] }] }, 素材の種類)
@@ -170,33 +170,33 @@ describe('parseAlertConfig', () => {
   })
 
   it('決まった人が発言したメニュー項目は、ユーザー名を受け取る', () => {
-    const config = parseAlertConfig({ triggers: [{ kind: 'chatFromUser', login: 'tanenobu', actions: [チャットの動作()] }] }, 素材の種類)
+    const config = parseAlertConfig({ triggers: [{ kind: 'fromUser', login: 'tanenobu', actions: [チャットの動作()] }] }, 素材の種類)
 
-    expect(config.triggers[0]).toMatchObject({ kind: 'chatFromUser', login: 'tanenobu' })
+    expect(config.triggers[0]).toMatchObject({ kind: 'fromUser', login: 'tanenobu' })
   })
 
   it('ユーザー名が空文字なら拒否する', () => {
-    expect(() => parseAlertConfig({ triggers: [{ kind: 'chatFromUser', login: '', actions: [チャットの動作()] }] }, 素材の種類)).toThrowError(
+    expect(() => parseAlertConfig({ triggers: [{ kind: 'fromUser', login: '', actions: [チャットの動作()] }] }, 素材の種類)).toThrowError(
       expect.objectContaining({ problems: ['triggers[0].login: 1〜25文字のTwitchのユーザー名で指定してください'] }),
     )
   })
 
   it('決まった言葉を含む発言のメニュー項目は、言葉を受け取る', () => {
-    const config = parseAlertConfig({ triggers: [{ kind: 'chatContains', contains: 'おはよう', actions: [チャットの動作()] }] }, 素材の種類)
+    const config = parseAlertConfig({ triggers: [{ kind: 'keyword', contains: 'おはよう', actions: [チャットの動作()] }] }, 素材の種類)
 
-    expect(config.triggers[0]).toMatchObject({ kind: 'chatContains', contains: 'おはよう' })
+    expect(config.triggers[0]).toMatchObject({ kind: 'keyword', contains: 'おはよう' })
   })
 
   it('含む言葉が空文字なら拒否する（すべての発言に当てはまってしまう）', () => {
-    expect(() => parseAlertConfig({ triggers: [{ kind: 'chatContains', contains: '', actions: [チャットの動作()] }] }, 素材の種類)).toThrowError(
+    expect(() => parseAlertConfig({ triggers: [{ kind: 'keyword', contains: '', actions: [チャットの動作()] }] }, 素材の種類)).toThrowError(
       expect.objectContaining({ problems: ['triggers[0].contains: 1〜500文字の文字列で指定してください'] }),
     )
   })
 
   it('久しぶりの人が発言したメニュー項目は、日数を受け取る', () => {
-    const config = parseAlertConfig({ triggers: [{ kind: 'returningAfter', days: 30, actions: [チャットの動作()] }] }, 素材の種類)
+    const config = parseAlertConfig({ triggers: [{ kind: 'comeback', days: 30, actions: [チャットの動作()] }] }, 素材の種類)
 
-    expect(config.triggers[0]).toMatchObject({ kind: 'returningAfter', days: 30 })
+    expect(config.triggers[0]).toMatchObject({ kind: 'comeback', days: 30 })
   })
 
   it.each([
@@ -205,7 +205,7 @@ describe('parseAlertConfig', () => {
     ['小数の日数', 1.5],
     ['文字列の日数', '30'],
   ])('久しぶりの人が発言したメニュー項目の日数が %s なら拒否する', (_名前, days) => {
-    expect(() => parseAlertConfig({ triggers: [{ kind: 'returningAfter', days, actions: [チャットの動作()] }] }, 素材の種類)).toThrowError(
+    expect(() => parseAlertConfig({ triggers: [{ kind: 'comeback', days, actions: [チャットの動作()] }] }, 素材の種類)).toThrowError(
       expect.objectContaining({ problems: ['triggers[0].days: 1〜365の整数（日数）で指定してください'] }),
     )
   })
@@ -260,7 +260,7 @@ describe('parseAlertConfig', () => {
   })
 
   it('メニュー項目のパラメータの問題と、動作の問題を同時に挙げる', () => {
-    const broken = { triggers: [{ kind: 'returningAfter', days: 0, actions: [] }] }
+    const broken = { triggers: [{ kind: 'comeback', days: 0, actions: [] }] }
 
     expect(() => parseAlertConfig(broken, 素材の種類)).toThrowError(
       expect.objectContaining({
@@ -332,9 +332,10 @@ describe('parseAlertConfig', () => {
 
 describe('resolveTrigger', () => {
   it('メニュー項目を、照合で使う形（イベント種別と条件）へ展開し、動作はそのまま持つ', () => {
-    const trigger: StoredTrigger = { kind: 'returningAfter', days: 30, actions: [保存済みのアラートの動作] }
+    const trigger: StoredTrigger = { kind: 'comeback', days: 30, actions: [保存済みのアラートの動作] }
 
     expect(resolveTrigger(trigger)).toEqual({
+      kind: 'comeback',
       event: CHAT_MESSAGE,
       conditions: [{ kind: 'returningAfter', days: 30 }],
       actions: [保存済みのアラートの動作],
@@ -394,7 +395,7 @@ describe('saveAlertConfig / loadAlertConfig', () => {
 describe('aiChatActionOf', () => {
   it('トリガーからLLMに文面を作らせる動作を取り出す', () => {
     const trigger: StoredTrigger = {
-      kind: 'firstChatEver',
+      kind: 'newViewer',
       actions: [保存済みのアラートの動作, { type: 'aiChat', instruction: '初めての人を歓迎してください' }],
     }
 
@@ -402,7 +403,7 @@ describe('aiChatActionOf', () => {
   })
 
   it('LLMに文面を作らせる動作がなければ null を返す', () => {
-    expect(aiChatActionOf({ kind: 'chat', actions: [保存済みのアラートの動作] })).toBeNull()
+    expect(aiChatActionOf({ kind: 'everyMessage', actions: [保存済みのアラートの動作] })).toBeNull()
   })
 })
 

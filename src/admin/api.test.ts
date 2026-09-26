@@ -99,7 +99,7 @@ describe('config・saveConfig（トリガーの設定）', () => {
   })
 
   it('メニュー項目に要るパラメータが無ければエラーにする', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, { triggers: [{ kind: 'returningAfter', actions: 乾杯のトリガー.actions }] })
+    const { fetchImpl } = 応答を返すfetch(200, { triggers: [{ kind: 'comeback', actions: 乾杯のトリガー.actions }] })
     await expect(createAdminApi(fetchImpl).config()).rejects.toThrow('triggers[0]')
   })
 

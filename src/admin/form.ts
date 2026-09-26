@@ -37,7 +37,7 @@ const ALL_REWARDS = ''
 const ANY_AD_BREAK = ''
 /** 新しく足したトリガーと、アラートを外したトリガーの表示時間の既定値（秒） */
 const DEFAULT_DURATION_SECONDS = 5
-/** 久しぶりの人が発言したメニュー項目を足したときの日数の既定値（約1か月） */
+/** 久しぶりの人の発言に入れる日数の既定値（約1か月） */
 const DEFAULT_RETURNING_DAYS = 30
 /** アナウンスを使わないトリガーの色の既定値（チャンネルの色） */
 const DEFAULT_ANNOUNCEMENT_COLOR: AnnouncementColor = 'primary'
@@ -64,12 +64,12 @@ export const colorOptions: readonly SelectOption[] = ANNOUNCEMENT_COLORS.map((co
  * （「文面」だけでは、発言全体がその文言と同じときに当てはまる（完全一致）と読めてしまう）。
  */
 const MENU_LABELS: Readonly<Record<TriggerKind, string>> = {
-  chat: '誰かが発言した',
-  firstChatEver: 'このチャンネルで初めての人が発言した',
-  firstChatOfStream: 'その配信で最初の発言をした',
-  returningAfter: '久しぶりの人が発言した',
-  chatFromUser: '決まった人が発言した',
-  chatContains: '決まった言葉を含む発言があった',
+  newViewer: '初めて来た人の発言',
+  comeback: '久しぶりの人の発言',
+  welcome: 'その配信で最初の発言',
+  everyMessage: 'すべての発言',
+  keyword: '決まった言葉を含む発言',
+  fromUser: '決まった人の発言',
   reward: 'チャンネルポイントが交換された',
   follow: 'フォローされた',
   subscribe: 'サブスクされた（新規）',
@@ -101,6 +101,8 @@ export interface MenuItem {
 
 export interface MenuGroup {
   label: string
+  /** その区分の読み方。挨拶が排他であることのような、項目ごとには書けない約束を置く */
+  description: string | null
   items: readonly MenuItem[]
 }
 
@@ -125,18 +127,22 @@ const item = (kind: TriggerKind, description: string, addLabel: string | null = 
  */
 export const menuGroups: readonly MenuGroup[] = [
   {
-    label: '視聴者',
+    label: 'チャット',
+    // 上の3つは「挨拶」で、ひとつの発言に当てはまるのは最も上のものだけである
+    // （初めて来た人の発言は必ず「その配信で最初の発言」でもあるため、そうしないと挨拶が二重に飛ぶ）
+    description: '上の3つ（初めて来た人・久しぶりの人・その配信で最初）は、当てはまるうち一番上のものだけが動く。',
     items: [
-      item('firstChatEver', '視聴者の記録に残っていない人の発言'),
-      item('firstChatOfStream', 'その配信での、その人の1回目の発言'),
-      item('returningAfter', '前の発言から決めた日数以上空いた人の発言', '日数を足す'),
-      item('chatFromUser', '決めたユーザー名の人の発言', 'ユーザーを足す'),
-      item('chatContains', '決めた言葉を含む発言（部分一致）', '言葉を足す'),
-      item('chat', 'チャットに書き込みがあるたび'),
+      item('newViewer', 'このチャンネルで初めて発言した人'),
+      item('comeback', '前の発言から決めた日数以上空いた人'),
+      item('welcome', '上の2つに当てはまらない、その配信での1回目の発言'),
+      item('everyMessage', '書き込みがあるたび。挨拶と同時に動く（読み上げや効果音に使う）'),
+      item('keyword', '決めた言葉を含む発言（部分一致）', '言葉を足す'),
+      item('fromUser', '決めたユーザー名の人の発言', 'ユーザーを足す'),
     ],
   },
   {
     label: '応援',
+    description: null,
     items: [
       item('reward', 'チャンネルポイントの交換。報酬ごとに違う効果を付けられる', '報酬を足す'),
       item('follow', '新しくフォローされたとき'),
@@ -147,7 +153,8 @@ export const menuGroups: readonly MenuGroup[] = [
   },
   {
     label: '配信',
-    items: [item('adBreakBegin', '広告が流れ始めたとき', '設定を足す'), item('adBreakEnd', '広告が終わって配信に戻ったとき', '設定を足す')],
+    description: null,
+    items: [item('adBreakBegin', '広告が流れ始めたとき'), item('adBreakEnd', '広告が終わって配信に戻ったとき')],
   },
 ]
 
@@ -202,12 +209,12 @@ export interface SelectOption {
 
 /** メニュー項目が対象にするイベント種別。差し込み語がどれになるかはこれで決まる（worker/trigger-menu.ts と同じ対応） */
 const EVENT_OF_KIND: Readonly<Record<TriggerKind, AlertEvent>> = {
-  chat: CHAT_MESSAGE,
-  firstChatEver: CHAT_MESSAGE,
-  firstChatOfStream: CHAT_MESSAGE,
-  returningAfter: CHAT_MESSAGE,
-  chatFromUser: CHAT_MESSAGE,
-  chatContains: CHAT_MESSAGE,
+  newViewer: CHAT_MESSAGE,
+  comeback: CHAT_MESSAGE,
+  welcome: CHAT_MESSAGE,
+  everyMessage: CHAT_MESSAGE,
+  keyword: CHAT_MESSAGE,
+  fromUser: CHAT_MESSAGE,
   reward: REDEMPTION,
   follow: 'channel.follow',
   subscribe: 'channel.subscribe',
@@ -280,11 +287,11 @@ const toActions = (draft: TriggerDraft): ActionInput[] => {
  */
 const toSource = (draft: TriggerDraft): TriggerSource => {
   switch (draft.kind) {
-    case 'returningAfter':
+    case 'comeback':
       return { kind: draft.kind, days: toNumber(draft.days, '日数') }
-    case 'chatFromUser':
+    case 'fromUser':
       return { kind: draft.kind, login: draft.login }
-    case 'chatContains':
+    case 'keyword':
       return { kind: draft.kind, contains: draft.contains }
     case 'reward':
       return { kind: draft.kind, rewardId: draft.rewardId === ALL_REWARDS ? null : draft.rewardId }
@@ -315,11 +322,11 @@ const DEFAULT_PARAMS = { rewardId: ALL_REWARDS, login: '', contains: '', days: S
 /** 保存済みのパラメータを入力欄の値に戻す。「絞り込まない」を表す null は空文字にする */
 const toParams = (trigger: StoredTrigger): Partial<typeof DEFAULT_PARAMS> => {
   switch (trigger.kind) {
-    case 'returningAfter':
+    case 'comeback':
       return { days: String(trigger.days) }
-    case 'chatFromUser':
+    case 'fromUser':
       return { login: trigger.login }
-    case 'chatContains':
+    case 'keyword':
       return { contains: trigger.contains }
     case 'reward':
       return { rewardId: trigger.rewardId ?? ALL_REWARDS }
@@ -477,12 +484,12 @@ const paramSummary = (draft: TriggerDraft, rewards: readonly Reward[]): string |
     case 'reward':
       if (draft.rewardId === ALL_REWARDS) return 'すべての報酬'
       return rewards.find((reward) => reward.id === draft.rewardId)?.title ?? draft.rewardId
-    case 'chatFromUser':
+    case 'fromUser':
       return draft.login
-    case 'chatContains':
+    case 'keyword':
       return draft.contains
     // 日数は言葉を添えないと「30日」が間隔なのか回数なのか読み取れないので、単位ごと書く
-    case 'returningAfter':
+    case 'comeback':
       return `${draft.days}日以上`
     // 真偽値そのままでは「自動: true」と読めてしまうので、どちらの広告かを言葉で書く
     case 'adBreakBegin':

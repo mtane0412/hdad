@@ -50,12 +50,12 @@ import { errorMessage, usePageActions } from './page-actions'
 
 /** 文言欄の入力例。メニュー項目ごとに、使える差し込み語だけを使った例を出す */
 const MESSAGE_PLACEHOLDERS: Readonly<Record<TriggerKind, string>> = {
-  chat: '{user} さんが「{message}」と言いました',
-  firstChatEver: '{user} さん、はじめまして！',
-  firstChatOfStream: '{user} さん、おかえりなさい！',
-  returningAfter: '{user} さん、お久しぶりです！',
-  chatFromUser: '{user} さんが来ました',
-  chatContains: '{user} さんが「{message}」と言いました',
+  newViewer: '{user} さん、はじめまして！',
+  comeback: '{user} さん、お久しぶりです！',
+  welcome: '{user} さん、おかえりなさい！',
+  everyMessage: '{user} さんが「{message}」と言いました',
+  keyword: '{user} さんが「{message}」と言いました',
+  fromUser: '{user} さんが来ました',
   reward: '{user} さんが「{reward}」を交換しました',
   follow: '{user} さんがフォローしました',
   subscribe: '{user} さんがティア{tier}でサブスクしました',
@@ -115,10 +115,12 @@ const AUTOMATIC_OPTIONS: readonly SelectOption[] = [
 
 /** メニュー項目に添える注意書き。一覧の項目の見出しの下に出す */
 const KIND_NOTES: Partial<Readonly<Record<TriggerKind, string>>> = {
-  chat: 'チャットに書き込みがあるたびに動きます。チャットの多い配信では、アラートや音を出す効果は控えめにしてください。',
-  firstChatOfStream: '配信中の発言だけが対象です。配信していないあいだの発言では動きません（テスト配信のたびに動かないようにするため）。',
-  firstChatEver:
+  newViewer:
     '視聴者の記録が残っていない人だけが対象です。この記録を始める前から来ている常連も「初めて」と扱われるので、しばらくは効果を控えめにしておくことをおすすめします。',
+  comeback: '初めて来た人には当てはまりません（空いた日数が決まらないためです）。',
+  welcome: '配信中の発言だけが対象です。配信していないあいだの発言では動きません（テスト配信のたびに動かないようにするため）。',
+  everyMessage:
+    '書き込みがあるたびに動きます。上の挨拶と同時に動くので、読み上げや効果音に向いています。チャットの多い配信では、文言を送る効果は控えめにしてください。',
 }
 
 interface TriggerParamFieldProps {
@@ -144,7 +146,7 @@ const TriggerParamField = ({ idPrefix, draft, rewards, onChange }: TriggerParamF
       </div>
     )}
 
-    {draft.kind === 'chatFromUser' && (
+    {draft.kind === 'fromUser' && (
       <div className="flex flex-col gap-2 sm:col-span-2">
         <Label htmlFor={`${idPrefix}-login`}>対象のユーザー名</Label>
         <Input
@@ -159,7 +161,7 @@ const TriggerParamField = ({ idPrefix, draft, rewards, onChange }: TriggerParamF
       </div>
     )}
 
-    {draft.kind === 'chatContains' && (
+    {draft.kind === 'keyword' && (
       <div className="flex flex-col gap-2 sm:col-span-2">
         <Label htmlFor={`${idPrefix}-contains`}>発言に含まれる言葉</Label>
         <Input
@@ -174,7 +176,7 @@ const TriggerParamField = ({ idPrefix, draft, rewards, onChange }: TriggerParamF
       </div>
     )}
 
-    {draft.kind === 'returningAfter' && (
+    {draft.kind === 'comeback' && (
       <div className="flex flex-col gap-2 sm:col-span-2">
         <Label htmlFor={`${idPrefix}-days`}>前の発言から空いた日数</Label>
         <Input
@@ -750,7 +752,10 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
           )}
           {menuGroups.map((group) => (
             <section key={group.label} aria-label={group.label} className="flex flex-col gap-3">
-              <h3 className="text-sm font-medium">{group.label}</h3>
+              <div className="flex flex-col gap-0.5">
+                <h3 className="text-sm font-medium">{group.label}</h3>
+                {group.description !== null && <p className="text-xs text-muted-foreground">{group.description}</p>}
+              </div>
               <ul className="flex flex-col gap-3">
                 {group.items.map((item) => (
                   <TriggerItem

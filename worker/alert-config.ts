@@ -33,13 +33,13 @@ const MAX_TRIGGERS = 100
 const MIN_DURATION_SECONDS = 1
 const MAX_DURATION_SECONDS = 60
 const MAX_ALERT_MESSAGE_LENGTH = 200
-/** チャット1通の上限（Twitchの POST /helix/chat/messages の制限）。アナウンスも同じ500文字で、text の条件の上限にも使う */
+/** チャット1通の上限（Twitchの POST /helix/chat/messages の制限）。アナウンスも同じ500文字で、合言葉（keyword）の上限にも使う */
 const MAX_CHAT_MESSAGE_LENGTH = 500
 /** aiChat の指示（配信者が書く文章）の上限。文面そのものではなく作り方の指示なので、チャット1通より長くてよい */
 const MAX_AI_INSTRUCTION_LENGTH = 1000
-/** returningAfter に指定できる日数の下限（1日）。0日だと毎回当てはまり、条件なしと区別が付かない */
+/** 久しぶりの人（comeback）に指定できる日数の下限（1日）。0日だと毎回当てはまり、絞り込まないのと区別が付かない */
 const MIN_RETURNING_DAYS = 1
-/** returningAfter に指定できる日数の上限（1年）。これより長い間隔は「お久しぶり」として区別する意味が薄い */
+/** 久しぶりの人（comeback）に指定できる日数の上限（1年）。これより長い間隔は「お久しぶり」として区別する意味が薄い */
 const MAX_RETURNING_DAYS = 365
 /** Twitchのユーザー名（login）の上限 */
 const MAX_LOGIN_LENGTH = 25
@@ -111,13 +111,19 @@ export type StoredTrigger = TriggerSource & { actions: StoredAction[] }
  * worker/alert-event.ts の matches はこの形だけを見る。メニュー項目を増やしても照合は書き換えずに済む。
  */
 export interface ResolvedTrigger {
+  /** どのメニュー項目から展開したか。挨拶の段（GREETING_KINDS）の絞り込みに要る */
+  kind: TriggerKind
   event: AlertEvent
   conditions: StoredCondition[]
   actions: StoredAction[]
 }
 
 /** 保存したトリガーを、照合に使う形（イベント種別と条件のリスト）へ展開する */
-export const resolveTrigger = (trigger: StoredTrigger): ResolvedTrigger => ({ ...expandSource(trigger), actions: trigger.actions })
+export const resolveTrigger = (trigger: StoredTrigger): ResolvedTrigger => ({
+  kind: trigger.kind,
+  ...expandSource(trigger),
+  actions: trigger.actions,
+})
 
 export interface AlertConfig {
   triggers: StoredTrigger[]
@@ -182,15 +188,15 @@ const parseSource = (candidate: Record<string, unknown>, at: string, problems: s
 
   switch (kind) {
     // パラメータを持たないメニュー項目。そのイベントが起きればいつでも当てはまる
-    case 'chat':
-    case 'firstChatEver':
-    case 'firstChatOfStream':
+    case 'newViewer':
+    case 'welcome':
+    case 'everyMessage':
     case 'follow':
     case 'subscribe':
     case 'resubscribe':
     case 'raid':
       return { kind }
-    case 'returningAfter': {
+    case 'comeback': {
       const { days } = candidate
       // 日数は整数で受け取る（画面の入力欄も日数なので、時間単位の細かさは持たせない）
       if (!isIntegerWithin(days, MIN_RETURNING_DAYS, MAX_RETURNING_DAYS)) {
@@ -199,7 +205,7 @@ const parseSource = (candidate: Record<string, unknown>, at: string, problems: s
       }
       return { kind, days }
     }
-    case 'chatFromUser': {
+    case 'fromUser': {
       const { login } = candidate
       if (!isStringWithin(login, 1, MAX_LOGIN_LENGTH)) {
         problems.push(`${at}.login: 1〜${MAX_LOGIN_LENGTH}文字のTwitchのユーザー名で指定してください`)
@@ -207,7 +213,7 @@ const parseSource = (candidate: Record<string, unknown>, at: string, problems: s
       }
       return { kind, login }
     }
-    case 'chatContains': {
+    case 'keyword': {
       const { contains } = candidate
       // 空文字はすべての発言に当てはまってしまう（絞り込みにならない）ので、1文字以上を求める
       if (!isStringWithin(contains, 1, MAX_CHAT_MESSAGE_LENGTH)) {

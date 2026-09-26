@@ -6,35 +6,46 @@
  * パラメータに「すべての報酬」「自動・手動どちらの広告でも」を表す null を渡したときに、条件が1件も付かないことも確認する。
  */
 import { describe, expect, it } from 'vitest'
-import { TRIGGER_KINDS, expandSource, eventOf, type TriggerSource } from './trigger-menu'
+import { GREETING_KINDS, TRIGGER_KINDS, expandSource, eventOf, isGreeting, type TriggerSource } from './trigger-menu'
 
 const CHAT_MESSAGE = 'channel.chat.message'
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 
+describe('GREETING_KINDS', () => {
+  it('挨拶の段は、細かい順に並べた3項目である（この並びが優先順位になる）', () => {
+    expect(GREETING_KINDS).toEqual(['newViewer', 'comeback', 'welcome'])
+  })
+
+  it('「すべての発言」は挨拶の段に入れない（読み上げや効果音は挨拶と同時に鳴ってほしいため）', () => {
+    expect(isGreeting('everyMessage')).toBe(false)
+    expect(isGreeting('newViewer')).toBe(true)
+  })
+})
+
 describe('expandSource', () => {
   it('条件を持たないメニュー項目は、イベント種別だけになる', () => {
-    expect(expandSource({ kind: 'chat' })).toEqual({ event: CHAT_MESSAGE, conditions: [] })
+    expect(expandSource({ kind: 'everyMessage' })).toEqual({ event: CHAT_MESSAGE, conditions: [] })
     expect(expandSource({ kind: 'follow' })).toEqual({ event: 'channel.follow', conditions: [] })
     expect(expandSource({ kind: 'subscribe' })).toEqual({ event: 'channel.subscribe', conditions: [] })
     expect(expandSource({ kind: 'resubscribe' })).toEqual({ event: 'channel.subscription.message', conditions: [] })
     expect(expandSource({ kind: 'raid' })).toEqual({ event: 'channel.raid', conditions: [] })
   })
 
-  it('初めての発言のメニュー項目は、チャットの発言と対応する条件になる', () => {
-    expect(expandSource({ kind: 'firstChatEver' })).toEqual({ event: CHAT_MESSAGE, conditions: [{ kind: 'firstChatEver' }] })
-    expect(expandSource({ kind: 'firstChatOfStream' })).toEqual({ event: CHAT_MESSAGE, conditions: [{ kind: 'firstChatOfStream' }] })
+  it('挨拶のメニュー項目は、チャットの発言と対応する条件になる', () => {
+    expect(expandSource({ kind: 'newViewer' })).toEqual({ event: CHAT_MESSAGE, conditions: [{ kind: 'firstChatEver' }] })
+    expect(expandSource({ kind: 'welcome' })).toEqual({ event: CHAT_MESSAGE, conditions: [{ kind: 'firstChatOfStream' }] })
   })
 
   it('久しぶりの人が発言したメニュー項目は、日数を持つ条件になる', () => {
-    expect(expandSource({ kind: 'returningAfter', days: 30 })).toEqual({ event: CHAT_MESSAGE, conditions: [{ kind: 'returningAfter', days: 30 }] })
+    expect(expandSource({ kind: 'comeback', days: 30 })).toEqual({ event: CHAT_MESSAGE, conditions: [{ kind: 'returningAfter', days: 30 }] })
   })
 
   it('決まった人が発言したメニュー項目は、ユーザー名の条件になる', () => {
-    expect(expandSource({ kind: 'chatFromUser', login: 'tanenobu' })).toEqual({ event: CHAT_MESSAGE, conditions: [{ kind: 'user', login: 'tanenobu' }] })
+    expect(expandSource({ kind: 'fromUser', login: 'tanenobu' })).toEqual({ event: CHAT_MESSAGE, conditions: [{ kind: 'user', login: 'tanenobu' }] })
   })
 
   it('決まった言葉を含む発言のメニュー項目は、文面の条件になる', () => {
-    expect(expandSource({ kind: 'chatContains', contains: 'おはよう' })).toEqual({ event: CHAT_MESSAGE, conditions: [{ kind: 'text', contains: 'おはよう' }] })
+    expect(expandSource({ kind: 'keyword', contains: 'おはよう' })).toEqual({ event: CHAT_MESSAGE, conditions: [{ kind: 'text', contains: 'おはよう' }] })
   })
 
   it('報酬を選んだチャンネルポイントの交換は、報酬IDの条件になる', () => {
@@ -67,12 +78,12 @@ describe('expandSource', () => {
    */
   it('すべてのメニュー項目が、対応しているイベント種別に展開される', () => {
     const サンプル: Readonly<Record<(typeof TRIGGER_KINDS)[number], TriggerSource>> = {
-      chat: { kind: 'chat' },
-      firstChatEver: { kind: 'firstChatEver' },
-      firstChatOfStream: { kind: 'firstChatOfStream' },
-      returningAfter: { kind: 'returningAfter', days: 1 },
-      chatFromUser: { kind: 'chatFromUser', login: 'tanenobu' },
-      chatContains: { kind: 'chatContains', contains: 'おはよう' },
+      newViewer: { kind: 'newViewer' },
+      comeback: { kind: 'comeback', days: 1 },
+      welcome: { kind: 'welcome' },
+      everyMessage: { kind: 'everyMessage' },
+      keyword: { kind: 'keyword', contains: 'おはよう' },
+      fromUser: { kind: 'fromUser', login: 'tanenobu' },
       reward: { kind: 'reward', rewardId: null },
       follow: { kind: 'follow' },
       subscribe: { kind: 'subscribe' },

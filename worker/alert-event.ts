@@ -29,7 +29,7 @@ import {
   type ResolvedTrigger,
 } from './alert-config'
 import { readChatMessage } from './chat-command'
-import type { StoredCondition } from './trigger-menu'
+import { GREETING_KINDS, isGreeting, type StoredCondition } from './trigger-menu'
 import { fillStreamSummary, STREAM_SUMMARY_PLACEHOLDER } from './stream-summary'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
@@ -343,15 +343,58 @@ export const fillMessage = (template: string, extracted: Extracted, summary: str
   )
 
 /**
- * 通知に当てはまるトリガーをすべて探し、その動作を並びの順に返す。
+ * 挨拶の段に当てはまったもののうち、最も細かい1つだけを残す。
+ *
+ * 初めて来た人の発言は必ず「その配信で最初の発言」でもあるので、すべて発動させると同じ1通に挨拶が二重に飛ぶ。
+ * 優先順位は worker/trigger-menu.ts の GREETING_KINDS の並び（細かい順）で決め、保存されている並びには頼らない
+ * （KVを手で直しても挨拶が入れ替わらないようにする）。挨拶以外の項目はすべてそのまま残す。
+ */
+const applyGreetingRule = (triggers: readonly ResolvedTrigger[]): ResolvedTrigger[] => {
+  const winner = triggers
+    .filter((trigger) => isGreeting(trigger.kind))
+    .sort((left, right) => GREETING_KINDS.indexOf(left.kind) - GREETING_KINDS.indexOf(right.kind))[0]
+  return triggers.filter((trigger) => !isGreeting(trigger.kind) || trigger === winner)
+}
+
+/**
+ * 通知に当てはまるトリガーをすべて探す。
  *
  * **当てはまった行はすべて実行する。** 先に当てはまった1件だけを採ると、管理画面に固定で並ぶ行のうち
- * 絞り込みの緩いもの（「誰かが発言した」）が細かいもの（「初見さんが発言した」）を飲み込み、
- * 下の行が永久に動かないまま設定だけが残ってしまう（配信者は並び順で回避することになる）。
+ * 絞り込みの緩いもの（「すべての発言」）が細かいもの（「初めて来た人の発言」）を飲み込み、
+ * 下の行が永久に動かないまま設定だけが残ってしまう。ただし挨拶の段だけは例外で、
+ * 当てはまったうちの1つに絞る（applyGreetingRule）。
  *
- * @param actionOf トリガーから目的の動作を取り出す関数。この動作を持つトリガーだけが対象
+ * 動作の種類ごとに選び直さず1回で決めるのは、挨拶の絞り込みが動作の種類をまたぐためである
+ * （「初めて来た人の発言 → AIチャット」と「その配信で最初の発言 → チャット」が並んでいるとき、
+ * 動作ごとに選ぶと前者でAIチャットが、後者でチャットが送られて、挨拶が二重になる）。
+ *
+ * そのイベント種別のトリガーが1件もなければ通知の中身は読まない
+ * （設定していないイベントの中身の形が想定と違うだけで、配信の記録まで止めてしまわないため）。
+ *
+ * @returns 当てはまったトリガーと読み取った中身。当てはまるものが無ければ null
+ * @throws 通知の中身が想定した形でない場合（そのイベント種別のトリガーがある場合に限る）
+ */
+const matchedTriggers = (
+  config: AlertConfig,
+  subscriptionType: string,
+  body: unknown,
+  state: ConditionState,
+): { triggers: ResolvedTrigger[]; extracted: Extracted } | null => {
+  const candidates = triggersFor(config, subscriptionType)
+  if (candidates.length === 0) return null
+
+  const extracted = extract(subscriptionType, body)
+  if (extracted === null) return null
+
+  return { triggers: applyGreetingRule(candidates.filter((trigger) => matches(trigger, extracted, state))), extracted }
+}
+
+/**
+ * 通知に当てはまるトリガーから、目的の種類の動作を並びの順に取り出す。
+ *
+ * @param actionOf トリガーから目的の動作を取り出す関数。この動作を持たないトリガーは飛ばす
  * @returns 文言を置き換える前の動作と、読み取った通知の中身の組を、トリガーの並びの順に返す
- * @throws 通知の中身が想定した形でない場合（その動作を持つトリガーがあるイベント種別に限る）
+ * @throws 通知の中身が想定した形でない場合（そのイベント種別のトリガーがある場合に限る）
  */
 const matchedActionsFor = <Action>(
   config: AlertConfig,
@@ -360,18 +403,12 @@ const matchedActionsFor = <Action>(
   actionOf: (trigger: ResolvedTrigger) => Action | null,
   state: ConditionState,
 ): { action: Action; extracted: Extracted }[] => {
-  // その動作を持つトリガーが1件もないイベント種別なら、通知の中身は読まない。
-  // 設定していないイベントの中身の形が想定と違うだけで、配信の記録まで止めてしまわないため
-  const candidates = triggersFor(config, subscriptionType).filter((trigger) => actionOf(trigger) !== null)
-  if (candidates.length === 0) return []
+  const matched = matchedTriggers(config, subscriptionType, body, state)
+  if (matched === null) return []
 
-  const extracted = extract(subscriptionType, body)
-  if (extracted === null) return []
-
-  return candidates.flatMap((trigger) => {
-    if (!matches(trigger, extracted, state)) return []
+  return matched.triggers.flatMap((trigger) => {
     const action = actionOf(trigger)
-    return action === null ? [] : [{ action, extracted }]
+    return action === null ? [] : [{ action, extracted: matched.extracted }]
   })
 }
 
