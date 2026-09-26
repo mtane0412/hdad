@@ -62,7 +62,7 @@ describe('アップロード', () => {
     render(<MediaPage api={api} />)
     const file = new File(['紙吹雪'], '紙吹雪.png', { type: 'image/png' })
 
-    await userEvent.upload(await screen.findByLabelText('画像・動画・音声のファイル（1つ50MBまで）'), file)
+    await userEvent.upload(await screen.findByLabelText('ファイル（1つ50MBまで）'), file)
     await userEvent.click(screen.getByRole('button', { name: 'アップロード' }))
 
     expect(await お知らせ('素材「紙吹雪.png」をアップロードしました')).toBeInTheDocument()

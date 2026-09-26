@@ -91,17 +91,15 @@ export const MediaPage = ({ api }: { api: AdminApi }) => {
 
   return (
     <div className="flex max-w-4xl flex-col gap-6">
-      <p className="text-sm text-muted-foreground">アラートで流す画像・動画・音声を置く。どのイベントでどの素材を流すかは「トリガー」で決める。</p>
-
       {actions.feedback}
 
       <Card>
         <CardHeader>
           <CardTitle>素材</CardTitle>
-          <CardDescription>アラートで流す画像・動画・音声。</CardDescription>
+          <CardDescription>アラートで流す画像・動画・音声。どの出来事で流すかは「トリガー」で決める。</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
-          <Label htmlFor={fileFieldId}>画像・動画・音声のファイル（1つ50MBまで）</Label>
+          <Label htmlFor={fileFieldId}>ファイル（1つ50MBまで）</Label>
           <div className="flex gap-2">
             <Input ref={fileRef} id={fileFieldId} type="file" accept="image/*,video/*,audio/*" />
             <Button type="button" disabled={actions.busy} onClick={() => void actions.run(upload)}>

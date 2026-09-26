@@ -96,16 +96,12 @@ export const ViewerPage = ({ api }: { api: ViewerApi }) => {
 
   return (
     <div className="flex max-w-4xl flex-col gap-6">
-      <p className="text-sm text-muted-foreground">
-        チャットで発言した人の記録。サブスクやVIPの状態はTwitchが持つものなので、最後に見たバッジを控えるだけにしている。
-      </p>
-
       {actions.feedback}
 
       <Card>
         <CardHeader>
           <CardTitle>視聴者</CardTitle>
-          <CardDescription>最後に発言した順に並ぶ。メモと人物像は配信者だけが見られる。</CardDescription>
+          <CardDescription>チャットで発言した人の記録。最後に発言した順に並ぶ。</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <form
@@ -183,7 +179,7 @@ export const ViewerPage = ({ api }: { api: ViewerApi }) => {
                       onClick={() =>
                         actions.ask({
                           title: `${viewer.displayName} の記録を削除しますか？`,
-                          description: 'メモと人物像を含めて消え、元に戻せません。また発言があれば、初めての人として記録し直します。',
+                          description: 'メモと人物像も消え、元に戻せません。次の発言では初めての人として記録し直します。',
                           actionLabel: '削除する',
                           run: () => removeViewer(viewer),
                         })

@@ -126,12 +126,8 @@ const ITEM_BOX = 'overflow-hidden rounded-lg border'
 
 /** メニュー項目に添える注意書き。一覧の項目の見出しの下に出す */
 const KIND_NOTES: Partial<Readonly<Record<TriggerKind, string>>> = {
-  newViewer:
-    '視聴者の記録が残っていない人だけが対象です。この記録を始める前から来ている常連も「初めて」と扱われるので、しばらくは効果を控えめにしておくことをおすすめします。',
-  comeback: '初めて来た人には当てはまりません（空いた日数が決まらないためです）。',
-  welcome: '配信中の発言だけが対象です。配信していないあいだの発言では動きません（テスト配信のたびに動かないようにするため）。',
-  everyMessage:
-    '書き込みがあるたびに動きます。上の挨拶と同時に動くので、読み上げや効果音に向いています。チャットの多い配信では、文言を送る効果は控えめにしてください。',
+  newViewer: '記録を始める前から来ている常連も「初めて」と扱われます。',
+  welcome: '配信中の発言だけが対象です。',
 }
 
 interface TriggerParamFieldProps {
@@ -168,7 +164,7 @@ const TriggerParamField = ({ idPrefix, draft, rewards, onChange }: TriggerParamF
           placeholder="tanenobu"
           onChange={(event) => onChange({ login: event.currentTarget.value })}
         />
-        <p className="text-xs text-muted-foreground">Twitchのユーザー名（表示名ではなく小文字のほう）で指定します。大文字小文字は区別しません。</p>
+        <p className="text-xs text-muted-foreground">表示名ではなく、小文字のログイン名で指定します。</p>
       </div>
     )}
 
@@ -183,7 +179,7 @@ const TriggerParamField = ({ idPrefix, draft, rewards, onChange }: TriggerParamF
           placeholder="おはよう"
           onChange={(event) => onChange({ contains: event.currentTarget.value })}
         />
-        <p className="text-xs text-muted-foreground">この言葉を含む発言が対象です（部分一致。大文字小文字は区別しません）。</p>
+        <p className="text-xs text-muted-foreground">部分一致。大文字小文字は区別しません。</p>
       </div>
     )}
 
@@ -198,10 +194,7 @@ const TriggerParamField = ({ idPrefix, draft, rewards, onChange }: TriggerParamF
           value={draft.days}
           onChange={(event) => onChange({ days: event.currentTarget.value })}
         />
-        <p className="text-xs text-muted-foreground">
-          この日数以上空けて発言した人だけが対象です（{MIN_RETURNING_DAYS}〜{MAX_RETURNING_DAYS}日）。
-          このチャンネルで初めての人には当てはまりません。
-        </p>
+        <p className="text-xs text-muted-foreground">{MIN_RETURNING_DAYS}〜{MAX_RETURNING_DAYS}日。初めて来た人には当てはまりません。</p>
       </div>
     )}
 
@@ -319,7 +312,7 @@ const ActionFields = ({ draft, media, heading, onChange }: ActionFieldsProps) =>
               onChange={(event) => update({ chatMessage: event.currentTarget.value })}
             />
             {/* 送るのは接続しているbotアカウント。未接続だと何も送られないので、どこで接続するかを添える */}
-            <p className="text-xs text-muted-foreground">接続しているbotアカウントが送ります（チャットボットのページで接続します）。</p>
+            <p className="text-xs text-muted-foreground">接続しているbotが送ります。</p>
           </div>
         )}
       </div>
@@ -345,12 +338,8 @@ const ActionFields = ({ draft, media, heading, onChange }: ActionFieldsProps) =>
             />
             {/* 差し込み語は使わない（文面はAIが書く）ことと、材料に何が渡るかを知らせる */}
             <p className="text-xs text-muted-foreground">
-              接続しているbotアカウントが送ります。文面はそのつどAIが書くので、差し込み語は要りません。
-              相手の名前・発言の本文と、視聴者の記録（メモ・来訪の履歴）を材料に渡します。
-            </p>
-            <p className="text-xs text-muted-foreground">
-              「チャットに送る」とは同時に選べません（同じ発言に2通返ってしまうため）。
-              AIが作った文面が500文字を超えたときや、AIが失敗したときは送らず、配信の記録の「収集の失敗」に残します。
+              接続しているbotが送ります。文面はそのつどAIが書くので、差し込み語は要りません。
+              相手の名前・発言の本文・視聴者の記録・配信のあらすじを材料に渡します。
             </p>
           </div>
         )}
@@ -389,17 +378,13 @@ const ActionFields = ({ draft, media, heading, onChange }: ActionFieldsProps) =>
               />
             </div>
             {/* アナウンスは普通の発言と違い、botがモデレーターでないとTwitchに拒否される */}
-            <p className="text-xs text-muted-foreground sm:col-span-2">
-              接続しているbotアカウントが、モデレーターとして送ります（チャットボットのページで接続し、配信者がモデレーター権限を与えてください）。
-            </p>
+            <p className="text-xs text-muted-foreground sm:col-span-2">接続しているbotに、モデレーター権限が必要です。</p>
           </div>
         )}
       </div>
 
       {/* 選んだメニュー項目のイベントに存在しない語は置き換わらないため、使える語をその場で知らせる（アラートとチャットで同じ語を使う） */}
-      <p className="text-xs text-muted-foreground sm:col-span-2">
-        このトリガーで使える差し込み語: {placeholdersFor(draft.kind).join('・')}
-      </p>
+      <p className="text-xs text-muted-foreground sm:col-span-2">使える差し込み語: {placeholdersFor(draft.kind).join('・')}</p>
     </>
   )
 
@@ -512,7 +497,7 @@ const TriggerRow = ({ label, heading, description, note, phases, media, rewards,
       {note !== null && <p className="px-3 pb-2 text-xs text-muted-foreground">{note}</p>}
       {conflicted && (
         <p className="px-3 pb-2 text-xs text-destructive">
-          対象の広告が食い違って保存されています（始まったときと終わったときで別々の絞り込みになっています）。上に出ているのは始まったときの絞り込みです。そのまま保存すれば食い違ったままなので、揃えたいときは対象の広告を選び直してください。
+          対象の広告が、始まったときと終わったときで食い違って保存されています（上は始まったときの設定）。揃えるには選び直してください。
         </p>
       )}
       {open && (
@@ -613,9 +598,7 @@ const TriggerItem = ({ item, rowsByPhase, media, rewards, openPosition, busy, on
         <span className="text-xs text-muted-foreground">{item.description}</span>
         {note !== null && <span className="text-xs text-muted-foreground">{note}</span>}
         {duplicated && (
-          <span className="text-xs text-destructive">
-            この出来事の設定が2つ以上保存されています。ひとつだけ残して、ほかは外してください（どちらも当てはまるので、両方の効果が起きます）。
-          </span>
+          <span className="text-xs text-destructive">設定が2つ以上あります。両方の効果が起きるので、ひとつだけ残してください。</span>
         )}
       </div>
       {rowCount > 0 && <ul className="flex flex-col">{rows.map((phases, index) => row(phases, `${item.label}の${index + 1}番目の設定`, null, true, 'border-t'))}</ul>}
@@ -825,30 +808,23 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
     // 保存を待つ間に入力欄が書き換えられていたら、その内容を応答で上書きしない（書き換えた分は次の保存で送られる）
     if (draftsRef.current !== submitted) return 'トリガーを保存しました。保存中に書き換えた内容はまだ保存されていません'
     replaceDrafts(savedDrafts)
-    return 'トリガーを保存しました。次の出来事から反映されます'
+    return 'トリガーを保存しました'
   }
 
   return (
     <div className="flex max-w-4xl flex-col gap-6">
-      <p className="text-sm text-muted-foreground">
-        配信で起きる出来事を選び、そのときに何をするかを決める。
-      </p>
-
       {actions.feedback}
       {bot.status === 'failed' && (
         <Alert variant="destructive">
           <AlertTitle>botの接続状態が分かりません</AlertTitle>
-          <AlertDescription>botの接続状態を取得できませんでした: {bot.message}</AlertDescription>
+          <AlertDescription>{bot.message}</AlertDescription>
         </Alert>
       )}
       {bot.status === 'loaded' && bot.bot === null && (
         <Alert variant="destructive">
           <AlertTitle>botが接続されていません</AlertTitle>
           <AlertDescription>
-            <span>
-              「チャットに送る」「AIに文面を作らせて送る」「アナウンスを送る」の動作は、接続しているbotアカウントが送るので動きません。とくに「チャットの発言」のトリガーは、
-              発言を受け取るのにbotのユーザーIDが要るため、Workerに発言そのものが届きません（アラートを出す動作はオーバーレイが受け取るので動きます）。
-            </span>
+            <span>チャットの出来事と、チャット・アナウンスを送る効果が動きません（アラートは動きます）。</span>
             <span>
               <Link href="/bot/" className="underline underline-offset-4">
                 チャットボット
@@ -861,7 +837,7 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
       {rewardsFailure !== '' && (
         <Alert variant="destructive">
           <AlertTitle>報酬を選べません</AlertTitle>
-          <AlertDescription>{rewardsFailure}（報酬の条件を付けなければトリガーは作れます）</AlertDescription>
+          <AlertDescription>{rewardsFailure}</AlertDescription>
         </Alert>
       )}
       <Card>
@@ -872,7 +848,7 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
         <CardContent className="flex flex-col gap-3">
           <Label htmlFor={urlFieldId}>OBSのブラウザソースに貼るURL</Label>
           <p id={sizeHintId} className="text-sm text-muted-foreground">
-            推奨の大きさ: 幅 {OVERLAY_SIZE.width} × 高さ {OVERLAY_SIZE.height} px（配信のキャンバスと同じ大きさ）
+            推奨の大きさ: {OVERLAY_SIZE.width} × {OVERLAY_SIZE.height} px（配信のキャンバスと同じ大きさ）
           </p>
           <div className="flex gap-2">
             {/* URLにはオーバーレイ用キーが含まれる。配信画面に映り込んでも読めないよう、伏せ字で表示する */}
@@ -881,9 +857,7 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
               URLをコピー
             </Button>
           </div>
-          <p className="text-sm text-muted-foreground">
-            URLが他人に知られたら、キーを再発行してください。再発行すると今のURLは使えなくなり、OBSのURLを貼り替える必要があります（反映に最大1分かかります）。
-          </p>
+          <p className="text-sm text-muted-foreground">URLが他人に知られたら、キーを再発行してください。</p>
           <Button
             type="button"
             variant="outline"
@@ -892,7 +866,7 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
             onClick={() =>
               actions.ask({
                 title: 'キーを再発行しますか？',
-                description: 'キーを再発行すると、今のURLは使えなくなります。OBSのURLを貼り替える必要があります。',
+                description: '今のURLは使えなくなるので、OBSのURLを貼り替える必要があります（反映に最大1分かかります）。',
                 actionLabel: '再発行する',
                 run: rotateKey,
               })
@@ -909,10 +883,7 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
         <div className="flex flex-col gap-1.5">
           <h2 className="text-lg font-semibold">トリガー</h2>
           <p className="text-sm text-muted-foreground">
-            配信で起きる出来事が並んでいる。効果を付けたい出来事を開いて、何をするかを決める。
-            出来事が起きたら、当てはまった行の効果をすべて行う。効果をひとつも付けていない行では何も起きない。
-            文言の <code>{'{user}'}</code> は相手の名前に、<code>{'{summary}'}</code> は配信の「これまでのあらすじ」に置き換わる。
-            ほかに使える差し込み語は出来事ごとに違い、それぞれの文言欄の下に出る。
+            効果を付けたい出来事を開いて、何をするかを決める。当てはまった出来事の効果はすべて行われる。
           </p>
         </div>
           {media.length === 0 && (
@@ -921,7 +892,7 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
               <Link href="/media/" className="underline underline-offset-4">
                 アップロード
               </Link>
-              のページで素材を足してください。
+              のページで足してください。
             </p>
           )}
           {menuGroups.map((group) => (

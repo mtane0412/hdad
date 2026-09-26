@@ -31,7 +31,7 @@ describe('文字起こしのページ', () => {
   test('ポートを既定から変えると、URLに書き足す', async () => {
     render(<TranscriptPage overlayKey={オーバーレイ用キー} />)
 
-    const ポートの欄 = screen.getByLabelText('ゆかコネNEO の WebSocket のポート番号')
+    const ポートの欄 = screen.getByLabelText('ゆかコネNEO のポート番号')
     await userEvent.clear(ポートの欄)
     await userEvent.type(ポートの欄, '20000')
 
@@ -43,7 +43,7 @@ describe('文字起こしのページ', () => {
   test('ポートが読めない値なら、URLを出さずに理由を出す', async () => {
     render(<TranscriptPage overlayKey={オーバーレイ用キー} />)
 
-    const ポートの欄 = screen.getByLabelText('ゆかコネNEO の WebSocket のポート番号')
+    const ポートの欄 = screen.getByLabelText('ゆかコネNEO のポート番号')
     await userEvent.clear(ポートの欄)
     await userEvent.type(ポートの欄, 'ななまんばん')
 
