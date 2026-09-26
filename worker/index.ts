@@ -22,6 +22,7 @@
  * | GET・PUT /api/admin/bot/moderation | セッション   | チャットの自動モデレーションの設定の取得・保存 |
  * | GET  /api/admin/rewards          | セッション     | チャンネルポイント報酬の一覧 |
  * | GET・PUT /api/admin/llm          | セッション     | LLMの提供元とモデルの設定の取得・保存 |
+ * | GET  /api/admin/llm/models       | セッション     | その提供元で選べるモデルの一覧 |
  * | GET・PUT /api/admin/speech       | セッション     | チャットの読み上げの設定の取得・保存 |
  * | GET  /api/admin/viewers          | セッション     | 視聴者の記録の一覧（検索・ページ送り） |
  * | PATCH /api/admin/viewers/:userId | セッション     | 視聴者へのメモの保存 |
@@ -43,7 +44,20 @@
  * Twitchのトークンは応答に含めない。失敗は { error: { code, message } } の形で返し、黙って成功扱いにしない。
  * fetch と現在時刻を引数で受け取るのは、テストで差し替えるため。
  */
-import { deleteMedia, getConfig, getLlm, getMedia, getRewards, getSpeech, postMedia, postOverlayKey, putConfig, putLlm, putSpeech } from './admin-routes'
+import {
+  deleteMedia,
+  getConfig,
+  getLlm,
+  getLlmModels,
+  getMedia,
+  getRewards,
+  getSpeech,
+  postMedia,
+  postOverlayKey,
+  putConfig,
+  putLlm,
+  putSpeech,
+} from './admin-routes'
 import { deleteViewerRoute, getViewers, patchViewer } from './viewer-routes'
 import {
   deleteBot,
@@ -119,6 +133,7 @@ const ROUTES: readonly Route[] = [
   { method: 'PUT', path: '/api/admin/bot/moderation', handle: putBotModeration },
   { method: 'GET', path: '/api/admin/rewards', handle: getRewards },
   { method: 'GET', path: '/api/admin/llm', handle: getLlm },
+  { method: 'GET', path: '/api/admin/llm/models', handle: getLlmModels },
   { method: 'PUT', path: '/api/admin/llm', handle: putLlm },
   { method: 'GET', path: '/api/admin/speech', handle: getSpeech },
   { method: 'PUT', path: '/api/admin/speech', handle: putSpeech },
@@ -218,6 +233,7 @@ export const handleRequest = async (request: Request, env: Env, dependencies: De
       params,
       env,
       twitch,
+      fetch: dependencies.fetch,
       llm: createLlm({ ai: env.AI, store: env.STORE, fetch: dependencies.fetch, apiKey: env.OPENROUTER_API_KEY }),
       now: dependencies.now(),
       wait: dependencies.wait,

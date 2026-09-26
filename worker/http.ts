@@ -73,6 +73,13 @@ export interface Context {
   /** 現在時刻（ミリ秒） */
   now: number
   /**
+   * 外への通信。
+   *
+   * Twitchへの通信は twitch（TwitchClient）が持つので、ここから呼ぶのは Twitch 以外の相手
+   * （OpenRouter のモデルの一覧など）である。テストで差し替えられるよう引数で受け取る。
+   */
+  fetch: typeof fetch
+  /**
    * 指定した時間だけ待つ。
    *
    * アナウンスは2秒に1回しか送れないため、枠を確保したうえで自分の順番まで待つのに使う（bot-chat.ts）。

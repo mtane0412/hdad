@@ -10,7 +10,12 @@
  * Workerの呼び出しは api.ts に分けてテストする。保存の形（ボタンを押す → Workerを呼ぶ → 成功なら知らせ、
  * 失敗なら理由を出す）は usePageActions に合わせる（/triggers/・/speech/ と同じ）。
  *
- * 注意: モデル名の検証は Worker だけが持つ（画面とWorkerで二重に持たない）。入力欄の値はそのまま送り、
+ * 注意: モデルは入力ではなく選択にする。打ち間違いに気づくのが「配信中に文面が作られなかったとき」に
+ * なってしまうためである。候補は提供元ごとにWorkerから読む（Workers AI はこのリポジトリが持つ一覧、
+ * OpenRouter は公開API。worker/llm-models.ts）。候補を読めなかったときは、黙って空の選択欄を出さずに理由を出す。
+ * 注意: 保存済みのモデルが候補に無ければ、そのモデルも選択欄に残す（一覧から消えたモデルを選んでいたときに、
+ * 画面を開いただけで別のモデルへ移ってしまわないようにするため）。
+ * 注意: モデル名の検証は Worker だけが持つ（画面とWorkerで二重に持たない）。選んだ値はそのまま送り、
  * 返ってきた問題点を並べて出す。
  * 注意: モデル名は提供元ごとに別々に持つ（名前の付け方がまったく違うため）。画面でも両方を持ち続け、
  * 提供元を切り替えて戻したときに前のモデル名が消えないようにする。
@@ -25,12 +30,11 @@ import { errorMessage, usePageActions } from '@/admin/page-actions'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ApiError } from '@/core/api'
-import { LLM_PROVIDERS, LLM_USAGES, type LlmApi, type LlmProvider, type LlmSettings, type LlmUsage } from './api'
+import { LLM_PROVIDERS, LLM_USAGES, type LlmApi, type LlmModelOption, type LlmProvider, type LlmSettings, type LlmUsage } from './api'
 
 /** 提供元の名前 */
 const PROVIDER_LABELS: Readonly<Record<LlmProvider, string>> = {
@@ -75,6 +79,10 @@ export const LlmPage = ({ api }: LlmPageProps) => {
   const [loadFailure, setLoadFailure] = useState('')
   /** OpenRouter のAPIキーがWorkerに設定されているか */
   const [apiKeyConfigured, setApiKeyConfigured] = useState(true)
+  /** 提供元ごとのモデルの候補。まだ読んでいない提供元は持たない */
+  const [modelOptions, setModelOptions] = useState<Partial<Record<LlmProvider, readonly LlmModelOption[]>>>({})
+  /** モデルの候補を読めなかった理由 */
+  const [modelsFailure, setModelsFailure] = useState('')
   const actions = usePageActions(failureLines)
   /** 入力欄のidは箇所ごとに要るので、1つのidを土台にして箇所の名前を足す */
   const fieldIdPrefix = useId()
@@ -96,6 +104,30 @@ export const LlmPage = ({ api }: LlmPageProps) => {
     }
   }, [api])
 
+  /** いま画面で選ばれている提供元（重なりを除く）。この提供元の候補だけを読む */
+  const usedProviders = [...new Set(LLM_USAGES.map((usage) => settings?.usages[usage].provider))].filter(
+    (provider): provider is LlmProvider => provider !== undefined,
+  )
+  // 使っている提供元の候補を、まだ読んでいなければ読む（使っていない提供元の一覧は取りに行かない）
+  const missingProviders = usedProviders.filter((provider) => modelOptions[provider] === undefined).join(',')
+  useEffect(() => {
+    if (missingProviders === '') return
+    let cancelled = false
+    for (const provider of missingProviders.split(',') as LlmProvider[]) {
+      api.listModels(provider).then(
+        (models) => {
+          if (!cancelled) setModelOptions((current) => ({ ...current, [provider]: models }))
+        },
+        (error: unknown) => {
+          if (!cancelled) setModelsFailure(errorMessage(error))
+        },
+      )
+    }
+    return () => {
+      cancelled = true
+    }
+  }, [api, missingProviders])
+
   if (loadFailure !== '') {
     return (
       <Alert variant="destructive">
@@ -106,6 +138,18 @@ export const LlmPage = ({ api }: LlmPageProps) => {
   }
 
   if (!settings) return <Skeleton className="h-96 w-full" aria-label="LLMの設定を読み込んでいます" />
+
+  /**
+   * 選択欄に並べる候補。
+   *
+   * 読み込みが終わるまでは、いま保存されている値だけを並べる（空の選択欄にすると、読み込み中に
+   * 保存されているモデルが分からなくなる）。候補に無い値も足して残す（一覧から消えたモデルを選んでいたときに、
+   * 画面を開いただけで別のモデルへ移ってしまわないようにするため）。
+   */
+  const optionsFor = (provider: LlmProvider, selected: string): readonly LlmModelOption[] => {
+    const options = modelOptions[provider] ?? []
+    return options.some(({ id }) => id === selected) ? options : [{ id: selected, name: selected }, ...options]
+  }
 
   /** 1か所ぶんの提供元を選び直す（モデル名は両方を持ち続けるので、選び直しても消えない） */
   const changeProvider = (usage: LlmUsage, provider: LlmProvider): void =>
@@ -131,6 +175,13 @@ export const LlmPage = ({ api }: LlmPageProps) => {
   return (
     <div className="flex flex-col gap-6">
       {actions.feedback}
+
+      {modelsFailure !== '' && (
+        <Alert variant="destructive">
+          <AlertTitle>モデルの候補を読み込めませんでした</AlertTitle>
+          <AlertDescription>{modelsFailure} 選択欄には、いま保存されているモデルだけが出ます</AlertDescription>
+        </Alert>
+      )}
 
       {openrouterUsages.length > 0 && !apiKeyConfigured && (
         <Alert variant="destructive">
@@ -181,13 +232,19 @@ export const LlmPage = ({ api }: LlmPageProps) => {
                   </div>
                   <div className="flex flex-col gap-2">
                     <Label htmlFor={modelFieldId}>{name}のモデル</Label>
-                    <Input
+                    <NativeSelect
                       id={modelFieldId}
-                      autoComplete="off"
-                      spellCheck={false}
+                      className="w-full"
                       value={models[provider]}
+                      disabled={modelOptions[provider] === undefined}
                       onChange={(event) => changeModel(usage, event.currentTarget.value)}
-                    />
+                    >
+                      {optionsFor(provider, models[provider]).map(({ id, name: modelName }) => (
+                        <NativeSelectOption key={id} value={id}>
+                          {modelName}
+                        </NativeSelectOption>
+                      ))}
+                    </NativeSelect>
                   </div>
                 </div>
               </div>
@@ -216,8 +273,9 @@ export const LlmPage = ({ api }: LlmPageProps) => {
             シークレットに鍵が要る。料金はOpenRouterのアカウントに請求される。
           </p>
           <p>
-            モデル名は提供元ごとに覚えているので、切り替えて戻しても入力し直さなくてよい。
-            選んでいない提供元のモデル名も保存のときに確かめるので、空にはできない。
+            選べるモデルは、Workers AI はこのリポジトリが持つ一覧（文面づくりに向く汎用のモデルだけを載せている）、
+            OpenRouter は openrouter.ai の公開APIから読み込んでいる。選んだモデルは提供元ごとに覚えているので、
+            切り替えて戻しても選び直さなくてよい。
           </p>
           <p>
             配信のあらすじは大きいモデルを選ぶ。小さいモデルでは、視聴者の書き込みを配信者がしたことのように書く・

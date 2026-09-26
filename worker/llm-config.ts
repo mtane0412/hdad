@@ -13,10 +13,15 @@
  * 1つだけ持たせると提供元を切り替えるたびに書き直すことになり、切り替えて戻したときに前の名前も消える。
  * 注意: 使っていない提供元のモデル名も検証する。保存時に通った設定しか読み出しで再検証しない約束（speech-config.ts と同じ）なので、
  * 空のまま保存できてしまうと、提供元を切り替えた瞬間に初めて呼び出しが失敗することになる。
+ * 注意: Workers AI のモデル名は候補の一覧（llm-models.ts の WORKERS_AI_MODELS）に載っているものだけを通す。
+ * 一覧はこのリポジトリが持っていて、管理画面も同じ一覧から選ばせるので、外れた値は打ち間違いか古い設定である。
+ * 一方 OpenRouter のモデル名は照らし合わせない。一覧は遠隔で日々変わるため、保存のたびに問い合わせることになり、
+ * その問い合わせが失敗すると正しいモデル名まで拒んでしまう（呼び出しのときに OpenRouter が答える）。
  * 注意: OpenRouter のAPIキーはここには持たない。鍵はWorkerのシークレット（OPENROUTER_API_KEY）に置き、
  * KVの設定にも管理画面の応答にも含めない（トークンを応答に含めない約束と同じ）。
  */
 import { ConfigError } from './alert-config'
+import { WORKERS_AI_MODELS } from './llm-models'
 import type { KeyValueStore } from './store'
 
 const CONFIG_KEY = 'llm-settings'
@@ -120,7 +125,12 @@ export const parseLlmSettings = (input: unknown): LlmSettings => {
         problems.push(`${usage}.models.${provider}: モデル名を${MAX_MODEL_LENGTH}文字以内で指定してください`)
         return [provider, DEFAULT_LLM_SETTINGS.usages[usage].models[provider]]
       }
-      return [provider, model.trim()]
+      const trimmed = model.trim()
+      if (provider === 'workers-ai' && !WORKERS_AI_MODELS.some(({ id }) => id === trimmed)) {
+        problems.push(`${usage}.models.workers-ai: Workers AI で選べるモデルから指定してください（${trimmed} は候補にありません）`)
+        return [provider, DEFAULT_LLM_SETTINGS.usages[usage].models[provider]]
+      }
+      return [provider, trimmed]
     })
     return Object.fromEntries(models) as LlmModels
   }

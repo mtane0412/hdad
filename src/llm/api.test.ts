@@ -5,6 +5,7 @@
  * 確かめること:
  * - 管理用の経路（/api/admin/llm）を読み書きすること
  * - AIを使う4か所ぶんの設定を、そのまま受け取れること
+ * - 提供元ごとに選べるモデルの一覧を読めること（画面の選択欄に出す候補）
  * - 応答が想定した形でなければエラーにすること（黙って既定の提供元に倒さない）
  */
 import { describe, expect, it } from 'vitest'
@@ -85,5 +86,37 @@ describe('createLlmApi', () => {
     })
 
     await expect(createLlmApi(fetchImpl).load()).rejects.toThrow('/api/admin/llm')
+  })
+})
+
+describe('createLlmApi.listModels', () => {
+  it('提供元を指定して、選べるモデルの一覧を読む', async () => {
+    const { 呼び出し, fetchImpl } = 応答を返すfetch(200, {
+      models: [
+        { id: '@cf/meta/llama-3.1-8b-instruct-fp8', name: 'Llama 3.1 8B Instruct（fp8）' },
+        { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', name: 'Llama 3.3 70B Instruct（fp8・高速）' },
+      ],
+    })
+
+    expect(await createLlmApi(fetchImpl).listModels('workers-ai')).toEqual([
+      { id: '@cf/meta/llama-3.1-8b-instruct-fp8', name: 'Llama 3.1 8B Instruct（fp8）' },
+      { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', name: 'Llama 3.3 70B Instruct（fp8・高速）' },
+    ])
+    expect(呼び出し).toEqual([{ path: '/api/admin/llm/models?provider=workers-ai', method: 'GET', body: '' }])
+  })
+
+  it('一覧が空、または想定した形でなければエラーにする（選べない選択欄を出さない）', async () => {
+    await expect(createLlmApi(応答を返すfetch(200, { models: [] }).fetchImpl).listModels('openrouter')).rejects.toThrow('/api/admin/llm/models')
+    await expect(createLlmApi(応答を返すfetch(200, { models: [{ id: 1 }] }).fetchImpl).listModels('openrouter')).rejects.toThrow(
+      '/api/admin/llm/models',
+    )
+  })
+
+  it('Workerが失敗を返したら ApiError にする（画面が理由を出せるようにする）', async () => {
+    const { fetchImpl } = 応答を返すfetch(502, {
+      error: { code: 'internal-error', message: 'OpenRouter のモデルの一覧を取れませんでした（503）' },
+    })
+
+    await expect(createLlmApi(fetchImpl).listModels('openrouter')).rejects.toThrow(ApiError)
   })
 })

@@ -70,6 +70,23 @@ describe('parseLlmSettings', () => {
     ).toEqual([expect.stringContaining('sideSuper.models.workers-ai')])
   })
 
+  it('Workers AI の候補に無いモデル名は拒否する（画面は選択式なので、打ち間違いはここで止める）', () => {
+    expect(
+      問題点(差し替える('aiChat', { provider: 'workers-ai', models: { 'workers-ai': '@cf/meta/存在しないモデル', openrouter: 'meta-llama/llama-3.1-8b-instruct' } })),
+    ).toEqual([expect.stringContaining('aiChat.models.workers-ai')])
+  })
+
+  it('OpenRouter のモデル名は候補表と照らし合わせない（一覧は遠隔で変わり、保存のたびに問い合わせないため）', () => {
+    expect(
+      parseLlmSettings(
+        差し替える('aiChat', {
+          provider: 'openrouter',
+          models: { 'workers-ai': '@cf/meta/llama-3.1-8b-instruct-fp8', openrouter: 'まだ知らない提供者/新しいモデル' },
+        }),
+      ).usages.aiChat.models.openrouter,
+    ).toBe('まだ知らない提供者/新しいモデル')
+  })
+
   it('モデル名の前後の空白は落としてから保存する', () => {
     const 設定 = parseLlmSettings(
       差し替える('viewerSummary', {

@@ -58,7 +58,8 @@ const 後回しにしない = (): void => {
   throw new Error('このテストでは、応答のあとに続く処理を使いません')
 }
 
-const 呼び出す = (request: Request, env: Env) => handleRequest(request, env, { fetch: Twitchへは通信しない, now: () => 現在時刻, wait: 待たない, waitUntil: 後回しにしない })
+const 呼び出す = (request: Request, env: Env, fetchImpl: typeof fetch = Twitchへは通信しない) =>
+  handleRequest(request, env, { fetch: fetchImpl, now: () => 現在時刻, wait: 待たない, waitUntil: 後回しにしない })
 
 /** 配信者としてログイン済みのリクエストを作る。書き換えを伴うメソッドには、ブラウザと同じく Origin を付ける */
 const 配信者のリクエスト = async (env: Env, path: string, init: RequestInit = {}): Promise<Request> => {
@@ -676,5 +677,53 @@ describe('LLMの設定（/api/admin/llm）', () => {
     expect(response.status).toBe(400)
     const body = (await response.json()) as { error: { problems: string[] } }
     expect(body.error.problems).toEqual([expect.stringContaining('aiChat.provider'), expect.stringContaining('aiChat.models.workers-ai')])
+  })
+})
+
+describe('選べるモデルの一覧（/api/admin/llm/models）', () => {
+  const 読む = async (env: Env, provider: string, fetchImpl?: typeof fetch) =>
+    呼び出す(await 配信者のリクエスト(env, `/api/admin/llm/models?provider=${provider}`), env, fetchImpl)
+
+  it('セッションがなければ401を返す', async () => {
+    const { env } = 環境を作る()
+
+    expect((await 呼び出す(new Request(`${サイト}/api/admin/llm/models?provider=workers-ai`), env)).status).toBe(401)
+  })
+
+  it('Workers AI の候補を返す（Cloudflareへは問い合わせない）', async () => {
+    const { env } = 環境を作る()
+
+    const response = await 読む(env, 'workers-ai')
+
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as { models: { id: string; name: string }[] }
+    expect(body.models.length).toBeGreaterThan(0)
+    expect(body.models.every(({ id }) => id.startsWith('@cf/'))).toBe(true)
+  })
+
+  it('OpenRouter の候補は公開APIから取る（鍵は要らない）', async () => {
+    const { env } = 環境を作る()
+    const 呼ばれた: string[] = []
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      呼ばれた.push(String(input))
+      return Response.json({
+        data: [{ id: 'anthropic/claude-3.5-haiku', name: 'Anthropic: Claude 3.5 Haiku', architecture: { output_modalities: ['text'] } }],
+      })
+    }) as unknown as typeof fetch
+
+    const response = await 読む(env, 'openrouter', fetchImpl)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ models: [{ id: 'anthropic/claude-3.5-haiku', name: 'Anthropic: Claude 3.5 Haiku' }] })
+    expect(呼ばれた).toEqual(['https://openrouter.ai/api/v1/models'])
+  })
+
+  it('知らない提供元を渡されたら400を返す', async () => {
+    const { env } = 環境を作る()
+
+    const response = await 読む(env, 'openai')
+
+    expect(response.status).toBe(400)
+    expect(await エラーコード(response)).toBe('invalid-provider')
   })
 })

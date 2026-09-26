@@ -16,6 +16,7 @@
 import { createCaller, isRecord } from '../core/api'
 
 const ADMIN_PATH = '/api/admin/llm'
+const MODELS_PATH = '/api/admin/llm/models'
 
 /** 呼び先。worker/llm-config.ts の LLM_PROVIDERS と合わせる */
 export const LLM_PROVIDERS = ['workers-ai', 'openrouter'] as const
@@ -40,6 +41,14 @@ export interface LlmUsageSettings {
 /** LLMの設定。項目は worker/llm-config.ts と合わせる */
 export interface LlmSettings {
   usages: Record<LlmUsage, LlmUsageSettings>
+}
+
+/** モデルの選択欄に出す1件。worker/llm-models.ts の LlmModelOption と合わせる */
+export interface LlmModelOption {
+  /** 設定に保存するモデル名 */
+  id: string
+  /** 画面に出す名前 */
+  name: string
 }
 
 /** 読み出しの結果。鍵の有無は設定ではなくWorkerの状態なので、設定とは分けて持つ */
@@ -74,12 +83,28 @@ const readLlmSettings = (body: unknown, path: string): LlmSettings => {
   return { usages: Object.fromEntries(usages) as Record<LlmUsage, LlmUsageSettings> }
 }
 
+/** モデルの一覧として読む。空、または想定した形でなければエラーにする */
+const readModelOptions = (body: unknown, path: string): LlmModelOption[] => {
+  const models = isRecord(body) && Array.isArray(body.models) ? body.models : null
+  if (models === null || models.length === 0 || !models.every((model: unknown) => isRecord(model) && typeof model.id === 'string' && typeof model.name === 'string')) {
+    throw new Error(`Workerの ${path} の応答が想定した形ではありません`)
+  }
+  return models as LlmModelOption[]
+}
+
 /** 管理画面からの読み書き */
 export interface LlmApi {
   /** 保存済みの設定と、鍵が設定されているかを読む。未保存なら既定の設定が返る */
   load(): Promise<LlmState>
   /** 設定をまるごと置き換えて保存する。検証はWorkerが行う */
   save(settings: LlmSettings): Promise<LlmSettings>
+  /**
+   * その提供元で選べるモデルの一覧を読む（画面の選択欄に出す候補）。
+   *
+   * 提供元ごとに分けて読むのは、使っていない提供元の一覧を取りに行かずに済ませるためと、
+   * 片方を取れなかったことをもう片方の選択欄に波及させないためである。
+   */
+  listModels(provider: LlmProvider): Promise<LlmModelOption[]>
 }
 
 /**
@@ -110,5 +135,10 @@ export const createLlmApi = (fetchImpl: typeof fetch): LlmApi => {
         }),
         ADMIN_PATH,
       ),
+
+    listModels: async (provider) => {
+      const path = `${MODELS_PATH}?provider=${encodeURIComponent(provider)}`
+      return readModelOptions(await call(path), MODELS_PATH)
+    },
   }
 }
