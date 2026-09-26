@@ -168,7 +168,10 @@ export const LlmPage = ({ api }: LlmPageProps) => {
   const openrouterUsages = LLM_USAGES.filter((usage) => settings.usages[usage].provider === 'openrouter')
 
   const save = async (): Promise<string> => {
-    setSettings(await api.save(settings))
+    const sent = settings
+    const saved = await api.save(sent)
+    // 応答を待っているあいだも選択欄は触れるので、そのあいだに変えた設定を保存後の内容で巻き戻さない
+    setSettings((current) => (current === sent ? saved : current))
     return 'LLMの設定を保存しました'
   }
 

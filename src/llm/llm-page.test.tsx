@@ -142,6 +142,23 @@ describe('LlmPage', () => {
     expect(await screen.findByText('LLMの設定を保存しました')).toBeInTheDocument()
   })
 
+  test('保存の応答を待っているあいだに変えた設定を、応答で巻き戻さない', async () => {
+    let 保存を終える: (settings: LlmSettings) => void = () => {}
+    描く({
+      ...llmApi(),
+      save: (next) => new Promise<LlmSettings>((resolve) => (保存を終える = () => resolve(next))),
+    })
+    await 読み込みを待つ()
+
+    await 保存する()
+    // 応答が返る前に、別の箇所の提供元を変える
+    await userEvent.selectOptions(screen.getByLabelText('サイドスーパーの提供元'), 'openrouter')
+    保存を終える(保存済みの設定)
+
+    await waitFor(() => expect(screen.getByText('LLMの設定を保存しました')).toBeInTheDocument())
+    expect(screen.getByLabelText('サイドスーパーの提供元')).toHaveValue('openrouter')
+  })
+
   test('OpenRouter を選んでいる箇所があるのに鍵が設定されていなければ、設定の仕方を知らせる', async () => {
     描く(
       llmApi({
