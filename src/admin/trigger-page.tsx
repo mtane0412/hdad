@@ -1,7 +1,8 @@
 /**
  * トリガーのページ
  *
- * OBS用のURLと、「どのイベントで何をするか」（トリガー）の操作盤を出す。素材の追加と削除はアップロードのページ
+ * OBS用のURLと、「どのきっかけで何をするか」（トリガー）の操作盤を出す。きっかけは既定メニューから選び、
+ * イベント種別と条件の組み立てはしない（このツールは汎用のノーコード自動化を目指していないため）。素材の追加と削除はアップロードのページ
  * （media-page.tsx）が受け持ち、ここでは置いてある素材から選ぶだけにする。ログインの確認とログアウトは
  * アプリの枠（src/app/app.tsx）が受け持つので、ここではログイン済みを前提にする。
  * 画面の状態（素材・報酬・入力中のトリガー）はここで持ち、Workerの呼び出しは api.ts、入力欄の値の変換は form.ts、
@@ -16,6 +17,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
@@ -25,52 +27,40 @@ import { Textarea } from '@/components/ui/textarea'
 import { Link } from '@/app/router'
 import type { BotApi, BotStatus } from '@/bot/api'
 import { ApiError } from '@/core/api'
+import { isAnnouncementColor, type AdminApi, type MediaItem, type Reward, type TriggerKind } from './api'
 import {
-  isAlertEvent,
-  isAnnouncementColor,
-  type AdminApi,
-  type AlertEvent,
-  type AnnouncementColor,
-  type ConditionKind,
-  type MediaItem,
-  type Reward,
-} from './api'
-import {
-  addableConditionKinds,
-  changeEvent,
   colorOptions,
-  conditionLabel,
-  createCondition,
+  createDraft,
   describeProblem,
-  eventOptions,
   kindLabels,
+  menuGroups,
+  menuLabel,
   overlayUrl,
   placeholdersFor,
   rewardOptions,
   toDraft,
   toTriggerInput,
   triggerSummary,
-  type ConditionDraft,
-  type ConditionKindOption,
   type SelectOption,
   type TriggerDraft,
 } from './form'
 import { errorMessage, usePageActions } from './page-actions'
 
-const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
-const CHAT_MESSAGE = 'channel.chat.message'
-const AD_BREAK_BEGIN = 'channel.ad_break.begin'
-const AD_BREAK_END = 'channel.ad_break.end'
-/** 文言欄の入力例。イベント種別ごとに、使える差し込み語だけを使った例を出す */
-const MESSAGE_PLACEHOLDERS: Readonly<Record<AlertEvent, string>> = {
-  [REDEMPTION]: '{user} さんが「{reward}」を交換しました',
-  'channel.follow': '{user} さんがフォローしました',
-  'channel.subscribe': '{user} さんがティア{tier}でサブスクしました',
-  'channel.subscription.message': '{user} さんが{months}か月目のサブスク（ティア{tier}）',
-  'channel.raid': '{user} さんが{viewers}人でレイドしました',
-  [CHAT_MESSAGE]: '{user} さんが「{message}」と言いました',
-  [AD_BREAK_BEGIN]: 'ここで{duration}秒の広告が入ります',
-  [AD_BREAK_END]: '広告が終わりました。おかえりなさい',
+/** 文言欄の入力例。メニュー項目ごとに、使える差し込み語だけを使った例を出す */
+const MESSAGE_PLACEHOLDERS: Readonly<Record<TriggerKind, string>> = {
+  chat: '{user} さんが「{message}」と言いました',
+  firstChatEver: '{user} さん、はじめまして！',
+  firstChatOfStream: '{user} さん、おかえりなさい！',
+  returningAfter: '{user} さん、お久しぶりです！',
+  chatFromUser: '{user} さんが来ました',
+  chatContains: '{user} さんが「{message}」と言いました',
+  reward: '{user} さんが「{reward}」を交換しました',
+  follow: '{user} さんがフォローしました',
+  subscribe: '{user} さんがティア{tier}でサブスクしました',
+  resubscribe: '{user} さんが{months}か月目のサブスク（ティア{tier}）',
+  raid: '{user} さんが{viewers}人でレイドしました',
+  adBreakBegin: 'ここで{duration}秒の広告が入ります',
+  adBreakEnd: '広告が終わりました。おかえりなさい',
 }
 const MIN_DURATION_SECONDS = 1
 const MAX_DURATION_SECONDS = 60
@@ -85,12 +75,8 @@ const MAX_AI_INSTRUCTION_LENGTH = 1000
 /** 空いた日数の条件に入れられる日数の範囲（worker/alert-config.ts の検証と同じ値） */
 const MIN_RETURNING_DAYS = 1
 const MAX_RETURNING_DAYS = 365
-const DEFAULT_DURATION_SECONDS = '5'
-const DEFAULT_VOLUME_PERCENT = '100'
 /** ブラウザソースに設定する推奨の大きさ（配信のキャンバスと同じ大きさ。素材は中央に出るため、キャンバス全体を覆う） */
 const OVERLAY_SIZE = { width: 1920, height: 1080 }
-/** 新しく足したトリガーのアナウンスの色（チャンネルの色） */
-const DEFAULT_ANNOUNCEMENT_COLOR: AnnouncementColor = 'primary'
 
 /** 失敗の理由を、画面に出す行にする。設定の問題点があれば、1行ずつ並べる */
 const failureLines = (error: unknown): string[] =>
@@ -109,148 +95,112 @@ const Select = ({ id, options, value, onChange }: { id: string; options: readonl
 )
 
 /**
- * 自動で入った広告かどうかの選択肢。
+ * 広告の絞り込みの選択肢。
  *
- * 選択欄の値は文字列しか持てないので、真偽値との行き来はここで行う（'true' / 'false'）。
+ * 選択欄の値は文字列しか持てないので、真偽値・null との行き来はここで行う（空文字が「どちらでも」）。
  * 配信者が手で打った広告は自分で告知できるので、告知したいのはふつう自動で入った広告のほうである。
  */
 const AUTOMATIC_OPTIONS: readonly SelectOption[] = [
-  { value: 'true', label: '自動で入った広告' },
-  { value: 'false', label: '配信者が手動で打った広告' },
+  { value: 'true', label: '自動で入った広告だけ' },
+  { value: 'false', label: '配信者が手動で打った広告だけ' },
+  { value: '', label: '自動・手動どちらでも' },
 ]
 
-/** 入れる値を持たない条件の種類（「初めての発言であること」以外に指定するものがない） */
-const NO_INPUT_KINDS: readonly ConditionKind[] = ['firstChatOfStream', 'firstChatEver']
+/** メニュー項目のうち、絞り込みのパラメータを持たないものに添える補足。持つものは入力欄の下に個別の補足を出す */
+const KIND_NOTES: Partial<Readonly<Record<TriggerKind, string>>> = {
+  chat: 'チャットに書き込みがあるたびに動きます。チャットの多い配信では、アラートや音を出す動作は控えめにしてください。',
+  firstChatOfStream:
+    '配信中の発言だけが対象です。配信していないあいだの発言では動きません（テスト配信のたびに動かないようにするため）。',
+  firstChatEver:
+    '視聴者の記録が残っていない人だけが対象です。この記録を始める前から来ている常連も「初めて」と扱われるので、しばらくは動作を控えめにしておくことをおすすめします。',
+}
 
-interface ConditionFieldsProps {
-  /** 入力欄のIDの前置き。1つの行の中で条件ごとに違うIDにする */
+interface TriggerParamFieldProps {
+  /** 入力欄のIDの前置き */
   idPrefix: string
-  conditions: readonly ConditionDraft[]
+  draft: TriggerDraft
   rewards: readonly Reward[]
-  /** 足せる条件の種類（すでに足してある種類と、このイベントに付けられない種類は含まれない） */
-  addable: readonly ConditionKindOption[]
-  onChange(index: number, condition: ConditionDraft): void
-  onAdd(kind: ConditionKind): void
-  onRemove(index: number): void
+  onChange(patch: Partial<TriggerDraft>): void
 }
 
 /**
- * 条件の一覧の入力欄。
+ * メニュー項目が要求するパラメータ1つの入力欄。
  *
- * 条件はすべてを満たしたときだけ当てはまる（and）ので、その旨を見出しに書く。
- * 条件が1件もないときは、そのイベントが起きればいつでも動くことを知らせる（設定漏れと取り違えないため）。
- * 足せる種類は種類ごとのボタンで出す（そのイベントに付けられる種類は多くないので、選択欄と「足す」ボタンに分けるより手数が少ない）。
- * 入力欄は種類ごとに違うので、種類で分けて出す（文面は部分一致の文字列、ユーザーはTwitchのユーザー名、報酬は選択欄、空いた日数は数）。
+ * 項目によって入れるものが違うので、項目ごとに出し分ける（報酬は選択欄、ユーザー名と言葉は文字、日数は数、広告は三択）。
+ * パラメータを持たない項目では、何をきっかけにするかの補足だけを出す。
  */
-const ConditionFields = ({ idPrefix, conditions, rewards, addable, onChange, onAdd, onRemove }: ConditionFieldsProps) => (
-  <div className="flex flex-col gap-3 rounded-md border border-dashed p-3 sm:col-span-2">
-    <span className="text-sm leading-none font-medium">条件（すべてを満たしたときだけ動く）</span>
-    {conditions.length === 0 ? (
-      <p className="text-xs text-muted-foreground">条件がないので、このイベントが起きればいつでも動きます。</p>
-    ) : (
-      <ul className="flex flex-col gap-3">
-        {conditions.map((condition, index) => (
-          // 同じ種類の条件は1件までなので、種類をキーにできる
-          <li key={condition.kind} className="flex items-end gap-2">
-            <div className="flex min-w-0 flex-1 flex-col gap-2">
-              {/* 入れる値を持つ条件だけがラベルの行き先（入力欄）を持つ。持たない条件は、行き先のないラベルにせず見出しとして出す */}
-              {NO_INPUT_KINDS.some((kind) => kind === condition.kind) ? (
-                <span className="text-sm leading-none font-medium">{conditionLabel(condition.kind)}</span>
-              ) : (
-                <Label htmlFor={`${idPrefix}-${condition.kind}`}>{conditionLabel(condition.kind)}</Label>
-              )}
-              {condition.kind === 'firstChatOfStream' && (
-                <p className="text-xs text-muted-foreground">
-                  配信中の発言だけが対象です。配信していないあいだの発言では動きません（テスト配信のたびに動かないようにするため）。
-                </p>
-              )}
-              {condition.kind === 'firstChatEver' && (
-                <p className="text-xs text-muted-foreground">
-                  視聴者の記録が残っていない人だけが対象です。この記録を始める前から来ている常連も「初めて」と扱われるので、
-                  しばらくは動作を控えめにしておくことをおすすめします。
-                </p>
-              )}
-              {condition.kind === 'returningAfter' && (
-                <>
-                  <Input
-                    id={`${idPrefix}-returningAfter`}
-                    type="number"
-                    min={MIN_RETURNING_DAYS}
-                    max={MAX_RETURNING_DAYS}
-                    value={condition.days}
-                    onChange={(event) => onChange(index, { kind: 'returningAfter', days: event.currentTarget.value })}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    この日数以上空けて発言した人だけが対象です（{MIN_RETURNING_DAYS}〜{MAX_RETURNING_DAYS}日）。
-                    このチャンネルで初めての人には当てはまりません。
-                  </p>
-                </>
-              )}
-              {condition.kind === 'reward' && (
-                <Select
-                  id={`${idPrefix}-reward`}
-                  options={rewardOptions(rewards, condition.rewardId)}
-                  value={condition.rewardId}
-                  onChange={(rewardId) => onChange(index, { kind: 'reward', rewardId })}
-                />
-              )}
-              {condition.kind === 'user' && (
-                <Input
-                  id={`${idPrefix}-user`}
-                  type="text"
-                  maxLength={MAX_LOGIN_LENGTH}
-                  value={condition.login}
-                  placeholder="tanenobu"
-                  onChange={(event) => onChange(index, { kind: 'user', login: event.currentTarget.value })}
-                />
-              )}
-              {/* 文面は発言に含まれていればよい（部分一致）。大文字小文字は区別しない */}
-              {condition.kind === 'text' && (
-                <Input
-                  id={`${idPrefix}-text`}
-                  type="text"
-                  maxLength={MAX_CHAT_MESSAGE_LENGTH}
-                  value={condition.contains}
-                  placeholder="おはよう"
-                  onChange={(event) => onChange(index, { kind: 'text', contains: event.currentTarget.value })}
-                />
-              )}
-              {/* 自動広告か手動広告かは二択なので選択欄にする（選択欄の値は文字列なので真偽値へ読み替える） */}
-              {condition.kind === 'automatic' && (
-                <Select
-                  id={`${idPrefix}-automatic`}
-                  options={AUTOMATIC_OPTIONS}
-                  value={String(condition.automatic)}
-                  onChange={(value) => onChange(index, { kind: 'automatic', automatic: value === 'true' })}
-                />
-              )}
-            </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label={`${conditionLabel(condition.kind)}の条件を外す`}
-              className="text-destructive"
-              onClick={() => onRemove(index)}
-            >
-              <Trash2 aria-hidden="true" />
-            </Button>
-          </li>
-        ))}
-      </ul>
-    )}
-    {addable.length > 0 && (
-      <div className="flex flex-wrap gap-2">
-        {addable.map((option) => (
-          <Button key={option.value} type="button" variant="outline" size="sm" onClick={() => onAdd(option.value)}>
-            <Plus aria-hidden="true" />
-            {option.label}の条件を足す
-          </Button>
-        ))}
-      </div>
-    )}
-  </div>
-)
+const TriggerParamField = ({ idPrefix, draft, rewards, onChange }: TriggerParamFieldProps) => {
+  const note = KIND_NOTES[draft.kind]
+
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-dashed p-3 sm:col-span-2">
+      <span className="text-sm leading-none font-medium">{menuLabel(draft.kind)}</span>
+      {note !== undefined && <p className="text-xs text-muted-foreground">{note}</p>}
+
+      {draft.kind === 'reward' && (
+        <>
+          <Label htmlFor={`${idPrefix}-reward`}>対象の報酬</Label>
+          <Select id={`${idPrefix}-reward`} options={rewardOptions(rewards, draft.rewardId)} value={draft.rewardId} onChange={(rewardId) => onChange({ rewardId })} />
+        </>
+      )}
+
+      {draft.kind === 'chatFromUser' && (
+        <>
+          <Label htmlFor={`${idPrefix}-login`}>対象のユーザー名</Label>
+          <Input
+            id={`${idPrefix}-login`}
+            type="text"
+            maxLength={MAX_LOGIN_LENGTH}
+            value={draft.login}
+            placeholder="tanenobu"
+            onChange={(event) => onChange({ login: event.currentTarget.value })}
+          />
+          <p className="text-xs text-muted-foreground">Twitchのユーザー名（表示名ではなく小文字のほう）で指定します。大文字小文字は区別しません。</p>
+        </>
+      )}
+
+      {draft.kind === 'chatContains' && (
+        <>
+          <Label htmlFor={`${idPrefix}-contains`}>発言に含まれる言葉</Label>
+          <Input
+            id={`${idPrefix}-contains`}
+            type="text"
+            maxLength={MAX_CHAT_MESSAGE_LENGTH}
+            value={draft.contains}
+            placeholder="おはよう"
+            onChange={(event) => onChange({ contains: event.currentTarget.value })}
+          />
+          <p className="text-xs text-muted-foreground">この言葉を含む発言が対象です（部分一致。大文字小文字は区別しません）。</p>
+        </>
+      )}
+
+      {draft.kind === 'returningAfter' && (
+        <>
+          <Label htmlFor={`${idPrefix}-days`}>前の発言から空いた日数</Label>
+          <Input
+            id={`${idPrefix}-days`}
+            type="number"
+            min={MIN_RETURNING_DAYS}
+            max={MAX_RETURNING_DAYS}
+            value={draft.days}
+            onChange={(event) => onChange({ days: event.currentTarget.value })}
+          />
+          <p className="text-xs text-muted-foreground">
+            この日数以上空けて発言した人だけが対象です（{MIN_RETURNING_DAYS}〜{MAX_RETURNING_DAYS}日）。
+            このチャンネルで初めての人には当てはまりません。
+          </p>
+        </>
+      )}
+
+      {(draft.kind === 'adBreakBegin' || draft.kind === 'adBreakEnd') && (
+        <>
+          <Label htmlFor={`${idPrefix}-automatic`}>対象の広告</Label>
+          <Select id={`${idPrefix}-automatic`} options={AUTOMATIC_OPTIONS} value={draft.automatic} onChange={(automatic) => onChange({ automatic })} />
+        </>
+      )}
+    </div>
+  )
+}
 
 interface TriggerRowProps {
   position: number
@@ -303,29 +253,10 @@ const TriggerRow = ({ position, draft, media, rewards, open, onToggle, onChange,
       </div>
       {open && (
         <div id={`${id}-detail`} className="grid gap-4 border-t p-4 sm:grid-cols-2">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor={`${id}-event`}>イベント</Label>
-            {/* 選択肢はイベント種別だけなので isAlertEvent は必ず通る。型を絞るための確認 */}
-            <Select
-              id={`${id}-event`}
-              options={eventOptions}
-              value={draft.event}
-              onChange={(event) => isAlertEvent(event) && onChange(changeEvent(draft, event))}
-            />
-          </div>
+          {/* ここから上はこのトリガーのきっかけ。メニュー項目は後から変えられないので、変えたいときは外して足し直す */}
+          <TriggerParamField idPrefix={id} draft={draft} rewards={rewards} onChange={update} />
 
-          {/* ここから下は、このトリガーが当てはまる条件。すべてを満たしたときだけ動く */}
-          <ConditionFields
-            idPrefix={`${id}-condition`}
-            conditions={draft.conditions}
-            rewards={rewards}
-            addable={addableConditionKinds(draft)}
-            onChange={(index, condition) => update({ conditions: draft.conditions.map((other, position) => (position === index ? condition : other)) })}
-            onAdd={(kind) => update({ conditions: [...draft.conditions, createCondition(kind, rewards)] })}
-            onRemove={(index) => update({ conditions: draft.conditions.filter((_, position) => position !== index) })}
-          />
-
-          {/* ここから下は、このイベントのときに行う動作。種類ごとに実行者が違う（アラートはオーバーレイ、チャットはWorker） */}
+          {/* ここから下は、そのきっかけで行う動作。種類ごとに実行者が違う（アラートはオーバーレイ、チャットはWorker） */}
           <div className="flex flex-col gap-4 rounded-md border border-dashed p-3 sm:col-span-2">
             <div className="flex items-center gap-2">
               <Checkbox
@@ -378,7 +309,7 @@ const TriggerRow = ({ position, draft, media, rewards, open, onToggle, onChange,
                     type="text"
                     maxLength={MAX_MESSAGE_LENGTH}
                     value={draft.message}
-                    placeholder={MESSAGE_PLACEHOLDERS[draft.event]}
+                    placeholder={MESSAGE_PLACEHOLDERS[draft.kind]}
                     onChange={(event) => update({ message: event.currentTarget.value })}
                   />
                 </div>
@@ -404,7 +335,7 @@ const TriggerRow = ({ position, draft, media, rewards, open, onToggle, onChange,
                   type="text"
                   maxLength={MAX_CHAT_MESSAGE_LENGTH}
                   value={draft.chatMessage}
-                  placeholder={MESSAGE_PLACEHOLDERS[draft.event]}
+                  placeholder={MESSAGE_PLACEHOLDERS[draft.kind]}
                   onChange={(event) => update({ chatMessage: event.currentTarget.value })}
                 />
                 {/* 送るのは接続しているbotアカウント。未接続だと何も送られないので、どこで接続するかを添える */}
@@ -463,7 +394,7 @@ const TriggerRow = ({ position, draft, media, rewards, open, onToggle, onChange,
                     type="text"
                     maxLength={MAX_CHAT_MESSAGE_LENGTH}
                     value={draft.announceMessage}
-                    placeholder={MESSAGE_PLACEHOLDERS[draft.event]}
+                    placeholder={MESSAGE_PLACEHOLDERS[draft.kind]}
                     onChange={(event) => update({ announceMessage: event.currentTarget.value })}
                   />
                 </div>
@@ -485,9 +416,9 @@ const TriggerRow = ({ position, draft, media, rewards, open, onToggle, onChange,
             )}
           </div>
 
-          {/* 選んだイベントに存在しない語は置き換わらないため、使える語をその場で知らせる（アラートとチャットで同じ語を使う） */}
+          {/* 選んだメニュー項目のイベントに存在しない語は置き換わらないため、使える語をその場で知らせる（アラートとチャットで同じ語を使う） */}
           <p className="text-xs text-muted-foreground sm:col-span-2">
-            このイベントで使える差し込み語: {placeholdersFor(draft.event).join('・')}
+            このトリガーで使える差し込み語: {placeholdersFor(draft.kind).join('・')}
           </p>
         </div>
       )}
@@ -604,30 +535,10 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
     return 'キーを再発行しました。新しいURLをOBSに貼り替えてください'
   }
 
-  const addTrigger = async (): Promise<string> => {
-    const first = media[0]
-    // 素材が1つもなければアラートは出せないので、チャットに送るだけのトリガーとして足す
-    replaceDrafts([
-      ...drafts,
-      {
-        event: REDEMPTION,
-        conditions: [],
-        alertEnabled: first !== undefined,
-        mediaId: first?.id ?? '',
-        durationSeconds: DEFAULT_DURATION_SECONDS,
-        volumePercent: DEFAULT_VOLUME_PERCENT,
-        message: '',
-        chatEnabled: first === undefined,
-        chatMessage: '',
-        announceEnabled: false,
-        announceMessage: '',
-        announceColor: DEFAULT_ANNOUNCEMENT_COLOR,
-        aiChatEnabled: false,
-        aiChatInstruction: '',
-      },
-    ])
+  const addTrigger = async (kind: TriggerKind): Promise<string> => {
+    replaceDrafts([...drafts, createDraft(kind, media)])
     setOpenPosition(drafts.length)
-    return 'トリガーを足しました。保存するまで反映されません'
+    return `「${menuLabel(kind)}」のトリガーを足しました。保存するまで反映されません`
   }
 
   const saveTriggers = async (): Promise<string> => {
@@ -649,7 +560,7 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
   return (
     <div className="flex max-w-4xl flex-col gap-6">
       <p className="text-sm text-muted-foreground">
-        チャンネルポイントの交換・フォロー・サブスク・レイド・チャットの発言が起きたときに、何をするかを決める。
+        配信で起きる出来事を選び、そのときに何をするかを決める。
       </p>
 
       {actions.feedback}
@@ -725,9 +636,10 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
         <CardHeader>
           <CardTitle>トリガー</CardTitle>
           <CardDescription>
-            イベントが起きたら、上から順に探して最初に当てはまったトリガーの素材を流す。条件を足すと、そのすべてを満たしたときだけ当てはまる。
+            「トリガーを足す」から、きっかけになる出来事を選ぶ。出来事が起きたら、上から順に探して最初に当てはまったトリガーの素材を流す。
+            きっかけは後から変えられないので、変えたいときは外して足し直す。
             文言の <code>{'{user}'}</code> は相手の名前に、<code>{'{summary}'}</code> は配信の「これまでのあらすじ」に置き換わる。
-            ほかに使える差し込み語はイベントごとに違い、それぞれの文言欄の下に出る。
+            ほかに使える差し込み語はきっかけごとに違い、それぞれの文言欄の下に出る。
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
@@ -765,9 +677,30 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
             </ol>
           )}
           <div className="flex gap-2">
-            <Button type="button" variant="outline" size="icon" aria-label="トリガーを足す" disabled={actions.busy} onClick={() => void actions.run(addTrigger)}>
-              <Plus aria-hidden="true" />
-            </Button>
+            {/* きっかけは既定メニューから選ぶ。選んだ時点でその行が開き、あとは「何をするか」だけを決める */}
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button type="button" variant="outline" disabled={actions.busy}>
+                    <Plus aria-hidden="true" />
+                    トリガーを足す
+                  </Button>
+                }
+              />
+              <DropdownMenuContent align="start" className="max-w-[min(24rem,calc(100vw-2rem))]">
+                {menuGroups.map((group) => (
+                  <DropdownMenuGroup key={group.label}>
+                    <DropdownMenuLabel>{group.label}</DropdownMenuLabel>
+                    {group.items.map((item) => (
+                      <DropdownMenuItem key={item.kind} className="flex-col items-start gap-0.5" onClick={() => void actions.run(() => addTrigger(item.kind))}>
+                        <span>{item.label}</span>
+                        <span className="text-xs text-muted-foreground">{item.description}</span>
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuGroup>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button type="button" disabled={actions.busy} onClick={() => void actions.run(saveTriggers)}>
               トリガーを保存
             </Button>

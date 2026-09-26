@@ -1,27 +1,27 @@
 /**
  * 入力欄と保存形式の変換
  *
- * 入力欄の値はすべて文字列で、音量は 0〜100 の百分率で見せる。Workerへ送る形（音量は 0〜1）との行き来と、
- * OBSに貼るURL・選択肢や大きさの文言の組み立てを受け持つ。DOMには触れない。
- *
- * 絞り込みは「条件のリスト」（conditions）で表し、入力欄でも同じリストのまま持つ（Workerへ送るときも並びを変えない）。
- * 条件はすべてを満たしたときだけ当てはまる（and）ため、条件を1件も持たないトリガーはそのイベントが起きればいつでも当てはまる。
+ * トリガーは既定メニューの項目（kind）と、その項目が要求するパラメータ1つからなる。配信者はイベント種別と条件を
+ * 自由に組み合わせず、メニューから選ぶ（このツールは汎用のノーコード自動化を目指していないため）。
+ * 入力欄の値はすべて文字列で、音量は 0〜100 の百分率で見せる。Workerへ送る形（音量は 0〜1、日数は数、
+ * 「絞り込まない」は null）との行き来と、OBSに貼るURL・メニューの並び・選択肢や大きさの文言の組み立てを受け持つ。
+ * DOMには触れない。
  *
  * 注意: 値の範囲（表示時間は1〜60秒など）の検証はWorkerが行い、問題点をまとめて返す。ここでは数として読めるかだけを確かめる。
+ * 注意: メニュー項目ごとのパラメータは、入力欄ではすべて平たく持つ（動作の入力欄と同じ持ち方）。
+ *   Workerへ送るのは、選んでいるメニュー項目が要求するものだけである（選び直す前の値を引きずらない）。
  */
 import {
-  ALERT_EVENTS,
   ANNOUNCEMENT_COLORS,
-  CONDITION_KINDS,
   type ActionInput,
   type AlertEvent,
   type AnnouncementColor,
-  type ConditionKind,
-  type MediaKind,
+  type MediaItem,
   type Reward,
   type StoredTrigger,
-  type TriggerCondition,
   type TriggerInput,
+  type TriggerKind,
+  type TriggerSource,
 } from './api'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
@@ -31,17 +31,19 @@ const AD_BREAK_END = 'channel.ad_break.end'
 const ALERTS_PATH = '/alerts/'
 const PERCENT = 100
 const BYTES_PER_UNIT = 1024
-/** 報酬をまだ選べていないことを表す選択肢の値（この値のまま保存するとWorkerが問題点を返す） */
-const NO_REWARD = ''
+/** 報酬を絞り込まない（すべての報酬が対象）ことを表す選択肢の値。Workerへは null として送る */
+const ALL_REWARDS = ''
+/** 広告を自動・手動で絞り込まないことを表す選択肢の値。Workerへは null として送る */
+const ANY_AD_BREAK = ''
 /** 新しく足したトリガーと、アラートを外したトリガーの表示時間の既定値（秒） */
 const DEFAULT_DURATION_SECONDS = 5
-/** returningAfter の条件を足したときの日数の既定値（約1か月） */
+/** 久しぶりの人が発言したメニュー項目を足したときの日数の既定値（約1か月） */
 const DEFAULT_RETURNING_DAYS = 30
 /** アナウンスを使わないトリガーの色の既定値（チャンネルの色） */
 const DEFAULT_ANNOUNCEMENT_COLOR: AnnouncementColor = 'primary'
 
 /** 素材の種類の日本語のラベル */
-export const kindLabels: Readonly<Record<MediaKind, string>> = { image: '画像', video: '動画', audio: '音声' }
+export const kindLabels: Readonly<Record<MediaItem['kind'], string>> = { image: '画像', video: '動画', audio: '音声' }
 
 /** アナウンスの色の日本語のラベル */
 const COLOR_LABELS: Readonly<Record<AnnouncementColor, string>> = {
@@ -52,48 +54,103 @@ const COLOR_LABELS: Readonly<Record<AnnouncementColor, string>> = {
   purple: '紫',
 }
 
-/**
- * 条件の種類の日本語のラベル。
- *
- * text は「その言葉を含む発言」に当てはまる（部分一致）ので、「文面」だけにせず「含む言葉」と書く。
- * 「文面」だけでは、発言全体がその文言と同じときに当てはまる（完全一致）と読めてしまう。
- */
-const CONDITION_LABELS: Readonly<Record<ConditionKind, string>> = {
-  reward: '報酬',
-  user: 'ユーザー',
-  text: '文面に含む言葉',
-  firstChatOfStream: 'その配信で初めての発言',
-  firstChatEver: 'このチャンネルで初めての発言',
-  automatic: '自動で入った広告か',
-  returningAfter: '前の発言から空いた日数',
-}
-
-/** 条件の種類の日本語のラベル。画面の見出しと要約で使う */
-export const conditionLabel = (kind: ConditionKind): string => CONDITION_LABELS[kind]
-
 /** アナウンスの色の選択肢 */
 export const colorOptions: readonly SelectOption[] = ANNOUNCEMENT_COLORS.map((color) => ({ value: color, label: COLOR_LABELS[color] }))
 
 /**
- * トリガー1件分の入力欄の値
+ * メニュー項目の日本語の名前。
  *
- * 動作（アラートを出す・チャットに送る）は、保存する形では配列だが、入力欄では種類ごとに決まった欄を出すほうが分かりやすいため、
- * 「行うかどうか」（alertEnabled・chatEnabled・announceEnabled・aiChatEnabled）と、それぞれの欄を平坦に持つ。
- * 外した動作の入力欄の値は保存時に送らない。
+ * 「決まった言葉を含む発言」は部分一致なので、「文面」だけにせず「含む」と書く
+ * （「文面」だけでは、発言全体がその文言と同じときに当てはまる（完全一致）と読めてしまう）。
  */
+const MENU_LABELS: Readonly<Record<TriggerKind, string>> = {
+  chat: '誰かが発言した',
+  firstChatEver: 'このチャンネルで初めての人が発言した',
+  firstChatOfStream: 'その配信で最初の発言をした',
+  returningAfter: '久しぶりの人が発言した',
+  chatFromUser: '決まった人が発言した',
+  chatContains: '決まった言葉を含む発言があった',
+  reward: 'チャンネルポイントが交換された',
+  follow: 'フォローされた',
+  subscribe: 'サブスクされた（新規）',
+  resubscribe: 'サブスクの継続メッセージが届いた',
+  raid: 'レイドされた',
+  adBreakBegin: '広告が始まった',
+  adBreakEnd: '広告が終わった',
+}
+
+/** メニュー項目の日本語の名前。画面の見出しと要約で使う */
+export const menuLabel = (kind: TriggerKind): string => MENU_LABELS[kind]
+
+export interface MenuItem {
+  kind: TriggerKind
+  label: string
+  /** その項目が何をきっかけにするかの補足。メニューの中に小さく添える */
+  description: string
+}
+
+export interface MenuGroup {
+  label: string
+  items: readonly MenuItem[]
+}
+
+const item = (kind: TriggerKind, description: string): MenuItem => ({ kind, label: MENU_LABELS[kind], description })
+
 /**
- * 入力欄で持つ条件1件。
+ * 「トリガーを足す」で並べるメニュー。
  *
- * 保存する形（TriggerCondition）とほぼ同じだが、returningAfter の日数だけは文字列で持つ。
- * 数で持つと、入力欄を空にした瞬間に 0 日へ変わってしまい、配信者が入れ直せなくなる
+ * 区分は配信者から見た関心ごと（視聴者・応援・配信）で分ける。項目が13なので一列でも読めるが、
+ * 増えたときに探しにくくならないよう最初から分けておく。
+ */
+export const menuGroups: readonly MenuGroup[] = [
+  {
+    label: '視聴者',
+    items: [
+      item('chat', 'チャットに書き込みがあるたび'),
+      item('firstChatEver', '視聴者の記録に残っていない人の発言'),
+      item('firstChatOfStream', 'その配信での、その人の1回目の発言'),
+      item('returningAfter', '前の発言から決めた日数以上空いた人の発言'),
+      item('chatFromUser', '決めたユーザー名の人の発言'),
+      item('chatContains', '決めた言葉を含む発言（部分一致）'),
+    ],
+  },
+  {
+    label: '応援',
+    items: [
+      item('reward', 'チャンネルポイントの交換。報酬を選んで絞り込める'),
+      item('follow', '新しくフォローされたとき'),
+      item('subscribe', '新しくサブスクされたとき'),
+      item('resubscribe', '継続のサブスクがメッセージ付きで届いたとき'),
+      item('raid', 'ほかの配信からレイドで来てくれたとき'),
+    ],
+  },
+  {
+    label: '配信',
+    items: [item('adBreakBegin', '広告が流れ始めたとき'), item('adBreakEnd', '広告が終わって配信に戻ったとき')],
+  },
+]
+
+/**
+ * トリガー1件分の入力欄の値。
+ *
+ * メニュー項目のパラメータ（日数・ユーザー名・言葉・報酬・広告の絞り込み）と、動作の入力欄を平たく持つ。
+ * 選んでいるメニュー項目が使わないパラメータも値を保っておき、選び直しても入れ直さずに済むようにする
+ * （Workerへ送るのは、選んでいる項目が要求するものだけである）。
+ * 日数を文字列で持つのは、数で持つと入力欄を空にした瞬間に 0 日へ変わってしまい、配信者が入れ直せなくなるため
  * （表示時間・音量の入力欄を文字列で持っているのと同じ理由）。
  */
-export type ConditionDraft = Exclude<TriggerCondition, { kind: 'returningAfter' }> | { kind: 'returningAfter'; days: string }
-
 export interface TriggerDraft {
-  event: AlertEvent
-  /** 絞り込みの条件。すべてを満たしたときだけ当てはまる。同じ種類は1件までにする */
-  conditions: ConditionDraft[]
+  kind: TriggerKind
+  /** 対象の報酬ID。空文字はすべての報酬（絞り込まない） */
+  rewardId: string
+  /** 対象のTwitchのユーザー名 */
+  login: string
+  /** 発言に含まれる言葉 */
+  contains: string
+  /** 前の発言から空いた日数 */
+  days: string
+  /** 広告の絞り込み。'true'（自動）・'false'（手動）・空文字（どちらでも） */
+  automatic: string
   /** オーバーレイに素材を出すか */
   alertEnabled: boolean
   mediaId: string
@@ -119,28 +176,27 @@ export interface SelectOption {
   label: string
 }
 
-/** 条件の種類の選択肢。値を ConditionKind に狭めておき、呼び出し側で型アサーションを使わずに済ませる */
-export interface ConditionKindOption {
-  value: ConditionKind
-  label: string
-}
-
-/** イベント種別の日本語のラベル */
-const EVENT_LABELS: Readonly<Record<AlertEvent, string>> = {
-  [REDEMPTION]: 'チャンネルポイントの交換',
-  'channel.follow': 'フォロー',
-  'channel.subscribe': 'サブスク（新規）',
-  'channel.subscription.message': 'サブスク（継続メッセージ）',
-  'channel.raid': 'レイド',
-  [CHAT_MESSAGE]: 'チャットの発言',
-  [AD_BREAK_BEGIN]: '広告の開始',
-  [AD_BREAK_END]: '広告の終了',
+/** メニュー項目が対象にするイベント種別。差し込み語がどれになるかはこれで決まる（worker/trigger-menu.ts と同じ対応） */
+const EVENT_OF_KIND: Readonly<Record<TriggerKind, AlertEvent>> = {
+  chat: CHAT_MESSAGE,
+  firstChatEver: CHAT_MESSAGE,
+  firstChatOfStream: CHAT_MESSAGE,
+  returningAfter: CHAT_MESSAGE,
+  chatFromUser: CHAT_MESSAGE,
+  chatContains: CHAT_MESSAGE,
+  reward: REDEMPTION,
+  follow: 'channel.follow',
+  subscribe: 'channel.subscribe',
+  resubscribe: 'channel.subscription.message',
+  raid: 'channel.raid',
+  adBreakBegin: AD_BREAK_BEGIN,
+  adBreakEnd: AD_BREAK_END,
 }
 
 /**
  * イベント種別によらず使える差し込み語。
  *
- * 配信の「これまでのあらすじ」は通知の中身ではなく配信の状態から決まるので、どのイベントの文言にも書ける
+ * 配信の「これまでのあらすじ」は通知の中身ではなく配信の状態から決まるので、どのトリガーの文言にも書ける
  * （差し込みは worker/alert-event.ts の fillMessage）。
  */
 const COMMON_PLACEHOLDERS = ['{summary}'] as const
@@ -158,11 +214,8 @@ const EVENT_PLACEHOLDERS: Readonly<Record<AlertEvent, readonly string[]>> = {
   [AD_BREAK_END]: ['{user}', '{duration}', ...COMMON_PLACEHOLDERS],
 }
 
-/** イベント種別の選択肢 */
-export const eventOptions: readonly SelectOption[] = ALERT_EVENTS.map((event) => ({ value: event, label: EVENT_LABELS[event] }))
-
-/** そのイベントの文言で使える差し込み語。選んだイベントに存在しない語は置き換わらないため、画面で知らせる */
-export const placeholdersFor = (event: AlertEvent): readonly string[] => EVENT_PLACEHOLDERS[event]
+/** そのメニュー項目の文言で使える差し込み語。選んだ項目に存在しない語は置き換わらないため、画面で知らせる */
+export const placeholdersFor = (kind: TriggerKind): readonly string[] => EVENT_PLACEHOLDERS[EVENT_OF_KIND[kind]]
 
 /** OBSのブラウザソースに貼るURL */
 export const overlayUrl = (origin: string, overlayKey: string): string => `${origin}${ALERTS_PATH}?key=${encodeURIComponent(overlayKey)}`
@@ -197,112 +250,67 @@ const toActions = (draft: TriggerDraft): ActionInput[] => {
 }
 
 /**
- * 入力欄の条件を、Workerへ送る形にする。日数だけは文字列から数に直す。
+ * 入力欄の値を、Workerへ送るきっかけの形にする。選んでいるメニュー項目が要求するパラメータだけを送る。
  *
  * @throws 日数が数として読めない場合（空欄のまま保存しようとしたときなど）
  */
-const toCondition = (condition: ConditionDraft): TriggerCondition =>
-  condition.kind === 'returningAfter' ? { kind: condition.kind, days: toNumber(condition.days, '日数') } : condition
+const toSource = (draft: TriggerDraft): TriggerSource => {
+  switch (draft.kind) {
+    case 'returningAfter':
+      return { kind: draft.kind, days: toNumber(draft.days, '日数') }
+    case 'chatFromUser':
+      return { kind: draft.kind, login: draft.login }
+    case 'chatContains':
+      return { kind: draft.kind, contains: draft.contains }
+    case 'reward':
+      return { kind: draft.kind, rewardId: draft.rewardId === ALL_REWARDS ? null : draft.rewardId }
+    case 'adBreakBegin':
+    case 'adBreakEnd':
+      return { kind: draft.kind, automatic: draft.automatic === ANY_AD_BREAK ? null : draft.automatic === 'true' }
+    // パラメータを持たないメニュー項目
+    default:
+      return { kind: draft.kind }
+  }
+}
 
 /**
- * 入力欄の値を、Workerへ送る形にする。条件は並びを変えずにそのまま送る。
+ * 入力欄の値を、Workerへ送る形にする。
  *
- * 動作が1件もない場合や、報酬を選べていない場合も、そのまま送ってWorkerに問題点を返させる
- * （画面とWorkerで検証を二重に持たないため）。
+ * 動作が1件もない場合も、そのまま送ってWorkerに問題点を返させる（画面とWorkerで検証を二重に持たないため）。
  *
  * @throws 表示時間・音量・日数が数として読めない場合
  */
-export const toTriggerInput = (draft: TriggerDraft): TriggerInput => ({
-  event: draft.event,
-  conditions: draft.conditions.map(toCondition),
-  actions: toActions(draft),
-})
+export const toTriggerInput = (draft: TriggerDraft): TriggerInput => ({ ...toSource(draft), actions: toActions(draft) })
 
-/**
- * その条件の種類を、このイベント種別に付けられるか。
- *
- * reward はチャンネルポイントの交換（報酬IDを持つ）、text・firstChatOfStream・firstChatEver・returningAfter はチャットの発言にしか意味を持たない。
- * Workerの検証（worker/alert-config.ts の parseCondition）と同じ判定を画面側でも持ち、付けられない種類を選択肢に出さない。
- */
-const isConditionKindFor = (kind: ConditionKind, event: AlertEvent): boolean => {
-  switch (kind) {
-    case 'reward':
-      return event === REDEMPTION
-    case 'text':
-    case 'firstChatOfStream':
-    case 'firstChatEver':
-    case 'returningAfter':
-      return event === CHAT_MESSAGE
-    case 'automatic':
-      return event === AD_BREAK_BEGIN || event === AD_BREAK_END
-    case 'user':
-      return true
-  }
-}
-
-/**
- * まだ足していない条件の種類の選択肢。
- *
- * 同じ種類は1件までなので、すでに足してある種類は出さない。
- * reward はチャンネルポイントの交換に、text・firstChatOfStream・firstChatEver・returningAfter はチャットの発言にしか付けられない
- * （ほかのイベントではWorkerが保存を拒否する）ので、そのイベントのときだけ出す。
- */
-export const addableConditionKinds = (draft: TriggerDraft): readonly ConditionKindOption[] =>
-  CONDITION_KINDS.filter((kind) => !draft.conditions.some((condition) => condition.kind === kind) && isConditionKindFor(kind, draft.event)).map((kind) => ({
-    value: kind,
-    label: CONDITION_LABELS[kind],
-  }))
-
-/**
- * 足したばかりの条件1件の値。
- *
- * 報酬は、選択欄が見せているとおりの値（置いてある報酬の先頭）を選んでおく。
- * そうしないと、選択欄には最初の報酬が見えているのに保存時に拒まれる。報酬が1つもなければ選べていない状態にする。
- */
-export const createCondition = (kind: ConditionKind, rewards: readonly Reward[]): ConditionDraft => {
-  switch (kind) {
-    case 'reward':
-      return { kind, rewardId: rewards[0]?.id ?? NO_REWARD }
-    case 'text':
-      return { kind, contains: '' }
-    case 'user':
-      return { kind, login: '' }
-    // 入れる値を持たない条件（初めての発言であること以外に指定するものがない）
-    case 'firstChatOfStream':
-    case 'firstChatEver':
-      return { kind }
-    case 'returningAfter':
-      return { kind, days: String(DEFAULT_RETURNING_DAYS) }
-    // 手で打った広告は配信者が自分で告知できるので、告知したいのはふつう自動で入った広告のほうである
-    case 'automatic':
-      return { kind, automatic: true }
-  }
-}
-
-/**
- * イベント種別を変える。
- *
- * 変えた先のイベントに付けられない条件（チャンネルポイントの交換以外の reward、チャットの発言以外の text・初めての発言・空いた日数）は外す。
- * 残したままでは保存がWorkerに拒否され、画面上は条件が見えているのに直し方が分からなくなるため。
- */
-export const changeEvent = (draft: TriggerDraft, event: AlertEvent): TriggerDraft => ({
-  ...draft,
-  event,
-  conditions: draft.conditions.filter((condition) => isConditionKindFor(condition.kind, event)),
-})
-
-/** 動作を外したときに入力欄へ残しておく既定値（画面で入れ直さずに済むように、形だけは保つ） */
+/** 動作を選んでいないときに入力欄へ残しておく既定値（画面で入れ直さずに済むように、形だけは保つ） */
 const DEFAULT_ALERT_DRAFT = { mediaId: '', durationSeconds: String(DEFAULT_DURATION_SECONDS), volumePercent: String(PERCENT), message: '' }
 
-/** 保存済みの条件を入力欄の値に戻す。日数は入力欄で扱う文字列にする */
-const toConditionDraft = (condition: TriggerCondition): ConditionDraft =>
-  condition.kind === 'returningAfter' ? { kind: condition.kind, days: String(condition.days) } : condition
+/** どのメニュー項目でも使わないパラメータの既定値 */
+const DEFAULT_PARAMS = { rewardId: ALL_REWARDS, login: '', contains: '', days: String(DEFAULT_RETURNING_DAYS), automatic: ANY_AD_BREAK }
+
+/** 保存済みのパラメータを入力欄の値に戻す。「絞り込まない」を表す null は空文字にする */
+const toParams = (trigger: StoredTrigger): Partial<typeof DEFAULT_PARAMS> => {
+  switch (trigger.kind) {
+    case 'returningAfter':
+      return { days: String(trigger.days) }
+    case 'chatFromUser':
+      return { login: trigger.login }
+    case 'chatContains':
+      return { contains: trigger.contains }
+    case 'reward':
+      return { rewardId: trigger.rewardId ?? ALL_REWARDS }
+    case 'adBreakBegin':
+    case 'adBreakEnd':
+      return { automatic: trigger.automatic === null ? ANY_AD_BREAK : String(trigger.automatic) }
+    default:
+      return {}
+  }
+}
 
 /**
  * 保存済みのトリガーを入力欄の値に戻す。
  *
- * 条件は並びを変えずにそのまま持つ（配列は画面で書き換えるので、保存済みの配列と共有しないよう写しを作る）。
- * 持っていない動作の欄は既定値で埋め、行わない印を付ける。
+ * そのメニュー項目が使わないパラメータと、持っていない動作の欄は既定値で埋め、行わない印を付ける。
  */
 export const toDraft = (trigger: StoredTrigger): TriggerDraft => {
   const alert = trigger.actions.find((action) => action.type === 'alert')
@@ -311,8 +319,9 @@ export const toDraft = (trigger: StoredTrigger): TriggerDraft => {
   const aiChat = trigger.actions.find((action) => action.type === 'aiChat')
 
   return {
-    event: trigger.event,
-    conditions: trigger.conditions.map(toConditionDraft),
+    kind: trigger.kind,
+    ...DEFAULT_PARAMS,
+    ...toParams(trigger),
     alertEnabled: alert !== undefined,
     ...(alert === undefined
       ? DEFAULT_ALERT_DRAFT
@@ -333,60 +342,95 @@ export const toDraft = (trigger: StoredTrigger): TriggerDraft => {
 }
 
 /**
- * 報酬の選択肢を作る。
+ * メニューから選んだ項目で、新しいトリガーの入力欄の値を作る。
  *
- * @param selected いま選ばれている報酬ID。Twitchの一覧にない（削除された）報酬でも、黙って別の報酬に変わらないよう選択肢の先頭に残す。
- *   報酬の一覧を取得できなかったときや、報酬が1つもないときは空文字が選ばれているので、選ぶよう促す選択肢を先頭に置く
- */
-export const rewardOptions = (rewards: readonly Reward[], selected: string): SelectOption[] => {
-  const options = rewards.map((reward) => ({ value: reward.id, label: `${reward.title}（${reward.cost}pt）` }))
-  if (options.some((option) => option.value === selected)) return options
-  const label = selected === NO_REWARD ? '報酬を選んでください' : `Twitchの一覧にない報酬（${selected}）`
-  return [{ value: selected, label }, ...options]
-}
-
-/**
- * 条件1件を要約の中に出す文言。
+ * 素材が1つでもあればアラートを出す動作を選んだ状態にし、選択欄が見せているとおりの素材（先頭）を選んでおく
+ * （選んでいない状態で保存すると、選択欄には素材が見えているのにWorkerが拒む）。素材が1つもなければ、
+ * アラートは出せないのでチャットに送る動作を選んだ状態にする。
  *
- * Twitchの一覧にない報酬は、黙って省略せずに報酬IDをそのまま出す（設定を取り違えないため）。
+ * 報酬は絞り込まない状態（すべての報酬）で作る。どの報酬に絞るかは配信者にしか決められないうえ、
+ * 先頭の報酬を勝手に選ぶと、選んだつもりのない報酬だけで動くトリガーができてしまう。
  */
-const conditionSummary = (condition: ConditionDraft, rewards: readonly Reward[]): string => {
-  switch (condition.kind) {
-    case 'reward':
-      return `報酬「${rewards.find((reward) => reward.id === condition.rewardId)?.title ?? condition.rewardId}」`
-    case 'user':
-      return `ユーザー「${condition.login}」`
-    case 'text':
-      return `文面に「${condition.contains}」を含む`
-    case 'firstChatOfStream':
-      return CONDITION_LABELS.firstChatOfStream
-    case 'firstChatEver':
-      return CONDITION_LABELS.firstChatEver
-    // 日数は言葉を添えないと「30日」が間隔なのか回数なのか読み取れないので、条件の意味ごと書く
-    case 'returningAfter':
-      return `前の発言から${condition.days}日以上空いている`
-    // 真偽値そのままでは「自動: true」と読めてしまうので、どちらの広告かを言葉で書く
-    case 'automatic':
-      return condition.automatic ? '自動で入った広告' : '配信者が手動で打った広告'
+export const createDraft = (kind: TriggerKind, media: readonly MediaItem[]): TriggerDraft => {
+  const first = media[0]
+  return {
+    kind,
+    ...DEFAULT_PARAMS,
+    // 手で打った広告は配信者が自分で告知できるので、告知したいのはふつう自動で入った広告のほうである
+    ...(kind === 'adBreakBegin' || kind === 'adBreakEnd' ? { automatic: 'true' } : {}),
+    alertEnabled: first !== undefined,
+    mediaId: first?.id ?? '',
+    durationSeconds: String(DEFAULT_DURATION_SECONDS),
+    volumePercent: String(PERCENT),
+    message: '',
+    chatEnabled: first === undefined,
+    chatMessage: '',
+    announceEnabled: false,
+    announceMessage: '',
+    announceColor: DEFAULT_ANNOUNCEMENT_COLOR,
+    aiChatEnabled: false,
+    aiChatInstruction: '',
   }
 }
 
 /**
- * 折りたたんだトリガーの見出しに出す要約。「イベント（条件）→ 行う動作」の形にする。
+ * 報酬の選択肢を作る。
  *
- * 条件が2つ以上あるときは「かつ」でつないで、すべてを満たす必要があることが分かるようにする。
- * 条件が1件もなければ、そのイベントならいつでも当てはまるのでイベントの名前だけを出す。
+ * 先頭は「すべての報酬」（絞り込まない）で、これが新しいトリガーの既定になる。
+ *
+ * @param selected いま選ばれている報酬ID。Twitchの一覧にない（削除された）報酬でも、黙って別の報酬に変わらないよう選択肢の先頭に残す
+ */
+export const rewardOptions = (rewards: readonly Reward[], selected: string): SelectOption[] => {
+  const options = [
+    { value: ALL_REWARDS, label: 'すべての報酬' },
+    ...rewards.map((reward) => ({ value: reward.id, label: `${reward.title}（${reward.cost}pt）` })),
+  ]
+  if (options.some((option) => option.value === selected)) return options
+  return [{ value: selected, label: `Twitchの一覧にない報酬（${selected}）` }, ...options]
+}
+
+/**
+ * 要約の中に出す、メニュー項目のパラメータの文言。絞り込んでいなければ null（何も添えない）。
+ *
+ * Twitchの一覧にない報酬は、黙って省略せずに報酬IDをそのまま出す（設定を取り違えないため）。
+ */
+const paramSummary = (draft: TriggerDraft, rewards: readonly Reward[]): string | null => {
+  switch (draft.kind) {
+    case 'reward':
+      if (draft.rewardId === ALL_REWARDS) return 'すべての報酬'
+      return rewards.find((reward) => reward.id === draft.rewardId)?.title ?? draft.rewardId
+    case 'chatFromUser':
+      return draft.login
+    case 'chatContains':
+      return draft.contains
+    // 日数は言葉を添えないと「30日」が間隔なのか回数なのか読み取れないので、単位ごと書く
+    case 'returningAfter':
+      return `${draft.days}日以上`
+    // 真偽値そのままでは「自動: true」と読めてしまうので、どちらの広告かを言葉で書く
+    case 'adBreakBegin':
+    case 'adBreakEnd':
+      if (draft.automatic === ANY_AD_BREAK) return null
+      return draft.automatic === 'true' ? '自動で入った広告' : '配信者が手動で打った広告'
+    default:
+      return null
+  }
+}
+
+/**
+ * 折りたたんだトリガーの見出しに出す要約。「メニュー項目（絞り込み）→ 行う動作」の形にする。
+ *
+ * 絞り込みを持たない項目では、メニュー項目の名前だけを出す。
  */
 export const triggerSummary = (draft: TriggerDraft, rewards: readonly Reward[]): string => {
-  const conditions = draft.conditions.map((condition) => conditionSummary(condition, rewards)).join('かつ')
+  const param = paramSummary(draft, rewards)
   const actions = [
     draft.alertEnabled ? 'アラート' : null,
     draft.chatEnabled ? 'チャット' : null,
     draft.announceEnabled ? 'アナウンス' : null,
     draft.aiChatEnabled ? 'AIチャット' : null,
   ].filter((label) => label !== null)
-  // 条件を添えるときは（）が区切りになるので、矢印の前に空白を入れない
-  const head = conditions === '' ? `${EVENT_LABELS[draft.event]} ` : `${EVENT_LABELS[draft.event]}（${conditions}）`
+  // 絞り込みを添えるときは（）が区切りになるので、矢印の前に空白を入れない
+  const head = param === null ? `${MENU_LABELS[draft.kind]} ` : `${MENU_LABELS[draft.kind]}（${param}）`
   return `${head}→ ${actions.length === 0 ? '動作なし' : actions.join('・')}`
 }
 
@@ -400,12 +444,9 @@ export const formatBytes = (size: number): string => {
 /**
  * Workerが問題点の先頭に付ける位置（triggers[0]. や triggers[0].actions[1]. の形。番号は0始まり）。
  *
- * 条件そのものへの問題点（triggers[0].conditions[0]: …）は項目名が続かないので、後ろの . は付かないこともある。
+ * 動作そのものへの問題点（triggers[0].actions: …）は項目名が続かないので、後ろの . は付かないこともある。
  */
-const PROBLEM_POSITION = /^triggers\[(\d+)\]\.(?:(actions|conditions)\[(\d+)\](\.)?)?/
-
-/** 入れ子の位置（actions・conditions）の日本語の呼び名 */
-const NESTED_LABELS: Readonly<Record<string, string>> = { actions: '動作', conditions: '条件' }
+const PROBLEM_POSITION = /^triggers\[(\d+)\]\.(?:(actions)\[(\d+)\](\.)?)?/
 
 /** Workerが返した問題点の位置を、画面に振ってある番号（1始まり）に読み替える */
 export const describeProblem = (problem: string): string =>
@@ -413,5 +454,5 @@ export const describeProblem = (problem: string): string =>
     const position = `${Number(trigger) + 1}番目のトリガーの `
     if (nested === undefined || index === undefined) return position
     // 項目名が続く（. があった）ときだけ、読みやすさのために「の」で続ける
-    return `${position}${Number(index) + 1}つ目の${NESTED_LABELS[nested]}${dot === undefined ? '' : 'の '}`
+    return `${position}${Number(index) + 1}つ目の動作${dot === undefined ? '' : 'の '}`
   })

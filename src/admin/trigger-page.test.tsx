@@ -6,7 +6,8 @@
  * - OBS用のURLを伏せ字で出し、コピーとキーの再発行ができること（再発行は確認してから）
  * - URL欄に、ブラウザソースへ設定する推奨の幅と高さが添えられること
  * - トリガーは折りたたんで並び、見出しの要約を押すと入力欄が開くこと（開くのは1件ずつ）
- * - 条件（報酬・ユーザー）を足す・書き換える・外せること
+ * - きっかけを既定メニューから選んでトリガーを足せること（イベント種別と条件は画面から組み立てない）
+ * - メニュー項目が要求するパラメータ（報酬・ユーザー名・言葉・日数・広告の絞り込み）を書き換えられること
  * - トリガーを足し、入力欄の値をWorkerへ送る形にして保存できること
  * - 素材は一覧から選ぶだけで、ここでは足せないこと（アップロードのページへ案内する）
  * - 失敗は黙って無視せず、理由を出すこと（報酬の一覧だけ取れないときは、画面は出したまま理由を出す）
@@ -20,9 +21,6 @@ import { ApiError } from '@/core/api'
 import { type AdminApi, type MediaItem, type Reward, type StoredTrigger } from './api'
 import type { BotStatus } from '@/bot/api'
 
-const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
-const CHAT_MESSAGE = 'channel.chat.message'
-
 /** 接続済みのbotアカウント */
 const 接続済みのbot: BotStatus = { userId: 'bot-user-id', login: 'haishinsha_bot', missingScopes: [], isModerator: true }
 
@@ -30,8 +28,8 @@ const 拍手の動画: MediaItem = { id: 'media-hakushu', name: '拍手.webm', k
 const 花火の画像: MediaItem = { id: 'media-hanabi', name: '花火.png', kind: 'image', contentType: 'image/png', size: 2048, uploadedAt: '2026-09-02T00:00:00Z' }
 const 拍手の報酬: Reward = { id: 'reward-hakushu', title: '拍手を送る', cost: 100 }
 const 拍手のトリガー: StoredTrigger = {
-  event: REDEMPTION,
-  conditions: [{ kind: 'reward', rewardId: 'reward-hakushu' }],
+  kind: 'reward',
+  rewardId: 'reward-hakushu',
   actions: [{ type: 'alert', mediaId: 'media-hakushu', mediaKind: 'video', durationSeconds: 8, volume: 0.5, message: '{user} さんが拍手を送りました' }],
 }
 
@@ -68,6 +66,12 @@ const アラートのURL = (key: string): string => `${window.location.origin}/a
  */
 const スライダー = (name: string, scope: Pick<typeof screen, 'getByRole'> = screen): HTMLElement =>
   within(scope.getByRole('group', { name })).getByRole('slider', { hidden: true })
+
+/** 既定メニューから項目を選んでトリガーを足す */
+const メニューから足す = async (label: string): Promise<void> => {
+  await userEvent.click(await screen.findByRole('button', { name: 'トリガーを足す' }))
+  await userEvent.click(await screen.findByRole('menuitem', { name: new RegExp(label) }))
+}
 
 /** position番目のトリガーの見出しを押して入力欄を開き、その中だけを探せるようにする */
 const 開いたトリガー = async (position = 1) => {
@@ -142,234 +146,82 @@ describe('トリガー', () => {
 
     const row = await 開いたトリガー()
     expect(await row.findByRole('option', { name: '拍手を送る（100pt）' })).toBeInTheDocument()
-    expect(row.getByLabelText('報酬')).toHaveValue('reward-hakushu')
+    expect(row.getByLabelText('対象の報酬')).toHaveValue('reward-hakushu')
     expect(row.getByLabelText('素材')).toHaveValue('media-hakushu')
     expect(row.getByLabelText('表示時間（1〜60秒）')).toHaveValue(8)
     expect(スライダー('音量', row)).toHaveValue('50')
     expect(row.getByLabelText('文言（空欄なら出さない）')).toHaveValue('{user} さんが拍手を送りました')
   })
 
-  test('チャンネルポイント交換以外のイベントに切り替えると、報酬の条件は外れる（そのままでは保存できないため）', async () => {
+  test('きっかけは後から変えられない（イベントの選択欄を出さない）', async () => {
     render(トリガーのページ(代役のAPI()))
 
     const row = await 開いたトリガー()
-    expect(row.getByLabelText('報酬')).toBeInTheDocument()
 
-    await userEvent.selectOptions(row.getByLabelText('イベント'), 'channel.follow')
-
-    expect(row.queryByLabelText('報酬')).not.toBeInTheDocument()
-    // 報酬の条件は足せなくなる（チャンネルポイントの交換にしか付けられない）
-    expect(row.queryByRole('button', { name: '報酬の条件を足す' })).not.toBeInTheDocument()
+    // メニュー項目が決まればイベント種別と条件も決まるので、画面からは組み立てさせない
+    expect(row.queryByLabelText('イベント')).not.toBeInTheDocument()
+    expect(row.getByText('チャンネルポイントが交換された')).toBeInTheDocument()
   })
 
-  test('選んだイベントで使える差し込み語を、文言欄のそばに出す', async () => {
-    render(トリガーのページ(代役のAPI()))
-
-    const row = await 開いたトリガー()
-    expect(row.getByText(/\{user\}/)).toHaveTextContent('{reward}')
-
-    await userEvent.selectOptions(row.getByLabelText('イベント'), 'channel.raid')
-    const 差し込み語 = row.getByText(/\{user\}/)
-    expect(差し込み語).toHaveTextContent('{viewers}')
-    expect(差し込み語).not.toHaveTextContent('{reward}')
-  })
-
-  test('チャンネルポイント交換以外のイベントのトリガーは、報酬の条件を付けずに保存する', async () => {
+  test('報酬を選び直して保存すると、その報酬IDで送る', async () => {
     const api = 代役のAPI()
     render(トリガーのページ(api))
 
     const row = await 開いたトリガー()
-    await userEvent.selectOptions(row.getByLabelText('イベント'), 'channel.raid')
+    await userEvent.selectOptions(row.getByLabelText('対象の報酬'), '')
     await userEvent.click(screen.getByRole('button', { name: 'トリガーを保存' }))
 
     expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
-    expect(api.saveConfig).toHaveBeenCalledWith([
-      {
-        event: 'channel.raid',
-        conditions: [],
-        actions: [{ type: 'alert', mediaId: 'media-hakushu', durationSeconds: 8, volume: 0.5, message: '{user} さんが拍手を送りました' }],
-      },
-    ])
+    expect(api.saveConfig).toHaveBeenCalledWith([expect.objectContaining({ kind: 'reward', rewardId: null })])
   })
 
-  test('ユーザーの条件を足して名前を入れると、条件として保存する', async () => {
-    const api = 代役のAPI()
+  test('報酬の選択欄には「すべての報酬」が並び、絞り込まないトリガーではそれが選ばれている', async () => {
+    render(トリガーのページ(代役のAPI({ config: async () => [{ ...拍手のトリガー, rewardId: null }] })))
+
+    const row = await 開いたトリガー()
+
+    expect(row.getByLabelText('対象の報酬')).toHaveValue('')
+    expect(row.getByRole('option', { name: 'すべての報酬' })).toBeInTheDocument()
+  })
+
+  test('決まった人が発言したトリガーは、ユーザー名を書き換えて保存できる', async () => {
+    const api = 代役のAPI({ config: async () => [{ kind: 'chatFromUser', login: 'tanenobu', actions: [{ type: 'chat', message: 'やあ' }] }] })
     render(トリガーのページ(api))
 
     const row = await 開いたトリガー()
-    await userEvent.click(row.getByRole('button', { name: 'ユーザーの条件を足す' }))
-    await userEvent.type(row.getByLabelText('ユーザー'), 'tanenobu')
+    expect(row.getByLabelText('対象のユーザー名')).toHaveValue('tanenobu')
+    await userEvent.clear(row.getByLabelText('対象のユーザー名'))
+    await userEvent.type(row.getByLabelText('対象のユーザー名'), 'yamada_hanako')
     await userEvent.click(screen.getByRole('button', { name: 'トリガーを保存' }))
 
-    expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
-    expect(api.saveConfig).toHaveBeenCalledWith([
-      {
-        event: REDEMPTION,
-        conditions: [
-          { kind: 'reward', rewardId: 'reward-hakushu' },
-          { kind: 'user', login: 'tanenobu' },
-        ],
-        actions: [{ type: 'alert', mediaId: 'media-hakushu', durationSeconds: 8, volume: 0.5, message: '{user} さんが拍手を送りました' }],
-      },
-    ])
+    expect(api.saveConfig).toHaveBeenCalledWith([{ kind: 'chatFromUser', login: 'yamada_hanako', actions: [{ type: 'chat', message: 'やあ' }] }])
   })
 
-  test('同じ種類の条件は2件足せない（足したあとは選べなくなる）', async () => {
-    render(トリガーのページ(代役のAPI()))
-
-    const row = await 開いたトリガー()
-    // 報酬の条件は保存済みのトリガーにすでに付いている
-    expect(row.queryByRole('button', { name: '報酬の条件を足す' })).not.toBeInTheDocument()
-
-    await userEvent.click(row.getByRole('button', { name: 'ユーザーの条件を足す' }))
-
-    expect(row.queryByRole('button', { name: 'ユーザーの条件を足す' })).not.toBeInTheDocument()
-  })
-
-  test('条件を外せる', async () => {
-    const api = 代役のAPI()
+  test('決まった言葉を含む発言のトリガーは、言葉を書き換えて保存できる', async () => {
+    const api = 代役のAPI({ config: async () => [{ kind: 'chatContains', contains: 'おはよう', actions: [{ type: 'chat', message: 'おはよう！' }] }] })
     render(トリガーのページ(api))
 
     const row = await 開いたトリガー()
-    await userEvent.click(row.getByRole('button', { name: '報酬の条件を外す' }))
+    await userEvent.clear(row.getByLabelText('発言に含まれる言葉'))
+    await userEvent.type(row.getByLabelText('発言に含まれる言葉'), 'こんばんは')
     await userEvent.click(screen.getByRole('button', { name: 'トリガーを保存' }))
 
-    expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
-    expect(api.saveConfig).toHaveBeenCalledWith([expect.objectContaining({ conditions: [] })])
+    expect(api.saveConfig).toHaveBeenCalledWith([expect.objectContaining({ kind: 'chatContains', contains: 'こんばんは' })])
   })
 
-  test('条件が1件もなければ、いつでも動くことを知らせる', async () => {
-    render(トリガーのページ(代役のAPI({ config: async () => [{ ...拍手のトリガー, conditions: [] }] })))
-
-    const row = await 開いたトリガー()
-
-    expect(row.getByText(/このイベントが起きればいつでも/)).toBeInTheDocument()
-  })
-
-  test('報酬の条件を足すと、置いてある報酬の先頭を選んだ状態になる（選択欄に見えているとおりで保存できる）', async () => {
-    const api = 代役のAPI({ config: async () => [{ ...拍手のトリガー, conditions: [] }] })
+  test('久しぶりの人が発言したトリガーは、日数を書き換えて保存できる', async () => {
+    const api = 代役のAPI({ config: async () => [{ kind: 'returningAfter', days: 30, actions: [{ type: 'chat', message: 'お久しぶり' }] }] })
     render(トリガーのページ(api))
 
     const row = await 開いたトリガー()
-    await userEvent.click(row.getByRole('button', { name: '報酬の条件を足す' }))
-
-    expect(row.getByLabelText('報酬')).toHaveValue('reward-hakushu')
-  })
-
-  test('チャットの発言のイベントでは、文面の条件を足して保存できる', async () => {
-    const api = 代役のAPI({ config: async () => [{ ...拍手のトリガー, conditions: [] }] })
-    render(トリガーのページ(api))
-
-    const row = await 開いたトリガー()
-    await userEvent.selectOptions(row.getByLabelText('イベント'), CHAT_MESSAGE)
-    await userEvent.click(row.getByRole('button', { name: '文面に含む言葉の条件を足す' }))
-    await userEvent.type(row.getByLabelText('文面に含む言葉'), 'おはよう')
+    fireEvent.change(row.getByLabelText('前の発言から空いた日数'), { target: { value: '60' } })
     await userEvent.click(screen.getByRole('button', { name: 'トリガーを保存' }))
 
-    expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
-    expect(api.saveConfig).toHaveBeenCalledWith([expect.objectContaining({ event: CHAT_MESSAGE, conditions: [{ kind: 'text', contains: 'おはよう' }] })])
+    expect(api.saveConfig).toHaveBeenCalledWith([expect.objectContaining({ kind: 'returningAfter', days: 60 })])
   })
 
-  test('チャットの発言のイベントでは、その配信で初めての発言の条件を足して保存できる（入れる値はない）', async () => {
-    const api = 代役のAPI({ config: async () => [{ ...拍手のトリガー, conditions: [] }] })
-    render(トリガーのページ(api))
-
-    const row = await 開いたトリガー()
-    await userEvent.selectOptions(row.getByLabelText('イベント'), CHAT_MESSAGE)
-    await userEvent.click(row.getByRole('button', { name: 'その配信で初めての発言の条件を足す' }))
-    await userEvent.click(screen.getByRole('button', { name: 'トリガーを保存' }))
-
-    expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
-    expect(api.saveConfig).toHaveBeenCalledWith([expect.objectContaining({ event: CHAT_MESSAGE, conditions: [{ kind: 'firstChatOfStream' }] })])
-  })
-
-  test('広告の開始のイベントでは、自動で入った広告かの条件を足して保存できる', async () => {
-    const api = 代役のAPI({ config: async () => [{ ...拍手のトリガー, conditions: [] }] })
-    render(トリガーのページ(api))
-
-    const row = await 開いたトリガー()
-    await userEvent.selectOptions(row.getByLabelText('イベント'), 'channel.ad_break.begin')
-    await userEvent.click(row.getByRole('button', { name: '自動で入った広告かの条件を足す' }))
-    // 足したばかりの条件は「自動で入った広告」を選んだ状態になっている
-    expect(row.getByLabelText('自動で入った広告か')).toHaveValue('true')
-    await userEvent.click(screen.getByRole('button', { name: 'トリガーを保存' }))
-
-    expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
-    expect(api.saveConfig).toHaveBeenCalledWith([
-      expect.objectContaining({ event: 'channel.ad_break.begin', conditions: [{ kind: 'automatic', automatic: true }] }),
-    ])
-  })
-
-  test('自動で入った広告かの条件で「手動で打った広告」を選ぶと、false として保存する', async () => {
-    const api = 代役のAPI({ config: async () => [{ ...拍手のトリガー, conditions: [] }] })
-    render(トリガーのページ(api))
-
-    const row = await 開いたトリガー()
-    await userEvent.selectOptions(row.getByLabelText('イベント'), 'channel.ad_break.end')
-    await userEvent.click(row.getByRole('button', { name: '自動で入った広告かの条件を足す' }))
-    await userEvent.selectOptions(row.getByLabelText('自動で入った広告か'), 'false')
-    await userEvent.click(screen.getByRole('button', { name: 'トリガーを保存' }))
-
-    expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
-    expect(api.saveConfig).toHaveBeenCalledWith([
-      expect.objectContaining({ event: 'channel.ad_break.end', conditions: [{ kind: 'automatic', automatic: false }] }),
-    ])
-  })
-
-  test('その配信で初めての発言の条件は、入れる値がないので説明だけを出す', async () => {
-    const 初回のトリガー: StoredTrigger = { ...拍手のトリガー, event: CHAT_MESSAGE, conditions: [{ kind: 'firstChatOfStream' }] }
-    render(トリガーのページ(代役のAPI({ config: async () => [初回のトリガー] })))
-
-    const row = await 開いたトリガー()
-
-    expect(row.getByText('その配信で初めての発言')).toBeInTheDocument()
-    expect(row.getByText(/配信中の発言だけが対象/)).toBeInTheDocument()
-    expect(row.getByRole('button', { name: 'その配信で初めての発言の条件を外す' })).toBeInTheDocument()
-    // 入れる値がないので、対応する入力欄のないラベルにしない（読み上げが行き先のないラベルを読んでしまう）
-    expect(row.getByText('その配信で初めての発言').closest('label')).toBeNull()
-  })
-
-  test('チャットの発言のイベントでは、このチャンネルで初めての発言の条件を足して保存できる（入れる値はない）', async () => {
-    const api = 代役のAPI({ config: async () => [{ ...拍手のトリガー, conditions: [] }] })
-    render(トリガーのページ(api))
-
-    const row = await 開いたトリガー()
-    await userEvent.selectOptions(row.getByLabelText('イベント'), CHAT_MESSAGE)
-    await userEvent.click(row.getByRole('button', { name: 'このチャンネルで初めての発言の条件を足す' }))
-    await userEvent.click(screen.getByRole('button', { name: 'トリガーを保存' }))
-
-    expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
-    expect(api.saveConfig).toHaveBeenCalledWith([expect.objectContaining({ event: CHAT_MESSAGE, conditions: [{ kind: 'firstChatEver' }] })])
-  })
-
-  test('チャットの発言のイベントでは、空いた日数の条件を足して日数を書き換えて保存できる', async () => {
-    const api = 代役のAPI({ config: async () => [{ ...拍手のトリガー, conditions: [] }] })
-    render(トリガーのページ(api))
-
-    const row = await 開いたトリガー()
-    await userEvent.selectOptions(row.getByLabelText('イベント'), CHAT_MESSAGE)
-    await userEvent.click(row.getByRole('button', { name: '前の発言から空いた日数の条件を足す' }))
-    // 既定の30日を消してから入れ直す
-    await userEvent.clear(row.getByLabelText('前の発言から空いた日数'))
-    await userEvent.type(row.getByLabelText('前の発言から空いた日数'), '60')
-    await userEvent.click(screen.getByRole('button', { name: 'トリガーを保存' }))
-
-    expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
-    expect(api.saveConfig).toHaveBeenCalledWith([expect.objectContaining({ event: CHAT_MESSAGE, conditions: [{ kind: 'returningAfter', days: 60 }] })])
-  })
-
-  test('空いた日数の条件を足すと、既定の30日が入っている', async () => {
-    render(トリガーのページ(代役のAPI({ config: async () => [{ ...拍手のトリガー, conditions: [] }] })))
-
-    const row = await 開いたトリガー()
-    await userEvent.selectOptions(row.getByLabelText('イベント'), CHAT_MESSAGE)
-    await userEvent.click(row.getByRole('button', { name: '前の発言から空いた日数の条件を足す' }))
-
-    expect(row.getByLabelText('前の発言から空いた日数')).toHaveValue(30)
-  })
-
-  test('空いた日数を空欄にして保存しようとしたら、数を入れるよう知らせる（0日として送ってしまわないため）', async () => {
-    const api = 代役のAPI({ config: async () => [{ ...拍手のトリガー, event: CHAT_MESSAGE, conditions: [{ kind: 'returningAfter', days: 30 }] }] })
+  test('日数を空欄にして保存しようとしたら、数を入れるよう知らせる（0日として送ってしまわないため）', async () => {
+    const api = 代役のAPI({ config: async () => [{ kind: 'returningAfter', days: 30, actions: [{ type: 'chat', message: 'お久しぶり' }] }] })
     render(トリガーのページ(api))
 
     const row = await 開いたトリガー()
@@ -380,62 +232,57 @@ describe('トリガー', () => {
     expect(api.saveConfig).not.toHaveBeenCalled()
   })
 
-  test('このチャンネルで初めての発言の条件は、入れる値がないので説明だけを出す', async () => {
-    const 初見のトリガー: StoredTrigger = { ...拍手のトリガー, event: CHAT_MESSAGE, conditions: [{ kind: 'firstChatEver' }] }
+  test('広告のトリガーは、自動・手動の絞り込みを選んで保存できる', async () => {
+    const api = 代役のAPI({ config: async () => [{ kind: 'adBreakEnd', automatic: true, actions: [{ type: 'chat', message: 'おかえりなさい' }] }] })
+    render(トリガーのページ(api))
+
+    const row = await 開いたトリガー()
+    expect(row.getByLabelText('対象の広告')).toHaveValue('true')
+    await userEvent.selectOptions(row.getByLabelText('対象の広告'), '')
+    await userEvent.click(screen.getByRole('button', { name: 'トリガーを保存' }))
+
+    expect(api.saveConfig).toHaveBeenCalledWith([expect.objectContaining({ kind: 'adBreakEnd', automatic: null })])
+  })
+
+  test('パラメータを持たないメニュー項目では、入力欄の代わりに何をきっかけにするかの補足を出す', async () => {
+    const 初見のトリガー: StoredTrigger = { kind: 'firstChatEver', actions: [{ type: 'chat', message: 'はじめまして' }] }
     render(トリガーのページ(代役のAPI({ config: async () => [初見のトリガー] })))
 
     const row = await 開いたトリガー()
 
-    expect(row.getByText('このチャンネルで初めての発言')).toBeInTheDocument()
+    expect(row.getByText('このチャンネルで初めての人が発言した')).toBeInTheDocument()
     expect(row.getByText(/記録が残っていない人/)).toBeInTheDocument()
-    // 入れる値がないので、対応する入力欄のないラベルにしない（読み上げが行き先のないラベルを読んでしまう）
-    expect(row.getByText('このチャンネルで初めての発言').closest('label')).toBeNull()
   })
 
-  test.each(['このチャンネルで初めての発言', '前の発言から空いた日数'])(
-    'チャットの発言以外のイベントでは、%s の条件を足せない（Workerが保存を拒否するため）',
-    async (名前) => {
-      render(トリガーのページ(代役のAPI({ config: async () => [{ ...拍手のトリガー, conditions: [] }] })))
-
-      const row = await 開いたトリガー()
-
-      expect(row.queryByRole('button', { name: `${名前}の条件を足す` })).not.toBeInTheDocument()
-    },
-  )
-
-  test('チャットの発言以外のイベントでは、文面の条件を足せない（Workerが保存を拒否するため）', async () => {
-    render(トリガーのページ(代役のAPI({ config: async () => [{ ...拍手のトリガー, conditions: [] }] })))
+  test('チャットの発言をきっかけにするトリガーでは、差し込み語に {message} を出す', async () => {
+    render(トリガーのページ(代役のAPI({ config: async () => [{ kind: 'chat', actions: [{ type: 'chat', message: 'やあ' }] }] })))
 
     const row = await 開いたトリガー()
-
-    expect(row.queryByRole('button', { name: '文面に含む言葉の条件を足す' })).not.toBeInTheDocument()
-  })
-
-  test('チャットの発言から別のイベントに切り替えると、文面の条件は外れる（そのままでは保存できないため）', async () => {
-    render(トリガーのページ(代役のAPI({ config: async () => [{ ...拍手のトリガー, event: CHAT_MESSAGE, conditions: [{ kind: 'text', contains: 'おはよう' }] }] })))
-
-    const row = await 開いたトリガー()
-    expect(row.getByLabelText('文面に含む言葉')).toHaveValue('おはよう')
-
-    await userEvent.selectOptions(row.getByLabelText('イベント'), 'channel.follow')
-
-    expect(row.queryByLabelText('文面に含む言葉')).not.toBeInTheDocument()
-  })
-
-  test('チャットの発言では、差し込み語に {message} を出す', async () => {
-    render(トリガーのページ(代役のAPI()))
-
-    const row = await 開いたトリガー()
-    await userEvent.selectOptions(row.getByLabelText('イベント'), CHAT_MESSAGE)
 
     expect(row.getByText(/\{user\}/)).toHaveTextContent('{message}')
+  })
+
+  test('メニューは「視聴者・応援・配信」に分かれ、選ぶとその項目のトリガーが足される', async () => {
+    const api = 代役のAPI({ config: vi.fn(async () => []) })
+    render(トリガーのページ(api))
+
+    await userEvent.click(await screen.findByRole('button', { name: 'トリガーを足す' }))
+    // メニューの中身は開いたあとに差し込まれるので、出そろうのを待ってから確かめる
+    expect(await screen.findByText('視聴者')).toBeInTheDocument()
+    expect(screen.getByText('応援')).toBeInTheDocument()
+    expect(screen.getByText('配信')).toBeInTheDocument()
+
+    await userEvent.click(await screen.findByRole('menuitem', { name: /フォローされた/ }))
+
+    expect(await お知らせ('「フォローされた」のトリガーを足しました')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^1番目のトリガー:/ })).toHaveTextContent('フォローされた')
   })
 
   test('トリガーを足して書き換え、Workerへ送る形で保存する', async () => {
     const api = 代役のAPI({ config: vi.fn(async () => []) })
     render(トリガーのページ(api))
 
-    await userEvent.click(await screen.findByRole('button', { name: 'トリガーを足す' }))
+    await メニューから足す('チャンネルポイントが交換された')
     const row = within(screen.getByRole('listitem', { name: '1番目のトリガー' }))
     await userEvent.selectOptions(row.getByLabelText('素材'), 'media-hanabi')
     fireEvent.change(row.getByLabelText('表示時間（1〜60秒）'), { target: { value: '12' } })
@@ -445,14 +292,14 @@ describe('トリガー', () => {
 
     expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
     expect(api.saveConfig).toHaveBeenCalledWith([
-      { event: REDEMPTION, conditions: [], actions: [{ type: 'alert', mediaId: 'media-hanabi', durationSeconds: 12, volume: 0.3, message: 'ありがとう' }] },
+      { kind: 'reward', rewardId: null, actions: [{ type: 'alert', mediaId: 'media-hanabi', durationSeconds: 12, volume: 0.3, message: 'ありがとう' }] },
     ])
   })
 
   test('素材が1つもなければ、チャットに送るだけのトリガーとして足す', async () => {
     render(トリガーのページ(代役のAPI({ media: async () => [], config: async () => [] })))
 
-    await userEvent.click(await screen.findByRole('button', { name: 'トリガーを足す' }))
+    await メニューから足す('フォローされた')
 
     const row = within(screen.getByRole('listitem', { name: '1番目のトリガー' }))
     // Base UI のチェックボックスは span[role=checkbox] と隠しinputの2つになるため、役割で探す
@@ -473,8 +320,8 @@ describe('トリガー', () => {
     expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
     expect(api.saveConfig).toHaveBeenCalledWith([
       {
-        event: REDEMPTION,
-        conditions: [{ kind: 'reward', rewardId: 'reward-hakushu' }],
+        kind: 'reward',
+        rewardId: 'reward-hakushu',
         actions: [{ type: 'chat', message: '{user} さん、ありがとうございます' }],
       },
     ])
@@ -493,8 +340,8 @@ describe('トリガー', () => {
     expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
     expect(api.saveConfig).toHaveBeenCalledWith([
       {
-        event: REDEMPTION,
-        conditions: [{ kind: 'reward', rewardId: 'reward-hakushu' }],
+        kind: 'reward',
+        rewardId: 'reward-hakushu',
         actions: [{ type: 'aiChat', instruction: '初めて来てくれた人を歓迎してください' }],
       },
     ])
@@ -525,8 +372,8 @@ describe('トリガー', () => {
     expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
     expect(api.saveConfig).toHaveBeenCalledWith([
       {
-        event: REDEMPTION,
-        conditions: [{ kind: 'reward', rewardId: 'reward-hakushu' }],
+        kind: 'reward',
+        rewardId: 'reward-hakushu',
         actions: [{ type: 'announce', message: '{user} さん、ありがとうございます', color: 'purple' }],
       },
     ])
@@ -552,7 +399,7 @@ describe('トリガー', () => {
 
   test('チャットに送るだけのトリガーでアラートを出すを付けると、選択欄に見えている最初の素材で保存する', async () => {
     // 素材が未選択（空文字）のまま保存すると、選択欄には最初の素材が見えているのにWorkerが「素材が存在しません」と拒否してしまう
-    const チャットだけのトリガー: StoredTrigger = { event: 'channel.follow', conditions: [], actions: [{ type: 'chat', message: 'ありがとうございます' }] }
+    const チャットだけのトリガー: StoredTrigger = { kind: 'follow', actions: [{ type: 'chat', message: 'ありがとうございます' }] }
     const api = 代役のAPI({ config: vi.fn(async () => [チャットだけのトリガー]) })
     render(トリガーのページ(api))
 
@@ -563,8 +410,7 @@ describe('トリガー', () => {
     expect(await お知らせ('トリガーを保存しました')).toBeInTheDocument()
     expect(api.saveConfig).toHaveBeenCalledWith([
       {
-        event: 'channel.follow',
-        conditions: [],
+        kind: 'follow',
         actions: [
           { type: 'alert', mediaId: 'media-hakushu', durationSeconds: 5, volume: 1, message: '' },
           { type: 'chat', message: 'ありがとうございます' },
@@ -610,10 +456,10 @@ describe('トリガー', () => {
 })
 
 describe('折りたたみ', () => {
-  test('保存済みのトリガーは折りたたんで並び、見出しに「イベント・条件・動作」の要約を出す', async () => {
+  test('保存済みのトリガーは折りたたんで並び、見出しに「きっかけ・絞り込み・動作」の要約を出す', async () => {
     render(トリガーのページ(代役のAPI()))
 
-    expect(await screen.findByRole('button', { name: /^1番目のトリガー:/ })).toHaveTextContent('チャンネルポイントの交換（報酬「拍手を送る」）→ アラート')
+    expect(await screen.findByRole('button', { name: /^1番目のトリガー:/ })).toHaveTextContent('チャンネルポイントが交換された（拍手を送る）→ アラート')
     // 開くまでは入力欄を出さない（数が増えても一覧を見渡せるようにする）
     expect(screen.queryByLabelText('素材')).not.toBeInTheDocument()
   })
@@ -632,7 +478,7 @@ describe('折りたたみ', () => {
   test('別のトリガーを開くと、先に開いていたトリガーは閉じる', async () => {
     const トリガー2件: StoredTrigger[] = [
       拍手のトリガー,
-      { event: 'channel.follow', conditions: [], actions: [{ type: 'chat', message: 'ありがとうございます' }] },
+      { kind: 'follow', actions: [{ type: 'chat', message: 'ありがとうございます' }] },
     ]
     render(トリガーのページ(代役のAPI({ config: async () => トリガー2件 })))
 
@@ -646,9 +492,9 @@ describe('折りたたみ', () => {
   test('足したトリガーは、すぐ書き換えられるよう開いた状態で出る', async () => {
     render(トリガーのページ(代役のAPI({ config: async () => [] })))
 
-    await userEvent.click(await screen.findByRole('button', { name: 'トリガーを足す' }))
+    await メニューから足す('フォローされた')
 
-    expect(within(screen.getByRole('listitem', { name: '1番目のトリガー' })).getByLabelText('イベント')).toBeInTheDocument()
+    expect(within(screen.getByRole('listitem', { name: '1番目のトリガー' })).getByRole('checkbox', { name: 'アラートを出す' })).toBeInTheDocument()
   })
 
   test('折りたたんだままでもトリガーを外せる', async () => {
@@ -727,10 +573,10 @@ describe('読み込みの失敗', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('チャンネルポイント報酬の一覧を取得できませんでした: チャンネルポイントを使えないチャンネルです')
     expect(screen.getByRole('button', { name: 'トリガーを足す' })).toBeInTheDocument()
     // ほかの操作が成功しても、報酬を選べない理由は出したままにする（報酬の一覧はまだ取得できていない）
-    await userEvent.click(screen.getByRole('button', { name: 'トリガーを足す' }))
-    expect(await お知らせ('トリガーを足しました')).toBeInTheDocument()
+    await メニューから足す('フォローされた')
+    expect(await お知らせ('のトリガーを足しました')).toBeInTheDocument()
     expect(screen.getByRole('alert')).toHaveTextContent('チャンネルポイント報酬の一覧を取得できませんでした')
     // 保存済みの報酬はTwitchの一覧にないものとして選択肢に残る（黙って別の報酬に変えない）
-    expect((await 開いたトリガー()).getByLabelText('報酬')).toHaveValue('reward-hakushu')
+    expect((await 開いたトリガー()).getByLabelText('対象の報酬')).toHaveValue('reward-hakushu')
   })
 })

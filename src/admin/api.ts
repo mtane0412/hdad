@@ -95,37 +95,46 @@ export interface AiChatAction {
 
 export type ActionInput = AlertActionInput | ChatAction | AnnounceAction | AiChatAction
 
-/** 条件の種類。worker/alert-config.ts の CONDITION_KINDS と同じ並び（worker/ の型は読み込めないのでここで定義する） */
-export const CONDITION_KINDS = ['reward', 'user', 'text', 'firstChatOfStream', 'firstChatEver', 'returningAfter', 'automatic'] as const
+/**
+ * 既定メニューの項目。worker/trigger-menu.ts の TRIGGER_KINDS と同じ並び（worker/ の型は読み込めないのでここで定義する）。
+ *
+ * 配信者はイベント種別と条件を自由に組み合わせず、この一覧から選ぶ。
+ * どのイベントを対象にするか（差し込み語がどれになるか）は kind から決まる（src/admin/form.ts の EVENT_OF_KIND）。
+ */
+export const TRIGGER_KINDS = [
+  'chat',
+  'firstChatEver',
+  'firstChatOfStream',
+  'returningAfter',
+  'chatFromUser',
+  'chatContains',
+  'reward',
+  'follow',
+  'subscribe',
+  'resubscribe',
+  'raid',
+  'adBreakBegin',
+  'adBreakEnd',
+] as const
 
-export type ConditionKind = (typeof CONDITION_KINDS)[number]
+export type TriggerKind = (typeof TRIGGER_KINDS)[number]
 
 /**
- * 条件1件。種類（kind）で判別する union。
+ * トリガーのきっかけ（メニュー項目と、そのパラメータ）。
  *
- * - reward: 対象の報酬ID。チャンネルポイントの交換にしか付けられない（ほかのイベントではWorkerが保存を拒否する）
- * - user: そのイベントの相手（交換した人・フォローした人・レイドした配信者・発言した人など）のTwitchのユーザー名
- * - text: 発言の本文に含まれる文字。チャットの発言にしか付けられない（ほかのイベントではWorkerが保存を拒否する）
- * - firstChatOfStream: その配信で初めての発言であること。チャットの発言にしか付けられない
- * - firstChatEver: このチャンネルで初めての発言であること（視聴者の記録から決まる）。チャットの発言にしか付けられない
- * - returningAfter: 最後の発言から days 日以上空いていること。チャットの発言にしか付けられない
- * - automatic: 自動で入った広告か（true）、配信者が手動で打った広告か（false）。広告の開始・終了にしか付けられない
+ * null を取るパラメータは「絞り込まない」を表す（rewardId ならすべての報酬、automatic なら自動・手動のどちらでも）。
  */
-export type TriggerCondition =
-  | { kind: 'reward'; rewardId: string }
-  | { kind: 'user'; login: string }
-  | { kind: 'text'; contains: string }
-  | { kind: 'firstChatOfStream' }
-  | { kind: 'firstChatEver' }
+export type TriggerSource =
+  | { kind: 'chat' | 'firstChatEver' | 'firstChatOfStream' }
   | { kind: 'returningAfter'; days: number }
-  | { kind: 'automatic'; automatic: boolean }
+  | { kind: 'chatFromUser'; login: string }
+  | { kind: 'chatContains'; contains: string }
+  | { kind: 'reward'; rewardId: string | null }
+  | { kind: 'follow' | 'subscribe' | 'resubscribe' | 'raid' }
+  | { kind: 'adBreakBegin' | 'adBreakEnd'; automatic: boolean | null }
 
-/** 保存するトリガー。イベント種別・条件のリスト（すべて満たす）・そのとき行う動作の一覧からなる */
-export interface TriggerInput {
-  event: AlertEvent
-  conditions: TriggerCondition[]
-  actions: ActionInput[]
-}
+/** 保存するトリガー。既定メニューの項目と、そのとき行う動作の一覧からなる */
+export type TriggerInput = TriggerSource & { actions: ActionInput[] }
 
 /** 保存済みの「アラートを出す」動作（Workerが素材の種類を書き足したもの） */
 export type StoredAlertAction = AlertActionInput & { mediaKind: MediaKind }
@@ -133,11 +142,7 @@ export type StoredAlertAction = AlertActionInput & { mediaKind: MediaKind }
 export type StoredAction = StoredAlertAction | ChatAction | AnnounceAction | AiChatAction
 
 /** 保存済みのトリガー */
-export interface StoredTrigger {
-  event: AlertEvent
-  conditions: TriggerCondition[]
-  actions: StoredAction[]
-}
+export type StoredTrigger = TriggerSource & { actions: StoredAction[] }
 
 /** チャンネルポイント報酬 */
 export interface Reward {
@@ -178,19 +183,22 @@ const isMediaItem = (value: unknown): value is MediaItem =>
   typeof value.size === 'number' &&
   typeof value.uploadedAt === 'string'
 
-/** アラートを出せるイベントの種類か。選択欄の値をイベント種別として扱う前の確認にも使う */
-export const isAlertEvent = (value: unknown): value is AlertEvent => ALERT_EVENTS.some((event) => event === value)
-
-/** 条件1件の形。種類ごとに持つ項目が違う。知らない種類は受け取らない（黙って無視すると絞り込みが効かないまま画面に出てしまう） */
-const isTriggerCondition = (value: unknown): value is TriggerCondition => {
+/**
+ * トリガーのきっかけの形。メニュー項目ごとに持つパラメータが違う。
+ *
+ * 知らないメニュー項目は受け取らない（黙って無視すると、絞り込みが効かないまま画面に出てしまう）。
+ */
+const isTriggerSource = (value: unknown): value is TriggerSource => {
   if (!isRecord(value)) return false
-  if (value.kind === 'reward') return typeof value.rewardId === 'string'
-  if (value.kind === 'text') return typeof value.contains === 'string'
-  // 入れる値を持たない条件なので、種類が合っていればそれでよい
-  if (value.kind === 'firstChatOfStream' || value.kind === 'firstChatEver') return true
   if (value.kind === 'returningAfter') return typeof value.days === 'number'
-  if (value.kind === 'automatic') return typeof value.automatic === 'boolean'
-  return value.kind === 'user' && typeof value.login === 'string'
+  if (value.kind === 'chatFromUser') return typeof value.login === 'string'
+  if (value.kind === 'chatContains') return typeof value.contains === 'string'
+  // null は「すべての報酬」を表す
+  if (value.kind === 'reward') return value.rewardId === null || typeof value.rewardId === 'string'
+  // null は「自動・手動のどちらでも」を表す
+  if (value.kind === 'adBreakBegin' || value.kind === 'adBreakEnd') return value.automatic === null || typeof value.automatic === 'boolean'
+  // パラメータを持たないメニュー項目なので、名前が合っていればそれでよい
+  return TRIGGER_KINDS.some((kind) => kind === value.kind)
 }
 
 /** 保存済みの動作1件の形。種類ごとに持つ項目が違う */
@@ -210,13 +218,9 @@ const isStoredAction = (value: unknown): value is StoredAction => {
   )
 }
 
+// 動作の確認を先に置くのは、きっかけの確認で TriggerSource に狭まると actions を読めなくなるためである
 const isStoredTrigger = (value: unknown): value is StoredTrigger =>
-  isRecord(value) &&
-  isAlertEvent(value.event) &&
-  Array.isArray(value.conditions) &&
-  value.conditions.every(isTriggerCondition) &&
-  Array.isArray(value.actions) &&
-  value.actions.every(isStoredAction)
+  isRecord(value) && Array.isArray(value.actions) && value.actions.every(isStoredAction) && isTriggerSource(value)
 
 const isReward = (value: unknown): value is Reward =>
   isRecord(value) && typeof value.id === 'string' && typeof value.title === 'string' && typeof value.cost === 'number'
