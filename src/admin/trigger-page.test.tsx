@@ -597,6 +597,34 @@ describe('未保存の変更', () => {
     expect(screen.queryByText('未保存の変更があります')).not.toBeInTheDocument()
   })
 
+  test('保存中に書き換えたら、Workerが保存した内容を基準にして未保存かどうかを決める', async () => {
+    // 保存を待つあいだの書き換えは応答で上書きしないが、「保存済みの内容」はWorkerが受け取ったものに進んでいる。
+    // 基準を読み込んだ時点のままにすると、書き換えを元に戻したときに「未保存の変更なし」と見えてしまう
+    let 保存を終える: (triggers: StoredTrigger[]) => void = () => {}
+    const api = 代役のAPI({
+      config: async () => [],
+      saveConfig: vi.fn(() => new Promise<StoredTrigger[]>((resolve) => (保存を終える = resolve))),
+    })
+    render(トリガーのページ(api))
+
+    const row = await 開いた項目('フォローされた')
+    await userEvent.click(row.getByRole('checkbox', { name: 'チャットに送る' }))
+    await userEvent.type(row.getByLabelText('チャットに送る文言'), 'ありがとう')
+    await 保存する()
+    // 応答が届く前に書き換える
+    await userEvent.type(row.getByLabelText('チャットに送る文言'), '！')
+    保存を終える([{ kind: 'follow', actions: [{ type: 'chat', message: 'ありがとう' }] }])
+
+    expect(await お知らせ('保存中に書き換えた内容はまだ保存されていません')).toBeInTheDocument()
+    expect(screen.getByText('未保存の変更があります')).toBeInTheDocument()
+
+    // Workerが保存したのは「ありがとう」なので、そこへ戻せば未保存の変更はなくなる
+    await userEvent.clear(row.getByLabelText('チャットに送る文言'))
+    await userEvent.type(row.getByLabelText('チャットに送る文言'), 'ありがとう')
+
+    expect(screen.queryByText('未保存の変更があります')).not.toBeInTheDocument()
+  })
+
   test('設定を足しただけでも未保存だと知らせる（足しただけでは保存されないため）', async () => {
     render(トリガーのページ(代役のAPI({ config: async () => [] })))
 

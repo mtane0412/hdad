@@ -818,11 +818,13 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
     submittedLabelsRef.current = drafts.filter(hasAnyAction).map((draft) => menuLabel(draft.kind))
     const submitted = drafts
     const saved = await api.saveConfig(inputs)
+    const savedDrafts = withFixedRows(saved.map(toDraft))
+    // 未保存かどうかを比べる基準は、書き換えの有無にかかわらずWorkerが保存した内容に進める。
+    // 読み込んだ時点のままにすると、保存中の書き換えを元に戻したときに「未保存の変更なし」と見えてしまう
+    setSavedSignature(JSON.stringify(savedDrafts))
     // 保存を待つ間に入力欄が書き換えられていたら、その内容を応答で上書きしない（書き換えた分は次の保存で送られる）
     if (draftsRef.current !== submitted) return 'トリガーを保存しました。保存中に書き換えた内容はまだ保存されていません'
-    const savedDrafts = withFixedRows(saved.map(toDraft))
     replaceDrafts(savedDrafts)
-    setSavedSignature(JSON.stringify(savedDrafts))
     return 'トリガーを保存しました。次の出来事から反映されます'
   }
 
