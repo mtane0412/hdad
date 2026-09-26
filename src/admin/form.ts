@@ -147,7 +147,7 @@ const AD_BREAK_ITEM: MenuItem = {
     { kind: 'adBreakEnd', heading: '広告が終わったときの効果', summary: '終了' },
   ],
   label: '広告',
-  description: '配信中に広告が入ったとき。始まったときと終わったときで、別々の効果を付けられる',
+  description: '配信中に広告が入ったとき。始まり・終わりで別々の効果を付けられる',
   multiple: false,
   addLabel: null,
 }
@@ -170,12 +170,12 @@ export const menuGroups: readonly MenuGroup[] = [
     // （初めて来た人の発言は必ず「その配信で最初の発言」でもあるため、そうしないと挨拶が二重に飛ぶ）
     description: '上の3つ（初めて来た人・久しぶりの人・その配信で最初）は、当てはまるうち一番上のものだけが動く。',
     items: [
-      item('newViewer', 'このチャンネルで初めて発言した人'),
-      item('comeback', '前の発言から決めた日数以上空いた人'),
-      item('welcome', '上の2つに当てはまらない、その配信での1回目の発言'),
-      item('everyMessage', '書き込みがあるたび。挨拶と同時に動く（読み上げや効果音に使う）'),
-      item('keyword', '決めた言葉を含む発言（部分一致）', '言葉を足す'),
-      item('fromUser', '決めたユーザー名の人の発言', 'ユーザーを足す'),
+      item('newViewer', 'このチャンネルで初めての発言'),
+      item('comeback', '決めた日数以上ぶりの発言'),
+      item('welcome', 'その配信での1回目の発言'),
+      item('everyMessage', '発言があるたび。挨拶とも同時に動く'),
+      item('keyword', '決めた言葉を含む発言', '言葉を足す'),
+      item('fromUser', '決めた人の発言', 'ユーザーを足す'),
     ],
   },
   {
@@ -186,7 +186,7 @@ export const menuGroups: readonly MenuGroup[] = [
       item('follow', '新しくフォローされたとき'),
       item('subscribe', '新しくサブスクされたとき'),
       item('resubscribe', '継続のサブスクがメッセージ付きで届いたとき'),
-      item('raid', 'ほかの配信からレイドで来てくれたとき'),
+      item('raid', 'ほかの配信からレイドで来たとき'),
       AD_BREAK_ITEM,
     ],
   },

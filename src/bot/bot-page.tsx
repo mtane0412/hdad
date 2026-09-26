@@ -495,9 +495,7 @@ export const BotPage = ({ api }: BotPageProps) => {
       <Card>
         <CardHeader>
           <CardTitle>接続しているアカウント</CardTitle>
-          <CardDescription>
-            チャットを読み書きするTwitchアカウントです。配信者とは別のアカウントを使えます。モデレーター権限は、Twitchのチャットから配信者が与えてください
-          </CardDescription>
+          <CardDescription>チャットを読み書きするTwitchアカウント。配信者とは別のアカウントを使えます</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           {bot === null ? (
@@ -505,14 +503,14 @@ export const BotPage = ({ api }: BotPageProps) => {
               <p className="text-sm text-muted-foreground">botアカウントを接続していません。</p>
               <div className="flex flex-wrap gap-2">
                 <a href={CONNECT_PATH} className={buttonVariants()}>
-                  botアカウントを接続する
+                  接続する
                 </a>
                 <Button type="button" variant="outline" disabled={busy} onClick={() => void run(connectWithDeviceCode)}>
                   別の端末で接続する
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                「botアカウントを接続する」は、このブラウザのTwitchのログインをbotに切り替えてから押してください。切り替えたくない場合は「別の端末で接続する」を使うと、botでログイン済みのスマホなどでコードを入力するだけで済みます
+                「接続する」は、このブラウザのTwitchのログインをbotに切り替えてから押してください。切り替えたくないときは「別の端末で接続する」を使います
               </p>
             </>
           ) : (
@@ -526,16 +524,14 @@ export const BotPage = ({ api }: BotPageProps) => {
                   <AlertTitle>モデレーター権限がありません</AlertTitle>
                   <AlertDescription>
                     配信者がTwitchのチャットで <code>/mod {bot.login}</code>{' '}
-                    を実行してください。モデレーターでないあいだは、BAN・タイムアウト・発言の削除・アナウンスがTwitchに拒否されます
+                    を実行してください。それまでBAN・タイムアウト・発言の削除・アナウンスは使えません
                   </AlertDescription>
                 </Alert>
               )}
               {bot.missingScopes.length > 0 && (
                 <Alert variant="destructive">
                   <AlertTitle>権限が足りません</AlertTitle>
-                  <AlertDescription>
-                    このbotには {bot.missingScopes.join('・')} が認可されていません。接続し直してください
-                  </AlertDescription>
+                  <AlertDescription>{bot.missingScopes.join('・')} が認可されていません。接続し直してください</AlertDescription>
                 </Alert>
               )}
               <div className="flex flex-wrap gap-2">
@@ -558,9 +554,7 @@ export const BotPage = ({ api }: BotPageProps) => {
         <Card>
           <CardHeader>
             <CardTitle>別の端末で認可してください</CardTitle>
-            <CardDescription>
-              botアカウントでログイン済みの端末（スマホなど）で下のリンクを開き、このコードを入力してください。認可が済むと、この画面が自動で切り替わります
-            </CardDescription>
+            <CardDescription>botでログイン済みの端末で下のリンクを開き、このコードを入力してください</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             <p className="font-mono text-3xl tracking-[0.3em] tabular-nums">{deviceCode.userCode}</p>
@@ -580,9 +574,7 @@ export const BotPage = ({ api }: BotPageProps) => {
       <Card>
         <CardHeader>
           <CardTitle>コマンド</CardTitle>
-          <CardDescription>
-            チャットで「!コマンド名」と打たれたときに、botが送り返す文言です。登録するまでは何にも応答しません
-          </CardDescription>
+          <CardDescription>チャットで「!コマンド名」と打たれたときに、botが送り返す文言</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col items-start gap-4">
           {drafts.length > 0 && (
@@ -626,8 +618,7 @@ export const BotPage = ({ api }: BotPageProps) => {
           </div>
           {drafts.length > 0 && (
             <p className="text-xs text-muted-foreground">
-              応答文では {'{user}'} が発言した人のログイン名に、{'{summary}'} がいまの配信の「これまでのあらすじ」に置き換わります
-              （あらすじは配信中に5分おきに作り直されます）
+              応答文の {'{user}'} は発言した人の名前に、{'{summary}'} は配信の「これまでのあらすじ」に置き換わります
             </p>
           )}
         </CardContent>
@@ -637,8 +628,7 @@ export const BotPage = ({ api }: BotPageProps) => {
         <CardHeader>
           <CardTitle>自動モデレーション</CardTitle>
           <CardDescription>
-            登録したルールに当てはまる発言を、botが自動で削除・タイムアウト・BANします。誤って処分すると取り返しがつかないので、
-            有効にする前にルールを確かめてください（TwitchのAutoModとは別のしくみです）
+            ルールに当てはまる発言を、botが自動で削除・タイムアウト・BANします（TwitchのAutoModとは別のしくみ）
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col items-start gap-4">
@@ -666,7 +656,7 @@ export const BotPage = ({ api }: BotPageProps) => {
           </div>
           {/* 配信者とモデレーターへの処分はTwitch自身が断るので、除外を切ると失敗が積み上がるだけになる */}
           <p className="text-xs text-muted-foreground">
-            「配信者とモデレーターを対象外にする」は切らないことをおすすめします。Twitchはモデレーターへの処分を受け付けないため、失敗が積み上がるだけになります
+            Twitchはモデレーターへの処分を受け付けないので、「配信者とモデレーターを対象外にする」は切らないことをおすすめします
           </p>
 
           {moderation.rules.length > 0 && (
@@ -715,7 +705,7 @@ export const BotPage = ({ api }: BotPageProps) => {
         <Card>
           <CardHeader>
             <CardTitle>テスト送信</CardTitle>
-            <CardDescription>入力した文言を、いま接続しているbotの名前で配信チャンネルのチャットへ送ります</CardDescription>
+            <CardDescription>入力した文言を、botの名前でチャットへ送ります</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">

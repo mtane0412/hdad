@@ -330,7 +330,7 @@ const Editor = ({ definition, target }: { definition: GalleryItem; target: Galle
           <Label htmlFor={urlFieldId}>OBSのブラウザソースに貼るURL</Label>
           {/* ブラウザソースの幅・高さはプレビューの実寸と同じにすると、この画面の見た目どおりに映る */}
           <p id={sizeHintId} className="text-sm text-muted-foreground">
-            推奨の大きさ: 幅 {previewSize.width} × 高さ {previewSize.height} px
+            推奨の大きさ: {previewSize.width} × {previewSize.height} px
           </p>
           <div className="flex gap-2">
             <Input ref={urlFieldRef} id={urlFieldId} readOnly value={url} aria-describedby={sizeHintId} className="font-mono" />

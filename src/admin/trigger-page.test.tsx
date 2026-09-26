@@ -118,7 +118,7 @@ describe('OBS用のURL', () => {
   test('URL欄に、ブラウザソースへ設定する推奨の幅と高さを添える', async () => {
     render(トリガーのページ(代役のAPI()))
 
-    expect(await screen.findByText('推奨の大きさ: 幅 1920 × 高さ 1080 px（配信のキャンバスと同じ大きさ）')).toBeInTheDocument()
+    expect(await screen.findByText('推奨の大きさ: 1920 × 1080 px（配信のキャンバスと同じ大きさ）')).toBeInTheDocument()
   })
 
   test('URLをコピーできる', async () => {
@@ -138,7 +138,7 @@ describe('OBS用のURL', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: 'キーを再発行する' }))
     const dialog = await screen.findByRole('alertdialog')
-    expect(dialog).toHaveTextContent('今のURLは使えなくなります')
+    expect(dialog).toHaveTextContent('今のURLは使えなくなる')
     expect(api.rotateOverlayKey).not.toHaveBeenCalled()
 
     await userEvent.click(within(dialog).getByRole('button', { name: '再発行する' }))
@@ -231,7 +231,7 @@ describe('一覧', () => {
     ]
     render(トリガーのページ(代役のAPI({ config: 二重のフォロー })))
 
-    expect(await screen.findByText(/設定が2つ以上保存されています/)).toBeInTheDocument()
+    expect(await screen.findByText(/設定が2つ以上あります/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'フォローされたの1番目の設定を外す' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'フォローされたの2番目の設定を外す' })).toBeInTheDocument()
   })
@@ -246,7 +246,7 @@ describe('一覧', () => {
   test('項目に添えた注意書きを出す（初めての人の扱い）', async () => {
     render(トリガーのページ(代役のAPI()))
 
-    expect(await screen.findByText(/記録が残っていない人/)).toBeInTheDocument()
+    expect(await screen.findByText(/記録を始める前から来ている常連/)).toBeInTheDocument()
   })
 })
 
@@ -518,7 +518,7 @@ describe('絞り込みのパラメータ', () => {
     ]
     render(トリガーのページ(代役のAPI({ config: async () => 食い違い })))
 
-    expect(within(await 項目の枠('広告')).getByText(/対象の広告が食い違って保存されています/)).toBeInTheDocument()
+    expect(within(await 項目の枠('広告')).getByText(/食い違って保存されています/)).toBeInTheDocument()
   })
 
   test('食い違ったまま保存しても、勝手に片方へ寄せない（選び直したときだけ揃える）', async () => {
@@ -702,7 +702,7 @@ describe('botの接続状態', () => {
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent('botが接続されていません')
     // チャットの発言のトリガーは、Workerが発言そのものを受け取れない（購読の条件にbotのユーザーIDが要る）
-    expect(alert).toHaveTextContent('チャットの発言')
+    expect(alert).toHaveTextContent('チャットの出来事')
     expect(within(alert).getByRole('link', { name: 'チャットボット' })).toHaveAttribute('href', '/bot/')
   })
 
@@ -719,7 +719,7 @@ describe('botの接続状態', () => {
     })
     render(トリガーのページ(代役のAPI(), { botApi }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('botの接続状態を取得できませんでした: Workerに接続できません')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Workerに接続できません')
     expect(screen.queryByText(/botが接続されていません/)).not.toBeInTheDocument()
   })
 })

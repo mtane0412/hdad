@@ -61,12 +61,12 @@ export const TranscriptPage = ({ overlayKey }: { overlayKey: string | null }) =>
       <Card>
         <CardHeader>
           <CardTitle>OBS用のURL</CardTitle>
-          <CardDescription>
-            ゆかコネNEO の音声認識の結果を取り込む。このページ自体は配信画面に映すものではないので、ブラウザソースは表示をオフにしてよい。
-          </CardDescription>
+          {/* 「表示をオフにしてよい」とは書かない。OBSの「非アクティブ時にソースをシャットダウン」が有効だと、
+              非表示にした時点で中継ページが閉じられ、取り込みが止まってしまう */}
+          <CardDescription>ゆかコネNEO の音声認識の結果を取り込む。配信画面には映らないので、見えない位置に置いてよい。</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
-          <Label htmlFor={portFieldId}>ゆかコネNEO の WebSocket のポート番号</Label>
+          <Label htmlFor={portFieldId}>ゆかコネNEO のポート番号</Label>
           <Input
             id={portFieldId}
             inputMode="numeric"
@@ -74,15 +74,13 @@ export const TranscriptPage = ({ overlayKey }: { overlayKey: string | null }) =>
             onChange={(event) => setPort(event.target.value)}
             className="max-w-40"
           />
-          <p className="text-sm text-muted-foreground">
-            既定は {DEFAULT_TRANSCRIPT_PORT}。変えている場合は、レジストリ HKCU\Software\YukarinetteConnectorNeo\WebSocket の値を入れる。
-          </p>
+          <p className="text-sm text-muted-foreground">既定は {DEFAULT_TRANSCRIPT_PORT}。</p>
 
           {urlFailure === '' ? (
             <>
               <Label htmlFor={urlFieldId}>OBSのブラウザソースに貼るURL</Label>
               <p id={sizeHintId} className="text-sm text-muted-foreground">
-                推奨の大きさ: 幅 {RELAY_SIZE.width} × 高さ {RELAY_SIZE.height} px（接続の状態を読むためだけの大きさ）
+                推奨の大きさ: {RELAY_SIZE.width} × {RELAY_SIZE.height} px
               </p>
               <div className="flex gap-2">
                 {/* URLにはオーバーレイ用キーが含まれる。配信画面に映り込んでも読めないよう、伏せ字で表示する */}
@@ -98,22 +96,6 @@ export const TranscriptPage = ({ overlayKey }: { overlayKey: string | null }) =>
               <AlertDescription>{urlFailure}</AlertDescription>
             </Alert>
           )}
-
-          <p className="text-sm text-muted-foreground">
-            キーの再発行はトリガーのページで行う。再発行するとこのURLも使えなくなるので、貼り替える必要がある。
-          </p>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>取り込む内容</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-2 text-sm text-muted-foreground">
-          <p>確定した発話だけを取り込む。認識の途中経過は何度も書き換わるため送らない。</p>
-          <p>翻訳は取り込まない（母国語だけを残す）。</p>
-          <p>配信していないあいだの発話は Worker が捨てるので、OBSのソースは開いたままでよい。</p>
-          <p>取り込んだ内容は配信中のあいだだけ持ち、1日より古くなったものは自動で消える。</p>
         </CardContent>
       </Card>
     </div>

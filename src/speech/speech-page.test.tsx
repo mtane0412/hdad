@@ -135,8 +135,8 @@ describe('チャットの読み上げのページ', () => {
     await 読み込みを待つ()
     expect(screen.queryByText('OBSの再読み込みが必要です')).not.toBeInTheDocument()
 
-    await userEvent.clear(screen.getByLabelText('VOICEVOX のポート番号'))
-    await userEvent.type(screen.getByLabelText('VOICEVOX のポート番号'), '50022')
+    await userEvent.clear(screen.getByLabelText('ポート番号'))
+    await userEvent.type(screen.getByLabelText('ポート番号'), '50022')
 
     expect(screen.getByText('OBSの再読み込みが必要です')).toBeInTheDocument()
   })

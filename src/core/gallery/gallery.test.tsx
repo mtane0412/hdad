@@ -234,13 +234,13 @@ describe('OBS用のURL', () => {
   test('URL欄に、ブラウザソースへ設定する推奨の幅と高さを添える', () => {
     render(背景のギャラリー())
 
-    expect(screen.getByText('推奨の大きさ: 幅 1920 × 高さ 1080 px')).toBeInTheDocument()
+    expect(screen.getByText('推奨の大きさ: 1920 × 1080 px')).toBeInTheDocument()
   })
 
   test('推奨の大きさは、カテゴリごとに渡された実寸をそのまま出す', () => {
     render(背景のギャラリー({ previewSize: { width: 480, height: 800 } }))
 
-    expect(screen.getByText('推奨の大きさ: 幅 480 × 高さ 800 px')).toBeInTheDocument()
+    expect(screen.getByText('推奨の大きさ: 480 × 800 px')).toBeInTheDocument()
   })
 })
 

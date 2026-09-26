@@ -63,7 +63,7 @@ export const SideSuperPage = ({ overlayKey }: { overlayKey: string | null }) => 
       <Card>
         <CardHeader>
           <CardTitle>OBS用のURL</CardTitle>
-          <CardDescription>配信画面の隅に、いま何をしているかを2行のテロップで出し続ける。</CardDescription>
+          <CardDescription>配信画面の隅に、いまの話題を2行のテロップで出し続ける。5分おきに作り直す。</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <Label htmlFor={positionFieldId}>出す位置</Label>
@@ -82,7 +82,7 @@ export const SideSuperPage = ({ overlayKey }: { overlayKey: string | null }) => 
 
           <Label htmlFor={urlFieldId}>OBSのブラウザソースに貼るURL</Label>
           <p id={sizeHintId} className="text-sm text-muted-foreground">
-            推奨の大きさ: 幅 {OVERLAY_SIZE.width} × 高さ {OVERLAY_SIZE.height} px（配信画面と同じ大きさで重ねる）
+            推奨の大きさ: {OVERLAY_SIZE.width} × {OVERLAY_SIZE.height} px（配信画面と同じ大きさ）
           </p>
           <div className="flex gap-2">
             {/* URLにはオーバーレイ用キーが含まれる。配信画面に映り込んでも読めないよう、伏せ字で表示する */}
@@ -92,32 +92,13 @@ export const SideSuperPage = ({ overlayKey }: { overlayKey: string | null }) => 
             </Button>
           </div>
 
-          <p className="text-sm text-muted-foreground">
-            キーの再発行はトリガーのページで行う。再発行するとこのURLも使えなくなるので、貼り替える必要がある。
-          </p>
-
           <div className="flex items-center gap-3">
             {/* オーバーレイはアプリの外なので、router.tsx の Link ではなく普通の `<a>` で開く */}
             <a className={buttonVariants({ variant: 'outline' })} href={demoUrl} target="_blank" rel="noreferrer">
               デモを開く
             </a>
-            <p className="text-sm text-muted-foreground">
-              サンプルの文言を順に切り替えて出す。文言が作られるのを待たずに見栄えと配置を決められる。
-            </p>
+            <p className="text-sm text-muted-foreground">サンプルの文言で見た目と配置を確かめる。</p>
           </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>出る文言</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-2 text-sm text-muted-foreground">
-          <p>材料は、配信中の文字起こし・視聴者の発言と、配信のカテゴリ・タイトル。</p>
-          <p>上の段はコーナー名（14文字まで）、下の段はいまの話題（20文字まで）。</p>
-          <p>行が足りない・長すぎる文言が返ってきた回は、前の文言をそのまま出し続ける。</p>
-          <p>5分おきに作り直す。文字起こしを取り込んでいると、いまの話題をより正しく言い当てられる。</p>
-          <p>配信していないあいだは何も映らないので、OBSのソースは開いたままでよい。</p>
         </CardContent>
       </Card>
     </div>

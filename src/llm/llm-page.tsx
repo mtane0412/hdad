@@ -49,19 +49,19 @@ const PROVIDER_LABELS: Readonly<Record<LlmProvider, string>> = {
 const USAGE_LABELS: Readonly<Record<LlmUsage, { name: string; description: string }>> = {
   aiChat: {
     name: 'チャットの文面',
-    description: 'トリガーの動作「AIチャット」が視聴者へ送る文面。発言ごとに呼ばれることがあるので、軽くて安いモデルを選ぶ。',
+    description: 'トリガーの「AIに文面を作らせて送る」。発言ごとに呼ばれるので軽いモデル向き。',
   },
   sideSuper: {
     name: 'サイドスーパー',
-    description: '配信画面の隅に出す2行のテロップ。cron が5分おきに作り直す。',
+    description: '配信画面の隅に出す2行のテロップ。',
   },
   viewerSummary: {
     name: '視聴者の人物像',
-    description: '配信が終わったあと、その人の発言からどんな人かをまとめた文。cron が1回に5人ぶんまで作る。',
+    description: '配信後に、その人の発言からまとめる文。',
   },
   streamSummary: {
     name: '配信のあらすじ',
-    description: '配信者の発話と視聴者の発言をまとめた、途中から来た人向けの文。材料が多いので、大きいモデルを選ぶ。',
+    description: '途中から来た人向けのまとめ。材料が多いので大きいモデル向き。',
   },
 }
 
@@ -182,7 +182,7 @@ export const LlmPage = ({ api }: LlmPageProps) => {
       {modelsFailure !== '' && (
         <Alert variant="destructive">
           <AlertTitle>モデルの候補を読み込めませんでした</AlertTitle>
-          <AlertDescription>{modelsFailure} 選択欄には、いま保存されているモデルだけが出ます</AlertDescription>
+          <AlertDescription>{modelsFailure}（選択欄には、いま保存されているモデルだけが出ます）</AlertDescription>
         </Alert>
       )}
 
@@ -190,20 +190,16 @@ export const LlmPage = ({ api }: LlmPageProps) => {
         <Alert variant="destructive">
           <AlertTitle>OpenRouter のAPIキーが設定されていません</AlertTitle>
           <AlertDescription>
-            Workerのシークレット <code>OPENROUTER_API_KEY</code> を設定してください（
-            <code>npx wrangler secret put OPENROUTER_API_KEY</code>、ローカルでは <code>.dev.vars</code>）。
-            鍵が無いあいだは、{openrouterUsages.map((usage) => USAGE_LABELS[usage].name).join('・')}
-            を作るときに失敗します（黙って Workers AI には切り替わりません）。
+            <code>npx wrangler secret put OPENROUTER_API_KEY</code> で設定してください（ローカルでは <code>.dev.vars</code>）。
+            鍵が無いあいだは {openrouterUsages.map((usage) => USAGE_LABELS[usage].name).join('・')} が作られません。
           </AlertDescription>
         </Alert>
       )}
 
       <Card>
         <CardHeader>
-          <CardTitle>AIを使う箇所ごとの提供元とモデル</CardTitle>
-          <CardDescription>
-            箇所ごとに別の提供元を選べる。保存すると次に作るぶんから効く（OBSの再読み込みは要らない）。
-          </CardDescription>
+          <CardTitle>AIを使う箇所</CardTitle>
+          <CardDescription>箇所ごとに提供元とモデルを選べる。保存すると次に作るぶんから効く。</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-6">
           {LLM_USAGES.map((usage) => {
@@ -219,7 +215,10 @@ export const LlmPage = ({ api }: LlmPageProps) => {
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="flex flex-col gap-2">
-                    <Label htmlFor={providerFieldId}>{name}の提供元</Label>
+                    <Label htmlFor={providerFieldId}>
+                      {/* 画面には「提供元」とだけ出し、読み上げの名前には箇所の名前を含める（同じ名前の選択欄が4つ並ばないようにする） */}
+                      <span className="sr-only">{name}の</span>提供元
+                    </Label>
                     <NativeSelect
                       id={providerFieldId}
                       className="w-full"
@@ -235,7 +234,9 @@ export const LlmPage = ({ api }: LlmPageProps) => {
                     </NativeSelect>
                   </div>
                   <div className="flex flex-col gap-2">
-                    <Label htmlFor={modelFieldId}>{name}のモデル</Label>
+                    <Label htmlFor={modelFieldId}>
+                      <span className="sr-only">{name}の</span>モデル
+                    </Label>
                     <NativeSelect
                       id={modelFieldId}
                       className="w-full"
@@ -263,30 +264,6 @@ export const LlmPage = ({ api }: LlmPageProps) => {
         </Button>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>モデル名の書き方</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-2 text-sm text-muted-foreground">
-          <p>
-            Workers AI は <code>@cf/meta/llama-3.1-8b-instruct-fp8</code> のような名前で、鍵は要らない
-            （このWorkerに付いている。無料枠は1日10,000 Neurons）。
-          </p>
-          <p>
-            OpenRouter は <code>meta-llama/llama-3.1-8b-instruct</code> のような「提供者/モデル」の名前で、
-            シークレットに鍵が要る。料金はOpenRouterのアカウントに請求される。
-          </p>
-          <p>
-            選べるモデルは、Workers AI はこのリポジトリが持つ一覧（文面づくりに向く汎用のモデルだけを載せている）、
-            OpenRouter は openrouter.ai の公開APIから読み込んでいる。選んだモデルは提供元ごとに覚えているので、
-            切り替えて戻しても選び直さなくてよい。
-          </p>
-          <p>
-            配信のあらすじは大きいモデルを選ぶ。小さいモデルでは、視聴者の書き込みを配信者がしたことのように書く・
-            同じ言い回しを繰り返して長さの上限を超える、といった壊れ方が起きた。
-          </p>
-        </CardContent>
-      </Card>
     </div>
   )
 }

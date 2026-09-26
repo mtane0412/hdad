@@ -232,7 +232,7 @@ export const StatsPage = ({ api, now }: StatsPageProps) => {
       <Card>
         <CardHeader>
           <CardTitle>フォロワー数の推移</CardTitle>
-          <CardDescription>フォロワー数が変わった時点だけを記録しているため、変化のない間は横ばいの線になる。</CardDescription>
+          <CardDescription>数が変わった時点だけを記録している。</CardDescription>
         </CardHeader>
         <CardContent>
           {フォロワーの推移.length === 0 ? (

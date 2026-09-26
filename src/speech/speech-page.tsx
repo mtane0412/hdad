@@ -131,7 +131,7 @@ export const SpeechPage = ({ api, botApi, overlayKey }: SpeechPageProps) => {
         if (!cancelled) setBotLogin(status === null ? '' : status.login)
       },
       (error: unknown) => {
-        if (!cancelled) setBotFailure(`botの接続状態を読めませんでした: ${errorMessage(error)}`)
+        if (!cancelled) setBotFailure(errorMessage(error))
       },
     )
     return () => {
@@ -182,16 +182,14 @@ export const SpeechPage = ({ api, botApi, overlayKey }: SpeechPageProps) => {
       {botFailure !== '' && (
         <Alert variant="destructive">
           <AlertTitle>botの接続状態を読めませんでした</AlertTitle>
-          <AlertDescription>{botFailure} そのため、botを読み上げない人に足すボタンが出ません</AlertDescription>
+          <AlertDescription>{botFailure}</AlertDescription>
         </Alert>
       )}
 
       <Card>
         <CardHeader>
           <CardTitle>読み上げの設定</CardTitle>
-          <CardDescription>
-            同じPCで動かす VOICEVOX に読み上げさせる。保存するとOBSの再読み込みなしで、次に読む1件から効く（ホストとポートを除く）。
-          </CardDescription>
+          <CardDescription>同じPCの VOICEVOX に読み上げさせる。保存すると次に読む1件から効く。</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-2">
@@ -204,7 +202,7 @@ export const SpeechPage = ({ api, botApi, overlayKey }: SpeechPageProps) => {
               value={form.speaker}
               onChange={(event) => change('speaker', event.currentTarget.value)}
             />
-            <p className="text-sm text-muted-foreground">VOICEVOX のキャラクターとスタイルの組み合わせ。既定の 3 はずんだもんのノーマル。</p>
+            <p className="text-sm text-muted-foreground">3 はずんだもん（ノーマル）。</p>
           </div>
 
           <div className="flex flex-col gap-2">
@@ -234,7 +232,7 @@ export const SpeechPage = ({ api, botApi, overlayKey }: SpeechPageProps) => {
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor={maxLengthFieldId}>読み上げる長さの上限（文字）</Label>
+            <Label htmlFor={maxLengthFieldId}>長さの上限（文字）</Label>
             <Input
               id={maxLengthFieldId}
               type="number"
@@ -244,7 +242,7 @@ export const SpeechPage = ({ api, botApi, overlayKey }: SpeechPageProps) => {
               value={form.maxLength}
               onChange={(event) => change('maxLength', event.currentTarget.value)}
             />
-            <p className="text-sm text-muted-foreground">長い発言は途中まで読む。読み終わるまで次の発言を待たせないため。</p>
+            <p className="text-sm text-muted-foreground">これより長い発言は途中まで読む。</p>
           </div>
 
           <div className="flex flex-col gap-2 sm:col-span-2">
@@ -257,17 +255,16 @@ export const SpeechPage = ({ api, botApi, overlayKey }: SpeechPageProps) => {
               onChange={(event) => change('ignoreLogins', event.currentTarget.value)}
             />
             {canIgnoreBot && (
-              <div className="flex items-center gap-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => change('ignoreLogins', joinIgnoreLogins([...splitIgnoreLogins(form.ignoreLogins), botLogin]))}
-                >
-                  {botLogin} を読み上げない人に足す
-                </Button>
-                <p className="text-sm text-muted-foreground">botの応答まで読み上げると、読み上げた声にbotが応え続けるように聞こえる。</p>
-              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="self-start"
+                onClick={() => change('ignoreLogins', joinIgnoreLogins([...splitIgnoreLogins(form.ignoreLogins), botLogin]))}
+              >
+                {/* 画面では短く出し、読み上げの名前には何に足すのかを含める */}
+                {botLogin} を<span className="sr-only">読み上げない人に</span>足す
+              </Button>
             )}
           </div>
 
@@ -281,7 +278,7 @@ export const SpeechPage = ({ api, botApi, overlayKey }: SpeechPageProps) => {
       <Card>
         <CardHeader>
           <CardTitle>VOICEVOX のつなぎ先</CardTitle>
-          <CardDescription>読み上げのページは起動のときにここへつなぐ。変えたらOBSでブラウザソースを再読み込みする。</CardDescription>
+          <CardDescription>変えたらOBSでブラウザソースを再読み込みする。</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-2">
@@ -293,13 +290,11 @@ export const SpeechPage = ({ api, botApi, overlayKey }: SpeechPageProps) => {
                 </NativeSelectOption>
               ))}
             </NativeSelect>
-            <p className="text-sm text-muted-foreground">
-              OBSと同じPCで動かすので localhost のまま使う。ブラウザが http:// への通信を許すのはループバックだけなので、この2つしか選べない。
-            </p>
+            <p className="text-sm text-muted-foreground">ふつうは localhost のまま使う。</p>
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor={portFieldId}>VOICEVOX のポート番号</Label>
+            <Label htmlFor={portFieldId}>ポート番号</Label>
             <Input
               id={portFieldId}
               type="number"
@@ -314,9 +309,7 @@ export const SpeechPage = ({ api, botApi, overlayKey }: SpeechPageProps) => {
           {endpointChanged && (
             <Alert className="sm:col-span-2">
               <AlertTitle>OBSの再読み込みが必要です</AlertTitle>
-              <AlertDescription>
-                つなぎ先が変わりました。保存したあと、OBSでこのブラウザソースを再読み込みしてください。ほかの設定と違い、つなぎ直しが要るためです。
-              </AlertDescription>
+              <AlertDescription>保存したあと、OBSでブラウザソースを再読み込みしてください</AlertDescription>
             </Alert>
           )}
         </CardContent>
@@ -331,7 +324,7 @@ export const SpeechPage = ({ api, botApi, overlayKey }: SpeechPageProps) => {
       <Card>
         <CardHeader>
           <CardTitle>OBS用のURL</CardTitle>
-          <CardDescription>ブラウザソースに貼り、「OBSで音声を制御する」を有効にする（映すものは無いので大きさは任意）。</CardDescription>
+          <CardDescription>ブラウザソースに貼り、「OBSで音声を制御する」を有効にする。</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           {overlayKey === null ? (
@@ -349,9 +342,6 @@ export const SpeechPage = ({ api, botApi, overlayKey }: SpeechPageProps) => {
                   URLをコピー
                 </Button>
               </div>
-              <p className="text-sm text-muted-foreground">
-                設定はこのURLではなくWorkerに保存されるので、設定を変えてもURLは変わらない。キーの再発行はトリガーのページで行う。
-              </p>
             </>
           )}
         </CardContent>
@@ -359,19 +349,14 @@ export const SpeechPage = ({ api, botApi, overlayKey }: SpeechPageProps) => {
 
       <Card>
         <CardHeader>
-          <CardTitle>使うときの前提</CardTitle>
+          <CardTitle>VOICEVOX 側の設定（最初の1回だけ）</CardTitle>
+          <CardDescription>VOICEVOX は既定でこのサイトからの読み出しを拒むので、許可しないとつながらない。</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-2 text-sm text-muted-foreground">
-          <p>配信に使うPCで VOICEVOX を起動しておく。つながらないときは、ブラウザソースに原因と直し方が表示される。</p>
           <p>
-            <strong className="text-foreground">VOICEVOX 側でこのサイトを許可する</strong>のが最初の1回だけ必要。
-            配信に使うPCで <code>http://127.0.0.1:50021/setting</code> を開き、CORSの許可するオリジンに{' '}
+            配信に使うPCで <code>http://{form.host}:{form.port}/setting</code> を開き、CORSの許可するオリジンに{' '}
             <code>{window.location.origin}</code> を足して保存し、VOICEVOX を再起動する。
-            VOICEVOX は既定で localhost 以外からの読み出しを拒むため、これをしないとつながらない。
           </p>
-          <p>読み上げるのはこのチャンネルのチャットで、コマンド（!で始まる発言）・エモートだけの発言は読まない。</p>
-          <p>URLは「URL」と読み替え、同じ文字の連打は2文字に縮める。聞いても分からないものを読ませないため。</p>
-          <p>チャットが速いときは古い発言を捨てて、新しい発言から読む。</p>
         </CardContent>
       </Card>
     </div>
