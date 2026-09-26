@@ -72,6 +72,19 @@ const 読み込みを待つ = async () => {
   await waitFor(() => expect(screen.getByLabelText('チャットの文面の提供元')).toBeInTheDocument())
 }
 
+/**
+ * その箇所の選択欄に、提供元の候補が並ぶまで待つ。
+ *
+ * 候補はWorkerから非同期に読むので、入力欄が出た時点では、まだ保存済みの1件しか並んでいない。
+ */
+const 候補が並ぶまで待つ = async (名前: string, provider: LlmProvider) => {
+  await waitFor(() =>
+    expect([...screen.getByLabelText(`${名前}のモデル`).querySelectorAll('option')].map((option) => option.textContent)).toEqual(
+      候補[provider].map(({ name }) => name),
+    ),
+  )
+}
+
 const 保存する = async () => userEvent.click(screen.getByRole('button', { name: '設定を保存' }))
 
 describe('LlmPage', () => {
@@ -83,13 +96,11 @@ describe('LlmPage', () => {
       expect(screen.getByLabelText(`${名前}の提供元`)).toHaveValue('workers-ai')
     }
     // モデルは入力欄ではなく選択欄で、Workerから読んだ候補が並ぶ
-    const モデルの選択欄 = await screen.findByLabelText('チャットの文面のモデル')
+    const モデルの選択欄 = screen.getByLabelText('チャットの文面のモデル')
     expect(モデルの選択欄.tagName).toBe('SELECT')
     expect(モデルの選択欄).toHaveValue('@cf/meta/llama-3.1-8b-instruct-fp8')
-    expect([...モデルの選択欄.querySelectorAll('option')].map((option) => option.textContent)).toEqual(
-      候補['workers-ai'].map(({ name }) => name),
-    )
-    expect(await screen.findByLabelText('配信のあらすじのモデル')).toHaveValue('@cf/meta/llama-3.3-70b-instruct-fp8-fast')
+    await 候補が並ぶまで待つ('チャットの文面', 'workers-ai')
+    expect(screen.getByLabelText('配信のあらすじのモデル')).toHaveValue('@cf/meta/llama-3.3-70b-instruct-fp8-fast')
   })
 
   test('提供元を切り替えると、その箇所だけがその提供元のモデルと候補に入れ替わる', async () => {
@@ -99,9 +110,7 @@ describe('LlmPage', () => {
     await userEvent.selectOptions(screen.getByLabelText('配信のあらすじの提供元'), 'openrouter')
 
     await waitFor(() => expect(screen.getByLabelText('配信のあらすじのモデル')).toHaveValue('meta-llama/llama-3.3-70b-instruct'))
-    expect([...screen.getByLabelText('配信のあらすじのモデル').querySelectorAll('option')].map((option) => option.textContent)).toEqual(
-      候補.openrouter.map(({ name }) => name),
-    )
+    await 候補が並ぶまで待つ('配信のあらすじ', 'openrouter')
     // ほかの箇所は変わらない
     expect(screen.getByLabelText('チャットの文面の提供元')).toHaveValue('workers-ai')
     expect(screen.getByLabelText('チャットの文面のモデル')).toHaveValue('@cf/meta/llama-3.1-8b-instruct-fp8')
@@ -150,6 +159,8 @@ describe('LlmPage', () => {
       save: (next) => new Promise<LlmSettings>((resolve) => (保存を終える = () => resolve(next))),
     })
     await 読み込みを待つ()
+    // 候補が並ぶ前はモデルの選択欄が読み込み中で無効なので、並んでから保存する
+    await 候補が並ぶまで待つ('サイドスーパー', 'workers-ai')
 
     await 保存する()
 
