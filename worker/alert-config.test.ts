@@ -12,6 +12,7 @@ import {
   EMPTY_CONFIG,
   aiChatActionOf,
   announceActionOf,
+  shoutoutActionOf,
   chatActionOf,
   loadAlertConfig,
   parseAlertConfig,
@@ -100,6 +101,20 @@ describe('parseAlertConfig', () => {
     const 色なし = { triggers: [送られてきたトリガー({ actions: [アナウンスの動作({ color: undefined })] })] }
 
     expect(parseAlertConfig(色なし, 素材の種類).triggers[0]?.actions[0]).toMatchObject({ type: 'announce', color: 'primary' })
+  })
+
+  it('レイドのトリガーなら、シャウトアウトを送る動作（shoutout）を受け付ける', () => {
+    const config = parseAlertConfig({ triggers: [{ kind: 'raid', actions: [{ type: 'shoutout' }] }] }, 素材の種類)
+
+    expect(config.triggers[0]?.actions).toEqual([{ type: 'shoutout' }])
+  })
+
+  it('レイド以外のトリガーにシャウトアウトを置いたら拒否する（紹介する相手が配信者でないため）', () => {
+    expect(() => parseAlertConfig({ triggers: [{ kind: 'follow', actions: [{ type: 'shoutout' }] }] }, 素材の種類)).toThrow(
+      expect.objectContaining({
+        problems: ['triggers[0].actions: シャウトアウト（shoutout）はレイドのトリガーにだけ置けます'],
+      }),
+    )
   })
 
   it('LLMに文面を作らせる動作（aiChat）を受け付ける', () => {
@@ -283,7 +298,7 @@ describe('parseAlertConfig', () => {
 
   it('対応していない動作の種類は拒否する', () => {
     expect(() => parseAlertConfig({ triggers: [送られてきたトリガー({ actions: [アラートの動作({ type: 'ban' })] })] }, 素材の種類)).toThrowError(
-      expect.objectContaining({ problems: ['triggers[0].actions[0].type: alert / chat / announce / aiChat のいずれかを指定してください'] }),
+      expect.objectContaining({ problems: ['triggers[0].actions[0].type: alert / chat / announce / aiChat / shoutout のいずれかを指定してください'] }),
     )
   })
 
@@ -419,6 +434,18 @@ describe('announceActionOf', () => {
 
   it('アナウンスを送る動作がなければ null を返す', () => {
     expect(announceActionOf({ kind: 'raid', actions: [保存済みのアラートの動作] })).toBeNull()
+  })
+})
+
+describe('shoutoutActionOf', () => {
+  it('トリガーからシャウトアウトを送る動作を取り出す', () => {
+    const trigger: StoredTrigger = { kind: 'raid', actions: [保存済みのアラートの動作, { type: 'shoutout' }] }
+
+    expect(shoutoutActionOf(trigger)).toEqual({ type: 'shoutout' })
+  })
+
+  it('シャウトアウトを送る動作がなければ null を返す', () => {
+    expect(shoutoutActionOf({ kind: 'raid', actions: [保存済みのアラートの動作] })).toBeNull()
   })
 })
 

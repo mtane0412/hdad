@@ -93,7 +93,17 @@ export interface AiChatAction {
   instruction: string
 }
 
-export type ActionInput = AlertActionInput | ChatAction | AnnounceAction | AiChatAction
+/**
+ * botとしてシャウトアウト（相手の配信者を紹介するTwitch組み込みの機能）を送る動作。
+ *
+ * 紹介する相手はイベントの中身から決まるので、配信者が決める項目を持たない。
+ * 置けるのはレイドの項目だけで（src/admin/form.ts の supportsShoutout）、botがモデレーターにされている必要がある。
+ */
+export interface ShoutoutAction {
+  type: 'shoutout'
+}
+
+export type ActionInput = AlertActionInput | ChatAction | AnnounceAction | AiChatAction | ShoutoutAction
 
 /**
  * 既定メニューの項目。worker/trigger-menu.ts の TRIGGER_KINDS と同じ並び（worker/ の型は読み込めないのでここで定義する）。
@@ -139,7 +149,7 @@ export type TriggerInput = TriggerSource & { actions: ActionInput[] }
 /** 保存済みの「アラートを出す」動作（Workerが素材の種類を書き足したもの） */
 export type StoredAlertAction = AlertActionInput & { mediaKind: MediaKind }
 
-export type StoredAction = StoredAlertAction | ChatAction | AnnounceAction | AiChatAction
+export type StoredAction = StoredAlertAction | ChatAction | AnnounceAction | AiChatAction | ShoutoutAction
 
 /** 保存済みのトリガー */
 export type StoredTrigger = TriggerSource & { actions: StoredAction[] }

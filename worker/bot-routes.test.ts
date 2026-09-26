@@ -210,6 +210,7 @@ describe('GET /api/admin/bot', () => {
           'moderator:manage:banned_users',
           'moderator:manage:chat_messages',
           'moderator:manage:announcements',
+          'moderator:manage:shoutouts',
         ],
       },
     })

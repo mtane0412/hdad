@@ -41,6 +41,7 @@ import {
   hasAnyAction,
   rowActionLabels,
   rowParamSummary,
+  supportsShoutout,
   toDraft,
   toTriggerInputs,
   withFixedRows,
@@ -382,6 +383,27 @@ const ActionFields = ({ draft, media, heading, onChange }: ActionFieldsProps) =>
           </div>
         )}
       </div>
+
+      {/* シャウトアウトは紹介する相手が配信者である前提なので、レイドの項目にだけ出す（Workerも保存時にそれ以外を拒む） */}
+      {supportsShoutout(draft.kind) && (
+        <div className="flex flex-col gap-4 rounded-md border border-dashed p-3 sm:col-span-2">
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id={`${id}-shoutout-enabled`}
+              checked={draft.shoutoutEnabled}
+              onCheckedChange={(checked) => update({ shoutoutEnabled: checked === true })}
+            />
+            <Label htmlFor={`${id}-shoutout-enabled`}>シャウトアウトを送る</Label>
+          </div>
+          {draft.shoutoutEnabled && (
+            // 文言は持たない（Twitchが決まった形で出す）。アナウンスと同じくbotがモデレーターでないと拒否される
+            <p className="text-xs text-muted-foreground">
+              レイドしてきた配信者を、Twitchのシャウトアウトで紹介します。文言はTwitchが決めるので入力欄はありません。
+              接続しているbotに、モデレーター権限が必要です。Twitchの制限により、2分に1回・同じ相手には60分に1回までしか送れません。
+            </p>
+          )}
+        </div>
+      )}
 
       {/* 選んだメニュー項目のイベントに存在しない語は置き換わらないため、使える語をその場で知らせる（アラートとチャットで同じ語を使う） */}
       <p className="text-xs text-muted-foreground sm:col-span-2">使える差し込み語: {placeholdersFor(draft.kind).join('・')}</p>

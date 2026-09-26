@@ -131,7 +131,12 @@ const エラーコード = async (response: Response): Promise<unknown> => {
 
 const レイドの通知 = {
   subscription: { type: 'channel.raid' },
-  event: { from_broadcaster_user_name: 'レイド元の配信者', from_broadcaster_user_login: 'raid_moto', viewers: 30 },
+  event: {
+    from_broadcaster_user_id: 'レイド元の配信者のユーザーID',
+    from_broadcaster_user_name: 'レイド元の配信者',
+    from_broadcaster_user_login: 'raid_moto',
+    viewers: 30,
+  },
 }
 const 雑談配信 = { id: '40000000001', startedAt: '2026-09-21T12:00:00.000Z', title: '月曜の雑談配信', categoryName: 'Just Chatting', viewerCount: 10 }
 
@@ -719,9 +724,11 @@ describe('アラートのトリガーによるチャット送信', () => {
   const 送信に応えるTwitch = (
     chatResponse: Response = Response.json({ data: [{ message_id: 'sent', is_sent: true }] }),
     announcementResponse: Response = new Response(null, { status: 204 }),
+    shoutoutResponse: Response = new Response(null, { status: 204 }),
   ) => {
     const 送信したチャット: Request[] = []
     const 送信したアナウンス: Request[] = []
+    const 送信したシャウトアウト: Request[] = []
     const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const request = new Request(input, init)
       if (request.url === 'https://api.twitch.tv/helix/chat/messages') {
@@ -732,9 +739,13 @@ describe('アラートのトリガーによるチャット送信', () => {
         送信したアナウンス.push(request.clone())
         return announcementResponse.clone()
       }
+      if (request.url.startsWith('https://api.twitch.tv/helix/chat/shoutouts')) {
+        送信したシャウトアウト.push(request.clone())
+        return shoutoutResponse.clone()
+      }
       throw new Error(`テストで想定していない通信です: ${request.url}`)
     }
-    return { 送信したチャット, 送信したアナウンス, fetchImpl }
+    return { 送信したチャット, 送信したアナウンス, 送信したシャウトアウト, fetchImpl }
   }
 
   const フォローの通知 = { subscription: { type: 'channel.follow' }, event: { user_name: '田中太郎', user_login: 'tanaka_taro' } }
@@ -894,6 +905,61 @@ describe('アラートのトリガーによるチャット送信', () => {
 
     expect(response.status).toBe(400)
     expect(twitch.送信したチャット).toHaveLength(0)
+  })
+
+  describe('シャウトアウトを送る動作', () => {
+    const レイドでシャウトアウトする: StoredTrigger = { kind: 'raid', actions: [{ type: 'shoutout' }] }
+
+    it('レイドのトリガーに当てはまれば、botがモデレーターとしてシャウトアウトを送る', async () => {
+      const { env } = await トリガーのある環境([レイドでシャウトアウトする])
+      const twitch = 送信に応えるTwitch()
+
+      const response = await 呼び出す(Twitchからの通知({ body: レイドの通知 }), env, twitch.fetchImpl)
+
+      expect(response.status).toBe(204)
+      const url = new URL(twitch.送信したシャウトアウト[0]!.url)
+      expect(url.searchParams.get('from_broadcaster_id')).toBe(配信者のID)
+      // 紹介する相手はレイドしてきた配信者で、送るのはbot自身
+      expect(url.searchParams.get('to_broadcaster_id')).toBe('レイド元の配信者のユーザーID')
+      expect(url.searchParams.get('moderator_id')).toBe(botのID)
+    })
+
+    it('同じ通知が再送されても、シャウトアウトを二度送らない', async () => {
+      const { env } = await トリガーのある環境([レイドでシャウトアウトする])
+      const twitch = 送信に応えるTwitch()
+
+      await 呼び出す(Twitchからの通知({ body: レイドの通知 }), env, twitch.fetchImpl)
+      await 呼び出す(Twitchからの通知({ body: レイドの通知 }), env, twitch.fetchImpl)
+
+      expect(twitch.送信したシャウトアウト).toHaveLength(1)
+    })
+
+    it('botを接続していなければ、送らずに受け取るだけにする', async () => {
+      const { env } = 環境を作る()
+      await saveAlertConfig(env.STORE, { triggers: [レイドでシャウトアウトする] })
+      const twitch = 送信に応えるTwitch()
+
+      const response = await 呼び出す(Twitchからの通知({ body: レイドの通知 }), env, twitch.fetchImpl)
+
+      expect(response.status).toBe(204)
+      expect(twitch.送信したシャウトアウト).toHaveLength(0)
+    })
+
+    it('Twitchが間隔の制限（429）で拒んでも2xxを返し、失敗として記録する', async () => {
+      const { env } = await トリガーのある環境([レイドでシャウトアウトする])
+      const twitch = 送信に応えるTwitch(
+        undefined,
+        undefined,
+        Response.json({ status: 429, message: 'shoutout ratelimit exceeded' }, { status: 429 }),
+      )
+
+      const response = await 呼び出す(Twitchからの通知({ body: レイドの通知 }), env, twitch.fetchImpl)
+
+      expect(response.status).toBe(204)
+      expect(await listFailures(env.DB)).toMatchObject([
+        { code: 'alert-shoutout-failed', message: expect.stringContaining('ratelimit') },
+      ])
+    })
   })
 
   describe('アナウンスを送る動作', () => {

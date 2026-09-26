@@ -70,7 +70,8 @@ describe('REQUIRED_SCOPES / BOT_SCOPES', () => {
 
   it('botには、チャットの読み書きとモデレーション操作に要るスコープを要求する', () => {
     // user:read:chat と user:bot はチャットの受信、user:write:chat は送信、moderator:manage:* は
-    // BAN・タイムアウト（banned_users）・発言の削除（chat_messages）・アナウンス（announcements）に要る
+    // BAN・タイムアウト（banned_users）・発言の削除（chat_messages）・アナウンス（announcements）・
+    // シャウトアウト（shoutouts）に要る
     expect(BOT_SCOPES).toEqual([
       'user:bot',
       'user:read:chat',
@@ -78,6 +79,7 @@ describe('REQUIRED_SCOPES / BOT_SCOPES', () => {
       'moderator:manage:banned_users',
       'moderator:manage:chat_messages',
       'moderator:manage:announcements',
+      'moderator:manage:shoutouts',
     ])
   })
 })

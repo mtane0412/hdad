@@ -21,6 +21,7 @@ import {
   announceActionOf,
   chatActionOf,
   mediaPath,
+  shoutoutActionOf,
   type AlertConfig,
   type MediaKind,
   type StoredAiChatAction,
@@ -68,7 +69,8 @@ export type Extracted =
       readonly tier: string
       readonly cumulativeMonths: number
     }
-  | { readonly event: typeof RAID; readonly userName: string; readonly userLogin: string; readonly viewers: number }
+  // userId はレイドしてきた配信者のユーザーID。シャウトアウト（相手の配信者を紹介する）を送る宛先に要る
+  | { readonly event: typeof RAID; readonly userId: string; readonly userName: string; readonly userLogin: string; readonly viewers: number }
   | { readonly event: typeof CHAT_MESSAGE; readonly userName: string; readonly userLogin: string; readonly text: string }
   // 広告の開始と終了。userName・userLogin は広告を打った人（自動で入った広告では配信者自身が入る）
   | {
@@ -226,6 +228,7 @@ export const extract = (subscriptionType: string, body: unknown): Extracted | nu
     case RAID:
       return {
         event: RAID,
+        userId: readString(body, 'from_broadcaster_user_id'),
         userName: readString(body, 'from_broadcaster_user_name'),
         userLogin: readString(body, 'from_broadcaster_user_login'),
         viewers: readNumber(body, 'viewers'),
@@ -449,6 +452,30 @@ export const aiChatsFor = (
     instruction: matched.action.instruction,
     extracted: matched.extracted,
   }))
+
+/**
+ * 通知に当てはまるトリガーを探し、シャウトアウト（相手の配信者を紹介する）を送る相手を返す。
+ *
+ * 文言を持たない動作なので差し込み語の置き換えはしない。相手はイベントの中身から決まる。
+ * 置けるのはレイドのトリガーだけなので（worker/alert-config.ts の parseAlertConfig が保存時に拒む）、
+ * ほかのイベントの通知でこの動作が見つかったら、黙って送らずに投げる（Fail-Fast。宛先にできる配信者がいないため）。
+ *
+ * @returns 紹介する相手を、当てはまったトリガーの並びの順に返す（userLogin は失敗を記録するときの手がかりに使う）
+ * @throws 通知の中身が想定した形でない場合、またはレイド以外のトリガーにこの動作があった場合
+ */
+export const shoutoutsFor = (
+  config: AlertConfig,
+  subscriptionType: string,
+  body: unknown,
+  state: ConditionState,
+): { userId: string; userLogin: string }[] =>
+  matchedActionsFor(config, subscriptionType, body, shoutoutActionOf, state).map((matched) => {
+    const { extracted } = matched
+    if (extracted.event !== RAID) {
+      throw new Error(`シャウトアウトはレイドのトリガーにだけ置けます（${extracted.event} のトリガーに置かれています）`)
+    }
+    return { userId: extracted.userId, userLogin: extracted.userLogin }
+  })
 
 /**
  * 通知に当てはまるトリガーをすべて探し、チャットへ送る文言を決める。

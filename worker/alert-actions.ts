@@ -15,10 +15,10 @@
 import { loadAlertConfig, type AlertConfig, type StoredAnnounceAction } from './alert-config'
 import { pushAlert } from './alert-channel'
 import { generateChatMessage } from './ai-chat'
-import { aiChatsFor, alertsFor, announcementsFor, chatMessagesFor, hasAlertAction, requiresStreamSummary } from './alert-event'
+import { aiChatsFor, alertsFor, announcementsFor, chatMessagesFor, hasAlertAction, requiresStreamSummary, shoutoutsFor } from './alert-event'
 import { resolveConditionState } from './alert-state'
 import type { ConditionState } from './alert-event'
-import { announceAsBot, sendAsBot } from './bot-chat'
+import { announceAsBot, sendAsBot, shoutoutAsBot } from './bot-chat'
 import type { ChatMessage } from './chat-command'
 import { reserveChatReply } from './chat-store'
 import { HttpError, STATUS, type Context } from './http'
@@ -41,7 +41,7 @@ const invalid = (message: string): HttpError => new HttpError(STATUS.badRequest,
  * アラートのトリガーに当てはまる通知なら、その動作を実行する。
  *
  * 素材の再生（alert）はオーバーレイ（OBSのブラウザソース）が受け持つので、当てはまったアラートを
- * 配送先（Durable Object）へ押し出す。チャットとアナウンスの送信はWorkerがbotとして行うので、
+ * 配送先（Durable Object）へ押し出す。チャット・アナウンス・シャウトアウトはWorkerがbotとして行うので、
  * botが接続されているときだけ送る。オーバーレイを開いていなくてもチャットを送れるのはこのためである。
  *
  * 注意: 送ると決めたあとの失敗は、コマンドへの応答と同じく2xxのまま記録に残す
@@ -96,10 +96,17 @@ export const runAlertActions = async (
       throw invalid(error instanceof Error ? error.message : String(error))
     }
   })()
+  const shoutouts = ((): ReturnType<typeof shoutoutsFor> => {
+    try {
+      return shoutoutsFor(config, subscriptionType, body.event, state)
+    } catch (error) {
+      throw invalid(error instanceof Error ? error.message : String(error))
+    }
+  })()
   // 素材の再生はbotと関わりなく行う（botを接続していなくてもアラートは鳴る）
   await pushMatchedAlerts(context, config, subscriptionType, body, messageId, state, summary)
 
-  if (messages.length === 0 && announcements.length === 0 && aiChats.length === 0) return
+  if (messages.length === 0 && announcements.length === 0 && aiChats.length === 0 && shoutouts.length === 0) return
 
   // botを切断していれば送る先がない。受け取り自体は成功として返す
   if (!(await botConnected())) return
@@ -110,6 +117,9 @@ export const runAlertActions = async (
   }
   for (const [index, announcement] of announcements.entries()) {
     await sendAndRecordFailure(context, messageId, 'announce', index, 'alert-announce-failed', () => announceAsBot(context, announcement))
+  }
+  for (const [index, shoutout] of shoutouts.entries()) {
+    await sendAndRecordFailure(context, messageId, 'shoutout', index, 'alert-shoutout-failed', () => shoutoutAsBot(context, shoutout.userId))
   }
   for (const [index, aiChat] of aiChats.entries()) {
     // LLMの応答を待つとTwitchへの2xxが遅れ、同じ通知を再送されてしまう。応答を返してから続きを走らせる
@@ -232,7 +242,7 @@ export const recordLateFailure = async (context: AlertActionContext, failureCode
 const sendAndRecordFailure = async (
   context: AlertActionContext,
   messageId: string,
-  actionType: 'chat' | 'announce' | 'alert' | 'aiChat',
+  actionType: 'chat' | 'announce' | 'alert' | 'aiChat' | 'shoutout',
   index: number,
   failureCode: string,
   send: () => Promise<void>,

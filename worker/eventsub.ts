@@ -71,7 +71,7 @@ export const REQUIRED_SCOPES: readonly string[] = [
  *
  * user:read:chat と user:bot はチャットの受信に、user:write:chat は送信（POST /helix/chat/messages）に要る。
  * moderator:manage:* はモデレーション操作に要る（banned_users はBAN・タイムアウト、chat_messages は発言の削除、
- * announcements はアナウンス）。いずれも、botがこのチャンネルのモデレーターにされていることが前提。
+ * announcements はアナウンス、shoutouts はシャウトアウト）。いずれも、botがこのチャンネルのモデレーターにされていることが前提。
  *
  * 注意: スコープが足りないと接続し直しになるため、後の段階で使うものも最初からまとめて認可してもらう。
  */
@@ -82,6 +82,7 @@ export const BOT_SCOPES: readonly string[] = [
   'moderator:manage:banned_users',
   'moderator:manage:chat_messages',
   'moderator:manage:announcements',
+  'moderator:manage:shoutouts',
 ]
 
 /** Twitchのエラーに、どのイベントの購読で起きたかを書き足す */
