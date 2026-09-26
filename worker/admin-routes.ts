@@ -8,6 +8,7 @@ import { alertActionOf, loadAlertConfig, parseAlertConfig, saveAlertConfig } fro
 import { HttpError, STATUS, requireAdmin, type Context } from './http'
 import { listMedia, uploadMedia } from './media'
 import { rotateOverlayKey } from './overlay-key'
+import { loadLlmSettings, parseLlmSettings, saveLlmSettings } from './llm-config'
 import { loadSpeechSettings, parseSpeechSettings, saveSpeechSettings } from './speech-config'
 import { getAccessToken } from './token'
 
@@ -102,5 +103,34 @@ export const putSpeech = async (context: Context): Promise<Response> => {
   })
   const settings = parseSpeechSettings(body)
   await saveSpeechSettings(context.env.STORE, settings)
+  return Response.json(settings)
+}
+
+/**
+ * GET /api/admin/llm: LLMの設定（提供元と用途ごとのモデル名）。未保存なら既定の設定が返る。
+ *
+ * OpenRouter のAPIキーは応答に含めず、設定されているかどうかだけを添える（Twitchのトークンと同じ扱い）。
+ * 提供元に OpenRouter を選んでいるのに鍵が無ければ呼び出しが失敗するので、画面がそれを先に知らせられるようにする。
+ */
+export const getLlm = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  const settings = await loadLlmSettings(context.env.STORE)
+  return Response.json({ ...settings, apiKeyConfigured: (context.env.OPENROUTER_API_KEY ?? '') !== '' })
+}
+
+/**
+ * PUT /api/admin/llm: LLMの設定を検証して保存する。
+ *
+ * 検証は Worker だけが持ち、画面とWorkerで二重に持たない（読み上げの設定と同じ）。
+ *
+ * @throws ConfigError 設定に問題がある場合（index.ts が問題点付きの400にする）
+ */
+export const putLlm = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  const body: unknown = await context.request.json().catch(() => {
+    throw new HttpError(STATUS.badRequest, 'invalid-body', '本文はJSONにしてください')
+  })
+  const settings = parseLlmSettings(body)
+  await saveLlmSettings(context.env.STORE, settings)
   return Response.json(settings)
 }

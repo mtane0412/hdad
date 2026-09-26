@@ -4,7 +4,7 @@
  * 環境（バインディングとシークレット）の型、経路の処理が受け取る文脈、状態コード、クッキー、
  * そして「誰からのリクエストか」の確認（配信者のセッション・オーバーレイ用キー・送信元のサイト）をまとめる。
  */
-import type { TextGenerator } from './ai-chat'
+import type { TextGenerator, WorkersAi } from './llm'
 import type { AdBreakTimerNamespace } from './ad-break-timer'
 import type { AlertChannelNamespace } from './alert-channel'
 import type { Database } from './database'
@@ -31,8 +31,13 @@ export interface Env {
    * （Workerはタイマーを持てない。worker/ad-break-timer.ts）。
    */
   AD_BREAKS: AdBreakTimerNamespace
-  /** チャットの文面と視聴者の人物像を作らせるLLM（Workers AI）。トリガーの動作 aiChat と、cron の人物像づくりが使う */
-  AI: TextGenerator
+  /**
+   * Cloudflare の Workers AI のバインディング。
+   *
+   * 呼び出し側はこれを直接使わず、設定（worker/llm-config.ts）に従って呼び先を決める TextGenerator
+   * （Context.llm）を通す。提供元に OpenRouter を選んでいるときは、このバインディングは呼ばれない。
+   */
+  AI: WorkersAi
   TWITCH_CLIENT_ID: string
   TWITCH_CLIENT_SECRET: string
   /** 管理画面へのログインを許す、配信者のTwitchユーザーID（数字） */
@@ -41,6 +46,13 @@ export interface Env {
   SESSION_SECRET: string
   /** EventSubのWebhookの署名に使うランダムな文字列（Twitchの決まりで10〜100文字のASCII） */
   EVENTSUB_SECRET: string
+  /**
+   * OpenRouter のAPIキー。
+   *
+   * LLMの提供元に OpenRouter を選んだときだけ要る（worker/llm.ts）ので、設定していなくてもWorkerは動く。
+   * 選んでいるのに無ければ、黙って Workers AI へ落とさずに失敗させる（Fail-Fast）。
+   */
+  OPENROUTER_API_KEY?: string
 }
 
 /** 経路の処理が受け取る文脈 */
@@ -51,6 +63,13 @@ export interface Context {
   params: Readonly<Record<string, string>>
   env: Env
   twitch: TwitchClient
+  /**
+   * 文面を作らせるLLM（worker/llm.ts）。
+   *
+   * 提供元とモデルは保存された設定（llm-settings）が決めるので、経路の処理は用途（chat・summary）を指名するだけでよい。
+   * 設定の読み出しは最初に使われたときの1回だけなので、LLMを使わない通知では読み出しも起きない。
+   */
+  llm: TextGenerator
   /** 現在時刻（ミリ秒） */
   now: number
   /**

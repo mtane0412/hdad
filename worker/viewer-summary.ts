@@ -2,11 +2,12 @@
  * LLMによる人物像づくり
  *
  * 配信が終わったあとに、その配信でその人が話したこと（stream-chat-store.ts）と、これまでの記録
- * （viewers のメモ・発言数・バッジ）を材料に、Workers AI へ人物像を作らせる（worker/collect.ts が呼ぶ）。
+ * （viewers のメモ・発言数・バッジ）を材料に、LLM（worker/llm.ts）へ人物像を作らせる（worker/collect.ts が呼ぶ）。
  * 作った人物像は viewers の summary に貯め、次にその人が発言したときの文面づくり（ai-chat.ts）の材料になる。
  *
  * 材料の組み立て（buildSummaryPrompt）はLLMを呼ばない純粋な関数として分けてテストし、
- * 呼び出し（generateViewerSummary）は Workers AI のバインディング（Env.AI）を引数で受け取って差し替えられるようにする。
+ * 呼び出し（generateViewerSummary）はLLM（worker/llm.ts の TextGenerator）を引数で受け取って差し替えられるようにする。
+ * 用途（chat）を指名するだけにして、どの提供元（Workers AI・OpenRouter）のどのモデルを使うかは設定（llm-config.ts）に任せる。
  * ここは ai-chat.ts と同じ作りで、モデルとバインディングの型もそちらと共有する。
  *
  * 注意: 返ってきた人物像をそのまま信用しない。上限より長ければ切り詰めずに投げる（呼び出し側が記録する）。
@@ -16,7 +17,7 @@
  * 人物像は配信者しか見ないうえ、長さの上限で弾けるので実害は小さいが、ここで作った人物像はチャットの文面づくり
  * （ai-chat.ts）の材料にもなる。発言から読み取れないことを書かせない指示を必ず添える。
  */
-import { MODEL, readResponse, type TextGenerator } from './ai-chat'
+import type { TextGenerator } from './llm'
 import type { Viewer } from './viewer-store'
 
 /**
@@ -92,16 +93,16 @@ export const buildSummaryPrompt = (material: ViewerSummaryMaterial): string => {
  *   いずれも呼び出し側（worker/collect.ts）が viewer-summary-failed として記録し、材料は消さずに残す
  */
 export const generateViewerSummary = async (ai: TextGenerator, material: ViewerSummaryMaterial): Promise<string> => {
-  const result = await ai.run(MODEL, {
+  const result = await ai.run('chat', {
     messages: [
       { role: 'system', content: 'あなたはTwitchの配信者の助手です。視聴者の発言と記録から、その人がどんな人かを短くまとめます。' },
       { role: 'user', content: buildSummaryPrompt(material) },
     ],
-    max_tokens: MAX_TOKENS,
+    maxTokens: MAX_TOKENS,
   })
 
   // 人物像は1行で貯めるので、改行はそのまま残さず空白へ直す
-  const summary = readResponse(result).replaceAll(/\s*\n\s*/g, ' ').trim()
+  const summary = result.replaceAll(/\s*\n\s*/g, ' ').trim()
   if (summary === '') throw new ViewerSummaryContentError('LLMが空の人物像を返したため、記録しませんでした')
   if (summary.length > MAX_VIEWER_SUMMARY_LENGTH) {
     throw new ViewerSummaryContentError(

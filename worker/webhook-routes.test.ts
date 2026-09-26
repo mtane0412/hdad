@@ -9,7 +9,7 @@
 import { createHmac } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { createFakeBucket } from './fake-bucket'
-import { createFakeAi } from './fake-ai'
+import { createFakeWorkersAi } from './fake-ai'
 import { createFakeDatabase } from './fake-database'
 import { createFakeStore } from './fake-store'
 import { handleRequest, type Env } from './index'
@@ -46,7 +46,7 @@ const 環境を作る = ({ 配送は失敗する = false, オーバーレイ用�
   const db = createFakeDatabase()
   const 配送 = createFakeAlertChannel({ 失敗する: 配送は失敗する })
   const 広告のタイマー = createFakeAdBreakTimer()
-  const ai = createFakeAi({ 失敗する: LLMは失敗する, ...(LLMの文面 === undefined ? {} : { response: LLMの文面 }) })
+  const ai = createFakeWorkersAi({ 失敗する: LLMは失敗する, ...(LLMの文面 === undefined ? {} : { response: LLMの文面 }) })
   const env = {
     STORE: createFakeStore(オーバーレイ用キー === null ? {} : { 'overlay-key': オーバーレイ用キー }),
     MEDIA: createFakeBucket(),
@@ -1611,7 +1611,16 @@ describe('LLMに文面を作らせる動作（aiChat）', () => {
     const twitch = 送信に応えるTwitch()
     // 文面ができあがるまで終わらないLLM。テストが合図するまで応答を返さない
     let 文面を返す: (message: string) => void = () => {}
-    const 待たせるAI = { run: () => new Promise<unknown>((resolve) => (文面を返す = (message) => resolve({ response: message }))) }
+    // 呼ばれるのを待ってから合図する（設定（llm-settings）の読み出しを挟むので、Twitchへの応答より後に呼ばれることがある）
+    let 呼ばれたと知らせる: () => void = () => {}
+    const LLMが呼ばれるまで = new Promise<void>((resolve) => (呼ばれたと知らせる = resolve))
+    const 待たせるAI = {
+      run: () =>
+        new Promise<unknown>((resolve) => {
+          文面を返す = (message) => resolve({ response: message })
+          呼ばれたと知らせる()
+        }),
+    }
 
     const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), { ...env, AI: 待たせるAI }, twitch.fetchImpl)
 
@@ -1619,6 +1628,7 @@ describe('LLMに文面を作らせる動作（aiChat）', () => {
     expect(response.status).toBe(204)
     expect(twitch.送信したチャット).toHaveLength(0)
 
+    await LLMが呼ばれるまで
     文面を返す('太郎さん、ありがとう！')
     await 後回しの処理を待つ()
     expect(twitch.送信したチャット).toHaveLength(1)

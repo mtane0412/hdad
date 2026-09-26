@@ -33,7 +33,7 @@ import { readViewer } from './viewer-store'
  * リクエストに関わる項目（request・url・params）は使わないので受け取らない。
  * Durable Object のアラーム（worker/ad-break-timer.ts）からも呼べるようにするためである。
  */
-export type AlertActionContext = Pick<Context, 'env' | 'twitch' | 'now' | 'wait' | 'waitUntil'>
+export type AlertActionContext = Pick<Context, 'env' | 'twitch' | 'llm' | 'now' | 'wait' | 'waitUntil'>
 
 const invalid = (message: string): HttpError => new HttpError(STATUS.badRequest, 'invalid-webhook', message)
 
@@ -142,9 +142,9 @@ const sendAiChat = async (
   chatMessage: ChatMessage | null,
   streamSummary: string | null,
 ): Promise<void> => {
-  const { env } = context
+  const { env, llm } = context
   const viewer = chatMessage === null ? null : await readViewer(env.DB, chatMessage.chatterUserId)
-  const message = await generateChatMessage(env.AI, { instruction: aiChat.instruction, extracted: aiChat.extracted, viewer, state, streamSummary })
+  const message = await generateChatMessage(llm, { instruction: aiChat.instruction, extracted: aiChat.extracted, viewer, state, streamSummary })
   await sendAsBot(context, message)
 }
 

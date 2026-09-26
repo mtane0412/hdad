@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest'
 import { createFakeBucket } from './fake-bucket'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
 import { createFakeDatabase } from './fake-database'
-import { createFakeAi } from './fake-ai'
+import { createFakeWorkersAi } from './fake-ai'
 import { createFakeAlertChannel } from './fake-alert-channel'
 import { createFakeStore } from './fake-store'
 import { handleRequest, type Env } from './index'
@@ -38,7 +38,7 @@ const 環境を作る = () => {
     EVENTSUB_SECRET: 'テスト用のWebhookシークレット',
     ALERTS: 配送.namespace,
     AD_BREAKS: createFakeAdBreakTimer().namespace,
-    AI: createFakeAi(),
+    AI: createFakeWorkersAi(),
   } satisfies Env
   return { env, store, bucket, 配送 }
 }
@@ -595,5 +595,71 @@ describe('読み上げの設定（/api/admin/speech・/api/overlay/speech）', (
 
     expect(response.status).toBe(401)
     expect(await エラーコード(response)).toBe('invalid-overlay-key')
+  })
+})
+
+describe('LLMの設定（/api/admin/llm）', () => {
+  /** 配信者が画面で組み立てた、OpenRouter を使う設定 */
+  const 配信者の設定 = {
+    provider: 'openrouter',
+    workersAi: { chat: '@cf/meta/llama-3.1-8b-instruct-fp8', summary: '@cf/meta/llama-3.3-70b-instruct-fp8-fast' },
+    openrouter: { chat: 'meta-llama/llama-3.1-8b-instruct', summary: 'anthropic/claude-3.5-haiku' },
+  }
+
+  const 保存する = async (env: Env, settings: unknown) =>
+    呼び出す(
+      await 配信者のリクエスト(env, '/api/admin/llm', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings),
+      }),
+      env,
+    )
+
+  const 読む = async (env: Env) => 呼び出す(await 配信者のリクエスト(env, '/api/admin/llm'), env)
+
+  it('セッションがなければ、取得も保存も401を返す', async () => {
+    const { env } = 環境を作る()
+
+    expect((await 呼び出す(new Request(`${サイト}/api/admin/llm`), env)).status).toBe(401)
+    expect((await 呼び出す(new Request(`${サイト}/api/admin/llm`, { method: 'PUT', body: '{}' }), env)).status).toBe(401)
+  })
+
+  it('保存した設定を読み出せる', async () => {
+    const { env } = 環境を作る()
+
+    expect((await 保存する(env, 配信者の設定)).status).toBe(200)
+
+    expect(await (await 読む(env)).json()).toMatchObject(配信者の設定)
+  })
+
+  it('まだ保存していなければ、既定の設定（Workers AI）を返す', async () => {
+    const { env } = 環境を作る()
+
+    const response = await 読む(env)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ provider: 'workers-ai' })
+  })
+
+  it('OpenRouter のAPIキーが設定されているかを添えて返す（鍵そのものは返さない）', async () => {
+    const { env } = 環境を作る()
+
+    expect(await (await 読む(env)).json()).toMatchObject({ apiKeyConfigured: false })
+
+    const 鍵つき = { ...env, OPENROUTER_API_KEY: 'openrouter-test-key' }
+    const body = await (await 呼び出す(await 配信者のリクエスト(鍵つき, '/api/admin/llm'), 鍵つき)).json()
+    expect(body).toMatchObject({ apiKeyConfigured: true })
+    expect(JSON.stringify(body)).not.toContain('openrouter-test-key')
+  })
+
+  it('知らない提供元や空のモデル名は400で拒み、問題点をすべて返す（画面で一度に直せるようにする）', async () => {
+    const { env } = 環境を作る()
+
+    const response = await 保存する(env, { ...配信者の設定, provider: 'openai', openrouter: { chat: '', summary: '' } })
+
+    expect(response.status).toBe(400)
+    const body = (await response.json()) as { error: { problems: string[] } }
+    expect(body.error.problems).toHaveLength(3)
   })
 })
