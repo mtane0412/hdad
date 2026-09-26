@@ -3,8 +3,9 @@
  *
  * 管理画面から送られてくる設定を検証して保存用の形にすること、保存済みの設定を読み出せることを確認する。
  * 不正な設定を保存してしまうと配信中にアラートが出なくなるため、保存の前にすべての問題点を挙げて拒否する。
- * トリガーは「イベント種別」「条件のリスト（conditions）」「動作（アラートを出す・チャットに送る）」からなり、
- * 条件はすべてを満たしたときだけ当てはまる（and）。動作の種類ごとに実行者が違う（アラートはオーバーレイ、チャットはWorker）ことも合わせて確認する。
+ * トリガーは「既定メニューの項目（kind とそのパラメータ）」と「動作（アラートを出す・チャットに送る）」からなる。
+ * イベント種別と条件はメニュー項目から決まる（worker/trigger-menu.ts）ので、ここでは検証しない。
+ * 動作の種類ごとに実行者が違う（アラートはオーバーレイ、チャットはWorker）ことも合わせて確認する。
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -14,6 +15,7 @@ import {
   chatActionOf,
   loadAlertConfig,
   parseAlertConfig,
+  resolveTrigger,
   saveAlertConfig,
   type AlertConfig,
   type StoredTrigger,
@@ -55,9 +57,10 @@ const AIチャットの動作 = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 })
 
+/** 送られてくるトリガー。既定は「決まった報酬が交換されたらアラートを出す」 */
 const 送られてきたトリガー = (overrides: Record<string, unknown> = {}) => ({
-  event: REDEMPTION,
-  conditions: [{ kind: 'reward', rewardId: '報酬ID-乾杯' }],
+  kind: 'reward',
+  rewardId: '報酬ID-乾杯',
   actions: [アラートの動作()],
   ...overrides,
 })
@@ -71,7 +74,7 @@ const 保存済みのアラートの動作 = { ...アラートの動作(), type:
 describe('parseAlertConfig', () => {
   it('正しい設定は、アラートの動作に素材の種類を書き足した保存用の形になる', () => {
     expect(parseAlertConfig({ triggers: [送られてきたトリガー()] }, 素材の種類)).toEqual({
-      triggers: [{ event: REDEMPTION, conditions: [{ kind: 'reward', rewardId: '報酬ID-乾杯' }], actions: [保存済みのアラートの動作] }],
+      triggers: [{ kind: 'reward', rewardId: '報酬ID-乾杯', actions: [保存済みのアラートの動作] }],
     })
   })
 
@@ -145,186 +148,55 @@ describe('parseAlertConfig', () => {
     expect(parseAlertConfig(両方, 素材の種類).triggers[0]?.actions).toHaveLength(2)
   })
 
-  it('条件が1件もないトリガー（そのイベントならいつでも当てはまる）を受け付ける', () => {
-    const config = parseAlertConfig({ triggers: [送られてきたトリガー({ conditions: [] })] }, 素材の種類)
-    expect(config.triggers[0]).toMatchObject({ event: REDEMPTION, conditions: [] })
+  it.each([['everyMessage'], ['newViewer'], ['welcome'], ['follow'], ['subscribe'], ['resubscribe'], ['raid']])(
+    'パラメータを持たないメニュー項目（%s）を受け付ける',
+    (kind) => {
+      const config = parseAlertConfig({ triggers: [{ kind, actions: [チャットの動作()] }] }, 素材の種類)
+
+      expect(config.triggers[0]).toEqual({ kind, actions: [{ type: 'chat', message: '{user} さん、乾杯！ありがとうございます' }] })
+    },
+  )
+
+  it('すべての報酬を対象にするチャンネルポイントの交換（rewardId が null）を受け付ける', () => {
+    const config = parseAlertConfig({ triggers: [送られてきたトリガー({ rewardId: null })] }, 素材の種類)
+
+    expect(config.triggers[0]).toMatchObject({ kind: 'reward', rewardId: null })
   })
 
-  it('発言者・相手を絞る user の条件を受け付ける', () => {
-    const config = parseAlertConfig({ triggers: [送られてきたトリガー({ conditions: [{ kind: 'user', login: 'tanenobu' }] })] }, 素材の種類)
-    expect(config.triggers[0]?.conditions).toEqual([{ kind: 'user', login: 'tanenobu' }])
-  })
-
-  it('チャットの発言の文面を絞る text の条件を受け付ける', () => {
-    const チャットのトリガー = { event: 'channel.chat.message', conditions: [{ kind: 'text', contains: 'おはよう' }], actions: [アラートの動作()] }
-    const config = parseAlertConfig({ triggers: [チャットのトリガー] }, 素材の種類)
-
-    expect(config.triggers[0]?.conditions).toEqual([{ kind: 'text', contains: 'おはよう' }])
-  })
-
-  it('チャットの発言以外のイベントに text の条件を付けたら拒否する', () => {
-    const 文面を付けたフォロー = { triggers: [送られてきたトリガー({ event: 'channel.follow', conditions: [{ kind: 'text', contains: 'おはよう' }] })] }
-
-    expect(() => parseAlertConfig(文面を付けたフォロー, 素材の種類)).toThrowError(
-      expect.objectContaining({ problems: ['triggers[0].conditions[0]: text の条件はチャットの発言にしか付けられません'] }),
+  it('報酬IDが空文字なら拒否する（報酬を選べていない）', () => {
+    expect(() => parseAlertConfig({ triggers: [送られてきたトリガー({ rewardId: '' })] }, 素材の種類)).toThrowError(
+      expect.objectContaining({ problems: ['triggers[0].rewardId: 報酬IDの文字列か、すべての報酬を対象にする null で指定してください'] }),
     )
   })
 
-  it('文面が空文字なら拒否する（すべての発言に当てはまってしまう）', () => {
-    const 空の文面 = { triggers: [{ event: 'channel.chat.message', conditions: [{ kind: 'text', contains: '' }], actions: [アラートの動作()] }] }
+  it('決まった人が発言したメニュー項目は、ユーザー名を受け取る', () => {
+    const config = parseAlertConfig({ triggers: [{ kind: 'fromUser', login: 'tanenobu', actions: [チャットの動作()] }] }, 素材の種類)
 
-    expect(() => parseAlertConfig(空の文面, 素材の種類)).toThrowError(
-      expect.objectContaining({ problems: ['triggers[0].conditions[0].contains: 1〜500文字の文字列で指定してください'] }),
-    )
-  })
-
-  it('広告のトリガーに、自動で入った広告だけを選ぶ automatic の条件を受け付ける', () => {
-    const 自動広告の開始 = { event: 'channel.ad_break.begin', conditions: [{ kind: 'automatic', automatic: true }], actions: [チャットの動作()] }
-    const config = parseAlertConfig({ triggers: [自動広告の開始] }, 素材の種類)
-
-    expect(config.triggers[0]?.conditions).toEqual([{ kind: 'automatic', automatic: true }])
-  })
-
-  it('広告の終了のトリガーにも automatic の条件を受け付ける（手動で打った広告だけを選ぶ）', () => {
-    const 手動広告の終了 = { event: 'channel.ad_break.end', conditions: [{ kind: 'automatic', automatic: false }], actions: [チャットの動作()] }
-    const config = parseAlertConfig({ triggers: [手動広告の終了] }, 素材の種類)
-
-    expect(config.triggers[0]?.conditions).toEqual([{ kind: 'automatic', automatic: false }])
-  })
-
-  it('広告以外のイベントに automatic の条件を付けたら拒否する', () => {
-    const 自動かどうかを付けたフォロー = { triggers: [送られてきたトリガー({ event: 'channel.follow', conditions: [{ kind: 'automatic', automatic: true }] })] }
-
-    expect(() => parseAlertConfig(自動かどうかを付けたフォロー, 素材の種類)).toThrowError(
-      expect.objectContaining({ problems: ['triggers[0].conditions[0]: automatic の条件は広告の開始・終了にしか付けられません'] }),
-    )
-  })
-
-  it('automatic に真偽値以外を指定したら拒否する', () => {
-    const 文字列の自動かどうか = { triggers: [{ event: 'channel.ad_break.begin', conditions: [{ kind: 'automatic', automatic: 'はい' }], actions: [チャットの動作()] }] }
-
-    expect(() => parseAlertConfig(文字列の自動かどうか, 素材の種類)).toThrowError(
-      expect.objectContaining({ problems: ['triggers[0].conditions[0].automatic: true（自動で入った広告）か false（手動で打った広告）で指定してください'] }),
-    )
-  })
-
-  it('reward と user の報酬とユーザーの条件を並べたトリガーを受け付ける（すべてを満たしたときだけ当てはまる）', () => {
-    const 報酬とユーザーの条件 = [
-      { kind: 'reward', rewardId: '報酬ID-乾杯' },
-      { kind: 'user', login: 'tanenobu' },
-    ]
-    const config = parseAlertConfig({ triggers: [送られてきたトリガー({ conditions: 報酬とユーザーの条件 })] }, 素材の種類)
-
-    expect(config.triggers[0]?.conditions).toEqual(報酬とユーザーの条件)
-  })
-
-  it('conditions が配列でなければ拒否する', () => {
-    expect(() => parseAlertConfig({ triggers: [送られてきたトリガー({ conditions: '報酬ID-乾杯' })] }, 素材の種類)).toThrowError(
-      expect.objectContaining({ problems: ['triggers[0].conditions: 配列で指定してください'] }),
-    )
-  })
-
-  it('対応していない条件の種類は拒否する', () => {
-    expect(() => parseAlertConfig({ triggers: [送られてきたトリガー({ conditions: [{ kind: 'bits' }] })] }, 素材の種類)).toThrowError(
-      expect.objectContaining({
-        problems: [
-          'triggers[0].conditions[0].kind: reward / user / text / firstChatOfStream / firstChatEver / returningAfter / automatic のいずれかを指定してください',
-        ],
-      }),
-    )
-  })
-
-  it('同じ種類の条件が2件あれば拒否する', () => {
-    const 重複 = {
-      triggers: [
-        送られてきたトリガー({
-          conditions: [
-            { kind: 'reward', rewardId: '報酬ID-乾杯' },
-            { kind: 'reward', rewardId: '報酬ID-水' },
-          ],
-        }),
-      ],
-    }
-
-    expect(() => parseAlertConfig(重複, 素材の種類)).toThrowError(
-      expect.objectContaining({ problems: ['triggers[0].conditions: 同じ種類の条件（reward）は1件までにしてください'] }),
-    )
-  })
-
-  it('報酬IDが空文字なら拒否する（報酬を選んでいない）', () => {
-    expect(() => parseAlertConfig({ triggers: [送られてきたトリガー({ conditions: [{ kind: 'reward', rewardId: '' }] })] }, 素材の種類)).toThrowError(
-      expect.objectContaining({ problems: ['triggers[0].conditions[0].rewardId: 報酬IDの文字列で指定してください'] }),
-    )
+    expect(config.triggers[0]).toMatchObject({ kind: 'fromUser', login: 'tanenobu' })
   })
 
   it('ユーザー名が空文字なら拒否する', () => {
-    expect(() => parseAlertConfig({ triggers: [送られてきたトリガー({ conditions: [{ kind: 'user', login: '' }] })] }, 素材の種類)).toThrowError(
-      expect.objectContaining({ problems: [`triggers[0].conditions[0].login: 1〜25文字のTwitchのユーザー名で指定してください`] }),
+    expect(() => parseAlertConfig({ triggers: [{ kind: 'fromUser', login: '', actions: [チャットの動作()] }] }, 素材の種類)).toThrowError(
+      expect.objectContaining({ problems: ['triggers[0].login: 1〜25文字のTwitchのユーザー名で指定してください'] }),
     )
   })
 
-  it('チャンネルポイント交換以外のイベントに reward の条件を付けたら拒否する', () => {
-    const 報酬を付けたフォロー = { triggers: [送られてきたトリガー({ event: 'channel.follow' })] }
+  it('決まった言葉を含む発言のメニュー項目は、言葉を受け取る', () => {
+    const config = parseAlertConfig({ triggers: [{ kind: 'keyword', contains: 'おはよう', actions: [チャットの動作()] }] }, 素材の種類)
 
-    expect(() => parseAlertConfig(報酬を付けたフォロー, 素材の種類)).toThrowError(
-      expect.objectContaining({
-        problems: ['triggers[0].conditions[0]: reward の条件はチャンネルポイントの交換にしか付けられません'],
-      }),
+    expect(config.triggers[0]).toMatchObject({ kind: 'keyword', contains: 'おはよう' })
+  })
+
+  it('含む言葉が空文字なら拒否する（すべての発言に当てはまってしまう）', () => {
+    expect(() => parseAlertConfig({ triggers: [{ kind: 'keyword', contains: '', actions: [チャットの動作()] }] }, 素材の種類)).toThrowError(
+      expect.objectContaining({ problems: ['triggers[0].contains: 1〜500文字の文字列で指定してください'] }),
     )
   })
 
-  it('チャットの発言に firstChatOfStream の条件を付けられる', () => {
-    const 初回の条件 = [{ kind: 'firstChatOfStream' }]
-    const config = parseAlertConfig({ triggers: [送られてきたトリガー({ event: CHAT_MESSAGE, conditions: 初回の条件 })] }, 素材の種類)
+  it('久しぶりの人が発言したメニュー項目は、日数を受け取る', () => {
+    const config = parseAlertConfig({ triggers: [{ kind: 'comeback', days: 30, actions: [チャットの動作()] }] }, 素材の種類)
 
-    expect(config.triggers[0]?.conditions).toEqual(初回の条件)
-  })
-
-  it('チャットの発言以外のイベントに firstChatOfStream の条件を付けたら拒否する', () => {
-    const 初回を付けたフォロー = { triggers: [送られてきたトリガー({ event: 'channel.follow', conditions: [{ kind: 'firstChatOfStream' }] })] }
-
-    expect(() => parseAlertConfig(初回を付けたフォロー, 素材の種類)).toThrowError(
-      expect.objectContaining({
-        problems: ['triggers[0].conditions[0]: firstChatOfStream の条件はチャットの発言にしか付けられません'],
-      }),
-    )
-  })
-
-  it('チャットの発言に firstChatEver の条件を付けられる', () => {
-    const 初見の条件 = [{ kind: 'firstChatEver' }]
-    const config = parseAlertConfig({ triggers: [送られてきたトリガー({ event: CHAT_MESSAGE, conditions: 初見の条件 })] }, 素材の種類)
-
-    expect(config.triggers[0]?.conditions).toEqual(初見の条件)
-  })
-
-  it('チャットの発言以外のイベントに firstChatEver の条件を付けたら拒否する', () => {
-    const 初見を付けたフォロー = { triggers: [送られてきたトリガー({ event: 'channel.follow', conditions: [{ kind: 'firstChatEver' }] })] }
-
-    expect(() => parseAlertConfig(初見を付けたフォロー, 素材の種類)).toThrowError(
-      expect.objectContaining({ problems: ['triggers[0].conditions[0]: firstChatEver の条件はチャットの発言にしか付けられません'] }),
-    )
-  })
-
-  it('その配信で初めての発言と、このチャンネルで初めての発言を同じトリガーに並べられる（種類が違うので重複ではない）', () => {
-    const 両方の条件 = [{ kind: 'firstChatOfStream' }, { kind: 'firstChatEver' }]
-    const config = parseAlertConfig({ triggers: [送られてきたトリガー({ event: CHAT_MESSAGE, conditions: 両方の条件 })] }, 素材の種類)
-
-    expect(config.triggers[0]?.conditions).toEqual(両方の条件)
-  })
-
-  it('チャットの発言に returningAfter の条件を付けられる', () => {
-    const 久しぶりの条件 = [{ kind: 'returningAfter', days: 30 }]
-    const config = parseAlertConfig({ triggers: [送られてきたトリガー({ event: CHAT_MESSAGE, conditions: 久しぶりの条件 })] }, 素材の種類)
-
-    expect(config.triggers[0]?.conditions).toEqual(久しぶりの条件)
-  })
-
-  it('チャットの発言以外のイベントに returningAfter の条件を付けたら拒否する', () => {
-    const 久しぶりを付けたレイド = { triggers: [送られてきたトリガー({ event: 'channel.raid', conditions: [{ kind: 'returningAfter', days: 30 }] })] }
-
-    expect(() => parseAlertConfig(久しぶりを付けたレイド, 素材の種類)).toThrowError(
-      expect.objectContaining({ problems: ['triggers[0].conditions[0]: returningAfter の条件はチャットの発言にしか付けられません'] }),
-    )
+    expect(config.triggers[0]).toMatchObject({ kind: 'comeback', days: 30 })
   })
 
   it.each([
@@ -332,11 +204,35 @@ describe('parseAlertConfig', () => {
     ['366日', 366],
     ['小数の日数', 1.5],
     ['文字列の日数', '30'],
-  ])('returningAfter の日数が %s なら拒否する', (_名前, days) => {
-    const 設定 = { triggers: [送られてきたトリガー({ event: CHAT_MESSAGE, conditions: [{ kind: 'returningAfter', days }] })] }
+  ])('久しぶりの人が発言したメニュー項目の日数が %s なら拒否する', (_名前, days) => {
+    expect(() => parseAlertConfig({ triggers: [{ kind: 'comeback', days, actions: [チャットの動作()] }] }, 素材の種類)).toThrowError(
+      expect.objectContaining({ problems: ['triggers[0].days: 1〜365の整数（日数）で指定してください'] }),
+    )
+  })
 
-    expect(() => parseAlertConfig(設定, 素材の種類)).toThrowError(
-      expect.objectContaining({ problems: ['triggers[0].conditions[0].days: 1〜365の整数（日数）で指定してください'] }),
+  it.each([['adBreakBegin'], ['adBreakEnd']])('広告のメニュー項目（%s）は、自動で入った広告かどうかを受け取る', (kind) => {
+    const config = parseAlertConfig({ triggers: [{ kind, automatic: true, actions: [チャットの動作()] }] }, 素材の種類)
+
+    expect(config.triggers[0]).toMatchObject({ kind, automatic: true })
+  })
+
+  it('自動・手動を問わない広告のメニュー項目（automatic が null）を受け付ける', () => {
+    const config = parseAlertConfig({ triggers: [{ kind: 'adBreakEnd', automatic: null, actions: [チャットの動作()] }] }, 素材の種類)
+
+    expect(config.triggers[0]).toMatchObject({ kind: 'adBreakEnd', automatic: null })
+  })
+
+  it('広告のメニュー項目に真偽値でも null でもない値を指定したら拒否する', () => {
+    expect(() => parseAlertConfig({ triggers: [{ kind: 'adBreakBegin', automatic: 'はい', actions: [チャットの動作()] }] }, 素材の種類)).toThrowError(
+      expect.objectContaining({
+        problems: ['triggers[0].automatic: true（自動で入った広告）か false（手動で打った広告）、または自動・手動を問わない null で指定してください'],
+      }),
+    )
+  })
+
+  it('対応していないメニュー項目は拒否する', () => {
+    expect(() => parseAlertConfig({ triggers: [送られてきたトリガー({ kind: 'cheer' })] }, 素材の種類)).toThrowError(
+      expect.objectContaining({ problems: [expect.stringContaining('triggers[0].kind')] }),
     )
   })
 
@@ -363,18 +259,13 @@ describe('parseAlertConfig', () => {
     )
   })
 
-  it.each(['channel.follow', 'channel.subscribe', 'channel.subscription.message', 'channel.raid', 'channel.chat.message', 'channel.ad_break.begin', 'channel.ad_break.end'])(
-    'チャンネルポイント交換以外のイベント（%s）も、条件なしで受け付ける',
-    (event) => {
-      expect(parseAlertConfig({ triggers: [{ event, conditions: [], actions: [アラートの動作()] }] }, 素材の種類)).toEqual({
-        triggers: [{ event, conditions: [], actions: [保存済みのアラートの動作] }],
-      })
-    },
-  )
+  it('メニュー項目のパラメータの問題と、動作の問題を同時に挙げる', () => {
+    const broken = { triggers: [{ kind: 'comeback', days: 0, actions: [] }] }
 
-  it('対応していないイベントの種類は拒否する', () => {
-    expect(() => parseAlertConfig({ triggers: [送られてきたトリガー({ event: 'channel.cheer' })] }, 素材の種類)).toThrowError(
-      expect.objectContaining({ problems: [expect.stringContaining('triggers[0].event')] }),
+    expect(() => parseAlertConfig(broken, 素材の種類)).toThrowError(
+      expect.objectContaining({
+        problems: ['triggers[0].days: 1〜365の整数（日数）で指定してください', 'triggers[0].actions: 1件以上の配列で指定してください'],
+      }),
     )
   })
 
@@ -439,9 +330,22 @@ describe('parseAlertConfig', () => {
   })
 })
 
+describe('resolveTrigger', () => {
+  it('メニュー項目を、照合で使う形（イベント種別と条件）へ展開し、動作はそのまま持つ', () => {
+    const trigger: StoredTrigger = { kind: 'comeback', days: 30, actions: [保存済みのアラートの動作] }
+
+    expect(resolveTrigger(trigger)).toEqual({
+      kind: 'comeback',
+      event: CHAT_MESSAGE,
+      conditions: [{ kind: 'returningAfter', days: 30 }],
+      actions: [保存済みのアラートの動作],
+    })
+  })
+})
+
 describe('saveAlertConfig / loadAlertConfig', () => {
   const 保存用の設定: AlertConfig = {
-    triggers: [{ event: REDEMPTION, conditions: [{ kind: 'reward', rewardId: '報酬ID-乾杯' }], actions: [保存済みのアラートの動作] }],
+    triggers: [{ kind: 'reward', rewardId: '報酬ID-乾杯', actions: [保存済みのアラートの動作] }],
   }
 
   it('保存した設定をそのまま読み出せる', async () => {
@@ -454,11 +358,17 @@ describe('saveAlertConfig / loadAlertConfig', () => {
     expect(await loadAlertConfig(createFakeStore())).toEqual(EMPTY_CONFIG)
   })
 
-  it('条件をリストにする前の形（rewardId が直接ぶら下がる）で保存されていたら、黙って読み替えずにエラーにする', async () => {
+  it('既定メニューにする前の形（event と conditions を直接持つ）で保存されていたら、黙って読み替えずにエラーにする', async () => {
     const store = createFakeStore()
-    // 条件をリストにする前の保存内容。読み替えずにエラーにする（暗黙の読み替えを増やさない）
-    const 旧形式 = { triggers: [{ event: REDEMPTION, rewardId: '報酬ID-乾杯', actions: [保存済みのアラートの動作] }] }
+    const 旧形式 = { triggers: [{ event: REDEMPTION, conditions: [{ kind: 'reward', rewardId: '報酬ID-乾杯' }], actions: [保存済みのアラートの動作] }] }
     await store.put('alert-config', JSON.stringify(旧形式))
+
+    await expect(loadAlertConfig(store)).rejects.toThrow(/古い形/)
+  })
+
+  it('保存されているメニュー項目が対応していない名前なら、読み替えずにエラーにする', async () => {
+    const store = createFakeStore()
+    await store.put('alert-config', JSON.stringify({ triggers: [{ kind: 'cheer', actions: [保存済みのアラートの動作] }] }))
 
     await expect(loadAlertConfig(store)).rejects.toThrow(/古い形/)
   })
@@ -485,8 +395,7 @@ describe('saveAlertConfig / loadAlertConfig', () => {
 describe('aiChatActionOf', () => {
   it('トリガーからLLMに文面を作らせる動作を取り出す', () => {
     const trigger: StoredTrigger = {
-      event: CHAT_MESSAGE,
-      conditions: [{ kind: 'firstChatEver' }],
+      kind: 'newViewer',
       actions: [保存済みのアラートの動作, { type: 'aiChat', instruction: '初めての人を歓迎してください' }],
     }
 
@@ -494,15 +403,14 @@ describe('aiChatActionOf', () => {
   })
 
   it('LLMに文面を作らせる動作がなければ null を返す', () => {
-    expect(aiChatActionOf({ event: CHAT_MESSAGE, conditions: [], actions: [保存済みのアラートの動作] })).toBeNull()
+    expect(aiChatActionOf({ kind: 'everyMessage', actions: [保存済みのアラートの動作] })).toBeNull()
   })
 })
 
 describe('announceActionOf', () => {
   it('トリガーからアナウンスを送る動作を取り出す', () => {
     const trigger: StoredTrigger = {
-      event: 'channel.raid',
-      conditions: [],
+      kind: 'raid',
       actions: [保存済みのアラートの動作, { type: 'announce', message: '{user} さんがレイドしてくれました', color: 'purple' }],
     }
 
@@ -510,15 +418,14 @@ describe('announceActionOf', () => {
   })
 
   it('アナウンスを送る動作がなければ null を返す', () => {
-    expect(announceActionOf({ event: 'channel.raid', conditions: [], actions: [保存済みのアラートの動作] })).toBeNull()
+    expect(announceActionOf({ kind: 'raid', actions: [保存済みのアラートの動作] })).toBeNull()
   })
 })
 
 describe('chatActionOf', () => {
   it('トリガーからチャットに送る動作を取り出す', () => {
     const trigger: StoredTrigger = {
-      event: 'channel.follow',
-      conditions: [],
+      kind: 'follow',
       actions: [保存済みのアラートの動作, { type: 'chat', message: 'フォローありがとうございます' }],
     }
 
@@ -526,6 +433,6 @@ describe('chatActionOf', () => {
   })
 
   it('チャットに送る動作がなければ null を返す', () => {
-    expect(chatActionOf({ event: 'channel.follow', conditions: [], actions: [保存済みのアラートの動作] })).toBeNull()
+    expect(chatActionOf({ kind: 'follow', actions: [保存済みのアラートの動作] })).toBeNull()
   })
 })

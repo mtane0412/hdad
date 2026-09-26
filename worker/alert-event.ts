@@ -25,10 +25,11 @@ import {
   type MediaKind,
   type StoredAiChatAction,
   type StoredAnnounceAction,
-  type StoredCondition,
-  type StoredTrigger,
+  resolveTrigger,
+  type ResolvedTrigger,
 } from './alert-config'
 import { readChatMessage } from './chat-command'
+import { GREETING_KINDS, isGreeting, type StoredCondition } from './trigger-menu'
 import { fillStreamSummary, STREAM_SUMMARY_PLACEHOLDER } from './stream-summary'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
@@ -93,9 +94,18 @@ export interface ConditionState {
   readonly daysSinceLastChat: number | null
 }
 
+/**
+ * その通知のイベント種別を対象にするトリガーを、照合に使う形へ展開して取り出す。
+ *
+ * 保存されているのは既定メニューの項目（kind とパラメータ）なので、イベント種別と条件はここで展開する
+ * （展開は通信も時刻も持たない純粋な処理なので、必要になったその場で行ってよい）。
+ */
+const triggersFor = (config: AlertConfig, subscriptionType: string): ResolvedTrigger[] =>
+  config.triggers.map(resolveTrigger).filter((trigger) => trigger.event === subscriptionType)
+
 /** そのイベントのトリガーに、指定した種類の条件がひとつでも使われているか */
 const uses = (config: AlertConfig, subscriptionType: string, kinds: readonly StoredCondition['kind'][]): boolean =>
-  config.triggers.some((trigger) => trigger.event === subscriptionType && trigger.conditions.some((condition) => kinds.includes(condition.kind)))
+  triggersFor(config, subscriptionType).some((trigger) => trigger.conditions.some((condition) => kinds.includes(condition.kind)))
 
 /**
  * そのイベントに、LLMへ文面を作らせる動作（aiChat）を持つトリガーがあるか。
@@ -104,7 +114,7 @@ const uses = (config: AlertConfig, subscriptionType: string, kinds: readonly Sto
  * 条件としては使っていなくても判定が要るのはこの動作だけなので、requires* から見分けられるようにしておく。
  */
 const hasAiChatAction = (config: AlertConfig, subscriptionType: string): boolean =>
-  config.triggers.some((trigger) => trigger.event === subscriptionType && aiChatActionOf(trigger) !== null)
+  triggersFor(config, subscriptionType).some((trigger) => aiChatActionOf(trigger) !== null)
 
 /**
  * その通知に、「その配信で初めての発言か」の判定が要るか。
@@ -136,7 +146,7 @@ export const requiresChatHistory = (config: AlertConfig, subscriptionType: strin
  * チャットの発言は件数の桁が違うため、1通ごとに余分なKVの読み出しを増やさないようにこれで絞る。
  */
 export const hasAlertAction = (config: AlertConfig, subscriptionType: string): boolean =>
-  config.triggers.some((trigger) => trigger.event === subscriptionType && alertActionOf(trigger) !== null)
+  triggersFor(config, subscriptionType).some((trigger) => alertActionOf(trigger) !== null)
 
 /**
  * その通知に、配信のあらすじが要るトリガーがあるか。
@@ -148,10 +158,8 @@ export const hasAlertAction = (config: AlertConfig, subscriptionType: string): b
  * 文面を作らせないよう、指示に書かれていなくても材料として渡す（requiresChatHistory が来訪の別を必ず調べるのと同じ）。
  */
 export const requiresStreamSummary = (config: AlertConfig, subscriptionType: string): boolean =>
-  config.triggers.some(
-    (trigger) =>
-      trigger.event === subscriptionType &&
-      trigger.actions.some((action) => 'message' in action && action.message.includes(STREAM_SUMMARY_PLACEHOLDER)),
+  triggersFor(config, subscriptionType).some((trigger) =>
+    trigger.actions.some((action) => 'message' in action && action.message.includes(STREAM_SUMMARY_PLACEHOLDER)),
   ) || hasAiChatAction(config, subscriptionType)
 
 type EventBody = Readonly<Record<string, unknown>>
@@ -275,8 +283,13 @@ const satisfiesCondition = (condition: StoredCondition, extracted: Extracted, st
   }
 }
 
-/** トリガーが、取り出した項目に当てはまるか。イベント種別が同じで、条件をすべて満たすときに当てはまる（and） */
-export const matches = (trigger: StoredTrigger, extracted: Extracted, state: ConditionState): boolean =>
+/**
+ * 展開したトリガーが、取り出した項目に当てはまるか。イベント種別が同じで、条件をすべて満たすときに当てはまる（and）。
+ *
+ * 受け取るのは展開後の形（ResolvedTrigger）である。既定メニューの項目から条件を作るのは worker/trigger-menu.ts の
+ * 役目で、当てはまるかどうかの判定はこの関数だけが持つ（判定を2か所に置かないため）。
+ */
+export const matches = (trigger: ResolvedTrigger, extracted: Extracted, state: ConditionState): boolean =>
   trigger.event === extracted.event && trigger.conditions.every((condition) => satisfiesCondition(condition, extracted, state))
 
 /**
@@ -330,52 +343,92 @@ export const fillMessage = (template: string, extracted: Extracted, summary: str
   )
 
 /**
- * 通知に当てはまるトリガーを探し、その動作の文言に差し込み語を置き換えて返す。
+ * 挨拶の段に当てはまったもののうち、最も細かい1つだけを残す。
  *
- * @param actionOf トリガーから目的の動作を取り出す関数。この動作を持つトリガーだけが対象で、
- *   複数当てはまる場合は先に書かれたものを使う（当てはまるだけ送るとチャットを連投し、Twitchの送信のレート制限にもかかるため）
- * @returns 文言を置き換えた動作。アラートに使えないイベント種別、または当てはまるトリガーがなければ null
- * @throws 通知の中身が想定した形でない場合（その動作を持つトリガーがあるイベント種別に限る）
+ * 初めて来た人の発言は必ず「その配信で最初の発言」でもあるので、すべて発動させると同じ1通に挨拶が二重に飛ぶ。
+ * 優先順位は worker/trigger-menu.ts の GREETING_KINDS の並び（細かい順）で決め、保存されている並びには頼らない
+ * （KVを手で直しても挨拶が入れ替わらないようにする）。挨拶以外の項目はすべてそのまま残す。
  */
-const matchedActionFor = <Action>(
+const applyGreetingRule = (triggers: readonly ResolvedTrigger[]): ResolvedTrigger[] => {
+  const winner = triggers
+    .filter((trigger) => isGreeting(trigger.kind))
+    .sort((left, right) => GREETING_KINDS.indexOf(left.kind) - GREETING_KINDS.indexOf(right.kind))[0]
+  return triggers.filter((trigger) => !isGreeting(trigger.kind) || trigger === winner)
+}
+
+/**
+ * 通知に当てはまるトリガーをすべて探す。
+ *
+ * **当てはまった行はすべて実行する。** 先に当てはまった1件だけを採ると、管理画面に固定で並ぶ行のうち
+ * 絞り込みの緩いもの（「すべての発言」）が細かいもの（「初めて来た人の発言」）を飲み込み、
+ * 下の行が永久に動かないまま設定だけが残ってしまう。ただし挨拶の段だけは例外で、
+ * 当てはまったうちの1つに絞る（applyGreetingRule）。
+ *
+ * 動作の種類ごとに選び直さず1回で決めるのは、挨拶の絞り込みが動作の種類をまたぐためである
+ * （「初めて来た人の発言 → AIチャット」と「その配信で最初の発言 → チャット」が並んでいるとき、
+ * 動作ごとに選ぶと前者でAIチャットが、後者でチャットが送られて、挨拶が二重になる）。
+ *
+ * そのイベント種別のトリガーが1件もなければ通知の中身は読まない
+ * （設定していないイベントの中身の形が想定と違うだけで、配信の記録まで止めてしまわないため）。
+ *
+ * @returns 当てはまったトリガーと読み取った中身。当てはまるものが無ければ null
+ * @throws 通知の中身が想定した形でない場合（そのイベント種別のトリガーがある場合に限る）
+ */
+const matchedTriggers = (
   config: AlertConfig,
   subscriptionType: string,
   body: unknown,
-  actionOf: (trigger: StoredTrigger) => Action | null,
   state: ConditionState,
-): { action: Action; extracted: Extracted } | null => {
-  // その動作を持つトリガーが1件もないイベント種別なら、通知の中身は読まない。
-  // 設定していないイベントの中身の形が想定と違うだけで、配信の記録まで止めてしまわないため
-  const candidates = config.triggers.filter((trigger) => trigger.event === subscriptionType && actionOf(trigger) !== null)
+): { triggers: ResolvedTrigger[]; extracted: Extracted } | null => {
+  const candidates = triggersFor(config, subscriptionType)
   if (candidates.length === 0) return null
 
   const extracted = extract(subscriptionType, body)
   if (extracted === null) return null
 
-  for (const trigger of candidates) {
-    if (!matches(trigger, extracted, state)) continue
-    const action = actionOf(trigger)
-    if (action !== null) return { action, extracted }
-  }
-  return null
+  return { triggers: applyGreetingRule(candidates.filter((trigger) => matches(trigger, extracted, state))), extracted }
 }
 
 /**
- * 通知に当てはまるトリガーを探し、その動作の文言に差し込み語を置き換えて返す。
+ * 通知に当てはまるトリガーから、目的の種類の動作を並びの順に取り出す。
  *
- * 文言を持つ動作（alert・chat・announce）のための入口で、文言を持たない aiChat は aiChatFor が受け持つ。
+ * @param actionOf トリガーから目的の動作を取り出す関数。この動作を持たないトリガーは飛ばす
+ * @returns 文言を置き換える前の動作と、読み取った通知の中身の組を、トリガーの並びの順に返す
+ * @throws 通知の中身が想定した形でない場合（そのイベント種別のトリガーがある場合に限る）
  */
-const filledActionFor = <Action extends { message: string }>(
+const matchedActionsFor = <Action>(
   config: AlertConfig,
   subscriptionType: string,
   body: unknown,
-  actionOf: (trigger: StoredTrigger) => Action | null,
+  actionOf: (trigger: ResolvedTrigger) => Action | null,
+  state: ConditionState,
+): { action: Action; extracted: Extracted }[] => {
+  const matched = matchedTriggers(config, subscriptionType, body, state)
+  if (matched === null) return []
+
+  return matched.triggers.flatMap((trigger) => {
+    const action = actionOf(trigger)
+    return action === null ? [] : [{ action, extracted: matched.extracted }]
+  })
+}
+
+/**
+ * 通知に当てはまるトリガーをすべて探し、その動作の文言に差し込み語を置き換えて返す。
+ *
+ * 文言を持つ動作（alert・chat・announce）のための入口で、文言を持たない aiChat は aiChatsFor が受け持つ。
+ */
+const filledActionsFor = <Action extends { message: string }>(
+  config: AlertConfig,
+  subscriptionType: string,
+  body: unknown,
+  actionOf: (trigger: ResolvedTrigger) => Action | null,
   state: ConditionState,
   summary: string | null,
-): Action | null => {
-  const matched = matchedActionFor(config, subscriptionType, body, actionOf, state)
-  return matched === null ? null : { ...matched.action, message: fillMessage(matched.action.message, matched.extracted, summary) }
-}
+): Action[] =>
+  matchedActionsFor(config, subscriptionType, body, actionOf, state).map((matched) => ({
+    ...matched.action,
+    message: fillMessage(matched.action.message, matched.extracted, summary),
+  }))
 
 /**
  * 通知に当てはまるトリガーを探し、LLMに文面を作らせる材料（配信者の指示と、読み取ったイベントの中身）を返す。
@@ -383,25 +436,26 @@ const filledActionFor = <Action extends { message: string }>(
  * ほかの動作と違って文言を持たないので、差し込み語の置き換えはしない。文面づくりは worker/ai-chat.ts が受け持ち、
  * 相手の記録（viewers）は呼び出し側（webhook-routes.ts）が読んで足す（このファイルは通信を持たないため）。
  *
- * @returns 指示と読み取った中身。当てはまるトリガーがなければ null
+ * @returns 指示と読み取った中身の組を、当てはまったトリガーの並びの順に返す
  * @throws 通知の中身が想定した形でない場合（この動作を持つトリガーがあるイベント種別に限る）
  */
-export const aiChatFor = (
+export const aiChatsFor = (
   config: AlertConfig,
   subscriptionType: string,
   body: unknown,
   state: ConditionState,
-): { instruction: StoredAiChatAction['instruction']; extracted: Extracted } | null => {
-  const matched = matchedActionFor(config, subscriptionType, body, aiChatActionOf, state)
-  return matched === null ? null : { instruction: matched.action.instruction, extracted: matched.extracted }
-}
+): { instruction: StoredAiChatAction['instruction']; extracted: Extracted }[] =>
+  matchedActionsFor(config, subscriptionType, body, aiChatActionOf, state).map((matched) => ({
+    instruction: matched.action.instruction,
+    extracted: matched.extracted,
+  }))
 
 /**
- * 通知に当てはまるトリガーを探し、チャットへ送る文言を決める。
+ * 通知に当てはまるトリガーをすべて探し、チャットへ送る文言を決める。
  *
  * 差し込みの結果がTwitchの上限（500文字）を超えていれば、末尾を … にして収める。
  *
- * @returns 送る文言。当てはまるトリガーがなければ null
+ * @returns 送る文言を、当てはまったトリガーの並びの順に返す
  * @throws 通知の中身が想定した形でない場合（チャットに送るトリガーがあるイベント種別に限る）
  */
 /**
@@ -413,35 +467,33 @@ export const aiChatFor = (
 const withinChatLimit = (message: string): string =>
   message.length <= MAX_CHAT_MESSAGE_LENGTH ? message : `${message.slice(0, MAX_CHAT_MESSAGE_LENGTH - 1)}…`
 
-export const chatMessageFor = (
+export const chatMessagesFor = (
   config: AlertConfig,
   subscriptionType: string,
   body: unknown,
   state: ConditionState,
   summary: string | null,
-): string | null => {
-  const action = filledActionFor(config, subscriptionType, body, chatActionOf, state, summary)
-  return action === null ? null : withinChatLimit(action.message)
-}
+): string[] => filledActionsFor(config, subscriptionType, body, chatActionOf, state, summary).map((action) => withinChatLimit(action.message))
 
 /**
- * 通知に当てはまるトリガーを探し、送るアナウンス（文言と色）を決める。
+ * 通知に当てはまるトリガーをすべて探し、送るアナウンス（文言と色）を決める。
  *
- * 選び方と上限への収め方は chatMessageFor と同じで、複数当てはまる場合は先に書かれたものを使う。
+ * 選び方と上限への収め方は chatMessagesFor と同じで、当てはまった行はすべて返す。
  *
- * @returns 送るアナウンス。当てはまるトリガーがなければ null
+ * @returns 送るアナウンスを、当てはまったトリガーの並びの順に返す
  * @throws 通知の中身が想定した形でない場合（アナウンスを送るトリガーがあるイベント種別に限る）
  */
-export const announcementFor = (
+export const announcementsFor = (
   config: AlertConfig,
   subscriptionType: string,
   body: unknown,
   state: ConditionState,
   summary: string | null,
-): StoredAnnounceAction | null => {
-  const action = filledActionFor(config, subscriptionType, body, announceActionOf, state, summary)
-  return action === null ? null : { ...action, message: withinChatLimit(action.message) }
-}
+): StoredAnnounceAction[] =>
+  filledActionsFor(config, subscriptionType, body, announceActionOf, state, summary).map((action) => ({
+    ...action,
+    message: withinChatLimit(action.message),
+  }))
 
 /** オーバーレイが再生するアラート1件（src/alerts/resolve.ts の Alert に対応する） */
 export interface OverlayAlert {
@@ -459,24 +511,20 @@ export interface OverlayAlert {
  * オーバーレイでは判定できないためである。オーバーレイは通知をそのまま送ってきて、返ってきたアラートを再生するだけでよい。
  *
  * @param overlayKey 素材のURLに付けるオーバーレイ用キー（キーが違えば素材の取得をWorkerが拒否する）
- * @returns 再生するアラート。当てはまるトリガーがなければ null
+ * @returns 再生するアラートを、当てはまったトリガーの並びの順に返す（オーバーレイは受け取った順に並べて再生する）
  * @throws 通知の中身が想定した形でない場合（アラートを出すトリガーがあるイベント種別に限る）
  */
-export const alertFor = (
+export const alertsFor = (
   config: AlertConfig,
   subscriptionType: string,
   body: unknown,
   overlayKey: string,
   state: ConditionState,
   summary: string | null,
-): OverlayAlert | null => {
-  const action = filledActionFor(config, subscriptionType, body, alertActionOf, state, summary)
-  if (action === null) return null
-
-  return {
+): OverlayAlert[] =>
+  filledActionsFor(config, subscriptionType, body, alertActionOf, state, summary).map((action) => ({
     media: { kind: action.mediaKind, url: mediaPath(action.mediaId, overlayKey) },
     durationSeconds: action.durationSeconds,
     volume: action.volume,
     text: action.message,
-  }
-}
+  }))

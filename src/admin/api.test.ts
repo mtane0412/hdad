@@ -8,14 +8,13 @@ import { describe, expect, it } from 'vitest'
 import { ApiError } from '@/core/api'
 import { createAdminApi, type TriggerInput } from './api'
 
-const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const サイト = 'https://hdad.example.com'
 
 const 乾杯の動画 = { id: 'sozai-1', name: '乾杯.webm', kind: 'video', contentType: 'video/webm', size: 1_234_567, uploadedAt: '2026-09-21T12:00:00.000Z' }
 
 const 乾杯のトリガー = {
-  event: REDEMPTION,
-  conditions: [{ kind: 'reward', rewardId: '報酬ID-乾杯' }],
+  kind: 'reward',
+  rewardId: '報酬ID-乾杯',
   actions: [{ type: 'alert', mediaId: 'sozai-1', mediaKind: 'video', durationSeconds: 8, volume: 0.5, message: '{user} さん、乾杯！' }],
 }
 
@@ -65,8 +64,8 @@ describe('config・saveConfig（トリガーの設定）', () => {
   it('トリガーの一覧をまるごとPUTで保存し、Workerが整えた一覧を返す', async () => {
     const { requests, fetchImpl } = 応答を返すfetch(200, { triggers: [乾杯のトリガー] })
     const 入力: TriggerInput = {
-      event: REDEMPTION,
-      conditions: [{ kind: 'reward', rewardId: '報酬ID-乾杯' }],
+      kind: 'reward',
+      rewardId: '報酬ID-乾杯',
       actions: [{ type: 'alert', mediaId: 'sozai-1', durationSeconds: 8, volume: 0.5, message: '{user} さん、乾杯！' }],
     }
 
@@ -80,14 +79,13 @@ describe('config・saveConfig（トリガーの設定）', () => {
     expect(await request.json()).toEqual({ triggers: [入力] })
   })
 
-  it('条件を持たないトリガーも、そのまま送受信する', async () => {
+  it('パラメータを持たないメニュー項目のトリガーも、そのまま送受信する', async () => {
     const フォローのトリガー = {
-      event: 'channel.follow',
-      conditions: [],
+      kind: 'follow',
       actions: [{ type: 'chat', message: '{user} さん、フォローありがとうございます！' }],
     }
     const { requests, fetchImpl } = 応答を返すfetch(200, { triggers: [フォローのトリガー] })
-    const 入力: TriggerInput = { event: 'channel.follow', conditions: [], actions: [{ type: 'chat', message: '{user} さん、フォローありがとうございます！' }] }
+    const 入力: TriggerInput = { kind: 'follow', actions: [{ type: 'chat', message: '{user} さん、フォローありがとうございます！' }] }
 
     const saved = await createAdminApi(fetchImpl).saveConfig([入力])
 
@@ -95,13 +93,13 @@ describe('config・saveConfig（トリガーの設定）', () => {
     expect(await requests[0]!.json()).toEqual({ triggers: [入力] })
   })
 
-  it('知らない種類のイベントのトリガーを受け取ったらエラーにする', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, { triggers: [{ ...乾杯のトリガー, event: 'channel.cheer' }] })
+  it('知らないメニュー項目のトリガーを受け取ったらエラーにする（黙って無視すると、絞り込みが効かないまま画面に出る）', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { triggers: [{ ...乾杯のトリガー, kind: 'cheer' }] })
     await expect(createAdminApi(fetchImpl).config()).rejects.toThrow('triggers[0]')
   })
 
-  it('知らない種類の条件を受け取ったらエラーにする（黙って無視すると絞り込みが効かないまま画面に出る）', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, { triggers: [{ ...乾杯のトリガー, conditions: [{ kind: 'bits', amount: 100 }] }] })
+  it('メニュー項目に要るパラメータが無ければエラーにする', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { triggers: [{ kind: 'comeback', actions: 乾杯のトリガー.actions }] })
     await expect(createAdminApi(fetchImpl).config()).rejects.toThrow('triggers[0]')
   })
 

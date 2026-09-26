@@ -218,8 +218,7 @@ describe('広告の通知（channel.ad_break.begin）', () => {
 
   it('広告が始まったら、当てはまるトリガーの文言をbotの名前で送る', async () => {
     const { env } = await 広告のトリガーがある環境({
-      event: 'channel.ad_break.begin',
-      conditions: [],
+      kind: 'adBreakBegin', automatic: null,
       actions: [{ type: 'chat', message: 'ここで{duration}秒の広告が入ります' }],
     })
     const twitch = 送信に応えるTwitch()
@@ -232,8 +231,7 @@ describe('広告の通知（channel.ad_break.begin）', () => {
 
   it('自動で入った広告だけを選ぶ条件（automatic）を満たさなければ、何も送らない', async () => {
     const { env } = await 広告のトリガーがある環境({
-      event: 'channel.ad_break.begin',
-      conditions: [{ kind: 'automatic', automatic: false }],
+      kind: 'adBreakBegin', automatic: false,
       actions: [{ type: 'chat', message: '手動で広告を打ちました' }],
     })
     const twitch = 送信に応えるTwitch()
@@ -246,8 +244,7 @@ describe('広告の通知（channel.ad_break.begin）', () => {
 
   it('広告の終了のトリガーがあれば、広告が終わる時刻（開始 + 長さ）に予約する', async () => {
     const { env, 広告のタイマー } = await 広告のトリガーがある環境({
-      event: 'channel.ad_break.end',
-      conditions: [],
+      kind: 'adBreakEnd', automatic: null,
       actions: [{ type: 'chat', message: '広告が終わりました' }],
     })
 
@@ -261,8 +258,7 @@ describe('広告の通知（channel.ad_break.begin）', () => {
 
   it('広告の終了のトリガーが1件もなければ、予約しない（タイマーを無駄に起こさない）', async () => {
     const { env, 広告のタイマー } = await 広告のトリガーがある環境({
-      event: 'channel.ad_break.begin',
-      conditions: [],
+      kind: 'adBreakBegin', automatic: null,
       actions: [{ type: 'chat', message: 'ここで広告が入ります' }],
     })
 
@@ -273,8 +269,7 @@ describe('広告の通知（channel.ad_break.begin）', () => {
 
   it('予約に失敗しても、Twitchへは成功を返して収集の失敗として記録する（再送されても広告の告知は二度送らない）', async () => {
     const { env, db } = await 広告のトリガーがある環境({
-      event: 'channel.ad_break.end',
-      conditions: [],
+      kind: 'adBreakEnd', automatic: null,
       actions: [{ type: 'chat', message: '広告が終わりました' }],
     })
     const 予約に失敗する環境: Env = { ...env, AD_BREAKS: createFakeAdBreakTimer({ 失敗する: true }).namespace }
@@ -744,13 +739,11 @@ describe('アラートのトリガーによるチャット送信', () => {
 
   const フォローの通知 = { subscription: { type: 'channel.follow' }, event: { user_name: '田中太郎', user_login: 'tanaka_taro' } }
   const フォローでお礼を言う: StoredTrigger = {
-    event: 'channel.follow',
-    conditions: [],
+    kind: 'follow',
     actions: [{ type: 'chat', message: '{user} さん、フォローありがとうございます！' }],
   }
   const フォローで音を鳴らす: StoredTrigger = {
-    event: 'channel.follow',
-    conditions: [],
+    kind: 'follow',
     actions: [{ type: 'alert', mediaId: '素材ID-拍手の音', mediaKind: 'audio', durationSeconds: 5, volume: 0.5, message: '' }],
   }
 
@@ -768,10 +761,36 @@ describe('アラートのトリガーによるチャット送信', () => {
     })
   })
 
+  it('当てはまるトリガーが2件あれば、どちらも送る（一覧の下にある行が黙って動かないことがない）', async () => {
+    const 別のお礼: StoredTrigger = { kind: 'follow', actions: [{ type: 'chat', message: 'これからよろしくお願いします' }] }
+    const { env } = await トリガーのある環境([フォローでお礼を言う, 別のお礼])
+    const twitch = 送信に応えるTwitch()
+
+    const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+
+    expect(response.status).toBe(204)
+    // 鍵に並びの位置を混ぜているので、同じ通知でも2通とも送信の枠を取れる
+    expect(await Promise.all(twitch.送信したチャット.map(async (request) => ((await request.json()) as { message: string }).message))).toEqual([
+      '田中太郎 さん、フォローありがとうございます！',
+      'これからよろしくお願いします',
+    ])
+  })
+
+  it('当てはまるトリガーが2件あっても、同じ通知が再送されたら二度送らない', async () => {
+    const 別のお礼: StoredTrigger = { kind: 'follow', actions: [{ type: 'chat', message: 'これからよろしくお願いします' }] }
+    const { env } = await トリガーのある環境([フォローでお礼を言う, 別のお礼])
+    const twitch = 送信に応えるTwitch()
+
+    await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+    const 再送 = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+
+    expect(再送.status).toBe(204)
+    expect(twitch.送信したチャット).toHaveLength(2)
+  })
+
   it('文言に {summary} があれば、貯めてある配信中のあらすじを差し込んで送る', async () => {
     const あらすじを流す: StoredTrigger = {
-      event: 'channel.follow',
-      conditions: [],
+      kind: 'follow',
       actions: [{ type: 'chat', message: '{user} さん、いま「{summary}」って話をしてます' }],
     }
     const { env, db } = await トリガーのある環境([あらすじを流す])
@@ -792,8 +811,7 @@ describe('アラートのトリガーによるチャット送信', () => {
 
   it('あらすじがまだ無くても、文言は欠けずにその旨が入る', async () => {
     const あらすじを流す: StoredTrigger = {
-      event: 'channel.follow',
-      conditions: [],
+      kind: 'follow',
       actions: [{ type: 'chat', message: 'これまでのあらすじ: {summary}' }],
     }
     const { env } = await トリガーのある環境([あらすじを流す])
@@ -814,7 +832,7 @@ describe('アラートのトリガーによるチャット送信', () => {
   })
 
   it('件数を数えるイベント（レイド）でも、記録とチャット送信の両方を行う', async () => {
-    const レイドにお礼を言う: StoredTrigger = { event: 'channel.raid', conditions: [], actions: [{ type: 'chat', message: '{user} さん、{viewers}人でのレイドありがとう！' }] }
+    const レイドにお礼を言う: StoredTrigger = { kind: 'raid', actions: [{ type: 'chat', message: '{user} さん、{viewers}人でのレイドありがとう！' }] }
     const { env, db } = await トリガーのある環境([レイドにお礼を言う])
     await recordLiveStream(db, 雑談配信, Date.parse('2026-09-21T12:05:00Z'))
     const twitch = 送信に応えるTwitch()
@@ -880,8 +898,7 @@ describe('アラートのトリガーによるチャット送信', () => {
 
   describe('アナウンスを送る動作', () => {
     const フォローでアナウンスする: StoredTrigger = {
-      event: 'channel.follow',
-      conditions: [],
+      kind: 'follow',
       actions: [{ type: 'announce', message: '{user} さん、フォローありがとうございます！', color: 'purple' }],
     }
 
@@ -904,8 +921,7 @@ describe('アラートのトリガーによるチャット送信', () => {
 
     it('チャットとアナウンスの両方を持つトリガーでは、どちらも送る', async () => {
       const 両方する: StoredTrigger = {
-        event: 'channel.follow',
-        conditions: [],
+        kind: 'follow',
         actions: [
           { type: 'chat', message: '{user} さん、ありがとうございます' },
           { type: 'announce', message: '{user} さんがフォローしました', color: 'primary' },
@@ -1040,8 +1056,7 @@ describe('チャットの発言によるアラートのトリガー', () => {
   }
 
   const 挨拶に応える: StoredTrigger = {
-    event: 'channel.chat.message',
-    conditions: [{ kind: 'text', contains: 'おはよう' }],
+    kind: 'keyword', contains: 'おはよう',
     actions: [{ type: 'chat', message: '{user} さん、おはようございます！' }],
   }
 
@@ -1106,8 +1121,7 @@ describe('チャットの発言によるアラートのトリガー', () => {
 
   it('コマンドにもトリガーにも当てはまる発言では、どちらも送る（鍵を取り合わない）', async () => {
     const トリガー: StoredTrigger = {
-      event: 'channel.chat.message',
-      conditions: [{ kind: 'text', contains: '!ping' }],
+      kind: 'keyword', contains: '!ping',
       actions: [{ type: 'chat', message: '{user} さんが ping しました' }],
     }
     const { env } = await チャットのトリガーのある環境([トリガー], [{ name: 'ping', reply: '@{user} pong', cooldownSeconds: 0 }])
@@ -1121,8 +1135,7 @@ describe('チャットの発言によるアラートのトリガー', () => {
 
   it('アラートを出すだけのトリガーでは、チャットへ何も送らない（オーバーレイが再生する）', async () => {
     const 音を鳴らす: StoredTrigger = {
-      event: 'channel.chat.message',
-      conditions: [{ kind: 'user', login: 'shichousha' }],
+      kind: 'fromUser', login: 'shichousha',
       actions: [{ type: 'alert', mediaId: '素材ID-拍手の音', mediaKind: 'audio', durationSeconds: 5, volume: 0.5, message: '' }],
     }
     const { env, db } = await チャットのトリガーのある環境([音を鳴らす])
@@ -1138,8 +1151,7 @@ describe('チャットの発言によるアラートのトリガー', () => {
 
   /** このチャンネルで初めての発言に応えるトリガー */
   const 初見に応える: StoredTrigger = {
-    event: 'channel.chat.message',
-    conditions: [{ kind: 'firstChatEver' }],
+    kind: 'newViewer',
     actions: [{ type: 'chat', message: '{user} さん、はじめまして！' }],
   }
 
@@ -1173,8 +1185,7 @@ describe('チャットの発言によるアラートのトリガー', () => {
 
   it('最後の発言から指定した日数以上空いていれば、空いた日数の条件に当てはまる', async () => {
     const 久しぶりに応える: StoredTrigger = {
-      event: 'channel.chat.message',
-      conditions: [{ kind: 'returningAfter', days: 30 }],
+      kind: 'comeback', days: 30,
       actions: [{ type: 'chat', message: '{user} さん、お久しぶりです！' }],
     }
     const { env, db } = await チャットのトリガーのある環境([久しぶりに応える])
@@ -1188,8 +1199,7 @@ describe('チャットの発言によるアラートのトリガー', () => {
 
   it('最後の発言から日数が足りなければ、空いた日数の条件に当てはまらない', async () => {
     const 久しぶりに応える: StoredTrigger = {
-      event: 'channel.chat.message',
-      conditions: [{ kind: 'returningAfter', days: 30 }],
+      kind: 'comeback', days: 30,
       actions: [{ type: 'chat', message: '{user} さん、お久しぶりです！' }],
     }
     const { env, db } = await チャットのトリガーのある環境([久しぶりに応える])
@@ -1395,9 +1405,8 @@ describe('チャットの自動モデレーション', () => {
 describe('オーバーレイへのアラートの押し出し', () => {
   const botのID = '67890'
 
-  const アラートを出すトリガー = (event: StoredTrigger['event']): StoredTrigger => ({
-    event,
-    conditions: [],
+  const アラートを出すトリガー = (kind: 'follow' | 'everyMessage'): StoredTrigger => ({
+    kind,
     actions: [{ type: 'alert', mediaId: 'media-kanpai', mediaKind: 'video', durationSeconds: 5, volume: 0.5, message: '{user} さん、ありがとう！' }],
   })
 
@@ -1428,7 +1437,7 @@ describe('オーバーレイへのアラートの押し出し', () => {
 
   it('当てはまるトリガーのアラートを、素材のURLにオーバーレイ用キーを付けて押し出す', async () => {
     const { env, 配送 } = 環境を作る()
-    await saveAlertConfig(env.STORE, { triggers: [アラートを出すトリガー('channel.follow')] })
+    await saveAlertConfig(env.STORE, { triggers: [アラートを出すトリガー('follow')] })
 
     const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env)
 
@@ -1443,11 +1452,24 @@ describe('オーバーレイへのアラートの押し出し', () => {
     ])
   })
 
+  it('当てはまるトリガーが2件あれば、どちらのアラートも押し出す（オーバーレイが順に再生する）', async () => {
+    const { env, 配送 } = 環境を作る()
+    await saveAlertConfig(env.STORE, {
+      triggers: [
+        { kind: 'follow', actions: [{ type: 'alert', mediaId: 'media-kanpai', mediaKind: 'video', durationSeconds: 5, volume: 0.5, message: '1つ目' }] },
+        { kind: 'follow', actions: [{ type: 'alert', mediaId: 'media-kanpai', mediaKind: 'video', durationSeconds: 5, volume: 0.5, message: '2つ目' }] },
+      ],
+    })
+
+    await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env)
+
+    expect(配送.押し出されたアラート.map((alert) => alert.text)).toEqual(['1つ目', '2つ目'])
+  })
+
   it('アラートの文言の {summary} に、貯めてある配信中のあらすじを差し込んで押し出す（OBSの画面に出す）', async () => {
     const { env, db, 配送 } = 環境を作る()
     const あらすじを出す: StoredTrigger = {
-      event: 'channel.follow',
-      conditions: [],
+      kind: 'follow',
       actions: [{ type: 'alert', mediaId: 'media-kanpai', mediaKind: 'video', durationSeconds: 5, volume: 0.5, message: 'これまでのあらすじ: {summary}' }],
     }
     await saveAlertConfig(env.STORE, { triggers: [あらすじを出す] })
@@ -1473,7 +1495,7 @@ describe('オーバーレイへのアラートの押し出し', () => {
 
   it('botが未接続でも、チャットの発言でアラートを押し出す（アラートの再生にbotは要らない）', async () => {
     const { env, 配送 } = 環境を作る()
-    await saveAlertConfig(env.STORE, { triggers: [アラートを出すトリガー('channel.chat.message')] })
+    await saveAlertConfig(env.STORE, { triggers: [アラートを出すトリガー('everyMessage')] })
 
     const response = await 呼び出す(Twitchからの通知({ body: 発言の通知() }), env)
 
@@ -1483,7 +1505,7 @@ describe('オーバーレイへのアラートの押し出し', () => {
 
   it('bot自身の発言ではアラートを押し出さない（自分の応答に反応して止まらなくなるため）', async () => {
     const { env, 配送 } = 環境を作る()
-    await saveAlertConfig(env.STORE, { triggers: [アラートを出すトリガー('channel.chat.message')] })
+    await saveAlertConfig(env.STORE, { triggers: [アラートを出すトリガー('everyMessage')] })
     await botを接続する(env)
 
     await 呼び出す(Twitchからの通知({ body: 発言の通知(botのID) }), env)
@@ -1493,7 +1515,7 @@ describe('オーバーレイへのアラートの押し出し', () => {
 
   it('同じ通知が再送されても、二度は押し出さない', async () => {
     const { env, 配送 } = 環境を作る()
-    await saveAlertConfig(env.STORE, { triggers: [アラートを出すトリガー('channel.follow')] })
+    await saveAlertConfig(env.STORE, { triggers: [アラートを出すトリガー('follow')] })
 
     await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env)
     await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env)
@@ -1503,7 +1525,7 @@ describe('オーバーレイへのアラートの押し出し', () => {
 
   it('配送先が失敗しても、Twitchへは2xxを返して失敗として記録する（再送で二重に鳴らさないため）', async () => {
     const { env } = 環境を作る({ 配送は失敗する: true })
-    await saveAlertConfig(env.STORE, { triggers: [アラートを出すトリガー('channel.follow')] })
+    await saveAlertConfig(env.STORE, { triggers: [アラートを出すトリガー('follow')] })
 
     const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env)
 
@@ -1513,7 +1535,7 @@ describe('オーバーレイへのアラートの押し出し', () => {
 
   it('オーバーレイ用キーが未発行なら押し出さず、失敗として記録する（素材のURLを作れないため）', async () => {
     const { env, 配送 } = 環境を作る({ オーバーレイ用キー: null })
-    await saveAlertConfig(env.STORE, { triggers: [アラートを出すトリガー('channel.follow')] })
+    await saveAlertConfig(env.STORE, { triggers: [アラートを出すトリガー('follow')] })
 
     const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env)
 
@@ -1541,8 +1563,7 @@ describe('LLMに文面を作らせる動作（aiChat）', () => {
   }
 
   const 文面を作らせるトリガー: StoredTrigger = {
-    event: 'channel.follow',
-    conditions: [],
+    kind: 'follow',
     actions: [{ type: 'aiChat', instruction: 'フォローしてくれた人にお礼を言ってください' }],
   }
 
@@ -1606,7 +1627,7 @@ describe('LLMに文面を作らせる動作（aiChat）', () => {
   it('発言した人の記録（メモ・発言数）を材料としてLLMへ渡す', async () => {
     const { env, ai } = 環境を作る()
     await saveAlertConfig(env.STORE, {
-      triggers: [{ event: 'channel.chat.message', conditions: [], actions: [{ type: 'aiChat', instruction: '一言返してください' }] }],
+      triggers: [{ kind: 'everyMessage', actions: [{ type: 'aiChat', instruction: '一言返してください' }] }],
     })
     await botを接続する(env)
     await recordViewerMessage(env.DB, { userId: '11111', login: 'shichousha', displayName: '視聴者さん', badges: [], messageId: '古い発言' }, 現在時刻 - 60 * 60 * 1000)
@@ -1639,7 +1660,7 @@ describe('LLMに文面を作らせる動作（aiChat）', () => {
     const { env, ai } = 環境を作る()
     // 条件は1件もない。それでも文面づくりには来訪の別が要るので、Workerは視聴者の記録を読む
     await saveAlertConfig(env.STORE, {
-      triggers: [{ event: 'channel.chat.message', conditions: [], actions: [{ type: 'aiChat', instruction: '一言返してください' }] }],
+      triggers: [{ kind: 'everyMessage', actions: [{ type: 'aiChat', instruction: '一言返してください' }] }],
     })
     await botを接続する(env)
     const twitch = 送信に応えるTwitch()
@@ -1653,7 +1674,7 @@ describe('LLMに文面を作らせる動作（aiChat）', () => {
   it('いま進んでいる配信のあらすじを材料に渡す（トリガーの文言に書かれていなくても読む）', async () => {
     const { env, db, ai } = 環境を作る()
     await saveAlertConfig(env.STORE, {
-      triggers: [{ event: 'channel.chat.message', conditions: [], actions: [{ type: 'aiChat', instruction: '話の流れに合わせて一言返してください' }] }],
+      triggers: [{ kind: 'everyMessage', actions: [{ type: 'aiChat', instruction: '話の流れに合わせて一言返してください' }] }],
     })
     await botを接続する(env)
     await recordLiveStream(db, 雑談配信, 現在時刻 - 60 * 1000)

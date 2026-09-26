@@ -91,7 +91,7 @@ const 環境を作る = async (): Promise<Env> => {
     login: 'haishinsha_bot',
   })
   await saveAlertConfig(env.STORE, {
-    triggers: [{ event: 'channel.ad_break.end', conditions: [], actions: [{ type: 'chat', message: '{duration}秒の広告が終わりました。おかえりなさい' }] }],
+    triggers: [{ kind: 'adBreakEnd', automatic: null, actions: [{ type: 'chat', message: '{duration}秒の広告が終わりました。おかえりなさい' }] }],
   })
   return env
 }

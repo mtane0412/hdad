@@ -22,7 +22,6 @@ const 現在時刻 = Date.UTC(2026, 8, 21, 12, 0, 0)
 const 配信者のID = '12345'
 const サイト = 'https://hdad.example.com'
 const 発行済みのキー = 'issued-overlay-key-0123456789abcdefghij'
-const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 
 const 環境を作る = () => {
   const store = createFakeStore({ 'overlay-key': 発行済みのキー })
@@ -84,8 +83,8 @@ const 画像をアップロードする = async (env: Env, fileName = '乾杯.pn
 }
 
 const トリガー = (mediaId: string) => ({
-  event: REDEMPTION,
-  conditions: [],
+  kind: 'reward',
+  rewardId: null,
   actions: [{ type: 'alert', mediaId, durationSeconds: 5, volume: 1, message: '{user} さんが「{reward}」を交換しました' }],
 })
 
