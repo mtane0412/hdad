@@ -6,6 +6,7 @@
  * - AIを使う4か所ぶんの設定を読み込んで、箇所ごとに提供元とモデルを選べること（モデルは入力ではなく選択）
  * - モデルの候補は提供元ごとにWorkerから読むこと。切り替えたら、その提供元の候補に入れ替わること
  * - 候補を読めなかったときは、黙って空の選択欄を出さず理由を出すこと
+ * - 保存の応答を待っているあいだは選べなくすること（どの設定が保存されたかを取り違えないため）
  * - 箇所ごとに別の提供元を選んで保存できること（あらすじだけ OpenRouter にする使い方）
  * - 提供元ごとのモデル名を別々に持つこと（切り替えて戻しても前のモデル名が消えない）
  * - OpenRouter を選んでいる箇所があるのに鍵が設定されていなければ、その場で知らせること
@@ -142,7 +143,7 @@ describe('LlmPage', () => {
     expect(await screen.findByText('LLMの設定を保存しました')).toBeInTheDocument()
   })
 
-  test('保存の応答を待っているあいだに変えた設定を、応答で巻き戻さない', async () => {
+  test('保存の応答を待っているあいだは、提供元もモデルも選べなくする（どの設定が保存されたかを取り違えないため）', async () => {
     let 保存を終える: (settings: LlmSettings) => void = () => {}
     描く({
       ...llmApi(),
@@ -151,12 +152,16 @@ describe('LlmPage', () => {
     await 読み込みを待つ()
 
     await 保存する()
-    // 応答が返る前に、別の箇所の提供元を変える
-    await userEvent.selectOptions(screen.getByLabelText('サイドスーパーの提供元'), 'openrouter')
+
+    expect(screen.getByLabelText('サイドスーパーの提供元')).toBeDisabled()
+    expect(screen.getByLabelText('サイドスーパーのモデル')).toBeDisabled()
+
     保存を終える(保存済みの設定)
 
     await waitFor(() => expect(screen.getByText('LLMの設定を保存しました')).toBeInTheDocument())
-    expect(screen.getByLabelText('サイドスーパーの提供元')).toHaveValue('openrouter')
+    // 保存が終われば、また選べる
+    expect(screen.getByLabelText('サイドスーパーの提供元')).not.toBeDisabled()
+    expect(screen.getByLabelText('サイドスーパーのモデル')).not.toBeDisabled()
   })
 
   test('OpenRouter を選んでいる箇所があるのに鍵が設定されていなければ、設定の仕方を知らせる', async () => {

@@ -10,6 +10,9 @@
  * Workerの呼び出しは api.ts に分けてテストする。保存の形（ボタンを押す → Workerを呼ぶ → 成功なら知らせ、
  * 失敗なら理由を出す）は usePageActions に合わせる（/triggers/・/speech/ と同じ）。
  *
+ * 注意: 保存の応答を待っているあいだは、提供元もモデルも選べなくする（保存ボタンと同じ actions.busy で止める）。
+ * 触れるままにすると、「保存しました」と出ているのに画面には保存していない設定が並ぶことになり、
+ * どの設定で動いているのかを配信者が取り違える。
  * 注意: モデルは入力ではなく選択にする。打ち間違いに気づくのが「配信中に文面が作られなかったとき」に
  * なってしまうためである。候補は提供元ごとにWorkerから読む（Workers AI はこのリポジトリが持つ一覧、
  * OpenRouter は公開API。worker/llm-models.ts）。候補を読めなかったときは、黙って空の選択欄を出さずに理由を出す。
@@ -168,10 +171,7 @@ export const LlmPage = ({ api }: LlmPageProps) => {
   const openrouterUsages = LLM_USAGES.filter((usage) => settings.usages[usage].provider === 'openrouter')
 
   const save = async (): Promise<string> => {
-    const sent = settings
-    const saved = await api.save(sent)
-    // 応答を待っているあいだも選択欄は触れるので、そのあいだに変えた設定を保存後の内容で巻き戻さない
-    setSettings((current) => (current === sent ? saved : current))
+    setSettings(await api.save(settings))
     return 'LLMの設定を保存しました'
   }
 
@@ -224,6 +224,7 @@ export const LlmPage = ({ api }: LlmPageProps) => {
                       id={providerFieldId}
                       className="w-full"
                       value={provider}
+                      disabled={actions.busy}
                       onChange={(event) => changeProvider(usage, event.currentTarget.value as LlmProvider)}
                     >
                       {LLM_PROVIDERS.map((candidate) => (
@@ -239,7 +240,7 @@ export const LlmPage = ({ api }: LlmPageProps) => {
                       id={modelFieldId}
                       className="w-full"
                       value={models[provider]}
-                      disabled={modelOptions[provider] === undefined}
+                      disabled={actions.busy || modelOptions[provider] === undefined}
                       onChange={(event) => changeModel(usage, event.currentTarget.value)}
                     >
                       {optionsFor(provider, models[provider]).map(({ id, name: modelName }) => (
