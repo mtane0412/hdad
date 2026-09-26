@@ -15,6 +15,10 @@
  * 余分な読み出しを増やさない（alert-state.ts の「要らなければ読まない」と同じ考え方で、一度も呼ばれなければ読まない）。
  * 注意: 失敗は黙って別の提供元へ落とさずに投げる（Fail-Fast）。呼び出し側が失敗として記録するので、
  * 配信者が「鍵が無い」「残高が足りない」といった理由に気づける。
+ * 注意: OpenRouter へは推論を切って送る（reasoning.enabled を偽にする）。このツールが送る上限は箇所ごとに
+ * 100〜400トークンと小さく、推論モデルではそれを思考トークンが使い切って content が null のまま
+ * finish_reason が length で返るためである（実際に openai/gpt-6-luna をあらすじに選んだ配信で、
+ * 5分おきの収集がすべてこれで失敗した）。
  */
 import { loadLlmSettings, type LlmSettings, type LlmUsage } from './llm-config'
 import type { KeyValueStore } from './store'
@@ -70,19 +74,39 @@ const readChoice = (result: Record<string, unknown>): string | null => {
 }
 
 /**
+ * 上限（max_tokens）に当たって本文が空のまま返されたかを見る。
+ *
+ * 推論モデルは答えを書く前に思考トークンを使うので、このツールが送る小さな上限（100〜400）では
+ * 思考だけで枠を使い切り、finish_reason が length のまま content が null で返る。
+ * 「応答の形が違う」と区別できないと、配信者は原因がモデルの選択にあることに気づけない。
+ */
+const isCutOffByLimit = (result: Record<string, unknown>): boolean => {
+  const choices = result.choices
+  if (!Array.isArray(choices)) return false
+  const first: unknown = choices[0]
+  return typeof first === 'object' && first !== null && 'finish_reason' in first && (first as { finish_reason: unknown }).finish_reason === 'length'
+}
+
+/**
  * LLMの応答から文面を取り出す。
  *
  * モデルによって応答の形が違う。llama-3.1-8b のような従来のモデルは response に文面を入れて返すが、
  * llama-3.3-70b のような新しいモデルと OpenRouter は response を持たず、OpenAI互換の choices だけで返す。
  * 読める形を1か所にまとめ、どの提供元・どのモデルを選んでも呼び出し側が場合分けを持たずに済むようにする。
  *
- * @throws Error どちらの形でもなかった場合（黙って空の文面として扱わない）
+ * @throws Error どちらの形でもなかった場合（黙って空の文面として扱わない）。上限に当たって本文が空だった場合は、
+ * 推論モデルを選んでいる可能性を文面に出す
  */
 export const readResponse = (result: unknown): string => {
   if (typeof result === 'object' && result !== null) {
     if ('response' in result && typeof result.response === 'string') return result.response
     const content = readChoice(result as Record<string, unknown>)
     if (content !== null) return content
+    if (isCutOffByLimit(result as Record<string, unknown>)) {
+      throw new Error(
+        `LLMが上限（max_tokens）に当たり、本文を返しませんでした。推論モデルを選んでいると、考えている途中で上限に達して本文が空になります。管理画面（/llm/）で推論しないモデルへ変えてください: ${JSON.stringify(result)}`,
+      )
+    }
   }
   throw new Error(`LLMの応答を読めません（response も choices の文面も見つかりません）: ${JSON.stringify(result)}`)
 }
@@ -104,7 +128,9 @@ const runOpenRouter = async (fetchImpl: typeof fetch, apiKey: string | undefined
   const response = await fetchImpl(OPENROUTER_URL, {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, messages: request.messages, max_tokens: request.maxTokens }),
+    // 推論を切って送る。推論モデルでは思考トークンがこの小さな上限（100〜400）を使い切り、本文が空で返るため。
+    // 推論を持たないモデルでは無視される項目なので、モデルによる場合分けは持たない
+    body: JSON.stringify({ model, messages: request.messages, max_tokens: request.maxTokens, reasoning: { enabled: false } }),
   })
   if (!response.ok) {
     const body = (await response.text()).slice(0, MAX_ERROR_BODY_LENGTH)

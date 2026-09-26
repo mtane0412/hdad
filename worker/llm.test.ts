@@ -7,6 +7,8 @@
  * - 箇所ごとに提供元が違っても、それぞれの呼び先へ送ること（あらすじだけ OpenRouter にする使い方）
  * - Workers AI と OpenRouter のどちらの応答からも文面を読めること
  * - OpenRouter を選んでいるのに鍵が無い・OpenRouter が失敗を返した場合に、黙って Workers AI へ落とさず投げること
+ * - OpenRouter へは推論を切って送ること（推論モデルでは思考トークンが max_tokens を使い切り、本文が空で返るため）
+ * - 上限に当たって本文が空で返ったときは、原因（推論モデル）が読める文面で投げること
  * - 設定の読み出し（KV）が1回で済むこと（発言のたびに呼ばれる道に、余分な読み出しを増やさないため）
  */
 import { describe, expect, it } from 'vitest'
@@ -102,7 +104,13 @@ describe('createLlm（OpenRouter）', () => {
     expect(request.url).toBe('https://openrouter.ai/api/v1/chat/completions')
     expect(request.method).toBe('POST')
     expect(request.headers.get('Authorization')).toBe('Bearer openrouter-test-key')
-    expect(await request.json()).toEqual({ model: 'anthropic/claude-3.5-haiku', messages: 材料.messages, max_tokens: 300 })
+    expect(await request.json()).toEqual({
+      model: 'anthropic/claude-3.5-haiku',
+      messages: 材料.messages,
+      max_tokens: 300,
+      // 推論に枠を食わせず本文を返させる（推論モデルでは max_tokens を思考トークンが使い切ってしまう）
+      reasoning: { enabled: false },
+    })
   })
 
   it('箇所ごとに提供元が違えば、それぞれの呼び先へ送る（あらすじだけ OpenRouter にする使い方）', async () => {
@@ -151,6 +159,11 @@ describe('createLlm（OpenRouter）', () => {
 })
 
 describe('readResponse', () => {
+  it('上限に当たって本文が空なら、原因と直し方が読める文面で投げる', () => {
+    const 応答 = { choices: [{ finish_reason: 'length', native_finish_reason: 'max_output_tokens', message: { role: 'assistant', content: null } }] }
+    expect(() => readResponse(応答)).toThrow(/上限.*推論モデル/s)
+  })
+
   it('response に文面を入れて返すモデルから読む', () => {
     expect(readResponse({ response: 'こんばんは！' })).toBe('こんばんは！')
   })
