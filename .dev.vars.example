@@ -17,3 +17,11 @@ SESSION_SECRET=
 # EventSubのWebhook（POST /api/eventsub/webhook）の署名に使うランダムな文字列。`openssl rand -hex 32` で作る
 # （Twitchの決まりで10〜100文字のASCII）。あとから変えたら、登録済みの購読を消してログインし直す（README.md の「配信の記録」）
 EVENTSUB_SECRET=
+
+# OpenRouter のAPIキー（任意）。
+# 文面づくり（チャットの文面・サイドスーパー・人物像・配信のあらすじ）の提供元を、管理画面（/llm/）で
+# OpenRouter に切り替えるときだけ必要です。既定は Cloudflare の Workers AI で、そのときこの鍵は使いません。
+# 意図的にコメントアウトしてあります（Deploy to Cloudflare ボタンの入力欄に必須の項目として出さないため）。
+# 使うときは https://openrouter.ai/keys で発行し、この行の # を外してローカルの .dev.vars に書くか、
+# 本番では `npx wrangler secret put OPENROUTER_API_KEY` で設定してください。
+# OPENROUTER_API_KEY=

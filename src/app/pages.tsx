@@ -4,7 +4,7 @@
  * サイドバーの項目と、パスごとに描く中身をここで決める。カテゴリを増やしたらここに足す。
  * ギャラリーの素材ページ（/wallpaper/<id>/ など）と、実ファイルとして配信されるオーバーレイ（alerts/・side-super/overlay/・transcript/relay/・speech/reader/）は、ここには載せない。
  */
-import { Bot, Captions, Clock, Image, LayoutDashboard, MessageSquare, PanelTop, Upload, Users, Volume2, Zap, type LucideIcon } from 'lucide-react'
+import { Bot, BrainCircuit, Captions, Clock, Image, LayoutDashboard, MessageSquare, PanelTop, Upload, Users, Volume2, Zap, type LucideIcon } from 'lucide-react'
 import type { AdminApi, Me } from '@/admin/api'
 import { MediaPage } from '@/admin/media-page'
 import { TriggerPage } from '@/admin/trigger-page'
@@ -13,6 +13,8 @@ import { BotPage } from '@/bot/bot-page'
 import { chats } from '@/chat/registry'
 import { clocks } from '@/clock/registry'
 import { Gallery } from '@/core/gallery/gallery'
+import type { LlmApi } from '@/llm/api'
+import { LlmPage } from '@/llm/llm-page'
 import type { StatsApi } from '@/stats/api'
 import { StatsPage } from '@/stats/stats-page'
 import type { ViewerApi } from '@/viewers/api'
@@ -34,6 +36,8 @@ export interface PageContext {
   viewerApi: ViewerApi
   /** 読み上げの設定の読み書き（読み上げのページが使う） */
   speechApi: SpeechApi
+  /** LLMの提供元とモデルの設定の読み書き（LLMのページが使う） */
+  llmApi: LlmApi
   me: Me
   /** オーバーレイ用キーを再発行した。ほかのページから戻ってきても新しいキーを出せるよう、枠が持つログイン情報を書き換える */
   onOverlayKeyChange(overlayKey: string): void
@@ -65,6 +69,7 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
         // 読み上げのページはWorkerに置いた設定をオーバーレイ用キーで読む。botの状態は「読み上げない人」に足すために読む
         render: ({ speechApi, botApi, me }) => <SpeechPage api={speechApi} botApi={botApi} overlayKey={me.overlayKey} />,
       },
+      { path: '/llm/', name: 'LLM', icon: BrainCircuit, render: ({ llmApi }) => <LlmPage api={llmApi} /> },
       {
         path: '/triggers/',
         name: 'トリガー',

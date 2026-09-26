@@ -3,9 +3,11 @@
  *
  * 材料（その配信での発言・これまでの記録・配信者が書いたメモ・前回までの人物像）が漏れなくLLMへ渡ること、
  * 返ってきた人物像をそのまま信用せず、貯められる長さに収まっているかを確かめてから返すことを確認する。
+ * 応答の形の読み分け（provider ごとの違い）はここではなく worker/llm.ts の担当なので、そちらのテストで確かめる。
  */
 import { describe, expect, it } from 'vitest'
-import type { TextGenerator } from './ai-chat'
+import type { LlmUsage } from './llm-config'
+import type { LlmRequest, TextGenerator } from './llm'
 import { MAX_VIEWER_SUMMARY_LENGTH, buildSummaryPrompt, generateViewerSummary } from './viewer-summary'
 import type { Viewer } from './viewer-store'
 
@@ -28,13 +30,13 @@ const 材料 = (上書き: Partial<Parameters<typeof buildSummaryPrompt>[0]> = {
   ...上書き,
 })
 
-/** 決まった文面を返すLLMの代役。渡された引数を控えて、材料が漏れていないかを確かめられるようにする */
-const 代役 = (response: unknown): TextGenerator & { 呼ばれた: { model: string; input: Record<string, unknown> }[] } => {
-  const 呼ばれた: { model: string; input: Record<string, unknown> }[] = []
+/** 決まった文面を返すLLMの代役。渡された引数を控えて、箇所の指名と材料が漏れていないかを確かめられるようにする */
+const 代役 = (response: string): TextGenerator & { 呼ばれた: { usage: LlmUsage; request: LlmRequest }[] } => {
+  const 呼ばれた: { usage: LlmUsage; request: LlmRequest }[] = []
   return {
     呼ばれた,
-    run: (model, input) => {
-      呼ばれた.push({ model, input })
+    run: (usage, request) => {
+      呼ばれた.push({ usage, request })
       return Promise.resolve(response)
     },
   }
@@ -64,7 +66,7 @@ describe('buildSummaryPrompt', () => {
 
 describe('generateViewerSummary', () => {
   it('LLMが返した人物像を、改行を空白に直して返す', async () => {
-    const ai = 代役({ response: 'ギターの話をよくする常連さん。\n配信の最初から来ることが多い。' })
+    const ai = 代役('ギターの話をよくする常連さん。\n配信の最初から来ることが多い。')
 
     expect(await generateViewerSummary(ai, 材料())).toBe('ギターの話をよくする常連さん。 配信の最初から来ることが多い。')
   })
@@ -75,16 +77,12 @@ describe('generateViewerSummary', () => {
     await expect(generateViewerSummary(ai, 材料())).rejects.toThrow('無料枠を使い切りました')
   })
 
-  it('応答の形が違えば投げる', async () => {
-    await expect(generateViewerSummary(代役({ result: 'ちがう形' }), 材料())).rejects.toThrow('LLMの応答を読めません')
-  })
-
   it('空の人物像なら投げる（中身のない推測を貯めない）', async () => {
-    await expect(generateViewerSummary(代役({ response: '   ' }), 材料())).rejects.toThrow('空の人物像')
+    await expect(generateViewerSummary(代役('   '), 材料())).rejects.toThrow('空の人物像')
   })
 
   it('上限より長い人物像なら、切り詰めずに投げる', async () => {
-    const ai = 代役({ response: 'あ'.repeat(MAX_VIEWER_SUMMARY_LENGTH + 1) })
+    const ai = 代役('あ'.repeat(MAX_VIEWER_SUMMARY_LENGTH + 1))
 
     await expect(generateViewerSummary(ai, 材料())).rejects.toThrow(`${MAX_VIEWER_SUMMARY_LENGTH + 1}文字`)
   })

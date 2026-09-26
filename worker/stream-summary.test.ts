@@ -8,7 +8,6 @@ import { describe, expect, it } from 'vitest'
 import { createFakeAi } from './fake-ai'
 import {
   MAX_STREAM_SUMMARY_LENGTH,
-  STREAM_SUMMARY_MODEL,
   StreamSummaryContentError,
   buildStreamSummaryPrompt,
   generateStreamSummary,
@@ -68,12 +67,12 @@ describe('buildStreamSummaryPrompt', () => {
 })
 
 describe('generateStreamSummary', () => {
-  it('あらすじ用のモデルを使う', async () => {
+  it('あらすじ（streamSummary）の箇所を指名する（どの提供元のどのモデルを使うかは設定（llm-config.ts）が決める）', async () => {
     const ai = createFakeAi({ response: '配信者は2つめの街に着きました' })
 
     await generateStreamSummary(ai, 材料)
 
-    expect(ai.呼び出し[0]?.model).toBe(STREAM_SUMMARY_MODEL)
+    expect(ai.呼び出し[0]?.usage).toBe('streamSummary')
   })
 
   it('LLMが返したあらすじを返す', async () => {

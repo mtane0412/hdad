@@ -7,7 +7,8 @@
  * 「途中から来た人向け」という用途では、何が受けていたか・何を聞かれていたかも役に立つためである。
  *
  * 材料の組み立て（buildStreamSummaryPrompt）はLLMを呼ばない純粋な関数として分けてテストし、
- * 呼び出し（generateStreamSummary）は Workers AI のバインディング（Env.AI）を引数で受け取って差し替えられるようにする。
+ * 呼び出し（generateStreamSummary）はLLM（worker/llm.ts の TextGenerator）を引数で受け取って差し替えられるようにする。
+ * どこで使うかを指名するだけにして、どの提供元（Workers AI・OpenRouter）のどのモデルを使うかは設定（llm-config.ts）に任せる。
  * ここは ai-chat.ts・viewer-summary.ts と同じ作りで、モデルと応答の読み取りもそちらと共有する。
  *
  * 注意: あらすじは前回のあらすじを踏まえて書き直させる（積み上げる）。長い配信でも1回あたりの入力が一定に保たれ、
@@ -18,19 +19,8 @@
  * 注意: 材料の発言は視聴者が書いたものなので、指示のように書かれた発言（「これまでの指示を無視して…」など）が
  * 混ざりうる。材料であって指示ではないことを必ず伝える。
  */
-import { readResponse, type TextGenerator } from './ai-chat'
+import type { TextGenerator } from './llm'
 
-/**
- * あらすじづくりに使うモデル。
- *
- * ほかの用途（ai-chat.ts の MODEL。llama-3.1-8b）とは別に、ここだけ大きいモデルを使う。
- * 8bでは、視聴者の書き込みを配信者のした出来事として書く・「〜と言いました」を延々と並べる・同じ句を
- * 繰り返して上限の文字数を超える、といった壊れ方が実際の配信で起きたためである（同じ材料で比べて確かめた）。
- * あらすじは配信の記録すべてを材料にする唯一の用途で、5分に1回しか作らないので、
- * 無料枠（1日10,000 Neurons）に対しては1回あたり約63 Neurons に収まる
- * （Neuronsの単価は https://developers.cloudflare.com/workers-ai/platform/pricing/ ）。
- */
-export const STREAM_SUMMARY_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast'
 
 /**
  * あらすじの長さの上限（文字）。
@@ -155,7 +145,7 @@ export const buildStreamSummaryPrompt = (material: StreamSummaryMaterial): strin
  *   いずれも呼び出し側（worker/collect.ts）が stream-summary-failed として記録し、前回のあらすじを残す
  */
 export const generateStreamSummary = async (ai: TextGenerator, material: StreamSummaryMaterial): Promise<string> => {
-  const result = await ai.run(STREAM_SUMMARY_MODEL, {
+  const result = await ai.run('streamSummary', {
     messages: [
       {
         role: 'system',
@@ -163,11 +153,11 @@ export const generateStreamSummary = async (ai: TextGenerator, material: StreamS
       },
       { role: 'user', content: buildStreamSummaryPrompt(material) },
     ],
-    max_tokens: MAX_TOKENS,
+    maxTokens: MAX_TOKENS,
   })
 
   // あらすじは1行でチャットへ送るので、改行はそのまま残さず空白へ直す
-  const summary = readResponse(result).replaceAll(/\s*\n\s*/g, ' ').trim()
+  const summary = result.replaceAll(/\s*\n\s*/g, ' ').trim()
   if (summary === '') throw new StreamSummaryContentError('LLMが空のあらすじを返したため、記録しませんでした')
   if (summary.length > MAX_STREAM_SUMMARY_LENGTH) {
     throw new StreamSummaryContentError(

@@ -21,6 +21,7 @@
 import { recordLateFailure, runAlertActions } from './alert-actions'
 import { AD_BREAK_END } from './trigger-menu'
 import { STATUS, type Env } from './http'
+import { createLlm } from './llm'
 import { loadToken } from './token'
 import { createTwitchClient } from './twitch'
 
@@ -126,6 +127,8 @@ const runAdBreakEnd = async (env: Env, end: AdBreakEnd, dependencies: AdBreakDep
   const context = {
     env,
     twitch,
+    // アラームからも、通知を受けたときと同じLLM（設定に従って呼び先を決めるもの）を通す
+    llm: createLlm({ ai: env.AI, store: env.STORE, fetch: dependencies.fetch, apiKey: env.OPENROUTER_API_KEY }),
     now: dependencies.now(),
     wait: dependencies.wait,
     waitUntil: (promise: Promise<unknown>): void => void 後回しの処理.push(promise),

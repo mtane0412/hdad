@@ -8,7 +8,7 @@
  * 注意: トークンが無い・更新できない・Twitchが失敗を返したときは、黙って飛ばさない。
  * 失敗をデータベース（collection_failures）に記録したうえでエラーを投げ、cron の実行も失敗として残す（Fail-Fast）。
  */
-import type { TextGenerator } from './ai-chat'
+import type { TextGenerator } from './llm'
 import { deleteOldFirstChatters } from './chat-store'
 import type { Database } from './database'
 import {
@@ -96,7 +96,7 @@ export const TRANSCRIPT_RETENTION_MS = 24 * 60 * 60 * 1000
 export interface CollectStatsOptions {
   db: Database
   store: KeyValueStore
-  /** 人物像を作らせる Workers AI のバインディング（Env.AI） */
+  /** 人物像・あらすじ・サイドスーパーを作らせるLLM（worker/llm.ts。呼び先は設定が決める） */
   ai: TextGenerator
   twitch: Pick<TwitchClient, 'refresh' | 'getLiveStream' | 'getFollowerTotal'>
   broadcasterId: string

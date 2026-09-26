@@ -4,9 +4,12 @@
  * 材料（配信者の指示・相手の記録・来訪の別・発言の本文）が漏れなくLLMへ渡ること、
  * 返ってきた文面をそのまま信用せず、Twitchへ送れる形かどうかを確かめてから返すことを確認する。
  * Twitchのチャットは1通500文字までなので、超えた文面は切り詰めずに送るのをやめる（意味の壊れた文を流さないため）。
+ * 応答の形の読み分け（provider ごとの違い）はここではなく worker/llm.ts の担当なので、そちらのテストで確かめる。
  */
 import { describe, expect, it } from 'vitest'
-import { buildPrompt, generateChatMessage, readResponse, type TextGenerator } from './ai-chat'
+import { buildPrompt, generateChatMessage } from './ai-chat'
+import type { LlmUsage } from './llm-config'
+import type { LlmRequest, TextGenerator } from './llm'
 import type { Extracted } from './alert-event'
 import type { Viewer } from './viewer-store'
 
@@ -32,13 +35,13 @@ const 記録: Viewer = {
 
 const 常連の来訪 = { firstChatOfStream: false, firstChatEver: false, daysSinceLastChat: 1.5 }
 
-/** 決まった文面を返すLLMの代役。渡された引数を控えて、材料が漏れていないかを確かめられるようにする */
-const 代役 = (response: unknown): TextGenerator & { 呼ばれた: { model: string; input: Record<string, unknown> }[] } => {
-  const 呼ばれた: { model: string; input: Record<string, unknown> }[] = []
+/** 決まった文面を返すLLMの代役。渡された引数を控えて、箇所の指名と材料が漏れていないかを確かめられるようにする */
+const 代役 = (response: string): TextGenerator & { 呼ばれた: { usage: LlmUsage; request: LlmRequest }[] } => {
+  const 呼ばれた: { usage: LlmUsage; request: LlmRequest }[] = []
   return {
     呼ばれた,
-    run: (model, input) => {
-      呼ばれた.push({ model, input })
+    run: (usage, request) => {
+      呼ばれた.push({ usage, request })
       return Promise.resolve(response)
     },
   }
@@ -129,42 +132,38 @@ describe('generateChatMessage', () => {
   const 材料 = { instruction: '一言返してください', extracted: 発言のイベント, viewer: 記録, state: 常連の来訪, streamSummary: null }
 
   it('LLMが返した文面を返す', async () => {
-    const ai = 代役({ response: '花子さん、こんばんは！' })
+    const ai = 代役('花子さん、こんばんは！')
 
     expect(await generateChatMessage(ai, 材料)).toBe('花子さん、こんばんは！')
   })
 
   it('前後の空白と改行を取り除く（Twitchのチャットは1行で流れるため）', async () => {
-    const ai = 代役({ response: '  花子さん、\nこんばんは！  ' })
+    const ai = 代役('  花子さん、\nこんばんは！  ')
 
     expect(await generateChatMessage(ai, 材料)).toBe('花子さん、 こんばんは！')
   })
 
   it('500文字を超えた文面は、切り詰めずに送るのをやめる（意味の壊れた文を流さないため）', async () => {
-    const ai = 代役({ response: 'あ'.repeat(501) })
+    const ai = 代役('あ'.repeat(501))
 
     await expect(generateChatMessage(ai, 材料)).rejects.toThrow(/500文字/)
   })
 
   it('文面が空なら送るのをやめる', async () => {
-    const ai = 代役({ response: '   ' })
+    const ai = 代役('   ')
 
     await expect(generateChatMessage(ai, 材料)).rejects.toThrow(/文面/)
   })
 
-  it('返ってきた形が想定と違えば、黙って捨てずに失敗させる', async () => {
-    const ai = 代役({ 応答: 'これは想定した形ではない' })
-
-    await expect(generateChatMessage(ai, 材料)).rejects.toThrow(/応答/)
-  })
-
   it('材料を組み立てたプロンプトをLLMへ渡す', async () => {
-    const ai = 代役({ response: 'こんばんは！' })
+    const ai = 代役('こんばんは！')
 
     await generateChatMessage(ai, 材料)
 
     expect(ai.呼ばれた).toHaveLength(1)
-    expect(JSON.stringify(ai.呼ばれた[0]?.input)).toContain('ギターの話が好き')
+    // モデル名ではなく、どこで使うかを指名する（どの提供元のどのモデルを使うかは設定（llm-config.ts）が決める）
+    expect(ai.呼ばれた[0]?.usage).toBe('aiChat')
+    expect(JSON.stringify(ai.呼ばれた[0]?.request)).toContain('ギターの話が好き')
   })
 })
 
@@ -223,20 +222,5 @@ describe('buildPrompt（人物像）', () => {
     })
 
     expect(prompt).toContain('人物像: なし')
-  })
-})
-
-describe('readResponse', () => {
-  it('response に文面を入れて返すモデルから読む', () => {
-    expect(readResponse({ response: 'こんばんは！' })).toBe('こんばんは！')
-  })
-
-  it('OpenAI互換の形（choices）で返すモデルからも読む', () => {
-    // llama-3.3-70b のような新しいモデルは response を持たず、この形だけで返す
-    expect(readResponse({ choices: [{ message: { role: 'assistant', content: 'こんばんは！' } }] })).toBe('こんばんは！')
-  })
-
-  it('どちらの形でもなければ、黙って捨てずに投げる', () => {
-    expect(() => readResponse({ choices: [] })).toThrow('LLMの応答を読めません')
   })
 })

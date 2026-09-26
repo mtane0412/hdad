@@ -5,7 +5,7 @@
  * 書き換えのときの送信元の確認（CSRF対策）も合わせて確かめる。
  */
 import { describe, expect, it } from 'vitest'
-import { createFakeAi } from './fake-ai'
+import { createFakeWorkersAi } from './fake-ai'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
 import { createFakeAlertChannel } from './fake-alert-channel'
 import { createFakeBucket } from './fake-bucket'
@@ -32,7 +32,7 @@ const 環境を作る = () => {
     EVENTSUB_SECRET: 'テスト用のWebhookシークレット',
     ALERTS: createFakeAlertChannel().namespace,
     AD_BREAKS: createFakeAdBreakTimer().namespace,
-    AI: createFakeAi(),
+    AI: createFakeWorkersAi(),
   } satisfies Env
   return { env, db }
 }

@@ -13,6 +13,7 @@ import { LogOut } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { AdminApi, Me } from '@/admin/api'
 import type { BotApi } from '@/bot/api'
+import type { LlmApi } from '@/llm/api'
 import type { SpeechApi } from '@/speech/api'
 import type { StatsApi } from '@/stats/api'
 import type { ViewerApi } from '@/viewers/api'
@@ -154,12 +155,14 @@ export const App = ({
   botApi,
   viewerApi,
   speechApi,
+  llmApi,
 }: {
   api: AdminApi
   statsApi: StatsApi
   botApi: BotApi
   viewerApi: ViewerApi
   speechApi: SpeechApi
+  llmApi: LlmApi
 }) => {
   const [session, setSession] = useState<Session>({ status: 'checking' })
 
@@ -212,6 +215,7 @@ export const App = ({
             botApi,
             viewerApi,
             speechApi,
+            llmApi,
             me: session.me,
             onOverlayKeyChange: (overlayKey) => setSession({ status: 'signed-in', me: { ...session.me, overlayKey } }),
           }}

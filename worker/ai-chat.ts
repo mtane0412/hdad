@@ -2,43 +2,28 @@
  * LLMによるチャットの文面づくり
  *
  * トリガーの動作 aiChat（worker/alert-config.ts の StoredAiChatAction）のために、配信者が書いた指示と
- * その人の記録（viewers のメモ・来訪の履歴）と発言の本文を材料に、Workers AI へ文面を作らせる。
+ * その人の記録（viewers のメモ・来訪の履歴）と発言の本文を材料に、LLM（worker/llm.ts）へ文面を作らせる。
  * 固定文言の chat と違い、初見の人と常連とで違う言葉をかけられる。
  *
  * 材料の組み立て（buildPrompt）はLLMを呼ばない純粋な関数として分けてテストし、
- * 呼び出し（generateChatMessage）は Workers AI のバインディング（Env.AI）を引数で受け取って差し替えられるようにする。
+ * 呼び出し（generateChatMessage）はLLM（worker/llm.ts の TextGenerator）を引数で受け取って差し替えられるようにする。
+ * どの提供元（Workers AI・OpenRouter）のどのモデルを使うかはここでは決めず、どこで使うか（aiChat）を指名するだけにする。
  *
  * 注意: 返ってきた文面をそのまま信用しない。Twitchのチャットは1通500文字までで、超えたままではTwitchが1通まるごと拒む。
  * 超えていたら切り詰めずに投げる（呼び出し側が alert-aichat-failed として記録する）。切り詰めて送ると意味の壊れた文が流れるためである。
- * 注意: 無料枠（1日10,000 Neurons）を使い切ったときは Workers AI が失敗を返す。黙って固定文言に落とさず、
+ * 注意: 無料枠（Workers AI の1日10,000 Neurons）や残高を使い切ったときはLLMが失敗を返す。黙って固定文言に落とさず、
  * その失敗をそのまま投げる（Fail-Fast。呼び出し側が記録する）。
  */
 import type { Extracted } from './alert-event'
+import type { TextGenerator } from './llm'
 import type { ConditionState } from './alert-event'
 import type { Viewer } from './viewer-store'
-
-/**
- * 文面づくりに使うモデル。
- *
- * 無料枠（1日10,000 Neurons）の中で何度も呼べる軽さと、日本語の指示に従えることの兼ね合いで選んでいる。
- * 変えるときはここ1か所を書き換える（人物像づくり（viewer-summary.ts）も同じモデルを使う）（Neuronsの単価は https://developers.cloudflare.com/workers-ai/platform/pricing/ ）。
- */
-export const MODEL = '@cf/meta/llama-3.1-8b-instruct-fp8'
 
 /** 作らせる文面の長さの上限（トークン）。500文字に収めるうえで足りる長さにし、長話で Neurons を使わせない */
 const MAX_TOKENS = 300
 
 /** Twitchへ送る1通の上限（worker/alert-config.ts・worker/alert-event.ts と同じ値） */
 const MAX_CHAT_MESSAGE_LENGTH = 500
-
-/**
- * Workers AI のバインディング（Env.AI）のうち、このファイルが使う部分だけを写した型。
- *
- * KV・R2・D1 と同じく、Cloudflareの型をそのまま使わずに最小の形で受け取り、テストでは代役に差し替える。
- */
-export interface TextGenerator {
-  run(model: string, input: Record<string, unknown>): Promise<unknown>
-}
 
 /** 文面を作るための材料 */
 export interface AiChatMaterial {
@@ -161,52 +146,22 @@ export const buildPrompt = (material: AiChatMaterial): string => {
 }
 
 /**
- * OpenAI互換の形（choices[0].message.content）から文面を読む。その形でなければ null。
- *
- * 新しいモデル（あらすじが使う llama-3.3-70b など）は response を持たず、この形だけで返す。
- */
-const readChoice = (result: object): string | null => {
-  if (!('choices' in result) || !Array.isArray(result.choices)) return null
-  const first: unknown = result.choices[0]
-  if (typeof first !== 'object' || first === null || !('message' in first)) return null
-  const message: unknown = first.message
-  if (typeof message !== 'object' || message === null || !('content' in message)) return null
-  return typeof message.content === 'string' ? message.content : null
-}
-
-/**
- * Workers AI の応答から文面を読む。想定した形でなければ黙って捨てずに投げる（人物像づくり（viewer-summary.ts）も使う）。
- *
- * モデルによって応答の形が違う。llama-3.1-8b のような従来のモデルは response に文面を入れて返すが、
- * llama-3.3-70b のような新しいモデルは response を持たず、OpenAI互換の choices だけで返す。
- * 読める形を1か所にまとめ、どのモデルを選んでも呼び出し側が場合分けを持たずに済むようにする。
- */
-export const readResponse = (result: unknown): string => {
-  if (typeof result === 'object' && result !== null) {
-    if ('response' in result && typeof result.response === 'string') return result.response
-    const content = readChoice(result)
-    if (content !== null) return content
-  }
-  throw new Error(`LLMの応答を読めません（response も choices の文面も見つかりません）: ${JSON.stringify(result)}`)
-}
-
-/**
  * 材料からチャットへ送る文面を1つ作る。
  *
  * @throws Error LLMが失敗した（無料枠切れを含む）、応答の形が違う、文面が空、500文字を超えた場合。
  *   いずれも呼び出し側が alert-aichat-failed として記録し、Twitchへは2xxを返す
  */
 export const generateChatMessage = async (ai: TextGenerator, material: AiChatMaterial): Promise<string> => {
-  const result = await ai.run(MODEL, {
+  const result = await ai.run('aiChat', {
     messages: [
       { role: 'system', content: 'あなたはTwitchの配信のチャットボットです。配信者の指示に従って、視聴者へ送るチャットの文面を1つだけ作ります。' },
       { role: 'user', content: buildPrompt(material) },
     ],
-    max_tokens: MAX_TOKENS,
+    maxTokens: MAX_TOKENS,
   })
 
   // チャットは1行で流れるので、改行はそのまま送らずに空白へ直す
-  const message = readResponse(result).replaceAll(/\s*\n\s*/g, ' ').trim()
+  const message = result.replaceAll(/\s*\n\s*/g, ' ').trim()
   if (message === '') throw new Error('LLMが空の文面を返したため、チャットへ送りませんでした')
   if (message.length > MAX_CHAT_MESSAGE_LENGTH) {
     throw new Error(`LLMが作った文面が${message.length}文字で、Twitchの上限（500文字）を超えたため送りませんでした: ${message.slice(0, 100)}…`)

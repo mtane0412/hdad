@@ -17,7 +17,8 @@
  * 見出し（コーナー名）はおもにここから決まる。
  *
  * 材料の組み立て（buildSideSuperPrompt）はLLMを呼ばない純粋な関数として分けてテストし、
- * 呼び出し（generateSideSuper）は Workers AI のバインディング（Env.AI）を引数で受け取って差し替えられるようにする。
+ * 呼び出し（generateSideSuper）はLLM（worker/llm.ts の TextGenerator）を引数で受け取って差し替えられるようにする。
+ * どこで使うかを指名するだけにして、どの提供元（Workers AI・OpenRouter）のどのモデルを使うかは設定（llm-config.ts）に任せる。
  * ここは ai-chat.ts・viewer-summary.ts・stream-summary.ts と同じ作りで、モデルと応答の読み取りもそちらと共有する。
  *
  * 注意: 返ってきた行をそのまま信用しない。行数が足りない・多い・1行が長いまま配信画面に出すと、
@@ -27,7 +28,7 @@
  * 注意: 材料の発言は視聴者が書いたものなので、指示のように書かれた発言が混ざりうる。
  * 材料であって指示ではないことを必ず伝える。
  */
-import { MODEL, readResponse, type TextGenerator } from './ai-chat'
+import type { TextGenerator } from './llm'
 
 /**
  * サイドスーパーの行数。上限ではなくちょうどこの行数にする。
@@ -148,7 +149,7 @@ const 長さを確かめる = (line: string, 名前: string, 上限: number): vo
  *   いずれも呼び出し側（worker/collect.ts）が side-super-failed として記録し、前回のものを残す
  */
 export const generateSideSuper = async (ai: TextGenerator, material: SideSuperMaterial): Promise<SideSuperLines> => {
-  const result = await ai.run(MODEL, {
+  const result = await ai.run('sideSuper', {
     messages: [
       {
         role: 'system',
@@ -157,11 +158,11 @@ export const generateSideSuper = async (ai: TextGenerator, material: SideSuperMa
       },
       { role: 'user', content: buildSideSuperPrompt(material) },
     ],
-    max_tokens: MAX_TOKENS,
+    maxTokens: MAX_TOKENS,
   })
 
   // 空行はLLMが行間を空けただけなので落とす。行数が合わない・行が長すぎる場合は直さずに投げる
-  const lines = readResponse(result)
+  const lines = result
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => line !== '')

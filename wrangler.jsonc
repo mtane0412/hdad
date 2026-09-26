@@ -30,8 +30,10 @@
   "kv_namespaces": [{ "binding": "STORE" }],
   "r2_buckets": [{ "binding": "MEDIA" }],
   "d1_databases": [{ "binding": "DB" }],
-  // トリガーの動作 aiChat がチャットの文面を作らせるLLM（Workers AI）。押した人が用意するものはないので、
-  // Deploy to Cloudflare ボタンの入力欄には出ない（Durable Object と同じ扱い）。
+  // 文面づくり（チャットの文面・サイドスーパー・人物像・配信のあらすじ）に使うLLM（Workers AI）。
+  // 押した人が用意するものはないので、Deploy to Cloudflare ボタンの入力欄には出ない（Durable Object と同じ扱い）。
+  // 呼び先は管理画面（/llm/）で OpenRouter に切り替えられる（そのときはシークレットOPENROUTER_API_KEYが要り、
+  // このバインディングは呼ばれない。worker/llm.ts）。
   "ai": { "binding": "AI" },
   // ALERTS はオーバーレイへアラートを配る接続の保持、AD_BREAKS は広告の終了の時刻を預かるタイマー
   // （Workerは接続もタイマーも持てない）。どちらも押した人が用意するものはないので入力欄には出ない

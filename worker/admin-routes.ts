@@ -8,6 +8,8 @@ import { alertActionOf, loadAlertConfig, parseAlertConfig, saveAlertConfig } fro
 import { HttpError, STATUS, requireAdmin, type Context } from './http'
 import { listMedia, uploadMedia } from './media'
 import { rotateOverlayKey } from './overlay-key'
+import { LLM_PROVIDERS, loadLlmSettings, parseLlmSettings, saveLlmSettings, type LlmProvider } from './llm-config'
+import { listLlmModels } from './llm-models'
 import { loadSpeechSettings, parseSpeechSettings, saveSpeechSettings } from './speech-config'
 import { getAccessToken } from './token'
 
@@ -103,4 +105,53 @@ export const putSpeech = async (context: Context): Promise<Response> => {
   const settings = parseSpeechSettings(body)
   await saveSpeechSettings(context.env.STORE, settings)
   return Response.json(settings)
+}
+
+/**
+ * GET /api/admin/llm: LLMの設定（提供元と用途ごとのモデル名）。未保存なら既定の設定が返る。
+ *
+ * OpenRouter のAPIキーは応答に含めず、設定されているかどうかだけを添える（Twitchのトークンと同じ扱い）。
+ * 提供元に OpenRouter を選んでいるのに鍵が無ければ呼び出しが失敗するので、画面がそれを先に知らせられるようにする。
+ */
+export const getLlm = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  const settings = await loadLlmSettings(context.env.STORE)
+  return Response.json({ ...settings, apiKeyConfigured: (context.env.OPENROUTER_API_KEY ?? '') !== '' })
+}
+
+/**
+ * PUT /api/admin/llm: LLMの設定を検証して保存する。
+ *
+ * 検証は Worker だけが持ち、画面とWorkerで二重に持たない（読み上げの設定と同じ）。
+ *
+ * @throws ConfigError 設定に問題がある場合（index.ts が問題点付きの400にする）
+ */
+export const putLlm = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  const body: unknown = await context.request.json().catch(() => {
+    throw new HttpError(STATUS.badRequest, 'invalid-body', '本文はJSONにしてください')
+  })
+  const settings = parseLlmSettings(body)
+  await saveLlmSettings(context.env.STORE, settings)
+  return Response.json(settings)
+}
+
+/**
+ * GET /api/admin/llm/models?provider=…: その提供元で選べるモデルの一覧。
+ *
+ * 管理画面のモデルの選択欄に出す候補で、Workers AI はこのリポジトリが持つ一覧、OpenRouter は公開API
+ * （鍵は要らない）から取る（worker/llm-models.ts）。提供元ごとに分けてあるのは、使っていない提供元の
+ * 一覧を取りに行かずに済ませるためと、OpenRouter を取れなかったことが Workers AI の選択欄に波及しないようにするためである。
+ *
+ * @throws HttpError 提供元の指定が無い・知らない名前の場合（400）
+ * @throws Error OpenRouter から一覧を取れなかった場合（index.ts が500にする。黙って空の一覧を返さない）
+ */
+export const getLlmModels = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  const provider = context.url.searchParams.get('provider')
+  if (!LLM_PROVIDERS.includes(provider as LlmProvider)) {
+    throw new HttpError(STATUS.badRequest, 'invalid-provider', `provider は ${LLM_PROVIDERS.join(' か ')} で指定してください`)
+  }
+  const models = await listLlmModels(provider as LlmProvider, { fetch: context.fetch, store: context.env.STORE, now: context.now })
+  return Response.json({ models })
 }

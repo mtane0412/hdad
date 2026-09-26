@@ -18,6 +18,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeAll, describe, expect, test, vi } from 'vitest'
 import type { AdminApi, Me } from '@/admin/api'
 import type { BotApi, ModerationSettings } from '@/bot/api'
+import type { LlmApi } from '@/llm/api'
 import type { SpeechApi } from '@/speech/api'
 import type { StatsApi } from '@/stats/api'
 import type { ViewerApi } from '@/viewers/api'
@@ -72,6 +73,29 @@ const 代役の視聴者API: ViewerApi = {
   remove: vi.fn(async () => {}),
 }
 
+const 代役のLLM_API: LlmApi = {
+  load: vi.fn(async () => {
+    const 軽いモデル = { 'workers-ai': '@cf/meta/llama-3.1-8b-instruct-fp8', openrouter: 'meta-llama/llama-3.1-8b-instruct' }
+    const 使う箇所 = { provider: 'workers-ai' as const, models: 軽いモデル }
+    return {
+      settings: {
+        usages: {
+          aiChat: 使う箇所,
+          sideSuper: 使う箇所,
+          viewerSummary: 使う箇所,
+          streamSummary: {
+            provider: 'workers-ai' as const,
+            models: { 'workers-ai': '@cf/meta/llama-3.3-70b-instruct-fp8-fast', openrouter: 'meta-llama/llama-3.3-70b-instruct' },
+          },
+        },
+      },
+      apiKeyConfigured: true,
+    }
+  }),
+  save: vi.fn(async (settings) => settings),
+  listModels: vi.fn(async () => [{ id: '@cf/meta/llama-3.1-8b-instruct-fp8', name: 'Llama 3.1 8B Instruct（fp8）' }]),
+}
+
 const 代役の読み上げAPI: SpeechApi = {
   load: vi.fn(async () => ({ host: 'localhost', port: 50021, speaker: 3, speed: 1, volume: 1, maxLength: 60, readName: false, ignoreLogins: [] })),
   save: vi.fn(async (settings) => settings),
@@ -109,7 +133,7 @@ afterEach(() => {
 
 describe('ログインしていないとき', () => {
   test('Twitchログインへのリンクだけを出し、サイドバーは出さない', async () => {
-    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} api={代役のAPI(async () => null)} />)
+    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} llmApi={代役のLLM_API} api={代役のAPI(async () => null)} />)
 
     const login = await screen.findByRole('link', { name: 'Twitchでログイン' })
     expect(login).toHaveAttribute('href', '/api/auth/login')
@@ -117,7 +141,7 @@ describe('ログインしていないとき', () => {
   })
 
   test('アプリ名と正式名称を出す', async () => {
-    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} api={代役のAPI(async () => null)} />)
+    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} llmApi={代役のLLM_API} api={代役のAPI(async () => null)} />)
 
     expect(await screen.findByText('HDAD')).toBeInTheDocument()
     expect(screen.getByText('Hyperfocus-Driven Assistant Director')).toBeInTheDocument()
@@ -126,7 +150,7 @@ describe('ログインしていないとき', () => {
 
 describe('ログインしているとき', () => {
   test('サイドバーに配信者の名前と各ページへのリンクを出す', async () => {
-    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} api={代役のAPI(async () => 配信者)} />)
+    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} llmApi={代役のLLM_API} api={代役のAPI(async () => 配信者)} />)
 
     const nav = await screen.findByRole('navigation', { name: 'サイト内の移動' })
     expect(nav).toBeInTheDocument()
@@ -145,7 +169,7 @@ describe('ログインしているとき', () => {
 
   test('ログアウトすると、ログインの入口に戻る', async () => {
     const api = 代役のAPI(async () => 配信者)
-    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} api={api} />)
+    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} llmApi={代役のLLM_API} api={api} />)
 
     await userEvent.click(await screen.findByRole('button', { name: 'ログアウト' }))
 
@@ -156,7 +180,7 @@ describe('ログインしているとき', () => {
 
 describe('ページの移動', () => {
   test('サイドバーのリンクを押すと、再読み込みなしでページが切り替わり、現在地の印が付け替わる', async () => {
-    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} api={代役のAPI(async () => 配信者)} />)
+    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} llmApi={代役のLLM_API} api={代役のAPI(async () => 配信者)} />)
     expect(await screen.findByRole('link', { name: 'ダッシュボード' })).toHaveAttribute('aria-current', 'page')
 
     await userEvent.click(screen.getByRole('link', { name: '壁紙' }))
@@ -168,7 +192,7 @@ describe('ページの移動', () => {
   })
 
   test('ブラウザの「戻る」で、前のページに戻る', async () => {
-    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} api={代役のAPI(async () => 配信者)} />)
+    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} llmApi={代役のLLM_API} api={代役のAPI(async () => 配信者)} />)
     await userEvent.click(await screen.findByRole('link', { name: '時計' }))
     expect(screen.getByRole('heading', { level: 1, name: '時計' })).toBeInTheDocument()
 
@@ -179,7 +203,7 @@ describe('ページの移動', () => {
 
   test('ページUIのURLを直接開くと、そのページが出る', async () => {
     開く('/triggers/')
-    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} api={代役のAPI(async () => 配信者)} />)
+    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} llmApi={代役のLLM_API} api={代役のAPI(async () => 配信者)} />)
 
     expect(await screen.findByRole('heading', { level: 1, name: 'トリガー' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'トリガー' })).toHaveAttribute('aria-current', 'page')
@@ -187,14 +211,14 @@ describe('ページの移動', () => {
 
   test('末尾のスラッシュがないURLでも、同じページが出る', async () => {
     開く('/chat')
-    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} api={代役のAPI(async () => 配信者)} />)
+    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} llmApi={代役のLLM_API} api={代役のAPI(async () => 配信者)} />)
 
     expect(await screen.findByRole('heading', { level: 1, name: 'チャット' })).toBeInTheDocument()
   })
 
   test('未ログインでページUIのURLを開くと、ログインの入口だけが出る', async () => {
     開く('/wallpaper/')
-    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} api={代役のAPI(async () => null)} />)
+    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} llmApi={代役のLLM_API} api={代役のAPI(async () => null)} />)
 
     expect(await screen.findByRole('link', { name: 'Twitchでログイン' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { level: 1, name: '壁紙' })).not.toBeInTheDocument()
@@ -202,7 +226,7 @@ describe('ページの移動', () => {
 
   test('存在しないパスでは、見つからないことを伝え、ダッシュボードへ戻れる', async () => {
     開く('/nai-page/')
-    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} api={代役のAPI(async () => 配信者)} />)
+    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} llmApi={代役のLLM_API} api={代役のAPI(async () => 配信者)} />)
 
     expect(await screen.findByRole('heading', { level: 1, name: 'ページが見つかりません' })).toBeInTheDocument()
     expect(screen.getByText('/nai-page/')).toBeInTheDocument()
@@ -217,7 +241,7 @@ describe('ログインの確認に失敗したとき', () => {
     render(
       <App
         statsApi={代役の記録API}
-        botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI}
+        botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} llmApi={代役のLLM_API}
         api={代役のAPI(async () => {
           throw new Error('Workerに接続できません')
         })}

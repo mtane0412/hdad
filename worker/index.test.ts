@@ -12,7 +12,7 @@ import { webhookEventTypes } from './eventsub-webhook'
 import { createFakeBucket } from './fake-bucket'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
 import { createFakeDatabase } from './fake-database'
-import { createFakeAi } from './fake-ai'
+import { createFakeWorkersAi } from './fake-ai'
 import { createFakeAlertChannel } from './fake-alert-channel'
 import { createFakeStore } from './fake-store'
 import { handleRequest, type Env } from './index'
@@ -36,7 +36,7 @@ const 環境を作る = (store = createFakeStore()) => {
     EVENTSUB_SECRET: 'テスト用のWebhookシークレット',
     ALERTS: createFakeAlertChannel().namespace,
     AD_BREAKS: createFakeAdBreakTimer().namespace,
-    AI: createFakeAi(),
+    AI: createFakeWorkersAi(),
   } satisfies Env
   return { env, store }
 }

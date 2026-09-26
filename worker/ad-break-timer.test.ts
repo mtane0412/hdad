@@ -14,7 +14,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { AdBreakTimer, scheduleAdBreakEnd, type AdBreakEnd, type AdBreakTimerState } from './ad-break-timer'
 import { saveAlertConfig } from './alert-config'
 import { listFailures } from './stats-store'
-import { createFakeAi } from './fake-ai'
+import { createFakeWorkersAi } from './fake-ai'
 import { createFakeAlertChannel } from './fake-alert-channel'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
 import { createFakeBucket } from './fake-bucket'
@@ -79,7 +79,7 @@ const 環境を作る = async (): Promise<Env> => {
     EVENTSUB_SECRET: 'テスト用のWebhookシークレット',
     ALERTS: createFakeAlertChannel().namespace,
     AD_BREAKS: createFakeAdBreakTimer().namespace,
-    AI: createFakeAi(),
+    AI: createFakeWorkersAi(),
   } satisfies Env
 
   await saveToken(env.STORE, 'bot', {
