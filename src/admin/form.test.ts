@@ -69,14 +69,30 @@ describe('overlayUrl', () => {
 })
 
 describe('menuGroups', () => {
-  it('メニュー項目を「チャット・応援・配信」の3つに分けて並べる', () => {
-    expect(menuGroups.map((group) => group.label)).toEqual(['チャット', '応援', '配信'])
+  it('メニュー項目を「チャット・イベント」の2つに分けて並べる', () => {
+    // 広告は配信者から見れば「配信中に起きる出来事」の1つなので、応援と同じ「イベント」にまとめる
+    expect(menuGroups.map((group) => group.label)).toEqual(['チャット', 'イベント'])
   })
 
-  it('すべてのメニュー項目がどれかの区分に1回だけ出る（足し忘れ・重複を防ぐ）', () => {
-    const 並んでいる項目 = menuGroups.flatMap((group) => group.items.map((item) => item.kind))
+  it('すべてのイベント種別がどれかの区分に1回だけ出る（足し忘れ・重複を防ぐ）', () => {
+    const 並んでいる種別 = menuGroups.flatMap((group) => group.items.flatMap((item) => item.phases.map((phase) => phase.kind)))
 
-    expect([...並んでいる項目].sort()).toEqual([...TRIGGER_KINDS].sort())
+    expect([...並んでいる種別].sort()).toEqual([...TRIGGER_KINDS].sort())
+  })
+
+  it('広告の開始と終了は、1つの項目にまとめて設定する', () => {
+    const 広告 = menuGroups.flatMap((group) => group.items).find((item) => item.label === '広告')
+
+    expect(広告?.phases.map((phase) => phase.kind)).toEqual(['adBreakBegin', 'adBreakEnd'])
+    // 効果は開始と終了で別々に持つので、それぞれに見出しを付ける
+    expect(広告?.phases.map((phase) => phase.heading)).toEqual(['広告が始まったときの効果', '広告が終わったときの効果'])
+  })
+
+  it('広告のほかの項目は、イベント種別を1つだけ持つ', () => {
+    const 広告以外 = menuGroups.flatMap((group) => group.items).filter((item) => item.label !== '広告')
+
+    // 1つしか持たない項目では、効果のまとまりを分けないので見出しを持たない
+    expect(広告以外.every((item) => item.phases.length === 1 && item.phases[0]?.heading === null)).toBe(true)
   })
 
   it('チャットの区分は、挨拶の3項目を細かい順に先頭へ置き、そのあとに「すべての発言」を置く', () => {
@@ -285,6 +301,16 @@ describe('withFixedRows', () => {
       'adBreakEnd',
     ])
     expect(rows.every((row) => !hasAnyAction(row))).toBe(true)
+  })
+
+  it('広告の片方だけが保存されていたら、もう片方の行にも同じ絞り込みを入れる（1つの枠で共通に見せるため）', () => {
+    // 広告の開始と終了は1つの枠にまとまり、絞り込み（自動・手動）の入力欄も1つしかない。
+    // 埋める側を既定値のままにすると、保存済みの値と食い違ったまま画面に出てしまう
+    const 終了だけ保存済み: TriggerDraft = { ...emptyDraft('adBreakEnd'), automatic: 'true', chatEnabled: true, chatMessage: 'おかえりなさい' }
+
+    const 広告の行 = withFixedRows([終了だけ保存済み]).filter((row) => row.kind === 'adBreakBegin' || row.kind === 'adBreakEnd')
+
+    expect(広告の行.map((row) => row.automatic)).toEqual(['true', 'true'])
   })
 
   it('保存済みの行はそのまま残し、足りない項目だけを効果なしの行で埋める', () => {

@@ -7,7 +7,8 @@
  * - URL欄に、ブラウザソースへ設定する推奨の幅と高さが添えられること
  * - トリガーは折りたたんで並び、見出しの要約を押すと入力欄が開くこと（開くのは1件ずつ）
  * - どの項目も同じ枠に入って並び、効果はバッジで出ること（複数の設定を持てる項目だけ見た目が変わらない）
- * - 区分（チャット・応援・配信）を畳めること
+ * - 区分（チャット・イベント）を畳めること
+ * - 広告の開始と終了を1つの枠で設定でき、対象の広告（自動・手動）は両方で共通になること
  * - 未保存の変更があることを知らせること
  * - きっかけを既定メニューから選んでトリガーを足せること（イベント種別と条件は画面から組み立てない）
  * - メニュー項目が要求するパラメータ（報酬・ユーザー名・言葉・日数・広告の絞り込み）を書き換えられること
@@ -169,8 +170,7 @@ describe('一覧', () => {
     render(トリガーのページ(代役のAPI()))
 
     expect(await screen.findByRole('region', { name: 'チャット' })).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: '応援' })).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: '配信' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'イベント' })).toBeInTheDocument()
     // 配信者はトリガーを作らず、並んでいる出来事に効果を足していく
     expect(screen.queryByRole('button', { name: 'トリガーを足す' })).not.toBeInTheDocument()
   })
@@ -476,16 +476,60 @@ describe('絞り込みのパラメータ', () => {
     expect(api.saveConfig).not.toHaveBeenCalled()
   })
 
-  test('広告は、自動・手動の絞り込みを選んで保存できる（1行だけの項目）', async () => {
+  test('広告の開始と終了は1つの枠にまとまり、対象の広告は両方で共通になる', async () => {
     const api = 代役のAPI({ config: async (): Promise<StoredTrigger[]> => [{ kind: 'adBreakEnd', automatic: true, actions: [{ type: 'chat', message: 'おかえりなさい' }] }] })
     render(トリガーのページ(api))
 
-    const row = await 開いた項目('広告が終わった')
+    const row = await 開いた項目('広告')
+    // 絞り込みは開始と終了で1つしかないので、入力欄も1つだけ出す
     expect(row.getByLabelText('対象の広告')).toHaveValue('true')
     await userEvent.selectOptions(row.getByLabelText('対象の広告'), '')
     await 保存する()
 
+    // 開始には効果が付いていないので送られず、終了だけが送られる。絞り込みの変更は両方に効く
     expect(api.saveConfig).toHaveBeenCalledWith([expect.objectContaining({ kind: 'adBreakEnd', automatic: null })])
+  })
+
+  test('広告の開始と終了には、別々の効果を付けられる', async () => {
+    const api = 代役のAPI({ config: async () => [] })
+    render(トリガーのページ(api))
+
+    const row = await 開いた項目('広告')
+    const 開始 = within(row.getByRole('group', { name: '広告が始まったときの効果' }))
+    const 終了 = within(row.getByRole('group', { name: '広告が終わったときの効果' }))
+    await userEvent.click(開始.getByRole('checkbox', { name: 'チャットに送る' }))
+    await userEvent.type(開始.getByLabelText('チャットに送る文言'), '{{duration}秒の広告が入ります')
+    await userEvent.click(終了.getByRole('checkbox', { name: 'アナウンスを送る' }))
+    await userEvent.type(終了.getByLabelText('アナウンスの文言'), 'おかえりなさい')
+    await 保存する()
+
+    expect(api.saveConfig).toHaveBeenCalledWith([
+      { kind: 'adBreakBegin', automatic: null, actions: [{ type: 'chat', message: '{duration}秒の広告が入ります' }] },
+      { kind: 'adBreakEnd', automatic: null, actions: [{ type: 'announce', message: 'おかえりなさい', color: 'primary' }] },
+    ])
+  })
+
+  test('広告の開始と終了で絞り込みが食い違って保存されていたら、黙って片方に寄せず知らせる', async () => {
+    // 開始と終了が別々の項目だったころに保存された設定では、食い違いが起こりうる。
+    // 画面の絞り込みの入力欄は1つしかないので、保存すると片方の値に寄ってしまう
+    const 食い違い: StoredTrigger[] = [
+      { kind: 'adBreakBegin', automatic: true, actions: [{ type: 'chat', message: '広告が入ります' }] },
+      { kind: 'adBreakEnd', automatic: false, actions: [{ type: 'chat', message: 'おかえりなさい' }] },
+    ]
+    render(トリガーのページ(代役のAPI({ config: async () => 食い違い })))
+
+    expect(within(await 項目の枠('広告')).getByText(/対象の広告が食い違って保存されています/)).toBeInTheDocument()
+  })
+
+  test('広告の見出しでは、効果のバッジがどちらのときのものか分かる', async () => {
+    const 終了だけ: StoredTrigger = { kind: 'adBreakEnd', automatic: true, actions: [{ type: 'chat', message: 'おかえりなさい' }] }
+    render(トリガーのページ(代役のAPI({ config: async () => [終了だけ] })))
+
+    const 枠 = within(await 項目の枠('広告'))
+    expect(枠.getByText('終了')).toBeInTheDocument()
+    expect(枠.getByText('チャット')).toBeInTheDocument()
+    // 開始には効果が付いていないので、開始のバッジは出さない
+    expect(枠.queryByText('開始')).not.toBeInTheDocument()
   })
 })
 
@@ -497,7 +541,7 @@ describe('保存', () => {
     await 設定を足す('言葉を足す')
     await 保存する()
 
-    // 「決まった言葉を含む発言があった」は視聴者の区分、「フォローされた」は応援の区分なので、言葉が先に来る
+    // 「決まった言葉を含む発言があった」はチャットの区分、「フォローされた」はイベントの区分なので、言葉が先に来る
     expect(api.saveConfig).toHaveBeenCalledWith([expect.objectContaining({ kind: 'keyword' }), expect.objectContaining({ kind: 'follow' })])
   })
 
@@ -578,13 +622,13 @@ describe('折りたたみ', () => {
     render(トリガーのページ(代役のAPI()))
 
     await 項目の枠('フォローされた')
-    await userEvent.click(screen.getByRole('button', { name: '応援' }))
+    await userEvent.click(screen.getByRole('button', { name: 'イベント' }))
 
     expect(screen.queryByRole('listitem', { name: 'フォローされた' })).not.toBeInTheDocument()
     // 畳んでいるあいだも、ほかの区分の項目は並んだままにする
     expect(screen.getByRole('listitem', { name: '初めて来た人の発言' })).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: '応援' }))
+    await userEvent.click(screen.getByRole('button', { name: 'イベント' }))
 
     expect(screen.getByRole('listitem', { name: 'フォローされた' })).toBeInTheDocument()
   })
