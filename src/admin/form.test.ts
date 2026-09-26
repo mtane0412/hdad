@@ -9,6 +9,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   createDraft,
+  emptyDraft,
+  hasAnyAction,
+  rowSummary,
+  toTriggerInputs,
+  withFixedRows,
   describeProblem,
   formatBytes,
   menuGroups,
@@ -18,7 +23,6 @@ import {
   rewardOptions,
   toDraft,
   toTriggerInput,
-  triggerSummary,
   type TriggerDraft,
 } from './form'
 import { TRIGGER_KINDS, type MediaItem, type StoredTrigger } from './api'
@@ -72,6 +76,21 @@ describe('menuGroups', () => {
     const 並んでいる項目 = menuGroups.flatMap((group) => group.items.map((item) => item.kind))
 
     expect([...並んでいる項目].sort()).toEqual([...TRIGGER_KINDS].sort())
+  })
+
+  it('絞り込みの細かい項目から並べ、「誰かが発言した」は視聴者の区分の最後に置く', () => {
+    // 当てはまった行はすべて実行するので動く・動かないは順番に左右されないが、
+    // 細かいものから並べないと、一覧が「何にでも当てはまる行」から始まって読みにくい
+    const 視聴者 = menuGroups[0]?.items.map((item) => item.kind)
+
+    expect(視聴者?.at(-1)).toBe('chat')
+    expect(視聴者?.[0]).toBe('firstChatEver')
+  })
+
+  it('パラメータを持つ項目だけ、中に複数の設定を持てる', () => {
+    const 複数持てる = menuGroups.flatMap((group) => group.items.filter((item) => item.multiple).map((item) => item.kind))
+
+    expect([...複数持てる].sort()).toEqual(['adBreakBegin', 'adBreakEnd', 'chatContains', 'chatFromUser', 'returningAfter', 'reward'])
   })
 
   it('メニュー項目には日本語の名前が付く', () => {
@@ -243,6 +262,87 @@ describe('createDraft', () => {
   })
 })
 
+describe('withFixedRows', () => {
+  it('パラメータを持たない項目は、効果がなくても1行ずつ並ぶ（一覧が固定されている）', () => {
+    const rows = withFixedRows([])
+
+    expect(rows.map((row) => row.kind)).toEqual(['firstChatEver', 'firstChatOfStream', 'chat', 'follow', 'subscribe', 'resubscribe', 'raid'])
+    expect(rows.every((row) => !hasAnyAction(row))).toBe(true)
+  })
+
+  it('保存済みの行はそのまま残し、足りない項目だけを効果なしの行で埋める', () => {
+    const 保存済み = toDraft({ kind: 'follow', actions: [{ type: 'chat', message: 'ありがとう' }] })
+
+    const rows = withFixedRows([保存済み])
+
+    expect(rows.filter((row) => row.kind === 'follow')).toEqual([保存済み])
+  })
+
+  it('パラメータを持つ項目は、保存済みの行がなければ並べない（配信者が追加したときだけ増える）', () => {
+    expect(withFixedRows([]).some((row) => row.kind === 'reward')).toBe(false)
+  })
+
+  it('行はメニューの並び順にそろえる（保存したときに画面の並びと同じ順になる）', () => {
+    const 報酬 = toDraft({ kind: 'reward', rewardId: null, actions: [{ type: 'chat', message: 'ありがとう' }] })
+    const 言葉 = toDraft({ kind: 'chatContains', contains: 'おはよう', actions: [{ type: 'chat', message: 'おはよう' }] })
+
+    const rows = withFixedRows([報酬, 言葉])
+
+    expect(rows.findIndex((row) => row.kind === 'chatContains')).toBeLessThan(rows.findIndex((row) => row.kind === 'reward'))
+  })
+
+  it('同じ項目の中の並びは変えない（配信者が足した順に出す）', () => {
+    const 乾杯 = toDraft({ kind: 'reward', rewardId: '報酬ID-乾杯', actions: [{ type: 'chat', message: '乾杯' }] })
+    const おみくじ = toDraft({ kind: 'reward', rewardId: '報酬ID-おみくじ', actions: [{ type: 'chat', message: 'おみくじ' }] })
+
+    expect(withFixedRows([乾杯, おみくじ]).filter((row) => row.kind === 'reward')).toEqual([乾杯, おみくじ])
+  })
+})
+
+describe('emptyDraft', () => {
+  it('効果をひとつも持たない行を作る（一覧に並べるだけの行）', () => {
+    const draft = emptyDraft('follow')
+
+    expect(hasAnyAction(draft)).toBe(false)
+    expect(draft).toMatchObject({ kind: 'follow', alertEnabled: false, chatEnabled: false, announceEnabled: false, aiChatEnabled: false })
+  })
+})
+
+describe('toTriggerInputs', () => {
+  it('効果を持つ行だけをWorkerへ送る（効果なしの行は保存しない）', () => {
+    const 効果なし = emptyDraft('follow')
+    const 効果あり = 入力欄({ kind: 'raid' })
+
+    expect(toTriggerInputs([効果なし, 効果あり])).toEqual([{ kind: 'raid', actions: [{ type: 'alert', mediaId: 'sozai-1', durationSeconds: 5, volume: 1, message: '' }] }])
+  })
+
+  it('効果を持つ行が1つもなければ、空の一覧を送る（トリガーをすべて止めたいとき）', () => {
+    expect(toTriggerInputs([emptyDraft('follow'), emptyDraft('raid')])).toEqual([])
+  })
+
+  it('数として読めない値があれば、どの項目の設定かを添えてエラーにする', () => {
+    expect(() => toTriggerInputs([emptyDraft('follow'), 入力欄({ kind: 'returningAfter', days: '' })])).toThrowError(
+      '「久しぶりの人が発言した」の設定: 日数を数で入力してください',
+    )
+  })
+})
+
+describe('rowSummary', () => {
+  const 報酬 = [{ id: '報酬ID-乾杯', title: '乾杯する', cost: 500 }]
+
+  it('項目の名前は添えず、絞り込みと効果だけを出す（名前は項目の見出しに出ているため）', () => {
+    expect(rowSummary(入力欄({ kind: 'reward', rewardId: '報酬ID-乾杯' }), 報酬)).toBe('乾杯する → アラート')
+  })
+
+  it('絞り込みを持たない行は、効果だけを出す', () => {
+    expect(rowSummary(入力欄({ kind: 'follow' }), [])).toBe('→ アラート')
+  })
+
+  it('効果がひとつもなければ、何も起きないことが分かるようにする', () => {
+    expect(rowSummary(emptyDraft('follow'), [])).toBe('効果なし')
+  })
+})
+
 describe('placeholdersFor', () => {
   it.each([
     ['reward', ['{user}', '{reward}', '{summary}']],
@@ -282,58 +382,46 @@ describe('rewardOptions', () => {
   })
 })
 
-describe('triggerSummary', () => {
+describe('rowSummary（絞り込みの出し方）', () => {
   const 報酬 = [{ id: '報酬ID-乾杯', title: '乾杯する', cost: 500 }]
 
-  it('パラメータを持たないメニュー項目は、その名前だけを出す', () => {
-    expect(triggerSummary(入力欄({ kind: 'follow' }), [])).toBe('フォローされた → アラート')
-  })
-
-  it('報酬を選んでいれば、その名前を添える', () => {
-    expect(triggerSummary(入力欄({ kind: 'reward', rewardId: '報酬ID-乾杯' }), 報酬)).toBe('チャンネルポイントが交換された（乾杯する）→ アラート')
-  })
-
   it('報酬を選んでいなければ、すべての報酬が対象だと分かるように出す', () => {
-    expect(triggerSummary(入力欄({ kind: 'reward', rewardId: '' }), 報酬)).toBe('チャンネルポイントが交換された（すべての報酬）→ アラート')
+    expect(rowSummary(入力欄({ kind: 'reward', rewardId: '' }), 報酬)).toBe('すべての報酬 → アラート')
   })
 
   it('Twitchの一覧にない報酬でも、報酬IDを出して黙って省略しない', () => {
-    expect(triggerSummary(入力欄({ kind: 'reward', rewardId: '報酬ID-消した報酬' }), 報酬)).toBe('チャンネルポイントが交換された（報酬ID-消した報酬）→ アラート')
+    expect(rowSummary(入力欄({ kind: 'reward', rewardId: '報酬ID-消した報酬' }), 報酬)).toBe('報酬ID-消した報酬 → アラート')
   })
 
-  it('決まった人が発言したメニュー項目は、ユーザー名を添える', () => {
-    expect(triggerSummary(入力欄({ kind: 'chatFromUser', login: 'tanenobu' }), [])).toBe('決まった人が発言した（tanenobu）→ アラート')
+  it('決まった人が発言した行は、ユーザー名を出す', () => {
+    expect(rowSummary(入力欄({ kind: 'chatFromUser', login: 'tanenobu' }), [])).toBe('tanenobu → アラート')
   })
 
-  it('決まった言葉を含む発言のメニュー項目は、その言葉を添える', () => {
-    expect(triggerSummary(入力欄({ kind: 'chatContains', contains: 'おはよう' }), [])).toBe('決まった言葉を含む発言があった（おはよう）→ アラート')
+  it('決まった言葉を含む発言の行は、その言葉を出す', () => {
+    expect(rowSummary(入力欄({ kind: 'chatContains', contains: 'おはよう' }), [])).toBe('おはよう → アラート')
   })
 
-  it('久しぶりの人が発言したメニュー項目は、日数を添える', () => {
-    expect(triggerSummary(入力欄({ kind: 'returningAfter', days: '45' }), [])).toBe('久しぶりの人が発言した（45日以上）→ アラート')
+  it('久しぶりの人が発言した行は、日数を出す', () => {
+    expect(rowSummary(入力欄({ kind: 'returningAfter', days: '45' }), [])).toBe('45日以上 → アラート')
   })
 
-  it('広告のメニュー項目は、自動で入った広告か手動で打った広告かを言葉で添える', () => {
-    expect(triggerSummary(入力欄({ kind: 'adBreakBegin', automatic: 'true' }), [])).toBe('広告が始まった（自動で入った広告）→ アラート')
-    expect(triggerSummary(入力欄({ kind: 'adBreakEnd', automatic: 'false' }), [])).toBe('広告が終わった（配信者が手動で打った広告）→ アラート')
+  it('広告の行は、自動で入った広告か手動で打った広告かを言葉で出す', () => {
+    expect(rowSummary(入力欄({ kind: 'adBreakBegin', automatic: 'true' }), [])).toBe('自動で入った広告 → アラート')
+    expect(rowSummary(入力欄({ kind: 'adBreakEnd', automatic: 'false' }), [])).toBe('配信者が手動で打った広告 → アラート')
   })
 
-  it('自動・手動を問わない広告は、絞り込みを添えない', () => {
-    expect(triggerSummary(入力欄({ kind: 'adBreakEnd', automatic: '' }), [])).toBe('広告が終わった → アラート')
+  it('自動・手動を問わない広告は、絞り込みを出さない', () => {
+    expect(rowSummary(入力欄({ kind: 'adBreakEnd', automatic: '' }), [])).toBe('→ アラート')
   })
 
-  it('行う動作をすべて並べる', () => {
-    const draft = 入力欄({ kind: 'follow', chatEnabled: true, announceEnabled: true, aiChatEnabled: false })
+  it('付けた効果をすべて並べる', () => {
+    const draft = 入力欄({ kind: 'follow', chatEnabled: true, announceEnabled: true })
 
-    expect(triggerSummary(draft, [])).toBe('フォローされた → アラート・チャット・アナウンス')
+    expect(rowSummary(draft, [])).toBe('→ アラート・チャット・アナウンス')
   })
 
-  it('AIに文面を作らせる動作は「AIチャット」として出す', () => {
-    expect(triggerSummary(入力欄({ kind: 'follow', alertEnabled: false, aiChatEnabled: true }), [])).toBe('フォローされた → AIチャット')
-  })
-
-  it('動作を1つも選んでいなければ、何もしないことが分かるようにする', () => {
-    expect(triggerSummary(入力欄({ kind: 'follow', alertEnabled: false }), [])).toBe('フォローされた → 動作なし')
+  it('AIに文面を作らせる効果は「AIチャット」として出す', () => {
+    expect(rowSummary(入力欄({ kind: 'follow', alertEnabled: false, aiChatEnabled: true }), [])).toBe('→ AIチャット')
   })
 })
 
@@ -348,8 +436,14 @@ describe('formatBytes', () => {
 })
 
 describe('describeProblem', () => {
-  it('Workerの問題点の位置（0始まりの triggers[0]）を、画面の番号（1番目のトリガー）に読み替える', () => {
-    expect(describeProblem('triggers[0].days: 1〜365の整数（日数）で指定してください')).toBe('1番目のトリガーの days: 1〜365の整数（日数）で指定してください')
+  it('Workerの問題点の位置（0始まりの triggers[0]）を、送った項目の名前に読み替える', () => {
+    expect(describeProblem('triggers[0].days: 1〜365の整数（日数）で指定してください', ['久しぶりの人が発言した'])).toBe(
+      '「久しぶりの人が発言した」の設定の days: 1〜365の整数（日数）で指定してください',
+    )
+  })
+
+  it('項目の名前が渡されなければ、番号のままにする', () => {
+    expect(describeProblem('triggers[0].days: だめです')).toBe('1番目のトリガーの days: だめです')
   })
 
   it('動作の位置（actions[1]）も、画面の番号（2つ目の動作）に読み替える', () => {

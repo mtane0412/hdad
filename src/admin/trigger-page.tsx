@@ -17,7 +17,6 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
@@ -38,9 +37,12 @@ import {
   overlayUrl,
   placeholdersFor,
   rewardOptions,
+  hasAnyAction,
+  rowSummary,
   toDraft,
-  toTriggerInput,
-  triggerSummary,
+  toTriggerInputs,
+  withFixedRows,
+  type MenuItem,
   type SelectOption,
   type TriggerDraft,
 } from './form'
@@ -78,10 +80,15 @@ const MAX_RETURNING_DAYS = 365
 /** ブラウザソースに設定する推奨の大きさ（配信のキャンバスと同じ大きさ。素材は中央に出るため、キャンバス全体を覆う） */
 const OVERLAY_SIZE = { width: 1920, height: 1080 }
 
-/** 失敗の理由を、画面に出す行にする。設定の問題点があれば、1行ずつ並べる */
-const failureLines = (error: unknown): string[] =>
+/**
+ * 失敗の理由を、画面に出す行にする。設定の問題点があれば、1行ずつ並べる。
+ *
+ * Workerは問題点に「送った一覧の何番目か」を付けてくるが、画面の一覧は固定なので番号では場所が伝わらない。
+ * 送った順の項目の名前を渡して読み替える。
+ */
+const failureLines = (error: unknown, labels: readonly string[]): string[] =>
   error instanceof ApiError && error.problems.length > 0
-    ? ['トリガーの設定に問題があります。直してから保存し直してください', ...error.problems.map((problem) => `・${describeProblem(problem)}`)]
+    ? ['トリガーの設定に問題があります。直してから保存し直してください', ...error.problems.map((problem) => `・${describeProblem(problem, labels)}`)]
     : [errorMessage(error)]
 
 const Select = ({ id, options, value, onChange }: { id: string; options: readonly SelectOption[]; value: string; onChange(value: string): void }) => (
@@ -106,13 +113,12 @@ const AUTOMATIC_OPTIONS: readonly SelectOption[] = [
   { value: '', label: '自動・手動どちらでも' },
 ]
 
-/** メニュー項目のうち、絞り込みのパラメータを持たないものに添える補足。持つものは入力欄の下に個別の補足を出す */
+/** メニュー項目に添える注意書き。一覧の項目の見出しの下に出す */
 const KIND_NOTES: Partial<Readonly<Record<TriggerKind, string>>> = {
-  chat: 'チャットに書き込みがあるたびに動きます。チャットの多い配信では、アラートや音を出す動作は控えめにしてください。',
-  firstChatOfStream:
-    '配信中の発言だけが対象です。配信していないあいだの発言では動きません（テスト配信のたびに動かないようにするため）。',
+  chat: 'チャットに書き込みがあるたびに動きます。チャットの多い配信では、アラートや音を出す効果は控えめにしてください。',
+  firstChatOfStream: '配信中の発言だけが対象です。配信していないあいだの発言では動きません（テスト配信のたびに動かないようにするため）。',
   firstChatEver:
-    '視聴者の記録が残っていない人だけが対象です。この記録を始める前から来ている常連も「初めて」と扱われるので、しばらくは動作を控えめにしておくことをおすすめします。',
+    '視聴者の記録が残っていない人だけが対象です。この記録を始める前から来ている常連も「初めて」と扱われるので、しばらくは効果を控えめにしておくことをおすすめします。',
 }
 
 interface TriggerParamFieldProps {
@@ -127,83 +133,81 @@ interface TriggerParamFieldProps {
  * メニュー項目が要求するパラメータ1つの入力欄。
  *
  * 項目によって入れるものが違うので、項目ごとに出し分ける（報酬は選択欄、ユーザー名と言葉は文字、日数は数、広告は三択）。
- * パラメータを持たない項目では、何をきっかけにするかの補足だけを出す。
+ * パラメータを持たない項目では何も出さない（きっかけは一覧の項目そのものが表している）。
  */
-const TriggerParamField = ({ idPrefix, draft, rewards, onChange }: TriggerParamFieldProps) => {
-  const note = KIND_NOTES[draft.kind]
+const TriggerParamField = ({ idPrefix, draft, rewards, onChange }: TriggerParamFieldProps) => (
+  <>
+    {draft.kind === 'reward' && (
+      <div className="flex flex-col gap-2 sm:col-span-2">
+        <Label htmlFor={`${idPrefix}-reward`}>対象の報酬</Label>
+        <Select id={`${idPrefix}-reward`} options={rewardOptions(rewards, draft.rewardId)} value={draft.rewardId} onChange={(rewardId) => onChange({ rewardId })} />
+      </div>
+    )}
 
-  return (
-    <div className="flex flex-col gap-2 rounded-md border border-dashed p-3 sm:col-span-2">
-      <span className="text-sm leading-none font-medium">{menuLabel(draft.kind)}</span>
-      {note !== undefined && <p className="text-xs text-muted-foreground">{note}</p>}
+    {draft.kind === 'chatFromUser' && (
+      <div className="flex flex-col gap-2 sm:col-span-2">
+        <Label htmlFor={`${idPrefix}-login`}>対象のユーザー名</Label>
+        <Input
+          id={`${idPrefix}-login`}
+          type="text"
+          maxLength={MAX_LOGIN_LENGTH}
+          value={draft.login}
+          placeholder="tanenobu"
+          onChange={(event) => onChange({ login: event.currentTarget.value })}
+        />
+        <p className="text-xs text-muted-foreground">Twitchのユーザー名（表示名ではなく小文字のほう）で指定します。大文字小文字は区別しません。</p>
+      </div>
+    )}
 
-      {draft.kind === 'reward' && (
-        <>
-          <Label htmlFor={`${idPrefix}-reward`}>対象の報酬</Label>
-          <Select id={`${idPrefix}-reward`} options={rewardOptions(rewards, draft.rewardId)} value={draft.rewardId} onChange={(rewardId) => onChange({ rewardId })} />
-        </>
-      )}
+    {draft.kind === 'chatContains' && (
+      <div className="flex flex-col gap-2 sm:col-span-2">
+        <Label htmlFor={`${idPrefix}-contains`}>発言に含まれる言葉</Label>
+        <Input
+          id={`${idPrefix}-contains`}
+          type="text"
+          maxLength={MAX_CHAT_MESSAGE_LENGTH}
+          value={draft.contains}
+          placeholder="おはよう"
+          onChange={(event) => onChange({ contains: event.currentTarget.value })}
+        />
+        <p className="text-xs text-muted-foreground">この言葉を含む発言が対象です（部分一致。大文字小文字は区別しません）。</p>
+      </div>
+    )}
 
-      {draft.kind === 'chatFromUser' && (
-        <>
-          <Label htmlFor={`${idPrefix}-login`}>対象のユーザー名</Label>
-          <Input
-            id={`${idPrefix}-login`}
-            type="text"
-            maxLength={MAX_LOGIN_LENGTH}
-            value={draft.login}
-            placeholder="tanenobu"
-            onChange={(event) => onChange({ login: event.currentTarget.value })}
-          />
-          <p className="text-xs text-muted-foreground">Twitchのユーザー名（表示名ではなく小文字のほう）で指定します。大文字小文字は区別しません。</p>
-        </>
-      )}
+    {draft.kind === 'returningAfter' && (
+      <div className="flex flex-col gap-2 sm:col-span-2">
+        <Label htmlFor={`${idPrefix}-days`}>前の発言から空いた日数</Label>
+        <Input
+          id={`${idPrefix}-days`}
+          type="number"
+          min={MIN_RETURNING_DAYS}
+          max={MAX_RETURNING_DAYS}
+          value={draft.days}
+          onChange={(event) => onChange({ days: event.currentTarget.value })}
+        />
+        <p className="text-xs text-muted-foreground">
+          この日数以上空けて発言した人だけが対象です（{MIN_RETURNING_DAYS}〜{MAX_RETURNING_DAYS}日）。
+          このチャンネルで初めての人には当てはまりません。
+        </p>
+      </div>
+    )}
 
-      {draft.kind === 'chatContains' && (
-        <>
-          <Label htmlFor={`${idPrefix}-contains`}>発言に含まれる言葉</Label>
-          <Input
-            id={`${idPrefix}-contains`}
-            type="text"
-            maxLength={MAX_CHAT_MESSAGE_LENGTH}
-            value={draft.contains}
-            placeholder="おはよう"
-            onChange={(event) => onChange({ contains: event.currentTarget.value })}
-          />
-          <p className="text-xs text-muted-foreground">この言葉を含む発言が対象です（部分一致。大文字小文字は区別しません）。</p>
-        </>
-      )}
-
-      {draft.kind === 'returningAfter' && (
-        <>
-          <Label htmlFor={`${idPrefix}-days`}>前の発言から空いた日数</Label>
-          <Input
-            id={`${idPrefix}-days`}
-            type="number"
-            min={MIN_RETURNING_DAYS}
-            max={MAX_RETURNING_DAYS}
-            value={draft.days}
-            onChange={(event) => onChange({ days: event.currentTarget.value })}
-          />
-          <p className="text-xs text-muted-foreground">
-            この日数以上空けて発言した人だけが対象です（{MIN_RETURNING_DAYS}〜{MAX_RETURNING_DAYS}日）。
-            このチャンネルで初めての人には当てはまりません。
-          </p>
-        </>
-      )}
-
-      {(draft.kind === 'adBreakBegin' || draft.kind === 'adBreakEnd') && (
-        <>
-          <Label htmlFor={`${idPrefix}-automatic`}>対象の広告</Label>
-          <Select id={`${idPrefix}-automatic`} options={AUTOMATIC_OPTIONS} value={draft.automatic} onChange={(automatic) => onChange({ automatic })} />
-        </>
-      )}
-    </div>
-  )
-}
+    {(draft.kind === 'adBreakBegin' || draft.kind === 'adBreakEnd') && (
+      <div className="flex flex-col gap-2 sm:col-span-2">
+        <Label htmlFor={`${idPrefix}-automatic`}>対象の広告</Label>
+        <Select id={`${idPrefix}-automatic`} options={AUTOMATIC_OPTIONS} value={draft.automatic} onChange={(automatic) => onChange({ automatic })} />
+      </div>
+    )}
+  </>
+)
 
 interface TriggerRowProps {
-  position: number
+  /** 行の呼び名（読み上げと操作の目印）。項目が1行だけなら項目の名前、複数持てる項目なら何番目の設定か */
+  label: string
+  /** 見出しに出す項目の名前。複数持てる項目では項目の見出しが別にあるので渡さない */
+  heading: string | null
+  /** 見出しの下に出す注意書き。無ければ null（開かなくても読めるように、折りたたみの外に出す） */
+  note: string | null
   draft: TriggerDraft
   media: readonly MediaItem[]
   rewards: readonly Reward[]
@@ -211,22 +215,23 @@ interface TriggerRowProps {
   open: boolean
   onToggle(): void
   onChange(draft: TriggerDraft): void
-  onRemove(): void
+  /** その行を外す。外せない行（複数持てない項目の行）では null。効果をすべて外せば何も起きない */
+  onRemove: (() => void) | null
 }
 
 /**
- * トリガー1件ぶんの行。
+ * トリガー1行ぶんの操作盤。
  *
  * 項目が多いので、ふだんは要約だけを見出しに出して折りたたみ、見出しを押したときだけ入力欄を開く。
- * 見出しの読み上げでは要約だけでは何番目か分からないため、位置を見えない文字で添える。
+ * 効果をひとつも持たない行は保存されないので、要約には「効果なし」と出す。
  */
-const TriggerRow = ({ position, draft, media, rewards, open, onToggle, onChange, onRemove }: TriggerRowProps) => {
+const TriggerRow = ({ label, heading, note, draft, media, rewards, open, onToggle, onChange, onRemove }: TriggerRowProps) => {
   const id = useId()
   const update = (patch: Partial<TriggerDraft>): void => onChange({ ...draft, ...patch })
   const mediaOptions = media.map((item) => ({ value: item.id, label: `${item.name}（${kindLabels[item.kind]}）` }))
 
   return (
-    <li aria-label={`${position}番目のトリガー`} className="rounded-lg border">
+    <li aria-label={label} className="rounded-lg border">
       <div className="flex items-center gap-1 p-2">
         <Button
           type="button"
@@ -237,26 +242,22 @@ const TriggerRow = ({ position, draft, media, rewards, open, onToggle, onChange,
           onClick={onToggle}
         >
           <ChevronDown aria-hidden="true" className={open ? 'rotate-180' : ''} />
-          <span className="sr-only">{position}番目のトリガー:</span>
-          <span className="truncate">{triggerSummary(draft, rewards)}</span>
+          {heading === null ? <span className="sr-only">{label}:</span> : <span className="truncate">{heading}</span>}
+          <span className="truncate text-muted-foreground">{rowSummary(draft, rewards)}</span>
         </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          aria-label={`${position}番目のトリガーを外す`}
-          className="text-destructive"
-          onClick={onRemove}
-        >
-          <Trash2 aria-hidden="true" />
-        </Button>
+        {onRemove !== null && (
+          <Button type="button" variant="ghost" size="icon" aria-label={`${label}を外す`} className="text-destructive" onClick={onRemove}>
+            <Trash2 aria-hidden="true" />
+          </Button>
+        )}
       </div>
+      {note !== null && <p className="px-3 pb-2 text-xs text-muted-foreground">{note}</p>}
       {open && (
         <div id={`${id}-detail`} className="grid gap-4 border-t p-4 sm:grid-cols-2">
-          {/* ここから上はこのトリガーのきっかけ。メニュー項目は後から変えられないので、変えたいときは外して足し直す */}
+          {/* きっかけは一覧の項目そのものなので、ここで出すのは絞り込みのパラメータだけである */}
           <TriggerParamField idPrefix={id} draft={draft} rewards={rewards} onChange={update} />
 
-          {/* ここから下は、そのきっかけで行う動作。種類ごとに実行者が違う（アラートはオーバーレイ、チャットはWorker） */}
+          {/* ここから下は、そのきっかけで行う効果。種類ごとに実行者が違う（アラートはオーバーレイ、チャットはWorker） */}
           <div className="flex flex-col gap-4 rounded-md border border-dashed p-3 sm:col-span-2">
             <div className="flex items-center gap-2">
               <Checkbox
@@ -426,6 +427,72 @@ const TriggerRow = ({ position, draft, media, rewards, open, onToggle, onChange,
   )
 }
 
+/** 行1つを画面のどこで開いているかを表す位置（drafts の添字） */
+interface TriggerItemProps {
+  item: MenuItem
+  /** この項目の行（drafts の添字と入力欄の値の組。位置は開閉と書き換えに使う） */
+  rows: readonly { position: number; draft: TriggerDraft }[]
+  media: readonly MediaItem[]
+  rewards: readonly Reward[]
+  openPosition: number | null
+  busy: boolean
+  onToggle(position: number): void
+  onChange(position: number, draft: TriggerDraft): void
+  onRemove(position: number): void
+  onAdd(): void
+}
+
+/**
+ * 一覧の項目1つ。
+ *
+ * 配信者はトリガーを作らず、並んでいる出来事に効果を足していく。そのため項目は常に一覧に出る。
+ * 絞り込みのパラメータを持たない項目はちょうど1行で、その行の見出しが項目の見出しを兼ねる
+ * （見出しを2段重ねると、1行しかない項目でも入れ子があるように見えてしまう）。
+ * パラメータを持つ項目は、配信者が足したぶんだけ行が並ぶ（報酬ごとに違う効果を付けられるようにするため）。
+ */
+const TriggerItem = ({ item, rows, media, rewards, openPosition, busy, onToggle, onChange, onRemove, onAdd }: TriggerItemProps) => {
+  const row = (position: number, draft: TriggerDraft, label: string, heading: string | null) => (
+    <TriggerRow
+      key={position}
+      label={label}
+      heading={heading}
+      note={KIND_NOTES[item.kind] ?? null}
+      draft={draft}
+      media={media}
+      rewards={rewards}
+      open={openPosition === position}
+      onToggle={() => onToggle(position)}
+      onChange={(next) => onChange(position, next)}
+      // パラメータを持たない項目の行は外せない（効果をすべて外せば何も起きない）
+      onRemove={item.multiple ? () => onRemove(position) : null}
+    />
+  )
+
+  // パラメータを持たない項目は withFixedRows が必ず1行を用意するので、行が無いことはない
+  if (!item.multiple) {
+    const only = rows[0]
+    return only === undefined ? null : row(only.position, only.draft, item.label, item.label)
+  }
+
+  return (
+    <li className="flex flex-col gap-2">
+      <div className="flex flex-col gap-0.5">
+        <span className="text-sm font-medium">{item.label}</span>
+        <span className="text-xs text-muted-foreground">{item.description}</span>
+      </div>
+      {rows.length > 0 && (
+        <ul className="flex flex-col gap-2">
+          {rows.map(({ position, draft }, index) => row(position, draft, `${item.label}の${index + 1}番目の設定`, null))}
+        </ul>
+      )}
+      <Button type="button" variant="outline" size="sm" className="self-start" disabled={busy} onClick={onAdd}>
+        <Plus aria-hidden="true" />
+        {item.addLabel}
+      </Button>
+    </li>
+  )
+}
+
 type Loaded = { status: 'loading' } | { status: 'ready' } | { status: 'failed'; message: string }
 
 /** botの接続状態の読み出し。loaded で bot が null なら未接続 */
@@ -452,7 +519,9 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
   const [rewardsFailure, setRewardsFailure] = useState('')
   // botの接続状態。取得できていないあいだと、取得に失敗したときは知らせを出さない（未接続と取り違えないため）
   const [bot, setBot] = useState<BotConnection>({ status: 'checking' })
-  const actions = usePageActions(failureLines)
+  // 保存したときに送った項目の名前。Workerが返す問題点の位置を読み替えるのに使う
+  const submittedLabelsRef = useRef<readonly string[]>([])
+  const actions = usePageActions((error) => failureLines(error, submittedLabelsRef.current))
   // 保存を待つ間に入力欄が書き換えられたかを、保存の応答が届いた時点で確かめるために持つ
   const draftsRef = useRef(drafts)
   const urlFieldId = useId()
@@ -469,7 +538,7 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
       ([loadedMedia, triggers]) => {
         if (cancelled) return
         setMedia(loadedMedia)
-        const loadedDrafts = triggers.map(toDraft)
+        const loadedDrafts = withFixedRows(triggers.map(toDraft))
         draftsRef.current = loadedDrafts
         setDrafts(loadedDrafts)
         setLoaded({ status: 'ready' })
@@ -535,26 +604,44 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
     return 'キーを再発行しました。新しいURLをOBSに貼り替えてください'
   }
 
-  const addTrigger = async (kind: TriggerKind): Promise<string> => {
-    replaceDrafts([...drafts, createDraft(kind, media)])
-    setOpenPosition(drafts.length)
-    return `「${menuLabel(kind)}」のトリガーを足しました。保存するまで反映されません`
+  /** その項目の行（一覧の並びのままの位置付き）。位置は開閉と書き換えの目印に使う */
+  const rowsOf = (kind: TriggerKind): { position: number; draft: TriggerDraft }[] =>
+    drafts.flatMap((draft, position) => (draft.kind === kind ? [{ position, draft }] : []))
+
+  const togglePosition = (position: number): void => setOpenPosition(openPosition === position ? null : position)
+
+  const changeDraft = (position: number, next: TriggerDraft): void =>
+    replaceDrafts(drafts.map((other, index) => (index === position ? next : other)))
+
+  const removeDraft = (position: number): void => {
+    // 外した行より後ろは1つ前へ詰まるので、開いている位置もずらす（別の行が開いて見えないようにする）
+    setOpenPosition(openPosition === null || openPosition === position ? null : openPosition > position ? openPosition - 1 : openPosition)
+    replaceDrafts(drafts.filter((_, index) => index !== position))
+  }
+
+  /**
+   * 複数持てる項目に設定を1つ足す。
+   *
+   * 並びは一覧のとおりにそろえるので、足した行は同じ項目の最後に入る。開くのはその行である。
+   */
+  const addRow = async (kind: TriggerKind): Promise<string> => {
+    const next = withFixedRows([...drafts, createDraft(kind, media)])
+    replaceDrafts(next)
+    // 足した行は同じ項目の最後に入る（findLastIndex は tsconfig の lib に無いので、後ろから探す）
+    setOpenPosition(next.map((draft) => draft.kind).lastIndexOf(kind))
+    return `「${menuLabel(kind)}」の設定を足しました。保存するまで反映されません`
   }
 
   const saveTriggers = async (): Promise<string> => {
-    const inputs = drafts.map((draft, index) => {
-      try {
-        return toTriggerInput(draft)
-      } catch (error) {
-        throw new Error(`${index + 1}番目のトリガー: ${errorMessage(error)}`, { cause: error })
-      }
-    })
+    const inputs = toTriggerInputs(drafts)
+    // Workerが問題点に付ける位置（triggers[0] など）を、送った順の項目の名前へ読み替えるために覚えておく
+    submittedLabelsRef.current = drafts.filter(hasAnyAction).map((draft) => menuLabel(draft.kind))
     const submitted = drafts
     const saved = await api.saveConfig(inputs)
     // 保存を待つ間に入力欄が書き換えられていたら、その内容を応答で上書きしない（書き換えた分は次の保存で送られる）
     if (draftsRef.current !== submitted) return 'トリガーを保存しました。保存中に書き換えた内容はまだ保存されていません'
-    replaceDrafts(saved.map(toDraft))
-    return 'トリガーを保存しました。次の交換から反映されます'
+    replaceDrafts(withFixedRows(saved.map(toDraft)))
+    return 'トリガーを保存しました。次の出来事から反映されます'
   }
 
   return (
@@ -636,75 +723,47 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
         <CardHeader>
           <CardTitle>トリガー</CardTitle>
           <CardDescription>
-            「トリガーを足す」から、きっかけになる出来事を選ぶ。出来事が起きたら、当てはまったトリガーの動作をすべて行う。
-            きっかけは後から変えられないので、変えたいときは外して足し直す。
+            配信で起きる出来事が並んでいる。効果を付けたい出来事を開いて、何をするかを決める。
+            出来事が起きたら、当てはまった行の効果をすべて行う。効果をひとつも付けていない行では何も起きない。
             文言の <code>{'{user}'}</code> は相手の名前に、<code>{'{summary}'}</code> は配信の「これまでのあらすじ」に置き換わる。
-            ほかに使える差し込み語はきっかけごとに違い、それぞれの文言欄の下に出る。
+            ほかに使える差し込み語は出来事ごとに違い、それぞれの文言欄の下に出る。
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col gap-3">
+        <CardContent className="flex flex-col gap-6">
           {media.length === 0 && (
             <p className="text-sm text-muted-foreground">
-              素材が1つもないので、アラートを出す動作は選べません。
+              素材が1つもないので、アラートを出す効果は選べません。
               <Link href="/media/" className="underline underline-offset-4">
                 アップロード
               </Link>
               のページで素材を足してください。
             </p>
           )}
-          {drafts.length === 0 ? (
-            <p className="text-sm text-muted-foreground">トリガーはまだありません。</p>
-          ) : (
-            <ol className="flex flex-col gap-3">
-              {drafts.map((draft, index) => (
-                <TriggerRow
-                  // トリガーは順番でしか区別できないので、位置をキーにする
-                  key={index}
-                  position={index + 1}
-                  draft={draft}
-                  media={media}
-                  rewards={rewards}
-                  open={openPosition === index}
-                  onToggle={() => setOpenPosition(openPosition === index ? null : index)}
-                  onChange={(next) => replaceDrafts(drafts.map((other, position) => (position === index ? next : other)))}
-                  onRemove={() => {
-                    // 外した行より後ろは1つ前へ詰まるので、開いている位置もずらす（別のトリガーが開いて見えないようにする）
-                    setOpenPosition(openPosition === null || openPosition === index ? null : openPosition > index ? openPosition - 1 : openPosition)
-                    replaceDrafts(drafts.filter((_, position) => position !== index))
-                  }}
-                />
-              ))}
-            </ol>
-          )}
-          <div className="flex gap-2">
-            {/* きっかけは既定メニューから選ぶ。選んだ時点でその行が開き、あとは「何をするか」だけを決める */}
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <Button type="button" variant="outline" disabled={actions.busy}>
-                    <Plus aria-hidden="true" />
-                    トリガーを足す
-                  </Button>
-                }
-              />
-              <DropdownMenuContent align="start" className="max-w-[min(24rem,calc(100vw-2rem))]">
-                {menuGroups.map((group) => (
-                  <DropdownMenuGroup key={group.label}>
-                    <DropdownMenuLabel>{group.label}</DropdownMenuLabel>
-                    {group.items.map((item) => (
-                      <DropdownMenuItem key={item.kind} className="flex-col items-start gap-0.5" onClick={() => void actions.run(() => addTrigger(item.kind))}>
-                        <span>{item.label}</span>
-                        <span className="text-xs text-muted-foreground">{item.description}</span>
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuGroup>
+          {menuGroups.map((group) => (
+            <section key={group.label} aria-label={group.label} className="flex flex-col gap-3">
+              <h3 className="text-sm font-medium">{group.label}</h3>
+              <ul className="flex flex-col gap-3">
+                {group.items.map((item) => (
+                  <TriggerItem
+                    key={item.kind}
+                    item={item}
+                    rows={rowsOf(item.kind)}
+                    media={media}
+                    rewards={rewards}
+                    openPosition={openPosition}
+                    busy={actions.busy}
+                    onToggle={togglePosition}
+                    onChange={changeDraft}
+                    onRemove={removeDraft}
+                    onAdd={() => void actions.run(() => addRow(item.kind))}
+                  />
                 ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <Button type="button" disabled={actions.busy} onClick={() => void actions.run(saveTriggers)}>
-              トリガーを保存
-            </Button>
-          </div>
+              </ul>
+            </section>
+          ))}
+          <Button type="button" className="self-start" disabled={actions.busy} onClick={() => void actions.run(saveTriggers)}>
+            トリガーを保存
+          </Button>
         </CardContent>
       </Card>
 

@@ -85,8 +85,18 @@ export const menuLabel = (kind: TriggerKind): string => MENU_LABELS[kind]
 export interface MenuItem {
   kind: TriggerKind
   label: string
-  /** その項目が何をきっかけにするかの補足。メニューの中に小さく添える */
+  /** その項目が何をきっかけにするかの補足。一覧の項目に小さく添える */
   description: string
+  /**
+   * 1つの項目の中に複数の設定を持てるか。addLabel があるかどうかで決まる（食い違わないように導出する）。
+   *
+   * 絞り込みのパラメータが「別のもの」を指す項目（報酬・ユーザー名・言葉・日数・広告の種別）だけ真になる。
+   * 報酬ごとに違う効果を付けるのは主な使い方なので、1行に限ると使えないためである。
+   * パラメータを持たない項目は常に1行で、効果をすべて外した状態が「何も起きない」を表す。
+   */
+  multiple: boolean
+  /** 設定を足すボタンに出す文言。複数持てない項目は null */
+  addLabel: string | null
 }
 
 export interface MenuGroup {
@@ -94,30 +104,41 @@ export interface MenuGroup {
   items: readonly MenuItem[]
 }
 
-const item = (kind: TriggerKind, description: string): MenuItem => ({ kind, label: MENU_LABELS[kind], description })
+const item = (kind: TriggerKind, description: string, addLabel: string | null = null): MenuItem => ({
+  kind,
+  label: MENU_LABELS[kind],
+  description,
+  multiple: addLabel !== null,
+  addLabel,
+})
 
 /**
- * 「トリガーを足す」で並べるメニュー。
+ * 画面に固定で並べるトリガーの一覧。
  *
- * 区分は配信者から見た関心ごと（視聴者・応援・配信）で分ける。項目が13なので一列でも読めるが、
- * 増えたときに探しにくくならないよう最初から分けておく。
+ * 配信者はトリガーを作るのではなく、**並んでいる出来事に効果を足していく**。
+ * そのため項目の増減は配信者の操作では起きず、この一覧がそのまま画面の構成になる。
+ *
+ * 区分は配信者から見た関心ごと（視聴者・応援・配信）で分ける。
+ * 並びは絞り込みの細かいものからにして、「誰かが発言した」は視聴者の区分の最後に置く。
+ * 当てはまった行はすべて実行されるので動く・動かないは順番に左右されないが、
+ * 何にでも当てはまる行が先頭にあると、一覧が読みにくくなるためである。
  */
 export const menuGroups: readonly MenuGroup[] = [
   {
     label: '視聴者',
     items: [
-      item('chat', 'チャットに書き込みがあるたび'),
       item('firstChatEver', '視聴者の記録に残っていない人の発言'),
       item('firstChatOfStream', 'その配信での、その人の1回目の発言'),
-      item('returningAfter', '前の発言から決めた日数以上空いた人の発言'),
-      item('chatFromUser', '決めたユーザー名の人の発言'),
-      item('chatContains', '決めた言葉を含む発言（部分一致）'),
+      item('returningAfter', '前の発言から決めた日数以上空いた人の発言', '日数を足す'),
+      item('chatFromUser', '決めたユーザー名の人の発言', 'ユーザーを足す'),
+      item('chatContains', '決めた言葉を含む発言（部分一致）', '言葉を足す'),
+      item('chat', 'チャットに書き込みがあるたび'),
     ],
   },
   {
     label: '応援',
     items: [
-      item('reward', 'チャンネルポイントの交換。報酬を選んで絞り込める'),
+      item('reward', 'チャンネルポイントの交換。報酬ごとに違う効果を付けられる', '報酬を足す'),
       item('follow', '新しくフォローされたとき'),
       item('subscribe', '新しくサブスクされたとき'),
       item('resubscribe', '継続のサブスクがメッセージ付きで届いたとき'),
@@ -126,9 +147,12 @@ export const menuGroups: readonly MenuGroup[] = [
   },
   {
     label: '配信',
-    items: [item('adBreakBegin', '広告が流れ始めたとき'), item('adBreakEnd', '広告が終わって配信に戻ったとき')],
+    items: [item('adBreakBegin', '広告が流れ始めたとき', '設定を足す'), item('adBreakEnd', '広告が終わって配信に戻ったとき', '設定を足す')],
   },
 ]
+
+/** 一覧に並ぶ順のメニュー項目（区分をまたいで平らにしたもの） */
+const MENU_ITEMS: readonly MenuItem[] = menuGroups.flatMap((group) => group.items)
 
 /**
  * トリガー1件分の入力欄の値。
@@ -374,6 +398,60 @@ export const createDraft = (kind: TriggerKind, media: readonly MediaItem[]): Tri
 }
 
 /**
+ * 効果をひとつも持たない行を作る。
+ *
+ * パラメータを持たない項目は効果がなくても一覧に並ぶので、その行の初期値に使う。
+ * 効果がひとつもない行は保存しないので（toTriggerInputs が外す）、「何も起きない」を表す。
+ */
+export const emptyDraft = (kind: TriggerKind): TriggerDraft => ({
+  kind,
+  ...DEFAULT_PARAMS,
+  alertEnabled: false,
+  ...DEFAULT_ALERT_DRAFT,
+  chatEnabled: false,
+  chatMessage: '',
+  announceEnabled: false,
+  announceMessage: '',
+  announceColor: DEFAULT_ANNOUNCEMENT_COLOR,
+  aiChatEnabled: false,
+  aiChatInstruction: '',
+})
+
+/** その行が効果をひとつでも持つか。持たない行は何も起きないので保存しない */
+export const hasAnyAction = (draft: TriggerDraft): boolean =>
+  draft.alertEnabled || draft.chatEnabled || draft.announceEnabled || draft.aiChatEnabled
+
+/**
+ * 保存済みの行に、パラメータを持たない項目の行を足し、一覧の並び順にそろえる。
+ *
+ * 画面の一覧は固定なので、効果がひとつも付いていない項目も行として並べる必要がある。
+ * パラメータを持つ項目（報酬・ユーザー名・言葉・日数・広告）は配信者が足したぶんだけ並ぶので、ここでは足さない。
+ * 同じ項目の中の並びは変えない（配信者が足した順に出す）。
+ */
+export const withFixedRows = (drafts: readonly TriggerDraft[]): TriggerDraft[] =>
+  MENU_ITEMS.flatMap((menuItem) => {
+    const rows = drafts.filter((draft) => draft.kind === menuItem.kind)
+    if (rows.length > 0) return rows
+    return menuItem.multiple ? [] : [emptyDraft(menuItem.kind)]
+  })
+
+/**
+ * 画面の行を、Workerへ送るトリガーの一覧にする。効果をひとつも持たない行は送らない。
+ *
+ * 一覧は固定なので「何番目の行か」では場所が伝わらない。どの項目の設定かを文言に添える。
+ *
+ * @throws 表示時間・音量・日数が数として読めない場合
+ */
+export const toTriggerInputs = (drafts: readonly TriggerDraft[]): TriggerInput[] =>
+  drafts.filter(hasAnyAction).map((draft) => {
+    try {
+      return toTriggerInput(draft)
+    } catch (error) {
+      throw new Error(`「${MENU_LABELS[draft.kind]}」の設定: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
+    }
+  })
+
+/**
  * 報酬の選択肢を作る。
  *
  * 先頭は「すべての報酬」（絞り込まない）で、これが新しいトリガーの既定になる。
@@ -417,21 +495,22 @@ const paramSummary = (draft: TriggerDraft, rewards: readonly Reward[]): string |
 }
 
 /**
- * 折りたたんだトリガーの見出しに出す要約。「メニュー項目（絞り込み）→ 行う動作」の形にする。
+ * 折りたたんだ行の見出しに出す要約。「絞り込み → 効果」の形にする。
  *
- * 絞り込みを持たない項目では、メニュー項目の名前だけを出す。
+ * メニュー項目の名前は添えない（一覧の項目の見出しにすでに出ているため）。
+ * 効果をひとつも持たない行は、保存されず何も起きないことが分かるように「効果なし」と出す。
  */
-export const triggerSummary = (draft: TriggerDraft, rewards: readonly Reward[]): string => {
-  const param = paramSummary(draft, rewards)
+export const rowSummary = (draft: TriggerDraft, rewards: readonly Reward[]): string => {
   const actions = [
     draft.alertEnabled ? 'アラート' : null,
     draft.chatEnabled ? 'チャット' : null,
     draft.announceEnabled ? 'アナウンス' : null,
     draft.aiChatEnabled ? 'AIチャット' : null,
   ].filter((label) => label !== null)
-  // 絞り込みを添えるときは（）が区切りになるので、矢印の前に空白を入れない
-  const head = param === null ? `${MENU_LABELS[draft.kind]} ` : `${MENU_LABELS[draft.kind]}（${param}）`
-  return `${head}→ ${actions.length === 0 ? '動作なし' : actions.join('・')}`
+  if (actions.length === 0) return '効果なし'
+
+  const param = paramSummary(draft, rewards)
+  return `${param === null ? '' : `${param} `}→ ${actions.join('・')}`
 }
 
 /** 素材の大きさを読みやすい単位で表す */
@@ -448,10 +527,17 @@ export const formatBytes = (size: number): string => {
  */
 const PROBLEM_POSITION = /^triggers\[(\d+)\]\.(?:(actions)\[(\d+)\](\.)?)?/
 
-/** Workerが返した問題点の位置を、画面に振ってある番号（1始まり）に読み替える */
-export const describeProblem = (problem: string): string =>
+/**
+ * Workerが返した問題点の位置を、画面で分かる呼び名に読み替える。
+ *
+ * 一覧が固定なので「何番目のトリガー」では場所が伝わらない。送った順の項目の名前を受け取って添える。
+ *
+ * @param labels 送ったトリガーの項目の名前（送った順）。足りなければ番号のままにする
+ */
+export const describeProblem = (problem: string, labels: readonly string[] = []): string =>
   problem.replace(PROBLEM_POSITION, (_, trigger: string, nested: string | undefined, index: string | undefined, dot: string | undefined) => {
-    const position = `${Number(trigger) + 1}番目のトリガーの `
+    const label = labels[Number(trigger)]
+    const position = label === undefined ? `${Number(trigger) + 1}番目のトリガーの ` : `「${label}」の設定の `
     if (nested === undefined || index === undefined) return position
     // 項目名が続く（. があった）ときだけ、読みやすさのために「の」で続ける
     return `${position}${Number(index) + 1}つ目の動作${dot === undefined ? '' : 'の '}`
