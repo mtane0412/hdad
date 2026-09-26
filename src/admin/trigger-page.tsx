@@ -451,7 +451,7 @@ interface TriggerItemProps {
  * パラメータを持つ項目は、配信者が足したぶんだけ行が並ぶ（報酬ごとに違う効果を付けられるようにするため）。
  */
 const TriggerItem = ({ item, rows, media, rewards, openPosition, busy, onToggle, onChange, onRemove, onAdd }: TriggerItemProps) => {
-  const row = (position: number, draft: TriggerDraft, label: string, heading: string | null) => (
+  const row = (position: number, draft: TriggerDraft, label: string, heading: string | null, removable: boolean) => (
     <TriggerRow
       key={position}
       label={label}
@@ -463,16 +463,18 @@ const TriggerItem = ({ item, rows, media, rewards, openPosition, busy, onToggle,
       open={openPosition === position}
       onToggle={() => onToggle(position)}
       onChange={(next) => onChange(position, next)}
-      // パラメータを持たない項目の行は外せない（効果をすべて外せば何も起きない）
-      onRemove={item.multiple ? () => onRemove(position) : null}
+      onRemove={removable ? () => onRemove(position) : null}
     />
   )
 
-  // パラメータを持たない項目は withFixedRows が必ず1行を用意するので、行が無いことはない
-  if (!item.multiple) {
-    const only = rows[0]
-    return only === undefined ? null : row(only.position, only.draft, item.label, item.label)
-  }
+  // ちょうど1行のときは、その行の見出しが項目の見出しを兼ねる
+  // （見出しを2段重ねると、1行しかない項目でも入れ子があるように見えてしまう）。その行は外せない
+  const only = rows[0]
+  if (!item.multiple && rows.length === 1 && only !== undefined) return row(only.position, only.draft, item.label, item.label, false)
+
+  // 複数持てない項目に設定が2つ以上あるのは画面からは作れない形だが、KVを手で直せば起こりうる。
+  // 1つ目だけを出すと、2つ目は画面に出ないまま保存され続けてしまうので、すべて出して外せるようにする
+  const duplicated = !item.multiple && rows.length > 1
 
   return (
     <li className="flex flex-col gap-2">
@@ -480,15 +482,22 @@ const TriggerItem = ({ item, rows, media, rewards, openPosition, busy, onToggle,
         <span className="text-sm font-medium">{item.label}</span>
         <span className="text-xs text-muted-foreground">{item.description}</span>
       </div>
+      {duplicated && (
+        <p className="text-xs text-destructive">
+          この出来事の設定が2つ以上保存されています。ひとつだけ残して、ほかは外してください（どちらも当てはまるので、両方の効果が起きます）。
+        </p>
+      )}
       {rows.length > 0 && (
         <ul className="flex flex-col gap-2">
-          {rows.map(({ position, draft }, index) => row(position, draft, `${item.label}の${index + 1}番目の設定`, null))}
+          {rows.map(({ position, draft }, index) => row(position, draft, `${item.label}の${index + 1}番目の設定`, null, true))}
         </ul>
       )}
-      <Button type="button" variant="outline" size="sm" className="self-start" disabled={busy} onClick={onAdd}>
-        <Plus aria-hidden="true" />
-        {item.addLabel}
-      </Button>
+      {item.addLabel !== null && (
+        <Button type="button" variant="outline" size="sm" className="self-start" disabled={busy} onClick={onAdd}>
+          <Plus aria-hidden="true" />
+          {item.addLabel}
+        </Button>
+      )}
     </li>
   )
 }

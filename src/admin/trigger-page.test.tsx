@@ -189,6 +189,20 @@ describe('一覧', () => {
     expect(screen.queryByRole('button', { name: 'フォローされたを外す' })).not.toBeInTheDocument()
   })
 
+  test('1行しか持てない項目に設定が2つ保存されていたら、両方を出して外せるようにする（画面に出ていない設定が保存され続けないため）', async () => {
+    // 画面からは作れない形だが、KVを手で直したり古い設定を入れ直したりすると起こりうる。
+    // 1つ目だけを出すと、2つ目は見えないまま保存され続けてしまう
+    const 二重のフォロー = async (): Promise<StoredTrigger[]> => [
+      { kind: 'follow', actions: [{ type: 'chat', message: '1つ目' }] },
+      { kind: 'follow', actions: [{ type: 'chat', message: '2つ目' }] },
+    ]
+    render(トリガーのページ(代役のAPI({ config: 二重のフォロー })))
+
+    expect(await screen.findByText(/設定が2つ以上保存されています/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'フォローされたの1番目の設定を外す' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'フォローされたの2番目の設定を外す' })).toBeInTheDocument()
+  })
+
   test('絞り込みのパラメータを持つ項目は、保存済みの設定がなければ行を並べず、足すボタンだけを出す', async () => {
     render(トリガーのページ(代役のAPI({ config: async () => [] })))
 
