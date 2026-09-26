@@ -120,8 +120,9 @@ const AUTOMATIC_OPTIONS: readonly SelectOption[] = [
  * メニュー項目1つぶんの枠の見た目。
  *
  * 1行だけの項目も複数の設定を持てる項目も同じ枠に入れて、一覧の中で見た目が2種類に分かれないようにする。
+ * 枠は区分のカードの中に入るので、カードの見た目（地色・影）は持たせない（カードの中にカードが並んで見えてしまう）。
  */
-const ITEM_BOX = 'overflow-hidden rounded-xl border bg-card text-card-foreground shadow-sm'
+const ITEM_BOX = 'overflow-hidden rounded-lg border'
 
 /** メニュー項目に添える注意書き。一覧の項目の見出しの下に出す */
 const KIND_NOTES: Partial<Readonly<Record<TriggerKind, string>>> = {
@@ -639,23 +640,30 @@ interface TriggerGroupProps {
 }
 
 /**
- * 区分（チャット・応援・配信）1つぶん。
+ * 区分1つぶん。
  *
- * 区分の見出しは項目の見出しより大きくして、どこまでが1つのまとまりかを字の大きさで示す
- * （同じ大きさで並べていたころは、区分と項目の見分けが付かなかった）。
+ * 区分は画面のまとまりとしてカードに入れ、項目の枠はそのカードの中に並べる
+ * （区分と項目を同じ字の大きさで並べていたころは、どこまでが1つのまとまりか見分けが付かなかった）。
+ * カードは見出しを押して畳める（使わない区分を閉じておけるようにする）。
  */
 const TriggerGroup = ({ group, collapsed, onToggle, children }: TriggerGroupProps) => (
-  <section aria-label={group.label} className="flex flex-col gap-3">
-    <div className="flex flex-col gap-1 border-b pb-2">
-      <Button type="button" variant="ghost" className="h-auto justify-start gap-2 self-start px-2 py-1 text-base font-semibold" aria-expanded={!collapsed} onClick={onToggle}>
-        <ChevronDown aria-hidden="true" className={collapsed ? '-rotate-90' : ''} />
-        {group.label}
-      </Button>
+  <Card role="region" aria-label={group.label}>
+    <CardHeader>
+      <CardTitle>
+        <Button type="button" variant="ghost" className="-ml-2 h-auto justify-start gap-2 px-2 py-1 text-base font-semibold" aria-expanded={!collapsed} onClick={onToggle}>
+          <ChevronDown aria-hidden="true" className={collapsed ? '-rotate-90' : ''} />
+          {group.label}
+        </Button>
+      </CardTitle>
       {/* 説明はボタンの外に出す（読み上げの名前が説明で埋まらないようにする） */}
-      {group.description !== null && <p className="px-2 text-xs text-muted-foreground">{group.description}</p>}
-    </div>
-    {!collapsed && <ul className="flex flex-col gap-3">{children}</ul>}
-  </section>
+      {group.description !== null && <CardDescription>{group.description}</CardDescription>}
+    </CardHeader>
+    {!collapsed && (
+      <CardContent>
+        <ul className="flex flex-col gap-3">{children}</ul>
+      </CardContent>
+    )}
+  </Card>
 )
 
 type Loaded = { status: 'loading' } | { status: 'ready' } | { status: 'failed'; message: string }
@@ -893,8 +901,8 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
         </CardContent>
       </Card>
 
-      {/* 一覧そのものはカードに入れない。出来事の項目ひとつひとつがカードで、それが一番外側のまとまりになる
-          （全体をもう1枚のカードで囲むと、カードの中にカードが並ぶ入れ子になって、どこまでが1項目なのか読み取りにくい） */}
+      {/* 一覧そのものはカードに入れず、区分（チャット・イベント）ごとにカードにする
+          （全体を1枚のカードで囲むと、その中に区分の見出しと項目の枠が入れ子で並び、どこまでが1つのまとまりか読み取りにくい） */}
       <section className="flex flex-col gap-6">
         <div className="flex flex-col gap-1.5">
           <h2 className="text-lg font-semibold">トリガー</h2>
