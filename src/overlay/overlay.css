@@ -1,0 +1,38 @@
+/*
+ * 合成オーバーレイの見た目
+ *
+ * 素材ごとにOBSのブラウザソースを置くとその数だけ Chromium のレンダラが立ち上がるため、素材を
+ * 「レイヤー」として1枚のページに重ね、ブラウザソースは「段」（group）ごとに1つだけ置く（issue #101）。
+ * このページは箱（.overlay-layer）を置いて位置と大きさを当てるだけで、中身の見た目は各素材のCSSが持つ。
+ *
+ * 各素材のCSSはここから読み込む（HTMLに並べるのではなく1つにまとめ、ページに貼る link を増やさない）。
+ * どれも枠いっぱい・画面の隅を前提に書かれていたので、位置の基準を画面から箱へ移してある
+ * （position: fixed → absolute。箱に position: relative を持たせることで箱が基準になる）。
+ */
+@import '../core/stage.css';
+@import '../chat/bubble.css';
+@import '../chat/card.css';
+@import '../chat/plain.css';
+@import '../chat/sticker.css';
+@import '../chat/terminal.css';
+@import '../alerts/alerts.css';
+@import '../side-super/side-super.css';
+@import '../focus/focus.css';
+
+.overlay {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  /* 枠から出たレイヤーの中身を配信画面へはみ出させない */
+  overflow: hidden;
+}
+
+/*
+ * レイヤー1つの箱。位置と大きさは構成（worker/overlay-layout.ts の rect）から割合（％）で当てる。
+ * position: relative を持つのは、中に入る素材（position: absolute で書かれている）と失敗の表示
+ * （.stage-error）の基準を、画面ではなくこの箱にするためである。
+ */
+.overlay-layer {
+  position: absolute;
+  overflow: hidden;
+}

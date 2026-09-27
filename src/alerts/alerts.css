@@ -5,7 +5,8 @@
  * 文言はどんな配信画面の上でも読めるよう、濃い縁取りを付ける。
  */
 .alerts {
-  position: fixed;
+  /* 位置は画面ではなく置かれた箱を基準にする（合成ページのレイヤーの箱に入れるため。issue #101） */
+  position: absolute;
   inset: 0;
   display: grid;
   place-items: center;
@@ -53,7 +54,7 @@ audio.alert__media {
 }
 
 .alerts__notice {
-  position: fixed;
+  position: absolute;
   left: 2vw;
   bottom: 2vh;
   margin: 0;

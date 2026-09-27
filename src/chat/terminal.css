@@ -10,7 +10,8 @@
 @import './common.css';
 
 [data-chat='terminal'] {
-  position: fixed;
+  /* 位置は画面ではなく置かれた箱を基準にする（合成ページのレイヤーの箱に入れるため。issue #101） */
+  position: absolute;
   inset: 0;
   display: flex;
   flex-direction: column;

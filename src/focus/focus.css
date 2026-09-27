@@ -19,9 +19,12 @@
   justify-content: flex-end;
   align-items: flex-start;
   box-sizing: border-box;
-  /* ブラウザソースの枠いっぱいを使い、中身を左下へ寄せる */
+  /*
+   * ブラウザソースの枠（合成ページではレイヤーの箱）いっぱいを使い、中身を左下へ寄せる。
+   * 高さを 100svh ではなく100%にするのは、箱の高さに合わせるためである（issue #101）。
+   */
   width: 100%;
-  min-height: 100svh;
+  min-height: 100%;
   margin: 0;
   padding: 24px;
   font-family: 'Zen Kaku Gothic New', 'Hiragino Sans', 'Yu Gothic UI', sans-serif;
