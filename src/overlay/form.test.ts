@@ -61,6 +61,21 @@ describe('newLayerDraft', () => {
   })
 })
 
+describe('レイヤーの識別子', () => {
+  it('足したレイヤーごとに別の識別子を持つ（並べ替えても入力欄を作り直さないため）', () => {
+    const 先に足した1件 = newLayerDraft('wallpaper', 'contour', 'back')
+    const あとに足した1件 = newLayerDraft('wallpaper', 'contour', 'back')
+
+    expect(先に足した1件.key).not.toBe(あとに足した1件.key)
+  })
+
+  it('読み込んだレイヤーにも、1件ずつ別の識別子を振る', () => {
+    const drafts = toLayerDrafts([時計のレイヤー, 時計のレイヤー])
+
+    expect(new Set(drafts.map((draft) => draft.key)).size).toBe(2)
+  })
+})
+
 describe('toLayerDrafts', () => {
   it('保存済みのレイヤーを、入力欄の値に読み替える', () => {
     const [draft] = toLayerDrafts([{ ...時計のレイヤー, params: 'size=0.5' }])

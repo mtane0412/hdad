@@ -201,7 +201,8 @@ const LayerRow = ({ draft, groups, open, canMoveFront, canMoveBack, onToggle, on
             ) : (
               Object.entries(schema).map(([name, spec]) => (
                 <ParamField
-                  key={name}
+                  // デザインを変えたら、同じ名前のパラメータでも入力欄を作り直す（前のデザインの色を覚えたままにしない）
+                  key={`${draft.id}-${name}`}
                   name={name}
                   spec={spec}
                   value={draft.values[name] ?? spec.default}
@@ -331,9 +332,9 @@ export const OverlayPage = ({ api, overlayKey }: { api: OverlayLayoutAdminApi; o
             <ul className="flex flex-col gap-2">
               {drafts.map((draft, position) => (
                 <LayerRow
-                  // 並べ替えで位置が変わるので、位置ではなく「何番目に読み込んだ・足したか」では区別できない。
-                  // 同じ種類・同じデザインのレイヤーも並べられるため、位置をキーにする（入力欄の中身は draft が持つ）
-                  key={position}
+                  // 位置をキーにすると、並べ替え・外したときに入力欄が別のレイヤーのものとして使い回され、
+                  // 入力欄が覚えている内容（透過にする前の色）が混ざる。そのためレイヤーごとの識別子を使う
+                  key={draft.key}
                   draft={draft}
                   groups={groups}
                   open={openPosition === position}

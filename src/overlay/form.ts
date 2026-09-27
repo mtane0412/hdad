@@ -63,8 +63,19 @@ export interface RectDraft {
   readonly height: string
 }
 
+/**
+ * 画面がレイヤーを見分けるための識別子を採番する。
+ *
+ * 構成には保存しない（並びで表す）が、画面では並べ替えても入力欄を作り直さないために要る。
+ * 位置を React の key にすると、並べ替え・外したときに入力欄が別のレイヤーのものとして使い回され、
+ * 入力欄が覚えている内容（透過にする前の色）が混ざる。
+ */
+let nextLayerKey = 0
+
 /** レイヤー1つの入力欄の中身 */
 export interface LayerDraft {
+  /** 画面がこのレイヤーを見分けるための識別子（構成には保存しない） */
+  readonly key: number
   readonly kind: LayerKind
   /** デザインID（デザインIDを持たない種類では空文字） */
   readonly id: string
@@ -105,6 +116,7 @@ const defaultValuesOf = (schema: ParamSchema): Record<string, AnyParamValue> =>
 export const newLayerDraft = (kind: LayerKind, id: string, group: string): LayerDraft => {
   const schema = schemaFor(kind, id)
   return {
+    key: nextLayerKey++,
     kind,
     id,
     values: schema ? defaultValuesOf(schema) : {},
@@ -117,6 +129,7 @@ export const newLayerDraft = (kind: LayerKind, id: string, group: string): Layer
 /** 保存済みのレイヤー1件を、入力欄の中身に読み替える */
 const toLayerDraft = (layer: OverlayLayer): LayerDraft => {
   const base = {
+    key: nextLayerKey++,
     kind: layer.kind,
     id: layer.id,
     savedParams: layer.params,
