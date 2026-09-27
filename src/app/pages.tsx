@@ -88,7 +88,7 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
         path: '/overlay/',
         name: 'オーバーレイ',
         icon: Layers,
-        // 構成はWorkerに保存されるので、段ごとのブラウザソースのURLは貼り替えずに中身が切り替わる
+        // 構成はWorkerに保存されるので、オーバーレイごとのブラウザソースのURLは貼り替えずに中身が切り替わる
         render: ({ overlayApi, me }) => <OverlayPage api={overlayApi} overlayKey={me.overlayKey} />,
       },
       { path: '/llm/', name: 'LLM', icon: BrainCircuit, render: ({ llmApi }) => <LlmPage api={llmApi} /> },

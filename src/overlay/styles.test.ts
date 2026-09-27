@@ -25,7 +25,7 @@ describe('overlay.css', () => {
     }
   })
 
-  it('レイヤーの箱は、中の素材と失敗の表示の基準になるよう位置を持つ', () => {
-    expect(overlayCss).toMatch(/\.overlay-layer \{[^}]*position: absolute;/)
+  it('素材の箱は、中の素材と失敗の表示の基準になるよう位置を持つ', () => {
+    expect(overlayCss).toMatch(/\.overlay-item \{[^}]*position: absolute;/)
   })
 })

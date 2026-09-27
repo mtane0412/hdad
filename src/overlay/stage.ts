@@ -2,25 +2,24 @@
  * 合成オーバーレイ（overlay/stage/index.html）のエントリスクリプト
  *
  * OBSのブラウザソースはその数だけ Chromium のレンダラを立ち上げるため、素材ごとにページを分けると
- * 配信中のメモリを食う。そこで素材を「レイヤー」として1枚のページに重ね、ブラウザソースは「段」（group）
- * ごとに1つだけ置く（issue #101）。どの段にどの素材をどこへ置くかは Worker が持つ構成（KVの
- * overlay-layout）で決まるので、OBSに貼るURLは ?key=（オーバーレイ用キー）と ?group=（段の名前）だけで、
+ * 配信中のメモリを食う。そこで素材を1枚のページに重ね、ブラウザソースは「オーバーレイ」ごとに1つだけ置く（issue #101・#103）。どのオーバーレイにどの素材をどこへ置くかは Worker が持つ構成（KVの
+ * overlay-layout）で決まるので、OBSに貼るURLは ?key=（オーバーレイ用キー）と ?overlay=（オーバーレイの名前）だけで、
  * 一度貼ったら変わらない。
  *
- * 段を分けるのは、アバターやゲーム画面というWebでないソースが間に挟まり、Web側の素材をその前と後ろの
- * 両方に置きたいためである。構成の読み出しは api.ts、段の絞り込みと箱の位置は layout.ts、
+ * オーバーレイを分けるのは、アバターやゲーム画面というWebでないソースが間に挟まり、Web側の素材をその前と後ろの
+ * 両方に置きたいためである。構成の読み出しは api.ts、オーバーレイの絞り込みと箱の位置は layout.ts、
  * ポーリングの束ね方は poll.ts にあり、ここはそれらをつないでDOMとWebSocketを扱う。
  *
  * まとめることで減るものを、次の3つの決まりで守る。
- * - レイヤーごとに canvas を1枚持ち、1枚の全画面 canvas へ合成しない（まとめたのに重くならないため。
+ * - 素材ごとに canvas を1枚持ち、1枚の全画面 canvas へ合成しない（まとめたのに重くならないため。
  *   小さく置いた時計が全画面ぶんの描画面積を持ってしまう）
- * - requestAnimationFrame は段で1本にし、そのループの中で各レイヤーの描画を順に呼ぶ
- * - 同じ段のレイヤーは接続を共有する（匿名IRCは1本、チャンネル名とバッジ・Cheermote の取得も1回、
+ * - requestAnimationFrame はオーバーレイで1本にし、そのループの中で各素材の描画を順に呼ぶ
+ * - 同じオーバーレイの素材は接続を共有する（匿名IRCは1本、チャンネル名とバッジ・Cheermote の取得も1回、
  *   ポーリングは1つのタイマー）
  *
- * 注意: 1つのレイヤーの失敗で、同じ段のほかのレイヤーは動かし続ける（issue #101 で決めた、Fail-Fast に
- * 意識して設けた例外）。理由は「配信中に片方が壊れたときの被害を、配信画面の全損から1レイヤーの欠落に
- * 留めるため」で、失敗はそのレイヤーの箱の中だけに表示する。
+ * 注意: 1つの素材の失敗で、同じオーバーレイのほかの素材は動かし続ける（issue #101 で決めた、Fail-Fast に
+ * 意識して設けた例外）。理由は「配信中に片方が壊れたときの被害を、配信画面の全損から1素材の欠落に
+ * 留めるため」で、失敗はその素材の箱の中だけに表示する。
  * 注意: 素材ページの約束どおり、React もログインも持ち込まない。
  */
 import { EMPTY_QUEUE, advance, enqueue } from '../alerts/queue'
@@ -47,14 +46,14 @@ import { sideSuperParamSchema } from '../side-super/params'
 import { createSideSuperView } from '../side-super/view'
 import { backgrounds } from '../wallpaper/registry'
 import { createOverlayLayoutApi } from './api'
-import { groupsOf, layersInGroup, rectStyle, type LayerKind, type OverlayLayer } from './layout'
+import { itemsInOverlay, overlayNamesOf, rectStyle, type ItemKind, type OverlayItem } from './layout'
 import { dueTasks, pollTickMs, type PollInterval } from './poll'
 
-/** ページ全体の失敗（構成が読めない・段が空）でエラー表示に使う呼び名 */
+/** ページ全体の失敗（構成が読めない・オーバーレイに素材が無い）でエラー表示に使う呼び名 */
 const NOUN = 'オーバーレイ'
 
-/** レイヤーの失敗を表示するときに素材を指す呼び名 */
-const NOUNS: Readonly<Record<LayerKind, string>> = {
+/** 素材の失敗を表示するときに素材を指す呼び名 */
+const NOUNS: Readonly<Record<ItemKind, string>> = {
   wallpaper: '背景',
   clock: '時計',
   chat: 'チャットボックス',
@@ -77,35 +76,35 @@ const schema = {
     example: '管理用API（/api/me）の overlayKey の値',
     description: 'オーバーレイ用キー（必須）',
   },
-  group: {
+  overlay: {
     type: 'string',
     default: 'front',
-    // 段の名前の書式は worker/overlay-layout.ts の GROUP_PATTERN と合わせる
+    // オーバーレイの名前の書式は worker/overlay-layout.ts の NAME_PATTERN と合わせる
     pattern: /^[a-z0-9-]{1,20}$/,
     example: 'back または front',
-    description: '描く段の名前（この段に置いたレイヤーだけを重ねる）',
+    description: '描くオーバーレイの名前（このオーバーレイに積んだ素材だけを重ねる）',
   },
 } as const satisfies ParamSchema
 
 // fetch をそのまま渡すと this が外れて Illegal invocation になるブラウザがあるので、包んで渡す
 const callWorker: typeof fetch = (input, init) => fetch(input, init)
 
-/** 描画を続けるレイヤー1つ。描画中に投げたら、その箱にだけ失敗を出して一覧から外す */
-interface DrawingLayer {
+/** 描画を続ける素材1つ。描画中に投げたら、その箱にだけ失敗を出して一覧から外す */
+interface DrawingItem {
   readonly box: HTMLElement
   readonly noun: string
   readonly draw: DrawFrame
 }
 
-/** 読みに行くもの1つ（段で1本のタイマーが回す） */
+/** 読みに行くもの1つ（オーバーレイで1本のタイマーが回す） */
 interface PollTask extends PollInterval {
   run(): void
 }
 
 /**
- * 同じ段のチャットの受け取りをまとめる。
+ * 同じオーバーレイのチャットの受け取りをまとめる。
  *
- * チャットボックスと注目コメントを同じ段に置いても、匿名IRCの接続・チャンネル名の取得・公式バッジと
+ * チャットボックスと注目コメントを同じオーバーレイに置いても、匿名IRCの接続・チャンネル名の取得・公式バッジと
  * Cheermote の取得はそれぞれ1回で済ませ、届いた発言を登録された相手へ配る。
  */
 const createChatHub = () => {
@@ -119,7 +118,7 @@ const createChatHub = () => {
   let thirdPartyEmotes: EmoteMap = new Map()
   let loadedRoomId: string | undefined
 
-  /** 登録された相手に、システムからのお知らせとして1行伝える（出す場所を持たないレイヤーは捨てる） */
+  /** 登録された相手に、システムからのお知らせとして1行伝える（出す場所を持たない素材は捨てる） */
   const notify = (text: string): void => {
     for (const handler of handlers) handler.onEvent({ type: 'notice', text })
   }
@@ -138,7 +137,7 @@ const createChatHub = () => {
   }
 
   return {
-    /** このレイヤーが要るものを伝える（要らないものはWorkerにも取りに行かない） */
+    /** この素材が要るものを伝える（要らないものはWorkerにも取りに行かない） */
     require({ badges, thirdparty }: { badges: boolean; thirdparty: boolean }): void {
       needsBadges = needsBadges || badges
       needsThirdParty = needsThirdParty || thirdparty
@@ -156,7 +155,7 @@ const createChatHub = () => {
      * 届いた発言に絵を当てる。
      *
      * Cheermote を先に取り出してから、残った文字をエモートとして置き換える（チャットボックスの
-     * 単独ページと同じ順序）。サードパーティエモートは、それを要求したレイヤーにだけ当てる。
+     * 単独ページと同じ順序）。サードパーティエモートは、それを要求した素材にだけ当てる。
      */
     decorate(message: ChatMessage, thirdparty: boolean): ChatMessage {
       const fragments = applyCheermotes(message.fragments, cheermotes, message.bits)
@@ -166,7 +165,7 @@ const createChatHub = () => {
     /**
      * 接続先を取得してつなぐ。登録がすべて済んだあとに1回だけ呼ぶ。
      *
-     * @throws チャンネル名を取得できなかった場合（呼び出し側が、チャットを使うレイヤーの箱に出す）
+     * @throws チャンネル名を取得できなかった場合（呼び出し側が、チャットを使う素材の箱に出す）
      */
     async start(): Promise<void> {
       // 接続先はこのWorkerが扱う配信者のチャンネル。取得できなければチャットは始められない
@@ -201,8 +200,8 @@ const createChatHub = () => {
 
 type ChatHub = ReturnType<typeof createChatHub>
 
-/** レイヤーを起動した結果。描くもの・読みに行くものがあれば返す */
-interface MountedLayer {
+/** 素材を起動した結果。描くもの・読みに行くものがあれば返す */
+interface MountedItem {
   readonly draw?: DrawFrame
   readonly task?: PollTask
   /** チャットの受け取りを使うか（つなげなかったときに、この箱へ失敗を出す） */
@@ -210,27 +209,27 @@ interface MountedLayer {
 }
 
 /** 壁紙・時計。箱の中に canvas を1枚置き、1フレームぶんの描画を受け取る */
-const mountCanvasMaterial = (box: HTMLElement, layer: OverlayLayer): MountedLayer => {
-  const definitions = layer.kind === 'wallpaper' ? backgrounds : clocks
-  const definition = findDefinition(definitions, layer.id, NOUNS[layer.kind])
+const mountCanvasMaterial = (box: HTMLElement, item: OverlayItem): MountedItem => {
+  const definitions = item.kind === 'wallpaper' ? backgrounds : clocks
+  const definition = findDefinition(definitions, item.id, NOUNS[item.kind])
   const canvas = document.createElement('canvas')
   // 単独ページと同じく、何を描いている canvas かを属性に残す（開発者ツールで追えるようにする）
-  canvas.dataset[layer.kind === 'wallpaper' ? 'background' : 'clock'] = definition.id
+  canvas.dataset[item.kind === 'wallpaper' ? 'background' : 'clock'] = definition.id
   box.append(canvas)
-  return { draw: startCanvasLayer(canvas, definition, new URLSearchParams(layer.params)) }
+  return { draw: startCanvasLayer(canvas, definition, new URLSearchParams(item.params)) }
 }
 
 /** チャットボックス。デザインのCSSは [data-chat='<id>'] で効くので、箱の中の ol に属性を持たせる */
-const mountChat = (box: HTMLElement, layer: OverlayLayer, hub: ChatHub): MountedLayer => {
-  const definition = chats.find((candidate) => candidate.id === layer.id)
-  if (!definition) throw new Error(`${NOUNS.chat}「${layer.id}」はレジストリに登録されていません`)
+const mountChat = (box: HTMLElement, item: OverlayItem, hub: ChatHub): MountedItem => {
+  const definition = chats.find((candidate) => candidate.id === item.id)
+  if (!definition) throw new Error(`${NOUNS.chat}「${item.id}」はレジストリに登録されていません`)
 
   const root = document.createElement('ol')
   root.className = 'chat'
   root.dataset.chat = definition.id
   box.append(root)
 
-  const params = parseParams(definition.schema, new URLSearchParams(layer.params))
+  const params = parseParams(definition.schema, new URLSearchParams(item.params))
   for (const [name, value] of Object.entries(definition.cssVariables(params))) {
     root.style.setProperty(name, value)
   }
@@ -273,9 +272,9 @@ const mountChat = (box: HTMLElement, layer: OverlayLayer, hub: ChatHub): Mounted
 }
 
 /** アラート。Workerから押し出されてくる1件ずつを順に再生する（列は queue.ts が持つ） */
-const mountAlerts = (box: HTMLElement, layer: OverlayLayer, key: string): MountedLayer => {
-  // このレイヤーは配信者が決めるパラメータを持たない（空でないクエリは誤りとして知らせる）
-  parseParams({}, new URLSearchParams(layer.params))
+const mountAlerts = (box: HTMLElement, item: OverlayItem, key: string): MountedItem => {
+  // この素材は配信者が決めるパラメータを持たない（空でないクエリは誤りとして知らせる）
+  parseParams({}, new URLSearchParams(item.params))
 
   const root = document.createElement('div')
   root.className = 'alerts'
@@ -313,8 +312,8 @@ const mountAlerts = (box: HTMLElement, layer: OverlayLayer, key: string): Mounte
 }
 
 /** サイドスーパー。cron が作った文言を定期的に読みに行って映す */
-const mountSideSuper = (box: HTMLElement, layer: OverlayLayer, key: string): MountedLayer => {
-  const params = parseParams(sideSuperParamSchema, new URLSearchParams(layer.params))
+const mountSideSuper = (box: HTMLElement, item: OverlayItem, key: string): MountedItem => {
+  const params = parseParams(sideSuperParamSchema, new URLSearchParams(item.params))
 
   const root = document.createElement('div')
   root.className = 'side-super'
@@ -332,7 +331,7 @@ const mountSideSuper = (box: HTMLElement, layer: OverlayLayer, key: string): Mou
     clearError(box, 'read')
   }
 
-  // 1回目は起動の一部として扱い、失敗はこの箱に出す（ほかのレイヤーは動かし続ける）
+  // 1回目は起動の一部として扱い、失敗はこの箱に出す（ほかの素材は動かし続ける）
   void read().catch((error: unknown) => showError(error, NOUNS.sideSuper, box, 'read'))
 
   return {
@@ -354,9 +353,9 @@ const mountSideSuper = (box: HTMLElement, layer: OverlayLayer, key: string): Mou
  * モデレーターの操作で映しているものが消えたら映すのをやめる（withRemoval）。配信画面に残ったままに
  * すると取り返しがつかないので、発言1件を固定しているあいだもチャットの受け取りを使う。
  */
-const mountFocus = (box: HTMLElement, layer: OverlayLayer, key: string, hub: ChatHub): MountedLayer => {
-  // このレイヤーは配信者が決めるパラメータを持たない（取り上げる相手は Worker が持つ）
-  parseParams({}, new URLSearchParams(layer.params))
+const mountFocus = (box: HTMLElement, item: OverlayItem, key: string, hub: ChatHub): MountedItem => {
+  // この素材は配信者が決めるパラメータを持たない（取り上げる相手は Worker が持つ）
+  parseParams({}, new URLSearchParams(item.params))
 
   const root = document.createElement('div')
   root.className = 'focus'
@@ -403,7 +402,7 @@ const mountFocus = (box: HTMLElement, layer: OverlayLayer, key: string, hub: Cha
           break
         case 'room':
         case 'notice':
-          // 接続の知らせは映すものに関係しない（このレイヤーには出す場所が無い）
+          // 接続の知らせは映すものに関係しない（この素材には出す場所が無い）
           break
       }
     },
@@ -426,37 +425,37 @@ const mountFocus = (box: HTMLElement, layer: OverlayLayer, key: string, hub: Cha
   }
 }
 
-/** レイヤー1つを起動する */
-const mountLayer = (box: HTMLElement, layer: OverlayLayer, key: string, hub: ChatHub): MountedLayer => {
-  switch (layer.kind) {
+/** 素材1つを起動する */
+const mountItem = (box: HTMLElement, item: OverlayItem, key: string, hub: ChatHub): MountedItem => {
+  switch (item.kind) {
     case 'wallpaper':
     case 'clock':
-      return mountCanvasMaterial(box, layer)
+      return mountCanvasMaterial(box, item)
     case 'chat':
-      return mountChat(box, layer, hub)
+      return mountChat(box, item, hub)
     case 'alerts':
-      return mountAlerts(box, layer, key)
+      return mountAlerts(box, item, key)
     case 'sideSuper':
-      return mountSideSuper(box, layer, key)
+      return mountSideSuper(box, item, key)
     case 'focus':
-      return mountFocus(box, layer, key, hub)
+      return mountFocus(box, item, key, hub)
   }
 }
 
 /**
- * 段で1本の描画ループを回す。
+ * オーバーレイで1本の描画ループを回す。
  *
- * 描画中に投げたレイヤーは、その箱に失敗を出して一覧から外す（毎フレーム同じ失敗を出さないため）。
- * ほかのレイヤーの描画は続ける。
+ * 描画中に投げた素材は、その箱に失敗を出して一覧から外す（毎フレーム同じ失敗を出さないため）。
+ * ほかの素材の描画は続ける。
  */
-const startDrawLoop = (layers: DrawingLayer[]): void => {
+const startDrawLoop = (items: DrawingItem[]): void => {
   const loop = (elapsedMs: number): void => {
-    for (const layer of [...layers]) {
+    for (const item of [...items]) {
       try {
-        layer.draw(elapsedMs)
+        item.draw(elapsedMs)
       } catch (error) {
-        layers.splice(layers.indexOf(layer), 1)
-        showError(error, layer.noun, layer.box)
+        items.splice(items.indexOf(item), 1)
+        showError(error, item.noun, item.box)
       }
     }
     requestAnimationFrame(loop)
@@ -464,7 +463,7 @@ const startDrawLoop = (layers: DrawingLayer[]): void => {
   requestAnimationFrame(loop)
 }
 
-/** 段で1本のタイマーで、読みに行くものをそれぞれの間隔で回す */
+/** オーバーレイで1本のタイマーで、読みに行くものをそれぞれの間隔で回す */
 const startPolling = (tasks: readonly PollTask[]): void => {
   if (tasks.length === 0) return
   const tickMs = pollTickMs(tasks)
@@ -481,41 +480,41 @@ const start = async (): Promise<void> => {
 
   const params = parseParams(schema, new URLSearchParams(location.search))
   if (params.key === '') {
-    throw new ParamError(['key: オーバーレイ用キーを指定してください（例: ?key=<キー>&group=front）'])
+    throw new ParamError(['key: オーバーレイ用キーを指定してください（例: ?key=<キー>&overlay=front）'])
   }
 
-  // 構成の読み出しは起動の一部。ここで失敗したらこの段には何も描けないので、ページ全体に出す
+  // 構成の読み出しは起動の一部。ここで失敗したらこのオーバーレイには何も描けないので、ページ全体に出す
   const all = await createOverlayLayoutApi(callWorker, params.key).read()
-  const layers = layersInGroup(all, params.group)
-  if (layers.length === 0) {
-    const 段 = groupsOf(all)
+  const items = itemsInOverlay(all, params.overlay)
+  if (items.length === 0) {
+    const 名前 = overlayNamesOf(all)
     throw new Error(
-      `段「${params.group}」にレイヤーがありません（構成にある段: ${段.length > 0 ? 段.join('・') : 'なし'}）`,
+      `オーバーレイ「${params.overlay}」に素材がありません（構成にあるオーバーレイ: ${名前.length > 0 ? 名前.join('・') : 'なし'}）`,
     )
   }
 
   const hub = createChatHub()
-  const drawing: DrawingLayer[] = []
+  const drawing: DrawingItem[] = []
   const tasks: PollTask[] = []
-  /** チャットの受け取りを使うレイヤーの箱。つなげなかったときに、そこへ失敗を出す */
+  /** チャットの受け取りを使う素材の箱。つなげなかったときに、そこへ失敗を出す */
   const chatBoxes: HTMLElement[] = []
 
   // 箱は構成の並びの順に置く（あとのものが前に重なる）
-  for (const layer of layers) {
+  for (const item of items) {
     const box = document.createElement('div')
-    box.className = 'overlay-layer'
-    box.dataset.layer = layer.kind
-    Object.assign(box.style, rectStyle(layer.rect))
+    box.className = 'overlay-item'
+    box.dataset.item = item.kind
+    Object.assign(box.style, rectStyle(item.rect))
     root.append(box)
 
-    const noun = NOUNS[layer.kind]
+    const noun = NOUNS[item.kind]
     try {
-      const mounted = mountLayer(box, layer, params.key, hub)
+      const mounted = mountItem(box, item, params.key, hub)
       if (mounted.draw) drawing.push({ box, noun, draw: mounted.draw })
       if (mounted.task) tasks.push(mounted.task)
       if (mounted.usesChat) chatBoxes.push(box)
     } catch (error) {
-      // 1つのレイヤーの失敗で同じ段のほかのレイヤーを止めない（issue #101 で決めた例外）
+      // 1つの素材の失敗で同じオーバーレイのほかの素材を止めない（issue #101 で決めた例外）
       showError(error, noun, box)
     }
   }
@@ -525,7 +524,7 @@ const start = async (): Promise<void> => {
 
   if (chatBoxes.length > 0) {
     await hub.start().catch((error: unknown) => {
-      // チャンネル名が読めないと発言が届かないので、チャットを使うレイヤーそれぞれに理由を出す
+      // チャンネル名が読めないと発言が届かないので、チャットを使う素材それぞれに理由を出す
       for (const box of chatBoxes) showError(error, NOUNS.chat, box, 'chat')
     })
   }
