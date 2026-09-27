@@ -102,6 +102,39 @@ export interface OverlayDraft {
   readonly items: readonly ItemDraft[]
 }
 
+/** 一覧に並べる素材1件と、その素材が構成で占めている位置（並べ替え・外すときに使う） */
+export interface ItemSlot {
+  readonly item: ItemDraft
+  /** 構成での位置（0が最も背面） */
+  readonly position: number
+}
+
+/**
+ * 素材を、前に出るものから並べた形にする。
+ *
+ * 構成では「あとのものが前」だが、画面では上にあるものが前に見えるほうが分かりやすいので、一覧では
+ * 並びを逆にして出す（OBSのソース一覧も上にあるものが前である）。保存の形は変えないので、構成での
+ * 位置を添えて返し、並べ替えと外す操作はその位置で行う。
+ */
+export const frontFirstItems = (items: readonly ItemDraft[]): ItemSlot[] =>
+  items.map((item, position) => ({ item, position })).reverse()
+
+/**
+ * 並びの中の1件を offset だけずらした、新しい並びを返す。
+ *
+ * オーバーレイの並べ替えと、素材の重ねる順の入れ替えで使う。並びの外へ出る動かし方（端の素材を
+ * さらに外へ）では、切り取った1件が別の場所へ回り込まないように並びを変えずに返す。
+ */
+export const moveDraft = <T>(list: readonly T[], position: number, offset: number): T[] => {
+  const to = position + offset
+  if (to < 0 || to >= list.length) return [...list]
+  const moved = [...list]
+  const [target] = moved.splice(position, 1)
+  if (target === undefined) return [...list]
+  moved.splice(to, 0, target)
+  return moved
+}
+
 /** 問題点の位置を読み替えるための、送った順の名前 */
 export interface OverlayLabels {
   readonly name: string

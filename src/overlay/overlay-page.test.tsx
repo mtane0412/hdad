@@ -3,8 +3,9 @@
  * 合成オーバーレイの構成のページ（オーバーレイと素材の編集、OBS用URL）のテスト
  *
  * 確かめること:
- * - 保存済みのオーバーレイと、その中の素材を重ねる順に出すこと
+ * - 保存済みのオーバーレイと、その中の素材を前に出るものから出すこと（一覧の上が前）
  * - 素材を足す・外す・並べ替える・別のオーバーレイへ移す・位置と大きさを直せること
+ * - オーバーレイ同士を一覧の中で並べ替えられること
  * - 素材のパラメータをスキーマの入力欄で調整でき、保存ではクエリ文字列になること
  * - オーバーレイを足せること・オーバーレイごとのOBS用URLを出すこと
  * - 素材を1つも持たないオーバーレイは送らないこと
@@ -70,12 +71,13 @@ describe('オーバーレイと素材の一覧', () => {
     expect(within(await オーバーレイの領域('front')).getByRole('group', { name: '時計（Analog）' })).toBeInTheDocument()
   })
 
-  test('素材は重ねる順（あとのものが前）に並べる', async () => {
+  test('素材は前に出るものから並べる（一覧の上にあるものが前）', async () => {
     const api = 代役のAPI({ load: vi.fn(async () => [{ name: 'front', items: [時計, { ...壁紙, id: 'grid' }] }]) })
     描く(api)
 
+    // 構成では「あとのものが前」なので、一覧では並びを逆にして出す（上が前）
     const 素材 = within(await オーバーレイの領域('front')).getAllByRole('group')
-    expect(素材.map((element) => element.getAttribute('aria-label'))).toEqual(['時計（Analog）', '背景（Grid）'])
+    expect(素材.map((element) => element.getAttribute('aria-label'))).toEqual(['背景（Grid）', '時計（Analog）'])
   })
 
   test('オーバーレイが1つも無ければ、まだ何も置いていないことを知らせる', async () => {
@@ -178,6 +180,18 @@ describe('素材の編集', () => {
     expect(api.save).toHaveBeenCalledWith([背面])
   })
 
+  test('素材を足すと、一覧のいちばん上（いちばん前）に付く', async () => {
+    const api = 代役のAPI()
+    描く(api)
+
+    const 領域 = await オーバーレイの領域('front')
+    await userEvent.selectOptions(within(領域).getByLabelText('足す素材の種類'), 'alerts')
+    await userEvent.click(within(領域).getByRole('button', { name: '素材を足す' }))
+
+    const 素材 = within(await オーバーレイの領域('front')).getAllByRole('group')
+    expect(素材.map((element) => element.getAttribute('aria-label'))).toEqual(['アラート', '時計（Analog）'])
+  })
+
   test('素材を足すと、そのオーバーレイのいちばん前に、いっぱいの大きさで付く', async () => {
     const api = 代役のAPI()
     描く(api)
@@ -234,6 +248,23 @@ describe('オーバーレイ', () => {
     await 保存する()
 
     expect(api.save).toHaveBeenCalledWith([背面, 前面])
+  })
+
+  test('オーバーレイを並べ替えられる', async () => {
+    const api = 代役のAPI()
+    描く(api)
+
+    await userEvent.click(within(await オーバーレイの領域('front')).getByRole('button', { name: 'オーバーレイ「front」をひとつ上へ' }))
+    await 保存する()
+
+    expect(api.save).toHaveBeenCalledWith([前面, 背面])
+  })
+
+  test('端のオーバーレイは、その向きへは動かせない', async () => {
+    描く(代役のAPI())
+
+    expect(within(await オーバーレイの領域('back')).getByRole('button', { name: 'オーバーレイ「back」をひとつ上へ' })).toBeDisabled()
+    expect(within(await オーバーレイの領域('front')).getByRole('button', { name: 'オーバーレイ「front」をひとつ下へ' })).toBeDisabled()
   })
 
   test('オーバーレイを外すときは、確かめてから外す', async () => {

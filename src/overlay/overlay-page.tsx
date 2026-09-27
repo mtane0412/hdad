@@ -11,7 +11,8 @@
  * チャットなど）を積む。オーバーレイを複数に分けるのは、アバターやゲーム画面というWebでないソースが
  * 間に挟まり、Web側の素材をその前と後ろの両方に置きたいためである。
  *
- * 素材の並びがそのまま重ねる順（あとのものが前）なので、上から順に「背面 → 前面」で並べる。
+ * 素材の並びがそのまま重ねる順（あとのものが前）だが、一覧では並びを逆にして「前面 → 背面」で並べる
+ * （OBSのソース一覧と同じく、上にあるものが前に出る）。オーバーレイ同士も一覧の中で並べ替えられる。
  * Workerの呼び出しは admin-api.ts、入力欄の値の変換とデザインのスキーマの引き当ては form.ts、
  * URLの組み立ては url.ts に分けてテストする。素材のパラメータの入力欄は、ギャラリーと同じ
  * 自動生成（src/core/gallery/fields.tsx の ParamField）を使う。
@@ -41,8 +42,10 @@ import type { OverlayLayoutAdminApi } from './admin-api'
 import {
   describeOverlayProblem,
   designsFor,
+  frontFirstItems,
   itemLabel,
   ITEM_KIND_LABELS,
+  moveDraft,
   newItemDraft,
   newOverlayDraft,
   overlayLabelsOf,
@@ -148,12 +151,12 @@ const ItemRow = ({
             <span className="truncate text-xs font-normal text-muted-foreground">{rectSummary(draft)}</span>
           </span>
         </Button>
-        {/* 並びがそのまま重ねる順なので、動かす向きは一覧の上下ではなく「前面・背面」で言う */}
-        <Button type="button" variant="ghost" size="sm" aria-label={`${label}をひとつ背面へ`} disabled={!canMoveBack} onClick={() => onMove(-1)}>
-          背面へ
-        </Button>
+        {/* 一覧では上にあるものが前なので、「前面へ」がひとつ上、「背面へ」がひとつ下に当たる */}
         <Button type="button" variant="ghost" size="sm" aria-label={`${label}をひとつ前面へ`} disabled={!canMoveFront} onClick={() => onMove(1)}>
           前面へ
+        </Button>
+        <Button type="button" variant="ghost" size="sm" aria-label={`${label}をひとつ背面へ`} disabled={!canMoveBack} onClick={() => onMove(-1)}>
+          背面へ
         </Button>
         <Button type="button" variant="ghost" size="icon" aria-label={`${label}を外す`} className="text-destructive" onClick={onRemove}>
           <Trash2 aria-hidden="true" />
@@ -255,6 +258,10 @@ interface OverlayCardProps {
   onAskRemoveItem(item: ItemDraft): void
   onAskRemove(): void
   onCopyUrl(url: string): void
+  /** 一覧の中でこのオーバーレイを動かせるか（端のオーバーレイでは押せなくする） */
+  canMoveUp: boolean
+  canMoveDown: boolean
+  onMove(offset: number): void
 }
 
 /** オーバーレイ1つ（＝OBSのブラウザソース1つ）ぶんのカード。積んだ素材と、貼るURLを持つ */
@@ -269,6 +276,9 @@ const OverlayCard = ({
   onAskRemoveItem,
   onAskRemove,
   onCopyUrl,
+  canMoveUp,
+  canMoveDown,
+  onMove,
 }: OverlayCardProps) => {
   const id = useId()
   const [newKind, setNewKind] = useState<ItemKind>('wallpaper')
@@ -278,14 +288,8 @@ const OverlayCard = ({
   const updateItem = (position: number, item: ItemDraft): void =>
     onChange({ ...draft, items: draft.items.map((current, index) => (index === position ? item : current)) })
 
-  /** 素材を1つ動かす（並びがそのまま重ねる順） */
-  const moveItem = (position: number, offset: number): void => {
-    const items = [...draft.items]
-    const [moved] = items.splice(position, 1)
-    if (!moved) return
-    items.splice(position + offset, 0, moved)
-    onChange({ ...draft, items })
-  }
+  /** 素材を1つ動かす（構成での並びがそのまま重ねる順。offset が正なら前へ） */
+  const moveItem = (position: number, offset: number): void => onChange({ ...draft, items: moveDraft(draft.items, position, offset) })
 
   return (
     <Card role="group" aria-label={`オーバーレイ「${draft.name}」`}>
@@ -295,11 +299,34 @@ const OverlayCard = ({
             <CardTitle>
               オーバーレイ <code className="font-mono">{draft.name}</code>
             </CardTitle>
-            <CardDescription>OBSのブラウザソース1つぶん。上から下へ重ねる（下にあるものが前に出る）。</CardDescription>
+            <CardDescription>OBSのブラウザソース1つぶん。上にあるものが前に出る（一覧の上から順に重なりの前面）。</CardDescription>
           </div>
-          <Button type="button" variant="ghost" size="icon" aria-label={`オーバーレイ「${draft.name}」を外す`} className="text-destructive" onClick={onAskRemove}>
-            <Trash2 aria-hidden="true" />
-          </Button>
+          <div className="flex items-center gap-1">
+            {/* オーバーレイ同士の並びは重なりと関わらない（別々のブラウザソースなので）。編集しやすい順に並べ替えるためのもの */}
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-label={`オーバーレイ「${draft.name}」をひとつ上へ`}
+              disabled={!canMoveUp}
+              onClick={() => onMove(-1)}
+            >
+              上へ
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-label={`オーバーレイ「${draft.name}」をひとつ下へ`}
+              disabled={!canMoveDown}
+              onClick={() => onMove(1)}
+            >
+              下へ
+            </Button>
+            <Button type="button" variant="ghost" size="icon" aria-label={`オーバーレイ「${draft.name}」を外す`} className="text-destructive" onClick={onAskRemove}>
+              <Trash2 aria-hidden="true" />
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
@@ -307,7 +334,7 @@ const OverlayCard = ({
           <p className="text-sm text-muted-foreground">まだ素材がありません。素材を置くまでは保存されません（貼っても何も映らないためです）。</p>
         ) : (
           <ul className="flex flex-col gap-2">
-            {draft.items.map((item, position) => (
+            {frontFirstItems(draft.items).map(({ item, position }) => (
               <ItemRow
                 // 位置をキーにすると、並べ替え・外したときに入力欄が別の素材のものとして使い回され、
                 // 入力欄が覚えている内容（透過にする前の色）が混ざる。そのため素材ごとの識別子を使う
@@ -361,7 +388,7 @@ const OverlayCard = ({
               </NativeSelect>
             </div>
           )}
-          {/* 足した素材はいちばん前（並びの末尾）に、いっぱいの大きさで入る */}
+          {/* 足した素材はいちばん前（構成では並びの末尾、一覧ではいちばん上）に、いっぱいの大きさで入る */}
           <Button type="button" onClick={() => onChange({ ...draft, items: [...draft.items, newItemDraft(newKind, newId)] })}>
             素材を足す
           </Button>
@@ -505,6 +532,9 @@ export const OverlayPage = ({ api, overlayKey }: { api: OverlayLayoutAdminApi; o
               })
             }
             onCopyUrl={(url) => void actions.run(() => copyUrl(url))}
+            canMoveUp={position > 0}
+            canMoveDown={position < drafts.length - 1}
+            onMove={(offset) => setDrafts(moveDraft(drafts, position, offset))}
           />
         ))
       )}
