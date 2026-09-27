@@ -16,6 +16,7 @@ import { createFakeStore } from './fake-store'
 import { handleRequest, type Env } from './index'
 import { createSessionToken } from './session'
 import { saveToken } from './token'
+import { recordLlmUsage } from './llm-usage-store'
 import { TRANSCRIPT_MAX_LENGTH } from './overlay-routes'
 
 const 現在時刻 = Date.UTC(2026, 8, 21, 12, 0, 0)
@@ -677,6 +678,93 @@ describe('LLMの設定（/api/admin/llm）', () => {
     expect(response.status).toBe(400)
     const body = (await response.json()) as { error: { problems: string[] } }
     expect(body.error.problems).toEqual([expect.stringContaining('aiChat.provider'), expect.stringContaining('aiChat.models.workers-ai')])
+  })
+})
+
+describe('LLMの使用状況（/api/admin/llm/usage）', () => {
+  const 読む = async (env: Env) => 呼び出す(await 配信者のリクエスト(env, '/api/admin/llm/usage'), env)
+
+  it('セッションがなければ401を返す', async () => {
+    const { env } = 環境を作る()
+
+    expect((await 呼び出す(new Request(`${サイト}/api/admin/llm/usage`), env)).status).toBe(401)
+  })
+
+  it('記録した使用状況を、日ごとのまとめとして返す', async () => {
+    const { env } = 環境を作る()
+    await recordLlmUsage(
+      env.DB,
+      {
+        usage: 'streamSummary',
+        provider: 'openrouter',
+        model: 'anthropic/claude-3.5-haiku',
+        promptTokens: 900,
+        completionTokens: 200,
+        costUsd: 0.000_45,
+        failed: false,
+      },
+      現在時刻,
+    )
+
+    const response = await 読む(env)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      days: [
+        {
+          day: '2026-09-21',
+          usage: 'streamSummary',
+          provider: 'openrouter',
+          model: 'anthropic/claude-3.5-haiku',
+          calls: 1,
+          failures: 0,
+          promptTokens: 900,
+          completionTokens: 200,
+          costUsd: 0.000_45,
+        },
+      ],
+    })
+  })
+
+  it('まだ一度も呼んでいなければ、空の一覧を返す', async () => {
+    const { env } = 環境を作る()
+
+    expect(await (await 読む(env)).json()).toEqual({ days: [] })
+  })
+})
+
+describe('OpenRouter の残高（/api/admin/llm/credits）', () => {
+  const 読む = async (env: Env, fetchImpl?: typeof fetch) => 呼び出す(await 配信者のリクエスト(env, '/api/admin/llm/credits'), env, fetchImpl)
+
+  it('セッションがなければ401を返す', async () => {
+    const { env } = 環境を作る()
+
+    expect((await 呼び出す(new Request(`${サイト}/api/admin/llm/credits`), env)).status).toBe(401)
+  })
+
+  it('鍵があれば OpenRouter へ問い合わせ、付与額・使用額・残りを返す', async () => {
+    const { env } = 環境を作る()
+    const 鍵つき = { ...env, OPENROUTER_API_KEY: 'openrouter-test-key' }
+    const 呼ばれた: string[] = []
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      呼ばれた.push(String(input))
+      return Response.json({ data: { total_credits: 10, total_usage: 2.5 } })
+    }) as typeof fetch
+
+    const response = await 読む(鍵つき, fetchImpl)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ totalCredits: 10, totalUsage: 2.5, remaining: 7.5 })
+    expect(呼ばれた).toEqual(['https://openrouter.ai/api/v1/credits'])
+  })
+
+  it('鍵が設定されていなければ、OpenRouter へ問い合わせずに400を返す', async () => {
+    const { env } = 環境を作る()
+
+    const response = await 読む(env)
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ error: { code: 'no-api-key' } })
   })
 })
 

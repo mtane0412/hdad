@@ -248,12 +248,21 @@ https://hdad.<サブドメイン>.workers.dev/side-super/overlay/?key=<オーバ
 ```bash
 npm install
 npm run dev         # 開発サーバー（Workerも一緒に動く。http://localhost:5173/）
+npm run dev:op      # シークレットを 1Password から渡して開発サーバーを起動する（下記）
 npm run lint        # Lint（警告ゼロ必須）
 npm run type-check  # 型チェック
 npm test            # テスト
 npm run build       # dist/ へビルド（静的アセットは dist/client/、Workerとデプロイ用の設定は dist/hdad/）
 npm run preview:worker  # ビルドして、Workersと同じ配信挙動をローカルで確認（wrangler dev）
 ```
+
+#### シークレットを 1Password から渡す（任意）
+
+`.dev.vars` を置かずに開発したい場合は、`npm run dev:op` を使います。`.dev.vars.op.example` を `.dev.vars.op` にコピーし、`op://<保管庫>/<項目>/<フィールド>` の参照を自分の 1Password に合わせて書き換えてください（`.dev.vars.op` は `.gitignore` 済みです）。
+
+仕組みは「`op run` が参照を解決してプロセスの環境変数に入れ、wrangler がそれを Worker の vars として読む」というもので、後半は `CLOUDFLARE_INCLUDE_PROCESS_ENV=true`（テンプレートに書いてあります）で有効になります。**`.dev.vars` が実ファイルとして在るときはそちらが優先される**ので、ふだんの `npm run dev` の手順は変わりません。
+
+**`.dev.vars` を名前付きパイプ（1Password Environments が作るもの）にはできません。** `@cloudflare/vite-plugin` は Worker の環境を組み立てるたびに `.dev.vars` を読み直しますが、パイプは流された内容を一度しか渡せないため、2回目以降の読み出しで `socket hang up (ECONNRESET)` になる（書き手がいなければ起動したまま止まる）ためです。
 
 ### 壁紙の背景を追加する
 
@@ -496,6 +505,22 @@ npx wrangler secret put OPENROUTER_API_KEY
 - 候補を読み込めなかったときは、空の選択欄にせず理由を出します。いま保存されているモデルは選択欄に残るので、そのまま保存できます
 - OpenRouter を選んだ箇所は、鍵が無ければ**その箇所の文面を作るときに失敗します**（黙って Workers AI へは切り替わりません）。管理画面は、鍵が無いのに OpenRouter を選んでいる箇所の名前を挙げて知らせます
 - 失敗（鍵が無い・残高が足りない・無料枠を使い切った）は、箇所ごとの失敗として記録に残ります（`/api/admin/stats/failures` の `alert-aichat-failed`・`side-super-failed`・`viewer-summary-failed`・`stream-summary-failed`）。固定の文言に黙って落とすことはしません
+
+#### 使用状況
+
+同じ画面で、**どれだけLLMを呼んだか**を箇所ごとに見られます。数えているのは Worker 自身で、LLMを呼ぶ唯一の入口（`worker/llm.ts`）が呼び出しのたびに回数・トークン数・実費をD1（`llm_usage`）へ足し込みます。
+
+| 出るもの | 内容 |
+|---|---|
+| 今日・直近7日の回数 | 文面を受け取れた回数と、失敗した回数（無料枠切れ・残高不足・推論モデルで本文が空だったものを含みます） |
+| トークン数 | 提供元が応答に入れてきた値の合計。返してこないモデルでは 0 のままです（回数だけが増えます） |
+| 実費 | OpenRouter が1回ごとに返す額の合計（米ドル）。Workers AI は返さないので 0 です |
+| OpenRouter の残高 | 付与額・使用額・残り。鍵を設定しているときだけ、画面を開いたときに openrouter.ai へ問い合わせます |
+
+- **日の区切りはUTC**です。Workers AI の無料枠がUTCの日で切り替わるので、それに合わせています（JSTの日付とはずれます）
+- **Workers AI の「残り Neurons」は出せません**。読むにはアカウント単位のAPIトークンが必要で、このWorkerはそれを持たない方針です（モデルの一覧を手で持っているのと同じ理由です）。無料枠の使い具合は、呼び出した回数から見当をつけてください
+- 記録は1回ごとに1行ではなく、**「日 × 箇所 × 提供元 × モデル」の1行へ足し込みます**（チャットの文面は発言ごとに呼ばれるため）。90日より前の行は消えます
+- 使用状況を記録できなかったときでも、**作れた文面はそのまま使います**（モニターのための記録のために配信中の文面が失われないようにするためです）。記録できなかったことは `collection_failures` に `llm-usage-record-failed` として残ります
 
 ### 視聴者の記録（`/viewers/`）
 

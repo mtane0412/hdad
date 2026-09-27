@@ -2,14 +2,17 @@
  * 管理用の経路（/api/admin/*）
  *
  * 配信者のセッションが必要。アラートの設定の取得と保存、素材の一覧・アップロード・削除、オーバーレイ用キーの再発行、
- * トリガーの設定で選ぶチャンネルポイント報酬の一覧、チャットの読み上げの設定の取得と保存を受け持つ。
+ * トリガーの設定で選ぶチャンネルポイント報酬の一覧、チャットの読み上げの設定の取得と保存、
+ * LLMの設定とその使用状況を受け持つ。
  */
 import { alertActionOf, loadAlertConfig, parseAlertConfig, saveAlertConfig } from './alert-config'
 import { HttpError, STATUS, requireAdmin, type Context } from './http'
 import { listMedia, uploadMedia } from './media'
 import { rotateOverlayKey } from './overlay-key'
 import { LLM_PROVIDERS, loadLlmSettings, parseLlmSettings, saveLlmSettings, type LlmProvider } from './llm-config'
+import { readOpenRouterCredits } from './llm-credits'
 import { listLlmModels } from './llm-models'
+import { listLlmUsage, toUtcDay } from './llm-usage-store'
 import { loadSpeechSettings, parseSpeechSettings, saveSpeechSettings } from './speech-config'
 import { getAccessToken } from './token'
 
@@ -134,6 +137,44 @@ export const putLlm = async (context: Context): Promise<Response> => {
   const settings = parseLlmSettings(body)
   await saveLlmSettings(context.env.STORE, settings)
   return Response.json(settings)
+}
+
+/** 使用状況として返す期間（日）。1か月ぶんあれば、無料枠の使い具合と月ごとの増減が読める */
+const USAGE_WINDOW_DAYS = 30
+
+/**
+ * GET /api/admin/llm/usage: LLMを呼んだ回数・トークン数・実費の、日ごとのまとめ。
+ *
+ * 記録しているのは worker/llm.ts（LLMへの唯一の入口）で、日の区切りは UTC である
+ * （Workers AI の無料枠が UTC の日で切り替わるため。worker/llm-usage-store.ts）。
+ * まとめ方（今日・直近7日）は画面（src/llm/usage.ts）が行うので、ここでは日ごとの行をそのまま返す。
+ */
+export const getLlmUsage = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  const since = toUtcDay(context.now - USAGE_WINDOW_DAYS * 24 * 60 * 60 * 1000)
+  return Response.json({ days: await listLlmUsage(context.env.DB, since) })
+}
+
+/**
+ * GET /api/admin/llm/credits: OpenRouter の残高（付与額・使用額・残り）。
+ *
+ * 使用状況（llm_usage）と分けてあるのは、Workers AI には対応するものが無く、片方の失敗をもう片方に
+ * 波及させないためである（モデルの一覧を提供元ごとに分けて読むのと同じ考え方）。
+ *
+ * @throws HttpError 鍵が設定されていない場合（400。問い合わせる先が無いので、0 を返さずに断る）
+ * @throws Error OpenRouter から残高を取れなかった場合（index.ts が500にする）
+ */
+export const getLlmCredits = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  const apiKey = context.env.OPENROUTER_API_KEY ?? ''
+  if (apiKey === '') {
+    throw new HttpError(
+      STATUS.badRequest,
+      'no-api-key',
+      'OpenRouter のAPIキー（WorkerのシークレットOPENROUTER_API_KEY）が設定されていないため、残高を読めません',
+    )
+  }
+  return Response.json(await readOpenRouterCredits({ fetch: context.fetch, apiKey }))
 }
 
 /**

@@ -120,3 +120,75 @@ describe('createLlmApi.listModels', () => {
     await expect(createLlmApi(fetchImpl).listModels('openrouter')).rejects.toThrow(ApiError)
   })
 })
+
+describe('createLlmApi.loadUsage', () => {
+  it('日ごとの使用状況を読む', async () => {
+    const { 呼び出し, fetchImpl } = 応答を返すfetch(200, {
+      days: [
+        {
+          day: '2026-09-27',
+          usage: 'streamSummary',
+          provider: 'openrouter',
+          model: 'anthropic/claude-3.5-haiku',
+          calls: 12,
+          failures: 1,
+          promptTokens: 9000,
+          completionTokens: 2400,
+          costUsd: 0.0054,
+        },
+      ],
+    })
+
+    const days = await createLlmApi(fetchImpl).loadUsage()
+
+    expect(days).toEqual([
+      {
+        day: '2026-09-27',
+        usage: 'streamSummary',
+        provider: 'openrouter',
+        model: 'anthropic/claude-3.5-haiku',
+        calls: 12,
+        failures: 1,
+        promptTokens: 9000,
+        completionTokens: 2400,
+        costUsd: 0.0054,
+      },
+    ])
+    expect(呼び出し).toEqual([{ path: '/api/admin/llm/usage', method: 'GET', body: '' }])
+  })
+
+  it('まだ一度も呼んでいなければ、空の一覧として受け取る', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { days: [] })
+
+    expect(await createLlmApi(fetchImpl).loadUsage()).toEqual([])
+  })
+
+  it('応答が想定した形でなければエラーにする（数えられていないことを 0 と見せない）', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { days: [{ day: '2026-09-27', usage: 'aiChat' }] })
+
+    await expect(createLlmApi(fetchImpl).loadUsage()).rejects.toThrow('/api/admin/llm/usage')
+  })
+})
+
+describe('createLlmApi.loadCredits', () => {
+  it('OpenRouter の残高を読む', async () => {
+    const { 呼び出し, fetchImpl } = 応答を返すfetch(200, { totalCredits: 10, totalUsage: 2.5, remaining: 7.5 })
+
+    expect(await createLlmApi(fetchImpl).loadCredits()).toEqual({ totalCredits: 10, totalUsage: 2.5, remaining: 7.5 })
+    expect(呼び出し).toEqual([{ path: '/api/admin/llm/credits', method: 'GET', body: '' }])
+  })
+
+  it('応答が想定した形でなければエラーにする（残高を 0 と見せない）', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { totalCredits: 10 })
+
+    await expect(createLlmApi(fetchImpl).loadCredits()).rejects.toThrow('/api/admin/llm/credits')
+  })
+
+  it('鍵が無いとWorkerが断ったら ApiError にする（画面が理由を出せるようにする）', async () => {
+    const { fetchImpl } = 応答を返すfetch(400, {
+      error: { code: 'no-api-key', message: 'OpenRouter のAPIキーが設定されていないため、残高を読めません' },
+    })
+
+    await expect(createLlmApi(fetchImpl).loadCredits()).rejects.toThrow(ApiError)
+  })
+})

@@ -12,16 +12,36 @@
  * - OpenRouter を選んでいる箇所があるのに鍵が設定されていなければ、その場で知らせること
  * - Workerが返した問題点を、そのまま画面に並べること（検証はWorkerだけが持つ）
  * - 設定を読めなかったときは、黙って既定に倒さず理由を出すこと
+ * - 使用状況（今日・直近7日の呼び出し回数と失敗の回数）を箇所ごとに出すこと
+ * - 鍵が設定されているときだけ OpenRouter の残高を読み、出すこと
+ * - 使用状況や残高を読めなくても設定の画面は出し、理由だけを添えること（モニターのために設定が触れなくならないようにする）
  */
 import '@testing-library/jest-dom/vitest'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { ApiError } from '@/core/api'
 import { LlmPage } from './llm-page'
-import type { LlmApi, LlmModelOption, LlmProvider, LlmSettings, LlmState } from './api'
+import type { LlmApi, LlmCredits, LlmModelOption, LlmProvider, LlmSettings, LlmState, LlmUsageDay } from './api'
 
 afterEach(cleanup)
+
+/**
+ * 「今」として使う時刻（UTC）。
+ *
+ * 画面は描くときに Date.now() からUTCの今日を決めるので、テストが行に入れる日付と食い違わないよう時刻を固定する
+ * （実時計のままだと、UTCの日付が変わる瞬間に描いた場合だけ落ちる）。時計だけを差し替え、待ち合わせ（waitFor・
+ * userEvent）が使うタイマーは本物のままにする。
+ */
+const 固定した現在時刻 = new Date('2026-03-15T12:00:00.000Z')
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'], now: 固定した現在時刻 })
+})
+
+afterEach(() => {
+  vi.useRealTimers()
+})
 
 /** 短い文を作る3か所の既定のモデル */
 const 軽いモデル = { 'workers-ai': '@cf/meta/llama-3.1-8b-instruct-fp8', openrouter: 'meta-llama/llama-3.1-8b-instruct' }
@@ -51,17 +71,53 @@ const 候補: Readonly<Record<LlmProvider, LlmModelOption[]>> = {
   ],
 }
 
+/** 固定した現在時刻から見たUTCの今日と6日前（使用状況の行に使う。画面は「今日」「直近7日」に分けて数える） */
+const 今日 = 固定した現在時刻.toISOString().slice(0, 10)
+const 六日前 = new Date(固定した現在時刻.getTime() - 6 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+
+/** 使用状況の1行を作る（書いていない項目は 0） */
+const 使用状況の行 = (day: string, usage: string, 足す: Partial<LlmUsageDay> = {}): LlmUsageDay => ({
+  day,
+  usage,
+  provider: 'workers-ai',
+  model: '@cf/meta/llama-3.1-8b-instruct-fp8',
+  calls: 0,
+  failures: 0,
+  promptTokens: 0,
+  completionTokens: 0,
+  costUsd: 0,
+  ...足す,
+})
+
+/** 画面に渡すもの。使用状況と残高は、渡さなければ空（まだ一度も呼んでいない状態）として答える */
+interface 画面の前提 extends Partial<LlmState> {
+  usage?: LlmUsageDay[]
+  credits?: LlmCredits
+  /** 使用状況の読み出しを失敗させる */
+  usageの失敗?: Error
+  /** 残高の読み出しを失敗させる */
+  creditsの失敗?: Error
+}
+
 /** 読み書きを記録する、LLMの設定のAPI */
-const llmApi = (state: Partial<LlmState> = {}): LlmApi & { saved: LlmSettings[] } => {
+const llmApi = (state: 画面の前提 = {}): LlmApi & { saved: LlmSettings[]; 残高を読んだ回数: () => number } => {
   const saved: LlmSettings[] = []
+  let 残高の呼び出し = 0
   return {
     saved,
+    残高を読んだ回数: () => 残高の呼び出し,
     load: () => Promise.resolve({ settings: state.settings ?? 保存済みの設定, apiKeyConfigured: state.apiKeyConfigured ?? true }),
     save: (next) => {
       saved.push(next)
       return Promise.resolve(next)
     },
     listModels: (provider) => Promise.resolve(候補[provider]),
+    loadUsage: () => (state.usageの失敗 ? Promise.reject(state.usageの失敗) : Promise.resolve(state.usage ?? [])),
+    loadCredits: () => {
+      残高の呼び出し += 1
+      if (state.creditsの失敗) return Promise.reject(state.creditsの失敗)
+      return Promise.resolve(state.credits ?? { totalCredits: 0, totalUsage: 0, remaining: 0 })
+    },
   }
 }
 
@@ -249,9 +305,69 @@ describe('LlmPage', () => {
       load: () => Promise.reject(new Error('通信できませんでした')),
       save: () => Promise.reject(new Error('呼ばれない')),
       listModels: () => Promise.resolve(候補['workers-ai']),
+      loadUsage: () => Promise.resolve([]),
+      loadCredits: () => Promise.reject(new Error('呼ばれない')),
     })
 
     expect(await screen.findByText('通信できませんでした')).toBeInTheDocument()
     expect(screen.queryByLabelText('チャットの文面の提供元')).not.toBeInTheDocument()
+  })
+})
+
+describe('使用状況', () => {
+  test('箇所ごとに、今日と直近7日の呼び出し回数・失敗の回数を出す', async () => {
+    const api = llmApi({
+      usage: [
+        使用状況の行(今日, 'aiChat', { calls: 12, failures: 1, promptTokens: 9_000, completionTokens: 3_000 }),
+        使用状況の行(六日前, 'aiChat', { calls: 30, promptTokens: 20_000, completionTokens: 5_000 }),
+      ],
+    })
+    描く(api)
+    await 読み込みを待つ()
+
+    // チャットの文面の箇所と、全体の合計の両方に出る（ほかの3か所は呼んでいないので、合計はこの箇所と同じ数になる）
+    await waitFor(() => expect(screen.getAllByText(/今日 12回（失敗1回）・12,000トークン/)).toHaveLength(2))
+    expect(screen.getAllByText(/直近7日 42回（失敗1回）・37,000トークン/)).toHaveLength(2)
+  })
+
+  test('まだ一度も呼んでいない箇所は 0回 と出す（数えられていないのか使っていないのかを取り違えないため）', async () => {
+    描く(llmApi())
+    await 読み込みを待つ()
+
+    await waitFor(() => expect(screen.getAllByText(/今日 0回/).length).toBeGreaterThan(0))
+  })
+
+  test('鍵が設定されていれば OpenRouter の残高を出す', async () => {
+    描く(llmApi({ apiKeyConfigured: true, credits: { totalCredits: 10, totalUsage: 2.5, remaining: 7.5 } }))
+    await 読み込みを待つ()
+
+    await waitFor(() => expect(screen.getByText(/残り \$7\.50/)).toBeInTheDocument())
+    expect(screen.getByText(/付与 \$10\.00/)).toBeInTheDocument()
+  })
+
+  test('鍵が設定されていなければ、残高は読みに行かない', async () => {
+    const api = llmApi({ apiKeyConfigured: false })
+    描く(api)
+    await 読み込みを待つ()
+
+    await waitFor(() => expect(screen.getAllByText(/今日 0回/).length).toBeGreaterThan(0))
+    expect(api.残高を読んだ回数()).toBe(0)
+  })
+
+  test('使用状況を読めなくても設定は触れるようにし、理由だけを添える', async () => {
+    描く(llmApi({ usageの失敗: new Error('Workerの /api/admin/llm/usage を呼び出せませんでした') }))
+    await 読み込みを待つ()
+
+    await waitFor(() => expect(screen.getByText(/\/api\/admin\/llm\/usage/)).toBeInTheDocument())
+    // 設定の選択欄はそのまま使える
+    expect(screen.getByLabelText('チャットの文面のモデル')).toBeEnabled()
+  })
+
+  test('残高を読めなくても、使用状況と設定はそのまま出す', async () => {
+    描く(llmApi({ apiKeyConfigured: true, creditsの失敗: new Error('OpenRouter の残高を取れませんでした（401）') }))
+    await 読み込みを待つ()
+
+    await waitFor(() => expect(screen.getByText(/残高を取れませんでした/)).toBeInTheDocument())
+    expect(screen.getAllByText(/今日 0回/).length).toBeGreaterThan(0)
   })
 })

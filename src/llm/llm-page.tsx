@@ -27,6 +27,13 @@
  * 鍵が無いままではその箇所の文面が作られない）。
  * 注意: 設定を読めなかったときは、黙って既定に倒さず理由を出す（Fail-Fast）。読めないまま入力欄を出すと、
  * 配信者が「保存済みの設定はこれだ」と取り違えたまま上書きしてしまう。
+ * 注意: 使用状況（どれだけ呼んだか）は自前で数えた記録である（worker/llm-usage-store.ts）。日の区切りはUTCで、
+ * Workers AI の無料枠の切り替わりに合わせてある。Cloudflare側の残り無料枠（Neurons）は、読むのに
+ * アカウント単位のAPIトークンが要るので出せない（そのために強い鍵を増やさない）。画面にもその旨を書く。
+ * 注意: 使用状況と残高を読めなくても、設定の画面はそのまま出して理由だけを添える。モニターのための表示のために、
+ * 提供元やモデルを直せなくなるのは本末転倒である（Workerが記録の失敗でも文面を返すのと同じ考え方）。
+ * 注意: 残高（OpenRouter）は鍵が設定されているときだけ読む。鍵が無ければWorkerが断るので、読みに行っても
+ * 理由の出る場所が増えるだけである。
  */
 import { useEffect, useId, useState } from 'react'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
@@ -37,7 +44,18 @@ import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ApiError } from '@/core/api'
-import { LLM_PROVIDERS, LLM_USAGES, type LlmApi, type LlmModelOption, type LlmProvider, type LlmSettings, type LlmUsage } from './api'
+import {
+  LLM_PROVIDERS,
+  LLM_USAGES,
+  type LlmApi,
+  type LlmCredits,
+  type LlmModelOption,
+  type LlmProvider,
+  type LlmSettings,
+  type LlmUsage,
+  type LlmUsageDay,
+} from './api'
+import { summarizeLlmUsage, type LlmUsageTotals } from './usage'
 
 /** 提供元の名前 */
 const PROVIDER_LABELS: Readonly<Record<LlmProvider, string>> = {
@@ -65,6 +83,21 @@ const USAGE_LABELS: Readonly<Record<LlmUsage, { name: string; description: strin
   },
 }
 
+/** トークン数を3桁ごとに区切って出す */
+const formatTokens = (tokens: number): string => tokens.toLocaleString('ja-JP')
+
+/** 実費（米ドル）を出す。1回あたりが小さい額なので、桁を落とさないよう小数4桁まで出す */
+const formatCost = (usd: number): string => `$${usd.toFixed(4)}`
+
+/** 残高（米ドル）を出す。こちらは課金の単位なので小数2桁でよい */
+const formatCredits = (usd: number): string => `$${usd.toFixed(2)}`
+
+/** 期間ぶんの数を1行にする。失敗が無いときは括弧を付けない（ふだんの表示を短く保つ） */
+const usageLine = (label: string, totals: LlmUsageTotals): string => {
+  const 失敗 = totals.failures > 0 ? `（失敗${totals.failures}回）` : ''
+  return `${label} ${totals.calls}回${失敗}・${formatTokens(totals.promptTokens + totals.completionTokens)}トークン`
+}
+
 export interface LlmPageProps {
   /** LLMの設定の読み書き */
   api: LlmApi
@@ -86,9 +119,33 @@ export const LlmPage = ({ api }: LlmPageProps) => {
   const [modelOptions, setModelOptions] = useState<Partial<Record<LlmProvider, readonly LlmModelOption[]>>>({})
   /** モデルの候補を読めなかった理由 */
   const [modelsFailure, setModelsFailure] = useState('')
+  /** 日ごとの使用状況（読み込み前は空として扱い、0回と出す） */
+  const [usageDays, setUsageDays] = useState<readonly LlmUsageDay[]>([])
+  /** 使用状況を読めなかった理由 */
+  const [usageFailure, setUsageFailure] = useState('')
+  /** OpenRouter の残高。鍵が無い・まだ読めていないあいだは undefined */
+  const [credits, setCredits] = useState<LlmCredits>()
+  /** 残高を読めなかった理由 */
+  const [creditsFailure, setCreditsFailure] = useState('')
   const actions = usePageActions(failureLines)
   /** 入力欄のidは箇所ごとに要るので、1つのidを土台にして箇所の名前を足す */
   const fieldIdPrefix = useId()
+
+  // 使用状況は設定とは別に読む（片方を読めなかったことを、もう片方に波及させない）
+  useEffect(() => {
+    let cancelled = false
+    api.loadUsage().then(
+      (days) => {
+        if (!cancelled) setUsageDays(days)
+      },
+      (error: unknown) => {
+        if (!cancelled) setUsageFailure(errorMessage(error))
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [api])
 
   useEffect(() => {
     let cancelled = false
@@ -106,6 +163,27 @@ export const LlmPage = ({ api }: LlmPageProps) => {
       cancelled = true
     }
   }, [api])
+
+  /** 設定を読み終えたか。残高の読み出しの条件に使う（設定そのものを条件にすると、選び直すたびに読み直してしまう） */
+  const settingsLoaded = settings !== undefined
+
+  // 残高は鍵が設定されているときだけ読む（鍵が無ければWorkerが断るため）。
+  // 設定を読めるまでは鍵の有無が分からないので、読み終わるまで待つ
+  useEffect(() => {
+    if (!settingsLoaded || !apiKeyConfigured) return
+    let cancelled = false
+    api.loadCredits().then(
+      (読めた残高) => {
+        if (!cancelled) setCredits(読めた残高)
+      },
+      (error: unknown) => {
+        if (!cancelled) setCreditsFailure(errorMessage(error))
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [api, apiKeyConfigured, settingsLoaded])
 
   /** いま画面で選ばれている提供元（重なりを除く）。この提供元の候補だけを読む */
   const usedProviders = [...new Set(LLM_USAGES.map((usage) => settings?.usages[usage].provider))].filter(
@@ -167,6 +245,9 @@ export const LlmPage = ({ api }: LlmPageProps) => {
     })
   }
 
+  /** 使用状況のまとめ（今日・直近7日）。日の区切りはUTCで数える（Workers AI の無料枠の切り替わりに合わせる） */
+  const usageSummary = summarizeLlmUsage(usageDays, Date.now())
+
   /** OpenRouter を選んでいる箇所の名前。鍵が無いときに、どこが動かなくなるかを知らせるために使う */
   const openrouterUsages = LLM_USAGES.filter((usage) => settings.usages[usage].provider === 'openrouter')
 
@@ -196,6 +277,40 @@ export const LlmPage = ({ api }: LlmPageProps) => {
         </Alert>
       )}
 
+      {usageFailure !== '' && (
+        <Alert variant="destructive">
+          <AlertTitle>使用状況を読み込めませんでした</AlertTitle>
+          <AlertDescription>{usageFailure}（設定の変更と保存は、このままできます）</AlertDescription>
+        </Alert>
+      )}
+
+      {creditsFailure !== '' && (
+        <Alert variant="destructive">
+          <AlertTitle>OpenRouter の残高を読み込めませんでした</AlertTitle>
+          <AlertDescription>{creditsFailure}</AlertDescription>
+        </Alert>
+      )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>使用状況</CardTitle>
+          <CardDescription>
+            日の区切りはUTC（Workers AI の無料枠の切り替わりに合わせている）。Workers AI の残り無料枠そのものは読めないため、呼び出した回数から見当をつける。
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2 text-sm">
+          <p>{usageLine('今日', usageSummary.total.today)}</p>
+          <p>{usageLine('直近7日', usageSummary.total.week)}</p>
+          <p className="text-muted-foreground">直近7日の実費（OpenRouter のぶん）{formatCost(usageSummary.total.week.costUsd)}</p>
+          {credits !== undefined && (
+            <p>
+              OpenRouter の残高 残り {formatCredits(credits.remaining)}（付与 {formatCredits(credits.totalCredits)}・使用{' '}
+              {formatCredits(credits.totalUsage)}）
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle>AIを使う箇所</CardTitle>
@@ -212,6 +327,9 @@ export const LlmPage = ({ api }: LlmPageProps) => {
                 <div className="flex flex-col gap-1">
                   <h3 className="font-medium">{name}</h3>
                   <p className="text-sm text-muted-foreground">{description}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {usageLine('今日', usageSummary.usages[usage].today)} / {usageLine('直近7日', usageSummary.usages[usage].week)}
+                  </p>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="flex flex-col gap-2">
