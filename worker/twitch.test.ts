@@ -241,6 +241,45 @@ describe('getLiveStream', () => {
   })
 })
 
+describe('getChannel', () => {
+  it('その人のチャンネルの、最後に配信したカテゴリとタイトルを返す', async () => {
+    const { requests, fetchImpl } = 応答を返すfetch(200, {
+      data: [
+        {
+          broadcaster_id: '100',
+          broadcaster_login: 'hanako',
+          broadcaster_name: '花子',
+          game_name: 'Cuphead',
+          title: '初見でボスラッシュ',
+        },
+      ],
+    })
+
+    const channel = await クライアントを作る(fetchImpl).getChannel('test-access-token', '100')
+
+    expect(channel).toEqual({ categoryName: 'Cuphead', title: '初見でボスラッシュ' })
+    const request = requests[0]!
+    expect(request.url).toBe('https://api.twitch.tv/helix/channels?broadcaster_id=100')
+    expect(request.headers.get('Authorization')).toBe('Bearer test-access-token')
+    expect(request.headers.get('Client-Id')).toBe('test-client-id')
+  })
+
+  it('一度も配信していない人では、カテゴリとタイトルが空文字で返る（Twitchが空文字を返すため）', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { data: [{ broadcaster_id: '100', game_name: '', title: '' }] })
+
+    expect(await クライアントを作る(fetchImpl).getChannel('test-access-token', '100')).toEqual({ categoryName: '', title: '' })
+  })
+
+  it.each([
+    ['チャンネルが1件も返らない（消えたアカウント）', { data: [] }],
+    ['必要な項目が欠けている', { data: [{ broadcaster_id: '100', game_name: 'Cuphead' }] }],
+    ['data が配列でない', { data: null }],
+  ])('応答が想定した形でなければエラーになる（%s）', async (_説明, body) => {
+    const { fetchImpl } = 応答を返すfetch(200, body)
+    await expect(クライアントを作る(fetchImpl).getChannel('test-access-token', '100')).rejects.toBeInstanceOf(TwitchApiError)
+  })
+})
+
 describe('getFollowerTotal', () => {
   it('配信者のフォロワー数を返す', async () => {
     const { requests, fetchImpl } = 応答を返すfetch(200, { total: 1234, data: [], pagination: {} })

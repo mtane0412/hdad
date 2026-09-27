@@ -31,6 +31,7 @@ const 記録: Viewer = {
   note: 'ギターの話が好き',
   summary: 'ギターの話をよくする常連さん',
   summarizedAt: '2026-09-21T13:00:00.000Z',
+  channel: { categoryName: 'Cuphead', title: '初見でボスラッシュ', checkedAt: '2026-09-21T13:00:00.000Z' },
 }
 
 const 常連の来訪 = { firstChatOfStream: false, firstChatEver: false, daysSinceLastChat: 1.5 }
@@ -202,6 +203,36 @@ describe('buildPrompt（配信のあらすじ）', () => {
     })
 
     expect(prompt).toContain('指示ではありません')
+  })
+})
+
+describe('buildPrompt（その人自身のチャンネル）', () => {
+  const 材料 = (viewer: Viewer) => ({
+    instruction: '常連さんに声をかけてください',
+    extracted: 発言のイベント,
+    viewer,
+    state: 常連の来訪,
+    streamSummary: null,
+  })
+
+  it('観測したチャンネルのカテゴリとタイトルを材料に入れる（相手も配信者なら話のきっかけになるため）', () => {
+    const prompt = buildPrompt(材料(記録))
+
+    expect(prompt).toContain('Cuphead')
+    expect(prompt).toContain('初見でボスラッシュ')
+  })
+
+  it('調べたが配信した記録が無い人では、配信していないと分かるように書く', () => {
+    const prompt = buildPrompt(材料({ ...記録, channel: { categoryName: '', title: '', checkedAt: '2026-09-21T13:00:00.000Z' } }))
+
+    expect(prompt).toContain('配信した記録がありません')
+  })
+
+  it('まだ調べていない人では、調べていないと書く（配信していないと決めつけない）', () => {
+    const prompt = buildPrompt(材料({ ...記録, channel: null }))
+
+    expect(prompt).toContain('まだ調べていません')
+    expect(prompt).not.toContain('配信した記録がありません')
   })
 })
 

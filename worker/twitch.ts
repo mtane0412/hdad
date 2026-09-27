@@ -12,6 +12,8 @@ const VALIDATE_URL = 'https://id.twitch.tv/oauth2/validate'
 const SUBSCRIPTIONS_URL = 'https://api.twitch.tv/helix/eventsub/subscriptions'
 const CUSTOM_REWARDS_URL = 'https://api.twitch.tv/helix/channel_points/custom_rewards'
 const STREAMS_URL = 'https://api.twitch.tv/helix/streams'
+/** チャンネルの情報。配信していなくても、最後に配信したカテゴリとタイトルが返る */
+const CHANNELS_URL = 'https://api.twitch.tv/helix/channels'
 const FOLLOWERS_URL = 'https://api.twitch.tv/helix/channels/followers'
 const GLOBAL_BADGES_URL = 'https://api.twitch.tv/helix/chat/badges/global'
 const CHANNEL_BADGES_URL = 'https://api.twitch.tv/helix/chat/badges'
@@ -118,6 +120,19 @@ export interface LiveStream {
   viewerCount: number
 }
 
+/**
+ * チャンネルの内容（配信していなくても読める、最後に配信したときの値）。
+ *
+ * 視聴者が自分でも配信している人かどうかを推し量る材料に使う（worker/viewer-store.ts の ViewerChannel）。
+ * 一度も配信していない人では、どちらもTwitchが空文字を返す。
+ */
+export interface ChannelInfo {
+  /** 最後に配信したカテゴリ（Twitchの game_name）。一度も配信していなければ空文字 */
+  categoryName: string
+  /** 最後の配信のタイトル。一度も配信していなければ空文字 */
+  title: string
+}
+
 /** デバイスコードフローの開始で受け取る内容 */
 export interface DeviceAuthorization {
   /** トークンと交換するためのコード。利用者には見せず、交換のときにそのまま送り返す */
@@ -207,6 +222,16 @@ export interface TwitchClient {
   listCustomRewards(accessToken: string, broadcasterId: string): Promise<CustomReward[]>
   /** 配信者がいま行っている配信。配信していなければ null */
   getLiveStream(accessToken: string, broadcasterId: string): Promise<LiveStream | null>
+  /**
+   * そのユーザーのチャンネルの内容（最後に配信したカテゴリとタイトル）。スコープは不要で、アプリアクセストークンでも読める。
+   *
+   * 配信者だけでなく、どのユーザーについても読める（一度も配信していない人では、どちらも空文字が返る）。
+   * 視聴者の記録（worker/viewer-store.ts）に「最後に観測したチャンネルの内容」を控えるために呼ぶ。
+   *
+   * @throws TwitchApiError Twitchが失敗を返した、または応答にチャンネルが無かった（消えたアカウントなど。
+   *   空のチャンネルとして扱わず投げる。呼び出し側が観測できなかったこととして扱う）
+   */
+  getChannel(accessToken: string, userId: string): Promise<ChannelInfo>
   /** 配信者のフォロワー数（moderator:read:followers が必要） */
   getFollowerTotal(accessToken: string, broadcasterId: string): Promise<number>
   /**
@@ -558,6 +583,17 @@ export const createTwitchClient = ({ clientId, clientSecret, fetch: fetchImpl }:
       const { data } = await getHelix(url, accessToken)
       if (!Array.isArray(data)) throw new TwitchApiError(BAD_GATEWAY, 'Twitchの配信の応答に data の配列がありません')
       return data.length === 0 ? null : toLiveStream(data[0])
+    },
+
+    getChannel: async (accessToken, userId) => {
+      const url = new URL(CHANNELS_URL)
+      url.searchParams.set('broadcaster_id', userId)
+      const { data } = await getHelix(url, accessToken)
+      const channel: unknown = Array.isArray(data) ? data[0] : undefined
+      if (!isRecord(channel) || typeof channel.game_name !== 'string' || typeof channel.title !== 'string') {
+        throw new TwitchApiError(BAD_GATEWAY, `TwitchにユーザーID ${userId} のチャンネルがありません`)
+      }
+      return { categoryName: channel.game_name, title: channel.title }
     },
 
     getFollowerTotal: async (accessToken, broadcasterId) => {

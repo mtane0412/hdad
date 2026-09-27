@@ -30,6 +30,23 @@ export interface Viewer {
   summary: string
   /** その人物像を作った日時（ISO 8601・UTC）。まだ作っていない人では null */
   summarizedAt: string | null
+  /**
+   * Workerが最後に観測した、その人自身のチャンネルの内容。まだ調べていない人では null。
+   *
+   * 「配信者かどうか」という真偽値では受け取らない（Twitchはその真偽を返さないため。
+   * migrations/0015_viewer_channel.sql を参照）。判断は画面の側で行う。
+   */
+  channel: ViewerChannel | null
+}
+
+/** 観測した、その人自身のチャンネルの内容 */
+export interface ViewerChannel {
+  /** 最後に配信したカテゴリ。一度も配信していなければ空文字 */
+  categoryName: string
+  /** 最後の配信のタイトル。一度も配信していなければ空文字 */
+  title: string
+  /** このチャンネルを観測した日時（ISO 8601・UTC） */
+  checkedAt: string
 }
 
 /** 一覧の絞り込み */
@@ -55,6 +72,11 @@ export interface ViewerApi {
 
 const isStringArray = (value: unknown): boolean => Array.isArray(value) && value.every((item) => typeof item === 'string')
 
+/** 観測したチャンネルの形を確かめる。まだ調べていない人では null が入る */
+const isViewerChannel = (value: unknown): boolean =>
+  value === null ||
+  (isRecord(value) && typeof value.categoryName === 'string' && typeof value.title === 'string' && typeof value.checkedAt === 'string')
+
 const isViewer = (value: unknown): value is Viewer =>
   isRecord(value) &&
   typeof value.userId === 'string' &&
@@ -66,7 +88,8 @@ const isViewer = (value: unknown): value is Viewer =>
   isStringArray(value.badges) &&
   typeof value.note === 'string' &&
   typeof value.summary === 'string' &&
-  (value.summarizedAt === null || typeof value.summarizedAt === 'string')
+  (value.summarizedAt === null || typeof value.summarizedAt === 'string') &&
+  isViewerChannel(value.channel)
 
 export const createViewerApi = (fetchImpl: typeof fetch): ViewerApi => {
   const call = createCaller(fetchImpl)

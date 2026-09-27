@@ -59,7 +59,7 @@ const AIの代役 = (response: string | Error = 'ギターの話をよくする�
   }
 }
 
-type 収集用のTwitch = Pick<TwitchClient, 'refresh' | 'getLiveStream' | 'getFollowerTotal'>
+type 収集用のTwitch = Pick<TwitchClient, 'refresh' | 'getLiveStream' | 'getFollowerTotal' | 'getChannel'>
 
 const Twitchの代役 = (overrides: Partial<収集用のTwitch> = {}): 収集用のTwitch => ({
   refresh: async () => {
@@ -67,6 +67,7 @@ const Twitchの代役 = (overrides: Partial<収集用のTwitch> = {}): 収集用
   },
   getLiveStream: async () => 雑談配信,
   getFollowerTotal: async () => 1234,
+  getChannel: async () => ({ categoryName: 'Cuphead', title: '初見でボスラッシュ' }),
   ...overrides,
 })
 
@@ -274,6 +275,91 @@ describe('人物像の生成', () => {
 
     expect(ai.呼ばれた数()).toBe(0)
     expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM stream_chat_messages').get()).toEqual({ count: 0 })
+  })
+
+  it('人物像を作る人のチャンネルを観測して記録し、その内容を材料に渡す', async () => {
+    const { db, store } = await 環境を作る()
+    await 終わった配信と発言を作る(db)
+    const 問い合わせたユーザーID: string[] = []
+    const twitch = Twitchの代役({
+      getChannel: async (_accessToken, userId) => {
+        問い合わせたユーザーID.push(userId)
+        return { categoryName: 'Cuphead', title: '初見でボスラッシュ' }
+      },
+    })
+    const 渡された材料: string[] = []
+    const ai: TextGenerator = {
+      run: async (_usage, request) => {
+        渡された材料.push(request.messages.map((message) => message.content).join('\n'))
+        return 'ギターの話をよくする常連さん'
+      },
+    }
+
+    await collectStats({ db, store, twitch, ai, broadcasterId: 配信者のID, now: 現在時刻 })
+
+    expect(問い合わせたユーザーID).toEqual(['100'])
+    expect(await readViewer(db, '100')).toMatchObject({
+      channel: { categoryName: 'Cuphead', title: '初見でボスラッシュ', checkedAt: '2026-09-21T12:05:00.000Z' },
+    })
+    // 観測した内容は、その回の人物像づくりの材料にも入る（次の収集まで待たせない）
+    expect(渡された材料.join('\n')).toContain('初見でボスラッシュ')
+  })
+
+  it('チャンネルを観測できなくても、人物像づくりは続けて失敗だけを記録する', async () => {
+    const { db, store } = await 環境を作る()
+    await 終わった配信と発言を作る(db)
+    const twitch = Twitchの代役({
+      getChannel: async () => {
+        throw new TwitchApiError(502, 'TwitchにユーザーID 100 のチャンネルがありません')
+      },
+    })
+
+    await collectStats({ db, store, twitch, ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+
+    expect(await readViewer(db, '100')).toMatchObject({ summary: 'ギターの話をよくする常連さん', channel: null })
+    expect(await listFailures(db)).toEqual([
+      { occurredAt: '2026-09-21T12:05:00.000Z', code: 'viewer-channel-failed', message: expect.stringContaining('チャンネルがありません') },
+    ])
+  })
+
+  it('同じ収集で2人ぶん観測できなくても、両方の理由が残る（1行にまとめて記録するため）', async () => {
+    const { db, store } = await 環境を作る()
+    await 終わった配信と発言を作る(db, '100')
+    await recordViewerMessage(db, { userId: '200', login: 'taro', displayName: '太郎', badges: [], messageId: 'chat-200' }, 現在時刻 - 10 * 60 * 1000)
+    db.sqlite
+      .prepare('INSERT INTO stream_chat_messages (message_id, session_id, user_id, sent_at, text) VALUES (?, ?, ?, ?, ?)')
+      .run('hatsugen-200', 'owatta-haishin', '200', new Date(現在時刻 - 45 * 60 * 1000).toISOString(), 'こんばんは')
+    const twitch = Twitchの代役({
+      getChannel: async (_accessToken, userId) => {
+        throw new TwitchApiError(502, `TwitchにユーザーID ${userId} のチャンネルがありません`)
+      },
+    })
+
+    await collectStats({ db, store, twitch, ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+
+    // 失敗の記録は「時刻と種類」で1行なので（migrations/0012_collection_failures_key.sql）、
+    // 人ごとに記録すると後の人が前の人を上書きしてしまう。1行にまとめて両方を残す
+    const 失敗 = await listFailures(db)
+    expect(失敗).toHaveLength(1)
+    expect(失敗[0]?.message).toContain('100')
+    expect(失敗[0]?.message).toContain('200')
+  })
+
+  it('記録を消された人のチャンネルは問い合わせない（消えた人のためにTwitchを呼ばない）', async () => {
+    const { db, store } = await 環境を作る()
+    await 終わった配信と発言を作る(db)
+    await deleteViewer(db, '100')
+    let 問い合わせた数 = 0
+    const twitch = Twitchの代役({
+      getChannel: async () => {
+        問い合わせた数 += 1
+        return { categoryName: 'Cuphead', title: '初見でボスラッシュ' }
+      },
+    })
+
+    await collectStats({ db, store, twitch, ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+
+    expect(問い合わせた数).toBe(0)
   })
 
   it('その人の発言が原因の失敗（長すぎる・空）では、次の人へ進む（1人で列の先頭を塞がないため）', async () => {

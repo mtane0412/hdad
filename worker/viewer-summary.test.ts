@@ -22,6 +22,7 @@ const 記録: Viewer = {
   note: 'ギターの話が好き',
   summary: '',
   summarizedAt: null,
+  channel: { categoryName: 'Cuphead', title: '初見でボスラッシュ', checkedAt: '2026-09-21T13:00:00.000Z' },
 }
 
 const 材料 = (上書き: Partial<Parameters<typeof buildSummaryPrompt>[0]> = {}) => ({
@@ -51,6 +52,19 @@ describe('buildSummaryPrompt', () => {
     expect(prompt).toContain('花子')
     expect(prompt).toContain('42')
     expect(prompt).toContain('ギターの話が好き')
+  })
+
+  it('観測したその人自身のチャンネルの内容も材料に入れる', () => {
+    const prompt = buildSummaryPrompt(材料())
+
+    expect(prompt).toContain('Cuphead')
+    expect(prompt).toContain('初見でボスラッシュ')
+  })
+
+  it('まだチャンネルを調べていない人では、調べていないと書く（配信していないと決めつけない）', () => {
+    const prompt = buildSummaryPrompt(材料({ viewer: { ...記録, channel: null } }))
+
+    expect(prompt).toContain('まだ調べていません')
   })
 
   it('前回までの人物像があれば、それを踏まえて書き直させる', () => {
