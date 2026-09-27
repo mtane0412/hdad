@@ -122,6 +122,36 @@ describe('人に追従する', () => {
     expect(api.save).toHaveBeenCalledWith({ type: 'viewer', login: 'kowai_hanashi' })
   })
 
+  test('配信中に発言した人を、選択欄から選べる', async () => {
+    描く(代役のAPI())
+    await screen.findByRole('list', { name: '直近の発言' })
+
+    const 選択欄 = screen.getByLabelText('発言した人から選ぶ')
+    expect(within(選択欄).getByRole('option', { name: /怖い話す人/ })).toBeInTheDocument()
+    expect(within(選択欄).getByRole('option', { name: /雑談好き/ })).toBeInTheDocument()
+  })
+
+  test('選択欄で選ぶとログイン名の欄が埋まり、そのまま追従できる', async () => {
+    const api = 代役のAPI()
+    描く(api)
+    await screen.findByRole('list', { name: '直近の発言' })
+
+    await userEvent.selectOptions(screen.getByLabelText('発言した人から選ぶ'), 'kowai_hanashi')
+    expect(screen.getByLabelText('追従する人のログイン名')).toHaveValue('kowai_hanashi')
+
+    await userEvent.click(within(追従の領域()).getByRole('button', { name: 'この人に追従する' }))
+
+    expect(api.save).toHaveBeenCalledWith({ type: 'viewer', login: 'kowai_hanashi' })
+  })
+
+  test('配信中の発言が1件も無ければ、選択欄は選べない（ログイン名は手でも入れられる）', async () => {
+    描く(代役のAPI({ recent: vi.fn(async () => []) }))
+    await お知らせ('配信中の発言がありません')
+
+    expect(screen.getByLabelText('発言した人から選ぶ')).toBeDisabled()
+    expect(screen.getByLabelText('追従する人のログイン名')).toBeEnabled()
+  })
+
   test('保存に失敗したら理由を出す', async () => {
     const api = 代役のAPI({ save: vi.fn(async () => Promise.reject(new Error('ログイン名が正しくありません'))) })
     描く(api)

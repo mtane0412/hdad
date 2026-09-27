@@ -29,8 +29,10 @@ import { Button, buttonVariants } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import type { FocusApi, PickableMessage } from './api'
 import type { FocusTarget } from './focused'
+import { speakersOf } from './form'
 import { focusDemoUrl, focusUrl } from './url'
 
 /** ブラウザソースに設定する推奨の大きさ。配信画面と同じ大きさにして、余白ごと重ねる */
@@ -65,6 +67,7 @@ export const FocusPage = ({ api, overlayKey }: { api: FocusApi; overlayKey: stri
   const [login, setLogin] = useState('')
   const actions = usePageActions()
   const loginFieldId = useId()
+  const speakerFieldId = useId()
   const urlFieldId = useId()
   const sizeHintId = useId()
 
@@ -84,6 +87,9 @@ export const FocusPage = ({ api, overlayKey }: { api: FocusApi; overlayKey: stri
     }
     // 読み込みは開いたときの1回だけにする（actions は描くたびに作り直されるので、依存には入れない）
   }, [api])
+
+  /** 追従する相手の選択欄に並べる人（直近の発言から重複なく取り出す） */
+  const speakers = speakersOf(messages)
 
   /** 取り上げるものを保存する。外すときは null を渡す */
   const 取り上げる = (next: FocusTarget | null, notice: string) =>
@@ -133,6 +139,26 @@ export const FocusPage = ({ api, overlayKey }: { api: FocusApi; overlayKey: stri
           </div>
 
           <div role="group" aria-label="人に追従する" className="flex flex-col gap-2">
+            <Label htmlFor={speakerFieldId}>発言した人から選ぶ</Label>
+            {/*
+              選ぶとログイン名の欄が埋まるだけにして、送る道は1つに保つ。配信中に発言していない人にも
+              追従できるよう、手で打つ欄は残す（選択欄はその配信で発言した人しか並ばない）
+            */}
+            <NativeSelect
+              id={speakerFieldId}
+              className="max-w-64"
+              disabled={actions.busy || speakers.length === 0}
+              value={speakers.some((speaker) => speaker.login === login) ? login : ''}
+              onChange={(event) => setLogin(event.currentTarget.value)}
+            >
+              <NativeSelectOption value="">{speakers.length === 0 ? '配信中の発言がありません' : '選んでください'}</NativeSelectOption>
+              {speakers.map((speaker) => (
+                <NativeSelectOption key={speaker.login} value={speaker.login}>
+                  {speaker.displayName}（{speaker.login}）
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+
             <Label htmlFor={loginFieldId}>追従する人のログイン名</Label>
             <div className="flex gap-2">
               <Input
@@ -147,7 +173,9 @@ export const FocusPage = ({ api, overlayKey }: { api: FocusApi; overlayKey: stri
                 この人に追従する
               </Button>
             </div>
-            <p className="text-sm text-muted-foreground">その人が発言するたび、最新の1件に差し替わる（「今から怖い話をする」のような語りに使う）。</p>
+            <p className="text-sm text-muted-foreground">
+              その人が発言するたび、最新の1件に差し替わる（「今から怖い話をする」のような語りに使う）。まだ発言していない人には、ログイン名を手で入れて追従できる。
+            </p>
           </div>
         </CardContent>
       </Card>
