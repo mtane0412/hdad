@@ -5,6 +5,7 @@
  * 確かめること:
  * - 保存済みのオーバーレイと、その中の素材を前に出るものから出すこと（一覧の上が前）
  * - 素材を足す・外す・並べ替える・別のオーバーレイへ移す・位置と大きさを直せること
+ * - 配置用の枠に素材を四角として描き、ドラッグで動かす・端をつまんで大きさを変えられること
  * - オーバーレイ同士を一覧の中で並べ替えられること
  * - 素材のパラメータをスキーマの入力欄で調整でき、保存ではクエリ文字列になること
  * - オーバーレイを足せること・オーバーレイごとのOBS用URLを出すこと
@@ -13,9 +14,9 @@
  * - 保存済みの値が読めない素材でも、黙って捨てず理由を出すこと
  */
 import '@testing-library/jest-dom/vitest'
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { ApiError } from '../core/api'
 import type { OverlayLayoutAdminApi } from './admin-api'
 import type { Overlay, OverlayItem } from './layout'
@@ -90,6 +91,105 @@ describe('オーバーレイと素材の一覧', () => {
     描く(代役のAPI({ load: vi.fn(async () => Promise.reject(new Error('Workerに届きませんでした'))) }))
 
     expect(await screen.findByText(/Workerに届きませんでした/)).toBeInTheDocument()
+  })
+})
+
+/** 配置用の枠の大きさ（画素）。jsdom は要素の大きさを持たないので、ドラッグのテストでは差し替える */
+const 枠の大きさ = { width: 400, height: 300 }
+
+/**
+ * 配置用の枠で四角をつまんで動かす。
+ *
+ * @param name つまむところの読み上げ名（「時計（Analog）を動かす」「時計（Analog）の右下をつまむ」）
+ * @param dx 横に動かす画素（枠は 400px 幅なので、40px が 10％に当たる）
+ * @param dy 縦に動かす画素（枠は 300px 高なので、30px が 10％に当たる）
+ */
+const つまんで動かす = async (overlayName: string, name: string, dx: number, dy: number): Promise<void> => {
+  const つまみ = within(await オーバーレイの領域(overlayName)).getByRole('button', { name })
+  fireEvent.pointerDown(つまみ, { clientX: 100, clientY: 100, pointerId: 1 })
+  fireEvent.pointerMove(window, { clientX: 100 + dx, clientY: 100 + dy, pointerId: 1 })
+  fireEvent.pointerUp(window, { clientX: 100 + dx, clientY: 100 + dy, pointerId: 1 })
+}
+
+describe('配置用の枠', () => {
+  beforeEach(() => {
+    // jsdom はレイアウトを行わないので、枠の大きさ（画素 → ％の変換に要る）を差し替える
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      ...枠の大きさ,
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: 枠の大きさ.width,
+      bottom: 枠の大きさ.height,
+      toJSON: () => ({}),
+    })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  test('そのオーバーレイの素材を四角として描き、保存されている割合（％）を当てる', async () => {
+    描く(代役のAPI())
+
+    const 四角 = within(await オーバーレイの領域('front')).getByRole('button', { name: '時計（Analog）を動かす' })
+    expect(四角.parentElement).toHaveStyle({ left: '78%', top: '70%', width: '20%', height: '26%' })
+  })
+
+  test('四角をドラッグすると、位置が数値欄にも出る（保存の形は割合のまま）', async () => {
+    const api = 代役のAPI()
+    描く(api)
+
+    // 枠は 400 × 300px なので、40px 左へ・30px 上へ動かすと 10％ずつ動く
+    await つまんで動かす('front', '時計（Analog）を動かす', -40, -30)
+    await 保存する()
+
+    expect(api.save).toHaveBeenCalledWith([背面, { name: 'front', items: [{ ...時計, rect: { x: 68, y: 60, width: 20, height: 26 } }] }])
+  })
+
+  test('端をつまむと大きさが変わる（つまんでいない側の端は動かない）', async () => {
+    const api = 代役のAPI()
+    描く(api)
+
+    // 右下を左上へ 20px・30px（＝5％・10％）つまみ寄せる。左端と上端は動かない
+    await つまんで動かす('front', '時計（Analog）の右下をつまむ', -20, -30)
+    await 保存する()
+
+    expect(api.save).toHaveBeenCalledWith([背面, { name: 'front', items: [{ ...時計, rect: { x: 78, y: 70, width: 15, height: 16 } }] }])
+  })
+
+  test('ドラッグが取り消されたら（指が離れずに中断されたら）そこで追うのをやめる', async () => {
+    const api = 代役のAPI()
+    描く(api)
+
+    const つまみ = within(await オーバーレイの領域('front')).getByRole('button', { name: '時計（Analog）を動かす' })
+    fireEvent.pointerDown(つまみ, { clientX: 100, clientY: 100, pointerId: 1 })
+    fireEvent.pointerMove(window, { clientX: 60, clientY: 100, pointerId: 1 })
+    fireEvent.pointerCancel(window, { clientX: 60, clientY: 100, pointerId: 1 })
+    // 取り消されたあとの動きは、つまんでいない指の動きなので位置を変えない
+    fireEvent.pointerMove(window, { clientX: 300, clientY: 100, pointerId: 1 })
+    await 保存する()
+
+    expect(api.save).toHaveBeenCalledWith([背面, { name: 'front', items: [{ ...時計, rect: { x: 68, y: 70, width: 20, height: 26 } }] }])
+  })
+
+  test('四角をつまむと、その素材の設定が開く（どの四角がどの素材かを確かめられる）', async () => {
+    描く(代役のAPI())
+
+    await つまんで動かす('front', '時計（Analog）を動かす', 0, 0)
+
+    expect(within(await 素材の領域('front', '時計（Analog）')).getByLabelText('左端の位置（％）')).toBeInTheDocument()
+  })
+
+  test('位置を数として読めない素材は四角にせず、その理由を出す', async () => {
+    描く(代役のAPI())
+
+    const 領域 = await 素材を開く('front', '時計（Analog）')
+    await userEvent.clear(within(領域).getByLabelText('左端の位置（％）'))
+
+    expect(within(await オーバーレイの領域('front')).queryByRole('button', { name: '時計（Analog）を動かす' })).not.toBeInTheDocument()
+    expect(within(await オーバーレイの領域('front')).getByText(/枠に出せない素材があります/)).toBeInTheDocument()
   })
 })
 

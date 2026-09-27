@@ -17,17 +17,23 @@
  * URLの組み立ては url.ts に分けてテストする。素材のパラメータの入力欄は、ギャラリーと同じ
  * 自動生成（src/core/gallery/fields.tsx の ParamField）を使う。
  *
+ * 位置と大きさは、配信画面と同じ縦横比の「配置用の枠」（PlacementBox）に素材を四角として描き、
+ * ドラッグで動かす・端をつまんで大きさを変えることでも決められる（issue #105）。数値入力も残してあり、
+ * ドラッグで置いた値はそのまま数値欄にも出る（キーボードだけで細かく合わせられるようにするため）。
+ * 画素から割合（％）への変換と四角の計算は drag.ts に分けてテストする。
+ *
  * 注意: 値の検証は Worker（worker/overlay-layout.ts）だけが持つ。画面は空欄を 0 に丸めず、返ってきた
  * 問題点をオーバーレイと素材の名前へ読み替えて並べる（issue #86 で決めた「画面とWorkerで二重に持たない」）。
  * 注意: 素材を1つも持たないオーバーレイは送らない（Workerが拒む。OBSに貼っても何も映らないURLを
  * 作らせないため）。足した名前は画面が覚えておき、素材を置いた時点で保存されるようにする。
  * 注意: 保存済みの値が読めない素材（レジストリに無いデザイン・範囲外のパラメータ）でも黙って捨てない。
  * 捨てると、開いて保存しただけでその素材が消える。理由を出して直させる（Fail-Fast）。
- * 注意: プレビュー（オーバーレイをそのまま iframe で試し見する）は入れていない。配信中のオーバーレイを
- * もう1つ動かすことになるため、まずは数値入力とOBS側での確認に留める（ドラッグでの配置と合わせて別 issue）。
+ * 注意: 配置用の枠に描くのは四角と名前だけで、素材の中身は映さない。中身を映すとプレビューと同じ問題
+ * （配信中のオーバーレイをもう1つ動かす）に踏み込むためで、プレビューは別 issue に分けてある。
+ * 注意: 吸着（グリッド・他の素材の端に合わせる）は入れていない。まず動かせることを先にする。
  */
 import { ChevronDown, Trash2 } from 'lucide-react'
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -39,6 +45,7 @@ import { ApiError } from '../core/api'
 import { ParamField } from '../core/gallery/fields'
 import type { AnyParamValue } from '../core/params'
 import type { OverlayLayoutAdminApi } from './admin-api'
+import { deltaPercent, dragRect, HANDLE_LABELS, rectNumbersOf, RESIZE_HANDLES, toRectDraft, type DragHandle } from './drag'
 import {
   describeOverlayProblem,
   designsFor,
@@ -59,7 +66,7 @@ import {
   type OverlayLabels,
   type RectDraft,
 } from './form'
-import { ITEM_KINDS, type ItemKind } from './layout'
+import { ITEM_KINDS, rectStyle, type ItemKind } from './layout'
 import { overlayStageUrl } from './url'
 
 /** ブラウザソースに設定する推奨の大きさ。オーバーレイは配信画面と同じ大きさにして、割合（％）で中を置く */
@@ -87,6 +94,130 @@ const failureLines = (error: unknown, labels: readonly OverlayLabels[]): string[
 
 /** その素材がどこに置かれているかの要約（見出しに出す） */
 const rectSummary = (draft: ItemDraft): string => `左${draft.rect.x}% 上${draft.rect.y}% 幅${draft.rect.width}% 高さ${draft.rect.height}%`
+
+/**
+ * 配置用の枠に描く、つまみの置き場所（四角の角と端）。
+ *
+ * 四角の辺の上に半分はみ出させて置く（端そのものをつまめるようにするため）。マウスの形も方向に合わせる。
+ */
+const HANDLE_STYLES: Readonly<Record<Exclude<DragHandle, 'move'>, string>> = {
+  nw: 'left-0 top-0 -translate-x-1/2 -translate-y-1/2 cursor-nwse-resize',
+  n: 'left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 cursor-ns-resize',
+  ne: 'left-full top-0 -translate-x-1/2 -translate-y-1/2 cursor-nesw-resize',
+  w: 'left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 cursor-ew-resize',
+  e: 'left-full top-1/2 -translate-x-1/2 -translate-y-1/2 cursor-ew-resize',
+  sw: 'left-0 top-full -translate-x-1/2 -translate-y-1/2 cursor-nesw-resize',
+  s: 'left-1/2 top-full -translate-x-1/2 -translate-y-1/2 cursor-ns-resize',
+  se: 'left-full top-full -translate-x-1/2 -translate-y-1/2 cursor-nwse-resize',
+}
+
+interface PlacementBoxProps {
+  /** そのオーバーレイの素材（構成の並びのまま。あとのものが前に重なる） */
+  items: readonly ItemDraft[]
+  /** いま開いている素材（枠の中でも目立たせる） */
+  openItemKey: number | undefined
+  onOpenItem(key: number): void
+  onChangeRect(key: number, rect: RectDraft): void
+}
+
+/**
+ * 配置用の枠。配信画面と同じ縦横比の箱に素材を四角として描き、ドラッグで位置と大きさを決める。
+ *
+ * 描くのは四角と名前だけで、素材の中身は映さない（プレビューは別 issue）。重なりは構成の並びのままなので、
+ * 一覧の「前面へ・背面へ」で入れ替えた結果が四角の重なりにも出る。
+ *
+ * 注意: 位置と大きさを数として読めない素材（数値欄を空にした直後など）は四角にせず、理由を添える。
+ * 読めない値からドラッグを始めると、つまんだ時点の四角が決まらないためである。
+ */
+const PlacementBox = ({ items, openItemKey, onOpenItem, onChangeRect }: PlacementBoxProps) => {
+  const boxRef = useRef<HTMLDivElement>(null)
+  /** ドラッグの後始末（窓に付けた耳を外す）。ドラッグしていないあいだは undefined */
+  const stopDragRef = useRef<() => void>(undefined)
+  /** いまの描画のときの書き戻し先。ドラッグのあいだ古い関数を掴んだままにしない */
+  const onChangeRectRef = useRef(onChangeRect)
+  useEffect(() => {
+    onChangeRectRef.current = onChangeRect
+  })
+
+  // 動かしている途中で画面から消えたときに、窓に付けた耳を外す
+  useEffect(() => () => stopDragRef.current?.(), [])
+
+  const startDrag = (item: ItemDraft, handle: DragHandle, event: ReactPointerEvent): void => {
+    // 前のドラッグが終わっていなければ（指が離れた知らせを取りこぼしていれば）先に始末する
+    stopDragRef.current?.()
+    // つまんだ素材の設定を開く（どの四角がどの素材かを、数値欄と見比べられるようにする）
+    onOpenItem(item.key)
+    const box = boxRef.current
+    const start = rectNumbersOf(item.rect)
+    if (box === null || start === undefined) return
+    const size = box.getBoundingClientRect()
+    const originX = event.clientX
+    const originY = event.clientY
+    // 動かすたびに「つまんだ時点の四角」から計算するので、丸めの誤差が積み上がらない
+    const move = (moved: globalThis.PointerEvent): void => {
+      const { dx, dy } = deltaPercent(moved.clientX - originX, moved.clientY - originY, size.width, size.height)
+      onChangeRectRef.current(item.key, toRectDraft(dragRect(start, handle, dx, dy)))
+    }
+    const end = (): void => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', end)
+      window.removeEventListener('pointercancel', end)
+      stopDragRef.current = undefined
+    }
+    // 枠の外へポインタが出ても追い続けられるよう、耳は窓に付ける
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', end)
+    // 取り消し（指が離れずに中断される。ブラウザが操作を引き取ったときなど）でも追うのをやめる
+    window.addEventListener('pointercancel', end)
+    stopDragRef.current = end
+  }
+
+  const drawable = items.flatMap((item) => {
+    const rect = rectNumbersOf(item.rect)
+    return rect === undefined ? [] : [{ item, rect }]
+  })
+
+  return (
+    <div className="flex flex-col gap-2">
+      {/* 配信画面と同じ縦横比（16:9）。中の位置と大きさは割合（％）なので、枠の実際の大きさによらない */}
+      <div ref={boxRef} className="relative aspect-video w-full overflow-hidden rounded-md border bg-muted/40">
+        {drawable.map(({ item, rect }) => {
+          const label = itemLabel(item)
+          return (
+            <div key={item.key} className="absolute" style={rectStyle(rect)}>
+              <button
+                type="button"
+                aria-label={`${label}を動かす`}
+                // touch-none: 触って動かすときに、ブラウザの画面送りへ持っていかれないようにする
+                className={`flex size-full touch-none cursor-move items-start overflow-hidden border-2 p-1 text-left text-xs ${
+                  openItemKey === item.key ? 'border-primary bg-primary/20' : 'border-foreground/40 bg-foreground/5'
+                }`}
+                onPointerDown={(event) => startDrag(item, 'move', event)}
+                // キーボードで選んだときにも設定を開く（ドラッグは押した時点で開くので、二重に押しても同じ結果になる）
+                onClick={() => onOpenItem(item.key)}
+              >
+                <span className="truncate">{label}</span>
+              </button>
+              {RESIZE_HANDLES.map((handle) => (
+                <span
+                  key={handle}
+                  role="button"
+                  tabIndex={-1}
+                  aria-label={`${label}の${HANDLE_LABELS[handle]}をつまむ`}
+                  className={`absolute size-2.5 touch-none rounded-xs border border-primary bg-background ${HANDLE_STYLES[handle]}`}
+                  onPointerDown={(event) => startDrag(item, handle, event)}
+                />
+              ))}
+            </div>
+          )
+        })}
+      </div>
+      {drawable.length < items.length && (
+        <p className="text-xs text-destructive">枠に出せない素材があります（位置と大きさを数として読めません）。数値欄で直してください</p>
+      )}
+    </div>
+  )
+}
 
 interface ItemRowProps {
   draft: ItemDraft
@@ -253,6 +384,8 @@ interface OverlayCardProps {
   /** 開いている素材の識別子（オーバーレイをまたいで1つだけ開く） */
   openItemKey: number | undefined
   onToggleItem(key: number): void
+  /** 素材の設定を開く（畳まない。配置用の枠でつまんだときに使う） */
+  onOpenItem(key: number): void
   onChange(draft: OverlayDraft): void
   onMoveItemToOverlay(item: ItemDraft, to: string): void
   onAskRemoveItem(item: ItemDraft): void
@@ -271,6 +404,7 @@ const OverlayCard = ({
   overlayKey,
   openItemKey,
   onToggleItem,
+  onOpenItem,
   onChange,
   onMoveItemToOverlay,
   onAskRemoveItem,
@@ -290,6 +424,10 @@ const OverlayCard = ({
 
   /** 素材を1つ動かす（構成での並びがそのまま重ねる順。offset が正なら前へ） */
   const moveItem = (position: number, offset: number): void => onChange({ ...draft, items: moveDraft(draft.items, position, offset) })
+
+  /** 配置用の枠でドラッグした結果を、その素材の位置と大きさへ書き戻す */
+  const changeRect = (key: number, rect: RectDraft): void =>
+    onChange({ ...draft, items: draft.items.map((current) => (current.key === key ? { ...current, rect } : current)) })
 
   return (
     <Card role="group" aria-label={`オーバーレイ「${draft.name}」`}>
@@ -333,7 +471,9 @@ const OverlayCard = ({
         {draft.items.length === 0 ? (
           <p className="text-sm text-muted-foreground">まだ素材がありません。素材を置くまでは保存されません（貼っても何も映らないためです）。</p>
         ) : (
-          <ul className="flex flex-col gap-2">
+          <>
+            <PlacementBox items={draft.items} openItemKey={openItemKey} onOpenItem={onOpenItem} onChangeRect={changeRect} />
+            <ul className="flex flex-col gap-2">
             {frontFirstItems(draft.items).map(({ item, position }) => (
               <ItemRow
                 // 位置をキーにすると、並べ替え・外したときに入力欄が別の素材のものとして使い回され、
@@ -352,7 +492,8 @@ const OverlayCard = ({
                 onRemove={() => onAskRemoveItem(item)}
               />
             ))}
-          </ul>
+            </ul>
+          </>
         )}
 
         <div className="flex flex-wrap items-end gap-3">
@@ -507,6 +648,7 @@ export const OverlayPage = ({ api, overlayKey }: { api: OverlayLayoutAdminApi; o
             overlayKey={overlayKey}
             openItemKey={openItemKey}
             onToggleItem={(key) => setOpenItemKey(openItemKey === key ? undefined : key)}
+            onOpenItem={setOpenItemKey}
             onChange={(next) => update(position, next)}
             onMoveItemToOverlay={moveItemToOverlay}
             onAskRemoveItem={(item) =>
