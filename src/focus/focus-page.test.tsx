@@ -167,15 +167,13 @@ describe('直近の発言から選ぶ', () => {
     })
   })
 
-  test('選んだ発言の人に追従する', async () => {
-    const api = 代役のAPI()
-    描く(api)
+  test('一覧の行でできるのは発言を取り上げることだけで、人への追従は混ぜない（2つのモードは別のものなので、選ぶ場所も分ける）', async () => {
+    描く(代役のAPI())
     const list = await screen.findByRole('list', { name: '直近の発言' })
 
     const 怖い話の行 = within(list).getAllByRole('listitem')[1]!
-    await userEvent.click(within(怖い話の行).getByRole('button', { name: 'この人に追従する' }))
-
-    expect(api.save).toHaveBeenCalledWith({ type: 'viewer', login: 'kowai_hanashi' })
+    expect(within(怖い話の行).getAllByRole('button')).toHaveLength(1)
+    expect(within(怖い話の行).queryByRole('button', { name: 'この人に追従する' })).not.toBeInTheDocument()
   })
 
   test('一覧を読み直せる', async () => {

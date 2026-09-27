@@ -6,6 +6,11 @@
  * - 人に追従する: その人の発言が届くたびに、オーバーレイが映すものを最新の1件へ差し替える
  * - 発言1件を取り上げる: 直近の発言から選んだ1件を固定する（次の発言では差し替わらない）
  *
+ * **2つは別のものなので、選ぶ場所も分ける。** 追従は「誰を追うか」を決める操作なので相手の指定が要り、
+ * 取り上げは「どの発言を出すか」を決める操作なので誰の発言かによらない。そのため直近の発言の一覧に
+ * 「この人に追従する」は置かない（一覧に混ぜると、コメントを選んでいるのか人を選んでいるのかが
+ * 行ごとに曖昧になる）。
+ *
  * 指定は Worker（KVの focus-target）に保存されるので、オーバーレイの再読み込みは要らない。次にオーバーレイが
  * 読みに来た時点（10秒以内）で切り替わる。URLに相手を埋めないのは、配信中に相手を変えるたびにOBSのURLを
  * 貼り替えることになるためである（読み上げの設定をURLから移した issue #86 と同じ考え方）。
@@ -150,7 +155,9 @@ export const FocusPage = ({ api, overlayKey }: { api: FocusApi; overlayKey: stri
       <Card>
         <CardHeader>
           <CardTitle>直近の発言から選ぶ</CardTitle>
-          <CardDescription>いま進んでいる配信の発言だけを出す（配信していないあいだは本文を貯めていない）。</CardDescription>
+          <CardDescription>
+            誰の発言かによらず、いま進んでいる配信の発言を1件選んで固定する（配信していないあいだは本文を貯めていない）。
+          </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <div>
@@ -190,15 +197,6 @@ export const FocusPage = ({ api, overlayKey }: { api: FocusApi; overlayKey: stri
                       }
                     >
                       この発言を取り上げる
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={actions.busy}
-                      onClick={() => void 取り上げる({ type: 'viewer', login: message.login }, `${message.displayName} さんに追従します`)}
-                    >
-                      この人に追従する
                     </Button>
                   </div>
                 </li>
