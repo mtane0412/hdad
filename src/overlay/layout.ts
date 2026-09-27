@@ -2,7 +2,7 @@
  * 合成オーバーレイの構成（段とレイヤー）の読み取り
  *
  * OBSに載せるページを素材ごとに分けるとブラウザソースの数だけ Chromium のレンダラが立ち上がるため、
- * 素材を「レイヤー」として1枚のページ（overlay/index.html）に重ね、ブラウザソースは「段」（group）ごとに
+ * 素材を「レイヤー」として1枚のページ（overlay/stage/index.html）に重ね、ブラウザソースは「段」（group）ごとに
  * 1つだけ置く（issue #101）。構成を持つのは Worker（KVの overlay-layout）で、このファイルは
  * 受け取った構成から「自分の段のレイヤー」と「箱に当てる位置」を決める部分だけを持つ。
  *
@@ -19,6 +19,14 @@ export const LAYER_KINDS = ['wallpaper', 'clock', 'chat', 'alerts', 'sideSuper',
 
 /** レイヤーに置ける素材の種類 */
 export type LayerKind = (typeof LAYER_KINDS)[number]
+
+/**
+ * 既定で用意する段の名前。worker/overlay-layout.ts の DEFAULT_OVERLAY_GROUPS と合わせる。
+ *
+ * 背面（ゲーム画面・アバターより後ろ）と前面（アバターより前）の2つで、配信者が増やせる。
+ * 管理画面（src/overlay/form.ts の groupChoices）が段の選択肢の出発点に使う。
+ */
+export const DEFAULT_OVERLAY_GROUPS = ['back', 'front'] as const
 
 /** 段の中での位置と大きさ（段の幅・高さに対する割合。％） */
 export interface LayerRect {

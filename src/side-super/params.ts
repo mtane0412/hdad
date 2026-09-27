@@ -1,7 +1,7 @@
 /**
  * サイドスーパーのパラメータ宣言（寄せる向き）
  *
- * 単独のオーバーレイ（side-super/overlay/index.html）と合成ページ（overlay/index.html）の両方が
+ * 単独のオーバーレイ（side-super/overlay/index.html）と合成ページ（overlay/stage/index.html）の両方が
  * 同じ向きの指定を受け取るので、スキーマの宣言をここ1か所に置いて共有する。
  * 単独のオーバーレイはこれに ?key= と ?demo= を足したスキーマを使い、合成ページはレイヤーの
  * パラメータ（構成が持つクエリ文字列）としてこれだけを使う。

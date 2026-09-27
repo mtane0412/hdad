@@ -2,7 +2,7 @@
  * canvas を使う素材（壁紙・時計）の起動処理
  *
  * 素材ごとのページ（wallpaper/<id>/index.html・clock/<id>/index.html）と、素材を重ねる合成ページ
- * （overlay/index.html）の両方から使う。どちらも「canvas 1枚に1つの素材を描く」ところは同じで、
+ * （overlay/stage/index.html）の両方から使う。どちらも「canvas 1枚に1つの素材を描く」ところは同じで、
  * 違うのは canvas の大きさの基準と、描画ループを誰が回すかである。
  *
  * - 素材ごとのページ: canvas はページ全体に広がり、このファイルが描画ループ（requestAnimationFrame）を回す

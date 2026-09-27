@@ -1,7 +1,7 @@
 /**
  * 合成オーバーレイの構成の読み出し（オーバーレイ用API の呼び出し）
  *
- * 合成ページ（overlay/index.html）は素材ページなのでログインを持たず、ほかのオーバーレイと同じ
+ * 合成ページ（overlay/stage/index.html）は素材ページなのでログインを持たず、ほかのオーバーレイと同じ
  * オーバーレイ用キー（URLの ?key=）で Worker に受け付けてもらう。
  * 呼び出しと失敗の扱いは `../core/api` に任せ、fetch を引数で受け取るのはテストで差し替えるためである。
  *
@@ -31,6 +31,14 @@ const isOverlayLayer = (value: unknown): value is OverlayLayer =>
   typeof value.group === 'string' &&
   isRect(value.rect)
 
+/**
+ * 応答の本文から構成（レイヤーの並び）を読む。想定した形でなければエラーにする。
+ *
+ * 管理画面の読み書き（admin-api.ts）も同じ形を受け取るので、確かめをここで共有する（focus/api.ts の
+ * readFocusTarget と同じ扱い）。
+ */
+export const readLayers = (body: unknown): OverlayLayer[] => readList(body, 'layers', isOverlayLayer)
+
 export interface OverlayLayoutApi {
   /**
    * 構成を読む。
@@ -52,7 +60,7 @@ export const createOverlayLayoutApi = (fetchImpl: typeof fetch, key: string): Ov
 
   return {
     async read() {
-      return readList(await call(path), 'layers', isOverlayLayer)
+      return readLayers(await call(path))
     },
   }
 }

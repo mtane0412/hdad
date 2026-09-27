@@ -3,7 +3,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { parseParams, type ParamSchema } from '../params'
-import { buildBackgroundUrl } from './url'
+import { buildBackgroundUrl, serializeParams } from './url'
 
 const ギャラリーのURL = 'https://example.github.io/hdad/wallpaper/'
 
@@ -68,5 +68,25 @@ describe('buildBackgroundUrl', () => {
     const url = buildBackgroundUrl(ギャラリーのURL, 'bubble', チャットスキーマ, { channel: 'a&b=c' })
     expect(url).toBe('https://example.github.io/hdad/wallpaper/bubble/?channel=a%26b%3Dc')
     expect(parseParams(チャットスキーマ, new URL(url).searchParams)).toEqual({ channel: 'a&b=c' })
+  })
+})
+
+describe('serializeParams', () => {
+  it('既定値から変えたパラメータだけをクエリ文字列にする（先頭に ? は付けない）', () => {
+    expect(serializeParams(背景スキーマ, { ...既定値, speed: 0.5 })).toBe('speed=0.5')
+  })
+
+  it('すべて既定値なら空文字にする（合成オーバーレイの構成に何も持たせない）', () => {
+    expect(serializeParams(背景スキーマ, 既定値)).toBe('')
+  })
+
+  it('複数のパラメータは & でつなぐ', () => {
+    expect(serializeParams(背景スキーマ, { ...既定値, speed: 2, colors: ['#ffffff'] })).toBe('speed=2&colors=ffffff')
+  })
+
+  it('組み立てたクエリ文字列は、同じスキーマで元の値に読み戻せる', () => {
+    const 値 = { ...既定値, speed: 2, bg: 'transparent' }
+
+    expect(parseParams(背景スキーマ, new URLSearchParams(serializeParams(背景スキーマ, 値)))).toEqual(値)
   })
 })
