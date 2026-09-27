@@ -143,6 +143,8 @@ const PlacementBox = ({ items, openItemKey, onOpenItem, onChangeRect }: Placemen
   useEffect(() => () => stopDragRef.current?.(), [])
 
   const startDrag = (item: ItemDraft, handle: DragHandle, event: ReactPointerEvent): void => {
+    // 前のドラッグが終わっていなければ（指が離れた知らせを取りこぼしていれば）先に始末する
+    stopDragRef.current?.()
     // つまんだ素材の設定を開く（どの四角がどの素材かを、数値欄と見比べられるようにする）
     onOpenItem(item.key)
     const box = boxRef.current
@@ -159,11 +161,14 @@ const PlacementBox = ({ items, openItemKey, onOpenItem, onChangeRect }: Placemen
     const end = (): void => {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', end)
+      window.removeEventListener('pointercancel', end)
       stopDragRef.current = undefined
     }
     // 枠の外へポインタが出ても追い続けられるよう、耳は窓に付ける
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', end)
+    // 取り消し（指が離れずに中断される。ブラウザが操作を引き取ったときなど）でも追うのをやめる
+    window.addEventListener('pointercancel', end)
     stopDragRef.current = end
   }
 
@@ -183,7 +188,8 @@ const PlacementBox = ({ items, openItemKey, onOpenItem, onChangeRect }: Placemen
               <button
                 type="button"
                 aria-label={`${label}を動かす`}
-                className={`flex size-full cursor-move items-start overflow-hidden border-2 p-1 text-left text-xs ${
+                // touch-none: 触って動かすときに、ブラウザの画面送りへ持っていかれないようにする
+                className={`flex size-full touch-none cursor-move items-start overflow-hidden border-2 p-1 text-left text-xs ${
                   openItemKey === item.key ? 'border-primary bg-primary/20' : 'border-foreground/40 bg-foreground/5'
                 }`}
                 onPointerDown={(event) => startDrag(item, 'move', event)}
@@ -198,7 +204,7 @@ const PlacementBox = ({ items, openItemKey, onOpenItem, onChangeRect }: Placemen
                   role="button"
                   tabIndex={-1}
                   aria-label={`${label}の${HANDLE_LABELS[handle]}をつまむ`}
-                  className={`absolute size-2.5 rounded-xs border border-primary bg-background ${HANDLE_STYLES[handle]}`}
+                  className={`absolute size-2.5 touch-none rounded-xs border border-primary bg-background ${HANDLE_STYLES[handle]}`}
                   onPointerDown={(event) => startDrag(item, handle, event)}
                 />
               ))}

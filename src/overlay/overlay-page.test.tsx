@@ -159,6 +159,21 @@ describe('配置用の枠', () => {
     expect(api.save).toHaveBeenCalledWith([背面, { name: 'front', items: [{ ...時計, rect: { x: 78, y: 70, width: 15, height: 16 } }] }])
   })
 
+  test('ドラッグが取り消されたら（指が離れずに中断されたら）そこで追うのをやめる', async () => {
+    const api = 代役のAPI()
+    描く(api)
+
+    const つまみ = within(await オーバーレイの領域('front')).getByRole('button', { name: '時計（Analog）を動かす' })
+    fireEvent.pointerDown(つまみ, { clientX: 100, clientY: 100, pointerId: 1 })
+    fireEvent.pointerMove(window, { clientX: 60, clientY: 100, pointerId: 1 })
+    fireEvent.pointerCancel(window, { clientX: 60, clientY: 100, pointerId: 1 })
+    // 取り消されたあとの動きは、つまんでいない指の動きなので位置を変えない
+    fireEvent.pointerMove(window, { clientX: 300, clientY: 100, pointerId: 1 })
+    await 保存する()
+
+    expect(api.save).toHaveBeenCalledWith([背面, { name: 'front', items: [{ ...時計, rect: { x: 68, y: 70, width: 20, height: 26 } }] }])
+  })
+
   test('四角をつまむと、その素材の設定が開く（どの四角がどの素材かを確かめられる）', async () => {
     描く(代役のAPI())
 
