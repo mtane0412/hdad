@@ -12,11 +12,18 @@
  * 注意: 値（モデル名の長さなど）の検証は Worker（worker/llm-config.ts）だけが持つ。画面とWorkerで二重に持たない。
  * 注意: OpenRouter のAPIキーは設定ではなくWorkerのシークレットなので、読むときに「設定されているか」だけを受け取り、
  * 保存では送らない。
+ * 注意: 使用状況（どれだけLLMを呼んだか）と OpenRouter の残高は、設定とは別の経路で読む。出どころが違い
+ * （使用状況は自前で数えたD1の記録、残高は OpenRouter への問い合わせ）、片方を読めなかったことをもう片方に
+ * 波及させないためである（モデルの一覧を提供元ごとに分けて読むのと同じ考え方）。
+ * 注意: 使用状況・残高も、応答が想定した形でなければエラーにする。数えられていないことを 0 として見せると、
+ * 配信者は「まだ使っていない」と取り違える。
  */
 import { createCaller, isRecord } from '../core/api'
 
 const ADMIN_PATH = '/api/admin/llm'
 const MODELS_PATH = '/api/admin/llm/models'
+const USAGE_PATH = '/api/admin/llm/usage'
+const CREDITS_PATH = '/api/admin/llm/credits'
 
 /** 呼び先。worker/llm-config.ts の LLM_PROVIDERS と合わせる */
 export const LLM_PROVIDERS = ['workers-ai', 'openrouter'] as const
@@ -49,6 +56,29 @@ export interface LlmModelOption {
   id: string
   /** 画面に出す名前 */
   name: string
+}
+
+/** 使用状況の1行（日 × 箇所 × 提供元 × モデル）。worker/llm-usage-store.ts の LlmUsageRow と合わせる */
+export interface LlmUsageDay {
+  day: string
+  usage: string
+  provider: string
+  model: string
+  /** 文面を受け取れた回数 */
+  calls: number
+  /** 失敗した回数 */
+  failures: number
+  promptTokens: number
+  completionTokens: number
+  /** 提供元が返した実費（米ドル）。Workers AI は返さないので 0 */
+  costUsd: number
+}
+
+/** OpenRouter の残高（米ドル）。worker/llm-credits.ts の LlmCredits と合わせる */
+export interface LlmCredits {
+  totalCredits: number
+  totalUsage: number
+  remaining: number
 }
 
 /** 読み出しの結果。鍵の有無は設定ではなくWorkerの状態なので、設定とは分けて持つ */
@@ -92,6 +122,27 @@ const readModelOptions = (body: unknown, path: string): LlmModelOption[] => {
   return models as LlmModelOption[]
 }
 
+/** 使用状況として読む。数の項目が1つでも欠けていればエラーにする */
+const readUsageDays = (body: unknown, path: string): LlmUsageDay[] => {
+  const days = isRecord(body) && Array.isArray(body.days) ? body.days : null
+  const 数の項目 = ['calls', 'failures', 'promptTokens', 'completionTokens', 'costUsd'] as const
+  const 正しい形 = (row: unknown): boolean =>
+    isRecord(row) &&
+    ['day', 'usage', 'provider', 'model'].every((key) => typeof row[key] === 'string') &&
+    数の項目.every((key) => typeof row[key] === 'number')
+  if (days === null || !days.every(正しい形)) throw new Error(`Workerの ${path} の応答が想定した形ではありません`)
+  return days as LlmUsageDay[]
+}
+
+/** 残高として読む。足りなければエラーにする */
+const readCredits = (body: unknown, path: string): LlmCredits => {
+  const 項目 = ['totalCredits', 'totalUsage', 'remaining'] as const
+  if (!isRecord(body) || !項目.every((key) => typeof body[key] === 'number')) {
+    throw new Error(`Workerの ${path} の応答が想定した形ではありません`)
+  }
+  return body as unknown as LlmCredits
+}
+
 /** 管理画面からの読み書き */
 export interface LlmApi {
   /** 保存済みの設定と、鍵が設定されているかを読む。未保存なら既定の設定が返る */
@@ -105,6 +156,19 @@ export interface LlmApi {
    * 片方を取れなかったことをもう片方の選択欄に波及させないためである。
    */
   listModels(provider: LlmProvider): Promise<LlmModelOption[]>
+  /**
+   * LLMを呼んだ回数・トークン数・実費の、日ごとのまとめを読む（直近1か月ぶん）。
+   *
+   * 「今日」「直近7日」へのまとめ方は usage.ts が持つ（Workerは日ごとの行をそのまま返す）。
+   */
+  loadUsage(): Promise<LlmUsageDay[]>
+  /**
+   * OpenRouter の残高を読む。
+   *
+   * 鍵が無ければWorkerが断る（ApiError）ので、呼ぶのは鍵が設定されているときだけにする。
+   * Workers AI（Cloudflare）には対応するものが無い（残量を読むにはアカウント単位の鍵が要るため）。
+   */
+  loadCredits(): Promise<LlmCredits>
 }
 
 /**
@@ -140,5 +204,9 @@ export const createLlmApi = (fetchImpl: typeof fetch): LlmApi => {
       const path = `${MODELS_PATH}?provider=${encodeURIComponent(provider)}`
       return readModelOptions(await call(path), MODELS_PATH)
     },
+
+    loadUsage: async () => readUsageDays(await call(USAGE_PATH), USAGE_PATH),
+
+    loadCredits: async () => readCredits(await call(CREDITS_PATH), CREDITS_PATH),
   }
 }

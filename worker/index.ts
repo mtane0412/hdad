@@ -23,6 +23,8 @@
  * | GET  /api/admin/rewards          | セッション     | チャンネルポイント報酬の一覧 |
  * | GET・PUT /api/admin/llm          | セッション     | LLMの提供元とモデルの設定の取得・保存 |
  * | GET  /api/admin/llm/models       | セッション     | その提供元で選べるモデルの一覧 |
+ * | GET  /api/admin/llm/usage        | セッション     | LLMを呼んだ回数・トークン数・実費の日ごとのまとめ |
+ * | GET  /api/admin/llm/credits      | セッション     | OpenRouter の残高 |
  * | GET・PUT /api/admin/speech       | セッション     | チャットの読み上げの設定の取得・保存 |
  * | GET  /api/admin/viewers          | セッション     | 視聴者の記録の一覧（検索・ページ送り） |
  * | PATCH /api/admin/viewers/:userId | セッション     | 視聴者へのメモの保存 |
@@ -48,7 +50,9 @@ import {
   deleteMedia,
   getConfig,
   getLlm,
+  getLlmCredits,
   getLlmModels,
+  getLlmUsage,
   getMedia,
   getRewards,
   getSpeech,
@@ -134,6 +138,8 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/admin/rewards', handle: getRewards },
   { method: 'GET', path: '/api/admin/llm', handle: getLlm },
   { method: 'GET', path: '/api/admin/llm/models', handle: getLlmModels },
+  { method: 'GET', path: '/api/admin/llm/usage', handle: getLlmUsage },
+  { method: 'GET', path: '/api/admin/llm/credits', handle: getLlmCredits },
   { method: 'PUT', path: '/api/admin/llm', handle: putLlm },
   { method: 'GET', path: '/api/admin/speech', handle: getSpeech },
   { method: 'PUT', path: '/api/admin/speech', handle: putSpeech },
@@ -234,7 +240,7 @@ export const handleRequest = async (request: Request, env: Env, dependencies: De
       env,
       twitch,
       fetch: dependencies.fetch,
-      llm: createLlm({ ai: env.AI, store: env.STORE, fetch: dependencies.fetch, apiKey: env.OPENROUTER_API_KEY }),
+      llm: createLlm({ ai: env.AI, store: env.STORE, fetch: dependencies.fetch, apiKey: env.OPENROUTER_API_KEY, db: env.DB, now: dependencies.now }),
       now: dependencies.now(),
       wait: dependencies.wait,
       waitUntil: dependencies.waitUntil,
@@ -251,7 +257,7 @@ export const handleRequest = async (request: Request, env: Env, dependencies: De
  */
 export const handleScheduled = async (env: Env, dependencies: Pick<Dependencies, 'fetch' | 'now'> = DEFAULT_DEPENDENCIES): Promise<void> => {
   const twitch = createClient(env, dependencies)
-  const llm = createLlm({ ai: env.AI, store: env.STORE, fetch: dependencies.fetch, apiKey: env.OPENROUTER_API_KEY })
+  const llm = createLlm({ ai: env.AI, store: env.STORE, fetch: dependencies.fetch, apiKey: env.OPENROUTER_API_KEY, db: env.DB, now: dependencies.now })
   await collectStats({ db: env.DB, store: env.STORE, twitch, ai: llm, broadcasterId: env.TWITCH_BROADCASTER_ID, now: dependencies.now() })
 }
 

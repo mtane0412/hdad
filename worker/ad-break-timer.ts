@@ -128,7 +128,7 @@ const runAdBreakEnd = async (env: Env, end: AdBreakEnd, dependencies: AdBreakDep
     env,
     twitch,
     // アラームからも、通知を受けたときと同じLLM（設定に従って呼び先を決めるもの）を通す
-    llm: createLlm({ ai: env.AI, store: env.STORE, fetch: dependencies.fetch, apiKey: env.OPENROUTER_API_KEY }),
+    llm: createLlm({ ai: env.AI, store: env.STORE, fetch: dependencies.fetch, apiKey: env.OPENROUTER_API_KEY, db: env.DB, now: dependencies.now }),
     now: dependencies.now(),
     wait: dependencies.wait,
     waitUntil: (promise: Promise<unknown>): void => void 後回しの処理.push(promise),

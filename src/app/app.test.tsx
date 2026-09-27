@@ -94,6 +94,9 @@ const 代役のLLM_API: LlmApi = {
   }),
   save: vi.fn(async (settings) => settings),
   listModels: vi.fn(async () => [{ id: '@cf/meta/llama-3.1-8b-instruct-fp8', name: 'Llama 3.1 8B Instruct（fp8）' }]),
+  // まだ一度もLLMを呼んでいない状態（使用状況の表示はこのテストでは問わない）
+  loadUsage: vi.fn(async () => []),
+  loadCredits: vi.fn(async () => ({ totalCredits: 0, totalUsage: 0, remaining: 0 })),
 }
 
 const 代役の読み上げAPI: SpeechApi = {
