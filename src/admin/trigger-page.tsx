@@ -12,7 +12,7 @@
  * 素材や保存済みの設定を取得できなければ操作盤を出さない。報酬の一覧とbotの接続状態だけ取得できないときは、操作盤は出したまま理由を出す。
  */
 import { ChevronDown, Plus, Trash2 } from 'lucide-react'
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -35,6 +35,7 @@ import {
   kindLabels,
   menuGroups,
   menuLabel,
+  insertPlaceholder,
   overlayUrl,
   placeholdersFor,
   rewardOptions,
@@ -208,6 +209,83 @@ const TriggerParamField = ({ idPrefix, draft, rewards, onChange }: TriggerParamF
   </>
 )
 
+interface MessageFieldProps {
+  id: string
+  label: string
+  /** どのメニュー項目の差し込み語を並べるか */
+  kind: TriggerKind
+  value: string
+  maxLength: number
+  /** 入力例（空欄のときに薄く出す） */
+  example: string
+  onChange(value: string): void
+  /** 入力欄の下に添える説明 */
+  children?: ReactNode
+}
+
+/**
+ * 差し込み語を押して入れられる、文言の入力欄。
+ *
+ * 差し込み語を手で打つと綴りや括弧を間違えやすく、間違いに気づくのが「配信中に置き換わらなかったとき」になるため、
+ * 押して入れられるようにする。並べるのは選んだメニュー項目で置き換わる語だけである（置き換わらない語を押させない）。
+ * 入れる位置はカーソルの位置なので、入力欄の要素を持つこのコンポーネントがカーソルを読み、
+ * 文言の組み立て（form.ts の insertPlaceholder）だけを分けてテストする。
+ */
+const MessageField = ({ id, label, kind, value, maxLength, example, onChange, children }: MessageFieldProps) => {
+  const inputRef = useRef<HTMLInputElement>(null)
+  /** 差し込み語を入れたあとにカーソルを置く位置。入力欄の値が書き換わってからでないと動かせないので、描き終わってから動かす */
+  const [cursor, setCursor] = useState<number | null>(null)
+
+  useEffect(() => {
+    const input = inputRef.current
+    if (cursor === null || input === null) return
+    input.focus()
+    input.setSelectionRange(cursor, cursor)
+    setCursor(null)
+  }, [cursor])
+
+  const insert = (placeholder: string): void => {
+    const input = inputRef.current
+    // ボタンは入力欄と一緒に描かれるので、ここへは来ない（型を絞るための確認）
+    if (input === null) return
+    const inserted = insertPlaceholder(value, placeholder, input.selectionStart ?? value.length, input.selectionEnd ?? value.length)
+    onChange(inserted.value)
+    setCursor(inserted.cursor)
+  }
+
+  return (
+    <div className="flex flex-col gap-2 sm:col-span-2">
+      <Label htmlFor={id}>{label}</Label>
+      <Input
+        id={id}
+        ref={inputRef}
+        type="text"
+        maxLength={maxLength}
+        value={value}
+        placeholder={example}
+        onChange={(event) => onChange(event.currentTarget.value)}
+      />
+      <div className="flex flex-wrap gap-1">
+        {placeholdersFor(kind).map((placeholder) => (
+          <Button
+            key={placeholder}
+            type="button"
+            variant="outline"
+            size="xs"
+            className="font-mono"
+            // どの欄に入るかは見た目では分かるが読み上げでは分からないので、欄の名前を添える
+            aria-label={`${label}に ${placeholder} を挿入`}
+            onClick={() => insert(placeholder)}
+          >
+            {placeholder}
+          </Button>
+        ))}
+      </div>
+      {children}
+    </div>
+  )
+}
+
 interface ActionFieldsProps {
   draft: TriggerDraft
   media: readonly MediaItem[]
@@ -276,17 +354,15 @@ const ActionFields = ({ draft, media, heading, onChange }: ActionFieldsProps) =>
                 <output className="w-12 text-right font-mono text-xs tabular-nums">{draft.volumePercent}%</output>
               </div>
             </div>
-            <div className="flex flex-col gap-2 sm:col-span-2">
-              <Label htmlFor={`${id}-message`}>文言（空欄なら出さない）</Label>
-              <Input
-                id={`${id}-message`}
-                type="text"
-                maxLength={MAX_MESSAGE_LENGTH}
-                value={draft.message}
-                placeholder={MESSAGE_PLACEHOLDERS[draft.kind]}
-                onChange={(event) => update({ message: event.currentTarget.value })}
-              />
-            </div>
+            <MessageField
+              id={`${id}-message`}
+              label="文言（空欄なら出さない）"
+              kind={draft.kind}
+              value={draft.message}
+              maxLength={MAX_MESSAGE_LENGTH}
+              example={MESSAGE_PLACEHOLDERS[draft.kind]}
+              onChange={(message) => update({ message })}
+            />
           </div>
         )}
       </div>
@@ -302,19 +378,18 @@ const ActionFields = ({ draft, media, heading, onChange }: ActionFieldsProps) =>
           <Label htmlFor={`${id}-chat-enabled`}>チャットに送る</Label>
         </div>
         {draft.chatEnabled && (
-          <div className="flex flex-col gap-2">
-            <Label htmlFor={`${id}-chat-message`}>チャットに送る文言</Label>
-            <Input
-              id={`${id}-chat-message`}
-              type="text"
-              maxLength={MAX_CHAT_MESSAGE_LENGTH}
-              value={draft.chatMessage}
-              placeholder={MESSAGE_PLACEHOLDERS[draft.kind]}
-              onChange={(event) => update({ chatMessage: event.currentTarget.value })}
-            />
+          <MessageField
+            id={`${id}-chat-message`}
+            label="チャットに送る文言"
+            kind={draft.kind}
+            value={draft.chatMessage}
+            maxLength={MAX_CHAT_MESSAGE_LENGTH}
+            example={MESSAGE_PLACEHOLDERS[draft.kind]}
+            onChange={(chatMessage) => update({ chatMessage })}
+          >
             {/* 送るのは接続しているbotアカウント。未接続だと何も送られないので、どこで接続するかを添える */}
             <p className="text-xs text-muted-foreground">接続しているbotが送ります。</p>
-          </div>
+          </MessageField>
         )}
       </div>
 
@@ -357,17 +432,15 @@ const ActionFields = ({ draft, media, heading, onChange }: ActionFieldsProps) =>
         </div>
         {draft.announceEnabled && (
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="flex flex-col gap-2 sm:col-span-2">
-              <Label htmlFor={`${id}-announce-message`}>アナウンスの文言</Label>
-              <Input
-                id={`${id}-announce-message`}
-                type="text"
-                maxLength={MAX_CHAT_MESSAGE_LENGTH}
-                value={draft.announceMessage}
-                placeholder={MESSAGE_PLACEHOLDERS[draft.kind]}
-                onChange={(event) => update({ announceMessage: event.currentTarget.value })}
-              />
-            </div>
+            <MessageField
+              id={`${id}-announce-message`}
+              label="アナウンスの文言"
+              kind={draft.kind}
+              value={draft.announceMessage}
+              maxLength={MAX_CHAT_MESSAGE_LENGTH}
+              example={MESSAGE_PLACEHOLDERS[draft.kind]}
+              onChange={(announceMessage) => update({ announceMessage })}
+            />
             <div className="flex flex-col gap-2">
               <Label htmlFor={`${id}-announce-color`}>アナウンスの色</Label>
               {/* 選択肢は色だけなので isAnnouncementColor は必ず通る。型を絞るための確認 */}
@@ -404,9 +477,6 @@ const ActionFields = ({ draft, media, heading, onChange }: ActionFieldsProps) =>
           )}
         </div>
       )}
-
-      {/* 選んだメニュー項目のイベントに存在しない語は置き換わらないため、使える語をその場で知らせる（アラートとチャットで同じ語を使う） */}
-      <p className="text-xs text-muted-foreground sm:col-span-2">使える差し込み語: {placeholdersFor(draft.kind).join('・')}</p>
     </>
   )
 
