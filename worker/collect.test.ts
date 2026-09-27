@@ -322,6 +322,29 @@ describe('人物像の生成', () => {
     ])
   })
 
+  it('同じ収集で2人ぶん観測できなくても、両方の理由が残る（1行にまとめて記録するため）', async () => {
+    const { db, store } = await 環境を作る()
+    await 終わった配信と発言を作る(db, '100')
+    await recordViewerMessage(db, { userId: '200', login: 'taro', displayName: '太郎', badges: [], messageId: 'chat-200' }, 現在時刻 - 10 * 60 * 1000)
+    db.sqlite
+      .prepare('INSERT INTO stream_chat_messages (message_id, session_id, user_id, sent_at, text) VALUES (?, ?, ?, ?, ?)')
+      .run('hatsugen-200', 'owatta-haishin', '200', new Date(現在時刻 - 45 * 60 * 1000).toISOString(), 'こんばんは')
+    const twitch = Twitchの代役({
+      getChannel: async (_accessToken, userId) => {
+        throw new TwitchApiError(502, `TwitchにユーザーID ${userId} のチャンネルがありません`)
+      },
+    })
+
+    await collectStats({ db, store, twitch, ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+
+    // 失敗の記録は「時刻と種類」で1行なので（migrations/0012_collection_failures_key.sql）、
+    // 人ごとに記録すると後の人が前の人を上書きしてしまう。1行にまとめて両方を残す
+    const 失敗 = await listFailures(db)
+    expect(失敗).toHaveLength(1)
+    expect(失敗[0]?.message).toContain('100')
+    expect(失敗[0]?.message).toContain('200')
+  })
+
   it('記録を消された人のチャンネルは問い合わせない（消えた人のためにTwitchを呼ばない）', async () => {
     const { db, store } = await 環境を作る()
     await 終わった配信と発言を作る(db)

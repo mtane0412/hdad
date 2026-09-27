@@ -242,18 +242,38 @@ type ReadChannel = (userId: string) => Promise<ChannelInfo>
  * 発言の受け口（worker/webhook-routes.ts）では観測しない（Twitchへ2xxを速く返す道に問い合わせを足さない）。
  *
  * 注意: 観測できなくても人物像づくりは止めない。消えたアカウント・改名などで1人ぶん取れないことは起こりうるが、
- * それでその人の人物像が作られないほうが困る。黙って飛ばすのではなく viewer-channel-failed として記録し、
- * 前に観測した値（あれば）はそのまま残す。
+ * それでその人の人物像が作られないほうが困る。黙って飛ばすのではなく、理由を failures へ書き足して
+ * 呼び出し側にまとめて記録させ（recordChannelFailures）、前に観測した値（あれば）はそのまま残す。
  *
+ * @param failures 観測できなかった理由を書き足す配列。ここで直接 recordFailure を呼ばないのは、
+ *   失敗の記録が「時刻と種類」で1行しか持てず（migrations/0012_collection_failures_key.sql）、
+ *   同じ収集で2人目が失敗すると1人目の理由を上書きして消してしまうためである
  * @returns 観測して記録できた内容。観測できなかった場合と、記録のない人（消された直後）では null
  */
-const observeViewerChannel = async (db: Database, readChannel: ReadChannel, userId: string, now: number): Promise<ViewerChannel | null> => {
+const observeViewerChannel = async (
+  db: Database,
+  readChannel: ReadChannel,
+  userId: string,
+  failures: string[],
+  now: number,
+): Promise<ViewerChannel | null> => {
   try {
     return await updateViewerChannel(db, userId, await readChannel(userId), now)
   } catch (error) {
-    await recordFailure(db, 'viewer-channel-failed', error instanceof Error ? error.message : String(error), now)
+    failures.push(`ユーザーID ${userId}: ${error instanceof Error ? error.message : String(error)}`)
     return null
   }
+}
+
+/**
+ * 1回の収集でチャンネルを観測できなかった人の理由を、まとめて1行に記録する。
+ *
+ * 1人ずつ記録すると、同じ収集の2人目が1人目の行を上書きしてしまう（失敗の記録は「時刻と種類」で1行しか
+ * 持てない）。1回に観測するのは SUMMARY_BATCH_SIZE 人までなので、まとめても1行が長くなり過ぎない。
+ */
+const recordChannelFailures = async (db: Database, failures: readonly string[], now: number): Promise<void> => {
+  if (failures.length === 0) return
+  await recordFailure(db, 'viewer-channel-failed', `${failures.length}人ぶん観測できませんでした。${failures.join(' / ')}`, now)
 }
 
 /**
@@ -273,6 +293,8 @@ const observeViewerChannel = async (db: Database, readChannel: ReadChannel, user
  */
 const summarizeViewers = async (db: Database, ai: TextGenerator, readChannel: ReadChannel, now: number): Promise<void> => {
   const targets = await listSummaryTargets(db, SUMMARY_BATCH_SIZE)
+  /** チャンネルを観測できなかった人の理由。1回の収集ぶんをまとめて1行に記録する（recordChannelFailures） */
+  const channelFailures: string[] = []
   for (const target of targets) {
     const viewer = await readViewer(db, target.userId)
     // 記録を消された人（本人から求められて削除した場合）の材料は、LLMもTwitchも呼ばずに捨てる
@@ -282,7 +304,7 @@ const summarizeViewers = async (db: Database, ai: TextGenerator, readChannel: Re
     }
 
     // 観測できた内容はその場で人物像の材料にも渡す（記録だけして次の収集まで待たせない）
-    const channel = await observeViewerChannel(db, readChannel, target.userId, now)
+    const channel = await observeViewerChannel(db, readChannel, target.userId, channelFailures, now)
     const messages = await readViewerMessages(db, target.userId, SUMMARY_MESSAGE_LIMIT)
     let summary: string
     try {
@@ -290,12 +312,15 @@ const summarizeViewers = async (db: Database, ai: TextGenerator, readChannel: Re
     } catch (error) {
       await recordFailure(db, 'viewer-summary-failed', error instanceof Error ? error.message : String(error), now)
       if (error instanceof ViewerSummaryContentError) continue
-      return
+      // 打ち切るときも、ここまでに観測できなかった理由は記録する（return ではなく break にしてある）
+      break
     }
 
     await updateViewerSummary(db, target.userId, summary, now)
     await deleteStreamChatMessages(db, target.userId)
   }
+
+  await recordChannelFailures(db, channelFailures, now)
 }
 
 const collect = async ({ db, store, twitch, ai, broadcasterId, now }: CollectStatsOptions): Promise<void> => {
