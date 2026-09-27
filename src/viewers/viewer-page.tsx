@@ -20,7 +20,7 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { formatDateTime } from '@/stats/summary'
-import type { Viewer, ViewerApi, ViewerQuery } from './api'
+import type { Viewer, ViewerApi, ViewerChannel, ViewerQuery } from './api'
 
 /** 一度に読む件数。これと同じ件数が返ってきたら、まだ続きがあるとみなす */
 const PAGE_SIZE = 50
@@ -31,6 +31,20 @@ const badgeLabels: Record<string, string> = {
   moderator: 'モデレーター',
   vip: 'VIP',
   subscriber: 'サブスク',
+}
+
+/**
+ * 観測したその人自身のチャンネルの内容を、一覧に出す1行にする。
+ *
+ * 「調べたが配信した記録が無い」ことも書くのは、「まだ調べていない」（channel が null なので、この関数は呼ばれない）
+ * と見分けられるようにするためである。配信者が画面で「この人は配信していない」と読み取れるのは、調べた場合だけである。
+ */
+const channelSummary = (channel: ViewerChannel): string => {
+  const 観測した時点 = `${formatDateTime(channel.checkedAt)}時点`
+  if (channel.categoryName === '' && channel.title === '') return `自分では配信していないようです（${観測した時点}）`
+  // カテゴリだけ・タイトルだけが空のこともあるので、あるものだけをつなぐ
+  const 内容 = [channel.categoryName, channel.title === '' ? '' : `「${channel.title}」`].filter((部分) => 部分 !== '').join('')
+  return `自分でも配信: ${内容}（${観測した時点}）`
 }
 
 type Loaded = { status: 'loading' } | { status: 'ready' } | { status: 'failed'; message: string }
@@ -144,6 +158,7 @@ export const ViewerPage = ({ api }: { api: ViewerApi }) => {
                   <p className="text-xs text-muted-foreground">
                     {`${viewer.messageCount}回発言・初回 ${formatDateTime(viewer.firstSeenAt)}・最後 ${formatDateTime(viewer.lastSeenAt)}`}
                   </p>
+                  {viewer.channel !== null && <p className="text-xs text-muted-foreground">{channelSummary(viewer.channel)}</p>}
                   {viewer.summary !== '' && (
                     <p className="rounded-md bg-muted px-3 py-2 text-xs">
                       <span className="text-muted-foreground">

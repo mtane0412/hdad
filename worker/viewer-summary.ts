@@ -17,6 +17,7 @@
  * 人物像は配信者しか見ないうえ、長さの上限で弾けるので実害は小さいが、ここで作った人物像はチャットの文面づくり
  * （ai-chat.ts）の材料にもなる。発言から読み取れないことを書かせない指示を必ず添える。
  */
+import { channelDetail } from './ai-chat'
 import type { TextGenerator } from './llm'
 import type { Viewer } from './viewer-store'
 
@@ -55,6 +56,8 @@ const viewerDetails = (viewer: Viewer): string[] => [
   `これまでのおおよその発言数: ${viewer.messageCount}`,
   `最後に見たバッジ: ${viewer.badges.length === 0 ? 'なし' : viewer.badges.join('・')}`,
   `配信者が書いたメモ: ${viewer.note === '' ? 'なし' : viewer.note}`,
+  // 3通りの区別（未調査・配信した記録が無い・配信している）を書き分けるのは、文面づくりと共通の関数に任せる
+  channelDetail(viewer.channel),
 ]
 
 /**

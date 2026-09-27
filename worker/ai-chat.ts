@@ -17,7 +17,7 @@
 import type { Extracted } from './alert-event'
 import type { TextGenerator } from './llm'
 import type { ConditionState } from './alert-event'
-import type { Viewer } from './viewer-store'
+import type { Viewer, ViewerChannel } from './viewer-store'
 
 /** 作らせる文面の長さの上限（トークン）。500文字に収めるうえで足りる長さにし、長話で Neurons を使わせない */
 const MAX_TOKENS = 300
@@ -99,6 +99,24 @@ const visitDetails = (state: ConditionState): string[] => {
  */
 const NO_STREAM_SUMMARY_MATERIAL = 'まだ作られていません（配信していないか、まだ1度も作られていません）'
 
+/**
+ * 観測した、その人自身のチャンネルの内容を、LLMに読ませる形にする。
+ *
+ * 人物像づくり（viewer-summary.ts）からも同じ文言を使う（そこからこの関数を読み込む）。3通りの区別
+ * （まだ調べていない・調べたが配信した記録が無い・配信している）を2か所で書き分けると食い違い、
+ * 「調べていない人」を「配信していない人」として読ませてしまうためである。
+ *
+ * 注意: 「配信者かどうか」という判断はここで下し、保存している値（viewer-store.ts の ViewerChannel）は
+ * 観測したままの形で持つ。どこから配信者とみなすかを、保存の時点で固定しないためである。
+ */
+export const channelDetail = (channel: ViewerChannel | null): string => {
+  if (channel === null) return 'その人自身のチャンネル: まだ調べていません（配信していないとは限りません）'
+  const observed = [channel.categoryName === '' ? null : `カテゴリ: ${channel.categoryName}`, channel.title === '' ? null : `タイトル: ${channel.title}`]
+  const details = observed.filter((detail): detail is string => detail !== null)
+  if (details.length === 0) return 'その人自身のチャンネル: 配信した記録がありません（自分では配信していないようです）'
+  return `その人自身のチャンネル: この人も配信者です。最後に配信した内容は ${details.join('・')}`
+}
+
 /** その人の記録を、LLMに読ませる形にする。記録のない人では何も書かない */
 const viewerDetails = (viewer: Viewer | null): string[] => {
   if (viewer === null) return ['この人の記録はまだありません']
@@ -110,6 +128,7 @@ const viewerDetails = (viewer: Viewer | null): string[] => {
     `配信者が書いたメモ: ${viewer.note === '' ? 'なし' : viewer.note}`,
     // 人物像は配信が終わったあとにLLMが作ったもの（viewer-summary.ts）で、配信者が書いたメモとは分けて読ませる
     `人物像: ${viewer.summary === '' ? 'なし' : viewer.summary}`,
+    channelDetail(viewer.channel),
   ]
 }
 

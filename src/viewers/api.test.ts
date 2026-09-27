@@ -20,6 +20,7 @@ const 花子 = {
   note: 'ゲームの話をよくする人',
   summary: 'ギターの話をよくする常連さん',
   summarizedAt: '2026-09-21T13:00:00.000Z',
+  channel: { categoryName: 'Cuphead', title: '初見でボスラッシュ', checkedAt: '2026-09-21T13:00:00.000Z' },
 }
 
 /** 送られたリクエストを記録し、決めた応答を返す fetch。body が null なら本文のない応答にする */
@@ -118,6 +119,21 @@ describe('人物像の受け取り', () => {
 
   it('人物像の形が違えば、黙って受け取らずエラーにする', async () => {
     const { fetchImpl } = 応答を返すfetch(200, { viewers: [{ ...花子, summary: 123 }] })
+
+    await expect(createViewerApi(fetchImpl).list({})).rejects.toThrow()
+  })
+})
+
+describe('その人自身のチャンネルの受け取り', () => {
+  it('まだ調べていない人（channel が null）も受け取れる', async () => {
+    const 新顔 = { ...花子, channel: null }
+    const { fetchImpl } = 応答を返すfetch(200, { viewers: [新顔] })
+
+    expect(await createViewerApi(fetchImpl).list({})).toEqual([新顔])
+  })
+
+  it('チャンネルの形が違えば、黙って受け取らずエラーにする（調べていない人と見分けがつかなくなるため）', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { viewers: [{ ...花子, channel: { categoryName: 'Cuphead' } }] })
 
     await expect(createViewerApi(fetchImpl).list({})).rejects.toThrow()
   })

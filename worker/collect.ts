@@ -3,7 +3,8 @@
  *
  * Twitchには過去の視聴者数の推移を返すAPIがなく、取れるのは「いま」の値だけなので、定期的に取得してデータベースへ貯める。
  * 1回の収集で、配信の状態（配信中ならセッションの開始・継続と視聴者数、配信していなければセッションの終了）と、フォロワー数を記録し、
- * あわせて終わった配信の発言から視聴者の人物像を作り、古くなった記録（first_chatters・stream_chat_messages・transcripts）を消す。
+ * あわせて終わった配信の発言から視聴者の人物像を作り（そのついでにその人自身のチャンネルの内容も観測して記録し）、
+ * 古くなった記録（first_chatters・stream_chat_messages・transcripts）を消す。
  *
  * 注意: トークンが無い・更新できない・Twitchが失敗を返したときは、黙って飛ばさない。
  * 失敗をデータベース（collection_failures）に記録したうえでエラーを投げ、cron の実行も失敗として残す（Fail-Fast）。
@@ -25,11 +26,11 @@ import { readStreamSummary, saveStreamSummary } from './stream-summary-store'
 import { generateStreamSummary } from './stream-summary'
 import { deleteOldTranscripts, readRecentTranscripts, readTranscriptsSince } from './transcript-store'
 import { ViewerSummaryContentError, generateViewerSummary } from './viewer-summary'
-import { readViewer, updateViewerSummary } from './viewer-store'
+import { readViewer, updateViewerChannel, updateViewerSummary, type ViewerChannel } from './viewer-store'
 import { closeOpenSessions, recordFailure, recordFollowerTotal, recordLiveStream } from './stats-store'
 import type { KeyValueStore } from './store'
 import { AuthError, getAccessToken } from './token'
-import { TwitchApiError, type LiveStream, type TwitchClient } from './twitch'
+import { TwitchApiError, type ChannelInfo, type LiveStream, type TwitchClient } from './twitch'
 
 const UNAUTHORIZED = 401
 
@@ -98,7 +99,7 @@ export interface CollectStatsOptions {
   store: KeyValueStore
   /** 人物像・あらすじ・サイドスーパーを作らせるLLM（worker/llm.ts。呼び先は設定が決める） */
   ai: TextGenerator
-  twitch: Pick<TwitchClient, 'refresh' | 'getLiveStream' | 'getFollowerTotal'>
+  twitch: Pick<TwitchClient, 'refresh' | 'getLiveStream' | 'getFollowerTotal' | 'getChannel'>
   broadcasterId: string
   /** 現在時刻（ミリ秒） */
   now: number
@@ -231,6 +232,30 @@ const makeSideSuper = async (db: Database, ai: TextGenerator, stream: LiveStream
   await saveSideSuper(db, stream.id, lines, now)
 }
 
+/** その人自身のチャンネルを観測する呼び出し。トークンの取り直しを挟めるよう、Twitchの呼び出しは閉じ込めて渡してもらう */
+type ReadChannel = (userId: string) => Promise<ChannelInfo>
+
+/**
+ * その人自身のチャンネルの内容（最後に配信したカテゴリとタイトル）を観測して記録する（issue #98）。
+ *
+ * 人物像を作る人のぶんだけ呼ぶので、1回の収集で増えるTwitchへの問い合わせは SUMMARY_BATCH_SIZE 件までである。
+ * 発言の受け口（worker/webhook-routes.ts）では観測しない（Twitchへ2xxを速く返す道に問い合わせを足さない）。
+ *
+ * 注意: 観測できなくても人物像づくりは止めない。消えたアカウント・改名などで1人ぶん取れないことは起こりうるが、
+ * それでその人の人物像が作られないほうが困る。黙って飛ばすのではなく viewer-channel-failed として記録し、
+ * 前に観測した値（あれば）はそのまま残す。
+ *
+ * @returns 観測して記録できた内容。観測できなかった場合と、記録のない人（消された直後）では null
+ */
+const observeViewerChannel = async (db: Database, readChannel: ReadChannel, userId: string, now: number): Promise<ViewerChannel | null> => {
+  try {
+    return await updateViewerChannel(db, userId, await readChannel(userId), now)
+  } catch (error) {
+    await recordFailure(db, 'viewer-channel-failed', error instanceof Error ? error.message : String(error), now)
+    return null
+  }
+}
+
 /**
  * 終わった配信の発言から、視聴者の人物像を作る。
  *
@@ -246,20 +271,22 @@ const makeSideSuper = async (db: Database, ai: TextGenerator, stream: LiveStream
  * 注意: この失敗で収集そのものを止めない。LLMが使えない日に、配信の記録（視聴者数・フォロワー数）まで
  * 止まってしまうのを避けるためである。黙って飛ばすのではなく collection_failures に残し、管理画面から気づけるようにする。
  */
-const summarizeViewers = async (db: Database, ai: TextGenerator, now: number): Promise<void> => {
+const summarizeViewers = async (db: Database, ai: TextGenerator, readChannel: ReadChannel, now: number): Promise<void> => {
   const targets = await listSummaryTargets(db, SUMMARY_BATCH_SIZE)
   for (const target of targets) {
     const viewer = await readViewer(db, target.userId)
-    // 記録を消された人（本人から求められて削除した場合）の材料は、LLMを呼ばずに捨てる
+    // 記録を消された人（本人から求められて削除した場合）の材料は、LLMもTwitchも呼ばずに捨てる
     if (viewer === null) {
       await deleteStreamChatMessages(db, target.userId)
       continue
     }
 
+    // 観測できた内容はその場で人物像の材料にも渡す（記録だけして次の収集まで待たせない）
+    const channel = await observeViewerChannel(db, readChannel, target.userId, now)
     const messages = await readViewerMessages(db, target.userId, SUMMARY_MESSAGE_LIMIT)
     let summary: string
     try {
-      summary = await generateViewerSummary(ai, { viewer, messages })
+      summary = await generateViewerSummary(ai, { viewer: channel === null ? viewer : { ...viewer, channel }, messages })
     } catch (error) {
       await recordFailure(db, 'viewer-summary-failed', error instanceof Error ? error.message : String(error), now)
       if (error instanceof ViewerSummaryContentError) continue
@@ -308,7 +335,7 @@ const collect = async ({ db, store, twitch, ai, broadcasterId, now }: CollectSta
     await summarizeStream(db, ai, stream.id, now)
     await makeSideSuper(db, ai, stream, now)
   }
-  await summarizeViewers(db, ai, now)
+  await summarizeViewers(db, ai, (userId) => callTwitch((accessToken) => twitch.getChannel(accessToken, userId)), now)
 }
 
 /**

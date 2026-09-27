@@ -71,6 +71,23 @@ export interface Viewer {
   summary: string
   /** その人物像を作った日時（ISO 8601）。まだ作っていない人では null */
   summarizedAt: string | null
+  /**
+   * 最後に観測した、その人自身のチャンネルの内容（migrations/0015_viewer_channel.sql）。まだ調べていない人では null。
+   *
+   * 「配信者かどうか」という真偽値では持たない。Twitchはその真偽を返さず、観測できるのは
+   * 「最後に配信した内容があるか」だけだからである（判断は使う側に任せる）。
+   */
+  channel: ViewerChannel | null
+}
+
+/** 観測した、その人自身のチャンネルの内容。一度も配信していない人ではカテゴリとタイトルが空文字になる */
+export interface ViewerChannel {
+  /** 最後に配信したカテゴリ（Twitchの game_name）。一度も配信していなければ空文字 */
+  categoryName: string
+  /** 最後の配信のタイトル。一度も配信していなければ空文字 */
+  title: string
+  /** このチャンネルを観測した日時（ISO 8601） */
+  checkedAt: string
 }
 
 /** 一覧の絞り込み */
@@ -90,9 +107,16 @@ export interface ViewerQuery {
   limit?: number
 }
 
-/** データベースから読んだ行。バッジはカンマ区切りの文字列で入っている */
-interface ViewerRow extends Omit<Viewer, 'badges'> {
+/**
+ * データベースから読んだ行。バッジはカンマ区切りの文字列で、チャンネルの内容は3つの列に分かれて入っている
+ * （読み出しのときに readBadges・readChannel が Viewer の形へ直す）。
+ */
+interface ViewerRow extends Omit<Viewer, 'badges' | 'channel'> {
   badges: string
+  lastStreamGame: string
+  lastStreamTitle: string
+  /** まだ調べていない人では null */
+  channelCheckedAt: string | null
 }
 
 /**
@@ -181,6 +205,22 @@ export const readChatHistory = async (db: Database, message: Pick<ViewerMessage,
 const readBadges = (badges: string): string[] => (badges === '' ? [] : badges.split(','))
 
 /**
+ * 3つの列に分かれているチャンネルの内容を、1つの値に組み直す。
+ *
+ * 観測した日時（channel_checked_at）が入っていなければ、まだ調べていない人なので null を返す。
+ * カテゴリとタイトルが空文字でも、日時が入っていれば「調べたが配信した記録が無い」ことを表すので null にはしない。
+ */
+const readChannel = (row: Pick<ViewerRow, 'lastStreamGame' | 'lastStreamTitle' | 'channelCheckedAt'>): ViewerChannel | null =>
+  row.channelCheckedAt === null ? null : { categoryName: row.lastStreamGame, title: row.lastStreamTitle, checkedAt: row.channelCheckedAt }
+
+/** データベースから読んだ行を、呼び出し側へ返す形に直す */
+const toViewer = ({ badges, lastStreamGame, lastStreamTitle, channelCheckedAt, ...rest }: ViewerRow): Viewer => ({
+  ...rest,
+  badges: readBadges(badges),
+  channel: readChannel({ lastStreamGame, lastStreamTitle, channelCheckedAt }),
+})
+
+/**
  * 記録のある人を、最後に発言した順（新しい順）に返す。
  *
  * 件数が多くなるので全件は返さず、`before`（と `beforeUserId`）と `limit` で少しずつ読む。名前での絞り込みを
@@ -215,7 +255,8 @@ export const listViewers = async (db: Database, query: ViewerQuery): Promise<Vie
     .prepare(
       `SELECT user_id AS userId, login, display_name AS displayName, first_seen_at AS firstSeenAt,
               last_seen_at AS lastSeenAt, message_count AS messageCount, last_badges AS badges, note,
-              summary, summarized_at AS summarizedAt
+              summary, summarized_at AS summarizedAt, last_stream_game AS lastStreamGame,
+              last_stream_title AS lastStreamTitle, channel_checked_at AS channelCheckedAt
        FROM viewers
        ${conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''}
        ORDER BY last_seen_at DESC, user_id DESC
@@ -223,7 +264,7 @@ export const listViewers = async (db: Database, query: ViewerQuery): Promise<Vie
     )
     .bind(...values)
     .all<ViewerRow>()
-  return results.map((row) => ({ ...row, badges: readBadges(row.badges) }))
+  return results.map(toViewer)
 }
 
 /**
@@ -239,12 +280,13 @@ export const readViewer = async (db: Database, userId: string): Promise<Viewer |
     .prepare(
       `SELECT user_id AS userId, login, display_name AS displayName, first_seen_at AS firstSeenAt,
               last_seen_at AS lastSeenAt, message_count AS messageCount, last_badges AS badges, note,
-              summary, summarized_at AS summarizedAt
+              summary, summarized_at AS summarizedAt, last_stream_game AS lastStreamGame,
+              last_stream_title AS lastStreamTitle, channel_checked_at AS channelCheckedAt
        FROM viewers WHERE user_id = ?1`,
     )
     .bind(userId)
     .first<ViewerRow>()
-  return row === null ? null : { ...row, badges: readBadges(row.badges) }
+  return row === null ? null : toViewer(row)
 }
 
 /**
@@ -273,6 +315,32 @@ export const updateViewerSummary = async (db: Database, userId: string, summary:
     .bind(userId, summary, toIso(now))
     .first<{ user_id: string }>()
   return updated !== null
+}
+
+/**
+ * 観測した、その人自身のチャンネルの内容を書き換える。
+ *
+ * 人物像づくりと同じ cron（worker/collect.ts の summarizeViewers）が、人物像を作る人のぶんだけ呼ぶ。
+ * 発言の受け口（worker/webhook-routes.ts）からは呼ばない。あの道はTwitchへ2xxを速く返す必要があり、
+ * 発言ごとにTwitchへの問い合わせを増やすことになるためである。
+ *
+ * 配信者が書いたメモ（note）と人物像（summary）は触らない。
+ *
+ * @returns 記録のある人なら、記録した内容（呼び出し側がそのままLLMの材料に使える）。
+ *   記録が無ければ null（記録を消した直後に観測値だけ書き込まないための確認）
+ */
+export const updateViewerChannel = async (
+  db: Database,
+  userId: string,
+  channel: Omit<ViewerChannel, 'checkedAt'>,
+  now: number,
+): Promise<ViewerChannel | null> => {
+  const checkedAt = toIso(now)
+  const updated = await db
+    .prepare('UPDATE viewers SET last_stream_game = ?2, last_stream_title = ?3, channel_checked_at = ?4 WHERE user_id = ?1 RETURNING user_id')
+    .bind(userId, channel.categoryName, channel.title, checkedAt)
+    .first<{ user_id: string }>()
+  return updated === null ? null : { ...channel, checkedAt }
 }
 
 /**

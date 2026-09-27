@@ -8,7 +8,16 @@
  */
 import { describe, expect, it } from 'vitest'
 import { createFakeDatabase } from './fake-database'
-import { deleteViewer, listViewers, readChatHistory, readViewer, recordViewerMessage, updateViewerNote, updateViewerSummary } from './viewer-store'
+import {
+  deleteViewer,
+  listViewers,
+  readChatHistory,
+  readViewer,
+  recordViewerMessage,
+  updateViewerChannel,
+  updateViewerNote,
+  updateViewerSummary,
+} from './viewer-store'
 
 const 現在時刻 = Date.UTC(2026, 8, 21, 12, 0, 0)
 const 一分 = 60 * 1000
@@ -40,6 +49,7 @@ describe('recordViewerMessage', () => {
       note: '',
       summary: '',
       summarizedAt: null,
+      channel: null,
     })
   })
 
@@ -196,6 +206,7 @@ describe('readViewer', () => {
       note: 'ギターの話が好き',
       summary: '',
       summarizedAt: null,
+      channel: null,
     })
   })
 
@@ -383,5 +394,57 @@ describe('updateViewerSummary', () => {
 
   it('記録のない人なら false を返す（記録を消した直後に人物像だけ書き込まないため）', async () => {
     expect(await updateViewerSummary(createFakeDatabase(), '999', '人物像', 現在時刻)).toBe(false)
+  })
+})
+
+describe('updateViewerChannel', () => {
+  it('その人のチャンネルの内容と、観測した日時を記録し、記録した内容を返す', async () => {
+    const db = createFakeDatabase()
+    await recordViewerMessage(db, 発言(), 現在時刻)
+
+    const 観測 = await updateViewerChannel(db, '100', { categoryName: 'Cuphead', title: '初見でボスラッシュ' }, 現在時刻 + 一分)
+
+    expect(観測).toEqual({ categoryName: 'Cuphead', title: '初見でボスラッシュ', checkedAt: '2026-09-21T12:01:00.000Z' })
+    expect(await readViewer(db, '100')).toMatchObject({ channel: 観測 })
+  })
+
+  it('調べたが配信した記録が無い人（空文字）と、まだ調べていない人（null）を区別できる', async () => {
+    const db = createFakeDatabase()
+    await recordViewerMessage(db, 発言(), 現在時刻)
+    await recordViewerMessage(db, 発言({ userId: '200', login: 'taro', displayName: '太郎', messageId: 'chat-message-200' }), 現在時刻)
+
+    await updateViewerChannel(db, '100', { categoryName: '', title: '' }, 現在時刻 + 一分)
+
+    // 調べた人は、カテゴリとタイトルが空文字のまま観測した日時が入る（配信した記録が無いことを表す）
+    expect(await readViewer(db, '100')).toMatchObject({ channel: { categoryName: '', title: '', checkedAt: '2026-09-21T12:01:00.000Z' } })
+    // まだ調べていない人は channel そのものが null になる
+    expect(await readViewer(db, '200')).toMatchObject({ channel: null })
+  })
+
+  it('一覧でもチャンネルの内容を返す（画面に出すため）', async () => {
+    const db = createFakeDatabase()
+    await recordViewerMessage(db, 発言(), 現在時刻)
+    await updateViewerChannel(db, '100', { categoryName: 'Cuphead', title: '初見でボスラッシュ' }, 現在時刻 + 一分)
+
+    const [viewer] = await listViewers(db, {})
+
+    expect(viewer?.channel).toEqual({ categoryName: 'Cuphead', title: '初見でボスラッシュ', checkedAt: '2026-09-21T12:01:00.000Z' })
+  })
+
+  it('配信者が書いたメモと人物像は書き換えない', async () => {
+    const db = createFakeDatabase()
+    await recordViewerMessage(db, 発言(), 現在時刻)
+    await updateViewerNote(db, '100', 'ギターの話が好き')
+    await updateViewerSummary(db, '100', 'ギターの話をよくする常連さん', 現在時刻)
+
+    await updateViewerChannel(db, '100', { categoryName: 'Cuphead', title: '初見でボスラッシュ' }, 現在時刻 + 一分)
+
+    expect(await readViewer(db, '100')).toMatchObject({ note: 'ギターの話が好き', summary: 'ギターの話をよくする常連さん' })
+  })
+
+  it('記録のない人なら null を返す（記録を消した直後に観測値だけ書き込まないため）', async () => {
+    const 結果 = await updateViewerChannel(createFakeDatabase(), '999', { categoryName: 'Cuphead', title: '初見でボスラッシュ' }, 現在時刻)
+
+    expect(結果).toBeNull()
   })
 })
