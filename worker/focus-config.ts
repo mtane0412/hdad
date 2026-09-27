@@ -17,6 +17,8 @@
  * Twitchの照合は大文字小文字を区別しないため、保存の時点で形をそろえておく。
  * 注意: 本文は「文字」としてだけ持ち、エモートの絵は持たない。発言の記録に本文しか残っていないためで、
  * 人に追従するときはIRCから届いた断片（エモートの絵を含む）をそのまま映す。
+ * 注意: 本文の長さは見た目の文字数（コードポイント）で数える。絵文字はUTF-16の単位では2つぶんを占めるため、
+ * 単位のまま数えると上限内の発言まで「長すぎる」と拒んでしまう。
  */
 import { ConfigError } from './alert-config'
 import type { KeyValueStore } from './store'
@@ -55,6 +57,9 @@ export type FocusTarget =
       readonly text: string
     }
 
+/** 見た目の文字数（コードポイント）。絵文字などサロゲートペアの文字を2文字と数えないために使う */
+const countCodePoints = (value: string): number => [...value].length
+
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
 
 /** 取り上げ方の種類。問題点の文面に並べる */
@@ -84,10 +89,21 @@ export const parseFocusTarget = (input: unknown): FocusTarget | null => {
     return ''
   }
 
-  /** 文字の項目を読む。空のものと長すぎるものを拒む */
-  const readText = (name: 'messageId' | 'displayName' | 'text', maxLength: number): string => {
+  /**
+   * 文字の項目を読む。空のものと長すぎるものを拒む。
+   *
+   * @param countLength 長さの数え方。既定は UTF-16 の単位（文字列の length）で、本文だけは
+   *   見た目の文字数（コードポイント）で数える（countCodePoints）。絵文字はサロゲートペアで
+   *   2単位ぶんを占めるので、単位のまま数えると上限内の発言まで拒んでしまう。表示側
+   *   （src/focus/view.ts の bodyLengthOf）も同じ数え方をする
+   */
+  const readText = (
+    name: 'messageId' | 'displayName' | 'text',
+    maxLength: number,
+    countLength: (value: string) => number = (value) => value.length,
+  ): string => {
     const value = target[name]
-    if (typeof value === 'string' && value !== '' && value.length <= maxLength) return value
+    if (typeof value === 'string' && value !== '' && countLength(value) <= maxLength) return value
     problems.push(`${name}: 空でない${maxLength}文字までの文字列で指定してください`)
     return ''
   }
@@ -107,7 +123,7 @@ export const parseFocusTarget = (input: unknown): FocusTarget | null => {
   const messageId = readText('messageId', MAX_MESSAGE_ID_LENGTH)
   const login = readLogin()
   const displayName = readText('displayName', MAX_DISPLAY_NAME_LENGTH)
-  const text = readText('text', MAX_FOCUS_TEXT_LENGTH)
+  const text = readText('text', MAX_FOCUS_TEXT_LENGTH, countCodePoints)
   if (problems.length > 0) throw new ConfigError(SUBJECT, problems)
   return { type, messageId, login, displayName, text }
 }

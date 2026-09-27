@@ -84,6 +84,20 @@ describe('parseFocusTarget', () => {
     expect(問題点({ target: { ...取り上げの指定, text: 長い本文 } })).toEqual([expect.stringContaining('text')])
   })
 
+  it('絵文字を含む本文も、見た目の文字数で数える（サロゲートペアを2文字と数えて、上限内の発言を拒まない）', () => {
+    // 「🎃」は UTF-16 では2単位ぶんを占めるため、単位で数えると上限を超えたと誤って判定される
+    const 上限いっぱいの本文 = '🎃'.repeat(MAX_FOCUS_TEXT_LENGTH)
+
+    expect(parseFocusTarget({ target: { ...取り上げの指定, text: 上限いっぱいの本文 } })).toEqual({
+      ...取り上げの指定,
+      text: 上限いっぱいの本文,
+    })
+  })
+
+  it('絵文字を含む本文でも、見た目の文字数が上限を超えていれば拒否する', () => {
+    expect(問題点({ target: { ...取り上げの指定, text: '🎃'.repeat(MAX_FOCUS_TEXT_LENGTH + 1) } })).toEqual([expect.stringContaining('text')])
+  })
+
   it('取り上げる本文が空なら拒否する（何も映らないものを取り上げさせない）', () => {
     expect(問題点({ target: { ...取り上げの指定, text: '' } })).toEqual([expect.stringContaining('text')])
   })
