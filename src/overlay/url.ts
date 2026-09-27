@@ -25,3 +25,20 @@ export const overlayStageUrl = (origin: string, overlayKey: string, name: string
   if (name === '') throw new Error('オーバーレイの名前が空です')
   return `${origin}${STAGE_PATH}?key=${encodeURIComponent(overlayKey)}&overlay=${encodeURIComponent(name)}`
 }
+
+/**
+ * 管理画面のプレビュー（iframe）に出す、同じ合成ページのURLを組み立てる。
+ *
+ * オーバーレイ用キーを付けないのは、プレビューでは Twitch にも Worker にもつながず、素材の中身をすべて
+ * サンプルにするためである（?demo=true。issue #106 で懸念した「配信中のものに加えてもう1組動く」ことを
+ * 無くす）。映す構成は Worker から読まずに親の窓から受け取るので（preview.ts）、編集中の位置と
+ * パラメータがそのまま映る。
+ *
+ * @param origin このサイトの起点（window.location.origin）
+ * @param name 映すオーバーレイの名前
+ * @throws 名前が空の場合（何も映らないプレビューを開かせない）
+ */
+export const overlayPreviewUrl = (origin: string, name: string): string => {
+  if (name === '') throw new Error('オーバーレイの名前が空です')
+  return `${origin}${STAGE_PATH}?overlay=${encodeURIComponent(name)}&demo=true`
+}

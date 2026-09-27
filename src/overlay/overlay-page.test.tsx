@@ -421,3 +421,103 @@ describe('保存済みの値が読めない素材', () => {
     expect(await 素材の領域('front', '時計（sundial）')).toBeInTheDocument()
   })
 })
+
+describe('プレビュー', () => {
+  /** 枠の幅に合わせた縮小に使う ResizeObserver は jsdom に無いので、何も観測しない代役を置く */
+  class 大きさの観測の代役 {
+    observe(): void {
+      // 縮小の倍率は見た目だけの話なので、テストでは観測しない
+    }
+    unobserve(): void {
+      // 同上
+    }
+    disconnect(): void {
+      // 同上
+    }
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal('ResizeObserver', 大きさの観測の代役)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  /** そのオーバーレイのプレビューを開く（見ているあいだだけ動かすため、既定では閉じている） */
+  const プレビューを開く = async (name: string): Promise<HTMLElement> => {
+    描く(代役のAPI())
+    const 領域 = await オーバーレイの領域(name)
+    await userEvent.click(within(領域).getByRole('button', { name: 'プレビューを見る' }))
+    return 領域
+  }
+
+  test('開くまでは動かさない（配信中のものに加えてもう1組動かさないため）', async () => {
+    描く(代役のAPI())
+
+    expect(within(await オーバーレイの領域('front')).queryByTitle('オーバーレイ「front」のプレビュー')).not.toBeInTheDocument()
+  })
+
+  test('開くと合成ページを出す。素材の中身はサンプルで、オーバーレイ用キーは載せない', async () => {
+    const 領域 = await プレビューを開く('front')
+
+    expect(within(領域).getByTitle('オーバーレイ「front」のプレビュー')).toHaveAttribute(
+      'src',
+      `${window.location.origin}/overlay/stage/?overlay=front&demo=true`,
+    )
+  })
+
+  test('閉じると外す（見ているあいだだけ動かす）', async () => {
+    const 領域 = await プレビューを開く('front')
+
+    await userEvent.click(within(領域).getByRole('button', { name: 'プレビューを閉じる' }))
+
+    expect(within(領域).queryByTitle('オーバーレイ「front」のプレビュー')).not.toBeInTheDocument()
+  })
+
+  test('プレビューが構成を待っていると知らせたら、編集中の構成を渡す（保存しなくても映る）', async () => {
+    await プレビューを開く('front')
+    const 領域 = await 素材を開く('front', '時計（Analog）')
+    await userEvent.clear(within(領域).getByLabelText('幅（％）'))
+    await userEvent.type(within(領域).getByLabelText('幅（％）'), '40')
+
+    const プレビューの窓 = { postMessage: vi.fn() }
+    window.dispatchEvent(
+      new MessageEvent('message', { data: { type: 'hdad-overlay-preview-ready' }, origin: window.location.origin, source: プレビューの窓 as unknown as Window }),
+    )
+
+    expect(プレビューの窓.postMessage).toHaveBeenCalledWith(
+      { type: 'hdad-overlay-preview-layout', overlays: [{ name: 'front', items: [{ ...時計, rect: { ...時計.rect, width: 40 } }] }] },
+      window.location.origin,
+    )
+  })
+
+  test('別のサイトからの知らせには構成を渡さない', async () => {
+    await プレビューを開く('front')
+
+    const よその窓 = { postMessage: vi.fn() }
+    window.dispatchEvent(
+      new MessageEvent('message', { data: { type: 'hdad-overlay-preview-ready' }, origin: 'https://evil.example.com', source: よその窓 as unknown as Window }),
+    )
+
+    expect(よその窓.postMessage).not.toHaveBeenCalled()
+  })
+
+  test('別のオーバーレイのプレビューを開くと、前のプレビューは閉じる（同時に動かすのは1つだけ）', async () => {
+    await プレビューを開く('front')
+
+    const 背面の領域 = await オーバーレイの領域('back')
+    await userEvent.click(within(背面の領域).getByRole('button', { name: 'プレビューを見る' }))
+
+    expect(within(背面の領域).getByTitle('オーバーレイ「back」のプレビュー')).toBeInTheDocument()
+    expect(within(await オーバーレイの領域('front')).queryByTitle('オーバーレイ「front」のプレビュー')).not.toBeInTheDocument()
+  })
+
+  test('位置と大きさを数として読めない素材は映さず、その理由を出す', async () => {
+    const 領域 = await プレビューを開く('front')
+    await 素材を開く('front', '時計（Analog）')
+    await userEvent.clear(within(領域).getByLabelText('幅（％）'))
+
+    expect(within(領域).getByText(/プレビューに出せない素材があります/)).toBeInTheDocument()
+  })
+})
