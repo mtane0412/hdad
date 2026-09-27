@@ -134,6 +134,17 @@ export const showError = (error: unknown, noun: string, box: HTMLElement = docum
 }
 
 /**
+ * 箱に出した失敗の表示を消す。
+ *
+ * 合成ページは同じレイヤーを定期的に読み直すので、一度の失敗の表示を消せないと、
+ * その後の読み出しが成功しても配信中ずっと赤い panel が残ってしまう。
+ * 消すのはその箱に直接置いた表示だけで、ほかのレイヤーの箱には手を出さない。
+ */
+export const clearError = (box: HTMLElement): void => {
+  for (const panel of box.querySelectorAll(':scope > .stage-error')) panel.remove()
+}
+
+/**
  * 素材ごとのページを起動する（canvas をページ全体に広げ、描画ループを回す）。
  *
  * @param target 起動対象（レジストリと data 属性名）

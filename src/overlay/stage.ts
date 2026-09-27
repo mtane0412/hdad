@@ -37,7 +37,7 @@ import type { BadgeRef, ChatMessage } from '../chat/message'
 import { chats } from '../chat/registry'
 import { createChatView } from '../chat/view'
 import { clocks } from '../clock/registry'
-import { findDefinition, showError, startCanvasLayer, type DrawFrame } from '../core/mount'
+import { clearError, findDefinition, showError, startCanvasLayer, type DrawFrame } from '../core/mount'
 import { ParamError, parseParams, type ParamSchema } from '../core/params'
 import { createFocusOverlayApi } from '../focus/api'
 import { NO_FOCUS, withMessage, withRemoval, withTarget, type FocusState } from '../focus/focused'
@@ -325,7 +325,11 @@ const mountSideSuper = (box: HTMLElement, layer: OverlayLayer, key: string): Mou
 
   const view = createSideSuperView(root)
   const api = createSideSuperApi(callWorker, key)
-  const read = async (): Promise<void> => view.setLines(await api.read())
+  const read = async (): Promise<void> => {
+    view.setLines(await api.read())
+    // 前の読み出しの失敗が箱に出ていれば消す（直ったのに赤い表示が残ったままにしない）
+    clearError(box)
+  }
 
   // 1回目は起動の一部として扱い、失敗はこの箱に出す（ほかのレイヤーは動かし続ける）
   void read().catch((error: unknown) => showError(error, NOUNS.sideSuper, box))
@@ -369,7 +373,11 @@ const mountFocus = (box: HTMLElement, layer: OverlayLayer, key: string, hub: Cha
     view.setFocused(state.shown)
   }
 
-  const read = async (): Promise<void> => update(withTarget(state, await api.read()))
+  const read = async (): Promise<void> => {
+    update(withTarget(state, await api.read()))
+    // 前の読み出しの失敗が箱に出ていれば消す（直ったのに赤い表示が残ったままにしない）
+    clearError(box)
+  }
 
   // 1回目は起動の一部として扱い、失敗はこの箱に出す
   void read().catch((error: unknown) => showError(error, NOUNS.focus, box))
