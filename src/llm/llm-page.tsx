@@ -164,10 +164,13 @@ export const LlmPage = ({ api }: LlmPageProps) => {
     }
   }, [api])
 
+  /** 設定を読み終えたか。残高の読み出しの条件に使う（設定そのものを条件にすると、選び直すたびに読み直してしまう） */
+  const settingsLoaded = settings !== undefined
+
   // 残高は鍵が設定されているときだけ読む（鍵が無ければWorkerが断るため）。
-  // 設定を読めるまでは鍵の有無が分からないので、読み終わるまで待つ（settings が入るのは読めたとき）
+  // 設定を読めるまでは鍵の有無が分からないので、読み終わるまで待つ
   useEffect(() => {
-    if (settings === undefined || !apiKeyConfigured) return
+    if (!settingsLoaded || !apiKeyConfigured) return
     let cancelled = false
     api.loadCredits().then(
       (読めた残高) => {
@@ -180,7 +183,7 @@ export const LlmPage = ({ api }: LlmPageProps) => {
     return () => {
       cancelled = true
     }
-  }, [api, apiKeyConfigured, settings])
+  }, [api, apiKeyConfigured, settingsLoaded])
 
   /** いま画面で選ばれている提供元（重なりを除く）。この提供元の候補だけを読む */
   const usedProviders = [...new Set(LLM_USAGES.map((usage) => settings?.usages[usage].provider))].filter(
