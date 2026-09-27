@@ -7,6 +7,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { createAdminApi } from '@/admin/api'
 import { createBotApi } from '@/bot/api'
+import { createFocusApi } from '@/focus/api'
 import { createLlmApi } from '@/llm/api'
 import { createSpeechApi } from '@/speech/api'
 import { createStatsApi } from '@/stats/api'
@@ -24,10 +25,11 @@ const statsApi = createStatsApi(callWorker)
 const botApi = createBotApi(callWorker)
 const viewerApi = createViewerApi(callWorker)
 const speechApi = createSpeechApi(callWorker)
+const focusApi = createFocusApi(callWorker)
 const llmApi = createLlmApi(callWorker)
 
 createRoot(root).render(
   <StrictMode>
-    <App api={api} statsApi={statsApi} botApi={botApi} viewerApi={viewerApi} speechApi={speechApi} llmApi={llmApi} />
+    <App api={api} statsApi={statsApi} botApi={botApi} viewerApi={viewerApi} speechApi={speechApi} focusApi={focusApi} llmApi={llmApi} />
   </StrictMode>,
 )

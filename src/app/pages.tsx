@@ -2,15 +2,17 @@
  * アプリのページの一覧
  *
  * サイドバーの項目と、パスごとに描く中身をここで決める。カテゴリを増やしたらここに足す。
- * ギャラリーの素材ページ（/wallpaper/<id>/ など）と、実ファイルとして配信されるオーバーレイ（alerts/・side-super/overlay/・transcript/relay/・speech/reader/）は、ここには載せない。
+ * ギャラリーの素材ページ（/wallpaper/<id>/ など）と、実ファイルとして配信されるオーバーレイ（alerts/・side-super/overlay/・transcript/relay/・speech/reader/・focus/overlay/）は、ここには載せない。
  */
-import { Bot, BrainCircuit, Captions, Clock, Image, LayoutDashboard, MessageSquare, PanelTop, Upload, Users, Volume2, Zap, type LucideIcon } from 'lucide-react'
+import { Bot, BrainCircuit, Captions, Clock, Image, LayoutDashboard, MessageSquare, PanelTop, Quote, Upload, Users, Volume2, Zap, type LucideIcon } from 'lucide-react'
 import type { AdminApi, Me } from '@/admin/api'
 import { MediaPage } from '@/admin/media-page'
 import { TriggerPage } from '@/admin/trigger-page'
 import type { BotApi } from '@/bot/api'
 import { BotPage } from '@/bot/bot-page'
 import { chats } from '@/chat/registry'
+import type { FocusApi } from '@/focus/api'
+import { FocusPage } from '@/focus/focus-page'
 import { clocks } from '@/clock/registry'
 import { Gallery } from '@/core/gallery/gallery'
 import type { LlmApi } from '@/llm/api'
@@ -36,6 +38,8 @@ export interface PageContext {
   viewerApi: ViewerApi
   /** 読み上げの設定の読み書き（読み上げのページが使う） */
   speechApi: SpeechApi
+  /** 注目コメント（いま取り上げているもの）の読み書き（注目コメントのページが使う） */
+  focusApi: FocusApi
   /** LLMの提供元とモデルの設定の読み書き（LLMのページが使う） */
   llmApi: LlmApi
   me: Me
@@ -62,6 +66,13 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
       { path: '/viewers/', name: '視聴者', icon: Users, render: ({ viewerApi }) => <ViewerPage api={viewerApi} /> },
       { path: '/transcript/', name: '文字起こし', icon: Captions, render: ({ me }) => <TranscriptPage overlayKey={me.overlayKey} /> },
       { path: '/side-super/', name: 'サイドスーパー', icon: PanelTop, render: ({ me }) => <SideSuperPage overlayKey={me.overlayKey} /> },
+      {
+        path: '/focus/',
+        name: '注目コメント',
+        icon: Quote,
+        // 取り上げるものはWorkerに保存されるので、オーバーレイはURLを貼り替えずに切り替わる
+        render: ({ focusApi, me }) => <FocusPage api={focusApi} overlayKey={me.overlayKey} />,
+      },
       {
         path: '/speech/',
         name: '読み上げ',

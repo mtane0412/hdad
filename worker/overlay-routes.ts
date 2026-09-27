@@ -4,6 +4,7 @@
  * どれもTwitchのトークンではなくオーバーレイ用キーで守る。素材だけは、管理画面でのプレビューのために配信者のセッションでも読める。
  */
 import { connectAlertSocket } from './alert-channel'
+import { loadFocusTarget } from './focus-config'
 import { HttpError, STATUS, hasSession, requireOverlayKey, type Context } from './http'
 import { kindOfContentType } from './media'
 import { readCurrentSideSuper } from './side-super-store'
@@ -133,4 +134,19 @@ export const getSideSuper = async (context: Context): Promise<Response> => {
 export const getSpeech = async (context: Context): Promise<Response> => {
   await requireOverlayKey(context)
   return Response.json(await loadSpeechSettings(context.env.STORE))
+}
+
+/**
+ * GET /api/overlay/focus: いま取り上げている注目コメントを返す。
+ *
+ * OBSのブラウザソースに置いたオーバーレイ（focus/overlay/）が定期的に読みに来る（サイドスーパーと同じ
+ * ポーリング。押し出しを使うほどの即時性は要らない）。取り上げていなければ target は null で、
+ * オーバーレイは何も映さない。
+ *
+ * 人に追従する指定（type: 'viewer'）ではログイン名だけを返し、映す発言そのものはオーバーレイが
+ * 匿名IRCから受け取る。取り上げる指定（type: 'message'）では本文もここから渡す。
+ */
+export const getFocus = async (context: Context): Promise<Response> => {
+  await requireOverlayKey(context)
+  return Response.json({ target: await loadFocusTarget(context.env.STORE) })
 }
