@@ -248,12 +248,21 @@ https://hdad.<サブドメイン>.workers.dev/side-super/overlay/?key=<オーバ
 ```bash
 npm install
 npm run dev         # 開発サーバー（Workerも一緒に動く。http://localhost:5173/）
+npm run dev:op      # シークレットを 1Password から渡して開発サーバーを起動する（下記）
 npm run lint        # Lint（警告ゼロ必須）
 npm run type-check  # 型チェック
 npm test            # テスト
 npm run build       # dist/ へビルド（静的アセットは dist/client/、Workerとデプロイ用の設定は dist/hdad/）
 npm run preview:worker  # ビルドして、Workersと同じ配信挙動をローカルで確認（wrangler dev）
 ```
+
+#### シークレットを 1Password から渡す（任意）
+
+`.dev.vars` を置かずに開発したい場合は、`npm run dev:op` を使います。`.dev.vars.op.example` を `.dev.vars.op` にコピーし、`op://<保管庫>/<項目>/<フィールド>` の参照を自分の 1Password に合わせて書き換えてください（`.dev.vars.op` は `.gitignore` 済みです）。
+
+仕組みは「`op run` が参照を解決してプロセスの環境変数に入れ、wrangler がそれを Worker の vars として読む」というもので、後半は `CLOUDFLARE_INCLUDE_PROCESS_ENV=true`（テンプレートに書いてあります）で有効になります。**`.dev.vars` が実ファイルとして在るときはそちらが優先される**ので、ふだんの `npm run dev` の手順は変わりません。
+
+**`.dev.vars` を名前付きパイプ（1Password Environments が作るもの）にはできません。** `@cloudflare/vite-plugin` は Worker の環境を組み立てるたびに `.dev.vars` を読み直しますが、パイプは流された内容を一度しか渡せないため、2回目以降の読み出しで `socket hang up (ECONNRESET)` になる（書き手がいなければ起動したまま止まる）ためです。
 
 ### 壁紙の背景を追加する
 

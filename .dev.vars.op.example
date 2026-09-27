@@ -1,0 +1,24 @@
+# 1Password から開発サーバーへシークレットを渡すためのテンプレートの見本
+#
+# 使い方: このファイルを .dev.vars.op にコピーして参照を書き換え、npm run dev:op で起動する
+# （op run が .dev.vars.op を読み、op:// の参照を解決してから vite を起動します）
+#
+# ⚠ <保管庫> と <項目> は自分の 1Password に合わせて書き換えてください。
+#   参照の書き方は op://<保管庫>/<項目>/<フィールド> です（op read "op://dev/hdad/TWITCH_CLIENT_ID" で確かめられます）。
+#
+# ⚠ このやり方では .dev.vars を置きません（置くと wrangler がそちらを優先します）。
+#   1Password Environments が .dev.vars に名前付きパイプを作る設定になっていれば、出力先を変えるか無効にしてください
+#   （パイプは一度しか読めないので、.dev.vars を何度も読む @cloudflare/vite-plugin では起動に失敗します）。
+
+# wrangler に「.dev.vars が無ければプロセスの環境変数を Worker の vars として使う」と伝える。
+# これは秘密ではないので、値をそのまま書く（このおかげで npm のスクリプトはOSに依らない形で書ける）
+CLOUDFLARE_INCLUDE_PROCESS_ENV=true
+
+TWITCH_CLIENT_ID=op://<保管庫>/<項目>/TWITCH_CLIENT_ID
+TWITCH_CLIENT_SECRET=op://<保管庫>/<項目>/TWITCH_CLIENT_SECRET
+TWITCH_BROADCASTER_ID=op://<保管庫>/<項目>/TWITCH_BROADCASTER_ID
+SESSION_SECRET=op://<保管庫>/<項目>/SESSION_SECRET
+EVENTSUB_SECRET=op://<保管庫>/<項目>/EVENTSUB_SECRET
+
+# OpenRouter を使うときだけ（/llm/ で提供元に OpenRouter を選んだ箇所がある場合）
+# OPENROUTER_API_KEY=op://<保管庫>/<項目>/OPENROUTER_API_KEY

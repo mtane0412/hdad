@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:op": "op run --env-file=.dev.vars.op -- npm run dev",
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint . --max-warnings 0",
