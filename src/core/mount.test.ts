@@ -7,6 +7,8 @@
  *   決まるため、端数や、まだ大きさが測れていない（0）場合の扱いを確かめる
  * - 失敗の表示は置かれた箱の中だけに出し、直ったら消せること（合成ページでは同じレイヤーを
  *   定期的に読み直すので、消せないと一度の失敗が配信中ずっと残ってしまう）
+ * - 消すのは同じ出どころの表示だけであること（1つの箱には、読み出しの失敗とチャットの接続の失敗が
+ *   同時に出うる。読み出しが直ったからといって、まだ直っていないチャットの表示まで消してはいけない）
  */
 import { describe, expect, it } from 'vitest'
 import { canvasPixels, clearError, showError } from './mount'
@@ -44,28 +46,40 @@ describe('showError・clearError', () => {
     expect(panel?.getAttribute('role')).toBe('alert')
   })
 
-  it('直ったら箱の中の表示を消せる（読み直しが成功したときに使う）', () => {
+  it('直ったら、同じ出どころの表示を消せる（読み直しが成功したときに使う）', () => {
     const box = 箱を作る()
-    showError(new Error('読み込めませんでした'), 'サイドスーパー', box)
+    showError(new Error('読み込めませんでした'), 'サイドスーパー', box, 'read')
 
-    clearError(box)
+    clearError(box, 'read')
 
     expect(box.querySelector('.stage-error')).toBeNull()
+  })
+
+  it('出どころが違う表示は消さない（読み出しが直っても、チャットの接続の失敗は残す）', () => {
+    const box = 箱を作る()
+    showError(new Error('読み込めませんでした'), '注目コメント', box, 'read')
+    showError(new Error('Workerの応答に login がありません'), 'チャットボックス', box, 'chat')
+
+    clearError(box, 'read')
+
+    const 残った = box.querySelectorAll('.stage-error')
+    expect(残った).toHaveLength(1)
+    expect(残った[0]?.textContent).toContain('login がありません')
   })
 
   it('表示が出ていない箱に対しても、何も壊さない', () => {
     const box = 箱を作る()
 
-    expect(() => clearError(box)).not.toThrow()
+    expect(() => clearError(box, 'read')).not.toThrow()
   })
 
   it('ほかの箱に出ている表示は消さない（レイヤーごとに独立して扱う）', () => {
     const 直る箱 = 箱を作る()
     const 壊れたままの箱 = 箱を作る()
-    showError(new Error('読み込めませんでした'), 'サイドスーパー', 直る箱)
-    showError(new Error('キーが違います'), '注目コメント', 壊れたままの箱)
+    showError(new Error('読み込めませんでした'), 'サイドスーパー', 直る箱, 'read')
+    showError(new Error('キーが違います'), '注目コメント', 壊れたままの箱, 'read')
 
-    clearError(直る箱)
+    clearError(直る箱, 'read')
 
     expect(壊れたままの箱.querySelector('.stage-error')).not.toBeNull()
   })

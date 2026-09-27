@@ -327,12 +327,13 @@ const mountSideSuper = (box: HTMLElement, layer: OverlayLayer, key: string): Mou
   const api = createSideSuperApi(callWorker, key)
   const read = async (): Promise<void> => {
     view.setLines(await api.read())
-    // 前の読み出しの失敗が箱に出ていれば消す（直ったのに赤い表示が残ったままにしない）
-    clearError(box)
+    // 前の読み出しの失敗が箱に出ていれば消す（直ったのに赤い表示が残ったままにしない）。
+    // 消すのは読み出しの失敗だけで、チャットの接続の失敗は読み直しでは直らないので残す
+    clearError(box, 'read')
   }
 
   // 1回目は起動の一部として扱い、失敗はこの箱に出す（ほかのレイヤーは動かし続ける）
-  void read().catch((error: unknown) => showError(error, NOUNS.sideSuper, box))
+  void read().catch((error: unknown) => showError(error, NOUNS.sideSuper, box, 'read'))
 
   return {
     task: {
@@ -375,12 +376,13 @@ const mountFocus = (box: HTMLElement, layer: OverlayLayer, key: string, hub: Cha
 
   const read = async (): Promise<void> => {
     update(withTarget(state, await api.read()))
-    // 前の読み出しの失敗が箱に出ていれば消す（直ったのに赤い表示が残ったままにしない）
-    clearError(box)
+    // 前の読み出しの失敗が箱に出ていれば消す（直ったのに赤い表示が残ったままにしない）。
+    // 消すのは読み出しの失敗だけで、チャットの接続の失敗は読み直しでは直らないので残す
+    clearError(box, 'read')
   }
 
   // 1回目は起動の一部として扱い、失敗はこの箱に出す
-  void read().catch((error: unknown) => showError(error, NOUNS.focus, box))
+  void read().catch((error: unknown) => showError(error, NOUNS.focus, box, 'read'))
 
   // 要るものを伝えないのは、公式バッジもサードパーティエモートも使わないためである
   // （Cheermote は絵で出したいが、これは接続のときに必ず読み込まれる）
@@ -524,7 +526,7 @@ const start = async (): Promise<void> => {
   if (chatBoxes.length > 0) {
     await hub.start().catch((error: unknown) => {
       // チャンネル名が読めないと発言が届かないので、チャットを使うレイヤーそれぞれに理由を出す
-      for (const box of chatBoxes) showError(error, NOUNS.chat, box)
+      for (const box of chatBoxes) showError(error, NOUNS.chat, box, 'chat')
     })
   }
 }

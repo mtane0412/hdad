@@ -113,6 +113,21 @@ export const startCanvasLayer = (
 }
 
 /**
+ * 失敗の表示の出どころ。
+ *
+ * 1つのレイヤーの箱には、別々の理由の表示が同時に出うる（合成ページの注目コメントは、取り上げているものの
+ * 読み出しとチャットの接続の両方を使う）。直ったものだけを消せるように、表示に出どころを添えておく。
+ *
+ * - layer: レイヤーの起動・描画の失敗。人が直すまで消えない
+ * - read: 定期的に読み直すものの失敗。次の読み出しが成功したら消す
+ * - chat: チャットの接続の失敗。読み直しでは直らないので、読み出しの成功では消さない
+ */
+export type ErrorSource = 'layer' | 'read' | 'chat'
+
+/** 出どころを持たせる data 属性の名前（dataset のキー） */
+const ERROR_SOURCE_KEY = 'errorSource'
+
+/**
  * 起動に失敗した原因を画面に表示する（OBS上ではコンソールを見られないため）。
  *
  * canvas を使わない素材（チャットボックス・アラートなど）の起動処理からも使う。
@@ -120,8 +135,14 @@ export const startCanvasLayer = (
  * @param box 表示先。既定はページ全体（body）で、合成ページはそのレイヤーの箱を渡す。
  *   1つのレイヤーの失敗で配信画面のその段全体を赤く染めないためで、同じ段のほかのレイヤーは
  *   動かし続ける（issue #101 で決めた、Fail-Fast に意識して設けた例外）
+ * @param source 失敗の出どころ。既定は人が直すまで消さないもの（layer）
  */
-export const showError = (error: unknown, noun: string, box: HTMLElement = document.body): void => {
+export const showError = (
+  error: unknown,
+  noun: string,
+  box: HTMLElement = document.body,
+  source: ErrorSource = 'layer',
+): void => {
   const lines =
     error instanceof ParamError
       ? ['URLパラメータに問題があります', ...error.problems]
@@ -129,19 +150,22 @@ export const showError = (error: unknown, noun: string, box: HTMLElement = docum
   const panel = document.createElement('pre')
   panel.className = 'stage-error'
   panel.setAttribute('role', 'alert')
+  panel.dataset[ERROR_SOURCE_KEY] = source
   panel.textContent = lines.join('\n')
   box.append(panel)
 }
 
 /**
- * 箱に出した失敗の表示を消す。
+ * 箱に出した失敗の表示のうち、同じ出どころのものを消す。
  *
  * 合成ページは同じレイヤーを定期的に読み直すので、一度の失敗の表示を消せないと、
  * その後の読み出しが成功しても配信中ずっと赤い panel が残ってしまう。
- * 消すのはその箱に直接置いた表示だけで、ほかのレイヤーの箱には手を出さない。
+ * 消すのはその箱に直接置いた、指定した出どころの表示だけである。ほかのレイヤーの箱にも、
+ * 同じ箱に出ている別の理由の表示にも手を出さない（読み出しが直っても、まだ直っていない
+ * チャットの接続の失敗は残す）。
  */
-export const clearError = (box: HTMLElement): void => {
-  for (const panel of box.querySelectorAll(':scope > .stage-error')) panel.remove()
+export const clearError = (box: HTMLElement, source: ErrorSource): void => {
+  for (const panel of box.querySelectorAll(`:scope > .stage-error[data-error-source="${source}"]`)) panel.remove()
 }
 
 /**
