@@ -19,12 +19,29 @@
 import '@testing-library/jest-dom/vitest'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { ApiError } from '@/core/api'
 import { LlmPage } from './llm-page'
 import type { LlmApi, LlmCredits, LlmModelOption, LlmProvider, LlmSettings, LlmState, LlmUsageDay } from './api'
 
 afterEach(cleanup)
+
+/**
+ * 「今」として使う時刻（UTC）。
+ *
+ * 画面は描くときに Date.now() からUTCの今日を決めるので、テストが行に入れる日付と食い違わないよう時刻を固定する
+ * （実時計のままだと、UTCの日付が変わる瞬間に描いた場合だけ落ちる）。時計だけを差し替え、待ち合わせ（waitFor・
+ * userEvent）が使うタイマーは本物のままにする。
+ */
+const 固定した現在時刻 = new Date('2026-03-15T12:00:00.000Z')
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'], now: 固定した現在時刻 })
+})
+
+afterEach(() => {
+  vi.useRealTimers()
+})
 
 /** 短い文を作る3か所の既定のモデル */
 const 軽いモデル = { 'workers-ai': '@cf/meta/llama-3.1-8b-instruct-fp8', openrouter: 'meta-llama/llama-3.1-8b-instruct' }
@@ -54,9 +71,9 @@ const 候補: Readonly<Record<LlmProvider, LlmModelOption[]>> = {
   ],
 }
 
-/** UTCの今日と6日前（使用状況の行に使う。画面は「今日」「直近7日」に分けて数える） */
-const 今日 = new Date().toISOString().slice(0, 10)
-const 六日前 = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+/** 固定した現在時刻から見たUTCの今日と6日前（使用状況の行に使う。画面は「今日」「直近7日」に分けて数える） */
+const 今日 = 固定した現在時刻.toISOString().slice(0, 10)
+const 六日前 = new Date(固定した現在時刻.getTime() - 6 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
 /** 使用状況の1行を作る（書いていない項目は 0） */
 const 使用状況の行 = (day: string, usage: string, 足す: Partial<LlmUsageDay> = {}): LlmUsageDay => ({

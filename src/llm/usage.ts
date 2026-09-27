@@ -8,24 +8,15 @@
  * 区切ると「今日はどれだけ使ったか」が無料枠の区切りとずれる（画面にもUTCで数えていることを書く）。
  * 注意: 提供元・モデルが違う行も、箇所ごとに足し合わせる。日の途中でモデルを変えても、その箇所の合計は読める。
  * 注意: 知らない箇所（Workerに箇所が増えたとき）の行は無視する。画面が知っている4か所だけを並べる。
+ * 注意: 日ごとの行の型（LlmUsageDay）は、Workerの応答を読む api.ts が持つものをそのまま使う（同じ形を二重に書かない）。
+ * まとめだけを使う側のために、ここからも再び出しておく。
  */
-import { LLM_USAGES, type LlmUsage } from './api'
+import { LLM_USAGES, type LlmUsage, type LlmUsageDay } from './api'
+
+export type { LlmUsageDay }
 
 /** 直近としてまとめる日数（今日を含む） */
 const WEEK_DAYS = 7
-
-/** Workerが返す日ごとの1行。worker/llm-usage-store.ts の LlmUsageRow と合わせる */
-export interface LlmUsageDay {
-  day: string
-  usage: string
-  provider: string
-  model: string
-  calls: number
-  failures: number
-  promptTokens: number
-  completionTokens: number
-  costUsd: number
-}
 
 /** 足し合わせた数 */
 export interface LlmUsageTotals {
