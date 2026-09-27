@@ -13,6 +13,7 @@
  * - きっかけを既定メニューから選んでトリガーを足せること（イベント種別と条件は画面から組み立てない）
  * - メニュー項目が要求するパラメータ（報酬・ユーザー名・言葉・日数・広告の絞り込み）を書き換えられること
  * - トリガーを足し、入力欄の値をWorkerへ送る形にして保存できること
+ * - 文言の欄ごとに差し込み語のボタンが並び、押すとカーソルの位置に入ること（置き換わらない語は出さない）
  * - 素材は一覧から選ぶだけで、ここでは足せないこと（アップロードのページへ案内する）
  * - 失敗は黙って無視せず、理由を出すこと（報酬の一覧だけ取れないときは、画面は出したまま理由を出す）
  */
@@ -404,12 +405,63 @@ describe('効果の付け外し', () => {
     expect(row.queryByLabelText('アナウンスの文言')).not.toBeInTheDocument()
   })
 
-  test('チャットの発言をきっかけにする項目では、差し込み語に {message} を出す', async () => {
+  test('チャットの発言をきっかけにする項目では、差し込み語のボタンに {message} を出す', async () => {
     render(トリガーのページ(代役のAPI()))
 
     const row = await 開いた項目('すべての発言')
+    await userEvent.click(row.getByRole('checkbox', { name: 'チャットに送る' }))
 
-    expect(row.getByText(/\{user\}/)).toHaveTextContent('{message}')
+    expect(row.getByRole('button', { name: 'チャットに送る文言に {message} を挿入' })).toBeInTheDocument()
+  })
+
+  test('フォローのように発言を伴わない項目では、{message} のボタンを出さない（置き換わらない語を押させない）', async () => {
+    render(トリガーのページ(代役のAPI()))
+
+    const row = await 開いた項目('フォローされた')
+    await userEvent.click(row.getByRole('checkbox', { name: 'チャットに送る' }))
+
+    expect(row.queryByRole('button', { name: 'チャットに送る文言に {message} を挿入' })).not.toBeInTheDocument()
+    expect(row.getByRole('button', { name: 'チャットに送る文言に {user} を挿入' })).toBeInTheDocument()
+  })
+
+  test('差し込み語のボタンを押すと、カーソルの位置に語が入り、その後ろにカーソルが移る', async () => {
+    render(トリガーのページ(代役のAPI()))
+
+    const row = await 開いた項目('フォローされた')
+    await userEvent.click(row.getByRole('checkbox', { name: 'チャットに送る' }))
+    const 文言の入力欄 = row.getByLabelText<HTMLInputElement>('チャットに送る文言')
+    await userEvent.type(文言の入力欄, 'ありがとう')
+    await userEvent.click(row.getByRole('button', { name: 'チャットに送る文言に {user} を挿入' }))
+
+    expect(文言の入力欄).toHaveValue('ありがとう{user}')
+    expect(文言の入力欄.selectionStart).toBe('ありがとう{user}'.length)
+  })
+
+  test('文の途中にカーソルがあれば、その位置に差し込み語を入れる', async () => {
+    render(トリガーのページ(代役のAPI()))
+
+    const row = await 開いた項目('フォローされた')
+    await userEvent.click(row.getByRole('checkbox', { name: 'チャットに送る' }))
+    const 文言の入力欄 = row.getByLabelText<HTMLInputElement>('チャットに送る文言')
+    await userEvent.type(文言の入力欄, 'ありがとう')
+    文言の入力欄.setSelectionRange(0, 0)
+    await userEvent.click(row.getByRole('button', { name: 'チャットに送る文言に {user} を挿入' }))
+
+    expect(文言の入力欄).toHaveValue('{user}ありがとう')
+    expect(文言の入力欄.selectionStart).toBe('{user}'.length)
+  })
+
+  test('アラートの文言とアナウンスの文言にも、それぞれの欄へ差し込み語を入れられる', async () => {
+    render(トリガーのページ(代役のAPI()))
+
+    const row = await 開いた項目('レイドされた')
+    await userEvent.click(row.getByRole('checkbox', { name: 'アラートを出す' }))
+    await userEvent.click(row.getByRole('checkbox', { name: 'アナウンスを送る' }))
+    await userEvent.click(row.getByRole('button', { name: '文言（空欄なら出さない）に {viewers} を挿入' }))
+    await userEvent.click(row.getByRole('button', { name: 'アナウンスの文言に {user} を挿入' }))
+
+    expect(row.getByLabelText('文言（空欄なら出さない）')).toHaveValue('{viewers}')
+    expect(row.getByLabelText('アナウンスの文言')).toHaveValue('{user}')
   })
 })
 
