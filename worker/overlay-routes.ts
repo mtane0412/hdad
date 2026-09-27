@@ -7,6 +7,7 @@ import { connectAlertSocket } from './alert-channel'
 import { loadFocusTarget } from './focus-config'
 import { HttpError, STATUS, hasSession, requireOverlayKey, type Context } from './http'
 import { kindOfContentType } from './media'
+import { loadOverlayLayout } from './overlay-layout'
 import { readCurrentSideSuper } from './side-super-store'
 import { loadSpeechSettings } from './speech-config'
 import { recordTranscript } from './transcript-store'
@@ -149,4 +150,18 @@ export const getSpeech = async (context: Context): Promise<Response> => {
 export const getFocus = async (context: Context): Promise<Response> => {
   await requireOverlayKey(context)
   return Response.json({ target: await loadFocusTarget(context.env.STORE) })
+}
+
+/**
+ * GET /api/overlay/layout: 合成オーバーレイの構成（どの段にどの素材をどこへ置くか）を返す。
+ *
+ * OBSのブラウザソースに置いた合成ページ（overlay/index.html）が起動のときに読む。段の絞り込み
+ * （?group=）はページ側が行うので、ここは保存されている構成をそのまま返す。
+ *
+ * 注意: 素材のパラメータはクエリ文字列のまま返す。解析するのはページ側（src/core/params.ts）で、
+ * Worker は素材のスキーマを知らない。
+ */
+export const getLayout = async (context: Context): Promise<Response> => {
+  await requireOverlayKey(context)
+  return Response.json(await loadOverlayLayout(context.env.STORE))
 }

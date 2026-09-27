@@ -3,12 +3,13 @@
  *
  * 配信者のセッションが必要。アラートの設定の取得と保存、素材の一覧・アップロード・削除、オーバーレイ用キーの再発行、
  * トリガーの設定で選ぶチャンネルポイント報酬の一覧、チャットの読み上げの設定の取得と保存、
- * LLMの設定とその使用状況を受け持つ。
+ * 合成オーバーレイの構成（どの段にどの素材を置くか）の取得と保存、LLMの設定とその使用状況を受け持つ。
  */
 import { alertActionOf, loadAlertConfig, parseAlertConfig, saveAlertConfig } from './alert-config'
 import { HttpError, STATUS, requireAdmin, type Context } from './http'
 import { listMedia, uploadMedia } from './media'
 import { rotateOverlayKey } from './overlay-key'
+import { loadOverlayLayout, parseOverlayLayout, saveOverlayLayout } from './overlay-layout'
 import { LLM_PROVIDERS, loadLlmSettings, parseLlmSettings, saveLlmSettings, type LlmProvider } from './llm-config'
 import { readOpenRouterCredits } from './llm-credits'
 import { listLlmModels } from './llm-models'
@@ -108,6 +109,35 @@ export const putSpeech = async (context: Context): Promise<Response> => {
   const settings = parseSpeechSettings(body)
   await saveSpeechSettings(context.env.STORE, settings)
   return Response.json(settings)
+}
+
+/**
+ * GET /api/admin/overlay/layout: 合成オーバーレイの構成。未保存ならレイヤーが1件もない構成が返る。
+ *
+ * 合成ページ側の読み出しは overlay-routes.ts にある（守り方がセッションではなくオーバーレイ用キーなので、
+ * 置き場所も分けてある。注目コメントと同じ）。
+ */
+export const getOverlayLayout = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  return Response.json(await loadOverlayLayout(context.env.STORE))
+}
+
+/**
+ * PUT /api/admin/overlay/layout: 合成オーバーレイの構成を検証して保存する。
+ *
+ * 素材のパラメータはクエリ文字列のまま預かり、中身は検証しない（素材のスキーマは src/ にあり、
+ * Worker からは読み込めない。worker/overlay-layout.ts）。
+ *
+ * @throws ConfigError 構成に問題がある場合（index.ts が問題点付きの400にする）
+ */
+export const putOverlayLayout = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  const body: unknown = await context.request.json().catch(() => {
+    throw new HttpError(STATUS.badRequest, 'invalid-body', '本文はJSONにしてください')
+  })
+  const layout = parseOverlayLayout(body)
+  await saveOverlayLayout(context.env.STORE, layout)
+  return Response.json(layout)
 }
 
 /**

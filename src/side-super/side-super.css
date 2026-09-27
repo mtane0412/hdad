@@ -16,7 +16,8 @@
  * テロップ全体は配信画面のおよそ4割・高さ約100pxに収まる。
  */
 .side-super {
-  position: fixed;
+  /* 位置は画面ではなく置かれた箱を基準にする（合成ページのレイヤーの箱に入れるため。issue #101） */
+  position: absolute;
   top: 28px;
   left: 28px;
   display: flex;

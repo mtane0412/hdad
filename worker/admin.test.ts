@@ -815,3 +815,75 @@ describe('選べるモデルの一覧（/api/admin/llm/models）', () => {
     expect(await エラーコード(response)).toBe('invalid-provider')
   })
 })
+
+describe('オーバーレイの構成（/api/admin/overlay/layout・/api/overlay/layout）', () => {
+  /** 配信者が組み立てた構成。背面に壁紙、前面に時計とアラートを重ねたもの */
+  const 配信者の構成 = {
+    layers: [
+      { kind: 'wallpaper', id: 'aurora', params: 'speed=2', group: 'back', rect: { x: 0, y: 0, width: 100, height: 100 } },
+      { kind: 'clock', id: 'analog', params: '', group: 'front', rect: { x: 78, y: 70, width: 20, height: 26 } },
+      { kind: 'alerts', id: '', params: '', group: 'front', rect: { x: 0, y: 0, width: 100, height: 100 } },
+    ],
+  }
+
+  const 保存する = async (env: Env, layout: unknown) =>
+    呼び出す(
+      await 配信者のリクエスト(env, '/api/admin/overlay/layout', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(layout),
+      }),
+      env,
+    )
+
+  const 合成ページが読む = (env: Env, key = 発行済みのキー) => 呼び出す(new Request(`${サイト}/api/overlay/layout?key=${key}`), env)
+
+  it('セッションがなければ、取得も保存も401を返す', async () => {
+    const { env } = 環境を作る()
+
+    expect((await 呼び出す(new Request(`${サイト}/api/admin/overlay/layout`), env)).status).toBe(401)
+    expect((await 呼び出す(new Request(`${サイト}/api/admin/overlay/layout`, { method: 'PUT', body: '{}' }), env)).status).toBe(401)
+  })
+
+  it('保存した構成を、管理画面からも合成ページからも読める', async () => {
+    const { env } = 環境を作る()
+
+    expect((await 保存する(env, 配信者の構成)).status).toBe(200)
+
+    expect(await (await 呼び出す(await 配信者のリクエスト(env, '/api/admin/overlay/layout'), env)).json()).toEqual(配信者の構成)
+    expect(await (await 合成ページが読む(env)).json()).toEqual(配信者の構成)
+  })
+
+  it('まだ保存していなければ、レイヤーが1件もない構成を返す', async () => {
+    const { env } = 環境を作る()
+
+    const response = await 合成ページが読む(env)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ layers: [] })
+  })
+
+  it('形に問題があれば400で拒み、問題点をすべて返す（画面で一度に直せるようにする）', async () => {
+    const { env } = 環境を作る()
+
+    const response = await 保存する(env, {
+      layers: [
+        { kind: 'wallpaper', id: '', params: '', group: 'back', rect: { x: 0, y: 0, width: 100, height: 100 } },
+        { kind: 'clock', id: 'analog', params: '', group: '前面', rect: { x: 0, y: 0, width: 100, height: 100 } },
+      ],
+    })
+
+    expect(response.status).toBe(400)
+    const body = (await response.json()) as { error: { problems: string[] } }
+    expect(body.error.problems).toHaveLength(2)
+  })
+
+  it('合成ページのキーが違えば401を返す', async () => {
+    const { env } = 環境を作る()
+
+    const response = await 合成ページが読む(env, 'atezuppou')
+
+    expect(response.status).toBe(401)
+    expect(await エラーコード(response)).toBe('invalid-overlay-key')
+  })
+})

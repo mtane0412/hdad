@@ -26,6 +26,7 @@
  * | GET  /api/admin/llm/usage        | セッション     | LLMを呼んだ回数・トークン数・実費の日ごとのまとめ |
  * | GET  /api/admin/llm/credits      | セッション     | OpenRouter の残高 |
  * | GET・PUT /api/admin/speech       | セッション     | チャットの読み上げの設定の取得・保存 |
+ * | GET・PUT /api/admin/overlay/layout | セッション   | 合成オーバーレイの構成（段とレイヤー）の取得・保存 |
  * | GET・PUT /api/admin/focus        | セッション     | 注目コメント（いま取り上げているもの）の取得・保存 |
  * | GET  /api/admin/focus/messages   | セッション     | 取り上げる発言を選ぶための、直近の発言の一覧 |
  * | GET  /api/admin/viewers          | セッション     | 視聴者の記録の一覧（検索・ページ送り） |
@@ -41,6 +42,7 @@
  * | DELETE /api/overlay/transcript/:messageId | オーバーレイ用キー | 記録済みの発話を取り消す |
  * | GET  /api/overlay/side-super    | オーバーレイ用キー | いま出すサイドスーパーの文言を返す |
  * | GET  /api/overlay/speech         | オーバーレイ用キー | チャットの読み上げの設定を返す |
+ * | GET  /api/overlay/layout         | オーバーレイ用キー | 合成オーバーレイの構成を返す（合成ページから） |
  * | GET  /api/overlay/focus          | オーバーレイ用キー | いま取り上げている注目コメントを返す |
  * | GET  /api/media/:id              | オーバーレイ用キーかセッション | 素材の中身を返す |
  *
@@ -57,12 +59,14 @@ import {
   getLlmModels,
   getLlmUsage,
   getMedia,
+  getOverlayLayout,
   getRewards,
   getSpeech,
   postMedia,
   postOverlayKey,
   putConfig,
   putLlm,
+  putOverlayLayout,
   putSpeech,
 } from './admin-routes'
 import { getFocus, getFocusMessages, putFocus } from './focus-routes'
@@ -83,7 +87,15 @@ import { CALLBACK_PATH, callback, login, logout, me } from './auth-routes'
 import { collectStats } from './collect'
 import { HttpError, STATUS, errorResponse, type Context, type Env } from './http'
 import { createLlm } from './llm'
-import { getFocus as getOverlayFocus, getSideSuper, getSpeech as getOverlaySpeech, media, overlaySocket, postTranscript } from './overlay-routes'
+import {
+  getFocus as getOverlayFocus,
+  getLayout as getOverlayLayoutForPage,
+  getSideSuper,
+  getSpeech as getOverlaySpeech,
+  media,
+  overlaySocket,
+  postTranscript,
+} from './overlay-routes'
 import { getStatsFailures, getStatsFollowers, getStatsSession, getStatsSessions } from './stats-routes'
 import { AuthError } from './token'
 import { WEBHOOK_PATH, eventsubWebhook } from './webhook-routes'
@@ -147,6 +159,8 @@ const ROUTES: readonly Route[] = [
   { method: 'PUT', path: '/api/admin/llm', handle: putLlm },
   { method: 'GET', path: '/api/admin/speech', handle: getSpeech },
   { method: 'PUT', path: '/api/admin/speech', handle: putSpeech },
+  { method: 'GET', path: '/api/admin/overlay/layout', handle: getOverlayLayout },
+  { method: 'PUT', path: '/api/admin/overlay/layout', handle: putOverlayLayout },
   { method: 'GET', path: '/api/admin/focus', handle: getFocus },
   { method: 'PUT', path: '/api/admin/focus', handle: putFocus },
   { method: 'GET', path: '/api/admin/focus/messages', handle: getFocusMessages },
@@ -166,6 +180,7 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/overlay/side-super', handle: getSideSuper },
   { method: 'GET', path: '/api/overlay/speech', handle: getOverlaySpeech },
   { method: 'GET', path: '/api/overlay/focus', handle: getOverlayFocus },
+  { method: 'GET', path: '/api/overlay/layout', handle: getOverlayLayoutForPage },
   { method: 'GET', path: '/api/media/:id', handle: media },
 ]
 

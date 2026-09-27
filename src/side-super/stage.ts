@@ -19,6 +19,7 @@
 import { showError } from '../core/mount'
 import { ParamError, parseParams, type ParamSchema } from '../core/params'
 import { createSideSuperApi } from './api'
+import { sideSuperParamSchema } from './params'
 import { demoSideSupers } from './demo'
 import { createSideSuperView } from './view'
 
@@ -50,13 +51,8 @@ const schema = {
     description: 'オーバーレイ用キー（必須）',
   },
   demo: { type: 'boolean', default: false, description: 'サンプルの文言を流す（見栄えと配置の調整用。Workerには接続しない）' },
-  position: {
-    type: 'string',
-    default: 'left',
-    pattern: /^(?:left|right)$/,
-    example: 'left または right',
-    description: '画面のどちら側に出すか（left: 左上、right: 右上）',
-  },
+  // 寄せる向きは合成ページ（overlay/index.html）でも同じ指定を受け取るので、宣言は params.ts で共有する
+  ...sideSuperParamSchema,
 } as const satisfies ParamSchema
 
 const start = async (): Promise<void> => {
