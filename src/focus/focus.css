@@ -1,0 +1,109 @@
+/*
+ * 注目コメントの見た目
+ *
+ * 配信画面に出しっぱなしにする1件なので、次の3つを守る。
+ * - 名前と本文を別々の要素として置き、大きさの差で「誰が言ったか」と「何を言ったか」の階層を作る
+ * - 本文には地（半透明の暗い板）を敷く。取り上げるのは語りや質問そのもので、読ませる量が
+ *   サイドスーパーのテロップより多いため、袋文字ではなく板の上に置いたほうが読みやすい
+ * - 出しっぱなしにするので、文言が変わったときだけ動く（作り直さないかぎりアニメーションは走らない。
+ *   判定は src/focus/view.ts が持つ）
+ *
+ * 置き場所はOBSのブラウザソースの枠に合わせる（枠の左下に寄せる）。URLに向きの指定を持たないのは、
+ * 位置と大きさをOBS側で決めるためである。
+ * 本文の長さの上限は500文字（worker/focus-config.ts の MAX_FOCUS_TEXT_LENGTH）なので、
+ * 長い語りでも枠からはみ出さないよう、幅を決めて折り返し、入りきらないぶんは枠の中で収まるようにする。
+ */
+.focus {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: flex-start;
+  box-sizing: border-box;
+  /* ブラウザソースの枠いっぱいを使い、中身を左下へ寄せる */
+  width: 100%;
+  min-height: 100svh;
+  margin: 0;
+  padding: 24px;
+  font-family: 'Zen Kaku Gothic New', 'Hiragino Sans', 'Yu Gothic UI', sans-serif;
+}
+
+/* 発言した人の名前。本文より小さく、少し上に離して置く */
+.focus-name {
+  margin: 0 0 6px;
+  padding: 3px 14px;
+  border-radius: 999px;
+  background: linear-gradient(#a970ff, #7b3ff2);
+  box-shadow: 0 2px 10px rgb(0 0 0 / 45%);
+  color: #fff;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.3;
+  /* 名前は折り返さず、長ければ省略する（本文の場所を奪わないため） */
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  animation: focus-appear 260ms ease-out both;
+}
+
+/* 取り上げた本文。読ませるものなので、半透明の板の上に置く */
+.focus-body {
+  box-sizing: border-box;
+  max-width: 880px;
+  margin: 0;
+  padding: 16px 20px;
+  border-left: 6px solid #a970ff;
+  border-radius: 6px;
+  background: rgb(12 10 20 / 82%);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 50%);
+  color: #fff;
+  font-weight: 700;
+  line-height: 1.45;
+  /* 長い語りでも枠の中に収める。続く空白や改行はそのまま畳む */
+  overflow-wrap: anywhere;
+  animation: focus-appear 260ms ease-out both;
+}
+
+/*
+ * 字の大きさは本文の長さで変える（区分は src/focus/view.ts が data-length に入れる）。
+ * Twitchのチャットは1件500文字まで書けるので、短い発言に合わせた大きさのままでは長い語りが
+ * 配信画面からあふれる。切り詰めると語りの途中が黙って消えるので、大きさのほうを変えて全文を収める。
+ * 上限（500文字）でも、幅880pxの板におよそ20行・高さ600px弱で収まる。
+ */
+.focus-body[data-length='short'] {
+  font-size: 34px;
+}
+
+.focus-body[data-length='medium'] {
+  font-size: 26px;
+}
+
+.focus-body[data-length='long'] {
+  font-size: 20px;
+}
+
+/* 本文に混ざるエモートの絵。文字の高さにそろえる */
+.focus-emote {
+  height: 1.15em;
+  vertical-align: -0.2em;
+}
+
+/* Cheermote に添えるビッツ数。色は段階ごとに src/focus/view.ts が入れる */
+.focus-cheer-amount {
+  padding-left: 2px;
+  font-weight: 900;
+}
+
+/* 文言が変わったときだけ走る、下から現れる動き */
+@keyframes focus-appear {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

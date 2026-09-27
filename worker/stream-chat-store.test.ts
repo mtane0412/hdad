@@ -8,7 +8,8 @@
  */
 import { describe, expect, it } from 'vitest'
 import { createFakeDatabase } from './fake-database'
-import { deleteOldStreamChatMessages, deleteStreamChatMessages, listSummaryTargets, readRecentSessionChat, readSessionChatSince, readViewerMessages, recordStreamChatMessage } from './stream-chat-store'
+import { deleteOldStreamChatMessages, deleteStreamChatMessages, listSummaryTargets, readRecentChatToPick, readRecentSessionChat, readSessionChatSince, readViewerMessages, recordStreamChatMessage } from './stream-chat-store'
+import { recordViewerMessage } from './viewer-store'
 import { recordStreamOffline, recordStreamOnline } from './stats-store'
 
 const 配信開始 = Date.UTC(2026, 8, 21, 12, 0, 0)
@@ -232,5 +233,74 @@ describe('readRecentSessionChat', () => {
     await recordStreamChatMessage(db, 発言({ messageId: '発言2', text: '今の配信の反応' }), 配信開始 + 一分 * 4)
 
     expect((await readRecentSessionChat(db, 'stream-2', 10)).map((line) => line.text)).toEqual(['今の配信の反応'])
+  })
+})
+
+describe('readRecentChatToPick', () => {
+  /** 発言者の記録（viewers）も作る。取り上げるには名前が要るので、両方そろっている発言だけが選べる */
+  const 発言者を記録する = async (db: ReturnType<typeof createFakeDatabase>, userId: string, login: string, displayName: string, at: number) => {
+    await recordViewerMessage(db, { userId, login, displayName, badges: [], messageId: `viewer-${userId}` }, at)
+  }
+
+  it('いま進んでいる配信の直近の発言を、新しい順に発言者の名前を添えて返す', async () => {
+    const db = createFakeDatabase()
+    await 配信を始める(db)
+    await 発言者を記録する(db, '100', 'kowai_hanashi', '怖い話す人', 配信開始)
+    await recordStreamChatMessage(db, 発言({ messageId: '発言1', userId: '100', text: 'こんばんは！' }), 配信開始 + 一分)
+    await recordStreamChatMessage(db, 発言({ messageId: '発言2', userId: '100', text: '今から怖い話をするね' }), 配信開始 + 一分 * 2)
+
+    expect(await readRecentChatToPick(db, 10)).toEqual([
+      {
+        messageId: '発言2',
+        login: 'kowai_hanashi',
+        displayName: '怖い話す人',
+        text: '今から怖い話をするね',
+        at: new Date(配信開始 + 一分 * 2).toISOString(),
+      },
+      {
+        messageId: '発言1',
+        login: 'kowai_hanashi',
+        displayName: '怖い話す人',
+        text: 'こんばんは！',
+        at: new Date(配信開始 + 一分).toISOString(),
+      },
+    ])
+  })
+
+  it('上限を超えたぶんは古いほうから落とす（選ぶのは直近の発言だけのため）', async () => {
+    const db = createFakeDatabase()
+    await 配信を始める(db)
+    await 発言者を記録する(db, '100', 'kowai_hanashi', '怖い話す人', 配信開始)
+    await recordStreamChatMessage(db, 発言({ messageId: '発言1', userId: '100', text: '古い発言' }), 配信開始 + 一分)
+    await recordStreamChatMessage(db, 発言({ messageId: '発言2', userId: '100', text: 'いまの発言' }), 配信開始 + 一分 * 2)
+
+    expect((await readRecentChatToPick(db, 1)).map((row) => row.text)).toEqual(['いまの発言'])
+  })
+
+  it('配信していなければ1件も返さない（配信中の発言だけを貯めているため）', async () => {
+    const db = createFakeDatabase()
+    await 発言者を記録する(db, '100', 'kowai_hanashi', '怖い話す人', 配信開始)
+
+    expect(await readRecentChatToPick(db, 10)).toEqual([])
+  })
+
+  it('終わった配信の発言は返さない（取り上げるのはいま進んでいる配信の発言のため）', async () => {
+    const db = createFakeDatabase()
+    await 配信を始める(db)
+    await 発言者を記録する(db, '100', 'kowai_hanashi', '怖い話す人', 配信開始)
+    await recordStreamChatMessage(db, 発言({ messageId: '発言1', userId: '100', text: '前の配信の発言' }), 配信開始 + 一分)
+    await recordStreamOffline(db, 配信開始 + 一分 * 2)
+    await recordStreamOnline(db, { id: 'stream-2', startedAt: 配信開始 + 一分 * 3 })
+    await recordStreamChatMessage(db, 発言({ messageId: '発言2', userId: '100', text: '今の配信の発言' }), 配信開始 + 一分 * 4)
+
+    expect((await readRecentChatToPick(db, 10)).map((row) => row.text)).toEqual(['今の配信の発言'])
+  })
+
+  it('視聴者の記録が無い人の発言は返さない（取り上げるには表示名が要るため）', async () => {
+    const db = createFakeDatabase()
+    await 配信を始める(db)
+    await recordStreamChatMessage(db, 発言({ messageId: '発言1', userId: '100', text: '記録を消した人の発言' }), 配信開始 + 一分)
+
+    expect(await readRecentChatToPick(db, 10)).toEqual([])
   })
 })
