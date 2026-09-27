@@ -299,7 +299,7 @@ const OverlayCard = ({
             <CardTitle>
               オーバーレイ <code className="font-mono">{draft.name}</code>
             </CardTitle>
-            <CardDescription>OBSのブラウザソース1つぶん。上にあるものが前に出る（一覧の上から順に重なりの前面）。</CardDescription>
+            <CardDescription>OBSのブラウザソース1つぶん。この中の素材は、上にあるものが前に出る（オーバーレイ同士の並びは重なりと関わらない）。</CardDescription>
           </div>
           <div className="flex items-center gap-1">
             {/* オーバーレイ同士の並びは重なりと関わらない（別々のブラウザソースなので）。編集しやすい順に並べ替えるためのもの */}

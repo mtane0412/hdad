@@ -212,6 +212,12 @@ describe('moveDraft', () => {
     expect(moveDraft(並び, 0, -1)).toEqual(['背面', '中間', '前面'])
     expect(moveDraft(並び, 2, 1)).toEqual(['背面', '中間', '前面'])
   })
+
+  it('動かす1件の位置そのものが並びの外なら、並びを変えずに返す', () => {
+    // 負の位置は末尾から数えられてしまうので、動かす前に確かめる（別の素材が動いてはならない）
+    expect(moveDraft(並び, -1, 1)).toEqual(['背面', '中間', '前面'])
+    expect(moveDraft(並び, 3, -1)).toEqual(['背面', '中間', '前面'])
+  })
 })
 
 describe('frontFirstItems', () => {

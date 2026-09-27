@@ -123,10 +123,13 @@ export const frontFirstItems = (items: readonly ItemDraft[]): ItemSlot[] =>
  * 並びの中の1件を offset だけずらした、新しい並びを返す。
  *
  * オーバーレイの並べ替えと、素材の重ねる順の入れ替えで使う。並びの外へ出る動かし方（端の素材を
- * さらに外へ）では、切り取った1件が別の場所へ回り込まないように並びを変えずに返す。
+ * さらに外へ）では、切り取った1件が別の場所へ回り込まないように並びを変えずに返す。動かす1件の位置
+ * そのものが並びの外のときも同じく何も動かさない（負の位置は末尾から数えられるため、確かめずに
+ * 切り取ると別の素材が動く）。
  */
 export const moveDraft = <T>(list: readonly T[], position: number, offset: number): T[] => {
   const to = position + offset
+  if (position < 0 || position >= list.length) return [...list]
   if (to < 0 || to >= list.length) return [...list]
   const moved = [...list]
   const [target] = moved.splice(position, 1)
