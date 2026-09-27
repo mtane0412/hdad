@@ -9,7 +9,9 @@ import {
   DEFAULT_ITEM_RECT,
   describeOverlayProblem,
   designsFor,
+  frontFirstItems,
   itemLabel,
+  moveDraft,
   newItemDraft,
   newOverlayDraft,
   overlayNameChoices,
@@ -190,5 +192,42 @@ describe('describeOverlayProblem', () => {
 
   it('構成そのものへの問題点（overlays: …）はそのまま出す', () => {
     expect(describeOverlayProblem('overlays: オーバーレイは10個以内にしてください', 名前)).toBe('overlays: オーバーレイは10個以内にしてください')
+  })
+})
+
+describe('moveDraft', () => {
+  const 並び = ['背面', '中間', '前面'] as const
+
+  it('指定した位置の1件を、offset だけずらした並びを返す', () => {
+    expect(moveDraft(並び, 0, 1)).toEqual(['中間', '背面', '前面'])
+    expect(moveDraft(並び, 2, -1)).toEqual(['背面', '前面', '中間'])
+  })
+
+  it('元の並びは変えない（画面が作り直した並びを持つ）', () => {
+    moveDraft(並び, 0, 1)
+    expect(並び).toEqual(['背面', '中間', '前面'])
+  })
+
+  it('並びの外へ動かそうとしたら、並びを変えずに返す', () => {
+    expect(moveDraft(並び, 0, -1)).toEqual(['背面', '中間', '前面'])
+    expect(moveDraft(並び, 2, 1)).toEqual(['背面', '中間', '前面'])
+  })
+
+  it('動かす1件の位置そのものが並びの外なら、並びを変えずに返す', () => {
+    // 負の位置は末尾から数えられてしまうので、動かす前に確かめる（別の素材が動いてはならない）
+    expect(moveDraft(並び, -1, 1)).toEqual(['背面', '中間', '前面'])
+    expect(moveDraft(並び, 3, -1)).toEqual(['背面', '中間', '前面'])
+  })
+})
+
+describe('frontFirstItems', () => {
+  const 背景 = newItemDraft('wallpaper', 'contour')
+  const 時計 = newItemDraft('clock', 'analog')
+
+  it('重ねる順（あとのものが前）を、前面から並べた形にして返す', () => {
+    expect(frontFirstItems([背景, 時計])).toEqual([
+      { item: 時計, position: 1 },
+      { item: 背景, position: 0 },
+    ])
   })
 })
