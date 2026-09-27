@@ -51,7 +51,7 @@ const schema = {
     description: 'オーバーレイ用キー（必須）',
   },
   demo: { type: 'boolean', default: false, description: 'サンプルの文言を流す（見栄えと配置の調整用。Workerには接続しない）' },
-  // 寄せる向きは合成ページ（overlay/index.html）でも同じ指定を受け取るので、宣言は params.ts で共有する
+  // 寄せる向きは合成ページ（overlay/stage/index.html）でも同じ指定を受け取るので、宣言は params.ts で共有する
   ...sideSuperParamSchema,
 } as const satisfies ParamSchema
 

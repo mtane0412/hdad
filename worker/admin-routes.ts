@@ -3,7 +3,7 @@
  *
  * 配信者のセッションが必要。アラートの設定の取得と保存、素材の一覧・アップロード・削除、オーバーレイ用キーの再発行、
  * トリガーの設定で選ぶチャンネルポイント報酬の一覧、チャットの読み上げの設定の取得と保存、
- * 合成オーバーレイの構成（どの段にどの素材を置くか）の取得と保存、LLMの設定とその使用状況を受け持つ。
+ * 合成オーバーレイの構成（どのオーバーレイにどの素材を置くか）の取得と保存、LLMの設定とその使用状況を受け持つ。
  */
 import { alertActionOf, loadAlertConfig, parseAlertConfig, saveAlertConfig } from './alert-config'
 import { HttpError, STATUS, requireAdmin, type Context } from './http'
@@ -112,7 +112,7 @@ export const putSpeech = async (context: Context): Promise<Response> => {
 }
 
 /**
- * GET /api/admin/overlay/layout: 合成オーバーレイの構成。未保存ならレイヤーが1件もない構成が返る。
+ * GET /api/admin/overlay/layout: 合成オーバーレイの構成。未保存ならオーバーレイが1つもない構成が返る。
  *
  * 合成ページ側の読み出しは overlay-routes.ts にある（守り方がセッションではなくオーバーレイ用キーなので、
  * 置き場所も分けてある。注目コメントと同じ）。

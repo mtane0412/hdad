@@ -1,46 +1,60 @@
 /**
- * 合成オーバーレイの構成（段とレイヤー）の読み取り
+ * 合成オーバーレイの構成（オーバーレイと素材）の読み取り
  *
  * OBSに載せるページを素材ごとに分けるとブラウザソースの数だけ Chromium のレンダラが立ち上がるため、
- * 素材を「レイヤー」として1枚のページ（overlay/index.html）に重ね、ブラウザソースは「段」（group）ごとに
- * 1つだけ置く（issue #101）。構成を持つのは Worker（KVの overlay-layout）で、このファイルは
- * 受け取った構成から「自分の段のレイヤー」と「箱に当てる位置」を決める部分だけを持つ。
+ * 素材を1枚のページ（overlay/stage/index.html）に重ね、ブラウザソースは「オーバーレイ」ごとに1つだけ置く
+ * （issue #101・#103）。**ここで言うオーバーレイは、OBSのブラウザソース1つ＝重なりの1枚**であり、
+ * その中に壁紙・時計・チャットといった素材（items）を積む。構成を持つのは Worker（KVの overlay-layout）で、
+ * このファイルは受け取った構成から「自分のオーバーレイの素材」と「箱に当てる位置」を決める部分だけを持つ。
  *
  * 通信もDOMも持ち込まないので、ここだけを取り出してテストできる（stage.ts がDOMを受け持つ）。
  *
- * 注意: worker/ の型はブラウザ用のコードから読み込まない約束なので、レイヤーの形はここで定義する
- * （応答の形の確かめは api.ts が行う）。種類の一覧は worker/overlay-layout.ts の LAYER_KINDS と合わせる。
- * 注意: 位置と大きさは段の幅・高さに対する割合（％）で持つ。配信解像度が変わっても崩れないようにするためで、
- * CSSにもそのまま％で渡す。
+ * 注意: worker/ の型はブラウザ用のコードから読み込まない約束なので、形はここで定義する
+ * （応答の形の確かめは api.ts が行う）。種類の一覧は worker/overlay-layout.ts の ITEM_KINDS と合わせる。
+ * 注意: 位置と大きさはオーバーレイの幅・高さに対する割合（％）で持つ。配信解像度が変わっても崩れないように
+ * するためで、CSSにもそのまま％で渡す。
  */
 
-/** レイヤーに置ける素材の種類。worker/overlay-layout.ts の LAYER_KINDS と合わせる */
-export const LAYER_KINDS = ['wallpaper', 'clock', 'chat', 'alerts', 'sideSuper', 'focus'] as const
+/** オーバーレイに置ける素材の種類。worker/overlay-layout.ts の ITEM_KINDS と合わせる */
+export const ITEM_KINDS = ['wallpaper', 'clock', 'chat', 'alerts', 'sideSuper', 'focus'] as const
 
-/** レイヤーに置ける素材の種類 */
-export type LayerKind = (typeof LAYER_KINDS)[number]
+/** オーバーレイに置ける素材の種類 */
+export type ItemKind = (typeof ITEM_KINDS)[number]
 
-/** 段の中での位置と大きさ（段の幅・高さに対する割合。％） */
-export interface LayerRect {
+/**
+ * 既定で用意するオーバーレイの名前。worker/overlay-layout.ts の DEFAULT_OVERLAY_NAMES と合わせる。
+ *
+ * 背面（ゲーム画面・アバターより後ろ）と前面（アバターより前）の2つで、配信者が増やせる。
+ * 管理画面（src/overlay/form.ts の overlayNameChoices）が名前の選択肢の出発点に使う。
+ */
+export const DEFAULT_OVERLAY_NAMES = ['back', 'front'] as const
+
+/** オーバーレイの中での位置と大きさ（オーバーレイの幅・高さに対する割合。％） */
+export interface ItemRect {
   readonly x: number
   readonly y: number
   readonly width: number
   readonly height: number
 }
 
-/** 重ねる素材1つ。worker/overlay-layout.ts の OverlayLayer と合わせる */
-export interface OverlayLayer {
-  readonly kind: LayerKind
+/** オーバーレイに積む素材1つ。worker/overlay-layout.ts の OverlayItem と合わせる */
+export interface OverlayItem {
+  readonly kind: ItemKind
   /** デザインID（壁紙・時計・チャットのみ。それ以外は空文字） */
   readonly id: string
   /** その素材のパラメータ（クエリ文字列のまま。解析は素材のスキーマで行う） */
   readonly params: string
-  /** 置く段の名前 */
-  readonly group: string
-  readonly rect: LayerRect
+  readonly rect: ItemRect
 }
 
-/** レイヤーの箱に当てるCSSの値 */
+/** オーバーレイ1つ（＝OBSのブラウザソース1つ）。worker/overlay-layout.ts の Overlay と合わせる */
+export interface Overlay {
+  readonly name: string
+  /** 積む素材（並びがそのまま重ねる順。あとのものが前） */
+  readonly items: readonly OverlayItem[]
+}
+
+/** 素材の箱に当てるCSSの値 */
 export interface RectStyle {
   readonly left: string
   readonly top: string
@@ -49,15 +63,16 @@ export interface RectStyle {
 }
 
 /**
- * その段に置くレイヤーだけを取り出す。
+ * そのオーバーレイに積む素材だけを取り出す。
  *
  * 並びは構成に保存された順のままにする。あとのものが前に重なるので、並びがそのまま重ねる順になる。
+ * その名前のオーバーレイが無ければ空を返す（呼び出し側が、構成にある名前を並べて知らせる）。
  */
-export const layersInGroup = (layers: readonly OverlayLayer[], group: string): OverlayLayer[] =>
-  layers.filter((layer) => layer.group === group)
+export const itemsInOverlay = (overlays: readonly Overlay[], name: string): readonly OverlayItem[] =>
+  overlays.find((overlay) => overlay.name === name)?.items ?? []
 
 /** 位置と大きさを、箱に当てるCSSの値（％）にする */
-export const rectStyle = ({ x, y, width, height }: LayerRect): RectStyle => ({
+export const rectStyle = ({ x, y, width, height }: ItemRect): RectStyle => ({
   left: `${x}%`,
   top: `${y}%`,
   width: `${width}%`,
@@ -65,8 +80,8 @@ export const rectStyle = ({ x, y, width, height }: LayerRect): RectStyle => ({
 })
 
 /**
- * 構成にある段の名前を、重複なく現れた順で返す。
+ * 構成にあるオーバーレイの名前を、並んでいる順で返す。
  *
- * 段の名前を間違えて開いたときに「この構成にある段」を並べて知らせるために使う。
+ * 名前を間違えて開いたときに「この構成にあるオーバーレイ」を並べて知らせるために使う。
  */
-export const groupsOf = (layers: readonly OverlayLayer[]): string[] => [...new Set(layers.map((layer) => layer.group))]
+export const overlayNamesOf = (overlays: readonly Overlay[]): string[] => overlays.map((overlay) => overlay.name)

@@ -26,7 +26,7 @@
  * | GET  /api/admin/llm/usage        | セッション     | LLMを呼んだ回数・トークン数・実費の日ごとのまとめ |
  * | GET  /api/admin/llm/credits      | セッション     | OpenRouter の残高 |
  * | GET・PUT /api/admin/speech       | セッション     | チャットの読み上げの設定の取得・保存 |
- * | GET・PUT /api/admin/overlay/layout | セッション   | 合成オーバーレイの構成（段とレイヤー）の取得・保存 |
+ * | GET・PUT /api/admin/overlay/layout | セッション   | 合成オーバーレイの構成（オーバーレイと素材）の取得・保存 |
  * | GET・PUT /api/admin/focus        | セッション     | 注目コメント（いま取り上げているもの）の取得・保存 |
  * | GET  /api/admin/focus/messages   | セッション     | 取り上げる発言を選ぶための、直近の発言の一覧 |
  * | GET  /api/admin/viewers          | セッション     | 視聴者の記録の一覧（検索・ページ送り） |

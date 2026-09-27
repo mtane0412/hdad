@@ -15,6 +15,7 @@ import type { AdminApi, Me } from '@/admin/api'
 import type { BotApi } from '@/bot/api'
 import type { FocusApi } from '@/focus/api'
 import type { LlmApi } from '@/llm/api'
+import type { OverlayLayoutAdminApi } from '@/overlay/admin-api'
 import type { SpeechApi } from '@/speech/api'
 import type { StatsApi } from '@/stats/api'
 import type { ViewerApi } from '@/viewers/api'
@@ -158,6 +159,7 @@ export const App = ({
   speechApi,
   focusApi,
   llmApi,
+  overlayApi,
 }: {
   api: AdminApi
   statsApi: StatsApi
@@ -166,6 +168,7 @@ export const App = ({
   speechApi: SpeechApi
   focusApi: FocusApi
   llmApi: LlmApi
+  overlayApi: OverlayLayoutAdminApi
 }) => {
   const [session, setSession] = useState<Session>({ status: 'checking' })
 
@@ -220,6 +223,7 @@ export const App = ({
             speechApi,
             focusApi,
             llmApi,
+            overlayApi,
             me: session.me,
             onOverlayKeyChange: (overlayKey) => setSession({ status: 'signed-in', me: { ...session.me, overlayKey } }),
           }}

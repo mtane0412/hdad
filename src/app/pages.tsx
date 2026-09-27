@@ -2,9 +2,9 @@
  * アプリのページの一覧
  *
  * サイドバーの項目と、パスごとに描く中身をここで決める。カテゴリを増やしたらここに足す。
- * ギャラリーの素材ページ（/wallpaper/<id>/ など）と、実ファイルとして配信されるオーバーレイ（alerts/・side-super/overlay/・transcript/relay/・speech/reader/・focus/overlay/）は、ここには載せない。
+ * ギャラリーの素材ページ（/wallpaper/<id>/ など）と、実ファイルとして配信されるオーバーレイ（alerts/・side-super/overlay/・transcript/relay/・speech/reader/・focus/overlay/・overlay/stage/）は、ここには載せない。
  */
-import { Bot, BrainCircuit, Captions, Clock, Image, LayoutDashboard, MessageSquare, PanelTop, Quote, Upload, Users, Volume2, Zap, type LucideIcon } from 'lucide-react'
+import { Bot, BrainCircuit, Captions, Clock, Image, Layers, LayoutDashboard, MessageSquare, PanelTop, Quote, Upload, Users, Volume2, Zap, type LucideIcon } from 'lucide-react'
 import type { AdminApi, Me } from '@/admin/api'
 import { MediaPage } from '@/admin/media-page'
 import { TriggerPage } from '@/admin/trigger-page'
@@ -17,6 +17,8 @@ import { clocks } from '@/clock/registry'
 import { Gallery } from '@/core/gallery/gallery'
 import type { LlmApi } from '@/llm/api'
 import { LlmPage } from '@/llm/llm-page'
+import type { OverlayLayoutAdminApi } from '@/overlay/admin-api'
+import { OverlayPage } from '@/overlay/overlay-page'
 import type { StatsApi } from '@/stats/api'
 import { StatsPage } from '@/stats/stats-page'
 import type { ViewerApi } from '@/viewers/api'
@@ -42,6 +44,8 @@ export interface PageContext {
   focusApi: FocusApi
   /** LLMの提供元とモデルの設定の読み書き（LLMのページが使う） */
   llmApi: LlmApi
+  /** 合成オーバーレイの構成の読み書き（オーバーレイのページが使う） */
+  overlayApi: OverlayLayoutAdminApi
   me: Me
   /** オーバーレイ用キーを再発行した。ほかのページから戻ってきても新しいキーを出せるよう、枠が持つログイン情報を書き換える */
   onOverlayKeyChange(overlayKey: string): void
@@ -79,6 +83,13 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
         icon: Volume2,
         // 読み上げのページはWorkerに置いた設定をオーバーレイ用キーで読む。botの状態は「読み上げない人」に足すために読む
         render: ({ speechApi, botApi, me }) => <SpeechPage api={speechApi} botApi={botApi} overlayKey={me.overlayKey} />,
+      },
+      {
+        path: '/overlay/',
+        name: 'オーバーレイ',
+        icon: Layers,
+        // 構成はWorkerに保存されるので、オーバーレイごとのブラウザソースのURLは貼り替えずに中身が切り替わる
+        render: ({ overlayApi, me }) => <OverlayPage api={overlayApi} overlayKey={me.overlayKey} />,
       },
       { path: '/llm/', name: 'LLM', icon: BrainCircuit, render: ({ llmApi }) => <LlmPage api={llmApi} /> },
       {

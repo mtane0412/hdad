@@ -9,6 +9,7 @@ import { createAdminApi } from '@/admin/api'
 import { createBotApi } from '@/bot/api'
 import { createFocusApi } from '@/focus/api'
 import { createLlmApi } from '@/llm/api'
+import { createOverlayLayoutAdminApi } from '@/overlay/admin-api'
 import { createSpeechApi } from '@/speech/api'
 import { createStatsApi } from '@/stats/api'
 import { createViewerApi } from '@/viewers/api'
@@ -27,9 +28,10 @@ const viewerApi = createViewerApi(callWorker)
 const speechApi = createSpeechApi(callWorker)
 const focusApi = createFocusApi(callWorker)
 const llmApi = createLlmApi(callWorker)
+const overlayApi = createOverlayLayoutAdminApi(callWorker)
 
 createRoot(root).render(
   <StrictMode>
-    <App api={api} statsApi={statsApi} botApi={botApi} viewerApi={viewerApi} speechApi={speechApi} focusApi={focusApi} llmApi={llmApi} />
+    <App api={api} statsApi={statsApi} botApi={botApi} viewerApi={viewerApi} speechApi={speechApi} focusApi={focusApi} llmApi={llmApi} overlayApi={overlayApi} />
   </StrictMode>,
 )

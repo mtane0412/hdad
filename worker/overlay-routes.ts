@@ -153,10 +153,10 @@ export const getFocus = async (context: Context): Promise<Response> => {
 }
 
 /**
- * GET /api/overlay/layout: 合成オーバーレイの構成（どの段にどの素材をどこへ置くか）を返す。
+ * GET /api/overlay/layout: 合成オーバーレイの構成（どのオーバーレイにどの素材をどこへ置くか）を返す。
  *
- * OBSのブラウザソースに置いた合成ページ（overlay/index.html）が起動のときに読む。段の絞り込み
- * （?group=）はページ側が行うので、ここは保存されている構成をそのまま返す。
+ * OBSのブラウザソースに置いた合成ページ（overlay/stage/index.html）が起動のときに読む。オーバーレイの絞り込み
+ * （?overlay=）はページ側が行うので、ここは保存されている構成をそのまま返す。
  *
  * 注意: 素材のパラメータはクエリ文字列のまま返す。解析するのはページ側（src/core/params.ts）で、
  * Worker は素材のスキーマを知らない。

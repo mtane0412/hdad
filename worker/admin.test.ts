@@ -817,12 +817,17 @@ describe('選べるモデルの一覧（/api/admin/llm/models）', () => {
 })
 
 describe('オーバーレイの構成（/api/admin/overlay/layout・/api/overlay/layout）', () => {
-  /** 配信者が組み立てた構成。背面に壁紙、前面に時計とアラートを重ねたもの */
+  /** 配信者が組み立てた構成。背面のオーバーレイに壁紙、前面のオーバーレイに時計とアラートを重ねたもの */
   const 配信者の構成 = {
-    layers: [
-      { kind: 'wallpaper', id: 'aurora', params: 'speed=2', group: 'back', rect: { x: 0, y: 0, width: 100, height: 100 } },
-      { kind: 'clock', id: 'analog', params: '', group: 'front', rect: { x: 78, y: 70, width: 20, height: 26 } },
-      { kind: 'alerts', id: '', params: '', group: 'front', rect: { x: 0, y: 0, width: 100, height: 100 } },
+    overlays: [
+      { name: 'back', items: [{ kind: 'wallpaper', id: 'aurora', params: 'speed=2', rect: { x: 0, y: 0, width: 100, height: 100 } }] },
+      {
+        name: 'front',
+        items: [
+          { kind: 'clock', id: 'analog', params: '', rect: { x: 78, y: 70, width: 20, height: 26 } },
+          { kind: 'alerts', id: '', params: '', rect: { x: 0, y: 0, width: 100, height: 100 } },
+        ],
+      },
     ],
   }
 
@@ -854,22 +859,22 @@ describe('オーバーレイの構成（/api/admin/overlay/layout・/api/overlay
     expect(await (await 合成ページが読む(env)).json()).toEqual(配信者の構成)
   })
 
-  it('まだ保存していなければ、レイヤーが1件もない構成を返す', async () => {
+  it('まだ保存していなければ、オーバーレイが1つもない構成を返す', async () => {
     const { env } = 環境を作る()
 
     const response = await 合成ページが読む(env)
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ layers: [] })
+    expect(await response.json()).toEqual({ overlays: [] })
   })
 
   it('形に問題があれば400で拒み、問題点をすべて返す（画面で一度に直せるようにする）', async () => {
     const { env } = 環境を作る()
 
     const response = await 保存する(env, {
-      layers: [
-        { kind: 'wallpaper', id: '', params: '', group: 'back', rect: { x: 0, y: 0, width: 100, height: 100 } },
-        { kind: 'clock', id: 'analog', params: '', group: '前面', rect: { x: 0, y: 0, width: 100, height: 100 } },
+      overlays: [
+        { name: 'back', items: [{ kind: 'wallpaper', id: '', params: '', rect: { x: 0, y: 0, width: 100, height: 100 } }] },
+        { name: '前面', items: [{ kind: 'clock', id: 'analog', params: '', rect: { x: 0, y: 0, width: 100, height: 100 } }] },
       ],
     })
 
