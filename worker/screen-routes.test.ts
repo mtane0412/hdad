@@ -6,7 +6,7 @@
  * - 撮った1枚が Gyazo へ渡り、その画像IDが記録されること
  * - 配信していなければ Gyazo へ上げないこと（配信前の準備画面を外へ出さないため）
  * - Gyazo のアクセストークンが無いとき、黙って捨てずに失敗させること（Fail-Fast）
- * - 画像でない本文や大きすぎる本文を拒むこと
+ * - 画像でない本文や大きすぎる本文を、読み込む前に拒むこと
  */
 import { describe, expect, it } from 'vitest'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
@@ -182,6 +182,23 @@ describe('POST /api/overlay/screen', () => {
     const 応答 = await 呼び出す(撮った1枚を送る(new Uint8Array()), env)
 
     expect(応答.status).toBe(400)
+  })
+
+  it('大きすぎると申告された本文は、読み込む前に拒む', async () => {
+    const { env } = 環境を作る()
+    await recordStreamOnline(env.DB, { id: 'session-1', startedAt: 配信の開始 })
+
+    const 応答 = await 呼び出す(
+      new Request(`${サイト}/api/overlay/screen?key=${発行済みのキー}`, {
+        method: 'POST',
+        // 本文の長さの申告（Content-Length）だけで拒めることを確かめる（実際に大きな本文を作らない）
+        headers: { 'Content-Type': 'image/png', 'Content-Length': String(9 * 1024 * 1024) },
+        body: 画像の本文(),
+      }),
+      env,
+    )
+
+    expect(応答.status).toBe(413)
   })
 
   it('オーバーレイ用キーが違えば拒む', async () => {

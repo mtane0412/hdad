@@ -165,6 +165,13 @@ export const postScreen = async (context: Context): Promise<Response> => {
     )
   }
 
+  // 本文を読む前に、申告された長さで拒めるものは拒む（大きなものをWorkerのメモリに載せないため）。
+  // 申告が無いことも、正しいとも限らないので、読んだあとの長さでも確かめる
+  const declaredLength = Number(request.headers.get('Content-Length') ?? '')
+  if (Number.isFinite(declaredLength) && declaredLength > SCREEN_MAX_BYTES) {
+    throw new HttpError(STATUS.payloadTooLarge, 'image-too-large', `撮った1枚は ${SCREEN_MAX_BYTES} バイトまでにしてください`)
+  }
+
   const image = await request.arrayBuffer()
   if (image.byteLength === 0) {
     throw new HttpError(STATUS.badRequest, 'empty-image', '本文が空です。撮った画像をそのまま送ってください')

@@ -11,9 +11,18 @@
  * 注意: このページ自体は https で配信されるため、ws:// への接続は混在コンテンツにあたる。ブラウザは
  * localhost を安全な接続元として例外扱いするので通る見込みだが、OBS内蔵のCEFのバージョン次第である
  * （文字起こしの中継が同じ前提で動いている）。
- * 注意: つながらないまま閉じたときは、黙って待ち続けずに失敗させる（Fail-Fast）。
+ * 注意: つながらないまま閉じたときと、名乗りへの答え（Identified）が返ってこないまま待ち時間が過ぎたときは、
+ * 黙って待ち続けずに失敗させる（Fail-Fast）。答えが返らないのは、OBSが応答しなくなった場合のほか、
+ * 認証に失敗して OBS が閉じるのを待っているあいだにも起こりうる。
  */
 import { authenticationOf, identifyMessage, readObsMessage, requestMessage } from './protocol'
+
+/**
+ * 名乗りが通る（Identified）まで待つ時間（ミリ秒）。
+ *
+ * これを過ぎたら待ち続けずに失敗させる。撮影は一定の間隔でしか起きないので、次の撮影のときにつなぎ直せばよい。
+ */
+export const CONNECT_TIMEOUT_MS = 10000
 
 /**
  * 接続に使う WebSocket の、このファイルが使う部分だけ。
@@ -90,9 +99,16 @@ export const connectObs = ({ url, password, createSocket }: ConnectObsOptions): 
       close: () => socket.close(),
     }
 
+    /** 名乗りが通らないまま時間が過ぎたら失敗させるための見張り。つながったら外す */
+    const timer = setTimeout(() => {
+      fail(new Error(`${url} へ名乗りましたが、応答がありません。OBSのWebSocketサーバー設定のパスワードが合っているかを確かめてください`))
+      socket.close()
+    }, CONNECT_TIMEOUT_MS)
+
     /** 接続が閉じた。つなぎに行った呼び出しと、答えを待っている要求のすべてを失敗させる */
     const fail = (error: Error): void => {
       open = false
+      clearTimeout(timer)
       reject(error)
       for (const pending of waiting.values()) pending.reject(error)
       waiting.clear()
@@ -121,6 +137,7 @@ export const connectObs = ({ url, password, createSocket }: ConnectObsOptions): 
         }
         if (message.type === 'identified') {
           open = true
+          clearTimeout(timer)
           resolve(connection)
           return
         }

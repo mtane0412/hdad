@@ -6,9 +6,10 @@
  * - 名乗りが通る（Identified）まで、つながったことにしないこと
  * - 要求と応答を requestId で結び付けること（撮影と場面の問い合わせが入れ違わないため）
  * - つながらないまま閉じたときに、待っている呼び出しを失敗させること（黙って待ち続けない）
+ * - 名乗りへの答えが返ってこないまま時間が過ぎたら、待ち続けずに失敗させること
  */
-import { describe, expect, it, vi } from 'vitest'
-import { connectObs, type ObsSocketLike } from './connection'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { CONNECT_TIMEOUT_MS, connectObs, type ObsSocketLike } from './connection'
 import { authenticationOf } from './protocol'
 
 /** 押し込まれた文字列を覚える、テスト用の WebSocket */
@@ -41,6 +42,10 @@ const 作る偽のソケット = () => {
     閉じる: () => 起こす('close'),
   }
 }
+
+afterEach(() => {
+  vi.useRealTimers()
+})
 
 const 認証なしのHello = { op: 0, d: { obsWebSocketVersion: '5.5.0', rpcVersion: 1 } }
 const 認証ありのHello = {
@@ -140,6 +145,19 @@ describe('connectObs', () => {
     偽のソケット.閉じる()
 
     await expect(つなぐ).rejects.toThrow(/ws:\/\/localhost:4455/)
+  })
+
+  it('名乗りへの答えが返ってこないまま時間が過ぎたら、待ち続けずに失敗させる', async () => {
+    vi.useFakeTimers()
+    const 偽のソケット = 作る偽のソケット()
+    const つなぐ = connectObs({ url: 'ws://localhost:4455', password: '', createSocket: () => 偽のソケット.socket })
+    偽のソケット.開く()
+    偽のソケット.届ける(認証なしのHello)
+    // OBS が Identified を返さないまま、待ち時間が過ぎる
+    await vi.advanceTimersByTimeAsync(CONNECT_TIMEOUT_MS)
+
+    await expect(つなぐ).rejects.toThrow(/応答がありません/)
+    expect(偽のソケット.閉じた()).toBe(true)
   })
 
   it('接続が閉じたら、答えを待っている要求を失敗させる', async () => {
