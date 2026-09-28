@@ -18,7 +18,7 @@ npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 
 - 素材の種類ごとにソースを分ける（`src/wallpaper/`・`src/clock/`・`src/chat/` など）。素材だけを映す公開ディレクトリは持たない（`docs/decisions/overlay-stage.md`）
 - `src/core/` は素材横断の共通部品（canvas の起動は `src/core/mount.ts`、パラメータの宣言と直列化は `params.ts`・`url.ts`、パラメータの入力欄は `fields.tsx`、Workerの呼び出しの共通部分は `api.ts`）
-- 素材（壁紙・時計・チャットのデザイン）を足すときはレジストリ（`src/<種類>/registry.ts`）に登録するだけでよい。合成オーバーレイのデザインの選択欄（`src/overlay/form.ts` の `DESIGNS`）がそこから並ぶ
+- 素材（壁紙・時計・チャットのデザイン）はレジストリ（`src/<種類>/registry.ts`）に登録すると、合成オーバーレイのデザインの選択欄（`src/overlay/form.ts` の `DESIGNS`）に並ぶ。壁紙と時計はこの登録だけで済み、チャットのデザインは専用のCSSも要る（`.claude/rules/chat.md`）
 - OBSに載せるページは Workers 静的アセットの都合でパスごとに実ファイルが必要なので、`vite.config.ts` の入力に足す。載せるのは合成ページ（`overlay/stage/`）と映すものを持たない裏方（`overlay/backstage/`・`speech/reader/`・`transcript/relay/`）だけにする
 
 ### ページUI（`src/app/`）
