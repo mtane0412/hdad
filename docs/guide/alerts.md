@@ -126,3 +126,7 @@ Twitchからの通知はすべてWorkerがWebhookで受け取り、当てはま�
 視聴者の記録を材料に渡せるのはチャットの発言のトリガーだけで、ほかのイベントでは指示とイベントの中身だけから作らせます。「初めて」「お久しぶり」の判定は、トリガーの絞り込みに使っていなくてもこの動作があれば行います（行わないと来訪の別を知らないまま文面を作らせることになるためです。そのぶん、発言のたびに視聴者の記録を読みます）。
 
 Webhookの応答を待たせるとTwitchが同じ通知を再送するため、**Twitchへ2xxを返してから**文面を作って送ります（`ExecutionContext.waitUntil`）。AIが作った文面が500文字（Twitchのチャット1通の上限）を超えたとき、AIが失敗したとき（無料枠切れを含みます。無料枠の見方は[文面を作らせるLLM](./llm.md)を参照）は、**切り詰めたり固定文言に落としたりせず送るのをやめて** `collection_failures` に `alert-aichat-failed` として記録します。
+
+---
+
+開発者向け: この作りにした理由は [アラートの配送](../decisions/alerts-overlay.md)・[トリガーの既定メニューと照合](../decisions/alerts-triggers.md)・[トリガーの動作](../decisions/alerts-actions.md)・[広告の開始と終了](../decisions/ad-break.md)・[トリガーの管理画面](../decisions/triggers-page.md) にあります。

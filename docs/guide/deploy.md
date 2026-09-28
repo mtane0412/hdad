@@ -60,6 +60,9 @@ R2は無料枠（保存10GB・転送無料）だけを使う場合でも、デ�
 | `GET /api/overlay/speech` | チャットの読み上げの設定を返す（未保存なら既定の設定。読み上げのページが起動のときと30秒おきに読む。要オーバーレイ用キー） |
 | `GET /api/overlay/focus` | いま取り上げている注目コメントを返す（取り上げていなければ `target` は `null`。要オーバーレイ用キー） |
 | `GET /api/overlay/layout` | 合成オーバーレイの構成（どのオーバーレイにどの素材をどこへ置くか）を返す。合成ページが起動のときに読む（要オーバーレイ用キー） |
+| `GET /api/chat/channel` | このWorkerが扱う配信者のチャンネル名を返す（**キーもセッションも要らない**。チャットボックスと読み上げが接続先を知るために読む） |
+| `GET /api/chat/badges` | チャットの公式バッジ画像の一覧を返す（キー不要。KVに1時間貯める） |
+| `GET /api/chat/cheermotes` | Cheermote（ビッツの絵）の一覧を返す（キー不要。KVに1時間貯める） |
 | `GET /api/media/<素材ID>?key=` | 素材の中身を返す（要オーバーレイ用キー、または配信者のセッション） |
 | `GET`・`PUT /api/admin/config` | アラートの設定の取得・保存（要セッション） |
 | `GET`・`POST /api/admin/media` | 素材の一覧・アップロード（要セッション） |
@@ -72,6 +75,14 @@ R2は無料枠（保存10GB・転送無料）だけを使う場合でも、デ�
 | `POST /api/admin/bot/device-token` | 本文 `{ "deviceCode": 発行されたコード }` を受け取り、トークンに交換する。まだ認可されていなければ `{ "status": "pending" }` を返す（要セッション） |
 | `GET`・`PUT /api/admin/bot/commands` | チャットのコマンドの取得・保存（要セッション） |
 | `GET`・`PUT /api/admin/bot/moderation` | チャットの自動モデレーションの設定の取得・保存（要セッション） |
+| `GET`・`PUT /api/admin/speech` | チャットの読み上げの設定の取得・保存（要セッション） |
+| `GET`・`PUT /api/admin/overlay/layout` | 合成オーバーレイの構成（オーバーレイと素材）の取得・保存（要セッション） |
+| `GET`・`PUT /api/admin/focus` | 注目コメント（いま取り上げているもの）の取得・保存（要セッション） |
+| `GET /api/admin/focus/messages` | 取り上げる発言を選ぶための、いま進んでいる配信の直近の発言の一覧（要セッション） |
+| `GET`・`PUT /api/admin/llm` | LLMの提供元とモデルの設定の取得・保存（要セッション） |
+| `GET /api/admin/llm/models` | その提供元で選べるモデルの一覧（`?provider=`。要セッション） |
+| `GET /api/admin/llm/usage` | LLMを呼んだ回数・トークン数・実費の日ごとのまとめ（要セッション） |
+| `GET /api/admin/llm/credits` | OpenRouter の残高（`OPENROUTER_API_KEY` が無ければ400。要セッション） |
 | `GET /api/admin/rewards` | 配信者のチャンネルポイント報酬の一覧（ID・名前・必要ポイント）。管理画面でトリガーの報酬を選ぶのに使う（要セッション） |
 | `GET /api/admin/viewers` | 視聴者の記録の一覧（最後に発言した順）。`?search`（ログイン名の前方一致）・`?before`（この日時より前に発言した人）・`?limit`（1〜200。既定50）で絞る（要セッション） |
 | `PATCH /api/admin/viewers/<ユーザーID>` | 本文 `{ "note": メモ }` を受け取り、その人へのメモを保存する（2000文字まで。要セッション） |
@@ -82,3 +93,7 @@ R2は無料枠（保存10GB・転送無料）だけを使う場合でも、デ�
 | `GET /api/admin/stats/failures` | 記録の収集の失敗の一覧（新しい順に50件まで。要セッション） |
 
 失敗は `{ "error": { "code", "message" } }` の形で返します。受け取るイベントを増やす場合は `worker/eventsub.ts` の `EVENT_TYPES` に足します（スコープが増えたら配信者の再ログインが必要です）。
+
+---
+
+開発者向け: この作りにした理由は [Workerと失敗の記録](../decisions/worker.md) にあります。
