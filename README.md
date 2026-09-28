@@ -22,7 +22,7 @@ Twitch配信用の素材と、配信中に動くアシスタント（チャッ�
 
 | 分類 | 文書 |
 | --- | --- |
-| 素材とオーバーレイ | [壁紙](./docs/guide/wallpaper.md)・[時計](./docs/guide/clock.md)・[チャットボックス](./docs/guide/chat.md)・[アラート](./docs/guide/alerts.md)・[チャットの読み上げ](./docs/guide/speech.md)・[サイドスーパー](./docs/guide/side-super.md)・[注目コメント](./docs/guide/focus.md)・[合成オーバーレイ](./docs/guide/overlay.md)・[裏方](./docs/guide/backstage.md) |
+| 素材とオーバーレイ | [壁紙](./docs/guide/wallpaper.md)・[時計](./docs/guide/clock.md)・[チャットボックス](./docs/guide/chat.md)・[アラート](./docs/guide/alerts.md)・[チャットの読み上げ](./docs/guide/speech.md)・[配信中の文字起こし](./docs/guide/transcript.md)・[サイドスーパー](./docs/guide/side-super.md)・[注目コメント](./docs/guide/focus.md)・[合成オーバーレイ](./docs/guide/overlay.md)・[裏方](./docs/guide/backstage.md) |
 | 配信のアシスタント | [チャットボット](./docs/guide/bot.md)・[文面を作らせるLLM](./docs/guide/llm.md)・[視聴者の記録](./docs/guide/viewers.md)・[配信の記録](./docs/guide/stats.md) |
 | 導入と開発 | [デプロイ](./docs/guide/deploy.md)・[開発](./docs/guide/development.md) |
 | 設計判断の記録 | [`docs/decisions/`](./docs/decisions/) |

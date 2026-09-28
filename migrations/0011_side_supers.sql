@@ -1,7 +1,7 @@
 -- 配信画面の隅に出すテロップ「サイドスーパー」
 --
 -- 日時は 0001〜0010 と同じく UTC の ISO 8601（例: 2026-09-24T12:00:00.000Z）の文字列で持つ。
--- 適用方法は README.md の「配信の記録」を参照。
+-- 適用方法は docs/guide/stats.md を参照。
 
 -- いま進んでいる配信のサイドスーパー。cron（worker/collect.ts）が5分おきに作り直し、
 -- オーバーレイ（side-super/index.html）が GET /api/overlay/side-super で読み出して映す。

@@ -54,8 +54,8 @@ R2は無料枠（保存10GB・転送無料）だけを使う場合でも、デ�
 | `POST /api/auth/logout` | セッションを終える |
 | `GET /api/me` | ログイン中の配信者とオーバーレイ用キーを返す（要セッション） |
 | `POST /api/eventsub/webhook` | Twitchから届くEventSubの通知を受け、イベントの件数と配信の開始・終了を記録する（Twitchの署名を `EVENTSUB_SECRET` で確かめる） |
-
 | `GET /api/overlay/socket?key=` | アラート用オーバーレイからのWebSocketの接続を受け、当てはまったアラート（素材のURL・表示時間・音量・文言）を押し出す（要オーバーレイ用キー） |
+| `POST /api/overlay/transcript` | 文字起こしの中継ページから確定した発話を1件受け取り、配信中なら記録する（配信していなければ記録せず、記録しなかったことを応答で返す。要オーバーレイ用キー） |
 | `GET /api/media/<素材ID>?key=` | 素材の中身を返す（要オーバーレイ用キー、または配信者のセッション） |
 | `GET`・`PUT /api/admin/config` | アラートの設定の取得・保存（要セッション） |
 | `GET`・`POST /api/admin/media` | 素材の一覧・アップロード（要セッション） |
