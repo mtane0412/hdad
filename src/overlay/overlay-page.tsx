@@ -35,7 +35,7 @@
  * 注意: 配置用の枠に描くのは四角と名前だけで、素材の中身は映さない（中身はプレビューが受け持つ）。
  * 注意: 吸着（グリッド・他の素材の端に合わせる）は入れていない。まず動かせることを先にする。
  */
-import { ChevronDown, Copy, Plus, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, ChevronDown, Copy, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -89,6 +89,14 @@ const RECT_FIELDS: readonly { key: keyof RectDraft; short: string; label: string
   { key: 'width', short: '幅', label: '幅（％）' },
   { key: 'height', short: '高さ', label: '高さ（％）' },
 ]
+
+/**
+ * アイコンだけのボタンに渡す名前。
+ *
+ * 見た目がコマンドを表していても名前そのものは要るので、読み上げ（`aria-label`）とホバー（`title`）の
+ * 両方へ同じ名前を渡す。2か所に同じ文字列を書くと片方だけ直すことになるため、1か所にまとめる。
+ */
+const iconButtonName = (name: string): { 'aria-label': string; title: string } => ({ 'aria-label': name, title: name })
 
 /** 素材の枠の見た目（/triggers/ の項目の枠と同じ扱い。カードの中にカードを並べて見せない） */
 const ITEM_BOX = 'overflow-hidden rounded-lg border'
@@ -346,13 +354,13 @@ const ItemRow = ({
           </span>
         </Button>
         {/* 一覧では上にあるものが前なので、「前面へ」がひとつ上、「背面へ」がひとつ下に当たる */}
-        <Button type="button" variant="ghost" size="sm" aria-label={`${label}をひとつ前面へ`} disabled={!canMoveFront} onClick={() => onMove(1)}>
-          前面へ
+        <Button type="button" variant="ghost" size="icon" {...iconButtonName(`${label}をひとつ前面へ`)} disabled={!canMoveFront} onClick={() => onMove(1)}>
+          <ArrowUp aria-hidden="true" />
         </Button>
-        <Button type="button" variant="ghost" size="sm" aria-label={`${label}をひとつ背面へ`} disabled={!canMoveBack} onClick={() => onMove(-1)}>
-          背面へ
+        <Button type="button" variant="ghost" size="icon" {...iconButtonName(`${label}をひとつ背面へ`)} disabled={!canMoveBack} onClick={() => onMove(-1)}>
+          <ArrowDown aria-hidden="true" />
         </Button>
-        <Button type="button" variant="ghost" size="icon" aria-label={`${label}を外す`} className="text-destructive" onClick={onRemove}>
+        <Button type="button" variant="ghost" size="icon" {...iconButtonName(`${label}を外す`)} className="text-destructive" onClick={onRemove}>
           <Trash2 aria-hidden="true" />
         </Button>
       </div>
@@ -514,24 +522,24 @@ const OverlayCard = ({
             <Button
               type="button"
               variant="ghost"
-              size="sm"
-              aria-label={`オーバーレイ「${draft.name}」をひとつ上へ`}
+              size="icon"
+              {...iconButtonName(`オーバーレイ「${draft.name}」をひとつ上へ`)}
               disabled={!canMoveUp}
               onClick={() => onMove(-1)}
             >
-              上へ
+              <ArrowUp aria-hidden="true" />
             </Button>
             <Button
               type="button"
               variant="ghost"
-              size="sm"
-              aria-label={`オーバーレイ「${draft.name}」をひとつ下へ`}
+              size="icon"
+              {...iconButtonName(`オーバーレイ「${draft.name}」をひとつ下へ`)}
               disabled={!canMoveDown}
               onClick={() => onMove(1)}
             >
-              下へ
+              <ArrowDown aria-hidden="true" />
             </Button>
-            <Button type="button" variant="ghost" size="icon" aria-label={`オーバーレイ「${draft.name}」を外す`} className="text-destructive" onClick={onAskRemove}>
+            <Button type="button" variant="ghost" size="icon" {...iconButtonName(`オーバーレイ「${draft.name}」を外す`)} className="text-destructive" onClick={onAskRemove}>
               <Trash2 aria-hidden="true" />
             </Button>
           </div>
@@ -614,10 +622,13 @@ const OverlayCard = ({
             </NativeSelect>
           )}
           {/* 足した素材はいちばん前（構成では並びの末尾、一覧ではいちばん上）に、いっぱいの大きさで入る */}
-          {/* 見えている「足す」より長い名前を読み上げに渡す（何を足すのかは選択欄の中身にしか無いため） */}
-          <Button type="button" aria-label="素材を足す" onClick={() => onChange({ ...draft, items: [...draft.items, newItemDraft(newKind, newId)] })}>
+          <Button
+            type="button"
+            size="icon"
+            {...iconButtonName('素材を足す')}
+            onClick={() => onChange({ ...draft, items: [...draft.items, newItemDraft(newKind, newId)] })}
+          >
             <Plus aria-hidden="true" />
-            足す
           </Button>
         </div>
 
@@ -632,9 +643,8 @@ const OverlayCard = ({
             <div className="flex gap-2">
               {/* URLにはオーバーレイ用キーが含まれる。配信画面に映り込んでも読めないよう、伏せ字で表示する */}
               <Input id={`${id}-url`} type="password" readOnly autoComplete="off" value={url} aria-describedby={`${id}-size`} />
-              <Button type="button" aria-label="URLをコピー" onClick={() => onCopyUrl(url)}>
+              <Button type="button" size="icon" {...iconButtonName('URLをコピー')} onClick={() => onCopyUrl(url)}>
                 <Copy aria-hidden="true" />
-                コピー
               </Button>
             </div>
           </div>
@@ -802,10 +812,10 @@ export const OverlayPage = ({ api, overlayKey }: { api: OverlayLayoutAdminApi; o
               autoCapitalize="off"
               onChange={(event) => setNewName(event.currentTarget.value)}
             />
-            {/* 見えている「足す」より長い名前を読み上げに渡す（何を足すのかは見出しにしか無いため） */}
             <Button
               type="button"
-              aria-label="オーバーレイを足す"
+              size="icon"
+              {...iconButtonName('オーバーレイを足す')}
               disabled={trimmedNewName === '' || nameTaken}
               onClick={() => {
                 setDrafts([...drafts, newOverlayDraft(trimmedNewName)])
@@ -813,7 +823,6 @@ export const OverlayPage = ({ api, overlayKey }: { api: OverlayLayoutAdminApi; o
               }}
             >
               <Plus aria-hidden="true" />
-              足す
             </Button>
           </div>
           {/* 名前がOBSに貼るURLに載ることは、文章で説明せずURLそのものを見せて分からせる */}

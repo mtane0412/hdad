@@ -367,6 +367,18 @@ describe('オーバーレイ', () => {
     expect(api.save).toHaveBeenCalledWith([背面, 前面])
   })
 
+  test('コマンドのボタンはアイコンだけにし、名前は読み上げとホバー（title）に残す', async () => {
+    描く(代役のAPI())
+    const 領域 = await オーバーレイの領域('front')
+
+    // 文字を出さないぶん、名前が読み上げからもホバーからも失われないことを確かめる
+    for (const 名前 of ['素材を足す', 'URLをコピー', 'オーバーレイ「front」をひとつ上へ']) {
+      const ボタン = within(領域).getByRole('button', { name: 名前 })
+      expect(ボタン).toHaveTextContent('')
+      expect(ボタン).toHaveAttribute('title', 名前)
+    }
+  })
+
   test('素材が2つ以上あれば、一覧の上端と下端に前面・背面の目印を出す（並びの意味を文章で説明しない）', async () => {
     描く(代役のAPI({ load: vi.fn(async () => [{ name: 'front', items: [壁紙, 時計] }]) }))
 
