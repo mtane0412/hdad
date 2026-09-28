@@ -42,3 +42,19 @@ export const overlayPreviewUrl = (origin: string, name: string): string => {
   if (name === '') throw new Error('オーバーレイの名前が空です')
   return `${origin}${STAGE_PATH}?overlay=${encodeURIComponent(name)}&demo=true`
 }
+
+/**
+ * オーバーレイを足すときに、名前がURLのどこに載るかをその場で見せるための下書き用URLを組み立てる。
+ *
+ * オーバーレイ用キーを `…` に置き換えるのは、名前を打っているあいだ画面に出したままになるためである
+ * （配信画面に映り込んでも読めないようにする。カードのURL欄を伏せ字にしているのと同じ理由）。
+ * 貼るためのURLではないので、そのままOBSには使えない。
+ *
+ * @param origin このサイトの起点（window.location.origin）
+ * @param name 足そうとしているオーバーレイの名前
+ * @throws 名前が空の場合（名前の載っていないURLを見せない）
+ */
+export const overlayStageUrlOutline = (origin: string, name: string): string => {
+  if (name === '') throw new Error('オーバーレイの名前が空です')
+  return `${origin}${STAGE_PATH}?key=…&overlay=${encodeURIComponent(name)}`
+}

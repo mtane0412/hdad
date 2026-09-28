@@ -8,6 +8,7 @@
  *
  * 注意: 失敗は黙って無視せず、画面の上部に理由を出す（Fail-Fast）。素材の一覧を取得できなければ操作盤を出さない。
  */
+import { Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -15,6 +16,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
+import { iconButtonName } from '@/core/icon-button'
 import type { AdminApi, MediaItem } from './api'
 import { formatBytes, kindLabels } from './form'
 import { errorMessage, usePageActions } from './page-actions'
@@ -122,9 +124,9 @@ export const MediaPage = ({ api }: { api: AdminApi }) => {
                   <Button
                     type="button"
                     variant="ghost"
-                    size="sm"
+                    size="icon"
                     className="text-destructive"
-                    aria-label={`${item.name} を削除`}
+                    {...iconButtonName(`${item.name} を削除`)}
                     disabled={actions.busy}
                     onClick={() =>
                       actions.ask({
@@ -135,7 +137,7 @@ export const MediaPage = ({ api }: { api: AdminApi }) => {
                       })
                     }
                   >
-                    削除
+                    <Trash2 aria-hidden="true" />
                   </Button>
                 </li>
               ))}

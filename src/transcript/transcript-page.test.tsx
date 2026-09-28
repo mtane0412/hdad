@@ -28,6 +28,14 @@ describe('文字起こしのページ', () => {
     expect(URLの欄()).toHaveValue(`${window.location.origin}/transcript/relay/?key=${encodeURIComponent(オーバーレイ用キー)}`)
   })
 
+  test('URLのコピーはアイコンだけのボタンにし、名前は読み上げとホバー（title）に残す', () => {
+    render(<TranscriptPage overlayKey={オーバーレイ用キー} />)
+
+    const コピーのボタン = screen.getByRole('button', { name: 'URLをコピー' })
+    expect(コピーのボタン).toHaveTextContent('')
+    expect(コピーのボタン).toHaveAttribute('title', 'URLをコピー')
+  })
+
   test('ポートを既定から変えると、URLに書き足す', async () => {
     render(<TranscriptPage overlayKey={オーバーレイ用キー} />)
 

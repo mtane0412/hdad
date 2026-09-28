@@ -35,7 +35,7 @@
  * 注意: 配置用の枠に描くのは四角と名前だけで、素材の中身は映さない（中身はプレビューが受け持つ）。
  * 注意: 吸着（グリッド・他の素材の端に合わせる）は入れていない。まず動かせることを先にする。
  */
-import { ChevronDown, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, ChevronDown, Copy, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -45,6 +45,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { ApiError } from '../core/api'
+import { iconButtonName } from '../core/icon-button'
 import { ParamField } from '../core/fields'
 import { Preview, useSettled } from '../core/preview'
 import type { AnyParamValue } from '../core/params'
@@ -72,17 +73,22 @@ import {
 } from './form'
 import { ITEM_KINDS, STAGE_SIZE, rectStyle, type ItemKind } from './layout'
 import { replyPreviewLayout } from './preview'
-import { overlayPreviewUrl, overlayStageUrl } from './url'
+import { overlayPreviewUrl, overlayStageUrl, overlayStageUrlOutline } from './url'
 
 /** 入力中にプレビューを作り直しすぎないための待ち時間（ミリ秒）。ギャラリーと同じ扱い */
 const PREVIEW_DELAY_MS = 150
 
-/** 位置と大きさの入力欄（％）。並べる順と見出しをここで決める */
-const RECT_FIELDS: readonly { key: keyof RectDraft; label: string }[] = [
-  { key: 'x', label: '左端の位置（％）' },
-  { key: 'y', label: '上端の位置（％）' },
-  { key: 'width', label: '幅（％）' },
-  { key: 'height', label: '高さ（％）' },
+/**
+ * 位置と大きさの入力欄（％）。並べる順と見出しをここで決める。
+ *
+ * 画面に出すのは短い見出し（`short`）だけにし、単位はまとめの見出し（％）へ1度だけ出す。読み上げには
+ * どこの値かまで含む `label` を渡す（見えている文字を含む名前にするため、`short` は `label` の一部にする）。
+ */
+const RECT_FIELDS: readonly { key: keyof RectDraft; short: string; label: string }[] = [
+  { key: 'x', short: '左', label: '左端の位置（％）' },
+  { key: 'y', short: '上', label: '上端の位置（％）' },
+  { key: 'width', short: '幅', label: '幅（％）' },
+  { key: 'height', short: '高さ', label: '高さ（％）' },
 ]
 
 /** 素材の枠の見た目（/triggers/ の項目の枠と同じ扱い。カードの中にカードを並べて見せない） */
@@ -341,13 +347,13 @@ const ItemRow = ({
           </span>
         </Button>
         {/* 一覧では上にあるものが前なので、「前面へ」がひとつ上、「背面へ」がひとつ下に当たる */}
-        <Button type="button" variant="ghost" size="sm" aria-label={`${label}をひとつ前面へ`} disabled={!canMoveFront} onClick={() => onMove(1)}>
-          前面へ
+        <Button type="button" variant="ghost" size="icon" {...iconButtonName(`${label}をひとつ前面へ`)} disabled={!canMoveFront} onClick={() => onMove(1)}>
+          <ArrowUp aria-hidden="true" />
         </Button>
-        <Button type="button" variant="ghost" size="sm" aria-label={`${label}をひとつ背面へ`} disabled={!canMoveBack} onClick={() => onMove(-1)}>
-          背面へ
+        <Button type="button" variant="ghost" size="icon" {...iconButtonName(`${label}をひとつ背面へ`)} disabled={!canMoveBack} onClick={() => onMove(-1)}>
+          <ArrowDown aria-hidden="true" />
         </Button>
-        <Button type="button" variant="ghost" size="icon" aria-label={`${label}を外す`} className="text-destructive" onClick={onRemove}>
+        <Button type="button" variant="ghost" size="icon" {...iconButtonName(`${label}を外す`)} className="text-destructive" onClick={onRemove}>
           <Trash2 aria-hidden="true" />
         </Button>
       </div>
@@ -392,15 +398,17 @@ const ItemRow = ({
             </div>
 
             <fieldset className="grid grid-cols-2 gap-3">
-              <legend className="mb-2 text-sm font-medium">オーバーレイの中での位置と大きさ（幅・高さに対する割合）</legend>
+              {/* 単位（％）は見出しに1度だけ出し、入力欄ごとには繰り返さない */}
+              <legend className="mb-2 text-sm font-medium">オーバーレイの中での位置と大きさ（％）</legend>
               {RECT_FIELDS.map((field) => (
                 <div key={field.key} className="flex flex-col gap-1">
                   <Label htmlFor={`${id}-${field.key}`} className="text-xs font-normal text-muted-foreground">
-                    {field.label}
+                    {field.short}
                   </Label>
                   {/* 空欄は 0 に丸めず、そのままWorkerへ送って理由を返させる（検証はWorkerだけが持つ） */}
                   <Input
                     id={`${id}-${field.key}`}
+                    aria-label={field.label}
                     type="number"
                     inputMode="decimal"
                     value={draft.rect[field.key]}
@@ -497,34 +505,34 @@ const OverlayCard = ({
       <CardHeader>
         <div className="flex items-start justify-between gap-2">
           <div className="flex flex-col gap-1">
+            {/* 「OBSのブラウザソース1つぶん」は、カードの下のURL欄（貼る先そのもの）が示すので文章にしない */}
             <CardTitle>
               オーバーレイ <code className="font-mono">{draft.name}</code>
             </CardTitle>
-            <CardDescription>OBSのブラウザソース1つぶん。この中の素材は、上にあるものが前に出る（オーバーレイ同士の並びは重なりと関わらない）。</CardDescription>
           </div>
           <div className="flex items-center gap-1">
             {/* オーバーレイ同士の並びは重なりと関わらない（別々のブラウザソースなので）。編集しやすい順に並べ替えるためのもの */}
             <Button
               type="button"
               variant="ghost"
-              size="sm"
-              aria-label={`オーバーレイ「${draft.name}」をひとつ上へ`}
+              size="icon"
+              {...iconButtonName(`オーバーレイ「${draft.name}」をひとつ上へ`)}
               disabled={!canMoveUp}
               onClick={() => onMove(-1)}
             >
-              上へ
+              <ArrowUp aria-hidden="true" />
             </Button>
             <Button
               type="button"
               variant="ghost"
-              size="sm"
-              aria-label={`オーバーレイ「${draft.name}」をひとつ下へ`}
+              size="icon"
+              {...iconButtonName(`オーバーレイ「${draft.name}」をひとつ下へ`)}
               disabled={!canMoveDown}
               onClick={() => onMove(1)}
             >
-              下へ
+              <ArrowDown aria-hidden="true" />
             </Button>
-            <Button type="button" variant="ghost" size="icon" aria-label={`オーバーレイ「${draft.name}」を外す`} className="text-destructive" onClick={onAskRemove}>
+            <Button type="button" variant="ghost" size="icon" {...iconButtonName(`オーバーレイ「${draft.name}」を外す`)} className="text-destructive" onClick={onAskRemove}>
               <Trash2 aria-hidden="true" />
             </Button>
           </div>
@@ -541,11 +549,12 @@ const OverlayCard = ({
               <Button type="button" variant="outline" size="sm" onClick={onTogglePreview}>
                 {previewOpen ? 'プレビューを閉じる' : 'プレビューを見る'}
               </Button>
-              <p className="text-sm text-muted-foreground">
-                素材の中身はサンプルです（Twitch にも Worker にもつながず、編集中の位置とパラメータをそのまま映します）。
-              </p>
+              {/* 注意書きは、映っているものを見ているときだけ要る（閉じているカードでは場所を取るだけ） */}
+              {previewOpen && <p className="text-sm text-muted-foreground">中身はサンプルです（配信中のものにはつながりません）。</p>}
             </div>
             {previewOpen && <PreviewFrame draft={draft} />}
+            {/* 重なりの向きは目印で示す（素材が1つだけなら重なりが無いので出さない） */}
+            {draft.items.length > 1 && <p className="text-xs text-muted-foreground">前面</p>}
             <ul className="flex flex-col gap-2">
             {frontFirstItems(draft.items).map(({ item, position }) => (
               <ItemRow
@@ -566,45 +575,53 @@ const OverlayCard = ({
               />
             ))}
             </ul>
+            {draft.items.length > 1 && <p className="text-xs text-muted-foreground">背面</p>}
           </>
         )}
 
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor={`${id}-kind`}>足す素材の種類</Label>
+        {/* 選んだ種類とデザインがそのまま見えているので、入力欄の見出しは読み上げにだけ残す */}
+        <div className="flex flex-wrap items-center gap-3">
+          <NativeSelect
+            aria-label="足す素材の種類"
+            id={`${id}-kind`}
+            className="w-44"
+            value={newKind}
+            onChange={(event) => {
+              const kind = ITEM_KINDS.find((candidate) => candidate === event.currentTarget.value) ?? 'wallpaper'
+              setNewKind(kind)
+              // デザインIDを持たない種類では空文字にする
+              setNewId(designsFor(kind)[0]?.id ?? '')
+            }}
+          >
+            {ITEM_KINDS.map((kind) => (
+              <NativeSelectOption key={kind} value={kind}>
+                {ITEM_KIND_LABELS[kind]}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+          {designsFor(newKind).length > 0 && (
             <NativeSelect
-              id={`${id}-kind`}
+              aria-label="足す素材のデザイン"
+              id={`${id}-design`}
               className="w-44"
-              value={newKind}
-              onChange={(event) => {
-                const kind = ITEM_KINDS.find((candidate) => candidate === event.currentTarget.value) ?? 'wallpaper'
-                setNewKind(kind)
-                // デザインIDを持たない種類では空文字にする
-                setNewId(designsFor(kind)[0]?.id ?? '')
-              }}
+              value={newId}
+              onChange={(event) => setNewId(event.currentTarget.value)}
             >
-              {ITEM_KINDS.map((kind) => (
-                <NativeSelectOption key={kind} value={kind}>
-                  {ITEM_KIND_LABELS[kind]}
+              {designsFor(newKind).map((design) => (
+                <NativeSelectOption key={design.id} value={design.id}>
+                  {design.title}
                 </NativeSelectOption>
               ))}
             </NativeSelect>
-          </div>
-          {designsFor(newKind).length > 0 && (
-            <div className="flex flex-col gap-2">
-              <Label htmlFor={`${id}-design`}>足す素材のデザイン</Label>
-              <NativeSelect id={`${id}-design`} className="w-44" value={newId} onChange={(event) => setNewId(event.currentTarget.value)}>
-                {designsFor(newKind).map((design) => (
-                  <NativeSelectOption key={design.id} value={design.id}>
-                    {design.title}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-            </div>
           )}
           {/* 足した素材はいちばん前（構成では並びの末尾、一覧ではいちばん上）に、いっぱいの大きさで入る */}
-          <Button type="button" onClick={() => onChange({ ...draft, items: [...draft.items, newItemDraft(newKind, newId)] })}>
-            素材を足す
+          <Button
+            type="button"
+            size="icon"
+            {...iconButtonName('素材を足す')}
+            onClick={() => onChange({ ...draft, items: [...draft.items, newItemDraft(newKind, newId)] })}
+          >
+            <Plus aria-hidden="true" />
           </Button>
         </div>
 
@@ -612,14 +629,15 @@ const OverlayCard = ({
         {url !== null && (
           <div className="flex flex-col gap-2">
             <Label htmlFor={`${id}-url`}>OBSのブラウザソースに貼るURL</Label>
+            {/* 中の位置と大きさが割合であることは、素材ごとの入力欄（％）が示すので書かない */}
             <p id={`${id}-size`} className="text-sm text-muted-foreground">
-              推奨の大きさ: {STAGE_SIZE.width} × {STAGE_SIZE.height} px（配信画面と同じ大きさ。中の位置と大きさは割合で決まる）
+              推奨の大きさ: {STAGE_SIZE.width} × {STAGE_SIZE.height} px（配信画面と同じ）
             </p>
             <div className="flex gap-2">
               {/* URLにはオーバーレイ用キーが含まれる。配信画面に映り込んでも読めないよう、伏せ字で表示する */}
               <Input id={`${id}-url`} type="password" readOnly autoComplete="off" value={url} aria-describedby={`${id}-size`} />
-              <Button type="button" onClick={() => onCopyUrl(url)}>
-                URLをコピー
+              <Button type="button" size="icon" {...iconButtonName('URLをコピー')} onClick={() => onCopyUrl(url)}>
+                <Copy aria-hidden="true" />
               </Button>
             </div>
           </div>
@@ -667,6 +685,9 @@ export const OverlayPage = ({ api, overlayKey }: { api: OverlayLayoutAdminApi; o
 
   const overlayNames = overlayNameChoices(drafts)
   const changed = savedJson !== undefined && savedJson !== JSON.stringify(drafts)
+  /** 足そうとしている名前（前後の空白を落としたもの）と、それがすでに使われているか */
+  const trimmedNewName = newName.trim()
+  const nameTaken = drafts.some((draft) => draft.name === trimmedNewName)
 
   const update = (position: number, draft: OverlayDraft): void => setDrafts(drafts.map((current, index) => (index === position ? draft : current)))
 
@@ -713,10 +734,12 @@ export const OverlayPage = ({ api, overlayKey }: { api: OverlayLayoutAdminApi; o
         <Card>
           <CardHeader>
             <CardTitle>オーバーレイ</CardTitle>
-            <CardDescription>OBSのブラウザソース1つぶんが「オーバーレイ」で、その中に素材を積む。</CardDescription>
+            <CardDescription>
+              OBSのブラウザソース1つぶんが「オーバーレイ」で、その中に素材を積む。アバターやゲーム画面を挟みたいところで分ける。
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-muted-foreground">まだオーバーレイがありません。下の「オーバーレイを足す」から作ってください。</p>
+            <p className="text-sm text-muted-foreground">まだオーバーレイがありません。</p>
           </CardContent>
         </Card>
       ) : (
@@ -766,16 +789,15 @@ export const OverlayPage = ({ api, overlayKey }: { api: OverlayLayoutAdminApi; o
       <Card>
         <CardHeader>
           <CardTitle>オーバーレイを足す</CardTitle>
-          <CardDescription>
-            アバターやゲーム画面を挟みたいところで分ける。名前はOBSに貼るURLに載るので、変えないかぎりURLは貼り替えなくてよい。
-          </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-wrap items-end gap-3">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor={nameFieldId}>足すオーバーレイの名前</Label>
+        <CardContent className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* 見出しが「オーバーレイを足す」なので、入力欄の見出しは画面には出さず、読み上げにだけ残す */}
             {/* 名前の書式（英小文字・数字・ハイフン）は Worker が確かめる */}
             <Input
               id={nameFieldId}
+              aria-label="足すオーバーレイの名前"
+              aria-describedby={`${nameFieldId}-outline`}
               className="w-44"
               value={newName}
               placeholder="talk"
@@ -783,17 +805,34 @@ export const OverlayPage = ({ api, overlayKey }: { api: OverlayLayoutAdminApi; o
               autoCapitalize="off"
               onChange={(event) => setNewName(event.currentTarget.value)}
             />
+            <Button
+              type="button"
+              size="icon"
+              {...iconButtonName('オーバーレイを足す')}
+              disabled={trimmedNewName === '' || nameTaken}
+              onClick={() => {
+                setDrafts([...drafts, newOverlayDraft(trimmedNewName)])
+                setNewName('')
+              }}
+            >
+              <Plus aria-hidden="true" />
+            </Button>
           </div>
-          <Button
-            type="button"
-            disabled={newName.trim() === '' || drafts.some((draft) => draft.name === newName.trim())}
-            onClick={() => {
-              setDrafts([...drafts, newOverlayDraft(newName.trim())])
-              setNewName('')
-            }}
-          >
-            オーバーレイを足す
-          </Button>
+          {/* どちらも1行に収め、打ち始めても行がずれないよう高さを確保しておく */}
+          <div className="min-h-5 text-sm">
+            {/* 名前がOBSに貼るURLに載ることは、文章で説明せずURLそのものを見せて分からせる。
+                ただしURLは1文字打つたびに変わるので読み上げの通知には載せない（打鍵ごとにURL全体を読み上げさせない）。
+                入力欄からは aria-describedby で指しているので、欄へ移ったときには読まれる */}
+            <p id={`${nameFieldId}-outline`} className="text-muted-foreground">
+              {!nameTaken && trimmedNewName !== '' && (
+                <code className="font-mono break-all">{overlayStageUrlOutline(window.location.origin, trimmedNewName)}</code>
+              )}
+            </p>
+            {/* 足せない理由だけは、打っている手を止めずに伝わるよう通知に載せる（空でも置いたままにする） */}
+            <p aria-live="polite" className="text-destructive">
+              {nameTaken && 'この名前のオーバーレイはすでにあります。別の名前にしてください。'}
+            </p>
+          </div>
         </CardContent>
       </Card>
 

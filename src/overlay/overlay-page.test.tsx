@@ -339,6 +339,36 @@ describe('オーバーレイ', () => {
     ])
   })
 
+  test('名前を打つと、その名前の載ったOBS用URLをその場で見せる（名前とURLの関わりを文章で説明しない）', async () => {
+    描く(代役のAPI())
+
+    await userEvent.type(await screen.findByLabelText('足すオーバーレイの名前'), 'talk')
+
+    expect(screen.getByText(`${window.location.origin}/overlay/stage/?key=…&overlay=talk`)).toBeInTheDocument()
+  })
+
+  test('URLは読み上げの通知に載せず、足せない理由だけを通知する（1文字ごとにURL全体を読み上げさせない）', async () => {
+    描く(代役のAPI())
+    const 名前の欄 = await screen.findByLabelText('足すオーバーレイの名前')
+
+    await userEvent.type(名前の欄, 'talk')
+    expect(screen.getByText(`${window.location.origin}/overlay/stage/?key=…&overlay=talk`).closest('[aria-live]')).toBeNull()
+
+    // すでにある名前に変えたときは、打っている手を止めずに伝わるよう通知に載せる
+    await userEvent.clear(名前の欄)
+    await userEvent.type(名前の欄, 'back')
+    expect(screen.getByText(/この名前のオーバーレイはすでにあります/).closest('[aria-live]')).not.toBeNull()
+  })
+
+  test('すでにある名前を打つと、足せない理由をその場で出す（押せないボタンを黙って出さない）', async () => {
+    描く(代役のAPI())
+
+    await userEvent.type(await screen.findByLabelText('足すオーバーレイの名前'), 'back')
+
+    expect(screen.getByText(/この名前のオーバーレイはすでにあります/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'オーバーレイを足す' })).toBeDisabled()
+  })
+
   test('素材を1つも持たないオーバーレイは送らない（貼っても何も映らないURLを作らせない）', async () => {
     const api = 代役のAPI()
     描く(api)
@@ -348,6 +378,34 @@ describe('オーバーレイ', () => {
     await 保存する()
 
     expect(api.save).toHaveBeenCalledWith([背面, 前面])
+  })
+
+  test('コマンドのボタンはアイコンだけにし、名前は読み上げとホバー（title）に残す', async () => {
+    描く(代役のAPI())
+    const 領域 = await オーバーレイの領域('front')
+
+    // 文字を出さないぶん、名前が読み上げからもホバーからも失われないことを確かめる
+    for (const 名前 of ['素材を足す', 'URLをコピー', 'オーバーレイ「front」をひとつ上へ']) {
+      const ボタン = within(領域).getByRole('button', { name: 名前 })
+      expect(ボタン).toHaveTextContent('')
+      expect(ボタン).toHaveAttribute('title', 名前)
+    }
+  })
+
+  test('素材が2つ以上あれば、一覧の上端と下端に前面・背面の目印を出す（並びの意味を文章で説明しない）', async () => {
+    描く(代役のAPI({ load: vi.fn(async () => [{ name: 'front', items: [壁紙, 時計] }]) }))
+
+    const 領域 = await オーバーレイの領域('front')
+    expect(within(領域).getByText('前面')).toBeInTheDocument()
+    expect(within(領域).getByText('背面')).toBeInTheDocument()
+  })
+
+  test('素材が1つだけなら、前面・背面の目印は出さない（重なりが無いため）', async () => {
+    描く(代役のAPI({ load: vi.fn(async () => [前面]) }))
+
+    const 領域 = await オーバーレイの領域('front')
+    expect(within(領域).queryByText('前面')).not.toBeInTheDocument()
+    expect(within(領域).queryByText('背面')).not.toBeInTheDocument()
   })
 
   test('オーバーレイを並べ替えられる', async () => {
@@ -465,6 +523,16 @@ describe('プレビュー', () => {
       'src',
       `${window.location.origin}/overlay/stage/?overlay=front&demo=true`,
     )
+  })
+
+  test('注意書きは開いているあいだだけ出す（閉じているカードで場所を取らない）', async () => {
+    描く(代役のAPI())
+    expect(within(await オーバーレイの領域('front')).queryByText(/中身はサンプルです/)).not.toBeInTheDocument()
+    cleanup()
+
+    const 領域 = await プレビューを開く('front')
+
+    expect(within(領域).getByText(/中身はサンプルです/)).toBeInTheDocument()
   })
 
   test('閉じると外す（見ているあいだだけ動かす）', async () => {

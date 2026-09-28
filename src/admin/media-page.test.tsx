@@ -83,6 +83,14 @@ describe('アップロード', () => {
 })
 
 describe('削除', () => {
+  test('削除はアイコンだけのボタンにし、名前は読み上げとホバー（title）に残す', async () => {
+    render(<MediaPage api={代役のAPI()} />)
+
+    const 削除のボタン = await screen.findByRole('button', { name: '花火.png を削除' })
+    expect(削除のボタン).toHaveTextContent('')
+    expect(削除のボタン).toHaveAttribute('title', '花火.png を削除')
+  })
+
   test('削除は確認してから行い、一覧から消す', async () => {
     const api = 代役のAPI()
     render(<MediaPage api={api} />)

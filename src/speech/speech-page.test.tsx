@@ -82,6 +82,15 @@ describe('チャットの読み上げのページ', () => {
     expect(screen.getByLabelText('読み上げない人（ログイン名をカンマ区切り）')).toHaveValue('hdad_bot, nightbot')
   })
 
+  test('URLのコピーはアイコンだけのボタンにし、名前は読み上げとホバー（title）に残す', async () => {
+    描く({})
+    await 読み込みを待つ()
+
+    const コピーのボタン = screen.getByRole('button', { name: 'URLをコピー' })
+    expect(コピーのボタン).toHaveTextContent('')
+    expect(コピーのボタン).toHaveAttribute('title', 'URLをコピー')
+  })
+
   test('変えた設定をWorkerへ保存し、保存できたことを知らせる', async () => {
     const api = speechApi()
     描く({ api })

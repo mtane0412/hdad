@@ -24,6 +24,7 @@
  * 1件も出ないので、その理由を画面に書く（空の一覧を黙って出すと、読めていないのか発言が無いのか分からない）。
  * 注意: 失敗は黙って無視せず、理由を画面に出す（Fail-Fast）。
  */
+import { RotateCw } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
 import { usePageActions } from '@/admin/page-actions'
 import { Link } from '@/app/router'
@@ -32,6 +33,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import { iconButtonName } from '@/core/icon-button'
 import type { FocusApi, PickableMessage } from './api'
 import type { FocusTarget } from './focused'
 import { speakersOf } from './form'
@@ -177,8 +179,15 @@ export const FocusPage = ({ api }: { api: FocusApi }) => {
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <div>
-            <Button type="button" variant="outline" disabled={actions.busy} onClick={() => void 読み直す()}>
-              発言を読み直す
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              {...iconButtonName('発言を読み直す')}
+              disabled={actions.busy}
+              onClick={() => void 読み直す()}
+            >
+              <RotateCw aria-hidden="true" />
             </Button>
           </div>
 
