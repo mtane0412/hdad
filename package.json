@@ -1,6 +1,7 @@
 {
   "name": "hdad",
   "private": true,
+  "license": "MIT",
   "version": "0.1.0",
   "description": "HDAD (Hyperfocus-Driven Assistant Director) — Twitch配信用の素材とアシスタント（OBSブラウザソース向け背景・チャット・アラート、チャットボット）",
   "type": "module",

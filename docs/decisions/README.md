@@ -24,5 +24,6 @@
 | [triggers-page.md](triggers-page.md) | トリガーの管理画面（`/triggers/`） |
 | [bot.md](bot.md) | チャットボット（`/bot/`） |
 | [worker.md](worker.md) | Worker（`worker/`）と失敗の記録 |
+| [docs.md](docs.md) | 利用者向けの説明の置き場（`README.md` と `docs/guide/`） |
 
-いずれも 2026-09-28 に `.claude/CLAUDE.md` の「構成上の約束」から原文のまま切り出したもので、文面は issue ごとに積み上がった当時の記述である。
+`docs.md` を除く各ファイルは 2026-09-28 に `.claude/CLAUDE.md` の「構成上の約束」から原文のまま切り出したもので、文面は issue ごとに積み上がった当時の記述である。

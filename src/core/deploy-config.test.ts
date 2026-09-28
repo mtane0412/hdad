@@ -1,7 +1,7 @@
 /**
  * Deploy to Cloudflare ボタン向けのデプロイ設定の整合性テスト
  *
- * Deploy to Cloudflare ボタン（README のボタン）は、リポジトリの wrangler.jsonc からリソース（KV・R2・D1）を、
+ * Deploy to Cloudflare ボタン（README のボタン。手順は docs/guide/deploy.md）は、リポジトリの wrangler.jsonc からリソース（KV・R2・D1）を、
  * .dev.vars.example からシークレットを読み取り、押した人に入力を求める。そのとき package.json の
  * cloudflare.bindings に書いた説明が入力欄に添えられるため、説明の書き漏れは押した人が値の意味を知る手がかりを失う。
  * そこで「wrangler.jsonc のバインディング」「.dev.vars.example のシークレット」「package.json の説明」の
