@@ -339,6 +339,23 @@ describe('オーバーレイ', () => {
     ])
   })
 
+  test('名前を打つと、その名前の載ったOBS用URLをその場で見せる（名前とURLの関わりを文章で説明しない）', async () => {
+    描く(代役のAPI())
+
+    await userEvent.type(await screen.findByLabelText('足すオーバーレイの名前'), 'talk')
+
+    expect(screen.getByText(`${window.location.origin}/overlay/stage/?key=…&overlay=talk`)).toBeInTheDocument()
+  })
+
+  test('すでにある名前を打つと、足せない理由をその場で出す（押せないボタンを黙って出さない）', async () => {
+    描く(代役のAPI())
+
+    await userEvent.type(await screen.findByLabelText('足すオーバーレイの名前'), 'back')
+
+    expect(screen.getByText(/この名前のオーバーレイはすでにあります/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'オーバーレイを足す' })).toBeDisabled()
+  })
+
   test('素材を1つも持たないオーバーレイは送らない（貼っても何も映らないURLを作らせない）', async () => {
     const api = 代役のAPI()
     描く(api)

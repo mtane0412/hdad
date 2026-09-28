@@ -35,7 +35,7 @@
  * 注意: 配置用の枠に描くのは四角と名前だけで、素材の中身は映さない（中身はプレビューが受け持つ）。
  * 注意: 吸着（グリッド・他の素材の端に合わせる）は入れていない。まず動かせることを先にする。
  */
-import { ChevronDown, Trash2 } from 'lucide-react'
+import { ChevronDown, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -72,7 +72,7 @@ import {
 } from './form'
 import { ITEM_KINDS, STAGE_SIZE, rectStyle, type ItemKind } from './layout'
 import { replyPreviewLayout } from './preview'
-import { overlayPreviewUrl, overlayStageUrl } from './url'
+import { overlayPreviewUrl, overlayStageUrl, overlayStageUrlOutline } from './url'
 
 /** 入力中にプレビューを作り直しすぎないための待ち時間（ミリ秒）。ギャラリーと同じ扱い */
 const PREVIEW_DELAY_MS = 150
@@ -667,6 +667,9 @@ export const OverlayPage = ({ api, overlayKey }: { api: OverlayLayoutAdminApi; o
 
   const overlayNames = overlayNameChoices(drafts)
   const changed = savedJson !== undefined && savedJson !== JSON.stringify(drafts)
+  /** 足そうとしている名前（前後の空白を落としたもの）と、それがすでに使われているか */
+  const trimmedNewName = newName.trim()
+  const nameTaken = drafts.some((draft) => draft.name === trimmedNewName)
 
   const update = (position: number, draft: OverlayDraft): void => setDrafts(drafts.map((current, index) => (index === position ? draft : current)))
 
@@ -713,10 +716,12 @@ export const OverlayPage = ({ api, overlayKey }: { api: OverlayLayoutAdminApi; o
         <Card>
           <CardHeader>
             <CardTitle>オーバーレイ</CardTitle>
-            <CardDescription>OBSのブラウザソース1つぶんが「オーバーレイ」で、その中に素材を積む。</CardDescription>
+            <CardDescription>
+              OBSのブラウザソース1つぶんが「オーバーレイ」で、その中に素材を積む。アバターやゲーム画面を挟みたいところで分ける。
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-muted-foreground">まだオーバーレイがありません。下の「オーバーレイを足す」から作ってください。</p>
+            <p className="text-sm text-muted-foreground">まだオーバーレイがありません。</p>
           </CardContent>
         </Card>
       ) : (
@@ -766,16 +771,15 @@ export const OverlayPage = ({ api, overlayKey }: { api: OverlayLayoutAdminApi; o
       <Card>
         <CardHeader>
           <CardTitle>オーバーレイを足す</CardTitle>
-          <CardDescription>
-            アバターやゲーム画面を挟みたいところで分ける。名前はOBSに貼るURLに載るので、変えないかぎりURLは貼り替えなくてよい。
-          </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-wrap items-end gap-3">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor={nameFieldId}>足すオーバーレイの名前</Label>
+        <CardContent className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* 見出しが「オーバーレイを足す」なので、入力欄の見出しは画面には出さず、読み上げにだけ残す */}
             {/* 名前の書式（英小文字・数字・ハイフン）は Worker が確かめる */}
             <Input
               id={nameFieldId}
+              aria-label="足すオーバーレイの名前"
+              aria-describedby={`${nameFieldId}-outline`}
               className="w-44"
               value={newName}
               placeholder="talk"
@@ -783,17 +787,28 @@ export const OverlayPage = ({ api, overlayKey }: { api: OverlayLayoutAdminApi; o
               autoCapitalize="off"
               onChange={(event) => setNewName(event.currentTarget.value)}
             />
+            {/* 見えている「足す」より長い名前を読み上げに渡す（何を足すのかは見出しにしか無いため） */}
+            <Button
+              type="button"
+              aria-label="オーバーレイを足す"
+              disabled={trimmedNewName === '' || nameTaken}
+              onClick={() => {
+                setDrafts([...drafts, newOverlayDraft(trimmedNewName)])
+                setNewName('')
+              }}
+            >
+              <Plus aria-hidden="true" />
+              足す
+            </Button>
           </div>
-          <Button
-            type="button"
-            disabled={newName.trim() === '' || drafts.some((draft) => draft.name === newName.trim())}
-            onClick={() => {
-              setDrafts([...drafts, newOverlayDraft(newName.trim())])
-              setNewName('')
-            }}
-          >
-            オーバーレイを足す
-          </Button>
+          {/* 名前がOBSに貼るURLに載ることは、文章で説明せずURLそのものを見せて分からせる */}
+          <p id={`${nameFieldId}-outline`} className="min-h-5 text-sm text-muted-foreground" aria-live="polite">
+            {nameTaken ? (
+              <span className="text-destructive">この名前のオーバーレイはすでにあります。別の名前にしてください。</span>
+            ) : (
+              trimmedNewName !== '' && <code className="font-mono break-all">{overlayStageUrlOutline(window.location.origin, trimmedNewName)}</code>
+            )}
+          </p>
         </CardContent>
       </Card>
 

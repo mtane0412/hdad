@@ -4,7 +4,7 @@
  * 画面（overlay-page.tsx）から分けてテストする（サイドスーパー・注目コメントの url.ts と同じ扱い）。
  */
 import { describe, expect, it } from 'vitest'
-import { overlayPreviewUrl, overlayStageUrl } from './url'
+import { overlayPreviewUrl, overlayStageUrl, overlayStageUrlOutline } from './url'
 
 const オーバーレイ用キー = 'overlay-key_0123456789abcdefghij'
 const サイト = 'https://hdad.example.com'
@@ -36,5 +36,19 @@ describe('overlayPreviewUrl', () => {
 
   it('オーバーレイの名前が空なら、何も映らないURLを作らずエラーにする', () => {
     expect(() => overlayPreviewUrl(サイト, '')).toThrow(/オーバーレイの名前/)
+  })
+})
+
+describe('overlayStageUrlOutline', () => {
+  it('オーバーレイ用キーを伏せたまま、名前がURLのどこに載るかを見せる', () => {
+    expect(overlayStageUrlOutline(サイト, 'talk')).toBe(`${サイト}/overlay/stage/?key=…&overlay=talk`)
+  })
+
+  it('オーバーレイ用キーそのものを含めない（名前を打っているあいだ画面に出しっぱなしになるため）', () => {
+    expect(overlayStageUrlOutline(サイト, 'talk')).not.toContain(オーバーレイ用キー)
+  })
+
+  it('オーバーレイの名前が空なら、名前の載っていないURLを見せずエラーにする', () => {
+    expect(() => overlayStageUrlOutline(サイト, '')).toThrow(/オーバーレイの名前/)
   })
 })
