@@ -2,10 +2,11 @@
  * アプリのページの一覧
  *
  * サイドバーの項目と、パスごとに描く中身をここで決める。カテゴリを増やしたらここに足す。
- * ギャラリーの素材ページ（/wallpaper/<id>/ など）と、実ファイルとして配信されるオーバーレイ（alerts/・side-super/overlay/・transcript/relay/・speech/reader/・focus/overlay/・overlay/stage/）は、ここには載せない。
+ * ギャラリーの素材ページ（/wallpaper/<id>/ など）と、実ファイルとして配信されるオーバーレイ（alerts/・side-super/overlay/・transcript/relay/・speech/reader/・focus/overlay/・overlay/stage/・overlay/backstage/）は、ここには載せない。
  */
-import { Bot, BrainCircuit, Captions, Clock, Image, Layers, LayoutDashboard, MessageSquare, PanelTop, Quote, Upload, Users, Volume2, Zap, type LucideIcon } from 'lucide-react'
+import { Bot, BrainCircuit, Captions, Clock, Image, Layers, LayoutDashboard, MessageSquare, PanelTop, Quote, Upload, Users, Volume2, Wrench, Zap, type LucideIcon } from 'lucide-react'
 import type { AdminApi, Me } from '@/admin/api'
+import { BackstagePage } from '@/backstage/backstage-page'
 import { MediaPage } from '@/admin/media-page'
 import { TriggerPage } from '@/admin/trigger-page'
 import type { BotApi } from '@/bot/api'
@@ -91,6 +92,13 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
         icon: Layers,
         // 構成はWorkerに保存されるので、オーバーレイごとのブラウザソースのURLは貼り替えずに中身が切り替わる
         render: ({ overlayApi, me }) => <OverlayPage api={overlayApi} overlayKey={me.overlayKey} />,
+      },
+      {
+        path: '/backstage/',
+        name: '裏方',
+        icon: Wrench,
+        // 映すものを持たない裏方（読み上げ・文字起こしの中継）を1つのブラウザソースにまとめるURLを出す（issue #108）
+        render: ({ me }) => <BackstagePage overlayKey={me.overlayKey} />,
       },
       { path: '/llm/', name: 'LLM', icon: BrainCircuit, render: ({ llmApi }) => <LlmPage api={llmApi} /> },
       {
