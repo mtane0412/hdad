@@ -57,8 +57,8 @@ const ROUND_UNIT = 10
 
 const clamp = (value: number, min: number, max: number): number => Math.min(Math.max(value, min), max)
 
-/** 割合を0.1％まで丸める */
-const round = (value: number): number => Math.round(value * ROUND_UNIT) / ROUND_UNIT
+/** 割合を0.1％まで丸める（素材を足すときの既定の大きさも同じ細かさにそろえる。src/overlay/form.ts） */
+export const roundPercent = (value: number): number => Math.round(value * ROUND_UNIT) / ROUND_UNIT
 
 /**
  * 入力欄の文字（％）を数にする。
@@ -109,8 +109,8 @@ export const deltaPercent = (dxPixels: number, dyPixels: number, boxWidth: numbe
 export const dragRect = (start: RectNumbers, handle: DragHandle, dx: number, dy: number): RectNumbers => {
   if (handle === 'move') {
     return {
-      x: clamp(round(start.x + dx), MIN_POSITION, Math.max(MIN_POSITION, MAX_POSITION - start.width)),
-      y: clamp(round(start.y + dy), MIN_POSITION, Math.max(MIN_POSITION, MAX_POSITION - start.height)),
+      x: clamp(roundPercent(start.x + dx), MIN_POSITION, Math.max(MIN_POSITION, MAX_POSITION - start.width)),
+      y: clamp(roundPercent(start.y + dy), MIN_POSITION, Math.max(MIN_POSITION, MAX_POSITION - start.height)),
       width: start.width,
       height: start.height,
     }
@@ -122,18 +122,18 @@ export const dragRect = (start: RectNumbers, handle: DragHandle, dx: number, dy:
 
   if (handle.includes('w')) {
     // 右端を動かさずに左端を動かすので、幅は右端との差になる
-    x = clamp(round(start.x + dx), MIN_POSITION, right - MIN_SIZE)
-    width = round(right - x)
+    x = clamp(roundPercent(start.x + dx), MIN_POSITION, right - MIN_SIZE)
+    width = roundPercent(right - x)
   }
   if (handle.includes('e')) {
-    width = clamp(round(start.width + dx), MIN_SIZE, MAX_SIZE - start.x)
+    width = clamp(roundPercent(start.width + dx), MIN_SIZE, MAX_SIZE - start.x)
   }
   if (handle.includes('n')) {
-    y = clamp(round(start.y + dy), MIN_POSITION, bottom - MIN_SIZE)
-    height = round(bottom - y)
+    y = clamp(roundPercent(start.y + dy), MIN_POSITION, bottom - MIN_SIZE)
+    height = roundPercent(bottom - y)
   }
   if (handle.includes('s')) {
-    height = clamp(round(start.height + dy), MIN_SIZE, MAX_SIZE - start.y)
+    height = clamp(roundPercent(start.height + dy), MIN_SIZE, MAX_SIZE - start.y)
   }
   return { x, y, width, height }
 }

@@ -20,7 +20,8 @@ import { serializeParams } from '../core/gallery/url'
 import { ParamError, parseParams, type AnyParamValue, type ParamSchema } from '../core/params'
 import { sideSuperParamSchema } from '../side-super/params'
 import { backgrounds } from '../wallpaper/registry'
-import { DEFAULT_OVERLAY_NAMES, type ItemKind, type Overlay } from './layout'
+import { roundPercent } from './drag'
+import { DEFAULT_OVERLAY_NAMES, RECOMMENDED_ITEM_SIZES, STAGE_SIZE, type ItemKind, type Overlay } from './layout'
 
 /** 素材の種類の、画面に出す名前。worker/ の型は読み込めないのでここで持ち直す（src/admin/form.ts と同じ扱い） */
 export const ITEM_KIND_LABELS: Readonly<Record<ItemKind, string>> = {
@@ -56,8 +57,23 @@ const DESIGNS: Readonly<Record<ItemKind, readonly GalleryItem[]>> = {
   focus: [],
 }
 
-/** 新しい素材の位置と大きさ。オーバーレイいっぱいに置いてから、必要なら数値を直してもらう */
-export const DEFAULT_ITEM_RECT = { x: '0', y: '0', width: '100', height: '100' } as const
+/**
+ * 新しい素材の位置と大きさ。
+ *
+ * 大きさは、その種類の推奨の大きさ（layout.ts の RECOMMENDED_ITEM_SIZES）を配信画面に対する割合へ
+ * 直したものにする。すべてをオーバーレイいっぱいで足すと、時計やチャットボックスが配信画面ぜんたいへ
+ * 引き伸ばされた状態から毎回縮めることになる（ギャラリーで確かめた大きさとも食い違う）。
+ * 置き場所だけは決められないので左上（0・0）から始め、配置用の枠でつまんで動かしてもらう。
+ */
+export const defaultRectFor = (kind: ItemKind): RectDraft => {
+  const size = RECOMMENDED_ITEM_SIZES[kind]
+  return {
+    x: '0',
+    y: '0',
+    width: String(roundPercent((size.width / STAGE_SIZE.width) * 100)),
+    height: String(roundPercent((size.height / STAGE_SIZE.height) * 100)),
+  }
+}
 
 /**
  * 画面が素材とオーバーレイを見分けるための識別子を採番する。
@@ -167,7 +183,7 @@ export const schemaFor = (kind: ItemKind, id: string): ParamSchema | undefined =
 const defaultValuesOf = (schema: ParamSchema): Record<string, AnyParamValue> =>
   Object.fromEntries(Object.entries(schema).map(([name, spec]) => [name, spec.default]))
 
-/** 足したばかりの素材の入力欄の中身。パラメータは既定値、位置と大きさはオーバーレイいっぱいにする */
+/** 足したばかりの素材の入力欄の中身。パラメータは既定値、大きさはその種類の推奨の大きさにする */
 export const newItemDraft = (kind: ItemKind, id: string): ItemDraft => {
   const schema = schemaFor(kind, id)
   return {
@@ -176,7 +192,7 @@ export const newItemDraft = (kind: ItemKind, id: string): ItemDraft => {
     id,
     values: schema ? defaultValuesOf(schema) : {},
     savedParams: '',
-    rect: DEFAULT_ITEM_RECT,
+    rect: defaultRectFor(kind),
   }
 }
 

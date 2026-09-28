@@ -18,6 +18,7 @@ import { Gallery } from '@/core/gallery/gallery'
 import type { LlmApi } from '@/llm/api'
 import { LlmPage } from '@/llm/llm-page'
 import type { OverlayLayoutAdminApi } from '@/overlay/admin-api'
+import { RECOMMENDED_ITEM_SIZES } from '@/overlay/layout'
 import { OverlayPage } from '@/overlay/overlay-page'
 import type { StatsApi } from '@/stats/api'
 import { StatsPage } from '@/stats/stats-page'
@@ -110,13 +111,13 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
         path: '/wallpaper/',
         name: '壁紙',
         icon: Image,
-        render: () => <Gallery definitions={backgrounds} noun="背景" basePath="/wallpaper/" previewSize={{ width: 1920, height: 1080 }} />,
+        render: () => <Gallery definitions={backgrounds} noun="背景" basePath="/wallpaper/" previewSize={RECOMMENDED_ITEM_SIZES.wallpaper} />,
       },
       {
         path: '/clock/',
         name: '時計',
         icon: Clock,
-        render: () => <Gallery definitions={clocks} noun="時計" basePath="/clock/" previewSize={{ width: 600, height: 240 }} />,
+        render: () => <Gallery definitions={clocks} noun="時計" basePath="/clock/" previewSize={RECOMMENDED_ITEM_SIZES.clock} />,
       },
       {
         path: '/chat/',
@@ -125,7 +126,7 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
         // プレビューは常にサンプル表示（demo=true）にする。調整のたびにTwitchへ接続し直さないためと、
         // チャンネル名が未入力でも見た目を確かめられるようにするため。OBS用のURLには影響しない
         render: () => (
-          <Gallery definitions={chats} noun="チャットボックス" basePath="/chat/" previewSize={{ width: 480, height: 800 }} previewOverrides={{ demo: true }} />
+          <Gallery definitions={chats} noun="チャットボックス" basePath="/chat/" previewSize={RECOMMENDED_ITEM_SIZES.chat} previewOverrides={{ demo: true }} />
         ),
       },
       { path: '/media/', name: 'アップロード', icon: Upload, render: ({ api }) => <MediaPage api={api} /> },

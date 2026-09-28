@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import { backgrounds } from '../wallpaper/registry'
 import {
-  DEFAULT_ITEM_RECT,
+  defaultRectFor,
   describeOverlayProblem,
   designsFor,
   frontFirstItems,
@@ -59,13 +59,35 @@ describe('schemaFor', () => {
   })
 })
 
+describe('defaultRectFor', () => {
+  it('配信画面と同じ大きさで使う素材（背景・アラート・サイドスーパー・注目コメント）はオーバーレイいっぱいにする', () => {
+    const いっぱい = { x: '0', y: '0', width: '100', height: '100' }
+
+    expect(defaultRectFor('wallpaper')).toEqual(いっぱい)
+    expect(defaultRectFor('alerts')).toEqual(いっぱい)
+    expect(defaultRectFor('sideSuper')).toEqual(いっぱい)
+    expect(defaultRectFor('focus')).toEqual(いっぱい)
+  })
+
+  it('小さく置く素材は、推奨の大きさ（時計は600×240px・チャットは480×800px）を割合にする', () => {
+    // 1920×1080 に対する割合。0.1％まで丸める（入力欄に長い小数を残さないため）
+    expect(defaultRectFor('clock')).toEqual({ x: '0', y: '0', width: '31.3', height: '22.2' })
+    expect(defaultRectFor('chat')).toEqual({ x: '0', y: '0', width: '25', height: '74.1' })
+  })
+})
+
 describe('newItemDraft・newOverlayDraft', () => {
-  it('素材は、オーバーレイいっぱいの大きさとパラメータの既定値で作る', () => {
+  it('素材は、その種類の推奨の大きさとパラメータの既定値で作る', () => {
     const draft = newItemDraft('wallpaper', 'contour')
 
-    expect(draft).toMatchObject({ kind: 'wallpaper', id: 'contour', rect: DEFAULT_ITEM_RECT })
+    expect(draft).toMatchObject({ kind: 'wallpaper', id: 'contour', rect: defaultRectFor('wallpaper') })
     expect(draft.values).toMatchObject({ color: '#9bc1bc' })
     expect(draft.problem).toBeUndefined()
+  })
+
+  it('小さく置く種類の素材は、オーバーレイいっぱいにせず推奨の大きさで作る', () => {
+    expect(newItemDraft('chat', 'plain').rect).toEqual(defaultRectFor('chat'))
+    expect(newItemDraft('chat', 'plain').rect).not.toEqual(defaultRectFor('wallpaper'))
   })
 
   it('足したばかりのオーバーレイは素材を持たない', () => {
