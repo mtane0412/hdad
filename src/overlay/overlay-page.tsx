@@ -70,12 +70,9 @@ import {
   type OverlayLabels,
   type RectDraft,
 } from './form'
-import { ITEM_KINDS, rectStyle, type ItemKind } from './layout'
+import { ITEM_KINDS, STAGE_SIZE, rectStyle, type ItemKind } from './layout'
 import { replyPreviewLayout } from './preview'
 import { overlayPreviewUrl, overlayStageUrl } from './url'
-
-/** ブラウザソースに設定する推奨の大きさ。オーバーレイは配信画面と同じ大きさにして、割合（％）で中を置く */
-const STAGE_SIZE = { width: 1920, height: 1080 }
 
 /** 入力中にプレビューを作り直しすぎないための待ち時間（ミリ秒）。ギャラリーと同じ扱い */
 const PREVIEW_DELAY_MS = 150

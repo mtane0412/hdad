@@ -29,6 +29,34 @@ export type ItemKind = (typeof ITEM_KINDS)[number]
  */
 export const DEFAULT_OVERLAY_NAMES = ['back', 'front'] as const
 
+/**
+ * オーバーレイ（＝OBSのブラウザソース1つ）に設定する推奨の大きさ（px）。
+ *
+ * 配信画面と同じ大きさにして、中の素材は割合（％）で置く。素材の推奨の大きさを割合へ直すときの
+ * 基準にもなる（src/overlay/form.ts の defaultRectFor）。
+ */
+export const STAGE_SIZE = { width: 1920, height: 1080 } as const
+
+/**
+ * 素材の種類ごとの推奨の大きさ（配信画面に置くときのpx）。
+ *
+ * 管理画面が素材を足すときの既定の大きさ（defaultRectFor）と、ギャラリーのプレビューの実寸
+ * （src/app/pages.tsx の previewSize）の両方がここを見る。2か所に数を書くと、片方を直したときに
+ * 「ギャラリーで確かめた大きさ」と「オーバーレイに置いたときの大きさ」が食い違う。
+ *
+ * 配信画面の隅に文言を出す素材（サイドスーパー・注目コメント）とアラートは、素材のCSSが箱の中で
+ * 寄せる場所を決めるので、余白ごと配信画面と同じ大きさにする。壁紙も画面いっぱいに描く。
+ * 時計とチャットボックスだけは画面の一部に置くものなので、ギャラリーが案内している大きさに合わせる。
+ */
+export const RECOMMENDED_ITEM_SIZES: Readonly<Record<ItemKind, { readonly width: number; readonly height: number }>> = {
+  wallpaper: STAGE_SIZE,
+  clock: { width: 600, height: 240 },
+  chat: { width: 480, height: 800 },
+  alerts: STAGE_SIZE,
+  sideSuper: STAGE_SIZE,
+  focus: STAGE_SIZE,
+}
+
 /** オーバーレイの中での位置と大きさ（オーバーレイの幅・高さに対する割合。％） */
 export interface ItemRect {
   readonly x: number
