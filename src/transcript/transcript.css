@@ -3,9 +3,13 @@
  *
  * OBSのブラウザソースに置いて、繋がっているかどうかと、拾えた確定文をその場で読めるようにする。
  * 確認のためのページなので、透過ではなく暗い地に文字を置いて読みやすさを優先する。
+ *
+ * 裏方をまとめたページ（overlay/backstage/）では、この表示は裏方1つの箱の中に入る。そのため位置は
+ * fixed ではなく absolute にして、置かれた箱を基準にする（合成ページが素材のCSSを直したのと同じ。
+ * issue #108）。単独の中継ページでは箱＝body が位置を持たないため、今までどおりページ全体に広がる。
  */
 .transcript {
-  position: fixed;
+  position: absolute;
   inset: 0;
   display: grid;
   grid-template-rows: auto auto 1fr;

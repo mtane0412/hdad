@@ -1,0 +1,57 @@
+/*
+ * 裏方のページ（overlay/backstage/index.html）の見た目
+ *
+ * 配信画面には映さないページなので、透過ではなく暗い地に文字を置いて読みやすさを優先する
+ * （中継の単独ページ（transcript.css）と同じ考え方）。裏方ごとに箱を分けるのは、1つの裏方の失敗を
+ * その箱の中だけに出し、もう一方は動かし続けるためである（issue #108。合成ページが素材ごとの箱に
+ * 出すのと同じ）。
+ */
+@import '../transcript/transcript.css';
+
+.backstage {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  /* 裏方の数だけ行を作り、高さを等分する（どちらも同じだけ読めるようにする） */
+  grid-auto-rows: 1fr;
+  gap: 8px;
+  padding: 8px;
+  overflow: hidden;
+  background: #0f1115;
+  color: #e6e9ef;
+  font: 400 15px / 1.6 'Hiragino Sans', 'Yu Gothic UI', sans-serif;
+}
+
+.backstage-task {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 4px;
+  min-height: 0;
+  border: 1px solid #262a33;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.backstage-task-title {
+  margin: 0;
+  padding: 6px 10px;
+  background: #171a21;
+  color: #aeb6c4;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/*
+ * 裏方1つの中身を入れる箱。失敗の表示（.stage-error）と中継の表示（.transcript）はどちらも
+ * position: absolute なので、位置の基準になるようにここで relative を持たせる。
+ */
+.backstage-task-body {
+  position: relative;
+  min-height: 0;
+}
+
+.backstage-status {
+  margin: 0;
+  padding: 6px 10px;
+  color: #9be89b;
+}
