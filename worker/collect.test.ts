@@ -17,7 +17,8 @@ import { AuthError, loadToken, saveToken, type StoredToken } from './token'
 import { deleteViewer, readViewer, recordViewerMessage } from './viewer-store'
 import { TwitchApiError, type LiveStream, type TwitchClient } from './twitch'
 import { GyazoApiError } from './gyazo'
-import { OCR_MAX_ATTEMPTS, listPendingOcr, recordScreenCapture } from './screen-store'
+import { recordTranscript } from './transcript-store'
+import { OCR_MAX_ATTEMPTS, listPendingOcr, readRecentScreenLines, recordScreenCapture, saveScreenOcr } from './screen-store'
 
 const 現在時刻 = Date.parse('2026-09-21T12:05:00Z')
 const 配信者のID = '12345'
@@ -744,5 +745,56 @@ describe('collectStats（配信画面から読み取った文字の取得）', (
 
     expect(await listPendingOcr(db, 10)).toHaveLength(1)
     expect(await listFailures(db)).toEqual([])
+  })
+})
+
+describe('collectStats（画面に新しく現れた文字の取り出し）', () => {
+  /** 配信中に1枚撮り、その画面から読み取った文字まで用意する */
+  const 読み取った1枚を作る = async (db: ReturnType<typeof createFakeDatabase>, 読み取った文字: string, imageId = '画像1') => {
+    await recordStreamOnline(db, { id: 雑談配信.id, startedAt: Date.parse(雑談配信.startedAt) })
+    await recordScreenCapture(db, imageId, 現在時刻 - 60 * 1000)
+    await saveScreenOcr(db, imageId, 読み取った文字)
+  }
+
+  it('読み取った文字を篩に通し、残った行を積む', async () => {
+    const { db, store } = await 環境を作る()
+    await 読み取った1枚を作る(db, '岩手17歳女性殺害事件\nあ\n盛岡市のガソリンスタンド')
+
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+
+    // 中身のない行（3文字未満）は落ちる
+    expect(await readRecentScreenLines(db, 雑談配信.id, 10)).toEqual(['盛岡市のガソリンスタンド', '岩手17歳女性殺害事件'])
+  })
+
+  it('自前の文字（配信者の発話）は積まない', async () => {
+    const { db, store } = await 環境を作る()
+    await 読み取った1枚を作る(db, '岩手の事件について話します\n盛岡市のガソリンスタンド')
+    await recordTranscript(db, { messageId: 't1', text: '岩手の事件について話します' }, 現在時刻 - 90 * 1000)
+
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+
+    expect(await readRecentScreenLines(db, 雑談配信.id, 10)).toEqual(['盛岡市のガソリンスタンド'])
+  })
+
+  it('同じ画面を撮り続けても、2枚目からは積まない', async () => {
+    const { db, store } = await 環境を作る()
+    await 読み取った1枚を作る(db, '岩手17歳女性殺害事件', '画像1')
+    await recordScreenCapture(db, '画像2', 現在時刻 - 30 * 1000)
+    // OCRは同じ画面でも毎回違う文字を返すので、完全一致では畳めない（「2008」→「2006」の実測と同じ形）
+    await saveScreenOcr(db, '画像2', '岩手17歳女性殺書事件')
+
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+
+    expect(await readRecentScreenLines(db, 雑談配信.id, 10)).toEqual(['岩手17歳女性殺害事件'])
+  })
+
+  it('篩に通し終えた1枚は、次の収集で通し直さない', async () => {
+    const { db, store } = await 環境を作る()
+    await 読み取った1枚を作る(db, '岩手17歳女性殺害事件')
+
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS 件数 FROM screen_lines').get()).toEqual({ 件数: 1 })
   })
 })

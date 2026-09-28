@@ -25,7 +25,19 @@ import { readSideSuper, saveSideSuper } from './side-super-store'
 import { generateSideSuper } from './side-super'
 import { readStreamSummary, saveStreamSummary } from './stream-summary-store'
 import { generateStreamSummary } from './stream-summary'
-import { abandonOcr, countOcrAttempt, deleteOldScreenCaptures, listPendingOcr, saveScreenOcr } from './screen-store'
+import {
+  abandonOcr,
+  countOcrAttempt,
+  deleteOldScreenCaptures,
+  deleteOldScreenLines,
+  listPendingOcr,
+  listPendingSift,
+  readOwnScreenTexts,
+  readRecentScreenLines,
+  saveScreenLines,
+  saveScreenOcr,
+} from './screen-store'
+import { extractNewScreenLines } from './screen-ocr'
 import { GyazoApiError, type GyazoClient } from './gyazo'
 import { deleteOldTranscripts, readRecentTranscripts, readTranscriptsSince } from './transcript-store'
 import { ViewerSummaryContentError, generateViewerSummary } from './viewer-summary'
@@ -387,6 +399,64 @@ const fetchScreenOcr = async (db: Database, gyazo: Pick<GyazoClient, 'fetchOcr'>
   }
 }
 
+/**
+ * 1回の収集で篩にかける画像の枚数の上限。
+ *
+ * OCRを取りに行く枚数（SCREEN_OCR_BATCH_SIZE）と揃える。同じ収集の中で取ってすぐ篩にかけるので、
+ * ここを小さくすると取れた文字が篩の前で溜まっていくだけになる。
+ */
+export const SCREEN_SIFT_BATCH_SIZE = SCREEN_OCR_BATCH_SIZE
+
+/**
+ * 篩の1段目（自前の文字の除去）で照らす、視聴者の発言と配信者の発話の件数。
+ *
+ * 画面に映り込むのは直近のぶんだけ（チャットボックスと字幕はどちらも数行しか出ない）なので、
+ * 配信の序盤まで遡っても落とせる行は増えない。
+ */
+const OWN_TEXT_LIMIT = 50
+
+/**
+ * 篩の3段目（既出の除去）で照らす、既に渡した行の件数。
+ *
+ * 同じ画面を撮り続けたぶんを畳むのが目的なので、いま映っている画面の近くだけで足りる。
+ * 全部と照らす形にすると、配信が長くなるほど1枚あたりの比較が増えていく。
+ */
+const SEEN_LINE_LIMIT = 300
+
+/**
+ * 読み取った文字を篩にかけ、画面に新しく現れた行だけを積む（issue #122 Phase 3）。
+ *
+ * 篩そのものは worker/screen-ocr.ts が持ち、ここは材料（自前の文字・既に渡した行）を読んで渡すだけである。
+ *
+ * 注意: 材料は配信の区切りごとに一度だけ読む。1枚ごとに読み直すとD1の読み出しが枚数ぶん増える。
+ * ただし既出の行は篩を通すたびに増えるので、残った行をその場で足す（そうしないと、同じ収集で処理する
+ * 2枚目以降が1枚目と同じ行を積んでしまう）。
+ * 注意: 残った行が0行でも、その1枚は通し終えたことにする（saveScreenLines が sifted_at を入れる）。
+ * 同じ画面を撮り続けるあいだ0行になるのが普通で、通し直す意味がない。
+ */
+const siftScreenOcr = async (db: Database, now: number): Promise<void> => {
+  const pending = await listPendingSift(db, SCREEN_SIFT_BATCH_SIZE)
+  const 自前の文字 = new Map<string, string[]>()
+  const 既出の行 = new Map<string, string[]>()
+
+  for (const capture of pending) {
+    let own = 自前の文字.get(capture.sessionId)
+    if (!own) {
+      own = await readOwnScreenTexts(db, capture.sessionId, OWN_TEXT_LIMIT)
+      自前の文字.set(capture.sessionId, own)
+    }
+    let seen = 既出の行.get(capture.sessionId)
+    if (!seen) {
+      seen = await readRecentScreenLines(db, capture.sessionId, SEEN_LINE_LIMIT)
+      既出の行.set(capture.sessionId, seen)
+    }
+
+    const lines = extractNewScreenLines(capture.ocrText, own, seen)
+    await saveScreenLines(db, capture, lines, now)
+    seen.push(...lines)
+  }
+}
+
 const collect = async ({ db, store, twitch, ai, gyazo, broadcasterId, now }: CollectStatsOptions): Promise<void> => {
   let token = await getAccessToken(store, 'broadcaster', twitch, now)
   let refreshed = false
@@ -417,9 +487,12 @@ const collect = async ({ db, store, twitch, ai, gyazo, broadcasterId, now }: Col
   await deleteOldStreamChatMessages(db, now - STREAM_CHAT_RETENTION_MS)
   await deleteOldTranscripts(db, now - TRANSCRIPT_RETENTION_MS)
   await deleteOldScreenCaptures(db, now - SCREEN_CAPTURE_RETENTION_MS)
+  await deleteOldScreenLines(db, now - SCREEN_CAPTURE_RETENTION_MS)
 
-  // 画面から読み取った文字は、あらすじとサイドスーパーの材料になるので、それらを作る前に取りに行く
+  // 画面から読み取った文字は、あらすじとサイドスーパーの材料になるので、それらを作る前に取りに行き、篩にかける。
+  // 篩は Gyazo を呼ばないので、トークンが無くても（前の収集で取れているぶんを）通す
   if (gyazo) await fetchScreenOcr(db, gyazo, now)
+  await siftScreenOcr(db, now)
 
   // あらすじづくりと人物像づくりは、配信の記録を残したあとに行う（LLMが使えなくても記録は残す）。
   // あらすじを先にするのは、配信中の視聴者がコマンドで読むものであり、待たせる相手がいるためである

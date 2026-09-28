@@ -159,3 +159,142 @@ export const deleteOldScreenCaptures = async (db: Database, before: number): Pro
     .bind(toIso(before))
     .run()
 }
+
+/** 読み取った文字はあるが、まだ篩に通していない1枚 */
+export interface PendingSift {
+  /** Gyazo が振った画像ID */
+  readonly imageId: string
+  /** その1枚を撮った配信の区切り */
+  readonly sessionId: string
+  /** 撮った時刻（UTCのISO 8601） */
+  readonly capturedAt: string
+  /** Gyazo が読み取った文字 */
+  readonly ocrText: string
+}
+
+/**
+ * 読み取った文字があって、まだ篩（worker/screen-ocr.ts）に通していない行を、撮った順に引く。
+ *
+ * 撮った順に引くのは、既出の判定が「それまでに渡した行」と照らすものであり、順番を入れ替えると
+ * どちらが初出か変わってしまうためである。
+ *
+ * @param limit 一度に引く件数の上限
+ */
+export const listPendingSift = async (db: Database, limit: number): Promise<PendingSift[]> => {
+  const { results } = await db
+    .prepare(
+      `SELECT image_id, session_id, captured_at, ocr_text FROM screen_captures
+       WHERE ocr_text IS NOT NULL AND sifted_at IS NULL
+       ORDER BY captured_at, image_id LIMIT ?1`,
+    )
+    .bind(limit)
+    .all<{ image_id: string; session_id: string; captured_at: string; ocr_text: string }>()
+  return results.map((row) => ({
+    imageId: row.image_id,
+    sessionId: row.session_id,
+    capturedAt: row.captured_at,
+    ocrText: row.ocr_text,
+  }))
+}
+
+/**
+ * 篩を通った行を積み、その1枚を通し終えたことにする。
+ *
+ * 注意: 残った行が0行でも通し終えたことにする。同じ画面を撮り続けるあいだ0行になるのが普通なので、
+ * screen_lines に行があるかどうかで代用すると、そうした1枚を毎回引き直すことになる。
+ * 注意: 同じ1枚を二度通しても行は増えない（image_id と line_no の組が主キー）。
+ *
+ * @param capture 篩に通した1枚
+ * @param lines 篩を通った行（画面に現れた順）
+ * @param now 通し終えた時刻（ミリ秒）
+ */
+export const saveScreenLines = async (
+  db: Database,
+  capture: { imageId: string; sessionId: string; capturedAt: string },
+  lines: readonly string[],
+  now: number,
+): Promise<void> => {
+  const 書き込み = lines.map((text, lineNo) =>
+    db
+      .prepare(
+        `INSERT INTO screen_lines (image_id, line_no, session_id, captured_at, text)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT DO NOTHING`,
+      )
+      .bind(capture.imageId, lineNo, capture.sessionId, capture.capturedAt, text),
+  )
+  書き込み.push(db.prepare('UPDATE screen_captures SET sifted_at = ?2 WHERE image_id = ?1').bind(capture.imageId, toIso(now)))
+  await db.batch(書き込み)
+}
+
+/**
+ * その配信で既に渡した行を、新しいほうから読む。
+ *
+ * 篩の3段目（既出の除去）が照らす相手になる。新しいほうを残すのは、いま映っている画面と照らすためである
+ * （配信の序盤にしか出ていない行と照らしても、同じ画面を畳むのには効かない）。
+ *
+ * @param limit 読む件数の上限
+ */
+export const readRecentScreenLines = async (db: Database, sessionId: string, limit: number): Promise<string[]> => {
+  const { results } = await db
+    .prepare(
+      `SELECT text FROM screen_lines
+       WHERE session_id = ?1
+       ORDER BY captured_at DESC, image_id DESC, line_no DESC
+       LIMIT ?2`,
+    )
+    .bind(sessionId, limit)
+    .all<{ text: string }>()
+  return results.map((row) => row.text)
+}
+
+/**
+ * HDAD 自身が配信画面に出している文字を読む。
+ *
+ * 篩の1段目（自前の文字の除去）が照らす相手になる。画面に映り込むのはサイドスーパー（side_supers）・
+ * チャットボックス（stream_chat_messages と viewers.display_name）・字幕（transcripts）で、
+ * どれも Worker が自分で持っているので、除外集合に入れるだけで済む。
+ *
+ * 注意: 新しいほうから読む。画面に映っているのは直近のぶんだけであり、配信の序盤の発言と照らしても
+ * 落とせるものは増えないためである。
+ *
+ * @param limit 発言・発話それぞれについて読む件数の上限
+ */
+export const readOwnScreenTexts = async (db: Database, sessionId: string, limit: number): Promise<string[]> => {
+  const sideSuper = await db
+    .prepare('SELECT line1 AS text FROM side_supers WHERE session_id = ?1 UNION ALL SELECT line2 FROM side_supers WHERE session_id = ?1')
+    .bind(sessionId)
+    .all<{ text: string }>()
+  const chat = await db
+    .prepare(
+      `SELECT m.text AS text, v.display_name AS display_name FROM stream_chat_messages m
+       LEFT JOIN viewers v ON v.user_id = m.user_id
+       WHERE m.session_id = ?1
+       ORDER BY m.sent_at DESC, m.message_id DESC
+       LIMIT ?2`,
+    )
+    .bind(sessionId, limit)
+    .all<{ text: string; display_name: string | null }>()
+  const transcripts = await db
+    .prepare('SELECT text FROM transcripts WHERE session_id = ?1 ORDER BY spoken_at DESC, message_id DESC LIMIT ?2')
+    .bind(sessionId, limit)
+    .all<{ text: string }>()
+
+  const 表示名 = chat.results.map((row) => row.display_name).filter((name): name is string => name !== null)
+  return [...sideSuper.results, ...chat.results, ...transcripts.results].map((row) => row.text).concat(表示名)
+}
+
+/**
+ * 期限より古い行を消す。
+ *
+ * 画面から取り出した行も、取り込みの記録（deleteOldScreenCaptures）と同じく配信中だけ持つものなので、
+ * 同じ期限で同じように消す（配信中の区切りのぶんは残す）。
+ *
+ * @param before この時刻より前に撮った行を消す
+ */
+export const deleteOldScreenLines = async (db: Database, before: number): Promise<void> => {
+  await db
+    .prepare('DELETE FROM screen_lines WHERE captured_at < ?1 AND session_id NOT IN (SELECT id FROM stream_sessions WHERE ended_at IS NULL)')
+    .bind(toIso(before))
+    .run()
+}
