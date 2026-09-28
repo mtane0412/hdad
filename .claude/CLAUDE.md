@@ -14,18 +14,43 @@ npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 
 ## 構成上の約束
 
-- 素材はカテゴリごとに公開ディレクトリ（`wallpaper/` など）とソース（`src/<カテゴリ>/`）を分ける。`src/core/` はカテゴリ横断の共通部品（ギャラリーは `src/core/gallery/`、素材ページの起動は `src/core/mount.ts`、Workerの呼び出しの共通部分は `src/core/api.ts`）。ページUI（ダッシュボード・ギャラリー・管理画面）はトップ `index.html` ひとつのReactアプリ（`src/app/`）で、Twitchログインを前提にサイドバー付きの画面を出す。`/wallpaper/` など実ファイルのないパスには Workers が `index.html` を返し（`wrangler.jsonc` の `not_found_handling`）、アプリがパスに応じた中身を描く。そのため `vite.config.ts` の `base` は `/`
-- アプリのページは `src/app/pages.tsx` に登録する（サイドバーの項目・見出し・中身がここから決まる）。ページの移動は `src/app/router.tsx`（History API。ライブラリなし）の `Link` を使い、アプリの外（素材ページ・`/api/*`）は普通の `<a>` で開く。登録のないパスは「見つからない」画面を出す
-- ページUIは shadcn/ui（`src/components/ui/`。`npx shadcn@latest add <名前>` で足す。土台は Base UI なので、要素の差し替えは `asChild` ではなく `render`）で統一する。`@/` は `src/` を指す。明暗はOSの設定に従う（`src/app/app.css`）。リンクをボタンの見た目にするときは `Button` ではなく `<a className={buttonVariants()}>` を使う（`Button` は `role="button"` を付けてしまう）。ログインの確認は `src/app/app.tsx` が `/api/me` で行い、失敗したら未ログイン扱いにせずエラーを出す。コンポーネントのテストは `// @vitest-environment jsdom` を付けて Testing Library で書く（jsdom では Base UI の `Slider` のつまみが隠れたままなので、外枠の `role="group"` の名前から探す。`<output>` は `role="status"` を持つ）。OBSに載せる素材ページ（`<カテゴリ>/<id>/`・`alerts/`）には React もログインも持ち込まない
-- Workers 静的アセットはパスごとに実ファイルが必要なため、OBSに載せる素材ページはパスごとに用意する。壁紙の背景は `wallpaper/<id>/index.html` と `src/wallpaper/registry.ts` の両方に登録する。時計も同様に `clock/<id>/index.html` と `src/clock/registry.ts` の両方に登録する。カテゴリを増やしたら `vite.config.ts` の `categories` と `src/app/pages.tsx` にも足す
+### 置き場所
+
+- 素材はカテゴリごとに公開ディレクトリ（`wallpaper/` など）とソース（`src/<カテゴリ>/`）を分ける
+- `src/core/` はカテゴリ横断の共通部品（ギャラリーは `src/core/gallery/`、素材ページの起動は `src/core/mount.ts`、Workerの呼び出しの共通部分は `src/core/api.ts`）
+- Workers 静的アセットはパスごとに実ファイルが必要なため、OBSに載せる素材ページはパスごとに用意する。壁紙の背景は `wallpaper/<id>/index.html` と `src/wallpaper/registry.ts` の両方、時計は `clock/<id>/index.html` と `src/clock/registry.ts` の両方に登録する
+- カテゴリを増やしたら `vite.config.ts` の `categories` と `src/app/pages.tsx` にも足す
+
+### ページUI（`src/app/`）
+
+- ページUI（ダッシュボード・ギャラリー・管理画面）はトップ `index.html` ひとつのReactアプリで、Twitchログインを前提にサイドバー付きの画面を出す
+- `/wallpaper/` など実ファイルのないパスには Workers が `index.html` を返し（`wrangler.jsonc` の `not_found_handling`）、アプリがパスに応じた中身を描く。そのため `vite.config.ts` の `base` は `/`
+- アプリのページは `src/app/pages.tsx` に登録する（サイドバーの項目・見出し・中身がここから決まる）。登録のないパスは「見つからない」画面を出す
+- ページの移動は `src/app/router.tsx`（History API。ライブラリなし）の `Link` を使い、アプリの外（素材ページ・`/api/*`）は普通の `<a>` で開く
+- ログインの確認は `src/app/app.tsx` が `/api/me` で行い、失敗したら未ログイン扱いにせずエラーを出す
+- OBSに載せる素材ページ（`<カテゴリ>/<id>/`・`alerts/`）には React もログインも持ち込まない
+
+### shadcn/ui
+
+- 見た目は shadcn/ui（`src/components/ui/`。`npx shadcn@latest add <名前>` で足す）で統一する。土台は Base UI なので、要素の差し替えは `asChild` ではなく `render`
+- `@/` は `src/` を指す。明暗はOSの設定に従う（`src/app/app.css`）
+- リンクをボタンの見た目にするときは `Button` ではなく `<a className={buttonVariants()}>` を使う（`Button` は `role="button"` を付けてしまう）
+- コンポーネントのテストは `// @vitest-environment jsdom` を付けて Testing Library で書く（jsdom では Base UI の `Slider` のつまみが隠れたままなので、外枠の `role="group"` の名前から探す。`<output>` は `role="status"` を持つ）
+
+### 描画とパラメータ
+
 - URLパラメータは `src/core/params.ts` のスキーマで宣言する。不正値は既定値に戻さずエラー表示する（Fail-Fast）
-- Workerの型チェックは `tsconfig.worker.json` に分けてある（Cloudflareのランタイムの型（`@cloudflare/workers-types`）はDOMの型と同時に読めないため）。`npm run type-check` は `tsconfig.json`（`src/`）と合わせて両方を走らせる
-- フォークした人向けの Deploy to Cloudflare ボタン（`docs/guide/deploy.md`）は、`wrangler.jsonc` のバインディングと `.dev.vars.example` のシークレットを読み、`package.json` の `cloudflare.bindings` の説明を入力欄に添える。リソースやシークレットを足したら `cloudflare.bindings` にも説明を足す（対応は `src/core/deploy-config.test.ts` が検証する）。デプロイのコマンドは `npm run deploy` で、ビルドは含めない（ボタンと Workers Builds が `npm run build` を別に実行するため）
 - 描画は経過時間だけから決まる形にする（フレーム間の状態を持たない）。時計は経過時間の代わりに `frame.now`（現在時刻）だけから決める
+
+### 型チェックとデプロイ
+
+- Workerの型チェックは `tsconfig.worker.json` に分けてある（Cloudflareのランタイムの型（`@cloudflare/workers-types`）はDOMの型と同時に読めないため）。`npm run type-check` は `tsconfig.json`（`src/`）と合わせて両方を走らせる
+- フォークした人向けの Deploy to Cloudflare ボタン（`docs/guide/deploy.md`）は、`wrangler.jsonc` のバインディングと `.dev.vars.example` のシークレットを読み、`package.json` の `cloudflare.bindings` の説明を入力欄に添える。リソースやシークレットを足したら `cloudflare.bindings` にも説明を足す（対応は `src/core/deploy-config.test.ts` が検証する）
+- デプロイのコマンドは `npm run deploy` で、ビルドは含めない（ボタンと Workers Builds が `npm run build` を別に実行するため）
 
 ## 話題ごとの約束（`.claude/rules/`）
 
-画面・素材ごとの約束は `.claude/rules/` に分け、`paths` で指した場所を触るときだけ読み込む。**そこに無い話題をここに書き足さない。**
+画面・素材ごとの約束は `.claude/rules/` に分け、`paths` で指した場所を触るときだけ読み込む。**そこに無い話題をここに書き足さない。** 各ファイルは末尾に、判断の経緯（`docs/decisions/`）と利用者向けの説明（`docs/guide/`）への行き先を書く。
 
 | ファイル | 話題 | 読み込まれる場所 |
 |---|---|---|

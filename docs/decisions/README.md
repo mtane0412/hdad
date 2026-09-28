@@ -22,8 +22,9 @@
 | [backstage.md](backstage.md) | 裏方をまとめたページ（`overlay/backstage/`） |
 | [llm.md](llm.md) | LLMの呼び先・使用状況・モデルの選択 |
 | [triggers-page.md](triggers-page.md) | トリガーの管理画面（`/triggers/`） |
+| [dashboard.md](dashboard.md) | ダッシュボード（`/`） |
 | [bot.md](bot.md) | チャットボット（`/bot/`） |
 | [worker.md](worker.md) | Worker（`worker/`）と失敗の記録 |
 | [docs.md](docs.md) | 利用者向けの説明の置き場（`README.md` と `docs/guide/`） |
 
-`docs.md` を除く各ファイルは 2026-09-28 に `.claude/CLAUDE.md` の「構成上の約束」から原文のまま切り出したもので、文面は issue ごとに積み上がった当時の記述である。
+各ファイルは「約束」ではなく「その約束にした理由」を書く場所である。読み手が1ファイルだけを読んで分かるように、話題が複数あるときは `##` の見出しで分け、地の文は文どうしをつなげて書く（`.claude/CLAUDE.md` の箇条書きをそのまま並べない）。
