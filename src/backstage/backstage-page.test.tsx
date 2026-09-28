@@ -5,6 +5,7 @@
  * 確かめること:
  * - OBSに貼るURLに、オーバーレイ用キーが入ること
  * - 動かす裏方を外すと、URLに書き足されること
+ * - 画面の取り込みは既定で外れていて、入れるとURLに書き足されること
  * - 文字起こしを動かすときだけ、ポートの入力欄を出すこと
  * - ポートが読めない値なら、URLを出さずに理由を出すこと（既定へ黙って戻さない）
  * - 裏方をひとつも選んでいなければ、URLを出さずに理由を出すこと
@@ -22,14 +23,32 @@ afterEach(cleanup)
 
 /** URLの入力欄（伏せ字で出しているので、ラベルから引く） */
 const URLの欄 = () => screen.getByLabelText('OBSのブラウザソースに貼るURL')
+/** URLの中身（toHaveValue は部分一致を受け取れないので、値そのものを取り出して調べる） */
+const URLの値 = () => (URLの欄() as HTMLInputElement).value
 const 読み上げのスイッチ = () => screen.getByRole('checkbox', { name: 'チャットの読み上げ' })
 const 文字起こしのスイッチ = () => screen.getByRole('checkbox', { name: '文字起こしの中継' })
+const 画面の取り込みのスイッチ = () => screen.getByRole('checkbox', { name: '配信画面の取り込み' })
 
 describe('裏方のページ', () => {
   test('OBSに貼るURLに、オーバーレイ用キーを入れて出す', () => {
     render(<BackstagePage overlayKey={オーバーレイ用キー} />)
 
     expect(URLの欄()).toHaveValue(`${window.location.origin}/overlay/backstage/?key=${encodeURIComponent(オーバーレイ用キー)}`)
+  })
+
+  test('画面の取り込みは既定で外れている（OBSとGyazoの用意が要るため）', () => {
+    render(<BackstagePage overlayKey={オーバーレイ用キー} />)
+
+    expect(画面の取り込みのスイッチ()).not.toBeChecked()
+    expect(URLの値()).not.toContain('screen=')
+  })
+
+  test('画面の取り込みを入れると、URLに書き足される', async () => {
+    render(<BackstagePage overlayKey={オーバーレイ用キー} />)
+
+    await userEvent.click(画面の取り込みのスイッチ())
+
+    expect(URLの値()).toContain('screen=true')
   })
 
   test('URLのコピーはアイコンだけのボタンにし、名前は読み上げとホバー（title）に残す', () => {

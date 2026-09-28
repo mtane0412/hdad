@@ -14,6 +14,7 @@ import { LLM_PROVIDERS, loadLlmSettings, parseLlmSettings, saveLlmSettings, type
 import { readOpenRouterCredits } from './llm-credits'
 import { listLlmModels } from './llm-models'
 import { listLlmUsage, toUtcDay } from './llm-usage-store'
+import { loadScreenSettings, parseScreenSettings, saveScreenSettings } from './screen-config'
 import { loadSpeechSettings, parseSpeechSettings, saveSpeechSettings } from './speech-config'
 import { getAccessToken } from './token'
 
@@ -108,6 +109,29 @@ export const putSpeech = async (context: Context): Promise<Response> => {
   })
   const settings = parseSpeechSettings(body)
   await saveSpeechSettings(context.env.STORE, settings)
+  return Response.json(settings)
+}
+
+/** GET /api/admin/screen: 配信画面の取り込みの設定。未保存なら既定の設定が返る */
+export const getScreenSettings = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  return Response.json(await loadScreenSettings(context.env.STORE))
+}
+
+/**
+ * PUT /api/admin/screen: 配信画面の取り込みの設定を検証して保存する。
+ *
+ * 検証は Worker だけが持ち、画面とWorkerで二重に持たない（読み上げの設定と同じ）。
+ *
+ * @throws ConfigError 設定に問題がある場合（index.ts が問題点付きの400にする）
+ */
+export const putScreenSettings = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  const body: unknown = await context.request.json().catch(() => {
+    throw new HttpError(STATUS.badRequest, 'invalid-body', '本文はJSONにしてください')
+  })
+  const settings = parseScreenSettings(body)
+  await saveScreenSettings(context.env.STORE, settings)
   return Response.json(settings)
 }
 

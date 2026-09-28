@@ -4,10 +4,13 @@
  * どれもTwitchのトークンではなくオーバーレイ用キーで守る。素材だけは、管理画面でのプレビューのために配信者のセッションでも読める。
  */
 import { connectAlertSocket } from './alert-channel'
+import { createGyazoClient } from './gyazo'
 import { loadFocusTarget } from './focus-config'
 import { HttpError, STATUS, hasSession, requireOverlayKey, type Context } from './http'
 import { kindOfContentType } from './media'
 import { loadOverlayLayout } from './overlay-layout'
+import { loadScreenSettings } from './screen-config'
+import { isStreaming, recordScreenCapture } from './screen-store'
 import { readCurrentSideSuper } from './side-super-store'
 import { loadSpeechSettings } from './speech-config'
 import { recordTranscript } from './transcript-store'
@@ -104,6 +107,97 @@ export const postTranscript = async (context: Context): Promise<Response> => {
 
   const recorded = await recordTranscript(env.DB, { messageId, text: spoken }, now)
   return Response.json({ recorded })
+}
+
+/**
+ * GET /api/overlay/screen: 配信画面の取り込みの設定を返す。
+ *
+ * OBSのブラウザソースに置いた裏方のページ（overlay/backstage/）が、起動のときと、その後は定期的に読みに来る
+ * （読み上げの設定と同じポーリング）。未保存なら既定の設定が返るので、何も設定していない配信者でも
+ * 認証を切った OBS にならつながる。
+ *
+ * 注意: 応答には obs-websocket のパスワードが入る。守り方はオーバーレイ用キーだけなので、キーが漏れると
+ * OBSの操作権まで渡ることになる（docs/decisions/screen.md）。
+ * 注意: ホストとポートは裏方のページが起動のときにしか使わない（つなぎ先が変わるので、つなぎ直しが要る）。
+ * 撮影間隔は、読みに来るたびに次の1枚から効く。
+ */
+export const getScreen = async (context: Context): Promise<Response> => {
+  await requireOverlayKey(context)
+  return Response.json(await loadScreenSettings(context.env.STORE))
+}
+
+/**
+ * 撮った1枚として受け付ける大きさの上限（バイト）。
+ *
+ * 撮るのは1280幅のプログラムシーン1枚なので、PNGでもこの大きさには収まる（issue #122）。超えるものは
+ * 裏方のページの誤りか、別のものが押し込まれているかなので、黙って切り詰めず拒む（Fail-Fast）。
+ */
+export const SCREEN_MAX_BYTES = 8 * 1024 * 1024
+
+/** 撮った1枚として受け付ける形式。OBS の GetSourceScreenshot が返せるもののうち、Gyazo が読めるもの */
+const SCREEN_CONTENT_TYPES = ['image/png', 'image/jpeg'] as const
+
+/**
+ * POST /api/overlay/screen: 配信画面を撮った1枚を受け取り、Gyazo へ上げて記録する。
+ *
+ * OBSのブラウザソースに置いた裏方のページ（overlay/backstage/）が、同じPCで動いている OBS から
+ * obs-websocket で現在のプログラムシーンを撮って押し込んでくる。画面に出ている文字を、配信者の発話と
+ * 視聴者の発言に続く3つ目の材料にするためである（issue #122）。
+ *
+ * 配信していなければ Gyazo へ上げず、上げなかったことを応答で知らせる（裏方のページが画面に出せるように）。
+ * 上げないのは、配信前の準備画面や配信後のデスクトップを外へ出さないためである。捨てるのを失敗にしないのは、
+ * 配信の前後にOBSを開いたままにしておくのが普通の使い方だからである（文字起こしの受け口と同じ考え方）。
+ *
+ * 注意: 画像そのものはこのサイトに保存しない。Gyazo に上げた画像IDだけを残す（worker/screen-store.ts）。
+ * 注意: Gyazo のアクセストークンが無ければ、黙って捨てずに失敗させる（Fail-Fast）。捨ててしまうと、
+ * 材料が貯まっていないことに配信が終わるまで気づけない。
+ */
+export const postScreen = async (context: Context): Promise<Response> => {
+  await requireOverlayKey(context)
+  const { request, env, now } = context
+
+  const contentType = (request.headers.get('Content-Type') ?? '').split(';')[0]?.trim().toLowerCase() ?? ''
+  if (!SCREEN_CONTENT_TYPES.includes(contentType as (typeof SCREEN_CONTENT_TYPES)[number])) {
+    throw new HttpError(
+      STATUS.unsupportedMediaType,
+      'invalid-content-type',
+      `本文は ${SCREEN_CONTENT_TYPES.join(' か ')} にしてください（受け取ったのは「${contentType}」です）`,
+    )
+  }
+
+  // 本文を読む前に、申告された長さで拒めるものは拒む（大きなものをWorkerのメモリに載せないため）。
+  // 申告が無いことも、正しいとも限らないので、読んだあとの長さでも確かめる
+  const declaredLength = Number(request.headers.get('Content-Length') ?? '')
+  if (Number.isFinite(declaredLength) && declaredLength > SCREEN_MAX_BYTES) {
+    throw new HttpError(STATUS.payloadTooLarge, 'image-too-large', `撮った1枚は ${SCREEN_MAX_BYTES} バイトまでにしてください`)
+  }
+
+  const image = await request.arrayBuffer()
+  if (image.byteLength === 0) {
+    throw new HttpError(STATUS.badRequest, 'empty-image', '本文が空です。撮った画像をそのまま送ってください')
+  }
+  if (image.byteLength > SCREEN_MAX_BYTES) {
+    throw new HttpError(STATUS.payloadTooLarge, 'image-too-large', `撮った1枚は ${SCREEN_MAX_BYTES} バイトまでにしてください`)
+  }
+
+  // 上げる前に配信中かを見る。上げてから捨てると、配信前の準備画面まで Gyazo に残ってしまう
+  if (!(await isStreaming(env.DB, now))) return Response.json({ recorded: false, imageId: null })
+
+  const accessToken = env.GYAZO_ACCESS_TOKEN
+  if (!accessToken) {
+    throw new HttpError(
+      STATUS.internalServerError,
+      'gyazo-token-missing',
+      'Gyazo のアクセストークン（GYAZO_ACCESS_TOKEN）が設定されていません。画面の取り込みを使うには設定してください',
+    )
+  }
+
+  const extension = contentType === 'image/png' ? 'png' : 'jpg'
+  const gyazo = createGyazoClient({ accessToken, fetch: context.fetch })
+  const { imageId } = await gyazo.upload(new Blob([image], { type: contentType }), `screen.${extension}`)
+
+  const recorded = await recordScreenCapture(env.DB, imageId, now)
+  return Response.json({ recorded, imageId })
 }
 
 /**

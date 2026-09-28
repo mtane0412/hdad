@@ -21,6 +21,7 @@
 | [overlay-stage.md](overlay-stage.md) | 素材を重ねる合成ページ（`overlay/stage/`） |
 | [overlay-editor.md](overlay-editor.md) | 構成を編集する管理画面（`/overlay/`） |
 | [speech.md](speech.md) | チャットの読み上げ（`speech/reader/`） |
+| [screen.md](screen.md) | 配信画面の取り込み（`/screen/`） |
 | [backstage.md](backstage.md) | 裏方をまとめたページ（`overlay/backstage/`） |
 | [llm.md](llm.md) | LLMの呼び先・使用状況・モデルの選択 |
 | [triggers-page.md](triggers-page.md) | トリガーの管理画面（`/triggers/`） |

@@ -24,6 +24,7 @@ import { readSideSuper, saveSideSuper } from './side-super-store'
 import { generateSideSuper } from './side-super'
 import { readStreamSummary, saveStreamSummary } from './stream-summary-store'
 import { generateStreamSummary } from './stream-summary'
+import { deleteOldScreenCaptures } from './screen-store'
 import { deleteOldTranscripts, readRecentTranscripts, readTranscriptsSince } from './transcript-store'
 import { ViewerSummaryContentError, generateViewerSummary } from './viewer-summary'
 import { readViewer, updateViewerChannel, updateViewerSummary, type ViewerChannel } from './viewer-store'
@@ -93,6 +94,14 @@ export const STREAM_CHAT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
  * 配信中の区切りのぶんは、この期間を過ぎても消さない（deleteOldTranscripts を参照）。
  */
 export const TRANSCRIPT_RETENTION_MS = 24 * 60 * 60 * 1000
+
+/**
+ * 配信画面の取り込みの記録を残しておく期間（ミリ秒）。
+ *
+ * 取り込みも文字起こしと同じく、あらすじ（issue #122）の材料として配信中だけ持つものなので、期間も
+ * 文字起こしに揃える。配信中の区切りのぶんは、この期間を過ぎても消さない（deleteOldScreenCaptures を参照）。
+ */
+export const SCREEN_CAPTURE_RETENTION_MS = TRANSCRIPT_RETENTION_MS
 
 export interface CollectStatsOptions {
   db: Database
@@ -352,6 +361,7 @@ const collect = async ({ db, store, twitch, ai, broadcasterId, now }: CollectSta
   await deleteOldFirstChatters(db, now - FIRST_CHATTER_RETENTION_MS)
   await deleteOldStreamChatMessages(db, now - STREAM_CHAT_RETENTION_MS)
   await deleteOldTranscripts(db, now - TRANSCRIPT_RETENTION_MS)
+  await deleteOldScreenCaptures(db, now - SCREEN_CAPTURE_RETENTION_MS)
 
   // あらすじづくりと人物像づくりは、配信の記録を残したあとに行う（LLMが使えなくても記録は残す）。
   // あらすじを先にするのは、配信中の視聴者がコマンドで読むものであり、待たせる相手がいるためである
