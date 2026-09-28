@@ -64,3 +64,7 @@ npx wrangler d1 execute DB --local --command "SELECT * FROM stream_events"
 ## ローカルで収集を試す
 
 ローカルで収集を試すには、`npm run dev` を起動した状態で `curl http://localhost:5173/cdn-cgi/handler/scheduled` を実行し、`npx wrangler d1 execute DB --local --command "SELECT * FROM follower_samples"` で中身を確かめます。
+
+---
+
+開発者向け: この作りにした理由は [Workerと失敗の記録](../decisions/worker.md)・[ダッシュボード](../decisions/dashboard.md) にあります。
