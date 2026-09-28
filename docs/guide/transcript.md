@@ -2,7 +2,7 @@
 
 配信者が喋った内容を Worker に取り込みます。映すものは持たず、[これまでのあらすじ](./bot.md#これまでのあらすじ)と[サイドスーパー](./side-super.md)の材料になります（どちらも、置いていなければ視聴者の発言とカテゴリ・タイトルだけを材料に作られます）。
 
-音声認識そのものは、配信に使うPCで動かした ゆかりねっとコネクターNEO（ゆかコネNEO）が行います。ゆかコネNEO には認識の結果を外部へ送る仕組みが無いので、**PCと Worker の橋渡しをOBSのブラウザソースに置く中継ページ（`transcript/relay/`）が受け持ちます**。`/transcript/` の画面は、そこへ貼るURLを出すだけです。利用には[デプロイ](./deploy.md)の Twitchログインの設定が必要です。
+音声認識そのものは、配信に使うPCで動かした [ゆかりねっとコネクターNEO](https://nmori.github.io/yncneo-Docs/)（ゆかコネNEO）が行います。ゆかコネNEO には認識の結果を外部へ送る仕組みが無いので、**PCと Worker の橋渡しをOBSのブラウザソースに置く中継ページ（`transcript/relay/`）が受け持ちます**。`/transcript/` の画面は、そこへ貼るURLを出すだけです。利用には[デプロイ](./deploy.md)の Twitchログインの設定が必要です。
 
 ```text
 https://hdad.<サブドメイン>.workers.dev/transcript/relay/?key=<オーバーレイ用キー>
