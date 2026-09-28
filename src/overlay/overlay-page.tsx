@@ -818,14 +818,21 @@ export const OverlayPage = ({ api, overlayKey }: { api: OverlayLayoutAdminApi; o
               <Plus aria-hidden="true" />
             </Button>
           </div>
-          {/* 名前がOBSに貼るURLに載ることは、文章で説明せずURLそのものを見せて分からせる */}
-          <p id={`${nameFieldId}-outline`} className="min-h-5 text-sm text-muted-foreground" aria-live="polite">
-            {nameTaken ? (
-              <span className="text-destructive">この名前のオーバーレイはすでにあります。別の名前にしてください。</span>
-            ) : (
-              trimmedNewName !== '' && <code className="font-mono break-all">{overlayStageUrlOutline(window.location.origin, trimmedNewName)}</code>
-            )}
-          </p>
+          {/* どちらも1行に収め、打ち始めても行がずれないよう高さを確保しておく */}
+          <div className="min-h-5 text-sm">
+            {/* 名前がOBSに貼るURLに載ることは、文章で説明せずURLそのものを見せて分からせる。
+                ただしURLは1文字打つたびに変わるので読み上げの通知には載せない（打鍵ごとにURL全体を読み上げさせない）。
+                入力欄からは aria-describedby で指しているので、欄へ移ったときには読まれる */}
+            <p id={`${nameFieldId}-outline`} className="text-muted-foreground">
+              {!nameTaken && trimmedNewName !== '' && (
+                <code className="font-mono break-all">{overlayStageUrlOutline(window.location.origin, trimmedNewName)}</code>
+              )}
+            </p>
+            {/* 足せない理由だけは、打っている手を止めずに伝わるよう通知に載せる（空でも置いたままにする） */}
+            <p aria-live="polite" className="text-destructive">
+              {nameTaken && 'この名前のオーバーレイはすでにあります。別の名前にしてください。'}
+            </p>
+          </div>
         </CardContent>
       </Card>
 

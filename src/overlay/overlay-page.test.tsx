@@ -347,6 +347,19 @@ describe('オーバーレイ', () => {
     expect(screen.getByText(`${window.location.origin}/overlay/stage/?key=…&overlay=talk`)).toBeInTheDocument()
   })
 
+  test('URLは読み上げの通知に載せず、足せない理由だけを通知する（1文字ごとにURL全体を読み上げさせない）', async () => {
+    描く(代役のAPI())
+    const 名前の欄 = await screen.findByLabelText('足すオーバーレイの名前')
+
+    await userEvent.type(名前の欄, 'talk')
+    expect(screen.getByText(`${window.location.origin}/overlay/stage/?key=…&overlay=talk`).closest('[aria-live]')).toBeNull()
+
+    // すでにある名前に変えたときは、打っている手を止めずに伝わるよう通知に載せる
+    await userEvent.clear(名前の欄)
+    await userEvent.type(名前の欄, 'back')
+    expect(screen.getByText(/この名前のオーバーレイはすでにあります/).closest('[aria-live]')).not.toBeNull()
+  })
+
   test('すでにある名前を打つと、足せない理由をその場で出す（押せないボタンを黙って出さない）', async () => {
     描く(代役のAPI())
 
