@@ -5,6 +5,9 @@
  * （POST /api/overlay/screen）、その画像IDをここに残す。画像そのものは持たず、あとからOCRのテキストを
  * 取りに行くための手がかりだけを持つ（issue #122）。
  *
+ * 上げた1枚のOCRは上げた直後には生成が終わっていないので、ここでは「まだ取れていない行を引く」
+ * （listPendingOcr）と「取れた文字を書き戻す」（saveScreenOcr）を分けて持ち、取りに行くのは cron である。
+ *
  * 貯めるのは配信中のぶんだけで、配信者の発話（transcript-store.ts）と同じく永く持つものではない。
  *
  * 注意: 記録するのは配信中の区切り（stream_sessions の ended_at IS NULL の行）があるときだけで、
@@ -60,6 +63,69 @@ export const isStreaming = async (db: Database, now: number): Promise<boolean> =
     .bind(toIso(now))
     .first<{ id: string }>()
   return session !== null
+}
+
+/**
+ * 1枚のOCRを取りに行って空で返ったときに、諦めるまでの回数。
+ *
+ * Gyazo のOCRは上げた直後には生成が終わっておらず（実測で約10〜13秒）、取りに行っても空で返る。
+ * cron は5分おきなので、次の収集までにはほぼ必ず生成が終わっている。それでも空が続く画像は何らかの理由で
+ * 生成されないものとみなし、この回数で諦める（外への呼び出しを無限に繰り返さないため）。
+ */
+export const OCR_MAX_ATTEMPTS = 3
+
+/** OCRをまだ取れていない1枚 */
+export interface PendingOcr {
+  /** Gyazo が振った画像ID */
+  readonly imageId: string
+  /** 撮った時刻（UTCのISO 8601） */
+  readonly capturedAt: string
+}
+
+/**
+ * OCRをまだ取れていない行を、撮った順に引く。
+ *
+ * 撮った順に引くのは、画面に現れた文字を古い順に材料へ積むためである（issue #122 Phase 4）。
+ *
+ * 注意: 試みた回数が OCR_MAX_ATTEMPTS に達した行は引かない。取れないままの行はここから外れ、
+ * 保持期間（worker/collect.ts の SCREEN_CAPTURE_RETENTION_MS）で消える。
+ *
+ * @param limit 一度に引く件数の上限
+ */
+export const listPendingOcr = async (db: Database, limit: number): Promise<PendingOcr[]> => {
+  const { results } = await db
+    .prepare(
+      `SELECT image_id, captured_at FROM screen_captures
+       WHERE ocr_text IS NULL AND ocr_attempts < ?1
+       ORDER BY captured_at, image_id LIMIT ?2`,
+    )
+    .bind(OCR_MAX_ATTEMPTS, limit)
+    .all<{ image_id: string; captured_at: string }>()
+  return results.map((row) => ({ imageId: row.image_id, capturedAt: row.captured_at }))
+}
+
+/**
+ * 読み取った文字を記録する。
+ *
+ * 注意: 空文字も記録する。文字が1つも写っていない画面はありうるので、空を「取れなかった」として
+ * 取りに行き直すと、その画像を上限まで叩き続けることになる。
+ *
+ * @param imageId Gyazo が振った画像ID
+ * @param text 読み取った文字（1文字も無ければ空文字）
+ */
+export const saveScreenOcr = async (db: Database, imageId: string, text: string): Promise<void> => {
+  await db.prepare('UPDATE screen_captures SET ocr_text = ?2 WHERE image_id = ?1').bind(imageId, text).run()
+}
+
+/**
+ * 取りに行ったが、まだ生成されていなかったことを1回として数える。
+ *
+ * OCR_MAX_ATTEMPTS に達すると listPendingOcr が引かなくなる。
+ *
+ * @param imageId Gyazo が振った画像ID
+ */
+export const countOcrAttempt = async (db: Database, imageId: string): Promise<void> => {
+  await db.prepare('UPDATE screen_captures SET ocr_attempts = ocr_attempts + 1 WHERE image_id = ?1').bind(imageId).run()
 }
 
 /**

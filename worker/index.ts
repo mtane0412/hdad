@@ -90,6 +90,7 @@ import {
 import { ConfigError } from './alert-config'
 import { CALLBACK_PATH, callback, login, logout, me } from './auth-routes'
 import { collectStats } from './collect'
+import { createGyazoClient } from './gyazo'
 import { HttpError, STATUS, errorResponse, type Context, type Env } from './http'
 import { createLlm } from './llm'
 import {
@@ -292,7 +293,11 @@ export const handleRequest = async (request: Request, env: Env, dependencies: De
 export const handleScheduled = async (env: Env, dependencies: Pick<Dependencies, 'fetch' | 'now'> = DEFAULT_DEPENDENCIES): Promise<void> => {
   const twitch = createClient(env, dependencies)
   const llm = createLlm({ ai: env.AI, store: env.STORE, fetch: dependencies.fetch, apiKey: env.OPENROUTER_API_KEY, db: env.DB, now: dependencies.now })
-  await collectStats({ db: env.DB, store: env.STORE, twitch, ai: llm, broadcasterId: env.TWITCH_BROADCASTER_ID, now: dependencies.now() })
+  // Gyazo のアクセストークンが無ければ画面を上げることもできないので、読み取った文字を取りに行く相手も渡さない
+  const gyazo = env.GYAZO_ACCESS_TOKEN
+    ? createGyazoClient({ accessToken: env.GYAZO_ACCESS_TOKEN, fetch: dependencies.fetch })
+    : undefined
+  await collectStats({ db: env.DB, store: env.STORE, twitch, ai: llm, gyazo, broadcasterId: env.TWITCH_BROADCASTER_ID, now: dependencies.now() })
 }
 
 export default {

@@ -4,6 +4,7 @@
  * Twitchには過去の視聴者数の推移を返すAPIがなく、取れるのは「いま」の値だけなので、定期的に取得してデータベースへ貯める。
  * 1回の収集で、配信の状態（配信中ならセッションの開始・継続と視聴者数、配信していなければセッションの終了）と、フォロワー数を記録し、
  * あわせて終わった配信の発言から視聴者の人物像を作り（そのついでにその人自身のチャンネルの内容も観測して記録し）、
+ * 配信画面を撮った1枚から Gyazo が読み取った文字を取りに行き、
  * 古くなった記録（first_chatters・stream_chat_messages・transcripts）を消す。
  *
  * 注意: トークンが無い・更新できない・Twitchが失敗を返したときは、黙って飛ばさない。
@@ -24,7 +25,8 @@ import { readSideSuper, saveSideSuper } from './side-super-store'
 import { generateSideSuper } from './side-super'
 import { readStreamSummary, saveStreamSummary } from './stream-summary-store'
 import { generateStreamSummary } from './stream-summary'
-import { deleteOldScreenCaptures } from './screen-store'
+import { countOcrAttempt, deleteOldScreenCaptures, listPendingOcr, saveScreenOcr } from './screen-store'
+import type { GyazoClient } from './gyazo'
 import { deleteOldTranscripts, readRecentTranscripts, readTranscriptsSince } from './transcript-store'
 import { ViewerSummaryContentError, generateViewerSummary } from './viewer-summary'
 import { readViewer, updateViewerChannel, updateViewerSummary, type ViewerChannel } from './viewer-store'
@@ -109,6 +111,13 @@ export interface CollectStatsOptions {
   /** 人物像・あらすじ・サイドスーパーを作らせるLLM（worker/llm.ts。呼び先は設定が決める） */
   ai: TextGenerator
   twitch: Pick<TwitchClient, 'refresh' | 'getLiveStream' | 'getFollowerTotal' | 'getChannel'>
+  /**
+   * 配信画面から読み取った文字を取りに行く Gyazo（worker/gyazo.ts）。
+   *
+   * アクセストークン（GYAZO_ACCESS_TOKEN）が無ければ渡らない。そのときは取りに行かない
+   * （トークンが無ければ画面を上げることもできないので、取りに行く先の画像がそもそも増えない）。
+   */
+  gyazo?: Pick<GyazoClient, 'fetchOcr'>
   broadcasterId: string
   /** 現在時刻（ミリ秒） */
   now: number
@@ -332,7 +341,43 @@ const summarizeViewers = async (db: Database, ai: TextGenerator, readChannel: Re
   await recordChannelFailures(db, channelFailures, now)
 }
 
-const collect = async ({ db, store, twitch, ai, broadcasterId, now }: CollectStatsOptions): Promise<void> => {
+/**
+ * 1回の収集で、OCRを取りに行く画像の枚数の上限。
+ *
+ * cron は5分おきに動くので、15秒間隔で撮っていれば1回あたり20枚ほど貯まる。それを取りきれる枚数にしつつ、
+ * Workers が1回のリクエストで出せる外部への呼び出し（サブリクエスト）の上限への備えとして抑える。
+ * 取りきれなかったぶんは次の収集で順に処理される。
+ */
+export const SCREEN_OCR_BATCH_SIZE = 30
+
+/**
+ * 上げた画像から、Gyazo が読み取った文字を取りに行く（issue #122 Phase 2）。
+ *
+ * 上げた直後は生成が終わっていない（実測で約10〜13秒）ので、上げるときには取らず、ここでまとめて取りに行く。
+ * まだ生成されていなければ記録せず、試みた回数だけを数えて次の収集へ回す（worker/screen-store.ts の
+ * OCR_MAX_ATTEMPTS に達したら諦める）。
+ *
+ * 注意: 失敗しても収集そのものを止めない。画面の文字は補助的な材料なので、Gyazo が使えない日に配信の記録
+ * （視聴者数・フォロワー数）まで止めない（人物像づくりと同じ扱い）。黙って飛ばさず collection_failures に残す。
+ * 注意: 1枚で失敗したら残りは取りに行かない。失敗の理由（トークンが無効・Gyazo が落ちている）は
+ * たいてい次の1枚でも同じなので、続けても外への呼び出しを無駄に使うだけである。
+ */
+const fetchScreenOcr = async (db: Database, gyazo: Pick<GyazoClient, 'fetchOcr'>, now: number): Promise<void> => {
+  const pending = await listPendingOcr(db, SCREEN_OCR_BATCH_SIZE)
+  for (const capture of pending) {
+    let text: string | null
+    try {
+      text = await gyazo.fetchOcr(capture.imageId)
+    } catch (error) {
+      await recordFailure(db, 'screen-ocr-failed', error instanceof Error ? error.message : String(error), now)
+      break
+    }
+    if (text === null) await countOcrAttempt(db, capture.imageId)
+    else await saveScreenOcr(db, capture.imageId, text)
+  }
+}
+
+const collect = async ({ db, store, twitch, ai, gyazo, broadcasterId, now }: CollectStatsOptions): Promise<void> => {
   let token = await getAccessToken(store, 'broadcaster', twitch, now)
   let refreshed = false
 
@@ -362,6 +407,9 @@ const collect = async ({ db, store, twitch, ai, broadcasterId, now }: CollectSta
   await deleteOldStreamChatMessages(db, now - STREAM_CHAT_RETENTION_MS)
   await deleteOldTranscripts(db, now - TRANSCRIPT_RETENTION_MS)
   await deleteOldScreenCaptures(db, now - SCREEN_CAPTURE_RETENTION_MS)
+
+  // 画面から読み取った文字は、あらすじとサイドスーパーの材料になるので、それらを作る前に取りに行く
+  if (gyazo) await fetchScreenOcr(db, gyazo, now)
 
   // あらすじづくりと人物像づくりは、配信の記録を残したあとに行う（LLMが使えなくても記録は残す）。
   // あらすじを先にするのは、配信中の視聴者がコマンドで読むものであり、待たせる相手がいるためである
