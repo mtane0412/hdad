@@ -20,7 +20,7 @@ npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 - Workers 静的アセットはパスごとに実ファイルが必要なため、OBSに載せる素材ページはパスごとに用意する。壁紙の背景は `wallpaper/<id>/index.html` と `src/wallpaper/registry.ts` の両方に登録する。時計も同様に `clock/<id>/index.html` と `src/clock/registry.ts` の両方に登録する。カテゴリを増やしたら `vite.config.ts` の `categories` と `src/app/pages.tsx` にも足す
 - URLパラメータは `src/core/params.ts` のスキーマで宣言する。不正値は既定値に戻さずエラー表示する（Fail-Fast）
 - Workerの型チェックは `tsconfig.worker.json` に分けてある（Cloudflareのランタイムの型（`@cloudflare/workers-types`）はDOMの型と同時に読めないため）。`npm run type-check` は `tsconfig.json`（`src/`）と合わせて両方を走らせる
-- フォークした人向けの Deploy to Cloudflare ボタン（README の「デプロイ」）は、`wrangler.jsonc` のバインディングと `.dev.vars.example` のシークレットを読み、`package.json` の `cloudflare.bindings` の説明を入力欄に添える。リソースやシークレットを足したら `cloudflare.bindings` にも説明を足す（対応は `src/core/deploy-config.test.ts` が検証する）。デプロイのコマンドは `npm run deploy` で、ビルドは含めない（ボタンと Workers Builds が `npm run build` を別に実行するため）
+- フォークした人向けの Deploy to Cloudflare ボタン（`docs/guide/deploy.md`）は、`wrangler.jsonc` のバインディングと `.dev.vars.example` のシークレットを読み、`package.json` の `cloudflare.bindings` の説明を入力欄に添える。リソースやシークレットを足したら `cloudflare.bindings` にも説明を足す（対応は `src/core/deploy-config.test.ts` が検証する）。デプロイのコマンドは `npm run deploy` で、ビルドは含めない（ボタンと Workers Builds が `npm run build` を別に実行するため）
 - 描画は経過時間だけから決まる形にする（フレーム間の状態を持たない）。時計は経過時間の代わりに `frame.now`（現在時刻）だけから決める
 
 ## 話題ごとの約束（`.claude/rules/`）
@@ -52,3 +52,7 @@ npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 - 約束が変わったら約束のほうを直し、変えた理由を対応する `docs/decisions/` のファイルに足す
 - 新しい話題は `.claude/rules/` にファイルを作り（`paths` を必ず書く）、経緯は `docs/decisions/` に置く
 - このファイルは毎回のセッションで全文が読み込まれるので、理由も話題ごとの詳細も書かない
+
+## 利用者向けの説明（`README.md` と `docs/guide/`）
+
+配信者が読む使い方は `docs/guide/<話題>.md` に機能ごとに書く。`README.md` は入口（何ができるか・使いはじめ方・文書への行き先・開発コマンドの要約・ライセンス）だけに保ち、機能の詳細を足さない。機能を足したら `docs/guide/` の該当ファイルと `docs/guide/README.md` の一覧を直す。経緯は `docs/decisions/docs.md`。
