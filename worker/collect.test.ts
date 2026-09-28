@@ -210,6 +210,27 @@ describe('古い記録の掃除', () => {
 
     expect(db.sqlite.prepare('SELECT message_id FROM transcripts').all()).toEqual([{ message_id: 'kyou-no-hatsuwa' }])
   })
+
+  it('保持期間より古い画面の取り込みの記録を消す（文字起こしと同じく、配信中だけ持つものであるため）', async () => {
+    const db = createFakeDatabase()
+    const store = createFakeStore()
+    await saveToken(store, 'broadcaster', 保管中のトークン)
+    const 三十日 = 30 * 24 * 60 * 60 * 1000
+    db.sqlite
+      .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, ?, ?, ?)')
+      .run('mukashi-no-haishin', new Date(現在時刻 - 三十日).toISOString(), new Date(現在時刻 - 三十日).toISOString(), '昔の配信', 'Just Chatting')
+    const 取り込みを足す = (imageId: string, at: number): void => {
+      db.sqlite
+        .prepare('INSERT INTO screen_captures (image_id, session_id, captured_at) VALUES (?, ?, ?)')
+        .run(imageId, 'mukashi-no-haishin', new Date(at).toISOString())
+    }
+    取り込みを足す('mukashi-no-gamen', 現在時刻 - 三十日)
+    取り込みを足す('kyou-no-gamen', 現在時刻)
+
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+
+    expect(db.sqlite.prepare('SELECT image_id FROM screen_captures').all()).toEqual([{ image_id: 'kyou-no-gamen' }])
+  })
 })
 
 describe('人物像の生成', () => {

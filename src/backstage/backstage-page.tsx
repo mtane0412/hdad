@@ -1,7 +1,7 @@
 /**
  * 裏方のページ
  *
- * 映すものを持たない裏方（チャットの読み上げ・文字起こしの中継）を1つのブラウザソースで動かすための、
+ * 映すものを持たない裏方（チャットの読み上げ・文字起こしの中継・配信画面の取り込み）を1つのブラウザソースで動かすための、
  * OBSに貼るURLを出す（issue #108）。裏方そのものは overlay/backstage/index.html が行い、この画面は
  * その案内だけを受け持つ（文字起こしのページ・サイドスーパーのページと同じ形）。
  *
@@ -33,11 +33,14 @@ const BACKSTAGE_SIZE = { width: 600, height: 600 }
 export const BackstagePage = ({ overlayKey }: { overlayKey: string | null }) => {
   const [speech, setSpeech] = useState(true)
   const [transcript, setTranscript] = useState(true)
+  // 画面の取り込みは既定で外す。OBSのWebSocketサーバーと Gyazo のアクセストークンの両方が要るためである
+  const [screen, setScreen] = useState(false)
   const [port, setPort] = useState(String(DEFAULT_TRANSCRIPT_PORT))
   const actions = usePageActions()
   const urlFieldId = useId()
   const speechFieldId = useId()
   const transcriptFieldId = useId()
+  const screenFieldId = useId()
   const portFieldId = useId()
   const sizeHintId = useId()
 
@@ -53,7 +56,7 @@ export const BackstagePage = ({ overlayKey }: { overlayKey: string | null }) => 
   let url: string
   let urlFailure = ''
   try {
-    url = backstageUrl(window.location.origin, overlayKey, { speech, transcript, port: Number(port.trim()) })
+    url = backstageUrl(window.location.origin, overlayKey, { speech, transcript, screen, port: Number(port.trim()) })
   } catch (error) {
     url = ''
     urlFailure = errorMessage(error)
@@ -104,6 +107,14 @@ export const BackstagePage = ({ overlayKey }: { overlayKey: string | null }) => 
               <p className="text-sm text-muted-foreground">既定は {DEFAULT_TRANSCRIPT_PORT}。</p>
             </>
           )}
+
+          <div className="flex items-center gap-2">
+            <Checkbox id={screenFieldId} checked={screen} onCheckedChange={(checked) => setScreen(checked === true)} />
+            <Label htmlFor={screenFieldId}>配信画面の取り込み</Label>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            OBSのつなぎ先と撮る間隔は「画面の取り込み」のページで変える。Worker 側に Gyazo のアクセストークンが要る。
+          </p>
 
           {urlFailure === '' ? (
             <>

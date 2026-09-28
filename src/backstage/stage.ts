@@ -1,7 +1,7 @@
 /**
  * 裏方のページ（overlay/backstage/index.html）のエントリスクリプト
  *
- * OBSに置くWebのページのうち、映すものを持たないもの（チャットの読み上げ・文字起こしの中継）を1枚にまとめる
+ * OBSに置くWebのページのうち、映すものを持たないもの（チャットの読み上げ・文字起こしの中継・配信画面の取り込み）を1枚にまとめる
  * （issue #108）。ブラウザソースはその数だけ Chromium のレンダラを立ち上げるので、裏方をそれぞれ別のソースに
  * 置くと配信中のメモリを食う。
  *
@@ -11,7 +11,8 @@
  *
  * どの裏方を動かすかは「このブラウザソースが何をするか」という構造の指定なので、合成ページの ?overlay=<名前> と
  * 同じくURLに持たせる（配信中に変える設定ではないため、issue #86 でWorkerへ移した「設定」とは扱いを分ける）。
- * 裏方そのものは src/speech/task.ts・src/transcript/task.ts にあり、単独ページと同じものを呼ぶ。
+ * 裏方そのものは src/speech/task.ts・src/transcript/task.ts・src/screen/task.ts にあり、単独ページを持つものは
+ * そのページと同じものを呼ぶ。
  *
  * 注意: 1つの裏方の失敗で、もう一方は動かし続ける（合成ページが素材について設けた例外と同じ。
  * 1枚にまとめたせいで、片方の失敗がもう一方まで巻き込むことがないようにする）。失敗はその裏方の箱に出す。
@@ -19,6 +20,7 @@
  */
 import { showError } from '../core/mount'
 import { ParamError, parseParams, type ParamSchema } from '../core/params'
+import { SCREEN_NOUN, startScreen } from '../screen/task'
 import { SPEECH_NOUN, startSpeech } from '../speech/task'
 import { startTranscript, TRANSCRIPT_NOUN } from '../transcript/task'
 
@@ -43,6 +45,13 @@ const schema = {
     type: 'boolean',
     default: true,
     description: '文字起こしの中継を動かす（ゆかコネNEO を使う）',
+  },
+  screen: {
+    type: 'boolean',
+    // 既定では動かさない。OBSのWebSocketサーバーと Gyazo のアクセストークンの両方が要るので、
+    // 何も用意していない配信者のブラウザソースが起動のたびに失敗を出さないようにする
+    default: false,
+    description: '配信画面の取り込みを動かす（OBS の obs-websocket を使う）',
   },
   host: {
     type: 'string',
@@ -101,8 +110,8 @@ const start = async (): Promise<void> => {
   if (params.key === '') {
     throw new ParamError(['key: オーバーレイ用キーを指定してください（例: ?key=<キー>）'])
   }
-  if (!params.speech && !params.transcript) {
-    throw new ParamError(['speech・transcript: 動かす裏方がありません（どちらかを true にしてください）'])
+  if (!params.speech && !params.transcript && !params.screen) {
+    throw new ParamError(['speech・transcript・screen: 動かす裏方がありません（どれかを true にしてください）'])
   }
 
   // 文字起こしの中継を先に始める。つなぎ始めるまで待つものが無く、読み上げの起動（Workerと VOICEVOX への
@@ -122,6 +131,13 @@ const start = async (): Promise<void> => {
     await startSpeech({ key: params.key, box })
       .then(({ origin }) => showStatus(box, `${origin} につながっています。チャットを読み上げます`))
       .catch((error: unknown) => showError(error, SPEECH_NOUN, box))
+  }
+
+  if (params.screen) {
+    const box = addTaskBox(root, SCREEN_NOUN)
+    await startScreen({ key: params.key, box })
+      .then(({ url, intervalSeconds }) => showStatus(box, `${url} につながっています。${intervalSeconds}秒ごとに画面を撮ります`))
+      .catch((error: unknown) => showError(error, SCREEN_NOUN, box))
   }
 }
 

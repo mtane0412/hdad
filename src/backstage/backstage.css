@@ -55,3 +55,21 @@
   padding: 6px 10px;
   color: #9be89b;
 }
+
+/*
+ * 画面の取り込みの表示。最後に撮れた時刻を出すのは、OBSのブラウザソースではコンソールを見られないため
+ * （中継ページと同じ理由）。撮れなかったときの理由は、改行を保って読めるように pre で出す。
+ */
+.screen-status {
+  margin: 0;
+  padding: 6px 10px;
+  color: #9be89b;
+}
+
+.screen-notice {
+  margin: 0;
+  padding: 6px 10px;
+  color: #f2b8b5;
+  font: inherit;
+  white-space: pre-wrap;
+}

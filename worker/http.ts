@@ -53,6 +53,14 @@ export interface Env {
    * 選んでいるのに無ければ、黙って Workers AI へ落とさずに失敗させる（Fail-Fast）。
    */
   OPENROUTER_API_KEY?: string
+  /**
+   * Gyazo のアクセストークン。
+   *
+   * 配信画面の取り込み（issue #122）が、撮った1枚を上げてOCRを作らせるために使う。画面の取り込みを
+   * 使わない配信者には要らないので、設定していなくてもWorkerは動く。撮った1枚が押し込まれたのに
+   * 無ければ、黙って捨てずに失敗させる（Fail-Fast。worker/overlay-routes.ts の postScreen）。
+   */
+  GYAZO_ACCESS_TOKEN?: string
 }
 
 /** 経路の処理が受け取る文脈 */

@@ -16,6 +16,7 @@ import type { BotApi } from '@/bot/api'
 import type { FocusApi } from '@/focus/api'
 import type { LlmApi } from '@/llm/api'
 import type { OverlayLayoutAdminApi } from '@/overlay/admin-api'
+import type { ScreenAdminApi } from '@/screen/api'
 import type { SpeechApi } from '@/speech/api'
 import type { StatsApi } from '@/stats/api'
 import type { ViewerApi } from '@/viewers/api'
@@ -157,6 +158,7 @@ export const App = ({
   botApi,
   viewerApi,
   speechApi,
+  screenApi,
   focusApi,
   llmApi,
   overlayApi,
@@ -166,6 +168,7 @@ export const App = ({
   botApi: BotApi
   viewerApi: ViewerApi
   speechApi: SpeechApi
+  screenApi: ScreenAdminApi
   focusApi: FocusApi
   llmApi: LlmApi
   overlayApi: OverlayLayoutAdminApi
@@ -221,6 +224,7 @@ export const App = ({
             botApi,
             viewerApi,
             speechApi,
+            screenApi,
             focusApi,
             llmApi,
             overlayApi,

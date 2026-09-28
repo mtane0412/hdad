@@ -4,7 +4,7 @@
  * サイドバーの項目と、パスごとに描く中身をここで決める。
  * 実ファイルとして配信されるページ（overlay/stage/・overlay/backstage/・speech/reader/・transcript/relay/）は、ここには載せない。
  */
-import { Bot, BrainCircuit, Captions, Layers, LayoutDashboard, Quote, Upload, Users, Volume2, Wrench, Zap, type LucideIcon } from 'lucide-react'
+import { Bot, BrainCircuit, Camera, Captions, Layers, LayoutDashboard, Quote, Upload, Users, Volume2, Wrench, Zap, type LucideIcon } from 'lucide-react'
 import type { AdminApi, Me } from '@/admin/api'
 import { BackstagePage } from '@/backstage/backstage-page'
 import { MediaPage } from '@/admin/media-page'
@@ -21,6 +21,8 @@ import type { StatsApi } from '@/stats/api'
 import { StatsPage } from '@/stats/stats-page'
 import type { ViewerApi } from '@/viewers/api'
 import { ViewerPage } from '@/viewers/viewer-page'
+import type { ScreenAdminApi } from '@/screen/api'
+import { ScreenPage } from '@/screen/screen-page'
 import type { SpeechApi } from '@/speech/api'
 import { SpeechPage } from '@/speech/speech-page'
 import { TranscriptPage } from '@/transcript/transcript-page'
@@ -36,6 +38,8 @@ export interface PageContext {
   viewerApi: ViewerApi
   /** 読み上げの設定の読み書き（読み上げのページが使う） */
   speechApi: SpeechApi
+  /** 画面の取り込みの設定の読み書き（画面の取り込みのページが使う） */
+  screenApi: ScreenAdminApi
   /** 注目コメント（いま取り上げているもの）の読み書き（注目コメントのページが使う） */
   focusApi: FocusApi
   /** LLMの提供元とモデルの設定の読み書き（LLMのページが使う） */
@@ -78,6 +82,13 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
         icon: Volume2,
         // 読み上げのページはWorkerに置いた設定をオーバーレイ用キーで読む。botの状態は「読み上げない人」に足すために読む
         render: ({ speechApi, botApi, me }) => <SpeechPage api={speechApi} botApi={botApi} overlayKey={me.overlayKey} />,
+      },
+      {
+        path: '/screen/',
+        name: '画面の取り込み',
+        icon: Camera,
+        // 撮るのは裏方のページ（/backstage/ で動かすかどうかを選ぶ）で、この画面はつなぎ先と間隔の設定だけを持つ
+        render: ({ screenApi }) => <ScreenPage api={screenApi} />,
       },
       {
         path: '/overlay/',
