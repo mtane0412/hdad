@@ -64,7 +64,15 @@ OCRを自前で持たず Gyazo に任せる。Workers AI の画像モデルに�
 
 Gyazo のOCRは上げた直後には生成が終わっていない（実測で約10〜13秒）。上げる `POST /api/overlay/screen` の中で待つ形は採らない。裏方のページが次の1枚を撮るまでの時間を削ってしまううえ、待っても生成が終わっている保証がないためである。代わりに5分おきの cron（`worker/collect.ts` の `fetchScreenOcr`）が、まだ取れていない行をまとめて取りに行く。cron の間隔（5分）は生成にかかる時間よりはるかに長いので、ふつうは最初の1回で取れる。
 
-**取りに行く先は `metadata.ocr` の下である。** 公式ドキュメント（https://gyazo.com/api/docs/image ）は `ocr` をトップレベルに置くと書いているが、実際の応答は違う。ドキュメントどおりに書くと永久に空として扱い、材料が1文字も貯まらない。
+**取りに行く先は `metadata.ocr.description` である。** 公式ドキュメント（https://gyazo.com/api/docs/image ）は `ocr` をトップレベルに置くと書いているが、実際の応答は違う。ドキュメントどおりに書くと永久に空として扱い、材料が1文字も貯まらない。2026-09-28 に実際の応答で確かめた形は次のとおりである（トップレベルに `ocr` は無く、`metadata.ocr` は `locale` と `description` を持つ）。
+
+```
+image_id, type, created_at, permalink_url, thumb_url, url, access_policy, metadata
+metadata: app, title, url, desc, links, user, ocr, original_title, original_url
+metadata.ocr: locale（'ja'）, description（読み取った文字）
+```
+
+**取りに行くのは1枚ずつ（`GET /api/images/:image_id`）である。** 一覧（`GET /api/images`）の応答には `metadata.ocr` そのものが入らないので、まとめて取る形は採れない。上げた枚数だけ呼び出しが要るが、15秒間隔・4時間の配信でもアップロードと合わせて1920回で、Gyazo の1日12,500回に収まる。
 
 **空の読み取りは「取れなかった」として扱い、諦めるまでの回数を持つ**（`worker/screen-store.ts` の `OCR_MAX_ATTEMPTS` は3回）。生成が終わっていないときも、文字が1つも写っていない画面のときも、Gyazo が返すのは同じ「空」なので区別できない。区別できない以上、両方を取り直しの対象にしたうえで上限で止めるほかない。上限が無ければ、文字の無い画面を配信のあいだじゅう叩き続けることになる。`ocr_text` は NULL が「まだ取れていない」、空でない文字列が「取れた」で、上限に達した行は `ocr_attempts` で引かれなくなり、保持期間（1日）で消える。
 
