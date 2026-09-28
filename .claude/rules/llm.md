@@ -2,6 +2,10 @@
 paths:
   - "src/llm/**"
   - "worker/llm*.ts"
+  - "worker/ai-chat.ts"
+  - "worker/side-super.ts"
+  - "worker/viewer-summary.ts"
+  - "worker/stream-summary.ts"
 ---
 
 # LLMの呼び先・使用状況・モデルの選択

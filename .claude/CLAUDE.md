@@ -32,17 +32,17 @@ npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 | `chat.md` | チャットボックス（`chat/`） | `src/chat/**`・`chat/**` |
 | `alerts.md` | アラート（`alerts/`・トリガー・動作・広告） | `src/alerts/**`・`alerts/**`・`worker/alert-*.ts`・`worker/trigger-menu.ts`・`worker/ad-break-timer.ts`・`worker/ai-chat.ts`・`worker/bot-chat.ts`・`worker/webhook-routes.ts` |
 | `transcript.md` | 配信中の文字起こし（`/transcript/`） | `src/transcript/**`・`transcript/**`・`worker/transcript-store.ts` |
-| `stream-summary.md` | これまでのあらすじ（`{summary}`） | `worker/stream-summary*.ts`・`worker/collect.ts` |
-| `viewers.md` | 視聴者の記録（`/viewers/`） | `src/viewers/**`・`worker/viewer-*.ts`・`worker/stream-chat-store.ts` |
-| `side-super.md` | サイドスーパー（`/side-super/`） | `src/side-super/**`・`side-super/**`・`worker/side-super*.ts` |
+| `stream-summary.md` | これまでのあらすじ（`{summary}`） | `worker/stream-summary*.ts`・`worker/collect.ts`・`worker/chat-command.ts`・`worker/alert-event.ts`・`worker/webhook-routes.ts` |
+| `viewers.md` | 視聴者の記録（`/viewers/`） | `src/viewers/**`・`worker/viewer-*.ts`・`worker/stream-chat-store.ts`・`worker/webhook-routes.ts`・`worker/collect.ts`・`worker/ai-chat.ts`・`migrations/*viewer*.sql` |
+| `side-super.md` | サイドスーパー（`/side-super/`） | `src/side-super/**`・`side-super/**`・`worker/side-super*.ts`・`worker/collect.ts`・`worker/overlay-routes.ts` |
 | `focus.md` | 注目コメント（`/focus/`） | `src/focus/**`・`focus/**`・`worker/focus-*.ts` |
 | `overlay.md` | 合成ページと構成の管理画面（`overlay/stage/`・`/overlay/`） | `src/overlay/**`・`overlay/**`・`worker/overlay-*.ts` |
 | `speech.md` | チャットの読み上げ（`speech/reader/`） | `src/speech/**`・`speech/**`・`worker/speech-config.ts` |
 | `backstage.md` | 裏方をまとめたページ（`overlay/backstage/`） | `src/backstage/**`・`overlay/backstage/**` |
-| `llm.md` | LLMの呼び先・使用状況・モデルの選択 | `src/llm/**`・`worker/llm*.ts` |
+| `llm.md` | LLMの呼び先・使用状況・モデルの選択 | `src/llm/**`・`worker/llm*.ts`・`worker/ai-chat.ts`・`worker/side-super.ts`・`worker/viewer-summary.ts`・`worker/stream-summary.ts` |
 | `dashboard.md` | ダッシュボード（`/`） | `src/stats/**`・`worker/stats-*.ts` |
 | `triggers-page.md` | トリガーの管理画面（`/triggers/`） | `src/admin/**` |
-| `bot.md` | チャットボット（`/bot/`） | `src/bot/**`・`worker/bot-*.ts`・`worker/chat-*.ts`・`worker/moderation-config.ts`・`worker/eventsub*.ts` |
+| `bot.md` | チャットボット（`/bot/`） | `src/bot/**`・`worker/auth-routes.ts`・`worker/token.ts`・`worker/webhook-routes.ts`・`worker/bot-*.ts`・`worker/chat-*.ts`・`worker/moderation-config.ts`・`worker/eventsub*.ts` |
 | `worker.md` | Worker（`worker/`）と失敗の記録 | `worker/**` |
 
 ## 設計判断の記録（`docs/decisions/`）

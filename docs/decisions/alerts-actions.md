@@ -42,7 +42,7 @@ LLMの応答を待つとTwitchへの2xxが遅れて再送されるので、`Cont
 
 `alert` の動作は、Workerが押し出す側なのでbotの接続と関係なく動く（`worker/webhook-routes.ts` はチャットの発言でも、botの接続の確認より前にアラートの判定を行う）。
 
-一方 `chat`・`announce`・`shoutout` は送り主のアカウントが要るため、botを接続しているときだけ動く。
+一方 `chat`・`aiChat`・`announce`・`shoutout` は送り主のアカウントが要るため、botを接続しているときだけ動く。
 
 この違いは `/triggers/` の画面で知らせる（`botApi.status()` で接続状態を読む）。
 

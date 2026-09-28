@@ -22,7 +22,7 @@ Twitchのトークンは応答に含めず、保存先はKV（`STORE`）、素�
 
 `fetch`・現在時刻・KV・R2・D1は引数で受け取り、テストでは差し替える（代役は `worker/fake-store.ts`・`worker/fake-bucket.ts`・`worker/fake-database.ts`・`worker/fake-alert-channel.ts`。3つめのものは `node:sqlite` に `migrations/` を適用する）。
 
-失敗は `{ error: { code, message } }` で返す（Fail-Fast）。
+HTTP APIの失敗は `{ error: { code, message } }` で返す（Fail-Fast）。
 
 cron の1回の実行では複数の仕事（配信の記録・あらすじ・サイドスーパー・人物像）が走り、無料枠が切れた日には同じ時刻に別々の失敗が並ぶ。
 

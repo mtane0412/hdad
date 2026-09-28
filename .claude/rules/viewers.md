@@ -3,6 +3,10 @@ paths:
   - "src/viewers/**"
   - "worker/viewer-*.ts"
   - "worker/stream-chat-store.ts"
+  - "worker/webhook-routes.ts"
+  - "worker/collect.ts"
+  - "worker/ai-chat.ts"
+  - "migrations/*viewer*.sql"
 ---
 
 # 視聴者の記録（`/viewers/`）

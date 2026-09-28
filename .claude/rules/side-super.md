@@ -3,6 +3,8 @@ paths:
   - "src/side-super/**"
   - "side-super/**"
   - "worker/side-super*.ts"
+  - "worker/collect.ts"
+  - "worker/overlay-routes.ts"
 ---
 
 # サイドスーパー（`/side-super/`）

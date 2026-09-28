@@ -1,6 +1,9 @@
 ---
 paths:
   - "src/bot/**"
+  - "worker/auth-routes.ts"
+  - "worker/token.ts"
+  - "worker/webhook-routes.ts"
   - "worker/bot-*.ts"
   - "worker/chat-*.ts"
   - "worker/moderation-config.ts"
