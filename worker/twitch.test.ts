@@ -5,6 +5,7 @@
  * 「失敗の応答をエラーとして扱うか」を確認する。
  */
 import { describe, expect, it } from 'vitest'
+import { TimeoutError } from './timeout'
 import { TwitchApiError, createTwitchClient } from './twitch'
 
 /** 送られたリクエストを記録し、決めた応答を返す fetch */
@@ -863,5 +864,26 @@ describe('exchangeDeviceCode', () => {
       name: 'TwitchApiError',
       status: 400,
     })
+  })
+})
+
+describe('時間制限（issue #126）', () => {
+  it('Twitchが応答を返さないと、待ち続けずに TimeoutError にする', async () => {
+    const fetchImpl = (async () => await new Promise<Response>(() => undefined)) as typeof fetch
+    const twitch = createTwitchClient({
+      clientId: 'test-client-id',
+      clientSecret: 'テスト用シークレット',
+      fetch: fetchImpl,
+      timeoutMs: 10,
+    })
+
+    await expect(twitch.getFollowerTotal('test-access-token', '123456')).rejects.toBeInstanceOf(TimeoutError)
+  })
+
+  it('外への呼び出しには中断の合図を渡す', async () => {
+    const { requests, fetchImpl } = 応答を返すfetch(200, { total: 42, data: [] })
+
+    await クライアントを作る(fetchImpl).getFollowerTotal('test-access-token', '123456')
+    expect(requests[0]?.signal).toBeInstanceOf(AbortSignal)
   })
 })

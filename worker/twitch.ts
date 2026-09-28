@@ -5,7 +5,12 @@
  * 配信の記録のための取得（いまの配信・フォロワー数）、チャットへのメッセージ送信を受け持つ。
  * 失敗の応答はすべて TwitchApiError として投げ、呼び出し側が状態コードで扱いを決める。
  * fetch を引数で受け取るのは、テストで実際の通信を差し替えるため。
+ *
+ * 注意: 呼び出しには時間制限をかける（worker/timeout.ts）。Twitchが失敗を返さずに黙り続けると、
+ * cron の1回分がそこで止まり、後ろの処理（フォロワー数の記録・材料づくり）へ進めない（issue #126）。
  */
+import { withTimeout } from './timeout'
+
 const AUTHORIZE_URL = 'https://id.twitch.tv/oauth2/authorize'
 const TOKEN_URL = 'https://id.twitch.tv/oauth2/token'
 const VALIDATE_URL = 'https://id.twitch.tv/oauth2/validate'
@@ -335,7 +340,18 @@ interface TwitchClientOptions {
   clientId: string
   clientSecret: string
   fetch: typeof fetch
+  /** 1回の呼び出しを待つ時間の上限（ミリ秒）。既定は TWITCH_TIMEOUT_MS。短くできるのはテストのためである */
+  timeoutMs?: number
 }
+
+/**
+ * Twitchの1回の呼び出しを待つ時間の上限（ミリ秒）。
+ *
+ * Helix APIはどれも保存済みの値を引くだけの問い合わせなので、まともに動いていれば1秒もかからない。
+ * それでも10秒まで待つのは、cron が動く5分のうちで見れば短く、一時的な遅れで記録を落としたくないためである
+ * （worker/timeout.ts。issue #126）。
+ */
+export const TWITCH_TIMEOUT_MS = 10_000
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
 
@@ -478,7 +494,15 @@ const toLiveStream = (value: unknown): LiveStream => {
   }
 }
 
-export const createTwitchClient = ({ clientId, clientSecret, fetch: fetchImpl }: TwitchClientOptions): TwitchClient => {
+export const createTwitchClient = ({
+  clientId,
+  clientSecret,
+  fetch: 元の通信,
+  timeoutMs = TWITCH_TIMEOUT_MS,
+}: TwitchClientOptions): TwitchClient => {
+  // Twitchが黙り続けたときに、cron の1回分や利用者の要求がそこで止まらないようにする（issue #126）
+  const fetchImpl = withTimeout(元の通信, timeoutMs, 'Twitch')
+
   const requestToken = async (params: Record<string, string>): Promise<TokenGrant> => {
     const response = await fetchImpl(TOKEN_URL, {
       method: 'POST',

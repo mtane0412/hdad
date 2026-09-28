@@ -19,6 +19,9 @@
  * 唯一の入口なので、4か所すべてを取りこぼさずに数えられる。失敗した呼び出しも数える。
  * 注意: 使用状況の記録に失敗しても、作れた文面はそのまま返す。モニターのための記録のために、配信中のチャットの
  * 文面やあらすじが出なくなるのは本末転倒である。黙って捨てずに collection_failures へ残し、管理画面から気づけるようにする。
+ * 注意: 呼び出しには時間制限をかける（worker/timeout.ts）。LLMが黙り続けると、cron の1回分が
+ * そこで止まり、後ろの処理（人物像づくり）へ進めない（issue #126）。Workers AI のバインディングは
+ * 中断の合図を受け取れないので、呼び出しそのものは中断できず、待つのをやめるだけである。
  * 注意: OpenRouter へは推論を切って送る（reasoning.enabled を偽にする）。このツールが送る上限は箇所ごとに
  * 100〜400トークンと小さく、推論モデルではそれを思考トークンが使い切って content が null のまま
  * finish_reason が length で返るためである（実際に openai/gpt-6-luna をあらすじに選んだ配信で、
@@ -28,10 +31,20 @@ import type { Database } from './database'
 import { loadLlmSettings, type LlmProvider, type LlmSettings, type LlmUsage } from './llm-config'
 import { recordLlmUsage } from './llm-usage-store'
 import { recordFailure } from './stats-store'
+import { runWithTimeout, withTimeout } from './timeout'
 import type { KeyValueStore } from './store'
 
 /** OpenRouter のチャット補完（OpenAI互換） */
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
+
+/**
+ * LLMの1回の呼び出しを待つ時間の上限（ミリ秒）。
+ *
+ * 文面を作らせる呼び出しなので、値を引くだけの Twitch・Gyazo（10〜15秒）より長くとる。それでも
+ * 60秒で切るのは、cron が5分おきに動くなかで、あらすじ・サイドスーパー・人物像5人ぶんを順に呼ぶためである
+ * （worker/timeout.ts。issue #126）。
+ */
+export const LLM_TIMEOUT_MS = 60_000
 
 /** 失敗の文面に載せる応答本文の長さ。理由が読める程度にとどめ、長い応答をそのまま記録に流さない */
 const MAX_ERROR_BODY_LENGTH = 200
@@ -154,8 +167,10 @@ export const readResponse = (result: unknown): string => {
 }
 
 /** Workers AI のバインディングへ送る */
-const runWorkersAi = async (ai: WorkersAi, model: string, request: LlmRequest): Promise<LlmCallResult> => {
-  const result = await ai.run(model, { messages: request.messages, max_tokens: request.maxTokens })
+const runWorkersAi = async (ai: WorkersAi, model: string, request: LlmRequest, timeoutMs: number): Promise<LlmCallResult> => {
+  // バインディングは中断の合図を受け取れないので、呼び出しは止められない。待つのをやめるだけでも、
+  // cron の1回分が黙った相手のところで止まり続けることは防げる
+  const result = await runWithTimeout(() => ai.run(model, { messages: request.messages, max_tokens: request.maxTokens }), timeoutMs, 'Workers AI')
   return { text: readResponse(result), tokens: readUsage(result) }
 }
 
@@ -199,6 +214,8 @@ export interface LlmOptions {
   db: Database
   /** 現在時刻（ミリ秒）を返すもの。記録する日の区切りに使う。1つのLLMが時をまたいで呼ばれるので、値ではなく関数で受け取る */
   now: () => number
+  /** 1回の呼び出しを待つ時間の上限（ミリ秒）。既定は LLM_TIMEOUT_MS。短くできるのはテストのためである */
+  timeoutMs?: number
 }
 
 /**
@@ -207,7 +224,9 @@ export interface LlmOptions {
  * 設定はここでは読まず、最初に run が呼ばれたときに1回だけ読んで覚える
  * （一度もLLMを使わない通知では、KVの読み出しが起きない）。
  */
-export const createLlm = ({ ai, store, fetch: fetchImpl, apiKey, db, now }: LlmOptions): TextGenerator => {
+export const createLlm = ({ ai, store, fetch: 元の通信, apiKey, db, now, timeoutMs = LLM_TIMEOUT_MS }: LlmOptions): TextGenerator => {
+  // OpenRouter が黙り続けたときに、cron の1回分がそこで止まらないようにする（issue #126）
+  const fetchImpl = withTimeout(元の通信, timeoutMs, 'OpenRouter')
   let 設定: Promise<LlmSettings> | null = null
 
   /**
@@ -237,7 +256,7 @@ export const createLlm = ({ ai, store, fetch: fetchImpl, apiKey, db, now }: LlmO
       const 空の使用量: LlmTokenUsage = { promptTokens: 0, completionTokens: 0, costUsd: 0 }
       const result = await (provider === 'openrouter'
         ? runOpenRouter(fetchImpl, apiKey, model, request)
-        : runWorkersAi(ai, model, request)
+        : runWorkersAi(ai, model, request, timeoutMs)
       ).catch(async (error: unknown) => {
         // 失敗も数える（無料枠切れが何回起きたかを管理画面から読めるようにする）。数えたうえで、そのまま投げる
         await 記録する(空の使用量, usage, provider, model, true)

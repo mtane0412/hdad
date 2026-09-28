@@ -18,6 +18,7 @@ import { createFakeDatabase } from './fake-database'
 import { createFakeStore } from './fake-store'
 import { DEFAULT_LLM_SETTINGS, saveLlmSettings, type LlmSettings } from './llm-config'
 import { createLlm, readResponse, type WorkersAi } from './llm'
+import { TimeoutError } from './timeout'
 
 const 現在時刻 = Date.parse('2026-09-27T01:23:45.000Z')
 
@@ -303,5 +304,30 @@ describe('readResponse', () => {
 
   it('どちらの形でもなければ、黙って捨てずに投げる', () => {
     expect(() => readResponse({ choices: [] })).toThrow('LLMの応答を読めません')
+  })
+})
+
+describe('時間制限（issue #126）', () => {
+  it('Workers AI が応答を返さないと、待ち続けずに TimeoutError にする', async () => {
+    const ai: WorkersAi = { run: () => new Promise<unknown>(() => undefined) }
+    const llm = createLlm({
+      ...記録の条件(),
+      ai,
+      store: createFakeStore(),
+      fetch: 通信の代役(OpenRouterの応答('使われない')),
+      apiKey: undefined,
+      timeoutMs: 10,
+    })
+
+    await expect(llm.run('aiChat', 材料)).rejects.toBeInstanceOf(TimeoutError)
+  })
+
+  it('OpenRouter が応答を返さないと、待ち続けずに TimeoutError にする', async () => {
+    const store = createFakeStore()
+    await saveLlmSettings(store, OpenRouterの設定)
+    const fetchImpl = (async () => await new Promise<Response>(() => undefined)) as typeof fetch
+    const llm = createLlm({ ...記録の条件(), ai: バインディングの代役(), store, fetch: fetchImpl, apiKey: 'openrouter-test-key', timeoutMs: 10 })
+
+    await expect(llm.run('streamSummary', 材料)).rejects.toBeInstanceOf(TimeoutError)
   })
 })

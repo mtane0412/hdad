@@ -9,6 +9,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { createGyazoClient, GyazoApiError } from './gyazo'
+import { TimeoutError } from './timeout'
 
 const 画像 = new Blob([new Uint8Array([137, 80, 78, 71])], { type: 'image/png' })
 
@@ -139,5 +140,21 @@ describe('fetchOcr', () => {
 
     await expect(取りに行く).rejects.toBeInstanceOf(GyazoApiError)
     await expect(取りに行く).rejects.toThrow(/404/)
+  })
+})
+
+describe('時間制限（issue #126）', () => {
+  it('Gyazo が応答を返さないと、待ち続けずに TimeoutError にする', async () => {
+    const fetchImpl = (async () => await new Promise<Response>(() => undefined)) as typeof fetch
+    const gyazo = createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl, timeoutMs: 10 })
+
+    await expect(gyazo.fetchOcr('abcdef0123456789abcdef0123456789')).rejects.toBeInstanceOf(TimeoutError)
+  })
+
+  it('アップロードにも同じ時間制限をかける', async () => {
+    const fetchImpl = (async () => await new Promise<Response>(() => undefined)) as typeof fetch
+    const gyazo = createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl, timeoutMs: 10 })
+
+    await expect(gyazo.upload(画像, 'screen.png')).rejects.toBeInstanceOf(TimeoutError)
   })
 })

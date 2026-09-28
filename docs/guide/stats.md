@@ -28,6 +28,8 @@ npx wrangler d1 migrations apply DB --local   # ローカル（npm run dev の�
 
 配信者がログインしていない・トークンを更新できない・Twitchが失敗を返したときは、黙って飛ばさずに `collection_failures` へ記録し、cron の実行も失敗にします。記録が止まっていたら `GET /api/admin/stats/failures` か、Cloudflareダッシュボードの Worker の Settings > Trigger Events で確かめ、`relogin-required` ならログインし直してください。
 
+相手（Twitch・Gyazo・文面を作らせるLLM）が応答を返さないまま黙っているときは、待ち続けずに打ち切ります（Twitchは10秒、Gyazoは15秒、LLMは60秒）。1回の収集そのものにも2分の予算があり、予算を過ぎたときは**配信の記録（視聴者数・フォロワー数）は残したまま**、材料づくり（画面の文字の取得・あらすじ・サイドスーパー・人物像）だけを次の収集（5分後）へ回し、`collection_failures` に `collect-budget-exceeded` として記録します。材料は消えないので、次の収集で作り直されます。
+
 保持期間は設けていません。書き込みは1日あたり最大で「視聴者数288行＋フォロワー数288行＋セッションの更新」程度で、D1の無料枠（1日10万行の書き込み・保存5GB）に対して十分小さいためです。
 
 ## イベントの件数と、配信の開始・終了（Webhook）
