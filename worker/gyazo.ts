@@ -1,9 +1,12 @@
 /**
- * Gyazo への画像のアップロード
+ * Gyazo への画像のアップロードと、読み取った文字の取得
  *
- * 配信画面を撮った1枚を Gyazo へ上げ、そこで作られるOCRのテキストをあとから取りに行くために使う（issue #122）。
- * OCRをWorkerで動かす代わりに Gyazo に任せるのは、Workers AI の画像モデルに頼らずに日本語混じりの画面を
- * 読めるためである。ここはアップロードだけを受け持ち、OCRの取得も差分の抽出も持たない。
+ * 配信画面を撮った1枚を Gyazo へ上げ（upload）、そこで作られるOCRのテキストをあとから取りに行く（fetchOcr）
+ * ために使う（issue #122）。OCRをWorkerで動かす代わりに Gyazo に任せるのは、Workers AI の画像モデルに
+ * 頼らずに日本語混じりの画面を読めるためである。ここは Gyazo の呼び出しだけを受け持ち、差分の抽出は持たない。
+ *
+ * 上げる（POST /api/overlay/screen のたび）のと取りに行く（cron が5分おき）のを分けているのは、上げた直後には
+ * OCRの生成が終わっていない（実測で約10〜13秒）ためである。
  *
  * fetch を引数で受け取るのはテストで差し替えるためである（worker/twitch.ts と同じ形）。
  * 失敗はすべて GyazoApiError として投げ、呼び出し側が扱いを決める。
@@ -13,10 +16,15 @@
  * 取り込む範囲を最小限にとどめる（docs/decisions/screen.md）。
  * 注意: 応答に image_id が無ければ失敗にする（Fail-Fast）。画像IDが無いとOCRを取りに行けないので、
  * 黙って成功扱いにすると、材料が貯まっていないことに配信が終わるまで気づけない。
+ * 注意: OCRのテキストは metadata.ocr の下から読む。公式ドキュメントは ocr をトップレベルに置くと書いているが、
+ * 実際の応答は違う（docs/decisions/screen.md）。ドキュメントどおりに書くと永久に空として扱ってしまう。
  */
 
 /** アップロードの受け口。Gyazo のAPIドキュメント（https://gyazo.com/api/docs/image）の upload */
 const UPLOAD_URL = 'https://upload.gyazo.com/api/upload'
+
+/** 1枚の情報を読む受け口。同ドキュメントの image。OCRのテキストはここから取る */
+const IMAGE_URL = 'https://api.gyazo.com/api/images'
 
 /** Gyazo が失敗を返した、または応答が想定した形でなかった */
 export class GyazoApiError extends Error {
@@ -58,6 +66,15 @@ export interface GyazoClient {
    * @throws GyazoApiError Gyazo が失敗を返した、または応答に image_id が無かった場合
    */
   upload(image: Blob, fileName: string, options?: GyazoUploadOptions): Promise<GyazoUpload>
+
+  /**
+   * 上げた1枚から、Gyazo が読み取った文字を取る。
+   *
+   * @param imageId Gyazo が振った画像ID
+   * @returns 読み取った文字。まだ生成されていなければ null
+   * @throws GyazoApiError Gyazo が失敗を返した場合
+   */
+  fetchOcr(imageId: string): Promise<string | null>
 }
 
 export interface GyazoClientOptions {
@@ -94,5 +111,35 @@ export const createGyazoClient = ({ accessToken, fetch: fetchImpl }: GyazoClient
     }
     const permalinkUrl: unknown = isRecord(body) ? body.permalink_url : undefined
     return { imageId, permalinkUrl: typeof permalinkUrl === 'string' ? permalinkUrl : '' }
+  },
+
+  async fetchOcr(imageId) {
+    // 公式ドキュメントが示すとおり、アクセストークンはクエリで渡す
+    const url = `${IMAGE_URL}/${encodeURIComponent(imageId)}?access_token=${encodeURIComponent(accessToken)}`
+    const response = await fetchImpl(url)
+    let body: unknown = null
+    let 本文を読めた = true
+    try {
+      body = await response.json()
+    } catch {
+      本文を読めた = false
+    }
+    if (!response.ok) {
+      const message = isRecord(body) && typeof body.message === 'string' ? body.message : '（本文を読めませんでした）'
+      throw new GyazoApiError(response.status, `Gyazo からのOCRの取得が ${response.status} で失敗しました: ${message}`)
+    }
+    // 成功と返ってきたのに本文を読めないのは、Gyazo 側の異常（メンテナンスのHTMLなど）である。
+    // ここで null を返すと「まだ生成されていない」と取り違え、上限まで数えたのち黙って諦めてしまう
+    if (!本文を読めた) {
+      throw new GyazoApiError(BAD_GATEWAY, 'Gyazo の応答を読めませんでした（JSONではありませんでした）')
+    }
+
+    const metadata: unknown = isRecord(body) ? body.metadata : undefined
+    const ocr: unknown = isRecord(metadata) ? metadata.ocr : undefined
+    const description: unknown = isRecord(ocr) ? ocr.description : undefined
+    if (typeof description !== 'string') return null
+    // 上げた直後は生成が終わっておらず空で返る。空白だけの読み取りも材料にならないので、同じく未生成として扱う
+    const text = description.trim()
+    return text === '' ? null : text
   },
 })

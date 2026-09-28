@@ -1,7 +1,7 @@
 /**
  * cron による配信の記録の収集（collect.ts）のテスト
  *
- * Twitchのクライアント・KV・D1を差し替え、「配信中か」「トークンが使えるか」に応じて何が記録されるかを確かめる。
+ * Twitchのクライアント・Gyazo・KV・D1を差し替え、「配信中か」「トークンが使えるか」に応じて何が記録されるかを確かめる。
  */
 import { describe, expect, it } from 'vitest'
 import type { TextGenerator } from './llm'
@@ -12,10 +12,12 @@ import { readSideSuper } from './side-super-store'
 import { MAX_SIDE_SUPER_BODY_LENGTH } from './side-super'
 import { createFakeDatabase } from './fake-database'
 import { createFakeStore } from './fake-store'
-import { getSession, listFailures, listFollowerSamples, listSessions } from './stats-store'
+import { getSession, listFailures, listFollowerSamples, listSessions, recordStreamOnline } from './stats-store'
 import { AuthError, loadToken, saveToken, type StoredToken } from './token'
 import { deleteViewer, readViewer, recordViewerMessage } from './viewer-store'
 import { TwitchApiError, type LiveStream, type TwitchClient } from './twitch'
+import { GyazoApiError } from './gyazo'
+import { OCR_MAX_ATTEMPTS, listPendingOcr, recordScreenCapture } from './screen-store'
 
 const 現在時刻 = Date.parse('2026-09-21T12:05:00Z')
 const 配信者のID = '12345'
@@ -635,5 +637,112 @@ describe('サイドスーパーの生成', () => {
 
     expect(await readSideSuper(db, 雑談配信.id)).toBeNull()
     expect((await listFailures(db)).map((failure) => failure.code)).toContain('side-super-failed')
+  })
+})
+
+describe('collectStats（配信画面から読み取った文字の取得）', () => {
+  /** 呼ばれた画像IDを覚え、決めておいた答えを返す Gyazo の代役 */
+  const Gyazoの代役 = (答え: (imageId: string) => string | null | Error = () => '画面に出ていた文字') => {
+    const 取りに行った: string[] = []
+    return {
+      取りに行った,
+      fetchOcr: async (imageId: string) => {
+        取りに行った.push(imageId)
+        const 答 = 答え(imageId)
+        if (答 instanceof Error) throw 答
+        return 答
+      },
+    }
+  }
+
+  /** 配信中に1枚撮った状態を作る */
+  const 撮った1枚を作る = async (db: ReturnType<typeof createFakeDatabase>, imageId = '画像1') => {
+    await recordStreamOnline(db, { id: 雑談配信.id, startedAt: Date.parse(雑談配信.startedAt) })
+    await recordScreenCapture(db, imageId, 現在時刻 - 60 * 1000)
+  }
+
+  it('まだ読み取っていない画像のOCRを取りに行き、取れた文字を記録する', async () => {
+    const { db, store } = await 環境を作る()
+    await 撮った1枚を作る(db)
+    const gyazo = Gyazoの代役(() => '岩手17歳女性殺害事件')
+
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻, gyazo })
+
+    expect(gyazo.取りに行った).toEqual(['画像1'])
+    expect(await listPendingOcr(db, 10)).toEqual([])
+    expect(db.sqlite.prepare('SELECT ocr_text FROM screen_captures').get()).toEqual({ ocr_text: '岩手17歳女性殺害事件' })
+  })
+
+  it('まだ生成されていなければ記録せず、次の収集に回す', async () => {
+    const { db, store } = await 環境を作る()
+    await 撮った1枚を作る(db)
+    const gyazo = Gyazoの代役(() => null)
+
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻, gyazo })
+
+    expect(await listPendingOcr(db, 10)).toHaveLength(1)
+    expect(await listFailures(db)).toEqual([])
+  })
+
+  it('取りに行っても生成されないままなら、上限で諦める', async () => {
+    const { db, store } = await 環境を作る()
+    await 撮った1枚を作る(db)
+    const gyazo = Gyazoの代役(() => null)
+
+    for (let 回 = 0; 回 < OCR_MAX_ATTEMPTS + 1; 回 += 1) {
+      await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻, gyazo })
+    }
+
+    // 上限に達したあとの収集では、もう取りに行かない
+    expect(gyazo.取りに行った).toHaveLength(OCR_MAX_ATTEMPTS)
+  })
+
+  it('Gyazo が失敗を返したら、失敗として記録したうえで収集そのものは続ける', async () => {
+    const { db, store } = await 環境を作る()
+    await 撮った1枚を作る(db)
+    const gyazo = Gyazoの代役(() => new GyazoApiError(401, 'Gyazo からのOCRの取得が 401 で失敗しました: unauthorized'))
+
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻, gyazo })
+
+    expect((await listFailures(db)).map((failure) => failure.code)).toContain('screen-ocr-failed')
+    // 画面の文字が取れなくても、配信の記録は残す
+    expect((await getSession(db, 雑談配信.id))?.samples).toHaveLength(1)
+  })
+
+  it('1枚目で失敗したら、残りは取りに行かない（同じ理由で続けて失敗するため）', async () => {
+    const { db, store } = await 環境を作る()
+    await 撮った1枚を作る(db, '画像1')
+    await recordScreenCapture(db, '画像2', 現在時刻 - 30 * 1000)
+    const gyazo = Gyazoの代役(() => new GyazoApiError(401, 'Gyazo からのOCRの取得が 401 で失敗しました: unauthorized'))
+
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻, gyazo })
+
+    expect(gyazo.取りに行った).toEqual(['画像1'])
+  })
+
+  it('その画像が Gyazo から消えていたら（404）、その1枚だけを諦めて残りは取りに行く', async () => {
+    const { db, store } = await 環境を作る()
+    await 撮った1枚を作る(db, '消された画像')
+    await recordScreenCapture(db, '残っている画像', 現在時刻 - 30 * 1000)
+    const gyazo = Gyazoの代役((imageId) =>
+      imageId === '消された画像' ? new GyazoApiError(404, 'Gyazo からのOCRの取得が 404 で失敗しました') : '画面に出ていた文字',
+    )
+
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻, gyazo })
+
+    expect(gyazo.取りに行った).toEqual(['消された画像', '残っている画像'])
+    expect((await listFailures(db)).map((failure) => failure.code)).toContain('screen-ocr-failed')
+    // 消された画像は、次の収集でもう取りに行かない（毎回そこで止まらないようにするため）
+    expect(await listPendingOcr(db, 10)).toEqual([])
+  })
+
+  it('Gyazo のアクセストークンが無ければ、取りに行かない', async () => {
+    const { db, store } = await 環境を作る()
+    await 撮った1枚を作る(db)
+
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+
+    expect(await listPendingOcr(db, 10)).toHaveLength(1)
+    expect(await listFailures(db)).toEqual([])
   })
 })

@@ -79,3 +79,65 @@ describe('createGyazoClient', () => {
     await expect(上げる).rejects.toThrow(/image_id/)
   })
 })
+
+describe('fetchOcr', () => {
+  /** 覚えるfetch と違い、こちらは要求のURLだけを覚える（本文を持たない GET のため） */
+  const 覚えるfetchGet = (応答: Response) => {
+    const 受け取った: { url: string; headers: HeadersInit | undefined }[] = []
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      受け取った.push({ url: String(input), headers: init?.headers })
+      return 応答
+    }) as typeof fetch
+    return { fetchImpl, 受け取った }
+  }
+
+  it('画像IDを指して読み取りを求める', async () => {
+    const { fetchImpl, 受け取った } = 覚えるfetchGet(Response.json({ metadata: { ocr: { description: '読み取った文字' } } }))
+    await createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).fetchOcr('abcdef0123456789abcdef0123456789')
+
+    expect(受け取った[0]?.url).toBe('https://api.gyazo.com/api/images/abcdef0123456789abcdef0123456789?access_token=%E3%83%86%E3%82%B9%E3%83%88%E7%94%A8%E3%81%AE%E3%83%88%E3%83%BC%E3%82%AF%E3%83%B3')
+  })
+
+  it('metadata.ocr.description から読み取った文字を取り出す', async () => {
+    const { fetchImpl } = 覚えるfetchGet(Response.json({ metadata: { ocr: { locale: 'ja', description: '岩手17歳女性殺害事件' } } }))
+    const 文字 = await createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).fetchOcr('abcdef0123456789abcdef0123456789')
+
+    expect(文字).toBe('岩手17歳女性殺害事件')
+  })
+
+  it('トップレベルの ocr は見ない（実際の応答は metadata の下にあるため）', async () => {
+    const { fetchImpl } = 覚えるfetchGet(Response.json({ ocr: { description: 'ここは読まない' }, metadata: {} }))
+    const 文字 = await createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).fetchOcr('abcdef0123456789abcdef0123456789')
+
+    expect(文字).toBeNull()
+  })
+
+  it('まだ生成されていなければ null を返す（呼び出し側が次の収集へ回せるように）', async () => {
+    const { fetchImpl } = 覚えるfetchGet(Response.json({ metadata: { ocr: { locale: 'ja', description: '' } } }))
+    const 文字 = await createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).fetchOcr('abcdef0123456789abcdef0123456789')
+
+    expect(文字).toBeNull()
+  })
+
+  it('空白だけの読み取りも、まだ生成されていないものとして扱う', async () => {
+    const { fetchImpl } = 覚えるfetchGet(Response.json({ metadata: { ocr: { description: '  \n ' } } }))
+    const 文字 = await createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).fetchOcr('abcdef0123456789abcdef0123456789')
+
+    expect(文字).toBeNull()
+  })
+
+  it('成功と返ってきたのに本文を読めなければ GyazoApiError にする（未生成と取り違えないため）', async () => {
+    const { fetchImpl } = 覚えるfetchGet(new Response('<html>メンテナンス中</html>', { headers: { 'content-type': 'text/html' } }))
+    const 取りに行く = createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).fetchOcr('abcdef0123456789abcdef0123456789')
+
+    await expect(取りに行く).rejects.toBeInstanceOf(GyazoApiError)
+  })
+
+  it('Gyazo が失敗を返したら GyazoApiError にする', async () => {
+    const { fetchImpl } = 覚えるfetchGet(Response.json({ message: 'not found' }, { status: 404 }))
+    const 取りに行く = createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).fetchOcr('存在しない画像')
+
+    await expect(取りに行く).rejects.toBeInstanceOf(GyazoApiError)
+    await expect(取りに行く).rejects.toThrow(/404/)
+  })
+})
