@@ -7,12 +7,14 @@
  * 注意: 値が書式に合うかどうかは合成ページ側が最後に確かめる（parseParams）。ここでは入力欄の見た目として
  * 知らせるだけで、書式に合わない文字列もそのまま呼び出し側へ渡す。
  */
+import { Minus, Plus } from 'lucide-react'
 import { useId, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Slider } from '@/components/ui/slider'
+import { iconButtonName } from './icon-button'
 import type { AnyParamValue, BooleanParamSpec, ColorParamSpec, ColorsParamSpec, NumberParamSpec, ParamSpec, StringParamSpec } from './params'
 
 /** 小数パラメータのスライダーの刻み */
@@ -116,11 +118,25 @@ const ColorsField = ({ name, spec, value, onChange }: FieldProps<ColorsParamSpec
             onChange={(picked) => onChange(colors.map((other, position) => (position === index ? picked : other)))}
           />
         ))}
-        <Button type="button" variant="outline" size="sm" disabled={colors.length >= spec.maxCount} onClick={() => onChange([...colors, ADDED_COLOR])}>
-          色を足す
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-sm"
+          {...iconButtonName('色を足す')}
+          disabled={colors.length >= spec.maxCount}
+          onClick={() => onChange([...colors, ADDED_COLOR])}
+        >
+          <Plus aria-hidden="true" />
         </Button>
-        <Button type="button" variant="outline" size="sm" disabled={colors.length <= spec.minCount} onClick={() => onChange(colors.slice(0, -1))}>
-          色を減らす
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-sm"
+          {...iconButtonName('色を減らす')}
+          disabled={colors.length <= spec.minCount}
+          onClick={() => onChange(colors.slice(0, -1))}
+        >
+          <Minus aria-hidden="true" />
         </Button>
       </div>
     </Field>

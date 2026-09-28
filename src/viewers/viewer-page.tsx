@@ -10,6 +10,7 @@
  * 注意: 件数が多くなるので全件は出さず、PAGE_SIZE 件ずつ読む。続きは一覧の最後の人の「最後の発言日時」を目印に取る。
  * 注意: 失敗は黙って無視せず、画面の上部に理由を出す（Fail-Fast）。一覧を取得できなければ操作盤を出さない。
  */
+import { Search, Trash2 } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -20,6 +21,7 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { formatDateTime } from '@/stats/summary'
+import { iconButtonName } from '@/core/icon-button'
 import type { Viewer, ViewerApi, ViewerChannel, ViewerQuery } from './api'
 
 /** 一度に読む件数。これと同じ件数が返ってきたら、まだ続きがあるとみなす */
@@ -134,8 +136,8 @@ export const ViewerPage = ({ api }: { api: ViewerApi }) => {
                 placeholder="前方一致（例: hana）"
                 onChange={(event) => setSearch(event.target.value)}
               />
-              <Button type="submit" disabled={actions.busy}>
-                検索
+              <Button type="submit" size="icon" {...iconButtonName('検索')} disabled={actions.busy}>
+                <Search aria-hidden="true" />
               </Button>
             </div>
           </form>
@@ -187,9 +189,9 @@ export const ViewerPage = ({ api }: { api: ViewerApi }) => {
                     <Button
                       type="button"
                       variant="ghost"
-                      size="sm"
+                      size="icon"
                       className="text-destructive"
-                      aria-label={`${viewer.displayName} の記録を削除`}
+                      {...iconButtonName(`${viewer.displayName} の記録を削除`)}
                       disabled={actions.busy}
                       onClick={() =>
                         actions.ask({
@@ -200,7 +202,7 @@ export const ViewerPage = ({ api }: { api: ViewerApi }) => {
                         })
                       }
                     >
-                      削除
+                      <Trash2 aria-hidden="true" />
                     </Button>
                   </div>
                 </li>

@@ -16,6 +16,7 @@
  * 注意: 設定とbotの接続状態を読めなかったときは、黙って既定や未接続に倒さず理由を出す（Fail-Fast）。
  * 設定を読めないまま入力欄を出すと、配信者が「保存済みの設定はこれだ」と取り違えたまま上書きしてしまう。
  */
+import { Copy } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
 import type { BotApi } from '@/bot/api'
@@ -28,6 +29,7 @@ import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ApiError } from '@/core/api'
+import { iconButtonName } from '@/core/icon-button'
 import type { SpeechApi, SpeechSettings } from './api'
 import { joinIgnoreLogins, numberOf, splitIgnoreLogins } from './form'
 import { speechUrl } from './url'
@@ -338,8 +340,8 @@ export const SpeechPage = ({ api, botApi, overlayKey }: SpeechPageProps) => {
               <div className="flex gap-2">
                 {/* URLにはオーバーレイ用キーが含まれる。配信画面に映り込んでも読めないよう、伏せ字で表示する */}
                 <Input id={urlFieldId} type="password" readOnly autoComplete="off" value={speechUrl(window.location.origin, overlayKey)} />
-                <Button type="button" disabled={actions.busy} onClick={() => void actions.run(copyUrl)}>
-                  URLをコピー
+                <Button type="button" size="icon" {...iconButtonName('URLをコピー')} disabled={actions.busy} onClick={() => void actions.run(copyUrl)}>
+                  <Copy aria-hidden="true" />
                 </Button>
               </div>
             </>

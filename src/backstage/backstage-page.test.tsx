@@ -32,6 +32,14 @@ describe('裏方のページ', () => {
     expect(URLの欄()).toHaveValue(`${window.location.origin}/overlay/backstage/?key=${encodeURIComponent(オーバーレイ用キー)}`)
   })
 
+  test('URLのコピーはアイコンだけのボタンにし、名前は読み上げとホバー（title）に残す', () => {
+    render(<BackstagePage overlayKey={オーバーレイ用キー} />)
+
+    const コピーのボタン = screen.getByRole('button', { name: 'URLをコピー' })
+    expect(コピーのボタン).toHaveTextContent('')
+    expect(コピーのボタン).toHaveAttribute('title', 'URLをコピー')
+  })
+
   test('読み上げを外すと、URLに書き足す', async () => {
     render(<BackstagePage overlayKey={オーバーレイ用キー} />)
 

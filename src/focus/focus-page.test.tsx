@@ -215,6 +215,15 @@ describe('直近の発言から選ぶ', () => {
     expect(api.recent).toHaveBeenCalledTimes(2)
   })
 
+  test('読み直しはアイコンだけのボタンにし、名前は読み上げとホバー（title）に残す', async () => {
+    描く(代役のAPI())
+    await screen.findByRole('list', { name: '直近の発言' })
+
+    const 読み直しのボタン = screen.getByRole('button', { name: '発言を読み直す' })
+    expect(読み直しのボタン).toHaveTextContent('')
+    expect(読み直しのボタン).toHaveAttribute('title', '発言を読み直す')
+  })
+
   test('一覧の読み込みに失敗したら理由を出す', async () => {
     描く(代役のAPI({ recent: vi.fn(async () => Promise.reject(new Error('配信の記録を読めませんでした'))) }))
 

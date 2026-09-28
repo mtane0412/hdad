@@ -45,6 +45,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { ApiError } from '../core/api'
+import { iconButtonName } from '../core/icon-button'
 import { ParamField } from '../core/fields'
 import { Preview, useSettled } from '../core/preview'
 import type { AnyParamValue } from '../core/params'
@@ -89,14 +90,6 @@ const RECT_FIELDS: readonly { key: keyof RectDraft; short: string; label: string
   { key: 'width', short: '幅', label: '幅（％）' },
   { key: 'height', short: '高さ', label: '高さ（％）' },
 ]
-
-/**
- * アイコンだけのボタンに渡す名前。
- *
- * 見た目がコマンドを表していても名前そのものは要るので、読み上げ（`aria-label`）とホバー（`title`）の
- * 両方へ同じ名前を渡す。2か所に同じ文字列を書くと片方だけ直すことになるため、1か所にまとめる。
- */
-const iconButtonName = (name: string): { 'aria-label': string; title: string } => ({ 'aria-label': name, title: name })
 
 /** 素材の枠の見た目（/triggers/ の項目の枠と同じ扱い。カードの中にカードを並べて見せない） */
 const ITEM_BOX = 'overflow-hidden rounded-lg border'

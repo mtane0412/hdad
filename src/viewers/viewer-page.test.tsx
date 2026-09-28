@@ -97,6 +97,19 @@ describe('検索', () => {
   })
 })
 
+describe('アイコンだけのボタン', () => {
+  test('検索と削除は文字を出さず、名前は読み上げとホバー（title）に残す', async () => {
+    render(<ViewerPage api={代役のAPI()} />)
+    await screen.findByRole('list', { name: '視聴者の一覧' })
+
+    for (const 名前 of ['検索', '花子 の記録を削除']) {
+      const ボタン = screen.getByRole('button', { name: 名前 })
+      expect(ボタン).toHaveTextContent('')
+      expect(ボタン).toHaveAttribute('title', 名前)
+    }
+  })
+})
+
 describe('メモ', () => {
   test('書いたメモを保存し、保存したことを知らせる', async () => {
     const api = 代役のAPI()

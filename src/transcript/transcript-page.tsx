@@ -12,6 +12,7 @@
  *
  * 注意: ポートが読めない値ならURLを出さず、理由を画面に出す（Fail-Fast）。
  */
+import { Copy } from 'lucide-react'
 import { useId, useState } from 'react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -19,6 +20,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
+import { iconButtonName } from '@/core/icon-button'
 import { DEFAULT_TRANSCRIPT_PORT, relayUrl } from './url'
 
 /** ブラウザソースに設定する推奨の大きさ。配信画面には映さないので、状態を読める最小限でよい */
@@ -85,8 +87,8 @@ export const TranscriptPage = ({ overlayKey }: { overlayKey: string | null }) =>
               <div className="flex gap-2">
                 {/* URLにはオーバーレイ用キーが含まれる。配信画面に映り込んでも読めないよう、伏せ字で表示する */}
                 <Input id={urlFieldId} type="password" readOnly autoComplete="off" value={url} aria-describedby={sizeHintId} />
-                <Button type="button" disabled={actions.busy} onClick={() => void actions.run(copyUrl)}>
-                  URLをコピー
+                <Button type="button" size="icon" {...iconButtonName('URLをコピー')} disabled={actions.busy} onClick={() => void actions.run(copyUrl)}>
+                  <Copy aria-hidden="true" />
                 </Button>
               </div>
             </>
