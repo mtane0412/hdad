@@ -126,6 +126,13 @@ describe('fetchOcr', () => {
     expect(文字).toBeNull()
   })
 
+  it('成功と返ってきたのに本文を読めなければ GyazoApiError にする（未生成と取り違えないため）', async () => {
+    const { fetchImpl } = 覚えるfetchGet(new Response('<html>メンテナンス中</html>', { headers: { 'content-type': 'text/html' } }))
+    const 取りに行く = createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).fetchOcr('abcdef0123456789abcdef0123456789')
+
+    await expect(取りに行く).rejects.toBeInstanceOf(GyazoApiError)
+  })
+
   it('Gyazo が失敗を返したら GyazoApiError にする', async () => {
     const { fetchImpl } = 覚えるfetchGet(Response.json({ message: 'not found' }, { status: 404 }))
     const 取りに行く = createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).fetchOcr('存在しない画像')

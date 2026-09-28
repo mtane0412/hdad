@@ -117,10 +117,21 @@ export const createGyazoClient = ({ accessToken, fetch: fetchImpl }: GyazoClient
     // 公式ドキュメントが示すとおり、アクセストークンはクエリで渡す
     const url = `${IMAGE_URL}/${encodeURIComponent(imageId)}?access_token=${encodeURIComponent(accessToken)}`
     const response = await fetchImpl(url)
-    const body: unknown = await response.json().catch(() => null)
+    let body: unknown = null
+    let 本文を読めた = true
+    try {
+      body = await response.json()
+    } catch {
+      本文を読めた = false
+    }
     if (!response.ok) {
       const message = isRecord(body) && typeof body.message === 'string' ? body.message : '（本文を読めませんでした）'
       throw new GyazoApiError(response.status, `Gyazo からのOCRの取得が ${response.status} で失敗しました: ${message}`)
+    }
+    // 成功と返ってきたのに本文を読めないのは、Gyazo 側の異常（メンテナンスのHTMLなど）である。
+    // ここで null を返すと「まだ生成されていない」と取り違え、上限まで数えたのち黙って諦めてしまう
+    if (!本文を読めた) {
+      throw new GyazoApiError(BAD_GATEWAY, 'Gyazo の応答を読めませんでした（JSONではありませんでした）')
     }
 
     const metadata: unknown = isRecord(body) ? body.metadata : undefined
