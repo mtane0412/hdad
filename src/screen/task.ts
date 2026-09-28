@@ -22,7 +22,7 @@
  * 読み直すたびに次の1枚から効く。
  */
 import { showError } from '../core/mount'
-import { createScreenApi, type ScreenSettings } from './api'
+import { createScreenApi, type ScreenConnection } from './api'
 import { connectObs, obsSocketUrl, type ObsConnection, type ObsSocketLike } from './connection'
 import { imageOfDataUrl } from './protocol'
 
@@ -65,7 +65,7 @@ export interface StartedScreen {
 }
 
 /** つなぎ先が同じかどうか。違えばOBSの再読み込みが要る */
-const sameEndpoint = (a: ScreenSettings, b: ScreenSettings): boolean => a.host === b.host && a.port === b.port && a.password === b.password
+const sameEndpoint = (a: ScreenConnection, b: ScreenConnection): boolean => a.host === b.host && a.port === b.port && a.password === b.password
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
@@ -77,7 +77,7 @@ const messageOf = (error: unknown): string => (error instanceof Error ? error.me
 export const startScreen = async ({ key, box }: ScreenTaskOptions): Promise<StartedScreen> => {
   const api = createScreenApi((input, init) => fetch(input, init), key)
   // 1回目は起動の一部として扱う。ここで失敗したら画面に出して原因が分かるようにする
-  let settings: ScreenSettings = await api.read()
+  let settings: ScreenConnection = await api.read()
   /** 起動のときのつなぎ先。以後これと違う設定が届いたら、OBSの再読み込みが要ると知らせる */
   const connectedTo = settings
   const url = obsSocketUrl(settings.host, settings.port)

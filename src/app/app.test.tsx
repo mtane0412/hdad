@@ -114,7 +114,7 @@ const 代役の注目コメントAPI: FocusApi = {
 }
 
 const 代役の画面の取り込みAPI: ScreenAdminApi = {
-  load: vi.fn(async () => ({ host: 'localhost', port: 4455, password: '', intervalSeconds: 60 })),
+  load: vi.fn(async () => ({ host: 'localhost', port: 4455, password: '', intervalSeconds: 60, collectionId: '' })),
   save: vi.fn(async (settings) => settings),
 }
 

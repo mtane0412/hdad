@@ -41,10 +41,25 @@ interface ScreenForm {
   port: string
   password: string
   intervalSeconds: string
+  collectionId: string
 }
 
 /** 入力欄の文字を数にする。空欄や数として読めない文字は NaN（Workerが理由を返す） */
 const numberOf = (raw: string): number => (raw.trim() === '' ? Number.NaN : Number(raw))
+
+/** コレクションのURL（https://gyazo.com/collections/<ID>）。貼られたURLからIDを取り出すために使う */
+const COLLECTION_URL_PATTERN = /^https:\/\/gyazo\.com\/collections\/([^/?#]+)/
+
+/**
+ * コレクションの入力欄の文字をIDにする。
+ *
+ * Gyazo の画面からはURLごとコピーするのが自然なので、URLを貼られたらその末尾のIDを取り出す。
+ * 取り出せない文字はそのまま送り、正しいIDかどうかは Worker に確かめさせる（検証は二重に持たない）。
+ */
+const collectionIdOf = (raw: string): string => {
+  const trimmed = raw.trim()
+  return COLLECTION_URL_PATTERN.exec(trimmed)?.[1] ?? trimmed
+}
 
 /** 保存済みの設定を入力欄の値にする */
 const toForm = (settings: ScreenSettings): ScreenForm => ({
@@ -52,6 +67,7 @@ const toForm = (settings: ScreenSettings): ScreenForm => ({
   port: String(settings.port),
   password: settings.password,
   intervalSeconds: String(settings.intervalSeconds),
+  collectionId: settings.collectionId,
 })
 
 /** 入力欄の値を、Workerへ送る設定にする。範囲の検証はWorkerが行う */
@@ -60,6 +76,7 @@ const toSettings = (form: ScreenForm): ScreenSettings => ({
   port: numberOf(form.port),
   password: form.password,
   intervalSeconds: numberOf(form.intervalSeconds),
+  collectionId: collectionIdOf(form.collectionId),
 })
 
 /** 保存の失敗を画面に出す行にする。Workerが返した問題点は1行ずつ並べる */
@@ -82,6 +99,7 @@ export const ScreenPage = ({ api }: ScreenPageProps) => {
   const portFieldId = useId()
   const passwordFieldId = useId()
   const intervalFieldId = useId()
+  const collectionFieldId = useId()
 
   useEffect(() => {
     let cancelled = false
@@ -186,6 +204,20 @@ export const ScreenPage = ({ api }: ScreenPageProps) => {
               onChange={(event) => change('intervalSeconds', event.currentTarget.value)}
             />
             <p className="text-sm text-muted-foreground">短くするほどOBSの負荷が上がる。60秒から始めて様子を見る。</p>
+          </div>
+
+          <div className="flex flex-col gap-2 sm:col-span-2">
+            <Label htmlFor={collectionFieldId}>上げ先の Gyazo のコレクション（任意）</Label>
+            <Input
+              id={collectionFieldId}
+              autoComplete="off"
+              placeholder="https://gyazo.com/collections/..."
+              value={form.collectionId}
+              onChange={(event) => change('collectionId', event.currentTarget.value)}
+            />
+            <p className="text-sm text-muted-foreground">
+              コレクションのURLを貼ると、その末尾のIDを取り出して保存する。空にすると、どのコレクションにも入れずに上げる。
+            </p>
           </div>
 
           {endpointChanged && (

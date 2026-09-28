@@ -42,15 +42,22 @@ export interface GyazoUpload {
   readonly permalinkUrl: string
 }
 
+/** 上げ方の指定 */
+export interface GyazoUploadOptions {
+  /** 入れ先のコレクションID。空なら指定を送らない（どのコレクションにも入らない） */
+  readonly collectionId?: string
+}
+
 export interface GyazoClient {
   /**
    * 画像を1枚上げる。
    *
    * @param image 画像の中身（Content-Type を持たせた Blob）
    * @param fileName Gyazo に渡すファイル名
+   * @param options 入れ先のコレクションなど
    * @throws GyazoApiError Gyazo が失敗を返した、または応答に image_id が無かった場合
    */
-  upload(image: Blob, fileName: string): Promise<GyazoUpload>
+  upload(image: Blob, fileName: string, options?: GyazoUploadOptions): Promise<GyazoUpload>
 }
 
 export interface GyazoClientOptions {
@@ -63,7 +70,7 @@ export interface GyazoClientOptions {
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
 
 export const createGyazoClient = ({ accessToken, fetch: fetchImpl }: GyazoClientOptions): GyazoClient => ({
-  async upload(image, fileName) {
+  async upload(image, fileName, options = {}) {
     const form = new FormData()
     form.set('access_token', accessToken)
     form.set('imagedata', image, fileName)
@@ -71,6 +78,8 @@ export const createGyazoClient = ({ accessToken, fetch: fetchImpl }: GyazoClient
     form.set('access_policy', 'only_me')
     // OCRのテキストを含むメタデータを、誰でも読める形にしない
     form.set('metadata_is_public', 'false')
+    // 入れ先の指定がないときは項目ごと送らない（空文字を送ると Gyazo がコレクションIDとして読もうとする）
+    if (options.collectionId) form.set('collection_id', options.collectionId)
 
     const response = await fetchImpl(UPLOAD_URL, { method: 'POST', body: form })
     const body: unknown = await response.json().catch(() => null)

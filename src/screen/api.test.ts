@@ -8,9 +8,12 @@
  * - 管理画面からの保存が、設定を本文にして PUT を送ること
  */
 import { describe, expect, it } from 'vitest'
-import { createScreenAdminApi, createScreenApi, readScreenSettings } from './api'
+import { createScreenAdminApi, createScreenApi, readScreenConnection, readScreenSettings } from './api'
 
-const 設定 = { host: 'localhost', port: 4455, password: 'obsのパスワード', intervalSeconds: 60 }
+/** 裏方のページが受け取る、撮るのに要る設定 */
+const つなぎ先 = { host: 'localhost', port: 4455, password: 'obsのパスワード', intervalSeconds: 60 }
+/** 管理画面が読み書きする設定（上げ先のコレクションを含む） */
+const 設定 = { ...つなぎ先, collectionId: 'f19e74cebe47c9cadad31b6790098eac' }
 const 画像 = new Blob([new Uint8Array([137, 80, 78, 71])], { type: 'image/png' })
 
 /** 押し込まれた要求を覚えたうえで、決めておいた応答を返す fetch を作る */
@@ -33,11 +36,21 @@ describe('readScreenSettings', () => {
   })
 })
 
-describe('createScreenApi', () => {
-  it('オーバーレイ用キーを添えて設定を読む', async () => {
-    const { fetchImpl, 受け取った } = 覚えるfetch(() => Response.json(設定))
+describe('readScreenConnection', () => {
+  it('撮るのに要る設定だけを読む（上げ先のコレクションは渡ってこない）', () => {
+    expect(readScreenConnection(つなぎ先)).toEqual(つなぎ先)
+  })
 
-    expect(await createScreenApi(fetchImpl, 'テスト用のキー').read()).toEqual(設定)
+  it('項目が欠けていればエラーにする', () => {
+    expect(() => readScreenConnection({ host: 'localhost', port: 4455 })).toThrow(/想定した形/)
+  })
+})
+
+describe('createScreenApi', () => {
+  it('オーバーレイ用キーを添えてつなぎ先を読む', async () => {
+    const { fetchImpl, 受け取った } = 覚えるfetch(() => Response.json(つなぎ先))
+
+    expect(await createScreenApi(fetchImpl, 'テスト用のキー').read()).toEqual(つなぎ先)
     expect(受け取った[0]?.url).toBe('/api/overlay/screen?key=%E3%83%86%E3%82%B9%E3%83%88%E7%94%A8%E3%81%AE%E3%82%AD%E3%83%BC')
   })
 
