@@ -32,14 +32,34 @@ OBSに貼るURLは `?key=`（オーバーレイ用キー）と `?overlay=`（描
 
 **1つの素材の失敗で、同じオーバーレイのほかの素材は動かし続ける**（Fail-Fast に意識して設けた例外である）。理由は「配信中に片方が壊れたときの被害を、配信画面の全損から1素材の欠落に留めるため」で、失敗はその素材の箱の中だけに出す。描画中に投げた素材は一覧から外して同じ失敗を毎フレーム出さない。
 
-そのため `src/core/mount.ts` は窓（`window.innerWidth`）ではなく**canvas 自身のCSS上の大きさ**（`ResizeObserver`）を基準にし、「1フレームぶんの描画」を返す `startCanvasLayer` を土台に、素材ごとのページ向けにループまで回す `mountStage` をその上に置く形にしてある（**壁紙12種と時計2種のレジストリには手を入れていない**。描画関数は `width`・`height` を引数で受け取るためである）。
+そのため `src/core/mount.ts` は窓（`window.innerWidth`）ではなく**canvas 自身のCSS上の大きさ**（`ResizeObserver`）を基準にし、「1フレームぶんの描画」を返す `startCanvasLayer` の形にしてある（**壁紙12種と時計2種のレジストリには手を入れていない**。描画関数は `width`・`height` を引数で受け取るためである）。当初は素材ごとのページ向けにループまで回す `mountStage` をその上に置いていたが、単独ページを消したときに一緒に消した（後述）。
 
 `showError` は出す箱と**失敗の出どころ**（`ErrorSource`。`layer`／`read`／`chat`）を受け取り、`.stage-error` も `position: absolute` にして箱を基準にする。出どころを添えるのは、1つの箱に別々の理由の表示が同時に出うるためで（注目コメントは読み出しとチャットの接続の両方を使う）、`clearError` は**同じ出どころの表示だけ**を消す（読み出しが直っても、読み直しでは直らないチャットの接続の失敗は残す）。
 
-## CSSと、残してあるページ
+## 素材のCSS
 
 素材のCSSが画面基準で書いていた `position: fixed` はすべて `absolute` に直し（チャット5種・アラート・サイドスーパー）、`focus` の `min-height` も `100svh` から `100%` にした（箱の高さに合わせるため）。重ねうる素材のCSSは `src/overlay/overlay.css` が1枚にまとめて `@import` し、素材1つの箱は `.overlay-item` である。
 
 **デザインが増えたときの取りこぼしは `src/overlay/styles.test.ts` が検出する**（読み込みを忘れると、その素材だけが見た目を失ったまま配信画面に出て、配信中は気付きにくい）。
 
-**既存の単独ページ（`alerts/`・`side-super/overlay/`・`focus/overlay/` と素材ページ）は残してある**（合成ページが実際の配信で安定したことを確かめてから、消すかどうかを別に決める）。裏方（`speech/reader`・`transcript/relay`）の統合は別 issue である。
+## 単独ページとギャラリーを消した（issue #107）
+
+合成ページを入れた時点では、**既存の単独ページ（`alerts/`・`side-super/overlay/`・`focus/overlay/` と素材ページ）を残した**（合成ページが実際の配信で安定したことを確かめてから決めるため）。実配信で確かめる条件は「メモリの実際の減り方」「数時間の配信での描画の乱れ・接続の切れ」「1素材の失敗が他に波及しないこと」で、これを満たせたので issue #107 で**すべて消した**。
+
+消したのは次のとおりである。
+
+| 消したもの | 置き換え先 |
+| --- | --- |
+| `alerts/`・`side-super/overlay/`・`focus/overlay/` と、その入口 `src/alerts/stage.ts`・`src/side-super/stage.ts`・`src/focus/stage.ts` | 素材の種類 `alerts`・`sideSuper`・`focus` |
+| 素材ページ `wallpaper/<id>/`・`clock/<id>/`・`chat/<id>/` と、その入口 `src/core/stage.ts`・`src/clock/stage.ts`・`src/chat/stage.ts` | 素材の種類 `wallpaper`・`clock`・`chat` |
+| ギャラリー（`/wallpaper/`・`/clock/`・`/chat/`。`src/core/gallery/gallery.tsx`） | `/overlay/` の管理画面 |
+| サイドスーパーのページ（`/side-super/`。`src/side-super/side-super-page.tsx`） | `/overlay/` の管理画面 |
+| `src/core/mount.ts` の `mountStage`・`MountTarget` | `startCanvasLayer`（合成ページがループを回す） |
+
+**単独オーバーレイ3つだけを消してギャラリーを残す案は採らなかった。** ギャラリーが配っていたOBS用URLは素材ページのURLそのもの（`buildBackgroundUrl`）で、素材ページを消すと配る先が無くなる。一方でデザインの選択・パラメータの調整・プレビュー・URL発行はすべて `/overlay/` の管理画面が持っているので、ギャラリーを「試し見だけのカタログ」として残しても役割が重なるだけである。代わりに合成ページへ「1素材だけを映すモード」（`?item=wallpaper:contour&params=...`）を足す案も、消そうとしている「単独のURL」という仕組みを別の形で残すことになるので採らなかった。**失ったのはレジストリの `description`（デザインの説明文）の見せ場だけである。**
+
+**サイドスーパーのページだけは画面ごと消した。** 中身が単独ページのURLと寄せる向きの選択だけで、向きは素材のパラメータとして `/overlay/` で選べるため、残すと空の画面になる。注目コメント（`/focus/`）とトリガー（`/triggers/`）は取り上げの操作・トリガーの操作という固有の中身を持つので残し、URLのカードだけを `/overlay/` への案内に差し替えた。**オーバーレイ用キーの再発行はトリガーのページに残してある**（キーはすべてのオーバーレイと裏方で共通なので、出し先を1つに保つ）。
+
+共有していた部品は `src/core/gallery/` から `src/core/` へ移した（`fields.tsx`・`preview.tsx`・`url.ts`）。`url.ts` は `serializeParams` だけになり、`GalleryItem` は `src/core/background.ts` の `DesignItem` へ移した。
+
+裏方（`speech/reader/`・`transcript/relay/`）は映すものを持たず置き換え先が無いので、この決定の対象外である（`docs/decisions/backstage.md`）。

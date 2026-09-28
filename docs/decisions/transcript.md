@@ -10,7 +10,7 @@ https のページから `ws://` へつなぐのは混在コンテンツにあ�
 
 つなぐ先を `/textonly` ではなく `/` にするのは、`/textonly` が本文だけのプレーンテキストを返し、重複を防ぐ鍵（`MsgID`）が読めないためである。読むのは母国語（`Text1`）だけで翻訳（`Text2`〜`Text6`）は捨てる（あらすじに要らない）。
 
-中継ページも素材ページの約束どおりReactもログインも持たず、オーバーレイ用キー（`?key=`）でWorkerに受け付けてもらう。通信を伴わない変換（`message.ts`）とWorkerの呼び出し（`api.ts`。`fetch` を差し替えてテスト）を、WebSocketとDOMを扱う部分（`connection.ts`・`view.ts`・`stage.ts`）から分ける。
+中継ページもOBSに載せるページの約束どおりReactもログインも持たず、オーバーレイ用キー（`?key=`）でWorkerに受け付けてもらう。通信を伴わない変換（`message.ts`）とWorkerの呼び出し（`api.ts`。`fetch` を差し替えてテスト）を、WebSocketとDOMを扱う部分（`connection.ts`・`view.ts`・`stage.ts`）から分ける。
 
 ## 送らない1件
 
