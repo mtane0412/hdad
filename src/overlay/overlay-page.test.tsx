@@ -367,6 +367,22 @@ describe('オーバーレイ', () => {
     expect(api.save).toHaveBeenCalledWith([背面, 前面])
   })
 
+  test('素材が2つ以上あれば、一覧の上端と下端に前面・背面の目印を出す（並びの意味を文章で説明しない）', async () => {
+    描く(代役のAPI({ load: vi.fn(async () => [{ name: 'front', items: [壁紙, 時計] }]) }))
+
+    const 領域 = await オーバーレイの領域('front')
+    expect(within(領域).getByText('前面')).toBeInTheDocument()
+    expect(within(領域).getByText('背面')).toBeInTheDocument()
+  })
+
+  test('素材が1つだけなら、前面・背面の目印は出さない（重なりが無いため）', async () => {
+    描く(代役のAPI({ load: vi.fn(async () => [前面]) }))
+
+    const 領域 = await オーバーレイの領域('front')
+    expect(within(領域).queryByText('前面')).not.toBeInTheDocument()
+    expect(within(領域).queryByText('背面')).not.toBeInTheDocument()
+  })
+
   test('オーバーレイを並べ替えられる', async () => {
     const api = 代役のAPI()
     描く(api)
@@ -482,6 +498,16 @@ describe('プレビュー', () => {
       'src',
       `${window.location.origin}/overlay/stage/?overlay=front&demo=true`,
     )
+  })
+
+  test('注意書きは開いているあいだだけ出す（閉じているカードで場所を取らない）', async () => {
+    描く(代役のAPI())
+    expect(within(await オーバーレイの領域('front')).queryByText(/中身はサンプルです/)).not.toBeInTheDocument()
+    cleanup()
+
+    const 領域 = await プレビューを開く('front')
+
+    expect(within(領域).getByText(/中身はサンプルです/)).toBeInTheDocument()
   })
 
   test('閉じると外す（見ているあいだだけ動かす）', async () => {

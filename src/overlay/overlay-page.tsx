@@ -35,7 +35,7 @@
  * 注意: 配置用の枠に描くのは四角と名前だけで、素材の中身は映さない（中身はプレビューが受け持つ）。
  * 注意: 吸着（グリッド・他の素材の端に合わせる）は入れていない。まず動かせることを先にする。
  */
-import { ChevronDown, Plus, Trash2 } from 'lucide-react'
+import { ChevronDown, Copy, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -77,12 +77,17 @@ import { overlayPreviewUrl, overlayStageUrl, overlayStageUrlOutline } from './ur
 /** 入力中にプレビューを作り直しすぎないための待ち時間（ミリ秒）。ギャラリーと同じ扱い */
 const PREVIEW_DELAY_MS = 150
 
-/** 位置と大きさの入力欄（％）。並べる順と見出しをここで決める */
-const RECT_FIELDS: readonly { key: keyof RectDraft; label: string }[] = [
-  { key: 'x', label: '左端の位置（％）' },
-  { key: 'y', label: '上端の位置（％）' },
-  { key: 'width', label: '幅（％）' },
-  { key: 'height', label: '高さ（％）' },
+/**
+ * 位置と大きさの入力欄（％）。並べる順と見出しをここで決める。
+ *
+ * 画面に出すのは短い見出し（`short`）だけにし、単位はまとめの見出し（％）へ1度だけ出す。読み上げには
+ * どこの値かまで含む `label` を渡す（見えている文字を含む名前にするため、`short` は `label` の一部にする）。
+ */
+const RECT_FIELDS: readonly { key: keyof RectDraft; short: string; label: string }[] = [
+  { key: 'x', short: '左', label: '左端の位置（％）' },
+  { key: 'y', short: '上', label: '上端の位置（％）' },
+  { key: 'width', short: '幅', label: '幅（％）' },
+  { key: 'height', short: '高さ', label: '高さ（％）' },
 ]
 
 /** 素材の枠の見た目（/triggers/ の項目の枠と同じ扱い。カードの中にカードを並べて見せない） */
@@ -392,15 +397,17 @@ const ItemRow = ({
             </div>
 
             <fieldset className="grid grid-cols-2 gap-3">
-              <legend className="mb-2 text-sm font-medium">オーバーレイの中での位置と大きさ（幅・高さに対する割合）</legend>
+              {/* 単位（％）は見出しに1度だけ出し、入力欄ごとには繰り返さない */}
+              <legend className="mb-2 text-sm font-medium">オーバーレイの中での位置と大きさ（％）</legend>
               {RECT_FIELDS.map((field) => (
                 <div key={field.key} className="flex flex-col gap-1">
                   <Label htmlFor={`${id}-${field.key}`} className="text-xs font-normal text-muted-foreground">
-                    {field.label}
+                    {field.short}
                   </Label>
                   {/* 空欄は 0 に丸めず、そのままWorkerへ送って理由を返させる（検証はWorkerだけが持つ） */}
                   <Input
                     id={`${id}-${field.key}`}
+                    aria-label={field.label}
                     type="number"
                     inputMode="decimal"
                     value={draft.rect[field.key]}
@@ -497,10 +504,10 @@ const OverlayCard = ({
       <CardHeader>
         <div className="flex items-start justify-between gap-2">
           <div className="flex flex-col gap-1">
+            {/* 「OBSのブラウザソース1つぶん」は、カードの下のURL欄（貼る先そのもの）が示すので文章にしない */}
             <CardTitle>
               オーバーレイ <code className="font-mono">{draft.name}</code>
             </CardTitle>
-            <CardDescription>OBSのブラウザソース1つぶん。この中の素材は、上にあるものが前に出る（オーバーレイ同士の並びは重なりと関わらない）。</CardDescription>
           </div>
           <div className="flex items-center gap-1">
             {/* オーバーレイ同士の並びは重なりと関わらない（別々のブラウザソースなので）。編集しやすい順に並べ替えるためのもの */}
@@ -541,11 +548,12 @@ const OverlayCard = ({
               <Button type="button" variant="outline" size="sm" onClick={onTogglePreview}>
                 {previewOpen ? 'プレビューを閉じる' : 'プレビューを見る'}
               </Button>
-              <p className="text-sm text-muted-foreground">
-                素材の中身はサンプルです（Twitch にも Worker にもつながず、編集中の位置とパラメータをそのまま映します）。
-              </p>
+              {/* 注意書きは、映っているものを見ているときだけ要る（閉じているカードでは場所を取るだけ） */}
+              {previewOpen && <p className="text-sm text-muted-foreground">中身はサンプルです（配信中のものにはつながりません）。</p>}
             </div>
             {previewOpen && <PreviewFrame draft={draft} />}
+            {/* 重なりの向きは目印で示す（素材が1つだけなら重なりが無いので出さない） */}
+            {draft.items.length > 1 && <p className="text-xs text-muted-foreground">前面</p>}
             <ul className="flex flex-col gap-2">
             {frontFirstItems(draft.items).map(({ item, position }) => (
               <ItemRow
@@ -566,45 +574,50 @@ const OverlayCard = ({
               />
             ))}
             </ul>
+            {draft.items.length > 1 && <p className="text-xs text-muted-foreground">背面</p>}
           </>
         )}
 
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor={`${id}-kind`}>足す素材の種類</Label>
+        {/* 選んだ種類とデザインがそのまま見えているので、入力欄の見出しは読み上げにだけ残す */}
+        <div className="flex flex-wrap items-center gap-3">
+          <NativeSelect
+            aria-label="足す素材の種類"
+            id={`${id}-kind`}
+            className="w-44"
+            value={newKind}
+            onChange={(event) => {
+              const kind = ITEM_KINDS.find((candidate) => candidate === event.currentTarget.value) ?? 'wallpaper'
+              setNewKind(kind)
+              // デザインIDを持たない種類では空文字にする
+              setNewId(designsFor(kind)[0]?.id ?? '')
+            }}
+          >
+            {ITEM_KINDS.map((kind) => (
+              <NativeSelectOption key={kind} value={kind}>
+                {ITEM_KIND_LABELS[kind]}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+          {designsFor(newKind).length > 0 && (
             <NativeSelect
-              id={`${id}-kind`}
+              aria-label="足す素材のデザイン"
+              id={`${id}-design`}
               className="w-44"
-              value={newKind}
-              onChange={(event) => {
-                const kind = ITEM_KINDS.find((candidate) => candidate === event.currentTarget.value) ?? 'wallpaper'
-                setNewKind(kind)
-                // デザインIDを持たない種類では空文字にする
-                setNewId(designsFor(kind)[0]?.id ?? '')
-              }}
+              value={newId}
+              onChange={(event) => setNewId(event.currentTarget.value)}
             >
-              {ITEM_KINDS.map((kind) => (
-                <NativeSelectOption key={kind} value={kind}>
-                  {ITEM_KIND_LABELS[kind]}
+              {designsFor(newKind).map((design) => (
+                <NativeSelectOption key={design.id} value={design.id}>
+                  {design.title}
                 </NativeSelectOption>
               ))}
             </NativeSelect>
-          </div>
-          {designsFor(newKind).length > 0 && (
-            <div className="flex flex-col gap-2">
-              <Label htmlFor={`${id}-design`}>足す素材のデザイン</Label>
-              <NativeSelect id={`${id}-design`} className="w-44" value={newId} onChange={(event) => setNewId(event.currentTarget.value)}>
-                {designsFor(newKind).map((design) => (
-                  <NativeSelectOption key={design.id} value={design.id}>
-                    {design.title}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-            </div>
           )}
           {/* 足した素材はいちばん前（構成では並びの末尾、一覧ではいちばん上）に、いっぱいの大きさで入る */}
-          <Button type="button" onClick={() => onChange({ ...draft, items: [...draft.items, newItemDraft(newKind, newId)] })}>
-            素材を足す
+          {/* 見えている「足す」より長い名前を読み上げに渡す（何を足すのかは選択欄の中身にしか無いため） */}
+          <Button type="button" aria-label="素材を足す" onClick={() => onChange({ ...draft, items: [...draft.items, newItemDraft(newKind, newId)] })}>
+            <Plus aria-hidden="true" />
+            足す
           </Button>
         </div>
 
@@ -612,14 +625,16 @@ const OverlayCard = ({
         {url !== null && (
           <div className="flex flex-col gap-2">
             <Label htmlFor={`${id}-url`}>OBSのブラウザソースに貼るURL</Label>
+            {/* 中の位置と大きさが割合であることは、素材ごとの入力欄（％）が示すので書かない */}
             <p id={`${id}-size`} className="text-sm text-muted-foreground">
-              推奨の大きさ: {STAGE_SIZE.width} × {STAGE_SIZE.height} px（配信画面と同じ大きさ。中の位置と大きさは割合で決まる）
+              推奨の大きさ: {STAGE_SIZE.width} × {STAGE_SIZE.height} px（配信画面と同じ）
             </p>
             <div className="flex gap-2">
               {/* URLにはオーバーレイ用キーが含まれる。配信画面に映り込んでも読めないよう、伏せ字で表示する */}
               <Input id={`${id}-url`} type="password" readOnly autoComplete="off" value={url} aria-describedby={`${id}-size`} />
-              <Button type="button" onClick={() => onCopyUrl(url)}>
-                URLをコピー
+              <Button type="button" aria-label="URLをコピー" onClick={() => onCopyUrl(url)}>
+                <Copy aria-hidden="true" />
+                コピー
               </Button>
             </div>
           </div>
