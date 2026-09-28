@@ -15,8 +15,10 @@
  * 読みに来た時点（10秒以内）で切り替わる。URLに相手を埋めないのは、配信中に相手を変えるたびにOBSのURLを
  * 貼り替えることになるためである（読み上げの設定をURLから移した issue #86 と同じ考え方）。
  *
- * Workerの呼び出しは api.ts、URLの組み立ては url.ts に分けてテストする。オーバーレイ用キーはアプリの枠から
- * 受け取り、再発行はトリガーのページ（/triggers/）が受け持つ（キーはほかのオーバーレイと共通のため）。
+ * 配信画面への出し方はこのページが受け持たない。注目コメント専用のオーバーレイ（focus/overlay/）は消したので
+ * （issue #107）、映すには合成オーバーレイの管理画面（/overlay/）で素材として置く。ここからはそこへ案内するだけにする。
+ *
+ * Workerの呼び出しは api.ts に分けてテストする。
  *
  * 注意: 直近の発言は、配信中のあいだだけ貯めている記録（stream_chat_messages）から読む。配信していなければ
  * 1件も出ないので、その理由を画面に書く（空の一覧を黙って出すと、読めていないのか発言が無いのか分からない）。
@@ -24,7 +26,7 @@
  */
 import { useEffect, useId, useState } from 'react'
 import { usePageActions } from '@/admin/page-actions'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Link } from '@/app/router'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -33,10 +35,6 @@ import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import type { FocusApi, PickableMessage } from './api'
 import type { FocusTarget } from './focused'
 import { speakersOf } from './form'
-import { focusDemoUrl, focusUrl } from './url'
-
-/** ブラウザソースに設定する推奨の大きさ。配信画面と同じ大きさにして、余白ごと重ねる */
-const OVERLAY_SIZE = { width: 1920, height: 1080 }
 
 /** 日時を、配信者のブラウザの時間帯で「時:分」に直す */
 const 時刻 = (iso: string): string => new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
@@ -59,7 +57,7 @@ const CurrentFocus = ({ target }: { target: FocusTarget | null }) => {
   )
 }
 
-export const FocusPage = ({ api, overlayKey }: { api: FocusApi; overlayKey: string | null }) => {
+export const FocusPage = ({ api }: { api: FocusApi }) => {
   const [target, setTarget] = useState<FocusTarget | null>(null)
   const [messages, setMessages] = useState<readonly PickableMessage[]>([])
   /** 直近の発言を一度でも読めたか。読めるまでは「発言がありません」と書かない */
@@ -68,8 +66,6 @@ export const FocusPage = ({ api, overlayKey }: { api: FocusApi; overlayKey: stri
   const actions = usePageActions()
   const loginFieldId = useId()
   const speakerFieldId = useId()
-  const urlFieldId = useId()
-  const sizeHintId = useId()
 
   // 開いたときに、取り上げているものと直近の発言を読む
   useEffect(() => {
@@ -104,14 +100,6 @@ export const FocusPage = ({ api, overlayKey }: { api: FocusApi; overlayKey: stri
       setLoaded(true)
       return '直近の発言を読み直しました'
     })
-
-  const copyUrl = async (): Promise<string> => {
-    // Clipboard API は https か localhost でしか提供されず、それ以外では navigator.clipboard が undefined になる
-    if (!navigator.clipboard) throw new Error('このページではクリップボードを使えません（https か localhost で開いてください）')
-    if (overlayKey === null) throw new Error('オーバーレイ用キーが発行されていません')
-    await navigator.clipboard.writeText(focusUrl(window.location.origin, overlayKey))
-    return 'OBS用のURLをコピーしました'
-  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -236,45 +224,17 @@ export const FocusPage = ({ api, overlayKey }: { api: FocusApi; overlayKey: stri
 
       <Card>
         <CardHeader>
-          <CardTitle>OBS用のURL</CardTitle>
-          <CardDescription>取り上げた1件を配信画面に出し続ける。取り上げるものはこのページで変える。</CardDescription>
+          <CardTitle>配信画面への出し方</CardTitle>
+          <CardDescription>取り上げた1件を映すには、オーバーレイに「注目コメント」の素材を置く。</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
-          {overlayKey === null ? (
-            <Alert variant="destructive">
-              <AlertTitle>OBS用のURLを表示できません</AlertTitle>
-              <AlertDescription>オーバーレイ用キーが発行されていません。ログアウトしてログインし直してください</AlertDescription>
-            </Alert>
-          ) : (
-            <>
-              <Label htmlFor={urlFieldId}>OBSのブラウザソースに貼るURL</Label>
-              <p id={sizeHintId} className="text-sm text-muted-foreground">
-                推奨の大きさ: {OVERLAY_SIZE.width} × {OVERLAY_SIZE.height} px（配信画面と同じ大きさ）
-              </p>
-              <div className="flex gap-2">
-                {/* URLにはオーバーレイ用キーが含まれる。配信画面に映り込んでも読めないよう、伏せ字で表示する */}
-                <Input
-                  id={urlFieldId}
-                  type="password"
-                  readOnly
-                  autoComplete="off"
-                  value={focusUrl(window.location.origin, overlayKey)}
-                  aria-describedby={sizeHintId}
-                />
-                <Button type="button" disabled={actions.busy} onClick={() => void actions.run(copyUrl)}>
-                  URLをコピー
-                </Button>
-              </div>
-
-              <div className="flex items-center gap-3">
-                {/* オーバーレイはアプリの外なので、router.tsx の Link ではなく普通の `<a>` で開く */}
-                <a className={buttonVariants({ variant: 'outline' })} href={focusDemoUrl(window.location.origin)} target="_blank" rel="noreferrer">
-                  デモを開く
-                </a>
-                <p className="text-sm text-muted-foreground">サンプルの発言で見た目と配置を確かめる。</p>
-              </div>
-            </>
-          )}
+          <p className="text-sm text-muted-foreground">
+            置いたあとは、取り上げるものをこのページで変えるだけでよい（OBSのURLは貼り替えなくてよい）。
+          </p>
+          {/* オーバーレイの管理画面はアプリのページなので、router.tsx の Link で移る */}
+          <Link href="/overlay/" className={buttonVariants({ variant: 'outline' })}>
+            オーバーレイの構成を開く
+          </Link>
         </CardContent>
       </Card>
     </div>

@@ -28,7 +28,6 @@ const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const CHAT_MESSAGE = 'channel.chat.message'
 const AD_BREAK_BEGIN = 'channel.ad_break.begin'
 const AD_BREAK_END = 'channel.ad_break.end'
-const ALERTS_PATH = '/alerts/'
 const PERCENT = 100
 const BYTES_PER_UNIT = 1024
 /** 報酬を絞り込まない（すべての報酬が対象）ことを表す選択肢の値。Workerへは null として送る */
@@ -316,9 +315,6 @@ export const insertPlaceholder = (value: string, placeholder: string, selectionS
   value: `${value.slice(0, selectionStart)}${placeholder}${value.slice(selectionEnd)}`,
   cursor: selectionStart + placeholder.length,
 })
-
-/** OBSのブラウザソースに貼るURL */
-export const overlayUrl = (origin: string, overlayKey: string): string => `${origin}${ALERTS_PATH}?key=${encodeURIComponent(overlayKey)}`
 
 /** 入力欄の文字列を数にする。空欄や数でない文字列を 0 や NaN のまま送らない */
 const toNumber = (text: string, label: string): number => {

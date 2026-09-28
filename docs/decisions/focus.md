@@ -1,6 +1,6 @@
 # 注目コメント（`/focus/`）
 
-注目コメント（`/focus/`）は視聴者の発言1件を配信画面に大きく出しっぱなしにする仕組みで、オーバーレイ（`focus/overlay/index.html`）はサイドスーパーと同じく `vite.config.ts` の `categories` ではなく入力に直接足している（`/focus/` をアプリのページに使うため）。
+注目コメント（`/focus/`）は視聴者の発言1件を配信画面に大きく出しっぱなしにする仕組みで、映すのは合成ページの素材の種類 `focus` である（注目コメント専用のオーバーレイ `focus/overlay/index.html` は issue #107 で消した。`docs/decisions/overlay-stage.md`）。`/focus/` のページは取り上げるものを決めるだけで、OBS用URLは配らない。
 
 ## 取り上げ方は2通りを1つの保存先で表す
 

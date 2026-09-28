@@ -14,7 +14,7 @@ Workerの呼び出しは `src/overlay/admin-api.ts`（応答の形の確かめ `
 
 ## 入力と検証
 
-素材のパラメータの入力欄は、ギャラリーと同じスキーマからの自動生成を使う（`src/core/gallery/fields.tsx` の `ParamField`。ギャラリー（1素材を試し見しながら調整する）と管理画面（素材ごとに同じ調整をする）で同じ入力欄が要るため、`gallery.tsx` から切り出した。組み立てたクエリ文字列は `src/core/gallery/url.ts` の `serializeParams`（`buildBackgroundUrl` から切り出した）が作り、既定値のままのパラメータは書かない）。
+素材のパラメータの入力欄はスキーマからの自動生成を使う（`src/core/fields.tsx` の `ParamField`。当初はギャラリーと共有するため `gallery.tsx` から切り出したもので、ギャラリーを消したあと（issue #107）は管理画面だけが使う）。組み立てたクエリ文字列は `src/core/url.ts` の `serializeParams` が作り、既定値のままのパラメータは書かない。
 
 **値の検証は `worker/overlay-layout.ts` だけが持つ**ので、画面は空欄を 0 に丸めず NaN のまま送り（JSONでは `null`）、返ってきた問題点を `describeOverlayProblem` で送った順のオーバーレイと素材の名前へ読み替えて並べる（`/triggers/` の `describeProblem` と同じ考え方である。`overlays[1].items[0].rect.width` では場所が伝わらない）。
 
@@ -40,7 +40,7 @@ Workerの呼び出しは `src/overlay/admin-api.ts`（応答の形の確かめ `
 
 ## プレビュー
 
-**重なりと見た目は、オーバーレイのカードの中で開くプレビュー（`overlay-page.tsx` の `PreviewFrame`）で確かめる**（issue #106）。中身は合成ページ（`overlay/stage/?overlay=<名前>&demo=true`）をそのまま iframe に出す＝本番と同じ描画のコードで、実寸（1920×1080）で描いて枠の幅に合わせて縮小する（iframe の枠と待ち時間の仕掛けは、ギャラリーと共有するため `gallery.tsx` から `src/core/gallery/preview.tsx`（`Preview`・`useSettled`）へ切り出した）。
+**重なりと見た目は、オーバーレイのカードの中で開くプレビュー（`overlay-page.tsx` の `PreviewFrame`）で確かめる**（issue #106）。中身は合成ページ（`overlay/stage/?overlay=<名前>&demo=true`）をそのまま iframe に出す＝本番と同じ描画のコードで、実寸（1920×1080）で描いて枠の幅に合わせて縮小する（iframe の枠と待ち時間の仕掛けは `src/core/preview.tsx` の `Preview`・`useSettled`）。
 
 **素材の中身はすべてサンプルにする**（`?demo=true`。チャットボックスはパラメータの `demo` を立て、アラート・サイドスーパー・注目コメントは単独ページと同じサンプル（`src/*/demo.ts`）を `startSampleCycle` で順に流す）ので、匿名IRC・アラートのWebSocket・ポーリングが配信中のものに加えてもう1組動くことがない（issue #106 で数えた代償をこれで無くす）。つながないのでオーバーレイ用キーも要らず、iframe のURLに合言葉が載らない。
 
@@ -54,10 +54,10 @@ Workerの呼び出しは `src/overlay/admin-api.ts`（応答の形の確かめ `
 
 **素材を足したときの大きさは、種類ごとの推奨の大きさ（`src/overlay/layout.ts` の `RECOMMENDED_ITEM_SIZES` を `form.ts` の `defaultRectFor` が割合へ直す）にする。**
 
-すべてをオーバーレイいっぱい（100％×100％）で足していたころは、時計とチャットボックスが配信画面ぜんたいへ引き伸ばされた状態から毎回縮めることになり、ギャラリーが案内している大きさ（時計600×240px・チャット480×800px）とも食い違っていた。
+すべてをオーバーレイいっぱい（100％×100％）で足していたころは、時計とチャットボックスが配信画面ぜんたいへ引き伸ばされた状態から毎回縮めることになり、それぞれの素材に合う大きさ（時計600×240px・チャット480×800px）とも食い違っていた。
 
 配信画面と同じ大きさで使う素材（壁紙・アラート・サイドスーパー・注目コメント）は今までどおりいっぱいにする（素材のCSSが箱の中で寄せる場所を決めるため、余白ごと重ねる）。
 
-**推奨の大きさは `RECOMMENDED_ITEM_SIZES` 1か所に持ち、ギャラリーのプレビューの実寸（`src/app/pages.tsx` の `previewSize`）もここを見る**（2か所に数を書くと、片方を直したときに「ギャラリーで確かめた大きさ」と「オーバーレイに置いたときの大きさ」が食い違う）。
+**推奨の大きさは `RECOMMENDED_ITEM_SIZES` 1か所に持つ**（当初はギャラリーのプレビューの実寸も同じ値を見ていた。2か所に数を書くと、片方を直したときに食い違う）。
 
 置き場所だけは決められないので左上（0・0）から始め、配置用の枠で動かしてもらう。割合の丸めの細かさ（0.1％）は `drag.ts` の `roundPercent` を共有する。

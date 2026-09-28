@@ -15,7 +15,7 @@
  * （OBSのソース一覧と同じく、上にあるものが前に出る）。オーバーレイ同士も一覧の中で並べ替えられる。
  * Workerの呼び出しは admin-api.ts、入力欄の値の変換とデザインのスキーマの引き当ては form.ts、
  * URLの組み立ては url.ts に分けてテストする。素材のパラメータの入力欄は、ギャラリーと同じ
- * 自動生成（src/core/gallery/fields.tsx の ParamField）を使う。
+ * 自動生成（src/core/fields.tsx の ParamField）を使う。
  *
  * 位置と大きさは、配信画面と同じ縦横比の「配置用の枠」（PlacementBox）に素材を四角として描き、
  * ドラッグで動かす・端をつまんで大きさを変えることでも決められる（issue #105）。数値入力も残してあり、
@@ -45,8 +45,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { ApiError } from '../core/api'
-import { ParamField } from '../core/gallery/fields'
-import { Preview, useSettled } from '../core/gallery/preview'
+import { ParamField } from '../core/fields'
+import { Preview, useSettled } from '../core/preview'
 import type { AnyParamValue } from '../core/params'
 import type { OverlayLayoutAdminApi } from './admin-api'
 import { deltaPercent, dragRect, HANDLE_LABELS, rectNumbersOf, RESIZE_HANDLES, toRectDraft, type DragHandle } from './drag'
@@ -298,7 +298,7 @@ interface ItemRowProps {
  *
  * 項目が多いので、ふだんは要約だけを見出しに出して折りたたむ（/triggers/ と同じ扱い）。
  * デザインを変えたらパラメータは新しいデザインの既定値にする（前のデザインの名前が残ると、保存しても
- * 素材ページ側で「未対応のパラメータ」として拒まれる）。
+ * 合成ページ側で「未対応のパラメータ」として拒まれる）。
  */
 const ItemRow = ({
   draft,

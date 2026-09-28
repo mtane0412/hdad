@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * 注目コメントのページ（取り上げるものの指定とOBS用URL）のテスト
+ * 注目コメントのページ（取り上げるものの指定）のテスト
  *
  * 確かめること:
  * - いま取り上げているものを出すこと（人に追従・発言1件を取り上げ・取り上げていない）
@@ -8,6 +8,7 @@
  * - 直近の発言の一覧から、1件を取り上げられること・その人に追従できること
  * - 取り上げているものを外せること
  * - 失敗は黙って無視せず、理由を出すこと
+ * - 配信画面への出し方は、合成オーバーレイの管理画面（/overlay/）へ案内すること（単独ページを消した issue #107）
  */
 import '@testing-library/jest-dom/vitest'
 import { cleanup, render, screen, within } from '@testing-library/react'
@@ -16,8 +17,6 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import type { FocusApi, PickableMessage } from './api'
 import type { FocusTarget } from './focused'
 import { FocusPage } from './focus-page'
-
-const オーバーレイ用キー = 'issued-overlay-key-0123456789abcdefghij'
 
 const 怖い話の発言: PickableMessage = {
   messageId: '発言1',
@@ -55,7 +54,7 @@ const 代役のAPI = (overrides: Partial<FocusApi> = {}): FocusApi => ({
 })
 
 /** ページを描く。オーバーレイ用キーは既定で発行済みにする */
-const 描く = (api: FocusApi, overlayKey: string | null = オーバーレイ用キー) => render(<FocusPage api={api} overlayKey={overlayKey} />)
+const 描く = (api: FocusApi) => render(<FocusPage api={api} />)
 
 /** 操作の結果のお知らせ。役割ではなく文言で探す */
 const お知らせ = (text: string): Promise<HTMLElement> => screen.findByText(new RegExp(text))
@@ -223,17 +222,12 @@ describe('直近の発言から選ぶ', () => {
   })
 })
 
-describe('OBS用のURL', () => {
-  test('オーバーレイ用キーが発行されていなければ、その旨を出す', () => {
-    描く(代役のAPI(), null)
-
-    expect(screen.getByText(/オーバーレイ用キーが発行されていません/)).toBeInTheDocument()
-  })
-
-  test('オーバーレイのURLを出す', async () => {
+describe('配信画面への出し方', () => {
+  test('OBSに貼るURLは出さず、合成オーバーレイの管理画面へ案内する', async () => {
     描く(代役のAPI())
 
-    const field = await screen.findByLabelText('OBSのブラウザソースに貼るURL')
-    expect(field).toHaveValue(`${window.location.origin}/focus/overlay/?key=${オーバーレイ用キー}`)
+    // 注目コメント専用のページは消したので（issue #107）、この画面はURLを配らない
+    expect(screen.queryByLabelText('OBSのブラウザソースに貼るURL')).not.toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: 'オーバーレイの構成を開く' })).toHaveAttribute('href', '/overlay/')
   })
 })

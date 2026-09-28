@@ -3,7 +3,7 @@
  *
  * 取り上げているものは Worker（KVの focus-target）が持ち、2つの経路から読まれる。
  * - 管理画面（/focus/ のページ）: 配信者のセッションで /api/admin/focus を読み書きする
- * - オーバーレイ（focus/overlay/）: オーバーレイ用キーで /api/overlay/focus を読むだけ
+ * - 合成ページ（overlay/stage/ の「注目コメント」の素材）: オーバーレイ用キーで /api/overlay/focus を読むだけ
  *
  * どちらも同じ形を受け取るので、形の確かめ（readFocusTarget）をここで共有する（読み上げの api.ts と同じ作り）。
  * 呼び出しと失敗の扱いは `../core/api` に任せ、fetch を引数で受け取るのはテストで差し替えるためである。
@@ -108,7 +108,7 @@ export const createFocusApi = (fetchImpl: typeof fetch): FocusApi => {
 /**
  * オーバーレイからの読み出しを組み立てる。
  *
- * オーバーレイは素材ページなのでログインを持たず、オーバーレイ用キー（URLの ?key=）で
+ * 合成ページはOBSに載せるページなのでログインを持たず、オーバーレイ用キー（URLの ?key=）で
  * Worker に受け付けてもらう（サイドスーパー・読み上げと同じ）。
  *
  * @param fetchImpl 通信の実装

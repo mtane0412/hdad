@@ -64,7 +64,7 @@ export interface StringParamSpec {
  * パラメータの値になりうるもの（宣言の種類によらない）。
  *
  * スキーマが分かっている場所では ParamValues<T> を使うが、入力欄のように
- * 「名前ごとに何かの値を持つ」だけを表したい場所（src/core/gallery/fields.tsx・src/overlay/form.ts）で使う。
+ * 「名前ごとに何かの値を持つ」だけを表したい場所（src/core/fields.tsx・src/overlay/form.ts）で使う。
  */
 export type AnyParamValue = number | string | boolean | readonly string[]
 

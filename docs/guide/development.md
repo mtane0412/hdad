@@ -23,25 +23,23 @@ npm run preview:worker  # ビルドして、Workersと同じ配信挙動をロ�
 
 1. `src/wallpaper/<id>.ts` に `defineBackground` で背景（パラメータのスキーマと描画関数）を定義する
 2. `src/wallpaper/registry.ts` に登録する
-3. 既存の `wallpaper/aurora/index.html` を `wallpaper/<id>/index.html` に複製し、`data-background` と `<title>` を `<id>` に変える
 
-2と3の対応は `src/wallpaper/registry.test.ts` が検証します。ギャラリーの調整欄はスキーマから自動生成されます。
+以上です（ページを作る必要はありません）。`/overlay/` のデザインの選択欄にレジストリから並び、パラメータの調整欄はスキーマから自動生成されます。IDの重複とパラメータの既定値は `src/wallpaper/registry.test.ts` が検証します。
 
 ## 時計を追加する
 
 1. `src/clock/<id>.ts` に `defineBackground` で時計を定義する（現在時刻は描画関数に渡される `frame.now` を使う）
 2. `src/clock/registry.ts` に登録する
-3. 既存の `clock/digital/index.html` を `clock/<id>/index.html` に複製し、`data-clock` と `<title>` を `<id>` に変える
 
-2と3の対応は `src/clock/registry.test.ts` が検証します。ギャラリーの調整欄はスキーマから自動生成されます。
+以上です（ページを作る必要はありません）。IDの重複とパラメータの既定値は `src/clock/registry.test.ts` が検証します。
 
 ## チャットボックスのデザインを追加する
 
 チャットボックスは canvas ではなくHTML要素で表示します。メッセージのHTML構造（`src/chat/view.ts`）は全デザイン共通で、デザインごとの違いはCSSで表します。
 
 1. `src/chat/<id>.ts` に `defineChat` でデザインを定義する（スキーマの先頭に `commonChatSchema` を展開し、`cssVariables` でパラメータをCSSのカスタムプロパティに変換する）
-2. `src/chat/<id>.css` に見た目を書く（セレクタは `[data-chat='<id>']` から始める）
+2. `src/chat/<id>.css` に見た目を書く（セレクタは `[data-chat='<id>']` から始める。先頭で `src/chat/common.css` を `@import` する）
 3. `src/chat/registry.ts` に登録する
-4. 既存の `chat/bubble/index.html` を `chat/<id>/index.html` に複製し、`data-chat`・CSSのパス・`<title>` を `<id>` に変える
+4. `src/overlay/overlay.css` に `@import '../chat/<id>.css';` を足す（合成ページが1枚で全デザインのCSSを読むため）
 
-3と4の対応は `src/chat/registry.test.ts` が検証します。
+CSSの存在は `src/chat/registry.test.ts`、`@import` の取りこぼしは `src/overlay/styles.test.ts` が検証します。

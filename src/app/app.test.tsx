@@ -132,7 +132,7 @@ beforeAll(() => {
     removeListener: () => {},
     dispatchEvent: () => false,
   })
-  // jsdom には ResizeObserver がない。ギャラリーがプレビューの縮小率を決めるのに使うので、何もしない代役を置く
+  // jsdom には ResizeObserver がない。オーバーレイのプレビューが縮小率を決めるのに使うので、何もしない代役を置く
   vi.stubGlobal(
     'ResizeObserver',
     class {
@@ -174,9 +174,8 @@ describe('ログインしているとき', () => {
     expect(screen.getByText('HDAD')).toBeInTheDocument()
     for (const [name, href] of [
       ['ダッシュボード', '/'],
-      ['壁紙', '/wallpaper/'],
-      ['時計', '/clock/'],
-      ['チャット', '/chat/'],
+      ['オーバーレイ', '/overlay/'],
+      ['視聴者', '/viewers/'],
       ['アップロード', '/media/'],
     ] as const) {
       expect(screen.getByRole('link', { name })).toHaveAttribute('href', href)
@@ -199,18 +198,18 @@ describe('ページの移動', () => {
     render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} focusApi={代役の注目コメントAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} api={代役のAPI(async () => 配信者)} />)
     expect(await screen.findByRole('link', { name: 'ダッシュボード' })).toHaveAttribute('aria-current', 'page')
 
-    await userEvent.click(screen.getByRole('link', { name: '壁紙' }))
+    await userEvent.click(screen.getByRole('link', { name: 'アップロード' }))
 
-    expect(window.location.pathname).toBe('/wallpaper/')
-    expect(screen.getByRole('heading', { level: 1, name: '壁紙' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '壁紙' })).toHaveAttribute('aria-current', 'page')
+    expect(window.location.pathname).toBe('/media/')
+    expect(screen.getByRole('heading', { level: 1, name: 'アップロード' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'アップロード' })).toHaveAttribute('aria-current', 'page')
     expect(screen.getByRole('link', { name: 'ダッシュボード' })).not.toHaveAttribute('aria-current')
   })
 
   test('ブラウザの「戻る」で、前のページに戻る', async () => {
     render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} focusApi={代役の注目コメントAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} api={代役のAPI(async () => 配信者)} />)
-    await userEvent.click(await screen.findByRole('link', { name: '時計' }))
-    expect(screen.getByRole('heading', { level: 1, name: '時計' })).toBeInTheDocument()
+    await userEvent.click(await screen.findByRole('link', { name: '視聴者' }))
+    expect(screen.getByRole('heading', { level: 1, name: '視聴者' })).toBeInTheDocument()
 
     window.history.back()
 
@@ -226,18 +225,18 @@ describe('ページの移動', () => {
   })
 
   test('末尾のスラッシュがないURLでも、同じページが出る', async () => {
-    開く('/chat')
+    開く('/media')
     render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} focusApi={代役の注目コメントAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} api={代役のAPI(async () => 配信者)} />)
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'チャット' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 1, name: 'アップロード' })).toBeInTheDocument()
   })
 
   test('未ログインでページUIのURLを開くと、ログインの入口だけが出る', async () => {
-    開く('/wallpaper/')
+    開く('/media/')
     render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} focusApi={代役の注目コメントAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} api={代役のAPI(async () => null)} />)
 
     expect(await screen.findByRole('link', { name: 'Twitchでログイン' })).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { level: 1, name: '壁紙' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { level: 1, name: 'アップロード' })).not.toBeInTheDocument()
   })
 
   test('存在しないパスでは、見つからないことを伝え、ダッシュボードへ戻れる', async () => {

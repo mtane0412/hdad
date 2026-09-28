@@ -37,7 +37,7 @@ export type ChatSchema = typeof commonChatSchema & ParamSchema
 
 /** チャットボックスのデザイン1種類の定義 */
 export interface ChatDefinition<T extends ChatSchema = ChatSchema> {
-  /** URLのパスに使うID（chat/<id>/）。CSSは [data-chat='<id>'] で自分のデザインだけに適用する */
+  /** 構成の中でデザインを指すID。CSSは [data-chat='<id>'] で自分のデザインだけに適用する */
   readonly id: string
   readonly title: string
   readonly description: string

@@ -6,7 +6,7 @@
  * （overlay/backstage/index.html。issue #108）の両方がここを呼ぶ。
  *
  * 読み上げ文の組み立ては text.ts、順番待ちは queue.ts、合成は voicevox.ts、再生は audio.ts にあり、
- * ここはそれらをつなぐだけである。素材ページの約束どおり React もログインも持ち込まない。
+ * ここはそれらをつなぐだけである。OBSに載せるページの約束どおり React もログインも持ち込まない。
  * チャットの受け取りはチャットボックス（src/chat/）と同じ匿名IRCなので、Twitchのトークンは持たない。
  *
  * 読み上げの設定（話者・速度・音量・長さ・名前を読むか・読み上げない人）は Worker が持ち、
@@ -37,7 +37,7 @@ export const SPEECH_NOUN = 'チャットの読み上げ'
  * 設定を読み直す間隔（ミリ秒）。
  *
  * 配信中に管理画面で音量や話者を変えたとき、これだけ待てば次の1件から効く。
- * サイドスーパーのオーバーレイ（src/side-super/stage.ts）と同じ間隔にしてある。
+ * サイドスーパーの素材（src/overlay/stage.ts の SIDE_SUPER_INTERVAL_MS）と同じ間隔にしてある。
  */
 const POLL_INTERVAL_MS = 30000
 

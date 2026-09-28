@@ -2,7 +2,7 @@
 
 **チャットボックス（`chat/`）だけは canvas ではなくHTML要素で表示し、届いた書き込みという状態を持つ。**
 
-デザインは `chat/<id>/index.html`・`src/chat/registry.ts`・`src/chat/<id>.css` の3か所に登録する。各デザインのCSSは先頭で `src/chat/common.css` を `@import` する。返信元・時刻・初見／おかえり・サブスク継続月数・ビッツ・Cheermote のように、デザインによらず同じ役割で添える小さな要素の見た目はそこに置く。
+デザインは `src/chat/registry.ts` と `src/chat/<id>.css` の2か所に登録する（デザインごとの単独ページは issue #107 で消した。`docs/decisions/overlay-stage.md`）。各デザインのCSSは先頭で `src/chat/common.css` を `@import` し、合成ページが読む `src/overlay/overlay.css` からも `@import` する。返信元・時刻・初見／おかえり・サブスク継続月数・ビッツ・Cheermote のように、デザインによらず同じ役割で添える小さな要素の見た目はそこに置く。
 
 ## テストの分け方
 

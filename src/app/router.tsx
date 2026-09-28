@@ -4,7 +4,7 @@
  * ページUIは決まった数のパス（/・/wallpaper/ など）しか持たないので、ルーティングのライブラリは使わず、
  * History API で現在のパスを持つだけにする。Link は普通の <a> なので、新しいタブで開く操作などはブラウザに任せる。
  *
- * 注意: 素材ページ（/wallpaper/<id>/ など）と /api/* はアプリの外にある。Link では開かず、普通の <a> で開くこと。
+ * 注意: OBSに載せるページ（/overlay/stage/ など）と /api/* はアプリの外にある。Link では開かず、普通の <a> で開くこと。
  */
 import { useSyncExternalStore } from 'react'
 

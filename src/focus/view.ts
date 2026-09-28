@@ -80,7 +80,7 @@ const keyOf = (focused: FocusedMessage): string =>
 /**
  * 注目コメントの表示を組み立てる。
  *
- * @param root 表示を入れる要素（focus/overlay/index.html の [data-focus]）
+ * @param root 表示を入れる要素（合成ページが作る [data-focus] の要素）
  */
 export const createFocusView = (root: HTMLElement): FocusView => {
   /** いま映している1件の鍵。渡し直されたときに作り直すかどうかの判定に使う */

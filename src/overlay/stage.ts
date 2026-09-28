@@ -26,7 +26,7 @@
  * 注意: 1つの素材の失敗で、同じオーバーレイのほかの素材は動かし続ける（issue #101 で決めた、Fail-Fast に
  * 意識して設けた例外）。理由は「配信中に片方が壊れたときの被害を、配信画面の全損から1素材の欠落に
  * 留めるため」で、失敗はその素材の箱の中だけに表示する。
- * 注意: 素材ページの約束どおり、React もログインも持ち込まない。
+ * 注意: OBSに載せるページの約束どおり、React もログインも持ち込まない。
  */
 import type { Alert } from '../alerts/alert'
 import { demoAlerts } from '../alerts/demo'
@@ -73,14 +73,14 @@ const NOUNS: Readonly<Record<ItemKind, string>> = {
   focus: '注目コメント',
 }
 
-/** サイドスーパーの文言を読みに行く間隔（ミリ秒）。src/side-super/stage.ts と同じ理由で30秒 */
+/** サイドスーパーの文言を読みに行く間隔（ミリ秒）。文言は cron が5分おきに作るので、30秒あれば十分に追いつく */
 const SIDE_SUPER_INTERVAL_MS = 30000
-/** 取り上げている注目コメントを読みに行く間隔（ミリ秒）。src/focus/stage.ts と同じ理由で10秒 */
+/** 取り上げている注目コメントを読みに行く間隔（ミリ秒）。配信中に相手を変えたとき、待たされすぎない長さにする */
 const FOCUS_INTERVAL_MS = 10000
 
-/** プレビューでサンプルのアラートを流す間隔（ミリ秒）。src/alerts/stage.ts と同じ */
+/** プレビューでサンプルのアラートを流す間隔（ミリ秒）。アラート1件の再生が終わるだけの間を置く */
 const DEMO_ALERT_INTERVAL_MS = 9000
-/** プレビューでサンプルの文言・注目コメントを切り替える間隔（ミリ秒）。単独ページと同じ */
+/** プレビューでサンプルの文言・注目コメントを切り替える間隔（ミリ秒）。読み終わるだけの間を置く */
 const DEMO_SAMPLE_INTERVAL_MS = 6000
 /** プレビューが親の窓から構成を受け取るまで待つ上限（ミリ秒）。届かなければ理由を画面に出す */
 const PREVIEW_WAIT_MS = 5000
@@ -177,8 +177,8 @@ const createChatHub = () => {
     /**
      * 届いた発言に絵を当てる。
      *
-     * Cheermote を先に取り出してから、残った文字をエモートとして置き換える（チャットボックスの
-     * 単独ページと同じ順序）。サードパーティエモートは、それを要求した素材にだけ当てる。
+     * Cheermote を先に取り出してから、残った文字をエモートとして置き換える（先にエモートを当てると、
+     * Cheermote の文字が絵に置き換わって取り出せなくなる）。サードパーティエモートは、それを要求した素材にだけ当てる。
      */
     decorate(message: ChatMessage, thirdparty: boolean): ChatMessage {
       const fragments = applyCheermotes(message.fragments, cheermotes, message.bits)
@@ -238,7 +238,7 @@ interface MountContext {
 /**
  * プレビューでサンプルを一定間隔で順に流す（一巡したらまた先頭から）。
  *
- * 単独ページ（src/alerts/stage.ts ほか）の ?demo=true と同じ流し方を、ここでは3種類の素材で共有する。
+ * アラート・サイドスーパー・注目コメントの3種類で、同じ流し方を共有する。
  */
 const startSampleCycle = <T,>(samples: readonly T[], intervalMs: number, show: (sample: T) => void): void => {
   let index = 0
@@ -264,7 +264,7 @@ const mountCanvasMaterial = (box: HTMLElement, item: OverlayItem): MountedItem =
   const definitions = item.kind === 'wallpaper' ? backgrounds : clocks
   const definition = findDefinition(definitions, item.id, NOUNS[item.kind])
   const canvas = document.createElement('canvas')
-  // 単独ページと同じく、何を描いている canvas かを属性に残す（開発者ツールで追えるようにする）
+  // 何を描いている canvas かを属性に残す（開発者ツールで追えるようにする）
   canvas.dataset[item.kind === 'wallpaper' ? 'background' : 'clock'] = definition.id
   box.append(canvas)
   return { draw: startCanvasLayer(canvas, definition, new URLSearchParams(item.params)) }

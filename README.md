@@ -4,9 +4,9 @@
 
 Twitch配信用の素材と、配信中に動くアシスタント（チャットボット・アラート・テロップ・読み上げ）を1つのリポジトリにまとめています。Cloudflare Workers で公開し、OBSのブラウザソースからURLで読み込みます。
 
-- **素材とオーバーレイ** — 壁紙・時計・チャットボックス・アラート・サイドスーパー・注目コメントを、OBSに貼るURLとして配ります
+- **素材とオーバーレイ** — 壁紙・時計・チャットボックス・アラート・サイドスーパー・注目コメントを1枚のページに重ね、OBSに貼るURLはオーバーレイ（ブラウザソース1つぶん）ごとに1本だけにします
 - **配信のアシスタント** — Twitchのイベントを受けてアラートを出し、botとしてチャットへ返し、視聴者と配信の記録を残します
-- **ページUI** — ダッシュボード・ギャラリー・各管理画面は、配信者のTwitchログインを前提にしたサイドバー付きのアプリ（トップの `index.html` ひとつ）です。OBSに載せる素材ページはログインなしで動きます
+- **ページUI** — ダッシュボードと各管理画面は、配信者のTwitchログインを前提にしたサイドバー付きのアプリ（トップの `index.html` ひとつ）です。OBSに載せるページはログインなしで動きます
 
 ## 使いはじめる
 
@@ -22,7 +22,7 @@ Twitch配信用の素材と、配信中に動くアシスタント（チャッ�
 
 | 分類 | 文書 |
 | --- | --- |
-| 素材とオーバーレイ | [壁紙](./docs/guide/wallpaper.md)・[時計](./docs/guide/clock.md)・[チャットボックス](./docs/guide/chat.md)・[アラート](./docs/guide/alerts.md)・[チャットの読み上げ](./docs/guide/speech.md)・[配信中の文字起こし](./docs/guide/transcript.md)・[サイドスーパー](./docs/guide/side-super.md)・[注目コメント](./docs/guide/focus.md)・[合成オーバーレイ](./docs/guide/overlay.md)・[裏方](./docs/guide/backstage.md) |
+| 素材とオーバーレイ | [合成オーバーレイ](./docs/guide/overlay.md)（まずここ）・[壁紙](./docs/guide/wallpaper.md)・[時計](./docs/guide/clock.md)・[チャットボックス](./docs/guide/chat.md)・[アラート](./docs/guide/alerts.md)・[サイドスーパー](./docs/guide/side-super.md)・[注目コメント](./docs/guide/focus.md)・[チャットの読み上げ](./docs/guide/speech.md)・[配信中の文字起こし](./docs/guide/transcript.md)・[裏方](./docs/guide/backstage.md) |
 | 配信のアシスタント | [チャットボット](./docs/guide/bot.md)・[文面を作らせるLLM](./docs/guide/llm.md)・[視聴者の記録](./docs/guide/viewers.md)・[配信の記録](./docs/guide/stats.md) |
 | 導入と開発 | [デプロイ](./docs/guide/deploy.md)・[開発](./docs/guide/development.md) |
 | 設計判断の記録 | [`docs/decisions/`](./docs/decisions/) |

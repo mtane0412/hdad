@@ -16,19 +16,19 @@ npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 
 ### 置き場所
 
-- 素材はカテゴリごとに公開ディレクトリ（`wallpaper/` など）とソース（`src/<カテゴリ>/`）を分ける
-- `src/core/` はカテゴリ横断の共通部品（ギャラリーは `src/core/gallery/`、素材ページの起動は `src/core/mount.ts`、Workerの呼び出しの共通部分は `src/core/api.ts`）
-- Workers 静的アセットはパスごとに実ファイルが必要なため、OBSに載せる素材ページはパスごとに用意する。壁紙の背景は `wallpaper/<id>/index.html` と `src/wallpaper/registry.ts` の両方、時計は `clock/<id>/index.html` と `src/clock/registry.ts` の両方に登録する
-- カテゴリを増やしたら `vite.config.ts` の `categories` と `src/app/pages.tsx` にも足す
+- 素材の種類ごとにソースを分ける（`src/wallpaper/`・`src/clock/`・`src/chat/` など）。素材だけを映す公開ディレクトリは持たない（`docs/decisions/overlay-stage.md`）
+- `src/core/` は素材横断の共通部品（canvas の起動は `src/core/mount.ts`、パラメータの宣言と直列化は `params.ts`・`url.ts`、パラメータの入力欄は `fields.tsx`、Workerの呼び出しの共通部分は `api.ts`）
+- 素材（壁紙・時計・チャットのデザイン）はレジストリ（`src/<種類>/registry.ts`）に登録すると、合成オーバーレイのデザインの選択欄（`src/overlay/form.ts` の `DESIGNS`）に並ぶ。壁紙と時計はこの登録だけで済み、チャットのデザインは専用のCSSも要る（`.claude/rules/chat.md`）
+- OBSに載せるページは Workers 静的アセットの都合でパスごとに実ファイルが必要なので、`vite.config.ts` の入力に足す。載せるのは合成ページ（`overlay/stage/`）と映すものを持たない裏方（`overlay/backstage/`・`speech/reader/`・`transcript/relay/`）だけにする
 
 ### ページUI（`src/app/`）
 
-- ページUI（ダッシュボード・ギャラリー・管理画面）はトップ `index.html` ひとつのReactアプリで、Twitchログインを前提にサイドバー付きの画面を出す
-- `/wallpaper/` など実ファイルのないパスには Workers が `index.html` を返し（`wrangler.jsonc` の `not_found_handling`）、アプリがパスに応じた中身を描く。そのため `vite.config.ts` の `base` は `/`
+- ページUI（ダッシュボード・管理画面）はトップ `index.html` ひとつのReactアプリで、Twitchログインを前提にサイドバー付きの画面を出す
+- `/overlay/` など実ファイルのないパスには Workers が `index.html` を返し（`wrangler.jsonc` の `not_found_handling`）、アプリがパスに応じた中身を描く。そのため `vite.config.ts` の `base` は `/`
 - アプリのページは `src/app/pages.tsx` に登録する（サイドバーの項目・見出し・中身がここから決まる）。登録のないパスは「見つからない」画面を出す
-- ページの移動は `src/app/router.tsx`（History API。ライブラリなし）の `Link` を使い、アプリの外（素材ページ・`/api/*`）は普通の `<a>` で開く
+- ページの移動は `src/app/router.tsx`（History API。ライブラリなし）の `Link` を使い、アプリの外（OBSに載せるページ・`/api/*`）は普通の `<a>` で開く
 - ログインの確認は `src/app/app.tsx` が `/api/me` で行い、失敗したら未ログイン扱いにせずエラーを出す
-- OBSに載せる素材ページ（`<カテゴリ>/<id>/`・`alerts/`）には React もログインも持ち込まない
+- OBSに載せるページ（`overlay/stage/`・`overlay/backstage/` など）には React もログインも持ち込まない
 
 ### shadcn/ui
 
@@ -54,13 +54,13 @@ npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 
 | ファイル | 話題 | 読み込まれる場所 |
 |---|---|---|
-| `chat.md` | チャットボックス（`chat/`） | `src/chat/**`・`chat/**` |
-| `alerts.md` | アラート（`alerts/`・トリガー・動作・広告） | `src/alerts/**`・`alerts/**`・`worker/alert-*.ts`・`worker/trigger-menu.ts`・`worker/ad-break-timer.ts`・`worker/ai-chat.ts`・`worker/bot-chat.ts`・`worker/webhook-routes.ts` |
+| `chat.md` | チャットボックス（素材の種類 `chat`） | `src/chat/**` |
+| `alerts.md` | アラート（素材・トリガー・動作・広告） | `src/alerts/**`・`worker/alert-*.ts`・`worker/trigger-menu.ts`・`worker/ad-break-timer.ts`・`worker/ai-chat.ts`・`worker/bot-chat.ts`・`worker/webhook-routes.ts` |
 | `transcript.md` | 配信中の文字起こし（`/transcript/`） | `src/transcript/**`・`transcript/**`・`worker/transcript-store.ts` |
 | `stream-summary.md` | これまでのあらすじ（`{summary}`） | `worker/stream-summary*.ts`・`worker/collect.ts`・`worker/chat-command.ts`・`worker/alert-event.ts`・`worker/webhook-routes.ts` |
 | `viewers.md` | 視聴者の記録（`/viewers/`） | `src/viewers/**`・`worker/viewer-*.ts`・`worker/stream-chat-store.ts`・`worker/webhook-routes.ts`・`worker/collect.ts`・`worker/ai-chat.ts`・`migrations/*viewer*.sql` |
-| `side-super.md` | サイドスーパー（`/side-super/`） | `src/side-super/**`・`side-super/**`・`worker/side-super*.ts`・`worker/collect.ts`・`worker/overlay-routes.ts` |
-| `focus.md` | 注目コメント（`/focus/`） | `src/focus/**`・`focus/**`・`worker/focus-*.ts` |
+| `side-super.md` | サイドスーパー（素材の種類 `sideSuper`） | `src/side-super/**`・`worker/side-super*.ts`・`worker/collect.ts`・`worker/overlay-routes.ts` |
+| `focus.md` | 注目コメント（`/focus/`・素材の種類 `focus`） | `src/focus/**`・`worker/focus-*.ts` |
 | `overlay.md` | 合成ページと構成の管理画面（`overlay/stage/`・`/overlay/`） | `src/overlay/**`・`overlay/**`・`worker/overlay-*.ts` |
 | `speech.md` | チャットの読み上げ（`speech/reader/`） | `src/speech/**`・`speech/**`・`worker/speech-config.ts` |
 | `backstage.md` | 裏方をまとめたページ（`overlay/backstage/`） | `src/backstage/**`・`overlay/backstage/**` |

@@ -9,7 +9,7 @@
  *   背景が明るくても暗くても同じように読める。白い箱を敷くと箱のほうが目立ってしまう）
  * - 書体は丸ゴシックではなく太い角ゴシック（Zen Kaku Gothic New の900）にする
  *
- * 寄せる向きは URLパラメータ position（src/side-super/stage.ts）から data-position に入る。
+ * 寄せる向きは素材のパラメータ position（src/side-super/params.ts）から data-position に入る。
  * 文字の大きさは、行ごとの文字数の上限（worker/side-super.ts の MAX_SIDE_SUPER_HEAD_LENGTH は14文字、
  * MAX_SIDE_SUPER_BODY_LENGTH は20文字）と配信画面の幅（1920px）を前提に決めてある。
  * 上限いっぱいの全角文字を入れたときの幅は実測で見出しが約420px・本文が約808pxで、

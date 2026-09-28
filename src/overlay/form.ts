@@ -15,8 +15,8 @@
  */
 import { chats } from '../chat/registry'
 import { clocks } from '../clock/registry'
-import type { GalleryItem } from '../core/gallery/gallery'
-import { serializeParams } from '../core/gallery/url'
+import type { DesignItem } from '../core/background'
+import { serializeParams } from '../core/url'
 import { ParamError, parseParams, type AnyParamValue, type ParamSchema } from '../core/params'
 import { sideSuperParamSchema } from '../side-super/params'
 import { backgrounds } from '../wallpaper/registry'
@@ -48,7 +48,7 @@ const FIELD_LABELS: Readonly<Record<string, string>> = {
 }
 
 /** 種類ごとのデザインの一覧（レジストリ）。デザインIDを持たない種類は空 */
-const DESIGNS: Readonly<Record<ItemKind, readonly GalleryItem[]>> = {
+const DESIGNS: Readonly<Record<ItemKind, readonly DesignItem[]>> = {
   wallpaper: backgrounds,
   clock: clocks,
   chat: chats,
@@ -164,7 +164,7 @@ export interface OverlayLabels {
 const numberOf = (raw: string): number => (raw.trim() === '' ? Number.NaN : Number(raw))
 
 /** その種類で選べるデザイン（デザインIDを持たない種類では空） */
-export const designsFor = (kind: ItemKind): readonly GalleryItem[] => DESIGNS[kind]
+export const designsFor = (kind: ItemKind): readonly DesignItem[] => DESIGNS[kind]
 
 /**
  * その素材のパラメータ宣言。

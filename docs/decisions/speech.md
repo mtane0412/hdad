@@ -1,6 +1,6 @@
 # チャットの読み上げ（`speech/reader/`）
 
-チャットの読み上げ（`speech/reader/`）は、映すものを持たず音だけを出す単独の素材ページで、`alerts/` と同じく `vite.config.ts` の `categories` ではなく入力に直接足している。
+チャットの読み上げ（`speech/reader/`）は、映すものを持たず音だけを出す単独のページで、`vite.config.ts` の入力に直接足している（映すものを持たないので合成ページの素材にはできない。`docs/decisions/backstage.md`）。
 
 チャットの受け取りはチャットボックスと同じ匿名IRC（`src/chat/connection.ts`・`channel.ts` を流用）なのでTwitchのトークンは持たないが、**読み上げの設定を Worker から読むためオーバーレイ用キーは持つ**（`?key=`。接続先のチャンネル名だけは、キーの要らない公開API `/api/chat/channel` から受け取る）。
 

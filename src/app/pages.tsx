@@ -1,35 +1,29 @@
 /**
  * アプリのページの一覧
  *
- * サイドバーの項目と、パスごとに描く中身をここで決める。カテゴリを増やしたらここに足す。
- * ギャラリーの素材ページ（/wallpaper/<id>/ など）と、実ファイルとして配信されるオーバーレイ（alerts/・side-super/overlay/・transcript/relay/・speech/reader/・focus/overlay/・overlay/stage/・overlay/backstage/）は、ここには載せない。
+ * サイドバーの項目と、パスごとに描く中身をここで決める。
+ * 実ファイルとして配信されるページ（overlay/stage/・overlay/backstage/・speech/reader/・transcript/relay/）は、ここには載せない。
  */
-import { Bot, BrainCircuit, Captions, Clock, Image, Layers, LayoutDashboard, MessageSquare, PanelTop, Quote, Upload, Users, Volume2, Wrench, Zap, type LucideIcon } from 'lucide-react'
+import { Bot, BrainCircuit, Captions, Layers, LayoutDashboard, Quote, Upload, Users, Volume2, Wrench, Zap, type LucideIcon } from 'lucide-react'
 import type { AdminApi, Me } from '@/admin/api'
 import { BackstagePage } from '@/backstage/backstage-page'
 import { MediaPage } from '@/admin/media-page'
 import { TriggerPage } from '@/admin/trigger-page'
 import type { BotApi } from '@/bot/api'
 import { BotPage } from '@/bot/bot-page'
-import { chats } from '@/chat/registry'
 import type { FocusApi } from '@/focus/api'
 import { FocusPage } from '@/focus/focus-page'
-import { clocks } from '@/clock/registry'
-import { Gallery } from '@/core/gallery/gallery'
 import type { LlmApi } from '@/llm/api'
 import { LlmPage } from '@/llm/llm-page'
 import type { OverlayLayoutAdminApi } from '@/overlay/admin-api'
-import { RECOMMENDED_ITEM_SIZES } from '@/overlay/layout'
 import { OverlayPage } from '@/overlay/overlay-page'
 import type { StatsApi } from '@/stats/api'
 import { StatsPage } from '@/stats/stats-page'
 import type { ViewerApi } from '@/viewers/api'
 import { ViewerPage } from '@/viewers/viewer-page'
-import { SideSuperPage } from '@/side-super/side-super-page'
 import type { SpeechApi } from '@/speech/api'
 import { SpeechPage } from '@/speech/speech-page'
 import { TranscriptPage } from '@/transcript/transcript-page'
-import { backgrounds } from '@/wallpaper/registry'
 
 /** ページが中身を描くのに使うもの */
 export interface PageContext {
@@ -71,13 +65,12 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
       { path: '/bot/', name: 'チャットボット', icon: Bot, render: ({ botApi }) => <BotPage api={botApi} /> },
       { path: '/viewers/', name: '視聴者', icon: Users, render: ({ viewerApi }) => <ViewerPage api={viewerApi} /> },
       { path: '/transcript/', name: '文字起こし', icon: Captions, render: ({ me }) => <TranscriptPage overlayKey={me.overlayKey} /> },
-      { path: '/side-super/', name: 'サイドスーパー', icon: PanelTop, render: ({ me }) => <SideSuperPage overlayKey={me.overlayKey} /> },
       {
         path: '/focus/',
         name: '注目コメント',
         icon: Quote,
         // 取り上げるものはWorkerに保存されるので、オーバーレイはURLを貼り替えずに切り替わる
-        render: ({ focusApi, me }) => <FocusPage api={focusApi} overlayKey={me.overlayKey} />,
+        render: ({ focusApi }) => <FocusPage api={focusApi} />,
       },
       {
         path: '/speech/',
@@ -114,31 +107,7 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
   },
   {
     label: '素材',
-    pages: [
-      {
-        path: '/wallpaper/',
-        name: '壁紙',
-        icon: Image,
-        render: () => <Gallery definitions={backgrounds} noun="背景" basePath="/wallpaper/" previewSize={RECOMMENDED_ITEM_SIZES.wallpaper} />,
-      },
-      {
-        path: '/clock/',
-        name: '時計',
-        icon: Clock,
-        render: () => <Gallery definitions={clocks} noun="時計" basePath="/clock/" previewSize={RECOMMENDED_ITEM_SIZES.clock} />,
-      },
-      {
-        path: '/chat/',
-        name: 'チャット',
-        icon: MessageSquare,
-        // プレビューは常にサンプル表示（demo=true）にする。調整のたびにTwitchへ接続し直さないためと、
-        // チャンネル名が未入力でも見た目を確かめられるようにするため。OBS用のURLには影響しない
-        render: () => (
-          <Gallery definitions={chats} noun="チャットボックス" basePath="/chat/" previewSize={RECOMMENDED_ITEM_SIZES.chat} previewOverrides={{ demo: true }} />
-        ),
-      },
-      { path: '/media/', name: 'アップロード', icon: Upload, render: ({ api }) => <MediaPage api={api} /> },
-    ],
+    pages: [{ path: '/media/', name: 'アップロード', icon: Upload, render: ({ api }) => <MediaPage api={api} /> }],
   },
 ]
 
