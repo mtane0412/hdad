@@ -2,7 +2,7 @@
 
 配信中の文字起こし（`/transcript/`）はアプリのページ（`src/transcript/transcript-page.tsx`）だが、取り込むのはOBSのブラウザソースに置く中継ページ（`transcript/relay/index.html`）で、アプリのページはそこへ貼るURLを出すだけである（`src/transcript/url.ts` の `relayUrl` に分けてテストする。オーバーレイ用キーはアラートと共通なので、再発行は `/triggers/` に置いたまま増やさない）。
 
-取り込む相手はゆかりねっとコネクターNEO（ゆかコネNEO）で、**同じPC上のWebSocketサーバー**（既定 `ws://localhost:11901/`）へ中継ページがつなぐ。
+取り込む相手はゆかコネNEOで、**同じPC上のWebSocketサーバー**（既定 `ws://localhost:11901/`）へ中継ページがつなぐ。
 
 ゆかコネNEO には外部へ送る仕組みが無いので、PCとWorkerの橋渡しをこのページが受け持つ。
 
