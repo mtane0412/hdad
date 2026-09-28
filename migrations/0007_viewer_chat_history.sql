@@ -3,7 +3,7 @@
 -- どちらもトリガーの条件（worker/alert-config.ts の firstChatEver・returningAfter）の判定に使う。
 -- 判定は worker/viewer-store.ts の readChatHistory が読み取りだけで行い、書き込むのは
 -- recordViewerMessage（発言の記録）と同じ1文である。
--- 適用方法は README.md の「配信の記録」を参照。
+-- 適用方法は docs/guide/stats.md を参照。
 
 -- その人の記録を作った発言のID。
 --

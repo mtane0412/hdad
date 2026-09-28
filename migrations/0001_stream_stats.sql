@@ -1,7 +1,7 @@
 -- 配信の記録（issue #18）
 --
 -- 日時はすべて UTC の ISO 8601（例: 2026-09-21T12:00:00.000Z）の文字列で持つ。桁数が揃っているので、文字列のまま大小を比べられる。
--- 適用方法は README.md の「配信の記録」を参照。
+-- 適用方法は docs/guide/stats.md を参照。
 
 -- 配信セッション。id はTwitchの配信ID。ended_at が NULL の行は配信中
 CREATE TABLE stream_sessions (
