@@ -2,6 +2,8 @@
 
 HDAD（Hyperfocus-Driven Assistant Director）。Twitch配信用素材と配信のアシスタント（チャットボット・アラート）のリポジトリ。Vite（マルチページ）+ TypeScript + Canvas 2D。ページUIは React + Tailwind + shadcn/ui へ移行中。Cloudflare Workers の静的アセットで公開する。
 
+このツールが目指すものと、これまでの判断から抽出した方針は `docs/principles.md` にある。機能を足すか・設定項目にするか・汎用化するかで迷ったら先にそこを読む。
+
 ## 品質チェックコマンド
 
 ```bash
@@ -69,6 +71,7 @@ npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 | `triggers-page.md` | トリガーの管理画面（`/triggers/`） | `src/admin/**` |
 | `bot.md` | チャットボット（`/bot/`） | `src/bot/**`・`worker/auth-routes.ts`・`worker/token.ts`・`worker/webhook-routes.ts`・`worker/bot-*.ts`・`worker/chat-*.ts`・`worker/moderation-config.ts`・`worker/eventsub*.ts` |
 | `worker.md` | Worker（`worker/`）と失敗の記録 | `worker/**` |
+| `implementation.md` | 判定・検証の置き場とテストの分け方（話題をまたぐ） | `src/**`・`worker/**` |
 
 ## 設計判断の記録（`docs/decisions/`）
 
