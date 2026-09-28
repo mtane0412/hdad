@@ -32,8 +32,10 @@ import {
   deleteOldScreenLines,
   listPendingOcr,
   listPendingSift,
+  readCurrentScreenLines,
   readOwnScreenTexts,
   readRecentScreenLines,
+  readScreenLinesSince,
   saveScreenLines,
   saveScreenOcr,
 } from './screen-store'
@@ -95,6 +97,15 @@ const STREAM_SUMMARY_TRANSCRIPT_LIMIT = 100
 const STREAM_SUMMARY_CHAT_LIMIT = 100
 
 /**
+ * 1回のあらすじづくりで読む、画面に新しく現れた行の件数の上限。
+ *
+ * 発話・発言と同じ数にして、どれか1つで材料が埋まらないようにする。篩（worker/screen-ocr.ts）を
+ * 通ったあとの行なので、同じ画面を撮り続けているあいだは1行も増えず、この上限に当たるのは
+ * 資料を次々に開いた区間だけである。
+ */
+const STREAM_SUMMARY_SCREEN_LIMIT = 50
+
+/**
  * 人物像の材料（配信中のチャット）を残しておく期間（ミリ秒）。
  *
  * ふつうは人物像を作った時点で消える（deleteStreamChatMessages）ので、ここで消えるのは、
@@ -149,9 +160,13 @@ const toFailureCode = (error: unknown): string => {
  * いま進んでいる配信の「これまでのあらすじ」を作り直す（issue #65）。
  *
  * 材料は、前回のあらすじと、そのあとに届いた配信者の発話（transcripts）・視聴者の発言
- * （stream_chat_messages）である。毎回ゼロから作り直さず積み上げるので、長い配信でも1回あたりの
- * 入力が一定に保たれる（worker/stream-summary.ts）。
+ * （stream_chat_messages）・画面に新しく現れた文字（screen_lines。issue #122）である。
+ * 毎回ゼロから作り直さず積み上げるので、長い配信でも1回あたりの入力が一定に保たれる
+ * （worker/stream-summary.ts）。材料ごとに「どこまで渡したか」を持つのも同じ形である。
  *
+ * 注意: 配信者の発話が1件も無ければ、画面に文字が現れていてもLLMを呼ばない。画面の文字は機械の
+ * 読み取り（誤読を含む断片）なので、それだけを材料にすると読み取った文字がそのまま地の文になる。
+ * 画面の文字は、発話があるときにその背景を補う第3の材料として渡す。
  * 注意: 新しい材料が1件も無ければLLMを呼ばない。配信していても喋りも発言もない時間帯はあるので、
  * 5分おきに無駄な Neurons を使わないためである（alert-state.ts の「要らなければ読まない」と同じ考え方）。
  * 注意: 失敗しても収集そのものを止めず、前回のあらすじも消さない。あらすじはチャットのコマンドが
@@ -166,8 +181,11 @@ const summarizeStream = async (db: Database, ai: TextGenerator, sessionId: strin
   // まだ一度も作っていなければ、どの行よりも前を指す目印（空文字の組）から読む
   const transcriptsFrom = previous?.transcriptsUntil ?? { at: '', messageId: '' }
   const chatFrom = previous?.chatUntil ?? { at: '', messageId: '' }
+  // まだ一度も作っていなければ、どの行よりも前を指す目印（並びは0から始まるので -1）から読む
+  const screenFrom = previous?.screenUntil ?? { at: '', imageId: '', lineNo: -1 }
   const transcripts = await readTranscriptsSince(db, sessionId, transcriptsFrom, STREAM_SUMMARY_TRANSCRIPT_LIMIT)
   const chats = await readSessionChatSince(db, sessionId, chatFrom, STREAM_SUMMARY_CHAT_LIMIT)
+  const screen = await readScreenLinesSince(db, sessionId, screenFrom, STREAM_SUMMARY_SCREEN_LIMIT)
   // 配信者の発話が1件も無いときは、視聴者の発言があっても作らない。書き込みだけを材料にすると、
   // 書き込みの中身が配信で起きたこととして書かれてしまうためである（ゆかコネNEO を動かし忘れた配信で実際に起きた）。
   // 目印を進めないので、文字起こしが届いた回で、このあいだの発言もまとめて材料になる
@@ -182,6 +200,7 @@ const summarizeStream = async (db: Database, ai: TextGenerator, sessionId: strin
       previous: previous?.summary ?? '',
       transcripts: transcripts.map((line) => line.text),
       chats: chats.map((line) => line.text),
+      screen: screen.map((line) => line.text),
     })
   } catch (error) {
     // 返ってきた文そのものの問題（StreamSummaryContentError）も、LLMを呼べなかった失敗も同じ扱いでよい。
@@ -191,9 +210,11 @@ const summarizeStream = async (db: Database, ai: TextGenerator, sessionId: strin
   }
 
   // 読めた材料の最後の行を「どこまで材料にしたか」の目印として記録する。件数の上限で切れた残りは、
-  // 読む順（日時・メッセージIDの順）でこの目印より後ろにあるので、次の収集で読まれる（取りこぼしにはならない）
+  // 読む順（発話と発言は日時・メッセージIDの順、画面の文字は積んだ時刻・画像ID・1枚の中の並びの順）で
+  // この目印より後ろにあるので、次の収集で読まれる（取りこぼしにはならない）
   const 最後の発話 = transcripts.at(-1)
   const 最後の発言 = chats.at(-1)
+  const 最後の画面 = screen.at(-1)
   await saveStreamSummary(
     db,
     {
@@ -201,6 +222,7 @@ const summarizeStream = async (db: Database, ai: TextGenerator, sessionId: strin
       summary,
       transcriptsUntil: 最後の発話 ? { at: 最後の発話.at, messageId: 最後の発話.messageId } : transcriptsFrom,
       chatUntil: 最後の発言 ? { at: 最後の発言.at, messageId: 最後の発言.messageId } : chatFrom,
+      screenUntil: 最後の画面 ? { at: 最後の画面.at, imageId: 最後の画面.imageId, lineNo: 最後の画面.lineNo } : screenFrom,
     },
     now,
   )
@@ -223,10 +245,17 @@ const SIDE_SUPER_TRANSCRIPT_LIMIT = 20
 const SIDE_SUPER_CHAT_LIMIT = 20
 
 /**
+ * 1回のサイドスーパーづくりで読む、直近に画面へ現れた行の件数の上限。
+ *
+ * 発話・発言と同じ数にして、どれか1つで材料が埋まらないようにする。
+ */
+const SIDE_SUPER_SCREEN_LIMIT = 20
+
+/**
  * いま進んでいる配信のサイドスーパーを作り直す。
  *
- * サイドスーパーは配信画面の隅に出しっぱなしにする短いテロップで、材料は直近の発話・発言と、
- * 配信のカテゴリ・タイトルである。あらすじと違って前回のものに積み上げず、毎回その時点の材料から
+ * サイドスーパーは配信画面の隅に出しっぱなしにする短いテロップで、材料は直近の発話・発言・
+ * 直近に画面へ現れた文字（screen_lines。issue #122）と、配信のカテゴリ・タイトルである。あらすじと違って前回のものに積み上げず、毎回その時点の材料から
  * 作り直す（worker/side-super.ts）。
  *
  * 注意: 前回作ったあとに新しい材料が1件も無ければLLMを呼ばない。喋りも発言もない時間帯に5分おきの
@@ -240,11 +269,12 @@ const makeSideSuper = async (db: Database, ai: TextGenerator, stream: LiveStream
   const previous = await readSideSuper(db, stream.id)
   const transcripts = await readRecentTranscripts(db, stream.id, SIDE_SUPER_TRANSCRIPT_LIMIT)
   const chats = await readRecentSessionChat(db, stream.id, SIDE_SUPER_CHAT_LIMIT)
-  // 前回より後に届いた材料があるかを、材料そのものの時刻で見る（どちらも同じ形の ISO 8601 なので文字列で比べられる）
+  const screen = await readCurrentScreenLines(db, stream.id, SIDE_SUPER_SCREEN_LIMIT)
+  // 前回より後に届いた材料があるかを、材料そのものの時刻で見る（どれも同じ形の ISO 8601 なので文字列で比べられる）
   const 新しい材料がある =
     previous === null
-      ? transcripts.length > 0 || chats.length > 0
-      : [...transcripts, ...chats].some((line) => line.at > previous.updatedAt)
+      ? transcripts.length > 0 || chats.length > 0 || screen.length > 0
+      : [...transcripts, ...chats, ...screen].some((line) => line.at > previous.updatedAt)
   if (!新しい材料がある) return
 
   let lines
@@ -254,6 +284,7 @@ const makeSideSuper = async (db: Database, ai: TextGenerator, stream: LiveStream
       title: stream.title,
       transcripts: transcripts.map((line) => line.text),
       chats: chats.map((line) => line.text),
+      screen: screen.map((line) => line.text),
     })
   } catch (error) {
     // 返ってきた行そのものの問題（SideSuperContentError）も、LLMを呼べなかった失敗も同じ扱いでよい

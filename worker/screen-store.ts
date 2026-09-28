@@ -206,7 +206,8 @@ export const listPendingSift = async (db: Database, limit: number): Promise<Pend
  *
  * @param capture 篩に通した1枚
  * @param lines 篩を通った行（画面に現れた順）
- * @param now 通し終えた時刻（ミリ秒）
+ * @param now 通し終えた時刻（ミリ秒）。1行ごとにも残す（screen_lines.sifted_at）。材料として読み出すときの
+ *   順と目印がこの時刻で決まるためである（readScreenLinesSince を参照）
  */
 export const saveScreenLines = async (
   db: Database,
@@ -217,11 +218,11 @@ export const saveScreenLines = async (
   const 書き込み = lines.map((text, lineNo) =>
     db
       .prepare(
-        `INSERT INTO screen_lines (image_id, line_no, session_id, captured_at, text)
-         VALUES (?1, ?2, ?3, ?4, ?5)
+        `INSERT INTO screen_lines (image_id, line_no, session_id, captured_at, text, sifted_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
          ON CONFLICT DO NOTHING`,
       )
-      .bind(capture.imageId, lineNo, capture.sessionId, capture.capturedAt, text),
+      .bind(capture.imageId, lineNo, capture.sessionId, capture.capturedAt, text, toIso(now)),
   )
   書き込み.push(db.prepare('UPDATE screen_captures SET sifted_at = ?2 WHERE image_id = ?1').bind(capture.imageId, toIso(now)))
   await db.batch(書き込み)
@@ -246,6 +247,103 @@ export const readRecentScreenLines = async (db: Database, sessionId: string, lim
     .bind(sessionId, limit)
     .all<{ text: string }>()
   return results.map((row) => row.text)
+}
+
+/** 画面に現れた1行と、その行がどこまで材料になったかを指すための手がかり */
+export interface ScreenLine {
+  /** 画面に現れた文字 */
+  readonly text: string
+  /** 篩を通して積んだ時刻（UTCのISO 8601） */
+  readonly at: string
+  /** Gyazo が振った画像ID */
+  readonly imageId: string
+  /** 1枚の中での並び（0から） */
+  readonly lineNo: number
+}
+
+/**
+ * どこまであらすじの材料にしたかの目印。
+ *
+ * 撮った時刻ではなく、篩を通して積んだ時刻（sifted_at）で持つ。OCRの取得は撮ってから遅れて起き、
+ * 生成が間に合わない1枚は次の収集へ回るので、撮った順と積まれる順は一致しない。撮った時刻を目印に
+ * すると、遅れて積まれた1枚が目印より前に入り、一度も材料にならないまま保持期間で消える。
+ *
+ * 時刻だけでは足りない。同じ収集で積んだ行は時刻が同じなので、件数の上限で分かれると残りが次からの
+ * 「この時刻より後」に一度も入らず永久に漏れる。読む順と同じ組で比べる
+ * （worker/transcript-store.ts の TranscriptCursor と同じ理由）。
+ *
+ * 1枚の中の並び（lineNo）まで持つのは、1枚から出た行が件数の上限を超えたときに、その1枚の途中から
+ * 読み直せるようにするためである。画像IDまでで目印を進めると、上限で切れた残りの行が飛ぶ。
+ */
+export interface ScreenLineCursor {
+  at: string
+  imageId: string
+  lineNo: number
+}
+
+/**
+ * その配信で画面に現れた行のうち、まだあらすじの材料にしていないぶんを、積んだ順に読む。
+ *
+ * あらすじ（worker/stream-summary.ts）は前回のあらすじに新しい材料を積み上げて書き直させるので、
+ * 読むのは続きだけでよい（発話・発言と同じ形）。
+ *
+ * @param since この目印より後のぶんだけを読む。まだ一度もあらすじを作っていなければ、時刻と画像IDに
+ *   空文字、並びに -1 を渡す（どの行よりも小さいので全件が読める）
+ * @param limit 読む件数の上限。超えたぶんは後で積んだほうを切り、次にあらすじを作るときへ回す
+ *   （呼び出し側は読めた行の最後を目印として記録するため、取りこぼしにはならない）
+ */
+export const readScreenLinesSince = async (
+  db: Database,
+  sessionId: string,
+  since: ScreenLineCursor,
+  limit: number,
+): Promise<ScreenLine[]> => {
+  const { results } = await db
+    .prepare(
+      // 並べ替えと同じ組で比べる。1つでも欠けると、同じ時刻・同じ1枚の行が目印の前後に分かれてしまう
+      `SELECT text, sifted_at AS at, image_id AS imageId, line_no AS lineNo FROM screen_lines
+       WHERE session_id = ?1 AND (sifted_at, image_id, line_no) > (?2, ?3, ?4)
+       ORDER BY sifted_at, image_id, line_no
+       LIMIT ?5`,
+    )
+    .bind(sessionId, since.at, since.imageId, since.lineNo, limit)
+    .all<ScreenLine>()
+  return results
+}
+
+/** 直近に画面へ現れた1行 */
+export interface CurrentScreenLine {
+  /** 画面に現れた文字 */
+  readonly text: string
+  /** 篩を通して積んだ時刻（UTCのISO 8601） */
+  readonly at: string
+}
+
+/**
+ * その配信で直近に画面へ現れた行を、積んだ順（古い順）に読む。
+ *
+ * サイドスーパー（worker/side-super.ts）の材料になる。あらすじと違って前回のものに積み上げないので、
+ * 「どこまで材料にしたか」ではなく「直近に何が現れたか」だけが要る。そのため後で積んだほうから
+ * limit 件を取り、LLMへ渡す向き（古い順）に直して返す（readRecentTranscripts と同じ形）。
+ *
+ * 添えるのは撮った時刻ではなく、篩を通して積んだ時刻である。呼び出し側はこれで「前回サイドスーパーを
+ * 作ったあとに新しい行があるか」を判定する（無ければLLMを呼ばない）。撮った時刻で判定すると、
+ * OCRの取得と篩が5分おきの収集で遅れて起きるぶん、積まれたばかりの行が必ず「前回より古い」と見なされ、
+ * 画面が変わってもサイドスーパーが作り直されない。
+ *
+ * @param limit 読む件数の上限。超えたぶんは先に積んだほうから落とす
+ */
+export const readCurrentScreenLines = async (db: Database, sessionId: string, limit: number): Promise<CurrentScreenLine[]> => {
+  const { results } = await db
+    .prepare(
+      `SELECT text, sifted_at AS at FROM screen_lines
+       WHERE session_id = ?1
+       ORDER BY sifted_at DESC, image_id DESC, line_no DESC
+       LIMIT ?2`,
+    )
+    .bind(sessionId, limit)
+    .all<CurrentScreenLine>()
+  return results.reverse()
 }
 
 /**

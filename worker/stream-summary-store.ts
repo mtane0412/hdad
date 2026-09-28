@@ -25,6 +25,8 @@ export interface StreamSummaryInput {
   transcriptsUntil: Cursor
   /** 最後に材料にした発言（stream_chat_messages）の目印。材料が無ければ前回のまま */
   chatUntil: Cursor
+  /** 最後に材料にした画面の文字（screen_lines）の目印。材料が無ければ前回のまま */
+  screenUntil: ScreenCursor
 }
 
 /**
@@ -38,11 +40,25 @@ export interface Cursor {
   messageId: string
 }
 
+/**
+ * どこまで画面の文字を材料にしたかの目印。
+ *
+ * 画面の文字にはメッセージIDが無く、撮った順と材料になる順も一致しないので、読む順と同じ
+ * 「篩を通して積んだ時刻・画像ID・1枚の中の並び」の組で持つ
+ * （worker/screen-store.ts の ScreenLineCursor を参照）。
+ */
+export interface ScreenCursor {
+  at: string
+  imageId: string
+  lineNo: number
+}
+
 /** 読み出したあらすじ */
 export interface StreamSummary {
   summary: string
   transcriptsUntil: Cursor
   chatUntil: Cursor
+  screenUntil: ScreenCursor
   /** このあらすじを作った日時 */
   updatedAt: string
 }
@@ -54,6 +70,9 @@ interface StreamSummaryRow {
   transcriptsUntilId: string
   chatUntil: string
   chatUntilId: string
+  screenUntil: string
+  screenUntilId: string
+  screenUntilLine: number
   updatedAt: string
 }
 
@@ -62,7 +81,9 @@ export const readStreamSummary = async (db: Database, sessionId: string): Promis
   const row = await db
     .prepare(
       `SELECT summary, transcripts_until AS transcriptsUntil, transcripts_until_id AS transcriptsUntilId,
-              chat_until AS chatUntil, chat_until_id AS chatUntilId, updated_at AS updatedAt
+              chat_until AS chatUntil, chat_until_id AS chatUntilId,
+              screen_until AS screenUntil, screen_until_id AS screenUntilId, screen_until_line AS screenUntilLine,
+              updated_at AS updatedAt
        FROM stream_summaries WHERE session_id = ?1`,
     )
     .bind(sessionId)
@@ -72,6 +93,7 @@ export const readStreamSummary = async (db: Database, sessionId: string): Promis
     summary: row.summary,
     transcriptsUntil: { at: row.transcriptsUntil, messageId: row.transcriptsUntilId },
     chatUntil: { at: row.chatUntil, messageId: row.chatUntilId },
+    screenUntil: { at: row.screenUntil, imageId: row.screenUntilId, lineNo: row.screenUntilLine },
     updatedAt: row.updatedAt,
   }
 }
@@ -84,14 +106,18 @@ export const readStreamSummary = async (db: Database, sessionId: string): Promis
 export const saveStreamSummary = async (db: Database, input: StreamSummaryInput, now: number): Promise<void> => {
   await db
     .prepare(
-      `INSERT INTO stream_summaries (session_id, summary, transcripts_until, transcripts_until_id, chat_until, chat_until_id, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+      `INSERT INTO stream_summaries (session_id, summary, transcripts_until, transcripts_until_id, chat_until, chat_until_id,
+                                     screen_until, screen_until_id, screen_until_line, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
        ON CONFLICT (session_id) DO UPDATE SET
          summary = excluded.summary,
          transcripts_until = excluded.transcripts_until,
          transcripts_until_id = excluded.transcripts_until_id,
          chat_until = excluded.chat_until,
          chat_until_id = excluded.chat_until_id,
+         screen_until = excluded.screen_until,
+         screen_until_id = excluded.screen_until_id,
+         screen_until_line = excluded.screen_until_line,
          updated_at = excluded.updated_at`,
     )
     .bind(
@@ -101,6 +127,9 @@ export const saveStreamSummary = async (db: Database, input: StreamSummaryInput,
       input.transcriptsUntil.messageId,
       input.chatUntil.at,
       input.chatUntil.messageId,
+      input.screenUntil.at,
+      input.screenUntil.imageId,
+      input.screenUntil.lineNo,
       toIso(now),
     )
     .run()

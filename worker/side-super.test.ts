@@ -22,6 +22,7 @@ const 材料 = {
   title: '初見プレイ2日目',
   transcripts: ['ここで2つめの街に着きました', 'ボスが強すぎるので装備を整えます'],
   chats: ['がんばれー', '装備は北の町にあるよ'],
+  screen: ['ストームヴィル城', 'マルギット 撃破'],
 }
 
 describe('buildSideSuperPrompt', () => {
@@ -34,6 +35,26 @@ describe('buildSideSuperPrompt', () => {
     expect(prompt).toContain('ボスが強すぎるので装備を整えます')
     expect(prompt).toContain('がんばれー')
     expect(prompt).toContain('装備は北の町にあるよ')
+  })
+
+  it('直近に画面へ現れた文字を材料に入れる', () => {
+    const prompt = buildSideSuperPrompt(材料)
+
+    expect(prompt).toContain('ストームヴィル城')
+    expect(prompt).toContain('マルギット 撃破')
+  })
+
+  it('画面の文字が機械の読み取りで誤りを含むことを伝える', () => {
+    const prompt = buildSideSuperPrompt(材料)
+
+    expect(prompt).toContain('読み取ったもので、誤りを含みます')
+  })
+
+  it('画面の文字が1件も無くても、その旨を材料に入れて組み立てる', () => {
+    const prompt = buildSideSuperPrompt({ ...材料, screen: [] })
+
+    expect(prompt).toContain('ここで2つめの街に着きました')
+    expect(prompt).toContain('ありません')
   })
 
   it('見出しと本文の役割を分けて指示する', () => {

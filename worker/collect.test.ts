@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { TextGenerator } from './llm'
+import type { LlmUsage } from './llm-config'
 import { MAX_VIEWER_SUMMARY_LENGTH } from './viewer-summary'
 import { STREAM_CHAT_RETENTION_MS, SUMMARY_BATCH_SIZE, collectStats } from './collect'
 import { readStreamSummary } from './stream-summary-store'
@@ -50,12 +51,42 @@ const 保管中のトークン: StoredToken = {
  */
 const 全部が成功する応答 = '初見プレイ中\nボス戦へ向けて装備集め'
 
-const AIの代役 = (response: string | Error = 'ギターの話をよくする常連さん'): TextGenerator & { 呼ばれた数: () => number } => {
+/**
+ * 篩を通ったあとの行（screen_lines）を1行だけ直に置く。
+ *
+ * あらすじ・サイドスーパーの材料として渡っているかを確かめるテストが使う。撮影から篩までの道のりは
+ * 「画面の文字の取り込み」「篩」のテストが通るので、ここでは通し終えた形だけを用意する。
+ */
+const 画面に現れた行を作る = (
+  db: ReturnType<typeof createFakeDatabase>,
+  imageId: string,
+  capturedAt: number,
+  text: string,
+  siftedAt = capturedAt,
+): void => {
+  const 撮った時刻 = new Date(capturedAt).toISOString()
+  const 積んだ時刻 = new Date(siftedAt).toISOString()
+  db.sqlite
+    .prepare('INSERT INTO screen_captures (image_id, session_id, captured_at, ocr_text, sifted_at) VALUES (?, ?, ?, ?, ?)')
+    .run(imageId, 雑談配信.id, 撮った時刻, text, 積んだ時刻)
+  db.sqlite
+    .prepare('INSERT INTO screen_lines (image_id, line_no, session_id, captured_at, text, sifted_at) VALUES (?, 0, ?, ?, ?, ?)')
+    .run(imageId, 雑談配信.id, 撮った時刻, text, 積んだ時刻)
+}
+
+const AIの代役 = (
+  response: string | Error = 'ギターの話をよくする常連さん',
+): TextGenerator & { 呼ばれた数: () => number; 渡された材料: (usage: LlmUsage) => string[] } => {
   let 回数 = 0
+  const 記録: { usage: LlmUsage; prompt: string }[] = []
   return {
     呼ばれた数: () => 回数,
-    run: async () => {
+    // 材料が漏れなくLLMへ渡っているかを、使う箇所（あらすじ・サイドスーパー）ごとに確かめられるようにする。
+    // 箇条を分けずに全部の文面をまとめて見ると、片方への受け渡しが壊れても、もう片方に入っているだけで通ってしまう
+    渡された材料: (usage) => 記録.filter((一件) => 一件.usage === usage).map((一件) => 一件.prompt),
+    run: async (usage, request) => {
       回数 += 1
+      記録.push({ usage, prompt: request.messages.map((message) => message.content).join('\n') })
       if (response instanceof Error) throw response
       return response
     },
@@ -471,8 +502,37 @@ describe('あらすじの生成', () => {
       summary: '配信者は新しいゲームを始めたところです',
       transcriptsUntil: { at: new Date(現在時刻 - 2 * 60 * 1000).toISOString(), messageId: 'hatsuwa-1' },
       chatUntil: { at: new Date(現在時刻 - 60 * 1000).toISOString(), messageId: 'hatsugen-1' },
+      screenUntil: { at: '', imageId: '', lineNo: -1 },
       updatedAt: new Date(現在時刻).toISOString(),
     })
+  })
+
+  it('画面に新しく現れた文字も材料にして、どこまで渡したかを目印に残す', async () => {
+    const { db, store } = await 環境を作る()
+    配信中の材料を作る(db)
+    画面に現れた行を作る(db, '1枚目', 現在時刻 - 90 * 1000, '岩手17歳女性殺害事件')
+    const ai = AIの代役('配信者は未解決事件の資料を読んでいます')
+
+    await collectStats({ db, store, twitch: Twitchの代役(), ai, broadcasterId: 配信者のID, now: 現在時刻 })
+
+    expect(ai.渡された材料('streamSummary').some((材料) => 材料.includes('岩手17歳女性殺害事件'))).toBe(true)
+    expect((await readStreamSummary(db, 雑談配信.id))?.screenUntil).toEqual({
+      at: new Date(現在時刻 - 90 * 1000).toISOString(),
+      imageId: '1枚目',
+      lineNo: 0,
+    })
+  })
+
+  it('画面に新しく現れた文字しか無ければ、あらすじを作らない（読み取った文字だけを地の文にしないため）', async () => {
+    const { db, store } = await 環境を作る()
+    db.sqlite
+      .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, NULL, ?, ?)')
+      .run(雑談配信.id, 雑談配信.startedAt, '月曜の雑談配信', 'Just Chatting')
+    画面に現れた行を作る(db, '1枚目', 現在時刻 - 90 * 1000, '岩手17歳女性殺害事件')
+
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(全部が成功する応答), broadcasterId: 配信者のID, now: 現在時刻 })
+
+    expect(await readStreamSummary(db, 雑談配信.id)).toBeNull()
   })
 
   it('文字起こしが1件も無ければ、視聴者の発言があってもあらすじを作らない', async () => {
@@ -573,6 +633,32 @@ describe('サイドスーパーの生成', () => {
       lines: ['新作ゲーム', '初見プレイ中'],
       updatedAt: new Date(現在時刻).toISOString(),
     })
+  })
+
+  it('直近に画面へ現れた文字も材料にする', async () => {
+    const { db, store } = await 環境を作る()
+    配信中の材料を作る(db)
+    画面に現れた行を作る(db, '1枚目', 現在時刻 - 90 * 1000, 'ストームヴィル城')
+    const ai = AIの代役('新作ゲーム\n城を攻略中')
+
+    await collectStats({ db, store, twitch: Twitchの代役(), ai, broadcasterId: 配信者のID, now: 現在時刻 })
+
+    expect(ai.渡された材料('sideSuper').some((材料) => 材料.includes('ストームヴィル城'))).toBe(true)
+  })
+
+  it('前回のあとに画面へ新しい文字が現れていれば、喋りも発言も無くても作り直す', async () => {
+    const { db, store } = await 環境を作る()
+    配信中の材料を作る(db)
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(全部が成功する応答), broadcasterId: 配信者のID, now: 現在時刻 })
+    const 五分後 = 現在時刻 + 5 * 60 * 1000
+    // 撮ったのは前回サイドスーパーを作るより前で、篩を通って材料になったのはそのあと、という並びにする。
+    // OCRの取得と篩は5分おきの収集で遅れて起きるので、実際にはこの並びが普通である
+    画面に現れた行を作る(db, '1枚目', 現在時刻 - 60 * 1000, 'ストームヴィル城', 五分後 - 1000)
+    const ai = AIの代役('新作ゲーム\n城を攻略中')
+
+    await collectStats({ db, store, twitch: Twitchの代役(), ai, broadcasterId: 配信者のID, now: 五分後 })
+
+    expect(await readSideSuper(db, 雑談配信.id)).toEqual({ lines: ['新作ゲーム', '城を攻略中'], updatedAt: new Date(五分後).toISOString() })
   })
 
   it('配信していなければ、サイドスーパーを作らない', async () => {
