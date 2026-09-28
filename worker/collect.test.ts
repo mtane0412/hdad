@@ -56,14 +56,21 @@ const 全部が成功する応答 = '初見プレイ中\nボス戦へ向けて�
  * あらすじ・サイドスーパーの材料として渡っているかを確かめるテストが使う。撮影から篩までの道のりは
  * 「画面の文字の取り込み」「篩」のテストが通るので、ここでは通し終えた形だけを用意する。
  */
-const 画面に現れた行を作る = (db: ReturnType<typeof createFakeDatabase>, imageId: string, capturedAt: number, text: string): void => {
+const 画面に現れた行を作る = (
+  db: ReturnType<typeof createFakeDatabase>,
+  imageId: string,
+  capturedAt: number,
+  text: string,
+  siftedAt = capturedAt,
+): void => {
   const 撮った時刻 = new Date(capturedAt).toISOString()
+  const 積んだ時刻 = new Date(siftedAt).toISOString()
   db.sqlite
     .prepare('INSERT INTO screen_captures (image_id, session_id, captured_at, ocr_text, sifted_at) VALUES (?, ?, ?, ?, ?)')
-    .run(imageId, 雑談配信.id, 撮った時刻, text, 撮った時刻)
+    .run(imageId, 雑談配信.id, 撮った時刻, text, 積んだ時刻)
   db.sqlite
-    .prepare('INSERT INTO screen_lines (image_id, line_no, session_id, captured_at, text) VALUES (?, 0, ?, ?, ?)')
-    .run(imageId, 雑談配信.id, 撮った時刻, text)
+    .prepare('INSERT INTO screen_lines (image_id, line_no, session_id, captured_at, text, sifted_at) VALUES (?, 0, ?, ?, ?, ?)')
+    .run(imageId, 雑談配信.id, 撮った時刻, text, 積んだ時刻)
 }
 
 const AIの代役 = (
@@ -493,7 +500,7 @@ describe('あらすじの生成', () => {
       summary: '配信者は新しいゲームを始めたところです',
       transcriptsUntil: { at: new Date(現在時刻 - 2 * 60 * 1000).toISOString(), messageId: 'hatsuwa-1' },
       chatUntil: { at: new Date(現在時刻 - 60 * 1000).toISOString(), messageId: 'hatsugen-1' },
-      screenUntil: { at: '', imageId: '' },
+      screenUntil: { at: '', imageId: '', lineNo: -1 },
       updatedAt: new Date(現在時刻).toISOString(),
     })
   })
@@ -510,6 +517,7 @@ describe('あらすじの生成', () => {
     expect((await readStreamSummary(db, 雑談配信.id))?.screenUntil).toEqual({
       at: new Date(現在時刻 - 90 * 1000).toISOString(),
       imageId: '1枚目',
+      lineNo: 0,
     })
   })
 
@@ -625,7 +633,7 @@ describe('サイドスーパーの生成', () => {
     })
   })
 
-  it('いま画面に出ている文字も材料にする', async () => {
+  it('直近に画面へ現れた文字も材料にする', async () => {
     const { db, store } = await 環境を作る()
     配信中の材料を作る(db)
     画面に現れた行を作る(db, '1枚目', 現在時刻 - 90 * 1000, 'ストームヴィル城')
@@ -641,7 +649,9 @@ describe('サイドスーパーの生成', () => {
     配信中の材料を作る(db)
     await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(全部が成功する応答), broadcasterId: 配信者のID, now: 現在時刻 })
     const 五分後 = 現在時刻 + 5 * 60 * 1000
-    画面に現れた行を作る(db, '1枚目', 五分後 - 60 * 1000, 'ストームヴィル城')
+    // 撮ったのは前回サイドスーパーを作るより前で、篩を通って材料になったのはそのあと、という並びにする。
+    // OCRの取得と篩は5分おきの収集で遅れて起きるので、実際にはこの並びが普通である
+    画面に現れた行を作る(db, '1枚目', 現在時刻 - 60 * 1000, 'ストームヴィル城', 五分後 - 1000)
     const ai = AIの代役('新作ゲーム\n城を攻略中')
 
     await collectStats({ db, store, twitch: Twitchの代役(), ai, broadcasterId: 配信者のID, now: 五分後 })

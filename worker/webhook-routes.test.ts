@@ -673,7 +673,7 @@ describe('チャットの応答の設定・連打・再送', () => {
     await recordLiveStream(db, 雑談配信, 現在時刻 - 60 * 1000)
     await saveStreamSummary(
       db,
-      { sessionId: 雑談配信.id, summary: '配信者は新しいゲームを遊んでいます', transcriptsUntil: { at: '', messageId: '' }, chatUntil: { at: '', messageId: '' }, screenUntil: { at: '', imageId: '' } },
+      { sessionId: 雑談配信.id, summary: '配信者は新しいゲームを遊んでいます', transcriptsUntil: { at: '', messageId: '' }, chatUntil: { at: '', messageId: '' }, screenUntil: { at: '', imageId: '', lineNo: -1 } },
       現在時刻 - 30 * 1000,
     )
     const twitch = 送信に応えるTwitch()
@@ -808,7 +808,7 @@ describe('アラートのトリガーによるチャット送信', () => {
     await recordLiveStream(db, 雑談配信, 現在時刻 - 60 * 1000)
     await saveStreamSummary(
       db,
-      { sessionId: 雑談配信.id, summary: '配信者は新しいゲームを遊んでいます', transcriptsUntil: { at: '', messageId: '' }, chatUntil: { at: '', messageId: '' }, screenUntil: { at: '', imageId: '' } },
+      { sessionId: 雑談配信.id, summary: '配信者は新しいゲームを遊んでいます', transcriptsUntil: { at: '', messageId: '' }, chatUntil: { at: '', messageId: '' }, screenUntil: { at: '', imageId: '', lineNo: -1 } },
       現在時刻 - 30 * 1000,
     )
     const twitch = 送信に応えるTwitch()
@@ -1542,7 +1542,7 @@ describe('オーバーレイへのアラートの押し出し', () => {
     await recordLiveStream(db, 雑談配信, 現在時刻 - 60 * 1000)
     await saveStreamSummary(
       db,
-      { sessionId: 雑談配信.id, summary: '配信者は新しいゲームを遊んでいます', transcriptsUntil: { at: '', messageId: '' }, chatUntil: { at: '', messageId: '' }, screenUntil: { at: '', imageId: '' } },
+      { sessionId: 雑談配信.id, summary: '配信者は新しいゲームを遊んでいます', transcriptsUntil: { at: '', messageId: '' }, chatUntil: { at: '', messageId: '' }, screenUntil: { at: '', imageId: '', lineNo: -1 } },
       現在時刻 - 30 * 1000,
     )
 
@@ -1761,7 +1761,7 @@ describe('LLMに文面を作らせる動作（aiChat）', () => {
         summary: '配信者はギターの弦を張り替えています',
         transcriptsUntil: { at: '', messageId: '' },
         chatUntil: { at: '', messageId: '' },
-        screenUntil: { at: '', imageId: '' },
+        screenUntil: { at: '', imageId: '', lineNo: -1 },
       },
       現在時刻 - 30 * 1000,
     )

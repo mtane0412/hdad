@@ -37,7 +37,7 @@ describe('buildSideSuperPrompt', () => {
     expect(prompt).toContain('装備は北の町にあるよ')
   })
 
-  it('いま画面に出ている文字を材料に入れる', () => {
+  it('直近に画面へ現れた文字を材料に入れる', () => {
     const prompt = buildSideSuperPrompt(材料)
 
     expect(prompt).toContain('ストームヴィル城')

@@ -181,7 +181,8 @@ const summarizeStream = async (db: Database, ai: TextGenerator, sessionId: strin
   // まだ一度も作っていなければ、どの行よりも前を指す目印（空文字の組）から読む
   const transcriptsFrom = previous?.transcriptsUntil ?? { at: '', messageId: '' }
   const chatFrom = previous?.chatUntil ?? { at: '', messageId: '' }
-  const screenFrom = previous?.screenUntil ?? { at: '', imageId: '' }
+  // まだ一度も作っていなければ、どの行よりも前を指す目印（並びは0から始まるので -1）から読む
+  const screenFrom = previous?.screenUntil ?? { at: '', imageId: '', lineNo: -1 }
   const transcripts = await readTranscriptsSince(db, sessionId, transcriptsFrom, STREAM_SUMMARY_TRANSCRIPT_LIMIT)
   const chats = await readSessionChatSince(db, sessionId, chatFrom, STREAM_SUMMARY_CHAT_LIMIT)
   const screen = await readScreenLinesSince(db, sessionId, screenFrom, STREAM_SUMMARY_SCREEN_LIMIT)
@@ -209,7 +210,8 @@ const summarizeStream = async (db: Database, ai: TextGenerator, sessionId: strin
   }
 
   // 読めた材料の最後の行を「どこまで材料にしたか」の目印として記録する。件数の上限で切れた残りは、
-  // 読む順（日時・メッセージIDの順）でこの目印より後ろにあるので、次の収集で読まれる（取りこぼしにはならない）
+  // 読む順（発話と発言は日時・メッセージIDの順、画面の文字は積んだ時刻・画像ID・1枚の中の並びの順）で
+  // この目印より後ろにあるので、次の収集で読まれる（取りこぼしにはならない）
   const 最後の発話 = transcripts.at(-1)
   const 最後の発言 = chats.at(-1)
   const 最後の画面 = screen.at(-1)
@@ -220,7 +222,7 @@ const summarizeStream = async (db: Database, ai: TextGenerator, sessionId: strin
       summary,
       transcriptsUntil: 最後の発話 ? { at: 最後の発話.at, messageId: 最後の発話.messageId } : transcriptsFrom,
       chatUntil: 最後の発言 ? { at: 最後の発言.at, messageId: 最後の発言.messageId } : chatFrom,
-      screenUntil: 最後の画面 ? { at: 最後の画面.at, imageId: 最後の画面.imageId } : screenFrom,
+      screenUntil: 最後の画面 ? { at: 最後の画面.at, imageId: 最後の画面.imageId, lineNo: 最後の画面.lineNo } : screenFrom,
     },
     now,
   )
@@ -243,7 +245,7 @@ const SIDE_SUPER_TRANSCRIPT_LIMIT = 20
 const SIDE_SUPER_CHAT_LIMIT = 20
 
 /**
- * 1回のサイドスーパーづくりで読む、いま画面に出ている行の件数の上限。
+ * 1回のサイドスーパーづくりで読む、直近に画面へ現れた行の件数の上限。
  *
  * 発話・発言と同じ数にして、どれか1つで材料が埋まらないようにする。
  */
@@ -253,7 +255,7 @@ const SIDE_SUPER_SCREEN_LIMIT = 20
  * いま進んでいる配信のサイドスーパーを作り直す。
  *
  * サイドスーパーは配信画面の隅に出しっぱなしにする短いテロップで、材料は直近の発話・発言・
- * いま画面に出ている文字（screen_lines。issue #122）と、配信のカテゴリ・タイトルである。あらすじと違って前回のものに積み上げず、毎回その時点の材料から
+ * 直近に画面へ現れた文字（screen_lines。issue #122）と、配信のカテゴリ・タイトルである。あらすじと違って前回のものに積み上げず、毎回その時点の材料から
  * 作り直す（worker/side-super.ts）。
  *
  * 注意: 前回作ったあとに新しい材料が1件も無ければLLMを呼ばない。喋りも発言もない時間帯に5分おきの

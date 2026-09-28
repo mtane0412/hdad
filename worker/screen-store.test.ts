@@ -36,6 +36,9 @@ const 配信の開始 = Date.parse('2026-09-28T12:00:00Z')
 const 撮った時刻 = Date.parse('2026-09-28T12:05:00Z')
 const 画像のID = 'abcdef0123456789abcdef0123456789'
 
+/** どの行よりも前を指す目印。まだ一度もあらすじを作っていない配信では、呼び出し側がこれを渡す */
+const 最初の目印 = { at: '', imageId: '', lineNo: -1 }
+
 describe('recordScreenCapture', () => {
   it('配信中なら記録する', async () => {
     const db = createFakeDatabase()
@@ -267,33 +270,43 @@ describe('readRecentScreenLines', () => {
 })
 
 describe('readScreenLinesSince', () => {
-  /** 1枚ぶんの行を積む。撮った時刻は画像IDの番号で1秒ずつずらす */
-  const 積む = async (db: ReturnType<typeof createFakeDatabase>, 番号: number, lines: readonly string[]): Promise<void> => {
-    const 時刻 = 撮った時刻 + 番号 * 1000
-    await recordScreenCapture(db, `${番号}枚目`, 時刻)
-    await saveScreenOcr(db, `${番号}枚目`, lines.join('\n'))
-    await saveScreenLines(db, { imageId: `${番号}枚目`, sessionId: 'session-1', capturedAt: new Date(時刻).toISOString() }, lines, 時刻)
+  /**
+   * 1枚ぶんの行を篩に通して積む。
+   *
+   * @param 撮った番号 撮った時刻を1秒ずつずらすための番号（画像IDにもなる）
+   * @param 積んだ時刻 篩を通した時刻。撮った順と積んだ順がずれる場合を作れるように分けて受け取る
+   */
+  const 積む = async (
+    db: ReturnType<typeof createFakeDatabase>,
+    撮った番号: number,
+    lines: readonly string[],
+    積んだ時刻 = 撮った時刻 + 撮った番号 * 1000,
+  ): Promise<void> => {
+    const 時刻 = 撮った時刻 + 撮った番号 * 1000
+    await recordScreenCapture(db, `${撮った番号}枚目`, 時刻)
+    await saveScreenOcr(db, `${撮った番号}枚目`, lines.join('\n'))
+    await saveScreenLines(db, { imageId: `${撮った番号}枚目`, sessionId: 'session-1', capturedAt: new Date(時刻).toISOString() }, lines, 積んだ時刻)
   }
 
-  it('目印より後の行を、画面に現れた順に返す', async () => {
+  it('目印より後の行を、積んだ順に返す', async () => {
     const db = createFakeDatabase()
     await recordStreamOnline(db, { id: 'session-1', startedAt: 配信の開始 })
     await 積む(db, 1, ['岩手17歳女性殺害事件'])
     await 積む(db, 2, ['盛岡市のガソリンスタンド', '2008年6月29日'])
 
-    const 行 = await readScreenLinesSince(db, 'session-1', { at: '2026-09-28T12:05:01.000Z', imageId: '1枚目' }, 10)
+    const 行 = await readScreenLinesSince(db, 'session-1', { at: '2026-09-28T12:05:01.000Z', imageId: '1枚目', lineNo: 0 }, 10)
     expect(行).toEqual([
-      { text: '盛岡市のガソリンスタンド', at: '2026-09-28T12:05:02.000Z', imageId: '2枚目' },
-      { text: '2008年6月29日', at: '2026-09-28T12:05:02.000Z', imageId: '2枚目' },
+      { text: '盛岡市のガソリンスタンド', at: '2026-09-28T12:05:02.000Z', imageId: '2枚目', lineNo: 0 },
+      { text: '2008年6月29日', at: '2026-09-28T12:05:02.000Z', imageId: '2枚目', lineNo: 1 },
     ])
   })
 
-  it('空文字の組を渡せば、その配信の行をすべて読める', async () => {
+  it('どの行よりも前を指す目印を渡せば、その配信の行をすべて読める', async () => {
     const db = createFakeDatabase()
     await recordStreamOnline(db, { id: 'session-1', startedAt: 配信の開始 })
     await 積む(db, 1, ['岩手17歳女性殺害事件'])
 
-    const 行 = await readScreenLinesSince(db, 'session-1', { at: '', imageId: '' }, 10)
+    const 行 = await readScreenLinesSince(db, 'session-1', 最初の目印, 10)
     expect(行.map((line) => line.text)).toEqual(['岩手17歳女性殺害事件'])
   })
 
@@ -302,38 +315,72 @@ describe('readScreenLinesSince', () => {
     await recordStreamOnline(db, { id: 'session-1', startedAt: 配信の開始 })
     await 積む(db, 1, ['岩手17歳女性殺害事件'])
 
-    expect(await readScreenLinesSince(db, 'session-2', { at: '', imageId: '' }, 10)).toEqual([])
+    expect(await readScreenLinesSince(db, 'session-2', 最初の目印, 10)).toEqual([])
   })
 
-  it('件数の上限を超えたら、古いほうを残す（続きは次の収集で読むため）', async () => {
+  it('件数の上限を超えたら、先に積んだほうを残す（続きは次の収集で読むため）', async () => {
     const db = createFakeDatabase()
     await recordStreamOnline(db, { id: 'session-1', startedAt: 配信の開始 })
-    await 積む(db, 1, ['古い行'])
-    await 積む(db, 2, ['新しい行'])
+    await 積む(db, 1, ['先に積んだ行'])
+    await 積む(db, 2, ['あとで積んだ行'])
 
-    const 行 = await readScreenLinesSince(db, 'session-1', { at: '', imageId: '' }, 1)
-    expect(行.map((line) => line.text)).toEqual(['古い行'])
+    const 行 = await readScreenLinesSince(db, 'session-1', 最初の目印, 1)
+    expect(行.map((line) => line.text)).toEqual(['先に積んだ行'])
+  })
+
+  it('1枚から出た行が件数の上限を超えても、その1枚の途中から続きを読める', async () => {
+    const db = createFakeDatabase()
+    await recordStreamOnline(db, { id: 'session-1', startedAt: 配信の開始 })
+    await 積む(db, 1, ['1行目', '2行目', '3行目'])
+
+    const 一度目 = await readScreenLinesSince(db, 'session-1', 最初の目印, 2)
+    expect(一度目.map((line) => line.text)).toEqual(['1行目', '2行目'])
+    // 目印は1枚ごとではなく1行ごとに進むので、同じ1枚の残りが次の読み出しで材料になる
+    const 続き = 一度目.at(-1)
+    const 二度目 = await readScreenLinesSince(db, 'session-1', { at: 続き!.at, imageId: 続き!.imageId, lineNo: 続き!.lineNo }, 2)
+    expect(二度目.map((line) => line.text)).toEqual(['3行目'])
+  })
+
+  it('撮った時刻の古い1枚があとから積まれても、材料から漏れない', async () => {
+    const db = createFakeDatabase()
+    await recordStreamOnline(db, { id: 'session-1', startedAt: 配信の開始 })
+    // 2枚目のOCRが先に取れて積まれ、1枚目は生成が遅れて次の収集で積まれた場合
+    await 積む(db, 2, ['先に積んだ行'], 撮った時刻 + 10 * 1000)
+    const 積んだ行 = await readScreenLinesSince(db, 'session-1', 最初の目印, 10)
+    const 目印 = 積んだ行.at(-1)!
+    await 積む(db, 1, ['あとで積んだ、撮ったのは古い行'], 撮った時刻 + 20 * 1000)
+
+    const 続き = await readScreenLinesSince(db, 'session-1', { at: 目印.at, imageId: 目印.imageId, lineNo: 目印.lineNo }, 10)
+    expect(続き.map((line) => line.text)).toEqual(['あとで積んだ、撮ったのは古い行'])
   })
 })
 
 describe('readCurrentScreenLines', () => {
-  it('直近に現れた行を、画面に現れた順（古い順）に、撮った時刻を添えて返す', async () => {
+  it('直近に現れた行を、積んだ順に、材料になった時刻を添えて返す', async () => {
     const db = createFakeDatabase()
     await recordStreamOnline(db, { id: 'session-1', startedAt: 配信の開始 })
     await recordScreenCapture(db, 画像のID, 撮った時刻)
     await saveScreenOcr(db, 画像のID, '岩手17歳女性殺害事件')
-    await saveScreenLines(db, { imageId: 画像のID, sessionId: 'session-1', capturedAt: '2026-09-28T12:05:00.000Z' }, ['岩手17歳女性殺害事件'], 撮った時刻)
+    // 篩を通したのは、撮ってから5分後の収集のとき
+    await saveScreenLines(db, { imageId: 画像のID, sessionId: 'session-1', capturedAt: '2026-09-28T12:05:00.000Z' }, ['岩手17歳女性殺害事件'], 撮った時刻 + 5 * 60 * 1000)
 
-    expect(await readCurrentScreenLines(db, 'session-1', 10)).toEqual([{ text: '岩手17歳女性殺害事件', at: '2026-09-28T12:05:00.000Z' }])
+    // 添える時刻は撮った時刻ではなく、材料として使えるようになった時刻である
+    // （呼び出し側が「前回サイドスーパーを作ったあとに新しい行があるか」を判定するため）
+    expect(await readCurrentScreenLines(db, 'session-1', 10)).toEqual([{ text: '岩手17歳女性殺害事件', at: '2026-09-28T12:10:00.000Z' }])
   })
 
-  it('件数の上限を超えたら新しいほうを残し、返すときは古い順に直す', async () => {
+  it('件数の上限を超えたら新しいほうを残し、返すときは積んだ順に直す', async () => {
     const db = createFakeDatabase()
     await recordStreamOnline(db, { id: 'session-1', startedAt: 配信の開始 })
     for (const [番号, 行] of ['古い行', '中ほどの行', '新しい行'].entries()) {
       await recordScreenCapture(db, `${番号}枚目`, 撮った時刻 + 番号 * 1000)
       await saveScreenOcr(db, `${番号}枚目`, 行)
-      await saveScreenLines(db, { imageId: `${番号}枚目`, sessionId: 'session-1', capturedAt: new Date(撮った時刻 + 番号 * 1000).toISOString() }, [行], 撮った時刻)
+      await saveScreenLines(
+        db,
+        { imageId: `${番号}枚目`, sessionId: 'session-1', capturedAt: new Date(撮った時刻 + 番号 * 1000).toISOString() },
+        [行],
+        撮った時刻 + 番号 * 1000,
+      )
     }
 
     expect((await readCurrentScreenLines(db, 'session-1', 2)).map((line) => line.text)).toEqual(['中ほどの行', '新しい行'])
