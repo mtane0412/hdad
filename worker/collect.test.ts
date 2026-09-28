@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { TextGenerator } from './llm'
+import type { LlmUsage } from './llm-config'
 import { MAX_VIEWER_SUMMARY_LENGTH } from './viewer-summary'
 import { STREAM_CHAT_RETENTION_MS, SUMMARY_BATCH_SIZE, collectStats } from './collect'
 import { readStreamSummary } from './stream-summary-store'
@@ -75,16 +76,17 @@ const 画面に現れた行を作る = (
 
 const AIの代役 = (
   response: string | Error = 'ギターの話をよくする常連さん',
-): TextGenerator & { 呼ばれた数: () => number; 渡された材料: string[] } => {
+): TextGenerator & { 呼ばれた数: () => number; 渡された材料: (usage: LlmUsage) => string[] } => {
   let 回数 = 0
-  const 渡された材料: string[] = []
+  const 記録: { usage: LlmUsage; prompt: string }[] = []
   return {
     呼ばれた数: () => 回数,
-    渡された材料,
-    run: async (_usage, request) => {
+    // 材料が漏れなくLLMへ渡っているかを、使う箇所（あらすじ・サイドスーパー）ごとに確かめられるようにする。
+    // 箇条を分けずに全部の文面をまとめて見ると、片方への受け渡しが壊れても、もう片方に入っているだけで通ってしまう
+    渡された材料: (usage) => 記録.filter((一件) => 一件.usage === usage).map((一件) => 一件.prompt),
+    run: async (usage, request) => {
       回数 += 1
-      // 材料が漏れなくLLMへ渡っているかを確かめられるよう、組み立てた文面を控える
-      渡された材料.push(request.messages.map((message) => message.content).join('\n'))
+      記録.push({ usage, prompt: request.messages.map((message) => message.content).join('\n') })
       if (response instanceof Error) throw response
       return response
     },
@@ -513,7 +515,7 @@ describe('あらすじの生成', () => {
 
     await collectStats({ db, store, twitch: Twitchの代役(), ai, broadcasterId: 配信者のID, now: 現在時刻 })
 
-    expect(ai.渡された材料.some((材料) => 材料.includes('岩手17歳女性殺害事件'))).toBe(true)
+    expect(ai.渡された材料('streamSummary').some((材料) => 材料.includes('岩手17歳女性殺害事件'))).toBe(true)
     expect((await readStreamSummary(db, 雑談配信.id))?.screenUntil).toEqual({
       at: new Date(現在時刻 - 90 * 1000).toISOString(),
       imageId: '1枚目',
@@ -641,7 +643,7 @@ describe('サイドスーパーの生成', () => {
 
     await collectStats({ db, store, twitch: Twitchの代役(), ai, broadcasterId: 配信者のID, now: 現在時刻 })
 
-    expect(ai.渡された材料.some((材料) => 材料.includes('ストームヴィル城'))).toBe(true)
+    expect(ai.渡された材料('sideSuper').some((材料) => 材料.includes('ストームヴィル城'))).toBe(true)
   })
 
   it('前回のあとに画面へ新しい文字が現れていれば、喋りも発言も無くても作り直す', async () => {
