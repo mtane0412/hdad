@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 import type { TextGenerator } from './llm'
 import type { LlmUsage } from './llm-config'
 import { MAX_VIEWER_SUMMARY_LENGTH } from './viewer-summary'
-import { STREAM_CHAT_RETENTION_MS, SUMMARY_BATCH_SIZE, collectStats } from './collect'
+import { COLLECT_BUDGET_MS, STREAM_CHAT_RETENTION_MS, SUMMARY_BATCH_SIZE, collectStats } from './collect'
 import { readStreamSummary } from './stream-summary-store'
 import { readSideSuper } from './side-super-store'
 import { MAX_SIDE_SUPER_BODY_LENGTH } from './side-super'
@@ -882,5 +882,175 @@ describe('collectStats（画面に新しく現れた文字の取り出し）', (
     await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
 
     expect(db.sqlite.prepare('SELECT COUNT(*) AS 件数 FROM screen_lines').get()).toEqual({ 件数: 1 })
+  })
+})
+
+describe('collectStats（1回ぶんの時間予算。issue #126）', () => {
+  /** 配信中で、あらすじ・サイドスーパーの材料が揃っている状態を作る */
+  const 配信中の材料を作る = (db: ReturnType<typeof createFakeDatabase>) => {
+    db.sqlite
+      .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, NULL, ?, ?)')
+      .run(雑談配信.id, 雑談配信.startedAt, 雑談配信.title, 雑談配信.categoryName)
+    db.sqlite
+      .prepare('INSERT INTO transcripts (message_id, session_id, spoken_at, text) VALUES (?, ?, ?, ?)')
+      .run('hatsuwa-1', 雑談配信.id, new Date(現在時刻 - 2 * 60 * 1000).toISOString(), '今日は新しいゲームを遊びます')
+  }
+
+  /** 1回目は開始の時刻を返し、2回目以降は予算を使い切った時刻を返す時計 */
+  const 予算を使い切る時計 = () => {
+    let 回数 = 0
+    return () => {
+      回数 += 1
+      return 回数 === 1 ? 現在時刻 : 現在時刻 + COLLECT_BUDGET_MS + 1
+    }
+  }
+
+  it('予算を過ぎても、配信の記録（視聴者数・フォロワー数）は残す', async () => {
+    const { db, store } = await 環境を作る()
+
+    await collectStats({
+      db,
+      store,
+      twitch: Twitchの代役(),
+      ai: AIの代役(),
+      broadcasterId: 配信者のID,
+      now: 現在時刻,
+      clock: 予算を使い切る時計(),
+    })
+
+    expect(await listSessions(db, 現在時刻)).toHaveLength(1)
+    expect(await listFollowerSamples(db)).toHaveLength(1)
+  })
+
+  it('予算を過ぎたら、材料づくり（あらすじ・サイドスーパー・人物像）は次の収集へ回す', async () => {
+    const { db, store } = await 環境を作る()
+    配信中の材料を作る(db)
+    const ai = AIの代役()
+
+    await collectStats({
+      db,
+      store,
+      twitch: Twitchの代役(),
+      ai,
+      broadcasterId: 配信者のID,
+      now: 現在時刻,
+      clock: 予算を使い切る時計(),
+    })
+
+    expect(ai.呼ばれた数()).toBe(0)
+    expect(await readStreamSummary(db, 雑談配信.id)).toBeNull()
+    expect(await readSideSuper(db, 雑談配信.id)).toBeNull()
+  })
+
+  it('予算を過ぎたら、まだ読み取っていない画像のOCRは取りに行かない', async () => {
+    const { db, store } = await 環境を作る()
+    await recordStreamOnline(db, { id: 雑談配信.id, startedAt: Date.parse(雑談配信.startedAt) })
+    await recordScreenCapture(db, '画像1', 現在時刻 - 120 * 1000)
+    await recordScreenCapture(db, '画像2', 現在時刻 - 60 * 1000)
+    const 取りに行った: string[] = []
+    const gyazo = { fetchOcr: async (imageId: string) => (取りに行った.push(imageId), '画面に出ていた文字') }
+    // 1枚目を取りに行ったところで予算を使い切る時計（開始の1回と、1枚目の前の1回までは予算内）
+    let 回数 = 0
+    const clock = () => {
+      回数 += 1
+      return 回数 <= 2 ? 現在時刻 : 現在時刻 + COLLECT_BUDGET_MS + 1
+    }
+
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻, gyazo, clock })
+
+    expect(取りに行った).toEqual(['画像1'])
+  })
+
+  it('予算で打ち切ったことを、何を次へ回したかとともに失敗として記録する', async () => {
+    const { db, store } = await 環境を作る()
+    配信中の材料を作る(db)
+
+    await collectStats({
+      db,
+      store,
+      twitch: Twitchの代役(),
+      ai: AIの代役(),
+      broadcasterId: 配信者のID,
+      now: 現在時刻,
+      clock: 予算を使い切る時計(),
+    })
+
+    const 失敗 = await listFailures(db)
+    expect(失敗).toHaveLength(1)
+    expect(失敗[0]?.code).toBe('collect-budget-exceeded')
+    expect(失敗[0]?.message).toContain('あらすじ')
+  })
+
+  it('あらすじを作っているあいだに予算を使い切ったら、サイドスーパーと人物像を次の収集へ回す', async () => {
+    const { db, store } = await 環境を作る()
+    配信中の材料を作る(db)
+    // 開始と、あらすじを作る前の1回までは予算内。そのあとは予算を使い切っている
+    let 回数 = 0
+    const clock = () => {
+      回数 += 1
+      return 回数 <= 2 ? 現在時刻 : 現在時刻 + COLLECT_BUDGET_MS + 1
+    }
+    const ai = AIの代役(全部が成功する応答)
+
+    await collectStats({ db, store, twitch: Twitchの代役(), ai, broadcasterId: 配信者のID, now: 現在時刻, clock })
+
+    // あらすじは作られ、そのあとのサイドスーパーと人物像は次の収集へ回る
+    expect(ai.呼ばれた数()).toBe(1)
+    expect(await readStreamSummary(db, 雑談配信.id)).not.toBeNull()
+    expect(await readSideSuper(db, 雑談配信.id)).toBeNull()
+    const 失敗 = await listFailures(db)
+    expect(失敗[0]?.message).toContain('サイドスーパー')
+    expect(失敗[0]?.message).toContain('人物像')
+    expect(失敗[0]?.message).not.toContain('あらすじ')
+  })
+
+  it('人物像は1人ごとに予算を見て、残りの人数を次の収集へ回す', async () => {
+    const { db, store } = await 環境を作る()
+    // 終わった配信で発言した2人ぶんの材料を置く（人物像はまだ無い）
+    db.sqlite
+      .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, ?, ?, ?)')
+      .run('owatta-haishin', new Date(現在時刻 - 60 * 60 * 1000).toISOString(), new Date(現在時刻 - 30 * 60 * 1000).toISOString(), '昨日の配信', 'Just Chatting')
+    for (const { userId, 表示名 } of [
+      { userId: '100', 表示名: '花子' },
+      { userId: '200', 表示名: '太郎' },
+    ]) {
+      await recordViewerMessage(db, { userId, login: `user${userId}`, displayName: 表示名, badges: [], messageId: `chat-${userId}` }, 現在時刻 - 10 * 60 * 1000)
+      db.sqlite
+        .prepare('INSERT INTO stream_chat_messages (message_id, session_id, user_id, sent_at, text) VALUES (?, ?, ?, ?, ?)')
+        .run(`hatsugen-${userId}`, 'owatta-haishin', userId, new Date(現在時刻 - 45 * 60 * 1000).toISOString(), 'そのギターいいですね')
+    }
+    // 開始・人物像づくりの入口・1人目の前までは予算内で、2人目の前で予算を使い切っている
+    let 回数 = 0
+    const clock = () => {
+      回数 += 1
+      return 回数 <= 3 ? 現在時刻 : 現在時刻 + COLLECT_BUDGET_MS + 1
+    }
+    const ai = AIの代役()
+
+    await collectStats({ db, store, twitch: Twitchの代役({ getLiveStream: async () => null }), ai, broadcasterId: 配信者のID, now: 現在時刻, clock })
+
+    expect(ai.呼ばれた数()).toBe(1)
+    const 失敗 = await listFailures(db)
+    expect(失敗[0]?.code).toBe('collect-budget-exceeded')
+    expect(失敗[0]?.message).toContain('人物像（残り1人）')
+  })
+
+  it('予算のうちに終われば、何も打ち切らず失敗も残さない', async () => {
+    const { db, store } = await 環境を作る()
+    配信中の材料を作る(db)
+    const ai = AIの代役(全部が成功する応答)
+
+    await collectStats({
+      db,
+      store,
+      twitch: Twitchの代役(),
+      ai,
+      broadcasterId: 配信者のID,
+      now: 現在時刻,
+      clock: () => 現在時刻,
+    })
+
+    expect(ai.呼ばれた数()).toBeGreaterThan(0)
+    expect(await listFailures(db)).toEqual([])
   })
 })

@@ -9,6 +9,9 @@
  *
  * 注意: トークンが無い・更新できない・Twitchが失敗を返したときは、黙って飛ばさない。
  * 失敗をデータベース（collection_failures）に記録したうえでエラーを投げ、cron の実行も失敗として残す（Fail-Fast）。
+ * 注意: 1回ぶんに時間の予算を持つ（COLLECT_BUDGET_MS。issue #126）。外への呼び出し1回ずつには時間制限が
+ * あるが（worker/timeout.ts）、Gyazo を最大30枚とLLMを4か所ぶん逐次に呼ぶので、遅い相手が続くと1回の収集が
+ * 積み上がって長くなる。予算を過ぎたら配信の記録は残したまま、材料づくりだけを次の収集へ回す。
  */
 import type { TextGenerator } from './llm'
 import { deleteOldFirstChatters } from './chat-store'
@@ -131,6 +134,19 @@ export const TRANSCRIPT_RETENTION_MS = 24 * 60 * 60 * 1000
  */
 export const SCREEN_CAPTURE_RETENTION_MS = TRANSCRIPT_RETENTION_MS
 
+/**
+ * 1回の収集に与える時間の予算（ミリ秒）。
+ *
+ * cron は5分（300秒）おきに動くので、次の起動までに必ず終わる長さにする。2分にしてあるのは、
+ * 予算を見るのが処理の切り替わり目だけであり、最後に始めた呼び出しの時間制限（LLMなら60秒）が
+ * そのうしろに乗るためである（2分＋60秒でも5分に収まる）。
+ *
+ * 予算を過ぎても、配信の記録（配信の状態・視聴者数・フォロワー数）と古い記録の掃除は必ず終える。
+ * 捨てるのは材料づくり（OCRの取得・あらすじ・サイドスーパー・人物像）だけで、どれも次の収集でやり直せる
+ * （材料が残っていること自体が「まだ作っていない」という印になっている）。
+ */
+export const COLLECT_BUDGET_MS = 2 * 60 * 1000
+
 export interface CollectStatsOptions {
   db: Database
   store: KeyValueStore
@@ -147,6 +163,13 @@ export interface CollectStatsOptions {
   broadcasterId: string
   /** 現在時刻（ミリ秒） */
   now: number
+  /**
+   * 経過を測るための時計（ミリ秒）。既定は Date.now。
+   *
+   * 記録に使う now と別に持つのは、now が1回の収集で書く行すべてに同じ値を入れる目印であり、
+   * 途中で進めると記録の時刻がばらついてしまうためである。テストでは予算を使い切った時刻を返す代役を渡す。
+   */
+  clock?: () => number
 }
 
 /** 失敗の記録に残すコード。AuthError はそのコード（not-logged-in など）を使う */
@@ -354,12 +377,28 @@ const recordChannelFailures = async (db: Database, failures: readonly string[], 
  * それでも作れなければ保持期間（STREAM_CHAT_RETENTION_MS）で消える。
  * 注意: この失敗で収集そのものを止めない。LLMが使えない日に、配信の記録（視聴者数・フォロワー数）まで
  * 止まってしまうのを避けるためである。黙って飛ばすのではなく collection_failures に残し、管理画面から気づけるようにする。
+ * 注意: 1人ごとに収集の時間の予算を見る（issue #126）。1人にLLMとTwitchを1回ずつ呼ぶので、5人ぶんを
+ * まとめて始めると、入口では予算内だったのに終わりが次の cron の起動に食い込むことがある。
+ *
+ * @returns 予算を使い切って手を付けなかった人数（呼び出し側がまとめて記録する）
  */
-const summarizeViewers = async (db: Database, ai: TextGenerator, readChannel: ReadChannel, now: number): Promise<void> => {
+const summarizeViewers = async (
+  db: Database,
+  ai: TextGenerator,
+  readChannel: ReadChannel,
+  now: number,
+  予算を使い切った: () => boolean,
+): Promise<number> => {
   const targets = await listSummaryTargets(db, SUMMARY_BATCH_SIZE)
   /** チャンネルを観測できなかった人の理由。1回の収集ぶんをまとめて1行に記録する（recordChannelFailures） */
   const channelFailures: string[] = []
+  let 手を付けた = 0
   for (const target of targets) {
+    if (予算を使い切った()) {
+      await recordChannelFailures(db, channelFailures, now)
+      return targets.length - 手を付けた
+    }
+    手を付けた += 1
     const viewer = await readViewer(db, target.userId)
     // 記録を消された人（本人から求められて削除した場合）の材料は、LLMもTwitchも呼ばずに捨てる
     if (viewer === null) {
@@ -385,6 +424,7 @@ const summarizeViewers = async (db: Database, ai: TextGenerator, readChannel: Re
   }
 
   await recordChannelFailures(db, channelFailures, now)
+  return 0
 }
 
 /**
@@ -411,9 +451,18 @@ export const SCREEN_OCR_BATCH_SIZE = 30
  * 起こりうるが、これは次の1枚には当てはまらない理由である。諦めずに止めると、撮った順に引く以上その1枚が
  * 先頭に居座り続け、以降どの収集でも後ろの1枚に永久にたどり着けなくなる。
  */
-const fetchScreenOcr = async (db: Database, gyazo: Pick<GyazoClient, 'fetchOcr'>, now: number): Promise<void> => {
+const fetchScreenOcr = async (
+  db: Database,
+  gyazo: Pick<GyazoClient, 'fetchOcr'>,
+  now: number,
+  予算を使い切った: () => boolean,
+): Promise<number> => {
   const pending = await listPendingOcr(db, SCREEN_OCR_BATCH_SIZE)
+  let 取りに行った = 0
   for (const capture of pending) {
+    // 1枚ごとに見るのは、遅い相手が続くと30枚ぶんが積み上がるためである。取れたぶんはそのまま残る
+    if (予算を使い切った()) return pending.length - 取りに行った
+    取りに行った += 1
     let text: string | null
     try {
       text = await gyazo.fetchOcr(capture.imageId)
@@ -428,6 +477,24 @@ const fetchScreenOcr = async (db: Database, gyazo: Pick<GyazoClient, 'fetchOcr'>
     if (text === null) await countOcrAttempt(db, capture.imageId)
     else await saveScreenOcr(db, capture.imageId, text)
   }
+  return 0
+}
+
+/**
+ * 予算を過ぎて次の収集へ回したものを、まとめて1行に記録する（issue #126）。
+ *
+ * 1つずつ記録すると、同じ収集の2つめが1つめの行を上書きしてしまう（失敗の記録は「時刻と種類」で1行しか
+ * 持てない。migrations/0012_collection_failures_key.sql）ので、チャンネルの観測（recordChannelFailures）と
+ * 同じくまとめて書く。
+ */
+const recordBudgetExceeded = async (db: Database, 回したもの: readonly string[], now: number): Promise<void> => {
+  if (回したもの.length === 0) return
+  await recordFailure(
+    db,
+    'collect-budget-exceeded',
+    `1回の収集の時間の予算（${COLLECT_BUDGET_MS / 1000}秒）を過ぎたので、${回したもの.join('・')}を次の収集へ回しました`,
+    now,
+  )
 }
 
 /**
@@ -488,7 +555,20 @@ const siftScreenOcr = async (db: Database, now: number): Promise<void> => {
   }
 }
 
-const collect = async ({ db, store, twitch, ai, gyazo, broadcasterId, now }: CollectStatsOptions): Promise<void> => {
+const collect = async ({ db, store, twitch, ai, gyazo, broadcasterId, now, clock = Date.now }: CollectStatsOptions): Promise<void> => {
+  const 始めた時刻 = clock()
+  const 予算を使い切った = (): boolean => clock() - 始めた時刻 > COLLECT_BUDGET_MS
+  /** 予算を過ぎて次の収集へ回したもの。まとめて1行に記録する */
+  const 次の収集へ回したもの: string[] = []
+  /** 予算が残っていれば作り、使い切っていたら手を付けずに次の収集へ回す */
+  const 予算のうちに = async (名前: string, 作る: () => Promise<void>): Promise<void> => {
+    if (予算を使い切った()) {
+      次の収集へ回したもの.push(名前)
+      return
+    }
+    await 作る()
+  }
+
   let token = await getAccessToken(store, 'broadcaster', twitch, now)
   let refreshed = false
 
@@ -522,17 +602,29 @@ const collect = async ({ db, store, twitch, ai, gyazo, broadcasterId, now }: Col
 
   // 画面から読み取った文字は、あらすじとサイドスーパーの材料になるので、それらを作る前に取りに行き、篩にかける。
   // 篩は Gyazo を呼ばないので、トークンが無くても（前の収集で取れているぶんを）通す
-  if (gyazo) await fetchScreenOcr(db, gyazo, now)
+  if (gyazo) {
+    const 残した枚数 = await fetchScreenOcr(db, gyazo, now, 予算を使い切った)
+    if (残した枚数 > 0) 次の収集へ回したもの.push(`画面の文字の取得（残り${残した枚数}枚）`)
+  }
+  // 篩は外へ出ないので、予算を過ぎていても通す（通さないと、取れた文字が篩の前で溜まっていくだけになる）
   await siftScreenOcr(db, now)
 
   // あらすじづくりと人物像づくりは、配信の記録を残したあとに行う（LLMが使えなくても記録は残す）。
   // あらすじを先にするのは、配信中の視聴者がコマンドで読むものであり、待たせる相手がいるためである
-  // （人物像は終わった配信のぶんを作るので、1回遅れても誰も困らない）。無料枠は両者で分け合う
+  // （人物像は終わった配信のぶんを作るので、1回遅れても誰も困らない）。無料枠は両者で分け合う。
+  // 1つ作るごとに予算を見るのは、LLMの呼び出しが1回で最大60秒かかるので、入口で1度見るだけでは
+  // 3つぶん（あらすじ・サイドスーパー・人物像5人）が次の cron の起動に食い込むためである（issue #126）
   if (stream) {
-    await summarizeStream(db, ai, stream.id, now)
-    await makeSideSuper(db, ai, stream, now)
+    await 予算のうちに('あらすじ', () => summarizeStream(db, ai, stream.id, now))
+    await 予算のうちに('サイドスーパー', () => makeSideSuper(db, ai, stream, now))
   }
-  await summarizeViewers(db, ai, (userId) => callTwitch((accessToken) => twitch.getChannel(accessToken, userId)), now)
+  if (予算を使い切った()) {
+    次の収集へ回したもの.push('人物像')
+  } else {
+    const 残した人数 = await summarizeViewers(db, ai, (userId) => callTwitch((accessToken) => twitch.getChannel(accessToken, userId)), now, 予算を使い切った)
+    if (残した人数 > 0) 次の収集へ回したもの.push(`人物像（残り${残した人数}人）`)
+  }
+  await recordBudgetExceeded(db, 次の収集へ回したもの, now)
 }
 
 /**
