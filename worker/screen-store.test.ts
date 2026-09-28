@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest'
 import { createFakeDatabase } from './fake-database'
 import {
   OCR_MAX_ATTEMPTS,
+  abandonOcr,
   countOcrAttempt,
   deleteOldScreenCaptures,
   listPendingOcr,
@@ -122,6 +123,17 @@ describe('listPendingOcr', () => {
     await recordScreenCapture(db, '3枚目', 撮った時刻 + 2000)
 
     expect(await listPendingOcr(db, 2)).toHaveLength(2)
+  })
+})
+
+describe('abandonOcr', () => {
+  it('その1枚を、もう取りに行かない扱いにする', async () => {
+    const db = createFakeDatabase()
+    await recordStreamOnline(db, { id: 'session-1', startedAt: 配信の開始 })
+    await recordScreenCapture(db, 画像のID, 撮った時刻)
+
+    await abandonOcr(db, 画像のID)
+    expect(await listPendingOcr(db, 10)).toEqual([])
   })
 })
 

@@ -25,8 +25,8 @@ import { readSideSuper, saveSideSuper } from './side-super-store'
 import { generateSideSuper } from './side-super'
 import { readStreamSummary, saveStreamSummary } from './stream-summary-store'
 import { generateStreamSummary } from './stream-summary'
-import { countOcrAttempt, deleteOldScreenCaptures, listPendingOcr, saveScreenOcr } from './screen-store'
-import type { GyazoClient } from './gyazo'
+import { abandonOcr, countOcrAttempt, deleteOldScreenCaptures, listPendingOcr, saveScreenOcr } from './screen-store'
+import { GyazoApiError, type GyazoClient } from './gyazo'
 import { deleteOldTranscripts, readRecentTranscripts, readTranscriptsSince } from './transcript-store'
 import { ViewerSummaryContentError, generateViewerSummary } from './viewer-summary'
 import { readViewer, updateViewerChannel, updateViewerSummary, type ViewerChannel } from './viewer-store'
@@ -36,6 +36,9 @@ import { AuthError, getAccessToken } from './token'
 import { TwitchApiError, type ChannelInfo, type LiveStream, type TwitchClient } from './twitch'
 
 const UNAUTHORIZED = 401
+
+/** Gyazo が「その画像は無い」と答えるときの状態コード（配信者が画像を消したときに返る） */
+const NOT_FOUND = 404
 
 /**
  * 「その配信で初めての発言」の記録を残しておく期間（ミリ秒）。
@@ -361,6 +364,9 @@ export const SCREEN_OCR_BATCH_SIZE = 30
  * （視聴者数・フォロワー数）まで止めない（人物像づくりと同じ扱い）。黙って飛ばさず collection_failures に残す。
  * 注意: 1枚で失敗したら残りは取りに行かない。失敗の理由（トークンが無効・Gyazo が落ちている）は
  * たいてい次の1枚でも同じなので、続けても外への呼び出しを無駄に使うだけである。
+ * 注意: ただし「その画像が無い」（404）だけは、その1枚を諦めて先へ進む。配信者が Gyazo から画像を消すと
+ * 起こりうるが、これは次の1枚には当てはまらない理由である。諦めずに止めると、撮った順に引く以上その1枚が
+ * 先頭に居座り続け、以降どの収集でも後ろの1枚に永久にたどり着けなくなる。
  */
 const fetchScreenOcr = async (db: Database, gyazo: Pick<GyazoClient, 'fetchOcr'>, now: number): Promise<void> => {
   const pending = await listPendingOcr(db, SCREEN_OCR_BATCH_SIZE)
@@ -370,6 +376,10 @@ const fetchScreenOcr = async (db: Database, gyazo: Pick<GyazoClient, 'fetchOcr'>
       text = await gyazo.fetchOcr(capture.imageId)
     } catch (error) {
       await recordFailure(db, 'screen-ocr-failed', error instanceof Error ? error.message : String(error), now)
+      if (error instanceof GyazoApiError && error.status === NOT_FOUND) {
+        await abandonOcr(db, capture.imageId)
+        continue
+      }
       break
     }
     if (text === null) await countOcrAttempt(db, capture.imageId)

@@ -129,6 +129,20 @@ export const countOcrAttempt = async (db: Database, imageId: string): Promise<vo
 }
 
 /**
+ * その1枚を、もう取りに行かない扱いにする。
+ *
+ * 画像が Gyazo から消えている（404）ときに使う。放っておくと、撮った順に引く listPendingOcr の先頭に
+ * 居座り続け、そこで止まるたびに後ろの1枚も取りに行けなくなる（worker/collect.ts の fetchScreenOcr）。
+ *
+ * 注意: 読み取った文字は入れない。読み取れなかったことと、文字が1つも写っていなかったことは別である。
+ *
+ * @param imageId Gyazo が振った画像ID
+ */
+export const abandonOcr = async (db: Database, imageId: string): Promise<void> => {
+  await db.prepare('UPDATE screen_captures SET ocr_attempts = ?2 WHERE image_id = ?1').bind(imageId, OCR_MAX_ATTEMPTS).run()
+}
+
+/**
  * 期限より古い取り込みの記録を消す。
  *
  * 画面の取り込みは配信中だけ持つものなので、終わった配信のぶんを残しておく意味はない。cron の収集のついでに

@@ -720,6 +720,22 @@ describe('collectStats（配信画面から読み取った文字の取得）', (
     expect(gyazo.取りに行った).toEqual(['画像1'])
   })
 
+  it('その画像が Gyazo から消えていたら（404）、その1枚だけを諦めて残りは取りに行く', async () => {
+    const { db, store } = await 環境を作る()
+    await 撮った1枚を作る(db, '消された画像')
+    await recordScreenCapture(db, '残っている画像', 現在時刻 - 30 * 1000)
+    const gyazo = Gyazoの代役((imageId) =>
+      imageId === '消された画像' ? new GyazoApiError(404, 'Gyazo からのOCRの取得が 404 で失敗しました') : '画面に出ていた文字',
+    )
+
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻, gyazo })
+
+    expect(gyazo.取りに行った).toEqual(['消された画像', '残っている画像'])
+    expect((await listFailures(db)).map((failure) => failure.code)).toContain('screen-ocr-failed')
+    // 消された画像は、次の収集でもう取りに行かない（毎回そこで止まらないようにするため）
+    expect(await listPendingOcr(db, 10)).toEqual([])
+  })
+
   it('Gyazo のアクセストークンが無ければ、取りに行かない', async () => {
     const { db, store } = await 環境を作る()
     await 撮った1枚を作る(db)

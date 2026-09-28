@@ -15,6 +15,6 @@ paths:
 
 Worker は配信中でなければ **Gyazo へ上げない**（配信前の準備画面を外へ出さないため）。上げるのは `worker/gyazo.ts`（`access_policy=only_me`・`metadata_is_public=false`・`fetch` は注入。コレクションの指定があるときだけ `collection_id` を添える）で、保存は `worker/screen-store.ts`（`screen_captures`。画像IDだけを持ち、画像は持たない）。Gyazo のアクセストークン（`GYAZO_ACCESS_TOKEN`）が無いときは黙って捨てず失敗させる。→ `docs/decisions/screen.md`
 
-読み取った文字（OCR）を取りに行くのは **cron だけ**である（`worker/collect.ts` の `fetchScreenOcr`）。上げた直後は生成が終わっていないので、`postScreen` の中では取らない。取り先は `metadata.ocr.description`（トップレベルの `ocr` ではない）。空で返ったら記録せず数えるだけにして次の収集へ回し、`OCR_MAX_ATTEMPTS`（3回）で諦める。1枚で失敗したらその回の残りは取りに行かず、`collection_failures`（`screen-ocr-failed`）に残して収集は続ける。
+読み取った文字（OCR）を取りに行くのは **cron だけ**である（`worker/collect.ts` の `fetchScreenOcr`）。上げた直後は生成が終わっていないので、`postScreen` の中では取らない。取り先は `metadata.ocr.description`（トップレベルの `ocr` ではない）。空で返ったら記録せず数えるだけにして次の収集へ回し、`OCR_MAX_ATTEMPTS`（3回）で諦める。1枚で失敗したらその回の残りは取りに行かず、`collection_failures`（`screen-ocr-failed`）に残して収集は続ける。ただし404（画像が消えている）だけは、その1枚を諦めて（`abandonOcr`）先へ進む（撮った順に引くので、止めるとその1枚が先頭に居座り後ろへ永久にたどり着けない）。
 
 利用者向けの説明は `docs/guide/screen.md`。
