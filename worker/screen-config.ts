@@ -138,9 +138,11 @@ export const saveScreenSettings = (store: KeyValueStore, settings: ScreenSetting
 /**
  * 保存済みの設定を読む。未保存なら既定の設定を返す。
  *
- * 注意: 保存時に検証済みの内容しか書き込まないため、読み出し時の再検証はしない。
+ * 注意: 保存時に検証済みの内容しか書き込まないため、読み出し時の再検証はしない。ただし、あとから足した項目
+ * （collectionId）は前に保存された設定に無いので、既定で埋める。埋めずに返すと、その項目を必ず持つものとして
+ * 読む管理画面（src/screen/api.ts の readScreenSettings）が、設定を読めなくなる。
  */
 export const loadScreenSettings = async (store: KeyValueStore): Promise<ScreenSettings> => {
   const text = await store.get(CONFIG_KEY)
-  return text === null ? DEFAULT_SCREEN_SETTINGS : (JSON.parse(text) as ScreenSettings)
+  return text === null ? DEFAULT_SCREEN_SETTINGS : { ...DEFAULT_SCREEN_SETTINGS, ...(JSON.parse(text) as Partial<ScreenSettings>) }
 }
