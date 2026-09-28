@@ -11,6 +11,10 @@
  * 記録するので、配信者が「相手が応答しなかった」ことに管理画面から気づける。
  * 注意: 相手の応答を待つのをやめるだけでなく、中断の合図（AbortSignal）も渡す。合図を渡さないと、
  * Worker は要求そのものを投げたまま抱え続け、外への呼び出しの枠（サブリクエスト）を無駄に占める。
+ * 注意: 期限は応答の本文を読み終えるまでかける。fetch はヘッダーが返った時点で約束を果たすので、
+ * 本文の読み取り（response.json()）を期限の外に置くと、相手がヘッダーだけ返して本文を止めたときに
+ * そこで止まってしまう。本文を読み切ってから同じ形の応答に作り直して返し、期限による失敗を
+ * TimeoutError に揃える（呼び出し側が「相手が応答しなかった」ことを1つの型で扱えるようにする）。
  * 注意: 合図を渡したうえで、待つのをやめる側（Promise.race）も持つ。中断を見ない相手（Workers AI の
  * バインディングや、テストで差し替える代役）では、合図だけでは待つのをやめられないためである。
  */
@@ -45,6 +49,26 @@ const 期限の見張り = (signal: AbortSignal, 相手: string, milliseconds: n
   })
 
 /**
+ * 本文を持てない応答の状態コード。
+ *
+ * Response は、これらの状態コードでは本文付きで作れない（作ろうとすると例外になる）。Twitchの
+ * モデレーション操作は 204 を返すので、作り直さずにそのまま返す道が必要である。
+ */
+const 本文を持てない状態コード = new Set([101, 103, 204, 205, 304])
+
+/**
+ * 応答の本文を期限のうちに読み切り、同じ形の応答に作り直す。
+ *
+ * 本文を読み切ってから返すので、呼び出し側は response.json() をいつ呼んでも期限に引っかからない。
+ * このツールが受け取る本文はどれも小さいJSON（Gyazo へ送る画像は要求の側）なので、ためらわずに全部読む。
+ */
+const 本文まで読み切る = async (response: Response, 見張り: Promise<never>): Promise<Response> => {
+  if (本文を持てない状態コード.has(response.status) || response.body === null) return response
+  const body = await Promise.race([response.arrayBuffer(), 見張り])
+  return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers })
+}
+
+/**
  * 決めた時間で待つのをやめる通信を作る。
  *
  * @param fetchImpl 元の通信（テストでは代役が渡る）
@@ -54,11 +78,13 @@ const 期限の見張り = (signal: AbortSignal, 相手: string, milliseconds: n
  */
 export const withTimeout =
   (fetchImpl: typeof fetch, milliseconds: number, 相手: string): typeof fetch =>
-  (input, init) => {
+  async (input, init) => {
     const 期限 = AbortSignal.timeout(milliseconds)
     // 呼び出し側が自前の合図を渡していれば、そちらも効いたままにする（どちらが上がっても中断する）
     const signal = init?.signal ? AbortSignal.any([init.signal, 期限]) : 期限
-    return Promise.race([fetchImpl(input, { ...init, signal }), 期限の見張り(期限, 相手, milliseconds)])
+    const 見張り = 期限の見張り(期限, 相手, milliseconds)
+    const response = await Promise.race([fetchImpl(input, { ...init, signal }), 見張り])
+    return await 本文まで読み切る(response, 見張り)
   }
 
 /**

@@ -377,12 +377,28 @@ const recordChannelFailures = async (db: Database, failures: readonly string[], 
  * それでも作れなければ保持期間（STREAM_CHAT_RETENTION_MS）で消える。
  * 注意: この失敗で収集そのものを止めない。LLMが使えない日に、配信の記録（視聴者数・フォロワー数）まで
  * 止まってしまうのを避けるためである。黙って飛ばすのではなく collection_failures に残し、管理画面から気づけるようにする。
+ * 注意: 1人ごとに収集の時間の予算を見る（issue #126）。1人にLLMとTwitchを1回ずつ呼ぶので、5人ぶんを
+ * まとめて始めると、入口では予算内だったのに終わりが次の cron の起動に食い込むことがある。
+ *
+ * @returns 予算を使い切って手を付けなかった人数（呼び出し側がまとめて記録する）
  */
-const summarizeViewers = async (db: Database, ai: TextGenerator, readChannel: ReadChannel, now: number): Promise<void> => {
+const summarizeViewers = async (
+  db: Database,
+  ai: TextGenerator,
+  readChannel: ReadChannel,
+  now: number,
+  予算を使い切った: () => boolean,
+): Promise<number> => {
   const targets = await listSummaryTargets(db, SUMMARY_BATCH_SIZE)
   /** チャンネルを観測できなかった人の理由。1回の収集ぶんをまとめて1行に記録する（recordChannelFailures） */
   const channelFailures: string[] = []
+  let 手を付けた = 0
   for (const target of targets) {
+    if (予算を使い切った()) {
+      await recordChannelFailures(db, channelFailures, now)
+      return targets.length - 手を付けた
+    }
+    手を付けた += 1
     const viewer = await readViewer(db, target.userId)
     // 記録を消された人（本人から求められて削除した場合）の材料は、LLMもTwitchも呼ばずに捨てる
     if (viewer === null) {
@@ -408,6 +424,7 @@ const summarizeViewers = async (db: Database, ai: TextGenerator, readChannel: Re
   }
 
   await recordChannelFailures(db, channelFailures, now)
+  return 0
 }
 
 /**
@@ -543,6 +560,14 @@ const collect = async ({ db, store, twitch, ai, gyazo, broadcasterId, now, clock
   const 予算を使い切った = (): boolean => clock() - 始めた時刻 > COLLECT_BUDGET_MS
   /** 予算を過ぎて次の収集へ回したもの。まとめて1行に記録する */
   const 次の収集へ回したもの: string[] = []
+  /** 予算が残っていれば作り、使い切っていたら手を付けずに次の収集へ回す */
+  const 予算のうちに = async (名前: string, 作る: () => Promise<void>): Promise<void> => {
+    if (予算を使い切った()) {
+      次の収集へ回したもの.push(名前)
+      return
+    }
+    await 作る()
+  }
 
   let token = await getAccessToken(store, 'broadcaster', twitch, now)
   let refreshed = false
@@ -584,23 +609,21 @@ const collect = async ({ db, store, twitch, ai, gyazo, broadcasterId, now, clock
   // 篩は外へ出ないので、予算を過ぎていても通す（通さないと、取れた文字が篩の前で溜まっていくだけになる）
   await siftScreenOcr(db, now)
 
-  // ここから先はLLMを呼ぶので、予算を過ぎていたら始めずに次の収集へ回す。材料は消さずに残るので、
-  // 次の収集で同じ材料から作り直される（issue #126）
-  if (予算を使い切った()) {
-    if (stream) 次の収集へ回したもの.push('あらすじ', 'サイドスーパー')
-    次の収集へ回したもの.push('人物像')
-    await recordBudgetExceeded(db, 次の収集へ回したもの, now)
-    return
-  }
-
   // あらすじづくりと人物像づくりは、配信の記録を残したあとに行う（LLMが使えなくても記録は残す）。
   // あらすじを先にするのは、配信中の視聴者がコマンドで読むものであり、待たせる相手がいるためである
-  // （人物像は終わった配信のぶんを作るので、1回遅れても誰も困らない）。無料枠は両者で分け合う
+  // （人物像は終わった配信のぶんを作るので、1回遅れても誰も困らない）。無料枠は両者で分け合う。
+  // 1つ作るごとに予算を見るのは、LLMの呼び出しが1回で最大60秒かかるので、入口で1度見るだけでは
+  // 3つぶん（あらすじ・サイドスーパー・人物像5人）が次の cron の起動に食い込むためである（issue #126）
   if (stream) {
-    await summarizeStream(db, ai, stream.id, now)
-    await makeSideSuper(db, ai, stream, now)
+    await 予算のうちに('あらすじ', () => summarizeStream(db, ai, stream.id, now))
+    await 予算のうちに('サイドスーパー', () => makeSideSuper(db, ai, stream, now))
   }
-  await summarizeViewers(db, ai, (userId) => callTwitch((accessToken) => twitch.getChannel(accessToken, userId)), now)
+  if (予算を使い切った()) {
+    次の収集へ回したもの.push('人物像')
+  } else {
+    const 残した人数 = await summarizeViewers(db, ai, (userId) => callTwitch((accessToken) => twitch.getChannel(accessToken, userId)), now, 予算を使い切った)
+    if (残した人数 > 0) 次の収集へ回したもの.push(`人物像（残り${残した人数}人）`)
+  }
   await recordBudgetExceeded(db, 次の収集へ回したもの, now)
 }
 

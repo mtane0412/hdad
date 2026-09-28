@@ -50,16 +50,41 @@ describe('withTimeout', () => {
     expect(await response.json()).toEqual({ data: '取れました' })
   })
 
-  it('呼び出し側が中断の合図を渡していれば、それも効いたままにする', () => {
+  it('呼び出し側が中断の合図を渡していれば、それも効いたままにする', async () => {
     const { fetchImpl, 受け取った } = 黙り続けるfetch()
     const 呼び出し側 = new AbortController()
 
-    // 期限（10秒）にはまだ達していないが、呼び出し側がやめれば相手へ渡った合図も上がる
-    void withTimeout(fetchImpl, 10_000, 'Twitch')('https://api.twitch.tv/helix/streams', { signal: 呼び出し側.signal })
+    // 期限（50ミリ秒）にはまだ達していないが、呼び出し側がやめれば相手へ渡った合図も上がる
+    const 待っているもの = withTimeout(fetchImpl, 50, 'Twitch')('https://api.twitch.tv/helix/streams', { signal: 呼び出し側.signal })
     expect(受け取った[0]?.signal?.aborted).toBe(false)
     呼び出し側.abort(new Error('呼び出し側がやめました'))
-
     expect(受け取った[0]?.signal?.aborted).toBe(true)
+
+    // 中断を見ない代役はここでも応答を返さないので、期限まで待って失敗する（約束を捨てたままにしない）
+    await expect(待っているもの).rejects.toBeInstanceOf(TimeoutError)
+  })
+
+  it('応答の本文が届かないまま止まったときも TimeoutError にする', async () => {
+    // ヘッダーだけ返して本文を閉じない応答（相手が途中で黙ったときの形）
+    const fetchImpl = (async () => new Response(new ReadableStream({ start: () => undefined }))) as typeof fetch
+
+    await expect(withTimeout(fetchImpl, 10, 'Gyazo')('https://api.gyazo.com/api/images/abc')).rejects.toBeInstanceOf(TimeoutError)
+  })
+
+  it('本文を持てない応答（204）も、そのまま返す', async () => {
+    const fetchImpl = (async () => new Response(null, { status: 204 })) as typeof fetch
+
+    const response = await withTimeout(fetchImpl, 1000, 'Twitch')('https://api.twitch.tv/helix/moderation/bans')
+    expect(response.status).toBe(204)
+  })
+
+  it('応答の状態コードとヘッダーを保ったまま返す', async () => {
+    const fetchImpl = (async () => Response.json({ message: 'not found' }, { status: 404, headers: { 'X-Test': '1' } })) as typeof fetch
+
+    const response = await withTimeout(fetchImpl, 1000, 'Gyazo')('https://api.gyazo.com/api/images/abc')
+    expect(response.status).toBe(404)
+    expect(response.headers.get('X-Test')).toBe('1')
+    expect(await response.json()).toEqual({ message: 'not found' })
   })
 
   it('相手が失敗を返したときは、その失敗をそのまま投げる（時間制限で置き換えない）', async () => {
