@@ -24,7 +24,7 @@ export type Renderer = (frame: Frame) => void
 
 /** 背景1種類の定義 */
 export interface BackgroundDefinition<T extends ParamSchema = ParamSchema> {
-  /** URLのパスに使うID（wallpaper/<id>/） */
+  /** 構成の中で素材を指すID（合成オーバーレイのデザインの選択欄に出る） */
   readonly id: string
   readonly title: string
   readonly description: string
@@ -32,6 +32,14 @@ export interface BackgroundDefinition<T extends ParamSchema = ParamSchema> {
   /** 解析済みパラメータから描画関数を作る */
   create(params: ParamValues<T>): Renderer
 }
+
+/**
+ * 素材の一覧と調整に必要なぶんだけを取り出した形（描画方法には関知しない）。
+ *
+ * 合成オーバーレイの管理画面（src/overlay/form.ts の DESIGNS）が、壁紙・時計・チャットのレジストリを
+ * 同じ形で並べるために使う。
+ */
+export type DesignItem = Pick<BackgroundDefinition, 'id' | 'title' | 'description' | 'schema'>
 
 /** スキーマから params の型を推論させつつ背景を定義する */
 export const defineBackground = <T extends ParamSchema>(

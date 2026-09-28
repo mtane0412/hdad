@@ -2,10 +2,9 @@
  * パラメータの入力欄（スキーマから自動生成する）
  *
  * 素材のパラメータ宣言（src/core/params.ts のスキーマ）1件から、種類に合う入力欄を1つ描く。
- * ギャラリー（gallery.tsx。1つの素材を試し見しながら調整する）と、合成オーバーレイの管理画面
- * （src/overlay/overlay-page.tsx。レイヤーごとに同じ調整をする）の両方が使うので、ここに分けてある。
+ * 合成オーバーレイの管理画面（src/overlay/overlay-page.tsx）が、レイヤーごとの調整に使う。
  *
- * 注意: 値が書式に合うかどうかは素材ページ側が最後に確かめる（parseParams）。ここでは入力欄の見た目として
+ * 注意: 値が書式に合うかどうかは合成ページ側が最後に確かめる（parseParams）。ここでは入力欄の見た目として
  * 知らせるだけで、書式に合わない文字列もそのまま呼び出し側へ渡す。
  */
 import { useId, useState } from 'react'
@@ -14,7 +13,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Slider } from '@/components/ui/slider'
-import type { AnyParamValue, BooleanParamSpec, ColorParamSpec, ColorsParamSpec, NumberParamSpec, ParamSpec, StringParamSpec } from '../params'
+import type { AnyParamValue, BooleanParamSpec, ColorParamSpec, ColorsParamSpec, NumberParamSpec, ParamSpec, StringParamSpec } from './params'
 
 /** 小数パラメータのスライダーの刻み */
 const DECIMAL_STEP = 0.05

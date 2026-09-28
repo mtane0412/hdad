@@ -20,7 +20,6 @@ import {
   menuGroups,
   menuLabel,
   insertPlaceholder,
-  overlayUrl,
   placeholdersFor,
   rewardOptions,
   supportsShoutout,
@@ -63,12 +62,6 @@ const アラートの動作 = (overrides: Record<string, unknown> = {}) => ({
   volume: 0.35,
   message: '乾杯！',
   ...overrides,
-})
-
-describe('overlayUrl', () => {
-  it('サイトのオリジンとオーバーレイ用キーから、OBSに貼るURLを組み立てる', () => {
-    expect(overlayUrl('https://hdad.example', 'キー/含む')).toBe('https://hdad.example/alerts/?key=%E3%82%AD%E3%83%BC%2F%E5%90%AB%E3%82%80')
-  })
 })
 
 describe('menuGroups', () => {

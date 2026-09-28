@@ -1,12 +1,16 @@
 /**
  * トリガーのページ
  *
- * OBS用のURLと、「どのきっかけで何をするか」（トリガー）の操作盤を出す。きっかけは既定メニューから選び、
+ * オーバーレイ用キーの再発行と、「どのきっかけで何をするか」（トリガー）の操作盤を出す。きっかけは既定メニューから選び、
  * イベント種別と条件の組み立てはしない（このツールは汎用のノーコード自動化を目指していないため）。素材の追加と削除はアップロードのページ
  * （media-page.tsx）が受け持ち、ここでは置いてある素材から選ぶだけにする。ログインの確認とログアウトは
  * アプリの枠（src/app/app.tsx）が受け持つので、ここではログイン済みを前提にする。
  * 画面の状態（素材・報酬・入力中のトリガー）はここで持ち、Workerの呼び出しは api.ts、入力欄の値の変換は form.ts、
  * 操作の実行と結果の表示は page-actions.tsx に任せる。
+ *
+ * アラートを配信画面に出すURLはここでは配らない。アラート専用のオーバーレイ（alerts/）は消したので
+ * （issue #107）、出すには合成オーバーレイの管理画面（/overlay/）で「アラート」の素材を置く。
+ * 一方でオーバーレイ用キーの再発行はこのページだけが受け持つ（キーはすべてのオーバーレイと裏方で共通のため）。
  *
  * 注意: 失敗は黙って無視せず、画面の上部に理由を出す（Fail-Fast）。
  * 素材や保存済みの設定を取得できなければ操作盤を出さない。報酬の一覧とbotの接続状態だけ取得できないときは、操作盤は出したまま理由を出す。
@@ -15,7 +19,7 @@ import { ChevronDown, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -36,7 +40,6 @@ import {
   menuGroups,
   menuLabel,
   insertPlaceholder,
-  overlayUrl,
   placeholdersFor,
   rewardOptions,
   hasAnyAction,
@@ -82,9 +85,6 @@ const MAX_AI_INSTRUCTION_LENGTH = 1000
 /** 空いた日数の条件に入れられる日数の範囲（worker/alert-config.ts の検証と同じ値） */
 const MIN_RETURNING_DAYS = 1
 const MAX_RETURNING_DAYS = 365
-/** ブラウザソースに設定する推奨の大きさ（配信のキャンバスと同じ大きさ。素材は中央に出るため、キャンバス全体を覆う） */
-const OVERLAY_SIZE = { width: 1920, height: 1080 }
-
 /**
  * 失敗の理由を、画面に出す行にする。設定の問題点があれば、1行ずつ並べる。
  *
@@ -776,8 +776,6 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
   const actions = usePageActions((error) => failureLines(error, submittedLabelsRef.current))
   // 保存を待つ間に入力欄が書き換えられたかを、保存の応答が届いた時点で確かめるために持つ
   const draftsRef = useRef(drafts)
-  const urlFieldId = useId()
-  const sizeHintId = useId()
 
   const replaceDrafts = (next: readonly TriggerDraft[]): void => {
     draftsRef.current = next
@@ -843,16 +841,8 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
     )
   }
 
-  const url = overlayUrl(window.location.origin, overlayKey)
   // 足した設定も書き換えた値も、保存するまで反映されない。読み込んだ（保存した）時点の中身と比べて知らせる
   const unsaved = JSON.stringify(drafts) !== savedSignature
-
-  const copyUrl = async (): Promise<string> => {
-    // Clipboard API は https か localhost でしか提供されず、それ以外では navigator.clipboard が undefined になる
-    if (!navigator.clipboard) throw new Error('このページではクリップボードを使えません（https か localhost で開いてください）')
-    await navigator.clipboard.writeText(url)
-    return 'OBS用のURLをコピーしました'
-  }
 
   const rotateKey = async (): Promise<string> => {
     onOverlayKeyChange(await api.rotateOverlayKey())
@@ -934,22 +924,20 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
       )}
       <Card>
         <CardHeader>
-          <CardTitle>OBS用のURL</CardTitle>
-          <CardDescription>背景は透過で、素材は中央に表示される。</CardDescription>
+          <CardTitle>配信画面への出し方</CardTitle>
+          <CardDescription>アラートを映すには、オーバーレイに「アラート」の素材を置く。</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
-          <Label htmlFor={urlFieldId}>OBSのブラウザソースに貼るURL</Label>
-          <p id={sizeHintId} className="text-sm text-muted-foreground">
-            推奨の大きさ: {OVERLAY_SIZE.width} × {OVERLAY_SIZE.height} px（配信のキャンバスと同じ大きさ）
+          <p className="text-sm text-muted-foreground">
+            置いたあとは、トリガーをこのページで変えるだけでよい（OBSのURLは貼り替えなくてよい）。
           </p>
-          <div className="flex gap-2">
-            {/* URLにはオーバーレイ用キーが含まれる。配信画面に映り込んでも読めないよう、伏せ字で表示する */}
-            <Input id={urlFieldId} type="password" readOnly autoComplete="off" value={url} aria-describedby={sizeHintId} />
-            <Button type="button" disabled={actions.busy} onClick={() => void actions.run(copyUrl)}>
-              URLをコピー
-            </Button>
-          </div>
-          <p className="text-sm text-muted-foreground">URLが他人に知られたら、キーを再発行してください。</p>
+          {/* オーバーレイの管理画面はアプリのページなので、router.tsx の Link で移る */}
+          <Link href="/overlay/" className={buttonVariants({ variant: 'outline' })}>
+            オーバーレイの構成を開く
+          </Link>
+          <p className="text-sm text-muted-foreground">
+            オーバーレイのURLにはオーバーレイ用キーが含まれる。URLが他人に知られたら、キーを再発行してください（すべてのオーバーレイと裏方で共通のキーなので、貼り替えはそのすべてで必要になる）。
+          </p>
           <Button
             type="button"
             variant="outline"

@@ -15,7 +15,7 @@
  *
  * 注意: 1つの裏方の失敗で、もう一方は動かし続ける（合成ページが素材について設けた例外と同じ。
  * 1枚にまとめたせいで、片方の失敗がもう一方まで巻き込むことがないようにする）。失敗はその裏方の箱に出す。
- * 注意: 素材ページの約束どおり、React もログインも持ち込まない。
+ * 注意: OBSに載せるページの約束どおり、React もログインも持ち込まない。
  */
 import { showError } from '../core/mount'
 import { ParamError, parseParams, type ParamSchema } from '../core/params'

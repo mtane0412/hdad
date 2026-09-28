@@ -1,36 +1,21 @@
 /**
  * canvas を使う素材（壁紙・時計）の起動処理
  *
- * 素材ごとのページ（wallpaper/<id>/index.html・clock/<id>/index.html）と、素材を重ねる合成ページ
- * （overlay/stage/index.html）の両方から使う。どちらも「canvas 1枚に1つの素材を描く」ところは同じで、
- * 違うのは canvas の大きさの基準と、描画ループを誰が回すかである。
+ * 合成ページ（overlay/stage/index.html）が、素材ごとの canvas を1枚ずつ起動するのに使う。
+ * canvas はレイヤーの箱の中に置かれ、描画ループ（requestAnimationFrame）はオーバーレイで1本だけ
+ * 合成ページが回す（レイヤーごとに張ると、ページをまとめてもループの本数が元に戻る。issue #101）。
+ * そのためこのファイルは、ループを回さず「1フレームぶんの描画」（DrawFrame）を返す形（startCanvasLayer）にしてある。
  *
- * - 素材ごとのページ: canvas はページ全体に広がり、このファイルが描画ループ（requestAnimationFrame）を回す
- * - 合成ページ: canvas はレイヤーの箱の中に置かれ、描画ループは段で1本だけ合成ページが回す
- *   （レイヤーごとに張ると、ページをまとめてもループの本数が元に戻る。issue #101）
- *
- * そのため、このファイルは「1フレームぶんの描画」（DrawFrame）を返す形（startCanvasLayer）を土台にし、
- * 素材ごとのページ向けにループまで面倒を見る形（mountStage）をその上に置く。
  * canvas の大きさは窓（window.innerWidth）ではなく**canvas 自身のCSS上の大きさ**を基準にするので、
- * レイヤーの箱に入れてもそのまま動く（大きさの変化は ResizeObserver で追う）。
+ * レイヤーの箱の大きさを変えてもそのまま追従する（大きさの変化は ResizeObserver で追う）。
  *
  * 起動に失敗した場合は、OBS上でも原因が分かるよう画面にエラー内容を表示する（showError）。
- * canvas を使わない素材（チャットボックス・アラートなど）も、エラー表示だけをここから使う。
+ * canvas を使わない素材（チャットボックス・アラートなど）や裏方のページも、エラー表示だけをここから使う。
  */
 import type { BackgroundDefinition } from './background'
 import { ParamError, parseParams } from './params'
 
 const MILLISECONDS_PER_SECOND = 1000
-
-/** 起動対象の指定 */
-export interface MountTarget {
-  /** そのカテゴリのレジストリ */
-  readonly definitions: readonly BackgroundDefinition[]
-  /** 素材IDを持つ data 属性の名前（background なら data-background） */
-  readonly attribute: string
-  /** エラー表示で素材を指す呼び名（「背景」「時計」など） */
-  readonly noun: string
-}
 
 /**
  * 1フレームぶんの描画。
@@ -69,7 +54,7 @@ export const findDefinition = (
  *
  * @param canvas 描画先。CSS上の大きさ（箱に入れた場合は箱の大きさ）が描画の基準になる
  * @param definition 素材の定義（レジストリの1件）
- * @param searchParams 素材のパラメータ（素材ごとのページでは location.search、合成ページでは構成が持つ文字列）
+ * @param searchParams 素材のパラメータ（合成ページの構成が持つクエリ文字列）
  * @throws ParamError パラメータに問題がある場合
  * @throws Error 2D描画コンテキストを取得できない場合
  */
@@ -166,30 +151,4 @@ export const showError = (
  */
 export const clearError = (box: HTMLElement, source: ErrorSource): void => {
   for (const panel of box.querySelectorAll(`:scope > .stage-error[data-error-source="${source}"]`)) panel.remove()
-}
-
-/**
- * 素材ごとのページを起動する（canvas をページ全体に広げ、描画ループを回す）。
- *
- * @param target 起動対象（レジストリと data 属性名）
- * @throws 起動に失敗した場合。画面にエラーを表示したうえで、コンソールでも追えるよう投げ直す
- */
-export const mountStage = (target: MountTarget): void => {
-  try {
-    const { definitions, attribute, noun } = target
-    const canvas = document.querySelector<HTMLCanvasElement>(`canvas[data-${attribute}]`)
-    if (!canvas) throw new Error(`data-${attribute} 属性を持つ canvas 要素が見つかりません`)
-
-    const definition = findDefinition(definitions, canvas.dataset[attribute], noun)
-    const draw = startCanvasLayer(canvas, definition, new URLSearchParams(location.search))
-
-    const loop = (elapsedMs: number): void => {
-      draw(elapsedMs)
-      requestAnimationFrame(loop)
-    }
-    requestAnimationFrame(loop)
-  } catch (error) {
-    showError(error, target.noun)
-    throw error
-  }
 }

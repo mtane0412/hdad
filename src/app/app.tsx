@@ -4,7 +4,7 @@
  * ページUIはTwitchログインを前提にする。開いたらまず /api/me でログインを確かめ、
  * ログインしていなければ入口だけを出し、ログインしていればサイドバー付きの画面を出す。
  * どのページUIのURL（/wallpaper/ など）を開いてもこの枠が出て、中身だけがパスに応じて切り替わる（ページの一覧は pages.tsx）。
- * OBSに載せる素材ページ（<カテゴリ>/<id>/・alerts/）はこの枠を通らないので、ログインなしで動く。
+ * OBSに載せるページ（overlay/stage/・overlay/backstage/ など）はこの枠を通らないので、ログインなしで動く。
  *
  * 注意: ログインの確認に失敗したとき（Workerに届かないなど）は未ログイン扱いにせず、エラーを出す（Fail-Fast）。
  * api を引数で受け取るのは、テストで差し替えるため。
@@ -141,7 +141,7 @@ const Shell = ({ context, onLogout }: { context: PageContext; onLogout: () => vo
             <SidebarTrigger aria-label="サイドバーを開閉する" />
             <h1 className="text-sm font-medium">{page ? page.name : 'ページが見つかりません'}</h1>
           </header>
-          {/* ギャラリー同士は同じ部品なので、ページが変わったら key で作り直して前のページの状態を持ち越さない */}
+          {/* ページが変わったら key で作り直し、前のページの状態を持ち越さない */}
           <div key={pathname} className="p-6">
             {page ? page.render(context) : <NotFound pathname={pathname} />}
           </div>

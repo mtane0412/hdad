@@ -1,13 +1,16 @@
 /**
  * サイドスーパーのパラメータ宣言（寄せる向き）
  *
- * 単独のオーバーレイ（side-super/overlay/index.html）と合成ページ（overlay/stage/index.html）の両方が
- * 同じ向きの指定を受け取るので、スキーマの宣言をここ1か所に置いて共有する。
- * 単独のオーバーレイはこれに ?key= と ?demo= を足したスキーマを使い、合成ページはレイヤーの
- * パラメータ（構成が持つクエリ文字列）としてこれだけを使う。
+ * 合成ページ（overlay/stage/index.html）がレイヤーのパラメータ（構成が持つクエリ文字列）として読む。
+ * 向きは配信者がオーバーレイの管理画面（/overlay/）で選ぶので、スキーマの宣言はここ1か所に置く。
  */
 import type { ParamSchema } from '../core/params'
-import { DEFAULT_SIDE_SUPER_POSITION } from './url'
+
+/** 画面のどちら側に出すか */
+export type SideSuperPosition = 'left' | 'right'
+
+/** 寄せる向きの既定。パラメータに書かなければこちらになる */
+export const DEFAULT_SIDE_SUPER_POSITION: SideSuperPosition = 'left'
 
 /** 寄せる向きの指定。合成ページでは箱の中のどちら側に寄せるかになる */
 export const sideSuperParamSchema = {

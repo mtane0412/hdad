@@ -27,7 +27,7 @@ export interface SideSuperView {
 /**
  * サイドスーパーの表示を組み立てる。
  *
- * @param root 表示を入れる要素（side-super/overlay/index.html の [data-side-super]）
+ * @param root 表示を入れる要素（合成ページが作る [data-side-super] の要素）
  */
 export const createSideSuperView = (root: HTMLElement): SideSuperView => {
   /** いま映している行。読み直したときに作り直すかどうかの判定に使う */

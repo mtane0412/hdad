@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 /**
- * トリガーのページ（OBS用のURL・トリガー）のテスト
+ * トリガーのページ（オーバーレイ用キー・トリガー）のテスト
  *
  * 確かめること:
- * - OBS用のURLを伏せ字で出し、コピーとキーの再発行ができること（再発行は確認してから）
- * - URL欄に、ブラウザソースへ設定する推奨の幅と高さが添えられること
+ * - OBSに貼るURLは配らず、合成オーバーレイの管理画面（/overlay/）へ案内すること（単独ページを消した issue #107）
+ * - オーバーレイ用キーを再発行できること（確認してから）
  * - トリガーは折りたたんで並び、見出しの要約を押すと入力欄が開くこと（開くのは1件ずつ）
  * - どの項目も同じ枠に入って並び、効果はバッジで出ること（複数の設定を持てる項目だけ見た目が変わらない）
  * - 区分（チャット・イベント）を畳めること
@@ -59,10 +59,8 @@ const トリガーのページ = (api: AdminApi, props: Partial<React.ComponentP
   <TriggerPage api={api} botApi={代役のBotAPI()} overlayKey="ima-no-key" onOverlayKeyChange={() => {}} {...props} />
 )
 
-const URL欄 = (): HTMLElement => screen.getByLabelText('OBSのブラウザソースに貼るURL')
 /** 操作の結果のお知らせ。音量の表示（output 要素）も role="status" を持つので、役割ではなく文言で探す */
 const お知らせ = (text: string): Promise<HTMLElement> => screen.findByText(new RegExp(text))
-const アラートのURL = (key: string): string => `${window.location.origin}/alerts/?key=${key}`
 
 /**
  * スライダーの入力要素を名前で探す。
@@ -107,29 +105,13 @@ const 保存する = async (): Promise<void> => {
 
 afterEach(cleanup)
 
-describe('OBS用のURL', () => {
-  test('キーが配信画面に映り込んでも読めないよう、伏せ字で出す', async () => {
+describe('オーバーレイ用キー', () => {
+  test('OBSに貼るURLは出さず、合成オーバーレイの管理画面へ案内する', async () => {
     render(トリガーのページ(代役のAPI()))
 
-    expect(await screen.findByLabelText('OBSのブラウザソースに貼るURL')).toHaveValue(アラートのURL('ima-no-key'))
-    expect(URL欄()).toHaveAttribute('type', 'password')
-    expect(URL欄()).toHaveAttribute('readonly')
-  })
-
-  test('URL欄に、ブラウザソースへ設定する推奨の幅と高さを添える', async () => {
-    render(トリガーのページ(代役のAPI()))
-
-    expect(await screen.findByText('推奨の大きさ: 1920 × 1080 px（配信のキャンバスと同じ大きさ）')).toBeInTheDocument()
-  })
-
-  test('URLをコピーできる', async () => {
-    const user = userEvent.setup()
-    render(トリガーのページ(代役のAPI()))
-
-    await user.click(await screen.findByRole('button', { name: 'URLをコピー' }))
-
-    expect(await お知らせ('OBS用のURLをコピーしました')).toBeInTheDocument()
-    expect(await window.navigator.clipboard.readText()).toBe(アラートのURL('ima-no-key'))
+    // アラート専用のページは消したので（issue #107）、この画面はURLを配らない
+    expect(screen.queryByLabelText('OBSのブラウザソースに貼るURL')).not.toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: 'オーバーレイの構成を開く' })).toHaveAttribute('href', '/overlay/')
   })
 
   test('キーの再発行は確認してから行い、新しいキーを呼び出し元へ知らせる', async () => {
@@ -162,7 +144,7 @@ describe('OBS用のURL', () => {
     render(トリガーのページ(代役のAPI(), { overlayKey: null }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('オーバーレイ用キーが発行されていません')
-    expect(screen.queryByLabelText('OBSのブラウザソースに貼るURL')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'キーを再発行する' })).not.toBeInTheDocument()
   })
 })
 

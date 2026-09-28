@@ -108,7 +108,7 @@ export const createSpeechApi = (fetchImpl: typeof fetch): SpeechApi => {
 /**
  * 読み上げのページからの読み出しを組み立てる。
  *
- * 読み上げのページは素材ページなのでログインを持たず、オーバーレイ用キー（URLの ?key=）で
+ * 読み上げのページはOBSに載せるページなのでログインを持たず、オーバーレイ用キー（URLの ?key=）で
  * Worker に受け付けてもらう（サイドスーパーのオーバーレイと同じ）。
  *
  * @param fetchImpl 通信の実装
