@@ -6,6 +6,7 @@
  * - 名乗りが通る（Identified）まで、つながったことにしないこと
  * - 要求と応答を requestId で結び付けること（撮影と場面の問い合わせが入れ違わないため）
  * - つながらないまま閉じたときに、待っている呼び出しを失敗させること（黙って待ち続けない）
+ * - 閉じられた理由（クローズコード）を文面に反映すること（パスワード違いを接続の失敗と取り違えないため）
  * - 名乗りへの答えが返ってこないまま時間が過ぎたら、待ち続けずに失敗させること
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -39,7 +40,7 @@ const 作る偽のソケット = () => {
     閉じた: () => 閉じた,
     開く: () => 起こす('open'),
     届ける: (メッセージ: unknown) => 起こす('message', { data: JSON.stringify(メッセージ) }),
-    閉じる: () => 起こす('close'),
+    閉じる: (event: { code?: number; reason?: string } = {}) => 起こす('close', event),
   }
 }
 
@@ -145,6 +146,25 @@ describe('connectObs', () => {
     偽のソケット.閉じる()
 
     await expect(つなぐ).rejects.toThrow(/ws:\/\/localhost:4455/)
+  })
+
+  it('パスワードが違って閉じられたら、パスワードが違うと分かる文面で失敗させる', async () => {
+    const 偽のソケット = 作る偽のソケット()
+    const つなぐ = connectObs({ url: 'ws://localhost:4455', password: '違うパスワード', createSocket: () => 偽のソケット.socket })
+
+    // obs-websocket はパスワードが違うと、つないだ直後にクローズコード 4009 で切る
+    偽のソケット.閉じる({ code: 4009, reason: 'Authentication failed.' })
+
+    await expect(つなぐ).rejects.toThrow(/パスワード/)
+  })
+
+  it('ほかの理由で閉じられたら、クローズコードを文面に添える', async () => {
+    const 偽のソケット = 作る偽のソケット()
+    const つなぐ = connectObs({ url: 'ws://localhost:4455', password: '', createSocket: () => 偽のソケット.socket })
+
+    偽のソケット.閉じる({ code: 4010, reason: 'Unsupported RPC version.' })
+
+    await expect(つなぐ).rejects.toThrow(/4010/)
   })
 
   it('名乗りへの答えが返ってこないまま時間が過ぎたら、待ち続けずに失敗させる', async () => {

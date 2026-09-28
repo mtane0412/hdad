@@ -14,6 +14,8 @@
  * 注意: つながらないまま閉じたときと、名乗りへの答え（Identified）が返ってこないまま待ち時間が過ぎたときは、
  * 黙って待ち続けずに失敗させる（Fail-Fast）。答えが返らないのは、OBSが応答しなくなった場合のほか、
  * 認証に失敗して OBS が閉じるのを待っているあいだにも起こりうる。
+ * 注意: 名乗りが通る前に閉じられたときは、クローズコードで文面を分ける。パスワード違い（4009）を
+ * 「つながりませんでした」に丸めると、配信者が待ち受けやブラウザの側を疑うことになる。
  */
 import { authenticationOf, identifyMessage, readObsMessage, requestMessage } from './protocol'
 
@@ -25,6 +27,22 @@ import { authenticationOf, identifyMessage, readObsMessage, requestMessage } fro
 export const CONNECT_TIMEOUT_MS = 10000
 
 /**
+ * obs-websocket がパスワード違いで切るときのクローズコード。
+ *
+ * この場合つないだ直後に切られるので、ほかの「つながらない」と同じ文面にすると、待ち受けやブラウザの側を
+ * 疑うことになって原因にたどり着けない（実際に遠回りした。docs/decisions/screen.md）。
+ */
+const CLOSE_AUTHENTICATION_FAILED = 4009
+
+/**
+ * obs-websocket が自分の都合で切るときのクローズコードの下限。
+ *
+ * これ以上の番号で切られたということは、OBS には届いていて名乗りの途中で断られたということなので、
+ * 起動や混在コンテンツを疑う文面を出さない。
+ */
+const CLOSE_OBS_MIN = 4000
+
+/**
  * 接続に使う WebSocket の、このファイルが使う部分だけ。
  *
  * テストで差し替えられるよう、ブラウザの WebSocket そのものではなくこの形で受け取る。
@@ -32,8 +50,8 @@ export const CONNECT_TIMEOUT_MS = 10000
 export interface ObsSocketEvents {
   /** 1件届いた（読み取りは protocol.ts が行う） */
   message: { data: unknown }
-  /** 接続が閉じた */
-  close: unknown
+  /** 接続が閉じた。理由（クローズコード）が分かるものは、それも受け取る */
+  close: { code?: number; reason?: string }
 }
 
 export interface ObsSocketLike {
@@ -154,18 +172,37 @@ export const connectObs = ({ url, password, createSocket }: ConnectObsOptions): 
       }
     })
 
-    socket.addEventListener('close', () => {
-      fail(
-        open
-          ? new Error(`${url} との接続が切れました`)
-          : new Error(
-              [
-                `${url} につながりませんでした。`,
-                'OBSが起動していて、ツール > WebSocketサーバー設定 でサーバーが有効になっているかを確かめてください。',
-                'ブラウザが ws:// への接続（混在コンテンツ）を拒んでいる可能性もあります。',
-              ].join('\n'),
-            ),
+    /** 名乗りが通る前に閉じられたときの失敗。理由（クローズコード）ごとに、次に何を確かめればよいかを分ける */
+    const failureOfClose = ({ code, reason }: { code?: number; reason?: string }): Error => {
+      const 理由 = `クローズコード ${String(code)}${reason === undefined || reason === '' ? '' : `: ${reason}`}`
+      if (code === CLOSE_AUTHENTICATION_FAILED) {
+        return new Error(
+          [
+            `${url} のパスワードが違います（${理由}）。`,
+            'OBSの ツール > WebSocketサーバー設定 > 接続情報を表示 でパスワードを確かめ、管理画面の画面の取り込みに入れ直してください。',
+            '伏せ字のまま見本をコピーしても値は入りません。OBSで認証を切っているなら、パスワードは空にしてください。',
+          ].join('\n'),
+        )
+      }
+      if (code !== undefined && code >= CLOSE_OBS_MIN) {
+        return new Error(
+          [
+            `${url} にはつながりましたが、名乗りが通る前に OBS から切られました（${理由}）。`,
+            'OBSのWebSocketサーバー設定と、管理画面の画面の取り込みの設定が合っているかを確かめてください。',
+          ].join('\n'),
+        )
+      }
+      return new Error(
+        [
+          `${url} につながりませんでした。`,
+          'OBSが起動していて、ツール > WebSocketサーバー設定 でサーバーが有効になっているかを確かめてください。',
+          'ブラウザが ws:// への接続（混在コンテンツ）を拒んでいる可能性もあります。',
+        ].join('\n'),
       )
+    }
+
+    socket.addEventListener('close', (event) => {
+      fail(open ? new Error(`${url} との接続が切れました`) : failureOfClose(event))
     })
   })
 
