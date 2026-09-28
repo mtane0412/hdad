@@ -18,8 +18,10 @@ import {
   deleteOldScreenLines,
   listPendingOcr,
   listPendingSift,
+  readCurrentScreenLines,
   readOwnScreenTexts,
   readRecentScreenLines,
+  readScreenLinesSince,
   recordScreenCapture,
   saveScreenLines,
   saveScreenOcr,
@@ -261,6 +263,90 @@ describe('readRecentScreenLines', () => {
     }
 
     expect(await readRecentScreenLines(db, 'session-1', 1)).toEqual(['新しい行'])
+  })
+})
+
+describe('readScreenLinesSince', () => {
+  /** 1枚ぶんの行を積む。撮った時刻は画像IDの番号で1秒ずつずらす */
+  const 積む = async (db: ReturnType<typeof createFakeDatabase>, 番号: number, lines: readonly string[]): Promise<void> => {
+    const 時刻 = 撮った時刻 + 番号 * 1000
+    await recordScreenCapture(db, `${番号}枚目`, 時刻)
+    await saveScreenOcr(db, `${番号}枚目`, lines.join('\n'))
+    await saveScreenLines(db, { imageId: `${番号}枚目`, sessionId: 'session-1', capturedAt: new Date(時刻).toISOString() }, lines, 時刻)
+  }
+
+  it('目印より後の行を、画面に現れた順に返す', async () => {
+    const db = createFakeDatabase()
+    await recordStreamOnline(db, { id: 'session-1', startedAt: 配信の開始 })
+    await 積む(db, 1, ['岩手17歳女性殺害事件'])
+    await 積む(db, 2, ['盛岡市のガソリンスタンド', '2008年6月29日'])
+
+    const 行 = await readScreenLinesSince(db, 'session-1', { at: '2026-09-28T12:05:01.000Z', imageId: '1枚目' }, 10)
+    expect(行).toEqual([
+      { text: '盛岡市のガソリンスタンド', at: '2026-09-28T12:05:02.000Z', imageId: '2枚目' },
+      { text: '2008年6月29日', at: '2026-09-28T12:05:02.000Z', imageId: '2枚目' },
+    ])
+  })
+
+  it('空文字の組を渡せば、その配信の行をすべて読める', async () => {
+    const db = createFakeDatabase()
+    await recordStreamOnline(db, { id: 'session-1', startedAt: 配信の開始 })
+    await 積む(db, 1, ['岩手17歳女性殺害事件'])
+
+    const 行 = await readScreenLinesSince(db, 'session-1', { at: '', imageId: '' }, 10)
+    expect(行.map((line) => line.text)).toEqual(['岩手17歳女性殺害事件'])
+  })
+
+  it('別の配信の行は読まない', async () => {
+    const db = createFakeDatabase()
+    await recordStreamOnline(db, { id: 'session-1', startedAt: 配信の開始 })
+    await 積む(db, 1, ['岩手17歳女性殺害事件'])
+
+    expect(await readScreenLinesSince(db, 'session-2', { at: '', imageId: '' }, 10)).toEqual([])
+  })
+
+  it('件数の上限を超えたら、古いほうを残す（続きは次の収集で読むため）', async () => {
+    const db = createFakeDatabase()
+    await recordStreamOnline(db, { id: 'session-1', startedAt: 配信の開始 })
+    await 積む(db, 1, ['古い行'])
+    await 積む(db, 2, ['新しい行'])
+
+    const 行 = await readScreenLinesSince(db, 'session-1', { at: '', imageId: '' }, 1)
+    expect(行.map((line) => line.text)).toEqual(['古い行'])
+  })
+})
+
+describe('readCurrentScreenLines', () => {
+  it('直近に現れた行を、画面に現れた順（古い順）に、撮った時刻を添えて返す', async () => {
+    const db = createFakeDatabase()
+    await recordStreamOnline(db, { id: 'session-1', startedAt: 配信の開始 })
+    await recordScreenCapture(db, 画像のID, 撮った時刻)
+    await saveScreenOcr(db, 画像のID, '岩手17歳女性殺害事件')
+    await saveScreenLines(db, { imageId: 画像のID, sessionId: 'session-1', capturedAt: '2026-09-28T12:05:00.000Z' }, ['岩手17歳女性殺害事件'], 撮った時刻)
+
+    expect(await readCurrentScreenLines(db, 'session-1', 10)).toEqual([{ text: '岩手17歳女性殺害事件', at: '2026-09-28T12:05:00.000Z' }])
+  })
+
+  it('件数の上限を超えたら新しいほうを残し、返すときは古い順に直す', async () => {
+    const db = createFakeDatabase()
+    await recordStreamOnline(db, { id: 'session-1', startedAt: 配信の開始 })
+    for (const [番号, 行] of ['古い行', '中ほどの行', '新しい行'].entries()) {
+      await recordScreenCapture(db, `${番号}枚目`, 撮った時刻 + 番号 * 1000)
+      await saveScreenOcr(db, `${番号}枚目`, 行)
+      await saveScreenLines(db, { imageId: `${番号}枚目`, sessionId: 'session-1', capturedAt: new Date(撮った時刻 + 番号 * 1000).toISOString() }, [行], 撮った時刻)
+    }
+
+    expect((await readCurrentScreenLines(db, 'session-1', 2)).map((line) => line.text)).toEqual(['中ほどの行', '新しい行'])
+  })
+
+  it('別の配信の行は返さない', async () => {
+    const db = createFakeDatabase()
+    await recordStreamOnline(db, { id: 'session-1', startedAt: 配信の開始 })
+    await recordScreenCapture(db, 画像のID, 撮った時刻)
+    await saveScreenOcr(db, 画像のID, '岩手17歳女性殺害事件')
+    await saveScreenLines(db, { imageId: 画像のID, sessionId: 'session-1', capturedAt: '2026-09-28T12:05:00.000Z' }, ['岩手17歳女性殺害事件'], 撮った時刻)
+
+    expect(await readCurrentScreenLines(db, 'session-2', 10)).toEqual([])
   })
 })
 

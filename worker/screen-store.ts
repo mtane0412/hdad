@@ -248,6 +248,94 @@ export const readRecentScreenLines = async (db: Database, sessionId: string, lim
   return results.map((row) => row.text)
 }
 
+/** 画面に現れた1行と、それを撮った1枚の手がかり */
+export interface ScreenLine {
+  /** 画面に現れた文字 */
+  readonly text: string
+  /** 撮った時刻（UTCのISO 8601） */
+  readonly at: string
+  /** Gyazo が振った画像ID */
+  readonly imageId: string
+}
+
+/**
+ * どこまであらすじの材料にしたかの目印。
+ *
+ * 撮った時刻だけでは足りない。同じ時刻に撮った1枚が件数の上限で分かれると、残りが次からの
+ * 「この時刻より後」に一度も入らず永久に漏れる。読む順（撮った時刻・画像IDの順）と同じ組で比べる
+ * （worker/transcript-store.ts の TranscriptCursor と同じ理由）。
+ *
+ * 1枚の中の並び（line_no）は持たない。篩は1枚ぶんの行をまとめて積むので、材料にするのも1枚ぶん
+ * まとめてであり、1枚の途中で切れることがないためである。
+ */
+export interface ScreenLineCursor {
+  at: string
+  imageId: string
+}
+
+/**
+ * その配信で画面に現れた行のうち、まだあらすじの材料にしていないぶんを、現れた順に読む。
+ *
+ * あらすじ（worker/stream-summary.ts）は前回のあらすじに新しい材料を積み上げて書き直させるので、
+ * 読むのは続きだけでよい（発話・発言と同じ形）。
+ *
+ * @param since この目印より後のぶんだけを読む。まだ一度もあらすじを作っていなければ、時刻も画像IDも
+ *   空文字を渡す（どの値よりも小さいので全件が読める）
+ * @param limit 読む件数の上限。超えたぶんは新しいほうを切り、次にあらすじを作るときへ回す
+ *   （呼び出し側は読めた行の最後を目印として記録するため、取りこぼしにはならない）
+ */
+export const readScreenLinesSince = async (
+  db: Database,
+  sessionId: string,
+  since: ScreenLineCursor,
+  limit: number,
+): Promise<ScreenLine[]> => {
+  const { results } = await db
+    .prepare(
+      // 並べ替えと同じ組で比べる。片方だけで比べると、同じ時刻の1枚が目印の前後に分かれてしまう
+      `SELECT text, captured_at AS at, image_id AS imageId FROM screen_lines
+       WHERE session_id = ?1 AND (captured_at, image_id) > (?2, ?3)
+       ORDER BY captured_at, image_id, line_no
+       LIMIT ?4`,
+    )
+    .bind(sessionId, since.at, since.imageId, limit)
+    .all<ScreenLine>()
+  return results
+}
+
+/** いま画面に出ている文字の1行 */
+export interface CurrentScreenLine {
+  /** 画面に現れた文字 */
+  readonly text: string
+  /** 撮った時刻（UTCのISO 8601） */
+  readonly at: string
+}
+
+/**
+ * その配信で直近に画面に現れた行を、現れた順（古い順）に読む。
+ *
+ * サイドスーパー（worker/side-super.ts）の材料になる。あらすじと違って前回のものに積み上げないので、
+ * 「どこまで材料にしたか」ではなく「いま画面に何が出ているか」だけが要る。そのため新しいほうから
+ * limit 件を取り、LLMへ渡す向き（古い順）に直して返す（readRecentTranscripts と同じ形）。
+ *
+ * 撮った時刻を添えるのは、呼び出し側が「前回サイドスーパーを作ったあとに新しい行があるか」を
+ * 判定するためである（無ければLLMを呼ばない）。
+ *
+ * @param limit 読む件数の上限。超えたぶんは古いほうから落とす
+ */
+export const readCurrentScreenLines = async (db: Database, sessionId: string, limit: number): Promise<CurrentScreenLine[]> => {
+  const { results } = await db
+    .prepare(
+      `SELECT text, captured_at AS at FROM screen_lines
+       WHERE session_id = ?1
+       ORDER BY captured_at DESC, image_id DESC, line_no DESC
+       LIMIT ?2`,
+    )
+    .bind(sessionId, limit)
+    .all<CurrentScreenLine>()
+  return results.reverse()
+}
+
 /**
  * HDAD 自身が配信画面に出している文字を読む。
  *

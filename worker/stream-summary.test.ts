@@ -17,6 +17,7 @@ const 材料 = {
   previous: '配信者は新しいゲームの導入部を遊んでいます',
   transcripts: ['ここで2つめの街に着きました', 'ボスが強すぎるので装備を整えます'],
   chats: ['がんばれー', '装備は町の north にあるよ'],
+  screen: ['岩手17歳女性殺害事件', '2008年6月29日 02:00'],
 }
 
 describe('buildStreamSummaryPrompt', () => {
@@ -28,6 +29,28 @@ describe('buildStreamSummaryPrompt', () => {
     expect(prompt).toContain('ボスが強すぎるので装備を整えます')
     expect(prompt).toContain('がんばれー')
     expect(prompt).toContain('装備は町の north にあるよ')
+  })
+
+  it('画面に新しく現れた文字を材料に入れる', () => {
+    const prompt = buildStreamSummaryPrompt(材料)
+
+    expect(prompt).toContain('画面: 岩手17歳女性殺害事件')
+    expect(prompt).toContain('画面: 2008年6月29日 02:00')
+  })
+
+  it('画面の文字が機械の読み取りで誤りを含むことを伝える', () => {
+    const prompt = buildStreamSummaryPrompt(材料)
+
+    // 実測で「小原勝幸」→「小百勝寺」、「2008」→「2006」という誤読があった。誤読をそのまま
+    // 固有名詞として書かれないよう、材料の性質をプロンプトに明記する
+    expect(prompt).toContain('読み取ったもので、誤りを含みます')
+  })
+
+  it('画面の文字が1件も無くても、その旨を材料に入れて組み立てる', () => {
+    const prompt = buildStreamSummaryPrompt({ ...材料, screen: [] })
+
+    expect(prompt).toContain('配信者: ここで2つめの街に着きました')
+    expect(prompt).toContain('1件もありません')
   })
 
   it('長さの上限を指示に入れる', () => {
