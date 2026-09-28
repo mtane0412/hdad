@@ -19,33 +19,36 @@ npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 - ページUIは shadcn/ui（`src/components/ui/`。`npx shadcn@latest add <名前>` で足す。土台は Base UI なので、要素の差し替えは `asChild` ではなく `render`）で統一する。`@/` は `src/` を指す。明暗はOSの設定に従う（`src/app/app.css`）。リンクをボタンの見た目にするときは `Button` ではなく `<a className={buttonVariants()}>` を使う（`Button` は `role="button"` を付けてしまう）。ログインの確認は `src/app/app.tsx` が `/api/me` で行い、失敗したら未ログイン扱いにせずエラーを出す。コンポーネントのテストは `// @vitest-environment jsdom` を付けて Testing Library で書く（jsdom では Base UI の `Slider` のつまみが隠れたままなので、外枠の `role="group"` の名前から探す。`<output>` は `role="status"` を持つ）。OBSに載せる素材ページ（`<カテゴリ>/<id>/`・`alerts/`）には React もログインも持ち込まない
 - Workers 静的アセットはパスごとに実ファイルが必要なため、OBSに載せる素材ページはパスごとに用意する。壁紙の背景は `wallpaper/<id>/index.html` と `src/wallpaper/registry.ts` の両方に登録する。時計も同様に `clock/<id>/index.html` と `src/clock/registry.ts` の両方に登録する。カテゴリを増やしたら `vite.config.ts` の `categories` と `src/app/pages.tsx` にも足す
 - URLパラメータは `src/core/params.ts` のスキーマで宣言する。不正値は既定値に戻さずエラー表示する（Fail-Fast）
-- チャットボックス（`chat/`）だけは canvas ではなくHTML要素で表示し、届いた書き込みという状態を持つ。デザインは `chat/<id>/index.html`・`src/chat/registry.ts`・`src/chat/<id>.css` の3か所に登録し、各デザインのCSSは先頭で `src/chat/common.css` を `@import` する。通信を伴わない変換（`irc.ts`・`event.ts`・`message.ts`・`emotes.ts`・`cheermotes.ts`）とDOM・WebSocketを扱う部分（`view.ts`・`connection.ts`・`stage.ts`）を分け、前者をテストする（`view.ts` だけは jsdom で要素・クラス・属性を確かめる）。匿名IRC（`justinfan`）でつなぐのでトークンを持たず、チャンネル名・公式バッジ・Cheermote は `/api/chat/*` から取る。→ `docs/decisions/chat.md`
-- アラート用オーバーレイ（`alerts/`）はTwitchへ直接つながない。判定はすべてWorkerが行い、当てはまったアラートだけを Durable Object（`worker/alert-channel.ts` の `AlertChannel`。配送者であって判定者ではない）経由で `GET /api/overlay/socket` の接続へ押し出す。`src/alerts/` は受け取った順に再生待ちの列（`queue.ts`）へ並べるだけで、トリガーも条件も知らない。→ `docs/decisions/alerts-overlay.md`
-- トリガーは「既定メニューの項目」（`worker/trigger-menu.ts` の `TRIGGER_KINDS`。13種類）と「動作」（`worker/alert-config.ts` の `actions`）からなり、イベント種別と条件を自由に組み合わせる形は採らない。項目からイベント種別と条件への展開は `expandSource` だけが行い、照合（`worker/alert-event.ts` の `matches`）は展開後の形しか見ない。挨拶（`GREETING_KINDS`）は1通の発言に最も細かい1つだけが当てはまる。通知の中身から決まらない条件は呼び出し側が調べて `ConditionState` として渡す（`worker/alert-state.ts`）。保存済みの設定が古い形なら `loadAlertConfig` が読み替えずにエラーにする。→ `docs/decisions/alerts-triggers.md`
-- 当てはまった行はすべて実行する（`worker/alert-event.ts` の `matchedActionsFor`）。実行は `worker/alert-actions.ts` の `runAlertActions` に集め、再送での二重実行は `reserveChatReply`（鍵に動作の種類と当てはまった順の位置を混ぜる）で防ぐ。`alert` はオーバーレイが再生し、`chat`・`aiChat`・`announce`・`shoutout` はWorkerがbotとして送る（`shoutout` はレイドのトリガーにだけ置ける）。`aiChat` は `worker/ai-chat.ts` が材料を組み立ててLLMに文面を作らせ、返ってきた文面は検分する。Twitchへ2xxを返したあとの失敗は `recordLateFailure` が記録する。→ `docs/decisions/alerts-actions.md`
-- 広告の終了に相当する通知はTwitchに無いので、`channel.ad_break.end` はWorkerが作る擬似イベントである。開始を受けたら終わる時刻を Durable Object（`worker/ad-break-timer.ts` の `AdBreakTimer`。時計であって判定者ではない）へ預け、`storage.setAlarm` で起こしてもらってから照合へ回す。→ `docs/decisions/ad-break.md`
-- 配信中の文字起こし（`/transcript/`）はアプリのページ（`src/transcript/transcript-page.tsx`）だが、取り込むのはOBSに置く中継ページ（`transcript/relay/index.html`）である。同じPCで動くゆかりねっとコネクターNEO のWebSocket（既定 `ws://localhost:11901/`。`host` は `localhost` か `127.0.0.1` だけ）につなぎ、確定した母国語（`Text1`）の1件をオーバーレイ用キーで `POST /api/overlay/transcript` へ送る。暫定（`TextFixed` が偽）と `isDeleted` の1件は送らない。保存は `worker/transcript-store.ts`（`transcripts`）で、配信中の区切りが無ければ1行も書かない。→ `docs/decisions/transcript.md`
-- 配信の「これまでのあらすじ」（`{summary}`）は cron（`worker/collect.ts` の `summarizeStream`）が5分おきに作り、`stream_summaries` に貯める。毎回ゼロから作り直さず前回のあらすじに積み上げ（`worker/stream-summary.ts` の `buildStreamSummaryPrompt`）、どこまでを材料にしたかは材料ごとに日時とメッセージIDの組で持つ。配信者の発話（`transcripts`）が1件も無ければ作らない。出し方は差し込み語で、`{summary}` を含む文言があるときだけ読み出す。→ `docs/decisions/stream-summary.md`
-- 視聴者の記録（`/viewers/`）は発言ではなく人を貯める（`viewers`。1人1行）。照合の鍵はTwitchのユーザーIDだけで、名前・バッジ・その人自身のチャンネルの内容は「最後に観測した値」として持つ（真偽値にしない）。読み書きは `worker/viewer-store.ts`、経路は `worker/viewer-routes.ts`。記録は `worker/webhook-routes.ts` のチャットの受け口だけで行い、前回から10分が経つまでは1行も書かない。人物像（`summary`）は cron（`worker/collect.ts` の `summarizeViewers`）が作り、配信者が書く `note` とは別の列に持つ。→ `docs/decisions/viewers.md`
-- サイドスーパー（`/side-super/`）は配信画面の隅に出しっぱなしにするテロップで、あらすじと同じ機構だが積み上げない。cron（`worker/collect.ts` の `makeSideSuper`）が作り `side_supers` に貯める。文言はちょうど2行（`SIDE_SUPER_LINES`）で、1行目が見出し（14字）・2行目が本文（20字）。外れていたら補わず切り詰めずに投げる（`worker/side-super.ts` の `generateSideSuper`）。配送はポーリング（`GET /api/overlay/side-super`。30秒）で、オーバーレイは `side-super/overlay/index.html`。→ `docs/decisions/side-super.md`
-- 注目コメント（`/focus/`）は視聴者の発言1件を大きく映す。取り上げ方は人に追従する `viewer` と発言1件を固定する `message` の2通りで、1つの保存先（`worker/focus-config.ts`。KVは `focus-target`）に持つ。取り上げる相手はURLに入れず、配送はポーリング（`GET /api/overlay/focus`。10秒）。何を映すかの判断は `src/focus/focused.ts` だけが持ち、モデレーターの操作で映しているものが消えたら映すのをやめる。→ `docs/decisions/focus.md`
-- 素材を重ねる合成ページ（`overlay/stage/index.html`）はOBSのブラウザソースの数を減らすための1枚で、URLは `?key=` と `?overlay=<名前>` だけを取る。素材ごとに canvas を1枚持ち、`requestAnimationFrame` はオーバーレイで1本にし、同じオーバーレイの素材は接続（匿名IRC・ポーリング）を共有する（`stage.ts` の `createChatHub`・`poll.ts`）。1つの素材の失敗でほかの素材は動かし続け、失敗はその素材の箱の中だけに出す（`src/core/mount.ts` の `startCanvasLayer`・`showError`）。重ねうる素材のCSSは `src/overlay/overlay.css` が `@import` し、取りこぼしは `src/overlay/styles.test.ts` が検出する。→ `docs/decisions/overlay-stage.md`
-- 構成を編集する管理画面（`/overlay/`。`src/overlay/overlay-page.tsx`）はオーバーレイ1つを1枚のカードにし、その中に素材を並べる（一覧は前に出るものから。`form.ts` の `frontFirstItems`）。値の検証は `worker/overlay-layout.ts` だけが持つので、画面は丸めずに送って返ってきた問題点を `describeOverlayProblem` で名前へ読み替える。位置と大きさはドラッグでも決められ（`src/overlay/drag.ts`）、重なりと見た目は合成ページを iframe に出すプレビュー（`src/overlay/preview.ts`。構成は postMessage で渡し、中身はすべてサンプル）で確かめる。→ `docs/decisions/overlay-editor.md`
-- チャットの読み上げ（`speech/reader/`）は映すものを持たない単独の素材ページで、合成は同じPCで動く VOICEVOX ENGINE（既定 `http://localhost:50021`。`host` は `localhost` か `127.0.0.1` だけ）に任せる。設定（話者・速度・音量・長さ・名前を読むか・読み上げない人）は Worker が持ち（`worker/speech-config.ts`。KVは `speech-settings`）、配送はポーリング（30秒）。値の範囲の検証は Worker だけが持つ。変換（`text.ts`・`queue.ts`・`form.ts`）と呼び出し（`voicevox.ts`・`api.ts`・`url.ts`）を `audio.ts`・`stage.ts` から分ける。読み上げそのものは `src/speech/task.ts` の `startSpeech`。→ `docs/decisions/speech.md`
-- 裏方をまとめたページ（`overlay/backstage/`）は、映すものを持たないページ（読み上げ・文字起こしの中継）を1つのブラウザソースにまとめる。合成ページの素材にはしない。動かす裏方はURLで指定し（`?speech=false`・`?transcript=false`）、ひとつも動かさないURLは組み立てない（`src/backstage/url.ts`）。1つの裏方の失敗でもう一方は動かし続ける。→ `docs/decisions/backstage.md`
-- LLMを呼ぶのは4か所（`LLM_USAGES`: `aiChat`・`sideSuper`・`viewerSummary`・`streamSummary`）だが、呼び先を決めるのは `worker/llm.ts` だけである。呼び出し側はモデル名ではなくどこで使うかを指名し、提供元（Workers AI・OpenRouter）とモデルは設定（`worker/llm-config.ts`。KVは `llm-settings`）が箇所ごとに決める。失敗は黙って別の提供元へ落とさない。使用状況は `worker/llm-usage-store.ts` が「日（UTC）× 箇所 × 提供元 × モデル」の1行へ足し込む。モデルは入力させず `worker/llm-models.ts` の候補から選ばせる。管理画面は `/llm/`。→ `docs/decisions/llm.md`
-- ダッシュボード（`/`）はアプリのページ（`src/stats/stats-page.tsx`）。Workerが貯めた配信の記録（`/api/admin/stats/*`）を読み、期間（7・30・90日）の概要・フォロワー数の推移・配信の一覧を出す。配信を選ぶとその配信の視聴者数の推移を読み込んで一覧の中に出す。Workerの呼び出し（`src/stats/api.ts`）と集計・整形（`src/stats/summary.ts`）は画面から分けてテストする。グラフは shadcn の `chart`（Recharts）で、色は明暗のどちらでも読める `--chart-2` を使う。日時はブラウザのタイムゾーンで出し、記録が無い値は「—」と書いて0と区別する
-- トリガーの管理画面（`/triggers/`。`src/admin/trigger-page.tsx`）では配信者はトリガーを作らない。起きうる出来事が区分（チャット・イベント）ごとに固定で並び、そこに効果（動作）を足す（`form.ts` の `menuGroups` がそのまま画面の構成になる）。効果をひとつも持たない行は保存しないので、有効・無効の印も「トリガーを外す」操作も持たない。差し込み語は文言の欄ごとに押して入れるボタンで並べる（`MessageField`）。素材の追加と削除は `/media/`（`src/admin/media-page.tsx`）に分け、どちらも `src/admin/page-actions.tsx` の `usePageActions` を使う。→ `docs/decisions/triggers-page.md`
-- チャットボット（`/bot/`）は配信者とは別のTwitchアカウントを接続し、IRCではなく Helix の `POST /helix/chat/messages` で書き込む。トークンは役割ごとに別のキーでKVに持つ（`worker/token.ts` の `TokenRole`）。チャットの受信は EventSub の `channel.chat.message` を Webhook で購読する（`worker/eventsub-webhook.ts`）。届いた発言には自動モデレーションの判定・アラートのトリガーの判定・コマンドの応答をこの順に行い、bot自身の発言にはどれも行わない。判定（`worker/chat-command.ts`・`worker/chat-moderation.ts`）・設定（`worker/bot-config.ts`・`worker/moderation-config.ts`）・実行（`worker/bot-chat.ts`・`worker/bot-moderation.ts`）を分ける。→ `docs/decisions/bot.md`
 - Workerの型チェックは `tsconfig.worker.json` に分けてある（Cloudflareのランタイムの型（`@cloudflare/workers-types`）はDOMの型と同時に読めないため）。`npm run type-check` は `tsconfig.json`（`src/`）と合わせて両方を走らせる
-- `worker/` は `/api/*` を処理するWorkerのコードで、ブラウザ用の `src/` からは読み込まない。経路の一覧は `worker/index.ts`。管理用API（`/api/admin/*`）は `requireAdmin`、オーバーレイ用APIは `requireOverlayKey` で守り、チャット用API（`/api/chat/*`）だけは守らずKVに1時間貯める。保存先はKV（`STORE`）・R2（`MEDIA`）・D1（`DB`。テーブルは `migrations/`、SQLは `stats-store.ts` に集め、必ずプレースホルダを使う）。`fetch`・現在時刻・KV・R2・D1は引数で受け取り、テストでは差し替える（`worker/fake-*.ts`）。失敗は `{ error: { code, message } }` で返す（Fail-Fast）。cron の失敗は `collection_failures`（主キーは時刻と種類）に記録する。→ `docs/decisions/worker.md`
 - フォークした人向けの Deploy to Cloudflare ボタン（README の「デプロイ」）は、`wrangler.jsonc` のバインディングと `.dev.vars.example` のシークレットを読み、`package.json` の `cloudflare.bindings` の説明を入力欄に添える。リソースやシークレットを足したら `cloudflare.bindings` にも説明を足す（対応は `src/core/deploy-config.test.ts` が検証する）。デプロイのコマンドは `npm run deploy` で、ビルドは含めない（ボタンと Workers Builds が `npm run build` を別に実行するため）
 - 描画は経過時間だけから決まる形にする（フレーム間の状態を持たない）。時計は経過時間の代わりに `frame.now`（現在時刻）だけから決める
 
+## 話題ごとの約束（`.claude/rules/`）
+
+画面・素材ごとの約束は `.claude/rules/` に分け、`paths` で指した場所を触るときだけ読み込む。**そこに無い話題をここに書き足さない。**
+
+| ファイル | 話題 | 読み込まれる場所 |
+|---|---|---|
+| `chat.md` | チャットボックス（`chat/`） | `src/chat/**`・`chat/**` |
+| `alerts.md` | アラート（`alerts/`・トリガー・動作・広告） | `src/alerts/**`・`alerts/**`・`worker/alert-*.ts`・`worker/trigger-menu.ts`・`worker/ad-break-timer.ts`・`worker/ai-chat.ts`・`worker/bot-chat.ts`・`worker/webhook-routes.ts` |
+| `transcript.md` | 配信中の文字起こし（`/transcript/`） | `src/transcript/**`・`transcript/**`・`worker/transcript-store.ts` |
+| `stream-summary.md` | これまでのあらすじ（`{summary}`） | `worker/stream-summary*.ts`・`worker/collect.ts` |
+| `viewers.md` | 視聴者の記録（`/viewers/`） | `src/viewers/**`・`worker/viewer-*.ts`・`worker/stream-chat-store.ts` |
+| `side-super.md` | サイドスーパー（`/side-super/`） | `src/side-super/**`・`side-super/**`・`worker/side-super*.ts` |
+| `focus.md` | 注目コメント（`/focus/`） | `src/focus/**`・`focus/**`・`worker/focus-*.ts` |
+| `overlay.md` | 合成ページと構成の管理画面（`overlay/stage/`・`/overlay/`） | `src/overlay/**`・`overlay/**`・`worker/overlay-*.ts` |
+| `speech.md` | チャットの読み上げ（`speech/reader/`） | `src/speech/**`・`speech/**`・`worker/speech-config.ts` |
+| `backstage.md` | 裏方をまとめたページ（`overlay/backstage/`） | `src/backstage/**`・`overlay/backstage/**` |
+| `llm.md` | LLMの呼び先・使用状況・モデルの選択 | `src/llm/**`・`worker/llm*.ts` |
+| `dashboard.md` | ダッシュボード（`/`） | `src/stats/**`・`worker/stats-*.ts` |
+| `triggers-page.md` | トリガーの管理画面（`/triggers/`） | `src/admin/**` |
+| `bot.md` | チャットボット（`/bot/`） | `src/bot/**`・`worker/bot-*.ts`・`worker/chat-*.ts`・`worker/moderation-config.ts`・`worker/eventsub*.ts` |
+| `worker.md` | Worker（`worker/`）と失敗の記録 | `worker/**` |
+
 ## 設計判断の記録（`docs/decisions/`）
 
-このファイルには**いま守るべき約束**だけを書く。「なぜ別の案を採らなかったか」「どの失敗を踏んでこうなったか」は `docs/decisions/<話題>.md` に書き、ここからは行き先だけを指す。
+`.claude/CLAUDE.md` と `.claude/rules/` には**いま守るべき約束**だけを書く。「なぜ別の案を採らなかったか」「どの失敗を踏んでこうなったか」は `docs/decisions/<話題>.md` に書き、約束からは行き先だけを指す。
 
-- 約束が変わったらこのファイルを直し、変えた理由を対応する `docs/decisions/` のファイルに足す
-- 新しい話題を足すときは `docs/decisions/` にファイルを作り、ここには1〜2文の約束とその行き先を書く
-- ここに理由を書き足さない（このファイルは毎回のセッションで全文が読み込まれるため）
+- 約束が変わったら約束のほうを直し、変えた理由を対応する `docs/decisions/` のファイルに足す
+- 新しい話題は `.claude/rules/` にファイルを作り（`paths` を必ず書く）、経緯は `docs/decisions/` に置く
+- このファイルは毎回のセッションで全文が読み込まれるので、理由も話題ごとの詳細も書かない

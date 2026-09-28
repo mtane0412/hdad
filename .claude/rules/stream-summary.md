@@ -1,0 +1,9 @@
+---
+paths:
+  - "worker/stream-summary*.ts"
+  - "worker/collect.ts"
+---
+
+# これまでのあらすじ（`{summary}`）
+
+配信の「これまでのあらすじ」（`{summary}`）は cron（`worker/collect.ts` の `summarizeStream`）が5分おきに作り、`stream_summaries` に貯める。毎回ゼロから作り直さず前回のあらすじに積み上げ（`worker/stream-summary.ts` の `buildStreamSummaryPrompt`）、どこまでを材料にしたかは材料ごとに日時とメッセージIDの組で持つ。配信者の発話（`transcripts`）が1件も無ければ作らない。出し方は差し込み語で、`{summary}` を含む文言があるときだけ読み出す。→ `docs/decisions/stream-summary.md`
