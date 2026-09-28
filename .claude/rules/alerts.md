@@ -19,3 +19,5 @@ paths:
 当てはまった行はすべて実行する（`worker/alert-event.ts` の `matchedActionsFor`）。実行は `worker/alert-actions.ts` の `runAlertActions` に集め、再送での二重実行は `reserveChatReply`（鍵に動作の種類と当てはまった順の位置を混ぜる）で防ぐ。`alert` はオーバーレイが再生し、`chat`・`aiChat`・`announce`・`shoutout` はWorkerがbotとして送る（`shoutout` はレイドのトリガーにだけ置ける）。`aiChat` は `worker/ai-chat.ts` が材料を組み立ててLLMに文面を作らせ、返ってきた文面は検分する。Twitchへ2xxを返したあとの失敗は `recordLateFailure` が記録する。→ `docs/decisions/alerts-actions.md`
 
 広告の終了に相当する通知はTwitchに無いので、`channel.ad_break.end` はWorkerが作る擬似イベントである。開始を受けたら終わる時刻を Durable Object（`worker/ad-break-timer.ts` の `AdBreakTimer`。時計であって判定者ではない）へ預け、`storage.setAlarm` で起こしてもらってから照合へ回す。→ `docs/decisions/ad-break.md`
+
+利用者向けの説明は `docs/guide/alerts.md`（トリガーの決め方と素材のアップロードもここ）。
