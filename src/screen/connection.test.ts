@@ -151,12 +151,16 @@ describe('connectObs', () => {
     vi.useFakeTimers()
     const 偽のソケット = 作る偽のソケット()
     const つなぐ = connectObs({ url: 'ws://localhost:4455', password: '', createSocket: () => 偽のソケット.socket })
+    // 失敗を受け取る用意を、タイマーを進める前に済ませる
+    // （進めたあとに付けると、受け取り手のいない拒否として扱われる一瞬ができる）
+    const 失敗を待つ = expect(つなぐ).rejects.toThrow(/応答がありません/)
     偽のソケット.開く()
     偽のソケット.届ける(認証なしのHello)
+
     // OBS が Identified を返さないまま、待ち時間が過ぎる
     await vi.advanceTimersByTimeAsync(CONNECT_TIMEOUT_MS)
 
-    await expect(つなぐ).rejects.toThrow(/応答がありません/)
+    await 失敗を待つ
     expect(偽のソケット.閉じた()).toBe(true)
   })
 
