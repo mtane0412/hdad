@@ -3,6 +3,7 @@
  *
  * fetch を差し替えて確かめる。特に重要なのは次の3点である。
  * - 人に見せないための指定（access_policy=only_me）を必ず付けること
+ * - 指定されたコレクションに入れること、指定がなければその項目を送らないこと
  * - 応答から画像IDを取り出せること（このあとのOCRの取得が画像IDだけを頼りにするため）
  * - Gyazo が失敗を返したときや応答に画像IDが無いとき、黙って成功扱いにせず GyazoApiError にすること
  */
@@ -35,6 +36,22 @@ describe('createGyazoClient', () => {
     expect(body?.get('access_policy')).toBe('only_me')
     expect(body?.get('metadata_is_public')).toBe('false')
     expect(body?.get('imagedata')).toBeInstanceOf(Blob)
+  })
+
+  it('コレクションを指定されたら、その指定を添えて送る', async () => {
+    const { fetchImpl, 受け取った } = 覚えるfetch(成功の応答())
+    await createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).upload(画像, 'screen.png', {
+      collectionId: 'f19e74cebe47c9cadad31b6790098eac',
+    })
+
+    expect(受け取った[0]?.body?.get('collection_id')).toBe('f19e74cebe47c9cadad31b6790098eac')
+  })
+
+  it('コレクションの指定がなければ、その項目は送らない', async () => {
+    const { fetchImpl, 受け取った } = 覚えるfetch(成功の応答())
+    await createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).upload(画像, 'screen.png', { collectionId: '' })
+
+    expect(受け取った[0]?.body?.has('collection_id')).toBe(false)
   })
 
   it('応答から画像IDと閲覧用のURLを取り出す', async () => {

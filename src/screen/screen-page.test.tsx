@@ -5,6 +5,7 @@
  * 確かめること:
  * - 保存済みの設定が入力欄に出ること
  * - 入力した値がそのまま Worker へ渡ること（空欄を 0 に丸めない）
+ * - コレクションのURLを貼ったら、その末尾のIDだけを送ること
  * - Worker が返した問題点が並んで出ること（検証は Worker だけが持つため）
  * - つなぎ先を変えたら、OBSの再読み込みが要ると知らせること
  * - 設定を読めなかったときに、黙って既定に倒さず理由を出すこと
@@ -17,7 +18,16 @@ import { ApiError } from '@/core/api'
 import type { ScreenSettings } from './api'
 import { ScreenPage } from './screen-page'
 
-const 保存済みの設定: ScreenSettings = { host: 'localhost', port: 4455, password: 'obsのパスワード', intervalSeconds: 60 }
+const 保存済みの設定: ScreenSettings = {
+  host: 'localhost',
+  port: 4455,
+  password: 'obsのパスワード',
+  intervalSeconds: 60,
+  collectionId: '',
+}
+
+/** 配信者が Gyazo の画面からコピーしてくるコレクションのURL */
+const コレクションのURL = 'https://gyazo.com/collections/f19e74cebe47c9cadad31b6790098eac'
 
 afterEach(cleanup)
 
@@ -49,6 +59,26 @@ describe('画面の取り込みのページ', () => {
     await userEvent.click(screen.getByRole('button', { name: '保存' }))
 
     await waitFor(() => expect(api.save).toHaveBeenCalledWith({ ...保存済みの設定, intervalSeconds: 90 }))
+  })
+
+  test('コレクションのURLを貼ったら、末尾のIDだけを送る', async () => {
+    const api = 動く偽のAPI()
+    画面を出す(api)
+
+    await userEvent.type(await screen.findByLabelText('上げ先の Gyazo のコレクション（任意）'), コレクションのURL)
+    await userEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    await waitFor(() => expect(api.save).toHaveBeenCalledWith({ ...保存済みの設定, collectionId: 'f19e74cebe47c9cadad31b6790098eac' }))
+  })
+
+  test('コレクションを空のままにすれば、空のまま送る（どのコレクションにも入れない）', async () => {
+    const api = 動く偽のAPI()
+    画面を出す(api)
+
+    await screen.findByLabelText('上げ先の Gyazo のコレクション（任意）')
+    await userEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    await waitFor(() => expect(api.save).toHaveBeenCalledWith(保存済みの設定))
   })
 
   test('空欄は 0 に丸めず、数として読めない値のまま Worker へ渡す', async () => {

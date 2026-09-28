@@ -110,12 +110,14 @@ export const postTranscript = async (context: Context): Promise<Response> => {
 }
 
 /**
- * GET /api/overlay/screen: 配信画面の取り込みの設定を返す。
+ * GET /api/overlay/screen: 配信画面の取り込みのうち、撮るのに要る設定を返す。
  *
- * OBSのブラウザソースに置いた裏方のページ（overlay/backstage/）が、起動のときと、その後は定期的に読みに来る
+ * OBSのブラウザソースに置いた裏方のページ（overlay/backstage/）が、起動のときと、その後は撮るたびに読みに来る
  * （読み上げの設定と同じポーリング）。未保存なら既定の設定が返るので、何も設定していない配信者でも
  * 認証を切った OBS にならつながる。
  *
+ * 注意: 上げ先のコレクション（collectionId）は渡さない。撮るのに要らず、上げるのは Worker だからである
+ * （渡す必要のないものをオーバーレイ用キーの向こうへ出さない）。
  * 注意: 応答には obs-websocket のパスワードが入る。守り方はオーバーレイ用キーだけなので、キーが漏れると
  * OBSの操作権まで渡ることになる（docs/decisions/screen.md）。
  * 注意: ホストとポートは裏方のページが起動のときにしか使わない（つなぎ先が変わるので、つなぎ直しが要る）。
@@ -123,7 +125,8 @@ export const postTranscript = async (context: Context): Promise<Response> => {
  */
 export const getScreen = async (context: Context): Promise<Response> => {
   await requireOverlayKey(context)
-  return Response.json(await loadScreenSettings(context.env.STORE))
+  const { host, port, password, intervalSeconds } = await loadScreenSettings(context.env.STORE)
+  return Response.json({ host, port, password, intervalSeconds })
 }
 
 /**
@@ -149,6 +152,8 @@ const SCREEN_CONTENT_TYPES = ['image/png', 'image/jpeg'] as const
  * 配信の前後にOBSを開いたままにしておくのが普通の使い方だからである（文字起こしの受け口と同じ考え方）。
  *
  * 注意: 画像そのものはこのサイトに保存しない。Gyazo に上げた画像IDだけを残す（worker/screen-store.ts）。
+ * 注意: 上げ先のコレクションは、裏方のページから受け取らずにここで設定から読む。撮る側に持たせると、
+ * 貼ったURLや裏方のページの都合で上げ先が変わりうる（上げるのは Worker なので、決めるのも Worker にする）。
  * 注意: Gyazo のアクセストークンが無ければ、黙って捨てずに失敗させる（Fail-Fast）。捨ててしまうと、
  * 材料が貯まっていないことに配信が終わるまで気づけない。
  */
@@ -193,8 +198,9 @@ export const postScreen = async (context: Context): Promise<Response> => {
   }
 
   const extension = contentType === 'image/png' ? 'png' : 'jpg'
+  const { collectionId } = await loadScreenSettings(env.STORE)
   const gyazo = createGyazoClient({ accessToken, fetch: context.fetch })
-  const { imageId } = await gyazo.upload(new Blob([image], { type: contentType }), `screen.${extension}`)
+  const { imageId } = await gyazo.upload(new Blob([image], { type: contentType }), `screen.${extension}`, { collectionId })
 
   const recorded = await recordScreenCapture(env.DB, imageId, now)
   return Response.json({ recorded, imageId })

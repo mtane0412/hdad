@@ -5,8 +5,8 @@
  * - 管理画面（/screen/ のページ）: 配信者のセッションで /api/admin/screen を読み書きする
  * - 裏方のページ（overlay/backstage/）: オーバーレイ用キーで /api/overlay/screen を読むだけ
  *
- * どちらも同じ形の設定を受け取るので、形の確かめ（readScreenSettings）をここで共有する
- * （読み上げの設定 src/speech/api.ts と同じ形）。
+ * 受け取る形は2つに分かれる。管理画面は設定をまるごと（上げ先のコレクションを含めて）読み書きし、裏方のページは
+ * 撮るのに要る設定（つなぎ先と間隔）だけを受け取る。上げるのは Worker なので、コレクションは裏方に渡らない。
  *
  * 注意: worker/ の型はブラウザ用のコードから読み込まない約束なので、応答の型はここで定義して形を確かめる。
  * 想定した形でなければエラーにする（Fail-Fast）。黙って既定の設定に倒すと、配信者が変えたポートではなく
@@ -20,8 +20,8 @@ import { createCaller, isRecord } from '../core/api'
 const ADMIN_PATH = '/api/admin/screen'
 const OVERLAY_PATH = '/api/overlay/screen'
 
-/** 配信画面の取り込みの設定。項目と値の範囲は worker/screen-config.ts と合わせる */
-export interface ScreenSettings {
+/** 裏方のページが撮るのに要る設定。項目と値の範囲は worker/screen-config.ts と合わせる */
+export interface ScreenConnection {
   /** OBS が動いているホスト（裏方のページが起動のときにしか使わない） */
   host: string
   /** obs-websocket のポート番号（裏方のページが起動のときにしか使わない） */
@@ -32,12 +32,18 @@ export interface ScreenSettings {
   intervalSeconds: number
 }
 
+/** 管理画面が読み書きする設定。撮るのに要る設定に、上げ先のコレクションを足したもの */
+export interface ScreenSettings extends ScreenConnection {
+  /** 上げ先の Gyazo のコレクションID。空ならコレクションに入れない */
+  collectionId: string
+}
+
 /**
- * 画面の取り込みの設定として読む。想定した形でなければエラーにする。
+ * 撮るのに要る設定として読む。想定した形でなければエラーにする。
  *
  * @throws 応答が想定した形でない場合
  */
-export const readScreenSettings = (body: unknown): ScreenSettings => {
+export const readScreenConnection = (body: unknown): ScreenConnection => {
   if (
     !isRecord(body) ||
     typeof body.host !== 'string' ||
@@ -50,9 +56,22 @@ export const readScreenSettings = (body: unknown): ScreenSettings => {
   return { host: body.host, port: body.port, password: body.password, intervalSeconds: body.intervalSeconds }
 }
 
+/**
+ * 管理画面が読み書きする設定として読む。想定した形でなければエラーにする。
+ *
+ * @throws 応答が想定した形でない場合
+ */
+export const readScreenSettings = (body: unknown): ScreenSettings => {
+  const connection = readScreenConnection(body)
+  if (!isRecord(body) || typeof body.collectionId !== 'string') {
+    throw new Error('Workerの画面の取り込みの設定の応答が想定した形ではありません')
+  }
+  return { ...connection, collectionId: body.collectionId }
+}
+
 export interface ScreenApi {
-  /** 画面の取り込みの設定を読む */
-  read(): Promise<ScreenSettings>
+  /** 撮るのに要る設定を読む */
+  read(): Promise<ScreenConnection>
   /**
    * 撮った1枚を送る。
    *
@@ -73,7 +92,7 @@ export const createScreenApi = (fetchImpl: typeof fetch, key: string): ScreenApi
 
   return {
     async read() {
-      return readScreenSettings(await call(`${OVERLAY_PATH}${query}`))
+      return readScreenConnection(await call(`${OVERLAY_PATH}${query}`))
     },
     async send(image) {
       const body = await call(`${OVERLAY_PATH}${query}`, {

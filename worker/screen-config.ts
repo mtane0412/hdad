@@ -7,7 +7,7 @@
  * すべて集めてから拒否する（管理画面で一度に直せるようにするため）。
  *
  * 撮るのは現在のプログラムシーン1枚だけなので、ソース名の設定は持たない（issue #122）。配信者が入力するのは
- * obs-websocket のポートとパスワード、撮影間隔の3つだけである。
+ * obs-websocket のポートとパスワード、撮影間隔、そして上げ先のコレクション（任意）だけである。
  *
  * 注意: ホストは localhost と 127.0.0.1 の2つしか受け取らない。裏方のページは https で配信されるので
  * ws:// の obs-websocket への通信は混在コンテンツにあたるが、ブラウザはループバックを安全な接続元として
@@ -38,6 +38,13 @@ const MIN_INTERVAL_SECONDS = 15
 const MAX_INTERVAL_SECONDS = 600
 /** パスワードの長さの上限。obs-websocket が受け付ける長さに上限はないが、押し込まれたものを黙って保存しない */
 const MAX_PASSWORD_LENGTH = 200
+/**
+ * Gyazo のコレクションID。コレクションのURL（https://gyazo.com/collections/<ID>）の末尾にある32桁の16進数である。
+ *
+ * 形を確かめてから保存するのは、Gyazo が受け取れない値（URLを丸ごと貼るなど）を保存すると、撮った1枚を
+ * 上げるたびに失敗し、配信中にそれと気づけないためである。
+ */
+const COLLECTION_ID_PATTERN = /^[0-9a-f]{32}$/
 
 /** OBS を動かすホスト */
 export type ScreenHost = (typeof ALLOWED_HOSTS)[number]
@@ -52,6 +59,8 @@ export interface ScreenSettings {
   readonly password: string
   /** 撮影の間隔（秒） */
   readonly intervalSeconds: number
+  /** 上げ先の Gyazo のコレクションID。空ならコレクションに入れない */
+  readonly collectionId: string
 }
 
 /** 未保存のときに使う設定。ポートの 4455 は obs-websocket の既定、間隔は issue #122 が定めた出発点 */
@@ -60,6 +69,7 @@ export const DEFAULT_SCREEN_SETTINGS: ScreenSettings = {
   port: 4455,
   password: '',
   intervalSeconds: 60,
+  collectionId: '',
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
@@ -101,14 +111,25 @@ export const parseScreenSettings = (input: unknown): ScreenSettings => {
     return DEFAULT_SCREEN_SETTINGS.password
   }
 
+  /** コレクションIDを読む。空は許す（コレクションに入れない運用を拒まない） */
+  const readCollectionId = (): string => {
+    const value = input.collectionId
+    if (typeof value === 'string' && (value === '' || COLLECTION_ID_PATTERN.test(value))) return value
+    problems.push(
+      'collectionId: コレクションのURL（https://gyazo.com/collections/<ID>）の末尾にある32桁の英数字で指定してください（コレクションに入れないなら空にします）',
+    )
+    return DEFAULT_SCREEN_SETTINGS.collectionId
+  }
+
   // 呼ぶ順番が、問題点に並ぶ順番になる
   const host = readHost()
   const port = readNumber('port', MIN_PORT, MAX_PORT)
   const password = readPassword()
   const intervalSeconds = readNumber('intervalSeconds', MIN_INTERVAL_SECONDS, MAX_INTERVAL_SECONDS)
+  const collectionId = readCollectionId()
 
   if (problems.length > 0) throw new ConfigError(SUBJECT, problems)
-  return { host, port, password, intervalSeconds }
+  return { host, port, password, intervalSeconds, collectionId }
 }
 
 export const saveScreenSettings = (store: KeyValueStore, settings: ScreenSettings): Promise<void> =>
@@ -117,9 +138,11 @@ export const saveScreenSettings = (store: KeyValueStore, settings: ScreenSetting
 /**
  * 保存済みの設定を読む。未保存なら既定の設定を返す。
  *
- * 注意: 保存時に検証済みの内容しか書き込まないため、読み出し時の再検証はしない。
+ * 注意: 保存時に検証済みの内容しか書き込まないため、読み出し時の再検証はしない。ただし、あとから足した項目
+ * （collectionId）は前に保存された設定に無いので、既定で埋める。埋めずに返すと、その項目を必ず持つものとして
+ * 読む管理画面（src/screen/api.ts の readScreenSettings）が、設定を読めなくなる。
  */
 export const loadScreenSettings = async (store: KeyValueStore): Promise<ScreenSettings> => {
   const text = await store.get(CONFIG_KEY)
-  return text === null ? DEFAULT_SCREEN_SETTINGS : (JSON.parse(text) as ScreenSettings)
+  return text === null ? DEFAULT_SCREEN_SETTINGS : { ...DEFAULT_SCREEN_SETTINGS, ...(JSON.parse(text) as Partial<ScreenSettings>) }
 }
