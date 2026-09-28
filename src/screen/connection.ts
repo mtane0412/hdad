@@ -174,7 +174,7 @@ export const connectObs = ({ url, password, createSocket }: ConnectObsOptions): 
 
     /** 名乗りが通る前に閉じられたときの失敗。理由（クローズコード）ごとに、次に何を確かめればよいかを分ける */
     const failureOfClose = ({ code, reason }: { code?: number; reason?: string }): Error => {
-      const 理由 = `クローズコード ${String(code)}${reason === undefined || reason === '' ? '' : `: ${reason}`}`
+      const 理由 = code === undefined ? 'クローズコードなし' : `クローズコード ${String(code)}${reason === undefined || reason === '' ? '' : `: ${reason}`}`
       if (code === CLOSE_AUTHENTICATION_FAILED) {
         return new Error(
           [
@@ -194,7 +194,9 @@ export const connectObs = ({ url, password, createSocket }: ConnectObsOptions): 
       }
       return new Error(
         [
-          `${url} につながりませんでした。`,
+          // ブラウザがつなげなかったときのコード（1006 など）も載せる。開発者ツールを開けないOBSの中では、
+          // 画面に出ている文面だけが手がかりになる
+          `${url} につながりませんでした（${理由}）。`,
           'OBSが起動していて、ツール > WebSocketサーバー設定 でサーバーが有効になっているかを確かめてください。',
           'ブラウザが ws:// への接続（混在コンテンツ）を拒んでいる可能性もあります。',
         ].join('\n'),

@@ -167,6 +167,16 @@ describe('connectObs', () => {
     await expect(つなぐ).rejects.toThrow(/4010/)
   })
 
+  it('つながる前に閉じられたときも、クローズコードを文面に添える', async () => {
+    const 偽のソケット = 作る偽のソケット()
+    const つなぐ = connectObs({ url: 'ws://localhost:4455', password: '', createSocket: () => 偽のソケット.socket })
+
+    // ブラウザはつなげなかったとき 1006（異常終了）で閉じる
+    偽のソケット.閉じる({ code: 1006 })
+
+    await expect(つなぐ).rejects.toThrow(/1006/)
+  })
+
   it('名乗りへの答えが返ってこないまま時間が過ぎたら、待ち続けずに失敗させる', async () => {
     vi.useFakeTimers()
     const 偽のソケット = 作る偽のソケット()
