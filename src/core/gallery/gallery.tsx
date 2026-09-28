@@ -9,7 +9,7 @@
  * 注意: ハッシュが登録されていないIDを指していたら、先頭の素材に置き換えずエラーとして伝える（Fail-Fast）。
  * 書式に合わない文字列もそのままURLへ反映する（素材ページ側がエラーとして表示する）。
  */
-import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
+import { useId, useRef, useState, useSyncExternalStore } from 'react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -18,6 +18,7 @@ import { Label } from '@/components/ui/label'
 import type { BackgroundDefinition } from '../background'
 import type { AnyParamValue } from '../params'
 import { ParamField } from './fields'
+import { Preview, useSettled } from './preview'
 import { buildBackgroundUrl } from './url'
 
 type Values = Record<string, AnyParamValue>
@@ -64,52 +65,6 @@ const readHashId = (): string => {
 
 /** URLのハッシュが指す素材ID（ハッシュなしは空文字） */
 const useHashId = (): string => useSyncExternalStore(subscribeToHash, readHashId)
-
-/** 値の変化が delay ミリ秒のあいだ止まってから、その値を返す */
-const useSettled = <T,>(value: T, delay: number): T => {
-  const [settled, setSettled] = useState(value)
-  useEffect(() => {
-    const timer = window.setTimeout(() => setSettled(value), delay)
-    return () => window.clearTimeout(timer)
-  }, [value, delay])
-  return settled
-}
-
-/** プレビュー。iframe は実寸で描画し、表示枠の幅に合わせて縮小する */
-const Preview = ({ url, title, size }: { url: string; title: string; size: GalleryTarget['previewSize'] }) => {
-  const screenRef = useRef<HTMLDivElement>(null)
-  const [scale, setScale] = useState(0)
-
-  useEffect(() => {
-    const screen = screenRef.current
-    if (!screen) return
-    const observer = new ResizeObserver(([entry]) => {
-      if (entry) setScale(entry.contentRect.width / size.width)
-    })
-    observer.observe(screen)
-    return () => observer.disconnect()
-  }, [size.width])
-
-  return (
-    <div
-      ref={screenRef}
-      // 実寸より大きく引き伸ばすと文字や線がぼやけるため、表示枠は実寸の幅までにする。市松模様は透過の背景を見分けるため
-      className="relative w-full overflow-hidden rounded-lg border bg-[repeating-conic-gradient(var(--muted)_0%_25%,transparent_0%_50%)] bg-size-[24px_24px]"
-      style={{ aspectRatio: `${size.width} / ${size.height}`, maxWidth: size.width }}
-    >
-      <iframe
-        // src を書き換えるとブラウザの履歴が積まれるため、URLが変わるたびに iframe ごと作り直す
-        key={url}
-        src={url}
-        title={title}
-        width={size.width}
-        height={size.height}
-        className="absolute top-0 left-0 origin-top-left border-0"
-        style={{ transform: `scale(${scale})` }}
-      />
-    </div>
-  )
-}
 
 type CopyResult = 'copied' | 'failed'
 

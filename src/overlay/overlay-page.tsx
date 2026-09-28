@@ -28,8 +28,11 @@
  * 作らせないため）。足した名前は画面が覚えておき、素材を置いた時点で保存されるようにする。
  * 注意: 保存済みの値が読めない素材（レジストリに無いデザイン・範囲外のパラメータ）でも黙って捨てない。
  * 捨てると、開いて保存しただけでその素材が消える。理由を出して直させる（Fail-Fast）。
- * 注意: 配置用の枠に描くのは四角と名前だけで、素材の中身は映さない。中身を映すとプレビューと同じ問題
- * （配信中のオーバーレイをもう1つ動かす）に踏み込むためで、プレビューは別 issue に分けてある。
+ * 重なりと見た目は、オーバーレイのカードの中で開けるプレビュー（PreviewFrame）で確かめられる（issue #106）。
+ * 中身は合成ページそのままの描画だが、素材のデータはすべてサンプルにして外へつながない。映す構成は
+ * Worker からではなく、この画面から postMessage で渡す（preview.ts）ので、保存しなくても編集中のものが映る。
+ *
+ * 注意: 配置用の枠に描くのは四角と名前だけで、素材の中身は映さない（中身はプレビューが受け持つ）。
  * 注意: 吸着（グリッド・他の素材の端に合わせる）は入れていない。まず動かせることを先にする。
  */
 import { ChevronDown, Trash2 } from 'lucide-react'
@@ -43,6 +46,7 @@ import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { ApiError } from '../core/api'
 import { ParamField } from '../core/gallery/fields'
+import { Preview, useSettled } from '../core/gallery/preview'
 import type { AnyParamValue } from '../core/params'
 import type { OverlayLayoutAdminApi } from './admin-api'
 import { deltaPercent, dragRect, HANDLE_LABELS, rectNumbersOf, RESIZE_HANDLES, toRectDraft, type DragHandle } from './drag'
@@ -67,10 +71,14 @@ import {
   type RectDraft,
 } from './form'
 import { ITEM_KINDS, rectStyle, type ItemKind } from './layout'
-import { overlayStageUrl } from './url'
+import { replyPreviewLayout } from './preview'
+import { overlayPreviewUrl, overlayStageUrl } from './url'
 
 /** ブラウザソースに設定する推奨の大きさ。オーバーレイは配信画面と同じ大きさにして、割合（％）で中を置く */
 const STAGE_SIZE = { width: 1920, height: 1080 }
+
+/** 入力中にプレビューを作り直しすぎないための待ち時間（ミリ秒）。ギャラリーと同じ扱い */
+const PREVIEW_DELAY_MS = 150
 
 /** 位置と大きさの入力欄（％）。並べる順と見出しをここで決める */
 const RECT_FIELDS: readonly { key: keyof RectDraft; label: string }[] = [
@@ -214,6 +222,59 @@ const PlacementBox = ({ items, openItemKey, onOpenItem, onChangeRect }: Placemen
       </div>
       {drawable.length < items.length && (
         <p className="text-xs text-destructive">枠に出せない素材があります（位置と大きさを数として読めません）。数値欄で直してください</p>
+      )}
+    </div>
+  )
+}
+
+/**
+ * プレビュー。編集中のオーバーレイを、合成ページ（overlay/stage/）そのままの描画で試し見する。
+ *
+ * 映すのは編集中の構成で、Worker からは読ませない（保存はその時点で配信画面へ反映されるので、保存して
+ * からでないと確かめられないプレビューでは「配信画面に出してから確かめる」ことになる）。渡し方は
+ * preview.ts の postMessage で、プレビューから「構成を待っている」と知らせてきたときに返す。
+ *
+ * 素材の中身はすべてサンプルにする（?demo=true）。匿名IRC・アラートのWebSocket・ポーリングを
+ * どれもつながないので、配信中のものに加えてもう1組動くことがない（issue #106 で懸念した代償）。
+ *
+ * 注意: 開いているプレビューは常に1つだけである（OverlayPage が持つ previewOverlayKey）。重なりの1枚を
+ * 丸ごと動かすので同時に何枚も動かさないためで、これにより「構成を待っている」知らせに答える相手も
+ * 1つに定まる（何枚も開けると、別のカードのプレビューへ自分の構成を渡してしまう）。
+ * 注意: 位置と大きさを数として読めない素材は映さず、理由を添える（配置用の枠と同じ扱い）。
+ * 注意: 編集が進んだら iframe ごと作り直す（素材の起動をやり直させるほうが、動いているものを
+ * 差し替えるより確かである）。打っている途中で何度も作り直さないよう、少し待ってからにする。
+ */
+const PreviewFrame = ({ draft }: { draft: OverlayDraft }) => {
+  // 数として読めない素材は渡さない（渡すと合成ページ側が構成そのものを読めないものとして扱う）
+  const drawable = draft.items.filter((item) => rectNumbersOf(item.rect) !== undefined)
+  const overlays = toOverlays([{ ...draft, items: drawable }])
+  /** いま渡す構成。知らせが届いた時点の最新を渡すため、描くたびに更新する */
+  const overlaysRef = useRef(overlays)
+  useEffect(() => {
+    overlaysRef.current = overlays
+  })
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent): void => {
+      replyPreviewLayout(event, window.location.origin, overlaysRef.current)
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [])
+
+  // 中身が変わったら iframe を作り直す（key に渡す。渡す構成に JSON にできない値は無いので、そのまま印にできる）
+  const token = useSettled(JSON.stringify(overlays), PREVIEW_DELAY_MS)
+
+  return (
+    <div className="flex flex-col gap-2">
+      <Preview
+        key={token}
+        url={overlayPreviewUrl(window.location.origin, draft.name)}
+        title={`オーバーレイ「${draft.name}」のプレビュー`}
+        size={STAGE_SIZE}
+      />
+      {drawable.length < draft.items.length && (
+        <p className="text-xs text-destructive">プレビューに出せない素材があります（位置と大きさを数として読めません）。数値欄で直してください</p>
       )}
     </div>
   )
@@ -386,6 +447,9 @@ interface OverlayCardProps {
   onToggleItem(key: number): void
   /** 素材の設定を開く（畳まない。配置用の枠でつまんだときに使う） */
   onOpenItem(key: number): void
+  /** このオーバーレイのプレビューを開いているか（同時に開くのは1つだけ） */
+  previewOpen: boolean
+  onTogglePreview(): void
   onChange(draft: OverlayDraft): void
   onMoveItemToOverlay(item: ItemDraft, to: string): void
   onAskRemoveItem(item: ItemDraft): void
@@ -405,6 +469,8 @@ const OverlayCard = ({
   openItemKey,
   onToggleItem,
   onOpenItem,
+  previewOpen,
+  onTogglePreview,
   onChange,
   onMoveItemToOverlay,
   onAskRemoveItem,
@@ -473,6 +539,16 @@ const OverlayCard = ({
         ) : (
           <>
             <PlacementBox items={draft.items} openItemKey={openItemKey} onOpenItem={onOpenItem} onChangeRect={changeRect} />
+            {/* プレビューは見ているあいだだけ動かす（閉じたら iframe ごと外す） */}
+            <div className="flex flex-wrap items-center gap-3">
+              <Button type="button" variant="outline" size="sm" onClick={onTogglePreview}>
+                {previewOpen ? 'プレビューを閉じる' : 'プレビューを見る'}
+              </Button>
+              <p className="text-sm text-muted-foreground">
+                素材の中身はサンプルです（Twitch にも Worker にもつながず、編集中の位置とパラメータをそのまま映します）。
+              </p>
+            </div>
+            {previewOpen && <PreviewFrame draft={draft} />}
             <ul className="flex flex-col gap-2">
             {frontFirstItems(draft.items).map(({ item, position }) => (
               <ItemRow
@@ -563,6 +639,13 @@ export const OverlayPage = ({ api, overlayKey }: { api: OverlayLayoutAdminApi; o
   const [newName, setNewName] = useState('')
   /** 開いている素材の識別子。オーバーレイをまたいで1つだけ開く（一覧が長くなりすぎないようにする） */
   const [openItemKey, setOpenItemKey] = useState<number>()
+  /**
+   * プレビューを開いているオーバーレイの識別子。1つだけ開く。
+   *
+   * プレビューは重なりの1枚を丸ごと動かすので、同時に何枚も動かさないためであり、あわせて構成の
+   * 取り違えも防ぐ（開いているプレビューが1つなら、構成を待っている知らせに答える相手も1つに定まる）。
+   */
+  const [previewOverlayKey, setPreviewOverlayKey] = useState<number>()
   /** 送ったオーバーレイと素材の名前（送った順）。Workerが返した問題点の位置を読み替えるのに使う */
   const submittedLabelsRef = useRef<readonly OverlayLabels[]>([])
   const actions = usePageActions((error) => failureLines(error, submittedLabelsRef.current))
@@ -649,6 +732,8 @@ export const OverlayPage = ({ api, overlayKey }: { api: OverlayLayoutAdminApi; o
             openItemKey={openItemKey}
             onToggleItem={(key) => setOpenItemKey(openItemKey === key ? undefined : key)}
             onOpenItem={setOpenItemKey}
+            previewOpen={previewOverlayKey === draft.key}
+            onTogglePreview={() => setPreviewOverlayKey(previewOverlayKey === draft.key ? undefined : draft.key)}
             onChange={(next) => update(position, next)}
             onMoveItemToOverlay={moveItemToOverlay}
             onAskRemoveItem={(item) =>

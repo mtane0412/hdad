@@ -17,11 +17,19 @@
  * - 同じオーバーレイの素材は接続を共有する（匿名IRCは1本、チャンネル名とバッジ・Cheermote の取得も1回、
  *   ポーリングは1つのタイマー）
  *
+ * ?demo=true のときは管理画面（/overlay/）のプレビューとして開かれている（issue #106）。このときは映す構成を
+ * Worker から読まずに親の窓から受け取り（preview.ts）、素材の中身はすべてサンプルにして Twitch にも Worker にも
+ * つながない。編集中の構成をそのまま映せるようにするためで、保存はその時点で配信画面へ反映されるため
+ * 「保存してから確かめる」ではプレビューの意味が無くなる。つながないので、配信中のオーバーレイに加えて
+ * 匿名IRC・アラートのWebSocket・ポーリングがもう1組動くこともない。
+ *
  * 注意: 1つの素材の失敗で、同じオーバーレイのほかの素材は動かし続ける（issue #101 で決めた、Fail-Fast に
  * 意識して設けた例外）。理由は「配信中に片方が壊れたときの被害を、配信画面の全損から1素材の欠落に
  * 留めるため」で、失敗はその素材の箱の中だけに表示する。
  * 注意: 素材ページの約束どおり、React もログインも持ち込まない。
  */
+import type { Alert } from '../alerts/alert'
+import { demoAlerts } from '../alerts/demo'
 import { EMPTY_QUEUE, advance, enqueue } from '../alerts/queue'
 import { connectAlerts } from '../alerts/socket'
 import { createAlertView } from '../alerts/view'
@@ -39,15 +47,18 @@ import { clocks } from '../clock/registry'
 import { clearError, findDefinition, showError, startCanvasLayer, type DrawFrame } from '../core/mount'
 import { ParamError, parseParams, type ParamSchema } from '../core/params'
 import { createFocusOverlayApi } from '../focus/api'
+import { demoFocused } from '../focus/demo'
 import { NO_FOCUS, withMessage, withRemoval, withTarget, type FocusState } from '../focus/focused'
 import { createFocusView } from '../focus/view'
 import { createSideSuperApi } from '../side-super/api'
+import { demoSideSupers } from '../side-super/demo'
 import { sideSuperParamSchema } from '../side-super/params'
 import { createSideSuperView } from '../side-super/view'
 import { backgrounds } from '../wallpaper/registry'
 import { createOverlayLayoutApi } from './api'
-import { itemsInOverlay, overlayNamesOf, rectStyle, type ItemKind, type OverlayItem } from './layout'
+import { itemsInOverlay, overlayNamesOf, rectStyle, type ItemKind, type Overlay, type OverlayItem } from './layout'
 import { dueTasks, pollTickMs, type PollInterval } from './poll'
+import { previewReadyMessage, readPreviewLayout } from './preview'
 
 /** ページ全体の失敗（構成が読めない・オーバーレイに素材が無い）でエラー表示に使う呼び名 */
 const NOUN = 'オーバーレイ'
@@ -67,6 +78,13 @@ const SIDE_SUPER_INTERVAL_MS = 30000
 /** 取り上げている注目コメントを読みに行く間隔（ミリ秒）。src/focus/stage.ts と同じ理由で10秒 */
 const FOCUS_INTERVAL_MS = 10000
 
+/** プレビューでサンプルのアラートを流す間隔（ミリ秒）。src/alerts/stage.ts と同じ */
+const DEMO_ALERT_INTERVAL_MS = 9000
+/** プレビューでサンプルの文言・注目コメントを切り替える間隔（ミリ秒）。単独ページと同じ */
+const DEMO_SAMPLE_INTERVAL_MS = 6000
+/** プレビューが親の窓から構成を受け取るまで待つ上限（ミリ秒）。届かなければ理由を画面に出す */
+const PREVIEW_WAIT_MS = 5000
+
 const schema = {
   key: {
     type: 'string',
@@ -83,6 +101,11 @@ const schema = {
     pattern: /^[a-z0-9-]{1,20}$/,
     example: 'back または front',
     description: '描くオーバーレイの名前（このオーバーレイに積んだ素材だけを重ねる）',
+  },
+  demo: {
+    type: 'boolean',
+    default: false,
+    description: '管理画面のプレビューとして描く（構成は親の窓から受け取り、素材の中身はすべてサンプルにする）',
   },
 } as const satisfies ParamSchema
 
@@ -200,6 +223,34 @@ const createChatHub = () => {
 
 type ChatHub = ReturnType<typeof createChatHub>
 
+/**
+ * 素材を起動するときの、オーバーレイで共通の文脈。
+ *
+ * demo が真なら管理画面のプレビューなので、素材の中身はすべてサンプルにして外へはつながない
+ * （オーバーレイ用キーも持たない）。
+ */
+interface MountContext {
+  readonly key: string
+  readonly demo: boolean
+  readonly hub: ChatHub
+}
+
+/**
+ * プレビューでサンプルを一定間隔で順に流す（一巡したらまた先頭から）。
+ *
+ * 単独ページ（src/alerts/stage.ts ほか）の ?demo=true と同じ流し方を、ここでは3種類の素材で共有する。
+ */
+const startSampleCycle = <T,>(samples: readonly T[], intervalMs: number, show: (sample: T) => void): void => {
+  let index = 0
+  const next = (): void => {
+    const sample = samples[index % samples.length]
+    index += 1
+    if (sample) show(sample)
+  }
+  next()
+  window.setInterval(next, intervalMs)
+}
+
 /** 素材を起動した結果。描くもの・読みに行くものがあれば返す */
 interface MountedItem {
   readonly draw?: DrawFrame
@@ -220,7 +271,7 @@ const mountCanvasMaterial = (box: HTMLElement, item: OverlayItem): MountedItem =
 }
 
 /** チャットボックス。デザインのCSSは [data-chat='<id>'] で効くので、箱の中の ol に属性を持たせる */
-const mountChat = (box: HTMLElement, item: OverlayItem, hub: ChatHub): MountedItem => {
+const mountChat = (box: HTMLElement, item: OverlayItem, { demo, hub }: MountContext): MountedItem => {
   const definition = chats.find((candidate) => candidate.id === item.id)
   if (!definition) throw new Error(`${NOUNS.chat}「${item.id}」はレジストリに登録されていません`)
 
@@ -229,7 +280,10 @@ const mountChat = (box: HTMLElement, item: OverlayItem, hub: ChatHub): MountedIt
   root.dataset.chat = definition.id
   box.append(root)
 
-  const params = parseParams(definition.schema, new URLSearchParams(item.params))
+  const search = new URLSearchParams(item.params)
+  // プレビューではサンプルの書き込みを流す（匿名IRCへはつながない）
+  if (demo) search.set('demo', 'true')
+  const params = parseParams(definition.schema, search)
   for (const [name, value] of Object.entries(definition.cssVariables(params))) {
     root.style.setProperty(name, value)
   }
@@ -272,7 +326,7 @@ const mountChat = (box: HTMLElement, item: OverlayItem, hub: ChatHub): MountedIt
 }
 
 /** アラート。Workerから押し出されてくる1件ずつを順に再生する（列は queue.ts が持つ） */
-const mountAlerts = (box: HTMLElement, item: OverlayItem, key: string): MountedItem => {
+const mountAlerts = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
   // この素材は配信者が決めるパラメータを持たない（空でないクエリは誤りとして知らせる）
   parseParams({}, new URLSearchParams(item.params))
 
@@ -297,13 +351,24 @@ const mountAlerts = (box: HTMLElement, item: OverlayItem, key: string): MountedI
       })
   }
 
+  /** 再生する列に1件積む。いま何も再生していなければ、その場で再生を始める */
+  const showAlert = (alert: Alert): void => {
+    const idle = queue.current === null
+    queue = enqueue(queue, alert)
+    if (idle) play()
+  }
+
+  if (demo) {
+    // プレビューではWorkerにつながず、サンプルのアラートを順に流す（どこに出るかを確かめるため）
+    startSampleCycle(demoAlerts, DEMO_ALERT_INTERVAL_MS, showAlert)
+    return {}
+  }
+
   connectAlerts(key, {
     onAlert: (alert) => {
       // 前回の失敗のお知らせが残っていれば消す
       view.setNotice(null)
-      const idle = queue.current === null
-      queue = enqueue(queue, alert)
-      if (idle) play()
+      showAlert(alert)
     },
     onStatus: (status) => view.setNotice(status === 'disconnected' ? 'Workerとの接続が切れました。再接続します…' : null),
     onWarning: (message) => view.setNotice(message),
@@ -312,7 +377,7 @@ const mountAlerts = (box: HTMLElement, item: OverlayItem, key: string): MountedI
 }
 
 /** サイドスーパー。cron が作った文言を定期的に読みに行って映す */
-const mountSideSuper = (box: HTMLElement, item: OverlayItem, key: string): MountedItem => {
+const mountSideSuper = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
   const params = parseParams(sideSuperParamSchema, new URLSearchParams(item.params))
 
   const root = document.createElement('div')
@@ -323,6 +388,13 @@ const mountSideSuper = (box: HTMLElement, item: OverlayItem, key: string): Mount
   box.append(root)
 
   const view = createSideSuperView(root)
+
+  if (demo) {
+    // プレビューではWorkerにつながず、サンプルの文言を順に流す
+    startSampleCycle(demoSideSupers, DEMO_SAMPLE_INTERVAL_MS, (lines) => view.setLines(lines))
+    return {}
+  }
+
   const api = createSideSuperApi(callWorker, key)
   const read = async (): Promise<void> => {
     view.setLines(await api.read())
@@ -353,7 +425,7 @@ const mountSideSuper = (box: HTMLElement, item: OverlayItem, key: string): Mount
  * モデレーターの操作で映しているものが消えたら映すのをやめる（withRemoval）。配信画面に残ったままに
  * すると取り返しがつかないので、発言1件を固定しているあいだもチャットの受け取りを使う。
  */
-const mountFocus = (box: HTMLElement, item: OverlayItem, key: string, hub: ChatHub): MountedItem => {
+const mountFocus = (box: HTMLElement, item: OverlayItem, { key, demo, hub }: MountContext): MountedItem => {
   // この素材は配信者が決めるパラメータを持たない（取り上げる相手は Worker が持つ）
   parseParams({}, new URLSearchParams(item.params))
 
@@ -363,6 +435,13 @@ const mountFocus = (box: HTMLElement, item: OverlayItem, key: string, hub: ChatH
   box.append(root)
 
   const view = createFocusView(root)
+
+  if (demo) {
+    // プレビューでは取り上げているものを読まず、サンプルを順に流す（匿名IRCへもつながない）
+    startSampleCycle(demoFocused, DEMO_SAMPLE_INTERVAL_MS, (focused) => view.setFocused(focused))
+    return {}
+  }
+
   const api = createFocusOverlayApi(callWorker, key)
 
   /** いま取り上げているものと、映している1件。ここだけが持ち、書き換えたら必ず画面へ反映する */
@@ -426,21 +505,66 @@ const mountFocus = (box: HTMLElement, item: OverlayItem, key: string, hub: ChatH
 }
 
 /** 素材1つを起動する */
-const mountItem = (box: HTMLElement, item: OverlayItem, key: string, hub: ChatHub): MountedItem => {
+const mountItem = (box: HTMLElement, item: OverlayItem, context: MountContext): MountedItem => {
   switch (item.kind) {
     case 'wallpaper':
     case 'clock':
       return mountCanvasMaterial(box, item)
     case 'chat':
-      return mountChat(box, item, hub)
+      return mountChat(box, item, context)
     case 'alerts':
-      return mountAlerts(box, item, key)
+      return mountAlerts(box, item, context)
     case 'sideSuper':
-      return mountSideSuper(box, item, key)
+      return mountSideSuper(box, item, context)
     case 'focus':
-      return mountFocus(box, item, key, hub)
+      return mountFocus(box, item, context)
   }
 }
+
+/**
+ * プレビューとして開かれたときに、映す構成を親の窓（管理画面）から受け取る。
+ *
+ * Worker から読まないのは、保存はその時点で配信画面へ反映されるためである（保存してからでないと
+ * 確かめられないプレビューでは意味が無い。issue #106）。待つ側から先に「構成を待っている」と
+ * 知らせるのは、iframe の読み込みが終わる時期を親からは決められないためである。
+ *
+ * @throws 親の窓が無い（プレビューとして開かれていない）・構成が届かない・構成の形が違う場合
+ */
+const receivePreviewLayout = async (): Promise<readonly Overlay[]> =>
+  new Promise((resolve, reject) => {
+    if (window.parent === window) {
+      reject(new Error('プレビューは管理画面（/overlay/）から開いてください（構成は親の画面から受け取ります）'))
+      return
+    }
+
+    const stop = (): void => {
+      window.removeEventListener('message', onMessage)
+      window.clearTimeout(timer)
+    }
+
+    function onMessage(event: MessageEvent): void {
+      // 構成にはこの配信の素材の並びが入るので、同じサイトの窓からの知らせだけを読む
+      if (event.origin !== location.origin) return
+      try {
+        const overlays = readPreviewLayout(event.data)
+        // 自分たちの知らせでなければ（開発サーバーの再読み込みなど）そのまま待ち続ける
+        if (overlays === undefined) return
+        stop()
+        resolve(overlays)
+      } catch (error) {
+        stop()
+        reject(error instanceof Error ? error : new Error(String(error)))
+      }
+    }
+
+    const timer = window.setTimeout(() => {
+      stop()
+      reject(new Error('管理画面から構成が届きませんでした（プレビューを開き直してください）'))
+    }, PREVIEW_WAIT_MS)
+
+    window.addEventListener('message', onMessage)
+    window.parent.postMessage(previewReadyMessage(), location.origin)
+  })
 
 /**
  * オーバーレイで1本の描画ループを回す。
@@ -479,12 +603,13 @@ const start = async (): Promise<void> => {
   if (!root) throw new Error('data-overlay 属性を持つ要素が見つかりません')
 
   const params = parseParams(schema, new URLSearchParams(location.search))
-  if (params.key === '') {
+  if (!params.demo && params.key === '') {
     throw new ParamError(['key: オーバーレイ用キーを指定してください（例: ?key=<キー>&overlay=front）'])
   }
 
-  // 構成の読み出しは起動の一部。ここで失敗したらこのオーバーレイには何も描けないので、ページ全体に出す
-  const all = await createOverlayLayoutApi(callWorker, params.key).read()
+  // 構成の受け取りは起動の一部。ここで失敗したらこのオーバーレイには何も描けないので、ページ全体に出す。
+  // プレビュー（?demo=true）では編集中の構成を親の窓から受け取り、ふだんは Worker から読む
+  const all = params.demo ? await receivePreviewLayout() : await createOverlayLayoutApi(callWorker, params.key).read()
   const items = itemsInOverlay(all, params.overlay)
   if (items.length === 0) {
     const 名前 = overlayNamesOf(all)
@@ -494,6 +619,7 @@ const start = async (): Promise<void> => {
   }
 
   const hub = createChatHub()
+  const context: MountContext = { key: params.key, demo: params.demo, hub }
   const drawing: DrawingItem[] = []
   const tasks: PollTask[] = []
   /** チャットの受け取りを使う素材の箱。つなげなかったときに、そこへ失敗を出す */
@@ -509,7 +635,7 @@ const start = async (): Promise<void> => {
 
     const noun = NOUNS[item.kind]
     try {
-      const mounted = mountItem(box, item, params.key, hub)
+      const mounted = mountItem(box, item, context)
       if (mounted.draw) drawing.push({ box, noun, draw: mounted.draw })
       if (mounted.task) tasks.push(mounted.task)
       if (mounted.usesChat) chatBoxes.push(box)
