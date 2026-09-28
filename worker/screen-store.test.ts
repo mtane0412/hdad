@@ -15,11 +15,20 @@ import {
   abandonOcr,
   countOcrAttempt,
   deleteOldScreenCaptures,
+  deleteOldScreenLines,
   listPendingOcr,
+  listPendingSift,
+  readOwnScreenTexts,
+  readRecentScreenLines,
   recordScreenCapture,
+  saveScreenLines,
   saveScreenOcr,
 } from './screen-store'
+import { saveSideSuper } from './side-super-store'
 import { recordStreamOffline, recordStreamOnline } from './stats-store'
+import { recordStreamChatMessage } from './stream-chat-store'
+import { recordTranscript } from './transcript-store'
+import { recordViewerMessage } from './viewer-store'
 
 const 配信の開始 = Date.parse('2026-09-28T12:00:00Z')
 const 撮った時刻 = Date.parse('2026-09-28T12:05:00Z')
@@ -145,5 +154,161 @@ describe('saveScreenOcr', () => {
 
     await saveScreenOcr(db, 画像のID, '岩手17歳女性殺害事件')
     expect(db.sqlite.prepare('SELECT ocr_text FROM screen_captures').get()).toEqual({ ocr_text: '岩手17歳女性殺害事件' })
+  })
+})
+
+describe('listPendingSift', () => {
+  it('読み取った文字があって、まだ篩に通していない行を、撮った順に返す', async () => {
+    const db = createFakeDatabase()
+    await recordStreamOnline(db, { id: 'session-1', startedAt: 配信の開始 })
+    await recordScreenCapture(db, 'あとで撮った1枚', 撮った時刻 + 60000)
+    await recordScreenCapture(db, '先に撮った1枚', 撮った時刻)
+    await saveScreenOcr(db, 'あとで撮った1枚', 'あとの画面の文字')
+    await saveScreenOcr(db, '先に撮った1枚', '先の画面の文字')
+
+    expect(await listPendingSift(db, 10)).toEqual([
+      { imageId: '先に撮った1枚', sessionId: 'session-1', capturedAt: '2026-09-28T12:05:00.000Z', ocrText: '先の画面の文字' },
+      { imageId: 'あとで撮った1枚', sessionId: 'session-1', capturedAt: '2026-09-28T12:06:00.000Z', ocrText: 'あとの画面の文字' },
+    ])
+  })
+
+  it('読み取った文字をまだ取れていない行は返さない', async () => {
+    const db = createFakeDatabase()
+    await recordStreamOnline(db, { id: 'session-1', startedAt: 配信の開始 })
+    await recordScreenCapture(db, 画像のID, 撮った時刻)
+
+    expect(await listPendingSift(db, 10)).toEqual([])
+  })
+
+  it('篩に通し終えた行は返さない（残った行が0行でも返さない）', async () => {
+    const db = createFakeDatabase()
+    await recordStreamOnline(db, { id: 'session-1', startedAt: 配信の開始 })
+    await recordScreenCapture(db, 画像のID, 撮った時刻)
+    await saveScreenOcr(db, 画像のID, '画面に出ていた文字')
+    await saveScreenLines(db, { imageId: 画像のID, sessionId: 'session-1', capturedAt: '2026-09-28T12:05:00.000Z' }, [], 撮った時刻)
+
+    expect(await listPendingSift(db, 10)).toEqual([])
+  })
+
+  it('一度に返す件数を上限で抑える', async () => {
+    const db = createFakeDatabase()
+    await recordStreamOnline(db, { id: 'session-1', startedAt: 配信の開始 })
+    for (const [番号, ずれ] of [1000, 2000, 3000].entries()) {
+      await recordScreenCapture(db, `${番号}枚目`, 撮った時刻 + ずれ)
+      await saveScreenOcr(db, `${番号}枚目`, '画面に出ていた文字')
+    }
+
+    expect(await listPendingSift(db, 2)).toHaveLength(2)
+  })
+})
+
+describe('saveScreenLines', () => {
+  const 撮った1枚 = { imageId: 画像のID, sessionId: 'session-1', capturedAt: '2026-09-28T12:05:00.000Z' }
+
+  it('篩を通った行を、画面に現れた順に積む', async () => {
+    const db = createFakeDatabase()
+    await recordStreamOnline(db, { id: 'session-1', startedAt: 配信の開始 })
+    await recordScreenCapture(db, 画像のID, 撮った時刻)
+    await saveScreenOcr(db, 画像のID, '岩手17歳女性殺害事件\n盛岡市のガソリンスタンド')
+
+    await saveScreenLines(db, 撮った1枚, ['岩手17歳女性殺害事件', '盛岡市のガソリンスタンド'], 撮った時刻)
+    expect(db.sqlite.prepare('SELECT line_no, text FROM screen_lines ORDER BY line_no').all()).toEqual([
+      { line_no: 0, text: '岩手17歳女性殺害事件' },
+      { line_no: 1, text: '盛岡市のガソリンスタンド' },
+    ])
+  })
+
+  it('同じ1枚を二度通しても行は増えない', async () => {
+    const db = createFakeDatabase()
+    await recordStreamOnline(db, { id: 'session-1', startedAt: 配信の開始 })
+    await recordScreenCapture(db, 画像のID, 撮った時刻)
+    await saveScreenOcr(db, 画像のID, '岩手17歳女性殺害事件')
+
+    await saveScreenLines(db, 撮った1枚, ['岩手17歳女性殺害事件'], 撮った時刻)
+    await saveScreenLines(db, 撮った1枚, ['岩手17歳女性殺害事件'], 撮った時刻)
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS 件数 FROM screen_lines').get()).toEqual({ 件数: 1 })
+  })
+})
+
+describe('readRecentScreenLines', () => {
+  it('その配信で既に渡した行を返す', async () => {
+    const db = createFakeDatabase()
+    await recordStreamOnline(db, { id: 'session-1', startedAt: 配信の開始 })
+    await recordScreenCapture(db, 画像のID, 撮った時刻)
+    await saveScreenOcr(db, 画像のID, '岩手17歳女性殺害事件')
+    await saveScreenLines(db, { imageId: 画像のID, sessionId: 'session-1', capturedAt: '2026-09-28T12:05:00.000Z' }, ['岩手17歳女性殺害事件'], 撮った時刻)
+
+    expect(await readRecentScreenLines(db, 'session-1', 10)).toEqual(['岩手17歳女性殺害事件'])
+  })
+
+  it('別の配信の行は返さない', async () => {
+    const db = createFakeDatabase()
+    await recordStreamOnline(db, { id: 'session-1', startedAt: 配信の開始 })
+    await recordScreenCapture(db, 画像のID, 撮った時刻)
+    await saveScreenOcr(db, 画像のID, '岩手17歳女性殺害事件')
+    await saveScreenLines(db, { imageId: 画像のID, sessionId: 'session-1', capturedAt: '2026-09-28T12:05:00.000Z' }, ['岩手17歳女性殺害事件'], 撮った時刻)
+
+    expect(await readRecentScreenLines(db, 'session-2', 10)).toEqual([])
+  })
+
+  it('件数の上限を超えたら、新しいほうを残す（いま映っている画面と照らすため）', async () => {
+    const db = createFakeDatabase()
+    await recordStreamOnline(db, { id: 'session-1', startedAt: 配信の開始 })
+    for (const [番号, 行] of ['古い行', '新しい行'].entries()) {
+      await recordScreenCapture(db, `${番号}枚目`, 撮った時刻 + 番号 * 1000)
+      await saveScreenOcr(db, `${番号}枚目`, 行)
+      await saveScreenLines(db, { imageId: `${番号}枚目`, sessionId: 'session-1', capturedAt: new Date(撮った時刻 + 番号 * 1000).toISOString() }, [行], 撮った時刻)
+    }
+
+    expect(await readRecentScreenLines(db, 'session-1', 1)).toEqual(['新しい行'])
+  })
+})
+
+describe('readOwnScreenTexts', () => {
+  it('サイドスーパー・視聴者の発言と表示名・配信者の発話を返す', async () => {
+    const db = createFakeDatabase()
+    await recordStreamOnline(db, { id: 'session-1', startedAt: 配信の開始 })
+    await saveSideSuper(db, 'session-1', ['いま話していること', '見出しの下の1行'], 撮った時刻)
+    await recordViewerMessage(db, { userId: 'u1', login: 'tanenobu', displayName: 'たねのぶ', badges: [], messageId: 'm1' }, 撮った時刻)
+    await recordStreamChatMessage(db, { messageId: 'm1', userId: 'u1', text: 'それは面白いですね' }, 撮った時刻)
+    await recordTranscript(db, { messageId: 't1', text: '岩手の事件について話します' }, 撮った時刻)
+
+    expect((await readOwnScreenTexts(db, 'session-1', 10)).sort()).toEqual(
+      ['いま話していること', '見出しの下の1行', 'たねのぶ', 'それは面白いですね', '岩手の事件について話します'].sort(),
+    )
+  })
+
+  it('別の配信のぶんは返さない', async () => {
+    const db = createFakeDatabase()
+    await recordStreamOnline(db, { id: 'session-1', startedAt: 配信の開始 })
+    await saveSideSuper(db, 'session-1', ['いま話していること', '見出しの下の1行'], 撮った時刻)
+    await recordTranscript(db, { messageId: 't1', text: '岩手の事件について話します' }, 撮った時刻)
+
+    expect(await readOwnScreenTexts(db, 'session-2', 10)).toEqual([])
+  })
+})
+
+describe('deleteOldScreenLines', () => {
+  it('終わった配信の、期限より古い行を消す', async () => {
+    const db = createFakeDatabase()
+    await recordStreamOnline(db, { id: 'session-1', startedAt: 配信の開始 })
+    await recordScreenCapture(db, 画像のID, 撮った時刻)
+    await saveScreenOcr(db, 画像のID, '岩手17歳女性殺害事件')
+    await saveScreenLines(db, { imageId: 画像のID, sessionId: 'session-1', capturedAt: '2026-09-28T12:05:00.000Z' }, ['岩手17歳女性殺害事件'], 撮った時刻)
+    await recordStreamOffline(db, 撮った時刻 + 60000)
+
+    await deleteOldScreenLines(db, 撮った時刻 + 120000)
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS 件数 FROM screen_lines').get()).toEqual({ 件数: 0 })
+  })
+
+  it('配信中の区切りのぶんは、期限より古くても消さない', async () => {
+    const db = createFakeDatabase()
+    await recordStreamOnline(db, { id: 'session-1', startedAt: 配信の開始 })
+    await recordScreenCapture(db, 画像のID, 撮った時刻)
+    await saveScreenOcr(db, 画像のID, '岩手17歳女性殺害事件')
+    await saveScreenLines(db, { imageId: 画像のID, sessionId: 'session-1', capturedAt: '2026-09-28T12:05:00.000Z' }, ['岩手17歳女性殺害事件'], 撮った時刻)
+
+    await deleteOldScreenLines(db, 撮った時刻 + 120000)
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS 件数 FROM screen_lines').get()).toEqual({ 件数: 1 })
   })
 })
