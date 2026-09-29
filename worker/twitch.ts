@@ -252,6 +252,12 @@ export interface TwitchClient {
   /** ログイン名から、その人のアイコン画像のURLを引く。スコープは不要 */
   getProfileImageUrl(accessToken: string, login: string): Promise<string>
   /**
+   * ユーザーIDから、それぞれのアイコン画像のURLをまとめて引く（1度に100人まで）。スコープは不要。
+   *
+   * Twitchが返さなかった人（消えたアカウントなど）は結果に含めない。
+   */
+  getProfileImageUrls(accessToken: string, userIds: readonly string[]): Promise<Record<string, string>>
+  /**
    * チャットへメッセージを送る。送信者（senderId）のユーザートークンと user:write:chat が必要。
    *
    * @throws TwitchApiError Twitchが拒否した、またはTwitchが受け取ったうえで送信しなかった（AutoModなど）
@@ -669,6 +675,22 @@ export const createTwitchClient = ({
         throw new TwitchApiError(BAD_GATEWAY, `Twitchにログイン名 ${login} のアイコンがありません`)
       }
       return user.profile_image_url
+    },
+
+    getProfileImageUrls: async (accessToken, userIds) => {
+      const url = new URL(USERS_URL)
+      for (const userId of userIds) url.searchParams.append('id', userId)
+      const { data } = await getHelix(url, accessToken)
+      if (!Array.isArray(data)) throw new TwitchApiError(BAD_GATEWAY, 'Twitchのユーザーの応答に data の配列がありません')
+      const icons: Record<string, string> = {}
+      for (const user of data) {
+        // 画面の img にそのまま入れるので、https の画像URLとして読めるものだけを受け付ける
+        if (!isRecord(user) || typeof user.id !== 'string' || typeof user.profile_image_url !== 'string' || !user.profile_image_url.startsWith('https://')) {
+          throw new TwitchApiError(BAD_GATEWAY, 'Twitchのユーザーの応答に、id と https のアイコンのURLが揃っていない人がいます')
+        }
+        icons[user.id] = user.profile_image_url
+      }
+      return icons
     },
 
     sendChatMessage: async (accessToken, { broadcasterId, senderId, message }) => {

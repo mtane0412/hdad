@@ -16,6 +16,9 @@ export interface EventType {
 
 export const byBroadcaster = (broadcasterId: string): Record<string, string> => ({ broadcaster_user_id: broadcasterId })
 
+/** チャットの通知の条件。「チャットを読む人」（user_id）には配信者自身を指定する */
+const byChatReader = (broadcasterId: string): Record<string, string> => ({ broadcaster_user_id: broadcasterId, user_id: broadcasterId })
+
 /**
  * 受け取るイベントの一覧。増やすときはここに足す（スコープが増えた場合は配信者の再ログインが必要）。
  *
@@ -35,12 +38,14 @@ export const EVENT_TYPES: readonly EventType[] = [
   { type: 'channel.raid', version: '1', scope: null, condition: (broadcasterId) => ({ to_broadcaster_user_id: broadcasterId }) },
   // 「チャットを読む人」（user_id）には配信者自身を指定するため、配信者から user:read:chat と user:bot の
   // 両方を認可してもらう（EXTRA_BROADCASTER_SCOPES）
-  {
-    type: 'channel.chat.message',
-    version: '1',
-    scope: 'user:read:chat',
-    condition: (broadcasterId) => ({ broadcaster_user_id: broadcasterId, user_id: broadcasterId }),
-  },
+  { type: 'channel.chat.message', version: '1', scope: 'user:read:chat', condition: byChatReader },
+  // コメントビューアー（/comments/）に並べるためだけに購読するチャットの通知。どれも発言と同じく「読む人」を
+  // 配信者にして user:read:chat で購読できるので、配信者がログインし直す必要はない。
+  // お知らせ（サブスク・ギフト・レイド・アナウンス）と、モデレーターによる発言の削除・人ごとの消去・全消去
+  { type: 'channel.chat.notification', version: '1', scope: 'user:read:chat', condition: byChatReader },
+  { type: 'channel.chat.message_delete', version: '1', scope: 'user:read:chat', condition: byChatReader },
+  { type: 'channel.chat.clear_user_messages', version: '1', scope: 'user:read:chat', condition: byChatReader },
+  { type: 'channel.chat.clear', version: '1', scope: 'user:read:chat', condition: byChatReader },
   // 広告の開始。終了に相当する通知はTwitchにないので、開始の duration_seconds から自前で計る
   // （worker/ad-break-timer.ts が時刻を持ち、擬似イベント channel.ad_break.end として照合へ回す）
   { type: 'channel.ad_break.begin', version: '1', scope: 'channel:read:ads', condition: byBroadcaster },

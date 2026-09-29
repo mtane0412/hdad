@@ -8,6 +8,7 @@ import { createRoot } from 'react-dom/client'
 import { createAdminApi } from '@/admin/api'
 import { createBotApi } from '@/bot/api'
 import { createDrawApi } from '@/draw/api'
+import { createCommentApi } from '@/comments/api'
 import { createFocusApi } from '@/focus/api'
 import { createLlmApi } from '@/llm/api'
 import { createOverlayLayoutAdminApi } from '@/overlay/admin-api'
@@ -30,12 +31,13 @@ const viewerApi = createViewerApi(callWorker)
 const speechApi = createSpeechApi(callWorker)
 const screenApi = createScreenAdminApi(callWorker)
 const focusApi = createFocusApi(callWorker)
+const commentApi = createCommentApi(callWorker)
 const drawApi = createDrawApi(callWorker)
 const llmApi = createLlmApi(callWorker)
 const overlayApi = createOverlayLayoutAdminApi(callWorker)
 
 createRoot(root).render(
   <StrictMode>
-    <App api={api} statsApi={statsApi} botApi={botApi} viewerApi={viewerApi} speechApi={speechApi} screenApi={screenApi} focusApi={focusApi} drawApi={drawApi} llmApi={llmApi} overlayApi={overlayApi} />
+    <App api={api} statsApi={statsApi} botApi={botApi} viewerApi={viewerApi} speechApi={speechApi} screenApi={screenApi} focusApi={focusApi} commentApi={commentApi} drawApi={drawApi} llmApi={llmApi} overlayApi={overlayApi} />
   </StrictMode>,
 )

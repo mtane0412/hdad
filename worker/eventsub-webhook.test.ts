@@ -39,7 +39,7 @@ describe('ensureWebhookSubscriptions', () => {
   const 揃える = (twitch: ReturnType<typeof Twitchの代役>) =>
     ensureWebhookSubscriptions({ twitch, broadcasterId: '12345', callbackUrl: コールバック, secret: シークレット })
 
-  it('何も登録されていなければ、サブスク・ポイント交換・フォロー・レイド・チャット・広告の開始・配信の開始と終了を、アプリアクセストークンでWebhook宛てに登録する', async () => {
+  it('何も登録されていなければ、サブスク・ポイント交換・フォロー・レイド・チャット（発言・お知らせ・削除・消去）・広告の開始・配信の開始と終了を、アプリアクセストークンでWebhook宛てに登録する', async () => {
     const twitch = Twitchの代役([])
     const created = await 揃える(twitch)
 
@@ -50,6 +50,10 @@ describe('ensureWebhookSubscriptions', () => {
       'channel.subscription.message',
       'channel.raid',
       'channel.chat.message',
+      'channel.chat.notification',
+      'channel.chat.message_delete',
+      'channel.chat.clear_user_messages',
+      'channel.chat.clear',
       'channel.ad_break.begin',
       'stream.online',
       'stream.offline',
@@ -75,7 +79,7 @@ describe('ensureWebhookSubscriptions', () => {
 
     expect(created).not.toContain('stream.online')
     expect(created).not.toContain('stream.offline')
-    expect(created).toHaveLength(7)
+    expect(created).toHaveLength(11)
     expect(twitch.deleteSubscription).not.toHaveBeenCalled()
   })
 
@@ -105,7 +109,7 @@ describe('ensureWebhookSubscriptions', () => {
     const created = await 揃える(twitch)
 
     expect(twitch.deleteSubscription).not.toHaveBeenCalled()
-    expect(created).toHaveLength(9)
+    expect(created).toHaveLength(13)
   })
 
   it('Twitchが購読を拒否したら、どのイベントかを示すエラーになる', async () => {
