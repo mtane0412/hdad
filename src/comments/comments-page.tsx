@@ -222,6 +222,8 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
   /** 注目コメントとして取り上げている発言のID。取り上げていなければ null */
   const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null)
   const actions = usePageActions()
+  /** この画面で取り上げ直したか。開いたときの読み込みが遅れて返っても、選び直した結果を古い内容で上書きしない */
+  const 選び直した = useRef(false)
   /** いちばん下を見ているか。見ているあいだだけ、新しい1件に合わせて下へ送る */
   const [following, setFollowing] = useState(true)
   /** アイコンを問い合わせた人（Twitchが返さなかった人も含む。同じ人を何度も問い合わせない。問い合わせ自体が失敗した人は外す） */
@@ -270,7 +272,7 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
     let cancelled = false
     focusApi.load().then(
       (target) => {
-        if (!cancelled) setFocusedMessageId(target?.messageId ?? null)
+        if (!cancelled && !選び直した.current) setFocusedMessageId(target?.messageId ?? null)
       },
       (error: unknown) => {
         if (!cancelled) 失敗を出す(error)
@@ -281,10 +283,22 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
     }
   }, [focusApi, 失敗を出す])
 
-  /** 発言を注目コメントに設定する。すでに取り上げている発言なら、取り上げをやめる */
+  /**
+   * 発言を注目コメントに設定する。すでに取り上げている発言なら、取り上げをやめる。
+   *
+   * やめる前にいま取り上げているものを読み直し、ほかの画面（/focus/ など）で別の発言に取り上げ直されていたら、
+   * やめずに表示のほうを合わせる（ほかの画面での選択を消さないため）。保存先のKVには「比べてから書き換える」
+   * 仕組みがないので、読み直してから保存するまでのわずかな隙間は残る。
+   */
   const 注目を切り替える = (item: ChatItem) =>
     void actions.run(async () => {
+      選び直した.current = true
       if (focusedMessageId === item.messageId) {
+        const current = await focusApi.load()
+        if (current !== null && current.messageId !== item.messageId) {
+          setFocusedMessageId(current.messageId)
+          return `注目コメントはほかの画面で別の発言に変わっていたので、やめずに表示を合わせました（いまは ${current.displayName} さんの発言）`
+        }
         await focusApi.save(null)
         setFocusedMessageId(null)
         return '注目コメントの取り上げをやめました'

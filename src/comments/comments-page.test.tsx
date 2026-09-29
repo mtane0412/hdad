@@ -227,6 +227,37 @@ describe('CommentsPage', () => {
       expect(行('常連さん')).not.toHaveTextContent('注目中')
     })
 
+    test('ほかの画面で別の発言に取り上げ直されていたら、やめずに表示を合わせる（ほかの画面の選択を消さないため）', async () => {
+      const 別の発言 = { messageId: '発言9', login: 'shoken_san', displayName: '初見さん', text: 'はじめまして', profileImageUrl: 'https://static-cdn.jtvnw.net/jtv_user_pictures/shoken.png' }
+      const focusApi = 代役の注目コメントAPI()
+      const { 届く } = 描く(代役のAPI(), focusApi)
+      await 届く({ type: 'item', item: 常連さんの発言 })
+      await userEvent.click(取り上げるボタン('常連さん'))
+      await screen.findByText('常連さん さんの発言を注目コメントにしました')
+      // 前提: このあと注目コメントのページで、別の発言に取り上げ直された
+      vi.mocked(focusApi.load).mockResolvedValue(別の発言)
+
+      await userEvent.click(取り上げるボタン('常連さん'))
+
+      expect(focusApi.save).not.toHaveBeenLastCalledWith(null)
+      expect(await screen.findByText(/ほかの画面で別の発言に変わっていた/)).toBeInTheDocument()
+      expect(行('常連さん')).not.toHaveTextContent('注目中')
+    })
+
+    test('開いたときの読み込みが保存より遅れて返っても、保存した印を上書きしない', async () => {
+      // 前提: 開いたときの読み込み（取り上げていない）が、発言を取り上げたあとに返ってくる
+      let 読み込みを返す: (target: null) => void = () => {}
+      const focusApi = 代役の注目コメントAPI({ load: vi.fn(() => new Promise<null>((resolve) => (読み込みを返す = resolve))) })
+      const { 届く } = 描く(代役のAPI(), focusApi)
+      await 届く({ type: 'item', item: 常連さんの発言 })
+      await userEvent.click(取り上げるボタン('常連さん'))
+      await screen.findByText('常連さん さんの発言を注目コメントにしました')
+
+      await act(async () => 読み込みを返す(null))
+
+      expect(行('常連さん')).toHaveTextContent('注目中')
+    })
+
     test('モデレーターに消された発言は取り上げられない（配信画面に出さないため）', async () => {
       const { 届く } = 描く()
       await 届く({ type: 'item', item: 常連さんの発言 })
