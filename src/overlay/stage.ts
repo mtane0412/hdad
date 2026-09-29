@@ -53,7 +53,7 @@ import { clearError, findDefinition, showError, startCanvasLayer, startCanvasSur
 import { ParamError, parseParams, type ParamSchema } from '../core/params'
 import { createFocusOverlayApi } from '../focus/api'
 import { demoFocused } from '../focus/demo'
-import { NO_FOCUS, withMessage, withRemoval, withTarget, type FocusState } from '../focus/focused'
+import { NO_FOCUS, withRemoval, withTarget, type FocusState } from '../focus/focused'
 import { createFocusView } from '../focus/view'
 import { createSideSuperApi } from '../side-super/api'
 import { demoSideSupers } from '../side-super/demo'
@@ -81,7 +81,7 @@ const NOUNS: Readonly<Record<ItemKind, string>> = {
 
 /** サイドスーパーの文言を読みに行く間隔（ミリ秒）。文言は cron が5分おきに作るので、30秒あれば十分に追いつく */
 const SIDE_SUPER_INTERVAL_MS = 30000
-/** 取り上げている注目コメントを読みに行く間隔（ミリ秒）。配信中に相手を変えたとき、待たされすぎない長さにする */
+/** 取り上げている注目コメントを読みに行く間隔（ミリ秒）。配信中に選び直したとき、待たされすぎない長さにする */
 const FOCUS_INTERVAL_MS = 10000
 
 /** プレビューでサンプルのアラートを流す間隔（ミリ秒）。アラート1件の再生が終わるだけの間を置く */
@@ -426,10 +426,10 @@ const mountSideSuper = (box: HTMLElement, item: OverlayItem, { key, demo }: Moun
 }
 
 /**
- * 注目コメント。取り上げているものを定期的に読みに行き、人に追従する指定ならIRCで届く発言で差し替える。
+ * 注目コメント。取り上げている発言1件を定期的に読みに行き、アイコン・名前・本文の箱で映す。
  *
  * モデレーターの操作で映しているものが消えたら映すのをやめる（withRemoval）。配信画面に残ったままに
- * すると取り返しがつかないので、発言1件を固定しているあいだもチャットの受け取りを使う。
+ * すると取り返しがつかないので、発言そのものは使わなくてもチャットの受け取りにつなぐ。
  */
 const mountFocus = (box: HTMLElement, item: OverlayItem, { key, demo, hub }: MountContext): MountedItem => {
   // この素材は配信者が決めるパラメータを持たない（取り上げる相手は Worker が持つ）
@@ -450,7 +450,7 @@ const mountFocus = (box: HTMLElement, item: OverlayItem, { key, demo, hub }: Mou
 
   const api = createFocusOverlayApi(callWorker, key)
 
-  /** いま取り上げているものと、映している1件。ここだけが持ち、書き換えたら必ず画面へ反映する */
+  /** いま取り上げている1件と、映している1件。ここだけが持ち、書き換えたら必ず画面へ反映する */
   let state: FocusState = NO_FOCUS
   const update = (next: FocusState): void => {
     if (next === state) return
@@ -468,14 +468,10 @@ const mountFocus = (box: HTMLElement, item: OverlayItem, { key, demo, hub }: Mou
   // 1回目は起動の一部として扱い、失敗はこの箱に出す
   void read().catch((error: unknown) => showError(error, NOUNS.focus, box, 'read'))
 
-  // 要るものを伝えないのは、公式バッジもサードパーティエモートも使わないためである
-  // （Cheermote は絵で出したいが、これは接続のときに必ず読み込まれる）
+  // 要るものを伝えないのは、発言そのものを映さず、バッジもエモートも使わないためである
   hub.listen({
     onEvent: (event) => {
       switch (event.type) {
-        case 'message':
-          update(withMessage(state, hub.decorate(event.message, false)))
-          break
         case 'delete':
           update(withRemoval(state, { type: 'message', messageId: event.id }))
           break
@@ -485,9 +481,10 @@ const mountFocus = (box: HTMLElement, item: OverlayItem, { key, demo, hub }: Mou
         case 'clear-all':
           update(withRemoval(state, { type: 'all' }))
           break
+        case 'message':
         case 'room':
         case 'notice':
-          // 接続の知らせは映すものに関係しない（この素材には出す場所が無い）
+          // 新しい発言と接続の知らせは映すものに関係しない（映す1件は配信者が /focus/ で選ぶ）
           break
       }
     },

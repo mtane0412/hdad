@@ -1,7 +1,7 @@
 /**
  * 注目コメントの読み書き（Workerの呼び出し）
  *
- * 取り上げているものは Worker（KVの focus-target）が持ち、2つの経路から読まれる。
+ * 取り上げている発言1件は Worker（KVの focus-comment）が持ち、2つの経路から読まれる。
  * - 管理画面（/focus/ のページ）: 配信者のセッションで /api/admin/focus を読み書きする
  * - 合成ページ（overlay/stage/ の「注目コメント」の素材）: オーバーレイ用キーで /api/overlay/focus を読むだけ
  *
@@ -30,27 +30,35 @@ export interface PickableMessage {
   at: string
 }
 
-/** 応答から取り上げているものを読む。想定した形でなければエラーにする */
+/**
+ * 管理画面が選んで送る発言1件。worker/focus-config.ts の FocusPick と合わせる。
+ * アイコンのURLは送らない（Worker が Twitch から引いて添え、FocusTarget にして返す）
+ */
+export type FocusPick = Omit<FocusTarget, 'profileImageUrl'>
+
+/** 応答から取り上げている1件を読む。想定した形でなければエラーにする */
 const readFocusTarget = (body: unknown, path: string): FocusTarget | null => {
   const 違う形 = new Error(`Workerの ${path} の応答が想定した形ではありません`)
   if (!isRecord(body) || !('target' in body)) throw 違う形
   const target: unknown = body.target
   if (target === null) return null
-  if (!isRecord(target)) throw 違う形
-
-  if (target.type === 'viewer' && typeof target.login === 'string') {
-    return { type: 'viewer', login: target.login }
-  }
   if (
-    target.type === 'message' &&
-    typeof target.messageId === 'string' &&
-    typeof target.login === 'string' &&
-    typeof target.displayName === 'string' &&
-    typeof target.text === 'string'
+    !isRecord(target) ||
+    typeof target.messageId !== 'string' ||
+    typeof target.login !== 'string' ||
+    typeof target.displayName !== 'string' ||
+    typeof target.text !== 'string' ||
+    typeof target.profileImageUrl !== 'string'
   ) {
-    return { type: 'message', messageId: target.messageId, login: target.login, displayName: target.displayName, text: target.text }
+    throw 違う形
   }
-  throw 違う形
+  return {
+    messageId: target.messageId,
+    login: target.login,
+    displayName: target.displayName,
+    text: target.text,
+    profileImageUrl: target.profileImageUrl,
+  }
 }
 
 /** 取り上げる発言を選ぶ一覧の1件として読めるか */
@@ -66,15 +74,15 @@ const isPickableMessage = (value: unknown): value is PickableMessage =>
 export interface FocusApi {
   /** いま取り上げているものを読む。取り上げていなければ null */
   load(): Promise<FocusTarget | null>
-  /** 取り上げるものを保存する（外すときは null）。検証はWorkerが行う */
-  save(target: FocusTarget | null): Promise<FocusTarget | null>
+  /** 選んだ発言を取り上げる（外すときは null）。検証とアイコンの取得はWorkerが行い、アイコンを添えた1件が返る */
+  save(pick: FocusPick | null): Promise<FocusTarget | null>
   /** 取り上げる発言を選ぶための、いま進んでいる配信の直近の発言（新しい順） */
   recent(): Promise<PickableMessage[]>
 }
 
 /** オーバーレイからの読み出し */
 export interface FocusOverlayApi {
-  /** いま取り上げているものを読む */
+  /** いま取り上げている1件を読む */
   read(): Promise<FocusTarget | null>
 }
 
@@ -91,12 +99,12 @@ export const createFocusApi = (fetchImpl: typeof fetch): FocusApi => {
   return {
     load: async () => readFocusTarget(await call(ADMIN_PATH), ADMIN_PATH),
 
-    save: async (target) =>
+    save: async (pick) =>
       readFocusTarget(
         await call(ADMIN_PATH, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ target }),
+          body: JSON.stringify({ target: pick }),
         }),
         ADMIN_PATH,
       ),

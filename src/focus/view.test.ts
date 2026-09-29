@@ -4,21 +4,22 @@
  *
  * 配信画面に出しっぱなしにするものなので、見た目はCSSが決め、ここでは要素・クラス・属性だけを確かめる。
  * 特に重要なのは次の3点。
- * - 名前と本文を別々の要素として出すこと（CSSがそれぞれの大きさを決められるようにするため）
- * - 同じ1件を渡し直したときに要素を作り直さないこと（30秒ごとに読み直すので、作り直すと
+ * - アイコン・名前・本文を1つの箱にまとめて出すこと（CSSがそれぞれの大きさを決められるよう、別々の要素にする）
+ * - 同じ1件を渡し直したときに要素を作り直さないこと（10秒ごとに読み直すので、作り直すと
  *   出現のアニメーションが繰り返し走ってしまう）
  * - 映すものが無くなったら何も残さないこと（消された発言を配信画面に残さない）
  */
 import { describe, expect, it } from 'vitest'
+import type { FocusTarget } from './focused'
 import { createFocusView } from './view'
-import type { FocusedMessage } from './focused'
 
-/** 映す1件。文字だけの本文 */
-const 映す1件 = (上書き: Partial<FocusedMessage> = {}): FocusedMessage => ({
+/** 映す1件 */
+const 映す1件 = (上書き: Partial<FocusTarget> = {}): FocusTarget => ({
   messageId: '発言1',
   login: 'kowai_hanashi',
   displayName: '怖い話す人',
-  fragments: [{ type: 'text', text: '今から怖い話をするね' }],
+  text: '今から怖い話をするね',
+  profileImageUrl: 'https://static-cdn.jtvnw.net/jtv_user_pictures/kowai_hanashi.png',
   ...上書き,
 })
 
@@ -30,43 +31,26 @@ const 用意する = () => {
 }
 
 describe('createFocusView', () => {
-  it('名前と本文を別々の要素として出す', () => {
+  it('アイコン・名前・本文を1つの箱にまとめて出す', () => {
     const { root, view } = 用意する()
 
     view.setFocused(映す1件())
 
-    expect(root.querySelector('.focus-name')?.textContent).toBe('怖い話す人')
-    expect(root.querySelector('.focus-body')?.textContent).toBe('今から怖い話をするね')
+    const 箱 = root.querySelector('.focus-card')
+    expect(root.children).toHaveLength(1)
+    expect(箱?.querySelector<HTMLImageElement>('.focus-icon')?.getAttribute('src')).toBe(
+      'https://static-cdn.jtvnw.net/jtv_user_pictures/kowai_hanashi.png',
+    )
+    expect(箱?.querySelector('.focus-name')?.textContent).toBe('怖い話す人')
+    expect(箱?.querySelector('.focus-body')?.textContent).toBe('今から怖い話をするね')
   })
 
-  it('エモートは画像として出し、代替文字にエモート名を入れる（読み上げや確認のため）', () => {
+  it('アイコンは名前と並ぶ飾りなので、読み上げでは名前を繰り返さない（代替文字を空にする）', () => {
     const { root, view } = 用意する()
 
-    view.setFocused(
-      映す1件({
-        fragments: [
-          { type: 'text', text: 'こわい ' },
-          { type: 'emote', name: 'monkaS', url: 'https://example.com/monkaS.png' },
-        ],
-      }),
-    )
+    view.setFocused(映す1件())
 
-    const image = root.querySelector<HTMLImageElement>('.focus-body img')
-    expect(image?.getAttribute('src')).toBe('https://example.com/monkaS.png')
-    expect(image?.alt).toBe('monkaS')
-  })
-
-  it('Cheermote は絵とビッツ数の両方を出す', () => {
-    const { root, view } = 用意する()
-
-    view.setFocused(
-      映す1件({
-        fragments: [{ type: 'cheer', name: 'cheer500', url: 'https://example.com/cheer.gif', amount: 500, color: '#1db2f5' }],
-      }),
-    )
-
-    expect(root.querySelector<HTMLImageElement>('.focus-body img')?.alt).toBe('cheer500')
-    expect(root.querySelector('.focus-body')?.textContent).toContain('500')
+    expect(root.querySelector<HTMLImageElement>('.focus-icon')?.getAttribute('alt')).toBe('')
   })
 
   it('映すものが無ければ何も残さない（消された発言を配信画面に残さない）', () => {
@@ -81,41 +65,42 @@ describe('createFocusView', () => {
   it('同じ1件を渡し直したときは要素を作り直さない（出現のアニメーションを繰り返さないため）', () => {
     const { root, view } = 用意する()
     view.setFocused(映す1件())
-    const 最初の本文 = root.querySelector('.focus-body')
+    const 最初の箱 = root.querySelector('.focus-card')
 
     view.setFocused(映す1件())
 
-    expect(root.querySelector('.focus-body')).toBe(最初の本文)
+    expect(root.querySelector('.focus-card')).toBe(最初の箱)
   })
 
   it('別の1件に変わったら要素を作り直す', () => {
     const { root, view } = 用意する()
     view.setFocused(映す1件())
-    const 最初の本文 = root.querySelector('.focus-body')
+    const 最初の箱 = root.querySelector('.focus-card')
 
-    view.setFocused(映す1件({ messageId: '発言2', fragments: [{ type: 'text', text: 'それは去年の夏のことでした' }] }))
+    view.setFocused(映す1件({ messageId: '発言2', text: 'それは去年の夏のことでした' }))
 
-    expect(root.querySelector('.focus-body')).not.toBe(最初の本文)
+    expect(root.querySelector('.focus-card')).not.toBe(最初の箱)
     expect(root.querySelector('.focus-body')?.textContent).toBe('それは去年の夏のことでした')
   })
 
   it('本文の長さに応じて、字の大きさの区分を本文の要素に入れる（長い語りを配信画面からあふれさせないため）', () => {
     const { root, view } = 用意する()
 
-    view.setFocused(映す1件({ fragments: [{ type: 'text', text: 'こわい' }] }))
+    view.setFocused(映す1件({ text: 'こわい' }))
     expect(root.querySelector<HTMLElement>('.focus-body')?.dataset.length).toBe('short')
 
-    view.setFocused(映す1件({ messageId: '発言2', fragments: [{ type: 'text', text: 'あ'.repeat(80) }] }))
+    view.setFocused(映す1件({ messageId: '発言2', text: 'あ'.repeat(80) }))
     expect(root.querySelector<HTMLElement>('.focus-body')?.dataset.length).toBe('medium')
 
-    view.setFocused(映す1件({ messageId: '発言3', fragments: [{ type: 'text', text: 'あ'.repeat(200) }] }))
+    view.setFocused(映す1件({ messageId: '発言3', text: 'あ'.repeat(200) }))
     expect(root.querySelector<HTMLElement>('.focus-body')?.dataset.length).toBe('long')
   })
 
-  it('エモートも1文字として数える（絵ばかりの発言を小さくしすぎないため）', () => {
+  it('絵文字は見た目の1文字として数える（Workerの上限の数え方と合わせる）', () => {
     const { root, view } = 用意する()
 
-    view.setFocused(映す1件({ fragments: [{ type: 'emote', name: 'monkaS', url: 'https://example.com/monkaS.png' }] }))
+    // 「🎃」は UTF-16 では2単位ぶんを占める。40個なら見た目は40文字で、大きいまま出す
+    view.setFocused(映す1件({ text: '🎃'.repeat(40) }))
 
     expect(root.querySelector<HTMLElement>('.focus-body')?.dataset.length).toBe('short')
   })
@@ -123,6 +108,6 @@ describe('createFocusView', () => {
   it('本文が空なら投げる（名前だけのコメントを配信画面に出さない）', () => {
     const { view } = 用意する()
 
-    expect(() => view.setFocused(映す1件({ fragments: [] }))).toThrow(/本文/)
+    expect(() => view.setFocused(映す1件({ text: '' }))).toThrow(/本文/)
   })
 })
