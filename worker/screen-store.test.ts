@@ -15,6 +15,7 @@ import {
   abandonOcr,
   countOcrAttempt,
   deleteOldScreenCaptures,
+  readLatestScreenCapture,
   deleteOldScreenLines,
   listPendingOcr,
   listPendingSift,
@@ -72,11 +73,23 @@ describe('deleteOldScreenCaptures', () => {
   it('終わった配信の、期限より古い行を消す', async () => {
     const db = createFakeDatabase()
     await recordStreamOnline(db, { id: 'session-1', startedAt: 配信の開始 })
-    await recordScreenCapture(db, 画像のID, 撮った時刻)
+    await recordScreenCapture(db, '古い画面の画像ID', 撮った時刻)
+    await recordScreenCapture(db, '最後に撮った画像ID', 撮った時刻 + 30000)
     await recordStreamOffline(db, 撮った時刻 + 60000)
 
     await deleteOldScreenCaptures(db, 撮った時刻 + 120000)
-    expect(db.sqlite.prepare('SELECT COUNT(*) AS 件数 FROM screen_captures').get()).toEqual({ 件数: 0 })
+    // 最後に撮った1行だけは、描く画面の背景に使うので残る（次のテスト）
+    expect(db.sqlite.prepare('SELECT image_id FROM screen_captures').all()).toEqual([{ image_id: '最後に撮った画像ID' }])
+  })
+
+  it('最後に撮った1行は、期限より古くても消さない（配信していないあいだも描く画面の背景に使うため）', async () => {
+    const db = createFakeDatabase()
+    await recordStreamOnline(db, { id: 'session-1', startedAt: 配信の開始 })
+    await recordScreenCapture(db, 画像のID, 撮った時刻)
+    await recordStreamOffline(db, 撮った時刻 + 60000)
+
+    await deleteOldScreenCaptures(db, 撮った時刻 + 7 * 24 * 60 * 60 * 1000)
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS 件数 FROM screen_captures').get()).toEqual({ 件数: 1 })
   })
 
   it('配信中の区切りのぶんは、期限より古くても消さない（耐久配信の序盤を失わないため）', async () => {
@@ -86,6 +99,21 @@ describe('deleteOldScreenCaptures', () => {
 
     await deleteOldScreenCaptures(db, 撮った時刻 + 120000)
     expect(db.sqlite.prepare('SELECT COUNT(*) AS 件数 FROM screen_captures').get()).toEqual({ 件数: 1 })
+  })
+})
+
+describe('readLatestScreenCapture', () => {
+  it('最後に撮った1枚の画像IDと撮った時刻を返す', async () => {
+    const db = createFakeDatabase()
+    await recordStreamOnline(db, { id: 'session-1', startedAt: 配信の開始 })
+    await recordScreenCapture(db, '先に撮った画像ID', 撮った時刻)
+    await recordScreenCapture(db, 'あとで撮った画像ID', 撮った時刻 + 60000)
+
+    expect(await readLatestScreenCapture(db)).toEqual({ imageId: 'あとで撮った画像ID', capturedAt: 撮った時刻 + 60000 })
+  })
+
+  it('1枚も撮っていなければ null を返す', async () => {
+    expect(await readLatestScreenCapture(createFakeDatabase())).toBeNull()
   })
 })
 

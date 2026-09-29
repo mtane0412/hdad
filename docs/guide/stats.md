@@ -45,7 +45,6 @@ Twitchからの通知は、すべてWorkerがWebhook（`POST /api/eventsub/webho
     - チャットへ送る4つは、botが未接続なら何もしません
 - 同じ通知が再送されても二度は実行しません。失敗した場合もTwitchへは2xxを返して `collection_failures` に `alert-push-failed`・`alert-chat-failed`・`alert-announce-failed`・`alert-aichat-failed`・`alert-shoutout-failed` として記録します（2xx以外だとTwitchが再送し、実行できていた場合に二重になるため）
 - 広告の終了は Durable Object のアラームから実行するので、その予約の失敗は `ad-break-end-schedule-failed`、アラームが鳴ってからの失敗は `ad-break-end-failed` として記録します（予約を消したあとなので、再試行では取り返せません）
-- 配信画面の取り込みで撮った1枚を[手書き](./draw.md)の背景として置けなかったときは、`draw-background-failed` として記録します（Gyazo へ上げるのは止めません）
 - 購読は、配信者がログインしたとき（`GET /api/auth/callback`）に揃えます。Webhook宛ての購読はユーザートークンでは作れないので、アプリアクセストークンを発行し、`https://<公開先のドメイン>/api/eventsub/webhook` 宛てに有効な購読がないイベントだけを登録します。失効した購読は消してから登録し直します。**初めてデプロイしたあとは、一度ログインし直してください**（購読はログインのときにしか揃えないためです）
 - 購読の登録にTwitchが失敗を返しても、ログインは止めません（ログインできないと失敗の記録を読めなくなるため）。失敗は `collection_failures` に `webhook-subscription-failed` として記録します。購読が失効したという通知（`revocation`）も `subscription-revoked` として記録するので、`GET /api/admin/stats/failures` に出ていたらログインし直してください
 - 受け口は誰でも呼べるURLなので、署名（`Twitch-Eventsub-Message-Signature`。`EVENTSUB_SECRET` によるHMAC-SHA256）を確かめ、10分より古い通知と、購読していない種類の通知は拒否します

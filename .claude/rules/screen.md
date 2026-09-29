@@ -13,7 +13,7 @@ paths:
 
 **上げ先のコレクション（`collectionId`）は裏方のページに渡さない**（`GET /api/overlay/screen` が返すのは撮るのに要る4つだけ）。上げるのは Worker なので、上げ先を決めるのも Worker である。
 
-配信中に受け取った1枚は、手書きの描く画面の背景としても中継先（`DrawChannel`）に置く（最新の1枚だけ。`.claude/rules/draw.md`）。Worker は配信中でなければ **Gyazo へ上げない**（配信前の準備画面を外へ出さないため）。上げるのは `worker/gyazo.ts`（`access_policy=only_me`・`metadata_is_public=false`・`fetch` は注入。コレクションの指定があるときだけ `collection_id` を添える）で、保存は `worker/screen-store.ts`（`screen_captures`。画像IDだけを持ち、画像は持たない）。Gyazo のアクセストークン（`GYAZO_ACCESS_TOKEN`）が無いときは黙って捨てず失敗させる。→ `docs/decisions/screen.md`
+Worker は配信中でなければ **Gyazo へ上げない**（配信前の準備画面を外へ出さないため）。上げるのは `worker/gyazo.ts`（`access_policy=anyone`・`metadata_is_public=false`・`fetch` は注入。コレクションの指定があるときだけ `collection_id` を添える）で、保存は `worker/screen-store.ts`（`screen_captures`。画像IDだけを持ち、画像は持たない）。**公開範囲を `anyone` にするのは、手書きの描く画面が最後の1枚をブラウザから直接読んで背景に敷くため**で（`.claude/rules/draw.md`）、そのために古い記録の掃除でも最後に撮った1行は残す。Gyazo のアクセストークン（`GYAZO_ACCESS_TOKEN`）が無いときは黙って捨てず失敗させる。→ `docs/decisions/screen.md`
 
 読み取った文字（OCR）を取りに行くのは **cron だけ**である（`worker/collect.ts` の `fetchScreenOcr`）。上げた直後は生成が終わっていないので、`postScreen` の中では取らない。取り先は `metadata.ocr.description`（トップレベルの `ocr` ではない）。空で返ったら記録せず数えるだけにして次の収集へ回し、`OCR_MAX_ATTEMPTS`（3回）で諦める。1枚で失敗したらその回の残りは取りに行かず、`collection_failures`（`screen-ocr-failed`）に残して収集は続ける。ただし404（画像が消えている）だけは、その1枚を諦めて（`abandonOcr`）先へ進む（撮った順に引くので、止めるとその1枚が先頭に居座り後ろへ永久にたどり着けない）。1枚ごとに収集の時間の予算（`COLLECT_BUDGET_MS`。`.claude/rules/worker.md`）を見て、過ぎていたら残りの枚数を次の収集へ回す。
 

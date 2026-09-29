@@ -142,6 +142,29 @@ export const abandonOcr = async (db: Database, imageId: string): Promise<void> =
   await db.prepare('UPDATE screen_captures SET ocr_attempts = ?2 WHERE image_id = ?1').bind(imageId, OCR_MAX_ATTEMPTS).run()
 }
 
+/** 最後に撮った1枚 */
+export interface LatestScreenCapture {
+  /** Gyazo が振った画像ID */
+  readonly imageId: string
+  /** 撮った時刻（ミリ秒） */
+  readonly capturedAt: number
+}
+
+/**
+ * 最後に撮った1枚を読む（手書きの描く画面の背景に敷くため。worker/draw-routes.ts）。
+ *
+ * 配信していないあいだは新しく撮られないので、最後に配信した時点の1枚になる。その1行は古い記録の掃除でも
+ * 残す（deleteOldScreenCaptures）。
+ *
+ * @returns 1枚も撮っていなければ null
+ */
+export const readLatestScreenCapture = async (db: Database): Promise<LatestScreenCapture | null> => {
+  const row = await db
+    .prepare('SELECT image_id, captured_at FROM screen_captures ORDER BY captured_at DESC, image_id DESC LIMIT 1')
+    .first<{ image_id: string; captured_at: string }>()
+  return row === null ? null : { imageId: row.image_id, capturedAt: Date.parse(row.captured_at) }
+}
+
 /**
  * 期限より古い取り込みの記録を消す。
  *
@@ -150,12 +173,18 @@ export const abandonOcr = async (db: Database, imageId: string): Promise<void> =
  *
  * 注意: 配信中の区切りのぶんは、期限より古くても消さない。期限より長く続く配信（耐久配信など）の途中で
  * 序盤の記録を消してしまうと、あらすじが配信の始まりの画面を語れなくなる。
+ * 注意: 最後に撮った1行も消さない。配信していないあいだも、手書きの描く画面の背景に使う（readLatestScreenCapture）。
  *
  * @param before この時刻より前に撮った行を消す
  */
 export const deleteOldScreenCaptures = async (db: Database, before: number): Promise<void> => {
   await db
-    .prepare('DELETE FROM screen_captures WHERE captured_at < ?1 AND session_id NOT IN (SELECT id FROM stream_sessions WHERE ended_at IS NULL)')
+    .prepare(
+      `DELETE FROM screen_captures
+       WHERE captured_at < ?1
+         AND session_id NOT IN (SELECT id FROM stream_sessions WHERE ended_at IS NULL)
+         AND image_id <> (SELECT image_id FROM screen_captures ORDER BY captured_at DESC, image_id DESC LIMIT 1)`,
+    )
     .bind(toIso(before))
     .run()
 }

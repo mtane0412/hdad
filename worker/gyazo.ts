@@ -11,9 +11,11 @@
  * fetch を引数で受け取るのはテストで差し替えるためである（worker/twitch.ts と同じ形）。
  * 失敗はすべて GyazoApiError として投げ、呼び出し側が扱いを決める。
  *
- * 注意: access_policy は必ず only_me にする。配信画面は公開済みの映像ではあるが、人に見せる必要がないうえ、
- * 2026-09-11 に Gyazo が受けた不正アクセスでは画像のメタデータ（OCRのテキストと画像ID）が流出しているため、
- * 取り込む範囲を最小限にとどめる（docs/decisions/screen.md）。
+ * 上げた1枚は、手書きの描く画面の背景にも使う（fetchImageUrl。worker/draw-routes.ts）。描く画面のブラウザが
+ * Gyazo から直接読めるよう、access_policy は anyone（URLを知っていれば見られる）にする。配信画面はもともと
+ * 公開している映像で、配信していないあいだの画面は上げない（docs/decisions/screen.md）。
+ * 注意: メタデータ（OCRのテキストを含む）は公開しない（metadata_is_public=false）。2026-09-11 に Gyazo が受けた
+ * 不正アクセスでは、画像のメタデータ（OCRのテキストと画像ID）が流出している。
  * 注意: 応答に image_id が無ければ失敗にする（Fail-Fast）。画像IDが無いとOCRを取りに行けないので、
  * 黙って成功扱いにすると、材料が貯まっていないことに配信が終わるまで気づけない。
  * 注意: 呼び出しには時間制限をかける（worker/timeout.ts）。Gyazo が黙り続けると、1回の収集で最大30枚を
@@ -87,6 +89,14 @@ export interface GyazoClient {
    * @throws GyazoApiError Gyazo が失敗を返した場合
    */
   fetchOcr(imageId: string): Promise<string | null>
+
+  /**
+   * 上げた1枚の、画像そのもののURLを取る（手書きの描く画面の背景に敷くため）。
+   *
+   * @param imageId Gyazo が振った画像ID
+   * @throws GyazoApiError Gyazo が失敗を返した場合、応答にURLが無かった場合
+   */
+  fetchImageUrl(imageId: string): Promise<string>
 }
 
 export interface GyazoClientOptions {
@@ -104,13 +114,42 @@ export const createGyazoClient = ({ accessToken, fetch: 元の通信, timeoutMs 
   // Gyazo が黙り続けたときに、1回の収集で最大30枚を逐次に取りに行く道がそこで止まらないようにする（issue #126）
   const fetchImpl = withTimeout(元の通信, timeoutMs, 'Gyazo')
 
+  /**
+   * 1枚の情報（GET /api/images/:id）を取る。OCRと画像のURLの両方がこの応答から読める。
+   *
+   * @param 何のため 失敗の知らせに添える名前（「OCR」など）
+   */
+  const 画像の情報を取る = async (imageId: string, 何のため: string): Promise<unknown> => {
+    // 公式ドキュメントが示すとおり、アクセストークンはクエリで渡す
+    const url = `${IMAGE_URL}/${encodeURIComponent(imageId)}?access_token=${encodeURIComponent(accessToken)}`
+    const response = await fetchImpl(url)
+    let body: unknown = null
+    let 本文を読めた = true
+    try {
+      body = await response.json()
+    } catch {
+      本文を読めた = false
+    }
+    if (!response.ok) {
+      const message = isRecord(body) && typeof body.message === 'string' ? body.message : '（本文を読めませんでした）'
+      throw new GyazoApiError(response.status, `Gyazo からの${何のため}の取得が ${response.status} で失敗しました: ${message}`)
+    }
+    // 成功と返ってきたのに本文を読めないのは、Gyazo 側の異常（メンテナンスのHTMLなど）である。
+    // ここで null を返すと「まだ生成されていない」と取り違え、上限まで数えたのち黙って諦めてしまう
+    if (!本文を読めた) {
+      throw new GyazoApiError(BAD_GATEWAY, 'Gyazo の応答を読めませんでした（JSONではありませんでした）')
+    }
+    return body
+  }
+
   return {
     async upload(image, fileName, options = {}) {
       const form = new FormData()
       form.set('access_token', accessToken)
       form.set('imagedata', image, fileName)
-      // 人に見せる必要がないので、URLを知っている人にも見せない
-      form.set('access_policy', 'only_me')
+      // 描く画面のブラウザが背景として直接読めるよう、URLを知っていれば見られるようにする。
+      // only_me にすると、画像のURLは一覧の応答に付く期限付きの署名なしでは読めない（docs/decisions/screen.md）
+      form.set('access_policy', 'anyone')
       // OCRのテキストを含むメタデータを、誰でも読める形にしない
       form.set('metadata_is_public', 'false')
       // 入れ先の指定がないときは項目ごと送らない（空文字を送ると Gyazo がコレクションIDとして読もうとする）
@@ -132,26 +171,7 @@ export const createGyazoClient = ({ accessToken, fetch: 元の通信, timeoutMs 
     },
 
     async fetchOcr(imageId) {
-      // 公式ドキュメントが示すとおり、アクセストークンはクエリで渡す
-      const url = `${IMAGE_URL}/${encodeURIComponent(imageId)}?access_token=${encodeURIComponent(accessToken)}`
-      const response = await fetchImpl(url)
-      let body: unknown = null
-      let 本文を読めた = true
-      try {
-        body = await response.json()
-      } catch {
-        本文を読めた = false
-      }
-      if (!response.ok) {
-        const message = isRecord(body) && typeof body.message === 'string' ? body.message : '（本文を読めませんでした）'
-        throw new GyazoApiError(response.status, `Gyazo からのOCRの取得が ${response.status} で失敗しました: ${message}`)
-      }
-      // 成功と返ってきたのに本文を読めないのは、Gyazo 側の異常（メンテナンスのHTMLなど）である。
-      // ここで null を返すと「まだ生成されていない」と取り違え、上限まで数えたのち黙って諦めてしまう
-      if (!本文を読めた) {
-        throw new GyazoApiError(BAD_GATEWAY, 'Gyazo の応答を読めませんでした（JSONではありませんでした）')
-      }
-
+      const body = await 画像の情報を取る(imageId, 'OCR')
       const metadata: unknown = isRecord(body) ? body.metadata : undefined
       const ocr: unknown = isRecord(metadata) ? metadata.ocr : undefined
       const description: unknown = isRecord(ocr) ? ocr.description : undefined
@@ -159,6 +179,13 @@ export const createGyazoClient = ({ accessToken, fetch: 元の通信, timeoutMs 
       // 上げた直後は生成が終わっておらず空で返る。空白だけの読み取りも材料にならないので、同じく未生成として扱う
       const text = description.trim()
       return text === '' ? null : text
+    },
+
+    async fetchImageUrl(imageId) {
+      const body = await 画像の情報を取る(imageId, '画像のURL')
+      const url: unknown = isRecord(body) ? body.url : undefined
+      if (typeof url !== 'string' || url === '') throw new GyazoApiError(BAD_GATEWAY, 'Gyazo の応答に画像のURLがありません')
+      return url
     },
   }
 }

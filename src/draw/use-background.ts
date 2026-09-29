@@ -2,13 +2,13 @@
  * 描く画面の背景（配信画面を撮った最新の1枚）の読み込み
  *
  * 描く画面（/draw/）は、背景を敷くと決めているあいだ Worker（GET /api/admin/draw/background）を読みに行き続け、
- * 新しい1枚が届いたら差し替える。画像は画面の取り込み（/screen/）が撮って Worker へ送ったもので、配信中に
- * 撮るたびに置き換わり、配信していないあいだは最後に配信した時点の1枚のまま残る（worker/draw-background.ts）。
+ * 新しい1枚が撮られていたら差し替える。画像は画面の取り込み（/screen/）が配信中に撮って Gyazo へ上げたもので、
+ * Worker が返すのはその画像のURLだけである（画像はブラウザが Gyazo から直接読む）。配信していないあいだは、
+ * 最後に配信した時点の1枚のまま残る。
  *
- * 読みに行くたびに手元の1枚の印（ETag）を添えるので、変わっていなければ画像は送られてこない。
+ * 読みに行くたびに手元の1枚の印（ETag。画像ID）を添えるので、変わっていなければ Worker は Gyazo を呼ばない。
  *
  * 注意: 敷かないと決めているあいだは読みに行かない（背景を使わない配信者に通信を増やさない）。
- * 注意: 画像は Blob から作ったURLで表示するので、差し替えたときと敷くのをやめたときに解放する（しないと溜まり続ける）。
  */
 import { useEffect, useState } from 'react'
 import type { DrawApi } from './api'
@@ -48,8 +48,6 @@ export const useDrawBackground = (api: DrawApi, enabled: boolean): { background:
     let 読んでいる = false
     /** 手元の1枚の印。次に読むときに添える */
     let 印: string | null = null
-    /** 手元の1枚のURL。差し替えたときと敷くのをやめたときに解放する */
-    let 表示中のURL: string | null = null
 
     const 読む = async (): Promise<void> => {
       if (読んでいる) return
@@ -59,16 +57,13 @@ export const useDrawBackground = (api: DrawApi, enabled: boolean): { background:
         if (離れた) return
         setError(null)
         if (result.kind === 'unchanged') return
-        if (表示中のURL !== null) URL.revokeObjectURL(表示中のURL)
-        表示中のURL = null
         if (result.kind === 'none') {
           印 = null
           setBackground({ kind: 'none' })
           return
         }
         印 = result.etag
-        表示中のURL = URL.createObjectURL(result.image)
-        setBackground({ kind: 'image', url: 表示中のURL, capturedAt: result.capturedAt })
+        setBackground({ kind: 'image', url: result.url, capturedAt: result.capturedAt })
       } catch (e) {
         // 読めなくても手元の1枚は残す（次に読めれば差し替わる）。理由は画面に出す
         if (!離れた) setError(e instanceof Error ? e.message : String(e))
@@ -82,7 +77,6 @@ export const useDrawBackground = (api: DrawApi, enabled: boolean): { background:
     return () => {
       離れた = true
       clearInterval(時計)
-      if (表示中のURL !== null) URL.revokeObjectURL(表示中のURL)
       setBackground({ kind: 'idle' })
       setError(null)
     }

@@ -22,7 +22,7 @@
  * 消したことは線の名前で中継先へ送り、保存は線を引き終えたときと同じく、ポインタを離してから数秒まとめて書く。
  *
  * キャンバスの下には、配信画面を撮った最新の1枚を薄く敷ける（スイッチで選ぶ。既定は敷かない）。画面の取り込み
- * （/screen/）が撮った画像を Worker が持っておき、それを読み続ける（src/draw/use-background.ts）。
+ * （/screen/）が Gyazo へ上げた最後の1枚を読み続ける（src/draw/use-background.ts）。
  * 撮る間隔ぶん古い画面なので、画面の構成を見て「このあたり」を指すためのものである。
  *
  * 注意: ひとつ戻すは持たない。
@@ -139,6 +139,21 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
   /** 背景の濃さ（%） */
   const [背景の濃さ, set背景の濃さ] = useState(DEFAULT_BACKGROUND_OPACITY)
   const { background, error: 背景の失敗 } = useDrawBackground(api, 背景を敷く)
+  /** 読み込めなかった背景の画像のURL。別の1枚に差し替わったら、読み込めたかを見直す */
+  const [読めなかった画像, set読めなかった画像] = useState<string | null>(null)
+  /** 背景の下に出す知らせ。失敗は赤く出す */
+  const 背景の知らせ = ((): { 文: string; 失敗: boolean } => {
+    if (背景の失敗 !== null) return { 文: `背景を読めませんでした: ${背景の失敗}`, 失敗: true }
+    if (background.kind === 'none') return { 文: '背景にできる配信画面がまだありません。配信中に画面の取り込み（/screen/）を動かすと撮れます。', 失敗: false }
+    if (background.kind === 'idle') return { 文: '背景を読んでいます…', 失敗: false }
+    if (background.url === 読めなかった画像) {
+      return { 文: '背景の画像を読み込めませんでした（公開範囲が「自分だけ」の画像は使えません。次に撮られた画面から出ます）。', 失敗: true }
+    }
+    return {
+      文: `${CAPTURED_AT_FORMAT.format(background.capturedAt)} に撮った配信画面です（配信していないあいだは、最後に配信したときの画面のままです）。`,
+      失敗: false,
+    }
+  })()
   const 背景のスイッチのId = useId()
   const 背景の濃さのId = useId()
 
@@ -432,15 +447,7 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
             )}
           </div>
           {背景を敷く && (
-            <p className={cn('text-sm', 背景の失敗 === null ? 'text-muted-foreground' : 'text-destructive')}>
-              {背景の失敗 !== null
-                ? `背景を読めませんでした: ${背景の失敗}`
-                : background.kind === 'none'
-                  ? '背景にできる配信画面がまだありません。配信中に画面の取り込み（/screen/）を動かすと撮れます。'
-                  : background.kind === 'image'
-                    ? `${CAPTURED_AT_FORMAT.format(background.capturedAt)} に撮った配信画面です（配信していないあいだは、最後に配信したときの画面のままです）。`
-                    : '背景を読んでいます…'}
-            </p>
+            <p className={cn('text-sm', 背景の知らせ.失敗 ? 'text-destructive' : 'text-muted-foreground')}>{背景の知らせ.文}</p>
           )}
 
           {/* 配信画面と同じ縦横比にする（比が違うと、合成ページに出たときに図が歪む）。
@@ -453,6 +460,7 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
                 // キャンバスと同じ枠いっぱいに広げる（配信画面も16:9なので、線の位置と画面の位置が揃う）
                 className="pointer-events-none absolute inset-0 size-full object-fill"
                 style={{ opacity: 背景の濃さ / PERCENT }}
+                onError={() => set読めなかった画像(background.url)}
               />
             )}
             <canvas

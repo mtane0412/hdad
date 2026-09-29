@@ -17,8 +17,9 @@ import { createFakeBucket } from './fake-bucket'
 import { createFakeDatabase } from './fake-database'
 import { createFakeDrawChannel } from './fake-draw-channel'
 import { createFakeStore } from './fake-store'
-import { putDrawBackground } from './draw-channel'
 import { handleRequest, type Env } from './index'
+import { recordScreenCapture } from './screen-store'
+import { recordStreamOnline } from './stats-store'
 import { createSessionToken } from './session'
 
 const 現在時刻 = Date.parse('2026-09-29T09:00:00Z')
@@ -216,48 +217,81 @@ describe('GET /api/overlay/draw/strokes', () => {
 
 describe('GET /api/admin/draw/background', () => {
   const 撮った時刻 = Date.parse('2026-09-29T08:59:00Z')
+  const 画像のID = 'abcdef0123456789abcdef0123456789'
+  const 画像のURL = `https://i.gyazo.com/${画像のID}.png`
 
-  /** 配信者としてログインした状態で背景を読む */
-  const 配信者として背景を読む = async (env: Env, headers: Record<string, string> = {}) => {
-    const session = await createSessionToken(配信者のID, env.SESSION_SECRET, 現在時刻)
-    return 呼び出す(new Request(`${サイト}/api/admin/draw/background`, { headers: { Cookie: `__Host-session=${session}`, ...headers } }), env)
+  /** Gyazo の1枚の情報を返し、呼ばれた回数を数える fetch */
+  const Gyazoを数える = () => {
+    const 呼ばれたURL: string[] = []
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      呼ばれたURL.push(String(input))
+      return Response.json({ image_id: 画像のID, url: 画像のURL, access_policy: 'anyone' })
+    }) as typeof fetch
+    return { fetchImpl, 呼ばれたURL }
   }
 
-  const 背景を置いておく = (env: Env) =>
-    putDrawBackground(env.DRAW, { image: new Uint8Array([1, 2, 3]).buffer, contentType: 'image/png', capturedAt: 撮った時刻 })
+  /** 配信者としてログインした状態で背景を読む */
+  const 配信者として背景を読む = async (env: Env, fetchImpl: typeof fetch, headers: Record<string, string> = {}) => {
+    const session = await createSessionToken(配信者のID, env.SESSION_SECRET, 現在時刻)
+    return handleRequest(new Request(`${サイト}/api/admin/draw/background`, { headers: { Cookie: `__Host-session=${session}`, ...headers } }), env, {
+      fetch: fetchImpl,
+      now: () => 現在時刻,
+      wait: 待たない,
+      waitUntil: 後回しにしない,
+    })
+  }
 
-  it('置いてある1枚を、撮った時刻付きで返す。手元に残さないよう指示する', async () => {
+  /** 配信中に画面の取り込みが1枚撮った状態にする */
+  const 撮っておく = async (env: Env) => {
+    await recordStreamOnline(env.DB, { id: 'session-1', startedAt: 撮った時刻 - 60_000 })
+    await recordScreenCapture(env.DB, 画像のID, 撮った時刻)
+  }
+
+  const Gyazoのトークン付きの環境 = () => {
     const { env } = 環境を作る()
-    await 背景を置いておく(env)
+    return { ...env, GYAZO_ACCESS_TOKEN: 'テスト用のGyazoトークン' } satisfies Env
+  }
 
-    const response = await 配信者として背景を読む(env)
+  it('最後に撮った1枚の画像のURLと撮った時刻を返す。手元に残さないよう指示する', async () => {
+    const env = Gyazoのトークン付きの環境()
+    await 撮っておく(env)
+
+    const response = await 配信者として背景を読む(env, Gyazoを数える().fetchImpl)
 
     expect(response.status).toBe(200)
-    expect(response.headers.get('X-Captured-At')).toBe(String(撮った時刻))
+    expect(await response.json()).toEqual({ imageId: 画像のID, capturedAt: 撮った時刻, url: 画像のURL })
+    expect(response.headers.get('ETag')).toBe(`"${画像のID}"`)
     expect(response.headers.get('Cache-Control')).toBe('no-store')
-    expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]))
   })
 
-  it('手元と同じ1枚なら、画像を送らず304を返す', async () => {
-    const { env } = 環境を作る()
-    await 背景を置いておく(env)
+  it('手元と同じ1枚なら、Gyazo を呼ばずに304を返す', async () => {
+    const env = Gyazoのトークン付きの環境()
+    await 撮っておく(env)
+    const { fetchImpl, 呼ばれたURL } = Gyazoを数える()
 
-    const response = await 配信者として背景を読む(env, { 'If-None-Match': `"${撮った時刻}"` })
+    const response = await 配信者として背景を読む(env, fetchImpl, { 'If-None-Match': `"${画像のID}"` })
 
     expect(response.status).toBe(304)
+    expect(呼ばれたURL).toEqual([])
   })
 
-  it('まだ1枚も無ければ204を返す', async () => {
-    const { env } = 環境を作る()
-
-    const response = await 配信者として背景を読む(env)
+  it('まだ1枚も撮っていなければ204を返す', async () => {
+    const response = await 配信者として背景を読む(Gyazoのトークン付きの環境(), Gyazoを数える().fetchImpl)
 
     expect(response.status).toBe(204)
   })
 
+  it('Gyazo のアクセストークンが無ければ失敗させる（黙って背景なしにしない）', async () => {
+    const { env } = 環境を作る()
+    await 撮っておく(env)
+
+    const response = await 配信者として背景を読む(env, Gyazoを数える().fetchImpl)
+
+    expect(response.status).toBe(500)
+  })
+
   it('ログインしていなければ断る', async () => {
     const { env } = 環境を作る()
-    await 背景を置いておく(env)
 
     const response = await 呼び出す(new Request(`${サイト}/api/admin/draw/background`), env)
 

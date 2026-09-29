@@ -9,9 +9,14 @@
  * OBSのブラウザソースを作り直しても描いたものが残るよう、引き終えた線をKVへ写す（worker/draw-config.ts）。
  * 描く画面の背景に敷く配信画面の1枚（GET /api/admin/draw/background）も、描く画面から読むのでここに置く。
  */
-import { connectDrawSocket, fetchDrawBackground } from './draw-channel'
+import { connectDrawSocket } from './draw-channel'
 import { loadStrokes, parseStrokes, saveStrokes } from './draw-config'
+import { createGyazoClient } from './gyazo'
 import { HttpError, STATUS, requireAdmin, requireSession, type Context } from './http'
+import { readLatestScreenCapture } from './screen-store'
+
+/** 配信画面の1枚を指すので、ブラウザや途中の経路に残させない */
+const NO_STORE = { 'Cache-Control': 'no-store' }
 
 /**
  * GET /api/admin/draw/socket: 描く画面からのWebSocketの接続を、描く側として中継先へ引き渡す。
@@ -56,18 +61,34 @@ export const putDrawStrokes = async (context: Context): Promise<Response> => {
 }
 
 /**
- * GET /api/admin/draw/background: 描く画面の背景に敷く、配信画面を撮った最新の1枚。
+ * GET /api/admin/draw/background: 描く画面の背景に敷く、最後に撮った配信画面の1枚。
  *
- * 画像は画面の取り込み（POST /api/overlay/screen）が配信中に中継先へ置いたもので、配信していないあいだは
- * 最後に配信した時点の1枚が残っている（worker/draw-background.ts）。描く画面は背景を敷いているあいだ
- * 読みに来続けるので、手元と同じ1枚なら304を返す。まだ1枚も無ければ204を返す。
+ * 画像は画面の取り込みが Gyazo へ上げたもので、ここは最後に撮った1枚の画像ID（D1 の screen_captures）から
+ * 画像そのもののURLを引いて返すだけにする。描く画面のブラウザがそのURLを Gyazo から直接読む（画像は
+ * access_policy=anyone で上げている。worker/gyazo.ts）。配信していないあいだは、最後に配信した時点の1枚になる。
  *
- * 注意: 配信画面そのものなので、ブラウザや途中の経路に残さないよう Cache-Control: no-store を付ける。
+ * 描く画面は背景を敷いているあいだ読みに来続けるので、画像IDを印（ETag）にして、手元と同じ1枚なら
+ * Gyazo を呼ばずに304を返す。Gyazo を呼ぶのは、新しい1枚が撮られたときだけである。まだ1枚も無ければ204を返す。
+ *
+ * 注意: Gyazo のアクセストークンが無ければ、黙って「背景なし」にせず失敗させる（Fail-Fast）。
  */
 export const getDrawBackground = async (context: Context): Promise<Response> => {
   await requireSession(context)
-  const response = await fetchDrawBackground(context.env.DRAW, context.request.headers.get('If-None-Match'))
-  const headers = new Headers(response.headers)
-  headers.set('Cache-Control', 'no-store')
-  return new Response(response.body, { status: response.status, headers })
+  const { env, request } = context
+  const 最後の1枚 = await readLatestScreenCapture(env.DB)
+  if (最後の1枚 === null) return new Response(null, { status: STATUS.noContent, headers: NO_STORE })
+
+  const etag = `"${最後の1枚.imageId}"`
+  if (request.headers.get('If-None-Match') === etag) return new Response(null, { status: STATUS.notModified, headers: { ...NO_STORE, ETag: etag } })
+
+  const accessToken = env.GYAZO_ACCESS_TOKEN
+  if (!accessToken) {
+    throw new HttpError(
+      STATUS.internalServerError,
+      'gyazo-token-missing',
+      'Gyazo のアクセストークン（GYAZO_ACCESS_TOKEN）が設定されていません。背景に配信画面を敷くには設定してください',
+    )
+  }
+  const url = await createGyazoClient({ accessToken, fetch: context.fetch }).fetchImageUrl(最後の1枚.imageId)
+  return Response.json({ imageId: 最後の1枚.imageId, capturedAt: 最後の1枚.capturedAt, url }, { headers: { ...NO_STORE, ETag: etag } })
 }

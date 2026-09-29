@@ -485,13 +485,8 @@ describe('DrawPage の保存と、保存されている図の守り', () => {
 describe('DrawPage の背景（配信画面を撮った最新の1枚）', () => {
   /** 2026-09-29 21:05（日本時間）に撮った1枚 */
   const 撮った時刻 = Date.parse('2026-09-29T12:05:00Z')
-  const 配信画面: DrawBackgroundResult = { kind: 'image', image: new Blob([], { type: 'image/png' }), etag: `"${撮った時刻}"`, capturedAt: 撮った時刻 }
-
-  beforeEach(() => {
-    // jsdom は Blob からURLを作れないので、決まったURLを返すものに差し替える
-    URL.createObjectURL = () => 'blob:配信画面'
-    URL.revokeObjectURL = () => {}
-  })
+  const 画像のURL = 'https://i.gyazo.com/abcdef0123456789abcdef0123456789.png'
+  const 配信画面: DrawBackgroundResult = { kind: 'image', url: 画像のURL, etag: '"abcdef0123456789abcdef0123456789"', capturedAt: 撮った時刻 }
 
   const スイッチ = (): HTMLElement => screen.getByRole('switch', { name: '配信画面を背景に敷く' })
 
@@ -509,7 +504,7 @@ describe('DrawPage の背景（配信画面を撮った最新の1枚）', () => 
     await userEvent.click(スイッチ())
 
     const 背景 = await screen.findByRole('img', { name: '背景に敷いた配信画面' })
-    expect(背景).toHaveAttribute('src', 'blob:配信画面')
+    expect(背景).toHaveAttribute('src', 画像のURL)
     expect(背景.style.opacity).toBe('0.6')
     expect(screen.getByText(/に撮った配信画面です/)).toBeInTheDocument()
   })
@@ -533,6 +528,17 @@ describe('DrawPage の背景（配信画面を撮った最新の1枚）', () => 
     await userEvent.click(スイッチ())
 
     expect(screen.queryByRole('img', { name: '背景に敷いた配信画面' })).toBeNull()
+  })
+
+  it('画像を読み込めなければ、その旨を出す', async () => {
+    // 公開範囲を「自分だけ」にしていたころに上げた画像は、ブラウザから読めない
+    render(<DrawPage connect={中継先を作る().connect} api={保存先を作る(undefined, 配信画面).api} />)
+    await userEvent.click(スイッチ())
+    const 背景 = await screen.findByRole('img', { name: '背景に敷いた配信画面' })
+
+    fireEvent.error(背景)
+
+    expect(screen.getByText(/背景の画像を読み込めませんでした/)).toBeInTheDocument()
   })
 
   it('まだ1枚も無ければ、その旨を出す', async () => {
@@ -561,7 +567,7 @@ describe('DrawPage の背景（配信画面を撮った最新の1枚）', () => 
       act(() => スイッチ().click())
       await act(() => vi.advanceTimersByTimeAsync(BACKGROUND_POLL_MS))
 
-      expect(保存先.背景を読んだ印).toEqual([null, `"${撮った時刻}"`])
+      expect(保存先.背景を読んだ印).toEqual([null, '"abcdef0123456789abcdef0123456789"'])
     } finally {
       vi.useRealTimers()
     }

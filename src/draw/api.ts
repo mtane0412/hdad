@@ -11,8 +11,9 @@
  * 注意: worker/ の型はブラウザ用のコードから読み込まない約束なので、応答の形はここで確かめる。
  * 想定した形でなければエラーにする（Fail-Fast）。黙って「何も描かれていない」に倒すと、保存した図が
  * 出ない理由が配信中に分からない。
- * 描く画面は、背景に敷く配信画面の1枚（/api/admin/draw/background）もここから読む。画像なのでJSONの呼び出し
- * （createCaller）は使わず、状態コードで「新しい1枚」「変わっていない」「まだ無い」を読み分ける。
+ * 描く画面は、背景に敷く配信画面の1枚（/api/admin/draw/background）もここから読む。Workerが返すのは Gyazo の
+ * 画像のURLで、画像そのものはブラウザが Gyazo から直接読む。状態コードで「新しい1枚」「変わっていない」
+ * 「まだ無い」を読み分けるので、JSONの呼び出し（createCaller）は使わない。
  *
  * 注意: 保存する値の検証（線の本数・点の数）は Worker（worker/draw-config.ts）が持つ。1本ぶんとして
  * 読めるかの判定だけは src/draw/strokes.ts の isStroke を両方が使う。
@@ -24,8 +25,8 @@ const ADMIN_PATH = '/api/admin/draw/strokes'
 const OVERLAY_PATH = '/api/overlay/draw/strokes'
 const BACKGROUND_PATH = '/api/admin/draw/background'
 
-/** 背景の1枚を撮った時刻（ミリ秒）を渡すヘッダー（worker/draw-channel.ts の CAPTURED_AT_HEADER と揃える） */
-const CAPTURED_AT_HEADER = 'X-Captured-At'
+/** 背景の画像を読み込んでよい場所。Gyazo の画像の置き場だけにし、知らない場所の画像は背景に読み込まない */
+const GYAZO_IMAGE_ORIGIN = 'https://i.gyazo.com'
 
 /** 変わっていない（手元の1枚のまま） */
 const NOT_MODIFIED = 304
@@ -41,7 +42,8 @@ export type DrawBackgroundResult =
   /** 新しい1枚 */
   | {
       readonly kind: 'image'
-      readonly image: Blob
+      /** 画像そのもののURL（Gyazo） */
+      readonly url: string
       /** 次に読むときに添える印。同じ1枚なら画像を送らずに済む */
       readonly etag: string
       /** 撮った時刻（ミリ秒） */
@@ -103,11 +105,13 @@ export const createDrawApi = (fetchImpl: typeof fetch): DrawApi => {
       if (response.status === NO_CONTENT) return { kind: 'none' }
       if (!response.ok) throw toApiError(response.status, await response.json().catch(() => null))
       const 新しい印 = response.headers.get('ETag')
-      const capturedAt = Number(response.headers.get(CAPTURED_AT_HEADER) ?? '')
-      if (新しい印 === null || !Number.isFinite(capturedAt) || capturedAt <= 0) {
-        throw new Error(`Workerの ${BACKGROUND_PATH} の応答に、撮った時刻か印がありません`)
+      const body: unknown = await response.json().catch(() => null)
+      const url: unknown = isRecord(body) ? body.url : undefined
+      const capturedAt: unknown = isRecord(body) ? body.capturedAt : undefined
+      if (新しい印 === null || typeof url !== 'string' || !url.startsWith(`${GYAZO_IMAGE_ORIGIN}/`) || typeof capturedAt !== 'number') {
+        throw new Error(`Workerの ${BACKGROUND_PATH} の応答が想定した形ではありません`)
       }
-      return { kind: 'image', image: await response.blob(), etag: 新しい印, capturedAt }
+      return { kind: 'image', url, etag: 新しい印, capturedAt }
     },
   }
 }

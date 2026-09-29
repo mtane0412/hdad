@@ -4,8 +4,7 @@
  * どれもTwitchのトークンではなくオーバーレイ用キーで守る。素材だけは、管理画面でのプレビューのために配信者のセッションでも読める。
  */
 import { connectAlertSocket } from './alert-channel'
-import { recordLateFailure } from './alert-actions'
-import { connectDrawSocket, putDrawBackground } from './draw-channel'
+import { connectDrawSocket } from './draw-channel'
 import { loadStrokes } from './draw-config'
 import { createGyazoClient } from './gyazo'
 import { loadFocusTarget } from './focus-config'
@@ -179,8 +178,7 @@ const SCREEN_CONTENT_TYPES = ['image/png', 'image/jpeg'] as const
  * 上げないのは、配信前の準備画面や配信後のデスクトップを外へ出さないためである。捨てるのを失敗にしないのは、
  * 配信の前後にOBSを開いたままにしておくのが普通の使い方だからである（文字起こしの受け口と同じ考え方）。
  *
- * 注意: 画像そのものは、描く画面の背景に敷く最新の1枚（手書きの中継先の storage）のほかは保存しない。
- * Gyazo に上げた画像IDだけを残す（worker/screen-store.ts）。
+ * 注意: 画像そのものはこのサイトに保存しない。Gyazo に上げた画像IDだけを残す（worker/screen-store.ts）。
  * 注意: 上げ先のコレクションは、裏方のページから受け取らずにここで設定から読む。撮る側に持たせると、
  * 貼ったURLや裏方のページの都合で上げ先が変わりうる（上げるのは Worker なので、決めるのも Worker にする）。
  * 注意: Gyazo のアクセストークンが無ければ、黙って捨てずに失敗させる（Fail-Fast）。捨ててしまうと、
@@ -216,12 +214,6 @@ export const postScreen = async (context: Context): Promise<Response> => {
 
   // 上げる前に配信中かを見る。上げてから捨てると、配信前の準備画面まで Gyazo に残ってしまう
   if (!(await isStreaming(env.DB, now))) return Response.json({ recorded: false, imageId: null })
-
-  // 描く画面（/draw/）の背景に敷く最新の1枚として、手書きの中継先にも置く。配信中に限るのは Gyazo と同じ理由で、
-  // 配信していないあいだは最後に配信した時点の1枚が残る（worker/draw-background.ts）。
-  // 背景は描く画面の目安にすぎないので、応答のあとに回して Gyazo へ上げるのとは切り離す（片方の失敗で他方を止めない）。
-  // 置けなかったときは黙って捨てず、失敗の記録（collection_failures）に残す
-  context.waitUntil(recordLateFailure(context, 'draw-background-failed', () => putDrawBackground(env.DRAW, { image, contentType, capturedAt: now })))
 
   const accessToken = env.GYAZO_ACCESS_TOKEN
   if (!accessToken) {
