@@ -68,6 +68,10 @@ describe('REQUIRED_SCOPES / BOT_SCOPES', () => {
     expect(REQUIRED_SCOPES).toContain('user:bot')
   })
 
+  it('配信者には user:write:chat も要求する（コメントビューアーから配信者としてチャットを送るため）', () => {
+    expect(REQUIRED_SCOPES).toContain('user:write:chat')
+  })
+
   it('配信者には moderation:read も要求する（botがモデレーターかどうかを確かめるため）', () => {
     expect(REQUIRED_SCOPES).toContain('moderation:read')
   })

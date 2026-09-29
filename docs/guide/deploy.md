@@ -88,6 +88,7 @@ R2は無料枠（保存10GB・転送無料）だけを使う場合でも、デ�
 | `GET /api/admin/comments/socket` | コメントビューアーからのWebSocketの接続を受け、直近の履歴とそのあとの発言・出来事を届ける（同じサイトからの接続だけを受け付ける。要セッション） |
 | `GET /api/admin/comments/icons` | 発言した人のアイコンのURLを、ユーザーID（`?user_id=` を1〜100個）からまとめて引く（要セッション） |
 | `POST /api/admin/comments/moderation` | 配信者が選んだ処分（発言の削除・10分のタイムアウト・BAN）をbotの権限で行う（要セッション） |
+| `POST /api/admin/comments/messages` | 配信者本人としてチャットへ送る（配信者のトークンに `user:write:chat` が要る。要セッション） |
 | `GET`・`PUT /api/admin/focus` | 注目コメント（いま取り上げているもの）の取得・保存（要セッション） |
 | `GET /api/admin/focus/messages` | 取り上げる発言を選ぶための、いま進んでいる配信の直近の発言の一覧（要セッション） |
 | `GET`・`PUT /api/admin/llm` | LLMの提供元とモデルの設定の取得・保存（要セッション） |

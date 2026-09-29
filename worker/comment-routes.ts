@@ -5,14 +5,17 @@
  * - GET /api/admin/comments/socket: 画面からのWebSocketの接続を、配送先（worker/comment-channel.ts）へ引き渡す
  * - GET /api/admin/comments/icons: 発言した人のアイコンのURLを、ユーザーIDからまとめて引く
  * - POST /api/admin/comments/moderation: 配信者が選んだ処分（発言の削除・タイムアウト・BAN）を、botの権限で行う
+ * - POST /api/admin/comments/messages: 配信者本人としてチャットへ送る
  *
  * アイコンを1件ごとに添えて配らないのは、チャットの発言のたびに Twitch を呼ぶことになるためである。
  * 画面が初めて見た人のIDだけをまとめて問い合わせ、画面を開いているあいだ手元に覚えておく。
  */
 import { punishAsBot, type PunishTarget } from './bot-moderation'
+import { readMessageToSend } from './bot-routes'
 import type { Punishment } from './chat-moderation'
 import { connectCommentSocket } from './comment-channel'
 import { HttpError, STATUS, requireAdmin, requireSession, type Context } from './http'
+import { AuthError, getAccessToken } from './token'
 
 /** 1度に引けるアイコンの人数（Twitch の GET /helix/users が1度に受け付ける上限） */
 export const MAX_ICON_USERS = 100
@@ -115,4 +118,29 @@ export const postCommentModeration = async (context: Context): Promise<Response>
   const { action, punishment, target } = readModerationRequest(body)
   await punishAsBot(context, punishment, target, MANUAL_MODERATION_REASON)
   return Response.json(punishment.type === 'timeout' ? { action, durationSeconds: punishment.durationSeconds } : { action })
+}
+
+/** 配信者本人としてチャットを送るために、配信者のトークンに要るスコープ */
+const WRITE_CHAT_SCOPE = 'user:write:chat'
+
+/**
+ * POST /api/admin/comments/messages: 配信者本人としてチャットへ1通送る。
+ *
+ * 注意: 配信者がまだ user:write:chat を許可していない（スコープを足す前にログインしたまま）なら、
+ * 黙ってbotで代わりに送らず、ログインし直すよう伝える（送り主が違う発言を配信者の発言として出さないため）。
+ *
+ * @throws HttpError 本文が空・長すぎる（400）
+ * @throws AuthError 配信者が未ログイン・トークンを更新できない・user:write:chat が無い（index.ts が401にする）
+ * @throws TwitchApiError Twitchが拒否した、または受け取ったうえで送信しなかった（AutoModの保留など。index.ts が502にする）
+ */
+export const postCommentMessage = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  const message = await readMessageToSend(context.request)
+  const { env, twitch, now } = context
+  const token = await getAccessToken(env.STORE, 'broadcaster', twitch, now)
+  if (!token.scopes.includes(WRITE_CHAT_SCOPE)) {
+    throw new AuthError('missing-scope', `配信者のトークンに ${WRITE_CHAT_SCOPE} がありません。ログインし直してください（配信者としてチャットを送れません）`)
+  }
+  await twitch.sendChatMessage(token.accessToken, { broadcasterId: env.TWITCH_BROADCASTER_ID, senderId: env.TWITCH_BROADCASTER_ID, message })
+  return new Response(null, { status: STATUS.noContent })
 }

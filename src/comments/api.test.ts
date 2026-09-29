@@ -124,3 +124,24 @@ describe('describeModeration', () => {
     expect(describeModeration(result, '荒らしさん')).toBe(文)
   })
 })
+
+describe('send', () => {
+  it('送る文言をWorkerへ渡す（配信者本人として送られる）', async () => {
+    const 送ったもの: { url: string; method: string | undefined; body: unknown }[] = []
+    const fetchImpl: typeof fetch = async (input, init) => {
+      送ったもの.push({ url: String(input), method: init?.method, body: JSON.parse(String(init?.body)) })
+      return new Response(null, { status: 204 })
+    }
+
+    await createCommentApi(fetchImpl).send('みなさん来てくれてありがとう')
+
+    expect(送ったもの).toEqual([{ url: '/api/admin/comments/messages', method: 'POST', body: { message: 'みなさん来てくれてありがとう' } }])
+  })
+
+  it('Workerが断ったら、理由を添えたエラーにする（許可を取り直していないなど）', async () => {
+    const fetchImpl: typeof fetch = async () =>
+      Response.json({ error: { code: 'missing-scope', message: '配信者のトークンに user:write:chat がありません。ログインし直してください' } }, { status: 401 })
+
+    await expect(createCommentApi(fetchImpl).send('こんにちは')).rejects.toThrow('ログインし直してください')
+  })
+})

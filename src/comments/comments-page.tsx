@@ -17,25 +17,33 @@
  * （api.ts の moderate）、BANだけは取り返しが重いので確かめてから行う。処分された発言には、Twitch から届く
  * 削除・消去の通知で印が付く（画面が自分で印を付けない）。
  *
+ * 流れの下の入力欄から、配信者本人としてチャットを送れる（api.ts の send）。送った発言は、ほかの発言と同じく
+ * Twitch から届いた時点で流れに並ぶ（画面が先回りして並べない）。Enter で送るが、日本語入力の変換を確定する
+ * Enter（isComposing）では送らない。
+ *
  * 流れは下へ伸びる。いちばん下を見ているあいだは新しい1件に合わせて下へ送り、上へ遡って読んでいるあいだは
  * 送らない（読んでいる行が動かないように）。
  *
  * 注意: 失敗（読み取れない1件・アイコンを引けない・接続が切れた）は黙って無視せず、理由を画面に出す（Fail-Fast）。
  * 読み取れない1件のために流れ全体は止めない（届いた残りは並べ続ける）。
  */
-import { ArrowDown, Ban, Gift, Heart, Megaphone, Quote, Sparkles, Star, Timer, Trash2, Users, type LucideIcon } from 'lucide-react'
+import { ArrowDown, Ban, Gift, Heart, Megaphone, Quote, Send, Sparkles, Star, Timer, Trash2, Users, type LucideIcon } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { usePageActions } from '@/admin/page-actions'
 import { badgeKey, type BadgeMap } from '@/chat/badges'
 import { twitchEmoteUrl } from '@/chat/message'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { iconButtonName } from '@/core/icon-button'
 import type { FocusApi } from '@/focus/api'
 import { cn } from '@/lib/utils'
 import { describeModeration, pickUnknownUserIds, type CommentApi, type ModerationAction } from './api'
 import { applyFeedItems, describeEvent, EMPTY_FEED, parseFeedMessage, toFocusPick, type ChatItem, type EventItem, type Feed, type FeedBadge, type FeedEntry, type FeedFragment, type FeedUser } from './feed'
 import type { CommentFeedConnection, CommentFeedHandlers } from './socket'
+
+/** 日本語入力の変換を処理しているあいだの keydown に付く keyCode */
+const IME_PROCESSING_KEY_CODE = 229
 
 /** いちばん下を見ているとみなす、下端からの距離（画素）。端数の揺れで「遡っている」と取り違えないための遊び */
 const FOLLOW_THRESHOLD_PX = 32
@@ -271,6 +279,13 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
   /** 注目コメントとして取り上げている発言のID。取り上げていなければ null */
   const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null)
   const actions = usePageActions()
+  /** 送る文言の入力欄 */
+  const [draft, setDraft] = useState('')
+  /**
+   * 送っている途中か。actions.busy は描き直すまで変わらないので、素早い連打で同じ文言を2度送らないよう
+   * 描き直しを待たずに立てる印を別に持つ
+   */
+  const 送信中 = useRef(false)
   /** 削除に成功した発言のID。Twitch から消えた知らせが届くまでのあいだ、同じ発言をもう一度削除させない */
   const [削除を頼んだ発言, set削除を頼んだ発言] = useState<ReadonlySet<string>>(new Set())
   /** この画面で取り上げ直したか。開いたときの読み込みが遅れて返っても、選び直した結果を古い内容で上書きしない */
@@ -378,6 +393,25 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
     })
   }
 
+  /** 入力欄の文言を、配信者としてチャットへ送る。送れたら入力欄を空にし、送れなければ文言を残す */
+  const 送る = () => {
+    if (送信中.current) return
+    送信中.current = true
+    void actions.run(async () => {
+      try {
+        // 送っているあいだに書き足された文言は消さない（送った文言のままのときだけ空にする）
+        const message = draft
+        await api.send(message)
+        setDraft((current) => (current === message ? '' : current))
+        // 送った発言は Twitch から届いて流れに並ぶので、お知らせは出さない
+        return ''
+      } finally {
+        // 送れなかったときも外す（外さないと、理由を読んだあとにもう一度送れなくなる）
+        送信中.current = false
+      }
+    })
+  }
+
   // 初めて見た人のアイコンを、まとめて問い合わせる。
   // 失敗したら問い合わせた印を外し、次に1件届いたときに問い合わせ直す（一時的な失敗でアイコンが出ないままにしない）
   useEffect(() => {
@@ -446,6 +480,34 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
           </Button>
         )}
       </div>
+
+      <form
+        className="flex gap-2"
+        onSubmit={(event) => {
+          event.preventDefault()
+          送る()
+        }}
+      >
+        <Input
+          aria-label="チャットに送る文言"
+          placeholder="配信者としてチャットに送る"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter') return
+            // 日本語入力の変換を確定する Enter は、送信の合図ではない（押すたびに書きかけが送られてしまう）。
+            // Safari は確定の Enter で isComposing を false にすることがあるので、処理中を表す keyCode も見る
+            event.preventDefault()
+            if (event.nativeEvent.keyCode === IME_PROCESSING_KEY_CODE) return
+            // 送信のボタンが押せないとき（空欄・送信中）は、Enter でも送らない
+            if (!event.nativeEvent.isComposing && !actions.busy && draft !== '') 送る()
+          }}
+        />
+        <Button type="submit" disabled={actions.busy || draft === ''}>
+          <Send aria-hidden="true" />
+          送信
+        </Button>
+      </form>
     </div>
   )
 }

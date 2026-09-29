@@ -10,9 +10,10 @@
  * - 読み取れないものが届いた・接続が切れたときは、黙らずに画面で知らせること
  * - 発言を注目コメントに設定でき、取り上げている発言に印を付け、やめられること
  * - 発言の削除・タイムアウト・BANを行えること（BANは確かめてから）
+ * - 配信者としてチャットを送れること（IMEの変換確定の Enter では送らない）
  */
 import '@testing-library/jest-dom/vitest'
-import { act, cleanup, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import type { FocusApi, FocusPick } from '@/focus/api'
@@ -46,6 +47,7 @@ const 代役のAPI = (overrides: Partial<CommentApi> = {}): CommentApi => ({
   loadBadges: vi.fn(async () => new Map([['subscriber/12', { url: 'https://static-cdn.jtvnw.net/badges/v1/subscriber-12/1', title: '1-Year Subscriber' }]])),
   // Worker と同じく、タイムアウトなら決めた長さを添えて返す
   moderate: vi.fn(async (action) => (action === 'timeout' ? { action, durationSeconds: 600 } : { action })),
+  send: vi.fn(async () => {}),
   ...overrides,
 })
 
@@ -365,6 +367,102 @@ describe('CommentsPage', () => {
       await userEvent.click(操作のボタン('常連さん', 'この発言を削除'))
 
       expect(await screen.findByText('botがこのチャンネルのモデレーターではありません')).toBeInTheDocument()
+    })
+  })
+
+  describe('チャットを送る', () => {
+    const 入力欄 = () => screen.getByRole('textbox', { name: 'チャットに送る文言' })
+
+    test('文言を入れて Enter を押すと、配信者としてチャットへ送り、入力欄を空にする', async () => {
+      const api = 代役のAPI()
+      描く(api)
+
+      await userEvent.type(入力欄(), 'みなさん来てくれてありがとう{Enter}')
+
+      expect(api.send).toHaveBeenCalledWith('みなさん来てくれてありがとう')
+      await vi.waitFor(() => expect(入力欄()).toHaveValue(''))
+    })
+
+    test('送信のボタンでも送れる', async () => {
+      const api = 代役のAPI()
+      描く(api)
+
+      await userEvent.type(入力欄(), 'こんばんは')
+      await userEvent.click(screen.getByRole('button', { name: '送信' }))
+
+      expect(api.send).toHaveBeenCalledWith('こんばんは')
+    })
+
+    test('日本語入力の変換を確定する Enter では送らない', () => {
+      const api = 代役のAPI()
+      描く(api)
+      fireEvent.change(入力欄(), { target: { value: 'ありがとう' } })
+
+      // 変換中（isComposing）の Enter は、候補を確定するためのもので送信の合図ではない
+      fireEvent.keyDown(入力欄(), { key: 'Enter', isComposing: true })
+
+      expect(api.send).not.toHaveBeenCalled()
+    })
+
+    test('Safari の変換確定の Enter（isComposing が false でも keyCode が 229）でも送らない', () => {
+      const api = 代役のAPI()
+      描く(api)
+      fireEvent.change(入力欄(), { target: { value: 'ありがとう' } })
+
+      fireEvent.keyDown(入力欄(), { key: 'Enter', keyCode: 229, isComposing: false })
+
+      expect(api.send).not.toHaveBeenCalled()
+    })
+
+    test('送っているあいだに書き足した文言は、送り終えても消さない', async () => {
+      // 前提: 送信が終わる前に、配信者が次の文言を打ち始める
+      let 送り終える: () => void = () => {}
+      const api = 代役のAPI({ send: vi.fn(() => new Promise<void>((resolve) => (送り終える = resolve))) })
+      描く(api)
+      await userEvent.type(入力欄(), 'こんばんは{Enter}')
+      fireEvent.change(入力欄(), { target: { value: '次の話題は' } })
+
+      await act(async () => 送り終える())
+
+      expect(api.send).toHaveBeenCalledWith('こんばんは')
+      expect(入力欄()).toHaveValue('次の話題は')
+    })
+
+    test('画面が描き直される前に Enter が2回届いても、同じ文言を2度送らない', async () => {
+      let 送り終える: () => void = () => {}
+      const api = 代役のAPI({ send: vi.fn(() => new Promise<void>((resolve) => (送り終える = resolve))) })
+      描く(api)
+      fireEvent.change(入力欄(), { target: { value: 'こんばんは' } })
+
+      // 前提: 2回の Enter のあいだに描き直しが入らない（素早い連打）
+      act(() => {
+        入力欄().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+        入力欄().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      })
+      await act(async () => 送り終える())
+
+      expect(api.send).toHaveBeenCalledTimes(1)
+    })
+
+    test('送れなかったあとは、もう一度送れる', async () => {
+      const send = vi.fn<CommentApi['send']>().mockRejectedValueOnce(new Error('Twitchがチャットを送信しませんでした')).mockResolvedValue()
+      描く(代役のAPI({ send }))
+
+      await userEvent.type(入力欄(), 'こんばんは{Enter}')
+      await screen.findByText(/Twitchがチャットを送信しませんでした/)
+      await userEvent.type(入力欄(), '{Enter}')
+
+      expect(send).toHaveBeenCalledTimes(2)
+    })
+
+    test('送れなかったら理由を出し、入れた文言は消さない（許可を取り直していないなど）', async () => {
+      const api = 代役のAPI({ send: vi.fn(async () => Promise.reject(new Error('配信者のトークンに user:write:chat がありません。ログインし直してください'))) })
+      描く(api)
+
+      await userEvent.type(入力欄(), 'こんばんは{Enter}')
+
+      expect(await screen.findByText(/ログインし直してください/)).toBeInTheDocument()
+      expect(入力欄()).toHaveValue('こんばんは')
     })
   })
 })

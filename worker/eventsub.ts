@@ -63,8 +63,10 @@ export const EVENT_TYPES: readonly EventType[] = [
  *
  * moderation:read は、botがこのチャンネルのモデレーターにされているかを
  * 配信者のトークンで確かめる（GET /helix/moderation/moderators）ために要る。
+ *
+ * user:write:chat は、コメントビューアー（/comments/）から配信者本人としてチャットを送る（POST /helix/chat/messages）ために要る。
  */
-const EXTRA_BROADCASTER_SCOPES: readonly string[] = ['channel:bot', 'user:bot', 'moderation:read']
+const EXTRA_BROADCASTER_SCOPES: readonly string[] = ['channel:bot', 'user:bot', 'moderation:read', 'user:write:chat']
 
 /** 配信者のログイン時に要求するスコープ（重複なし） */
 export const REQUIRED_SCOPES: readonly string[] = [
