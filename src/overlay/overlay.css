@@ -19,6 +19,7 @@
 @import '../alerts/alerts.css';
 @import '../side-super/side-super.css';
 @import '../focus/focus.css';
+@import '../draw/draw.css';
 
 .overlay {
   position: relative;
