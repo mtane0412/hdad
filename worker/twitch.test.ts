@@ -518,6 +518,32 @@ describe('getUserLogin', () => {
   })
 })
 
+describe('getProfileImageUrl', () => {
+  it('ログイン名からアイコン画像のURLを取得する', async () => {
+    const { requests, fetchImpl } = 応答を返すfetch(200, {
+      data: [{ id: '100', login: 'kowai_hanashi', profile_image_url: 'https://static-cdn.jtvnw.net/jtv_user_pictures/kowai.png' }],
+    })
+    const url = await クライアントを作る(fetchImpl).getProfileImageUrl('test-app-token', 'kowai_hanashi')
+
+    const requested = new URL(requests[0]!.url)
+    expect(requested.origin + requested.pathname).toBe('https://api.twitch.tv/helix/users')
+    expect(requested.searchParams.get('login')).toBe('kowai_hanashi')
+    expect(url).toBe('https://static-cdn.jtvnw.net/jtv_user_pictures/kowai.png')
+  })
+
+  it('そのログイン名のユーザーがいなければエラーになる（名前を変えた・消えた人）', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { data: [] })
+    await expect(クライアントを作る(fetchImpl).getProfileImageUrl('test-app-token', 'kieta_hito')).rejects.toBeInstanceOf(TwitchApiError)
+  })
+
+  it('アイコンのURLが空・https で始まらないものならエラーになる（映せないURLを保存しないため）', async () => {
+    for (const 壊れたURL of ['', 'http://static-cdn.jtvnw.net/kowai.png', 'javascript:alert(1)']) {
+      const { fetchImpl } = 応答を返すfetch(200, { data: [{ id: '100', login: 'kowai_hanashi', profile_image_url: 壊れたURL }] })
+      await expect(クライアントを作る(fetchImpl).getProfileImageUrl('test-app-token', 'kowai_hanashi')).rejects.toBeInstanceOf(TwitchApiError)
+    }
+  })
+})
+
 describe('sendChatMessage', () => {
   it('チャットへメッセージを送る', async () => {
     const { requests, fetchImpl } = 応答を返すfetch(200, { data: [{ message_id: 'abc', is_sent: true }] })

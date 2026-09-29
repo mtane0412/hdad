@@ -265,14 +265,10 @@ export const getSpeech = async (context: Context): Promise<Response> => {
 }
 
 /**
- * GET /api/overlay/focus: いま取り上げている注目コメントを返す。
+ * GET /api/overlay/focus: いま取り上げている注目コメント（アイコン・名前・本文）を返す。
  *
- * OBSのブラウザソースに置いたオーバーレイ（focus/overlay/）が定期的に読みに来る（サイドスーパーと同じ
- * ポーリング。押し出しを使うほどの即時性は要らない）。取り上げていなければ target は null で、
- * オーバーレイは何も映さない。
- *
- * 人に追従する指定（type: 'viewer'）ではログイン名だけを返し、映す発言そのものはオーバーレイが
- * 匿名IRCから受け取る。取り上げる指定（type: 'message'）では本文もここから渡す。
+ * 合成ページの素材「注目コメント」が定期的に読みに来る（サイドスーパーと同じポーリング。押し出しを使う
+ * ほどの即時性は要らない）。取り上げていなければ target は null で、合成ページは何も映さない。
  */
 export const getFocus = async (context: Context): Promise<Response> => {
   await requireOverlayKey(context)

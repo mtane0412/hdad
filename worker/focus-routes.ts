@@ -1,10 +1,8 @@
 /**
  * 注目コメントの経路（/api/admin/focus）
  *
- * 配信者が「いま取り上げているもの」を決める画面（/focus/）から呼ばれる。取り上げ方は2通りあり、
- * どちらも同じ保存先（KV。worker/focus-config.ts）で表す。
- * - 人に追従する: ログイン名だけを保存し、オーバーレイがIRCで届く発言を絞って最新の1件を映す
- * - 発言1件を取り上げる: 直近の発言から選んだ1件の中身を保存し、次の発言では差し替わらない
+ * 配信者が「いま取り上げている発言1件」を決める画面（/focus/）から呼ばれる。直近の発言から選んだ1件に、
+ * 発言した人のアイコンを Twitch から引いて添え、KV（worker/focus-config.ts）に保存する。
  *
  * 選ぶための一覧（GET /api/admin/focus/messages）は、配信中のあいだだけ貯めている発言の記録
  * （stream_chat_messages）から読む。オーバーレイ側の読み出しは overlay-routes.ts にある
@@ -12,7 +10,7 @@
  *
  * 注意: 値の検証は worker/focus-config.ts だけが持つ（画面とWorkerで二重に持たない。speech-config.ts と同じ）。
  */
-import { loadFocusTarget, parseFocusTarget, saveFocusTarget } from './focus-config'
+import { loadFocusTarget, parseFocusPick, saveFocusTarget, type FocusTarget } from './focus-config'
 import { HttpError, STATUS, requireAdmin, type Context } from './http'
 import { readRecentChatToPick } from './stream-chat-store'
 
@@ -31,16 +29,23 @@ export const getFocus = async (context: Context): Promise<Response> => {
 }
 
 /**
- * PUT /api/admin/focus: 取り上げるものを検証して保存する（外すときは target に null を送る）。
+ * PUT /api/admin/focus: 取り上げる発言を検証し、アイコンを添えて保存する（外すときは target に null を送る）。
+ *
+ * 注意: アイコンを引けなければ保存しない。名前を変えた・消えた人の発言は、アイコンの欠けた箱として
+ * 映すより、画面で失敗を知らせて選び直してもらうほうがよい（Fail-Fast）。
  *
  * @throws ConfigError 設定に問題がある場合（index.ts が問題点付きの400にする）
+ * @throws TwitchApiError アイコンを引けなかった場合（index.ts が502にする）
  */
 export const putFocus = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
   const body: unknown = await context.request.json().catch(() => {
     throw new HttpError(STATUS.badRequest, 'invalid-body', '本文はJSONにしてください')
   })
-  const target = parseFocusTarget(body)
+  const pick = parseFocusPick(body)
+  const { twitch } = context
+  const target: FocusTarget | null =
+    pick === null ? null : { ...pick, profileImageUrl: await twitch.getProfileImageUrl(await twitch.getAppAccessToken(), pick.login) }
   await saveFocusTarget(context.env.STORE, target)
   return Response.json({ target })
 }

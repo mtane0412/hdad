@@ -9,19 +9,24 @@
  */
 import { describe, expect, it } from 'vitest'
 import { createFocusApi, createFocusOverlayApi } from './api'
+import type { FocusPick } from './api'
 import type { FocusTarget } from './focused'
 
 const サイト = 'https://hdad.example.com'
 const オーバーレイ用キー = 'issued-overlay-key-0123456789abcdefghij'
 
-const 追従の指定: FocusTarget = { type: 'viewer', login: 'kowai_hanashi' }
-
-const 取り上げの指定: FocusTarget = {
-  type: 'message',
+/** 管理画面が選んで送る発言1件 */
+const 取り上げる発言: FocusPick = {
   messageId: '発言1',
   login: 'kowai_hanashi',
   displayName: '怖い話す人',
   text: '今から怖い話をするね',
+}
+
+/** Worker がアイコンを添えて返す、取り上げている1件 */
+const 取り上げた発言: FocusTarget = {
+  ...取り上げる発言,
+  profileImageUrl: 'https://static-cdn.jtvnw.net/jtv_user_pictures/kowai_hanashi.png',
 }
 
 const 選べる発言 = {
@@ -44,9 +49,9 @@ const 応答を返すfetch = (status: number, body: unknown) => {
 
 describe('createFocusApi（管理画面からの読み書き）', () => {
   it('取り上げているものを読む', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, { target: 追従の指定 })
+    const { requests, fetchImpl } = 応答を返すfetch(200, { target: 取り上げた発言 })
 
-    expect(await createFocusApi(fetchImpl).load()).toEqual(追従の指定)
+    expect(await createFocusApi(fetchImpl).load()).toEqual(取り上げた発言)
     expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/focus')
   })
 
@@ -56,13 +61,13 @@ describe('createFocusApi（管理画面からの読み書き）', () => {
     expect(await createFocusApi(fetchImpl).load()).toBeNull()
   })
 
-  it('取り上げるものを保存する', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, { target: 取り上げの指定 })
+  it('選んだ発言を送り、アイコンの添えられた1件を受け取る', async () => {
+    const { requests, fetchImpl } = 応答を返すfetch(200, { target: 取り上げた発言 })
 
-    expect(await createFocusApi(fetchImpl).save(取り上げの指定)).toEqual(取り上げの指定)
+    expect(await createFocusApi(fetchImpl).save(取り上げる発言)).toEqual(取り上げた発言)
     const request = requests[0]!
     expect(request.method).toBe('PUT')
-    expect(await request.json()).toEqual({ target: 取り上げの指定 })
+    expect(await request.json()).toEqual({ target: 取り上げる発言 })
   })
 
   it('取り上げているものを外すときは null を送る', async () => {
@@ -92,14 +97,14 @@ describe('createFocusApi（管理画面からの読み書き）', () => {
     await expect(createFocusApi(fetchImpl).load()).rejects.toThrow(/想定した形/)
   })
 
-  it('取り上げ方の種類が分からない応答はエラーにする', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, { target: { type: 'stalker', login: 'kowai_hanashi' } })
+  it('アイコンのURLが欠けた応答はエラーにする（アイコンの無い箱を映さないため）', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { target: 取り上げる発言 })
 
     await expect(createFocusApi(fetchImpl).load()).rejects.toThrow(/想定した形/)
   })
 
   it('取り上げる発言の項目が欠けた応答はエラーにする', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, { target: { type: 'message', messageId: '発言1' } })
+    const { fetchImpl } = 応答を返すfetch(200, { target: { messageId: '発言1' } })
 
     await expect(createFocusApi(fetchImpl).load()).rejects.toThrow(/想定した形/)
   })
@@ -113,9 +118,9 @@ describe('createFocusApi（管理画面からの読み書き）', () => {
 
 describe('createFocusOverlayApi（オーバーレイからの読み出し）', () => {
   it('オーバーレイ用キーをクエリに載せて読む', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, { target: 追従の指定 })
+    const { requests, fetchImpl } = 応答を返すfetch(200, { target: 取り上げた発言 })
 
-    expect(await createFocusOverlayApi(fetchImpl, オーバーレイ用キー).read()).toEqual(追従の指定)
+    expect(await createFocusOverlayApi(fetchImpl, オーバーレイ用キー).read()).toEqual(取り上げた発言)
     const url = new URL(requests[0]!.url)
     expect(url.pathname).toBe('/api/overlay/focus')
     expect(url.searchParams.get('key')).toBe(オーバーレイ用キー)

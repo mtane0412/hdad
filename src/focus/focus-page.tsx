@@ -1,17 +1,10 @@
 /**
  * 注目コメントのページ
  *
- * 配信中に「今から怖い話をする」と言い出した人が現れたときや、ある人の発言を題に雑談するときに、
- * その1件を配信画面へ大きく映すための指定を受け持つ（issue #94）。取り上げ方は2通りある。
- * - 人に追従する: その人の発言が届くたびに、オーバーレイが映すものを最新の1件へ差し替える
- * - 発言1件を取り上げる: 直近の発言から選んだ1件を固定する（次の発言では差し替わらない）
+ * ある人の発言を題に雑談するときなどに、直近の発言から1件を選び、その人のアイコン・名前と一緒に
+ * 配信画面へ大きく映すための指定を受け持つ（issue #94）。選んだ1件は次の発言では差し替わらない。
  *
- * **2つは別のものなので、選ぶ場所も分ける。** 追従は「誰を追うか」を決める操作なので相手の指定が要り、
- * 取り上げは「どの発言を出すか」を決める操作なので誰の発言かによらない。そのため直近の発言の一覧に
- * 「この人に追従する」は置かない（一覧に混ぜると、コメントを選んでいるのか人を選んでいるのかが
- * 行ごとに曖昧になる）。
- *
- * 指定は Worker（KVの focus-target）に保存されるので、オーバーレイの再読み込みは要らない。次にオーバーレイが
+ * 指定は Worker（KVの focus-comment）に保存されるので、オーバーレイの再読み込みは要らない。次にオーバーレイが
  * 読みに来た時点（10秒以内）で切り替わる。URLに相手を埋めないのは、配信中に相手を変えるたびにOBSのURLを
  * 貼り替えることになるためである（読み上げの設定をURLから移した issue #86 と同じ考え方）。
  *
@@ -25,36 +18,34 @@
  * 注意: 失敗は黙って無視せず、理由を画面に出す（Fail-Fast）。
  */
 import { RotateCw } from 'lucide-react'
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { usePageActions } from '@/admin/page-actions'
 import { Link } from '@/app/router'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { iconButtonName } from '@/core/icon-button'
-import type { FocusApi, PickableMessage } from './api'
+import type { FocusApi, FocusPick, PickableMessage } from './api'
 import type { FocusTarget } from './focused'
-import { speakersOf } from './form'
 
 /** 日時を、配信者のブラウザの時間帯で「時:分」に直す */
 const 時刻 = (iso: string): string => new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
 
-/** いま取り上げているものの説明 */
+/**
+ * いま取り上げている1件。配信画面に映るものと同じく、アイコン・名前・本文を並べる。
+ *
+ * 注意: アイコンは shadcn/ui の Avatar ではなく素の img で出す。Avatar は画像を読み込み終えるまで
+ * img を置かないので、アイコンのURLが壊れていても画面で気付けない（配信画面の素材も素の img で出す）。
+ */
 const CurrentFocus = ({ target }: { target: FocusTarget | null }) => {
   if (target === null) return <p className="text-sm text-muted-foreground">いまは何も取り上げていません。</p>
-  if (target.type === 'viewer') {
-    return (
-      <p className="text-sm">
-        <span className="font-mono">{target.login}</span> さんの発言に追従しています（発言のたびに差し替わります）。
-      </p>
-    )
-  }
   return (
-    <div className="flex flex-col gap-1">
-      <p className="text-sm text-muted-foreground">{target.displayName} さんの発言を取り上げています。</p>
-      <p className="text-sm">{target.text}</p>
+    <div className="flex items-start gap-3">
+      {/* 隣の名前と同じ人を指す飾りなので、代替文字は空にする */}
+      <img src={target.profileImageUrl} alt="" className="size-10 shrink-0 rounded-full" />
+      <div className="flex flex-col gap-1">
+        <p className="text-sm text-muted-foreground">{target.displayName} さんの発言を取り上げています。</p>
+        <p className="text-sm">{target.text}</p>
+      </div>
     </div>
   )
 }
@@ -64,10 +55,7 @@ export const FocusPage = ({ api }: { api: FocusApi }) => {
   const [messages, setMessages] = useState<readonly PickableMessage[]>([])
   /** 直近の発言を一度でも読めたか。読めるまでは「発言がありません」と書かない */
   const [loaded, setLoaded] = useState(false)
-  const [login, setLogin] = useState('')
   const actions = usePageActions()
-  const loginFieldId = useId()
-  const speakerFieldId = useId()
 
   // 開いたときに、取り上げているものと直近の発言を読む
   useEffect(() => {
@@ -86,11 +74,8 @@ export const FocusPage = ({ api }: { api: FocusApi }) => {
     // 読み込みは開いたときの1回だけにする（actions は描くたびに作り直されるので、依存には入れない）
   }, [api])
 
-  /** 追従する相手の選択欄に並べる人（直近の発言から重複なく取り出す） */
-  const speakers = speakersOf(messages)
-
-  /** 取り上げるものを保存する。外すときは null を渡す */
-  const 取り上げる = (next: FocusTarget | null, notice: string) =>
+  /** 選んだ発言を取り上げる。外すときは null を渡す */
+  const 取り上げる = (next: FocusPick | null, notice: string) =>
     actions.run(async () => {
       setTarget(await api.save(next))
       return notice
@@ -128,45 +113,6 @@ export const FocusPage = ({ api }: { api: FocusApi }) => {
             </div>
           </div>
 
-          <div role="group" aria-label="人に追従する" className="flex flex-col gap-2">
-            <Label htmlFor={speakerFieldId}>発言した人から選ぶ</Label>
-            {/*
-              選ぶとログイン名の欄が埋まるだけにして、送る道は1つに保つ。配信中に発言していない人にも
-              追従できるよう、手で打つ欄は残す（選択欄はその配信で発言した人しか並ばない）
-            */}
-            <NativeSelect
-              id={speakerFieldId}
-              className="max-w-64"
-              disabled={actions.busy || speakers.length === 0}
-              value={speakers.some((speaker) => speaker.login === login) ? login : ''}
-              onChange={(event) => setLogin(event.currentTarget.value)}
-            >
-              <NativeSelectOption value="">{speakers.length === 0 ? '配信中の発言がありません' : '選んでください'}</NativeSelectOption>
-              {speakers.map((speaker) => (
-                <NativeSelectOption key={speaker.login} value={speaker.login}>
-                  {speaker.displayName}（{speaker.login}）
-                </NativeSelectOption>
-              ))}
-            </NativeSelect>
-
-            <Label htmlFor={loginFieldId}>追従する人のログイン名</Label>
-            <div className="flex gap-2">
-              <Input
-                id={loginFieldId}
-                className="max-w-64"
-                autoComplete="off"
-                placeholder="kowai_hanashi"
-                value={login}
-                onChange={(event) => setLogin(event.currentTarget.value)}
-              />
-              <Button type="button" disabled={actions.busy} onClick={() => void 取り上げる({ type: 'viewer', login }, `${login} さんに追従します`)}>
-                この人に追従する
-              </Button>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              その人が発言するたび、最新の1件に差し替わる（「今から怖い話をする」のような語りに使う）。まだ発言していない人には、ログイン名を手で入れて追従できる。
-            </p>
-          </div>
         </CardContent>
       </Card>
 
@@ -174,7 +120,7 @@ export const FocusPage = ({ api }: { api: FocusApi }) => {
         <CardHeader>
           <CardTitle>直近の発言から選ぶ</CardTitle>
           <CardDescription>
-            誰の発言かによらず、いま進んでいる配信の発言を1件選んで固定する（配信していないあいだは本文を貯めていない）。
+            いま進んでいる配信の発言を1件選ぶと、その人のアイコン・名前と一緒に配信画面の中央へ大きく映る（配信していないあいだは本文を貯めていない）。
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -211,7 +157,6 @@ export const FocusPage = ({ api }: { api: FocusApi }) => {
                       onClick={() =>
                         void 取り上げる(
                           {
-                            type: 'message',
                             messageId: message.messageId,
                             login: message.login,
                             displayName: message.displayName,

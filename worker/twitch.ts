@@ -249,6 +249,8 @@ export interface TwitchClient {
   getCheermotes(accessToken: string, broadcasterId: string): Promise<Cheermote[]>
   /** ユーザーIDからログイン名（twitch.tv/ の後ろの部分）を引く。スコープは不要 */
   getUserLogin(accessToken: string, userId: string): Promise<string>
+  /** ログイン名から、その人のアイコン画像のURLを引く。スコープは不要 */
+  getProfileImageUrl(accessToken: string, login: string): Promise<string>
   /**
    * チャットへメッセージを送る。送信者（senderId）のユーザートークンと user:write:chat が必要。
    *
@@ -655,6 +657,18 @@ export const createTwitchClient = ({
         throw new TwitchApiError(BAD_GATEWAY, `TwitchにユーザーID ${userId} のログイン名がありません`)
       }
       return user.login
+    },
+
+    getProfileImageUrl: async (accessToken, login) => {
+      const url = new URL(USERS_URL)
+      url.searchParams.set('login', login)
+      const { data } = await getHelix(url, accessToken)
+      const user: unknown = Array.isArray(data) ? data[0] : undefined
+      // 配信画面の img にそのまま入れるので、https の画像URLとして読めるものだけを返す
+      if (!isRecord(user) || typeof user.profile_image_url !== 'string' || !user.profile_image_url.startsWith('https://')) {
+        throw new TwitchApiError(BAD_GATEWAY, `Twitchにログイン名 ${login} のアイコンがありません`)
+      }
+      return user.profile_image_url
     },
 
     sendChatMessage: async (accessToken, { broadcasterId, senderId, message }) => {

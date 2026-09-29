@@ -110,7 +110,7 @@ const 代役のLLM_API: LlmApi = {
 
 const 代役の注目コメントAPI: FocusApi = {
   load: vi.fn(async () => null),
-  save: vi.fn(async (target) => target),
+  save: vi.fn(async () => null),
   recent: vi.fn(async () => []),
 }
 
