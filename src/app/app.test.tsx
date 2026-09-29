@@ -118,6 +118,7 @@ const 代役の注目コメントAPI: FocusApi = {
 const 代役のコメントビューアーAPI: CommentApi = {
   loadIcons: vi.fn(async () => ({})),
   loadBadges: vi.fn(async () => new Map()),
+  moderate: vi.fn(async (action) => ({ action })),
 }
 
 const 代役の手書きAPI: DrawApi = {

@@ -5,7 +5,7 @@
  * 「失敗や想定外の応答をエラーとして扱うか」を確認する。
  */
 import { describe, expect, it } from 'vitest'
-import { createCommentApi, MAX_ICON_USERS, pickUnknownUserIds } from './api'
+import { createCommentApi, describeModeration, MAX_ICON_USERS, pickUnknownUserIds } from './api'
 import type { FeedEntry } from './feed'
 
 /** 送られたリクエストを記録し、決めた応答を返す fetch */
@@ -78,5 +78,49 @@ describe('pickUnknownUserIds', () => {
     const 並び = Array.from({ length: MAX_ICON_USERS + 1 }, (_, 番号) => 発言の行(String(番号)))
 
     expect(pickUnknownUserIds(並び, new Set())).toHaveLength(MAX_ICON_USERS)
+  })
+})
+
+describe('moderate', () => {
+  /** 送られたリクエストを記録し、決めた応答を返す fetch（本文とメソッドも残す） */
+  const 処分に応えるfetch = (status: number, body: unknown) => {
+    const 送ったもの: { url: string; method: string | undefined; body: unknown }[] = []
+    const fetchImpl: typeof fetch = async (input, init) => {
+      送ったもの.push({ url: String(input), method: init?.method, body: JSON.parse(String(init?.body)) })
+      return Response.json(body, { status })
+    }
+    return { fetchImpl, 送ったもの }
+  }
+
+  it('選んだ処分と、対象の発言・人をWorkerへ送る', async () => {
+    const { fetchImpl, 送ったもの } = 処分に応えるfetch(200, { action: 'timeout', durationSeconds: 600 })
+
+    const result = await createCommentApi(fetchImpl).moderate('timeout', { messageId: '荒らしの発言', userId: '11111' })
+
+    expect(送ったもの).toEqual([{ url: '/api/admin/comments/moderation', method: 'POST', body: { action: 'timeout', messageId: '荒らしの発言', userId: '11111' } }])
+    expect(result).toEqual({ action: 'timeout', durationSeconds: 600 })
+  })
+
+  it('Workerが失敗を返したら、理由を添えたエラーにする（botがモデレーターでないなど）', async () => {
+    const { fetchImpl } = 処分に応えるfetch(502, { error: { code: 'twitch-error', message: 'botがこのチャンネルのモデレーターではありません' } })
+
+    await expect(createCommentApi(fetchImpl).moderate('ban', { messageId: '荒らしの発言', userId: '11111' })).rejects.toThrow('botがこのチャンネルのモデレーターではありません')
+  })
+
+  it('応答が想定した形でなければエラーにする', async () => {
+    const { fetchImpl } = 処分に応えるfetch(200, { action: 'timeout' })
+
+    await expect(createCommentApi(fetchImpl).moderate('timeout', { messageId: '荒らしの発言', userId: '11111' })).rejects.toThrow()
+  })
+})
+
+describe('describeModeration', () => {
+  it.each([
+    [{ action: 'delete' as const }, '荒らしさん さんの発言を削除しました'],
+    [{ action: 'timeout' as const, durationSeconds: 600 }, '荒らしさん さんを10分タイムアウトしました'],
+    [{ action: 'timeout' as const, durationSeconds: 90 }, '荒らしさん さんを90秒タイムアウトしました'],
+    [{ action: 'ban' as const }, '荒らしさん さんをBANしました'],
+  ])('%o を、行ったことを伝える文にする', (result, 文) => {
+    expect(describeModeration(result, '荒らしさん')).toBe(文)
   })
 })

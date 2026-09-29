@@ -9,6 +9,7 @@
  * - 発言した人のアイコンを問い合わせて出すこと
  * - 読み取れないものが届いた・接続が切れたときは、黙らずに画面で知らせること
  * - 発言を注目コメントに設定でき、取り上げている発言に印を付け、やめられること
+ * - 発言の削除・タイムアウト・BANを行えること（BANは確かめてから）
  */
 import '@testing-library/jest-dom/vitest'
 import { act, cleanup, render, screen, within } from '@testing-library/react'
@@ -43,6 +44,8 @@ const 常連さんの発言: FeedItem = {
 const 代役のAPI = (overrides: Partial<CommentApi> = {}): CommentApi => ({
   loadIcons: vi.fn(async () => ({ '777': 'https://static-cdn.jtvnw.net/jtv_user_pictures/jouren.png' })),
   loadBadges: vi.fn(async () => new Map([['subscriber/12', { url: 'https://static-cdn.jtvnw.net/badges/v1/subscriber-12/1', title: '1-Year Subscriber' }]])),
+  // Worker と同じく、タイムアウトなら決めた長さを添えて返す
+  moderate: vi.fn(async (action) => (action === 'timeout' ? { action, durationSeconds: 600 } : { action })),
   ...overrides,
 })
 
@@ -275,6 +278,80 @@ describe('CommentsPage', () => {
 
       expect(await screen.findByText('Twitchにログイン名 jouren_san のアイコンがありません')).toBeInTheDocument()
       expect(行('常連さん')).not.toHaveTextContent('注目中')
+    })
+  })
+
+  describe('モデレーターの操作', () => {
+    /** 発言の行にある、モデレーターの操作のボタン */
+    const 操作のボタン = (text: string, name: string) => within(行(text)).getByRole('button', { name })
+
+    test('発言を削除する', async () => {
+      const api = 代役のAPI()
+      const { 届く } = 描く(api)
+      await 届く({ type: 'item', item: 常連さんの発言 })
+
+      await userEvent.click(操作のボタン('常連さん', 'この発言を削除'))
+
+      expect(api.moderate).toHaveBeenCalledWith('delete', { messageId: '発言1', userId: '777' })
+      expect(await screen.findByText('常連さん さんの発言を削除しました')).toBeInTheDocument()
+    })
+
+    test('発言した人をタイムアウトする（長さはWorkerが決めたものを出す）', async () => {
+      const api = 代役のAPI()
+      const { 届く } = 描く(api)
+      await 届く({ type: 'item', item: 常連さんの発言 })
+
+      await userEvent.click(操作のボタン('常連さん', 'この人をタイムアウト'))
+
+      expect(api.moderate).toHaveBeenCalledWith('timeout', { messageId: '発言1', userId: '777' })
+      expect(await screen.findByText('常連さん さんを10分タイムアウトしました')).toBeInTheDocument()
+    })
+
+    test('BANは確かめてから行う', async () => {
+      const api = 代役のAPI()
+      const { 届く } = 描く(api)
+      await 届く({ type: 'item', item: 常連さんの発言 })
+
+      await userEvent.click(操作のボタン('常連さん', 'この人をBAN'))
+      // 確かめる前には、まだBANしていない
+      expect(api.moderate).not.toHaveBeenCalled()
+      const dialog = await screen.findByRole('alertdialog')
+      expect(dialog).toHaveTextContent('常連さん')
+      await userEvent.click(within(dialog).getByRole('button', { name: 'BANする' }))
+
+      expect(api.moderate).toHaveBeenCalledWith('ban', { messageId: '発言1', userId: '777' })
+      expect(await screen.findByText('常連さん さんをBANしました')).toBeInTheDocument()
+    })
+
+    test('BANの確認で「やめる」を選んだら、BANしない', async () => {
+      const api = 代役のAPI()
+      const { 届く } = 描く(api)
+      await 届く({ type: 'item', item: 常連さんの発言 })
+
+      await userEvent.click(操作のボタン('常連さん', 'この人をBAN'))
+      await userEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'やめる' }))
+
+      expect(api.moderate).not.toHaveBeenCalled()
+    })
+
+    test('すでに消された発言は削除できないが、その人のタイムアウト・BANはできる', async () => {
+      const { 届く } = 描く()
+      await 届く({ type: 'item', item: 常連さんの発言 })
+      await 届く({ type: 'item', item: { kind: 'delete', id: '通知4', at: 0, messageId: '発言1' } })
+
+      expect(操作のボタン('常連さん', 'この発言を削除')).toBeDisabled()
+      expect(操作のボタン('常連さん', 'この人をタイムアウト')).toBeEnabled()
+      expect(操作のボタン('常連さん', 'この人をBAN')).toBeEnabled()
+    })
+
+    test('処分に失敗したら、理由を出す（botがモデレーターでないなど）', async () => {
+      const api = 代役のAPI({ moderate: vi.fn(async () => Promise.reject(new Error('botがこのチャンネルのモデレーターではありません'))) })
+      const { 届く } = 描く(api)
+      await 届く({ type: 'item', item: 常連さんの発言 })
+
+      await userEvent.click(操作のボタン('常連さん', 'この発言を削除'))
+
+      expect(await screen.findByText('botがこのチャンネルのモデレーターではありません')).toBeInTheDocument()
     })
   })
 })

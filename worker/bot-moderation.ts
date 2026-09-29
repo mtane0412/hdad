@@ -23,14 +23,17 @@ export interface ModerationContext {
 
 /** 処分する発言 */
 export interface PunishTarget {
-  /** 削除する発言のID */
-  messageId: string
+  /**
+   * 削除する発言のID。null なら発言は削除せず、ユーザーだけを処分する
+   * （配信者が手でタイムアウト・BANするとき。Twitch はその人の発言をまとめて消す）
+   */
+  messageId: string | null
   /** 処分する発言者のユーザーID */
   userId: string
 }
 
-/** Twitchのモデレーターの記録に残る理由。誰の判断による処分かが後から分かるようにする */
-const REASON = '自動モデレーション（配信者が登録したルールによる処分）'
+/** Twitchのモデレーターの記録に残る、自動モデレーションの理由。誰の判断による処分かが後から分かるようにする */
+export const AUTO_MODERATION_REASON = '自動モデレーション（配信者が登録したルールによる処分）'
 
 /** すでにBAN済み・タイムアウト中であることを表す状態コード */
 const ALREADY_PUNISHED = 409
@@ -48,16 +51,24 @@ const ignoreAlreadyPunished = async (operation: Promise<void>): Promise<void> =>
 /**
  * 決まった処分を、botがモデレーターとして実行する。
  *
+ * @param reason Twitchのモデレーターの記録に残る理由（既定は自動モデレーション）
  * @throws AuthError botが未接続・トークンを更新できない
  * @throws TwitchApiError Twitchが拒否した（botがモデレーターでない、スコープが足りないなど）
  */
-export const punishAsBot = async (context: ModerationContext, punishment: Punishment, target: PunishTarget): Promise<void> => {
+export const punishAsBot = async (
+  context: ModerationContext,
+  punishment: Punishment,
+  target: PunishTarget,
+  reason: string = AUTO_MODERATION_REASON,
+): Promise<void> => {
   const { env, twitch, now } = context
   const token = await getAccessToken(env.STORE, 'bot', twitch, now)
   // 操作するモデレーターは bot 自身（トークンの持ち主と一致している必要がある）
   const moderation = { broadcasterId: env.TWITCH_BROADCASTER_ID, moderatorId: token.userId }
 
-  await ignoreAlreadyPunished(twitch.deleteChatMessage(token.accessToken, { ...moderation, messageId: target.messageId }))
+  if (target.messageId !== null) {
+    await ignoreAlreadyPunished(twitch.deleteChatMessage(token.accessToken, { ...moderation, messageId: target.messageId }))
+  }
   if (punishment.type === 'delete') return
 
   await ignoreAlreadyPunished(
@@ -66,7 +77,7 @@ export const punishAsBot = async (context: ModerationContext, punishment: Punish
       userId: target.userId,
       // 期限を渡さないと、Twitchは期限のないBANとして扱う
       ...(punishment.type === 'timeout' ? { durationSeconds: punishment.durationSeconds } : {}),
-      reason: REASON,
+      reason,
     }),
   )
 }

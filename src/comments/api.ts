@@ -6,6 +6,8 @@
  * Worker（GET /api/admin/comments/icons）へ問い合わせ、画面を開いているあいだ手元に覚えておく。
  *
  * バッジの画像はチャットボックスと同じもの（src/chat/badges.ts）を使う。
+ * モデレーターの操作（発言の削除・タイムアウト・BAN）は POST /api/admin/comments/moderation に頼み、botの権限で行われる。
+ * タイムアウトの長さは Worker が決め、応答で知らせてくる（画面に同じ数を持たない）。
  *
  * 呼び出しと失敗の扱いは `../core/api` に任せ、fetch を引数で受け取るのはテストで差し替えるためである。
  *
@@ -16,6 +18,30 @@ import { createCaller, isRecord } from '../core/api'
 import type { FeedEntry } from './feed'
 
 const ICONS_PATH = '/api/admin/comments/icons'
+const MODERATION_PATH = '/api/admin/comments/moderation'
+
+/** 画面から選べる処分。worker/comment-routes.ts の MODERATION_ACTIONS と合わせる */
+export type ModerationAction = 'delete' | 'timeout' | 'ban'
+
+/** 処分の結果。タイムアウトなら Worker が決めた長さ（秒）が添えられる */
+export type ModerationResult = { action: 'delete' } | { action: 'timeout'; durationSeconds: number } | { action: 'ban' }
+
+/** 処分の対象 */
+export interface ModerationTarget {
+  /** 削除する発言のID（タイムアウト・BANでは、Workerは発言を先に削除しない） */
+  messageId: string
+  /** 処分する人のユーザーID */
+  userId: string
+}
+
+/** 応答から処分の結果を読む。想定した形でなければエラーにする */
+const readModerationResult = (body: unknown): ModerationResult => {
+  if (isRecord(body)) {
+    if (body.action === 'delete' || body.action === 'ban') return { action: body.action }
+    if (body.action === 'timeout' && typeof body.durationSeconds === 'number') return { action: 'timeout', durationSeconds: body.durationSeconds }
+  }
+  throw new Error(`Workerの ${MODERATION_PATH} の応答が想定した形ではありません`)
+}
 
 /** 1度に問い合わせられる人数。worker/comment-routes.ts の MAX_ICON_USERS と合わせる */
 export const MAX_ICON_USERS = 100
@@ -29,6 +55,12 @@ export interface CommentApi {
   loadIcons(userIds: readonly string[]): Promise<Record<string, string>>
   /** 公式のバッジ画像の表（チャットボックスと同じ /api/chat/badges から引く） */
   loadBadges(): Promise<BadgeMap>
+  /**
+   * 選んだ処分を、botの権限で行ってもらう。
+   *
+   * @throws ApiError botが未接続・モデレーターでないなど、Workerが断った
+   */
+  moderate(action: ModerationAction, target: ModerationTarget): Promise<ModerationResult>
 }
 
 export const createCommentApi = (fetchImpl: typeof fetch): CommentApi => {
@@ -44,6 +76,14 @@ export const createCommentApi = (fetchImpl: typeof fetch): CommentApi => {
       return Object.fromEntries(Object.entries(icons).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
     },
     loadBadges: () => loadBadges(fetchImpl),
+    moderate: async (action, { messageId, userId }) =>
+      readModerationResult(
+        await call(MODERATION_PATH, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action, messageId, userId }),
+        }),
+      ),
   }
 }
 
@@ -61,4 +101,23 @@ export const pickUnknownUserIds = (entries: readonly FeedEntry[], asked: Readonl
     if (picked.size === MAX_ICON_USERS) break
   }
   return [...picked]
+}
+
+/** 1分の秒数 */
+const SECONDS_PER_MINUTE = 60
+
+/** タイムアウトの長さを、分で割り切れれば分、そうでなければ秒で言う */
+const durationLabel = (seconds: number): string =>
+  seconds % SECONDS_PER_MINUTE === 0 ? `${seconds / SECONDS_PER_MINUTE}分` : `${seconds}秒`
+
+/** 行った処分を、配信者に伝える文にする */
+export const describeModeration = (result: ModerationResult, name: string): string => {
+  switch (result.action) {
+    case 'delete':
+      return `${name} さんの発言を削除しました`
+    case 'timeout':
+      return `${name} さんを${durationLabel(result.durationSeconds)}タイムアウトしました`
+    case 'ban':
+      return `${name} さんをBANしました`
+  }
 }

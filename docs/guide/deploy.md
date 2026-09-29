@@ -87,6 +87,7 @@ R2は無料枠（保存10GB・転送無料）だけを使う場合でも、デ�
 | `GET /api/admin/draw/background` | 描く画面の背景に敷く、画面の取り込みが最後に撮った1枚の Gyazo の画像のURLを返す（同じ1枚なら304。要セッション） |
 | `GET /api/admin/comments/socket` | コメントビューアーからのWebSocketの接続を受け、直近の履歴とそのあとの発言・出来事を届ける（同じサイトからの接続だけを受け付ける。要セッション） |
 | `GET /api/admin/comments/icons` | 発言した人のアイコンのURLを、ユーザーID（`?user_id=` を1〜100個）からまとめて引く（要セッション） |
+| `POST /api/admin/comments/moderation` | 配信者が選んだ処分（発言の削除・10分のタイムアウト・BAN）をbotの権限で行う（要セッション） |
 | `GET`・`PUT /api/admin/focus` | 注目コメント（いま取り上げているもの）の取得・保存（要セッション） |
 | `GET /api/admin/focus/messages` | 取り上げる発言を選ぶための、いま進んでいる配信の直近の発言の一覧（要セッション） |
 | `GET`・`PUT /api/admin/llm` | LLMの提供元とモデルの設定の取得・保存（要セッション） |
