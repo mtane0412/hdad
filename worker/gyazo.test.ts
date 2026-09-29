@@ -2,7 +2,7 @@
  * Gyazo への画像のアップロード（worker/gyazo.ts）のテスト
  *
  * fetch を差し替えて確かめる。特に重要なのは次の3点である。
- * - 人に見せないための指定（access_policy=only_me）を必ず付けること
+ * - URLを知っていれば見られる指定（access_policy=anyone）で上げること（描く画面がブラウザから直接読むため）
  * - 指定されたコレクションに入れること、指定がなければその項目を送らないこと
  * - 応答から画像IDを取り出せること（このあとのOCRの取得が画像IDだけを頼りにするため）
  * - Gyazo が失敗を返したときや応答に画像IDが無いとき、黙って成功扱いにせず GyazoApiError にすること
@@ -27,14 +27,14 @@ const 成功の応答 = () =>
   Response.json({ image_id: 'abcdef0123456789abcdef0123456789', permalink_url: 'https://gyazo.com/abcdef0123456789abcdef0123456789' })
 
 describe('createGyazoClient', () => {
-  it('アクセストークンと画像を、人に見せない指定とともに送る', async () => {
+  it('アクセストークンと画像を、URLを知っていれば見られる指定とともに送る', async () => {
     const { fetchImpl, 受け取った } = 覚えるfetch(成功の応答())
     await createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).upload(画像, 'screen.png')
 
     expect(受け取った[0]?.url).toBe('https://upload.gyazo.com/api/upload')
     const body = 受け取った[0]?.body
     expect(body?.get('access_token')).toBe('テスト用のトークン')
-    expect(body?.get('access_policy')).toBe('only_me')
+    expect(body?.get('access_policy')).toBe('anyone')
     expect(body?.get('metadata_is_public')).toBe('false')
     expect(body?.get('imagedata')).toBeInstanceOf(Blob)
   })
@@ -140,6 +140,40 @@ describe('fetchOcr', () => {
 
     await expect(取りに行く).rejects.toBeInstanceOf(GyazoApiError)
     await expect(取りに行く).rejects.toThrow(/404/)
+  })
+})
+
+describe('fetchImageUrl', () => {
+  const 画像のID = 'abcdef0123456789abcdef0123456789'
+
+  const 応答するfetch = (応答: Response) => {
+    const 受け取った: string[] = []
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      受け取った.push(String(input))
+      return 応答
+    }) as typeof fetch
+    return { fetchImpl, 受け取った }
+  }
+
+  it('画像IDを指して、画像そのもののURLを取り出す', async () => {
+    const { fetchImpl, 受け取った } = 応答するfetch(Response.json({ image_id: 画像のID, url: `https://i.gyazo.com/${画像のID}.png`, access_policy: 'anyone' }))
+
+    const url = await createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).fetchImageUrl(画像のID)
+
+    expect(url).toBe(`https://i.gyazo.com/${画像のID}.png`)
+    expect(受け取った[0]).toMatch(new RegExp(`^https://api.gyazo.com/api/images/${画像のID}\\?access_token=`))
+  })
+
+  it('応答にURLが無ければ GyazoApiError にする', async () => {
+    const { fetchImpl } = 応答するfetch(Response.json({ image_id: 画像のID }))
+
+    await expect(createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).fetchImageUrl(画像のID)).rejects.toBeInstanceOf(GyazoApiError)
+  })
+
+  it('Gyazo が失敗を返したら GyazoApiError にする', async () => {
+    const { fetchImpl } = 応答するfetch(Response.json({ message: 'not found' }, { status: 404 }))
+
+    await expect(createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).fetchImageUrl(画像のID)).rejects.toThrow(/404/)
   })
 })
 

@@ -70,6 +70,67 @@ describe('createDrawApi（描く画面からの読み書き）', () => {
   })
 })
 
+describe('createDrawApi の loadBackground（描く画面の背景）', () => {
+  const 撮った時刻 = Date.parse('2026-09-29T12:00:00Z')
+  const 画像のID = 'abcdef0123456789abcdef0123456789'
+  const 画像のURL = `https://i.gyazo.com/${画像のID}.png`
+
+  /** 送られたリクエストを記録し、決めた応答をそのまま返す fetch */
+  const 背景を返すfetch = (response: () => Response) => {
+    const requests: Request[] = []
+    const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      requests.push(new Request(new URL(String(input), サイト), init))
+      return response()
+    }
+    return { requests, fetchImpl }
+  }
+
+  const 画像の応答 = () => Response.json({ imageId: 画像のID, capturedAt: 撮った時刻, url: 画像のURL }, { headers: { ETag: `"${画像のID}"` } })
+
+  it('最後に撮った配信画面のURLを、撮った時刻と印付きで読む', async () => {
+    const { requests, fetchImpl } = 背景を返すfetch(画像の応答)
+
+    const 結果 = await createDrawApi(fetchImpl).loadBackground(null)
+
+    expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/draw/background')
+    expect(requests[0]!.headers.has('If-None-Match')).toBe(false)
+    expect(結果).toEqual({ kind: 'image', url: 画像のURL, etag: `"${画像のID}"`, capturedAt: 撮った時刻 })
+  })
+
+  it('手元の1枚の印を添えて読み、変わっていなければそう伝える', async () => {
+    const { requests, fetchImpl } = 背景を返すfetch(() => new Response(null, { status: 304 }))
+
+    expect(await createDrawApi(fetchImpl).loadBackground(`"${画像のID}"`)).toEqual({ kind: 'unchanged' })
+    expect(requests[0]!.headers.get('If-None-Match')).toBe(`"${画像のID}"`)
+  })
+
+  it('まだ1枚も無ければ、そう伝える', async () => {
+    const { fetchImpl } = 背景を返すfetch(() => new Response(null, { status: 204 }))
+
+    expect(await createDrawApi(fetchImpl).loadBackground(null)).toEqual({ kind: 'none' })
+  })
+
+  it('想定した形でない応答はエラーにする', async () => {
+    const { fetchImpl } = 背景を返すfetch(() => Response.json({ imageId: 画像のID, capturedAt: 撮った時刻 }, { headers: { ETag: `"${画像のID}"` } }))
+
+    await expect(createDrawApi(fetchImpl).loadBackground(null)).rejects.toThrow('/api/admin/draw/background')
+  })
+
+  it('Gyazo 以外のURLはエラーにする（知らない場所の画像を背景に読み込まない）', async () => {
+    const { fetchImpl } = 背景を返すfetch(() =>
+      Response.json({ imageId: 画像のID, capturedAt: 撮った時刻, url: 'https://example.com/画面.png' }, { headers: { ETag: `"${画像のID}"` } }),
+    )
+
+    await expect(createDrawApi(fetchImpl).loadBackground(null)).rejects.toThrow('/api/admin/draw/background')
+  })
+
+  it('失敗の応答はエラーにする', async () => {
+    const { fetchImpl } = 背景を返すfetch(() => Response.json({ error: { code: 'unauthorized', message: 'ログインしてください' } }, { status: 401 }))
+
+    await expect(createDrawApi(fetchImpl).loadBackground(null)).rejects.toThrow('ログインしてください')
+  })
+})
+
 describe('createDrawOverlayApi（合成ページからの読み出し）', () => {
   it('オーバーレイ用キーを添えて、保存されている線を読む', async () => {
     const { requests, fetchImpl } = 応答を返すfetch(200, { strokes: [引いた線] })
