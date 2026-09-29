@@ -19,6 +19,7 @@
  */
 import type { OverlayAlert } from './alert-event'
 import { STATUS } from './http'
+import { broadcast, type SocketLike } from './socket-broadcast'
 
 /** Durable Object の名前。配送先は1つだけなので、決め打ちの名前で同じものを指す */
 const CHANNEL_NAME = 'alerts'
@@ -30,18 +31,8 @@ const PUSH_PATH = '/push'
 const PING = 'ping'
 const PONG = 'pong'
 
-/** 接続が壊れていたときに閉じる理由（WebSocketの「予期しない状況」を表す番号） */
-const INTERNAL_ERROR = 1011
-
-/**
- * アラートの送り先。テストで差し替えられるよう、使うものだけを受け取る。
- *
- * Cloudflare の WebSocket はこの形を満たす。
- */
-export interface AlertSocket {
-  send(message: string): void
-  close(code?: number, reason?: string): void
-}
+/** アラートの送り先。実体は配送の共通部分（socket-broadcast.ts）の接続と同じ */
+export type AlertSocket = SocketLike
 
 /**
  * Durable Object から使う、接続の保持の仕組み。テストで差し替えられるよう、使うものだけを受け取る。
@@ -62,32 +53,6 @@ export interface AlertChannelState {
 export interface AlertChannelNamespace {
   idFromName(name: string): DurableObjectId
   get(id: DurableObjectId): { fetch(request: Request): Promise<Response> }
-}
-
-/**
- * 開いている接続すべてへ同じ文字列を送る。
- *
- * 1本が壊れていても残りへは送る（1人の視聴環境の都合で配信全体のアラートを止めない）。
- * 送れなかった接続は閉じる。閉じないと、次のアラートでも同じ失敗を繰り返す。
- *
- * @returns 送れた接続の数
- */
-export const broadcast = (sockets: readonly AlertSocket[], payload: string): number => {
-  let delivered = 0
-  for (const socket of sockets) {
-    try {
-      socket.send(payload)
-      delivered += 1
-    } catch (error) {
-      console.error('アラートを配れませんでした', error)
-      try {
-        socket.close(INTERNAL_ERROR, 'アラートを配れませんでした')
-      } catch {
-        // 閉じることもできない接続は、Cloudflare側で片付けられるのを待つほかない
-      }
-    }
-  }
-  return delivered
 }
 
 /**
@@ -120,7 +85,7 @@ export class AlertChannel {
 
   /** 押し出されたアラートを、開いている接続すべてへ配る */
   private push(payload: string): Response {
-    broadcast(this.ctx.getWebSockets(), payload)
+    broadcast(this.ctx.getWebSockets(), payload, 'アラート')
     return new Response(null, { status: STATUS.noContent })
   }
 }

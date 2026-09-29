@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import { createFakeWorkersAi } from './fake-ai'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
 import { createFakeAlertChannel } from './fake-alert-channel'
+import { createFakeDrawChannel } from './fake-draw-channel'
 import { createFakeBucket } from './fake-bucket'
 import { createFakeDatabase } from './fake-database'
 import { createFakeStore } from './fake-store'
@@ -31,6 +32,7 @@ const 環境を作る = () => {
     SESSION_SECRET: 'テスト用のセッション秘密鍵',
     EVENTSUB_SECRET: 'テスト用のWebhookシークレット',
     ALERTS: createFakeAlertChannel().namespace,
+    DRAW: createFakeDrawChannel().namespace,
     AD_BREAKS: createFakeAdBreakTimer().namespace,
     AI: createFakeWorkersAi(),
   } satisfies Env

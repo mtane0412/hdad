@@ -4,13 +4,15 @@
  * サイドバーの項目と、パスごとに描く中身をここで決める。
  * 実ファイルとして配信されるページ（overlay/stage/・overlay/backstage/・speech/reader/・transcript/relay/）は、ここには載せない。
  */
-import { Bot, BrainCircuit, Camera, Captions, Layers, LayoutDashboard, Quote, Upload, Users, Volume2, Wrench, Zap, type LucideIcon } from 'lucide-react'
+import { Bot, BrainCircuit, Camera, Captions, Layers, LayoutDashboard, Pencil, Quote, Upload, Users, Volume2, Wrench, Zap, type LucideIcon } from 'lucide-react'
 import type { AdminApi, Me } from '@/admin/api'
 import { BackstagePage } from '@/backstage/backstage-page'
 import { MediaPage } from '@/admin/media-page'
 import { TriggerPage } from '@/admin/trigger-page'
 import type { BotApi } from '@/bot/api'
 import { BotPage } from '@/bot/bot-page'
+import { DrawPage } from '@/draw/draw-page'
+import { connectDrawWriter } from '@/draw/socket'
 import type { FocusApi } from '@/focus/api'
 import { FocusPage } from '@/focus/focus-page'
 import type { LlmApi } from '@/llm/api'
@@ -89,6 +91,13 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
         icon: Camera,
         // 撮るのは裏方のページ（/backstage/ で動かすかどうかを選ぶ）で、この画面はつなぎ先と間隔の設定だけを持つ
         render: ({ screenApi }) => <ScreenPage api={screenApi} />,
+      },
+      {
+        path: '/draw/',
+        name: '手書き',
+        icon: Pencil,
+        // 描いた線は中継先（Durable Object）を通って合成ページへ直接届くので、保存も読み出しも要らない
+        render: () => <DrawPage connect={connectDrawWriter} />,
       },
       {
         path: '/overlay/',

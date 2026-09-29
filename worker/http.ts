@@ -7,6 +7,7 @@
 import type { TextGenerator, WorkersAi } from './llm'
 import type { AdBreakTimerNamespace } from './ad-break-timer'
 import type { AlertChannelNamespace } from './alert-channel'
+import type { DrawChannelNamespace } from './draw-channel'
 import type { Database } from './database'
 import type { MediaBucket } from './media-bucket'
 import { isValidOverlayKey } from './overlay-key'
@@ -24,6 +25,13 @@ export interface Env {
   DB: Database
   /** オーバーレイへアラートを配る Durable Object。Workerは接続を保持できないため、配送だけをここに任せる */
   ALERTS: AlertChannelNamespace
+  /**
+   * 手書きの線を中継する Durable Object。
+   *
+   * 描く画面（/draw/）と合成ページの両方がここへつなぐ。アラートの配送と分けてあるのは、向き（接続から
+   * 接続へ中継する）も量（1本の線で毎秒20〜30通）も違うためである（worker/draw-channel.ts）。
+   */
+  DRAW: DrawChannelNamespace
   /**
    * 広告の終了の時刻を預かる Durable Object。
    *

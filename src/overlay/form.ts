@@ -31,6 +31,7 @@ export const ITEM_KIND_LABELS: Readonly<Record<ItemKind, string>> = {
   alerts: 'アラート',
   sideSuper: 'サイドスーパー',
   focus: '注目コメント',
+  draw: '手書き',
 }
 
 /** Workerが返す問題点に出る項目の名前を、画面の言い方にする */
@@ -55,6 +56,7 @@ const DESIGNS: Readonly<Record<ItemKind, readonly DesignItem[]>> = {
   alerts: [],
   sideSuper: [],
   focus: [],
+  draw: [],
 }
 
 /**
@@ -174,7 +176,7 @@ export const designsFor = (kind: ItemKind): readonly DesignItem[] => DESIGNS[kin
 export const schemaFor = (kind: ItemKind, id: string): ParamSchema | undefined => {
   if (kind === 'sideSuper') return sideSuperParamSchema
   const designs = designsFor(kind)
-  // アラートと注目コメントは配信者が決めるパラメータを持たない（取り上げる相手も設定はWorkerが持つ）
+  // アラート・注目コメント・手書きは配信者が決めるパラメータを持たない（取り上げる相手も設定はWorkerが持つ）
   if (designs.length === 0) return {}
   return designs.find((design) => design.id === id)?.schema
 }

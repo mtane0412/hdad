@@ -32,6 +32,10 @@ import type { Alert } from '../alerts/alert'
 import { demoAlerts } from '../alerts/demo'
 import { EMPTY_QUEUE, advance, enqueue } from '../alerts/queue'
 import { connectAlerts } from '../alerts/socket'
+import { demoStrokes } from '../draw/demo'
+import { connectDrawViewer } from '../draw/socket'
+import { NO_STROKES, applyDrawMessage, type Strokes } from '../draw/strokes'
+import { drawStrokes } from '../draw/view'
 import { createAlertView } from '../alerts/view'
 import { badgeKey, loadBadges, type BadgeMap } from '../chat/badges'
 import { loadChannel } from '../chat/channel'
@@ -44,7 +48,7 @@ import type { BadgeRef, ChatMessage } from '../chat/message'
 import { chats } from '../chat/registry'
 import { createChatView } from '../chat/view'
 import { clocks } from '../clock/registry'
-import { clearError, findDefinition, showError, startCanvasLayer, type DrawFrame } from '../core/mount'
+import { clearError, findDefinition, showError, startCanvasLayer, startCanvasSurface, type DrawFrame } from '../core/mount'
 import { ParamError, parseParams, type ParamSchema } from '../core/params'
 import { createFocusOverlayApi } from '../focus/api'
 import { demoFocused } from '../focus/demo'
@@ -71,6 +75,7 @@ const NOUNS: Readonly<Record<ItemKind, string>> = {
   alerts: 'アラート',
   sideSuper: 'サイドスーパー',
   focus: '注目コメント',
+  draw: '手書き',
 }
 
 /** サイドスーパーの文言を読みに行く間隔（ミリ秒）。文言は cron が5分おきに作るので、30秒あれば十分に追いつく */
@@ -505,6 +510,44 @@ const mountFocus = (box: HTMLElement, item: OverlayItem, { key, demo, hub }: Mou
 }
 
 /** 素材1つを起動する */
+/**
+ * 手書き。配信者が描く画面（/draw/）で引いた線が中継先（worker/draw-channel.ts）から届く。
+ *
+ * 届いた線は集まりへ積み上げ、毎フレームそこから描き直す（フレーム間の状態を持たない）。
+ * 貯める仕組みは中継先に無いので、合成ページを開く前に引かれた線は出ない（残すのは issue #133）。
+ */
+const mountDraw = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
+  // この素材は配信者が決めるパラメータを持たない（描くものは配信者がその場で決める）
+  parseParams({}, new URLSearchParams(item.params))
+
+  const canvas = document.createElement('canvas')
+  canvas.dataset.draw = ''
+  box.append(canvas)
+
+  // プレビューでは中継先へつながずサンプルを描く（そのとき描いていなければ何も出ず、置いた場所を確かめられない）
+  let strokes: Strokes = demo ? { strokes: demoStrokes } : NO_STROKES
+
+  if (!demo) {
+    connectDrawViewer(key, {
+      onMessage: (message) => {
+        strokes = applyDrawMessage(strokes, message)
+      },
+      onStatus: (status) => {
+        // 前に出した知らせを消してから出す（つなぎ直しは繰り返すので、消さないと配信画面に積み上がる）
+        clearError(box, 'read')
+        // つなぎ直せたときは消すだけにする（描いた線はそのまま残す）
+        if (status === 'disconnected') showError(new Error('中継先との接続が切れました。再接続します…'), NOUNS.draw, box, 'read')
+      },
+      onWarning: (message) => {
+        clearError(box, 'read')
+        showError(new Error(message), NOUNS.draw, box, 'read')
+      },
+    })
+  }
+
+  return { draw: startCanvasSurface(canvas, (ctx, width, height) => drawStrokes(ctx, strokes, { width, height })) }
+}
+
 const mountItem = (box: HTMLElement, item: OverlayItem, context: MountContext): MountedItem => {
   switch (item.kind) {
     case 'wallpaper':
@@ -518,6 +561,8 @@ const mountItem = (box: HTMLElement, item: OverlayItem, context: MountContext): 
       return mountSideSuper(box, item, context)
     case 'focus':
       return mountFocus(box, item, context)
+    case 'draw':
+      return mountDraw(box, item, context)
   }
 }
 

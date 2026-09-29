@@ -100,10 +100,12 @@ import {
   getSpeech as getOverlaySpeech,
   media,
   getScreen as getOverlayScreen,
+  overlayDrawSocket,
   overlaySocket,
   postScreen,
   postTranscript,
 } from './overlay-routes'
+import { drawSocket } from './draw-routes'
 import { getStatsFailures, getStatsFollowers, getStatsSession, getStatsSessions } from './stats-routes'
 import { AuthError } from './token'
 import { WEBHOOK_PATH, eventsubWebhook } from './webhook-routes'
@@ -112,6 +114,7 @@ import { TwitchApiError, createTwitchClient, type TwitchClient } from './twitch'
 
 export type { Env } from './http'
 export { AlertChannel } from './alert-channel'
+export { DrawChannel } from './draw-channel'
 export { AdBreakTimer } from './ad-break-timer'
 
 interface Dependencies {
@@ -171,6 +174,7 @@ const ROUTES: readonly Route[] = [
   { method: 'PUT', path: '/api/admin/speech', handle: putSpeech },
   { method: 'GET', path: '/api/admin/overlay/layout', handle: getOverlayLayout },
   { method: 'PUT', path: '/api/admin/overlay/layout', handle: putOverlayLayout },
+  { method: 'GET', path: '/api/admin/draw/socket', handle: drawSocket },
   { method: 'GET', path: '/api/admin/focus', handle: getFocus },
   { method: 'PUT', path: '/api/admin/focus', handle: putFocus },
   { method: 'GET', path: '/api/admin/focus/messages', handle: getFocusMessages },
@@ -191,6 +195,7 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/overlay/speech', handle: getOverlaySpeech },
   { method: 'GET', path: '/api/overlay/screen', handle: getOverlayScreen },
   { method: 'POST', path: '/api/overlay/screen', handle: postScreen },
+  { method: 'GET', path: '/api/overlay/draw', handle: overlayDrawSocket },
   { method: 'GET', path: '/api/overlay/focus', handle: getOverlayFocus },
   { method: 'GET', path: '/api/overlay/layout', handle: getOverlayLayoutForPage },
   { method: 'GET', path: '/api/media/:id', handle: media },

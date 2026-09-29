@@ -22,6 +22,7 @@ import { saveAlertConfig, type StoredTrigger } from './alert-config'
 import { saveToken } from './token'
 import { listViewers, recordViewerMessage, updateViewerNote } from './viewer-store'
 import { createFakeAlertChannel } from './fake-alert-channel'
+import { createFakeDrawChannel } from './fake-draw-channel'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
 
 interface 環境の条件 {
@@ -57,6 +58,7 @@ const 環境を作る = ({ 配送は失敗する = false, オーバーレイ用�
     SESSION_SECRET: 'テスト用のセッション秘密鍵',
     EVENTSUB_SECRET: シークレット,
     ALERTS: 配送.namespace,
+    DRAW: createFakeDrawChannel().namespace,
     AD_BREAKS: 広告のタイマー.namespace,
     AI: ai,
   } satisfies Env

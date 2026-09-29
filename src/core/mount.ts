@@ -25,6 +25,15 @@ const MILLISECONDS_PER_SECOND = 1000
 export type DrawFrame = (elapsedMs: number) => void
 
 /**
+ * canvas 1枚ぶんの描き方。
+ *
+ * 大きさは canvas のCSS上のもの（画素数ではない）で渡す。画素比の掛け合わせは startCanvasSurface が済ませている。
+ *
+ * @param elapsedMs ページを開いてからの経過時間（ミリ秒）
+ */
+export type RenderSurface = (ctx: CanvasRenderingContext2D, width: number, height: number, elapsedMs: number) => void
+
+/**
  * 箱のCSS上の大きさから canvas の解像度（画素数）を決める。
  *
  * まだ大きさを測れていない（0）ときも1画素は確保する。canvas は幅・高さに0を受け取らないためである。
@@ -58,16 +67,27 @@ export const findDefinition = (
  * @throws ParamError パラメータに問題がある場合
  * @throws Error 2D描画コンテキストを取得できない場合
  */
-export const startCanvasLayer = (
-  canvas: HTMLCanvasElement,
-  definition: BackgroundDefinition,
-  searchParams: URLSearchParams,
-): DrawFrame => {
-  const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('canvas の2D描画コンテキストを取得できませんでした')
-
+export const startCanvasLayer = (canvas: HTMLCanvasElement, definition: BackgroundDefinition, searchParams: URLSearchParams): DrawFrame => {
   const params = parseParams(definition.schema, searchParams)
   const render = definition.create(params)
+  return startCanvasSurface(canvas, (ctx, width, height, elapsedMs) =>
+    render({ ctx, width, height, time: elapsedMs / MILLISECONDS_PER_SECOND, now: new Date() }),
+  )
+}
+
+/**
+ * canvas 1枚に、渡された描き方で描く準備をし、1フレームぶんの描画を返す。
+ *
+ * レジストリの素材（壁紙・時計）だけでなく、手書き（src/draw/）のように届いたものを描く素材もここを使う。
+ * 描画ループは呼び出し側が回す（合成ページでは段で1本にまとめる）。
+ *
+ * @param canvas 描画先。CSS上の大きさ（箱に入れた場合は箱の大きさ）が描画の基準になる
+ * @param render 1フレームぶんの描き方
+ * @throws Error 2D描画コンテキストを取得できない場合
+ */
+export const startCanvasSurface = (canvas: HTMLCanvasElement, render: RenderSurface): DrawFrame => {
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('canvas の2D描画コンテキストを取得できませんでした')
 
   // 描画の基準は canvas 自身のCSS上の大きさ（= 箱の大きさ）。OBSのソースサイズやレイヤーの位置を
   // 変えたときに合わせ直せるよう、変化は ResizeObserver で追う
@@ -93,7 +113,7 @@ export const startCanvasLayer = (
     }
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
 
-    render({ ctx, width, height, time: elapsedMs / MILLISECONDS_PER_SECOND, now: new Date() })
+    render(ctx, width, height, elapsedMs)
   }
 }
 
