@@ -21,29 +21,33 @@
  * 消しゴムは、なぞった範囲だけを削るのではなく、触れた線を1本まるごと消す（当たり判定は src/draw/erase.ts）。
  * 消したことは線の名前で中継先へ送り、保存は線を引き終えたときと同じく、ポインタを離してから数秒まとめて書く。
  *
- * キャンバスの下には、配信画面を撮った最新の1枚を薄く敷ける（スイッチで選ぶ。既定は敷かない）。画面の取り込み
+ * キャンバスの下には、配信画面を撮った最新の1枚を薄く敷ける（背景のアイコンを押すたびに切り替わる。既定は敷かない）。画面の取り込み
  * （/screen/）が Gyazo へ上げた最後の1枚を読み続ける（src/draw/use-background.ts）。
  * 撮る間隔ぶん古い画面なので、画面の構成を見て「このあたり」を指すためのものである。
+ *
+ * 道具箱はアイコンだけで1行に収める。色・太さ・背景の濃さはアイコンを押して開く選択肢で選び、
+ * 仕様の説明（保存・消しゴムの働き・背景を撮った時刻）は右端のiボタンを押したときだけ出す。
  *
  * 注意: ひとつ戻すは持たない。
  */
 import { cn } from 'cn'
-import { Eraser, Pencil, Trash2 } from 'lucide-react'
+import { Contrast, Eraser, ImageIcon, Info, Pencil, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link } from '@/app/router'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Separator } from '@/components/ui/separator'
 import { Slider } from '@/components/ui/slider'
-import { Switch } from '@/components/ui/switch'
+import { Toggle } from '@/components/ui/toggle'
 import { iconButtonName } from '@/core/icon-button'
 import { startCanvasSurface } from '@/core/mount'
 import type { DrawApi } from './api'
 import { touchedStrokeIds } from './erase'
 import { createStrokeId, toRatio } from './pointer'
 import { createStrokeSaver } from './save'
-import { DEFAULT_COLOR_ID, DEFAULT_WIDTH_ID, DRAW_COLORS, DRAW_WIDTHS } from './tools'
+import { DEFAULT_COLOR_ID, DEFAULT_WIDTH_ID, DRAW_COLORS, DRAW_WIDTHS, colorOf, widthOf } from './tools'
 import type { DrawSocketHandlers, DrawWriter } from './socket'
 import { NO_STROKES, applyDrawMessage, type Strokes } from './strokes'
 import type { DrawMessage, Point } from './stroke'
@@ -81,13 +85,18 @@ const CAPTURED_AT_FORMAT = new Intl.DateTimeFormat('ja-JP', { month: 'numeric', 
 
 /** 持ち替えられる道具。ペンは線を引き、消しゴムは触れた線を1本まるごと消す */
 const TOOLS = [
-  { id: 'pen', label: 'ペン', Icon: Pencil },
-  { id: 'eraser', label: '消しゴム', Icon: Eraser },
+  { id: 'pen', label: 'ペン', hint: 'ペン', Icon: Pencil },
+  { id: 'eraser', label: '消しゴム', hint: '消しゴム（触れた線を1本消す）', Icon: Eraser },
 ] as const
 
 type ToolId = (typeof TOOLS)[number]['id']
 
 const isToolId = (value: unknown): value is ToolId => TOOLS.some(({ id }) => id === value)
+
+/** 太さの見本。選択肢と、いま選んでいる太さを示すアイコンの両方で使う */
+const WidthSample = ({ ratio }: { ratio: number }) => (
+  <span aria-hidden className="w-5 shrink-0 rounded-full bg-foreground" style={{ height: Math.max(SAMPLE_MIN_HEIGHT, Math.round(ratio * SAMPLE_BOX_WIDTH)) }} />
+)
 
 /**
  * 道具を選ぶラジオの、目に見えない当たり判定。
@@ -134,6 +143,8 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
   const [widthId, setWidthId] = useState(DEFAULT_WIDTH_ID)
   /** 持っている道具 */
   const [toolId, setToolId] = useState<ToolId>('pen')
+  /** いま開いている選択肢（色か太さ）。選んだら閉じるために、開き閉じをこちらで持つ */
+  const [開いている選択肢, set開いている選択肢] = useState<'color' | 'width' | null>(null)
   /** 背景に配信画面を敷くか。既定は敷かない（使わない配信者に通信を増やさない） */
   const [背景を敷く, set背景を敷く] = useState(false)
   /** 背景の濃さ（%） */
@@ -141,20 +152,17 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
   const { background, error: 背景の失敗 } = useDrawBackground(api, 背景を敷く)
   /** 読み込めなかった背景の画像のURL。別の1枚に差し替わったら、読み込めたかを見直す */
   const [読めなかった画像, set読めなかった画像] = useState<string | null>(null)
-  /** 背景の下に出す知らせ。失敗は赤く出す */
-  const 背景の知らせ = ((): { 文: string; 失敗: boolean } => {
+  /** 背景について、道具箱の下に出す知らせ（気付いてほしいものだけ）。失敗は赤く出す */
+  const 背景の知らせ = ((): { 文: string; 失敗: boolean } | null => {
     if (背景の失敗 !== null) return { 文: `背景を読めませんでした: ${背景の失敗}`, 失敗: true }
     if (background.kind === 'none') return { 文: '背景にできる配信画面がまだありません。配信中に画面の取り込み（/screen/）を動かすと撮れます。', 失敗: false }
-    if (background.kind === 'idle') return { 文: '背景を読んでいます…', 失敗: false }
-    if (background.url === 読めなかった画像) {
+    if (background.kind === 'image' && background.url === 読めなかった画像) {
       return { 文: '背景の画像を読み込めませんでした（公開範囲が「自分だけ」の画像は使えません。次に撮られた画面から出ます）。', 失敗: true }
     }
-    return {
-      文: `${CAPTURED_AT_FORMAT.format(background.capturedAt)} に撮った配信画面です（配信していないあいだは、最後に配信したときの画面のままです）。`,
-      失敗: false,
-    }
+    return null
   })()
-  const 背景のスイッチのId = useId()
+  /** 敷いている背景を撮った時刻。iボタンの説明にだけ出す（いつも目に入る必要はないため） */
+  const 撮った時刻 = 背景を敷く && background.kind === 'image' ? CAPTURED_AT_FORMAT.format(background.capturedAt) : null
   const 背景の濃さのId = useId()
 
   /** 引き終えた線をまとめてWorkerへ書く窓口（描いている最中は書かない） */
@@ -331,29 +339,28 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
               {notice}
             </p>
           )}
-          {/* 道具は形で選べるようにする（色は色そのもの、太さは太さの見本）。名前は読み上げにだけ渡す。
-              RadioGroup は既定で grid w-full なので、横一列に収めるため w-auto で打ち消す */}
-          <div className="flex flex-wrap items-center gap-1 rounded-lg border bg-card p-1.5 shadow-sm">
-            {/* 道具だけは文字も出す。消しゴムの形だけでは、なぞった範囲を削るのか線を丸ごと消すのか分からないため
-                （docs/decisions/draw.md） */}
+          {/* 道具はすべてアイコンで1行に収める。名前は読み上げとホバー（title）にだけ渡し、
+              仕様の説明は右端のiボタンに寄せる（docs/decisions/draw.md） */}
+          <div className="flex items-center gap-1 overflow-x-auto rounded-lg border bg-card p-1.5 shadow-sm">
+            {/* RadioGroup は既定で grid w-full なので、横一列に収めるため w-auto で打ち消す */}
             <RadioGroup
               value={toolId}
               onValueChange={(値) => {
                 if (isToolId(値)) setToolId(値)
               }}
               aria-label="道具"
-              className="flex w-auto flex-row items-center gap-1.5"
+              className="flex w-auto flex-row items-center gap-1"
             >
-              {TOOLS.map(({ id, label, Icon }) => (
+              {TOOLS.map(({ id, label, hint, Icon }) => (
                 <span
                   key={id}
+                  title={hint}
                   className={cn(
-                    'relative flex h-7 shrink-0 items-center justify-center gap-1 rounded-md border px-2 text-xs transition has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50',
-                    toolId === id ? 'border-foreground bg-accent' : 'border-border hover:bg-accent/50',
+                    'relative flex size-8 shrink-0 items-center justify-center rounded-md border transition has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50',
+                    toolId === id ? 'border-foreground bg-accent' : 'border-transparent hover:bg-accent/50',
                   )}
                 >
                   <Icon aria-hidden className="size-4" />
-                  <span aria-hidden>{label}</span>
                   <RadioGroupItem value={id} aria-label={label} className={TOOL_HITBOX} />
                 </span>
               ))}
@@ -361,52 +368,102 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
 
             <Separator orientation="vertical" className="mx-1 h-6 self-center" />
 
-            <RadioGroup
-              value={colorId}
-              onValueChange={(値) => setColorId(String(値))}
-              aria-label="線の色"
-              className="flex w-auto flex-row items-center gap-1.5"
-            >
-              {DRAW_COLORS.map((色) => (
-                <span
-                  key={色.id}
-                  className={cn(
-                    'relative flex size-7 shrink-0 rounded-full border-2 transition has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50',
-                    colorId === 色.id ? 'border-foreground ring-2 ring-foreground/30' : 'border-border hover:border-muted-foreground',
-                  )}
-                  style={{ backgroundColor: 色.value }}
+            {/* 色と太さは、いま選んでいるものの見た目をアイコンにし、押すと選択肢を開く */}
+            <Popover open={開いている選択肢 === 'color'} onOpenChange={(open) => set開いている選択肢(open ? 'color' : null)}>
+              <PopoverTrigger render={<Button type="button" variant="ghost" size="icon" className="size-8" {...iconButtonName('線の色')} />}>
+                <span aria-hidden className="size-5 rounded-full border-2 border-border" style={{ backgroundColor: colorOf(colorId).value }} />
+              </PopoverTrigger>
+              {/* 開いた選択肢はダイアログとして読み上げられるので、何を選ぶ場かの名前を付ける */}
+              <PopoverContent className="w-auto" aria-label="線の色を選ぶ">
+                <RadioGroup
+                  value={colorId}
+                  onValueChange={(値) => {
+                    setColorId(String(値))
+                    set開いている選択肢(null)
+                  }}
+                  aria-label="線の色"
+                  className="flex w-auto flex-row items-center gap-1.5"
                 >
-                  {/* 選ぶ操作はラジオ自身が受ける（枠の側で受けると、押しても選ばれないことがある） */}
-                  <RadioGroupItem value={色.id} aria-label={色.label} className={TOOL_HITBOX} />
-                </span>
-              ))}
-            </RadioGroup>
+                  {DRAW_COLORS.map((色) => (
+                    <span
+                      key={色.id}
+                      title={色.label}
+                      className={cn(
+                        'relative flex size-7 shrink-0 rounded-full border-2 transition has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50',
+                        colorId === 色.id ? 'border-foreground ring-2 ring-foreground/30' : 'border-border hover:border-muted-foreground',
+                      )}
+                      style={{ backgroundColor: 色.value }}
+                    >
+                      {/* 選ぶ操作はラジオ自身が受ける（枠の側で受けると、押しても選ばれないことがある） */}
+                      <RadioGroupItem value={色.id} aria-label={色.label} className={TOOL_HITBOX} />
+                    </span>
+                  ))}
+                </RadioGroup>
+              </PopoverContent>
+            </Popover>
+
+            <Popover open={開いている選択肢 === 'width'} onOpenChange={(open) => set開いている選択肢(open ? 'width' : null)}>
+              <PopoverTrigger render={<Button type="button" variant="ghost" size="icon" className="size-8" {...iconButtonName('線の太さ')} />}>
+                <WidthSample ratio={widthOf(widthId).ratio} />
+              </PopoverTrigger>
+              <PopoverContent className="w-auto" aria-label="線の太さを選ぶ">
+                <RadioGroup
+                  value={widthId}
+                  onValueChange={(値) => {
+                    setWidthId(String(値))
+                    set開いている選択肢(null)
+                  }}
+                  aria-label="線の太さ"
+                  className="flex w-auto flex-row items-center gap-1.5"
+                >
+                  {DRAW_WIDTHS.map((太さ) => (
+                    <span
+                      key={太さ.id}
+                      title={太さ.label}
+                      className={cn(
+                        'relative flex h-7 w-9 shrink-0 items-center justify-center rounded-md border transition has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50',
+                        widthId === 太さ.id ? 'border-foreground bg-accent' : 'border-border hover:bg-accent/50',
+                      )}
+                    >
+                      <WidthSample ratio={太さ.ratio} />
+                      <RadioGroupItem value={太さ.id} aria-label={太さ.label} className={TOOL_HITBOX} />
+                    </span>
+                  ))}
+                </RadioGroup>
+              </PopoverContent>
+            </Popover>
 
             <Separator orientation="vertical" className="mx-1 h-6 self-center" />
 
-            <RadioGroup
-              value={widthId}
-              onValueChange={(値) => setWidthId(String(値))}
-              aria-label="線の太さ"
-              className="flex w-auto flex-row items-center gap-1.5"
-            >
-              {DRAW_WIDTHS.map((太さ) => (
-                <span
-                  key={太さ.id}
-                  className={cn(
-                    'relative flex h-7 w-9 shrink-0 items-center justify-center rounded-md border transition has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50',
-                    widthId === 太さ.id ? 'border-foreground bg-accent' : 'border-border hover:bg-accent/50',
-                  )}
-                >
-                  <span
-                    aria-hidden
-                    className="w-5 shrink-0 rounded-full bg-foreground"
-                    style={{ height: Math.max(SAMPLE_MIN_HEIGHT, Math.round(太さ.ratio * SAMPLE_BOX_WIDTH)) }}
-                  />
-                  <RadioGroupItem value={太さ.id} aria-label={太さ.label} className={TOOL_HITBOX} />
-                </span>
-              ))}
-            </RadioGroup>
+            {/* 背景は押すたびに敷く・外すが入れ替わる。敷いているあいだは押された見た目になる */}
+            <Toggle pressed={背景を敷く} onPressedChange={set背景を敷く} className="size-8 min-w-8 border border-transparent px-0 aria-pressed:border-foreground aria-pressed:bg-accent" {...iconButtonName('配信画面を背景に敷く')}>
+              <ImageIcon />
+            </Toggle>
+            {/* 濃さは敷いているあいだしか意味がないので、そのあいだだけ出す */}
+            {背景を敷く && (
+              <Popover>
+                <PopoverTrigger render={<Button type="button" variant="ghost" size="icon" className="size-8" {...iconButtonName('背景の濃さを変える')} />}>
+                  <Contrast />
+                </PopoverTrigger>
+                <PopoverContent className="w-48" aria-label="背景の濃さを変える">
+                  <div className="flex items-center gap-2">
+                    <Slider
+                      aria-labelledby={背景の濃さのId}
+                      className="flex-1"
+                      min={MIN_BACKGROUND_OPACITY}
+                      max={MAX_BACKGROUND_OPACITY}
+                      step={BACKGROUND_OPACITY_STEP}
+                      value={[背景の濃さ]}
+                      onValueChange={(next) => set背景の濃さ(Array.isArray(next) ? (next[0] ?? DEFAULT_BACKGROUND_OPACITY) : next)}
+                    />
+                    <span className="w-10 text-right text-xs tabular-nums text-muted-foreground">{背景の濃さ}%</span>
+                  </div>
+                  <span id={背景の濃さのId} className="sr-only">
+                    背景の濃さ
+                  </span>
+                </PopoverContent>
+              </Popover>
+            )}
 
             <Separator orientation="vertical" className="mx-1 h-6 self-center" />
 
@@ -414,39 +471,32 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
                 （塗りつぶしの赤は常時目立ちすぎるため、アイコンだけを赤くする） */}
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
               size="icon"
               onClick={全部消す}
-              className="size-7 text-destructive hover:bg-destructive/10 hover:text-destructive"
+              className="size-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
               {...iconButtonName('全部消す')}
             >
               <Trash2 />
             </Button>
+
+            <Popover>
+              <PopoverTrigger
+                render={<Button type="button" variant="ghost" size="icon" className="ml-auto size-8 text-muted-foreground" {...iconButtonName('手書きについて')} />}
+              >
+                <Info />
+              </PopoverTrigger>
+              <PopoverContent align="end" className="text-xs" aria-label="手書きについて">
+                <ul className="list-disc space-y-1 pl-4">
+                  <li>描いたものは残ります（OBSで開き直しても出ます）</li>
+                  <li>消しゴムは触れた線を1本消す・ゴミ箱はすべて消す</li>
+                  {撮った時刻 !== null && <li>背景は {撮った時刻} に撮影（配信外は最後の配信の画面）</li>}
+                </ul>
+              </PopoverContent>
+            </Popover>
           </div>
 
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
-            <div className="flex items-center gap-2">
-              <Switch aria-labelledby={背景のスイッチのId} checked={背景を敷く} onCheckedChange={set背景を敷く} />
-              <span id={背景のスイッチのId}>配信画面を背景に敷く</span>
-            </div>
-            {背景を敷く && (
-              <div className="flex items-center gap-2">
-                <span id={背景の濃さのId} className="text-muted-foreground">
-                  背景の濃さ
-                </span>
-                <Slider
-                  aria-labelledby={背景の濃さのId}
-                  className="w-32"
-                  min={MIN_BACKGROUND_OPACITY}
-                  max={MAX_BACKGROUND_OPACITY}
-                  step={BACKGROUND_OPACITY_STEP}
-                  value={[背景の濃さ]}
-                  onValueChange={(next) => set背景の濃さ(Array.isArray(next) ? (next[0] ?? DEFAULT_BACKGROUND_OPACITY) : next)}
-                />
-              </div>
-            )}
-          </div>
-          {背景を敷く && (
+          {背景を敷く && 背景の知らせ !== null && (
             <p className={cn('text-sm', 背景の知らせ.失敗 ? 'text-destructive' : 'text-muted-foreground')}>{背景の知らせ.文}</p>
           )}
 
@@ -473,9 +523,6 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
               onPointerCancel={離した}
             />
           </div>
-          <p className="text-sm text-muted-foreground">
-            描いたものは残るので、合成ページ（OBSのブラウザソース）を開き直しても出ます。消しゴムは触れた線を1本まるごと消し、ゴミ箱はすべてを消します。
-          </p>
         </CardContent>
       </Card>
     </div>
