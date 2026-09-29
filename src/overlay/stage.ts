@@ -605,7 +605,10 @@ const mountBgm = (box: HTMLElement, item: OverlayItem, { key, demo }: MountConte
       .then((nowPlaying) => {
         if (shown === at) show(nowPlaying)
       })
-      .catch((error: unknown) => showError(error, NOUNS.bgm, box, 'read'))
+      .catch((error: unknown) => {
+        // 読んでいる間に押し出しで新しい曲を映せていれば、古い読み出しの失敗は出さない
+        if (shown === at) showError(error, NOUNS.bgm, box, 'read')
+      })
   }
 
   // 1回目は起動の一部として扱い、失敗はこの箱に出す（ほかの素材は動かし続ける）

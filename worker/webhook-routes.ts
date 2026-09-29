@@ -212,6 +212,10 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
   const command = findCommand(commands, message, bot.userId)
   if (!command) return
 
+  // 流している曲（issue #152）は、{bgm} を使う応答文のときだけ読む。止めているときは null のままで、応答文にはその旨が入る。
+  // 鍵の確保とクールダウンより先に読むのは、読めずに投げたときに応答の機会を使い切らないため（再送で応答し直せる）
+  const bgm = needsBgmCredit(command) ? playingTrackOf(await loadBgmTracks(env.STORE), await loadBgmPlayback(env.STORE)) : null
+
   // 鍵の確保はクールダウンの判定より先に行う。逆にすると、再送のたびに最後に使った時刻が更新され、いつまでも応答できなくなる
   if (!(await reserveChatReply(env.DB, message.messageId, now))) return
   if (!(await consumeCooldown(env.DB, command.name, command.cooldownSeconds, now))) return
@@ -220,9 +224,6 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
   // 貯めてあるものをそのまま返すだけなので、ここでLLMは呼ばない（応答を待たせないため）。
   // 配信していない・まだ作っていないときは null のままで、応答文にはその旨が入る（無応答にはしない）
   const summary = needsStreamSummary(command) ? ((await readCurrentStreamSummary(env.DB, now))?.summary ?? null) : null
-
-  // 流している曲（issue #152）も、{bgm} を使う応答文のときだけ読む。止めているときは null のままで、応答文にはその旨が入る
-  const bgm = needsBgmCredit(command) ? playingTrackOf(await loadBgmTracks(env.STORE), await loadBgmPlayback(env.STORE)) : null
 
   const reply = applyReply(command, message, summary, bgm)
   try {
