@@ -6,6 +6,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { createAdminApi } from '@/admin/api'
+import { createBgmApi } from '@/bgm/api'
 import { createBotApi } from '@/bot/api'
 import { createDrawApi } from '@/draw/api'
 import { createCommentApi } from '@/comments/api'
@@ -35,9 +36,10 @@ const commentApi = createCommentApi(callWorker)
 const drawApi = createDrawApi(callWorker)
 const llmApi = createLlmApi(callWorker)
 const overlayApi = createOverlayLayoutAdminApi(callWorker)
+const bgmApi = createBgmApi(callWorker)
 
 createRoot(root).render(
   <StrictMode>
-    <App api={api} statsApi={statsApi} botApi={botApi} viewerApi={viewerApi} speechApi={speechApi} screenApi={screenApi} focusApi={focusApi} commentApi={commentApi} drawApi={drawApi} llmApi={llmApi} overlayApi={overlayApi} />
+    <App api={api} statsApi={statsApi} botApi={botApi} viewerApi={viewerApi} speechApi={speechApi} screenApi={screenApi} focusApi={focusApi} commentApi={commentApi} drawApi={drawApi} llmApi={llmApi} overlayApi={overlayApi} bgmApi={bgmApi} />
   </StrictMode>,
 )

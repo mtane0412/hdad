@@ -35,12 +35,15 @@ export const BackstagePage = ({ overlayKey }: { overlayKey: string | null }) => 
   const [transcript, setTranscript] = useState(true)
   // 画面の取り込みは既定で外す。OBSのWebSocketサーバーと Gyazo のアクセストークンの両方が要るためである
   const [screen, setScreen] = useState(false)
+  // BGMも既定で外す。OBSに貼ってある裏方のブラウザソースが、曲を選んだ途端に黙って鳴り出さないようにする
+  const [bgm, setBgm] = useState(false)
   const [port, setPort] = useState(String(DEFAULT_TRANSCRIPT_PORT))
   const actions = usePageActions()
   const urlFieldId = useId()
   const speechFieldId = useId()
   const transcriptFieldId = useId()
   const screenFieldId = useId()
+  const bgmFieldId = useId()
   const portFieldId = useId()
   const sizeHintId = useId()
 
@@ -56,7 +59,7 @@ export const BackstagePage = ({ overlayKey }: { overlayKey: string | null }) => 
   let url: string
   let urlFailure = ''
   try {
-    url = backstageUrl(window.location.origin, overlayKey, { speech, transcript, screen, port: Number(port.trim()) })
+    url = backstageUrl(window.location.origin, overlayKey, { speech, transcript, screen, bgm, port: Number(port.trim()) })
   } catch (error) {
     url = ''
     urlFailure = errorMessage(error)
@@ -115,6 +118,12 @@ export const BackstagePage = ({ overlayKey }: { overlayKey: string | null }) => 
           <p className="text-sm text-muted-foreground">
             OBSのつなぎ先と撮る間隔は「画面の取り込み」のページで変える。Worker 側に Gyazo のアクセストークンが要る。
           </p>
+
+          <div className="flex items-center gap-2">
+            <Checkbox id={bgmFieldId} checked={bgm} onCheckedChange={(checked) => setBgm(checked === true)} />
+            <Label htmlFor={bgmFieldId}>BGM</Label>
+          </div>
+          <p className="text-sm text-muted-foreground">流す曲と音量は「BGM」のページで変える。OBSでこのブラウザソースの音声を配信に乗せる。</p>
 
           {urlFailure === '' ? (
             <>

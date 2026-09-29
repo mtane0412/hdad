@@ -9,7 +9,7 @@ import { backstageUrl } from './url'
 
 const オーバーレイ用キー = 'overlay-key_0123456789abcdefghij'
 const サイト = 'https://hdad.example.com'
-const 既定 = { speech: true, transcript: true, screen: false, port: DEFAULT_TRANSCRIPT_PORT }
+const 既定 = { speech: true, transcript: true, screen: false, bgm: false, port: DEFAULT_TRANSCRIPT_PORT }
 
 describe('backstageUrl', () => {
   it('裏方のページのURLに、オーバーレイ用キーを付ける', () => {
@@ -22,6 +22,17 @@ describe('backstageUrl', () => {
     expect(url).not.toContain('speech=')
     expect(url).not.toContain('transcript=')
     expect(url).not.toContain('screen=')
+    expect(url).not.toContain('bgm=')
+  })
+
+  it('BGMは既定で鳴らさないので、鳴らすときだけ書き足す', () => {
+    expect(backstageUrl(サイト, オーバーレイ用キー, { ...既定, bgm: true })).toBe(
+      `${サイト}/overlay/backstage/?key=${encodeURIComponent(オーバーレイ用キー)}&bgm=true`,
+    )
+  })
+
+  it('BGMだけを鳴らすこともできる', () => {
+    expect(() => backstageUrl(サイト, オーバーレイ用キー, { ...既定, speech: false, transcript: false, bgm: true })).not.toThrow()
   })
 
   it('画面の取り込みは既定で動かさないので、動かすときだけ書き足す', () => {
@@ -31,7 +42,7 @@ describe('backstageUrl', () => {
   })
 
   it('画面の取り込みだけを動かすこともできる', () => {
-    expect(backstageUrl(サイト, オーバーレイ用キー, { speech: false, transcript: false, screen: true, port: DEFAULT_TRANSCRIPT_PORT })).toContain(
+    expect(backstageUrl(サイト, オーバーレイ用キー, { speech: false, transcript: false, screen: true, bgm: false, port: DEFAULT_TRANSCRIPT_PORT })).toContain(
       'screen=true',
     )
   })
@@ -69,7 +80,7 @@ describe('backstageUrl', () => {
 
   it('裏方をひとつも動かさないURLは組み立てない（貼っても何もしないブラウザソースを作らせない）', () => {
     expect(() =>
-      backstageUrl(サイト, オーバーレイ用キー, { speech: false, transcript: false, screen: false, port: DEFAULT_TRANSCRIPT_PORT }),
+      backstageUrl(サイト, オーバーレイ用キー, { speech: false, transcript: false, screen: false, bgm: false, port: DEFAULT_TRANSCRIPT_PORT }),
     ).toThrow(/1つ/)
   })
 })

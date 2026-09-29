@@ -12,6 +12,7 @@
 import { LogOut } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { AdminApi, Me } from '@/admin/api'
+import type { BgmApi } from '@/bgm/api'
 import type { BotApi } from '@/bot/api'
 import type { DrawApi } from '@/draw/api'
 import type { CommentApi } from '@/comments/api'
@@ -166,6 +167,7 @@ export const App = ({
   drawApi,
   llmApi,
   overlayApi,
+  bgmApi,
 }: {
   api: AdminApi
   statsApi: StatsApi
@@ -178,6 +180,7 @@ export const App = ({
   drawApi: DrawApi
   llmApi: LlmApi
   overlayApi: OverlayLayoutAdminApi
+  bgmApi: BgmApi
 }) => {
   const [session, setSession] = useState<Session>({ status: 'checking' })
 
@@ -236,6 +239,7 @@ export const App = ({
             drawApi,
             llmApi,
             overlayApi,
+            bgmApi,
             me: session.me,
             onOverlayKeyChange: (overlayKey) => setSession({ status: 'signed-in', me: { ...session.me, overlayKey } }),
           }}

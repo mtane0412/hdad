@@ -4,9 +4,11 @@
  * サイドバーの項目と、パスごとに描く中身をここで決める。
  * 実ファイルとして配信されるページ（overlay/stage/・overlay/backstage/・speech/reader/・transcript/relay/）は、ここには載せない。
  */
-import { Bot, BrainCircuit, Camera, Captions, Layers, LayoutDashboard, MessagesSquare, Pencil, Quote, Upload, Users, Volume2, Wrench, Zap, type LucideIcon } from 'lucide-react'
+import { Bot, BrainCircuit, Camera, Captions, Layers, LayoutDashboard, MessagesSquare, Music, Pencil, Quote, Upload, Users, Volume2, Wrench, Zap, type LucideIcon } from 'lucide-react'
 import type { AdminApi, Me } from '@/admin/api'
 import { BackstagePage } from '@/backstage/backstage-page'
+import type { BgmApi } from '@/bgm/api'
+import { BgmPage } from '@/bgm/bgm-page'
 import { MediaPage } from '@/admin/media-page'
 import { TriggerPage } from '@/admin/trigger-page'
 import type { BotApi } from '@/bot/api'
@@ -56,6 +58,8 @@ export interface PageContext {
   llmApi: LlmApi
   /** 合成オーバーレイの構成の読み書き（オーバーレイのページが使う） */
   overlayApi: OverlayLayoutAdminApi
+  /** BGMの曲と、流す曲・音量の読み書き（BGMのページが使う） */
+  bgmApi: BgmApi
   me: Me
   /** オーバーレイ用キーを再発行した。ほかのページから戻ってきても新しいキーを出せるよう、枠が持つログイン情報を書き換える */
   onOverlayKeyChange(overlayKey: string): void
@@ -102,6 +106,14 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
         render: ({ speechApi, botApi, me }) => <SpeechPage api={speechApi} botApi={botApi} overlayKey={me.overlayKey} />,
       },
       {
+        path: '/bgm/',
+        name: 'BGM',
+        icon: Music,
+        // 鳴らすのは裏方のページ（/backstage/ で BGM を入れる）で、流す曲と音量の切り替えは Worker が押し出す（issue #151）。
+        // 曲にする音声は、アップロードのページで上げた素材から選ぶ
+        render: ({ bgmApi, api }) => <BgmPage api={bgmApi} mediaApi={api} />,
+      },
+      {
         path: '/screen/',
         name: '画面の取り込み',
         icon: Camera,
@@ -126,7 +138,7 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
         path: '/backstage/',
         name: '裏方',
         icon: Wrench,
-        // 映すものを持たない裏方（読み上げ・文字起こしの中継）を1つのブラウザソースにまとめるURLを出す（issue #108）
+        // 映すものを持たない裏方（読み上げ・文字起こしの中継・画面の取り込み・BGM）を1つのブラウザソースにまとめるURLを出す（issue #108）
         render: ({ me }) => <BackstagePage overlayKey={me.overlayKey} />,
       },
       { path: '/llm/', name: 'LLM', icon: BrainCircuit, render: ({ llmApi }) => <LlmPage api={llmApi} /> },

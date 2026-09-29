@@ -37,6 +37,9 @@
  * | POST /api/admin/comments/reads   | セッション     | 発言を既読にする・未読に戻す |
  * | GET・PUT /api/admin/comments/settings | セッション | コメントビューアーの設定（しばらく未読の発言を目立たせるか）の取得・保存 |
  * | GET・PUT /api/admin/focus        | セッション     | 注目コメント（いま取り上げているもの）の取得・保存 |
+ * | GET  /api/admin/bgm              | セッション     | BGMの曲の一覧と、いま流す曲・音量 |
+ * | PUT  /api/admin/bgm/tracks       | セッション     | BGMの曲の一覧の保存（流している曲を直したら裏方のページへ押し出す） |
+ * | PUT  /api/admin/bgm/playback     | セッション     | 流すBGMと音量の保存と、裏方のページへの押し出し |
  * | GET  /api/admin/focus/messages   | セッション     | 取り上げる発言を選ぶための、直近の発言の一覧 |
  * | GET  /api/admin/viewers          | セッション     | 視聴者の記録の一覧（検索・ページ送り） |
  * | PATCH /api/admin/viewers/:userId | セッション     | 視聴者へのメモの保存 |
@@ -55,6 +58,8 @@
  * | POST /api/overlay/screen         | オーバーレイ用キー | 配信画面を撮った1枚を受け取り、Gyazo へ上げて記録する |
  * | GET  /api/overlay/layout         | オーバーレイ用キー | 合成オーバーレイの構成を返す（合成ページから） |
  * | GET  /api/overlay/focus          | オーバーレイ用キー | いま取り上げている注目コメントを返す |
+ * | GET  /api/overlay/bgm            | オーバーレイ用キー | いま流しているBGMを返す（裏方のページから） |
+ * | GET  /api/overlay/bgm/socket     | オーバーレイ用キー | 裏方のページからのWebSocketの接続を受け、BGMの切り替えの配送先へ引き渡す |
  * | GET  /api/overlay/draw/strokes   | オーバーレイ用キー | 保存されている手書きの線を返す（合成ページが開いたときに1度読む） |
  * | GET  /api/media/:id              | オーバーレイ用キーかセッション | 素材の中身を返す |
  *
@@ -84,6 +89,7 @@ import {
   putSpeech,
 } from './admin-routes'
 import { getFocus, getFocusMessages, putFocus } from './focus-routes'
+import { getBgm, getOverlayBgm, overlayBgmSocket, putBgmPlayback, putBgmTracks } from './bgm-routes'
 import { deleteViewerRoute, getViewers, patchViewer } from './viewer-routes'
 import {
   deleteBot,
@@ -201,6 +207,9 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/admin/focus', handle: getFocus },
   { method: 'PUT', path: '/api/admin/focus', handle: putFocus },
   { method: 'GET', path: '/api/admin/focus/messages', handle: getFocusMessages },
+  { method: 'GET', path: '/api/admin/bgm', handle: getBgm },
+  { method: 'PUT', path: '/api/admin/bgm/tracks', handle: putBgmTracks },
+  { method: 'PUT', path: '/api/admin/bgm/playback', handle: putBgmPlayback },
   { method: 'GET', path: '/api/admin/viewers', handle: getViewers },
   { method: 'PATCH', path: '/api/admin/viewers/:userId', handle: patchViewer },
   { method: 'DELETE', path: '/api/admin/viewers/:userId', handle: deleteViewerRoute },
@@ -221,6 +230,8 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/overlay/draw', handle: overlayDrawSocket },
   { method: 'GET', path: '/api/overlay/draw/strokes', handle: getOverlayDrawStrokes },
   { method: 'GET', path: '/api/overlay/focus', handle: getOverlayFocus },
+  { method: 'GET', path: '/api/overlay/bgm', handle: getOverlayBgm },
+  { method: 'GET', path: '/api/overlay/bgm/socket', handle: overlayBgmSocket },
   { method: 'GET', path: '/api/overlay/layout', handle: getOverlayLayoutForPage },
   { method: 'GET', path: '/api/media/:id', handle: media },
 ]
