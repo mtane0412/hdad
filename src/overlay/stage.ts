@@ -38,6 +38,9 @@ import { connectDrawViewer } from '../draw/socket'
 import { NO_STROKES, applyDrawMessage, type Strokes } from '../draw/strokes'
 import { drawStrokes } from '../draw/view'
 import { createAlertView } from '../alerts/view'
+import { BGM_SOCKET_HINT, BGM_SOCKET_PATH, createBgmOverlayApi, parseBgmNowPlaying, type BgmNowPlaying } from '../bgm/api'
+import { createBgmCreditView } from '../bgm/credit-view'
+import { demoBgmTracks } from '../bgm/demo'
 import { badgeKey, loadBadges, type BadgeMap } from '../chat/badges'
 import { loadChannel } from '../chat/channel'
 import { applyCheermotes, loadCheermotes, type CheermoteMap } from '../chat/cheermotes'
@@ -51,6 +54,7 @@ import { createChatView } from '../chat/view'
 import { clocks } from '../clock/registry'
 import { clearError, findDefinition, showError, startCanvasLayer, startCanvasSurface, type DrawFrame } from '../core/mount'
 import { ParamError, parseParams, type ParamSchema } from '../core/params'
+import { connectSocket, socketUrl } from '../core/socket'
 import { createFocusOverlayApi } from '../focus/api'
 import { demoFocused } from '../focus/demo'
 import { NO_FOCUS, withRemoval, withTarget, type FocusState } from '../focus/focused'
@@ -77,6 +81,7 @@ const NOUNS: Readonly<Record<ItemKind, string>> = {
   sideSuper: 'サイドスーパー',
   focus: '注目コメント',
   draw: '手書き',
+  bgm: '再生中の曲',
 }
 
 /** サイドスーパーの文言を読みに行く間隔（ミリ秒）。文言は cron が5分おきに作るので、30秒あれば十分に追いつく */
@@ -560,6 +565,73 @@ const mountDraw = (box: HTMLElement, item: OverlayItem, { key, demo }: MountCont
   return { draw: startCanvasSurface(canvas, (ctx, width, height) => drawStrokes(ctx, strokes, { width, height })) }
 }
 
+/**
+ * 再生中の曲。裏方のページで流しているBGMの曲名とクレジット表記を映す（issue #152）。
+ *
+ * 切り替えは裏方のページと同じ WebSocket（/api/overlay/bgm/socket）で押し出してもらう。ポーリングにしないのは、
+ * 曲を変えてから表示が変わるまでに数十秒ずれると、流れている曲と違うクレジットを映すことになるためである。
+ * つなぎ直したときは、つながっていない間の切り替えを取りこぼさないよう読み直す。
+ */
+const mountBgm = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
+  // この素材は配信者が決めるパラメータを持たない（流す曲は /bgm/ で選ぶ）
+  parseParams({}, new URLSearchParams(item.params))
+
+  const root = document.createElement('div')
+  root.className = 'bgm-credit'
+  root.dataset.bgmCredit = ''
+  box.append(root)
+
+  const view = createBgmCreditView(root)
+
+  if (demo) {
+    // プレビューではWorkerにつながず、サンプルの曲を順に流す
+    startSampleCycle(demoBgmTracks, DEMO_SAMPLE_INTERVAL_MS, (track) => view.setTrack(track))
+    return {}
+  }
+
+  const api = createBgmOverlayApi(callWorker, key)
+  /** 映したものの世代。読み直しの応答より先に押し出しが届いたとき、古い応答で上書きしないために使う */
+  let shown = 0
+  const show = (nowPlaying: BgmNowPlaying): void => {
+    shown += 1
+    view.setTrack(nowPlaying.track)
+    // 前の失敗が箱に出ていれば消す（直ったのに赤い表示が残ったままにしない）
+    clearError(box, 'read')
+  }
+  const read = (): void => {
+    const at = shown
+    void api
+      .read()
+      .then((nowPlaying) => {
+        if (shown === at) show(nowPlaying)
+      })
+      .catch((error: unknown) => showError(error, NOUNS.bgm, box, 'read'))
+  }
+
+  // 1回目は起動の一部として扱い、失敗はこの箱に出す（ほかの素材は動かし続ける）
+  read()
+
+  connectSocket(
+    socketUrl(BGM_SOCKET_PATH, { key }),
+    {
+      onMessage: (text) => {
+        try {
+          show(parseBgmNowPlaying(text))
+        } catch (error) {
+          showError(error, NOUNS.bgm, box, 'read')
+        }
+      },
+      onStatus: (connection) => {
+        // つながっていない間に切り替えられていたかもしれないので、つなぎ直したら読み直す
+        if (connection === 'reconnected') read()
+      },
+      onWarning: (message) => showError(new Error(message), NOUNS.bgm, box, 'read'),
+    },
+    BGM_SOCKET_HINT,
+  )
+  return {}
+}
+
 const mountItem = (box: HTMLElement, item: OverlayItem, context: MountContext): MountedItem => {
   switch (item.kind) {
     case 'wallpaper':
@@ -575,6 +647,8 @@ const mountItem = (box: HTMLElement, item: OverlayItem, context: MountContext): 
       return mountFocus(box, item, context)
     case 'draw':
       return mountDraw(box, item, context)
+    case 'bgm':
+      return mountBgm(box, item, context)
   }
 }
 

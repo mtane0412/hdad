@@ -84,6 +84,18 @@ describe('parseBotConfig', () => {
     expect(問題点({ commands: [{ ...挨拶のコマンド, reply: 置き換えると超える応答文 }] })).toEqual([expect.stringContaining('commands[0].reply')])
   })
 
+  it('{bgm} が置き換わったときに500文字を超える応答文は拒否する（曲のクレジットは最大364文字になるため）', () => {
+    const 置き換えると超える応答文 = `${'あ'.repeat(137)}{bgm}`
+
+    expect(() => parseBotConfig({ commands: [{ ...挨拶のコマンド, reply: 置き換えると超える応答文 }] })).toThrow(/\{bgm\} は最大364文字/)
+  })
+
+  it('{bgm} を含んでいても、置き換わったあとが500文字以内なら通る', () => {
+    const 収まる応答文 = `${'あ'.repeat(136)}{bgm}`
+
+    expect(parseBotConfig({ commands: [{ ...挨拶のコマンド, reply: 収まる応答文 }] }).commands).toHaveLength(1)
+  })
+
   it('{summary} を含んでいても、置き換わったあとが500文字以内なら通る', () => {
     expect(parseBotConfig({ commands: [{ ...挨拶のコマンド, reply: 'これまでのあらすじ: {summary}' }] }).commands).toHaveLength(1)
   })

@@ -8,6 +8,7 @@
  * 注意: Twitchが受け付けない内容（500文字を超える応答文など）は、チャットへ送る前のここで止める。
  */
 import { ConfigError } from './alert-config'
+import { BGM_PLACEHOLDER, MAX_BGM_CREDIT_LENGTH } from './bgm-credit'
 import type { BotCommand } from './chat-command'
 import { MAX_STREAM_SUMMARY_LENGTH } from './stream-summary'
 import type { KeyValueStore } from './store'
@@ -46,11 +47,14 @@ const isValidName = (value: unknown): value is string =>
 /**
  * 差し込み語が最も長い値に置き換わった場合の、応答文の長さ。
  *
- * 保存の時点では発言者もあらすじの中身も分からないため、それぞれが上限いっぱいだった場合で見積もる。
+ * 保存の時点では発言者もあらすじも流す曲も分からないため、それぞれが上限いっぱいだった場合で見積もる。
  * こうしておくと、保存できた応答文は必ずTwitchへ送れる（送る段になって長さで弾かれない）。
  */
 const expandedLength = (reply: string): number =>
-  reply.replaceAll('{user}', 'x'.repeat(MAX_LOGIN_LENGTH)).replaceAll('{summary}', 'x'.repeat(MAX_STREAM_SUMMARY_LENGTH)).length
+  reply
+    .replaceAll('{user}', 'x'.repeat(MAX_LOGIN_LENGTH))
+    .replaceAll('{summary}', 'x'.repeat(MAX_STREAM_SUMMARY_LENGTH))
+    .replaceAll(BGM_PLACEHOLDER, 'x'.repeat(MAX_BGM_CREDIT_LENGTH)).length
 
 /**
  * 管理画面から送られてきた設定を検証し、保存用の形にする。
@@ -87,7 +91,7 @@ export const parseBotConfig = (input: unknown): BotConfig => {
     if (!replyFilled) problems.push(`${at}.reply: 送り返す文言を入力してください`)
     else if (!replyOk) {
       problems.push(
-        `${at}.reply: ${MAX_REPLY_LENGTH}文字以内にしてください（{user} は最大${MAX_LOGIN_LENGTH}文字、{summary} は最大${MAX_STREAM_SUMMARY_LENGTH}文字に置き換わります）`,
+        `${at}.reply: ${MAX_REPLY_LENGTH}文字以内にしてください（{user} は最大${MAX_LOGIN_LENGTH}文字、{summary} は最大${MAX_STREAM_SUMMARY_LENGTH}文字、{bgm} は最大${MAX_BGM_CREDIT_LENGTH}文字に置き換わります）`,
       )
     }
     if (!cooldownOk) problems.push(`${at}.cooldownSeconds: 0〜${MAX_COOLDOWN_SECONDS} の整数で指定してください`)

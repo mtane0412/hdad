@@ -31,6 +31,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Link } from '@/app/router'
 import type { BotApi, BotStatus } from '@/bot/api'
 import { ApiError } from '@/core/api'
+import { PlaceholderInput } from '@/core/placeholder-input'
 import { isAnnouncementColor, type AdminApi, type MediaItem, type Reward, type TriggerKind } from './api'
 import {
   colorOptions,
@@ -39,7 +40,6 @@ import {
   kindLabels,
   menuGroups,
   menuLabel,
-  insertPlaceholder,
   placeholdersFor,
   rewardOptions,
   hasAnyAction,
@@ -223,68 +223,22 @@ interface MessageFieldProps {
   children?: ReactNode
 }
 
-/**
- * 差し込み語を押して入れられる、文言の入力欄。
- *
- * 差し込み語を手で打つと綴りや括弧を間違えやすく、間違いに気づくのが「配信中に置き換わらなかったとき」になるため、
- * 押して入れられるようにする。並べるのは選んだメニュー項目で置き換わる語だけである（置き換わらない語を押させない）。
- * 入れる位置はカーソルの位置なので、入力欄の要素を持つこのコンポーネントがカーソルを読み、
- * 文言の組み立て（form.ts の insertPlaceholder）だけを分けてテストする。
- */
-const MessageField = ({ id, label, kind, value, maxLength, example, onChange, children }: MessageFieldProps) => {
-  const inputRef = useRef<HTMLInputElement>(null)
-  /** 差し込み語を入れたあとにカーソルを置く位置。入力欄の値が書き換わってからでないと動かせないので、描き終わってから動かす */
-  const [cursor, setCursor] = useState<number | null>(null)
-
-  useEffect(() => {
-    const input = inputRef.current
-    if (cursor === null || input === null) return
-    input.focus()
-    input.setSelectionRange(cursor, cursor)
-    setCursor(null)
-  }, [cursor])
-
-  const insert = (placeholder: string): void => {
-    const input = inputRef.current
-    // ボタンは入力欄と一緒に描かれるので、ここへは来ない（型を絞るための確認）
-    if (input === null) return
-    const inserted = insertPlaceholder(value, placeholder, input.selectionStart ?? value.length, input.selectionEnd ?? value.length)
-    onChange(inserted.value)
-    setCursor(inserted.cursor)
-  }
-
-  return (
-    <div className="flex flex-col gap-2 sm:col-span-2">
-      <Label htmlFor={id}>{label}</Label>
-      <Input
-        id={id}
-        ref={inputRef}
-        type="text"
-        maxLength={maxLength}
-        value={value}
-        placeholder={example}
-        onChange={(event) => onChange(event.currentTarget.value)}
-      />
-      <div className="flex flex-wrap gap-1">
-        {placeholdersFor(kind).map((placeholder) => (
-          <Button
-            key={placeholder}
-            type="button"
-            variant="outline"
-            size="xs"
-            className="font-mono"
-            // どの欄に入るかは見た目では分かるが読み上げでは分からないので、欄の名前を添える
-            aria-label={`${label}に ${placeholder} を挿入`}
-            onClick={() => insert(placeholder)}
-          >
-            {placeholder}
-          </Button>
-        ))}
-      </div>
-      {children}
-    </div>
-  )
-}
+/** 差し込み語を押して入れられる、文言の入力欄（見出しと説明を添えて、欄を2列ぶんの幅に置く） */
+const MessageField = ({ id, label, kind, value, maxLength, example, onChange, children }: MessageFieldProps) => (
+  <div className="flex flex-col gap-2 sm:col-span-2">
+    <Label htmlFor={id}>{label}</Label>
+    <PlaceholderInput
+      id={id}
+      name={label}
+      placeholders={placeholdersFor(kind)}
+      value={value}
+      maxLength={maxLength}
+      example={example}
+      onChange={onChange}
+    />
+    {children}
+  </div>
+)
 
 interface ActionFieldsProps {
   draft: TriggerDraft

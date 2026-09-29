@@ -5,7 +5,7 @@
  * 特に重要なのは、bot自身の発言に応答しないこと（応答するとbotがbotに応答し続けて止まらなくなる）。
  */
 import { describe, expect, it } from 'vitest'
-import { needsStreamSummary, readChatMessage, resolveReply, type BotCommand, type ChatMessage } from './chat-command'
+import { needsBgmCredit, needsStreamSummary, readChatMessage, resolveReply, type BotCommand, type ChatMessage } from './chat-command'
 
 const botのID = '67890'
 
@@ -199,5 +199,38 @@ describe('needsStreamSummary', () => {
 
   it('応答文に {summary} が無ければ false（あらすじを読みに行かせないため）', () => {
     expect(needsStreamSummary({ name: 'ping', reply: '@{user} pong' })).toBe(false)
+  })
+})
+
+describe('BGMの差し込み語', () => {
+  const BGMのコマンド: BotCommand[] = [{ name: 'bgm', reply: '@{user} いまの曲: {bgm}' }]
+  const 流している曲 = { title: 'ひだまりの午後', credit: '音楽: 甘茶の音楽工房', creditUrl: 'https://amachamusic.chagasi.com/' }
+
+  it('{bgm} を、流している曲のクレジットに置き換える', () => {
+    expect(resolveReply(BGMのコマンド, 視聴者の発言('!bgm'), botのID, null, 流している曲)).toBe(
+      '@shichousha いまの曲: 「ひだまりの午後」 音楽: 甘茶の音楽工房 https://amachamusic.chagasi.com/',
+    )
+  })
+
+  it('曲を止めていても、無応答にならず流していないと返す', () => {
+    expect(resolveReply(BGMのコマンド, 視聴者の発言('!bgm'), botのID, null, null)).toBe('@shichousha いまの曲: いまはBGMを流していません')
+  })
+
+  it('{summary} と一緒に使える', () => {
+    const コマンド: BotCommand[] = [{ name: 'ima', reply: '{summary} / {bgm}' }]
+
+    expect(resolveReply(コマンド, 視聴者の発言('!ima'), botのID, 'ボス戦の最中です', { ...流している曲, creditUrl: '' })).toBe(
+      'ボス戦の最中です / 「ひだまりの午後」 音楽: 甘茶の音楽工房',
+    )
+  })
+})
+
+describe('needsBgmCredit', () => {
+  it('応答文に {bgm} があれば true', () => {
+    expect(needsBgmCredit({ name: 'bgm', reply: 'いまの曲: {bgm}' })).toBe(true)
+  })
+
+  it('応答文に {bgm} が無ければ false（曲を読みに行かせないため）', () => {
+    expect(needsBgmCredit({ name: 'ping', reply: '@{user} pong' })).toBe(false)
   })
 })

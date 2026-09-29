@@ -19,8 +19,8 @@ describe('overlay.css', () => {
     }
   })
 
-  it('レジストリを持たない素材（アラート・サイドスーパー・注目コメント・手書き）のCSSも読み込んでいる', () => {
-    for (const path of ['../alerts/alerts.css', '../side-super/side-super.css', '../focus/focus.css', '../draw/draw.css']) {
+  it('レジストリを持たない素材（アラート・サイドスーパー・注目コメント・手書き・再生中の曲）のCSSも読み込んでいる', () => {
+    for (const path of ['../alerts/alerts.css', '../side-super/side-super.css', '../focus/focus.css', '../draw/draw.css', '../bgm/bgm.css']) {
       expect(overlayCss).toContain(`@import '${path}';`)
     }
   })

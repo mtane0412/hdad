@@ -19,6 +19,12 @@ const TRACKS_PATH = '/api/admin/bgm/tracks'
 const PLAYBACK_PATH = '/api/admin/bgm/playback'
 const OVERLAY_PATH = '/api/overlay/bgm'
 
+/** 切り替えを押し出してもらう WebSocket のパス。裏方のページ（task.ts）と合成ページの素材「再生中の曲」がつなぐ */
+export const BGM_SOCKET_PATH = '/api/overlay/bgm/socket'
+
+/** 一度もつながらないまま閉じたときに出す、いちばんありそうな原因 */
+export const BGM_SOCKET_HINT = 'BGMの切り替えの配送先につながりません。URLのオーバーレイ用キーが正しいか確かめてください'
+
 /** BGMの曲1つ。項目は worker/bgm-config.ts と合わせる */
 export interface BgmTrack {
   /** 音声の素材のID。曲の識別子も兼ねる */

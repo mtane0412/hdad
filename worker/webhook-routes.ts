@@ -11,7 +11,8 @@ import { scheduleAdBreakEnd } from './ad-break-timer'
 import { runAlertActions } from './alert-actions'
 import { loadAlertConfig } from './alert-config'
 import { sendAsBot } from './bot-chat'
-import { applyReply, findCommand, needsStreamSummary, readChatMessage, type ChatMessage } from './chat-command'
+import { applyReply, findCommand, needsBgmCredit, needsStreamSummary, readChatMessage, type ChatMessage } from './chat-command'
+import { loadBgmPlayback, loadBgmTracks, playingTrackOf } from './bgm-config'
 import { loadBotConfig } from './bot-config'
 import { punishAsBot } from './bot-moderation'
 import { judge, repeatRuleOf } from './chat-moderation'
@@ -220,7 +221,10 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
   // 配信していない・まだ作っていないときは null のままで、応答文にはその旨が入る（無応答にはしない）
   const summary = needsStreamSummary(command) ? ((await readCurrentStreamSummary(env.DB, now))?.summary ?? null) : null
 
-  const reply = applyReply(command, message, summary)
+  // 流している曲（issue #152）も、{bgm} を使う応答文のときだけ読む。止めているときは null のままで、応答文にはその旨が入る
+  const bgm = needsBgmCredit(command) ? playingTrackOf(await loadBgmTracks(env.STORE), await loadBgmPlayback(env.STORE)) : null
+
+  const reply = applyReply(command, message, summary, bgm)
   try {
     await sendAsBot(context, reply)
   } catch (error) {

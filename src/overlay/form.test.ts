@@ -36,7 +36,7 @@ describe('designsFor', () => {
   })
 
   it('デザインIDを持たない種類には1件も並べない', () => {
-    for (const kind of ['alerts', 'sideSuper', 'focus'] as const) expect(designsFor(kind)).toEqual([])
+    for (const kind of ['alerts', 'sideSuper', 'focus', 'bgm'] as const) expect(designsFor(kind)).toEqual([])
   })
 })
 
@@ -49,9 +49,10 @@ describe('schemaFor', () => {
     expect(schemaFor('sideSuper', '')).toHaveProperty('position')
   })
 
-  it('アラートと注目コメントは、配信者が決めるパラメータを持たない', () => {
+  it('アラート・注目コメント・再生中の曲は、配信者が決めるパラメータを持たない', () => {
     expect(schemaFor('alerts', '')).toEqual({})
     expect(schemaFor('focus', '')).toEqual({})
+    expect(schemaFor('bgm', '')).toEqual({})
   })
 
   it('レジストリに無いデザインでは undefined を返す（既定のスキーマへ黙って倒さない）', () => {
@@ -60,13 +61,14 @@ describe('schemaFor', () => {
 })
 
 describe('defaultRectFor', () => {
-  it('配信画面と同じ大きさで使う素材（背景・アラート・サイドスーパー・注目コメント）はオーバーレイいっぱいにする', () => {
+  it('配信画面と同じ大きさで使う素材（背景・アラート・サイドスーパー・注目コメント・再生中の曲）はオーバーレイいっぱいにする', () => {
     const いっぱい = { x: '0', y: '0', width: '100', height: '100' }
 
     expect(defaultRectFor('wallpaper')).toEqual(いっぱい)
     expect(defaultRectFor('alerts')).toEqual(いっぱい)
     expect(defaultRectFor('sideSuper')).toEqual(いっぱい)
     expect(defaultRectFor('focus')).toEqual(いっぱい)
+    expect(defaultRectFor('bgm')).toEqual(いっぱい)
   })
 
   it('小さく置く素材は、推奨の大きさ（時計は600×240px・チャットは480×800px）を割合にする', () => {

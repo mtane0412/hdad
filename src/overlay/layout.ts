@@ -16,7 +16,7 @@
  */
 
 /** オーバーレイに置ける素材の種類。worker/overlay-layout.ts の ITEM_KINDS と合わせる */
-export const ITEM_KINDS = ['wallpaper', 'clock', 'chat', 'alerts', 'sideSuper', 'focus', 'draw'] as const
+export const ITEM_KINDS = ['wallpaper', 'clock', 'chat', 'alerts', 'sideSuper', 'focus', 'draw', 'bgm'] as const
 
 /** オーバーレイに置ける素材の種類 */
 export type ItemKind = (typeof ITEM_KINDS)[number]
@@ -44,7 +44,7 @@ export const STAGE_SIZE = { width: 1920, height: 1080 } as const
  * （src/app/pages.tsx の previewSize）の両方がここを見る。2か所に数を書くと、片方を直したときに
  * 「ギャラリーで確かめた大きさ」と「オーバーレイに置いたときの大きさ」が食い違う。
  *
- * 配信画面の隅に文言を出す素材（サイドスーパー・注目コメント）とアラートは、素材のCSSが箱の中で
+ * 配信画面の隅に文言を出す素材（サイドスーパー・注目コメント・再生中の曲）とアラートは、素材のCSSが箱の中で
  * 寄せる場所を決めるので、余白ごと配信画面と同じ大きさにする。壁紙と手書きも画面いっぱいに描く
  * （手書きは描く画面と同じ縦横比でないと図が歪むので、配信画面と同じ大きさで使う）。
  * 時計とチャットボックスだけは画面の一部に置くものなので、ギャラリーが案内している大きさに合わせる。
@@ -57,6 +57,7 @@ export const RECOMMENDED_ITEM_SIZES: Readonly<Record<ItemKind, { readonly width:
   sideSuper: STAGE_SIZE,
   focus: STAGE_SIZE,
   draw: STAGE_SIZE,
+  bgm: STAGE_SIZE,
 }
 
 /** オーバーレイの中での位置と大きさ（オーバーレイの幅・高さに対する割合。％） */
