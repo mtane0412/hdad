@@ -225,6 +225,16 @@ describe('BGMの差し込み語', () => {
   })
 })
 
+describe('差し込み語の置き換えは応答文だけを1回見る', () => {
+  it('あらすじの中に {bgm} という文字列があっても、置き換えない', () => {
+    const コマンド: BotCommand[] = [{ name: 'summary', reply: 'あらすじ: {summary}' }]
+
+    expect(resolveReply(コマンド, 視聴者の発言('!summary'), botのID, '{bgm} コマンドの話をしました', null)).toBe(
+      'あらすじ: {bgm} コマンドの話をしました',
+    )
+  })
+})
+
 describe('needsBgmCredit', () => {
   it('応答文に {bgm} があれば true', () => {
     expect(needsBgmCredit({ name: 'bgm', reply: 'いまの曲: {bgm}' })).toBe(true)

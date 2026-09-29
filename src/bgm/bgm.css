@@ -32,6 +32,8 @@
   font-size: 22px;
   font-weight: 700;
   line-height: 1.3;
+  /* 切れ目のない英数字の曲名でも、板からはみ出させずに折り返す */
+  overflow-wrap: anywhere;
 }
 
 .bgm-credit-title::before {
@@ -44,6 +46,7 @@
   color: rgb(255 255 255 / 75%);
   font-size: 15px;
   line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 /* 曲が変わったときだけ走る（同じ曲では要素を作り直さない。src/bgm/credit-view.ts を参照） */

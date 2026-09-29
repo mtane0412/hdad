@@ -24,6 +24,13 @@ describe('bgmCreditText', () => {
     expect(bgmCreditText(null)).toBe(NO_BGM)
   })
 
+  it('上限を縮める前に保存した長い曲なら、黙って切り詰めずに保存し直すよう投げる', () => {
+    // 古い上限（曲名100・クレジット表記200・URL500文字）の範囲で、並べると364文字を超える曲
+    const 古い上限で保存した曲 = { title: 'あ'.repeat(100), credit: 'い'.repeat(200), creditUrl: `https://${'u'.repeat(100)}` }
+
+    expect(() => bgmCreditText(古い上限で保存した曲)).toThrow('/bgm/ で曲を直して保存し直してください')
+  })
+
   it('曲の各項目が上限いっぱいでも、見積もった最大の長さに収まる', () => {
     const 上限いっぱいの曲 = { title: 'あ'.repeat(60), credit: 'い'.repeat(100), creditUrl: `https://${'u'.repeat(192)}` }
 

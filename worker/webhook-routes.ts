@@ -225,9 +225,9 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
   // 配信していない・まだ作っていないときは null のままで、応答文にはその旨が入る（無応答にはしない）
   const summary = needsStreamSummary(command) ? ((await readCurrentStreamSummary(env.DB, now))?.summary ?? null) : null
 
-  const reply = applyReply(command, message, summary, bgm)
   try {
-    await sendAsBot(context, reply)
+    // 組み立ても try の中で行う。上限を縮める前に保存した長い曲では {bgm} の組み立てが投げるので、その理由も失敗として記録する
+    await sendAsBot(context, applyReply(command, message, summary, bgm))
   } catch (error) {
     await recordFailure(env.DB, 'chat-reply-failed', error instanceof Error ? error.message : String(error), now)
   }

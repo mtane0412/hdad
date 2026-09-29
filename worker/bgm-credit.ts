@@ -29,11 +29,20 @@ export const MAX_BGM_CREDIT_LENGTH = MAX_TITLE_LENGTH + MAX_CREDIT_LENGTH + MAX_
  * 流している曲のクレジットを1行の文にする。
  *
  * @param track 流している曲。止めているときは null
+ * @throws 曲の項目が上限を縮める前の長さのままで、文が MAX_BGM_CREDIT_LENGTH を超える場合
  */
 export const bgmCreditText = (track: BgmCreditSource | null): string => {
   if (track === null) return NO_BGM
-  const text = `「${track.title}」 ${track.credit}`
-  return track.creditUrl === '' ? text : `${text} ${track.creditUrl}`
+  const head = `「${track.title}」 ${track.credit}`
+  const text = track.creditUrl === '' ? head : `${head} ${track.creditUrl}`
+  // 上限を縮める前（issue #152 より前）に保存した曲は、読み出しでは検証し直さないので長いまま残りうる。
+  // 見積もりを超えた文はTwitchの1通に収まらないので、切り詰めずに直し方を添えて投げる
+  if (text.length > MAX_BGM_CREDIT_LENGTH) {
+    throw new Error(
+      `曲「${track.title}」のクレジットが${text.length}文字あり、上限（${MAX_BGM_CREDIT_LENGTH}文字）を超えています。/bgm/ で曲を直して保存し直してください`,
+    )
+  }
+  return text
 }
 
 /**

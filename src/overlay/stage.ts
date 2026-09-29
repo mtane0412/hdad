@@ -570,7 +570,7 @@ const mountDraw = (box: HTMLElement, item: OverlayItem, { key, demo }: MountCont
  *
  * 切り替えは裏方のページと同じ WebSocket（/api/overlay/bgm/socket）で押し出してもらう。ポーリングにしないのは、
  * 曲を変えてから表示が変わるまでに数十秒ずれると、流れている曲と違うクレジットを映すことになるためである。
- * つなぎ直したときは、つながっていない間の切り替えを取りこぼさないよう読み直す。
+ * つながるたびに（初めての接続でも、つなぎ直しでも）読み直し、つながっていない間の切り替えを取りこぼさない。
  */
 const mountBgm = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
   // この素材は配信者が決めるパラメータを持たない（流す曲は /bgm/ で選ぶ）
@@ -590,6 +590,14 @@ const mountBgm = (box: HTMLElement, item: OverlayItem, { key, demo }: MountConte
   }
 
   const api = createBgmOverlayApi(callWorker, key)
+  /**
+   * 失敗を箱に出す。前の失敗は消してから出す（つながらないあいだ、つなぎ直しのたびに警告が届くので、
+   * 消さずに足すと配信画面に失敗の表示が積み上がる）
+   */
+  const showReadError = (error: unknown): void => {
+    clearError(box, 'read')
+    showError(error, NOUNS.bgm, box, 'read')
+  }
   /** 映したものの世代。読み直しの応答より先に押し出しが届いたとき、古い応答で上書きしないために使う */
   let shown = 0
   const show = (nowPlaying: BgmNowPlaying): void => {
@@ -607,7 +615,7 @@ const mountBgm = (box: HTMLElement, item: OverlayItem, { key, demo }: MountConte
       })
       .catch((error: unknown) => {
         // 読んでいる間に押し出しで新しい曲を映せていれば、古い読み出しの失敗は出さない
-        if (shown === at) showError(error, NOUNS.bgm, box, 'read')
+        if (shown === at) showReadError(error)
       })
   }
 
@@ -621,14 +629,15 @@ const mountBgm = (box: HTMLElement, item: OverlayItem, { key, demo }: MountConte
         try {
           show(parseBgmNowPlaying(text))
         } catch (error) {
-          showError(error, NOUNS.bgm, box, 'read')
+          showReadError(error)
         }
       },
-      onStatus: (connection) => {
-        // つながっていない間に切り替えられていたかもしれないので、つなぎ直したら読み直す
-        if (connection === 'reconnected') read()
+      // つながるたびに読み直す。初めての接続でも、読んでからつながるまでの間に切り替えられていたかもしれないため
+      onOpen: read,
+      onStatus: () => {
+        // 切断・再接続は出さない。つながったときの読み直しは onOpen が受け持ち、映している曲はそのまま残す
       },
-      onWarning: (message) => showError(new Error(message), NOUNS.bgm, box, 'read'),
+      onWarning: (message) => showReadError(new Error(message)),
     },
     BGM_SOCKET_HINT,
   )
