@@ -6,7 +6,8 @@
  *
  * 注意: 状態の移り変わりだけをここに置き、描画もWebSocketも持たない（src/focus/focused.ts と同じ形）。
  */
-import type { DrawMessage, Point } from './stroke'
+import { isPoint, isStrokeId, type DrawMessage, type Point } from './stroke'
+import { isColorId, isWidthId } from './tools'
 
 /** 描かれた線1本。点をつないだものが線になる */
 export interface Stroke {
@@ -33,6 +34,33 @@ export const NO_STROKES: Strokes = { strokes: [] }
  * 増え続けると合成ページが重くなる。上限を超えたぶんは古いものから落とす。
  */
 export const MAX_STROKES = 500
+
+/**
+ * 1本の線が持てる点の数の上限。
+ *
+ * 描いている最中は上限を気にせず点を足していける長さ（毎秒30点なら2分ほどの連続した1本）にしてある。
+ * 上限を設けるのは、この集まりをそのままKVへ保存する（worker/draw-config.ts）ためで、
+ * 1本が際限なく長いと保存できる大きさに当たる。
+ */
+export const MAX_POINTS_PER_STROKE = 4000
+
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
+
+/**
+ * 保存から読み出した1本ぶんとして読めるか。
+ *
+ * 保存した線を読み直す経路（Workerでの検証（worker/draw-config.ts）と、画面での応答の確かめ（src/draw/api.ts））が
+ * どちらもこれを使う。2か所で書き分けると、片方だけが通す形ができてしまう。
+ */
+export const isStroke = (value: unknown): value is Stroke =>
+  isRecord(value) &&
+  isStrokeId(value.id) &&
+  Array.isArray(value.points) &&
+  value.points.length > 0 &&
+  value.points.length <= MAX_POINTS_PER_STROKE &&
+  value.points.every(isPoint) &&
+  isColorId(value.color) &&
+  isWidthId(value.width)
 
 /**
  * 届いた1通を積み上げる。

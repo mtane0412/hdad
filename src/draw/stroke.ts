@@ -69,15 +69,17 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 /** 座標として使える数か。はみ出した値（0未満・1より大きい）は、ポインタを箱の外へ動かせば普通に起こるので拒まない */
 const isCoordinate = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
 
-const isPoint = (value: unknown): value is Point => isRecord(value) && isCoordinate(value.x) && isCoordinate(value.y)
+/** 座標として読める1点か。保存から読み出した線の点を確かめるのにも使う（strokes.ts の isStroke） */
+export const isPoint = (value: unknown): value is Point => isRecord(value) && isCoordinate(value.x) && isCoordinate(value.y)
 
-const isId = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= MAX_ID_LENGTH
+/** 線の名前として読める文字列か。保存から読み出した線の名前を確かめるのにも使う（strokes.ts の isStroke） */
+export const isStrokeId = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= MAX_ID_LENGTH
 
 const isStart = (value: Record<string, unknown>): value is StrokeStart & Record<string, unknown> =>
-  isId(value.id) && isPoint(value.point) && isColorId(value.color) && isWidthId(value.width)
+  isStrokeId(value.id) && isPoint(value.point) && isColorId(value.color) && isWidthId(value.width)
 
 const isExtend = (value: Record<string, unknown>): value is StrokeExtend & Record<string, unknown> =>
-  isId(value.id) && Array.isArray(value.points) && value.points.length > 0 && value.points.length <= MAX_POINTS_PER_MESSAGE && value.points.every(isPoint)
+  isStrokeId(value.id) && Array.isArray(value.points) && value.points.length > 0 && value.points.length <= MAX_POINTS_PER_MESSAGE && value.points.every(isPoint)
 
 /**
  * 届いた1通を読み取る。

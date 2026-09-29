@@ -28,6 +28,7 @@
  * | GET・PUT /api/admin/speech       | セッション     | チャットの読み上げの設定の取得・保存 |
  * | GET・PUT /api/admin/screen       | セッション     | 配信画面の取り込みの設定の取得・保存 |
  * | GET・PUT /api/admin/overlay/layout | セッション   | 合成オーバーレイの構成（オーバーレイと素材）の取得・保存 |
+ * | GET・PUT /api/admin/draw/strokes | セッション     | 手書きで描いたものの取得・保存 |
  * | GET・PUT /api/admin/focus        | セッション     | 注目コメント（いま取り上げているもの）の取得・保存 |
  * | GET  /api/admin/focus/messages   | セッション     | 取り上げる発言を選ぶための、直近の発言の一覧 |
  * | GET  /api/admin/viewers          | セッション     | 視聴者の記録の一覧（検索・ページ送り） |
@@ -47,6 +48,7 @@
  * | POST /api/overlay/screen         | オーバーレイ用キー | 配信画面を撮った1枚を受け取り、Gyazo へ上げて記録する |
  * | GET  /api/overlay/layout         | オーバーレイ用キー | 合成オーバーレイの構成を返す（合成ページから） |
  * | GET  /api/overlay/focus          | オーバーレイ用キー | いま取り上げている注目コメントを返す |
+ * | GET  /api/overlay/draw/strokes   | オーバーレイ用キー | 保存されている手書きの線を返す（合成ページが開いたときに1度読む） |
  * | GET  /api/media/:id              | オーバーレイ用キーかセッション | 素材の中身を返す |
  *
  * これとは別に、cron（wrangler.jsonc の triggers.crons）から scheduled が呼ばれ、配信の記録を収集する（collect.ts）。
@@ -94,6 +96,7 @@ import { createGyazoClient } from './gyazo'
 import { HttpError, STATUS, errorResponse, type Context, type Env } from './http'
 import { createLlm } from './llm'
 import {
+  getDrawStrokes as getOverlayDrawStrokes,
   getFocus as getOverlayFocus,
   getLayout as getOverlayLayoutForPage,
   getSideSuper,
@@ -105,7 +108,7 @@ import {
   postScreen,
   postTranscript,
 } from './overlay-routes'
-import { drawSocket } from './draw-routes'
+import { drawSocket, getDrawStrokes, putDrawStrokes } from './draw-routes'
 import { getStatsFailures, getStatsFollowers, getStatsSession, getStatsSessions } from './stats-routes'
 import { AuthError } from './token'
 import { WEBHOOK_PATH, eventsubWebhook } from './webhook-routes'
@@ -175,6 +178,8 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/admin/overlay/layout', handle: getOverlayLayout },
   { method: 'PUT', path: '/api/admin/overlay/layout', handle: putOverlayLayout },
   { method: 'GET', path: '/api/admin/draw/socket', handle: drawSocket },
+  { method: 'GET', path: '/api/admin/draw/strokes', handle: getDrawStrokes },
+  { method: 'PUT', path: '/api/admin/draw/strokes', handle: putDrawStrokes },
   { method: 'GET', path: '/api/admin/focus', handle: getFocus },
   { method: 'PUT', path: '/api/admin/focus', handle: putFocus },
   { method: 'GET', path: '/api/admin/focus/messages', handle: getFocusMessages },
@@ -196,6 +201,7 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/overlay/screen', handle: getOverlayScreen },
   { method: 'POST', path: '/api/overlay/screen', handle: postScreen },
   { method: 'GET', path: '/api/overlay/draw', handle: overlayDrawSocket },
+  { method: 'GET', path: '/api/overlay/draw/strokes', handle: getOverlayDrawStrokes },
   { method: 'GET', path: '/api/overlay/focus', handle: getOverlayFocus },
   { method: 'GET', path: '/api/overlay/layout', handle: getOverlayLayoutForPage },
   { method: 'GET', path: '/api/media/:id', handle: media },

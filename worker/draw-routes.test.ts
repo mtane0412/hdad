@@ -1,11 +1,13 @@
 /**
  * 手書きの線の経路（/api/admin/draw/socket・/api/overlay/draw）のテスト
  *
- * 確かめるのは次の4点である。
+ * 確かめるのは次の6点である。
  * - 描く画面（配信者のセッション）からの接続が、描く側として中継先へ引き渡されること
  * - 合成ページ（オーバーレイ用キー）からの接続が、見るだけとして引き渡されること
  * - ログインしていない接続・キーの誤った接続を断ること
  * - 別のサイトから開かれた接続を断ること（WebSocketはGETなので、書き換えのときのCSRF対策が効かない）
+ * - 描いたものの保存と読み出しが、配信者のセッション（描く画面）とオーバーレイ用キー（合成ページ）の両方から通ること
+ * - 検証に通らない線の保存を、問題点を添えて断ること
  */
 import { describe, expect, it } from 'vitest'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
@@ -129,5 +131,84 @@ describe('GET /api/overlay/draw', () => {
     const response = await 呼び出す(new Request(`${サイト}/api/overlay/draw?key=${発行済みのキー}`), env)
 
     expect(response.status).toBe(400)
+  })
+})
+
+/** 描く画面が保存のときに送るのと同じ形で呼ぶ */
+const 保存する = (env: Env, body: unknown, headers: Record<string, string> = {}) =>
+  呼び出す(
+    new Request(`${サイト}/api/admin/draw/strokes`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Origin: サイト, ...headers },
+      body: JSON.stringify(body),
+    }),
+    env,
+  )
+
+/** 配信者としてログインした状態で保存する */
+const 配信者として保存する = async (env: Env, body: unknown) => {
+  const session = await createSessionToken(配信者のID, env.SESSION_SECRET, 現在時刻)
+  return 保存する(env, body, { Cookie: `__Host-session=${session}` })
+}
+
+/** 配信画面に引いた線1本 */
+const 引いた線 = { id: '線1', points: [{ x: 0.1, y: 0.2 }], color: 'red', width: 'bold' }
+
+describe('PUT・GET /api/admin/draw/strokes', () => {
+  it('配信者が描いた線を保存し、同じ形で読み出せる', async () => {
+    // OBSのブラウザソースを作り直しても描いたものが残るように、引き終えた線をKVへ写す
+    const { env } = 環境を作る()
+    const session = await createSessionToken(配信者のID, env.SESSION_SECRET, 現在時刻)
+
+    const 保存の応答 = await 配信者として保存する(env, { strokes: [引いた線] })
+    const 読み出しの応答 = await 呼び出す(new Request(`${サイト}/api/admin/draw/strokes`, { headers: { Cookie: `__Host-session=${session}` } }), env)
+
+    expect(保存の応答.status).toBe(200)
+    expect(await 読み出しの応答.json()).toEqual({ strokes: [引いた線] })
+  })
+
+  it('ログインしていない保存は断る', async () => {
+    const { env } = 環境を作る()
+
+    const response = await 保存する(env, { strokes: [引いた線] })
+
+    expect(response.status).toBe(401)
+  })
+
+  it('検証に通らない線は、問題点を添えて断る', async () => {
+    const { env } = 環境を作る()
+
+    const response = await 配信者として保存する(env, { strokes: [{ ...引いた線, color: 'magenta' }] })
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ error: { problems: [expect.stringContaining('strokes[0]')] } })
+  })
+})
+
+describe('GET /api/overlay/draw/strokes', () => {
+  it('合成ページがオーバーレイ用キーで、保存されている線を読める', async () => {
+    const { env } = 環境を作る()
+    await 配信者として保存する(env, { strokes: [引いた線] })
+
+    const response = await 呼び出す(new Request(`${サイト}/api/overlay/draw/strokes?key=${発行済みのキー}`), env)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ strokes: [引いた線] })
+  })
+
+  it('一度も描いていなければ、線が無い状態を返す', async () => {
+    const { env } = 環境を作る()
+
+    const response = await 呼び出す(new Request(`${サイト}/api/overlay/draw/strokes?key=${発行済みのキー}`), env)
+
+    expect(await response.json()).toEqual({ strokes: [] })
+  })
+
+  it('オーバーレイ用キーが違う読み出しは断る', async () => {
+    const { env } = 環境を作る()
+
+    const response = await 呼び出す(new Request(`${サイト}/api/overlay/draw/strokes?key=違うキー`), env)
+
+    expect(response.status).toBe(401)
   })
 })

@@ -20,6 +20,7 @@ import type { AdminApi, Me } from '@/admin/api'
 import type { BotApi, ModerationSettings } from '@/bot/api'
 import type { OverlayLayoutAdminApi } from '@/overlay/admin-api'
 import type { LlmApi } from '@/llm/api'
+import type { DrawApi } from '@/draw/api'
 import type { FocusApi } from '@/focus/api'
 import type { ScreenAdminApi } from '@/screen/api'
 import type { SpeechApi } from '@/speech/api'
@@ -113,6 +114,11 @@ const 代役の注目コメントAPI: FocusApi = {
   recent: vi.fn(async () => []),
 }
 
+const 代役の手書きAPI: DrawApi = {
+  load: vi.fn(async () => ({ strokes: [] })),
+  save: vi.fn(async () => {}),
+}
+
 const 代役の画面の取り込みAPI: ScreenAdminApi = {
   load: vi.fn(async () => ({ host: 'localhost', port: 4455, password: '', intervalSeconds: 60, collectionId: '' })),
   save: vi.fn(async (settings) => settings),
@@ -155,7 +161,7 @@ afterEach(() => {
 
 describe('ログインしていないとき', () => {
   test('Twitchログインへのリンクだけを出し、サイドバーは出さない', async () => {
-    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} screenApi={代役の画面の取り込みAPI} focusApi={代役の注目コメントAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} api={代役のAPI(async () => null)} />)
+    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} screenApi={代役の画面の取り込みAPI} focusApi={代役の注目コメントAPI} drawApi={代役の手書きAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} api={代役のAPI(async () => null)} />)
 
     const login = await screen.findByRole('link', { name: 'Twitchでログイン' })
     expect(login).toHaveAttribute('href', '/api/auth/login')
@@ -163,7 +169,7 @@ describe('ログインしていないとき', () => {
   })
 
   test('アプリ名と正式名称を出す', async () => {
-    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} screenApi={代役の画面の取り込みAPI} focusApi={代役の注目コメントAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} api={代役のAPI(async () => null)} />)
+    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} screenApi={代役の画面の取り込みAPI} focusApi={代役の注目コメントAPI} drawApi={代役の手書きAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} api={代役のAPI(async () => null)} />)
 
     expect(await screen.findByText('HDAD')).toBeInTheDocument()
     expect(screen.getByText('Hyperfocus-Driven Assistant Director')).toBeInTheDocument()
@@ -172,7 +178,7 @@ describe('ログインしていないとき', () => {
 
 describe('ログインしているとき', () => {
   test('サイドバーに配信者の名前と各ページへのリンクを出す', async () => {
-    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} screenApi={代役の画面の取り込みAPI} focusApi={代役の注目コメントAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} api={代役のAPI(async () => 配信者)} />)
+    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} screenApi={代役の画面の取り込みAPI} focusApi={代役の注目コメントAPI} drawApi={代役の手書きAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} api={代役のAPI(async () => 配信者)} />)
 
     const nav = await screen.findByRole('navigation', { name: 'サイト内の移動' })
     expect(nav).toBeInTheDocument()
@@ -190,7 +196,7 @@ describe('ログインしているとき', () => {
 
   test('ログアウトすると、ログインの入口に戻る', async () => {
     const api = 代役のAPI(async () => 配信者)
-    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} screenApi={代役の画面の取り込みAPI} focusApi={代役の注目コメントAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} api={api} />)
+    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} screenApi={代役の画面の取り込みAPI} focusApi={代役の注目コメントAPI} drawApi={代役の手書きAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} api={api} />)
 
     await userEvent.click(await screen.findByRole('button', { name: 'ログアウト' }))
 
@@ -201,7 +207,7 @@ describe('ログインしているとき', () => {
 
 describe('ページの移動', () => {
   test('サイドバーのリンクを押すと、再読み込みなしでページが切り替わり、現在地の印が付け替わる', async () => {
-    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} screenApi={代役の画面の取り込みAPI} focusApi={代役の注目コメントAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} api={代役のAPI(async () => 配信者)} />)
+    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} screenApi={代役の画面の取り込みAPI} focusApi={代役の注目コメントAPI} drawApi={代役の手書きAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} api={代役のAPI(async () => 配信者)} />)
     expect(await screen.findByRole('link', { name: 'ダッシュボード' })).toHaveAttribute('aria-current', 'page')
 
     await userEvent.click(screen.getByRole('link', { name: 'アップロード' }))
@@ -213,7 +219,7 @@ describe('ページの移動', () => {
   })
 
   test('ブラウザの「戻る」で、前のページに戻る', async () => {
-    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} screenApi={代役の画面の取り込みAPI} focusApi={代役の注目コメントAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} api={代役のAPI(async () => 配信者)} />)
+    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} screenApi={代役の画面の取り込みAPI} focusApi={代役の注目コメントAPI} drawApi={代役の手書きAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} api={代役のAPI(async () => 配信者)} />)
     await userEvent.click(await screen.findByRole('link', { name: '視聴者' }))
     expect(screen.getByRole('heading', { level: 1, name: '視聴者' })).toBeInTheDocument()
 
@@ -224,7 +230,7 @@ describe('ページの移動', () => {
 
   test('ページUIのURLを直接開くと、そのページが出る', async () => {
     開く('/triggers/')
-    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} screenApi={代役の画面の取り込みAPI} focusApi={代役の注目コメントAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} api={代役のAPI(async () => 配信者)} />)
+    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} screenApi={代役の画面の取り込みAPI} focusApi={代役の注目コメントAPI} drawApi={代役の手書きAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} api={代役のAPI(async () => 配信者)} />)
 
     expect(await screen.findByRole('heading', { level: 1, name: 'トリガー' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'トリガー' })).toHaveAttribute('aria-current', 'page')
@@ -232,14 +238,14 @@ describe('ページの移動', () => {
 
   test('末尾のスラッシュがないURLでも、同じページが出る', async () => {
     開く('/media')
-    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} screenApi={代役の画面の取り込みAPI} focusApi={代役の注目コメントAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} api={代役のAPI(async () => 配信者)} />)
+    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} screenApi={代役の画面の取り込みAPI} focusApi={代役の注目コメントAPI} drawApi={代役の手書きAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} api={代役のAPI(async () => 配信者)} />)
 
     expect(await screen.findByRole('heading', { level: 1, name: 'アップロード' })).toBeInTheDocument()
   })
 
   test('未ログインでページUIのURLを開くと、ログインの入口だけが出る', async () => {
     開く('/media/')
-    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} screenApi={代役の画面の取り込みAPI} focusApi={代役の注目コメントAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} api={代役のAPI(async () => null)} />)
+    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} screenApi={代役の画面の取り込みAPI} focusApi={代役の注目コメントAPI} drawApi={代役の手書きAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} api={代役のAPI(async () => null)} />)
 
     expect(await screen.findByRole('link', { name: 'Twitchでログイン' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { level: 1, name: 'アップロード' })).not.toBeInTheDocument()
@@ -247,7 +253,7 @@ describe('ページの移動', () => {
 
   test('存在しないパスでは、見つからないことを伝え、ダッシュボードへ戻れる', async () => {
     開く('/nai-page/')
-    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} screenApi={代役の画面の取り込みAPI} focusApi={代役の注目コメントAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} api={代役のAPI(async () => 配信者)} />)
+    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} screenApi={代役の画面の取り込みAPI} focusApi={代役の注目コメントAPI} drawApi={代役の手書きAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} api={代役のAPI(async () => 配信者)} />)
 
     expect(await screen.findByRole('heading', { level: 1, name: 'ページが見つかりません' })).toBeInTheDocument()
     expect(screen.getByText('/nai-page/')).toBeInTheDocument()
@@ -262,7 +268,7 @@ describe('ログインの確認に失敗したとき', () => {
     render(
       <App
         statsApi={代役の記録API}
-        botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} screenApi={代役の画面の取り込みAPI} focusApi={代役の注目コメントAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI}
+        botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} screenApi={代役の画面の取り込みAPI} focusApi={代役の注目コメントAPI} drawApi={代役の手書きAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI}
         api={代役のAPI(async () => {
           throw new Error('Workerに接続できません')
         })}

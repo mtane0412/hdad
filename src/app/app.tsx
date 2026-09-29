@@ -13,6 +13,7 @@ import { LogOut } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { AdminApi, Me } from '@/admin/api'
 import type { BotApi } from '@/bot/api'
+import type { DrawApi } from '@/draw/api'
 import type { FocusApi } from '@/focus/api'
 import type { LlmApi } from '@/llm/api'
 import type { OverlayLayoutAdminApi } from '@/overlay/admin-api'
@@ -160,6 +161,7 @@ export const App = ({
   speechApi,
   screenApi,
   focusApi,
+  drawApi,
   llmApi,
   overlayApi,
 }: {
@@ -170,6 +172,7 @@ export const App = ({
   speechApi: SpeechApi
   screenApi: ScreenAdminApi
   focusApi: FocusApi
+  drawApi: DrawApi
   llmApi: LlmApi
   overlayApi: OverlayLayoutAdminApi
 }) => {
@@ -226,6 +229,7 @@ export const App = ({
             speechApi,
             screenApi,
             focusApi,
+            drawApi,
             llmApi,
             overlayApi,
             me: session.me,

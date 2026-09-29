@@ -12,13 +12,17 @@
  * 描いている線は自分のキャンバスにも描く。中継先は送り主へ返さないので、返ってくるのを待つと自分の手元だけ
  * 遅れて見えるためである。
  *
- * 注意: 描いたものを残す仕組みはまだ無い（issue #133）。この画面を閉じても合成ページ側の線は消えず、
- * 逆に合成ページを開き直すと、それまでに引いた線は出ない。
+ * 引き終えた線はWorker（KV）へ写すので、この画面や合成ページを開き直しても描いたものは残る（issue #133）。
+ * 書くのは線を1本引き終えてから数秒まとめたあと（src/draw/save.ts）で、全消しだけは待たずに書く。
+ * 保存されているものを読めるまでは書かない（読む前に書くと、前に描いた図を消してしまう）。
+ * KVの反映の遅れと合わせて、描いた直後に合成ページを読み込み直すと最後の数本が欠けることはある
+ * （docs/decisions/draw.md）。
+ *
  * 注意: 消しゴムとひとつ戻すは持たない。まず全消しで足りるかを実際の配信で確かめてから決める（issue #132）。
  */
 import { cn } from 'cn'
 import { Trash2 } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from '@/app/router'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -26,7 +30,9 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Separator } from '@/components/ui/separator'
 import { iconButtonName } from '@/core/icon-button'
 import { startCanvasSurface } from '@/core/mount'
+import type { DrawApi } from './api'
 import { createStrokeId, toRatio } from './pointer'
+import { createStrokeSaver } from './save'
 import { DEFAULT_COLOR_ID, DEFAULT_WIDTH_ID, DRAW_COLORS, DRAW_WIDTHS } from './tools'
 import type { DrawSocketHandlers, DrawWriter } from './socket'
 import { NO_STROKES, applyDrawMessage, type Strokes } from './strokes'
@@ -55,9 +61,11 @@ const TOOL_HITBOX = 'absolute inset-0 size-full cursor-pointer aspect-auto round
 export interface DrawPageProps {
   /** 中継先へつなぐ。テストで差し替えられるよう受け取る */
   connect(handlers: DrawSocketHandlers): DrawWriter
+  /** 描いたものの読み書き（src/draw/api.ts）。テストで差し替えられるよう受け取る */
+  api: DrawApi
 }
 
-export const DrawPage = ({ connect }: DrawPageProps) => {
+export const DrawPage = ({ connect, api }: DrawPageProps) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   /** 中継先への窓口。つながる前に描かれた線は送れない（貯めない） */
   const writerRef = useRef<DrawWriter | null>(null)
@@ -69,9 +77,52 @@ export const DrawPage = ({ connect }: DrawPageProps) => {
   const [notice, setNotice] = useState<string | null>(null)
   /** 人が直すまで消えない失敗（キャンバスを使えない場合） */
   const [failure, setFailure] = useState<string | null>(null)
+  /**
+   * 保存されているものを読めたか。読めるまでは書き込まない。
+   *
+   * 読む前に書くと、保存されている図（前に描いたもの）を消してしまう。読めなかったときも書かないが、
+   * 全消しを押したあとは「保存されているのは何も無い状態」だと分かるので、そこから書き始める。
+   */
+  const 書いてよいRef = useRef(false)
+  /** 全消しを押したか。読み出しの応答が全消しより後に届いたとき、消した図を描き直さないために見る */
+  const 消したRef = useRef(false)
   /** 選んでいる色と太さ。線を引き始めた時点の指定がその線に残る */
   const [colorId, setColorId] = useState(DEFAULT_COLOR_ID)
   const [widthId, setWidthId] = useState(DEFAULT_WIDTH_ID)
+
+  /** 引き終えた線をまとめてWorkerへ書く窓口（描いている最中は書かない） */
+  const saver = useMemo(
+    () => createStrokeSaver({ save: (strokes) => api.save(strokes), onFailure: (message) => setNotice(`描いたものを保存できませんでした: ${message}`) }),
+    [api],
+  )
+
+  // 開いたときに保存されている線を読み、その続きから描けるようにする。
+  // 読み終わる前に引いた線は後ろへ回して残す（読み出しの往復のあいだに描き始めても消えないように）
+  useEffect(() => {
+    let 離れた = false
+    void api
+      .load()
+      .then(({ strokes }) => {
+        if (離れた) return
+        // 読めるまでは書けずにいたので、読み終わる前に引いた線はこの時点でまとめて書く
+        const 読む前に引いていた = strokesRef.current.strokes.length > 0
+        // 読み終わる前に全消しを押していたら、読めたものは描き直さない（消した図が戻ってきてしまう）
+        if (!消したRef.current) strokesRef.current = { strokes: [...strokes, ...strokesRef.current.strokes] }
+        書いてよいRef.current = true
+        if (読む前に引いていた) saver.finished(strokesRef.current)
+      })
+      .catch((error: unknown) =>
+        setNotice(
+          `保存されている線を読めませんでした（描いたものは保存されません。全部消すと保存を始めます）: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      )
+    return () => {
+      離れた = true
+    }
+  }, [api, saver])
+
+  // 画面を離れるときは、待っている書き込みを捨てずに書き切る（最後に引いた数本が残らないため）
+  useEffect(() => () => saver.flush(), [saver])
 
   useEffect(() => {
     const writer = connect({
@@ -137,8 +188,13 @@ export const DrawPage = ({ connect }: DrawPageProps) => {
   )
 
   const 離した = useCallback((): void => {
+    // 引いている途中でなければ（押していない指の動きなど）書く理由がない
+    if (strokeIdRef.current === null) return
     strokeIdRef.current = null
-  }, [])
+    // 保存されているものを読めていなければ書かない（読めていない図を上書きしない）
+    if (!書いてよいRef.current) return
+    saver.finished(strokesRef.current)
+  }, [saver])
 
   /**
    * 描いたものをすべて消す。
@@ -147,8 +203,13 @@ export const DrawPage = ({ connect }: DrawPageProps) => {
    */
   const 全部消す = useCallback((): void => {
     strokeIdRef.current = null
+    消したRef.current = true
+    // 消すのは「保存されているものを全部無かったことにする」操作なので、読めていなくても書いてよい
+    書いてよいRef.current = true
     送る({ type: 'clear' })
-  }, [送る])
+    // 消したことは待たずに書く（残っていると困る向きの操作なので遅らせない）
+    saver.saveNow(strokesRef.current)
+  }, [送る, saver])
 
   return (
     <div className="space-y-4">
@@ -250,7 +311,9 @@ export const DrawPage = ({ connect }: DrawPageProps) => {
             onPointerUp={離した}
             onPointerCancel={離した}
           />
-          <p className="text-sm text-muted-foreground">描いたものは、合成ページ（OBSのブラウザソース）を開き直すと消えます。</p>
+          <p className="text-sm text-muted-foreground">
+            描いたものは残るので、合成ページ（OBSのブラウザソース）を開き直しても出ます。消すには「全部消す」を押してください。
+          </p>
         </CardContent>
       </Card>
     </div>

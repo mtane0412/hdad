@@ -32,6 +32,7 @@ import type { Alert } from '../alerts/alert'
 import { demoAlerts } from '../alerts/demo'
 import { EMPTY_QUEUE, advance, enqueue } from '../alerts/queue'
 import { connectAlerts } from '../alerts/socket'
+import { createDrawOverlayApi } from '../draw/api'
 import { demoStrokes } from '../draw/demo'
 import { connectDrawViewer } from '../draw/socket'
 import { NO_STROKES, applyDrawMessage, type Strokes } from '../draw/strokes'
@@ -514,7 +515,8 @@ const mountFocus = (box: HTMLElement, item: OverlayItem, { key, demo, hub }: Mou
  * 手書き。配信者が描く画面（/draw/）で引いた線が中継先（worker/draw-channel.ts）から届く。
  *
  * 届いた線は集まりへ積み上げ、毎フレームそこから描き直す（フレーム間の状態を持たない）。
- * 貯める仕組みは中継先に無いので、合成ページを開く前に引かれた線は出ない（残すのは issue #133）。
+ * 中継先には貯める仕組みが無いので、開いたときに保存されているもの（KV）を1度読み、それを初期状態にしてから
+ * つなぐ（issue #133）。間引きとKVの反映の遅れのぶん、描いた直後に開き直すと最後の数本は欠けることがある。
  */
 const mountDraw = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
   // この素材は配信者が決めるパラメータを持たない（描くものは配信者がその場で決める）
@@ -527,7 +529,8 @@ const mountDraw = (box: HTMLElement, item: OverlayItem, { key, demo }: MountCont
   // プレビューでは中継先へつながずサンプルを描く（そのとき描いていなければ何も出ず、置いた場所を確かめられない）
   let strokes: Strokes = demo ? { strokes: demoStrokes } : NO_STROKES
 
-  if (!demo) {
+  /** 中継先へつないで、これから引かれる線を受け取る */
+  const 中継先へつなぐ = (): void =>
     connectDrawViewer(key, {
       onMessage: (message) => {
         strokes = applyDrawMessage(strokes, message)
@@ -543,6 +546,18 @@ const mountDraw = (box: HTMLElement, item: OverlayItem, { key, demo }: MountCont
         showError(new Error(message), NOUNS.draw, box, 'read')
       },
     })
+
+  if (!demo) {
+    // 中継先は開いている接続の間だけの通り道なので、保存されているものを先に読んでから初期状態として描く
+    // （読まないと、ブラウザソースを作り直したときにそれまでの図が消える。issue #133）。
+    // 読めなかったときは箱に出したうえでつなぐ（保存ぶんが無くても、これから引かれる線は映せる）
+    void createDrawOverlayApi(callWorker, key)
+      .read()
+      .then(({ strokes: 保存されたもの }) => {
+        strokes = { strokes: [...保存されたもの, ...strokes.strokes] }
+      })
+      .catch((error: unknown) => showError(error, NOUNS.draw, box, 'read'))
+      .finally(中継先へつなぐ)
   }
 
   return { draw: startCanvasSurface(canvas, (ctx, width, height) => drawStrokes(ctx, strokes, { width, height })) }

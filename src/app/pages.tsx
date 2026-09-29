@@ -11,6 +11,7 @@ import { MediaPage } from '@/admin/media-page'
 import { TriggerPage } from '@/admin/trigger-page'
 import type { BotApi } from '@/bot/api'
 import { BotPage } from '@/bot/bot-page'
+import type { DrawApi } from '@/draw/api'
 import { DrawPage } from '@/draw/draw-page'
 import { connectDrawWriter } from '@/draw/socket'
 import type { FocusApi } from '@/focus/api'
@@ -44,6 +45,8 @@ export interface PageContext {
   screenApi: ScreenAdminApi
   /** 注目コメント（いま取り上げているもの）の読み書き（注目コメントのページが使う） */
   focusApi: FocusApi
+  /** 手書きで描いたものの読み書き（手書きのページが使う） */
+  drawApi: DrawApi
   /** LLMの提供元とモデルの設定の読み書き（LLMのページが使う） */
   llmApi: LlmApi
   /** 合成オーバーレイの構成の読み書き（オーバーレイのページが使う） */
@@ -96,8 +99,8 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
         path: '/draw/',
         name: '手書き',
         icon: Pencil,
-        // 描いた線は中継先（Durable Object）を通って合成ページへ直接届くので、保存も読み出しも要らない
-        render: () => <DrawPage connect={connectDrawWriter} />,
+        // 描いた線は中継先（Durable Object）を通って合成ページへその場で届き、引き終えたものはWorkerへ写して残す
+        render: ({ drawApi }) => <DrawPage connect={connectDrawWriter} api={drawApi} />,
       },
       {
         path: '/overlay/',
