@@ -85,7 +85,7 @@ describe('GET /api/admin/draw/socket', () => {
 
   it('別のサイトから開かれた接続は断る', async () => {
     // WebSocketの接続はGETなので、書き換えのときの送信元の確認（requireAdmin）が効かない。
-    // クッキーは SameSite=Lax だが付く場合があるため、ここで確かめる
+    // SameSite=Lax のクッキーは別サイトからのWebSocketには付かないが、ブラウザの決まりだけに頼らず確かめる
     const { env, 中継先 } = 環境を作る()
 
     const response = await 配信者としてつなぐ(env, '/api/admin/draw/socket', { Origin: 'https://evil.example.com' })

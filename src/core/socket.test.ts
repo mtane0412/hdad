@@ -173,6 +173,19 @@ describe('connectSocket', () => {
     expect(記録.作られたもの).toHaveLength(1)
   })
 
+  it('切れたあとに閉じたら、予約されていたつなぎ直しも起こさない', () => {
+    // 先に切れて再接続が予約されてから画面を離れる順序でも、接続が生き返らないようにする
+    const 記録 = 接続の記録を作る()
+    const 接続 = connectSocket('wss://例', 何もしないハンドラ(), '手がかりの文', 記録.open)
+
+    記録.いま().つなぐ()
+    記録.いま().閉じる()
+    接続.close()
+    vi.advanceTimersByTime(60000)
+
+    expect(記録.作られたもの).toHaveLength(1)
+  })
+
   it('閉じたあとは、生存確認も送らない', () => {
     const 記録 = 接続の記録を作る()
     const 接続 = connectSocket('wss://例', 何もしないハンドラ(), '手がかりの文', 記録.open)

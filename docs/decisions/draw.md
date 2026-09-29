@@ -33,7 +33,9 @@ Excalidraw のような描画アプリを別のウィンドウで開き、OBSの
 
 ## WebSocketの接続では、`Origin` を自分で確かめています
 
-管理用APIの入口（`worker/http.ts` の `requireAdmin`）は、書き換えを伴うメソッドでだけ送信元（`Origin`）を確かめます。WebSocketの接続はGETなので、この確認が働きません。クッキーは `SameSite=Lax` なので別サイトからのGETには付きうるため、`worker/draw-routes.ts` が自分で確かめています。
+管理用APIの入口（`worker/http.ts` の `requireAdmin`）は、書き換えを伴うメソッドでだけ送信元（`Origin`）を確かめます。WebSocketの接続はGETなので、この確認が働きません。
+
+WebSocketのハンドシェイクはトップレベルの画面遷移ではないため、`SameSite=Lax`（`worker/http.ts:150`）のクッキーが別サイトからの接続に付くことはありません。それでも `worker/draw-routes.ts` が `Origin` を自分で確かめているのは、**ブラウザの決まりだけに頼らないため**です。これは `requireAdmin` が「クッキーは `SameSite=Lax` だが、ブラウザが必ず付ける `Origin` でも確かめる」としているのと同じ考え方で、描かれた線が配信画面にそのまま出る以上、守りは重ねておきます。
 
 ## 座標と太さを比で持つのは、箱の大きさが揃わないためです
 

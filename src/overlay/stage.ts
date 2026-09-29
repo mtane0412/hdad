@@ -533,11 +533,15 @@ const mountDraw = (box: HTMLElement, item: OverlayItem, { key, demo }: MountCont
         strokes = applyDrawMessage(strokes, message)
       },
       onStatus: (status) => {
+        // 前に出した知らせを消してから出す（つなぎ直しは繰り返すので、消さないと配信画面に積み上がる）
+        clearError(box, 'read')
+        // つなぎ直せたときは消すだけにする（描いた線はそのまま残す）
         if (status === 'disconnected') showError(new Error('中継先との接続が切れました。再接続します…'), NOUNS.draw, box, 'read')
-        // つなぎ直せたら消す（直ったのに赤い表示が残ったままにしない）。描いた線は消さずに残す
-        else clearError(box, 'read')
       },
-      onWarning: (message) => showError(new Error(message), NOUNS.draw, box, 'read'),
+      onWarning: (message) => {
+        clearError(box, 'read')
+        showError(new Error(message), NOUNS.draw, box, 'read')
+      },
     })
   }
 

@@ -95,8 +95,12 @@ export const connectSocket = (
   let やめた = false
   /** 生存確認を送っているタイマー。閉じるときに止める（本物の接続の onclose を待たずに止める） */
   let pingTimer: number | undefined
+  /** つなぎ直しを待っているタイマー。閉じるときに止める（切れたあとに閉じても生き返らせない） */
+  let retryTimer: number | undefined
 
   const つなぐ = (): void => {
+    // 予約が残ったまま閉じられていた場合に、つなぎ直さない
+    if (やめた) return
     const socket = open(url)
     いまの接続 = socket
     /** この接続が一度でもつながったか。つながらないまま閉じたなら、キーや設定を疑う手がかりを出す */
@@ -128,7 +132,7 @@ export const connectSocket = (
       if (!opened) handlers.onWarning(hint)
       else if (!disconnected) handlers.onStatus('disconnected')
       disconnected = true
-      window.setTimeout(つなぐ, retryDelay)
+      retryTimer = window.setTimeout(つなぐ, retryDelay)
       retryDelay = Math.min(retryDelay * 2, RETRY_MAX_MS)
     }
   }
@@ -144,6 +148,7 @@ export const connectSocket = (
     close: () => {
       やめた = true
       window.clearInterval(pingTimer)
+      window.clearTimeout(retryTimer)
       いまの接続?.close()
     },
   }
