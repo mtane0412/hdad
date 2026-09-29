@@ -417,6 +417,21 @@ describe('POST /api/admin/comments/reads', () => {
     const response = await 付け替える({ ...env, COMMENTS: 失敗する配送先.namespace }, { messageId: 'たなかさんの初見の挨拶', read: true })
 
     expect(response.ok).toBe(false)
+    // 記録は先に済んでいる（画面はまだ未読のまま）。配信者が失敗を見てもう一度押せば揃う（次のテスト）
+    expect(既読の行(env)).toEqual([{ message_id: 'たなかさんの初見の挨拶', read: 1, marked_by: 'manual' }])
+  })
+
+  it('知らせるのに失敗したあと、もう一度押せば記録と画面の状態が揃う', async () => {
+    const { env, 配送先 } = 環境を作る()
+    const 失敗する配送先 = createFakeCommentChannel({ 失敗する: true })
+    await 付け替える({ ...env, COMMENTS: 失敗する配送先.namespace }, { messageId: 'たなかさんの初見の挨拶', read: true })
+
+    // 画面は未読のままなので、配信者はもう一度「既読にする」を押す
+    const response = await 付け替える(env, { messageId: 'たなかさんの初見の挨拶', read: true })
+
+    expect(response.status).toBe(204)
+    expect(既読の行(env)).toEqual([{ message_id: 'たなかさんの初見の挨拶', read: 1, marked_by: 'manual' }])
+    expect(配送先.押し出された1件).toMatchObject([{ kind: 'read', messageId: 'たなかさんの初見の挨拶', read: true }])
   })
 })
 
