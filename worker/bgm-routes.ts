@@ -7,25 +7,29 @@
  *
  * 裏方のページは開いたときとつなぎ直したときに GET /api/overlay/bgm を読み、以後は押し出しを待つ。
  *
+ * 手で流す曲を変えたら、切り替えた時刻を記録する。そのすぐあとに Jev（worker/bgm-jev.ts）が曲を上書きしないためである（issue #153）。
+ *
  * 注意: 値の検証は worker/bgm-config.ts だけが持つ（画面とWorkerで二重に持たない。speech-config.ts と同じ）。
  * 注意: 押し出しの失敗は握りつぶさず、管理画面へ失敗として返す（保存は済んでいるので、裏方のページはつなぎ直したときに
  * 新しい曲を読む。それでも配信者が「切り替わったはず」と思い込まないよう、失敗は知らせる）。
  */
-import { connectBgmSocket, pushBgm } from './alert-channel'
+import { connectBgmSocket } from './alert-channel'
 import {
   loadBgmPlayback,
+  loadBgmSettings,
   loadBgmTracks,
   nowPlayingOf,
   parseBgmPlayback,
+  parseBgmSettings,
   parseBgmTracks,
   saveBgmPlayback,
+  saveBgmSettings,
+  saveBgmSwitchedAt,
   saveBgmTracks,
-  type BgmPlayback,
-  type BgmTrack,
 } from './bgm-config'
+import { pushBgmNowPlaying } from './bgm-push'
 import { HttpError, requireAdmin, requireOverlayKey, STATUS, type Context } from './http'
 import { listMedia } from './media'
-import { loadOverlayKey } from './overlay-key'
 
 /** 本文をJSONとして読む。読めなければ400にする */
 const readJson = (context: Context): Promise<unknown> =>
@@ -33,19 +37,11 @@ const readJson = (context: Context): Promise<unknown> =>
     throw new HttpError(STATUS.badRequest, 'invalid-body', '本文はJSONにしてください')
   })
 
-/** いま流している曲を裏方のページへ押し出す */
-const pushNowPlaying = async (context: Context, tracks: readonly BgmTrack[], playback: BgmPlayback): Promise<void> => {
-  const overlayKey = await loadOverlayKey(context.env.STORE)
-  // キーはログインのときに発行されるので、管理画面から呼ばれている以上は必ずある。無ければ壊れているので黙らない
-  if (overlayKey === null) throw new Error('オーバーレイ用キーが未発行のため、BGMの音声のURLを作れません')
-  await pushBgm(context.env.ALERTS, nowPlayingOf(tracks, playback, overlayKey))
-}
-
-/** GET /api/admin/bgm: 曲の一覧と、いま流す曲・音量。未保存なら曲は空で何も流していない */
+/** GET /api/admin/bgm: 曲の一覧と、いま流す曲・音量と、BGMの設定。未保存なら曲は空で何も流しておらず、Jev に選ばせない */
 export const getBgm = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
   const { STORE } = context.env
-  return Response.json({ tracks: await loadBgmTracks(STORE), playback: await loadBgmPlayback(STORE) })
+  return Response.json({ tracks: await loadBgmTracks(STORE), playback: await loadBgmPlayback(STORE), settings: await loadBgmSettings(STORE) })
 }
 
 /**
@@ -65,12 +61,14 @@ export const putBgmTracks = async (context: Context): Promise<Response> => {
   const playback = await loadBgmPlayback(env.STORE)
   const tracks = parseBgmTracks(body, (mediaId) => kinds.get(mediaId) ?? null, playback.mediaId)
   await saveBgmTracks(env.STORE, tracks)
-  if (playback.mediaId !== null) await pushNowPlaying(context, tracks, playback)
+  if (playback.mediaId !== null) await pushBgmNowPlaying(env.STORE, env.ALERTS, tracks, playback)
   return Response.json({ tracks })
 }
 
 /**
  * PUT /api/admin/bgm/playback: 流す曲（止めるなら null）と音量を検証して保存し、裏方のページへ押し出す。
+ *
+ * 流す曲が変わったときだけ、切り替えた時刻を記録する（音量だけを変えたときは、曲は変わっていないため）。
  *
  * @throws ConfigError 一覧に無い曲・範囲の外の音量の場合（index.ts が問題点付きの400にする）
  */
@@ -84,9 +82,23 @@ export const putBgmPlayback = async (context: Context): Promise<Response> => {
     body,
     tracks.map((track) => track.mediaId),
   )
+  const previous = await loadBgmPlayback(env.STORE)
   await saveBgmPlayback(env.STORE, playback)
-  await pushNowPlaying(context, tracks, playback)
+  if (playback.mediaId !== previous.mediaId) await saveBgmSwitchedAt(env.STORE, context.now)
+  await pushBgmNowPlaying(env.STORE, env.ALERTS, tracks, playback)
   return Response.json({ playback })
+}
+
+/**
+ * PUT /api/admin/bgm/settings: BGMの設定（Jev に曲を選ばせるか）を検証して保存する。
+ *
+ * @throws ConfigError 設定に問題がある場合（index.ts が問題点付きの400にする）
+ */
+export const putBgmSettings = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  const settings = parseBgmSettings(await readJson(context))
+  await saveBgmSettings(context.env.STORE, settings)
+  return Response.json({ settings })
 }
 
 /**

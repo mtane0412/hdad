@@ -1,7 +1,7 @@
 /**
  * BGMの読み書き（Workerの呼び出し）
  *
- * BGMの曲の一覧と「いま流す曲・音量」は Worker（KVの bgm-tracks・bgm-playback）が持ち、2つの経路から読まれる。
+ * BGMの曲の一覧と「いま流す曲・音量」と設定は Worker（KVの bgm-tracks・bgm-playback・bgm-settings）が持ち、2つの経路から読まれる。
  * - 管理画面（/bgm/ のページ）: 配信者のセッションで /api/admin/bgm を読み書きする
  * - 裏方のページ（overlay/backstage/ の ?bgm=true）: オーバーレイ用キーで /api/overlay/bgm を読むだけ。
  *   切り替えは WebSocket で押し出されてくるので、その文字列の読み取り（parseBgmNowPlaying）もここに置く
@@ -17,6 +17,7 @@ import { createCaller, isRecord, readList } from '../core/api'
 const ADMIN_PATH = '/api/admin/bgm'
 const TRACKS_PATH = '/api/admin/bgm/tracks'
 const PLAYBACK_PATH = '/api/admin/bgm/playback'
+const SETTINGS_PATH = '/api/admin/bgm/settings'
 const OVERLAY_PATH = '/api/overlay/bgm'
 
 /** 切り替えを押し出してもらう WebSocket のパス。裏方のページ（task.ts）と合成ページの素材「再生中の曲」がつなぐ */
@@ -47,6 +48,12 @@ export interface BgmPlayback {
   mediaId: string | null
   /** 音量（0〜1） */
   volume: number
+}
+
+/** BGMの設定。項目は worker/bgm-config.ts と合わせる */
+export interface BgmSettings {
+  /** 配信の話題や雰囲気に合う曲へ、Jev に切り替えさせるか */
+  judgeWithJev: boolean
 }
 
 /** 裏方のページが受け取る、いま流している曲 */
@@ -97,6 +104,12 @@ const readPlayback = (value: unknown, path: string): BgmPlayback => {
   return { mediaId: value.mediaId, volume: value.volume }
 }
 
+/** BGMの設定として読む。想定した形でなければエラーにする */
+const readSettings = (value: unknown, path: string): BgmSettings => {
+  if (!isRecord(value) || typeof value.judgeWithJev !== 'boolean') throw new Error(`Workerの ${path} の応答の settings が想定した形ではありません`)
+  return { judgeWithJev: value.judgeWithJev }
+}
+
 /**
  * WebSocket で押し出された文字列を、いま流している曲として読む。
  *
@@ -114,12 +127,14 @@ export const parseBgmNowPlaying = (payload: string): BgmNowPlaying => {
 
 /** 管理画面からの読み書き */
 export interface BgmApi {
-  /** 曲の一覧と、いま流す曲・音量を読む */
-  load(): Promise<{ tracks: BgmTrack[]; playback: BgmPlayback }>
+  /** 曲の一覧と、いま流す曲・音量と、BGMの設定を読む */
+  load(): Promise<{ tracks: BgmTrack[]; playback: BgmPlayback; settings: BgmSettings }>
   /** 曲の一覧をまるごと置き換えて保存する。検証はWorkerが行う */
   saveTracks(tracks: readonly BgmTrack[]): Promise<BgmTrack[]>
   /** 流す曲と音量を保存する。Workerが裏方のページへ押し出す */
   savePlayback(playback: BgmPlayback): Promise<BgmPlayback>
+  /** BGMの設定を保存する。検証はWorkerが行う */
+  saveSettings(settings: BgmSettings): Promise<BgmSettings>
 }
 
 /** 裏方のページからの読み出し */
@@ -141,12 +156,20 @@ export const createBgmApi = (fetchImpl: typeof fetch): BgmApi => {
   return {
     load: async () => {
       const body = await call(ADMIN_PATH)
-      return { tracks: readList(body, 'tracks', isBgmTrack), playback: readPlayback(isRecord(body) ? body.playback : undefined, ADMIN_PATH) }
+      return {
+        tracks: readList(body, 'tracks', isBgmTrack),
+        playback: readPlayback(isRecord(body) ? body.playback : undefined, ADMIN_PATH),
+        settings: readSettings(isRecord(body) ? body.settings : undefined, ADMIN_PATH),
+      }
     },
     saveTracks: async (tracks) => readList(await put(TRACKS_PATH, { tracks }), 'tracks', isBgmTrack),
     savePlayback: async (playback) => {
       const body = await put(PLAYBACK_PATH, playback)
       return readPlayback(isRecord(body) ? body.playback : undefined, PLAYBACK_PATH)
+    },
+    saveSettings: async (settings) => {
+      const body = await put(SETTINGS_PATH, settings)
+      return readSettings(isRecord(body) ? body.settings : undefined, SETTINGS_PATH)
     },
   }
 }

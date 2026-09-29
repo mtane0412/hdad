@@ -6,6 +6,7 @@
  * - 検証で見つかった問題点が、400の応答に並んで返ること（画面で一度に直せるようにするため）
  * - 裏方のページ（オーバーレイ用キー）から、いま流している曲を読めること
  * - BGMの曲に使われている素材は消させないこと
+ * - 手で流す曲を切り替えた時刻を記録すること（そのすぐあとに Jev が上書きしないため。issue #153）
  */
 import { describe, expect, it } from 'vitest'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
@@ -16,7 +17,7 @@ import { createFakeCommentChannel } from './fake-comment-channel'
 import { createFakeDatabase } from './fake-database'
 import { createFakeDrawChannel } from './fake-draw-channel'
 import { createFakeStore } from './fake-store'
-import { loadBgmPlayback, loadBgmTracks, type BgmTrack } from './bgm-config'
+import { loadBgmPlayback, loadBgmSettings, loadBgmSwitchedAt, loadBgmTracks, saveBgmSwitchedAt, type BgmTrack } from './bgm-config'
 import { handleRequest, type Env } from './index'
 import { createSessionToken } from './session'
 
@@ -105,7 +106,7 @@ describe('GET /api/admin/bgm', () => {
     const response = await 配信者として呼ぶ(env, '/api/admin/bgm')
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ tracks: [], playback: { mediaId: null, volume: 0.3 } })
+    expect(await response.json()).toEqual({ tracks: [], playback: { mediaId: null, volume: 0.3 }, settings: { judgeWithJev: false } })
   })
 
   it('ログインしていなければ401にする', async () => {
@@ -211,6 +212,58 @@ describe('PUT /api/admin/bgm/playback', () => {
     expect(response.status).toBe(400)
     expect(await loadBgmPlayback(env.STORE)).toEqual({ mediaId: null, volume: 0.3 })
     expect(配送.押し出されたBGM).toEqual([])
+  })
+})
+
+describe('PUT /api/admin/bgm/playback の切り替えた時刻', () => {
+  it('流す曲を変えたら、切り替えた時刻を記録する', async () => {
+    const { env } = await 環境を作る()
+    await 曲を保存する(env, [雑談の曲, 盛り上がる曲])
+
+    await 再生を変える(env, { mediaId: 雑談の曲.mediaId, volume: 0.3 })
+
+    expect(await loadBgmSwitchedAt(env.STORE)).toBe(現在時刻)
+  })
+
+  it('音量だけを変えたときは、切り替えた時刻を動かさない（曲は変わっていないため）', async () => {
+    const { env } = await 環境を作る()
+    await 曲を保存する(env, [雑談の曲, 盛り上がる曲])
+    await 再生を変える(env, { mediaId: 雑談の曲.mediaId, volume: 0.3 })
+    const 前に切り替えた時刻 = 現在時刻 - 60 * 60 * 1000
+    await saveBgmSwitchedAt(env.STORE, 前に切り替えた時刻)
+
+    await 再生を変える(env, { mediaId: 雑談の曲.mediaId, volume: 0.6 })
+
+    expect(await loadBgmSwitchedAt(env.STORE)).toBe(前に切り替えた時刻)
+  })
+})
+
+describe('PUT /api/admin/bgm/settings', () => {
+  it('Jev に曲を選ばせるかを保存して返す', async () => {
+    const { env } = await 環境を作る()
+
+    const response = await 配信者として呼ぶ(env, '/api/admin/bgm/settings', { method: 'PUT', body: JSON.stringify({ judgeWithJev: true }) })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ settings: { judgeWithJev: true } })
+    expect(await loadBgmSettings(env.STORE)).toEqual({ judgeWithJev: true })
+  })
+
+  it('問題があれば400にして、保存しない', async () => {
+    const { env } = await 環境を作る()
+
+    const response = await 配信者として呼ぶ(env, '/api/admin/bgm/settings', { method: 'PUT', body: JSON.stringify({ judgeWithJev: 'はい' }) })
+
+    expect(response.status).toBe(400)
+    expect(await loadBgmSettings(env.STORE)).toEqual({ judgeWithJev: false })
+  })
+
+  it('ログインしていなければ401にする', async () => {
+    const { env } = await 環境を作る()
+
+    const response = await 呼び出す(new Request(`${サイト}/api/admin/bgm/settings`, { method: 'PUT', body: '{}' }), env)
+
+    expect(response.status).toBe(401)
   })
 })
 

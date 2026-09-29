@@ -7,6 +7,8 @@
  *
  * 曲の音声は「アップロード」のページで上げた音声から選ぶ（アラートの素材と同じ置き場）。音声1つにつき曲は1つである。
  * 曲の情報の書き換えは「曲の一覧を保存」でまとめて送る。流す曲の切り替えは配信中に何度も行うので、押したらすぐ送る。
+ * 配信の話題に合う曲へ Jev に切り替えさせるか（issue #153。既定はオフ）も、押したらすぐ送る。Jev は曲調・流したい場面を
+ * 手がかりに選ぶので、どちらも書いていない曲は選ばれない。
  *
  * Workerの呼び出しは api.ts、入力欄の値の変換は form.ts に分けてテストする。
  * 保存の形（ボタンを押す → Workerを呼ぶ → 成功なら知らせ、失敗なら理由を出す）は usePageActions に合わせる。
@@ -15,6 +17,7 @@
  * 返ってきた問題点を画面に見えている名前へ読み替えて並べる。
  * 注意: まだ保存していない曲は流せない（Worker の一覧に無いため）。流している曲は外せない（Worker も拒む）。
  * 注意: 曲や素材を読めなかったときは、黙って空の一覧に倒さず理由を出す（Fail-Fast）。
+ * 注意: Jev が切り替えた曲は、この画面を開き直すまで「いま流している曲」に反映されない（押し出しを受けるのは裏方のページだけ）。
  */
 import { Play, Square, Trash2 } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
@@ -25,6 +28,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
@@ -32,7 +36,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Slider } from '@/components/ui/slider'
 import { ApiError } from '@/core/api'
 import { iconButtonName } from '@/core/icon-button'
-import type { BgmApi, BgmPlayback, BgmTrack } from './api'
+import type { BgmApi, BgmPlayback, BgmSettings, BgmTrack } from './api'
 import { describeBgmProblem, newTrackOf, unusedAudioOf, volumeOfPercent, volumePercentOf } from './form'
 
 /** 曲の音声を試し聴きするためのパス。この画面は配信者のセッションで読めるので、オーバーレイ用キーは付けない */
@@ -128,6 +132,7 @@ export const BgmPage = ({ api, mediaApi }: BgmPageProps) => {
   /** 入力欄の曲（保存前の書き換えを含む） */
   const [tracks, setTracks] = useState<readonly BgmTrack[]>([])
   const [playback, setPlayback] = useState<BgmPlayback>({ mediaId: null, volume: 0 })
+  const [settings, setSettings] = useState<BgmSettings>({ judgeWithJev: false })
   /** スライダーの位置。動かしているあいだは送らず、離したときに送る */
   const [volumePercent, setVolumePercent] = useState(0)
   const [media, setMedia] = useState<readonly MediaItem[]>([])
@@ -135,6 +140,7 @@ export const BgmPage = ({ api, mediaApi }: BgmPageProps) => {
   const actions = usePageActions(failureLines)
   const volumeLabelId = useId()
   const addFieldId = useId()
+  const judgeFieldId = useId()
 
   useEffect(() => {
     let cancelled = false
@@ -144,6 +150,7 @@ export const BgmPage = ({ api, mediaApi }: BgmPageProps) => {
         setSavedTracks(bgm.tracks)
         setTracks(bgm.tracks)
         setPlayback(bgm.playback)
+        setSettings(bgm.settings)
         setVolumePercent(volumePercentOf(bgm.playback.volume))
         setMedia(loadedMedia)
         setLoaded({ status: 'ready' })
@@ -177,6 +184,12 @@ export const BgmPage = ({ api, mediaApi }: BgmPageProps) => {
     actions.run(async () => {
       setPlayback(await api.savePlayback(next))
       return message
+    })
+
+  const saveSettings = (next: BgmSettings) =>
+    actions.run(async () => {
+      setSettings(await api.saveSettings(next))
+      return next.judgeWithJev ? '配信の話題に合う曲へ自動で切り替えます' : '自動の切り替えをやめました'
     })
 
   const addTrack = (): void => {
@@ -236,6 +249,15 @@ export const BgmPage = ({ api, mediaApi }: BgmPageProps) => {
               />
               <output className="w-12 text-right font-mono text-xs tabular-nums">{volumePercent}%</output>
             </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id={judgeFieldId}
+              checked={settings.judgeWithJev}
+              disabled={actions.busy}
+              onCheckedChange={(checked) => void saveSettings({ judgeWithJev: checked === true })}
+            />
+            <Label htmlFor={judgeFieldId}>配信の話題に合う曲へ自動で切り替える（Jev）</Label>
           </div>
         </CardContent>
       </Card>

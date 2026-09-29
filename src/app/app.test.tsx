@@ -80,9 +80,10 @@ const 代役の視聴者API: ViewerApi = {
 }
 
 const 代役のBGM_API: BgmApi = {
-  load: vi.fn(async () => ({ tracks: [], playback: { mediaId: null, volume: 0.3 } })),
+  load: vi.fn(async () => ({ tracks: [], playback: { mediaId: null, volume: 0.3 }, settings: { judgeWithJev: false } })),
   saveTracks: vi.fn(async () => []),
   savePlayback: vi.fn(async () => ({ mediaId: null, volume: 0.3 })),
+  saveSettings: vi.fn(async () => ({ judgeWithJev: false })),
 }
 
 const 代役のオーバーレイAPI: OverlayLayoutAdminApi = {

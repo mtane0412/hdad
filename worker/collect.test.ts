@@ -19,6 +19,9 @@ import { deleteViewer, readViewer, recordViewerMessage } from './viewer-store'
 import { TwitchApiError, type LiveStream, type TwitchClient } from './twitch'
 import { GyazoApiError } from './gyazo'
 import { recordTranscript } from './transcript-store'
+import { loadBgmPlayback, saveBgmPlayback, saveBgmSettings, saveBgmTracks, type BgmTrack } from './bgm-config'
+import { createFakeAlertChannel } from './fake-alert-channel'
+import type { JevAnswers, JevClient, JevQuestion, JevRequest } from './jev'
 import { OCR_MAX_ATTEMPTS, listPendingOcr, readRecentScreenLines, recordScreenCapture, saveScreenOcr } from './screen-store'
 
 const 現在時刻 = Date.parse('2026-09-21T12:05:00Z')
@@ -105,6 +108,16 @@ const Twitchの代役 = (overrides: Partial<収集用のTwitch> = {}): 収集用
   ...overrides,
 })
 
+/** 呼ばれたら失敗させる Jev の代役。BGMの設定は既定でオフなので、BGMの切り替えを確かめないテストでは呼ばれない */
+const 呼ばれないJev: JevClient = {
+  decide: async () => {
+    throw new Error('このテストでは Jev を呼ばないはずです')
+  },
+}
+
+/** BGMの切り替え（issue #153）を確かめないテストで渡す依存 */
+const BGMの判定を使わない = { jev: 呼ばれないJev, alerts: createFakeAlertChannel().namespace }
+
 const 環境を作る = async (token: StoredToken | null = 保管中のトークン) => {
   const db = createFakeDatabase()
   const store = createFakeStore()
@@ -123,7 +136,7 @@ describe('collectStats', () => {
       },
     })
 
-    await collectStats({ db, store, twitch, ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch, ai: AIの代役(), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })
 
     expect(受け取った引数).toEqual([['保管中のアクセストークン', '12345']])
     expect((await getSession(db, 雑談配信.id))?.samples).toEqual([{ sampledAt: '2026-09-21T12:05:00.000Z', viewerCount: 42 }])
@@ -133,10 +146,10 @@ describe('collectStats', () => {
 
   it('配信していなければ、開いているセッションを閉じ、フォロワー数だけを記録する', async () => {
     const { db, store } = await 環境を作る()
-    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })
 
     const 五分後 = 現在時刻 + 5 * 60 * 1000
-    await collectStats({ db, store, twitch: Twitchの代役({ getLiveStream: async () => null }), ai: AIの代役(), broadcasterId: 配信者のID, now: 五分後 })
+    await collectStats({ db, store, twitch: Twitchの代役({ getLiveStream: async () => null }), ai: AIの代役(), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 五分後 })
 
     const session = await getSession(db, 雑談配信.id)
     expect(session?.endedAt).toBe('2026-09-21T12:10:00.000Z')
@@ -155,7 +168,7 @@ describe('collectStats', () => {
       },
     })
 
-    await collectStats({ db, store, twitch, ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch, ai: AIの代役(), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })
 
     expect(使われたトークン).toEqual(['保管中のアクセストークン', '取り直したアクセストークン'])
     expect((await loadToken(store, 'broadcaster'))?.accessToken).toBe('取り直したアクセストークン')
@@ -165,7 +178,7 @@ describe('collectStats', () => {
   it('トークンが保管されていなければ、黙って飛ばさず、失敗を記録してエラーにする', async () => {
     const { db, store } = await 環境を作る(null)
 
-    await expect(collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })).rejects.toBeInstanceOf(AuthError)
+    await expect(collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })).rejects.toBeInstanceOf(AuthError)
 
     expect(await listFailures(db)).toEqual([
       { occurredAt: '2026-09-21T12:05:00.000Z', code: 'not-logged-in', message: expect.stringContaining('ログイン') },
@@ -180,7 +193,7 @@ describe('collectStats', () => {
       },
     })
 
-    await expect(collectStats({ db, store, twitch, ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })).rejects.toBeInstanceOf(AuthError)
+    await expect(collectStats({ db, store, twitch, ai: AIの代役(), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })).rejects.toBeInstanceOf(AuthError)
 
     expect((await listFailures(db))[0]?.code).toBe('relogin-required')
   })
@@ -193,7 +206,7 @@ describe('collectStats', () => {
       },
     })
 
-    await expect(collectStats({ db, store, twitch, ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })).rejects.toBeInstanceOf(TwitchApiError)
+    await expect(collectStats({ db, store, twitch, ai: AIの代役(), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })).rejects.toBeInstanceOf(TwitchApiError)
 
     expect(await listSessions(db, 現在時刻)).toHaveLength(1)
     expect(await listFailures(db)).toEqual([
@@ -219,7 +232,7 @@ describe('古い記録の掃除', () => {
     記録を足す('mukashi-no-hito', 現在時刻 - 三十日)
     記録を足す('kyou-no-hito', 現在時刻)
 
-    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })
 
     expect(db.sqlite.prepare('SELECT chatter_user_id FROM first_chatters').all()).toEqual([{ chatter_user_id: 'kyou-no-hito' }])
   })
@@ -240,7 +253,7 @@ describe('古い記録の掃除', () => {
     発話を足す('mukashi-no-hatsuwa', 現在時刻 - 三十日)
     発話を足す('kyou-no-hatsuwa', 現在時刻)
 
-    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })
 
     expect(db.sqlite.prepare('SELECT message_id FROM transcripts').all()).toEqual([{ message_id: 'kyou-no-hatsuwa' }])
   })
@@ -258,7 +271,7 @@ describe('古い記録の掃除', () => {
     既読を足す('おとといの配信の発言', 現在時刻 - 二日)
     既読を足す('いまの配信の発言', 現在時刻)
 
-    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })
 
     expect(db.sqlite.prepare('SELECT message_id FROM comment_reads').all()).toEqual([{ message_id: 'いまの配信の発言' }])
   })
@@ -279,7 +292,7 @@ describe('古い記録の掃除', () => {
     取り込みを足す('mukashi-no-gamen', 現在時刻 - 三十日)
     取り込みを足す('kyou-no-gamen', 現在時刻)
 
-    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })
 
     expect(db.sqlite.prepare('SELECT image_id FROM screen_captures').all()).toEqual([{ image_id: 'kyou-no-gamen' }])
   })
@@ -301,7 +314,7 @@ describe('人物像の生成', () => {
     const { db, store } = await 環境を作る()
     await 終わった配信と発言を作る(db)
 
-    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })
 
     expect(await readViewer(db, '100')).toMatchObject({ summary: 'ギターの話をよくする常連さん', summarizedAt: '2026-09-21T12:05:00.000Z' })
     expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM stream_chat_messages').get()).toEqual({ count: 0 })
@@ -318,7 +331,7 @@ describe('人物像の生成', () => {
       .run('hatsugen-1', 雑談配信.id, '100', new Date(現在時刻).toISOString(), 'こんばんは')
     const ai = AIの代役()
 
-    await collectStats({ db, store, twitch: Twitchの代役(), ai, broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai, ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })
 
     // LLMの呼び出しそのものは、この配信のあらすじづくり（issue #65）で起きうる。ここで確かめたいのは
     // 「配信中の発言から人物像を作らないこと」なので、人物像が空のままであることで判断する
@@ -329,7 +342,7 @@ describe('人物像の生成', () => {
     const { db, store } = await 環境を作る()
     await 終わった配信と発言を作る(db)
 
-    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(new Error('無料枠を使い切りました')), broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(new Error('無料枠を使い切りました')), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })
 
     expect(await listFailures(db)).toEqual([
       { occurredAt: '2026-09-21T12:05:00.000Z', code: 'viewer-summary-failed', message: expect.stringContaining('無料枠') },
@@ -344,7 +357,7 @@ describe('人物像の生成', () => {
     await deleteViewer(db, '100')
     const ai = AIの代役()
 
-    await collectStats({ db, store, twitch: Twitchの代役(), ai, broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai, ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })
 
     expect(ai.呼ばれた数()).toBe(0)
     expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM stream_chat_messages').get()).toEqual({ count: 0 })
@@ -368,7 +381,7 @@ describe('人物像の生成', () => {
       },
     }
 
-    await collectStats({ db, store, twitch, ai, broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch, ai, ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })
 
     expect(問い合わせたユーザーID).toEqual(['100'])
     expect(await readViewer(db, '100')).toMatchObject({
@@ -387,7 +400,7 @@ describe('人物像の生成', () => {
       },
     })
 
-    await collectStats({ db, store, twitch, ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch, ai: AIの代役(), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })
 
     expect(await readViewer(db, '100')).toMatchObject({ summary: 'ギターの話をよくする常連さん', channel: null })
     expect(await listFailures(db)).toEqual([
@@ -408,7 +421,7 @@ describe('人物像の生成', () => {
       },
     })
 
-    await collectStats({ db, store, twitch, ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch, ai: AIの代役(), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })
 
     // 失敗の記録は「時刻と種類」で1行なので（migrations/0012_collection_failures_key.sql）、
     // 人ごとに記録すると後の人が前の人を上書きしてしまう。1行にまとめて両方を残す
@@ -430,7 +443,7 @@ describe('人物像の生成', () => {
       },
     })
 
-    await collectStats({ db, store, twitch, ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch, ai: AIの代役(), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })
 
     expect(問い合わせた数).toBe(0)
   })
@@ -454,7 +467,7 @@ describe('人物像の生成', () => {
       },
     }
 
-    await collectStats({ db, store, twitch: Twitchの代役(), ai, broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai, ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })
 
     expect(await readViewer(db, '200')).toMatchObject({ summary: '元気な人' })
     expect(await listFailures(db)).toMatchObject([{ code: 'viewer-summary-failed' }])
@@ -471,7 +484,7 @@ describe('人物像の生成', () => {
     }
     const ai = AIの代役()
 
-    await collectStats({ db, store, twitch: Twitchの代役(), ai, broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai, ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })
 
     expect(ai.呼ばれた数()).toBe(SUMMARY_BATCH_SIZE)
   })
@@ -483,7 +496,7 @@ describe('人物像の生成', () => {
       .prepare('UPDATE stream_chat_messages SET sent_at = ?')
       .run(new Date(現在時刻 - STREAM_CHAT_RETENTION_MS - 1000).toISOString())
 
-    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(new Error('呼ばれないはず')), broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(new Error('呼ばれないはず')), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })
 
     expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM stream_chat_messages').get()).toEqual({ count: 0 })
   })
@@ -512,7 +525,7 @@ describe('あらすじの生成', () => {
       store,
       twitch: Twitchの代役(),
       ai: AIの代役('配信者は新しいゲームを始めたところです'),
-      broadcasterId: 配信者のID,
+      ...BGMの判定を使わない, broadcasterId: 配信者のID,
       now: 現在時刻,
     })
 
@@ -531,7 +544,7 @@ describe('あらすじの生成', () => {
     画面に現れた行を作る(db, '1枚目', 現在時刻 - 90 * 1000, '岩手17歳女性殺害事件')
     const ai = AIの代役('配信者は未解決事件の資料を読んでいます')
 
-    await collectStats({ db, store, twitch: Twitchの代役(), ai, broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai, ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })
 
     expect(ai.渡された材料('streamSummary').some((材料) => 材料.includes('岩手17歳女性殺害事件'))).toBe(true)
     expect((await readStreamSummary(db, 雑談配信.id))?.screenUntil).toEqual({
@@ -548,7 +561,7 @@ describe('あらすじの生成', () => {
       .run(雑談配信.id, 雑談配信.startedAt, '月曜の雑談配信', 'Just Chatting')
     画面に現れた行を作る(db, '1枚目', 現在時刻 - 90 * 1000, '岩手17歳女性殺害事件')
 
-    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(全部が成功する応答), broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(全部が成功する応答), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })
 
     expect(await readStreamSummary(db, 雑談配信.id)).toBeNull()
   })
@@ -563,7 +576,7 @@ describe('あらすじの生成', () => {
       .run('hatsugen-1', 雑談配信.id, '100', new Date(現在時刻 - 60 * 1000).toISOString(), 'たのしみ！')
     const ai = AIの代役(全部が成功する応答)
 
-    await collectStats({ db, store, twitch: Twitchの代役(), ai, broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai, ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })
 
     // 視聴者の書き込みだけを材料にすると、書き込みの中身が配信で起きたこととして書かれてしまう
     expect(await readStreamSummary(db, 雑談配信.id)).toBeNull()
@@ -578,7 +591,7 @@ describe('あらすじの生成', () => {
       store,
       twitch: Twitchの代役({ getLiveStream: async () => null }),
       ai,
-      broadcasterId: 配信者のID,
+      ...BGMの判定を使わない, broadcasterId: 配信者のID,
       now: 現在時刻,
     })
 
@@ -588,10 +601,10 @@ describe('あらすじの生成', () => {
   it('前回のあらすじのあとに新しい材料が無ければ、作り直さない', async () => {
     const { db, store } = await 環境を作る()
     配信中の材料を作る(db)
-    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(全部が成功する応答), broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(全部が成功する応答), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })
     const ai = AIの代役()
 
-    await collectStats({ db, store, twitch: Twitchの代役(), ai, broadcasterId: 配信者のID, now: 現在時刻 + 5 * 60 * 1000 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai, ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 + 5 * 60 * 1000 })
 
     expect(ai.呼ばれた数()).toBe(0)
   })
@@ -599,7 +612,7 @@ describe('あらすじの生成', () => {
   it('LLMが失敗しても収集は止めず、失敗を記録して前回のあらすじを残す', async () => {
     const { db, store } = await 環境を作る()
     配信中の材料を作る(db)
-    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })
     db.sqlite
       .prepare('INSERT INTO transcripts (message_id, session_id, spoken_at, text) VALUES (?, ?, ?, ?)')
       .run('hatsuwa-2', 雑談配信.id, new Date(現在時刻 + 60 * 1000).toISOString(), 'ボスに負けました')
@@ -609,7 +622,7 @@ describe('あらすじの生成', () => {
       store,
       twitch: Twitchの代役(),
       ai: AIの代役(new Error('Workers AI の無料枠を使い切りました')),
-      broadcasterId: 配信者のID,
+      ...BGMの判定を使わない, broadcasterId: 配信者のID,
       now: 現在時刻 + 5 * 60 * 1000,
     })
 
@@ -617,6 +630,96 @@ describe('あらすじの生成', () => {
     expect((await listFailures(db)).map((failure) => failure.code)).toContain('stream-summary-failed')
     // 収集そのものは止まらないので、視聴者数は2回とも記録されている
     expect((await getSession(db, 雑談配信.id))?.samples).toHaveLength(2)
+  })
+})
+
+describe('BGMの切り替え', () => {
+  /** 雑談のときに流したい、落ち着いた曲 */
+  const 雑談の曲: BgmTrack = {
+    mediaId: 'media-zatsudan',
+    title: 'ひだまりの午後',
+    credit: '音楽: 甘茶の音楽工房',
+    creditUrl: '',
+    mood: 'ゆったりしたアコースティック',
+    scene: '雑談・作業配信',
+  }
+  /** ゲームで盛り上がったときに流したい曲 */
+  const 盛り上がる曲: BgmTrack = {
+    mediaId: 'media-moriagari',
+    title: '全力疾走',
+    credit: '音楽: DOVA-SYNDROME',
+    creditUrl: '',
+    mood: 'テンポの速いロック',
+    scene: 'ボス戦・盛り上がったとき',
+  }
+
+  /** 配信中で文字起こしがあり、雑談の曲を流していて、Jev に選ばせる設定を入れた状態を作る */
+  const 雑談の曲を流している配信 = async () => {
+    const { db, store } = await 環境を作る()
+    await store.put('overlay-key', 'issued-overlay-key-0123456789abcdefghij')
+    db.sqlite
+      .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, NULL, ?, ?)')
+      .run(雑談配信.id, 雑談配信.startedAt, '月曜の雑談配信', 'Just Chatting')
+    db.sqlite
+      .prepare('INSERT INTO transcripts (message_id, session_id, spoken_at, text) VALUES (?, ?, ?, ?)')
+      .run('hatsuwa-1', 雑談配信.id, new Date(現在時刻 - 2 * 60 * 1000).toISOString(), 'ボス戦だ、いくぞ！')
+    await saveBgmTracks(store, [雑談の曲, 盛り上がる曲])
+    await saveBgmPlayback(store, { mediaId: 雑談の曲.mediaId, volume: 0.4 })
+    await saveBgmSettings(store, { judgeWithJev: true })
+    return { db, store }
+  }
+
+  /** 決めた曲（選択肢の名前）を選ぶ Jev の代役。渡された注文を控える */
+  const 曲を選ぶJev = (choice: string): JevClient & { 注文: JevRequest<Record<string, JevQuestion>>[] } => {
+    const 注文: JevRequest<Record<string, JevQuestion>>[] = []
+    return {
+      注文,
+      decide: async <Qs extends Readonly<Record<string, JevQuestion>>>(_usage: unknown, request: JevRequest<Qs>): Promise<JevAnswers<Qs>> => {
+        注文.push(request)
+        return { track: { choice, confidence: 0.9 } } as JevAnswers<Qs>
+      },
+    }
+  }
+
+  it('あらすじを作り直したら、作ったあらすじと直近の発話を材料に Jev に曲を選ばせて切り替える', async () => {
+    const { db, store } = await 雑談の曲を流している配信()
+    const jev = 曲を選ぶJev('t1')
+    const 配送 = createFakeAlertChannel()
+
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役('ボス戦に挑んでいます'), jev, alerts: 配送.namespace, broadcasterId: 配信者のID, now: 現在時刻 })
+
+    expect(jev.注文.map((注文) => 注文.state)).toEqual([{ summary: 'ボス戦に挑んでいます', transcript: ['ボス戦だ、いくぞ！'] }])
+    expect((await loadBgmPlayback(store)).mediaId).toBe(盛り上がる曲.mediaId)
+    expect(配送.押し出されたBGM.map((nowPlaying) => nowPlaying.track?.mediaId)).toEqual([盛り上がる曲.mediaId])
+  })
+
+  it('あらすじを作り直さなかった回は Jev を呼ばない（新しい材料が無ければ呼ばない）', async () => {
+    const { db, store } = await 雑談の曲を流している配信()
+    await saveBgmSettings(store, { judgeWithJev: false })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(全部が成功する応答), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })
+    await saveBgmSettings(store, { judgeWithJev: true })
+    const jev = 曲を選ぶJev('t1')
+
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), jev, alerts: createFakeAlertChannel().namespace, broadcasterId: 配信者のID, now: 現在時刻 + 5 * 60 * 1000 })
+
+    expect(jev.注文).toEqual([])
+  })
+
+  it('Jev が失敗しても収集は止めず、失敗を記録して曲はそのままにする', async () => {
+    const { db, store } = await 雑談の曲を流している配信()
+    const jev: JevClient = {
+      decide: async () => {
+        throw new Error('Jev が失敗を返しました（402）')
+      },
+    }
+
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(全部が成功する応答), jev, alerts: createFakeAlertChannel().namespace, broadcasterId: 配信者のID, now: 現在時刻 })
+
+    expect((await loadBgmPlayback(store)).mediaId).toBe(雑談の曲.mediaId)
+    const 失敗 = (await listFailures(db)).filter((failure) => failure.code === 'bgm-choice-failed')
+    expect(失敗.map((failure) => failure.message)).toEqual([expect.stringContaining('402')])
+    // あらすじのあとのサイドスーパーも作られている
+    expect(await readSideSuper(db, 雑談配信.id)).not.toBeNull()
   })
 })
 
@@ -643,7 +746,7 @@ describe('サイドスーパーの生成', () => {
       store,
       twitch: Twitchの代役(),
       ai: AIの代役('新作ゲーム\n初見プレイ中'),
-      broadcasterId: 配信者のID,
+      ...BGMの判定を使わない, broadcasterId: 配信者のID,
       now: 現在時刻,
     })
 
@@ -659,7 +762,7 @@ describe('サイドスーパーの生成', () => {
     画面に現れた行を作る(db, '1枚目', 現在時刻 - 90 * 1000, 'ストームヴィル城')
     const ai = AIの代役('新作ゲーム\n城を攻略中')
 
-    await collectStats({ db, store, twitch: Twitchの代役(), ai, broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai, ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })
 
     expect(ai.渡された材料('sideSuper').some((材料) => 材料.includes('ストームヴィル城'))).toBe(true)
   })
@@ -667,14 +770,14 @@ describe('サイドスーパーの生成', () => {
   it('前回のあとに画面へ新しい文字が現れていれば、喋りも発言も無くても作り直す', async () => {
     const { db, store } = await 環境を作る()
     配信中の材料を作る(db)
-    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(全部が成功する応答), broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(全部が成功する応答), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })
     const 五分後 = 現在時刻 + 5 * 60 * 1000
     // 撮ったのは前回サイドスーパーを作るより前で、篩を通って材料になったのはそのあと、という並びにする。
     // OCRの取得と篩は5分おきの収集で遅れて起きるので、実際にはこの並びが普通である
     画面に現れた行を作る(db, '1枚目', 現在時刻 - 60 * 1000, 'ストームヴィル城', 五分後 - 1000)
     const ai = AIの代役('新作ゲーム\n城を攻略中')
 
-    await collectStats({ db, store, twitch: Twitchの代役(), ai, broadcasterId: 配信者のID, now: 五分後 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai, ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 五分後 })
 
     expect(await readSideSuper(db, 雑談配信.id)).toEqual({ lines: ['新作ゲーム', '城を攻略中'], updatedAt: new Date(五分後).toISOString() })
   })
@@ -687,7 +790,7 @@ describe('サイドスーパーの生成', () => {
       store,
       twitch: Twitchの代役({ getLiveStream: async () => null }),
       ai: AIの代役(),
-      broadcasterId: 配信者のID,
+      ...BGMの判定を使わない, broadcasterId: 配信者のID,
       now: 現在時刻,
     })
 
@@ -697,10 +800,10 @@ describe('サイドスーパーの生成', () => {
   it('前回作ったあとに新しい材料が無ければ、作り直さない', async () => {
     const { db, store } = await 環境を作る()
     配信中の材料を作る(db)
-    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(全部が成功する応答), broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(全部が成功する応答), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })
     const ai = AIの代役()
 
-    await collectStats({ db, store, twitch: Twitchの代役(), ai, broadcasterId: 配信者のID, now: 現在時刻 + 5 * 60 * 1000 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai, ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 + 5 * 60 * 1000 })
 
     expect(ai.呼ばれた数()).toBe(0)
   })
@@ -708,7 +811,7 @@ describe('サイドスーパーの生成', () => {
   it('LLMが失敗しても収集は止めず、失敗を記録して前回のサイドスーパーを残す', async () => {
     const { db, store } = await 環境を作る()
     配信中の材料を作る(db)
-    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役('新作ゲーム\n初見プレイ中'), broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役('新作ゲーム\n初見プレイ中'), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })
     db.sqlite
       .prepare('INSERT INTO transcripts (message_id, session_id, spoken_at, text) VALUES (?, ?, ?, ?)')
       .run('hatsuwa-2', 雑談配信.id, new Date(現在時刻 + 60 * 1000).toISOString(), 'ボスに負けました')
@@ -718,7 +821,7 @@ describe('サイドスーパーの生成', () => {
       store,
       twitch: Twitchの代役(),
       ai: AIの代役(new Error('Workers AI の無料枠を使い切りました')),
-      broadcasterId: 配信者のID,
+      ...BGMの判定を使わない, broadcasterId: 配信者のID,
       now: 現在時刻 + 5 * 60 * 1000,
     })
 
@@ -736,7 +839,7 @@ describe('サイドスーパーの生成', () => {
       store,
       twitch: Twitchの代役(),
       ai: AIの代役(`新作ゲーム\n${'あ'.repeat(MAX_SIDE_SUPER_BODY_LENGTH + 1)}`),
-      broadcasterId: 配信者のID,
+      ...BGMの判定を使わない, broadcasterId: 配信者のID,
       now: 現在時刻,
     })
 
@@ -771,7 +874,7 @@ describe('collectStats（配信画面から読み取った文字の取得）', (
     await 撮った1枚を作る(db)
     const gyazo = Gyazoの代役(() => '岩手17歳女性殺害事件')
 
-    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻, gyazo })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻, gyazo })
 
     expect(gyazo.取りに行った).toEqual(['画像1'])
     expect(await listPendingOcr(db, 10)).toEqual([])
@@ -783,7 +886,7 @@ describe('collectStats（配信画面から読み取った文字の取得）', (
     await 撮った1枚を作る(db)
     const gyazo = Gyazoの代役(() => null)
 
-    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻, gyazo })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻, gyazo })
 
     expect(await listPendingOcr(db, 10)).toHaveLength(1)
     expect(await listFailures(db)).toEqual([])
@@ -795,7 +898,7 @@ describe('collectStats（配信画面から読み取った文字の取得）', (
     const gyazo = Gyazoの代役(() => null)
 
     for (let 回 = 0; 回 < OCR_MAX_ATTEMPTS + 1; 回 += 1) {
-      await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻, gyazo })
+      await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻, gyazo })
     }
 
     // 上限に達したあとの収集では、もう取りに行かない
@@ -807,7 +910,7 @@ describe('collectStats（配信画面から読み取った文字の取得）', (
     await 撮った1枚を作る(db)
     const gyazo = Gyazoの代役(() => new GyazoApiError(401, 'Gyazo からのOCRの取得が 401 で失敗しました: unauthorized'))
 
-    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻, gyazo })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻, gyazo })
 
     expect((await listFailures(db)).map((failure) => failure.code)).toContain('screen-ocr-failed')
     // 画面の文字が取れなくても、配信の記録は残す
@@ -820,7 +923,7 @@ describe('collectStats（配信画面から読み取った文字の取得）', (
     await recordScreenCapture(db, '画像2', 現在時刻 - 30 * 1000)
     const gyazo = Gyazoの代役(() => new GyazoApiError(401, 'Gyazo からのOCRの取得が 401 で失敗しました: unauthorized'))
 
-    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻, gyazo })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻, gyazo })
 
     expect(gyazo.取りに行った).toEqual(['画像1'])
   })
@@ -833,7 +936,7 @@ describe('collectStats（配信画面から読み取った文字の取得）', (
       imageId === '消された画像' ? new GyazoApiError(404, 'Gyazo からのOCRの取得が 404 で失敗しました') : '画面に出ていた文字',
     )
 
-    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻, gyazo })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻, gyazo })
 
     expect(gyazo.取りに行った).toEqual(['消された画像', '残っている画像'])
     expect((await listFailures(db)).map((failure) => failure.code)).toContain('screen-ocr-failed')
@@ -845,7 +948,7 @@ describe('collectStats（配信画面から読み取った文字の取得）', (
     const { db, store } = await 環境を作る()
     await 撮った1枚を作る(db)
 
-    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })
 
     expect(await listPendingOcr(db, 10)).toHaveLength(1)
     expect(await listFailures(db)).toEqual([])
@@ -864,7 +967,7 @@ describe('collectStats（画面に新しく現れた文字の取り出し）', (
     const { db, store } = await 環境を作る()
     await 読み取った1枚を作る(db, '岩手17歳女性殺害事件\nあ\n盛岡市のガソリンスタンド')
 
-    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })
 
     // 中身のない行（3文字未満）は落ちる
     expect(await readRecentScreenLines(db, 雑談配信.id, 10)).toEqual(['盛岡市のガソリンスタンド', '岩手17歳女性殺害事件'])
@@ -875,7 +978,7 @@ describe('collectStats（画面に新しく現れた文字の取り出し）', (
     await 読み取った1枚を作る(db, '岩手の事件について話します\n盛岡市のガソリンスタンド')
     await recordTranscript(db, { messageId: 't1', text: '岩手の事件について話します' }, 現在時刻 - 90 * 1000)
 
-    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })
 
     expect(await readRecentScreenLines(db, 雑談配信.id, 10)).toEqual(['盛岡市のガソリンスタンド'])
   })
@@ -887,7 +990,7 @@ describe('collectStats（画面に新しく現れた文字の取り出し）', (
     // OCRは同じ画面でも毎回違う文字を返すので、完全一致では畳めない（「2008」→「2006」の実測と同じ形）
     await saveScreenOcr(db, '画像2', '岩手17歳女性殺書事件')
 
-    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })
 
     expect(await readRecentScreenLines(db, 雑談配信.id, 10)).toEqual(['岩手17歳女性殺害事件'])
   })
@@ -896,8 +999,8 @@ describe('collectStats（画面に新しく現れた文字の取り出し）', (
     const { db, store } = await 環境を作る()
     await 読み取った1枚を作る(db, '岩手17歳女性殺害事件')
 
-    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
-    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻 })
 
     expect(db.sqlite.prepare('SELECT COUNT(*) AS 件数 FROM screen_lines').get()).toEqual({ 件数: 1 })
   })
@@ -931,7 +1034,7 @@ describe('collectStats（1回ぶんの時間予算。issue #126）', () => {
       store,
       twitch: Twitchの代役(),
       ai: AIの代役(),
-      broadcasterId: 配信者のID,
+      ...BGMの判定を使わない, broadcasterId: 配信者のID,
       now: 現在時刻,
       clock: 予算を使い切る時計(),
     })
@@ -950,7 +1053,7 @@ describe('collectStats（1回ぶんの時間予算。issue #126）', () => {
       store,
       twitch: Twitchの代役(),
       ai,
-      broadcasterId: 配信者のID,
+      ...BGMの判定を使わない, broadcasterId: 配信者のID,
       now: 現在時刻,
       clock: 予算を使い切る時計(),
     })
@@ -974,7 +1077,7 @@ describe('collectStats（1回ぶんの時間予算。issue #126）', () => {
       return 回数 <= 2 ? 現在時刻 : 現在時刻 + COLLECT_BUDGET_MS + 1
     }
 
-    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), broadcasterId: 配信者のID, now: 現在時刻, gyazo, clock })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai: AIの代役(), ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻, gyazo, clock })
 
     expect(取りに行った).toEqual(['画像1'])
   })
@@ -988,7 +1091,7 @@ describe('collectStats（1回ぶんの時間予算。issue #126）', () => {
       store,
       twitch: Twitchの代役(),
       ai: AIの代役(),
-      broadcasterId: 配信者のID,
+      ...BGMの判定を使わない, broadcasterId: 配信者のID,
       now: 現在時刻,
       clock: 予算を使い切る時計(),
     })
@@ -1010,7 +1113,7 @@ describe('collectStats（1回ぶんの時間予算。issue #126）', () => {
     }
     const ai = AIの代役(全部が成功する応答)
 
-    await collectStats({ db, store, twitch: Twitchの代役(), ai, broadcasterId: 配信者のID, now: 現在時刻, clock })
+    await collectStats({ db, store, twitch: Twitchの代役(), ai, ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻, clock })
 
     // あらすじは作られ、そのあとのサイドスーパーと人物像は次の収集へ回る
     expect(ai.呼ばれた数()).toBe(1)
@@ -1045,7 +1148,7 @@ describe('collectStats（1回ぶんの時間予算。issue #126）', () => {
     }
     const ai = AIの代役()
 
-    await collectStats({ db, store, twitch: Twitchの代役({ getLiveStream: async () => null }), ai, broadcasterId: 配信者のID, now: 現在時刻, clock })
+    await collectStats({ db, store, twitch: Twitchの代役({ getLiveStream: async () => null }), ai, ...BGMの判定を使わない, broadcasterId: 配信者のID, now: 現在時刻, clock })
 
     expect(ai.呼ばれた数()).toBe(1)
     const 失敗 = await listFailures(db)
@@ -1063,7 +1166,7 @@ describe('collectStats（1回ぶんの時間予算。issue #126）', () => {
       store,
       twitch: Twitchの代役(),
       ai,
-      broadcasterId: 配信者のID,
+      ...BGMの判定を使わない, broadcasterId: 配信者のID,
       now: 現在時刻,
       clock: () => 現在時刻,
     })

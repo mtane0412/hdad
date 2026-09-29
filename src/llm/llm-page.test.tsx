@@ -339,6 +339,14 @@ describe('使用状況', () => {
     expect(within(箇所).queryByRole('combobox')).not.toBeInTheDocument()
   })
 
+  test('判定用のモデル Jev の箇所（BGMの選択）の使用状況も出す', async () => {
+    描く(llmApi({ usage: [使用状況の行(今日, 'bgm', { calls: 3, promptTokens: 3_000, completionTokens: 30 })] }))
+    await 読み込みを待つ()
+
+    const 箇所 = await screen.findByRole('region', { name: 'BGMの選択（Jev）' })
+    expect(within(箇所).getByText(/今日 3回・3,030トークン/)).toBeInTheDocument()
+  })
+
   test('まだ一度も呼んでいない箇所は 0回 と出す（数えられていないのか使っていないのかを取り違えないため）', async () => {
     描く(llmApi())
     await 読み込みを待つ()

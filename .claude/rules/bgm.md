@@ -13,6 +13,8 @@ BGMは配信で流す曲を管理画面（`/bgm/`）で管理し、裏方のペ�
 
 **クレジットは合成ページの素材「再生中の曲」（種類 `bgm`。`src/bgm/credit-view.ts`・`bgm.css`）とチャットコマンドの差し込み語 `{bgm}`（`worker/bgm-credit.ts`）で見せる。** 素材は裏方と同じ押し出しの接続で切り替えを知り、止めているときは何も映さない。`{bgm}` は止めているときも無応答にせず、流していないと分かる文言に置き換える。曲名・クレジット表記・クレジット先のURLの上限は、`{bgm}` がTwitchの1通に収まるように決めてあるので、上限を変えるときは `MAX_BGM_CREDIT_LENGTH` と応答文の長さの検証（`worker/bot-config.ts`）を合わせて見る。
 
+**Jev による自動の切り替え（`worker/bgm-jev.ts`。既定はオフ、KV `bgm-settings`）は、収集（`worker/collect.ts`）であらすじを作り直せた回だけ呼ぶ。** 曲調・流したい場面を Choice の選択肢の説明にし、いま流している曲も選択肢に入れる（選ばれたら切り替えない）。確信度が `BGM_CONFIDENCE_THRESHOLD` に届かない・止めている・最後の切り替え（KV `bgm-switched-at`。手で流す曲を変えたときも記録する）から `BGM_SWITCH_COOLDOWN_MS` 経っていないときは切り替えない。判定のあいだに配信者が手で変えたら上書きしない。失敗は投げ、呼び出し側が `bgm-choice-failed` として記録する。押し出しは管理画面と共通の `worker/bgm-push.ts` を使う。
+
 何をするか（切り替える・音量だけ変える・止める・何もしない）の判断は `src/bgm/change.ts` の `bgmChangeOf` だけが持ち、曲が同じかは素材のIDで見る（曲名を直しただけで頭から流れ直さない）。鳴らすのは `src/bgm/player.ts`（ループ、切り替えは2秒のフェードでつなぐ。次の曲を鳴らせなければ前の曲を流したままにする）。起動の失敗は投げ、配信中の切り替えの1回の失敗では止めずにその裏方の箱に出す。→ `docs/decisions/bgm.md`
 
 利用者向けの説明は `docs/guide/bgm.md`。

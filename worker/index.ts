@@ -40,6 +40,7 @@
  * | GET  /api/admin/bgm              | セッション     | BGMの曲の一覧と、いま流す曲・音量 |
  * | PUT  /api/admin/bgm/tracks       | セッション     | BGMの曲の一覧の保存（流している曲を直したら裏方のページへ押し出す） |
  * | PUT  /api/admin/bgm/playback     | セッション     | 流すBGMと音量の保存と、裏方のページへの押し出し |
+ * | PUT  /api/admin/bgm/settings     | セッション     | BGMの設定（Jev に話題に合う曲へ切り替えさせるか）の保存 |
  * | GET  /api/admin/focus/messages   | セッション     | 取り上げる発言を選ぶための、直近の発言の一覧 |
  * | GET  /api/admin/viewers          | セッション     | 視聴者の記録の一覧（検索・ページ送り） |
  * | PATCH /api/admin/viewers/:userId | セッション     | 視聴者へのメモの保存 |
@@ -89,7 +90,7 @@ import {
   putSpeech,
 } from './admin-routes'
 import { getFocus, getFocusMessages, putFocus } from './focus-routes'
-import { getBgm, getOverlayBgm, overlayBgmSocket, putBgmPlayback, putBgmTracks } from './bgm-routes'
+import { getBgm, getOverlayBgm, overlayBgmSocket, putBgmPlayback, putBgmSettings, putBgmTracks } from './bgm-routes'
 import { deleteViewerRoute, getViewers, patchViewer } from './viewer-routes'
 import {
   deleteBot,
@@ -210,6 +211,7 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/admin/bgm', handle: getBgm },
   { method: 'PUT', path: '/api/admin/bgm/tracks', handle: putBgmTracks },
   { method: 'PUT', path: '/api/admin/bgm/playback', handle: putBgmPlayback },
+  { method: 'PUT', path: '/api/admin/bgm/settings', handle: putBgmSettings },
   { method: 'GET', path: '/api/admin/viewers', handle: getViewers },
   { method: 'PATCH', path: '/api/admin/viewers/:userId', handle: patchViewer },
   { method: 'DELETE', path: '/api/admin/viewers/:userId', handle: deleteViewerRoute },
@@ -338,7 +340,18 @@ export const handleScheduled = async (env: Env, dependencies: Pick<Dependencies,
   const gyazo = env.GYAZO_ACCESS_TOKEN
     ? createGyazoClient({ accessToken: env.GYAZO_ACCESS_TOKEN, fetch: dependencies.fetch })
     : undefined
-  await collectStats({ db: env.DB, store: env.STORE, twitch, ai: llm, gyazo, broadcasterId: env.TWITCH_BROADCASTER_ID, now: dependencies.now() })
+  const jev = createJev({ fetch: dependencies.fetch, apiKey: env.OPENROUTER_API_KEY, db: env.DB, now: dependencies.now })
+  await collectStats({
+    db: env.DB,
+    store: env.STORE,
+    twitch,
+    ai: llm,
+    jev,
+    alerts: env.ALERTS,
+    gyazo,
+    broadcasterId: env.TWITCH_BROADCASTER_ID,
+    now: dependencies.now(),
+  })
 }
 
 export default {
