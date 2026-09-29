@@ -17,19 +17,24 @@
  * （api.ts の moderate）、BANだけは取り返しが重いので確かめてから行う。処分された発言には、Twitch から届く
  * 削除・消去の通知で印が付く（画面が自分で印を付けない）。
  *
+ * 流れの下の入力欄から、配信者本人としてチャットを送れる（api.ts の send）。送った発言は、ほかの発言と同じく
+ * Twitch から届いた時点で流れに並ぶ（画面が先回りして並べない）。Enter で送るが、日本語入力の変換を確定する
+ * Enter（isComposing）では送らない。
+ *
  * 流れは下へ伸びる。いちばん下を見ているあいだは新しい1件に合わせて下へ送り、上へ遡って読んでいるあいだは
  * 送らない（読んでいる行が動かないように）。
  *
  * 注意: 失敗（読み取れない1件・アイコンを引けない・接続が切れた）は黙って無視せず、理由を画面に出す（Fail-Fast）。
  * 読み取れない1件のために流れ全体は止めない（届いた残りは並べ続ける）。
  */
-import { ArrowDown, Ban, Gift, Heart, Megaphone, Quote, Sparkles, Star, Timer, Trash2, Users, type LucideIcon } from 'lucide-react'
+import { ArrowDown, Ban, Gift, Heart, Megaphone, Quote, Send, Sparkles, Star, Timer, Trash2, Users, type LucideIcon } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { usePageActions } from '@/admin/page-actions'
 import { badgeKey, type BadgeMap } from '@/chat/badges'
 import { twitchEmoteUrl } from '@/chat/message'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { iconButtonName } from '@/core/icon-button'
 import type { FocusApi } from '@/focus/api'
 import { cn } from '@/lib/utils'
@@ -271,6 +276,8 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
   /** 注目コメントとして取り上げている発言のID。取り上げていなければ null */
   const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null)
   const actions = usePageActions()
+  /** 送る文言の入力欄 */
+  const [draft, setDraft] = useState('')
   /** 削除に成功した発言のID。Twitch から消えた知らせが届くまでのあいだ、同じ発言をもう一度削除させない */
   const [削除を頼んだ発言, set削除を頼んだ発言] = useState<ReadonlySet<string>>(new Set())
   /** この画面で取り上げ直したか。開いたときの読み込みが遅れて返っても、選び直した結果を古い内容で上書きしない */
@@ -378,6 +385,15 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
     })
   }
 
+  /** 入力欄の文言を、配信者としてチャットへ送る。送れたら入力欄を空にし、送れなければ文言を残す */
+  const 送る = () =>
+    void actions.run(async () => {
+      await api.send(draft)
+      setDraft('')
+      // 送った発言は Twitch から届いて流れに並ぶので、お知らせは出さない
+      return ''
+    })
+
   // 初めて見た人のアイコンを、まとめて問い合わせる。
   // 失敗したら問い合わせた印を外し、次に1件届いたときに問い合わせ直す（一時的な失敗でアイコンが出ないままにしない）
   useEffect(() => {
@@ -446,6 +462,32 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
           </Button>
         )}
       </div>
+
+      <form
+        className="flex gap-2"
+        onSubmit={(event) => {
+          event.preventDefault()
+          送る()
+        }}
+      >
+        <Input
+          aria-label="チャットに送る文言"
+          placeholder="配信者としてチャットに送る"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter') return
+            // 日本語入力の変換を確定する Enter は、送信の合図ではない（押すたびに書きかけが送られてしまう）
+            event.preventDefault()
+            // 送信のボタンが押せないとき（空欄・送信中）は、Enter でも送らない
+            if (!event.nativeEvent.isComposing && !actions.busy && draft !== '') 送る()
+          }}
+        />
+        <Button type="submit" disabled={actions.busy || draft === ''}>
+          <Send aria-hidden="true" />
+          送信
+        </Button>
+      </form>
     </div>
   )
 }

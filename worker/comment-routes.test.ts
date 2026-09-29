@@ -1,11 +1,12 @@
 /**
  * コメントビューアーの経路（/api/admin/comments/*）のテスト
  *
- * 確かめるのは次の4点である。
+ * 確かめるのは次の5点である。
  * - 配信者の画面からのWebSocketの接続が、配送先（Durable Object）へ引き渡されること
  * - ログインしていない接続・別のサイトから開かれた接続を断ること（WebSocketはGETなので、書き換えのときのCSRF対策が効かない）
  * - 発言した人のアイコンを、ユーザーIDからまとめて引けること
  * - 配信者が選んだ処分（削除・タイムアウト・BAN）を、botの権限で行えること
+ * - 配信者本人としてチャットを送れること（許可を取り直す前は、botで代わりに送らず断ること）
  */
 import { describe, expect, it } from 'vitest'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
@@ -256,6 +257,90 @@ describe('POST /api/admin/comments/moderation', () => {
     const { env } = await bot接続済みの環境()
 
     const response = await 処分する(env, { action: 'ban', messageId: '荒らしの発言', userId: '11111' }, undefined, { Origin: 'https://evil.example.com' })
+
+    expect(response.status).toBe(403)
+  })
+})
+
+describe('POST /api/admin/comments/messages', () => {
+  /** 配信者のトークンを保存した環境を作る。scopes を変えると、許可を取り直す前の状態を作れる */
+  const 配信者がログイン済みの環境 = async (scopes: string[] = ['user:read:chat', 'user:write:chat']) => {
+    const 作ったもの = 環境を作る()
+    await saveToken(作ったもの.env.STORE, 'broadcaster', {
+      accessToken: 'broadcaster-access-token',
+      refreshToken: 'broadcaster-refresh-token',
+      expiresAt: 現在時刻 + 60 * 60 * 1000,
+      scopes,
+      userId: 配信者のID,
+      login: 'haishinsha',
+    })
+    return 作ったもの
+  }
+
+  /** チャットの送信に応える Twitch の代役。送られたリクエストを記録する */
+  const 送信に応えるTwitch = () => {
+    const 送ったもの: { authorization: string | null; body: unknown }[] = []
+    const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const request = new Request(input, init)
+      if (request.url === 'https://api.twitch.tv/helix/chat/messages' && request.method === 'POST') {
+        送ったもの.push({ authorization: request.headers.get('Authorization'), body: await request.json() })
+        return Response.json({ data: [{ message_id: '送った発言', is_sent: true }] })
+      }
+      throw new Error(`テストで想定していない通信です: ${request.method} ${request.url}`)
+    }
+    return { fetchImpl, 送ったもの }
+  }
+
+  const 送る = async (env: Env, body: unknown, fetchImpl?: typeof fetch, headers: Record<string, string> = {}) =>
+    呼び出す(
+      new Request(`${サイト}/api/admin/comments/messages`, {
+        method: 'POST',
+        headers: { Cookie: await 配信者のクッキー(env), Origin: サイト, 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify(body),
+      }),
+      env,
+      fetchImpl,
+    )
+
+  it('配信者のトークンで、配信者本人としてチャットへ送る', async () => {
+    const { env } = await 配信者がログイン済みの環境()
+    const { fetchImpl, 送ったもの } = 送信に応えるTwitch()
+
+    const response = await 送る(env, { message: 'みなさん来てくれてありがとう' }, fetchImpl)
+
+    expect(response.status).toBe(204)
+    expect(送ったもの).toEqual([
+      {
+        authorization: 'Bearer broadcaster-access-token',
+        body: { broadcaster_id: 配信者のID, sender_id: 配信者のID, message: 'みなさん来てくれてありがとう' },
+      },
+    ])
+  })
+
+  it('配信者がまだ user:write:chat を許可していなければ、botで送らずにログインし直すよう伝える', async () => {
+    const { env } = await 配信者がログイン済みの環境(['user:read:chat'])
+
+    const response = await 送る(env, { message: 'みなさん来てくれてありがとう' })
+
+    expect(response.status).toBe(401)
+    const body = (await response.json()) as { error: { code: string; message: string } }
+    expect(body.error.code).toBe('missing-scope')
+    expect(body.error.message).toContain('ログインし直してください')
+  })
+
+  it('空の文言・500文字を超える文言は400にする', async () => {
+    const { env } = await 配信者がログイン済みの環境()
+
+    for (const message of ['', '   ', 'あ'.repeat(501)]) {
+      const response = await 送る(env, { message })
+      expect(response.status).toBe(400)
+    }
+  })
+
+  it('別のサイトから送られたものは断る', async () => {
+    const { env } = await 配信者がログイン済みの環境()
+
+    const response = await 送る(env, { message: 'みなさん来てくれてありがとう' }, undefined, { Origin: 'https://evil.example.com' })
 
     expect(response.status).toBe(403)
   })

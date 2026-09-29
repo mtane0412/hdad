@@ -14,7 +14,7 @@ botの接続には2つの道がある。認可コードフロー（`/api/auth/lo
 
 ## チャットの受信
 
-チャットの受信は EventSub の `channel.chat.message` を Webhook で購読する（`worker/eventsub-webhook.ts`）。購読の条件にある「チャットを読む人」（`user_id`）には配信者自身を指定するので、購読の内容は配信者だけで決まり、botの接続とは無関係である（`syncWebhookSubscriptions` を呼ぶのは配信者のログインのときだけ）。アプリアクセストークンでこの購読を作るには、読む人＝配信者から `user:read:chat` と `user:bot` に加えて、そのチャンネルの `channel:bot`（またはbotがモデレーターにされていること）が要る。配信者自身が読む人なので `channel:bot` をまとめて要求している（`worker/eventsub.ts` の `EXTRA_BROADCASTER_SCOPES` は `channel:bot`・`user:bot`・`moderation:read` の3つ）。
+チャットの受信は EventSub の `channel.chat.message` を Webhook で購読する（`worker/eventsub-webhook.ts`）。購読の条件にある「チャットを読む人」（`user_id`）には配信者自身を指定するので、購読の内容は配信者だけで決まり、botの接続とは無関係である（`syncWebhookSubscriptions` を呼ぶのは配信者のログインのときだけ）。アプリアクセストークンでこの購読を作るには、読む人＝配信者から `user:read:chat` と `user:bot` に加えて、そのチャンネルの `channel:bot`（またはbotがモデレーターにされていること）が要る。配信者自身が読む人なので `channel:bot` をまとめて要求している（`worker/eventsub.ts` の `EXTRA_BROADCASTER_SCOPES` は `channel:bot`・`user:bot`・`moderation:read`・`user:write:chat` の4つ。最後の1つはコメントビューアーから配信者として送るためのもの＝`docs/decisions/comments.md`）。
 
 チャットは配信の記録（D1）に書かない（件数の桁が違い、D1の書き込みの枠を食い合うため）。
 

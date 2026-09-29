@@ -23,8 +23,12 @@ import { AuthError, deleteToken, getAccessToken, loadToken, saveToken, type Stor
 const MAX_MESSAGE_LENGTH = 500
 const MILLISECONDS_PER_SECOND = 1000
 
-/** 管理画面から送られてきた本文を取り出す。送れない本文はTwitchへ問い合わせる前に拒否する */
-const readMessage = async (request: Request): Promise<string> => {
+/**
+ * 管理画面から送られてきた本文を取り出す。送れない本文はTwitchへ問い合わせる前に拒否する。
+ *
+ * botとして送る（このファイル）ときと、配信者として送る（comment-routes.ts）ときで同じ検証を使う。
+ */
+export const readMessageToSend = async (request: Request): Promise<string> => {
   const body: unknown = await request.json().catch(() => {
     throw new HttpError(STATUS.badRequest, 'invalid-body', '本文はJSONにしてください')
   })
@@ -101,7 +105,7 @@ export const deleteBot = async (context: Context): Promise<Response> => {
  */
 export const postBotMessage = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
-  const message = await readMessage(context.request)
+  const message = await readMessageToSend(context.request)
 
   await sendAsBot(context, message)
   return new Response(null, { status: STATUS.noContent })

@@ -8,6 +8,7 @@
  * バッジの画像はチャットボックスと同じもの（src/chat/badges.ts）を使う。
  * モデレーターの操作（発言の削除・タイムアウト・BAN）は POST /api/admin/comments/moderation に頼み、botの権限で行われる。
  * タイムアウトの長さは Worker が決め、応答で知らせてくる（画面に同じ数を持たない）。
+ * チャットの送信は POST /api/admin/comments/messages に頼み、配信者本人として送られる。
  *
  * 呼び出しと失敗の扱いは `../core/api` に任せ、fetch を引数で受け取るのはテストで差し替えるためである。
  *
@@ -19,6 +20,7 @@ import type { FeedEntry } from './feed'
 
 const ICONS_PATH = '/api/admin/comments/icons'
 const MODERATION_PATH = '/api/admin/comments/moderation'
+const MESSAGES_PATH = '/api/admin/comments/messages'
 
 /** 画面から選べる処分。worker/comment-routes.ts の MODERATION_ACTIONS と合わせる */
 export type ModerationAction = 'delete' | 'timeout' | 'ban'
@@ -61,6 +63,12 @@ export interface CommentApi {
    * @throws ApiError botが未接続・モデレーターでないなど、Workerが断った
    */
   moderate(action: ModerationAction, target: ModerationTarget): Promise<ModerationResult>
+  /**
+   * 配信者本人としてチャットへ1通送る（文言の検証は Worker が行う）。
+   *
+   * @throws ApiError 配信者が許可を取り直していない・Twitchが送らなかったなど、Workerが断った
+   */
+  send(message: string): Promise<void>
 }
 
 export const createCommentApi = (fetchImpl: typeof fetch): CommentApi => {
@@ -76,6 +84,9 @@ export const createCommentApi = (fetchImpl: typeof fetch): CommentApi => {
       return Object.fromEntries(Object.entries(icons).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
     },
     loadBadges: () => loadBadges(fetchImpl),
+    send: async (message) => {
+      await call(MESSAGES_PATH, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message }) })
+    },
     moderate: async (action, { messageId, userId }) =>
       readModerationResult(
         await call(MODERATION_PATH, {
