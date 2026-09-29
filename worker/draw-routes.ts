@@ -4,9 +4,13 @@
  * 配信者が描く画面（/draw/）で引いた線を中継先（worker/draw-channel.ts）へ届けるための入口である。
  * 合成ページ側の入口は、守り方がセッションではなくオーバーレイ用キーなので worker/overlay-routes.ts に置く
  * （注目コメントと同じ置き分け）。
+ *
+ * 描いたものの保存（PUT /api/admin/draw/strokes）もここにある。中継先は開いている接続の間だけの通り道なので、
+ * OBSのブラウザソースを作り直しても描いたものが残るよう、引き終えた線をKVへ写す（worker/draw-config.ts）。
  */
 import { connectDrawSocket } from './draw-channel'
-import { HttpError, STATUS, requireSession, type Context } from './http'
+import { loadStrokes, parseStrokes, saveStrokes } from './draw-config'
+import { HttpError, STATUS, requireAdmin, requireSession, type Context } from './http'
 
 /**
  * GET /api/admin/draw/socket: 描く画面からのWebSocketの接続を、描く側として中継先へ引き渡す。
@@ -25,4 +29,27 @@ export const drawSocket = async (context: Context): Promise<Response> => {
     throw new HttpError(STATUS.badRequest, 'expected-websocket', 'この経路はWebSocketの接続にだけ使えます')
   }
   return connectDrawSocket(context.env.DRAW, context.request, true)
+}
+
+/** GET /api/admin/draw/strokes: 保存されている線。描く画面を開き直したときに、続きから描くために読む */
+export const getDrawStrokes = async (context: Context): Promise<Response> => {
+  await requireSession(context)
+  return Response.json({ strokes: await loadStrokes(context.env.STORE) })
+}
+
+/**
+ * PUT /api/admin/draw/strokes: 描いたものを検証して保存する（全消しの直後は空の配列を送る）。
+ *
+ * デバウンスは描く画面の側が持ち（src/draw/save.ts）、ここは受け取ったものを検証して書くだけである。
+ *
+ * @throws ConfigError 線の形に問題がある場合（index.ts が問題点付きの400にする）
+ */
+export const putDrawStrokes = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  const body: unknown = await context.request.json().catch(() => {
+    throw new HttpError(STATUS.badRequest, 'invalid-body', '本文はJSONにしてください')
+  })
+  const strokes = parseStrokes(body)
+  await saveStrokes(context.env.STORE, strokes)
+  return Response.json({ strokes })
 }

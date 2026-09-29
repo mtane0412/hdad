@@ -5,6 +5,7 @@
  */
 import { connectAlertSocket } from './alert-channel'
 import { connectDrawSocket } from './draw-channel'
+import { loadStrokes } from './draw-config'
 import { createGyazoClient } from './gyazo'
 import { loadFocusTarget } from './focus-config'
 import { HttpError, STATUS, hasSession, requireOverlayKey, type Context } from './http'
@@ -44,6 +45,17 @@ export const overlayDrawSocket = async (context: Context): Promise<Response> => 
     throw new HttpError(STATUS.badRequest, 'expected-websocket', 'この経路はWebSocketの接続にだけ使えます')
   }
   return connectDrawSocket(context.env.DRAW, context.request, false)
+}
+
+/**
+ * GET /api/overlay/draw/strokes?key=: 保存されている手書きの線を返す。
+ *
+ * 合成ページは開いたときにこれを1度読み、それを初期状態として描いてから中継先へつなぐ。中継先は開いている
+ * 接続の間だけの通り道なので、これを読まないとブラウザソースを作り直したときに描いたものが消える（issue #133）。
+ */
+export const getDrawStrokes = async (context: Context): Promise<Response> => {
+  await requireOverlayKey(context)
+  return Response.json({ strokes: await loadStrokes(context.env.STORE) })
 }
 
 /** 素材のIDはアップロードのたびに変わり、同じIDの中身は変わらないので、長くキャッシュさせる。キー付きのURLなので共有キャッシュには載せない */

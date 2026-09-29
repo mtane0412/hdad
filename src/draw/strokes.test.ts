@@ -5,7 +5,7 @@
  * 積み上げ方が正しいこと、そして合成ページを途中で開いたときに起こることを確かめる。
  */
 import { describe, expect, it } from 'vitest'
-import { NO_STROKES, MAX_STROKES, applyDrawMessage } from './strokes'
+import { MAX_POINTS_PER_STROKE, MAX_STROKES, NO_STROKES, applyDrawMessage, isStroke } from './strokes'
 import type { StrokeStart } from './stroke'
 
 /** 色と太さを省いて書けるようにする（この検査の主題ではないため） */
@@ -107,5 +107,46 @@ describe('applyDrawMessage', () => {
     applyDrawMessage(描き始めたあと, { type: 'extend', id: '線1', points: [{ x: 0.3, y: 0.4 }] })
 
     expect(描き始めたあと.strokes.map(({ points }) => points.length)).toEqual([1])
+  })
+})
+
+describe('isStroke', () => {
+  /** 保存から読み出した1本ぶんの形（点の配列・色・太さの名前を持つ） */
+  const 保存された線 = { id: '線1', points: [{ x: 0.1, y: 0.2 }], color: 'red', width: 'bold' }
+
+  it('保存から読み出した形の1本を受け入れる', () => {
+    expect(isStroke(保存された線)).toBe(true)
+  })
+
+  it('選べない色の名前を拒む', () => {
+    // 既定に戻して描くと、配信画面に意図しない色の線が出たまま原因に気付けない
+    expect(isStroke({ ...保存された線, color: 'magenta' })).toBe(false)
+  })
+
+  it('選べない太さの名前を拒む', () => {
+    expect(isStroke({ ...保存された線, width: 'ものすごく太い' })).toBe(false)
+  })
+
+  it('点を1つも持たない線を拒む', () => {
+    expect(isStroke({ ...保存された線, points: [] })).toBe(false)
+  })
+
+  it('点が多すぎる線を拒む', () => {
+    const 多すぎる点 = Array.from({ length: MAX_POINTS_PER_STROKE + 1 }, () => ({ x: 0.5, y: 0.5 }))
+
+    expect(isStroke({ ...保存された線, points: 多すぎる点 })).toBe(false)
+  })
+
+  it('座標が数でない点を持つ線を拒む', () => {
+    expect(isStroke({ ...保存された線, points: [{ x: '0.1', y: 0.2 }] })).toBe(false)
+  })
+
+  it('名前が空の線を拒む', () => {
+    expect(isStroke({ ...保存された線, id: '' })).toBe(false)
+  })
+
+  it('線でないものを拒む', () => {
+    expect(isStroke(null)).toBe(false)
+    expect(isStroke('線1')).toBe(false)
   })
 })
