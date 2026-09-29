@@ -281,6 +281,11 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
   const actions = usePageActions()
   /** 送る文言の入力欄 */
   const [draft, setDraft] = useState('')
+  /**
+   * 送っている途中か。actions.busy は描き直すまで変わらないので、素早い連打で同じ文言を2度送らないよう
+   * 描き直しを待たずに立てる印を別に持つ
+   */
+  const 送信中 = useRef(false)
   /** 削除に成功した発言のID。Twitch から消えた知らせが届くまでのあいだ、同じ発言をもう一度削除させない */
   const [削除を頼んだ発言, set削除を頼んだ発言] = useState<ReadonlySet<string>>(new Set())
   /** この画面で取り上げ直したか。開いたときの読み込みが遅れて返っても、選び直した結果を古い内容で上書きしない */
@@ -389,15 +394,23 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
   }
 
   /** 入力欄の文言を、配信者としてチャットへ送る。送れたら入力欄を空にし、送れなければ文言を残す */
-  const 送る = () =>
+  const 送る = () => {
+    if (送信中.current) return
+    送信中.current = true
     void actions.run(async () => {
-      // 送っているあいだに書き足された文言は消さない（送った文言のままのときだけ空にする）
-      const message = draft
-      await api.send(message)
-      setDraft((current) => (current === message ? '' : current))
-      // 送った発言は Twitch から届いて流れに並ぶので、お知らせは出さない
-      return ''
+      try {
+        // 送っているあいだに書き足された文言は消さない（送った文言のままのときだけ空にする）
+        const message = draft
+        await api.send(message)
+        setDraft((current) => (current === message ? '' : current))
+        // 送った発言は Twitch から届いて流れに並ぶので、お知らせは出さない
+        return ''
+      } finally {
+        // 送れなかったときも外す（外さないと、理由を読んだあとにもう一度送れなくなる）
+        送信中.current = false
+      }
     })
+  }
 
   // 初めて見た人のアイコンを、まとめて問い合わせる。
   // 失敗したら問い合わせた印を外し、次に1件届いたときに問い合わせ直す（一時的な失敗でアイコンが出ないままにしない）

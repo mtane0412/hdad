@@ -428,6 +428,33 @@ describe('CommentsPage', () => {
       expect(入力欄()).toHaveValue('次の話題は')
     })
 
+    test('画面が描き直される前に Enter が2回届いても、同じ文言を2度送らない', async () => {
+      let 送り終える: () => void = () => {}
+      const api = 代役のAPI({ send: vi.fn(() => new Promise<void>((resolve) => (送り終える = resolve))) })
+      描く(api)
+      fireEvent.change(入力欄(), { target: { value: 'こんばんは' } })
+
+      // 前提: 2回の Enter のあいだに描き直しが入らない（素早い連打）
+      act(() => {
+        入力欄().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+        入力欄().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      })
+      await act(async () => 送り終える())
+
+      expect(api.send).toHaveBeenCalledTimes(1)
+    })
+
+    test('送れなかったあとは、もう一度送れる', async () => {
+      const send = vi.fn<CommentApi['send']>().mockRejectedValueOnce(new Error('Twitchがチャットを送信しませんでした')).mockResolvedValue()
+      描く(代役のAPI({ send }))
+
+      await userEvent.type(入力欄(), 'こんばんは{Enter}')
+      await screen.findByText(/Twitchがチャットを送信しませんでした/)
+      await userEvent.type(入力欄(), '{Enter}')
+
+      expect(send).toHaveBeenCalledTimes(2)
+    })
+
     test('送れなかったら理由を出し、入れた文言は消さない（許可を取り直していないなど）', async () => {
       const api = 代役のAPI({ send: vi.fn(async () => Promise.reject(new Error('配信者のトークンに user:write:chat がありません。ログインし直してください'))) })
       描く(api)
