@@ -16,6 +16,7 @@ import type { DrawMessage } from './stroke'
 const 中継先を作る = () => {
   const 送られたもの: DrawMessage[] = []
   let ハンドラ: DrawSocketHandlers | null = null
+  let 閉じた回数 = 0
   const connect = (handlers: DrawSocketHandlers): DrawWriter => {
     ハンドラ = handlers
     return {
@@ -23,11 +24,15 @@ const 中継先を作る = () => {
         送られたもの.push(message)
         return true
       },
+      close: () => {
+        閉じた回数 += 1
+      },
     }
   }
   return {
     送られたもの,
     connect,
+    閉じた回数: () => 閉じた回数,
     切れたことにする: () => ハンドラ?.onStatus('disconnected'),
     つなぎ直したことにする: () => ハンドラ?.onStatus('reconnected'),
     知らせる: (message: string) => ハンドラ?.onWarning(message),
@@ -86,6 +91,16 @@ describe('DrawPage', () => {
     act(() => 中継先.知らせる('ログインが切れていないか確かめてください'))
 
     expect(screen.getByRole('status').textContent).toContain('ログインが切れていないか確かめてください')
+  })
+
+  it('画面を離れたら、接続を閉じる', () => {
+    // 閉じないと、ページを行き来するたびに接続が増えていく
+    const 中継先 = 中継先を作る()
+    const { unmount } = render(<DrawPage connect={中継先.connect} />)
+
+    unmount()
+
+    expect(中継先.閉じた回数()).toBe(1)
   })
 
   it('ポインタを押した場所から、線を描き始めたことを送る', () => {

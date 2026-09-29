@@ -63,6 +63,8 @@ export interface DrawWriter {
    * @returns 送れたなら true。つながっていなければ false（描いている途中で切れた分は貯めずに落とす）
    */
   send(message: DrawMessage): boolean
+  /** つなぐのをやめる。描く画面を離れるときに呼ぶ（呼ばないと画面を行き来するたびに接続が増える） */
+  close(): void
 }
 
 /** 描く画面として中継先へつなぎ、線を送れるようにする */
@@ -77,5 +79,5 @@ export const connectDrawWriter = (handlers: DrawSocketHandlers): DrawWriter => {
     },
     WRITER_HINT,
   )
-  return { send: (message) => connection.send(JSON.stringify(message)) }
+  return { send: (message) => connection.send(JSON.stringify(message)), close: () => connection.close() }
 }

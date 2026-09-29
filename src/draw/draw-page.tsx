@@ -45,10 +45,16 @@ export const DrawPage = ({ connect }: DrawPageProps) => {
   const [failure, setFailure] = useState<string | null>(null)
 
   useEffect(() => {
-    writerRef.current = connect({
+    const writer = connect({
       onStatus: (status) => setNotice(status === 'disconnected' ? '中継先との接続が切れました。再接続します…' : null),
       onWarning: (message) => setNotice(message),
     })
+    writerRef.current = writer
+    // 画面を離れたら接続を閉じる（閉じないと、ページを行き来するたびに接続が増えていく）
+    return () => {
+      writer.close()
+      writerRef.current = null
+    }
   }, [connect])
 
   useEffect(() => {

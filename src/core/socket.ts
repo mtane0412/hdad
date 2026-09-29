@@ -36,6 +36,7 @@ export interface SocketLike {
   onmessage: ((event: MessageEvent) => void) | null
   onclose: ((event: CloseEvent) => void) | null
   send(data: string): void
+  close(): void
 }
 
 export interface SocketHandlers {
@@ -55,6 +56,13 @@ export interface SocketConnection {
    * @returns 送れたなら true。つながっていなければ送らずに false（貯めて後から流すと、時間のずれたものが現れる）
    */
   send(text: string): boolean
+  /**
+   * つなぐのをやめる。
+   *
+   * 呼んだあとはつなぎ直さず、切断も知らせない（自分で閉じたため）。画面を離れるときに呼ばないと、
+   * 画面を行き来するたびに接続が増えていく。
+   */
+  close(): void
 }
 
 /** 同じサイトのWorkerへ、httpではなくwsのURLでつなぐ */
@@ -81,10 +89,16 @@ export const connectSocket = (
   let disconnected = false
   /** いまつながっている接続。つながっていなければ null（送る先がない） */
   let 使える接続: SocketLike | null = null
+  /** いまの接続。閉じるときに使う（つながる前でも閉じられるようにする） */
+  let いまの接続: SocketLike | null = null
+  /** 呼び出し側がやめたか。やめたあとはつなぎ直さない */
+  let やめた = false
+  /** 生存確認を送っているタイマー。閉じるときに止める（本物の接続の onclose を待たずに止める） */
+  let pingTimer: number | undefined
 
   const つなぐ = (): void => {
     const socket = open(url)
-    let pingTimer: number | undefined
+    いまの接続 = socket
     /** この接続が一度でもつながったか。つながらないまま閉じたなら、キーや設定を疑う手がかりを出す */
     let opened = false
 
@@ -107,6 +121,8 @@ export const connectSocket = (
     socket.onclose = () => {
       window.clearInterval(pingTimer)
       使える接続 = null
+      // 自分で閉じたなら、つなぎ直しも知らせもしない
+      if (やめた) return
       // ブラウザのWebSocketは、つながらなかった理由（Workerの401など）を教えてくれない。
       // 一度もつながっていないなら、いちばんありそうな原因を添えて知らせる
       if (!opened) handlers.onWarning(hint)
@@ -124,6 +140,11 @@ export const connectSocket = (
       if (使える接続 === null) return false
       使える接続.send(text)
       return true
+    },
+    close: () => {
+      やめた = true
+      window.clearInterval(pingTimer)
+      いまの接続?.close()
     },
   }
 }

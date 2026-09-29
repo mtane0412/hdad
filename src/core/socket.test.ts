@@ -9,12 +9,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { connectSocket, type SocketLike } from './socket'
 
 /** つながる・閉じる・届くの合図を手で起こせる、テスト用のWebSocket */
-const 偽のWebSocketを作る = (): SocketLike & { 送ったもの: string[]; つなぐ: () => void; 閉じる: () => void; 届ける: (data: unknown) => void } => {
-  const socket: SocketLike & { 送ったもの: string[]; つなぐ: () => void; 閉じる: () => void; 届ける: (data: unknown) => void } = {
+const 偽のWebSocketを作る = (): SocketLike & { 送ったもの: string[]; 閉じられた: boolean; つなぐ: () => void; 閉じる: () => void; 届ける: (data: unknown) => void } => {
+  const socket: SocketLike & { 送ったもの: string[]; 閉じられた: boolean; つなぐ: () => void; 閉じる: () => void; 届ける: (data: unknown) => void } = {
     送ったもの: [],
+    閉じられた: false,
     onopen: null,
     onmessage: null,
     onclose: null,
+    close: () => {
+      socket.閉じられた = true
+    },
     send: (data) => socket.送ったもの.push(data),
     つなぐ: () => socket.onopen?.(new Event('open')),
     閉じる: () => socket.onclose?.(new CloseEvent('close')),
@@ -153,6 +157,44 @@ describe('connectSocket', () => {
 
     expect(接続.send('{"type":"start"}')).toBe(true)
     expect(記録.いま().送ったもの).toEqual(['{"type":"start"}'])
+  })
+
+  it('閉じたら、つなぎ直さない', () => {
+    // 描く画面から離れたあとも接続が残ると、画面を行き来するたびに接続が増えていく
+    const 記録 = 接続の記録を作る()
+    const 接続 = connectSocket('wss://例', 何もしないハンドラ(), '手がかりの文', 記録.open)
+
+    記録.いま().つなぐ()
+    接続.close()
+
+    expect(記録.いま().閉じられた).toBe(true)
+    記録.いま().閉じる()
+    vi.advanceTimersByTime(60000)
+    expect(記録.作られたもの).toHaveLength(1)
+  })
+
+  it('閉じたあとは、生存確認も送らない', () => {
+    const 記録 = 接続の記録を作る()
+    const 接続 = connectSocket('wss://例', 何もしないハンドラ(), '手がかりの文', 記録.open)
+
+    記録.いま().つなぐ()
+    接続.close()
+    vi.advanceTimersByTime(60000)
+
+    expect(記録.いま().送ったもの).toEqual([])
+  })
+
+  it('閉じたあとは、切断も知らせない', () => {
+    // 自分で閉じたのだから、配信画面に「接続が切れました」と出す理由がない
+    const 記録 = 接続の記録を作る()
+    const ハンドラ = 何もしないハンドラ()
+    const 接続 = connectSocket('wss://例', ハンドラ, '手がかりの文', 記録.open)
+
+    記録.いま().つなぐ()
+    接続.close()
+    記録.いま().閉じる()
+
+    expect(ハンドラ.onStatus).not.toHaveBeenCalled()
   })
 
   it('つながっていなければ送らずに落とす', () => {
