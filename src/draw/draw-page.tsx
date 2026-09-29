@@ -16,12 +16,15 @@
  * 逆に合成ページを開き直すと、それまでに引いた線は出ない。
  * 注意: 消しゴムとひとつ戻すは持たない。まず全消しで足りるかを実際の配信で確かめてから決める（issue #132）。
  */
+import { cn } from 'cn'
+import { Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { Link } from '@/app/router'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+import { Separator } from '@/components/ui/separator'
 import { startCanvasSurface } from '@/core/mount'
 import { createStrokeId, toRatio } from './pointer'
 import { DEFAULT_COLOR_ID, DEFAULT_WIDTH_ID, DRAW_COLORS, DRAW_WIDTHS } from './tools'
@@ -29,6 +32,17 @@ import type { DrawSocketHandlers, DrawWriter } from './socket'
 import { NO_STROKES, applyDrawMessage, type Strokes } from './strokes'
 import type { DrawMessage } from './stroke'
 import { drawStrokes } from './view'
+
+/**
+ * 太さの見本を描く基準の箱の幅（画素）。
+ *
+ * 太さは箱の幅に対する比で持っている（src/draw/tools.ts）ので、道具箱に見本を出すにも基準の幅が要る。
+ * ここを大きくすると見本だけが太くなり、実際の線の太さとの対応がずれる。
+ */
+const SAMPLE_BOX_WIDTH = 360
+
+/** 見本の線の最小の高さ（画素）。細い線でも1本の線として見えるだけの高さは残す */
+const SAMPLE_MIN_HEIGHT = 2
 
 export interface DrawPageProps {
   /** 中継先へつなぐ。テストで差し替えられるよう受け取る */
@@ -153,34 +167,63 @@ export const DrawPage = ({ connect }: DrawPageProps) => {
               {notice}
             </p>
           )}
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <fieldset className="space-y-2">
-              <legend className="text-sm font-medium">色</legend>
-              <RadioGroup value={colorId} onValueChange={(値) => setColorId(String(値))} className="flex flex-wrap gap-3">
-                {DRAW_COLORS.map((色) => (
-                  <Label key={色.id} htmlFor={`${道具の名前}-color-${色.id}`} className="flex items-center gap-2 text-sm font-normal">
-                    <RadioGroupItem id={`${道具の名前}-color-${色.id}`} value={色.id} />
-                    {/* 色そのものは名前だけでは伝わらないので見本を添える（読み上げには名前だけを渡す） */}
-                    <span aria-hidden className="size-3 rounded-full border border-border" style={{ backgroundColor: 色.value }} />
-                    {色.label}
-                  </Label>
-                ))}
-              </RadioGroup>
-            </fieldset>
+          {/* 道具は形で選べるようにする（色は色そのもの、太さは太さの見本）。名前は読み上げにだけ渡す */}
+          <div className="flex flex-wrap items-center gap-4 rounded-md border bg-muted/40 p-2">
+            <RadioGroup
+              value={colorId}
+              onValueChange={(値) => setColorId(String(値))}
+              aria-label="線の色"
+              className="flex flex-row flex-wrap items-center gap-1.5"
+            >
+              {DRAW_COLORS.map((色) => (
+                <Label
+                  key={色.id}
+                  htmlFor={`${道具の名前}-color-${色.id}`}
+                  className={cn(
+                    'size-7 cursor-pointer rounded-full border-2 border-border transition has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50',
+                    colorId === 色.id && 'border-foreground ring-2 ring-foreground/30',
+                  )}
+                  style={{ backgroundColor: 色.value }}
+                >
+                  <RadioGroupItem id={`${道具の名前}-color-${色.id}`} value={色.id} className="sr-only" />
+                  <span className="sr-only">{色.label}</span>
+                </Label>
+              ))}
+            </RadioGroup>
 
-            <fieldset className="space-y-2">
-              <legend className="text-sm font-medium">太さ</legend>
-              <RadioGroup value={widthId} onValueChange={(値) => setWidthId(String(値))} className="flex flex-wrap gap-3">
-                {DRAW_WIDTHS.map((太さ) => (
-                  <Label key={太さ.id} htmlFor={`${道具の名前}-width-${太さ.id}`} className="flex items-center gap-2 text-sm font-normal">
-                    <RadioGroupItem id={`${道具の名前}-width-${太さ.id}`} value={太さ.id} />
-                    {太さ.label}
-                  </Label>
-                ))}
-              </RadioGroup>
-            </fieldset>
+            <Separator orientation="vertical" className="h-7" />
 
-            <Button type="button" variant="outline" onClick={全部消す}>
+            <RadioGroup
+              value={widthId}
+              onValueChange={(値) => setWidthId(String(値))}
+              aria-label="線の太さ"
+              className="flex flex-row flex-wrap items-center gap-1.5"
+            >
+              {DRAW_WIDTHS.map((太さ) => (
+                <Label
+                  key={太さ.id}
+                  htmlFor={`${道具の名前}-width-${太さ.id}`}
+                  className={cn(
+                    'flex h-7 w-10 cursor-pointer items-center justify-center rounded-md border border-border transition has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50',
+                    widthId === 太さ.id && 'border-foreground bg-accent',
+                  )}
+                >
+                  <RadioGroupItem id={`${道具の名前}-width-${太さ.id}`} value={太さ.id} className="sr-only" />
+                  <span
+                    aria-hidden
+                    className="w-6 rounded-full bg-foreground"
+                    style={{ height: Math.max(SAMPLE_MIN_HEIGHT, Math.round(太さ.ratio * SAMPLE_BOX_WIDTH)) }}
+                  />
+                  <span className="sr-only">{太さ.label}</span>
+                </Label>
+              ))}
+            </RadioGroup>
+
+            <Separator orientation="vertical" className="h-7" />
+
+            {/* 消したものは戻せないので、アイコンだけにせず文字も残す（src/core/icon-button.ts の注意） */}
+            <Button type="button" variant="outline" size="sm" onClick={全部消す}>
+              <Trash2 />
               全部消す
             </Button>
           </div>
