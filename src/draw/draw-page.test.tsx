@@ -284,6 +284,28 @@ describe('DrawPage の保存と、保存されている図の守り', () => {
     }
   })
 
+  it('読み終える前に引いた線は、読めた時点でまとめて保存する', async () => {
+    // 読めるまで書けずにいた線が、次の線を引くまで保存されないままにならないようにする
+    vi.useFakeTimers()
+    try {
+      const 保存先 = 保存先を作る(保存されている図)
+      保存先.読み出しを保留する()
+      render(<DrawPage connect={中継先を作る().connect} api={保存先.api} />)
+      const キャンバス = 描く場所を得る()
+      キャンバス.dispatchEvent(new PointerEvent('pointerdown', { clientX: 100, clientY: 100, bubbles: true }))
+      キャンバス.dispatchEvent(new PointerEvent('pointerup', { clientX: 100, clientY: 100, bubbles: true }))
+
+      await act(async () => {
+        保存先.読み出しを解く()
+      })
+      await act(() => vi.advanceTimersByTimeAsync(SAVE_DELAY_MS))
+
+      expect(保存先.書かれたもの.at(-1)?.strokes.map(({ id }) => id)).toEqual(['前に引いた線', expect.any(String)])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('読み終えたあとは、保存されているものと合わせて保存する', async () => {
     vi.useFakeTimers()
     try {

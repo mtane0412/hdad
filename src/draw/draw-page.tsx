@@ -104,9 +104,12 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
       .load()
       .then(({ strokes }) => {
         if (離れた) return
+        // 読めるまでは書けずにいたので、読み終わる前に引いた線はこの時点でまとめて書く
+        const 読む前に引いていた = strokesRef.current.strokes.length > 0
         // 読み終わる前に全消しを押していたら、読めたものは描き直さない（消した図が戻ってきてしまう）
         if (!消したRef.current) strokesRef.current = { strokes: [...strokes, ...strokesRef.current.strokes] }
         書いてよいRef.current = true
+        if (読む前に引いていた) saver.finished(strokesRef.current)
       })
       .catch((error: unknown) =>
         setNotice(
@@ -116,7 +119,7 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
     return () => {
       離れた = true
     }
-  }, [api])
+  }, [api, saver])
 
   // 画面を離れるときは、待っている書き込みを捨てずに書き切る（最後に引いた数本が残らないため）
   useEffect(() => () => saver.flush(), [saver])
