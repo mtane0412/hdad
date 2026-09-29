@@ -4,6 +4,7 @@
  * どれもTwitchのトークンではなくオーバーレイ用キーで守る。素材だけは、管理画面でのプレビューのために配信者のセッションでも読める。
  */
 import { connectAlertSocket } from './alert-channel'
+import { connectDrawSocket } from './draw-channel'
 import { createGyazoClient } from './gyazo'
 import { loadFocusTarget } from './focus-config'
 import { HttpError, STATUS, hasSession, requireOverlayKey, type Context } from './http'
@@ -29,6 +30,20 @@ export const overlaySocket = async (context: Context): Promise<Response> => {
     throw new HttpError(STATUS.badRequest, 'expected-websocket', 'この経路はWebSocketの接続にだけ使えます')
   }
   return connectAlertSocket(context.env.ALERTS, context.request)
+}
+
+/**
+ * GET /api/overlay/draw?key=: 合成ページからのWebSocketの接続を、見るだけとして中継先へ引き渡す。
+ *
+ * 配信者が描く画面（/draw/）で引いた線がここへ流れてくる。オーバーレイ用キーは配信画面に映りうるので、
+ * この接続からは描けない（描く側として受け入れるのは worker/draw-routes.ts の経路だけ）。
+ */
+export const overlayDrawSocket = async (context: Context): Promise<Response> => {
+  await requireOverlayKey(context)
+  if (context.request.headers.get('Upgrade') !== 'websocket') {
+    throw new HttpError(STATUS.badRequest, 'expected-websocket', 'この経路はWebSocketの接続にだけ使えます')
+  }
+  return connectDrawSocket(context.env.DRAW, context.request, false)
 }
 
 /** 素材のIDはアップロードのたびに変わり、同じIDの中身は変わらないので、長くキャッシュさせる。キー付きのURLなので共有キャッシュには載せない */

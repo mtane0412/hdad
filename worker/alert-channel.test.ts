@@ -2,11 +2,11 @@
  * アラートの配送（Durable Object）のテスト
  *
  * WebSocketの接続そのもの（Upgrade）は Cloudflare のランタイムでしか作れないため、ここでは確かめない。
- * 確かめるのは、押し出されたアラートを開いている接続すべてへ配ること、1本が壊れていても残りへ配ること、
- * そして Worker 側から押し出す入口（pushAlert）が失敗を握りつぶさないことである。
+ * 確かめるのは、押し出されたアラートを開いている接続へ配ること、そして Worker 側から押し出す入口（pushAlert）が
+ * 失敗を握りつぶさないことである（配る部分そのものは worker/socket-broadcast.test.ts が確かめる）。
  */
 import { describe, expect, it } from 'vitest'
-import { AlertChannel, broadcast, pushAlert, type AlertSocket } from './alert-channel'
+import { AlertChannel, pushAlert, type AlertSocket } from './alert-channel'
 import { createFakeAlertChannel } from './fake-alert-channel'
 import type { OverlayAlert } from './alert-event'
 
@@ -18,57 +18,10 @@ const アラート: OverlayAlert = {
 }
 
 /** 送られた文字列を覚えておく、テスト用の接続 */
-const 接続を作る = (): AlertSocket & { 送られたもの: string[]; 閉じた理由: string[] } => {
+const 接続を作る = (): AlertSocket & { 送られたもの: string[] } => {
   const 送られたもの: string[] = []
-  const 閉じた理由: string[] = []
-  return {
-    送られたもの,
-    閉じた理由,
-    send: (message) => 送られたもの.push(message),
-    close: (_code, reason) => 閉じた理由.push(reason ?? ''),
-  }
+  return { 送られたもの, send: (message) => 送られたもの.push(message), close: () => undefined }
 }
-
-/** 送ろうとすると必ず失敗する、テスト用の接続 */
-const 壊れた接続を作る = (): AlertSocket & { 閉じた理由: string[] } => {
-  const 閉じた理由: string[] = []
-  return {
-    閉じた理由,
-    send: () => {
-      throw new Error('この接続はもう使えません')
-    },
-    close: (_code, reason) => 閉じた理由.push(reason ?? ''),
-  }
-}
-
-describe('broadcast', () => {
-  it('開いている接続すべてへ同じ文字列を送る', () => {
-    const 接続1 = 接続を作る()
-    const 接続2 = 接続を作る()
-
-    expect(broadcast([接続1, 接続2], '{"text":"やあ"}')).toBe(2)
-
-    expect(接続1.送られたもの).toEqual(['{"text":"やあ"}'])
-    expect(接続2.送られたもの).toEqual(['{"text":"やあ"}'])
-  })
-
-  it('1本の接続が壊れていても、残りの接続へは送る', () => {
-    const 壊れた接続 = 壊れた接続を作る()
-    const 生きている接続 = 接続を作る()
-
-    expect(broadcast([壊れた接続, 生きている接続], '{"text":"やあ"}')).toBe(1)
-
-    expect(生きている接続.送られたもの).toEqual(['{"text":"やあ"}'])
-  })
-
-  it('送れなかった接続は閉じる（次のアラートで同じ失敗を繰り返さないため）', () => {
-    const 壊れた接続 = 壊れた接続を作る()
-
-    broadcast([壊れた接続], '{"text":"やあ"}')
-
-    expect(壊れた接続.閉じた理由).toHaveLength(1)
-  })
-})
 
 describe('AlertChannel', () => {
   /** 開いている接続を差し替えられる、テスト用の Durable Object を作る */

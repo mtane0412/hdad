@@ -35,17 +35,20 @@
   // 呼び先は管理画面（/llm/）で OpenRouter に切り替えられる（そのときはシークレットOPENROUTER_API_KEYが要り、
   // このバインディングは呼ばれない。worker/llm.ts）。
   "ai": { "binding": "AI" },
-  // ALERTS はオーバーレイへアラートを配る接続の保持、AD_BREAKS は広告の終了の時刻を預かるタイマー
-  // （Workerは接続もタイマーも持てない）。どちらも押した人が用意するものはないので入力欄には出ない
+  // ALERTS はオーバーレイへアラートを配る接続の保持、DRAW は描く画面と合成ページのあいだの手書きの線の中継、
+  // AD_BREAKS は広告の終了の時刻を預かるタイマー（Workerは接続もタイマーも持てない）。
+  // どれも押した人が用意するものはないので入力欄には出ない
   "durable_objects": {
     "bindings": [
       { "name": "ALERTS", "class_name": "AlertChannel" },
+      { "name": "DRAW", "class_name": "DrawChannel" },
       { "name": "AD_BREAKS", "class_name": "AdBreakTimer" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["AlertChannel"] },
-    { "tag": "v2", "new_sqlite_classes": ["AdBreakTimer"] }
+    { "tag": "v2", "new_sqlite_classes": ["AdBreakTimer"] },
+    { "tag": "v3", "new_sqlite_classes": ["DrawChannel"] }
   ],
   "triggers": { "crons": ["*/5 * * * *"] }
 }
