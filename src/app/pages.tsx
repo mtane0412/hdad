@@ -80,8 +80,9 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
         path: '/comments/',
         name: 'コメント',
         icon: MessagesSquare,
-        // 発言と出来事は配送先（Durable Object）から WebSocket でその場で届く。開き直すと直近の履歴から並べ直す
-        render: ({ commentApi }) => <CommentsPage api={commentApi} connect={connectCommentFeed} />,
+        // 発言と出来事は配送先（Durable Object）から WebSocket でその場で届く。開き直すと直近の履歴から並べ直す。
+        // 発言は注目コメントのページと同じ Worker の経路で、注目コメントに設定できる
+        render: ({ commentApi, focusApi }) => <CommentsPage api={commentApi} focusApi={focusApi} connect={connectCommentFeed} />,
       },
       { path: '/bot/', name: 'チャットボット', icon: Bot, render: ({ botApi }) => <BotPage api={botApi} /> },
       { path: '/viewers/', name: '視聴者', icon: Users, render: ({ viewerApi }) => <ViewerPage api={viewerApi} /> },

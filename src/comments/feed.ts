@@ -16,6 +16,7 @@
  * 合わせてここにも書き、届くたびに確かめる。想定と違う形はエラーにする（Workerとの食い違いに気づけるように）。
  */
 import { isRecord } from '../core/api'
+import type { FocusPick } from '../focus/api'
 
 export interface FeedUser {
   id: string
@@ -244,6 +245,18 @@ export const applyFeedItems = (feed: Feed, items: readonly FeedItem[]): Feed => 
   const entries = items.reduce<FeedEntry[]>((積んだもの, item) => applyOne(積んだもの, applied, item), [...feed.entries])
   return { entries: entries.slice(-MAX_ENTRIES), applied: [...applied].slice(-MAX_APPLIED_IDS) }
 }
+
+/**
+ * 発言を、注目コメントとして取り上げる1件に直す（PUT /api/admin/focus に送る形）。
+ *
+ * 注目コメントは本文を文字だけで映すので、エモートは名前の文字のままつなげる。
+ */
+export const toFocusPick = (item: ChatItem): FocusPick => ({
+  messageId: item.messageId,
+  login: item.user.login,
+  displayName: item.user.name,
+  text: item.fragments.map((fragment) => fragment.text).join(''),
+})
 
 /** サブスクの階層（Twitch の '1000' など）を、配信者が見慣れた呼び方にする */
 const tierLabel = (tier: string, prime: boolean): string => (prime ? 'Prime' : `Tier ${tier.slice(0, 1)}`)

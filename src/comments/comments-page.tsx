@@ -9,21 +9,28 @@
  * 画面を開き直しても直前の流れが見える。並べ方の決まり（二重に並べない・消された発言に印を付ける）は feed.ts が持つ。
  * アイコンは初めて見た人のぶんだけをまとめて問い合わせる（api.ts）。
  *
+ * 発言の行のボタンから、その発言を注目コメント（配信画面に大きく映す1件）に設定できる。保存は注目コメントの
+ * ページと同じ Worker の経路（src/focus/api.ts の save）で行い、取り上げている発言には印を付ける。
+ * モデレーターに消された発言は取り上げられない（配信画面に出さないため）。
+ *
  * 流れは下へ伸びる。いちばん下を見ているあいだは新しい1件に合わせて下へ送り、上へ遡って読んでいるあいだは
  * 送らない（読んでいる行が動かないように）。
  *
  * 注意: 失敗（読み取れない1件・アイコンを引けない・接続が切れた）は黙って無視せず、理由を画面に出す（Fail-Fast）。
  * 読み取れない1件のために流れ全体は止めない（届いた残りは並べ続ける）。
  */
-import { ArrowDown, Gift, Heart, Megaphone, Sparkles, Star, Users, type LucideIcon } from 'lucide-react'
+import { ArrowDown, Gift, Heart, Megaphone, Quote, Sparkles, Star, Users, type LucideIcon } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { usePageActions } from '@/admin/page-actions'
 import { badgeKey, type BadgeMap } from '@/chat/badges'
 import { twitchEmoteUrl } from '@/chat/message'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { iconButtonName } from '@/core/icon-button'
+import type { FocusApi } from '@/focus/api'
 import { cn } from '@/lib/utils'
 import { pickUnknownUserIds, type CommentApi } from './api'
-import { applyFeedItems, describeEvent, EMPTY_FEED, parseFeedMessage, type ChatItem, type EventItem, type Feed, type FeedBadge, type FeedEntry, type FeedFragment, type FeedUser } from './feed'
+import { applyFeedItems, describeEvent, EMPTY_FEED, parseFeedMessage, toFocusPick, type ChatItem, type EventItem, type Feed, type FeedBadge, type FeedEntry, type FeedFragment, type FeedUser } from './feed'
 import type { CommentFeedConnection, CommentFeedHandlers } from './socket'
 
 /** いちばん下を見ているとみなす、下端からの距離（画素）。端数の揺れで「遡っている」と取り違えないための遊び */
@@ -31,6 +38,8 @@ const FOLLOW_THRESHOLD_PX = 32
 
 export interface CommentsPageProps {
   api: CommentApi
+  /** 注目コメントの読み書き（注目コメントのページと同じもの） */
+  focusApi: FocusApi
   /** 配送先へつなぐ。テストで差し替えるために受け取る（本番は socket.ts の connectCommentFeed） */
   connect(handlers: CommentFeedHandlers): CommentFeedConnection
 }
@@ -80,8 +89,30 @@ const Name = ({ user, color }: { user: FeedUser; color: string | null }) => (
   </span>
 )
 
-const ChatRow = ({ item, removed, icons, badgeImages }: { item: ChatItem; removed: boolean; icons: ReadonlyMap<string, string>; badgeImages: BadgeMap }) => (
-  <div className={cn('flex items-start gap-2 px-3 py-1.5', removed && 'opacity-50')}>
+/** 発言の行が注目コメントについて受け取るもの */
+interface FocusControl {
+  /** この発言を取り上げているか */
+  focused: boolean
+  /** 保存の途中か（二重に押させない） */
+  busy: boolean
+  /** 取り上げる・取り上げをやめる */
+  onToggle(): void
+}
+
+const ChatRow = ({
+  item,
+  removed,
+  icons,
+  badgeImages,
+  focus,
+}: {
+  item: ChatItem
+  removed: boolean
+  icons: ReadonlyMap<string, string>
+  badgeImages: BadgeMap
+  focus: FocusControl
+}) => (
+  <div className={cn('group flex items-start gap-2 px-3 py-1.5', removed && 'opacity-50', focus.focused && 'bg-accent')}>
     <Icon user={item.user} icons={icons} />
     <div className="min-w-0 flex-1 text-sm break-words">
       {item.reply && (
@@ -98,7 +129,22 @@ const ChatRow = ({ item, removed, icons, badgeImages }: { item: ChatItem; remove
       </span>
       {item.bits !== null && <span className="ml-2 rounded bg-primary/10 px-1.5 text-xs font-semibold text-primary">{item.bits} ビッツ</span>}
       {removed && <span className="ml-2 text-xs text-muted-foreground">（削除済み）</span>}
+      {focus.focused && <span className="ml-2 rounded bg-primary px-1.5 text-xs font-semibold text-primary-foreground">注目中</span>}
     </div>
+    {/* 押された状態（aria-pressed）で「取り上げている」を表し、もう一度押すとやめる */}
+    <Button
+      type="button"
+      variant={focus.focused ? 'default' : 'ghost'}
+      size="icon-sm"
+      {...iconButtonName('この発言を注目コメントにする')}
+      aria-pressed={focus.focused}
+      // 消された発言は取り上げさせない。ただし取り上げたあとで消されたものは、やめられるように押せるままにする
+      disabled={focus.busy || (removed && !focus.focused)}
+      onClick={focus.onToggle}
+      className={cn('shrink-0', !focus.focused && 'opacity-40 group-hover:opacity-100 focus-visible:opacity-100')}
+    >
+      <Quote aria-hidden="true" />
+    </Button>
   </div>
 )
 
@@ -148,14 +194,24 @@ const EventRow = ({ item, removed, icons }: { item: EventItem; removed: boolean;
   )
 }
 
-const Row = ({ entry, icons, badgeImages }: { entry: FeedEntry; icons: ReadonlyMap<string, string>; badgeImages: BadgeMap }) =>
+const Row = ({
+  entry,
+  icons,
+  badgeImages,
+  focus,
+}: {
+  entry: FeedEntry
+  icons: ReadonlyMap<string, string>
+  badgeImages: BadgeMap
+  focus: (item: ChatItem) => FocusControl
+}) =>
   entry.item.kind === 'chat' ? (
-    <ChatRow item={entry.item} removed={entry.removed} icons={icons} badgeImages={badgeImages} />
+    <ChatRow item={entry.item} removed={entry.removed} icons={icons} badgeImages={badgeImages} focus={focus(entry.item)} />
   ) : (
     <EventRow item={entry.item} removed={entry.removed} icons={icons} />
   )
 
-export const CommentsPage = ({ api, connect }: CommentsPageProps) => {
+export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
   const [feed, setFeed] = useState<Feed>(EMPTY_FEED)
   const [icons, setIcons] = useState<ReadonlyMap<string, string>>(new Map())
   const [badgeImages, setBadgeImages] = useState<BadgeMap>(new Map())
@@ -163,6 +219,9 @@ export const CommentsPage = ({ api, connect }: CommentsPageProps) => {
   const [problem, setProblem] = useState<string | null>(null)
   /** 接続の状態のお知らせ。つながっていれば null */
   const [connectionNotice, setConnectionNotice] = useState<string | null>(null)
+  /** 注目コメントとして取り上げている発言のID。取り上げていなければ null */
+  const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null)
+  const actions = usePageActions()
   /** いちばん下を見ているか。見ているあいだだけ、新しい1件に合わせて下へ送る */
   const [following, setFollowing] = useState(true)
   /** アイコンを問い合わせた人（Twitchが返さなかった人も含む。同じ人を何度も問い合わせない。問い合わせ自体が失敗した人は外す） */
@@ -206,6 +265,35 @@ export const CommentsPage = ({ api, connect }: CommentsPageProps) => {
     }
   }, [api, 失敗を出す])
 
+  // いま取り上げている注目コメントを、開いたときに1度読む（印を付けるため）
+  useEffect(() => {
+    let cancelled = false
+    focusApi.load().then(
+      (target) => {
+        if (!cancelled) setFocusedMessageId(target?.messageId ?? null)
+      },
+      (error: unknown) => {
+        if (!cancelled) 失敗を出す(error)
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [focusApi, 失敗を出す])
+
+  /** 発言を注目コメントに設定する。すでに取り上げている発言なら、取り上げをやめる */
+  const 注目を切り替える = (item: ChatItem) =>
+    void actions.run(async () => {
+      if (focusedMessageId === item.messageId) {
+        await focusApi.save(null)
+        setFocusedMessageId(null)
+        return '注目コメントの取り上げをやめました'
+      }
+      const target = await focusApi.save(toFocusPick(item))
+      setFocusedMessageId(target?.messageId ?? null)
+      return `${item.user.name} さんの発言を注目コメントにしました`
+    })
+
   // 初めて見た人のアイコンを、まとめて問い合わせる。
   // 失敗したら問い合わせた印を外し、次に1件届いたときに問い合わせ直す（一時的な失敗でアイコンが出ないままにしない）
   useEffect(() => {
@@ -234,6 +322,7 @@ export const CommentsPage = ({ api, connect }: CommentsPageProps) => {
 
   return (
     <div className="flex flex-col gap-3">
+      {actions.feedback}
       {problem !== null && (
         <Alert variant="destructive">
           <AlertDescription>{problem}</AlertDescription>
@@ -249,7 +338,12 @@ export const CommentsPage = ({ api, connect }: CommentsPageProps) => {
             <ol aria-label="チャットと出来事" className="flex flex-col py-1">
               {feed.entries.map((entry) => (
                 <li key={entry.item.id}>
-                  <Row entry={entry} icons={icons} badgeImages={badgeImages} />
+                  <Row
+                    entry={entry}
+                    icons={icons}
+                    badgeImages={badgeImages}
+                    focus={(item) => ({ focused: item.messageId === focusedMessageId, busy: actions.busy, onToggle: () => 注目を切り替える(item) })}
+                  />
                 </li>
               ))}
             </ol>

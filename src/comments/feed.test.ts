@@ -5,7 +5,7 @@
  * 再送された1件を二重に並べないこと、モデレーターの操作で消えた発言に印を付けることを確かめる。
  */
 import { describe, expect, it } from 'vitest'
-import { applyFeedItems, describeEvent, EMPTY_FEED, MAX_ENTRIES, parseFeedMessage, type EventItem, type FeedItem } from './feed'
+import { applyFeedItems, describeEvent, EMPTY_FEED, MAX_ENTRIES, parseFeedMessage, toFocusPick, type ChatItem, type EventItem, type FeedItem } from './feed'
 
 const 常連さん = { id: '777', login: 'jouren_san', name: '常連さん' }
 const 初見さん = { id: '888', login: 'shoken_san', name: '初見さん' }
@@ -180,5 +180,31 @@ describe('describeEvent', () => {
     ['フォロー', { kind: 'follow', ...目印('通知'), user: 初見さん }, '初見さん さんがフォローしました'],
   ])('%s を1行の文にする', (_, item, 文) => {
     expect(describeEvent(item)).toBe(文)
+  })
+})
+
+describe('toFocusPick', () => {
+  it('発言を、注目コメントとして取り上げる1件に直す（エモートは名前の文字のままつなげる）', () => {
+    const エモート入りの発言: ChatItem = {
+      kind: 'chat',
+      ...目印('通知'),
+      messageId: '発言1',
+      user: 常連さん,
+      color: null,
+      badges: [],
+      fragments: [
+        { text: '今日のゲーム面白い ', emoteId: null },
+        { text: 'Kappa', emoteId: '25' },
+      ],
+      bits: null,
+      reply: null,
+    }
+
+    expect(toFocusPick(エモート入りの発言)).toEqual({
+      messageId: '発言1',
+      login: 'jouren_san',
+      displayName: '常連さん',
+      text: '今日のゲーム面白い Kappa',
+    })
   })
 })

@@ -8,10 +8,13 @@
  * - モデレーターに消された発言に「削除済み」の印を付けること
  * - 発言した人のアイコンを問い合わせて出すこと
  * - 読み取れないものが届いた・接続が切れたときは、黙らずに画面で知らせること
+ * - 発言を注目コメントに設定でき、取り上げている発言に印を付け、やめられること
  */
 import '@testing-library/jest-dom/vitest'
 import { act, cleanup, render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, test, vi } from 'vitest'
+import type { FocusApi, FocusPick } from '@/focus/api'
 import type { CommentApi } from './api'
 import { CommentsPage } from './comments-page'
 import type { FeedItem } from './feed'
@@ -43,13 +46,22 @@ const 代役のAPI = (overrides: Partial<CommentApi> = {}): CommentApi => ({
   ...overrides,
 })
 
+/** 注目コメントの代役。既定では何も取り上げておらず、選んだ発言にアイコンを添えて返す（Worker と同じ） */
+const 代役の注目コメントAPI = (overrides: Partial<FocusApi> = {}): FocusApi => ({
+  load: vi.fn(async () => null),
+  save: vi.fn(async (pick: FocusPick | null) => (pick === null ? null : { ...pick, profileImageUrl: 'https://static-cdn.jtvnw.net/jtv_user_pictures/jouren.png' })),
+  recent: vi.fn(async () => []),
+  ...overrides,
+})
+
 /** ページを描き、配送先の代わりに文字列を流し込める窓口を返す */
-const 描く = (api: CommentApi = 代役のAPI()) => {
+const 描く = (api: CommentApi = 代役のAPI(), focusApi: FocusApi = 代役の注目コメントAPI()) => {
   let handlers: CommentFeedHandlers | undefined
   const close = vi.fn()
   render(
     <CommentsPage
       api={api}
+      focusApi={focusApi}
       connect={(next) => {
         handlers = next
         return { close }
@@ -171,4 +183,68 @@ describe('CommentsPage', () => {
 
     expect(close).toHaveBeenCalled()
   })
+
+  describe('注目コメント', () => {
+    /** 発言の行にある、注目コメントに設定するボタン */
+    const 取り上げるボタン = (text: string) => within(行(text)).getByRole('button', { name: 'この発言を注目コメントにする' })
+
+    test('発言の行のボタンを押すと、その発言を注目コメントに設定する', async () => {
+      const focusApi = 代役の注目コメントAPI()
+      const { 届く } = 描く(代役のAPI(), focusApi)
+      await 届く({ type: 'item', item: 常連さんの発言 })
+
+      await userEvent.click(取り上げるボタン('常連さん'))
+
+      expect(focusApi.save).toHaveBeenCalledWith({ messageId: '発言1', login: 'jouren_san', displayName: '常連さん', text: 'こんばんは Kappa' })
+      expect(await screen.findByText('常連さん さんの発言を注目コメントにしました')).toBeInTheDocument()
+      // 取り上げている発言には印が付き、ボタンは押された状態になる
+      expect(行('常連さん')).toHaveTextContent('注目中')
+      expect(取り上げるボタン('常連さん')).toHaveAttribute('aria-pressed', 'true')
+    })
+
+    test('開いたときに、すでに取り上げている発言に印を付ける', async () => {
+      const focusApi = 代役の注目コメントAPI({
+        load: vi.fn(async () => ({ messageId: '発言1', login: 'jouren_san', displayName: '常連さん', text: 'こんばんは Kappa', profileImageUrl: 'https://static-cdn.jtvnw.net/jtv_user_pictures/jouren.png' })),
+      })
+      const { 届く } = 描く(代役のAPI(), focusApi)
+
+      await 届く({ type: 'item', item: 常連さんの発言 })
+
+      await vi.waitFor(() => expect(行('常連さん')).toHaveTextContent('注目中'))
+    })
+
+    test('取り上げている発言のボタンをもう一度押すと、取り上げをやめる', async () => {
+      const focusApi = 代役の注目コメントAPI()
+      const { 届く } = 描く(代役のAPI(), focusApi)
+      await 届く({ type: 'item', item: 常連さんの発言 })
+      await userEvent.click(取り上げるボタン('常連さん'))
+      await screen.findByText('常連さん さんの発言を注目コメントにしました')
+
+      await userEvent.click(取り上げるボタン('常連さん'))
+
+      expect(focusApi.save).toHaveBeenLastCalledWith(null)
+      expect(await screen.findByText('注目コメントの取り上げをやめました')).toBeInTheDocument()
+      expect(行('常連さん')).not.toHaveTextContent('注目中')
+    })
+
+    test('モデレーターに消された発言は取り上げられない（配信画面に出さないため）', async () => {
+      const { 届く } = 描く()
+      await 届く({ type: 'item', item: 常連さんの発言 })
+      await 届く({ type: 'item', item: { kind: 'delete', id: '通知4', at: 0, messageId: '発言1' } })
+
+      expect(取り上げるボタン('常連さん')).toBeDisabled()
+    })
+
+    test('設定に失敗したら、理由を出す', async () => {
+      const focusApi = 代役の注目コメントAPI({ save: vi.fn(async () => Promise.reject(new Error('Twitchにログイン名 jouren_san のアイコンがありません'))) })
+      const { 届く } = 描く(代役のAPI(), focusApi)
+      await 届く({ type: 'item', item: 常連さんの発言 })
+
+      await userEvent.click(取り上げるボタン('常連さん'))
+
+      expect(await screen.findByText('Twitchにログイン名 jouren_san のアイコンがありません')).toBeInTheDocument()
+      expect(行('常連さん')).not.toHaveTextContent('注目中')
+    })
+  })
 })
+
