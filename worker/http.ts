@@ -4,6 +4,7 @@
  * 環境（バインディングとシークレット）の型、経路の処理が受け取る文脈、状態コード、クッキー、
  * そして「誰からのリクエストか」の確認（配信者のセッション・オーバーレイ用キー・送信元のサイト）をまとめる。
  */
+import type { JevClient } from './jev'
 import type { TextGenerator, WorkersAi } from './llm'
 import type { AdBreakTimerNamespace } from './ad-break-timer'
 import type { AlertChannelNamespace } from './alert-channel'
@@ -93,6 +94,13 @@ export interface Context {
    * 設定の読み出しは最初に使われたときの1回だけなので、LLMを使わない通知では読み出しも起きない。
    */
   llm: TextGenerator
+  /**
+   * 判定用のモデル Jev（worker/jev.ts）。
+   *
+   * 配信者の発話がどのコメントへの反応かを判定するのに使う（worker/comment-reaction.ts）。呼び先は OpenRouter で、
+   * 鍵は LLM と同じ OPENROUTER_API_KEY を使う。
+   */
+  jev: JevClient
   /** 現在時刻（ミリ秒） */
   now: number
   /**

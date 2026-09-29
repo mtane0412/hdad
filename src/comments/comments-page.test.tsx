@@ -13,6 +13,7 @@
  * - 配信者としてチャットを送れること（IMEの変換確定の Enter では送らない）
  * - 発言を既読にする・未読に戻すことができ、既読の印は配送先から届いた付け替えで付くこと
  * - しばらく未読のままの発言を目立たせ、その切り替えを設定として保存できること
+ * - 発話から自動で既読にする（Jev）かを切り替えられ、Jev が付けた既読は手で付けたものと見分けられること
  */
 import '@testing-library/jest-dom/vitest'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
@@ -51,7 +52,7 @@ const 代役のAPI = (overrides: Partial<CommentApi> = {}): CommentApi => ({
   moderate: vi.fn(async (action) => (action === 'timeout' ? { action, durationSeconds: 600 } : { action })),
   send: vi.fn(async () => {}),
   markRead: vi.fn(async () => {}),
-  loadSettings: vi.fn(async () => ({ highlightUnread: true })),
+  loadSettings: vi.fn(async () => ({ highlightUnread: true, judgeWithJev: false })),
   // Worker と同じく、保存した設定をそのまま返す
   saveSettings: vi.fn(async (settings) => settings),
   ...overrides,
@@ -568,7 +569,7 @@ describe('CommentsPage', () => {
     })
 
     test('設定で目立たせないことにしていれば、しばらく未読でも目立たせない', async () => {
-      const api = 代役のAPI({ loadSettings: vi.fn(async () => ({ highlightUnread: false })) })
+      const api = 代役のAPI({ loadSettings: vi.fn(async () => ({ highlightUnread: false, judgeWithJev: false })) })
       const { 届く } = 描く(api, 代役の注目コメントAPI(), 四分後)
       expect(await screen.findByRole('checkbox', { name: 'しばらく未読の発言を目立たせる' })).not.toBeChecked()
 
@@ -586,9 +587,39 @@ describe('CommentsPage', () => {
 
       await userEvent.click(切り替え)
 
-      expect(api.saveSettings).toHaveBeenCalledWith({ highlightUnread: false })
+      // もう一方の設定（自動の既読）はそのまま送る
+      expect(api.saveSettings).toHaveBeenCalledWith({ highlightUnread: false, judgeWithJev: false })
       expect(await screen.findByRole('checkbox', { name: 'しばらく未読の発言を目立たせる' })).not.toBeChecked()
       expect(screen.queryByText('しばらく未読')).not.toBeInTheDocument()
+    })
+
+    test('発話から自動で既読にするかを切り替えると保存する（もう一方の設定はそのまま送る）', async () => {
+      const api = 代役のAPI()
+      描く(api)
+      const 切り替え = await screen.findByRole('checkbox', { name: '配信者の発話から自動で既読にする（Jev）' })
+      expect(切り替え).not.toBeChecked()
+
+      await userEvent.click(切り替え)
+
+      expect(api.saveSettings).toHaveBeenCalledWith({ highlightUnread: true, judgeWithJev: true })
+      expect(await screen.findByRole('checkbox', { name: '配信者の発話から自動で既読にする（Jev）' })).toBeChecked()
+    })
+
+    test('Jev が既読にした発言には「発話から既読」と出し、手で既読にしたものと見分けられる', async () => {
+      const { 届く } = 描く()
+
+      await 届く({ type: 'backlog', items: [常連さんの発言, 付け替え('付け替え1', true, 'jev')] })
+
+      expect(既読のボタン('常連さん')).toHaveAttribute('aria-pressed', 'true')
+      expect(within(行('常連さん')).getByText('発話から既読')).toBeInTheDocument()
+    })
+
+    test('手で既読にした発言には「発話から既読」と出さない', async () => {
+      const { 届く } = 描く()
+
+      await 届く({ type: 'backlog', items: [常連さんの発言, 付け替え('付け替え1', true, 'manual')] })
+
+      expect(within(行('常連さん')).queryByText('発話から既読')).not.toBeInTheDocument()
     })
   })
 })

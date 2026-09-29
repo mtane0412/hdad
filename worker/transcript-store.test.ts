@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createFakeDatabase } from './fake-database'
-import { deleteOldTranscripts, readRecentTranscripts, readTranscriptsSince, recordTranscript } from './transcript-store'
+import { deleteOldTranscripts, readRecentTranscripts, readTranscriptsSince, readTranscriptsUpTo, recordTranscript } from './transcript-store'
 
 const 配信開始 = Date.parse('2026-09-23T20:00:00.000Z')
 const 発話時刻 = Date.parse('2026-09-23T20:05:00.000Z')
@@ -181,5 +181,40 @@ describe('readRecentTranscripts', () => {
     await recordTranscript(db, { messageId: '発話2', text: '今の配信の話' }, 発話時刻 + 3000)
 
     expect((await readRecentTranscripts(db, '配信2', 10)).map((line) => line.text)).toEqual(['今の配信の話'])
+  })
+})
+
+describe('readTranscriptsUpTo', () => {
+  it('指定した発話までの直近の発話を、喋った順（古い順）に本文だけで返す（コメントへの反応の判定の材料）', async () => {
+    配信を始める('配信1')
+    await recordTranscript(db, { messageId: '発話1', text: 'えーっと' }, 発話時刻)
+    await recordTranscript(db, { messageId: '発話2', text: '何時までかって聞かれたんだけど' }, 発話時刻 + 1000)
+    await recordTranscript(db, { messageId: '発話3', text: '今日は11時くらいまでかな' }, 発話時刻 + 2000)
+
+    expect(await readTranscriptsUpTo(db, '発話3', 2)).toEqual(['何時までかって聞かれたんだけど', '今日は11時くらいまでかな'])
+  })
+
+  it('指定した発話より後に届いた発話は読まない（判定が遅れて走っても、きっかけの発話の時点の材料で判定する）', async () => {
+    配信を始める('配信1')
+    await recordTranscript(db, { messageId: '発話1', text: 'あ、たなかさん初見ありがとうございます' }, 発話時刻)
+    await recordTranscript(db, { messageId: '発話2', text: 'よし、次のステージ行きます' }, 発話時刻 + 1000)
+
+    expect(await readTranscriptsUpTo(db, '発話1', 3)).toEqual(['あ、たなかさん初見ありがとうございます'])
+  })
+
+  it('指定した発話と同じ配信の発話だけを読む', async () => {
+    配信を始める('配信1')
+    await recordTranscript(db, { messageId: '発話1', text: '前の配信の話' }, 発話時刻)
+    配信を終える(発話時刻 + 1000)
+    配信を始める('配信2', 発話時刻 + 2000)
+    await recordTranscript(db, { messageId: '発話2', text: '今の配信の話' }, 発話時刻 + 3000)
+
+    expect(await readTranscriptsUpTo(db, '発話2', 3)).toEqual(['今の配信の話'])
+  })
+
+  it('指定した発話が記録されていなければ、何も読まない', async () => {
+    配信を始める('配信1')
+
+    expect(await readTranscriptsUpTo(db, '記録されていない発話', 3)).toEqual([])
   })
 })

@@ -288,15 +288,25 @@ describe('オーバーレイ用API', () => {
         .run('配信1', new Date(現在時刻 - 60_000).toISOString(), '雑談配信', 'Just Chatting')
     }
 
-    const 送る = (env: Env, body: unknown, key = 発行済みのキー) =>
-      呼び出す(
+    /**
+     * 発話を送り、応答のあとに預けられた処理（コメントへの反応の判定）も終わるまで待つ。
+     *
+     * この経路は、記録した発話ごとに判定を応答のあとへ預ける（設定で切っていれば何もせずに終わる）。
+     */
+    const 送る = async (env: Env, body: unknown, key = 発行済みのキー) => {
+      const 預けた処理: Promise<unknown>[] = []
+      const response = await handleRequest(
         new Request(`${サイト}/api/overlay/transcript?key=${key}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: typeof body === 'string' ? body : JSON.stringify(body),
         }),
         env,
+        { fetch: Twitchへは通信しない, now: () => 現在時刻, wait: 待たない, waitUntil: (promise) => void 預けた処理.push(promise) },
       )
+      await Promise.all(預けた処理)
+      return response
+    }
 
     const 行を数える = (env: Env): number =>
       (
@@ -374,6 +384,128 @@ describe('オーバーレイ用API', () => {
       const response = await 送る(env, { messageId: '発話1', text: 'あ'.repeat(TRANSCRIPT_MAX_LENGTH + 1) })
       expect(response.status).toBe(400)
       expect(await エラーコード(response)).toBe('text-too-long')
+    })
+
+    describe('発話からのコメントへの反応の判定（issue #147）', () => {
+      /** 未読の視聴者の発言を1件用意する（配信中の区切りと視聴者の記録も一緒に） */
+      const 未読の発言を用意する = (env: Env): void => {
+        const sqlite = (env.DB as ReturnType<typeof createFakeDatabase>).sqlite
+        sqlite
+          .prepare(
+            `INSERT INTO viewers (user_id, login, display_name, first_seen_at, last_seen_at, message_count, last_badges, last_message_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run('111', 'tanaka', 'たなか', '2026-09-01T00:00:00.000Z', new Date(現在時刻).toISOString(), 1, '[]', 'たなかさんの挨拶')
+        sqlite
+          .prepare('INSERT INTO stream_chat_messages (message_id, session_id, user_id, sent_at, text) VALUES (?, ?, ?, ?, ?)')
+          .run('たなかさんの挨拶', '配信1', '111', new Date(現在時刻 - 30_000).toISOString(), '初見です')
+      }
+
+      /** Jev（OpenRouter の Decisions API）の代役。呼ばれた回数を数え、決めた応答を返す */
+      const Jevの代役 = (応答: () => Response) => {
+        const 呼ばれたURL: string[] = []
+        const fetchImpl = async (input: RequestInfo | URL): Promise<Response> => {
+          呼ばれたURL.push(String(input))
+          return 応答()
+        }
+        return { fetchImpl, 呼ばれたURL }
+      }
+
+      /** 応答のあとに預けられた処理を集め、まとめて待てるようにして呼び出す */
+      const 預けた処理ごと呼び出す = async (env: Env, body: unknown, fetchImpl: typeof fetch) => {
+        const 預けた処理: Promise<unknown>[] = []
+        const response = await handleRequest(
+          new Request(`${サイト}/api/overlay/transcript?key=${発行済みのキー}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          }),
+          env,
+          { fetch: fetchImpl, now: () => 現在時刻, wait: 待たない, waitUntil: (promise) => void 預けた処理.push(promise) },
+        )
+        await Promise.all(預けた処理)
+        return { response, 預けた処理 }
+      }
+
+      const 自動の既読を入れる = (env: Env) => env.STORE.put('comment-settings', JSON.stringify({ highlightUnread: true, judgeWithJev: true }))
+
+      it('自動の既読を入れていれば、応答のあとに Jev で判定し、反応した発言を既読にする', async () => {
+        const { env } = 環境を作る()
+        const 配送先 = createFakeCommentChannel()
+        const 鍵のある環境 = { ...env, COMMENTS: 配送先.namespace, OPENROUTER_API_KEY: 'openrouter-test-key' }
+        配信を始める(鍵のある環境)
+        未読の発言を用意する(鍵のある環境)
+        await 自動の既読を入れる(鍵のある環境)
+        const jev = Jevの代役(() => Response.json({ answers: { c0: { type: 'noul', noul: 0.93 } }, usage: { input_tokens: 500, output_tokens: 10, cost: 0.00002 } }))
+
+        const { response } = await 預けた処理ごと呼び出す(鍵のある環境, { messageId: '発話1', text: 'あ、たなかさん初見ありがとうございます！' }, jev.fetchImpl)
+
+        expect(await response.json()).toEqual({ recorded: true })
+        expect(jev.呼ばれたURL).toEqual(['https://openrouter.ai/api/alpha/decisions'])
+        expect((鍵のある環境.DB as ReturnType<typeof createFakeDatabase>).sqlite.prepare('SELECT message_id, marked_by FROM comment_reads').all()).toEqual([
+          { message_id: 'たなかさんの挨拶', marked_by: 'jev' },
+        ])
+        expect(配送先.押し出された1件).toMatchObject([{ kind: 'read', messageId: 'たなかさんの挨拶', read: true, by: 'jev' }])
+      })
+
+      it('自動の既読を入れていなければ（既定）、Jev を呼ばない', async () => {
+        const { env } = 環境を作る()
+        配信を始める(env)
+        未読の発言を用意する(env)
+        const jev = Jevの代役(() => Response.json({}))
+
+        await 預けた処理ごと呼び出す(env, { messageId: '発話1', text: 'あ、たなかさん初見ありがとうございます！' }, jev.fetchImpl)
+
+        expect(jev.呼ばれたURL).toEqual([])
+      })
+
+      it('Jev が失敗しても発話は記録したと答え、失敗を collection_failures に残す', async () => {
+        const { env } = 環境を作る()
+        const 鍵のある環境 = { ...env, OPENROUTER_API_KEY: 'openrouter-test-key' }
+        配信を始める(鍵のある環境)
+        未読の発言を用意する(鍵のある環境)
+        await 自動の既読を入れる(鍵のある環境)
+        const jev = Jevの代役(() => new Response('{"error":{"message":"Insufficient credits"}}', { status: 402 }))
+
+        const { response } = await 預けた処理ごと呼び出す(鍵のある環境, { messageId: '発話1', text: 'あ、たなかさん初見ありがとうございます！' }, jev.fetchImpl)
+
+        expect(await response.json()).toEqual({ recorded: true })
+        expect((鍵のある環境.DB as ReturnType<typeof createFakeDatabase>).sqlite.prepare('SELECT code, message FROM collection_failures').all()).toMatchObject([
+          { code: 'comment-reaction-failed', message: expect.stringContaining('402') },
+        ])
+      })
+
+      it('設定の読み込みも応答のあとに回し、KV が応答しなくても発話の受け取りには答える', async () => {
+        const { env } = 環境を作る()
+        配信を始める(env)
+        // 読み出しがいつまでも返らない KV（止まったり遅れたりした場合の再現）
+        const 返らないKV = { ...env.STORE, get: () => new Promise<string | null>(() => undefined) }
+
+        const response = await handleRequest(
+          new Request(`${サイト}/api/overlay/transcript?key=${発行済みのキー}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ messageId: '発話1', text: 'こんばんは' }),
+          }),
+          // オーバーレイ用キーの確かめには読める KV が要るので、キーだけは読めるようにする
+          { ...env, STORE: { ...返らないKV, get: (key: string) => (key === 'overlay-key' ? env.STORE.get(key) : 返らないKV.get()) } },
+          // 預けられた処理は待たない（応答が預けた処理を待たずに返ることを確かめる）
+          { fetch: Twitchへは通信しない, now: () => 現在時刻, wait: 待たない, waitUntil: () => undefined },
+        )
+
+        expect(await response.json()).toEqual({ recorded: true })
+      })
+
+      it('保存済みのコメントビューアーの設定が読めなくても、発話は記録したと答え、失敗を残す', async () => {
+        const { env } = 環境を作る()
+        配信を始める(env)
+        await env.STORE.put('comment-settings', JSON.stringify({ highlightUnread: true }))
+
+        const response = await 送る(env, { messageId: '発話1', text: 'こんばんは' })
+
+        expect(await response.json()).toEqual({ recorded: true })
+        expect((env.DB as ReturnType<typeof createFakeDatabase>).sqlite.prepare('SELECT code FROM collection_failures').all()).toEqual([{ code: 'comment-reaction-failed' }])
+      })
     })
 
     it('前後の空白を落とせば上限に収まる本文は受け付ける（長さは保存する形で数える）', async () => {

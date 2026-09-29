@@ -7,6 +7,7 @@
  * - 「今日」はUTCの今日のぶんだけ、「直近7日」は今日を含む7日ぶんを数えること
  * - 7日より前の行は直近7日に入れないこと
  * - 記録が1件も無い箇所も 0 として並ぶこと（画面に穴ができないようにする）
+ * - 判定用のモデル Jev の箇所（commentReaction）も同じようにまとめ、全体の合計に含めること
  */
 import { describe, expect, it } from 'vitest'
 import { summarizeLlmUsage, type LlmUsageDay } from './usage'
@@ -69,6 +70,16 @@ describe('summarizeLlmUsage', () => {
 
     expect(total.today.costUsd).toBeCloseTo(0.000_45, 8)
     expect(total.week.calls).toBe(2)
+  })
+
+  it('Jev の箇所（コメントへの反応の判定）もまとめ、全体の合計に含める', () => {
+    const days = [行('2026-09-27', 'commentReaction', { provider: 'openrouter', model: 'typesafe/jev-1.13', calls: 3, promptTokens: 3_000, completionTokens: 30, costUsd: 0.000_12 })]
+
+    const { jevUsages, total } = summarizeLlmUsage(days, 現在時刻)
+
+    expect(jevUsages.commentReaction.today).toEqual({ calls: 3, failures: 0, promptTokens: 3_000, completionTokens: 30, costUsd: 0.000_12 })
+    expect(total.today.calls).toBe(3)
+    expect(total.today.costUsd).toBeCloseTo(0.000_12, 8)
   })
 
   it('知らない箇所の行は無視する（Workerに箇所が増えても画面が壊れないようにする）', () => {

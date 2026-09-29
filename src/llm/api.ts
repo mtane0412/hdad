@@ -31,8 +31,16 @@ export const LLM_PROVIDERS = ['workers-ai', 'openrouter'] as const
 /** LLMに文面を作らせる箇所。並び順も worker/llm-config.ts の LLM_USAGES と合わせる（画面に出す順になる） */
 export const LLM_USAGES = ['aiChat', 'sideSuper', 'viewerSummary', 'streamSummary'] as const
 
+/**
+ * 判定用のモデル Jev を使う箇所。worker/jev.ts の JEV_USAGES と合わせる。
+ *
+ * Jev はモデルを選ばせない（worker/jev.ts が版を固定している）ので、設定には含まれず、使用状況にだけ並ぶ。
+ */
+export const JEV_USAGES = ['commentReaction'] as const
+
 export type LlmProvider = (typeof LLM_PROVIDERS)[number]
 export type LlmUsage = (typeof LLM_USAGES)[number]
+export type JevUsage = (typeof JEV_USAGES)[number]
 
 /** 提供元ごとのモデル名 */
 export type LlmModels = Record<LlmProvider, string>

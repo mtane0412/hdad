@@ -121,7 +121,7 @@ const 代役のコメントビューアーAPI: CommentApi = {
   moderate: vi.fn(async (action) => ({ action })),
   send: vi.fn(async () => {}),
   markRead: vi.fn(async () => {}),
-  loadSettings: vi.fn(async () => ({ highlightUnread: true })),
+  loadSettings: vi.fn(async () => ({ highlightUnread: true, judgeWithJev: false })),
   saveSettings: vi.fn(async (settings) => settings),
 }
 

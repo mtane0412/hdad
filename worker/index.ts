@@ -101,6 +101,7 @@ import { CALLBACK_PATH, callback, login, logout, me } from './auth-routes'
 import { collectStats } from './collect'
 import { createGyazoClient } from './gyazo'
 import { HttpError, STATUS, errorResponse, type Context, type Env } from './http'
+import { createJev } from './jev'
 import { createLlm } from './llm'
 import {
   getDrawStrokes as getOverlayDrawStrokes,
@@ -304,6 +305,7 @@ export const handleRequest = async (request: Request, env: Env, dependencies: De
       twitch,
       fetch: dependencies.fetch,
       llm: createLlm({ ai: env.AI, store: env.STORE, fetch: dependencies.fetch, apiKey: env.OPENROUTER_API_KEY, db: env.DB, now: dependencies.now }),
+      jev: createJev({ fetch: dependencies.fetch, apiKey: env.OPENROUTER_API_KEY, db: env.DB, now: dependencies.now }),
       now: dependencies.now(),
       wait: dependencies.wait,
       waitUntil: dependencies.waitUntil,
