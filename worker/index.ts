@@ -32,6 +32,7 @@
  * | GET  /api/admin/draw/background  | セッション     | 描く画面の背景に敷く、配信画面を撮った最新の1枚 |
  * | GET  /api/admin/comments/socket  | セッション     | コメントビューアーからのWebSocketの接続を受け、配送先へ引き渡す |
  * | GET  /api/admin/comments/icons   | セッション     | 発言した人のアイコンのURLを、ユーザーIDからまとめて引く |
+ * | POST /api/admin/comments/moderation | セッション   | 配信者が選んだ処分（発言の削除・タイムアウト・BAN）をbotの権限で行う |
  * | GET・PUT /api/admin/focus        | セッション     | 注目コメント（いま取り上げているもの）の取得・保存 |
  * | GET  /api/admin/focus/messages   | セッション     | 取り上げる発言を選ぶための、直近の発言の一覧 |
  * | GET  /api/admin/viewers          | セッション     | 視聴者の記録の一覧（検索・ページ送り） |
@@ -112,7 +113,7 @@ import {
   postTranscript,
 } from './overlay-routes'
 import { drawSocket, getDrawBackground, getDrawStrokes, putDrawStrokes } from './draw-routes'
-import { commentSocket, getCommentIcons } from './comment-routes'
+import { commentSocket, getCommentIcons, postCommentModeration } from './comment-routes'
 import { getStatsFailures, getStatsFollowers, getStatsSession, getStatsSessions } from './stats-routes'
 import { AuthError } from './token'
 import { WEBHOOK_PATH, eventsubWebhook } from './webhook-routes'
@@ -188,6 +189,7 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/admin/draw/background', handle: getDrawBackground },
   { method: 'GET', path: '/api/admin/comments/socket', handle: commentSocket },
   { method: 'GET', path: '/api/admin/comments/icons', handle: getCommentIcons },
+  { method: 'POST', path: '/api/admin/comments/moderation', handle: postCommentModeration },
   { method: 'GET', path: '/api/admin/focus', handle: getFocus },
   { method: 'PUT', path: '/api/admin/focus', handle: putFocus },
   { method: 'GET', path: '/api/admin/focus/messages', handle: getFocusMessages },

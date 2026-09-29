@@ -6,7 +6,7 @@
  * - すでにBAN済み・タイムアウト中を表す409を、失敗として扱わないこと
  */
 import { describe, expect, it } from 'vitest'
-import { punishAsBot } from './bot-moderation'
+import { AUTO_MODERATION_REASON, punishAsBot } from './bot-moderation'
 import { createFakeStore } from './fake-store'
 import { saveToken, type StoredToken } from './token'
 import { TwitchApiError, type BanToApply, type ChatMessageToDelete, type TwitchClient } from './twitch'
@@ -112,4 +112,30 @@ describe('punishAsBot', () => {
 
     await expect(punishAsBot(await 文脈(代役.twitch), { type: 'ban' }, 対象)).rejects.toThrow(TwitchApiError)
   })
+
+  it('理由を渡さなければ、自動モデレーションによる処分としてTwitchに記録する', async () => {
+    const 代役 = Twitchの代役()
+
+    await punishAsBot(await 文脈(代役.twitch), { type: 'ban' }, 対象)
+
+    expect(代役.処分したユーザー[0]?.reason).toBe(AUTO_MODERATION_REASON)
+  })
+
+  it('理由を渡せば、その理由でTwitchに記録する（配信者が手で処分したときなど）', async () => {
+    const 代役 = Twitchの代役()
+
+    await punishAsBot(await 文脈(代役.twitch), { type: 'timeout', durationSeconds: 600 }, 対象, '配信者がコメントビューアーから処分')
+
+    expect(代役.処分したユーザー[0]?.reason).toBe('配信者がコメントビューアーから処分')
+  })
+
+  it('消す発言を指定しなければ（messageId が null）、発言は削除せずにユーザーだけを処分する', async () => {
+    // Twitch はタイムアウト・BANした人の発言をまとめて消すので、手で処分するときは削除を先に行わない
+    const 代役 = Twitchの代役()
+
+    await punishAsBot(await 文脈(代役.twitch), { type: 'ban' }, { messageId: null, userId: '11111' })
+
+    expect(代役.呼んだ操作).toEqual(['banUser'])
+  })
 })
+

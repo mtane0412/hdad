@@ -13,13 +13,17 @@
  * ページと同じ Worker の経路（src/focus/api.ts の save）で行い、取り上げている発言には印を付ける。
  * モデレーターに消された発言は取り上げられない（配信画面に出さないため）。
  *
+ * 発言の行のボタンから、モデレーターの操作（発言の削除・タイムアウト・BAN）もできる。どれも botの権限で行われ
+ * （api.ts の moderate）、BANだけは取り返しが重いので確かめてから行う。処分された発言には、Twitch から届く
+ * 削除・消去の通知で印が付く（画面が自分で印を付けない）。
+ *
  * 流れは下へ伸びる。いちばん下を見ているあいだは新しい1件に合わせて下へ送り、上へ遡って読んでいるあいだは
  * 送らない（読んでいる行が動かないように）。
  *
  * 注意: 失敗（読み取れない1件・アイコンを引けない・接続が切れた）は黙って無視せず、理由を画面に出す（Fail-Fast）。
  * 読み取れない1件のために流れ全体は止めない（届いた残りは並べ続ける）。
  */
-import { ArrowDown, Gift, Heart, Megaphone, Quote, Sparkles, Star, Users, type LucideIcon } from 'lucide-react'
+import { ArrowDown, Ban, Gift, Heart, Megaphone, Quote, Sparkles, Star, Timer, Trash2, Users, type LucideIcon } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { usePageActions } from '@/admin/page-actions'
 import { badgeKey, type BadgeMap } from '@/chat/badges'
@@ -29,7 +33,7 @@ import { Button } from '@/components/ui/button'
 import { iconButtonName } from '@/core/icon-button'
 import type { FocusApi } from '@/focus/api'
 import { cn } from '@/lib/utils'
-import { pickUnknownUserIds, type CommentApi } from './api'
+import { describeModeration, pickUnknownUserIds, type CommentApi, type ModerationAction } from './api'
 import { applyFeedItems, describeEvent, EMPTY_FEED, parseFeedMessage, toFocusPick, type ChatItem, type EventItem, type Feed, type FeedBadge, type FeedEntry, type FeedFragment, type FeedUser } from './feed'
 import type { CommentFeedConnection, CommentFeedHandlers } from './socket'
 
@@ -89,62 +93,107 @@ const Name = ({ user, color }: { user: FeedUser; color: string | null }) => (
   </span>
 )
 
-/** 発言の行が注目コメントについて受け取るもの */
-interface FocusControl {
-  /** この発言を取り上げているか */
+/** 発言の行が受け取る操作（注目コメントとモデレーター） */
+interface RowControls {
+  /** この発言を注目コメントとして取り上げているか */
   focused: boolean
-  /** 保存の途中か（二重に押させない） */
+  /** 操作の途中か（二重に押させない） */
   busy: boolean
+  /** この発言の削除をすでに頼み、成功したか（Twitch から消えた知らせが届くまで、もう一度削除させない） */
+  deleteRequested: boolean
   /** 取り上げる・取り上げをやめる */
-  onToggle(): void
+  onToggleFocus(): void
+  /** 処分する（BANは確かめてから） */
+  onModerate(action: ModerationAction): void
 }
+
+/** 行の端に置く、アイコンだけの操作のボタン。押された状態を持たないものは、行に触れるまで薄くしておく */
+const rowButtonClass = 'shrink-0 opacity-40 group-hover:opacity-100 focus-visible:opacity-100'
 
 const ChatRow = ({
   item,
   removed,
   icons,
   badgeImages,
-  focus,
+  controls,
 }: {
   item: ChatItem
   removed: boolean
   icons: ReadonlyMap<string, string>
   badgeImages: BadgeMap
-  focus: FocusControl
+  controls: RowControls
 }) => (
-  <div className={cn('group flex items-start gap-2 px-3 py-1.5', removed && 'opacity-50', focus.focused && 'bg-accent')}>
-    <Icon user={item.user} icons={icons} />
-    <div className="min-w-0 flex-1 text-sm break-words">
-      {item.reply && (
-        <p className="truncate text-xs text-muted-foreground">
-          {item.reply.name} さんへの返信: {item.reply.text}
-        </p>
-      )}
-      <time className="mr-2 text-xs text-muted-foreground tabular-nums">{時刻(item.at)}</time>
-      <Badges badges={item.badges} badgeImages={badgeImages} />
-      <Name user={item.user} color={item.color} />
-      <span className="text-muted-foreground">: </span>
-      <span className={cn(removed && 'line-through')}>
-        <Fragments fragments={item.fragments} />
-      </span>
-      {item.bits !== null && <span className="ml-2 rounded bg-primary/10 px-1.5 text-xs font-semibold text-primary">{item.bits} ビッツ</span>}
-      {removed && <span className="ml-2 text-xs text-muted-foreground">（削除済み）</span>}
-      {focus.focused && <span className="ml-2 rounded bg-primary px-1.5 text-xs font-semibold text-primary-foreground">注目中</span>}
+  <div className={cn('group flex items-start gap-2 px-3 py-1.5', controls.focused && 'bg-accent')}>
+    {/* 消された発言はアイコンと本文を薄くするが、操作のボタンは薄くしない（その人のタイムアウト・BANは続けてできる） */}
+    <div className={cn('flex min-w-0 flex-1 items-start gap-2', removed && 'opacity-50')}>
+      <Icon user={item.user} icons={icons} />
+      <div className="min-w-0 flex-1 text-sm break-words">
+        {item.reply && (
+          <p className="truncate text-xs text-muted-foreground">
+            {item.reply.name} さんへの返信: {item.reply.text}
+          </p>
+        )}
+        <time className="mr-2 text-xs text-muted-foreground tabular-nums">{時刻(item.at)}</time>
+        <Badges badges={item.badges} badgeImages={badgeImages} />
+        <Name user={item.user} color={item.color} />
+        <span className="text-muted-foreground">: </span>
+        <span className={cn(removed && 'line-through')}>
+          <Fragments fragments={item.fragments} />
+        </span>
+        {item.bits !== null && <span className="ml-2 rounded bg-primary/10 px-1.5 text-xs font-semibold text-primary">{item.bits} ビッツ</span>}
+        {removed && <span className="ml-2 text-xs text-muted-foreground">（削除済み）</span>}
+        {controls.focused && <span className="ml-2 rounded bg-primary px-1.5 text-xs font-semibold text-primary-foreground">注目中</span>}
+      </div>
     </div>
-    {/* 押された状態（aria-pressed）で「取り上げている」を表し、もう一度押すとやめる */}
-    <Button
-      type="button"
-      variant={focus.focused ? 'default' : 'ghost'}
-      size="icon-sm"
-      {...iconButtonName('この発言を注目コメントにする')}
-      aria-pressed={focus.focused}
-      // 消された発言は取り上げさせない。ただし取り上げたあとで消されたものは、やめられるように押せるままにする
-      disabled={focus.busy || (removed && !focus.focused)}
-      onClick={focus.onToggle}
-      className={cn('shrink-0', !focus.focused && 'opacity-40 group-hover:opacity-100 focus-visible:opacity-100')}
-    >
-      <Quote aria-hidden="true" />
-    </Button>
+    <div className="flex shrink-0 gap-0.5">
+      {/* 押された状態（aria-pressed）で「取り上げている」を表し、もう一度押すとやめる */}
+      <Button
+        type="button"
+        variant={controls.focused ? 'default' : 'ghost'}
+        size="icon-sm"
+        {...iconButtonName('この発言を注目コメントにする')}
+        aria-pressed={controls.focused}
+        // 消された発言は取り上げさせない。ただし取り上げたあとで消されたものは、やめられるように押せるままにする
+        disabled={controls.busy || (removed && !controls.focused)}
+        onClick={controls.onToggleFocus}
+        className={cn('shrink-0', !controls.focused && rowButtonClass)}
+      >
+        <Quote aria-hidden="true" />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        {...iconButtonName('この発言を削除')}
+        disabled={controls.busy || removed || controls.deleteRequested}
+        onClick={() => controls.onModerate('delete')}
+        className={rowButtonClass}
+      >
+        <Trash2 aria-hidden="true" />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        {...iconButtonName('この人をタイムアウト')}
+        disabled={controls.busy}
+        onClick={() => controls.onModerate('timeout')}
+        className={rowButtonClass}
+      >
+        <Timer aria-hidden="true" />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        {...iconButtonName('この人をBAN')}
+        disabled={controls.busy}
+        onClick={() => controls.onModerate('ban')}
+        className={cn(rowButtonClass, 'text-destructive')}
+      >
+        <Ban aria-hidden="true" />
+      </Button>
+    </div>
   </div>
 )
 
@@ -198,15 +247,15 @@ const Row = ({
   entry,
   icons,
   badgeImages,
-  focus,
+  controls,
 }: {
   entry: FeedEntry
   icons: ReadonlyMap<string, string>
   badgeImages: BadgeMap
-  focus: (item: ChatItem) => FocusControl
+  controls: (item: ChatItem) => RowControls
 }) =>
   entry.item.kind === 'chat' ? (
-    <ChatRow item={entry.item} removed={entry.removed} icons={icons} badgeImages={badgeImages} focus={focus(entry.item)} />
+    <ChatRow item={entry.item} removed={entry.removed} icons={icons} badgeImages={badgeImages} controls={controls(entry.item)} />
   ) : (
     <EventRow item={entry.item} removed={entry.removed} icons={icons} />
   )
@@ -222,6 +271,8 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
   /** 注目コメントとして取り上げている発言のID。取り上げていなければ null */
   const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null)
   const actions = usePageActions()
+  /** 削除に成功した発言のID。Twitch から消えた知らせが届くまでのあいだ、同じ発言をもう一度削除させない */
+  const [削除を頼んだ発言, set削除を頼んだ発言] = useState<ReadonlySet<string>>(new Set())
   /** この画面で取り上げ直したか。開いたときの読み込みが遅れて返っても、選び直した結果を古い内容で上書きしない */
   const 選び直した = useRef(false)
   /** いちばん下を見ているか。見ているあいだだけ、新しい1件に合わせて下へ送る */
@@ -308,6 +359,25 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
       return `${item.user.name} さんの発言を注目コメントにしました`
     })
 
+  /** 発言した人（または発言）を処分する。BANは取り返しが重いので確かめてから行う */
+  const 処分する = (item: ChatItem, action: ModerationAction) => {
+    const run = async () => {
+      const result = await api.moderate(action, { messageId: item.messageId, userId: item.user.id })
+      if (result.action === 'delete') set削除を頼んだ発言((current) => new Set([...current, item.messageId]))
+      return describeModeration(result, item.user.name)
+    }
+    if (action !== 'ban') {
+      void actions.run(run)
+      return
+    }
+    actions.ask({
+      title: `${item.user.name} さんをBANしますか？`,
+      description: 'BANした人はこのチャンネルのチャットに書き込めなくなります。解除は Twitch のモデレーター画面から行います。',
+      actionLabel: 'BANする',
+      run,
+    })
+  }
+
   // 初めて見た人のアイコンを、まとめて問い合わせる。
   // 失敗したら問い合わせた印を外し、次に1件届いたときに問い合わせ直す（一時的な失敗でアイコンが出ないままにしない）
   useEffect(() => {
@@ -356,7 +426,13 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
                     entry={entry}
                     icons={icons}
                     badgeImages={badgeImages}
-                    focus={(item) => ({ focused: item.messageId === focusedMessageId, busy: actions.busy, onToggle: () => 注目を切り替える(item) })}
+                    controls={(item) => ({
+                      focused: item.messageId === focusedMessageId,
+                      busy: actions.busy,
+                      deleteRequested: 削除を頼んだ発言.has(item.messageId),
+                      onToggleFocus: () => 注目を切り替える(item),
+                      onModerate: (action) => 処分する(item, action),
+                    })}
                   />
                 </li>
               ))}
