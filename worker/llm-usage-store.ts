@@ -4,6 +4,7 @@
  * LLMを呼んだ回数・トークン数・実費を「日 × 箇所 × 提供元 × モデル」の1行へ足し込み（llm_usage）、
  * 管理画面（/llm/）のために読み出す。記録するのは worker/llm.ts で、そこがLLMへの唯一の入口なので
  * 4か所（aiChat・sideSuper・viewerSummary・streamSummary）すべてを取りこぼさずに数えられる。
+ * 判定用のモデル Jev の呼び出し（worker/jev.ts）も、使う箇所（JEV_USAGES）ごとに同じ表へ足し込む。
  *
  * 注意: 1回の呼び出しで1行を足さない。チャットの文面（aiChat）は視聴者の発言ごとに呼ばれるため、
  * 1呼び出し1行にすると行が際限なく増える（viewers が「発言ではなく人を貯める」のと同じ考え方）。
@@ -14,15 +15,16 @@
  * 注意: SQLに値を埋め込まず、必ずプレースホルダで渡す。
  */
 import type { Database } from './database'
+import type { JevUsage } from './jev'
 import type { LlmProvider, LlmUsage } from './llm-config'
 
 /** 記録を残す期間（日）。1回の配信を振り返るだけでなく、月ごとの増減も読める長さにする */
 const RETENTION_DAYS = 90
 
-/** LLMを1回呼んだ結果。llm.ts が呼び出しのたびに渡す */
+/** LLMを1回呼んだ結果。llm.ts と jev.ts が呼び出しのたびに渡す */
 export interface LlmCallRecord {
-  /** 使った箇所 */
-  readonly usage: LlmUsage
+  /** 使った箇所（LLM の箇所か Jev の箇所） */
+  readonly usage: LlmUsage | JevUsage
   readonly provider: LlmProvider
   readonly model: string
   /** 提供元が応答に入れてきたトークン数。返してこなければ 0 */

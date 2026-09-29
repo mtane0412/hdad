@@ -69,7 +69,7 @@ npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 | `speech.md` | チャットの読み上げ（`speech/reader/`） | `src/speech/**`・`speech/**`・`worker/speech-config.ts` |
 | `backstage.md` | 裏方をまとめたページ（`overlay/backstage/`） | `src/backstage/**`・`overlay/backstage/**` |
 | `screen.md` | 配信画面の取り込み（`/screen/`） | `src/screen/**`・`worker/screen-*.ts`・`worker/gyazo.ts` |
-| `llm.md` | LLMの呼び先・使用状況・モデルの選択 | `src/llm/**`・`worker/llm*.ts`・`worker/ai-chat.ts`・`worker/side-super.ts`・`worker/viewer-summary.ts`・`worker/stream-summary.ts` |
+| `llm.md` | LLMの呼び先・使用状況・モデルの選択（判定用の Jev を含む） | `src/llm/**`・`worker/llm*.ts`・`worker/jev*.ts`・`worker/ai-chat.ts`・`worker/side-super.ts`・`worker/viewer-summary.ts`・`worker/stream-summary.ts` |
 | `dashboard.md` | ダッシュボード（`/`） | `src/stats/**`・`worker/stats-*.ts` |
 | `triggers-page.md` | トリガーの管理画面（`/triggers/`） | `src/admin/**` |
 | `bot.md` | チャットボット（`/bot/`） | `src/bot/**`・`worker/auth-routes.ts`・`worker/token.ts`・`worker/webhook-routes.ts`・`worker/bot-*.ts`・`worker/chat-*.ts`・`worker/moderation-config.ts`・`worker/eventsub*.ts` |
