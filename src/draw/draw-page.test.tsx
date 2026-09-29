@@ -197,6 +197,22 @@ describe('DrawPage', () => {
     await waitFor(() => expect(screen.queryByRole('radio', { name: '赤' })).toBeNull())
   })
 
+  it('開いた選択肢と説明は、どれも名前の付いたダイアログとして読み上げられる', async () => {
+    render(<DrawPage connect={中継先を作る().connect} api={保存先を作る().api} />)
+    const 開いて名前を確かめる = async (押すもの: string, ダイアログの名前: string) => {
+      await userEvent.click(screen.getByRole('button', { name: 押すもの }))
+      expect(await screen.findByRole('dialog', { name: ダイアログの名前 })).toBeInTheDocument()
+      await userEvent.keyboard('{Escape}')
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: ダイアログの名前 })).toBeNull())
+    }
+
+    await 開いて名前を確かめる('線の色', '線の色を選ぶ')
+    await 開いて名前を確かめる('線の太さ', '線の太さを選ぶ')
+    await 開いて名前を確かめる('手書きについて', '手書きについて')
+    await userEvent.click(screen.getByRole('button', { name: '配信画面を背景に敷く' }))
+    await 開いて名前を確かめる('背景の濃さを変える', '背景の濃さを変える')
+  })
+
   it('仕様の説明は、iボタンを押したときだけ出す', async () => {
     render(<DrawPage connect={中継先を作る().connect} api={保存先を作る().api} />)
     expect(screen.queryByText(/触れた線を1本消す/)).toBeNull()

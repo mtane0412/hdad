@@ -373,7 +373,8 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
               <PopoverTrigger render={<Button type="button" variant="ghost" size="icon" className="size-8" {...iconButtonName('線の色')} />}>
                 <span aria-hidden className="size-5 rounded-full border-2 border-border" style={{ backgroundColor: colorOf(colorId).value }} />
               </PopoverTrigger>
-              <PopoverContent className="w-auto">
+              {/* 開いた選択肢はダイアログとして読み上げられるので、何を選ぶ場かの名前を付ける */}
+              <PopoverContent className="w-auto" aria-label="線の色を選ぶ">
                 <RadioGroup
                   value={colorId}
                   onValueChange={(値) => {
@@ -405,7 +406,7 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
               <PopoverTrigger render={<Button type="button" variant="ghost" size="icon" className="size-8" {...iconButtonName('線の太さ')} />}>
                 <WidthSample ratio={widthOf(widthId).ratio} />
               </PopoverTrigger>
-              <PopoverContent className="w-auto">
+              <PopoverContent className="w-auto" aria-label="線の太さを選ぶ">
                 <RadioGroup
                   value={widthId}
                   onValueChange={(値) => {
@@ -444,7 +445,7 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
                 <PopoverTrigger render={<Button type="button" variant="ghost" size="icon" className="size-8" {...iconButtonName('背景の濃さを変える')} />}>
                   <Contrast />
                 </PopoverTrigger>
-                <PopoverContent className="w-48">
+                <PopoverContent className="w-48" aria-label="背景の濃さを変える">
                   <div className="flex items-center gap-2">
                     <Slider
                       aria-labelledby={背景の濃さのId}
@@ -485,7 +486,7 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
               >
                 <Info />
               </PopoverTrigger>
-              <PopoverContent align="end" className="text-xs">
+              <PopoverContent align="end" className="text-xs" aria-label="手書きについて">
                 <ul className="list-disc space-y-1 pl-4">
                   <li>描いたものは残ります（OBSで開き直しても出ます）</li>
                   <li>消しゴムは触れた線を1本消す・ゴミ箱はすべて消す</li>
