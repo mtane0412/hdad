@@ -14,13 +14,17 @@
  *
  * 注意: 描いたものを残す仕組みはまだ無い（issue #133）。この画面を閉じても合成ページ側の線は消えず、
  * 逆に合成ページを開き直すと、それまでに引いた線は出ない。
- * 注意: 色・太さ・全消しは issue #132 で足す。いまはペン1本だけである。
+ * 注意: 消しゴムとひとつ戻すは持たない。まず全消しで足りるかを実際の配信で確かめてから決める（issue #132）。
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { Link } from '@/app/router'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Label } from '@/components/ui/label'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { startCanvasSurface } from '@/core/mount'
 import { createStrokeId, toRatio } from './pointer'
+import { DEFAULT_COLOR_ID, DEFAULT_WIDTH_ID, DRAW_COLORS, DRAW_WIDTHS } from './tools'
 import type { DrawSocketHandlers, DrawWriter } from './socket'
 import { NO_STROKES, applyDrawMessage, type Strokes } from './strokes'
 import type { DrawMessage } from './stroke'
@@ -43,6 +47,10 @@ export const DrawPage = ({ connect }: DrawPageProps) => {
   const [notice, setNotice] = useState<string | null>(null)
   /** 人が直すまで消えない失敗（キャンバスを使えない場合） */
   const [failure, setFailure] = useState<string | null>(null)
+  /** 選んでいる色と太さ。線を引き始めた時点の指定がその線に残る */
+  const [colorId, setColorId] = useState(DEFAULT_COLOR_ID)
+  const [widthId, setWidthId] = useState(DEFAULT_WIDTH_ID)
+  const 道具の名前 = useId()
 
   useEffect(() => {
     const writer = connect({
@@ -86,9 +94,15 @@ export const DrawPage = ({ connect }: DrawPageProps) => {
       strokeIdRef.current = id
       // キャンバスの外へ出ても離した合図を受け取れるようにする（線が引きっぱなしにならない）
       event.currentTarget.setPointerCapture?.(event.pointerId)
-      送る({ type: 'start', id, point: toRatio(event.clientX, event.clientY, event.currentTarget.getBoundingClientRect()) })
+      送る({
+        type: 'start',
+        id,
+        point: toRatio(event.clientX, event.clientY, event.currentTarget.getBoundingClientRect()),
+        color: colorId,
+        width: widthId,
+      })
     },
-    [送る],
+    [送る, colorId, widthId],
   )
 
   const 動かした = useCallback(
@@ -104,6 +118,16 @@ export const DrawPage = ({ connect }: DrawPageProps) => {
   const 離した = useCallback((): void => {
     strokeIdRef.current = null
   }, [])
+
+  /**
+   * 描いたものをすべて消す。
+   *
+   * 取り消しの確認は出さない。配信中に確認を挟むほうが、押したのに消えない事故のもとになるためである。
+   */
+  const 全部消す = useCallback((): void => {
+    strokeIdRef.current = null
+    送る({ type: 'clear' })
+  }, [送る])
 
   return (
     <div className="space-y-4">
@@ -129,6 +153,38 @@ export const DrawPage = ({ connect }: DrawPageProps) => {
               {notice}
             </p>
           )}
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <fieldset className="space-y-2">
+              <legend className="text-sm font-medium">色</legend>
+              <RadioGroup value={colorId} onValueChange={(値) => setColorId(String(値))} className="flex flex-wrap gap-3">
+                {DRAW_COLORS.map((色) => (
+                  <Label key={色.id} htmlFor={`${道具の名前}-color-${色.id}`} className="flex items-center gap-2 text-sm font-normal">
+                    <RadioGroupItem id={`${道具の名前}-color-${色.id}`} value={色.id} />
+                    {/* 色そのものは名前だけでは伝わらないので見本を添える（読み上げには名前だけを渡す） */}
+                    <span aria-hidden className="size-3 rounded-full border border-border" style={{ backgroundColor: 色.value }} />
+                    {色.label}
+                  </Label>
+                ))}
+              </RadioGroup>
+            </fieldset>
+
+            <fieldset className="space-y-2">
+              <legend className="text-sm font-medium">太さ</legend>
+              <RadioGroup value={widthId} onValueChange={(値) => setWidthId(String(値))} className="flex flex-wrap gap-3">
+                {DRAW_WIDTHS.map((太さ) => (
+                  <Label key={太さ.id} htmlFor={`${道具の名前}-width-${太さ.id}`} className="flex items-center gap-2 text-sm font-normal">
+                    <RadioGroupItem id={`${道具の名前}-width-${太さ.id}`} value={太さ.id} />
+                    {太さ.label}
+                  </Label>
+                ))}
+              </RadioGroup>
+            </fieldset>
+
+            <Button type="button" variant="outline" onClick={全部消す}>
+              全部消す
+            </Button>
+          </div>
+
           <canvas
             ref={canvasRef}
             aria-label="配信画面に描く場所"
@@ -139,9 +195,7 @@ export const DrawPage = ({ connect }: DrawPageProps) => {
             onPointerUp={離した}
             onPointerCancel={離した}
           />
-          <p className="text-sm text-muted-foreground">
-            いまはペン1本だけです（色・太さ・全消しは追って足します）。描いたものは合成ページを開き直すと消えます。
-          </p>
+          <p className="text-sm text-muted-foreground">描いたものは、合成ページ（OBSのブラウザソース）を開き直すと消えます。</p>
         </CardContent>
       </Card>
     </div>

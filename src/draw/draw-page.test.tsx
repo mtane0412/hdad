@@ -7,8 +7,10 @@
  */
 import '@testing-library/jest-dom/vitest'
 import { act, cleanup, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DrawPage } from './draw-page'
+import { DEFAULT_COLOR_ID, DEFAULT_WIDTH_ID } from './tools'
 import type { DrawSocketHandlers, DrawWriter } from './socket'
 import type { DrawMessage } from './stroke'
 
@@ -58,6 +60,13 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+/** 描く場所を取り出す。jsdom は要素の大きさを持たないので、測った結果だけ差し替える */
+const 描く場所を得る = (): HTMLElement => {
+  const キャンバス = screen.getByLabelText('配信画面に描く場所')
+  vi.spyOn(キャンバス, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 400, height: 200 } as DOMRect)
+  return キャンバス
+}
+
 describe('DrawPage', () => {
   it('描く場所を、名前を付けて置く', () => {
     render(<DrawPage connect={中継先を作る().connect} />)
@@ -106,20 +115,42 @@ describe('DrawPage', () => {
   it('ポインタを押した場所から、線を描き始めたことを送る', () => {
     const 中継先 = 中継先を作る()
     render(<DrawPage connect={中継先.connect} />)
-    const キャンバス = screen.getByLabelText('配信画面に描く場所')
-    // jsdom は要素の大きさを持たないので、測った結果だけ差し替える
-    vi.spyOn(キャンバス, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 400, height: 200 } as DOMRect)
+    const キャンバス = 描く場所を得る()
 
     キャンバス.dispatchEvent(new PointerEvent('pointerdown', { clientX: 100, clientY: 100, bubbles: true }))
 
-    expect(中継先.送られたもの).toEqual([{ type: 'start', id: expect.any(String), point: { x: 0.25, y: 0.5 } }])
+    expect(中継先.送られたもの).toEqual([
+      { type: 'start', id: expect.any(String), point: { x: 0.25, y: 0.5 }, color: DEFAULT_COLOR_ID, width: DEFAULT_WIDTH_ID },
+    ])
+  })
+
+  it('選んだ色と太さで、線を描き始める', async () => {
+    const 中継先 = 中継先を作る()
+    render(<DrawPage connect={中継先.connect} />)
+    const キャンバス = 描く場所を得る()
+
+    await userEvent.click(screen.getByRole('radio', { name: '赤' }))
+    await userEvent.click(screen.getByRole('radio', { name: '太い' }))
+    キャンバス.dispatchEvent(new PointerEvent('pointerdown', { clientX: 100, clientY: 100, bubbles: true }))
+
+    expect(中継先.送られたもの).toEqual([{ type: 'start', id: expect.any(String), point: { x: 0.25, y: 0.5 }, color: 'red', width: 'bold' }])
+  })
+
+  it('全消しを押したら、消したことを送る', async () => {
+    const 中継先 = 中継先を作る()
+    render(<DrawPage connect={中継先.connect} />)
+    const キャンバス = 描く場所を得る()
+    キャンバス.dispatchEvent(new PointerEvent('pointerdown', { clientX: 100, clientY: 100, bubbles: true }))
+
+    await userEvent.click(screen.getByRole('button', { name: '全部消す' }))
+
+    expect(中継先.送られたもの.at(-1)).toEqual({ type: 'clear' })
   })
 
   it('押していないあいだの動きは送らない', () => {
     const 中継先 = 中継先を作る()
     render(<DrawPage connect={中継先.connect} />)
-    const キャンバス = screen.getByLabelText('配信画面に描く場所')
-    vi.spyOn(キャンバス, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 400, height: 200 } as DOMRect)
+    const キャンバス = 描く場所を得る()
 
     キャンバス.dispatchEvent(new PointerEvent('pointermove', { clientX: 100, clientY: 100, bubbles: true }))
 
