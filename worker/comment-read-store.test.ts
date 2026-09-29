@@ -9,7 +9,7 @@
  * - Jev が既読にするのは、まだ一度も付け替えていない発言だけであること（配信者が手で付けた状態を上書きしない）
  */
 import { describe, expect, it } from 'vitest'
-import { deleteOldCommentReads, markReadByJev, readUnreadChats, recordCommentRead } from './comment-read-store'
+import { deleteOldCommentReads, markReadByJev, readUnreadChats, recordCommentRead, unmarkReadByJev } from './comment-read-store'
 import { createFakeDatabase } from './fake-database'
 
 const 配信中の時刻 = Date.parse('2026-09-29T12:00:00.000Z')
@@ -147,5 +147,25 @@ describe('markReadByJev', () => {
 
     expect(await markReadByJev(db, 'すずきさんのBGMの質問', 配信中の時刻 + 1000)).toBe(false)
     expect(行を読む(db)).toMatchObject([{ message_id: 'すずきさんのBGMの質問', read: 0, marked_by: 'manual' }])
+  })
+})
+
+describe('unmarkReadByJev', () => {
+  it('Jev が付けた既読を取り消す（画面へ知らせられなかったとき、次の判定でやり直せるようにする）', async () => {
+    const db = createFakeDatabase()
+    await markReadByJev(db, 'たなかさんの初見の挨拶', 配信中の時刻)
+
+    await unmarkReadByJev(db, 'たなかさんの初見の挨拶')
+
+    expect(行を読む(db)).toEqual([])
+  })
+
+  it('配信者が手で付けた状態は取り消さない', async () => {
+    const db = createFakeDatabase()
+    await recordCommentRead(db, { messageId: 'すずきさんのBGMの質問', read: true, by: 'manual' }, 配信中の時刻)
+
+    await unmarkReadByJev(db, 'すずきさんのBGMの質問')
+
+    expect(行を読む(db)).toMatchObject([{ message_id: 'すずきさんのBGMの質問', marked_by: 'manual' }])
   })
 })

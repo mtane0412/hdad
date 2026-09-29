@@ -288,15 +288,25 @@ describe('オーバーレイ用API', () => {
         .run('配信1', new Date(現在時刻 - 60_000).toISOString(), '雑談配信', 'Just Chatting')
     }
 
-    const 送る = (env: Env, body: unknown, key = 発行済みのキー) =>
-      呼び出す(
+    /**
+     * 発話を送り、応答のあとに預けられた処理（コメントへの反応の判定）も終わるまで待つ。
+     *
+     * この経路は、記録した発話ごとに判定を応答のあとへ預ける（設定で切っていれば何もせずに終わる）。
+     */
+    const 送る = async (env: Env, body: unknown, key = 発行済みのキー) => {
+      const 預けた処理: Promise<unknown>[] = []
+      const response = await handleRequest(
         new Request(`${サイト}/api/overlay/transcript?key=${key}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: typeof body === 'string' ? body : JSON.stringify(body),
         }),
         env,
+        { fetch: Twitchへは通信しない, now: () => 現在時刻, wait: 待たない, waitUntil: (promise) => void 預けた処理.push(promise) },
       )
+      await Promise.all(預けた処理)
+      return response
+    }
 
     const 行を数える = (env: Env): number =>
       (
@@ -444,9 +454,8 @@ describe('オーバーレイ用API', () => {
         未読の発言を用意する(env)
         const jev = Jevの代役(() => Response.json({}))
 
-        const { 預けた処理 } = await 預けた処理ごと呼び出す(env, { messageId: '発話1', text: 'あ、たなかさん初見ありがとうございます！' }, jev.fetchImpl)
+        await 預けた処理ごと呼び出す(env, { messageId: '発話1', text: 'あ、たなかさん初見ありがとうございます！' }, jev.fetchImpl)
 
-        expect(預けた処理).toEqual([])
         expect(jev.呼ばれたURL).toEqual([])
       })
 
@@ -464,6 +473,27 @@ describe('オーバーレイ用API', () => {
         expect((鍵のある環境.DB as ReturnType<typeof createFakeDatabase>).sqlite.prepare('SELECT code, message FROM collection_failures').all()).toMatchObject([
           { code: 'comment-reaction-failed', message: expect.stringContaining('402') },
         ])
+      })
+
+      it('設定の読み込みも応答のあとに回し、KV が応答しなくても発話の受け取りには答える', async () => {
+        const { env } = 環境を作る()
+        配信を始める(env)
+        // 読み出しがいつまでも返らない KV（止まったり遅れたりした場合の再現）
+        const 返らないKV = { ...env.STORE, get: () => new Promise<string | null>(() => undefined) }
+
+        const response = await handleRequest(
+          new Request(`${サイト}/api/overlay/transcript?key=${発行済みのキー}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ messageId: '発話1', text: 'こんばんは' }),
+          }),
+          // オーバーレイ用キーの確かめには読める KV が要るので、キーだけは読めるようにする
+          { ...env, STORE: { ...返らないKV, get: (key: string) => (key === 'overlay-key' ? env.STORE.get(key) : 返らないKV.get()) } },
+          // 預けられた処理は待たない（応答が預けた処理を待たずに返ることを確かめる）
+          { fetch: Twitchへは通信しない, now: () => 現在時刻, wait: 待たない, waitUntil: () => undefined },
+        )
+
+        expect(await response.json()).toEqual({ recorded: true })
       })
 
       it('保存済みのコメントビューアーの設定が読めなくても、発話は記録したと答え、失敗を残す', async () => {

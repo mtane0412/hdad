@@ -99,7 +99,7 @@ describe('judgeCommentReactions', () => {
     const jev = Jevの代役([0.93, 0.32])
     const 配送先 = createFakeCommentChannel()
 
-    await judgeCommentReactions({ db, jev, comments: 配送先.namespace, broadcasterId: 配信者のID, now: 現在時刻 })
+    await judgeCommentReactions({ db, jev, comments: 配送先.namespace, broadcasterId: 配信者のID, now: 現在時刻, transcriptMessageId: '発話1' })
 
     expect(jev.箇所).toEqual(['commentReaction'])
     expect(既読の行(db)).toEqual([{ message_id: 'たなかさんの挨拶', read: 1, marked_by: 'jev' }])
@@ -113,7 +113,7 @@ describe('judgeCommentReactions', () => {
     発言('すずきさんの質問', '222', '2026-09-29T11:59:00.000Z', 'このBGMなんて曲？')
     発話('発話1', '2026-09-29T12:00:00.000Z', 'BGMはね、フリー素材のやつ使ってます')
 
-    await judgeCommentReactions({ db, jev: Jevの代役([REACTION_THRESHOLD]), comments: createFakeCommentChannel().namespace, broadcasterId: 配信者のID, now: 現在時刻 })
+    await judgeCommentReactions({ db, jev: Jevの代役([REACTION_THRESHOLD]), comments: createFakeCommentChannel().namespace, broadcasterId: 配信者のID, now: 現在時刻, transcriptMessageId: '発話1' })
 
     expect(既読の行(db)).toEqual([{ message_id: 'すずきさんの質問', read: 1, marked_by: 'jev' }])
   })
@@ -127,9 +127,21 @@ describe('judgeCommentReactions', () => {
     発話('発話4', '2026-09-29T12:00:00.000Z', '今日は11時くらいまでかな')
     const jev = Jevの代役([0.93])
 
-    await judgeCommentReactions({ db, jev, comments: createFakeCommentChannel().namespace, broadcasterId: 配信者のID, now: 現在時刻 })
+    await judgeCommentReactions({ db, jev, comments: createFakeCommentChannel().namespace, broadcasterId: 配信者のID, now: 現在時刻, transcriptMessageId: '発話4' })
 
     expect(jev.注文[0]?.state).toMatchObject({ transcript: ['えーっと', '何時までかって聞かれたんだけど', '今日は11時くらいまでかな'] })
+  })
+
+  it('きっかけの発話より後に届いた発話は材料に混ぜない（判定は応答のあとに回るので、そのあいだに次の発話が届くことがある）', async () => {
+    const { db, 発言, 発話 } = 配信中の材料を用意する()
+    発言('たなかさんの挨拶', '111', '2026-09-29T11:58:00.000Z', '初見です')
+    発話('発話1', '2026-09-29T11:59:00.000Z', 'あ、たなかさん初見ありがとうございます！')
+    発話('発話2', '2026-09-29T12:00:00.000Z', 'よし、次のステージ行きます')
+    const jev = Jevの代役([0.93])
+
+    await judgeCommentReactions({ db, jev, comments: createFakeCommentChannel().namespace, broadcasterId: 配信者のID, now: 現在時刻, transcriptMessageId: '発話1' })
+
+    expect(jev.注文[0]?.state).toMatchObject({ transcript: ['あ、たなかさん初見ありがとうございます！'] })
   })
 
   it('未読の発言が1件も無ければ、Jev を呼ばない（新しい材料が無ければ呼ばない）', async () => {
@@ -139,7 +151,7 @@ describe('judgeCommentReactions', () => {
     発話('発話1', '2026-09-29T12:00:00.000Z', 'よし、次のステージ行きます')
     const jev = Jevの代役([])
 
-    await judgeCommentReactions({ db, jev, comments: createFakeCommentChannel().namespace, broadcasterId: 配信者のID, now: 現在時刻 })
+    await judgeCommentReactions({ db, jev, comments: createFakeCommentChannel().namespace, broadcasterId: 配信者のID, now: 現在時刻, transcriptMessageId: '発話1' })
 
     expect(jev.注文).toEqual([])
   })
@@ -151,9 +163,21 @@ describe('judgeCommentReactions', () => {
     発話('発話1', '2026-09-29T12:00:00.000Z', 'このボス第二形態あるんだよなあ')
     const jev = Jevの代役([0.1])
 
-    await judgeCommentReactions({ db, jev, comments: createFakeCommentChannel().namespace, broadcasterId: 配信者のID, now: 現在時刻 })
+    await judgeCommentReactions({ db, jev, comments: createFakeCommentChannel().namespace, broadcasterId: 配信者のID, now: 現在時刻, transcriptMessageId: '発話1' })
 
     expect(jev.注文[0]?.state).toMatchObject({ recent_chat: [{ user: 'すずき', text: 'ボス強そう' }] })
+  })
+
+  it('画面へ知らせられなければ、Jev が付けた既読を取り消して投げる（次の発話の判定で、候補に戻して知らせ直せるようにする）', async () => {
+    const { db, 発言, 発話 } = 配信中の材料を用意する()
+    発言('たなかさんの挨拶', '111', '2026-09-29T11:58:00.000Z', '初見です')
+    発話('発話1', '2026-09-29T12:00:00.000Z', 'あ、たなかさん初見ありがとうございます！')
+    const 失敗する配送先 = createFakeCommentChannel({ 失敗する: true })
+
+    await expect(
+      judgeCommentReactions({ db, jev: Jevの代役([0.93]), comments: 失敗する配送先.namespace, broadcasterId: 配信者のID, now: 現在時刻, transcriptMessageId: '発話1' }),
+    ).rejects.toThrow('配送先へ送れませんでした')
+    expect(既読の行(db)).toEqual([])
   })
 
   it('Jev が失敗したら、黙って捨てずに投げる（呼び出し側が失敗として記録する）', async () => {
@@ -167,7 +191,7 @@ describe('judgeCommentReactions', () => {
     }
 
     await expect(
-      judgeCommentReactions({ db, jev: 失敗するJev, comments: createFakeCommentChannel().namespace, broadcasterId: 配信者のID, now: 現在時刻 }),
+      judgeCommentReactions({ db, jev: 失敗するJev, comments: createFakeCommentChannel().namespace, broadcasterId: 配信者のID, now: 現在時刻, transcriptMessageId: '発話1' }),
     ).rejects.toThrow('402')
     expect(既読の行(db)).toEqual([])
   })

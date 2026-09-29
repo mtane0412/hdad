@@ -140,7 +140,7 @@ export const postTranscript = async (context: Context): Promise<Response> => {
   }
 
   const recorded = await recordTranscript(env.DB, { messageId, text: spoken }, now)
-  if (recorded) await reactToTranscript(context)
+  if (recorded) reactToTranscript(context, messageId)
   return Response.json({ recorded })
 }
 
@@ -148,28 +148,30 @@ export const postTranscript = async (context: Context): Promise<Response> => {
 const COMMENT_REACTION_FAILED = 'comment-reaction-failed'
 
 /**
- * 記録した発話から、どのコメントへの反応かの判定を応答のあとに預ける（自動の既読を入れているときだけ）。
+ * 記録した発話から、どのコメントへの反応かの判定を応答のあとに預ける（自動の既読を入れているときだけ判定する）。
+ *
+ * 設定の読み込みも含めて丸ごと応答のあとに回す。KV が遅れたり止まったりしても、発話の受け取りの応答を待たせない。
  *
  * 注意: 失敗しても投げない。判定はコメントビューアーの補助であって、発話の記録（あらすじ・サイドスーパーの材料）を
  * 止める理由にならないためである。黙って捨てずに collection_failures へ残し、配信の記録の画面から気づけるようにする。
  * 設定が読めない（古い形）ときも同じ扱いにする。
+ *
+ * @param transcriptMessageId きっかけになった発話のID。判定の材料にする発話をここまでに区切る
  */
-const reactToTranscript = async (context: Context): Promise<void> => {
+const reactToTranscript = (context: Context, transcriptMessageId: string): void => {
   const { env, jev, now } = context
   const 失敗を残す = async (error: unknown): Promise<void> => {
     const message = error instanceof Error ? error.message : String(error)
     await recordFailure(env.DB, COMMENT_REACTION_FAILED, `発話からコメントへの反応を判定できませんでした: ${message}`, now)
   }
 
-  const settings = await loadCommentSettings(env.STORE).catch(async (error: unknown) => {
-    await 失敗を残す(error)
-    return null
-  })
-  if (settings === null || !settings.judgeWithJev) return
+  const 判定する = async (): Promise<void> => {
+    const settings = await loadCommentSettings(env.STORE)
+    if (!settings.judgeWithJev) return
+    await judgeCommentReactions({ db: env.DB, jev, comments: env.COMMENTS, broadcasterId: env.TWITCH_BROADCASTER_ID, now, transcriptMessageId })
+  }
 
-  context.waitUntil(
-    judgeCommentReactions({ db: env.DB, jev, comments: env.COMMENTS, broadcasterId: env.TWITCH_BROADCASTER_ID, now }).catch(失敗を残す),
-  )
+  context.waitUntil(判定する().catch(失敗を残す))
 }
 
 /**

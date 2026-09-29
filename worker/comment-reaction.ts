@@ -17,12 +17,16 @@
  * 注意: 配信者が手で既読にした・未読に戻した発言は候補にしない（comment-read-store.ts の readUnreadChats）。
  * 判定のあいだに手で付け替えられた発言も上書きしない（markReadByJev）。
  * 注意: Jev の失敗は投げる。呼び出し側が失敗として記録し、発話の受け取りそのものは止めない。
+ * 注意: 判定は応答のあとに回るので、そのあいだに次の発話が届くことがある。材料にする発話は、きっかけの発話
+ * （transcriptMessageId）までに区切る（readTranscriptsUpTo）。
+ * 注意: 既読を記録したあとで画面へ知らせられなければ、記録を取り消してから投げる（unmarkReadByJev）。記録だけが
+ * 残ると候補から外れて画面は未読のまま取り戻せないが、取り消せば次の発話の判定で候補に戻り、知らせ直せる。
  */
 import { pushFeedItem, type CommentChannelNamespace } from './comment-channel'
-import { markReadByJev, readUnreadChats, type UnreadChat } from './comment-read-store'
+import { markReadByJev, readUnreadChats, unmarkReadByJev, type UnreadChat } from './comment-read-store'
 import type { Database } from './database'
 import type { JevClient, JevRequest, NoulQuestion } from './jev'
-import { readLatestTranscripts } from './transcript-store'
+import { readTranscriptsUpTo } from './transcript-store'
 
 /**
  * 反応したとみなす確率の下限。
@@ -85,6 +89,8 @@ export interface CommentReactionOptions {
   broadcasterId: string
   /** 現在時刻（ミリ秒） */
   now: number
+  /** きっかけになった発話のID（ゆかコネNEO の MsgID）。材料にする発話をここまでに区切る */
+  transcriptMessageId: string
 }
 
 /**
@@ -92,11 +98,11 @@ export interface CommentReactionOptions {
  *
  * @throws Error Jev が失敗した・記録や知らせに失敗した場合（呼び出し側が失敗として記録する）
  */
-export const judgeCommentReactions = async ({ db, jev, comments, broadcasterId, now }: CommentReactionOptions): Promise<void> => {
+export const judgeCommentReactions = async ({ db, jev, comments, broadcasterId, now, transcriptMessageId }: CommentReactionOptions): Promise<void> => {
   const chats = await readUnreadChats(db, { broadcasterId, since: now - CANDIDATE_WINDOW_MS, limit: MAX_CANDIDATES })
   if (chats.length === 0) return
 
-  const transcript = await readLatestTranscripts(db, TRANSCRIPT_CONTEXT)
+  const transcript = await readTranscriptsUpTo(db, transcriptMessageId, TRANSCRIPT_CONTEXT)
   const answers = await jev.decide('commentReaction', buildReactionRequest(transcript, chats))
 
   for (const [index, chat] of chats.entries()) {
@@ -104,6 +110,12 @@ export const judgeCommentReactions = async ({ db, jev, comments, broadcasterId, 
     if (probability === undefined || probability < REACTION_THRESHOLD) continue
     // 判定のあいだに配信者が手で付け替えていたら記録されないので、そのときは知らせない
     if (!(await markReadByJev(db, chat.messageId, now))) continue
-    await pushFeedItem(comments, { kind: 'read', id: crypto.randomUUID(), at: now, messageId: chat.messageId, read: true, by: 'jev' })
+    try {
+      await pushFeedItem(comments, { kind: 'read', id: crypto.randomUUID(), at: now, messageId: chat.messageId, read: true, by: 'jev' })
+    } catch (error) {
+      // 知らせられなかった既読を取り消し、次の発話の判定で候補に戻す（残りの発言も未読のまま次へ回る）
+      await unmarkReadByJev(db, chat.messageId)
+      throw error
+    }
   }
 }

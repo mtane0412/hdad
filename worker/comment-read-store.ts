@@ -109,3 +109,14 @@ export const markReadByJev = async (db: Database, messageId: string, now: number
     .first<{ message_id: string }>()
   return inserted !== null
 }
+
+/**
+ * Jev が付けた既読を取り消す。
+ *
+ * 既読を記録したあとで画面へ知らせられなかったときに呼ぶ。取り消せば次の発話の判定で再び候補になり、
+ * 判定し直して知らせ直せる（記録だけが残ると候補から外れ、画面は未読のまま取り戻せなくなる）。
+ * 配信者が手で付けた状態は取り消さない。
+ */
+export const unmarkReadByJev = async (db: Database, messageId: string): Promise<void> => {
+  await db.prepare(`DELETE FROM comment_reads WHERE message_id = ?1 AND marked_by = 'jev'`).bind(messageId).run()
+}
