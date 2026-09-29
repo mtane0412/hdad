@@ -59,8 +59,16 @@ describe('parseDrawMessage', () => {
     expect(() => parseDrawMessage('線です')).toThrow('手書きの線を読み取れませんでした')
   })
 
+  it('線を消したことを読み取る', () => {
+    expect(parseDrawMessage('{"type":"erase","id":"線1"}')).toEqual({ type: 'erase', id: '線1' })
+  })
+
+  it('消す線の名前がなければエラーにする', () => {
+    expect(() => parseDrawMessage('{"type":"erase"}')).toThrow('手書きの線の形が想定と違います')
+  })
+
   it('知らない種類はエラーにする', () => {
-    expect(() => parseDrawMessage('{"type":"erase","id":"線1"}')).toThrow('手書きの線の種類が想定と違います')
+    expect(() => parseDrawMessage('{"type":"undo","id":"線1"}')).toThrow('手書きの線の種類が想定と違います')
   })
 
   it('線の名前がなければエラーにする', () => {

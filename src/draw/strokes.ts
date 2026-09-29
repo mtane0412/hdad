@@ -65,12 +65,17 @@ export const isStroke = (value: unknown): value is Stroke =>
 /**
  * 届いた1通を積み上げる。
  *
- * 描き始め（start）を受け取っていない線の続き（extend）は捨てる。合成ページを線の途中で開いたときや、
+ * 描き始め（start）を受け取っていない線の続き（extend）と、無い線を消す合図（erase）は捨てる。合成ページを線の途中で開いたときや、
  * 全消しの直後に続きが届いたときに起こることで、描き始めの分からない線は描きようがないためである
  * （異常ではないので知らせない）。
  */
 export const applyDrawMessage = (strokes: Strokes, message: DrawMessage): Strokes => {
   if (message.type === 'clear') return NO_STROKES
+  if (message.type === 'erase') {
+    // 無い線を消そうとしたとき（合成ページを途中で開いた場合など）は、元の集まりをそのまま返す
+    if (!strokes.strokes.some(({ id }) => id === message.id)) return strokes
+    return { strokes: strokes.strokes.filter(({ id }) => id !== message.id) }
+  }
   if (message.type === 'start') {
     // 同じ名前で描き始めが来たら、その線を引き直す（描く画面がつなぎ直して名前を振り直した場合）
     const 残す = strokes.strokes.filter(({ id }) => id !== message.id)

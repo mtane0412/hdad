@@ -84,6 +84,23 @@ describe('applyDrawMessage', () => {
     expect(結果.strokes.map(({ color, width }) => `${color}/${width}`)).toEqual(['red/bold', 'blue/thin'])
   })
 
+  it('線を消すと、その1本だけがなくなる', () => {
+    const 二本 = applyDrawMessage(applyDrawMessage(NO_STROKES, 描き始め('線1', 0.1, 0.2)), 描き始め('線2', 0.5, 0.6))
+
+    const 結果 = applyDrawMessage(二本, { type: 'erase', id: '線1' })
+
+    expect(結果.strokes.map(({ id }) => id)).toEqual(['線2'])
+  })
+
+  it('無い線を消そうとしても、何も変わらない', () => {
+    // 合成ページを途中で開き、描き始めを受け取っていない線が消されたときに起こる
+    const 一本 = applyDrawMessage(NO_STROKES, 描き始め('線1', 0.1, 0.2))
+
+    const 結果 = applyDrawMessage(一本, { type: 'erase', id: '知らない線' })
+
+    expect(結果).toBe(一本)
+  })
+
   it('全消しで、線がすべて消える', () => {
     const 描き始めたあと = applyDrawMessage(NO_STROKES, 描き始め('線1', 0.1, 0.2))
 

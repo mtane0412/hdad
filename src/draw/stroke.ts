@@ -45,8 +45,19 @@ export interface StrokeClear {
   readonly type: 'clear'
 }
 
+/**
+ * 線を1本まるごと消した（消しゴムが触れた）。
+ *
+ * 消しゴムでなぞった範囲だけを削るのではなく、触れた線を丸ごと消す。線を名前で指すだけで済み、
+ * 線の形を送り直さなくてよいためである。
+ */
+export interface StrokeErase {
+  readonly type: 'erase'
+  readonly id: string
+}
+
 /** 描く画面から合成ページへ流れる1通 */
-export type DrawMessage = StrokeStart | StrokeExtend | StrokeClear
+export type DrawMessage = StrokeStart | StrokeExtend | StrokeClear | StrokeErase
 
 /**
  * 線の名前の長さの上限。
@@ -96,6 +107,10 @@ export const parseDrawMessage = (payload: string): DrawMessage => {
   }
   if (!isRecord(value)) throw new Error('手書きの線の形が想定と違います')
   if (value.type === 'clear') return { type: 'clear' }
+  if (value.type === 'erase') {
+    if (!isStrokeId(value.id)) throw new Error('手書きの線の形が想定と違います')
+    return { type: 'erase', id: value.id }
+  }
   if (value.type === 'start') {
     if (!isStart(value)) throw new Error('手書きの線の形が想定と違います')
     return { type: 'start', id: value.id, point: { x: value.point.x, y: value.point.y }, color: value.color, width: value.width }
