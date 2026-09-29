@@ -8,7 +8,9 @@
  * この素材に割り当てられた箱は大きさが違うため、生のピクセルで送ると載せた箱の大きさによって図が歪む。
  *
  * 注意: 想定した形でなければエラーにする。黙って捨てると、線が出ない原因に気付けない。
+ * 色と太さも一覧（tools.ts）にあるものだけを受け取る。既定に戻して描くと、配信画面に意図しない色の線が出る。
  */
+import { isColorId, isWidthId } from './tools'
 
 /** 箱の大きさに対する比で表した1点 */
 export interface Point {
@@ -16,11 +18,19 @@ export interface Point {
   readonly y: number
 }
 
-/** 線を描き始めた。id はこの線を指す名前で、続き（extend）はこの名前で同じ線に足していく */
+/**
+ * 線を描き始めた。id はこの線を指す名前で、続き（extend）はこの名前で同じ線に足していく。
+ *
+ * 色と太さは線ごとに決まるので、描き始めにだけ載せる（続きには載せない）。
+ */
 export interface StrokeStart {
   readonly type: 'start'
   readonly id: string
   readonly point: Point
+  /** 選べる色の名前（src/draw/tools.ts の DRAW_COLORS） */
+  readonly color: string
+  /** 選べる太さの名前（src/draw/tools.ts の DRAW_WIDTHS） */
+  readonly width: string
 }
 
 /** 描いている線に点を足す。ポインタの動きは細かいので、何点かをまとめて送る */
@@ -30,8 +40,13 @@ export interface StrokeExtend {
   readonly points: readonly Point[]
 }
 
+/** 描いたものをすべて消した */
+export interface StrokeClear {
+  readonly type: 'clear'
+}
+
 /** 描く画面から合成ページへ流れる1通 */
-export type DrawMessage = StrokeStart | StrokeExtend
+export type DrawMessage = StrokeStart | StrokeExtend | StrokeClear
 
 /**
  * 線の名前の長さの上限。
@@ -58,7 +73,8 @@ const isPoint = (value: unknown): value is Point => isRecord(value) && isCoordin
 
 const isId = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= MAX_ID_LENGTH
 
-const isStart = (value: Record<string, unknown>): value is StrokeStart & Record<string, unknown> => isId(value.id) && isPoint(value.point)
+const isStart = (value: Record<string, unknown>): value is StrokeStart & Record<string, unknown> =>
+  isId(value.id) && isPoint(value.point) && isColorId(value.color) && isWidthId(value.width)
 
 const isExtend = (value: Record<string, unknown>): value is StrokeExtend & Record<string, unknown> =>
   isId(value.id) && Array.isArray(value.points) && value.points.length > 0 && value.points.length <= MAX_POINTS_PER_MESSAGE && value.points.every(isPoint)
@@ -77,9 +93,10 @@ export const parseDrawMessage = (payload: string): DrawMessage => {
     throw new Error('手書きの線を読み取れませんでした（JSONとして読めません）')
   }
   if (!isRecord(value)) throw new Error('手書きの線の形が想定と違います')
+  if (value.type === 'clear') return { type: 'clear' }
   if (value.type === 'start') {
     if (!isStart(value)) throw new Error('手書きの線の形が想定と違います')
-    return { type: 'start', id: value.id, point: { x: value.point.x, y: value.point.y } }
+    return { type: 'start', id: value.id, point: { x: value.point.x, y: value.point.y }, color: value.color, width: value.width }
   }
   if (value.type === 'extend') {
     if (!isExtend(value)) throw new Error('手書きの線の形が想定と違います')

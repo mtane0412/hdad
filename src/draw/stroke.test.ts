@@ -8,10 +8,31 @@ import { describe, expect, it } from 'vitest'
 import { parseDrawMessage } from './stroke'
 
 describe('parseDrawMessage', () => {
-  it('線の描き始めを読み取る', () => {
-    const 届いた文字列 = '{"type":"start","id":"線1","point":{"x":0.25,"y":0.5}}'
+  it('線の描き始めを、色と太さごと読み取る', () => {
+    const 届いた文字列 = '{"type":"start","id":"線1","point":{"x":0.25,"y":0.5},"color":"red","width":"bold"}'
 
-    expect(parseDrawMessage(届いた文字列)).toEqual({ type: 'start', id: '線1', point: { x: 0.25, y: 0.5 } })
+    expect(parseDrawMessage(届いた文字列)).toEqual({ type: 'start', id: '線1', point: { x: 0.25, y: 0.5 }, color: 'red', width: 'bold' })
+  })
+
+  it('全消しを読み取る', () => {
+    expect(parseDrawMessage('{"type":"clear"}')).toEqual({ type: 'clear' })
+  })
+
+  it('選べない色はエラーにする', () => {
+    expect(() => parseDrawMessage('{"type":"start","id":"線1","point":{"x":0.1,"y":0.1},"color":"虹色","width":"bold"}')).toThrow(
+      '手書きの線の形が想定と違います',
+    )
+  })
+
+  it('選べない太さはエラーにする', () => {
+    expect(() => parseDrawMessage('{"type":"start","id":"線1","point":{"x":0.1,"y":0.1},"color":"red","width":"極太"}')).toThrow(
+      '手書きの線の形が想定と違います',
+    )
+  })
+
+  it('色と太さのない描き始めはエラーにする', () => {
+    // 送り手が古いままだと起こる。黙って既定の色で描くと、配信画面に意図しない色の線が出る
+    expect(() => parseDrawMessage('{"type":"start","id":"線1","point":{"x":0.1,"y":0.1}}')).toThrow('手書きの線の形が想定と違います')
   })
 
   it('線の続きを読み取る', () => {
@@ -43,23 +64,29 @@ describe('parseDrawMessage', () => {
   })
 
   it('線の名前がなければエラーにする', () => {
-    expect(() => parseDrawMessage('{"type":"start","point":{"x":0.1,"y":0.1}}')).toThrow('手書きの線の形が想定と違います')
+    expect(() => parseDrawMessage('{"type":"start","point":{"x":0.1,"y":0.1},"color":"white","width":"medium"}')).toThrow('手書きの線の形が想定と違います')
   })
 
   it('線の名前が長すぎればエラーにする', () => {
     // 名前は描く画面が付ける短い識別子なので、長いものが来たら送り手の作りを疑う
     const 長い名前 = 'あ'.repeat(65)
 
-    expect(() => parseDrawMessage(`{"type":"start","id":"${長い名前}","point":{"x":0.1,"y":0.1}}`)).toThrow('手書きの線の形が想定と違います')
+    expect(() => parseDrawMessage(`{"type":"start","id":"${長い名前}","point":{"x":0.1,"y":0.1},"color":"white","width":"medium"}`)).toThrow(
+      '手書きの線の形が想定と違います',
+    )
   })
 
   it('座標が数でなければエラーにする', () => {
-    expect(() => parseDrawMessage('{"type":"start","id":"線1","point":{"x":"左","y":0.1}}')).toThrow('手書きの線の形が想定と違います')
+    expect(() => parseDrawMessage('{"type":"start","id":"線1","point":{"x":"左","y":0.1},"color":"white","width":"medium"}')).toThrow(
+      '手書きの線の形が想定と違います',
+    )
   })
 
   it('座標が有限の数でなければエラーにする', () => {
     // JSONに Infinity は書けないが、0で割った結果が文字列化されて届く筋道はありうる
-    expect(() => parseDrawMessage('{"type":"start","id":"線1","point":{"x":null,"y":0.1}}')).toThrow('手書きの線の形が想定と違います')
+    expect(() => parseDrawMessage('{"type":"start","id":"線1","point":{"x":null,"y":0.1},"color":"white","width":"medium"}')).toThrow(
+      '手書きの線の形が想定と違います',
+    )
   })
 
   it('続きの点が空ならエラーにする', () => {

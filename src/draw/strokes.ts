@@ -12,6 +12,10 @@ import type { DrawMessage, Point } from './stroke'
 export interface Stroke {
   readonly id: string
   readonly points: readonly Point[]
+  /** 選ばれた色の名前（src/draw/tools.ts の DRAW_COLORS） */
+  readonly color: string
+  /** 選ばれた太さの名前（src/draw/tools.ts の DRAW_WIDTHS） */
+  readonly width: string
 }
 
 /** 画面に出ている線の集まり。描かれた順に並ぶ */
@@ -33,17 +37,19 @@ export const MAX_STROKES = 500
 /**
  * 届いた1通を積み上げる。
  *
- * 描き始め（start）を受け取っていない線の続き（extend）は捨てる。合成ページを線の途中で開いたときに
- * 起こることで、描き始めの分からない線は描きようがないためである（異常ではないので知らせない）。
+ * 描き始め（start）を受け取っていない線の続き（extend）は捨てる。合成ページを線の途中で開いたときや、
+ * 全消しの直後に続きが届いたときに起こることで、描き始めの分からない線は描きようがないためである
+ * （異常ではないので知らせない）。
  */
 export const applyDrawMessage = (strokes: Strokes, message: DrawMessage): Strokes => {
+  if (message.type === 'clear') return NO_STROKES
   if (message.type === 'start') {
     // 同じ名前で描き始めが来たら、その線を引き直す（描く画面がつなぎ直して名前を振り直した場合）
     const 残す = strokes.strokes.filter(({ id }) => id !== message.id)
-    const 足したもの = [...残す, { id: message.id, points: [message.point] }]
+    const 足したもの = [...残す, { id: message.id, points: [message.point], color: message.color, width: message.width }]
     return { strokes: 足したもの.slice(Math.max(0, 足したもの.length - MAX_STROKES)) }
   }
   const 対象 = strokes.strokes.find(({ id }) => id === message.id)
   if (対象 === undefined) return strokes
-  return { strokes: strokes.strokes.map((stroke) => (stroke === 対象 ? { id: stroke.id, points: [...stroke.points, ...message.points] } : stroke)) }
+  return { strokes: strokes.strokes.map((stroke) => (stroke === 対象 ? { ...stroke, points: [...stroke.points, ...message.points] } : stroke)) }
 }

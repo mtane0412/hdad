@@ -14,17 +14,43 @@
  *
  * 注意: 描いたものを残す仕組みはまだ無い（issue #133）。この画面を閉じても合成ページ側の線は消えず、
  * 逆に合成ページを開き直すと、それまでに引いた線は出ない。
- * 注意: 色・太さ・全消しは issue #132 で足す。いまはペン1本だけである。
+ * 注意: 消しゴムとひとつ戻すは持たない。まず全消しで足りるかを実際の配信で確かめてから決める（issue #132）。
  */
+import { cn } from 'cn'
+import { Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from '@/app/router'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+import { Separator } from '@/components/ui/separator'
+import { iconButtonName } from '@/core/icon-button'
 import { startCanvasSurface } from '@/core/mount'
 import { createStrokeId, toRatio } from './pointer'
+import { DEFAULT_COLOR_ID, DEFAULT_WIDTH_ID, DRAW_COLORS, DRAW_WIDTHS } from './tools'
 import type { DrawSocketHandlers, DrawWriter } from './socket'
 import { NO_STROKES, applyDrawMessage, type Strokes } from './strokes'
 import type { DrawMessage } from './stroke'
 import { drawStrokes } from './view'
+
+/**
+ * 太さの見本を描く基準の箱の幅（画素）。
+ *
+ * 太さは箱の幅に対する比で持っている（src/draw/tools.ts）ので、道具箱に見本を出すにも基準の幅が要る。
+ * ここを大きくすると見本だけが太くなり、実際の線の太さとの対応がずれる。
+ */
+const SAMPLE_BOX_WIDTH = 360
+
+/** 見本の線の最小の高さ（画素）。細い線でも1本の線として見えるだけの高さは残す */
+const SAMPLE_MIN_HEIGHT = 2
+
+/**
+ * 道具を選ぶラジオの、目に見えない当たり判定。
+ *
+ * 見た目は枠の側（色そのもの・太さの見本）が持ち、押す操作はラジオ自身が枠いっぱいに広がって受ける。
+ * ラベルの側で受けると、ラジオの実体がボタン要素なので押しても選ばれないことがある。
+ */
+const TOOL_HITBOX = 'absolute inset-0 size-full cursor-pointer aspect-auto rounded-[inherit] border-0 bg-transparent opacity-0'
 
 export interface DrawPageProps {
   /** 中継先へつなぐ。テストで差し替えられるよう受け取る */
@@ -43,6 +69,9 @@ export const DrawPage = ({ connect }: DrawPageProps) => {
   const [notice, setNotice] = useState<string | null>(null)
   /** 人が直すまで消えない失敗（キャンバスを使えない場合） */
   const [failure, setFailure] = useState<string | null>(null)
+  /** 選んでいる色と太さ。線を引き始めた時点の指定がその線に残る */
+  const [colorId, setColorId] = useState(DEFAULT_COLOR_ID)
+  const [widthId, setWidthId] = useState(DEFAULT_WIDTH_ID)
 
   useEffect(() => {
     const writer = connect({
@@ -86,9 +115,15 @@ export const DrawPage = ({ connect }: DrawPageProps) => {
       strokeIdRef.current = id
       // キャンバスの外へ出ても離した合図を受け取れるようにする（線が引きっぱなしにならない）
       event.currentTarget.setPointerCapture?.(event.pointerId)
-      送る({ type: 'start', id, point: toRatio(event.clientX, event.clientY, event.currentTarget.getBoundingClientRect()) })
+      送る({
+        type: 'start',
+        id,
+        point: toRatio(event.clientX, event.clientY, event.currentTarget.getBoundingClientRect()),
+        color: colorId,
+        width: widthId,
+      })
     },
-    [送る],
+    [送る, colorId, widthId],
   )
 
   const 動かした = useCallback(
@@ -104,6 +139,16 @@ export const DrawPage = ({ connect }: DrawPageProps) => {
   const 離した = useCallback((): void => {
     strokeIdRef.current = null
   }, [])
+
+  /**
+   * 描いたものをすべて消す。
+   *
+   * 取り消しの確認は出さない。配信中に確認を挟むほうが、押したのに消えない事故のもとになるためである。
+   */
+  const 全部消す = useCallback((): void => {
+    strokeIdRef.current = null
+    送る({ type: 'clear' })
+  }, [送る])
 
   return (
     <div className="space-y-4">
@@ -129,6 +174,72 @@ export const DrawPage = ({ connect }: DrawPageProps) => {
               {notice}
             </p>
           )}
+          {/* 道具は形で選べるようにする（色は色そのもの、太さは太さの見本）。名前は読み上げにだけ渡す。
+              RadioGroup は既定で grid w-full なので、横一列に収めるため w-auto で打ち消す */}
+          <div className="flex flex-wrap items-center gap-1 rounded-lg border bg-card p-1.5 shadow-sm">
+            <RadioGroup
+              value={colorId}
+              onValueChange={(値) => setColorId(String(値))}
+              aria-label="線の色"
+              className="flex w-auto flex-row items-center gap-1.5"
+            >
+              {DRAW_COLORS.map((色) => (
+                <span
+                  key={色.id}
+                  className={cn(
+                    'relative flex size-7 shrink-0 rounded-full border-2 transition has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50',
+                    colorId === 色.id ? 'border-foreground ring-2 ring-foreground/30' : 'border-border hover:border-muted-foreground',
+                  )}
+                  style={{ backgroundColor: 色.value }}
+                >
+                  {/* 選ぶ操作はラジオ自身が受ける（枠の側で受けると、押しても選ばれないことがある） */}
+                  <RadioGroupItem value={色.id} aria-label={色.label} className={TOOL_HITBOX} />
+                </span>
+              ))}
+            </RadioGroup>
+
+            <Separator orientation="vertical" className="mx-1 h-6 self-center" />
+
+            <RadioGroup
+              value={widthId}
+              onValueChange={(値) => setWidthId(String(値))}
+              aria-label="線の太さ"
+              className="flex w-auto flex-row items-center gap-1.5"
+            >
+              {DRAW_WIDTHS.map((太さ) => (
+                <span
+                  key={太さ.id}
+                  className={cn(
+                    'relative flex h-7 w-9 shrink-0 items-center justify-center rounded-md border transition has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50',
+                    widthId === 太さ.id ? 'border-foreground bg-accent' : 'border-border hover:bg-accent/50',
+                  )}
+                >
+                  <span
+                    aria-hidden
+                    className="w-5 shrink-0 rounded-full bg-foreground"
+                    style={{ height: Math.max(SAMPLE_MIN_HEIGHT, Math.round(太さ.ratio * SAMPLE_BOX_WIDTH)) }}
+                  />
+                  <RadioGroupItem value={太さ.id} aria-label={太さ.label} className={TOOL_HITBOX} />
+                </span>
+              ))}
+            </RadioGroup>
+
+            <Separator orientation="vertical" className="mx-1 h-6 self-center" />
+
+            {/* ゴミ箱の形だけで何をするかは伝わるのでアイコンだけにする。戻せない操作なので色でも伝える
+                （塗りつぶしの赤は常時目立ちすぎるため、アイコンだけを赤くする） */}
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={全部消す}
+              className="size-7 text-destructive hover:bg-destructive/10 hover:text-destructive"
+              {...iconButtonName('全部消す')}
+            >
+              <Trash2 />
+            </Button>
+          </div>
+
           <canvas
             ref={canvasRef}
             aria-label="配信画面に描く場所"
@@ -139,9 +250,7 @@ export const DrawPage = ({ connect }: DrawPageProps) => {
             onPointerUp={離した}
             onPointerCancel={離した}
           />
-          <p className="text-sm text-muted-foreground">
-            いまはペン1本だけです（色・太さ・全消しは追って足します）。描いたものは合成ページを開き直すと消えます。
-          </p>
+          <p className="text-sm text-muted-foreground">描いたものは、合成ページ（OBSのブラウザソース）を開き直すと消えます。</p>
         </CardContent>
       </Card>
     </div>
