@@ -404,6 +404,30 @@ describe('CommentsPage', () => {
       expect(api.send).not.toHaveBeenCalled()
     })
 
+    test('Safari の変換確定の Enter（isComposing が false でも keyCode が 229）でも送らない', () => {
+      const api = 代役のAPI()
+      描く(api)
+      fireEvent.change(入力欄(), { target: { value: 'ありがとう' } })
+
+      fireEvent.keyDown(入力欄(), { key: 'Enter', keyCode: 229, isComposing: false })
+
+      expect(api.send).not.toHaveBeenCalled()
+    })
+
+    test('送っているあいだに書き足した文言は、送り終えても消さない', async () => {
+      // 前提: 送信が終わる前に、配信者が次の文言を打ち始める
+      let 送り終える: () => void = () => {}
+      const api = 代役のAPI({ send: vi.fn(() => new Promise<void>((resolve) => (送り終える = resolve))) })
+      描く(api)
+      await userEvent.type(入力欄(), 'こんばんは{Enter}')
+      fireEvent.change(入力欄(), { target: { value: '次の話題は' } })
+
+      await act(async () => 送り終える())
+
+      expect(api.send).toHaveBeenCalledWith('こんばんは')
+      expect(入力欄()).toHaveValue('次の話題は')
+    })
+
     test('送れなかったら理由を出し、入れた文言は消さない（許可を取り直していないなど）', async () => {
       const api = 代役のAPI({ send: vi.fn(async () => Promise.reject(new Error('配信者のトークンに user:write:chat がありません。ログインし直してください'))) })
       描く(api)

@@ -42,6 +42,9 @@ import { describeModeration, pickUnknownUserIds, type CommentApi, type Moderatio
 import { applyFeedItems, describeEvent, EMPTY_FEED, parseFeedMessage, toFocusPick, type ChatItem, type EventItem, type Feed, type FeedBadge, type FeedEntry, type FeedFragment, type FeedUser } from './feed'
 import type { CommentFeedConnection, CommentFeedHandlers } from './socket'
 
+/** 日本語入力の変換を処理しているあいだの keydown に付く keyCode */
+const IME_PROCESSING_KEY_CODE = 229
+
 /** いちばん下を見ているとみなす、下端からの距離（画素）。端数の揺れで「遡っている」と取り違えないための遊び */
 const FOLLOW_THRESHOLD_PX = 32
 
@@ -388,8 +391,10 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
   /** 入力欄の文言を、配信者としてチャットへ送る。送れたら入力欄を空にし、送れなければ文言を残す */
   const 送る = () =>
     void actions.run(async () => {
-      await api.send(draft)
-      setDraft('')
+      // 送っているあいだに書き足された文言は消さない（送った文言のままのときだけ空にする）
+      const message = draft
+      await api.send(message)
+      setDraft((current) => (current === message ? '' : current))
       // 送った発言は Twitch から届いて流れに並ぶので、お知らせは出さない
       return ''
     })
@@ -477,8 +482,10 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
             if (event.key !== 'Enter') return
-            // 日本語入力の変換を確定する Enter は、送信の合図ではない（押すたびに書きかけが送られてしまう）
+            // 日本語入力の変換を確定する Enter は、送信の合図ではない（押すたびに書きかけが送られてしまう）。
+            // Safari は確定の Enter で isComposing を false にすることがあるので、処理中を表す keyCode も見る
             event.preventDefault()
+            if (event.nativeEvent.keyCode === IME_PROCESSING_KEY_CODE) return
             // 送信のボタンが押せないとき（空欄・送信中）は、Enter でも送らない
             if (!event.nativeEvent.isComposing && !actions.busy && draft !== '') 送る()
           }}
