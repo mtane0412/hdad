@@ -46,6 +46,8 @@ const createFader = (audio: HTMLAudioElement) => {
 interface Playing {
   readonly audio: HTMLAudioElement
   readonly fader: ReturnType<typeof createFader>
+  /** 音声を読めなかったときの見張り。止めるときに外す */
+  readonly onAudioError: () => void
 }
 
 export interface BgmPlayer {
@@ -65,27 +67,39 @@ export interface BgmPlayer {
 export const createBgmPlayer = (onError: (error: Error) => void): BgmPlayer => {
   let playing: Playing | null = null
 
-  /** 鳴らしている曲を下げきってから止め、読み込みも捨てる */
-  const fadeOut = async (target: Playing): Promise<void> => {
-    await target.fader.fadeTo(0, FADE_MS)
+  /**
+   * 曲を止め、見張りを外して読み込みも捨てる。
+   *
+   * src を外して読み込みを捨てるのは、配信中に何度も切り替えるので止めた曲の音声を持ち続けないためである。
+   * 見張りを先に外すのは、捨てた音声の読み込みの失敗を「鳴らしている曲の失敗」として知らせないためである。
+   */
+  const release = (target: Playing): void => {
     target.fader.stop()
+    target.audio.removeEventListener('error', target.onAudioError)
     target.audio.pause()
-    // src を外して読み込みを捨てる（配信中に何度も切り替えるので、止めた曲の音声を持ち続けない）
     target.audio.removeAttribute('src')
     target.audio.load()
   }
 
-  /** 次の曲を音量0で鳴らし始め、上げていく */
+  /** 鳴らしている曲を下げきってから止める */
+  const fadeOut = async (target: Playing): Promise<void> => {
+    await target.fader.fadeTo(0, FADE_MS)
+    release(target)
+  }
+
+  /** 次の曲を音量0で鳴らし始め、上げていく。鳴らし始められなければ片付けてから投げる */
   const fadeIn = async (url: string, volume: number): Promise<Playing> => {
     const audio = new Audio(url)
     audio.loop = true
     audio.volume = 0
-    audio.addEventListener('error', () => onError(new Error('BGMの音声を読めませんでした（素材が消えた・通信が切れた可能性があります）')))
+    const onAudioError = (): void => onError(new Error('BGMの音声を読めませんでした（素材が消えた・通信が切れた可能性があります）'))
+    audio.addEventListener('error', onAudioError)
+    const next: Playing = { audio, fader: createFader(audio), onAudioError }
     // OBSのブラウザソースでは自動再生が許されるが、普通のブラウザのタブでは操作前の再生を拒まれることがある
     await audio.play().catch((error: unknown) => {
+      release(next)
       throw new Error(`BGMを再生できませんでした: ${String(error)}`)
     })
-    const next = { audio, fader: createFader(audio) }
     void next.fader.fadeTo(volume, FADE_MS)
     return next
   }
