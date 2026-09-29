@@ -99,6 +99,8 @@ interface RowControls {
   focused: boolean
   /** 操作の途中か（二重に押させない） */
   busy: boolean
+  /** この発言の削除をすでに頼み、成功したか（Twitch から消えた知らせが届くまで、もう一度削除させない） */
+  deleteRequested: boolean
   /** 取り上げる・取り上げをやめる */
   onToggleFocus(): void
   /** 処分する（BANは確かめてから） */
@@ -122,24 +124,26 @@ const ChatRow = ({
   controls: RowControls
 }) => (
   <div className={cn('group flex items-start gap-2 px-3 py-1.5', controls.focused && 'bg-accent')}>
-    <Icon user={item.user} icons={icons} />
-    {/* 消された発言は薄くするが、操作のボタンは薄くしない（その人のタイムアウト・BANは続けてできる） */}
-    <div className={cn('min-w-0 flex-1 text-sm break-words', removed && 'opacity-50')}>
-      {item.reply && (
-        <p className="truncate text-xs text-muted-foreground">
-          {item.reply.name} さんへの返信: {item.reply.text}
-        </p>
-      )}
-      <time className="mr-2 text-xs text-muted-foreground tabular-nums">{時刻(item.at)}</time>
-      <Badges badges={item.badges} badgeImages={badgeImages} />
-      <Name user={item.user} color={item.color} />
-      <span className="text-muted-foreground">: </span>
-      <span className={cn(removed && 'line-through')}>
-        <Fragments fragments={item.fragments} />
-      </span>
-      {item.bits !== null && <span className="ml-2 rounded bg-primary/10 px-1.5 text-xs font-semibold text-primary">{item.bits} ビッツ</span>}
-      {removed && <span className="ml-2 text-xs text-muted-foreground">（削除済み）</span>}
-      {controls.focused && <span className="ml-2 rounded bg-primary px-1.5 text-xs font-semibold text-primary-foreground">注目中</span>}
+    {/* 消された発言はアイコンと本文を薄くするが、操作のボタンは薄くしない（その人のタイムアウト・BANは続けてできる） */}
+    <div className={cn('flex min-w-0 flex-1 items-start gap-2', removed && 'opacity-50')}>
+      <Icon user={item.user} icons={icons} />
+      <div className="min-w-0 flex-1 text-sm break-words">
+        {item.reply && (
+          <p className="truncate text-xs text-muted-foreground">
+            {item.reply.name} さんへの返信: {item.reply.text}
+          </p>
+        )}
+        <time className="mr-2 text-xs text-muted-foreground tabular-nums">{時刻(item.at)}</time>
+        <Badges badges={item.badges} badgeImages={badgeImages} />
+        <Name user={item.user} color={item.color} />
+        <span className="text-muted-foreground">: </span>
+        <span className={cn(removed && 'line-through')}>
+          <Fragments fragments={item.fragments} />
+        </span>
+        {item.bits !== null && <span className="ml-2 rounded bg-primary/10 px-1.5 text-xs font-semibold text-primary">{item.bits} ビッツ</span>}
+        {removed && <span className="ml-2 text-xs text-muted-foreground">（削除済み）</span>}
+        {controls.focused && <span className="ml-2 rounded bg-primary px-1.5 text-xs font-semibold text-primary-foreground">注目中</span>}
+      </div>
     </div>
     <div className="flex shrink-0 gap-0.5">
       {/* 押された状態（aria-pressed）で「取り上げている」を表し、もう一度押すとやめる */}
@@ -161,7 +165,7 @@ const ChatRow = ({
         variant="ghost"
         size="icon-sm"
         {...iconButtonName('この発言を削除')}
-        disabled={controls.busy || removed}
+        disabled={controls.busy || removed || controls.deleteRequested}
         onClick={() => controls.onModerate('delete')}
         className={rowButtonClass}
       >
@@ -267,6 +271,8 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
   /** 注目コメントとして取り上げている発言のID。取り上げていなければ null */
   const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null)
   const actions = usePageActions()
+  /** 削除に成功した発言のID。Twitch から消えた知らせが届くまでのあいだ、同じ発言をもう一度削除させない */
+  const [削除を頼んだ発言, set削除を頼んだ発言] = useState<ReadonlySet<string>>(new Set())
   /** この画面で取り上げ直したか。開いたときの読み込みが遅れて返っても、選び直した結果を古い内容で上書きしない */
   const 選び直した = useRef(false)
   /** いちばん下を見ているか。見ているあいだだけ、新しい1件に合わせて下へ送る */
@@ -355,7 +361,11 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
 
   /** 発言した人（または発言）を処分する。BANは取り返しが重いので確かめてから行う */
   const 処分する = (item: ChatItem, action: ModerationAction) => {
-    const run = async () => describeModeration(await api.moderate(action, { messageId: item.messageId, userId: item.user.id }), item.user.name)
+    const run = async () => {
+      const result = await api.moderate(action, { messageId: item.messageId, userId: item.user.id })
+      if (result.action === 'delete') set削除を頼んだ発言((current) => new Set([...current, item.messageId]))
+      return describeModeration(result, item.user.name)
+    }
     if (action !== 'ban') {
       void actions.run(run)
       return
@@ -419,6 +429,7 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
                     controls={(item) => ({
                       focused: item.messageId === focusedMessageId,
                       busy: actions.busy,
+                      deleteRequested: 削除を頼んだ発言.has(item.messageId),
                       onToggleFocus: () => 注目を切り替える(item),
                       onModerate: (action) => 処分する(item, action),
                     })}

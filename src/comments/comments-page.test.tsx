@@ -344,6 +344,19 @@ describe('CommentsPage', () => {
       expect(操作のボタン('常連さん', 'この人をBAN')).toBeEnabled()
     })
 
+    test('削除に成功したら、Twitchから消えた知らせが届く前でも、同じ発言をもう一度削除させない', async () => {
+      const api = 代役のAPI()
+      const { 届く } = 描く(api)
+      await 届く({ type: 'item', item: 常連さんの発言 })
+
+      await userEvent.click(操作のボタン('常連さん', 'この発言を削除'))
+      await screen.findByText('常連さん さんの発言を削除しました')
+
+      expect(操作のボタン('常連さん', 'この発言を削除')).toBeDisabled()
+      // 印（削除済み）は Twitch の知らせを待って付けるので、まだ付けない
+      expect(行('常連さん')).not.toHaveTextContent('削除済み')
+    })
+
     test('処分に失敗したら、理由を出す（botがモデレーターでないなど）', async () => {
       const api = 代役のAPI({ moderate: vi.fn(async () => Promise.reject(new Error('botがこのチャンネルのモデレーターではありません'))) })
       const { 届く } = 描く(api)
