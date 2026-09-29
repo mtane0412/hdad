@@ -7,7 +7,7 @@
  * 描いたものの保存と読み出し（issue #133）が通ることである。
  */
 import '@testing-library/jest-dom/vitest'
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DrawPage } from './draw-page'
@@ -178,11 +178,32 @@ describe('DrawPage', () => {
     render(<DrawPage connect={中継先.connect} api={保存先を作る().api} />)
     const キャンバス = 描く場所を得る()
 
+    // 色と太さは、アイコンを押して開いた選択肢から選ぶ
+    await userEvent.click(screen.getByRole('button', { name: '線の色' }))
     await userEvent.click(screen.getByRole('radio', { name: '赤' }))
+    await userEvent.click(screen.getByRole('button', { name: '線の太さ' }))
     await userEvent.click(screen.getByRole('radio', { name: '太い' }))
     キャンバス.dispatchEvent(new PointerEvent('pointerdown', { clientX: 100, clientY: 100, bubbles: true }))
 
     expect(中継先.送られたもの).toEqual([{ type: 'start', id: expect.any(String), point: { x: 0.25, y: 0.5 }, color: 'red', width: 'bold' }])
+  })
+
+  it('色を選んだら、選択肢を閉じる', async () => {
+    render(<DrawPage connect={中継先を作る().connect} api={保存先を作る().api} />)
+
+    await userEvent.click(screen.getByRole('button', { name: '線の色' }))
+    await userEvent.click(screen.getByRole('radio', { name: '赤' }))
+
+    await waitFor(() => expect(screen.queryByRole('radio', { name: '赤' })).toBeNull())
+  })
+
+  it('仕様の説明は、iボタンを押したときだけ出す', async () => {
+    render(<DrawPage connect={中継先を作る().connect} api={保存先を作る().api} />)
+    expect(screen.queryByText(/触れた線を1本消す/)).toBeNull()
+
+    await userEvent.click(screen.getByRole('button', { name: '手書きについて' }))
+
+    expect(screen.getByText(/触れた線を1本消す/)).toBeInTheDocument()
   })
 
   it('全消しを押したら、消したことを送る', async () => {
@@ -488,7 +509,8 @@ describe('DrawPage の背景（配信画面を撮った最新の1枚）', () => 
   const 画像のURL = 'https://i.gyazo.com/abcdef0123456789abcdef0123456789.png'
   const 配信画面: DrawBackgroundResult = { kind: 'image', url: 画像のURL, etag: '"abcdef0123456789abcdef0123456789"', capturedAt: 撮った時刻 }
 
-  const スイッチ = (): HTMLElement => screen.getByRole('switch', { name: '配信画面を背景に敷く' })
+  /** 背景を敷くかを切り替えるアイコン（押すたびに入と切が入れ替わる） */
+  const スイッチ = (): HTMLElement => screen.getByRole('button', { name: '配信画面を背景に敷く' })
 
   it('既定では背景を敷かず、読みにも行かない', () => {
     const 保存先 = 保存先を作る(undefined, 配信画面)
@@ -498,21 +520,40 @@ describe('DrawPage の背景（配信画面を撮った最新の1枚）', () => 
     expect(保存先.背景を読んだ印).toEqual([])
   })
 
-  it('スイッチを入れると、配信画面の1枚を少し薄くして敷き、いつの画面かを出す', async () => {
+  it('スイッチを入れると押された見た目になり、配信画面の1枚を少し薄くして敷く', async () => {
     render(<DrawPage connect={中継先を作る().connect} api={保存先を作る(undefined, 配信画面).api} />)
+    expect(スイッチ()).toHaveAttribute('aria-pressed', 'false')
 
     await userEvent.click(スイッチ())
 
     const 背景 = await screen.findByRole('img', { name: '背景に敷いた配信画面' })
     expect(背景).toHaveAttribute('src', 画像のURL)
     expect(背景.style.opacity).toBe('0.6')
-    expect(screen.getByText(/に撮った配信画面です/)).toBeInTheDocument()
+    expect(スイッチ()).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('いつ撮った画面かは、iボタンの説明に出す', async () => {
+    render(<DrawPage connect={中継先を作る().connect} api={保存先を作る(undefined, 配信画面).api} />)
+    await userEvent.click(スイッチ())
+    await screen.findByRole('img', { name: '背景に敷いた配信画面' })
+    expect(screen.queryByText(/に撮影/)).toBeNull()
+
+    await userEvent.click(screen.getByRole('button', { name: '手書きについて' }))
+
+    expect(screen.getByText(/に撮影/)).toBeInTheDocument()
+  })
+
+  it('背景を敷いていないあいだは、濃さを変えるアイコンを出さない', () => {
+    render(<DrawPage connect={中継先を作る().connect} api={保存先を作る(undefined, 配信画面).api} />)
+
+    expect(screen.queryByRole('button', { name: '背景の濃さを変える' })).toBeNull()
   })
 
   it('濃さを変えると、背景の濃さが変わる', async () => {
     render(<DrawPage connect={中継先を作る().connect} api={保存先を作る(undefined, 配信画面).api} />)
     await userEvent.click(スイッチ())
     const 背景 = await screen.findByRole('img', { name: '背景に敷いた配信画面' })
+    await userEvent.click(screen.getByRole('button', { name: '背景の濃さを変える' }))
 
     // jsdom では Base UI の Slider のつまみが隠れたままなので、外枠の名前から入力要素を探す
     fireEvent.change(within(screen.getByRole('group', { name: '背景の濃さ' })).getByRole('slider', { hidden: true }), { target: { value: '30' } })
