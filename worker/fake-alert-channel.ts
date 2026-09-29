@@ -6,6 +6,7 @@
  */
 import type { AlertChannelNamespace } from './alert-channel'
 import type { OverlayAlert } from './alert-event'
+import type { BgmNowPlaying } from './bgm-config'
 import { STATUS } from './http'
 
 interface FakeAlertChannelOptions {
@@ -17,15 +18,19 @@ interface FakeAlertChannelOptions {
 export const createFakeAlertChannel = ({ 失敗する = false }: FakeAlertChannelOptions = {}): {
   namespace: AlertChannelNamespace
   押し出されたアラート: OverlayAlert[]
+  /** 押し出された「いま流している曲」 */
+  押し出されたBGM: BgmNowPlaying[]
   /** WebSocketの接続として引き渡されたリクエスト */
   引き渡された接続: Request[]
 } => {
   const 押し出されたアラート: OverlayAlert[] = []
+  const 押し出されたBGM: BgmNowPlaying[] = []
   const 引き渡された接続: Request[] = []
   const id: DurableObjectId = { toString: () => 'alerts', equals: (other) => other.toString() === 'alerts', name: 'alerts' }
 
   return {
     押し出されたアラート,
+    押し出されたBGM,
     引き渡された接続,
     namespace: {
       idFromName: () => id,
@@ -37,7 +42,8 @@ export const createFakeAlertChannel = ({ 失敗する = false }: FakeAlertChanne
             引き渡された接続.push(request)
             return new Response(null, { status: STATUS.ok })
           }
-          押し出されたアラート.push((await request.json()) as OverlayAlert)
+          if (new URL(request.url).pathname === '/push/bgm') 押し出されたBGM.push((await request.json()) as BgmNowPlaying)
+          else 押し出されたアラート.push((await request.json()) as OverlayAlert)
           return new Response(null, { status: STATUS.noContent })
         },
       }),

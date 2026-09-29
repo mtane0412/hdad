@@ -1,0 +1,92 @@
+/**
+ * BGMの起動（裏方のページの ?bgm=true）
+ *
+ * 管理画面（/bgm/）で選んだ曲を、OBSのブラウザソースの音声として鳴らす。流す曲と音量は Worker が持ち、
+ * 開いたときに /api/overlay/bgm を読んで鳴らし始め、以後は切り替えを WebSocket（/api/overlay/bgm/socket）で
+ * 押し出してもらう（issue #151）。ポーリングにしないのは、配信中の切り替えが数十秒遅れるためである。
+ * つなぎ直したときは、つながっていない間の切り替えを取りこぼさないよう、もう一度読む。
+ *
+ * 何をするかの判断は change.ts、音の再生は player.ts にあり、ここはそれらをつなぐだけである。
+ * OBSに載せるページの約束どおり React もログインも持ち込まない。
+ *
+ * 注意: 起動のときの失敗（いま流している曲を読めない・再生を始められない）は投げて呼び出し側に画面へ出させる（Fail-Fast）。
+ * 一方、配信中の切り替えの1回の失敗では止めず、失敗をこの裏方の箱に出したうえで次の切り替えを待つ
+ * （1回の失敗のためにBGMの裏方ごと止まると、OBSの再読み込みが要るため。読み上げが1件の失敗を飛ばすのと同じ例外）。
+ */
+import { clearError, showError } from '../core/mount'
+import { connectSocket, socketUrl } from '../core/socket'
+import { createBgmOverlayApi, parseBgmNowPlaying, type BgmNowPlaying } from './api'
+import { bgmChangeOf } from './change'
+import { createBgmPlayer } from './player'
+
+/** エラー表示でこの裏方を指す呼び名 */
+export const BGM_NOUN = 'BGM'
+
+const SOCKET_PATH = '/api/overlay/bgm/socket'
+
+/** 一度もつながらないまま閉じたときに出す、いちばんありそうな原因 */
+const HINT = 'BGMの切り替えの配送先につながりません。URLのオーバーレイ用キーが正しいか確かめてください'
+
+/** いま鳴らしているものを、箱に1行で出す文 */
+const statusTextOf = (nowPlaying: BgmNowPlaying): string =>
+  nowPlaying.track === null ? 'BGMを止めています' : `「${nowPlaying.track.title}」を流しています（${nowPlaying.track.credit}）`
+
+export interface BgmTaskOptions {
+  /** オーバーレイ用キー */
+  readonly key: string
+  /** 失敗と、いま鳴らしているものを出す箱 */
+  readonly box: HTMLElement
+}
+
+/**
+ * BGMを始める。
+ *
+ * @throws 起動に失敗した場合（いま流している曲を読めない・再生を始められない）
+ */
+export const startBgm = async ({ key, box }: BgmTaskOptions): Promise<void> => {
+  const api = createBgmOverlayApi((input, init) => fetch(input, init), key)
+  const player = createBgmPlayer((error) => showError(error, BGM_NOUN, box, 'read'))
+
+  const status = document.createElement('p')
+  status.className = 'backstage-status'
+  status.setAttribute('role', 'status')
+
+  /** いま鳴らしているもの。まだ何も受け取っていなければ null */
+  let current: BgmNowPlaying | null = null
+  /** 切り替えを1つずつ順に行うための列。フェードの途中で次の切り替えが届いても、前のものを終えてから行う */
+  let queue: Promise<void> = Promise.resolve()
+
+  /** 届いた曲に合わせる */
+  const follow = async (next: BgmNowPlaying): Promise<void> => {
+    await player.apply(bgmChangeOf(current, next))
+    current = next
+    status.textContent = statusTextOf(next)
+  }
+
+  /** 配信中の切り替え。失敗しても止めず、箱に出して次を待つ */
+  const followLater = (next: () => Promise<BgmNowPlaying>): void => {
+    queue = queue
+      .then(async () => {
+        await follow(await next())
+        clearError(box, 'read')
+      })
+      .catch((error: unknown) => showError(error, BGM_NOUN, box, 'read'))
+  }
+
+  // 1回目は起動の一部として扱う。ここで失敗したら画面に出して原因が分かるようにする
+  await follow(await api.read())
+  box.append(status)
+
+  connectSocket(
+    socketUrl(SOCKET_PATH, { key }),
+    {
+      onMessage: (text) => followLater(async () => parseBgmNowPlaying(text)),
+      onStatus: (connection) => {
+        // つながっていない間に切り替えられていたかもしれないので、つなぎ直したら読み直す
+        if (connection === 'reconnected') followLater(() => api.read())
+      },
+      onWarning: (message) => showError(new Error(message), BGM_NOUN, box, 'read'),
+    },
+    HINT,
+  )
+}

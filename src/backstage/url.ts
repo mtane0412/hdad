@@ -3,12 +3,12 @@
  *
  * 画面（backstage-page.tsx）から分けてテストする（transcript/url.ts・speech/url.ts と同じ扱い）。
  *
- * 裏方（読み上げ・文字起こしの中継・画面の取り込み）は映すものを持たないので、位置も大きさも持たない。そのため合成ページ
+ * 裏方（読み上げ・文字起こしの中継・画面の取り込み・BGM）は映すものを持たないので、位置も大きさも持たない。そのため合成ページ
  * （overlay/stage/）の素材にはせず、裏方だけの1枚にまとめている（issue #108）。どの裏方を動かすかは
  * 「このブラウザソースが何をするか」という構造の指定なので、合成ページの ?overlay=<名前> と同じくURLに持たせる
  * （配信中に変える設定ではないため、issue #86 でWorkerへ移した「設定」とは扱いを分ける）。
  *
- * 注意: URLを短く保つため、既定（読み上げと文字起こしを動かす・画面の取り込みは動かさない・既定のポート）と
+ * 注意: URLを短く保つため、既定（読み上げと文字起こしを動かす・画面の取り込みとBGMは動かさない・既定のポート）と
  *   同じ指定は書き足さない。
  * 注意: 裏方をひとつも動かさないURLは組み立てない（貼っても何もしないブラウザソースを作らせない。
  *   素材を1つも持たないオーバーレイを保存しないのと同じ考え方）。
@@ -31,6 +31,12 @@ export interface BackstageTasks {
    * 両方が要るので、何も用意していない配信者のブラウザソースが起動のたびに失敗を出さないようにする。
    */
   readonly screen: boolean
+  /**
+   * BGM（管理画面で選んだ曲を鳴らす）。
+   *
+   * 既定では鳴らさない。OBSに貼ってある裏方のブラウザソースが、曲を選んだ途端に黙って鳴り出さないようにする。
+   */
+  readonly bgm: boolean
   /** ゆかコネNEO の WebSocket のポート番号。文字起こしを動かすときだけ使う */
   readonly port: number
 }
@@ -44,7 +50,7 @@ export interface BackstageTasks {
  * @throws 裏方をひとつも動かさないとき、または文字起こしを動かすのにポートが読めないとき
  */
 export const backstageUrl = (origin: string, overlayKey: string, tasks: BackstageTasks): string => {
-  if (!tasks.speech && !tasks.transcript && !tasks.screen) {
+  if (!tasks.speech && !tasks.transcript && !tasks.screen && !tasks.bgm) {
     throw new Error('動かす裏方を1つ以上選んでください（ひとつも動かさないブラウザソースは貼っても何もしません）')
   }
   // ポートは文字起こしを動かすときだけ使う。動かさないなら読めない値でも咎めない（そのポートへはつながないため）
@@ -54,6 +60,7 @@ export const backstageUrl = (origin: string, overlayKey: string, tasks: Backstag
   if (!tasks.speech) query.set('speech', 'false')
   if (!tasks.transcript) query.set('transcript', 'false')
   if (tasks.screen) query.set('screen', 'true')
+  if (tasks.bgm) query.set('bgm', 'true')
   if (tasks.transcript && tasks.port !== DEFAULT_TRANSCRIPT_PORT) query.set('port', String(tasks.port))
   return `${origin}${BACKSTAGE_PATH}?${query}`
 }

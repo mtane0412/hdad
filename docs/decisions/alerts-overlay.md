@@ -10,7 +10,7 @@
 
 ## 配送は Durable Object に任せる
 
-押し出しの宛先は Durable Object（`worker/alert-channel.ts` の `AlertChannel`。バインディングは `ALERTS`）で、Workerが接続を保持できないために置いている。接続は Hibernation API（`ctx.acceptWebSocket`）で受け、ping には `setWebSocketAutoResponse` が眠ったまま応える。
+押し出しの宛先は Durable Object（`worker/alert-channel.ts` の `AlertChannel`。バインディングは `ALERTS`）で、Workerが接続を保持できないために置いている。BGMの切り替えも同じ Durable Object で配り、接続に付けた目印（`alerts`・`bgm`）で配り先を分けている（`docs/decisions/bgm.md`）。接続は Hibernation API（`ctx.acceptWebSocket`）で受け、ping には `setWebSocketAutoResponse` が眠ったまま応える。
 
 **この Durable Object は配送者であって判定者ではない**（設定を持たせると、管理画面での変更がすぐ反映される性質が壊れる）。オーバーレイを開いていない間のアラートは貯めずに捨てる。
 

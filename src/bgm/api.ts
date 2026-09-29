@@ -1,0 +1,163 @@
+/**
+ * BGMの読み書き（Workerの呼び出し）
+ *
+ * BGMの曲の一覧と「いま流す曲・音量」は Worker（KVの bgm-tracks・bgm-playback）が持ち、2つの経路から読まれる。
+ * - 管理画面（/bgm/ のページ）: 配信者のセッションで /api/admin/bgm を読み書きする
+ * - 裏方のページ（overlay/backstage/ の ?bgm=true）: オーバーレイ用キーで /api/overlay/bgm を読むだけ。
+ *   切り替えは WebSocket で押し出されてくるので、その文字列の読み取り（parseBgmNowPlaying）もここに置く
+ *
+ * 呼び出しと失敗の扱いは `../core/api` に任せ、fetch を引数で受け取るのはテストで差し替えるためである。
+ *
+ * 注意: worker/ の型はブラウザ用のコードから読み込まない約束なので、応答の型はここで定義して形を確かめる。
+ * 想定した形でなければエラーにする（Fail-Fast）。黙って「何も流していない」に倒すと、壊れていることに気づけない。
+ * 注意: 値の検証は Worker（worker/bgm-config.ts）だけが持つ。画面とWorkerで二重に持たない。
+ */
+import { createCaller, isRecord, readList } from '../core/api'
+
+const ADMIN_PATH = '/api/admin/bgm'
+const TRACKS_PATH = '/api/admin/bgm/tracks'
+const PLAYBACK_PATH = '/api/admin/bgm/playback'
+const OVERLAY_PATH = '/api/overlay/bgm'
+
+/** BGMの曲1つ。項目は worker/bgm-config.ts と合わせる */
+export interface BgmTrack {
+  /** 音声の素材のID。曲の識別子も兼ねる */
+  mediaId: string
+  /** 曲名 */
+  title: string
+  /** クレジット表記 */
+  credit: string
+  /** クレジット先のURL。無ければ空文字 */
+  creditUrl: string
+  /** 曲調。無ければ空文字 */
+  mood: string
+  /** 流したい場面。無ければ空文字 */
+  scene: string
+}
+
+/** いま流す曲と音量 */
+export interface BgmPlayback {
+  /** 流す曲の素材のID。止めているときは null */
+  mediaId: string | null
+  /** 音量（0〜1） */
+  volume: number
+}
+
+/** 裏方のページが受け取る、いま流している曲 */
+export interface BgmNowPlaying {
+  /** 流している曲。止めているときは null */
+  track: {
+    mediaId: string
+    title: string
+    credit: string
+    creditUrl: string
+    /** 音声を読むパス（オーバーレイ用キーつき） */
+    url: string
+  } | null
+  volume: number
+}
+
+const isBgmTrack = (value: unknown): value is BgmTrack =>
+  isRecord(value) &&
+  typeof value.mediaId === 'string' &&
+  typeof value.title === 'string' &&
+  typeof value.credit === 'string' &&
+  typeof value.creditUrl === 'string' &&
+  typeof value.mood === 'string' &&
+  typeof value.scene === 'string'
+
+const isBgmPlayback = (value: unknown): value is BgmPlayback =>
+  isRecord(value) && (value.mediaId === null || typeof value.mediaId === 'string') && typeof value.volume === 'number'
+
+const isNowPlayingTrack = (value: unknown): value is NonNullable<BgmNowPlaying['track']> =>
+  isRecord(value) &&
+  typeof value.mediaId === 'string' &&
+  typeof value.title === 'string' &&
+  typeof value.credit === 'string' &&
+  typeof value.creditUrl === 'string' &&
+  typeof value.url === 'string'
+
+/** いま流している曲として読む。想定した形でなければエラーにする */
+const readNowPlaying = (body: unknown, source: string): BgmNowPlaying => {
+  if (!isRecord(body) || typeof body.volume !== 'number' || !(body.track === null || isNowPlayingTrack(body.track))) {
+    throw new Error(`${source}のBGMが想定した形ではありません`)
+  }
+  return { track: body.track, volume: body.volume }
+}
+
+/** 再生の設定として読む。想定した形でなければエラーにする */
+const readPlayback = (value: unknown, path: string): BgmPlayback => {
+  if (!isBgmPlayback(value)) throw new Error(`Workerの ${path} の応答の playback が想定した形ではありません`)
+  return { mediaId: value.mediaId, volume: value.volume }
+}
+
+/**
+ * WebSocket で押し出された文字列を、いま流している曲として読む。
+ *
+ * @throws JSONとして読めない・想定した形でない場合
+ */
+export const parseBgmNowPlaying = (payload: string): BgmNowPlaying => {
+  let body: unknown
+  try {
+    body = JSON.parse(payload)
+  } catch {
+    throw new Error('押し出されたBGMの切り替えをJSONとして読めません')
+  }
+  return readNowPlaying(body, '押し出された切り替え')
+}
+
+/** 管理画面からの読み書き */
+export interface BgmApi {
+  /** 曲の一覧と、いま流す曲・音量を読む */
+  load(): Promise<{ tracks: BgmTrack[]; playback: BgmPlayback }>
+  /** 曲の一覧をまるごと置き換えて保存する。検証はWorkerが行う */
+  saveTracks(tracks: readonly BgmTrack[]): Promise<BgmTrack[]>
+  /** 流す曲と音量を保存する。Workerが裏方のページへ押し出す */
+  savePlayback(playback: BgmPlayback): Promise<BgmPlayback>
+}
+
+/** 裏方のページからの読み出し */
+export interface BgmOverlayApi {
+  /** いま流している曲を読む */
+  read(): Promise<BgmNowPlaying>
+}
+
+/**
+ * 管理画面からの読み書きを組み立てる。
+ *
+ * @param fetchImpl 通信の実装。fetch をそのまま渡すと this が外れるブラウザがあるため、包んだものを受け取る
+ */
+export const createBgmApi = (fetchImpl: typeof fetch): BgmApi => {
+  const call = createCaller(fetchImpl)
+  const put = (path: string, body: unknown) =>
+    call(path, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+
+  return {
+    load: async () => {
+      const body = await call(ADMIN_PATH)
+      return { tracks: readList(body, 'tracks', isBgmTrack), playback: readPlayback(isRecord(body) ? body.playback : undefined, ADMIN_PATH) }
+    },
+    saveTracks: async (tracks) => readList(await put(TRACKS_PATH, { tracks }), 'tracks', isBgmTrack),
+    savePlayback: async (playback) => {
+      const body = await put(PLAYBACK_PATH, playback)
+      return readPlayback(isRecord(body) ? body.playback : undefined, PLAYBACK_PATH)
+    },
+  }
+}
+
+/**
+ * 裏方のページからの読み出しを組み立てる。
+ *
+ * 裏方のページはOBSに載せるページなのでログインを持たず、オーバーレイ用キー（URLの ?key=）で Worker に受け付けてもらう。
+ *
+ * @param fetchImpl 通信の実装
+ * @param key オーバーレイ用キー
+ */
+export const createBgmOverlayApi = (fetchImpl: typeof fetch, key: string): BgmOverlayApi => {
+  const call = createCaller(fetchImpl)
+  const path = `${OVERLAY_PATH}?key=${encodeURIComponent(key)}`
+
+  return {
+    read: async () => readNowPlaying(await call(path), `Workerの ${OVERLAY_PATH} の応答`),
+  }
+}

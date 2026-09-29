@@ -24,6 +24,7 @@
 | [speech.md](speech.md) | チャットの読み上げ（`speech/reader/`） |
 | [screen.md](screen.md) | 配信画面の取り込み（`/screen/`） |
 | [backstage.md](backstage.md) | 裏方をまとめたページ（`overlay/backstage/`） |
+| [bgm.md](bgm.md) | BGM（`/bgm/`・裏方の `?bgm=true`） |
 | [llm.md](llm.md) | LLMの呼び先・使用状況・モデルの選択 |
 | [triggers-page.md](triggers-page.md) | トリガーの管理画面（`/triggers/`） |
 | [dashboard.md](dashboard.md) | ダッシュボード（`/`） |

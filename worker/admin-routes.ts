@@ -8,6 +8,7 @@
 import { alertActionOf, loadAlertConfig, parseAlertConfig, saveAlertConfig } from './alert-config'
 import { HttpError, STATUS, requireAdmin, type Context } from './http'
 import { listMedia, uploadMedia } from './media'
+import { loadBgmTracks } from './bgm-config'
 import { rotateOverlayKey } from './overlay-key'
 import { loadOverlayLayout, parseOverlayLayout, saveOverlayLayout } from './overlay-layout'
 import { LLM_PROVIDERS, loadLlmSettings, parseLlmSettings, saveLlmSettings, type LlmProvider } from './llm-config'
@@ -54,7 +55,10 @@ export const postMedia = async (context: Context): Promise<Response> => {
   return Response.json(await uploadMedia(context.env.MEDIA, context.request), { status: STATUS.created })
 }
 
-/** DELETE /api/admin/media/:id: トリガーに使われている素材は消させない（配信中にアラートが出なくなるのを防ぐ） */
+/**
+ * DELETE /api/admin/media/:id: トリガーやBGMの曲に使われている素材は消させない
+ * （配信中にアラートが出なくなる・BGMが黙って無音になるのを防ぐ）
+ */
 export const deleteMedia = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
   const { env, params } = context
@@ -64,6 +68,9 @@ export const deleteMedia = async (context: Context): Promise<Response> => {
   const { triggers } = await loadAlertConfig(env.STORE)
   if (triggers.some((trigger) => alertActionOf(trigger)?.mediaId === id)) {
     throw new HttpError(STATUS.conflict, 'media-in-use', 'この素材はトリガーに使われています。先にトリガーの設定から外してください')
+  }
+  if ((await loadBgmTracks(env.STORE)).some((track) => track.mediaId === id)) {
+    throw new HttpError(STATUS.conflict, 'media-in-use', 'この素材はBGMの曲に使われています。先にBGMの一覧から外してください')
   }
 
   await env.MEDIA.delete(id)

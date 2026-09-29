@@ -28,6 +28,7 @@ const URLの値 = () => (URLの欄() as HTMLInputElement).value
 const 読み上げのスイッチ = () => screen.getByRole('checkbox', { name: 'チャットの読み上げ' })
 const 文字起こしのスイッチ = () => screen.getByRole('checkbox', { name: '文字起こしの中継' })
 const 画面の取り込みのスイッチ = () => screen.getByRole('checkbox', { name: '配信画面の取り込み' })
+const BGMのスイッチ = () => screen.getByRole('checkbox', { name: 'BGM' })
 
 describe('裏方のページ', () => {
   test('OBSに貼るURLに、オーバーレイ用キーを入れて出す', () => {
@@ -49,6 +50,17 @@ describe('裏方のページ', () => {
     await userEvent.click(画面の取り込みのスイッチ())
 
     expect(URLの値()).toContain('screen=true')
+  })
+
+  test('BGMは既定で外れていて、入れるとURLに書き足される（貼ってあるブラウザソースが黙って鳴り出さないように）', async () => {
+    render(<BackstagePage overlayKey={オーバーレイ用キー} />)
+
+    expect(BGMのスイッチ()).not.toBeChecked()
+    expect(URLの値()).not.toContain('bgm=')
+
+    await userEvent.click(BGMのスイッチ())
+
+    expect(URLの値()).toContain('bgm=true')
   })
 
   test('URLのコピーはアイコンだけのボタンにし、名前は読み上げとホバー（title）に残す', () => {

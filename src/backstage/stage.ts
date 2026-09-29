@@ -1,7 +1,7 @@
 /**
  * 裏方のページ（overlay/backstage/index.html）のエントリスクリプト
  *
- * OBSに置くWebのページのうち、映すものを持たないもの（チャットの読み上げ・文字起こしの中継・配信画面の取り込み）を1枚にまとめる
+ * OBSに置くWebのページのうち、映すものを持たないもの（チャットの読み上げ・文字起こしの中継・配信画面の取り込み・BGM）を1枚にまとめる
  * （issue #108）。ブラウザソースはその数だけ Chromium のレンダラを立ち上げるので、裏方をそれぞれ別のソースに
  * 置くと配信中のメモリを食う。
  *
@@ -11,13 +11,14 @@
  *
  * どの裏方を動かすかは「このブラウザソースが何をするか」という構造の指定なので、合成ページの ?overlay=<名前> と
  * 同じくURLに持たせる（配信中に変える設定ではないため、issue #86 でWorkerへ移した「設定」とは扱いを分ける）。
- * 裏方そのものは src/speech/task.ts・src/transcript/task.ts・src/screen/task.ts にあり、単独ページを持つものは
+ * 裏方そのものは src/speech/task.ts・src/transcript/task.ts・src/screen/task.ts・src/bgm/task.ts にあり、単独ページを持つものは
  * そのページと同じものを呼ぶ。
  *
  * 注意: 1つの裏方の失敗で、もう一方は動かし続ける（合成ページが素材について設けた例外と同じ。
  * 1枚にまとめたせいで、片方の失敗がもう一方まで巻き込むことがないようにする）。失敗はその裏方の箱に出す。
  * 注意: OBSに載せるページの約束どおり、React もログインも持ち込まない。
  */
+import { BGM_NOUN, startBgm } from '../bgm/task'
 import { showError } from '../core/mount'
 import { ParamError, parseParams, type ParamSchema } from '../core/params'
 import { SCREEN_NOUN, startScreen } from '../screen/task'
@@ -52,6 +53,12 @@ const schema = {
     // 何も用意していない配信者のブラウザソースが起動のたびに失敗を出さないようにする
     default: false,
     description: '配信画面の取り込みを動かす（OBS の obs-websocket を使う）',
+  },
+  bgm: {
+    type: 'boolean',
+    // 既定では鳴らさない。OBSに貼ってある裏方のブラウザソースが、曲を選んだ途端に黙って鳴り出さないようにする
+    default: false,
+    description: 'BGMを鳴らす（流す曲と音量は管理画面の「BGM」で選ぶ）',
   },
   host: {
     type: 'string',
@@ -110,8 +117,8 @@ const start = async (): Promise<void> => {
   if (params.key === '') {
     throw new ParamError(['key: オーバーレイ用キーを指定してください（例: ?key=<キー>）'])
   }
-  if (!params.speech && !params.transcript && !params.screen) {
-    throw new ParamError(['speech・transcript・screen: 動かす裏方がありません（どれかを true にしてください）'])
+  if (!params.speech && !params.transcript && !params.screen && !params.bgm) {
+    throw new ParamError(['speech・transcript・screen・bgm: 動かす裏方がありません（どれかを true にしてください）'])
   }
 
   // 文字起こしの中継を先に始める。つなぎ始めるまで待つものが無く、読み上げの起動（Workerと VOICEVOX への
@@ -124,6 +131,12 @@ const start = async (): Promise<void> => {
       // 1つの裏方の失敗で、もう一方を止めない
       showError(error, TRANSCRIPT_NOUN, box)
     }
+  }
+
+  // BGMも待つものが無いので、読み上げの起動より先に始める（読み上げが VOICEVOX を待つあいだに鳴り始められる）
+  if (params.bgm) {
+    const box = addTaskBox(root, BGM_NOUN)
+    startBgm({ key: params.key, box }).catch((error: unknown) => showError(error, BGM_NOUN, box))
   }
 
   if (params.speech) {
