@@ -17,13 +17,22 @@ import type { DrawSocketHandlers, DrawWriter } from './socket'
 import type { DrawMessage } from './stroke'
 import type { Strokes } from './strokes'
 
-/** 書き込まれた内容を覚えておく、テスト用の保存先 */
+/** 書き込まれた内容を覚えておく、テスト用の保存先。読み出しの応答を保留できるようにしてある */
 const 保存先を作る = (保存されているもの: Strokes = { strokes: [] }) => {
   const 書かれたもの: Strokes[] = []
+  let 読み出しを解く: (() => void) | null = null
+  let 保留する = false
   return {
     書かれたもの,
+    読み出しを保留する: () => {
+      保留する = true
+    },
+    読み出しを解く: () => 読み出しを解く?.(),
     api: {
-      load: async () => 保存されているもの,
+      load: async () => {
+        if (保留する) await new Promise<void>((resolve) => (読み出しを解く = resolve))
+        return 保存されているもの
+      },
       save: async (strokes: Strokes) => {
         書かれたもの.push(strokes)
       },
@@ -192,6 +201,8 @@ describe('DrawPage の保存（issue #133）', () => {
       const 保存先 = 保存先を作る()
       render(<DrawPage connect={中継先を作る().connect} api={保存先.api} />)
       const キャンバス = 描く場所を得る()
+      // 保存されているものを読めてから書き始めるので、読み出しの応答を待つ
+      await act(() => vi.advanceTimersByTimeAsync(0))
 
       キャンバス.dispatchEvent(new PointerEvent('pointerdown', { clientX: 100, clientY: 100, bubbles: true }))
       キャンバス.dispatchEvent(new PointerEvent('pointerup', { clientX: 120, clientY: 100, bubbles: true }))
@@ -247,5 +258,128 @@ describe('DrawPage の保存（issue #133）', () => {
     await userEvent.click(screen.getByRole('button', { name: '全部消す' }))
 
     expect((await screen.findByRole('status')).textContent).toContain('ログインが切れています')
+  })
+})
+
+describe('DrawPage の保存と、保存されている図の守り', () => {
+  /** 前の配信で描いて保存されている図 */
+  const 保存されている図: Strokes = { strokes: [{ id: '前に引いた線', points: [{ x: 0.5, y: 0.5 }], color: 'red', width: 'bold' }] }
+
+  it('保存されているものを読み終える前に引き終えた線は、まだ保存しない', async () => {
+    // 読む前に書くと、保存されている図を消してしまう
+    vi.useFakeTimers()
+    try {
+      const 保存先 = 保存先を作る(保存されている図)
+      保存先.読み出しを保留する()
+      render(<DrawPage connect={中継先を作る().connect} api={保存先.api} />)
+      const キャンバス = 描く場所を得る()
+
+      キャンバス.dispatchEvent(new PointerEvent('pointerdown', { clientX: 100, clientY: 100, bubbles: true }))
+      キャンバス.dispatchEvent(new PointerEvent('pointerup', { clientX: 100, clientY: 100, bubbles: true }))
+      await act(() => vi.advanceTimersByTimeAsync(SAVE_DELAY_MS))
+
+      expect(保存先.書かれたもの).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('読み終えたあとは、保存されているものと合わせて保存する', async () => {
+    vi.useFakeTimers()
+    try {
+      const 保存先 = 保存先を作る(保存されている図)
+      保存先.読み出しを保留する()
+      render(<DrawPage connect={中継先を作る().connect} api={保存先.api} />)
+      const キャンバス = 描く場所を得る()
+      キャンバス.dispatchEvent(new PointerEvent('pointerdown', { clientX: 100, clientY: 100, bubbles: true }))
+      キャンバス.dispatchEvent(new PointerEvent('pointerup', { clientX: 100, clientY: 100, bubbles: true }))
+
+      await act(async () => {
+        保存先.読み出しを解く()
+      })
+      キャンバス.dispatchEvent(new PointerEvent('pointerdown', { clientX: 200, clientY: 100, bubbles: true }))
+      キャンバス.dispatchEvent(new PointerEvent('pointerup', { clientX: 200, clientY: 100, bubbles: true }))
+      await act(() => vi.advanceTimersByTimeAsync(SAVE_DELAY_MS))
+
+      expect(保存先.書かれたもの.at(-1)?.strokes.map(({ id }) => id)).toEqual(['前に引いた線', expect.any(String), expect.any(String)])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('読み出しに失敗したら、描いたものを保存せず、その旨を出す', async () => {
+    // 読めなかったものを上書きしない（保存されている図を、見えないまま消してしまわない）
+    vi.useFakeTimers()
+    try {
+      const 書かれたもの: Strokes[] = []
+      render(
+        <DrawPage
+          connect={中継先を作る().connect}
+          api={{
+            load: async () => {
+              throw new Error('ログインが切れています')
+            },
+            save: async (strokes) => {
+              書かれたもの.push(strokes)
+            },
+          }}
+        />,
+      )
+      const キャンバス = 描く場所を得る()
+      await act(() => vi.advanceTimersByTimeAsync(0))
+
+      キャンバス.dispatchEvent(new PointerEvent('pointerdown', { clientX: 100, clientY: 100, bubbles: true }))
+      キャンバス.dispatchEvent(new PointerEvent('pointerup', { clientX: 100, clientY: 100, bubbles: true }))
+      await act(() => vi.advanceTimersByTimeAsync(SAVE_DELAY_MS))
+
+      expect(書かれたもの).toEqual([])
+      expect(screen.getByRole('status').textContent).toContain('保存されません')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('読み終える前に全消しを押したら、あとから届いた保存ぶんを描き直さない', async () => {
+    // 消したのに、読み出しの応答で図が戻ってきてはいけない
+    vi.useFakeTimers()
+    try {
+      const 保存先 = 保存先を作る(保存されている図)
+      保存先.読み出しを保留する()
+      render(<DrawPage connect={中継先を作る().connect} api={保存先.api} />)
+      const キャンバス = 描く場所を得る()
+
+      await act(async () => {
+        screen.getByRole('button', { name: '全部消す' }).click()
+      })
+      await act(async () => {
+        保存先.読み出しを解く()
+      })
+      キャンバス.dispatchEvent(new PointerEvent('pointerdown', { clientX: 100, clientY: 100, bubbles: true }))
+      キャンバス.dispatchEvent(new PointerEvent('pointerup', { clientX: 100, clientY: 100, bubbles: true }))
+      await act(() => vi.advanceTimersByTimeAsync(SAVE_DELAY_MS))
+
+      expect(保存先.書かれたもの.at(-1)?.strokes.map(({ id }) => id)).toEqual([expect.any(String)])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('画面を離れるときは、待っている保存を書き切る', async () => {
+    vi.useFakeTimers()
+    try {
+      const 保存先 = 保存先を作る()
+      const { unmount } = render(<DrawPage connect={中継先を作る().connect} api={保存先.api} />)
+      const キャンバス = 描く場所を得る()
+      await act(() => vi.advanceTimersByTimeAsync(0))
+      キャンバス.dispatchEvent(new PointerEvent('pointerdown', { clientX: 100, clientY: 100, bubbles: true }))
+      キャンバス.dispatchEvent(new PointerEvent('pointerup', { clientX: 100, clientY: 100, bubbles: true }))
+
+      unmount()
+      await act(() => vi.advanceTimersByTimeAsync(0))
+
+      expect(保存先.書かれたもの.map(({ strokes }) => strokes.length)).toEqual([1])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

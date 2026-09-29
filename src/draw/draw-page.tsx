@@ -14,6 +14,7 @@
  *
  * 引き終えた線はWorker（KV）へ写すので、この画面や合成ページを開き直しても描いたものは残る（issue #133）。
  * 書くのは線を1本引き終えてから数秒まとめたあと（src/draw/save.ts）で、全消しだけは待たずに書く。
+ * 保存されているものを読めるまでは書かない（読む前に書くと、前に描いた図を消してしまう）。
  * KVの反映の遅れと合わせて、描いた直後に合成ページを読み込み直すと最後の数本が欠けることはある
  * （docs/decisions/draw.md）。
  *
@@ -76,6 +77,15 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
   const [notice, setNotice] = useState<string | null>(null)
   /** 人が直すまで消えない失敗（キャンバスを使えない場合） */
   const [failure, setFailure] = useState<string | null>(null)
+  /**
+   * 保存されているものを読めたか。読めるまでは書き込まない。
+   *
+   * 読む前に書くと、保存されている図（前に描いたもの）を消してしまう。読めなかったときも書かないが、
+   * 全消しを押したあとは「保存されているのは何も無い状態」だと分かるので、そこから書き始める。
+   */
+  const 書いてよいRef = useRef(false)
+  /** 全消しを押したか。読み出しの応答が全消しより後に届いたとき、消した図を描き直さないために見る */
+  const 消したRef = useRef(false)
   /** 選んでいる色と太さ。線を引き始めた時点の指定がその線に残る */
   const [colorId, setColorId] = useState(DEFAULT_COLOR_ID)
   const [widthId, setWidthId] = useState(DEFAULT_WIDTH_ID)
@@ -94,16 +104,22 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
       .load()
       .then(({ strokes }) => {
         if (離れた) return
-        strokesRef.current = { strokes: [...strokes, ...strokesRef.current.strokes] }
+        // 読み終わる前に全消しを押していたら、読めたものは描き直さない（消した図が戻ってきてしまう）
+        if (!消したRef.current) strokesRef.current = { strokes: [...strokes, ...strokesRef.current.strokes] }
+        書いてよいRef.current = true
       })
-      .catch((error: unknown) => setNotice(`保存されている線を読めませんでした: ${error instanceof Error ? error.message : String(error)}`))
+      .catch((error: unknown) =>
+        setNotice(
+          `保存されている線を読めませんでした（描いたものは保存されません。全部消すと保存を始めます）: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      )
     return () => {
       離れた = true
     }
   }, [api])
 
-  // 画面を離れるときに、待っている書き込みをやめる（閉じたあとに書きに行かない）
-  useEffect(() => () => saver.cancel(), [saver])
+  // 画面を離れるときは、待っている書き込みを捨てずに書き切る（最後に引いた数本が残らないため）
+  useEffect(() => () => saver.flush(), [saver])
 
   useEffect(() => {
     const writer = connect({
@@ -172,6 +188,8 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
     // 引いている途中でなければ（押していない指の動きなど）書く理由がない
     if (strokeIdRef.current === null) return
     strokeIdRef.current = null
+    // 保存されているものを読めていなければ書かない（読めていない図を上書きしない）
+    if (!書いてよいRef.current) return
     saver.finished(strokesRef.current)
   }, [saver])
 
@@ -182,6 +200,9 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
    */
   const 全部消す = useCallback((): void => {
     strokeIdRef.current = null
+    消したRef.current = true
+    // 消すのは「保存されているものを全部無かったことにする」操作なので、読めていなくても書いてよい
+    書いてよいRef.current = true
     送る({ type: 'clear' })
     // 消したことは待たずに書く（残っていると困る向きの操作なので遅らせない）
     saver.saveNow(strokesRef.current)

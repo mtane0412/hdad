@@ -5,7 +5,8 @@
  * （書き込み回数の面でも成り立たない）。そこで書くのは線を1本引き終えた時点とし、そこから数秒
  * まとめてから1度だけ書く。間引きを描く画面の側に置き、Workerは受け取ったものを検証して書くだけにする。
  *
- * 全消しは待たずにすぐ書く。残っていると困る向きの操作なので、遅らせない。
+ * 全消しは待たずにすぐ書く。残っていると困る向きの操作なので、遅らせない。画面を離れるときも、待っている
+ * 書き込みを捨てずに書き切る（捨てると、最後に引いた数本が残らない）。
  *
  * 書き込みは前のものが終わってから次を始める。KVへの書き込みの順番が入れ替わると、新しい状態を書いたあとに
  * 古い状態が上書きされてしまう。
@@ -36,7 +37,9 @@ export interface StrokeSaver {
   finished(strokes: Strokes): void
   /** 待たずにすぐ書く（全消し）。待っている書き込みは取り消して置き換える */
   saveNow(strokes: Strokes): void
-  /** 待っている書き込みをやめる（画面を離れるときに呼ぶ） */
+  /** 待っている書き込みを、待たずに書き切る（画面を離れるときに呼ぶ）。待っているものが無ければ何もしない */
+  flush(): void
+  /** 待っている書き込みをやめる（書かずに捨てる） */
   cancel(): void
 }
 
@@ -44,10 +47,13 @@ export interface StrokeSaver {
 export const createStrokeSaver = ({ save, onFailure }: StrokeSaverOptions): StrokeSaver => {
   /** 待っている書き込みの時計 */
   let 待ち時間: ReturnType<typeof setTimeout> | null = null
+  /** 待っている書き込みの中身。書き切るときにこれを書く */
+  let 待っているもの: Strokes | null = null
   /** 直前の書き込み。これが終わってから次を始める（順番が入れ替わらないようにする） */
   let 書き込み中: Promise<void> = Promise.resolve()
 
   const 取り消す = (): void => {
+    待っているもの = null
     if (待ち時間 === null) return
     clearTimeout(待ち時間)
     待ち時間 = null
@@ -66,8 +72,10 @@ export const createStrokeSaver = ({ save, onFailure }: StrokeSaverOptions): Stro
   return {
     finished: (strokes) => {
       取り消す()
+      待っているもの = strokes
       待ち時間 = setTimeout(() => {
         待ち時間 = null
+        待っているもの = null
         書く(strokes)
       }, SAVE_DELAY_MS)
     },
@@ -75,6 +83,12 @@ export const createStrokeSaver = ({ save, onFailure }: StrokeSaverOptions): Stro
     saveNow: (strokes) => {
       取り消す()
       書く(strokes)
+    },
+
+    flush: () => {
+      const 書くもの = 待っているもの
+      取り消す()
+      if (書くもの !== null) 書く(書くもの)
     },
 
     cancel: 取り消す,

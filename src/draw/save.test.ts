@@ -7,6 +7,7 @@
  * - 全消しは待たずにすぐ書くこと（残っていると困る向きの操作なので遅らせない）
  * - 前の書き込みが終わるまで次の書き込みを始めないこと（順番が入れ替わると古い状態が残る）
  * - 書き込みの失敗を知らせること（黙って落とすと、残っていないことに気付けない）
+ * - 画面を離れるときに、待っている書き込みを書き切ること（捨てると、最後に引いた線が残らない）
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SAVE_DELAY_MS, createStrokeSaver } from './save'
@@ -127,7 +128,40 @@ describe('createStrokeSaver', () => {
     expect(知らせ).toEqual(['ログインが切れています'])
   })
 
-  it('画面を離れたら、待っている書き込みをやめる', async () => {
+  it('待っている書き込みを、待たずに書き切れる', async () => {
+    // 画面を離れるときに捨てると、最後に引いた数本が残らない
+    const 保存先 = 保存先を作る()
+    const saver = createStrokeSaver({ save: 保存先.save, onFailure: () => {} })
+
+    saver.finished(線1本('線1'))
+    saver.flush()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(保存先.書かれたもの).toEqual([線1本('線1')])
+  })
+
+  it('待っている書き込みが無ければ、書き切っても何も書かない', async () => {
+    const 保存先 = 保存先を作る()
+    const saver = createStrokeSaver({ save: 保存先.save, onFailure: () => {} })
+
+    saver.flush()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(保存先.書かれたもの).toEqual([])
+  })
+
+  it('書き切ったあとは、待っていた書き込みを二度書かない', async () => {
+    const 保存先 = 保存先を作る()
+    const saver = createStrokeSaver({ save: 保存先.save, onFailure: () => {} })
+
+    saver.finished(線1本('線1'))
+    saver.flush()
+    await vi.advanceTimersByTimeAsync(SAVE_DELAY_MS)
+
+    expect(保存先.書かれたもの).toEqual([線1本('線1')])
+  })
+
+  it('待っている書き込みをやめられる', async () => {
     const 保存先 = 保存先を作る()
     const saver = createStrokeSaver({ save: 保存先.save, onFailure: () => {} })
 
