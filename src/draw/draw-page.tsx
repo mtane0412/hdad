@@ -24,6 +24,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Separator } from '@/components/ui/separator'
+import { iconButtonName } from '@/core/icon-button'
 import { startCanvasSurface } from '@/core/mount'
 import { createStrokeId, toRatio } from './pointer'
 import { DEFAULT_COLOR_ID, DEFAULT_WIDTH_ID, DRAW_COLORS, DRAW_WIDTHS } from './tools'
@@ -225,10 +226,17 @@ export const DrawPage = ({ connect }: DrawPageProps) => {
 
             <Separator orientation="vertical" className="mx-1 h-6 self-center" />
 
-            {/* 消したものは戻せないので、アイコンだけにせず文字も残す（src/core/icon-button.ts の注意） */}
-            <Button type="button" variant="outline" size="sm" onClick={全部消す}>
+            {/* ゴミ箱の形だけで何をするかは伝わるのでアイコンだけにする。戻せない操作なので色でも伝える
+                （塗りつぶしの赤は常時目立ちすぎるため、アイコンだけを赤くする） */}
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={全部消す}
+              className="size-7 text-destructive hover:bg-destructive/10 hover:text-destructive"
+              {...iconButtonName('全部消す')}
+            >
               <Trash2 />
-              全部消す
             </Button>
           </div>
 
