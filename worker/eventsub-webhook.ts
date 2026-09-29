@@ -11,6 +11,7 @@
  * チャット（channel.chat.message）の購読の条件にある「チャットを読む人」には配信者自身を指定する。
  * botを指定していた頃はbotの接続・切断のたびに購読を揃え直す必要があったが、配信者に固定したことでbotと無関係になった。
  */
+import { CHAT_CLEAR, CHAT_CLEAR_USER_MESSAGES, CHAT_MESSAGE_DELETE, CHAT_NOTIFICATION } from './comment-feed'
 import { EVENT_TYPES, byBroadcaster, withEventType, type EventType } from './eventsub'
 import type { Context } from './http'
 import { signHex, timingSafeEqual } from './secret'
@@ -52,6 +53,14 @@ export const AD_BREAK_BEGIN = 'channel.ad_break.begin'
 
 export const UNCOUNTED_EVENT_TYPES: readonly string[] = ['channel.follow', CHAT_MESSAGE, AD_BREAK_BEGIN]
 
+/**
+ * コメントビューアー（/comments/）に並べるためだけに購読するイベント。
+ *
+ * 件数も数えず、アラートのトリガーにもかけない。サブスク・レイドは channel.subscribe・channel.raid で
+ * 数えてトリガーにかけているので、お知らせのほうでもかけると二重になる。
+ */
+export const FEED_ONLY_EVENT_TYPES: readonly string[] = [CHAT_NOTIFICATION, CHAT_MESSAGE_DELETE, CHAT_CLEAR_USER_MESSAGES, CHAT_CLEAR]
+
 /** 購読を1つ登録するのに要る内容（条件は解決済み） */
 interface WantedEvent {
   type: string
@@ -67,7 +76,7 @@ interface WantedEvent {
  */
 const buildWantedEvents = (broadcasterId: string): WantedEvent[] => {
   const base: readonly EventType[] = [
-    ...EVENT_TYPES.filter((eventType) => COUNTED_EVENT_TYPES.includes(eventType.type) || UNCOUNTED_EVENT_TYPES.includes(eventType.type)),
+    ...EVENT_TYPES.filter((eventType) => [...COUNTED_EVENT_TYPES, ...UNCOUNTED_EVENT_TYPES, ...FEED_ONLY_EVENT_TYPES].includes(eventType.type)),
     { type: STREAM_ONLINE, version: '1', scope: null, condition: byBroadcaster },
     { type: STREAM_OFFLINE, version: '1', scope: null, condition: byBroadcaster },
   ]

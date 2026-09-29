@@ -4,13 +4,16 @@
  * サイドバーの項目と、パスごとに描く中身をここで決める。
  * 実ファイルとして配信されるページ（overlay/stage/・overlay/backstage/・speech/reader/・transcript/relay/）は、ここには載せない。
  */
-import { Bot, BrainCircuit, Camera, Captions, Layers, LayoutDashboard, Pencil, Quote, Upload, Users, Volume2, Wrench, Zap, type LucideIcon } from 'lucide-react'
+import { Bot, BrainCircuit, Camera, Captions, Layers, LayoutDashboard, MessagesSquare, Pencil, Quote, Upload, Users, Volume2, Wrench, Zap, type LucideIcon } from 'lucide-react'
 import type { AdminApi, Me } from '@/admin/api'
 import { BackstagePage } from '@/backstage/backstage-page'
 import { MediaPage } from '@/admin/media-page'
 import { TriggerPage } from '@/admin/trigger-page'
 import type { BotApi } from '@/bot/api'
 import { BotPage } from '@/bot/bot-page'
+import type { CommentApi } from '@/comments/api'
+import { CommentsPage } from '@/comments/comments-page'
+import { connectCommentFeed } from '@/comments/socket'
 import type { DrawApi } from '@/draw/api'
 import { DrawPage } from '@/draw/draw-page'
 import { connectDrawWriter } from '@/draw/socket'
@@ -45,6 +48,8 @@ export interface PageContext {
   screenApi: ScreenAdminApi
   /** 注目コメント（いま取り上げているもの）の読み書き（注目コメントのページが使う） */
   focusApi: FocusApi
+  /** 発言した人のアイコンとバッジの画像の読み出し（コメントビューアーのページが使う） */
+  commentApi: CommentApi
   /** 手書きで描いたものの読み書き（手書きのページが使う） */
   drawApi: DrawApi
   /** LLMの提供元とモデルの設定の読み書き（LLMのページが使う） */
@@ -71,6 +76,13 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
     label: '配信',
     pages: [
       { path: '/', name: 'ダッシュボード', icon: LayoutDashboard, render: ({ statsApi }) => <StatsPage api={statsApi} /> },
+      {
+        path: '/comments/',
+        name: 'コメント',
+        icon: MessagesSquare,
+        // 発言と出来事は配送先（Durable Object）から WebSocket でその場で届く。開き直すと直近の履歴から並べ直す
+        render: ({ commentApi }) => <CommentsPage api={commentApi} connect={connectCommentFeed} />,
+      },
       { path: '/bot/', name: 'チャットボット', icon: Bot, render: ({ botApi }) => <BotPage api={botApi} /> },
       { path: '/viewers/', name: '視聴者', icon: Users, render: ({ viewerApi }) => <ViewerPage api={viewerApi} /> },
       { path: '/transcript/', name: '文字起こし', icon: Captions, render: ({ me }) => <TranscriptPage overlayKey={me.overlayKey} /> },

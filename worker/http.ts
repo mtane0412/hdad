@@ -7,6 +7,7 @@
 import type { TextGenerator, WorkersAi } from './llm'
 import type { AdBreakTimerNamespace } from './ad-break-timer'
 import type { AlertChannelNamespace } from './alert-channel'
+import type { CommentChannelNamespace } from './comment-channel'
 import type { DrawChannelNamespace } from './draw-channel'
 import type { Database } from './database'
 import type { MediaBucket } from './media-bucket'
@@ -32,6 +33,12 @@ export interface Env {
    * 接続へ中継する）も量（1本の線で毎秒20〜30通）も違うためである（worker/draw-channel.ts）。
    */
   DRAW: DrawChannelNamespace
+  /**
+   * コメントビューアー（/comments/）へチャットの発言や出来事を配る Durable Object。
+   *
+   * 直近の1件を覚えておき、画面を開き直したときに渡す（worker/comment-channel.ts）。
+   */
+  COMMENTS: CommentChannelNamespace
   /**
    * 広告の終了の時刻を預かる Durable Object。
    *

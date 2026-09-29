@@ -20,7 +20,18 @@ import { readCurrentStreamSummary } from './stream-summary-store'
 import { recordViewerMessage } from './viewer-store'
 import { loadModerationConfig } from './moderation-config'
 import { consumeCooldown, recordAndCountRecentMessage, reserveChatReply } from './chat-store'
-import { AD_BREAK_BEGIN, CHAT_MESSAGE, COUNTED_EVENT_TYPES, STREAM_OFFLINE, STREAM_ONLINE, UNCOUNTED_EVENT_TYPES, verifyWebhookSignature } from './eventsub-webhook'
+import { pushFeedItem } from './comment-channel'
+import { toFeedItem } from './comment-feed'
+import {
+  AD_BREAK_BEGIN,
+  CHAT_MESSAGE,
+  COUNTED_EVENT_TYPES,
+  FEED_ONLY_EVENT_TYPES,
+  STREAM_OFFLINE,
+  STREAM_ONLINE,
+  UNCOUNTED_EVENT_TYPES,
+  verifyWebhookSignature,
+} from './eventsub-webhook'
 import { HttpError, STATUS, type Context } from './http'
 import { recordEvent, recordFailure, recordStreamOffline, recordStreamOnline } from './stats-store'
 import { loadToken } from './token'
@@ -90,7 +101,7 @@ const recordNotification = async ({ db, messageId, occurredAt, body }: Notificat
     await recordEvent(db, { id: messageId, type, occurredAt })
     return
   }
-  // アラートのために購読しているだけで、件数は数えないイベント（フォロー）。記録することはないが、拒否もしない
+  // アラートやコメントビューアーのために購読しているだけで、件数は数えないイベント（フォロー）。記録することはないが、拒否もしない
   if (UNCOUNTED_EVENT_TYPES.includes(type)) return
   throw new HttpError(STATUS.badRequest, 'unexpected-event', `購読していない種類の通知です: ${type}`)
 }
@@ -218,6 +229,30 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
 }
 
 /**
+ * 通知をコメントビューアー（/comments/）に並べる1件に直し、配送先へ押し出す。
+ *
+ * ほかの処理（自動モデレーション・トリガー・応答）より先に呼ぶ。発言より先に、その発言を消した通知が
+ * 画面へ届くと、消す相手が見つからずに残ってしまうためである。
+ *
+ * このWorkerが扱う配信者以外のチャンネルの通知は押し出さない（古い購読が残っていても、他人のチャットを並べない）。
+ *
+ * 注意: 直せなかった・押し出せなかったときも、Twitchへは2xxを返して収集の失敗として記録する。
+ * コメントビューアーは配信者が見るためのもので、そのためにトリガーや応答を止めない（アラートの配送と同じ扱い）。
+ * 再送で同じ1件を2度押し出すことはあるが、画面が通知のメッセージIDで見分ける。
+ */
+const pushToCommentFeed = async (context: Context, type: string, body: Record<string, unknown>, messageId: string, occurredAt: number): Promise<void> => {
+  const { env, now } = context
+  const { event } = body
+  if (isRecord(event) && typeof event.broadcaster_user_id === 'string' && event.broadcaster_user_id !== env.TWITCH_BROADCASTER_ID) return
+  try {
+    const item = toFeedItem(type, event, { id: messageId, at: occurredAt })
+    if (item !== null) await pushFeedItem(env.COMMENTS, item)
+  } catch (error) {
+    await recordFailure(env.DB, 'comment-feed-failed', error instanceof Error ? error.message : String(error), now)
+  }
+}
+
+/**
  * 広告の開始の通知から「広告が終わる時刻」を読み、終了のトリガーがあればタイマーへ預ける。
  *
  * Twitchには広告の終了に相当する通知がないため、終わる時刻は開始の通知（started_at と duration_seconds）から
@@ -279,8 +314,12 @@ export const eventsubWebhook = async (context: Context): Promise<Response> => {
       return new Response(body.challenge, { status: STATUS.ok, headers: { 'Content-Type': 'text/plain' } })
     }
     case 'notification': {
-      // チャットは記録せず応答に回す（そちらでもトリガーにかける）。ほかのイベントは配信の記録として数えたうえで、アラートのトリガーにかける
+      // まずコメントビューアーへ押し出す。そのうえで、チャットは記録せず応答に回す（そちらでもトリガーにかける）。
+      // ほかのイベントは配信の記録として数えたうえで、アラートのトリガーにかける
       const { type } = readSubscription(body)
+      await pushToCommentFeed(context, type, body, messageId, occurredAt)
+      // コメントビューアーのためだけに購読している通知は、記録もトリガーの判定もしない
+      if (FEED_ONLY_EVENT_TYPES.includes(type)) return new Response(null, { status: STATUS.noContent })
       if (type === CHAT_MESSAGE) await replyToChatMessage(context, body)
       else {
         await recordNotification({ db: env.DB, messageId, occurredAt, body })

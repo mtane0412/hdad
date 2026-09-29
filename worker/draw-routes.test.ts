@@ -16,6 +16,7 @@ import { createFakeAlertChannel } from './fake-alert-channel'
 import { createFakeBucket } from './fake-bucket'
 import { createFakeDatabase } from './fake-database'
 import { createFakeDrawChannel } from './fake-draw-channel'
+import { createFakeCommentChannel } from './fake-comment-channel'
 import { createFakeStore } from './fake-store'
 import { handleRequest, type Env } from './index'
 import { recordScreenCapture } from './screen-store'
@@ -40,6 +41,7 @@ const 環境を作る = () => {
     EVENTSUB_SECRET: 'テスト用のWebhookシークレット',
     ALERTS: createFakeAlertChannel().namespace,
     DRAW: 中継先.namespace,
+    COMMENTS: createFakeCommentChannel().namespace,
     AD_BREAKS: createFakeAdBreakTimer().namespace,
     AI: createFakeWorkersAi(),
   } satisfies Env

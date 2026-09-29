@@ -544,6 +544,40 @@ describe('getProfileImageUrl', () => {
   })
 })
 
+describe('getProfileImageUrls', () => {
+  it('ユーザーIDをまとめて渡し、IDごとのアイコン画像のURLを受け取る', async () => {
+    const { requests, fetchImpl } = 応答を返すfetch(200, {
+      data: [
+        { id: '100', login: 'jouren_san', profile_image_url: 'https://static-cdn.jtvnw.net/jtv_user_pictures/jouren.png' },
+        { id: '200', login: 'shoken_san', profile_image_url: 'https://static-cdn.jtvnw.net/jtv_user_pictures/shoken.png' },
+      ],
+    })
+    const icons = await クライアントを作る(fetchImpl).getProfileImageUrls('test-app-token', ['100', '200'])
+
+    const requested = new URL(requests[0]!.url)
+    expect(requested.origin + requested.pathname).toBe('https://api.twitch.tv/helix/users')
+    expect(requested.searchParams.getAll('id')).toEqual(['100', '200'])
+    expect(icons).toEqual({
+      '100': 'https://static-cdn.jtvnw.net/jtv_user_pictures/jouren.png',
+      '200': 'https://static-cdn.jtvnw.net/jtv_user_pictures/shoken.png',
+    })
+  })
+
+  it('Twitchが返さなかった人（消えたアカウント）は、結果に含めない', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, {
+      data: [{ id: '100', login: 'jouren_san', profile_image_url: 'https://static-cdn.jtvnw.net/jtv_user_pictures/jouren.png' }],
+    })
+    expect(await クライアントを作る(fetchImpl).getProfileImageUrls('test-app-token', ['100', '消えた人のID'])).toEqual({
+      '100': 'https://static-cdn.jtvnw.net/jtv_user_pictures/jouren.png',
+    })
+  })
+
+  it('アイコンのURLが https で始まらない人がいればエラーになる（画面の img に入れられないため）', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { data: [{ id: '100', login: 'jouren_san', profile_image_url: 'javascript:alert(1)' }] })
+    await expect(クライアントを作る(fetchImpl).getProfileImageUrls('test-app-token', ['100'])).rejects.toBeInstanceOf(TwitchApiError)
+  })
+})
+
 describe('sendChatMessage', () => {
   it('チャットへメッセージを送る', async () => {
     const { requests, fetchImpl } = 応答を返すfetch(200, { data: [{ message_id: 'abc', is_sent: true }] })

@@ -23,6 +23,7 @@ import { saveToken } from './token'
 import { listViewers, recordViewerMessage, updateViewerNote } from './viewer-store'
 import { createFakeAlertChannel } from './fake-alert-channel'
 import { createFakeDrawChannel } from './fake-draw-channel'
+import { createFakeCommentChannel } from './fake-comment-channel'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
 
 interface 環境の条件 {
@@ -34,6 +35,8 @@ interface 環境の条件 {
   LLMは失敗する?: boolean
   /** LLMが返す文面。省略すると代役の既定の文面になる */
   LLMの文面?: string
+  /** コメントビューアーの配送先（Durable Object）が失敗を返す場合 */
+  コメントの配送は失敗する?: boolean
 }
 
 const 現在時刻 = Date.parse('2026-09-21T12:30:00Z')
@@ -43,8 +46,9 @@ const シークレット = 'テスト用のWebhookシークレット'
 
 const 発行済みのオーバーレイ用キー = 'issued-overlay-key-0123456789abcdefghij'
 
-const 環境を作る = ({ 配送は失敗する = false, オーバーレイ用キー = 発行済みのオーバーレイ用キー, LLMは失敗する = false, LLMの文面 }: 環境の条件 = {}) => {
+const 環境を作る = ({ 配送は失敗する = false, オーバーレイ用キー = 発行済みのオーバーレイ用キー, LLMは失敗する = false, LLMの文面, コメントの配送は失敗する = false }: 環境の条件 = {}) => {
   const db = createFakeDatabase()
+  const コメントの配送 = createFakeCommentChannel({ 失敗する: コメントの配送は失敗する })
   const 配送 = createFakeAlertChannel({ 失敗する: 配送は失敗する })
   const 広告のタイマー = createFakeAdBreakTimer()
   const ai = createFakeWorkersAi({ 失敗する: LLMは失敗する, ...(LLMの文面 === undefined ? {} : { response: LLMの文面 }) })
@@ -59,10 +63,11 @@ const 環境を作る = ({ 配送は失敗する = false, オーバーレイ用�
     EVENTSUB_SECRET: シークレット,
     ALERTS: 配送.namespace,
     DRAW: createFakeDrawChannel().namespace,
+    COMMENTS: コメントの配送.namespace,
     AD_BREAKS: 広告のタイマー.namespace,
     AI: ai,
   } satisfies Env
-  return { env, db, 配送, ai, 広告のタイマー }
+  return { env, db, 配送, ai, 広告のタイマー, コメントの配送 }
 }
 
 const Twitchへは通信しない = async (input: RequestInfo | URL): Promise<Response> => {
@@ -400,7 +405,7 @@ describe('チャットの通知（channel.chat.message）', () => {
       chatter_user_login: 'shichousha',
       chatter_user_name: '視聴者さん',
       message_id: 'chat-message-1',
-      message: { text },
+      message: { text, fragments: [{ type: 'text', text }] },
     },
   })
 
@@ -510,7 +515,7 @@ describe('チャットの通知（channel.chat.message）', () => {
         chatter_user_login: 'shichousha',
         chatter_user_name: '視聴者さん',
         message_id: 'chat-message-3',
-        message: { text: 'こんばんは' },
+        message: { text: 'こんばんは', fragments: [{ type: 'text', text: 'こんばんは' }] },
       },
     }
 
@@ -551,7 +556,7 @@ describe('チャットの通知（channel.chat.message）', () => {
         chatter_user_login: 'shichousha',
       chatter_user_name: '視聴者さん',
         message_id: 'chat-message-2',
-        message: { text: '!ping' },
+        message: { text: '!ping', fragments: [{ type: 'text', text: '!ping' }] },
       },
     }
 
@@ -599,7 +604,7 @@ describe('チャットの応答の設定・連打・再送', () => {
       chatter_user_login: 'shichousha',
       chatter_user_name: '視聴者さん',
       message_id: messageId,
-      message: { text },
+      message: { text, fragments: [{ type: 'text', text }] },
     },
   })
 
@@ -750,7 +755,7 @@ describe('アラートのトリガーによるチャット送信', () => {
     return { 送信したチャット, 送信したアナウンス, 送信したシャウトアウト, fetchImpl }
   }
 
-  const フォローの通知 = { subscription: { type: 'channel.follow' }, event: { user_name: '田中太郎', user_login: 'tanaka_taro' } }
+  const フォローの通知 = { subscription: { type: 'channel.follow' }, event: { user_id: '22222', user_name: '田中太郎', user_login: 'tanaka_taro' } }
   const フォローでお礼を言う: StoredTrigger = {
     kind: 'follow',
     actions: [{ type: 'chat', message: '{user} さん、フォローありがとうございます！' }],
@@ -1096,7 +1101,7 @@ describe('チャットの発言によるアラートのトリガー', () => {
         chatter_user_login: 'shichousha',
         chatter_user_name: '視聴者さん',
         message_id: messageId,
-        message: { text },
+        message: { text, fragments: [{ type: 'text', text }] },
         badges: [],
       },
     },
@@ -1329,7 +1334,7 @@ describe('チャットの自動モデレーション', () => {
       chatter_user_login: 'arashi',
       chatter_user_name: '荒らしさん',
       message_id: messageId,
-      message: { text },
+      message: { text, fragments: [{ type: 'text', text }] },
       badges,
     },
   })
@@ -1478,7 +1483,7 @@ describe('オーバーレイへのアラートの押し出し', () => {
     actions: [{ type: 'alert', mediaId: 'media-kanpai', mediaKind: 'video', durationSeconds: 5, volume: 0.5, message: '{user} さん、ありがとう！' }],
   })
 
-  const フォローの通知 = { subscription: { type: 'channel.follow' }, event: { user_name: '田中太郎', user_login: 'tanaka_taro' } }
+  const フォローの通知 = { subscription: { type: 'channel.follow' }, event: { user_id: '22222', user_name: '田中太郎', user_login: 'tanaka_taro' } }
 
   const 発言の通知 = (chatterUserId = '11111', messageId = 'chat-message-1') => ({
     subscription: { type: 'channel.chat.message' },
@@ -1488,7 +1493,7 @@ describe('オーバーレイへのアラートの押し出し', () => {
       chatter_user_login: 'shichousha',
       chatter_user_name: '視聴者さん',
       message_id: messageId,
-      message: { text: 'おはようございます' },
+      message: { text: 'おはようございます', fragments: [{ type: 'text', text: 'おはようございます' }] },
       badges: [],
     },
   })
@@ -1615,7 +1620,7 @@ describe('オーバーレイへのアラートの押し出し', () => {
 
 describe('LLMに文面を作らせる動作（aiChat）', () => {
   const botのID = '67890'
-  const フォローの通知 = { subscription: { type: 'channel.follow' }, event: { user_name: '田中太郎', user_login: 'tanaka_taro' } }
+  const フォローの通知 = { subscription: { type: 'channel.follow' }, event: { user_id: '22222', user_name: '田中太郎', user_login: 'tanaka_taro' } }
 
   /** まだ記録のない人からのチャットの発言 */
   const 初めての人の発言 = {
@@ -1626,7 +1631,7 @@ describe('LLMに文面を作らせる動作（aiChat）', () => {
       chatter_user_login: 'hatsumi',
       chatter_user_name: 'はつみ',
       message_id: 'chat-message-hatsumi',
-      message: { text: 'はじめまして！' },
+      message: { text: 'はじめまして！', fragments: [{ type: 'text', text: 'はじめまして！' }] },
     },
   }
 
@@ -1722,7 +1727,7 @@ describe('LLMに文面を作らせる動作（aiChat）', () => {
             chatter_user_login: 'shichousha',
             chatter_user_name: '視聴者さん',
             message_id: 'chat-message-1',
-            message: { text: 'こんばんは' },
+            message: { text: 'こんばんは', fragments: [{ type: 'text', text: 'こんばんは' }] },
           },
         },
       }),
@@ -1841,5 +1846,116 @@ describe('LLMに文面を作らせる動作（aiChat）', () => {
 
     expect(response.status).toBe(204)
     expect(ai.呼び出し).toHaveLength(0)
+  })
+})
+
+describe('コメントビューアーへの配送', () => {
+  /** 本文の断片まで揃った、視聴者の発言の通知 */
+  const 視聴者の発言 = {
+    subscription: { type: 'channel.chat.message' },
+    event: {
+      broadcaster_user_id: 配信者のID,
+      chatter_user_id: '11111',
+      chatter_user_login: 'shichousha',
+      chatter_user_name: '視聴者さん',
+      message_id: 'chat-message-1',
+      message: { text: 'こんばんは', fragments: [{ type: 'text', text: 'こんばんは' }] },
+      color: '#1E90FF',
+      badges: [],
+      cheer: null,
+      reply: null,
+    },
+  }
+
+  it('チャットの発言を、コメントビューアーへ1件として押し出す', async () => {
+    const { env, コメントの配送 } = 環境を作る()
+
+    const response = await 呼び出す(Twitchからの通知({ messageId: 'eventsub-1', body: 視聴者の発言 }), env)
+
+    expect(response.status).toBe(204)
+    expect(コメントの配送.押し出された1件).toMatchObject([
+      { kind: 'chat', id: 'eventsub-1', messageId: 'chat-message-1', user: { name: '視聴者さん' }, fragments: [{ text: 'こんばんは', emoteId: null }] },
+    ])
+  })
+
+  it('別のチャンネルのチャットは押し出さない（古い購読が残っていても、他人のチャットを並べないため）', async () => {
+    const { env, コメントの配送 } = 環境を作る()
+    const 別のチャンネル = { ...視聴者の発言, event: { ...視聴者の発言.event, broadcaster_user_id: '別の配信者のID' } }
+
+    await 呼び出す(Twitchからの通知({ body: 別のチャンネル }), env)
+
+    expect(コメントの配送.押し出された1件).toEqual([])
+  })
+
+  it('チャットのお知らせ（サブスクなど）は押し出すだけで、配信の記録にもトリガーにもかけない', async () => {
+    const { env, db, コメントの配送 } = 環境を作る()
+    await recordLiveStream(db, 雑談配信, Date.parse('2026-09-21T12:05:00Z'))
+    const サブスクのお知らせ = {
+      subscription: { type: 'channel.chat.notification' },
+      event: {
+        broadcaster_user_id: 配信者のID,
+        chatter_user_id: '11111',
+        chatter_user_login: 'shichousha',
+        chatter_user_name: '視聴者さん',
+        chatter_is_anonymous: false,
+        color: '',
+        badges: [],
+        system_message: 'shichousha subscribed at Tier 1.',
+        message_id: 'notice-1',
+        message: { text: '', fragments: [] },
+        notice_type: 'sub',
+        sub: { sub_tier: '1000', is_prime: false, duration_months: 1 },
+      },
+    }
+
+    const response = await 呼び出す(Twitchからの通知({ body: サブスクのお知らせ }), env)
+
+    expect(response.status).toBe(204)
+    expect(コメントの配送.押し出された1件).toMatchObject([{ kind: 'notice', notice: { type: 'sub', tier: '1000' } }])
+    // サブスクは channel.subscribe でも届いて数えられるので、お知らせのほうでは数えない
+    expect((await listSessions(db, 現在時刻))[0]?.eventCounts).toEqual({})
+  })
+
+  it.each([
+    ['channel.chat.message_delete', { broadcaster_user_id: 配信者のID, target_user_id: '11111', target_user_login: 'shichousha', target_user_name: '視聴者さん', message_id: 'chat-message-1' }, 'delete'],
+    ['channel.chat.clear_user_messages', { broadcaster_user_id: 配信者のID, target_user_id: '11111', target_user_login: 'shichousha', target_user_name: '視聴者さん' }, 'clearUser'],
+    ['channel.chat.clear', { broadcaster_user_id: 配信者のID }, 'clear'],
+  ])('モデレーターの操作（%s）を押し出す', async (type, event, kind) => {
+    const { env, コメントの配送 } = 環境を作る()
+
+    const response = await 呼び出す(Twitchからの通知({ body: { subscription: { type }, event } }), env)
+
+    expect(response.status).toBe(204)
+    expect(コメントの配送.押し出された1件).toMatchObject([{ kind }])
+  })
+
+  it('フォローは押し出したうえで、これまでどおりトリガーにもかける', async () => {
+    const { env, コメントの配送 } = 環境を作る()
+    const フォロー = { subscription: { type: 'channel.follow' }, event: { broadcaster_user_id: 配信者のID, user_id: '22222', user_login: 'tanaka_taro', user_name: '田中太郎' } }
+
+    const response = await 呼び出す(Twitchからの通知({ body: フォロー }), env)
+
+    expect(response.status).toBe(204)
+    expect(コメントの配送.押し出された1件).toMatchObject([{ kind: 'follow', user: { name: '田中太郎' } }])
+  })
+
+  it('配送に失敗しても2xxを返し、失敗として記録する（コメントビューアーのためにトリガーや応答を止めない）', async () => {
+    const { env, db } = 環境を作る({ コメントの配送は失敗する: true })
+
+    const response = await 呼び出す(Twitchからの通知({ body: 視聴者の発言 }), env)
+
+    expect(response.status).toBe(204)
+    expect(await listFailures(db)).toMatchObject([{ code: 'comment-feed-failed' }])
+  })
+
+  it('中身が足りずに1件へ直せなくても2xxを返し、失敗として記録する', async () => {
+    const { env, db, コメントの配送 } = 環境を作る()
+    const 断片のない発言 = { ...視聴者の発言, event: { ...視聴者の発言.event, message: { text: 'こんばんは' } } }
+
+    const response = await 呼び出す(Twitchからの通知({ body: 断片のない発言 }), env)
+
+    expect(response.status).toBe(204)
+    expect(コメントの配送.押し出された1件).toEqual([])
+    expect(await listFailures(db)).toMatchObject([{ code: 'comment-feed-failed', message: expect.stringContaining('fragments') }])
   })
 })
