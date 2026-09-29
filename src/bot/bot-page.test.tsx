@@ -312,6 +312,17 @@ describe('コマンドの編集', () => {
     expect(screen.queryByRole('button', { name: 'コマンドを保存する' })).not.toBeInTheDocument()
   })
 
+  test('応答文の差し込み語（{user}・{summary}・{bgm}）をボタンで入れられる', async () => {
+    render(<BotPage api={代役のAPI()} />)
+    const 応答文の入力欄 = await screen.findByLabelText<HTMLInputElement>('1番目の応答文')
+
+    await userEvent.click(screen.getByRole('button', { name: '1番目の応答文に {bgm} を挿入' }))
+
+    expect(応答文の入力欄).toHaveValue('@{user} こんばんは{bgm}')
+    expect(screen.getByRole('button', { name: '1番目の応答文に {user} を挿入' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '1番目の応答文に {summary} を挿入' })).toBeInTheDocument()
+  })
+
   test('コマンドを足して保存すると、入力した値がWorkerへ送られる', async () => {
     const api = 代役のAPI({ commands: vi.fn(async () => []) })
     render(<BotPage api={api} />)

@@ -20,6 +20,7 @@
 @import '../side-super/side-super.css';
 @import '../focus/focus.css';
 @import '../draw/draw.css';
+@import '../bgm/bgm.css';
 
 .overlay {
   position: relative;

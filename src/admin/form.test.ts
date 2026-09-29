@@ -19,7 +19,6 @@ import {
   formatBytes,
   menuGroups,
   menuLabel,
-  insertPlaceholder,
   placeholdersFor,
   rewardOptions,
   supportsShoutout,
@@ -429,20 +428,6 @@ describe('placeholdersFor', () => {
 
   it('配信のあらすじ（{summary}）は、どのメニュー項目でも使える（通知の中身ではなく配信の状態から決まるため）', () => {
     expect(TRIGGER_KINDS.every((kind) => placeholdersFor(kind).includes('{summary}'))).toBe(true)
-  })
-})
-
-describe('insertPlaceholder', () => {
-  it('カーソルの位置に差し込み語を入れ、その後ろにカーソルを置く', () => {
-    expect(insertPlaceholder('ありがとう', '{user}', 5, 5)).toEqual({ value: 'ありがとう{user}', cursor: 11 })
-  })
-
-  it('文の途中のカーソルにも入れられる', () => {
-    expect(insertPlaceholder('ありがとう', '{user}', 0, 0)).toEqual({ value: '{user}ありがとう', cursor: 6 })
-  })
-
-  it('選んである範囲は差し込み語で置き換える', () => {
-    expect(insertPlaceholder('だれかさん、ありがとう', '{user}', 0, 5)).toEqual({ value: '{user}、ありがとう', cursor: 6 })
   })
 })
 

@@ -91,6 +91,12 @@ describe('parseOverlayLayout', () => {
     expect(problem).toContain('wallpaper')
   })
 
+  it('再生中の曲（bgm）はデザインIDを持たない種類として受け取る', () => {
+    const 再生中の曲: OverlayItem = { kind: 'bgm', id: '', params: '', rect: { x: 0, y: 0, width: 100, height: 100 } }
+
+    expect(parseOverlayLayout({ overlays: [{ name: 'front', items: [再生中の曲] }] })).toEqual({ overlays: [{ name: 'front', items: [再生中の曲] }] })
+  })
+
   it('壁紙・時計・チャットはデザインIDが空だと拒む', () => {
     expect(問題点({ overlays: [{ name: 'back', items: [{ ...壁紙, id: '' }] }] })).toEqual([
       'overlays[0].items[0].id: デザインIDを指定してください（英数字と下線・ハイフン、40文字まで）',

@@ -1,0 +1,70 @@
+/*
+ * 再生中の曲（合成ページの素材）の見た目
+ *
+ * 配信画面の隅に出しっぱなしにするクレジットなので、次の3つを守る。
+ * - 主役（配信の画面）の邪魔をしないよう、小さく控えめな半透明の板に置く
+ * - 曲名とクレジット表記は大きさと色の差で階層を作り、曲名の前に音符を付けて「流している曲」だと分かるようにする
+ * - 出しっぱなしにするので、曲が変わったときだけ動く（判定は src/bgm/credit-view.ts が持つ）
+ *
+ * 置き場所は素材の枠の左下とする（サイドスーパーが左上を使うため、重ならない隅を既定にする）。
+ * 曲名は60文字・クレジット表記は100文字まで（worker/bgm-config.ts）なので、幅を決めて折り返す。
+ */
+.bgm-credit {
+  /* 位置は画面ではなく置かれた箱を基準にする（合成ページのレイヤーの箱に入れるため。issue #101） */
+  position: absolute;
+  bottom: 28px;
+  left: 28px;
+  max-width: 640px;
+  font-family: 'Zen Kaku Gothic New', 'Hiragino Sans', 'Yu Gothic UI', sans-serif;
+}
+
+.bgm-credit-card {
+  padding: 10px 18px 12px;
+  border-radius: 8px;
+  background: rgb(12 14 20 / 62%);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 35%);
+  animation: bgm-credit-in 400ms ease-out;
+}
+
+.bgm-credit-title {
+  margin: 0;
+  color: #fff;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.3;
+  /* 切れ目のない英数字の曲名でも、板からはみ出させずに折り返す */
+  overflow-wrap: anywhere;
+}
+
+.bgm-credit-title::before {
+  content: '♪ ';
+  color: #ffd772;
+}
+
+.bgm-credit-credit {
+  margin: 2px 0 0;
+  color: rgb(255 255 255 / 75%);
+  font-size: 15px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+/* 曲が変わったときだけ走る（同じ曲では要素を作り直さない。src/bgm/credit-view.ts を参照） */
+@keyframes bgm-credit-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 配信画面に映すものなので、動きを減らす設定の環境では出現の動きを止める */
+@media (prefers-reduced-motion: reduce) {
+  .bgm-credit-card {
+    animation: none;
+  }
+}

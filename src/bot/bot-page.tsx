@@ -29,6 +29,7 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { ApiError } from '@/core/api'
+import { PlaceholderInput } from '@/core/placeholder-input'
 import { Checkbox } from '@/components/ui/checkbox'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import type { BotApi, BotCommandItem, BotStatus, DeviceCode, ModerationRuleItem, ModerationSettings, PunishmentItem } from './api'
@@ -54,6 +55,8 @@ const SECONDS_PER_MINUTE = 60
 const MAX_COOLDOWN_SECONDS = 60 * 60
 /** タイムアウトの上限（秒）。Twitchの決まりで7日 */
 const MAX_TIMEOUT_SECONDS = 7 * 24 * 60 * 60
+/** コマンドの応答文に押して入れられる差し込み語。置き換えは worker/chat-command.ts の applyReply が行う */
+const REPLY_PLACEHOLDERS = ['{user}', '{summary}', '{bgm}'] as const
 
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
@@ -152,14 +155,14 @@ const CommandRow = ({ position, draft, disabled, onChange, onRemove }: CommandRo
         </div>
       </TableCell>
       <TableCell>
-        <Input
-          type="text"
-          aria-label={`${position}番目の応答文`}
+        <PlaceholderInput
+          name={`${position}番目の応答文`}
+          placeholders={REPLY_PLACEHOLDERS}
           maxLength={MAX_MESSAGE_LENGTH}
           value={draft.reply}
-          placeholder="@{user} こんばんは"
+          example="@{user} こんばんは"
           disabled={disabled}
-          onChange={(event) => update({ reply: event.currentTarget.value })}
+          onChange={(reply) => update({ reply })}
         />
       </TableCell>
       <TableCell>
@@ -618,7 +621,8 @@ export const BotPage = ({ api }: BotPageProps) => {
           </div>
           {drafts.length > 0 && (
             <p className="text-xs text-muted-foreground">
-              応答文の {'{user}'} は発言した人の名前に、{'{summary}'} は配信の「これまでのあらすじ」に置き換わります
+              応答文の {'{user}'} は発言した人の名前に、{'{summary}'} は配信の「これまでのあらすじ」に、{'{bgm}'}{' '}
+              は流しているBGMの曲名とクレジットに置き換わります
             </p>
           )}
         </CardContent>

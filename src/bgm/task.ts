@@ -15,17 +15,12 @@
  */
 import { clearError, showError } from '../core/mount'
 import { connectSocket, socketUrl } from '../core/socket'
-import { createBgmOverlayApi, parseBgmNowPlaying, type BgmNowPlaying } from './api'
+import { BGM_SOCKET_HINT, BGM_SOCKET_PATH, createBgmOverlayApi, parseBgmNowPlaying, type BgmNowPlaying } from './api'
 import { bgmChangeOf } from './change'
 import { createBgmPlayer } from './player'
 
 /** エラー表示でこの裏方を指す呼び名 */
 export const BGM_NOUN = 'BGM'
-
-const SOCKET_PATH = '/api/overlay/bgm/socket'
-
-/** 一度もつながらないまま閉じたときに出す、いちばんありそうな原因 */
-const HINT = 'BGMの切り替えの配送先につながりません。URLのオーバーレイ用キーが正しいか確かめてください'
 
 /** いま鳴らしているものを、箱に1行で出す文 */
 const statusTextOf = (nowPlaying: BgmNowPlaying): string =>
@@ -78,7 +73,7 @@ export const startBgm = async ({ key, box }: BgmTaskOptions): Promise<void> => {
   box.append(status)
 
   connectSocket(
-    socketUrl(SOCKET_PATH, { key }),
+    socketUrl(BGM_SOCKET_PATH, { key }),
     {
       onMessage: (text) => followLater(async () => parseBgmNowPlaying(text)),
       onStatus: (connection) => {
@@ -87,6 +82,6 @@ export const startBgm = async ({ key, box }: BgmTaskOptions): Promise<void> => {
       },
       onWarning: (message) => showError(new Error(message), BGM_NOUN, box, 'read'),
     },
-    HINT,
+    BGM_SOCKET_HINT,
   )
 }

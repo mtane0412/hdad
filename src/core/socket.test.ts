@@ -121,6 +121,20 @@ describe('connectSocket', () => {
     expect(ハンドラ.onStatus).toHaveBeenLastCalledWith('reconnected')
   })
 
+  it('つながるたびに（初めての接続でも、つなぎ直しでも）onOpen を呼ぶ', () => {
+    const 記録 = 接続の記録を作る()
+    const ハンドラ = { ...何もしないハンドラ(), onOpen: vi.fn() }
+    connectSocket('wss://例', ハンドラ, '手がかりの文', 記録.open)
+
+    記録.いま().つなぐ()
+    expect(ハンドラ.onOpen).toHaveBeenCalledTimes(1)
+    記録.いま().閉じる()
+    vi.advanceTimersByTime(1000)
+    記録.いま().つなぐ()
+
+    expect(ハンドラ.onOpen).toHaveBeenCalledTimes(2)
+  })
+
   it('つなぎ直しの間隔は、失敗のたびに延びる', () => {
     const 記録 = 接続の記録を作る()
     connectSocket('wss://例', 何もしないハンドラ(), '手がかりの文', 記録.open)

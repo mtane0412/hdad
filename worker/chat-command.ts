@@ -8,13 +8,14 @@
  *
  * 注意: bot自身の発言には決して応答しない。応答すると、その応答にまたbotが応答して止まらなくなる。
  */
+import { BGM_PLACEHOLDER, fillBgmCredit, type BgmCreditSource } from './bgm-credit'
 import { fillStreamSummary, STREAM_SUMMARY_PLACEHOLDER } from './stream-summary'
 
 /** コマンド1つぶんの定義 */
 export interface BotCommand {
   /** `!` を除いたコマンド名（小文字で比べる） */
   name: string
-  /** 送り返す文言。差し込み語 {user} が発言者のログイン名に置き換わる */
+  /** 送り返す文言。差し込み語 {user} が発言者のログイン名に、{summary} があらすじに、{bgm} が流している曲に置き換わる */
   reply: string
 }
 
@@ -41,6 +42,15 @@ export interface ChatMessage {
 
 /** コマンドの先頭に付ける文字 */
 const PREFIX = '!'
+
+/** 発言者のログイン名に置き換わる差し込み語 */
+const USER_PLACEHOLDER = '{user}'
+
+/** 応答文の差し込み語をまとめて探す形 */
+const REPLY_PLACEHOLDER_PATTERN = new RegExp(
+  [USER_PLACEHOLDER, STREAM_SUMMARY_PLACEHOLDER, BGM_PLACEHOLDER].map((placeholder) => placeholder.replaceAll(/[{}]/g, '\\$&')).join('|'),
+  'g',
+)
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
 
@@ -129,12 +139,26 @@ export const findCommand = <Command extends BotCommand>(
 export const needsStreamSummary = (command: BotCommand): boolean => command.reply.includes(STREAM_SUMMARY_PLACEHOLDER)
 
 /**
+ * その応答文が、流している曲（{bgm}）を必要とするか。
+ *
+ * 呼び出し側（webhook-routes.ts）は、これが true のときだけストアから曲を読む（needsStreamSummary と同じ考え方）。
+ */
+export const needsBgmCredit = (command: BotCommand): boolean => command.reply.includes(BGM_PLACEHOLDER)
+
+/**
  * コマンドの応答文の差し込み語を、実際の値に置き換える。
  *
  * @param summary 貯めてあるあらすじ。配信していない・まだ作っていない・読む必要がない場合は null
+ * @param bgm 流している曲。止めている・読む必要がない場合は null
  */
-export const applyReply = (command: BotCommand, message: ChatMessage, summary: string | null): string =>
-  fillStreamSummary(command.reply.replaceAll('{user}', () => message.chatterUserLogin), summary)
+export const applyReply = (command: BotCommand, message: ChatMessage, summary: string | null, bgm: BgmCreditSource | null = null): string =>
+  // 応答文を1回だけ走査して置き換える。順に置き換えると、あらすじの中の {bgm} のように、
+  // 差し込んだ値に含まれる差し込み語まで置き換えてしまうため
+  command.reply.replaceAll(REPLY_PLACEHOLDER_PATTERN, (placeholder) => {
+    if (placeholder === USER_PLACEHOLDER) return message.chatterUserLogin
+    if (placeholder === STREAM_SUMMARY_PLACEHOLDER) return fillStreamSummary(placeholder, summary)
+    return fillBgmCredit(placeholder, bgm)
+  })
 
 /** 発言に対して送り返す文言。送り返さない場合は null（findCommand と applyReply をまとめたもの） */
 export const resolveReply = (
@@ -142,7 +166,8 @@ export const resolveReply = (
   message: ChatMessage,
   botUserId: string,
   summary: string | null = null,
+  bgm: BgmCreditSource | null = null,
 ): string | null => {
   const command = findCommand(commands, message, botUserId)
-  return command ? applyReply(command, message, summary) : null
+  return command ? applyReply(command, message, summary, bgm) : null
 }

@@ -135,7 +135,7 @@ describe('PUT /api/admin/bgm/tracks', () => {
 
     expect(response.status).toBe(400)
     const body = (await response.json()) as { error: { problems: string[] } }
-    expect(body.error.problems).toEqual(['tracks[0].mediaId: 素材「media-nai」が存在しません', 'tracks[0].title: 1〜100文字で指定してください'])
+    expect(body.error.problems).toEqual(['tracks[0].mediaId: 素材「media-nai」が存在しません', 'tracks[0].title: 1〜60文字で指定してください'])
     expect(await loadBgmTracks(env.STORE)).toEqual([])
   })
 

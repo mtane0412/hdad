@@ -25,9 +25,14 @@ const PLAYBACK_SUBJECT = 'BGMの再生'
 
 /** 曲の数の上限。配信で使い分ける数としては十分で、1つの鍵に収まる大きさに保つ */
 const MAX_TRACKS = 100
-const MAX_TITLE_LENGTH = 100
-const MAX_CREDIT_LENGTH = 200
-const MAX_CREDIT_URL_LENGTH = 500
+/**
+ * 曲名・クレジット表記・クレジット先のURLの長さの上限。
+ * 3つを並べた文がチャットの差し込み語 {bgm} になり、Twitchの1通（500文字）に配信者の文言と一緒に収めるため、
+ * 足して364文字（bgm-credit.ts の MAX_BGM_CREDIT_LENGTH）になるように決めてある（issue #152）
+ */
+export const MAX_TITLE_LENGTH = 60
+export const MAX_CREDIT_LENGTH = 100
+export const MAX_CREDIT_URL_LENGTH = 200
 /** 曲調・流したい場面の長さの上限。Jev に選ばせるときの選択肢の説明になる（issue #153） */
 const MAX_DESCRIPTION_LENGTH = 200
 const MIN_VOLUME = 0
@@ -185,15 +190,26 @@ export const loadBgmPlayback = async (store: KeyValueStore): Promise<BgmPlayback
 }
 
 /**
+ * いま流している曲を一覧から引く。止めているときは null。
+ *
+ * @throws 流す曲が一覧に無い場合（保存のときに防いでいるので、起きたら壊れている。黙って止めない）
+ */
+export const playingTrackOf = (tracks: readonly BgmTrack[], playback: BgmPlayback): BgmTrack | null => {
+  if (playback.mediaId === null) return null
+  const track = tracks.find((candidate) => candidate.mediaId === playback.mediaId)
+  if (!track) throw new Error(`素材「${playback.mediaId}」の曲が一覧にありません（流す曲に選ばれています）`)
+  return track
+}
+
+/**
  * 裏方のページへ渡す「いま流している曲」を組み立てる。
  *
  * @param overlayKey オーバーレイ用キー。音声のURLに付ける
  * @throws 流す曲が一覧に無い場合（保存のときに防いでいるので、起きたら壊れている。黙って止めない）
  */
 export const nowPlayingOf = (tracks: readonly BgmTrack[], playback: BgmPlayback, overlayKey: string): BgmNowPlaying => {
-  if (playback.mediaId === null) return { track: null, volume: playback.volume }
-  const track = tracks.find((candidate) => candidate.mediaId === playback.mediaId)
-  if (!track) throw new Error(`素材「${playback.mediaId}」の曲が一覧にありません（流す曲に選ばれています）`)
+  const track = playingTrackOf(tracks, playback)
+  if (track === null) return { track: null, volume: playback.volume }
   return {
     track: { mediaId: track.mediaId, title: track.title, credit: track.credit, creditUrl: track.creditUrl, url: mediaPath(track.mediaId, overlayKey) },
     volume: playback.volume,

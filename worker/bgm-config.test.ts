@@ -13,6 +13,7 @@ import {
   loadBgmPlayback,
   loadBgmTracks,
   nowPlayingOf,
+  playingTrackOf,
   parseBgmPlayback,
   parseBgmTracks,
   saveBgmPlayback,
@@ -86,9 +87,15 @@ describe('parseBgmTracks', () => {
     const 空の曲 = { ...雑談の曲, title: ' ', credit: '' }
 
     expect(問題点(() => parseBgmTracks({ tracks: [空の曲] }, 種類を引く, null))).toEqual([
-      'tracks[0].title: 1〜100文字で指定してください',
-      'tracks[0].credit: 1〜200文字で指定してください',
+      'tracks[0].title: 1〜60文字で指定してください',
+      'tracks[0].credit: 1〜100文字で指定してください',
     ])
+  })
+
+  it('クレジット先のURLは200文字まで（チャットの1通に曲名・クレジット表記と一緒に収めるため）', () => {
+    const 長いURL = { ...雑談の曲, creditUrl: `https://example.com/${'a'.repeat(181)}` }
+
+    expect(問題点(() => parseBgmTracks({ tracks: [長いURL] }, 種類を引く, null))).toEqual(['tracks[0].creditUrl: 200文字以内の文字列で指定してください'])
   })
 
   it('クレジット先のURLは http か https のURLに限る', () => {
@@ -193,5 +200,19 @@ describe('nowPlayingOf', () => {
 
   it('流す曲が一覧に無ければ、黙って止めずに投げる', () => {
     expect(() => nowPlayingOf([雑談の曲], { mediaId: 'media-nai', volume: 0.5 }, 'overlay-key')).toThrow('素材「media-nai」の曲が一覧にありません')
+  })
+})
+
+describe('playingTrackOf', () => {
+  it('流している曲を一覧から引く', () => {
+    expect(playingTrackOf([雑談の曲, 盛り上がる曲], { mediaId: 盛り上がる曲.mediaId, volume: 0.5 })).toEqual(盛り上がる曲)
+  })
+
+  it('止めているときは null（止めているのは正常な状態なので投げない）', () => {
+    expect(playingTrackOf([雑談の曲], { mediaId: null, volume: 0.5 })).toBeNull()
+  })
+
+  it('流す曲が一覧に無ければ、黙って止めずに投げる', () => {
+    expect(() => playingTrackOf([雑談の曲], { mediaId: 'media-nai', volume: 0.5 })).toThrow('素材「media-nai」の曲が一覧にありません')
   })
 })

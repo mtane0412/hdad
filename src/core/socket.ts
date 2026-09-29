@@ -46,6 +46,11 @@ export interface SocketHandlers {
   onStatus(status: 'disconnected' | 'reconnected'): void
   /** 待てば直るかもしれない失敗（つなぎ直しは続ける） */
   onWarning(message: string): void
+  /**
+   * つながった（初めての接続でも、つなぎ直しでも）。
+   * 状態を読み直す呼び出し側が使う。読んでからつながるまでの間に押し出されたものを取りこぼさないため
+   */
+  onOpen?(): void
 }
 
 /** つなぎ続けている接続への窓口 */
@@ -112,6 +117,7 @@ export const connectSocket = (
       retryDelay = RETRY_INITIAL_MS
       if (disconnected) handlers.onStatus('reconnected')
       disconnected = false
+      handlers.onOpen?.()
       pingTimer = window.setInterval(() => socket.send(PING), PING_INTERVAL_MS)
     }
 
