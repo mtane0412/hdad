@@ -18,10 +18,13 @@
  * KVの反映の遅れと合わせて、描いた直後に合成ページを読み込み直すと最後の数本が欠けることはある
  * （docs/decisions/draw.md）。
  *
- * 注意: 消しゴムとひとつ戻すは持たない。まず全消しで足りるかを実際の配信で確かめてから決める（issue #132）。
+ * 消しゴムは、なぞった範囲だけを削るのではなく、触れた線を1本まるごと消す（当たり判定は src/draw/erase.ts）。
+ * 消したことは線の名前で中継先へ送り、保存は線を引き終えたときと同じく、ポインタを離してから数秒まとめて書く。
+ *
+ * 注意: ひとつ戻すは持たない。
  */
 import { cn } from 'cn'
-import { Trash2 } from 'lucide-react'
+import { Eraser, Pencil, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from '@/app/router'
 import { Button } from '@/components/ui/button'
@@ -31,12 +34,13 @@ import { Separator } from '@/components/ui/separator'
 import { iconButtonName } from '@/core/icon-button'
 import { startCanvasSurface } from '@/core/mount'
 import type { DrawApi } from './api'
+import { touchedStrokeIds } from './erase'
 import { createStrokeId, toRatio } from './pointer'
 import { createStrokeSaver } from './save'
 import { DEFAULT_COLOR_ID, DEFAULT_WIDTH_ID, DRAW_COLORS, DRAW_WIDTHS } from './tools'
 import type { DrawSocketHandlers, DrawWriter } from './socket'
 import { NO_STROKES, applyDrawMessage, type Strokes } from './strokes'
-import type { DrawMessage } from './stroke'
+import type { DrawMessage, Point } from './stroke'
 import { drawStrokes } from './view'
 
 /**
@@ -49,6 +53,16 @@ const SAMPLE_BOX_WIDTH = 360
 
 /** 見本の線の最小の高さ（画素）。細い線でも1本の線として見えるだけの高さは残す */
 const SAMPLE_MIN_HEIGHT = 2
+
+/** 持ち替えられる道具。ペンは線を引き、消しゴムは触れた線を1本まるごと消す */
+const TOOLS = [
+  { id: 'pen', label: 'ペン', Icon: Pencil },
+  { id: 'eraser', label: '消しゴム', Icon: Eraser },
+] as const
+
+type ToolId = (typeof TOOLS)[number]['id']
+
+const isToolId = (value: unknown): value is ToolId => TOOLS.some(({ id }) => id === value)
 
 /**
  * 道具を選ぶラジオの、目に見えない当たり判定。
@@ -73,6 +87,10 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
   const strokesRef = useRef<Strokes>(NO_STROKES)
   /** いま引いている線の名前。ポインタを離すまで同じ名前で点を足していく */
   const strokeIdRef = useRef<string | null>(null)
+  /** 消しゴムを押しているあいだの、ひとつ前の位置。そこから今の位置までに触れた線を消す */
+  const eraserPointRef = useRef<Point | null>(null)
+  /** 今回の消しゴムの動きで1本でも消したか。離したときに保存するかを決める */
+  const 消しゴムで消したRef = useRef(false)
   /** 待てば直るかもしれない知らせ（切断・つなぎ先の誤り）。直ったら消す */
   const [notice, setNotice] = useState<string | null>(null)
   /** 人が直すまで消えない失敗（キャンバスを使えない場合） */
@@ -89,6 +107,8 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
   /** 選んでいる色と太さ。線を引き始めた時点の指定がその線に残る */
   const [colorId, setColorId] = useState(DEFAULT_COLOR_ID)
   const [widthId, setWidthId] = useState(DEFAULT_WIDTH_ID)
+  /** 持っている道具 */
+  const [toolId, setToolId] = useState<ToolId>('pen')
 
   /** 引き終えた線をまとめてWorkerへ書く窓口（描いている最中は書かない） */
   const saver = useMemo(
@@ -160,36 +180,64 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
     writerRef.current?.send(message)
   }, [])
 
+  /** 消しゴムが from から to まで動いたあいだに触れた線を、1本ずつ消したこととして送る */
+  const 消しゴムを動かす = useCallback(
+    (from: Point, to: Point, rect: DOMRect): void => {
+      eraserPointRef.current = to
+      for (const id of touchedStrokeIds(strokesRef.current, from, to, rect)) {
+        消しゴムで消したRef.current = true
+        送る({ type: 'erase', id })
+      }
+    },
+    [送る],
+  )
+
   const 押した = useCallback(
     (event: React.PointerEvent<HTMLCanvasElement>): void => {
-      const id = createStrokeId()
-      strokeIdRef.current = id
       // キャンバスの外へ出ても離した合図を受け取れるようにする（線が引きっぱなしにならない）
       event.currentTarget.setPointerCapture?.(event.pointerId)
+      const rect = event.currentTarget.getBoundingClientRect()
+      const point = toRatio(event.clientX, event.clientY, rect)
+      if (toolId === 'eraser') {
+        消しゴムで消したRef.current = false
+        消しゴムを動かす(point, point, rect)
+        return
+      }
+      const id = createStrokeId()
+      strokeIdRef.current = id
       送る({
         type: 'start',
         id,
-        point: toRatio(event.clientX, event.clientY, event.currentTarget.getBoundingClientRect()),
+        point,
         color: colorId,
         width: widthId,
       })
     },
-    [送る, colorId, widthId],
+    [送る, 消しゴムを動かす, toolId, colorId, widthId],
   )
 
   const 動かした = useCallback(
     (event: React.PointerEvent<HTMLCanvasElement>): void => {
+      const 前の位置 = eraserPointRef.current
+      if (前の位置 !== null) {
+        const rect = event.currentTarget.getBoundingClientRect()
+        消しゴムを動かす(前の位置, toRatio(event.clientX, event.clientY, rect), rect)
+        return
+      }
       const id = strokeIdRef.current
       // 押していないあいだの動きは線ではない
       if (id === null) return
       送る({ type: 'extend', id, points: [toRatio(event.clientX, event.clientY, event.currentTarget.getBoundingClientRect())] })
     },
-    [送る],
+    [送る, 消しゴムを動かす],
   )
 
   const 離した = useCallback((): void => {
-    // 引いている途中でなければ（押していない指の動きなど）書く理由がない
-    if (strokeIdRef.current === null) return
+    const 消しゴムで消した = eraserPointRef.current !== null && 消しゴムで消したRef.current
+    eraserPointRef.current = null
+    消しゴムで消したRef.current = false
+    // 引いている途中でも消した後でもなければ（押していない指の動きなど）書く理由がない
+    if (strokeIdRef.current === null && !消しゴムで消した) return
     strokeIdRef.current = null
     // 保存されているものを読めていなければ書かない（読めていない図を上書きしない）
     if (!書いてよいRef.current) return
@@ -203,6 +251,7 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
    */
   const 全部消す = useCallback((): void => {
     strokeIdRef.current = null
+    eraserPointRef.current = null
     消したRef.current = true
     // 消すのは「保存されているものを全部無かったことにする」操作なので、読めていなくても書いてよい
     書いてよいRef.current = true
@@ -238,6 +287,33 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
           {/* 道具は形で選べるようにする（色は色そのもの、太さは太さの見本）。名前は読み上げにだけ渡す。
               RadioGroup は既定で grid w-full なので、横一列に収めるため w-auto で打ち消す */}
           <div className="flex flex-wrap items-center gap-1 rounded-lg border bg-card p-1.5 shadow-sm">
+            {/* 道具だけは文字も出す。消しゴムの形だけでは、なぞった範囲を削るのか線を丸ごと消すのか分からないため
+                （docs/decisions/draw.md） */}
+            <RadioGroup
+              value={toolId}
+              onValueChange={(値) => {
+                if (isToolId(値)) setToolId(値)
+              }}
+              aria-label="道具"
+              className="flex w-auto flex-row items-center gap-1.5"
+            >
+              {TOOLS.map(({ id, label, Icon }) => (
+                <span
+                  key={id}
+                  className={cn(
+                    'relative flex h-7 shrink-0 items-center justify-center gap-1 rounded-md border px-2 text-xs transition has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50',
+                    toolId === id ? 'border-foreground bg-accent' : 'border-border hover:bg-accent/50',
+                  )}
+                >
+                  <Icon aria-hidden className="size-4" />
+                  <span aria-hidden>{label}</span>
+                  <RadioGroupItem value={id} aria-label={label} className={TOOL_HITBOX} />
+                </span>
+              ))}
+            </RadioGroup>
+
+            <Separator orientation="vertical" className="mx-1 h-6 self-center" />
+
             <RadioGroup
               value={colorId}
               onValueChange={(値) => setColorId(String(値))}
@@ -312,7 +388,7 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
             onPointerCancel={離した}
           />
           <p className="text-sm text-muted-foreground">
-            描いたものは残るので、合成ページ（OBSのブラウザソース）を開き直しても出ます。消すには「全部消す」を押してください。
+            描いたものは残るので、合成ページ（OBSのブラウザソース）を開き直しても出ます。消しゴムは触れた線を1本まるごと消し、ゴミ箱はすべてを消します。
           </p>
         </CardContent>
       </Card>

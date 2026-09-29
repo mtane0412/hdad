@@ -183,6 +183,48 @@ describe('DrawPage', () => {
     expect(中継先.送られたもの.at(-1)).toEqual({ type: 'clear' })
   })
 
+  it('消しゴムで線に触れたら、その線を消したことを送る', async () => {
+    const 中継先 = 中継先を作る()
+    render(<DrawPage connect={中継先.connect} api={保存先を作る().api} />)
+    const キャンバス = 描く場所を得る()
+    キャンバス.dispatchEvent(new PointerEvent('pointerdown', { clientX: 100, clientY: 100, bubbles: true }))
+    キャンバス.dispatchEvent(new PointerEvent('pointermove', { clientX: 300, clientY: 100, bubbles: true }))
+    キャンバス.dispatchEvent(new PointerEvent('pointerup', { clientX: 300, clientY: 100, bubbles: true }))
+    const 引いた線 = 中継先.送られたもの[0]
+
+    await userEvent.click(screen.getByRole('radio', { name: '消しゴム' }))
+    キャンバス.dispatchEvent(new PointerEvent('pointerdown', { clientX: 200, clientY: 100, bubbles: true }))
+
+    expect(引いた線?.type).toBe('start')
+    expect(中継先.送られたもの.at(-1)).toEqual({ type: 'erase', id: 引いた線?.type === 'start' ? 引いた線.id : '' })
+  })
+
+  it('消しゴムを選んでいるあいだは、線を描かない', async () => {
+    const 中継先 = 中継先を作る()
+    render(<DrawPage connect={中継先.connect} api={保存先を作る().api} />)
+    const キャンバス = 描く場所を得る()
+
+    await userEvent.click(screen.getByRole('radio', { name: '消しゴム' }))
+    キャンバス.dispatchEvent(new PointerEvent('pointerdown', { clientX: 100, clientY: 100, bubbles: true }))
+    キャンバス.dispatchEvent(new PointerEvent('pointermove', { clientX: 300, clientY: 100, bubbles: true }))
+
+    expect(中継先.送られたもの).toEqual([])
+  })
+
+  it('消しゴムで消した線は、同じ消しゴムの動きで二度は送らない', async () => {
+    const 中継先 = 中継先を作る()
+    render(<DrawPage connect={中継先.connect} api={保存先を作る().api} />)
+    const キャンバス = 描く場所を得る()
+    キャンバス.dispatchEvent(new PointerEvent('pointerdown', { clientX: 100, clientY: 100, bubbles: true }))
+    キャンバス.dispatchEvent(new PointerEvent('pointerup', { clientX: 100, clientY: 100, bubbles: true }))
+
+    await userEvent.click(screen.getByRole('radio', { name: '消しゴム' }))
+    キャンバス.dispatchEvent(new PointerEvent('pointerdown', { clientX: 100, clientY: 100, bubbles: true }))
+    キャンバス.dispatchEvent(new PointerEvent('pointermove', { clientX: 101, clientY: 100, bubbles: true }))
+
+    expect(中継先.送られたもの.filter(({ type }) => type === 'erase')).toHaveLength(1)
+  })
+
   it('押していないあいだの動きは送らない', () => {
     const 中継先 = 中継先を作る()
     render(<DrawPage connect={中継先.connect} api={保存先を作る().api} />)
@@ -223,6 +265,26 @@ describe('DrawPage の保存（issue #133）', () => {
     await userEvent.click(screen.getByRole('button', { name: '全部消す' }))
 
     expect(保存先.書かれたもの.at(-1)).toEqual({ strokes: [] })
+  })
+
+  it('消しゴムで消したら、数秒待ってから消したあとの状態を保存する', async () => {
+    vi.useFakeTimers()
+    try {
+      const 保存先 = 保存先を作る({ strokes: [{ id: '前に引いた線', points: [{ x: 0.5, y: 0.5 }], color: 'red', width: 'bold' }] })
+      render(<DrawPage connect={中継先を作る().connect} api={保存先.api} />)
+      const キャンバス = 描く場所を得る()
+      await act(() => vi.advanceTimersByTimeAsync(0))
+
+      // userEvent は偽の時計のもとでは進まないので、押す操作だけを直接起こす
+      act(() => screen.getByRole('radio', { name: '消しゴム' }).click())
+      キャンバス.dispatchEvent(new PointerEvent('pointerdown', { clientX: 200, clientY: 100, bubbles: true }))
+      キャンバス.dispatchEvent(new PointerEvent('pointerup', { clientX: 200, clientY: 100, bubbles: true }))
+      await act(() => vi.advanceTimersByTimeAsync(SAVE_DELAY_MS))
+
+      expect(保存先.書かれたもの.at(-1)).toEqual({ strokes: [] })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('開き直したときは、保存されている線の続きから描ける', async () => {
