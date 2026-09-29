@@ -149,6 +149,21 @@ describe('CommentsPage', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Twitchに問い合わせられませんでした')
   })
 
+  test('アイコンを引けなかった人は、次に1件届いたときに問い合わせ直す（一時的な失敗でアイコンが出ないままにしない）', async () => {
+    const loadIcons = vi
+      .fn<CommentApi['loadIcons']>()
+      .mockRejectedValueOnce(new Error('Twitchに問い合わせられませんでした'))
+      .mockResolvedValue({ '777': 'https://static-cdn.jtvnw.net/jtv_user_pictures/jouren.png' })
+    const { 届く } = 描く(代役のAPI({ loadIcons }))
+
+    await 届く({ type: 'item', item: 常連さんの発言 })
+    await screen.findByRole('alert')
+    await 届く({ type: 'item', item: { ...常連さんの発言, id: '通知5', messageId: '発言5' } })
+
+    await vi.waitFor(() => expect(loadIcons).toHaveBeenCalledTimes(2))
+    expect(loadIcons).toHaveBeenLastCalledWith(['777'])
+  })
+
   test('画面を離れるときは接続を閉じる（行き来するたびに接続が増えないように）', () => {
     const { close } = 描く()
 

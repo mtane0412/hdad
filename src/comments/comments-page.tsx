@@ -165,7 +165,7 @@ export const CommentsPage = ({ api, connect }: CommentsPageProps) => {
   const [connectionNotice, setConnectionNotice] = useState<string | null>(null)
   /** いちばん下を見ているか。見ているあいだだけ、新しい1件に合わせて下へ送る */
   const [following, setFollowing] = useState(true)
-  /** アイコンを問い合わせた人（引けなかった人も含む。同じ人を何度も問い合わせない） */
+  /** アイコンを問い合わせた人（Twitchが返さなかった人も含む。同じ人を何度も問い合わせない。問い合わせ自体が失敗した人は外す） */
   const asked = useRef(new Set<string>())
   const scroller = useRef<HTMLDivElement>(null)
 
@@ -206,14 +206,18 @@ export const CommentsPage = ({ api, connect }: CommentsPageProps) => {
     }
   }, [api, 失敗を出す])
 
-  // 初めて見た人のアイコンを、まとめて問い合わせる
+  // 初めて見た人のアイコンを、まとめて問い合わせる。
+  // 失敗したら問い合わせた印を外し、次に1件届いたときに問い合わせ直す（一時的な失敗でアイコンが出ないままにしない）
   useEffect(() => {
     const userIds = pickUnknownUserIds(feed.entries, asked.current)
     if (userIds.length === 0) return
     for (const userId of userIds) asked.current.add(userId)
     api.loadIcons(userIds).then(
       (loaded) => setIcons((current) => new Map([...current, ...Object.entries(loaded)])),
-      失敗を出す,
+      (error: unknown) => {
+        for (const userId of userIds) asked.current.delete(userId)
+        失敗を出す(error)
+      },
     )
   }, [feed, api, 失敗を出す])
 

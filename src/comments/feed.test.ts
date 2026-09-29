@@ -96,6 +96,23 @@ describe('applyFeedItems', () => {
     expect(feed.entries.map((entry) => entry.removed)).toEqual([true, false, true])
   })
 
+  it('BAN・タイムアウトでは、その人のお知らせ（継続サブスクに添えた発言など）にも印を付ける', () => {
+    const 継続サブスク: FeedItem = {
+      kind: 'notice',
+      ...目印('通知1'),
+      messageId: 'お知らせ1',
+      user: 常連さん,
+      color: null,
+      badges: [],
+      fragments: [{ text: '今月もよろしく', emoteId: null }],
+      notice: { type: 'resub', tier: '1000', prime: false, months: 3 },
+    }
+
+    const feed = applyFeedItems(EMPTY_FEED, [継続サブスク, { kind: 'clearUser', ...目印('通知2'), userId: 常連さん.id }])
+
+    expect(feed.entries.map((entry) => entry.removed)).toEqual([true])
+  })
+
   it('全消去では、それまでの発言すべてに印を付ける', () => {
     const feed = applyFeedItems(EMPTY_FEED, [発言('通知1', '発言1'), { kind: 'clear', ...目印('通知2') }, 発言('通知3', '発言2')])
 

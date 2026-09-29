@@ -214,7 +214,7 @@ const applyOne = (entries: FeedEntry[], seen: Set<string>, item: FeedItem): Feed
     case 'delete':
       return entries.map((entry) => (isMessageRow(entry.item) && entry.item.messageId === item.messageId ? { ...entry, removed: true } : entry))
     case 'clearUser':
-      return entries.map((entry) => (entry.item.kind === 'chat' && entry.item.user.id === item.userId ? { ...entry, removed: true } : entry))
+      return entries.map((entry) => (isMessageRow(entry.item) && entry.item.user?.id === item.userId ? { ...entry, removed: true } : entry))
     case 'clear':
       return entries.map((entry) => (isMessageRow(entry.item) ? { ...entry, removed: true } : entry))
     default:
