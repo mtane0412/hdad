@@ -448,29 +448,29 @@ describe('/api/admin/comments/settings', () => {
       env,
     )
 
-  it('未保存なら、しばらく未読の発言を目立たせる設定を返す', async () => {
+  it('未保存なら、しばらく未読の発言を目立たせ、発話からの自動の既読はしない設定を返す', async () => {
     const { env } = 環境を作る()
 
     const response = await 読む(env)
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ highlightUnread: true })
+    expect(await response.json()).toEqual({ highlightUnread: true, judgeWithJev: false })
   })
 
   it('保存した設定を返し、次に読んだときもその設定になる', async () => {
     const { env } = 環境を作る()
 
-    const response = await 保存する(env, { highlightUnread: false })
+    const response = await 保存する(env, { highlightUnread: false, judgeWithJev: true })
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ highlightUnread: false })
-    expect(await (await 読む(env)).json()).toEqual({ highlightUnread: false })
+    expect(await response.json()).toEqual({ highlightUnread: false, judgeWithJev: true })
+    expect(await (await 読む(env)).json()).toEqual({ highlightUnread: false, judgeWithJev: true })
   })
 
   it('形の違う設定は、問題点を添えて400で断る', async () => {
     const { env } = 環境を作る()
 
-    const response = await 保存する(env, { highlightUnread: 'はい' })
+    const response = await 保存する(env, { highlightUnread: 'はい', judgeWithJev: false })
 
     expect(response.status).toBe(400)
     expect(await response.json()).toMatchObject({ error: { code: 'invalid-config' } })

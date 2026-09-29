@@ -11,7 +11,7 @@
  * チャットの送信は POST /api/admin/comments/messages に頼み、配信者本人として送られる。
  * 発言の既読・未読の付け替えは POST /api/admin/comments/reads に頼む。付け替えた印は、ほかの1件と同じく
  * 配送先から WebSocket で届いた時点で並びに付く（画面が先回りして付けない）。
- * 設定（しばらく未読の発言を目立たせるか）は /api/admin/comments/settings で読み書きする。
+ * 設定（しばらく未読の発言を目立たせるか・配信者の発話から自動で既読にするか）は /api/admin/comments/settings で読み書きする。
  *
  * 呼び出しと失敗の扱いは `../core/api` に任せ、fetch を引数で受け取るのはテストで差し替えるためである。
  *
@@ -31,11 +31,15 @@ const SETTINGS_PATH = '/api/admin/comments/settings'
 export interface CommentSettings {
   /** しばらく未読のままの発言を目立たせるか */
   highlightUnread: boolean
+  /** 配信者の発話から、どの発言に反応したかを Jev で判定して既読にするか */
+  judgeWithJev: boolean
 }
 
 /** 応答から設定を読む。想定した形でなければエラーにする */
 const readSettings = (body: unknown): CommentSettings => {
-  if (isRecord(body) && typeof body.highlightUnread === 'boolean') return { highlightUnread: body.highlightUnread }
+  if (isRecord(body) && typeof body.highlightUnread === 'boolean' && typeof body.judgeWithJev === 'boolean') {
+    return { highlightUnread: body.highlightUnread, judgeWithJev: body.judgeWithJev }
+  }
   throw new Error(`Workerの ${SETTINGS_PATH} の応答が想定した形ではありません`)
 }
 

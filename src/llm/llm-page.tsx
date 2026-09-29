@@ -45,8 +45,10 @@ import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ApiError } from '@/core/api'
 import {
+  JEV_USAGES,
   LLM_PROVIDERS,
   LLM_USAGES,
+  type JevUsage,
   type LlmApi,
   type LlmCredits,
   type LlmModelOption,
@@ -80,6 +82,14 @@ const USAGE_LABELS: Readonly<Record<LlmUsage, { name: string; description: strin
   streamSummary: {
     name: '配信のあらすじ',
     description: '途中から来た人向けのまとめ。材料が多いので大きいモデル向き。',
+  },
+}
+
+/** Jev を使う箇所ごとの、画面に出す名前と説明 */
+const JEV_USAGE_LABELS: Readonly<Record<JevUsage, { name: string; description: string }>> = {
+  commentReaction: {
+    name: 'コメントへの反応の判定（Jev）',
+    description: 'コメントビューアーで「配信者の発話から自動で既読にする」を入れていると、確定した発話のたびに呼ばれる。',
   },
 }
 
@@ -371,6 +381,30 @@ export const LlmPage = ({ api }: LlmPageProps) => {
                   </div>
                 </div>
               </div>
+            )
+          })}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>判定に使う箇所</CardTitle>
+          <CardDescription>文面を作らず、判定だけを返すモデル（TypeSafe の Jev。OpenRouter 経由）。モデルは版を固定しているので選べない。</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-6">
+          {JEV_USAGES.map((usage) => {
+            const { name, description } = JEV_USAGE_LABELS[usage]
+            const headingId = `${fieldIdPrefix}-${usage}-heading`
+            return (
+              <section key={usage} aria-labelledby={headingId} className="flex flex-col gap-1 rounded-md border p-4">
+                <h3 id={headingId} className="font-medium">
+                  {name}
+                </h3>
+                <p className="text-sm text-muted-foreground">{description}</p>
+                <p className="text-sm text-muted-foreground">
+                  {usageLine('今日', usageSummary.jevUsages[usage].today)} / {usageLine('直近7日', usageSummary.jevUsages[usage].week)}
+                </p>
+              </section>
             )
           })}
         </CardContent>

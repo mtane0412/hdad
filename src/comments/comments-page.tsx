@@ -27,6 +27,10 @@
  * 目立たせるかは設定（api.ts の loadSettings・saveSettings）で切り替えられる。配信者自身の発言・消された発言は
  * 反応したかを見ない（feed.ts の needsReaction）。
  *
+ * 設定で「配信者の発話から自動で既読にする」を入れると、Worker が配信者の発話から反応した発言を Jev で判定して
+ * 既読にする（worker/comment-reaction.ts）。Jev が付けた既読には「発話から既読」と出し、手で付けたものと見分けられる
+ * ようにする（機械の判断を配信者の判断と混ぜない。docs/principles.md の11）。誤っていれば、もう一度押して未読に戻せる。
+ *
  * 流れは下へ伸びる。いちばん下を見ているあいだは新しい1件に合わせて下へ送り、上へ遡って読んでいるあいだは
  * 送らない（読んでいる行が動かないように）。
  *
@@ -201,6 +205,7 @@ const ChatRow = ({
         {controls.focused && <span className="ml-2 rounded bg-primary px-1.5 text-xs font-semibold text-primary-foreground">注目中</span>}
         {/* 色だけに頼らず、文字でも「しばらく未読」であることを出す */}
         {controls.longUnread && <span className="ml-2 rounded bg-amber-500 px-1.5 text-xs font-semibold text-white">しばらく未読</span>}
+        {controls.read === 'jev' && <span className="ml-2 text-xs text-muted-foreground">発話から既読</span>}
       </div>
     </div>
     <div className="flex shrink-0 gap-0.5">
@@ -365,6 +370,7 @@ export const CommentsPage = ({ api, focusApi, connect, now = Date.now }: Comment
   const asked = useRef(new Set<string>())
   const scroller = useRef<HTMLDivElement>(null)
   const highlightFieldId = useId()
+  const judgeFieldId = useId()
 
   const 失敗を出す = useCallback((error: unknown) => setProblem(error instanceof Error ? error.message : String(error)), [])
 
@@ -493,13 +499,17 @@ export const CommentsPage = ({ api, focusApi, connect, now = Date.now }: Comment
       return ''
     })
 
-  /** しばらく未読を目立たせるかを切り替え、保存された設定を使う */
-  const 目立たせ方を切り替える = (highlightUnread: boolean) =>
+  /**
+   * 設定の1項目を切り替えて保存し、保存された設定を使う（もう一方の項目はいまの値のまま送る）。
+   *
+   * @param notice 保存できたときに出すお知らせ
+   */
+  const 設定を切り替える = (current: CommentSettings, change: Partial<CommentSettings>, notice: string) =>
     void actions.run(async () => {
-      setSettings(await api.saveSettings({ highlightUnread }))
+      setSettings(await api.saveSettings({ ...current, ...change }))
       // 切り替えた時点の時刻で見直す（次の見直しの間隔を待たずに目立たせる）
       set現在(now())
-      return highlightUnread ? 'しばらく未読の発言を目立たせます' : 'しばらく未読の発言を目立たせるのをやめました'
+      return notice
     })
 
   /** 入力欄の文言を、配信者としてチャットへ送る。送れたら入力欄を空にし、送れなければ文言を残す */
@@ -557,14 +567,33 @@ export const CommentsPage = ({ api, focusApi, connect, now = Date.now }: Comment
       )}
       {connectionNotice !== null && <p className="text-sm text-muted-foreground">{connectionNotice}</p>}
 
-      <div className="flex items-center gap-2">
-        <Checkbox
-          id={highlightFieldId}
-          checked={settings?.highlightUnread ?? false}
-          disabled={settings === null || actions.busy}
-          onCheckedChange={(checked) => 目立たせ方を切り替える(checked === true)}
-        />
-        <Label htmlFor={highlightFieldId}>しばらく未読の発言を目立たせる</Label>
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id={highlightFieldId}
+            checked={settings?.highlightUnread ?? false}
+            disabled={settings === null || actions.busy}
+            onCheckedChange={(checked) => {
+              if (settings === null) return
+              const highlightUnread = checked === true
+              設定を切り替える(settings, { highlightUnread }, highlightUnread ? 'しばらく未読の発言を目立たせます' : 'しばらく未読の発言を目立たせるのをやめました')
+            }}
+          />
+          <Label htmlFor={highlightFieldId}>しばらく未読の発言を目立たせる</Label>
+        </div>
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id={judgeFieldId}
+            checked={settings?.judgeWithJev ?? false}
+            disabled={settings === null || actions.busy}
+            onCheckedChange={(checked) => {
+              if (settings === null) return
+              const judgeWithJev = checked === true
+              設定を切り替える(settings, { judgeWithJev }, judgeWithJev ? '配信者の発話から自動で既読にします' : '配信者の発話から自動で既読にするのをやめました')
+            }}
+          />
+          <Label htmlFor={judgeFieldId}>配信者の発話から自動で既読にする（Jev）</Label>
+        </div>
       </div>
 
       <div className="relative">

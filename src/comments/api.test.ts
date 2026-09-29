@@ -180,21 +180,22 @@ describe('markRead', () => {
 
 describe('loadSettings・saveSettings', () => {
   it('設定を読む', async () => {
-    const { fetchImpl, 送ったもの } = 記録するfetch(() => Response.json({ highlightUnread: true }))
+    const { fetchImpl, 送ったもの } = 記録するfetch(() => Response.json({ highlightUnread: true, judgeWithJev: false }))
 
-    expect(await createCommentApi(fetchImpl).loadSettings()).toEqual({ highlightUnread: true })
+    expect(await createCommentApi(fetchImpl).loadSettings()).toEqual({ highlightUnread: true, judgeWithJev: false })
     expect(送ったもの).toEqual([{ url: '/api/admin/comments/settings', method: undefined, body: undefined }])
   })
 
   it('設定を保存し、Workerが保存した設定を返す', async () => {
-    const { fetchImpl, 送ったもの } = 記録するfetch(() => Response.json({ highlightUnread: false }))
+    const { fetchImpl, 送ったもの } = 記録するfetch(() => Response.json({ highlightUnread: false, judgeWithJev: true }))
 
-    expect(await createCommentApi(fetchImpl).saveSettings({ highlightUnread: false })).toEqual({ highlightUnread: false })
-    expect(送ったもの).toEqual([{ url: '/api/admin/comments/settings', method: 'PUT', body: { highlightUnread: false } }])
+    expect(await createCommentApi(fetchImpl).saveSettings({ highlightUnread: false, judgeWithJev: true })).toEqual({ highlightUnread: false, judgeWithJev: true })
+    expect(送ったもの).toEqual([{ url: '/api/admin/comments/settings', method: 'PUT', body: { highlightUnread: false, judgeWithJev: true } }])
   })
 
   it('応答が想定した形でなければエラーにする', async () => {
-    const { fetchImpl } = 記録するfetch(() => Response.json({ highlightUnread: 'はい' }))
+    // 自動の既読の項目が欠けている（Workerとの食い違い）
+    const { fetchImpl } = 記録するfetch(() => Response.json({ highlightUnread: true }))
 
     await expect(createCommentApi(fetchImpl).loadSettings()).rejects.toThrow()
   })

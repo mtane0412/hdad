@@ -151,3 +151,25 @@ export const readRecentTranscripts = async (db: Database, sessionId: string, lim
     .all<TranscriptLine>()
   return results.reverse()
 }
+
+/**
+ * いま進んでいる配信の直近の発話を、喋った順（古い順）に本文だけで読む。
+ *
+ * 配信者の発話がどのコメントへの反応かを判定する処理（comment-reaction.ts）の材料になる。返事は複数の文に
+ * またがることがあるので、受け取ったばかりの1文だけでなく直前の数文を読む。発話を受け取った経路から呼ぶので、
+ * 配信の区切りのIDを持たずに、いま進んでいる配信（ended_at が空の区切り）を中で選ぶ。
+ *
+ * @param limit 読む文の数。超えたぶんは古いほうから落とす
+ */
+export const readLatestTranscripts = async (db: Database, limit: number): Promise<string[]> => {
+  const { results } = await db
+    .prepare(
+      `SELECT text FROM transcripts
+       WHERE session_id = (SELECT id FROM stream_sessions WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT 1)
+       ORDER BY spoken_at DESC, message_id DESC
+       LIMIT ?1`,
+    )
+    .bind(limit)
+    .all<{ text: string }>()
+  return results.reverse().map((row) => row.text)
+}

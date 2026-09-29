@@ -7,11 +7,12 @@
  * 注意: 日の区切りはUTCで数える。Workers AI の無料枠がUTCの日で切り替わるので、配信者の時間帯（JST）で
  * 区切ると「今日はどれだけ使ったか」が無料枠の区切りとずれる（画面にもUTCで数えていることを書く）。
  * 注意: 提供元・モデルが違う行も、箇所ごとに足し合わせる。日の途中でモデルを変えても、その箇所の合計は読める。
- * 注意: 知らない箇所（Workerに箇所が増えたとき）の行は無視する。画面が知っている4か所だけを並べる。
+ * 注意: 知らない箇所（Workerに箇所が増えたとき）の行は無視する。画面が知っている箇所（LLM の4か所と Jev の箇所）だけを並べる。
+ * 注意: 判定用のモデル Jev の呼び出し（worker/jev.ts）も同じ表に記録されるので、箇所ごとにまとめて全体の合計に含める。
  * 注意: 日ごとの行の型（LlmUsageDay）は、Workerの応答を読む api.ts が持つものをそのまま使う（同じ形を二重に書かない）。
  * まとめだけを使う側のために、ここからも再び出しておく。
  */
-import { LLM_USAGES, type LlmUsage, type LlmUsageDay } from './api'
+import { JEV_USAGES, LLM_USAGES, type JevUsage, type LlmUsage, type LlmUsageDay } from './api'
 
 export type { LlmUsageDay }
 
@@ -39,7 +40,9 @@ export interface LlmUsagePeriods {
 /** 画面に出すまとめ */
 export interface LlmUsageSummary {
   usages: Record<LlmUsage, LlmUsagePeriods>
-  /** 4か所を合わせた合計（実費の合計を1か所で読めるようにするため） */
+  /** Jev を使う箇所ごとのまとめ */
+  jevUsages: Record<JevUsage, LlmUsagePeriods>
+  /** LLM と Jev のすべての箇所を合わせた合計（実費の合計を1か所で読めるようにするため） */
   total: LlmUsagePeriods
 }
 
@@ -68,10 +71,13 @@ export const summarizeLlmUsage = (days: readonly LlmUsageDay[], now: number): Ll
   const 直近の始まり = toUtcDay(now - (WEEK_DAYS - 1) * 24 * 60 * 60 * 1000)
 
   const usages = Object.fromEntries(LLM_USAGES.map((usage) => [usage, { today: 空の合計(), week: 空の合計() }])) as Record<LlmUsage, LlmUsagePeriods>
+  const jevUsages = Object.fromEntries(JEV_USAGES.map((usage) => [usage, { today: 空の合計(), week: 空の合計() }])) as Record<JevUsage, LlmUsagePeriods>
   const total: LlmUsagePeriods = { today: 空の合計(), week: 空の合計() }
+  // 箇所の名前は LLM と Jev で重ならないので、1つの表として引ける
+  const byUsage: Readonly<Record<string, LlmUsagePeriods | undefined>> = { ...usages, ...jevUsages }
 
   for (const row of days) {
-    const periods = usages[row.usage as LlmUsage]
+    const periods = byUsage[row.usage]
     // 画面が知らない箇所の行は数えない（Workerに箇所が増えても、並べる欄が無いため）
     if (periods === undefined || row.day < 直近の始まり) continue
     足す(periods.week, row)
@@ -82,5 +88,5 @@ export const summarizeLlmUsage = (days: readonly LlmUsageDay[], now: number): Ll
     }
   }
 
-  return { usages, total }
+  return { usages, jevUsages, total }
 }

@@ -17,7 +17,7 @@
  * - 使用状況や残高を読めなくても設定の画面は出し、理由だけを添えること（モニターのために設定が触れなくならないようにする）
  */
 import '@testing-library/jest-dom/vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { ApiError } from '@/core/api'
@@ -328,6 +328,15 @@ describe('使用状況', () => {
     // チャットの文面の箇所と、全体の合計の両方に出る（ほかの3か所は呼んでいないので、合計はこの箇所と同じ数になる）
     await waitFor(() => expect(screen.getAllByText(/今日 12回（失敗1回）・12,000トークン/)).toHaveLength(2))
     expect(screen.getAllByText(/直近7日 42回（失敗1回）・37,000トークン/)).toHaveLength(2)
+  })
+
+  test('判定用のモデル Jev の箇所（コメントへの反応の判定）の使用状況も出す（選ぶモデルは無いので、選択欄は出さない）', async () => {
+    描く(llmApi({ usage: [使用状況の行(今日, 'commentReaction', { calls: 7, promptTokens: 7_000, completionTokens: 70 })] }))
+    await 読み込みを待つ()
+
+    const 箇所 = await screen.findByRole('region', { name: 'コメントへの反応の判定（Jev）' })
+    expect(within(箇所).getByText(/今日 7回・7,070トークン/)).toBeInTheDocument()
+    expect(within(箇所).queryByRole('combobox')).not.toBeInTheDocument()
   })
 
   test('まだ一度も呼んでいない箇所は 0回 と出す（数えられていないのか使っていないのかを取り違えないため）', async () => {
