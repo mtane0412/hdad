@@ -6,7 +6,8 @@
  * 通信もDOMも持たないので、画面から切り離してテストする。
  *
  * 並べ方の決まり:
- * - 同じ1件（通知のメッセージIDが同じもの）は二重に並べない。Twitch の再送や、つなぎ直したときの履歴で同じものが届くため
+ * - 同じ1件（通知のメッセージIDが同じもの）は二度当てはめない。Twitch の再送や、つなぎ直したときの履歴で同じものが届くため。
+ *   モデレーターの操作も同じで、つなぎ直しで古い全消去がまた届いたときに、そのあとに届いた発言へ印を付けてしまわないようにする
  * - モデレーターの操作（削除・BAN/タイムアウトによる消去・全消去）は行として並べず、該当する発言に印を付ける。
  *   並びからは消さないのは、何が消されたのかを配信者が見られるようにするためである
  * - 並べるのは直近の上限（MAX_ENTRIES）まで。配信の最初から全部を画面に持ち続けない
@@ -100,9 +101,13 @@ export interface FeedEntry {
 export interface Feed {
   /** 古い順 */
   entries: readonly FeedEntry[]
+  /**
+   * すでに当てはめた通知のメッセージID（古い順）。行にならないモデレーターの操作のぶんも持つので、並びとは別にする
+   */
+  applied: readonly string[]
 }
 
-export const EMPTY_FEED: Feed = { entries: [] }
+export const EMPTY_FEED: Feed = { entries: [], applied: [] }
 
 /**
  * 画面に並べておく件数の上限。
@@ -110,6 +115,14 @@ export const EMPTY_FEED: Feed = { entries: [] }
  * 配信中に見返すのは直近の数十分で足りる。多すぎると並びを描き直すたびに重くなる。
  */
 export const MAX_ENTRIES = 500
+
+/**
+ * 覚えておく当てはめ済みのメッセージIDの件数。
+ *
+ * 同じ通知がまた届くのは、Twitch の再送（数分以内）と、つなぎ直したときの配送先の履歴（直近200件）だけなので、
+ * 並べる件数の倍を覚えておけば足りる。配信のあいだ際限なく増やさないために区切る。
+ */
+const MAX_APPLIED_IDS = MAX_ENTRIES * 2
 
 const isString = (value: unknown): value is string => typeof value === 'string'
 const isNumber = (value: unknown): value is number => typeof value === 'number'
@@ -208,8 +221,10 @@ export const parseFeedMessage = (text: string): FeedMessage => {
 /** 発言を持つ行（消去の印を付ける相手）か */
 const isMessageRow = (item: RowItem): item is ChatItem | NoticeItem => item.kind === 'chat' || item.kind === 'notice'
 
-/** 1件を並びへ積む。モデレーターの操作なら、該当する行に印を付ける */
-const applyOne = (entries: FeedEntry[], seen: Set<string>, item: FeedItem): FeedEntry[] => {
+/** 1件を並びへ積む。モデレーターの操作なら、該当する行に印を付ける。すでに当てはめた1件なら何もしない */
+const applyOne = (entries: FeedEntry[], applied: Set<string>, item: FeedItem): FeedEntry[] => {
+  if (applied.has(item.id)) return entries
+  applied.add(item.id)
   switch (item.kind) {
     case 'delete':
       return entries.map((entry) => (isMessageRow(entry.item) && entry.item.messageId === item.messageId ? { ...entry, removed: true } : entry))
@@ -218,17 +233,16 @@ const applyOne = (entries: FeedEntry[], seen: Set<string>, item: FeedItem): Feed
     case 'clear':
       return entries.map((entry) => (isMessageRow(entry.item) ? { ...entry, removed: true } : entry))
     default:
-      if (seen.has(item.id)) return entries
-      seen.add(item.id)
       return [...entries, { item, removed: false }]
   }
 }
 
 /** 届いた1件（または履歴）を並びへ積む。元の並びは書き換えない */
 export const applyFeedItems = (feed: Feed, items: readonly FeedItem[]): Feed => {
-  const seen = new Set(feed.entries.map((entry) => entry.item.id))
-  const entries = items.reduce<FeedEntry[]>((積んだもの, item) => applyOne(積んだもの, seen, item), [...feed.entries])
-  return { entries: entries.slice(-MAX_ENTRIES) }
+  // Set は加えた順を保つので、古いものから落とすときにそのまま使える
+  const applied = new Set(feed.applied)
+  const entries = items.reduce<FeedEntry[]>((積んだもの, item) => applyOne(積んだもの, applied, item), [...feed.entries])
+  return { entries: entries.slice(-MAX_ENTRIES), applied: [...applied].slice(-MAX_APPLIED_IDS) }
 }
 
 /** サブスクの階層（Twitch の '1000' など）を、配信者が見慣れた呼び方にする */

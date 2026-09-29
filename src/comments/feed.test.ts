@@ -119,6 +119,32 @@ describe('applyFeedItems', () => {
     expect(feed.entries.map((entry) => entry.removed)).toEqual([true, false])
   })
 
+  it('つなぎ直しで同じ全消去がまた届いても、そのあとに届いた発言には印を付けない', () => {
+    // 前提: 全消去のあとに発言2が届いて並んでいる。つなぎ直すと、配送先は全消去を含む履歴を送り直してくる
+    const 全消去 = { kind: 'clear' as const, ...目印('通知2') }
+    const 並び = applyFeedItems(EMPTY_FEED, [発言('通知1', '発言1'), 全消去, 発言('通知3', '発言2')])
+
+    const つなぎ直した後 = applyFeedItems(並び, [発言('通知1', '発言1'), 全消去, 発言('通知3', '発言2')])
+
+    expect(つなぎ直した後.entries.map((entry) => [entry.item.id, entry.removed])).toEqual([
+      ['通知1', true],
+      ['通知3', false],
+    ])
+  })
+
+  it('つなぎ直しで同じBAN・タイムアウトがまた届いても、そのあとのその人の発言には印を付けない', () => {
+    // 前提: タイムアウトが明けたあとに、同じ人の発言2が届いている
+    const 消去 = { kind: 'clearUser' as const, ...目印('通知2'), userId: 常連さん.id }
+    const 並び = applyFeedItems(EMPTY_FEED, [発言('通知1', '発言1'), 消去, 発言('通知3', '発言2')])
+
+    const つなぎ直した後 = applyFeedItems(並び, [消去])
+
+    expect(つなぎ直した後.entries.map((entry) => [entry.item.id, entry.removed])).toEqual([
+      ['通知1', true],
+      ['通知3', false],
+    ])
+  })
+
   it('並べるのは上限の件数までで、古いものから落とす', () => {
     const 多すぎる = Array.from({ length: MAX_ENTRIES + 1 }, (_, 番号) => 発言(`通知${番号}`, `発言${番号}`))
 
