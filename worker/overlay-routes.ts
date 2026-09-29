@@ -4,6 +4,7 @@
  * どれもTwitchのトークンではなくオーバーレイ用キーで守る。素材だけは、管理画面でのプレビューのために配信者のセッションでも読める。
  */
 import { connectAlertSocket } from './alert-channel'
+import { recordLateFailure } from './alert-actions'
 import { connectDrawSocket, putDrawBackground } from './draw-channel'
 import { loadStrokes } from './draw-config'
 import { createGyazoClient } from './gyazo'
@@ -217,8 +218,10 @@ export const postScreen = async (context: Context): Promise<Response> => {
   if (!(await isStreaming(env.DB, now))) return Response.json({ recorded: false, imageId: null })
 
   // 描く画面（/draw/）の背景に敷く最新の1枚として、手書きの中継先にも置く。配信中に限るのは Gyazo と同じ理由で、
-  // 配信していないあいだは最後に配信した時点の1枚が残る（worker/draw-background.ts）
-  await putDrawBackground(env.DRAW, { image, contentType, capturedAt: now })
+  // 配信していないあいだは最後に配信した時点の1枚が残る（worker/draw-background.ts）。
+  // 背景は描く画面の目安にすぎないので、応答のあとに回して Gyazo へ上げるのとは切り離す（片方の失敗で他方を止めない）。
+  // 置けなかったときは黙って捨てず、失敗の記録（collection_failures）に残す
+  context.waitUntil(recordLateFailure(context, 'draw-background-failed', () => putDrawBackground(env.DRAW, { image, contentType, capturedAt: now })))
 
   const accessToken = env.GYAZO_ACCESS_TOKEN
   if (!accessToken) {

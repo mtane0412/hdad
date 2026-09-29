@@ -20,7 +20,7 @@ import { createFakeStore } from './fake-store'
 import { handleRequest, type Env } from './index'
 import { DEFAULT_SCREEN_SETTINGS } from './screen-config'
 import { createSessionToken } from './session'
-import { recordStreamOnline } from './stats-store'
+import { listFailures, recordStreamOnline } from './stats-store'
 
 const 現在時刻 = Date.parse('2026-09-28T12:05:00Z')
 const 配信の開始 = Date.parse('2026-09-28T12:00:00Z')
@@ -55,12 +55,15 @@ const 通信しない = async (input: RequestInfo | URL): Promise<Response> => {
 }
 
 const 待たない = async (): Promise<void> => {}
-const 後回しにしない = (): void => {
-  throw new Error('このテストでは、応答のあとに続く処理を使いません')
+
+/** 応答のあとに回した処理（描く画面の背景を置く処理）。確かめる前に待ち切る */
+const 後回しにした処理: Promise<unknown>[] = []
+const 後回しを待つ = async (): Promise<void> => {
+  await Promise.all(後回しにした処理.splice(0))
 }
 
 const 呼び出す = (request: Request, env: Env, fetchImpl = 通信しない) =>
-  handleRequest(request, env, { fetch: fetchImpl, now: () => 現在時刻, wait: 待たない, waitUntil: 後回しにしない })
+  handleRequest(request, env, { fetch: fetchImpl, now: () => 現在時刻, wait: 待たない, waitUntil: (promise) => 後回しにした処理.push(promise) })
 
 const ログイン済みの見出し = async (追加: Record<string, string> = {}): Promise<Record<string, string>> => ({
   Cookie: `__Host-session=${await createSessionToken(配信者のID, セッションの秘密鍵, 現在時刻)}`,
@@ -199,6 +202,7 @@ describe('POST /api/overlay/screen', () => {
     await recordStreamOnline(env.DB, { id: 'session-1', startedAt: 配信の開始 })
 
     await 呼び出す(撮った1枚を送る(画像の本文()), env, Gyazoを覚える().fetchImpl)
+    await 後回しを待つ()
     const 背景 = await 呼び出す(new Request(`${サイト}/api/admin/draw/background`, { headers: await ログイン済みの見出し() }), env)
 
     expect(背景.status).toBe(200)
@@ -211,9 +215,28 @@ describe('POST /api/overlay/screen', () => {
     const { env } = 環境を作る()
 
     await 呼び出す(撮った1枚を送る(画像の本文()), env, Gyazoを覚える().fetchImpl)
+    await 後回しを待つ()
     const 背景 = await 呼び出す(new Request(`${サイト}/api/admin/draw/background`, { headers: await ログイン済みの見出し() }), env)
 
     expect(背景.status).toBe(204)
+  })
+
+  it('描く画面の背景を置けなくても、Gyazo へは上げたうえで、置けなかったことを記録する', async () => {
+    // 背景は描く画面の目安にすぎないので、その失敗で配信画面の文字（あらすじ・サイドスーパーの材料）を取りこぼさない
+    const { env } = 環境を作る()
+    const 置けない中継先: Env['DRAW'] = {
+      ...env.DRAW,
+      get: () => ({ fetch: async () => new Response(null, { status: 500 }) }),
+    }
+    await recordStreamOnline(env.DB, { id: 'session-1', startedAt: 配信の開始 })
+    const { fetchImpl, 受け取った } = Gyazoを覚える()
+
+    const 応答 = await 呼び出す(撮った1枚を送る(画像の本文()), { ...env, DRAW: 置けない中継先 }, fetchImpl)
+    await 後回しを待つ()
+
+    expect(await 応答.json()).toEqual({ recorded: true, imageId: 画像のID })
+    expect(受け取った).toHaveLength(1)
+    expect((await listFailures(env.DB)).map((failure) => failure.code)).toEqual(['draw-background-failed'])
   })
 
   it('Gyazo のアクセストークンが無ければ失敗させる', async () => {
