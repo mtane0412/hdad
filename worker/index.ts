@@ -34,6 +34,8 @@
  * | GET  /api/admin/comments/icons   | セッション     | 発言した人のアイコンのURLを、ユーザーIDからまとめて引く |
  * | POST /api/admin/comments/moderation | セッション   | 配信者が選んだ処分（発言の削除・タイムアウト・BAN）をbotの権限で行う |
  * | POST /api/admin/comments/messages | セッション     | 配信者本人としてチャットへ送る |
+ * | POST /api/admin/comments/reads   | セッション     | 発言を既読にする・未読に戻す |
+ * | GET・PUT /api/admin/comments/settings | セッション | コメントビューアーの設定（しばらく未読の発言を目立たせるか）の取得・保存 |
  * | GET・PUT /api/admin/focus        | セッション     | 注目コメント（いま取り上げているもの）の取得・保存 |
  * | GET  /api/admin/focus/messages   | セッション     | 取り上げる発言を選ぶための、直近の発言の一覧 |
  * | GET  /api/admin/viewers          | セッション     | 視聴者の記録の一覧（検索・ページ送り） |
@@ -114,7 +116,7 @@ import {
   postTranscript,
 } from './overlay-routes'
 import { drawSocket, getDrawBackground, getDrawStrokes, putDrawStrokes } from './draw-routes'
-import { commentSocket, getCommentIcons, postCommentMessage, postCommentModeration } from './comment-routes'
+import { commentSocket, getCommentIcons, getCommentSettings, postCommentMessage, postCommentModeration, postCommentRead, putCommentSettings } from './comment-routes'
 import { getStatsFailures, getStatsFollowers, getStatsSession, getStatsSessions } from './stats-routes'
 import { AuthError } from './token'
 import { WEBHOOK_PATH, eventsubWebhook } from './webhook-routes'
@@ -192,6 +194,9 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/admin/comments/icons', handle: getCommentIcons },
   { method: 'POST', path: '/api/admin/comments/moderation', handle: postCommentModeration },
   { method: 'POST', path: '/api/admin/comments/messages', handle: postCommentMessage },
+  { method: 'POST', path: '/api/admin/comments/reads', handle: postCommentRead },
+  { method: 'GET', path: '/api/admin/comments/settings', handle: getCommentSettings },
+  { method: 'PUT', path: '/api/admin/comments/settings', handle: putCommentSettings },
   { method: 'GET', path: '/api/admin/focus', handle: getFocus },
   { method: 'PUT', path: '/api/admin/focus', handle: putFocus },
   { method: 'GET', path: '/api/admin/focus/messages', handle: getFocusMessages },

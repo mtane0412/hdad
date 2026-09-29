@@ -1,12 +1,14 @@
 /**
  * コメントビューアーの経路（/api/admin/comments/*）のテスト
  *
- * 確かめるのは次の5点である。
+ * 確かめるのは次の7点である。
  * - 配信者の画面からのWebSocketの接続が、配送先（Durable Object）へ引き渡されること
  * - ログインしていない接続・別のサイトから開かれた接続を断ること（WebSocketはGETなので、書き換えのときのCSRF対策が効かない）
  * - 発言した人のアイコンを、ユーザーIDからまとめて引けること
  * - 配信者が選んだ処分（削除・タイムアウト・BAN）を、botの権限で行えること
  * - 配信者本人としてチャットを送れること（許可を取り直す前は、botで代わりに送らず断ること）
+ * - 発言を既読にした・未読に戻したことを記録し、開いている画面へ知らせること
+ * - コメントビューアーの設定（しばらく未読の発言を目立たせるか）を読み書きできること
  */
 import { describe, expect, it } from 'vitest'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
@@ -343,5 +345,134 @@ describe('POST /api/admin/comments/messages', () => {
     const response = await 送る(env, { message: 'みなさん来てくれてありがとう' }, undefined, { Origin: 'https://evil.example.com' })
 
     expect(response.status).toBe(403)
+  })
+})
+
+describe('POST /api/admin/comments/reads', () => {
+  const 付け替える = async (env: Env, body: unknown, headers: Record<string, string> = {}) =>
+    呼び出す(
+      new Request(`${サイト}/api/admin/comments/reads`, {
+        method: 'POST',
+        headers: { Cookie: await 配信者のクッキー(env), Origin: サイト, 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify(body),
+      }),
+      env,
+    )
+
+  /** 記録された既読の行をそのまま読む */
+  const 既読の行 = (env: ReturnType<typeof 環境を作る>['env']) => env.DB.sqlite.prepare('SELECT message_id, read, marked_by FROM comment_reads').all()
+
+  it('配信者が既読にした発言を記録し、開いている画面へ知らせる', async () => {
+    const { env, 配送先 } = 環境を作る()
+
+    const response = await 付け替える(env, { messageId: 'たなかさんの初見の挨拶', read: true })
+
+    expect(response.status).toBe(204)
+    expect(既読の行(env)).toEqual([{ message_id: 'たなかさんの初見の挨拶', read: 1, marked_by: 'manual' }])
+    // 画面は届いた順に当てはめるので、付け替えるたびに別の通知として見分けられるIDを振る
+    expect(配送先.押し出された1件).toEqual([
+      { kind: 'read', id: expect.any(String), at: 現在時刻, messageId: 'たなかさんの初見の挨拶', read: true, by: 'manual' },
+    ])
+  })
+
+  it('未読に戻したことも記録し、知らせる', async () => {
+    const { env, 配送先 } = 環境を作る()
+    await 付け替える(env, { messageId: 'すずきさんのBGMの質問', read: true })
+
+    await 付け替える(env, { messageId: 'すずきさんのBGMの質問', read: false })
+
+    expect(既読の行(env)).toEqual([{ message_id: 'すずきさんのBGMの質問', read: 0, marked_by: 'manual' }])
+    expect(配送先.押し出された1件.map((item) => item.kind === 'read' && item.read)).toEqual([true, false])
+    // 付け替えの通知は、1回ごとに違うIDを持つ（同じIDだと、画面が2回目を「当てはめ済み」として捨ててしまう）
+    expect(new Set(配送先.押し出された1件.map((item) => item.id)).size).toBe(2)
+  })
+
+  it.each([
+    ['発言のIDが無い', { read: true }],
+    ['発言のIDが空', { messageId: '', read: true }],
+    ['既読かどうかが真偽値でない', { messageId: 'たなかさんの初見の挨拶', read: 'はい' }],
+  ])('%s本文は400で断り、記録も知らせもしない', async (_説明, body) => {
+    const { env, 配送先 } = 環境を作る()
+
+    const response = await 付け替える(env, body)
+
+    expect(response.status).toBe(400)
+    expect(既読の行(env)).toEqual([])
+    expect(配送先.押し出された1件).toEqual([])
+  })
+
+  it('ログインしていなければ断る', async () => {
+    const { env } = 環境を作る()
+
+    const response = await 付け替える(env, { messageId: 'たなかさんの初見の挨拶', read: true }, { Cookie: '' })
+
+    expect(response.status).toBe(401)
+    expect(既読の行(env)).toEqual([])
+  })
+
+  it('画面へ知らせられなければ、成功として返さない（付け替えが画面に出ないことに気づけるようにする）', async () => {
+    const { env } = 環境を作る()
+    const 失敗する配送先 = createFakeCommentChannel({ 失敗する: true })
+
+    const response = await 付け替える({ ...env, COMMENTS: 失敗する配送先.namespace }, { messageId: 'たなかさんの初見の挨拶', read: true })
+
+    expect(response.ok).toBe(false)
+    // 記録は先に済んでいる（画面はまだ未読のまま）。配信者が失敗を見てもう一度押せば揃う（次のテスト）
+    expect(既読の行(env)).toEqual([{ message_id: 'たなかさんの初見の挨拶', read: 1, marked_by: 'manual' }])
+  })
+
+  it('知らせるのに失敗したあと、もう一度押せば記録と画面の状態が揃う', async () => {
+    const { env, 配送先 } = 環境を作る()
+    const 失敗する配送先 = createFakeCommentChannel({ 失敗する: true })
+    await 付け替える({ ...env, COMMENTS: 失敗する配送先.namespace }, { messageId: 'たなかさんの初見の挨拶', read: true })
+
+    // 画面は未読のままなので、配信者はもう一度「既読にする」を押す
+    const response = await 付け替える(env, { messageId: 'たなかさんの初見の挨拶', read: true })
+
+    expect(response.status).toBe(204)
+    expect(既読の行(env)).toEqual([{ message_id: 'たなかさんの初見の挨拶', read: 1, marked_by: 'manual' }])
+    expect(配送先.押し出された1件).toMatchObject([{ kind: 'read', messageId: 'たなかさんの初見の挨拶', read: true }])
+  })
+})
+
+describe('/api/admin/comments/settings', () => {
+  const 読む = async (env: Env) => 呼び出す(new Request(`${サイト}/api/admin/comments/settings`, { headers: { Cookie: await 配信者のクッキー(env) } }), env)
+
+  const 保存する = async (env: Env, body: unknown) =>
+    呼び出す(
+      new Request(`${サイト}/api/admin/comments/settings`, {
+        method: 'PUT',
+        headers: { Cookie: await 配信者のクッキー(env), Origin: サイト, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+      env,
+    )
+
+  it('未保存なら、しばらく未読の発言を目立たせる設定を返す', async () => {
+    const { env } = 環境を作る()
+
+    const response = await 読む(env)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ highlightUnread: true })
+  })
+
+  it('保存した設定を返し、次に読んだときもその設定になる', async () => {
+    const { env } = 環境を作る()
+
+    const response = await 保存する(env, { highlightUnread: false })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ highlightUnread: false })
+    expect(await (await 読む(env)).json()).toEqual({ highlightUnread: false })
+  })
+
+  it('形の違う設定は、問題点を添えて400で断る', async () => {
+    const { env } = 環境を作る()
+
+    const response = await 保存する(env, { highlightUnread: 'はい' })
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ error: { code: 'invalid-config' } })
   })
 })

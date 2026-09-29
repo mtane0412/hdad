@@ -21,25 +21,49 @@
  * Twitch から届いた時点で流れに並ぶ（画面が先回りして並べない）。Enter で送るが、日本語入力の変換を確定する
  * Enter（isComposing）では送らない。
  *
+ * 視聴者の発言には既読のボタンを置き、配信者がその発言に反応したら既読にする（もう一度押すと未読に戻す）。
+ * 既読の印は、ほかの1件と同じく配送先から届いた付け替えで付く（画面が先回りして付けない）。届いてから
+ * しばらく（feed.ts の UNREAD_HIGHLIGHT_MS）たっても未読のままの発言は、反応し忘れに気づけるよう目立たせる。
+ * 目立たせるかは設定（api.ts の loadSettings・saveSettings）で切り替えられる。配信者自身の発言・消された発言は
+ * 反応したかを見ない（feed.ts の needsReaction）。
+ *
  * 流れは下へ伸びる。いちばん下を見ているあいだは新しい1件に合わせて下へ送り、上へ遡って読んでいるあいだは
  * 送らない（読んでいる行が動かないように）。
  *
  * 注意: 失敗（読み取れない1件・アイコンを引けない・接続が切れた）は黙って無視せず、理由を画面に出す（Fail-Fast）。
  * 読み取れない1件のために流れ全体は止めない（届いた残りは並べ続ける）。
  */
-import { ArrowDown, Ban, Gift, Heart, Megaphone, Quote, Send, Sparkles, Star, Timer, Trash2, Users, type LucideIcon } from 'lucide-react'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { ArrowDown, Ban, CheckCheck, Gift, Heart, Megaphone, Quote, Send, Sparkles, Star, Timer, Trash2, Users, type LucideIcon } from 'lucide-react'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { usePageActions } from '@/admin/page-actions'
 import { badgeKey, type BadgeMap } from '@/chat/badges'
 import { twitchEmoteUrl } from '@/chat/message'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { iconButtonName } from '@/core/icon-button'
 import type { FocusApi } from '@/focus/api'
 import { cn } from '@/lib/utils'
-import { describeModeration, pickUnknownUserIds, type CommentApi, type ModerationAction } from './api'
-import { applyFeedItems, describeEvent, EMPTY_FEED, parseFeedMessage, toFocusPick, type ChatItem, type EventItem, type Feed, type FeedBadge, type FeedEntry, type FeedFragment, type FeedUser } from './feed'
+import { describeModeration, pickUnknownUserIds, type CommentApi, type CommentSettings, type ModerationAction } from './api'
+import {
+  applyFeedItems,
+  describeEvent,
+  EMPTY_FEED,
+  isLongUnread,
+  needsReaction,
+  parseFeedMessage,
+  toFocusPick,
+  type ChatItem,
+  type EventItem,
+  type Feed,
+  type FeedBadge,
+  type FeedEntry,
+  type FeedFragment,
+  type FeedUser,
+  type ReadMarker,
+} from './feed'
 import type { CommentFeedConnection, CommentFeedHandlers } from './socket'
 
 /** 日本語入力の変換を処理しているあいだの keydown に付く keyCode */
@@ -48,12 +72,22 @@ const IME_PROCESSING_KEY_CODE = 229
 /** いちばん下を見ているとみなす、下端からの距離（画素）。端数の揺れで「遡っている」と取り違えないための遊び */
 const FOLLOW_THRESHOLD_PX = 32
 
+/**
+ * しばらく未読かを見直す間隔（ミリ秒）。
+ *
+ * 新しい1件が届かなくても、時間がたてば未読の発言は目立たせる側へ移るので、この間隔で描き直す。
+ * 目立たせるまでの3分に対して15秒遅れる程度なら、配信者が気づくのに差し支えない。
+ */
+const UNREAD_TICK_MS = 15_000
+
 export interface CommentsPageProps {
   api: CommentApi
   /** 注目コメントの読み書き（注目コメントのページと同じもの） */
   focusApi: FocusApi
   /** 配送先へつなぐ。テストで差し替えるために受け取る（本番は socket.ts の connectCommentFeed） */
   connect(handlers: CommentFeedHandlers): CommentFeedConnection
+  /** 現在時刻（ミリ秒）。しばらく未読かを決めるのに使う。テストで差し替えるために受け取る（既定は Date.now） */
+  now?: () => number
 }
 
 /** 届いた時刻を、配信者のブラウザの時間帯で「時:分」に直す */
@@ -101,8 +135,16 @@ const Name = ({ user, color }: { user: FeedUser; color: string | null }) => (
   </span>
 )
 
-/** 発言の行が受け取る操作（注目コメントとモデレーター） */
+/** 発言の行が受け取る操作（既読・注目コメント・モデレーター） */
 interface RowControls {
+  /** 反応したか（既読）を見る発言か。配信者自身の発言・消された発言では既読のボタンを出さない */
+  canMarkRead: boolean
+  /** 既読にしたのは誰か。未読なら null */
+  read: ReadMarker | null
+  /** しばらく未読のまま目立たせるか */
+  longUnread: boolean
+  /** 既読にする・未読に戻す */
+  onToggleRead(): void
   /** この発言を注目コメントとして取り上げているか */
   focused: boolean
   /** 操作の途中か（二重に押させない） */
@@ -131,7 +173,13 @@ const ChatRow = ({
   badgeImages: BadgeMap
   controls: RowControls
 }) => (
-  <div className={cn('group flex items-start gap-2 px-3 py-1.5', controls.focused && 'bg-accent')}>
+  <div
+    className={cn(
+      'group flex items-start gap-2 border-l-4 border-transparent px-3 py-1.5',
+      controls.focused && 'bg-accent',
+      controls.longUnread && 'border-amber-500 bg-amber-500/10',
+    )}
+  >
     {/* 消された発言はアイコンと本文を薄くするが、操作のボタンは薄くしない（その人のタイムアウト・BANは続けてできる） */}
     <div className={cn('flex min-w-0 flex-1 items-start gap-2', removed && 'opacity-50')}>
       <Icon user={item.user} icons={icons} />
@@ -151,9 +199,26 @@ const ChatRow = ({
         {item.bits !== null && <span className="ml-2 rounded bg-primary/10 px-1.5 text-xs font-semibold text-primary">{item.bits} ビッツ</span>}
         {removed && <span className="ml-2 text-xs text-muted-foreground">（削除済み）</span>}
         {controls.focused && <span className="ml-2 rounded bg-primary px-1.5 text-xs font-semibold text-primary-foreground">注目中</span>}
+        {/* 色だけに頼らず、文字でも「しばらく未読」であることを出す */}
+        {controls.longUnread && <span className="ml-2 rounded bg-amber-500 px-1.5 text-xs font-semibold text-white">しばらく未読</span>}
       </div>
     </div>
     <div className="flex shrink-0 gap-0.5">
+      {controls.canMarkRead && (
+        // 押された状態（aria-pressed）で「既読」を表し、もう一度押すと未読に戻す。既読なら印として薄くしない
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          {...iconButtonName('この発言を既読にする')}
+          aria-pressed={controls.read !== null}
+          disabled={controls.busy}
+          onClick={controls.onToggleRead}
+          className={cn('shrink-0', controls.read === null ? rowButtonClass : 'text-primary')}
+        >
+          <CheckCheck aria-hidden="true" />
+        </Button>
+      )}
       {/* 押された状態（aria-pressed）で「取り上げている」を表し、もう一度押すとやめる */}
       <Button
         type="button"
@@ -268,7 +333,7 @@ const Row = ({
     <EventRow item={entry.item} removed={entry.removed} icons={icons} />
   )
 
-export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
+export const CommentsPage = ({ api, focusApi, connect, now = Date.now }: CommentsPageProps) => {
   const [feed, setFeed] = useState<Feed>(EMPTY_FEED)
   const [icons, setIcons] = useState<ReadonlyMap<string, string>>(new Map())
   const [badgeImages, setBadgeImages] = useState<BadgeMap>(new Map())
@@ -290,11 +355,16 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
   const [削除を頼んだ発言, set削除を頼んだ発言] = useState<ReadonlySet<string>>(new Set())
   /** この画面で取り上げ直したか。開いたときの読み込みが遅れて返っても、選び直した結果を古い内容で上書きしない */
   const 選び直した = useRef(false)
+  /** コメントビューアーの設定。読み込むまでは null（そのあいだは目立たせない） */
+  const [settings, setSettings] = useState<CommentSettings | null>(null)
+  /** しばらく未読かを決める現在時刻。UNREAD_TICK_MS ごとに進める */
+  const [現在, set現在] = useState(now)
   /** いちばん下を見ているか。見ているあいだだけ、新しい1件に合わせて下へ送る */
   const [following, setFollowing] = useState(true)
   /** アイコンを問い合わせた人（Twitchが返さなかった人も含む。同じ人を何度も問い合わせない。問い合わせ自体が失敗した人は外す） */
   const asked = useRef(new Set<string>())
   const scroller = useRef<HTMLDivElement>(null)
+  const highlightFieldId = useId()
 
   const 失敗を出す = useCallback((error: unknown) => setProblem(error instanceof Error ? error.message : String(error)), [])
 
@@ -332,6 +402,29 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
       cancelled = true
     }
   }, [api, 失敗を出す])
+
+  // 設定は開いたときに1度だけ読む（切り替えたときは保存した結果を使う）
+  useEffect(() => {
+    let cancelled = false
+    api.loadSettings().then(
+      (loaded) => {
+        if (!cancelled) setSettings(loaded)
+      },
+      (error: unknown) => {
+        if (!cancelled) 失敗を出す(error)
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [api, 失敗を出す])
+
+  // 新しい1件が届かなくても、時間がたてば未読の発言は目立たせる側へ移るので、決まった間隔で時刻を進める
+  useEffect(() => {
+    if (settings?.highlightUnread !== true) return
+    const timer = setInterval(() => set現在(now()), UNREAD_TICK_MS)
+    return () => clearInterval(timer)
+  }, [settings, now])
 
   // いま取り上げている注目コメントを、開いたときに1度読む（印を付けるため）
   useEffect(() => {
@@ -393,6 +486,22 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
     })
   }
 
+  /** 発言を既読にする（既読ならば未読に戻す）。印は配送先から付け替えが届いた時点で付くので、お知らせは出さない */
+  const 既読を切り替える = (item: ChatItem, read: ReadMarker | null) =>
+    void actions.run(async () => {
+      await api.markRead(item.messageId, read === null)
+      return ''
+    })
+
+  /** しばらく未読を目立たせるかを切り替え、保存された設定を使う */
+  const 目立たせ方を切り替える = (highlightUnread: boolean) =>
+    void actions.run(async () => {
+      setSettings(await api.saveSettings({ highlightUnread }))
+      // 切り替えた時点の時刻で見直す（次の見直しの間隔を待たずに目立たせる）
+      set現在(now())
+      return highlightUnread ? 'しばらく未読の発言を目立たせます' : 'しばらく未読の発言を目立たせるのをやめました'
+    })
+
   /** 入力欄の文言を、配信者としてチャットへ送る。送れたら入力欄を空にし、送れなければ文言を残す */
   const 送る = () => {
     if (送信中.current) return
@@ -448,6 +557,16 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
       )}
       {connectionNotice !== null && <p className="text-sm text-muted-foreground">{connectionNotice}</p>}
 
+      <div className="flex items-center gap-2">
+        <Checkbox
+          id={highlightFieldId}
+          checked={settings?.highlightUnread ?? false}
+          disabled={settings === null || actions.busy}
+          onCheckedChange={(checked) => 目立たせ方を切り替える(checked === true)}
+        />
+        <Label htmlFor={highlightFieldId}>しばらく未読の発言を目立たせる</Label>
+      </div>
+
       <div className="relative">
         <div ref={scroller} onScroll={位置を見る} className="h-[calc(100dvh-12rem)] min-h-80 overflow-y-auto rounded-md border">
           {feed.entries.length === 0 ? (
@@ -461,6 +580,10 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
                     icons={icons}
                     badgeImages={badgeImages}
                     controls={(item) => ({
+                      canMarkRead: needsReaction(entry),
+                      read: entry.read,
+                      longUnread: settings?.highlightUnread === true && isLongUnread(entry, 現在),
+                      onToggleRead: () => 既読を切り替える(item, entry.read),
                       focused: item.messageId === focusedMessageId,
                       busy: actions.busy,
                       deleteRequested: 削除を頼んだ発言.has(item.messageId),

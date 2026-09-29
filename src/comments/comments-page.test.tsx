@@ -11,6 +11,8 @@
  * - 発言を注目コメントに設定でき、取り上げている発言に印を付け、やめられること
  * - 発言の削除・タイムアウト・BANを行えること（BANは確かめてから）
  * - 配信者としてチャットを送れること（IMEの変換確定の Enter では送らない）
+ * - 発言を既読にする・未読に戻すことができ、既読の印は配送先から届いた付け替えで付くこと
+ * - しばらく未読のままの発言を目立たせ、その切り替えを設定として保存できること
  */
 import '@testing-library/jest-dom/vitest'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
@@ -48,6 +50,10 @@ const 代役のAPI = (overrides: Partial<CommentApi> = {}): CommentApi => ({
   // Worker と同じく、タイムアウトなら決めた長さを添えて返す
   moderate: vi.fn(async (action) => (action === 'timeout' ? { action, durationSeconds: 600 } : { action })),
   send: vi.fn(async () => {}),
+  markRead: vi.fn(async () => {}),
+  loadSettings: vi.fn(async () => ({ highlightUnread: true })),
+  // Worker と同じく、保存した設定をそのまま返す
+  saveSettings: vi.fn(async (settings) => settings),
   ...overrides,
 })
 
@@ -59,14 +65,18 @@ const 代役の注目コメントAPI = (overrides: Partial<FocusApi> = {}): Focu
   ...overrides,
 })
 
+/** 画面が見る現在時刻の既定。発言が届いたのと同じ時刻（まだ「しばらく未読」ではない） */
+const 発言と同じ時刻 = () => Date.parse('2026-09-29T12:00:00Z')
+
 /** ページを描き、配送先の代わりに文字列を流し込める窓口を返す */
-const 描く = (api: CommentApi = 代役のAPI(), focusApi: FocusApi = 代役の注目コメントAPI()) => {
+const 描く = (api: CommentApi = 代役のAPI(), focusApi: FocusApi = 代役の注目コメントAPI(), now: () => number = 発言と同じ時刻) => {
   let handlers: CommentFeedHandlers | undefined
   const close = vi.fn()
   render(
     <CommentsPage
       api={api}
       focusApi={focusApi}
+      now={now}
       connect={(next) => {
         handlers = next
         return { close }
@@ -465,5 +475,120 @@ describe('CommentsPage', () => {
       expect(入力欄()).toHaveValue('こんばんは')
     })
   })
-})
 
+  describe('既読・未読', () => {
+    /** 発言の行にある、既読のボタン */
+    const 既読のボタン = (text: string) => within(行(text)).getByRole('button', { name: 'この発言を既読にする' })
+
+    /** 配送先から届く、既読・未読の付け替え */
+    const 付け替え = (id: string, read: boolean, by: 'manual' | 'jev' = 'manual'): FeedItem => ({
+      kind: 'read',
+      id,
+      at: Date.parse('2026-09-29T12:01:00Z'),
+      messageId: '発言1',
+      read,
+      by,
+    })
+
+    /** 配信者自身の発言（broadcaster のバッジが付く） */
+    const 配信者の発言: FeedItem = {
+      kind: 'chat',
+      id: '通知9',
+      at: Date.parse('2026-09-29T12:00:00Z'),
+      messageId: '配信者の発言',
+      user: { id: '12345', login: 'haishinsha', name: '配信者' },
+      color: null,
+      badges: [{ setId: 'broadcaster', versionId: '1' }],
+      fragments: [{ text: 'みなさんこんばんは', emoteId: null }],
+      bits: null,
+      reply: null,
+    }
+
+    /** 発言が届いてから4分後（目立たせるまでの3分を過ぎている） */
+    const 四分後 = () => Date.parse('2026-09-29T12:04:00Z')
+
+    test('既読のボタンを押すと、Workerに既読にするよう頼む（印は付け替えが届くまで付けない）', async () => {
+      const api = 代役のAPI()
+      const { 届く } = 描く(api)
+      await 届く({ type: 'item', item: 常連さんの発言 })
+
+      await userEvent.click(既読のボタン('常連さん'))
+
+      expect(api.markRead).toHaveBeenCalledWith('発言1', true)
+      expect(既読のボタン('常連さん')).toHaveAttribute('aria-pressed', 'false')
+    })
+
+    test('既読の付け替えが届くと、ボタンが押された状態になり、もう一度押すと未読に戻すよう頼む', async () => {
+      const api = 代役のAPI()
+      const { 届く } = 描く(api)
+      await 届く({ type: 'backlog', items: [常連さんの発言, 付け替え('付け替え1', true)] })
+
+      expect(既読のボタン('常連さん')).toHaveAttribute('aria-pressed', 'true')
+      await userEvent.click(既読のボタン('常連さん'))
+
+      expect(api.markRead).toHaveBeenCalledWith('発言1', false)
+    })
+
+    test('配信者自身の発言には、既読のボタンを出さない', async () => {
+      const { 届く } = 描く()
+
+      await 届く({ type: 'item', item: 配信者の発言 })
+
+      expect(within(行('みなさんこんばんは')).queryByRole('button', { name: 'この発言を既読にする' })).not.toBeInTheDocument()
+    })
+
+    test('既読にできなかったら、理由を出す', async () => {
+      const api = 代役のAPI({
+        markRead: vi.fn(async () => {
+          throw new Error('コメントビューアーの1件を配送先へ送れませんでした')
+        }),
+      })
+      const { 届く } = 描く(api)
+      await 届く({ type: 'item', item: 常連さんの発言 })
+
+      await userEvent.click(既読のボタン('常連さん'))
+
+      expect(await screen.findByText('コメントビューアーの1件を配送先へ送れませんでした')).toBeInTheDocument()
+    })
+
+    test('届いてから3分たっても未読の発言を、「しばらく未読」として目立たせる', async () => {
+      const { 届く } = 描く(代役のAPI(), 代役の注目コメントAPI(), 四分後)
+
+      await 届く({ type: 'item', item: 常連さんの発言 })
+
+      expect(await within(行('常連さん')).findByText('しばらく未読')).toBeInTheDocument()
+    })
+
+    test('届いたばかりの発言・既読にした発言・配信者自身の発言は目立たせない', async () => {
+      const { 届く } = 描く(代役のAPI(), 代役の注目コメントAPI(), 四分後)
+
+      await 届く({ type: 'backlog', items: [常連さんの発言, 付け替え('付け替え1', true), 配信者の発言] })
+
+      expect(screen.queryByText('しばらく未読')).not.toBeInTheDocument()
+    })
+
+    test('設定で目立たせないことにしていれば、しばらく未読でも目立たせない', async () => {
+      const api = 代役のAPI({ loadSettings: vi.fn(async () => ({ highlightUnread: false })) })
+      const { 届く } = 描く(api, 代役の注目コメントAPI(), 四分後)
+      expect(await screen.findByRole('checkbox', { name: 'しばらく未読の発言を目立たせる' })).not.toBeChecked()
+
+      await 届く({ type: 'item', item: 常連さんの発言 })
+
+      expect(screen.queryByText('しばらく未読')).not.toBeInTheDocument()
+    })
+
+    test('目立たせる設定を切り替えると保存し、その場で目立たせるのをやめる', async () => {
+      const api = 代役のAPI()
+      const { 届く } = 描く(api, 代役の注目コメントAPI(), 四分後)
+      await 届く({ type: 'item', item: 常連さんの発言 })
+      const 切り替え = await screen.findByRole('checkbox', { name: 'しばらく未読の発言を目立たせる' })
+      expect(切り替え).toBeChecked()
+
+      await userEvent.click(切り替え)
+
+      expect(api.saveSettings).toHaveBeenCalledWith({ highlightUnread: false })
+      expect(await screen.findByRole('checkbox', { name: 'しばらく未読の発言を目立たせる' })).not.toBeChecked()
+      expect(screen.queryByText('しばらく未読')).not.toBeInTheDocument()
+    })
+  })
+})

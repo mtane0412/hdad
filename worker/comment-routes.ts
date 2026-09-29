@@ -6,6 +6,8 @@
  * - GET /api/admin/comments/icons: 発言した人のアイコンのURLを、ユーザーIDからまとめて引く
  * - POST /api/admin/comments/moderation: 配信者が選んだ処分（発言の削除・タイムアウト・BAN）を、botの権限で行う
  * - POST /api/admin/comments/messages: 配信者本人としてチャットへ送る
+ * - POST /api/admin/comments/reads: 発言を既読にする・未読に戻す
+ * - GET/PUT /api/admin/comments/settings: コメントビューアーの設定（しばらく未読の発言を目立たせるか）を読み書きする
  *
  * アイコンを1件ごとに添えて配らないのは、チャットの発言のたびに Twitch を呼ぶことになるためである。
  * 画面が初めて見た人のIDだけをまとめて問い合わせ、画面を開いているあいだ手元に覚えておく。
@@ -13,7 +15,9 @@
 import { punishAsBot, type PunishTarget } from './bot-moderation'
 import { readMessageToSend } from './bot-routes'
 import type { Punishment } from './chat-moderation'
-import { connectCommentSocket } from './comment-channel'
+import { connectCommentSocket, pushFeedItem } from './comment-channel'
+import { loadCommentSettings, parseCommentSettings, saveCommentSettings } from './comment-config'
+import { recordCommentRead } from './comment-read-store'
 import { HttpError, STATUS, requireAdmin, requireSession, type Context } from './http'
 import { AuthError, getAccessToken } from './token'
 
@@ -143,4 +147,66 @@ export const postCommentMessage = async (context: Context): Promise<Response> =>
   }
   await twitch.sendChatMessage(token.accessToken, { broadcasterId: env.TWITCH_BROADCASTER_ID, senderId: env.TWITCH_BROADCASTER_ID, message })
   return new Response(null, { status: STATUS.noContent })
+}
+
+/**
+ * 本文から、既読にする・未読に戻す発言を読む。
+ *
+ * @throws HttpError 発言のIDが無い・空、既読かどうかが真偽値でない（400）
+ */
+const readCommentReadRequest = (body: unknown): { messageId: string; read: boolean } => {
+  const { messageId, read } = isRecord(body) ? body : {}
+  if (typeof messageId !== 'string' || messageId === '' || typeof read !== 'boolean') {
+    throw new HttpError(STATUS.badRequest, 'invalid-body', '本文は { messageId, read（true か false） } にしてください')
+  }
+  return { messageId, read }
+}
+
+/**
+ * POST /api/admin/comments/reads: 配信者が手で、発言を既読にする・未読に戻す。
+ *
+ * 記録（D1 の comment_reads）してから、配送先へ付け替えの1件を押し出す。押し出した1件は配送先の履歴にも残るので、
+ * 開いているほかの画面にも同じ印が付き、開き直したときも履歴から印が戻る。付け替えの1件には毎回新しいIDを振る
+ * （画面は同じIDの1件を二度当てはめないので、同じ発言を既読→未読と付け替えたときに2回目を捨てさせないため）。
+ *
+ * 注意: 押し出しに失敗したら成功として返さない。Webhook の押し出し（webhook-routes.ts）と違い、ここは
+ * 付け替えそのものが目的の操作なので、画面に印が出ないまま成功に見せない。
+ * 注意: 押し出しに失敗すると、記録（既読）と画面（未読のまま）が食い違ったままになる。取り消して揃えることはせず、
+ * 画面が失敗を出し、配信者がもう一度押すことで揃える。記録は上書きなので同じ付け替えを何度送っても1行のままで、
+ * 押し出しが通った時点で画面にも同じ印が付く。記録を先にするのは、逆の順だと画面には既読と出るのに記録が無く、
+ * 配信者から食い違いが見えなくなるためである。
+ *
+ * @throws HttpError 本文が想定と違う（400）
+ */
+export const postCommentRead = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  const body: unknown = await context.request.json().catch(() => {
+    throw new HttpError(STATUS.badRequest, 'invalid-body', '本文はJSONにしてください')
+  })
+  const { messageId, read } = readCommentReadRequest(body)
+  const { env, now } = context
+  await recordCommentRead(env.DB, { messageId, read, by: 'manual' }, now)
+  await pushFeedItem(env.COMMENTS, { kind: 'read', id: crypto.randomUUID(), at: now, messageId, read, by: 'manual' })
+  return new Response(null, { status: STATUS.noContent })
+}
+
+/** GET /api/admin/comments/settings: コメントビューアーの設定。未保存なら既定の設定を返す */
+export const getCommentSettings = async (context: Context): Promise<Response> => {
+  await requireSession(context)
+  return Response.json(await loadCommentSettings(context.env.STORE))
+}
+
+/**
+ * PUT /api/admin/comments/settings: コメントビューアーの設定を検証して保存し、保存した設定を返す。
+ *
+ * @throws ConfigError 設定の形に問題がある場合（index.ts が問題点付きの400にする）
+ */
+export const putCommentSettings = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  const body: unknown = await context.request.json().catch(() => {
+    throw new HttpError(STATUS.badRequest, 'invalid-body', '本文はJSONにしてください')
+  })
+  const settings = parseCommentSettings(body)
+  await saveCommentSettings(context.env.STORE, settings)
+  return Response.json(settings)
 }

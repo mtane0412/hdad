@@ -120,6 +120,9 @@ const 代役のコメントビューアーAPI: CommentApi = {
   loadBadges: vi.fn(async () => new Map()),
   moderate: vi.fn(async (action) => ({ action })),
   send: vi.fn(async () => {}),
+  markRead: vi.fn(async () => {}),
+  loadSettings: vi.fn(async () => ({ highlightUnread: true })),
+  saveSettings: vi.fn(async (settings) => settings),
 }
 
 const 代役の手書きAPI: DrawApi = {
