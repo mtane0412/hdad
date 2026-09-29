@@ -194,6 +194,28 @@ describe('POST /api/overlay/screen', () => {
     expect(受け取った).toEqual([])
   })
 
+  it('配信中なら、描く画面の背景としても残す', async () => {
+    const { env } = 環境を作る()
+    await recordStreamOnline(env.DB, { id: 'session-1', startedAt: 配信の開始 })
+
+    await 呼び出す(撮った1枚を送る(画像の本文()), env, Gyazoを覚える().fetchImpl)
+    const 背景 = await 呼び出す(new Request(`${サイト}/api/admin/draw/background`, { headers: await ログイン済みの見出し() }), env)
+
+    expect(背景.status).toBe(200)
+    expect(背景.headers.get('Content-Type')).toBe('image/png')
+    expect(背景.headers.get('X-Captured-At')).toBe(String(現在時刻))
+    expect(new Uint8Array(await 背景.arrayBuffer())).toEqual(画像の本文())
+  })
+
+  it('配信していなければ、描く画面の背景を置き換えない（最後に配信した時点の1枚が残る）', async () => {
+    const { env } = 環境を作る()
+
+    await 呼び出す(撮った1枚を送る(画像の本文()), env, Gyazoを覚える().fetchImpl)
+    const 背景 = await 呼び出す(new Request(`${サイト}/api/admin/draw/background`, { headers: await ログイン済みの見出し() }), env)
+
+    expect(背景.status).toBe(204)
+  })
+
   it('Gyazo のアクセストークンが無ければ失敗させる', async () => {
     const { env } = 環境を作る(null)
     await recordStreamOnline(env.DB, { id: 'session-1', startedAt: 配信の開始 })

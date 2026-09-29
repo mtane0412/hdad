@@ -17,6 +17,7 @@ import { createFakeBucket } from './fake-bucket'
 import { createFakeDatabase } from './fake-database'
 import { createFakeDrawChannel } from './fake-draw-channel'
 import { createFakeStore } from './fake-store'
+import { putDrawBackground } from './draw-channel'
 import { handleRequest, type Env } from './index'
 import { createSessionToken } from './session'
 
@@ -208,6 +209,57 @@ describe('GET /api/overlay/draw/strokes', () => {
     const { env } = 環境を作る()
 
     const response = await 呼び出す(new Request(`${サイト}/api/overlay/draw/strokes?key=違うキー`), env)
+
+    expect(response.status).toBe(401)
+  })
+})
+
+describe('GET /api/admin/draw/background', () => {
+  const 撮った時刻 = Date.parse('2026-09-29T08:59:00Z')
+
+  /** 配信者としてログインした状態で背景を読む */
+  const 配信者として背景を読む = async (env: Env, headers: Record<string, string> = {}) => {
+    const session = await createSessionToken(配信者のID, env.SESSION_SECRET, 現在時刻)
+    return 呼び出す(new Request(`${サイト}/api/admin/draw/background`, { headers: { Cookie: `__Host-session=${session}`, ...headers } }), env)
+  }
+
+  const 背景を置いておく = (env: Env) =>
+    putDrawBackground(env.DRAW, { image: new Uint8Array([1, 2, 3]).buffer, contentType: 'image/png', capturedAt: 撮った時刻 })
+
+  it('置いてある1枚を、撮った時刻付きで返す。手元に残さないよう指示する', async () => {
+    const { env } = 環境を作る()
+    await 背景を置いておく(env)
+
+    const response = await 配信者として背景を読む(env)
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('X-Captured-At')).toBe(String(撮った時刻))
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]))
+  })
+
+  it('手元と同じ1枚なら、画像を送らず304を返す', async () => {
+    const { env } = 環境を作る()
+    await 背景を置いておく(env)
+
+    const response = await 配信者として背景を読む(env, { 'If-None-Match': `"${撮った時刻}"` })
+
+    expect(response.status).toBe(304)
+  })
+
+  it('まだ1枚も無ければ204を返す', async () => {
+    const { env } = 環境を作る()
+
+    const response = await 配信者として背景を読む(env)
+
+    expect(response.status).toBe(204)
+  })
+
+  it('ログインしていなければ断る', async () => {
+    const { env } = 環境を作る()
+    await 背景を置いておく(env)
+
+    const response = await 呼び出す(new Request(`${サイト}/api/admin/draw/background`), env)
 
     expect(response.status).toBe(401)
   })

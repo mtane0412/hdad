@@ -21,16 +21,22 @@
  * 消しゴムは、なぞった範囲だけを削るのではなく、触れた線を1本まるごと消す（当たり判定は src/draw/erase.ts）。
  * 消したことは線の名前で中継先へ送り、保存は線を引き終えたときと同じく、ポインタを離してから数秒まとめて書く。
  *
+ * キャンバスの下には、配信画面を撮った最新の1枚を薄く敷ける（スイッチで選ぶ。既定は敷かない）。画面の取り込み
+ * （/screen/）が撮った画像を Worker が持っておき、それを読み続ける（src/draw/use-background.ts）。
+ * 撮る間隔ぶん古い画面なので、画面の構成を見て「このあたり」を指すためのものである。
+ *
  * 注意: ひとつ戻すは持たない。
  */
 import { cn } from 'cn'
 import { Eraser, Pencil, Trash2 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link } from '@/app/router'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Separator } from '@/components/ui/separator'
+import { Slider } from '@/components/ui/slider'
+import { Switch } from '@/components/ui/switch'
 import { iconButtonName } from '@/core/icon-button'
 import { startCanvasSurface } from '@/core/mount'
 import type { DrawApi } from './api'
@@ -41,6 +47,7 @@ import { DEFAULT_COLOR_ID, DEFAULT_WIDTH_ID, DRAW_COLORS, DRAW_WIDTHS } from './
 import type { DrawSocketHandlers, DrawWriter } from './socket'
 import { NO_STROKES, applyDrawMessage, type Strokes } from './strokes'
 import type { DrawMessage, Point } from './stroke'
+import { useDrawBackground } from './use-background'
 import { drawStrokes } from './view'
 
 /**
@@ -53,6 +60,24 @@ const SAMPLE_BOX_WIDTH = 360
 
 /** 見本の線の最小の高さ（画素）。細い線でも1本の線として見えるだけの高さは残す */
 const SAMPLE_MIN_HEIGHT = 2
+
+/**
+ * 背景の濃さ（%）の既定値。
+ *
+ * 背景は位置の目安にすぎないので、線より目立たないよう少し薄くしておく。
+ */
+const DEFAULT_BACKGROUND_OPACITY = 60
+/** 背景の濃さの下限（%）。0にすると敷いていないのと見分けが付かないので、少し残す */
+const MIN_BACKGROUND_OPACITY = 10
+/** 背景の濃さの上限（%） */
+const MAX_BACKGROUND_OPACITY = 100
+/** 背景の濃さを変える刻み（%） */
+const BACKGROUND_OPACITY_STEP = 10
+/** 百分率を比に直す */
+const PERCENT = 100
+
+/** 背景の1枚を撮った時刻の出し方。配信していないあいだは何日も前の画面のこともあるので日付も出す */
+const CAPTURED_AT_FORMAT = new Intl.DateTimeFormat('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
 /** 持ち替えられる道具。ペンは線を引き、消しゴムは触れた線を1本まるごと消す */
 const TOOLS = [
@@ -109,6 +134,13 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
   const [widthId, setWidthId] = useState(DEFAULT_WIDTH_ID)
   /** 持っている道具 */
   const [toolId, setToolId] = useState<ToolId>('pen')
+  /** 背景に配信画面を敷くか。既定は敷かない（使わない配信者に通信を増やさない） */
+  const [背景を敷く, set背景を敷く] = useState(false)
+  /** 背景の濃さ（%） */
+  const [背景の濃さ, set背景の濃さ] = useState(DEFAULT_BACKGROUND_OPACITY)
+  const { background, error: 背景の失敗 } = useDrawBackground(api, 背景を敷く)
+  const 背景のスイッチのId = useId()
+  const 背景の濃さのId = useId()
 
   /** 引き終えた線をまとめてWorkerへ書く窓口（描いている最中は書かない） */
   const saver = useMemo(
@@ -377,16 +409,62 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
             </Button>
           </div>
 
-          <canvas
-            ref={canvasRef}
-            aria-label="配信画面に描く場所"
-            // 配信画面と同じ縦横比にする（比が違うと、合成ページに出たときに図が歪む）
-            className="aspect-video w-full touch-none rounded-md border bg-neutral-900"
-            onPointerDown={押した}
-            onPointerMove={動かした}
-            onPointerUp={離した}
-            onPointerCancel={離した}
-          />
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+            <div className="flex items-center gap-2">
+              <Switch aria-labelledby={背景のスイッチのId} checked={背景を敷く} onCheckedChange={set背景を敷く} />
+              <span id={背景のスイッチのId}>配信画面を背景に敷く</span>
+            </div>
+            {背景を敷く && (
+              <div className="flex items-center gap-2">
+                <span id={背景の濃さのId} className="text-muted-foreground">
+                  背景の濃さ
+                </span>
+                <Slider
+                  aria-labelledby={背景の濃さのId}
+                  className="w-32"
+                  min={MIN_BACKGROUND_OPACITY}
+                  max={MAX_BACKGROUND_OPACITY}
+                  step={BACKGROUND_OPACITY_STEP}
+                  value={[背景の濃さ]}
+                  onValueChange={(next) => set背景の濃さ(Array.isArray(next) ? (next[0] ?? DEFAULT_BACKGROUND_OPACITY) : next)}
+                />
+              </div>
+            )}
+          </div>
+          {背景を敷く && (
+            <p className={cn('text-sm', 背景の失敗 === null ? 'text-muted-foreground' : 'text-destructive')}>
+              {背景の失敗 !== null
+                ? `背景を読めませんでした: ${背景の失敗}`
+                : background.kind === 'none'
+                  ? '背景にできる配信画面がまだありません。配信中に画面の取り込み（/screen/）を動かすと撮れます。'
+                  : background.kind === 'image'
+                    ? `${CAPTURED_AT_FORMAT.format(background.capturedAt)} に撮った配信画面です（配信していないあいだは、最後に配信したときの画面のままです）。`
+                    : '背景を読んでいます…'}
+            </p>
+          )}
+
+          {/* 配信画面と同じ縦横比にする（比が違うと、合成ページに出たときに図が歪む）。
+              背景はキャンバスの下に敷き、描く操作はキャンバスが受ける */}
+          <div className="relative aspect-video w-full overflow-hidden rounded-md border bg-neutral-900">
+            {背景を敷く && background.kind === 'image' && (
+              <img
+                src={background.url}
+                alt="背景に敷いた配信画面"
+                // キャンバスと同じ枠いっぱいに広げる（配信画面も16:9なので、線の位置と画面の位置が揃う）
+                className="pointer-events-none absolute inset-0 size-full object-fill"
+                style={{ opacity: 背景の濃さ / PERCENT }}
+              />
+            )}
+            <canvas
+              ref={canvasRef}
+              aria-label="配信画面に描く場所"
+              className="absolute inset-0 size-full touch-none"
+              onPointerDown={押した}
+              onPointerMove={動かした}
+              onPointerUp={離した}
+              onPointerCancel={離した}
+            />
+          </div>
           <p className="text-sm text-muted-foreground">
             描いたものは残るので、合成ページ（OBSのブラウザソース）を開き直しても出ます。消しゴムは触れた線を1本まるごと消し、ゴミ箱はすべてを消します。
           </p>

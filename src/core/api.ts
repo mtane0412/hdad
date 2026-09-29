@@ -32,7 +32,7 @@ export class ApiError extends Error {
 export const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
 
 /** Workerのエラー応答 { error: { code, message, problems? } } を ApiError にする。形が違えば状態コードだけを伝える */
-const toApiError = (status: number, body: unknown): ApiError => {
+export const toApiError = (status: number, body: unknown): ApiError => {
   const error = isRecord(body) && isRecord(body.error) ? body.error : {}
   const code = typeof error.code === 'string' ? error.code : 'unknown'
   const message = typeof error.message === 'string' ? error.message : `Workerが ${status} を返しました`

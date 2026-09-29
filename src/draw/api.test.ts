@@ -70,6 +70,65 @@ describe('createDrawApi（描く画面からの読み書き）', () => {
   })
 })
 
+describe('createDrawApi の loadBackground（描く画面の背景）', () => {
+  const 撮った時刻 = Date.parse('2026-09-29T12:00:00Z')
+
+  /** 送られたリクエストを記録し、決めた応答をそのまま返す fetch */
+  const 背景を返すfetch = (response: () => Response) => {
+    const requests: Request[] = []
+    const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      requests.push(new Request(new URL(String(input), サイト), init))
+      return response()
+    }
+    return { requests, fetchImpl }
+  }
+
+  const 画像の応答 = () =>
+    new Response(new Uint8Array([1, 2, 3]), {
+      status: 200,
+      headers: { 'Content-Type': 'image/png', ETag: `"${撮った時刻}"`, 'X-Captured-At': String(撮った時刻) },
+    })
+
+  it('配信画面の1枚を、撮った時刻と印付きで読む', async () => {
+    const { requests, fetchImpl } = 背景を返すfetch(画像の応答)
+
+    const 結果 = await createDrawApi(fetchImpl).loadBackground(null)
+
+    expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/draw/background')
+    expect(requests[0]!.headers.has('If-None-Match')).toBe(false)
+    expect(結果.kind).toBe('image')
+    if (結果.kind !== 'image') return
+    expect(結果.capturedAt).toBe(撮った時刻)
+    expect(結果.etag).toBe(`"${撮った時刻}"`)
+    expect(結果.image.type).toBe('image/png')
+  })
+
+  it('手元の1枚の印を添えて読み、変わっていなければそう伝える', async () => {
+    const { requests, fetchImpl } = 背景を返すfetch(() => new Response(null, { status: 304 }))
+
+    expect(await createDrawApi(fetchImpl).loadBackground(`"${撮った時刻}"`)).toEqual({ kind: 'unchanged' })
+    expect(requests[0]!.headers.get('If-None-Match')).toBe(`"${撮った時刻}"`)
+  })
+
+  it('まだ1枚も無ければ、そう伝える', async () => {
+    const { fetchImpl } = 背景を返すfetch(() => new Response(null, { status: 204 }))
+
+    expect(await createDrawApi(fetchImpl).loadBackground(null)).toEqual({ kind: 'none' })
+  })
+
+  it('撮った時刻の無い応答はエラーにする', async () => {
+    const { fetchImpl } = 背景を返すfetch(() => new Response(new Uint8Array([1]), { status: 200, headers: { 'Content-Type': 'image/png', ETag: '"1"' } }))
+
+    await expect(createDrawApi(fetchImpl).loadBackground(null)).rejects.toThrow('/api/admin/draw/background')
+  })
+
+  it('失敗の応答はエラーにする', async () => {
+    const { fetchImpl } = 背景を返すfetch(() => Response.json({ error: { code: 'unauthorized', message: 'ログインしてください' } }, { status: 401 }))
+
+    await expect(createDrawApi(fetchImpl).loadBackground(null)).rejects.toThrow('ログインしてください')
+  })
+})
+
 describe('createDrawOverlayApi（合成ページからの読み出し）', () => {
   it('オーバーレイ用キーを添えて、保存されている線を読む', async () => {
     const { requests, fetchImpl } = 応答を返すfetch(200, { strokes: [引いた線] })

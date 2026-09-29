@@ -117,6 +117,7 @@ const 代役の注目コメントAPI: FocusApi = {
 const 代役の手書きAPI: DrawApi = {
   load: vi.fn(async () => ({ strokes: [] })),
   save: vi.fn(async () => {}),
+  loadBackground: vi.fn(async () => ({ kind: 'none' as const })),
 }
 
 const 代役の画面の取り込みAPI: ScreenAdminApi = {

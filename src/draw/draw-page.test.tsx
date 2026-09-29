@@ -7,23 +7,28 @@
  * 描いたものの保存と読み出し（issue #133）が通ることである。
  */
 import '@testing-library/jest-dom/vitest'
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DrawPage } from './draw-page'
+import { BACKGROUND_POLL_MS } from './use-background'
 import { SAVE_DELAY_MS } from './save'
 import { DEFAULT_COLOR_ID, DEFAULT_WIDTH_ID } from './tools'
+import type { DrawBackgroundResult } from './api'
 import type { DrawSocketHandlers, DrawWriter } from './socket'
 import type { DrawMessage } from './stroke'
 import type { Strokes } from './strokes'
 
 /** 書き込まれた内容を覚えておく、テスト用の保存先。読み出しの応答を保留できるようにしてある */
-const 保存先を作る = (保存されているもの: Strokes = { strokes: [] }) => {
+const 保存先を作る = (保存されているもの: Strokes = { strokes: [] }, 背景: DrawBackgroundResult = { kind: 'none' }) => {
   const 書かれたもの: Strokes[] = []
+  /** 背景を読みに来たときに添えられた印（読みに来た回数も分かる） */
+  const 背景を読んだ印: (string | null)[] = []
   let 読み出しを解く: (() => void) | null = null
   let 保留する = false
   return {
     書かれたもの,
+    背景を読んだ印,
     読み出しを保留する: () => {
       保留する = true
     },
@@ -36,6 +41,11 @@ const 保存先を作る = (保存されているもの: Strokes = { strokes: []
       save: async (strokes: Strokes) => {
         書かれたもの.push(strokes)
       },
+      loadBackground: async (etag: string | null) => {
+        背景を読んだ印.push(etag)
+        // 2回目からは、手元と同じ1枚として扱う
+        return 背景を読んだ印.length > 1 && 背景.kind === 'image' ? { kind: 'unchanged' as const } : 背景
+      },
     },
   }
 }
@@ -46,6 +56,9 @@ const 失敗する保存先 = (理由: string) => ({
     throw new Error(理由)
   },
   save: async (): Promise<void> => {
+    throw new Error(理由)
+  },
+  loadBackground: async (): Promise<DrawBackgroundResult> => {
     throw new Error(理由)
   },
 })
@@ -403,6 +416,7 @@ describe('DrawPage の保存と、保存されている図の守り', () => {
             load: async () => {
               throw new Error('ログインが切れています')
             },
+            loadBackground: async () => ({ kind: 'none' }),
             save: async (strokes) => {
               書かれたもの.push(strokes)
             },
@@ -462,6 +476,92 @@ describe('DrawPage の保存と、保存されている図の守り', () => {
       await act(() => vi.advanceTimersByTimeAsync(0))
 
       expect(保存先.書かれたもの.map(({ strokes }) => strokes.length)).toEqual([1])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('DrawPage の背景（配信画面を撮った最新の1枚）', () => {
+  /** 2026-09-29 21:05（日本時間）に撮った1枚 */
+  const 撮った時刻 = Date.parse('2026-09-29T12:05:00Z')
+  const 配信画面: DrawBackgroundResult = { kind: 'image', image: new Blob([], { type: 'image/png' }), etag: `"${撮った時刻}"`, capturedAt: 撮った時刻 }
+
+  beforeEach(() => {
+    // jsdom は Blob からURLを作れないので、決まったURLを返すものに差し替える
+    URL.createObjectURL = () => 'blob:配信画面'
+    URL.revokeObjectURL = () => {}
+  })
+
+  const スイッチ = (): HTMLElement => screen.getByRole('switch', { name: '配信画面を背景に敷く' })
+
+  it('既定では背景を敷かず、読みにも行かない', () => {
+    const 保存先 = 保存先を作る(undefined, 配信画面)
+    render(<DrawPage connect={中継先を作る().connect} api={保存先.api} />)
+
+    expect(screen.queryByRole('img', { name: '背景に敷いた配信画面' })).toBeNull()
+    expect(保存先.背景を読んだ印).toEqual([])
+  })
+
+  it('スイッチを入れると、配信画面の1枚を少し薄くして敷き、いつの画面かを出す', async () => {
+    render(<DrawPage connect={中継先を作る().connect} api={保存先を作る(undefined, 配信画面).api} />)
+
+    await userEvent.click(スイッチ())
+
+    const 背景 = await screen.findByRole('img', { name: '背景に敷いた配信画面' })
+    expect(背景).toHaveAttribute('src', 'blob:配信画面')
+    expect(背景.style.opacity).toBe('0.6')
+    expect(screen.getByText(/に撮った配信画面です/)).toBeInTheDocument()
+  })
+
+  it('濃さを変えると、背景の濃さが変わる', async () => {
+    render(<DrawPage connect={中継先を作る().connect} api={保存先を作る(undefined, 配信画面).api} />)
+    await userEvent.click(スイッチ())
+    const 背景 = await screen.findByRole('img', { name: '背景に敷いた配信画面' })
+
+    // jsdom では Base UI の Slider のつまみが隠れたままなので、外枠の名前から入力要素を探す
+    fireEvent.change(within(screen.getByRole('group', { name: '背景の濃さ' })).getByRole('slider', { hidden: true }), { target: { value: '30' } })
+
+    expect(背景.style.opacity).toBe('0.3')
+  })
+
+  it('スイッチを切ると、背景を外す', async () => {
+    render(<DrawPage connect={中継先を作る().connect} api={保存先を作る(undefined, 配信画面).api} />)
+    await userEvent.click(スイッチ())
+    await screen.findByRole('img', { name: '背景に敷いた配信画面' })
+
+    await userEvent.click(スイッチ())
+
+    expect(screen.queryByRole('img', { name: '背景に敷いた配信画面' })).toBeNull()
+  })
+
+  it('まだ1枚も無ければ、その旨を出す', async () => {
+    render(<DrawPage connect={中継先を作る().connect} api={保存先を作る().api} />)
+
+    await userEvent.click(スイッチ())
+
+    expect(await screen.findByText(/背景にできる配信画面がまだありません/)).toBeInTheDocument()
+  })
+
+  it('読めなければ、理由を添えて出す', async () => {
+    render(<DrawPage connect={中継先を作る().connect} api={失敗する保存先('ログインしてください')} />)
+
+    await userEvent.click(スイッチ())
+
+    expect(await screen.findByText(/背景を読めませんでした: ログインしてください/)).toBeInTheDocument()
+  })
+
+  it('敷いているあいだは読みに来続け、手元の1枚の印を添える', async () => {
+    vi.useFakeTimers()
+    try {
+      const 保存先 = 保存先を作る(undefined, 配信画面)
+      render(<DrawPage connect={中継先を作る().connect} api={保存先.api} />)
+
+      // userEvent は偽の時計のもとでは進まないので、押す操作だけを直接起こす
+      act(() => スイッチ().click())
+      await act(() => vi.advanceTimersByTimeAsync(BACKGROUND_POLL_MS))
+
+      expect(保存先.背景を読んだ印).toEqual([null, `"${撮った時刻}"`])
     } finally {
       vi.useRealTimers()
     }
