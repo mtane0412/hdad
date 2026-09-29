@@ -2,10 +2,25 @@
  * コメントビューアーの流れ（feed.ts）のテスト
  *
  * Worker（worker/comment-channel.ts）から届いた文字列を読み取れること、並びへ積むときに
- * 再送された1件を二重に並べないこと、モデレーターの操作で消えた発言に印を付けることを確かめる。
+ * 再送された1件を二重に並べないこと、モデレーターの操作で消えた発言に印を付けること、
+ * 既読・未読の付け替えを発言に当てはめること、しばらく未読のままの発言を見分けることを確かめる。
  */
 import { describe, expect, it } from 'vitest'
-import { applyFeedItems, describeEvent, EMPTY_FEED, MAX_ENTRIES, parseFeedMessage, toFocusPick, type ChatItem, type EventItem, type FeedItem } from './feed'
+import {
+  applyFeedItems,
+  describeEvent,
+  EMPTY_FEED,
+  isLongUnread,
+  MAX_ENTRIES,
+  needsReaction,
+  parseFeedMessage,
+  toFocusPick,
+  UNREAD_HIGHLIGHT_MS,
+  type ChatItem,
+  type EventItem,
+  type FeedEntry,
+  type FeedItem,
+} from './feed'
 
 const 常連さん = { id: '777', login: 'jouren_san', name: '常連さん' }
 const 初見さん = { id: '888', login: 'shoken_san', name: '初見さん' }
@@ -46,6 +61,7 @@ describe('parseFeedMessage', () => {
       { kind: 'delete', ...目印('通知5'), messageId: '発言1' },
       { kind: 'clearUser', ...目印('通知6'), userId: '777' },
       { kind: 'clear', ...目印('通知7') },
+      { kind: 'read', ...目印('通知10'), messageId: '発言1', read: true, by: 'manual' },
     ]
 
     expect(parseFeedMessage(JSON.stringify({ type: 'backlog', items: 届くもの }))).toEqual({ type: 'backlog', items: 届くもの })
@@ -206,5 +222,106 @@ describe('toFocusPick', () => {
       displayName: '常連さん',
       text: '今日のゲーム面白い Kappa',
     })
+  })
+})
+
+/** 既読・未読の付け替えを1件作る */
+const 付け替え = (id: string, messageId: string, read: boolean, by: 'manual' | 'jev' = 'manual'): FeedItem => ({ kind: 'read', ...目印(id), messageId, read, by })
+
+describe('applyFeedItems（既読・未読）', () => {
+  it('届いたばかりの発言は未読である', () => {
+    const feed = applyFeedItems(EMPTY_FEED, [発言('通知1', '発言1')])
+
+    expect(feed.entries[0]?.read).toBeNull()
+  })
+
+  it('既読の付け替えが届くと、その発言に誰が既読にしたかの印を付ける（付け替えは行として並べない）', () => {
+    const feed = applyFeedItems(EMPTY_FEED, [発言('通知1', '発言1'), 発言('通知2', '発言2'), 付け替え('付け替え1', '発言1', true)])
+
+    expect(feed.entries.map((entry) => [entry.item.id, entry.read])).toEqual([
+      ['通知1', 'manual'],
+      ['通知2', null],
+    ])
+  })
+
+  it('未読に戻す付け替えが届くと、印を外す', () => {
+    const feed = applyFeedItems(EMPTY_FEED, [発言('通知1', '発言1'), 付け替え('付け替え1', '発言1', true), 付け替え('付け替え2', '発言1', false)])
+
+    expect(feed.entries[0]?.read).toBeNull()
+  })
+
+  it('Jev が既読にしたものは、手で既読にしたものと見分けられる', () => {
+    const feed = applyFeedItems(EMPTY_FEED, [発言('通知1', '発言1'), 付け替え('付け替え1', '発言1', true, 'jev')])
+
+    expect(feed.entries[0]?.read).toBe('jev')
+  })
+
+  it('開き直したときの履歴から、最後に付け替えた状態を戻す', () => {
+    // 履歴には発言と付け替えが届いた順に入っている
+    const 履歴 = parseFeedMessage(
+      JSON.stringify({ type: 'backlog', items: [発言('通知1', '発言1'), 付け替え('付け替え1', '発言1', true), 付け替え('付け替え2', '発言1', false), 付け替え('付け替え3', '発言1', true)] }),
+    )
+    if (履歴.type !== 'backlog') throw new Error('履歴として読めるはず')
+
+    expect(applyFeedItems(EMPTY_FEED, 履歴.items).entries[0]?.read).toBe('manual')
+  })
+
+  it('並びから落ちた発言への付け替えは無視する', () => {
+    const feed = applyFeedItems(EMPTY_FEED, [発言('通知1', '発言1'), 付け替え('付け替え1', 'もう並んでいない発言', true)])
+
+    expect(feed.entries.map((entry) => entry.read)).toEqual([null])
+  })
+})
+
+describe('needsReaction・isLongUnread', () => {
+  const 届いた時刻 = Date.parse('2026-09-29T12:00:00Z')
+
+  /** 並びの1行を作る */
+  const 行 = (item: FeedItem, 上書き: Partial<FeedEntry> = {}): FeedEntry => {
+    if (item.kind !== 'chat') throw new Error('発言の行だけを作る')
+    return { item, removed: false, read: null, ...上書き }
+  }
+
+  /** 配信者自身の発言（broadcaster のバッジが付く） */
+  const 配信者の発言: FeedItem = {
+    ...(発言('通知9', '配信者の発言', { id: '12345', login: 'haishinsha', name: '配信者' }, 'みなさんこんばんは') as ChatItem),
+    badges: [{ setId: 'broadcaster', versionId: '1' }],
+  }
+
+  it('視聴者の発言は、反応したかを見る対象である', () => {
+    expect(needsReaction(行(発言('通知1', '発言1')))).toBe(true)
+  })
+
+  it('配信者自身の発言は、反応したかを見る対象にしない', () => {
+    expect(needsReaction(行(配信者の発言))).toBe(false)
+  })
+
+  it('モデレーターに消された発言は、反応したかを見る対象にしない', () => {
+    expect(needsReaction(行(発言('通知1', '発言1'), { removed: true }))).toBe(false)
+  })
+
+  it('出来事の行は、反応したかを見る対象にしない（既読の印を付けるのは発言だけ）', () => {
+    const フォロー: FeedEntry = { item: { kind: 'follow', ...目印('通知2'), user: 初見さん }, removed: false, read: null }
+
+    expect(needsReaction(フォロー)).toBe(false)
+  })
+
+  it('届いてから決めた時間が経っても未読のままなら、しばらく未読とみなす', () => {
+    const 未読の行 = 行(発言('通知1', '発言1'))
+
+    expect(isLongUnread(未読の行, 届いた時刻 + UNREAD_HIGHLIGHT_MS - 1)).toBe(false)
+    expect(isLongUnread(未読の行, 届いた時刻 + UNREAD_HIGHLIGHT_MS)).toBe(true)
+  })
+
+  it('既読にした発言・反応したかを見ない発言は、時間が経ってもしばらく未読とみなさない', () => {
+    const ずっと後 = 届いた時刻 + UNREAD_HIGHLIGHT_MS * 10
+
+    expect(isLongUnread(行(発言('通知1', '発言1'), { read: 'manual' }), ずっと後)).toBe(false)
+    expect(isLongUnread(行(配信者の発言), ずっと後)).toBe(false)
+    expect(isLongUnread(行(発言('通知1', '発言1'), { removed: true }), ずっと後)).toBe(false)
+  })
+
+  it('目立たせるまでの時間は3分に決め切る（設定項目にしない）', () => {
+    expect(UNREAD_HIGHLIGHT_MS).toBe(3 * 60 * 1000)
   })
 })

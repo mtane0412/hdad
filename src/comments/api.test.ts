@@ -57,6 +57,7 @@ describe('pickUnknownUserIds', () => {
       reply: null,
     },
     removed: false,
+    read: null,
   })
 
   it('まだアイコンを引いていない人のIDを、重ねずに選ぶ', () => {
@@ -69,6 +70,7 @@ describe('pickUnknownUserIds', () => {
     const 匿名のギフト: FeedEntry = {
       item: { kind: 'notice', id: '通知', at: 0, messageId: 'お知らせ', user: null, color: null, badges: [], fragments: [], notice: { type: 'communityGift', tier: '1000', count: 5 } },
       removed: false,
+      read: null,
     }
 
     expect(pickUnknownUserIds([匿名のギフト], new Set())).toEqual([])
@@ -143,5 +145,57 @@ describe('send', () => {
       Response.json({ error: { code: 'missing-scope', message: '配信者のトークンに user:write:chat がありません。ログインし直してください' } }, { status: 401 })
 
     await expect(createCommentApi(fetchImpl).send('こんにちは')).rejects.toThrow('ログインし直してください')
+  })
+})
+
+/** 送られたリクエスト（URL・メソッド・本文）を記録し、決めた応答を返す fetch */
+const 記録するfetch = (応答: () => Response) => {
+  const 送ったもの: { url: string; method: string | undefined; body: unknown }[] = []
+  const fetchImpl: typeof fetch = async (input, init) => {
+    送ったもの.push({ url: String(input), method: init?.method, body: init?.body === undefined ? undefined : JSON.parse(String(init.body)) })
+    return 応答()
+  }
+  return { fetchImpl, 送ったもの }
+}
+
+describe('markRead', () => {
+  it('既読にする発言と、既読にするか未読に戻すかをWorkerへ送る', async () => {
+    const { fetchImpl, 送ったもの } = 記録するfetch(() => new Response(null, { status: 204 }))
+
+    await createCommentApi(fetchImpl).markRead('たなかさんの初見の挨拶', true)
+    await createCommentApi(fetchImpl).markRead('たなかさんの初見の挨拶', false)
+
+    expect(送ったもの).toEqual([
+      { url: '/api/admin/comments/reads', method: 'POST', body: { messageId: 'たなかさんの初見の挨拶', read: true } },
+      { url: '/api/admin/comments/reads', method: 'POST', body: { messageId: 'たなかさんの初見の挨拶', read: false } },
+    ])
+  })
+
+  it('Workerが失敗を返したら、理由を添えたエラーにする', async () => {
+    const { fetchImpl } = 記録するfetch(() => Response.json({ error: { code: 'internal', message: 'コメントビューアーの1件を配送先へ送れませんでした' } }, { status: 500 }))
+
+    await expect(createCommentApi(fetchImpl).markRead('たなかさんの初見の挨拶', true)).rejects.toThrow('配送先へ送れませんでした')
+  })
+})
+
+describe('loadSettings・saveSettings', () => {
+  it('設定を読む', async () => {
+    const { fetchImpl, 送ったもの } = 記録するfetch(() => Response.json({ highlightUnread: true }))
+
+    expect(await createCommentApi(fetchImpl).loadSettings()).toEqual({ highlightUnread: true })
+    expect(送ったもの).toEqual([{ url: '/api/admin/comments/settings', method: undefined, body: undefined }])
+  })
+
+  it('設定を保存し、Workerが保存した設定を返す', async () => {
+    const { fetchImpl, 送ったもの } = 記録するfetch(() => Response.json({ highlightUnread: false }))
+
+    expect(await createCommentApi(fetchImpl).saveSettings({ highlightUnread: false })).toEqual({ highlightUnread: false })
+    expect(送ったもの).toEqual([{ url: '/api/admin/comments/settings', method: 'PUT', body: { highlightUnread: false } }])
+  })
+
+  it('応答が想定した形でなければエラーにする', async () => {
+    const { fetchImpl } = 記録するfetch(() => Response.json({ highlightUnread: 'はい' }))
+
+    await expect(createCommentApi(fetchImpl).loadSettings()).rejects.toThrow()
   })
 })

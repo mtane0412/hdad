@@ -44,6 +44,7 @@ import {
 } from './screen-store'
 import { extractNewScreenLines } from './screen-ocr'
 import { GyazoApiError, type GyazoClient } from './gyazo'
+import { deleteOldCommentReads } from './comment-read-store'
 import { deleteOldTranscripts, readRecentTranscripts, readTranscriptsSince } from './transcript-store'
 import { ViewerSummaryContentError, generateViewerSummary } from './viewer-summary'
 import { readViewer, updateViewerChannel, updateViewerSummary, type ViewerChannel } from './viewer-store'
@@ -133,6 +134,15 @@ export const TRANSCRIPT_RETENTION_MS = 24 * 60 * 60 * 1000
  * 文字起こしに揃える。配信中の区切りのぶんは、この期間を過ぎても消さない（deleteOldScreenCaptures を参照）。
  */
 export const SCREEN_CAPTURE_RETENTION_MS = TRANSCRIPT_RETENTION_MS
+
+/**
+ * コメントの既読・未読（comment_reads）を残しておく期間（ミリ秒）。
+ *
+ * 既読は「配信中にもらったコメントに反応したか」を見るためのもので、Worker が読むのは直近の未読だけである
+ * （issue #147）。画面は既読の印を配送先の履歴から戻すので、ここを消しても開き直した画面の印は消えない。
+ * そのため文字起こしと同じ1日に揃える。
+ */
+const COMMENT_READ_RETENTION_MS = TRANSCRIPT_RETENTION_MS
 
 /**
  * 1回の収集に与える時間の予算（ミリ秒）。
@@ -599,6 +609,7 @@ const collect = async ({ db, store, twitch, ai, gyazo, broadcasterId, now, clock
   await deleteOldTranscripts(db, now - TRANSCRIPT_RETENTION_MS)
   await deleteOldScreenCaptures(db, now - SCREEN_CAPTURE_RETENTION_MS)
   await deleteOldScreenLines(db, now - SCREEN_CAPTURE_RETENTION_MS)
+  await deleteOldCommentReads(db, now - COMMENT_READ_RETENTION_MS)
 
   // 画面から読み取った文字は、あらすじとサイドスーパーの材料になるので、それらを作る前に取りに行き、篩にかける。
   // 篩は Gyazo を呼ばないので、トークンが無くても（前の収集で取れているぶんを）通す

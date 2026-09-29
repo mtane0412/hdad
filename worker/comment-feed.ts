@@ -10,11 +10,14 @@
  *   同じ出来事を別に知らせる channel.subscribe・channel.subscription.message・channel.raid は流さない（二重に並ぶため）
  * - ビッツは発言そのもの（channel.chat.message の cheer）から読む
  * - 発言の削除・BAN/タイムアウトによる消去・全消去も流し、画面の側で該当する発言に印を付ける
+ * - 発言の既読・未読の付け替え（read）は Twitch の通知ではなく、コメントビューアーから付け替えたときに
+ *   comment-routes.ts が流す（開いているほかの画面にも同じ印を付け、開き直したときも履歴から印を戻すため）
  *
  * 注意: 画面は届いた形をそのまま信じず、src/comments/feed.ts で形を確かめる。形を変えるときは両方を直す。
  * 注意: 流す種類の通知で中身が欠けていれば、黙って捨てずに投げる（Fail-Fast）。呼び出し側は失敗として記録する。
  */
 import { readChatMessage } from './chat-command'
+import type { CommentReadMarker } from './comment-read-store'
 
 /** 発言した人・出来事を起こした人 */
 export interface FeedUser {
@@ -92,6 +95,15 @@ export type FeedItem = FeedStamp &
     | { kind: 'delete'; messageId: string }
     | { kind: 'clearUser'; userId: string }
     | { kind: 'clear' }
+    | {
+        kind: 'read'
+        /** 付け替えた発言のID */
+        messageId: string
+        /** 既読にしたなら true、未読に戻したなら false */
+        read: boolean
+        /** 付け替えたのは誰か */
+        by: CommentReadMarker
+      }
   )
 
 export const CHAT_NOTIFICATION = 'channel.chat.notification'

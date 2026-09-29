@@ -9,6 +9,9 @@
  * モデレーターの操作（発言の削除・タイムアウト・BAN）は POST /api/admin/comments/moderation に頼み、botの権限で行われる。
  * タイムアウトの長さは Worker が決め、応答で知らせてくる（画面に同じ数を持たない）。
  * チャットの送信は POST /api/admin/comments/messages に頼み、配信者本人として送られる。
+ * 発言の既読・未読の付け替えは POST /api/admin/comments/reads に頼む。付け替えた印は、ほかの1件と同じく
+ * 配送先から WebSocket で届いた時点で並びに付く（画面が先回りして付けない）。
+ * 設定（しばらく未読の発言を目立たせるか）は /api/admin/comments/settings で読み書きする。
  *
  * 呼び出しと失敗の扱いは `../core/api` に任せ、fetch を引数で受け取るのはテストで差し替えるためである。
  *
@@ -21,6 +24,20 @@ import type { FeedEntry } from './feed'
 const ICONS_PATH = '/api/admin/comments/icons'
 const MODERATION_PATH = '/api/admin/comments/moderation'
 const MESSAGES_PATH = '/api/admin/comments/messages'
+const READS_PATH = '/api/admin/comments/reads'
+const SETTINGS_PATH = '/api/admin/comments/settings'
+
+/** コメントビューアーの設定。worker/comment-config.ts の CommentSettings と合わせる */
+export interface CommentSettings {
+  /** しばらく未読のままの発言を目立たせるか */
+  highlightUnread: boolean
+}
+
+/** 応答から設定を読む。想定した形でなければエラーにする */
+const readSettings = (body: unknown): CommentSettings => {
+  if (isRecord(body) && typeof body.highlightUnread === 'boolean') return { highlightUnread: body.highlightUnread }
+  throw new Error(`Workerの ${SETTINGS_PATH} の応答が想定した形ではありません`)
+}
 
 /** 画面から選べる処分。worker/comment-routes.ts の MODERATION_ACTIONS と合わせる */
 export type ModerationAction = 'delete' | 'timeout' | 'ban'
@@ -69,6 +86,16 @@ export interface CommentApi {
    * @throws ApiError 配信者が許可を取り直していない・Twitchが送らなかったなど、Workerが断った
    */
   send(message: string): Promise<void>
+  /**
+   * 発言を既読にする・未読に戻す。印は配送先から届いた付け替えで並びに付く。
+   *
+   * @throws ApiError Workerが記録できなかった・画面へ知らせられなかった
+   */
+  markRead(messageId: string, read: boolean): Promise<void>
+  /** 設定を読む（未保存なら Worker が既定の設定を返す） */
+  loadSettings(): Promise<CommentSettings>
+  /** 設定を保存し、保存された設定を受け取る */
+  saveSettings(settings: CommentSettings): Promise<CommentSettings>
 }
 
 export const createCommentApi = (fetchImpl: typeof fetch): CommentApi => {
@@ -87,6 +114,12 @@ export const createCommentApi = (fetchImpl: typeof fetch): CommentApi => {
     send: async (message) => {
       await call(MESSAGES_PATH, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message }) })
     },
+    markRead: async (messageId, read) => {
+      await call(READS_PATH, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageId, read }) })
+    },
+    loadSettings: async () => readSettings(await call(SETTINGS_PATH)),
+    saveSettings: async (settings) =>
+      readSettings(await call(SETTINGS_PATH, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings) })),
     moderate: async (action, { messageId, userId }) =>
       readModerationResult(
         await call(MODERATION_PATH, {

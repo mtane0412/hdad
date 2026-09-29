@@ -37,9 +37,12 @@ const RECENT_KEY = 'recent'
 /**
  * 覚えておく直近の件数。
  *
- * 画面を開き直したときに直前の数分が見えれば足りる。1件はおよそ数百バイトなので、この数でも保管の1行に収まる。
+ * 画面を開き直したときに直前の数分が見えれば足りる。ただし発言の既読・未読の付け替え（read）も1件として
+ * 覚えるので（開き直したときに印を戻すため）、発言だけで数えたときの倍をとる。1件はおよそ数百バイトで、
+ * この Durable Object は SQLite の保管を使うので（wrangler.jsonc の new_sqlite_classes。1つの値は2MBまで）、
+ * この数でも保管の1行に収まる。
  */
-export const RECENT_LIMIT = 200
+export const RECENT_LIMIT = 400
 
 /** 眠ったまま応えられる合図と、それに返す合図 */
 const PING = 'ping'
