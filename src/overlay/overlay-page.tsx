@@ -685,7 +685,7 @@ export const OverlayPage = ({ api, overlayKey }: { api: OverlayLayoutAdminApi; o
 
   const overlayNames = overlayNameChoices(drafts)
   const changed = savedJson !== undefined && savedJson !== JSON.stringify(drafts)
-  /** 足そうとしている名前（前後の空白を落としたもの）と、それがすでに使われているか */
+  /** 追加しようとしている名前（前後の空白を落としたもの）と、それがすでに使われているか */
   const trimmedNewName = newName.trim()
   const nameTaken = drafts.some((draft) => draft.name === trimmedNewName)
 

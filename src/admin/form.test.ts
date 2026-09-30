@@ -69,7 +69,7 @@ describe('menuGroups', () => {
     expect(menuGroups.map((group) => group.label)).toEqual(['チャット', 'イベント'])
   })
 
-  it('すべてのイベント種別がどれかの区分に1回だけ出る（足し忘れ・重複を防ぐ）', () => {
+  it('すべてのイベント種別がどれかの区分に1回だけ出る（追加し忘れ・重複を防ぐ）', () => {
     const listedKinds = menuGroups.flatMap((group) => group.items.flatMap((item) => item.phases.map((phase) => phase.kind)))
 
     expect([...listedKinds].sort()).toEqual([...TRIGGER_KINDS].sort())
@@ -348,7 +348,7 @@ describe('withFixedRows', () => {
     expect(rows.findIndex((row) => row.kind === 'keyword')).toBeLessThan(rows.findIndex((row) => row.kind === 'reward'))
   })
 
-  it('同じ項目の中の並びは変えない（配信者が足した順に出す）', () => {
+  it('同じ項目の中の並びは変えない（配信者が追加した順に出す）', () => {
     const toast = toDraft({ kind: 'reward', rewardId: '報酬ID-乾杯', actions: [{ type: 'chat', message: '乾杯' }] })
     const omikuji = toDraft({ kind: 'reward', rewardId: '報酬ID-おみくじ', actions: [{ type: 'chat', message: 'おみくじ' }] })
 

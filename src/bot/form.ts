@@ -79,7 +79,7 @@ export interface ModerationRuleDraft {
   durationSeconds: string
 }
 
-/** 新しく足すルールの初期値。URLを削除する、いちばん穏やかな組み合わせにする */
+/** 新しく追加するルールの初期値。URLを削除する、いちばん穏やかな組み合わせにする */
 export const NEW_MODERATION_RULE: ModerationRuleDraft = {
   kind: 'url',
   word: '',

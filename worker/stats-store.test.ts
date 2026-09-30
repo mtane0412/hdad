@@ -45,7 +45,7 @@ describe('recordLiveStream', () => {
     })
   })
 
-  it('同じ配信が続いていれば、サンプルを足し、タイトルとカテゴリを最新にする', async () => {
+  it('同じ配信が続いていれば、サンプルを追加し、タイトルとカテゴリを最新にする', async () => {
     const db = createFakeDatabase()
     await recordLiveStream(db, CHAT_STREAM, at('2026-09-21T12:05:00Z'))
     await recordLiveStream(

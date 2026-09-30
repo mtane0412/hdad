@@ -98,7 +98,7 @@ export const createRandom = (seed: number): (() => number) => {
 
 /**
  * 画面の端から反対の端へ進み、外へ抜けたら元の側から戻ってくるものの位置（px）。
- * 端で突然現れたり消えたりしないよう、画面の両側に余白を足した範囲を循環する。
+ * 端で突然現れたり消えたりしないよう、画面の両側に余白を追加した範囲を循環する。
  *
  * @param progress 進み具合。1進むごとに1周する。負の値（逆向き）も指定できる
  * @param length 画面の長さ（px）
@@ -106,7 +106,7 @@ export const createRandom = (seed: number): (() => number) => {
  * @returns -margin 以上 length + margin 未満の位置
  */
 export const loopPosition = (progress: number, length: number, margin: number): number => {
-  // JavaScript の % は負の数で負の余りを返すため、1を足してからもう一度余りを取る
+  // JavaScript の % は負の数で負の余りを返すため、1を追加してからもう一度余りを取る
   const wrapped = ((progress % 1) + 1) % 1
   return wrapped * (length + margin * 2) - margin
 }

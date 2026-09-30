@@ -130,7 +130,7 @@ const WRITE_CHAT_SCOPE = 'user:write:chat'
 /**
  * POST /api/admin/comments/messages: 配信者本人としてチャットへ1通送る。
  *
- * 注意: 配信者がまだ user:write:chat を許可していない（スコープを足す前にログインしたまま）なら、
+ * 注意: 配信者がまだ user:write:chat を許可していない（スコープを追加する前にログインしたまま）なら、
  * 黙ってbotで代わりに送らず、ログインし直すよう伝える（送り主が違う発言を配信者の発言として出さないため）。
  *
  * @throws HttpError 本文が空・長すぎる（400）

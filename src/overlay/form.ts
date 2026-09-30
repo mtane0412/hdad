@@ -65,7 +65,7 @@ const DESIGNS: Readonly<Record<ItemKind, readonly DesignItem[]>> = {
  * 新しい素材の位置と大きさ。
  *
  * 大きさは、その種類の推奨の大きさ（layout.ts の RECOMMENDED_ITEM_SIZES）を配信画面に対する割合へ
- * 直したものにする。すべてをオーバーレイいっぱいで足すと、時計やチャットボックスが配信画面ぜんたいへ
+ * 直したものにする。すべてをオーバーレイいっぱいで追加すると、時計やチャットボックスが配信画面ぜんたいへ
  * 引き伸ばされた状態から毎回縮めることになる（ギャラリーで確かめた大きさとも食い違う）。
  * 置き場所だけは決められないので左上（0・0）から始め、配置用の枠でつまんで動かしてもらう。
  */
@@ -187,7 +187,7 @@ export const schemaFor = (kind: ItemKind, id: string): ParamSchema | undefined =
 const defaultValuesOf = (schema: ParamSchema): Record<string, AnyParamValue> =>
   Object.fromEntries(Object.entries(schema).map(([name, spec]) => [name, spec.default]))
 
-/** 足したばかりの素材の入力欄の中身。パラメータは既定値、大きさはその種類の推奨の大きさにする */
+/** 追加したばかりの素材の入力欄の中身。パラメータは既定値、大きさはその種類の推奨の大きさにする */
 export const newItemDraft = (kind: ItemKind, id: string): ItemDraft => {
   const schema = schemaFor(kind, id)
   return {
@@ -200,7 +200,7 @@ export const newItemDraft = (kind: ItemKind, id: string): ItemDraft => {
   }
 }
 
-/** 足したばかりのオーバーレイの入力欄の中身。素材はまだ持たない */
+/** 追加したばかりのオーバーレイの入力欄の中身。素材はまだ持たない */
 export const newOverlayDraft = (name: string): OverlayDraft => ({ key: nextKey++, name, items: [] })
 
 /** 保存済みの素材1件を、入力欄の中身に読み替える */
@@ -284,7 +284,7 @@ export const overlayLabelsOf = (drafts: readonly OverlayDraft[]): OverlayLabels[
  * 素材を置くオーバーレイの選択肢。既定の2つと、いま構成にある名前を重複なく並べる。
  *
  * 選択欄から選ばせるのは、名前がOBSに貼るURLに載るためである（手で打つと、打ち間違いに気づくのが
- * 「配信中に何も映らなかったとき」になる）。新しい名前は「オーバーレイを足す」だけで作る。
+ * 「配信中に何も映らなかったとき」になる）。新しい名前は「オーバーレイを追加する」だけで作る。
  */
 export const overlayNameChoices = (drafts: readonly OverlayDraft[]): string[] => [
   ...new Set([...DEFAULT_OVERLAY_NAMES, ...drafts.map((draft) => draft.name)]),

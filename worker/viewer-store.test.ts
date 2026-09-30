@@ -321,7 +321,7 @@ describe('readChatHistory', () => {
     })
   })
 
-  it('この列を足す前からある行（記録を作った発言のIDを持たない）は、初めての発言ではないとして返す', async () => {
+  it('この列を追加する前からある行（記録を作った発言のIDを持たない）は、初めての発言ではないとして返す', async () => {
     const db = createFakeDatabase()
     db.sqlite
       .prepare(

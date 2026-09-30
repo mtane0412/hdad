@@ -137,7 +137,7 @@ describe('summarize（概要の集計）', () => {
 })
 
 describe('eventTotals（イベントの件数）', () => {
-  it('サブスクは新規と継続を足し、ポイント交換とレイドはそれぞれ数える', () => {
+  it('サブスクは新規と継続を追加し、ポイント交換とレイドはそれぞれ数える', () => {
     const sessionWithRedemptions = testSession({
       id: '配信ID-交換',
       startedAt: '2026-09-18T12:00:00.000Z',
@@ -165,7 +165,7 @@ describe('viewerPoints・followerPoints（グラフに渡す点の列）', () =>
     ])
   })
 
-  it('フォロワー数の推移は期間内に絞り、期間の開始時点の値を先頭に足す（線が途中から始まらないようにする）', () => {
+  it('フォロワー数の推移は期間内に絞り、期間の開始時点の値を先頭に追加する（線が途中から始まらないようにする）', () => {
     const trend = followerPoints(
       [
         { sampledAt: '2026-08-01T00:00:00.000Z', followerTotal: 90 },

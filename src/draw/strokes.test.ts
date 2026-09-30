@@ -24,7 +24,7 @@ describe('applyDrawMessage', () => {
     expect(result.strokes).toEqual([{ id: '線1', points: [{ x: 0.1, y: 0.2 }], color: 'white', width: 'medium' }])
   })
 
-  it('続きで、同じ線の末尾に点が足される', () => {
+  it('続きで、同じ線の末尾に点が追加される', () => {
     const afterStart = applyDrawMessage(NO_STROKES, startDrawing('線1', 0.1, 0.2))
 
     const result = applyDrawMessage(afterStart, { type: 'extend', id: '線1', points: [{ x: 0.3, y: 0.4 }] })

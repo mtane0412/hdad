@@ -40,7 +40,7 @@ export const parseStrokes = (input: unknown): readonly Stroke[] => {
   const problems: string[] = []
   if (strokes.length > MAX_STROKES) problems.push(`strokes: 描いた線は${MAX_STROKES}本までにしてください`)
 
-  // 送り主が足した項目を抱え込まないよう、読めた項目だけを写して持つ
+  // 送り主が追加した項目を抱え込まないよう、読めた項目だけを写して持つ
   const parsedStroke: Stroke[] = []
   for (const [index, stroke] of strokes.entries()) {
     if (!isStroke(stroke)) {

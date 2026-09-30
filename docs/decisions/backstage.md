@@ -1,6 +1,6 @@
 # 裏方をまとめたページ（`overlay/backstage/`）
 
-**裏方をまとめたページ（`overlay/backstage/`）は、OBSに置くWebのページのうち映すものを持たないもの（チャットの読み上げ・文字起こしの中継）を1つのブラウザソースにまとめる**（issue #108）。実ファイルを `/overlay/backstage/` に置くのは `/overlay/` を構成の管理画面に使うためで、`vite.config.ts` の `categories` ではなく入力に直接足している。
+**裏方をまとめたページ（`overlay/backstage/`）は、OBSに置くWebのページのうち映すものを持たないもの（チャットの読み上げ・文字起こしの中継）を1つのブラウザソースにまとめる**（issue #108）。実ファイルを `/overlay/backstage/` に置くのは `/overlay/` を構成の管理画面に使うためで、`vite.config.ts` の `categories` ではなく入力に直接追加している。
 
 ## 合成ページの素材にはしない
 

@@ -1313,7 +1313,7 @@ describe('チャットの自動モデレーション', () => {
     return { env, db }
   }
 
-  /** 有効で、除外をすべて有効にした設定。ルールだけを足して使う */
+  /** 有効で、除外をすべて有効にした設定。ルールだけを追加して使う */
   const createConfig = (rules: ModerationRule[], overrides: Partial<ModerationConfig> = {}): ModerationConfig => ({
     enabled: true,
     exemptBroadcaster: true,

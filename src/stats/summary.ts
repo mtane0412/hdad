@@ -111,7 +111,7 @@ export const summarize = (sessions: readonly SessionSummary[], samples: readonly
   }
 }
 
-/** 配信1回のイベントの件数。サブスクは新規と継続の報告を足す */
+/** 配信1回のイベントの件数。サブスクは新規と継続の報告を追加する */
 export const eventTotals = (session: SessionSummary): EventTotals => {
   const count = (type: string): number => session.eventCounts[type] ?? 0
   return {
@@ -128,7 +128,7 @@ export const viewerPoints = (samples: readonly ViewerSample[]): ViewerPoint[] =>
 /**
  * フォロワー数の時系列を、期間内のグラフに渡す点の列にする。
  *
- * フォロワー数は値が変わった時点しか記録されないので、期間の開始時点の値を先頭に足す（線が途中から始まらないようにする）。
+ * フォロワー数は値が変わった時点しか記録されないので、期間の開始時点の値を先頭に追加する（線が途中から始まらないようにする）。
  */
 export const followerPoints = (samples: readonly FollowerSample[], days: number, now: number): FollowerPoint[] => {
   const start = periodStart(days, now)

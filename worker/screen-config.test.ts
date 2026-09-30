@@ -76,7 +76,7 @@ describe('loadScreenSettings', () => {
     expect(await loadScreenSettings(store)).toEqual(validConfig)
   })
 
-  it('コレクションの項目を足す前に保存した設定も読める（足りない項目は既定で埋める）', async () => {
+  it('コレクションの項目を追加する前に保存した設定も読める（足りない項目は既定で埋める）', async () => {
     const previouslySaved = { host: 'localhost', port: 4455, password: 'obsのパスワード', intervalSeconds: 60 }
     const store = createFakeStore({ 'screen-settings': JSON.stringify(previouslySaved) })
 

@@ -20,9 +20,9 @@ export const byBroadcaster = (broadcasterId: string): Record<string, string> => 
 const byChatReader = (broadcasterId: string): Record<string, string> => ({ broadcaster_user_id: broadcasterId, user_id: broadcasterId })
 
 /**
- * 受け取るイベントの一覧。増やすときはここに足す（スコープが増えた場合は配信者の再ログインが必要）。
+ * 受け取るイベントの一覧。増やすときはここに追加する（スコープが増えた場合は配信者の再ログインが必要）。
  *
- * Webhook宛ての購読はこの一覧をそのまま使い、配信の開始・終了を別に足す（eventsub-webhook.ts）。
+ * Webhook宛ての購読はこの一覧をそのまま使い、配信の開始・終了を別に追加する（eventsub-webhook.ts）。
  */
 export const EVENT_TYPES: readonly EventType[] = [
   { type: 'channel.channel_points_custom_reward_redemption.add', version: '1', scope: 'channel:read:redemptions', condition: byBroadcaster },

@@ -592,7 +592,7 @@ const mountBgm = (box: HTMLElement, item: OverlayItem, { key, demo }: MountConte
   const api = createBgmOverlayApi(callWorker, key)
   /**
    * 失敗を箱に出す。前の失敗は消してから出す（つながらないあいだ、つなぎ直しのたびに警告が届くので、
-   * 消さずに足すと配信画面に失敗の表示が積み上がる）
+   * 消さずに追加すると配信画面に失敗の表示が積み上がる）
    */
   const showReadError = (error: unknown): void => {
     clearError(box, 'read')

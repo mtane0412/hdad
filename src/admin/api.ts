@@ -108,7 +108,7 @@ export type ActionInput = AlertActionInput | ChatAction | AnnounceAction | AiCha
 /**
  * 既定メニューの項目。worker/trigger-menu.ts の TRIGGER_KINDS と同じ並び（worker/ の型は読み込めないのでここで定義する）。
  *
- * 配信者はイベント種別と条件を自由に組み合わせず、この一覧に効果を足していく。
+ * 配信者はイベント種別と条件を自由に組み合わせず、この一覧に効果を追加していく。
  * どのイベントを対象にするか（差し込み語がどれになるか）は kind から決まる（src/admin/form.ts の EVENT_OF_KIND）。
  */
 export const TRIGGER_KINDS = [

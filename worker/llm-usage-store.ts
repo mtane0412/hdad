@@ -6,7 +6,7 @@
  * 4か所（aiChat・sideSuper・viewerSummary・streamSummary）すべてを取りこぼさずに数えられる。
  * 判定用のモデル Jev の呼び出し（worker/jev.ts）も、使う箇所（JEV_USAGES）ごとに同じ表へ足し込む。
  *
- * 注意: 1回の呼び出しで1行を足さない。チャットの文面（aiChat）は視聴者の発言ごとに呼ばれるため、
+ * 注意: 1回の呼び出しで1行を追加しない。チャットの文面（aiChat）は視聴者の発言ごとに呼ばれるため、
  * 1呼び出し1行にすると行が際限なく増える（viewers が「発言ではなく人を貯める」のと同じ考え方）。
  * 注意: 日の区切りは UTC にする。Workers AI の無料枠が UTC の日で切り替わるためで、配信者の時間帯（JST）に
  * 合わせると「今日はどれだけ使ったか」が無料枠の区切りとずれる。
@@ -55,7 +55,7 @@ export const toUtcDay = (milliseconds: number): string => new Date(milliseconds)
 /**
  * LLMを1回呼んだ結果を足し込み、保持期間を過ぎた行を消す。
  *
- * 同じ日・同じ箇所・同じ提供元・同じモデルなら行を増やさず、回数とトークン数と実費を足す
+ * 同じ日・同じ箇所・同じ提供元・同じモデルなら行を増やさず、回数とトークン数と実費を追加する
  * （recordFailure が「時刻と種類」で1行を持つのと同じ、ON CONFLICT での足し込み）。
  */
 export const recordLlmUsage = async (db: Database, record: LlmCallRecord, now: number): Promise<void> => {

@@ -4,7 +4,7 @@
  *
  * 確かめること:
  * - 素材の名前・種類・大きさを一覧に出すこと
- * - 選んだファイルをアップロードすると、一覧の先頭に足されること
+ * - 選んだファイルをアップロードすると、一覧の先頭に追加されること
  * - 削除は確認してから行うこと（確認でやめたら削除しない）
  * - 失敗は黙って無視せず、理由を出すこと
  */
@@ -56,7 +56,7 @@ describe('素材の一覧', () => {
 })
 
 describe('アップロード', () => {
-  test('選んだファイルをアップロードすると、一覧の先頭に足される', async () => {
+  test('選んだファイルをアップロードすると、一覧の先頭に追加される', async () => {
     const confettiImage: MediaItem = { ...fireworksImage, id: 'media-kamifubuki', name: '紙吹雪.png' }
     const api = fakeApi({ upload: vi.fn(async () => confettiImage) })
     render(<MediaPage api={api} />)

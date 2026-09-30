@@ -92,7 +92,7 @@ describe('newItemDraft・newOverlayDraft', () => {
     expect(newItemDraft('chat', 'plain').rect).not.toEqual(defaultRectFor('wallpaper'))
   })
 
-  it('足したばかりのオーバーレイは素材を持たない', () => {
+  it('追加したばかりのオーバーレイは素材を持たない', () => {
     expect(newOverlayDraft('talk')).toMatchObject({ name: 'talk', items: [] })
   })
 

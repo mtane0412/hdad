@@ -33,7 +33,7 @@ const MAX_TRACKS = 100
 /**
  * 曲名・クレジット表記・クレジット先のURLの長さの上限。
  * 3つを並べた文がチャットの差し込み語 {bgm} になり、Twitchの1通（500文字）に配信者の文言と一緒に収めるため、
- * 足して364文字（bgm-credit.ts の MAX_BGM_CREDIT_LENGTH）になるように決めてある（issue #152）
+ * 追加して364文字（bgm-credit.ts の MAX_BGM_CREDIT_LENGTH）になるように決めてある（issue #152）
  */
 export const MAX_TITLE_LENGTH = 60
 export const MAX_CREDIT_LENGTH = 100

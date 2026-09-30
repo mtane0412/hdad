@@ -1,6 +1,6 @@
 # アラートの配送（`alerts/` と `AlertChannel`）
 
-アラート用オーバーレイ（`alerts/`）は一覧を持たない単独のページで、`vite.config.ts` の `categories` ではなく入力に直接足している。`chat/` と同じく状態（再生待ちの列）を持つので、通信を伴わない変換（`alert.ts`・`queue.ts`）と、DOM・WebSocketを扱う部分（`view.ts`・`socket.ts`・`stage.ts`）を分け、前者をテストする。
+アラート用オーバーレイ（`alerts/`）は一覧を持たない単独のページで、`vite.config.ts` の `categories` ではなく入力に直接追加している。`chat/` と同じく状態（再生待ちの列）を持つので、通信を伴わない変換（`alert.ts`・`queue.ts`）と、DOM・WebSocketを扱う部分（`view.ts`・`socket.ts`・`stage.ts`）を分け、前者をテストする。
 
 ## Twitchへは直接つながない
 

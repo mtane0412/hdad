@@ -119,7 +119,7 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
   const writerRef = useRef<DrawWriter | null>(null)
   /** 自分が描いた線。描画ループが毎フレームここから描き直す */
   const strokesRef = useRef<Strokes>(NO_STROKES)
-  /** いま引いている線の名前。ポインタを離すまで同じ名前で点を足していく */
+  /** いま引いている線の名前。ポインタを離すまで同じ名前で点を追加していく */
   const strokeIdRef = useRef<string | null>(null)
   /** 消しゴムを押しているあいだの、ひとつ前の位置。そこから今の位置までに触れた線を消す */
   const eraserPointRef = useRef<Point | null>(null)

@@ -31,7 +31,7 @@ describe('toRatio', () => {
 })
 
 describe('createStrokeId', () => {
-  it('呼ぶたびに違う名前になる（前の線に点が足されないようにする）', () => {
+  it('呼ぶたびに違う名前になる（前の線に点が追加されないようにする）', () => {
     expect(createStrokeId()).not.toBe(createStrokeId())
   })
 

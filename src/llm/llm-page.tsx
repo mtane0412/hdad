@@ -142,7 +142,7 @@ export const LlmPage = ({ api }: LlmPageProps) => {
   /** 残高を読めなかった理由 */
   const [creditsFailure, setCreditsFailure] = useState('')
   const actions = usePageActions(failureLines)
-  /** 入力欄のidは箇所ごとに要るので、1つのidを土台にして箇所の名前を足す */
+  /** 入力欄のidは箇所ごとに要るので、1つのidを土台にして箇所の名前を追加する */
   const fieldIdPrefix = useId()
 
   // 使用状況は設定とは別に読む（片方を読めなかったことを、もう片方に波及させない）
@@ -238,7 +238,7 @@ export const LlmPage = ({ api }: LlmPageProps) => {
    * 選択欄に並べる候補。
    *
    * 読み込みが終わるまでは、いま保存されている値だけを並べる（空の選択欄にすると、読み込み中に
-   * 保存されているモデルが分からなくなる）。候補に無い値も足して残す（一覧から消えたモデルを選んでいたときに、
+   * 保存されているモデルが分からなくなる）。候補に無い値も追加して残す（一覧から消えたモデルを選んでいたときに、
    * 画面を開いただけで別のモデルへ移ってしまわないようにするため）。
    */
   const optionsFor = (provider: LlmProvider, selected: string): readonly LlmModelOption[] => {

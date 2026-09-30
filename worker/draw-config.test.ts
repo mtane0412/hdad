@@ -35,7 +35,7 @@ describe('parseStrokes', () => {
   })
 
   it('余分な項目は保存しない', () => {
-    // 保存したものは検証せずに読み出すので、送り主が足したものをそのまま抱え込まない
+    // 保存したものは検証せずに読み出すので、送り主が追加したものをそのまま抱え込まない
     expect(parseStrokes({ strokes: [{ ...drawnStrokes, extra: '持ち込まれたもの' }] })).toEqual([drawnStrokes])
   })
 

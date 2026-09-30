@@ -131,7 +131,7 @@ export const startSpeech = async ({ key, box }: SpeechTaskOptions): Promise<Star
   connectChat(login, {
     onEvent: (event) => {
       if (event.type !== 'message') return
-      // 読むかどうかの判断も、届いた時点の設定で行う（読み上げない人を足したら次の発言から効く）
+      // 読むかどうかの判断も、届いた時点の設定で行う（読み上げない人を追加したら次の発言から効く）
       const text = speechTextOf(event.message, {
         readName: settings.readName,
         maxLength: settings.maxLength,

@@ -89,7 +89,7 @@ export const ViewerPage = ({ api }: { api: ViewerApi }) => {
     )
   }
 
-  /** 一覧を取り直す（検索）か、続きを足す（もっと読み込む） */
+  /** 一覧を取り直す（検索）か、続きを追加する（もっと読み込む） */
   const load = async (query: ViewerQuery, append: boolean): Promise<string> => {
     const page = await api.list({ ...query, limit: PAGE_SIZE })
     setViewers((current) => (append ? [...current, ...page] : page))

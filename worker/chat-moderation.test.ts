@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest'
 import type { ChatMessage } from './chat-command'
 import { judge, repeatRuleOf, type ModerationConfig, type ModerationRule } from './chat-moderation'
 
-/** 除外をすべて有効にした、ルールなしの設定。各テストでルールだけを足して使う */
+/** 除外をすべて有効にした、ルールなしの設定。各テストでルールだけを追加して使う */
 const defaultConfig: ModerationConfig = {
   enabled: true,
   exemptBroadcaster: true,

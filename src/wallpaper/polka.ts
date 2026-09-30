@@ -55,7 +55,7 @@ export const polka = defineBackground({
       for (let column = -1; (column - 1) * size < width; column++) {
         const gridX = column + stagger
         const radius = size * MAX_RADIUS_RATIO * dotScale(gridX, row, time * speed)
-        // column は -1 から始まるため、1を足して0以上の番号にする
+        // column は -1 から始まるため、1を追加して0以上の番号にする
         ctx.fillStyle = pickColor(colors, column + 1 + row)
         ctx.beginPath()
         ctx.arc(gridX * size, row * rowSpacing, radius, 0, Math.PI * 2)
