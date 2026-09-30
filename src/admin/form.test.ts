@@ -432,9 +432,11 @@ describe('placeholdersFor', () => {
 })
 
 describe('rewardOptions', () => {
+  /** 選択欄に並べるのに要らない項目は、どの報酬でも同じ値にしておく */
+  const rewardDetails = { prompt: '', isEnabled: true, isUserInputRequired: false, imageUrl: 'https://static-cdn.jtvnw.net/custom-reward-images/default-2.png', manageable: true }
   const rewards = [
-    { id: '報酬ID-乾杯', title: '乾杯する', cost: 500 },
-    { id: '報酬ID-おみくじ', title: 'おみくじを引く', cost: 100 },
+    { id: '報酬ID-乾杯', title: '乾杯する', cost: 500, ...rewardDetails },
+    { id: '報酬ID-おみくじ', title: 'おみくじを引く', cost: 100, ...rewardDetails },
   ]
 
   it('報酬を名前と必要ポイントで見せ、先頭に「すべての報酬」を置く', () => {
@@ -451,7 +453,7 @@ describe('rewardOptions', () => {
 })
 
 describe('rowParamSummary', () => {
-  const reward = [{ id: '報酬ID-乾杯', title: '乾杯する', cost: 500 }]
+  const reward = [{ id: '報酬ID-乾杯', title: '乾杯する', cost: 500, prompt: '', isEnabled: true, isUserInputRequired: false, imageUrl: 'https://static-cdn.jtvnw.net/custom-reward-images/default-2.png', manageable: true }]
 
   it('選んでいる報酬の名前を出す', () => {
     expect(rowParamSummary(inputs({ kind: 'reward', rewardId: '報酬ID-乾杯' }), reward)).toBe('乾杯する')

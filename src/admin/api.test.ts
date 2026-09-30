@@ -173,6 +173,61 @@ describe('media・upload・removeMedia（素材）', () => {
   })
 })
 
+/** Workerが返すチャンネルポイント報酬（HDADが作ったもの） */
+const toastReward = { id: '報酬ID-乾杯', title: '乾杯する', cost: 500, prompt: 'おつまみも添えて', isEnabled: true, isUserInputRequired: false, imageUrl: 'https://static-cdn.jtvnw.net/custom-reward-images/default-2.png', manageable: true }
+
+/** 管理画面から送る報酬の内容 */
+const toastRewardInput = { title: '乾杯する', cost: 500, prompt: 'おつまみも添えて', isEnabled: true, isUserInputRequired: false }
+
+describe('createReward・updateReward・removeReward（チャンネルポイント報酬）', () => {
+  it('報酬の内容をJSONでPOSTし、作られた報酬を返す', async () => {
+    const { requests, fetchImpl } = fetchReturning(201, toastReward)
+
+    expect(await createAdminApi(fetchImpl).createReward(toastRewardInput)).toEqual(toastReward)
+    expect(requests[0]!.method).toBe('POST')
+    expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/rewards')
+    expect(requests[0]!.headers.get('Content-Type')).toBe('application/json')
+    expect(await requests[0]!.json()).toEqual(toastRewardInput)
+  })
+
+  it('入力に問題があれば、問題点を持つエラーにする', async () => {
+    const { fetchImpl } = fetchReturning(400, {
+      error: { code: 'invalid-config', message: 'チャンネルポイント報酬に問題があります', problems: ['title: 名前は空でない45文字までの文字列で指定してください'] },
+    })
+    await expect(createAdminApi(fetchImpl).createReward({ ...toastRewardInput, title: '' })).rejects.toMatchObject({
+      problems: ['title: 名前は空でない45文字までの文字列で指定してください'],
+    })
+  })
+
+  it('報酬のIDをURLエンコードしてPATCHし、更新後の報酬を返す', async () => {
+    const { requests, fetchImpl } = fetchReturning(200, { ...toastReward, cost: 800 })
+
+    expect(await createAdminApi(fetchImpl).updateReward('報酬/乾杯', { ...toastRewardInput, cost: 800 })).toEqual({ ...toastReward, cost: 800 })
+    expect(requests[0]!.method).toBe('PATCH')
+    expect(new URL(requests[0]!.url).pathname).toBe(`/api/admin/rewards/${encodeURIComponent('報酬/乾杯')}`)
+    expect(await requests[0]!.json()).toEqual({ ...toastRewardInput, cost: 800 })
+  })
+
+  it('作成・更新の応答が想定した形でなければエラーにする', async () => {
+    const { fetchImpl } = fetchReturning(200, { id: '報酬ID-乾杯' })
+    await expect(createAdminApi(fetchImpl).updateReward('報酬ID-乾杯', toastRewardInput)).rejects.toThrow()
+  })
+
+  it('報酬の削除はDELETEで依頼する', async () => {
+    const { requests, fetchImpl } = fetchReturning(204, null)
+
+    await createAdminApi(fetchImpl).removeReward('報酬ID-乾杯')
+
+    expect(requests[0]!.method).toBe('DELETE')
+    expect(new URL(requests[0]!.url).pathname).toBe(`/api/admin/rewards/${encodeURIComponent('報酬ID-乾杯')}`)
+  })
+
+  it('トリガーに使われている報酬の削除は、理由を持つエラーになる', async () => {
+    const { fetchImpl } = fetchReturning(409, { error: { code: 'reward-in-use', message: 'この報酬はトリガーに使われています' } })
+    await expect(createAdminApi(fetchImpl).removeReward('報酬ID-乾杯')).rejects.toMatchObject({ code: 'reward-in-use' })
+  })
+})
+
 describe('rotateOverlayKey・rewards・logout', () => {
   it('オーバーレイ用キーを発行し直し、新しいキーを返す', async () => {
     const { requests, fetchImpl } = fetchReturning(200, { overlayKey: '新しいキー' })
@@ -183,10 +238,24 @@ describe('rotateOverlayKey・rewards・logout', () => {
   })
 
   it('チャンネルポイント報酬の一覧を取得する', async () => {
-    const { requests, fetchImpl } = fetchReturning(200, { rewards: [{ id: '報酬ID-乾杯', title: '乾杯する', cost: 500 }] })
+    const { requests, fetchImpl } = fetchReturning(200, { rewards: [toastReward] })
 
-    expect(await createAdminApi(fetchImpl).rewards()).toEqual([{ id: '報酬ID-乾杯', title: '乾杯する', cost: 500 }])
+    expect(await createAdminApi(fetchImpl).rewards()).toEqual([toastReward])
     expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/rewards')
+  })
+
+  it('報酬の一覧に画像のURLが無ければエラーにする', async () => {
+    const withoutImage: Record<string, unknown> = { ...toastReward }
+    delete withoutImage.imageUrl
+    const { fetchImpl } = fetchReturning(200, { rewards: [withoutImage] })
+    await expect(createAdminApi(fetchImpl).rewards()).rejects.toThrow('rewards[0]')
+  })
+
+  it('報酬の一覧が想定した形でなければエラーにする（変更できるかどうかが無いなど）', async () => {
+    const withoutManageable: Record<string, unknown> = { ...toastReward }
+    delete withoutManageable.manageable
+    const { fetchImpl } = fetchReturning(200, { rewards: [withoutManageable] })
+    await expect(createAdminApi(fetchImpl).rewards()).rejects.toThrow('rewards[0]')
   })
 
   it('ログアウトはPOSTで依頼する', async () => {

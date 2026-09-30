@@ -4,12 +4,13 @@
  * サイドバーの項目と、パスごとに描く中身をここで決める。
  * 実ファイルとして配信されるページ（overlay/stage/・overlay/backstage/・speech/reader/・transcript/relay/）は、ここには載せない。
  */
-import { Bot, BrainCircuit, Camera, Captions, Layers, LayoutDashboard, MessagesSquare, Music, Pencil, Quote, Upload, Users, Volume2, Wrench, Zap, type LucideIcon } from 'lucide-react'
+import { Bot, BrainCircuit, Camera, Captions, Gift, Layers, LayoutDashboard, MessagesSquare, Music, Pencil, Quote, Upload, Users, Volume2, Wrench, Zap, type LucideIcon } from 'lucide-react'
 import type { AdminApi, Me } from '@/admin/api'
 import { BackstagePage } from '@/backstage/backstage-page'
 import type { BgmApi } from '@/bgm/api'
 import { BgmPage } from '@/bgm/bgm-page'
 import { MediaPage } from '@/admin/media-page'
+import { RewardPage } from '@/admin/reward-page'
 import { TriggerPage } from '@/admin/trigger-page'
 import type { BotApi } from '@/bot/api'
 import { BotPage } from '@/bot/bot-page'
@@ -150,6 +151,13 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
         render: ({ api, botApi, me, onOverlayKeyChange }) => (
           <TriggerPage api={api} botApi={botApi} overlayKey={me.overlayKey} onOverlayKeyChange={onOverlayKeyChange} />
         ),
+      },
+      {
+        path: '/rewards/',
+        name: 'チャンネルポイント',
+        icon: Gift,
+        // 報酬の作成・編集・削除（issue #160）。交換されたときに何をするかはトリガーのページで決める
+        render: ({ api }) => <RewardPage api={api} />,
       },
     ],
   },

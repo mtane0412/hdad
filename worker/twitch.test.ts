@@ -152,25 +152,39 @@ describe('createSubscription', () => {
   })
 })
 
+/** Twitchが用意している既定の報酬画像（2倍の大きさ） */
+const defaultImage = { url_1x: 'https://static-cdn.jtvnw.net/custom-reward-images/default-1.png', url_2x: 'https://static-cdn.jtvnw.net/custom-reward-images/default-2.png', url_4x: 'https://static-cdn.jtvnw.net/custom-reward-images/default-4.png' }
+/** 配信者がアップロードした報酬画像 */
+const uploadedImage = { url_1x: 'https://static-cdn.jtvnw.net/custom-reward-images/12345/kanpai-1.png', url_2x: 'https://static-cdn.jtvnw.net/custom-reward-images/12345/kanpai-2.png', url_4x: 'https://static-cdn.jtvnw.net/custom-reward-images/12345/kanpai-4.png' }
+
 describe('listCustomRewards', () => {
-  it('Helixから配信者のチャンネルポイント報酬を取得し、ID・名前・必要ポイントだけを返す', async () => {
+  it('Helixから配信者のチャンネルポイント報酬を取得し、管理画面で扱う項目だけを返す', async () => {
     const { requests, fetchImpl } = fetchReturning(200, {
       data: [
-        { id: '報酬ID-乾杯', title: '乾杯する', cost: 500, is_enabled: true, prompt: '' },
-        { id: '報酬ID-おみくじ', title: 'おみくじを引く', cost: 100, is_enabled: false, prompt: '' },
+        { id: '報酬ID-乾杯', title: '乾杯する', cost: 500, is_enabled: true, prompt: '', is_user_input_required: false, is_paused: false, image: uploadedImage, default_image: defaultImage },
+        { id: '報酬ID-おみくじ', title: 'おみくじを引く', cost: 100, is_enabled: false, prompt: '一言どうぞ', is_user_input_required: true, image: null, default_image: defaultImage },
       ],
     })
 
     const rewards = await createClient(fetchImpl).listCustomRewards('test-access-token', '12345')
 
     expect(rewards).toEqual([
-      { id: '報酬ID-乾杯', title: '乾杯する', cost: 500 },
-      { id: '報酬ID-おみくじ', title: 'おみくじを引く', cost: 100 },
+      // 画像は、配信者がアップロードしたものがあればそれを、なければTwitchの既定の画像を使う（2倍の大きさ）
+      { id: '報酬ID-乾杯', title: '乾杯する', cost: 500, prompt: '', isEnabled: true, isUserInputRequired: false, imageUrl: 'https://static-cdn.jtvnw.net/custom-reward-images/12345/kanpai-2.png' },
+      { id: '報酬ID-おみくじ', title: 'おみくじを引く', cost: 100, prompt: '一言どうぞ', isEnabled: false, isUserInputRequired: true, imageUrl: 'https://static-cdn.jtvnw.net/custom-reward-images/default-2.png' },
     ])
     const request = requests[0]!
     expect(request.url).toBe('https://api.twitch.tv/helix/channel_points/custom_rewards?broadcaster_id=12345')
     expect(request.headers.get('Authorization')).toBe('Bearer test-access-token')
     expect(request.headers.get('Client-Id')).toBe('test-client-id')
+  })
+
+  it('onlyManageable を指定すると、このアプリが作った報酬だけを求める', async () => {
+    const { requests, fetchImpl } = fetchReturning(200, { data: [] })
+
+    await createClient(fetchImpl).listCustomRewards('test-access-token', '12345', { onlyManageable: true })
+
+    expect(requests[0]!.url).toBe('https://api.twitch.tv/helix/channel_points/custom_rewards?broadcaster_id=12345&only_manageable_rewards=true')
   })
 
   it('Twitchが失敗を返したら、状態コードを持つエラーになる（アフィリエイト未満のチャンネルなど）', async () => {
@@ -181,9 +195,117 @@ describe('listCustomRewards', () => {
     })
   })
 
+  it('既定の画像も無い報酬が届いたらエラーになる（画像の無い報酬として黙って扱わない）', async () => {
+    const { fetchImpl } = fetchReturning(200, {
+      data: [{ id: '報酬ID-乾杯', title: '乾杯する', cost: 500, is_enabled: true, prompt: '', is_user_input_required: false, image: null, default_image: null }],
+    })
+    await expect(createClient(fetchImpl).listCustomRewards('test-access-token', '12345')).rejects.toBeInstanceOf(TwitchApiError)
+  })
+
   it('応答が想定した形でなければエラーになる（黙って空の一覧にしない）', async () => {
     const { fetchImpl } = fetchReturning(200, { data: [{ id: '報酬ID-乾杯' }] })
     await expect(createClient(fetchImpl).listCustomRewards('test-access-token', '12345')).rejects.toBeInstanceOf(TwitchApiError)
+  })
+})
+
+/** 報酬の作成・更新で送る内容の例 */
+const rewardInput = { title: '乾杯する', cost: 500, prompt: 'おつまみも添えて', isEnabled: true, isUserInputRequired: false }
+
+/** Twitchが作成・更新の応答として返す報酬の例 */
+const twitchReward = {
+  id: '報酬ID-乾杯',
+  title: '乾杯する',
+  cost: 500,
+  prompt: 'おつまみも添えて',
+  is_enabled: true,
+  is_user_input_required: false,
+  is_paused: false,
+  image: null,
+  default_image: defaultImage,
+}
+
+describe('createCustomReward', () => {
+  it('Helixへ報酬の内容をTwitchの項目名で送り、作られた報酬を返す', async () => {
+    const { requests, fetchImpl } = fetchReturning(200, { data: [twitchReward] })
+
+    const reward = await createClient(fetchImpl).createCustomReward('test-access-token', '12345', rewardInput)
+
+    expect(reward).toEqual({ id: '報酬ID-乾杯', ...rewardInput, imageUrl: 'https://static-cdn.jtvnw.net/custom-reward-images/default-2.png' })
+    const request = requests[0]!
+    expect(request.method).toBe('POST')
+    expect(request.url).toBe('https://api.twitch.tv/helix/channel_points/custom_rewards?broadcaster_id=12345')
+    expect(request.headers.get('Authorization')).toBe('Bearer test-access-token')
+    expect(request.headers.get('Client-Id')).toBe('test-client-id')
+    expect(request.headers.get('Content-Type')).toBe('application/json')
+    expect(await request.json()).toEqual({
+      title: '乾杯する',
+      cost: 500,
+      prompt: 'おつまみも添えて',
+      is_enabled: true,
+      is_user_input_required: false,
+    })
+  })
+
+  it('Twitchが失敗を返したら、状態コードとメッセージを持つエラーになる（同じ名前の報酬があるなど）', async () => {
+    const { fetchImpl } = fetchReturning(400, { error: 'Bad Request', status: 400, message: 'CREATE_CUSTOM_REWARD_DUPLICATE_REWARD' })
+    await expect(createClient(fetchImpl).createCustomReward('test-access-token', '12345', rewardInput)).rejects.toMatchObject({
+      status: 400,
+      message: expect.stringContaining('DUPLICATE_REWARD'),
+    })
+  })
+
+  it('応答に作られた報酬が無ければエラーになる', async () => {
+    const { fetchImpl } = fetchReturning(200, { data: [] })
+    await expect(createClient(fetchImpl).createCustomReward('test-access-token', '12345', rewardInput)).rejects.toBeInstanceOf(TwitchApiError)
+  })
+})
+
+describe('updateCustomReward', () => {
+  it('報酬のIDを指定してHelixへ新しい内容を送り、更新後の報酬を返す', async () => {
+    const { requests, fetchImpl } = fetchReturning(200, { data: [{ ...twitchReward, cost: 800 }] })
+
+    const reward = await createClient(fetchImpl).updateCustomReward('test-access-token', '12345', '報酬ID-乾杯', { ...rewardInput, cost: 800 })
+
+    expect(reward).toEqual({ id: '報酬ID-乾杯', ...rewardInput, cost: 800, imageUrl: 'https://static-cdn.jtvnw.net/custom-reward-images/default-2.png' })
+    const request = requests[0]!
+    expect(request.method).toBe('PATCH')
+    const url = new URL(request.url)
+    expect(url.searchParams.get('broadcaster_id')).toBe('12345')
+    expect(url.searchParams.get('id')).toBe('報酬ID-乾杯')
+    expect(await request.json()).toEqual({
+      title: '乾杯する',
+      cost: 800,
+      prompt: 'おつまみも添えて',
+      is_enabled: true,
+      is_user_input_required: false,
+    })
+  })
+
+  it('このアプリが作っていない報酬ではTwitchが403を返し、エラーになる', async () => {
+    const { fetchImpl } = fetchReturning(403, { error: 'Forbidden', status: 403, message: 'The client-id does not match' })
+    await expect(
+      createClient(fetchImpl).updateCustomReward('test-access-token', '12345', '報酬ID-よそ', rewardInput),
+    ).rejects.toMatchObject({ status: 403 })
+  })
+})
+
+describe('deleteCustomReward', () => {
+  it('報酬のIDを指定してHelixへ削除を送る（成功の応答は本文のない204）', async () => {
+    const { requests, fetchImpl } = fetchReturningNoBody(204)
+
+    await createClient(fetchImpl).deleteCustomReward('test-access-token', '12345', '報酬ID-乾杯')
+
+    const request = requests[0]!
+    expect(request.method).toBe('DELETE')
+    const url = new URL(request.url)
+    expect(url.searchParams.get('broadcaster_id')).toBe('12345')
+    expect(url.searchParams.get('id')).toBe('報酬ID-乾杯')
+    expect(request.headers.get('Authorization')).toBe('Bearer test-access-token')
+  })
+
+  it('Twitchが失敗を返したら、状態コードを持つエラーになる', async () => {
+    const { fetchImpl } = fetchReturning(404, { error: 'Not Found', status: 404, message: 'reward not found' })
+    await expect(createClient(fetchImpl).deleteCustomReward('test-access-token', '12345', '報酬ID-乾杯')).rejects.toMatchObject({ status: 404 })
   })
 })
 

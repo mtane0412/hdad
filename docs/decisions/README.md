@@ -27,6 +27,7 @@
 | [bgm.md](bgm.md) | BGM（`/bgm/`・裏方の `?bgm=true`） |
 | [llm.md](llm.md) | LLMの呼び先・使用状況・モデルの選択 |
 | [triggers-page.md](triggers-page.md) | トリガーの管理画面（`/triggers/`） |
+| [rewards.md](rewards.md) | チャンネルポイント報酬（`/rewards/`） |
 | [dashboard.md](dashboard.md) | ダッシュボード（`/`） |
 | [bot.md](bot.md) | チャットボット（`/bot/`） |
 | [worker.md](worker.md) | Worker（`worker/`）と失敗の記録 |

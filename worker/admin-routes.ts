@@ -2,7 +2,7 @@
  * 管理用の経路（/api/admin/*）
  *
  * 配信者のセッションが必要。アラートの設定の取得と保存、素材の一覧・アップロード・削除、オーバーレイ用キーの再発行、
- * トリガーの設定で選ぶチャンネルポイント報酬の一覧、チャットの読み上げの設定の取得と保存、
+ * チャットの読み上げの設定の取得と保存、
  * 合成オーバーレイの構成（どのオーバーレイにどの素材を置くか）の取得と保存、LLMの設定とその使用状況を受け持つ。
  */
 import { alertActionOf, loadAlertConfig, parseAlertConfig, saveAlertConfig } from './alert-config'
@@ -17,7 +17,6 @@ import { listLlmModels } from './llm-models'
 import { listLlmUsage, toUtcDay } from './llm-usage-store'
 import { loadScreenSettings, parseScreenSettings, saveScreenSettings } from './screen-config'
 import { loadSpeechSettings, parseSpeechSettings, saveSpeechSettings } from './speech-config'
-import { getAccessToken } from './token'
 
 /** GET /api/admin/config */
 export const getConfig = async (context: Context): Promise<Response> => {
@@ -81,19 +80,6 @@ export const deleteMedia = async (context: Context): Promise<Response> => {
 export const postOverlayKey = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
   return Response.json({ overlayKey: await rotateOverlayKey(context.env.STORE) })
-}
-
-/**
- * GET /api/admin/rewards: 配信者のチャンネルポイント報酬の一覧。トークンは応答に含めない。
- *
- * @throws AuthError トークンが保管されていない・更新できない
- * @throws TwitchApiError Twitchが失敗を返した（チャンネルポイントを使えないチャンネルなど）
- */
-export const getRewards = async (context: Context): Promise<Response> => {
-  await requireAdmin(context)
-  const { env, twitch, now } = context
-  const token = await getAccessToken(env.STORE, 'broadcaster', twitch, now)
-  return Response.json({ rewards: await twitch.listCustomRewards(token.accessToken, env.TWITCH_BROADCASTER_ID) })
 }
 
 /** GET /api/admin/speech: チャットの読み上げの設定。未保存なら既定の設定が返る */

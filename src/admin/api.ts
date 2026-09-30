@@ -154,11 +154,27 @@ export type StoredAction = StoredAlertAction | ChatAction | AnnounceAction | AiC
 /** 保存済みのトリガー */
 export type StoredTrigger = TriggerSource & { actions: StoredAction[] }
 
-/** チャンネルポイント報酬 */
-export interface Reward {
-  id: string
+/** チャンネルポイント報酬の、管理画面から作成・編集する項目（Workerの検証は worker/reward-input.ts） */
+export interface RewardInput {
+  /** 名前（45文字まで。チャンネル内で重複できない） */
   title: string
+  /** 交換に必要なポイント（1以上の整数） */
   cost: number
+  /** 視聴者に見せる説明（200文字まで） */
+  prompt: string
+  /** 視聴者が交換できる状態か */
+  isEnabled: boolean
+  /** 交換するときにメッセージの入力を求めるか */
+  isUserInputRequired: boolean
+}
+
+/** チャンネルポイント報酬 */
+export interface Reward extends RewardInput {
+  id: string
+  /** 報酬の画像のURL。アップロードした画像が無ければTwitchの既定の画像（画像はTwitchのダッシュボードでしか変えられない） */
+  imageUrl: string
+  /** HDADから更新・削除できるか。Twitchは、HDADが作った報酬以外の変更を拒む */
+  manageable: boolean
 }
 
 export interface AdminApi {
@@ -173,6 +189,12 @@ export interface AdminApi {
   /** オーバーレイ用キーを発行し直す。古いキーを含むURLは使えなくなる */
   rotateOverlayKey(): Promise<string>
   rewards(): Promise<Reward[]>
+  /** チャンネルポイント報酬を作る。作られた報酬を返す */
+  createReward(input: RewardInput): Promise<Reward>
+  /** チャンネルポイント報酬を更新する（HDADが作った報酬だけ）。更新後の報酬を返す */
+  updateReward(id: string, input: RewardInput): Promise<Reward>
+  /** チャンネルポイント報酬を削除する（HDADが作った報酬だけ。トリガーに使われていれば断られる） */
+  removeReward(id: string): Promise<void>
   logout(): Promise<void>
 }
 
@@ -233,7 +255,23 @@ const isStoredTrigger = (value: unknown): value is StoredTrigger =>
   isRecord(value) && Array.isArray(value.actions) && value.actions.every(isStoredAction) && isTriggerSource(value)
 
 const isReward = (value: unknown): value is Reward =>
-  isRecord(value) && typeof value.id === 'string' && typeof value.title === 'string' && typeof value.cost === 'number'
+  isRecord(value) &&
+  typeof value.id === 'string' &&
+  typeof value.title === 'string' &&
+  typeof value.cost === 'number' &&
+  typeof value.prompt === 'string' &&
+  typeof value.isEnabled === 'boolean' &&
+  typeof value.isUserInputRequired === 'boolean' &&
+  typeof value.imageUrl === 'string' &&
+  typeof value.manageable === 'boolean'
+
+/** 報酬の作成・更新の応答から報酬を取り出す */
+const readReward = (body: unknown): Reward => {
+  if (!isReward(body)) throw new Error('Workerの報酬の応答が想定した形ではありません')
+  return body
+}
+
+const REWARDS_PATH = '/api/admin/rewards'
 
 export const createAdminApi = (fetchImpl: typeof fetch): AdminApi => {
   const call = createCaller(fetchImpl)
@@ -284,7 +322,23 @@ export const createAdminApi = (fetchImpl: typeof fetch): AdminApi => {
       return body.overlayKey
     },
 
-    rewards: async () => readList(await call('/api/admin/rewards'), 'rewards', isReward),
+    rewards: async () => readList(await call(REWARDS_PATH), 'rewards', isReward),
+
+    createReward: async (input) =>
+      readReward(await call(REWARDS_PATH, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })),
+
+    updateReward: async (id, input) =>
+      readReward(
+        await call(`${REWARDS_PATH}/${encodeURIComponent(id)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(input),
+        }),
+      ),
+
+    removeReward: async (id) => {
+      await call(`${REWARDS_PATH}/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    },
 
     logout: async () => {
       await call('/api/auth/logout', { method: 'POST' })
