@@ -78,16 +78,16 @@ const StatCard = ({ label, value, note }: { label: string; value: string; note?:
 /** 配信の一覧の1行と、選ばれていればその配信の視聴者数の推移 */
 const SessionRow = ({ session, now, selected, onSelect }: { session: SessionSummary; now: number; selected?: Selected; onSelect(): void }) => {
   const totals = eventTotals(session)
-  const 選ばれている = selected?.id === session.id
+  const isSelected = selected?.id === session.id
   // EventSubの通知で始まった配信は、次の収集までタイトルが空のことがある。表示と読み上げで同じ呼び方にする
-  const 表示するタイトル = session.title === '' ? '（タイトルの記録なし）' : session.title
+  const displayTitle = session.title === '' ? '（タイトルの記録なし）' : session.title
 
   return (
     <>
       <TableRow>
         <TableCell className="whitespace-nowrap tabular-nums">{formatDateTime(session.startedAt)}</TableCell>
         <TableCell className="whitespace-nowrap tabular-nums">{session.endedAt === null ? '配信中' : formatDuration(sessionDurationMs(session, now))}</TableCell>
-        <TableCell className="max-w-64 truncate">{表示するタイトル}</TableCell>
+        <TableCell className="max-w-64 truncate">{displayTitle}</TableCell>
         <TableCell className="max-w-48 truncate">{session.categoryName}</TableCell>
         <TableCell className="text-right tabular-nums">{formatCount(session.averageViewers)}</TableCell>
         <TableCell className="text-right tabular-nums">{formatCount(session.peakViewers)}</TableCell>
@@ -101,18 +101,18 @@ const SessionRow = ({ session, now, selected, onSelect }: { session: SessionSumm
             type="button"
             variant="ghost"
             size="sm"
-            aria-expanded={選ばれている}
-            aria-label={選ばれている ? `${表示するタイトル} の視聴者数の推移を閉じる` : `${表示するタイトル} の視聴者数の推移を見る`}
+            aria-expanded={isSelected}
+            aria-label={isSelected ? `${displayTitle} の視聴者数の推移を閉じる` : `${displayTitle} の視聴者数の推移を見る`}
             onClick={onSelect}
           >
-            {選ばれている ? '閉じる' : '見る'}
+            {isSelected ? '閉じる' : '見る'}
           </Button>
         </TableCell>
       </TableRow>
-      {選ばれている && selected && (
+      {isSelected && selected && (
         <TableRow>
           <TableCell colSpan={COLUMN_COUNT + 1}>
-            {selected.state.status === 'loading' && <Skeleton className="h-56 w-full" aria-label={`${表示するタイトル} の視聴者数の推移を読み込んでいます`} />}
+            {selected.state.status === 'loading' && <Skeleton className="h-56 w-full" aria-label={`${displayTitle} の視聴者数の推移を読み込んでいます`} />}
             {selected.state.status === 'failed' && (
               <Alert variant="destructive">
                 <AlertTitle>視聴者数の推移を読み込めませんでした</AlertTitle>
@@ -123,7 +123,7 @@ const SessionRow = ({ session, now, selected, onSelect }: { session: SessionSumm
               (selected.state.detail.samples.length === 0 ? (
                 <p className="text-sm text-muted-foreground">この配信には視聴者数の記録がありません。</p>
               ) : (
-                <LazyTimeChart label={`${表示するタイトル} の視聴者数の推移`} dataKey="viewers" points={viewerPoints(selected.state.detail.samples)} />
+                <LazyTimeChart label={`${displayTitle} の視聴者数の推移`} dataKey="viewers" points={viewerPoints(selected.state.detail.samples)} />
               ))}
           </TableCell>
         </TableRow>
@@ -195,8 +195,8 @@ export const StatsPage = ({ api, now }: StatsPageProps) => {
   }
 
   const overview = summarize(sessions, followers, days, currentTime)
-  const 期間内の配信 = withinPeriod(sessions, days, currentTime)
-  const フォロワーの推移 = followerPoints(followers, days, currentTime)
+  const sessionsInPeriod = withinPeriod(sessions, days, currentTime)
+  const followerTrend = followerPoints(followers, days, currentTime)
 
   return (
     <div className="flex flex-col gap-6">
@@ -235,10 +235,10 @@ export const StatsPage = ({ api, now }: StatsPageProps) => {
           <CardDescription>数が変わった時点だけを記録している。</CardDescription>
         </CardHeader>
         <CardContent>
-          {フォロワーの推移.length === 0 ? (
+          {followerTrend.length === 0 ? (
             <p className="text-sm text-muted-foreground">この期間のフォロワー数の記録がありません。</p>
           ) : (
-            <LazyTimeChart label={`直近${days}日のフォロワー数の推移`} dataKey="followers" points={フォロワーの推移} />
+            <LazyTimeChart label={`直近${days}日のフォロワー数の推移`} dataKey="followers" points={followerTrend} />
           )}
         </CardContent>
       </Card>
@@ -247,7 +247,7 @@ export const StatsPage = ({ api, now }: StatsPageProps) => {
         <h2 id="sessions-heading" className="text-lg font-semibold">
           配信の一覧
         </h2>
-        {期間内の配信.length === 0 ? (
+        {sessionsInPeriod.length === 0 ? (
           <p className="text-sm text-muted-foreground">この期間に始まった配信はありません。</p>
         ) : (
           <div className="overflow-x-auto rounded-lg border">
@@ -268,7 +268,7 @@ export const StatsPage = ({ api, now }: StatsPageProps) => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {期間内の配信.map((session) => (
+                {sessionsInPeriod.map((session) => (
                   <SessionRow key={session.id} session={session} now={currentTime} selected={selected} onSelect={() => select(session)} />
                 ))}
               </TableBody>

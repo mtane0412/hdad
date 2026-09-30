@@ -2,19 +2,19 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { createFakeDatabase } from './fake-database'
 import { readCurrentStreamSummary, readStreamSummary, saveStreamSummary } from './stream-summary-store'
 
-const 作成時刻 = Date.parse('2026-09-23T20:10:00.000Z')
+const CREATED_AT = Date.parse('2026-09-23T20:10:00.000Z')
 
 let db: ReturnType<typeof createFakeDatabase>
 
 /** 配信中の区切りを1件作る */
-const 配信を始める = (id: string, startedAt = Date.parse('2026-09-23T20:00:00.000Z')): void => {
+const startStream = (id: string, startedAt = Date.parse('2026-09-23T20:00:00.000Z')): void => {
   db.sqlite
     .prepare('INSERT INTO stream_sessions (id, started_at, title, category_name) VALUES (?, ?, ?, ?)')
     .run(id, new Date(startedAt).toISOString(), '雑談配信', 'Just Chatting')
 }
 
 /** 配信中の区切りをすべて閉じる */
-const 配信を終える = (endedAt: number): void => {
+const endStream = (endedAt: number): void => {
   db.sqlite.prepare('UPDATE stream_sessions SET ended_at = ? WHERE ended_at IS NULL').run(new Date(endedAt).toISOString())
 }
 
@@ -37,7 +37,7 @@ describe('readStreamSummary', () => {
         chatUntil: { at: '2026-09-23T20:08:30.000Z', messageId: '発言8' },
         screenUntil: { at: '2026-09-23T20:07:00.000Z', imageId: '画像7', lineNo: 2 },
       },
-      作成時刻,
+      CREATED_AT,
     )
 
     expect(await readStreamSummary(db, '配信1')).toEqual({
@@ -55,7 +55,7 @@ describe('saveStreamSummary', () => {
     await saveStreamSummary(
       db,
       { sessionId: '配信1', summary: '導入部を遊んでいます', transcriptsUntil: { at: '2026-09-23T20:09:00.000Z', messageId: '発話9' }, chatUntil: { at: '', messageId: '' }, screenUntil: { at: '', imageId: '', lineNo: -1 } },
-      作成時刻,
+      CREATED_AT,
     )
     await saveStreamSummary(
       db,
@@ -74,8 +74,8 @@ describe('saveStreamSummary', () => {
   })
 
   it('配信ごとに別の行として持つので、前の配信のあらすじは残ったまま混ざらない', async () => {
-    await saveStreamSummary(db, { sessionId: '配信1', summary: '前の配信の話', transcriptsUntil: { at: '', messageId: '' }, chatUntil: { at: '', messageId: '' }, screenUntil: { at: '', imageId: '', lineNo: -1 } }, 作成時刻)
-    await saveStreamSummary(db, { sessionId: '配信2', summary: '今日の配信の話', transcriptsUntil: { at: '', messageId: '' }, chatUntil: { at: '', messageId: '' }, screenUntil: { at: '', imageId: '', lineNo: -1 } }, 作成時刻)
+    await saveStreamSummary(db, { sessionId: '配信1', summary: '前の配信の話', transcriptsUntil: { at: '', messageId: '' }, chatUntil: { at: '', messageId: '' }, screenUntil: { at: '', imageId: '', lineNo: -1 } }, CREATED_AT)
+    await saveStreamSummary(db, { sessionId: '配信2', summary: '今日の配信の話', transcriptsUntil: { at: '', messageId: '' }, chatUntil: { at: '', messageId: '' }, screenUntil: { at: '', imageId: '', lineNo: -1 } }, CREATED_AT)
 
     expect((await readStreamSummary(db, '配信1'))?.summary).toBe('前の配信の話')
     expect((await readStreamSummary(db, '配信2'))?.summary).toBe('今日の配信の話')
@@ -84,23 +84,23 @@ describe('saveStreamSummary', () => {
 
 describe('readCurrentStreamSummary', () => {
   it('いま進んでいる配信のあらすじを返す', async () => {
-    配信を始める('配信1')
-    await saveStreamSummary(db, { sessionId: '配信1', summary: '導入部を遊んでいます', transcriptsUntil: { at: '', messageId: '' }, chatUntil: { at: '', messageId: '' }, screenUntil: { at: '', imageId: '', lineNo: -1 } }, 作成時刻)
+    startStream('配信1')
+    await saveStreamSummary(db, { sessionId: '配信1', summary: '導入部を遊んでいます', transcriptsUntil: { at: '', messageId: '' }, chatUntil: { at: '', messageId: '' }, screenUntil: { at: '', imageId: '', lineNo: -1 } }, CREATED_AT)
 
-    expect(await readCurrentStreamSummary(db, 作成時刻)).toEqual({ summary: '導入部を遊んでいます', updatedAt: '2026-09-23T20:10:00.000Z' })
+    expect(await readCurrentStreamSummary(db, CREATED_AT)).toEqual({ summary: '導入部を遊んでいます', updatedAt: '2026-09-23T20:10:00.000Z' })
   })
 
   it('配信していなければ null を返す（前の配信のあらすじを持ち越さない）', async () => {
-    配信を始める('配信1')
-    await saveStreamSummary(db, { sessionId: '配信1', summary: '前の配信の話', transcriptsUntil: { at: '', messageId: '' }, chatUntil: { at: '', messageId: '' }, screenUntil: { at: '', imageId: '', lineNo: -1 } }, 作成時刻)
-    配信を終える(作成時刻 + 1000)
+    startStream('配信1')
+    await saveStreamSummary(db, { sessionId: '配信1', summary: '前の配信の話', transcriptsUntil: { at: '', messageId: '' }, chatUntil: { at: '', messageId: '' }, screenUntil: { at: '', imageId: '', lineNo: -1 } }, CREATED_AT)
+    endStream(CREATED_AT + 1000)
 
-    expect(await readCurrentStreamSummary(db, 作成時刻 + 2000)).toBeNull()
+    expect(await readCurrentStreamSummary(db, CREATED_AT + 2000)).toBeNull()
   })
 
   it('配信は始まっているが、まだあらすじを作っていなければ null を返す', async () => {
-    配信を始める('配信1')
+    startStream('配信1')
 
-    expect(await readCurrentStreamSummary(db, 作成時刻)).toBeNull()
+    expect(await readCurrentStreamSummary(db, CREATED_AT)).toBeNull()
   })
 })

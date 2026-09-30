@@ -14,7 +14,7 @@ describe('DRAW_COLORS', () => {
   })
 
   it('どの色にも、画面に出す日本語の名前がある', () => {
-    for (const 色 of DRAW_COLORS) expect(色.label).not.toBe('')
+    for (const color of DRAW_COLORS) expect(color.label).not.toBe('')
   })
 
   it('既定の色は一覧にある', () => {
@@ -28,8 +28,8 @@ describe('DRAW_WIDTHS', () => {
   })
 
   it('細い順に並んでいる（画面の並びがそのまま太さの順になる）', () => {
-    const 比 = DRAW_WIDTHS.map(({ ratio }) => ratio)
-    expect(比).toEqual([...比].sort((a, b) => a - b))
+    const ratios = DRAW_WIDTHS.map(({ ratio }) => ratio)
+    expect(ratios).toEqual([...ratios].sort((a, b) => a - b))
   })
 
   it('既定の太さは一覧にある', () => {

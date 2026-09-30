@@ -40,13 +40,13 @@ describe('createSideSuperView', () => {
   it('同じ文言を読み直しても、行の要素を作り直さない', () => {
     const view = createSideSuperView(root)
     view.setLines(['初見プレイ中', 'ボス戦へ向けて装備集め'])
-    const 最初の見出し = root.querySelector('.side-super-head')
-    const 最初の本文 = root.querySelector('.side-super-body')
+    const firstHead = root.querySelector('.side-super-head')
+    const firstBody = root.querySelector('.side-super-body')
 
     view.setLines(['初見プレイ中', 'ボス戦へ向けて装備集め'])
 
-    expect(root.querySelector('.side-super-head')).toBe(最初の見出し)
-    expect(root.querySelector('.side-super-body')).toBe(最初の本文)
+    expect(root.querySelector('.side-super-head')).toBe(firstHead)
+    expect(root.querySelector('.side-super-body')).toBe(firstBody)
   })
 
   it('本文だけが変わったら、新しい文言に差し替える', () => {

@@ -38,7 +38,7 @@ export const MAX_STROKES = 500
 /**
  * 1本の線が持てる点の数の上限。
  *
- * 描いている最中は上限を気にせず点を足していける長さ（毎秒30点なら2分ほどの連続した1本）にしてある。
+ * 描いている最中は上限を気にせず点を追加していける長さ（毎秒30点なら2分ほどの連続した1本）にしてある。
  * 上限を設けるのは、この集まりをそのままKVへ保存する（worker/draw-config.ts）ためで、
  * 1本が際限なく長いと保存できる大きさに当たる。
  */
@@ -78,11 +78,11 @@ export const applyDrawMessage = (strokes: Strokes, message: DrawMessage): Stroke
   }
   if (message.type === 'start') {
     // 同じ名前で描き始めが来たら、その線を引き直す（描く画面がつなぎ直して名前を振り直した場合）
-    const 残す = strokes.strokes.filter(({ id }) => id !== message.id)
-    const 足したもの = [...残す, { id: message.id, points: [message.point], color: message.color, width: message.width }]
-    return { strokes: 足したもの.slice(Math.max(0, 足したもの.length - MAX_STROKES)) }
+    const keep = strokes.strokes.filter(({ id }) => id !== message.id)
+    const added = [...keep, { id: message.id, points: [message.point], color: message.color, width: message.width }]
+    return { strokes: added.slice(Math.max(0, added.length - MAX_STROKES)) }
   }
-  const 対象 = strokes.strokes.find(({ id }) => id === message.id)
-  if (対象 === undefined) return strokes
-  return { strokes: strokes.strokes.map((stroke) => (stroke === 対象 ? { ...stroke, points: [...stroke.points, ...message.points] } : stroke)) }
+  const target = strokes.strokes.find(({ id }) => id === message.id)
+  if (target === undefined) return strokes
+  return { strokes: strokes.strokes.map((stroke) => (stroke === target ? { ...stroke, points: [...stroke.points, ...message.points] } : stroke)) }
 }

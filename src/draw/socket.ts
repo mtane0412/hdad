@@ -5,7 +5,7 @@
  * 同じ中継先（worker/draw-channel.ts の Durable Object）へつなぐ。描く画面は送る側、合成ページは受け取る側で、
  * どちらとして扱うかはつなぐ経路が決める（合成ページが使うオーバーレイ用キーだけでは描けない）。
  *
- * つなぎ直し・生存確認は src/core/socket.ts が受け持ち、ここは経路と読み取り（stroke.ts）だけを足す。
+ * つなぎ直し・生存確認は src/core/socket.ts が受け持ち、ここは経路と読み取り（stroke.ts）だけを追加する。
  */
 import { connectSocket, socketUrl, type SocketConnection } from '../core/socket'
 import { parseDrawMessage, type DrawMessage } from './stroke'

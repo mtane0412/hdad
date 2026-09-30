@@ -10,35 +10,35 @@ import { describe, expect, it } from 'vitest'
 import { TimeoutError, runWithTimeout, withTimeout } from './timeout'
 
 /** 押し込まれた要求を覚えたうえで、いつまでも応答を返さない fetch */
-const 黙り続けるfetch = () => {
-  const 受け取った: { url: string; signal: AbortSignal | null }[] = []
+const silentFetch = () => {
+  const received: { url: string; signal: AbortSignal | null }[] = []
   const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    受け取った.push({ url: String(input), signal: init?.signal ?? null })
+    received.push({ url: String(input), signal: init?.signal ?? null })
     return await new Promise<Response>(() => undefined)
   }) as typeof fetch
-  return { fetchImpl, 受け取った }
+  return { fetchImpl, received }
 }
 
 describe('withTimeout', () => {
   it('相手が応答を返さないと、決めた時間で TimeoutError にする', async () => {
-    const { fetchImpl } = 黙り続けるfetch()
-    const 期限付き = withTimeout(fetchImpl, 10, 'Twitch')
+    const { fetchImpl } = silentFetch()
+    const withDeadline = withTimeout(fetchImpl, 10, 'Twitch')
 
-    await expect(期限付き('https://api.twitch.tv/helix/streams')).rejects.toBeInstanceOf(TimeoutError)
+    await expect(withDeadline('https://api.twitch.tv/helix/streams')).rejects.toBeInstanceOf(TimeoutError)
   })
 
   it('失敗の文面に相手の名前と制限の秒数を入れる', async () => {
-    const { fetchImpl } = 黙り続けるfetch()
-    const 期限付き = withTimeout(fetchImpl, 10, 'Gyazo')
+    const { fetchImpl } = silentFetch()
+    const withDeadline = withTimeout(fetchImpl, 10, 'Gyazo')
 
-    await expect(期限付き('https://api.gyazo.com/api/images/abc')).rejects.toThrow(/Gyazo.*0\.01秒/)
+    await expect(withDeadline('https://api.gyazo.com/api/images/abc')).rejects.toThrow(/Gyazo.*0\.01秒/)
   })
 
   it('相手が応答を中断できるよう、中断の合図を渡す', async () => {
-    const { fetchImpl, 受け取った } = 黙り続けるfetch()
+    const { fetchImpl, received } = silentFetch()
 
     await expect(withTimeout(fetchImpl, 10, 'Twitch')('https://api.twitch.tv/helix/users')).rejects.toBeInstanceOf(TimeoutError)
-    const signal = 受け取った[0]?.signal
+    const signal = received[0]?.signal
     expect(signal).toBeInstanceOf(AbortSignal)
     expect(signal?.aborted).toBe(true)
   })
@@ -51,17 +51,17 @@ describe('withTimeout', () => {
   })
 
   it('呼び出し側が中断の合図を渡していれば、それも効いたままにする', async () => {
-    const { fetchImpl, 受け取った } = 黙り続けるfetch()
-    const 呼び出し側 = new AbortController()
+    const { fetchImpl, received } = silentFetch()
+    const caller = new AbortController()
 
     // 期限（50ミリ秒）にはまだ達していないが、呼び出し側がやめれば相手へ渡った合図も上がる
-    const 待っているもの = withTimeout(fetchImpl, 50, 'Twitch')('https://api.twitch.tv/helix/streams', { signal: 呼び出し側.signal })
-    expect(受け取った[0]?.signal?.aborted).toBe(false)
-    呼び出し側.abort(new Error('呼び出し側がやめました'))
-    expect(受け取った[0]?.signal?.aborted).toBe(true)
+    const pending = withTimeout(fetchImpl, 50, 'Twitch')('https://api.twitch.tv/helix/streams', { signal: caller.signal })
+    expect(received[0]?.signal?.aborted).toBe(false)
+    caller.abort(new Error('呼び出し側がやめました'))
+    expect(received[0]?.signal?.aborted).toBe(true)
 
     // 中断を見ない代役はここでも応答を返さないので、期限まで待って失敗する（約束を捨てたままにしない）
-    await expect(待っているもの).rejects.toBeInstanceOf(TimeoutError)
+    await expect(pending).rejects.toBeInstanceOf(TimeoutError)
   })
 
   it('応答の本文が届かないまま止まったときも TimeoutError にする', async () => {

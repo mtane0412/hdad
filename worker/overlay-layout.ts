@@ -9,7 +9,7 @@
  * オーバーレイを複数に分けるのは、アバターやゲーム画面というWebでないソースが間に挟まり、Web側の素材を
  * その前と後ろの両方に置きたいためである。既定では背面（back。壁紙）と前面（front。時計・チャット・
  * サイドスーパー・注目コメント・アラート）の2つを用意し、配信者が増やせる（増やしたときだけOBSへ
- * ブラウザソースを1つ足す）。名前を固定しておけば、OBSに貼るURLは一度貼ったら変わらず、
+ * ブラウザソースを1つ追加する）。名前を固定しておけば、OBSに貼るURLは一度貼ったら変わらず、
  * 「時計を背面から前面へ移す」も「位置を変える」もアプリ上の編集だけで済む
  * （読み上げの設定をURLからWorkerへ移した issue #86 と同じ動機）。
  *
@@ -186,8 +186,8 @@ export const parseOverlayLayout = (input: unknown): OverlayLayout => {
         return { x: 0, y: 0, width: 100, height: 100 }
       }
       const readNumber = (name: 'x' | 'y' | 'width' | 'height', min: number, max: number): number => {
-        const raw値 = value[name]
-        if (typeof raw値 === 'number' && Number.isFinite(raw値) && raw値 >= min && raw値 <= max) return raw値
+        const rawValue = value[name]
+        if (typeof rawValue === 'number' && Number.isFinite(rawValue) && rawValue >= min && rawValue <= max) return rawValue
         problems.push(`${at}.rect.${name}: ${min}〜${max} の数（％）で指定してください`)
         return min
       }

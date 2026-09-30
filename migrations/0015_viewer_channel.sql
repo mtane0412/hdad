@@ -8,7 +8,7 @@
 --
 -- 「配信者かどうか」という真偽値では持たない。理由は3つある。
 -- 1. last_badges に入る broadcaster は「このチャンネルの配信者本人」を指すため、is_broadcaster のような列を
---    足すと、同じ行の中で broadcaster が2つの意味を持ち、読む人が取り違える。
+--    追加すると、同じ行の中で broadcaster が2つの意味を持ち、読む人が取り違える。
 -- 2. Twitchは「配信者かどうか」を返さない。GET /helix/users の broadcaster_type は partner / affiliate / 空文字で
 --    収益化の区分であり、アフィリエイト未満の配信者は空文字になる（偽陰性が多い）。GET /helix/channels は
 --    誰に対しても行を返し、一度も配信していない人では game_name と title が空文字になるだけである。
@@ -26,7 +26,7 @@ ALTER TABLE viewers ADD COLUMN last_stream_game TEXT NOT NULL DEFAULT '';
 -- 最後に観測した、その人のチャンネルのタイトル（GET /helix/channels の title）。カテゴリと同じく空文字になりうる。
 ALTER TABLE viewers ADD COLUMN last_stream_title TEXT NOT NULL DEFAULT '';
 
--- そのチャンネルを観測した日時。まだ調べていない人（この列を足す前からある行を含む）では NULL。
+-- そのチャンネルを観測した日時。まだ調べていない人（この列を追加する前からある行を含む）では NULL。
 --
 -- この列があるおかげで、「調べたが配信歴が無い」（この列が入っていて last_stream_game が空文字）と
 -- 「まだ調べていない」（この列が NULL）を区別できる。真偽値1列ではこの2つが同じ false に潰れ、

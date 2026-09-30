@@ -21,7 +21,7 @@ import type { AnyParamValue, BooleanParamSpec, ColorParamSpec, ColorsParamSpec, 
 const DECIMAL_STEP = 0.05
 /** 透過を解除したときに戻す色が既定値から得られない場合の色 */
 const OPAQUE_FALLBACK_COLOR = '#000000'
-/** 配色に色を足すときの初期色 */
+/** 配色に色を追加するときの初期色 */
 const ADDED_COLOR = '#ffffff'
 const TRANSPARENT = 'transparent'
 
@@ -122,7 +122,7 @@ const ColorsField = ({ name, spec, value, onChange }: FieldProps<ColorsParamSpec
           type="button"
           variant="outline"
           size="icon-sm"
-          {...iconButtonName('色を足す')}
+          {...iconButtonName('色を追加する')}
           disabled={colors.length >= spec.maxCount}
           onClick={() => onChange([...colors, ADDED_COLOR])}
         >

@@ -33,7 +33,7 @@ export const tileQuarterTurns = (cycle: number): number => {
 /**
  * タイルの回転の進み具合（tileQuarterTurns に渡す cycle）を求める。
  *
- * 注意: speed が0（静止）のときはタイルごとのずれを足さない。ずれを足すと、
+ * 注意: speed が0（静止）のときはタイルごとのずれを追加しない。ずれを追加すると、
  * 一部のタイルが回転途中の角度のまま止まり、曲線が切れた状態で静止してしまう。
  *
  * @param time 経過時間（秒）

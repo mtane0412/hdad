@@ -40,7 +40,7 @@ LLMの応答を待つとTwitchへの2xxが遅れて再送されるので、`Cont
 
 `shoutout`（シャウトアウト。Twitch組み込みの、相手の配信者を紹介する機能。`worker/twitch.ts` の `sendShoutout`。`POST /helix/chat/shoutouts`）は**レイドのトリガーにだけ置ける**（`parseAlertConfig` が拒み、画面も `src/admin/form.ts` の `supportsShoutout` でレイドの項目にだけ入力欄を出す）。ほかのイベントの相手は配信者とは限らず、紹介しても意味を持たないためで、すべての項目に出すと意味のない組み合わせを作れてしまう（既定メニューにした理由と同じである）。
 
-配信者が決める項目を持たない動作なので、`StoredShoutoutAction` は `type` だけを持ち、紹介する相手はイベントの中身から決まる。そのため `Extracted` のレイドに `userId`（`from_broadcaster_user_id`）を足してある。当てはまった相手を返すのは `shoutoutsFor` で、レイド以外のイベントの `Extracted` が来たら黙って送らずに投げる（Fail-Fast。宛先にできる配信者がいないため）。
+配信者が決める項目を持たない動作なので、`StoredShoutoutAction` は `type` だけを持ち、紹介する相手はイベントの中身から決まる。そのため `Extracted` のレイドに `userId`（`from_broadcaster_user_id`）を追加してある。当てはまった相手を返すのは `shoutoutsFor` で、レイド以外のイベントの `Extracted` が来たら黙って送らずに投げる（Fail-Fast。宛先にできる配信者がいないため）。
 
 スコープは `moderator:manage:shoutouts` で、**増えた＝botの接続し直しが必要**である。
 

@@ -13,9 +13,9 @@ export const demoStrokes: readonly Stroke[] = [
     id: '囲み',
     color: 'yellow',
     width: 'medium',
-    points: Array.from({ length: 33 }, (_, 番号) => {
-      const 角度 = (番号 / 32) * Math.PI * 2
-      return { x: 0.38 + Math.cos(角度) * 0.16, y: 0.42 + Math.sin(角度) * 0.2 }
+    points: Array.from({ length: 33 }, (_, index) => {
+      const angle = (index / 32) * Math.PI * 2
+      return { x: 0.38 + Math.cos(angle) * 0.16, y: 0.42 + Math.sin(angle) * 0.2 }
     }),
   },
   {

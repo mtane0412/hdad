@@ -9,7 +9,7 @@ import { TimeoutError } from './timeout'
 import { TwitchApiError, createTwitchClient } from './twitch'
 
 /** 送られたリクエストを記録し、決めた応答を返す fetch */
-const 応答を返すfetch = (status: number, body: unknown) => {
+const fetchReturning = (status: number, body: unknown) => {
   const requests: Request[] = []
   const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     requests.push(new Request(input, init))
@@ -19,7 +19,7 @@ const 応答を返すfetch = (status: number, body: unknown) => {
 }
 
 /** 本文を返さない応答（204など）を返す fetch。モデレーション操作の成功はこの形で返る */
-const 本文のない応答を返すfetch = (status: number) => {
+const fetchReturningNoBody = (status: number) => {
   const requests: Request[] = []
   const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     requests.push(new Request(input, init))
@@ -28,14 +28,14 @@ const 本文のない応答を返すfetch = (status: number) => {
   return { requests, fetchImpl }
 }
 
-const クライアントを作る = (fetchImpl: typeof fetch) =>
+const createClient = (fetchImpl: typeof fetch) =>
   createTwitchClient({ clientId: 'test-client-id', clientSecret: 'テスト用シークレット', fetch: fetchImpl })
 
 describe('authorizeUrl', () => {
   it('Twitchの認可ページのURLに、クライアントID・戻り先・スコープ・stateを載せる', () => {
-    const { fetchImpl } = 応答を返すfetch(200, {})
+    const { fetchImpl } = fetchReturning(200, {})
     const url = new URL(
-      クライアントを作る(fetchImpl).authorizeUrl('https://example.com/api/auth/callback', 'ランダムなstate', [
+      createClient(fetchImpl).authorizeUrl('https://example.com/api/auth/callback', 'ランダムなstate', [
         'channel:read:redemptions',
         'moderator:read:followers',
       ]),
@@ -51,14 +51,14 @@ describe('authorizeUrl', () => {
 
 describe('exchangeCode', () => {
   it('認可コードをトークンに交換する', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, {
+    const { requests, fetchImpl } = fetchReturning(200, {
       access_token: 'test-access-token',
       refresh_token: 'リフレッシュトークン',
       expires_in: 14400,
       scope: ['channel:read:redemptions'],
       token_type: 'bearer',
     })
-    const grant = await クライアントを作る(fetchImpl).exchangeCode('認可コード', 'https://example.com/api/auth/callback')
+    const grant = await createClient(fetchImpl).exchangeCode('認可コード', 'https://example.com/api/auth/callback')
 
     expect(grant).toEqual({ accessToken: 'test-access-token', refreshToken: 'リフレッシュトークン', expiresIn: 14400 })
     const request = requests[0]!
@@ -72,16 +72,16 @@ describe('exchangeCode', () => {
   })
 
   it('Twitchが失敗を返したら TwitchApiError になる', async () => {
-    const { fetchImpl } = 応答を返すfetch(400, { status: 400, message: 'Invalid authorization code' })
-    await expect(クライアントを作る(fetchImpl).exchangeCode('使用済みのコード', 'https://example.com/cb')).rejects.toMatchObject({
+    const { fetchImpl } = fetchReturning(400, { status: 400, message: 'Invalid authorization code' })
+    await expect(createClient(fetchImpl).exchangeCode('使用済みのコード', 'https://example.com/cb')).rejects.toMatchObject({
       name: 'TwitchApiError',
       status: 400,
     })
   })
 
   it('応答に必要な項目が欠けていたらエラーになる', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, { access_token: 'test-access-token' })
-    await expect(クライアントを作る(fetchImpl).exchangeCode('認可コード', 'https://example.com/cb')).rejects.toBeInstanceOf(
+    const { fetchImpl } = fetchReturning(200, { access_token: 'test-access-token' })
+    await expect(createClient(fetchImpl).exchangeCode('認可コード', 'https://example.com/cb')).rejects.toBeInstanceOf(
       TwitchApiError,
     )
   })
@@ -89,12 +89,12 @@ describe('exchangeCode', () => {
 
 describe('refresh', () => {
   it('リフレッシュトークンで新しいトークンを受け取る', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, {
+    const { requests, fetchImpl } = fetchReturning(200, {
       access_token: '新しいアクセストークン',
       refresh_token: '新しいリフレッシュトークン',
       expires_in: 14400,
     })
-    const grant = await クライアントを作る(fetchImpl).refresh('古いリフレッシュトークン')
+    const grant = await createClient(fetchImpl).refresh('古いリフレッシュトークン')
 
     expect(grant.accessToken).toBe('新しいアクセストークン')
     const form = new URLSearchParams(await requests[0]!.text())
@@ -105,14 +105,14 @@ describe('refresh', () => {
 
 describe('validate', () => {
   it('アクセストークンの持ち主とスコープを返す', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, {
+    const { requests, fetchImpl } = fetchReturning(200, {
       client_id: 'test-client-id',
       login: 'haishinsha',
       scopes: ['channel:read:redemptions'],
       user_id: '12345',
       expires_in: 14000,
     })
-    const owner = await クライアントを作る(fetchImpl).validate('test-access-token')
+    const owner = await createClient(fetchImpl).validate('test-access-token')
 
     expect(owner).toEqual({ userId: '12345', login: 'haishinsha', scopes: ['channel:read:redemptions'] })
     expect(requests[0]!.url).toBe('https://id.twitch.tv/oauth2/validate')
@@ -122,14 +122,14 @@ describe('validate', () => {
 
 describe('createSubscription', () => {
   it('HelixへEventSubの購読を登録する', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(202, { data: [] })
+    const { requests, fetchImpl } = fetchReturning(202, { data: [] })
     const subscription = {
       type: 'channel.raid',
       version: '1',
       condition: { to_broadcaster_user_id: '12345' },
       transport: { method: 'webhook', callback: 'https://hdad.example.com/api/eventsub/webhook', secret: 'テスト用のWebhookシークレット' },
     } as const
-    await クライアントを作る(fetchImpl).createSubscription('test-access-token', subscription)
+    await createClient(fetchImpl).createSubscription('test-access-token', subscription)
 
     const request = requests[0]!
     expect(request.url).toBe('https://api.twitch.tv/helix/eventsub/subscriptions')
@@ -140,9 +140,9 @@ describe('createSubscription', () => {
   })
 
   it('Twitchが失敗を返したら、状態コードとメッセージを持つエラーになる', async () => {
-    const { fetchImpl } = 応答を返すfetch(403, { error: 'Forbidden', status: 403, message: 'subscription missing proper authorization' })
+    const { fetchImpl } = fetchReturning(403, { error: 'Forbidden', status: 403, message: 'subscription missing proper authorization' })
     await expect(
-      クライアントを作る(fetchImpl).createSubscription('test-access-token', {
+      createClient(fetchImpl).createSubscription('test-access-token', {
         type: 'channel.follow',
         version: '2',
         condition: {},
@@ -154,14 +154,14 @@ describe('createSubscription', () => {
 
 describe('listCustomRewards', () => {
   it('Helixから配信者のチャンネルポイント報酬を取得し、ID・名前・必要ポイントだけを返す', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, {
+    const { requests, fetchImpl } = fetchReturning(200, {
       data: [
         { id: '報酬ID-乾杯', title: '乾杯する', cost: 500, is_enabled: true, prompt: '' },
         { id: '報酬ID-おみくじ', title: 'おみくじを引く', cost: 100, is_enabled: false, prompt: '' },
       ],
     })
 
-    const rewards = await クライアントを作る(fetchImpl).listCustomRewards('test-access-token', '12345')
+    const rewards = await createClient(fetchImpl).listCustomRewards('test-access-token', '12345')
 
     expect(rewards).toEqual([
       { id: '報酬ID-乾杯', title: '乾杯する', cost: 500 },
@@ -174,22 +174,22 @@ describe('listCustomRewards', () => {
   })
 
   it('Twitchが失敗を返したら、状態コードを持つエラーになる（アフィリエイト未満のチャンネルなど）', async () => {
-    const { fetchImpl } = 応答を返すfetch(403, { error: 'Forbidden', status: 403, message: 'channel points are not available for the broadcaster' })
-    await expect(クライアントを作る(fetchImpl).listCustomRewards('test-access-token', '12345')).rejects.toMatchObject({
+    const { fetchImpl } = fetchReturning(403, { error: 'Forbidden', status: 403, message: 'channel points are not available for the broadcaster' })
+    await expect(createClient(fetchImpl).listCustomRewards('test-access-token', '12345')).rejects.toMatchObject({
       status: 403,
       message: expect.stringContaining('channel points are not available'),
     })
   })
 
   it('応答が想定した形でなければエラーになる（黙って空の一覧にしない）', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, { data: [{ id: '報酬ID-乾杯' }] })
-    await expect(クライアントを作る(fetchImpl).listCustomRewards('test-access-token', '12345')).rejects.toBeInstanceOf(TwitchApiError)
+    const { fetchImpl } = fetchReturning(200, { data: [{ id: '報酬ID-乾杯' }] })
+    await expect(createClient(fetchImpl).listCustomRewards('test-access-token', '12345')).rejects.toBeInstanceOf(TwitchApiError)
   })
 })
 
 describe('getLiveStream', () => {
   it('配信中なら、配信ID・開始日時・タイトル・カテゴリ・視聴者数を返す', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, {
+    const { requests, fetchImpl } = fetchReturning(200, {
       data: [
         {
           id: '40000000001',
@@ -203,7 +203,7 @@ describe('getLiveStream', () => {
       ],
     })
 
-    const stream = await クライアントを作る(fetchImpl).getLiveStream('test-access-token', '12345')
+    const stream = await createClient(fetchImpl).getLiveStream('test-access-token', '12345')
 
     // 開始日時はミリ秒付きのISO 8601に揃える（データベースで文字列のまま比べるため）
     expect(stream).toEqual({
@@ -220,8 +220,8 @@ describe('getLiveStream', () => {
   })
 
   it('配信していなければ null を返す', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, { data: [] })
-    expect(await クライアントを作る(fetchImpl).getLiveStream('test-access-token', '12345')).toBeNull()
+    const { fetchImpl } = fetchReturning(200, { data: [] })
+    expect(await createClient(fetchImpl).getLiveStream('test-access-token', '12345')).toBeNull()
   })
 
   it.each([
@@ -231,20 +231,20 @@ describe('getLiveStream', () => {
       { data: [{ id: '40000000001', game_name: '', title: '', viewer_count: 1, started_at: 'きのうの夜' }] },
     ],
     ['data が配列でない', { data: null }],
-  ])('応答が想定した形でなければエラーになる（%s）', async (_説明, body) => {
-    const { fetchImpl } = 応答を返すfetch(200, body)
-    await expect(クライアントを作る(fetchImpl).getLiveStream('test-access-token', '12345')).rejects.toBeInstanceOf(TwitchApiError)
+  ])('応答が想定した形でなければエラーになる（%s）', async (_description, body) => {
+    const { fetchImpl } = fetchReturning(200, body)
+    await expect(createClient(fetchImpl).getLiveStream('test-access-token', '12345')).rejects.toBeInstanceOf(TwitchApiError)
   })
 
   it('Twitchが失敗を返したら、状態コードを持つエラーになる', async () => {
-    const { fetchImpl } = 応答を返すfetch(401, { error: 'Unauthorized', status: 401, message: 'Invalid OAuth token' })
-    await expect(クライアントを作る(fetchImpl).getLiveStream('test-access-token', '12345')).rejects.toMatchObject({ status: 401 })
+    const { fetchImpl } = fetchReturning(401, { error: 'Unauthorized', status: 401, message: 'Invalid OAuth token' })
+    await expect(createClient(fetchImpl).getLiveStream('test-access-token', '12345')).rejects.toMatchObject({ status: 401 })
   })
 })
 
 describe('getChannel', () => {
   it('その人のチャンネルの、最後に配信したカテゴリとタイトルを返す', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, {
+    const { requests, fetchImpl } = fetchReturning(200, {
       data: [
         {
           broadcaster_id: '100',
@@ -256,7 +256,7 @@ describe('getChannel', () => {
       ],
     })
 
-    const channel = await クライアントを作る(fetchImpl).getChannel('test-access-token', '100')
+    const channel = await createClient(fetchImpl).getChannel('test-access-token', '100')
 
     expect(channel).toEqual({ categoryName: 'Cuphead', title: '初見でボスラッシュ' })
     const request = requests[0]!
@@ -266,26 +266,26 @@ describe('getChannel', () => {
   })
 
   it('一度も配信していない人では、カテゴリとタイトルが空文字で返る（Twitchが空文字を返すため）', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, { data: [{ broadcaster_id: '100', game_name: '', title: '' }] })
+    const { fetchImpl } = fetchReturning(200, { data: [{ broadcaster_id: '100', game_name: '', title: '' }] })
 
-    expect(await クライアントを作る(fetchImpl).getChannel('test-access-token', '100')).toEqual({ categoryName: '', title: '' })
+    expect(await createClient(fetchImpl).getChannel('test-access-token', '100')).toEqual({ categoryName: '', title: '' })
   })
 
   it.each([
     ['チャンネルが1件も返らない（消えたアカウント）', { data: [] }],
     ['必要な項目が欠けている', { data: [{ broadcaster_id: '100', game_name: 'Cuphead' }] }],
     ['data が配列でない', { data: null }],
-  ])('応答が想定した形でなければエラーになる（%s）', async (_説明, body) => {
-    const { fetchImpl } = 応答を返すfetch(200, body)
-    await expect(クライアントを作る(fetchImpl).getChannel('test-access-token', '100')).rejects.toBeInstanceOf(TwitchApiError)
+  ])('応答が想定した形でなければエラーになる（%s）', async (_description, body) => {
+    const { fetchImpl } = fetchReturning(200, body)
+    await expect(createClient(fetchImpl).getChannel('test-access-token', '100')).rejects.toBeInstanceOf(TwitchApiError)
   })
 })
 
 describe('getFollowerTotal', () => {
   it('配信者のフォロワー数を返す', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, { total: 1234, data: [], pagination: {} })
+    const { requests, fetchImpl } = fetchReturning(200, { total: 1234, data: [], pagination: {} })
 
-    expect(await クライアントを作る(fetchImpl).getFollowerTotal('test-access-token', '12345')).toBe(1234)
+    expect(await createClient(fetchImpl).getFollowerTotal('test-access-token', '12345')).toBe(1234)
     const request = requests[0]!
     // 数だけが要るので、フォロワーの一覧は最小の1件にする
     expect(request.url).toBe('https://api.twitch.tv/helix/channels/followers?broadcaster_id=12345&first=1')
@@ -293,15 +293,15 @@ describe('getFollowerTotal', () => {
   })
 
   it('応答に total が無ければエラーになる（黙って0にしない）', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, { data: [] })
-    await expect(クライアントを作る(fetchImpl).getFollowerTotal('test-access-token', '12345')).rejects.toBeInstanceOf(TwitchApiError)
+    const { fetchImpl } = fetchReturning(200, { data: [] })
+    await expect(createClient(fetchImpl).getFollowerTotal('test-access-token', '12345')).rejects.toBeInstanceOf(TwitchApiError)
   })
 })
 
 describe('getAppAccessToken', () => {
   it('クライアントの資格情報でアプリアクセストークンを受け取る', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, { access_token: 'test-app-token', expires_in: 5000000, token_type: 'bearer' })
-    const accessToken = await クライアントを作る(fetchImpl).getAppAccessToken()
+    const { requests, fetchImpl } = fetchReturning(200, { access_token: 'test-app-token', expires_in: 5000000, token_type: 'bearer' })
+    const accessToken = await createClient(fetchImpl).getAppAccessToken()
 
     expect(accessToken).toBe('test-app-token')
     const request = requests[0]!
@@ -314,21 +314,21 @@ describe('getAppAccessToken', () => {
   })
 
   it('応答に access_token が無ければエラーになる', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, { expires_in: 5000000 })
-    await expect(クライアントを作る(fetchImpl).getAppAccessToken()).rejects.toBeInstanceOf(TwitchApiError)
+    const { fetchImpl } = fetchReturning(200, { expires_in: 5000000 })
+    await expect(createClient(fetchImpl).getAppAccessToken()).rejects.toBeInstanceOf(TwitchApiError)
   })
 })
 
 describe('createSubscription（Webhook宛て）', () => {
   it('コールバックのURLとシークレットを載せて購読を登録する', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(202, { data: [] })
+    const { requests, fetchImpl } = fetchReturning(202, { data: [] })
     const subscription = {
       type: 'stream.online',
       version: '1',
       condition: { broadcaster_user_id: '12345' },
       transport: { method: 'webhook', callback: 'https://example.com/api/eventsub/webhook', secret: 'テスト用のWebhookシークレット' },
     } as const
-    await クライアントを作る(fetchImpl).createSubscription('test-app-token', subscription)
+    await createClient(fetchImpl).createSubscription('test-app-token', subscription)
 
     expect(await requests[0]!.json()).toEqual(subscription)
   })
@@ -340,9 +340,9 @@ describe('listSubscriptions', () => {
     const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const request = new Request(input, init)
       requests.push(request)
-      const 二ページ目 = new URL(request.url).searchParams.get('after') === '次のページ'
+      const secondPage = new URL(request.url).searchParams.get('after') === '次のページ'
       return Response.json(
-        二ページ目
+        secondPage
           ? {
               data: [
                 {
@@ -362,7 +362,7 @@ describe('listSubscriptions', () => {
             },
       )
     }
-    const subscriptions = await クライアントを作る(fetchImpl).listSubscriptions('test-app-token')
+    const subscriptions = await createClient(fetchImpl).listSubscriptions('test-app-token')
 
     expect(subscriptions).toEqual([
       { id: '購読1', status: 'enabled', type: 'stream.online', version: '1', condition: { broadcaster_user_id: '12345' }, callback: null },
@@ -382,8 +382,8 @@ describe('listSubscriptions', () => {
   })
 
   it('応答が想定した形でなければエラーになる（黙って空の一覧にしない）', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, { data: [{ id: '購読1' }] })
-    await expect(クライアントを作る(fetchImpl).listSubscriptions('test-app-token')).rejects.toBeInstanceOf(TwitchApiError)
+    const { fetchImpl } = fetchReturning(200, { data: [{ id: '購読1' }] })
+    await expect(createClient(fetchImpl).listSubscriptions('test-app-token')).rejects.toBeInstanceOf(TwitchApiError)
   })
 })
 
@@ -394,7 +394,7 @@ describe('deleteSubscription', () => {
       requests.push(new Request(input, init))
       return new Response(null, { status: 204 })
     }
-    await クライアントを作る(fetchImpl).deleteSubscription('test-app-token', '購読1')
+    await createClient(fetchImpl).deleteSubscription('test-app-token', '購読1')
 
     const request = requests[0]!
     expect(request.method).toBe('DELETE')
@@ -403,14 +403,14 @@ describe('deleteSubscription', () => {
   })
 
   it('Twitchが失敗を返したら、状態コードを持つエラーになる', async () => {
-    const { fetchImpl } = 応答を返すfetch(404, { error: 'Not Found', status: 404, message: 'subscription not found' })
-    await expect(クライアントを作る(fetchImpl).deleteSubscription('test-app-token', '購読1')).rejects.toMatchObject({ status: 404 })
+    const { fetchImpl } = fetchReturning(404, { error: 'Not Found', status: 404, message: 'subscription not found' })
+    await expect(createClient(fetchImpl).deleteSubscription('test-app-token', '購読1')).rejects.toMatchObject({ status: 404 })
   })
 })
 
 describe('getChatBadges', () => {
   /** Twitchのバッジ応答1件分（グローバルの「配信者」バッジ） */
-  const 配信者バッジ = {
+  const broadcasterBadge = {
     set_id: 'broadcaster',
     versions: [
       {
@@ -424,8 +424,8 @@ describe('getChatBadges', () => {
   }
 
   it('全体のバッジは broadcaster_id を付けずに取得する', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, { data: [配信者バッジ] })
-    const badges = await クライアントを作る(fetchImpl).getChatBadges('test-app-token', undefined)
+    const { requests, fetchImpl } = fetchReturning(200, { data: [broadcasterBadge] })
+    const badges = await createClient(fetchImpl).getChatBadges('test-app-token', undefined)
 
     const url = new URL(requests[0]!.url)
     expect(url.origin + url.pathname).toBe('https://api.twitch.tv/helix/chat/badges/global')
@@ -441,8 +441,8 @@ describe('getChatBadges', () => {
   })
 
   it('チャンネルのバッジは broadcaster_id を付けて取得する（サブスク階層など、そのチャンネル固有のバッジ）', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, { data: [] })
-    await クライアントを作る(fetchImpl).getChatBadges('test-app-token', '配信者ID-1')
+    const { requests, fetchImpl } = fetchReturning(200, { data: [] })
+    await createClient(fetchImpl).getChatBadges('test-app-token', '配信者ID-1')
 
     const url = new URL(requests[0]!.url)
     expect(url.origin + url.pathname).toBe('https://api.twitch.tv/helix/chat/badges')
@@ -450,8 +450,8 @@ describe('getChatBadges', () => {
   })
 
   it('応答が想定した形でなければエラーになる（黙って空の一覧にしない）', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, { data: [{ set_id: 'broadcaster' }] })
-    await expect(クライアントを作る(fetchImpl).getChatBadges('test-app-token', undefined)).rejects.toBeInstanceOf(TwitchApiError)
+    const { fetchImpl } = fetchReturning(200, { data: [{ set_id: 'broadcaster' }] })
+    await expect(createClient(fetchImpl).getChatBadges('test-app-token', undefined)).rejects.toBeInstanceOf(TwitchApiError)
   })
 })
 
@@ -476,8 +476,8 @@ describe('getCheermotes', () => {
   }
 
   it('チャンネル固有のものも含めて取得し、段階ごとの最小ビッツ数・色・画像を取り出す', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, { data: [cheer] })
-    const cheermotes = await クライアントを作る(fetchImpl).getCheermotes('test-app-token', '配信者ID-1')
+    const { requests, fetchImpl } = fetchReturning(200, { data: [cheer] })
+    const cheermotes = await createClient(fetchImpl).getCheermotes('test-app-token', '配信者ID-1')
 
     const url = new URL(requests[0]!.url)
     expect(url.origin + url.pathname).toBe('https://api.twitch.tv/helix/bits/cheermotes')
@@ -494,17 +494,17 @@ describe('getCheermotes', () => {
   })
 
   it('応答に画像のURLが無ければエラーになる（表示できないものを黙って混ぜない）', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, {
+    const { fetchImpl } = fetchReturning(200, {
       data: [{ prefix: 'Cheer', tiers: [{ min_bits: 1, color: '#979797', images: {} }] }],
     })
-    await expect(クライアントを作る(fetchImpl).getCheermotes('test-app-token', '配信者ID-1')).rejects.toBeInstanceOf(TwitchApiError)
+    await expect(createClient(fetchImpl).getCheermotes('test-app-token', '配信者ID-1')).rejects.toBeInstanceOf(TwitchApiError)
   })
 })
 
 describe('getUserLogin', () => {
   it('ユーザーIDからログイン名を取得する', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, { data: [{ id: '12345', login: 'tanenob', display_name: 'たねのぶ' }] })
-    const login = await クライアントを作る(fetchImpl).getUserLogin('test-app-token', '12345')
+    const { requests, fetchImpl } = fetchReturning(200, { data: [{ id: '12345', login: 'tanenob', display_name: 'たねのぶ' }] })
+    const login = await createClient(fetchImpl).getUserLogin('test-app-token', '12345')
 
     const url = new URL(requests[0]!.url)
     expect(url.origin + url.pathname).toBe('https://api.twitch.tv/helix/users')
@@ -513,17 +513,17 @@ describe('getUserLogin', () => {
   })
 
   it('そのIDのユーザーがいなければエラーになる', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, { data: [] })
-    await expect(クライアントを作る(fetchImpl).getUserLogin('test-app-token', '12345')).rejects.toBeInstanceOf(TwitchApiError)
+    const { fetchImpl } = fetchReturning(200, { data: [] })
+    await expect(createClient(fetchImpl).getUserLogin('test-app-token', '12345')).rejects.toBeInstanceOf(TwitchApiError)
   })
 })
 
 describe('getProfileImageUrl', () => {
   it('ログイン名からアイコン画像のURLを取得する', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, {
+    const { requests, fetchImpl } = fetchReturning(200, {
       data: [{ id: '100', login: 'kowai_hanashi', profile_image_url: 'https://static-cdn.jtvnw.net/jtv_user_pictures/kowai.png' }],
     })
-    const url = await クライアントを作る(fetchImpl).getProfileImageUrl('test-app-token', 'kowai_hanashi')
+    const url = await createClient(fetchImpl).getProfileImageUrl('test-app-token', 'kowai_hanashi')
 
     const requested = new URL(requests[0]!.url)
     expect(requested.origin + requested.pathname).toBe('https://api.twitch.tv/helix/users')
@@ -532,27 +532,27 @@ describe('getProfileImageUrl', () => {
   })
 
   it('そのログイン名のユーザーがいなければエラーになる（名前を変えた・消えた人）', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, { data: [] })
-    await expect(クライアントを作る(fetchImpl).getProfileImageUrl('test-app-token', 'kieta_hito')).rejects.toBeInstanceOf(TwitchApiError)
+    const { fetchImpl } = fetchReturning(200, { data: [] })
+    await expect(createClient(fetchImpl).getProfileImageUrl('test-app-token', 'kieta_hito')).rejects.toBeInstanceOf(TwitchApiError)
   })
 
   it('アイコンのURLが空・https で始まらないものならエラーになる（映せないURLを保存しないため）', async () => {
-    for (const 壊れたURL of ['', 'http://static-cdn.jtvnw.net/kowai.png', 'javascript:alert(1)']) {
-      const { fetchImpl } = 応答を返すfetch(200, { data: [{ id: '100', login: 'kowai_hanashi', profile_image_url: 壊れたURL }] })
-      await expect(クライアントを作る(fetchImpl).getProfileImageUrl('test-app-token', 'kowai_hanashi')).rejects.toBeInstanceOf(TwitchApiError)
+    for (const brokenUrl of ['', 'http://static-cdn.jtvnw.net/kowai.png', 'javascript:alert(1)']) {
+      const { fetchImpl } = fetchReturning(200, { data: [{ id: '100', login: 'kowai_hanashi', profile_image_url: brokenUrl }] })
+      await expect(createClient(fetchImpl).getProfileImageUrl('test-app-token', 'kowai_hanashi')).rejects.toBeInstanceOf(TwitchApiError)
     }
   })
 })
 
 describe('getProfileImageUrls', () => {
   it('ユーザーIDをまとめて渡し、IDごとのアイコン画像のURLを受け取る', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, {
+    const { requests, fetchImpl } = fetchReturning(200, {
       data: [
         { id: '100', login: 'jouren_san', profile_image_url: 'https://static-cdn.jtvnw.net/jtv_user_pictures/jouren.png' },
         { id: '200', login: 'shoken_san', profile_image_url: 'https://static-cdn.jtvnw.net/jtv_user_pictures/shoken.png' },
       ],
     })
-    const icons = await クライアントを作る(fetchImpl).getProfileImageUrls('test-app-token', ['100', '200'])
+    const icons = await createClient(fetchImpl).getProfileImageUrls('test-app-token', ['100', '200'])
 
     const requested = new URL(requests[0]!.url)
     expect(requested.origin + requested.pathname).toBe('https://api.twitch.tv/helix/users')
@@ -564,25 +564,25 @@ describe('getProfileImageUrls', () => {
   })
 
   it('Twitchが返さなかった人（消えたアカウント）は、結果に含めない', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, {
+    const { fetchImpl } = fetchReturning(200, {
       data: [{ id: '100', login: 'jouren_san', profile_image_url: 'https://static-cdn.jtvnw.net/jtv_user_pictures/jouren.png' }],
     })
-    expect(await クライアントを作る(fetchImpl).getProfileImageUrls('test-app-token', ['100', '消えた人のID'])).toEqual({
+    expect(await createClient(fetchImpl).getProfileImageUrls('test-app-token', ['100', '消えた人のID'])).toEqual({
       '100': 'https://static-cdn.jtvnw.net/jtv_user_pictures/jouren.png',
     })
   })
 
   it('アイコンのURLが https で始まらない人がいればエラーになる（画面の img に入れられないため）', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, { data: [{ id: '100', login: 'jouren_san', profile_image_url: 'javascript:alert(1)' }] })
-    await expect(クライアントを作る(fetchImpl).getProfileImageUrls('test-app-token', ['100'])).rejects.toBeInstanceOf(TwitchApiError)
+    const { fetchImpl } = fetchReturning(200, { data: [{ id: '100', login: 'jouren_san', profile_image_url: 'javascript:alert(1)' }] })
+    await expect(createClient(fetchImpl).getProfileImageUrls('test-app-token', ['100'])).rejects.toBeInstanceOf(TwitchApiError)
   })
 })
 
 describe('sendChatMessage', () => {
   it('チャットへメッセージを送る', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, { data: [{ message_id: 'abc', is_sent: true }] })
+    const { requests, fetchImpl } = fetchReturning(200, { data: [{ message_id: 'abc', is_sent: true }] })
 
-    await クライアントを作る(fetchImpl).sendChatMessage('bot-access-token', {
+    await createClient(fetchImpl).sendChatMessage('bot-access-token', {
       broadcasterId: '12345',
       senderId: '67890',
       message: 'こんにちは、配信を見に来ました',
@@ -596,20 +596,20 @@ describe('sendChatMessage', () => {
   })
 
   it('Twitchが失敗を返したら TwitchApiError になる', async () => {
-    const { fetchImpl } = 応答を返すfetch(401, { status: 401, message: 'Missing scope: user:write:chat' })
+    const { fetchImpl } = fetchReturning(401, { status: 401, message: 'Missing scope: user:write:chat' })
 
     await expect(
-      クライアントを作る(fetchImpl).sendChatMessage('bot-access-token-without-scope', { broadcasterId: '12345', senderId: '67890', message: 'テスト' }),
+      createClient(fetchImpl).sendChatMessage('bot-access-token-without-scope', { broadcasterId: '12345', senderId: '67890', message: 'テスト' }),
     ).rejects.toMatchObject({ name: 'TwitchApiError', status: 401 })
   })
 
   it('200で返ってきても is_sent が false なら、送信できなかったものとしてエラーにする', async () => {
     // TwitchはAutoModに止められた場合などに、200のまま is_sent: false と drop_reason を返す
-    const { fetchImpl } = 応答を返すfetch(200, {
+    const { fetchImpl } = fetchReturning(200, {
       data: [{ message_id: '', is_sent: false, drop_reason: { code: 'msg_rejected', message: 'メッセージがAutoModに保留されました' } }],
     })
 
-    const error = await クライアントを作る(fetchImpl)
+    const error = await createClient(fetchImpl)
       .sendChatMessage('bot-access-token', { broadcasterId: '12345', senderId: '67890', message: 'あやしい文言' })
       .catch((caught: unknown) => caught)
 
@@ -621,11 +621,11 @@ describe('sendChatMessage', () => {
 
 describe('banUser', () => {
   it('期間を指定するとタイムアウトになる（duration に秒数を載せる）', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, {
+    const { requests, fetchImpl } = fetchReturning(200, {
       data: [{ broadcaster_id: '12345', moderator_id: 'botのユーザーID', user_id: '荒らしのユーザーID', end_time: '2026-09-21T12:10:00Z' }],
     })
 
-    await クライアントを作る(fetchImpl).banUser('bot-access-token', {
+    await createClient(fetchImpl).banUser('bot-access-token', {
       broadcasterId: '12345',
       moderatorId: 'botのユーザーID',
       userId: '荒らしのユーザーID',
@@ -644,9 +644,9 @@ describe('banUser', () => {
   })
 
   it('期間を省略すると永久BANになる（duration を載せない）', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, { data: [{ user_id: '荒らしのユーザーID' }] })
+    const { requests, fetchImpl } = fetchReturning(200, { data: [{ user_id: '荒らしのユーザーID' }] })
 
-    await クライアントを作る(fetchImpl).banUser('bot-access-token', {
+    await createClient(fetchImpl).banUser('bot-access-token', {
       broadcasterId: '12345',
       moderatorId: 'botのユーザーID',
       userId: '荒らしのユーザーID',
@@ -657,10 +657,10 @@ describe('banUser', () => {
 
   it('すでにBAN済み・タイムアウト中なら 409 の TwitchApiError になる', async () => {
     // 呼び出し側が「処分済み」として扱えるよう、状態コードをそのまま残す
-    const { fetchImpl } = 応答を返すfetch(409, { error: 'Conflict', status: 409, message: 'user is already banned' })
+    const { fetchImpl } = fetchReturning(409, { error: 'Conflict', status: 409, message: 'user is already banned' })
 
     await expect(
-      クライアントを作る(fetchImpl).banUser('bot-access-token', {
+      createClient(fetchImpl).banUser('bot-access-token', {
         broadcasterId: '12345',
         moderatorId: 'botのユーザーID',
         userId: '荒らしのユーザーID',
@@ -672,9 +672,9 @@ describe('banUser', () => {
 describe('deleteChatMessage', () => {
   it('メッセージIDを指定して1件だけ削除する', async () => {
     // Twitchは成功時に 204（本文なし）を返す
-    const { requests, fetchImpl } = 本文のない応答を返すfetch(204)
+    const { requests, fetchImpl } = fetchReturningNoBody(204)
 
-    await クライアントを作る(fetchImpl).deleteChatMessage('bot-access-token', {
+    await createClient(fetchImpl).deleteChatMessage('bot-access-token', {
       broadcasterId: '12345',
       moderatorId: 'botのユーザーID',
       messageId: '消したい発言のID',
@@ -692,10 +692,10 @@ describe('deleteChatMessage', () => {
 
   it('Twitchが失敗を返したら TwitchApiError になる', async () => {
     // 配信者や他のモデレーターの発言、6時間より古い発言は削除できない
-    const { fetchImpl } = 応答を返すfetch(400, { status: 400, message: 'You may not delete another moderator’s messages.' })
+    const { fetchImpl } = fetchReturning(400, { status: 400, message: 'You may not delete another moderator’s messages.' })
 
     await expect(
-      クライアントを作る(fetchImpl).deleteChatMessage('bot-access-token', {
+      createClient(fetchImpl).deleteChatMessage('bot-access-token', {
         broadcasterId: '12345',
         moderatorId: 'botのユーザーID',
         messageId: 'モデレーターの発言のID',
@@ -706,9 +706,9 @@ describe('deleteChatMessage', () => {
 
 describe('sendChatAnnouncement', () => {
   it('色を指定してアナウンスを送る', async () => {
-    const { requests, fetchImpl } = 本文のない応答を返すfetch(204)
+    const { requests, fetchImpl } = fetchReturningNoBody(204)
 
-    await クライアントを作る(fetchImpl).sendChatAnnouncement('bot-access-token', {
+    await createClient(fetchImpl).sendChatAnnouncement('bot-access-token', {
       broadcasterId: '12345',
       moderatorId: 'botのユーザーID',
       message: 'たねのぶさんのフォローありがとうございます',
@@ -725,9 +725,9 @@ describe('sendChatAnnouncement', () => {
   })
 
   it('色を省略すると primary（チャンネルの色）で送る', async () => {
-    const { requests, fetchImpl } = 本文のない応答を返すfetch(204)
+    const { requests, fetchImpl } = fetchReturningNoBody(204)
 
-    await クライアントを作る(fetchImpl).sendChatAnnouncement('bot-access-token', {
+    await createClient(fetchImpl).sendChatAnnouncement('bot-access-token', {
       broadcasterId: '12345',
       moderatorId: 'botのユーザーID',
       message: '本日の配信はここまでです',
@@ -737,10 +737,10 @@ describe('sendChatAnnouncement', () => {
   })
 
   it('Twitchが失敗を返したら TwitchApiError になる', async () => {
-    const { fetchImpl } = 応答を返すfetch(401, { status: 401, message: 'Missing scope: moderator:manage:announcements' })
+    const { fetchImpl } = fetchReturning(401, { status: 401, message: 'Missing scope: moderator:manage:announcements' })
 
     await expect(
-      クライアントを作る(fetchImpl).sendChatAnnouncement('token-without-scope', {
+      createClient(fetchImpl).sendChatAnnouncement('token-without-scope', {
         broadcasterId: '12345',
         moderatorId: 'botのユーザーID',
         message: 'テスト',
@@ -751,9 +751,9 @@ describe('sendChatAnnouncement', () => {
 
 describe('sendShoutout', () => {
   it('シャウトアウトの相手・チャンネル・モデレーターをクエリに載せて送る', async () => {
-    const { requests, fetchImpl } = 本文のない応答を返すfetch(204)
+    const { requests, fetchImpl } = fetchReturningNoBody(204)
 
-    await クライアントを作る(fetchImpl).sendShoutout('bot-access-token', {
+    await createClient(fetchImpl).sendShoutout('bot-access-token', {
       broadcasterId: '12345',
       moderatorId: 'botのユーザーID',
       toBroadcasterId: 'レイド元の配信者のユーザーID',
@@ -769,10 +769,10 @@ describe('sendShoutout', () => {
   })
 
   it('Twitchが失敗を返したら TwitchApiError になる（間隔の制限に当たった場合を含む）', async () => {
-    const { fetchImpl } = 応答を返すfetch(429, { status: 429, message: 'shoutout ratelimit exceeded' })
+    const { fetchImpl } = fetchReturning(429, { status: 429, message: 'shoutout ratelimit exceeded' })
 
     await expect(
-      クライアントを作る(fetchImpl).sendShoutout('bot-access-token', {
+      createClient(fetchImpl).sendShoutout('bot-access-token', {
         broadcasterId: '12345',
         moderatorId: 'botのユーザーID',
         toBroadcasterId: 'レイド元の配信者のユーザーID',
@@ -783,12 +783,12 @@ describe('sendShoutout', () => {
 
 describe('isModerator', () => {
   it('モデレーターの一覧にそのユーザーが含まれていれば true を返す', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, {
+    const { requests, fetchImpl } = fetchReturning(200, {
       data: [{ user_id: 'botのユーザーID', user_login: 'tanenob_bot', user_name: 'tanenob_bot' }],
       pagination: {},
     })
 
-    const isModerator = await クライアントを作る(fetchImpl).isModerator('broadcaster-access-token', {
+    const isModerator = await createClient(fetchImpl).isModerator('broadcaster-access-token', {
       broadcasterId: '12345',
       userId: 'botのユーザーID',
     })
@@ -802,9 +802,9 @@ describe('isModerator', () => {
   })
 
   it('一覧が空なら false を返す（モデレーターにされていない）', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, { data: [], pagination: {} })
+    const { fetchImpl } = fetchReturning(200, { data: [], pagination: {} })
 
-    const isModerator = await クライアントを作る(fetchImpl).isModerator('broadcaster-access-token', {
+    const isModerator = await createClient(fetchImpl).isModerator('broadcaster-access-token', {
       broadcasterId: '12345',
       userId: 'botのユーザーID',
     })
@@ -813,25 +813,25 @@ describe('isModerator', () => {
   })
 
   it('応答に data の配列が無ければエラーになる（モデレーターでないと決めつけない）', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, { pagination: {} })
+    const { fetchImpl } = fetchReturning(200, { pagination: {} })
 
     await expect(
-      クライアントを作る(fetchImpl).isModerator('broadcaster-access-token', { broadcasterId: '12345', userId: 'botのユーザーID' }),
+      createClient(fetchImpl).isModerator('broadcaster-access-token', { broadcasterId: '12345', userId: 'botのユーザーID' }),
     ).rejects.toBeInstanceOf(TwitchApiError)
   })
 
   it('スコープが足りなければ TwitchApiError になる', async () => {
-    const { fetchImpl } = 応答を返すfetch(401, { status: 401, message: 'Missing scope: moderation:read' })
+    const { fetchImpl } = fetchReturning(401, { status: 401, message: 'Missing scope: moderation:read' })
 
     await expect(
-      クライアントを作る(fetchImpl).isModerator('token-without-scope', { broadcasterId: '12345', userId: 'botのユーザーID' }),
+      createClient(fetchImpl).isModerator('token-without-scope', { broadcasterId: '12345', userId: 'botのユーザーID' }),
     ).rejects.toMatchObject({ name: 'TwitchApiError', status: 401 })
   })
 })
 
 describe('startDeviceAuthorization', () => {
   it('スコープを指定してデバイスコードの発行を求め、利用者に見せるコードと案内先を返す', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, {
+    const { requests, fetchImpl } = fetchReturning(200, {
       device_code: 'device-code-0123456789',
       expires_in: 1800,
       interval: 5,
@@ -839,7 +839,7 @@ describe('startDeviceAuthorization', () => {
       verification_uri: 'https://www.twitch.tv/activate?public=true&device-code=ABCDEFGH',
     })
 
-    const authorization = await クライアントを作る(fetchImpl).startDeviceAuthorization(['user:bot', 'user:write:chat'])
+    const authorization = await createClient(fetchImpl).startDeviceAuthorization(['user:bot', 'user:write:chat'])
 
     expect(authorization).toEqual({
       deviceCode: 'device-code-0123456789',
@@ -857,28 +857,28 @@ describe('startDeviceAuthorization', () => {
   })
 
   it('Twitchが失敗を返したら TwitchApiError になる', async () => {
-    const { fetchImpl } = 応答を返すfetch(400, { status: 400, message: 'invalid client' })
-    await expect(クライアントを作る(fetchImpl).startDeviceAuthorization(['user:bot'])).rejects.toMatchObject({
+    const { fetchImpl } = fetchReturning(400, { status: 400, message: 'invalid client' })
+    await expect(createClient(fetchImpl).startDeviceAuthorization(['user:bot'])).rejects.toMatchObject({
       name: 'TwitchApiError',
       status: 400,
     })
   })
 
   it('応答に必要な項目が揃っていなければエラーになる', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, { device_code: 'device-code-0123456789' })
-    await expect(クライアントを作る(fetchImpl).startDeviceAuthorization(['user:bot'])).rejects.toBeInstanceOf(TwitchApiError)
+    const { fetchImpl } = fetchReturning(200, { device_code: 'device-code-0123456789' })
+    await expect(createClient(fetchImpl).startDeviceAuthorization(['user:bot'])).rejects.toBeInstanceOf(TwitchApiError)
   })
 })
 
 describe('exchangeDeviceCode', () => {
   it('利用者が認可を済ませていれば、トークンを受け取る', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, {
+    const { requests, fetchImpl } = fetchReturning(200, {
       access_token: 'bot-access-token',
       refresh_token: 'bot-refresh-token',
       expires_in: 14400,
     })
 
-    const result = await クライアントを作る(fetchImpl).exchangeDeviceCode('device-code-0123456789', ['user:bot'])
+    const result = await createClient(fetchImpl).exchangeDeviceCode('device-code-0123456789', ['user:bot'])
 
     expect(result).toEqual({
       status: 'granted',
@@ -892,35 +892,35 @@ describe('exchangeDeviceCode', () => {
 
   it('利用者がまだ認可していなければ、失敗ではなく「待っている」状態として返す', async () => {
     // まだ認可していない間、Twitchは400で authorization_pending を返す（RFC 8628）
-    const { fetchImpl } = 応答を返すfetch(400, { status: 400, message: 'authorization_pending' })
+    const { fetchImpl } = fetchReturning(400, { status: 400, message: 'authorization_pending' })
 
-    expect(await クライアントを作る(fetchImpl).exchangeDeviceCode('device-code-0123456789', ['user:bot'])).toEqual({ status: 'pending' })
+    expect(await createClient(fetchImpl).exchangeDeviceCode('device-code-0123456789', ['user:bot'])).toEqual({ status: 'pending' })
   })
 
   it('ポーリングが速すぎると言われたら、待っている状態のうち「間隔を延ばす」ものとして区別して返す', async () => {
     // RFC 8628 では slow_down を受け取った側は、以降の間隔を5秒延ばすことが求められる。
     // authorization_pending と同一視すると、速すぎるまま問い合わせ続けてしまう
-    const { fetchImpl } = 応答を返すfetch(400, { status: 400, message: 'slow_down' })
+    const { fetchImpl } = fetchReturning(400, { status: 400, message: 'slow_down' })
 
-    expect(await クライアントを作る(fetchImpl).exchangeDeviceCode('device-code-0123456789', ['user:bot'])).toEqual({ status: 'slow-down' })
+    expect(await createClient(fetchImpl).exchangeDeviceCode('device-code-0123456789', ['user:bot'])).toEqual({ status: 'slow-down' })
   })
 
   it('コードの期限が切れていたら、待ち続けずにエラーにする', async () => {
-    const { fetchImpl } = 応答を返すfetch(400, { status: 400, message: 'expired_token' })
+    const { fetchImpl } = fetchReturning(400, { status: 400, message: 'expired_token' })
 
-    await expect(クライアントを作る(fetchImpl).exchangeDeviceCode('期限切れのコード', ['user:bot'])).rejects.toBeInstanceOf(TwitchApiError)
+    await expect(createClient(fetchImpl).exchangeDeviceCode('期限切れのコード', ['user:bot'])).rejects.toBeInstanceOf(TwitchApiError)
   })
 
   it('利用者が認可を断ったら、待ち続けずにエラーにする', async () => {
-    const { fetchImpl } = 応答を返すfetch(400, { status: 400, message: 'access_denied' })
+    const { fetchImpl } = fetchReturning(400, { status: 400, message: 'access_denied' })
 
-    await expect(クライアントを作る(fetchImpl).exchangeDeviceCode('device-code-0123456789', ['user:bot'])).rejects.toBeInstanceOf(TwitchApiError)
+    await expect(createClient(fetchImpl).exchangeDeviceCode('device-code-0123456789', ['user:bot'])).rejects.toBeInstanceOf(TwitchApiError)
   })
 
   it('想定していない失敗は、待っている状態として飲み込まずにエラーにする', async () => {
-    const { fetchImpl } = 応答を返すfetch(400, { status: 400, message: 'invalid client' })
+    const { fetchImpl } = fetchReturning(400, { status: 400, message: 'invalid client' })
 
-    await expect(クライアントを作る(fetchImpl).exchangeDeviceCode('device-code-0123456789', ['user:bot'])).rejects.toMatchObject({
+    await expect(createClient(fetchImpl).exchangeDeviceCode('device-code-0123456789', ['user:bot'])).rejects.toMatchObject({
       name: 'TwitchApiError',
       status: 400,
     })
@@ -941,9 +941,9 @@ describe('時間制限（issue #126）', () => {
   })
 
   it('外への呼び出しには中断の合図を渡す', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, { total: 42, data: [] })
+    const { requests, fetchImpl } = fetchReturning(200, { total: 42, data: [] })
 
-    await クライアントを作る(fetchImpl).getFollowerTotal('test-access-token', '123456')
+    await createClient(fetchImpl).getFollowerTotal('test-access-token', '123456')
     expect(requests[0]?.signal).toBeInstanceOf(AbortSignal)
   })
 })

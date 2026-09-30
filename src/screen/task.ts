@@ -121,10 +121,10 @@ export const startScreen = async ({ key, box }: ScreenTaskOptions): Promise<Star
     if (typeof shot.imageData !== 'string') throw new Error('OBS の応答に imageData がありません')
 
     const recorded = await api.send(imageOfDataUrl(shot.imageData))
-    const 時刻 = new Date().toLocaleTimeString('ja-JP')
+    const time = new Date().toLocaleTimeString('ja-JP')
     status.textContent = recorded
-      ? `${時刻} に「${sceneName}」を撮りました`
-      : `${時刻} に「${sceneName}」を撮りましたが、配信していないので記録されませんでした`
+      ? `${time} に「${sceneName}」を撮りました`
+      : `${time} に「${sceneName}」を撮りましたが、配信していないので記録されませんでした`
     setNotice(null)
   }
 

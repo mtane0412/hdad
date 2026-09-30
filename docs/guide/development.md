@@ -40,6 +40,6 @@ npm run preview:worker  # ビルドして、Workersと同じ配信挙動をロ�
 1. `src/chat/<id>.ts` に `defineChat` でデザインを定義する（スキーマの先頭に `commonChatSchema` を展開し、`cssVariables` でパラメータをCSSのカスタムプロパティに変換する）
 2. `src/chat/<id>.css` に見た目を書く（セレクタは `[data-chat='<id>']` から始める。先頭で `src/chat/common.css` を `@import` する）
 3. `src/chat/registry.ts` に登録する
-4. `src/overlay/overlay.css` に `@import '../chat/<id>.css';` を足す（合成ページが1枚で全デザインのCSSを読むため）
+4. `src/overlay/overlay.css` に `@import '../chat/<id>.css';` を追加する（合成ページが1枚で全デザインのCSSを読むため）
 
 CSSの存在は `src/chat/registry.test.ts`、`@import` の取りこぼしは `src/overlay/styles.test.ts` が検証します。

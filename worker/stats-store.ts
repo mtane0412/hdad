@@ -60,7 +60,7 @@ export interface CollectionFailure {
 const toIso = (milliseconds: number): string => new Date(milliseconds).toISOString()
 
 /**
- * 配信中のときの記録。セッションを開始（続いていれば更新）し、視聴者数のサンプルを1つ足す。3つの文はまとめて実行する。
+ * 配信中のときの記録。セッションを開始（続いていれば更新）し、視聴者数のサンプルを1つ追加する。3つの文はまとめて実行する。
  *
  * @param now 現在時刻（ミリ秒）
  */
@@ -130,7 +130,7 @@ export const recordEvent = async (db: Database, event: { id: string; type: strin
     .run()
 }
 
-/** フォロワー数を記録する。直前の記録と同じ値なら何も足さない（行数を抑えるため） */
+/** フォロワー数を記録する。直前の記録と同じ値なら何も追加しない（行数を抑えるため） */
 export const recordFollowerTotal = async (db: Database, followerTotal: number, now: number): Promise<void> => {
   await db
     .prepare(

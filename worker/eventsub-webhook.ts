@@ -72,7 +72,7 @@ interface WantedEvent {
  * Webhookで受け取るイベントを組み立てる。
  *
  * 件数を数えるものとチャットはオーバーレイと同じ定義（eventsub.ts の EVENT_TYPES）を使い、
- * 配信の開始・終了（セッションを正確に記録するため）を足す。
+ * 配信の開始・終了（セッションを正確に記録するため）を追加する。
  */
 const buildWantedEvents = (broadcasterId: string): WantedEvent[] => {
   const base: readonly EventType[] = [

@@ -95,7 +95,7 @@ export interface CommentsPageProps {
 }
 
 /** 届いた時刻を、配信者のブラウザの時間帯で「時:分」に直す */
-const 時刻 = (at: number): string => new Date(at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+const formatTime = (at: number): string => new Date(at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
 
 /**
  * 発言した人のアイコン。まだ引けていない・引けなかった人は同じ大きさの丸を置く（行の高さと並びを揃えるため）。
@@ -193,7 +193,7 @@ const ChatRow = ({
             {item.reply.name} さんへの返信: {item.reply.text}
           </p>
         )}
-        <time className="mr-2 text-xs text-muted-foreground tabular-nums">{時刻(item.at)}</time>
+        <time className="mr-2 text-xs text-muted-foreground tabular-nums">{formatTime(item.at)}</time>
         <Badges badges={item.badges} badgeImages={badgeImages} />
         <Name user={item.user} color={item.color} />
         <span className="text-muted-foreground">: </span>
@@ -306,7 +306,7 @@ const EventRow = ({ item, removed, icons }: { item: EventItem; removed: boolean;
       <div className="min-w-0 flex-1 text-sm break-words">
         <p className="font-semibold">
           <Mark aria-hidden="true" className="mr-1 inline size-4 align-[-3px] text-primary" />
-          <time className="mr-2 text-xs font-normal text-muted-foreground tabular-nums">{時刻(item.at)}</time>
+          <time className="mr-2 text-xs font-normal text-muted-foreground tabular-nums">{formatTime(item.at)}</time>
           {describeEvent(item)}
         </p>
         {item.kind === 'notice' && item.fragments.length > 0 && (
@@ -355,15 +355,15 @@ export const CommentsPage = ({ api, focusApi, connect, now = Date.now }: Comment
    * 送っている途中か。actions.busy は描き直すまで変わらないので、素早い連打で同じ文言を2度送らないよう
    * 描き直しを待たずに立てる印を別に持つ
    */
-  const 送信中 = useRef(false)
+  const sending = useRef(false)
   /** 削除に成功した発言のID。Twitch から消えた知らせが届くまでのあいだ、同じ発言をもう一度削除させない */
-  const [削除を頼んだ発言, set削除を頼んだ発言] = useState<ReadonlySet<string>>(new Set())
+  const [deleteRequestedChat, setDeleteRequestedChat] = useState<ReadonlySet<string>>(new Set())
   /** この画面で取り上げ直したか。開いたときの読み込みが遅れて返っても、選び直した結果を古い内容で上書きしない */
-  const 選び直した = useRef(false)
+  const reselected = useRef(false)
   /** コメントビューアーの設定。読み込むまでは null（そのあいだは目立たせない） */
   const [settings, setSettings] = useState<CommentSettings | null>(null)
   /** しばらく未読かを決める現在時刻。UNREAD_TICK_MS ごとに進める */
-  const [現在, set現在] = useState(now)
+  const [currentTime, setCurrentTime] = useState(now)
   /** いちばん下を見ているか。見ているあいだだけ、新しい1件に合わせて下へ送る */
   const [following, setFollowing] = useState(true)
   /** アイコンを問い合わせた人（Twitchが返さなかった人も含む。同じ人を何度も問い合わせない。問い合わせ自体が失敗した人は外す） */
@@ -372,7 +372,7 @@ export const CommentsPage = ({ api, focusApi, connect, now = Date.now }: Comment
   const highlightFieldId = useId()
   const judgeFieldId = useId()
 
-  const 失敗を出す = useCallback((error: unknown) => setProblem(error instanceof Error ? error.message : String(error)), [])
+  const reportFailure = useCallback((error: unknown) => setProblem(error instanceof Error ? error.message : String(error)), [])
 
   // 配送先へつなぎ、画面を離れるときに閉じる（閉じないと、行き来するたびに接続が増える）
   useEffect(() => {
@@ -383,7 +383,7 @@ export const CommentsPage = ({ api, focusApi, connect, now = Date.now }: Comment
           setFeed((current) => applyFeedItems(current, message.type === 'backlog' ? message.items : [message.item]))
         } catch (error) {
           // 読めない1件のために流れ全体を止めない。画面に知らせたうえで、原因を追えるよう記録する
-          失敗を出す(error)
+          reportFailure(error)
           console.error('コメントビューアーに届いたものを読み取れませんでした', text, error)
         }
       },
@@ -391,7 +391,7 @@ export const CommentsPage = ({ api, focusApi, connect, now = Date.now }: Comment
       onWarning: (message) => setConnectionNotice(message),
     })
     return () => connection.close()
-  }, [connect, 失敗を出す])
+  }, [connect, reportFailure])
 
   // バッジの画像は開いたときに1度だけ読む（滅多に変わらない）
   useEffect(() => {
@@ -401,13 +401,13 @@ export const CommentsPage = ({ api, focusApi, connect, now = Date.now }: Comment
         if (!cancelled) setBadgeImages(loaded)
       },
       (error: unknown) => {
-        if (!cancelled) 失敗を出す(error)
+        if (!cancelled) reportFailure(error)
       },
     )
     return () => {
       cancelled = true
     }
-  }, [api, 失敗を出す])
+  }, [api, reportFailure])
 
   // 設定は開いたときに1度だけ読む（切り替えたときは保存した結果を使う）
   useEffect(() => {
@@ -417,18 +417,18 @@ export const CommentsPage = ({ api, focusApi, connect, now = Date.now }: Comment
         if (!cancelled) setSettings(loaded)
       },
       (error: unknown) => {
-        if (!cancelled) 失敗を出す(error)
+        if (!cancelled) reportFailure(error)
       },
     )
     return () => {
       cancelled = true
     }
-  }, [api, 失敗を出す])
+  }, [api, reportFailure])
 
   // 新しい1件が届かなくても、時間がたてば未読の発言は目立たせる側へ移るので、決まった間隔で時刻を進める
   useEffect(() => {
     if (settings?.highlightUnread !== true) return
-    const timer = setInterval(() => set現在(now()), UNREAD_TICK_MS)
+    const timer = setInterval(() => setCurrentTime(now()), UNREAD_TICK_MS)
     return () => clearInterval(timer)
   }, [settings, now])
 
@@ -437,16 +437,16 @@ export const CommentsPage = ({ api, focusApi, connect, now = Date.now }: Comment
     let cancelled = false
     focusApi.load().then(
       (target) => {
-        if (!cancelled && !選び直した.current) setFocusedMessageId(target?.messageId ?? null)
+        if (!cancelled && !reselected.current) setFocusedMessageId(target?.messageId ?? null)
       },
       (error: unknown) => {
-        if (!cancelled) 失敗を出す(error)
+        if (!cancelled) reportFailure(error)
       },
     )
     return () => {
       cancelled = true
     }
-  }, [focusApi, 失敗を出す])
+  }, [focusApi, reportFailure])
 
   /**
    * 発言を注目コメントに設定する。すでに取り上げている発言なら、取り上げをやめる。
@@ -455,9 +455,9 @@ export const CommentsPage = ({ api, focusApi, connect, now = Date.now }: Comment
    * やめずに表示のほうを合わせる（ほかの画面での選択を消さないため）。保存先のKVには「比べてから書き換える」
    * 仕組みがないので、読み直してから保存するまでのわずかな隙間は残る。
    */
-  const 注目を切り替える = (item: ChatItem) =>
+  const toggleFocus = (item: ChatItem) =>
     void actions.run(async () => {
-      選び直した.current = true
+      reselected.current = true
       if (focusedMessageId === item.messageId) {
         const current = await focusApi.load()
         if (current !== null && current.messageId !== item.messageId) {
@@ -474,10 +474,10 @@ export const CommentsPage = ({ api, focusApi, connect, now = Date.now }: Comment
     })
 
   /** 発言した人（または発言）を処分する。BANは取り返しが重いので確かめてから行う */
-  const 処分する = (item: ChatItem, action: ModerationAction) => {
+  const moderate = (item: ChatItem, action: ModerationAction) => {
     const run = async () => {
       const result = await api.moderate(action, { messageId: item.messageId, userId: item.user.id })
-      if (result.action === 'delete') set削除を頼んだ発言((current) => new Set([...current, item.messageId]))
+      if (result.action === 'delete') setDeleteRequestedChat((current) => new Set([...current, item.messageId]))
       return describeModeration(result, item.user.name)
     }
     if (action !== 'ban') {
@@ -493,7 +493,7 @@ export const CommentsPage = ({ api, focusApi, connect, now = Date.now }: Comment
   }
 
   /** 発言を既読にする（既読ならば未読に戻す）。印は配送先から付け替えが届いた時点で付くので、お知らせは出さない */
-  const 既読を切り替える = (item: ChatItem, read: ReadMarker | null) =>
+  const toggleRead = (item: ChatItem, read: ReadMarker | null) =>
     void actions.run(async () => {
       await api.markRead(item.messageId, read === null)
       return ''
@@ -504,18 +504,18 @@ export const CommentsPage = ({ api, focusApi, connect, now = Date.now }: Comment
    *
    * @param notice 保存できたときに出すお知らせ
    */
-  const 設定を切り替える = (current: CommentSettings, change: Partial<CommentSettings>, notice: string) =>
+  const toggleSetting = (current: CommentSettings, change: Partial<CommentSettings>, notice: string) =>
     void actions.run(async () => {
       setSettings(await api.saveSettings({ ...current, ...change }))
       // 切り替えた時点の時刻で見直す（次の見直しの間隔を待たずに目立たせる）
-      set現在(now())
+      setCurrentTime(now())
       return notice
     })
 
   /** 入力欄の文言を、配信者としてチャットへ送る。送れたら入力欄を空にし、送れなければ文言を残す */
-  const 送る = () => {
-    if (送信中.current) return
-    送信中.current = true
+  const send = () => {
+    if (sending.current) return
+    sending.current = true
     void actions.run(async () => {
       try {
         // 送っているあいだに書き足された文言は消さない（送った文言のままのときだけ空にする）
@@ -526,7 +526,7 @@ export const CommentsPage = ({ api, focusApi, connect, now = Date.now }: Comment
         return ''
       } finally {
         // 送れなかったときも外す（外さないと、理由を読んだあとにもう一度送れなくなる）
-        送信中.current = false
+        sending.current = false
       }
     })
   }
@@ -541,10 +541,10 @@ export const CommentsPage = ({ api, focusApi, connect, now = Date.now }: Comment
       (loaded) => setIcons((current) => new Map([...current, ...Object.entries(loaded)])),
       (error: unknown) => {
         for (const userId of userIds) asked.current.delete(userId)
-        失敗を出す(error)
+        reportFailure(error)
       },
     )
-  }, [feed, api, 失敗を出す])
+  }, [feed, api, reportFailure])
 
   // いちばん下を見ているあいだは、新しい1件に合わせて下へ送る（描き終えた直後に送るので、ちらつかない）
   useLayoutEffect(() => {
@@ -552,7 +552,7 @@ export const CommentsPage = ({ api, focusApi, connect, now = Date.now }: Comment
     if (following && element) element.scrollTop = element.scrollHeight
   }, [feed, following])
 
-  const 位置を見る = () => {
+  const checkPosition = () => {
     const element = scroller.current
     if (element) setFollowing(element.scrollHeight - element.scrollTop - element.clientHeight <= FOLLOW_THRESHOLD_PX)
   }
@@ -576,7 +576,7 @@ export const CommentsPage = ({ api, focusApi, connect, now = Date.now }: Comment
             onCheckedChange={(checked) => {
               if (settings === null) return
               const highlightUnread = checked === true
-              設定を切り替える(settings, { highlightUnread }, highlightUnread ? 'しばらく未読の発言を目立たせます' : 'しばらく未読の発言を目立たせるのをやめました')
+              toggleSetting(settings, { highlightUnread }, highlightUnread ? 'しばらく未読の発言を目立たせます' : 'しばらく未読の発言を目立たせるのをやめました')
             }}
           />
           <Label htmlFor={highlightFieldId}>しばらく未読の発言を目立たせる</Label>
@@ -589,7 +589,7 @@ export const CommentsPage = ({ api, focusApi, connect, now = Date.now }: Comment
             onCheckedChange={(checked) => {
               if (settings === null) return
               const judgeWithJev = checked === true
-              設定を切り替える(settings, { judgeWithJev }, judgeWithJev ? '配信者の発話から自動で既読にします' : '配信者の発話から自動で既読にするのをやめました')
+              toggleSetting(settings, { judgeWithJev }, judgeWithJev ? '配信者の発話から自動で既読にします' : '配信者の発話から自動で既読にするのをやめました')
             }}
           />
           <Label htmlFor={judgeFieldId}>配信者の発話から自動で既読にする（Jev）</Label>
@@ -597,7 +597,7 @@ export const CommentsPage = ({ api, focusApi, connect, now = Date.now }: Comment
       </div>
 
       <div className="relative">
-        <div ref={scroller} onScroll={位置を見る} className="h-[calc(100dvh-12rem)] min-h-80 overflow-y-auto rounded-md border">
+        <div ref={scroller} onScroll={checkPosition} className="h-[calc(100dvh-12rem)] min-h-80 overflow-y-auto rounded-md border">
           {feed.entries.length === 0 ? (
             <p className="p-4 text-sm text-muted-foreground">まだ何も届いていません。チャットの発言や出来事が届くと、ここに並びます。</p>
           ) : (
@@ -611,13 +611,13 @@ export const CommentsPage = ({ api, focusApi, connect, now = Date.now }: Comment
                     controls={(item) => ({
                       canMarkRead: needsReaction(entry),
                       read: entry.read,
-                      longUnread: settings?.highlightUnread === true && isLongUnread(entry, 現在),
-                      onToggleRead: () => 既読を切り替える(item, entry.read),
+                      longUnread: settings?.highlightUnread === true && isLongUnread(entry, currentTime),
+                      onToggleRead: () => toggleRead(item, entry.read),
                       focused: item.messageId === focusedMessageId,
                       busy: actions.busy,
-                      deleteRequested: 削除を頼んだ発言.has(item.messageId),
-                      onToggleFocus: () => 注目を切り替える(item),
-                      onModerate: (action) => 処分する(item, action),
+                      deleteRequested: deleteRequestedChat.has(item.messageId),
+                      onToggleFocus: () => toggleFocus(item),
+                      onModerate: (action) => moderate(item, action),
                     })}
                   />
                 </li>
@@ -637,7 +637,7 @@ export const CommentsPage = ({ api, focusApi, connect, now = Date.now }: Comment
         className="flex gap-2"
         onSubmit={(event) => {
           event.preventDefault()
-          送る()
+          send()
         }}
       >
         <Input
@@ -652,7 +652,7 @@ export const CommentsPage = ({ api, focusApi, connect, now = Date.now }: Comment
             event.preventDefault()
             if (event.nativeEvent.keyCode === IME_PROCESSING_KEY_CODE) return
             // 送信のボタンが押せないとき（空欄・送信中）は、Enter でも送らない
-            if (!event.nativeEvent.isComposing && !actions.busy && draft !== '') 送る()
+            if (!event.nativeEvent.isComposing && !actions.busy && draft !== '') send()
           }}
         />
         <Button type="submit" disabled={actions.busy || draft === ''}>

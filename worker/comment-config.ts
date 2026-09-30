@@ -11,7 +11,7 @@
  * - judgeWithJev: 配信者の発話（文字起こし）から、どの発言に反応したかを Jev で判定して既読にするか
  *   （worker/comment-reaction.ts）。OpenRouter の鍵と残高が要るので、既定では切っておく
  *
- * 注意: 読み出すときも検証する。項目を足したので、足す前に保存した設定（judgeWithJev が無い）が残っていることが
+ * 注意: 読み出すときも検証する。項目を追加したので、追加する前に保存した設定（judgeWithJev が無い）が残っていることが
  * ある。黙って既定の値で補わず、直し方の分かるエラーにする（alert-config.ts と同じ扱い。docs/principles.md の4）。
  */
 import { ConfigError } from './alert-config'
@@ -52,7 +52,7 @@ export const parseCommentSettings = (input: unknown): CommentSettings => {
   if (typeof highlightUnread !== 'boolean') problems.push('highlightUnread: true か false で指定してください')
   if (typeof judgeWithJev !== 'boolean') problems.push('judgeWithJev: true か false で指定してください')
   if (typeof highlightUnread !== 'boolean' || typeof judgeWithJev !== 'boolean') throw new ConfigError(SUBJECT, problems)
-  // 送り主が足した項目を抱え込まないよう、読めた項目だけを写して持つ
+  // 送り主が追加した項目を抱え込まないよう、読めた項目だけを写して持つ
   return { highlightUnread, judgeWithJev }
 }
 

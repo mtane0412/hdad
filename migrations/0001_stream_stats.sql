@@ -21,7 +21,7 @@ CREATE TABLE viewer_samples (
   PRIMARY KEY (session_id, sampled_at)
 ) WITHOUT ROWID;
 
--- フォロワー数。前回から変わったときだけ1行足すので、ある時刻の値は「その時刻以前で最新の行」になる
+-- フォロワー数。前回から変わったときだけ1行追加するので、ある時刻の値は「その時刻以前で最新の行」になる
 CREATE TABLE follower_samples (
   sampled_at TEXT PRIMARY KEY,
   follower_total INTEGER NOT NULL

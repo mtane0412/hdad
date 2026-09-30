@@ -24,14 +24,14 @@ export class TimeoutError extends Error {
   override name = 'TimeoutError'
 
   /**
-   * @param 相手 待っていた相手の名前（Twitch・Gyazo・OpenRouter・Workers AI）。失敗の記録から原因を読むために入れる
+   * @param target 待っていた相手の名前（Twitch・Gyazo・OpenRouter・Workers AI）。失敗の記録から原因を読むために入れる
    * @param milliseconds 待った時間（ミリ秒）
    */
   constructor(
-    readonly 相手: string,
+    readonly target: string,
     readonly milliseconds: number,
   ) {
-    super(`${相手} が ${milliseconds / 1000}秒以内に応答しませんでした`)
+    super(`${target} が ${milliseconds / 1000}秒以内に応答しませんでした`)
   }
 }
 
@@ -41,11 +41,11 @@ export class TimeoutError extends Error {
  * すでに上がっている場合にも備えるのは、AbortSignal.timeout の期限が 0 に近いときに、
  * 見張りを付ける前に上がっていることがあるためである。
  */
-const 期限の見張り = (signal: AbortSignal, 相手: string, milliseconds: number): Promise<never> =>
+const deadlineWatcher = (signal: AbortSignal, target: string, milliseconds: number): Promise<never> =>
   new Promise((_resolve, reject) => {
-    const やめる = (): void => reject(new TimeoutError(相手, milliseconds))
-    if (signal.aborted) やめる()
-    else signal.addEventListener('abort', やめる, { once: true })
+    const cancel = (): void => reject(new TimeoutError(target, milliseconds))
+    if (signal.aborted) cancel()
+    else signal.addEventListener('abort', cancel, { once: true })
   })
 
 /**
@@ -54,7 +54,7 @@ const 期限の見張り = (signal: AbortSignal, 相手: string, milliseconds: n
  * Response は、これらの状態コードでは本文付きで作れない（作ろうとすると例外になる）。Twitchの
  * モデレーション操作は 204 を返すので、作り直さずにそのまま返す道が必要である。
  */
-const 本文を持てない状態コード = new Set([101, 103, 204, 205, 304])
+const bodylessStatus = new Set([101, 103, 204, 205, 304])
 
 /**
  * 応答の本文を期限のうちに読み切り、同じ形の応答に作り直す。
@@ -62,9 +62,9 @@ const 本文を持てない状態コード = new Set([101, 103, 204, 205, 304])
  * 本文を読み切ってから返すので、呼び出し側は response.json() をいつ呼んでも期限に引っかからない。
  * このツールが受け取る本文はどれも小さいJSON（Gyazo へ送る画像は要求の側）なので、ためらわずに全部読む。
  */
-const 本文まで読み切る = async (response: Response, 見張り: Promise<never>): Promise<Response> => {
-  if (本文を持てない状態コード.has(response.status) || response.body === null) return response
-  const body = await Promise.race([response.arrayBuffer(), 見張り])
+const readBodyFully = async (response: Response, watcher: Promise<never>): Promise<Response> => {
+  if (bodylessStatus.has(response.status) || response.body === null) return response
+  const body = await Promise.race([response.arrayBuffer(), watcher])
   return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers })
 }
 
@@ -73,18 +73,18 @@ const 本文まで読み切る = async (response: Response, 見張り: Promise<n
  *
  * @param fetchImpl 元の通信（テストでは代役が渡る）
  * @param milliseconds 待つ時間の上限（ミリ秒）
- * @param 相手 待つ相手の名前。失敗の文面に入る
+ * @param target 待つ相手の名前。失敗の文面に入る
  * @returns 元の通信と同じ形の関数。期限に達すると TimeoutError で失敗する
  */
 export const withTimeout =
-  (fetchImpl: typeof fetch, milliseconds: number, 相手: string): typeof fetch =>
+  (fetchImpl: typeof fetch, milliseconds: number, target: string): typeof fetch =>
   async (input, init) => {
-    const 期限 = AbortSignal.timeout(milliseconds)
+    const deadline = AbortSignal.timeout(milliseconds)
     // 呼び出し側が自前の合図を渡していれば、そちらも効いたままにする（どちらが上がっても中断する）
-    const signal = init?.signal ? AbortSignal.any([init.signal, 期限]) : 期限
-    const 見張り = 期限の見張り(期限, 相手, milliseconds)
-    const response = await Promise.race([fetchImpl(input, { ...init, signal }), 見張り])
-    return await 本文まで読み切る(response, 見張り)
+    const signal = init?.signal ? AbortSignal.any([init.signal, deadline]) : deadline
+    const watcher = deadlineWatcher(deadline, target, milliseconds)
+    const response = await Promise.race([fetchImpl(input, { ...init, signal }), watcher])
+    return await readBodyFully(response, watcher)
   }
 
 /**
@@ -93,11 +93,11 @@ export const withTimeout =
  * Workers AI のバインディング（Env.AI の run）は合図を受け取れないので、呼び出しそのものは中断できない。
  * それでも待つのをやめれば、cron の1回分が黙った相手のところで止まり続けることは防げる。
  *
- * @param 呼び出す 呼び出しを始める関数（この中で投げられた失敗もそのまま伝わる）
+ * @param invoke 呼び出しを始める関数（この中で投げられた失敗もそのまま伝わる）
  * @param milliseconds 待つ時間の上限（ミリ秒）
- * @param 相手 待つ相手の名前。失敗の文面に入る
+ * @param target 待つ相手の名前。失敗の文面に入る
  */
-export const runWithTimeout = async <Result>(呼び出す: () => Promise<Result>, milliseconds: number, 相手: string): Promise<Result> => {
-  const 期限 = AbortSignal.timeout(milliseconds)
-  return await Promise.race([呼び出す(), 期限の見張り(期限, 相手, milliseconds)])
+export const runWithTimeout = async <Result>(invoke: () => Promise<Result>, milliseconds: number, target: string): Promise<Result> => {
+  const deadline = AbortSignal.timeout(milliseconds)
+  return await Promise.race([invoke(), deadlineWatcher(deadline, target, milliseconds)])
 }

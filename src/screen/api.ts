@@ -32,7 +32,7 @@ export interface ScreenConnection {
   intervalSeconds: number
 }
 
-/** 管理画面が読み書きする設定。撮るのに要る設定に、上げ先のコレクションを足したもの */
+/** 管理画面が読み書きする設定。撮るのに要る設定に、上げ先のコレクションを追加したもの */
 export interface ScreenSettings extends ScreenConnection {
   /** 上げ先の Gyazo のコレクションID。空ならコレクションに入れない */
   collectionId: string

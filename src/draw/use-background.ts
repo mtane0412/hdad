@@ -43,40 +43,40 @@ export const useDrawBackground = (api: DrawApi, enabled: boolean): { background:
 
   useEffect(() => {
     if (!enabled) return
-    let 離れた = false
+    let detached = false
     /** 読みに行っている途中か。応答が間隔より遅いときに、読みに行くのを重ねない */
-    let 読んでいる = false
+    let loading = false
     /** 手元の1枚の印。次に読むときに添える */
-    let 印: string | null = null
+    let marker: string | null = null
 
-    const 読む = async (): Promise<void> => {
-      if (読んでいる) return
-      読んでいる = true
+    const load = async (): Promise<void> => {
+      if (loading) return
+      loading = true
       try {
-        const result = await api.loadBackground(印)
-        if (離れた) return
+        const result = await api.loadBackground(marker)
+        if (detached) return
         setError(null)
         if (result.kind === 'unchanged') return
         if (result.kind === 'none') {
-          印 = null
+          marker = null
           setBackground({ kind: 'none' })
           return
         }
-        印 = result.etag
+        marker = result.etag
         setBackground({ kind: 'image', url: result.url, capturedAt: result.capturedAt })
       } catch (e) {
         // 読めなくても手元の1枚は残す（次に読めれば差し替わる）。理由は画面に出す
-        if (!離れた) setError(e instanceof Error ? e.message : String(e))
+        if (!detached) setError(e instanceof Error ? e.message : String(e))
       } finally {
-        読んでいる = false
+        loading = false
       }
     }
 
-    void 読む()
-    const 時計 = setInterval(() => void 読む(), BACKGROUND_POLL_MS)
+    void load()
+    const timer = setInterval(() => void load(), BACKGROUND_POLL_MS)
     return () => {
-      離れた = true
-      clearInterval(時計)
+      detached = true
+      clearInterval(timer)
       setBackground({ kind: 'idle' })
       setError(null)
     }

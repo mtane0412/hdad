@@ -11,7 +11,7 @@ import type { LlmRequest, TextGenerator } from './llm'
 import { MAX_VIEWER_SUMMARY_LENGTH, buildSummaryPrompt, generateViewerSummary } from './viewer-summary'
 import type { Viewer } from './viewer-store'
 
-const 記録: Viewer = {
+const record: Viewer = {
   userId: '100',
   login: 'hanako',
   displayName: '花子',
@@ -25,19 +25,19 @@ const 記録: Viewer = {
   channel: { categoryName: 'Cuphead', title: '初見でボスラッシュ', checkedAt: '2026-09-21T13:00:00.000Z' },
 }
 
-const 材料 = (上書き: Partial<Parameters<typeof buildSummaryPrompt>[0]> = {}) => ({
-  viewer: 記録,
+const material = (overrides: Partial<Parameters<typeof buildSummaryPrompt>[0]> = {}) => ({
+  viewer: record,
   messages: ['こんばんは', 'そのギターいいですね'],
-  ...上書き,
+  ...overrides,
 })
 
 /** 決まった文面を返すLLMの代役。渡された引数を控えて、箇所の指名と材料が漏れていないかを確かめられるようにする */
-const 代役 = (response: string): TextGenerator & { 呼ばれた: { usage: LlmUsage; request: LlmRequest }[] } => {
-  const 呼ばれた: { usage: LlmUsage; request: LlmRequest }[] = []
+const fake = (response: string): TextGenerator & { called: { usage: LlmUsage; request: LlmRequest }[] } => {
+  const called: { usage: LlmUsage; request: LlmRequest }[] = []
   return {
-    呼ばれた,
+    called,
     run: (usage, request) => {
-      呼ばれた.push({ usage, request })
+      called.push({ usage, request })
       return Promise.resolve(response)
     },
   }
@@ -45,7 +45,7 @@ const 代役 = (response: string): TextGenerator & { 呼ばれた: { usage: LlmU
 
 describe('buildSummaryPrompt', () => {
   it('その配信での発言と、これまでの記録と、配信者が書いたメモを材料に入れる', () => {
-    const prompt = buildSummaryPrompt(材料())
+    const prompt = buildSummaryPrompt(material())
 
     expect(prompt).toContain('こんばんは')
     expect(prompt).toContain('そのギターいいですね')
@@ -55,49 +55,49 @@ describe('buildSummaryPrompt', () => {
   })
 
   it('観測したその人自身のチャンネルの内容も材料に入れる', () => {
-    const prompt = buildSummaryPrompt(材料())
+    const prompt = buildSummaryPrompt(material())
 
     expect(prompt).toContain('Cuphead')
     expect(prompt).toContain('初見でボスラッシュ')
   })
 
   it('まだチャンネルを調べていない人では、調べていないと書く（配信していないと決めつけない）', () => {
-    const prompt = buildSummaryPrompt(材料({ viewer: { ...記録, channel: null } }))
+    const prompt = buildSummaryPrompt(material({ viewer: { ...record, channel: null } }))
 
     expect(prompt).toContain('まだ調べていません')
   })
 
   it('前回までの人物像があれば、それを踏まえて書き直させる', () => {
-    const prompt = buildSummaryPrompt(材料({ viewer: { ...記録, summary: '音楽に詳しい常連さん' } }))
+    const prompt = buildSummaryPrompt(material({ viewer: { ...record, summary: '音楽に詳しい常連さん' } }))
 
     expect(prompt).toContain('音楽に詳しい常連さん')
   })
 
   it('人物像の長さの上限を指示に書く', () => {
-    expect(buildSummaryPrompt(材料())).toContain(String(MAX_VIEWER_SUMMARY_LENGTH))
+    expect(buildSummaryPrompt(material())).toContain(String(MAX_VIEWER_SUMMARY_LENGTH))
   })
 })
 
 describe('generateViewerSummary', () => {
   it('LLMが返した人物像を、改行を空白に直して返す', async () => {
-    const ai = 代役('ギターの話をよくする常連さん。\n配信の最初から来ることが多い。')
+    const ai = fake('ギターの話をよくする常連さん。\n配信の最初から来ることが多い。')
 
-    expect(await generateViewerSummary(ai, 材料())).toBe('ギターの話をよくする常連さん。 配信の最初から来ることが多い。')
+    expect(await generateViewerSummary(ai, material())).toBe('ギターの話をよくする常連さん。 配信の最初から来ることが多い。')
   })
 
   it('LLMが失敗したら、そのまま投げる（黙って空の人物像にしない）', async () => {
     const ai: TextGenerator = { run: () => Promise.reject(new Error('無料枠を使い切りました')) }
 
-    await expect(generateViewerSummary(ai, 材料())).rejects.toThrow('無料枠を使い切りました')
+    await expect(generateViewerSummary(ai, material())).rejects.toThrow('無料枠を使い切りました')
   })
 
   it('空の人物像なら投げる（中身のない推測を貯めない）', async () => {
-    await expect(generateViewerSummary(代役('   '), 材料())).rejects.toThrow('空の人物像')
+    await expect(generateViewerSummary(fake('   '), material())).rejects.toThrow('空の人物像')
   })
 
   it('上限より長い人物像なら、切り詰めずに投げる', async () => {
-    const ai = 代役('あ'.repeat(MAX_VIEWER_SUMMARY_LENGTH + 1))
+    const ai = fake('あ'.repeat(MAX_VIEWER_SUMMARY_LENGTH + 1))
 
-    await expect(generateViewerSummary(ai, 材料())).rejects.toThrow(`${MAX_VIEWER_SUMMARY_LENGTH + 1}文字`)
+    await expect(generateViewerSummary(ai, material())).rejects.toThrow(`${MAX_VIEWER_SUMMARY_LENGTH + 1}文字`)
   })
 })

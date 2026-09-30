@@ -19,7 +19,7 @@
  * 配信中ずっとつなぎっぱなしにできる。つないでいる間の合図（ping）には ctx.setWebSocketAutoResponse が
  * この Durable Object を起こさずに応える。
  *
- * 描いたものを貯めないので、合成ページを開いていない間に引いた線は届かない（残す仕組みは Phase 3 で足す）。
+ * 描いたものを貯めないので、合成ページを開いていない間に引いた線は届かない（残す仕組みは Phase 3 で追加する）。
  *
  * 注意: WebSocketの接続（Upgrade）は Cloudflare のランタイムでしか作れないので、テストでは中継の部分だけを確かめる。
  */
@@ -98,7 +98,7 @@ export class DrawChannel {
     // 見るだけの接続から送られてきたものは中継しない（オーバーレイ用キーだけでは描けないようにする）
     if (!this.ctx.getTags(socket).includes(WRITER)) return
     broadcast(
-      this.ctx.getWebSockets().filter((相手) => 相手 !== socket),
+      this.ctx.getWebSockets().filter((peer) => peer !== socket),
       message,
       '手書きの線',
     )

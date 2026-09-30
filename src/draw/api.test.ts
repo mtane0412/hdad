@@ -11,17 +11,17 @@ import { describe, expect, it } from 'vitest'
 import { createDrawApi, createDrawOverlayApi } from './api'
 import type { Stroke } from './strokes'
 
-const サイト = 'https://hdad.example.com'
-const オーバーレイ用キー = 'issued-overlay-key-0123456789abcdefghij'
+const site = 'https://hdad.example.com'
+const overlayKey = 'issued-overlay-key-0123456789abcdefghij'
 
 /** 配信画面に引いた線1本 */
-const 引いた線: Stroke = { id: '線1', points: [{ x: 0.1, y: 0.2 }], color: 'red', width: 'bold' }
+const drawnStroke: Stroke = { id: '線1', points: [{ x: 0.1, y: 0.2 }], color: 'red', width: 'bold' }
 
 /** 送られたリクエストを記録し、決めた応答を返す fetch */
-const 応答を返すfetch = (status: number, body: unknown) => {
+const fetchReturning = (status: number, body: unknown) => {
   const requests: Request[] = []
   const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    requests.push(new Request(new URL(String(input), サイト), init))
+    requests.push(new Request(new URL(String(input), site), init))
     return Response.json(body, { status })
   }
   return { requests, fetchImpl }
@@ -29,103 +29,103 @@ const 応答を返すfetch = (status: number, body: unknown) => {
 
 describe('createDrawApi（描く画面からの読み書き）', () => {
   it('保存されている線を読む', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, { strokes: [引いた線] })
+    const { requests, fetchImpl } = fetchReturning(200, { strokes: [drawnStroke] })
 
-    expect(await createDrawApi(fetchImpl).load()).toEqual({ strokes: [引いた線] })
+    expect(await createDrawApi(fetchImpl).load()).toEqual({ strokes: [drawnStroke] })
     expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/draw/strokes')
   })
 
   it('一度も描いていない状態も読める', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, { strokes: [] })
+    const { fetchImpl } = fetchReturning(200, { strokes: [] })
 
     expect(await createDrawApi(fetchImpl).load()).toEqual({ strokes: [] })
   })
 
   it('描いたものを保存する', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, { strokes: [引いた線] })
+    const { requests, fetchImpl } = fetchReturning(200, { strokes: [drawnStroke] })
 
-    await createDrawApi(fetchImpl).save({ strokes: [引いた線] })
+    await createDrawApi(fetchImpl).save({ strokes: [drawnStroke] })
 
     expect(requests[0]!.method).toBe('PUT')
-    expect(await requests[0]!.json()).toEqual({ strokes: [引いた線] })
+    expect(await requests[0]!.json()).toEqual({ strokes: [drawnStroke] })
   })
 
   it('保存の失敗はエラーにする', async () => {
-    const { fetchImpl } = 応答を返すfetch(400, { error: { code: 'invalid-config', message: '手書きで描いたものの指定に問題があります' } })
+    const { fetchImpl } = fetchReturning(400, { error: { code: 'invalid-config', message: '手書きで描いたものの指定に問題があります' } })
 
-    await expect(createDrawApi(fetchImpl).save({ strokes: [引いた線] })).rejects.toThrow('手書きで描いたものの指定に問題があります')
+    await expect(createDrawApi(fetchImpl).save({ strokes: [drawnStroke] })).rejects.toThrow('手書きで描いたものの指定に問題があります')
   })
 
   it('線の配列を持たない応答はエラーにする', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, {})
+    const { fetchImpl } = fetchReturning(200, {})
 
     await expect(createDrawApi(fetchImpl).load()).rejects.toThrow('/api/admin/draw/strokes')
   })
 
   it('選べない色の線を含む応答はエラーにする', async () => {
     // 既定の色に戻して描くと、配信画面に意図しない色の線が出たまま原因に気付けない
-    const { fetchImpl } = 応答を返すfetch(200, { strokes: [{ ...引いた線, color: 'magenta' }] })
+    const { fetchImpl } = fetchReturning(200, { strokes: [{ ...drawnStroke, color: 'magenta' }] })
 
     await expect(createDrawApi(fetchImpl).load()).rejects.toThrow('/api/admin/draw/strokes')
   })
 })
 
 describe('createDrawApi の loadBackground（描く画面の背景）', () => {
-  const 撮った時刻 = Date.parse('2026-09-29T12:00:00Z')
-  const 画像のID = 'abcdef0123456789abcdef0123456789'
-  const 画像のURL = `https://i.gyazo.com/${画像のID}.png`
+  const capturedAt = Date.parse('2026-09-29T12:00:00Z')
+  const imageId = 'abcdef0123456789abcdef0123456789'
+  const imageUrl = `https://i.gyazo.com/${imageId}.png`
 
   /** 送られたリクエストを記録し、決めた応答をそのまま返す fetch */
-  const 背景を返すfetch = (response: () => Response) => {
+  const fetchReturningBackground = (response: () => Response) => {
     const requests: Request[] = []
     const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-      requests.push(new Request(new URL(String(input), サイト), init))
+      requests.push(new Request(new URL(String(input), site), init))
       return response()
     }
     return { requests, fetchImpl }
   }
 
-  const 画像の応答 = () => Response.json({ imageId: 画像のID, capturedAt: 撮った時刻, url: 画像のURL }, { headers: { ETag: `"${画像のID}"` } })
+  const imageResponse = () => Response.json({ imageId, capturedAt, url: imageUrl }, { headers: { ETag: `"${imageId}"` } })
 
   it('最後に撮った配信画面のURLを、撮った時刻と印付きで読む', async () => {
-    const { requests, fetchImpl } = 背景を返すfetch(画像の応答)
+    const { requests, fetchImpl } = fetchReturningBackground(imageResponse)
 
-    const 結果 = await createDrawApi(fetchImpl).loadBackground(null)
+    const result = await createDrawApi(fetchImpl).loadBackground(null)
 
     expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/draw/background')
     expect(requests[0]!.headers.has('If-None-Match')).toBe(false)
-    expect(結果).toEqual({ kind: 'image', url: 画像のURL, etag: `"${画像のID}"`, capturedAt: 撮った時刻 })
+    expect(result).toEqual({ kind: 'image', url: imageUrl, etag: `"${imageId}"`, capturedAt })
   })
 
   it('手元の1枚の印を添えて読み、変わっていなければそう伝える', async () => {
-    const { requests, fetchImpl } = 背景を返すfetch(() => new Response(null, { status: 304 }))
+    const { requests, fetchImpl } = fetchReturningBackground(() => new Response(null, { status: 304 }))
 
-    expect(await createDrawApi(fetchImpl).loadBackground(`"${画像のID}"`)).toEqual({ kind: 'unchanged' })
-    expect(requests[0]!.headers.get('If-None-Match')).toBe(`"${画像のID}"`)
+    expect(await createDrawApi(fetchImpl).loadBackground(`"${imageId}"`)).toEqual({ kind: 'unchanged' })
+    expect(requests[0]!.headers.get('If-None-Match')).toBe(`"${imageId}"`)
   })
 
   it('まだ1枚も無ければ、そう伝える', async () => {
-    const { fetchImpl } = 背景を返すfetch(() => new Response(null, { status: 204 }))
+    const { fetchImpl } = fetchReturningBackground(() => new Response(null, { status: 204 }))
 
     expect(await createDrawApi(fetchImpl).loadBackground(null)).toEqual({ kind: 'none' })
   })
 
   it('想定した形でない応答はエラーにする', async () => {
-    const { fetchImpl } = 背景を返すfetch(() => Response.json({ imageId: 画像のID, capturedAt: 撮った時刻 }, { headers: { ETag: `"${画像のID}"` } }))
+    const { fetchImpl } = fetchReturningBackground(() => Response.json({ imageId, capturedAt }, { headers: { ETag: `"${imageId}"` } }))
 
     await expect(createDrawApi(fetchImpl).loadBackground(null)).rejects.toThrow('/api/admin/draw/background')
   })
 
   it('Gyazo 以外のURLはエラーにする（知らない場所の画像を背景に読み込まない）', async () => {
-    const { fetchImpl } = 背景を返すfetch(() =>
-      Response.json({ imageId: 画像のID, capturedAt: 撮った時刻, url: 'https://example.com/画面.png' }, { headers: { ETag: `"${画像のID}"` } }),
+    const { fetchImpl } = fetchReturningBackground(() =>
+      Response.json({ imageId, capturedAt, url: 'https://example.com/画面.png' }, { headers: { ETag: `"${imageId}"` } }),
     )
 
     await expect(createDrawApi(fetchImpl).loadBackground(null)).rejects.toThrow('/api/admin/draw/background')
   })
 
   it('失敗の応答はエラーにする', async () => {
-    const { fetchImpl } = 背景を返すfetch(() => Response.json({ error: { code: 'unauthorized', message: 'ログインしてください' } }, { status: 401 }))
+    const { fetchImpl } = fetchReturningBackground(() => Response.json({ error: { code: 'unauthorized', message: 'ログインしてください' } }, { status: 401 }))
 
     await expect(createDrawApi(fetchImpl).loadBackground(null)).rejects.toThrow('ログインしてください')
   })
@@ -133,17 +133,17 @@ describe('createDrawApi の loadBackground（描く画面の背景）', () => {
 
 describe('createDrawOverlayApi（合成ページからの読み出し）', () => {
   it('オーバーレイ用キーを添えて、保存されている線を読む', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, { strokes: [引いた線] })
+    const { requests, fetchImpl } = fetchReturning(200, { strokes: [drawnStroke] })
 
-    expect(await createDrawOverlayApi(fetchImpl, オーバーレイ用キー).read()).toEqual({ strokes: [引いた線] })
+    expect(await createDrawOverlayApi(fetchImpl, overlayKey).read()).toEqual({ strokes: [drawnStroke] })
     const url = new URL(requests[0]!.url)
     expect(url.pathname).toBe('/api/overlay/draw/strokes')
-    expect(url.searchParams.get('key')).toBe(オーバーレイ用キー)
+    expect(url.searchParams.get('key')).toBe(overlayKey)
   })
 
   it('想定した形でない応答はエラーにする', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, { strokes: '線1' })
+    const { fetchImpl } = fetchReturning(200, { strokes: '線1' })
 
-    await expect(createDrawOverlayApi(fetchImpl, オーバーレイ用キー).read()).rejects.toThrow('/api/overlay/draw/strokes')
+    await expect(createDrawOverlayApi(fetchImpl, overlayKey).read()).rejects.toThrow('/api/overlay/draw/strokes')
   })
 })

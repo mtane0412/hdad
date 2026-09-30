@@ -7,31 +7,31 @@ import { describe, expect, it } from 'vitest'
 import { ApiError } from '../core/api'
 import { createTranscriptApi, isRetryable } from './api'
 
-const オーバーレイ用キー = 'overlay-key_0123456789abcdefghij'
+const OVERLAY_KEY = 'overlay-key_0123456789abcdefghij'
 
 /** 呼ばれた内容を記録し、決めた応答を返す fetch */
-const 応答を返すfetch = (status: number, body: unknown) => {
-  const 呼び出し: { path: string; method: string; body: string }[] = []
+const createFetchWithResponse = (status: number, body: unknown) => {
+  const calls: { path: string; method: string; body: string }[] = []
   const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    呼び出し.push({ path: String(input), method: init?.method ?? 'GET', body: String(init?.body ?? '') })
+    calls.push({ path: String(input), method: init?.method ?? 'GET', body: String(init?.body ?? '') })
     return new Response(status === 204 ? null : JSON.stringify(body), {
       status,
       headers: status === 204 ? {} : { 'Content-Type': 'application/json' },
     })
   }
-  return { 呼び出し, fetchImpl: fetchImpl as unknown as typeof fetch }
+  return { calls, fetchImpl: fetchImpl as unknown as typeof fetch }
 }
 
 describe('send', () => {
   it('オーバーレイ用キー付きの経路へ、メッセージIDと本文を送る', async () => {
-    const { 呼び出し, fetchImpl } = 応答を返すfetch(200, { recorded: true })
+    const { calls, fetchImpl } = createFetchWithResponse(200, { recorded: true })
 
-    const recorded = await createTranscriptApi(fetchImpl, オーバーレイ用キー).send('発話1', 'こんばんは、配信を始めます')
+    const recorded = await createTranscriptApi(fetchImpl, OVERLAY_KEY).send('発話1', 'こんばんは、配信を始めます')
 
     expect(recorded).toBe(true)
-    expect(呼び出し).toEqual([
+    expect(calls).toEqual([
       {
-        path: `/api/overlay/transcript?key=${encodeURIComponent(オーバーレイ用キー)}`,
+        path: `/api/overlay/transcript?key=${encodeURIComponent(OVERLAY_KEY)}`,
         method: 'POST',
         body: JSON.stringify({ messageId: '発話1', text: 'こんばんは、配信を始めます' }),
       },
@@ -39,18 +39,18 @@ describe('send', () => {
   })
 
   it('配信していないとWorkerが答えたら、記録されなかったと返す', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, { recorded: false })
-    expect(await createTranscriptApi(fetchImpl, オーバーレイ用キー).send('独り言', 'マイクの確認です')).toBe(false)
+    const { fetchImpl } = createFetchWithResponse(200, { recorded: false })
+    expect(await createTranscriptApi(fetchImpl, OVERLAY_KEY).send('独り言', 'マイクの確認です')).toBe(false)
   })
 
   it('Workerの応答に recorded がなければエラーにする', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, {})
-    await expect(createTranscriptApi(fetchImpl, オーバーレイ用キー).send('発話1', 'こんばんは')).rejects.toThrow(/recorded/)
+    const { fetchImpl } = createFetchWithResponse(200, {})
+    await expect(createTranscriptApi(fetchImpl, OVERLAY_KEY).send('発話1', 'こんばんは')).rejects.toThrow(/recorded/)
   })
 
   it('Workerが失敗を返したらエラーにする', async () => {
-    const { fetchImpl } = 応答を返すfetch(401, { error: { code: 'invalid-overlay-key', message: 'オーバーレイ用キーが正しくありません' } })
-    await expect(createTranscriptApi(fetchImpl, オーバーレイ用キー).send('発話1', 'こんばんは')).rejects.toThrow(ApiError)
+    const { fetchImpl } = createFetchWithResponse(401, { error: { code: 'invalid-overlay-key', message: 'オーバーレイ用キーが正しくありません' } })
+    await expect(createTranscriptApi(fetchImpl, OVERLAY_KEY).send('発話1', 'こんばんは')).rejects.toThrow(ApiError)
   })
 })
 

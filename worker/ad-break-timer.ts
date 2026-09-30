@@ -122,7 +122,7 @@ export const scheduleAdBreakEnd = async (namespace: AdBreakTimerNamespace, end: 
  * （送信そのものの失敗は runAlertActions の中で動作ごとに記録される。ここで受け止めるのはその手前の失敗である）。
  */
 const runAdBreakEnd = async (env: Env, end: AdBreakEnd, dependencies: AdBreakDependencies): Promise<void> => {
-  const 後回しの処理: Promise<unknown>[] = []
+  const deferredTask: Promise<unknown>[] = []
   const twitch = createTwitchClient({ clientId: env.TWITCH_CLIENT_ID, clientSecret: env.TWITCH_CLIENT_SECRET, fetch: dependencies.fetch })
   const context = {
     env,
@@ -131,14 +131,14 @@ const runAdBreakEnd = async (env: Env, end: AdBreakEnd, dependencies: AdBreakDep
     llm: createLlm({ ai: env.AI, store: env.STORE, fetch: dependencies.fetch, apiKey: env.OPENROUTER_API_KEY, db: env.DB, now: dependencies.now }),
     now: dependencies.now(),
     wait: dependencies.wait,
-    waitUntil: (promise: Promise<unknown>): void => void 後回しの処理.push(promise),
+    waitUntil: (promise: Promise<unknown>): void => void deferredTask.push(promise),
   }
 
   await recordLateFailure(context, 'ad-break-end-failed', async () => {
     // botの接続はここで調べる（チャット・アナウンスの動作は送り主のアカウントが要る）。
     // 通知の中身は預かったものをそのまま渡し、状態を持つ条件（初めての発言かなど）は発言ではないので使わない
     await runAlertActions(context, AD_BREAK_END, { event: end.event }, `${end.messageId}:ad-end`, async () => (await loadToken(env.STORE, 'bot')) !== null, null)
-    await Promise.all(後回しの処理)
+    await Promise.all(deferredTask)
   })
 }
 

@@ -2,7 +2,7 @@
 
 HDAD（Hyperfocus-Driven Assistant Director）。Twitch配信用素材と配信のアシスタント（チャットボット・アラート）のリポジトリ。Vite（マルチページ）+ TypeScript + Canvas 2D。ページUIは React + Tailwind + shadcn/ui へ移行中。Cloudflare Workers の静的アセットで公開する。
 
-このツールが目指すものと、これまでの判断から抽出した方針は `docs/principles.md` にある。機能を足すか・設定項目にするか・汎用化するかで迷ったら先にそこを読む。
+このツールが目指すものと、これまでの判断から抽出した方針は `docs/principles.md` にある。機能を追加するか・設定項目にするか・汎用化するかで迷ったら先にそこを読む。
 
 ## 品質チェックコマンド
 
@@ -21,7 +21,7 @@ npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 - 素材の種類ごとにソースを分ける（`src/wallpaper/`・`src/clock/`・`src/chat/` など）。素材だけを映す公開ディレクトリは持たない（`docs/decisions/overlay-stage.md`）
 - `src/core/` は素材横断の共通部品（canvas の起動は `src/core/mount.ts`、パラメータの宣言と直列化は `params.ts`・`url.ts`、パラメータの入力欄は `fields.tsx`、Workerの呼び出しの共通部分は `api.ts`、アイコンだけのボタンに渡す名前は `icon-button.ts`）
 - 素材（壁紙・時計・チャットのデザイン）はレジストリ（`src/<種類>/registry.ts`）に登録すると、合成オーバーレイのデザインの選択欄（`src/overlay/form.ts` の `DESIGNS`）に並ぶ。壁紙と時計はこの登録だけで済み、チャットのデザインは専用のCSSも要る（`.claude/rules/chat.md`）
-- OBSに載せるページは Workers 静的アセットの都合でパスごとに実ファイルが必要なので、`vite.config.ts` の入力に足す。載せるのは合成ページ（`overlay/stage/`）と映すものを持たない裏方（`overlay/backstage/`・`speech/reader/`・`transcript/relay/`）だけにする
+- OBSに載せるページは Workers 静的アセットの都合でパスごとに実ファイルが必要なので、`vite.config.ts` の入力に追加する。載せるのは合成ページ（`overlay/stage/`）と映すものを持たない裏方（`overlay/backstage/`・`speech/reader/`・`transcript/relay/`）だけにする
 
 ### ページUI（`src/app/`）
 
@@ -34,7 +34,7 @@ npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 
 ### shadcn/ui
 
-- 見た目は shadcn/ui（`src/components/ui/`。`npx shadcn@latest add <名前>` で足す）で統一する。土台は Base UI なので、要素の差し替えは `asChild` ではなく `render`
+- 見た目は shadcn/ui（`src/components/ui/`。`npx shadcn@latest add <名前>` で追加する）で統一する。土台は Base UI なので、要素の差し替えは `asChild` ではなく `render`
 - `@/` は `src/` を指す。明暗はOSの設定に従う（`src/app/app.css`）
 - リンクをボタンの見た目にするときは `Button` ではなく `<a className={buttonVariants()}>` を使う（`Button` は `role="button"` を付けてしまう）
 - コンポーネントのテストは `// @vitest-environment jsdom` を付けて Testing Library で書く（jsdom では Base UI の `Slider` のつまみが隠れたままなので、外枠の `role="group"` の名前から探す。`<output>` は `role="status"` を持つ）
@@ -47,7 +47,7 @@ npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 ### 型チェックとデプロイ
 
 - Workerの型チェックは `tsconfig.worker.json` に分けてある（Cloudflareのランタイムの型（`@cloudflare/workers-types`）はDOMの型と同時に読めないため）。`npm run type-check` は `tsconfig.json`（`src/`）と合わせて両方を走らせる
-- フォークした人向けの Deploy to Cloudflare ボタン（`docs/guide/deploy.md`）は、`wrangler.jsonc` のバインディングと `.dev.vars.example` のシークレットを読み、`package.json` の `cloudflare.bindings` の説明を入力欄に添える。リソースやシークレットを足したら `cloudflare.bindings` にも説明を足す（対応は `src/core/deploy-config.test.ts` が検証する）
+- フォークした人向けの Deploy to Cloudflare ボタン（`docs/guide/deploy.md`）は、`wrangler.jsonc` のバインディングと `.dev.vars.example` のシークレットを読み、`package.json` の `cloudflare.bindings` の説明を入力欄に添える。リソースやシークレットを追加したら `cloudflare.bindings` にも説明を追加する（対応は `src/core/deploy-config.test.ts` が検証する）
 - デプロイのコマンドは `npm run deploy` で、ビルドは含めない（ボタンと Workers Builds が `npm run build` を別に実行するため）
 
 ## 話題ごとの約束（`.claude/rules/`）
@@ -81,10 +81,10 @@ npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 
 `.claude/CLAUDE.md` と `.claude/rules/` には**いま守るべき約束**だけを書く。「なぜ別の案を採らなかったか」「どの失敗を踏んでこうなったか」は `docs/decisions/<話題>.md` に書き、約束からは行き先だけを指す。
 
-- 約束が変わったら約束のほうを直し、変えた理由を対応する `docs/decisions/` のファイルに足す
+- 約束が変わったら約束のほうを直し、変えた理由を対応する `docs/decisions/` のファイルに追加する
 - 新しい話題は `.claude/rules/` にファイルを作り（`paths` を必ず書く）、経緯は `docs/decisions/` に置く
 - このファイルは毎回のセッションで全文が読み込まれるので、理由も話題ごとの詳細も書かない
 
 ## 利用者向けの説明（`README.md` と `docs/guide/`）
 
-配信者が読む使い方は `docs/guide/<話題>.md` に機能ごとに書く。`README.md` は入口（何ができるか・使いはじめ方・文書への行き先・開発コマンドの要約・ライセンス）だけに保ち、機能の詳細を足さない。機能を足したら `docs/guide/` の該当ファイルと `docs/guide/README.md` の一覧を直す。経緯は `docs/decisions/docs.md`。
+配信者が読む使い方は `docs/guide/<話題>.md` に機能ごとに書く。`README.md` は入口（何ができるか・使いはじめ方・文書への行き先・開発コマンドの要約・ライセンス）だけに保ち、機能の詳細を追加しない。機能を追加したら `docs/guide/` の該当ファイルと `docs/guide/README.md` の一覧を直す。経緯は `docs/decisions/docs.md`。

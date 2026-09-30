@@ -182,7 +182,7 @@ export interface ChatHistory {
  * - 間隔は、記録を更新した発言（last_message_id が一致する）なら退避した previous_seen_at から last_seen_at まで、
  *   記録しなかった発言（間隔を空けるために書き込まなかったもの）なら last_seen_at から now までを数える。
  *   後者を now まで数えるのは、久しぶりの発言に続く連投で、同じ間隔を何度も当てはめないためである
- * 注意: 0007 の列を足す前からある行は first_message_id が空文字、previous_seen_at が NULL である。
+ * 注意: 0007 の列を追加する前からある行は first_message_id が空文字、previous_seen_at が NULL である。
  * 空文字はどの発言のIDとも一致しないので「初めてではない」と判定され、間隔は last_seen_at から数えられる。
  */
 export const readChatHistory = async (db: Database, message: Pick<ViewerMessage, 'userId' | 'messageId'>, now: number): Promise<ChatHistory> => {

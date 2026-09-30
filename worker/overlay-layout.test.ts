@@ -14,7 +14,7 @@ import { createFakeStore } from './fake-store'
 import { DEFAULT_OVERLAY_LAYOUT, loadOverlayLayout, parseOverlayLayout, saveOverlayLayout, type Overlay, type OverlayItem } from './overlay-layout'
 
 /** 背面いっぱいに広げた壁紙 */
-const 壁紙: OverlayItem = {
+const wallpaper: OverlayItem = {
   kind: 'wallpaper',
   id: 'aurora',
   params: 'speed=2&colors=ff8ad8,8ad8ff',
@@ -22,18 +22,18 @@ const 壁紙: OverlayItem = {
 }
 
 /** 右下に置く時計 */
-const 時計: OverlayItem = { kind: 'clock', id: 'analog', params: '', rect: { x: 78, y: 70, width: 20, height: 26 } }
+const clock: OverlayItem = { kind: 'clock', id: 'analog', params: '', rect: { x: 78, y: 70, width: 20, height: 26 } }
 
 /** いっぱいに置くアラート（デザインIDを持たない種類） */
-const アラート: OverlayItem = { kind: 'alerts', id: '', params: '', rect: { x: 0, y: 0, width: 100, height: 100 } }
+const alert: OverlayItem = { kind: 'alerts', id: '', params: '', rect: { x: 0, y: 0, width: 100, height: 100 } }
 
 /** ゲーム画面より後ろに置くオーバーレイ */
-const 背面のオーバーレイ: Overlay = { name: 'back', items: [壁紙] }
+const backOverlay: Overlay = { name: 'back', items: [wallpaper] }
 
 /** アバターより前に置くオーバーレイ */
-const 前面のオーバーレイ: Overlay = { name: 'front', items: [時計, アラート] }
+const frontOverlay: Overlay = { name: 'front', items: [clock, alert] }
 
-const 問題点 = (input: unknown): readonly string[] => {
+const issues = (input: unknown): readonly string[] => {
   try {
     parseOverlayLayout(input)
   } catch (error) {
@@ -45,9 +45,9 @@ const 問題点 = (input: unknown): readonly string[] => {
 
 describe('parseOverlayLayout', () => {
   it('オーバーレイと、その中の素材の並びをそのままの順で受け取る（素材の並びが重ねる順になる）', () => {
-    const layout = parseOverlayLayout({ overlays: [背面のオーバーレイ, 前面のオーバーレイ] })
+    const layout = parseOverlayLayout({ overlays: [backOverlay, frontOverlay] })
 
-    expect(layout.overlays).toEqual([背面のオーバーレイ, 前面のオーバーレイ])
+    expect(layout.overlays).toEqual([backOverlay, frontOverlay])
   })
 
   it('オーバーレイが1つもない構成も受け取る（まだ何も置いていない状態）', () => {
@@ -55,96 +55,96 @@ describe('parseOverlayLayout', () => {
   })
 
   it('オブジェクトでなければ拒む', () => {
-    expect(問題点('back')).toEqual(['構成はオブジェクトで指定してください'])
+    expect(issues('back')).toEqual(['構成はオブジェクトで指定してください'])
   })
 
   it('overlays が配列でなければ拒む', () => {
-    expect(問題点({ overlays: '壁紙' })).toEqual(['overlays: 配列で指定してください'])
+    expect(issues({ overlays: '壁紙' })).toEqual(['overlays: 配列で指定してください'])
   })
 
   it('オーバーレイの名前が書式に合わなければ拒む（OBSに貼るURLに載る値なので形を揃える）', () => {
-    expect(問題点({ overlays: [{ ...背面のオーバーレイ, name: '背面' }] })).toEqual([
+    expect(issues({ overlays: [{ ...backOverlay, name: '背面' }] })).toEqual([
       'overlays[0].name: オーバーレイの名前は英小文字・数字・ハイフン（20文字まで）で指定してください',
     ])
   })
 
   it('同じ名前のオーバーレイが2つあれば拒む（同じURLで2通りの中身になってしまう）', () => {
-    const [problem] = 問題点({ overlays: [背面のオーバーレイ, { ...前面のオーバーレイ, name: 'back' }] })
+    const [problem] = issues({ overlays: [backOverlay, { ...frontOverlay, name: 'back' }] })
 
     expect(problem).toBe('overlays[1].name: 「back」という名前のオーバーレイが2つあります')
   })
 
   it('素材を1つも持たないオーバーレイは拒む（貼っても何も映らないURLを作らせない）', () => {
-    expect(問題点({ overlays: [{ name: 'back', items: [] }] })).toEqual([
+    expect(issues({ overlays: [{ name: 'back', items: [] }] })).toEqual([
       'overlays[0].items: 素材を1つ以上置いてください（素材のないオーバーレイは貼っても何も映りません）',
     ])
   })
 
   it('items が配列でなければ拒む', () => {
-    expect(問題点({ overlays: [{ name: 'back', items: '壁紙' }] })).toEqual(['overlays[0].items: 配列で指定してください'])
+    expect(issues({ overlays: [{ name: 'back', items: '壁紙' }] })).toEqual(['overlays[0].items: 配列で指定してください'])
   })
 
   it('知らない種類は、選べる種類を並べて拒む', () => {
-    const [problem] = 問題点({ overlays: [{ name: 'back', items: [{ ...壁紙, kind: 'timer' }] }] })
+    const [problem] = issues({ overlays: [{ name: 'back', items: [{ ...wallpaper, kind: 'timer' }] }] })
 
     expect(problem).toContain('overlays[0].items[0].kind')
     expect(problem).toContain('wallpaper')
   })
 
   it('再生中の曲（bgm）はデザインIDを持たない種類として受け取る', () => {
-    const 再生中の曲: OverlayItem = { kind: 'bgm', id: '', params: '', rect: { x: 0, y: 0, width: 100, height: 100 } }
+    const nowPlayingTrack: OverlayItem = { kind: 'bgm', id: '', params: '', rect: { x: 0, y: 0, width: 100, height: 100 } }
 
-    expect(parseOverlayLayout({ overlays: [{ name: 'front', items: [再生中の曲] }] })).toEqual({ overlays: [{ name: 'front', items: [再生中の曲] }] })
+    expect(parseOverlayLayout({ overlays: [{ name: 'front', items: [nowPlayingTrack] }] })).toEqual({ overlays: [{ name: 'front', items: [nowPlayingTrack] }] })
   })
 
   it('壁紙・時計・チャットはデザインIDが空だと拒む', () => {
-    expect(問題点({ overlays: [{ name: 'back', items: [{ ...壁紙, id: '' }] }] })).toEqual([
+    expect(issues({ overlays: [{ name: 'back', items: [{ ...wallpaper, id: '' }] }] })).toEqual([
       'overlays[0].items[0].id: デザインIDを指定してください（英数字と下線・ハイフン、40文字まで）',
     ])
   })
 
   it('デザインIDを持たない種類にIDが入っていたら拒む（意味を持たない値を残さない）', () => {
-    expect(問題点({ overlays: [{ name: 'front', items: [{ ...アラート, id: 'analog' }] }] })).toEqual([
+    expect(issues({ overlays: [{ name: 'front', items: [{ ...alert, id: 'analog' }] }] })).toEqual([
       'overlays[0].items[0].id: alerts はデザインIDを持たないので、空文字にしてください',
     ])
   })
 
   it('パラメータはクエリ文字列のまま受け取り、中身は検証しない（素材のスキーマはWorkerが知らない）', () => {
-    const layout = parseOverlayLayout({ overlays: [{ name: 'back', items: [{ ...壁紙, params: 'speed=999&unknown=1' }] }] })
+    const layout = parseOverlayLayout({ overlays: [{ name: 'back', items: [{ ...wallpaper, params: 'speed=999&unknown=1' }] }] })
 
     expect(layout.overlays[0]?.items[0]?.params).toBe('speed=999&unknown=1')
   })
 
   it('パラメータが文字列でなければ拒む', () => {
-    expect(問題点({ overlays: [{ name: 'back', items: [{ ...壁紙, params: { speed: 2 } }] }] })).toEqual([
+    expect(issues({ overlays: [{ name: 'back', items: [{ ...wallpaper, params: { speed: 2 } }] }] })).toEqual([
       'overlays[0].items[0].params: クエリ文字列（speed=2&colors=ff8ad8 の形）で指定してください',
     ])
   })
 
   it('パラメータの先頭に ? が付いていたら拒む（URLSearchParams がそのまま読める形に揃える）', () => {
-    expect(問題点({ overlays: [{ name: 'back', items: [{ ...壁紙, params: '?speed=2' }] }] })).toEqual([
+    expect(issues({ overlays: [{ name: 'back', items: [{ ...wallpaper, params: '?speed=2' }] }] })).toEqual([
       'overlays[0].items[0].params: 先頭の ? は付けないでください',
     ])
   })
 
   it('位置と大きさが割合の範囲を外れていたら拒む', () => {
-    expect(問題点({ overlays: [{ name: 'front', items: [{ ...時計, rect: { x: -1, y: 0, width: 0, height: 26 } }] }] })).toEqual([
+    expect(issues({ overlays: [{ name: 'front', items: [{ ...clock, rect: { x: -1, y: 0, width: 0, height: 26 } }] }] })).toEqual([
       'overlays[0].items[0].rect.x: 0〜100 の数（％）で指定してください',
       'overlays[0].items[0].rect.width: 1〜100 の数（％）で指定してください',
     ])
   })
 
   it('位置がオブジェクトでなければ拒む', () => {
-    expect(問題点({ overlays: [{ name: 'front', items: [{ ...時計, rect: null }] }] })).toEqual([
+    expect(issues({ overlays: [{ name: 'front', items: [{ ...clock, rect: null }] }] })).toEqual([
       'overlays[0].items[0].rect: 位置と大きさを { x, y, width, height } の割合（％）で指定してください',
     ])
   })
 
   it('問題点は最初の1件で止めず、オーバーレイと素材をまたいですべて集める（画面で一度に直せるようにする）', () => {
-    const problems = 問題点({
+    const problems = issues({
       overlays: [
-        { name: 'back', items: [{ ...壁紙, id: '' }] },
-        { name: '前面', items: [時計] },
+        { name: 'back', items: [{ ...wallpaper, id: '' }] },
+        { name: '前面', items: [clock] },
       ],
     })
 
@@ -154,13 +154,13 @@ describe('parseOverlayLayout', () => {
   })
 
   it('1つのオーバーレイに素材が多すぎたら拒む（1枚のページで動かし切れる数に留める）', () => {
-    const [problem] = 問題点({ overlays: [{ name: 'front', items: Array.from({ length: 21 }, () => アラート) }] })
+    const [problem] = issues({ overlays: [{ name: 'front', items: Array.from({ length: 21 }, () => alert) }] })
 
     expect(problem).toContain('overlays[0].items: ')
   })
 
   it('オーバーレイが多すぎたら拒む（OBSに置くブラウザソースの数なので、増え続ける形にしない）', () => {
-    const [problem] = 問題点({ overlays: Array.from({ length: 11 }, (_, index) => ({ name: `stage-${index}`, items: [アラート] })) })
+    const [problem] = issues({ overlays: Array.from({ length: 11 }, (_, index) => ({ name: `stage-${index}`, items: [alert] })) })
 
     expect(problem).toContain('overlays: ')
   })
@@ -170,9 +170,9 @@ describe('saveOverlayLayout・loadOverlayLayout', () => {
   it('保存した構成をそのまま読める', async () => {
     const store = createFakeStore()
 
-    await saveOverlayLayout(store, { overlays: [背面のオーバーレイ, 前面のオーバーレイ] })
+    await saveOverlayLayout(store, { overlays: [backOverlay, frontOverlay] })
 
-    expect(await loadOverlayLayout(store)).toEqual({ overlays: [背面のオーバーレイ, 前面のオーバーレイ] })
+    expect(await loadOverlayLayout(store)).toEqual({ overlays: [backOverlay, frontOverlay] })
   })
 
   it('一度も保存していなければ、オーバーレイが1つもない構成を返す', async () => {
@@ -180,8 +180,8 @@ describe('saveOverlayLayout・loadOverlayLayout', () => {
   })
 
   it('保存されている形が古ければ（オーバーレイごとに分ける前の平らな形）、読み替えずに直し方を添えてエラーにする（Fail-Fast）', async () => {
-    const 古い形 = { layers: [{ kind: 'wallpaper', id: 'aurora', params: '', group: 'back', rect: { x: 0, y: 0, width: 100, height: 100 } }] }
-    const store = createFakeStore({ 'overlay-layout': JSON.stringify(古い形) })
+    const legacyShape = { layers: [{ kind: 'wallpaper', id: 'aurora', params: '', group: 'back', rect: { x: 0, y: 0, width: 100, height: 100 } }] }
+    const store = createFakeStore({ 'overlay-layout': JSON.stringify(legacyShape) })
 
     await expect(loadOverlayLayout(store)).rejects.toThrow(/overlay-layout/)
   })

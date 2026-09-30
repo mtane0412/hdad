@@ -12,12 +12,12 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { TimeChart } from './time-chart'
 
-const 視聴者数の点 = [
+const VIEWER_POINTS = [
   { at: Date.parse('2026-09-18T12:05:00.000Z'), viewers: 8 },
   { at: Date.parse('2026-09-18T13:05:00.000Z'), viewers: 31 },
 ]
 
-const フォロワー数の点 = [
+const FOLLOWER_POINTS = [
   { at: Date.parse('2026-08-01T00:00:00.000Z'), followers: 90 },
   { at: Date.parse('2026-09-18T15:00:00.000Z'), followers: 104 },
 ]
@@ -38,13 +38,13 @@ afterEach(cleanup)
 
 describe('TimeChart', () => {
   it('視聴者数の推移を、説明を持つひとつの図として出す', () => {
-    render(<TimeChart label="金曜夜のもくもく配信 の視聴者数の推移" dataKey="viewers" points={視聴者数の点} />)
+    render(<TimeChart label="金曜夜のもくもく配信 の視聴者数の推移" dataKey="viewers" points={VIEWER_POINTS} />)
 
     expect(screen.getByRole('img', { name: '金曜夜のもくもく配信 の視聴者数の推移' })).toBeInTheDocument()
   })
 
   it('フォロワー数の推移を、説明を持つひとつの図として出す', () => {
-    render(<TimeChart label="直近30日のフォロワー数の推移" dataKey="followers" points={フォロワー数の点} />)
+    render(<TimeChart label="直近30日のフォロワー数の推移" dataKey="followers" points={FOLLOWER_POINTS} />)
 
     expect(screen.getByRole('img', { name: '直近30日のフォロワー数の推移' })).toBeInTheDocument()
   })

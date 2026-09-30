@@ -24,32 +24,32 @@ import { recordStreamOnline } from './stats-store'
 import { recordStreamChatMessage } from './stream-chat-store'
 import { recordViewerMessage } from './viewer-store'
 
-const 現在時刻 = Date.parse('2026-09-27T12:10:00Z')
-const 配信者のID = '12345'
-const サイト = 'https://hdad.example.com'
-const 発行済みのキー = 'issued-overlay-key-0123456789abcdefghij'
+const now = Date.parse('2026-09-27T12:10:00Z')
+const streamerId = '12345'
+const site = 'https://hdad.example.com'
+const issuedKey = 'issued-overlay-key-0123456789abcdefghij'
 
 /** 雑談の題に取り上げる発言1件（管理画面が送る形） */
-const 取り上げる発言 = {
+const chatToFocus = {
   messageId: 'chat-message-1',
   login: 'kowai_hanashi',
   displayName: '怖い話す人',
   text: '今から怖い話をするね',
 }
 
-const アイコンのURL = 'https://static-cdn.jtvnw.net/jtv_user_pictures/kowai_hanashi-profile_image-300x300.png'
+const iconUrl = 'https://static-cdn.jtvnw.net/jtv_user_pictures/kowai_hanashi-profile_image-300x300.png'
 
 /** 保存される中身（アイコンのURLが添えられる） */
-const 保存される中身: FocusTarget = { ...取り上げる発言, profileImageUrl: アイコンのURL }
+const storedContent: FocusTarget = { ...chatToFocus, profileImageUrl: iconUrl }
 
-const 環境を作る = () => {
+const createEnv = () => {
   const env = {
-    STORE: createFakeStore({ 'overlay-key': 発行済みのキー }),
+    STORE: createFakeStore({ 'overlay-key': issuedKey }),
     MEDIA: createFakeBucket(),
     DB: createFakeDatabase(),
     TWITCH_CLIENT_ID: 'test-client-id',
     TWITCH_CLIENT_SECRET: 'テスト用シークレット',
-    TWITCH_BROADCASTER_ID: 配信者のID,
+    TWITCH_BROADCASTER_ID: streamerId,
     SESSION_SECRET: 'テスト用のセッション秘密鍵',
     EVENTSUB_SECRET: 'テスト用のWebhookシークレット',
     ALERTS: createFakeAlertChannel().namespace,
@@ -62,36 +62,36 @@ const 環境を作る = () => {
 }
 
 /** Twitchの代役。アプリアクセストークンの発行と、ログイン名からのユーザーの取得にだけ答える */
-const Twitchの代役 = async (input: RequestInfo | URL): Promise<Response> => {
+const fakeTwitch = async (input: RequestInfo | URL): Promise<Response> => {
   const url = new URL(input instanceof Request ? input.url : String(input))
   if (url.pathname === '/oauth2/token') return Response.json({ access_token: 'test-app-token', expires_in: 5000 })
   if (url.pathname === '/helix/users' && url.searchParams.get('login') === 'kowai_hanashi') {
-    return Response.json({ data: [{ id: '100', login: 'kowai_hanashi', profile_image_url: アイコンのURL }] })
+    return Response.json({ data: [{ id: '100', login: 'kowai_hanashi', profile_image_url: iconUrl }] })
   }
   if (url.pathname === '/helix/users') return Response.json({ data: [] })
   throw new Error(`テストで想定していない通信です: ${String(input)}`)
 }
 
-const 待たない = async (): Promise<void> => {}
+const noWait = async (): Promise<void> => {}
 
 /** これらの経路は応答のあとに続く処理（waitUntil）を使わない */
-const 後回しにしない = (): void => {
+const noDefer = (): void => {
   throw new Error('このテストでは、応答のあとに続く処理を使いません')
 }
 
-const 呼び出す = (request: Request, env: Env) => handleRequest(request, env, { fetch: Twitchの代役, now: () => 現在時刻, wait: 待たない, waitUntil: 後回しにしない })
+const invoke = (request: Request, env: Env) => handleRequest(request, env, { fetch: fakeTwitch, now: () => now, wait: noWait, waitUntil: noDefer })
 
 /** 配信者としてログインした状態で呼ぶ。書き換えのときは Origin も付ける（ブラウザが付けるのと同じ） */
-const 配信者として呼ぶ = async (env: Env, path: string, init: RequestInit = {}): Promise<Response> => {
-  const session = await createSessionToken(配信者のID, env.SESSION_SECRET, 現在時刻)
+const invokeAsStreamer = async (env: Env, path: string, init: RequestInit = {}): Promise<Response> => {
+  const session = await createSessionToken(streamerId, env.SESSION_SECRET, now)
   const headers: Record<string, string> = { Cookie: `__Host-session=${session}` }
-  if (init.method !== undefined && init.method !== 'GET') headers.Origin = サイト
-  return 呼び出す(new Request(`${サイト}${path}`, { ...init, headers: { ...headers, ...(init.headers as Record<string, string> | undefined) } }), env)
+  if (init.method !== undefined && init.method !== 'GET') headers.Origin = site
+  return invoke(new Request(`${site}${path}`, { ...init, headers: { ...headers, ...(init.headers as Record<string, string> | undefined) } }), env)
 }
 
 /** 取り上げているものを保存する（管理画面が送るのと同じ形） */
-const 保存する = (env: Env, target: unknown) =>
-  配信者として呼ぶ(env, '/api/admin/focus', {
+const save = (env: Env, target: unknown) =>
+  invokeAsStreamer(env, '/api/admin/focus', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ target }),
@@ -99,27 +99,27 @@ const 保存する = (env: Env, target: unknown) =>
 
 describe('GET /api/admin/focus', () => {
   it('一度も保存していなければ、取り上げていない状態を返す', async () => {
-    const { env } = 環境を作る()
+    const { env } = createEnv()
 
-    const response = await 配信者として呼ぶ(env, '/api/admin/focus')
+    const response = await invokeAsStreamer(env, '/api/admin/focus')
 
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ target: null })
   })
 
   it('保存した中身を返す', async () => {
-    const { env } = 環境を作る()
-    await 保存する(env, 取り上げる発言)
+    const { env } = createEnv()
+    await save(env, chatToFocus)
 
-    const response = await 配信者として呼ぶ(env, '/api/admin/focus')
+    const response = await invokeAsStreamer(env, '/api/admin/focus')
 
-    expect(await response.json()).toEqual({ target: 保存される中身 })
+    expect(await response.json()).toEqual({ target: storedContent })
   })
 
   it('ログインしていなければ401にする', async () => {
-    const { env } = 環境を作る()
+    const { env } = createEnv()
 
-    const response = await 呼び出す(new Request(`${サイト}/api/admin/focus`), env)
+    const response = await invoke(new Request(`${site}/api/admin/focus`), env)
 
     expect(response.status).toBe(401)
   })
@@ -127,38 +127,38 @@ describe('GET /api/admin/focus', () => {
 
 describe('PUT /api/admin/focus', () => {
   it('取り上げた発言に、発言した人のアイコンを添えて保存する', async () => {
-    const { env } = 環境を作る()
+    const { env } = createEnv()
 
-    const response = await 保存する(env, 取り上げる発言)
+    const response = await save(env, chatToFocus)
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ target: 保存される中身 })
-    expect(await loadFocusTarget(env.STORE)).toEqual(保存される中身)
+    expect(await response.json()).toEqual({ target: storedContent })
+    expect(await loadFocusTarget(env.STORE)).toEqual(storedContent)
   })
 
   it('発言した人がTwitchに見つからなければ、保存せずに失敗にする（アイコンの無い箱を映さないため）', async () => {
-    const { env } = 環境を作る()
+    const { env } = createEnv()
 
-    const response = await 保存する(env, { ...取り上げる発言, login: 'kieta_hito' })
+    const response = await save(env, { ...chatToFocus, login: 'kieta_hito' })
 
     expect(response.status).toBe(502)
     expect(await loadFocusTarget(env.STORE)).toBeNull()
   })
 
   it('取り上げているものを外せる（配信中に元へ戻す操作があるため）', async () => {
-    const { env } = 環境を作る()
-    await 保存する(env, 取り上げる発言)
+    const { env } = createEnv()
+    await save(env, chatToFocus)
 
-    const response = await 保存する(env, null)
+    const response = await save(env, null)
 
     expect(await response.json()).toEqual({ target: null })
     expect(await loadFocusTarget(env.STORE)).toBeNull()
   })
 
   it('問題があれば400にして、問題点を並べて返す', async () => {
-    const { env } = 環境を作る()
+    const { env } = createEnv()
 
-    const response = await 保存する(env, { ...取り上げる発言, login: '怖い話す人' })
+    const response = await save(env, { ...chatToFocus, login: '怖い話す人' })
 
     expect(response.status).toBe(400)
     const body = (await response.json()) as { error: { problems: string[] } }
@@ -166,19 +166,19 @@ describe('PUT /api/admin/focus', () => {
   })
 
   it('本文がJSONでなければ400にする', async () => {
-    const { env } = 環境を作る()
+    const { env } = createEnv()
 
-    const response = await 配信者として呼ぶ(env, '/api/admin/focus', { method: 'PUT', body: 'これはJSONではありません' })
+    const response = await invokeAsStreamer(env, '/api/admin/focus', { method: 'PUT', body: 'これはJSONではありません' })
 
     expect(response.status).toBe(400)
   })
 
   it('送信元が違えば拒む（CSRF対策）', async () => {
-    const { env } = 環境を作る()
-    const session = await createSessionToken(配信者のID, env.SESSION_SECRET, 現在時刻)
+    const { env } = createEnv()
+    const session = await createSessionToken(streamerId, env.SESSION_SECRET, now)
 
-    const response = await 呼び出す(
-      new Request(`${サイト}/api/admin/focus`, {
+    const response = await invoke(
+      new Request(`${site}/api/admin/focus`, {
         method: 'PUT',
         headers: { Cookie: `__Host-session=${session}`, Origin: 'https://evil.example.com', 'Content-Type': 'application/json' },
         body: JSON.stringify({ target: null }),
@@ -192,18 +192,18 @@ describe('PUT /api/admin/focus', () => {
 
 describe('GET /api/admin/focus/messages', () => {
   /** 配信中の発言を1件記録する（発言者の記録も作る。取り上げるには名前が要る） */
-  const 発言を記録する = async (env: Env, messageId: string, text: string, at: number) => {
+  const recordChat = async (env: Env, messageId: string, text: string, at: number) => {
     await recordViewerMessage(env.DB, { userId: '100', login: 'kowai_hanashi', displayName: '怖い話す人', badges: [], messageId: 'viewer-100' }, at)
     await recordStreamChatMessage(env.DB, { messageId, userId: '100', text }, at)
   }
 
   it('いま進んでいる配信の直近の発言を、新しい順に名前付きで返す', async () => {
-    const { env } = 環境を作る()
-    await recordStreamOnline(env.DB, { id: 'stream-1', startedAt: 現在時刻 - 60 * 60 * 1000 })
-    await 発言を記録する(env, '発言1', 'こんばんは！', 現在時刻 - 60 * 1000)
-    await 発言を記録する(env, '発言2', '今から怖い話をするね', 現在時刻)
+    const { env } = createEnv()
+    await recordStreamOnline(env.DB, { id: 'stream-1', startedAt: now - 60 * 60 * 1000 })
+    await recordChat(env, '発言1', 'こんばんは！', now - 60 * 1000)
+    await recordChat(env, '発言2', '今から怖い話をするね', now)
 
-    const response = await 配信者として呼ぶ(env, '/api/admin/focus/messages')
+    const response = await invokeAsStreamer(env, '/api/admin/focus/messages')
 
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({
@@ -215,17 +215,17 @@ describe('GET /api/admin/focus/messages', () => {
   })
 
   it('配信していなければ空の一覧を返す（配信中のあいだだけ本文を貯めているため）', async () => {
-    const { env } = 環境を作る()
+    const { env } = createEnv()
 
-    const response = await 配信者として呼ぶ(env, '/api/admin/focus/messages')
+    const response = await invokeAsStreamer(env, '/api/admin/focus/messages')
 
     expect(await response.json()).toEqual({ messages: [] })
   })
 
   it('ログインしていなければ401にする', async () => {
-    const { env } = 環境を作る()
+    const { env } = createEnv()
 
-    const response = await 呼び出す(new Request(`${サイト}/api/admin/focus/messages`), env)
+    const response = await invoke(new Request(`${site}/api/admin/focus/messages`), env)
 
     expect(response.status).toBe(401)
   })
@@ -233,19 +233,19 @@ describe('GET /api/admin/focus/messages', () => {
 
 describe('GET /api/overlay/focus', () => {
   it('オーバーレイ用キーがあれば、取り上げているものを返す', async () => {
-    const { env } = 環境を作る()
-    await 保存する(env, 取り上げる発言)
+    const { env } = createEnv()
+    await save(env, chatToFocus)
 
-    const response = await 呼び出す(new Request(`${サイト}/api/overlay/focus?key=${発行済みのキー}`), env)
+    const response = await invoke(new Request(`${site}/api/overlay/focus?key=${issuedKey}`), env)
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ target: 保存される中身 })
+    expect(await response.json()).toEqual({ target: storedContent })
   })
 
   it('オーバーレイ用キーが違えば401にする', async () => {
-    const { env } = 環境を作る()
+    const { env } = createEnv()
 
-    const response = await 呼び出す(new Request(`${サイト}/api/overlay/focus?key=ちがうキー`), env)
+    const response = await invoke(new Request(`${site}/api/overlay/focus?key=ちがうキー`), env)
 
     expect(response.status).toBe(401)
   })

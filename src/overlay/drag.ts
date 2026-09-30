@@ -57,7 +57,7 @@ const ROUND_UNIT = 10
 
 const clamp = (value: number, min: number, max: number): number => Math.min(Math.max(value, min), max)
 
-/** 割合を0.1％まで丸める（素材を足すときの既定の大きさも同じ細かさにそろえる。src/overlay/form.ts） */
+/** 割合を0.1％まで丸める（素材を追加するときの既定の大きさも同じ細かさにそろえる。src/overlay/form.ts） */
 export const roundPercent = (value: number): number => Math.round(value * ROUND_UNIT) / ROUND_UNIT
 
 /**

@@ -69,7 +69,7 @@ const notReachableMessage = (url: string, origin: string, pageOrigin: string, er
     `VOICEVOX（${url}）につながりません。考えられる原因は次の3つです。`,
     `1. VOICEVOX が起動していない → 起動してから、このブラウザソースを再読み込みしてください`,
     `2. ポート番号が違う → 管理画面の「読み上げ」で VOICEVOX が使っているポートに直し、このブラウザソースを再読み込みしてください`,
-    `3. VOICEVOX がこのサイトからの通信を拒んでいる → ${origin}/setting を開いて CORS の許可に ${pageOrigin} を足し、VOICEVOX を再起動してください`,
+    `3. VOICEVOX がこのサイトからの通信を拒んでいる → ${origin}/setting を開いて CORS の許可に ${pageOrigin} を追加し、VOICEVOX を再起動してください`,
     `詳細: ${String(error)}`,
   ].join('\n')
 

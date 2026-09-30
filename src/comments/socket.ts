@@ -4,7 +4,7 @@
  * コメントビューアー（/comments/）は、Workerの経路（配信者のセッションで守られた /api/admin/comments/socket）を
  * 通して配送先（worker/comment-channel.ts の Durable Object）へつなぎ、つないだ直後の履歴と、そのあとの1件ずつを受け取る。
  *
- * つなぎ直し・生存確認は src/core/socket.ts が受け持ち、ここは経路を足すだけにする。
+ * つなぎ直し・生存確認は src/core/socket.ts が受け持ち、ここは経路を追加するだけにする。
  * 届いた文字列の読み取りはページ（feed.ts の parseFeedMessage）が行う。
  */
 import { connectSocket, socketUrl } from '../core/socket'

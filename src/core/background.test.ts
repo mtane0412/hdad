@@ -19,9 +19,9 @@ describe('withAlpha', () => {
 
 describe('createRandom', () => {
   it('同じ種からは同じ乱数列が得られる（再読み込みしても配置が変わらない）', () => {
-    const 一回目 = createRandom(412)
-    const 二回目 = createRandom(412)
-    expect([一回目(), 一回目(), 一回目()]).toEqual([二回目(), 二回目(), 二回目()])
+    const first = createRandom(412)
+    const second = createRandom(412)
+    expect([first(), first(), first()]).toEqual([second(), second(), second()])
   })
 
   it('種が違えば乱数列も変わる', () => {
@@ -77,13 +77,13 @@ describe('loopPosition（画面の外へ抜けたら反対側から戻る循環�
 })
 
 describe('pickColor（配色から番号に応じた色を選ぶ）', () => {
-  const パステル配色 = ['#ffafcc', '#a2d2ff', '#b9fbc0']
+  const pastelPalette = ['#ffafcc', '#a2d2ff', '#b9fbc0']
 
   it('番号が配色の数を超えたら、先頭の色へ戻って繰り返す', () => {
-    expect(pickColor(パステル配色, 0)).toBe('#ffafcc')
-    expect(pickColor(パステル配色, 2)).toBe('#b9fbc0')
-    expect(pickColor(パステル配色, 3)).toBe('#ffafcc')
-    expect(pickColor(パステル配色, 7)).toBe('#a2d2ff')
+    expect(pickColor(pastelPalette, 0)).toBe('#ffafcc')
+    expect(pickColor(pastelPalette, 2)).toBe('#b9fbc0')
+    expect(pickColor(pastelPalette, 3)).toBe('#ffafcc')
+    expect(pickColor(pastelPalette, 7)).toBe('#a2d2ff')
   })
 
   it('配色が空の場合は、色なしで描画を続けずにエラーにする', () => {

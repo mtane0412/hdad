@@ -73,7 +73,7 @@ export interface SocketConnection {
 /** 同じサイトのWorkerへ、httpではなくwsのURLでつなぐ */
 export const socketUrl = (path: string, query: Record<string, string> = {}): string => {
   const url = new URL(path, location.origin)
-  for (const [名前, 値] of Object.entries(query)) url.searchParams.set(名前, 値)
+  for (const [name, value] of Object.entries(query)) url.searchParams.set(name, value)
   return url.toString().replace(/^http/, 'ws')
 }
 
@@ -88,32 +88,32 @@ export const connectSocket = (
   url: string,
   handlers: SocketHandlers,
   hint: string,
-  open: (url: string) => SocketLike = (つなぎ先) => new WebSocket(つなぎ先),
+  open: (url: string) => SocketLike = (target) => new WebSocket(target),
 ): SocketConnection => {
   let retryDelay = RETRY_INITIAL_MS
   let disconnected = false
   /** いまつながっている接続。つながっていなければ null（送る先がない） */
-  let 使える接続: SocketLike | null = null
+  let usableConnection: SocketLike | null = null
   /** いまの接続。閉じるときに使う（つながる前でも閉じられるようにする） */
-  let いまの接続: SocketLike | null = null
+  let currentConnection: SocketLike | null = null
   /** 呼び出し側がやめたか。やめたあとはつなぎ直さない */
-  let やめた = false
+  let abandoned = false
   /** 生存確認を送っているタイマー。閉じるときに止める（本物の接続の onclose を待たずに止める） */
   let pingTimer: number | undefined
   /** つなぎ直しを待っているタイマー。閉じるときに止める（切れたあとに閉じても生き返らせない） */
   let retryTimer: number | undefined
 
-  const つなぐ = (): void => {
+  const connect = (): void => {
     // 予約が残ったまま閉じられていた場合に、つなぎ直さない
-    if (やめた) return
+    if (abandoned) return
     const socket = open(url)
-    いまの接続 = socket
+    currentConnection = socket
     /** この接続が一度でもつながったか。つながらないまま閉じたなら、キーや設定を疑う手がかりを出す */
     let opened = false
 
     socket.onopen = () => {
       opened = true
-      使える接続 = socket
+      usableConnection = socket
       retryDelay = RETRY_INITIAL_MS
       if (disconnected) handlers.onStatus('reconnected')
       disconnected = false
@@ -130,32 +130,32 @@ export const connectSocket = (
 
     socket.onclose = () => {
       window.clearInterval(pingTimer)
-      使える接続 = null
+      usableConnection = null
       // 自分で閉じたなら、つなぎ直しも知らせもしない
-      if (やめた) return
+      if (abandoned) return
       // ブラウザのWebSocketは、つながらなかった理由（Workerの401など）を教えてくれない。
       // 一度もつながっていないなら、いちばんありそうな原因を添えて知らせる
       if (!opened) handlers.onWarning(hint)
       else if (!disconnected) handlers.onStatus('disconnected')
       disconnected = true
-      retryTimer = window.setTimeout(つなぐ, retryDelay)
+      retryTimer = window.setTimeout(connect, retryDelay)
       retryDelay = Math.min(retryDelay * 2, RETRY_MAX_MS)
     }
   }
 
-  つなぐ()
+  connect()
 
   return {
     send: (text) => {
-      if (使える接続 === null) return false
-      使える接続.send(text)
+      if (usableConnection === null) return false
+      usableConnection.send(text)
       return true
     },
     close: () => {
-      やめた = true
+      abandoned = true
       window.clearInterval(pingTimer)
       window.clearTimeout(retryTimer)
-      いまの接続?.close()
+      currentConnection?.close()
     },
   }
 }

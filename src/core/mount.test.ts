@@ -30,14 +30,14 @@ describe('canvasPixels', () => {
 
 describe('showError・clearError', () => {
   /** レイヤーの箱に見立てた要素 */
-  const 箱を作る = (): HTMLElement => {
+  const createBox = (): HTMLElement => {
     const box = document.createElement('div')
     document.body.append(box)
     return box
   }
 
   it('失敗の理由を、渡した箱の中だけに出す', () => {
-    const box = 箱を作る()
+    const box = createBox()
 
     showError(new Error('背景「aurora」はレジストリに登録されていません'), '背景', box)
 
@@ -47,7 +47,7 @@ describe('showError・clearError', () => {
   })
 
   it('直ったら、同じ出どころの表示を消せる（読み直しが成功したときに使う）', () => {
-    const box = 箱を作る()
+    const box = createBox()
     showError(new Error('読み込めませんでした'), 'サイドスーパー', box, 'read')
 
     clearError(box, 'read')
@@ -56,31 +56,31 @@ describe('showError・clearError', () => {
   })
 
   it('出どころが違う表示は消さない（読み出しが直っても、チャットの接続の失敗は残す）', () => {
-    const box = 箱を作る()
+    const box = createBox()
     showError(new Error('読み込めませんでした'), '注目コメント', box, 'read')
     showError(new Error('Workerの応答に login がありません'), 'チャットボックス', box, 'chat')
 
     clearError(box, 'read')
 
-    const 残った = box.querySelectorAll('.stage-error')
-    expect(残った).toHaveLength(1)
-    expect(残った[0]?.textContent).toContain('login がありません')
+    const remaining = box.querySelectorAll('.stage-error')
+    expect(remaining).toHaveLength(1)
+    expect(remaining[0]?.textContent).toContain('login がありません')
   })
 
   it('表示が出ていない箱に対しても、何も壊さない', () => {
-    const box = 箱を作る()
+    const box = createBox()
 
     expect(() => clearError(box, 'read')).not.toThrow()
   })
 
   it('ほかの箱に出ている表示は消さない（レイヤーごとに独立して扱う）', () => {
-    const 直る箱 = 箱を作る()
-    const 壊れたままの箱 = 箱を作る()
-    showError(new Error('読み込めませんでした'), 'サイドスーパー', 直る箱, 'read')
-    showError(new Error('キーが違います'), '注目コメント', 壊れたままの箱, 'read')
+    const recoverableBox = createBox()
+    const brokenBox = createBox()
+    showError(new Error('読み込めませんでした'), 'サイドスーパー', recoverableBox, 'read')
+    showError(new Error('キーが違います'), '注目コメント', brokenBox, 'read')
 
-    clearError(直る箱, 'read')
+    clearError(recoverableBox, 'read')
 
-    expect(壊れたままの箱.querySelector('.stage-error')).not.toBeNull()
+    expect(brokenBox.querySelector('.stage-error')).not.toBeNull()
   })
 })

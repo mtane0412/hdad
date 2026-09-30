@@ -129,7 +129,7 @@ export const digital = defineBackground({
         { width, height },
         {
           // 縁取りは文字の外側にも太さの半分ずつはみ出すので、その分を幅に含める。
-          // 高さは、行の高さによる上下の余白（(LINE_HEIGHT - 1) / 2）が縁取りのはみ出し（OUTLINE_RATIO / 2）より大きいので足さない
+          // 高さは、行の高さによる上下の余白（(LINE_HEIGHT - 1) / 2）が縁取りのはみ出し（OUTLINE_RATIO / 2）より大きいので追加しない
           width:
             Math.max(measure(ctx, timeLine), measure(ctx, dateLine) * DATE_SIZE_RATIO) + OUTLINE_RATIO,
           height: LINE_HEIGHT * (1 + (hasDateLine ? DATE_SIZE_RATIO : 0)),

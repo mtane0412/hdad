@@ -33,10 +33,10 @@ afterEach(cleanup)
  * （実時計のままだと、UTCの日付が変わる瞬間に描いた場合だけ落ちる）。時計だけを差し替え、待ち合わせ（waitFor・
  * userEvent）が使うタイマーは本物のままにする。
  */
-const 固定した現在時刻 = new Date('2026-03-15T12:00:00.000Z')
+const fixedNow = new Date('2026-03-15T12:00:00.000Z')
 
 beforeEach(() => {
-  vi.useFakeTimers({ toFake: ['Date'], now: 固定した現在時刻 })
+  vi.useFakeTimers({ toFake: ['Date'], now: fixedNow })
 })
 
 afterEach(() => {
@@ -44,22 +44,22 @@ afterEach(() => {
 })
 
 /** 短い文を作る3か所の既定のモデル */
-const 軽いモデル = { 'workers-ai': '@cf/meta/llama-3.1-8b-instruct-fp8', openrouter: 'meta-llama/llama-3.1-8b-instruct' }
+const lightModel = { 'workers-ai': '@cf/meta/llama-3.1-8b-instruct-fp8', openrouter: 'meta-llama/llama-3.1-8b-instruct' }
 /** あらすじの既定のモデル */
-const 大きいモデル = { 'workers-ai': '@cf/meta/llama-3.3-70b-instruct-fp8-fast', openrouter: 'meta-llama/llama-3.3-70b-instruct' }
+const largeModel = { 'workers-ai': '@cf/meta/llama-3.3-70b-instruct-fp8-fast', openrouter: 'meta-llama/llama-3.3-70b-instruct' }
 
 /** 前提: Workerに保存されている、既定のままの設定（どこも Workers AI） */
-const 保存済みの設定: LlmSettings = {
+const savedSettings: LlmSettings = {
   usages: {
-    aiChat: { provider: 'workers-ai', models: { ...軽いモデル } },
-    sideSuper: { provider: 'workers-ai', models: { ...軽いモデル } },
-    viewerSummary: { provider: 'workers-ai', models: { ...軽いモデル } },
-    streamSummary: { provider: 'workers-ai', models: { ...大きいモデル } },
+    aiChat: { provider: 'workers-ai', models: { ...lightModel } },
+    sideSuper: { provider: 'workers-ai', models: { ...lightModel } },
+    viewerSummary: { provider: 'workers-ai', models: { ...lightModel } },
+    streamSummary: { provider: 'workers-ai', models: { ...largeModel } },
   },
 }
 
 /** Workerが返すモデルの候補。提供元ごとに名前の付け方が違う */
-const 候補: Readonly<Record<LlmProvider, LlmModelOption[]>> = {
+const candidates: Readonly<Record<LlmProvider, LlmModelOption[]>> = {
   'workers-ai': [
     { id: '@cf/meta/llama-3.1-8b-instruct-fp8', name: 'Llama 3.1 8B Instruct（fp8）' },
     { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', name: 'Llama 3.3 70B Instruct（fp8・高速）' },
@@ -72,11 +72,11 @@ const 候補: Readonly<Record<LlmProvider, LlmModelOption[]>> = {
 }
 
 /** 固定した現在時刻から見たUTCの今日と6日前（使用状況の行に使う。画面は「今日」「直近7日」に分けて数える） */
-const 今日 = 固定した現在時刻.toISOString().slice(0, 10)
-const 六日前 = new Date(固定した現在時刻.getTime() - 6 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+const today = fixedNow.toISOString().slice(0, 10)
+const sixDaysAgo = new Date(fixedNow.getTime() - 6 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
 /** 使用状況の1行を作る（書いていない項目は 0） */
-const 使用状況の行 = (day: string, usage: string, 足す: Partial<LlmUsageDay> = {}): LlmUsageDay => ({
+const usageRow = (day: string, usage: string, addUsage: Partial<LlmUsageDay> = {}): LlmUsageDay => ({
   day,
   usage,
   provider: 'workers-ai',
@@ -86,45 +86,45 @@ const 使用状況の行 = (day: string, usage: string, 足す: Partial<LlmUsage
   promptTokens: 0,
   completionTokens: 0,
   costUsd: 0,
-  ...足す,
+  ...addUsage,
 })
 
 /** 画面に渡すもの。使用状況と残高は、渡さなければ空（まだ一度も呼んでいない状態）として答える */
-interface 画面の前提 extends Partial<LlmState> {
+interface pagePrerequisites extends Partial<LlmState> {
   usage?: LlmUsageDay[]
   credits?: LlmCredits
   /** 使用状況の読み出しを失敗させる */
-  usageの失敗?: Error
+  usageFailure?: Error
   /** 残高の読み出しを失敗させる */
-  creditsの失敗?: Error
+  creditsFailure?: Error
 }
 
 /** 読み書きを記録する、LLMの設定のAPI */
-const llmApi = (state: 画面の前提 = {}): LlmApi & { saved: LlmSettings[]; 残高を読んだ回数: () => number } => {
+const llmApi = (state: pagePrerequisites = {}): LlmApi & { saved: LlmSettings[]; balanceReadCount: () => number } => {
   const saved: LlmSettings[] = []
-  let 残高の呼び出し = 0
+  let balanceCalls = 0
   return {
     saved,
-    残高を読んだ回数: () => 残高の呼び出し,
-    load: () => Promise.resolve({ settings: state.settings ?? 保存済みの設定, apiKeyConfigured: state.apiKeyConfigured ?? true }),
+    balanceReadCount: () => balanceCalls,
+    load: () => Promise.resolve({ settings: state.settings ?? savedSettings, apiKeyConfigured: state.apiKeyConfigured ?? true }),
     save: (next) => {
       saved.push(next)
       return Promise.resolve(next)
     },
-    listModels: (provider) => Promise.resolve(候補[provider]),
-    loadUsage: () => (state.usageの失敗 ? Promise.reject(state.usageの失敗) : Promise.resolve(state.usage ?? [])),
+    listModels: (provider) => Promise.resolve(candidates[provider]),
+    loadUsage: () => (state.usageFailure ? Promise.reject(state.usageFailure) : Promise.resolve(state.usage ?? [])),
     loadCredits: () => {
-      残高の呼び出し += 1
-      if (state.creditsの失敗) return Promise.reject(state.creditsの失敗)
+      balanceCalls += 1
+      if (state.creditsFailure) return Promise.reject(state.creditsFailure)
       return Promise.resolve(state.credits ?? { totalCredits: 0, totalUsage: 0, remaining: 0 })
     },
   }
 }
 
-const 描く = (api: LlmApi = llmApi()) => render(<LlmPage api={api} />)
+const renderPage = (api: LlmApi = llmApi()) => render(<LlmPage api={api} />)
 
 /** 設定が読み込まれて、入力欄が出るまで待つ */
-const 読み込みを待つ = async () => {
+const waitForLoad = async () => {
   await waitFor(() => expect(screen.getByLabelText('チャットの文面の提供元')).toBeInTheDocument())
 }
 
@@ -133,48 +133,48 @@ const 読み込みを待つ = async () => {
  *
  * 候補はWorkerから非同期に読むので、入力欄が出た時点では、まだ保存済みの1件しか並んでいない。
  */
-const 候補が並ぶまで待つ = async (名前: string, provider: LlmProvider) => {
+const waitForCandidates = async (optionName: string, provider: LlmProvider) => {
   await waitFor(() =>
-    expect([...screen.getByLabelText(`${名前}のモデル`).querySelectorAll('option')].map((option) => option.textContent)).toEqual(
-      候補[provider].map(({ name }) => name),
+    expect([...screen.getByLabelText(`${optionName}のモデル`).querySelectorAll('option')].map((option) => option.textContent)).toEqual(
+      candidates[provider].map(({ name }) => name),
     ),
   )
 }
 
-const 保存する = async () => userEvent.click(screen.getByRole('button', { name: '設定を保存' }))
+const save = async () => userEvent.click(screen.getByRole('button', { name: '設定を保存' }))
 
 describe('LlmPage', () => {
   test('AIを使う4か所ぶんの提供元とモデルを、選択欄として出す', async () => {
-    描く()
-    await 読み込みを待つ()
+    renderPage()
+    await waitForLoad()
 
-    for (const 名前 of ['チャットの文面', 'サイドスーパー', '視聴者の人物像', '配信のあらすじ']) {
-      expect(screen.getByLabelText(`${名前}の提供元`)).toHaveValue('workers-ai')
+    for (const optionName of ['チャットの文面', 'サイドスーパー', '視聴者の人物像', '配信のあらすじ']) {
+      expect(screen.getByLabelText(`${optionName}の提供元`)).toHaveValue('workers-ai')
     }
     // モデルは入力欄ではなく選択欄で、Workerから読んだ候補が並ぶ
-    const モデルの選択欄 = screen.getByLabelText('チャットの文面のモデル')
-    expect(モデルの選択欄.tagName).toBe('SELECT')
-    expect(モデルの選択欄).toHaveValue('@cf/meta/llama-3.1-8b-instruct-fp8')
-    await 候補が並ぶまで待つ('チャットの文面', 'workers-ai')
+    const modelSelect = screen.getByLabelText('チャットの文面のモデル')
+    expect(modelSelect.tagName).toBe('SELECT')
+    expect(modelSelect).toHaveValue('@cf/meta/llama-3.1-8b-instruct-fp8')
+    await waitForCandidates('チャットの文面', 'workers-ai')
     expect(screen.getByLabelText('配信のあらすじのモデル')).toHaveValue('@cf/meta/llama-3.3-70b-instruct-fp8-fast')
   })
 
   test('提供元を切り替えると、その箇所だけがその提供元のモデルと候補に入れ替わる', async () => {
-    描く()
-    await 読み込みを待つ()
+    renderPage()
+    await waitForLoad()
 
     await userEvent.selectOptions(screen.getByLabelText('配信のあらすじの提供元'), 'openrouter')
 
     await waitFor(() => expect(screen.getByLabelText('配信のあらすじのモデル')).toHaveValue('meta-llama/llama-3.3-70b-instruct'))
-    await 候補が並ぶまで待つ('配信のあらすじ', 'openrouter')
+    await waitForCandidates('配信のあらすじ', 'openrouter')
     // ほかの箇所は変わらない
     expect(screen.getByLabelText('チャットの文面の提供元')).toHaveValue('workers-ai')
     expect(screen.getByLabelText('チャットの文面のモデル')).toHaveValue('@cf/meta/llama-3.1-8b-instruct-fp8')
   })
 
   test('提供元を切り替えて戻しても、前の提供元のモデル名は消えていない', async () => {
-    描く()
-    await 読み込みを待つ()
+    renderPage()
+    await waitForLoad()
 
     await userEvent.selectOptions(screen.getByLabelText('視聴者の人物像の提供元'), 'openrouter')
     await userEvent.selectOptions(screen.getByLabelText('視聴者の人物像の提供元'), 'workers-ai')
@@ -184,19 +184,19 @@ describe('LlmPage', () => {
 
   test('箇所ごとに提供元とモデル名を変えて保存すると、4か所ぶんをまとめて送る', async () => {
     const api = llmApi()
-    描く(api)
-    await 読み込みを待つ()
+    renderPage(api)
+    await waitForLoad()
 
     await userEvent.selectOptions(screen.getByLabelText('配信のあらすじの提供元'), 'openrouter')
     await waitFor(() => expect(screen.getByLabelText('配信のあらすじのモデル')).toHaveValue('meta-llama/llama-3.3-70b-instruct'))
     await userEvent.selectOptions(screen.getByLabelText('配信のあらすじのモデル'), 'anthropic/claude-3.5-haiku')
-    await 保存する()
+    await save()
 
     await waitFor(() =>
       expect(api.saved).toEqual([
         {
           usages: {
-            ...保存済みの設定.usages,
+            ...savedSettings.usages,
             streamSummary: {
               provider: 'openrouter',
               models: { 'workers-ai': '@cf/meta/llama-3.3-70b-instruct-fp8-fast', openrouter: 'anthropic/claude-3.5-haiku' },
@@ -209,21 +209,21 @@ describe('LlmPage', () => {
   })
 
   test('保存の応答を待っているあいだは、提供元もモデルも選べなくする（どの設定が保存されたかを取り違えないため）', async () => {
-    let 保存を終える: (settings: LlmSettings) => void = () => {}
-    描く({
+    let finishSave: (settings: LlmSettings) => void = () => {}
+    renderPage({
       ...llmApi(),
-      save: (next) => new Promise<LlmSettings>((resolve) => (保存を終える = () => resolve(next))),
+      save: (next) => new Promise<LlmSettings>((resolve) => (finishSave = () => resolve(next))),
     })
-    await 読み込みを待つ()
+    await waitForLoad()
     // 候補が並ぶ前はモデルの選択欄が読み込み中で無効なので、並んでから保存する
-    await 候補が並ぶまで待つ('サイドスーパー', 'workers-ai')
+    await waitForCandidates('サイドスーパー', 'workers-ai')
 
-    await 保存する()
+    await save()
 
     expect(screen.getByLabelText('サイドスーパーの提供元')).toBeDisabled()
     expect(screen.getByLabelText('サイドスーパーのモデル')).toBeDisabled()
 
-    保存を終える(保存済みの設定)
+    finishSave(savedSettings)
 
     await waitFor(() => expect(screen.getByText('LLMの設定を保存しました')).toBeInTheDocument())
     // 保存が終われば、また選べる
@@ -232,27 +232,27 @@ describe('LlmPage', () => {
   })
 
   test('OpenRouter を選んでいる箇所があるのに鍵が設定されていなければ、設定の仕方を知らせる', async () => {
-    描く(
+    renderPage(
       llmApi({
-        settings: { usages: { ...保存済みの設定.usages, sideSuper: { provider: 'openrouter', models: { ...軽いモデル } } } },
+        settings: { usages: { ...savedSettings.usages, sideSuper: { provider: 'openrouter', models: { ...lightModel } } } },
         apiKeyConfigured: false,
       }),
     )
-    await 読み込みを待つ()
+    await waitForLoad()
 
     expect(await screen.findByRole('alert')).toHaveTextContent('OPENROUTER_API_KEY')
   })
 
   test('鍵が無くても、どこも Workers AI のままなら知らせない（要らない警告を出さないため）', async () => {
-    描く(llmApi({ apiKeyConfigured: false }))
-    await 読み込みを待つ()
+    renderPage(llmApi({ apiKeyConfigured: false }))
+    await waitForLoad()
 
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   test('切り替えた時点で鍵が無いと分かれば、保存する前に知らせる', async () => {
-    描く(llmApi({ apiKeyConfigured: false }))
-    await 読み込みを待つ()
+    renderPage(llmApi({ apiKeyConfigured: false }))
+    await waitForLoad()
 
     await userEvent.selectOptions(screen.getByLabelText('チャットの文面の提供元'), 'openrouter')
 
@@ -261,7 +261,7 @@ describe('LlmPage', () => {
 
   test('Workerが返した問題点を、そのまま並べて出す（検証はWorkerだけが持つ）', async () => {
     const api = llmApi()
-    描く({
+    renderPage({
       ...api,
       save: () =>
         Promise.reject(
@@ -270,41 +270,41 @@ describe('LlmPage', () => {
           ]),
         ),
     })
-    await 読み込みを待つ()
+    await waitForLoad()
 
-    await 保存する()
+    await save()
 
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('aiChat.models.openrouter: モデル名を200文字以内で指定してください'))
   })
 
   test('モデルの候補を読めなければ、黙って空の選択欄を出さず理由を出す', async () => {
-    描く({ ...llmApi(), listModels: () => Promise.reject(new Error('OpenRouter のモデルの一覧を取れませんでした（503）')) })
-    await 読み込みを待つ()
+    renderPage({ ...llmApi(), listModels: () => Promise.reject(new Error('OpenRouter のモデルの一覧を取れませんでした（503）')) })
+    await waitForLoad()
 
     expect(await screen.findByRole('alert')).toHaveTextContent('OpenRouter のモデルの一覧を取れませんでした（503）')
   })
 
   test('保存済みのモデルが候補に無ければ、それも選べる形で残す（勝手に別のモデルへ移さない）', async () => {
-    描く(
+    renderPage(
       llmApi({
         settings: {
           usages: {
-            ...保存済みの設定.usages,
-            sideSuper: { provider: 'workers-ai', models: { ...軽いモデル, 'workers-ai': '@cf/meta/一覧から消えたモデル' } },
+            ...savedSettings.usages,
+            sideSuper: { provider: 'workers-ai', models: { ...lightModel, 'workers-ai': '@cf/meta/一覧から消えたモデル' } },
           },
         },
       }),
     )
-    await 読み込みを待つ()
+    await waitForLoad()
 
     await waitFor(() => expect(screen.getByLabelText('サイドスーパーのモデル')).toHaveValue('@cf/meta/一覧から消えたモデル'))
   })
 
   test('設定を読めなければ、黙って既定に倒さず理由を出す', async () => {
-    描く({
+    renderPage({
       load: () => Promise.reject(new Error('通信できませんでした')),
       save: () => Promise.reject(new Error('呼ばれない')),
-      listModels: () => Promise.resolve(候補['workers-ai']),
+      listModels: () => Promise.resolve(candidates['workers-ai']),
       loadUsage: () => Promise.resolve([]),
       loadCredits: () => Promise.reject(new Error('呼ばれない')),
     })
@@ -318,12 +318,12 @@ describe('使用状況', () => {
   test('箇所ごとに、今日と直近7日の呼び出し回数・失敗の回数を出す', async () => {
     const api = llmApi({
       usage: [
-        使用状況の行(今日, 'aiChat', { calls: 12, failures: 1, promptTokens: 9_000, completionTokens: 3_000 }),
-        使用状況の行(六日前, 'aiChat', { calls: 30, promptTokens: 20_000, completionTokens: 5_000 }),
+        usageRow(today, 'aiChat', { calls: 12, failures: 1, promptTokens: 9_000, completionTokens: 3_000 }),
+        usageRow(sixDaysAgo, 'aiChat', { calls: 30, promptTokens: 20_000, completionTokens: 5_000 }),
       ],
     })
-    描く(api)
-    await 読み込みを待つ()
+    renderPage(api)
+    await waitForLoad()
 
     // チャットの文面の箇所と、全体の合計の両方に出る（ほかの3か所は呼んでいないので、合計はこの箇所と同じ数になる）
     await waitFor(() => expect(screen.getAllByText(/今日 12回（失敗1回）・12,000トークン/)).toHaveLength(2))
@@ -331,32 +331,32 @@ describe('使用状況', () => {
   })
 
   test('判定用のモデル Jev の箇所（コメントへの反応の判定）の使用状況も出す（選ぶモデルは無いので、選択欄は出さない）', async () => {
-    描く(llmApi({ usage: [使用状況の行(今日, 'commentReaction', { calls: 7, promptTokens: 7_000, completionTokens: 70 })] }))
-    await 読み込みを待つ()
+    renderPage(llmApi({ usage: [usageRow(today, 'commentReaction', { calls: 7, promptTokens: 7_000, completionTokens: 70 })] }))
+    await waitForLoad()
 
-    const 箇所 = await screen.findByRole('region', { name: 'コメントへの反応の判定（Jev）' })
-    expect(within(箇所).getByText(/今日 7回・7,070トークン/)).toBeInTheDocument()
-    expect(within(箇所).queryByRole('combobox')).not.toBeInTheDocument()
+    const part = await screen.findByRole('region', { name: 'コメントへの反応の判定（Jev）' })
+    expect(within(part).getByText(/今日 7回・7,070トークン/)).toBeInTheDocument()
+    expect(within(part).queryByRole('combobox')).not.toBeInTheDocument()
   })
 
   test('判定用のモデル Jev の箇所（BGMの選択）の使用状況も出す', async () => {
-    描く(llmApi({ usage: [使用状況の行(今日, 'bgm', { calls: 3, promptTokens: 3_000, completionTokens: 30 })] }))
-    await 読み込みを待つ()
+    renderPage(llmApi({ usage: [usageRow(today, 'bgm', { calls: 3, promptTokens: 3_000, completionTokens: 30 })] }))
+    await waitForLoad()
 
-    const 箇所 = await screen.findByRole('region', { name: 'BGMの選択（Jev）' })
-    expect(within(箇所).getByText(/今日 3回・3,030トークン/)).toBeInTheDocument()
+    const part = await screen.findByRole('region', { name: 'BGMの選択（Jev）' })
+    expect(within(part).getByText(/今日 3回・3,030トークン/)).toBeInTheDocument()
   })
 
   test('まだ一度も呼んでいない箇所は 0回 と出す（数えられていないのか使っていないのかを取り違えないため）', async () => {
-    描く(llmApi())
-    await 読み込みを待つ()
+    renderPage(llmApi())
+    await waitForLoad()
 
     await waitFor(() => expect(screen.getAllByText(/今日 0回/).length).toBeGreaterThan(0))
   })
 
   test('鍵が設定されていれば OpenRouter の残高を出す', async () => {
-    描く(llmApi({ apiKeyConfigured: true, credits: { totalCredits: 10, totalUsage: 2.5, remaining: 7.5 } }))
-    await 読み込みを待つ()
+    renderPage(llmApi({ apiKeyConfigured: true, credits: { totalCredits: 10, totalUsage: 2.5, remaining: 7.5 } }))
+    await waitForLoad()
 
     await waitFor(() => expect(screen.getByText(/残り \$7\.50/)).toBeInTheDocument())
     expect(screen.getByText(/付与 \$10\.00/)).toBeInTheDocument()
@@ -364,16 +364,16 @@ describe('使用状況', () => {
 
   test('鍵が設定されていなければ、残高は読みに行かない', async () => {
     const api = llmApi({ apiKeyConfigured: false })
-    描く(api)
-    await 読み込みを待つ()
+    renderPage(api)
+    await waitForLoad()
 
     await waitFor(() => expect(screen.getAllByText(/今日 0回/).length).toBeGreaterThan(0))
-    expect(api.残高を読んだ回数()).toBe(0)
+    expect(api.balanceReadCount()).toBe(0)
   })
 
   test('使用状況を読めなくても設定は触れるようにし、理由だけを添える', async () => {
-    描く(llmApi({ usageの失敗: new Error('Workerの /api/admin/llm/usage を呼び出せませんでした') }))
-    await 読み込みを待つ()
+    renderPage(llmApi({ usageFailure: new Error('Workerの /api/admin/llm/usage を呼び出せませんでした') }))
+    await waitForLoad()
 
     await waitFor(() => expect(screen.getByText(/\/api\/admin\/llm\/usage/)).toBeInTheDocument())
     // 設定の選択欄はそのまま使える
@@ -381,8 +381,8 @@ describe('使用状況', () => {
   })
 
   test('残高を読めなくても、使用状況と設定はそのまま出す', async () => {
-    描く(llmApi({ apiKeyConfigured: true, creditsの失敗: new Error('OpenRouter の残高を取れませんでした（401）') }))
-    await 読み込みを待つ()
+    renderPage(llmApi({ apiKeyConfigured: true, creditsFailure: new Error('OpenRouter の残高を取れませんでした（401）') }))
+    await waitForLoad()
 
     await waitFor(() => expect(screen.getByText(/残高を取れませんでした/)).toBeInTheDocument())
     expect(screen.getAllByText(/今日 0回/).length).toBeGreaterThan(0)

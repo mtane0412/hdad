@@ -26,55 +26,55 @@ import { createFakeDrawChannel } from './fake-draw-channel'
 import { createFakeCommentChannel } from './fake-comment-channel'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
 
-interface 環境の条件 {
+interface EnvOptions {
   /** アラートの配送先（Durable Object）が失敗を返す場合 */
-  配送は失敗する?: boolean
+  channelShouldFail?: boolean
   /** オーバーレイ用キー。null なら未発行（一度もログインしていない状態） */
-  オーバーレイ用キー?: string | null
+  overlayKey?: string | null
   /** LLM（Workers AI）が失敗を返す場合（無料枠を使い切ったときなど） */
-  LLMは失敗する?: boolean
+  llmShouldFail?: boolean
   /** LLMが返す文面。省略すると代役の既定の文面になる */
-  LLMの文面?: string
+  llmText?: string
   /** コメントビューアーの配送先（Durable Object）が失敗を返す場合 */
-  コメントの配送は失敗する?: boolean
+  commentChannelShouldFail?: boolean
 }
 
-const 現在時刻 = Date.parse('2026-09-21T12:30:00Z')
-const 配信者のID = '12345'
-const サイト = 'https://hdad.example.com'
-const シークレット = 'テスト用のWebhookシークレット'
+const NOW = Date.parse('2026-09-21T12:30:00Z')
+const BROADCASTER_ID = '12345'
+const SITE = 'https://hdad.example.com'
+const SECRET = 'テスト用のWebhookシークレット'
 
-const 発行済みのオーバーレイ用キー = 'issued-overlay-key-0123456789abcdefghij'
+const ISSUED_OVERLAY_KEY = 'issued-overlay-key-0123456789abcdefghij'
 
-const 環境を作る = ({ 配送は失敗する = false, オーバーレイ用キー = 発行済みのオーバーレイ用キー, LLMは失敗する = false, LLMの文面, コメントの配送は失敗する = false }: 環境の条件 = {}) => {
+const createEnv = ({ channelShouldFail = false, overlayKey = ISSUED_OVERLAY_KEY, llmShouldFail = false, llmText, commentChannelShouldFail = false }: EnvOptions = {}) => {
   const db = createFakeDatabase()
-  const コメントの配送 = createFakeCommentChannel({ 失敗する: コメントの配送は失敗する })
-  const 配送 = createFakeAlertChannel({ 失敗する: 配送は失敗する })
-  const 広告のタイマー = createFakeAdBreakTimer()
-  const ai = createFakeWorkersAi({ 失敗する: LLMは失敗する, ...(LLMの文面 === undefined ? {} : { response: LLMの文面 }) })
+  const commentChannel = createFakeCommentChannel({ shouldFail: commentChannelShouldFail })
+  const alertChannel = createFakeAlertChannel({ shouldFail: channelShouldFail })
+  const adBreakTimer = createFakeAdBreakTimer()
+  const ai = createFakeWorkersAi({ shouldFail: llmShouldFail, ...(llmText === undefined ? {} : { response: llmText }) })
   const env = {
-    STORE: createFakeStore(オーバーレイ用キー === null ? {} : { 'overlay-key': オーバーレイ用キー }),
+    STORE: createFakeStore(overlayKey === null ? {} : { 'overlay-key': overlayKey }),
     MEDIA: createFakeBucket(),
     DB: db,
     TWITCH_CLIENT_ID: 'test-client-id',
     TWITCH_CLIENT_SECRET: 'テスト用シークレット',
-    TWITCH_BROADCASTER_ID: 配信者のID,
+    TWITCH_BROADCASTER_ID: BROADCASTER_ID,
     SESSION_SECRET: 'テスト用のセッション秘密鍵',
-    EVENTSUB_SECRET: シークレット,
-    ALERTS: 配送.namespace,
+    EVENTSUB_SECRET: SECRET,
+    ALERTS: alertChannel.namespace,
     DRAW: createFakeDrawChannel().namespace,
-    COMMENTS: コメントの配送.namespace,
-    AD_BREAKS: 広告のタイマー.namespace,
+    COMMENTS: commentChannel.namespace,
+    AD_BREAKS: adBreakTimer.namespace,
     AI: ai,
   } satisfies Env
-  return { env, db, 配送, ai, 広告のタイマー, コメントの配送 }
+  return { env, db, alertChannel, ai, adBreakTimer, commentChannel }
 }
 
-const Twitchへは通信しない = async (input: RequestInfo | URL): Promise<Response> => {
+const noTwitchFetch = async (input: RequestInfo | URL): Promise<Response> => {
   throw new Error(`テストで想定していない通信です: ${String(input)}`)
 }
 
-interface 通知の内容 {
+interface NotificationOptions {
   messageType?: string
   messageId?: string
   timestamp?: string
@@ -83,16 +83,16 @@ interface 通知の内容 {
 }
 
 /** Twitchが送ってくるのと同じ形の、署名付きのリクエストを作る */
-const Twitchからの通知 = ({
+const createNotification = ({
   messageType = 'notification',
   messageId = 'message-1',
   timestamp = '2026-09-21T12:29:50.123456789Z',
-  secret = シークレット,
+  secret = SECRET,
   body,
-}: 通知の内容): Request => {
+}: NotificationOptions): Request => {
   const text = JSON.stringify(body)
   const signature = createHmac('sha256', secret).update(messageId + timestamp + text).digest('hex')
-  return new Request(`${サイト}/api/eventsub/webhook`, {
+  return new Request(`${SITE}/api/eventsub/webhook`, {
     method: 'POST',
     headers: {
       'Twitch-Eventsub-Message-Id': messageId,
@@ -105,7 +105,7 @@ const Twitchからの通知 = ({
 }
 
 /** テストでは実際に待たず、待つよう求められた時間だけを記録する */
-const 待たない = async (): Promise<void> => {}
+const noWait = async (): Promise<void> => {}
 
 /**
  * waitUntil で後回しにされた処理を集める。
@@ -113,30 +113,30 @@ const 待たない = async (): Promise<void> => {}
  * LLMに文面を作らせる動作は、Twitchへ2xxを返したあとに送る（応答が遅れると再送されるため）。
  * テストではその「あとで走る処理」を取りこぼさないよう、ここへ集めて 後回しの処理を待つ() でまとめて待つ。
  */
-let 後回しの処理: Promise<unknown>[] = []
+let deferredTasks: Promise<unknown>[] = []
 
-const 後回しの処理を待つ = async (): Promise<void> => {
-  const 待つもの = 後回しの処理
-  後回しの処理 = []
-  await Promise.all(待つもの)
+const flushDeferredTasks = async (): Promise<void> => {
+  const pending = deferredTasks
+  deferredTasks = []
+  await Promise.all(pending)
 }
 
-const 呼び出す = (request: Request, env: Env, fetchImpl: typeof fetch = Twitchへは通信しない, wait: (milliseconds: number) => Promise<void> = 待たない) =>
+const callWebhook = (request: Request, env: Env, fetchImpl: typeof fetch = noTwitchFetch, wait: (milliseconds: number) => Promise<void> = noWait) =>
   handleRequest(request, env, {
     fetch: fetchImpl,
-    now: () => 現在時刻,
+    now: () => NOW,
     wait,
     waitUntil: (promise) => {
-      後回しの処理.push(promise)
+      deferredTasks.push(promise)
     },
   })
 
-const エラーコード = async (response: Response): Promise<unknown> => {
+const errorCode = async (response: Response): Promise<unknown> => {
   const body = (await response.json()) as { error?: { code?: unknown } }
   return body.error?.code
 }
 
-const レイドの通知 = {
+const RAID_NOTIFICATION = {
   subscription: { type: 'channel.raid' },
   event: {
     from_broadcaster_user_id: 'レイド元の配信者のユーザーID',
@@ -145,148 +145,148 @@ const レイドの通知 = {
     viewers: 30,
   },
 }
-const 雑談配信 = { id: '40000000001', startedAt: '2026-09-21T12:00:00.000Z', title: '月曜の雑談配信', categoryName: 'Just Chatting', viewerCount: 10 }
+const CHAT_STREAM = { id: '40000000001', startedAt: '2026-09-21T12:00:00.000Z', title: '月曜の雑談配信', categoryName: 'Just Chatting', viewerCount: 10 }
 
 describe('通知の検証', () => {
   it('署名が正しくなければ403にし、何も記録しない', async () => {
-    const { env, db } = 環境を作る()
-    const response = await 呼び出す(Twitchからの通知({ body: レイドの通知, secret: '攻撃者が推測したシークレット' }), env)
+    const { env, db } = createEnv()
+    const response = await callWebhook(createNotification({ body: RAID_NOTIFICATION, secret: '攻撃者が推測したシークレット' }), env)
 
     expect(response.status).toBe(403)
-    expect(await エラーコード(response)).toBe('invalid-signature')
+    expect(await errorCode(response)).toBe('invalid-signature')
     expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM stream_events').get()).toEqual({ count: 0 })
   })
 
   it('Twitchのヘッダーが欠けていたら400にする', async () => {
-    const { env } = 環境を作る()
-    const response = await 呼び出す(new Request(`${サイト}/api/eventsub/webhook`, { method: 'POST', body: '{}' }), env)
+    const { env } = createEnv()
+    const response = await callWebhook(new Request(`${SITE}/api/eventsub/webhook`, { method: 'POST', body: '{}' }), env)
 
     expect(response.status).toBe(400)
-    expect(await エラーコード(response)).toBe('invalid-webhook')
+    expect(await errorCode(response)).toBe('invalid-webhook')
   })
 
   it('10分より古い通知は、署名が正しくても受け付けない（使い回しへの備え）', async () => {
-    const { env } = 環境を作る()
-    const response = await 呼び出す(Twitchからの通知({ body: レイドの通知, timestamp: '2026-09-21T12:19:00Z' }), env)
+    const { env } = createEnv()
+    const response = await callWebhook(createNotification({ body: RAID_NOTIFICATION, timestamp: '2026-09-21T12:19:00Z' }), env)
 
     expect(response.status).toBe(400)
-    expect(await エラーコード(response)).toBe('stale-message')
+    expect(await errorCode(response)).toBe('stale-message')
   })
 
   it('EVENTSUB_SECRET が設定されていなければ500にする', async () => {
-    const { env } = 環境を作る()
-    const response = await 呼び出す(Twitchからの通知({ body: レイドの通知 }), { ...env, EVENTSUB_SECRET: '' })
+    const { env } = createEnv()
+    const response = await callWebhook(createNotification({ body: RAID_NOTIFICATION }), { ...env, EVENTSUB_SECRET: '' })
 
     expect(response.status).toBe(500)
-    expect(await エラーコード(response)).toBe('misconfigured')
+    expect(await errorCode(response)).toBe('misconfigured')
   })
 })
 
 describe('広告の通知（channel.ad_break.begin）', () => {
   /** Twitchから届く広告の開始の通知。自動で入った3分の広告 */
-  const 広告の開始の通知 = {
+  const AD_BREAK_NOTIFICATION = {
     subscription: { type: 'channel.ad_break.begin' },
     event: {
       duration_seconds: 180,
       started_at: '2026-09-21T12:29:50.000Z',
       is_automatic: true,
-      broadcaster_user_id: 配信者のID,
+      broadcaster_user_id: BROADCASTER_ID,
       broadcaster_user_login: 'tanenobu',
       broadcaster_user_name: 'たねのぶ',
-      requester_user_id: 配信者のID,
+      requester_user_id: BROADCASTER_ID,
       requester_user_login: 'tanenobu',
       requester_user_name: 'たねのぶ',
     },
   }
 
   /** 広告のトリガーを1件だけ持ち、botを接続済みにした環境を作る */
-  const 広告のトリガーがある環境 = async (トリガー: StoredTrigger) => {
-    const { env, db, 広告のタイマー } = 環境を作る()
-    await saveAlertConfig(env.STORE, { triggers: [トリガー] })
+  const envWithAdTrigger = async (trigger: StoredTrigger) => {
+    const { env, db, adBreakTimer } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [trigger] })
     await saveToken(env.STORE, 'bot', {
       accessToken: 'bot-access-token',
       refreshToken: 'bot-refresh-token',
-      expiresAt: 現在時刻 + 60 * 60 * 1000,
+      expiresAt: NOW + 60 * 60 * 1000,
       scopes: ['user:bot', 'user:read:chat', 'user:write:chat'],
       userId: '67890',
       login: 'haishinsha_bot',
     })
-    return { env, db, 広告のタイマー }
+    return { env, db, adBreakTimer }
   }
 
   /** チャット送信に応える Twitch の代役 */
-  const 送信に応えるTwitch = () => {
-    const 送信したチャット: Request[] = []
+  const fakeTwitchAcceptingSends = () => {
+    const sentChats: Request[] = []
     const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const request = new Request(input, init)
       if (request.url === 'https://api.twitch.tv/helix/chat/messages') {
-        送信したチャット.push(request.clone())
+        sentChats.push(request.clone())
         return Response.json({ data: [{ message_id: 'sent', is_sent: true }] })
       }
       throw new Error(`テストで想定していない通信です: ${request.url}`)
     }
-    return { 送信したチャット, fetchImpl }
+    return { sentChats, fetchImpl }
   }
 
   it('広告が始まったら、当てはまるトリガーの文言をbotの名前で送る', async () => {
-    const { env } = await 広告のトリガーがある環境({
+    const { env } = await envWithAdTrigger({
       kind: 'adBreakBegin', automatic: null,
       actions: [{ type: 'chat', message: 'ここで{duration}秒の広告が入ります' }],
     })
-    const twitch = 送信に応えるTwitch()
+    const twitch = fakeTwitchAcceptingSends()
 
-    const response = await 呼び出す(Twitchからの通知({ body: 広告の開始の通知 }), env, twitch.fetchImpl)
+    const response = await callWebhook(createNotification({ body: AD_BREAK_NOTIFICATION }), env, twitch.fetchImpl)
 
     expect(response.status).toBe(204)
-    expect(await twitch.送信したチャット[0]?.json()).toMatchObject({ message: 'ここで180秒の広告が入ります' })
+    expect(await twitch.sentChats[0]?.json()).toMatchObject({ message: 'ここで180秒の広告が入ります' })
   })
 
   it('自動で入った広告だけを選ぶ条件（automatic）を満たさなければ、何も送らない', async () => {
-    const { env } = await 広告のトリガーがある環境({
+    const { env } = await envWithAdTrigger({
       kind: 'adBreakBegin', automatic: false,
       actions: [{ type: 'chat', message: '手動で広告を打ちました' }],
     })
-    const twitch = 送信に応えるTwitch()
+    const twitch = fakeTwitchAcceptingSends()
 
-    const response = await 呼び出す(Twitchからの通知({ body: 広告の開始の通知 }), env, twitch.fetchImpl)
+    const response = await callWebhook(createNotification({ body: AD_BREAK_NOTIFICATION }), env, twitch.fetchImpl)
 
     expect(response.status).toBe(204)
-    expect(twitch.送信したチャット).toEqual([])
+    expect(twitch.sentChats).toEqual([])
   })
 
   it('広告の終了のトリガーがあれば、広告が終わる時刻（開始 + 長さ）に予約する', async () => {
-    const { env, 広告のタイマー } = await 広告のトリガーがある環境({
+    const { env, adBreakTimer } = await envWithAdTrigger({
       kind: 'adBreakEnd', automatic: null,
       actions: [{ type: 'chat', message: '広告が終わりました' }],
     })
 
-    const response = await 呼び出す(Twitchからの通知({ body: 広告の開始の通知 }), env, 送信に応えるTwitch().fetchImpl)
+    const response = await callWebhook(createNotification({ body: AD_BREAK_NOTIFICATION }), env, fakeTwitchAcceptingSends().fetchImpl)
 
     expect(response.status).toBe(204)
-    expect(広告のタイマー.渡された予約).toEqual([
-      { event: 広告の開始の通知.event, messageId: 'message-1', endsAt: Date.parse('2026-09-21T12:29:50.000Z') + 180 * 1000 },
+    expect(adBreakTimer.scheduledEnds).toEqual([
+      { event: AD_BREAK_NOTIFICATION.event, messageId: 'message-1', endsAt: Date.parse('2026-09-21T12:29:50.000Z') + 180 * 1000 },
     ])
   })
 
   it('広告の終了のトリガーが1件もなければ、予約しない（タイマーを無駄に起こさない）', async () => {
-    const { env, 広告のタイマー } = await 広告のトリガーがある環境({
+    const { env, adBreakTimer } = await envWithAdTrigger({
       kind: 'adBreakBegin', automatic: null,
       actions: [{ type: 'chat', message: 'ここで広告が入ります' }],
     })
 
-    await 呼び出す(Twitchからの通知({ body: 広告の開始の通知 }), env, 送信に応えるTwitch().fetchImpl)
+    await callWebhook(createNotification({ body: AD_BREAK_NOTIFICATION }), env, fakeTwitchAcceptingSends().fetchImpl)
 
-    expect(広告のタイマー.渡された予約).toEqual([])
+    expect(adBreakTimer.scheduledEnds).toEqual([])
   })
 
   it('予約に失敗しても、Twitchへは成功を返して収集の失敗として記録する（再送されても広告の告知は二度送らない）', async () => {
-    const { env, db } = await 広告のトリガーがある環境({
+    const { env, db } = await envWithAdTrigger({
       kind: 'adBreakEnd', automatic: null,
       actions: [{ type: 'chat', message: '広告が終わりました' }],
     })
-    const 予約に失敗する環境: Env = { ...env, AD_BREAKS: createFakeAdBreakTimer({ 失敗する: true }).namespace }
+    const envWithFailingSchedule: Env = { ...env, AD_BREAKS: createFakeAdBreakTimer({ shouldFail: true }).namespace }
 
-    const response = await 呼び出す(Twitchからの通知({ body: 広告の開始の通知 }), 予約に失敗する環境, 送信に応えるTwitch().fetchImpl)
+    const response = await callWebhook(createNotification({ body: AD_BREAK_NOTIFICATION }), envWithFailingSchedule, fakeTwitchAcceptingSends().fetchImpl)
 
     expect(response.status).toBe(204)
     expect((await listFailures(db)).map((failure) => failure.code)).toEqual(['ad-break-end-schedule-failed'])
@@ -295,9 +295,9 @@ describe('広告の通知（channel.ad_break.begin）', () => {
 
 describe('購読の確認', () => {
   it('challenge をそのままテキストで返す', async () => {
-    const { env } = 環境を作る()
-    const response = await 呼び出す(
-      Twitchからの通知({ messageType: 'webhook_callback_verification', body: { challenge: 'Twitchが決めた文字列', subscription: { type: 'channel.raid' } } }),
+    const { env } = createEnv()
+    const response = await callWebhook(
+      createNotification({ messageType: 'webhook_callback_verification', body: { challenge: 'Twitchが決めた文字列', subscription: { type: 'channel.raid' } } }),
       env,
     )
 
@@ -311,45 +311,45 @@ describe('イベントの記録', () => {
   it.each(['channel.subscribe', 'channel.subscription.message', 'channel.channel_points_custom_reward_redemption.add', 'channel.raid'])(
     '%s を、配信中のセッションに結び付けて1件記録する',
     async (type) => {
-      const { env, db } = 環境を作る()
-      await recordLiveStream(db, 雑談配信, Date.parse('2026-09-21T12:05:00Z'))
-      const response = await 呼び出す(Twitchからの通知({ body: { subscription: { type }, event: {} } }), env)
+      const { env, db } = createEnv()
+      await recordLiveStream(db, CHAT_STREAM, Date.parse('2026-09-21T12:05:00Z'))
+      const response = await callWebhook(createNotification({ body: { subscription: { type }, event: {} } }), env)
 
       expect(response.status).toBe(204)
-      expect((await listSessions(db, 現在時刻))[0]?.eventCounts).toEqual({ [type]: 1 })
+      expect((await listSessions(db, NOW))[0]?.eventCounts).toEqual({ [type]: 1 })
     },
   )
 
   it('同じメッセージIDの通知が再送されても、二重に数えない', async () => {
-    const { env, db } = 環境を作る()
-    await recordLiveStream(db, 雑談配信, Date.parse('2026-09-21T12:05:00Z'))
-    await 呼び出す(Twitchからの通知({ body: レイドの通知 }), env)
-    const response = await 呼び出す(Twitchからの通知({ body: レイドの通知 }), env)
+    const { env, db } = createEnv()
+    await recordLiveStream(db, CHAT_STREAM, Date.parse('2026-09-21T12:05:00Z'))
+    await callWebhook(createNotification({ body: RAID_NOTIFICATION }), env)
+    const response = await callWebhook(createNotification({ body: RAID_NOTIFICATION }), env)
 
     expect(response.status).toBe(204)
-    expect((await listSessions(db, 現在時刻))[0]?.eventCounts).toEqual({ 'channel.raid': 1 })
+    expect((await listSessions(db, NOW))[0]?.eventCounts).toEqual({ 'channel.raid': 1 })
   })
 
   it('購読していない種類の通知は400にする（黙って捨てない）', async () => {
-    const { env } = 環境を作る()
-    const response = await 呼び出す(Twitchからの通知({ body: { subscription: { type: 'channel.ban' }, event: {} } }), env)
+    const { env } = createEnv()
+    const response = await callWebhook(createNotification({ body: { subscription: { type: 'channel.ban' }, event: {} } }), env)
 
     expect(response.status).toBe(400)
-    expect(await エラーコード(response)).toBe('unexpected-event')
+    expect(await errorCode(response)).toBe('unexpected-event')
   })
 })
 
 describe('配信の開始と終了', () => {
   it('stream.online でセッションを開始し、stream.offline で通知の時刻に閉じる', async () => {
-    const { env, db } = 環境を作る()
-    await 呼び出す(
-      Twitchからの通知({ body: { subscription: { type: 'stream.online' }, event: { id: '40000000001', type: 'live', started_at: '2026-09-21T12:00:00Z' } } }),
+    const { env, db } = createEnv()
+    await callWebhook(
+      createNotification({ body: { subscription: { type: 'stream.online' }, event: { id: '40000000001', type: 'live', started_at: '2026-09-21T12:00:00Z' } } }),
       env,
     )
     expect(await getSession(db, '40000000001')).toMatchObject({ startedAt: '2026-09-21T12:00:00.000Z', endedAt: null })
 
-    const response = await 呼び出す(
-      Twitchからの通知({ messageId: 'message-2', timestamp: '2026-09-21T12:29:55.5Z', body: { subscription: { type: 'stream.offline' }, event: {} } }),
+    const response = await callWebhook(
+      createNotification({ messageId: 'message-2', timestamp: '2026-09-21T12:29:55.5Z', body: { subscription: { type: 'stream.offline' }, event: {} } }),
       env,
     )
     expect(response.status).toBe(204)
@@ -357,19 +357,19 @@ describe('配信の開始と終了', () => {
   })
 
   it('stream.online の通知に配信IDや開始日時が無ければ400にする', async () => {
-    const { env } = 環境を作る()
-    const response = await 呼び出す(Twitchからの通知({ body: { subscription: { type: 'stream.online' }, event: { type: 'live' } } }), env)
+    const { env } = createEnv()
+    const response = await callWebhook(createNotification({ body: { subscription: { type: 'stream.online' }, event: { type: 'live' } } }), env)
 
     expect(response.status).toBe(400)
-    expect(await エラーコード(response)).toBe('invalid-webhook')
+    expect(await errorCode(response)).toBe('invalid-webhook')
   })
 })
 
 describe('購読の失効', () => {
   it('失効の通知は、収集の失敗として記録する（管理画面から気づけるように）', async () => {
-    const { env, db } = 環境を作る()
-    const response = await 呼び出す(
-      Twitchからの通知({ messageType: 'revocation', body: { subscription: { type: 'channel.raid', status: 'authorization_revoked' } } }),
+    const { env, db } = createEnv()
+    const response = await callWebhook(
+      createNotification({ messageType: 'revocation', body: { subscription: { type: 'channel.raid', status: 'authorization_revoked' } } }),
       env,
     )
 
@@ -379,28 +379,28 @@ describe('購読の失効', () => {
 })
 
 describe('チャットの通知（channel.chat.message）', () => {
-  const botのID = '67890'
+  const BOT_ID = '67890'
 
   /** botを接続済みで、コマンドが1つ登録されている環境を作る */
-  const bot接続済みの環境 = async (cooldownSeconds = 0) => {
-    const { env, db } = 環境を作る()
+  const envWithBotConnected = async (cooldownSeconds = 0) => {
+    const { env, db } = createEnv()
     await saveBotConfig(env.STORE, { commands: [{ name: 'ping', reply: '@{user} pong', cooldownSeconds }] })
     await saveToken(env.STORE, 'bot', {
       accessToken: 'bot-access-token',
       refreshToken: 'bot-refresh-token',
-      expiresAt: 現在時刻 + 60 * 60 * 1000,
+      expiresAt: NOW + 60 * 60 * 1000,
       scopes: ['user:bot', 'user:read:chat', 'user:write:chat'],
-      userId: botのID,
+      userId: BOT_ID,
       login: 'haishinsha_bot',
     })
     return { env, db }
   }
 
   /** 視聴者の発言としての通知 */
-  const チャットの通知 = (text: string, chatterUserId = '11111') => ({
+  const createChatNotification = (text: string, chatterUserId = '11111') => ({
     subscription: { type: 'channel.chat.message' },
     event: {
-      broadcaster_user_id: 配信者のID,
+      broadcaster_user_id: BROADCASTER_ID,
       chatter_user_id: chatterUserId,
       chatter_user_login: 'shichousha',
       chatter_user_name: '視聴者さん',
@@ -410,104 +410,104 @@ describe('チャットの通知（channel.chat.message）', () => {
   })
 
   /** チャット送信に応える Twitch の代役 */
-  const 送信に応えるTwitch = (chatResponse: Response = Response.json({ data: [{ message_id: 'sent', is_sent: true }] })) => {
-    const 送信したチャット: Request[] = []
+  const fakeTwitchAcceptingSends = (chatResponse: Response = Response.json({ data: [{ message_id: 'sent', is_sent: true }] })) => {
+    const sentChats: Request[] = []
     const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const request = new Request(input, init)
       if (request.url === 'https://api.twitch.tv/helix/chat/messages') {
-        送信したチャット.push(request.clone())
+        sentChats.push(request.clone())
         return chatResponse.clone()
       }
       throw new Error(`テストで想定していない通信です: ${request.url}`)
     }
-    return { 送信したチャット, fetchImpl }
+    return { sentChats, fetchImpl }
   }
 
   it('コマンドに一致する発言には、botの名前で応答する', async () => {
-    const { env } = await bot接続済みの環境()
-    const twitch = 送信に応えるTwitch()
+    const { env } = await envWithBotConnected()
+    const twitch = fakeTwitchAcceptingSends()
 
-    const response = await 呼び出す(Twitchからの通知({ body: チャットの通知('!ping') }), env, twitch.fetchImpl)
+    const response = await callWebhook(createNotification({ body: createChatNotification('!ping') }), env, twitch.fetchImpl)
 
     expect(response.status).toBe(204)
-    expect(await twitch.送信したチャット[0]!.json()).toEqual({
-      broadcaster_id: 配信者のID,
-      sender_id: botのID,
+    expect(await twitch.sentChats[0]!.json()).toEqual({
+      broadcaster_id: BROADCASTER_ID,
+      sender_id: BOT_ID,
       message: '@shichousha pong',
     })
   })
 
   it('コマンドではない発言には、Twitchへ何も送らない', async () => {
-    const { env } = await bot接続済みの環境()
-    const twitch = 送信に応えるTwitch()
+    const { env } = await envWithBotConnected()
+    const twitch = fakeTwitchAcceptingSends()
 
-    const response = await 呼び出す(Twitchからの通知({ body: チャットの通知('こんばんは') }), env, twitch.fetchImpl)
+    const response = await callWebhook(createNotification({ body: createChatNotification('こんばんは') }), env, twitch.fetchImpl)
 
     expect(response.status).toBe(204)
-    expect(twitch.送信したチャット).toHaveLength(0)
+    expect(twitch.sentChats).toHaveLength(0)
   })
 
   it('bot自身の発言には応答しない（応答し続けて止まらなくなるため）', async () => {
-    const { env } = await bot接続済みの環境()
-    const twitch = 送信に応えるTwitch()
+    const { env } = await envWithBotConnected()
+    const twitch = fakeTwitchAcceptingSends()
 
-    await 呼び出す(Twitchからの通知({ body: チャットの通知('!ping', botのID) }), env, twitch.fetchImpl)
+    await callWebhook(createNotification({ body: createChatNotification('!ping', BOT_ID) }), env, twitch.fetchImpl)
 
-    expect(twitch.送信したチャット).toHaveLength(0)
+    expect(twitch.sentChats).toHaveLength(0)
   })
 
   it('チャットは配信の記録（D1）に書かない（件数の桁が違い、書き込みの枠を食い合うため）', async () => {
-    const { env, db } = await bot接続済みの環境()
-    const twitch = 送信に応えるTwitch()
+    const { env, db } = await envWithBotConnected()
+    const twitch = fakeTwitchAcceptingSends()
 
-    await 呼び出す(Twitchからの通知({ body: チャットの通知('!ping') }), env, twitch.fetchImpl)
+    await callWebhook(createNotification({ body: createChatNotification('!ping') }), env, twitch.fetchImpl)
 
     expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM stream_events').get()).toEqual({ count: 0 })
   })
 
   it('発言した人を視聴者の記録に残す（発言そのものは貯めず、人だけを貯める）', async () => {
-    const { env } = await bot接続済みの環境()
-    const twitch = 送信に応えるTwitch()
+    const { env } = await envWithBotConnected()
+    const twitch = fakeTwitchAcceptingSends()
 
-    await 呼び出す(Twitchからの通知({ body: チャットの通知('こんばんは') }), env, twitch.fetchImpl)
+    await callWebhook(createNotification({ body: createChatNotification('こんばんは') }), env, twitch.fetchImpl)
 
     expect(await listViewers(env.DB, {})).toMatchObject([{ userId: '11111', login: 'shichousha', displayName: '視聴者さん', messageCount: 1 }])
   })
 
   it('配信中の発言は、人物像の材料として本文も貯める', async () => {
-    const { env } = await bot接続済みの環境()
-    const twitch = 送信に応えるTwitch()
+    const { env } = await envWithBotConnected()
+    const twitch = fakeTwitchAcceptingSends()
     env.DB.sqlite
       .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, NULL, ?, ?)')
-      .run('haishin-1', new Date(現在時刻 - 60 * 1000).toISOString(), '雑談配信', 'Just Chatting')
+      .run('haishin-1', new Date(NOW - 60 * 1000).toISOString(), '雑談配信', 'Just Chatting')
 
-    await 呼び出す(Twitchからの通知({ body: チャットの通知('こんばんは') }), env, twitch.fetchImpl)
+    await callWebhook(createNotification({ body: createChatNotification('こんばんは') }), env, twitch.fetchImpl)
 
     expect(env.DB.sqlite.prepare('SELECT user_id, text FROM stream_chat_messages').all()).toEqual([{ user_id: '11111', text: 'こんばんは' }])
   })
 
   it('配信していないときは、人物像の材料を貯めない', async () => {
-    const { env } = await bot接続済みの環境()
-    const twitch = 送信に応えるTwitch()
+    const { env } = await envWithBotConnected()
+    const twitch = fakeTwitchAcceptingSends()
 
-    await 呼び出す(Twitchからの通知({ body: チャットの通知('こんばんは') }), env, twitch.fetchImpl)
+    await callWebhook(createNotification({ body: createChatNotification('こんばんは') }), env, twitch.fetchImpl)
 
     expect(env.DB.sqlite.prepare('SELECT COUNT(*) AS count FROM stream_chat_messages').get()).toEqual({ count: 0 })
   })
 
   it('bot自身の発言は視聴者の記録に残さない', async () => {
-    const { env } = await bot接続済みの環境()
-    const twitch = 送信に応えるTwitch()
+    const { env } = await envWithBotConnected()
+    const twitch = fakeTwitchAcceptingSends()
 
-    await 呼び出す(Twitchからの通知({ body: チャットの通知('こんばんは', botのID) }), env, twitch.fetchImpl)
+    await callWebhook(createNotification({ body: createChatNotification('こんばんは', BOT_ID) }), env, twitch.fetchImpl)
 
     expect(await listViewers(env.DB, {})).toEqual([])
   })
 
   it('別のチャンネルのチャットは視聴者の記録に残さない（古い購読が残っていても、他人のチャンネルの人を貯めないため）', async () => {
-    const { env } = await bot接続済みの環境()
-    const twitch = 送信に応えるTwitch()
-    const 別のチャンネルの通知 = {
+    const { env } = await envWithBotConnected()
+    const twitch = fakeTwitchAcceptingSends()
+    const otherChannelNotification = {
       subscription: { type: 'channel.chat.message' },
       event: {
         broadcaster_user_id: '99999',
@@ -519,36 +519,36 @@ describe('チャットの通知（channel.chat.message）', () => {
       },
     }
 
-    await 呼び出す(Twitchからの通知({ body: 別のチャンネルの通知 }), env, twitch.fetchImpl)
+    await callWebhook(createNotification({ body: otherChannelNotification }), env, twitch.fetchImpl)
 
     expect(await listViewers(env.DB, {})).toEqual([])
   })
 
   it('botを接続していなければ、応答せずに受け取るだけにする', async () => {
-    const { env } = 環境を作る()
+    const { env } = createEnv()
     await saveBotConfig(env.STORE, { commands: [{ name: 'ping', reply: '@{user} pong', cooldownSeconds: 0 }] })
-    const twitch = 送信に応えるTwitch()
+    const twitch = fakeTwitchAcceptingSends()
 
-    const response = await 呼び出す(Twitchからの通知({ body: チャットの通知('!ping') }), env, twitch.fetchImpl)
+    const response = await callWebhook(createNotification({ body: createChatNotification('!ping') }), env, twitch.fetchImpl)
 
     expect(response.status).toBe(204)
-    expect(twitch.送信したチャット).toHaveLength(0)
+    expect(twitch.sentChats).toHaveLength(0)
   })
 
   it('応答の送信に失敗しても2xxを返し、失敗として記録する（5xxだとTwitchが再送して二重投稿になるため）', async () => {
-    const { env } = await bot接続済みの環境()
-    const twitch = 送信に応えるTwitch(Response.json({ status: 401, message: 'Missing scope' }, { status: 401 }))
+    const { env } = await envWithBotConnected()
+    const twitch = fakeTwitchAcceptingSends(Response.json({ status: 401, message: 'Missing scope' }, { status: 401 }))
 
-    const response = await 呼び出す(Twitchからの通知({ body: チャットの通知('!ping') }), env, twitch.fetchImpl)
+    const response = await callWebhook(createNotification({ body: createChatNotification('!ping') }), env, twitch.fetchImpl)
 
     expect(response.status).toBe(204)
     expect(await listFailures(env.DB)).toMatchObject([{ code: 'chat-reply-failed', message: expect.stringContaining('Missing scope') }])
   })
 
   it('別のチャンネルのチャットには応答しない（古い購読が残っていても、他人のチャットで反応しないため）', async () => {
-    const { env } = await bot接続済みの環境()
-    const twitch = 送信に応えるTwitch()
-    const 別のチャンネルの通知 = {
+    const { env } = await envWithBotConnected()
+    const twitch = fakeTwitchAcceptingSends()
+    const otherChannelNotification = {
       subscription: { type: 'channel.chat.message' },
       event: {
         broadcaster_user_id: '99999',
@@ -560,46 +560,46 @@ describe('チャットの通知（channel.chat.message）', () => {
       },
     }
 
-    const response = await 呼び出す(Twitchからの通知({ body: 別のチャンネルの通知 }), env, twitch.fetchImpl)
+    const response = await callWebhook(createNotification({ body: otherChannelNotification }), env, twitch.fetchImpl)
 
     // 受け取り自体は成功として返す（2xx以外だとTwitchが再送し続けるため）
     expect(response.status).toBe(204)
-    expect(twitch.送信したチャット).toHaveLength(0)
+    expect(twitch.sentChats).toHaveLength(0)
   })
 
   it('通知の中身が想定と違えば、黙って捨てずに400にする', async () => {
-    const { env } = await bot接続済みの環境()
-    const twitch = 送信に応えるTwitch()
-    const 本文のない通知 = { subscription: { type: 'channel.chat.message' }, event: { chatter_user_id: '11111' } }
+    const { env } = await envWithBotConnected()
+    const twitch = fakeTwitchAcceptingSends()
+    const emptyBodyNotification = { subscription: { type: 'channel.chat.message' }, event: { chatter_user_id: '11111' } }
 
-    const response = await 呼び出す(Twitchからの通知({ body: 本文のない通知 }), env, twitch.fetchImpl)
+    const response = await callWebhook(createNotification({ body: emptyBodyNotification }), env, twitch.fetchImpl)
 
     expect(response.status).toBe(400)
-    expect(twitch.送信したチャット).toHaveLength(0)
+    expect(twitch.sentChats).toHaveLength(0)
   })
 })
 
 describe('チャットの応答の設定・連打・再送', () => {
-  const botのID = '67890'
+  const BOT_ID = '67890'
 
-  const bot接続済みの環境 = async (commands: { name: string; reply: string; cooldownSeconds: number }[]) => {
-    const { env, db } = 環境を作る()
+  const envWithBotConnected = async (commands: { name: string; reply: string; cooldownSeconds: number }[]) => {
+    const { env, db } = createEnv()
     await saveBotConfig(env.STORE, { commands })
     await saveToken(env.STORE, 'bot', {
       accessToken: 'bot-access-token',
       refreshToken: 'bot-refresh-token',
-      expiresAt: 現在時刻 + 60 * 60 * 1000,
+      expiresAt: NOW + 60 * 60 * 1000,
       scopes: ['user:bot', 'user:read:chat', 'user:write:chat'],
-      userId: botのID,
+      userId: BOT_ID,
       login: 'haishinsha_bot',
     })
     return { env, db }
   }
 
-  const チャットの通知 = (text: string, messageId = 'chat-message-1') => ({
+  const createChatNotification = (text: string, messageId = 'chat-message-1') => ({
     subscription: { type: 'channel.chat.message' },
     event: {
-      broadcaster_user_id: 配信者のID,
+      broadcaster_user_id: BROADCASTER_ID,
       chatter_user_id: '11111',
       chatter_user_login: 'shichousha',
       chatter_user_name: '視聴者さん',
@@ -608,102 +608,102 @@ describe('チャットの応答の設定・連打・再送', () => {
     },
   })
 
-  const 送信に応えるTwitch = () => {
-    const 送信したチャット: Request[] = []
+  const fakeTwitchAcceptingSends = () => {
+    const sentChats: Request[] = []
     const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const request = new Request(input, init)
       if (request.url === 'https://api.twitch.tv/helix/chat/messages') {
-        送信したチャット.push(request.clone())
+        sentChats.push(request.clone())
         return Response.json({ data: [{ message_id: 'sent', is_sent: true }] })
       }
       throw new Error(`テストで想定していない通信です: ${request.url}`)
     }
-    return { 送信したチャット, fetchImpl }
+    return { sentChats, fetchImpl }
   }
 
   /** 通知を1件送る。届いた時刻（通知のタイムスタンプ）も指定できる */
-  const 通知を送る = (env: Env, fetchImpl: typeof fetch, body: unknown, messageId = 'chat-message-1') =>
-    呼び出す(Twitchからの通知({ body, messageId }), env, fetchImpl)
+  const sendNotification = (env: Env, fetchImpl: typeof fetch, body: unknown, messageId = 'chat-message-1') =>
+    callWebhook(createNotification({ body, messageId }), env, fetchImpl)
 
   it('管理画面で登録したコマンドに応答する', async () => {
-    const { env } = await bot接続済みの環境([{ name: 'discord', reply: 'Discordはこちらです', cooldownSeconds: 0 }])
-    const twitch = 送信に応えるTwitch()
+    const { env } = await envWithBotConnected([{ name: 'discord', reply: 'Discordはこちらです', cooldownSeconds: 0 }])
+    const twitch = fakeTwitchAcceptingSends()
 
-    await 通知を送る(env, twitch.fetchImpl, チャットの通知('!discord'))
+    await sendNotification(env, twitch.fetchImpl, createChatNotification('!discord'))
 
-    expect(await twitch.送信したチャット[0]!.json()).toMatchObject({ message: 'Discordはこちらです' })
+    expect(await twitch.sentChats[0]!.json()).toMatchObject({ message: 'Discordはこちらです' })
   })
 
   it('コマンドを1つも登録していなければ、何にも応答しない', async () => {
-    const { env } = await bot接続済みの環境([])
-    const twitch = 送信に応えるTwitch()
+    const { env } = await envWithBotConnected([])
+    const twitch = fakeTwitchAcceptingSends()
 
-    await 通知を送る(env, twitch.fetchImpl, チャットの通知('!discord'))
+    await sendNotification(env, twitch.fetchImpl, createChatNotification('!discord'))
 
-    expect(twitch.送信したチャット).toHaveLength(0)
+    expect(twitch.sentChats).toHaveLength(0)
   })
 
   it('同じ通知が再送されても、二度応答しない', async () => {
-    const { env } = await bot接続済みの環境([{ name: 'ping', reply: '@{user} pong', cooldownSeconds: 0 }])
-    const twitch = 送信に応えるTwitch()
+    const { env } = await envWithBotConnected([{ name: 'ping', reply: '@{user} pong', cooldownSeconds: 0 }])
+    const twitch = fakeTwitchAcceptingSends()
 
-    await 通知を送る(env, twitch.fetchImpl, チャットの通知('!ping'))
-    const 再送 = await 通知を送る(env, twitch.fetchImpl, チャットの通知('!ping'))
+    await sendNotification(env, twitch.fetchImpl, createChatNotification('!ping'))
+    const resent = await sendNotification(env, twitch.fetchImpl, createChatNotification('!ping'))
 
-    expect(再送.status).toBe(204)
-    expect(twitch.送信したチャット).toHaveLength(1)
+    expect(resent.status).toBe(204)
+    expect(twitch.sentChats).toHaveLength(1)
   })
 
   it('クールダウン中の連打には応答しない', async () => {
-    const { env } = await bot接続済みの環境([{ name: 'ping', reply: '@{user} pong', cooldownSeconds: 60 }])
-    const twitch = 送信に応えるTwitch()
+    const { env } = await envWithBotConnected([{ name: 'ping', reply: '@{user} pong', cooldownSeconds: 60 }])
+    const twitch = fakeTwitchAcceptingSends()
 
     // 別々のメッセージID（別の発言）として続けて届く
-    await 通知を送る(env, twitch.fetchImpl, チャットの通知('!ping', 'chat-message-1'), 'chat-message-1')
-    await 通知を送る(env, twitch.fetchImpl, チャットの通知('!ping', 'chat-message-2'), 'chat-message-2')
+    await sendNotification(env, twitch.fetchImpl, createChatNotification('!ping', 'chat-message-1'), 'chat-message-1')
+    await sendNotification(env, twitch.fetchImpl, createChatNotification('!ping', 'chat-message-2'), 'chat-message-2')
 
-    expect(twitch.送信したチャット).toHaveLength(1)
+    expect(twitch.sentChats).toHaveLength(1)
   })
 
   it('クールダウンが0なら、続けて応答する', async () => {
-    const { env } = await bot接続済みの環境([{ name: 'ping', reply: '@{user} pong', cooldownSeconds: 0 }])
-    const twitch = 送信に応えるTwitch()
+    const { env } = await envWithBotConnected([{ name: 'ping', reply: '@{user} pong', cooldownSeconds: 0 }])
+    const twitch = fakeTwitchAcceptingSends()
 
-    await 通知を送る(env, twitch.fetchImpl, チャットの通知('!ping', 'chat-message-1'), 'chat-message-1')
-    await 通知を送る(env, twitch.fetchImpl, チャットの通知('!ping', 'chat-message-2'), 'chat-message-2')
+    await sendNotification(env, twitch.fetchImpl, createChatNotification('!ping', 'chat-message-1'), 'chat-message-1')
+    await sendNotification(env, twitch.fetchImpl, createChatNotification('!ping', 'chat-message-2'), 'chat-message-2')
 
-    expect(twitch.送信したチャット).toHaveLength(2)
+    expect(twitch.sentChats).toHaveLength(2)
   })
 
   it('{summary} を含むコマンドには、貯めてある配信中のあらすじを差し込んで応答する', async () => {
-    const { env, db } = await bot接続済みの環境([{ name: 'summary', reply: 'これまでのあらすじ: {summary}', cooldownSeconds: 0 }])
-    await recordLiveStream(db, 雑談配信, 現在時刻 - 60 * 1000)
+    const { env, db } = await envWithBotConnected([{ name: 'summary', reply: 'これまでのあらすじ: {summary}', cooldownSeconds: 0 }])
+    await recordLiveStream(db, CHAT_STREAM, NOW - 60 * 1000)
     await saveStreamSummary(
       db,
-      { sessionId: 雑談配信.id, summary: '配信者は新しいゲームを遊んでいます', transcriptsUntil: { at: '', messageId: '' }, chatUntil: { at: '', messageId: '' }, screenUntil: { at: '', imageId: '', lineNo: -1 } },
-      現在時刻 - 30 * 1000,
+      { sessionId: CHAT_STREAM.id, summary: '配信者は新しいゲームを遊んでいます', transcriptsUntil: { at: '', messageId: '' }, chatUntil: { at: '', messageId: '' }, screenUntil: { at: '', imageId: '', lineNo: -1 } },
+      NOW - 30 * 1000,
     )
-    const twitch = 送信に応えるTwitch()
+    const twitch = fakeTwitchAcceptingSends()
 
-    await 通知を送る(env, twitch.fetchImpl, チャットの通知('!summary'))
+    await sendNotification(env, twitch.fetchImpl, createChatNotification('!summary'))
 
-    expect(await twitch.送信したチャット[0]!.json()).toMatchObject({ message: 'これまでのあらすじ: 配信者は新しいゲームを遊んでいます' })
+    expect(await twitch.sentChats[0]!.json()).toMatchObject({ message: 'これまでのあらすじ: 配信者は新しいゲームを遊んでいます' })
   })
 
   it('あらすじがまだ無くても、コマンドは無応答にならない', async () => {
-    const { env } = await bot接続済みの環境([{ name: 'summary', reply: 'これまでのあらすじ: {summary}', cooldownSeconds: 0 }])
-    const twitch = 送信に応えるTwitch()
+    const { env } = await envWithBotConnected([{ name: 'summary', reply: 'これまでのあらすじ: {summary}', cooldownSeconds: 0 }])
+    const twitch = fakeTwitchAcceptingSends()
 
-    await 通知を送る(env, twitch.fetchImpl, チャットの通知('!summary'))
+    await sendNotification(env, twitch.fetchImpl, createChatNotification('!summary'))
 
-    expect(await twitch.送信したチャット[0]!.json()).toMatchObject({ message: 'これまでのあらすじ: まだあらすじがありません' })
+    expect(await twitch.sentChats[0]!.json()).toMatchObject({ message: 'これまでのあらすじ: まだあらすじがありません' })
   })
 
   it('コマンドに一致しない発言では、D1に何も書かない（チャット全件を記録しないため）', async () => {
-    const { env, db } = await bot接続済みの環境([{ name: 'ping', reply: '@{user} pong', cooldownSeconds: 0 }])
-    const twitch = 送信に応えるTwitch()
+    const { env, db } = await envWithBotConnected([{ name: 'ping', reply: '@{user} pong', cooldownSeconds: 0 }])
+    const twitch = fakeTwitchAcceptingSends()
 
-    await 通知を送る(env, twitch.fetchImpl, チャットの通知('こんばんは'))
+    await sendNotification(env, twitch.fetchImpl, createChatNotification('こんばんは'))
 
     expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM replied_chat_messages').get()).toEqual({ count: 0 })
     expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM command_uses').get()).toEqual({ count: 0 })
@@ -711,256 +711,256 @@ describe('チャットの応答の設定・連打・再送', () => {
 })
 
 describe('アラートのトリガーによるチャット送信', () => {
-  const botのID = '67890'
+  const BOT_ID = '67890'
 
   /** botを接続済みで、アラートのトリガーが保存されている環境を作る */
-  const トリガーのある環境 = async (triggers: StoredTrigger[]) => {
-    const { env, db } = 環境を作る()
+  const envWithTriggers = async (triggers: StoredTrigger[]) => {
+    const { env, db } = createEnv()
     await saveAlertConfig(env.STORE, { triggers })
     await saveToken(env.STORE, 'bot', {
       accessToken: 'bot-access-token',
       refreshToken: 'bot-refresh-token',
-      expiresAt: 現在時刻 + 60 * 60 * 1000,
+      expiresAt: NOW + 60 * 60 * 1000,
       scopes: ['user:bot', 'user:read:chat', 'user:write:chat'],
-      userId: botのID,
+      userId: BOT_ID,
       login: 'haishinsha_bot',
     })
     return { env, db }
   }
 
-  const 送信に応えるTwitch = (
+  const fakeTwitchAcceptingSends = (
     chatResponse: Response = Response.json({ data: [{ message_id: 'sent', is_sent: true }] }),
     announcementResponse: Response = new Response(null, { status: 204 }),
     shoutoutResponse: Response = new Response(null, { status: 204 }),
   ) => {
-    const 送信したチャット: Request[] = []
-    const 送信したアナウンス: Request[] = []
-    const 送信したシャウトアウト: Request[] = []
+    const sentChats: Request[] = []
+    const sentAnnouncements: Request[] = []
+    const sentShoutouts: Request[] = []
     const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const request = new Request(input, init)
       if (request.url === 'https://api.twitch.tv/helix/chat/messages') {
-        送信したチャット.push(request.clone())
+        sentChats.push(request.clone())
         return chatResponse.clone()
       }
       if (request.url.startsWith('https://api.twitch.tv/helix/chat/announcements')) {
-        送信したアナウンス.push(request.clone())
+        sentAnnouncements.push(request.clone())
         return announcementResponse.clone()
       }
       if (request.url.startsWith('https://api.twitch.tv/helix/chat/shoutouts')) {
-        送信したシャウトアウト.push(request.clone())
+        sentShoutouts.push(request.clone())
         return shoutoutResponse.clone()
       }
       throw new Error(`テストで想定していない通信です: ${request.url}`)
     }
-    return { 送信したチャット, 送信したアナウンス, 送信したシャウトアウト, fetchImpl }
+    return { sentChats, sentAnnouncements, sentShoutouts, fetchImpl }
   }
 
-  const フォローの通知 = { subscription: { type: 'channel.follow' }, event: { user_id: '22222', user_name: '田中太郎', user_login: 'tanaka_taro' } }
-  const フォローでお礼を言う: StoredTrigger = {
+  const createFollowNotification = { subscription: { type: 'channel.follow' }, event: { user_id: '22222', user_name: '田中太郎', user_login: 'tanaka_taro' } }
+  const followThanksTrigger: StoredTrigger = {
     kind: 'follow',
     actions: [{ type: 'chat', message: '{user} さん、フォローありがとうございます！' }],
   }
-  const フォローで音を鳴らす: StoredTrigger = {
+  const followSoundTrigger: StoredTrigger = {
     kind: 'follow',
     actions: [{ type: 'alert', mediaId: '素材ID-拍手の音', mediaKind: 'audio', durationSeconds: 5, volume: 0.5, message: '' }],
   }
 
   it('チャットに送る動作を持つトリガーに当てはまれば、botの名前で送る', async () => {
-    const { env } = await トリガーのある環境([フォローでお礼を言う])
-    const twitch = 送信に応えるTwitch()
+    const { env } = await envWithTriggers([followThanksTrigger])
+    const twitch = fakeTwitchAcceptingSends()
 
-    const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+    const response = await callWebhook(createNotification({ body: createFollowNotification }), env, twitch.fetchImpl)
 
     expect(response.status).toBe(204)
-    expect(await twitch.送信したチャット[0]!.json()).toEqual({
-      broadcaster_id: 配信者のID,
-      sender_id: botのID,
+    expect(await twitch.sentChats[0]!.json()).toEqual({
+      broadcaster_id: BROADCASTER_ID,
+      sender_id: BOT_ID,
       message: '田中太郎 さん、フォローありがとうございます！',
     })
   })
 
   it('当てはまるトリガーが2件あれば、どちらも送る（一覧の下にある行が黙って動かないことがない）', async () => {
-    const 別のお礼: StoredTrigger = { kind: 'follow', actions: [{ type: 'chat', message: 'これからよろしくお願いします' }] }
-    const { env } = await トリガーのある環境([フォローでお礼を言う, 別のお礼])
-    const twitch = 送信に応えるTwitch()
+    const otherThanks: StoredTrigger = { kind: 'follow', actions: [{ type: 'chat', message: 'これからよろしくお願いします' }] }
+    const { env } = await envWithTriggers([followThanksTrigger, otherThanks])
+    const twitch = fakeTwitchAcceptingSends()
 
-    const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+    const response = await callWebhook(createNotification({ body: createFollowNotification }), env, twitch.fetchImpl)
 
     expect(response.status).toBe(204)
     // 鍵に並びの位置を混ぜているので、同じ通知でも2通とも送信の枠を取れる
-    expect(await Promise.all(twitch.送信したチャット.map(async (request) => ((await request.json()) as { message: string }).message))).toEqual([
+    expect(await Promise.all(twitch.sentChats.map(async (request) => ((await request.json()) as { message: string }).message))).toEqual([
       '田中太郎 さん、フォローありがとうございます！',
       'これからよろしくお願いします',
     ])
   })
 
   it('当てはまるトリガーが2件あっても、同じ通知が再送されたら二度送らない', async () => {
-    const 別のお礼: StoredTrigger = { kind: 'follow', actions: [{ type: 'chat', message: 'これからよろしくお願いします' }] }
-    const { env } = await トリガーのある環境([フォローでお礼を言う, 別のお礼])
-    const twitch = 送信に応えるTwitch()
+    const otherThanks: StoredTrigger = { kind: 'follow', actions: [{ type: 'chat', message: 'これからよろしくお願いします' }] }
+    const { env } = await envWithTriggers([followThanksTrigger, otherThanks])
+    const twitch = fakeTwitchAcceptingSends()
 
-    await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
-    const 再送 = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+    await callWebhook(createNotification({ body: createFollowNotification }), env, twitch.fetchImpl)
+    const resent = await callWebhook(createNotification({ body: createFollowNotification }), env, twitch.fetchImpl)
 
-    expect(再送.status).toBe(204)
-    expect(twitch.送信したチャット).toHaveLength(2)
+    expect(resent.status).toBe(204)
+    expect(twitch.sentChats).toHaveLength(2)
   })
 
   it('文言に {summary} があれば、貯めてある配信中のあらすじを差し込んで送る', async () => {
-    const あらすじを流す: StoredTrigger = {
+    const summaryTrigger: StoredTrigger = {
       kind: 'follow',
       actions: [{ type: 'chat', message: '{user} さん、いま「{summary}」って話をしてます' }],
     }
-    const { env, db } = await トリガーのある環境([あらすじを流す])
-    await recordLiveStream(db, 雑談配信, 現在時刻 - 60 * 1000)
+    const { env, db } = await envWithTriggers([summaryTrigger])
+    await recordLiveStream(db, CHAT_STREAM, NOW - 60 * 1000)
     await saveStreamSummary(
       db,
-      { sessionId: 雑談配信.id, summary: '配信者は新しいゲームを遊んでいます', transcriptsUntil: { at: '', messageId: '' }, chatUntil: { at: '', messageId: '' }, screenUntil: { at: '', imageId: '', lineNo: -1 } },
-      現在時刻 - 30 * 1000,
+      { sessionId: CHAT_STREAM.id, summary: '配信者は新しいゲームを遊んでいます', transcriptsUntil: { at: '', messageId: '' }, chatUntil: { at: '', messageId: '' }, screenUntil: { at: '', imageId: '', lineNo: -1 } },
+      NOW - 30 * 1000,
     )
-    const twitch = 送信に応えるTwitch()
+    const twitch = fakeTwitchAcceptingSends()
 
-    await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+    await callWebhook(createNotification({ body: createFollowNotification }), env, twitch.fetchImpl)
 
-    expect(await twitch.送信したチャット[0]!.json()).toMatchObject({
+    expect(await twitch.sentChats[0]!.json()).toMatchObject({
       message: '田中太郎 さん、いま「配信者は新しいゲームを遊んでいます」って話をしてます',
     })
   })
 
   it('あらすじがまだ無くても、文言は欠けずにその旨が入る', async () => {
-    const あらすじを流す: StoredTrigger = {
+    const summaryTrigger: StoredTrigger = {
       kind: 'follow',
       actions: [{ type: 'chat', message: 'これまでのあらすじ: {summary}' }],
     }
-    const { env } = await トリガーのある環境([あらすじを流す])
-    const twitch = 送信に応えるTwitch()
+    const { env } = await envWithTriggers([summaryTrigger])
+    const twitch = fakeTwitchAcceptingSends()
 
-    await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+    await callWebhook(createNotification({ body: createFollowNotification }), env, twitch.fetchImpl)
 
-    expect(await twitch.送信したチャット[0]!.json()).toMatchObject({ message: 'これまでのあらすじ: まだあらすじがありません' })
+    expect(await twitch.sentChats[0]!.json()).toMatchObject({ message: 'これまでのあらすじ: まだあらすじがありません' })
   })
 
   it('アラートを出すだけのトリガーでは、チャットへ何も送らない（オーバーレイが再生する）', async () => {
-    const { env } = await トリガーのある環境([フォローで音を鳴らす])
-    const twitch = 送信に応えるTwitch()
+    const { env } = await envWithTriggers([followSoundTrigger])
+    const twitch = fakeTwitchAcceptingSends()
 
-    await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+    await callWebhook(createNotification({ body: createFollowNotification }), env, twitch.fetchImpl)
 
-    expect(twitch.送信したチャット).toHaveLength(0)
+    expect(twitch.sentChats).toHaveLength(0)
   })
 
   it('件数を数えるイベント（レイド）でも、記録とチャット送信の両方を行う', async () => {
-    const レイドにお礼を言う: StoredTrigger = { kind: 'raid', actions: [{ type: 'chat', message: '{user} さん、{viewers}人でのレイドありがとう！' }] }
-    const { env, db } = await トリガーのある環境([レイドにお礼を言う])
-    await recordLiveStream(db, 雑談配信, Date.parse('2026-09-21T12:05:00Z'))
-    const twitch = 送信に応えるTwitch()
+    const raidThanksTrigger: StoredTrigger = { kind: 'raid', actions: [{ type: 'chat', message: '{user} さん、{viewers}人でのレイドありがとう！' }] }
+    const { env, db } = await envWithTriggers([raidThanksTrigger])
+    await recordLiveStream(db, CHAT_STREAM, Date.parse('2026-09-21T12:05:00Z'))
+    const twitch = fakeTwitchAcceptingSends()
 
-    await 呼び出す(Twitchからの通知({ body: レイドの通知 }), env, twitch.fetchImpl)
+    await callWebhook(createNotification({ body: RAID_NOTIFICATION }), env, twitch.fetchImpl)
 
-    expect(await twitch.送信したチャット[0]!.json()).toMatchObject({ message: 'レイド元の配信者 さん、30人でのレイドありがとう！' })
-    expect((await listSessions(db, 現在時刻))[0]?.eventCounts).toEqual({ 'channel.raid': 1 })
+    expect(await twitch.sentChats[0]!.json()).toMatchObject({ message: 'レイド元の配信者 さん、30人でのレイドありがとう！' })
+    expect((await listSessions(db, NOW))[0]?.eventCounts).toEqual({ 'channel.raid': 1 })
   })
 
   it('フォローは件数を数えないが、購読していない種類として拒否もしない', async () => {
-    const { env, db } = await トリガーのある環境([])
-    await recordLiveStream(db, 雑談配信, Date.parse('2026-09-21T12:05:00Z'))
+    const { env, db } = await envWithTriggers([])
+    await recordLiveStream(db, CHAT_STREAM, Date.parse('2026-09-21T12:05:00Z'))
 
-    const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env)
+    const response = await callWebhook(createNotification({ body: createFollowNotification }), env)
 
     expect(response.status).toBe(204)
-    expect((await listSessions(db, 現在時刻))[0]?.eventCounts).toEqual({})
+    expect((await listSessions(db, NOW))[0]?.eventCounts).toEqual({})
   })
 
   it('同じ通知が再送されても、二度送らない', async () => {
-    const { env } = await トリガーのある環境([フォローでお礼を言う])
-    const twitch = 送信に応えるTwitch()
+    const { env } = await envWithTriggers([followThanksTrigger])
+    const twitch = fakeTwitchAcceptingSends()
 
-    await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
-    const 再送 = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+    await callWebhook(createNotification({ body: createFollowNotification }), env, twitch.fetchImpl)
+    const resent = await callWebhook(createNotification({ body: createFollowNotification }), env, twitch.fetchImpl)
 
-    expect(再送.status).toBe(204)
-    expect(twitch.送信したチャット).toHaveLength(1)
+    expect(resent.status).toBe(204)
+    expect(twitch.sentChats).toHaveLength(1)
   })
 
   it('botを接続していなければ、送らずに受け取るだけにする', async () => {
-    const { env } = 環境を作る()
-    await saveAlertConfig(env.STORE, { triggers: [フォローでお礼を言う] })
-    const twitch = 送信に応えるTwitch()
+    const { env } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [followThanksTrigger] })
+    const twitch = fakeTwitchAcceptingSends()
 
-    const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+    const response = await callWebhook(createNotification({ body: createFollowNotification }), env, twitch.fetchImpl)
 
     expect(response.status).toBe(204)
-    expect(twitch.送信したチャット).toHaveLength(0)
+    expect(twitch.sentChats).toHaveLength(0)
   })
 
   it('送信に失敗しても2xxを返し、失敗として記録する（5xxだとTwitchが再送して二重投稿になるため）', async () => {
-    const { env } = await トリガーのある環境([フォローでお礼を言う])
-    const twitch = 送信に応えるTwitch(Response.json({ status: 401, message: 'Missing scope' }, { status: 401 }))
+    const { env } = await envWithTriggers([followThanksTrigger])
+    const twitch = fakeTwitchAcceptingSends(Response.json({ status: 401, message: 'Missing scope' }, { status: 401 }))
 
-    const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+    const response = await callWebhook(createNotification({ body: createFollowNotification }), env, twitch.fetchImpl)
 
     expect(response.status).toBe(204)
     expect(await listFailures(env.DB)).toMatchObject([{ code: 'alert-chat-failed', message: expect.stringContaining('Missing scope') }])
   })
 
   it('イベントの中身が想定と違えば、黙って捨てずに400にする', async () => {
-    const { env } = await トリガーのある環境([フォローでお礼を言う])
-    const twitch = 送信に応えるTwitch()
-    const 名前のないフォロー = { subscription: { type: 'channel.follow' }, event: { user_login: 'tanaka' } }
+    const { env } = await envWithTriggers([followThanksTrigger])
+    const twitch = fakeTwitchAcceptingSends()
+    const followWithoutName = { subscription: { type: 'channel.follow' }, event: { user_login: 'tanaka' } }
 
-    const response = await 呼び出す(Twitchからの通知({ body: 名前のないフォロー }), env, twitch.fetchImpl)
+    const response = await callWebhook(createNotification({ body: followWithoutName }), env, twitch.fetchImpl)
 
     expect(response.status).toBe(400)
-    expect(twitch.送信したチャット).toHaveLength(0)
+    expect(twitch.sentChats).toHaveLength(0)
   })
 
   describe('シャウトアウトを送る動作', () => {
-    const レイドでシャウトアウトする: StoredTrigger = { kind: 'raid', actions: [{ type: 'shoutout' }] }
+    const raidShoutoutTrigger: StoredTrigger = { kind: 'raid', actions: [{ type: 'shoutout' }] }
 
     it('レイドのトリガーに当てはまれば、botがモデレーターとしてシャウトアウトを送る', async () => {
-      const { env } = await トリガーのある環境([レイドでシャウトアウトする])
-      const twitch = 送信に応えるTwitch()
+      const { env } = await envWithTriggers([raidShoutoutTrigger])
+      const twitch = fakeTwitchAcceptingSends()
 
-      const response = await 呼び出す(Twitchからの通知({ body: レイドの通知 }), env, twitch.fetchImpl)
+      const response = await callWebhook(createNotification({ body: RAID_NOTIFICATION }), env, twitch.fetchImpl)
 
       expect(response.status).toBe(204)
-      const url = new URL(twitch.送信したシャウトアウト[0]!.url)
-      expect(url.searchParams.get('from_broadcaster_id')).toBe(配信者のID)
+      const url = new URL(twitch.sentShoutouts[0]!.url)
+      expect(url.searchParams.get('from_broadcaster_id')).toBe(BROADCASTER_ID)
       // 紹介する相手はレイドしてきた配信者で、送るのはbot自身
       expect(url.searchParams.get('to_broadcaster_id')).toBe('レイド元の配信者のユーザーID')
-      expect(url.searchParams.get('moderator_id')).toBe(botのID)
+      expect(url.searchParams.get('moderator_id')).toBe(BOT_ID)
     })
 
     it('同じ通知が再送されても、シャウトアウトを二度送らない', async () => {
-      const { env } = await トリガーのある環境([レイドでシャウトアウトする])
-      const twitch = 送信に応えるTwitch()
+      const { env } = await envWithTriggers([raidShoutoutTrigger])
+      const twitch = fakeTwitchAcceptingSends()
 
-      await 呼び出す(Twitchからの通知({ body: レイドの通知 }), env, twitch.fetchImpl)
-      await 呼び出す(Twitchからの通知({ body: レイドの通知 }), env, twitch.fetchImpl)
+      await callWebhook(createNotification({ body: RAID_NOTIFICATION }), env, twitch.fetchImpl)
+      await callWebhook(createNotification({ body: RAID_NOTIFICATION }), env, twitch.fetchImpl)
 
-      expect(twitch.送信したシャウトアウト).toHaveLength(1)
+      expect(twitch.sentShoutouts).toHaveLength(1)
     })
 
     it('botを接続していなければ、送らずに受け取るだけにする', async () => {
-      const { env } = 環境を作る()
-      await saveAlertConfig(env.STORE, { triggers: [レイドでシャウトアウトする] })
-      const twitch = 送信に応えるTwitch()
+      const { env } = createEnv()
+      await saveAlertConfig(env.STORE, { triggers: [raidShoutoutTrigger] })
+      const twitch = fakeTwitchAcceptingSends()
 
-      const response = await 呼び出す(Twitchからの通知({ body: レイドの通知 }), env, twitch.fetchImpl)
+      const response = await callWebhook(createNotification({ body: RAID_NOTIFICATION }), env, twitch.fetchImpl)
 
       expect(response.status).toBe(204)
-      expect(twitch.送信したシャウトアウト).toHaveLength(0)
+      expect(twitch.sentShoutouts).toHaveLength(0)
     })
 
     it('Twitchが間隔の制限（429）で拒んでも2xxを返し、失敗として記録する', async () => {
-      const { env } = await トリガーのある環境([レイドでシャウトアウトする])
-      const twitch = 送信に応えるTwitch(
+      const { env } = await envWithTriggers([raidShoutoutTrigger])
+      const twitch = fakeTwitchAcceptingSends(
         undefined,
         undefined,
         Response.json({ status: 429, message: 'shoutout ratelimit exceeded' }, { status: 429 }),
       )
 
-      const response = await 呼び出す(Twitchからの通知({ body: レイドの通知 }), env, twitch.fetchImpl)
+      const response = await callWebhook(createNotification({ body: RAID_NOTIFICATION }), env, twitch.fetchImpl)
 
       expect(response.status).toBe(204)
       expect(await listFailures(env.DB)).toMatchObject([
@@ -970,102 +970,102 @@ describe('アラートのトリガーによるチャット送信', () => {
   })
 
   describe('アナウンスを送る動作', () => {
-    const フォローでアナウンスする: StoredTrigger = {
+    const followAnnounceTrigger: StoredTrigger = {
       kind: 'follow',
       actions: [{ type: 'announce', message: '{user} さん、フォローありがとうございます！', color: 'purple' }],
     }
 
     it('アナウンスを送る動作を持つトリガーに当てはまれば、botがモデレーターとしてアナウンスを送る', async () => {
-      const { env } = await トリガーのある環境([フォローでアナウンスする])
-      const twitch = 送信に応えるTwitch()
+      const { env } = await envWithTriggers([followAnnounceTrigger])
+      const twitch = fakeTwitchAcceptingSends()
 
-      const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+      const response = await callWebhook(createNotification({ body: createFollowNotification }), env, twitch.fetchImpl)
 
       expect(response.status).toBe(204)
-      const request = twitch.送信したアナウンス[0]!
+      const request = twitch.sentAnnouncements[0]!
       const url = new URL(request.url)
-      expect(url.searchParams.get('broadcaster_id')).toBe(配信者のID)
+      expect(url.searchParams.get('broadcaster_id')).toBe(BROADCASTER_ID)
       // アナウンスを送るのはbot自身なので、moderator_id はbotのID
-      expect(url.searchParams.get('moderator_id')).toBe(botのID)
+      expect(url.searchParams.get('moderator_id')).toBe(BOT_ID)
       expect(await request.json()).toEqual({ message: '田中太郎 さん、フォローありがとうございます！', color: 'purple' })
       // アナウンスは通常のチャット送信とは別の経路なので、両方に送らない
-      expect(twitch.送信したチャット).toHaveLength(0)
+      expect(twitch.sentChats).toHaveLength(0)
     })
 
     it('チャットとアナウンスの両方を持つトリガーでは、どちらも送る', async () => {
-      const 両方する: StoredTrigger = {
+      const both: StoredTrigger = {
         kind: 'follow',
         actions: [
           { type: 'chat', message: '{user} さん、ありがとうございます' },
           { type: 'announce', message: '{user} さんがフォローしました', color: 'primary' },
         ],
       }
-      const { env } = await トリガーのある環境([両方する])
-      const twitch = 送信に応えるTwitch()
+      const { env } = await envWithTriggers([both])
+      const twitch = fakeTwitchAcceptingSends()
 
-      await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+      await callWebhook(createNotification({ body: createFollowNotification }), env, twitch.fetchImpl)
 
-      expect(twitch.送信したチャット).toHaveLength(1)
-      expect(twitch.送信したアナウンス).toHaveLength(1)
+      expect(twitch.sentChats).toHaveLength(1)
+      expect(twitch.sentAnnouncements).toHaveLength(1)
     })
 
     it('同じ通知が再送されても、アナウンスを二度送らない', async () => {
-      const { env } = await トリガーのある環境([フォローでアナウンスする])
-      const twitch = 送信に応えるTwitch()
+      const { env } = await envWithTriggers([followAnnounceTrigger])
+      const twitch = fakeTwitchAcceptingSends()
 
-      await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
-      await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+      await callWebhook(createNotification({ body: createFollowNotification }), env, twitch.fetchImpl)
+      await callWebhook(createNotification({ body: createFollowNotification }), env, twitch.fetchImpl)
 
-      expect(twitch.送信したアナウンス).toHaveLength(1)
+      expect(twitch.sentAnnouncements).toHaveLength(1)
     })
 
     it('botを接続していなければ、送らずに受け取るだけにする', async () => {
-      const { env } = 環境を作る()
-      await saveAlertConfig(env.STORE, { triggers: [フォローでアナウンスする] })
-      const twitch = 送信に応えるTwitch()
+      const { env } = createEnv()
+      await saveAlertConfig(env.STORE, { triggers: [followAnnounceTrigger] })
+      const twitch = fakeTwitchAcceptingSends()
 
-      const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+      const response = await callWebhook(createNotification({ body: createFollowNotification }), env, twitch.fetchImpl)
 
       expect(response.status).toBe(204)
-      expect(twitch.送信したアナウンス).toHaveLength(0)
+      expect(twitch.sentAnnouncements).toHaveLength(0)
     })
 
     it('2秒以内に続いた2件目のアナウンスは、間隔が空くまで待ってから送る（アナウンスは2秒に1回しか送れない）', async () => {
-      const { env } = await トリガーのある環境([フォローでアナウンスする])
-      const twitch = 送信に応えるTwitch()
-      const 待った時間: number[] = []
-      const 待つ = async (milliseconds: number): Promise<void> => {
-        待った時間.push(milliseconds)
+      const { env } = await envWithTriggers([followAnnounceTrigger])
+      const twitch = fakeTwitchAcceptingSends()
+      const waitedMilliseconds: number[] = []
+      const recordWait = async (milliseconds: number): Promise<void> => {
+        waitedMilliseconds.push(milliseconds)
       }
 
-      await 呼び出す(Twitchからの通知({ body: フォローの通知, messageId: 'message-1' }), env, twitch.fetchImpl, 待つ)
-      await 呼び出す(Twitchからの通知({ body: フォローの通知, messageId: 'message-2' }), env, twitch.fetchImpl, 待つ)
+      await callWebhook(createNotification({ body: createFollowNotification, messageId: 'message-1' }), env, twitch.fetchImpl, recordWait)
+      await callWebhook(createNotification({ body: createFollowNotification, messageId: 'message-2' }), env, twitch.fetchImpl, recordWait)
 
       // 1件目は待たずに送り、2件目は2秒待ってから送るので、どちらも失われない
-      expect(twitch.送信したアナウンス).toHaveLength(2)
-      expect(待った時間).toEqual([2000])
+      expect(twitch.sentAnnouncements).toHaveLength(2)
+      expect(waitedMilliseconds).toEqual([2000])
       expect(await listFailures(env.DB)).toEqual([])
     })
 
     it('待ち時間の上限を超えるほど詰まっていれば、送らずに失敗として記録する', async () => {
-      const { env } = await トリガーのある環境([フォローでアナウンスする])
-      const twitch = 送信に応えるTwitch()
+      const { env } = await envWithTriggers([followAnnounceTrigger])
+      const twitch = fakeTwitchAcceptingSends()
 
       // 同じ時刻に4件続くと、4件目の送信時刻は6秒後になり、上限（4秒）を超える
       for (const messageId of ['message-1', 'message-2', 'message-3', 'message-4']) {
-        const response = await 呼び出す(Twitchからの通知({ body: フォローの通知, messageId }), env, twitch.fetchImpl)
+        const response = await callWebhook(createNotification({ body: createFollowNotification, messageId }), env, twitch.fetchImpl)
         expect(response.status).toBe(204)
       }
 
-      expect(twitch.送信したアナウンス).toHaveLength(3)
+      expect(twitch.sentAnnouncements).toHaveLength(3)
       expect(await listFailures(env.DB)).toMatchObject([{ code: 'alert-announce-failed', message: expect.stringContaining('2秒に1回') }])
     })
 
     it('送信に失敗しても2xxを返し、失敗として記録する（botがモデレーターでない場合など）', async () => {
-      const { env } = await トリガーのある環境([フォローでアナウンスする])
-      const twitch = 送信に応えるTwitch(undefined, Response.json({ status: 401, message: 'Missing scope' }, { status: 401 }))
+      const { env } = await envWithTriggers([followAnnounceTrigger])
+      const twitch = fakeTwitchAcceptingSends(undefined, Response.json({ status: 401, message: 'Missing scope' }, { status: 401 }))
 
-      const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
+      const response = await callWebhook(createNotification({ body: createFollowNotification }), env, twitch.fetchImpl)
 
       expect(response.status).toBe(204)
       expect(await listFailures(env.DB)).toMatchObject([{ code: 'alert-announce-failed', message: expect.stringContaining('Missing scope') }])
@@ -1074,29 +1074,29 @@ describe('アラートのトリガーによるチャット送信', () => {
 })
 
 describe('チャットの発言によるアラートのトリガー', () => {
-  const botのID = '67890'
+  const BOT_ID = '67890'
 
   /** botを接続済みで、チャットの発言のトリガーが保存されている環境を作る */
-  const チャットのトリガーのある環境 = async (triggers: StoredTrigger[], commands: { name: string; reply: string; cooldownSeconds: number }[] = []) => {
-    const { env, db } = 環境を作る()
+  const envWithChatTriggers = async (triggers: StoredTrigger[], commands: { name: string; reply: string; cooldownSeconds: number }[] = []) => {
+    const { env, db } = createEnv()
     await saveAlertConfig(env.STORE, { triggers })
     if (commands.length > 0) await saveBotConfig(env.STORE, { commands })
     await saveToken(env.STORE, 'bot', {
       accessToken: 'bot-access-token',
       refreshToken: 'bot-refresh-token',
-      expiresAt: 現在時刻 + 60 * 60 * 1000,
+      expiresAt: NOW + 60 * 60 * 1000,
       scopes: ['user:bot', 'user:read:chat', 'user:write:chat', 'moderator:manage:chat_messages'],
-      userId: botのID,
+      userId: BOT_ID,
       login: 'haishinsha_bot',
     })
     return { env, db }
   }
 
-  const 発言の通知 = (text: string, { chatterUserId = '11111', messageId = 'chat-message-1' } = {}) => ({
+  const createMessageNotification = (text: string, { chatterUserId = '11111', messageId = 'chat-message-1' } = {}) => ({
     body: {
       subscription: { type: 'channel.chat.message' },
       event: {
-        broadcaster_user_id: 配信者のID,
+        broadcaster_user_id: BROADCASTER_ID,
         chatter_user_id: chatterUserId,
         chatter_user_login: 'shichousha',
         chatter_user_name: '視聴者さん',
@@ -1109,64 +1109,64 @@ describe('チャットの発言によるアラートのトリガー', () => {
   })
 
   /** チャット送信とモデレーション操作に応えるTwitchの代役 */
-  const 送信に応えるTwitch = () => {
-    const 送信したチャット: Request[] = []
-    const 呼んだURL: string[] = []
+  const fakeTwitchAcceptingSends = () => {
+    const sentChats: Request[] = []
+    const calledUrls: string[] = []
     const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const request = new Request(input, init)
       const url = new URL(request.url)
       if (url.pathname === '/helix/chat/messages') {
-        送信したチャット.push(request.clone())
+        sentChats.push(request.clone())
         return Response.json({ data: [{ message_id: 'sent', is_sent: true }] })
       }
       if (url.pathname === '/helix/moderation/chat' || url.pathname === '/helix/moderation/bans') {
-        呼んだURL.push(`${request.method} ${url.pathname}`)
+        calledUrls.push(`${request.method} ${url.pathname}`)
         return new Response(null, { status: 204 })
       }
       throw new Error(`テストで想定していない通信です: ${request.url}`)
     }
-    return { 送信したチャット, 呼んだURL, fetchImpl }
+    return { sentChats, calledUrls, fetchImpl }
   }
 
-  const 挨拶に応える: StoredTrigger = {
+  const greetingTrigger: StoredTrigger = {
     kind: 'keyword', contains: 'おはよう',
     actions: [{ type: 'chat', message: '{user} さん、おはようございます！' }],
   }
 
   it('文面の条件に当てはまる発言に、botの名前で送る', async () => {
-    const { env } = await チャットのトリガーのある環境([挨拶に応える])
-    const twitch = 送信に応えるTwitch()
+    const { env } = await envWithChatTriggers([greetingTrigger])
+    const twitch = fakeTwitchAcceptingSends()
 
-    const response = await 呼び出す(Twitchからの通知(発言の通知('みなさんおはようございます')), env, twitch.fetchImpl)
+    const response = await callWebhook(createNotification(createMessageNotification('みなさんおはようございます')), env, twitch.fetchImpl)
 
     expect(response.status).toBe(204)
-    expect(await twitch.送信したチャット[0]!.json()).toEqual({
-      broadcaster_id: 配信者のID,
-      sender_id: botのID,
+    expect(await twitch.sentChats[0]!.json()).toEqual({
+      broadcaster_id: BROADCASTER_ID,
+      sender_id: BOT_ID,
       message: '視聴者さん さん、おはようございます！',
     })
   })
 
   it('文面の条件に当てはまらない発言には、何も送らない', async () => {
-    const { env } = await チャットのトリガーのある環境([挨拶に応える])
-    const twitch = 送信に応えるTwitch()
+    const { env } = await envWithChatTriggers([greetingTrigger])
+    const twitch = fakeTwitchAcceptingSends()
 
-    await 呼び出す(Twitchからの通知(発言の通知('こんばんは')), env, twitch.fetchImpl)
+    await callWebhook(createNotification(createMessageNotification('こんばんは')), env, twitch.fetchImpl)
 
-    expect(twitch.送信したチャット).toHaveLength(0)
+    expect(twitch.sentChats).toHaveLength(0)
   })
 
   it('bot自身の発言では決してトリガーを引かない（応答し続けて止まらなくなるため）', async () => {
-    const { env } = await チャットのトリガーのある環境([挨拶に応える])
-    const twitch = 送信に応えるTwitch()
+    const { env } = await envWithChatTriggers([greetingTrigger])
+    const twitch = fakeTwitchAcceptingSends()
 
-    await 呼び出す(Twitchからの通知(発言の通知('おはようございます', { chatterUserId: botのID })), env, twitch.fetchImpl)
+    await callWebhook(createNotification(createMessageNotification('おはようございます', { chatterUserId: BOT_ID })), env, twitch.fetchImpl)
 
-    expect(twitch.送信したチャット).toHaveLength(0)
+    expect(twitch.sentChats).toHaveLength(0)
   })
 
   it('自動モデレーションで処分した発言では、トリガーを引かない', async () => {
-    const { env } = await チャットのトリガーのある環境([挨拶に応える])
+    const { env } = await envWithChatTriggers([greetingTrigger])
     await saveModerationConfig(env.STORE, {
       enabled: true,
       exemptBroadcaster: true,
@@ -1174,162 +1174,162 @@ describe('チャットの発言によるアラートのトリガー', () => {
       exemptSubscriber: true,
       rules: [{ kind: 'word', word: '宣伝', punishment: { type: 'delete' } }],
     })
-    const twitch = 送信に応えるTwitch()
+    const twitch = fakeTwitchAcceptingSends()
 
-    await 呼び出す(Twitchからの通知(発言の通知('おはよう、宣伝です')), env, twitch.fetchImpl)
+    await callWebhook(createNotification(createMessageNotification('おはよう、宣伝です')), env, twitch.fetchImpl)
 
-    expect(twitch.呼んだURL).toEqual(['DELETE /helix/moderation/chat'])
-    expect(twitch.送信したチャット).toHaveLength(0)
+    expect(twitch.calledUrls).toEqual(['DELETE /helix/moderation/chat'])
+    expect(twitch.sentChats).toHaveLength(0)
   })
 
   it('同じ通知が再送されても、二度送らない', async () => {
-    const { env } = await チャットのトリガーのある環境([挨拶に応える])
-    const twitch = 送信に応えるTwitch()
+    const { env } = await envWithChatTriggers([greetingTrigger])
+    const twitch = fakeTwitchAcceptingSends()
 
-    await 呼び出す(Twitchからの通知(発言の通知('おはよう')), env, twitch.fetchImpl)
-    await 呼び出す(Twitchからの通知(発言の通知('おはよう')), env, twitch.fetchImpl)
+    await callWebhook(createNotification(createMessageNotification('おはよう')), env, twitch.fetchImpl)
+    await callWebhook(createNotification(createMessageNotification('おはよう')), env, twitch.fetchImpl)
 
-    expect(twitch.送信したチャット).toHaveLength(1)
+    expect(twitch.sentChats).toHaveLength(1)
   })
 
   it('コマンドにもトリガーにも当てはまる発言では、どちらも送る（鍵を取り合わない）', async () => {
-    const トリガー: StoredTrigger = {
+    const trigger: StoredTrigger = {
       kind: 'keyword', contains: '!ping',
       actions: [{ type: 'chat', message: '{user} さんが ping しました' }],
     }
-    const { env } = await チャットのトリガーのある環境([トリガー], [{ name: 'ping', reply: '@{user} pong', cooldownSeconds: 0 }])
-    const twitch = 送信に応えるTwitch()
+    const { env } = await envWithChatTriggers([trigger], [{ name: 'ping', reply: '@{user} pong', cooldownSeconds: 0 }])
+    const twitch = fakeTwitchAcceptingSends()
 
-    await 呼び出す(Twitchからの通知(発言の通知('!ping')), env, twitch.fetchImpl)
+    await callWebhook(createNotification(createMessageNotification('!ping')), env, twitch.fetchImpl)
 
-    const 送った文言 = await Promise.all(twitch.送信したチャット.map(async (request) => ((await request.json()) as { message: string }).message))
-    expect(送った文言).toEqual(['視聴者さん さんが ping しました', '@shichousha pong'])
+    const sentText = await Promise.all(twitch.sentChats.map(async (request) => ((await request.json()) as { message: string }).message))
+    expect(sentText).toEqual(['視聴者さん さんが ping しました', '@shichousha pong'])
   })
 
   it('アラートを出すだけのトリガーでは、チャットへ何も送らない（オーバーレイが再生する）', async () => {
-    const 音を鳴らす: StoredTrigger = {
+    const soundTrigger: StoredTrigger = {
       kind: 'fromUser', login: 'shichousha',
       actions: [{ type: 'alert', mediaId: '素材ID-拍手の音', mediaKind: 'audio', durationSeconds: 5, volume: 0.5, message: '' }],
     }
-    const { env, db } = await チャットのトリガーのある環境([音を鳴らす])
-    const twitch = 送信に応えるTwitch()
+    const { env, db } = await envWithChatTriggers([soundTrigger])
+    const twitch = fakeTwitchAcceptingSends()
 
-    const response = await 呼び出す(Twitchからの通知(発言の通知('こんばんは')), env, twitch.fetchImpl)
+    const response = await callWebhook(createNotification(createMessageNotification('こんばんは')), env, twitch.fetchImpl)
 
     expect(response.status).toBe(204)
-    expect(twitch.送信したチャット).toHaveLength(0)
+    expect(twitch.sentChats).toHaveLength(0)
     // チャットは件数の桁が違うため、トリガーを引いても配信の記録には書かない
     expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM stream_events').get()).toEqual({ count: 0 })
   })
 
   /** このチャンネルで初めての発言に応えるトリガー */
-  const 初見に応える: StoredTrigger = {
+  const firstTimeTrigger: StoredTrigger = {
     kind: 'newViewer',
     actions: [{ type: 'chat', message: '{user} さん、はじめまして！' }],
   }
 
   /** すでに視聴者の記録がある人を作る。日数は現在時刻から何日前に発言していたか */
-  const 発言の記録を残す = async (db: ReturnType<typeof createFakeDatabase>, 何日前: number) => {
+  const recordPastMessage = async (db: ReturnType<typeof createFakeDatabase>, daysAgo: number) => {
     await recordViewerMessage(
       db,
       { userId: '11111', login: 'shichousha', displayName: '視聴者さん', badges: [], messageId: 'chat-message-0' },
-      現在時刻 - 何日前 * 24 * 60 * 60 * 1000,
+      NOW - daysAgo * 24 * 60 * 60 * 1000,
     )
   }
 
   it('記録のない人の発言では、このチャンネルで初めての発言の条件に当てはまる', async () => {
-    const { env } = await チャットのトリガーのある環境([初見に応える])
-    const twitch = 送信に応えるTwitch()
+    const { env } = await envWithChatTriggers([firstTimeTrigger])
+    const twitch = fakeTwitchAcceptingSends()
 
-    await 呼び出す(Twitchからの通知(発言の通知('はじめまして')), env, twitch.fetchImpl)
+    await callWebhook(createNotification(createMessageNotification('はじめまして')), env, twitch.fetchImpl)
 
-    expect(await twitch.送信したチャット[0]?.json()).toMatchObject({ message: '視聴者さん さん、はじめまして！' })
+    expect(await twitch.sentChats[0]?.json()).toMatchObject({ message: '視聴者さん さん、はじめまして！' })
   })
 
   it('すでに記録のある人の発言では、このチャンネルで初めての発言の条件に当てはまらない', async () => {
-    const { env, db } = await チャットのトリガーのある環境([初見に応える])
-    await 発言の記録を残す(db, 3)
-    const twitch = 送信に応えるTwitch()
+    const { env, db } = await envWithChatTriggers([firstTimeTrigger])
+    await recordPastMessage(db, 3)
+    const twitch = fakeTwitchAcceptingSends()
 
-    await 呼び出す(Twitchからの通知(発言の通知('こんばんは')), env, twitch.fetchImpl)
+    await callWebhook(createNotification(createMessageNotification('こんばんは')), env, twitch.fetchImpl)
 
-    expect(twitch.送信したチャット).toHaveLength(0)
+    expect(twitch.sentChats).toHaveLength(0)
   })
 
   it('最後の発言から指定した日数以上空いていれば、空いた日数の条件に当てはまる', async () => {
-    const 久しぶりに応える: StoredTrigger = {
+    const returningTrigger: StoredTrigger = {
       kind: 'comeback', days: 30,
       actions: [{ type: 'chat', message: '{user} さん、お久しぶりです！' }],
     }
-    const { env, db } = await チャットのトリガーのある環境([久しぶりに応える])
-    await 発言の記録を残す(db, 40)
-    const twitch = 送信に応えるTwitch()
+    const { env, db } = await envWithChatTriggers([returningTrigger])
+    await recordPastMessage(db, 40)
+    const twitch = fakeTwitchAcceptingSends()
 
-    await 呼び出す(Twitchからの通知(発言の通知('おひさしぶりです')), env, twitch.fetchImpl)
+    await callWebhook(createNotification(createMessageNotification('おひさしぶりです')), env, twitch.fetchImpl)
 
-    expect(await twitch.送信したチャット[0]?.json()).toMatchObject({ message: '視聴者さん さん、お久しぶりです！' })
+    expect(await twitch.sentChats[0]?.json()).toMatchObject({ message: '視聴者さん さん、お久しぶりです！' })
   })
 
   it('最後の発言から日数が足りなければ、空いた日数の条件に当てはまらない', async () => {
-    const 久しぶりに応える: StoredTrigger = {
+    const returningTrigger: StoredTrigger = {
       kind: 'comeback', days: 30,
       actions: [{ type: 'chat', message: '{user} さん、お久しぶりです！' }],
     }
-    const { env, db } = await チャットのトリガーのある環境([久しぶりに応える])
-    await 発言の記録を残す(db, 3)
-    const twitch = 送信に応えるTwitch()
+    const { env, db } = await envWithChatTriggers([returningTrigger])
+    await recordPastMessage(db, 3)
+    const twitch = fakeTwitchAcceptingSends()
 
-    await 呼び出す(Twitchからの通知(発言の通知('こんばんは')), env, twitch.fetchImpl)
+    await callWebhook(createNotification(createMessageNotification('こんばんは')), env, twitch.fetchImpl)
 
-    expect(twitch.送信したチャット).toHaveLength(0)
+    expect(twitch.sentChats).toHaveLength(0)
   })
 
   it('botを接続していなければ、トリガーを引かずに受け取るだけにする', async () => {
-    const { env } = 環境を作る()
-    await saveAlertConfig(env.STORE, { triggers: [挨拶に応える] })
+    const { env } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [greetingTrigger] })
 
-    const response = await 呼び出す(Twitchからの通知(発言の通知('おはよう')), env)
+    const response = await callWebhook(createNotification(createMessageNotification('おはよう')), env)
 
     expect(response.status).toBe(204)
   })
 })
 
 describe('チャットの自動モデレーション', () => {
-  const botのID = '67890'
-  const 荒らしのID = '11111'
+  const BOT_ID = '67890'
+  const TROLL_ID = '11111'
 
   /** botが接続済みで、自動モデレーションの設定が保存されている環境を作る */
-  const モデレーションの環境 = async (config: ModerationConfig) => {
-    const { env, db } = 環境を作る()
+  const moderationEnv = async (config: ModerationConfig) => {
+    const { env, db } = createEnv()
     await saveModerationConfig(env.STORE, config)
     await saveToken(env.STORE, 'bot', {
       accessToken: 'bot-access-token',
       refreshToken: 'bot-refresh-token',
-      expiresAt: 現在時刻 + 60 * 60 * 1000,
+      expiresAt: NOW + 60 * 60 * 1000,
       scopes: ['user:bot', 'moderator:manage:banned_users', 'moderator:manage:chat_messages'],
-      userId: botのID,
+      userId: BOT_ID,
       login: 'haishinsha_bot',
     })
     return { env, db }
   }
 
-  /** 有効で、除外をすべて有効にした設定。ルールだけを足して使う */
-  const 設定 = (rules: ModerationRule[], 上書き: Partial<ModerationConfig> = {}): ModerationConfig => ({
+  /** 有効で、除外をすべて有効にした設定。ルールだけを追加して使う */
+  const createConfig = (rules: ModerationRule[], overrides: Partial<ModerationConfig> = {}): ModerationConfig => ({
     enabled: true,
     exemptBroadcaster: true,
     exemptVip: true,
     exemptSubscriber: true,
     rules,
-    ...上書き,
+    ...overrides,
   })
 
-  const チャットの通知 = (
+  const createChatNotification = (
     text: string,
-    { messageId = 'chat-message-1', badges = [] as { set_id: string }[], chatterUserId = 荒らしのID } = {},
+    { messageId = 'chat-message-1', badges = [] as { set_id: string }[], chatterUserId = TROLL_ID } = {},
   ) => ({
     subscription: { type: 'channel.chat.message' },
     event: {
-      broadcaster_user_id: 配信者のID,
+      broadcaster_user_id: BROADCASTER_ID,
       chatter_user_id: chatterUserId,
       chatter_user_login: 'arashi',
       chatter_user_name: '荒らしさん',
@@ -1340,135 +1340,135 @@ describe('チャットの自動モデレーション', () => {
   })
 
   /** モデレーション操作とチャット送信に応えるTwitch。どのURLを呼んだかを記録する */
-  const モデレーションに応えるTwitch = (moderationResponse?: Response) => {
-    const 呼んだURL: string[] = []
-    const 送信したチャット: Request[] = []
+  const fakeTwitchForModeration = (moderationResponse?: Response) => {
+    const calledUrls: string[] = []
+    const sentChats: Request[] = []
     const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const request = new Request(input, init)
       const url = new URL(request.url)
       if (url.pathname === '/helix/moderation/chat' || url.pathname === '/helix/moderation/bans') {
-        呼んだURL.push(`${request.method} ${url.pathname}`)
+        calledUrls.push(`${request.method} ${url.pathname}`)
         return moderationResponse ? moderationResponse.clone() : new Response(null, { status: 204 })
       }
       if (request.url === 'https://api.twitch.tv/helix/chat/messages') {
-        送信したチャット.push(request.clone())
+        sentChats.push(request.clone())
         return Response.json({ data: [{ message_id: 'sent', is_sent: true }] })
       }
       throw new Error(`テストで想定していない通信です: ${request.url}`)
     }
-    return { 呼んだURL, 送信したチャット, fetchImpl }
+    return { calledUrls, sentChats, fetchImpl }
   }
 
-  const 通知を送る = (env: Env, fetchImpl: typeof fetch, body: unknown, messageId = 'chat-message-1') =>
-    呼び出す(Twitchからの通知({ body, messageId }), env, fetchImpl)
+  const sendNotification = (env: Env, fetchImpl: typeof fetch, body: unknown, messageId = 'chat-message-1') =>
+    callWebhook(createNotification({ body, messageId }), env, fetchImpl)
 
   it('既定（無効）では、禁止語を含む発言でも処分しない', async () => {
-    const { env, db } = await モデレーションの環境({ ...設定([{ kind: 'word', word: '宣伝', punishment: { type: 'ban' } }]), enabled: false })
-    const twitch = モデレーションに応えるTwitch()
+    const { env, db } = await moderationEnv({ ...createConfig([{ kind: 'word', word: '宣伝', punishment: { type: 'ban' } }]), enabled: false })
+    const twitch = fakeTwitchForModeration()
 
-    const response = await 通知を送る(env, twitch.fetchImpl, チャットの通知('宣伝です'))
+    const response = await sendNotification(env, twitch.fetchImpl, createChatNotification('宣伝です'))
 
     expect(response.status).toBe(204)
-    expect(twitch.呼んだURL).toEqual([])
+    expect(twitch.calledUrls).toEqual([])
     expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM chat_recent_messages').get()).toEqual({ count: 0 })
   })
 
   it('禁止語を含む発言を削除する', async () => {
-    const { env } = await モデレーションの環境(設定([{ kind: 'word', word: '宣伝', punishment: { type: 'delete' } }]))
-    const twitch = モデレーションに応えるTwitch()
+    const { env } = await moderationEnv(createConfig([{ kind: 'word', word: '宣伝', punishment: { type: 'delete' } }]))
+    const twitch = fakeTwitchForModeration()
 
-    await 通知を送る(env, twitch.fetchImpl, チャットの通知('宣伝です'))
+    await sendNotification(env, twitch.fetchImpl, createChatNotification('宣伝です'))
 
-    expect(twitch.呼んだURL).toEqual(['DELETE /helix/moderation/chat'])
+    expect(twitch.calledUrls).toEqual(['DELETE /helix/moderation/chat'])
   })
 
   it('BANの処分では、発言を削除してからBANする', async () => {
-    const { env } = await モデレーションの環境(設定([{ kind: 'url', punishment: { type: 'ban' } }]))
-    const twitch = モデレーションに応えるTwitch()
+    const { env } = await moderationEnv(createConfig([{ kind: 'url', punishment: { type: 'ban' } }]))
+    const twitch = fakeTwitchForModeration()
 
-    await 通知を送る(env, twitch.fetchImpl, チャットの通知('https://example.com/spam'))
+    await sendNotification(env, twitch.fetchImpl, createChatNotification('https://example.com/spam'))
 
-    expect(twitch.呼んだURL).toEqual(['DELETE /helix/moderation/chat', 'POST /helix/moderation/bans'])
+    expect(twitch.calledUrls).toEqual(['DELETE /helix/moderation/chat', 'POST /helix/moderation/bans'])
   })
 
   it('モデレーターのバッジが付いた発言は処分しない', async () => {
-    const { env } = await モデレーションの環境(設定([{ kind: 'word', word: '宣伝', punishment: { type: 'ban' } }]))
-    const twitch = モデレーションに応えるTwitch()
+    const { env } = await moderationEnv(createConfig([{ kind: 'word', word: '宣伝', punishment: { type: 'ban' } }]))
+    const twitch = fakeTwitchForModeration()
 
-    await 通知を送る(env, twitch.fetchImpl, チャットの通知('宣伝です', { badges: [{ set_id: 'moderator' }] }))
+    await sendNotification(env, twitch.fetchImpl, createChatNotification('宣伝です', { badges: [{ set_id: 'moderator' }] }))
 
-    expect(twitch.呼んだURL).toEqual([])
+    expect(twitch.calledUrls).toEqual([])
   })
 
   it('bot自身の発言は処分しない（自分の応答を処分して止まらなくなるのを防ぐ）', async () => {
-    const { env } = await モデレーションの環境(設定([{ kind: 'url', punishment: { type: 'delete' } }]))
-    const twitch = モデレーションに応えるTwitch()
+    const { env } = await moderationEnv(createConfig([{ kind: 'url', punishment: { type: 'delete' } }]))
+    const twitch = fakeTwitchForModeration()
 
-    await 通知を送る(env, twitch.fetchImpl, チャットの通知('Discordはこちらです https://example.com/discord', { chatterUserId: botのID }))
+    await sendNotification(env, twitch.fetchImpl, createChatNotification('Discordはこちらです https://example.com/discord', { chatterUserId: BOT_ID }))
 
-    expect(twitch.呼んだURL).toEqual([])
+    expect(twitch.calledUrls).toEqual([])
   })
 
   it('処分した発言には、コマンドの応答をしない', async () => {
-    const { env } = await モデレーションの環境(設定([{ kind: 'url', punishment: { type: 'delete' } }]))
+    const { env } = await moderationEnv(createConfig([{ kind: 'url', punishment: { type: 'delete' } }]))
     await saveBotConfig(env.STORE, { commands: [{ name: 'ping', reply: '@{user} pong', cooldownSeconds: 0 }] })
-    const twitch = モデレーションに応えるTwitch()
+    const twitch = fakeTwitchForModeration()
 
-    await 通知を送る(env, twitch.fetchImpl, チャットの通知('!ping https://example.com/spam'))
+    await sendNotification(env, twitch.fetchImpl, createChatNotification('!ping https://example.com/spam'))
 
-    expect(twitch.呼んだURL).toEqual(['DELETE /helix/moderation/chat'])
-    expect(twitch.送信したチャット).toHaveLength(0)
+    expect(twitch.calledUrls).toEqual(['DELETE /helix/moderation/chat'])
+    expect(twitch.sentChats).toHaveLength(0)
   })
 
   it('同じ通知が再送されても、二度処分しない', async () => {
-    const { env } = await モデレーションの環境(設定([{ kind: 'url', punishment: { type: 'delete' } }]))
-    const twitch = モデレーションに応えるTwitch()
+    const { env } = await moderationEnv(createConfig([{ kind: 'url', punishment: { type: 'delete' } }]))
+    const twitch = fakeTwitchForModeration()
 
-    await 通知を送る(env, twitch.fetchImpl, チャットの通知('https://example.com/spam'))
-    const 再送 = await 通知を送る(env, twitch.fetchImpl, チャットの通知('https://example.com/spam'))
+    await sendNotification(env, twitch.fetchImpl, createChatNotification('https://example.com/spam'))
+    const resent = await sendNotification(env, twitch.fetchImpl, createChatNotification('https://example.com/spam'))
 
-    expect(再送.status).toBe(204)
-    expect(twitch.呼んだURL).toEqual(['DELETE /helix/moderation/chat'])
+    expect(resent.status).toBe(204)
+    expect(twitch.calledUrls).toEqual(['DELETE /helix/moderation/chat'])
   })
 
   it('同じ文面の連投が回数に達したら処分する', async () => {
-    const { env } = await モデレーションの環境(設定([{ kind: 'repeat', count: 3, windowSeconds: 30, punishment: { type: 'timeout', durationSeconds: 600 } }]))
-    const twitch = モデレーションに応えるTwitch()
+    const { env } = await moderationEnv(createConfig([{ kind: 'repeat', count: 3, windowSeconds: 30, punishment: { type: 'timeout', durationSeconds: 600 } }]))
+    const twitch = fakeTwitchForModeration()
 
     // 同じ文面を3回。3回目で連投とみなす
-    await 通知を送る(env, twitch.fetchImpl, チャットの通知('かいます', { messageId: 'chat-message-1' }), 'chat-message-1')
-    await 通知を送る(env, twitch.fetchImpl, チャットの通知('かいます', { messageId: 'chat-message-2' }), 'chat-message-2')
-    await 通知を送る(env, twitch.fetchImpl, チャットの通知('かいます', { messageId: 'chat-message-3' }), 'chat-message-3')
+    await sendNotification(env, twitch.fetchImpl, createChatNotification('かいます', { messageId: 'chat-message-1' }), 'chat-message-1')
+    await sendNotification(env, twitch.fetchImpl, createChatNotification('かいます', { messageId: 'chat-message-2' }), 'chat-message-2')
+    await sendNotification(env, twitch.fetchImpl, createChatNotification('かいます', { messageId: 'chat-message-3' }), 'chat-message-3')
 
-    expect(twitch.呼んだURL).toEqual(['DELETE /helix/moderation/chat', 'POST /helix/moderation/bans'])
+    expect(twitch.calledUrls).toEqual(['DELETE /helix/moderation/chat', 'POST /helix/moderation/bans'])
   })
 
   it('同じ通知が再送されても、連投とみなさない（1回の発言が2件に数えられないため）', async () => {
-    const { env } = await モデレーションの環境(設定([{ kind: 'repeat', count: 3, windowSeconds: 30, punishment: { type: 'delete' } }]))
-    const twitch = モデレーションに応えるTwitch()
+    const { env } = await moderationEnv(createConfig([{ kind: 'repeat', count: 3, windowSeconds: 30, punishment: { type: 'delete' } }]))
+    const twitch = fakeTwitchForModeration()
 
-    await 通知を送る(env, twitch.fetchImpl, チャットの通知('かいます', { messageId: 'chat-message-1' }), 'chat-message-1')
-    await 通知を送る(env, twitch.fetchImpl, チャットの通知('かいます', { messageId: 'chat-message-2' }), 'chat-message-2')
+    await sendNotification(env, twitch.fetchImpl, createChatNotification('かいます', { messageId: 'chat-message-1' }), 'chat-message-1')
+    await sendNotification(env, twitch.fetchImpl, createChatNotification('かいます', { messageId: 'chat-message-2' }), 'chat-message-2')
     // Twitchが2通目を再送してきた。実際の発言は2回なので、3回目の連投にはならない
-    await 通知を送る(env, twitch.fetchImpl, チャットの通知('かいます', { messageId: 'chat-message-2' }), 'chat-message-2')
+    await sendNotification(env, twitch.fetchImpl, createChatNotification('かいます', { messageId: 'chat-message-2' }), 'chat-message-2')
 
-    expect(twitch.呼んだURL).toEqual([])
+    expect(twitch.calledUrls).toEqual([])
   })
 
   it('連投のルールが無ければ、直近の発言をD1に記録しない（チャット全件を書かないため）', async () => {
-    const { env, db } = await モデレーションの環境(設定([{ kind: 'word', word: '宣伝', punishment: { type: 'delete' } }]))
-    const twitch = モデレーションに応えるTwitch()
+    const { env, db } = await moderationEnv(createConfig([{ kind: 'word', word: '宣伝', punishment: { type: 'delete' } }]))
+    const twitch = fakeTwitchForModeration()
 
-    await 通知を送る(env, twitch.fetchImpl, チャットの通知('こんばんは'))
+    await sendNotification(env, twitch.fetchImpl, createChatNotification('こんばんは'))
 
     expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM chat_recent_messages').get()).toEqual({ count: 0 })
   })
 
   it('処分に失敗しても204を返し、収集の失敗として記録する（2xx以外だと再送されて二重に処分される）', async () => {
-    const { env } = await モデレーションの環境(設定([{ kind: 'url', punishment: { type: 'delete' } }]))
-    const twitch = モデレーションに応えるTwitch(Response.json({ message: 'User is not a moderator' }, { status: 401 }))
+    const { env } = await moderationEnv(createConfig([{ kind: 'url', punishment: { type: 'delete' } }]))
+    const twitch = fakeTwitchForModeration(Response.json({ message: 'User is not a moderator' }, { status: 401 }))
 
-    const response = await 通知を送る(env, twitch.fetchImpl, チャットの通知('https://example.com/spam'))
+    const response = await sendNotification(env, twitch.fetchImpl, createChatNotification('https://example.com/spam'))
 
     expect(response.status).toBe(204)
     expect(await listFailures(env.DB)).toMatchObject([{ code: 'moderation-failed', message: expect.stringContaining('401') }])
@@ -1476,19 +1476,19 @@ describe('チャットの自動モデレーション', () => {
 })
 
 describe('オーバーレイへのアラートの押し出し', () => {
-  const botのID = '67890'
+  const BOT_ID = '67890'
 
-  const アラートを出すトリガー = (kind: 'follow' | 'everyMessage'): StoredTrigger => ({
+  const alertTrigger = (kind: 'follow' | 'everyMessage'): StoredTrigger => ({
     kind,
     actions: [{ type: 'alert', mediaId: 'media-kanpai', mediaKind: 'video', durationSeconds: 5, volume: 0.5, message: '{user} さん、ありがとう！' }],
   })
 
-  const フォローの通知 = { subscription: { type: 'channel.follow' }, event: { user_id: '22222', user_name: '田中太郎', user_login: 'tanaka_taro' } }
+  const createFollowNotification = { subscription: { type: 'channel.follow' }, event: { user_id: '22222', user_name: '田中太郎', user_login: 'tanaka_taro' } }
 
-  const 発言の通知 = (chatterUserId = '11111', messageId = 'chat-message-1') => ({
+  const createMessageNotification = (chatterUserId = '11111', messageId = 'chat-message-1') => ({
     subscription: { type: 'channel.chat.message' },
     event: {
-      broadcaster_user_id: 配信者のID,
+      broadcaster_user_id: BROADCASTER_ID,
       chatter_user_id: chatterUserId,
       chatter_user_login: 'shichousha',
       chatter_user_name: '視聴者さん',
@@ -1498,26 +1498,26 @@ describe('オーバーレイへのアラートの押し出し', () => {
     },
   })
 
-  const botを接続する = (env: Env) =>
+  const connectBot = (env: Env) =>
     saveToken(env.STORE, 'bot', {
       accessToken: 'bot-access-token',
       refreshToken: 'bot-refresh-token',
-      expiresAt: 現在時刻 + 60 * 60 * 1000,
+      expiresAt: NOW + 60 * 60 * 1000,
       scopes: ['user:bot', 'user:read:chat', 'user:write:chat'],
-      userId: botのID,
+      userId: BOT_ID,
       login: 'haishinsha_bot',
     })
 
   it('当てはまるトリガーのアラートを、素材のURLにオーバーレイ用キーを付けて押し出す', async () => {
-    const { env, 配送 } = 環境を作る()
-    await saveAlertConfig(env.STORE, { triggers: [アラートを出すトリガー('follow')] })
+    const { env, alertChannel } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [alertTrigger('follow')] })
 
-    const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env)
+    const response = await callWebhook(createNotification({ body: createFollowNotification }), env)
 
     expect(response.status).toBe(204)
-    expect(配送.押し出されたアラート).toEqual([
+    expect(alertChannel.pushedAlerts).toEqual([
       {
-        media: { kind: 'video', url: `/api/media/media-kanpai?key=${発行済みのオーバーレイ用キー}` },
+        media: { kind: 'video', url: `/api/media/media-kanpai?key=${ISSUED_OVERLAY_KEY}` },
         durationSeconds: 5,
         volume: 0.5,
         text: '田中太郎 さん、ありがとう！',
@@ -1526,7 +1526,7 @@ describe('オーバーレイへのアラートの押し出し', () => {
   })
 
   it('当てはまるトリガーが2件あれば、どちらのアラートも押し出す（オーバーレイが順に再生する）', async () => {
-    const { env, 配送 } = 環境を作る()
+    const { env, alertChannel } = createEnv()
     await saveAlertConfig(env.STORE, {
       triggers: [
         { kind: 'follow', actions: [{ type: 'alert', mediaId: 'media-kanpai', mediaKind: 'video', durationSeconds: 5, volume: 0.5, message: '1つ目' }] },
@@ -1534,99 +1534,99 @@ describe('オーバーレイへのアラートの押し出し', () => {
       ],
     })
 
-    await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env)
+    await callWebhook(createNotification({ body: createFollowNotification }), env)
 
-    expect(配送.押し出されたアラート.map((alert) => alert.text)).toEqual(['1つ目', '2つ目'])
+    expect(alertChannel.pushedAlerts.map((alert) => alert.text)).toEqual(['1つ目', '2つ目'])
   })
 
   it('アラートの文言の {summary} に、貯めてある配信中のあらすじを差し込んで押し出す（OBSの画面に出す）', async () => {
-    const { env, db, 配送 } = 環境を作る()
-    const あらすじを出す: StoredTrigger = {
+    const { env, db, alertChannel } = createEnv()
+    const summaryAction: StoredTrigger = {
       kind: 'follow',
       actions: [{ type: 'alert', mediaId: 'media-kanpai', mediaKind: 'video', durationSeconds: 5, volume: 0.5, message: 'これまでのあらすじ: {summary}' }],
     }
-    await saveAlertConfig(env.STORE, { triggers: [あらすじを出す] })
-    await recordLiveStream(db, 雑談配信, 現在時刻 - 60 * 1000)
+    await saveAlertConfig(env.STORE, { triggers: [summaryAction] })
+    await recordLiveStream(db, CHAT_STREAM, NOW - 60 * 1000)
     await saveStreamSummary(
       db,
-      { sessionId: 雑談配信.id, summary: '配信者は新しいゲームを遊んでいます', transcriptsUntil: { at: '', messageId: '' }, chatUntil: { at: '', messageId: '' }, screenUntil: { at: '', imageId: '', lineNo: -1 } },
-      現在時刻 - 30 * 1000,
+      { sessionId: CHAT_STREAM.id, summary: '配信者は新しいゲームを遊んでいます', transcriptsUntil: { at: '', messageId: '' }, chatUntil: { at: '', messageId: '' }, screenUntil: { at: '', imageId: '', lineNo: -1 } },
+      NOW - 30 * 1000,
     )
 
-    await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env)
+    await callWebhook(createNotification({ body: createFollowNotification }), env)
 
-    expect(配送.押し出されたアラート[0]?.text).toBe('これまでのあらすじ: 配信者は新しいゲームを遊んでいます')
+    expect(alertChannel.pushedAlerts[0]?.text).toBe('これまでのあらすじ: 配信者は新しいゲームを遊んでいます')
   })
 
   it('当てはまるトリガーがなければ、何も押し出さない', async () => {
-    const { env, 配送 } = 環境を作る()
+    const { env, alertChannel } = createEnv()
 
-    await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env)
+    await callWebhook(createNotification({ body: createFollowNotification }), env)
 
-    expect(配送.押し出されたアラート).toHaveLength(0)
+    expect(alertChannel.pushedAlerts).toHaveLength(0)
   })
 
   it('botが未接続でも、チャットの発言でアラートを押し出す（アラートの再生にbotは要らない）', async () => {
-    const { env, 配送 } = 環境を作る()
-    await saveAlertConfig(env.STORE, { triggers: [アラートを出すトリガー('everyMessage')] })
+    const { env, alertChannel } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [alertTrigger('everyMessage')] })
 
-    const response = await 呼び出す(Twitchからの通知({ body: 発言の通知() }), env)
+    const response = await callWebhook(createNotification({ body: createMessageNotification() }), env)
 
     expect(response.status).toBe(204)
-    expect(配送.押し出されたアラート).toMatchObject([{ text: '視聴者さん さん、ありがとう！' }])
+    expect(alertChannel.pushedAlerts).toMatchObject([{ text: '視聴者さん さん、ありがとう！' }])
   })
 
   it('bot自身の発言ではアラートを押し出さない（自分の応答に反応して止まらなくなるため）', async () => {
-    const { env, 配送 } = 環境を作る()
-    await saveAlertConfig(env.STORE, { triggers: [アラートを出すトリガー('everyMessage')] })
-    await botを接続する(env)
+    const { env, alertChannel } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [alertTrigger('everyMessage')] })
+    await connectBot(env)
 
-    await 呼び出す(Twitchからの通知({ body: 発言の通知(botのID) }), env)
+    await callWebhook(createNotification({ body: createMessageNotification(BOT_ID) }), env)
 
-    expect(配送.押し出されたアラート).toHaveLength(0)
+    expect(alertChannel.pushedAlerts).toHaveLength(0)
   })
 
   it('同じ通知が再送されても、二度は押し出さない', async () => {
-    const { env, 配送 } = 環境を作る()
-    await saveAlertConfig(env.STORE, { triggers: [アラートを出すトリガー('follow')] })
+    const { env, alertChannel } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [alertTrigger('follow')] })
 
-    await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env)
-    await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env)
+    await callWebhook(createNotification({ body: createFollowNotification }), env)
+    await callWebhook(createNotification({ body: createFollowNotification }), env)
 
-    expect(配送.押し出されたアラート).toHaveLength(1)
+    expect(alertChannel.pushedAlerts).toHaveLength(1)
   })
 
   it('配送先が失敗しても、Twitchへは2xxを返して失敗として記録する（再送で二重に鳴らさないため）', async () => {
-    const { env } = 環境を作る({ 配送は失敗する: true })
-    await saveAlertConfig(env.STORE, { triggers: [アラートを出すトリガー('follow')] })
+    const { env } = createEnv({ channelShouldFail: true })
+    await saveAlertConfig(env.STORE, { triggers: [alertTrigger('follow')] })
 
-    const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env)
+    const response = await callWebhook(createNotification({ body: createFollowNotification }), env)
 
     expect(response.status).toBe(204)
     expect(await listFailures(env.DB)).toMatchObject([{ code: 'alert-push-failed' }])
   })
 
   it('オーバーレイ用キーが未発行なら押し出さず、失敗として記録する（素材のURLを作れないため）', async () => {
-    const { env, 配送 } = 環境を作る({ オーバーレイ用キー: null })
-    await saveAlertConfig(env.STORE, { triggers: [アラートを出すトリガー('follow')] })
+    const { env, alertChannel } = createEnv({ overlayKey: null })
+    await saveAlertConfig(env.STORE, { triggers: [alertTrigger('follow')] })
 
-    const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env)
+    const response = await callWebhook(createNotification({ body: createFollowNotification }), env)
 
     expect(response.status).toBe(204)
-    expect(配送.押し出されたアラート).toHaveLength(0)
+    expect(alertChannel.pushedAlerts).toHaveLength(0)
     expect(await listFailures(env.DB)).toMatchObject([{ code: 'alert-push-failed' }])
   })
 })
 
 describe('LLMに文面を作らせる動作（aiChat）', () => {
-  const botのID = '67890'
-  const フォローの通知 = { subscription: { type: 'channel.follow' }, event: { user_id: '22222', user_name: '田中太郎', user_login: 'tanaka_taro' } }
+  const BOT_ID = '67890'
+  const createFollowNotification = { subscription: { type: 'channel.follow' }, event: { user_id: '22222', user_name: '田中太郎', user_login: 'tanaka_taro' } }
 
   /** まだ記録のない人からのチャットの発言 */
-  const 初めての人の発言 = {
+  const firstTimerMessage = {
     subscription: { type: 'channel.chat.message' },
     event: {
-      broadcaster_user_id: 配信者のID,
+      broadcaster_user_id: BROADCASTER_ID,
       chatter_user_id: '22222',
       chatter_user_login: 'hatsumi',
       chatter_user_name: 'はつみ',
@@ -1635,94 +1635,94 @@ describe('LLMに文面を作らせる動作（aiChat）', () => {
     },
   }
 
-  const 文面を作らせるトリガー: StoredTrigger = {
+  const generatedTextTrigger: StoredTrigger = {
     kind: 'follow',
     actions: [{ type: 'aiChat', instruction: 'フォローしてくれた人にお礼を言ってください' }],
   }
 
-  const botを接続する = (env: Env) =>
+  const connectBot = (env: Env) =>
     saveToken(env.STORE, 'bot', {
       accessToken: 'bot-access-token',
       refreshToken: 'bot-refresh-token',
-      expiresAt: 現在時刻 + 60 * 60 * 1000,
+      expiresAt: NOW + 60 * 60 * 1000,
       scopes: ['user:bot', 'user:write:chat'],
-      userId: botのID,
+      userId: BOT_ID,
       login: 'haishinsha_bot',
     })
 
   /** チャット送信に応える Twitch の代役 */
-  const 送信に応えるTwitch = (chatResponse: Response = Response.json({ data: [{ message_id: 'sent', is_sent: true }] })) => {
-    const 送信したチャット: Request[] = []
+  const fakeTwitchAcceptingSends = (chatResponse: Response = Response.json({ data: [{ message_id: 'sent', is_sent: true }] })) => {
+    const sentChats: Request[] = []
     const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const request = new Request(input, init)
       if (request.url === 'https://api.twitch.tv/helix/chat/messages') {
-        送信したチャット.push(request.clone())
+        sentChats.push(request.clone())
         return chatResponse.clone()
       }
       throw new Error(`テストで想定していない通信です: ${request.url}`)
     }
-    return { 送信したチャット, fetchImpl }
+    return { sentChats, fetchImpl }
   }
 
   it('当てはまったトリガーの指示でLLMに文面を作らせ、botの名前で送る', async () => {
-    const { env } = 環境を作る({ LLMの文面: '太郎さん、フォローありがとうございます！' })
-    await saveAlertConfig(env.STORE, { triggers: [文面を作らせるトリガー] })
-    await botを接続する(env)
-    const twitch = 送信に応えるTwitch()
+    const { env } = createEnv({ llmText: '太郎さん、フォローありがとうございます！' })
+    await saveAlertConfig(env.STORE, { triggers: [generatedTextTrigger] })
+    await connectBot(env)
+    const twitch = fakeTwitchAcceptingSends()
 
-    const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
-    await 後回しの処理を待つ()
+    const response = await callWebhook(createNotification({ body: createFollowNotification }), env, twitch.fetchImpl)
+    await flushDeferredTasks()
 
     expect(response.status).toBe(204)
-    expect(await twitch.送信したチャット[0]!.json()).toMatchObject({ message: '太郎さん、フォローありがとうございます！' })
+    expect(await twitch.sentChats[0]!.json()).toMatchObject({ message: '太郎さん、フォローありがとうございます！' })
   })
 
   it('LLMの応答を待たずにTwitchへ2xxを返す（応答が遅れると再送されるため）', async () => {
-    const { env } = 環境を作る()
-    await saveAlertConfig(env.STORE, { triggers: [文面を作らせるトリガー] })
-    await botを接続する(env)
-    const twitch = 送信に応えるTwitch()
+    const { env } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [generatedTextTrigger] })
+    await connectBot(env)
+    const twitch = fakeTwitchAcceptingSends()
     // 文面ができあがるまで終わらないLLM。テストが合図するまで応答を返さない
-    let 文面を返す: (message: string) => void = () => {}
+    let returnText: (message: string) => void = () => {}
     // 呼ばれるのを待ってから合図する（設定（llm-settings）の読み出しを挟むので、Twitchへの応答より後に呼ばれることがある）
-    let 呼ばれたと知らせる: () => void = () => {}
-    const LLMが呼ばれるまで = new Promise<void>((resolve) => (呼ばれたと知らせる = resolve))
-    const 待たせるAI = {
+    let notifyCalled: () => void = () => {}
+    const untilLlmCalled = new Promise<void>((resolve) => (notifyCalled = resolve))
+    const slowAi = {
       run: () =>
         new Promise<unknown>((resolve) => {
-          文面を返す = (message) => resolve({ response: message })
-          呼ばれたと知らせる()
+          returnText = (message) => resolve({ response: message })
+          notifyCalled()
         }),
     }
 
-    const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), { ...env, AI: 待たせるAI }, twitch.fetchImpl)
+    const response = await callWebhook(createNotification({ body: createFollowNotification }), { ...env, AI: slowAi }, twitch.fetchImpl)
 
     // LLMがまだ文面を返していないのに、Twitchへの応答は返っている
     expect(response.status).toBe(204)
-    expect(twitch.送信したチャット).toHaveLength(0)
+    expect(twitch.sentChats).toHaveLength(0)
 
-    await LLMが呼ばれるまで
-    文面を返す('太郎さん、ありがとう！')
-    await 後回しの処理を待つ()
-    expect(twitch.送信したチャット).toHaveLength(1)
+    await untilLlmCalled
+    returnText('太郎さん、ありがとう！')
+    await flushDeferredTasks()
+    expect(twitch.sentChats).toHaveLength(1)
   })
 
   it('発言した人の記録（メモ・発言数）を材料としてLLMへ渡す', async () => {
-    const { env, ai } = 環境を作る()
+    const { env, ai } = createEnv()
     await saveAlertConfig(env.STORE, {
       triggers: [{ kind: 'everyMessage', actions: [{ type: 'aiChat', instruction: '一言返してください' }] }],
     })
-    await botを接続する(env)
-    await recordViewerMessage(env.DB, { userId: '11111', login: 'shichousha', displayName: '視聴者さん', badges: [], messageId: '古い発言' }, 現在時刻 - 60 * 60 * 1000)
+    await connectBot(env)
+    await recordViewerMessage(env.DB, { userId: '11111', login: 'shichousha', displayName: '視聴者さん', badges: [], messageId: '古い発言' }, NOW - 60 * 60 * 1000)
     await updateViewerNote(env.DB, '11111', 'ギターの話が好き')
-    const twitch = 送信に応えるTwitch()
+    const twitch = fakeTwitchAcceptingSends()
 
-    await 呼び出す(
-      Twitchからの通知({
+    await callWebhook(
+      createNotification({
         body: {
           subscription: { type: 'channel.chat.message' },
           event: {
-            broadcaster_user_id: 配信者のID,
+            broadcaster_user_id: BROADCASTER_ID,
             chatter_user_id: '11111',
             chatter_user_login: 'shichousha',
             chatter_user_name: '視聴者さん',
@@ -1734,127 +1734,127 @@ describe('LLMに文面を作らせる動作（aiChat）', () => {
       env,
       twitch.fetchImpl,
     )
-    await 後回しの処理を待つ()
+    await flushDeferredTasks()
 
-    expect(JSON.stringify(ai.呼び出し[0]?.input)).toContain('ギターの話が好き')
+    expect(JSON.stringify(ai.calls[0]?.input)).toContain('ギターの話が好き')
   })
 
   it('条件を持たないトリガーでも、来訪の別（初めて・お久しぶり）を材料に渡す', async () => {
-    const { env, ai } = 環境を作る()
+    const { env, ai } = createEnv()
     // 条件は1件もない。それでも文面づくりには来訪の別が要るので、Workerは視聴者の記録を読む
     await saveAlertConfig(env.STORE, {
       triggers: [{ kind: 'everyMessage', actions: [{ type: 'aiChat', instruction: '一言返してください' }] }],
     })
-    await botを接続する(env)
-    const twitch = 送信に応えるTwitch()
+    await connectBot(env)
+    const twitch = fakeTwitchAcceptingSends()
 
-    await 呼び出す(Twitchからの通知({ body: 初めての人の発言 }), env, twitch.fetchImpl)
-    await 後回しの処理を待つ()
+    await callWebhook(createNotification({ body: firstTimerMessage }), env, twitch.fetchImpl)
+    await flushDeferredTasks()
 
-    expect(JSON.stringify(ai.呼び出し[0]?.input)).toContain('このチャンネルで初めての発言')
+    expect(JSON.stringify(ai.calls[0]?.input)).toContain('このチャンネルで初めての発言')
   })
 
   it('いま進んでいる配信のあらすじを材料に渡す（トリガーの文言に書かれていなくても読む）', async () => {
-    const { env, db, ai } = 環境を作る()
+    const { env, db, ai } = createEnv()
     await saveAlertConfig(env.STORE, {
       triggers: [{ kind: 'everyMessage', actions: [{ type: 'aiChat', instruction: '話の流れに合わせて一言返してください' }] }],
     })
-    await botを接続する(env)
-    await recordLiveStream(db, 雑談配信, 現在時刻 - 60 * 1000)
+    await connectBot(env)
+    await recordLiveStream(db, CHAT_STREAM, NOW - 60 * 1000)
     await saveStreamSummary(
       db,
       {
-        sessionId: 雑談配信.id,
+        sessionId: CHAT_STREAM.id,
         summary: '配信者はギターの弦を張り替えています',
         transcriptsUntil: { at: '', messageId: '' },
         chatUntil: { at: '', messageId: '' },
         screenUntil: { at: '', imageId: '', lineNo: -1 },
       },
-      現在時刻 - 30 * 1000,
+      NOW - 30 * 1000,
     )
-    const twitch = 送信に応えるTwitch()
+    const twitch = fakeTwitchAcceptingSends()
 
-    await 呼び出す(Twitchからの通知({ body: 初めての人の発言 }), env, twitch.fetchImpl)
-    await 後回しの処理を待つ()
+    await callWebhook(createNotification({ body: firstTimerMessage }), env, twitch.fetchImpl)
+    await flushDeferredTasks()
 
-    expect(JSON.stringify(ai.呼び出し[0]?.input)).toContain('配信者はギターの弦を張り替えています')
+    expect(JSON.stringify(ai.calls[0]?.input)).toContain('配信者はギターの弦を張り替えています')
   })
 
   it('鍵の確保そのものが失敗しても、取りこぼさずに記録する（2xxを返したあとなので再送では取り返せない）', async () => {
-    const { env } = 環境を作る()
-    await saveAlertConfig(env.STORE, { triggers: [文面を作らせるトリガー] })
-    await botを接続する(env)
-    const twitch = 送信に応えるTwitch()
+    const { env } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [generatedTextTrigger] })
+    await connectBot(env)
+    const twitch = fakeTwitchAcceptingSends()
     // 鍵を持つテーブルを落として、reserveChatReply（送信の前に呼ぶ）を失敗させる
     env.DB.sqlite.prepare('DROP TABLE replied_chat_messages').run()
 
-    const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
-    await 後回しの処理を待つ()
+    const response = await callWebhook(createNotification({ body: createFollowNotification }), env, twitch.fetchImpl)
+    await flushDeferredTasks()
 
     expect(response.status).toBe(204)
-    expect(twitch.送信したチャット).toHaveLength(0)
+    expect(twitch.sentChats).toHaveLength(0)
     expect(await listFailures(env.DB)).toMatchObject([{ code: 'alert-aichat-failed' }])
   })
 
   it('LLMが失敗したら（無料枠切れなど）送らず、2xxを返したうえで記録する', async () => {
-    const { env } = 環境を作る({ LLMは失敗する: true })
-    await saveAlertConfig(env.STORE, { triggers: [文面を作らせるトリガー] })
-    await botを接続する(env)
-    const twitch = 送信に応えるTwitch()
+    const { env } = createEnv({ llmShouldFail: true })
+    await saveAlertConfig(env.STORE, { triggers: [generatedTextTrigger] })
+    await connectBot(env)
+    const twitch = fakeTwitchAcceptingSends()
 
-    const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
-    await 後回しの処理を待つ()
+    const response = await callWebhook(createNotification({ body: createFollowNotification }), env, twitch.fetchImpl)
+    await flushDeferredTasks()
 
     expect(response.status).toBe(204)
-    expect(twitch.送信したチャット).toHaveLength(0)
+    expect(twitch.sentChats).toHaveLength(0)
     expect(await listFailures(env.DB)).toMatchObject([{ code: 'alert-aichat-failed' }])
   })
 
   it('500文字を超えた文面は、切り詰めずに送るのをやめて記録する', async () => {
-    const { env } = 環境を作る({ LLMの文面: 'あ'.repeat(501) })
-    await saveAlertConfig(env.STORE, { triggers: [文面を作らせるトリガー] })
-    await botを接続する(env)
-    const twitch = 送信に応えるTwitch()
+    const { env } = createEnv({ llmText: 'あ'.repeat(501) })
+    await saveAlertConfig(env.STORE, { triggers: [generatedTextTrigger] })
+    await connectBot(env)
+    const twitch = fakeTwitchAcceptingSends()
 
-    await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
-    await 後回しの処理を待つ()
+    await callWebhook(createNotification({ body: createFollowNotification }), env, twitch.fetchImpl)
+    await flushDeferredTasks()
 
-    expect(twitch.送信したチャット).toHaveLength(0)
+    expect(twitch.sentChats).toHaveLength(0)
     expect(await listFailures(env.DB)).toMatchObject([{ code: 'alert-aichat-failed', message: expect.stringContaining('500文字') }])
   })
 
   it('同じ通知が再送されても、2通は送らない', async () => {
-    const { env } = 環境を作る()
-    await saveAlertConfig(env.STORE, { triggers: [文面を作らせるトリガー] })
-    await botを接続する(env)
-    const twitch = 送信に応えるTwitch()
+    const { env } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [generatedTextTrigger] })
+    await connectBot(env)
+    const twitch = fakeTwitchAcceptingSends()
 
-    await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
-    await 後回しの処理を待つ()
-    await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env, twitch.fetchImpl)
-    await 後回しの処理を待つ()
+    await callWebhook(createNotification({ body: createFollowNotification }), env, twitch.fetchImpl)
+    await flushDeferredTasks()
+    await callWebhook(createNotification({ body: createFollowNotification }), env, twitch.fetchImpl)
+    await flushDeferredTasks()
 
-    expect(twitch.送信したチャット).toHaveLength(1)
+    expect(twitch.sentChats).toHaveLength(1)
   })
 
   it('botを接続していなければ、LLMも呼ばずに何もしない（送る先がないため）', async () => {
-    const { env, ai } = 環境を作る()
-    await saveAlertConfig(env.STORE, { triggers: [文面を作らせるトリガー] })
+    const { env, ai } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [generatedTextTrigger] })
 
-    const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env)
-    await 後回しの処理を待つ()
+    const response = await callWebhook(createNotification({ body: createFollowNotification }), env)
+    await flushDeferredTasks()
 
     expect(response.status).toBe(204)
-    expect(ai.呼び出し).toHaveLength(0)
+    expect(ai.calls).toHaveLength(0)
   })
 })
 
 describe('コメントビューアーへの配送', () => {
   /** 本文の断片まで揃った、視聴者の発言の通知 */
-  const 視聴者の発言 = {
+  const viewerMessage = {
     subscription: { type: 'channel.chat.message' },
     event: {
-      broadcaster_user_id: 配信者のID,
+      broadcaster_user_id: BROADCASTER_ID,
       chatter_user_id: '11111',
       chatter_user_login: 'shichousha',
       chatter_user_name: '視聴者さん',
@@ -1868,32 +1868,32 @@ describe('コメントビューアーへの配送', () => {
   }
 
   it('チャットの発言を、コメントビューアーへ1件として押し出す', async () => {
-    const { env, コメントの配送 } = 環境を作る()
+    const { env, commentChannel } = createEnv()
 
-    const response = await 呼び出す(Twitchからの通知({ messageId: 'eventsub-1', body: 視聴者の発言 }), env)
+    const response = await callWebhook(createNotification({ messageId: 'eventsub-1', body: viewerMessage }), env)
 
     expect(response.status).toBe(204)
-    expect(コメントの配送.押し出された1件).toMatchObject([
+    expect(commentChannel.pushedItems).toMatchObject([
       { kind: 'chat', id: 'eventsub-1', messageId: 'chat-message-1', user: { name: '視聴者さん' }, fragments: [{ text: 'こんばんは', emoteId: null }] },
     ])
   })
 
   it('別のチャンネルのチャットは押し出さない（古い購読が残っていても、他人のチャットを並べないため）', async () => {
-    const { env, コメントの配送 } = 環境を作る()
-    const 別のチャンネル = { ...視聴者の発言, event: { ...視聴者の発言.event, broadcaster_user_id: '別の配信者のID' } }
+    const { env, commentChannel } = createEnv()
+    const otherChannel = { ...viewerMessage, event: { ...viewerMessage.event, broadcaster_user_id: '別の配信者のID' } }
 
-    await 呼び出す(Twitchからの通知({ body: 別のチャンネル }), env)
+    await callWebhook(createNotification({ body: otherChannel }), env)
 
-    expect(コメントの配送.押し出された1件).toEqual([])
+    expect(commentChannel.pushedItems).toEqual([])
   })
 
   it('チャットのお知らせ（サブスクなど）は押し出すだけで、配信の記録にもトリガーにもかけない', async () => {
-    const { env, db, コメントの配送 } = 環境を作る()
-    await recordLiveStream(db, 雑談配信, Date.parse('2026-09-21T12:05:00Z'))
-    const サブスクのお知らせ = {
+    const { env, db, commentChannel } = createEnv()
+    await recordLiveStream(db, CHAT_STREAM, Date.parse('2026-09-21T12:05:00Z'))
+    const subscribeNotice = {
       subscription: { type: 'channel.chat.notification' },
       event: {
-        broadcaster_user_id: 配信者のID,
+        broadcaster_user_id: BROADCASTER_ID,
         chatter_user_id: '11111',
         chatter_user_login: 'shichousha',
         chatter_user_name: '視聴者さん',
@@ -1908,54 +1908,54 @@ describe('コメントビューアーへの配送', () => {
       },
     }
 
-    const response = await 呼び出す(Twitchからの通知({ body: サブスクのお知らせ }), env)
+    const response = await callWebhook(createNotification({ body: subscribeNotice }), env)
 
     expect(response.status).toBe(204)
-    expect(コメントの配送.押し出された1件).toMatchObject([{ kind: 'notice', notice: { type: 'sub', tier: '1000' } }])
+    expect(commentChannel.pushedItems).toMatchObject([{ kind: 'notice', notice: { type: 'sub', tier: '1000' } }])
     // サブスクは channel.subscribe でも届いて数えられるので、お知らせのほうでは数えない
-    expect((await listSessions(db, 現在時刻))[0]?.eventCounts).toEqual({})
+    expect((await listSessions(db, NOW))[0]?.eventCounts).toEqual({})
   })
 
   it.each([
-    ['channel.chat.message_delete', { broadcaster_user_id: 配信者のID, target_user_id: '11111', target_user_login: 'shichousha', target_user_name: '視聴者さん', message_id: 'chat-message-1' }, 'delete'],
-    ['channel.chat.clear_user_messages', { broadcaster_user_id: 配信者のID, target_user_id: '11111', target_user_login: 'shichousha', target_user_name: '視聴者さん' }, 'clearUser'],
-    ['channel.chat.clear', { broadcaster_user_id: 配信者のID }, 'clear'],
+    ['channel.chat.message_delete', { broadcaster_user_id: BROADCASTER_ID, target_user_id: '11111', target_user_login: 'shichousha', target_user_name: '視聴者さん', message_id: 'chat-message-1' }, 'delete'],
+    ['channel.chat.clear_user_messages', { broadcaster_user_id: BROADCASTER_ID, target_user_id: '11111', target_user_login: 'shichousha', target_user_name: '視聴者さん' }, 'clearUser'],
+    ['channel.chat.clear', { broadcaster_user_id: BROADCASTER_ID }, 'clear'],
   ])('モデレーターの操作（%s）を押し出す', async (type, event, kind) => {
-    const { env, コメントの配送 } = 環境を作る()
+    const { env, commentChannel } = createEnv()
 
-    const response = await 呼び出す(Twitchからの通知({ body: { subscription: { type }, event } }), env)
+    const response = await callWebhook(createNotification({ body: { subscription: { type }, event } }), env)
 
     expect(response.status).toBe(204)
-    expect(コメントの配送.押し出された1件).toMatchObject([{ kind }])
+    expect(commentChannel.pushedItems).toMatchObject([{ kind }])
   })
 
   it('フォローは押し出したうえで、これまでどおりトリガーにもかける', async () => {
-    const { env, コメントの配送 } = 環境を作る()
-    const フォロー = { subscription: { type: 'channel.follow' }, event: { broadcaster_user_id: 配信者のID, user_id: '22222', user_login: 'tanaka_taro', user_name: '田中太郎' } }
+    const { env, commentChannel } = createEnv()
+    const follow = { subscription: { type: 'channel.follow' }, event: { broadcaster_user_id: BROADCASTER_ID, user_id: '22222', user_login: 'tanaka_taro', user_name: '田中太郎' } }
 
-    const response = await 呼び出す(Twitchからの通知({ body: フォロー }), env)
+    const response = await callWebhook(createNotification({ body: follow }), env)
 
     expect(response.status).toBe(204)
-    expect(コメントの配送.押し出された1件).toMatchObject([{ kind: 'follow', user: { name: '田中太郎' } }])
+    expect(commentChannel.pushedItems).toMatchObject([{ kind: 'follow', user: { name: '田中太郎' } }])
   })
 
   it('配送に失敗しても2xxを返し、失敗として記録する（コメントビューアーのためにトリガーや応答を止めない）', async () => {
-    const { env, db } = 環境を作る({ コメントの配送は失敗する: true })
+    const { env, db } = createEnv({ commentChannelShouldFail: true })
 
-    const response = await 呼び出す(Twitchからの通知({ body: 視聴者の発言 }), env)
+    const response = await callWebhook(createNotification({ body: viewerMessage }), env)
 
     expect(response.status).toBe(204)
     expect(await listFailures(db)).toMatchObject([{ code: 'comment-feed-failed' }])
   })
 
   it('中身が足りずに1件へ直せなくても2xxを返し、失敗として記録する', async () => {
-    const { env, db, コメントの配送 } = 環境を作る()
-    const 断片のない発言 = { ...視聴者の発言, event: { ...視聴者の発言.event, message: { text: 'こんばんは' } } }
+    const { env, db, commentChannel } = createEnv()
+    const messageWithoutFragments = { ...viewerMessage, event: { ...viewerMessage.event, message: { text: 'こんばんは' } } }
 
-    const response = await 呼び出す(Twitchからの通知({ body: 断片のない発言 }), env)
+    const response = await callWebhook(createNotification({ body: messageWithoutFragments }), env)
 
     expect(response.status).toBe(204)
-    expect(コメントの配送.押し出された1件).toEqual([])
+    expect(commentChannel.pushedItems).toEqual([])
     expect(await listFailures(db)).toMatchObject([{ code: 'comment-feed-failed', message: expect.stringContaining('fragments') }])
   })
 })

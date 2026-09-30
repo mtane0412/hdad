@@ -16,7 +16,7 @@
  * 注意: 設定とbotの接続状態を読めなかったときは、黙って既定や未接続に倒さず理由を出す（Fail-Fast）。
  * 設定を読めないまま入力欄を出すと、配信者が「保存済みの設定はこれだ」と取り違えたまま上書きしてしまう。
  */
-import { Copy } from 'lucide-react'
+import { Copy, Plus } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
 import type { BotApi } from '@/bot/api'
@@ -40,7 +40,7 @@ const HOST_OPTIONS = ['localhost', '127.0.0.1'] as const
 export interface SpeechPageProps {
   /** 読み上げの設定の読み書き */
   api: SpeechApi
-  /** botの接続状態の読み出し。接続していれば、そのログイン名を読み上げない人に足せるようにする */
+  /** botの接続状態の読み出し。接続していれば、そのログイン名を読み上げない人に追加できるようにする */
   botApi: Pick<BotApi, 'status'>
   /** オーバーレイ用キー。読み上げのページはこれで設定を読む */
   overlayKey: string | null
@@ -262,10 +262,12 @@ export const SpeechPage = ({ api, botApi, overlayKey }: SpeechPageProps) => {
                 variant="outline"
                 size="sm"
                 className="self-start"
+                {...iconButtonName(`${botLogin} を読み上げない人に追加する`)}
                 onClick={() => change('ignoreLogins', joinIgnoreLogins([...splitIgnoreLogins(form.ignoreLogins), botLogin]))}
               >
-                {/* 画面では短く出し、読み上げの名前には何に足すのかを含める */}
-                {botLogin} を<span className="sr-only">読み上げない人に</span>足す
+                {/* 画面には＋とbotの名前だけを出し、読み上げとホバーの名前には何に追加するのかを含める（見えている名前を含むので音声でも呼べる） */}
+                <Plus aria-hidden="true" />
+                {botLogin}
               </Button>
             )}
           </div>
@@ -357,7 +359,7 @@ export const SpeechPage = ({ api, botApi, overlayKey }: SpeechPageProps) => {
         <CardContent className="flex flex-col gap-2 text-sm text-muted-foreground">
           <p>
             配信に使うPCで <code>http://{form.host}:{form.port}/setting</code> を開き、CORSの許可するオリジンに{' '}
-            <code>{window.location.origin}</code> を足して保存し、VOICEVOX を再起動する。
+            <code>{window.location.origin}</code> を追加して保存し、VOICEVOX を再起動する。
           </p>
         </CardContent>
       </Card>

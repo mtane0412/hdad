@@ -9,227 +9,227 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { connectSocket, type SocketLike } from './socket'
 
 /** つながる・閉じる・届くの合図を手で起こせる、テスト用のWebSocket */
-const 偽のWebSocketを作る = (): SocketLike & { 送ったもの: string[]; 閉じられた: boolean; つなぐ: () => void; 閉じる: () => void; 届ける: (data: unknown) => void } => {
-  const socket: SocketLike & { 送ったもの: string[]; 閉じられた: boolean; つなぐ: () => void; 閉じる: () => void; 届ける: (data: unknown) => void } = {
-    送ったもの: [],
-    閉じられた: false,
+const createFakeWebSocket = (): SocketLike & { sent: string[]; closed: boolean; connect: () => void; serverClose: () => void; deliver: (data: unknown) => void } => {
+  const socket: SocketLike & { sent: string[]; closed: boolean; connect: () => void; serverClose: () => void; deliver: (data: unknown) => void } = {
+    sent: [],
+    closed: false,
     onopen: null,
     onmessage: null,
     onclose: null,
     close: () => {
-      socket.閉じられた = true
+      socket.closed = true
     },
-    send: (data) => socket.送ったもの.push(data),
-    つなぐ: () => socket.onopen?.(new Event('open')),
-    閉じる: () => socket.onclose?.(new CloseEvent('close')),
-    届ける: (data) => socket.onmessage?.(new MessageEvent('message', { data })),
+    send: (data) => socket.sent.push(data),
+    connect: () => socket.onopen?.(new Event('open')),
+    serverClose: () => socket.onclose?.(new CloseEvent('close')),
+    deliver: (data) => socket.onmessage?.(new MessageEvent('message', { data })),
   }
   return socket
 }
 
 /** 何度でもつなぎ直せるよう、作られた偽物を順に覚えておく */
-const 接続の記録を作る = () => {
-  const 作られたもの: ReturnType<typeof 偽のWebSocketを作る>[] = []
-  const つなぎ先: string[] = []
+const createConnectionRecord = () => {
+  const created: ReturnType<typeof createFakeWebSocket>[] = []
+  const target: string[] = []
   return {
-    作られたもの,
-    つなぎ先,
+    created,
+    target,
     open: (url: string): SocketLike => {
-      つなぎ先.push(url)
-      const socket = 偽のWebSocketを作る()
-      作られたもの.push(socket)
+      target.push(url)
+      const socket = createFakeWebSocket()
+      created.push(socket)
       return socket
     },
     /** 最後に作られた偽物 */
-    いま: () => 作られたもの[作られたもの.length - 1] as ReturnType<typeof 偽のWebSocketを作る>,
+    current: () => created[created.length - 1] as ReturnType<typeof createFakeWebSocket>,
   }
 }
 
-const 何もしないハンドラ = () => ({ onMessage: vi.fn(), onStatus: vi.fn(), onWarning: vi.fn() })
+const noopHandlers = () => ({ onMessage: vi.fn(), onStatus: vi.fn(), onWarning: vi.fn() })
 
 beforeEach(() => vi.useFakeTimers())
 afterEach(() => vi.useRealTimers())
 
 describe('connectSocket', () => {
   it('渡されたURLへつなぐ', () => {
-    const 記録 = 接続の記録を作る()
+    const record = createConnectionRecord()
 
-    connectSocket('wss://例.example.com/api/overlay/draw', 何もしないハンドラ(), '手がかりの文', 記録.open)
+    connectSocket('wss://例.example.com/api/overlay/draw', noopHandlers(), '手がかりの文', record.open)
 
-    expect(記録.つなぎ先).toEqual(['wss://例.example.com/api/overlay/draw'])
+    expect(record.target).toEqual(['wss://例.example.com/api/overlay/draw'])
   })
 
   it('届いた文字列をそのまま渡す', () => {
-    const 記録 = 接続の記録を作る()
-    const ハンドラ = 何もしないハンドラ()
-    connectSocket('wss://例', ハンドラ, '手がかりの文', 記録.open)
+    const record = createConnectionRecord()
+    const handlers = noopHandlers()
+    connectSocket('wss://例', handlers, '手がかりの文', record.open)
 
-    記録.いま().つなぐ()
-    記録.いま().届ける('{"type":"start"}')
+    record.current().connect()
+    record.current().deliver('{"type":"start"}')
 
-    expect(ハンドラ.onMessage).toHaveBeenCalledWith('{"type":"start"}')
+    expect(handlers.onMessage).toHaveBeenCalledWith('{"type":"start"}')
   })
 
   it('生存確認の返事は渡さない', () => {
-    const 記録 = 接続の記録を作る()
-    const ハンドラ = 何もしないハンドラ()
-    connectSocket('wss://例', ハンドラ, '手がかりの文', 記録.open)
+    const record = createConnectionRecord()
+    const handlers = noopHandlers()
+    connectSocket('wss://例', handlers, '手がかりの文', record.open)
 
-    記録.いま().つなぐ()
-    記録.いま().届ける('')
-    記録.いま().届ける('ping')
-    記録.いま().届ける('pong')
+    record.current().connect()
+    record.current().deliver('')
+    record.current().deliver('ping')
+    record.current().deliver('pong')
 
-    expect(ハンドラ.onMessage).not.toHaveBeenCalled()
+    expect(handlers.onMessage).not.toHaveBeenCalled()
   })
 
   it('つないでいるあいだ、生存確認を送り続ける', () => {
     // 途中の経路が黙っている接続を切ることがあるため、こちらから合図を送る
-    const 記録 = 接続の記録を作る()
-    connectSocket('wss://例', 何もしないハンドラ(), '手がかりの文', 記録.open)
+    const record = createConnectionRecord()
+    connectSocket('wss://例', noopHandlers(), '手がかりの文', record.open)
 
-    記録.いま().つなぐ()
+    record.current().connect()
     vi.advanceTimersByTime(60000)
 
-    expect(記録.いま().送ったもの).toEqual(['ping', 'ping'])
+    expect(record.current().sent).toEqual(['ping', 'ping'])
   })
 
   it('切れたら、間を空けてつなぎ直す', () => {
-    const 記録 = 接続の記録を作る()
-    const ハンドラ = 何もしないハンドラ()
-    connectSocket('wss://例', ハンドラ, '手がかりの文', 記録.open)
+    const record = createConnectionRecord()
+    const handlers = noopHandlers()
+    connectSocket('wss://例', handlers, '手がかりの文', record.open)
 
-    記録.いま().つなぐ()
-    記録.いま().閉じる()
+    record.current().connect()
+    record.current().serverClose()
 
-    expect(ハンドラ.onStatus).toHaveBeenCalledWith('disconnected')
-    expect(記録.作られたもの).toHaveLength(1)
+    expect(handlers.onStatus).toHaveBeenCalledWith('disconnected')
+    expect(record.created).toHaveLength(1)
     vi.advanceTimersByTime(1000)
-    expect(記録.作られたもの).toHaveLength(2)
+    expect(record.created).toHaveLength(2)
   })
 
   it('つなぎ直せたら、そのことを知らせる', () => {
-    const 記録 = 接続の記録を作る()
-    const ハンドラ = 何もしないハンドラ()
-    connectSocket('wss://例', ハンドラ, '手がかりの文', 記録.open)
+    const record = createConnectionRecord()
+    const handlers = noopHandlers()
+    connectSocket('wss://例', handlers, '手がかりの文', record.open)
 
-    記録.いま().つなぐ()
-    記録.いま().閉じる()
+    record.current().connect()
+    record.current().serverClose()
     vi.advanceTimersByTime(1000)
-    記録.いま().つなぐ()
+    record.current().connect()
 
-    expect(ハンドラ.onStatus).toHaveBeenLastCalledWith('reconnected')
+    expect(handlers.onStatus).toHaveBeenLastCalledWith('reconnected')
   })
 
   it('つながるたびに（初めての接続でも、つなぎ直しでも）onOpen を呼ぶ', () => {
-    const 記録 = 接続の記録を作る()
-    const ハンドラ = { ...何もしないハンドラ(), onOpen: vi.fn() }
-    connectSocket('wss://例', ハンドラ, '手がかりの文', 記録.open)
+    const record = createConnectionRecord()
+    const handlers = { ...noopHandlers(), onOpen: vi.fn() }
+    connectSocket('wss://例', handlers, '手がかりの文', record.open)
 
-    記録.いま().つなぐ()
-    expect(ハンドラ.onOpen).toHaveBeenCalledTimes(1)
-    記録.いま().閉じる()
+    record.current().connect()
+    expect(handlers.onOpen).toHaveBeenCalledTimes(1)
+    record.current().serverClose()
     vi.advanceTimersByTime(1000)
-    記録.いま().つなぐ()
+    record.current().connect()
 
-    expect(ハンドラ.onOpen).toHaveBeenCalledTimes(2)
+    expect(handlers.onOpen).toHaveBeenCalledTimes(2)
   })
 
   it('つなぎ直しの間隔は、失敗のたびに延びる', () => {
-    const 記録 = 接続の記録を作る()
-    connectSocket('wss://例', 何もしないハンドラ(), '手がかりの文', 記録.open)
+    const record = createConnectionRecord()
+    connectSocket('wss://例', noopHandlers(), '手がかりの文', record.open)
 
-    記録.いま().つなぐ()
-    記録.いま().閉じる()
+    record.current().connect()
+    record.current().serverClose()
     vi.advanceTimersByTime(1000)
-    記録.いま().閉じる()
+    record.current().serverClose()
 
     // 2度目は1秒では戻らず、2秒待って戻る
     vi.advanceTimersByTime(1000)
-    expect(記録.作られたもの).toHaveLength(2)
+    expect(record.created).toHaveLength(2)
     vi.advanceTimersByTime(1000)
-    expect(記録.作られたもの).toHaveLength(3)
+    expect(record.created).toHaveLength(3)
   })
 
   it('一度もつながらないまま閉じたら、手がかりを知らせる', () => {
     // ブラウザのWebSocketは、つながらなかった理由（Workerの401など）を教えてくれない
-    const 記録 = 接続の記録を作る()
-    const ハンドラ = 何もしないハンドラ()
-    connectSocket('wss://例', ハンドラ, 'オーバーレイ用キーを確かめてください', 記録.open)
+    const record = createConnectionRecord()
+    const handlers = noopHandlers()
+    connectSocket('wss://例', handlers, 'オーバーレイ用キーを確かめてください', record.open)
 
-    記録.いま().閉じる()
+    record.current().serverClose()
 
-    expect(ハンドラ.onWarning).toHaveBeenCalledWith('オーバーレイ用キーを確かめてください')
-    expect(ハンドラ.onStatus).not.toHaveBeenCalled()
+    expect(handlers.onWarning).toHaveBeenCalledWith('オーバーレイ用キーを確かめてください')
+    expect(handlers.onStatus).not.toHaveBeenCalled()
   })
 
   it('つながっていれば送れる', () => {
-    const 記録 = 接続の記録を作る()
-    const 接続 = connectSocket('wss://例', 何もしないハンドラ(), '手がかりの文', 記録.open)
+    const record = createConnectionRecord()
+    const connection = connectSocket('wss://例', noopHandlers(), '手がかりの文', record.open)
 
-    記録.いま().つなぐ()
+    record.current().connect()
 
-    expect(接続.send('{"type":"start"}')).toBe(true)
-    expect(記録.いま().送ったもの).toEqual(['{"type":"start"}'])
+    expect(connection.send('{"type":"start"}')).toBe(true)
+    expect(record.current().sent).toEqual(['{"type":"start"}'])
   })
 
   it('閉じたら、つなぎ直さない', () => {
     // 描く画面から離れたあとも接続が残ると、画面を行き来するたびに接続が増えていく
-    const 記録 = 接続の記録を作る()
-    const 接続 = connectSocket('wss://例', 何もしないハンドラ(), '手がかりの文', 記録.open)
+    const record = createConnectionRecord()
+    const connection = connectSocket('wss://例', noopHandlers(), '手がかりの文', record.open)
 
-    記録.いま().つなぐ()
-    接続.close()
+    record.current().connect()
+    connection.close()
 
-    expect(記録.いま().閉じられた).toBe(true)
-    記録.いま().閉じる()
+    expect(record.current().closed).toBe(true)
+    record.current().serverClose()
     vi.advanceTimersByTime(60000)
-    expect(記録.作られたもの).toHaveLength(1)
+    expect(record.created).toHaveLength(1)
   })
 
   it('切れたあとに閉じたら、予約されていたつなぎ直しも起こさない', () => {
     // 先に切れて再接続が予約されてから画面を離れる順序でも、接続が生き返らないようにする
-    const 記録 = 接続の記録を作る()
-    const 接続 = connectSocket('wss://例', 何もしないハンドラ(), '手がかりの文', 記録.open)
+    const record = createConnectionRecord()
+    const connection = connectSocket('wss://例', noopHandlers(), '手がかりの文', record.open)
 
-    記録.いま().つなぐ()
-    記録.いま().閉じる()
-    接続.close()
+    record.current().connect()
+    record.current().serverClose()
+    connection.close()
     vi.advanceTimersByTime(60000)
 
-    expect(記録.作られたもの).toHaveLength(1)
+    expect(record.created).toHaveLength(1)
   })
 
   it('閉じたあとは、生存確認も送らない', () => {
-    const 記録 = 接続の記録を作る()
-    const 接続 = connectSocket('wss://例', 何もしないハンドラ(), '手がかりの文', 記録.open)
+    const record = createConnectionRecord()
+    const connection = connectSocket('wss://例', noopHandlers(), '手がかりの文', record.open)
 
-    記録.いま().つなぐ()
-    接続.close()
+    record.current().connect()
+    connection.close()
     vi.advanceTimersByTime(60000)
 
-    expect(記録.いま().送ったもの).toEqual([])
+    expect(record.current().sent).toEqual([])
   })
 
   it('閉じたあとは、切断も知らせない', () => {
     // 自分で閉じたのだから、配信画面に「接続が切れました」と出す理由がない
-    const 記録 = 接続の記録を作る()
-    const ハンドラ = 何もしないハンドラ()
-    const 接続 = connectSocket('wss://例', ハンドラ, '手がかりの文', 記録.open)
+    const record = createConnectionRecord()
+    const handlers = noopHandlers()
+    const connection = connectSocket('wss://例', handlers, '手がかりの文', record.open)
 
-    記録.いま().つなぐ()
-    接続.close()
-    記録.いま().閉じる()
+    record.current().connect()
+    connection.close()
+    record.current().serverClose()
 
-    expect(ハンドラ.onStatus).not.toHaveBeenCalled()
+    expect(handlers.onStatus).not.toHaveBeenCalled()
   })
 
   it('つながっていなければ送らずに落とす', () => {
     // 描いている途中で切れることはある。貯めて後からまとめて流すと、時間のずれた線が現れる
-    const 記録 = 接続の記録を作る()
-    const 接続 = connectSocket('wss://例', 何もしないハンドラ(), '手がかりの文', 記録.open)
+    const record = createConnectionRecord()
+    const connection = connectSocket('wss://例', noopHandlers(), '手がかりの文', record.open)
 
-    expect(接続.send('{"type":"start"}')).toBe(false)
-    expect(記録.いま().送ったもの).toEqual([])
+    expect(connection.send('{"type":"start"}')).toBe(false)
+    expect(record.current().sent).toEqual([])
   })
 })

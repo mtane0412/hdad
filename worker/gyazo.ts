@@ -110,33 +110,33 @@ export interface GyazoClientOptions {
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
 
-export const createGyazoClient = ({ accessToken, fetch: 元の通信, timeoutMs = GYAZO_TIMEOUT_MS }: GyazoClientOptions): GyazoClient => {
+export const createGyazoClient = ({ accessToken, fetch: baseFetch, timeoutMs = GYAZO_TIMEOUT_MS }: GyazoClientOptions): GyazoClient => {
   // Gyazo が黙り続けたときに、1回の収集で最大30枚を逐次に取りに行く道がそこで止まらないようにする（issue #126）
-  const fetchImpl = withTimeout(元の通信, timeoutMs, 'Gyazo')
+  const fetchImpl = withTimeout(baseFetch, timeoutMs, 'Gyazo')
 
   /**
    * 1枚の情報（GET /api/images/:id）を取る。OCRと画像のURLの両方がこの応答から読める。
    *
-   * @param 何のため 失敗の知らせに添える名前（「OCR」など）
+   * @param purpose 失敗の知らせに添える名前（「OCR」など）
    */
-  const 画像の情報を取る = async (imageId: string, 何のため: string): Promise<unknown> => {
+  const fetchImageInfo = async (imageId: string, purpose: string): Promise<unknown> => {
     // 公式ドキュメントが示すとおり、アクセストークンはクエリで渡す
     const url = `${IMAGE_URL}/${encodeURIComponent(imageId)}?access_token=${encodeURIComponent(accessToken)}`
     const response = await fetchImpl(url)
     let body: unknown = null
-    let 本文を読めた = true
+    let bodyReadable = true
     try {
       body = await response.json()
     } catch {
-      本文を読めた = false
+      bodyReadable = false
     }
     if (!response.ok) {
       const message = isRecord(body) && typeof body.message === 'string' ? body.message : '（本文を読めませんでした）'
-      throw new GyazoApiError(response.status, `Gyazo からの${何のため}の取得が ${response.status} で失敗しました: ${message}`)
+      throw new GyazoApiError(response.status, `Gyazo からの${purpose}の取得が ${response.status} で失敗しました: ${message}`)
     }
     // 成功と返ってきたのに本文を読めないのは、Gyazo 側の異常（メンテナンスのHTMLなど）である。
     // ここで null を返すと「まだ生成されていない」と取り違え、上限まで数えたのち黙って諦めてしまう
-    if (!本文を読めた) {
+    if (!bodyReadable) {
       throw new GyazoApiError(BAD_GATEWAY, 'Gyazo の応答を読めませんでした（JSONではありませんでした）')
     }
     return body
@@ -171,7 +171,7 @@ export const createGyazoClient = ({ accessToken, fetch: 元の通信, timeoutMs 
     },
 
     async fetchOcr(imageId) {
-      const body = await 画像の情報を取る(imageId, 'OCR')
+      const body = await fetchImageInfo(imageId, 'OCR')
       const metadata: unknown = isRecord(body) ? body.metadata : undefined
       const ocr: unknown = isRecord(metadata) ? metadata.ocr : undefined
       const description: unknown = isRecord(ocr) ? ocr.description : undefined
@@ -182,7 +182,7 @@ export const createGyazoClient = ({ accessToken, fetch: 元の通信, timeoutMs 
     },
 
     async fetchImageUrl(imageId) {
-      const body = await 画像の情報を取る(imageId, '画像のURL')
+      const body = await fetchImageInfo(imageId, '画像のURL')
       const url: unknown = isRecord(body) ? body.url : undefined
       if (typeof url !== 'string' || url === '') throw new GyazoApiError(BAD_GATEWAY, 'Gyazo の応答に画像のURLがありません')
       return url

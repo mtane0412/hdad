@@ -23,7 +23,7 @@ import {
 import type { Overlay } from './layout'
 
 /** 右下に置いた時計1つだけを積んだ前面のオーバーレイ */
-const 前面: Overlay = {
+const front: Overlay = {
   name: 'front',
   items: [{ kind: 'clock', id: 'analog', params: 'size=0.5', rect: { x: 78, y: 70, width: 20, height: 26 } }],
 }
@@ -62,13 +62,13 @@ describe('schemaFor', () => {
 
 describe('defaultRectFor', () => {
   it('配信画面と同じ大きさで使う素材（背景・アラート・サイドスーパー・注目コメント・再生中の曲）はオーバーレイいっぱいにする', () => {
-    const いっぱい = { x: '0', y: '0', width: '100', height: '100' }
+    const full = { x: '0', y: '0', width: '100', height: '100' }
 
-    expect(defaultRectFor('wallpaper')).toEqual(いっぱい)
-    expect(defaultRectFor('alerts')).toEqual(いっぱい)
-    expect(defaultRectFor('sideSuper')).toEqual(いっぱい)
-    expect(defaultRectFor('focus')).toEqual(いっぱい)
-    expect(defaultRectFor('bgm')).toEqual(いっぱい)
+    expect(defaultRectFor('wallpaper')).toEqual(full)
+    expect(defaultRectFor('alerts')).toEqual(full)
+    expect(defaultRectFor('sideSuper')).toEqual(full)
+    expect(defaultRectFor('focus')).toEqual(full)
+    expect(defaultRectFor('bgm')).toEqual(full)
   })
 
   it('小さく置く素材は、推奨の大きさ（時計は600×240px・チャットは480×800px）を割合にする', () => {
@@ -92,7 +92,7 @@ describe('newItemDraft・newOverlayDraft', () => {
     expect(newItemDraft('chat', 'plain').rect).not.toEqual(defaultRectFor('wallpaper'))
   })
 
-  it('足したばかりのオーバーレイは素材を持たない', () => {
+  it('追加したばかりのオーバーレイは素材を持たない', () => {
     expect(newOverlayDraft('talk')).toMatchObject({ name: 'talk', items: [] })
   })
 
@@ -104,7 +104,7 @@ describe('newItemDraft・newOverlayDraft', () => {
 
 describe('toOverlayDrafts', () => {
   it('保存済みのオーバーレイと素材を、入力欄の値に読み替える', () => {
-    const [overlay] = toOverlayDrafts([前面])
+    const [overlay] = toOverlayDrafts([front])
     const item = overlay?.items[0]
 
     expect(overlay).toMatchObject({ name: 'front' })
@@ -114,21 +114,21 @@ describe('toOverlayDrafts', () => {
   })
 
   it('読み込んだ素材にも、1件ずつ別の識別子を振る', () => {
-    const [overlay] = toOverlayDrafts([{ name: 'front', items: [...前面.items, ...前面.items] }])
+    const [overlay] = toOverlayDrafts([{ name: 'front', items: [...front.items, ...front.items] }])
 
     expect(new Set(overlay?.items.map((item) => item.key)).size).toBe(2)
   })
 
   it('読めないパラメータは黙って捨てず、理由を添えて既定値で編集させる', () => {
     // 文字盤の大きさは 0.1〜1 の倍率なので、範囲の外は読めない
-    const [overlay] = toOverlayDrafts([{ name: 'front', items: [{ ...前面.items[0]!, params: 'size=200' }] }])
+    const [overlay] = toOverlayDrafts([{ name: 'front', items: [{ ...front.items[0]!, params: 'size=200' }] }])
 
     expect(overlay?.items[0]?.problem).toMatch(/size/)
     expect(overlay?.items[0]?.values).toMatchObject({ size: schemaFor('clock', 'analog')?.size?.default })
   })
 
   it('レジストリに無いデザインでも、素材を捨てずに理由を添える（保存で消えないようにする）', () => {
-    const [overlay] = toOverlayDrafts([{ name: 'front', items: [{ ...前面.items[0]!, id: 'sundial' }] }])
+    const [overlay] = toOverlayDrafts([{ name: 'front', items: [{ ...front.items[0]!, id: 'sundial' }] }])
 
     expect(overlay?.items[0]).toMatchObject({ kind: 'clock', id: 'sundial' })
     expect(overlay?.items[0]?.problem).toMatch(/sundial/)
@@ -137,28 +137,28 @@ describe('toOverlayDrafts', () => {
 
 describe('toOverlays', () => {
   it('入力欄の値を、保存する形（パラメータはクエリ文字列）に直す', () => {
-    const [overlay] = toOverlayDrafts([前面])
+    const [overlay] = toOverlayDrafts([front])
     if (!overlay) throw new Error('読み替えたオーバーレイがありません')
 
-    expect(toOverlays([overlay])).toEqual([前面])
+    expect(toOverlays([overlay])).toEqual([front])
   })
 
   it('既定値のままのパラメータは書かない（構成を短く保つ）', () => {
-    const 素材 = { ...newItemDraft('clock', 'analog') }
-    const オーバーレイ = { ...newOverlayDraft('front'), items: [素材] }
+    const material = { ...newItemDraft('clock', 'analog') }
+    const draftOverlay = { ...newOverlayDraft('front'), items: [material] }
 
-    expect(toOverlays([オーバーレイ])[0]?.items[0]?.params).toBe('')
+    expect(toOverlays([draftOverlay])[0]?.items[0]?.params).toBe('')
   })
 
   it('位置と大きさの空欄は 0 に丸めず NaN にする（範囲の検証はWorkerだけが持つ）', () => {
-    const 素材 = { ...newItemDraft('clock', 'analog'), rect: { x: '', y: '0', width: '20', height: '26' } }
-    const オーバーレイ = { ...newOverlayDraft('front'), items: [素材] }
+    const material = { ...newItemDraft('clock', 'analog'), rect: { x: '', y: '0', width: '20', height: '26' } }
+    const draftOverlay = { ...newOverlayDraft('front'), items: [material] }
 
-    expect(toOverlays([オーバーレイ])[0]?.items[0]?.rect.x).toBeNaN()
+    expect(toOverlays([draftOverlay])[0]?.items[0]?.rect.x).toBeNaN()
   })
 
   it('レジストリに無いデザインの素材は、保存済みのパラメータをそのまま持ち越す', () => {
-    const [overlay] = toOverlayDrafts([{ name: 'front', items: [{ ...前面.items[0]!, id: 'sundial' }] }])
+    const [overlay] = toOverlayDrafts([{ name: 'front', items: [{ ...front.items[0]!, id: 'sundial' }] }])
     if (!overlay) throw new Error('読み替えたオーバーレイがありません')
 
     expect(toOverlays([overlay])[0]?.items[0]).toMatchObject({ id: 'sundial', params: 'size=0.5' })
@@ -167,11 +167,11 @@ describe('toOverlays', () => {
 
 describe('savableOverlayDrafts', () => {
   it('素材を1つも持たないオーバーレイは送らない（貼っても何も映らないURLを作らせないため、Workerが拒む）', () => {
-    const 空のオーバーレイ = newOverlayDraft('talk')
-    const [overlay] = toOverlayDrafts([前面])
+    const emptyOverlay = newOverlayDraft('talk')
+    const [overlay] = toOverlayDrafts([front])
     if (!overlay) throw new Error('読み替えたオーバーレイがありません')
 
-    expect(savableOverlayDrafts([overlay, 空のオーバーレイ]).map((draft) => draft.name)).toEqual(['front'])
+    expect(savableOverlayDrafts([overlay, emptyOverlay]).map((draft) => draft.name)).toEqual(['front'])
   })
 })
 
@@ -198,60 +198,60 @@ describe('overlayNameChoices', () => {
 })
 
 describe('describeOverlayProblem', () => {
-  const 名前 = [{ name: 'back', items: ['背景（Contour）'] }, { name: 'front', items: ['時計（Analog）', 'アラート'] }]
+  const name = [{ name: 'back', items: ['背景（Contour）'] }, { name: 'front', items: ['時計（Analog）', 'アラート'] }]
 
   it('素材の位置を、オーバーレイの名前と素材の名前に読み替える', () => {
-    expect(describeOverlayProblem('overlays[1].items[0].rect.width: 1〜100 の数（％）で指定してください', 名前)).toBe(
+    expect(describeOverlayProblem('overlays[1].items[0].rect.width: 1〜100 の数（％）で指定してください', name)).toBe(
       '「front」の「時計（Analog）」の 幅: 1〜100 の数（％）で指定してください',
     )
   })
 
   it('オーバーレイそのものへの問題点は、名前だけを添える', () => {
-    expect(describeOverlayProblem('overlays[0].name: オーバーレイの名前は…', 名前)).toBe('「back」の 名前: オーバーレイの名前は…')
+    expect(describeOverlayProblem('overlays[0].name: オーバーレイの名前は…', name)).toBe('「back」の 名前: オーバーレイの名前は…')
   })
 
   it('名前が足りなければ番号のままにする', () => {
-    expect(describeOverlayProblem('overlays[5].items[2].kind: …', 名前)).toBe('6番目のオーバーレイの 3番目の素材の 種類: …')
+    expect(describeOverlayProblem('overlays[5].items[2].kind: …', name)).toBe('6番目のオーバーレイの 3番目の素材の 種類: …')
   })
 
   it('構成そのものへの問題点（overlays: …）はそのまま出す', () => {
-    expect(describeOverlayProblem('overlays: オーバーレイは10個以内にしてください', 名前)).toBe('overlays: オーバーレイは10個以内にしてください')
+    expect(describeOverlayProblem('overlays: オーバーレイは10個以内にしてください', name)).toBe('overlays: オーバーレイは10個以内にしてください')
   })
 })
 
 describe('moveDraft', () => {
-  const 並び = ['背面', '中間', '前面'] as const
+  const order = ['背面', '中間', '前面'] as const
 
   it('指定した位置の1件を、offset だけずらした並びを返す', () => {
-    expect(moveDraft(並び, 0, 1)).toEqual(['中間', '背面', '前面'])
-    expect(moveDraft(並び, 2, -1)).toEqual(['背面', '前面', '中間'])
+    expect(moveDraft(order, 0, 1)).toEqual(['中間', '背面', '前面'])
+    expect(moveDraft(order, 2, -1)).toEqual(['背面', '前面', '中間'])
   })
 
   it('元の並びは変えない（画面が作り直した並びを持つ）', () => {
-    moveDraft(並び, 0, 1)
-    expect(並び).toEqual(['背面', '中間', '前面'])
+    moveDraft(order, 0, 1)
+    expect(order).toEqual(['背面', '中間', '前面'])
   })
 
   it('並びの外へ動かそうとしたら、並びを変えずに返す', () => {
-    expect(moveDraft(並び, 0, -1)).toEqual(['背面', '中間', '前面'])
-    expect(moveDraft(並び, 2, 1)).toEqual(['背面', '中間', '前面'])
+    expect(moveDraft(order, 0, -1)).toEqual(['背面', '中間', '前面'])
+    expect(moveDraft(order, 2, 1)).toEqual(['背面', '中間', '前面'])
   })
 
   it('動かす1件の位置そのものが並びの外なら、並びを変えずに返す', () => {
     // 負の位置は末尾から数えられてしまうので、動かす前に確かめる（別の素材が動いてはならない）
-    expect(moveDraft(並び, -1, 1)).toEqual(['背面', '中間', '前面'])
-    expect(moveDraft(並び, 3, -1)).toEqual(['背面', '中間', '前面'])
+    expect(moveDraft(order, -1, 1)).toEqual(['背面', '中間', '前面'])
+    expect(moveDraft(order, 3, -1)).toEqual(['背面', '中間', '前面'])
   })
 })
 
 describe('frontFirstItems', () => {
-  const 背景 = newItemDraft('wallpaper', 'contour')
-  const 時計 = newItemDraft('clock', 'analog')
+  const background = newItemDraft('wallpaper', 'contour')
+  const clock = newItemDraft('clock', 'analog')
 
   it('重ねる順（あとのものが前）を、前面から並べた形にして返す', () => {
-    expect(frontFirstItems([背景, 時計])).toEqual([
-      { item: 時計, position: 1 },
-      { item: 背景, position: 0 },
+    expect(frontFirstItems([background, clock])).toEqual([
+      { item: clock, position: 1 },
+      { item: background, position: 0 },
     ])
   })
 })

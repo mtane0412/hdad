@@ -139,7 +139,7 @@ interface JevTokenUsage {
   readonly costUsd: number
 }
 
-const 空の使用量: JevTokenUsage = { promptTokens: 0, completionTokens: 0, costUsd: 0 }
+const emptyUsage: JevTokenUsage = { promptTokens: 0, completionTokens: 0, costUsd: 0 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 
@@ -149,7 +149,7 @@ const asNumber = (value: unknown): number => (typeof value === 'number' && Numbe
 /** 応答の usage から使用量を読む。Decisions API は input_tokens・output_tokens・cost の名前で返す */
 const readUsage = (result: Record<string, unknown>): JevTokenUsage => {
   const usage = result.usage
-  if (!isRecord(usage)) return 空の使用量
+  if (!isRecord(usage)) return emptyUsage
   return { promptTokens: asNumber(usage.input_tokens), completionTokens: asNumber(usage.output_tokens), costUsd: asNumber(usage.cost) }
 }
 
@@ -216,8 +216,8 @@ const readAnswers = <Qs extends Readonly<Record<string, JevQuestion>>>(questions
  *
  * 呼び出しには時間制限をかける（worker/timeout.ts。黙った相手を待ち続けて後ろの処理が止まらないようにする）。
  */
-export const createJev = ({ fetch: 元の通信, apiKey, db, now, timeoutMs = JEV_TIMEOUT_MS }: JevOptions): JevClient => {
-  const fetchImpl = withTimeout(元の通信, timeoutMs, 'Jev')
+export const createJev = ({ fetch: originalFetch, apiKey, db, now, timeoutMs = JEV_TIMEOUT_MS }: JevOptions): JevClient => {
+  const fetchImpl = withTimeout(originalFetch, timeoutMs, 'Jev')
 
   /**
    * 1回の呼び出しを記録する。
@@ -225,20 +225,20 @@ export const createJev = ({ fetch: 元の通信, apiKey, db, now, timeoutMs = JE
    * 記録できなくても投げない（呼び出し側は答えを受け取れているので、ここで投げると記録のために答えが失われる）。
    * 黙って捨てず collection_failures へ残し、それも失敗したらあきらめる（それ以上残す先が無い）。
    */
-  const 記録する = async (tokens: JevTokenUsage, usage: JevUsage, failed: boolean): Promise<void> => {
-    const 時刻 = now()
+  const record = async (tokens: JevTokenUsage, usage: JevUsage, failed: boolean): Promise<void> => {
+    const nowValue = now()
     try {
-      await recordLlmUsage(db, { usage, provider: 'openrouter', model: JEV_MODEL, ...tokens, failed }, 時刻)
+      await recordLlmUsage(db, { usage, provider: 'openrouter', model: JEV_MODEL, ...tokens, failed }, nowValue)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      await recordFailure(db, 'llm-usage-record-failed', `Jev の使用状況（${usage}・${JEV_MODEL}）を記録できませんでした: ${message}`, 時刻).catch(
+      await recordFailure(db, 'llm-usage-record-failed', `Jev の使用状況（${usage}・${JEV_MODEL}）を記録できませんでした: ${message}`, nowValue).catch(
         () => undefined,
       )
     }
   }
 
   /** Decisions API へ送り、答えと使用量を読む */
-  const 送る = async <Qs extends Readonly<Record<string, JevQuestion>>>(
+  const send = async <Qs extends Readonly<Record<string, JevQuestion>>>(
     key: string,
     request: JevRequest<Qs>,
   ): Promise<{ answers: JevAnswers<Qs>; tokens: JevTokenUsage }> => {
@@ -265,13 +265,13 @@ export const createJev = ({ fetch: 元の通信, apiKey, db, now, timeoutMs = JE
         throw new Error('Jev へ送る質問が1つもありません')
       }
 
-      const result = await 送る(apiKey, request).catch(async (error: unknown) => {
+      const result = await send(apiKey, request).catch(async (error: unknown) => {
         // 失敗も数える（残高不足が何回起きたかを読めるようにする）。数えたうえで、そのまま投げる
-        await 記録する(空の使用量, usage, true)
+        await record(emptyUsage, usage, true)
         throw error
       })
 
-      await 記録する(result.tokens, usage, false)
+      await record(result.tokens, usage, false)
       return result.answers
     },
   }

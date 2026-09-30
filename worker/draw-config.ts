@@ -40,17 +40,17 @@ export const parseStrokes = (input: unknown): readonly Stroke[] => {
   const problems: string[] = []
   if (strokes.length > MAX_STROKES) problems.push(`strokes: 描いた線は${MAX_STROKES}本までにしてください`)
 
-  // 送り主が足した項目を抱え込まないよう、読めた項目だけを写して持つ
-  const 読んだ線: Stroke[] = []
-  for (const [番号, 線] of strokes.entries()) {
-    if (!isStroke(線)) {
-      problems.push(`strokes[${番号}]: 線は名前・点の配列・選べる色と太さの名前を持つ形で指定してください`)
+  // 送り主が追加した項目を抱え込まないよう、読めた項目だけを写して持つ
+  const parsedStroke: Stroke[] = []
+  for (const [index, stroke] of strokes.entries()) {
+    if (!isStroke(stroke)) {
+      problems.push(`strokes[${index}]: 線は名前・点の配列・選べる色と太さの名前を持つ形で指定してください`)
       continue
     }
-    読んだ線.push({ id: 線.id, points: 線.points.map(({ x, y }) => ({ x, y })), color: 線.color, width: 線.width })
+    parsedStroke.push({ id: stroke.id, points: stroke.points.map(({ x, y }) => ({ x, y })), color: stroke.color, width: stroke.width })
   }
   if (problems.length > 0) throw new ConfigError(SUBJECT, problems)
-  return 読んだ線
+  return parsedStroke
 }
 
 export const saveStrokes = (store: KeyValueStore, strokes: readonly Stroke[]): Promise<void> =>

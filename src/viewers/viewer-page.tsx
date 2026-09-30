@@ -42,11 +42,11 @@ const badgeLabels: Record<string, string> = {
  * と見分けられるようにするためである。配信者が画面で「この人は配信していない」と読み取れるのは、調べた場合だけである。
  */
 const channelSummary = (channel: ViewerChannel): string => {
-  const 観測した時点 = `${formatDateTime(channel.checkedAt)}時点`
-  if (channel.categoryName === '' && channel.title === '') return `自分では配信していないようです（${観測した時点}）`
+  const observedAt = `${formatDateTime(channel.checkedAt)}時点`
+  if (channel.categoryName === '' && channel.title === '') return `自分では配信していないようです（${observedAt}）`
   // カテゴリだけ・タイトルだけが空のこともあるので、あるものだけをつなぐ
-  const 内容 = [channel.categoryName, channel.title === '' ? '' : `「${channel.title}」`].filter((部分) => 部分 !== '').join('')
-  return `自分でも配信: ${内容}（${観測した時点}）`
+  const content = [channel.categoryName, channel.title === '' ? '' : `「${channel.title}」`].filter((part) => part !== '').join('')
+  return `自分でも配信: ${content}（${observedAt}）`
 }
 
 type Loaded = { status: 'loading' } | { status: 'ready' } | { status: 'failed'; message: string }
@@ -89,7 +89,7 @@ export const ViewerPage = ({ api }: { api: ViewerApi }) => {
     )
   }
 
-  /** 一覧を取り直す（検索）か、続きを足す（もっと読み込む） */
+  /** 一覧を取り直す（検索）か、続きを追加する（もっと読み込む） */
   const load = async (query: ViewerQuery, append: boolean): Promise<string> => {
     const page = await api.list({ ...query, limit: PAGE_SIZE })
     setViewers((current) => (append ? [...current, ...page] : page))

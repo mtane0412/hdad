@@ -1,4 +1,4 @@
--- 収集の失敗（collection_failures）の主キーに「失敗の種類」を足す
+-- 収集の失敗（collection_failures）の主キーに「失敗の種類」を追加する
 --
 -- 適用方法は docs/guide/stats.md を参照。
 --

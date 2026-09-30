@@ -25,9 +25,9 @@ export type LineState =
 export interface TranscriptView {
   /** 接続の状態を書き換える */
   setStatus(text: string, connected: boolean): void
-  /** 確定した発話を1件足す（送っている最中として出す） */
+  /** 確定した発話を1件追加する（送っている最中として出す） */
   addLine(messageId: string, text: string): void
-  /** 足した発話の状態を書き換える */
+  /** 追加した発話の状態を書き換える */
   setLineState(messageId: string, state: LineState): void
   /** 失敗のお知らせを出す（null で消す） */
   setNotice(message: string | null): void

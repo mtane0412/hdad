@@ -75,10 +75,10 @@ export const putDrawStrokes = async (context: Context): Promise<Response> => {
 export const getDrawBackground = async (context: Context): Promise<Response> => {
   await requireSession(context)
   const { env, request } = context
-  const 最後の1枚 = await readLatestScreenCapture(env.DB)
-  if (最後の1枚 === null) return new Response(null, { status: STATUS.noContent, headers: NO_STORE })
+  const lastImage = await readLatestScreenCapture(env.DB)
+  if (lastImage === null) return new Response(null, { status: STATUS.noContent, headers: NO_STORE })
 
-  const etag = `"${最後の1枚.imageId}"`
+  const etag = `"${lastImage.imageId}"`
   if (request.headers.get('If-None-Match') === etag) return new Response(null, { status: STATUS.notModified, headers: { ...NO_STORE, ETag: etag } })
 
   const accessToken = env.GYAZO_ACCESS_TOKEN
@@ -89,6 +89,6 @@ export const getDrawBackground = async (context: Context): Promise<Response> => 
       'Gyazo のアクセストークン（GYAZO_ACCESS_TOKEN）が設定されていません。背景に配信画面を敷くには設定してください',
     )
   }
-  const url = await createGyazoClient({ accessToken, fetch: context.fetch }).fetchImageUrl(最後の1枚.imageId)
-  return Response.json({ imageId: 最後の1枚.imageId, capturedAt: 最後の1枚.capturedAt, url }, { headers: { ...NO_STORE, ETag: etag } })
+  const url = await createGyazoClient({ accessToken, fetch: context.fetch }).fetchImageUrl(lastImage.imageId)
+  return Response.json({ imageId: lastImage.imageId, capturedAt: lastImage.capturedAt, url }, { headers: { ...NO_STORE, ETag: etag } })
 }

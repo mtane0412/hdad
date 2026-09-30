@@ -270,7 +270,7 @@ const applyOne = (entries: FeedEntry[], applied: Set<string>, item: FeedItem): F
 export const applyFeedItems = (feed: Feed, items: readonly FeedItem[]): Feed => {
   // Set は加えた順を保つので、古いものから落とすときにそのまま使える
   const applied = new Set(feed.applied)
-  const entries = items.reduce<FeedEntry[]>((積んだもの, item) => applyOne(積んだもの, applied, item), [...feed.entries])
+  const entries = items.reduce<FeedEntry[]>((accumulated, item) => applyOne(accumulated, applied, item), [...feed.entries])
   return { entries: entries.slice(-MAX_ENTRIES), applied: [...applied].slice(-MAX_APPLIED_IDS) }
 }
 

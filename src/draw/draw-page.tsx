@@ -119,12 +119,12 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
   const writerRef = useRef<DrawWriter | null>(null)
   /** 自分が描いた線。描画ループが毎フレームここから描き直す */
   const strokesRef = useRef<Strokes>(NO_STROKES)
-  /** いま引いている線の名前。ポインタを離すまで同じ名前で点を足していく */
+  /** いま引いている線の名前。ポインタを離すまで同じ名前で点を追加していく */
   const strokeIdRef = useRef<string | null>(null)
   /** 消しゴムを押しているあいだの、ひとつ前の位置。そこから今の位置までに触れた線を消す */
   const eraserPointRef = useRef<Point | null>(null)
   /** 今回の消しゴムの動きで1本でも消したか。離したときに保存するかを決める */
-  const 消しゴムで消したRef = useRef(false)
+  const erasedByEraserRef = useRef(false)
   /** 待てば直るかもしれない知らせ（切断・つなぎ先の誤り）。直ったら消す */
   const [notice, setNotice] = useState<string | null>(null)
   /** 人が直すまで消えない失敗（キャンバスを使えない場合） */
@@ -135,35 +135,35 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
    * 読む前に書くと、保存されている図（前に描いたもの）を消してしまう。読めなかったときも書かないが、
    * 全消しを押したあとは「保存されているのは何も無い状態」だと分かるので、そこから書き始める。
    */
-  const 書いてよいRef = useRef(false)
+  const canWriteRef = useRef(false)
   /** 全消しを押したか。読み出しの応答が全消しより後に届いたとき、消した図を描き直さないために見る */
-  const 消したRef = useRef(false)
+  const erasedRef = useRef(false)
   /** 選んでいる色と太さ。線を引き始めた時点の指定がその線に残る */
   const [colorId, setColorId] = useState(DEFAULT_COLOR_ID)
   const [widthId, setWidthId] = useState(DEFAULT_WIDTH_ID)
   /** 持っている道具 */
   const [toolId, setToolId] = useState<ToolId>('pen')
   /** いま開いている選択肢（色か太さ）。選んだら閉じるために、開き閉じをこちらで持つ */
-  const [開いている選択肢, set開いている選択肢] = useState<'color' | 'width' | null>(null)
+  const [openOption, setOpenOption] = useState<'color' | 'width' | null>(null)
   /** 背景に配信画面を敷くか。既定は敷かない（使わない配信者に通信を増やさない） */
-  const [背景を敷く, set背景を敷く] = useState(false)
+  const [showBackground, setShowBackground] = useState(false)
   /** 背景の濃さ（%） */
-  const [背景の濃さ, set背景の濃さ] = useState(DEFAULT_BACKGROUND_OPACITY)
-  const { background, error: 背景の失敗 } = useDrawBackground(api, 背景を敷く)
+  const [backgroundOpacity, setBackgroundOpacity] = useState(DEFAULT_BACKGROUND_OPACITY)
+  const { background, error: backgroundError } = useDrawBackground(api, showBackground)
   /** 読み込めなかった背景の画像のURL。別の1枚に差し替わったら、読み込めたかを見直す */
-  const [読めなかった画像, set読めなかった画像] = useState<string | null>(null)
+  const [unreadableImage, setUnreadableImage] = useState<string | null>(null)
   /** 背景について、道具箱の下に出す知らせ（気付いてほしいものだけ）。失敗は赤く出す */
-  const 背景の知らせ = ((): { 文: string; 失敗: boolean } | null => {
-    if (背景の失敗 !== null) return { 文: `背景を読めませんでした: ${背景の失敗}`, 失敗: true }
-    if (background.kind === 'none') return { 文: '背景にできる配信画面がまだありません。配信中に画面の取り込み（/screen/）を動かすと撮れます。', 失敗: false }
-    if (background.kind === 'image' && background.url === 読めなかった画像) {
-      return { 文: '背景の画像を読み込めませんでした（公開範囲が「自分だけ」の画像は使えません。次に撮られた画面から出ます）。', 失敗: true }
+  const backgroundNotice = ((): { text: string; isError: boolean } | null => {
+    if (backgroundError !== null) return { text: `背景を読めませんでした: ${backgroundError}`, isError: true }
+    if (background.kind === 'none') return { text: '背景にできる配信画面がまだありません。配信中に画面の取り込み（/screen/）を動かすと撮れます。', isError: false }
+    if (background.kind === 'image' && background.url === unreadableImage) {
+      return { text: '背景の画像を読み込めませんでした（公開範囲が「自分だけ」の画像は使えません。次に撮られた画面から出ます）。', isError: true }
     }
     return null
   })()
   /** 敷いている背景を撮った時刻。iボタンの説明にだけ出す（いつも目に入る必要はないため） */
-  const 撮った時刻 = 背景を敷く && background.kind === 'image' ? CAPTURED_AT_FORMAT.format(background.capturedAt) : null
-  const 背景の濃さのId = useId()
+  const capturedAt = showBackground && background.kind === 'image' ? CAPTURED_AT_FORMAT.format(background.capturedAt) : null
+  const backgroundOpacityId = useId()
 
   /** 引き終えた線をまとめてWorkerへ書く窓口（描いている最中は書かない） */
   const saver = useMemo(
@@ -174,17 +174,17 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
   // 開いたときに保存されている線を読み、その続きから描けるようにする。
   // 読み終わる前に引いた線は後ろへ回して残す（読み出しの往復のあいだに描き始めても消えないように）
   useEffect(() => {
-    let 離れた = false
+    let detached = false
     void api
       .load()
       .then(({ strokes }) => {
-        if (離れた) return
+        if (detached) return
         // 読めるまでは書けずにいたので、読み終わる前に引いた線はこの時点でまとめて書く
-        const 読む前に引いていた = strokesRef.current.strokes.length > 0
+        const drewBeforeRead = strokesRef.current.strokes.length > 0
         // 読み終わる前に全消しを押していたら、読めたものは描き直さない（消した図が戻ってきてしまう）
-        if (!消したRef.current) strokesRef.current = { strokes: [...strokes, ...strokesRef.current.strokes] }
-        書いてよいRef.current = true
-        if (読む前に引いていた) saver.finished(strokesRef.current)
+        if (!erasedRef.current) strokesRef.current = { strokes: [...strokes, ...strokesRef.current.strokes] }
+        canWriteRef.current = true
+        if (drewBeforeRead) saver.finished(strokesRef.current)
       })
       .catch((error: unknown) =>
         setNotice(
@@ -192,7 +192,7 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
         ),
       )
     return () => {
-      離れた = true
+      detached = true
     }
   }, [api, saver])
 
@@ -215,52 +215,52 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
   useEffect(() => {
     const canvas = canvasRef.current
     if (canvas === null) return
-    let 次のフレーム = 0
+    let nextFrame = 0
     try {
       const draw = startCanvasSurface(canvas, (ctx, width, height) => drawStrokes(ctx, strokesRef.current, { width, height }))
-      const ループ = (elapsedMs: number): void => {
+      const loop = (elapsedMs: number): void => {
         draw(elapsedMs)
-        次のフレーム = requestAnimationFrame(ループ)
+        nextFrame = requestAnimationFrame(loop)
       }
-      次のフレーム = requestAnimationFrame(ループ)
+      nextFrame = requestAnimationFrame(loop)
     } catch (error) {
       setFailure(error instanceof Error ? error.message : String(error))
     }
-    return () => cancelAnimationFrame(次のフレーム)
+    return () => cancelAnimationFrame(nextFrame)
   }, [])
 
   /** 引いた線を、自分のキャンバスへ積んだうえで中継先へ送る */
-  const 送る = useCallback((message: DrawMessage): void => {
+  const send = useCallback((message: DrawMessage): void => {
     strokesRef.current = applyDrawMessage(strokesRef.current, message)
     writerRef.current?.send(message)
   }, [])
 
   /** 消しゴムが from から to まで動いたあいだに触れた線を、1本ずつ消したこととして送る */
-  const 消しゴムを動かす = useCallback(
+  const moveEraser = useCallback(
     (from: Point, to: Point, rect: DOMRect): void => {
       eraserPointRef.current = to
       for (const id of touchedStrokeIds(strokesRef.current, from, to, rect)) {
-        消しゴムで消したRef.current = true
-        送る({ type: 'erase', id })
+        erasedByEraserRef.current = true
+        send({ type: 'erase', id })
       }
     },
-    [送る],
+    [send],
   )
 
-  const 押した = useCallback(
+  const pressed = useCallback(
     (event: React.PointerEvent<HTMLCanvasElement>): void => {
       // キャンバスの外へ出ても離した合図を受け取れるようにする（線が引きっぱなしにならない）
       event.currentTarget.setPointerCapture?.(event.pointerId)
       const rect = event.currentTarget.getBoundingClientRect()
       const point = toRatio(event.clientX, event.clientY, rect)
       if (toolId === 'eraser') {
-        消しゴムで消したRef.current = false
-        消しゴムを動かす(point, point, rect)
+        erasedByEraserRef.current = false
+        moveEraser(point, point, rect)
         return
       }
       const id = createStrokeId()
       strokeIdRef.current = id
-      送る({
+      send({
         type: 'start',
         id,
         point,
@@ -268,34 +268,34 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
         width: widthId,
       })
     },
-    [送る, 消しゴムを動かす, toolId, colorId, widthId],
+    [send, moveEraser, toolId, colorId, widthId],
   )
 
-  const 動かした = useCallback(
+  const moved = useCallback(
     (event: React.PointerEvent<HTMLCanvasElement>): void => {
-      const 前の位置 = eraserPointRef.current
-      if (前の位置 !== null) {
+      const previousPosition = eraserPointRef.current
+      if (previousPosition !== null) {
         const rect = event.currentTarget.getBoundingClientRect()
-        消しゴムを動かす(前の位置, toRatio(event.clientX, event.clientY, rect), rect)
+        moveEraser(previousPosition, toRatio(event.clientX, event.clientY, rect), rect)
         return
       }
       const id = strokeIdRef.current
       // 押していないあいだの動きは線ではない
       if (id === null) return
-      送る({ type: 'extend', id, points: [toRatio(event.clientX, event.clientY, event.currentTarget.getBoundingClientRect())] })
+      send({ type: 'extend', id, points: [toRatio(event.clientX, event.clientY, event.currentTarget.getBoundingClientRect())] })
     },
-    [送る, 消しゴムを動かす],
+    [send, moveEraser],
   )
 
-  const 離した = useCallback((): void => {
-    const 消しゴムで消した = eraserPointRef.current !== null && 消しゴムで消したRef.current
+  const released = useCallback((): void => {
+    const erasedByEraser = eraserPointRef.current !== null && erasedByEraserRef.current
     eraserPointRef.current = null
-    消しゴムで消したRef.current = false
+    erasedByEraserRef.current = false
     // 引いている途中でも消した後でもなければ（押していない指の動きなど）書く理由がない
-    if (strokeIdRef.current === null && !消しゴムで消した) return
+    if (strokeIdRef.current === null && !erasedByEraser) return
     strokeIdRef.current = null
     // 保存されているものを読めていなければ書かない（読めていない図を上書きしない）
-    if (!書いてよいRef.current) return
+    if (!canWriteRef.current) return
     saver.finished(strokesRef.current)
   }, [saver])
 
@@ -304,16 +304,16 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
    *
    * 取り消しの確認は出さない。配信中に確認を挟むほうが、押したのに消えない事故のもとになるためである。
    */
-  const 全部消す = useCallback((): void => {
+  const clearAll = useCallback((): void => {
     strokeIdRef.current = null
     eraserPointRef.current = null
-    消したRef.current = true
+    erasedRef.current = true
     // 消すのは「保存されているものを全部無かったことにする」操作なので、読めていなくても書いてよい
-    書いてよいRef.current = true
-    送る({ type: 'clear' })
+    canWriteRef.current = true
+    send({ type: 'clear' })
     // 消したことは待たずに書く（残っていると困る向きの操作なので遅らせない）
     saver.saveNow(strokesRef.current)
-  }, [送る, saver])
+  }, [send, saver])
 
   return (
     <div className="space-y-4">
@@ -345,8 +345,8 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
             {/* RadioGroup は既定で grid w-full なので、横一列に収めるため w-auto で打ち消す */}
             <RadioGroup
               value={toolId}
-              onValueChange={(値) => {
-                if (isToolId(値)) setToolId(値)
+              onValueChange={(newValue) => {
+                if (isToolId(newValue)) setToolId(newValue)
               }}
               aria-label="道具"
               className="flex w-auto flex-row items-center gap-1"
@@ -369,7 +369,7 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
             <Separator orientation="vertical" className="mx-1 h-6 self-center" />
 
             {/* 色と太さは、いま選んでいるものの見た目をアイコンにし、押すと選択肢を開く */}
-            <Popover open={開いている選択肢 === 'color'} onOpenChange={(open) => set開いている選択肢(open ? 'color' : null)}>
+            <Popover open={openOption === 'color'} onOpenChange={(open) => setOpenOption(open ? 'color' : null)}>
               <PopoverTrigger render={<Button type="button" variant="ghost" size="icon" className="size-8" {...iconButtonName('線の色')} />}>
                 <span aria-hidden className="size-5 rounded-full border-2 border-border" style={{ backgroundColor: colorOf(colorId).value }} />
               </PopoverTrigger>
@@ -377,56 +377,56 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
               <PopoverContent className="w-auto" aria-label="線の色を選ぶ">
                 <RadioGroup
                   value={colorId}
-                  onValueChange={(値) => {
-                    setColorId(String(値))
-                    set開いている選択肢(null)
+                  onValueChange={(newValue) => {
+                    setColorId(String(newValue))
+                    setOpenOption(null)
                   }}
                   aria-label="線の色"
                   className="flex w-auto flex-row items-center gap-1.5"
                 >
-                  {DRAW_COLORS.map((色) => (
+                  {DRAW_COLORS.map((color) => (
                     <span
-                      key={色.id}
-                      title={色.label}
+                      key={color.id}
+                      title={color.label}
                       className={cn(
                         'relative flex size-7 shrink-0 rounded-full border-2 transition has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50',
-                        colorId === 色.id ? 'border-foreground ring-2 ring-foreground/30' : 'border-border hover:border-muted-foreground',
+                        colorId === color.id ? 'border-foreground ring-2 ring-foreground/30' : 'border-border hover:border-muted-foreground',
                       )}
-                      style={{ backgroundColor: 色.value }}
+                      style={{ backgroundColor: color.value }}
                     >
                       {/* 選ぶ操作はラジオ自身が受ける（枠の側で受けると、押しても選ばれないことがある） */}
-                      <RadioGroupItem value={色.id} aria-label={色.label} className={TOOL_HITBOX} />
+                      <RadioGroupItem value={color.id} aria-label={color.label} className={TOOL_HITBOX} />
                     </span>
                   ))}
                 </RadioGroup>
               </PopoverContent>
             </Popover>
 
-            <Popover open={開いている選択肢 === 'width'} onOpenChange={(open) => set開いている選択肢(open ? 'width' : null)}>
+            <Popover open={openOption === 'width'} onOpenChange={(open) => setOpenOption(open ? 'width' : null)}>
               <PopoverTrigger render={<Button type="button" variant="ghost" size="icon" className="size-8" {...iconButtonName('線の太さ')} />}>
                 <WidthSample ratio={widthOf(widthId).ratio} />
               </PopoverTrigger>
               <PopoverContent className="w-auto" aria-label="線の太さを選ぶ">
                 <RadioGroup
                   value={widthId}
-                  onValueChange={(値) => {
-                    setWidthId(String(値))
-                    set開いている選択肢(null)
+                  onValueChange={(newValue) => {
+                    setWidthId(String(newValue))
+                    setOpenOption(null)
                   }}
                   aria-label="線の太さ"
                   className="flex w-auto flex-row items-center gap-1.5"
                 >
-                  {DRAW_WIDTHS.map((太さ) => (
+                  {DRAW_WIDTHS.map((widthOption) => (
                     <span
-                      key={太さ.id}
-                      title={太さ.label}
+                      key={widthOption.id}
+                      title={widthOption.label}
                       className={cn(
                         'relative flex h-7 w-9 shrink-0 items-center justify-center rounded-md border transition has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50',
-                        widthId === 太さ.id ? 'border-foreground bg-accent' : 'border-border hover:bg-accent/50',
+                        widthId === widthOption.id ? 'border-foreground bg-accent' : 'border-border hover:bg-accent/50',
                       )}
                     >
-                      <WidthSample ratio={太さ.ratio} />
-                      <RadioGroupItem value={太さ.id} aria-label={太さ.label} className={TOOL_HITBOX} />
+                      <WidthSample ratio={widthOption.ratio} />
+                      <RadioGroupItem value={widthOption.id} aria-label={widthOption.label} className={TOOL_HITBOX} />
                     </span>
                   ))}
                 </RadioGroup>
@@ -436,11 +436,11 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
             <Separator orientation="vertical" className="mx-1 h-6 self-center" />
 
             {/* 背景は押すたびに敷く・外すが入れ替わる。敷いているあいだは押された見た目になる */}
-            <Toggle pressed={背景を敷く} onPressedChange={set背景を敷く} className="size-8 min-w-8 border border-transparent px-0 aria-pressed:border-foreground aria-pressed:bg-accent" {...iconButtonName('配信画面を背景に敷く')}>
+            <Toggle pressed={showBackground} onPressedChange={setShowBackground} className="size-8 min-w-8 border border-transparent px-0 aria-pressed:border-foreground aria-pressed:bg-accent" {...iconButtonName('配信画面を背景に敷く')}>
               <ImageIcon />
             </Toggle>
             {/* 濃さは敷いているあいだしか意味がないので、そのあいだだけ出す */}
-            {背景を敷く && (
+            {showBackground && (
               <Popover>
                 <PopoverTrigger render={<Button type="button" variant="ghost" size="icon" className="size-8" {...iconButtonName('背景の濃さを変える')} />}>
                   <Contrast />
@@ -448,17 +448,17 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
                 <PopoverContent className="w-48" aria-label="背景の濃さを変える">
                   <div className="flex items-center gap-2">
                     <Slider
-                      aria-labelledby={背景の濃さのId}
+                      aria-labelledby={backgroundOpacityId}
                       className="flex-1"
                       min={MIN_BACKGROUND_OPACITY}
                       max={MAX_BACKGROUND_OPACITY}
                       step={BACKGROUND_OPACITY_STEP}
-                      value={[背景の濃さ]}
-                      onValueChange={(next) => set背景の濃さ(Array.isArray(next) ? (next[0] ?? DEFAULT_BACKGROUND_OPACITY) : next)}
+                      value={[backgroundOpacity]}
+                      onValueChange={(next) => setBackgroundOpacity(Array.isArray(next) ? (next[0] ?? DEFAULT_BACKGROUND_OPACITY) : next)}
                     />
-                    <span className="w-10 text-right text-xs tabular-nums text-muted-foreground">{背景の濃さ}%</span>
+                    <span className="w-10 text-right text-xs tabular-nums text-muted-foreground">{backgroundOpacity}%</span>
                   </div>
-                  <span id={背景の濃さのId} className="sr-only">
+                  <span id={backgroundOpacityId} className="sr-only">
                     背景の濃さ
                   </span>
                 </PopoverContent>
@@ -473,7 +473,7 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
               type="button"
               variant="ghost"
               size="icon"
-              onClick={全部消す}
+              onClick={clearAll}
               className="size-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
               {...iconButtonName('全部消す')}
             >
@@ -490,37 +490,37 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
                 <ul className="list-disc space-y-1 pl-4">
                   <li>描いたものは残ります（OBSで開き直しても出ます）</li>
                   <li>消しゴムは触れた線を1本消す・ゴミ箱はすべて消す</li>
-                  {撮った時刻 !== null && <li>背景は {撮った時刻} に撮影（配信外は最後の配信の画面）</li>}
+                  {capturedAt !== null && <li>背景は {capturedAt} に撮影（配信外は最後の配信の画面）</li>}
                 </ul>
               </PopoverContent>
             </Popover>
           </div>
 
-          {背景を敷く && 背景の知らせ !== null && (
-            <p className={cn('text-sm', 背景の知らせ.失敗 ? 'text-destructive' : 'text-muted-foreground')}>{背景の知らせ.文}</p>
+          {showBackground && backgroundNotice !== null && (
+            <p className={cn('text-sm', backgroundNotice.isError ? 'text-destructive' : 'text-muted-foreground')}>{backgroundNotice.text}</p>
           )}
 
           {/* 配信画面と同じ縦横比にする（比が違うと、合成ページに出たときに図が歪む）。
               背景はキャンバスの下に敷き、描く操作はキャンバスが受ける */}
           <div className="relative aspect-video w-full overflow-hidden rounded-md border bg-neutral-900">
-            {背景を敷く && background.kind === 'image' && (
+            {showBackground && background.kind === 'image' && (
               <img
                 src={background.url}
                 alt="背景に敷いた配信画面"
                 // キャンバスと同じ枠いっぱいに広げる（配信画面も16:9なので、線の位置と画面の位置が揃う）
                 className="pointer-events-none absolute inset-0 size-full object-fill"
-                style={{ opacity: 背景の濃さ / PERCENT }}
-                onError={() => set読めなかった画像(background.url)}
+                style={{ opacity: backgroundOpacity / PERCENT }}
+                onError={() => setUnreadableImage(background.url)}
               />
             )}
             <canvas
               ref={canvasRef}
               aria-label="配信画面に描く場所"
               className="absolute inset-0 size-full touch-none"
-              onPointerDown={押した}
-              onPointerMove={動かした}
-              onPointerUp={離した}
-              onPointerCancel={離した}
+              onPointerDown={pressed}
+              onPointerMove={moved}
+              onPointerUp={released}
+              onPointerCancel={released}
             />
           </div>
         </CardContent>

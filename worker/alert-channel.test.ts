@@ -11,7 +11,7 @@ import type { BgmNowPlaying } from './bgm-config'
 import { createFakeAlertChannel } from './fake-alert-channel'
 import type { OverlayAlert } from './alert-event'
 
-const アラート: OverlayAlert = {
+const alert: OverlayAlert = {
   media: { kind: 'image', url: '/api/media/media-1?key=オーバーレイ用キー' },
   durationSeconds: 5,
   volume: 0.5,
@@ -19,7 +19,7 @@ const アラート: OverlayAlert = {
 }
 
 /** 雑談のBGMを流しているときに配るもの */
-const 再生中の曲: BgmNowPlaying = {
+const playingTrack: BgmNowPlaying = {
   track: {
     mediaId: 'media-zatsudan',
     title: 'ひだまりの午後',
@@ -31,9 +31,9 @@ const 再生中の曲: BgmNowPlaying = {
 }
 
 /** 送られた文字列を覚えておく、テスト用の接続 */
-const 接続を作る = (): AlertSocket & { 送られたもの: string[] } => {
-  const 送られたもの: string[] = []
-  return { 送られたもの, send: (message) => 送られたもの.push(message), close: () => undefined }
+const createConnection = (): AlertSocket & { sentMessages: string[] } => {
+  const sentMessages: string[] = []
+  return { sentMessages, send: (message) => sentMessages.push(message), close: () => undefined }
 }
 
 describe('AlertChannel', () => {
@@ -43,7 +43,7 @@ describe('AlertChannel', () => {
    * 接続は目印（アラート用か BGM 用か）ごとに渡す。目印を指定して引いたときは、その目印の接続だけを返す
    * （Cloudflare の getWebSockets(tag) と同じ振る舞い）。
    */
-  const 配送先を作る = (sockets: AlertSocket[], bgmSockets: AlertSocket[] = []): AlertChannel =>
+  const createDestination = (sockets: AlertSocket[], bgmSockets: AlertSocket[] = []): AlertChannel =>
     new AlertChannel({
       acceptWebSocket: () => undefined,
       getWebSockets: (tag) => (tag === 'bgm' ? bgmSockets : tag === 'alerts' ? sockets : [...sockets, ...bgmSockets]),
@@ -51,50 +51,50 @@ describe('AlertChannel', () => {
     })
 
   it('押し出されたアラートを、開いている接続すべてへJSONで送る', async () => {
-    const 接続 = 接続を作る()
-    const 配送先 = 配送先を作る([接続])
+    const connection = createConnection()
+    const destination = createDestination([connection])
 
-    const response = await 配送先.fetch(new Request('https://alert-channel/push', { method: 'POST', body: JSON.stringify(アラート) }))
+    const response = await destination.fetch(new Request('https://alert-channel/push', { method: 'POST', body: JSON.stringify(alert) }))
 
     expect(response.status).toBe(204)
-    expect(接続.送られたもの).toEqual([JSON.stringify(アラート)])
+    expect(connection.sentMessages).toEqual([JSON.stringify(alert)])
   })
 
   it('アラートは、BGMを受け取る接続（裏方のページ）へは送らない', async () => {
-    const 合成ページ = 接続を作る()
-    const 裏方のページ = 接続を作る()
-    const 配送先 = 配送先を作る([合成ページ], [裏方のページ])
+    const stagePage = createConnection()
+    const backstagePage = createConnection()
+    const destination = createDestination([stagePage], [backstagePage])
 
-    await 配送先.fetch(new Request('https://alert-channel/push', { method: 'POST', body: JSON.stringify(アラート) }))
+    await destination.fetch(new Request('https://alert-channel/push', { method: 'POST', body: JSON.stringify(alert) }))
 
-    expect(合成ページ.送られたもの).toEqual([JSON.stringify(アラート)])
-    expect(裏方のページ.送られたもの).toEqual([])
+    expect(stagePage.sentMessages).toEqual([JSON.stringify(alert)])
+    expect(backstagePage.sentMessages).toEqual([])
   })
 
   it('BGMの切り替えは、BGMを受け取る接続だけへ送る（合成ページはアラートとして読めないため）', async () => {
-    const 合成ページ = 接続を作る()
-    const 裏方のページ = 接続を作る()
-    const 配送先 = 配送先を作る([合成ページ], [裏方のページ])
+    const stagePage = createConnection()
+    const backstagePage = createConnection()
+    const destination = createDestination([stagePage], [backstagePage])
 
-    const response = await 配送先.fetch(new Request('https://alert-channel/push/bgm', { method: 'POST', body: JSON.stringify(再生中の曲) }))
+    const response = await destination.fetch(new Request('https://alert-channel/push/bgm', { method: 'POST', body: JSON.stringify(playingTrack) }))
 
     expect(response.status).toBe(204)
-    expect(裏方のページ.送られたもの).toEqual([JSON.stringify(再生中の曲)])
-    expect(合成ページ.送られたもの).toEqual([])
+    expect(backstagePage.sentMessages).toEqual([JSON.stringify(playingTrack)])
+    expect(stagePage.sentMessages).toEqual([])
   })
 
   it('接続が1本もなければ、送らずに終わる（オーバーレイを開いていない間のアラートは落とす）', async () => {
-    const 配送先 = 配送先を作る([])
+    const destination = createDestination([])
 
-    const response = await 配送先.fetch(new Request('https://alert-channel/push', { method: 'POST', body: JSON.stringify(アラート) }))
+    const response = await destination.fetch(new Request('https://alert-channel/push', { method: 'POST', body: JSON.stringify(alert) }))
 
     expect(response.status).toBe(204)
   })
 
   it('知らない経路は404で返す', async () => {
-    const 配送先 = 配送先を作る([])
+    const destination = createDestination([])
 
-    const response = await 配送先.fetch(new Request('https://alert-channel/知らない経路', { method: 'POST' }))
+    const response = await destination.fetch(new Request('https://alert-channel/知らない経路', { method: 'POST' }))
 
     expect(response.status).toBe(404)
   })
@@ -102,45 +102,45 @@ describe('AlertChannel', () => {
 
 describe('pushAlert', () => {
   it('Durable Object へアラートを送る', async () => {
-    const 配送 = createFakeAlertChannel()
+    const delivery = createFakeAlertChannel()
 
-    await pushAlert(配送.namespace, アラート)
+    await pushAlert(delivery.namespace, alert)
 
-    expect(配送.押し出されたアラート).toEqual([アラート])
+    expect(delivery.pushedAlerts).toEqual([alert])
   })
 
   it('Durable Object が失敗を返したら、黙って成功にせず投げる', async () => {
-    const 配送 = createFakeAlertChannel({ 失敗する: true })
+    const delivery = createFakeAlertChannel({ shouldFail: true })
 
-    await expect(pushAlert(配送.namespace, アラート)).rejects.toThrow('アラート')
+    await expect(pushAlert(delivery.namespace, alert)).rejects.toThrow('アラート')
   })
 })
 
 describe('接続の引き渡し', () => {
   it('アラートの接続と BGM の接続を、目印を付けて Durable Object へ引き渡す', async () => {
-    const 配送 = createFakeAlertChannel()
-    const 接続の要求 = (): Request => new Request('https://hdad.example.com/api/overlay/socket?key=k', { headers: { Upgrade: 'websocket' } })
+    const delivery = createFakeAlertChannel()
+    const connectionRequest = (): Request => new Request('https://hdad.example.com/api/overlay/socket?key=k', { headers: { Upgrade: 'websocket' } })
 
-    await connectAlertSocket(配送.namespace, 接続の要求())
-    await connectBgmSocket(配送.namespace, 接続の要求())
+    await connectAlertSocket(delivery.namespace, connectionRequest())
+    await connectBgmSocket(delivery.namespace, connectionRequest())
 
-    expect(配送.引き渡された接続.map((request) => new URL(request.url).searchParams.get('topic'))).toEqual(['alerts', 'bgm'])
+    expect(delivery.forwardedConnections.map((request) => new URL(request.url).searchParams.get('topic'))).toEqual(['alerts', 'bgm'])
   })
 })
 
 describe('pushBgm', () => {
   it('Durable Object へ、いま流している曲を送る', async () => {
-    const 配送 = createFakeAlertChannel()
+    const delivery = createFakeAlertChannel()
 
-    await pushBgm(配送.namespace, 再生中の曲)
+    await pushBgm(delivery.namespace, playingTrack)
 
-    expect(配送.押し出されたBGM).toEqual([再生中の曲])
-    expect(配送.押し出されたアラート).toEqual([])
+    expect(delivery.pushedBgm).toEqual([playingTrack])
+    expect(delivery.pushedAlerts).toEqual([])
   })
 
   it('Durable Object が失敗を返したら、黙って成功にせず投げる', async () => {
-    const 配送 = createFakeAlertChannel({ 失敗する: true })
+    const delivery = createFakeAlertChannel({ shouldFail: true })
 
-    await expect(pushBgm(配送.namespace, 再生中の曲)).rejects.toThrow('BGM')
+    await expect(pushBgm(delivery.namespace, playingTrack)).rejects.toThrow('BGM')
   })
 })

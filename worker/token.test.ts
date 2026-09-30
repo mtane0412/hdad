@@ -10,10 +10,10 @@ import { createFakeStore } from './fake-store'
 import { AuthError, deleteToken, getAccessToken, loadToken, saveToken, type StoredToken } from './token'
 import { TwitchApiError } from './twitch'
 
-const 現在時刻 = Date.UTC(2026, 8, 21, 12, 0, 0)
-const 一時間 = 60 * 60 * 1000
+const now = Date.UTC(2026, 8, 21, 12, 0, 0)
+const oneHour = 60 * 60 * 1000
 
-const 保存済みトークン = (expiresAt: number): StoredToken => ({
+const savedToken = (expiresAt: number): StoredToken => ({
   accessToken: '保存済みのアクセストークン',
   refreshToken: '保存済みのリフレッシュトークン',
   expiresAt,
@@ -22,15 +22,15 @@ const 保存済みトークン = (expiresAt: number): StoredToken => ({
   login: 'haishinsha',
 })
 
-const 更新に成功するTwitch = () => ({
+const twitchRefreshSucceeds = () => ({
   refresh: vi.fn(async () => ({ accessToken: '新しいアクセストークン', refreshToken: '新しいリフレッシュトークン', expiresIn: 14400 })),
 })
 
 describe('saveToken / loadToken', () => {
   it('保存したトークンをそのまま読み出せる', async () => {
     const store = createFakeStore()
-    await saveToken(store, 'broadcaster', 保存済みトークン(現在時刻 + 一時間))
-    expect(await loadToken(store, 'broadcaster')).toEqual(保存済みトークン(現在時刻 + 一時間))
+    await saveToken(store, 'broadcaster', savedToken(now + oneHour))
+    expect(await loadToken(store, 'broadcaster')).toEqual(savedToken(now + oneHour))
   })
 
   it('まだ保存していなければ null を返す', async () => {
@@ -45,8 +45,8 @@ describe('saveToken / loadToken', () => {
   it('配信者とbotのトークンは別のキーに保管され、互いに上書きしない', async () => {
     const store = createFakeStore()
 
-    await saveToken(store, 'broadcaster', 保存済みトークン(現在時刻 + 一時間))
-    await saveToken(store, 'bot', { ...保存済みトークン(現在時刻 + 一時間), userId: '67890', login: 'haishinsha_bot' })
+    await saveToken(store, 'broadcaster', savedToken(now + oneHour))
+    await saveToken(store, 'bot', { ...savedToken(now + oneHour), userId: '67890', login: 'haishinsha_bot' })
 
     expect(await loadToken(store, 'broadcaster')).toMatchObject({ login: 'haishinsha' })
     expect(await loadToken(store, 'bot')).toMatchObject({ login: 'haishinsha_bot' })
@@ -56,7 +56,7 @@ describe('saveToken / loadToken', () => {
 
   it('botを接続していなくても、配信者のトークンは読める', async () => {
     const store = createFakeStore()
-    await saveToken(store, 'broadcaster', 保存済みトークン(現在時刻 + 一時間))
+    await saveToken(store, 'broadcaster', savedToken(now + oneHour))
 
     expect(await loadToken(store, 'bot')).toBeNull()
   })
@@ -65,8 +65,8 @@ describe('saveToken / loadToken', () => {
 describe('deleteToken', () => {
   it('役割を指定して消すと、その役割のトークンだけが消える', async () => {
     const store = createFakeStore()
-    await saveToken(store, 'broadcaster', 保存済みトークン(現在時刻 + 一時間))
-    await saveToken(store, 'bot', 保存済みトークン(現在時刻 + 一時間))
+    await saveToken(store, 'broadcaster', savedToken(now + oneHour))
+    await saveToken(store, 'bot', savedToken(now + oneHour))
 
     await deleteToken(store, 'bot')
 
@@ -82,10 +82,10 @@ describe('deleteToken', () => {
 describe('getAccessToken', () => {
   it('期限に余裕があれば、保存済みのトークンをそのまま返す', async () => {
     const store = createFakeStore()
-    await saveToken(store, 'broadcaster', 保存済みトークン(現在時刻 + 一時間))
-    const twitch = 更新に成功するTwitch()
+    await saveToken(store, 'broadcaster', savedToken(now + oneHour))
+    const twitch = twitchRefreshSucceeds()
 
-    const token = await getAccessToken(store, 'broadcaster', twitch, 現在時刻)
+    const token = await getAccessToken(store, 'broadcaster', twitch, now)
 
     expect(token.accessToken).toBe('保存済みのアクセストークン')
     expect(twitch.refresh).not.toHaveBeenCalled()
@@ -93,16 +93,16 @@ describe('getAccessToken', () => {
 
   it('期限が近ければ、リフレッシュトークンで取り直して保存し直す', async () => {
     const store = createFakeStore()
-    await saveToken(store, 'broadcaster', 保存済みトークン(現在時刻 + 30 * 1000))
-    const twitch = 更新に成功するTwitch()
+    await saveToken(store, 'broadcaster', savedToken(now + 30 * 1000))
+    const twitch = twitchRefreshSucceeds()
 
-    const token = await getAccessToken(store, 'broadcaster', twitch, 現在時刻)
+    const token = await getAccessToken(store, 'broadcaster', twitch, now)
 
     expect(twitch.refresh).toHaveBeenCalledWith('保存済みのリフレッシュトークン')
     expect(token).toMatchObject({
       accessToken: '新しいアクセストークン',
       refreshToken: '新しいリフレッシュトークン',
-      expiresAt: 現在時刻 + 14400 * 1000,
+      expiresAt: now + 14400 * 1000,
       userId: '12345',
     })
     expect(await loadToken(store, 'broadcaster')).toEqual(token)
@@ -110,23 +110,23 @@ describe('getAccessToken', () => {
 
   it('forceRefresh を指定すると、期限に余裕があっても取り直す（Twitchに401を返されたとき用）', async () => {
     const store = createFakeStore()
-    await saveToken(store, 'broadcaster', 保存済みトークン(現在時刻 + 一時間))
-    const twitch = 更新に成功するTwitch()
+    await saveToken(store, 'broadcaster', savedToken(now + oneHour))
+    const twitch = twitchRefreshSucceeds()
 
-    const token = await getAccessToken(store, 'broadcaster', twitch, 現在時刻, { forceRefresh: true })
+    const token = await getAccessToken(store, 'broadcaster', twitch, now, { forceRefresh: true })
 
     expect(token.accessToken).toBe('新しいアクセストークン')
   })
 
   it('一度もログインしていなければ、未ログインのエラーになる', async () => {
-    await expect(getAccessToken(createFakeStore(), 'broadcaster', 更新に成功するTwitch(), 現在時刻)).rejects.toMatchObject({
+    await expect(getAccessToken(createFakeStore(), 'broadcaster', twitchRefreshSucceeds(), now)).rejects.toMatchObject({
       name: 'AuthError',
       code: 'not-logged-in',
     })
   })
 
   it('botを接続していなければ、botの接続を促すエラーになる', async () => {
-    const error = await getAccessToken(createFakeStore(), 'bot', 更新に成功するTwitch(), 現在時刻).catch((caught: unknown) => caught)
+    const error = await getAccessToken(createFakeStore(), 'bot', twitchRefreshSucceeds(), now).catch((caught: unknown) => caught)
 
     expect(error).toBeInstanceOf(AuthError)
     expect(error).toMatchObject({ code: 'not-logged-in' })
@@ -136,14 +136,14 @@ describe('getAccessToken', () => {
 
   it('リフレッシュトークンが無効なら、再ログインを求めるエラーになる', async () => {
     const store = createFakeStore()
-    await saveToken(store, 'broadcaster', 保存済みトークン(現在時刻 - 一時間))
+    await saveToken(store, 'broadcaster', savedToken(now - oneHour))
     const twitch = {
       refresh: vi.fn(async () => {
         throw new TwitchApiError(400, 'Invalid refresh token')
       }),
     }
 
-    const error = await getAccessToken(store, 'broadcaster', twitch, 現在時刻).catch((caught: unknown) => caught)
+    const error = await getAccessToken(store, 'broadcaster', twitch, now).catch((caught: unknown) => caught)
 
     expect(error).toBeInstanceOf(AuthError)
     expect(error).toMatchObject({ code: 'relogin-required' })
@@ -151,13 +151,13 @@ describe('getAccessToken', () => {
 
   it('Twitch側の一時的な障害（5xx）は、再ログインの要求にせずそのまま伝える', async () => {
     const store = createFakeStore()
-    await saveToken(store, 'broadcaster', 保存済みトークン(現在時刻 - 一時間))
+    await saveToken(store, 'broadcaster', savedToken(now - oneHour))
     const twitch = {
       refresh: vi.fn(async () => {
         throw new TwitchApiError(503, 'Service Unavailable')
       }),
     }
 
-    await expect(getAccessToken(store, 'broadcaster', twitch, 現在時刻)).rejects.toMatchObject({ name: 'TwitchApiError', status: 503 })
+    await expect(getAccessToken(store, 'broadcaster', twitch, now)).rejects.toMatchObject({ name: 'TwitchApiError', status: 503 })
   })
 })

@@ -15,34 +15,34 @@ import {
   type ModerationRuleDraft,
 } from './form'
 
-const 挨拶のコマンド = { name: 'aisatsu', reply: '@{user} こんばんは', cooldownSeconds: 10 }
-const 挨拶の入力 : CommandDraft = { name: 'aisatsu', reply: '@{user} こんばんは', cooldownSeconds: '10' }
+const greetingCommand = { name: 'aisatsu', reply: '@{user} こんばんは', cooldownSeconds: 10 }
+const greetingInput : CommandDraft = { name: 'aisatsu', reply: '@{user} こんばんは', cooldownSeconds: '10' }
 
 describe('toDraft', () => {
   it('保存済みのコマンドを、入力欄の値にする', () => {
-    expect(toDraft(挨拶のコマンド)).toEqual(挨拶の入力)
+    expect(toDraft(greetingCommand)).toEqual(greetingInput)
   })
 })
 
 describe('toCommandInput', () => {
   it('入力欄の値を、保存する形にする', () => {
-    expect(toCommandInput(挨拶の入力)).toEqual(挨拶のコマンド)
+    expect(toCommandInput(greetingInput)).toEqual(greetingCommand)
   })
 
   it('クールダウンが空欄なら0として扱う（毎回応答する）', () => {
-    expect(toCommandInput({ ...挨拶の入力, cooldownSeconds: '' }).cooldownSeconds).toBe(0)
+    expect(toCommandInput({ ...greetingInput, cooldownSeconds: '' }).cooldownSeconds).toBe(0)
   })
 
   it('コマンド名の前後の空白は取り除く（貼り付けたときに紛れ込むため）', () => {
-    expect(toCommandInput({ ...挨拶の入力, name: '  aisatsu  ' }).name).toBe('aisatsu')
+    expect(toCommandInput({ ...greetingInput, name: '  aisatsu  ' }).name).toBe('aisatsu')
   })
 
   it('コマンド名の先頭の ! は取り除く（入力時に付けてしまいがちなため）', () => {
-    expect(toCommandInput({ ...挨拶の入力, name: '!aisatsu' }).name).toBe('aisatsu')
+    expect(toCommandInput({ ...greetingInput, name: '!aisatsu' }).name).toBe('aisatsu')
   })
 
   it('クールダウンが数値として読めなければエラーにする', () => {
-    expect(() => toCommandInput({ ...挨拶の入力, cooldownSeconds: 'じゅうびょう' })).toThrow('クールダウン')
+    expect(() => toCommandInput({ ...greetingInput, cooldownSeconds: 'じゅうびょう' })).toThrow('クールダウン')
   })
 })
 
@@ -83,30 +83,30 @@ describe('toModerationRuleDraft', () => {
 })
 
 describe('toModerationRuleInput', () => {
-  const 入力 = (上書き: Partial<ModerationRuleDraft> = {}): ModerationRuleDraft => ({
+  const input = (override: Partial<ModerationRuleDraft> = {}): ModerationRuleDraft => ({
     kind: 'word',
     word: '宣伝',
     count: '3',
     windowSeconds: '30',
     punishmentType: 'delete',
     durationSeconds: '600',
-    ...上書き,
+    ...override,
   })
 
   it('禁止語のルールでは、語句と処分だけを送る', () => {
-    expect(toModerationRuleInput(入力())).toEqual({ kind: 'word', word: '宣伝', punishment: { type: 'delete' } })
+    expect(toModerationRuleInput(input())).toEqual({ kind: 'word', word: '宣伝', punishment: { type: 'delete' } })
   })
 
   it('語句の前後の空白は取り除く', () => {
-    expect(toModerationRuleInput(入力({ word: '  宣伝  ' }))).toEqual({ kind: 'word', word: '宣伝', punishment: { type: 'delete' } })
+    expect(toModerationRuleInput(input({ word: '  宣伝  ' }))).toEqual({ kind: 'word', word: '宣伝', punishment: { type: 'delete' } })
   })
 
   it('URLのルールでは、語句を送らない', () => {
-    expect(toModerationRuleInput(入力({ kind: 'url' }))).toEqual({ kind: 'url', punishment: { type: 'delete' } })
+    expect(toModerationRuleInput(input({ kind: 'url' }))).toEqual({ kind: 'url', punishment: { type: 'delete' } })
   })
 
   it('連投のルールでは、回数と秒数を数値にして送る', () => {
-    expect(toModerationRuleInput(入力({ kind: 'repeat', count: '5', windowSeconds: '60' }))).toEqual({
+    expect(toModerationRuleInput(input({ kind: 'repeat', count: '5', windowSeconds: '60' }))).toEqual({
       kind: 'repeat',
       count: 5,
       windowSeconds: 60,
@@ -115,13 +115,13 @@ describe('toModerationRuleInput', () => {
   })
 
   it('タイムアウトの処分では、長さを数値にして送る', () => {
-    expect(toModerationRuleInput(入力({ punishmentType: 'timeout', durationSeconds: '600' }))).toMatchObject({
+    expect(toModerationRuleInput(input({ punishmentType: 'timeout', durationSeconds: '600' }))).toMatchObject({
       punishment: { type: 'timeout', durationSeconds: 600 },
     })
   })
 
   it('数値として読めない入力はエラーにする', () => {
-    expect(() => toModerationRuleInput(入力({ kind: 'repeat', count: 'さんかい' }))).toThrow()
+    expect(() => toModerationRuleInput(input({ kind: 'repeat', count: 'さんかい' }))).toThrow()
   })
 })
 

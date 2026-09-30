@@ -28,7 +28,7 @@ import type { FocusApi, FocusPick, PickableMessage } from './api'
 import type { FocusTarget } from './focused'
 
 /** 日時を、配信者のブラウザの時間帯で「時:分」に直す */
-const 時刻 = (iso: string): string => new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+const time = (iso: string): string => new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
 
 /**
  * いま取り上げている1件。配信画面に映るものと同じく、アイコン・名前・本文を並べる。
@@ -75,13 +75,13 @@ export const FocusPage = ({ api }: { api: FocusApi }) => {
   }, [api])
 
   /** 選んだ発言を取り上げる。外すときは null を渡す */
-  const 取り上げる = (next: FocusPick | null, notice: string) =>
+  const focus = (next: FocusPick | null, notice: string) =>
     actions.run(async () => {
       setTarget(await api.save(next))
       return notice
     })
 
-  const 読み直す = () =>
+  const reload = () =>
     actions.run(async () => {
       setMessages(await api.recent())
       setLoaded(true)
@@ -106,7 +106,7 @@ export const FocusPage = ({ api }: { api: FocusApi }) => {
                 type="button"
                 variant="outline"
                 disabled={actions.busy || target === null}
-                onClick={() => void 取り上げる(null, '取り上げをやめました')}
+                onClick={() => void focus(null, '取り上げをやめました')}
               >
                 取り上げをやめる
               </Button>
@@ -131,7 +131,7 @@ export const FocusPage = ({ api }: { api: FocusApi }) => {
               size="icon"
               {...iconButtonName('発言を読み直す')}
               disabled={actions.busy}
-              onClick={() => void 読み直す()}
+              onClick={() => void reload()}
             >
               <RotateCw aria-hidden="true" />
             </Button>
@@ -145,7 +145,7 @@ export const FocusPage = ({ api }: { api: FocusApi }) => {
                 <li key={message.messageId} className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="flex flex-col gap-1">
                     <p className="text-xs text-muted-foreground">
-                      {message.displayName}（<span className="font-mono">{message.login}</span>） {時刻(message.at)}
+                      {message.displayName}（<span className="font-mono">{message.login}</span>） {time(message.at)}
                     </p>
                     <p className="text-sm">{message.text}</p>
                   </div>
@@ -155,7 +155,7 @@ export const FocusPage = ({ api }: { api: FocusApi }) => {
                       size="sm"
                       disabled={actions.busy}
                       onClick={() =>
-                        void 取り上げる(
+                        void focus(
                           {
                             messageId: message.messageId,
                             login: message.login,

@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest'
 import { BOT_SCOPES, EVENT_TYPES, REQUIRED_SCOPES } from './eventsub'
 
-const 条件を作る = (type: string): Record<string, string> | undefined => EVENT_TYPES.find((eventType) => eventType.type === type)?.condition('12345')
+const conditionOf = (type: string): Record<string, string> | undefined => EVENT_TYPES.find((eventType) => eventType.type === type)?.condition('12345')
 
 describe('EVENT_TYPES', () => {
   it('チャンネルポイント交換・フォロー・サブスク・レイド・チャット（発言・お知らせ・削除・消去）・広告の開始を受け取る', () => {
@@ -29,27 +29,27 @@ describe('EVENT_TYPES', () => {
   it.each(['channel.chat.notification', 'channel.chat.message_delete', 'channel.chat.clear_user_messages', 'channel.chat.clear'])(
     'コメントビューアーのための %s は、発言と同じく配信者を「チャットを読む人」にし、同じスコープで購読する（ログインし直さずに済む）',
     (type) => {
-      expect(条件を作る(type)).toEqual({ broadcaster_user_id: '12345', user_id: '12345' })
+      expect(conditionOf(type)).toEqual({ broadcaster_user_id: '12345', user_id: '12345' })
       expect(EVENT_TYPES.find((eventType) => eventType.type === type)?.scope).toBe('user:read:chat')
     },
   )
 
   it('広告の開始は、配信者のチャンネルを指定する（終了はTwitchから届かないので購読しない）', () => {
-    expect(条件を作る('channel.ad_break.begin')).toEqual({ broadcaster_user_id: '12345' })
+    expect(conditionOf('channel.ad_break.begin')).toEqual({ broadcaster_user_id: '12345' })
   })
 
   it('フォローはバージョン2で、モデレーターとして配信者自身を指定する', () => {
     const follow = EVENT_TYPES.find((eventType) => eventType.type === 'channel.follow')
     expect(follow?.version).toBe('2')
-    expect(条件を作る('channel.follow')).toEqual({ broadcaster_user_id: '12345', moderator_user_id: '12345' })
+    expect(conditionOf('channel.follow')).toEqual({ broadcaster_user_id: '12345', moderator_user_id: '12345' })
   })
 
   it('レイドは「自分のチャンネルへ来たレイド」を指定する', () => {
-    expect(条件を作る('channel.raid')).toEqual({ to_broadcaster_user_id: '12345' })
+    expect(conditionOf('channel.raid')).toEqual({ to_broadcaster_user_id: '12345' })
   })
 
   it('チャットの発言は、配信者自身を「チャットを読む人」として指定する（botの接続と関わりなく購読するため）', () => {
-    expect(条件を作る('channel.chat.message')).toEqual({ broadcaster_user_id: '12345', user_id: '12345' })
+    expect(conditionOf('channel.chat.message')).toEqual({ broadcaster_user_id: '12345', user_id: '12345' })
   })
 })
 

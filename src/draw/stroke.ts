@@ -19,7 +19,7 @@ export interface Point {
 }
 
 /**
- * 線を描き始めた。id はこの線を指す名前で、続き（extend）はこの名前で同じ線に足していく。
+ * 線を描き始めた。id はこの線を指す名前で、続き（extend）はこの名前で同じ線に追加していく。
  *
  * 色と太さは線ごとに決まるので、描き始めにだけ載せる（続きには載せない）。
  */
@@ -33,7 +33,7 @@ export interface StrokeStart {
   readonly width: string
 }
 
-/** 描いている線に点を足す。ポインタの動きは細かいので、何点かをまとめて送る */
+/** 描いている線に点を追加する。ポインタの動きは細かいので、何点かをまとめて送る */
 export interface StrokeExtend {
   readonly type: 'extend'
   readonly id: string

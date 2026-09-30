@@ -19,23 +19,23 @@ import {
   updateViewerSummary,
 } from './viewer-store'
 
-const 現在時刻 = Date.UTC(2026, 8, 21, 12, 0, 0)
-const 一分 = 60 * 1000
+const NOW = Date.UTC(2026, 8, 21, 12, 0, 0)
+const ONE_MINUTE = 60 * 1000
 
-const 発言 = (上書き: Partial<Parameters<typeof recordViewerMessage>[1]> = {}) => ({
+const message = (overrides: Partial<Parameters<typeof recordViewerMessage>[1]> = {}) => ({
   userId: '100',
   login: 'hanako',
   displayName: '花子',
   badges: ['subscriber'],
   messageId: 'chat-message-1',
-  ...上書き,
+  ...overrides,
 })
 
 describe('recordViewerMessage', () => {
   it('初めて発言した人の行を作り、初回と最後の発言時刻に同じ値を入れる', async () => {
     const db = createFakeDatabase()
 
-    await recordViewerMessage(db, 発言(), 現在時刻)
+    await recordViewerMessage(db, message(), NOW)
 
     const [viewer] = await listViewers(db, {})
     expect(viewer).toEqual({
@@ -56,7 +56,7 @@ describe('recordViewerMessage', () => {
   it('バッジが1つも付いていない発言でも記録する', async () => {
     const db = createFakeDatabase()
 
-    await recordViewerMessage(db, 発言({ badges: [] }), 現在時刻)
+    await recordViewerMessage(db, message({ badges: [] }), NOW)
 
     const [viewer] = await listViewers(db, {})
     expect(viewer?.badges).toEqual([])
@@ -64,9 +64,9 @@ describe('recordViewerMessage', () => {
 
   it('間隔が空いてからの2回目の発言で、最後の発言時刻・発言数・最後に見たバッジを更新する', async () => {
     const db = createFakeDatabase()
-    await recordViewerMessage(db, 発言(), 現在時刻)
+    await recordViewerMessage(db, message(), NOW)
 
-    await recordViewerMessage(db, 発言({ messageId: 'chat-message-2', badges: ['subscriber', 'vip'] }), 現在時刻 + 11 * 一分)
+    await recordViewerMessage(db, message({ messageId: 'chat-message-2', badges: ['subscriber', 'vip'] }), NOW + 11 * ONE_MINUTE)
 
     const [viewer] = await listViewers(db, {})
     expect(viewer).toMatchObject({
@@ -79,9 +79,9 @@ describe('recordViewerMessage', () => {
 
   it('改名していれば、最後に見たログイン名と表示名を新しいものにする（照合には使わないので行は増やさない）', async () => {
     const db = createFakeDatabase()
-    await recordViewerMessage(db, 発言(), 現在時刻)
+    await recordViewerMessage(db, message(), NOW)
 
-    await recordViewerMessage(db, 発言({ messageId: 'chat-message-2', login: 'hanako2', displayName: '花子2' }), 現在時刻 + 11 * 一分)
+    await recordViewerMessage(db, message({ messageId: 'chat-message-2', login: 'hanako2', displayName: '花子2' }), NOW + 11 * ONE_MINUTE)
 
     const viewers = await listViewers(db, {})
     expect(viewers).toHaveLength(1)
@@ -90,9 +90,9 @@ describe('recordViewerMessage', () => {
 
   it('前回の記録から10分経っていなければ、発言数を増やさない（D1の書き込みの枠を節約するため）', async () => {
     const db = createFakeDatabase()
-    await recordViewerMessage(db, 発言(), 現在時刻)
+    await recordViewerMessage(db, message(), NOW)
 
-    await recordViewerMessage(db, 発言({ messageId: 'chat-message-2' }), 現在時刻 + 9 * 一分)
+    await recordViewerMessage(db, message({ messageId: 'chat-message-2' }), NOW + 9 * ONE_MINUTE)
 
     const [viewer] = await listViewers(db, {})
     expect(viewer).toMatchObject({ lastSeenAt: '2026-09-21T12:00:00.000Z', messageCount: 1 })
@@ -100,9 +100,9 @@ describe('recordViewerMessage', () => {
 
   it('同じ通知が10分より後に再送されても、発言数を二重に増やさない', async () => {
     const db = createFakeDatabase()
-    await recordViewerMessage(db, 発言(), 現在時刻)
+    await recordViewerMessage(db, message(), NOW)
 
-    await recordViewerMessage(db, 発言(), 現在時刻 + 11 * 一分)
+    await recordViewerMessage(db, message(), NOW + 11 * ONE_MINUTE)
 
     const [viewer] = await listViewers(db, {})
     expect(viewer).toMatchObject({ messageCount: 1 })
@@ -110,19 +110,19 @@ describe('recordViewerMessage', () => {
 
   it('別の人の発言なら、別の行を作る', async () => {
     const db = createFakeDatabase()
-    await recordViewerMessage(db, 発言(), 現在時刻)
+    await recordViewerMessage(db, message(), NOW)
 
-    await recordViewerMessage(db, 発言({ userId: '200', login: 'taro', displayName: '太郎', messageId: 'chat-message-2' }), 現在時刻)
+    await recordViewerMessage(db, message({ userId: '200', login: 'taro', displayName: '太郎', messageId: 'chat-message-2' }), NOW)
 
     expect(await listViewers(db, {})).toHaveLength(2)
   })
 
   it('メモを書いた人が再び発言しても、メモは消えない', async () => {
     const db = createFakeDatabase()
-    await recordViewerMessage(db, 発言(), 現在時刻)
+    await recordViewerMessage(db, message(), NOW)
     await updateViewerNote(db, '100', 'ゲームの話をよくする人')
 
-    await recordViewerMessage(db, 発言({ messageId: 'chat-message-2' }), 現在時刻 + 11 * 一分)
+    await recordViewerMessage(db, message({ messageId: 'chat-message-2' }), NOW + 11 * ONE_MINUTE)
 
     const [viewer] = await listViewers(db, {})
     expect(viewer?.note).toBe('ゲームの話をよくする人')
@@ -131,36 +131,36 @@ describe('recordViewerMessage', () => {
 
 describe('listViewers', () => {
   /** 名前と最後の発言時刻だけが違う人を並べる */
-  const 三人を記録する = async (db: ReturnType<typeof createFakeDatabase>) => {
-    await recordViewerMessage(db, 発言({ userId: '100', login: 'hanako', displayName: '花子', messageId: 'm1' }), 現在時刻)
-    await recordViewerMessage(db, 発言({ userId: '200', login: 'hanabi', displayName: '花火', messageId: 'm2' }), 現在時刻 + 一分)
-    await recordViewerMessage(db, 発言({ userId: '300', login: 'taro', displayName: '太郎', messageId: 'm3' }), 現在時刻 + 2 * 一分)
+  const recordThreeViewers = async (db: ReturnType<typeof createFakeDatabase>) => {
+    await recordViewerMessage(db, message({ userId: '100', login: 'hanako', displayName: '花子', messageId: 'm1' }), NOW)
+    await recordViewerMessage(db, message({ userId: '200', login: 'hanabi', displayName: '花火', messageId: 'm2' }), NOW + ONE_MINUTE)
+    await recordViewerMessage(db, message({ userId: '300', login: 'taro', displayName: '太郎', messageId: 'm3' }), NOW + 2 * ONE_MINUTE)
   }
 
   it('最後に発言した順（新しい順）に並べる', async () => {
     const db = createFakeDatabase()
-    await 三人を記録する(db)
+    await recordThreeViewers(db)
 
     expect((await listViewers(db, {})).map((viewer) => viewer.login)).toEqual(['taro', 'hanabi', 'hanako'])
   })
 
   it('ログイン名の前方一致で絞り込む', async () => {
     const db = createFakeDatabase()
-    await 三人を記録する(db)
+    await recordThreeViewers(db)
 
     expect((await listViewers(db, { loginPrefix: 'hana' })).map((viewer) => viewer.login)).toEqual(['hanabi', 'hanako'])
   })
 
   it('大文字で検索しても、ログイン名（小文字）に当てられる', async () => {
     const db = createFakeDatabase()
-    await 三人を記録する(db)
+    await recordThreeViewers(db)
 
     expect((await listViewers(db, { loginPrefix: 'HANA' })).map((viewer) => viewer.login)).toEqual(['hanabi', 'hanako'])
   })
 
   it('件数の上限を守る', async () => {
     const db = createFakeDatabase()
-    await 三人を記録する(db)
+    await recordThreeViewers(db)
 
     expect(await listViewers(db, { limit: 2 })).toHaveLength(2)
   })
@@ -168,31 +168,31 @@ describe('listViewers', () => {
   it('最後の発言日時が同じ人がページの境目にいても、続きで取りこぼさない', async () => {
     const db = createFakeDatabase()
     // チャットが活発なときは、別々の人の発言が同じミリ秒に記録されうる
-    await recordViewerMessage(db, 発言({ userId: '100', login: 'ichiro', displayName: '一郎', messageId: 'm1' }), 現在時刻)
-    await recordViewerMessage(db, 発言({ userId: '200', login: 'jiro', displayName: '二郎', messageId: 'm2' }), 現在時刻)
-    await recordViewerMessage(db, 発言({ userId: '300', login: 'saburo', displayName: '三郎', messageId: 'm3' }), 現在時刻)
+    await recordViewerMessage(db, message({ userId: '100', login: 'ichiro', displayName: '一郎', messageId: 'm1' }), NOW)
+    await recordViewerMessage(db, message({ userId: '200', login: 'jiro', displayName: '二郎', messageId: 'm2' }), NOW)
+    await recordViewerMessage(db, message({ userId: '300', login: 'saburo', displayName: '三郎', messageId: 'm3' }), NOW)
 
-    const 一ページ目 = await listViewers(db, { limit: 2 })
-    const 最後 = 一ページ目[一ページ目.length - 1]!
-    const 続き = await listViewers(db, { before: 最後.lastSeenAt, beforeUserId: 最後.userId })
+    const firstPage = await listViewers(db, { limit: 2 })
+    const last = firstPage[firstPage.length - 1]!
+    const rest = await listViewers(db, { before: last.lastSeenAt, beforeUserId: last.userId })
 
-    expect([...一ページ目, ...続き].map((viewer) => viewer.userId).sort()).toEqual(['100', '200', '300'])
+    expect([...firstPage, ...rest].map((viewer) => viewer.userId).sort()).toEqual(['100', '200', '300'])
   })
 
   it('続きを読むときは、指定した時刻より前に発言した人だけを返す', async () => {
     const db = createFakeDatabase()
-    await 三人を記録する(db)
+    await recordThreeViewers(db)
 
-    const 続き = await listViewers(db, { before: '2026-09-21T12:01:00.000Z' })
+    const rest = await listViewers(db, { before: '2026-09-21T12:01:00.000Z' })
 
-    expect(続き.map((viewer) => viewer.login)).toEqual(['hanako'])
+    expect(rest.map((viewer) => viewer.login)).toEqual(['hanako'])
   })
 })
 
 describe('readViewer', () => {
   it('ユーザーIDでその人ひとりの記録を返す（LLMに渡す材料を読むのに使う）', async () => {
     const db = createFakeDatabase()
-    await recordViewerMessage(db, 発言(), 現在時刻)
+    await recordViewerMessage(db, message(), NOW)
     await updateViewerNote(db, '100', 'ギターの話が好き')
 
     expect(await readViewer(db, '100')).toEqual({
@@ -218,7 +218,7 @@ describe('readViewer', () => {
 describe('updateViewerNote', () => {
   it('記録のある人のメモを書き換える', async () => {
     const db = createFakeDatabase()
-    await recordViewerMessage(db, 発言(), 現在時刻)
+    await recordViewerMessage(db, message(), NOW)
 
     expect(await updateViewerNote(db, '100', '常連さん')).toBe(true)
     const [viewer] = await listViewers(db, {})
@@ -235,7 +235,7 @@ describe('updateViewerNote', () => {
 describe('deleteViewer', () => {
   it('記録のある人を消す', async () => {
     const db = createFakeDatabase()
-    await recordViewerMessage(db, 発言(), 現在時刻)
+    await recordViewerMessage(db, message(), NOW)
 
     expect(await deleteViewer(db, '100')).toBe(true)
     expect(await listViewers(db, {})).toEqual([])
@@ -249,12 +249,12 @@ describe('deleteViewer', () => {
 })
 
 describe('readChatHistory', () => {
-  const 一日 = 24 * 60 * 一分
+  const ONE_DAY = 24 * 60 * ONE_MINUTE
 
   it('記録が1件もない人なら、このチャンネルで初めての発言として返す', async () => {
     const db = createFakeDatabase()
 
-    expect(await readChatHistory(db, { userId: '100', messageId: 'chat-message-1' }, 現在時刻)).toEqual({
+    expect(await readChatHistory(db, { userId: '100', messageId: 'chat-message-1' }, NOW)).toEqual({
       firstChatEver: true,
       daysSinceLastChat: null,
     })
@@ -262,9 +262,9 @@ describe('readChatHistory', () => {
 
   it('記録を作った発言と同じ発言IDなら、再送されても初めての発言として返す', async () => {
     const db = createFakeDatabase()
-    await recordViewerMessage(db, 発言(), 現在時刻)
+    await recordViewerMessage(db, message(), NOW)
 
-    expect(await readChatHistory(db, { userId: '100', messageId: 'chat-message-1' }, 現在時刻 + 一分)).toEqual({
+    expect(await readChatHistory(db, { userId: '100', messageId: 'chat-message-1' }, NOW + ONE_MINUTE)).toEqual({
       firstChatEver: true,
       daysSinceLastChat: null,
     })
@@ -272,22 +272,22 @@ describe('readChatHistory', () => {
 
   it('同じ人の2回目以降の発言は、初めての発言ではないとして返す', async () => {
     const db = createFakeDatabase()
-    await recordViewerMessage(db, 発言(), 現在時刻)
-    await recordViewerMessage(db, 発言({ messageId: 'chat-message-2' }), 現在時刻 + 11 * 一分)
+    await recordViewerMessage(db, message(), NOW)
+    await recordViewerMessage(db, message({ messageId: 'chat-message-2' }), NOW + 11 * ONE_MINUTE)
 
-    expect(await readChatHistory(db, { userId: '100', messageId: 'chat-message-2' }, 現在時刻 + 11 * 一分)).toEqual({
+    expect(await readChatHistory(db, { userId: '100', messageId: 'chat-message-2' }, NOW + 11 * ONE_MINUTE)).toEqual({
       firstChatEver: false,
-      daysSinceLastChat: 11 * 一分 / 一日,
+      daysSinceLastChat: 11 * ONE_MINUTE / ONE_DAY,
     })
   })
 
   it('記録を更新した発言なら、その発言が空けた間隔を返す', async () => {
     const db = createFakeDatabase()
-    await recordViewerMessage(db, 発言(), 現在時刻)
+    await recordViewerMessage(db, message(), NOW)
 
-    await recordViewerMessage(db, 発言({ messageId: 'chat-message-2' }), 現在時刻 + 30 * 一日)
+    await recordViewerMessage(db, message({ messageId: 'chat-message-2' }), NOW + 30 * ONE_DAY)
 
-    expect(await readChatHistory(db, { userId: '100', messageId: 'chat-message-2' }, 現在時刻 + 30 * 一日)).toEqual({
+    expect(await readChatHistory(db, { userId: '100', messageId: 'chat-message-2' }, NOW + 30 * ONE_DAY)).toEqual({
       firstChatEver: false,
       daysSinceLastChat: 30,
     })
@@ -295,13 +295,13 @@ describe('readChatHistory', () => {
 
   it('同じ通知が再送されても、空けた間隔の答えを変えない（1通目が途中で失敗していてもアラートが鳴るようにするため）', async () => {
     const db = createFakeDatabase()
-    await recordViewerMessage(db, 発言(), 現在時刻)
-    await recordViewerMessage(db, 発言({ messageId: 'chat-message-2' }), 現在時刻 + 30 * 一日)
+    await recordViewerMessage(db, message(), NOW)
+    await recordViewerMessage(db, message({ messageId: 'chat-message-2' }), NOW + 30 * ONE_DAY)
 
     // 再送では記録を更新しないので（last_message_id が同じ）、last_seen_at は30日後のまま据え置かれる
-    await recordViewerMessage(db, 発言({ messageId: 'chat-message-2' }), 現在時刻 + 30 * 一日 + 一分)
+    await recordViewerMessage(db, message({ messageId: 'chat-message-2' }), NOW + 30 * ONE_DAY + ONE_MINUTE)
 
-    expect(await readChatHistory(db, { userId: '100', messageId: 'chat-message-2' }, 現在時刻 + 30 * 一日 + 一分)).toEqual({
+    expect(await readChatHistory(db, { userId: '100', messageId: 'chat-message-2' }, NOW + 30 * ONE_DAY + ONE_MINUTE)).toEqual({
       firstChatEver: false,
       daysSinceLastChat: 30,
     })
@@ -309,19 +309,19 @@ describe('readChatHistory', () => {
 
   it('間隔を空けるために記録しなかった発言では、いまの最後の発言時刻からの短い間隔を返す（久しぶりの発言に続く連投で二度当てはまらないようにするため）', async () => {
     const db = createFakeDatabase()
-    await recordViewerMessage(db, 発言(), 現在時刻)
+    await recordViewerMessage(db, message(), NOW)
     // 30日ぶりの発言。これは記録され、30日の間隔が読める
-    await recordViewerMessage(db, 発言({ messageId: 'chat-message-2' }), 現在時刻 + 30 * 一日)
+    await recordViewerMessage(db, message({ messageId: 'chat-message-2' }), NOW + 30 * ONE_DAY)
     // その1分後の発言。10分経っていないので記録されない
-    await recordViewerMessage(db, 発言({ messageId: 'chat-message-3' }), 現在時刻 + 30 * 一日 + 一分)
+    await recordViewerMessage(db, message({ messageId: 'chat-message-3' }), NOW + 30 * ONE_DAY + ONE_MINUTE)
 
-    expect(await readChatHistory(db, { userId: '100', messageId: 'chat-message-3' }, 現在時刻 + 30 * 一日 + 一分)).toEqual({
+    expect(await readChatHistory(db, { userId: '100', messageId: 'chat-message-3' }, NOW + 30 * ONE_DAY + ONE_MINUTE)).toEqual({
       firstChatEver: false,
-      daysSinceLastChat: 一分 / 一日,
+      daysSinceLastChat: ONE_MINUTE / ONE_DAY,
     })
   })
 
-  it('この列を足す前からある行（記録を作った発言のIDを持たない）は、初めての発言ではないとして返す', async () => {
+  it('この列を追加する前からある行（記録を作った発言のIDを持たない）は、初めての発言ではないとして返す', async () => {
     const db = createFakeDatabase()
     db.sqlite
       .prepare(
@@ -330,7 +330,7 @@ describe('readChatHistory', () => {
       )
       .run()
 
-    expect(await readChatHistory(db, { userId: '100', messageId: 'chat-message-1' }, 現在時刻)).toEqual({
+    expect(await readChatHistory(db, { userId: '100', messageId: 'chat-message-1' }, NOW)).toEqual({
       firstChatEver: false,
       daysSinceLastChat: 51,
     })
@@ -340,13 +340,13 @@ describe('readChatHistory', () => {
 describe('deleteViewer（人物像の材料）', () => {
   it('記録を消したら、まだ人物像にしていない発言の本文も、配信中のぶんまで含めて消す', async () => {
     const db = createFakeDatabase()
-    await recordViewerMessage(db, 発言(), 現在時刻)
+    await recordViewerMessage(db, message(), NOW)
     db.sqlite
       .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, NULL, ?, ?)')
-      .run('haishin-1', new Date(現在時刻).toISOString(), '雑談配信', 'Just Chatting')
+      .run('haishin-1', new Date(NOW).toISOString(), '雑談配信', 'Just Chatting')
     db.sqlite
       .prepare('INSERT INTO stream_chat_messages (message_id, session_id, user_id, sent_at, text) VALUES (?, ?, ?, ?, ?)')
-      .run('hatsugen-1', 'haishin-1', '100', new Date(現在時刻).toISOString(), 'こんばんは')
+      .run('hatsugen-1', 'haishin-1', '100', new Date(NOW).toISOString(), 'こんばんは')
 
     expect(await deleteViewer(db, '100')).toBe(true)
 
@@ -355,13 +355,13 @@ describe('deleteViewer（人物像の材料）', () => {
 
   it('ほかの人の発言の本文は消さない', async () => {
     const db = createFakeDatabase()
-    await recordViewerMessage(db, 発言(), 現在時刻)
+    await recordViewerMessage(db, message(), NOW)
     db.sqlite
       .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, NULL, ?, ?)')
-      .run('haishin-1', new Date(現在時刻).toISOString(), '雑談配信', 'Just Chatting')
+      .run('haishin-1', new Date(NOW).toISOString(), '雑談配信', 'Just Chatting')
     db.sqlite
       .prepare('INSERT INTO stream_chat_messages (message_id, session_id, user_id, sent_at, text) VALUES (?, ?, ?, ?, ?)')
-      .run('hatsugen-2', 'haishin-1', '200', new Date(現在時刻).toISOString(), 'べつの人の発言')
+      .run('hatsugen-2', 'haishin-1', '200', new Date(NOW).toISOString(), 'べつの人の発言')
 
     await deleteViewer(db, '100')
 
@@ -372,9 +372,9 @@ describe('deleteViewer（人物像の材料）', () => {
 describe('updateViewerSummary', () => {
   it('記録のある人の人物像と、それを作った日時を書き換える', async () => {
     const db = createFakeDatabase()
-    await recordViewerMessage(db, 発言(), 現在時刻)
+    await recordViewerMessage(db, message(), NOW)
 
-    expect(await updateViewerSummary(db, '100', 'ギターの話をよくする常連さん', 現在時刻 + 一分)).toBe(true)
+    expect(await updateViewerSummary(db, '100', 'ギターの話をよくする常連さん', NOW + ONE_MINUTE)).toBe(true)
 
     expect(await readViewer(db, '100')).toMatchObject({
       summary: 'ギターの話をよくする常連さん',
@@ -384,36 +384,36 @@ describe('updateViewerSummary', () => {
 
   it('配信者が書いたメモは書き換えない（機械の推測と人が書いたものを混ぜない）', async () => {
     const db = createFakeDatabase()
-    await recordViewerMessage(db, 発言(), 現在時刻)
+    await recordViewerMessage(db, message(), NOW)
     await updateViewerNote(db, '100', 'ギターの話が好き')
 
-    await updateViewerSummary(db, '100', '別人のような人物像', 現在時刻 + 一分)
+    await updateViewerSummary(db, '100', '別人のような人物像', NOW + ONE_MINUTE)
 
     expect(await readViewer(db, '100')).toMatchObject({ note: 'ギターの話が好き' })
   })
 
   it('記録のない人なら false を返す（記録を消した直後に人物像だけ書き込まないため）', async () => {
-    expect(await updateViewerSummary(createFakeDatabase(), '999', '人物像', 現在時刻)).toBe(false)
+    expect(await updateViewerSummary(createFakeDatabase(), '999', '人物像', NOW)).toBe(false)
   })
 })
 
 describe('updateViewerChannel', () => {
   it('その人のチャンネルの内容と、観測した日時を記録し、記録した内容を返す', async () => {
     const db = createFakeDatabase()
-    await recordViewerMessage(db, 発言(), 現在時刻)
+    await recordViewerMessage(db, message(), NOW)
 
-    const 観測 = await updateViewerChannel(db, '100', { categoryName: 'Cuphead', title: '初見でボスラッシュ' }, 現在時刻 + 一分)
+    const observed = await updateViewerChannel(db, '100', { categoryName: 'Cuphead', title: '初見でボスラッシュ' }, NOW + ONE_MINUTE)
 
-    expect(観測).toEqual({ categoryName: 'Cuphead', title: '初見でボスラッシュ', checkedAt: '2026-09-21T12:01:00.000Z' })
-    expect(await readViewer(db, '100')).toMatchObject({ channel: 観測 })
+    expect(observed).toEqual({ categoryName: 'Cuphead', title: '初見でボスラッシュ', checkedAt: '2026-09-21T12:01:00.000Z' })
+    expect(await readViewer(db, '100')).toMatchObject({ channel: observed })
   })
 
   it('調べたが配信した記録が無い人（空文字）と、まだ調べていない人（null）を区別できる', async () => {
     const db = createFakeDatabase()
-    await recordViewerMessage(db, 発言(), 現在時刻)
-    await recordViewerMessage(db, 発言({ userId: '200', login: 'taro', displayName: '太郎', messageId: 'chat-message-200' }), 現在時刻)
+    await recordViewerMessage(db, message(), NOW)
+    await recordViewerMessage(db, message({ userId: '200', login: 'taro', displayName: '太郎', messageId: 'chat-message-200' }), NOW)
 
-    await updateViewerChannel(db, '100', { categoryName: '', title: '' }, 現在時刻 + 一分)
+    await updateViewerChannel(db, '100', { categoryName: '', title: '' }, NOW + ONE_MINUTE)
 
     // 調べた人は、カテゴリとタイトルが空文字のまま観測した日時が入る（配信した記録が無いことを表す）
     expect(await readViewer(db, '100')).toMatchObject({ channel: { categoryName: '', title: '', checkedAt: '2026-09-21T12:01:00.000Z' } })
@@ -423,8 +423,8 @@ describe('updateViewerChannel', () => {
 
   it('一覧でもチャンネルの内容を返す（画面に出すため）', async () => {
     const db = createFakeDatabase()
-    await recordViewerMessage(db, 発言(), 現在時刻)
-    await updateViewerChannel(db, '100', { categoryName: 'Cuphead', title: '初見でボスラッシュ' }, 現在時刻 + 一分)
+    await recordViewerMessage(db, message(), NOW)
+    await updateViewerChannel(db, '100', { categoryName: 'Cuphead', title: '初見でボスラッシュ' }, NOW + ONE_MINUTE)
 
     const [viewer] = await listViewers(db, {})
 
@@ -433,18 +433,18 @@ describe('updateViewerChannel', () => {
 
   it('配信者が書いたメモと人物像は書き換えない', async () => {
     const db = createFakeDatabase()
-    await recordViewerMessage(db, 発言(), 現在時刻)
+    await recordViewerMessage(db, message(), NOW)
     await updateViewerNote(db, '100', 'ギターの話が好き')
-    await updateViewerSummary(db, '100', 'ギターの話をよくする常連さん', 現在時刻)
+    await updateViewerSummary(db, '100', 'ギターの話をよくする常連さん', NOW)
 
-    await updateViewerChannel(db, '100', { categoryName: 'Cuphead', title: '初見でボスラッシュ' }, 現在時刻 + 一分)
+    await updateViewerChannel(db, '100', { categoryName: 'Cuphead', title: '初見でボスラッシュ' }, NOW + ONE_MINUTE)
 
     expect(await readViewer(db, '100')).toMatchObject({ note: 'ギターの話が好き', summary: 'ギターの話をよくする常連さん' })
   })
 
   it('記録のない人なら null を返す（記録を消した直後に観測値だけ書き込まないため）', async () => {
-    const 結果 = await updateViewerChannel(createFakeDatabase(), '999', { categoryName: 'Cuphead', title: '初見でボスラッシュ' }, 現在時刻)
+    const result = await updateViewerChannel(createFakeDatabase(), '999', { categoryName: 'Cuphead', title: '初見でボスラッシュ' }, NOW)
 
-    expect(結果).toBeNull()
+    expect(result).toBeNull()
   })
 })

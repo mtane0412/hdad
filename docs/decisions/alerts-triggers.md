@@ -32,7 +32,7 @@
 
 IRCのタグ（`first-msg`・`returning-chatter`）にはあり、チャットボックス（`src/chat/message.ts`）はそれを読んで「初見」「おかえり」を出しているが、トリガーの判定に使う EventSub の `channel.chat.message` にはこの項目が無い（`message_type` の `user_intro` は視聴者が自己紹介として送ったときの種別で、初回発言の印ではない）。そのため自前の記録を使う。
 
-`firstChatEver` と `returningAfter` は視聴者の記録（`viewers`）から決まるので、`worker/viewer-store.ts` の `readChatHistory` が1回の読み出しで両方を答える（使うトリガーが無ければ読まない。要否は `alert-event.ts` の `requiresChatHistory`）。テーブルを増やさず `viewers` に2列を足している（`migrations/0007_viewer_chat_history.sql`）。`first_message_id` はその行を作った発言のIDで、これが今の発言のIDと同じなら初めてと答える（再送で答えを変えないため）。`previous_seen_at` は `last_seen_at` を上書きする前の値で、記録を更新した発言（`last_message_id` が一致）の間隔をここから数える。
+`firstChatEver` と `returningAfter` は視聴者の記録（`viewers`）から決まるので、`worker/viewer-store.ts` の `readChatHistory` が1回の読み出しで両方を答える（使うトリガーが無ければ読まない。要否は `alert-event.ts` の `requiresChatHistory`）。テーブルを増やさず `viewers` に2列を追加している（`migrations/0007_viewer_chat_history.sql`）。`first_message_id` はその行を作った発言のIDで、これが今の発言のIDと同じなら初めてと答える（再送で答えを変えないため）。`previous_seen_at` は `last_seen_at` を上書きする前の値で、記録を更新した発言（`last_message_id` が一致）の間隔をここから数える。
 
 **判定は発言を記録したあとに行う**（`worker/webhook-routes.ts` は `recordViewerMessage` を照合より先に呼ぶ）。順序を入れ替えると間隔が読めなくなる。記録しなかった発言（10分の間引き）では `last_seen_at` から今までを数えるので、久しぶりの発言に続く連投で二度当てはまらない。
 

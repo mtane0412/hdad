@@ -224,10 +224,10 @@ export interface LlmOptions {
  * 設定はここでは読まず、最初に run が呼ばれたときに1回だけ読んで覚える
  * （一度もLLMを使わない通知では、KVの読み出しが起きない）。
  */
-export const createLlm = ({ ai, store, fetch: 元の通信, apiKey, db, now, timeoutMs = LLM_TIMEOUT_MS }: LlmOptions): TextGenerator => {
+export const createLlm = ({ ai, store, fetch: originalFetch, apiKey, db, now, timeoutMs = LLM_TIMEOUT_MS }: LlmOptions): TextGenerator => {
   // OpenRouter が黙り続けたときに、cron の1回分がそこで止まらないようにする（issue #126）
-  const fetchImpl = withTimeout(元の通信, timeoutMs, 'OpenRouter')
-  let 設定: Promise<LlmSettings> | null = null
+  const fetchImpl = withTimeout(originalFetch, timeoutMs, 'OpenRouter')
+  let config: Promise<LlmSettings> | null = null
 
   /**
    * 1回の呼び出しを記録する。
@@ -235,13 +235,13 @@ export const createLlm = ({ ai, store, fetch: 元の通信, apiKey, db, now, tim
    * 記録できなくても投げない（呼び出し側は文面を受け取れているので、ここで投げると記録のために文面が失われる）。
    * 黙って捨てず collection_failures へ残し、記録そのものの記録まで失敗したらあきらめる（それ以上残す先が無い）。
    */
-  const 記録する = async (tokens: LlmTokenUsage, usage: LlmUsage, provider: LlmProvider, model: string, failed: boolean): Promise<void> => {
-    const 時刻 = now()
+  const recordUsage = async (tokens: LlmTokenUsage, usage: LlmUsage, provider: LlmProvider, model: string, failed: boolean): Promise<void> => {
+    const time = now()
     try {
-      await recordLlmUsage(db, { usage, provider, model, ...tokens, failed }, 時刻)
+      await recordLlmUsage(db, { usage, provider, model, ...tokens, failed }, time)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      await recordFailure(db, 'llm-usage-record-failed', `LLMの使用状況（${usage}・${model}）を記録できませんでした: ${message}`, 時刻).catch(
+      await recordFailure(db, 'llm-usage-record-failed', `LLMの使用状況（${usage}・${model}）を記録できませんでした: ${message}`, time).catch(
         () => undefined,
       )
     }
@@ -249,21 +249,21 @@ export const createLlm = ({ ai, store, fetch: 元の通信, apiKey, db, now, tim
 
   return {
     run: async (usage, request) => {
-      設定 ??= loadLlmSettings(store)
-      const { provider, models } = (await 設定).usages[usage]
+      config ??= loadLlmSettings(store)
+      const { provider, models } = (await config).usages[usage]
       const model = models[provider]
 
-      const 空の使用量: LlmTokenUsage = { promptTokens: 0, completionTokens: 0, costUsd: 0 }
+      const emptyUsage: LlmTokenUsage = { promptTokens: 0, completionTokens: 0, costUsd: 0 }
       const result = await (provider === 'openrouter'
         ? runOpenRouter(fetchImpl, apiKey, model, request)
         : runWorkersAi(ai, model, request, timeoutMs)
       ).catch(async (error: unknown) => {
         // 失敗も数える（無料枠切れが何回起きたかを管理画面から読めるようにする）。数えたうえで、そのまま投げる
-        await 記録する(空の使用量, usage, provider, model, true)
+        await recordUsage(emptyUsage, usage, provider, model, true)
         throw error
       })
 
-      await 記録する(result.tokens, usage, provider, model, false)
+      await recordUsage(result.tokens, usage, provider, model, false)
       return result.text
     },
   }

@@ -29,7 +29,7 @@ import {
 import { TRIGGER_KINDS, type MediaItem, type StoredTrigger } from './api'
 
 /** トリガー1件分の入力欄の値。テストでは違いのある項目だけを重ねて書く */
-const 入力欄 = (overrides: Partial<TriggerDraft> = {}): TriggerDraft => ({
+const inputs = (overrides: Partial<TriggerDraft> = {}): TriggerDraft => ({
   kind: 'reward',
   rewardId: '報酬ID-乾杯',
   login: '',
@@ -53,7 +53,7 @@ const 入力欄 = (overrides: Partial<TriggerDraft> = {}): TriggerDraft => ({
 })
 
 /** 保存済みの「アラートを出す」動作 */
-const アラートの動作 = (overrides: Record<string, unknown> = {}) => ({
+const alertAction = (overrides: Record<string, unknown> = {}) => ({
   type: 'alert' as const,
   mediaId: 'sozai-1',
   mediaKind: 'video' as const,
@@ -69,33 +69,33 @@ describe('menuGroups', () => {
     expect(menuGroups.map((group) => group.label)).toEqual(['チャット', 'イベント'])
   })
 
-  it('すべてのイベント種別がどれかの区分に1回だけ出る（足し忘れ・重複を防ぐ）', () => {
-    const 並んでいる種別 = menuGroups.flatMap((group) => group.items.flatMap((item) => item.phases.map((phase) => phase.kind)))
+  it('すべてのイベント種別がどれかの区分に1回だけ出る（追加し忘れ・重複を防ぐ）', () => {
+    const listedKinds = menuGroups.flatMap((group) => group.items.flatMap((item) => item.phases.map((phase) => phase.kind)))
 
-    expect([...並んでいる種別].sort()).toEqual([...TRIGGER_KINDS].sort())
+    expect([...listedKinds].sort()).toEqual([...TRIGGER_KINDS].sort())
   })
 
   it('広告の開始と終了は、1つの項目にまとめて設定する', () => {
-    const 広告 = menuGroups.flatMap((group) => group.items).find((item) => item.label === '広告')
+    const ad = menuGroups.flatMap((group) => group.items).find((item) => item.label === '広告')
 
-    expect(広告?.phases.map((phase) => phase.kind)).toEqual(['adBreakBegin', 'adBreakEnd'])
+    expect(ad?.phases.map((phase) => phase.kind)).toEqual(['adBreakBegin', 'adBreakEnd'])
     // 効果は開始と終了で別々に持つので、それぞれに見出しを付ける
-    expect(広告?.phases.map((phase) => phase.heading)).toEqual(['広告が始まったときの効果', '広告が終わったときの効果'])
+    expect(ad?.phases.map((phase) => phase.heading)).toEqual(['広告が始まったときの効果', '広告が終わったときの効果'])
   })
 
   it('広告のほかの項目は、イベント種別を1つだけ持つ', () => {
-    const 広告以外 = menuGroups.flatMap((group) => group.items).filter((item) => item.label !== '広告')
+    const nonAd = menuGroups.flatMap((group) => group.items).filter((item) => item.label !== '広告')
 
     // 1つしか持たない項目では、効果のまとまりを分けないので見出しを持たない
-    expect(広告以外.every((item) => item.phases.length === 1 && item.phases[0]?.heading === null)).toBe(true)
+    expect(nonAd.every((item) => item.phases.length === 1 && item.phases[0]?.heading === null)).toBe(true)
   })
 
   it('チャットの区分は、挨拶の3項目を細かい順に先頭へ置き、そのあとに「すべての発言」を置く', () => {
     // 挨拶（上の3つ）は当てはまるうち一番上だけが動くので、並び順がそのまま優先順位になる。
     // 「すべての発言」は挨拶と同時に動くので、挨拶のあとに置いて別のものだと分かるようにする
-    const チャット = menuGroups[0]?.items.map((item) => item.kind)
+    const chat = menuGroups[0]?.items.map((item) => item.kind)
 
-    expect(チャット).toEqual(['newViewer', 'comeback', 'welcome', 'everyMessage', 'keyword', 'fromUser'])
+    expect(chat).toEqual(['newViewer', 'comeback', 'welcome', 'everyMessage', 'keyword', 'fromUser'])
   })
 
   it('挨拶が排他であることを、区分の説明で知らせる', () => {
@@ -105,9 +105,9 @@ describe('menuGroups', () => {
   it('「別のもの」を指す絞り込みを持つ項目だけ、中に複数の設定を持てる', () => {
     // 久しぶりの人（日数）と広告（自動・手動）は絞り込みが1つで足りるので、複数持てなくする
     // （「どちらでも」の行と「自動だけ」の行が並ぶと、同じ重複の分かりにくさが戻ってしまう）
-    const 複数持てる = menuGroups.flatMap((group) => group.items.filter((item) => item.multiple).map((item) => item.kind))
+    const allowsMultiple = menuGroups.flatMap((group) => group.items.filter((item) => item.multiple).map((item) => item.kind))
 
-    expect([...複数持てる].sort()).toEqual(['fromUser', 'keyword', 'reward'])
+    expect([...allowsMultiple].sort()).toEqual(['fromUser', 'keyword', 'reward'])
   })
 
   it('メニュー項目には日本語の名前が付く', () => {
@@ -118,7 +118,7 @@ describe('menuGroups', () => {
 
 describe('toTriggerInput', () => {
   it('チャンネルポイントの交換の入力欄の値を、Workerへ送る形にする（音量は百分率から0〜1へ）', () => {
-    const draft = 入力欄({ durationSeconds: '8', volumePercent: '35', message: '乾杯！' })
+    const draft = inputs({ durationSeconds: '8', volumePercent: '35', message: '乾杯！' })
 
     expect(toTriggerInput(draft)).toEqual({
       kind: 'reward',
@@ -128,41 +128,41 @@ describe('toTriggerInput', () => {
   })
 
   it('報酬を選んでいなければ（空文字）、すべての報酬を対象にする null で送る', () => {
-    expect(toTriggerInput(入力欄({ rewardId: '' }))).toMatchObject({ kind: 'reward', rewardId: null })
+    expect(toTriggerInput(inputs({ rewardId: '' }))).toMatchObject({ kind: 'reward', rewardId: null })
   })
 
   it('パラメータを持たないメニュー項目は、kind と動作だけを送る（ほかの入力欄の値を引きずらない）', () => {
-    const draft = 入力欄({ kind: 'newViewer', login: 'tanenobu', contains: 'おはよう' })
+    const draft = inputs({ kind: 'newViewer', login: 'tanenobu', contains: 'おはよう' })
 
     expect(toTriggerInput(draft)).toEqual({ kind: 'newViewer', actions: [{ type: 'alert', mediaId: 'sozai-1', durationSeconds: 5, volume: 1, message: '' }] })
   })
 
   it('久しぶりの人が発言したメニュー項目は、日数を文字列から数にして送る', () => {
-    expect(toTriggerInput(入力欄({ kind: 'comeback', days: '45' }))).toMatchObject({ kind: 'comeback', days: 45 })
+    expect(toTriggerInput(inputs({ kind: 'comeback', days: '45' }))).toMatchObject({ kind: 'comeback', days: 45 })
   })
 
   it('日数が空欄なら、保存せずにエラーにする（0日として送ってしまわないため）', () => {
-    expect(() => toTriggerInput(入力欄({ kind: 'comeback', days: '' }))).toThrowError(/日数/)
+    expect(() => toTriggerInput(inputs({ kind: 'comeback', days: '' }))).toThrowError(/日数/)
   })
 
   it('決まった人が発言したメニュー項目は、ユーザー名を送る', () => {
-    expect(toTriggerInput(入力欄({ kind: 'fromUser', login: 'tanenobu' }))).toMatchObject({ kind: 'fromUser', login: 'tanenobu' })
+    expect(toTriggerInput(inputs({ kind: 'fromUser', login: 'tanenobu' }))).toMatchObject({ kind: 'fromUser', login: 'tanenobu' })
   })
 
   it('決まった言葉を含む発言のメニュー項目は、言葉を送る', () => {
-    expect(toTriggerInput(入力欄({ kind: 'keyword', contains: 'おはよう' }))).toMatchObject({ kind: 'keyword', contains: 'おはよう' })
+    expect(toTriggerInput(inputs({ kind: 'keyword', contains: 'おはよう' }))).toMatchObject({ kind: 'keyword', contains: 'おはよう' })
   })
 
   it.each([
     ['自動で入った広告', 'true', true],
     ['手動で打った広告', 'false', false],
     ['自動・手動を問わない', '', null],
-  ] as const)('広告のメニュー項目は、%s の選択を送る', (_名前, 入力, 送る値) => {
-    expect(toTriggerInput(入力欄({ kind: 'adBreakBegin', automatic: 入力 }))).toMatchObject({ kind: 'adBreakBegin', automatic: 送る値 })
+  ] as const)('広告のメニュー項目は、%s の選択を送る', (_name, input, valueToSend) => {
+    expect(toTriggerInput(inputs({ kind: 'adBreakBegin', automatic: input }))).toMatchObject({ kind: 'adBreakBegin', automatic: valueToSend })
   })
 
   it('チャットに送るを選んでいれば、チャットの動作も送る', () => {
-    const draft = 入力欄({ chatEnabled: true, chatMessage: 'ありがとう' })
+    const draft = inputs({ chatEnabled: true, chatMessage: 'ありがとう' })
 
     expect(toTriggerInput(draft).actions).toEqual([
       { type: 'alert', mediaId: 'sozai-1', durationSeconds: 5, volume: 1, message: '' },
@@ -171,39 +171,39 @@ describe('toTriggerInput', () => {
   })
 
   it('アラートを出すを外していれば、チャットの動作だけを送る（素材の入力欄が残っていても引きずらない）', () => {
-    const draft = 入力欄({ alertEnabled: false, chatEnabled: true, chatMessage: 'ありがとう' })
+    const draft = inputs({ alertEnabled: false, chatEnabled: true, chatMessage: 'ありがとう' })
 
     expect(toTriggerInput(draft).actions).toEqual([{ type: 'chat', message: 'ありがとう' }])
   })
 
   it('どの動作も選んでいなければ、動作なしで送る（Workerが問題点を返す）', () => {
-    expect(toTriggerInput(入力欄({ alertEnabled: false })).actions).toEqual([])
+    expect(toTriggerInput(inputs({ alertEnabled: false })).actions).toEqual([])
   })
 
   it('アナウンスを送るを選んでいれば、文言と色を送る', () => {
-    const draft = 入力欄({ alertEnabled: false, announceEnabled: true, announceMessage: 'レイドありがとう', announceColor: 'purple' })
+    const draft = inputs({ alertEnabled: false, announceEnabled: true, announceMessage: 'レイドありがとう', announceColor: 'purple' })
 
     expect(toTriggerInput(draft).actions).toEqual([{ type: 'announce', message: 'レイドありがとう', color: 'purple' }])
   })
 
   it('アナウンスを送るを外していれば、入力欄に文言が残っていても送らない', () => {
-    const draft = 入力欄({ announceEnabled: false, announceMessage: '書きかけの文言' })
+    const draft = inputs({ announceEnabled: false, announceMessage: '書きかけの文言' })
 
     expect(toTriggerInput(draft).actions).toEqual([{ type: 'alert', mediaId: 'sozai-1', durationSeconds: 5, volume: 1, message: '' }])
   })
 
   it('シャウトアウトを送るを選んでいれば、項目を持たない動作として送る', () => {
-    const draft = 入力欄({ kind: 'raid', alertEnabled: false, shoutoutEnabled: true })
+    const draft = inputs({ kind: 'raid', alertEnabled: false, shoutoutEnabled: true })
 
     expect(toTriggerInput(draft).actions).toEqual([{ type: 'shoutout' }])
   })
 
   it('表示時間が数として読めなければエラーにする（何番目のトリガーかは呼び出し側が添える）', () => {
-    expect(() => toTriggerInput(入力欄({ durationSeconds: '' }))).toThrowError(/表示時間/)
+    expect(() => toTriggerInput(inputs({ durationSeconds: '' }))).toThrowError(/表示時間/)
   })
 
   it('アラートを出さないトリガーでは、表示時間が空欄でもエラーにしない', () => {
-    const draft = 入力欄({ alertEnabled: false, chatEnabled: true, chatMessage: 'ありがとう', durationSeconds: '' })
+    const draft = inputs({ alertEnabled: false, chatEnabled: true, chatMessage: 'ありがとう', durationSeconds: '' })
 
     expect(() => toTriggerInput(draft)).not.toThrow()
   })
@@ -211,25 +211,25 @@ describe('toTriggerInput', () => {
 
 describe('toDraft', () => {
   it('保存済みのトリガーを入力欄の値に戻す（音量は百分率）', () => {
-    const trigger: StoredTrigger = { kind: 'reward', rewardId: '報酬ID-乾杯', actions: [アラートの動作()] }
+    const trigger: StoredTrigger = { kind: 'reward', rewardId: '報酬ID-乾杯', actions: [alertAction()] }
 
     expect(toDraft(trigger)).toMatchObject({ kind: 'reward', rewardId: '報酬ID-乾杯', alertEnabled: true, durationSeconds: '8', volumePercent: '35', message: '乾杯！' })
   })
 
   it('すべての報酬を対象にするトリガー（null）は、空文字の選択に戻す', () => {
-    expect(toDraft({ kind: 'reward', rewardId: null, actions: [アラートの動作()] })).toMatchObject({ rewardId: '' })
+    expect(toDraft({ kind: 'reward', rewardId: null, actions: [alertAction()] })).toMatchObject({ rewardId: '' })
   })
 
   it('保存済みの日数は、入力欄の値として文字列に戻す', () => {
-    expect(toDraft({ kind: 'comeback', days: 45, actions: [アラートの動作()] })).toMatchObject({ kind: 'comeback', days: '45' })
+    expect(toDraft({ kind: 'comeback', days: 45, actions: [alertAction()] })).toMatchObject({ kind: 'comeback', days: '45' })
   })
 
   it.each([
     ['自動で入った広告', true, 'true'],
     ['手動で打った広告', false, 'false'],
     ['自動・手動を問わない', null, ''],
-  ] as const)('保存済みの広告の絞り込み（%s）を選択欄の値に戻す', (_名前, 保存済み, 入力欄の値) => {
-    expect(toDraft({ kind: 'adBreakEnd', automatic: 保存済み, actions: [アラートの動作()] })).toMatchObject({ automatic: 入力欄の値 })
+  ] as const)('保存済みの広告の絞り込み（%s）を選択欄の値に戻す', (_name, saved, inputValues) => {
+    expect(toDraft({ kind: 'adBreakEnd', automatic: saved, actions: [alertAction()] })).toMatchObject({ automatic: inputValues })
   })
 
   it('チャットに送る動作を持つトリガーは、チャットの入力欄を埋めて戻す', () => {
@@ -245,7 +245,7 @@ describe('toDraft', () => {
   })
 
   it('アナウンスを送る動作を持たないトリガーは、色を既定（primary）にして戻す', () => {
-    expect(toDraft({ kind: 'follow', actions: [アラートの動作()] })).toMatchObject({ announceEnabled: false, announceColor: 'primary' })
+    expect(toDraft({ kind: 'follow', actions: [alertAction()] })).toMatchObject({ announceEnabled: false, announceColor: 'primary' })
   })
 
   it('シャウトアウトを送る動作を持つトリガーは、その印を付けて戻す', () => {
@@ -275,10 +275,10 @@ describe('supportsShoutout', () => {
 })
 
 describe('createDraft', () => {
-  const 素材: MediaItem[] = [{ id: 'sozai-1', name: '乾杯', kind: 'video', contentType: 'video/mp4', size: 100, uploadedAt: '2026-09-26T00:00:00Z' }]
+  const material: MediaItem[] = [{ id: 'sozai-1', name: '乾杯', kind: 'video', contentType: 'video/mp4', size: 100, uploadedAt: '2026-09-26T00:00:00Z' }]
 
   it('選んだメニュー項目で、アラートを出す動作を選んだ状態のトリガーを作る', () => {
-    expect(createDraft('follow', 素材)).toMatchObject({ kind: 'follow', alertEnabled: true, mediaId: 'sozai-1' })
+    expect(createDraft('follow', material)).toMatchObject({ kind: 'follow', alertEnabled: true, mediaId: 'sozai-1' })
   })
 
   it('素材が1つもなければ、チャットに送る動作を選んだ状態で作る（アラートは出せないため）', () => {
@@ -286,15 +286,15 @@ describe('createDraft', () => {
   })
 
   it('報酬のメニュー項目は、すべての報酬を対象にした状態で作る（絞り込みを選ぶのは配信者に任せる）', () => {
-    expect(createDraft('reward', 素材)).toMatchObject({ kind: 'reward', rewardId: '' })
+    expect(createDraft('reward', material)).toMatchObject({ kind: 'reward', rewardId: '' })
   })
 
   it('久しぶりの人が発言したメニュー項目は、日数の既定値（30日）を入れて作る', () => {
-    expect(createDraft('comeback', 素材)).toMatchObject({ days: '30' })
+    expect(createDraft('comeback', material)).toMatchObject({ days: '30' })
   })
 
   it('広告のメニュー項目は、自動で入った広告に絞った状態で作る（手動の広告は配信者が自分で告知できるため）', () => {
-    expect(createDraft('adBreakBegin', 素材)).toMatchObject({ automatic: 'true' })
+    expect(createDraft('adBreakBegin', material)).toMatchObject({ automatic: 'true' })
   })
 })
 
@@ -320,19 +320,19 @@ describe('withFixedRows', () => {
   it('広告の片方だけが保存されていたら、もう片方の行にも同じ絞り込みを入れる（1つの枠で共通に見せるため）', () => {
     // 広告の開始と終了は1つの枠にまとまり、絞り込み（自動・手動）の入力欄も1つしかない。
     // 埋める側を既定値のままにすると、保存済みの値と食い違ったまま画面に出てしまう
-    const 終了だけ保存済み: TriggerDraft = { ...emptyDraft('adBreakEnd'), automatic: 'true', chatEnabled: true, chatMessage: 'おかえりなさい' }
+    const savedEndOnly: TriggerDraft = { ...emptyDraft('adBreakEnd'), automatic: 'true', chatEnabled: true, chatMessage: 'おかえりなさい' }
 
-    const 広告の行 = withFixedRows([終了だけ保存済み]).filter((row) => row.kind === 'adBreakBegin' || row.kind === 'adBreakEnd')
+    const adRow = withFixedRows([savedEndOnly]).filter((row) => row.kind === 'adBreakBegin' || row.kind === 'adBreakEnd')
 
-    expect(広告の行.map((row) => row.automatic)).toEqual(['true', 'true'])
+    expect(adRow.map((row) => row.automatic)).toEqual(['true', 'true'])
   })
 
   it('保存済みの行はそのまま残し、足りない項目だけを効果なしの行で埋める', () => {
-    const 保存済み = toDraft({ kind: 'follow', actions: [{ type: 'chat', message: 'ありがとう' }] })
+    const saved = toDraft({ kind: 'follow', actions: [{ type: 'chat', message: 'ありがとう' }] })
 
-    const rows = withFixedRows([保存済み])
+    const rows = withFixedRows([saved])
 
-    expect(rows.filter((row) => row.kind === 'follow')).toEqual([保存済み])
+    expect(rows.filter((row) => row.kind === 'follow')).toEqual([saved])
   })
 
   it('パラメータを持つ項目は、保存済みの行がなければ並べない（配信者が追加したときだけ増える）', () => {
@@ -340,19 +340,19 @@ describe('withFixedRows', () => {
   })
 
   it('行はメニューの並び順にそろえる（保存したときに画面の並びと同じ順になる）', () => {
-    const 報酬 = toDraft({ kind: 'reward', rewardId: null, actions: [{ type: 'chat', message: 'ありがとう' }] })
-    const 言葉 = toDraft({ kind: 'keyword', contains: 'おはよう', actions: [{ type: 'chat', message: 'おはよう' }] })
+    const reward = toDraft({ kind: 'reward', rewardId: null, actions: [{ type: 'chat', message: 'ありがとう' }] })
+    const words = toDraft({ kind: 'keyword', contains: 'おはよう', actions: [{ type: 'chat', message: 'おはよう' }] })
 
-    const rows = withFixedRows([報酬, 言葉])
+    const rows = withFixedRows([reward, words])
 
     expect(rows.findIndex((row) => row.kind === 'keyword')).toBeLessThan(rows.findIndex((row) => row.kind === 'reward'))
   })
 
-  it('同じ項目の中の並びは変えない（配信者が足した順に出す）', () => {
-    const 乾杯 = toDraft({ kind: 'reward', rewardId: '報酬ID-乾杯', actions: [{ type: 'chat', message: '乾杯' }] })
-    const おみくじ = toDraft({ kind: 'reward', rewardId: '報酬ID-おみくじ', actions: [{ type: 'chat', message: 'おみくじ' }] })
+  it('同じ項目の中の並びは変えない（配信者が追加した順に出す）', () => {
+    const toast = toDraft({ kind: 'reward', rewardId: '報酬ID-乾杯', actions: [{ type: 'chat', message: '乾杯' }] })
+    const omikuji = toDraft({ kind: 'reward', rewardId: '報酬ID-おみくじ', actions: [{ type: 'chat', message: 'おみくじ' }] })
 
-    expect(withFixedRows([乾杯, おみくじ]).filter((row) => row.kind === 'reward')).toEqual([乾杯, おみくじ])
+    expect(withFixedRows([toast, omikuji]).filter((row) => row.kind === 'reward')).toEqual([toast, omikuji])
   })
 })
 
@@ -374,10 +374,10 @@ describe('emptyDraft', () => {
 
 describe('toTriggerInputs', () => {
   it('効果を持つ行だけをWorkerへ送る（効果なしの行は保存しない）', () => {
-    const 効果なし = emptyDraft('follow')
-    const 効果あり = 入力欄({ kind: 'raid' })
+    const noEffect = emptyDraft('follow')
+    const withEffect = inputs({ kind: 'raid' })
 
-    expect(toTriggerInputs([効果なし, 効果あり])).toEqual([{ kind: 'raid', actions: [{ type: 'alert', mediaId: 'sozai-1', durationSeconds: 5, volume: 1, message: '' }] }])
+    expect(toTriggerInputs([noEffect, withEffect])).toEqual([{ kind: 'raid', actions: [{ type: 'alert', mediaId: 'sozai-1', durationSeconds: 5, volume: 1, message: '' }] }])
   })
 
   it('効果を持つ行が1つもなければ、空の一覧を送る（トリガーをすべて止めたいとき）', () => {
@@ -385,7 +385,7 @@ describe('toTriggerInputs', () => {
   })
 
   it('数として読めない値があれば、どの項目の設定かを添えてエラーにする', () => {
-    expect(() => toTriggerInputs([emptyDraft('follow'), 入力欄({ kind: 'comeback', days: '' })])).toThrowError(
+    expect(() => toTriggerInputs([emptyDraft('follow'), inputs({ kind: 'comeback', days: '' })])).toThrowError(
       '「久しぶりの人の発言」の設定: 日数を数で入力してください',
     )
   })
@@ -393,17 +393,17 @@ describe('toTriggerInputs', () => {
 
 describe('rowActionLabels', () => {
   it('付けた効果を決まった順で並べる（画面ではバッジとして1つずつ出す）', () => {
-    const 入力 = 入力欄({ kind: 'follow', chatEnabled: true, announceEnabled: true })
+    const input = inputs({ kind: 'follow', chatEnabled: true, announceEnabled: true })
 
-    expect(rowActionLabels(入力)).toEqual(['アラート', 'チャット', 'アナウンス'])
+    expect(rowActionLabels(input)).toEqual(['アラート', 'チャット', 'アナウンス'])
   })
 
   it('シャウトアウトの効果は「シャウトアウト」として出す', () => {
-    expect(rowActionLabels(入力欄({ kind: 'raid', alertEnabled: false, shoutoutEnabled: true }))).toEqual(['シャウトアウト'])
+    expect(rowActionLabels(inputs({ kind: 'raid', alertEnabled: false, shoutoutEnabled: true }))).toEqual(['シャウトアウト'])
   })
 
   it('AIに文面を作らせる効果は「AIチャット」として出す', () => {
-    expect(rowActionLabels(入力欄({ kind: 'follow', alertEnabled: false, aiChatEnabled: true }))).toEqual(['AIチャット'])
+    expect(rowActionLabels(inputs({ kind: 'follow', alertEnabled: false, aiChatEnabled: true }))).toEqual(['AIチャット'])
   })
 
   it('効果がひとつもなければ空にする（画面では「効果なし」と出す）', () => {
@@ -451,40 +451,40 @@ describe('rewardOptions', () => {
 })
 
 describe('rowParamSummary', () => {
-  const 報酬 = [{ id: '報酬ID-乾杯', title: '乾杯する', cost: 500 }]
+  const reward = [{ id: '報酬ID-乾杯', title: '乾杯する', cost: 500 }]
 
   it('選んでいる報酬の名前を出す', () => {
-    expect(rowParamSummary(入力欄({ kind: 'reward', rewardId: '報酬ID-乾杯' }), 報酬)).toBe('乾杯する')
+    expect(rowParamSummary(inputs({ kind: 'reward', rewardId: '報酬ID-乾杯' }), reward)).toBe('乾杯する')
   })
 
   it('報酬を選んでいなければ、すべての報酬が対象だと分かるように出す', () => {
-    expect(rowParamSummary(入力欄({ kind: 'reward', rewardId: '' }), 報酬)).toBe('すべての報酬')
+    expect(rowParamSummary(inputs({ kind: 'reward', rewardId: '' }), reward)).toBe('すべての報酬')
   })
 
   it('Twitchの一覧にない報酬でも、報酬IDを出して黙って省略しない', () => {
-    expect(rowParamSummary(入力欄({ kind: 'reward', rewardId: '報酬ID-消した報酬' }), 報酬)).toBe('報酬ID-消した報酬')
+    expect(rowParamSummary(inputs({ kind: 'reward', rewardId: '報酬ID-消した報酬' }), reward)).toBe('報酬ID-消した報酬')
   })
 
   it('決まった人が発言した行は、ユーザー名を出す', () => {
-    expect(rowParamSummary(入力欄({ kind: 'fromUser', login: 'tanenobu' }), [])).toBe('tanenobu')
+    expect(rowParamSummary(inputs({ kind: 'fromUser', login: 'tanenobu' }), [])).toBe('tanenobu')
   })
 
   it('決まった言葉を含む発言の行は、その言葉を出す', () => {
-    expect(rowParamSummary(入力欄({ kind: 'keyword', contains: 'おはよう' }), [])).toBe('おはよう')
+    expect(rowParamSummary(inputs({ kind: 'keyword', contains: 'おはよう' }), [])).toBe('おはよう')
   })
 
   it('久しぶりの人が発言した行は、日数を出す', () => {
-    expect(rowParamSummary(入力欄({ kind: 'comeback', days: '45' }), [])).toBe('45日以上')
+    expect(rowParamSummary(inputs({ kind: 'comeback', days: '45' }), [])).toBe('45日以上')
   })
 
   it('広告の行は、自動で入った広告か手動で打った広告かを言葉で出す', () => {
-    expect(rowParamSummary(入力欄({ kind: 'adBreakBegin', automatic: 'true' }), [])).toBe('自動で入った広告')
-    expect(rowParamSummary(入力欄({ kind: 'adBreakEnd', automatic: 'false' }), [])).toBe('配信者が手動で打った広告')
+    expect(rowParamSummary(inputs({ kind: 'adBreakBegin', automatic: 'true' }), [])).toBe('自動で入った広告')
+    expect(rowParamSummary(inputs({ kind: 'adBreakEnd', automatic: 'false' }), [])).toBe('配信者が手動で打った広告')
   })
 
   it('絞り込みを持たない行では null を返す', () => {
-    expect(rowParamSummary(入力欄({ kind: 'follow' }), [])).toBeNull()
-    expect(rowParamSummary(入力欄({ kind: 'adBreakEnd', automatic: '' }), [])).toBeNull()
+    expect(rowParamSummary(inputs({ kind: 'follow' }), [])).toBeNull()
+    expect(rowParamSummary(inputs({ kind: 'adBreakEnd', automatic: '' }), [])).toBeNull()
   })
 })
 

@@ -69,17 +69,17 @@ export const bigramSimilarity = (a: string, b: string): number => {
   const right = bigramsOf(b)
   if (left.length === 0 || right.length === 0) return left.length === right.length ? 1 : 0
 
-  const 残り = new Map<string, number>()
-  for (const bigram of left) 残り.set(bigram, (残り.get(bigram) ?? 0) + 1)
+  const rest = new Map<string, number>()
+  for (const bigram of left) rest.set(bigram, (rest.get(bigram) ?? 0) + 1)
 
-  let 重なり = 0
+  let overlap = 0
   for (const bigram of right) {
-    const 回数 = 残り.get(bigram) ?? 0
-    if (回数 === 0) continue
-    残り.set(bigram, 回数 - 1)
-    重なり += 1
+    const attempts = rest.get(bigram) ?? 0
+    if (attempts === 0) continue
+    rest.set(bigram, attempts - 1)
+    overlap += 1
   }
-  return (2 * 重なり) / (left.length + right.length)
+  return (2 * overlap) / (left.length + right.length)
 }
 
 /** 「よく似ている」と判定する */
@@ -107,7 +107,7 @@ const isOwnText = (line: string, ownTexts: readonly string[]): boolean =>
  * 「恒常表示の除去」を独立した段として持たず既出に統合しているのは、分けて持つと初出の本文まで落ち、
  * 一度も LLM に届かなかったためである（issue #122 の実測）。
  *
- * 注意: 同じ画面の中で繰り返された行も、2つ目以降は既出として落とす（残した行をその場で既出に足していく）。
+ * 注意: 同じ画面の中で繰り返された行も、2つ目以降は既出として落とす（残した行をその場で既出に追加していく）。
  *
  * @param ocrText Gyazo が読み取った文字（行の区切りは改行）
  * @param ownTexts HDAD 自身が画面に出している文字
@@ -115,17 +115,17 @@ const isOwnText = (line: string, ownTexts: readonly string[]): boolean =>
  * @returns 残った行（元の文字のまま、読み取った順）
  */
 export const extractNewScreenLines = (ocrText: string, ownTexts: readonly string[], seenLines: readonly string[]): string[] => {
-  const 自前 = ownTexts.map(normalizeScreenLine).filter((text) => text.length > 0)
-  const 既出 = seenLines.map(normalizeScreenLine).filter((text) => text.length > 0)
+  const ownLines = ownTexts.map(normalizeScreenLine).filter((text) => text.length > 0)
+  const seenSoFar = seenLines.map(normalizeScreenLine).filter((text) => text.length > 0)
 
-  const 残った行: string[] = []
-  for (const 元の行 of ocrText.split('\n')) {
-    const line = normalizeScreenLine(元の行)
+  const remainingLines: string[] = []
+  for (const originalLines of ocrText.split('\n')) {
+    const line = normalizeScreenLine(originalLines)
     if (line.length < SCREEN_LINE_MIN_LENGTH || DIGITS_ONLY.test(line)) continue
-    if (isOwnText(line, 自前)) continue
-    if (既出.some((seen) => resembles(line, seen))) continue
-    既出.push(line)
-    残った行.push(元の行.trim())
+    if (isOwnText(line, ownLines)) continue
+    if (seenSoFar.some((seen) => resembles(line, seen))) continue
+    seenSoFar.push(line)
+    remainingLines.push(originalLines.trim())
   }
-  return 残った行
+  return remainingLines
 }

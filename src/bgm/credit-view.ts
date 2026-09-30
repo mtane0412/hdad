@@ -36,28 +36,28 @@ const sameTrack = (a: BgmCreditTrack | null, b: BgmCreditTrack | null): boolean 
  */
 export const createBgmCreditView = (root: HTMLElement): BgmCreditView => {
   /** いま映している曲。受け取り直したときに作り直すかどうかの判定に使う */
-  let 映している曲: BgmCreditTrack | null = null
+  let displayedTrack: BgmCreditTrack | null = null
 
   return {
     setTrack(track) {
-      if (sameTrack(映している曲, track)) return
-      映している曲 = track
+      if (sameTrack(displayedTrack, track)) return
+      displayedTrack = track
 
       if (track === null) {
         root.replaceChildren()
         return
       }
 
-      const 曲名 = document.createElement('p')
-      曲名.className = 'bgm-credit-title'
-      曲名.textContent = track.title
-      const クレジット = document.createElement('p')
-      クレジット.className = 'bgm-credit-credit'
-      クレジット.textContent = track.credit
-      const 板 = document.createElement('div')
-      板.className = 'bgm-credit-card'
-      板.append(曲名, クレジット)
-      root.replaceChildren(板)
+      const title = document.createElement('p')
+      title.className = 'bgm-credit-title'
+      title.textContent = track.title
+      const credit = document.createElement('p')
+      credit.className = 'bgm-credit-credit'
+      credit.textContent = track.credit
+      const panel = document.createElement('div')
+      panel.className = 'bgm-credit-card'
+      panel.append(title, credit)
+      root.replaceChildren(panel)
     },
   }
 }

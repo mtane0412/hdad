@@ -4,7 +4,7 @@
 -- 適用方法は docs/guide/stats.md を参照。
 
 -- 配信の区切りごとに、その配信で最初に発言した人を1行持つ（worker/chat-store.ts の claimFirstChatOfStream）。
--- 配信の区切りは stream_sessions（0001）で、配信中の行が無いとき（配信外の発言）は行を足さない。
+-- 配信の区切りは stream_sessions（0001）で、配信中の行が無いとき（配信外の発言）は行を追加しない。
 --
 -- message_id を持つのは、同じ発言についての問い合わせに何度でも同じ答えを返すため。
 -- この判定は Webhook（worker/webhook-routes.ts）とオーバーレイ（POST /api/overlay/alert）の両方から呼ばれ、

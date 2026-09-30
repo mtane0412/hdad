@@ -45,7 +45,7 @@ npm test            # テスト
 npm run build       # dist/ へビルド
 ```
 
-シークレットの渡し方、素材やデザインを足す手順は [開発](./docs/guide/development.md) にあります。
+シークレットの渡し方、素材やデザインを追加する手順は [開発](./docs/guide/development.md) にあります。
 
 ## ライセンス
 

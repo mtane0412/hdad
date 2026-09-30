@@ -39,63 +39,63 @@ describe('bigramSimilarity', () => {
 
 describe('extractNewScreenLines', () => {
   it('初出の行はそのまま残す', () => {
-    const 残った行 = extractNewScreenLines('岩手17歳女性殺害事件\n2008年6月29日 02:00', [], [])
+    const remainingLines = extractNewScreenLines('岩手17歳女性殺害事件\n2008年6月29日 02:00', [], [])
 
-    expect(残った行).toEqual(['岩手17歳女性殺害事件', '2008年6月29日 02:00'])
+    expect(remainingLines).toEqual(['岩手17歳女性殺害事件', '2008年6月29日 02:00'])
   })
 
   it('自前の文字（サイドスーパー・視聴者の発言・表示名・字幕）を落とす', () => {
-    const 自前の文字 = ['いま話していること', 'たねのぶ', 'それは面白いですね']
+    const ownText = ['いま話していること', 'たねのぶ', 'それは面白いですね']
 
-    const 残った行 = extractNewScreenLines('いま話していること\nたねのぶ\nそれは面白いですね\n盛岡市のガソリンスタンド', 自前の文字, [])
+    const remainingLines = extractNewScreenLines('いま話していること\nたねのぶ\nそれは面白いですね\n盛岡市のガソリンスタンド', ownText, [])
 
-    expect(残った行).toEqual(['盛岡市のガソリンスタンド'])
+    expect(remainingLines).toEqual(['盛岡市のガソリンスタンド'])
   })
 
   it('自前の文字の一部でしかない行（見切れたチャット）も落とす', () => {
-    const 残った行 = extractNewScreenLines('まぁ、岩手は心', ['まぁ、岩手は心の故郷なので'], [])
+    const remainingLines = extractNewScreenLines('まぁ、岩手は心', ['まぁ、岩手は心の故郷なので'], [])
 
-    expect(残った行).toEqual([])
+    expect(remainingLines).toEqual([])
   })
 
   it('自前の文字を丸ごと含む行も落とす', () => {
-    const 残った行 = extractNewScreenLines('>> それは面白いですね', ['それは面白いですね'], [])
+    const remainingLines = extractNewScreenLines('>> それは面白いですね', ['それは面白いですね'], [])
 
-    expect(残った行).toEqual([])
+    expect(remainingLines).toEqual([])
   })
 
   it('短い自前の文字では落とさない（表示名の1文字で本文まで消さないため）', () => {
-    const 残った行 = extractNewScreenLines('岩手17歳女性殺害事件', ['あ'], [])
+    const remainingLines = extractNewScreenLines('岩手17歳女性殺害事件', ['あ'], [])
 
-    expect(残った行).toEqual(['岩手17歳女性殺害事件'])
+    expect(remainingLines).toEqual(['岩手17歳女性殺害事件'])
   })
 
   it('中身のない行（3文字未満・数字と記号だけ）を落とす', () => {
-    const 残った行 = extractNewScreenLines('あ\n12:34\n---\n岩手17歳女性殺害事件', [], [])
+    const remainingLines = extractNewScreenLines('あ\n12:34\n---\n岩手17歳女性殺害事件', [], [])
 
-    expect(残った行).toEqual(['岩手17歳女性殺害事件'])
+    expect(remainingLines).toEqual(['岩手17歳女性殺害事件'])
   })
 
   it('既に渡した行によく似ていれば落とす（同じ画面を撮り続けたとき）', () => {
-    const 既に渡した行 = ['2008年6月29日 02:00 盛岡市のガソリンスタンドのカメラに映る']
+    const alreadyPassedLines = ['2008年6月29日 02:00 盛岡市のガソリンスタンドのカメラに映る']
 
     // OCRの揺れで「2008」が「2006」として返っても、同じ行として畳む
-    const 残った行 = extractNewScreenLines('2006年6月29日 02:00 盛岡市のガソリンスタンドのカメラに映る', [], 既に渡した行)
+    const remainingLines = extractNewScreenLines('2006年6月29日 02:00 盛岡市のガソリンスタンドのカメラに映る', [], alreadyPassedLines)
 
-    expect(残った行).toEqual([])
+    expect(remainingLines).toEqual([])
   })
 
   it('同じ画面の中で繰り返された行は1度だけ残す', () => {
-    const 残った行 = extractNewScreenLines('岩手17歳女性殺害事件\n岩手17歳女性殺害事件', [], [])
+    const remainingLines = extractNewScreenLines('岩手17歳女性殺害事件\n岩手17歳女性殺害事件', [], [])
 
-    expect(残った行).toEqual(['岩手17歳女性殺害事件'])
+    expect(remainingLines).toEqual(['岩手17歳女性殺害事件'])
   })
 
   it('既に渡した行があっても、初出の行は残す', () => {
-    const 既に渡した行 = ['岩手17歳女性殺害事件']
+    const alreadyPassedLines = ['岩手17歳女性殺害事件']
 
-    const 残った行 = extractNewScreenLines('岩手17歳女性殺害事件\n盛岡市のガソリンスタンド', [], 既に渡した行)
+    const remainingLines = extractNewScreenLines('岩手17歳女性殺害事件\n盛岡市のガソリンスタンド', [], alreadyPassedLines)
 
-    expect(残った行).toEqual(['盛岡市のガソリンスタンド'])
+    expect(remainingLines).toEqual(['盛岡市のガソリンスタンド'])
   })
 })

@@ -12,41 +12,41 @@
 import type { LlmUsage } from './llm-config'
 import type { LlmRequest, TextGenerator, WorkersAi } from './llm'
 
-interface 代役の条件 {
+interface FakeAiOptions {
   /** 返す文面。省略すると当たり障りのない1文を返す */
   response?: string
   /** true なら呼ばれたときに失敗する（無料枠や残高を使い切った場合などの再現） */
-  失敗する?: boolean
+  shouldFail?: boolean
 }
 
 /** 既定の文面。文面そのものを問わないテストでも、読んで意味が分かるものにする */
-const 既定の文面 = 'こんばんは！来てくれてありがとうございます'
+const DEFAULT_RESPONSE = 'こんばんは！来てくれてありがとうございます'
 
 /** 呼び出しの記録を添えた、Workers AI のバインディングの代役を作る */
-export const createFakeWorkersAi = ({ response = 既定の文面, 失敗する = false }: 代役の条件 = {}): WorkersAi & {
-  呼び出し: { model: string; input: Record<string, unknown> }[]
+export const createFakeWorkersAi = ({ response = DEFAULT_RESPONSE, shouldFail = false }: FakeAiOptions = {}): WorkersAi & {
+  calls: { model: string; input: Record<string, unknown> }[]
 } => {
-  const 呼び出し: { model: string; input: Record<string, unknown> }[] = []
+  const calls: { model: string; input: Record<string, unknown> }[] = []
   return {
-    呼び出し,
+    calls,
     run: (model, input) => {
-      呼び出し.push({ model, input })
-      if (失敗する) return Promise.reject(new Error('Workers AI の無料枠を使い切りました'))
+      calls.push({ model, input })
+      if (shouldFail) return Promise.reject(new Error('Workers AI の無料枠を使い切りました'))
       return Promise.resolve({ response })
     },
   }
 }
 
 /** 呼び出しの記録を添えた、使う箇所を指名して呼ぶ側の代役を作る */
-export const createFakeAi = ({ response = 既定の文面, 失敗する = false }: 代役の条件 = {}): TextGenerator & {
-  呼び出し: { usage: LlmUsage; request: LlmRequest }[]
+export const createFakeAi = ({ response = DEFAULT_RESPONSE, shouldFail = false }: FakeAiOptions = {}): TextGenerator & {
+  calls: { usage: LlmUsage; request: LlmRequest }[]
 } => {
-  const 呼び出し: { usage: LlmUsage; request: LlmRequest }[] = []
+  const calls: { usage: LlmUsage; request: LlmRequest }[] = []
   return {
-    呼び出し,
+    calls,
     run: (usage, request) => {
-      呼び出し.push({ usage, request })
-      if (失敗する) return Promise.reject(new Error('LLMの無料枠を使い切りました'))
+      calls.push({ usage, request })
+      if (shouldFail) return Promise.reject(new Error('LLMの無料枠を使い切りました'))
       return Promise.resolve(response)
     },
   }

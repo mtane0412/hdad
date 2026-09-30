@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 import type { BgmTrack } from './api'
 import { describeBgmProblem, newTrackOf, unusedAudioOf, volumeOfPercent, volumePercentOf } from './form'
 
-const 雑談の曲: BgmTrack = {
+const chatTrack: BgmTrack = {
   mediaId: 'media-zatsudan',
   title: 'ひだまりの午後',
   credit: '音楽: 甘茶の音楽工房',
@@ -61,12 +61,12 @@ describe('newTrackOf', () => {
 
 describe('unusedAudioOf', () => {
   it('上げた素材のうち、まだ曲にしていない音声だけを返す', () => {
-    const 素材 = [
+    const material = [
       { id: 'media-zatsudan', name: 'hidamari.mp3', kind: 'audio' as const },
       { id: 'media-moriagari', name: 'zenryoku.mp3', kind: 'audio' as const },
       { id: 'media-gazou', name: 'kanpai.png', kind: 'image' as const },
     ]
 
-    expect(unusedAudioOf(素材, [雑談の曲]).map((item) => item.id)).toEqual(['media-moriagari'])
+    expect(unusedAudioOf(material, [chatTrack]).map((item) => item.id)).toEqual(['media-moriagari'])
   })
 })

@@ -9,9 +9,9 @@ import { parseDrawMessage } from './stroke'
 
 describe('parseDrawMessage', () => {
   it('線の描き始めを、色と太さごと読み取る', () => {
-    const 届いた文字列 = '{"type":"start","id":"線1","point":{"x":0.25,"y":0.5},"color":"red","width":"bold"}'
+    const receivedString = '{"type":"start","id":"線1","point":{"x":0.25,"y":0.5},"color":"red","width":"bold"}'
 
-    expect(parseDrawMessage(届いた文字列)).toEqual({ type: 'start', id: '線1', point: { x: 0.25, y: 0.5 }, color: 'red', width: 'bold' })
+    expect(parseDrawMessage(receivedString)).toEqual({ type: 'start', id: '線1', point: { x: 0.25, y: 0.5 }, color: 'red', width: 'bold' })
   })
 
   it('全消しを読み取る', () => {
@@ -36,9 +36,9 @@ describe('parseDrawMessage', () => {
   })
 
   it('線の続きを読み取る', () => {
-    const 届いた文字列 = '{"type":"extend","id":"線1","points":[{"x":0.3,"y":0.5},{"x":0.35,"y":0.55}]}'
+    const receivedString = '{"type":"extend","id":"線1","points":[{"x":0.3,"y":0.5},{"x":0.35,"y":0.55}]}'
 
-    expect(parseDrawMessage(届いた文字列)).toEqual({
+    expect(parseDrawMessage(receivedString)).toEqual({
       type: 'extend',
       id: '線1',
       points: [
@@ -50,9 +50,9 @@ describe('parseDrawMessage', () => {
 
   it('箱の外へはみ出した座標も、そのまま読み取る', () => {
     // ポインタを箱の外まで動かすことは普通に起こる。はみ出しは異常ではないので拒まない
-    const 届いた文字列 = '{"type":"extend","id":"線1","points":[{"x":-0.1,"y":1.4}]}'
+    const receivedString = '{"type":"extend","id":"線1","points":[{"x":-0.1,"y":1.4}]}'
 
-    expect(parseDrawMessage(届いた文字列)).toEqual({ type: 'extend', id: '線1', points: [{ x: -0.1, y: 1.4 }] })
+    expect(parseDrawMessage(receivedString)).toEqual({ type: 'extend', id: '線1', points: [{ x: -0.1, y: 1.4 }] })
   })
 
   it('JSONとして読めない文字列はエラーにする', () => {
@@ -77,9 +77,9 @@ describe('parseDrawMessage', () => {
 
   it('線の名前が長すぎればエラーにする', () => {
     // 名前は描く画面が付ける短い識別子なので、長いものが来たら送り手の作りを疑う
-    const 長い名前 = 'あ'.repeat(65)
+    const longName = 'あ'.repeat(65)
 
-    expect(() => parseDrawMessage(`{"type":"start","id":"${長い名前}","point":{"x":0.1,"y":0.1},"color":"white","width":"medium"}`)).toThrow(
+    expect(() => parseDrawMessage(`{"type":"start","id":"${longName}","point":{"x":0.1,"y":0.1},"color":"white","width":"medium"}`)).toThrow(
       '手書きの線の形が想定と違います',
     )
   })
@@ -103,8 +103,8 @@ describe('parseDrawMessage', () => {
   })
 
   it('一度に送れる点の数を超えればエラーにする', () => {
-    const 多すぎる点 = Array.from({ length: 257 }, () => '{"x":0.1,"y":0.1}').join(',')
+    const tooManyPoints = Array.from({ length: 257 }, () => '{"x":0.1,"y":0.1}').join(',')
 
-    expect(() => parseDrawMessage(`{"type":"extend","id":"線1","points":[${多すぎる点}]}`)).toThrow('手書きの線の形が想定と違います')
+    expect(() => parseDrawMessage(`{"type":"extend","id":"線1","points":[${tooManyPoints}]}`)).toThrow('手書きの線の形が想定と違います')
   })
 })

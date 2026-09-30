@@ -11,8 +11,8 @@ import { describe, expect, it } from 'vitest'
 import type { ChatMessage } from './chat-command'
 import { judge, repeatRuleOf, type ModerationConfig, type ModerationRule } from './chat-moderation'
 
-/** 除外をすべて有効にした、ルールなしの設定。各テストでルールだけを足して使う */
-const 既定の設定: ModerationConfig = {
+/** 除外をすべて有効にした、ルールなしの設定。各テストでルールだけを追加して使う */
+const defaultConfig: ModerationConfig = {
   enabled: true,
   exemptBroadcaster: true,
   exemptVip: true,
@@ -20,13 +20,13 @@ const 既定の設定: ModerationConfig = {
   rules: [],
 }
 
-const 設定 = (rules: readonly ModerationRule[], 上書き: Partial<ModerationConfig> = {}): ModerationConfig => ({
-  ...既定の設定,
-  ...上書き,
+const moderationConfig = (rules: readonly ModerationRule[], overrides: Partial<ModerationConfig> = {}): ModerationConfig => ({
+  ...defaultConfig,
+  ...overrides,
   rules: [...rules],
 })
 
-const 発言 = (text: string, badges: readonly string[] = []): ChatMessage => ({
+const chatMessage = (text: string, badges: readonly string[] = []): ChatMessage => ({
   broadcasterUserId: '12345',
   messageId: 'message-id-0123456789',
   chatterUserId: '11111',
@@ -37,156 +37,156 @@ const 発言 = (text: string, badges: readonly string[] = []): ChatMessage => ({
 })
 
 /** 連投のルールを使わないテストでは、直近の同じ文面は自分の1件だけとして渡す */
-const 連投なし = 1
+const noRepeat = 1
 
 describe('judge', () => {
   describe('有効・無効', () => {
     it('無効なら、ルールに当てはまっても処分しない', () => {
-      const config = 設定([{ kind: 'word', word: '死ね', punishment: { type: 'ban' } }], { enabled: false })
+      const config = moderationConfig([{ kind: 'word', word: '死ね', punishment: { type: 'ban' } }], { enabled: false })
 
-      expect(judge(config, 発言('死ね'), 連投なし)).toBeNull()
+      expect(judge(config, chatMessage('死ね'), noRepeat)).toBeNull()
     })
 
     it('どのルールにも当てはまらなければ処分しない', () => {
-      const config = 設定([{ kind: 'word', word: '死ね', punishment: { type: 'ban' } }])
+      const config = moderationConfig([{ kind: 'word', word: '死ね', punishment: { type: 'ban' } }])
 
-      expect(judge(config, 発言('こんばんは'), 連投なし)).toBeNull()
+      expect(judge(config, chatMessage('こんばんは'), noRepeat)).toBeNull()
     })
   })
 
   describe('対象外の判定', () => {
-    const 禁止語のルール = 設定([{ kind: 'word', word: '宣伝', punishment: { type: 'delete' } }])
+    const bannedWordRule = moderationConfig([{ kind: 'word', word: '宣伝', punishment: { type: 'delete' } }])
 
     it('配信者のバッジが付いた発言は、除外が有効なら処分しない', () => {
-      expect(judge(禁止語のルール, 発言('宣伝します', ['broadcaster']), 連投なし)).toBeNull()
+      expect(judge(bannedWordRule, chatMessage('宣伝します', ['broadcaster']), noRepeat)).toBeNull()
     })
 
     it('モデレーターのバッジが付いた発言も、配信者と同じ除外で処分しない（Twitchはモデレーター同士の処分を許さない）', () => {
-      expect(judge(禁止語のルール, 発言('宣伝します', ['moderator']), 連投なし)).toBeNull()
+      expect(judge(bannedWordRule, chatMessage('宣伝します', ['moderator']), noRepeat)).toBeNull()
     })
 
     it('VIPのバッジが付いた発言は、除外が有効なら処分しない', () => {
-      expect(judge(禁止語のルール, 発言('宣伝します', ['vip']), 連投なし)).toBeNull()
+      expect(judge(bannedWordRule, chatMessage('宣伝します', ['vip']), noRepeat)).toBeNull()
     })
 
     it('サブスクライバーのバッジが付いた発言は、除外が有効なら処分しない', () => {
-      expect(judge(禁止語のルール, 発言('宣伝します', ['subscriber']), 連投なし)).toBeNull()
+      expect(judge(bannedWordRule, chatMessage('宣伝します', ['subscriber']), noRepeat)).toBeNull()
     })
 
     it('創設者（founder）のバッジも、サブスクライバーの除外の対象にする（古参のサブスクはこちらのバッジになる）', () => {
-      expect(judge(禁止語のルール, 発言('宣伝します', ['founder']), 連投なし)).toBeNull()
+      expect(judge(bannedWordRule, chatMessage('宣伝します', ['founder']), noRepeat)).toBeNull()
     })
 
     it('サブスクライバーの除外を切れば、サブスクライバーでも処分する', () => {
-      const config = 設定([{ kind: 'word', word: '宣伝', punishment: { type: 'delete' } }], { exemptSubscriber: false })
+      const config = moderationConfig([{ kind: 'word', word: '宣伝', punishment: { type: 'delete' } }], { exemptSubscriber: false })
 
-      expect(judge(config, 発言('宣伝します', ['subscriber']), 連投なし)).toEqual({ type: 'delete' })
+      expect(judge(config, chatMessage('宣伝します', ['subscriber']), noRepeat)).toEqual({ type: 'delete' })
     })
 
     it('バッジが付いていない視聴者は、除外の対象にならない', () => {
-      expect(judge(禁止語のルール, 発言('宣伝します'), 連投なし)).toEqual({ type: 'delete' })
+      expect(judge(bannedWordRule, chatMessage('宣伝します'), noRepeat)).toEqual({ type: 'delete' })
     })
   })
 
   describe('禁止語（word）', () => {
     it('本文に禁止語を含めば処分する（部分一致）', () => {
-      const config = 設定([{ kind: 'word', word: 'スパム', punishment: { type: 'timeout', durationSeconds: 600 } }])
+      const config = moderationConfig([{ kind: 'word', word: 'スパム', punishment: { type: 'timeout', durationSeconds: 600 } }])
 
-      expect(judge(config, 発言('これはスパムです'), 連投なし)).toEqual({ type: 'timeout', durationSeconds: 600 })
+      expect(judge(config, chatMessage('これはスパムです'), noRepeat)).toEqual({ type: 'timeout', durationSeconds: 600 })
     })
 
     it('大文字小文字は区別しない', () => {
-      const config = 設定([{ kind: 'word', word: 'spam', punishment: { type: 'delete' } }])
+      const config = moderationConfig([{ kind: 'word', word: 'spam', punishment: { type: 'delete' } }])
 
-      expect(judge(config, 発言('THIS IS SPAM'), 連投なし)).toEqual({ type: 'delete' })
+      expect(judge(config, chatMessage('THIS IS SPAM'), noRepeat)).toEqual({ type: 'delete' })
     })
   })
 
   describe('URL（url）', () => {
-    const URLのルール = 設定([{ kind: 'url', punishment: { type: 'timeout', durationSeconds: 60 } }])
+    const urlRule = moderationConfig([{ kind: 'url', punishment: { type: 'timeout', durationSeconds: 60 } }])
 
     it('http から始まるURLを含む発言を処分する', () => {
-      expect(judge(URLのルール, 発言('見てください http://example.com/campaign'), 連投なし)).toEqual({ type: 'timeout', durationSeconds: 60 })
+      expect(judge(urlRule, chatMessage('見てください http://example.com/campaign'), noRepeat)).toEqual({ type: 'timeout', durationSeconds: 60 })
     })
 
     it('https から始まるURLを含む発言を処分する', () => {
-      expect(judge(URLのルール, 発言('https://example.com'), 連投なし)).toEqual({ type: 'timeout', durationSeconds: 60 })
+      expect(judge(urlRule, chatMessage('https://example.com'), noRepeat)).toEqual({ type: 'timeout', durationSeconds: 60 })
     })
 
     it('www. から始まる書き方も処分する', () => {
-      expect(judge(URLのルール, 発言('www.example.com にどうぞ'), 連投なし)).toEqual({ type: 'timeout', durationSeconds: 60 })
+      expect(judge(urlRule, chatMessage('www.example.com にどうぞ'), noRepeat)).toEqual({ type: 'timeout', durationSeconds: 60 })
     })
 
     it('scheme を省いた短縮URL（ドメインとスラッシュ）も処分する', () => {
-      expect(judge(URLのルール, 発言('bit.ly/abcdefg で配布中'), 連投なし)).toEqual({ type: 'timeout', durationSeconds: 60 })
+      expect(judge(urlRule, chatMessage('bit.ly/abcdefg で配布中'), noRepeat)).toEqual({ type: 'timeout', durationSeconds: 60 })
     })
 
     it('URLを含まない普通の発言は処分しない', () => {
-      expect(judge(URLのルール, 発言('こんばんは。今日もよろしくお願いします'), 連投なし)).toBeNull()
+      expect(judge(urlRule, chatMessage('こんばんは。今日もよろしくお願いします'), noRepeat)).toBeNull()
     })
 
     it('小数点や「。」を含むだけの発言をURLと取り違えない', () => {
-      expect(judge(URLのルール, 発言('今日の勝率は 3.5 割でした。惜しい'), 連投なし)).toBeNull()
+      expect(judge(urlRule, chatMessage('今日の勝率は 3.5 割でした。惜しい'), noRepeat)).toBeNull()
     })
   })
 
   describe('連投（repeat）', () => {
-    const 連投のルール = 設定([{ kind: 'repeat', count: 3, windowSeconds: 30, punishment: { type: 'timeout', durationSeconds: 300 } }])
+    const repeatRule = moderationConfig([{ kind: 'repeat', count: 3, windowSeconds: 30, punishment: { type: 'timeout', durationSeconds: 300 } }])
 
     it('同じ文面の件数が閾値に達したら処分する（自分の発言を含めて数える）', () => {
-      expect(judge(連投のルール, 発言('うおおおお'), 3)).toEqual({ type: 'timeout', durationSeconds: 300 })
+      expect(judge(repeatRule, chatMessage('うおおおお'), 3)).toEqual({ type: 'timeout', durationSeconds: 300 })
     })
 
     it('閾値に達していなければ処分しない', () => {
-      expect(judge(連投のルール, 発言('うおおおお'), 2)).toBeNull()
+      expect(judge(repeatRule, chatMessage('うおおおお'), 2)).toBeNull()
     })
   })
 
   describe('複数のルールに当たったとき', () => {
     it('BANと削除なら、重いほうのBANを採る', () => {
-      const config = 設定([
+      const config = moderationConfig([
         { kind: 'word', word: '宣伝', punishment: { type: 'delete' } },
         { kind: 'url', punishment: { type: 'ban' } },
       ])
 
-      expect(judge(config, 発言('宣伝です https://example.com'), 連投なし)).toEqual({ type: 'ban' })
+      expect(judge(config, chatMessage('宣伝です https://example.com'), noRepeat)).toEqual({ type: 'ban' })
     })
 
     it('タイムアウトと削除なら、重いほうのタイムアウトを採る', () => {
-      const config = 設定([
+      const config = moderationConfig([
         { kind: 'word', word: '宣伝', punishment: { type: 'delete' } },
         { kind: 'url', punishment: { type: 'timeout', durationSeconds: 60 } },
       ])
 
-      expect(judge(config, 発言('宣伝です https://example.com'), 連投なし)).toEqual({ type: 'timeout', durationSeconds: 60 })
+      expect(judge(config, chatMessage('宣伝です https://example.com'), noRepeat)).toEqual({ type: 'timeout', durationSeconds: 60 })
     })
 
     it('タイムアウトが2つなら、長いほうを採る', () => {
-      const config = 設定([
+      const config = moderationConfig([
         { kind: 'word', word: '宣伝', punishment: { type: 'timeout', durationSeconds: 60 } },
         { kind: 'url', punishment: { type: 'timeout', durationSeconds: 600 } },
       ])
 
-      expect(judge(config, 発言('宣伝です https://example.com'), 連投なし)).toEqual({ type: 'timeout', durationSeconds: 600 })
+      expect(judge(config, chatMessage('宣伝です https://example.com'), noRepeat)).toEqual({ type: 'timeout', durationSeconds: 600 })
     })
   })
 })
 
 describe('repeatRuleOf', () => {
   it('連投のルールが無ければ null（直近の発言をデータベースに記録しないため）', () => {
-    const config = 設定([{ kind: 'word', word: '宣伝', punishment: { type: 'delete' } }])
+    const config = moderationConfig([{ kind: 'word', word: '宣伝', punishment: { type: 'delete' } }])
 
     expect(repeatRuleOf(config)).toBeNull()
   })
 
   it('連投のルールがあれば、そのルールを返す（何秒のあいだ数えるかが分かる）', () => {
-    const ルール: ModerationRule = { kind: 'repeat', count: 3, windowSeconds: 30, punishment: { type: 'delete' } }
+    const rule: ModerationRule = { kind: 'repeat', count: 3, windowSeconds: 30, punishment: { type: 'delete' } }
 
-    expect(repeatRuleOf(設定([ルール]))).toEqual(ルール)
+    expect(repeatRuleOf(moderationConfig([rule]))).toEqual(rule)
   })
 
   it('無効なら、連投のルールがあっても null', () => {
-    const config = 設定([{ kind: 'repeat', count: 3, windowSeconds: 30, punishment: { type: 'delete' } }], { enabled: false })
+    const config = moderationConfig([{ kind: 'repeat', count: 3, windowSeconds: 30, punishment: { type: 'delete' } }], { enabled: false })
 
     expect(repeatRuleOf(config)).toBeNull()
   })

@@ -21,7 +21,7 @@ export type BgmCreditSource = Pick<BgmTrack, 'title' | 'credit' | 'creditUrl'>
 
 /**
  * {bgm} が置き換わる文の最大の長さ。応答文の長さの検証（bot-config.ts）が、保存の時点で見積もるのに使う。
- * 曲名を囲む「」と、項目の間の空白2つのぶんを足している（bgmCreditText の形と合わせる）
+ * 曲名を囲む「」と、項目の間の空白2つのぶんを追加している（bgmCreditText の形と合わせる）
  */
 export const MAX_BGM_CREDIT_LENGTH = MAX_TITLE_LENGTH + MAX_CREDIT_LENGTH + MAX_CREDIT_URL_LENGTH + 4
 

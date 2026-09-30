@@ -32,6 +32,7 @@ import { Link } from '@/app/router'
 import type { BotApi, BotStatus } from '@/bot/api'
 import { ApiError } from '@/core/api'
 import { PlaceholderInput } from '@/core/placeholder-input'
+import { iconButtonName } from '@/core/icon-button'
 import { isAnnouncementColor, type AdminApi, type MediaItem, type Reward, type TriggerKind } from './api'
 import {
   colorOptions,
@@ -588,11 +589,11 @@ interface TriggerItemProps {
 /**
  * 一覧の項目1つ。
  *
- * 配信者はトリガーを作らず、並んでいる出来事に効果を足していく。そのため項目は常に一覧に出る。
+ * 配信者はトリガーを作らず、並んでいる出来事に効果を追加していく。そのため項目は常に一覧に出る。
  * 1行だけの項目も複数の設定を持てる項目も同じ枠（ITEM_BOX）に入れて、一覧の中で見た目が2種類に分かれないようにする。
  * 絞り込みのパラメータを持たない項目はちょうど1行で、その行が枠そのものになる
  * （見出しを2段重ねると、1行しかない項目でも入れ子があるように見えてしまう）。
- * パラメータを持つ項目は、配信者が足したぶんだけ行が並ぶ（報酬ごとに違う効果を付けられるようにするため）。
+ * パラメータを持つ項目は、配信者が追加したぶんだけ行が並ぶ（報酬ごとに違う効果を付けられるようにするため）。
  */
 const TriggerItem = ({ item, rowsByPhase, media, rewards, openPosition, busy, onToggle, onChange, onRemove, onAdd }: TriggerItemProps) => {
   // 同じ添字のイベント種別どうしを1つの行にまとめる（広告の開始と終了は同じ行に並ぶ）
@@ -650,9 +651,8 @@ const TriggerItem = ({ item, rowsByPhase, media, rewards, openPosition, busy, on
       {rowCount > 0 && <ul className="flex flex-col">{rows.map((phases, index) => row(phases, `${item.label}の${index + 1}番目の設定`, null, true, 'border-t'))}</ul>}
       {item.addLabel !== null && (
         <div className="border-t p-2">
-          <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onAdd}>
+          <Button type="button" variant="ghost" size="icon-sm" {...iconButtonName(item.addLabel)} disabled={busy} onClick={onAdd}>
             <Plus aria-hidden="true" />
-            {item.addLabel}
           </Button>
         </div>
       )}
@@ -795,7 +795,7 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
     )
   }
 
-  // 足した設定も書き換えた値も、保存するまで反映されない。読み込んだ（保存した）時点の中身と比べて知らせる
+  // 追加した設定も書き換えた値も、保存するまで反映されない。読み込んだ（保存した）時点の中身と比べて知らせる
   const unsaved = JSON.stringify(drafts) !== savedSignature
 
   const rotateKey = async (): Promise<string> => {
@@ -819,16 +819,16 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
   }
 
   /**
-   * 複数持てる項目に設定を1つ足す。
+   * 複数持てる項目に設定を1つ追加する。
    *
-   * 並びは一覧のとおりにそろえるので、足した行は同じ項目の最後に入る。開くのはその行である。
+   * 並びは一覧のとおりにそろえるので、追加した行は同じ項目の最後に入る。開くのはその行である。
    */
   const addRow = async (kind: TriggerKind): Promise<string> => {
     const next = withFixedRows([...drafts, createDraft(kind, media)])
     replaceDrafts(next)
-    // 足した行は同じ項目の最後に入る（findLastIndex は tsconfig の lib に無いので、後ろから探す）
+    // 追加した行は同じ項目の最後に入る（findLastIndex は tsconfig の lib に無いので、後ろから探す）
     setOpenPosition(next.map((draft) => draft.kind).lastIndexOf(kind))
-    return `「${menuLabel(kind)}」の設定を足しました。保存するまで反映されません`
+    return `「${menuLabel(kind)}」の設定を追加しました。保存するまで反映されません`
   }
 
   const saveTriggers = async (): Promise<string> => {
@@ -926,7 +926,7 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
               <Link href="/media/" className="underline underline-offset-4">
                 アップロード
               </Link>
-              のページで足してください。
+              のページで追加してください。
             </p>
           )}
           {menuGroups.map((group) => (

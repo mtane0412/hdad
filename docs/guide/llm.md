@@ -26,7 +26,7 @@ npx wrangler secret put OPENROUTER_API_KEY
 # ローカル（npm run dev）では .dev.vars に OPENROUTER_API_KEY=... と書く
 ```
 
-- モデルは**一覧から選びます**（手で入力しません）。打ち間違いに気づくのが「配信中に文面が作られなかったとき」になってしまうためです。候補は Workers AI がこのリポジトリの一覧（`worker/llm-models.ts`。文面づくりに向く汎用のモデルだけを載せています。増えたらここに足します）、OpenRouter が openrouter.ai の公開API（鍵は要りません。Workerが1時間ぶん貯めます）です
+- モデルは**一覧から選びます**（手で入力しません）。打ち間違いに気づくのが「配信中に文面が作られなかったとき」になってしまうためです。候補は Workers AI がこのリポジトリの一覧（`worker/llm-models.ts`。文面づくりに向く汎用のモデルだけを載せています。増えたらここに追加します）、OpenRouter が openrouter.ai の公開API（鍵は要りません。Workerが1時間ぶん貯めます）です
 - 選んだモデルは**提供元ごとに別に覚えます**（`@cf/meta/llama-3.1-8b-instruct-fp8` と `meta-llama/llama-3.1-8b-instruct` のように書き方が違うため）。切り替えて戻しても選び直す必要はありません
 - 候補を読み込めなかったときは、空の選択欄にせず理由を出します。いま保存されているモデルは選択欄に残るので、そのまま保存できます
 - OpenRouter を選んだ箇所は、鍵が無ければ**その箇所の文面を作るときに失敗します**（黙って Workers AI へは切り替わりません）。管理画面は、鍵が無いのに OpenRouter を選んでいる箇所の名前を挙げて知らせます

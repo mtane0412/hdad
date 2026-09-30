@@ -14,17 +14,17 @@ import type { FocusTarget } from './focused'
 import { createFocusView } from './view'
 
 /** 映す1件 */
-const 映す1件 = (上書き: Partial<FocusTarget> = {}): FocusTarget => ({
+const createItem = (overrides: Partial<FocusTarget> = {}): FocusTarget => ({
   messageId: '発言1',
   login: 'kowai_hanashi',
   displayName: '怖い話す人',
   text: '今から怖い話をするね',
   profileImageUrl: 'https://static-cdn.jtvnw.net/jtv_user_pictures/kowai_hanashi.png',
-  ...上書き,
+  ...overrides,
 })
 
 /** 表示を作る。root と、そこに映す操作を返す */
-const 用意する = () => {
+const setup = () => {
   const root = document.createElement('div')
   document.body.replaceChildren(root)
   return { root, view: createFocusView(root) }
@@ -32,30 +32,30 @@ const 用意する = () => {
 
 describe('createFocusView', () => {
   it('アイコン・名前・本文を1つの箱にまとめて出す', () => {
-    const { root, view } = 用意する()
+    const { root, view } = setup()
 
-    view.setFocused(映す1件())
+    view.setFocused(createItem())
 
-    const 箱 = root.querySelector('.focus-card')
+    const box = root.querySelector('.focus-card')
     expect(root.children).toHaveLength(1)
-    expect(箱?.querySelector<HTMLImageElement>('.focus-icon')?.getAttribute('src')).toBe(
+    expect(box?.querySelector<HTMLImageElement>('.focus-icon')?.getAttribute('src')).toBe(
       'https://static-cdn.jtvnw.net/jtv_user_pictures/kowai_hanashi.png',
     )
-    expect(箱?.querySelector('.focus-name')?.textContent).toBe('怖い話す人')
-    expect(箱?.querySelector('.focus-body')?.textContent).toBe('今から怖い話をするね')
+    expect(box?.querySelector('.focus-name')?.textContent).toBe('怖い話す人')
+    expect(box?.querySelector('.focus-body')?.textContent).toBe('今から怖い話をするね')
   })
 
   it('アイコンは名前と並ぶ飾りなので、読み上げでは名前を繰り返さない（代替文字を空にする）', () => {
-    const { root, view } = 用意する()
+    const { root, view } = setup()
 
-    view.setFocused(映す1件())
+    view.setFocused(createItem())
 
     expect(root.querySelector<HTMLImageElement>('.focus-icon')?.getAttribute('alt')).toBe('')
   })
 
   it('映すものが無ければ何も残さない（消された発言を配信画面に残さない）', () => {
-    const { root, view } = 用意する()
-    view.setFocused(映す1件())
+    const { root, view } = setup()
+    view.setFocused(createItem())
 
     view.setFocused(null)
 
@@ -63,51 +63,51 @@ describe('createFocusView', () => {
   })
 
   it('同じ1件を渡し直したときは要素を作り直さない（出現のアニメーションを繰り返さないため）', () => {
-    const { root, view } = 用意する()
-    view.setFocused(映す1件())
-    const 最初の箱 = root.querySelector('.focus-card')
+    const { root, view } = setup()
+    view.setFocused(createItem())
+    const firstBox = root.querySelector('.focus-card')
 
-    view.setFocused(映す1件())
+    view.setFocused(createItem())
 
-    expect(root.querySelector('.focus-card')).toBe(最初の箱)
+    expect(root.querySelector('.focus-card')).toBe(firstBox)
   })
 
   it('別の1件に変わったら要素を作り直す', () => {
-    const { root, view } = 用意する()
-    view.setFocused(映す1件())
-    const 最初の箱 = root.querySelector('.focus-card')
+    const { root, view } = setup()
+    view.setFocused(createItem())
+    const firstBox = root.querySelector('.focus-card')
 
-    view.setFocused(映す1件({ messageId: '発言2', text: 'それは去年の夏のことでした' }))
+    view.setFocused(createItem({ messageId: '発言2', text: 'それは去年の夏のことでした' }))
 
-    expect(root.querySelector('.focus-card')).not.toBe(最初の箱)
+    expect(root.querySelector('.focus-card')).not.toBe(firstBox)
     expect(root.querySelector('.focus-body')?.textContent).toBe('それは去年の夏のことでした')
   })
 
   it('本文の長さに応じて、字の大きさの区分を本文の要素に入れる（長い語りを配信画面からあふれさせないため）', () => {
-    const { root, view } = 用意する()
+    const { root, view } = setup()
 
-    view.setFocused(映す1件({ text: 'こわい' }))
+    view.setFocused(createItem({ text: 'こわい' }))
     expect(root.querySelector<HTMLElement>('.focus-body')?.dataset.length).toBe('short')
 
-    view.setFocused(映す1件({ messageId: '発言2', text: 'あ'.repeat(80) }))
+    view.setFocused(createItem({ messageId: '発言2', text: 'あ'.repeat(80) }))
     expect(root.querySelector<HTMLElement>('.focus-body')?.dataset.length).toBe('medium')
 
-    view.setFocused(映す1件({ messageId: '発言3', text: 'あ'.repeat(200) }))
+    view.setFocused(createItem({ messageId: '発言3', text: 'あ'.repeat(200) }))
     expect(root.querySelector<HTMLElement>('.focus-body')?.dataset.length).toBe('long')
   })
 
   it('絵文字は見た目の1文字として数える（Workerの上限の数え方と合わせる）', () => {
-    const { root, view } = 用意する()
+    const { root, view } = setup()
 
     // 「🎃」は UTF-16 では2単位ぶんを占める。40個なら見た目は40文字で、大きいまま出す
-    view.setFocused(映す1件({ text: '🎃'.repeat(40) }))
+    view.setFocused(createItem({ text: '🎃'.repeat(40) }))
 
     expect(root.querySelector<HTMLElement>('.focus-body')?.dataset.length).toBe('short')
   })
 
   it('本文が空なら投げる（名前だけのコメントを配信画面に出さない）', () => {
-    const { view } = 用意する()
+    const { view } = setup()
 
-    expect(() => view.setFocused(映す1件({ text: '' }))).toThrow(/本文/)
+    expect(() => view.setFocused(createItem({ text: '' }))).toThrow(/本文/)
   })
 })

@@ -2,7 +2,7 @@
  * 手書きの線の描画
  *
  * 合成ページは、届いた線を積み上げた集まり（src/draw/strokes.ts）から、毎フレームここで描き直す。
- * フレーム間の状態を持たない（前のフレームの続きを足していかない）のは、このリポジトリの描画の約束に従うためである。
+ * フレーム間の状態を持たない（前のフレームの続きを追加していかない）のは、このリポジトリの描画の約束に従うためである。
  *
  * 座標は箱の大きさに対する比で持っているので、描くときに canvas の画素へ直す。線の太さも箱の幅に対する比で
  * 決めるため、載せる箱の大きさが変わっても見え方が保たれる。
@@ -68,28 +68,28 @@ export const drawStrokes = (context: StrokeContext, strokes: Strokes, size: Canv
   context.lineJoin = 'round'
 
   for (const { points, color, width } of strokes.strokes) {
-    const 太さ = strokeWidth(size, width)
-    const 画素の点 = points.map(({ x, y }) => ({ x: x * size.width, y: y * size.height }))
-    const 最初 = 画素の点[0]
-    if (最初 === undefined) continue
+    const lineWidth = strokeWidth(size, width)
+    const pixelPoint = points.map(({ x, y }) => ({ x: x * size.width, y: y * size.height }))
+    const first = pixelPoint[0]
+    if (first === undefined) continue
 
     // 同じ形を2度描く。1度目は外へはみ出す縁取り、2度目がその上に載る線そのものになる。
     // 丸は太さではなく半径で大きさが決まるので、段ごとにパスを引き直す（同じパスを塗り直しても縁は見えない）
-    for (const 段 of [
-      { 色: OUTLINE_COLOR, 太さ: 太さ * (1 + OUTLINE_RATIO) },
-      { 色: colorOf(color).value, 太さ },
+    for (const step of [
+      { strokeColor: OUTLINE_COLOR, lineWidth: lineWidth * (1 + OUTLINE_RATIO) },
+      { strokeColor: colorOf(color).value, lineWidth },
     ]) {
-      context.lineWidth = 段.太さ
-      context.strokeStyle = 段.色
-      context.fillStyle = 段.色
+      context.lineWidth = step.lineWidth
+      context.strokeStyle = step.strokeColor
+      context.fillStyle = step.strokeColor
       context.beginPath()
-      if (画素の点.length === 1) {
-        context.arc(最初.x, 最初.y, 段.太さ * DOT_RADIUS_RATIO, 0, FULL_CIRCLE)
+      if (pixelPoint.length === 1) {
+        context.arc(first.x, first.y, step.lineWidth * DOT_RADIUS_RATIO, 0, FULL_CIRCLE)
         context.fill()
         continue
       }
-      context.moveTo(最初.x, 最初.y)
-      for (const 点 of 画素の点.slice(1)) context.lineTo(点.x, 点.y)
+      context.moveTo(first.x, first.y)
+      for (const point of pixelPoint.slice(1)) context.lineTo(point.x, point.y)
       context.stroke()
     }
   }

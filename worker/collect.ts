@@ -254,17 +254,17 @@ const summarizeStream = async (db: Database, ai: TextGenerator, sessionId: strin
   // 読めた材料の最後の行を「どこまで材料にしたか」の目印として記録する。件数の上限で切れた残りは、
   // 読む順（発話と発言は日時・メッセージIDの順、画面の文字は積んだ時刻・画像ID・1枚の中の並びの順）で
   // この目印より後ろにあるので、次の収集で読まれる（取りこぼしにはならない）
-  const 最後の発話 = transcripts.at(-1)
-  const 最後の発言 = chats.at(-1)
-  const 最後の画面 = screen.at(-1)
+  const lastSpeech = transcripts.at(-1)
+  const lastChat = chats.at(-1)
+  const lastScreen = screen.at(-1)
   await saveStreamSummary(
     db,
     {
       sessionId,
       summary,
-      transcriptsUntil: 最後の発話 ? { at: 最後の発話.at, messageId: 最後の発話.messageId } : transcriptsFrom,
-      chatUntil: 最後の発言 ? { at: 最後の発言.at, messageId: 最後の発言.messageId } : chatFrom,
-      screenUntil: 最後の画面 ? { at: 最後の画面.at, imageId: 最後の画面.imageId, lineNo: 最後の画面.lineNo } : screenFrom,
+      transcriptsUntil: lastSpeech ? { at: lastSpeech.at, messageId: lastSpeech.messageId } : transcriptsFrom,
+      chatUntil: lastChat ? { at: lastChat.at, messageId: lastChat.messageId } : chatFrom,
+      screenUntil: lastScreen ? { at: lastScreen.at, imageId: lastScreen.imageId, lineNo: lastScreen.lineNo } : screenFrom,
     },
     now,
   )
@@ -336,11 +336,11 @@ const makeSideSuper = async (db: Database, ai: TextGenerator, stream: LiveStream
   const chats = await readRecentSessionChat(db, stream.id, SIDE_SUPER_CHAT_LIMIT)
   const screen = await readCurrentScreenLines(db, stream.id, SIDE_SUPER_SCREEN_LIMIT)
   // 前回より後に届いた材料があるかを、材料そのものの時刻で見る（どれも同じ形の ISO 8601 なので文字列で比べられる）
-  const 新しい材料がある =
+  const hasNewMaterial =
     previous === null
       ? transcripts.length > 0 || chats.length > 0 || screen.length > 0
       : [...transcripts, ...chats, ...screen].some((line) => line.at > previous.updatedAt)
-  if (!新しい材料がある) return
+  if (!hasNewMaterial) return
 
   let lines
   try {
@@ -368,7 +368,7 @@ type ReadChannel = (userId: string) => Promise<ChannelInfo>
  * その人自身のチャンネルの内容（最後に配信したカテゴリとタイトル）を観測して記録する（issue #98）。
  *
  * 人物像を作る人のぶんだけ呼ぶので、1回の収集で増えるTwitchへの問い合わせは SUMMARY_BATCH_SIZE 件までである。
- * 発言の受け口（worker/webhook-routes.ts）では観測しない（Twitchへ2xxを速く返す道に問い合わせを足さない）。
+ * 発言の受け口（worker/webhook-routes.ts）では観測しない（Twitchへ2xxを速く返す道に問い合わせを追加しない）。
  *
  * 注意: 観測できなくても人物像づくりは止めない。消えたアカウント・改名などで1人ぶん取れないことは起こりうるが、
  * それでその人の人物像が作られないほうが困る。黙って飛ばすのではなく、理由を failures へ書き足して
@@ -429,18 +429,18 @@ const summarizeViewers = async (
   ai: TextGenerator,
   readChannel: ReadChannel,
   now: number,
-  予算を使い切った: () => boolean,
+  budgetExhausted: () => boolean,
 ): Promise<number> => {
   const targets = await listSummaryTargets(db, SUMMARY_BATCH_SIZE)
   /** チャンネルを観測できなかった人の理由。1回の収集ぶんをまとめて1行に記録する（recordChannelFailures） */
   const channelFailures: string[] = []
-  let 手を付けた = 0
+  let touched = 0
   for (const target of targets) {
-    if (予算を使い切った()) {
+    if (budgetExhausted()) {
       await recordChannelFailures(db, channelFailures, now)
-      return targets.length - 手を付けた
+      return targets.length - touched
     }
-    手を付けた += 1
+    touched += 1
     const viewer = await readViewer(db, target.userId)
     // 記録を消された人（本人から求められて削除した場合）の材料は、LLMもTwitchも呼ばずに捨てる
     if (viewer === null) {
@@ -497,14 +497,14 @@ const fetchScreenOcr = async (
   db: Database,
   gyazo: Pick<GyazoClient, 'fetchOcr'>,
   now: number,
-  予算を使い切った: () => boolean,
+  budgetExhausted: () => boolean,
 ): Promise<number> => {
   const pending = await listPendingOcr(db, SCREEN_OCR_BATCH_SIZE)
-  let 取りに行った = 0
+  let fetched = 0
   for (const capture of pending) {
     // 1枚ごとに見るのは、遅い相手が続くと30枚ぶんが積み上がるためである。取れたぶんはそのまま残る
-    if (予算を使い切った()) return pending.length - 取りに行った
-    取りに行った += 1
+    if (budgetExhausted()) return pending.length - fetched
+    fetched += 1
     let text: string | null
     try {
       text = await gyazo.fetchOcr(capture.imageId)
@@ -529,12 +529,12 @@ const fetchScreenOcr = async (
  * 持てない。migrations/0012_collection_failures_key.sql）ので、チャンネルの観測（recordChannelFailures）と
  * 同じくまとめて書く。
  */
-const recordBudgetExceeded = async (db: Database, 回したもの: readonly string[], now: number): Promise<void> => {
-  if (回したもの.length === 0) return
+const recordBudgetExceeded = async (db: Database, deferred: readonly string[], now: number): Promise<void> => {
+  if (deferred.length === 0) return
   await recordFailure(
     db,
     'collect-budget-exceeded',
-    `1回の収集の時間の予算（${COLLECT_BUDGET_MS / 1000}秒）を過ぎたので、${回したもの.join('・')}を次の収集へ回しました`,
+    `1回の収集の時間の予算（${COLLECT_BUDGET_MS / 1000}秒）を過ぎたので、${deferred.join('・')}を次の収集へ回しました`,
     now,
   )
 }
@@ -569,26 +569,26 @@ const SEEN_LINE_LIMIT = 300
  * 篩そのものは worker/screen-ocr.ts が持ち、ここは材料（自前の文字・既に渡した行）を読んで渡すだけである。
  *
  * 注意: 材料は配信の区切りごとに一度だけ読む。1枚ごとに読み直すとD1の読み出しが枚数ぶん増える。
- * ただし既出の行は篩を通すたびに増えるので、残った行をその場で足す（そうしないと、同じ収集で処理する
+ * ただし既出の行は篩を通すたびに増えるので、残った行をその場で追加する（そうしないと、同じ収集で処理する
  * 2枚目以降が1枚目と同じ行を積んでしまう）。
  * 注意: 残った行が0行でも、その1枚は通し終えたことにする（saveScreenLines が sifted_at を入れる）。
  * 同じ画面を撮り続けるあいだ0行になるのが普通で、通し直す意味がない。
  */
 const siftScreenOcr = async (db: Database, now: number): Promise<void> => {
   const pending = await listPendingSift(db, SCREEN_SIFT_BATCH_SIZE)
-  const 自前の文字 = new Map<string, string[]>()
-  const 既出の行 = new Map<string, string[]>()
+  const ownText = new Map<string, string[]>()
+  const seenLines = new Map<string, string[]>()
 
   for (const capture of pending) {
-    let own = 自前の文字.get(capture.sessionId)
+    let own = ownText.get(capture.sessionId)
     if (!own) {
       own = await readOwnScreenTexts(db, capture.sessionId, OWN_TEXT_LIMIT)
-      自前の文字.set(capture.sessionId, own)
+      ownText.set(capture.sessionId, own)
     }
-    let seen = 既出の行.get(capture.sessionId)
+    let seen = seenLines.get(capture.sessionId)
     if (!seen) {
       seen = await readRecentScreenLines(db, capture.sessionId, SEEN_LINE_LIMIT)
-      既出の行.set(capture.sessionId, seen)
+      seenLines.set(capture.sessionId, seen)
     }
 
     const lines = extractNewScreenLines(capture.ocrText, own, seen)
@@ -598,17 +598,17 @@ const siftScreenOcr = async (db: Database, now: number): Promise<void> => {
 }
 
 const collect = async ({ db, store, twitch, ai, jev, alerts, gyazo, broadcasterId, now, clock = Date.now }: CollectStatsOptions): Promise<void> => {
-  const 始めた時刻 = clock()
-  const 予算を使い切った = (): boolean => clock() - 始めた時刻 > COLLECT_BUDGET_MS
+  const startedAt = clock()
+  const budgetExhausted = (): boolean => clock() - startedAt > COLLECT_BUDGET_MS
   /** 予算を過ぎて次の収集へ回したもの。まとめて1行に記録する */
-  const 次の収集へ回したもの: string[] = []
+  const deferredToNextCollect: string[] = []
   /** 予算が残っていれば作り、使い切っていたら手を付けずに次の収集へ回す */
-  const 予算のうちに = async <Result>(名前: string, 作る: () => Promise<Result>): Promise<Result | undefined> => {
-    if (予算を使い切った()) {
-      次の収集へ回したもの.push(名前)
+  const withinBudget = async <Result>(name: string, create: () => Promise<Result>): Promise<Result | undefined> => {
+    if (budgetExhausted()) {
+      deferredToNextCollect.push(name)
       return undefined
     }
-    return await 作る()
+    return await create()
   }
 
   let token = await getAccessToken(store, 'broadcaster', twitch, now)
@@ -646,8 +646,8 @@ const collect = async ({ db, store, twitch, ai, jev, alerts, gyazo, broadcasterI
   // 画面から読み取った文字は、あらすじとサイドスーパーの材料になるので、それらを作る前に取りに行き、篩にかける。
   // 篩は Gyazo を呼ばないので、トークンが無くても（前の収集で取れているぶんを）通す
   if (gyazo) {
-    const 残した枚数 = await fetchScreenOcr(db, gyazo, now, 予算を使い切った)
-    if (残した枚数 > 0) 次の収集へ回したもの.push(`画面の文字の取得（残り${残した枚数}枚）`)
+    const keptCount = await fetchScreenOcr(db, gyazo, now, budgetExhausted)
+    if (keptCount > 0) deferredToNextCollect.push(`画面の文字の取得（残り${keptCount}枚）`)
   }
   // 篩は外へ出ないので、予算を過ぎていても通す（通さないと、取れた文字が篩の前で溜まっていくだけになる）
   await siftScreenOcr(db, now)
@@ -658,17 +658,17 @@ const collect = async ({ db, store, twitch, ai, jev, alerts, gyazo, broadcasterI
   // 1つ作るごとに予算を見るのは、LLMの呼び出しが1回で最大60秒かかるので、入口で1度見るだけでは
   // 3つぶん（あらすじ・サイドスーパー・人物像5人）が次の cron の起動に食い込むためである（issue #126）
   if (stream) {
-    const summary = await 予算のうちに('あらすじ', () => summarizeStream(db, ai, stream.id, now))
-    if (typeof summary === 'string') await 予算のうちに('BGMの切り替え', () => chooseBgmForStream({ db, store, jev, alerts }, stream.id, summary, now))
-    await 予算のうちに('サイドスーパー', () => makeSideSuper(db, ai, stream, now))
+    const summary = await withinBudget('あらすじ', () => summarizeStream(db, ai, stream.id, now))
+    if (typeof summary === 'string') await withinBudget('BGMの切り替え', () => chooseBgmForStream({ db, store, jev, alerts }, stream.id, summary, now))
+    await withinBudget('サイドスーパー', () => makeSideSuper(db, ai, stream, now))
   }
-  if (予算を使い切った()) {
-    次の収集へ回したもの.push('人物像')
+  if (budgetExhausted()) {
+    deferredToNextCollect.push('人物像')
   } else {
-    const 残した人数 = await summarizeViewers(db, ai, (userId) => callTwitch((accessToken) => twitch.getChannel(accessToken, userId)), now, 予算を使い切った)
-    if (残した人数 > 0) 次の収集へ回したもの.push(`人物像（残り${残した人数}人）`)
+    const keptPeople = await summarizeViewers(db, ai, (userId) => callTwitch((accessToken) => twitch.getChannel(accessToken, userId)), now, budgetExhausted)
+    if (keptPeople > 0) deferredToNextCollect.push(`人物像（残り${keptPeople}人）`)
   }
-  await recordBudgetExceeded(db, 次の収集へ回したもの, now)
+  await recordBudgetExceeded(db, deferredToNextCollect, now)
 }
 
 /**
