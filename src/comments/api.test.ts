@@ -55,9 +55,10 @@ describe('pickUnknownUserIds', () => {
       fragments: [],
       bits: null,
       reply: null,
+      firstOfStream: false,
     },
     removed: false,
-    read: null,
+    greeted: false,
   })
 
   it('まだアイコンを引いていない人のIDを、重ねずに選ぶ', () => {
@@ -70,7 +71,7 @@ describe('pickUnknownUserIds', () => {
     const anonymousGift: FeedEntry = {
       item: { kind: 'notice', id: '通知', at: 0, messageId: 'お知らせ', user: null, color: null, badges: [], fragments: [], notice: { type: 'communityGift', tier: '1000', count: 5 } },
       removed: false,
-      read: null,
+      greeted: false,
     }
 
     expect(pickUnknownUserIds([anonymousGift], new Set())).toEqual([])
@@ -158,45 +159,22 @@ const createRecordingFetch = (respond: () => Response) => {
   return { fetchImpl, sentRequests }
 }
 
-describe('markRead', () => {
-  it('既読にする発言と、既読にするか未読に戻すかをWorkerへ送る', async () => {
+describe('markGreeted', () => {
+  it('挨拶を付け替える初めての発言と、挨拶したか戻すかをWorkerへ送る', async () => {
     const { fetchImpl, sentRequests } = createRecordingFetch(() => new Response(null, { status: 204 }))
 
-    await createCommentApi(fetchImpl).markRead('たなかさんの初見の挨拶', true)
-    await createCommentApi(fetchImpl).markRead('たなかさんの初見の挨拶', false)
+    await createCommentApi(fetchImpl).markGreeted('たなかさんの初見の挨拶', true)
+    await createCommentApi(fetchImpl).markGreeted('たなかさんの初見の挨拶', false)
 
     expect(sentRequests).toEqual([
-      { url: '/api/admin/comments/reads', method: 'POST', body: { messageId: 'たなかさんの初見の挨拶', read: true } },
-      { url: '/api/admin/comments/reads', method: 'POST', body: { messageId: 'たなかさんの初見の挨拶', read: false } },
+      { url: '/api/admin/comments/greetings', method: 'POST', body: { messageId: 'たなかさんの初見の挨拶', greeted: true } },
+      { url: '/api/admin/comments/greetings', method: 'POST', body: { messageId: 'たなかさんの初見の挨拶', greeted: false } },
     ])
   })
 
   it('Workerが失敗を返したら、理由を添えたエラーにする', async () => {
-    const { fetchImpl } = createRecordingFetch(() => Response.json({ error: { code: 'internal', message: 'コメントビューアーの1件を配送先へ送れませんでした' } }, { status: 500 }))
+    const { fetchImpl } = createRecordingFetch(() => Response.json({ error: { code: 'unknown-first-chat', message: 'その配信で初めての発言として記録されていない発言です' } }, { status: 404 }))
 
-    await expect(createCommentApi(fetchImpl).markRead('たなかさんの初見の挨拶', true)).rejects.toThrow('配送先へ送れませんでした')
-  })
-})
-
-describe('loadSettings・saveSettings', () => {
-  it('設定を読む', async () => {
-    const { fetchImpl, sentRequests } = createRecordingFetch(() => Response.json({ highlightUnread: true, judgeWithJev: false }))
-
-    expect(await createCommentApi(fetchImpl).loadSettings()).toEqual({ highlightUnread: true, judgeWithJev: false })
-    expect(sentRequests).toEqual([{ url: '/api/admin/comments/settings', method: undefined, body: undefined }])
-  })
-
-  it('設定を保存し、Workerが保存した設定を返す', async () => {
-    const { fetchImpl, sentRequests } = createRecordingFetch(() => Response.json({ highlightUnread: false, judgeWithJev: true }))
-
-    expect(await createCommentApi(fetchImpl).saveSettings({ highlightUnread: false, judgeWithJev: true })).toEqual({ highlightUnread: false, judgeWithJev: true })
-    expect(sentRequests).toEqual([{ url: '/api/admin/comments/settings', method: 'PUT', body: { highlightUnread: false, judgeWithJev: true } }])
-  })
-
-  it('応答が想定した形でなければエラーにする', async () => {
-    // 自動の既読の項目が欠けている（Workerとの食い違い）
-    const { fetchImpl } = createRecordingFetch(() => Response.json({ highlightUnread: true }))
-
-    await expect(createCommentApi(fetchImpl).loadSettings()).rejects.toThrow()
+    await expect(createCommentApi(fetchImpl).markGreeted('たなかさんの2回目の発言', true)).rejects.toThrow('初めての発言として記録されていない')
   })
 })

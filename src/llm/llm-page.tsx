@@ -87,10 +87,6 @@ const USAGE_LABELS: Readonly<Record<LlmUsage, { name: string; description: strin
 
 /** Jev を使う箇所ごとの、画面に出す名前と説明 */
 const JEV_USAGE_LABELS: Readonly<Record<JevUsage, { name: string; description: string }>> = {
-  commentReaction: {
-    name: 'コメントへの反応の判定（Jev）',
-    description: 'コメントビューアーで「配信者の発話から自動で既読にする」を入れていると、確定した発話のたびに呼ばれる。',
-  },
   bgm: {
     name: 'BGMの選択（Jev）',
     description: 'BGMで「配信の話題に合う曲へ自動で切り替える」を入れていると、配信中にあらすじを作り直すたびに呼ばれる（切り替えの直後は呼ばない）。',

@@ -7,7 +7,7 @@
  * - 「今日」はUTCの今日のぶんだけ、「直近7日」は今日を含む7日ぶんを数えること
  * - 7日より前の行は直近7日に入れないこと
  * - 記録が1件も無い箇所も 0 として並ぶこと（画面に穴ができないようにする）
- * - 判定用のモデル Jev の箇所（commentReaction）も同じようにまとめ、全体の合計に含めること
+ * - 判定用のモデル Jev の箇所（bgm）も同じようにまとめ、全体の合計に含めること
  */
 import { describe, expect, it } from 'vitest'
 import { summarizeLlmUsage, type LlmUsageDay } from './usage'
@@ -72,19 +72,21 @@ describe('summarizeLlmUsage', () => {
     expect(total.week.calls).toBe(2)
   })
 
-  it('Jev の箇所（コメントへの反応の判定）もまとめ、全体の合計に含める', () => {
-    const days = [row('2026-09-27', 'commentReaction', { provider: 'openrouter', model: 'typesafe/jev-1.13', calls: 3, promptTokens: 3_000, completionTokens: 30, costUsd: 0.000_12 })]
+  it('Jev の箇所（BGMの選択）もまとめ、全体の合計に含める', () => {
+    const days = [row('2026-09-27', 'bgm', { provider: 'openrouter', model: 'typesafe/jev-1.13', calls: 3, promptTokens: 3_000, completionTokens: 30, costUsd: 0.000_12 })]
 
     const { jevUsages, total } = summarizeLlmUsage(days, now)
 
-    expect(jevUsages.commentReaction.today).toEqual({ calls: 3, failures: 0, promptTokens: 3_000, completionTokens: 30, costUsd: 0.000_12 })
+    expect(jevUsages.bgm.today).toEqual({ calls: 3, failures: 0, promptTokens: 3_000, completionTokens: 30, costUsd: 0.000_12 })
     expect(total.today.calls).toBe(3)
     expect(total.today.costUsd).toBeCloseTo(0.000_12, 8)
   })
 
-  it('知らない箇所の行は無視する（Workerに箇所が増えても画面が壊れないようにする）', () => {
-    const { total } = summarizeLlmUsage([row('2026-09-27', 'unknownUsage')], now)
+  it('知らない箇所の行は箇所ごとには並べないが、全体の合計には含める（やめた箇所の実費も請求額と合うようにする）', () => {
+    const { usages, jevUsages, total } = summarizeLlmUsage([row('2026-09-27', 'commentReaction', { calls: 5, costUsd: 0.000_2 })], now)
 
-    expect(total.today.calls).toBe(0)
+    expect(Object.keys({ ...usages, ...jevUsages })).not.toContain('commentReaction')
+    expect(total.today.calls).toBe(5)
+    expect(total.today.costUsd).toBeCloseTo(0.000_2, 8)
   })
 })

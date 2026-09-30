@@ -6,8 +6,7 @@
  * - GET /api/admin/comments/icons: 発言した人のアイコンのURLを、ユーザーIDからまとめて引く
  * - POST /api/admin/comments/moderation: 配信者が選んだ処分（発言の削除・タイムアウト・BAN）を、botの権限で行う
  * - POST /api/admin/comments/messages: 配信者本人としてチャットへ送る
- * - POST /api/admin/comments/reads: 発言を既読にする・未読に戻す
- * - GET/PUT /api/admin/comments/settings: コメントビューアーの設定（しばらく未読の発言を目立たせるか）を読み書きする
+ * - POST /api/admin/comments/greetings: その配信で初めての発言に、挨拶した・挨拶していない状態に戻す
  *
  * アイコンを1件ごとに添えて配らないのは、チャットの発言のたびに Twitch を呼ぶことになるためである。
  * 画面が初めて見た人のIDだけをまとめて問い合わせ、画面を開いているあいだ手元に覚えておく。
@@ -15,9 +14,8 @@
 import { punishAsBot, type PunishTarget } from './bot-moderation'
 import { readMessageToSend } from './bot-routes'
 import type { Punishment } from './chat-moderation'
+import { recordGreeting } from './chat-store'
 import { connectCommentSocket, pushFeedItem } from './comment-channel'
-import { loadCommentSettings, parseCommentSettings, saveCommentSettings } from './comment-config'
-import { recordCommentRead } from './comment-read-store'
 import { HttpError, STATUS, requireAdmin, requireSession, type Context } from './http'
 import { AuthError, getAccessToken } from './token'
 
@@ -150,63 +148,42 @@ export const postCommentMessage = async (context: Context): Promise<Response> =>
 }
 
 /**
- * 本文から、既読にする・未読に戻す発言を読む。
+ * 本文から、挨拶したかを付け替える初めての発言を読む。
  *
- * @throws HttpError 発言のIDが無い・空、既読かどうかが真偽値でない（400）
+ * @throws HttpError 発言のIDが無い・空、挨拶したかどうかが真偽値でない（400）
  */
-const readCommentReadRequest = (body: unknown): { messageId: string; read: boolean } => {
-  const { messageId, read } = isRecord(body) ? body : {}
-  if (typeof messageId !== 'string' || messageId === '' || typeof read !== 'boolean') {
-    throw new HttpError(STATUS.badRequest, 'invalid-body', '本文は { messageId, read（true か false） } にしてください')
+const readGreetingRequest = (body: unknown): { messageId: string; greeted: boolean } => {
+  const { messageId, greeted } = isRecord(body) ? body : {}
+  if (typeof messageId !== 'string' || messageId === '' || typeof greeted !== 'boolean') {
+    throw new HttpError(STATUS.badRequest, 'invalid-body', '本文は { messageId, greeted（true か false） } にしてください')
   }
-  return { messageId, read }
+  return { messageId, greeted }
 }
 
 /**
- * POST /api/admin/comments/reads: 配信者が手で、発言を既読にする・未読に戻す。
+ * POST /api/admin/comments/greetings: その配信で初めての発言に、配信者が手で「挨拶した」を付ける・外す（issue #158）。
  *
- * 記録（D1 の comment_reads）してから、配送先へ付け替えの1件を押し出す。押し出した1件は配送先の履歴にも残るので、
- * 開いているほかの画面にも同じ印が付き、開き直したときも履歴から印が戻る。付け替えの1件には毎回新しいIDを振る
- * （画面は同じIDの1件を二度当てはめないので、同じ発言を既読→未読と付け替えたときに2回目を捨てさせないため）。
+ * 記録（D1 の first_chatters.greeted_at。chat-store.ts の recordGreeting）してから、配送先へ付け替えの1件を押し出す。
+ * 押し出した1件は配送先の履歴にも残るので、開いているほかの画面にも同じ印が付き、開き直したときも履歴から印が戻る。
+ * 付け替えの1件には毎回新しいIDを振る（画面は同じIDの1件を二度当てはめないので、挨拶した→戻すと付け替えたときに
+ * 2回目を捨てさせないため）。
  *
- * 注意: 押し出しに失敗したら成功として返さない。Webhook の押し出し（webhook-routes.ts）と違い、ここは
- * 付け替えそのものが目的の操作なので、画面に印が出ないまま成功に見せない。
- * 注意: 押し出しに失敗すると、記録（既読）と画面（未読のまま）が食い違ったままになる。取り消して揃えることはせず、
- * 画面が失敗を出し、配信者がもう一度押すことで揃える。記録は上書きなので同じ付け替えを何度送っても1行のままで、
- * 押し出しが通った時点で画面にも同じ印が付く。記録を先にするのは、逆の順だと画面には既読と出るのに記録が無く、
- * 配信者から食い違いが見えなくなるためである。
+ * 注意: 初めての発言として記録されていない発言なら、黙って成功にせず404で断る（画面と記録の食い違いに気づけるように）。
+ * 注意: 押し出しに失敗したら成功として返さない。付け替えそのものが目的の操作なので、画面に印が出ないまま成功に見せない。
+ * 記録は上書きなので、配信者がもう一度押せば、押し出しが通った時点で記録と画面が揃う。
  *
- * @throws HttpError 本文が想定と違う（400）
+ * @throws HttpError 本文が想定と違う（400）・初めての発言として記録されていない（404）
  */
-export const postCommentRead = async (context: Context): Promise<Response> => {
+export const postCommentGreeting = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
   const body: unknown = await context.request.json().catch(() => {
     throw new HttpError(STATUS.badRequest, 'invalid-body', '本文はJSONにしてください')
   })
-  const { messageId, read } = readCommentReadRequest(body)
+  const { messageId, greeted } = readGreetingRequest(body)
   const { env, now } = context
-  await recordCommentRead(env.DB, { messageId, read, by: 'manual' }, now)
-  await pushFeedItem(env.COMMENTS, { kind: 'read', id: crypto.randomUUID(), at: now, messageId, read, by: 'manual' })
+  if (!(await recordGreeting(env.DB, { messageId, greeted }, now))) {
+    throw new HttpError(STATUS.notFound, 'unknown-first-chat', 'その配信で初めての発言として記録されていない発言です（配信が終わって記録が消えたか、2回目以降の発言です）')
+  }
+  await pushFeedItem(env.COMMENTS, { kind: 'greeting', id: crypto.randomUUID(), at: now, messageId, greeted })
   return new Response(null, { status: STATUS.noContent })
-}
-
-/** GET /api/admin/comments/settings: コメントビューアーの設定。未保存なら既定の設定を返す */
-export const getCommentSettings = async (context: Context): Promise<Response> => {
-  await requireSession(context)
-  return Response.json(await loadCommentSettings(context.env.STORE))
-}
-
-/**
- * PUT /api/admin/comments/settings: コメントビューアーの設定を検証して保存し、保存した設定を返す。
- *
- * @throws ConfigError 設定の形に問題がある場合（index.ts が問題点付きの400にする）
- */
-export const putCommentSettings = async (context: Context): Promise<Response> => {
-  await requireAdmin(context)
-  const body: unknown = await context.request.json().catch(() => {
-    throw new HttpError(STATUS.badRequest, 'invalid-body', '本文はJSONにしてください')
-  })
-  const settings = parseCommentSettings(body)
-  await saveCommentSettings(context.env.STORE, settings)
-  return Response.json(settings)
 }

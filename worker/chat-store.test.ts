@@ -6,7 +6,15 @@
  * - クールダウン中は応答せず、明けたら応答すること
  */
 import { describe, expect, it } from 'vitest'
-import { claimFirstChatOfStream, consumeCooldown, deleteOldFirstChatters, recordAndCountRecentMessage, reserveAnnouncementSlot, reserveChatReply } from './chat-store'
+import {
+  claimFirstChatOfStream,
+  consumeCooldown,
+  deleteOldFirstChatters,
+  recordAndCountRecentMessage,
+  recordGreeting,
+  reserveAnnouncementSlot,
+  reserveChatReply,
+} from './chat-store'
 import { createFakeDatabase } from './fake-database'
 
 const now = Date.UTC(2026, 8, 21, 12, 0, 0)
@@ -321,5 +329,44 @@ describe('deleteOldFirstChatters', () => {
     await deleteOldFirstChatters(db, now + 2 * 24 * 60 * oneMinute)
 
     expect(db.sqlite.prepare('SELECT chatter_user_id FROM first_chatters').all()).toEqual([{ chatter_user_id: 'tanenobu-id' }])
+  })
+})
+
+describe('recordGreeting', () => {
+  /** 配信を始め、その配信での初めての発言を1件記録しておく */
+  const seedFirstChat = async (): Promise<ReturnType<typeof createFakeDatabase>> => {
+    const db = createFakeDatabase()
+    db.sqlite
+      .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, NULL, ?, ?)')
+      .run('haishin-1', new Date(now - oneMinute).toISOString(), '朝配信', 'Just Chatting')
+    await claimFirstChatOfStream(db, { chatterUserId: 'tanenobu-id', messageId: 'はじめてのこんばんは' }, now)
+    return db
+  }
+
+  const greetedAt = (db: ReturnType<typeof createFakeDatabase>) => db.sqlite.prepare('SELECT greeted_at FROM first_chatters').all()
+
+  it('初めての発言に、挨拶した時刻を記録する', async () => {
+    const db = await seedFirstChat()
+
+    expect(await recordGreeting(db, { messageId: 'はじめてのこんばんは', greeted: true }, now + oneMinute)).toBe(true)
+
+    expect(greetedAt(db)).toEqual([{ greeted_at: new Date(now + oneMinute).toISOString() }])
+  })
+
+  it('挨拶していない状態に戻すと、時刻を消す', async () => {
+    const db = await seedFirstChat()
+    await recordGreeting(db, { messageId: 'はじめてのこんばんは', greeted: true }, now + oneMinute)
+
+    expect(await recordGreeting(db, { messageId: 'はじめてのこんばんは', greeted: false }, now + 2 * oneMinute)).toBe(true)
+
+    expect(greetedAt(db)).toEqual([{ greeted_at: null }])
+  })
+
+  it('初めての発言として記録されていない発言なら、何も書かずに false を返す', async () => {
+    const db = await seedFirstChat()
+
+    expect(await recordGreeting(db, { messageId: '2回目の発言', greeted: true }, now + oneMinute)).toBe(false)
+
+    expect(greetedAt(db)).toEqual([{ greeted_at: null }])
   })
 })

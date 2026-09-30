@@ -4,8 +4,6 @@
  * どれもTwitchのトークンではなくオーバーレイ用キーで守る。素材だけは、管理画面でのプレビューのために配信者のセッションでも読める。
  */
 import { connectAlertSocket } from './alert-channel'
-import { loadCommentSettings } from './comment-config'
-import { judgeCommentReactions } from './comment-reaction'
 import { connectDrawSocket } from './draw-channel'
 import { loadStrokes } from './draw-config'
 import { createGyazoClient } from './gyazo'
@@ -15,7 +13,6 @@ import { kindOfContentType } from './media'
 import { loadOverlayLayout } from './overlay-layout'
 import { loadScreenSettings } from './screen-config'
 import { isStreaming, recordScreenCapture } from './screen-store'
-import { recordFailure } from './stats-store'
 import { readCurrentSideSuper } from './side-super-store'
 import { loadSpeechSettings } from './speech-config'
 import { recordTranscript } from './transcript-store'
@@ -109,10 +106,6 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
  * 配信していなければ記録せず、記録しなかったことを応答で知らせる（中継ページが画面に出せるように）。
  * 捨てるのを失敗にしないのは、配信の前後に中継ページを開いたままにしておくのが普通の使い方だからである。
  *
- * 記録したら、配信者がコメントビューアーで「発話から自動で既読にする」を入れているときだけ、この発話が
- * どのコメントへの反応かを Jev で判定する（issue #147。reactToTranscript）。判定は応答のあとに回し、
- * 中継ページを待たせない。
- *
  * 注意: 同じ MsgID が二度届いても行は増えない（transcripts.message_id が主キー）。
  */
 export const postTranscript = async (context: Context): Promise<Response> => {
@@ -140,38 +133,7 @@ export const postTranscript = async (context: Context): Promise<Response> => {
   }
 
   const recorded = await recordTranscript(env.DB, { messageId, text: spoken }, now)
-  if (recorded) reactToTranscript(context, messageId)
   return Response.json({ recorded })
-}
-
-/** 反応の判定の失敗を、配信の記録の失敗一覧（collection_failures）に残すときの種類 */
-const COMMENT_REACTION_FAILED = 'comment-reaction-failed'
-
-/**
- * 記録した発話から、どのコメントへの反応かの判定を応答のあとに預ける（自動の既読を入れているときだけ判定する）。
- *
- * 設定の読み込みも含めて丸ごと応答のあとに回す。KV が遅れたり止まったりしても、発話の受け取りの応答を待たせない。
- *
- * 注意: 失敗しても投げない。判定はコメントビューアーの補助であって、発話の記録（あらすじ・サイドスーパーの材料）を
- * 止める理由にならないためである。黙って捨てずに collection_failures へ残し、配信の記録の画面から気づけるようにする。
- * 設定が読めない（古い形）ときも同じ扱いにする。
- *
- * @param transcriptMessageId きっかけになった発話のID。判定の材料にする発話をここまでに区切る
- */
-const reactToTranscript = (context: Context, transcriptMessageId: string): void => {
-  const { env, jev, now } = context
-  const logFailure = async (error: unknown): Promise<void> => {
-    const message = error instanceof Error ? error.message : String(error)
-    await recordFailure(env.DB, COMMENT_REACTION_FAILED, `発話からコメントへの反応を判定できませんでした: ${message}`, now)
-  }
-
-  const judge = async (): Promise<void> => {
-    const settings = await loadCommentSettings(env.STORE)
-    if (!settings.judgeWithJev) return
-    await judgeCommentReactions({ db: env.DB, jev, comments: env.COMMENTS, broadcasterId: env.TWITCH_BROADCASTER_ID, now, transcriptMessageId })
-  }
-
-  context.waitUntil(judge().catch(logFailure))
 }
 
 /**

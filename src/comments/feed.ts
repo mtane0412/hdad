@@ -11,12 +11,11 @@
  * - モデレーターの操作（削除・BAN/タイムアウトによる消去・全消去）は行として並べず、該当する発言に印を付ける。
  *   並びからは消さないのは、何が消されたのかを配信者が見られるようにするためである
  * - 並べるのは直近の上限（MAX_ENTRIES）まで。配信の最初から全部を画面に持ち続けない
- * - 既読・未読の付け替え（read）も行として並べず、該当する発言に誰が既読にしたかの印を付ける（未読に戻したら外す）。
+ * - 初めての発言への挨拶の付け替え（greeting）も行として並べず、該当する発言に挨拶した印を付ける（戻したら外す）。
  *   付け替えは配送先の履歴にも届いた順に残るので、開き直したときも履歴を当てはめるだけで最後の状態に戻る
  *
- * 反応したかを見るのは視聴者の発言だけである（needsReaction）。配信者自身の発言（broadcaster のバッジ）・
- * モデレーターに消された発言・出来事の行は見ない。届いてから UNREAD_HIGHLIGHT_MS が経っても未読のままの発言を、
- * 画面が目立たせる（isLongUnread）。
+ * 挨拶が要るのは、その配信で初めての発言（firstOfStream。Worker が判定して付ける）のうち、まだ挨拶しておらず
+ * モデレーターに消されていないものだけである（needsGreeting）。画面はこれを目立たせ、上部に一覧にする（pendingGreetings）。
  *
  * 注意: worker/ の型はブラウザ用のコードから読み込まない約束なので、形は worker/comment-feed.ts の FeedItem と
  * 合わせてここにも書き、届くたびに確かめる。想定と違う形はエラーにする（Workerとの食い違いに気づけるように）。
@@ -67,6 +66,8 @@ export type ChatItem = FeedStamp & {
   fragments: FeedFragment[]
   bits: number | null
   reply: { name: string; text: string } | null
+  /** その配信で初めての発言か（挨拶の相手か）。配信者自身と bot の発言では false */
+  firstOfStream: boolean
 }
 
 export type NoticeItem = FeedStamp & {
@@ -86,10 +87,8 @@ type DeleteItem = FeedStamp & { kind: 'delete'; messageId: string }
 type ClearUserItem = FeedStamp & { kind: 'clearUser'; userId: string }
 type ClearItem = FeedStamp & { kind: 'clear' }
 
-/** 既読・未読を付け替えたのは誰か。manual は配信者が手で、jev は配信者の発話から判定して */
-export type ReadMarker = 'manual' | 'jev'
-
-type ReadItem = FeedStamp & { kind: 'read'; messageId: string; read: boolean; by: ReadMarker }
+/** 初めての発言への挨拶の付け替え。greeted は挨拶したなら true、挨拶していない状態に戻したなら false */
+type GreetingItem = FeedStamp & { kind: 'greeting'; messageId: string; greeted: boolean }
 
 /** 出来事（発言でない行）。1行の文にして並べる */
 export type EventItem = NoticeItem | RedemptionItem | FollowItem
@@ -98,7 +97,7 @@ export type EventItem = NoticeItem | RedemptionItem | FollowItem
 export type RowItem = ChatItem | EventItem
 
 /** 届く1件。worker/comment-feed.ts の FeedItem と合わせる */
-export type FeedItem = RowItem | DeleteItem | ClearUserItem | ClearItem | ReadItem
+export type FeedItem = RowItem | DeleteItem | ClearUserItem | ClearItem | GreetingItem
 
 /** 届く文字列の中身 */
 export type FeedMessage = { type: 'backlog'; items: FeedItem[] } | { type: 'item'; item: FeedItem }
@@ -108,8 +107,8 @@ export interface FeedEntry {
   item: RowItem
   /** モデレーターの操作で消された発言なら true */
   removed: boolean
-  /** 既読にしたのは誰か。未読なら null（発言の行にだけ付く） */
-  read: ReadMarker | null
+  /** 挨拶したか（その配信で初めての発言にだけ意味を持つ） */
+  greeted: boolean
 }
 
 export interface Feed {
@@ -131,14 +130,6 @@ export const EMPTY_FEED: Feed = { entries: [], applied: [] }
 export const MAX_ENTRIES = 500
 
 /**
- * 反応したかを見る発言を、未読のまま目立たせるまでの時間（ミリ秒）。
- *
- * 配信者が読み上げて返事をするまでの間として3分をとる。これより短いと、返事をしている最中の発言まで目立ってしまう。
- * 設定項目にはせず、ここで決め切る（docs/principles.md の1）。
- */
-export const UNREAD_HIGHLIGHT_MS = 3 * 60 * 1000
-
-/**
  * 覚えておく当てはめ済みのメッセージIDの件数。
  *
  * 同じ通知がまた届くのは、Twitch の再送（数分以内）と、つなぎ直したときの配送先の履歴（直近400件）だけなので、
@@ -149,7 +140,6 @@ const MAX_APPLIED_IDS = MAX_ENTRIES * 2
 const isString = (value: unknown): value is string => typeof value === 'string'
 const isNumber = (value: unknown): value is number => typeof value === 'number'
 const isNullableString = (value: unknown): value is string | null => value === null || isString(value)
-const isReadMarker = (value: unknown): value is ReadMarker => value === 'manual' || value === 'jev'
 
 const isUser = (value: unknown): value is FeedUser => isRecord(value) && isString(value.id) && isString(value.login) && isString(value.name)
 
@@ -195,7 +185,8 @@ const isFeedItem = (value: unknown): value is FeedItem => {
         isBadges(value.badges) &&
         isFragments(value.fragments) &&
         (value.bits === null || isNumber(value.bits)) &&
-        isReply(value.reply)
+        isReply(value.reply) &&
+        typeof value.firstOfStream === 'boolean'
       )
     case 'notice':
       return (
@@ -216,8 +207,8 @@ const isFeedItem = (value: unknown): value is FeedItem => {
       return isString(value.userId)
     case 'clear':
       return true
-    case 'read':
-      return isString(value.messageId) && typeof value.read === 'boolean' && isReadMarker(value.by)
+    case 'greeting':
+      return isString(value.messageId) && typeof value.greeted === 'boolean'
     default:
       return false
   }
@@ -257,12 +248,10 @@ const applyOne = (entries: FeedEntry[], applied: Set<string>, item: FeedItem): F
       return entries.map((entry) => (isMessageRow(entry.item) && entry.item.user?.id === item.userId ? { ...entry, removed: true } : entry))
     case 'clear':
       return entries.map((entry) => (isMessageRow(entry.item) ? { ...entry, removed: true } : entry))
-    case 'read': {
-      const read = item.read ? item.by : null
-      return entries.map((entry) => (entry.item.kind === 'chat' && entry.item.messageId === item.messageId ? { ...entry, read } : entry))
-    }
+    case 'greeting':
+      return entries.map((entry) => (entry.item.kind === 'chat' && entry.item.messageId === item.messageId ? { ...entry, greeted: item.greeted } : entry))
     default:
-      return [...entries, { item, removed: false, read: null }]
+      return [...entries, { item, removed: false, greeted: false }]
   }
 }
 
@@ -274,15 +263,12 @@ export const applyFeedItems = (feed: Feed, items: readonly FeedItem[]): Feed => 
   return { entries: entries.slice(-MAX_ENTRIES), applied: [...applied].slice(-MAX_APPLIED_IDS) }
 }
 
-/** 配信者自身の発言か（broadcaster のバッジで見分ける。画面は配信者のユーザーIDを持たないため） */
-const isOwnMessage = (item: ChatItem): boolean => item.badges.some((badge) => badge.setId === 'broadcaster')
+/** 挨拶が要る行か。その配信で初めての発言で、まだ挨拶しておらず、モデレーターに消されていないものだけ */
+export const needsGreeting = (entry: FeedEntry): entry is FeedEntry & { item: ChatItem } =>
+  entry.item.kind === 'chat' && entry.item.firstOfStream && !entry.greeted && !entry.removed
 
-/** 反応したか（既読）を見る行か。視聴者の発言で、モデレーターに消されていないものだけ */
-export const needsReaction = (entry: FeedEntry): boolean => entry.item.kind === 'chat' && !isOwnMessage(entry.item) && !entry.removed
-
-/** 反応したかを見る行が、届いてから UNREAD_HIGHLIGHT_MS 以上たっても未読のままか */
-export const isLongUnread = (entry: FeedEntry, now: number): boolean =>
-  needsReaction(entry) && entry.read === null && now - entry.item.at >= UNREAD_HIGHLIGHT_MS
+/** まだ挨拶していない初めての発言を、届いた順（古い順）に取り出す（画面の上部の一覧に使う） */
+export const pendingGreetings = (entries: readonly FeedEntry[]): ChatItem[] => entries.filter(needsGreeting).map((entry) => entry.item)
 
 /**
  * 発言を、注目コメントとして取り上げる1件に直す（PUT /api/admin/focus に送る形）。

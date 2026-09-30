@@ -330,21 +330,13 @@ describe('使用状況', () => {
     expect(screen.getAllByText(/直近7日 42回（失敗1回）・37,000トークン/)).toHaveLength(2)
   })
 
-  test('判定用のモデル Jev の箇所（コメントへの反応の判定）の使用状況も出す（選ぶモデルは無いので、選択欄は出さない）', async () => {
-    renderPage(llmApi({ usage: [usageRow(today, 'commentReaction', { calls: 7, promptTokens: 7_000, completionTokens: 70 })] }))
-    await waitForLoad()
-
-    const part = await screen.findByRole('region', { name: 'コメントへの反応の判定（Jev）' })
-    expect(within(part).getByText(/今日 7回・7,070トークン/)).toBeInTheDocument()
-    expect(within(part).queryByRole('combobox')).not.toBeInTheDocument()
-  })
-
-  test('判定用のモデル Jev の箇所（BGMの選択）の使用状況も出す', async () => {
+  test('判定用のモデル Jev の箇所（BGMの選択）の使用状況も出す（選ぶモデルは無いので、選択欄は出さない）', async () => {
     renderPage(llmApi({ usage: [usageRow(today, 'bgm', { calls: 3, promptTokens: 3_000, completionTokens: 30 })] }))
     await waitForLoad()
 
     const part = await screen.findByRole('region', { name: 'BGMの選択（Jev）' })
     expect(within(part).getByText(/今日 3回・3,030トークン/)).toBeInTheDocument()
+    expect(within(part).queryByRole('combobox')).not.toBeInTheDocument()
   })
 
   test('まだ一度も呼んでいない箇所は 0回 と出す（数えられていないのか使っていないのかを取り違えないため）', async () => {

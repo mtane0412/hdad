@@ -34,8 +34,7 @@
  * | GET  /api/admin/comments/icons   | セッション     | 発言した人のアイコンのURLを、ユーザーIDからまとめて引く |
  * | POST /api/admin/comments/moderation | セッション   | 配信者が選んだ処分（発言の削除・タイムアウト・BAN）をbotの権限で行う |
  * | POST /api/admin/comments/messages | セッション     | 配信者本人としてチャットへ送る |
- * | POST /api/admin/comments/reads   | セッション     | 発言を既読にする・未読に戻す |
- * | GET・PUT /api/admin/comments/settings | セッション | コメントビューアーの設定（しばらく未読の発言を目立たせるか）の取得・保存 |
+ * | POST /api/admin/comments/greetings | セッション   | その配信で初めての発言に、挨拶した印を付ける・外す |
  * | GET・PUT /api/admin/focus        | セッション     | 注目コメント（いま取り上げているもの）の取得・保存 |
  * | GET  /api/admin/bgm              | セッション     | BGMの曲の一覧と、いま流す曲・音量 |
  * | PUT  /api/admin/bgm/tracks       | セッション     | BGMの曲の一覧の保存（流している曲を直したら裏方のページへ押し出す） |
@@ -124,7 +123,7 @@ import {
   postTranscript,
 } from './overlay-routes'
 import { drawSocket, getDrawBackground, getDrawStrokes, putDrawStrokes } from './draw-routes'
-import { commentSocket, getCommentIcons, getCommentSettings, postCommentMessage, postCommentModeration, postCommentRead, putCommentSettings } from './comment-routes'
+import { commentSocket, getCommentIcons, postCommentGreeting, postCommentMessage, postCommentModeration } from './comment-routes'
 import { getStatsFailures, getStatsFollowers, getStatsSession, getStatsSessions } from './stats-routes'
 import { AuthError } from './token'
 import { WEBHOOK_PATH, eventsubWebhook } from './webhook-routes'
@@ -202,9 +201,7 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/admin/comments/icons', handle: getCommentIcons },
   { method: 'POST', path: '/api/admin/comments/moderation', handle: postCommentModeration },
   { method: 'POST', path: '/api/admin/comments/messages', handle: postCommentMessage },
-  { method: 'POST', path: '/api/admin/comments/reads', handle: postCommentRead },
-  { method: 'GET', path: '/api/admin/comments/settings', handle: getCommentSettings },
-  { method: 'PUT', path: '/api/admin/comments/settings', handle: putCommentSettings },
+  { method: 'POST', path: '/api/admin/comments/greetings', handle: postCommentGreeting },
   { method: 'GET', path: '/api/admin/focus', handle: getFocus },
   { method: 'PUT', path: '/api/admin/focus', handle: putFocus },
   { method: 'GET', path: '/api/admin/focus/messages', handle: getFocusMessages },

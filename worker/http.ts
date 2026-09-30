@@ -97,7 +97,7 @@ export interface Context {
   /**
    * 判定用のモデル Jev（worker/jev.ts）。
    *
-   * 配信者の発話がどのコメントへの反応かを判定するのに使う（worker/comment-reaction.ts）。呼び先は OpenRouter で、
+   * 配信の話題に合う BGM を選ぶのに使う（worker/bgm-jev.ts）。呼び先は OpenRouter で、
    * 鍵は LLM と同じ OPENROUTER_API_KEY を使う。
    */
   jev: JevClient

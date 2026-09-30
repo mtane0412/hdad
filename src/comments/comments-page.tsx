@@ -21,15 +21,11 @@
  * Twitch から届いた時点で流れに並ぶ（画面が先回りして並べない）。Enter で送るが、日本語入力の変換を確定する
  * Enter（isComposing）では送らない。
  *
- * 視聴者の発言には既読のボタンを置き、配信者がその発言に反応したら既読にする（もう一度押すと未読に戻す）。
- * 既読の印は、ほかの1件と同じく配送先から届いた付け替えで付く（画面が先回りして付けない）。届いてから
- * しばらく（feed.ts の UNREAD_HIGHLIGHT_MS）たっても未読のままの発言は、反応し忘れに気づけるよう目立たせる。
- * 目立たせるかは設定（api.ts の loadSettings・saveSettings）で切り替えられる。配信者自身の発言・消された発言は
- * 反応したかを見ない（feed.ts の needsReaction）。
- *
- * 設定で「配信者の発話から自動で既読にする」を入れると、Worker が配信者の発話から反応した発言を Jev で判定して
- * 既読にする（worker/comment-reaction.ts）。Jev が付けた既読には「発話から既読」と出し、手で付けたものと見分けられる
- * ようにする（機械の判断を配信者の判断と混ぜない。docs/principles.md の11）。誤っていれば、もう一度押して未読に戻せる。
+ * その配信で初めての発言（Worker が判定して firstOfStream を付ける）には「初コメ」の印と挨拶のボタンを置き、
+ * 配信者が挨拶したら押す（もう一度押すと戻す。api.ts の markGreeted）。挨拶の印は、ほかの1件と同じく配送先から
+ * 届いた付け替えで付く（画面が先回りして付けない）。まだ挨拶していない初めての発言（feed.ts の needsGreeting）は
+ * 「未挨拶」として目立たせ、流れの上に名前を一覧にする。名前を押すとその発言の行へ移る（挨拶漏れに気づけるように）。
+ * 挨拶したかは配信者だけが決める（発話から自動で判定しない。docs/decisions/comments.md）。
  *
  * 流れは下へ伸びる。いちばん下を見ているあいだは新しい1件に合わせて下へ送り、上へ遡って読んでいるあいだは
  * 送らない（読んでいる行が動かないように）。
@@ -37,27 +33,25 @@
  * 注意: 失敗（読み取れない1件・アイコンを引けない・接続が切れた）は黙って無視せず、理由を画面に出す（Fail-Fast）。
  * 読み取れない1件のために流れ全体は止めない（届いた残りは並べ続ける）。
  */
-import { ArrowDown, Ban, CheckCheck, Gift, Heart, Megaphone, Quote, Send, Sparkles, Star, Timer, Trash2, Users, type LucideIcon } from 'lucide-react'
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { ArrowDown, Ban, Gift, Hand, Heart, Megaphone, Quote, Send, Sparkles, Star, Timer, Trash2, Users, type LucideIcon } from 'lucide-react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { usePageActions } from '@/admin/page-actions'
 import { badgeKey, type BadgeMap } from '@/chat/badges'
 import { twitchEmoteUrl } from '@/chat/message'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { iconButtonName } from '@/core/icon-button'
 import type { FocusApi } from '@/focus/api'
 import { cn } from '@/lib/utils'
-import { describeModeration, pickUnknownUserIds, type CommentApi, type CommentSettings, type ModerationAction } from './api'
+import { describeModeration, pickUnknownUserIds, type CommentApi, type ModerationAction } from './api'
 import {
   applyFeedItems,
   describeEvent,
   EMPTY_FEED,
-  isLongUnread,
-  needsReaction,
+  needsGreeting,
   parseFeedMessage,
+  pendingGreetings,
   toFocusPick,
   type ChatItem,
   type EventItem,
@@ -66,7 +60,6 @@ import {
   type FeedEntry,
   type FeedFragment,
   type FeedUser,
-  type ReadMarker,
 } from './feed'
 import type { CommentFeedConnection, CommentFeedHandlers } from './socket'
 
@@ -76,13 +69,8 @@ const IME_PROCESSING_KEY_CODE = 229
 /** いちばん下を見ているとみなす、下端からの距離（画素）。端数の揺れで「遡っている」と取り違えないための遊び */
 const FOLLOW_THRESHOLD_PX = 32
 
-/**
- * しばらく未読かを見直す間隔（ミリ秒）。
- *
- * 新しい1件が届かなくても、時間がたてば未読の発言は目立たせる側へ移るので、この間隔で描き直す。
- * 目立たせるまでの3分に対して15秒遅れる程度なら、配信者が気づくのに差し支えない。
- */
-const UNREAD_TICK_MS = 15_000
+/** 並びの1行に振る要素のID。上部の一覧から、その行へ移るのに使う */
+const rowElementId = (item: ChatItem): string => `comment-row-${item.id}`
 
 export interface CommentsPageProps {
   api: CommentApi
@@ -90,8 +78,6 @@ export interface CommentsPageProps {
   focusApi: FocusApi
   /** 配送先へつなぐ。テストで差し替えるために受け取る（本番は socket.ts の connectCommentFeed） */
   connect(handlers: CommentFeedHandlers): CommentFeedConnection
-  /** 現在時刻（ミリ秒）。しばらく未読かを決めるのに使う。テストで差し替えるために受け取る（既定は Date.now） */
-  now?: () => number
 }
 
 /** 届いた時刻を、配信者のブラウザの時間帯で「時:分」に直す */
@@ -139,16 +125,14 @@ const Name = ({ user, color }: { user: FeedUser; color: string | null }) => (
   </span>
 )
 
-/** 発言の行が受け取る操作（既読・注目コメント・モデレーター） */
+/** 発言の行が受け取る操作（挨拶・注目コメント・モデレーター） */
 interface RowControls {
-  /** 反応したか（既読）を見る発言か。配信者自身の発言・消された発言では既読のボタンを出さない */
-  canMarkRead: boolean
-  /** 既読にしたのは誰か。未読なら null */
-  read: ReadMarker | null
-  /** しばらく未読のまま目立たせるか */
-  longUnread: boolean
-  /** 既読にする・未読に戻す */
-  onToggleRead(): void
+  /** 挨拶したか（その配信で初めての発言にだけ意味を持つ） */
+  greeted: boolean
+  /** まだ挨拶していないので目立たせるか */
+  awaitingGreeting: boolean
+  /** 挨拶した・挨拶していない状態に戻す */
+  onToggleGreeting(): void
   /** この発言を注目コメントとして取り上げているか */
   focused: boolean
   /** 操作の途中か（二重に押させない） */
@@ -181,7 +165,7 @@ const ChatRow = ({
     className={cn(
       'group flex items-start gap-2 border-l-4 border-transparent px-3 py-1.5',
       controls.focused && 'bg-accent',
-      controls.longUnread && 'border-amber-500 bg-amber-500/10',
+      controls.awaitingGreeting && 'border-amber-500 bg-amber-500/10',
     )}
   >
     {/* 消された発言はアイコンと本文を薄くするが、操作のボタンは薄くしない（その人のタイムアウト・BANは続けてできる） */}
@@ -203,25 +187,25 @@ const ChatRow = ({
         {item.bits !== null && <span className="ml-2 rounded bg-primary/10 px-1.5 text-xs font-semibold text-primary">{item.bits} ビッツ</span>}
         {removed && <span className="ml-2 text-xs text-muted-foreground">（削除済み）</span>}
         {controls.focused && <span className="ml-2 rounded bg-primary px-1.5 text-xs font-semibold text-primary-foreground">注目中</span>}
-        {/* 色だけに頼らず、文字でも「しばらく未読」であることを出す */}
-        {controls.longUnread && <span className="ml-2 rounded bg-amber-500 px-1.5 text-xs font-semibold text-white">しばらく未読</span>}
-        {controls.read === 'jev' && <span className="ml-2 text-xs text-muted-foreground">発話から既読</span>}
+        {/* 色だけに頼らず、文字でも挨拶がまだであることを出す */}
+        {controls.awaitingGreeting && <span className="ml-2 rounded bg-amber-500 px-1.5 text-xs font-semibold text-white">未挨拶</span>}
+        {item.firstOfStream && !controls.awaitingGreeting && <span className="ml-2 text-xs text-muted-foreground">初コメ</span>}
       </div>
     </div>
     <div className="flex shrink-0 gap-0.5">
-      {controls.canMarkRead && (
-        // 押された状態（aria-pressed）で「既読」を表し、もう一度押すと未読に戻す。既読なら印として薄くしない
+      {item.firstOfStream && (
+        // 押された状態（aria-pressed）で「挨拶した」を表し、もう一度押すと戻す。挨拶がまだなら目立たせるので薄くしない
         <Button
           type="button"
           variant="ghost"
           size="icon-sm"
-          {...iconButtonName('この発言を既読にする')}
-          aria-pressed={controls.read !== null}
+          {...iconButtonName('この人に挨拶した')}
+          aria-pressed={controls.greeted}
           disabled={controls.busy}
-          onClick={controls.onToggleRead}
-          className={cn('shrink-0', controls.read === null ? rowButtonClass : 'text-primary')}
+          onClick={controls.onToggleGreeting}
+          className={cn('shrink-0', controls.greeted && 'text-primary')}
         >
-          <CheckCheck aria-hidden="true" />
+          <Hand aria-hidden="true" />
         </Button>
       )}
       {/* 押された状態（aria-pressed）で「取り上げている」を表し、もう一度押すとやめる */}
@@ -338,7 +322,7 @@ const Row = ({
     <EventRow item={entry.item} removed={entry.removed} icons={icons} />
   )
 
-export const CommentsPage = ({ api, focusApi, connect, now = Date.now }: CommentsPageProps) => {
+export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
   const [feed, setFeed] = useState<Feed>(EMPTY_FEED)
   const [icons, setIcons] = useState<ReadonlyMap<string, string>>(new Map())
   const [badgeImages, setBadgeImages] = useState<BadgeMap>(new Map())
@@ -360,17 +344,11 @@ export const CommentsPage = ({ api, focusApi, connect, now = Date.now }: Comment
   const [deleteRequestedChat, setDeleteRequestedChat] = useState<ReadonlySet<string>>(new Set())
   /** この画面で取り上げ直したか。開いたときの読み込みが遅れて返っても、選び直した結果を古い内容で上書きしない */
   const reselected = useRef(false)
-  /** コメントビューアーの設定。読み込むまでは null（そのあいだは目立たせない） */
-  const [settings, setSettings] = useState<CommentSettings | null>(null)
-  /** しばらく未読かを決める現在時刻。UNREAD_TICK_MS ごとに進める */
-  const [currentTime, setCurrentTime] = useState(now)
   /** いちばん下を見ているか。見ているあいだだけ、新しい1件に合わせて下へ送る */
   const [following, setFollowing] = useState(true)
   /** アイコンを問い合わせた人（Twitchが返さなかった人も含む。同じ人を何度も問い合わせない。問い合わせ自体が失敗した人は外す） */
   const asked = useRef(new Set<string>())
   const scroller = useRef<HTMLDivElement>(null)
-  const highlightFieldId = useId()
-  const judgeFieldId = useId()
 
   const reportFailure = useCallback((error: unknown) => setProblem(error instanceof Error ? error.message : String(error)), [])
 
@@ -408,29 +386,6 @@ export const CommentsPage = ({ api, focusApi, connect, now = Date.now }: Comment
       cancelled = true
     }
   }, [api, reportFailure])
-
-  // 設定は開いたときに1度だけ読む（切り替えたときは保存した結果を使う）
-  useEffect(() => {
-    let cancelled = false
-    api.loadSettings().then(
-      (loaded) => {
-        if (!cancelled) setSettings(loaded)
-      },
-      (error: unknown) => {
-        if (!cancelled) reportFailure(error)
-      },
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [api, reportFailure])
-
-  // 新しい1件が届かなくても、時間がたてば未読の発言は目立たせる側へ移るので、決まった間隔で時刻を進める
-  useEffect(() => {
-    if (settings?.highlightUnread !== true) return
-    const timer = setInterval(() => setCurrentTime(now()), UNREAD_TICK_MS)
-    return () => clearInterval(timer)
-  }, [settings, now])
 
   // いま取り上げている注目コメントを、開いたときに1度読む（印を付けるため）
   useEffect(() => {
@@ -492,25 +447,18 @@ export const CommentsPage = ({ api, focusApi, connect, now = Date.now }: Comment
     })
   }
 
-  /** 発言を既読にする（既読ならば未読に戻す）。印は配送先から付け替えが届いた時点で付くので、お知らせは出さない */
-  const toggleRead = (item: ChatItem, read: ReadMarker | null) =>
+  /** 初めての発言に「挨拶した」を付ける（付いていれば外す）。印は配送先から付け替えが届いた時点で付くので、お知らせは出さない */
+  const toggleGreeting = (item: ChatItem, greeted: boolean) =>
     void actions.run(async () => {
-      await api.markRead(item.messageId, read === null)
+      await api.markGreeted(item.messageId, !greeted)
       return ''
     })
 
-  /**
-   * 設定の1項目を切り替えて保存し、保存された設定を使う（もう一方の項目はいまの値のまま送る）。
-   *
-   * @param notice 保存できたときに出すお知らせ
-   */
-  const toggleSetting = (current: CommentSettings, change: Partial<CommentSettings>, notice: string) =>
-    void actions.run(async () => {
-      setSettings(await api.saveSettings({ ...current, ...change }))
-      // 切り替えた時点の時刻で見直す（次の見直しの間隔を待たずに目立たせる）
-      setCurrentTime(now())
-      return notice
-    })
+  /** 上部の一覧から、その発言の行へ移る。移った先で止まるよう、いちばん下への追従はやめる */
+  const jumpTo = (item: ChatItem) => {
+    setFollowing(false)
+    document.getElementById(rowElementId(item))?.scrollIntoView({ block: 'center' })
+  }
 
   /** 入力欄の文言を、配信者としてチャットへ送る。送れたら入力欄を空にし、送れなければ文言を残す */
   const send = () => {
@@ -552,6 +500,9 @@ export const CommentsPage = ({ api, focusApi, connect, now = Date.now }: Comment
     if (following && element) element.scrollTop = element.scrollHeight
   }, [feed, following])
 
+  // まだ挨拶していない初めての発言（上部の一覧に並べる）
+  const waiting = pendingGreetings(feed.entries)
+
   const checkPosition = () => {
     const element = scroller.current
     if (element) setFollowing(element.scrollHeight - element.scrollTop - element.clientHeight <= FOLLOW_THRESHOLD_PX)
@@ -567,34 +518,20 @@ export const CommentsPage = ({ api, focusApi, connect, now = Date.now }: Comment
       )}
       {connectionNotice !== null && <p className="text-sm text-muted-foreground">{connectionNotice}</p>}
 
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-        <div className="flex items-center gap-2">
-          <Checkbox
-            id={highlightFieldId}
-            checked={settings?.highlightUnread ?? false}
-            disabled={settings === null || actions.busy}
-            onCheckedChange={(checked) => {
-              if (settings === null) return
-              const highlightUnread = checked === true
-              toggleSetting(settings, { highlightUnread }, highlightUnread ? 'しばらく未読の発言を目立たせます' : 'しばらく未読の発言を目立たせるのをやめました')
-            }}
-          />
-          <Label htmlFor={highlightFieldId}>しばらく未読の発言を目立たせる</Label>
-        </div>
-        <div className="flex items-center gap-2">
-          <Checkbox
-            id={judgeFieldId}
-            checked={settings?.judgeWithJev ?? false}
-            disabled={settings === null || actions.busy}
-            onCheckedChange={(checked) => {
-              if (settings === null) return
-              const judgeWithJev = checked === true
-              toggleSetting(settings, { judgeWithJev }, judgeWithJev ? '配信者の発話から自動で既読にします' : '配信者の発話から自動で既読にするのをやめました')
-            }}
-          />
-          <Label htmlFor={judgeFieldId}>配信者の発話から自動で既読にする（Jev）</Label>
-        </div>
-      </div>
+      <section aria-label="まだ挨拶していない人" className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm">
+        {waiting.length === 0 ? (
+          <p className="text-muted-foreground">まだ挨拶していない初コメはありません</p>
+        ) : (
+          <>
+            <span className="font-semibold">未挨拶 {waiting.length}人:</span>
+            {waiting.map((item) => (
+              <Button key={item.id} type="button" variant="outline" size="sm" className="border-amber-500" onClick={() => jumpTo(item)}>
+                {item.user.name}
+              </Button>
+            ))}
+          </>
+        )}
+      </section>
 
       <div className="relative">
         <div ref={scroller} onScroll={checkPosition} className="h-[calc(100dvh-12rem)] min-h-80 overflow-y-auto rounded-md border">
@@ -603,16 +540,15 @@ export const CommentsPage = ({ api, focusApi, connect, now = Date.now }: Comment
           ) : (
             <ol aria-label="チャットと出来事" className="flex flex-col py-1">
               {feed.entries.map((entry) => (
-                <li key={entry.item.id}>
+                <li key={entry.item.id} id={entry.item.kind === 'chat' ? rowElementId(entry.item) : undefined}>
                   <Row
                     entry={entry}
                     icons={icons}
                     badgeImages={badgeImages}
                     controls={(item) => ({
-                      canMarkRead: needsReaction(entry),
-                      read: entry.read,
-                      longUnread: settings?.highlightUnread === true && isLongUnread(entry, currentTime),
-                      onToggleRead: () => toggleRead(item, entry.read),
+                      greeted: entry.greeted,
+                      awaitingGreeting: needsGreeting(entry),
+                      onToggleGreeting: () => toggleGreeting(item, entry.greeted),
                       focused: item.messageId === focusedMessageId,
                       busy: actions.busy,
                       deleteRequested: deleteRequestedChat.has(item.messageId),
