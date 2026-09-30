@@ -258,24 +258,6 @@ describe('古い記録の掃除', () => {
     expect(db.sqlite.prepare('SELECT message_id FROM transcripts').all()).toEqual([{ message_id: 'kyou-no-hatsuwa' }])
   })
 
-  it('保持期間より古いコメントの既読・未読を消す（反応したかを見るのは配信中だけなので、終わった配信のぶんを残さない）', async () => {
-    const db = createFakeDatabase()
-    const store = createFakeStore()
-    await saveToken(store, 'broadcaster', storedToken)
-    const twoDays = 2 * 24 * 60 * 60 * 1000
-    const addRead = (messageId: string, at: number): void => {
-      db.sqlite
-        .prepare('INSERT INTO comment_reads (message_id, read, marked_by, updated_at) VALUES (?, ?, ?, ?)')
-        .run(messageId, 1, 'manual', new Date(at).toISOString())
-    }
-    addRead('おとといの配信の発言', now - twoDays)
-    addRead('いまの配信の発言', now)
-
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
-
-    expect(db.sqlite.prepare('SELECT message_id FROM comment_reads').all()).toEqual([{ message_id: 'いまの配信の発言' }])
-  })
-
   it('保持期間より古い画面の取り込みの記録を消す（文字起こしと同じく、配信中だけ持つものであるため）', async () => {
     const db = createFakeDatabase()
     const store = createFakeStore()

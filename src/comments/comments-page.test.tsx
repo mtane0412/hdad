@@ -11,9 +11,8 @@
  * - 発言を注目コメントに設定でき、取り上げている発言に印を付け、やめられること
  * - 発言の削除・タイムアウト・BANを行えること（BANは確かめてから）
  * - 配信者としてチャットを送れること（IMEの変換確定の Enter では送らない）
- * - 発言を既読にする・未読に戻すことができ、既読の印は配送先から届いた付け替えで付くこと
- * - しばらく未読のままの発言を目立たせ、その切り替えを設定として保存できること
- * - 発話から自動で既読にする（Jev）かを切り替えられ、Jev が付けた既読は手で付けたものと見分けられること
+ * - その配信で初めての発言に「挨拶した」を付け外しでき、印は配送先から届いた付け替えで付くこと
+ * - まだ挨拶していない初めての発言を目立たせ、上部の一覧からその行へ移れること
  */
 import '@testing-library/jest-dom/vitest'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
@@ -43,6 +42,7 @@ const regularViewerChat: FeedItem = {
   ],
   bits: null,
   reply: null,
+  firstOfStream: false,
 }
 
 const createFakeApi = (overrides: Partial<CommentApi> = {}): CommentApi => ({
@@ -51,10 +51,7 @@ const createFakeApi = (overrides: Partial<CommentApi> = {}): CommentApi => ({
   // Worker と同じく、タイムアウトなら決めた長さを添えて返す
   moderate: vi.fn(async (action) => (action === 'timeout' ? { action, durationSeconds: 600 } : { action })),
   send: vi.fn(async () => {}),
-  markRead: vi.fn(async () => {}),
-  loadSettings: vi.fn(async () => ({ highlightUnread: true, judgeWithJev: false })),
-  // Worker と同じく、保存した設定をそのまま返す
-  saveSettings: vi.fn(async (settings) => settings),
+  markGreeted: vi.fn(async () => {}),
   ...overrides,
 })
 
@@ -66,18 +63,14 @@ const createFakeFocusApi = (overrides: Partial<FocusApi> = {}): FocusApi => ({
   ...overrides,
 })
 
-/** 画面が見る現在時刻の既定。発言が届いたのと同じ時刻（まだ「しばらく未読」ではない） */
-const chatArrivalTime = () => Date.parse('2026-09-29T12:00:00Z')
-
 /** ページを描き、配送先の代わりに文字列を流し込める窓口を返す */
-const renderPage = (api: CommentApi = createFakeApi(), focusApi: FocusApi = createFakeFocusApi(), now: () => number = chatArrivalTime) => {
+const renderPage = (api: CommentApi = createFakeApi(), focusApi: FocusApi = createFakeFocusApi()) => {
   let handlers: CommentFeedHandlers | undefined
   const close = vi.fn()
   render(
     <CommentsPage
       api={api}
       focusApi={focusApi}
-      now={now}
       connect={(next) => {
         handlers = next
         return { close }
@@ -477,149 +470,116 @@ describe('CommentsPage', () => {
     })
   })
 
-  describe('既読・未読', () => {
-    /** 発言の行にある、既読のボタン */
-    const readButton = (text: string) => within(findRow(text)).getByRole('button', { name: 'この発言を既読にする' })
+  describe('初めての発言への挨拶', () => {
+    const firstTimeViewer = { id: '888', login: 'shoken_san', name: '初見さん' }
 
-    /** 配送先から届く、既読・未読の付け替え */
-    const readSwitch = (id: string, read: boolean, by: 'manual' | 'jev' = 'manual'): FeedItem => ({
-      kind: 'read',
-      id,
-      at: Date.parse('2026-09-29T12:01:00Z'),
-      messageId: '発言1',
-      read,
-      by,
-    })
-
-    /** 配信者自身の発言（broadcaster のバッジが付く） */
-    const broadcasterChat: FeedItem = {
+    /** 初見さんの、その配信で初めての発言 */
+    const firstChat: FeedItem = {
       kind: 'chat',
-      id: '通知9',
-      at: Date.parse('2026-09-29T12:00:00Z'),
-      messageId: '配信者の発言',
-      user: { id: '12345', login: 'haishinsha', name: '配信者' },
+      id: '通知2',
+      at: Date.parse('2026-09-29T12:00:30Z'),
+      messageId: '初見さんの初めての発言',
+      user: firstTimeViewer,
       color: null,
-      badges: [{ setId: 'broadcaster', versionId: '1' }],
-      fragments: [{ text: 'みなさんこんばんは', emoteId: null }],
+      badges: [],
+      fragments: [{ text: 'はじめまして', emoteId: null }],
       bits: null,
       reply: null,
+      firstOfStream: true,
     }
 
-    /** 発言が届いてから4分後（目立たせるまでの3分を過ぎている） */
-    const fourMinutesLater = () => Date.parse('2026-09-29T12:04:00Z')
+    /** 発言の行にある、挨拶のボタン */
+    const greetButton = (text: string) => within(findRow(text)).getByRole('button', { name: 'この人に挨拶した' })
 
-    test('既読のボタンを押すと、Workerに既読にするよう頼む（印は付け替えが届くまで付けない）', async () => {
-      const api = createFakeApi()
-      const { receive } = renderPage(api)
-      await receive({ type: 'item', item: regularViewerChat })
-
-      await userEvent.click(readButton('常連さん'))
-
-      expect(api.markRead).toHaveBeenCalledWith('発言1', true)
-      expect(readButton('常連さん')).toHaveAttribute('aria-pressed', 'false')
+    /** 配送先から届く、挨拶の付け替え */
+    const greetingSwitch = (id: string, greeted: boolean): FeedItem => ({
+      kind: 'greeting',
+      id,
+      at: Date.parse('2026-09-29T12:01:00Z'),
+      messageId: '初見さんの初めての発言',
+      greeted,
     })
 
-    test('既読の付け替えが届くと、ボタンが押された状態になり、もう一度押すと未読に戻すよう頼む', async () => {
+    /** 上部の、まだ挨拶していない人の一覧 */
+    const pendingList = () => screen.getByRole('region', { name: 'まだ挨拶していない人' })
+
+    test('挨拶のボタンを押すと、Workerに挨拶したと記録するよう頼む（印は付け替えが届くまで付けない）', async () => {
       const api = createFakeApi()
       const { receive } = renderPage(api)
-      await receive({ type: 'backlog', items: [regularViewerChat, readSwitch('付け替え1', true)] })
+      await receive({ type: 'item', item: firstChat })
 
-      expect(readButton('常連さん')).toHaveAttribute('aria-pressed', 'true')
-      await userEvent.click(readButton('常連さん'))
+      await userEvent.click(greetButton('はじめまして'))
 
-      expect(api.markRead).toHaveBeenCalledWith('発言1', false)
+      expect(api.markGreeted).toHaveBeenCalledWith('初見さんの初めての発言', true)
+      expect(greetButton('はじめまして')).toHaveAttribute('aria-pressed', 'false')
     })
 
-    test('配信者自身の発言には、既読のボタンを出さない', async () => {
+    test('挨拶の付け替えが届くと、ボタンが押された状態になり、もう一度押すと戻すよう頼む', async () => {
+      const api = createFakeApi()
+      const { receive } = renderPage(api)
+      await receive({ type: 'backlog', items: [firstChat, greetingSwitch('付け替え1', true)] })
+
+      expect(greetButton('はじめまして')).toHaveAttribute('aria-pressed', 'true')
+      await userEvent.click(greetButton('はじめまして'))
+
+      expect(api.markGreeted).toHaveBeenCalledWith('初見さんの初めての発言', false)
+    })
+
+    test('2回目以降の発言には、挨拶のボタンを出さない', async () => {
       const { receive } = renderPage()
 
-      await receive({ type: 'item', item: broadcasterChat })
+      await receive({ type: 'item', item: regularViewerChat })
 
-      expect(within(findRow('みなさんこんばんは')).queryByRole('button', { name: 'この発言を既読にする' })).not.toBeInTheDocument()
+      expect(within(findRow('常連さん')).queryByRole('button', { name: 'この人に挨拶した' })).not.toBeInTheDocument()
     })
 
-    test('既読にできなかったら、理由を出す', async () => {
+    test('まだ挨拶していない初めての発言は「未挨拶」として目立たせ、挨拶したら「初コメ」の印だけにする', async () => {
+      const { receive } = renderPage()
+
+      await receive({ type: 'item', item: firstChat })
+      expect(within(findRow('はじめまして')).getByText('未挨拶')).toBeInTheDocument()
+
+      await receive({ type: 'item', item: greetingSwitch('付け替え1', true) })
+      expect(within(findRow('はじめまして')).queryByText('未挨拶')).not.toBeInTheDocument()
+      expect(within(findRow('はじめまして')).getByText('初コメ')).toBeInTheDocument()
+    })
+
+    test('上部に、まだ挨拶していない人を並べ、挨拶したら一覧から外す', async () => {
+      const { receive } = renderPage()
+
+      await receive({ type: 'backlog', items: [regularViewerChat, firstChat] })
+      expect(within(pendingList()).getByRole('button', { name: '初見さん' })).toBeInTheDocument()
+      expect(within(pendingList()).queryByRole('button', { name: '常連さん' })).not.toBeInTheDocument()
+
+      await receive({ type: 'item', item: greetingSwitch('付け替え1', true) })
+      expect(within(pendingList()).queryByRole('button', { name: '初見さん' })).not.toBeInTheDocument()
+      expect(within(pendingList()).getByText('まだ挨拶していない初コメはありません')).toBeInTheDocument()
+    })
+
+    test('一覧の名前を押すと、その発言の行へ移る', async () => {
+      const scrollIntoView = vi.fn()
+      Element.prototype.scrollIntoView = scrollIntoView
+      const { receive } = renderPage()
+      await receive({ type: 'backlog', items: [firstChat, regularViewerChat] })
+
+      await userEvent.click(within(pendingList()).getByRole('button', { name: '初見さん' }))
+
+      expect(scrollIntoView).toHaveBeenCalledTimes(1)
+      expect(scrollIntoView.mock.contexts[0]).toBe(findRow('はじめまして'))
+    })
+
+    test('挨拶の記録に失敗したら、理由を出す', async () => {
       const api = createFakeApi({
-        markRead: vi.fn(async () => {
-          throw new Error('コメントビューアーの1件を配送先へ送れませんでした')
+        markGreeted: vi.fn(async () => {
+          throw new Error('その配信で初めての発言として記録されていない発言です')
         }),
       })
       const { receive } = renderPage(api)
-      await receive({ type: 'item', item: regularViewerChat })
+      await receive({ type: 'item', item: firstChat })
 
-      await userEvent.click(readButton('常連さん'))
+      await userEvent.click(greetButton('はじめまして'))
 
-      expect(await screen.findByText('コメントビューアーの1件を配送先へ送れませんでした')).toBeInTheDocument()
-    })
-
-    test('届いてから3分たっても未読の発言を、「しばらく未読」として目立たせる', async () => {
-      const { receive } = renderPage(createFakeApi(), createFakeFocusApi(), fourMinutesLater)
-
-      await receive({ type: 'item', item: regularViewerChat })
-
-      expect(await within(findRow('常連さん')).findByText('しばらく未読')).toBeInTheDocument()
-    })
-
-    test('届いたばかりの発言・既読にした発言・配信者自身の発言は目立たせない', async () => {
-      const { receive } = renderPage(createFakeApi(), createFakeFocusApi(), fourMinutesLater)
-
-      await receive({ type: 'backlog', items: [regularViewerChat, readSwitch('付け替え1', true), broadcasterChat] })
-
-      expect(screen.queryByText('しばらく未読')).not.toBeInTheDocument()
-    })
-
-    test('設定で目立たせないことにしていれば、しばらく未読でも目立たせない', async () => {
-      const api = createFakeApi({ loadSettings: vi.fn(async () => ({ highlightUnread: false, judgeWithJev: false })) })
-      const { receive } = renderPage(api, createFakeFocusApi(), fourMinutesLater)
-      expect(await screen.findByRole('checkbox', { name: 'しばらく未読の発言を目立たせる' })).not.toBeChecked()
-
-      await receive({ type: 'item', item: regularViewerChat })
-
-      expect(screen.queryByText('しばらく未読')).not.toBeInTheDocument()
-    })
-
-    test('目立たせる設定を切り替えると保存し、その場で目立たせるのをやめる', async () => {
-      const api = createFakeApi()
-      const { receive } = renderPage(api, createFakeFocusApi(), fourMinutesLater)
-      await receive({ type: 'item', item: regularViewerChat })
-      const toggle = await screen.findByRole('checkbox', { name: 'しばらく未読の発言を目立たせる' })
-      expect(toggle).toBeChecked()
-
-      await userEvent.click(toggle)
-
-      // もう一方の設定（自動の既読）はそのまま送る
-      expect(api.saveSettings).toHaveBeenCalledWith({ highlightUnread: false, judgeWithJev: false })
-      expect(await screen.findByRole('checkbox', { name: 'しばらく未読の発言を目立たせる' })).not.toBeChecked()
-      expect(screen.queryByText('しばらく未読')).not.toBeInTheDocument()
-    })
-
-    test('発話から自動で既読にするかを切り替えると保存する（もう一方の設定はそのまま送る）', async () => {
-      const api = createFakeApi()
-      renderPage(api)
-      const toggle = await screen.findByRole('checkbox', { name: '配信者の発話から自動で既読にする（Jev）' })
-      expect(toggle).not.toBeChecked()
-
-      await userEvent.click(toggle)
-
-      expect(api.saveSettings).toHaveBeenCalledWith({ highlightUnread: true, judgeWithJev: true })
-      expect(await screen.findByRole('checkbox', { name: '配信者の発話から自動で既読にする（Jev）' })).toBeChecked()
-    })
-
-    test('Jev が既読にした発言には「発話から既読」と出し、手で既読にしたものと見分けられる', async () => {
-      const { receive } = renderPage()
-
-      await receive({ type: 'backlog', items: [regularViewerChat, readSwitch('付け替え1', true, 'jev')] })
-
-      expect(readButton('常連さん')).toHaveAttribute('aria-pressed', 'true')
-      expect(within(findRow('常連さん')).getByText('発話から既読')).toBeInTheDocument()
-    })
-
-    test('手で既読にした発言には「発話から既読」と出さない', async () => {
-      const { receive } = renderPage()
-
-      await receive({ type: 'backlog', items: [regularViewerChat, readSwitch('付け替え1', true, 'manual')] })
-
-      expect(within(findRow('常連さん')).queryByText('発話から既読')).not.toBeInTheDocument()
+      expect(await screen.findByText('その配信で初めての発言として記録されていない発言です')).toBeInTheDocument()
     })
   })
 })

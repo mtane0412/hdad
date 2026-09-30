@@ -1878,6 +1878,64 @@ describe('コメントビューアーへの配送', () => {
     ])
   })
 
+  describe('その配信で初めての発言の印（挨拶の相手）', () => {
+    const BOT_ID = '67890'
+    /** bot をつないでおく（bot 自身の発言を見分けるため） */
+    const connectBot = (env: Env) =>
+      saveToken(env.STORE, 'bot', {
+        accessToken: 'bot-access-token',
+        refreshToken: 'bot-refresh-token',
+        expiresAt: NOW + 60 * 60 * 1000,
+        scopes: ['user:bot', 'user:read:chat', 'user:write:chat'],
+        userId: BOT_ID,
+        login: 'haishinsha_bot',
+      })
+    /** 発言者を差し替えた、同じ形の発言 */
+    const messageFrom = (chatterUserId: string, messageId: string) => ({ ...viewerMessage, event: { ...viewerMessage.event, chatter_user_id: chatterUserId, message_id: messageId } })
+
+    it('配信中に初めて発言した人の発言には印を付け、同じ人の2回目の発言には付けない', async () => {
+      const { env, db, commentChannel } = createEnv()
+      await recordLiveStream(db, CHAT_STREAM, Date.parse('2026-09-21T12:05:00Z'))
+
+      await callWebhook(createNotification({ messageId: 'eventsub-1', body: messageFrom('11111', 'はじめてのこんばんは') }), env)
+      await callWebhook(createNotification({ messageId: 'eventsub-2', body: messageFrom('11111', '2回目の発言') }), env)
+
+      expect(commentChannel.pushedItems).toMatchObject([
+        { messageId: 'はじめてのこんばんは', firstOfStream: true },
+        { messageId: '2回目の発言', firstOfStream: false },
+      ])
+    })
+
+    it('トリガーが1件も無くても、初めての発言を記録する（挨拶の管理は通知音の有無と関係ない）', async () => {
+      const { env, db } = createEnv()
+      await recordLiveStream(db, CHAT_STREAM, Date.parse('2026-09-21T12:05:00Z'))
+
+      await callWebhook(createNotification({ body: messageFrom('11111', 'はじめてのこんばんは') }), env)
+
+      expect(db.sqlite.prepare('SELECT message_id FROM first_chatters').all()).toEqual([{ message_id: 'はじめてのこんばんは' }])
+    })
+
+    it('配信していなければ印を付けない', async () => {
+      const { env, commentChannel } = createEnv()
+
+      await callWebhook(createNotification({ body: messageFrom('11111', '配信外の発言') }), env)
+
+      expect(commentChannel.pushedItems).toMatchObject([{ messageId: '配信外の発言', firstOfStream: false }])
+    })
+
+    it('配信者自身と bot の発言には印を付けず、初めての発言としても記録しない', async () => {
+      const { env, db, commentChannel } = createEnv()
+      await recordLiveStream(db, CHAT_STREAM, Date.parse('2026-09-21T12:05:00Z'))
+      await connectBot(env)
+
+      await callWebhook(createNotification({ messageId: 'eventsub-1', body: messageFrom(BROADCASTER_ID, '配信者の発言') }), env)
+      await callWebhook(createNotification({ messageId: 'eventsub-2', body: messageFrom(BOT_ID, 'botの発言') }), env)
+
+      expect(commentChannel.pushedItems).toMatchObject([{ firstOfStream: false }, { firstOfStream: false }])
+      expect(db.sqlite.prepare('SELECT message_id FROM first_chatters').all()).toEqual([])
+    })
+  })
+
   it('別のチャンネルのチャットは押し出さない（古い購読が残っていても、他人のチャットを並べないため）', async () => {
     const { env, commentChannel } = createEnv()
     const otherChannel = { ...viewerMessage, event: { ...viewerMessage.event, broadcaster_user_id: '別の配信者のID' } }

@@ -36,7 +36,7 @@ export const LLM_USAGES = ['aiChat', 'sideSuper', 'viewerSummary', 'streamSummar
  *
  * Jev はモデルを選ばせない（worker/jev.ts が版を固定している）ので、設定には含まれず、使用状況にだけ並ぶ。
  */
-export const JEV_USAGES = ['commentReaction', 'bgm'] as const
+export const JEV_USAGES = ['bgm'] as const
 
 export type LlmProvider = (typeof LLM_PROVIDERS)[number]
 export type LlmUsage = (typeof LLM_USAGES)[number]

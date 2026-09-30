@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createFakeDatabase } from './fake-database'
-import { deleteOldTranscripts, readRecentTranscripts, readTranscriptsSince, readTranscriptsUpTo, recordTranscript } from './transcript-store'
+import { deleteOldTranscripts, readRecentTranscripts, readTranscriptsSince, recordTranscript } from './transcript-store'
 
 const STREAM_START = Date.parse('2026-09-23T20:00:00.000Z')
 const speechTime = Date.parse('2026-09-23T20:05:00.000Z')
@@ -181,40 +181,5 @@ describe('readRecentTranscripts', () => {
     await recordTranscript(db, { messageId: '発話2', text: '今の配信の話' }, speechTime + 3000)
 
     expect((await readRecentTranscripts(db, '配信2', 10)).map((line) => line.text)).toEqual(['今の配信の話'])
-  })
-})
-
-describe('readTranscriptsUpTo', () => {
-  it('指定した発話までの直近の発話を、喋った順（古い順）に本文だけで返す（コメントへの反応の判定の材料）', async () => {
-    startStream('配信1')
-    await recordTranscript(db, { messageId: '発話1', text: 'えーっと' }, speechTime)
-    await recordTranscript(db, { messageId: '発話2', text: '何時までかって聞かれたんだけど' }, speechTime + 1000)
-    await recordTranscript(db, { messageId: '発話3', text: '今日は11時くらいまでかな' }, speechTime + 2000)
-
-    expect(await readTranscriptsUpTo(db, '発話3', 2)).toEqual(['何時までかって聞かれたんだけど', '今日は11時くらいまでかな'])
-  })
-
-  it('指定した発話より後に届いた発話は読まない（判定が遅れて走っても、きっかけの発話の時点の材料で判定する）', async () => {
-    startStream('配信1')
-    await recordTranscript(db, { messageId: '発話1', text: 'あ、たなかさん初見ありがとうございます' }, speechTime)
-    await recordTranscript(db, { messageId: '発話2', text: 'よし、次のステージ行きます' }, speechTime + 1000)
-
-    expect(await readTranscriptsUpTo(db, '発話1', 3)).toEqual(['あ、たなかさん初見ありがとうございます'])
-  })
-
-  it('指定した発話と同じ配信の発話だけを読む', async () => {
-    startStream('配信1')
-    await recordTranscript(db, { messageId: '発話1', text: '前の配信の話' }, speechTime)
-    endStream(speechTime + 1000)
-    startStream('配信2', speechTime + 2000)
-    await recordTranscript(db, { messageId: '発話2', text: '今の配信の話' }, speechTime + 3000)
-
-    expect(await readTranscriptsUpTo(db, '発話2', 3)).toEqual(['今の配信の話'])
-  })
-
-  it('指定した発話が記録されていなければ、何も読まない', async () => {
-    startStream('配信1')
-
-    expect(await readTranscriptsUpTo(db, '記録されていない発話', 3)).toEqual([])
   })
 })

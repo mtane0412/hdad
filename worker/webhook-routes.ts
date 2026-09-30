@@ -20,7 +20,7 @@ import { recordStreamChatMessage } from './stream-chat-store'
 import { readCurrentStreamSummary } from './stream-summary-store'
 import { recordViewerMessage } from './viewer-store'
 import { loadModerationConfig } from './moderation-config'
-import { consumeCooldown, recordAndCountRecentMessage, reserveChatReply } from './chat-store'
+import { claimFirstChatOfStream, consumeCooldown, recordAndCountRecentMessage, reserveChatReply } from './chat-store'
 import { pushFeedItem } from './comment-channel'
 import { toFeedItem } from './comment-feed'
 import {
@@ -35,7 +35,7 @@ import {
 } from './eventsub-webhook'
 import { HttpError, STATUS, type Context } from './http'
 import { recordEvent, recordFailure, recordStreamOffline, recordStreamOnline } from './stats-store'
-import { loadToken } from './token'
+import { loadToken, type StoredToken } from './token'
 
 export const WEBHOOK_PATH = '/api/eventsub/webhook'
 
@@ -159,7 +159,7 @@ const moderateChatMessage = async (context: Context, message: ChatMessage, botUs
  * 2xx以外を返すとTwitchは同じ通知を再送するので、送信が成功していた場合に二重投稿になってしまう。
  * 黙って無視するのではなく収集の失敗として残し、管理画面（/api/admin/stats/failures）から気づけるようにする。
  */
-const replyToChatMessage = async (context: Context, body: Record<string, unknown>): Promise<void> => {
+const replyToChatMessage = async (context: Context, body: Record<string, unknown>, bot: StoredToken | null): Promise<void> => {
   const { env, now } = context
   // 通知の中身が想定と違えば、黙って捨てずに「不正な通知」として400で返す（Workerの不具合を表す500と区別する）
   const message = readChatMessage(body.event, invalid)
@@ -169,9 +169,8 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
   // こちらのチャンネルで応答してしまう。受け取り自体は成功として返す（2xx以外だとTwitchが再送し続ける）
   if (message.broadcasterUserId !== env.TWITCH_BROADCASTER_ID) return
 
-  // botを切断した直後など、購読が残っていても応答できないことがある。アラートの再生にbotは要らないので、
+  // botを切断した直後など、購読が残っていても応答できないことがある（bot が null）。アラートの再生にbotは要らないので、
   // 自動モデレーションとコマンドの応答だけを飛ばし、トリガーの判定は続ける
-  const bot = await loadToken(env.STORE, 'bot')
 
   // 視聴者の記録は、処分や応答の判定より先に残す。処分した発言も記録に含めるのは、荒らしの履歴も配信者には有用なため。
   // トリガーの条件のうち「このチャンネルで初めての発言か」「前の発言から空いた日数」は、この記録を読んで判定する。
@@ -234,6 +233,23 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
 }
 
 /**
+ * チャットの発言が、その配信で初めての発言か（コメントビューアーで挨拶の相手として印を付けるか）を判定する。
+ *
+ * 初めての発言なら first_chatters に記録する（chat-store.ts の claimFirstChatOfStream）。同じ発言について
+ * トリガーの判定（alert-state.ts）がもう一度問い合わせても同じ答えが返るので、ここで先に記録してかまわない。
+ * トリガーが1件も無くても判定する（挨拶の管理は通知音の有無と関係ないため。書き込むのは1配信につき1人1行）。
+ *
+ * 注意: 配信者自身と bot の発言は挨拶の相手ではないので、判定も記録もしない。
+ */
+const isFirstChatToGreet = async (context: Context, event: unknown, bot: StoredToken | null): Promise<boolean> => {
+  const { env, now } = context
+  // 発言の読み取りはコマンドの判定と同じものを使う（同じ通知を2か所で読み解かない）
+  const message = readChatMessage(event)
+  if (message.chatterUserId === env.TWITCH_BROADCASTER_ID || message.chatterUserId === bot?.userId) return false
+  return claimFirstChatOfStream(env.DB, { chatterUserId: message.chatterUserId, messageId: message.messageId }, now)
+}
+
+/**
  * 通知をコメントビューアー（/comments/）に並べる1件に直し、配送先へ押し出す。
  *
  * ほかの処理（自動モデレーション・トリガー・応答）より先に呼ぶ。発言より先に、その発言を消した通知が
@@ -244,13 +260,24 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
  * 注意: 直せなかった・押し出せなかったときも、Twitchへは2xxを返して収集の失敗として記録する。
  * コメントビューアーは配信者が見るためのもので、そのためにトリガーや応答を止めない（アラートの配送と同じ扱い）。
  * 再送で同じ1件を2度押し出すことはあるが、画面が通知のメッセージIDで見分ける。
+ * 初めての発言かの判定（isFirstChatToGreet）に失敗したときも同じ扱いにする（印を付けずに流すことはしない）。
+ *
+ * @param bot チャットの発言のときに、bot 自身の発言を見分けるための bot のトークン（未接続なら null）
  */
-const pushToCommentFeed = async (context: Context, type: string, body: Record<string, unknown>, messageId: string, occurredAt: number): Promise<void> => {
+const pushToCommentFeed = async (
+  context: Context,
+  type: string,
+  body: Record<string, unknown>,
+  messageId: string,
+  occurredAt: number,
+  bot: StoredToken | null,
+): Promise<void> => {
   const { env, now } = context
   const { event } = body
   if (isRecord(event) && typeof event.broadcaster_user_id === 'string' && event.broadcaster_user_id !== env.TWITCH_BROADCASTER_ID) return
   try {
-    const item = toFeedItem(type, event, { id: messageId, at: occurredAt })
+    const firstOfStream = type === CHAT_MESSAGE && (await isFirstChatToGreet(context, event, bot))
+    const item = toFeedItem(type, event, { id: messageId, at: occurredAt }, firstOfStream)
     if (item !== null) await pushFeedItem(env.COMMENTS, item)
   } catch (error) {
     await recordFailure(env.DB, 'comment-feed-failed', error instanceof Error ? error.message : String(error), now)
@@ -322,10 +349,12 @@ export const eventsubWebhook = async (context: Context): Promise<Response> => {
       // まずコメントビューアーへ押し出す。そのうえで、チャットは記録せず応答に回す（そちらでもトリガーにかける）。
       // ほかのイベントは配信の記録として数えたうえで、アラートのトリガーにかける
       const { type } = readSubscription(body)
-      await pushToCommentFeed(context, type, body, messageId, occurredAt)
+      // bot のトークンはチャットの発言のときだけ読み、配送（bot 自身の発言を見分ける）と応答の両方に渡す
+      const bot = type === CHAT_MESSAGE ? await loadToken(env.STORE, 'bot') : null
+      await pushToCommentFeed(context, type, body, messageId, occurredAt, bot)
       // コメントビューアーのためだけに購読している通知は、記録もトリガーの判定もしない
       if (FEED_ONLY_EVENT_TYPES.includes(type)) return new Response(null, { status: STATUS.noContent })
-      if (type === CHAT_MESSAGE) await replyToChatMessage(context, body)
+      if (type === CHAT_MESSAGE) await replyToChatMessage(context, body, bot)
       else {
         await recordNotification({ db: env.DB, messageId, occurredAt, body })
         await runAlertActions(context, type, body, messageId, async () => (await loadToken(env.STORE, 'bot')) !== null, null)

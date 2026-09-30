@@ -205,6 +205,30 @@ export const claimFirstChatOfStream = async (db: Database, claim: FirstChatClaim
   return claimed !== null
 }
 
+/** 初めての発言への挨拶の付け替え */
+export interface GreetingRecord {
+  /** 初めての発言のID（first_chatters.message_id） */
+  messageId: string
+  /** 挨拶したなら true、挨拶していない状態に戻すなら false */
+  greeted: boolean
+}
+
+/**
+ * その配信での初めての発言に、配信者が挨拶したかを記録する（コメントビューアーから手で切り替える。issue #158）。
+ *
+ * 注意: 初めての発言として記録されていない発言（2回目以降の発言・配信外の発言・消えた古い行）には書かず、
+ * false を返す。呼び出し側は黙って成功にせずエラーにする。
+ *
+ * @returns 記録したなら true、該当する初めての発言が無ければ false
+ */
+export const recordGreeting = async (db: Database, { messageId, greeted }: GreetingRecord, now: number): Promise<boolean> => {
+  const updated = await db
+    .prepare('UPDATE first_chatters SET greeted_at = ?1 WHERE message_id = ?2 RETURNING message_id')
+    .bind(greeted ? toIso(now) : null, messageId)
+    .first<{ message_id: string }>()
+  return updated !== null
+}
+
 /**
  * 期限より古い「初めての発言」の記録を消す。
  *

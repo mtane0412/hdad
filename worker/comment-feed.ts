@@ -10,14 +10,13 @@
  *   同じ出来事を別に知らせる channel.subscribe・channel.subscription.message・channel.raid は流さない（二重に並ぶため）
  * - ビッツは発言そのもの（channel.chat.message の cheer）から読む
  * - 発言の削除・BAN/タイムアウトによる消去・全消去も流し、画面の側で該当する発言に印を付ける
- * - 発言の既読・未読の付け替え（read）は Twitch の通知ではなく、コメントビューアーから付け替えたときに
+ * - 初めての発言への挨拶の付け替え（greeting）は Twitch の通知ではなく、コメントビューアーから付け替えたときに
  *   comment-routes.ts が流す（開いているほかの画面にも同じ印を付け、開き直したときも履歴から印を戻すため）
  *
  * 注意: 画面は届いた形をそのまま信じず、src/comments/feed.ts で形を確かめる。形を変えるときは両方を直す。
  * 注意: 流す種類の通知で中身が欠けていれば、黙って捨てずに投げる（Fail-Fast）。呼び出し側は失敗として記録する。
  */
 import { readChatMessage } from './chat-command'
-import type { CommentReadMarker } from './comment-read-store'
 
 /** 発言した人・出来事を起こした人 */
 export interface FeedUser {
@@ -78,6 +77,8 @@ export type FeedItem = FeedStamp &
         bits: number | null
         /** 返信なら返信先の名前と本文 */
         reply: { name: string; text: string } | null
+        /** その配信で初めての発言か。配信者自身と bot の発言では false（挨拶の相手ではないため） */
+        firstOfStream: boolean
       }
     | {
         kind: 'notice'
@@ -96,13 +97,11 @@ export type FeedItem = FeedStamp &
     | { kind: 'clearUser'; userId: string }
     | { kind: 'clear' }
     | {
-        kind: 'read'
-        /** 付け替えた発言のID */
+        kind: 'greeting'
+        /** 付け替えた初めての発言のID */
         messageId: string
-        /** 既読にしたなら true、未読に戻したなら false */
-        read: boolean
-        /** 付け替えたのは誰か */
-        by: CommentReadMarker
+        /** 挨拶したなら true、挨拶していない状態に戻したなら false */
+        greeted: boolean
       }
   )
 
@@ -162,7 +161,7 @@ const readUser = (event: Record<string, unknown>, prefix: string, where: string)
   name: readString(event, `${prefix}_name`, where),
 })
 
-const toChat = (event: unknown, stamp: FeedStamp): FeedItem => {
+const toChat = (event: unknown, stamp: FeedStamp, firstOfStream: boolean): FeedItem => {
   const where = 'channel.chat.message'
   // 発言者と本文の読み取りはコマンドの判定と同じものを使う（同じ通知を2か所で読み解かない）
   if (!isRecord(event)) throw new Error(`${where} の通知に event がありません`)
@@ -181,6 +180,7 @@ const toChat = (event: unknown, stamp: FeedStamp): FeedItem => {
     reply: isRecord(reply)
       ? { name: readString(reply, 'parent_user_name', `${where} の reply`), text: readString(reply, 'parent_message_body', `${where} の reply`) }
       : null,
+    firstOfStream,
   }
 }
 
@@ -235,13 +235,15 @@ const toNotice = (event: Record<string, unknown>, stamp: FeedStamp): FeedItem =>
  * @param subscriptionType 通知の種類（subscription.type）
  * @param event 通知の中身（event）
  * @param stamp 通知のメッセージIDと届いた時刻
+ * @param firstOfStream チャットの発言なら、その配信で初めての発言か（データベースを見て決まるので、呼び出し側が
+ *   判定して渡す。alert-event.ts の ConditionState と同じ作り）。発言以外の通知では使わないので false を渡す
  * @returns 流さない種類の通知なら null
  * @throws Error 流す種類の通知で、必要な項目が揃っていない
  */
-export const toFeedItem = (subscriptionType: string, event: unknown, stamp: FeedStamp): FeedItem | null => {
+export const toFeedItem = (subscriptionType: string, event: unknown, stamp: FeedStamp, firstOfStream: boolean): FeedItem | null => {
   switch (subscriptionType) {
     case 'channel.chat.message':
-      return toChat(event, stamp)
+      return toChat(event, stamp, firstOfStream)
     case CHAT_NOTIFICATION:
       if (!isRecord(event)) throw new Error(`${subscriptionType} の通知に event がありません`)
       return toNotice(event, stamp)

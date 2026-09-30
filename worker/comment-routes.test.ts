@@ -1,14 +1,13 @@
 /**
  * コメントビューアーの経路（/api/admin/comments/*）のテスト
  *
- * 確かめるのは次の7点である。
+ * 確かめるのは次の6点である。
  * - 配信者の画面からのWebSocketの接続が、配送先（Durable Object）へ引き渡されること
  * - ログインしていない接続・別のサイトから開かれた接続を断ること（WebSocketはGETなので、書き換えのときのCSRF対策が効かない）
  * - 発言した人のアイコンを、ユーザーIDからまとめて引けること
  * - 配信者が選んだ処分（削除・タイムアウト・BAN）を、botの権限で行えること
  * - 配信者本人としてチャットを送れること（許可を取り直す前は、botで代わりに送らず断ること）
- * - 発言を既読にした・未読に戻したことを記録し、開いている画面へ知らせること
- * - コメントビューアーの設定（しばらく未読の発言を目立たせるか）を読み書きできること
+ * - その配信で初めての発言に挨拶した・挨拶していない状態に戻したことを記録し、開いている画面へ知らせること
  */
 import { describe, expect, it } from 'vitest'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
@@ -348,10 +347,10 @@ describe('POST /api/admin/comments/messages', () => {
   })
 })
 
-describe('POST /api/admin/comments/reads', () => {
-  const replace = async (env: Env, body: unknown, headers: Record<string, string> = {}) =>
+describe('POST /api/admin/comments/greetings', () => {
+  const toggle = async (env: Env, body: unknown, headers: Record<string, string> = {}) =>
     invoke(
-      new Request(`${origin}/api/admin/comments/reads`, {
+      new Request(`${origin}/api/admin/comments/greetings`, {
         method: 'POST',
         headers: { Cookie: await broadcasterCookie(env), Origin: origin, 'Content-Type': 'application/json', ...headers },
         body: JSON.stringify(body),
@@ -359,120 +358,83 @@ describe('POST /api/admin/comments/reads', () => {
       env,
     )
 
-  /** 記録された既読の行をそのまま読む */
-  const readRows = (env: ReturnType<typeof createEnv>['env']) => env.DB.sqlite.prepare('SELECT message_id, read, marked_by FROM comment_reads').all()
+  /** 配信中にして、たなかさんのその配信で初めての発言を記録しておく（Webhook が記録するのと同じ形） */
+  const envWithFirstChat = () => {
+    const created = createEnv()
+    created.env.DB.sqlite
+      .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, NULL, ?, ?)')
+      .run('haishin-1', new Date(now - 60_000).toISOString(), '朝配信', 'Just Chatting')
+    created.env.DB.sqlite
+      .prepare('INSERT INTO first_chatters (session_id, chatter_user_id, message_id, first_chatted_at) VALUES (?, ?, ?, ?)')
+      .run('haishin-1', '11111', 'たなかさんの初見の挨拶', new Date(now - 30_000).toISOString())
+    return created
+  }
 
-  it('配信者が既読にした発言を記録し、開いている画面へ知らせる', async () => {
-    const { env, deliveryTarget } = createEnv()
+  /** 挨拶した時刻の記録をそのまま読む */
+  const greetedAt = (env: ReturnType<typeof createEnv>['env']) => env.DB.sqlite.prepare('SELECT message_id, greeted_at FROM first_chatters').all()
 
-    const response = await replace(env, { messageId: 'たなかさんの初見の挨拶', read: true })
+  it('挨拶したことを記録し、開いている画面へ知らせる', async () => {
+    const { env, deliveryTarget } = envWithFirstChat()
+
+    const response = await toggle(env, { messageId: 'たなかさんの初見の挨拶', greeted: true })
 
     expect(response.status).toBe(204)
-    expect(readRows(env)).toEqual([{ message_id: 'たなかさんの初見の挨拶', read: 1, marked_by: 'manual' }])
+    expect(greetedAt(env)).toEqual([{ message_id: 'たなかさんの初見の挨拶', greeted_at: new Date(now).toISOString() }])
     // 画面は届いた順に当てはめるので、付け替えるたびに別の通知として見分けられるIDを振る
-    expect(deliveryTarget.pushedItems).toEqual([
-      { kind: 'read', id: expect.any(String), at: now, messageId: 'たなかさんの初見の挨拶', read: true, by: 'manual' },
-    ])
+    expect(deliveryTarget.pushedItems).toEqual([{ kind: 'greeting', id: expect.any(String), at: now, messageId: 'たなかさんの初見の挨拶', greeted: true }])
   })
 
-  it('未読に戻したことも記録し、知らせる', async () => {
-    const { env, deliveryTarget } = createEnv()
-    await replace(env, { messageId: 'すずきさんのBGMの質問', read: true })
+  it('挨拶していない状態に戻したことも記録し、知らせる', async () => {
+    const { env, deliveryTarget } = envWithFirstChat()
+    await toggle(env, { messageId: 'たなかさんの初見の挨拶', greeted: true })
 
-    await replace(env, { messageId: 'すずきさんのBGMの質問', read: false })
+    await toggle(env, { messageId: 'たなかさんの初見の挨拶', greeted: false })
 
-    expect(readRows(env)).toEqual([{ message_id: 'すずきさんのBGMの質問', read: 0, marked_by: 'manual' }])
-    expect(deliveryTarget.pushedItems.map((item) => item.kind === 'read' && item.read)).toEqual([true, false])
+    expect(greetedAt(env)).toEqual([{ message_id: 'たなかさんの初見の挨拶', greeted_at: null }])
+    expect(deliveryTarget.pushedItems.map((item) => item.kind === 'greeting' && item.greeted)).toEqual([true, false])
     // 付け替えの通知は、1回ごとに違うIDを持つ（同じIDだと、画面が2回目を「当てはめ済み」として捨ててしまう）
     expect(new Set(deliveryTarget.pushedItems.map((item) => item.id)).size).toBe(2)
   })
 
-  it.each([
-    ['発言のIDが無い', { read: true }],
-    ['発言のIDが空', { messageId: '', read: true }],
-    ['既読かどうかが真偽値でない', { messageId: 'たなかさんの初見の挨拶', read: 'はい' }],
-  ])('%s本文は400で断り、記録も知らせもしない', async (_description, body) => {
-    const { env, deliveryTarget } = createEnv()
+  it('その配信で初めての発言として記録されていない発言なら、404で断り知らせもしない', async () => {
+    const { env, deliveryTarget } = envWithFirstChat()
 
-    const response = await replace(env, body)
+    const response = await toggle(env, { messageId: 'たなかさんの2回目の発言', greeted: true })
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toMatchObject({ error: { code: 'unknown-first-chat' } })
+    expect(deliveryTarget.pushedItems).toEqual([])
+  })
+
+  it.each([
+    ['発言のIDが無い', { greeted: true }],
+    ['発言のIDが空', { messageId: '', greeted: true }],
+    ['挨拶したかどうかが真偽値でない', { messageId: 'たなかさんの初見の挨拶', greeted: 'はい' }],
+  ])('%s本文は400で断り、記録も知らせもしない', async (_description, body) => {
+    const { env, deliveryTarget } = envWithFirstChat()
+
+    const response = await toggle(env, body)
 
     expect(response.status).toBe(400)
-    expect(readRows(env)).toEqual([])
+    expect(greetedAt(env)).toEqual([{ message_id: 'たなかさんの初見の挨拶', greeted_at: null }])
     expect(deliveryTarget.pushedItems).toEqual([])
   })
 
   it('ログインしていなければ断る', async () => {
-    const { env } = createEnv()
+    const { env } = envWithFirstChat()
 
-    const response = await replace(env, { messageId: 'たなかさんの初見の挨拶', read: true }, { Cookie: '' })
+    const response = await toggle(env, { messageId: 'たなかさんの初見の挨拶', greeted: true }, { Cookie: '' })
 
     expect(response.status).toBe(401)
-    expect(readRows(env)).toEqual([])
+    expect(greetedAt(env)).toEqual([{ message_id: 'たなかさんの初見の挨拶', greeted_at: null }])
   })
 
   it('画面へ知らせられなければ、成功として返さない（付け替えが画面に出ないことに気づけるようにする）', async () => {
-    const { env } = createEnv()
+    const { env } = envWithFirstChat()
     const failingDeliveryTarget = createFakeCommentChannel({ shouldFail: true })
 
-    const response = await replace({ ...env, COMMENTS: failingDeliveryTarget.namespace }, { messageId: 'たなかさんの初見の挨拶', read: true })
+    const response = await toggle({ ...env, COMMENTS: failingDeliveryTarget.namespace }, { messageId: 'たなかさんの初見の挨拶', greeted: true })
 
     expect(response.ok).toBe(false)
-    // 記録は先に済んでいる（画面はまだ未読のまま）。配信者が失敗を見てもう一度押せば揃う（次のテスト）
-    expect(readRows(env)).toEqual([{ message_id: 'たなかさんの初見の挨拶', read: 1, marked_by: 'manual' }])
-  })
-
-  it('知らせるのに失敗したあと、もう一度押せば記録と画面の状態が揃う', async () => {
-    const { env, deliveryTarget } = createEnv()
-    const failingDeliveryTarget = createFakeCommentChannel({ shouldFail: true })
-    await replace({ ...env, COMMENTS: failingDeliveryTarget.namespace }, { messageId: 'たなかさんの初見の挨拶', read: true })
-
-    // 画面は未読のままなので、配信者はもう一度「既読にする」を押す
-    const response = await replace(env, { messageId: 'たなかさんの初見の挨拶', read: true })
-
-    expect(response.status).toBe(204)
-    expect(readRows(env)).toEqual([{ message_id: 'たなかさんの初見の挨拶', read: 1, marked_by: 'manual' }])
-    expect(deliveryTarget.pushedItems).toMatchObject([{ kind: 'read', messageId: 'たなかさんの初見の挨拶', read: true }])
-  })
-})
-
-describe('/api/admin/comments/settings', () => {
-  const read = async (env: Env) => invoke(new Request(`${origin}/api/admin/comments/settings`, { headers: { Cookie: await broadcasterCookie(env) } }), env)
-
-  const save = async (env: Env, body: unknown) =>
-    invoke(
-      new Request(`${origin}/api/admin/comments/settings`, {
-        method: 'PUT',
-        headers: { Cookie: await broadcasterCookie(env), Origin: origin, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      }),
-      env,
-    )
-
-  it('未保存なら、しばらく未読の発言を目立たせ、発話からの自動の既読はしない設定を返す', async () => {
-    const { env } = createEnv()
-
-    const response = await read(env)
-
-    expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ highlightUnread: true, judgeWithJev: false })
-  })
-
-  it('保存した設定を返し、次に読んだときもその設定になる', async () => {
-    const { env } = createEnv()
-
-    const response = await save(env, { highlightUnread: false, judgeWithJev: true })
-
-    expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ highlightUnread: false, judgeWithJev: true })
-    expect(await (await read(env)).json()).toEqual({ highlightUnread: false, judgeWithJev: true })
-  })
-
-  it('形の違う設定は、問題点を添えて400で断る', async () => {
-    const { env } = createEnv()
-
-    const response = await save(env, { highlightUnread: 'はい', judgeWithJev: false })
-
-    expect(response.status).toBe(400)
-    expect(await response.json()).toMatchObject({ error: { code: 'invalid-config' } })
   })
 })

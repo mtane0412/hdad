@@ -55,7 +55,7 @@ describe('createJev（送るもの）', () => {
     const fetchImpl = fakeFetch(jevResponse({ reacted: { type: 'noul', noul: 0.93 } }))
     const jev = createJev(options(fetchImpl))
 
-    await jev.decide('commentReaction', { state: reactionMaterial, questions: reactionQuestion })
+    await jev.decide('bgm', { state: reactionMaterial, questions: reactionQuestion })
 
     const [request] = fetchImpl.called
     expect(request?.url).toBe('https://openrouter.ai/api/alpha/decisions')
@@ -73,14 +73,14 @@ describe('createJev（答えの読み取り）', () => {
   it('Noul の答えは yes の確率（数）で返す', async () => {
     const jev = createJev(options(fakeFetch(jevResponse({ reacted: { type: 'noul', noul: 0.93 } }))))
 
-    expect(await jev.decide('commentReaction', { state: reactionMaterial, questions: reactionQuestion })).toEqual({ reacted: 0.93 })
+    expect(await jev.decide('bgm', { state: reactionMaterial, questions: reactionQuestion })).toEqual({ reacted: 0.93 })
   })
 
   it('Choice の答えは選ばれた選択肢と確信度で返す', async () => {
     const response = jevResponse({ tone: { type: 'choice', choice: 'question', confidence: 0.81, probabilities: { question: 0.81, greeting: 0.19 } } })
     const jev = createJev(options(fakeFetch(response)))
 
-    const answer = await jev.decide('commentReaction', {
+    const answer = await jev.decide('bgm', {
       state: 'このBGMなんて曲？',
       questions: { tone: { type: 'choice', instructions: 'このチャットは何をしていますか。', criteria: { question: '質問している', greeting: '挨拶している' } } },
     })
@@ -92,7 +92,7 @@ describe('createJev（答えの読み取り）', () => {
     const response = jevResponse({ urgency: { type: 'score', score: 1.99, confidence: 0.7, legend: { 0: '急がない', 1: 'ふつう', 2: '急ぐ' } } })
     const jev = createJev(options(fakeFetch(response)))
 
-    const answer = await jev.decide('commentReaction', {
+    const answer = await jev.decide('bgm', {
       state: '音ズレしてる？',
       questions: { urgency: { type: 'score', instructions: 'このチャットにどれだけ早く応じるべきですか。', criteria: ['急がない', 'ふつう', '急ぐ'] } },
     })
@@ -103,7 +103,7 @@ describe('createJev（答えの読み取り）', () => {
   it('確信度が返ってこなければ null にする（API では省かれうる項目なので、0 に丸めて確信が無いことにしない）', async () => {
     const jev = createJev(options(fakeFetch(jevResponse({ tone: { type: 'choice', choice: 'greeting' } }))))
 
-    const answer = await jev.decide('commentReaction', {
+    const answer = await jev.decide('bgm', {
       state: 'こんばんは',
       questions: { tone: { type: 'choice', instructions: 'このチャットは何をしていますか。', criteria: { question: '質問している', greeting: '挨拶している' } } },
     })
@@ -117,7 +117,7 @@ describe('createJev（失敗）', () => {
     const fetchImpl = fakeFetch(jevResponse({ reacted: { type: 'noul', noul: 0.93 } }))
     const jev = createJev(options(fetchImpl, { apiKey: undefined }))
 
-    await expect(jev.decide('commentReaction', { state: reactionMaterial, questions: reactionQuestion })).rejects.toThrow('OPENROUTER_API_KEY')
+    await expect(jev.decide('bgm', { state: reactionMaterial, questions: reactionQuestion })).rejects.toThrow('OPENROUTER_API_KEY')
     expect(fetchImpl.called).toHaveLength(0)
   })
 
@@ -125,39 +125,39 @@ describe('createJev（失敗）', () => {
     const fetchImpl = fakeFetch(jevResponse({}))
     const jev = createJev(options(fetchImpl))
 
-    await expect(jev.decide('commentReaction', { state: reactionMaterial, questions: {} })).rejects.toThrow('質問')
+    await expect(jev.decide('bgm', { state: reactionMaterial, questions: {} })).rejects.toThrow('質問')
     expect(fetchImpl.called).toHaveLength(0)
   })
 
   it('OpenRouter が失敗を返したら、状態コードと本文を添えて投げる', async () => {
     const jev = createJev(options(fakeFetch(new Response('{"error":{"message":"Insufficient credits"}}', { status: 402 }))))
 
-    await expect(jev.decide('commentReaction', { state: reactionMaterial, questions: reactionQuestion })).rejects.toThrow(/402.*Insufficient credits/s)
+    await expect(jev.decide('bgm', { state: reactionMaterial, questions: reactionQuestion })).rejects.toThrow(/402.*Insufficient credits/s)
   })
 
   it('頼んだ質問の答えが欠けていたら投げる（欠けた答えを「いいえ」として扱わない）', async () => {
     const jev = createJev(options(fakeFetch(jevResponse({}))))
 
-    await expect(jev.decide('commentReaction', { state: reactionMaterial, questions: reactionQuestion })).rejects.toThrow('reacted')
+    await expect(jev.decide('bgm', { state: reactionMaterial, questions: reactionQuestion })).rejects.toThrow('reacted')
   })
 
   it('答えの型が質問の型と違ったら投げる', async () => {
     const jev = createJev(options(fakeFetch(jevResponse({ reacted: { type: 'choice', choice: 'yes' } }))))
 
-    await expect(jev.decide('commentReaction', { state: reactionMaterial, questions: reactionQuestion })).rejects.toThrow('reacted')
+    await expect(jev.decide('bgm', { state: reactionMaterial, questions: reactionQuestion })).rejects.toThrow('reacted')
   })
 
   it('Noul の確率が 0〜1 の数でなければ投げる', async () => {
     const jev = createJev(options(fakeFetch(jevResponse({ reacted: { type: 'noul', noul: 1.5 } }))))
 
-    await expect(jev.decide('commentReaction', { state: reactionMaterial, questions: reactionQuestion })).rejects.toThrow('reacted')
+    await expect(jev.decide('bgm', { state: reactionMaterial, questions: reactionQuestion })).rejects.toThrow('reacted')
   })
 
   it('Choice の答えが選択肢に無い名前なら投げる', async () => {
     const jev = createJev(options(fakeFetch(jevResponse({ tone: { type: 'choice', choice: 'complaint' } }))))
 
     await expect(
-      jev.decide('commentReaction', {
+      jev.decide('bgm', {
         state: 'こんばんは',
         questions: { tone: { type: 'choice', instructions: 'このチャットは何をしていますか。', criteria: { question: '質問している', greeting: '挨拶している' } } },
       }),
@@ -168,7 +168,7 @@ describe('createJev（失敗）', () => {
     const fetchImpl = (async () => await new Promise<Response>(() => undefined)) as typeof fetch
     const jev = createJev(options(fetchImpl, { timeoutMs: 10 }))
 
-    await expect(jev.decide('commentReaction', { state: reactionMaterial, questions: reactionQuestion })).rejects.toBeInstanceOf(TimeoutError)
+    await expect(jev.decide('bgm', { state: reactionMaterial, questions: reactionQuestion })).rejects.toBeInstanceOf(TimeoutError)
   })
 })
 
@@ -181,12 +181,12 @@ describe('createJev（使用状況の記録）', () => {
     const db = createFakeDatabase()
     const jev = createJev(options(fakeFetch(jevResponse({ reacted: { type: 'noul', noul: 0.93 } })), { db }))
 
-    await jev.decide('commentReaction', { state: reactionMaterial, questions: reactionQuestion })
+    await jev.decide('bgm', { state: reactionMaterial, questions: reactionQuestion })
 
     expect(readRecords(db)).toEqual([
       {
         day: '2026-09-29',
-        usage: 'commentReaction',
+        usage: 'bgm',
         provider: 'openrouter',
         model: JEV_MODEL,
         calls: 1,
@@ -202,8 +202,8 @@ describe('createJev（使用状況の記録）', () => {
     const db = createFakeDatabase()
     const jev = createJev(options(fakeFetch(new Response('Internal Server Error', { status: 500 })), { db }))
 
-    await expect(jev.decide('commentReaction', { state: reactionMaterial, questions: reactionQuestion })).rejects.toThrow('500')
-    expect(readRecords(db)).toMatchObject([{ usage: 'commentReaction', provider: 'openrouter', calls: 0, failures: 1 }])
+    await expect(jev.decide('bgm', { state: reactionMaterial, questions: reactionQuestion })).rejects.toThrow('500')
+    expect(readRecords(db)).toMatchObject([{ usage: 'bgm', provider: 'openrouter', calls: 0, failures: 1 }])
   })
 
   it('記録に失敗しても判定の結果はそのまま返し、失敗を collection_failures に残す', async () => {
@@ -218,7 +218,7 @@ describe('createJev（使用状況の記録）', () => {
     }
     const jev = createJev(options(fakeFetch(jevResponse({ reacted: { type: 'noul', noul: 0.93 } })), { db }))
 
-    expect(await jev.decide('commentReaction', { state: reactionMaterial, questions: reactionQuestion })).toEqual({ reacted: 0.93 })
+    expect(await jev.decide('bgm', { state: reactionMaterial, questions: reactionQuestion })).toEqual({ reacted: 0.93 })
     expect(real.sqlite.prepare('SELECT code, message FROM collection_failures').all()).toMatchObject([
       { code: 'llm-usage-record-failed', message: expect.stringContaining('D1の書き込みの枠') },
     ])
