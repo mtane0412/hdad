@@ -8,6 +8,7 @@
  * - 上げた音声から曲を足し、情報を書いて保存できること
  * - Workerが返した問題点を、画面に見えている名前で並べること（検証はWorkerだけが持つ）
  * - 読み込めなかったときは、黙って空の一覧に倒さず理由を出すこと
+ * - Jev に話題に合う曲へ切り替えさせるかを、その場で入れたり切ったりできること（既定はオフ。issue #153）
  */
 import '@testing-library/jest-dom/vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -15,7 +16,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, test } from 'vitest'
 import type { MediaItem } from '@/admin/api'
 import { ApiError } from '@/core/api'
-import type { BgmApi, BgmPlayback, BgmTrack } from './api'
+import type { BgmApi, BgmPlayback, BgmSettings, BgmTrack } from './api'
 import { BgmPage } from './bgm-page'
 
 afterEach(cleanup)
@@ -52,13 +53,19 @@ const 上げてある素材: MediaItem[] = [
 const bgmApi = (
   tracks: BgmTrack[] = [雑談の曲, 盛り上がる曲],
   playback: BgmPlayback = { mediaId: 雑談の曲.mediaId, volume: 0.3 },
-): BgmApi & { 保存した曲: BgmTrack[][]; 送った再生: BgmPlayback[] } => {
+): BgmApi & { 保存した曲: BgmTrack[][]; 送った再生: BgmPlayback[]; 保存した設定: BgmSettings[] } => {
   const 保存した曲: BgmTrack[][] = []
   const 送った再生: BgmPlayback[] = []
+  const 保存した設定: BgmSettings[] = []
   return {
     保存した曲,
     送った再生,
-    load: () => Promise.resolve({ tracks, playback }),
+    保存した設定,
+    load: () => Promise.resolve({ tracks, playback, settings: { judgeWithJev: false } }),
+    saveSettings: (next) => {
+      保存した設定.push(next)
+      return Promise.resolve(next)
+    },
     saveTracks: (next) => {
       保存した曲.push([...next])
       return Promise.resolve([...next])
@@ -187,6 +194,19 @@ describe('BGMのページ', () => {
     await userEvent.click(screen.getByRole('button', { name: '曲の一覧を保存' }))
 
     expect(await screen.findByText(/2曲目のクレジット表記: 1〜200文字で指定してください/)).toBeInTheDocument()
+  })
+
+  test('話題に合う曲へ Jev に切り替えさせるかを、その場で保存する（既定はオフ）', async () => {
+    const api = bgmApi()
+    描く(api)
+    await 読み込みを待つ()
+
+    const 自動の切り替え = screen.getByRole('checkbox', { name: '配信の話題に合う曲へ自動で切り替える（Jev）' })
+    expect(自動の切り替え).not.toBeChecked()
+    await userEvent.click(自動の切り替え)
+
+    await waitFor(() => expect(api.保存した設定).toEqual([{ judgeWithJev: true }]))
+    expect(自動の切り替え).toBeChecked()
   })
 
   test('読み込めなければ、空の一覧を出さずに理由を出す', async () => {

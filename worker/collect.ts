@@ -5,6 +5,7 @@
  * 1回の収集で、配信の状態（配信中ならセッションの開始・継続と視聴者数、配信していなければセッションの終了）と、フォロワー数を記録し、
  * あわせて終わった配信の発言から視聴者の人物像を作り（そのついでにその人自身のチャンネルの内容も観測して記録し）、
  * 配信画面を撮った1枚から Gyazo が読み取った文字を取りに行き、
+ * あらすじを作り直せたら、そのあらすじに合う BGM を Jev に選ばせ（issue #153。worker/bgm-jev.ts）、
  * 古くなった記録（first_chatters・stream_chat_messages・transcripts）を消す。
  *
  * 注意: トークンが無い・更新できない・Twitchが失敗を返したときは、黙って飛ばさない。
@@ -13,6 +14,9 @@
  * あるが（worker/timeout.ts）、Gyazo を最大30枚とLLMを4か所ぶん逐次に呼ぶので、遅い相手が続くと1回の収集が
  * 積み上がって長くなる。予算を過ぎたら配信の記録は残したまま、材料づくりだけを次の収集へ回す。
  */
+import type { AlertChannelNamespace } from './alert-channel'
+import { BGM_TRANSCRIPT_CONTEXT, chooseBgm } from './bgm-jev'
+import type { JevClient } from './jev'
 import type { TextGenerator } from './llm'
 import { deleteOldFirstChatters } from './chat-store'
 import type { Database } from './database'
@@ -162,6 +166,10 @@ export interface CollectStatsOptions {
   store: KeyValueStore
   /** 人物像・あらすじ・サイドスーパーを作らせるLLM（worker/llm.ts。呼び先は設定が決める） */
   ai: TextGenerator
+  /** 配信の話題に合う BGM を選ばせる Jev（worker/jev.ts） */
+  jev: JevClient
+  /** Jev が BGM を切り替えたときに、裏方のページへ押し出す配送先 */
+  alerts: AlertChannelNamespace
   twitch: Pick<TwitchClient, 'refresh' | 'getLiveStream' | 'getFollowerTotal' | 'getChannel'>
   /**
    * 配信画面から読み取った文字を取りに行く Gyazo（worker/gyazo.ts）。
@@ -208,8 +216,9 @@ const toFailureCode = (error: unknown): string => {
  *
  * @param sessionId いま進んでいる配信の区切り。Twitchが返した配信のIDがそのまま区切りのIDになる
  *   （stats-store.ts の recordLiveStream）ので、配信中かどうかを引き直さずに済む
+ * @returns 作り直したあらすじ。作らなかった・作れなかったときは null（BGM を選ばせるかの目印になる）
  */
-const summarizeStream = async (db: Database, ai: TextGenerator, sessionId: string, now: number): Promise<void> => {
+const summarizeStream = async (db: Database, ai: TextGenerator, sessionId: string, now: number): Promise<string | null> => {
   const previous = await readStreamSummary(db, sessionId)
   // まだ一度も作っていなければ、どの行よりも前を指す目印（空文字の組）から読む
   const transcriptsFrom = previous?.transcriptsUntil ?? { at: '', messageId: '' }
@@ -225,7 +234,7 @@ const summarizeStream = async (db: Database, ai: TextGenerator, sessionId: strin
   // （上限（STREAM_SUMMARY_CHAT_LIMIT）を超えて溜まったぶんは、古いほうから何回かに分けて材料になる）。
   // 前回までのあらすじがある場合でも同じく作らない。あらすじという文脈を与えても、書き込みがそのまま
   // 地の文に貼り付く（「時差があるのがよくわかる。え、こわい。」で終わる）ことを、同じ材料で確かめた
-  if (transcripts.length === 0) return
+  if (transcripts.length === 0) return null
 
   let summary: string
   try {
@@ -239,7 +248,7 @@ const summarizeStream = async (db: Database, ai: TextGenerator, sessionId: strin
     // 返ってきた文そのものの問題（StreamSummaryContentError）も、LLMを呼べなかった失敗も同じ扱いでよい。
     // 対象が1件しかないので、人物像づくりのような「その人を飛ばして次の人へ進む」という分かれ道がない
     await recordFailure(db, 'stream-summary-failed', error instanceof Error ? error.message : String(error), now)
-    return
+    return null
   }
 
   // 読めた材料の最後の行を「どこまで材料にしたか」の目印として記録する。件数の上限で切れた残りは、
@@ -259,6 +268,29 @@ const summarizeStream = async (db: Database, ai: TextGenerator, sessionId: strin
     },
     now,
   )
+  return summary
+}
+
+/**
+ * 作り直したあらすじと直近の発話を材料に、配信の話題に合う BGM を Jev に選ばせる（issue #153。worker/bgm-jev.ts）。
+ *
+ * あらすじを作り直せた回だけ呼ぶ。あらすじは新しい発話があったときだけ作り直されるので、喋っていない時間帯に
+ * Jev を呼ばない（docs/principles.md の8「新しい材料が無ければ呼ばない」）。
+ *
+ * 注意: 失敗しても収集そのものを止めず、曲も変えない。黙って飲み込まず collection_failures に残すのは、あらすじと同じである。
+ */
+const chooseBgmForStream = async (
+  { db, store, jev, alerts }: Pick<CollectStatsOptions, 'db' | 'store' | 'jev' | 'alerts'>,
+  sessionId: string,
+  summary: string,
+  now: number,
+): Promise<void> => {
+  try {
+    const transcript = (await readRecentTranscripts(db, sessionId, BGM_TRANSCRIPT_CONTEXT)).map((line) => line.text)
+    await chooseBgm({ store, jev, alerts, now, summary, transcript })
+  } catch (error) {
+    await recordFailure(db, 'bgm-choice-failed', `配信の話題に合うBGMを選べませんでした: ${error instanceof Error ? error.message : String(error)}`, now)
+  }
 }
 
 /**
@@ -565,18 +597,18 @@ const siftScreenOcr = async (db: Database, now: number): Promise<void> => {
   }
 }
 
-const collect = async ({ db, store, twitch, ai, gyazo, broadcasterId, now, clock = Date.now }: CollectStatsOptions): Promise<void> => {
+const collect = async ({ db, store, twitch, ai, jev, alerts, gyazo, broadcasterId, now, clock = Date.now }: CollectStatsOptions): Promise<void> => {
   const 始めた時刻 = clock()
   const 予算を使い切った = (): boolean => clock() - 始めた時刻 > COLLECT_BUDGET_MS
   /** 予算を過ぎて次の収集へ回したもの。まとめて1行に記録する */
   const 次の収集へ回したもの: string[] = []
   /** 予算が残っていれば作り、使い切っていたら手を付けずに次の収集へ回す */
-  const 予算のうちに = async (名前: string, 作る: () => Promise<void>): Promise<void> => {
+  const 予算のうちに = async <Result>(名前: string, 作る: () => Promise<Result>): Promise<Result | undefined> => {
     if (予算を使い切った()) {
       次の収集へ回したもの.push(名前)
-      return
+      return undefined
     }
-    await 作る()
+    return await 作る()
   }
 
   let token = await getAccessToken(store, 'broadcaster', twitch, now)
@@ -626,7 +658,8 @@ const collect = async ({ db, store, twitch, ai, gyazo, broadcasterId, now, clock
   // 1つ作るごとに予算を見るのは、LLMの呼び出しが1回で最大60秒かかるので、入口で1度見るだけでは
   // 3つぶん（あらすじ・サイドスーパー・人物像5人）が次の cron の起動に食い込むためである（issue #126）
   if (stream) {
-    await 予算のうちに('あらすじ', () => summarizeStream(db, ai, stream.id, now))
+    const summary = await 予算のうちに('あらすじ', () => summarizeStream(db, ai, stream.id, now))
+    if (typeof summary === 'string') await 予算のうちに('BGMの切り替え', () => chooseBgmForStream({ db, store, jev, alerts }, stream.id, summary, now))
     await 予算のうちに('サイドスーパー', () => makeSideSuper(db, ai, stream, now))
   }
   if (予算を使い切った()) {

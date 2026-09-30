@@ -45,8 +45,8 @@ const 応答を返すfetch = (status: number, body: unknown) => {
 }
 
 describe('createBgmApi（管理画面）', () => {
-  it('曲の一覧と、いま流す曲・音量を管理用の経路から読む', async () => {
-    const 保存済み = { tracks: [雑談の曲], playback: { mediaId: 'media-zatsudan', volume: 0.3 } }
+  it('曲の一覧と、いま流す曲・音量と、BGMの設定を管理用の経路から読む', async () => {
+    const 保存済み = { tracks: [雑談の曲], playback: { mediaId: 'media-zatsudan', volume: 0.3 }, settings: { judgeWithJev: false } }
     const { 呼び出し, fetchImpl } = 応答を返すfetch(200, 保存済み)
 
     expect(await createBgmApi(fetchImpl).load()).toEqual(保存済み)
@@ -67,6 +67,19 @@ describe('createBgmApi（管理画面）', () => {
     expect(呼び出し).toEqual([{ path: '/api/admin/bgm/playback', method: 'PUT', body: JSON.stringify({ mediaId: null, volume: 0.5 }) }])
   })
 
+  it('Jev に曲を選ばせるかを保存する', async () => {
+    const { 呼び出し, fetchImpl } = 応答を返すfetch(200, { settings: { judgeWithJev: true } })
+
+    expect(await createBgmApi(fetchImpl).saveSettings({ judgeWithJev: true })).toEqual({ judgeWithJev: true })
+    expect(呼び出し).toEqual([{ path: '/api/admin/bgm/settings', method: 'PUT', body: JSON.stringify({ judgeWithJev: true }) }])
+  })
+
+  it('応答の設定の形が違えばエラーにする', async () => {
+    const { fetchImpl } = 応答を返すfetch(200, { tracks: [], playback: { mediaId: null, volume: 0.3 }, settings: {} })
+
+    await expect(createBgmApi(fetchImpl).load()).rejects.toThrow('settings')
+  })
+
   it('Worker が問題点を返したら、問題点つきの ApiError にする', async () => {
     const { fetchImpl } = 応答を返すfetch(400, { error: { code: 'invalid-config', message: 'BGMの曲に問題があります', problems: ['tracks[0].title: 1〜100文字で指定してください'] } })
 
@@ -77,7 +90,7 @@ describe('createBgmApi（管理画面）', () => {
   })
 
   it('応答の曲の形が違えばエラーにする', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, { tracks: [{ mediaId: 'media-zatsudan' }], playback: { mediaId: null, volume: 0.3 } })
+    const { fetchImpl } = 応答を返すfetch(200, { tracks: [{ mediaId: 'media-zatsudan' }], playback: { mediaId: null, volume: 0.3 }, settings: { judgeWithJev: false } })
 
     await expect(createBgmApi(fetchImpl).load()).rejects.toThrow('tracks[0]')
   })

@@ -91,6 +91,10 @@ const JEV_USAGE_LABELS: Readonly<Record<JevUsage, { name: string; description: s
     name: 'コメントへの反応の判定（Jev）',
     description: 'コメントビューアーで「配信者の発話から自動で既読にする」を入れていると、確定した発話のたびに呼ばれる。',
   },
+  bgm: {
+    name: 'BGMの選択（Jev）',
+    description: 'BGMで「配信の話題に合う曲へ自動で切り替える」を入れていると、配信中にあらすじを作り直すたびに呼ばれる（切り替えの直後は呼ばない）。',
+  },
 }
 
 /** トークン数を3桁ごとに区切って出す */

@@ -5,18 +5,25 @@
  * - 問題点を最初の1件で止めずにすべて集めること（管理画面で一度に直せるようにするため）
  * - 音声として上げた素材しか曲にできないこと
  * - 流している曲を一覧から消させないこと（配信中に黙って無音にならないように）
+ * - Jev に曲を選ばせる設定は既定でオフであること（issue #153）
  */
 import { describe, expect, it } from 'vitest'
 import { ConfigError } from './alert-config'
 import {
   DEFAULT_BGM_PLAYBACK,
+  DEFAULT_BGM_SETTINGS,
   loadBgmPlayback,
+  loadBgmSettings,
+  loadBgmSwitchedAt,
   loadBgmTracks,
   nowPlayingOf,
   playingTrackOf,
   parseBgmPlayback,
+  parseBgmSettings,
   parseBgmTracks,
   saveBgmPlayback,
+  saveBgmSettings,
+  saveBgmSwitchedAt,
   saveBgmTracks,
   type BgmTrack,
 } from './bgm-config'
@@ -214,5 +221,42 @@ describe('playingTrackOf', () => {
 
   it('流す曲が一覧に無ければ、黙って止めずに投げる', () => {
     expect(() => playingTrackOf([雑談の曲], { mediaId: 'media-nai', volume: 0.5 })).toThrow('素材「media-nai」の曲が一覧にありません')
+  })
+})
+
+describe('parseBgmSettings', () => {
+  it('Jev に曲を選ばせるかを受け取る', () => {
+    expect(parseBgmSettings({ judgeWithJev: true })).toEqual({ judgeWithJev: true })
+  })
+
+  it('true か false でなければ拒む', () => {
+    expect(() => parseBgmSettings({ judgeWithJev: 'はい' })).toThrow(ConfigError)
+    expect(() => parseBgmSettings(null)).toThrow(ConfigError)
+  })
+})
+
+describe('BGMの設定の保存と読み出し', () => {
+  it('未保存なら、Jev に曲を選ばせない（誤った切り替えは配信の雰囲気を壊すため、既定はオフ）', async () => {
+    expect(DEFAULT_BGM_SETTINGS).toEqual({ judgeWithJev: false })
+    expect(await loadBgmSettings(createFakeStore())).toEqual({ judgeWithJev: false })
+  })
+
+  it('保存した設定を読み出せる', async () => {
+    const store = createFakeStore()
+    await saveBgmSettings(store, { judgeWithJev: true })
+    expect(await loadBgmSettings(store)).toEqual({ judgeWithJev: true })
+  })
+})
+
+describe('最後に曲を切り替えた時刻', () => {
+  it('まだ一度も記録していなければ null', async () => {
+    expect(await loadBgmSwitchedAt(createFakeStore())).toBeNull()
+  })
+
+  it('記録した時刻を読み出せる', async () => {
+    const store = createFakeStore()
+    const 切り替えた時刻 = Date.parse('2026-09-29T12:00:00Z')
+    await saveBgmSwitchedAt(store, 切り替えた時刻)
+    expect(await loadBgmSwitchedAt(store)).toBe(切り替えた時刻)
   })
 })

@@ -10,6 +10,8 @@
  * クレジット先のURLは音声の読み先ではなく、視聴者に紹介するための出典である（issue #152 でチャットに出す）。
  *
  * 曲の一覧と「いま流す曲」は別の鍵に置く。曲の一覧はたまにしか直さないが、流す曲と音量は配信中に何度も変えるためである。
+ * Jev に曲を選ばせるかの設定（bgm-settings）と、最後に曲を切り替えた時刻（bgm-switched-at）も別の鍵に置く（issue #153）。
+ * 切り替えた時刻は、切り替えのすぐあとに Jev が曲を変えないために使う（worker/bgm-jev.ts）。
  *
  * 注意: 流している曲は一覧から消させない。消せてしまうと、裏方のページが流す曲を引けずに黙って無音になる。
  * 注意: 保存時に検証済みの内容しか書き込まないため、読み出し時の再検証はしない。
@@ -19,9 +21,12 @@ import type { KeyValueStore } from './store'
 
 const TRACKS_KEY = 'bgm-tracks'
 const PLAYBACK_KEY = 'bgm-playback'
+const SETTINGS_KEY = 'bgm-settings'
+const SWITCHED_AT_KEY = 'bgm-switched-at'
 /** 問題点のメッセージに出す、何の設定かの名前 */
 const TRACKS_SUBJECT = 'BGMの曲'
 const PLAYBACK_SUBJECT = 'BGMの再生'
+const SETTINGS_SUBJECT = 'BGMの設定'
 
 /** 曲の数の上限。配信で使い分ける数としては十分で、1つの鍵に収まる大きさに保つ */
 const MAX_TRACKS = 100
@@ -64,6 +69,12 @@ export interface BgmPlayback {
   readonly volume: number
 }
 
+/** BGMの設定 */
+export interface BgmSettings {
+  /** 配信の話題や雰囲気に合う曲へ、Jev に切り替えさせるか */
+  readonly judgeWithJev: boolean
+}
+
 /** 裏方のページへ渡す、いま流している曲 */
 export interface BgmNowPlaying {
   /** 流している曲。止めているときは null */
@@ -80,6 +91,9 @@ export interface BgmNowPlaying {
 
 /** 未保存のときの再生の設定。何も流さず、流し始めたときに声を邪魔しない音量にしておく */
 export const DEFAULT_BGM_PLAYBACK: BgmPlayback = { mediaId: null, volume: 0.3 }
+
+/** 未保存のときの設定。誤った切り替えは配信の雰囲気を壊すので、Jev に選ばせるのは配信者が入れたときだけにする */
+export const DEFAULT_BGM_SETTINGS: BgmSettings = { judgeWithJev: false }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
 
@@ -172,6 +186,19 @@ export const parseBgmPlayback = (input: unknown, trackMediaIds: readonly string[
   return { mediaId: mediaId as string | null, volume: volume as number }
 }
 
+/**
+ * 管理画面から送られてきたBGMの設定を検証する。
+ *
+ * @param input `{ judgeWithJev: boolean }`
+ * @throws ConfigError 問題がある場合
+ */
+export const parseBgmSettings = (input: unknown): BgmSettings => {
+  if (!isRecord(input)) throw new ConfigError(SETTINGS_SUBJECT, ['設定はオブジェクトで指定してください'])
+  const { judgeWithJev } = input
+  if (typeof judgeWithJev !== 'boolean') throw new ConfigError(SETTINGS_SUBJECT, ['judgeWithJev: true か false で指定してください'])
+  return { judgeWithJev }
+}
+
 export const saveBgmTracks = (store: KeyValueStore, tracks: readonly BgmTrack[]): Promise<void> => store.put(TRACKS_KEY, JSON.stringify(tracks))
 
 /** 保存済みの曲の一覧を読む。未保存なら空 */
@@ -187,6 +214,24 @@ export const saveBgmPlayback = (store: KeyValueStore, playback: BgmPlayback): Pr
 export const loadBgmPlayback = async (store: KeyValueStore): Promise<BgmPlayback> => {
   const text = await store.get(PLAYBACK_KEY)
   return text === null ? DEFAULT_BGM_PLAYBACK : (JSON.parse(text) as BgmPlayback)
+}
+
+export const saveBgmSettings = (store: KeyValueStore, settings: BgmSettings): Promise<void> =>
+  store.put(SETTINGS_KEY, JSON.stringify(settings))
+
+/** 保存済みのBGMの設定を読む。未保存なら Jev に選ばせない */
+export const loadBgmSettings = async (store: KeyValueStore): Promise<BgmSettings> => {
+  const text = await store.get(SETTINGS_KEY)
+  return text === null ? DEFAULT_BGM_SETTINGS : (JSON.parse(text) as BgmSettings)
+}
+
+/** 流す曲を切り替えた時刻（ミリ秒）を記録する。手で切り替えたときも Jev が切り替えたときも記録する */
+export const saveBgmSwitchedAt = (store: KeyValueStore, at: number): Promise<void> => store.put(SWITCHED_AT_KEY, String(at))
+
+/** 最後に流す曲を切り替えた時刻（ミリ秒）を読む。まだ一度も記録していなければ null */
+export const loadBgmSwitchedAt = async (store: KeyValueStore): Promise<number | null> => {
+  const text = await store.get(SWITCHED_AT_KEY)
+  return text === null ? null : Number(text)
 }
 
 /**
