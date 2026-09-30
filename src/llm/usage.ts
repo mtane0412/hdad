@@ -7,7 +7,8 @@
  * 注意: 日の区切りはUTCで数える。Workers AI の無料枠がUTCの日で切り替わるので、配信者の時間帯（JST）で
  * 区切ると「今日はどれだけ使ったか」が無料枠の区切りとずれる（画面にもUTCで数えていることを書く）。
  * 注意: 提供元・モデルが違う行も、箇所ごとに足し合わせる。日の途中でモデルを変えても、その箇所の合計は読める。
- * 注意: 知らない箇所（Workerに箇所が増えたとき）の行は無視する。画面が知っている箇所（LLM の4か所と Jev の箇所）だけを並べる。
+ * 注意: 知らない箇所（Workerに箇所が増えたとき・やめた箇所の過去の行）は箇所ごとには並べないが、全体の合計には含める。
+ * 並べるのは画面が知っている箇所（LLM の4か所と Jev の箇所）だけにし、合計は実際に使った実費と合うようにする。
  * 注意: 判定用のモデル Jev の呼び出し（worker/jev.ts）も同じ表に記録されるので、箇所ごとにまとめて全体の合計に含める。
  * 注意: 日ごとの行の型（LlmUsageDay）は、Workerの応答を読む api.ts が持つものをそのまま使う（同じ形を二重に書かない）。
  * まとめだけを使う側のために、ここからも再び出しておく。
@@ -77,15 +78,15 @@ export const summarizeLlmUsage = (days: readonly LlmUsageDay[], now: number): Ll
   const byUsage: Readonly<Record<string, LlmUsagePeriods | undefined>> = { ...usages, ...jevUsages }
 
   for (const row of days) {
-    const periods = byUsage[row.usage]
-    // 画面が知らない箇所の行は数えない（Workerに箇所が増えても、並べる欄が無いため）
-    if (periods === undefined || row.day < recentStart) continue
-    addUsage(periods.week, row)
+    if (row.day < recentStart) continue
+    // 画面が知らない箇所の行も、全体の合計には足す（実費の合計が請求額と食い違わないようにする）
     addUsage(total.week, row)
-    if (row.day === today) {
-      addUsage(periods.today, row)
-      addUsage(total.today, row)
-    }
+    if (row.day === today) addUsage(total.today, row)
+    // 箇所ごとには、並べる欄のある箇所だけを足す
+    const periods = byUsage[row.usage]
+    if (periods === undefined) continue
+    addUsage(periods.week, row)
+    if (row.day === today) addUsage(periods.today, row)
   }
 
   return { usages, jevUsages, total }

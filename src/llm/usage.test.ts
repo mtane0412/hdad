@@ -82,9 +82,11 @@ describe('summarizeLlmUsage', () => {
     expect(total.today.costUsd).toBeCloseTo(0.000_12, 8)
   })
 
-  it('知らない箇所の行は無視する（Workerに箇所が増えても画面が壊れないようにする）', () => {
-    const { total } = summarizeLlmUsage([row('2026-09-27', 'unknownUsage')], now)
+  it('知らない箇所の行は箇所ごとには並べないが、全体の合計には含める（やめた箇所の実費も請求額と合うようにする）', () => {
+    const { usages, jevUsages, total } = summarizeLlmUsage([row('2026-09-27', 'commentReaction', { calls: 5, costUsd: 0.000_2 })], now)
 
-    expect(total.today.calls).toBe(0)
+    expect(Object.keys({ ...usages, ...jevUsages })).not.toContain('commentReaction')
+    expect(total.today.calls).toBe(5)
+    expect(total.today.costUsd).toBeCloseTo(0.000_2, 8)
   })
 })

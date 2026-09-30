@@ -1936,6 +1936,16 @@ describe('コメントビューアーへの配送', () => {
     })
   })
 
+  it('bot のトークンが壊れていても、チャットの発言はコメントビューアーへ押し出す（応答の側はこれまでどおり失敗にする）', async () => {
+    const { env, commentChannel } = createEnv()
+    await env.STORE.put('twitch-token:bot', '壊れたトークン')
+
+    const response = await callWebhook(createNotification({ messageId: 'eventsub-1', body: viewerMessage }), env)
+
+    expect(commentChannel.pushedItems).toMatchObject([{ kind: 'chat', messageId: 'chat-message-1' }])
+    expect(response.status).toBe(500)
+  })
+
   it('別のチャンネルのチャットは押し出さない（古い購読が残っていても、他人のチャットを並べないため）', async () => {
     const { env, commentChannel } = createEnv()
     const otherChannel = { ...viewerMessage, event: { ...viewerMessage.event, broadcaster_user_id: '別の配信者のID' } }

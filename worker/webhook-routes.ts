@@ -262,7 +262,8 @@ const isFirstChatToGreet = async (context: Context, event: unknown, bot: StoredT
  * 再送で同じ1件を2度押し出すことはあるが、画面が通知のメッセージIDで見分ける。
  * 初めての発言かの判定（isFirstChatToGreet）に失敗したときも同じ扱いにする（印を付けずに流すことはしない）。
  *
- * @param bot チャットの発言のときに、bot 自身の発言を見分けるための bot のトークン（未接続なら null）
+ * @param bot チャットの発言のときに、bot 自身の発言を見分けるための bot のトークン（未接続・読めなかったときは null。
+ *   読めなかったときは bot 自身の発言にも初めての発言の印が付きうるが、応答の側が失敗にするので Twitch が再送する）
  */
 const pushToCommentFeed = async (
   context: Context,
@@ -349,12 +350,14 @@ export const eventsubWebhook = async (context: Context): Promise<Response> => {
       // まずコメントビューアーへ押し出す。そのうえで、チャットは記録せず応答に回す（そちらでもトリガーにかける）。
       // ほかのイベントは配信の記録として数えたうえで、アラートのトリガーにかける
       const { type } = readSubscription(body)
-      // bot のトークンはチャットの発言のときだけ読み、配送（bot 自身の発言を見分ける）と応答の両方に渡す
-      const bot = type === CHAT_MESSAGE ? await loadToken(env.STORE, 'bot') : null
-      await pushToCommentFeed(context, type, body, messageId, occurredAt, bot)
+      // bot のトークンはチャットの発言のときだけ1度読み、配送（bot 自身の発言を見分ける）と応答の両方で使う。
+      // 読めなかったとき、配送は bot を見分けずに続ける（コメントビューアーを止めない）。応答の側はこれまでどおり
+      // 失敗として投げ、Twitch に再送させる（壊れたトークンのまま、自動モデレーションやコマンドを黙って飛ばさない）
+      const botLoad = type === CHAT_MESSAGE ? loadToken(env.STORE, 'bot') : Promise.resolve(null)
+      await pushToCommentFeed(context, type, body, messageId, occurredAt, await botLoad.catch(() => null))
       // コメントビューアーのためだけに購読している通知は、記録もトリガーの判定もしない
       if (FEED_ONLY_EVENT_TYPES.includes(type)) return new Response(null, { status: STATUS.noContent })
-      if (type === CHAT_MESSAGE) await replyToChatMessage(context, body, bot)
+      if (type === CHAT_MESSAGE) await replyToChatMessage(context, body, await botLoad)
       else {
         await recordNotification({ db: env.DB, messageId, occurredAt, body })
         await runAlertActions(context, type, body, messageId, async () => (await loadToken(env.STORE, 'bot')) !== null, null)
