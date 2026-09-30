@@ -204,7 +204,8 @@ export const RewardPage = ({ api }: { api: AdminApi }) => {
                       <Button
                         type="button"
                         size="sm"
-                        aria-label={`${reward.title} を保存`}
+                        // 読み上げの名前には、画面に見えている「保存する」をそのまま含める（WCAG 2.5.3）
+                        aria-label={`${reward.title} を保存する`}
                         disabled={actions.busy}
                         onClick={() => void actions.run(() => saveReward(reward))}
                       >

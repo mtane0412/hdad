@@ -28,6 +28,17 @@ const readBody = (request: Request): Promise<unknown> =>
   })
 
 /**
+ * 経路の :id（報酬ID）を取り出す。
+ *
+ * 経路の定義上は必ず入っているが、空文字で進めてTwitchへ送らないよう、無ければ400にする（Fail-Fast）。
+ */
+const requireRewardId = ({ params }: Context): string => {
+  const id = params.id
+  if (id === undefined || id === '') throw new HttpError(STATUS.badRequest, 'invalid-path', '報酬IDを指定してください')
+  return id
+}
+
+/**
  * 報酬を書き換えられる配信者のトークンを取り出す。
  *
  * @throws AuthError トークンが保管されていない・更新できない・channel:manage:redemptions が無い
@@ -89,7 +100,7 @@ export const patchReward = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
   const input = parseRewardInput(await readBody(context.request))
   const { accessToken } = await getManageToken(context)
-  const reward = await context.twitch.updateCustomReward(accessToken, context.env.TWITCH_BROADCASTER_ID, context.params.id ?? '', input)
+  const reward = await context.twitch.updateCustomReward(accessToken, context.env.TWITCH_BROADCASTER_ID, requireRewardId(context), input)
   const updated: RewardResponse = { ...reward, manageable: true }
   return Response.json(updated)
 }
@@ -105,7 +116,7 @@ export const patchReward = async (context: Context): Promise<Response> => {
  */
 export const deleteReward = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
-  const id = context.params.id ?? ''
+  const id = requireRewardId(context)
   const { triggers } = await loadAlertConfig(context.env.STORE)
   if (triggers.some((trigger) => trigger.kind === 'reward' && trigger.rewardId === id)) {
     throw new HttpError(STATUS.conflict, 'reward-in-use', 'この報酬はトリガーに使われています。先にトリガーの設定から外してください')

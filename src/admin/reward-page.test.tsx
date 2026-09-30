@@ -192,7 +192,7 @@ describe('報酬の編集', () => {
     await user.clear(cost)
     await user.type(cost, '800')
     await user.click(within(item).getByRole('checkbox', { name: '交換できる' }))
-    await user.click(within(item).getByRole('button', { name: '乾杯する を保存' }))
+    await user.click(within(item).getByRole('button', { name: '乾杯する を保存する' }))
 
     expect(api.updateReward).toHaveBeenCalledWith('報酬ID-乾杯', {
       title: '乾杯する',

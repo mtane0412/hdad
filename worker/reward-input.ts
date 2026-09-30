@@ -5,6 +5,8 @@
  * 検証は Worker だけが持ち、画面とWorkerで二重に持たない（.claude/rules/implementation.md）。
  * 作りは focus-config.ts と同じで、問題点は最初の1件で止めずにすべて集めてから拒む（管理画面で一度に直せるように）。
  *
+ * 注意: 長さは見た目の文字数（コードポイント）で数える。報酬の名前には絵文字がよく使われ、UTF-16の単位のまま数えると
+ * 上限内の名前まで拒んでしまうため（focus-config.ts と同じ数え方）。
  * 注意: 上限はTwitchの制約に合わせてある。ここで先に拒むのは、Twitchの英語のエラーより先に
  * どの欄をどう直せばよいかを日本語で示すためである。同じ名前の報酬があるかどうかはTwitchにしか分からないので、ここでは見ない。
  */
@@ -23,6 +25,9 @@ const MIN_REWARD_COST = 1
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
 
+/** 見た目の文字数（コードポイント）。絵文字などサロゲートペアの文字を2文字と数えないために使う */
+const countCodePoints = (value: string): number => [...value].length
+
 /**
  * 管理画面から送られてきた内容を検証し、Twitchへ送る項目だけの形にする。
  *
@@ -39,7 +44,7 @@ export const parseRewardInput = (input: unknown): CustomRewardInput => {
   const readTitle = (): string => {
     const value = input.title
     const title = typeof value === 'string' ? value.trim() : ''
-    if (title !== '' && title.length <= MAX_REWARD_TITLE_LENGTH) return title
+    if (title !== '' && countCodePoints(title) <= MAX_REWARD_TITLE_LENGTH) return title
     problems.push(`title: 名前は空でない${MAX_REWARD_TITLE_LENGTH}文字までの文字列で指定してください`)
     return ''
   }
@@ -53,7 +58,7 @@ export const parseRewardInput = (input: unknown): CustomRewardInput => {
 
   const readPrompt = (): string => {
     const value = input.prompt
-    if (typeof value === 'string' && value.length <= MAX_REWARD_PROMPT_LENGTH) return value
+    if (typeof value === 'string' && countCodePoints(value) <= MAX_REWARD_PROMPT_LENGTH) return value
     problems.push(`prompt: 説明は${MAX_REWARD_PROMPT_LENGTH}文字までの文字列で指定してください（空でもかまいません）`)
     return ''
   }

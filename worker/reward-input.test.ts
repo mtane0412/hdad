@@ -52,6 +52,12 @@ describe('parseRewardInput', () => {
     }
   })
 
+  it('長さは見た目の文字数で数える（絵文字を2文字と数えて、上限内の名前・説明を拒まない）', () => {
+    expect(parseRewardInput({ ...validInput, title: '🍺'.repeat(45) }).title).toBe('🍺'.repeat(45))
+    expect(parseRewardInput({ ...validInput, prompt: '🎉'.repeat(200) }).prompt).toBe('🎉'.repeat(200))
+    expect(problemsOf({ ...validInput, title: '🍺'.repeat(46) })).toEqual([expect.stringContaining('title')])
+  })
+
   it('説明が201文字以上なら拒む', () => {
     expect(problemsOf({ ...validInput, prompt: 'あ'.repeat(201) })).toEqual([expect.stringContaining('prompt')])
   })
