@@ -10,23 +10,23 @@ import { STATUS } from './http'
 
 interface FakeCommentChannelOptions {
   /** 配送先が失敗を返す場合（押し出し側が失敗を握りつぶさないことを確かめる） */
-  失敗する?: boolean
+  shouldFail?: boolean
 }
 
 /** 押し出された1件・引き渡された接続を直接確かめられるよう、記録も一緒に返す */
-export const createFakeCommentChannel = ({ 失敗する = false }: FakeCommentChannelOptions = {}): {
+export const createFakeCommentChannel = ({ shouldFail: 失敗する = false }: FakeCommentChannelOptions = {}): {
   namespace: CommentChannelNamespace
-  押し出された1件: FeedItem[]
+  pushedItems: FeedItem[]
   /** WebSocketの接続として引き渡されたリクエスト */
-  引き渡された接続: Request[]
+  forwardedConnections: Request[]
 } => {
   const 押し出された1件: FeedItem[] = []
   const 引き渡された接続: Request[] = []
   const id: DurableObjectId = { toString: () => 'comments', equals: (other) => other.toString() === 'comments', name: 'comments' }
 
   return {
-    押し出された1件,
-    引き渡された接続,
+    pushedItems: 押し出された1件,
+    forwardedConnections: 引き渡された接続,
     namespace: {
       idFromName: () => id,
       get: () => ({

@@ -103,7 +103,7 @@ describe('judgeCommentReactions', () => {
 
     expect(jev.箇所).toEqual(['commentReaction'])
     expect(既読の行(db)).toEqual([{ message_id: 'たなかさんの挨拶', read: 1, marked_by: 'jev' }])
-    expect(配送先.押し出された1件).toEqual([
+    expect(配送先.pushedItems).toEqual([
       { kind: 'read', id: expect.any(String), at: 現在時刻, messageId: 'たなかさんの挨拶', read: true, by: 'jev' },
     ])
   })
@@ -172,7 +172,7 @@ describe('judgeCommentReactions', () => {
     const { db, 発言, 発話 } = 配信中の材料を用意する()
     発言('たなかさんの挨拶', '111', '2026-09-29T11:58:00.000Z', '初見です')
     発話('発話1', '2026-09-29T12:00:00.000Z', 'あ、たなかさん初見ありがとうございます！')
-    const 失敗する配送先 = createFakeCommentChannel({ 失敗する: true })
+    const 失敗する配送先 = createFakeCommentChannel({ shouldFail: true })
 
     await expect(
       judgeCommentReactions({ db, jev: Jevの代役([0.93]), comments: 失敗する配送先.namespace, broadcasterId: 配信者のID, now: 現在時刻, transcriptMessageId: '発話1' }),

@@ -158,7 +158,7 @@ describe('PUT /api/admin/bgm/tracks', () => {
 
     await 曲を保存する(env, [{ ...雑談の曲, title: 'ひだまりの午後（ピアノ版）' }])
 
-    expect(配送.押し出されたBGM.at(-1)?.track?.title).toBe('ひだまりの午後（ピアノ版）')
+    expect(配送.pushedBgm.at(-1)?.track?.title).toBe('ひだまりの午後（ピアノ版）')
   })
 
   it('何も流していなければ、曲を直しても押し出さない', async () => {
@@ -166,7 +166,7 @@ describe('PUT /api/admin/bgm/tracks', () => {
 
     await 曲を保存する(env, [雑談の曲])
 
-    expect(配送.押し出されたBGM).toEqual([])
+    expect(配送.pushedBgm).toEqual([])
   })
 })
 
@@ -180,7 +180,7 @@ describe('PUT /api/admin/bgm/playback', () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ playback: { mediaId: 盛り上がる曲.mediaId, volume: 0.5 } })
     expect(await loadBgmPlayback(env.STORE)).toEqual({ mediaId: 盛り上がる曲.mediaId, volume: 0.5 })
-    expect(配送.押し出されたBGM).toEqual([
+    expect(配送.pushedBgm).toEqual([
       {
         track: {
           mediaId: 盛り上がる曲.mediaId,
@@ -201,7 +201,7 @@ describe('PUT /api/admin/bgm/playback', () => {
 
     await 再生を変える(env, { mediaId: null, volume: 0.5 })
 
-    expect(配送.押し出されたBGM.at(-1)).toEqual({ track: null, volume: 0.5 })
+    expect(配送.pushedBgm.at(-1)).toEqual({ track: null, volume: 0.5 })
   })
 
   it('一覧に無い曲は400にして、保存も押し出しもしない', async () => {
@@ -211,7 +211,7 @@ describe('PUT /api/admin/bgm/playback', () => {
 
     expect(response.status).toBe(400)
     expect(await loadBgmPlayback(env.STORE)).toEqual({ mediaId: null, volume: 0.3 })
-    expect(配送.押し出されたBGM).toEqual([])
+    expect(配送.pushedBgm).toEqual([])
   })
 })
 
@@ -303,7 +303,7 @@ describe('GET /api/overlay/bgm/socket', () => {
 
     await 呼び出す(new Request(`${サイト}/api/overlay/bgm/socket?key=${発行済みのキー}`, { headers: { Upgrade: 'websocket' } }), env)
 
-    expect(配送.引き渡された接続.map((request) => new URL(request.url).searchParams.get('topic'))).toEqual(['bgm'])
+    expect(配送.forwardedConnections.map((request) => new URL(request.url).searchParams.get('topic'))).toEqual(['bgm'])
   })
 
   it('WebSocketでなければ400にする', async () => {

@@ -11,17 +11,17 @@ import { STATUS } from './http'
 
 interface FakeAlertChannelOptions {
   /** 配送先が失敗を返す場合（押し出し側が失敗を握りつぶさないことを確かめる） */
-  失敗する?: boolean
+  shouldFail?: boolean
 }
 
 /** 押し出されたアラート・引き渡された接続を直接確かめられるよう、記録も一緒に返す */
-export const createFakeAlertChannel = ({ 失敗する = false }: FakeAlertChannelOptions = {}): {
+export const createFakeAlertChannel = ({ shouldFail: 失敗する = false }: FakeAlertChannelOptions = {}): {
   namespace: AlertChannelNamespace
-  押し出されたアラート: OverlayAlert[]
+  pushedAlerts: OverlayAlert[]
   /** 押し出された「いま流している曲」 */
-  押し出されたBGM: BgmNowPlaying[]
+  pushedBgm: BgmNowPlaying[]
   /** WebSocketの接続として引き渡されたリクエスト */
-  引き渡された接続: Request[]
+  forwardedConnections: Request[]
 } => {
   const 押し出されたアラート: OverlayAlert[] = []
   const 押し出されたBGM: BgmNowPlaying[] = []
@@ -29,9 +29,9 @@ export const createFakeAlertChannel = ({ 失敗する = false }: FakeAlertChanne
   const id: DurableObjectId = { toString: () => 'alerts', equals: (other) => other.toString() === 'alerts', name: 'alerts' }
 
   return {
-    押し出されたアラート,
-    押し出されたBGM,
-    引き渡された接続,
+    pushedAlerts: 押し出されたアラート,
+    pushedBgm: 押し出されたBGM,
+    forwardedConnections: 引き渡された接続,
     namespace: {
       idFromName: () => id,
       get: () => ({

@@ -258,7 +258,7 @@ describe('オーバーレイ用API', () => {
     const response = await 接続を頼む(env, 発行済みのキー)
 
     expect(response.status).toBe(200)
-    expect(配送.引き渡された接続).toHaveLength(1)
+    expect(配送.forwardedConnections).toHaveLength(1)
   })
 
   it('GET /api/overlay/socket は、キーが違えば401を返し、配送先を呼ばない', async () => {
@@ -268,7 +268,7 @@ describe('オーバーレイ用API', () => {
 
     expect(response.status).toBe(401)
     expect(await エラーコード(response)).toBe('invalid-overlay-key')
-    expect(配送.引き渡された接続).toHaveLength(0)
+    expect(配送.forwardedConnections).toHaveLength(0)
   })
 
   it('GET /api/overlay/socket は、WebSocketの接続でなければ400を返す', async () => {
@@ -445,7 +445,7 @@ describe('オーバーレイ用API', () => {
         expect((鍵のある環境.DB as ReturnType<typeof createFakeDatabase>).sqlite.prepare('SELECT message_id, marked_by FROM comment_reads').all()).toEqual([
           { message_id: 'たなかさんの挨拶', marked_by: 'jev' },
         ])
-        expect(配送先.押し出された1件).toMatchObject([{ kind: 'read', messageId: 'たなかさんの挨拶', read: true, by: 'jev' }])
+        expect(配送先.pushedItems).toMatchObject([{ kind: 'read', messageId: 'たなかさんの挨拶', read: true, by: 'jev' }])
       })
 
       it('自動の既読を入れていなければ（既定）、Jev を呼ばない', async () => {

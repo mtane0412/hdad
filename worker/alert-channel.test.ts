@@ -106,11 +106,11 @@ describe('pushAlert', () => {
 
     await pushAlert(配送.namespace, アラート)
 
-    expect(配送.押し出されたアラート).toEqual([アラート])
+    expect(配送.pushedAlerts).toEqual([アラート])
   })
 
   it('Durable Object が失敗を返したら、黙って成功にせず投げる', async () => {
-    const 配送 = createFakeAlertChannel({ 失敗する: true })
+    const 配送 = createFakeAlertChannel({ shouldFail: true })
 
     await expect(pushAlert(配送.namespace, アラート)).rejects.toThrow('アラート')
   })
@@ -124,7 +124,7 @@ describe('接続の引き渡し', () => {
     await connectAlertSocket(配送.namespace, 接続の要求())
     await connectBgmSocket(配送.namespace, 接続の要求())
 
-    expect(配送.引き渡された接続.map((request) => new URL(request.url).searchParams.get('topic'))).toEqual(['alerts', 'bgm'])
+    expect(配送.forwardedConnections.map((request) => new URL(request.url).searchParams.get('topic'))).toEqual(['alerts', 'bgm'])
   })
 })
 
@@ -134,12 +134,12 @@ describe('pushBgm', () => {
 
     await pushBgm(配送.namespace, 再生中の曲)
 
-    expect(配送.押し出されたBGM).toEqual([再生中の曲])
-    expect(配送.押し出されたアラート).toEqual([])
+    expect(配送.pushedBgm).toEqual([再生中の曲])
+    expect(配送.pushedAlerts).toEqual([])
   })
 
   it('Durable Object が失敗を返したら、黙って成功にせず投げる', async () => {
-    const 配送 = createFakeAlertChannel({ 失敗する: true })
+    const 配送 = createFakeAlertChannel({ shouldFail: true })
 
     await expect(pushBgm(配送.namespace, 再生中の曲)).rejects.toThrow('BGM')
   })

@@ -690,7 +690,7 @@ describe('BGMの切り替え', () => {
 
     expect(jev.注文.map((注文) => 注文.state)).toEqual([{ summary: 'ボス戦に挑んでいます', transcript: ['ボス戦だ、いくぞ！'] }])
     expect((await loadBgmPlayback(store)).mediaId).toBe(盛り上がる曲.mediaId)
-    expect(配送.押し出されたBGM.map((nowPlaying) => nowPlaying.track?.mediaId)).toEqual([盛り上がる曲.mediaId])
+    expect(配送.pushedBgm.map((nowPlaying) => nowPlaying.track?.mediaId)).toEqual([盛り上がる曲.mediaId])
   })
 
   it('あらすじを作り直さなかった回は Jev を呼ばない（新しい材料が無ければ呼ばない）', async () => {

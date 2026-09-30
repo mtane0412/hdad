@@ -129,7 +129,7 @@ describe('chooseBgm', () => {
     // 音量は配信者が決めたまま変えない
     expect(await loadBgmPlayback(store)).toEqual({ mediaId: 盛り上がる曲.mediaId, volume: 0.4 })
     expect(await loadBgmSwitchedAt(store)).toBe(現在時刻)
-    expect(配送.押し出されたBGM).toEqual([
+    expect(配送.pushedBgm).toEqual([
       {
         track: {
           mediaId: 盛り上がる曲.mediaId,
@@ -150,7 +150,7 @@ describe('chooseBgm', () => {
     await chooseBgm({ store, jev, alerts: 配送.namespace, now: 現在時刻, ...材料 })
 
     expect(await loadBgmPlayback(store)).toEqual({ mediaId: 雑談の曲.mediaId, volume: 0.4 })
-    expect(配送.押し出されたBGM).toEqual([])
+    expect(配送.pushedBgm).toEqual([])
   })
 
   it('いま流している曲が選ばれたら、何もしない（頭から流れ直させない）', async () => {
@@ -161,7 +161,7 @@ describe('chooseBgm', () => {
     await chooseBgm({ store, jev, alerts: 配送.namespace, now: 現在時刻, ...材料 })
 
     expect(await loadBgmSwitchedAt(store)).toBe(前に切り替えた時刻)
-    expect(配送.押し出されたBGM).toEqual([])
+    expect(配送.pushedBgm).toEqual([])
   })
 
   it('設定がオフなら Jev を呼ばない', async () => {
@@ -227,7 +227,7 @@ describe('chooseBgm', () => {
     await chooseBgm({ store, jev, alerts: 配送.namespace, now: 現在時刻, ...材料 })
 
     expect(await loadBgmPlayback(store)).toEqual({ mediaId: null, volume: 0.4 })
-    expect(配送.押し出されたBGM).toEqual([])
+    expect(配送.pushedBgm).toEqual([])
   })
 
   it('判定のあいだに配信者が自動の切り替えを切っていたら、切り替えない', async () => {
@@ -243,7 +243,7 @@ describe('chooseBgm', () => {
     await chooseBgm({ store, jev, alerts: 配送.namespace, now: 現在時刻, ...材料 })
 
     expect(await loadBgmPlayback(store)).toEqual({ mediaId: 雑談の曲.mediaId, volume: 0.4 })
-    expect(配送.押し出されたBGM).toEqual([])
+    expect(配送.pushedBgm).toEqual([])
   })
 
   it('確信度が返ってこなければ、切り替えずに投げる（しきい値と比べられないことを黙らない）', async () => {
@@ -260,6 +260,6 @@ describe('chooseBgm', () => {
 
     await expect(chooseBgm({ store, jev, alerts: 配送.namespace, now: 現在時刻, ...材料 })).rejects.toThrow('402')
     expect(await loadBgmPlayback(store)).toEqual({ mediaId: 雑談の曲.mediaId, volume: 0.4 })
-    expect(配送.押し出されたBGM).toEqual([])
+    expect(配送.pushedBgm).toEqual([])
   })
 })

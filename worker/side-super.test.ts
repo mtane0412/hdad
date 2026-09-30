@@ -145,7 +145,7 @@ describe('generateSideSuper', () => {
   })
 
   it('LLMが失敗したら（無料枠切れなど）、その失敗をそのまま投げる', async () => {
-    const ai = createFakeAi({ 失敗する: true })
+    const ai = createFakeAi({ shouldFail: true })
 
     await expect(generateSideSuper(ai, 材料)).rejects.toThrow('無料枠')
   })

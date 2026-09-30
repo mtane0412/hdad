@@ -9,19 +9,19 @@ import { STATUS } from './http'
 
 interface FakeAdBreakTimerOptions {
   /** 預け先が失敗を返す場合（予約側が失敗を握りつぶさないことを確かめる） */
-  失敗する?: boolean
+  shouldFail?: boolean
 }
 
 /** 預けられた予約を直接確かめられるよう、記録も一緒に返す */
-export const createFakeAdBreakTimer = ({ 失敗する = false }: FakeAdBreakTimerOptions = {}): {
+export const createFakeAdBreakTimer = ({ shouldFail: 失敗する = false }: FakeAdBreakTimerOptions = {}): {
   namespace: AdBreakTimerNamespace
-  渡された予約: AdBreakEnd[]
+  scheduledEnds: AdBreakEnd[]
 } => {
   const 渡された予約: AdBreakEnd[] = []
   const id: DurableObjectId = { toString: () => 'ad-break', equals: (other) => other.toString() === 'ad-break', name: 'ad-break' }
 
   return {
-    渡された予約,
+    scheduledEnds: 渡された予約,
     namespace: {
       idFromName: () => id,
       get: () => ({

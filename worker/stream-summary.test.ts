@@ -95,7 +95,7 @@ describe('generateStreamSummary', () => {
 
     await generateStreamSummary(ai, 材料)
 
-    expect(ai.呼び出し[0]?.usage).toBe('streamSummary')
+    expect(ai.calls[0]?.usage).toBe('streamSummary')
   })
 
   it('LLMが返したあらすじを返す', async () => {
@@ -123,7 +123,7 @@ describe('generateStreamSummary', () => {
   })
 
   it('LLMが失敗したら（無料枠切れなど）、その失敗をそのまま投げる', async () => {
-    const ai = createFakeAi({ 失敗する: true })
+    const ai = createFakeAi({ shouldFail: true })
 
     await expect(generateStreamSummary(ai, 材料)).rejects.toThrow('無料枠')
   })

@@ -75,7 +75,7 @@ describe('GET /api/admin/comments/socket', () => {
     const response = await つなぐ(env, { Cookie: await 配信者のクッキー(env) })
 
     expect(response.status).toBe(200)
-    expect(配送先.引き渡された接続).toHaveLength(1)
+    expect(配送先.forwardedConnections).toHaveLength(1)
   })
 
   it('ログインしていない接続は断る', async () => {
@@ -84,7 +84,7 @@ describe('GET /api/admin/comments/socket', () => {
     const response = await つなぐ(env)
 
     expect(response.status).toBe(401)
-    expect(配送先.引き渡された接続).toEqual([])
+    expect(配送先.forwardedConnections).toEqual([])
   })
 
   it('別のサイトから開かれた接続は断る（視聴者のチャットを他のサイトに読ませない）', async () => {
@@ -93,7 +93,7 @@ describe('GET /api/admin/comments/socket', () => {
     const response = await つなぐ(env, { Cookie: await 配信者のクッキー(env), Origin: 'https://evil.example.com' })
 
     expect(response.status).toBe(403)
-    expect(配送先.引き渡された接続).toEqual([])
+    expect(配送先.forwardedConnections).toEqual([])
   })
 
   it('WebSocketでない要求は断る', async () => {
@@ -370,7 +370,7 @@ describe('POST /api/admin/comments/reads', () => {
     expect(response.status).toBe(204)
     expect(既読の行(env)).toEqual([{ message_id: 'たなかさんの初見の挨拶', read: 1, marked_by: 'manual' }])
     // 画面は届いた順に当てはめるので、付け替えるたびに別の通知として見分けられるIDを振る
-    expect(配送先.押し出された1件).toEqual([
+    expect(配送先.pushedItems).toEqual([
       { kind: 'read', id: expect.any(String), at: 現在時刻, messageId: 'たなかさんの初見の挨拶', read: true, by: 'manual' },
     ])
   })
@@ -382,9 +382,9 @@ describe('POST /api/admin/comments/reads', () => {
     await 付け替える(env, { messageId: 'すずきさんのBGMの質問', read: false })
 
     expect(既読の行(env)).toEqual([{ message_id: 'すずきさんのBGMの質問', read: 0, marked_by: 'manual' }])
-    expect(配送先.押し出された1件.map((item) => item.kind === 'read' && item.read)).toEqual([true, false])
+    expect(配送先.pushedItems.map((item) => item.kind === 'read' && item.read)).toEqual([true, false])
     // 付け替えの通知は、1回ごとに違うIDを持つ（同じIDだと、画面が2回目を「当てはめ済み」として捨ててしまう）
-    expect(new Set(配送先.押し出された1件.map((item) => item.id)).size).toBe(2)
+    expect(new Set(配送先.pushedItems.map((item) => item.id)).size).toBe(2)
   })
 
   it.each([
@@ -398,7 +398,7 @@ describe('POST /api/admin/comments/reads', () => {
 
     expect(response.status).toBe(400)
     expect(既読の行(env)).toEqual([])
-    expect(配送先.押し出された1件).toEqual([])
+    expect(配送先.pushedItems).toEqual([])
   })
 
   it('ログインしていなければ断る', async () => {
@@ -412,7 +412,7 @@ describe('POST /api/admin/comments/reads', () => {
 
   it('画面へ知らせられなければ、成功として返さない（付け替えが画面に出ないことに気づけるようにする）', async () => {
     const { env } = 環境を作る()
-    const 失敗する配送先 = createFakeCommentChannel({ 失敗する: true })
+    const 失敗する配送先 = createFakeCommentChannel({ shouldFail: true })
 
     const response = await 付け替える({ ...env, COMMENTS: 失敗する配送先.namespace }, { messageId: 'たなかさんの初見の挨拶', read: true })
 
@@ -423,7 +423,7 @@ describe('POST /api/admin/comments/reads', () => {
 
   it('知らせるのに失敗したあと、もう一度押せば記録と画面の状態が揃う', async () => {
     const { env, 配送先 } = 環境を作る()
-    const 失敗する配送先 = createFakeCommentChannel({ 失敗する: true })
+    const 失敗する配送先 = createFakeCommentChannel({ shouldFail: true })
     await 付け替える({ ...env, COMMENTS: 失敗する配送先.namespace }, { messageId: 'たなかさんの初見の挨拶', read: true })
 
     // 画面は未読のままなので、配信者はもう一度「既読にする」を押す
@@ -431,7 +431,7 @@ describe('POST /api/admin/comments/reads', () => {
 
     expect(response.status).toBe(204)
     expect(既読の行(env)).toEqual([{ message_id: 'たなかさんの初見の挨拶', read: 1, marked_by: 'manual' }])
-    expect(配送先.押し出された1件).toMatchObject([{ kind: 'read', messageId: 'たなかさんの初見の挨拶', read: true }])
+    expect(配送先.pushedItems).toMatchObject([{ kind: 'read', messageId: 'たなかさんの初見の挨拶', read: true }])
   })
 })
 

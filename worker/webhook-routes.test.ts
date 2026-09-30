@@ -48,10 +48,10 @@ const 発行済みのオーバーレイ用キー = 'issued-overlay-key-012345678
 
 const 環境を作る = ({ 配送は失敗する = false, オーバーレイ用キー = 発行済みのオーバーレイ用キー, LLMは失敗する = false, LLMの文面, コメントの配送は失敗する = false }: 環境の条件 = {}) => {
   const db = createFakeDatabase()
-  const コメントの配送 = createFakeCommentChannel({ 失敗する: コメントの配送は失敗する })
-  const 配送 = createFakeAlertChannel({ 失敗する: 配送は失敗する })
+  const コメントの配送 = createFakeCommentChannel({ shouldFail: コメントの配送は失敗する })
+  const 配送 = createFakeAlertChannel({ shouldFail: 配送は失敗する })
   const 広告のタイマー = createFakeAdBreakTimer()
-  const ai = createFakeWorkersAi({ 失敗する: LLMは失敗する, ...(LLMの文面 === undefined ? {} : { response: LLMの文面 }) })
+  const ai = createFakeWorkersAi({ shouldFail: LLMは失敗する, ...(LLMの文面 === undefined ? {} : { response: LLMの文面 }) })
   const env = {
     STORE: createFakeStore(オーバーレイ用キー === null ? {} : { 'overlay-key': オーバーレイ用キー }),
     MEDIA: createFakeBucket(),
@@ -263,7 +263,7 @@ describe('広告の通知（channel.ad_break.begin）', () => {
     const response = await 呼び出す(Twitchからの通知({ body: 広告の開始の通知 }), env, 送信に応えるTwitch().fetchImpl)
 
     expect(response.status).toBe(204)
-    expect(広告のタイマー.渡された予約).toEqual([
+    expect(広告のタイマー.scheduledEnds).toEqual([
       { event: 広告の開始の通知.event, messageId: 'message-1', endsAt: Date.parse('2026-09-21T12:29:50.000Z') + 180 * 1000 },
     ])
   })
@@ -276,7 +276,7 @@ describe('広告の通知（channel.ad_break.begin）', () => {
 
     await 呼び出す(Twitchからの通知({ body: 広告の開始の通知 }), env, 送信に応えるTwitch().fetchImpl)
 
-    expect(広告のタイマー.渡された予約).toEqual([])
+    expect(広告のタイマー.scheduledEnds).toEqual([])
   })
 
   it('予約に失敗しても、Twitchへは成功を返して収集の失敗として記録する（再送されても広告の告知は二度送らない）', async () => {
@@ -284,7 +284,7 @@ describe('広告の通知（channel.ad_break.begin）', () => {
       kind: 'adBreakEnd', automatic: null,
       actions: [{ type: 'chat', message: '広告が終わりました' }],
     })
-    const 予約に失敗する環境: Env = { ...env, AD_BREAKS: createFakeAdBreakTimer({ 失敗する: true }).namespace }
+    const 予約に失敗する環境: Env = { ...env, AD_BREAKS: createFakeAdBreakTimer({ shouldFail: true }).namespace }
 
     const response = await 呼び出す(Twitchからの通知({ body: 広告の開始の通知 }), 予約に失敗する環境, 送信に応えるTwitch().fetchImpl)
 
@@ -1515,7 +1515,7 @@ describe('オーバーレイへのアラートの押し出し', () => {
     const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env)
 
     expect(response.status).toBe(204)
-    expect(配送.押し出されたアラート).toEqual([
+    expect(配送.pushedAlerts).toEqual([
       {
         media: { kind: 'video', url: `/api/media/media-kanpai?key=${発行済みのオーバーレイ用キー}` },
         durationSeconds: 5,
@@ -1536,7 +1536,7 @@ describe('オーバーレイへのアラートの押し出し', () => {
 
     await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env)
 
-    expect(配送.押し出されたアラート.map((alert) => alert.text)).toEqual(['1つ目', '2つ目'])
+    expect(配送.pushedAlerts.map((alert) => alert.text)).toEqual(['1つ目', '2つ目'])
   })
 
   it('アラートの文言の {summary} に、貯めてある配信中のあらすじを差し込んで押し出す（OBSの画面に出す）', async () => {
@@ -1555,7 +1555,7 @@ describe('オーバーレイへのアラートの押し出し', () => {
 
     await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env)
 
-    expect(配送.押し出されたアラート[0]?.text).toBe('これまでのあらすじ: 配信者は新しいゲームを遊んでいます')
+    expect(配送.pushedAlerts[0]?.text).toBe('これまでのあらすじ: 配信者は新しいゲームを遊んでいます')
   })
 
   it('当てはまるトリガーがなければ、何も押し出さない', async () => {
@@ -1563,7 +1563,7 @@ describe('オーバーレイへのアラートの押し出し', () => {
 
     await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env)
 
-    expect(配送.押し出されたアラート).toHaveLength(0)
+    expect(配送.pushedAlerts).toHaveLength(0)
   })
 
   it('botが未接続でも、チャットの発言でアラートを押し出す（アラートの再生にbotは要らない）', async () => {
@@ -1573,7 +1573,7 @@ describe('オーバーレイへのアラートの押し出し', () => {
     const response = await 呼び出す(Twitchからの通知({ body: 発言の通知() }), env)
 
     expect(response.status).toBe(204)
-    expect(配送.押し出されたアラート).toMatchObject([{ text: '視聴者さん さん、ありがとう！' }])
+    expect(配送.pushedAlerts).toMatchObject([{ text: '視聴者さん さん、ありがとう！' }])
   })
 
   it('bot自身の発言ではアラートを押し出さない（自分の応答に反応して止まらなくなるため）', async () => {
@@ -1583,7 +1583,7 @@ describe('オーバーレイへのアラートの押し出し', () => {
 
     await 呼び出す(Twitchからの通知({ body: 発言の通知(botのID) }), env)
 
-    expect(配送.押し出されたアラート).toHaveLength(0)
+    expect(配送.pushedAlerts).toHaveLength(0)
   })
 
   it('同じ通知が再送されても、二度は押し出さない', async () => {
@@ -1593,7 +1593,7 @@ describe('オーバーレイへのアラートの押し出し', () => {
     await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env)
     await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env)
 
-    expect(配送.押し出されたアラート).toHaveLength(1)
+    expect(配送.pushedAlerts).toHaveLength(1)
   })
 
   it('配送先が失敗しても、Twitchへは2xxを返して失敗として記録する（再送で二重に鳴らさないため）', async () => {
@@ -1613,7 +1613,7 @@ describe('オーバーレイへのアラートの押し出し', () => {
     const response = await 呼び出す(Twitchからの通知({ body: フォローの通知 }), env)
 
     expect(response.status).toBe(204)
-    expect(配送.押し出されたアラート).toHaveLength(0)
+    expect(配送.pushedAlerts).toHaveLength(0)
     expect(await listFailures(env.DB)).toMatchObject([{ code: 'alert-push-failed' }])
   })
 })
@@ -1736,7 +1736,7 @@ describe('LLMに文面を作らせる動作（aiChat）', () => {
     )
     await 後回しの処理を待つ()
 
-    expect(JSON.stringify(ai.呼び出し[0]?.input)).toContain('ギターの話が好き')
+    expect(JSON.stringify(ai.calls[0]?.input)).toContain('ギターの話が好き')
   })
 
   it('条件を持たないトリガーでも、来訪の別（初めて・お久しぶり）を材料に渡す', async () => {
@@ -1751,7 +1751,7 @@ describe('LLMに文面を作らせる動作（aiChat）', () => {
     await 呼び出す(Twitchからの通知({ body: 初めての人の発言 }), env, twitch.fetchImpl)
     await 後回しの処理を待つ()
 
-    expect(JSON.stringify(ai.呼び出し[0]?.input)).toContain('このチャンネルで初めての発言')
+    expect(JSON.stringify(ai.calls[0]?.input)).toContain('このチャンネルで初めての発言')
   })
 
   it('いま進んでいる配信のあらすじを材料に渡す（トリガーの文言に書かれていなくても読む）', async () => {
@@ -1777,7 +1777,7 @@ describe('LLMに文面を作らせる動作（aiChat）', () => {
     await 呼び出す(Twitchからの通知({ body: 初めての人の発言 }), env, twitch.fetchImpl)
     await 後回しの処理を待つ()
 
-    expect(JSON.stringify(ai.呼び出し[0]?.input)).toContain('配信者はギターの弦を張り替えています')
+    expect(JSON.stringify(ai.calls[0]?.input)).toContain('配信者はギターの弦を張り替えています')
   })
 
   it('鍵の確保そのものが失敗しても、取りこぼさずに記録する（2xxを返したあとなので再送では取り返せない）', async () => {
@@ -1845,7 +1845,7 @@ describe('LLMに文面を作らせる動作（aiChat）', () => {
     await 後回しの処理を待つ()
 
     expect(response.status).toBe(204)
-    expect(ai.呼び出し).toHaveLength(0)
+    expect(ai.calls).toHaveLength(0)
   })
 })
 
@@ -1873,7 +1873,7 @@ describe('コメントビューアーへの配送', () => {
     const response = await 呼び出す(Twitchからの通知({ messageId: 'eventsub-1', body: 視聴者の発言 }), env)
 
     expect(response.status).toBe(204)
-    expect(コメントの配送.押し出された1件).toMatchObject([
+    expect(コメントの配送.pushedItems).toMatchObject([
       { kind: 'chat', id: 'eventsub-1', messageId: 'chat-message-1', user: { name: '視聴者さん' }, fragments: [{ text: 'こんばんは', emoteId: null }] },
     ])
   })
@@ -1884,7 +1884,7 @@ describe('コメントビューアーへの配送', () => {
 
     await 呼び出す(Twitchからの通知({ body: 別のチャンネル }), env)
 
-    expect(コメントの配送.押し出された1件).toEqual([])
+    expect(コメントの配送.pushedItems).toEqual([])
   })
 
   it('チャットのお知らせ（サブスクなど）は押し出すだけで、配信の記録にもトリガーにもかけない', async () => {
@@ -1911,7 +1911,7 @@ describe('コメントビューアーへの配送', () => {
     const response = await 呼び出す(Twitchからの通知({ body: サブスクのお知らせ }), env)
 
     expect(response.status).toBe(204)
-    expect(コメントの配送.押し出された1件).toMatchObject([{ kind: 'notice', notice: { type: 'sub', tier: '1000' } }])
+    expect(コメントの配送.pushedItems).toMatchObject([{ kind: 'notice', notice: { type: 'sub', tier: '1000' } }])
     // サブスクは channel.subscribe でも届いて数えられるので、お知らせのほうでは数えない
     expect((await listSessions(db, 現在時刻))[0]?.eventCounts).toEqual({})
   })
@@ -1926,7 +1926,7 @@ describe('コメントビューアーへの配送', () => {
     const response = await 呼び出す(Twitchからの通知({ body: { subscription: { type }, event } }), env)
 
     expect(response.status).toBe(204)
-    expect(コメントの配送.押し出された1件).toMatchObject([{ kind }])
+    expect(コメントの配送.pushedItems).toMatchObject([{ kind }])
   })
 
   it('フォローは押し出したうえで、これまでどおりトリガーにもかける', async () => {
@@ -1936,7 +1936,7 @@ describe('コメントビューアーへの配送', () => {
     const response = await 呼び出す(Twitchからの通知({ body: フォロー }), env)
 
     expect(response.status).toBe(204)
-    expect(コメントの配送.押し出された1件).toMatchObject([{ kind: 'follow', user: { name: '田中太郎' } }])
+    expect(コメントの配送.pushedItems).toMatchObject([{ kind: 'follow', user: { name: '田中太郎' } }])
   })
 
   it('配送に失敗しても2xxを返し、失敗として記録する（コメントビューアーのためにトリガーや応答を止めない）', async () => {
@@ -1955,7 +1955,7 @@ describe('コメントビューアーへの配送', () => {
     const response = await 呼び出す(Twitchからの通知({ body: 断片のない発言 }), env)
 
     expect(response.status).toBe(204)
-    expect(コメントの配送.押し出された1件).toEqual([])
+    expect(コメントの配送.pushedItems).toEqual([])
     expect(await listFailures(db)).toMatchObject([{ code: 'comment-feed-failed', message: expect.stringContaining('fragments') }])
   })
 })

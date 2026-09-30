@@ -11,13 +11,13 @@ import { STATUS } from './http'
 export const createFakeDrawChannel = (): {
   namespace: DrawChannelNamespace
   /** WebSocketの接続として引き渡されたリクエスト */
-  引き渡された接続: Request[]
+  forwardedConnections: Request[]
 } => {
   const 引き渡された接続: Request[] = []
   const id: DurableObjectId = { toString: () => 'draw', equals: (other) => other.toString() === 'draw', name: 'draw' }
 
   return {
-    引き渡された接続,
+    forwardedConnections: 引き渡された接続,
     namespace: {
       idFromName: () => id,
       get: () => ({

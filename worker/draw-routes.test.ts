@@ -77,7 +77,7 @@ describe('GET /api/admin/draw/socket', () => {
     const response = await 配信者としてつなぐ(env, '/api/admin/draw/socket')
 
     expect(response.status).toBe(200)
-    expect(中継先.引き渡された接続.map(({ url }) => new URL(url).searchParams.get('role'))).toEqual(['writer'])
+    expect(中継先.forwardedConnections.map(({ url }) => new URL(url).searchParams.get('role'))).toEqual(['writer'])
   })
 
   it('ログインしていない接続は断る', async () => {
@@ -86,7 +86,7 @@ describe('GET /api/admin/draw/socket', () => {
     const response = await つなぐ(env, '/api/admin/draw/socket')
 
     expect(response.status).toBe(401)
-    expect(中継先.引き渡された接続).toEqual([])
+    expect(中継先.forwardedConnections).toEqual([])
   })
 
   it('別のサイトから開かれた接続は断る', async () => {
@@ -97,7 +97,7 @@ describe('GET /api/admin/draw/socket', () => {
     const response = await 配信者としてつなぐ(env, '/api/admin/draw/socket', { Origin: 'https://evil.example.com' })
 
     expect(response.status).toBe(403)
-    expect(中継先.引き渡された接続).toEqual([])
+    expect(中継先.forwardedConnections).toEqual([])
   })
 
   it('WebSocketでない要求は断る', async () => {
@@ -117,7 +117,7 @@ describe('GET /api/overlay/draw', () => {
     const response = await つなぐ(env, `/api/overlay/draw?key=${発行済みのキー}`)
 
     expect(response.status).toBe(200)
-    expect(中継先.引き渡された接続.map(({ url }) => new URL(url).searchParams.get('role'))).toEqual(['viewer'])
+    expect(中継先.forwardedConnections.map(({ url }) => new URL(url).searchParams.get('role'))).toEqual(['viewer'])
   })
 
   it('オーバーレイ用キーが違う接続は断る', async () => {
@@ -126,7 +126,7 @@ describe('GET /api/overlay/draw', () => {
     const response = await つなぐ(env, '/api/overlay/draw?key=違うキー')
 
     expect(response.status).toBe(401)
-    expect(中継先.引き渡された接続).toEqual([])
+    expect(中継先.forwardedConnections).toEqual([])
   })
 
   it('WebSocketでない要求は断る', async () => {

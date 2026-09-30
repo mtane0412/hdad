@@ -123,11 +123,11 @@ describe('scheduleAdBreakEnd', () => {
 
     await scheduleAdBreakEnd(タイマー.namespace, 予約())
 
-    expect(タイマー.渡された予約).toEqual([予約()])
+    expect(タイマー.scheduledEnds).toEqual([予約()])
   })
 
   it('Durable Object が失敗を返したら、握りつぶさずに投げる（呼び出し側が失敗として記録する）', async () => {
-    const タイマー = createFakeAdBreakTimer({ 失敗する: true })
+    const タイマー = createFakeAdBreakTimer({ shouldFail: true })
 
     await expect(scheduleAdBreakEnd(タイマー.namespace, 予約())).rejects.toThrowError(/予約/)
   })
