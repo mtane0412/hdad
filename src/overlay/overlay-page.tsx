@@ -25,7 +25,7 @@
  * 注意: 値の検証は Worker（worker/overlay-layout.ts）だけが持つ。画面は空欄を 0 に丸めず、返ってきた
  * 問題点をオーバーレイと素材の名前へ読み替えて並べる（issue #86 で決めた「画面とWorkerで二重に持たない」）。
  * 注意: 素材を1つも持たないオーバーレイは送らない（Workerが拒む。OBSに貼っても何も映らないURLを
- * 作らせないため）。足した名前は画面が覚えておき、素材を置いた時点で保存されるようにする。
+ * 作らせないため）。追加した名前は画面が覚えておき、素材を置いた時点で保存されるようにする。
  * 注意: 保存済みの値が読めない素材（レジストリに無いデザイン・範囲外のパラメータ）でも黙って捨てない。
  * 捨てると、開いて保存しただけでその素材が消える。理由を出して直させる（Fail-Fast）。
  * 重なりと見た目は、オーバーレイのカードの中で開けるプレビュー（PreviewFrame）で確かめられる（issue #106）。
@@ -582,7 +582,7 @@ const OverlayCard = ({
         {/* 選んだ種類とデザインがそのまま見えているので、入力欄の見出しは読み上げにだけ残す */}
         <div className="flex flex-wrap items-center gap-3">
           <NativeSelect
-            aria-label="足す素材の種類"
+            aria-label="追加する素材の種類"
             id={`${id}-kind`}
             className="w-44"
             value={newKind}
@@ -601,7 +601,7 @@ const OverlayCard = ({
           </NativeSelect>
           {designsFor(newKind).length > 0 && (
             <NativeSelect
-              aria-label="足す素材のデザイン"
+              aria-label="追加する素材のデザイン"
               id={`${id}-design`}
               className="w-44"
               value={newId}
@@ -614,11 +614,11 @@ const OverlayCard = ({
               ))}
             </NativeSelect>
           )}
-          {/* 足した素材はいちばん前（構成では並びの末尾、一覧ではいちばん上）に、いっぱいの大きさで入る */}
+          {/* 追加した素材はいちばん前（構成では並びの末尾、一覧ではいちばん上）に、いっぱいの大きさで入る */}
           <Button
             type="button"
             size="icon"
-            {...iconButtonName('素材を足す')}
+            {...iconButtonName('素材を追加する')}
             onClick={() => onChange({ ...draft, items: [...draft.items, newItemDraft(newKind, newId)] })}
           >
             <Plus aria-hidden="true" />
@@ -788,15 +788,15 @@ export const OverlayPage = ({ api, overlayKey }: { api: OverlayLayoutAdminApi; o
 
       <Card>
         <CardHeader>
-          <CardTitle>オーバーレイを足す</CardTitle>
+          <CardTitle>オーバーレイを追加する</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-3">
-            {/* 見出しが「オーバーレイを足す」なので、入力欄の見出しは画面には出さず、読み上げにだけ残す */}
+            {/* 見出しが「オーバーレイを追加する」なので、入力欄の見出しは画面には出さず、読み上げにだけ残す */}
             {/* 名前の書式（英小文字・数字・ハイフン）は Worker が確かめる */}
             <Input
               id={nameFieldId}
-              aria-label="足すオーバーレイの名前"
+              aria-label="追加するオーバーレイの名前"
               aria-describedby={`${nameFieldId}-outline`}
               className="w-44"
               value={newName}
@@ -808,7 +808,7 @@ export const OverlayPage = ({ api, overlayKey }: { api: OverlayLayoutAdminApi; o
             <Button
               type="button"
               size="icon"
-              {...iconButtonName('オーバーレイを足す')}
+              {...iconButtonName('オーバーレイを追加する')}
               disabled={trimmedNewName === '' || nameTaken}
               onClick={() => {
                 setDrafts([...drafts, newOverlayDraft(trimmedNewName)])
@@ -828,7 +828,7 @@ export const OverlayPage = ({ api, overlayKey }: { api: OverlayLayoutAdminApi; o
                 <code className="font-mono break-all">{overlayStageUrlOutline(window.location.origin, trimmedNewName)}</code>
               )}
             </p>
-            {/* 足せない理由だけは、打っている手を止めずに伝わるよう通知に載せる（空でも置いたままにする） */}
+            {/* 追加できない理由だけは、打っている手を止めずに伝わるよう通知に載せる（空でも置いたままにする） */}
             <p aria-live="polite" className="text-destructive">
               {nameTaken && 'この名前のオーバーレイはすでにあります。別の名前にしてください。'}
             </p>

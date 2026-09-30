@@ -34,7 +34,7 @@ const BYTES_PER_UNIT = 1024
 const ALL_REWARDS = ''
 /** 広告を自動・手動で絞り込まないことを表す選択肢の値。Workerへは null として送る */
 const ANY_AD_BREAK = ''
-/** 新しく足したトリガーと、アラートを外したトリガーの表示時間の既定値（秒） */
+/** 新しく追加したトリガーと、アラートを外したトリガーの表示時間の既定値（秒） */
 const DEFAULT_DURATION_SECONDS = 5
 /** 久しぶりの人の発言に入れる日数の既定値（約1か月） */
 const DEFAULT_RETURNING_DAYS = 30
@@ -112,7 +112,7 @@ export interface MenuItem {
    * パラメータを持たない項目は常に1行で、効果をすべて外した状態が「何も起きない」を表す。
    */
   multiple: boolean
-  /** 設定を足すボタンに出す文言。複数持てない項目は null */
+  /** 設定を追加するボタンに出す文言。複数持てない項目は null */
   addLabel: string | null
 }
 
@@ -154,7 +154,7 @@ const AD_BREAK_ITEM: MenuItem = {
 /**
  * 画面に固定で並べるトリガーの一覧。
  *
- * 配信者はトリガーを作るのではなく、**並んでいる出来事に効果を足していく**。
+ * 配信者はトリガーを作るのではなく、**並んでいる出来事に効果を追加していく**。
  * そのため項目の増減は配信者の操作では起きず、この一覧がそのまま画面の構成になる。
  *
  * 区分は配信者から見た関心ごと（チャットの書き込みか、それ以外のイベントか）で分ける。
@@ -173,15 +173,15 @@ export const menuGroups: readonly MenuGroup[] = [
       item('comeback', '決めた日数以上ぶりの発言'),
       item('welcome', 'その配信での1回目の発言'),
       item('everyMessage', '発言があるたび。挨拶とも同時に動く'),
-      item('keyword', '決めた言葉を含む発言', '言葉を足す'),
-      item('fromUser', '決めた人の発言', 'ユーザーを足す'),
+      item('keyword', '決めた言葉を含む発言', '言葉を追加する'),
+      item('fromUser', '決めた人の発言', 'ユーザーを追加する'),
     ],
   },
   {
     label: 'イベント',
     description: null,
     items: [
-      item('reward', 'チャンネルポイントの交換。報酬ごとに違う効果を付けられる', '報酬を足す'),
+      item('reward', 'チャンネルポイントの交換。報酬ごとに違う効果を付けられる', '報酬を追加する'),
       item('follow', '新しくフォローされたとき'),
       item('subscribe', '新しくサブスクされたとき'),
       item('resubscribe', '継続のサブスクがメッセージ付きで届いたとき'),
@@ -483,11 +483,11 @@ export const hasAnyAction = (draft: TriggerDraft): boolean =>
   draft.alertEnabled || draft.chatEnabled || draft.announceEnabled || draft.aiChatEnabled || draft.shoutoutEnabled
 
 /**
- * 保存済みの行に、パラメータを持たない項目の行を足し、一覧の並び順にそろえる。
+ * 保存済みの行に、パラメータを持たない項目の行を追加し、一覧の並び順にそろえる。
  *
  * 画面の一覧は固定なので、効果がひとつも付いていない項目も行として並べる必要がある。
- * パラメータを持つ項目（報酬・ユーザー名・言葉・日数・広告）は配信者が足したぶんだけ並ぶので、ここでは足さない。
- * 同じ項目の中の並びは変えない（配信者が足した順に出す）。
+ * パラメータを持つ項目（報酬・ユーザー名・言葉・日数・広告）は配信者が追加したぶんだけ並ぶので、ここでは追加しない。
+ * 同じ項目の中の並びは変えない（配信者が追加した順に出す）。
  */
 export const withFixedRows = (drafts: readonly TriggerDraft[]): TriggerDraft[] =>
   MENU_ITEMS.flatMap((menuItem) => {

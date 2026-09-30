@@ -5,7 +5,7 @@
  * 確かめること:
  * - 保存済みの曲を並べ、いま流している曲が分かること
  * - 曲を流す・止める・音量を変えると、すぐに Worker へ送ること（配信中に切り替えるため）
- * - 上げた音声から曲を足し、情報を書いて保存できること
+ * - 上げた音声から曲を追加し、情報を書いて保存できること
  * - Workerが返した問題点を、画面に見えている名前で並べること（検証はWorkerだけが持つ）
  * - 読み込めなかったときは、黙って空の一覧に倒さず理由を出すこと
  * - Jev に話題に合う曲へ切り替えさせるかを、その場で入れたり切ったりできること（既定はオフ。issue #153）
@@ -143,15 +143,15 @@ describe('BGMのページ', () => {
     await waitFor(() => expect(api.sentPlayback.at(-1)).toEqual({ mediaId: chatTrack.mediaId, volume: 0.45 }))
   })
 
-  test('上げた音声から曲を足し、クレジットを書いて保存できる', async () => {
+  test('上げた音声から曲を追加し、クレジットを書いて保存できる', async () => {
     const api = bgmApi()
     renderPage(api)
     await waitForLoad()
 
     // まだ曲にしていない音声だけが候補に並ぶ
-    const audioToAdd = screen.getByRole('combobox', { name: '足す音声' })
+    const audioToAdd = screen.getByRole('combobox', { name: '追加する音声' })
     expect(within(audioToAdd).getAllByRole('option').map((option) => option.textContent)).toEqual(['夕暮れの帰り道.mp3'])
-    await userEvent.click(screen.getByRole('button', { name: '曲を足す' }))
+    await userEvent.click(screen.getByRole('button', { name: '曲を追加する' }))
 
     // 曲名はファイル名から下書きされる。クレジットは書いてもらう
     const addedTrack = trackRow('夕暮れの帰り道')
@@ -166,9 +166,18 @@ describe('BGMのページ', () => {
     renderPage()
     await waitForLoad()
 
-    await userEvent.click(screen.getByRole('button', { name: '曲を足す' }))
+    await userEvent.click(screen.getByRole('button', { name: '曲を追加する' }))
 
     expect(trackRow('夕暮れの帰り道').getByRole('button', { name: '「夕暮れの帰り道」を流す' })).toBeDisabled()
+  })
+
+  test('曲の追加はアイコンだけのボタンにし、名前は読み上げとホバー（title）に残す', async () => {
+    renderPage()
+    await waitForLoad()
+
+    const addButton = screen.getByRole('button', { name: '曲を追加する' })
+    expect(addButton).toHaveTextContent('')
+    expect(addButton).toHaveAttribute('title', '曲を追加する')
   })
 
   test('曲を外して保存できる。流している曲は外せない', async () => {

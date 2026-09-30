@@ -150,21 +150,21 @@ describe('チャットの読み上げのページ', () => {
     expect(screen.getByText('OBSの再読み込みが必要です')).toBeInTheDocument()
   })
 
-  test('botが接続されていれば、読み上げない人に足すボタンを出す（botの応答を読み上げさせないため）', async () => {
+  test('botが接続されていれば、読み上げない人に追加するボタンを出す（botの応答を読み上げさせないため）', async () => {
     const api = speechApi()
     renderPage({ api, bot: connectedBot })
     await waitForLoad()
 
-    await userEvent.click(await screen.findByRole('button', { name: 'hdad_bot を読み上げない人に足す' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'hdad_bot を読み上げない人に追加する' }))
 
     expect(screen.getByLabelText('読み上げない人（ログイン名をカンマ区切り）')).toHaveValue('hdad_bot')
   })
 
-  test('botがすでに読み上げない人に入っていれば、足すボタンは出さない', async () => {
+  test('botがすでに読み上げない人に入っていれば、追加するボタンは出さない', async () => {
     renderPage({ api: speechApi({ ...savedConfig, ignoreLogins: ['hdad_bot'] }), bot: connectedBot })
     await waitForLoad()
 
-    await waitFor(() => expect(screen.queryByRole('button', { name: /読み上げない人に足す/ })).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByRole('button', { name: /読み上げない人に追加する/ })).not.toBeInTheDocument())
   })
 
   test('設定を読めなければ、入力欄を出さずに理由を出す（黙って既定に倒さない）', async () => {

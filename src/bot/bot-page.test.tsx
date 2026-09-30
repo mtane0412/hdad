@@ -287,10 +287,12 @@ describe('コマンドの編集', () => {
     expect(screen.getByRole('table', { name: 'コマンドの一覧' })).toBeInTheDocument()
   })
 
-  test('1つも登録していなければ、表を出さずに足すボタンだけを出す', async () => {
+  test('1つも登録していなければ、表を出さずに追加するボタンだけを出す', async () => {
     render(<BotPage api={fakeApi({ commands: vi.fn(async () => []) })} />)
 
-    expect(await screen.findByRole('button', { name: 'コマンドを足す' })).toBeInTheDocument()
+    const addButton = await screen.findByRole('button', { name: 'コマンドを追加する' })
+    // アイコンだけのボタンなので、名前はホバー（title）にも出す
+    expect(addButton).toHaveAttribute('title', 'コマンドを追加する')
     expect(screen.queryByRole('table', { name: 'コマンドの一覧' })).not.toBeInTheDocument()
   })
 
@@ -323,12 +325,12 @@ describe('コマンドの編集', () => {
     expect(screen.getByRole('button', { name: '1番目の応答文に {summary} を挿入' })).toBeInTheDocument()
   })
 
-  test('コマンドを足して保存すると、入力した値がWorkerへ送られる', async () => {
+  test('コマンドを追加して保存すると、入力した値がWorkerへ送られる', async () => {
     const api = fakeApi({ commands: vi.fn(async () => []) })
     render(<BotPage api={api} />)
-    await screen.findByRole('button', { name: 'コマンドを足す' })
+    await screen.findByRole('button', { name: 'コマンドを追加する' })
 
-    await userEvent.click(screen.getByRole('button', { name: 'コマンドを足す' }))
+    await userEvent.click(screen.getByRole('button', { name: 'コマンドを追加する' }))
     await userEvent.type(screen.getByLabelText('1番目のコマンド名'), 'discord')
     await userEvent.type(screen.getByLabelText('1番目の応答文'), 'Discordはこちらです')
     await userEvent.click(screen.getByRole('button', { name: 'コマンドを保存する' }))
@@ -413,10 +415,10 @@ describe('自動モデレーション', () => {
     expect(screen.getByRole('checkbox', { name: 'サブスクライバーを対象外にする' })).toBeChecked()
   })
 
-  test('ルールが1件も無ければ、表を出さずに足すボタンだけを出す', async () => {
+  test('ルールが1件も無ければ、表を出さずに追加するボタンだけを出す', async () => {
     render(<BotPage api={moderationApi()} />)
 
-    expect(await screen.findByRole('button', { name: 'ルールを足す' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'ルールを追加する' })).toBeInTheDocument()
     expect(screen.queryByRole('table', { name: '自動モデレーションのルールの一覧' })).not.toBeInTheDocument()
   })
 
@@ -439,7 +441,7 @@ describe('自動モデレーション', () => {
 
   test('変更していないあいだは、保存ボタンを出さない', async () => {
     render(<BotPage api={moderationApi()} />)
-    await screen.findByRole('button', { name: 'ルールを足す' })
+    await screen.findByRole('button', { name: 'ルールを追加する' })
 
     expect(screen.queryByRole('button', { name: '自動モデレーションを保存する' })).not.toBeInTheDocument()
   })
@@ -447,7 +449,7 @@ describe('自動モデレーション', () => {
   test('有効にして保存すると、Workerへ送られる', async () => {
     const api = moderationApi()
     render(<BotPage api={api} />)
-    await screen.findByRole('button', { name: 'ルールを足す' })
+    await screen.findByRole('button', { name: 'ルールを追加する' })
 
     await userEvent.click(screen.getByRole('checkbox', { name: '自動モデレーションを有効にする' }))
     await userEvent.click(screen.getByRole('button', { name: '自動モデレーションを保存する' }))
@@ -462,12 +464,12 @@ describe('自動モデレーション', () => {
     expect(await notice('保存しました')).toBeInTheDocument()
   })
 
-  test('禁止語のルールを足して保存すると、入力した語句と処分がWorkerへ送られる', async () => {
+  test('禁止語のルールを追加して保存すると、入力した語句と処分がWorkerへ送られる', async () => {
     const api = moderationApi()
     render(<BotPage api={api} />)
-    await screen.findByRole('button', { name: 'ルールを足す' })
+    await screen.findByRole('button', { name: 'ルールを追加する' })
 
-    await userEvent.click(screen.getByRole('button', { name: 'ルールを足す' }))
+    await userEvent.click(screen.getByRole('button', { name: 'ルールを追加する' }))
     await userEvent.selectOptions(screen.getByLabelText('1番目のルールの種類'), 'word')
     await userEvent.type(screen.getByLabelText('1番目の禁止語'), '宣伝')
     await userEvent.selectOptions(screen.getByLabelText('1番目の処分'), 'ban')
@@ -481,9 +483,9 @@ describe('自動モデレーション', () => {
   test('連投のルールでは、回数と数える時間を入力できる', async () => {
     const api = moderationApi()
     render(<BotPage api={api} />)
-    await screen.findByRole('button', { name: 'ルールを足す' })
+    await screen.findByRole('button', { name: 'ルールを追加する' })
 
-    await userEvent.click(screen.getByRole('button', { name: 'ルールを足す' }))
+    await userEvent.click(screen.getByRole('button', { name: 'ルールを追加する' }))
     await userEvent.selectOptions(screen.getByLabelText('1番目のルールの種類'), 'repeat')
     await userEvent.clear(screen.getByLabelText('1番目の連投とみなす回数'))
     await userEvent.type(screen.getByLabelText('1番目の連投とみなす回数'), '5')
@@ -496,9 +498,9 @@ describe('自動モデレーション', () => {
 
   test('タイムアウトを選んだときだけ、長さの入力欄を出す', async () => {
     render(<BotPage api={moderationApi()} />)
-    await screen.findByRole('button', { name: 'ルールを足す' })
+    await screen.findByRole('button', { name: 'ルールを追加する' })
 
-    await userEvent.click(screen.getByRole('button', { name: 'ルールを足す' }))
+    await userEvent.click(screen.getByRole('button', { name: 'ルールを追加する' }))
     expect(screen.queryByLabelText('1番目のタイムアウトの長さ（秒）')).not.toBeInTheDocument()
 
     await userEvent.selectOptions(screen.getByLabelText('1番目の処分'), 'timeout')
@@ -531,7 +533,7 @@ describe('自動モデレーション', () => {
       }),
     })
     render(<BotPage api={api} />)
-    await screen.findByRole('button', { name: 'ルールを足す' })
+    await screen.findByRole('button', { name: 'ルールを追加する' })
 
     await userEvent.click(screen.getByRole('checkbox', { name: '自動モデレーションを有効にする' }))
     await userEvent.click(screen.getByRole('button', { name: '自動モデレーションを保存する' }))

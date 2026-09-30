@@ -19,7 +19,7 @@
  * 注意: 曲や素材を読めなかったときは、黙って空の一覧に倒さず理由を出す（Fail-Fast）。
  * 注意: Jev が切り替えた曲は、この画面を開き直すまで「いま流している曲」に反映されない（押し出しを受けるのは裏方のページだけ）。
  */
-import { Play, Square, Trash2 } from 'lucide-react'
+import { Play, Plus, Square, Trash2 } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
 import type { AdminApi, MediaItem } from '@/admin/api'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
@@ -139,7 +139,6 @@ export const BgmPage = ({ api, mediaApi }: BgmPageProps) => {
   const [adding, setAdding] = useState('')
   const actions = usePageActions(failureLines)
   const volumeLabelId = useId()
-  const addFieldId = useId()
   const judgeFieldId = useId()
 
   useEffect(() => {
@@ -176,7 +175,7 @@ export const BgmPage = ({ api, mediaApi }: BgmPageProps) => {
 
   const playingTrack = savedTracks.find((track) => track.mediaId === playback.mediaId) ?? null
   const candidates = unusedAudioOf(media, tracks)
-  /** 選択欄の値。選んだ音声が候補から消えていたら（足したあとなど）先頭を選んでいることにする */
+  /** 選択欄の値。選んだ音声が候補から消えていたら（追加したあとなど）先頭を選んでいることにする */
   const addingId = candidates.some((item) => item.id === adding) ? adding : (candidates[0]?.id ?? '')
 
   /** 流す曲と音量を Worker へ送る。Worker が裏方のページへ押し出す */
@@ -292,17 +291,17 @@ export const BgmPage = ({ api, mediaApi }: BgmPageProps) => {
 
           {candidates.length > 0 && (
             <div className="flex flex-col gap-2">
-              <Label htmlFor={addFieldId}>足す音声</Label>
+              {/* 選んだ音声がそのまま見えているので、入力欄の見出しは読み上げにだけ残す */}
               <div className="flex gap-2">
-                <NativeSelect id={addFieldId} className="w-full" value={addingId} onChange={(event) => setAdding(event.currentTarget.value)}>
+                <NativeSelect aria-label="追加する音声" className="w-full" value={addingId} onChange={(event) => setAdding(event.currentTarget.value)}>
                   {candidates.map((item) => (
                     <NativeSelectOption key={item.id} value={item.id}>
                       {item.name}
                     </NativeSelectOption>
                   ))}
                 </NativeSelect>
-                <Button type="button" variant="outline" onClick={addTrack}>
-                  曲を足す
+                <Button type="button" variant="outline" size="icon" {...iconButtonName('曲を追加する')} onClick={addTrack}>
+                  <Plus aria-hidden="true" />
                 </Button>
               </div>
             </div>

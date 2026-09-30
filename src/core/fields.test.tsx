@@ -4,7 +4,7 @@
  *
  * 確かめること:
  * - 配色の入力欄が、色の数だけ色見本を出すこと
- * - 色を足す・減らすボタンがアイコンだけになっていて、名前は読み上げとホバーに残ること
+ * - 色を追加する・減らすボタンがアイコンだけになっていて、名前は読み上げとホバーに残ること
  */
 import '@testing-library/jest-dom/vitest'
 import { cleanup, render, screen } from '@testing-library/react'
@@ -31,10 +31,10 @@ describe('配色の入力欄', () => {
     expect(screen.getByLabelText('配色 2色目')).toHaveValue('#445566')
   })
 
-  test('色を足す・減らすはアイコンだけのボタンにし、名前は読み上げとホバー（title）に残す', () => {
+  test('色を追加する・減らすはアイコンだけのボタンにし、名前は読み上げとホバー（title）に残す', () => {
     render(<ParamField name="colors" spec={paletteDeclaration} value={['#112233', '#445566']} onChange={vi.fn()} />)
 
-    for (const name of ['色を足す', '色を減らす']) {
+    for (const name of ['色を追加する', '色を減らす']) {
       const button = screen.getByRole('button', { name })
       expect(button).toHaveTextContent('')
       expect(button).toHaveAttribute('title', name)

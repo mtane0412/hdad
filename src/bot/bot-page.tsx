@@ -32,6 +32,7 @@ import { ApiError } from '@/core/api'
 import { PlaceholderInput } from '@/core/placeholder-input'
 import { Checkbox } from '@/components/ui/checkbox'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import { iconButtonName } from '@/core/icon-button'
 import type { BotApi, BotCommandItem, BotStatus, DeviceCode, ModerationRuleItem, ModerationSettings, PunishmentItem } from './api'
 import {
   NEW_MODERATION_RULE,
@@ -399,7 +400,7 @@ export const BotPage = ({ api }: BotPageProps) => {
 
   const addCommand = async (): Promise<string> => {
     setDrafts([...drafts, { name: '', reply: '', cooldownSeconds: '0' }])
-    return 'コマンドを足しました。保存するまで反映されません'
+    return 'コマンドを追加しました。保存するまで反映されません'
   }
 
   const saveCommands = async (): Promise<string> => {
@@ -418,7 +419,7 @@ export const BotPage = ({ api }: BotPageProps) => {
 
   const addModerationRule = async (): Promise<string> => {
     setModeration({ ...moderation, rules: [...moderation.rules, NEW_MODERATION_RULE] })
-    return 'ルールを足しました。保存するまで反映されません'
+    return 'ルールを追加しました。保存するまで反映されません'
   }
 
   const saveModeration = async (): Promise<string> => {
@@ -609,7 +610,7 @@ export const BotPage = ({ api }: BotPageProps) => {
             </Table>
           )}
           <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" variant="outline" size="icon" aria-label="コマンドを足す" disabled={busy} onClick={() => void run(addCommand)}>
+            <Button type="button" variant="outline" size="icon" {...iconButtonName('コマンドを追加する')} disabled={busy} onClick={() => void run(addCommand)}>
               <Plus aria-hidden="true" />
             </Button>
             {/* 保存するものが無いときにボタンを出さない。変更したときだけ出す */}
@@ -692,7 +693,7 @@ export const BotPage = ({ api }: BotPageProps) => {
             </Table>
           )}
           <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" variant="outline" size="icon" aria-label="ルールを足す" disabled={busy} onClick={() => void run(addModerationRule)}>
+            <Button type="button" variant="outline" size="icon" {...iconButtonName('ルールを追加する')} disabled={busy} onClick={() => void run(addModerationRule)}>
               <Plus aria-hidden="true" />
             </Button>
             {/* 保存するものが無いときにボタンを出さない。変更したときだけ出す */}

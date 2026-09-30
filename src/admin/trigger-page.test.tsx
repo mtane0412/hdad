@@ -10,11 +10,11 @@
  * - 区分（チャット・イベント）を畳めること
  * - 広告の開始と終了を1つの枠で設定でき、対象の広告（自動・手動）は両方で共通になること
  * - 未保存の変更があることを知らせること
- * - きっかけを既定メニューから選んでトリガーを足せること（イベント種別と条件は画面から組み立てない）
+ * - きっかけを既定メニューから選んでトリガーを追加できること（イベント種別と条件は画面から組み立てない）
  * - メニュー項目が要求するパラメータ（報酬・ユーザー名・言葉・日数・広告の絞り込み）を書き換えられること
- * - トリガーを足し、入力欄の値をWorkerへ送る形にして保存できること
+ * - トリガーを追加し、入力欄の値をWorkerへ送る形にして保存できること
  * - 文言の欄ごとに差し込み語のボタンが並び、押すとカーソルの位置に入ること（置き換わらない語は出さない）
- * - 素材は一覧から選ぶだけで、ここでは足せないこと（アップロードのページへ案内する）
+ * - 素材は一覧から選ぶだけで、ここでは追加できないこと（アップロードのページへ案内する）
  * - 失敗は黙って無視せず、理由を出すこと（報酬の一覧だけ取れないときは、画面は出したまま理由を出す）
  */
 import '@testing-library/jest-dom/vitest'
@@ -88,13 +88,13 @@ const openedSettings = async (item: string, position = 1) => {
   return within(screen.getByRole('listitem', { name: label }))
 }
 
-/** 開閉を変えずに、その設定の中だけを探せるようにする（足した直後の行はすでに開いている） */
+/** 開閉を変えずに、その設定の中だけを探せるようにする（追加した直後の行はすでに開いている） */
 const settingsRow = (item: string, position = 1) => within(screen.getByRole('listitem', { name: `${item}の${position}番目の設定` }))
 
 /** メニュー項目1つぶんの枠。1行だけの項目も複数の設定を持てる項目も、同じ枠で並ぶ */
 const itemFrame = (label: string): Promise<HTMLElement> => screen.findByRole('listitem', { name: label })
 
-/** 複数の設定を持てる項目に、設定を1つ足す */
+/** 複数の設定を持てる項目に、設定を1つ追加する */
 const addSettings = async (label: string): Promise<void> => {
   await userEvent.click(await screen.findByRole('button', { name: label }))
 }
@@ -154,8 +154,8 @@ describe('一覧', () => {
 
     expect(await screen.findByRole('region', { name: 'チャット' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'イベント' })).toBeInTheDocument()
-    // 配信者はトリガーを作らず、並んでいる出来事に効果を足していく
-    expect(screen.queryByRole('button', { name: 'トリガーを足す' })).not.toBeInTheDocument()
+    // 配信者はトリガーを作らず、並んでいる出来事に効果を追加していく
+    expect(screen.queryByRole('button', { name: 'トリガーを追加する' })).not.toBeInTheDocument()
   })
 
   test('効果をひとつも付けていない項目も並び、何も起きないことが分かる', async () => {
@@ -183,10 +183,13 @@ describe('一覧', () => {
   test('複数の設定を持てる項目も、1行だけの項目と同じ枠に入れて並べる（見た目が2種類に分かれないようにする）', async () => {
     render(triggerPage(fakeApi()))
 
-    // 枠の中に、項目の名前・設定の行・設定を足すボタンがすべて入る
+    // 枠の中に、項目の名前・設定の行・設定を追加するボタンがすべて入る
     const frame = within(await itemFrame('チャンネルポイントが交換された'))
     expect(frame.getByRole('listitem', { name: 'チャンネルポイントが交換されたの1番目の設定' })).toBeInTheDocument()
-    expect(frame.getByRole('button', { name: '報酬を足す' })).toBeInTheDocument()
+    const addButton = frame.getByRole('button', { name: '報酬を追加する' })
+    // 追加は形で表せるコマンドなので、文字を出さずアイコンだけにし、名前は読み上げとホバーに残す
+    expect(addButton).toHaveTextContent('')
+    expect(addButton).toHaveAttribute('title', '報酬を追加する')
   })
 
   test('どの項目にも、何をきっかけにするかの説明を添える', async () => {
@@ -219,10 +222,10 @@ describe('一覧', () => {
     expect(screen.getByRole('button', { name: 'フォローされたの2番目の設定を外す' })).toBeInTheDocument()
   })
 
-  test('絞り込みのパラメータを持つ項目は、保存済みの設定がなければ行を並べず、足すボタンだけを出す', async () => {
+  test('絞り込みのパラメータを持つ項目は、保存済みの設定がなければ行を並べず、追加するボタンだけを出す', async () => {
     render(triggerPage(fakeApi({ config: async () => [] })))
 
-    expect(await screen.findByRole('button', { name: '報酬を足す' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '報酬を追加する' })).toBeInTheDocument()
     expect(screen.queryByRole('listitem', { name: 'チャンネルポイントが交換されたの1番目の設定' })).not.toBeInTheDocument()
   })
 
@@ -448,14 +451,14 @@ describe('効果の付け外し', () => {
 })
 
 describe('絞り込みのパラメータ', () => {
-  test('報酬を足すと設定が増え、報酬ごとに違う効果を付けられる', async () => {
+  test('報酬を追加すると設定が増え、報酬ごとに違う効果を付けられる', async () => {
     const api = fakeApi({ config: vi.fn(async () => []) })
     render(triggerPage(api))
 
-    // 足した設定はそのまま開いた状態で出るので、押して開き直さない
-    await addSettings('報酬を足す')
+    // 追加した設定はそのまま開いた状態で出るので、押して開き直さない
+    await addSettings('報酬を追加する')
     await userEvent.selectOptions(settingsRow('チャンネルポイントが交換された', 1).getByLabelText('対象の報酬'), 'reward-hakushu')
-    await addSettings('報酬を足す')
+    await addSettings('報酬を追加する')
     await userEvent.selectOptions(settingsRow('チャンネルポイントが交換された', 2).getByLabelText('対象の報酬'), '')
     await save()
 
@@ -465,7 +468,7 @@ describe('絞り込みのパラメータ', () => {
     ])
   })
 
-  test('足した設定は外せる', async () => {
+  test('追加した設定は外せる', async () => {
     render(triggerPage(fakeApi()))
 
     await userEvent.click(await screen.findByRole('button', { name: 'チャンネルポイントが交換されたの1番目の設定を外す' }))
@@ -604,11 +607,11 @@ describe('絞り込みのパラメータ', () => {
 })
 
 describe('保存', () => {
-  test('保存する順は一覧の並びにそろえる（あとから足した設定でも並びが崩れない）', async () => {
+  test('保存する順は一覧の並びにそろえる（あとから追加した設定でも並びが崩れない）', async () => {
     const api = fakeApi({ config: vi.fn(async (): Promise<StoredTrigger[]> => [{ kind: 'follow', actions: [{ type: 'chat', message: 'ありがとう' }] }]) })
     render(triggerPage(api))
 
-    await addSettings('言葉を足す')
+    await addSettings('言葉を追加する')
     await save()
 
     // 「決まった言葉を含む発言があった」はチャットの区分、「フォローされた」はイベントの区分なので、言葉が先に来る
@@ -678,10 +681,10 @@ describe('未保存の変更', () => {
     expect(screen.queryByText('未保存の変更があります')).not.toBeInTheDocument()
   })
 
-  test('設定を足しただけでも未保存だと知らせる（足しただけでは保存されないため）', async () => {
+  test('設定を追加しただけでも未保存だと知らせる（追加しただけでは保存されないため）', async () => {
     render(triggerPage(fakeApi({ config: async () => [] })))
 
-    await addSettings('言葉を足す')
+    await addSettings('言葉を追加する')
 
     expect(screen.getByText('未保存の変更があります')).toBeInTheDocument()
   })
@@ -731,10 +734,10 @@ describe('折りたたみ', () => {
     expect(screen.getByRole('listitem', { name: 'フォローされた' })).toBeInTheDocument()
   })
 
-  test('足した設定は、すぐ書き換えられるよう開いた状態で出る', async () => {
+  test('追加した設定は、すぐ書き換えられるよう開いた状態で出る', async () => {
     render(triggerPage(fakeApi({ config: async () => [] })))
 
-    await addSettings('言葉を足す')
+    await addSettings('言葉を追加する')
 
     expect(within(screen.getByRole('listitem', { name: '決まった言葉を含む発言の1番目の設定' })).getByLabelText('発言に含まれる言葉')).toBeInTheDocument()
   })
@@ -807,8 +810,8 @@ describe('読み込みの失敗', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('チャンネルポイント報酬の一覧を取得できませんでした: チャンネルポイントを使えないチャンネルです')
     expect(screen.getByRole('button', { name: 'トリガーを保存' })).toBeInTheDocument()
     // ほかの操作が成功しても、報酬を選べない理由は出したままにする（報酬の一覧はまだ取得できていない）
-    await addSettings('報酬を足す')
-    expect(await notice('の設定を足しました')).toBeInTheDocument()
+    await addSettings('報酬を追加する')
+    expect(await notice('の設定を追加しました')).toBeInTheDocument()
     expect(screen.getByRole('alert')).toHaveTextContent('チャンネルポイント報酬の一覧を取得できませんでした')
     // 保存済みの報酬はTwitchの一覧にないものとして選択肢に残る（黙って別の報酬に変えない）
     expect((await openedSettings('チャンネルポイントが交換された')).getByLabelText('対象の報酬')).toHaveValue('reward-hakushu')
