@@ -11,6 +11,7 @@ paths:
 - Twitchは同じ Client ID で作った報酬しか更新・削除させないので、一覧には `manageable` を添え、`false` の報酬には編集欄も削除のボタンも出さない
 - 書き換えには配信者のトークンの `channel:manage:redemptions` が要る。無ければTwitchへ送る前に `missing-scope` で断り、ログインし直しを求める。一覧は `channel:read:redemptions` で読めるので、トリガーの管理画面はスコープが無くても使える
 - トリガーに使われている報酬は削除させない（`reward-in-use`。素材の削除と同じ）
+- 報酬の画像は表示だけにする（`imageUrl`。アップロードした画像が無ければTwitchの既定の画像。どちらも無ければ応答の形が違うとして投げる）。Helixは画像の登録・変更を受け付けない
 - 交換の完了・返金（`PATCH .../redemptions`）は持たない
 
 → `docs/decisions/rewards.md`

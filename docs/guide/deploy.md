@@ -101,7 +101,7 @@ R2は無料枠（保存10GB・転送無料）だけを使う場合でも、デ�
 | `GET /api/admin/llm/models` | その提供元で選べるモデルの一覧（`?provider=`。要セッション） |
 | `GET /api/admin/llm/usage` | LLMを呼んだ回数・トークン数・実費の日ごとのまとめ（要セッション） |
 | `GET /api/admin/llm/credits` | OpenRouter の残高（`OPENROUTER_API_KEY` が無ければ400。要セッション） |
-| `GET /api/admin/rewards` | 配信者のチャンネルポイント報酬の一覧（名前・必要ポイント・説明など）。HDADから変更できる報酬には `manageable: true` が付く。トリガーの報酬を選ぶのにも使う（要セッション） |
+| `GET /api/admin/rewards` | 配信者のチャンネルポイント報酬の一覧（名前・必要ポイント・説明・画像のURLなど）。HDADから変更できる報酬には `manageable: true` が付く。トリガーの報酬を選ぶのにも使う（要セッション） |
 | `POST /api/admin/rewards` | チャンネルポイント報酬を作る（`channel:manage:redemptions` が要る。要セッション） |
 | `PATCH`・`DELETE /api/admin/rewards/<報酬ID>` | チャンネルポイント報酬の更新・削除。HDADが作った報酬だけで、トリガーに使われている報酬は削除できない（要セッション） |
 | `GET /api/admin/viewers` | 視聴者の記録の一覧（最後に発言した順）。`?search`（ログイン名の前方一致）・`?before`（この日時より前に発言した人）・`?limit`（1〜200。既定50）で絞る（要セッション） |

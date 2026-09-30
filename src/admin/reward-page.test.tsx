@@ -25,6 +25,7 @@ const toastReward: Reward = {
   prompt: 'おつまみも添えて',
   isEnabled: true,
   isUserInputRequired: false,
+  imageUrl: 'https://static-cdn.jtvnw.net/custom-reward-images/12345/kanpai-2.png',
   manageable: true,
 }
 
@@ -36,6 +37,7 @@ const hydrateReward: Reward = {
   prompt: '',
   isEnabled: true,
   isUserInputRequired: false,
+  imageUrl: 'https://static-cdn.jtvnw.net/custom-reward-images/default-2.png',
   manageable: false,
 }
 
@@ -54,8 +56,8 @@ const fakeApi = (overrides: Partial<AdminApi> = {}): AdminApi => {
     removeMedia: vi.fn(unused),
     rotateOverlayKey: vi.fn(unused),
     rewards: vi.fn(async () => [toastReward, hydrateReward]),
-    createReward: vi.fn(async (input: RewardInput) => ({ ...input, id: '報酬ID-新しい', manageable: true })),
-    updateReward: vi.fn(async (id: string, input: RewardInput) => ({ ...input, id, manageable: true })),
+    createReward: vi.fn(async (input: RewardInput) => ({ ...input, id: '報酬ID-新しい', imageUrl: 'https://static-cdn.jtvnw.net/custom-reward-images/default-2.png', manageable: true })),
+    updateReward: vi.fn(async (id: string, input: RewardInput) => ({ ...input, id, imageUrl: toastReward.imageUrl, manageable: true })),
     removeReward: vi.fn(async () => {}),
     ...overrides,
   }
@@ -95,6 +97,15 @@ describe('報酬の一覧', () => {
     expect(within(item).getByText(/100/)).toBeInTheDocument()
     expect(within(item).queryByRole('textbox')).not.toBeInTheDocument()
     expect(within(item).queryByRole('button')).not.toBeInTheDocument()
+  })
+
+  test('どの報酬にも、Twitchの報酬の画像を出す（HDADから作った報酬・Twitchで作った報酬の両方）', async () => {
+    render(<RewardPage api={fakeApi()} />)
+
+    // 画像は名前の横に添える飾りなので、読み上げには出さない（alt は空）
+    expect((await findRewardItem('乾杯する')).querySelector('img')).toHaveAttribute('src', toastReward.imageUrl)
+    expect((await findRewardItem('水分補給させる')).querySelector('img')).toHaveAttribute('src', hydrateReward.imageUrl)
+    expect((await findRewardItem('水分補給させる')).querySelector('img')).toHaveAttribute('alt', '')
   })
 
   test('報酬が1件もなければ、その旨を出す', async () => {

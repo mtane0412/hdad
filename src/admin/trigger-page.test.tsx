@@ -31,7 +31,7 @@ const connectedBot: BotStatus = { userId: 'bot-user-id', login: 'haishinsha_bot'
 
 const applauseVideo: MediaItem = { id: 'media-hakushu', name: '拍手.webm', kind: 'video', contentType: 'video/webm', size: 2 * 1024 * 1024, uploadedAt: '2026-09-01T00:00:00Z' }
 const fireworksImage: MediaItem = { id: 'media-hanabi', name: '花火.png', kind: 'image', contentType: 'image/png', size: 2048, uploadedAt: '2026-09-02T00:00:00Z' }
-const applauseReward: Reward = { id: 'reward-hakushu', title: '拍手を送る', cost: 100, prompt: '', isEnabled: true, isUserInputRequired: false, manageable: true }
+const applauseReward: Reward = { id: 'reward-hakushu', title: '拍手を送る', cost: 100, prompt: '', isEnabled: true, isUserInputRequired: false, imageUrl: 'https://static-cdn.jtvnw.net/custom-reward-images/default-2.png', manageable: true }
 const applauseTrigger: StoredTrigger = {
   kind: 'reward',
   rewardId: 'reward-hakushu',

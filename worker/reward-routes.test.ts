@@ -58,6 +58,9 @@ const saveBroadcasterToken = (store: ReturnType<typeof createFakeStore>, scopes:
     scopes,
   })
 
+/** Twitchが用意している既定の報酬画像 */
+const defaultImage = { url_1x: 'https://static-cdn.jtvnw.net/custom-reward-images/default-1.png', url_2x: 'https://static-cdn.jtvnw.net/custom-reward-images/default-2.png', url_4x: 'https://static-cdn.jtvnw.net/custom-reward-images/default-4.png' }
+
 /** Twitchが返す報酬（HDADが作ったもの） */
 const toastReward = {
   id: '報酬ID-乾杯',
@@ -66,6 +69,8 @@ const toastReward = {
   prompt: 'おつまみも添えて',
   is_enabled: true,
   is_user_input_required: false,
+  image: null,
+  default_image: defaultImage,
 }
 
 /** Twitchが返す報酬（Twitchのダッシュボードで作ったもの。HDADからは変更できない） */
@@ -76,6 +81,8 @@ const hydrateReward = {
   prompt: '',
   is_enabled: true,
   is_user_input_required: false,
+  image: null,
+  default_image: defaultImage,
 }
 
 /** 管理画面が送る報酬の内容 */
@@ -147,8 +154,8 @@ describe('チャンネルポイント報酬の一覧（GET /api/admin/rewards）
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({
       rewards: [
-        { ...rewardInput, id: '報酬ID-乾杯', manageable: true },
-        { id: '報酬ID-水分補給', title: '水分補給させる', cost: 100, prompt: '', isEnabled: true, isUserInputRequired: false, manageable: false },
+        { ...rewardInput, id: '報酬ID-乾杯', imageUrl: 'https://static-cdn.jtvnw.net/custom-reward-images/default-2.png', manageable: true },
+        { id: '報酬ID-水分補給', title: '水分補給させる', cost: 100, prompt: '', isEnabled: true, isUserInputRequired: false, imageUrl: 'https://static-cdn.jtvnw.net/custom-reward-images/default-2.png', manageable: false },
       ],
     })
     expect(new URL(twitch.requests[0]!.url).searchParams.get('broadcaster_id')).toBe(broadcasterId)
@@ -176,7 +183,7 @@ describe('チャンネルポイント報酬の作成（POST /api/admin/rewards�
     const response = await invoke(await broadcasterRequest(env, '/api/admin/rewards', jsonBody('POST', rewardInput)), env, twitch.fetchImpl)
 
     expect(response.status).toBe(201)
-    expect(await response.json()).toEqual({ ...rewardInput, id: '報酬ID-乾杯', manageable: true })
+    expect(await response.json()).toEqual({ ...rewardInput, id: '報酬ID-乾杯', imageUrl: 'https://static-cdn.jtvnw.net/custom-reward-images/default-2.png', manageable: true })
     expect(twitch.requests[0]!.method).toBe('POST')
     expect(await twitch.requests[0]!.json()).toMatchObject({ title: '乾杯する', cost: 500 })
   })
@@ -241,7 +248,7 @@ describe('チャンネルポイント報酬の更新（PATCH /api/admin/rewards/
     )
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ ...rewardInput, cost: 800, id: '報酬ID-乾杯', manageable: true })
+    expect(await response.json()).toEqual({ ...rewardInput, cost: 800, id: '報酬ID-乾杯', imageUrl: 'https://static-cdn.jtvnw.net/custom-reward-images/default-2.png', manageable: true })
     expect(twitch.requests[0]!.method).toBe('PATCH')
     expect(new URL(twitch.requests[0]!.url).searchParams.get('id')).toBe('報酬ID-乾杯')
   })

@@ -171,6 +171,8 @@ export interface RewardInput {
 /** チャンネルポイント報酬 */
 export interface Reward extends RewardInput {
   id: string
+  /** 報酬の画像のURL。アップロードした画像が無ければTwitchの既定の画像（画像はTwitchのダッシュボードでしか変えられない） */
+  imageUrl: string
   /** HDADから更新・削除できるか。Twitchは、HDADが作った報酬以外の変更を拒む */
   manageable: boolean
 }
@@ -260,6 +262,7 @@ const isReward = (value: unknown): value is Reward =>
   typeof value.prompt === 'string' &&
   typeof value.isEnabled === 'boolean' &&
   typeof value.isUserInputRequired === 'boolean' &&
+  typeof value.imageUrl === 'string' &&
   typeof value.manageable === 'boolean'
 
 /** 報酬の作成・更新の応答から報酬を取り出す */

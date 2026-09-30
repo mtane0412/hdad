@@ -17,6 +17,7 @@ const toastReward: Reward = {
   prompt: 'おつまみも添えて',
   isEnabled: true,
   isUserInputRequired: false,
+  imageUrl: 'https://static-cdn.jtvnw.net/custom-reward-images/default-2.png',
   manageable: true,
 }
 

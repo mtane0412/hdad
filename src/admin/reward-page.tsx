@@ -8,6 +8,7 @@
  *
  * 注意: Twitchは、HDADが作った報酬以外の変更を拒む。Twitchのダッシュボードで作った報酬（manageable が false）は
  * 一覧に出すだけにして、編集欄も削除のボタンも出さない（押せるのに必ず失敗するボタンを置かない）。
+ * 注意: 報酬の画像はTwitchのダッシュボードでしか登録・変更できない（Helixが画像を受け付けない）ので、表示だけを行う。
  * 注意: 失敗は黙って無視せず、画面の上部に理由を出す（Fail-Fast）。一覧を取得できなければ操作盤を出さない。
  */
 import { Plus, Trash2 } from 'lucide-react'
@@ -92,6 +93,15 @@ const RewardFields = ({ draft, disabled, onChange }: RewardFieldsProps) => {
 /** 下書きの一覧から、その報酬の下書きを外す */
 const withoutDraft = (drafts: Record<string, RewardDraft>, id: string): Record<string, RewardDraft> =>
   Object.fromEntries(Object.entries(drafts).filter(([draftId]) => draftId !== id))
+
+/**
+ * 報酬の画像。名前のすぐ横に添える飾りなので、読み上げには出さない（alt は空）。
+ *
+ * 画像はTwitchのダッシュボードでしか登録・変更できないので、ここでは表示だけを行う。
+ */
+const RewardImage = ({ reward }: { reward: Reward }) => (
+  <img src={reward.imageUrl} alt="" loading="lazy" className="size-9 shrink-0 rounded-md bg-muted object-contain p-1" />
+)
 
 type Loaded = { status: 'loading' } | { status: 'ready' } | { status: 'failed'; message: string }
 
@@ -194,52 +204,58 @@ export const RewardPage = ({ api }: { api: AdminApi }) => {
             <ul aria-label="報酬の一覧" className="flex flex-col gap-3">
               {rewards.map((reward) =>
                 reward.manageable ? (
-                  <li key={reward.id} className="flex flex-col gap-3 rounded-lg border p-3">
-                    <RewardFields
-                      draft={draftOf(reward)}
-                      disabled={actions.busy}
-                      onChange={(patch) => setDrafts((current) => ({ ...current, [reward.id]: { ...draftOf(reward), ...patch } }))}
-                    />
-                    <div className="flex gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        // 読み上げの名前には、画面に見えている「保存する」をそのまま含める（WCAG 2.5.3）
-                        aria-label={`${reward.title} を保存する`}
+                  <li key={reward.id} className="flex gap-3 rounded-lg border p-3">
+                    <RewardImage reward={reward} />
+                    <div className="flex min-w-0 flex-1 flex-col gap-3">
+                      <RewardFields
+                        draft={draftOf(reward)}
                         disabled={actions.busy}
-                        onClick={() => void actions.run(() => saveReward(reward))}
-                      >
-                        保存する
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="text-destructive"
-                        {...iconButtonName(`${reward.title} を削除`)}
-                        disabled={actions.busy}
-                        onClick={() =>
-                          actions.ask({
-                            title: `${reward.title} を削除しますか？`,
-                            description: 'Twitchから報酬が消え、元に戻せません。交換を待っているものも消えます。',
-                            actionLabel: '削除する',
-                            run: () => removeReward(reward),
-                          })
-                        }
-                      >
-                        <Trash2 aria-hidden="true" />
-                      </Button>
+                        onChange={(patch) => setDrafts((current) => ({ ...current, [reward.id]: { ...draftOf(reward), ...patch } }))}
+                      />
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          // 読み上げの名前には、画面に見えている「保存する」をそのまま含める（WCAG 2.5.3）
+                          aria-label={`${reward.title} を保存する`}
+                          disabled={actions.busy}
+                          onClick={() => void actions.run(() => saveReward(reward))}
+                        >
+                          保存する
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="text-destructive"
+                          {...iconButtonName(`${reward.title} を削除`)}
+                          disabled={actions.busy}
+                          onClick={() =>
+                            actions.ask({
+                              title: `${reward.title} を削除しますか？`,
+                              description: 'Twitchから報酬が消え、元に戻せません。交換を待っているものも消えます。',
+                              actionLabel: '削除する',
+                              run: () => removeReward(reward),
+                            })
+                          }
+                        >
+                          <Trash2 aria-hidden="true" />
+                        </Button>
+                      </div>
                     </div>
                   </li>
                 ) : (
-                  <li key={reward.id} className="flex flex-col gap-1 rounded-lg border p-3">
-                    <div className="flex flex-wrap items-baseline gap-2">
-                      <strong className="text-sm font-medium">{reward.title}</strong>
-                      <span className="text-xs text-muted-foreground">{`${reward.cost}ポイント`}</span>
-                      {!reward.isEnabled && <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">交換できない</span>}
+                  <li key={reward.id} className="flex gap-3 rounded-lg border p-3">
+                    <RewardImage reward={reward} />
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                      <div className="flex flex-wrap items-baseline gap-2">
+                        <strong className="text-sm font-medium">{reward.title}</strong>
+                        <span className="text-xs text-muted-foreground">{`${reward.cost}ポイント`}</span>
+                        {!reward.isEnabled && <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">交換できない</span>}
+                      </div>
+                      {reward.prompt !== '' && <p className="text-xs text-muted-foreground">{reward.prompt}</p>}
+                      <p className="text-xs text-muted-foreground">Twitchで作った報酬なので、ここでは変更できません。</p>
                     </div>
-                    {reward.prompt !== '' && <p className="text-xs text-muted-foreground">{reward.prompt}</p>}
-                    <p className="text-xs text-muted-foreground">Twitchで作った報酬なので、ここでは変更できません。</p>
                   </li>
                 ),
               )}

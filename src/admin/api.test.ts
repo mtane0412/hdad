@@ -174,7 +174,7 @@ describe('media・upload・removeMedia（素材）', () => {
 })
 
 /** Workerが返すチャンネルポイント報酬（HDADが作ったもの） */
-const toastReward = { id: '報酬ID-乾杯', title: '乾杯する', cost: 500, prompt: 'おつまみも添えて', isEnabled: true, isUserInputRequired: false, manageable: true }
+const toastReward = { id: '報酬ID-乾杯', title: '乾杯する', cost: 500, prompt: 'おつまみも添えて', isEnabled: true, isUserInputRequired: false, imageUrl: 'https://static-cdn.jtvnw.net/custom-reward-images/default-2.png', manageable: true }
 
 /** 管理画面から送る報酬の内容 */
 const toastRewardInput = { title: '乾杯する', cost: 500, prompt: 'おつまみも添えて', isEnabled: true, isUserInputRequired: false }
@@ -242,6 +242,13 @@ describe('rotateOverlayKey・rewards・logout', () => {
 
     expect(await createAdminApi(fetchImpl).rewards()).toEqual([toastReward])
     expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/rewards')
+  })
+
+  it('報酬の一覧に画像のURLが無ければエラーにする', async () => {
+    const withoutImage: Record<string, unknown> = { ...toastReward }
+    delete withoutImage.imageUrl
+    const { fetchImpl } = fetchReturning(200, { rewards: [withoutImage] })
+    await expect(createAdminApi(fetchImpl).rewards()).rejects.toThrow('rewards[0]')
   })
 
   it('報酬の一覧が想定した形でなければエラーにする（変更できるかどうかが無いなど）', async () => {

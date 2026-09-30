@@ -152,20 +152,26 @@ describe('createSubscription', () => {
   })
 })
 
+/** Twitchが用意している既定の報酬画像（2倍の大きさ） */
+const defaultImage = { url_1x: 'https://static-cdn.jtvnw.net/custom-reward-images/default-1.png', url_2x: 'https://static-cdn.jtvnw.net/custom-reward-images/default-2.png', url_4x: 'https://static-cdn.jtvnw.net/custom-reward-images/default-4.png' }
+/** 配信者がアップロードした報酬画像 */
+const uploadedImage = { url_1x: 'https://static-cdn.jtvnw.net/custom-reward-images/12345/kanpai-1.png', url_2x: 'https://static-cdn.jtvnw.net/custom-reward-images/12345/kanpai-2.png', url_4x: 'https://static-cdn.jtvnw.net/custom-reward-images/12345/kanpai-4.png' }
+
 describe('listCustomRewards', () => {
   it('Helixから配信者のチャンネルポイント報酬を取得し、管理画面で扱う項目だけを返す', async () => {
     const { requests, fetchImpl } = fetchReturning(200, {
       data: [
-        { id: '報酬ID-乾杯', title: '乾杯する', cost: 500, is_enabled: true, prompt: '', is_user_input_required: false, is_paused: false },
-        { id: '報酬ID-おみくじ', title: 'おみくじを引く', cost: 100, is_enabled: false, prompt: '一言どうぞ', is_user_input_required: true },
+        { id: '報酬ID-乾杯', title: '乾杯する', cost: 500, is_enabled: true, prompt: '', is_user_input_required: false, is_paused: false, image: uploadedImage, default_image: defaultImage },
+        { id: '報酬ID-おみくじ', title: 'おみくじを引く', cost: 100, is_enabled: false, prompt: '一言どうぞ', is_user_input_required: true, image: null, default_image: defaultImage },
       ],
     })
 
     const rewards = await createClient(fetchImpl).listCustomRewards('test-access-token', '12345')
 
     expect(rewards).toEqual([
-      { id: '報酬ID-乾杯', title: '乾杯する', cost: 500, prompt: '', isEnabled: true, isUserInputRequired: false },
-      { id: '報酬ID-おみくじ', title: 'おみくじを引く', cost: 100, prompt: '一言どうぞ', isEnabled: false, isUserInputRequired: true },
+      // 画像は、配信者がアップロードしたものがあればそれを、なければTwitchの既定の画像を使う（2倍の大きさ）
+      { id: '報酬ID-乾杯', title: '乾杯する', cost: 500, prompt: '', isEnabled: true, isUserInputRequired: false, imageUrl: 'https://static-cdn.jtvnw.net/custom-reward-images/12345/kanpai-2.png' },
+      { id: '報酬ID-おみくじ', title: 'おみくじを引く', cost: 100, prompt: '一言どうぞ', isEnabled: false, isUserInputRequired: true, imageUrl: 'https://static-cdn.jtvnw.net/custom-reward-images/default-2.png' },
     ])
     const request = requests[0]!
     expect(request.url).toBe('https://api.twitch.tv/helix/channel_points/custom_rewards?broadcaster_id=12345')
@@ -189,6 +195,13 @@ describe('listCustomRewards', () => {
     })
   })
 
+  it('既定の画像も無い報酬が届いたらエラーになる（画像の無い報酬として黙って扱わない）', async () => {
+    const { fetchImpl } = fetchReturning(200, {
+      data: [{ id: '報酬ID-乾杯', title: '乾杯する', cost: 500, is_enabled: true, prompt: '', is_user_input_required: false, image: null, default_image: null }],
+    })
+    await expect(createClient(fetchImpl).listCustomRewards('test-access-token', '12345')).rejects.toBeInstanceOf(TwitchApiError)
+  })
+
   it('応答が想定した形でなければエラーになる（黙って空の一覧にしない）', async () => {
     const { fetchImpl } = fetchReturning(200, { data: [{ id: '報酬ID-乾杯' }] })
     await expect(createClient(fetchImpl).listCustomRewards('test-access-token', '12345')).rejects.toBeInstanceOf(TwitchApiError)
@@ -207,6 +220,8 @@ const twitchReward = {
   is_enabled: true,
   is_user_input_required: false,
   is_paused: false,
+  image: null,
+  default_image: defaultImage,
 }
 
 describe('createCustomReward', () => {
@@ -215,7 +230,7 @@ describe('createCustomReward', () => {
 
     const reward = await createClient(fetchImpl).createCustomReward('test-access-token', '12345', rewardInput)
 
-    expect(reward).toEqual({ id: '報酬ID-乾杯', ...rewardInput })
+    expect(reward).toEqual({ id: '報酬ID-乾杯', ...rewardInput, imageUrl: 'https://static-cdn.jtvnw.net/custom-reward-images/default-2.png' })
     const request = requests[0]!
     expect(request.method).toBe('POST')
     expect(request.url).toBe('https://api.twitch.tv/helix/channel_points/custom_rewards?broadcaster_id=12345')
@@ -251,7 +266,7 @@ describe('updateCustomReward', () => {
 
     const reward = await createClient(fetchImpl).updateCustomReward('test-access-token', '12345', '報酬ID-乾杯', { ...rewardInput, cost: 800 })
 
-    expect(reward).toEqual({ id: '報酬ID-乾杯', ...rewardInput, cost: 800 })
+    expect(reward).toEqual({ id: '報酬ID-乾杯', ...rewardInput, cost: 800, imageUrl: 'https://static-cdn.jtvnw.net/custom-reward-images/default-2.png' })
     const request = requests[0]!
     expect(request.method).toBe('PATCH')
     const url = new URL(request.url)

@@ -126,6 +126,12 @@ export interface CustomRewardInput {
 /** チャンネルポイント報酬のうち、管理画面で扱う項目 */
 export interface CustomReward extends CustomRewardInput {
   id: string
+  /**
+   * 報酬の画像のURL（2倍の大きさ）。配信者がアップロードした画像があればそれ、なければTwitchの既定の画像。
+   *
+   * 画像はTwitchのダッシュボードでしか登録・変更できない（Helixの作成・更新は画像を受け付けない）ので、表示にだけ使う。
+   */
+  imageUrl: string
 }
 
 /** 報酬の一覧を取るときの絞り込み */
@@ -453,6 +459,10 @@ const toTokenGrant = (body: Record<string, unknown>): TokenGrant => {
   return { accessToken, refreshToken, expiresIn }
 }
 
+/** 報酬の画像（image・default_image）から、2倍の大きさのURLを取り出す。画像が無ければ null */
+const readRewardImageUrl = (image: unknown): string | null =>
+  isRecord(image) && typeof image[`url_${IMAGE_SCALE}x`] === 'string' ? String(image[`url_${IMAGE_SCALE}x`]) : null
+
 const toCustomReward = (value: unknown): CustomReward => {
   if (
     !isRecord(value) ||
@@ -465,6 +475,9 @@ const toCustomReward = (value: unknown): CustomReward => {
   ) {
     throw new TwitchApiError(BAD_GATEWAY, 'Twitchの報酬の応答に id・title・cost・prompt・is_enabled・is_user_input_required が揃っていません')
   }
+  // アップロードした画像が無い報酬（image が null）では、Twitchの既定の画像を使う。既定の画像まで無ければ応答の形が違う
+  const imageUrl = readRewardImageUrl(value.image) ?? readRewardImageUrl(value.default_image)
+  if (imageUrl === null) throw new TwitchApiError(BAD_GATEWAY, `Twitchの報酬の応答に image・default_image の url_${IMAGE_SCALE}x がありません`)
   return {
     id: value.id,
     title: value.title,
@@ -472,6 +485,7 @@ const toCustomReward = (value: unknown): CustomReward => {
     prompt: value.prompt,
     isEnabled: value.is_enabled,
     isUserInputRequired: value.is_user_input_required,
+    imageUrl,
   }
 }
 
