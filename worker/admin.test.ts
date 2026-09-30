@@ -17,7 +17,6 @@ import { createFakeCommentChannel } from './fake-comment-channel'
 import { createFakeStore } from './fake-store'
 import { handleRequest, type Env } from './index'
 import { createSessionToken } from './session'
-import { saveToken } from './token'
 import { recordLlmUsage } from './llm-usage-store'
 import { TRANSCRIPT_MAX_LENGTH } from './overlay-routes'
 
@@ -436,50 +435,6 @@ describe('POST /api/admin/overlay-key（キーの再発行）', () => {
     expect((await requestConnection(issuedKey)).status).toBe(401)
     expect((await invoke(new Request(`${origin}/api/media/${id}?key=${issuedKey}`), env)).status).toBe(401)
     expect((await requestConnection(overlayKey)).status).toBe(200)
-  })
-})
-
-describe('チャンネルポイント報酬の一覧（GET /api/admin/rewards）', () => {
-  const savedToken = {
-    accessToken: 'test-access-token',
-    refreshToken: 'リフレッシュトークン',
-    expiresAt: now + 60 * 60 * 1000,
-    userId: broadcasterId,
-    login: 'haishinsha',
-    scopes: ['channel:read:redemptions'],
-  }
-
-  it('セッションがなければ401を返す', async () => {
-    const { env } = createEnv()
-    expect((await invoke(new Request(`${origin}/api/admin/rewards`), env)).status).toBe(401)
-  })
-
-  it('保管しているトークンでTwitchから報酬を取得し、管理画面で選べる形で返す', async () => {
-    const { env, store } = createEnv()
-    await saveToken(store, 'broadcaster', savedToken)
-    const requests: Request[] = []
-    const fakeTwitch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-      requests.push(new Request(input, init))
-      return Response.json({ data: [{ id: '報酬ID-乾杯', title: '乾杯する', cost: 500 }] })
-    }
-
-    const response = await handleRequest(await broadcasterRequest(env, '/api/admin/rewards'), env, { fetch: fakeTwitch, now: () => now, wait: noWait, waitUntil: noDefer })
-
-    expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ rewards: [{ id: '報酬ID-乾杯', title: '乾杯する', cost: 500 }] })
-    expect(new URL(requests[0]!.url).searchParams.get('broadcaster_id')).toBe(broadcasterId)
-    expect(requests[0]!.headers.get('Authorization')).toBe('Bearer test-access-token')
-  })
-
-  it('Twitchが失敗を返したら、502でTwitchのメッセージを伝える', async () => {
-    const { env, store } = createEnv()
-    await saveToken(store, 'broadcaster', savedToken)
-    const failingTwitch = async (): Promise<Response> => Response.json({ message: 'channel points are not available' }, { status: 403 })
-
-    const response = await handleRequest(await broadcasterRequest(env, '/api/admin/rewards'), env, { fetch: failingTwitch, now: () => now, wait: noWait, waitUntil: noDefer })
-
-    expect(response.status).toBe(502)
-    expect(await errorCode(response)).toBe('twitch-error')
   })
 })
 

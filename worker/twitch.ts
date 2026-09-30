@@ -1,7 +1,7 @@
 /**
  * Twitch APIの呼び出し
  *
- * OAuth（認可コードの交換・トークンの更新・トークンの検証・アプリアクセストークンの発行）と、HelixへのEventSub購読の登録・一覧・削除、チャンネルポイント報酬の一覧の取得、
+ * OAuth（認可コードの交換・トークンの更新・トークンの検証・アプリアクセストークンの発行）と、HelixへのEventSub購読の登録・一覧・削除、チャンネルポイント報酬の一覧・作成・更新・削除、
  * 配信の記録のための取得（いまの配信・フォロワー数）、チャットへのメッセージ送信を受け持つ。
  * 失敗の応答はすべて TwitchApiError として投げ、呼び出し側が状態コードで扱いを決める。
  * fetch を引数で受け取るのは、テストで実際の通信を差し替えるため。
@@ -105,12 +105,33 @@ export interface RegisteredSubscription {
   callback: string | null
 }
 
-/** チャンネルポイント報酬のうち、管理画面で選ぶのに必要な項目 */
-export interface CustomReward {
-  id: string
+/**
+ * チャンネルポイント報酬の、管理画面から作成・編集する項目。
+ *
+ * 待機時間・上限回数・背景色などはTwitchの既定のままにし、ここでは扱わない（issue #160）。
+ */
+export interface CustomRewardInput {
+  /** 名前（Twitchの上限は45文字。チャンネル内で重複できない） */
   title: string
-  /** 交換に必要なポイント */
+  /** 交換に必要なポイント（1以上） */
   cost: number
+  /** 視聴者に見せる説明（Twitchの上限は200文字。空でもよい） */
+  prompt: string
+  /** 視聴者が交換できる状態か */
+  isEnabled: boolean
+  /** 交換するときにメッセージの入力を求めるか */
+  isUserInputRequired: boolean
+}
+
+/** チャンネルポイント報酬のうち、管理画面で扱う項目 */
+export interface CustomReward extends CustomRewardInput {
+  id: string
+}
+
+/** 報酬の一覧を取るときの絞り込み */
+export interface CustomRewardQuery {
+  /** true なら、このアプリ（同じ Client ID）が作った報酬だけを返す。Twitchはそれ以外の報酬の更新・削除を拒む */
+  onlyManageable?: boolean
 }
 
 /** いま行われている配信 */
@@ -224,7 +245,25 @@ export interface TwitchClient {
   deleteSubscription(accessToken: string, id: string): Promise<void>
   createSubscription(accessToken: string, subscription: EventSubSubscription): Promise<void>
   /** 配信者のチャンネルポイント報酬の一覧（channel:read:redemptions が必要。Twitchの上限は50件で、ページ分けはない） */
-  listCustomRewards(accessToken: string, broadcasterId: string): Promise<CustomReward[]>
+  listCustomRewards(accessToken: string, broadcasterId: string, query?: CustomRewardQuery): Promise<CustomReward[]>
+  /**
+   * チャンネルポイント報酬を作る。配信者のトークンと channel:manage:redemptions が必要。
+   *
+   * @throws TwitchApiError Twitchが拒否した（同じ名前の報酬がある・50件の上限に達した・アフィリエイト未満のチャンネルなど）
+   */
+  createCustomReward(accessToken: string, broadcasterId: string, input: CustomRewardInput): Promise<CustomReward>
+  /**
+   * チャンネルポイント報酬を更新する。配信者のトークンと channel:manage:redemptions が必要。
+   *
+   * @throws TwitchApiError Twitchが拒否した（このアプリが作っていない報酬には403が返る）
+   */
+  updateCustomReward(accessToken: string, broadcasterId: string, rewardId: string, input: CustomRewardInput): Promise<CustomReward>
+  /**
+   * チャンネルポイント報酬を削除する。配信者のトークンと channel:manage:redemptions が必要。
+   *
+   * @throws TwitchApiError Twitchが拒否した（このアプリが作っていない報酬には403が返る）
+   */
+  deleteCustomReward(accessToken: string, broadcasterId: string, rewardId: string): Promise<void>
   /** 配信者がいま行っている配信。配信していなければ null */
   getLiveStream(accessToken: string, broadcasterId: string): Promise<LiveStream | null>
   /**
@@ -415,10 +454,42 @@ const toTokenGrant = (body: Record<string, unknown>): TokenGrant => {
 }
 
 const toCustomReward = (value: unknown): CustomReward => {
-  if (!isRecord(value) || typeof value.id !== 'string' || typeof value.title !== 'string' || typeof value.cost !== 'number') {
-    throw new TwitchApiError(BAD_GATEWAY, 'Twitchの報酬の応答に id・title・cost が揃っていません')
+  if (
+    !isRecord(value) ||
+    typeof value.id !== 'string' ||
+    typeof value.title !== 'string' ||
+    typeof value.cost !== 'number' ||
+    typeof value.prompt !== 'string' ||
+    typeof value.is_enabled !== 'boolean' ||
+    typeof value.is_user_input_required !== 'boolean'
+  ) {
+    throw new TwitchApiError(BAD_GATEWAY, 'Twitchの報酬の応答に id・title・cost・prompt・is_enabled・is_user_input_required が揃っていません')
   }
-  return { id: value.id, title: value.title, cost: value.cost }
+  return {
+    id: value.id,
+    title: value.title,
+    cost: value.cost,
+    prompt: value.prompt,
+    isEnabled: value.is_enabled,
+    isUserInputRequired: value.is_user_input_required,
+  }
+}
+
+/** 報酬の作成・更新で送る本文（Twitchの項目名にする） */
+const toCustomRewardBody = (input: CustomRewardInput): string =>
+  JSON.stringify({
+    title: input.title,
+    cost: input.cost,
+    prompt: input.prompt,
+    is_enabled: input.isEnabled,
+    is_user_input_required: input.isUserInputRequired,
+  })
+
+/** 報酬の作成・更新の応答から、作られた（更新された）報酬1件を取り出す */
+const readSingleReward = (body: Record<string, unknown>): CustomReward => {
+  const { data } = body
+  if (!Array.isArray(data) || data.length === 0) throw new TwitchApiError(BAD_GATEWAY, 'Twitchの報酬の応答に data の報酬がありません')
+  return toCustomReward(data[0])
 }
 
 const toChatBadgeVersion = (value: unknown): ChatBadgeVersion => {
@@ -600,13 +671,45 @@ export const createTwitchClient = ({
       await readJson(response)
     },
 
-    listCustomRewards: async (accessToken, broadcasterId) => {
+    listCustomRewards: async (accessToken, broadcasterId, query = {}) => {
       const url = new URL(CUSTOM_REWARDS_URL)
       url.searchParams.set('broadcaster_id', broadcasterId)
+      if (query.onlyManageable === true) url.searchParams.set('only_manageable_rewards', 'true')
       const response = await fetchImpl(url, { headers: { Authorization: `Bearer ${accessToken}`, 'Client-Id': clientId } })
       const { data } = await readJson(response)
       if (!Array.isArray(data)) throw new TwitchApiError(BAD_GATEWAY, 'Twitchの報酬の応答に data の配列がありません')
       return data.map(toCustomReward)
+    },
+
+    createCustomReward: async (accessToken, broadcasterId, input) => {
+      const url = new URL(CUSTOM_REWARDS_URL)
+      url.searchParams.set('broadcaster_id', broadcasterId)
+      const response = await fetchImpl(url, {
+        method: 'POST',
+        headers: { ...helixHeaders(accessToken), 'Content-Type': 'application/json' },
+        body: toCustomRewardBody(input),
+      })
+      return readSingleReward(await readJson(response))
+    },
+
+    updateCustomReward: async (accessToken, broadcasterId, rewardId, input) => {
+      const url = new URL(CUSTOM_REWARDS_URL)
+      url.searchParams.set('broadcaster_id', broadcasterId)
+      url.searchParams.set('id', rewardId)
+      const response = await fetchImpl(url, {
+        method: 'PATCH',
+        headers: { ...helixHeaders(accessToken), 'Content-Type': 'application/json' },
+        body: toCustomRewardBody(input),
+      })
+      return readSingleReward(await readJson(response))
+    },
+
+    deleteCustomReward: async (accessToken, broadcasterId, rewardId) => {
+      const url = new URL(CUSTOM_REWARDS_URL)
+      url.searchParams.set('broadcaster_id', broadcasterId)
+      url.searchParams.set('id', rewardId)
+      // 成功の応答（204）には本文がない
+      await ensureOk(await fetchImpl(url, { method: 'DELETE', headers: helixHeaders(accessToken) }))
     },
 
     getLiveStream: async (accessToken, broadcasterId) => {

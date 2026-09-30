@@ -20,7 +20,8 @@
  * | POST /api/admin/bot/device-token | セッション     | 発行したコードをトークンに交換する（未認可なら待っている状態を返す） |
  * | GET・PUT /api/admin/bot/commands | セッション     | チャットのコマンドの取得・保存 |
  * | GET・PUT /api/admin/bot/moderation | セッション   | チャットの自動モデレーションの設定の取得・保存 |
- * | GET  /api/admin/rewards          | セッション     | チャンネルポイント報酬の一覧 |
+ * | GET・POST /api/admin/rewards     | セッション     | チャンネルポイント報酬の一覧・作成 |
+ * | PATCH・DELETE /api/admin/rewards/:id | セッション | チャンネルポイント報酬の更新・削除（HDADが作った報酬だけ） |
  * | GET・PUT /api/admin/llm          | セッション     | LLMの提供元とモデルの設定の取得・保存 |
  * | GET  /api/admin/llm/models       | セッション     | その提供元で選べるモデルの一覧 |
  * | GET  /api/admin/llm/usage        | セッション     | LLMを呼んだ回数・トークン数・実費の日ごとのまとめ |
@@ -77,7 +78,6 @@ import {
   getLlmUsage,
   getMedia,
   getOverlayLayout,
-  getRewards,
   getScreenSettings,
   getSpeech,
   postMedia,
@@ -91,6 +91,7 @@ import {
 import { getFocus, getFocusMessages, putFocus } from './focus-routes'
 import { getBgm, getOverlayBgm, overlayBgmSocket, putBgmPlayback, putBgmSettings, putBgmTracks } from './bgm-routes'
 import { deleteViewerRoute, getViewers, patchViewer } from './viewer-routes'
+import { deleteReward, getRewards, patchReward, postReward } from './reward-routes'
 import {
   deleteBot,
   getBot,
@@ -182,6 +183,9 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/admin/bot/moderation', handle: getBotModeration },
   { method: 'PUT', path: '/api/admin/bot/moderation', handle: putBotModeration },
   { method: 'GET', path: '/api/admin/rewards', handle: getRewards },
+  { method: 'POST', path: '/api/admin/rewards', handle: postReward },
+  { method: 'PATCH', path: '/api/admin/rewards/:id', handle: patchReward },
+  { method: 'DELETE', path: '/api/admin/rewards/:id', handle: deleteReward },
   { method: 'GET', path: '/api/admin/llm', handle: getLlm },
   { method: 'GET', path: '/api/admin/llm/models', handle: getLlmModels },
   { method: 'GET', path: '/api/admin/llm/usage', handle: getLlmUsage },

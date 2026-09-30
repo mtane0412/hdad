@@ -65,8 +65,10 @@ export const EVENT_TYPES: readonly EventType[] = [
  * 配信者のトークンで確かめる（GET /helix/moderation/moderators）ために要る。
  *
  * user:write:chat は、コメントビューアー（/comments/）から配信者本人としてチャットを送る（POST /helix/chat/messages）ために要る。
+ *
+ * channel:manage:redemptions は、管理画面（/rewards/）からチャンネルポイント報酬を作成・更新・削除するために要る（issue #160）。
  */
-const EXTRA_BROADCASTER_SCOPES: readonly string[] = ['channel:bot', 'user:bot', 'moderation:read', 'user:write:chat']
+const EXTRA_BROADCASTER_SCOPES: readonly string[] = ['channel:bot', 'user:bot', 'moderation:read', 'user:write:chat', 'channel:manage:redemptions']
 
 /** 配信者のログイン時に要求するスコープ（重複なし） */
 export const REQUIRED_SCOPES: readonly string[] = [

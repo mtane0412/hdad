@@ -58,6 +58,8 @@ describe('REQUIRED_SCOPES / BOT_SCOPES', () => {
     // channel:bot は、botのチャットをアプリアクセストークンで購読するために配信者が認可するもの（イベントには紐づかない）
     expect(REQUIRED_SCOPES).toContain('channel:bot')
     expect(REQUIRED_SCOPES).toContain('channel:read:redemptions')
+    // 管理画面からチャンネルポイント報酬を作成・編集・削除するため（issue #160）
+    expect(REQUIRED_SCOPES).toContain('channel:manage:redemptions')
     expect(REQUIRED_SCOPES).toContain('moderator:read:followers')
   })
 

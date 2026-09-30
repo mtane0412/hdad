@@ -29,6 +29,13 @@ const fakeApi = (overrides: Partial<AdminApi> = {}): AdminApi => ({
   removeMedia: vi.fn(async () => {}),
   rotateOverlayKey: vi.fn(async () => 'atarashii-key'),
   rewards: vi.fn(async () => []),
+  createReward: vi.fn(async () => {
+    throw new Error('このテストでは報酬を変更しません')
+  }),
+  updateReward: vi.fn(async () => {
+    throw new Error('このテストでは報酬を変更しません')
+  }),
+  removeReward: vi.fn(async () => {}),
   ...overrides,
 })
 
