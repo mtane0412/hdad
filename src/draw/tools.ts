@@ -67,9 +67,9 @@ export const isWidthId = (value: unknown): value is string => DRAW_WIDTHS.some((
  *   原因に気付けるようにする）
  */
 export const colorOf = (id: string): DrawColor => {
-  const 色 = DRAW_COLORS.find((候補) => 候補.id === id)
-  if (色 === undefined) throw new Error(`手書きの色「${id}」は選べません`)
-  return 色
+  const color = DRAW_COLORS.find((candidate) => candidate.id === id)
+  if (color === undefined) throw new Error(`手書きの色「${id}」は選べません`)
+  return color
 }
 
 /**
@@ -78,7 +78,7 @@ export const colorOf = (id: string): DrawColor => {
  * @throws 一覧にない名前の場合
  */
 export const widthOf = (id: string): DrawWidth => {
-  const 太さ = DRAW_WIDTHS.find((候補) => 候補.id === id)
-  if (太さ === undefined) throw new Error(`手書きの太さ「${id}」は選べません`)
-  return 太さ
+  const width = DRAW_WIDTHS.find((candidate) => candidate.id === id)
+  if (width === undefined) throw new Error(`手書きの太さ「${id}」は選べません`)
+  return width
 }

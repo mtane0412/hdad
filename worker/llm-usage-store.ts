@@ -60,7 +60,7 @@ export const toUtcDay = (milliseconds: number): string => new Date(milliseconds)
  */
 export const recordLlmUsage = async (db: Database, record: LlmCallRecord, now: number): Promise<void> => {
   const day = toUtcDay(now)
-  const 消す日 = toUtcDay(now - RETENTION_DAYS * 24 * 60 * 60 * 1000)
+  const deleteDay = toUtcDay(now - RETENTION_DAYS * 24 * 60 * 60 * 1000)
   await db.batch([
     db
       .prepare(
@@ -86,7 +86,7 @@ export const recordLlmUsage = async (db: Database, record: LlmCallRecord, now: n
         record.costUsd,
         new Date(now).toISOString(),
       ),
-    db.prepare('DELETE FROM llm_usage WHERE day < ?1').bind(消す日),
+    db.prepare('DELETE FROM llm_usage WHERE day < ?1').bind(deleteDay),
   ])
 }
 

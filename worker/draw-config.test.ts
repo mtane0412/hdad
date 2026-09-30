@@ -13,10 +13,10 @@ import { loadStrokes, parseStrokes, saveStrokes } from './draw-config'
 import { createFakeStore } from './fake-store'
 
 /** 配信画面の左上に引いた短い線 */
-const 引いた線 = { id: '線1', points: [{ x: 0.1, y: 0.2 }, { x: 0.3, y: 0.4 }], color: 'red', width: 'bold' }
+const drawnStrokes = { id: '線1', points: [{ x: 0.1, y: 0.2 }, { x: 0.3, y: 0.4 }], color: 'red', width: 'bold' }
 
 /** 検証で見つかった問題点の一覧を取り出す */
-const 問題点 = (input: unknown): readonly string[] => {
+const issues = (input: unknown): readonly string[] => {
   try {
     parseStrokes(input)
   } catch (error) {
@@ -27,7 +27,7 @@ const 問題点 = (input: unknown): readonly string[] => {
 
 describe('parseStrokes', () => {
   it('引いた線をそのまま保存用の形にする', () => {
-    expect(parseStrokes({ strokes: [引いた線] })).toEqual([引いた線])
+    expect(parseStrokes({ strokes: [drawnStrokes] })).toEqual([drawnStrokes])
   })
 
   it('線が無い状態（全消しの直後）を受け付ける', () => {
@@ -36,31 +36,31 @@ describe('parseStrokes', () => {
 
   it('余分な項目は保存しない', () => {
     // 保存したものは検証せずに読み出すので、送り主が足したものをそのまま抱え込まない
-    expect(parseStrokes({ strokes: [{ ...引いた線, 余分: '持ち込まれたもの' }] })).toEqual([引いた線])
+    expect(parseStrokes({ strokes: [{ ...drawnStrokes, extra: '持ち込まれたもの' }] })).toEqual([drawnStrokes])
   })
 
   it('オブジェクトでないものを拒む', () => {
-    expect(問題点('線1')).toEqual(['保存する内容はオブジェクトで指定してください'])
+    expect(issues('線1')).toEqual(['保存する内容はオブジェクトで指定してください'])
   })
 
   it('線の配列を持たないものを拒む', () => {
-    expect(問題点({})).toEqual(['strokes: 描いた線の配列で指定してください'])
+    expect(issues({})).toEqual(['strokes: 描いた線の配列で指定してください'])
   })
 
   it('選べない色の線を、何本目かを添えて拒む', () => {
-    expect(問題点({ strokes: [引いた線, { ...引いた線, id: '線2', color: 'magenta' }] })).toEqual([
+    expect(issues({ strokes: [drawnStrokes, { ...drawnStrokes, id: '線2', color: 'magenta' }] })).toEqual([
       'strokes[1]: 線は名前・点の配列・選べる色と太さの名前を持つ形で指定してください',
     ])
   })
 
   it('問題点を最初の1件で止めずに集める', () => {
-    expect(問題点({ strokes: [{ ...引いた線, color: 'magenta' }, { ...引いた線, id: '線2', points: [] }] })).toHaveLength(2)
+    expect(issues({ strokes: [{ ...drawnStrokes, color: 'magenta' }, { ...drawnStrokes, id: '線2', points: [] }] })).toHaveLength(2)
   })
 
   it('線が多すぎるものを拒む', () => {
-    const 多すぎる線 = Array.from({ length: MAX_STROKES + 1 }, (_, 番号) => ({ ...引いた線, id: `線${番号}` }))
+    const tooManyStrokes = Array.from({ length: MAX_STROKES + 1 }, (_, index) => ({ ...drawnStrokes, id: `線${index}` }))
 
-    expect(問題点({ strokes: 多すぎる線 })).toEqual([`strokes: 描いた線は${MAX_STROKES}本までにしてください`])
+    expect(issues({ strokes: tooManyStrokes })).toEqual([`strokes: 描いた線は${MAX_STROKES}本までにしてください`])
   })
 })
 
@@ -68,9 +68,9 @@ describe('saveStrokes と loadStrokes', () => {
   it('保存した線を同じ形で読み出せる', async () => {
     const store = createFakeStore()
 
-    await saveStrokes(store, [引いた線])
+    await saveStrokes(store, [drawnStrokes])
 
-    expect(await loadStrokes(store)).toEqual([引いた線])
+    expect(await loadStrokes(store)).toEqual([drawnStrokes])
   })
 
   it('一度も保存していなければ、線が無い状態として読める', async () => {
@@ -79,7 +79,7 @@ describe('saveStrokes と loadStrokes', () => {
 
   it('全消しのあとの状態（線が無い）を保存できる', async () => {
     const store = createFakeStore()
-    await saveStrokes(store, [引いた線])
+    await saveStrokes(store, [drawnStrokes])
 
     await saveStrokes(store, [])
 

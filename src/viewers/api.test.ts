@@ -7,9 +7,9 @@
 import { describe, expect, it } from 'vitest'
 import { createViewerApi } from './api'
 
-const サイト = 'https://hdad.example.com'
+const SITE = 'https://hdad.example.com'
 
-const 花子 = {
+const hanako = {
   userId: '100',
   login: 'hanako',
   displayName: '花子',
@@ -24,10 +24,10 @@ const 花子 = {
 }
 
 /** 送られたリクエストを記録し、決めた応答を返す fetch。body が null なら本文のない応答にする */
-const 応答を返すfetch = (status: number, body: unknown) => {
+const createFetchWithResponse = (status: number, body: unknown) => {
   const requests: Request[] = []
   const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    requests.push(new Request(new URL(String(input), サイト), init))
+    requests.push(new Request(new URL(String(input), SITE), init))
     return body === null ? new Response(null, { status }) : Response.json(body, { status })
   }
   return { requests, fetchImpl }
@@ -35,14 +35,14 @@ const 応答を返すfetch = (status: number, body: unknown) => {
 
 describe('list（視聴者の一覧）', () => {
   it('記録のある人の一覧を取得する', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, { viewers: [花子] })
+    const { requests, fetchImpl } = createFetchWithResponse(200, { viewers: [hanako] })
 
-    expect(await createViewerApi(fetchImpl).list({})).toEqual([花子])
+    expect(await createViewerApi(fetchImpl).list({})).toEqual([hanako])
     expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/viewers')
   })
 
   it('検索の語と続きの目印をクエリに載せる', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, { viewers: [] })
+    const { requests, fetchImpl } = createFetchWithResponse(200, { viewers: [] })
 
     await createViewerApi(fetchImpl).list({ search: 'hana', before: '2026-09-21T12:00:00.000Z', beforeUserId: '100' })
 
@@ -53,7 +53,7 @@ describe('list（視聴者の一覧）', () => {
   })
 
   it('一度に取る件数をクエリに載せる', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, { viewers: [] })
+    const { requests, fetchImpl } = createFetchWithResponse(200, { viewers: [] })
 
     await createViewerApi(fetchImpl).list({ limit: 50 })
 
@@ -61,7 +61,7 @@ describe('list（視聴者の一覧）', () => {
   })
 
   it('検索の語が空なら、クエリに載せない', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, { viewers: [] })
+    const { requests, fetchImpl } = createFetchWithResponse(200, { viewers: [] })
 
     await createViewerApi(fetchImpl).list({ search: '' })
 
@@ -69,13 +69,13 @@ describe('list（視聴者の一覧）', () => {
   })
 
   it('応答が想定した形でなければエラーにする（黙って空の一覧にしない）', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, { viewers: [{ ...花子, messageCount: '42' }] })
+    const { fetchImpl } = createFetchWithResponse(200, { viewers: [{ ...hanako, messageCount: '42' }] })
 
     await expect(createViewerApi(fetchImpl).list({})).rejects.toThrow()
   })
 
   it('Workerが失敗を返したら、その理由を持つエラーにする', async () => {
-    const { fetchImpl } = 応答を返すfetch(400, { error: { code: 'invalid-limit', message: 'limit は1〜200の整数にしてください' } })
+    const { fetchImpl } = createFetchWithResponse(400, { error: { code: 'invalid-limit', message: 'limit は1〜200の整数にしてください' } })
 
     await expect(createViewerApi(fetchImpl).list({})).rejects.toThrow('limit は1〜200の整数にしてください')
   })
@@ -83,7 +83,7 @@ describe('list（視聴者の一覧）', () => {
 
 describe('saveNote（メモの保存）', () => {
   it('メモをPATCHで送り、保存された内容を返す', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, { userId: '100', note: '常連さん' })
+    const { requests, fetchImpl } = createFetchWithResponse(200, { userId: '100', note: '常連さん' })
 
     expect(await createViewerApi(fetchImpl).saveNote('100', '常連さん')).toBe('常連さん')
     expect(requests[0]!.method).toBe('PATCH')
@@ -92,7 +92,7 @@ describe('saveNote（メモの保存）', () => {
   })
 
   it('応答に note が無ければエラーにする', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, { userId: '100' })
+    const { fetchImpl } = createFetchWithResponse(200, { userId: '100' })
 
     await expect(createViewerApi(fetchImpl).saveNote('100', '常連さん')).rejects.toThrow()
   })
@@ -100,7 +100,7 @@ describe('saveNote（メモの保存）', () => {
 
 describe('remove（記録の削除）', () => {
   it('DELETEで記録を消す', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(204, null)
+    const { requests, fetchImpl } = createFetchWithResponse(204, null)
 
     await createViewerApi(fetchImpl).remove('100')
 
@@ -111,14 +111,14 @@ describe('remove（記録の削除）', () => {
 
 describe('人物像の受け取り', () => {
   it('人物像をまだ作っていない人（summary が空・summarizedAt が null）も受け取れる', async () => {
-    const 新顔 = { ...花子, summary: '', summarizedAt: null }
-    const { fetchImpl } = 応答を返すfetch(200, { viewers: [新顔] })
+    const newViewer = { ...hanako, summary: '', summarizedAt: null }
+    const { fetchImpl } = createFetchWithResponse(200, { viewers: [newViewer] })
 
-    expect(await createViewerApi(fetchImpl).list({})).toEqual([新顔])
+    expect(await createViewerApi(fetchImpl).list({})).toEqual([newViewer])
   })
 
   it('人物像の形が違えば、黙って受け取らずエラーにする', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, { viewers: [{ ...花子, summary: 123 }] })
+    const { fetchImpl } = createFetchWithResponse(200, { viewers: [{ ...hanako, summary: 123 }] })
 
     await expect(createViewerApi(fetchImpl).list({})).rejects.toThrow()
   })
@@ -126,14 +126,14 @@ describe('人物像の受け取り', () => {
 
 describe('その人自身のチャンネルの受け取り', () => {
   it('まだ調べていない人（channel が null）も受け取れる', async () => {
-    const 新顔 = { ...花子, channel: null }
-    const { fetchImpl } = 応答を返すfetch(200, { viewers: [新顔] })
+    const newViewer = { ...hanako, channel: null }
+    const { fetchImpl } = createFetchWithResponse(200, { viewers: [newViewer] })
 
-    expect(await createViewerApi(fetchImpl).list({})).toEqual([新顔])
+    expect(await createViewerApi(fetchImpl).list({})).toEqual([newViewer])
   })
 
   it('チャンネルの形が違えば、黙って受け取らずエラーにする（調べていない人と見分けがつかなくなるため）', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, { viewers: [{ ...花子, channel: { categoryName: 'Cuphead' } }] })
+    const { fetchImpl } = createFetchWithResponse(200, { viewers: [{ ...hanako, channel: { categoryName: 'Cuphead' } }] })
 
     await expect(createViewerApi(fetchImpl).list({})).rejects.toThrow()
   })

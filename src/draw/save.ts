@@ -46,21 +46,21 @@ export interface StrokeSaver {
 /** 描いたものの書き込みを間引く窓口を作る */
 export const createStrokeSaver = ({ save, onFailure }: StrokeSaverOptions): StrokeSaver => {
   /** 待っている書き込みの時計 */
-  let 待ち時間: ReturnType<typeof setTimeout> | null = null
+  let delayMs: ReturnType<typeof setTimeout> | null = null
   /** 待っている書き込みの中身。書き切るときにこれを書く */
-  let 待っているもの: Strokes | null = null
+  let pending: Strokes | null = null
   /** 直前の書き込み。これが終わってから次を始める（順番が入れ替わらないようにする） */
-  let 書き込み中: Promise<void> = Promise.resolve()
+  let writing: Promise<void> = Promise.resolve()
 
-  const 取り消す = (): void => {
-    待っているもの = null
-    if (待ち時間 === null) return
-    clearTimeout(待ち時間)
-    待ち時間 = null
+  const cancelPending = (): void => {
+    pending = null
+    if (delayMs === null) return
+    clearTimeout(delayMs)
+    delayMs = null
   }
 
-  const 書く = (strokes: Strokes): void => {
-    書き込み中 = 書き込み中.then(async () => {
+  const write = (strokes: Strokes): void => {
+    writing = writing.then(async () => {
       try {
         await save(strokes)
       } catch (error) {
@@ -71,26 +71,26 @@ export const createStrokeSaver = ({ save, onFailure }: StrokeSaverOptions): Stro
 
   return {
     finished: (strokes) => {
-      取り消す()
-      待っているもの = strokes
-      待ち時間 = setTimeout(() => {
-        待ち時間 = null
-        待っているもの = null
-        書く(strokes)
+      cancelPending()
+      pending = strokes
+      delayMs = setTimeout(() => {
+        delayMs = null
+        pending = null
+        write(strokes)
       }, SAVE_DELAY_MS)
     },
 
     saveNow: (strokes) => {
-      取り消す()
-      書く(strokes)
+      cancelPending()
+      write(strokes)
     },
 
     flush: () => {
-      const 書くもの = 待っているもの
-      取り消す()
-      if (書くもの !== null) 書く(書くもの)
+      const toWrite = pending
+      cancelPending()
+      if (toWrite !== null) write(toWrite)
     },
 
-    cancel: 取り消す,
+    cancel: cancelPending,
   }
 }

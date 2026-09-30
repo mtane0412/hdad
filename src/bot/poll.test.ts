@@ -17,8 +17,8 @@ describe('nextIntervalSeconds', () => {
   })
 
   it('速すぎると繰り返し言われたら、そのたびに5秒ずつ延ばす', () => {
-    const 一度目 = nextIntervalSeconds(5, { status: 'slow-down' })
-    expect(nextIntervalSeconds(一度目, { status: 'slow-down' })).toBe(15)
+    const first = nextIntervalSeconds(5, { status: 'slow-down' })
+    expect(nextIntervalSeconds(first, { status: 'slow-down' })).toBe(15)
   })
 
   it('接続できたら、間隔を変えない（もう問い合わせないため）', () => {

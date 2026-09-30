@@ -38,7 +38,7 @@ describe('loadCommentSettings', () => {
 describe('parseCommentSettings', () => {
   it('正しい形の設定を、読めた項目だけの形にして返す', () => {
     // 画面が余計な項目を付けてきても、保存するのは知っている項目だけ
-    expect(parseCommentSettings({ highlightUnread: false, judgeWithJev: true, 余計な項目: 'たなか' })).toEqual({ highlightUnread: false, judgeWithJev: true })
+    expect(parseCommentSettings({ highlightUnread: false, judgeWithJev: true, extraField: 'たなか' })).toEqual({ highlightUnread: false, judgeWithJev: true })
   })
 
   it('オブジェクトでなければ拒む', () => {

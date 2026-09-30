@@ -22,7 +22,7 @@ import { BgmPage } from './bgm-page'
 afterEach(cleanup)
 
 /** 雑談のときに流したい、落ち着いた曲 */
-const 雑談の曲: BgmTrack = {
+const chatTrack: BgmTrack = {
   mediaId: 'media-zatsudan',
   title: 'ひだまりの午後',
   credit: '音楽: 甘茶の音楽工房',
@@ -32,7 +32,7 @@ const 雑談の曲: BgmTrack = {
 }
 
 /** ゲームで盛り上がったときに流したい曲 */
-const 盛り上がる曲: BgmTrack = {
+const hypeTrack: BgmTrack = {
   mediaId: 'media-moriagari',
   title: '全力疾走',
   credit: '音楽: DOVA-SYNDROME',
@@ -42,7 +42,7 @@ const 盛り上がる曲: BgmTrack = {
 }
 
 /** 上げてある素材。曲にしている2つの音声のほかに、まだ曲にしていない音声と画像がある */
-const 上げてある素材: MediaItem[] = [
+const uploadedMaterial: MediaItem[] = [
   { id: 'media-zatsudan', name: 'hidamari.mp3', kind: 'audio', contentType: 'audio/mpeg', size: 100, uploadedAt: '2026-09-29T00:00:00Z' },
   { id: 'media-moriagari', name: 'zenryoku.mp3', kind: 'audio', contentType: 'audio/mpeg', size: 100, uploadedAt: '2026-09-29T00:00:00Z' },
   { id: 'media-yuugure', name: '夕暮れの帰り道.mp3', kind: 'audio', contentType: 'audio/mpeg', size: 100, uploadedAt: '2026-09-29T00:00:00Z' },
@@ -51,136 +51,136 @@ const 上げてある素材: MediaItem[] = [
 
 /** 読み書きを記録する、BGMのAPI */
 const bgmApi = (
-  tracks: BgmTrack[] = [雑談の曲, 盛り上がる曲],
-  playback: BgmPlayback = { mediaId: 雑談の曲.mediaId, volume: 0.3 },
-): BgmApi & { 保存した曲: BgmTrack[][]; 送った再生: BgmPlayback[]; 保存した設定: BgmSettings[] } => {
-  const 保存した曲: BgmTrack[][] = []
-  const 送った再生: BgmPlayback[] = []
-  const 保存した設定: BgmSettings[] = []
+  tracks: BgmTrack[] = [chatTrack, hypeTrack],
+  playback: BgmPlayback = { mediaId: chatTrack.mediaId, volume: 0.3 },
+): BgmApi & { savedTracks: BgmTrack[][]; sentPlayback: BgmPlayback[]; savedSettings: BgmSettings[] } => {
+  const savedTracks: BgmTrack[][] = []
+  const sentPlayback: BgmPlayback[] = []
+  const savedSettings: BgmSettings[] = []
   return {
-    保存した曲,
-    送った再生,
-    保存した設定,
+    savedTracks,
+    sentPlayback,
+    savedSettings,
     load: () => Promise.resolve({ tracks, playback, settings: { judgeWithJev: false } }),
     saveSettings: (next) => {
-      保存した設定.push(next)
+      savedSettings.push(next)
       return Promise.resolve(next)
     },
     saveTracks: (next) => {
-      保存した曲.push([...next])
+      savedTracks.push([...next])
       return Promise.resolve([...next])
     },
     savePlayback: (next) => {
-      送った再生.push(next)
+      sentPlayback.push(next)
       return Promise.resolve(next)
     },
   }
 }
 
-const mediaApi = { media: () => Promise.resolve(上げてある素材) }
+const mediaApi = { media: () => Promise.resolve(uploadedMaterial) }
 
-const 描く = (api: BgmApi = bgmApi()) => render(<BgmPage api={api} mediaApi={mediaApi} />)
+const renderPage = (api: BgmApi = bgmApi()) => render(<BgmPage api={api} mediaApi={mediaApi} />)
 
 /** 曲の一覧が出るまで待つ */
-const 読み込みを待つ = () => screen.findByRole('list', { name: '曲の一覧' })
+const waitForLoad = () => screen.findByRole('list', { name: '曲の一覧' })
 
 /** 曲の行を、曲名で探す */
-const 曲の行 = (title: string) => within(screen.getByRole('listitem', { name: title }))
+const trackRow = (title: string) => within(screen.getByRole('listitem', { name: title }))
 
 /**
  * スライダーの入力要素を名前で探す。
  * Base UI の Slider は、つまみの位置を測り終えるまでつまみを隠す。jsdom は位置を測れず隠れたままなので、
  * 名前は外側の枠（role="group"）で確かめ、その中の入力要素を隠れた要素も含めて探す（trigger-page.test.tsx と同じ）
  */
-const 音量のスライダー = () => within(screen.getByRole('group', { name: '音量' })).getByRole('slider', { hidden: true })
+const volumeSlider = () => within(screen.getByRole('group', { name: '音量' })).getByRole('slider', { hidden: true })
 
 describe('BGMのページ', () => {
   test('保存済みの曲を並べ、いま流している曲を示す', async () => {
-    描く()
-    await 読み込みを待つ()
+    renderPage()
+    await waitForLoad()
 
-    expect(曲の行('ひだまりの午後').getByText('流しています')).toBeInTheDocument()
-    expect(曲の行('全力疾走').queryByText('流しています')).not.toBeInTheDocument()
+    expect(trackRow('ひだまりの午後').getByText('流しています')).toBeInTheDocument()
+    expect(trackRow('全力疾走').queryByText('流しています')).not.toBeInTheDocument()
     expect(screen.getByText(/「ひだまりの午後」を流しています/)).toBeInTheDocument()
   })
 
   test('曲の「流す」を押すと、その曲を流すよう Worker へ送る', async () => {
     const api = bgmApi()
-    描く(api)
-    await 読み込みを待つ()
+    renderPage(api)
+    await waitForLoad()
 
-    await userEvent.click(曲の行('全力疾走').getByRole('button', { name: '「全力疾走」を流す' }))
+    await userEvent.click(trackRow('全力疾走').getByRole('button', { name: '「全力疾走」を流す' }))
 
-    await waitFor(() => expect(api.送った再生).toEqual([{ mediaId: 盛り上がる曲.mediaId, volume: 0.3 }]))
+    await waitFor(() => expect(api.sentPlayback).toEqual([{ mediaId: hypeTrack.mediaId, volume: 0.3 }]))
     expect(await screen.findByText(/「全力疾走」を流しています/)).toBeInTheDocument()
   })
 
   test('「止める」を押すと、止めるよう Worker へ送る', async () => {
     const api = bgmApi()
-    描く(api)
-    await 読み込みを待つ()
+    renderPage(api)
+    await waitForLoad()
 
     await userEvent.click(screen.getByRole('button', { name: '止める' }))
 
-    await waitFor(() => expect(api.送った再生).toEqual([{ mediaId: null, volume: 0.3 }]))
+    await waitFor(() => expect(api.sentPlayback).toEqual([{ mediaId: null, volume: 0.3 }]))
     expect(await screen.findByText('BGMを止めています')).toBeInTheDocument()
   })
 
   test('何も流していなければ「止める」は押せない', async () => {
-    描く(bgmApi([雑談の曲], { mediaId: null, volume: 0.3 }))
-    await 読み込みを待つ()
+    renderPage(bgmApi([chatTrack], { mediaId: null, volume: 0.3 }))
+    await waitForLoad()
 
     expect(screen.getByRole('button', { name: '止める' })).toBeDisabled()
   })
 
   test('音量を動かすと、流している曲のまま音量を Worker へ送る', async () => {
     const api = bgmApi()
-    描く(api)
-    await 読み込みを待つ()
+    renderPage(api)
+    await waitForLoad()
 
-    fireEvent.change(音量のスライダー(), { target: { value: '45' } })
+    fireEvent.change(volumeSlider(), { target: { value: '45' } })
 
-    await waitFor(() => expect(api.送った再生.at(-1)).toEqual({ mediaId: 雑談の曲.mediaId, volume: 0.45 }))
+    await waitFor(() => expect(api.sentPlayback.at(-1)).toEqual({ mediaId: chatTrack.mediaId, volume: 0.45 }))
   })
 
   test('上げた音声から曲を足し、クレジットを書いて保存できる', async () => {
     const api = bgmApi()
-    描く(api)
-    await 読み込みを待つ()
+    renderPage(api)
+    await waitForLoad()
 
     // まだ曲にしていない音声だけが候補に並ぶ
-    const 足す音声 = screen.getByRole('combobox', { name: '足す音声' })
-    expect(within(足す音声).getAllByRole('option').map((option) => option.textContent)).toEqual(['夕暮れの帰り道.mp3'])
+    const audioToAdd = screen.getByRole('combobox', { name: '足す音声' })
+    expect(within(audioToAdd).getAllByRole('option').map((option) => option.textContent)).toEqual(['夕暮れの帰り道.mp3'])
     await userEvent.click(screen.getByRole('button', { name: '曲を足す' }))
 
     // 曲名はファイル名から下書きされる。クレジットは書いてもらう
-    const 足した曲 = 曲の行('夕暮れの帰り道')
-    await userEvent.type(足した曲.getByLabelText('クレジット表記'), '音楽: 魔王魂')
+    const addedTrack = trackRow('夕暮れの帰り道')
+    await userEvent.type(addedTrack.getByLabelText('クレジット表記'), '音楽: 魔王魂')
     await userEvent.click(screen.getByRole('button', { name: '曲の一覧を保存' }))
 
-    await waitFor(() => expect(api.保存した曲).toHaveLength(1))
-    expect(api.保存した曲[0]?.at(-1)).toEqual({ mediaId: 'media-yuugure', title: '夕暮れの帰り道', credit: '音楽: 魔王魂', creditUrl: '', mood: '', scene: '' })
+    await waitFor(() => expect(api.savedTracks).toHaveLength(1))
+    expect(api.savedTracks[0]?.at(-1)).toEqual({ mediaId: 'media-yuugure', title: '夕暮れの帰り道', credit: '音楽: 魔王魂', creditUrl: '', mood: '', scene: '' })
   })
 
   test('まだ保存していない曲は流せない（Worker の一覧に無いため）', async () => {
-    描く()
-    await 読み込みを待つ()
+    renderPage()
+    await waitForLoad()
 
     await userEvent.click(screen.getByRole('button', { name: '曲を足す' }))
 
-    expect(曲の行('夕暮れの帰り道').getByRole('button', { name: '「夕暮れの帰り道」を流す' })).toBeDisabled()
+    expect(trackRow('夕暮れの帰り道').getByRole('button', { name: '「夕暮れの帰り道」を流す' })).toBeDisabled()
   })
 
   test('曲を外して保存できる。流している曲は外せない', async () => {
     const api = bgmApi()
-    描く(api)
-    await 読み込みを待つ()
+    renderPage(api)
+    await waitForLoad()
 
-    expect(曲の行('ひだまりの午後').getByRole('button', { name: '「ひだまりの午後」を外す' })).toBeDisabled()
-    await userEvent.click(曲の行('全力疾走').getByRole('button', { name: '「全力疾走」を外す' }))
+    expect(trackRow('ひだまりの午後').getByRole('button', { name: '「ひだまりの午後」を外す' })).toBeDisabled()
+    await userEvent.click(trackRow('全力疾走').getByRole('button', { name: '「全力疾走」を外す' }))
     await userEvent.click(screen.getByRole('button', { name: '曲の一覧を保存' }))
 
-    await waitFor(() => expect(api.保存した曲).toEqual([[雑談の曲]]))
+    await waitFor(() => expect(api.savedTracks).toEqual([[chatTrack]]))
   })
 
   test('Worker が返した問題点を、画面に見えている名前で並べる', async () => {
@@ -188,8 +188,8 @@ describe('BGMのページ', () => {
       ...bgmApi(),
       saveTracks: () => Promise.reject(new ApiError(400, 'invalid-config', 'BGMの曲に問題があります', ['tracks[1].credit: 1〜200文字で指定してください'])),
     }
-    描く(api)
-    await 読み込みを待つ()
+    renderPage(api)
+    await waitForLoad()
 
     await userEvent.click(screen.getByRole('button', { name: '曲の一覧を保存' }))
 
@@ -198,20 +198,20 @@ describe('BGMのページ', () => {
 
   test('話題に合う曲へ Jev に切り替えさせるかを、その場で保存する（既定はオフ）', async () => {
     const api = bgmApi()
-    描く(api)
-    await 読み込みを待つ()
+    renderPage(api)
+    await waitForLoad()
 
-    const 自動の切り替え = screen.getByRole('checkbox', { name: '配信の話題に合う曲へ自動で切り替える（Jev）' })
-    expect(自動の切り替え).not.toBeChecked()
-    await userEvent.click(自動の切り替え)
+    const autoSwitch = screen.getByRole('checkbox', { name: '配信の話題に合う曲へ自動で切り替える（Jev）' })
+    expect(autoSwitch).not.toBeChecked()
+    await userEvent.click(autoSwitch)
 
-    await waitFor(() => expect(api.保存した設定).toEqual([{ judgeWithJev: true }]))
-    expect(自動の切り替え).toBeChecked()
+    await waitFor(() => expect(api.savedSettings).toEqual([{ judgeWithJev: true }]))
+    expect(autoSwitch).toBeChecked()
   })
 
   test('読み込めなければ、空の一覧を出さずに理由を出す', async () => {
     const api: BgmApi = { ...bgmApi(), load: () => Promise.reject(new Error('通信が切れました')) }
-    描く(api)
+    renderPage(api)
 
     expect(await screen.findByText(/通信が切れました/)).toBeInTheDocument()
     expect(screen.queryByRole('list', { name: '曲の一覧' })).not.toBeInTheDocument()

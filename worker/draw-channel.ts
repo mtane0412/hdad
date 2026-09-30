@@ -98,7 +98,7 @@ export class DrawChannel {
     // 見るだけの接続から送られてきたものは中継しない（オーバーレイ用キーだけでは描けないようにする）
     if (!this.ctx.getTags(socket).includes(WRITER)) return
     broadcast(
-      this.ctx.getWebSockets().filter((相手) => 相手 !== socket),
+      this.ctx.getWebSockets().filter((peer) => peer !== socket),
       message,
       '手書きの線',
     )

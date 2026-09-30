@@ -38,8 +38,8 @@ export type FocusPick = Omit<FocusTarget, 'profileImageUrl'>
 
 /** 応答から取り上げている1件を読む。想定した形でなければエラーにする */
 const readFocusTarget = (body: unknown, path: string): FocusTarget | null => {
-  const 違う形 = new Error(`Workerの ${path} の応答が想定した形ではありません`)
-  if (!isRecord(body) || !('target' in body)) throw 違う形
+  const wrongShape = new Error(`Workerの ${path} の応答が想定した形ではありません`)
+  if (!isRecord(body) || !('target' in body)) throw wrongShape
   const target: unknown = body.target
   if (target === null) return null
   if (
@@ -50,7 +50,7 @@ const readFocusTarget = (body: unknown, path: string): FocusTarget | null => {
     typeof target.text !== 'string' ||
     typeof target.profileImageUrl !== 'string'
   ) {
-    throw 違う形
+    throw wrongShape
   }
   return {
     messageId: target.messageId,

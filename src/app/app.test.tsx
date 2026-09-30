@@ -30,9 +30,9 @@ import type { StatsApi } from '@/stats/api'
 import type { ViewerApi } from '@/viewers/api'
 import { App } from './app'
 
-const 配信者: Me = { userId: '12345', login: 'haishin_taro', overlayKey: 'overlay-key' }
+const broadcaster: Me = { userId: '12345', login: 'haishin_taro', overlayKey: 'overlay-key' }
 
-const 代役のAPI = (me: AdminApi['me']): AdminApi => ({
+const createFakeAdminApi = (me: AdminApi['me']): AdminApi => ({
   me,
   logout: vi.fn(async () => {}),
   config: vi.fn(async () => []),
@@ -47,7 +47,7 @@ const 代役のAPI = (me: AdminApi['me']): AdminApi => ({
 })
 
 /** 記録が空の代役。ダッシュボードはこの記録を読むが、この枠のテストでは中身を確かめない */
-const 代役のbotAPI: BotApi = {
+const createFakeBotApi: BotApi = {
   status: vi.fn(async () => null),
   disconnect: vi.fn(async () => {}),
   sendMessage: vi.fn(async () => {}),
@@ -63,7 +63,7 @@ const 代役のbotAPI: BotApi = {
   saveModeration: vi.fn(async (settings: ModerationSettings) => ({ ...settings })),
 }
 
-const 代役の記録API: StatsApi = {
+const createFakeRecordApi: StatsApi = {
   sessions: vi.fn(async () => []),
   session: vi.fn(async () => {
     throw new Error('このテストでは配信の詳細を読みません')
@@ -71,7 +71,7 @@ const 代役の記録API: StatsApi = {
   followers: vi.fn(async () => []),
 }
 
-const 代役の視聴者API: ViewerApi = {
+const createFakeViewerApi: ViewerApi = {
   list: vi.fn(async () => []),
   saveNote: vi.fn(async () => {
     throw new Error('このテストではメモを保存しません')
@@ -79,28 +79,28 @@ const 代役の視聴者API: ViewerApi = {
   remove: vi.fn(async () => {}),
 }
 
-const 代役のBGM_API: BgmApi = {
+const createFakeBgmApi: BgmApi = {
   load: vi.fn(async () => ({ tracks: [], playback: { mediaId: null, volume: 0.3 }, settings: { judgeWithJev: false } })),
   saveTracks: vi.fn(async () => []),
   savePlayback: vi.fn(async () => ({ mediaId: null, volume: 0.3 })),
   saveSettings: vi.fn(async () => ({ judgeWithJev: false })),
 }
 
-const 代役のオーバーレイAPI: OverlayLayoutAdminApi = {
+const createFakeOverlayApi: OverlayLayoutAdminApi = {
   load: vi.fn(async () => []),
   save: vi.fn(async () => []),
 }
 
-const 代役のLLM_API: LlmApi = {
+const fakeLlmApi: LlmApi = {
   load: vi.fn(async () => {
-    const 軽いモデル = { 'workers-ai': '@cf/meta/llama-3.1-8b-instruct-fp8', openrouter: 'meta-llama/llama-3.1-8b-instruct' }
-    const 使う箇所 = { provider: 'workers-ai' as const, models: 軽いモデル }
+    const lightModels = { 'workers-ai': '@cf/meta/llama-3.1-8b-instruct-fp8', openrouter: 'meta-llama/llama-3.1-8b-instruct' }
+    const usageSetting = { provider: 'workers-ai' as const, models: lightModels }
     return {
       settings: {
         usages: {
-          aiChat: 使う箇所,
-          sideSuper: 使う箇所,
-          viewerSummary: 使う箇所,
+          aiChat: usageSetting,
+          sideSuper: usageSetting,
+          viewerSummary: usageSetting,
           streamSummary: {
             provider: 'workers-ai' as const,
             models: { 'workers-ai': '@cf/meta/llama-3.3-70b-instruct-fp8-fast', openrouter: 'meta-llama/llama-3.3-70b-instruct' },
@@ -117,13 +117,13 @@ const 代役のLLM_API: LlmApi = {
   loadCredits: vi.fn(async () => ({ totalCredits: 0, totalUsage: 0, remaining: 0 })),
 }
 
-const 代役の注目コメントAPI: FocusApi = {
+const createFakeFocusApi: FocusApi = {
   load: vi.fn(async () => null),
   save: vi.fn(async () => null),
   recent: vi.fn(async () => []),
 }
 
-const 代役のコメントビューアーAPI: CommentApi = {
+const createFakeCommentApi: CommentApi = {
   loadIcons: vi.fn(async () => ({})),
   loadBadges: vi.fn(async () => new Map()),
   moderate: vi.fn(async (action) => ({ action })),
@@ -133,24 +133,24 @@ const 代役のコメントビューアーAPI: CommentApi = {
   saveSettings: vi.fn(async (settings) => settings),
 }
 
-const 代役の手書きAPI: DrawApi = {
+const createFakeDrawApi: DrawApi = {
   load: vi.fn(async () => ({ strokes: [] })),
   save: vi.fn(async () => {}),
   loadBackground: vi.fn(async () => ({ kind: 'none' as const })),
 }
 
-const 代役の画面の取り込みAPI: ScreenAdminApi = {
+const createFakeScreenApi: ScreenAdminApi = {
   load: vi.fn(async () => ({ host: 'localhost', port: 4455, password: '', intervalSeconds: 60, collectionId: '' })),
   save: vi.fn(async (settings) => settings),
 }
 
-const 代役の読み上げAPI: SpeechApi = {
+const createFakeSpeechApi: SpeechApi = {
   load: vi.fn(async () => ({ host: 'localhost', port: 50021, speaker: 3, speed: 1, volume: 1, maxLength: 60, readName: false, ignoreLogins: [] })),
   save: vi.fn(async (settings) => settings),
 }
 
 /** ページを開いた状態を作る（jsdom では実際の読み込みは起きない） */
-const 開く = (path: string): void => window.history.replaceState(null, '', path)
+const openPage = (path: string): void => window.history.replaceState(null, '', path)
 
 beforeAll(() => {
   // jsdom には matchMedia がない。サイドバーが画面幅の判定に使うので、常に「広い画面」と答える代役を置く
@@ -176,12 +176,12 @@ beforeAll(() => {
 
 afterEach(() => {
   cleanup()
-  開く('/')
+  openPage('/')
 })
 
 describe('ログインしていないとき', () => {
   test('Twitchログインへのリンクだけを出し、サイドバーは出さない', async () => {
-    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} screenApi={代役の画面の取り込みAPI} focusApi={代役の注目コメントAPI} commentApi={代役のコメントビューアーAPI} drawApi={代役の手書きAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} bgmApi={代役のBGM_API} api={代役のAPI(async () => null)} />)
+    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} api={createFakeAdminApi(async () => null)} />)
 
     const login = await screen.findByRole('link', { name: 'Twitchでログイン' })
     expect(login).toHaveAttribute('href', '/api/auth/login')
@@ -189,7 +189,7 @@ describe('ログインしていないとき', () => {
   })
 
   test('アプリ名と正式名称を出す', async () => {
-    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} screenApi={代役の画面の取り込みAPI} focusApi={代役の注目コメントAPI} commentApi={代役のコメントビューアーAPI} drawApi={代役の手書きAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} bgmApi={代役のBGM_API} api={代役のAPI(async () => null)} />)
+    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} api={createFakeAdminApi(async () => null)} />)
 
     expect(await screen.findByText('HDAD')).toBeInTheDocument()
     expect(screen.getByText('Hyperfocus-Driven Assistant Director')).toBeInTheDocument()
@@ -198,7 +198,7 @@ describe('ログインしていないとき', () => {
 
 describe('ログインしているとき', () => {
   test('サイドバーに配信者の名前と各ページへのリンクを出す', async () => {
-    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} screenApi={代役の画面の取り込みAPI} focusApi={代役の注目コメントAPI} commentApi={代役のコメントビューアーAPI} drawApi={代役の手書きAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} bgmApi={代役のBGM_API} api={代役のAPI(async () => 配信者)} />)
+    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} api={createFakeAdminApi(async () => broadcaster)} />)
 
     const nav = await screen.findByRole('navigation', { name: 'サイト内の移動' })
     expect(nav).toBeInTheDocument()
@@ -215,8 +215,8 @@ describe('ログインしているとき', () => {
   })
 
   test('ログアウトすると、ログインの入口に戻る', async () => {
-    const api = 代役のAPI(async () => 配信者)
-    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} screenApi={代役の画面の取り込みAPI} focusApi={代役の注目コメントAPI} commentApi={代役のコメントビューアーAPI} drawApi={代役の手書きAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} bgmApi={代役のBGM_API} api={api} />)
+    const api = createFakeAdminApi(async () => broadcaster)
+    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} api={api} />)
 
     await userEvent.click(await screen.findByRole('button', { name: 'ログアウト' }))
 
@@ -227,7 +227,7 @@ describe('ログインしているとき', () => {
 
 describe('ページの移動', () => {
   test('サイドバーのリンクを押すと、再読み込みなしでページが切り替わり、現在地の印が付け替わる', async () => {
-    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} screenApi={代役の画面の取り込みAPI} focusApi={代役の注目コメントAPI} commentApi={代役のコメントビューアーAPI} drawApi={代役の手書きAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} bgmApi={代役のBGM_API} api={代役のAPI(async () => 配信者)} />)
+    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} api={createFakeAdminApi(async () => broadcaster)} />)
     expect(await screen.findByRole('link', { name: 'ダッシュボード' })).toHaveAttribute('aria-current', 'page')
 
     await userEvent.click(screen.getByRole('link', { name: 'アップロード' }))
@@ -239,7 +239,7 @@ describe('ページの移動', () => {
   })
 
   test('ブラウザの「戻る」で、前のページに戻る', async () => {
-    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} screenApi={代役の画面の取り込みAPI} focusApi={代役の注目コメントAPI} commentApi={代役のコメントビューアーAPI} drawApi={代役の手書きAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} bgmApi={代役のBGM_API} api={代役のAPI(async () => 配信者)} />)
+    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} api={createFakeAdminApi(async () => broadcaster)} />)
     await userEvent.click(await screen.findByRole('link', { name: '視聴者' }))
     expect(screen.getByRole('heading', { level: 1, name: '視聴者' })).toBeInTheDocument()
 
@@ -249,31 +249,31 @@ describe('ページの移動', () => {
   })
 
   test('ページUIのURLを直接開くと、そのページが出る', async () => {
-    開く('/triggers/')
-    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} screenApi={代役の画面の取り込みAPI} focusApi={代役の注目コメントAPI} commentApi={代役のコメントビューアーAPI} drawApi={代役の手書きAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} bgmApi={代役のBGM_API} api={代役のAPI(async () => 配信者)} />)
+    openPage('/triggers/')
+    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} api={createFakeAdminApi(async () => broadcaster)} />)
 
     expect(await screen.findByRole('heading', { level: 1, name: 'トリガー' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'トリガー' })).toHaveAttribute('aria-current', 'page')
   })
 
   test('末尾のスラッシュがないURLでも、同じページが出る', async () => {
-    開く('/media')
-    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} screenApi={代役の画面の取り込みAPI} focusApi={代役の注目コメントAPI} commentApi={代役のコメントビューアーAPI} drawApi={代役の手書きAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} bgmApi={代役のBGM_API} api={代役のAPI(async () => 配信者)} />)
+    openPage('/media')
+    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} api={createFakeAdminApi(async () => broadcaster)} />)
 
     expect(await screen.findByRole('heading', { level: 1, name: 'アップロード' })).toBeInTheDocument()
   })
 
   test('未ログインでページUIのURLを開くと、ログインの入口だけが出る', async () => {
-    開く('/media/')
-    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} screenApi={代役の画面の取り込みAPI} focusApi={代役の注目コメントAPI} commentApi={代役のコメントビューアーAPI} drawApi={代役の手書きAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} bgmApi={代役のBGM_API} api={代役のAPI(async () => null)} />)
+    openPage('/media/')
+    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} api={createFakeAdminApi(async () => null)} />)
 
     expect(await screen.findByRole('link', { name: 'Twitchでログイン' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { level: 1, name: 'アップロード' })).not.toBeInTheDocument()
   })
 
   test('存在しないパスでは、見つからないことを伝え、ダッシュボードへ戻れる', async () => {
-    開く('/nai-page/')
-    render(<App statsApi={代役の記録API} botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} screenApi={代役の画面の取り込みAPI} focusApi={代役の注目コメントAPI} commentApi={代役のコメントビューアーAPI} drawApi={代役の手書きAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} bgmApi={代役のBGM_API} api={代役のAPI(async () => 配信者)} />)
+    openPage('/nai-page/')
+    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} api={createFakeAdminApi(async () => broadcaster)} />)
 
     expect(await screen.findByRole('heading', { level: 1, name: 'ページが見つかりません' })).toBeInTheDocument()
     expect(screen.getByText('/nai-page/')).toBeInTheDocument()
@@ -287,9 +287,9 @@ describe('ログインの確認に失敗したとき', () => {
   test('未ログイン扱いにせず、エラーの内容を出す', async () => {
     render(
       <App
-        statsApi={代役の記録API}
-        botApi={代役のbotAPI} viewerApi={代役の視聴者API} speechApi={代役の読み上げAPI} screenApi={代役の画面の取り込みAPI} focusApi={代役の注目コメントAPI} commentApi={代役のコメントビューアーAPI} drawApi={代役の手書きAPI} llmApi={代役のLLM_API} overlayApi={代役のオーバーレイAPI} bgmApi={代役のBGM_API}
-        api={代役のAPI(async () => {
+        statsApi={createFakeRecordApi}
+        botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi}
+        api={createFakeAdminApi(async () => {
           throw new Error('Workerに接続できません')
         })}
       />,

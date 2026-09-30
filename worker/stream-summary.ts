@@ -95,7 +95,7 @@ export interface StreamSummaryMaterial {
 }
 
 /** 材料が1件も無いときに、その旨を伝える文言 */
-const 無し = '（1件もありません）'
+const NO_ITEMS_TEXT = '（1件もありません）'
 
 /**
  * 材料の1行ごとに、誰のものかを付ける。
@@ -104,8 +104,8 @@ const 無し = '（1件もありません）'
  * （「美少女声いらないかも」という書き込みから「配信者は美少女になっていた」と書くなど）。
  * 行ごとに出所を持たせると、この読み違えがはっきり減る。
  */
-const 話し手を付ける = (話し手: string, lines: readonly string[]): string[] =>
-  lines.length === 0 ? [無し] : lines.map((line) => `${話し手}: ${line}`)
+const labelSpeaker = (speaker: string, lines: readonly string[]): string[] =>
+  lines.length === 0 ? [NO_ITEMS_TEXT] : lines.map((line) => `${speaker}: ${line}`)
 
 /**
  * 材料から、LLMへ渡す指示の文章を組み立てる。
@@ -126,13 +126,13 @@ export const buildStreamSummaryPrompt = (material: StreamSummaryMaterial): strin
     previous === '' ? 'まだありません（ここが、この配信の最初のあらすじです）' : previous,
     '',
     '# そのあと配信者が喋ったこと（文字起こし。古い順）',
-    ...話し手を付ける('配信者', transcripts),
+    ...labelSpeaker('配信者', transcripts),
     '',
     '# そのあと視聴者がチャットに書いたこと（古い順）',
-    ...話し手を付ける('視聴者', chats),
+    ...labelSpeaker('視聴者', chats),
     '',
     '# そのあと画面に新しく現れた文字（古い順）',
-    ...話し手を付ける('画面', screen),
+    ...labelSpeaker('画面', screen),
     '',
     '# 文体',
     '- 配信者のことは「配信者」と呼び、少し引いた目線で書いてください',

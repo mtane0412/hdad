@@ -21,13 +21,13 @@ import { loadBgmPlayback, loadBgmSettings, loadBgmSwitchedAt, loadBgmTracks, sav
 import { handleRequest, type Env } from './index'
 import { createSessionToken } from './session'
 
-const 現在時刻 = Date.parse('2026-09-29T12:00:00Z')
-const 配信者のID = '12345'
-const サイト = 'https://hdad.example.com'
-const 発行済みのキー = 'issued-overlay-key-0123456789abcdefghij'
+const NOW = Date.parse('2026-09-29T12:00:00Z')
+const BROADCASTER_ID = '12345'
+const SITE = 'https://hdad.example.com'
+const ISSUED_KEY = 'issued-overlay-key-0123456789abcdefghij'
 
 /** 雑談のときに流したい、落ち着いた曲 */
-const 雑談の曲: BgmTrack = {
+const casualTrack: BgmTrack = {
   mediaId: 'media-zatsudan',
   title: 'ひだまりの午後',
   credit: '音楽: 甘茶の音楽工房',
@@ -37,7 +37,7 @@ const 雑談の曲: BgmTrack = {
 }
 
 /** ゲームで盛り上がったときに流したい曲 */
-const 盛り上がる曲: BgmTrack = {
+const hypeTrack: BgmTrack = {
   mediaId: 'media-moriagari',
   title: '全力疾走',
   credit: '音楽: DOVA-SYNDROME',
@@ -46,73 +46,73 @@ const 盛り上がる曲: BgmTrack = {
   scene: 'ボス戦・盛り上がったとき',
 }
 
-const 環境を作る = async () => {
+const setupEnv = async () => {
   const bucket = createFakeBucket()
   // 曲の音声として、2つの音声を上げておく
-  const 音声 = { httpMetadata: { contentType: 'audio/mpeg' } }
-  await bucket.put(雑談の曲.mediaId, new ArrayBuffer(8), { ...音声, customMetadata: { name: 'hidamari.mp3' } })
-  await bucket.put(盛り上がる曲.mediaId, new ArrayBuffer(8), { ...音声, customMetadata: { name: 'zenryoku.mp3' } })
-  const 配送 = createFakeAlertChannel()
+  const audioOptions = { httpMetadata: { contentType: 'audio/mpeg' } }
+  await bucket.put(casualTrack.mediaId, new ArrayBuffer(8), { ...audioOptions, customMetadata: { name: 'hidamari.mp3' } })
+  await bucket.put(hypeTrack.mediaId, new ArrayBuffer(8), { ...audioOptions, customMetadata: { name: 'zenryoku.mp3' } })
+  const alertChannel = createFakeAlertChannel()
   const env = {
-    STORE: createFakeStore({ 'overlay-key': 発行済みのキー }),
+    STORE: createFakeStore({ 'overlay-key': ISSUED_KEY }),
     MEDIA: bucket,
     DB: createFakeDatabase(),
     TWITCH_CLIENT_ID: 'test-client-id',
     TWITCH_CLIENT_SECRET: 'テスト用シークレット',
-    TWITCH_BROADCASTER_ID: 配信者のID,
+    TWITCH_BROADCASTER_ID: BROADCASTER_ID,
     SESSION_SECRET: 'テスト用のセッション秘密鍵',
     EVENTSUB_SECRET: 'テスト用のWebhookシークレット',
-    ALERTS: 配送.namespace,
+    ALERTS: alertChannel.namespace,
     DRAW: createFakeDrawChannel().namespace,
     COMMENTS: createFakeCommentChannel().namespace,
     AD_BREAKS: createFakeAdBreakTimer().namespace,
     AI: createFakeWorkersAi(),
   } satisfies Env
-  return { env, 配送 }
+  return { env, alertChannel }
 }
 
-const Twitchへは通信しない = async (input: RequestInfo | URL): Promise<Response> => {
+const noTwitchFetch = async (input: RequestInfo | URL): Promise<Response> => {
   throw new Error(`テストで想定していない通信です: ${String(input)}`)
 }
 
-const 待たない = async (): Promise<void> => {}
+const noWait = async (): Promise<void> => {}
 
 /** これらの経路は応答のあとに続く処理（waitUntil）を使わない */
-const 後回しにしない = (): void => {
+const noWaitUntil = (): void => {
   throw new Error('このテストでは、応答のあとに続く処理を使いません')
 }
 
-const 呼び出す = (request: Request, env: Env) =>
-  handleRequest(request, env, { fetch: Twitchへは通信しない, now: () => 現在時刻, wait: 待たない, waitUntil: 後回しにしない })
+const callHandler = (request: Request, env: Env) =>
+  handleRequest(request, env, { fetch: noTwitchFetch, now: () => NOW, wait: noWait, waitUntil: noWaitUntil })
 
 /** 配信者としてログインした状態で呼ぶ。書き換えのときは Origin も付ける（ブラウザが付けるのと同じ） */
-const 配信者として呼ぶ = async (env: Env, path: string, init: RequestInit = {}): Promise<Response> => {
-  const session = await createSessionToken(配信者のID, env.SESSION_SECRET, 現在時刻)
+const callAsBroadcaster = async (env: Env, path: string, init: RequestInit = {}): Promise<Response> => {
+  const session = await createSessionToken(BROADCASTER_ID, env.SESSION_SECRET, NOW)
   const headers: Record<string, string> = { Cookie: `__Host-session=${session}`, 'Content-Type': 'application/json' }
-  if (init.method !== undefined && init.method !== 'GET') headers.Origin = サイト
-  return 呼び出す(new Request(`${サイト}${path}`, { ...init, headers }), env)
+  if (init.method !== undefined && init.method !== 'GET') headers.Origin = SITE
+  return callHandler(new Request(`${SITE}${path}`, { ...init, headers }), env)
 }
 
-const 曲を保存する = (env: Env, tracks: unknown) =>
-  配信者として呼ぶ(env, '/api/admin/bgm/tracks', { method: 'PUT', body: JSON.stringify({ tracks }) })
+const saveTracks = (env: Env, tracks: unknown) =>
+  callAsBroadcaster(env, '/api/admin/bgm/tracks', { method: 'PUT', body: JSON.stringify({ tracks }) })
 
-const 再生を変える = (env: Env, playback: unknown) =>
-  配信者として呼ぶ(env, '/api/admin/bgm/playback', { method: 'PUT', body: JSON.stringify(playback) })
+const changePlayback = (env: Env, playback: unknown) =>
+  callAsBroadcaster(env, '/api/admin/bgm/playback', { method: 'PUT', body: JSON.stringify(playback) })
 
 describe('GET /api/admin/bgm', () => {
   it('一度も保存していなければ、曲は空で何も流していない', async () => {
-    const { env } = await 環境を作る()
+    const { env } = await setupEnv()
 
-    const response = await 配信者として呼ぶ(env, '/api/admin/bgm')
+    const response = await callAsBroadcaster(env, '/api/admin/bgm')
 
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ tracks: [], playback: { mediaId: null, volume: 0.3 }, settings: { judgeWithJev: false } })
   })
 
   it('ログインしていなければ401にする', async () => {
-    const { env } = await 環境を作る()
+    const { env } = await setupEnv()
 
-    const response = await 呼び出す(new Request(`${サイト}/api/admin/bgm`), env)
+    const response = await callHandler(new Request(`${SITE}/api/admin/bgm`), env)
 
     expect(response.status).toBe(401)
   })
@@ -120,19 +120,19 @@ describe('GET /api/admin/bgm', () => {
 
 describe('PUT /api/admin/bgm/tracks', () => {
   it('曲の一覧を保存して返す', async () => {
-    const { env } = await 環境を作る()
+    const { env } = await setupEnv()
 
-    const response = await 曲を保存する(env, [雑談の曲, 盛り上がる曲])
+    const response = await saveTracks(env, [casualTrack, hypeTrack])
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ tracks: [雑談の曲, 盛り上がる曲] })
-    expect(await loadBgmTracks(env.STORE)).toEqual([雑談の曲, 盛り上がる曲])
+    expect(await response.json()).toEqual({ tracks: [casualTrack, hypeTrack] })
+    expect(await loadBgmTracks(env.STORE)).toEqual([casualTrack, hypeTrack])
   })
 
   it('問題があれば400にして、問題点を並べて返す', async () => {
-    const { env } = await 環境を作る()
+    const { env } = await setupEnv()
 
-    const response = await 曲を保存する(env, [{ ...雑談の曲, title: '', mediaId: 'media-nai' }])
+    const response = await saveTracks(env, [{ ...casualTrack, title: '', mediaId: 'media-nai' }])
 
     expect(response.status).toBe(400)
     const body = (await response.json()) as { error: { problems: string[] } }
@@ -141,53 +141,53 @@ describe('PUT /api/admin/bgm/tracks', () => {
   })
 
   it('流している曲は一覧から消させない', async () => {
-    const { env } = await 環境を作る()
-    await 曲を保存する(env, [雑談の曲, 盛り上がる曲])
-    await 再生を変える(env, { mediaId: 雑談の曲.mediaId, volume: 0.3 })
+    const { env } = await setupEnv()
+    await saveTracks(env, [casualTrack, hypeTrack])
+    await changePlayback(env, { mediaId: casualTrack.mediaId, volume: 0.3 })
 
-    const response = await 曲を保存する(env, [盛り上がる曲])
+    const response = await saveTracks(env, [hypeTrack])
 
     expect(response.status).toBe(400)
-    expect(await loadBgmTracks(env.STORE)).toEqual([雑談の曲, 盛り上がる曲])
+    expect(await loadBgmTracks(env.STORE)).toEqual([casualTrack, hypeTrack])
   })
 
   it('流している曲の情報を直したら、裏方のページへ押し出す（クレジットの表示を合わせるため）', async () => {
-    const { env, 配送 } = await 環境を作る()
-    await 曲を保存する(env, [雑談の曲])
-    await 再生を変える(env, { mediaId: 雑談の曲.mediaId, volume: 0.3 })
+    const { env, alertChannel } = await setupEnv()
+    await saveTracks(env, [casualTrack])
+    await changePlayback(env, { mediaId: casualTrack.mediaId, volume: 0.3 })
 
-    await 曲を保存する(env, [{ ...雑談の曲, title: 'ひだまりの午後（ピアノ版）' }])
+    await saveTracks(env, [{ ...casualTrack, title: 'ひだまりの午後（ピアノ版）' }])
 
-    expect(配送.pushedBgm.at(-1)?.track?.title).toBe('ひだまりの午後（ピアノ版）')
+    expect(alertChannel.pushedBgm.at(-1)?.track?.title).toBe('ひだまりの午後（ピアノ版）')
   })
 
   it('何も流していなければ、曲を直しても押し出さない', async () => {
-    const { env, 配送 } = await 環境を作る()
+    const { env, alertChannel } = await setupEnv()
 
-    await 曲を保存する(env, [雑談の曲])
+    await saveTracks(env, [casualTrack])
 
-    expect(配送.pushedBgm).toEqual([])
+    expect(alertChannel.pushedBgm).toEqual([])
   })
 })
 
 describe('PUT /api/admin/bgm/playback', () => {
   it('流す曲と音量を保存し、裏方のページへ押し出す', async () => {
-    const { env, 配送 } = await 環境を作る()
-    await 曲を保存する(env, [雑談の曲, 盛り上がる曲])
+    const { env, alertChannel } = await setupEnv()
+    await saveTracks(env, [casualTrack, hypeTrack])
 
-    const response = await 再生を変える(env, { mediaId: 盛り上がる曲.mediaId, volume: 0.5 })
+    const response = await changePlayback(env, { mediaId: hypeTrack.mediaId, volume: 0.5 })
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ playback: { mediaId: 盛り上がる曲.mediaId, volume: 0.5 } })
-    expect(await loadBgmPlayback(env.STORE)).toEqual({ mediaId: 盛り上がる曲.mediaId, volume: 0.5 })
-    expect(配送.pushedBgm).toEqual([
+    expect(await response.json()).toEqual({ playback: { mediaId: hypeTrack.mediaId, volume: 0.5 } })
+    expect(await loadBgmPlayback(env.STORE)).toEqual({ mediaId: hypeTrack.mediaId, volume: 0.5 })
+    expect(alertChannel.pushedBgm).toEqual([
       {
         track: {
-          mediaId: 盛り上がる曲.mediaId,
+          mediaId: hypeTrack.mediaId,
           title: '全力疾走',
           credit: '音楽: DOVA-SYNDROME',
           creditUrl: 'https://dova-s.jp/',
-          url: `/api/media/media-moriagari?key=${発行済みのキー}`,
+          url: `/api/media/media-moriagari?key=${ISSUED_KEY}`,
         },
         volume: 0.5,
       },
@@ -195,54 +195,54 @@ describe('PUT /api/admin/bgm/playback', () => {
   })
 
   it('止めたことも押し出す', async () => {
-    const { env, 配送 } = await 環境を作る()
-    await 曲を保存する(env, [雑談の曲])
-    await 再生を変える(env, { mediaId: 雑談の曲.mediaId, volume: 0.5 })
+    const { env, alertChannel } = await setupEnv()
+    await saveTracks(env, [casualTrack])
+    await changePlayback(env, { mediaId: casualTrack.mediaId, volume: 0.5 })
 
-    await 再生を変える(env, { mediaId: null, volume: 0.5 })
+    await changePlayback(env, { mediaId: null, volume: 0.5 })
 
-    expect(配送.pushedBgm.at(-1)).toEqual({ track: null, volume: 0.5 })
+    expect(alertChannel.pushedBgm.at(-1)).toEqual({ track: null, volume: 0.5 })
   })
 
   it('一覧に無い曲は400にして、保存も押し出しもしない', async () => {
-    const { env, 配送 } = await 環境を作る()
+    const { env, alertChannel } = await setupEnv()
 
-    const response = await 再生を変える(env, { mediaId: 雑談の曲.mediaId, volume: 0.5 })
+    const response = await changePlayback(env, { mediaId: casualTrack.mediaId, volume: 0.5 })
 
     expect(response.status).toBe(400)
     expect(await loadBgmPlayback(env.STORE)).toEqual({ mediaId: null, volume: 0.3 })
-    expect(配送.pushedBgm).toEqual([])
+    expect(alertChannel.pushedBgm).toEqual([])
   })
 })
 
 describe('PUT /api/admin/bgm/playback の切り替えた時刻', () => {
   it('流す曲を変えたら、切り替えた時刻を記録する', async () => {
-    const { env } = await 環境を作る()
-    await 曲を保存する(env, [雑談の曲, 盛り上がる曲])
+    const { env } = await setupEnv()
+    await saveTracks(env, [casualTrack, hypeTrack])
 
-    await 再生を変える(env, { mediaId: 雑談の曲.mediaId, volume: 0.3 })
+    await changePlayback(env, { mediaId: casualTrack.mediaId, volume: 0.3 })
 
-    expect(await loadBgmSwitchedAt(env.STORE)).toBe(現在時刻)
+    expect(await loadBgmSwitchedAt(env.STORE)).toBe(NOW)
   })
 
   it('音量だけを変えたときは、切り替えた時刻を動かさない（曲は変わっていないため）', async () => {
-    const { env } = await 環境を作る()
-    await 曲を保存する(env, [雑談の曲, 盛り上がる曲])
-    await 再生を変える(env, { mediaId: 雑談の曲.mediaId, volume: 0.3 })
-    const 前に切り替えた時刻 = 現在時刻 - 60 * 60 * 1000
-    await saveBgmSwitchedAt(env.STORE, 前に切り替えた時刻)
+    const { env } = await setupEnv()
+    await saveTracks(env, [casualTrack, hypeTrack])
+    await changePlayback(env, { mediaId: casualTrack.mediaId, volume: 0.3 })
+    const previousSwitchedAt = NOW - 60 * 60 * 1000
+    await saveBgmSwitchedAt(env.STORE, previousSwitchedAt)
 
-    await 再生を変える(env, { mediaId: 雑談の曲.mediaId, volume: 0.6 })
+    await changePlayback(env, { mediaId: casualTrack.mediaId, volume: 0.6 })
 
-    expect(await loadBgmSwitchedAt(env.STORE)).toBe(前に切り替えた時刻)
+    expect(await loadBgmSwitchedAt(env.STORE)).toBe(previousSwitchedAt)
   })
 })
 
 describe('PUT /api/admin/bgm/settings', () => {
   it('Jev に曲を選ばせるかを保存して返す', async () => {
-    const { env } = await 環境を作る()
+    const { env } = await setupEnv()
 
-    const response = await 配信者として呼ぶ(env, '/api/admin/bgm/settings', { method: 'PUT', body: JSON.stringify({ judgeWithJev: true }) })
+    const response = await callAsBroadcaster(env, '/api/admin/bgm/settings', { method: 'PUT', body: JSON.stringify({ judgeWithJev: true }) })
 
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ settings: { judgeWithJev: true } })
@@ -250,18 +250,18 @@ describe('PUT /api/admin/bgm/settings', () => {
   })
 
   it('問題があれば400にして、保存しない', async () => {
-    const { env } = await 環境を作る()
+    const { env } = await setupEnv()
 
-    const response = await 配信者として呼ぶ(env, '/api/admin/bgm/settings', { method: 'PUT', body: JSON.stringify({ judgeWithJev: 'はい' }) })
+    const response = await callAsBroadcaster(env, '/api/admin/bgm/settings', { method: 'PUT', body: JSON.stringify({ judgeWithJev: 'はい' }) })
 
     expect(response.status).toBe(400)
     expect(await loadBgmSettings(env.STORE)).toEqual({ judgeWithJev: false })
   })
 
   it('ログインしていなければ401にする', async () => {
-    const { env } = await 環境を作る()
+    const { env } = await setupEnv()
 
-    const response = await 呼び出す(new Request(`${サイト}/api/admin/bgm/settings`, { method: 'PUT', body: '{}' }), env)
+    const response = await callHandler(new Request(`${SITE}/api/admin/bgm/settings`, { method: 'PUT', body: '{}' }), env)
 
     expect(response.status).toBe(401)
   })
@@ -269,29 +269,29 @@ describe('PUT /api/admin/bgm/settings', () => {
 
 describe('GET /api/overlay/bgm', () => {
   it('オーバーレイ用キーで、いま流している曲を読める（裏方のページが開いたときとつなぎ直したときに読む）', async () => {
-    const { env } = await 環境を作る()
-    await 曲を保存する(env, [雑談の曲])
-    await 再生を変える(env, { mediaId: 雑談の曲.mediaId, volume: 0.4 })
+    const { env } = await setupEnv()
+    await saveTracks(env, [casualTrack])
+    await changePlayback(env, { mediaId: casualTrack.mediaId, volume: 0.4 })
 
-    const response = await 呼び出す(new Request(`${サイト}/api/overlay/bgm?key=${発行済みのキー}`), env)
+    const response = await callHandler(new Request(`${SITE}/api/overlay/bgm?key=${ISSUED_KEY}`), env)
 
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({
       track: {
-        mediaId: 雑談の曲.mediaId,
+        mediaId: casualTrack.mediaId,
         title: 'ひだまりの午後',
         credit: '音楽: 甘茶の音楽工房',
         creditUrl: 'https://amachamusic.chagasi.com/',
-        url: `/api/media/media-zatsudan?key=${発行済みのキー}`,
+        url: `/api/media/media-zatsudan?key=${ISSUED_KEY}`,
       },
       volume: 0.4,
     })
   })
 
   it('キーが違えば401にする', async () => {
-    const { env } = await 環境を作る()
+    const { env } = await setupEnv()
 
-    const response = await 呼び出す(new Request(`${サイト}/api/overlay/bgm?key=chigau-key`), env)
+    const response = await callHandler(new Request(`${SITE}/api/overlay/bgm?key=chigau-key`), env)
 
     expect(response.status).toBe(401)
   })
@@ -299,17 +299,17 @@ describe('GET /api/overlay/bgm', () => {
 
 describe('GET /api/overlay/bgm/socket', () => {
   it('BGMを受け取る接続として配送先へ引き渡す', async () => {
-    const { env, 配送 } = await 環境を作る()
+    const { env, alertChannel } = await setupEnv()
 
-    await 呼び出す(new Request(`${サイト}/api/overlay/bgm/socket?key=${発行済みのキー}`, { headers: { Upgrade: 'websocket' } }), env)
+    await callHandler(new Request(`${SITE}/api/overlay/bgm/socket?key=${ISSUED_KEY}`, { headers: { Upgrade: 'websocket' } }), env)
 
-    expect(配送.forwardedConnections.map((request) => new URL(request.url).searchParams.get('topic'))).toEqual(['bgm'])
+    expect(alertChannel.forwardedConnections.map((request) => new URL(request.url).searchParams.get('topic'))).toEqual(['bgm'])
   })
 
   it('WebSocketでなければ400にする', async () => {
-    const { env } = await 環境を作る()
+    const { env } = await setupEnv()
 
-    const response = await 呼び出す(new Request(`${サイト}/api/overlay/bgm/socket?key=${発行済みのキー}`), env)
+    const response = await callHandler(new Request(`${SITE}/api/overlay/bgm/socket?key=${ISSUED_KEY}`), env)
 
     expect(response.status).toBe(400)
   })
@@ -317,12 +317,12 @@ describe('GET /api/overlay/bgm/socket', () => {
 
 describe('DELETE /api/admin/media/:id', () => {
   it('BGMの曲に使われている素材は409で削除を拒否する（配信中に黙って無音にならないように）', async () => {
-    const { env } = await 環境を作る()
-    await 曲を保存する(env, [雑談の曲])
+    const { env } = await setupEnv()
+    await saveTracks(env, [casualTrack])
 
-    const response = await 配信者として呼ぶ(env, `/api/admin/media/${雑談の曲.mediaId}`, { method: 'DELETE' })
+    const response = await callAsBroadcaster(env, `/api/admin/media/${casualTrack.mediaId}`, { method: 'DELETE' })
 
     expect(response.status).toBe(409)
-    expect(await env.MEDIA.head(雑談の曲.mediaId)).not.toBeNull()
+    expect(await env.MEDIA.head(casualTrack.mediaId)).not.toBeNull()
   })
 })

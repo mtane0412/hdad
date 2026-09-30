@@ -12,11 +12,11 @@ import { createFocusApi, createFocusOverlayApi } from './api'
 import type { FocusPick } from './api'
 import type { FocusTarget } from './focused'
 
-const サイト = 'https://hdad.example.com'
-const オーバーレイ用キー = 'issued-overlay-key-0123456789abcdefghij'
+const site = 'https://hdad.example.com'
+const overlayKey = 'issued-overlay-key-0123456789abcdefghij'
 
 /** 管理画面が選んで送る発言1件 */
-const 取り上げる発言: FocusPick = {
+const chatToFocus: FocusPick = {
   messageId: '発言1',
   login: 'kowai_hanashi',
   displayName: '怖い話す人',
@@ -24,12 +24,12 @@ const 取り上げる発言: FocusPick = {
 }
 
 /** Worker がアイコンを添えて返す、取り上げている1件 */
-const 取り上げた発言: FocusTarget = {
-  ...取り上げる発言,
+const focusedChat: FocusTarget = {
+  ...chatToFocus,
   profileImageUrl: 'https://static-cdn.jtvnw.net/jtv_user_pictures/kowai_hanashi.png',
 }
 
-const 選べる発言 = {
+const selectableChat = {
   messageId: '発言1',
   login: 'kowai_hanashi',
   displayName: '怖い話す人',
@@ -38,10 +38,10 @@ const 選べる発言 = {
 }
 
 /** 送られたリクエストを記録し、決めた応答を返す fetch */
-const 応答を返すfetch = (status: number, body: unknown) => {
+const fetchReturning = (status: number, body: unknown) => {
   const requests: Request[] = []
   const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    requests.push(new Request(new URL(String(input), サイト), init))
+    requests.push(new Request(new URL(String(input), site), init))
     return Response.json(body, { status })
   }
   return { requests, fetchImpl }
@@ -49,29 +49,29 @@ const 応答を返すfetch = (status: number, body: unknown) => {
 
 describe('createFocusApi（管理画面からの読み書き）', () => {
   it('取り上げているものを読む', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, { target: 取り上げた発言 })
+    const { requests, fetchImpl } = fetchReturning(200, { target: focusedChat })
 
-    expect(await createFocusApi(fetchImpl).load()).toEqual(取り上げた発言)
+    expect(await createFocusApi(fetchImpl).load()).toEqual(focusedChat)
     expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/focus')
   })
 
   it('取り上げていない状態も読める', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, { target: null })
+    const { fetchImpl } = fetchReturning(200, { target: null })
 
     expect(await createFocusApi(fetchImpl).load()).toBeNull()
   })
 
   it('選んだ発言を送り、アイコンの添えられた1件を受け取る', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, { target: 取り上げた発言 })
+    const { requests, fetchImpl } = fetchReturning(200, { target: focusedChat })
 
-    expect(await createFocusApi(fetchImpl).save(取り上げる発言)).toEqual(取り上げた発言)
+    expect(await createFocusApi(fetchImpl).save(chatToFocus)).toEqual(focusedChat)
     const request = requests[0]!
     expect(request.method).toBe('PUT')
-    expect(await request.json()).toEqual({ target: 取り上げる発言 })
+    expect(await request.json()).toEqual({ target: chatToFocus })
   })
 
   it('取り上げているものを外すときは null を送る', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, { target: null })
+    const { requests, fetchImpl } = fetchReturning(200, { target: null })
 
     await createFocusApi(fetchImpl).save(null)
 
@@ -79,38 +79,38 @@ describe('createFocusApi（管理画面からの読み書き）', () => {
   })
 
   it('取り上げる発言を選ぶための、直近の発言を読む', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, { messages: [選べる発言] })
+    const { requests, fetchImpl } = fetchReturning(200, { messages: [selectableChat] })
 
-    expect(await createFocusApi(fetchImpl).recent()).toEqual([選べる発言])
+    expect(await createFocusApi(fetchImpl).recent()).toEqual([selectableChat])
     expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/focus/messages')
   })
 
   it('Workerが失敗を返したらエラーにする', async () => {
-    const { fetchImpl } = 応答を返すfetch(401, { error: { code: 'unauthorized', message: 'ログインしてください' } })
+    const { fetchImpl } = fetchReturning(401, { error: { code: 'unauthorized', message: 'ログインしてください' } })
 
     await expect(createFocusApi(fetchImpl).load()).rejects.toThrow('ログインしてください')
   })
 
   it('応答に target が無ければエラーにする（黙って「取り上げていない」に倒さない）', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, {})
+    const { fetchImpl } = fetchReturning(200, {})
 
     await expect(createFocusApi(fetchImpl).load()).rejects.toThrow(/想定した形/)
   })
 
   it('アイコンのURLが欠けた応答はエラーにする（アイコンの無い箱を映さないため）', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, { target: 取り上げる発言 })
+    const { fetchImpl } = fetchReturning(200, { target: chatToFocus })
 
     await expect(createFocusApi(fetchImpl).load()).rejects.toThrow(/想定した形/)
   })
 
   it('取り上げる発言の項目が欠けた応答はエラーにする', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, { target: { messageId: '発言1' } })
+    const { fetchImpl } = fetchReturning(200, { target: { messageId: '発言1' } })
 
     await expect(createFocusApi(fetchImpl).load()).rejects.toThrow(/想定した形/)
   })
 
   it('直近の発言の項目が欠けた応答はエラーにする', async () => {
-    const { fetchImpl } = 応答を返すfetch(200, { messages: [{ messageId: '発言1' }] })
+    const { fetchImpl } = fetchReturning(200, { messages: [{ messageId: '発言1' }] })
 
     await expect(createFocusApi(fetchImpl).recent()).rejects.toThrow(/想定した形/)
   })
@@ -118,16 +118,16 @@ describe('createFocusApi（管理画面からの読み書き）', () => {
 
 describe('createFocusOverlayApi（オーバーレイからの読み出し）', () => {
   it('オーバーレイ用キーをクエリに載せて読む', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, { target: 取り上げた発言 })
+    const { requests, fetchImpl } = fetchReturning(200, { target: focusedChat })
 
-    expect(await createFocusOverlayApi(fetchImpl, オーバーレイ用キー).read()).toEqual(取り上げた発言)
+    expect(await createFocusOverlayApi(fetchImpl, overlayKey).read()).toEqual(focusedChat)
     const url = new URL(requests[0]!.url)
     expect(url.pathname).toBe('/api/overlay/focus')
-    expect(url.searchParams.get('key')).toBe(オーバーレイ用キー)
+    expect(url.searchParams.get('key')).toBe(overlayKey)
   })
 
   it('キーが通らなければエラーにする', async () => {
-    const { fetchImpl } = 応答を返すfetch(401, { error: { code: 'invalid-overlay-key', message: 'オーバーレイ用キーが違います' } })
+    const { fetchImpl } = fetchReturning(401, { error: { code: 'invalid-overlay-key', message: 'オーバーレイ用キーが違います' } })
 
     await expect(createFocusOverlayApi(fetchImpl, 'ちがうキー').read()).rejects.toThrow('オーバーレイ用キーが違います')
   })

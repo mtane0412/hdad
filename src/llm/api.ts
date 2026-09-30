@@ -133,19 +133,19 @@ const readModelOptions = (body: unknown, path: string): LlmModelOption[] => {
 /** 使用状況として読む。数の項目が1つでも欠けていればエラーにする */
 const readUsageDays = (body: unknown, path: string): LlmUsageDay[] => {
   const days = isRecord(body) && Array.isArray(body.days) ? body.days : null
-  const 数の項目 = ['calls', 'failures', 'promptTokens', 'completionTokens', 'costUsd'] as const
-  const 正しい形 = (row: unknown): boolean =>
+  const numericField = ['calls', 'failures', 'promptTokens', 'completionTokens', 'costUsd'] as const
+  const validShape = (row: unknown): boolean =>
     isRecord(row) &&
     ['day', 'usage', 'provider', 'model'].every((key) => typeof row[key] === 'string') &&
-    数の項目.every((key) => typeof row[key] === 'number')
-  if (days === null || !days.every(正しい形)) throw new Error(`Workerの ${path} の応答が想定した形ではありません`)
+    numericField.every((key) => typeof row[key] === 'number')
+  if (days === null || !days.every(validShape)) throw new Error(`Workerの ${path} の応答が想定した形ではありません`)
   return days as LlmUsageDay[]
 }
 
 /** 残高として読む。足りなければエラーにする */
 const readCredits = (body: unknown, path: string): LlmCredits => {
-  const 項目 = ['totalCredits', 'totalUsage', 'remaining'] as const
-  if (!isRecord(body) || !項目.every((key) => typeof body[key] === 'number')) {
+  const field = ['totalCredits', 'totalUsage', 'remaining'] as const
+  if (!isRecord(body) || !field.every((key) => typeof body[key] === 'number')) {
     throw new Error(`Workerの ${path} の応答が想定した形ではありません`)
   }
   return body as unknown as LlmCredits

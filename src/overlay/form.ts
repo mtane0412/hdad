@@ -304,10 +304,10 @@ const PROBLEM_POSITION = /^overlays\[(\d+)\]\.(?:items\[(\d+)\]\.)?([A-Za-z.]+)(
 export const describeOverlayProblem = (problem: string, labels: readonly OverlayLabels[]): string =>
   problem.replace(PROBLEM_POSITION, (_, overlayIndex: string, itemIndex: string | undefined, field: string) => {
     const overlay = labels[Number(overlayIndex)]
-    const 位置 = overlay === undefined ? `${Number(overlayIndex) + 1}番目のオーバーレイの ` : `「${overlay.name}」の`
-    const 項目 = FIELD_LABELS[field] ?? field
-    if (itemIndex === undefined) return `${位置}${overlay === undefined ? '' : ' '}${項目}`
+    const index = overlay === undefined ? `${Number(overlayIndex) + 1}番目のオーバーレイの ` : `「${overlay.name}」の`
+    const entry = FIELD_LABELS[field] ?? field
+    if (itemIndex === undefined) return `${index}${overlay === undefined ? '' : ' '}${entry}`
     const item = overlay?.items[Number(itemIndex)]
-    const 素材 = item === undefined ? `${Number(itemIndex) + 1}番目の素材の ` : `「${item}」の `
-    return `${位置}${素材}${項目}`
+    const material = item === undefined ? `${Number(itemIndex) + 1}番目の素材の ` : `「${item}」の `
+    return `${index}${material}${entry}`
   })

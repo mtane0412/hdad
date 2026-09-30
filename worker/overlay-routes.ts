@@ -160,18 +160,18 @@ const COMMENT_REACTION_FAILED = 'comment-reaction-failed'
  */
 const reactToTranscript = (context: Context, transcriptMessageId: string): void => {
   const { env, jev, now } = context
-  const 失敗を残す = async (error: unknown): Promise<void> => {
+  const logFailure = async (error: unknown): Promise<void> => {
     const message = error instanceof Error ? error.message : String(error)
     await recordFailure(env.DB, COMMENT_REACTION_FAILED, `発話からコメントへの反応を判定できませんでした: ${message}`, now)
   }
 
-  const 判定する = async (): Promise<void> => {
+  const judge = async (): Promise<void> => {
     const settings = await loadCommentSettings(env.STORE)
     if (!settings.judgeWithJev) return
     await judgeCommentReactions({ db: env.DB, jev, comments: env.COMMENTS, broadcasterId: env.TWITCH_BROADCASTER_ID, now, transcriptMessageId })
   }
 
-  context.waitUntil(判定する().catch(失敗を残す))
+  context.waitUntil(judge().catch(logFailure))
 }
 
 /**

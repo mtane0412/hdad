@@ -13,21 +13,21 @@ interface FakeAdBreakTimerOptions {
 }
 
 /** 預けられた予約を直接確かめられるよう、記録も一緒に返す */
-export const createFakeAdBreakTimer = ({ shouldFail: 失敗する = false }: FakeAdBreakTimerOptions = {}): {
+export const createFakeAdBreakTimer = ({ shouldFail = false }: FakeAdBreakTimerOptions = {}): {
   namespace: AdBreakTimerNamespace
   scheduledEnds: AdBreakEnd[]
 } => {
-  const 渡された予約: AdBreakEnd[] = []
+  const scheduledRequests: AdBreakEnd[] = []
   const id: DurableObjectId = { toString: () => 'ad-break', equals: (other) => other.toString() === 'ad-break', name: 'ad-break' }
 
   return {
-    scheduledEnds: 渡された予約,
+    scheduledEnds: scheduledRequests,
     namespace: {
       idFromName: () => id,
       get: () => ({
         fetch: async (request: Request) => {
-          if (失敗する) return new Response(null, { status: STATUS.internalServerError })
-          渡された予約.push((await request.json()) as AdBreakEnd)
+          if (shouldFail) return new Response(null, { status: STATUS.internalServerError })
+          scheduledRequests.push((await request.json()) as AdBreakEnd)
           return new Response(null, { status: STATUS.noContent })
         },
       }),

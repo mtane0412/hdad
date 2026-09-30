@@ -77,7 +77,7 @@ describe('expandSource', () => {
    * 展開を書き忘れると、そのメニューのトリガーは決して当てはまらない（配信中に気付けない）。
    */
   it('すべてのメニュー項目が、対応しているイベント種別に展開される', () => {
-    const サンプル: Readonly<Record<(typeof TRIGGER_KINDS)[number], TriggerSource>> = {
+    const sample: Readonly<Record<(typeof TRIGGER_KINDS)[number], TriggerSource>> = {
       newViewer: { kind: 'newViewer' },
       comeback: { kind: 'comeback', days: 1 },
       welcome: { kind: 'welcome' },
@@ -93,7 +93,7 @@ describe('expandSource', () => {
       adBreakEnd: { kind: 'adBreakEnd', automatic: null },
     }
     for (const kind of TRIGGER_KINDS) {
-      expect(expandSource(サンプル[kind]).event).toBe(eventOf(kind))
+      expect(expandSource(sample[kind]).event).toBe(eventOf(kind))
     }
   })
 })

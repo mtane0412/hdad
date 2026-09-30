@@ -32,9 +32,9 @@ describe('createCloudPuffs（雲を形作るこぶの並び）', () => {
   it('両端のこぶより内側のこぶのほうが大きい（真ん中が盛り上がった形になる）', () => {
     for (let seed = 0; seed < 50; seed++) {
       const radii = createCloudPuffs(createRandom(seed)).map((puff) => puff.radius)
-      const 端の最大 = Math.max(...radii.slice(0, 1), ...radii.slice(-1))
-      const 内側の最大 = Math.max(...radii.slice(1, -1))
-      expect(内側の最大).toBeGreaterThan(端の最大)
+      const edgeMax = Math.max(...radii.slice(0, 1), ...radii.slice(-1))
+      const innerMax = Math.max(...radii.slice(1, -1))
+      expect(innerMax).toBeGreaterThan(edgeMax)
     }
   })
 
@@ -43,9 +43,9 @@ describe('createCloudPuffs（雲を形作るこぶの並び）', () => {
       const puffs = createCloudPuffs(createRandom(seed))
       // 左隣のこぶと1つずつ見比べる
       puffs.slice(1).forEach((puff, index) => {
-        const 左隣 = puffs[index]
-        if (!左隣) throw new Error('左隣のこぶがありません')
-        expect(puff.x - 左隣.x).toBeLessThan(puff.radius + 左隣.radius)
+        const leftNeighbor = puffs[index]
+        if (!leftNeighbor) throw new Error('左隣のこぶがありません')
+        expect(puff.x - leftNeighbor.x).toBeLessThan(puff.radius + leftNeighbor.radius)
       })
     }
   })

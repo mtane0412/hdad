@@ -20,38 +20,38 @@ import { DEFAULT_LLM_SETTINGS, saveLlmSettings, type LlmSettings } from './llm-c
 import { createLlm, readResponse, type WorkersAi } from './llm'
 import { TimeoutError } from './timeout'
 
-const 現在時刻 = Date.parse('2026-09-27T01:23:45.000Z')
+const now = Date.parse('2026-09-27T01:23:45.000Z')
 
 /**
  * 使用状況の記録に要るもの（D1と現在時刻）。
  *
  * 記録そのものを確かめるテストだけが自前のデータベースを渡し、ほかのテストは使い捨てのものでよい。
  */
-const 記録の条件 = () => ({ db: createFakeDatabase(), now: () => 現在時刻 })
+const recordCondition = () => ({ db: createFakeDatabase(), now: () => now })
 
 /** 送る材料。中身はこのテストでは問わない */
-const 材料 = { messages: [{ role: 'user' as const, content: 'こんばんは！' }], maxTokens: 300 }
+const material = { messages: [{ role: 'user' as const, content: 'こんばんは！' }], maxTokens: 300 }
 
 /** Workers AI のバインディングの代役。渡された引数を控える */
-const バインディングの代役 = (result: unknown = { response: 'こんばんは！' }): WorkersAi & { 呼ばれた: { model: string; input: Record<string, unknown> }[] } => {
-  const 呼ばれた: { model: string; input: Record<string, unknown> }[] = []
-  return { 呼ばれた, run: (model, input) => (呼ばれた.push({ model, input }), Promise.resolve(result)) }
+const fakeBinding = (result: unknown = { response: 'こんばんは！' }): WorkersAi & { called: { model: string; input: Record<string, unknown> }[] } => {
+  const called: { model: string; input: Record<string, unknown> }[] = []
+  return { called, run: (model, input) => (called.push({ model, input }), Promise.resolve(result)) }
 }
 
 /** OpenRouter の応答の代役。渡されたリクエストを控える */
-const 通信の代役 = (応答: Response): typeof fetch & { 呼ばれた: Request[] } => {
-  const 呼ばれた: Request[] = []
+const fakeFetch = (response: Response): typeof fetch & { called: Request[] } => {
+  const called: Request[] = []
   const impl = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    呼ばれた.push(new Request(input as RequestInfo, init))
-    return Promise.resolve(応答)
+    called.push(new Request(input as RequestInfo, init))
+    return Promise.resolve(response)
   }
-  return Object.assign(impl as typeof fetch, { 呼ばれた })
+  return Object.assign(impl as typeof fetch, { called })
 }
 
-const OpenRouterの応答 = (content: string): Response => Response.json({ choices: [{ message: { role: 'assistant', content } }] })
+const openRouterResponse = (content: string): Response => Response.json({ choices: [{ message: { role: 'assistant', content } }] })
 
 /** あらすじ（streamSummary）だけを OpenRouter にした設定。ほかの3か所は Workers AI のまま */
-const OpenRouterの設定: LlmSettings = {
+const openRouterConfig: LlmSettings = {
   usages: {
     ...DEFAULT_LLM_SETTINGS.usages,
     streamSummary: {
@@ -63,63 +63,63 @@ const OpenRouterの設定: LlmSettings = {
 
 describe('createLlm（Workers AI）', () => {
   it('未保存なら Workers AI のバインディングを、その箇所のモデル名で呼ぶ', async () => {
-    const ai = バインディングの代役()
-    const llm = createLlm({ ...記録の条件(), ai, store: createFakeStore(), fetch: 通信の代役(OpenRouterの応答('使われない')), apiKey: undefined })
+    const ai = fakeBinding()
+    const llm = createLlm({ ...recordCondition(), ai, store: createFakeStore(), fetch: fakeFetch(openRouterResponse('使われない')), apiKey: undefined })
 
-    expect(await llm.run('aiChat', 材料)).toBe('こんばんは！')
-    expect(ai.呼ばれた).toEqual([
-      { model: DEFAULT_LLM_SETTINGS.usages.aiChat.models['workers-ai'], input: { messages: 材料.messages, max_tokens: 300 } },
+    expect(await llm.run('aiChat', material)).toBe('こんばんは！')
+    expect(ai.called).toEqual([
+      { model: DEFAULT_LLM_SETTINGS.usages.aiChat.models['workers-ai'], input: { messages: material.messages, max_tokens: 300 } },
     ])
   })
 
   it('あらすじ（streamSummary）では、あらすじ用のモデルを使う', async () => {
-    const ai = バインディングの代役()
-    const llm = createLlm({ ...記録の条件(), ai, store: createFakeStore(), fetch: 通信の代役(OpenRouterの応答('使われない')), apiKey: undefined })
+    const ai = fakeBinding()
+    const llm = createLlm({ ...recordCondition(), ai, store: createFakeStore(), fetch: fakeFetch(openRouterResponse('使われない')), apiKey: undefined })
 
-    await llm.run('streamSummary', 材料)
-    expect(ai.呼ばれた[0]?.model).toBe(DEFAULT_LLM_SETTINGS.usages.streamSummary.models['workers-ai'])
+    await llm.run('streamSummary', material)
+    expect(ai.called[0]?.model).toBe(DEFAULT_LLM_SETTINGS.usages.streamSummary.models['workers-ai'])
   })
 
   it('OpenAI互換の形（choices）で返すモデルからも文面を読む', async () => {
-    const ai = バインディングの代役({ choices: [{ message: { role: 'assistant', content: 'あらすじです' } }] })
-    const llm = createLlm({ ...記録の条件(), ai, store: createFakeStore(), fetch: 通信の代役(OpenRouterの応答('使われない')), apiKey: undefined })
+    const ai = fakeBinding({ choices: [{ message: { role: 'assistant', content: 'あらすじです' } }] })
+    const llm = createLlm({ ...recordCondition(), ai, store: createFakeStore(), fetch: fakeFetch(openRouterResponse('使われない')), apiKey: undefined })
 
-    expect(await llm.run('streamSummary', 材料)).toBe('あらすじです')
+    expect(await llm.run('streamSummary', material)).toBe('あらすじです')
   })
 
   it('設定の読み出しは1回だけにする（発言のたびに呼ばれる道に、余分なKVの読み出しを増やさないため）', async () => {
-    const 元のstore = createFakeStore()
-    const 読み出し: string[] = []
-    const store = { ...元のstore, get: (key: string) => (読み出し.push(key), 元のstore.get(key)) }
-    const ai = バインディングの代役()
-    const llm = createLlm({ ...記録の条件(), ai, store, fetch: 通信の代役(OpenRouterの応答('使われない')), apiKey: undefined })
+    const originalStore = createFakeStore()
+    const readOut: string[] = []
+    const store = { ...originalStore, get: (key: string) => (readOut.push(key), originalStore.get(key)) }
+    const ai = fakeBinding()
+    const llm = createLlm({ ...recordCondition(), ai, store, fetch: fakeFetch(openRouterResponse('使われない')), apiKey: undefined })
 
-    await llm.run('aiChat', 材料)
-    await llm.run('sideSuper', 材料)
-    expect(読み出し.filter((key) => key === 'llm-settings')).toHaveLength(1)
+    await llm.run('aiChat', material)
+    await llm.run('sideSuper', material)
+    expect(readOut.filter((key) => key === 'llm-settings')).toHaveLength(1)
   })
 })
 
 describe('createLlm（OpenRouter）', () => {
   it('その箇所の提供元が OpenRouter なら、OpenRouter のAPIへその箇所のモデル名で送る', async () => {
     const store = createFakeStore()
-    await saveLlmSettings(store, OpenRouterの設定)
-    const fetchImpl = 通信の代役(OpenRouterの応答('こんばんは！'))
-    const ai = バインディングの代役()
-    const llm = createLlm({ ...記録の条件(), ai, store, fetch: fetchImpl, apiKey: 'openrouter-test-key' })
+    await saveLlmSettings(store, openRouterConfig)
+    const fetchImpl = fakeFetch(openRouterResponse('こんばんは！'))
+    const ai = fakeBinding()
+    const llm = createLlm({ ...recordCondition(), ai, store, fetch: fetchImpl, apiKey: 'openrouter-test-key' })
 
-    expect(await llm.run('streamSummary', 材料)).toBe('こんばんは！')
+    expect(await llm.run('streamSummary', material)).toBe('こんばんは！')
     // Workers AI のバインディングは呼ばれない
-    expect(ai.呼ばれた).toEqual([])
+    expect(ai.called).toEqual([])
 
-    const request = fetchImpl.呼ばれた[0]
+    const request = fetchImpl.called[0]
     if (request === undefined) throw new Error('OpenRouter へ送られていません')
     expect(request.url).toBe('https://openrouter.ai/api/v1/chat/completions')
     expect(request.method).toBe('POST')
     expect(request.headers.get('Authorization')).toBe('Bearer openrouter-test-key')
     expect(await request.json()).toEqual({
       model: 'anthropic/claude-3.5-haiku',
-      messages: 材料.messages,
+      messages: material.messages,
       max_tokens: 300,
       // 推論に枠を食わせず本文を返させる（推論モデルでは max_tokens を思考トークンが使い切ってしまう）
       reasoning: { enabled: false },
@@ -130,64 +130,64 @@ describe('createLlm（OpenRouter）', () => {
 
   it('箇所ごとに提供元が違えば、それぞれの呼び先へ送る（あらすじだけ OpenRouter にする使い方）', async () => {
     const store = createFakeStore()
-    await saveLlmSettings(store, OpenRouterの設定)
-    const fetchImpl = 通信の代役(OpenRouterの応答('あらすじです'))
-    const ai = バインディングの代役({ response: 'こんばんは！' })
-    const llm = createLlm({ ...記録の条件(), ai, store, fetch: fetchImpl, apiKey: 'openrouter-test-key' })
+    await saveLlmSettings(store, openRouterConfig)
+    const fetchImpl = fakeFetch(openRouterResponse('あらすじです'))
+    const ai = fakeBinding({ response: 'こんばんは！' })
+    const llm = createLlm({ ...recordCondition(), ai, store, fetch: fetchImpl, apiKey: 'openrouter-test-key' })
 
-    expect(await llm.run('aiChat', 材料)).toBe('こんばんは！')
-    expect(await llm.run('streamSummary', 材料)).toBe('あらすじです')
+    expect(await llm.run('aiChat', material)).toBe('こんばんは！')
+    expect(await llm.run('streamSummary', material)).toBe('あらすじです')
 
     // チャットの文面は Workers AI のバインディングへ、あらすじは OpenRouter へ送られている
-    expect(ai.呼ばれた.map(({ model }) => model)).toEqual([DEFAULT_LLM_SETTINGS.usages.aiChat.models['workers-ai']])
-    expect(fetchImpl.呼ばれた).toHaveLength(1)
+    expect(ai.called.map(({ model }) => model)).toEqual([DEFAULT_LLM_SETTINGS.usages.aiChat.models['workers-ai']])
+    expect(fetchImpl.called).toHaveLength(1)
   })
 
   it('鍵が無ければ、黙って Workers AI へ落とさずに投げる（どこに設定するかを文面に出す）', async () => {
     const store = createFakeStore()
-    await saveLlmSettings(store, OpenRouterの設定)
-    const llm = createLlm({ ...記録の条件(), ai: バインディングの代役(), store, fetch: 通信の代役(OpenRouterの応答('使われない')), apiKey: undefined })
+    await saveLlmSettings(store, openRouterConfig)
+    const llm = createLlm({ ...recordCondition(), ai: fakeBinding(), store, fetch: fakeFetch(openRouterResponse('使われない')), apiKey: undefined })
 
-    await expect(llm.run('streamSummary', 材料)).rejects.toThrow('OPENROUTER_API_KEY')
+    await expect(llm.run('streamSummary', material)).rejects.toThrow('OPENROUTER_API_KEY')
   })
 
   it('OpenRouter が失敗を返したら、状態コードと本文を添えて投げる', async () => {
     const store = createFakeStore()
-    await saveLlmSettings(store, OpenRouterの設定)
+    await saveLlmSettings(store, openRouterConfig)
     const llm = createLlm({
-      ...記録の条件(),
-      ai: バインディングの代役(),
+      ...recordCondition(),
+      ai: fakeBinding(),
       store,
-      fetch: 通信の代役(new Response('{"error":{"message":"Insufficient credits"}}', { status: 402 })),
+      fetch: fakeFetch(new Response('{"error":{"message":"Insufficient credits"}}', { status: 402 })),
       apiKey: 'openrouter-test-key',
     })
 
-    await expect(llm.run('streamSummary', 材料)).rejects.toThrow(/402.*Insufficient credits/s)
+    await expect(llm.run('streamSummary', material)).rejects.toThrow(/402.*Insufficient credits/s)
   })
 
   it('応答が想定した形でなければ投げる（空の文面を作らせたことにしない）', async () => {
     const store = createFakeStore()
-    await saveLlmSettings(store, OpenRouterの設定)
-    const llm = createLlm({ ...記録の条件(), ai: バインディングの代役(), store, fetch: 通信の代役(Response.json({ choices: [] })), apiKey: 'openrouter-test-key' })
+    await saveLlmSettings(store, openRouterConfig)
+    const llm = createLlm({ ...recordCondition(), ai: fakeBinding(), store, fetch: fakeFetch(Response.json({ choices: [] })), apiKey: 'openrouter-test-key' })
 
-    await expect(llm.run('streamSummary', 材料)).rejects.toThrow('LLMの応答を読めません')
+    await expect(llm.run('streamSummary', material)).rejects.toThrow('LLMの応答を読めません')
   })
 })
 
 
 describe('createLlm（使用状況の記録）', () => {
   /** 記録された1行を読む（テーブルの中身をそのまま確かめる） */
-  const 記録を読む = (db: ReturnType<typeof createFakeDatabase>) =>
+  const readRecords = (db: ReturnType<typeof createFakeDatabase>) =>
     db.sqlite.prepare('SELECT day, usage, provider, model, calls, failures, prompt_tokens, completion_tokens, cost_usd FROM llm_usage').all()
 
   it('Workers AI の応答に入っていたトークン数を、箇所とモデルごとに記録する', async () => {
     const db = createFakeDatabase()
-    const ai = バインディングの代役({ response: 'こんばんは！', usage: { prompt_tokens: 120, completion_tokens: 30 } })
-    const llm = createLlm({ db, now: () => 現在時刻, ai, store: createFakeStore(), fetch: 通信の代役(OpenRouterの応答('使われない')), apiKey: undefined })
+    const ai = fakeBinding({ response: 'こんばんは！', usage: { prompt_tokens: 120, completion_tokens: 30 } })
+    const llm = createLlm({ db, now: () => now, ai, store: createFakeStore(), fetch: fakeFetch(openRouterResponse('使われない')), apiKey: undefined })
 
-    await llm.run('aiChat', 材料)
+    await llm.run('aiChat', material)
 
-    expect(記録を読む(db)).toEqual([
+    expect(readRecords(db)).toEqual([
       {
         day: '2026-09-27',
         usage: 'aiChat',
@@ -207,36 +207,36 @@ describe('createLlm（使用状況の記録）', () => {
     const db = createFakeDatabase()
     const llm = createLlm({
       db,
-      now: () => 現在時刻,
-      ai: バインディングの代役({ response: 'こんばんは！' }),
+      now: () => now,
+      ai: fakeBinding({ response: 'こんばんは！' }),
       store: createFakeStore(),
-      fetch: 通信の代役(OpenRouterの応答('使われない')),
+      fetch: fakeFetch(openRouterResponse('使われない')),
       apiKey: undefined,
     })
 
-    await llm.run('sideSuper', 材料)
+    await llm.run('sideSuper', material)
 
-    expect(記録を読む(db)).toMatchObject([{ usage: 'sideSuper', calls: 1, prompt_tokens: 0, completion_tokens: 0 }])
+    expect(readRecords(db)).toMatchObject([{ usage: 'sideSuper', calls: 1, prompt_tokens: 0, completion_tokens: 0 }])
   })
 
   it('OpenRouter には実費を返させ（usage.include）、返ってきた実費を記録する', async () => {
     const db = createFakeDatabase()
     const store = createFakeStore()
-    await saveLlmSettings(store, OpenRouterの設定)
-    const fetchImpl = 通信の代役(
+    await saveLlmSettings(store, openRouterConfig)
+    const fetchImpl = fakeFetch(
       Response.json({
         choices: [{ message: { role: 'assistant', content: 'あらすじです' } }],
         usage: { prompt_tokens: 900, completion_tokens: 200, cost: 0.000_45 },
       }),
     )
-    const llm = createLlm({ db, now: () => 現在時刻, ai: バインディングの代役(), store, fetch: fetchImpl, apiKey: 'openrouter-test-key' })
+    const llm = createLlm({ db, now: () => now, ai: fakeBinding(), store, fetch: fetchImpl, apiKey: 'openrouter-test-key' })
 
-    await llm.run('streamSummary', 材料)
+    await llm.run('streamSummary', material)
 
-    const request = fetchImpl.呼ばれた[0]
+    const request = fetchImpl.called[0]
     if (request === undefined) throw new Error('OpenRouter へ送られていません')
     expect(await request.json()).toMatchObject({ usage: { include: true } })
-    expect(記録を読む(db)).toMatchObject([
+    expect(readRecords(db)).toMatchObject([
       { usage: 'streamSummary', provider: 'openrouter', model: 'anthropic/claude-3.5-haiku', calls: 1, prompt_tokens: 900, completion_tokens: 200, cost_usd: 0.000_45 },
     ])
   })
@@ -244,41 +244,41 @@ describe('createLlm（使用状況の記録）', () => {
   it('失敗した呼び出しは failures として記録してから投げる（無料枠切れの回数を画面から読めるようにするため）', async () => {
     const db = createFakeDatabase()
     const store = createFakeStore()
-    await saveLlmSettings(store, OpenRouterの設定)
+    await saveLlmSettings(store, openRouterConfig)
     const llm = createLlm({
       db,
-      now: () => 現在時刻,
-      ai: バインディングの代役(),
+      now: () => now,
+      ai: fakeBinding(),
       store,
-      fetch: 通信の代役(new Response('{"error":{"message":"Insufficient credits"}}', { status: 402 })),
+      fetch: fakeFetch(new Response('{"error":{"message":"Insufficient credits"}}', { status: 402 })),
       apiKey: 'openrouter-test-key',
     })
 
-    await expect(llm.run('streamSummary', 材料)).rejects.toThrow('402')
-    expect(記録を読む(db)).toMatchObject([{ usage: 'streamSummary', provider: 'openrouter', calls: 0, failures: 1 }])
+    await expect(llm.run('streamSummary', material)).rejects.toThrow('402')
+    expect(readRecords(db)).toMatchObject([{ usage: 'streamSummary', provider: 'openrouter', calls: 0, failures: 1 }])
   })
 
   it('記録に失敗しても文面はそのまま返し、失敗を collection_failures に残す', async () => {
-    const 本物 = createFakeDatabase()
+    const real = createFakeDatabase()
     // 使用状況の記録だけが失敗するデータベース（D1の書き込みの枠を使い切った場合の再現）
     const db = {
-      ...本物,
+      ...real,
       prepare: (sql: string) => {
         if (sql.includes('llm_usage')) throw new Error('D1の書き込みの枠を使い切りました')
-        return 本物.prepare(sql)
+        return real.prepare(sql)
       },
     }
     const llm = createLlm({
       db,
-      now: () => 現在時刻,
-      ai: バインディングの代役({ response: 'こんばんは！' }),
+      now: () => now,
+      ai: fakeBinding({ response: 'こんばんは！' }),
       store: createFakeStore(),
-      fetch: 通信の代役(OpenRouterの応答('使われない')),
+      fetch: fakeFetch(openRouterResponse('使われない')),
       apiKey: undefined,
     })
 
-    expect(await llm.run('aiChat', 材料)).toBe('こんばんは！')
-    expect(本物.sqlite.prepare('SELECT code, message FROM collection_failures').all()).toMatchObject([
+    expect(await llm.run('aiChat', material)).toBe('こんばんは！')
+    expect(real.sqlite.prepare('SELECT code, message FROM collection_failures').all()).toMatchObject([
       { code: 'llm-usage-record-failed', message: expect.stringContaining('D1の書き込みの枠') },
     ])
   })
@@ -286,8 +286,8 @@ describe('createLlm（使用状況の記録）', () => {
 
 describe('readResponse', () => {
   it('上限に当たって本文が空なら、原因と直し方が読める文面で投げる', () => {
-    const 応答 = { choices: [{ finish_reason: 'length', native_finish_reason: 'max_output_tokens', message: { role: 'assistant', content: null } }] }
-    expect(() => readResponse(応答)).toThrow(/上限.*推論モデル/s)
+    const response = { choices: [{ finish_reason: 'length', native_finish_reason: 'max_output_tokens', message: { role: 'assistant', content: null } }] }
+    expect(() => readResponse(response)).toThrow(/上限.*推論モデル/s)
   })
 
   it('上限に当たって本文が空の文字列でも、同じ文面で投げる（空の文面を作らせたことにしない）', () => {
@@ -311,23 +311,23 @@ describe('時間制限（issue #126）', () => {
   it('Workers AI が応答を返さないと、待ち続けずに TimeoutError にする', async () => {
     const ai: WorkersAi = { run: () => new Promise<unknown>(() => undefined) }
     const llm = createLlm({
-      ...記録の条件(),
+      ...recordCondition(),
       ai,
       store: createFakeStore(),
-      fetch: 通信の代役(OpenRouterの応答('使われない')),
+      fetch: fakeFetch(openRouterResponse('使われない')),
       apiKey: undefined,
       timeoutMs: 10,
     })
 
-    await expect(llm.run('aiChat', 材料)).rejects.toBeInstanceOf(TimeoutError)
+    await expect(llm.run('aiChat', material)).rejects.toBeInstanceOf(TimeoutError)
   })
 
   it('OpenRouter が応答を返さないと、待ち続けずに TimeoutError にする', async () => {
     const store = createFakeStore()
-    await saveLlmSettings(store, OpenRouterの設定)
+    await saveLlmSettings(store, openRouterConfig)
     const fetchImpl = (async () => await new Promise<Response>(() => undefined)) as typeof fetch
-    const llm = createLlm({ ...記録の条件(), ai: バインディングの代役(), store, fetch: fetchImpl, apiKey: 'openrouter-test-key', timeoutMs: 10 })
+    const llm = createLlm({ ...recordCondition(), ai: fakeBinding(), store, fetch: fetchImpl, apiKey: 'openrouter-test-key', timeoutMs: 10 })
 
-    await expect(llm.run('streamSummary', 材料)).rejects.toBeInstanceOf(TimeoutError)
+    await expect(llm.run('streamSummary', material)).rejects.toBeInstanceOf(TimeoutError)
   })
 })

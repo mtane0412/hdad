@@ -7,9 +7,9 @@
 import { describe, expect, it } from 'vitest'
 import { createStatsApi } from './api'
 
-const サイト = 'https://hdad.example.com'
+const SITE = 'https://hdad.example.com'
 
-const 金曜夜の配信 = {
+const FRIDAY_NIGHT_SESSION = {
   id: '配信ID-2026-09-19',
   startedAt: '2026-09-19T12:00:00.000Z',
   endedAt: '2026-09-19T15:30:00.000Z',
@@ -22,10 +22,10 @@ const 金曜夜の配信 = {
 }
 
 /** 送られたリクエストを記録し、決めた応答を返す fetch */
-const 応答を返すfetch = (status: number, body: unknown) => {
+const fetchReturning = (status: number, body: unknown) => {
   const requests: Request[] = []
   const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    requests.push(new Request(new URL(String(input), サイト), init))
+    requests.push(new Request(new URL(String(input), SITE), init))
     return Response.json(body, { status })
   }
   return { requests, fetchImpl }
@@ -33,37 +33,37 @@ const 応答を返すfetch = (status: number, body: unknown) => {
 
 describe('sessions（配信セッションの一覧）', () => {
   it('一覧の経路を呼び、配信ごとの集計を返す', async () => {
-    const { requests, fetchImpl } = 応答を返すfetch(200, { sessions: [金曜夜の配信] })
+    const { requests, fetchImpl } = fetchReturning(200, { sessions: [FRIDAY_NIGHT_SESSION] })
 
-    expect(await createStatsApi(fetchImpl).sessions()).toEqual([金曜夜の配信])
+    expect(await createStatsApi(fetchImpl).sessions()).toEqual([FRIDAY_NIGHT_SESSION])
     expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/stats/sessions')
   })
 
   it('配信中（endedAt が null）と記録が無い項目（視聴者数が null）を受け取れる', async () => {
-    const 配信中 = { ...金曜夜の配信, endedAt: null, averageViewers: null, peakViewers: null, followerDelta: null, eventCounts: {} }
-    expect(await createStatsApi(応答を返すfetch(200, { sessions: [配信中] }).fetchImpl).sessions()).toEqual([配信中])
+    const liveSession = { ...FRIDAY_NIGHT_SESSION, endedAt: null, averageViewers: null, peakViewers: null, followerDelta: null, eventCounts: {} }
+    expect(await createStatsApi(fetchReturning(200, { sessions: [liveSession] }).fetchImpl).sessions()).toEqual([liveSession])
   })
 
   it('応答が想定した形でなければエラーにする（黙って空の一覧にしない）', async () => {
-    const 開始日時のない配信 = { ...金曜夜の配信, startedAt: 12345 }
-    await expect(createStatsApi(応答を返すfetch(200, { sessions: [開始日時のない配信] }).fetchImpl).sessions()).rejects.toThrow('sessions[0]')
-    await expect(createStatsApi(応答を返すfetch(200, { sessions: 'まだありません' }).fetchImpl).sessions()).rejects.toThrow('sessions')
+    const sessionWithoutStart = { ...FRIDAY_NIGHT_SESSION, startedAt: 12345 }
+    await expect(createStatsApi(fetchReturning(200, { sessions: [sessionWithoutStart] }).fetchImpl).sessions()).rejects.toThrow('sessions[0]')
+    await expect(createStatsApi(fetchReturning(200, { sessions: 'まだありません' }).fetchImpl).sessions()).rejects.toThrow('sessions')
   })
 
   it('イベントの件数が数値でなければエラーにする', async () => {
-    const 件数が文字列の配信 = { ...金曜夜の配信, eventCounts: { 'channel.raid': '1' } }
-    await expect(createStatsApi(応答を返すfetch(200, { sessions: [件数が文字列の配信] }).fetchImpl).sessions()).rejects.toThrow('sessions[0]')
+    const sessionWithStringCount = { ...FRIDAY_NIGHT_SESSION, eventCounts: { 'channel.raid': '1' } }
+    await expect(createStatsApi(fetchReturning(200, { sessions: [sessionWithStringCount] }).fetchImpl).sessions()).rejects.toThrow('sessions[0]')
   })
 
   it('Workerが失敗を返したら、そのメッセージを持つエラーにする', async () => {
-    const { fetchImpl } = 応答を返すfetch(500, { error: { code: 'misconfigured', message: 'Workerの環境変数が設定されていません: DB' } })
+    const { fetchImpl } = fetchReturning(500, { error: { code: 'misconfigured', message: 'Workerの環境変数が設定されていません: DB' } })
     await expect(createStatsApi(fetchImpl).sessions()).rejects.toThrow('DB')
   })
 })
 
 describe('session（配信ごとの視聴者数の推移）', () => {
   it('配信IDを経路に入れて呼び、視聴者数の時系列を返す', async () => {
-    const 詳細 = {
+    const detail = {
       id: '配信ID-2026-09-19',
       startedAt: '2026-09-19T12:00:00.000Z',
       endedAt: '2026-09-19T15:30:00.000Z',
@@ -74,32 +74,32 @@ describe('session（配信ごとの視聴者数の推移）', () => {
         { sampledAt: '2026-09-19T12:10:00.000Z', viewerCount: 15 },
       ],
     }
-    const { requests, fetchImpl } = 応答を返すfetch(200, 詳細)
+    const { requests, fetchImpl } = fetchReturning(200, detail)
 
-    expect(await createStatsApi(fetchImpl).session('配信ID-2026-09-19')).toEqual(詳細)
+    expect(await createStatsApi(fetchImpl).session('配信ID-2026-09-19')).toEqual(detail)
     expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/stats/sessions/%E9%85%8D%E4%BF%A1ID-2026-09-19')
   })
 
   it('応答が想定した形でなければエラーにする', async () => {
-    const 時系列のない詳細 = { id: '配信ID-2026-09-19', startedAt: '2026-09-19T12:00:00.000Z', endedAt: null, title: '配信', categoryName: 'Just Chatting' }
-    await expect(createStatsApi(応答を返すfetch(200, 時系列のない詳細).fetchImpl).session('配信ID-2026-09-19')).rejects.toThrow('samples')
+    const detailWithoutSeries = { id: '配信ID-2026-09-19', startedAt: '2026-09-19T12:00:00.000Z', endedAt: null, title: '配信', categoryName: 'Just Chatting' }
+    await expect(createStatsApi(fetchReturning(200, detailWithoutSeries).fetchImpl).session('配信ID-2026-09-19')).rejects.toThrow('samples')
   })
 })
 
 describe('followers（フォロワー数の推移）', () => {
   it('フォロワー数の経路を呼び、時系列を返す', async () => {
-    const 推移 = [
+    const trend = [
       { sampledAt: '2026-09-18T00:00:00.000Z', followerTotal: 100 },
       { sampledAt: '2026-09-19T00:00:00.000Z', followerTotal: 104 },
     ]
-    const { requests, fetchImpl } = 応答を返すfetch(200, { samples: 推移 })
+    const { requests, fetchImpl } = fetchReturning(200, { samples: trend })
 
-    expect(await createStatsApi(fetchImpl).followers()).toEqual(推移)
+    expect(await createStatsApi(fetchImpl).followers()).toEqual(trend)
     expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/stats/followers')
   })
 
   it('応答が想定した形でなければエラーにする（黙って空の推移にしない）', async () => {
-    await expect(createStatsApi(応答を返すfetch(200, { samples: [{ sampledAt: '2026-09-18T00:00:00.000Z' }] }).fetchImpl).followers()).rejects.toThrow(
+    await expect(createStatsApi(fetchReturning(200, { samples: [{ sampledAt: '2026-09-18T00:00:00.000Z' }] }).fetchImpl).followers()).rejects.toThrow(
       'samples[0]',
     )
   })

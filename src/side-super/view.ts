@@ -31,7 +31,7 @@ export interface SideSuperView {
  */
 export const createSideSuperView = (root: HTMLElement): SideSuperView => {
   /** いま映している行。読み直したときに作り直すかどうかの判定に使う */
-  let 映している行: readonly string[] = []
+  let shownLines: readonly string[] = []
 
   return {
     setLines(lines) {
@@ -39,9 +39,9 @@ export const createSideSuperView = (root: HTMLElement): SideSuperView => {
         throw new Error(`サイドスーパーは${SIDE_SUPER_LINES}行で届くはずですが、${lines.length}行でした`)
       }
 
-      const 同じ = lines.length === 映している行.length && lines.every((line, index) => line === 映している行[index])
-      if (同じ) return
-      映している行 = [...lines]
+      const isUnchanged = lines.length === shownLines.length && lines.every((line, index) => line === shownLines[index])
+      if (isUnchanged) return
+      shownLines = [...lines]
 
       if (lines.length === 0) {
         root.replaceChildren()
@@ -49,13 +49,13 @@ export const createSideSuperView = (root: HTMLElement): SideSuperView => {
       }
 
       const [head, body] = lines
-      const 見出し = document.createElement('p')
-      見出し.className = 'side-super-head'
-      見出し.textContent = head ?? ''
-      const 本文 = document.createElement('p')
-      本文.className = 'side-super-body'
-      本文.textContent = body ?? ''
-      root.replaceChildren(見出し, 本文)
+      const headElement = document.createElement('p')
+      headElement.className = 'side-super-head'
+      headElement.textContent = head ?? ''
+      const bodyElement = document.createElement('p')
+      bodyElement.className = 'side-super-body'
+      bodyElement.textContent = body ?? ''
+      root.replaceChildren(headElement, bodyElement)
     },
   }
 }

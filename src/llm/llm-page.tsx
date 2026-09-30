@@ -108,8 +108,8 @@ const formatCredits = (usd: number): string => `$${usd.toFixed(2)}`
 
 /** 期間ぶんの数を1行にする。失敗が無いときは括弧を付けない（ふだんの表示を短く保つ） */
 const usageLine = (label: string, totals: LlmUsageTotals): string => {
-  const 失敗 = totals.failures > 0 ? `（失敗${totals.failures}回）` : ''
-  return `${label} ${totals.calls}回${失敗}・${formatTokens(totals.promptTokens + totals.completionTokens)}トークン`
+  const failure = totals.failures > 0 ? `（失敗${totals.failures}回）` : ''
+  return `${label} ${totals.calls}回${failure}・${formatTokens(totals.promptTokens + totals.completionTokens)}トークン`
 }
 
 export interface LlmPageProps {
@@ -187,8 +187,8 @@ export const LlmPage = ({ api }: LlmPageProps) => {
     if (!settingsLoaded || !apiKeyConfigured) return
     let cancelled = false
     api.loadCredits().then(
-      (読めた残高) => {
-        if (!cancelled) setCredits(読めた残高)
+      (loadedBalance) => {
+        if (!cancelled) setCredits(loadedBalance)
       },
       (error: unknown) => {
         if (!cancelled) setCreditsFailure(errorMessage(error))

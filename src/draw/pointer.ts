@@ -27,10 +27,10 @@ export const toRatio = (clientX: number, clientY: number, rect: CanvasRect): Poi
 })
 
 /** 線の名前に使う連番。同じページで引いた線どうしを区別する */
-let 連番 = 0
+let sequence = 0
 
 /** 名前の頭に付ける、このページを表すランダムな文字。つなぎ直したあとも前の線と混ざらないようにする */
-const 頭 = Math.random().toString(36).slice(2, 10)
+const head = Math.random().toString(36).slice(2, 10)
 
 /**
  * 新しい線の名前を作る。
@@ -38,6 +38,6 @@ const 頭 = Math.random().toString(36).slice(2, 10)
  * 長さは stroke.ts の上限（64文字）に収まる。
  */
 export const createStrokeId = (): string => {
-  連番 += 1
-  return `${頭}-${連番}`
+  sequence += 1
+  return `${head}-${sequence}`
 }

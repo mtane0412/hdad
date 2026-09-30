@@ -46,13 +46,13 @@ export interface LlmUsageSummary {
   total: LlmUsagePeriods
 }
 
-const 空の合計 = (): LlmUsageTotals => ({ calls: 0, failures: 0, promptTokens: 0, completionTokens: 0, costUsd: 0 })
+const EMPTY_TOTAL = (): LlmUsageTotals => ({ calls: 0, failures: 0, promptTokens: 0, completionTokens: 0, costUsd: 0 })
 
 /** ミリ秒をUTCの日（YYYY-MM-DD）にする */
 const toUtcDay = (milliseconds: number): string => new Date(milliseconds).toISOString().slice(0, 10)
 
 /** 行を合計へ足し込む */
-const 足す = (totals: LlmUsageTotals, row: LlmUsageDay): void => {
+const addUsage = (totals: LlmUsageTotals, row: LlmUsageDay): void => {
   totals.calls += row.calls
   totals.failures += row.failures
   totals.promptTokens += row.promptTokens
@@ -67,24 +67,24 @@ const 足す = (totals: LlmUsageTotals, row: LlmUsageDay): void => {
  * @param now 現在時刻（ミリ秒）。UTCの今日を決めるのに使う
  */
 export const summarizeLlmUsage = (days: readonly LlmUsageDay[], now: number): LlmUsageSummary => {
-  const 今日 = toUtcDay(now)
-  const 直近の始まり = toUtcDay(now - (WEEK_DAYS - 1) * 24 * 60 * 60 * 1000)
+  const today = toUtcDay(now)
+  const recentStart = toUtcDay(now - (WEEK_DAYS - 1) * 24 * 60 * 60 * 1000)
 
-  const usages = Object.fromEntries(LLM_USAGES.map((usage) => [usage, { today: 空の合計(), week: 空の合計() }])) as Record<LlmUsage, LlmUsagePeriods>
-  const jevUsages = Object.fromEntries(JEV_USAGES.map((usage) => [usage, { today: 空の合計(), week: 空の合計() }])) as Record<JevUsage, LlmUsagePeriods>
-  const total: LlmUsagePeriods = { today: 空の合計(), week: 空の合計() }
+  const usages = Object.fromEntries(LLM_USAGES.map((usage) => [usage, { today: EMPTY_TOTAL(), week: EMPTY_TOTAL() }])) as Record<LlmUsage, LlmUsagePeriods>
+  const jevUsages = Object.fromEntries(JEV_USAGES.map((usage) => [usage, { today: EMPTY_TOTAL(), week: EMPTY_TOTAL() }])) as Record<JevUsage, LlmUsagePeriods>
+  const total: LlmUsagePeriods = { today: EMPTY_TOTAL(), week: EMPTY_TOTAL() }
   // 箇所の名前は LLM と Jev で重ならないので、1つの表として引ける
   const byUsage: Readonly<Record<string, LlmUsagePeriods | undefined>> = { ...usages, ...jevUsages }
 
   for (const row of days) {
     const periods = byUsage[row.usage]
     // 画面が知らない箇所の行は数えない（Workerに箇所が増えても、並べる欄が無いため）
-    if (periods === undefined || row.day < 直近の始まり) continue
-    足す(periods.week, row)
-    足す(total.week, row)
-    if (row.day === 今日) {
-      足す(periods.today, row)
-      足す(total.today, row)
+    if (periods === undefined || row.day < recentStart) continue
+    addUsage(periods.week, row)
+    addUsage(total.week, row)
+    if (row.day === today) {
+      addUsage(periods.today, row)
+      addUsage(total.today, row)
     }
   }
 

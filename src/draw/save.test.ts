@@ -14,27 +14,27 @@ import { SAVE_DELAY_MS, createStrokeSaver } from './save'
 import type { Strokes } from './strokes'
 
 /** 引いた線1本ぶんの集まり */
-const 線1本 = (id: string): Strokes => ({ strokes: [{ id, points: [{ x: 0.1, y: 0.2 }], color: 'red', width: 'bold' }] })
+const singleStroke = (id: string): Strokes => ({ strokes: [{ id, points: [{ x: 0.1, y: 0.2 }], color: 'red', width: 'bold' }] })
 
-const 何も描いていない: Strokes = { strokes: [] }
+const emptyDrawing: Strokes = { strokes: [] }
 
 /** 書き込みを記録する、テスト用の保存先。応答を保留できるようにしてある */
-const 保存先を作る = () => {
-  const 書かれたもの: Strokes[] = []
-  const 保留: (() => void)[] = []
-  let 保留する = false
+const createSaveTarget = () => {
+  const written: Strokes[] = []
+  const pending: (() => void)[] = []
+  let hold = false
   const save = async (strokes: Strokes): Promise<void> => {
-    書かれたもの.push(strokes)
-    if (!保留する) return
-    await new Promise<void>((resolve) => 保留.push(resolve))
+    written.push(strokes)
+    if (!hold) return
+    await new Promise<void>((resolve) => pending.push(resolve))
   }
   return {
-    書かれたもの,
+    written,
     save,
-    保留を始める: () => {
-      保留する = true
+    startHolding: () => {
+      hold = true
     },
-    保留を解く: () => 保留.shift()?.(),
+    releaseHold: () => pending.shift()?.(),
   }
 }
 
@@ -43,132 +43,132 @@ afterEach(() => vi.useRealTimers())
 
 describe('createStrokeSaver', () => {
   it('引き終えてすぐには書かない', () => {
-    const 保存先 = 保存先を作る()
-    const saver = createStrokeSaver({ save: 保存先.save, onFailure: () => {} })
+    const saveTarget = createSaveTarget()
+    const saver = createStrokeSaver({ save: saveTarget.save, onFailure: () => {} })
 
-    saver.finished(線1本('線1'))
+    saver.finished(singleStroke('線1'))
 
-    expect(保存先.書かれたもの).toEqual([])
+    expect(saveTarget.written).toEqual([])
   })
 
   it('数秒待ってから書く', async () => {
-    const 保存先 = 保存先を作る()
-    const saver = createStrokeSaver({ save: 保存先.save, onFailure: () => {} })
+    const saveTarget = createSaveTarget()
+    const saver = createStrokeSaver({ save: saveTarget.save, onFailure: () => {} })
 
-    saver.finished(線1本('線1'))
+    saver.finished(singleStroke('線1'))
     await vi.advanceTimersByTimeAsync(SAVE_DELAY_MS)
 
-    expect(保存先.書かれたもの).toEqual([線1本('線1')])
+    expect(saveTarget.written).toEqual([singleStroke('線1')])
   })
 
   it('待っているあいだに続けて引き終えたら、最後の状態だけを1度書く', async () => {
-    const 保存先 = 保存先を作る()
-    const saver = createStrokeSaver({ save: 保存先.save, onFailure: () => {} })
+    const saveTarget = createSaveTarget()
+    const saver = createStrokeSaver({ save: saveTarget.save, onFailure: () => {} })
 
-    saver.finished(線1本('線1'))
+    saver.finished(singleStroke('線1'))
     await vi.advanceTimersByTimeAsync(SAVE_DELAY_MS / 2)
-    saver.finished(線1本('線2'))
+    saver.finished(singleStroke('線2'))
     await vi.advanceTimersByTimeAsync(SAVE_DELAY_MS)
 
-    expect(保存先.書かれたもの).toEqual([線1本('線2')])
+    expect(saveTarget.written).toEqual([singleStroke('線2')])
   })
 
   it('全消しは待たずにすぐ書く', async () => {
-    const 保存先 = 保存先を作る()
-    const saver = createStrokeSaver({ save: 保存先.save, onFailure: () => {} })
+    const saveTarget = createSaveTarget()
+    const saver = createStrokeSaver({ save: saveTarget.save, onFailure: () => {} })
 
-    saver.saveNow(何も描いていない)
+    saver.saveNow(emptyDrawing)
     // 前の書き込みの完了を待ってから始めるので、待つのは1回ぶんの間だけ（時間は進めない）
     await vi.advanceTimersByTimeAsync(0)
 
-    expect(保存先.書かれたもの).toEqual([何も描いていない])
+    expect(saveTarget.written).toEqual([emptyDrawing])
   })
 
   it('全消しは、待っている書き込みを取り消して置き換える', async () => {
     // 消したあとに、待たせていた「線がある状態」を書いてしまうと、消した図が戻ってくる
-    const 保存先 = 保存先を作る()
-    const saver = createStrokeSaver({ save: 保存先.save, onFailure: () => {} })
+    const saveTarget = createSaveTarget()
+    const saver = createStrokeSaver({ save: saveTarget.save, onFailure: () => {} })
 
-    saver.finished(線1本('線1'))
-    saver.saveNow(何も描いていない)
+    saver.finished(singleStroke('線1'))
+    saver.saveNow(emptyDrawing)
     await vi.advanceTimersByTimeAsync(SAVE_DELAY_MS)
 
-    expect(保存先.書かれたもの).toEqual([何も描いていない])
+    expect(saveTarget.written).toEqual([emptyDrawing])
   })
 
   it('前の書き込みが終わるまで、次の書き込みを始めない', async () => {
-    const 保存先 = 保存先を作る()
-    保存先.保留を始める()
-    const saver = createStrokeSaver({ save: 保存先.save, onFailure: () => {} })
+    const saveTarget = createSaveTarget()
+    saveTarget.startHolding()
+    const saver = createStrokeSaver({ save: saveTarget.save, onFailure: () => {} })
 
-    saver.saveNow(線1本('線1'))
-    saver.saveNow(何も描いていない)
+    saver.saveNow(singleStroke('線1'))
+    saver.saveNow(emptyDrawing)
     await vi.advanceTimersByTimeAsync(0)
 
-    expect(保存先.書かれたもの).toEqual([線1本('線1')])
+    expect(saveTarget.written).toEqual([singleStroke('線1')])
 
-    保存先.保留を解く()
+    saveTarget.releaseHold()
     await vi.advanceTimersByTimeAsync(0)
 
-    expect(保存先.書かれたもの).toEqual([線1本('線1'), 何も描いていない])
+    expect(saveTarget.written).toEqual([singleStroke('線1'), emptyDrawing])
   })
 
   it('書き込みの失敗を、理由を添えて知らせる', async () => {
-    const 知らせ: string[] = []
+    const notice: string[] = []
     const saver = createStrokeSaver({
       save: async () => {
         throw new Error('ログインが切れています')
       },
-      onFailure: (message) => 知らせ.push(message),
+      onFailure: (message) => notice.push(message),
     })
 
-    saver.saveNow(線1本('線1'))
+    saver.saveNow(singleStroke('線1'))
     await vi.advanceTimersByTimeAsync(0)
 
-    expect(知らせ).toEqual(['ログインが切れています'])
+    expect(notice).toEqual(['ログインが切れています'])
   })
 
   it('待っている書き込みを、待たずに書き切れる', async () => {
     // 画面を離れるときに捨てると、最後に引いた数本が残らない
-    const 保存先 = 保存先を作る()
-    const saver = createStrokeSaver({ save: 保存先.save, onFailure: () => {} })
+    const saveTarget = createSaveTarget()
+    const saver = createStrokeSaver({ save: saveTarget.save, onFailure: () => {} })
 
-    saver.finished(線1本('線1'))
+    saver.finished(singleStroke('線1'))
     saver.flush()
     await vi.advanceTimersByTimeAsync(0)
 
-    expect(保存先.書かれたもの).toEqual([線1本('線1')])
+    expect(saveTarget.written).toEqual([singleStroke('線1')])
   })
 
   it('待っている書き込みが無ければ、書き切っても何も書かない', async () => {
-    const 保存先 = 保存先を作る()
-    const saver = createStrokeSaver({ save: 保存先.save, onFailure: () => {} })
+    const saveTarget = createSaveTarget()
+    const saver = createStrokeSaver({ save: saveTarget.save, onFailure: () => {} })
 
     saver.flush()
     await vi.advanceTimersByTimeAsync(0)
 
-    expect(保存先.書かれたもの).toEqual([])
+    expect(saveTarget.written).toEqual([])
   })
 
   it('書き切ったあとは、待っていた書き込みを二度書かない', async () => {
-    const 保存先 = 保存先を作る()
-    const saver = createStrokeSaver({ save: 保存先.save, onFailure: () => {} })
+    const saveTarget = createSaveTarget()
+    const saver = createStrokeSaver({ save: saveTarget.save, onFailure: () => {} })
 
-    saver.finished(線1本('線1'))
+    saver.finished(singleStroke('線1'))
     saver.flush()
     await vi.advanceTimersByTimeAsync(SAVE_DELAY_MS)
 
-    expect(保存先.書かれたもの).toEqual([線1本('線1')])
+    expect(saveTarget.written).toEqual([singleStroke('線1')])
   })
 
   it('待っている書き込みをやめられる', async () => {
-    const 保存先 = 保存先を作る()
-    const saver = createStrokeSaver({ save: 保存先.save, onFailure: () => {} })
+    const saveTarget = createSaveTarget()
+    const saver = createStrokeSaver({ save: saveTarget.save, onFailure: () => {} })
 
-    saver.finished(線1本('線1'))
+    saver.finished(singleStroke('線1'))
     saver.cancel()
     await vi.advanceTimersByTimeAsync(SAVE_DELAY_MS)
 
-    expect(保存先.書かれたもの).toEqual([])
+    expect(saveTarget.written).toEqual([])
   })
 })

@@ -11,28 +11,28 @@ import { describe, expect, it } from 'vitest'
 import { createGyazoClient, GyazoApiError } from './gyazo'
 import { TimeoutError } from './timeout'
 
-const 画像 = new Blob([new Uint8Array([137, 80, 78, 71])], { type: 'image/png' })
+const IMAGE = new Blob([new Uint8Array([137, 80, 78, 71])], { type: 'image/png' })
 
 /** 押し込まれた要求を覚えたうえで、決めておいた応答を返す fetch を作る */
-const 覚えるfetch = (応答: Response) => {
-  const 受け取った: { url: string; body: FormData }[] = []
+const recordingFetch = (response: Response) => {
+  const received: { url: string; body: FormData }[] = []
   const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    受け取った.push({ url: String(input), body: init?.body as FormData })
-    return 応答
+    received.push({ url: String(input), body: init?.body as FormData })
+    return response
   }) as typeof fetch
-  return { fetchImpl, 受け取った }
+  return { fetchImpl, received }
 }
 
-const 成功の応答 = () =>
+const successResponse = () =>
   Response.json({ image_id: 'abcdef0123456789abcdef0123456789', permalink_url: 'https://gyazo.com/abcdef0123456789abcdef0123456789' })
 
 describe('createGyazoClient', () => {
   it('アクセストークンと画像を、URLを知っていれば見られる指定とともに送る', async () => {
-    const { fetchImpl, 受け取った } = 覚えるfetch(成功の応答())
-    await createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).upload(画像, 'screen.png')
+    const { fetchImpl, received } = recordingFetch(successResponse())
+    await createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).upload(IMAGE, 'screen.png')
 
-    expect(受け取った[0]?.url).toBe('https://upload.gyazo.com/api/upload')
-    const body = 受け取った[0]?.body
+    expect(received[0]?.url).toBe('https://upload.gyazo.com/api/upload')
+    const body = received[0]?.body
     expect(body?.get('access_token')).toBe('テスト用のトークン')
     expect(body?.get('access_policy')).toBe('anyone')
     expect(body?.get('metadata_is_public')).toBe('false')
@@ -40,140 +40,140 @@ describe('createGyazoClient', () => {
   })
 
   it('コレクションを指定されたら、その指定を添えて送る', async () => {
-    const { fetchImpl, 受け取った } = 覚えるfetch(成功の応答())
-    await createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).upload(画像, 'screen.png', {
+    const { fetchImpl, received } = recordingFetch(successResponse())
+    await createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).upload(IMAGE, 'screen.png', {
       collectionId: 'f19e74cebe47c9cadad31b6790098eac',
     })
 
-    expect(受け取った[0]?.body?.get('collection_id')).toBe('f19e74cebe47c9cadad31b6790098eac')
+    expect(received[0]?.body?.get('collection_id')).toBe('f19e74cebe47c9cadad31b6790098eac')
   })
 
   it('コレクションの指定がなければ、その項目は送らない', async () => {
-    const { fetchImpl, 受け取った } = 覚えるfetch(成功の応答())
-    await createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).upload(画像, 'screen.png', { collectionId: '' })
+    const { fetchImpl, received } = recordingFetch(successResponse())
+    await createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).upload(IMAGE, 'screen.png', { collectionId: '' })
 
-    expect(受け取った[0]?.body?.has('collection_id')).toBe(false)
+    expect(received[0]?.body?.has('collection_id')).toBe(false)
   })
 
   it('応答から画像IDと閲覧用のURLを取り出す', async () => {
-    const { fetchImpl } = 覚えるfetch(成功の応答())
-    const 上げたもの = await createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).upload(画像, 'screen.png')
+    const { fetchImpl } = recordingFetch(successResponse())
+    const uploaded = await createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).upload(IMAGE, 'screen.png')
 
-    expect(上げたもの).toEqual({
+    expect(uploaded).toEqual({
       imageId: 'abcdef0123456789abcdef0123456789',
       permalinkUrl: 'https://gyazo.com/abcdef0123456789abcdef0123456789',
     })
   })
 
   it('Gyazo が失敗を返したら GyazoApiError にする', async () => {
-    const { fetchImpl } = 覚えるfetch(Response.json({ message: 'unauthorized' }, { status: 401 }))
-    const 上げる = createGyazoClient({ accessToken: '誤ったトークン', fetch: fetchImpl }).upload(画像, 'screen.png')
+    const { fetchImpl } = recordingFetch(Response.json({ message: 'unauthorized' }, { status: 401 }))
+    const upload = createGyazoClient({ accessToken: '誤ったトークン', fetch: fetchImpl }).upload(IMAGE, 'screen.png')
 
-    await expect(上げる).rejects.toBeInstanceOf(GyazoApiError)
-    await expect(上げる).rejects.toThrow(/401/)
+    await expect(upload).rejects.toBeInstanceOf(GyazoApiError)
+    await expect(upload).rejects.toThrow(/401/)
   })
 
   it('応答に画像IDが無ければ GyazoApiError にする（黙って成功扱いにしない）', async () => {
-    const { fetchImpl } = 覚えるfetch(Response.json({ permalink_url: 'https://gyazo.com/xxxx' }))
-    const 上げる = createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).upload(画像, 'screen.png')
+    const { fetchImpl } = recordingFetch(Response.json({ permalink_url: 'https://gyazo.com/xxxx' }))
+    const upload = createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).upload(IMAGE, 'screen.png')
 
-    await expect(上げる).rejects.toThrow(/image_id/)
+    await expect(upload).rejects.toThrow(/image_id/)
   })
 })
 
 describe('fetchOcr', () => {
   /** 覚えるfetch と違い、こちらは要求のURLだけを覚える（本文を持たない GET のため） */
-  const 覚えるfetchGet = (応答: Response) => {
-    const 受け取った: { url: string; headers: HeadersInit | undefined }[] = []
+  const recordingFetchGet = (response: Response) => {
+    const received: { url: string; headers: HeadersInit | undefined }[] = []
     const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      受け取った.push({ url: String(input), headers: init?.headers })
-      return 応答
+      received.push({ url: String(input), headers: init?.headers })
+      return response
     }) as typeof fetch
-    return { fetchImpl, 受け取った }
+    return { fetchImpl, received }
   }
 
   it('画像IDを指して読み取りを求める', async () => {
-    const { fetchImpl, 受け取った } = 覚えるfetchGet(Response.json({ metadata: { ocr: { description: '読み取った文字' } } }))
+    const { fetchImpl, received } = recordingFetchGet(Response.json({ metadata: { ocr: { description: '読み取った文字' } } }))
     await createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).fetchOcr('abcdef0123456789abcdef0123456789')
 
-    expect(受け取った[0]?.url).toBe('https://api.gyazo.com/api/images/abcdef0123456789abcdef0123456789?access_token=%E3%83%86%E3%82%B9%E3%83%88%E7%94%A8%E3%81%AE%E3%83%88%E3%83%BC%E3%82%AF%E3%83%B3')
+    expect(received[0]?.url).toBe('https://api.gyazo.com/api/images/abcdef0123456789abcdef0123456789?access_token=%E3%83%86%E3%82%B9%E3%83%88%E7%94%A8%E3%81%AE%E3%83%88%E3%83%BC%E3%82%AF%E3%83%B3')
   })
 
   it('metadata.ocr.description から読み取った文字を取り出す', async () => {
-    const { fetchImpl } = 覚えるfetchGet(Response.json({ metadata: { ocr: { locale: 'ja', description: '岩手17歳女性殺害事件' } } }))
-    const 文字 = await createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).fetchOcr('abcdef0123456789abcdef0123456789')
+    const { fetchImpl } = recordingFetchGet(Response.json({ metadata: { ocr: { locale: 'ja', description: '岩手17歳女性殺害事件' } } }))
+    const text = await createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).fetchOcr('abcdef0123456789abcdef0123456789')
 
-    expect(文字).toBe('岩手17歳女性殺害事件')
+    expect(text).toBe('岩手17歳女性殺害事件')
   })
 
   it('トップレベルの ocr は見ない（実際の応答は metadata の下にあるため）', async () => {
-    const { fetchImpl } = 覚えるfetchGet(Response.json({ ocr: { description: 'ここは読まない' }, metadata: {} }))
-    const 文字 = await createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).fetchOcr('abcdef0123456789abcdef0123456789')
+    const { fetchImpl } = recordingFetchGet(Response.json({ ocr: { description: 'ここは読まない' }, metadata: {} }))
+    const text = await createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).fetchOcr('abcdef0123456789abcdef0123456789')
 
-    expect(文字).toBeNull()
+    expect(text).toBeNull()
   })
 
   it('まだ生成されていなければ null を返す（呼び出し側が次の収集へ回せるように）', async () => {
-    const { fetchImpl } = 覚えるfetchGet(Response.json({ metadata: { ocr: { locale: 'ja', description: '' } } }))
-    const 文字 = await createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).fetchOcr('abcdef0123456789abcdef0123456789')
+    const { fetchImpl } = recordingFetchGet(Response.json({ metadata: { ocr: { locale: 'ja', description: '' } } }))
+    const text = await createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).fetchOcr('abcdef0123456789abcdef0123456789')
 
-    expect(文字).toBeNull()
+    expect(text).toBeNull()
   })
 
   it('空白だけの読み取りも、まだ生成されていないものとして扱う', async () => {
-    const { fetchImpl } = 覚えるfetchGet(Response.json({ metadata: { ocr: { description: '  \n ' } } }))
-    const 文字 = await createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).fetchOcr('abcdef0123456789abcdef0123456789')
+    const { fetchImpl } = recordingFetchGet(Response.json({ metadata: { ocr: { description: '  \n ' } } }))
+    const text = await createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).fetchOcr('abcdef0123456789abcdef0123456789')
 
-    expect(文字).toBeNull()
+    expect(text).toBeNull()
   })
 
   it('成功と返ってきたのに本文を読めなければ GyazoApiError にする（未生成と取り違えないため）', async () => {
-    const { fetchImpl } = 覚えるfetchGet(new Response('<html>メンテナンス中</html>', { headers: { 'content-type': 'text/html' } }))
-    const 取りに行く = createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).fetchOcr('abcdef0123456789abcdef0123456789')
+    const { fetchImpl } = recordingFetchGet(new Response('<html>メンテナンス中</html>', { headers: { 'content-type': 'text/html' } }))
+    const fetching = createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).fetchOcr('abcdef0123456789abcdef0123456789')
 
-    await expect(取りに行く).rejects.toBeInstanceOf(GyazoApiError)
+    await expect(fetching).rejects.toBeInstanceOf(GyazoApiError)
   })
 
   it('Gyazo が失敗を返したら GyazoApiError にする', async () => {
-    const { fetchImpl } = 覚えるfetchGet(Response.json({ message: 'not found' }, { status: 404 }))
-    const 取りに行く = createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).fetchOcr('存在しない画像')
+    const { fetchImpl } = recordingFetchGet(Response.json({ message: 'not found' }, { status: 404 }))
+    const fetching = createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).fetchOcr('存在しない画像')
 
-    await expect(取りに行く).rejects.toBeInstanceOf(GyazoApiError)
-    await expect(取りに行く).rejects.toThrow(/404/)
+    await expect(fetching).rejects.toBeInstanceOf(GyazoApiError)
+    await expect(fetching).rejects.toThrow(/404/)
   })
 })
 
 describe('fetchImageUrl', () => {
-  const 画像のID = 'abcdef0123456789abcdef0123456789'
+  const IMAGE_ID = 'abcdef0123456789abcdef0123456789'
 
-  const 応答するfetch = (応答: Response) => {
-    const 受け取った: string[] = []
+  const respondingFetch = (response: Response) => {
+    const received: string[] = []
     const fetchImpl = (async (input: RequestInfo | URL) => {
-      受け取った.push(String(input))
-      return 応答
+      received.push(String(input))
+      return response
     }) as typeof fetch
-    return { fetchImpl, 受け取った }
+    return { fetchImpl, received }
   }
 
   it('画像IDを指して、画像そのもののURLを取り出す', async () => {
-    const { fetchImpl, 受け取った } = 応答するfetch(Response.json({ image_id: 画像のID, url: `https://i.gyazo.com/${画像のID}.png`, access_policy: 'anyone' }))
+    const { fetchImpl, received } = respondingFetch(Response.json({ image_id: IMAGE_ID, url: `https://i.gyazo.com/${IMAGE_ID}.png`, access_policy: 'anyone' }))
 
-    const url = await createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).fetchImageUrl(画像のID)
+    const url = await createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).fetchImageUrl(IMAGE_ID)
 
-    expect(url).toBe(`https://i.gyazo.com/${画像のID}.png`)
-    expect(受け取った[0]).toMatch(new RegExp(`^https://api.gyazo.com/api/images/${画像のID}\\?access_token=`))
+    expect(url).toBe(`https://i.gyazo.com/${IMAGE_ID}.png`)
+    expect(received[0]).toMatch(new RegExp(`^https://api.gyazo.com/api/images/${IMAGE_ID}\\?access_token=`))
   })
 
   it('応答にURLが無ければ GyazoApiError にする', async () => {
-    const { fetchImpl } = 応答するfetch(Response.json({ image_id: 画像のID }))
+    const { fetchImpl } = respondingFetch(Response.json({ image_id: IMAGE_ID }))
 
-    await expect(createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).fetchImageUrl(画像のID)).rejects.toBeInstanceOf(GyazoApiError)
+    await expect(createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).fetchImageUrl(IMAGE_ID)).rejects.toBeInstanceOf(GyazoApiError)
   })
 
   it('Gyazo が失敗を返したら GyazoApiError にする', async () => {
-    const { fetchImpl } = 応答するfetch(Response.json({ message: 'not found' }, { status: 404 }))
+    const { fetchImpl } = respondingFetch(Response.json({ message: 'not found' }, { status: 404 }))
 
-    await expect(createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).fetchImageUrl(画像のID)).rejects.toThrow(/404/)
+    await expect(createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl }).fetchImageUrl(IMAGE_ID)).rejects.toThrow(/404/)
   })
 })
 
@@ -189,6 +189,6 @@ describe('時間制限（issue #126）', () => {
     const fetchImpl = (async () => await new Promise<Response>(() => undefined)) as typeof fetch
     const gyazo = createGyazoClient({ accessToken: 'テスト用のトークン', fetch: fetchImpl, timeoutMs: 10 })
 
-    await expect(gyazo.upload(画像, 'screen.png')).rejects.toBeInstanceOf(TimeoutError)
+    await expect(gyazo.upload(IMAGE, 'screen.png')).rejects.toBeInstanceOf(TimeoutError)
   })
 })

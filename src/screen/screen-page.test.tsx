@@ -18,7 +18,7 @@ import { ApiError } from '@/core/api'
 import type { ScreenSettings } from './api'
 import { ScreenPage } from './screen-page'
 
-const 保存済みの設定: ScreenSettings = {
+const savedConfig: ScreenSettings = {
   host: 'localhost',
   port: 4455,
   password: 'obsのパスワード',
@@ -27,22 +27,22 @@ const 保存済みの設定: ScreenSettings = {
 }
 
 /** 配信者が Gyazo の画面からコピーしてくるコレクションのURL */
-const コレクションのURL = 'https://gyazo.com/collections/f19e74cebe47c9cadad31b6790098eac'
+const collectionUrl = 'https://gyazo.com/collections/f19e74cebe47c9cadad31b6790098eac'
 
 afterEach(cleanup)
 
-const 画面を出す = (api: { load: () => Promise<ScreenSettings>; save: (settings: ScreenSettings) => Promise<ScreenSettings> }) => {
+const renderPage = (api: { load: () => Promise<ScreenSettings>; save: (settings: ScreenSettings) => Promise<ScreenSettings> }) => {
   render(<ScreenPage api={api} />)
 }
 
-const 動く偽のAPI = () => ({
-  load: vi.fn(async () => 保存済みの設定),
+const workingFakeApi = () => ({
+  load: vi.fn(async () => savedConfig),
   save: vi.fn(async (settings: ScreenSettings) => settings),
 })
 
 describe('画面の取り込みのページ', () => {
   test('保存済みの設定を入力欄に出す', async () => {
-    画面を出す(動く偽のAPI())
+    renderPage(workingFakeApi())
 
     expect(await screen.findByLabelText('obs-websocket のポート番号')).toHaveValue(4455)
     expect(screen.getByLabelText('obs-websocket のパスワード')).toHaveValue('obsのパスワード')
@@ -50,53 +50,53 @@ describe('画面の取り込みのページ', () => {
   })
 
   test('入力した値をそのまま保存する', async () => {
-    const api = 動く偽のAPI()
-    画面を出す(api)
+    const api = workingFakeApi()
+    renderPage(api)
 
-    const 間隔の欄 = await screen.findByLabelText('撮る間隔（秒）')
-    await userEvent.clear(間隔の欄)
-    await userEvent.type(間隔の欄, '90')
+    const intervalField = await screen.findByLabelText('撮る間隔（秒）')
+    await userEvent.clear(intervalField)
+    await userEvent.type(intervalField, '90')
     await userEvent.click(screen.getByRole('button', { name: '保存' }))
 
-    await waitFor(() => expect(api.save).toHaveBeenCalledWith({ ...保存済みの設定, intervalSeconds: 90 }))
+    await waitFor(() => expect(api.save).toHaveBeenCalledWith({ ...savedConfig, intervalSeconds: 90 }))
   })
 
   test('コレクションのURLを貼ったら、末尾のIDだけを送る', async () => {
-    const api = 動く偽のAPI()
-    画面を出す(api)
+    const api = workingFakeApi()
+    renderPage(api)
 
-    await userEvent.type(await screen.findByLabelText('上げ先の Gyazo のコレクション（任意）'), コレクションのURL)
+    await userEvent.type(await screen.findByLabelText('上げ先の Gyazo のコレクション（任意）'), collectionUrl)
     await userEvent.click(screen.getByRole('button', { name: '保存' }))
 
-    await waitFor(() => expect(api.save).toHaveBeenCalledWith({ ...保存済みの設定, collectionId: 'f19e74cebe47c9cadad31b6790098eac' }))
+    await waitFor(() => expect(api.save).toHaveBeenCalledWith({ ...savedConfig, collectionId: 'f19e74cebe47c9cadad31b6790098eac' }))
   })
 
   test('コレクションを空のままにすれば、空のまま送る（どのコレクションにも入れない）', async () => {
-    const api = 動く偽のAPI()
-    画面を出す(api)
+    const api = workingFakeApi()
+    renderPage(api)
 
     await screen.findByLabelText('上げ先の Gyazo のコレクション（任意）')
     await userEvent.click(screen.getByRole('button', { name: '保存' }))
 
-    await waitFor(() => expect(api.save).toHaveBeenCalledWith(保存済みの設定))
+    await waitFor(() => expect(api.save).toHaveBeenCalledWith(savedConfig))
   })
 
   test('空欄は 0 に丸めず、数として読めない値のまま Worker へ渡す', async () => {
-    const api = 動く偽のAPI()
-    画面を出す(api)
+    const api = workingFakeApi()
+    renderPage(api)
 
     await userEvent.clear(await screen.findByLabelText('撮る間隔（秒）'))
     await userEvent.click(screen.getByRole('button', { name: '保存' }))
 
-    await waitFor(() => expect(api.save).toHaveBeenCalledWith({ ...保存済みの設定, intervalSeconds: Number.NaN }))
+    await waitFor(() => expect(api.save).toHaveBeenCalledWith({ ...savedConfig, intervalSeconds: Number.NaN }))
   })
 
   test('Workerが返した問題点を並べて出す', async () => {
-    const api = 動く偽のAPI()
+    const api = workingFakeApi()
     api.save = vi.fn(async () => {
       throw new ApiError(400, 'invalid-config', '画面取り込みの設定に問題があります', ['intervalSeconds: 15〜600 の整数で指定してください'])
     })
-    画面を出す(api)
+    renderPage(api)
 
     await screen.findByLabelText('撮る間隔（秒）')
     await userEvent.click(screen.getByRole('button', { name: '保存' }))
@@ -106,17 +106,17 @@ describe('画面の取り込みのページ', () => {
   })
 
   test('つなぎ先を変えたら、OBSの再読み込みが要ると知らせる', async () => {
-    画面を出す(動く偽のAPI())
+    renderPage(workingFakeApi())
 
-    const ポートの欄 = await screen.findByLabelText('obs-websocket のポート番号')
-    await userEvent.clear(ポートの欄)
-    await userEvent.type(ポートの欄, '4456')
+    const portField = await screen.findByLabelText('obs-websocket のポート番号')
+    await userEvent.clear(portField)
+    await userEvent.type(portField, '4456')
 
     expect(await screen.findByText('OBSの再読み込みが要ります')).toBeInTheDocument()
   })
 
   test('設定を読めなければ、黙って既定に倒さず理由を出す', async () => {
-    画面を出す({ load: vi.fn(async () => Promise.reject(new Error('Workerにつながりません'))), save: vi.fn(async (s) => s) })
+    renderPage({ load: vi.fn(async () => Promise.reject(new Error('Workerにつながりません'))), save: vi.fn(async (s) => s) })
 
     expect(await screen.findByText('Workerにつながりません')).toBeInTheDocument()
   })

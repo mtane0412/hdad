@@ -12,16 +12,16 @@ import type { Alert } from './alert'
 import sampleImageUrl from './sample.svg'
 
 /** サンプルの出し方。文言以外はどのイベントでも同じにする */
-const 出し方 = { media: { kind: 'image', url: sampleImageUrl }, durationSeconds: 6, volume: 1 } as const
+const style = { media: { kind: 'image', url: sampleImageUrl }, durationSeconds: 6, volume: 1 } as const
 
 /** サンプルのアラート。順に1件ずつ出し、一巡したらまた先頭から流す */
 export const demoAlerts: readonly Alert[] = [
-  { ...出し方, text: 'たねのぶ さんが「水を飲む」を交換しました' },
-  { ...出し方, text: 'たねのぶ さんがフォローしました' },
-  { ...出し方, text: 'たねのぶ さんがティア1でサブスクしました' },
-  { ...出し方, text: 'たねのぶ さんが12か月目のサブスク（ティア2）' },
-  { ...出し方, text: 'たねのぶ さんが42人でレイドしました' },
-  { ...出し方, text: 'たねのぶ さんが「みなさんおはようございます」と言いました' },
-  { ...出し方, text: 'ここで180秒の広告が入ります' },
-  { ...出し方, text: '広告が終わりました。おかえりなさい' },
+  { ...style, text: 'たねのぶ さんが「水を飲む」を交換しました' },
+  { ...style, text: 'たねのぶ さんがフォローしました' },
+  { ...style, text: 'たねのぶ さんがティア1でサブスクしました' },
+  { ...style, text: 'たねのぶ さんが12か月目のサブスク（ティア2）' },
+  { ...style, text: 'たねのぶ さんが42人でレイドしました' },
+  { ...style, text: 'たねのぶ さんが「みなさんおはようございます」と言いました' },
+  { ...style, text: 'ここで180秒の広告が入ります' },
+  { ...style, text: '広告が終わりました。おかえりなさい' },
 ]

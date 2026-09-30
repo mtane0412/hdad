@@ -244,7 +244,7 @@ export const saveScreenLines = async (
   lines: readonly string[],
   now: number,
 ): Promise<void> => {
-  const 書き込み = lines.map((text, lineNo) =>
+  const write = lines.map((text, lineNo) =>
     db
       .prepare(
         `INSERT INTO screen_lines (image_id, line_no, session_id, captured_at, text, sifted_at)
@@ -253,8 +253,8 @@ export const saveScreenLines = async (
       )
       .bind(capture.imageId, lineNo, capture.sessionId, capture.capturedAt, text, toIso(now)),
   )
-  書き込み.push(db.prepare('UPDATE screen_captures SET sifted_at = ?2 WHERE image_id = ?1').bind(capture.imageId, toIso(now)))
-  await db.batch(書き込み)
+  write.push(db.prepare('UPDATE screen_captures SET sifted_at = ?2 WHERE image_id = ?1').bind(capture.imageId, toIso(now)))
+  await db.batch(write)
 }
 
 /**
@@ -407,8 +407,8 @@ export const readOwnScreenTexts = async (db: Database, sessionId: string, limit:
     .bind(sessionId, limit)
     .all<{ text: string }>()
 
-  const 表示名 = chat.results.map((row) => row.display_name).filter((name): name is string => name !== null)
-  return [...sideSuper.results, ...chat.results, ...transcripts.results].map((row) => row.text).concat(表示名)
+  const displayName = chat.results.map((row) => row.display_name).filter((name): name is string => name !== null)
+  return [...sideSuper.results, ...chat.results, ...transcripts.results].map((row) => row.text).concat(displayName)
 }
 
 /**

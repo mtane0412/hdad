@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { EMPTY_TRANSCRIPT_STATE, TranscriptMessageError, forgetTranscript, nextTranscriptState, readTranscriptMessage } from './message'
 
 /** ゆかコネNEO が送ってくる1件を組み立てる（省略した項目は既定の形にする） */
-const 受信データ = (overrides: Record<string, unknown> = {}): string =>
+const createMessage = (overrides: Record<string, unknown> = {}): string =>
   JSON.stringify({
     Text1: 'こんばんは、配信を始めます',
     Text2: '',
@@ -19,7 +19,7 @@ const 受信データ = (overrides: Record<string, unknown> = {}): string =>
 
 describe('readTranscriptMessage', () => {
   it('確定した発話を、メッセージIDと母国語の本文にして返す', () => {
-    expect(readTranscriptMessage(受信データ())).toEqual({
+    expect(readTranscriptMessage(createMessage())).toEqual({
       kind: 'spoken',
       messageId: 'f4ad2560-11c0-494f-be04-5734bec5ea41',
       text: 'こんばんは、配信を始めます',
@@ -27,20 +27,20 @@ describe('readTranscriptMessage', () => {
   })
 
   it('暫定の認識（TextFixed が偽）は送る対象にしない', () => {
-    expect(readTranscriptMessage(受信データ({ TextFixed: false }))).toEqual({ kind: 'ignored' })
+    expect(readTranscriptMessage(createMessage({ TextFixed: false }))).toEqual({ kind: 'ignored' })
   })
 
   it('isDeleted が真の1件は、表示を消す知らせなので送る対象にしない', () => {
-    expect(readTranscriptMessage(受信データ({ isDeleted: true }))).toEqual({ kind: 'ignored' })
+    expect(readTranscriptMessage(createMessage({ isDeleted: true }))).toEqual({ kind: 'ignored' })
   })
 
   it('isDeleted が真なら、本文や確定フラグが無くてもエラーにしない', () => {
     // 表示を消す知らせは本文を伴わないことがある。読まない項目の有無で中継を止めない
-    expect(readTranscriptMessage(受信データ({ isDeleted: true, TextFixed: undefined, Text1: undefined }))).toEqual({ kind: 'ignored' })
+    expect(readTranscriptMessage(createMessage({ isDeleted: true, TextFixed: undefined, Text1: undefined }))).toEqual({ kind: 'ignored' })
   })
 
   it('翻訳（Text2〜Text6）は読み取らない', () => {
-    expect(readTranscriptMessage(受信データ({ Text2: 'Good evening', Text3: '晚上好' }))).toEqual({
+    expect(readTranscriptMessage(createMessage({ Text2: 'Good evening', Text3: '晚上好' }))).toEqual({
       kind: 'spoken',
       messageId: 'f4ad2560-11c0-494f-be04-5734bec5ea41',
       text: 'こんばんは、配信を始めます',
@@ -48,7 +48,7 @@ describe('readTranscriptMessage', () => {
   })
 
   it('本文の前後の空白を落とす', () => {
-    expect(readTranscriptMessage(受信データ({ Text1: '  えーと、今日は  ' }))).toEqual({
+    expect(readTranscriptMessage(createMessage({ Text1: '  えーと、今日は  ' }))).toEqual({
       kind: 'spoken',
       messageId: 'f4ad2560-11c0-494f-be04-5734bec5ea41',
       text: 'えーと、今日は',
@@ -56,7 +56,7 @@ describe('readTranscriptMessage', () => {
   })
 
   it('本文が空白だけの発話は送る対象にしない', () => {
-    expect(readTranscriptMessage(受信データ({ Text1: '   ' }))).toEqual({ kind: 'ignored' })
+    expect(readTranscriptMessage(createMessage({ Text1: '   ' }))).toEqual({ kind: 'ignored' })
   })
 
   it('JSONとして読めないデータはエラーにする', () => {
@@ -68,19 +68,19 @@ describe('readTranscriptMessage', () => {
   })
 
   it('メッセージIDが無いデータはエラーにする', () => {
-    expect(() => readTranscriptMessage(受信データ({ MsgID: undefined }))).toThrow(TranscriptMessageError)
+    expect(() => readTranscriptMessage(createMessage({ MsgID: undefined }))).toThrow(TranscriptMessageError)
   })
 
   it('メッセージIDが空のデータはエラーにする', () => {
-    expect(() => readTranscriptMessage(受信データ({ MsgID: '' }))).toThrow(TranscriptMessageError)
+    expect(() => readTranscriptMessage(createMessage({ MsgID: '' }))).toThrow(TranscriptMessageError)
   })
 
   it('本文が文字列でないデータはエラーにする', () => {
-    expect(() => readTranscriptMessage(受信データ({ Text1: 123 }))).toThrow(TranscriptMessageError)
+    expect(() => readTranscriptMessage(createMessage({ Text1: 123 }))).toThrow(TranscriptMessageError)
   })
 
   it('確定フラグが真偽値でないデータはエラーにする', () => {
-    expect(() => readTranscriptMessage(受信データ({ TextFixed: 'true' }))).toThrow(TranscriptMessageError)
+    expect(() => readTranscriptMessage(createMessage({ TextFixed: 'true' }))).toThrow(TranscriptMessageError)
   })
 })
 
@@ -96,9 +96,9 @@ describe('nextTranscriptState', () => {
   })
 
   it('同じメッセージIDが二度届いても二度目は送らない', () => {
-    const 一度目 = nextTranscriptState(EMPTY_TRANSCRIPT_STATE, { kind: 'spoken', messageId: 'あいさつ', text: 'こんばんは' })
-    const 二度目 = nextTranscriptState(一度目.state, { kind: 'spoken', messageId: 'あいさつ', text: 'こんばんは' })
-    expect(二度目.action).toBeNull()
+    const first = nextTranscriptState(EMPTY_TRANSCRIPT_STATE, { kind: 'spoken', messageId: 'あいさつ', text: 'こんばんは' })
+    const second = nextTranscriptState(first.state, { kind: 'spoken', messageId: 'あいさつ', text: 'こんばんは' })
+    expect(second.action).toBeNull()
   })
 
   it('読み取る対象でない1件（暫定の認識・表示を消す知らせ）では何もしない', () => {
@@ -110,10 +110,10 @@ describe('nextTranscriptState', () => {
 
 describe('forgetTranscript', () => {
   it('忘れた発話は、同じ1件がまた届いたときにもう一度送る', () => {
-    const 送信後 = nextTranscriptState(EMPTY_TRANSCRIPT_STATE, { kind: 'spoken', messageId: 'あいさつ', text: 'こんばんは' })
-    const 忘れたあと = forgetTranscript(送信後.state, 'あいさつ')
+    const afterSend = nextTranscriptState(EMPTY_TRANSCRIPT_STATE, { kind: 'spoken', messageId: 'あいさつ', text: 'こんばんは' })
+    const afterForget = forgetTranscript(afterSend.state, 'あいさつ')
 
-    const { action } = nextTranscriptState(忘れたあと, { kind: 'spoken', messageId: 'あいさつ', text: 'こんばんは' })
+    const { action } = nextTranscriptState(afterForget, { kind: 'spoken', messageId: 'あいさつ', text: 'こんばんは' })
 
     expect(action).toEqual({ kind: 'send', messageId: 'あいさつ', text: 'こんばんは' })
   })

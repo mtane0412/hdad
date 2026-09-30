@@ -186,8 +186,8 @@ export const parseOverlayLayout = (input: unknown): OverlayLayout => {
         return { x: 0, y: 0, width: 100, height: 100 }
       }
       const readNumber = (name: 'x' | 'y' | 'width' | 'height', min: number, max: number): number => {
-        const raw値 = value[name]
-        if (typeof raw値 === 'number' && Number.isFinite(raw値) && raw値 >= min && raw値 <= max) return raw値
+        const rawValue = value[name]
+        if (typeof rawValue === 'number' && Number.isFinite(rawValue) && rawValue >= min && rawValue <= max) return rawValue
         problems.push(`${at}.rect.${name}: ${min}〜${max} の数（％）で指定してください`)
         return min
       }

@@ -7,14 +7,14 @@
 import { describe, expect, it } from 'vitest'
 import { needsBgmCredit, needsStreamSummary, readChatMessage, resolveReply, type BotCommand, type ChatMessage } from './chat-command'
 
-const botのID = '67890'
+const botId = '67890'
 
-const コマンド一覧: readonly BotCommand[] = [
+const commandList: readonly BotCommand[] = [
   { name: 'ping', reply: '@{user} pong' },
   { name: 'discord', reply: 'Discordはこちらです: https://example.com/discord' },
 ]
 
-const 視聴者の発言 = (text: string): ChatMessage => ({
+const viewerMessage = (text: string): ChatMessage => ({
   broadcasterUserId: '12345',
   messageId: 'message-id-0123456789',
   chatterUserId: '11111',
@@ -118,77 +118,77 @@ describe('readChatMessage', () => {
 
 describe('resolveReply', () => {
   it('コマンドに一致すれば、送り返す文言を返す', () => {
-    expect(resolveReply(コマンド一覧, 視聴者の発言('!ping'), botのID)).toBe('@shichousha pong')
+    expect(resolveReply(commandList, viewerMessage('!ping'), botId)).toBe('@shichousha pong')
   })
 
   it('差し込み語のない応答文は、そのまま返す', () => {
-    expect(resolveReply(コマンド一覧, 視聴者の発言('!discord'), botのID)).toBe('Discordはこちらです: https://example.com/discord')
+    expect(resolveReply(commandList, viewerMessage('!discord'), botId)).toBe('Discordはこちらです: https://example.com/discord')
   })
 
   it('コマンドの後ろに文字が続いていても、コマンドとして扱う', () => {
-    expect(resolveReply(コマンド一覧, 視聴者の発言('!ping 元気ですか'), botのID)).toBe('@shichousha pong')
+    expect(resolveReply(commandList, viewerMessage('!ping 元気ですか'), botId)).toBe('@shichousha pong')
   })
 
   it('大文字で書かれていてもコマンドとして扱う', () => {
-    expect(resolveReply(コマンド一覧, 視聴者の発言('!PING'), botのID)).toBe('@shichousha pong')
+    expect(resolveReply(commandList, viewerMessage('!PING'), botId)).toBe('@shichousha pong')
   })
 
   it('前に空白があってもコマンドとして扱う', () => {
-    expect(resolveReply(コマンド一覧, 視聴者の発言('  !ping'), botのID)).toBe('@shichousha pong')
+    expect(resolveReply(commandList, viewerMessage('  !ping'), botId)).toBe('@shichousha pong')
   })
 
   it('bot自身の発言には応答しない（応答し続けて止まらなくなるため）', () => {
-    const botの発言: ChatMessage = {
+    const botMessage: ChatMessage = {
       broadcasterUserId: '12345',
       messageId: 'message-id-9999',
-      chatterUserId: botのID,
+      chatterUserId: botId,
       chatterUserLogin: 'haishinsha_bot',
       chatterUserName: '配信者のbot',
       text: '!ping',
       badges: [],
     }
 
-    expect(resolveReply(コマンド一覧, botの発言, botのID)).toBeNull()
+    expect(resolveReply(commandList, botMessage, botId)).toBeNull()
   })
 
   it('コマンドではない普通の発言には応答しない', () => {
-    expect(resolveReply(コマンド一覧, 視聴者の発言('こんばんは'), botのID)).toBeNull()
+    expect(resolveReply(commandList, viewerMessage('こんばんは'), botId)).toBeNull()
   })
 
   it('知らないコマンドには応答しない', () => {
-    expect(resolveReply(コマンド一覧, 視聴者の発言('!shiranai'), botのID)).toBeNull()
+    expect(resolveReply(commandList, viewerMessage('!shiranai'), botId)).toBeNull()
   })
 
   it('感嘆符だけの発言には応答しない', () => {
-    expect(resolveReply(コマンド一覧, 視聴者の発言('!'), botのID)).toBeNull()
+    expect(resolveReply(commandList, viewerMessage('!'), botId)).toBeNull()
   })
 
   it('文中に出てきたコマンドには応答しない（先頭のときだけ）', () => {
-    expect(resolveReply(コマンド一覧, 視聴者の発言('さっき !ping と打ちました'), botのID)).toBeNull()
+    expect(resolveReply(commandList, viewerMessage('さっき !ping と打ちました'), botId)).toBeNull()
   })
 
   it('コマンドが1つも登録されていなければ、何にも応答しない', () => {
-    expect(resolveReply([], 視聴者の発言('!ping'), botのID)).toBeNull()
+    expect(resolveReply([], viewerMessage('!ping'), botId)).toBeNull()
   })
 })
 
 describe('あらすじの差し込み語', () => {
-  const あらすじのコマンド: BotCommand[] = [{ name: 'summary', reply: 'これまでのあらすじ: {summary}' }]
+  const summaryCommand: BotCommand[] = [{ name: 'summary', reply: 'これまでのあらすじ: {summary}' }]
 
   it('{summary} を、貯めてあるあらすじに置き換える', () => {
-    expect(resolveReply(あらすじのコマンド, 視聴者の発言('!summary'), botのID, '配信者は新しいゲームを遊んでいます')).toBe(
+    expect(resolveReply(summaryCommand, viewerMessage('!summary'), botId, '配信者は新しいゲームを遊んでいます')).toBe(
       'これまでのあらすじ: 配信者は新しいゲームを遊んでいます',
     )
   })
 
   it('あらすじがまだ無くても、無応答にならずその旨を返す', () => {
-    expect(resolveReply(あらすじのコマンド, 視聴者の発言('!summary'), botのID, null)).toBe('これまでのあらすじ: まだあらすじがありません')
+    expect(resolveReply(summaryCommand, viewerMessage('!summary'), botId, null)).toBe('これまでのあらすじ: まだあらすじがありません')
   })
 
   it('{user} と一緒に使える', () => {
-    const コマンド: BotCommand[] = [{ name: 'summary', reply: '@{user} {summary}' }]
+    const command: BotCommand[] = [{ name: 'summary', reply: '@{user} {summary}' }]
 
-    expect(resolveReply(コマンド, 視聴者の発言('!summary'), botのID, 'ボス戦の最中です')).toBe('@shichousha ボス戦の最中です')
+    expect(resolveReply(command, viewerMessage('!summary'), botId, 'ボス戦の最中です')).toBe('@shichousha ボス戦の最中です')
   })
 })
 
@@ -203,23 +203,23 @@ describe('needsStreamSummary', () => {
 })
 
 describe('BGMの差し込み語', () => {
-  const BGMのコマンド: BotCommand[] = [{ name: 'bgm', reply: '@{user} いまの曲: {bgm}' }]
-  const 流している曲 = { title: 'ひだまりの午後', credit: '音楽: 甘茶の音楽工房', creditUrl: 'https://amachamusic.chagasi.com/' }
+  const bgmCommand: BotCommand[] = [{ name: 'bgm', reply: '@{user} いまの曲: {bgm}' }]
+  const playingTrack = { title: 'ひだまりの午後', credit: '音楽: 甘茶の音楽工房', creditUrl: 'https://amachamusic.chagasi.com/' }
 
   it('{bgm} を、流している曲のクレジットに置き換える', () => {
-    expect(resolveReply(BGMのコマンド, 視聴者の発言('!bgm'), botのID, null, 流している曲)).toBe(
+    expect(resolveReply(bgmCommand, viewerMessage('!bgm'), botId, null, playingTrack)).toBe(
       '@shichousha いまの曲: 「ひだまりの午後」 音楽: 甘茶の音楽工房 https://amachamusic.chagasi.com/',
     )
   })
 
   it('曲を止めていても、無応答にならず流していないと返す', () => {
-    expect(resolveReply(BGMのコマンド, 視聴者の発言('!bgm'), botのID, null, null)).toBe('@shichousha いまの曲: いまはBGMを流していません')
+    expect(resolveReply(bgmCommand, viewerMessage('!bgm'), botId, null, null)).toBe('@shichousha いまの曲: いまはBGMを流していません')
   })
 
   it('{summary} と一緒に使える', () => {
-    const コマンド: BotCommand[] = [{ name: 'ima', reply: '{summary} / {bgm}' }]
+    const command: BotCommand[] = [{ name: 'ima', reply: '{summary} / {bgm}' }]
 
-    expect(resolveReply(コマンド, 視聴者の発言('!ima'), botのID, 'ボス戦の最中です', { ...流している曲, creditUrl: '' })).toBe(
+    expect(resolveReply(command, viewerMessage('!ima'), botId, 'ボス戦の最中です', { ...playingTrack, creditUrl: '' })).toBe(
       'ボス戦の最中です / 「ひだまりの午後」 音楽: 甘茶の音楽工房',
     )
   })
@@ -227,9 +227,9 @@ describe('BGMの差し込み語', () => {
 
 describe('差し込み語の置き換えは応答文だけを1回見る', () => {
   it('あらすじの中に {bgm} という文字列があっても、置き換えない', () => {
-    const コマンド: BotCommand[] = [{ name: 'summary', reply: 'あらすじ: {summary}' }]
+    const command: BotCommand[] = [{ name: 'summary', reply: 'あらすじ: {summary}' }]
 
-    expect(resolveReply(コマンド, 視聴者の発言('!summary'), botのID, '{bgm} コマンドの話をしました', null)).toBe(
+    expect(resolveReply(command, viewerMessage('!summary'), botId, '{bgm} コマンドの話をしました', null)).toBe(
       'あらすじ: {bgm} コマンドの話をしました',
     )
   })

@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest'
 import { parseAlert } from './alert'
 
-const アラート = {
+const alert = {
   media: { kind: 'image', url: '/api/media/media-1?key=overlay-key' },
   durationSeconds: 5,
   volume: 0.8,
@@ -16,7 +16,7 @@ const アラート = {
 
 describe('parseAlert', () => {
   it('素材・表示時間・音量・文言を受け取る', () => {
-    expect(parseAlert(JSON.stringify(アラート))).toEqual(アラート)
+    expect(parseAlert(JSON.stringify(alert))).toEqual(alert)
   })
 
   it('JSONとして読めなければエラーにする', () => {
@@ -24,10 +24,10 @@ describe('parseAlert', () => {
   })
 
   it('素材の種類が画像・動画・音声のどれでもなければエラーにする', () => {
-    expect(() => parseAlert(JSON.stringify({ ...アラート, media: { kind: 'テキスト', url: '/api/media/media-1' } }))).toThrow('アラート')
+    expect(() => parseAlert(JSON.stringify({ ...alert, media: { kind: 'テキスト', url: '/api/media/media-1' } }))).toThrow('アラート')
   })
 
   it('表示時間や音量が欠けていればエラーにする（黙って既定値で再生しない）', () => {
-    expect(() => parseAlert(JSON.stringify({ media: アラート.media, text: '' }))).toThrow('アラート')
+    expect(() => parseAlert(JSON.stringify({ media: alert.media, text: '' }))).toThrow('アラート')
   })
 })

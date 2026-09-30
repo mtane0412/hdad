@@ -18,10 +18,10 @@ import type { FocusTarget } from './focused'
 export const DEMO_FOCUS_TEXT_LENGTH = 500
 
 /** 上限いっぱいの本文。長い語りをそのまま取り上げたときに、どこまで場所を取るかを見るためのもの */
-const 上限いっぱいの本文 = 'これは私が小学生のころに住んでいた家で実際に起きたことなのですが、'.repeat(16).slice(0, DEMO_FOCUS_TEXT_LENGTH)
+const maxLengthBody = 'これは私が小学生のころに住んでいた家で実際に起きたことなのですが、'.repeat(16).slice(0, DEMO_FOCUS_TEXT_LENGTH)
 
 /** サンプルのアイコン。指定した色で塗りつぶした正方形を、ページに埋め込める画像（SVGのデータURL）にする */
-const 単色のアイコン = (color: string): string =>
+const solidIcon = (color: string): string =>
   `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect width="1" height="1" fill="${color}"/></svg>`)}`
 
 /** サンプルの1件（順に出し、一巡したらまた先頭から流す） */
@@ -31,20 +31,20 @@ export const demoFocused: readonly FocusTarget[] = [
     login: 'kowai_hanashi',
     displayName: '怖い話す人',
     text: '今から怖い話をするね',
-    profileImageUrl: 単色のアイコン('#7b3ff2'),
+    profileImageUrl: solidIcon('#7b3ff2'),
   },
   {
     messageId: 'demo-2',
     login: 'zatsudan_suki',
     displayName: '雑談好き',
     text: 'キーボードは結局どれを買ったんですか？',
-    profileImageUrl: 単色のアイコン('#1f9d8b'),
+    profileImageUrl: solidIcon('#1f9d8b'),
   },
   {
     messageId: 'demo-3',
     login: 'kowai_hanashi',
     displayName: '怖い話す人',
-    text: 上限いっぱいの本文,
-    profileImageUrl: 単色のアイコン('#7b3ff2'),
+    text: maxLengthBody,
+    profileImageUrl: solidIcon('#7b3ff2'),
   },
 ]

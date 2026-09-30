@@ -87,13 +87,13 @@ const createCard = (focused: FocusTarget): HTMLElement => {
  */
 export const createFocusView = (root: HTMLElement): FocusView => {
   /** いま映している1件の鍵。渡し直されたときに作り直すかどうかの判定に使う */
-  let 映している鍵 = ''
+  let showingKey = ''
 
   return {
     setFocused(focused) {
       if (focused === null) {
-        if (映している鍵 === '') return
-        映している鍵 = ''
+        if (showingKey === '') return
+        showingKey = ''
         root.replaceChildren()
         return
       }
@@ -101,9 +101,9 @@ export const createFocusView = (root: HTMLElement): FocusView => {
         throw new Error(`「${focused.displayName}」の本文が空です（名前だけのコメントは映しません）`)
       }
 
-      const 鍵 = keyOf(focused)
-      if (鍵 === 映している鍵) return
-      映している鍵 = 鍵
+      const key = keyOf(focused)
+      if (key === showingKey) return
+      showingKey = key
       root.replaceChildren(createCard(focused))
     },
   }

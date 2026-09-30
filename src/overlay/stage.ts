@@ -532,7 +532,7 @@ const mountDraw = (box: HTMLElement, item: OverlayItem, { key, demo }: MountCont
   let strokes: Strokes = demo ? { strokes: demoStrokes } : NO_STROKES
 
   /** 中継先へつないで、これから引かれる線を受け取る */
-  const 中継先へつなぐ = (): void =>
+  const connectRelay = (): void =>
     connectDrawViewer(key, {
       onMessage: (message) => {
         strokes = applyDrawMessage(strokes, message)
@@ -555,11 +555,11 @@ const mountDraw = (box: HTMLElement, item: OverlayItem, { key, demo }: MountCont
     // 読めなかったときは箱に出したうえでつなぐ（保存ぶんが無くても、これから引かれる線は映せる）
     void createDrawOverlayApi(callWorker, key)
       .read()
-      .then(({ strokes: 保存されたもの }) => {
-        strokes = { strokes: [...保存されたもの, ...strokes.strokes] }
+      .then(({ strokes: saved }) => {
+        strokes = { strokes: [...saved, ...strokes.strokes] }
       })
       .catch((error: unknown) => showError(error, NOUNS.draw, box, 'read'))
-      .finally(中継先へつなぐ)
+      .finally(connectRelay)
   }
 
   return { draw: startCanvasSurface(canvas, (ctx, width, height) => drawStrokes(ctx, strokes, { width, height })) }
@@ -755,9 +755,9 @@ const start = async (): Promise<void> => {
   const all = params.demo ? await receivePreviewLayout() : await createOverlayLayoutApi(callWorker, params.key).read()
   const items = itemsInOverlay(all, params.overlay)
   if (items.length === 0) {
-    const 名前 = overlayNamesOf(all)
+    const overlayNames = overlayNamesOf(all)
     throw new Error(
-      `オーバーレイ「${params.overlay}」に素材がありません（構成にあるオーバーレイ: ${名前.length > 0 ? 名前.join('・') : 'なし'}）`,
+      `オーバーレイ「${params.overlay}」に素材がありません（構成にあるオーバーレイ: ${overlayNames.length > 0 ? overlayNames.join('・') : 'なし'}）`,
     )
   }
 

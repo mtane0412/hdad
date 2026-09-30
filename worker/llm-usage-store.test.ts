@@ -13,11 +13,11 @@ import { describe, expect, it } from 'vitest'
 import { createFakeDatabase } from './fake-database'
 import { listLlmUsage, recordLlmUsage, type LlmCallRecord } from './llm-usage-store'
 
-const 現在時刻 = Date.parse('2026-09-27T01:23:45.000Z')
-const 一日 = 24 * 60 * 60 * 1000
+const now = Date.parse('2026-09-27T01:23:45.000Z')
+const oneDay = 24 * 60 * 60 * 1000
 
 /** 成功した1回。中身は読んで意味が分かる値にする */
-const 成功した呼び出し: LlmCallRecord = {
+const successfulCall: LlmCallRecord = {
   usage: 'aiChat',
   provider: 'workers-ai',
   model: '@cf/meta/llama-3.1-8b-instruct-fp8',
@@ -31,8 +31,8 @@ describe('recordLlmUsage', () => {
   it('同じ日の同じ箇所・同じモデルは、行を増やさずに足し込む', async () => {
     const db = createFakeDatabase()
 
-    await recordLlmUsage(db, 成功した呼び出し, 現在時刻)
-    await recordLlmUsage(db, 成功した呼び出し, 現在時刻 + 60_000)
+    await recordLlmUsage(db, successfulCall, now)
+    await recordLlmUsage(db, successfulCall, now + 60_000)
 
     const rows = await listLlmUsage(db, '2026-09-01')
     expect(rows).toEqual([
@@ -53,8 +53,8 @@ describe('recordLlmUsage', () => {
   it('失敗は calls に混ぜず failures として数える（無料枠切れの回数を画面から読めるようにするため）', async () => {
     const db = createFakeDatabase()
 
-    await recordLlmUsage(db, 成功した呼び出し, 現在時刻)
-    await recordLlmUsage(db, { ...成功した呼び出し, promptTokens: 0, completionTokens: 0, failed: true }, 現在時刻)
+    await recordLlmUsage(db, successfulCall, now)
+    await recordLlmUsage(db, { ...successfulCall, promptTokens: 0, completionTokens: 0, failed: true }, now)
 
     const [row] = await listLlmUsage(db, '2026-09-01')
     expect(row).toMatchObject({ calls: 1, failures: 1 })
@@ -62,10 +62,10 @@ describe('recordLlmUsage', () => {
 
   it('OpenRouter が返した実費は積み上げる', async () => {
     const db = createFakeDatabase()
-    const 呼び出し: LlmCallRecord = { ...成功した呼び出し, provider: 'openrouter', model: 'anthropic/claude-3.5-haiku', costUsd: 0.000_12 }
+    const call: LlmCallRecord = { ...successfulCall, provider: 'openrouter', model: 'anthropic/claude-3.5-haiku', costUsd: 0.000_12 }
 
-    await recordLlmUsage(db, 呼び出し, 現在時刻)
-    await recordLlmUsage(db, 呼び出し, 現在時刻)
+    await recordLlmUsage(db, call, now)
+    await recordLlmUsage(db, call, now)
 
     const [row] = await listLlmUsage(db, '2026-09-01')
     expect(row?.costUsd).toBeCloseTo(0.000_24, 8)
@@ -74,10 +74,10 @@ describe('recordLlmUsage', () => {
   it('日・箇所・提供元・モデルが違えば別の行になる（日の途中でモデルを変えても混ざらない）', async () => {
     const db = createFakeDatabase()
 
-    await recordLlmUsage(db, 成功した呼び出し, 現在時刻)
-    await recordLlmUsage(db, { ...成功した呼び出し, model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast' }, 現在時刻)
-    await recordLlmUsage(db, { ...成功した呼び出し, usage: 'streamSummary' }, 現在時刻)
-    await recordLlmUsage(db, 成功した呼び出し, 現在時刻 + 一日)
+    await recordLlmUsage(db, successfulCall, now)
+    await recordLlmUsage(db, { ...successfulCall, model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast' }, now)
+    await recordLlmUsage(db, { ...successfulCall, usage: 'streamSummary' }, now)
+    await recordLlmUsage(db, successfulCall, now + oneDay)
 
     expect(await listLlmUsage(db, '2026-09-01')).toHaveLength(4)
   })
@@ -85,10 +85,10 @@ describe('recordLlmUsage', () => {
   it('保持期間（90日）を過ぎた行は消す', async () => {
     const db = createFakeDatabase()
 
-    await recordLlmUsage(db, 成功した呼び出し, 現在時刻 - 91 * 一日)
+    await recordLlmUsage(db, successfulCall, now - 91 * oneDay)
     expect(await listLlmUsage(db, '2020-01-01')).toHaveLength(1)
 
-    await recordLlmUsage(db, 成功した呼び出し, 現在時刻)
+    await recordLlmUsage(db, successfulCall, now)
     expect((await listLlmUsage(db, '2020-01-01')).map(({ day }) => day)).toEqual(['2026-09-27'])
   })
 })
@@ -97,9 +97,9 @@ describe('listLlmUsage', () => {
   it('指定した日より前の行は返さず、新しい日から順に並べる', async () => {
     const db = createFakeDatabase()
 
-    await recordLlmUsage(db, 成功した呼び出し, 現在時刻 - 2 * 一日)
-    await recordLlmUsage(db, 成功した呼び出し, 現在時刻 - 一日)
-    await recordLlmUsage(db, 成功した呼び出し, 現在時刻)
+    await recordLlmUsage(db, successfulCall, now - 2 * oneDay)
+    await recordLlmUsage(db, successfulCall, now - oneDay)
+    await recordLlmUsage(db, successfulCall, now)
 
     expect((await listLlmUsage(db, '2026-09-26')).map(({ day }) => day)).toEqual(['2026-09-27', '2026-09-26'])
   })

@@ -17,7 +17,7 @@ import { BotPage } from './bot-page'
 import type { BotApi, BotCommandItem, BotStatus, DevicePoll, ModerationSettings } from './api'
 
 /** Workerが未保存のときに返す、自動モデレーションの既定の設定（無効・除外はすべて有効） */
-const 既定のモデレーション設定: ModerationSettings = {
+const defaultModerationConfig: ModerationSettings = {
   enabled: false,
   exemptBroadcaster: true,
   exemptVip: true,
@@ -25,12 +25,12 @@ const 既定のモデレーション設定: ModerationSettings = {
   rules: [],
 }
 
-const 接続済みのbot: BotStatus = { userId: '67890', login: 'haishinsha_bot', missingScopes: [], isModerator: true }
+const connectedBot: BotStatus = { userId: '67890', login: 'haishinsha_bot', missingScopes: [], isModerator: true }
 
 /** botが接続済みのWorkerの代役 */
-const 挨拶のコマンド: BotCommandItem = { name: 'aisatsu', reply: '@{user} こんばんは', cooldownSeconds: 10 }
+const greetingCommand: BotCommandItem = { name: 'aisatsu', reply: '@{user} こんばんは', cooldownSeconds: 10 }
 
-const 発行されたコード = {
+const issuedCode = {
   deviceCode: 'device-code-0123456789',
   userCode: 'ABCDEFGH',
   verificationUri: 'https://www.twitch.tv/activate?public=true&device-code=ABCDEFGH',
@@ -39,75 +39,75 @@ const 発行されたコード = {
   intervalSeconds: 0,
 }
 
-const 代役のAPI = (overrides: Partial<BotApi> = {}): BotApi => ({
-  status: vi.fn(async () => 接続済みのbot),
+const fakeApi = (overrides: Partial<BotApi> = {}): BotApi => ({
+  status: vi.fn(async () => connectedBot),
   disconnect: vi.fn(async () => {}),
   sendMessage: vi.fn(async () => {}),
-  startDeviceCode: vi.fn(async () => 発行されたコード),
-  commands: vi.fn(async () => [挨拶のコマンド]),
+  startDeviceCode: vi.fn(async () => issuedCode),
+  commands: vi.fn(async () => [greetingCommand]),
   saveCommands: vi.fn(async (commands: readonly BotCommandItem[]) => [...commands]),
-  pollDeviceCode: vi.fn(async (): Promise<DevicePoll> => ({ status: 'connected', bot: 接続済みのbot })),
-  moderation: vi.fn(async () => 既定のモデレーション設定),
+  pollDeviceCode: vi.fn(async (): Promise<DevicePoll> => ({ status: 'connected', bot: connectedBot })),
+  moderation: vi.fn(async () => defaultModerationConfig),
   saveModeration: vi.fn(async (settings: ModerationSettings) => ({ ...settings })),
   ...overrides,
 })
 
-const お知らせ = (text: string): Promise<HTMLElement> => screen.findByText(new RegExp(text))
+const notice = (text: string): Promise<HTMLElement> => screen.findByText(new RegExp(text))
 
 afterEach(cleanup)
 
 describe('接続状態', () => {
   test('接続済みなら、botのログイン名を出す', async () => {
-    render(<BotPage api={代役のAPI()} />)
+    render(<BotPage api={fakeApi()} />)
 
-    expect(await お知らせ('haishinsha_bot')).toBeInTheDocument()
+    expect(await notice('haishinsha_bot')).toBeInTheDocument()
   })
 
   test('未接続なら、接続のリンクを出す（Twitchの認可画面へ送るので普通のリンクにする）', async () => {
-    render(<BotPage api={代役のAPI({ status: vi.fn(async () => null) })} />)
+    render(<BotPage api={fakeApi({ status: vi.fn(async () => null) })} />)
 
     const link = await screen.findByRole('link', { name: /接続/ })
     expect(link).toHaveAttribute('href', '/api/auth/login?role=bot')
   })
 
   test('スコープが足りなければ、不足しているスコープと接続し直しの案内を出す', async () => {
-    const api = 代役のAPI({ status: vi.fn(async () => ({ ...接続済みのbot, missingScopes: ['user:write:chat'] })) })
+    const api = fakeApi({ status: vi.fn(async () => ({ ...connectedBot, missingScopes: ['user:write:chat'] })) })
     render(<BotPage api={api} />)
 
-    expect(await お知らせ('user:write:chat')).toBeInTheDocument()
+    expect(await notice('user:write:chat')).toBeInTheDocument()
     expect(await screen.findByRole('link', { name: /接続/ })).toBeInTheDocument()
   })
 
   test('botがモデレーターでなければ、配信者に /mod を実行してもらう案内を出す', async () => {
     // モデレーターでないと、BAN・タイムアウト・発言の削除・アナウンスがすべてTwitchに拒否される
-    const api = 代役のAPI({ status: vi.fn(async () => ({ ...接続済みのbot, isModerator: false })) })
+    const api = fakeApi({ status: vi.fn(async () => ({ ...connectedBot, isModerator: false })) })
     render(<BotPage api={api} />)
 
-    expect(await お知らせ('/mod haishinsha_bot')).toBeInTheDocument()
+    expect(await notice('/mod haishinsha_bot')).toBeInTheDocument()
   })
 
   test('botがモデレーターなら、/mod の案内は出さない', async () => {
-    render(<BotPage api={代役のAPI()} />)
+    render(<BotPage api={fakeApi()} />)
 
-    expect(await お知らせ('haishinsha_bot')).toBeInTheDocument()
+    expect(await notice('haishinsha_bot')).toBeInTheDocument()
     expect(screen.queryByText(/\/mod /)).not.toBeInTheDocument()
   })
 
   test('状態を読めなければ、理由を出す（黙って未接続扱いにしない）', async () => {
-    const api = 代役のAPI({
+    const api = fakeApi({
       status: vi.fn(async () => {
         throw new Error('ログインが必要です')
       }),
     })
     render(<BotPage api={api} />)
 
-    expect(await お知らせ('ログインが必要です')).toBeInTheDocument()
+    expect(await notice('ログインが必要です')).toBeInTheDocument()
   })
 })
 
 describe('切断', () => {
   test('確認してから切断し、未接続の表示に変わる', async () => {
-    const api = 代役のAPI()
+    const api = fakeApi()
     render(<BotPage api={api} />)
     await screen.findByText(/haishinsha_bot/)
 
@@ -123,7 +123,7 @@ describe('切断', () => {
   })
 
   test('確認でやめたら、切断しない', async () => {
-    const api = 代役のAPI()
+    const api = fakeApi()
     render(<BotPage api={api} />)
     await screen.findByText(/haishinsha_bot/)
 
@@ -136,7 +136,7 @@ describe('切断', () => {
 
 describe('テスト送信', () => {
   test('入力した本文をWorkerへ送り、送れたことを知らせる', async () => {
-    const api = 代役のAPI()
+    const api = fakeApi()
     render(<BotPage api={api} />)
     await screen.findByText(/haishinsha_bot/)
 
@@ -144,44 +144,44 @@ describe('テスト送信', () => {
     await userEvent.click(screen.getByRole('button', { name: '送信する' }))
 
     expect(api.sendMessage).toHaveBeenCalledWith('こんばんは、配信が始まりました')
-    expect(await お知らせ('送信しました')).toBeInTheDocument()
+    expect(await notice('送信しました')).toBeInTheDocument()
   })
 
   test('送信中にEnterを押しても、二重に送らない', async () => {
-    let 送信を終える = (): void => {}
-    const api = 代役のAPI({
+    let finishSending = (): void => {}
+    const api = fakeApi({
       sendMessage: vi.fn(
         async () =>
           new Promise<void>((resolve) => {
-            送信を終える = resolve
+            finishSending = resolve
           }),
       ),
     })
     render(<BotPage api={api} />)
     await screen.findByText(/haishinsha_bot/)
 
-    const 入力欄 = screen.getByLabelText('テスト送信する文言')
-    await userEvent.type(入力欄, 'こんばんは{Enter}')
+    const input = screen.getByLabelText('テスト送信する文言')
+    await userEvent.type(input, 'こんばんは{Enter}')
     // 1回目の送信が終わらないうちに、もう一度Enterを押す
-    await userEvent.type(入力欄, '{Enter}')
+    await userEvent.type(input, '{Enter}')
 
     expect(api.sendMessage).toHaveBeenCalledTimes(1)
-    送信を終える()
+    finishSending()
   })
 
   test('本文が空なら、Workerへ送らずに入力を促す', async () => {
-    const api = 代役のAPI()
+    const api = fakeApi()
     render(<BotPage api={api} />)
     await screen.findByText(/haishinsha_bot/)
 
     await userEvent.click(screen.getByRole('button', { name: '送信する' }))
 
     expect(api.sendMessage).not.toHaveBeenCalled()
-    expect(await お知らせ('文言を入力してください')).toBeInTheDocument()
+    expect(await notice('文言を入力してください')).toBeInTheDocument()
   })
 
   test('送信に失敗したら、理由を出す', async () => {
-    const api = 代役のAPI({
+    const api = fakeApi({
       sendMessage: vi.fn(async () => {
         throw new Error('Twitchがチャットを送信しませんでした: メッセージがAutoModに保留されました')
       }),
@@ -193,11 +193,11 @@ describe('テスト送信', () => {
     await userEvent.click(screen.getByRole('button', { name: '送信する' }))
 
     // 「AutoMod」は自動モデレーションの説明文にも出てくるので、失敗の理由だけに出てくる文言で確かめる
-    expect(await お知らせ('AutoModに保留されました')).toBeInTheDocument()
+    expect(await notice('AutoModに保留されました')).toBeInTheDocument()
   })
 
   test('未接続なら、テスト送信の欄を出さない', async () => {
-    render(<BotPage api={代役のAPI({ status: vi.fn(async () => null) })} />)
+    render(<BotPage api={fakeApi({ status: vi.fn(async () => null) })} />)
     await screen.findByRole('link', { name: /接続/ })
 
     expect(screen.queryByLabelText('テスト送信する文言')).not.toBeInTheDocument()
@@ -206,20 +206,20 @@ describe('テスト送信', () => {
 
 describe('別の端末での接続（デバイスコードフロー）', () => {
   /** 未接続の状態から始める代役。デバイスコードの部分だけ差し替えられる */
-  const 未接続のAPI = (overrides: Partial<BotApi> = {}): BotApi => 代役のAPI({ status: vi.fn(async () => null), ...overrides })
+  const disconnectedApi = (overrides: Partial<BotApi> = {}): BotApi => fakeApi({ status: vi.fn(async () => null), ...overrides })
 
   test('コードと案内先を出す', async () => {
-    const api = 未接続のAPI({ pollDeviceCode: vi.fn(async (): Promise<DevicePoll> => ({ status: 'pending' })) })
+    const api = disconnectedApi({ pollDeviceCode: vi.fn(async (): Promise<DevicePoll> => ({ status: 'pending' })) })
     render(<BotPage api={api} />)
 
     await userEvent.click(await screen.findByRole('button', { name: '別の端末で接続する' }))
 
     expect(await screen.findByText('ABCDEFGH')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /twitch\.tv\/activate/ })).toHaveAttribute('href', 発行されたコード.verificationUri)
+    expect(screen.getByRole('link', { name: /twitch\.tv\/activate/ })).toHaveAttribute('href', issuedCode.verificationUri)
   })
 
   test('認可が済んだら、接続済みの表示に切り替わる', async () => {
-    const api = 未接続のAPI()
+    const api = disconnectedApi()
     render(<BotPage api={api} />)
 
     await userEvent.click(await screen.findByRole('button', { name: '別の端末で接続する' }))
@@ -230,14 +230,14 @@ describe('別の端末での接続（デバイスコードフロー）', () => {
   })
 
   test('認可されるまで、繰り返し問い合わせる', async () => {
-    let 認可済み = false
-    const api = 未接続のAPI({
+    let authorized = false
+    const api = disconnectedApi({
       pollDeviceCode: vi.fn(async (): Promise<DevicePoll> => {
-        if (!認可済み) {
-          認可済み = true
+        if (!authorized) {
+          authorized = true
           return { status: 'pending' }
         }
-        return { status: 'connected', bot: 接続済みのbot }
+        return { status: 'connected', bot: connectedBot }
       }),
     })
     render(<BotPage api={api} />)
@@ -249,7 +249,7 @@ describe('別の端末での接続（デバイスコードフロー）', () => {
   })
 
   test('コードの期限が切れたら、やり直しを促す（黙って待ち続けない）', async () => {
-    const api = 未接続のAPI({
+    const api = disconnectedApi({
       pollDeviceCode: vi.fn(async () => {
         throw new Error('Twitchが 400 を返しました: expired_token')
       }),
@@ -258,13 +258,13 @@ describe('別の端末での接続（デバイスコードフロー）', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: '別の端末で接続する' }))
 
-    expect(await お知らせ('expired_token')).toBeInTheDocument()
+    expect(await notice('expired_token')).toBeInTheDocument()
     // 待ち続けずに、コードの表示をやめる
     expect(screen.queryByText('ABCDEFGH')).not.toBeInTheDocument()
   })
 
   test('コードの発行に失敗したら、理由を出す', async () => {
-    const api = 未接続のAPI({
+    const api = disconnectedApi({
       startDeviceCode: vi.fn(async () => {
         throw new Error('Twitchが 400 を返しました: invalid client')
       }),
@@ -273,13 +273,13 @@ describe('別の端末での接続（デバイスコードフロー）', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: '別の端末で接続する' }))
 
-    expect(await お知らせ('invalid client')).toBeInTheDocument()
+    expect(await notice('invalid client')).toBeInTheDocument()
   })
 })
 
 describe('コマンドの編集', () => {
   test('保存済みのコマンドを表の行として出す', async () => {
-    render(<BotPage api={代役のAPI()} />)
+    render(<BotPage api={fakeApi()} />)
 
     expect(await screen.findByDisplayValue('aisatsu')).toBeInTheDocument()
     expect(screen.getByDisplayValue('@{user} こんばんは')).toBeInTheDocument()
@@ -288,43 +288,43 @@ describe('コマンドの編集', () => {
   })
 
   test('1つも登録していなければ、表を出さずに足すボタンだけを出す', async () => {
-    render(<BotPage api={代役のAPI({ commands: vi.fn(async () => []) })} />)
+    render(<BotPage api={fakeApi({ commands: vi.fn(async () => []) })} />)
 
     expect(await screen.findByRole('button', { name: 'コマンドを足す' })).toBeInTheDocument()
     expect(screen.queryByRole('table', { name: 'コマンドの一覧' })).not.toBeInTheDocument()
   })
 
   test('変更していないあいだは、保存ボタンを出さない', async () => {
-    render(<BotPage api={代役のAPI()} />)
+    render(<BotPage api={fakeApi()} />)
     await screen.findByDisplayValue('aisatsu')
 
     expect(screen.queryByRole('button', { name: 'コマンドを保存する' })).not.toBeInTheDocument()
   })
 
   test('入力を変えると保存ボタンが出て、保存すると消える', async () => {
-    render(<BotPage api={代役のAPI()} />)
+    render(<BotPage api={fakeApi()} />)
     await screen.findByDisplayValue('aisatsu')
 
     await userEvent.type(screen.getByLabelText('1番目の応答文'), 'です')
     await userEvent.click(await screen.findByRole('button', { name: 'コマンドを保存する' }))
 
-    expect(await お知らせ('保存しました')).toBeInTheDocument()
+    expect(await notice('保存しました')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'コマンドを保存する' })).not.toBeInTheDocument()
   })
 
   test('応答文の差し込み語（{user}・{summary}・{bgm}）をボタンで入れられる', async () => {
-    render(<BotPage api={代役のAPI()} />)
-    const 応答文の入力欄 = await screen.findByLabelText<HTMLInputElement>('1番目の応答文')
+    render(<BotPage api={fakeApi()} />)
+    const replyInput = await screen.findByLabelText<HTMLInputElement>('1番目の応答文')
 
     await userEvent.click(screen.getByRole('button', { name: '1番目の応答文に {bgm} を挿入' }))
 
-    expect(応答文の入力欄).toHaveValue('@{user} こんばんは{bgm}')
+    expect(replyInput).toHaveValue('@{user} こんばんは{bgm}')
     expect(screen.getByRole('button', { name: '1番目の応答文に {user} を挿入' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '1番目の応答文に {summary} を挿入' })).toBeInTheDocument()
   })
 
   test('コマンドを足して保存すると、入力した値がWorkerへ送られる', async () => {
-    const api = 代役のAPI({ commands: vi.fn(async () => []) })
+    const api = fakeApi({ commands: vi.fn(async () => []) })
     render(<BotPage api={api} />)
     await screen.findByRole('button', { name: 'コマンドを足す' })
 
@@ -334,11 +334,11 @@ describe('コマンドの編集', () => {
     await userEvent.click(screen.getByRole('button', { name: 'コマンドを保存する' }))
 
     expect(api.saveCommands).toHaveBeenCalledWith([{ name: 'discord', reply: 'Discordはこちらです', cooldownSeconds: 0 }])
-    expect(await お知らせ('保存しました')).toBeInTheDocument()
+    expect(await notice('保存しました')).toBeInTheDocument()
   })
 
   test('コマンドを外して保存できる', async () => {
-    const api = 代役のAPI()
+    const api = fakeApi()
     render(<BotPage api={api} />)
     await screen.findByDisplayValue('aisatsu')
 
@@ -349,12 +349,12 @@ describe('コマンドの編集', () => {
   })
 
   test('保存している間は、入力欄と「外す」を操作できなくする（保存の応答で入力が消えないようにするため）', async () => {
-    let 保存を終える = (): void => {}
-    const api = 代役のAPI({
+    let finishSave = (): void => {}
+    const api = fakeApi({
       saveCommands: vi.fn(
         async (commands: readonly BotCommandItem[]) =>
           new Promise<BotCommandItem[]>((resolve) => {
-            保存を終える = () => resolve([...commands])
+            finishSave = () => resolve([...commands])
           }),
       ),
     })
@@ -366,11 +366,11 @@ describe('コマンドの編集', () => {
 
     expect(screen.getByLabelText('1番目のコマンド名')).toBeDisabled()
     expect(screen.getByRole('button', { name: '1番目のコマンドを外す' })).toBeDisabled()
-    保存を終える()
+    finishSave()
   })
 
   test('保存に失敗したら、問題点を何番目のコマンドかが分かる形で出す', async () => {
-    const api = 代役のAPI({
+    const api = fakeApi({
       saveCommands: vi.fn(async () => {
         throw new ApiError(400, 'invalid-config', 'コマンドの設定に問題があります', [
           'commands[0].reply: 500文字以内の文字列で指定してください',
@@ -384,28 +384,28 @@ describe('コマンドの編集', () => {
     await userEvent.click(screen.getByRole('button', { name: 'コマンドを保存する' }))
 
     // 入力欄のラベルにも「1番目のコマンド」が出るので、問題点の行そのものを探す
-    expect(await お知らせ('・1番目のコマンド reply: 500文字以内')).toBeInTheDocument()
+    expect(await notice('・1番目のコマンド reply: 500文字以内')).toBeInTheDocument()
   })
 
   test('コマンドの一覧を読めなければ、理由を出す（黙って空の一覧にしない）', async () => {
-    const api = 代役のAPI({
+    const api = fakeApi({
       commands: vi.fn(async () => {
         throw new Error('Workerに接続できません')
       }),
     })
     render(<BotPage api={api} />)
 
-    expect(await お知らせ('Workerに接続できません')).toBeInTheDocument()
+    expect(await notice('Workerに接続できません')).toBeInTheDocument()
   })
 })
 
 describe('自動モデレーション', () => {
   /** 自動モデレーションを触るテストでは、コマンドは無しにして表を1つに保つ */
-  const モデレーションのAPI = (overrides: Partial<BotApi> = {}): BotApi =>
-    代役のAPI({ commands: vi.fn(async () => []), ...overrides })
+  const moderationApi = (overrides: Partial<BotApi> = {}): BotApi =>
+    fakeApi({ commands: vi.fn(async () => []), ...overrides })
 
   test('未保存なら、無効で除外がすべて有効の状態で出す（誤って視聴者を処分しないため）', async () => {
-    render(<BotPage api={モデレーションのAPI()} />)
+    render(<BotPage api={moderationApi()} />)
 
     expect(await screen.findByRole('checkbox', { name: '自動モデレーションを有効にする' })).not.toBeChecked()
     expect(screen.getByRole('checkbox', { name: '配信者とモデレーターを対象外にする' })).toBeChecked()
@@ -414,14 +414,14 @@ describe('自動モデレーション', () => {
   })
 
   test('ルールが1件も無ければ、表を出さずに足すボタンだけを出す', async () => {
-    render(<BotPage api={モデレーションのAPI()} />)
+    render(<BotPage api={moderationApi()} />)
 
     expect(await screen.findByRole('button', { name: 'ルールを足す' })).toBeInTheDocument()
     expect(screen.queryByRole('table', { name: '自動モデレーションのルールの一覧' })).not.toBeInTheDocument()
   })
 
   test('保存済みのルールを表の行として出す', async () => {
-    const api = モデレーションのAPI({
+    const api = moderationApi({
       moderation: vi.fn(async () => ({
         enabled: true,
         exemptBroadcaster: true,
@@ -438,14 +438,14 @@ describe('自動モデレーション', () => {
   })
 
   test('変更していないあいだは、保存ボタンを出さない', async () => {
-    render(<BotPage api={モデレーションのAPI()} />)
+    render(<BotPage api={moderationApi()} />)
     await screen.findByRole('button', { name: 'ルールを足す' })
 
     expect(screen.queryByRole('button', { name: '自動モデレーションを保存する' })).not.toBeInTheDocument()
   })
 
   test('有効にして保存すると、Workerへ送られる', async () => {
-    const api = モデレーションのAPI()
+    const api = moderationApi()
     render(<BotPage api={api} />)
     await screen.findByRole('button', { name: 'ルールを足す' })
 
@@ -459,11 +459,11 @@ describe('自動モデレーション', () => {
       exemptSubscriber: true,
       rules: [],
     })
-    expect(await お知らせ('保存しました')).toBeInTheDocument()
+    expect(await notice('保存しました')).toBeInTheDocument()
   })
 
   test('禁止語のルールを足して保存すると、入力した語句と処分がWorkerへ送られる', async () => {
-    const api = モデレーションのAPI()
+    const api = moderationApi()
     render(<BotPage api={api} />)
     await screen.findByRole('button', { name: 'ルールを足す' })
 
@@ -479,7 +479,7 @@ describe('自動モデレーション', () => {
   })
 
   test('連投のルールでは、回数と数える時間を入力できる', async () => {
-    const api = モデレーションのAPI()
+    const api = moderationApi()
     render(<BotPage api={api} />)
     await screen.findByRole('button', { name: 'ルールを足す' })
 
@@ -495,7 +495,7 @@ describe('自動モデレーション', () => {
   })
 
   test('タイムアウトを選んだときだけ、長さの入力欄を出す', async () => {
-    render(<BotPage api={モデレーションのAPI()} />)
+    render(<BotPage api={moderationApi()} />)
     await screen.findByRole('button', { name: 'ルールを足す' })
 
     await userEvent.click(screen.getByRole('button', { name: 'ルールを足す' }))
@@ -506,7 +506,7 @@ describe('自動モデレーション', () => {
   })
 
   test('ルールを外して保存できる', async () => {
-    const api = モデレーションのAPI({
+    const api = moderationApi({
       moderation: vi.fn(async () => ({
         enabled: true,
         exemptBroadcaster: true,
@@ -525,7 +525,7 @@ describe('自動モデレーション', () => {
   })
 
   test('保存に失敗したら、問題点を何番目のルールかが分かる形で出す', async () => {
-    const api = モデレーションのAPI({
+    const api = moderationApi({
       saveModeration: vi.fn(async () => {
         throw new ApiError(400, 'invalid-config', '自動モデレーションの設定に問題があります', ['rules[0].word: 100文字以内の語句を入力してください'])
       }),
@@ -536,6 +536,6 @@ describe('自動モデレーション', () => {
     await userEvent.click(screen.getByRole('checkbox', { name: '自動モデレーションを有効にする' }))
     await userEvent.click(screen.getByRole('button', { name: '自動モデレーションを保存する' }))
 
-    expect(await お知らせ('1番目のルール')).toBeInTheDocument()
+    expect(await notice('1番目のルール')).toBeInTheDocument()
   })
 })

@@ -31,7 +31,7 @@ import type { MediaKind } from './alert-config'
 import { createFakeStore } from './fake-store'
 
 /** 雑談のときに流したい、落ち着いた曲 */
-const 雑談の曲: BgmTrack = {
+const casualTrack: BgmTrack = {
   mediaId: 'media-zatsudan',
   title: 'ひだまりの午後',
   credit: '音楽: 甘茶の音楽工房',
@@ -41,7 +41,7 @@ const 雑談の曲: BgmTrack = {
 }
 
 /** ゲームで盛り上がったときに流したい曲 */
-const 盛り上がる曲: BgmTrack = {
+const hypeTrack: BgmTrack = {
   mediaId: 'media-moriagari',
   title: '全力疾走',
   credit: '音楽: DOVA-SYNDROME',
@@ -51,15 +51,15 @@ const 盛り上がる曲: BgmTrack = {
 }
 
 /** 上げてある素材の種類。音声のほかに画像も置いてある */
-const 素材の種類 = new Map<string, MediaKind>([
+const MEDIA_KINDS = new Map<string, MediaKind>([
   ['media-zatsudan', 'audio'],
   ['media-moriagari', 'audio'],
   ['media-gazou', 'image'],
 ])
-const 種類を引く = (mediaId: string): MediaKind | null => 素材の種類.get(mediaId) ?? null
+const lookupMediaKind = (mediaId: string): MediaKind | null => MEDIA_KINDS.get(mediaId) ?? null
 
 /** 投げられた ConfigError の問題点を取り出す */
-const 問題点 = (run: () => unknown): readonly string[] => {
+const problemsOf = (run: () => unknown): readonly string[] => {
   try {
     run()
   } catch (error) {
@@ -71,99 +71,99 @@ const 問題点 = (run: () => unknown): readonly string[] => {
 
 describe('parseBgmTracks', () => {
   it('正しい曲の一覧はそのまま受け取る', () => {
-    expect(parseBgmTracks({ tracks: [雑談の曲, 盛り上がる曲] }, 種類を引く, null)).toEqual([雑談の曲, 盛り上がる曲])
+    expect(parseBgmTracks({ tracks: [casualTrack, hypeTrack] }, lookupMediaKind, null)).toEqual([casualTrack, hypeTrack])
   })
 
   it('クレジット先のURL・曲調・流したい場面は空でもよい', () => {
-    const 最小限の曲 = { ...雑談の曲, creditUrl: '', mood: '', scene: '' }
+    const minimalTrack = { ...casualTrack, creditUrl: '', mood: '', scene: '' }
 
-    expect(parseBgmTracks({ tracks: [最小限の曲] }, 種類を引く, null)).toEqual([最小限の曲])
+    expect(parseBgmTracks({ tracks: [minimalTrack] }, lookupMediaKind, null)).toEqual([minimalTrack])
   })
 
   it('前後の空白は落として受け取る', () => {
-    const 空白つき = { ...雑談の曲, title: '  ひだまりの午後  ', credit: ' 音楽: 甘茶の音楽工房 ' }
+    const paddedTrack = { ...casualTrack, title: '  ひだまりの午後  ', credit: ' 音楽: 甘茶の音楽工房 ' }
 
-    expect(parseBgmTracks({ tracks: [空白つき] }, 種類を引く, null)).toEqual([雑談の曲])
+    expect(parseBgmTracks({ tracks: [paddedTrack] }, lookupMediaKind, null)).toEqual([casualTrack])
   })
 
   it('tracks が配列でなければ拒む', () => {
-    expect(問題点(() => parseBgmTracks({}, 種類を引く, null))).toEqual(['tracks: 配列で指定してください'])
+    expect(problemsOf(() => parseBgmTracks({}, lookupMediaKind, null))).toEqual(['tracks: 配列で指定してください'])
   })
 
   it('曲名とクレジット表記が空なら、両方の問題点をまとめて返す', () => {
-    const 空の曲 = { ...雑談の曲, title: ' ', credit: '' }
+    const emptyTrack = { ...casualTrack, title: ' ', credit: '' }
 
-    expect(問題点(() => parseBgmTracks({ tracks: [空の曲] }, 種類を引く, null))).toEqual([
+    expect(problemsOf(() => parseBgmTracks({ tracks: [emptyTrack] }, lookupMediaKind, null))).toEqual([
       'tracks[0].title: 1〜60文字で指定してください',
       'tracks[0].credit: 1〜100文字で指定してください',
     ])
   })
 
   it('クレジット先のURLは200文字まで（チャットの1通に曲名・クレジット表記と一緒に収めるため）', () => {
-    const 長いURL = { ...雑談の曲, creditUrl: `https://example.com/${'a'.repeat(181)}` }
+    const longUrl = { ...casualTrack, creditUrl: `https://example.com/${'a'.repeat(181)}` }
 
-    expect(問題点(() => parseBgmTracks({ tracks: [長いURL] }, 種類を引く, null))).toEqual(['tracks[0].creditUrl: 200文字以内の文字列で指定してください'])
+    expect(problemsOf(() => parseBgmTracks({ tracks: [longUrl] }, lookupMediaKind, null))).toEqual(['tracks[0].creditUrl: 200文字以内の文字列で指定してください'])
   })
 
   it('クレジット先のURLは http か https のURLに限る', () => {
-    const 変なURL = { ...雑談の曲, creditUrl: 'javascript:alert(1)' }
+    const invalidUrl = { ...casualTrack, creditUrl: 'javascript:alert(1)' }
 
-    expect(問題点(() => parseBgmTracks({ tracks: [変なURL] }, 種類を引く, null))).toEqual([
+    expect(problemsOf(() => parseBgmTracks({ tracks: [invalidUrl] }, lookupMediaKind, null))).toEqual([
       'tracks[0].creditUrl: http:// か https:// で始まるURLにしてください（無ければ空欄）',
     ])
   })
 
   it('音声でない素材や、無い素材は曲にできない', () => {
-    const 画像の曲 = { ...雑談の曲, mediaId: 'media-gazou' }
-    const 無い素材の曲 = { ...盛り上がる曲, mediaId: 'media-nai' }
+    const imageTrack = { ...casualTrack, mediaId: 'media-gazou' }
+    const missingMediaTrack = { ...hypeTrack, mediaId: 'media-nai' }
 
-    expect(問題点(() => parseBgmTracks({ tracks: [画像の曲, 無い素材の曲] }, 種類を引く, null))).toEqual([
+    expect(problemsOf(() => parseBgmTracks({ tracks: [imageTrack, missingMediaTrack] }, lookupMediaKind, null))).toEqual([
       'tracks[0].mediaId: 素材「media-gazou」は音声ではありません',
       'tracks[1].mediaId: 素材「media-nai」が存在しません',
     ])
   })
 
   it('同じ素材を2曲に使えない', () => {
-    const 同じ素材 = { ...盛り上がる曲, mediaId: 雑談の曲.mediaId }
+    const duplicateMediaTrack = { ...hypeTrack, mediaId: casualTrack.mediaId }
 
-    expect(問題点(() => parseBgmTracks({ tracks: [雑談の曲, 同じ素材] }, 種類を引く, null))).toEqual([
+    expect(problemsOf(() => parseBgmTracks({ tracks: [casualTrack, duplicateMediaTrack] }, lookupMediaKind, null))).toEqual([
       'tracks[1].mediaId: 素材「media-zatsudan」はすでに別の曲に使われています',
     ])
   })
 
   it('流している曲は一覧から消させない', () => {
-    expect(問題点(() => parseBgmTracks({ tracks: [盛り上がる曲] }, 種類を引く, 雑談の曲.mediaId))).toEqual([
+    expect(problemsOf(() => parseBgmTracks({ tracks: [hypeTrack] }, lookupMediaKind, casualTrack.mediaId))).toEqual([
       'tracks: 流している曲（素材「media-zatsudan」）は消せません。先に止めるか別の曲に切り替えてください',
     ])
   })
 
   it('曲の数に上限がある', () => {
-    const 多すぎる = Array.from({ length: 101 }, (_, index) => ({ ...雑談の曲, mediaId: `media-${index}` }))
+    const tooManyTracks = Array.from({ length: 101 }, (_, index) => ({ ...casualTrack, mediaId: `media-${index}` }))
 
-    expect(問題点(() => parseBgmTracks({ tracks: 多すぎる }, () => 'audio', null))).toEqual(['tracks: 100曲以内にしてください'])
+    expect(problemsOf(() => parseBgmTracks({ tracks: tooManyTracks }, () => 'audio', null))).toEqual(['tracks: 100曲以内にしてください'])
   })
 })
 
 describe('parseBgmPlayback', () => {
-  const 曲の素材 = [雑談の曲.mediaId, 盛り上がる曲.mediaId]
+  const trackMediaIds = [casualTrack.mediaId, hypeTrack.mediaId]
 
   it('一覧にある曲と音量を受け取る', () => {
-    expect(parseBgmPlayback({ mediaId: 雑談の曲.mediaId, volume: 0.4 }, 曲の素材)).toEqual({ mediaId: 雑談の曲.mediaId, volume: 0.4 })
+    expect(parseBgmPlayback({ mediaId: casualTrack.mediaId, volume: 0.4 }, trackMediaIds)).toEqual({ mediaId: casualTrack.mediaId, volume: 0.4 })
   })
 
   it('止めるときは mediaId に null を送る', () => {
-    expect(parseBgmPlayback({ mediaId: null, volume: 0.4 }, 曲の素材)).toEqual({ mediaId: null, volume: 0.4 })
+    expect(parseBgmPlayback({ mediaId: null, volume: 0.4 }, trackMediaIds)).toEqual({ mediaId: null, volume: 0.4 })
   })
 
   it('一覧にない曲と範囲の外の音量は、両方の問題点をまとめて返す', () => {
-    expect(問題点(() => parseBgmPlayback({ mediaId: 'media-nai', volume: 1.5 }, 曲の素材))).toEqual([
+    expect(problemsOf(() => parseBgmPlayback({ mediaId: 'media-nai', volume: 1.5 }, trackMediaIds))).toEqual([
       'mediaId: 素材「media-nai」の曲は一覧にありません',
       'volume: 0〜1 の数で指定してください',
     ])
   })
 
   it('オブジェクトでなければ拒む', () => {
-    expect(問題点(() => parseBgmPlayback('雑談の曲', 曲の素材))).toEqual(['設定はオブジェクトで指定してください'])
+    expect(problemsOf(() => parseBgmPlayback('雑談の曲', trackMediaIds))).toEqual(['設定はオブジェクトで指定してください'])
   })
 })
 
@@ -179,19 +179,19 @@ describe('保存と読み出し', () => {
   it('保存した曲と再生の設定を読み出せる', async () => {
     const store = createFakeStore()
 
-    await saveBgmTracks(store, [雑談の曲])
-    await saveBgmPlayback(store, { mediaId: 雑談の曲.mediaId, volume: 0.2 })
+    await saveBgmTracks(store, [casualTrack])
+    await saveBgmPlayback(store, { mediaId: casualTrack.mediaId, volume: 0.2 })
 
-    expect(await loadBgmTracks(store)).toEqual([雑談の曲])
-    expect(await loadBgmPlayback(store)).toEqual({ mediaId: 雑談の曲.mediaId, volume: 0.2 })
+    expect(await loadBgmTracks(store)).toEqual([casualTrack])
+    expect(await loadBgmPlayback(store)).toEqual({ mediaId: casualTrack.mediaId, volume: 0.2 })
   })
 })
 
 describe('nowPlayingOf', () => {
   it('流している曲の情報に、オーバーレイ用キーつきの音声のURLを添える', () => {
-    expect(nowPlayingOf([雑談の曲, 盛り上がる曲], { mediaId: 盛り上がる曲.mediaId, volume: 0.5 }, 'overlay-key')).toEqual({
+    expect(nowPlayingOf([casualTrack, hypeTrack], { mediaId: hypeTrack.mediaId, volume: 0.5 }, 'overlay-key')).toEqual({
       track: {
-        mediaId: 盛り上がる曲.mediaId,
+        mediaId: hypeTrack.mediaId,
         title: '全力疾走',
         credit: '音楽: DOVA-SYNDROME',
         creditUrl: 'https://dova-s.jp/',
@@ -202,25 +202,25 @@ describe('nowPlayingOf', () => {
   })
 
   it('止めているときは track が null', () => {
-    expect(nowPlayingOf([雑談の曲], { mediaId: null, volume: 0.5 }, 'overlay-key')).toEqual({ track: null, volume: 0.5 })
+    expect(nowPlayingOf([casualTrack], { mediaId: null, volume: 0.5 }, 'overlay-key')).toEqual({ track: null, volume: 0.5 })
   })
 
   it('流す曲が一覧に無ければ、黙って止めずに投げる', () => {
-    expect(() => nowPlayingOf([雑談の曲], { mediaId: 'media-nai', volume: 0.5 }, 'overlay-key')).toThrow('素材「media-nai」の曲が一覧にありません')
+    expect(() => nowPlayingOf([casualTrack], { mediaId: 'media-nai', volume: 0.5 }, 'overlay-key')).toThrow('素材「media-nai」の曲が一覧にありません')
   })
 })
 
 describe('playingTrackOf', () => {
   it('流している曲を一覧から引く', () => {
-    expect(playingTrackOf([雑談の曲, 盛り上がる曲], { mediaId: 盛り上がる曲.mediaId, volume: 0.5 })).toEqual(盛り上がる曲)
+    expect(playingTrackOf([casualTrack, hypeTrack], { mediaId: hypeTrack.mediaId, volume: 0.5 })).toEqual(hypeTrack)
   })
 
   it('止めているときは null（止めているのは正常な状態なので投げない）', () => {
-    expect(playingTrackOf([雑談の曲], { mediaId: null, volume: 0.5 })).toBeNull()
+    expect(playingTrackOf([casualTrack], { mediaId: null, volume: 0.5 })).toBeNull()
   })
 
   it('流す曲が一覧に無ければ、黙って止めずに投げる', () => {
-    expect(() => playingTrackOf([雑談の曲], { mediaId: 'media-nai', volume: 0.5 })).toThrow('素材「media-nai」の曲が一覧にありません')
+    expect(() => playingTrackOf([casualTrack], { mediaId: 'media-nai', volume: 0.5 })).toThrow('素材「media-nai」の曲が一覧にありません')
   })
 })
 
@@ -255,8 +255,8 @@ describe('最後に曲を切り替えた時刻', () => {
 
   it('記録した時刻を読み出せる', async () => {
     const store = createFakeStore()
-    const 切り替えた時刻 = Date.parse('2026-09-29T12:00:00Z')
-    await saveBgmSwitchedAt(store, 切り替えた時刻)
-    expect(await loadBgmSwitchedAt(store)).toBe(切り替えた時刻)
+    const switchedAt = Date.parse('2026-09-29T12:00:00Z')
+    await saveBgmSwitchedAt(store, switchedAt)
+    expect(await loadBgmSwitchedAt(store)).toBe(switchedAt)
   })
 })

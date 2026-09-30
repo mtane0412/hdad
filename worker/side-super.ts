@@ -53,7 +53,7 @@ export const MAX_SIDE_SUPER_BODY_LENGTH = 20
  * 取らないものを2文字と数えてしまう。上限を超えた行は切り詰めずに捨てる作りなので、その数え違いは
  * 「画面に収まる文言を捨てて、前の文言を出し続ける」という形で表に出る。分割して数え直す。
  */
-const 文字数 = (line: string): number => [...line].length
+const charCount = (line: string): number => [...line].length
 
 /** 作らせるサイドスーパーの長さの上限（トークン）。2行に収めるうえで足りる長さにする */
 const MAX_TOKENS = 100
@@ -97,7 +97,7 @@ export interface SideSuperMaterial {
 }
 
 /** 材料が1件も無いときに、その旨を伝える文言 */
-const 無し = 'ありません'
+const none = 'ありません'
 
 /**
  * 材料から、LLMへ渡す指示の文章を組み立てる。
@@ -122,13 +122,13 @@ export const buildSideSuperPrompt = (material: SideSuperMaterial): string => {
     title === '' ? '未設定' : title,
     '',
     '# 直近に配信者が喋った内容',
-    ...(transcripts.length === 0 ? [無し] : transcripts),
+    ...(transcripts.length === 0 ? [none] : transcripts),
     '',
     '# 直近の視聴者の反応',
-    ...(chats.length === 0 ? [無し] : chats),
+    ...(chats.length === 0 ? [none] : chats),
     '',
     '# 直近に画面へ現れた文字',
-    ...(screen.length === 0 ? [無し] : screen),
+    ...(screen.length === 0 ? [none] : screen),
     '',
     '# 守ること',
     '- テロップの文言そのものだけを出力してください（前置き・説明・引用符・箇条書き・行番号を付けない）',
@@ -147,12 +147,12 @@ export const buildSideSuperPrompt = (material: SideSuperMaterial): string => {
 /**
  * 行が上限より長ければ投げる。見出しと本文で上限が違うので、行の名前と上限を受け取る。
  *
- * @param 名前 失敗の文面に出す行の呼び名（見出し・本文）
+ * @param name 失敗の文面に出す行の呼び名（見出し・本文）
  */
-const 長さを確かめる = (line: string, 名前: string, 上限: number): void => {
-  if (文字数(line) <= 上限) return
+const validateLength = (line: string, name: string, limit: number): void => {
+  if (charCount(line) <= limit) return
   throw new SideSuperContentError(
-    `LLMが作ったサイドスーパーの${名前}が${文字数(line)}文字で、上限（${上限}文字）を超えたため記録しませんでした: ${line}`,
+    `LLMが作ったサイドスーパーの${name}が${charCount(line)}文字で、上限（${limit}文字）を超えたため記録しませんでした: ${line}`,
   )
 }
 
@@ -192,7 +192,7 @@ export const generateSideSuper = async (ai: TextGenerator, material: SideSuperMa
   if (head === undefined || body === undefined) {
     throw new SideSuperContentError('LLMが空のサイドスーパーを返したため、記録しませんでした')
   }
-  長さを確かめる(head, '見出し', MAX_SIDE_SUPER_HEAD_LENGTH)
-  長さを確かめる(body, '本文', MAX_SIDE_SUPER_BODY_LENGTH)
+  validateLength(head, '見出し', MAX_SIDE_SUPER_HEAD_LENGTH)
+  validateLength(body, '本文', MAX_SIDE_SUPER_BODY_LENGTH)
   return [head, body]
 }

@@ -14,33 +14,33 @@ import { CONNECT_TIMEOUT_MS, connectObs, type ObsSocketLike } from './connection
 import { authenticationOf } from './protocol'
 
 /** 押し込まれた文字列を覚える、テスト用の WebSocket */
-const 作る偽のソケット = () => {
-  const 送ったもの: Record<string, unknown>[] = []
+const createFakeSocket = () => {
+  const sent: Record<string, unknown>[] = []
   /** 受け手の形はイベントごとに違うので、まとめて持つためにここだけ緩く扱う */
-  const 受け手 = new Map<string, ((event: never) => void)[]>()
-  let 閉じた = false
+  const receiver = new Map<string, ((event: never) => void)[]>()
+  let closed = false
 
   const socket: ObsSocketLike = {
-    send: (data) => 送ったもの.push(JSON.parse(data) as Record<string, unknown>),
+    send: (data) => sent.push(JSON.parse(data) as Record<string, unknown>),
     close: () => {
-      閉じた = true
+      closed = true
     },
     addEventListener: (type, listener) => {
-      受け手.set(type, [...(受け手.get(type) ?? []), listener as (event: never) => void])
+      receiver.set(type, [...(receiver.get(type) ?? []), listener as (event: never) => void])
     },
   }
 
-  const 起こす = (type: string, event: unknown = {}): void => {
-    for (const listener of 受け手.get(type) ?? []) (listener as (event: unknown) => void)(event)
+  const emit = (type: string, event: unknown = {}): void => {
+    for (const listener of receiver.get(type) ?? []) (listener as (event: unknown) => void)(event)
   }
 
   return {
     socket,
-    送ったもの,
-    閉じた: () => 閉じた,
-    開く: () => 起こす('open'),
-    届ける: (メッセージ: unknown) => 起こす('message', { data: JSON.stringify(メッセージ) }),
-    閉じる: (event: { code?: number; reason?: string } = {}) => 起こす('close', event),
+    sent,
+    closed: () => closed,
+    open: () => emit('open'),
+    deliver: (message: unknown) => emit('message', { data: JSON.stringify(message) }),
+    close: (event: { code?: number; reason?: string } = {}) => emit('close', event),
   }
 }
 
@@ -48,8 +48,8 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-const 認証なしのHello = { op: 0, d: { obsWebSocketVersion: '5.5.0', rpcVersion: 1 } }
-const 認証ありのHello = {
+const helloWithoutAuth = { op: 0, d: { obsWebSocketVersion: '5.5.0', rpcVersion: 1 } }
+const helloWithAuth = {
   op: 0,
   d: { obsWebSocketVersion: '5.5.0', rpcVersion: 1, authentication: { challenge: 'チャレンジ', salt: 'ソルト' } },
 }
@@ -57,155 +57,155 @@ const Identified = { op: 2, d: { negotiatedRpcVersion: 1 } }
 
 describe('connectObs', () => {
   it('認証を求められなければ、認証を載せずに名乗る', async () => {
-    const 偽のソケット = 作る偽のソケット()
-    const つなぐ = connectObs({ url: 'ws://localhost:4455', password: '', createSocket: () => 偽のソケット.socket })
+    const fakeSocket = createFakeSocket()
+    const connect = connectObs({ url: 'ws://localhost:4455', password: '', createSocket: () => fakeSocket.socket })
 
-    偽のソケット.開く()
-    偽のソケット.届ける(認証なしのHello)
-    偽のソケット.届ける(Identified)
-    await つなぐ
+    fakeSocket.open()
+    fakeSocket.deliver(helloWithoutAuth)
+    fakeSocket.deliver(Identified)
+    await connect
 
-    expect(偽のソケット.送ったもの[0]).toEqual({ op: 1, d: { rpcVersion: 1 } })
+    expect(fakeSocket.sent[0]).toEqual({ op: 1, d: { rpcVersion: 1 } })
   })
 
   it('認証を求められたら、パスワードから作った応答を載せて名乗る', async () => {
-    const 偽のソケット = 作る偽のソケット()
-    const つなぐ = connectObs({ url: 'ws://localhost:4455', password: 'obsのパスワード', createSocket: () => 偽のソケット.socket })
+    const fakeSocket = createFakeSocket()
+    const connect = connectObs({ url: 'ws://localhost:4455', password: 'obsのパスワード', createSocket: () => fakeSocket.socket })
 
-    偽のソケット.開く()
-    偽のソケット.届ける(認証ありのHello)
+    fakeSocket.open()
+    fakeSocket.deliver(helloWithAuth)
     // 認証の応答を作るのに待ちが入るので、名乗りが送られるまで待つ
-    await vi.waitFor(() => expect(偽のソケット.送ったもの).toHaveLength(1))
-    偽のソケット.届ける(Identified)
-    await つなぐ
+    await vi.waitFor(() => expect(fakeSocket.sent).toHaveLength(1))
+    fakeSocket.deliver(Identified)
+    await connect
 
-    expect(偽のソケット.送ったもの[0]).toEqual({
+    expect(fakeSocket.sent[0]).toEqual({
       op: 1,
       d: { rpcVersion: 1, authentication: await authenticationOf('obsのパスワード', 'ソルト', 'チャレンジ') },
     })
   })
 
   it('名乗りが通るまで、つながったことにしない', async () => {
-    const 偽のソケット = 作る偽のソケット()
-    let つながった = false
-    const つなぐ = connectObs({ url: 'ws://localhost:4455', password: '', createSocket: () => 偽のソケット.socket }).then((接続) => {
-      つながった = true
-      return 接続
+    const fakeSocket = createFakeSocket()
+    let connected = false
+    const connect = connectObs({ url: 'ws://localhost:4455', password: '', createSocket: () => fakeSocket.socket }).then((connection) => {
+      connected = true
+      return connection
     })
 
-    偽のソケット.開く()
-    偽のソケット.届ける(認証なしのHello)
+    fakeSocket.open()
+    fakeSocket.deliver(helloWithoutAuth)
     await Promise.resolve()
-    expect(つながった).toBe(false)
+    expect(connected).toBe(false)
 
-    偽のソケット.届ける(Identified)
-    await つなぐ
-    expect(つながった).toBe(true)
+    fakeSocket.deliver(Identified)
+    await connect
+    expect(connected).toBe(true)
   })
 
   it('要求と応答を requestId で結び付ける', async () => {
-    const 偽のソケット = 作る偽のソケット()
-    const つなぐ = connectObs({ url: 'ws://localhost:4455', password: '', createSocket: () => 偽のソケット.socket })
-    偽のソケット.開く()
-    偽のソケット.届ける(認証なしのHello)
-    偽のソケット.届ける(Identified)
-    const 接続 = await つなぐ
+    const fakeSocket = createFakeSocket()
+    const connect = connectObs({ url: 'ws://localhost:4455', password: '', createSocket: () => fakeSocket.socket })
+    fakeSocket.open()
+    fakeSocket.deliver(helloWithoutAuth)
+    fakeSocket.deliver(Identified)
+    const connection = await connect
 
-    const 場面 = 接続.request('GetCurrentProgramScene')
-    const 撮影 = 接続.request('GetSourceScreenshot', { sourceName: 'ゲーム' })
-    const 場面の要求ID = (偽のソケット.送ったもの[1]?.d as { requestId: string }).requestId
-    const 撮影の要求ID = (偽のソケット.送ったもの[2]?.d as { requestId: string }).requestId
+    const scene = connection.request('GetCurrentProgramScene')
+    const shoot = connection.request('GetSourceScreenshot', { sourceName: 'ゲーム' })
+    const sceneRequestId = (fakeSocket.sent[1]?.d as { requestId: string }).requestId
+    const shootRequestId = (fakeSocket.sent[2]?.d as { requestId: string }).requestId
 
     // 先に撮影の応答を返しても、待っているものを取り違えない
-    偽のソケット.届ける({ op: 7, d: { requestType: 'GetSourceScreenshot', requestId: 撮影の要求ID, requestStatus: { result: true }, responseData: { imageData: 'data:image/png;base64,iVBORw0KGgo=' } } })
-    偽のソケット.届ける({ op: 7, d: { requestType: 'GetCurrentProgramScene', requestId: 場面の要求ID, requestStatus: { result: true }, responseData: { sceneName: 'ゲーム' } } })
+    fakeSocket.deliver({ op: 7, d: { requestType: 'GetSourceScreenshot', requestId: shootRequestId, requestStatus: { result: true }, responseData: { imageData: 'data:image/png;base64,iVBORw0KGgo=' } } })
+    fakeSocket.deliver({ op: 7, d: { requestType: 'GetCurrentProgramScene', requestId: sceneRequestId, requestStatus: { result: true }, responseData: { sceneName: 'ゲーム' } } })
 
-    expect(await 場面).toEqual({ sceneName: 'ゲーム' })
-    expect(await 撮影).toEqual({ imageData: 'data:image/png;base64,iVBORw0KGgo=' })
+    expect(await scene).toEqual({ sceneName: 'ゲーム' })
+    expect(await shoot).toEqual({ imageData: 'data:image/png;base64,iVBORw0KGgo=' })
   })
 
   it('要求が失敗したら、その理由を添えて失敗させる', async () => {
-    const 偽のソケット = 作る偽のソケット()
-    const つなぐ = connectObs({ url: 'ws://localhost:4455', password: '', createSocket: () => 偽のソケット.socket })
-    偽のソケット.開く()
-    偽のソケット.届ける(認証なしのHello)
-    偽のソケット.届ける(Identified)
-    const 接続 = await つなぐ
+    const fakeSocket = createFakeSocket()
+    const connect = connectObs({ url: 'ws://localhost:4455', password: '', createSocket: () => fakeSocket.socket })
+    fakeSocket.open()
+    fakeSocket.deliver(helloWithoutAuth)
+    fakeSocket.deliver(Identified)
+    const connection = await connect
 
-    const 撮影 = 接続.request('GetSourceScreenshot', { sourceName: '無い場面' })
-    const 要求ID = (偽のソケット.送ったもの[1]?.d as { requestId: string }).requestId
-    偽のソケット.届ける({ op: 7, d: { requestType: 'GetSourceScreenshot', requestId: 要求ID, requestStatus: { result: false, code: 600, comment: '存在しないソースです' } } })
+    const shoot = connection.request('GetSourceScreenshot', { sourceName: '無い場面' })
+    const requestId = (fakeSocket.sent[1]?.d as { requestId: string }).requestId
+    fakeSocket.deliver({ op: 7, d: { requestType: 'GetSourceScreenshot', requestId, requestStatus: { result: false, code: 600, comment: '存在しないソースです' } } })
 
-    await expect(撮影).rejects.toThrow(/存在しないソースです/)
+    await expect(shoot).rejects.toThrow(/存在しないソースです/)
   })
 
   it('つながらないまま閉じたら、つなぎに行った呼び出しを失敗させる', async () => {
-    const 偽のソケット = 作る偽のソケット()
-    const つなぐ = connectObs({ url: 'ws://localhost:4455', password: '', createSocket: () => 偽のソケット.socket })
+    const fakeSocket = createFakeSocket()
+    const connect = connectObs({ url: 'ws://localhost:4455', password: '', createSocket: () => fakeSocket.socket })
 
-    偽のソケット.閉じる()
+    fakeSocket.close()
 
-    await expect(つなぐ).rejects.toThrow(/ws:\/\/localhost:4455/)
+    await expect(connect).rejects.toThrow(/ws:\/\/localhost:4455/)
   })
 
   it('パスワードが違って閉じられたら、パスワードが違うと分かる文面で失敗させる', async () => {
-    const 偽のソケット = 作る偽のソケット()
-    const つなぐ = connectObs({ url: 'ws://localhost:4455', password: '違うパスワード', createSocket: () => 偽のソケット.socket })
+    const fakeSocket = createFakeSocket()
+    const connect = connectObs({ url: 'ws://localhost:4455', password: '違うパスワード', createSocket: () => fakeSocket.socket })
 
     // obs-websocket はパスワードが違うと、つないだ直後にクローズコード 4009 で切る
-    偽のソケット.閉じる({ code: 4009, reason: 'Authentication failed.' })
+    fakeSocket.close({ code: 4009, reason: 'Authentication failed.' })
 
-    await expect(つなぐ).rejects.toThrow(/パスワード/)
+    await expect(connect).rejects.toThrow(/パスワード/)
   })
 
   it('ほかの理由で閉じられたら、クローズコードを文面に添える', async () => {
-    const 偽のソケット = 作る偽のソケット()
-    const つなぐ = connectObs({ url: 'ws://localhost:4455', password: '', createSocket: () => 偽のソケット.socket })
+    const fakeSocket = createFakeSocket()
+    const connect = connectObs({ url: 'ws://localhost:4455', password: '', createSocket: () => fakeSocket.socket })
 
-    偽のソケット.閉じる({ code: 4010, reason: 'Unsupported RPC version.' })
+    fakeSocket.close({ code: 4010, reason: 'Unsupported RPC version.' })
 
-    await expect(つなぐ).rejects.toThrow(/4010/)
+    await expect(connect).rejects.toThrow(/4010/)
   })
 
   it('つながる前に閉じられたときも、クローズコードを文面に添える', async () => {
-    const 偽のソケット = 作る偽のソケット()
-    const つなぐ = connectObs({ url: 'ws://localhost:4455', password: '', createSocket: () => 偽のソケット.socket })
+    const fakeSocket = createFakeSocket()
+    const connect = connectObs({ url: 'ws://localhost:4455', password: '', createSocket: () => fakeSocket.socket })
 
     // ブラウザはつなげなかったとき 1006（異常終了）で閉じる
-    偽のソケット.閉じる({ code: 1006 })
+    fakeSocket.close({ code: 1006 })
 
-    await expect(つなぐ).rejects.toThrow(/1006/)
+    await expect(connect).rejects.toThrow(/1006/)
   })
 
   it('名乗りへの答えが返ってこないまま時間が過ぎたら、待ち続けずに失敗させる', async () => {
     vi.useFakeTimers()
-    const 偽のソケット = 作る偽のソケット()
-    const つなぐ = connectObs({ url: 'ws://localhost:4455', password: '', createSocket: () => 偽のソケット.socket })
+    const fakeSocket = createFakeSocket()
+    const connect = connectObs({ url: 'ws://localhost:4455', password: '', createSocket: () => fakeSocket.socket })
     // 失敗を受け取る用意を、タイマーを進める前に済ませる
     // （進めたあとに付けると、受け取り手のいない拒否として扱われる一瞬ができる）
-    const 失敗を待つ = expect(つなぐ).rejects.toThrow(/応答がありません/)
-    偽のソケット.開く()
-    偽のソケット.届ける(認証なしのHello)
+    const waitForFailure = expect(connect).rejects.toThrow(/応答がありません/)
+    fakeSocket.open()
+    fakeSocket.deliver(helloWithoutAuth)
 
     // OBS が Identified を返さないまま、待ち時間が過ぎる
     await vi.advanceTimersByTimeAsync(CONNECT_TIMEOUT_MS)
 
-    await 失敗を待つ
-    expect(偽のソケット.閉じた()).toBe(true)
+    await waitForFailure
+    expect(fakeSocket.closed()).toBe(true)
   })
 
   it('接続が閉じたら、答えを待っている要求を失敗させる', async () => {
-    const 偽のソケット = 作る偽のソケット()
-    const つなぐ = connectObs({ url: 'ws://localhost:4455', password: '', createSocket: () => 偽のソケット.socket })
-    偽のソケット.開く()
-    偽のソケット.届ける(認証なしのHello)
-    偽のソケット.届ける(Identified)
-    const 接続 = await つなぐ
+    const fakeSocket = createFakeSocket()
+    const connect = connectObs({ url: 'ws://localhost:4455', password: '', createSocket: () => fakeSocket.socket })
+    fakeSocket.open()
+    fakeSocket.deliver(helloWithoutAuth)
+    fakeSocket.deliver(Identified)
+    const connection = await connect
 
-    const 撮影 = 接続.request('GetSourceScreenshot', { sourceName: 'ゲーム' })
-    偽のソケット.閉じる()
+    const shoot = connection.request('GetSourceScreenshot', { sourceName: 'ゲーム' })
+    fakeSocket.close()
 
-    await expect(撮影).rejects.toThrow()
-    expect(接続.isOpen()).toBe(false)
+    await expect(shoot).rejects.toThrow()
+    expect(connection.isOpen()).toBe(false)
   })
 })

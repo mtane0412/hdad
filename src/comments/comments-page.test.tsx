@@ -27,14 +27,14 @@ import type { CommentFeedHandlers } from './socket'
 
 afterEach(cleanup)
 
-const 常連さん = { id: '777', login: 'jouren_san', name: '常連さん' }
+const regularViewer = { id: '777', login: 'jouren_san', name: '常連さん' }
 
-const 常連さんの発言: FeedItem = {
+const regularViewerChat: FeedItem = {
   kind: 'chat',
   id: '通知1',
   at: Date.parse('2026-09-29T12:00:00Z'),
   messageId: '発言1',
-  user: 常連さん,
+  user: regularViewer,
   color: '#FF4500',
   badges: [{ setId: 'subscriber', versionId: '12' }],
   fragments: [
@@ -45,7 +45,7 @@ const 常連さんの発言: FeedItem = {
   reply: null,
 }
 
-const 代役のAPI = (overrides: Partial<CommentApi> = {}): CommentApi => ({
+const createFakeApi = (overrides: Partial<CommentApi> = {}): CommentApi => ({
   loadIcons: vi.fn(async () => ({ '777': 'https://static-cdn.jtvnw.net/jtv_user_pictures/jouren.png' })),
   loadBadges: vi.fn(async () => new Map([['subscriber/12', { url: 'https://static-cdn.jtvnw.net/badges/v1/subscriber-12/1', title: '1-Year Subscriber' }]])),
   // Worker と同じく、タイムアウトなら決めた長さを添えて返す
@@ -59,7 +59,7 @@ const 代役のAPI = (overrides: Partial<CommentApi> = {}): CommentApi => ({
 })
 
 /** 注目コメントの代役。既定では何も取り上げておらず、選んだ発言にアイコンを添えて返す（Worker と同じ） */
-const 代役の注目コメントAPI = (overrides: Partial<FocusApi> = {}): FocusApi => ({
+const createFakeFocusApi = (overrides: Partial<FocusApi> = {}): FocusApi => ({
   load: vi.fn(async () => null),
   save: vi.fn(async (pick: FocusPick | null) => (pick === null ? null : { ...pick, profileImageUrl: 'https://static-cdn.jtvnw.net/jtv_user_pictures/jouren.png' })),
   recent: vi.fn(async () => []),
@@ -67,10 +67,10 @@ const 代役の注目コメントAPI = (overrides: Partial<FocusApi> = {}): Focu
 })
 
 /** 画面が見る現在時刻の既定。発言が届いたのと同じ時刻（まだ「しばらく未読」ではない） */
-const 発言と同じ時刻 = () => Date.parse('2026-09-29T12:00:00Z')
+const chatArrivalTime = () => Date.parse('2026-09-29T12:00:00Z')
 
 /** ページを描き、配送先の代わりに文字列を流し込める窓口を返す */
-const 描く = (api: CommentApi = 代役のAPI(), focusApi: FocusApi = 代役の注目コメントAPI(), now: () => number = 発言と同じ時刻) => {
+const renderPage = (api: CommentApi = createFakeApi(), focusApi: FocusApi = createFakeFocusApi(), now: () => number = chatArrivalTime) => {
   let handlers: CommentFeedHandlers | undefined
   const close = vi.fn()
   render(
@@ -84,22 +84,22 @@ const 描く = (api: CommentApi = 代役のAPI(), focusApi: FocusApi = 代役の
       }}
     />,
   )
-  const 窓口 = (): CommentFeedHandlers => {
+  const getHandlers = (): CommentFeedHandlers => {
     if (!handlers) throw new Error('ページが配送先につないでいません')
     return handlers
   }
   return {
     close,
-    届く: (message: unknown) => act(() => 窓口().onMessage(JSON.stringify(message))),
-    読めないものが届く: (text: string) => act(() => 窓口().onMessage(text)),
-    切れる: () => act(() => 窓口().onStatus('disconnected')),
+    receive: (message: unknown) => act(() => getHandlers().onMessage(JSON.stringify(message))),
+    receiveUnreadable: (text: string) => act(() => getHandlers().onMessage(text)),
+    disconnect: () => act(() => getHandlers().onStatus('disconnected')),
   }
 }
 
 /** 並びの1行を、書かれている文字で探す */
-const 行 = (text: string | RegExp): HTMLElement => {
-  const 並び = screen.getByRole('list', { name: 'チャットと出来事' })
-  const found = within(並び)
+const findRow = (text: string | RegExp): HTMLElement => {
+  const feedList = screen.getByRole('list', { name: 'チャットと出来事' })
+  const found = within(feedList)
     .getAllByRole('listitem')
     .find((item) => (typeof text === 'string' ? item.textContent?.includes(text) : text.test(item.textContent ?? '')))
   if (!found) throw new Error(`「${String(text)}」の行がありません`)
@@ -108,71 +108,71 @@ const 行 = (text: string | RegExp): HTMLElement => {
 
 describe('CommentsPage', () => {
   test('届いた発言を、名前・バッジ・本文で並べ、エモートは画像で出す', async () => {
-    const { 届く } = 描く()
+    const { receive } = renderPage()
 
-    await 届く({ type: 'backlog', items: [常連さんの発言] })
+    await receive({ type: 'backlog', items: [regularViewerChat] })
 
-    const 発言の行 = 行('常連さん')
-    expect(発言の行).toHaveTextContent('こんばんは')
-    expect(within(発言の行).getByRole('img', { name: 'Kappa' })).toHaveAttribute('src', expect.stringContaining('/emoticons/v2/25/'))
-    expect(await within(発言の行).findByRole('img', { name: '1-Year Subscriber' })).toBeInTheDocument()
+    const chatRow = findRow('常連さん')
+    expect(chatRow).toHaveTextContent('こんばんは')
+    expect(within(chatRow).getByRole('img', { name: 'Kappa' })).toHaveAttribute('src', expect.stringContaining('/emoticons/v2/25/'))
+    expect(await within(chatRow).findByRole('img', { name: '1-Year Subscriber' })).toBeInTheDocument()
   })
 
   test('発言した人のアイコンを問い合わせて出す', async () => {
-    const api = 代役のAPI()
-    const { 届く } = 描く(api)
+    const api = createFakeApi()
+    const { receive } = renderPage(api)
 
-    await 届く({ type: 'item', item: 常連さんの発言 })
+    await receive({ type: 'item', item: regularViewerChat })
 
     // アイコンは隣の名前と同じ人を指す飾りなので、代替文字は空にしている
-    await vi.waitFor(() => expect(行('常連さん').querySelector('img[src$="jouren.png"]')).not.toBeNull())
+    await vi.waitFor(() => expect(findRow('常連さん').querySelector('img[src$="jouren.png"]')).not.toBeNull())
     expect(api.loadIcons).toHaveBeenCalledWith(['777'])
   })
 
   test('出来事を1行の文で並べる', async () => {
-    const { 届く } = 描く()
+    const { receive } = renderPage()
 
-    await 届く({
+    await receive({
       type: 'backlog',
       items: [
         { kind: 'follow', id: '通知2', at: 0, user: { id: '888', login: 'shoken_san', name: '初見さん' } },
-        { kind: 'redemption', id: '通知3', at: 0, user: 常連さん, reward: '質問する', cost: 500, input: '好きな食べ物は？' },
+        { kind: 'redemption', id: '通知3', at: 0, user: regularViewer, reward: '質問する', cost: 500, input: '好きな食べ物は？' },
       ],
     })
 
-    expect(行('初見さん さんがフォローしました')).toBeInTheDocument()
-    expect(行('「質問する」を引き換えました')).toHaveTextContent('好きな食べ物は？')
+    expect(findRow('初見さん さんがフォローしました')).toBeInTheDocument()
+    expect(findRow('「質問する」を引き換えました')).toHaveTextContent('好きな食べ物は？')
   })
 
   test('モデレーターに消された発言には「削除済み」の印を付ける', async () => {
-    const { 届く } = 描く()
+    const { receive } = renderPage()
 
-    await 届く({ type: 'item', item: 常連さんの発言 })
-    await 届く({ type: 'item', item: { kind: 'delete', id: '通知4', at: 0, messageId: '発言1' } })
+    await receive({ type: 'item', item: regularViewerChat })
+    await receive({ type: 'item', item: { kind: 'delete', id: '通知4', at: 0, messageId: '発言1' } })
 
-    expect(行('常連さん')).toHaveTextContent('削除済み')
+    expect(findRow('常連さん')).toHaveTextContent('削除済み')
   })
 
   test('読み取れないものが届いたら、黙らずに知らせる', async () => {
-    const { 読めないものが届く } = 描く()
+    const { receiveUnreadable } = renderPage()
 
-    await 読めないものが届く('{"type":"item","item":{"kind":"hug"}}')
+    await receiveUnreadable('{"type":"item","item":{"kind":"hug"}}')
 
     expect(screen.getByRole('alert')).toHaveTextContent('想定した形ではありません')
   })
 
   test('接続が切れたら知らせる', async () => {
-    const { 切れる } = 描く()
+    const { disconnect } = renderPage()
 
-    await 切れる()
+    await disconnect()
 
     expect(screen.getByText(/接続が切れました/)).toBeInTheDocument()
   })
 
   test('アイコンを引けなかったら、黙らずに知らせる', async () => {
-    const { 届く } = 描く(代役のAPI({ loadIcons: vi.fn(async () => Promise.reject(new Error('Twitchに問い合わせられませんでした'))) }))
+    const { receive } = renderPage(createFakeApi({ loadIcons: vi.fn(async () => Promise.reject(new Error('Twitchに問い合わせられませんでした'))) }))
 
-    await 届く({ type: 'item', item: 常連さんの発言 })
+    await receive({ type: 'item', item: regularViewerChat })
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Twitchに問い合わせられませんでした')
   })
@@ -182,18 +182,18 @@ describe('CommentsPage', () => {
       .fn<CommentApi['loadIcons']>()
       .mockRejectedValueOnce(new Error('Twitchに問い合わせられませんでした'))
       .mockResolvedValue({ '777': 'https://static-cdn.jtvnw.net/jtv_user_pictures/jouren.png' })
-    const { 届く } = 描く(代役のAPI({ loadIcons }))
+    const { receive } = renderPage(createFakeApi({ loadIcons }))
 
-    await 届く({ type: 'item', item: 常連さんの発言 })
+    await receive({ type: 'item', item: regularViewerChat })
     await screen.findByRole('alert')
-    await 届く({ type: 'item', item: { ...常連さんの発言, id: '通知5', messageId: '発言5' } })
+    await receive({ type: 'item', item: { ...regularViewerChat, id: '通知5', messageId: '発言5' } })
 
     await vi.waitFor(() => expect(loadIcons).toHaveBeenCalledTimes(2))
     expect(loadIcons).toHaveBeenLastCalledWith(['777'])
   })
 
   test('画面を離れるときは接続を閉じる（行き来するたびに接続が増えないように）', () => {
-    const { close } = 描く()
+    const { close } = renderPage()
 
     cleanup()
 
@@ -202,130 +202,130 @@ describe('CommentsPage', () => {
 
   describe('注目コメント', () => {
     /** 発言の行にある、注目コメントに設定するボタン */
-    const 取り上げるボタン = (text: string) => within(行(text)).getByRole('button', { name: 'この発言を注目コメントにする' })
+    const focusButton = (text: string) => within(findRow(text)).getByRole('button', { name: 'この発言を注目コメントにする' })
 
     test('発言の行のボタンを押すと、その発言を注目コメントに設定する', async () => {
-      const focusApi = 代役の注目コメントAPI()
-      const { 届く } = 描く(代役のAPI(), focusApi)
-      await 届く({ type: 'item', item: 常連さんの発言 })
+      const focusApi = createFakeFocusApi()
+      const { receive } = renderPage(createFakeApi(), focusApi)
+      await receive({ type: 'item', item: regularViewerChat })
 
-      await userEvent.click(取り上げるボタン('常連さん'))
+      await userEvent.click(focusButton('常連さん'))
 
       expect(focusApi.save).toHaveBeenCalledWith({ messageId: '発言1', login: 'jouren_san', displayName: '常連さん', text: 'こんばんは Kappa' })
       expect(await screen.findByText('常連さん さんの発言を注目コメントにしました')).toBeInTheDocument()
       // 取り上げている発言には印が付き、ボタンは押された状態になる
-      expect(行('常連さん')).toHaveTextContent('注目中')
-      expect(取り上げるボタン('常連さん')).toHaveAttribute('aria-pressed', 'true')
+      expect(findRow('常連さん')).toHaveTextContent('注目中')
+      expect(focusButton('常連さん')).toHaveAttribute('aria-pressed', 'true')
     })
 
     test('開いたときに、すでに取り上げている発言に印を付ける', async () => {
-      const focusApi = 代役の注目コメントAPI({
+      const focusApi = createFakeFocusApi({
         load: vi.fn(async () => ({ messageId: '発言1', login: 'jouren_san', displayName: '常連さん', text: 'こんばんは Kappa', profileImageUrl: 'https://static-cdn.jtvnw.net/jtv_user_pictures/jouren.png' })),
       })
-      const { 届く } = 描く(代役のAPI(), focusApi)
+      const { receive } = renderPage(createFakeApi(), focusApi)
 
-      await 届く({ type: 'item', item: 常連さんの発言 })
+      await receive({ type: 'item', item: regularViewerChat })
 
-      await vi.waitFor(() => expect(行('常連さん')).toHaveTextContent('注目中'))
+      await vi.waitFor(() => expect(findRow('常連さん')).toHaveTextContent('注目中'))
     })
 
     test('取り上げている発言のボタンをもう一度押すと、取り上げをやめる', async () => {
-      const focusApi = 代役の注目コメントAPI()
-      const { 届く } = 描く(代役のAPI(), focusApi)
-      await 届く({ type: 'item', item: 常連さんの発言 })
-      await userEvent.click(取り上げるボタン('常連さん'))
+      const focusApi = createFakeFocusApi()
+      const { receive } = renderPage(createFakeApi(), focusApi)
+      await receive({ type: 'item', item: regularViewerChat })
+      await userEvent.click(focusButton('常連さん'))
       await screen.findByText('常連さん さんの発言を注目コメントにしました')
 
-      await userEvent.click(取り上げるボタン('常連さん'))
+      await userEvent.click(focusButton('常連さん'))
 
       expect(focusApi.save).toHaveBeenLastCalledWith(null)
       expect(await screen.findByText('注目コメントの取り上げをやめました')).toBeInTheDocument()
-      expect(行('常連さん')).not.toHaveTextContent('注目中')
+      expect(findRow('常連さん')).not.toHaveTextContent('注目中')
     })
 
     test('ほかの画面で別の発言に取り上げ直されていたら、やめずに表示を合わせる（ほかの画面の選択を消さないため）', async () => {
-      const 別の発言 = { messageId: '発言9', login: 'shoken_san', displayName: '初見さん', text: 'はじめまして', profileImageUrl: 'https://static-cdn.jtvnw.net/jtv_user_pictures/shoken.png' }
-      const focusApi = 代役の注目コメントAPI()
-      const { 届く } = 描く(代役のAPI(), focusApi)
-      await 届く({ type: 'item', item: 常連さんの発言 })
-      await userEvent.click(取り上げるボタン('常連さん'))
+      const otherChat = { messageId: '発言9', login: 'shoken_san', displayName: '初見さん', text: 'はじめまして', profileImageUrl: 'https://static-cdn.jtvnw.net/jtv_user_pictures/shoken.png' }
+      const focusApi = createFakeFocusApi()
+      const { receive } = renderPage(createFakeApi(), focusApi)
+      await receive({ type: 'item', item: regularViewerChat })
+      await userEvent.click(focusButton('常連さん'))
       await screen.findByText('常連さん さんの発言を注目コメントにしました')
       // 前提: このあと注目コメントのページで、別の発言に取り上げ直された
-      vi.mocked(focusApi.load).mockResolvedValue(別の発言)
+      vi.mocked(focusApi.load).mockResolvedValue(otherChat)
 
-      await userEvent.click(取り上げるボタン('常連さん'))
+      await userEvent.click(focusButton('常連さん'))
 
       expect(focusApi.save).not.toHaveBeenLastCalledWith(null)
       expect(await screen.findByText(/ほかの画面で別の発言に変わっていた/)).toBeInTheDocument()
-      expect(行('常連さん')).not.toHaveTextContent('注目中')
+      expect(findRow('常連さん')).not.toHaveTextContent('注目中')
     })
 
     test('開いたときの読み込みが保存より遅れて返っても、保存した印を上書きしない', async () => {
       // 前提: 開いたときの読み込み（取り上げていない）が、発言を取り上げたあとに返ってくる
-      let 読み込みを返す: (target: null) => void = () => {}
-      const focusApi = 代役の注目コメントAPI({ load: vi.fn(() => new Promise<null>((resolve) => (読み込みを返す = resolve))) })
-      const { 届く } = 描く(代役のAPI(), focusApi)
-      await 届く({ type: 'item', item: 常連さんの発言 })
-      await userEvent.click(取り上げるボタン('常連さん'))
+      let resolveLoad: (target: null) => void = () => {}
+      const focusApi = createFakeFocusApi({ load: vi.fn(() => new Promise<null>((resolve) => (resolveLoad = resolve))) })
+      const { receive } = renderPage(createFakeApi(), focusApi)
+      await receive({ type: 'item', item: regularViewerChat })
+      await userEvent.click(focusButton('常連さん'))
       await screen.findByText('常連さん さんの発言を注目コメントにしました')
 
-      await act(async () => 読み込みを返す(null))
+      await act(async () => resolveLoad(null))
 
-      expect(行('常連さん')).toHaveTextContent('注目中')
+      expect(findRow('常連さん')).toHaveTextContent('注目中')
     })
 
     test('モデレーターに消された発言は取り上げられない（配信画面に出さないため）', async () => {
-      const { 届く } = 描く()
-      await 届く({ type: 'item', item: 常連さんの発言 })
-      await 届く({ type: 'item', item: { kind: 'delete', id: '通知4', at: 0, messageId: '発言1' } })
+      const { receive } = renderPage()
+      await receive({ type: 'item', item: regularViewerChat })
+      await receive({ type: 'item', item: { kind: 'delete', id: '通知4', at: 0, messageId: '発言1' } })
 
-      expect(取り上げるボタン('常連さん')).toBeDisabled()
+      expect(focusButton('常連さん')).toBeDisabled()
     })
 
     test('設定に失敗したら、理由を出す', async () => {
-      const focusApi = 代役の注目コメントAPI({ save: vi.fn(async () => Promise.reject(new Error('Twitchにログイン名 jouren_san のアイコンがありません'))) })
-      const { 届く } = 描く(代役のAPI(), focusApi)
-      await 届く({ type: 'item', item: 常連さんの発言 })
+      const focusApi = createFakeFocusApi({ save: vi.fn(async () => Promise.reject(new Error('Twitchにログイン名 jouren_san のアイコンがありません'))) })
+      const { receive } = renderPage(createFakeApi(), focusApi)
+      await receive({ type: 'item', item: regularViewerChat })
 
-      await userEvent.click(取り上げるボタン('常連さん'))
+      await userEvent.click(focusButton('常連さん'))
 
       expect(await screen.findByText('Twitchにログイン名 jouren_san のアイコンがありません')).toBeInTheDocument()
-      expect(行('常連さん')).not.toHaveTextContent('注目中')
+      expect(findRow('常連さん')).not.toHaveTextContent('注目中')
     })
   })
 
   describe('モデレーターの操作', () => {
     /** 発言の行にある、モデレーターの操作のボタン */
-    const 操作のボタン = (text: string, name: string) => within(行(text)).getByRole('button', { name })
+    const actionButton = (text: string, name: string) => within(findRow(text)).getByRole('button', { name })
 
     test('発言を削除する', async () => {
-      const api = 代役のAPI()
-      const { 届く } = 描く(api)
-      await 届く({ type: 'item', item: 常連さんの発言 })
+      const api = createFakeApi()
+      const { receive } = renderPage(api)
+      await receive({ type: 'item', item: regularViewerChat })
 
-      await userEvent.click(操作のボタン('常連さん', 'この発言を削除'))
+      await userEvent.click(actionButton('常連さん', 'この発言を削除'))
 
       expect(api.moderate).toHaveBeenCalledWith('delete', { messageId: '発言1', userId: '777' })
       expect(await screen.findByText('常連さん さんの発言を削除しました')).toBeInTheDocument()
     })
 
     test('発言した人をタイムアウトする（長さはWorkerが決めたものを出す）', async () => {
-      const api = 代役のAPI()
-      const { 届く } = 描く(api)
-      await 届く({ type: 'item', item: 常連さんの発言 })
+      const api = createFakeApi()
+      const { receive } = renderPage(api)
+      await receive({ type: 'item', item: regularViewerChat })
 
-      await userEvent.click(操作のボタン('常連さん', 'この人をタイムアウト'))
+      await userEvent.click(actionButton('常連さん', 'この人をタイムアウト'))
 
       expect(api.moderate).toHaveBeenCalledWith('timeout', { messageId: '発言1', userId: '777' })
       expect(await screen.findByText('常連さん さんを10分タイムアウトしました')).toBeInTheDocument()
     })
 
     test('BANは確かめてから行う', async () => {
-      const api = 代役のAPI()
-      const { 届く } = 描く(api)
-      await 届く({ type: 'item', item: 常連さんの発言 })
+      const api = createFakeApi()
+      const { receive } = renderPage(api)
+      await receive({ type: 'item', item: regularViewerChat })
 
-      await userEvent.click(操作のボタン('常連さん', 'この人をBAN'))
+      await userEvent.click(actionButton('常連さん', 'この人をBAN'))
       // 確かめる前には、まだBANしていない
       expect(api.moderate).not.toHaveBeenCalled()
       const dialog = await screen.findByRole('alertdialog')
@@ -337,152 +337,152 @@ describe('CommentsPage', () => {
     })
 
     test('BANの確認で「やめる」を選んだら、BANしない', async () => {
-      const api = 代役のAPI()
-      const { 届く } = 描く(api)
-      await 届く({ type: 'item', item: 常連さんの発言 })
+      const api = createFakeApi()
+      const { receive } = renderPage(api)
+      await receive({ type: 'item', item: regularViewerChat })
 
-      await userEvent.click(操作のボタン('常連さん', 'この人をBAN'))
+      await userEvent.click(actionButton('常連さん', 'この人をBAN'))
       await userEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'やめる' }))
 
       expect(api.moderate).not.toHaveBeenCalled()
     })
 
     test('すでに消された発言は削除できないが、その人のタイムアウト・BANはできる', async () => {
-      const { 届く } = 描く()
-      await 届く({ type: 'item', item: 常連さんの発言 })
-      await 届く({ type: 'item', item: { kind: 'delete', id: '通知4', at: 0, messageId: '発言1' } })
+      const { receive } = renderPage()
+      await receive({ type: 'item', item: regularViewerChat })
+      await receive({ type: 'item', item: { kind: 'delete', id: '通知4', at: 0, messageId: '発言1' } })
 
-      expect(操作のボタン('常連さん', 'この発言を削除')).toBeDisabled()
-      expect(操作のボタン('常連さん', 'この人をタイムアウト')).toBeEnabled()
-      expect(操作のボタン('常連さん', 'この人をBAN')).toBeEnabled()
+      expect(actionButton('常連さん', 'この発言を削除')).toBeDisabled()
+      expect(actionButton('常連さん', 'この人をタイムアウト')).toBeEnabled()
+      expect(actionButton('常連さん', 'この人をBAN')).toBeEnabled()
     })
 
     test('削除に成功したら、Twitchから消えた知らせが届く前でも、同じ発言をもう一度削除させない', async () => {
-      const api = 代役のAPI()
-      const { 届く } = 描く(api)
-      await 届く({ type: 'item', item: 常連さんの発言 })
+      const api = createFakeApi()
+      const { receive } = renderPage(api)
+      await receive({ type: 'item', item: regularViewerChat })
 
-      await userEvent.click(操作のボタン('常連さん', 'この発言を削除'))
+      await userEvent.click(actionButton('常連さん', 'この発言を削除'))
       await screen.findByText('常連さん さんの発言を削除しました')
 
-      expect(操作のボタン('常連さん', 'この発言を削除')).toBeDisabled()
+      expect(actionButton('常連さん', 'この発言を削除')).toBeDisabled()
       // 印（削除済み）は Twitch の知らせを待って付けるので、まだ付けない
-      expect(行('常連さん')).not.toHaveTextContent('削除済み')
+      expect(findRow('常連さん')).not.toHaveTextContent('削除済み')
     })
 
     test('処分に失敗したら、理由を出す（botがモデレーターでないなど）', async () => {
-      const api = 代役のAPI({ moderate: vi.fn(async () => Promise.reject(new Error('botがこのチャンネルのモデレーターではありません'))) })
-      const { 届く } = 描く(api)
-      await 届く({ type: 'item', item: 常連さんの発言 })
+      const api = createFakeApi({ moderate: vi.fn(async () => Promise.reject(new Error('botがこのチャンネルのモデレーターではありません'))) })
+      const { receive } = renderPage(api)
+      await receive({ type: 'item', item: regularViewerChat })
 
-      await userEvent.click(操作のボタン('常連さん', 'この発言を削除'))
+      await userEvent.click(actionButton('常連さん', 'この発言を削除'))
 
       expect(await screen.findByText('botがこのチャンネルのモデレーターではありません')).toBeInTheDocument()
     })
   })
 
   describe('チャットを送る', () => {
-    const 入力欄 = () => screen.getByRole('textbox', { name: 'チャットに送る文言' })
+    const chatInput = () => screen.getByRole('textbox', { name: 'チャットに送る文言' })
 
     test('文言を入れて Enter を押すと、配信者としてチャットへ送り、入力欄を空にする', async () => {
-      const api = 代役のAPI()
-      描く(api)
+      const api = createFakeApi()
+      renderPage(api)
 
-      await userEvent.type(入力欄(), 'みなさん来てくれてありがとう{Enter}')
+      await userEvent.type(chatInput(), 'みなさん来てくれてありがとう{Enter}')
 
       expect(api.send).toHaveBeenCalledWith('みなさん来てくれてありがとう')
-      await vi.waitFor(() => expect(入力欄()).toHaveValue(''))
+      await vi.waitFor(() => expect(chatInput()).toHaveValue(''))
     })
 
     test('送信のボタンでも送れる', async () => {
-      const api = 代役のAPI()
-      描く(api)
+      const api = createFakeApi()
+      renderPage(api)
 
-      await userEvent.type(入力欄(), 'こんばんは')
+      await userEvent.type(chatInput(), 'こんばんは')
       await userEvent.click(screen.getByRole('button', { name: '送信' }))
 
       expect(api.send).toHaveBeenCalledWith('こんばんは')
     })
 
     test('日本語入力の変換を確定する Enter では送らない', () => {
-      const api = 代役のAPI()
-      描く(api)
-      fireEvent.change(入力欄(), { target: { value: 'ありがとう' } })
+      const api = createFakeApi()
+      renderPage(api)
+      fireEvent.change(chatInput(), { target: { value: 'ありがとう' } })
 
       // 変換中（isComposing）の Enter は、候補を確定するためのもので送信の合図ではない
-      fireEvent.keyDown(入力欄(), { key: 'Enter', isComposing: true })
+      fireEvent.keyDown(chatInput(), { key: 'Enter', isComposing: true })
 
       expect(api.send).not.toHaveBeenCalled()
     })
 
     test('Safari の変換確定の Enter（isComposing が false でも keyCode が 229）でも送らない', () => {
-      const api = 代役のAPI()
-      描く(api)
-      fireEvent.change(入力欄(), { target: { value: 'ありがとう' } })
+      const api = createFakeApi()
+      renderPage(api)
+      fireEvent.change(chatInput(), { target: { value: 'ありがとう' } })
 
-      fireEvent.keyDown(入力欄(), { key: 'Enter', keyCode: 229, isComposing: false })
+      fireEvent.keyDown(chatInput(), { key: 'Enter', keyCode: 229, isComposing: false })
 
       expect(api.send).not.toHaveBeenCalled()
     })
 
     test('送っているあいだに書き足した文言は、送り終えても消さない', async () => {
       // 前提: 送信が終わる前に、配信者が次の文言を打ち始める
-      let 送り終える: () => void = () => {}
-      const api = 代役のAPI({ send: vi.fn(() => new Promise<void>((resolve) => (送り終える = resolve))) })
-      描く(api)
-      await userEvent.type(入力欄(), 'こんばんは{Enter}')
-      fireEvent.change(入力欄(), { target: { value: '次の話題は' } })
+      let finishSend: () => void = () => {}
+      const api = createFakeApi({ send: vi.fn(() => new Promise<void>((resolve) => (finishSend = resolve))) })
+      renderPage(api)
+      await userEvent.type(chatInput(), 'こんばんは{Enter}')
+      fireEvent.change(chatInput(), { target: { value: '次の話題は' } })
 
-      await act(async () => 送り終える())
+      await act(async () => finishSend())
 
       expect(api.send).toHaveBeenCalledWith('こんばんは')
-      expect(入力欄()).toHaveValue('次の話題は')
+      expect(chatInput()).toHaveValue('次の話題は')
     })
 
     test('画面が描き直される前に Enter が2回届いても、同じ文言を2度送らない', async () => {
-      let 送り終える: () => void = () => {}
-      const api = 代役のAPI({ send: vi.fn(() => new Promise<void>((resolve) => (送り終える = resolve))) })
-      描く(api)
-      fireEvent.change(入力欄(), { target: { value: 'こんばんは' } })
+      let finishSend: () => void = () => {}
+      const api = createFakeApi({ send: vi.fn(() => new Promise<void>((resolve) => (finishSend = resolve))) })
+      renderPage(api)
+      fireEvent.change(chatInput(), { target: { value: 'こんばんは' } })
 
       // 前提: 2回の Enter のあいだに描き直しが入らない（素早い連打）
       act(() => {
-        入力欄().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
-        入力欄().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+        chatInput().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+        chatInput().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
       })
-      await act(async () => 送り終える())
+      await act(async () => finishSend())
 
       expect(api.send).toHaveBeenCalledTimes(1)
     })
 
     test('送れなかったあとは、もう一度送れる', async () => {
       const send = vi.fn<CommentApi['send']>().mockRejectedValueOnce(new Error('Twitchがチャットを送信しませんでした')).mockResolvedValue()
-      描く(代役のAPI({ send }))
+      renderPage(createFakeApi({ send }))
 
-      await userEvent.type(入力欄(), 'こんばんは{Enter}')
+      await userEvent.type(chatInput(), 'こんばんは{Enter}')
       await screen.findByText(/Twitchがチャットを送信しませんでした/)
-      await userEvent.type(入力欄(), '{Enter}')
+      await userEvent.type(chatInput(), '{Enter}')
 
       expect(send).toHaveBeenCalledTimes(2)
     })
 
     test('送れなかったら理由を出し、入れた文言は消さない（許可を取り直していないなど）', async () => {
-      const api = 代役のAPI({ send: vi.fn(async () => Promise.reject(new Error('配信者のトークンに user:write:chat がありません。ログインし直してください'))) })
-      描く(api)
+      const api = createFakeApi({ send: vi.fn(async () => Promise.reject(new Error('配信者のトークンに user:write:chat がありません。ログインし直してください'))) })
+      renderPage(api)
 
-      await userEvent.type(入力欄(), 'こんばんは{Enter}')
+      await userEvent.type(chatInput(), 'こんばんは{Enter}')
 
       expect(await screen.findByText(/ログインし直してください/)).toBeInTheDocument()
-      expect(入力欄()).toHaveValue('こんばんは')
+      expect(chatInput()).toHaveValue('こんばんは')
     })
   })
 
   describe('既読・未読', () => {
     /** 発言の行にある、既読のボタン */
-    const 既読のボタン = (text: string) => within(行(text)).getByRole('button', { name: 'この発言を既読にする' })
+    const readButton = (text: string) => within(findRow(text)).getByRole('button', { name: 'この発言を既読にする' })
 
     /** 配送先から届く、既読・未読の付け替え */
-    const 付け替え = (id: string, read: boolean, by: 'manual' | 'jev' = 'manual'): FeedItem => ({
+    const readSwitch = (id: string, read: boolean, by: 'manual' | 'jev' = 'manual'): FeedItem => ({
       kind: 'read',
       id,
       at: Date.parse('2026-09-29T12:01:00Z'),
@@ -492,7 +492,7 @@ describe('CommentsPage', () => {
     })
 
     /** 配信者自身の発言（broadcaster のバッジが付く） */
-    const 配信者の発言: FeedItem = {
+    const broadcasterChat: FeedItem = {
       kind: 'chat',
       id: '通知9',
       at: Date.parse('2026-09-29T12:00:00Z'),
@@ -506,86 +506,86 @@ describe('CommentsPage', () => {
     }
 
     /** 発言が届いてから4分後（目立たせるまでの3分を過ぎている） */
-    const 四分後 = () => Date.parse('2026-09-29T12:04:00Z')
+    const fourMinutesLater = () => Date.parse('2026-09-29T12:04:00Z')
 
     test('既読のボタンを押すと、Workerに既読にするよう頼む（印は付け替えが届くまで付けない）', async () => {
-      const api = 代役のAPI()
-      const { 届く } = 描く(api)
-      await 届く({ type: 'item', item: 常連さんの発言 })
+      const api = createFakeApi()
+      const { receive } = renderPage(api)
+      await receive({ type: 'item', item: regularViewerChat })
 
-      await userEvent.click(既読のボタン('常連さん'))
+      await userEvent.click(readButton('常連さん'))
 
       expect(api.markRead).toHaveBeenCalledWith('発言1', true)
-      expect(既読のボタン('常連さん')).toHaveAttribute('aria-pressed', 'false')
+      expect(readButton('常連さん')).toHaveAttribute('aria-pressed', 'false')
     })
 
     test('既読の付け替えが届くと、ボタンが押された状態になり、もう一度押すと未読に戻すよう頼む', async () => {
-      const api = 代役のAPI()
-      const { 届く } = 描く(api)
-      await 届く({ type: 'backlog', items: [常連さんの発言, 付け替え('付け替え1', true)] })
+      const api = createFakeApi()
+      const { receive } = renderPage(api)
+      await receive({ type: 'backlog', items: [regularViewerChat, readSwitch('付け替え1', true)] })
 
-      expect(既読のボタン('常連さん')).toHaveAttribute('aria-pressed', 'true')
-      await userEvent.click(既読のボタン('常連さん'))
+      expect(readButton('常連さん')).toHaveAttribute('aria-pressed', 'true')
+      await userEvent.click(readButton('常連さん'))
 
       expect(api.markRead).toHaveBeenCalledWith('発言1', false)
     })
 
     test('配信者自身の発言には、既読のボタンを出さない', async () => {
-      const { 届く } = 描く()
+      const { receive } = renderPage()
 
-      await 届く({ type: 'item', item: 配信者の発言 })
+      await receive({ type: 'item', item: broadcasterChat })
 
-      expect(within(行('みなさんこんばんは')).queryByRole('button', { name: 'この発言を既読にする' })).not.toBeInTheDocument()
+      expect(within(findRow('みなさんこんばんは')).queryByRole('button', { name: 'この発言を既読にする' })).not.toBeInTheDocument()
     })
 
     test('既読にできなかったら、理由を出す', async () => {
-      const api = 代役のAPI({
+      const api = createFakeApi({
         markRead: vi.fn(async () => {
           throw new Error('コメントビューアーの1件を配送先へ送れませんでした')
         }),
       })
-      const { 届く } = 描く(api)
-      await 届く({ type: 'item', item: 常連さんの発言 })
+      const { receive } = renderPage(api)
+      await receive({ type: 'item', item: regularViewerChat })
 
-      await userEvent.click(既読のボタン('常連さん'))
+      await userEvent.click(readButton('常連さん'))
 
       expect(await screen.findByText('コメントビューアーの1件を配送先へ送れませんでした')).toBeInTheDocument()
     })
 
     test('届いてから3分たっても未読の発言を、「しばらく未読」として目立たせる', async () => {
-      const { 届く } = 描く(代役のAPI(), 代役の注目コメントAPI(), 四分後)
+      const { receive } = renderPage(createFakeApi(), createFakeFocusApi(), fourMinutesLater)
 
-      await 届く({ type: 'item', item: 常連さんの発言 })
+      await receive({ type: 'item', item: regularViewerChat })
 
-      expect(await within(行('常連さん')).findByText('しばらく未読')).toBeInTheDocument()
+      expect(await within(findRow('常連さん')).findByText('しばらく未読')).toBeInTheDocument()
     })
 
     test('届いたばかりの発言・既読にした発言・配信者自身の発言は目立たせない', async () => {
-      const { 届く } = 描く(代役のAPI(), 代役の注目コメントAPI(), 四分後)
+      const { receive } = renderPage(createFakeApi(), createFakeFocusApi(), fourMinutesLater)
 
-      await 届く({ type: 'backlog', items: [常連さんの発言, 付け替え('付け替え1', true), 配信者の発言] })
+      await receive({ type: 'backlog', items: [regularViewerChat, readSwitch('付け替え1', true), broadcasterChat] })
 
       expect(screen.queryByText('しばらく未読')).not.toBeInTheDocument()
     })
 
     test('設定で目立たせないことにしていれば、しばらく未読でも目立たせない', async () => {
-      const api = 代役のAPI({ loadSettings: vi.fn(async () => ({ highlightUnread: false, judgeWithJev: false })) })
-      const { 届く } = 描く(api, 代役の注目コメントAPI(), 四分後)
+      const api = createFakeApi({ loadSettings: vi.fn(async () => ({ highlightUnread: false, judgeWithJev: false })) })
+      const { receive } = renderPage(api, createFakeFocusApi(), fourMinutesLater)
       expect(await screen.findByRole('checkbox', { name: 'しばらく未読の発言を目立たせる' })).not.toBeChecked()
 
-      await 届く({ type: 'item', item: 常連さんの発言 })
+      await receive({ type: 'item', item: regularViewerChat })
 
       expect(screen.queryByText('しばらく未読')).not.toBeInTheDocument()
     })
 
     test('目立たせる設定を切り替えると保存し、その場で目立たせるのをやめる', async () => {
-      const api = 代役のAPI()
-      const { 届く } = 描く(api, 代役の注目コメントAPI(), 四分後)
-      await 届く({ type: 'item', item: 常連さんの発言 })
-      const 切り替え = await screen.findByRole('checkbox', { name: 'しばらく未読の発言を目立たせる' })
-      expect(切り替え).toBeChecked()
+      const api = createFakeApi()
+      const { receive } = renderPage(api, createFakeFocusApi(), fourMinutesLater)
+      await receive({ type: 'item', item: regularViewerChat })
+      const toggle = await screen.findByRole('checkbox', { name: 'しばらく未読の発言を目立たせる' })
+      expect(toggle).toBeChecked()
 
-      await userEvent.click(切り替え)
+      await userEvent.click(toggle)
 
       // もう一方の設定（自動の既読）はそのまま送る
       expect(api.saveSettings).toHaveBeenCalledWith({ highlightUnread: false, judgeWithJev: false })
@@ -594,32 +594,32 @@ describe('CommentsPage', () => {
     })
 
     test('発話から自動で既読にするかを切り替えると保存する（もう一方の設定はそのまま送る）', async () => {
-      const api = 代役のAPI()
-      描く(api)
-      const 切り替え = await screen.findByRole('checkbox', { name: '配信者の発話から自動で既読にする（Jev）' })
-      expect(切り替え).not.toBeChecked()
+      const api = createFakeApi()
+      renderPage(api)
+      const toggle = await screen.findByRole('checkbox', { name: '配信者の発話から自動で既読にする（Jev）' })
+      expect(toggle).not.toBeChecked()
 
-      await userEvent.click(切り替え)
+      await userEvent.click(toggle)
 
       expect(api.saveSettings).toHaveBeenCalledWith({ highlightUnread: true, judgeWithJev: true })
       expect(await screen.findByRole('checkbox', { name: '配信者の発話から自動で既読にする（Jev）' })).toBeChecked()
     })
 
     test('Jev が既読にした発言には「発話から既読」と出し、手で既読にしたものと見分けられる', async () => {
-      const { 届く } = 描く()
+      const { receive } = renderPage()
 
-      await 届く({ type: 'backlog', items: [常連さんの発言, 付け替え('付け替え1', true, 'jev')] })
+      await receive({ type: 'backlog', items: [regularViewerChat, readSwitch('付け替え1', true, 'jev')] })
 
-      expect(既読のボタン('常連さん')).toHaveAttribute('aria-pressed', 'true')
-      expect(within(行('常連さん')).getByText('発話から既読')).toBeInTheDocument()
+      expect(readButton('常連さん')).toHaveAttribute('aria-pressed', 'true')
+      expect(within(findRow('常連さん')).getByText('発話から既読')).toBeInTheDocument()
     })
 
     test('手で既読にした発言には「発話から既読」と出さない', async () => {
-      const { 届く } = 描く()
+      const { receive } = renderPage()
 
-      await 届く({ type: 'backlog', items: [常連さんの発言, 付け替え('付け替え1', true, 'manual')] })
+      await receive({ type: 'backlog', items: [regularViewerChat, readSwitch('付け替え1', true, 'manual')] })
 
-      expect(within(行('常連さん')).queryByText('発話から既読')).not.toBeInTheDocument()
+      expect(within(findRow('常連さん')).queryByText('発話から既読')).not.toBeInTheDocument()
     })
   })
 })

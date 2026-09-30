@@ -9,7 +9,7 @@ import { MAX_POINTS_PER_STROKE, MAX_STROKES, NO_STROKES, applyDrawMessage, isStr
 import type { StrokeStart } from './stroke'
 
 /** 色と太さを省いて書けるようにする（この検査の主題ではないため） */
-const 描き始め = (id: string, x: number, y: number, color = 'white', width = 'medium'): StrokeStart => ({
+const startDrawing = (id: string, x: number, y: number, color = 'white', width = 'medium'): StrokeStart => ({
   type: 'start',
   id,
   point: { x, y },
@@ -19,17 +19,17 @@ const 描き始め = (id: string, x: number, y: number, color = 'white', width =
 
 describe('applyDrawMessage', () => {
   it('描き始めで、点を1つ持つ線ができる', () => {
-    const 結果 = applyDrawMessage(NO_STROKES, 描き始め('線1', 0.1, 0.2))
+    const result = applyDrawMessage(NO_STROKES, startDrawing('線1', 0.1, 0.2))
 
-    expect(結果.strokes).toEqual([{ id: '線1', points: [{ x: 0.1, y: 0.2 }], color: 'white', width: 'medium' }])
+    expect(result.strokes).toEqual([{ id: '線1', points: [{ x: 0.1, y: 0.2 }], color: 'white', width: 'medium' }])
   })
 
   it('続きで、同じ線の末尾に点が足される', () => {
-    const 描き始めたあと = applyDrawMessage(NO_STROKES, 描き始め('線1', 0.1, 0.2))
+    const afterStart = applyDrawMessage(NO_STROKES, startDrawing('線1', 0.1, 0.2))
 
-    const 結果 = applyDrawMessage(描き始めたあと, { type: 'extend', id: '線1', points: [{ x: 0.3, y: 0.4 }] })
+    const result = applyDrawMessage(afterStart, { type: 'extend', id: '線1', points: [{ x: 0.3, y: 0.4 }] })
 
-    expect(結果.strokes).toEqual([
+    expect(result.strokes).toEqual([
       {
         id: '線1',
         points: [
@@ -43,123 +43,123 @@ describe('applyDrawMessage', () => {
   })
 
   it('別の名前の線は、別の線として並ぶ', () => {
-    const 一本目 = applyDrawMessage(NO_STROKES, 描き始め('線1', 0.1, 0.2))
+    const firstStroke = applyDrawMessage(NO_STROKES, startDrawing('線1', 0.1, 0.2))
 
-    const 結果 = applyDrawMessage(一本目, 描き始め('線2', 0.5, 0.6))
+    const result = applyDrawMessage(firstStroke, startDrawing('線2', 0.5, 0.6))
 
-    expect(結果.strokes.map(({ id }) => id)).toEqual(['線1', '線2'])
+    expect(result.strokes.map(({ id }) => id)).toEqual(['線1', '線2'])
   })
 
   it('描き始めを受け取っていない線の続きは、捨てる', () => {
     // 合成ページを線の途中で開くと起こる。描き始めが分からない線は描きようがないので、次の線から描く
-    const 結果 = applyDrawMessage(NO_STROKES, { type: 'extend', id: '見ていない線', points: [{ x: 0.3, y: 0.4 }] })
+    const result = applyDrawMessage(NO_STROKES, { type: 'extend', id: '見ていない線', points: [{ x: 0.3, y: 0.4 }] })
 
-    expect(結果.strokes).toEqual([])
+    expect(result.strokes).toEqual([])
   })
 
   it('同じ名前で描き始めが来たら、その線を引き直す', () => {
     // 描く画面がつなぎ直したあと、同じ名前を振り直すことがありうる。古い点が残ると線がつながって見える
-    const 描き始めたあと = applyDrawMessage(NO_STROKES, 描き始め('線1', 0.1, 0.2))
+    const afterStart = applyDrawMessage(NO_STROKES, startDrawing('線1', 0.1, 0.2))
 
-    const 結果 = applyDrawMessage(描き始めたあと, 描き始め('線1', 0.8, 0.9))
+    const result = applyDrawMessage(afterStart, startDrawing('線1', 0.8, 0.9))
 
-    expect(結果.strokes).toEqual([{ id: '線1', points: [{ x: 0.8, y: 0.9 }], color: 'white', width: 'medium' }])
+    expect(result.strokes).toEqual([{ id: '線1', points: [{ x: 0.8, y: 0.9 }], color: 'white', width: 'medium' }])
   })
 
   it('線が上限を超えたら、古いものから落とす', () => {
-    let 積み上げたもの = NO_STROKES
-    for (let 番号 = 0; 番号 <= MAX_STROKES; 番号 += 1) {
-      積み上げたもの = applyDrawMessage(積み上げたもの, 描き始め(`線${番号}`, 0.1, 0.1))
+    let accumulated = NO_STROKES
+    for (let index = 0; index <= MAX_STROKES; index += 1) {
+      accumulated = applyDrawMessage(accumulated, startDrawing(`線${index}`, 0.1, 0.1))
     }
 
-    expect(積み上げたもの.strokes).toHaveLength(MAX_STROKES)
-    expect(積み上げたもの.strokes.map(({ id }) => id)[0]).toBe('線1')
+    expect(accumulated.strokes).toHaveLength(MAX_STROKES)
+    expect(accumulated.strokes.map(({ id }) => id)[0]).toBe('線1')
   })
 
   it('線ごとに、選ばれた色と太さを覚えておく', () => {
-    const 赤い太線 = applyDrawMessage(NO_STROKES, 描き始め('線1', 0.1, 0.2, 'red', 'bold'))
+    const thickRedStroke = applyDrawMessage(NO_STROKES, startDrawing('線1', 0.1, 0.2, 'red', 'bold'))
 
-    const 結果 = applyDrawMessage(赤い太線, 描き始め('線2', 0.5, 0.6, 'blue', 'thin'))
+    const result = applyDrawMessage(thickRedStroke, startDrawing('線2', 0.5, 0.6, 'blue', 'thin'))
 
-    expect(結果.strokes.map(({ color, width }) => `${color}/${width}`)).toEqual(['red/bold', 'blue/thin'])
+    expect(result.strokes.map(({ color, width }) => `${color}/${width}`)).toEqual(['red/bold', 'blue/thin'])
   })
 
   it('線を消すと、その1本だけがなくなる', () => {
-    const 二本 = applyDrawMessage(applyDrawMessage(NO_STROKES, 描き始め('線1', 0.1, 0.2)), 描き始め('線2', 0.5, 0.6))
+    const twoStrokes = applyDrawMessage(applyDrawMessage(NO_STROKES, startDrawing('線1', 0.1, 0.2)), startDrawing('線2', 0.5, 0.6))
 
-    const 結果 = applyDrawMessage(二本, { type: 'erase', id: '線1' })
+    const result = applyDrawMessage(twoStrokes, { type: 'erase', id: '線1' })
 
-    expect(結果.strokes.map(({ id }) => id)).toEqual(['線2'])
+    expect(result.strokes.map(({ id }) => id)).toEqual(['線2'])
   })
 
   it('無い線を消そうとしても、何も変わらない', () => {
     // 合成ページを途中で開き、描き始めを受け取っていない線が消されたときに起こる
-    const 一本 = applyDrawMessage(NO_STROKES, 描き始め('線1', 0.1, 0.2))
+    const oneStroke = applyDrawMessage(NO_STROKES, startDrawing('線1', 0.1, 0.2))
 
-    const 結果 = applyDrawMessage(一本, { type: 'erase', id: '知らない線' })
+    const result = applyDrawMessage(oneStroke, { type: 'erase', id: '知らない線' })
 
-    expect(結果).toBe(一本)
+    expect(result).toBe(oneStroke)
   })
 
   it('全消しで、線がすべて消える', () => {
-    const 描き始めたあと = applyDrawMessage(NO_STROKES, 描き始め('線1', 0.1, 0.2))
+    const afterStart = applyDrawMessage(NO_STROKES, startDrawing('線1', 0.1, 0.2))
 
-    const 結果 = applyDrawMessage(描き始めたあと, { type: 'clear' })
+    const result = applyDrawMessage(afterStart, { type: 'clear' })
 
-    expect(結果.strokes).toEqual([])
+    expect(result.strokes).toEqual([])
   })
 
   it('全消しのあとに描いた線は、前の線とつながらない', () => {
     // 同じ名前の線が消えたあとに続きが届いても、描き始めから引き直す
-    const 消したあと = applyDrawMessage(applyDrawMessage(NO_STROKES, 描き始め('線1', 0.1, 0.2)), { type: 'clear' })
+    const afterErase = applyDrawMessage(applyDrawMessage(NO_STROKES, startDrawing('線1', 0.1, 0.2)), { type: 'clear' })
 
-    const 結果 = applyDrawMessage(消したあと, { type: 'extend', id: '線1', points: [{ x: 0.3, y: 0.4 }] })
+    const result = applyDrawMessage(afterErase, { type: 'extend', id: '線1', points: [{ x: 0.3, y: 0.4 }] })
 
-    expect(結果.strokes).toEqual([])
+    expect(result.strokes).toEqual([])
   })
 
   it('元の集まりは書き換えない', () => {
-    const 描き始めたあと = applyDrawMessage(NO_STROKES, 描き始め('線1', 0.1, 0.2))
+    const afterStart = applyDrawMessage(NO_STROKES, startDrawing('線1', 0.1, 0.2))
 
-    applyDrawMessage(描き始めたあと, { type: 'extend', id: '線1', points: [{ x: 0.3, y: 0.4 }] })
+    applyDrawMessage(afterStart, { type: 'extend', id: '線1', points: [{ x: 0.3, y: 0.4 }] })
 
-    expect(描き始めたあと.strokes.map(({ points }) => points.length)).toEqual([1])
+    expect(afterStart.strokes.map(({ points }) => points.length)).toEqual([1])
   })
 })
 
 describe('isStroke', () => {
   /** 保存から読み出した1本ぶんの形（点の配列・色・太さの名前を持つ） */
-  const 保存された線 = { id: '線1', points: [{ x: 0.1, y: 0.2 }], color: 'red', width: 'bold' }
+  const savedStroke = { id: '線1', points: [{ x: 0.1, y: 0.2 }], color: 'red', width: 'bold' }
 
   it('保存から読み出した形の1本を受け入れる', () => {
-    expect(isStroke(保存された線)).toBe(true)
+    expect(isStroke(savedStroke)).toBe(true)
   })
 
   it('選べない色の名前を拒む', () => {
     // 既定に戻して描くと、配信画面に意図しない色の線が出たまま原因に気付けない
-    expect(isStroke({ ...保存された線, color: 'magenta' })).toBe(false)
+    expect(isStroke({ ...savedStroke, color: 'magenta' })).toBe(false)
   })
 
   it('選べない太さの名前を拒む', () => {
-    expect(isStroke({ ...保存された線, width: 'ものすごく太い' })).toBe(false)
+    expect(isStroke({ ...savedStroke, width: 'ものすごく太い' })).toBe(false)
   })
 
   it('点を1つも持たない線を拒む', () => {
-    expect(isStroke({ ...保存された線, points: [] })).toBe(false)
+    expect(isStroke({ ...savedStroke, points: [] })).toBe(false)
   })
 
   it('点が多すぎる線を拒む', () => {
-    const 多すぎる点 = Array.from({ length: MAX_POINTS_PER_STROKE + 1 }, () => ({ x: 0.5, y: 0.5 }))
+    const tooManyPoints = Array.from({ length: MAX_POINTS_PER_STROKE + 1 }, () => ({ x: 0.5, y: 0.5 }))
 
-    expect(isStroke({ ...保存された線, points: 多すぎる点 })).toBe(false)
+    expect(isStroke({ ...savedStroke, points: tooManyPoints })).toBe(false)
   })
 
   it('座標が数でない点を持つ線を拒む', () => {
-    expect(isStroke({ ...保存された線, points: [{ x: '0.1', y: 0.2 }] })).toBe(false)
+    expect(isStroke({ ...savedStroke, points: [{ x: '0.1', y: 0.2 }] })).toBe(false)
   })
 
   it('名前が空の線を拒む', () => {
-    expect(isStroke({ ...保存された線, id: '' })).toBe(false)
+    expect(isStroke({ ...savedStroke, id: '' })).toBe(false)
   })
 
   it('線でないものを拒む', () => {

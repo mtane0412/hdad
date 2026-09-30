@@ -13,7 +13,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Overlay } from './layout'
 import { previewLayoutMessage, previewReadyMessage, readPreviewLayout, replyPreviewLayout } from './preview'
 
-const 前面: Overlay = {
+const front: Overlay = {
   name: 'front',
   items: [
     { kind: 'clock', id: 'analog', params: 'size=0.5', rect: { x: 78, y: 70, width: 20, height: 26 } },
@@ -23,7 +23,7 @@ const 前面: Overlay = {
 
 describe('previewLayoutMessage と readPreviewLayout', () => {
   it('編集中の構成を渡し、そのまま読み戻せる', () => {
-    expect(readPreviewLayout(previewLayoutMessage([前面]))).toEqual([前面])
+    expect(readPreviewLayout(previewLayoutMessage([front]))).toEqual([front])
   })
 
   it('自分たちの知らせでなければ undefined を返す（同じ窓に届く他の知らせを読まない）', () => {
@@ -45,38 +45,38 @@ describe('previewLayoutMessage と readPreviewLayout', () => {
 })
 
 describe('replyPreviewLayout', () => {
-  const サイト = 'https://hdad.example.com'
+  const site = 'https://hdad.example.com'
 
   /** プレビューの窓の代役（送る口だけを持つ） */
-  const 窓 = () => ({ postMessage: vi.fn() })
+  const win = () => ({ postMessage: vi.fn() })
 
   it('構成を待っているプレビューへ、いまの編集中の構成を渡す', () => {
-    const プレビューの窓 = 窓()
+    const previewWindow = win()
 
-    const 渡した = replyPreviewLayout({ data: previewReadyMessage(), origin: サイト, source: プレビューの窓 }, サイト, [前面])
+    const passed = replyPreviewLayout({ data: previewReadyMessage(), origin: site, source: previewWindow }, site, [front])
 
-    expect(渡した).toBe(true)
-    expect(プレビューの窓.postMessage).toHaveBeenCalledWith(previewLayoutMessage([前面]), サイト)
+    expect(passed).toBe(true)
+    expect(previewWindow.postMessage).toHaveBeenCalledWith(previewLayoutMessage([front]), site)
   })
 
   it('よそのサイトからの知らせには渡さない', () => {
-    const よその窓 = 窓()
+    const foreignWindow = win()
 
-    const 渡した = replyPreviewLayout({ data: previewReadyMessage(), origin: 'https://evil.example.com', source: よその窓 }, サイト, [前面])
+    const passed = replyPreviewLayout({ data: previewReadyMessage(), origin: 'https://evil.example.com', source: foreignWindow }, site, [front])
 
-    expect(渡した).toBe(false)
-    expect(よその窓.postMessage).not.toHaveBeenCalled()
+    expect(passed).toBe(false)
+    expect(foreignWindow.postMessage).not.toHaveBeenCalled()
   })
 
   it('自分たちの知らせでなければ何もしない（同じ窓に届く他の知らせに応えない）', () => {
-    const 窓の代役 = 窓()
+    const fakeWindow = win()
 
-    expect(replyPreviewLayout({ data: { type: 'vite:beforeUpdate' }, origin: サイト, source: 窓の代役 }, サイト, [前面])).toBe(false)
-    expect(窓の代役.postMessage).not.toHaveBeenCalled()
+    expect(replyPreviewLayout({ data: { type: 'vite:beforeUpdate' }, origin: site, source: fakeWindow }, site, [front])).toBe(false)
+    expect(fakeWindow.postMessage).not.toHaveBeenCalled()
   })
 
   it('送る口を持たない相手には渡さない', () => {
-    expect(replyPreviewLayout({ data: previewReadyMessage(), origin: サイト, source: null }, サイト, [前面])).toBe(false)
-    expect(replyPreviewLayout({ data: previewReadyMessage(), origin: サイト, source: {} }, サイト, [前面])).toBe(false)
+    expect(replyPreviewLayout({ data: previewReadyMessage(), origin: site, source: null }, site, [front])).toBe(false)
+    expect(replyPreviewLayout({ data: previewReadyMessage(), origin: site, source: {} }, site, [front])).toBe(false)
   })
 })

@@ -14,46 +14,46 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, test } from 'vitest'
 import { TranscriptPage } from './transcript-page'
 
-const オーバーレイ用キー = 'overlay-key_0123456789abcdefghij'
+const OVERLAY_KEY = 'overlay-key_0123456789abcdefghij'
 
 afterEach(cleanup)
 
 /** URLの入力欄（伏せ字で出しているので、ラベルから引く） */
-const URLの欄 = () => screen.getByLabelText('OBSのブラウザソースに貼るURL')
+const urlInput = () => screen.getByLabelText('OBSのブラウザソースに貼るURL')
 
 describe('文字起こしのページ', () => {
   test('OBSに貼るURLに、オーバーレイ用キーを入れて出す', () => {
-    render(<TranscriptPage overlayKey={オーバーレイ用キー} />)
+    render(<TranscriptPage overlayKey={OVERLAY_KEY} />)
 
-    expect(URLの欄()).toHaveValue(`${window.location.origin}/transcript/relay/?key=${encodeURIComponent(オーバーレイ用キー)}`)
+    expect(urlInput()).toHaveValue(`${window.location.origin}/transcript/relay/?key=${encodeURIComponent(OVERLAY_KEY)}`)
   })
 
   test('URLのコピーはアイコンだけのボタンにし、名前は読み上げとホバー（title）に残す', () => {
-    render(<TranscriptPage overlayKey={オーバーレイ用キー} />)
+    render(<TranscriptPage overlayKey={OVERLAY_KEY} />)
 
-    const コピーのボタン = screen.getByRole('button', { name: 'URLをコピー' })
-    expect(コピーのボタン).toHaveTextContent('')
-    expect(コピーのボタン).toHaveAttribute('title', 'URLをコピー')
+    const copyButton = screen.getByRole('button', { name: 'URLをコピー' })
+    expect(copyButton).toHaveTextContent('')
+    expect(copyButton).toHaveAttribute('title', 'URLをコピー')
   })
 
   test('ポートを既定から変えると、URLに書き足す', async () => {
-    render(<TranscriptPage overlayKey={オーバーレイ用キー} />)
+    render(<TranscriptPage overlayKey={OVERLAY_KEY} />)
 
-    const ポートの欄 = screen.getByLabelText('ゆかコネNEO のポート番号')
-    await userEvent.clear(ポートの欄)
-    await userEvent.type(ポートの欄, '20000')
+    const portInput = screen.getByLabelText('ゆかコネNEO のポート番号')
+    await userEvent.clear(portInput)
+    await userEvent.type(portInput, '20000')
 
-    expect(URLの欄()).toHaveValue(
-      `${window.location.origin}/transcript/relay/?key=${encodeURIComponent(オーバーレイ用キー)}&port=20000`,
+    expect(urlInput()).toHaveValue(
+      `${window.location.origin}/transcript/relay/?key=${encodeURIComponent(OVERLAY_KEY)}&port=20000`,
     )
   })
 
   test('ポートが読めない値なら、URLを出さずに理由を出す', async () => {
-    render(<TranscriptPage overlayKey={オーバーレイ用キー} />)
+    render(<TranscriptPage overlayKey={OVERLAY_KEY} />)
 
-    const ポートの欄 = screen.getByLabelText('ゆかコネNEO のポート番号')
-    await userEvent.clear(ポートの欄)
-    await userEvent.type(ポートの欄, 'ななまんばん')
+    const portInput = screen.getByLabelText('ゆかコネNEO のポート番号')
+    await userEvent.clear(portInput)
+    await userEvent.type(portInput, 'ななまんばん')
 
     expect(screen.queryByLabelText('OBSのブラウザソースに貼るURL')).not.toBeInTheDocument()
     expect(screen.getByText(/ポート番号は/)).toBeInTheDocument()

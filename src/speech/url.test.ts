@@ -6,15 +6,15 @@
 import { describe, expect, it } from 'vitest'
 import { speechUrl } from './url'
 
-const サイト = 'https://hdad.example.com'
-const オーバーレイ用キー = 'overlay-key_0123456789abcdefghij'
+const origin = 'https://hdad.example.com'
+const overlayKey = 'overlay-key_0123456789abcdefghij'
 
 describe('speechUrl', () => {
   it('オーバーレイ用キーだけを付けたURLを組み立てる（設定はWorkerから読むのでURLに入れない）', () => {
-    expect(speechUrl(サイト, オーバーレイ用キー)).toBe(`${サイト}/speech/reader/?key=${オーバーレイ用キー}`)
+    expect(speechUrl(origin, overlayKey)).toBe(`${origin}/speech/reader/?key=${overlayKey}`)
   })
 
   it('キーにURLで使えない文字が混じっていても、そのまま埋めずに書き換える', () => {
-    expect(speechUrl(サイト, 'a+b/c')).toBe(`${サイト}/speech/reader/?key=a%2Bb%2Fc`)
+    expect(speechUrl(origin, 'a+b/c')).toBe(`${origin}/speech/reader/?key=a%2Bb%2Fc`)
   })
 })

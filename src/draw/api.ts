@@ -52,9 +52,9 @@ export type DrawBackgroundResult =
 
 /** 応答から描かれた線の集まりを読む。想定した形でなければエラーにする */
 const readStrokes = (body: unknown, path: string): Strokes => {
-  const 違う形 = new Error(`Workerの ${path} の応答が想定した形ではありません`)
+  const wrongShape = new Error(`Workerの ${path} の応答が想定した形ではありません`)
   const strokes: unknown = isRecord(body) ? body.strokes : undefined
-  if (!Array.isArray(strokes) || !strokes.every(isStroke)) throw 違う形
+  if (!Array.isArray(strokes) || !strokes.every(isStroke)) throw wrongShape
   return { strokes }
 }
 
@@ -104,14 +104,14 @@ export const createDrawApi = (fetchImpl: typeof fetch): DrawApi => {
       if (response.status === NOT_MODIFIED) return { kind: 'unchanged' }
       if (response.status === NO_CONTENT) return { kind: 'none' }
       if (!response.ok) throw toApiError(response.status, await response.json().catch(() => null))
-      const 新しい印 = response.headers.get('ETag')
+      const newMarker = response.headers.get('ETag')
       const body: unknown = await response.json().catch(() => null)
       const url: unknown = isRecord(body) ? body.url : undefined
       const capturedAt: unknown = isRecord(body) ? body.capturedAt : undefined
-      if (新しい印 === null || typeof url !== 'string' || !url.startsWith(`${GYAZO_IMAGE_ORIGIN}/`) || typeof capturedAt !== 'number') {
+      if (newMarker === null || typeof url !== 'string' || !url.startsWith(`${GYAZO_IMAGE_ORIGIN}/`) || typeof capturedAt !== 'number') {
         throw new Error(`Workerの ${BACKGROUND_PATH} の応答が想定した形ではありません`)
       }
-      return { kind: 'image', url, etag: 新しい印, capturedAt }
+      return { kind: 'image', url, etag: newMarker, capturedAt }
     },
   }
 }

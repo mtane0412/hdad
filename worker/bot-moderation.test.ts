@@ -11,131 +11,131 @@ import { createFakeStore } from './fake-store'
 import { saveToken, type StoredToken } from './token'
 import { TwitchApiError, type BanToApply, type ChatMessageToDelete, type TwitchClient } from './twitch'
 
-const 現在時刻 = Date.parse('2026-09-21T12:30:00Z')
-const 配信者のID = '12345'
-const botのID = '67890'
+const NOW = Date.parse('2026-09-21T12:30:00Z')
+const BROADCASTER_ID = '12345'
+const BOT_ID = '67890'
 
-const botのトークン: StoredToken = {
+const BOT_TOKEN: StoredToken = {
   accessToken: 'botのアクセストークン',
   refreshToken: 'botのリフレッシュトークン',
-  expiresAt: 現在時刻 + 60 * 60 * 1000,
+  expiresAt: NOW + 60 * 60 * 1000,
   scopes: ['user:bot', 'moderator:manage:banned_users', 'moderator:manage:chat_messages'],
-  userId: botのID,
+  userId: BOT_ID,
   login: 'haishinsha_bot',
 }
 
 /** 処分の対象。荒らしの発言1件 */
-const 対象 = { messageId: 'chat-message-1', userId: '11111' }
+const target = { messageId: 'chat-message-1', userId: '11111' }
 
-type モデレーション用のTwitch = Pick<TwitchClient, 'refresh' | 'banUser' | 'deleteChatMessage'>
+type moderationTwitch = Pick<TwitchClient, 'refresh' | 'banUser' | 'deleteChatMessage'>
 
 /** 呼び出しの記録を残すTwitchの代役 */
-const Twitchの代役 = (overrides: Partial<モデレーション用のTwitch> = {}) => {
-  const 呼んだ操作: string[] = []
-  const 削除した発言: ChatMessageToDelete[] = []
-  const 処分したユーザー: BanToApply[] = []
-  const twitch: モデレーション用のTwitch = {
+const fakeTwitch = (overrides: Partial<moderationTwitch> = {}) => {
+  const calledOperations: string[] = []
+  const deletedMessages: ChatMessageToDelete[] = []
+  const sanctionedUsers: BanToApply[] = []
+  const twitch: moderationTwitch = {
     refresh: async () => {
       throw new Error('テストで想定していないトークンの更新です（期限内のトークンを渡しています）')
     },
     deleteChatMessage: async (_accessToken, message) => {
-      呼んだ操作.push('deleteChatMessage')
-      削除した発言.push(message)
+      calledOperations.push('deleteChatMessage')
+      deletedMessages.push(message)
     },
     banUser: async (_accessToken, ban) => {
-      呼んだ操作.push('banUser')
-      処分したユーザー.push(ban)
+      calledOperations.push('banUser')
+      sanctionedUsers.push(ban)
     },
     ...overrides,
   }
-  return { twitch, 呼んだ操作, 削除した発言, 処分したユーザー }
+  return { twitch, calledOperations, deletedMessages, sanctionedUsers }
 }
 
-const 環境を作る = async () => {
+const createEnv = async () => {
   const store = createFakeStore()
-  await saveToken(store, 'bot', botのトークン)
-  return { STORE: store, TWITCH_BROADCASTER_ID: 配信者のID }
+  await saveToken(store, 'bot', BOT_TOKEN)
+  return { STORE: store, TWITCH_BROADCASTER_ID: BROADCASTER_ID }
 }
 
 /** テストで使う文脈。punishAsBot が見るのは環境・Twitch・現在時刻だけ */
-const 文脈 = async (twitch: モデレーション用のTwitch) => {
-  const env = await 環境を作る()
-  return { env, twitch, now: 現在時刻 }
+const context = async (twitch: moderationTwitch) => {
+  const env = await createEnv()
+  return { env, twitch, now: NOW }
 }
 
 describe('punishAsBot', () => {
   it('削除の処分では、発言の削除だけを行う', async () => {
-    const 代役 = Twitchの代役()
+    const fake = fakeTwitch()
 
-    await punishAsBot(await 文脈(代役.twitch), { type: 'delete' }, 対象)
+    await punishAsBot(await context(fake.twitch), { type: 'delete' }, target)
 
-    expect(代役.呼んだ操作).toEqual(['deleteChatMessage'])
-    expect(代役.削除した発言[0]).toMatchObject({ broadcasterId: 配信者のID, moderatorId: botのID, messageId: 'chat-message-1' })
+    expect(fake.calledOperations).toEqual(['deleteChatMessage'])
+    expect(fake.deletedMessages[0]).toMatchObject({ broadcasterId: BROADCASTER_ID, moderatorId: BOT_ID, messageId: 'chat-message-1' })
   })
 
   it('タイムアウトの処分では、発言を削除してからユーザーをタイムアウトする', async () => {
-    const 代役 = Twitchの代役()
+    const fake = fakeTwitch()
 
-    await punishAsBot(await 文脈(代役.twitch), { type: 'timeout', durationSeconds: 600 }, 対象)
+    await punishAsBot(await context(fake.twitch), { type: 'timeout', durationSeconds: 600 }, target)
 
     // 削除が先。BANしたあとでは発言を削除できない場合がある
-    expect(代役.呼んだ操作).toEqual(['deleteChatMessage', 'banUser'])
-    expect(代役.処分したユーザー[0]).toMatchObject({ broadcasterId: 配信者のID, moderatorId: botのID, userId: '11111', durationSeconds: 600 })
+    expect(fake.calledOperations).toEqual(['deleteChatMessage', 'banUser'])
+    expect(fake.sanctionedUsers[0]).toMatchObject({ broadcasterId: BROADCASTER_ID, moderatorId: BOT_ID, userId: '11111', durationSeconds: 600 })
   })
 
   it('BANの処分では、発言を削除してから期限なしでBANする', async () => {
-    const 代役 = Twitchの代役()
+    const fake = fakeTwitch()
 
-    await punishAsBot(await 文脈(代役.twitch), { type: 'ban' }, 対象)
+    await punishAsBot(await context(fake.twitch), { type: 'ban' }, target)
 
-    expect(代役.呼んだ操作).toEqual(['deleteChatMessage', 'banUser'])
+    expect(fake.calledOperations).toEqual(['deleteChatMessage', 'banUser'])
     // 期限を渡さないと、Twitchは期限のないBANとして扱う
-    expect(代役.処分したユーザー[0]?.durationSeconds).toBeUndefined()
+    expect(fake.sanctionedUsers[0]?.durationSeconds).toBeUndefined()
   })
 
   it('すでにBAN済み・タイムアウト中（409）は、失敗にせず処分済みとして扱う', async () => {
-    const 代役 = Twitchの代役({
+    const fake = fakeTwitch({
       banUser: async () => {
         throw new TwitchApiError(409, 'すでにタイムアウト中のユーザーです')
       },
     })
 
-    await expect(punishAsBot(await 文脈(代役.twitch), { type: 'ban' }, 対象)).resolves.toBeUndefined()
+    await expect(punishAsBot(await context(fake.twitch), { type: 'ban' }, target)).resolves.toBeUndefined()
   })
 
   it('409以外の失敗は投げ直す（呼び出し側が収集の失敗として記録する）', async () => {
-    const 代役 = Twitchの代役({
+    const fake = fakeTwitch({
       banUser: async () => {
         throw new TwitchApiError(401, 'botがこのチャンネルのモデレーターではありません')
       },
     })
 
-    await expect(punishAsBot(await 文脈(代役.twitch), { type: 'ban' }, 対象)).rejects.toThrow(TwitchApiError)
+    await expect(punishAsBot(await context(fake.twitch), { type: 'ban' }, target)).rejects.toThrow(TwitchApiError)
   })
 
   it('理由を渡さなければ、自動モデレーションによる処分としてTwitchに記録する', async () => {
-    const 代役 = Twitchの代役()
+    const fake = fakeTwitch()
 
-    await punishAsBot(await 文脈(代役.twitch), { type: 'ban' }, 対象)
+    await punishAsBot(await context(fake.twitch), { type: 'ban' }, target)
 
-    expect(代役.処分したユーザー[0]?.reason).toBe(AUTO_MODERATION_REASON)
+    expect(fake.sanctionedUsers[0]?.reason).toBe(AUTO_MODERATION_REASON)
   })
 
   it('理由を渡せば、その理由でTwitchに記録する（配信者が手で処分したときなど）', async () => {
-    const 代役 = Twitchの代役()
+    const fake = fakeTwitch()
 
-    await punishAsBot(await 文脈(代役.twitch), { type: 'timeout', durationSeconds: 600 }, 対象, '配信者がコメントビューアーから処分')
+    await punishAsBot(await context(fake.twitch), { type: 'timeout', durationSeconds: 600 }, target, '配信者がコメントビューアーから処分')
 
-    expect(代役.処分したユーザー[0]?.reason).toBe('配信者がコメントビューアーから処分')
+    expect(fake.sanctionedUsers[0]?.reason).toBe('配信者がコメントビューアーから処分')
   })
 
   it('消す発言を指定しなければ（messageId が null）、発言は削除せずにユーザーだけを処分する', async () => {
     // Twitch はタイムアウト・BANした人の発言をまとめて消すので、手で処分するときは削除を先に行わない
-    const 代役 = Twitchの代役()
+    const fake = fakeTwitch()
 
-    await punishAsBot(await 文脈(代役.twitch), { type: 'ban' }, { messageId: null, userId: '11111' })
+    await punishAsBot(await context(fake.twitch), { type: 'ban' }, { messageId: null, userId: '11111' })
 
-    expect(代役.呼んだ操作).toEqual(['banUser'])
+    expect(fake.calledOperations).toEqual(['banUser'])
   })
 })
 

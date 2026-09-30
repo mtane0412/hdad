@@ -15,7 +15,7 @@ interface FakeAlertChannelOptions {
 }
 
 /** 押し出されたアラート・引き渡された接続を直接確かめられるよう、記録も一緒に返す */
-export const createFakeAlertChannel = ({ shouldFail: 失敗する = false }: FakeAlertChannelOptions = {}): {
+export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelOptions = {}): {
   namespace: AlertChannelNamespace
   pushedAlerts: OverlayAlert[]
   /** 押し出された「いま流している曲」 */
@@ -23,27 +23,27 @@ export const createFakeAlertChannel = ({ shouldFail: 失敗する = false }: Fak
   /** WebSocketの接続として引き渡されたリクエスト */
   forwardedConnections: Request[]
 } => {
-  const 押し出されたアラート: OverlayAlert[] = []
-  const 押し出されたBGM: BgmNowPlaying[] = []
-  const 引き渡された接続: Request[] = []
+  const evictedAlerts: OverlayAlert[] = []
+  const evictedBgm: BgmNowPlaying[] = []
+  const handedOverConnections: Request[] = []
   const id: DurableObjectId = { toString: () => 'alerts', equals: (other) => other.toString() === 'alerts', name: 'alerts' }
 
   return {
-    pushedAlerts: 押し出されたアラート,
-    pushedBgm: 押し出されたBGM,
-    forwardedConnections: 引き渡された接続,
+    pushedAlerts: evictedAlerts,
+    pushedBgm: evictedBgm,
+    forwardedConnections: handedOverConnections,
     namespace: {
       idFromName: () => id,
       get: () => ({
         fetch: async (request: Request) => {
-          if (失敗する) return new Response(null, { status: STATUS.internalServerError })
+          if (shouldFail) return new Response(null, { status: STATUS.internalServerError })
           // WebSocketの接続（101）はテストの環境では作れないので、引き渡されたことだけを記録して200を返す
           if (request.headers.get('Upgrade') === 'websocket') {
-            引き渡された接続.push(request)
+            handedOverConnections.push(request)
             return new Response(null, { status: STATUS.ok })
           }
-          if (new URL(request.url).pathname === '/push/bgm') 押し出されたBGM.push((await request.json()) as BgmNowPlaying)
-          else 押し出されたアラート.push((await request.json()) as OverlayAlert)
+          if (new URL(request.url).pathname === '/push/bgm') evictedBgm.push((await request.json()) as BgmNowPlaying)
+          else evictedAlerts.push((await request.json()) as OverlayAlert)
           return new Response(null, { status: STATUS.noContent })
         },
       }),

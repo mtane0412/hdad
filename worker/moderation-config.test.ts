@@ -12,7 +12,7 @@ import { createFakeStore } from './fake-store'
 import { DEFAULT_MODERATION_CONFIG, loadModerationConfig, parseModerationConfig, saveModerationConfig } from './moderation-config'
 
 /** 検証を通る、いちばん簡単な設定 */
-const 正しい設定 = {
+const validConfig = {
   enabled: true,
   exemptBroadcaster: true,
   exemptVip: true,
@@ -21,7 +21,7 @@ const 正しい設定 = {
 }
 
 /** 検証で集まった問題点。ConfigError でなければテストを失敗させる */
-const 問題点 = (input: unknown): readonly string[] => {
+const issues = (input: unknown): readonly string[] => {
   try {
     parseModerationConfig(input)
   } catch (error) {
@@ -33,12 +33,12 @@ const 問題点 = (input: unknown): readonly string[] => {
 
 describe('parseModerationConfig', () => {
   it('正しい設定はそのまま保存の形になる', () => {
-    expect(parseModerationConfig(正しい設定)).toEqual(正しい設定)
+    expect(parseModerationConfig(validConfig)).toEqual(validConfig)
   })
 
   it('タイムアウト・BAN・URL・連投のルールも受け付ける', () => {
     const input = {
-      ...正しい設定,
+      ...validConfig,
       rules: [
         { kind: 'url', punishment: { type: 'timeout', durationSeconds: 600 } },
         { kind: 'repeat', count: 5, windowSeconds: 30, punishment: { type: 'ban' } },
@@ -49,11 +49,11 @@ describe('parseModerationConfig', () => {
   })
 
   it('rules が配列でなければ拒否する', () => {
-    expect(問題点({ ...正しい設定, rules: 'なし' })).toEqual(['rules: 配列で指定してください'])
+    expect(issues({ ...validConfig, rules: 'なし' })).toEqual(['rules: 配列で指定してください'])
   })
 
   it('有効・除外の指定が真偽値でなければ、すべての問題点を集めて拒否する', () => {
-    const problems = 問題点({ ...正しい設定, enabled: 'はい', exemptVip: 1 })
+    const problems = issues({ ...validConfig, enabled: 'はい', exemptVip: 1 })
 
     expect(problems).toHaveLength(2)
     expect(problems[0]).toContain('enabled')
@@ -61,31 +61,31 @@ describe('parseModerationConfig', () => {
   })
 
   it('禁止語が空文字なら拒否する（すべての発言に当たってしまうため）', () => {
-    const problems = 問題点({ ...正しい設定, rules: [{ kind: 'word', word: '', punishment: { type: 'delete' } }] })
+    const problems = issues({ ...validConfig, rules: [{ kind: 'word', word: '', punishment: { type: 'delete' } }] })
 
     expect(problems).toEqual([expect.stringContaining('rules[0].word')])
   })
 
   it('知らない種類のルールは拒否する', () => {
-    const problems = 問題点({ ...正しい設定, rules: [{ kind: 'regexp', pattern: '.*', punishment: { type: 'ban' } }] })
+    const problems = issues({ ...validConfig, rules: [{ kind: 'regexp', pattern: '.*', punishment: { type: 'ban' } }] })
 
     expect(problems).toEqual([expect.stringContaining('rules[0].kind')])
   })
 
   it('知らない種類の処分は拒否する', () => {
-    const problems = 問題点({ ...正しい設定, rules: [{ kind: 'url', punishment: { type: 'warn' } }] })
+    const problems = issues({ ...validConfig, rules: [{ kind: 'url', punishment: { type: 'warn' } }] })
 
     expect(problems).toEqual([expect.stringContaining('rules[0].punishment')])
   })
 
   it('タイムアウトの秒数が範囲の外なら拒否する（Twitchが受け付けるのは1〜604800秒）', () => {
-    const problems = 問題点({ ...正しい設定, rules: [{ kind: 'url', punishment: { type: 'timeout', durationSeconds: 604801 } }] })
+    const problems = issues({ ...validConfig, rules: [{ kind: 'url', punishment: { type: 'timeout', durationSeconds: 604801 } }] })
 
     expect(problems).toEqual([expect.stringContaining('rules[0].punishment.durationSeconds')])
   })
 
   it('連投の回数と秒数が範囲の外なら、どちらも問題点として集める', () => {
-    const problems = 問題点({ ...正しい設定, rules: [{ kind: 'repeat', count: 1, windowSeconds: 900, punishment: { type: 'delete' } }] })
+    const problems = issues({ ...validConfig, rules: [{ kind: 'repeat', count: 1, windowSeconds: 900, punishment: { type: 'delete' } }] })
 
     expect(problems).toHaveLength(2)
     expect(problems[0]).toContain('rules[0].count')
@@ -93,8 +93,8 @@ describe('parseModerationConfig', () => {
   })
 
   it('連投のルールを2件以上は登録できない（数える窓が1つに定まらなくなるため）', () => {
-    const problems = 問題点({
-      ...正しい設定,
+    const problems = issues({
+      ...validConfig,
       rules: [
         { kind: 'repeat', count: 3, windowSeconds: 30, punishment: { type: 'delete' } },
         { kind: 'repeat', count: 5, windowSeconds: 60, punishment: { type: 'ban' } },
@@ -108,7 +108,7 @@ describe('parseModerationConfig', () => {
 describe('saveModerationConfig・loadModerationConfig', () => {
   it('保存した設定をそのまま読み出せる', async () => {
     const store = createFakeStore()
-    const config = parseModerationConfig(正しい設定)
+    const config = parseModerationConfig(validConfig)
 
     await saveModerationConfig(store, config)
 

@@ -13,7 +13,7 @@ import { ConfigError } from './alert-config'
 import { createFakeStore } from './fake-store'
 import { DEFAULT_SCREEN_SETTINGS, loadScreenSettings, parseScreenSettings, saveScreenSettings, type ScreenSettings } from './screen-config'
 
-const 正しい設定: ScreenSettings = {
+const validConfig: ScreenSettings = {
   host: 'localhost',
   port: 4455,
   password: 'obsのパスワード',
@@ -23,22 +23,22 @@ const 正しい設定: ScreenSettings = {
 
 describe('parseScreenSettings', () => {
   it('正しい設定をそのまま受け取る', () => {
-    expect(parseScreenSettings(正しい設定)).toEqual(正しい設定)
+    expect(parseScreenSettings(validConfig)).toEqual(validConfig)
   })
 
   it('パスワードが空でも受け取る（obs-websocket の認証を切った運用を拒まない）', () => {
-    expect(parseScreenSettings({ ...正しい設定, password: '' }).password).toBe('')
+    expect(parseScreenSettings({ ...validConfig, password: '' }).password).toBe('')
   })
 
   it('コレクションIDが空でも受け取る（コレクションに入れない運用を拒まない）', () => {
-    expect(parseScreenSettings({ ...正しい設定, collectionId: '' }).collectionId).toBe('')
+    expect(parseScreenSettings({ ...validConfig, collectionId: '' }).collectionId).toBe('')
   })
 
   it('コレクションIDの形が違えば拒む（Gyazo が受け取れないIDを保存しない）', () => {
-    expect(() => parseScreenSettings({ ...正しい設定, collectionId: 'https://gyazo.com/collections/f19e74cebe47c9cadad31b6790098eac' })).toThrow(
+    expect(() => parseScreenSettings({ ...validConfig, collectionId: 'https://gyazo.com/collections/f19e74cebe47c9cadad31b6790098eac' })).toThrow(
       /collectionId:/,
     )
-    expect(() => parseScreenSettings({ ...正しい設定, collectionId: 'みじかすぎるID' })).toThrow(/collectionId:/)
+    expect(() => parseScreenSettings({ ...validConfig, collectionId: 'みじかすぎるID' })).toThrow(/collectionId:/)
   })
 
   it('オブジェクトでなければ拒む', () => {
@@ -46,22 +46,22 @@ describe('parseScreenSettings', () => {
   })
 
   it('ループバック以外のホストを拒む', () => {
-    expect(() => parseScreenSettings({ ...正しい設定, host: 'obs.example.com' })).toThrow(/host:/)
+    expect(() => parseScreenSettings({ ...validConfig, host: 'obs.example.com' })).toThrow(/host:/)
   })
 
   it('問題点をすべて集めてから拒む', () => {
-    let 捕まえたエラー: ConfigError | null = null
+    let caughtError: ConfigError | null = null
     try {
       parseScreenSettings({ host: 'obs.example.com', port: 0, password: 42, intervalSeconds: 1, collectionId: 42 })
     } catch (error) {
-      捕まえたエラー = error as ConfigError
+      caughtError = error as ConfigError
     }
-    expect(捕まえたエラー).toBeInstanceOf(ConfigError)
-    expect(捕まえたエラー?.problems).toHaveLength(5)
+    expect(caughtError).toBeInstanceOf(ConfigError)
+    expect(caughtError?.problems).toHaveLength(5)
   })
 
   it('撮影間隔が短すぎるものを拒む（OBSの負荷を上げすぎないため）', () => {
-    expect(() => parseScreenSettings({ ...正しい設定, intervalSeconds: 1 })).toThrow(/intervalSeconds:/)
+    expect(() => parseScreenSettings({ ...validConfig, intervalSeconds: 1 })).toThrow(/intervalSeconds:/)
   })
 })
 
@@ -72,14 +72,14 @@ describe('loadScreenSettings', () => {
 
   it('保存した設定を読み出す', async () => {
     const store = createFakeStore()
-    await saveScreenSettings(store, 正しい設定)
-    expect(await loadScreenSettings(store)).toEqual(正しい設定)
+    await saveScreenSettings(store, validConfig)
+    expect(await loadScreenSettings(store)).toEqual(validConfig)
   })
 
   it('コレクションの項目を足す前に保存した設定も読める（足りない項目は既定で埋める）', async () => {
-    const 前に保存したもの = { host: 'localhost', port: 4455, password: 'obsのパスワード', intervalSeconds: 60 }
-    const store = createFakeStore({ 'screen-settings': JSON.stringify(前に保存したもの) })
+    const previouslySaved = { host: 'localhost', port: 4455, password: 'obsのパスワード', intervalSeconds: 60 }
+    const store = createFakeStore({ 'screen-settings': JSON.stringify(previouslySaved) })
 
-    expect(await loadScreenSettings(store)).toEqual({ ...前に保存したもの, collectionId: '' })
+    expect(await loadScreenSettings(store)).toEqual({ ...previouslySaved, collectionId: '' })
   })
 })

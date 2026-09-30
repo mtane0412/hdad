@@ -505,11 +505,11 @@ const toLiveStream = (value: unknown): LiveStream => {
 export const createTwitchClient = ({
   clientId,
   clientSecret,
-  fetch: 元の通信,
+  fetch: originalFetch,
   timeoutMs = TWITCH_TIMEOUT_MS,
 }: TwitchClientOptions): TwitchClient => {
   // Twitchが黙り続けたときに、cron の1回分や利用者の要求がそこで止まらないようにする（issue #126）
-  const fetchImpl = withTimeout(元の通信, timeoutMs, 'Twitch')
+  const fetchImpl = withTimeout(originalFetch, timeoutMs, 'Twitch')
 
   const requestToken = async (params: Record<string, string>): Promise<TokenGrant> => {
     const response = await fetchImpl(TOKEN_URL, {

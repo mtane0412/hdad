@@ -11,7 +11,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { createBgmCreditView } from './credit-view'
 
 /** 流している曲 */
-const 雑談の曲 = { mediaId: 'media-zatsudan', title: 'ひだまりの午後', credit: '音楽: 甘茶の音楽工房' }
+const chatTrack = { mediaId: 'media-zatsudan', title: 'ひだまりの午後', credit: '音楽: 甘茶の音楽工房' }
 
 let root: HTMLElement
 
@@ -23,7 +23,7 @@ beforeEach(() => {
 
 describe('createBgmCreditView', () => {
   it('曲名とクレジット表記を別々の要素に出す', () => {
-    createBgmCreditView(root).setTrack(雑談の曲)
+    createBgmCreditView(root).setTrack(chatTrack)
 
     expect(root.querySelector('.bgm-credit-title')?.textContent).toBe('ひだまりの午後')
     expect(root.querySelector('.bgm-credit-credit')?.textContent).toBe('音楽: 甘茶の音楽工房')
@@ -31,7 +31,7 @@ describe('createBgmCreditView', () => {
 
   it('曲を止めたら、何も映さない', () => {
     const view = createBgmCreditView(root)
-    view.setTrack(雑談の曲)
+    view.setTrack(chatTrack)
     view.setTrack(null)
 
     expect(root.childElementCount).toBe(0)
@@ -39,17 +39,17 @@ describe('createBgmCreditView', () => {
 
   it('同じ曲を受け取り直しても、要素を作り直さない', () => {
     const view = createBgmCreditView(root)
-    view.setTrack(雑談の曲)
-    const 最初の曲名 = root.querySelector('.bgm-credit-title')
-    view.setTrack({ ...雑談の曲 })
+    view.setTrack(chatTrack)
+    const firstTitle = root.querySelector('.bgm-credit-title')
+    view.setTrack({ ...chatTrack })
 
-    expect(root.querySelector('.bgm-credit-title')).toBe(最初の曲名)
+    expect(root.querySelector('.bgm-credit-title')).toBe(firstTitle)
   })
 
   it('同じ曲でもクレジット表記を直したら、出し直す', () => {
     const view = createBgmCreditView(root)
-    view.setTrack(雑談の曲)
-    view.setTrack({ ...雑談の曲, credit: '音楽: 甘茶の音楽工房（甘茶）' })
+    view.setTrack(chatTrack)
+    view.setTrack({ ...chatTrack, credit: '音楽: 甘茶の音楽工房（甘茶）' })
 
     expect(root.querySelector('.bgm-credit-credit')?.textContent).toBe('音楽: 甘茶の音楽工房（甘茶）')
   })
