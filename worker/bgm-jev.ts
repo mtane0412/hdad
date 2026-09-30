@@ -11,7 +11,7 @@
  * 注意: 曲を切り替えてから一定時間（BGM_SWITCH_COOLDOWN_MS）は、Jev を呼ばない。手で切り替えたときも同じ時刻を
  * 記録する（worker/bgm-routes.ts）ので、配信者が選んだ直後に Jev が上書きしない。
  * 注意: BGM を止めているあいだは呼ばない。配信者が止めたものを勝手に流し始めないためである。
- * 注意: 判定は数百ミリ秒かかるので、そのあいだに配信者が手で切り替えた・止めた・曲を外したなら上書きしない
+ * 注意: 判定は数百ミリ秒かかるので、そのあいだに配信者が自動の切り替えを切った・手で切り替えた・止めた・曲を外したなら上書きしない
  * （KV なので確かめてから書くまでの間はふさげないが、判定を待つあいだの取り違えは防ぐ）。
  * 注意: Jev の失敗は投げる。呼び出し側が失敗として記録し、黙って曲を変えたり止めたりしない。
  */
@@ -127,7 +127,8 @@ export const chooseBgm = async ({ store, jev, alerts, now, summary, transcript }
   const chosen = candidates.find((_, index) => choiceName(index) === answer.choice)
   if (chosen === undefined || chosen.mediaId === playback.mediaId || answer.confidence < BGM_CONFIDENCE_THRESHOLD) return
 
-  // 判定のあいだに配信者が手で切り替えた・止めた・選ばれた曲を外したなら、配信者の操作を優先する
+  // 判定のあいだに配信者が自動の切り替えを切った・手で切り替えた・止めた・選ばれた曲を外したなら、配信者の操作を優先する
+  if (!(await loadBgmSettings(store)).judgeWithJev) return
   const latest = await loadBgmPlayback(store)
   const latestTracks = await loadBgmTracks(store)
   if (latest.mediaId !== playback.mediaId || (await loadBgmSwitchedAt(store)) !== switchedAt) return

@@ -230,6 +230,22 @@ describe('chooseBgm', () => {
     expect(配送.押し出されたBGM).toEqual([])
   })
 
+  it('判定のあいだに配信者が自動の切り替えを切っていたら、切り替えない', async () => {
+    const { store, 配送 } = await 雑談の曲を流している()
+    const jev: JevClient = {
+      decide: async <Qs extends Readonly<Record<string, JevQuestion>>>(): Promise<JevAnswers<Qs>> => {
+        // 判定を待っているあいだに、配信者が管理画面で自動の切り替えを切った
+        await saveBgmSettings(store, { judgeWithJev: false })
+        return { track: { choice: 't1', confidence: 0.99 } } as JevAnswers<Qs>
+      },
+    }
+
+    await chooseBgm({ store, jev, alerts: 配送.namespace, now: 現在時刻, ...材料 })
+
+    expect(await loadBgmPlayback(store)).toEqual({ mediaId: 雑談の曲.mediaId, volume: 0.4 })
+    expect(配送.押し出されたBGM).toEqual([])
+  })
+
   it('確信度が返ってこなければ、切り替えずに投げる（しきい値と比べられないことを黙らない）', async () => {
     const { store, 配送 } = await 雑談の曲を流している()
     const jev = Jevの代役({ choice: 't1', confidence: null })
