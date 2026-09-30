@@ -12,4 +12,7 @@
 -- comment_reads（0020）は、全発言の既読・未読をやめたので消す（docs/decisions/comments.md）。
 ALTER TABLE first_chatters ADD COLUMN greeted_at TEXT;
 
+-- 挨拶の付け替えは発言のID（message_id）で行を探すので、そのための索引
+CREATE INDEX first_chatters_message_id ON first_chatters (message_id);
+
 DROP TABLE comment_reads;

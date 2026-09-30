@@ -158,6 +158,9 @@ const moderateChatMessage = async (context: Context, message: ChatMessage, botUs
  * 注意: 応答を送ると決めたあとの失敗は、Twitchへの応答を2xxのままにして記録に残す。
  * 2xx以外を返すとTwitchは同じ通知を再送するので、送信が成功していた場合に二重投稿になってしまう。
  * 黙って無視するのではなく収集の失敗として残し、管理画面（/api/admin/stats/failures）から気づけるようにする。
+ *
+ * @param bot bot のトークン。botを切断した直後など、購読が残っていても応答できないことがある（null）。
+ *   アラートの再生にbotは要らないので、そのときは自動モデレーションとコマンドの応答だけを飛ばし、トリガーの判定は続ける
  */
 const replyToChatMessage = async (context: Context, body: Record<string, unknown>, bot: StoredToken | null): Promise<void> => {
   const { env, now } = context
@@ -168,9 +171,6 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
   // 応答先は常に TWITCH_BROADCASTER_ID なので、古い購読が残っていると、他人のチャットの発言に対して
   // こちらのチャンネルで応答してしまう。受け取り自体は成功として返す（2xx以外だとTwitchが再送し続ける）
   if (message.broadcasterUserId !== env.TWITCH_BROADCASTER_ID) return
-
-  // botを切断した直後など、購読が残っていても応答できないことがある（bot が null）。アラートの再生にbotは要らないので、
-  // 自動モデレーションとコマンドの応答だけを飛ばし、トリガーの判定は続ける
 
   // 視聴者の記録は、処分や応答の判定より先に残す。処分した発言も記録に含めるのは、荒らしの履歴も配信者には有用なため。
   // トリガーの条件のうち「このチャンネルで初めての発言か」「前の発言から空いた日数」は、この記録を読んで判定する。
