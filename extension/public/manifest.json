@@ -1,15 +1,16 @@
 {
   "manifest_version": 3,
   "name": "HDAD タブの映像",
-  "version": "0.1.0",
-  "description": "映したいタブで押すと、HDAD の「タブの映像」のページ（/tab/）へそのタブを渡します。ログインや鍵は持ちません。",
-  "permissions": ["tabCapture", "tabs"],
+  "version": "0.2.0",
+  "description": "映したいタブで押すと、そのタブの映像と音を HDAD の合成ページへ送ります。映しているタブでもう一度押すと止めます。",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAv3LoXHFS+rAhZ4bKoNdQZqweAzFCEVM8CuteO6ESs7QNl0w8tbnz+EYp0Y/s8C2oEd9Bs+JzrYanBg0UIrGQBGE5EoQANhxPLeoRwj+Fz6SCNZfsXgfP8NX2fV/6phrTba4SMPkHBmAoA05GCxUgD+UvF4skJwlu9a2+SEEBqv6ikAF/Ds1xwRt9TaCYp0K1cfMRTYg8Ghf7Bt2Bfil/VSZh1XOUMsd1RF5MBaEUQhsAjap8vKXQ3kUamx8f4r3RGOWfb7A793duWdiBEXWd1+XBNcczuL+M5lORIJXgLCrVCsVmCi5vGAl8K32sjT0at56lfgmKOKT1xOcAKwIblwIDAQAB",
+  "permissions": ["tabCapture", "offscreen", "storage"],
   "background": { "service_worker": "background.js", "type": "module" },
   "action": { "default_title": "このタブを配信に映す（HDAD）" },
   "commands": {
     "_execute_action": {
       "suggested_key": { "default": "Alt+Shift+T" },
-      "description": "このタブを配信に映す"
+      "description": "このタブを配信に映す・映しているタブなら止める"
     }
   }
 }

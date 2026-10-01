@@ -6,7 +6,7 @@
  * 本物のWebSocketは使わず、つながる・閉じるの合図を手で起こせる偽物を渡して確かめる。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { connectSocket, type SocketLike } from './socket'
+import { connectSocket, socketUrl, type SocketLike } from './socket'
 
 /** つながる・閉じる・届くの合図を手で起こせる、テスト用のWebSocket */
 const createFakeWebSocket = (): SocketLike & { sent: string[]; closed: boolean; connect: () => void; serverClose: () => void; deliver: (data: unknown) => void } => {
@@ -231,5 +231,18 @@ describe('connectSocket', () => {
 
     expect(connection.send('{"type":"start"}')).toBe(false)
     expect(record.current().sent).toEqual([])
+  })
+})
+
+describe('socketUrl', () => {
+  it('置き場所を渡すと、そのWorkerへ wss でつなぐURLを作る', () => {
+    // 拡張の画面（chrome-extension://）から HDAD へつなぐときに使う
+    expect(socketUrl('/api/admin/tab/socket', {}, 'https://hdad.example.workers.dev')).toBe('wss://hdad.example.workers.dev/api/admin/tab/socket')
+  })
+
+  it('開発サーバー（http）なら ws でつなぐURLを作る', () => {
+    expect(socketUrl('/api/overlay/tab', { key: 'オーバーレイ用キー' }, 'http://localhost:5173')).toBe(
+      'ws://localhost:5173/api/overlay/tab?key=%E3%82%AA%E3%83%BC%E3%83%90%E3%83%BC%E3%83%AC%E3%82%A4%E7%94%A8%E3%82%AD%E3%83%BC',
+    )
   })
 })

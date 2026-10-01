@@ -35,9 +35,6 @@ import { ScreenPage } from '@/screen/screen-page'
 import type { SpeechApi } from '@/speech/api'
 import { SpeechPage } from '@/speech/speech-page'
 import { TranscriptPage } from '@/transcript/transcript-page'
-import { captureTab } from '@/tab/capture'
-import { openSenderPeer } from '@/tab/peer'
-import { connectTabSender } from '@/tab/socket'
 import { TabPage } from '@/tab/tab-page'
 
 /** ページが中身を描くのに使うもの */
@@ -136,9 +133,8 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
         path: '/tab/',
         name: 'タブの映像',
         icon: AppWindow,
-        // 映像と音は合成ページへ WebRTC で直接流れ、Worker（Durable Object）を通るのはつなぐための連絡だけ。
-        // 映すタブは拡張（extension/）のショートカットで決め、拡張はこのページの URL の # にIDを入れて渡す
-        render: () => <TabPage connect={connectTabSender} capture={captureTab} openPeer={openSenderPeer} />,
+        // 取り込みと送信は拡張（extension/）の中で行い、このページは拡張を配って使い方を案内するだけ
+        render: () => <TabPage />,
       },
       {
         path: '/overlay/',

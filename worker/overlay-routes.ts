@@ -51,7 +51,7 @@ export const overlayDrawSocket = async (context: Context): Promise<Response> => 
 /**
  * GET /api/overlay/tab?key=: 合成ページからのWebSocketの接続を、映す側として中継先へ引き渡す。
  *
- * 送り手のページ（/tab/）とのあいだで WebRTC の連絡をやりとりする。オーバーレイ用キーは配信画面に映りうるので、
+ * 送り手（拡張）とのあいだで WebRTC の連絡をやりとりする。オーバーレイ用キーは配信画面に映りうるので、
  * この接続から送ったものは送り手にしか届かない（他の合成ページへは配らない。worker/tab-channel.ts）。
  */
 export const overlayTabSocket = async (context: Context): Promise<Response> => {

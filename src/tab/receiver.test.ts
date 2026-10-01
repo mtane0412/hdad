@@ -157,7 +157,7 @@ describe('createTabReceiver', () => {
   })
 
   it('接続が切れたら何も映さない（エラーにはしない）', () => {
-    // タブを閉じた・送り手のページを閉じたなど、配信中に普通に起こる
+    // タブを閉じた・拡張で映すのをやめたなど、配信中に普通に起こる
     const { receiver, shown, warnings, peers } = createHarness()
     receiver.receive({ type: 'offer', viewerId: 'OBSの受け手', sdp: '申し込み1' })
     nth(peers, 0).handlers.onStream({ label: '資料のタブ' })

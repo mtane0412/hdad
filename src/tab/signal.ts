@@ -1,7 +1,7 @@
 /**
  * タブの映像をつなぐための連絡（シグナリング）の形
  *
- * 送り手（/tab/）と合成ページ（素材 `tab`）は、中継先（worker/tab-channel.ts の Durable Object）を通して
+ * 送り手（拡張の offscreen document）と合成ページ（素材 `tab`）は、中継先（worker/tab-channel.ts の Durable Object）を通して
  * WebRTC の申し込み（offer）と回答（answer）をやりとりする。中継先は中身を読まないので、形を決めて読むのはここだけにする。
  *
  * 流れ:
@@ -10,8 +10,6 @@
  * 3. 送り手は、映し始めたときと接続が切れたときに名乗り直しを頼む（who）。映すのをやめたら stop を送る
  *
  * ICE の候補は集め終えてから SDP にまとめて送るので、候補を1つずつ送る連絡は持たない（同じPCの中でつなぐため、すぐに集まる）。
- *
- * あわせて、拡張が送り手ページへストリームIDを渡すときの URL の # の書式もここで決める（拡張もこのファイルを読み込む）。
  */
 import { isRecord } from '../core/api'
 
@@ -58,31 +56,4 @@ export const parseFromSender = (payload: string): FromSender => {
     return { type: 'offer', viewerId: value.viewerId, sdp: value.sdp }
   }
   throw new Error('送り手からの連絡の種類が想定と違います')
-}
-
-/** 拡張から送り手ページへ渡すもの */
-export interface StreamHandoff {
-  /** chrome.tabCapture.getMediaStreamId で得たID。数秒で使えなくなるので、受け取ったらすぐ使う */
-  streamId: string
-  /** 映すタブの題名（送り手ページの状態の表示に使う） */
-  title: string
-}
-
-/** 拡張が送り手ページの URL に付ける # を作る */
-export const buildStreamHash = (handoff: StreamHandoff): string =>
-  `#${new URLSearchParams({ stream: handoff.streamId, title: handoff.title }).toString()}`
-
-/**
- * 送り手ページが URL の # を読む。
- *
- * @returns # が空なら null（普通に開いただけ）。拡張から届いたものなら中身
- * @throws # はあるのに書式が違うとき（拡張と送り手ページの版が合っていない）
- */
-export const readStreamHash = (hash: string): StreamHandoff | null => {
-  if (hash === '' || hash === '#') return null
-  const params = new URLSearchParams(hash.replace(/^#/, ''))
-  const streamId = params.get('stream')
-  const title = params.get('title')
-  if (streamId === null || streamId === '' || title === null) throw new Error('拡張から届いた内容を読み取れませんでした')
-  return { streamId, title }
 }

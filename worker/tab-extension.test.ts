@@ -1,9 +1,10 @@
 /**
  * 拡張の zip（GET /api/admin/tab/extension.zip）のテスト
  *
- * 確かめるのは次の3点である。
- * - ビルド済みの拡張のファイルに、リクエストの置き場所を信頼する config.json を加えた zip を返すこと
+ * 確かめるのは次の4点である。
+ * - ビルド済みの拡張のファイルに、リクエストの置き場所を書いた config.json を加えた zip を返すこと
  *   （拡張側の読み取り（extension/src/config.ts）で読めることまで確かめ、書く側と読む側の形の食い違いを防ぐ）
+ * - manifest.json に、その置き場所への権限（host_permissions）を書き足すこと（拡張が配信者のセッションでつなぐため）
  * - ログインしていなければ断ること
  * - ビルド済みのファイルが見つからなければ、欠けた zip を返さずに失敗させること
  *   （見つからないパスに index.html を返す設定（wrangler.jsonc の not_found_handling）でも、HTML を詰めない）
@@ -30,8 +31,10 @@ const site = 'https://hdad.example.workers.dev'
 
 /** ビルド済みの拡張（npm run build:extension が public/tab-extension/ に出すもの） */
 const builtExtension = {
-  '/tab-extension/manifest.json': '{"manifest_version":3,"name":"HDAD タブの映像"}',
-  '/tab-extension/background.js': 'console.log("タブを渡す")',
+  '/tab-extension/manifest.json': '{"manifest_version":3,"name":"HDAD タブの映像","permissions":["tabCapture","offscreen"]}',
+  '/tab-extension/background.js': 'console.log("ボタンを受ける")',
+  '/tab-extension/offscreen.html': '<!doctype html><script type="module" src="offscreen.js"></script>',
+  '/tab-extension/offscreen.js': 'console.log("取り込んで送る")',
 }
 
 const createEnv = (assets: Readonly<Record<string, FakeAsset>> = builtExtension) =>
@@ -70,17 +73,36 @@ const download = async (env: Env) => {
 }
 
 describe('GET /api/admin/tab/extension.zip', () => {
-  it('ビルド済みの拡張に、この置き場所を信頼する設定を加えた zip を返す', async () => {
+  it('ビルド済みの拡張に、この置き場所を書いた設定を加えた zip を返す', async () => {
     const response = await download(createEnv())
 
     expect(response.status).toBe(200)
     expect(response.headers.get('Content-Type')).toBe('application/zip')
     expect(response.headers.get('Content-Disposition')).toBe('attachment; filename="hdad-tab.zip"')
     const files = unzipSync(new Uint8Array(await response.arrayBuffer()))
-    expect(Object.keys(files).sort()).toEqual(['hdad-tab/background.js', 'hdad-tab/config.json', 'hdad-tab/manifest.json'])
-    expect(strFromU8(files['hdad-tab/background.js'] ?? new Uint8Array())).toBe('console.log("タブを渡す")')
+    expect(Object.keys(files).sort()).toEqual([
+      'hdad-tab/background.js',
+      'hdad-tab/config.json',
+      'hdad-tab/manifest.json',
+      'hdad-tab/offscreen.html',
+      'hdad-tab/offscreen.js',
+    ])
+    expect(strFromU8(files['hdad-tab/offscreen.js'] ?? new Uint8Array())).toBe('console.log("取り込んで送る")')
     expect(parseExtensionConfig(JSON.parse(strFromU8(files['hdad-tab/config.json'] ?? new Uint8Array())))).toEqual({
-      trustedOrigins: ['https://hdad.example.workers.dev'],
+      origin: 'https://hdad.example.workers.dev',
+    })
+  })
+
+  it('manifest.json に、この置き場所への権限を書き足す', async () => {
+    // 権限があると、拡張から置き場所へのWebSocketに配信者のクッキーが付く
+    const response = await download(createEnv())
+
+    const files = unzipSync(new Uint8Array(await response.arrayBuffer()))
+    expect(JSON.parse(strFromU8(files['hdad-tab/manifest.json'] ?? new Uint8Array()))).toEqual({
+      manifest_version: 3,
+      name: 'HDAD タブの映像',
+      permissions: ['tabCapture', 'offscreen'],
+      host_permissions: ['https://hdad.example.workers.dev/*'],
     })
   })
 
@@ -102,7 +124,7 @@ describe('GET /api/admin/tab/extension.zip', () => {
     // 静的アセットは見つからないパスに index.html を状態コード200で返す（アプリが「見つからない」画面を出すため）
     const response = await download(
       createEnv({
-        '/tab-extension/manifest.json': builtExtension['/tab-extension/manifest.json'],
+        ...builtExtension,
         '/tab-extension/background.js': { body: '<!doctype html><title>HDAD</title>', contentType: 'text/html; charset=utf-8' },
       }),
     )

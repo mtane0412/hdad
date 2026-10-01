@@ -1,7 +1,7 @@
 /**
  * タブの映像の連絡のやりとり（WebSocket）
  *
- * 送り手（/tab/）と合成ページ（素材 `tab`）は、どちらもWorkerの経路を通して同じ中継先
+ * 送り手（拡張の offscreen document）と合成ページ（素材 `tab`）は、どちらもWorkerの経路を通して同じ中継先
  * （worker/tab-channel.ts の Durable Object）へつなぐ。送り手として扱うか合成ページとして扱うかは、つなぐ経路が決める。
  *
  * つなぎ直し・生存確認は src/core/socket.ts が受け持ち、ここは経路と連絡の読み書き（signal.ts）だけを足す。
@@ -14,7 +14,7 @@ const SENDER_PATH = '/api/admin/tab/socket'
 /** 合成ページがつなぐ経路（オーバーレイ用キーで守られている） */
 const VIEWER_PATH = '/api/overlay/tab'
 
-const SENDER_HINT = 'タブの映像の中継先につながりません。ログインが切れていないか確かめてください'
+const SENDER_HINT = 'タブの映像の中継先につながりません。Chrome で HDAD にログインしているか確かめてください'
 const VIEWER_HINT = 'タブの映像の中継先につながりません。URLのオーバーレイ用キーが正しいか確かめてください'
 
 export interface TabSocketHandlers<M> {
@@ -71,6 +71,10 @@ const connect = <In, Out>(url: string, parse: (text: string) => In, handlers: Ta
 export const connectTabViewer = (key: string, handlers: TabSocketHandlers<FromSender>): TabSocket<FromViewer> =>
   connect(socketUrl(VIEWER_PATH, { key }), parseFromSender, handlers, VIEWER_HINT)
 
-/** 送り手として中継先へつなぐ */
-export const connectTabSender = (handlers: TabSocketHandlers<FromViewer>): TabSocket<FromSender> =>
-  connect(socketUrl(SENDER_PATH), parseFromViewer, handlers, SENDER_HINT)
+/**
+ * 送り手として中継先へつなぐ。
+ *
+ * @param origin HDAD の置き場所（送り手は拡張の画面なので、開いている場所と HDAD が違う）
+ */
+export const connectTabSender = (origin: string, handlers: TabSocketHandlers<FromViewer>): TabSocket<FromSender> =>
+  connect(socketUrl(SENDER_PATH, {}, origin), parseFromViewer, handlers, SENDER_HINT)
