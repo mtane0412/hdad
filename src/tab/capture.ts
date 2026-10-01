@@ -7,6 +7,12 @@
  * 映像は 1920×1080・30fps までに抑える（合成ページの推奨の大きさが配信画面と同じ 1920×1080 のため。
  * #163 の試作でこの条件の負荷と遅延を確かめてある）。
  *
+ * 映像はタブの縦横比のまま送らせる。Chrome はタブの取り込みで、上限だけを指定すると大きさを上限に固定し、
+ * 縦横比の違う分を黒い帯で埋める（FIXED_RESOLUTION）。黒い帯は映像の中身なので合成ページでは透明にできない。
+ * 最小の大きさを 1 より大きく、かつ上限と違う縦横比で指定すると、上限の中でタブの縦横比のまま送る
+ * （ANY_WITHIN_LIMIT。Chromium の media_stream_constraints_util_video_content.cc の
+ * SelectResolutionPolicyFromCandidates による）。余白は合成ページの箱の中で透明になる（tab.css）。
+ *
  * 注意: 取り込んでいるあいだ、元のタブの音は Chrome からは聞こえなくなる（#163 で確かめた）。配信者は OBS のモニターで聞く。
  */
 import type { CapturedTab } from './tab-page'
@@ -15,6 +21,13 @@ import type { CapturedTab } from './tab-page'
 const MAX_WIDTH = 1920
 const MAX_HEIGHT = 1080
 const MAX_FRAME_RATE = 30
+
+/**
+ * 取り込む映像の下限。小さく映すための値ではなく、Chrome にタブの縦横比のまま送らせるための値
+ * （1 より大きく、縦横比が上限の 16:9 と違えばよい。冒頭の説明を参照）
+ */
+const MIN_WIDTH = 2
+const MIN_HEIGHT = 2
 
 /**
  * Chrome だけが受け付けるタブの取り込みの指定。標準の型に無いので、標準の型を広げて書く
@@ -38,7 +51,7 @@ export const captureTab = async (streamId: string): Promise<CapturedTab<MediaStr
   const source = { chromeMediaSource: 'tab', chromeMediaSourceId: streamId }
   const constraints: ChromeTabStreamConstraints = {
     audio: { mandatory: source },
-    video: { mandatory: { ...source, maxWidth: MAX_WIDTH, maxHeight: MAX_HEIGHT, maxFrameRate: MAX_FRAME_RATE } },
+    video: { mandatory: { ...source, minWidth: MIN_WIDTH, minHeight: MIN_HEIGHT, maxWidth: MAX_WIDTH, maxHeight: MAX_HEIGHT, maxFrameRate: MAX_FRAME_RATE } },
   }
   const stream = await navigator.mediaDevices.getUserMedia(constraints)
   return {

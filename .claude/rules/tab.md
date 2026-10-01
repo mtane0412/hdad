@@ -17,6 +17,8 @@ paths:
 
 **映像は H.264 を優先し、送れないブラウザでは VP8 へ黙って切り替えずに失敗させる**（`preferH264`。負荷と遅延が大きく変わるため）。**接続が failed になったら送り手が作り直す**（閉じて名乗り直しを頼む）。
 
+**取り込みには上限と一緒に下限（`minWidth`・`minHeight`）も渡す**（`src/tab/capture.ts`）。上限だけだと Chrome は大きさを固定して縦横比の違う分を黒い帯で埋め、合成ページでは透明にできないため。
+
 **タブを閉じた・映すのをやめた・接続が切れたときは、エラーにせず透明に戻す**（配信中に普通に起こる操作のため。状態は送り手のページにだけ出す）。合成ページの箱に失敗を出すのは、中継先につながらないときと再生できないときだけである。
 
 **拡張は配信者がアプリ（`/tab/`）からダウンロードする**。`GET /api/admin/tab/extension.zip`（`worker/tab-extension.ts`）が、ビルド済みの拡張（`ASSETS` の `/tab-extension/`）にリクエストの置き場所を書いた `config.json` を加えて zip にする（置き場所をビルドに埋め込まない。公開先のアドレスはビルドの時点では分からないため）。ファイルが欠けていれば欠けた zip を返さずに失敗させる。拡張のビルド（`npm run build:extension`）は `predev`・`prebuild` で本体の前に走り、`public/tab-extension/` に出す。型チェックは `tsconfig.extension.json`（`npm run type-check` に含まれる）。
