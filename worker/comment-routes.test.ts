@@ -17,6 +17,7 @@ import { createFakeBucket } from './fake-bucket'
 import { createFakeCommentChannel } from './fake-comment-channel'
 import { createFakeDatabase } from './fake-database'
 import { createFakeDrawChannel } from './fake-draw-channel'
+import { createFakeTabChannel } from './fake-tab-channel'
 import { createFakeStore } from './fake-store'
 import { handleRequest, type Env } from './index'
 import { createSessionToken } from './session'
@@ -40,6 +41,7 @@ const createEnv = () => {
     EVENTSUB_SECRET: 'テスト用のWebhookシークレット',
     ALERTS: createFakeAlertChannel().namespace,
     DRAW: createFakeDrawChannel().namespace,
+    TAB: createFakeTabChannel().namespace,
     COMMENTS: deliveryTarget.namespace,
     AD_BREAKS: createFakeAdBreakTimer().namespace,
     AI: createFakeWorkersAi(),

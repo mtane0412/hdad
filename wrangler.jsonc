@@ -36,6 +36,7 @@
   // このバインディングは呼ばれない。worker/llm.ts）。
   "ai": { "binding": "AI" },
   // ALERTS はオーバーレイへアラートを配る接続の保持、DRAW は描く画面と合成ページのあいだの手書きの線の中継、
+  // TAB は送り手のページ（/tab/）と合成ページのあいだのタブの映像の連絡（WebRTC の offer・answer）の中継、
   // AD_BREAKS は広告の終了の時刻を預かるタイマー、COMMENTS はコメントビューアーへチャットと出来事を配る接続の保持
   // （Workerは接続もタイマーも持てない）。
   // どれも押した人が用意するものはないので入力欄には出ない
@@ -43,6 +44,7 @@
     "bindings": [
       { "name": "ALERTS", "class_name": "AlertChannel" },
       { "name": "DRAW", "class_name": "DrawChannel" },
+      { "name": "TAB", "class_name": "TabChannel" },
       { "name": "AD_BREAKS", "class_name": "AdBreakTimer" },
       { "name": "COMMENTS", "class_name": "CommentChannel" }
     ]
@@ -51,7 +53,8 @@
     { "tag": "v1", "new_sqlite_classes": ["AlertChannel"] },
     { "tag": "v2", "new_sqlite_classes": ["AdBreakTimer"] },
     { "tag": "v3", "new_sqlite_classes": ["DrawChannel"] },
-    { "tag": "v4", "new_sqlite_classes": ["CommentChannel"] }
+    { "tag": "v4", "new_sqlite_classes": ["CommentChannel"] },
+    { "tag": "v5", "new_sqlite_classes": ["TabChannel"] }
   ],
   "triggers": { "crons": ["*/5 * * * *"] }
 }

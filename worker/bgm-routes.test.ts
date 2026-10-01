@@ -16,6 +16,7 @@ import { createFakeBucket } from './fake-bucket'
 import { createFakeCommentChannel } from './fake-comment-channel'
 import { createFakeDatabase } from './fake-database'
 import { createFakeDrawChannel } from './fake-draw-channel'
+import { createFakeTabChannel } from './fake-tab-channel'
 import { createFakeStore } from './fake-store'
 import { loadBgmPlayback, loadBgmSettings, loadBgmSwitchedAt, loadBgmTracks, saveBgmSwitchedAt, type BgmTrack } from './bgm-config'
 import { handleRequest, type Env } from './index'
@@ -64,6 +65,7 @@ const setupEnv = async () => {
     EVENTSUB_SECRET: 'テスト用のWebhookシークレット',
     ALERTS: alertChannel.namespace,
     DRAW: createFakeDrawChannel().namespace,
+    TAB: createFakeTabChannel().namespace,
     COMMENTS: createFakeCommentChannel().namespace,
     AD_BREAKS: createFakeAdBreakTimer().namespace,
     AI: createFakeWorkersAi(),
