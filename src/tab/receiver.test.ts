@@ -98,6 +98,19 @@ describe('createTabReceiver', () => {
     expect(shown).toEqual([{ label: '資料のタブ' }])
   })
 
+  it('映像と音で同じ映像が2回届いても、映すよう知らせるのは1回だけにする', () => {
+    // WebRTC は映像と音を別々に届けるが、どちらも同じ映像（stream）を指す。知らせ直すと合成ページが
+    // <video> にセットし直し、1回目の再生が「新しい読み込みで中断された」と失敗する
+    const { receiver, shown, peers } = createHarness()
+    const capturedTab = { label: '資料のタブ' }
+
+    receiver.receive({ type: 'offer', viewerId: 'OBSの受け手', sdp: '申し込み1' })
+    nth(peers, 0).handlers.onStream(capturedTab)
+    nth(peers, 0).handlers.onStream(capturedTab)
+
+    expect(shown).toEqual([capturedTab])
+  })
+
   it('新しい offer が来たら、前の接続を閉じて作り直す', () => {
     // 送り手が映すタブを切り替えたときに起こる
     const { receiver, peers } = createHarness()
