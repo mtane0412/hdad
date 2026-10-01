@@ -6,6 +6,7 @@
  *   （拡張側の読み取り（extension/src/config.ts）で読めることまで確かめ、書く側と読む側の形の食い違いを防ぐ）
  * - ログインしていなければ断ること
  * - ビルド済みのファイルが見つからなければ、欠けた zip を返さずに失敗させること
+ *   （見つからないパスに index.html を返す設定（wrangler.jsonc の not_found_handling）でも、HTML を詰めない）
  */
 import { unzipSync, strFromU8 } from 'fflate'
 import { describe, expect, it } from 'vitest'
@@ -13,7 +14,7 @@ import { parseExtensionConfig } from '../extension/src/config'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
 import { createFakeWorkersAi } from './fake-ai'
 import { createFakeAlertChannel } from './fake-alert-channel'
-import { createFakeAssets } from './fake-assets'
+import { createFakeAssets, type FakeAsset } from './fake-assets'
 import { createFakeBucket } from './fake-bucket'
 import { createFakeCommentChannel } from './fake-comment-channel'
 import { createFakeDatabase } from './fake-database'
@@ -33,7 +34,7 @@ const builtExtension = {
   '/tab-extension/background.js': 'console.log("タブを渡す")',
 }
 
-const createEnv = (assets: Readonly<Record<string, string>> = builtExtension) =>
+const createEnv = (assets: Readonly<Record<string, FakeAsset>> = builtExtension) =>
   ({
     STORE: createFakeStore(),
     MEDIA: createFakeBucket(),
@@ -92,6 +93,19 @@ describe('GET /api/admin/tab/extension.zip', () => {
   it('ビルド済みの拡張が見つからなければ、欠けた zip を返さずに失敗させる', async () => {
     // npm run build の前に拡張のビルド（prebuild）が走らなかったときに起こる
     const response = await download(createEnv({ '/tab-extension/manifest.json': '{}' }))
+
+    expect(response.status).toBe(500)
+    expect(await response.json()).toMatchObject({ error: { code: 'tab-extension-missing' } })
+  })
+
+  it('見つからないファイルの代わりにアプリの画面（HTML）が返ってきても、zip に詰めずに失敗させる', async () => {
+    // 静的アセットは見つからないパスに index.html を状態コード200で返す（アプリが「見つからない」画面を出すため）
+    const response = await download(
+      createEnv({
+        '/tab-extension/manifest.json': builtExtension['/tab-extension/manifest.json'],
+        '/tab-extension/background.js': { body: '<!doctype html><title>HDAD</title>', contentType: 'text/html; charset=utf-8' },
+      }),
+    )
 
     expect(response.status).toBe(500)
     expect(await response.json()).toMatchObject({ error: { code: 'tab-extension-missing' } })

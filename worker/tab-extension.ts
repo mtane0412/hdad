@@ -21,10 +21,16 @@ const BUILT_FILES = ['manifest.json', 'background.js'] as const
 /** zip を展開したときにできるフォルダの名前。Chrome にはこのフォルダを読み込んでもらう */
 export const EXTENSION_FOLDER = 'hdad-tab'
 
-/** ビルド済みのファイルを1つ読む。無ければ失敗させる */
+/**
+ * ビルド済みのファイルを1つ読む。無ければ失敗させる。
+ *
+ * 静的アセットは見つからないパスにアプリの index.html を状態コード200で返す（wrangler.jsonc の not_found_handling）ので、
+ * 状態コードだけでなく、HTML が返ってきたことも「見つからない」と見なす（拡張のファイルに HTML は無い）。
+ */
 const readBuiltFile = async (assets: AssetFetcher, base: URL, name: string): Promise<Uint8Array> => {
   const response = await assets.fetch(new Request(new URL(`${ASSET_DIR}${name}`, base)))
-  if (!response.ok) {
+  const isHtml = response.headers.get('Content-Type')?.startsWith('text/html') === true
+  if (!response.ok || isHtml) {
     throw new HttpError(
       STATUS.internalServerError,
       'tab-extension-missing',
