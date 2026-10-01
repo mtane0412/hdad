@@ -11,6 +11,7 @@ import {
   followerPoints,
   formatCount,
   formatDateTime,
+  formatTimeRange,
   formatDelta,
   formatDuration,
   formatShortTime,
@@ -212,5 +213,11 @@ describe('formatDuration・formatDateTime・formatCount（表示用の整形）'
 
   it('グラフの目盛りの時刻は、年を省いてブラウザのタイムゾーンで表す', () => {
     expect(formatShortTime(Date.parse('2026-09-18T12:00:00.000Z'))).toBe('9/18 21:00')
+  })
+})
+
+describe('formatTimeRange（章の区間の時刻）', () => {
+  it('始まりと終わりを、ブラウザのタイムゾーンの時刻で「21:00〜21:30」のように表す', () => {
+    expect(formatTimeRange('2026-09-18T12:00:00.000Z', '2026-09-18T12:30:00.000Z')).toBe('21:00〜21:30')
   })
 })

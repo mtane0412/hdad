@@ -6,6 +6,7 @@
  * あわせて終わった配信の発言から視聴者の人物像を作り（そのついでにその人自身のチャンネルの内容も観測して記録し）、
  * 配信画面を撮った1枚から Gyazo が読み取った文字を取りに行き、
  * あらすじを作り直せたら、そのあらすじに合う BGM を Jev に選ばせ（issue #153。worker/bgm-jev.ts）、
+ * 区間が閉じた配信の章（見出しと要約。worker/stream-chapter.ts）を作り、
  * 古くなった記録（first_chatters・stream_chat_messages・transcripts）を消す。
  *
  * 注意: トークンが無い・更新できない・Twitchが失敗を返したときは、黙って飛ばさない。
@@ -32,6 +33,8 @@ import { readSideSuper, saveSideSuper } from './side-super-store'
 import { generateSideSuper } from './side-super'
 import { readStreamSummary, saveStreamSummary } from './stream-summary-store'
 import { generateStreamSummary } from './stream-summary'
+import { listChapterTargets, readChapterLines, saveStreamChapter, skipChapterWindow } from './stream-chapter-store'
+import { fitChapterMaterial, generateStreamChapter, nextChapterWindow, type ChapterTarget } from './stream-chapter'
 import {
   abandonOcr,
   countOcrAttempt,
@@ -146,7 +149,7 @@ export const SCREEN_CAPTURE_RETENTION_MS = TRANSCRIPT_RETENTION_MS
  * そのうしろに乗るためである（2分＋60秒でも5分に収まる）。
  *
  * 予算を過ぎても、配信の記録（配信の状態・視聴者数・フォロワー数）と古い記録の掃除は必ず終える。
- * 捨てるのは材料づくり（OCRの取得・あらすじ・サイドスーパー・人物像）だけで、どれも次の収集でやり直せる
+ * 捨てるのは材料づくり（OCRの取得・あらすじ・サイドスーパー・章・人物像）だけで、どれも次の収集でやり直せる
  * （材料が残っていること自体が「まだ作っていない」という印になっている）。
  */
 export const COLLECT_BUDGET_MS = 2 * 60 * 1000
@@ -280,6 +283,76 @@ const chooseBgmForStream = async (
     await chooseBgm({ store, jev, alerts, now, summary, transcript })
   } catch (error) {
     await recordFailure(db, 'bgm-choice-failed', `配信の話題に合うBGMを選べませんでした: ${error instanceof Error ? error.message : String(error)}`, now)
+  }
+}
+
+/**
+ * 1章の材料として読む件数の上限（材料ごと）。
+ *
+ * 30分の区間に収まる量を目安にしている。上限を超えた区間は短く切り、残りを次の章へ回す
+ * （worker/stream-chapter.ts の fitChapterMaterial）ので、上限は1回の入力の大きさを決めるだけで、取りこぼしにはならない。
+ * 発話を多めにしているのは、章が話されたことの記録であり、発話がその中心になるためである。
+ */
+const CHAPTER_LINE_LIMITS = { transcripts: 300, chats: 200, screen: 100 } as const
+
+/**
+ * 1回の収集で見る区間の数の上限。
+ *
+ * 発話の無い区間はLLMを呼ばずに飛ばすので、長く喋らなかった配信では1回の収集で何区間も進む。
+ * D1の読み出しが際限なく増えないように上限を置く（12時間ぶん）。残りは次の収集で続きから見る。
+ */
+const MAX_CHAPTER_WINDOWS_PER_COLLECT = 24
+
+/**
+ * 区間が閉じた配信の章を、1回の収集で1つまで作る。
+ *
+ * 配信中の配信と、終わりまで章にし終えていない終わった配信が対象である（stream-chapter-store.ts の listChapterTargets）。
+ * 配信が終わった回では最後の区間を配信の終わりで切って章にするので、配信していなくても呼ぶ。
+ *
+ * 注意: 1回の収集で作る章は1つまでにする。LLMが使えなかった日のあとに溜まった区間を一度に作ると、
+ * Workers AI の無料枠を一度に使い切るためである。cron は5分おきに動くので、残りは順に作られる。
+ * 注意: 発話の無い区間は、LLMを呼ばずに飛ばす。視聴者の書き込みや画面の文字だけを材料にすると、
+ * それが配信で起きたこととして書かれるためである（あらすじが発話の無いときに作らないのと同じ理由）。
+ * 注意: 失敗しても収集そのものを止めず、区間も進めない（次の収集でやり直す）。区間が進まないあいだは、
+ * その配信の人物像も作られない（stream-chat-store.ts の CHAPTERED_SESSIONS）。材料の文字起こしが保持期間で
+ * 消えれば、残りの区間は発話の無い区間として飛ばされるので、人物像がいつまでも作られないことはない。
+ */
+const makeStreamChapter = async (db: Database, ai: TextGenerator, now: number): Promise<void> => {
+  let windowCount = 0
+  for (const target of await listChapterTargets(db)) {
+    let current: ChapterTarget = target
+    for (let window = nextChapterWindow(current, now); window !== null; window = nextChapterWindow(current, now)) {
+      windowCount += 1
+      if (windowCount > MAX_CHAPTER_WINDOWS_PER_COLLECT) return
+      const lines = await readChapterLines(db, current.id, window, CHAPTER_LINE_LIMITS)
+      // 区間を切れない（上限を超える行がすべて区間の始まりと同じ時刻）ときも、LLMの失敗と同じく記録して打ち切る。
+      // ここで投げると、あとに続く人物像づくりまで止まってしまうためである
+      let material: ReturnType<typeof fitChapterMaterial>
+      try {
+        material = fitChapterMaterial(window, lines, CHAPTER_LINE_LIMITS)
+      } catch (error) {
+        await recordFailure(db, 'stream-chapter-failed', error instanceof Error ? error.message : String(error), now)
+        return
+      }
+      if (material.transcripts.length === 0) {
+        await skipChapterWindow(db, current.id, material.to)
+        current = { ...current, chapteredUntil: material.to }
+        continue
+      }
+      try {
+        const chapter = await generateStreamChapter(ai, {
+          title: current.title,
+          categoryName: current.categoryName,
+          transcripts: material.transcripts.map((line) => line.text),
+          chats: material.chats.map((line) => line.text),
+          screen: material.screen.map((line) => line.text),
+        })
+        await saveStreamChapter(db, { sessionId: current.id, startedAt: material.from, endedAt: material.to, ...chapter })
+      } catch (error) {
+        await recordFailure(db, 'stream-chapter-failed', error instanceof Error ? error.message : String(error), now)
+      }
+      return
+    }
   }
 }
 
@@ -651,6 +724,9 @@ const collect = async ({ db, store, twitch, ai, jev, alerts, gyazo, broadcasterI
     if (typeof summary === 'string') await withinBudget('BGMの切り替え', () => chooseBgmForStream({ db, store, jev, alerts }, stream.id, summary, now))
     await withinBudget('サイドスーパー', () => makeSideSuper(db, ai, stream, now))
   }
+  // 章立ては人物像より先に行う。人物像を作ると発言の材料が消えるので、配信が終わった回の最後の章から
+  // 視聴者の反応が抜けないようにするためである（人物像は、章にし終えた配信の発言だけを材料にする）
+  await withinBudget('章立て', () => makeStreamChapter(db, ai, now))
   if (budgetExhausted()) {
     deferredToNextCollect.push('人物像')
   } else {

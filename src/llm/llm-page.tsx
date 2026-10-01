@@ -81,7 +81,7 @@ const USAGE_LABELS: Readonly<Record<LlmUsage, { name: string; description: strin
   },
   streamSummary: {
     name: '配信のあらすじ',
-    description: '途中から来た人向けのまとめ。材料が多いので大きいモデル向き。',
+    description: '途中から来た人向けのまとめと、ダッシュボードに残す約30分ごとの章。材料が多いので大きいモデル向き。',
   },
 }
 

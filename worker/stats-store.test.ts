@@ -19,6 +19,8 @@ import {
   recordStreamOnline,
 } from './stats-store'
 import type { LiveStream } from './twitch'
+import { saveStreamChapter } from './stream-chapter-store'
+import { saveStreamSummary } from './stream-summary-store'
 
 const at = (text: string): number => Date.parse(text)
 
@@ -42,6 +44,8 @@ describe('recordLiveStream', () => {
       title: '月曜の雑談配信',
       categoryName: 'Just Chatting',
       samples: [{ sampledAt: '2026-09-21T12:05:00.000Z', viewerCount: 10 }],
+      chapters: [],
+      summary: null,
     })
   })
 
@@ -190,6 +194,41 @@ describe('getSession', () => {
   it('存在しない配信は null を返す', async () => {
     expect(await getSession(createFakeDatabase(), '存在しないID')).toBeNull()
   })
+
+  it('その配信の章（何が話されたか）と、最後に作ったあらすじを添える', async () => {
+    const db = createFakeDatabase()
+    await recordLiveStream(db, CHAT_STREAM, at('2026-09-21T12:05:00Z'))
+    await saveStreamChapter(db, {
+      sessionId: CHAT_STREAM.id,
+      startedAt: '2026-09-21T12:00:00.000Z',
+      endedAt: '2026-09-21T12:30:00.000Z',
+      title: '新しいマイクのお披露目',
+      summary: '配信者が買い替えたマイクの音を聞かせ、視聴者からメーカーを尋ねられた。',
+    })
+    await saveStreamSummary(
+      db,
+      {
+        sessionId: CHAT_STREAM.id,
+        summary: 'マイクを新調した配信者。いまはその音を聞かせているところ。',
+        transcriptsUntil: { at: '', messageId: '' },
+        chatUntil: { at: '', messageId: '' },
+        screenUntil: { at: '', imageId: '', lineNo: -1 },
+      },
+      at('2026-09-21T12:30:00Z'),
+    )
+
+    const session = await getSession(db, CHAT_STREAM.id)
+
+    expect(session?.chapters).toEqual([
+      {
+        startedAt: '2026-09-21T12:00:00.000Z',
+        endedAt: '2026-09-21T12:30:00.000Z',
+        title: '新しいマイクのお披露目',
+        summary: '配信者が買い替えたマイクの音を聞かせ、視聴者からメーカーを尋ねられた。',
+      },
+    ])
+    expect(session?.summary).toBe('マイクを新調した配信者。いまはその音を聞かせているところ。')
+  })
 })
 
 describe('recordFailure', () => {
@@ -238,6 +277,8 @@ describe('recordStreamOnline', () => {
       title: '',
       categoryName: '',
       samples: [],
+      chapters: [],
+      summary: null,
     })
 
     await recordLiveStream(db, CHAT_STREAM, at('2026-09-21T12:05:00Z'))

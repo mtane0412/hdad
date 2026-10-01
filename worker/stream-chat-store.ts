@@ -18,6 +18,15 @@ import type { Database } from './database'
 
 const toIso = (milliseconds: number): string => new Date(milliseconds).toISOString()
 
+/**
+ * 人物像の材料にしてよい配信（終わっていて、終わりまで章にし終えた配信）を選ぶ副問い合わせ。
+ *
+ * 人物像を作ると発言の材料を消すので、章立て（worker/stream-chapter.ts）より先に作ると、
+ * 配信の最後の章から視聴者の反応が抜ける。章立てがLLMの失敗で進まなくても、材料の文字起こしが
+ * 保持期間で消えれば残りの区間は発話の無い区間として飛ばされるので、人物像がいつまでも作られないことはない。
+ */
+const CHAPTERED_SESSIONS = 'SELECT id FROM stream_sessions WHERE ended_at IS NOT NULL AND chaptered_until >= ended_at'
+
 /** 貯める発言。通知から取り出した値（chat-command.ts の ChatMessage）を組み替えて渡す */
 export interface StreamChatMessage {
   /** Twitchが振ったメッセージのID。再送で同じ発言を二重に貯めないための鍵 */
@@ -71,7 +80,7 @@ export const listSummaryTargets = async (db: Database, limit: number): Promise<S
   const { results } = await db
     .prepare(
       `SELECT user_id AS userId, COUNT(*) AS messageCount FROM stream_chat_messages
-       WHERE session_id IN (SELECT id FROM stream_sessions WHERE ended_at IS NOT NULL)
+       WHERE session_id IN (${CHAPTERED_SESSIONS})
        GROUP BY user_id
        ORDER BY messageCount DESC, user_id
        LIMIT ?1`,
@@ -91,7 +100,7 @@ export const readViewerMessages = async (db: Database, userId: string, limit: nu
   const { results } = await db
     .prepare(
       `SELECT text FROM stream_chat_messages
-       WHERE user_id = ?1 AND session_id IN (SELECT id FROM stream_sessions WHERE ended_at IS NOT NULL)
+       WHERE user_id = ?1 AND session_id IN (${CHAPTERED_SESSIONS})
        ORDER BY sent_at, message_id
        LIMIT ?2`,
     )
@@ -176,7 +185,7 @@ export const deleteStreamChatMessages = async (db: Database, userId: string): Pr
   await db
     .prepare(
       `DELETE FROM stream_chat_messages
-       WHERE user_id = ?1 AND session_id IN (SELECT id FROM stream_sessions WHERE ended_at IS NOT NULL)`,
+       WHERE user_id = ?1 AND session_id IN (${CHAPTERED_SESSIONS})`,
     )
     .bind(userId)
     .run()

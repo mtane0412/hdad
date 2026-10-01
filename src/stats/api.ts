@@ -35,7 +35,19 @@ export interface ViewerSample {
   viewerCount: number
 }
 
-/** 配信セッションと、その視聴者数の時系列（古い順） */
+/** 配信の約30分ぶんで何が話されたかの記録（1章） */
+export interface StreamChapter {
+  /** 区間の始まり（ISO 8601・UTC） */
+  startedAt: string
+  /** 区間の終わり（ISO 8601・UTC） */
+  endedAt: string
+  /** 見出し */
+  title: string
+  /** 何が話されたかの要約 */
+  summary: string
+}
+
+/** 配信セッションと、その視聴者数の時系列（古い順）・章・あらすじ */
 export interface SessionDetail {
   id: string
   startedAt: string
@@ -43,6 +55,10 @@ export interface SessionDetail {
   title: string
   categoryName: string
   samples: ViewerSample[]
+  /** 何が話されたかの記録（区間の始まった順）。まだ1章も無ければ空 */
+  chapters: StreamChapter[]
+  /** 最後に作った「これまでのあらすじ」。作っていなければ null */
+  summary: string | null
 }
 
 /** ある時点のフォロワー数。値が変わった時点だけが記録される */
@@ -54,7 +70,7 @@ export interface FollowerSample {
 export interface StatsApi {
   /** 配信セッションの一覧（新しい順） */
   sessions(): Promise<SessionSummary[]>
-  /** 配信セッションと視聴者数の時系列 */
+  /** 配信セッションと視聴者数の時系列・章・あらすじ */
   session(id: string): Promise<SessionDetail>
   /** フォロワー数の時系列（古い順） */
   followers(): Promise<FollowerSample[]>
@@ -68,6 +84,13 @@ const isEventCounts = (value: unknown): value is Record<string, number> => isRec
 
 const isViewerSample = (value: unknown): value is ViewerSample =>
   isRecord(value) && typeof value.sampledAt === 'string' && typeof value.viewerCount === 'number'
+
+const isStreamChapter = (value: unknown): value is StreamChapter =>
+  isRecord(value) &&
+  typeof value.startedAt === 'string' &&
+  typeof value.endedAt === 'string' &&
+  typeof value.title === 'string' &&
+  typeof value.summary === 'string'
 
 const isFollowerSample = (value: unknown): value is FollowerSample =>
   isRecord(value) && typeof value.sampledAt === 'string' && typeof value.followerTotal === 'number'
@@ -93,17 +116,28 @@ export const createStatsApi = (fetchImpl: typeof fetch): StatsApi => {
     session: async (id) => {
       const body = await call(`${STATS_PATH}/sessions/${encodeURIComponent(id)}`)
       const samples = readList(body, 'samples', isViewerSample)
+      const chapters = readList(body, 'chapters', isStreamChapter)
       if (
         !isRecord(body) ||
         typeof body.id !== 'string' ||
         typeof body.startedAt !== 'string' ||
         !(body.endedAt === null || typeof body.endedAt === 'string') ||
         typeof body.title !== 'string' ||
-        typeof body.categoryName !== 'string'
+        typeof body.categoryName !== 'string' ||
+        !(body.summary === null || typeof body.summary === 'string')
       ) {
         throw new Error('Workerの配信セッションの応答が想定した形ではありません')
       }
-      return { id: body.id, startedAt: body.startedAt, endedAt: body.endedAt, title: body.title, categoryName: body.categoryName, samples }
+      return {
+        id: body.id,
+        startedAt: body.startedAt,
+        endedAt: body.endedAt,
+        title: body.title,
+        categoryName: body.categoryName,
+        samples,
+        chapters,
+        summary: body.summary,
+      }
     },
 
     followers: async () => readList(await call(`${STATS_PATH}/followers`), 'samples', isFollowerSample),

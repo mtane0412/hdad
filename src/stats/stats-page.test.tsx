@@ -10,6 +10,7 @@
  * - 配信の一覧に、開始日時・長さ・タイトル・カテゴリ・視聴者数・フォロワー増減・イベント件数を出すこと
  * - 期間を切り替えると、対象の配信だけに変わること
  * - 配信を選ぶと、その配信の視聴者数の推移を読み込んで出すこと
+ * - 配信を選ぶと、その配信で何が話されたか（章）と最後のあらすじを出すこと
  *
  * 日時はブラウザのタイムゾーンで出す決まりなので、テストでは TZ を東京に固定する。
  * 現在時刻は now で渡して固定し、テストの結果が実行日で変わらないようにする。
@@ -65,6 +66,21 @@ const FRIDAY_SESSION_DETAIL: SessionDetail = {
     { sampledAt: '2026-09-18T12:05:00.000Z', viewerCount: 8 },
     { sampledAt: '2026-09-18T13:05:00.000Z', viewerCount: 31 },
   ],
+  chapters: [
+    {
+      startedAt: '2026-09-18T12:00:00.000Z',
+      endedAt: '2026-09-18T12:30:00.000Z',
+      title: 'エディタの設定を見直す',
+      summary: '配信者がエディタの拡張機能を整理し、視聴者からおすすめの拡張が寄せられた。',
+    },
+    {
+      startedAt: '2026-09-18T12:30:00.000Z',
+      endedAt: '2026-09-18T13:00:00.000Z',
+      title: 'ログイン機能の実装',
+      summary: '配信者がログイン画面を作りはじめ、セッションの持ち方で視聴者と相談した。',
+    },
+  ],
+  summary: 'エディタを整えた配信者。ログイン機能に取りかかり、いまはセッションの持ち方を決めているところ。',
 }
 
 /** 決めた記録を返す代役のAPI。個別に差し替えたいものだけ patch で渡す */
@@ -166,7 +182,7 @@ describe('配信の一覧', () => {
     await waitForDisplay()
 
     expect(screen.getByText('（タイトルの記録なし）')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '（タイトルの記録なし） の視聴者数の推移を見る' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '（タイトルの記録なし） の詳細を見る' })).toBeInTheDocument()
   })
 
   it('期間を切り替えると、その期間に始まった配信だけを出す', async () => {
@@ -196,18 +212,45 @@ describe('フォロワー数の推移', () => {
   })
 })
 
-describe('配信ごとの視聴者数の推移', () => {
+describe('配信ごとの詳細（視聴者数の推移と話されたこと）', () => {
   it('配信を選ぶと、その配信の推移を読み込んで出す', async () => {
     const user = userEvent.setup()
     const api = createFakeApi()
     render(<StatsPage api={api} now={NOW} />)
     await waitForDisplay()
 
-    await user.click(screen.getByRole('button', { name: '金曜夜のもくもく配信 の視聴者数の推移を見る' }))
+    await user.click(screen.getByRole('button', { name: '金曜夜のもくもく配信 の詳細を見る' }))
 
     expect(api.session).toHaveBeenCalledWith('配信ID-金曜')
     const trend = await screen.findByRole('img', { name: '金曜夜のもくもく配信 の視聴者数の推移' })
     expect(trend).toBeInTheDocument()
+  })
+
+  it('配信を選ぶと、その配信で何が話されたかを、区間の時刻・見出し・要約の順に出す', async () => {
+    const user = userEvent.setup()
+    render(<StatsPage api={createFakeApi()} now={NOW} />)
+    await waitForDisplay()
+
+    await user.click(screen.getByRole('button', { name: '金曜夜のもくもく配信 の詳細を見る' }))
+
+    // 章は話された順に並び、時刻は東京の時刻で出る（12:00Z は 21:00）
+    const chapters = within(await screen.findByRole('list', { name: '金曜夜のもくもく配信 で話されたこと' })).getAllByRole('listitem')
+    expect(chapters).toHaveLength(2)
+    expect(chapters[0]).toHaveTextContent('21:00〜21:30')
+    expect(chapters[0]).toHaveTextContent('エディタの設定を見直す')
+    expect(chapters[0]).toHaveTextContent('配信者がエディタの拡張機能を整理し、視聴者からおすすめの拡張が寄せられた。')
+    expect(chapters[1]).toHaveTextContent('ログイン機能の実装')
+    expect(screen.getByText('エディタを整えた配信者。ログイン機能に取りかかり、いまはセッションの持ち方を決めているところ。')).toBeInTheDocument()
+  })
+
+  it('章もあらすじも無い配信では、記録が無いことを伝える（何も出さないと、読み込めていないのと見分けられないため）', async () => {
+    const user = userEvent.setup()
+    render(<StatsPage api={createFakeApi({ session: vi.fn(async () => ({ ...FRIDAY_SESSION_DETAIL, chapters: [], summary: null })) })} now={NOW} />)
+    await waitForDisplay()
+
+    await user.click(screen.getByRole('button', { name: '金曜夜のもくもく配信 の詳細を見る' }))
+
+    expect(await screen.findByText('この配信には話されたことの記録がありません。')).toBeInTheDocument()
   })
 
   it('推移の読み込みに失敗したら、理由を出す', async () => {
@@ -220,7 +263,7 @@ describe('配信ごとの視聴者数の推移', () => {
     render(<StatsPage api={detailFailingApi} now={NOW} />)
     await waitForDisplay()
 
-    await user.click(screen.getByRole('button', { name: '金曜夜のもくもく配信 の視聴者数の推移を見る' }))
+    await user.click(screen.getByRole('button', { name: '金曜夜のもくもく配信 の詳細を見る' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('配信「配信ID-金曜」の記録が存在しません')
   })

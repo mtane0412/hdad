@@ -8,6 +8,8 @@
  */
 import type { Database } from './database'
 import type { LiveStream } from './twitch'
+import { listStreamChapters, type StreamChapter } from './stream-chapter-store'
+import { readStreamSummary } from './stream-summary-store'
 
 /** 一覧で返す配信セッションの上限（新しい順） */
 const SESSION_LIST_LIMIT = 100
@@ -44,6 +46,10 @@ export interface SessionDetail {
   title: string
   categoryName: string
   samples: ViewerSample[]
+  /** 何が話されたかの記録（約30分ごとの章。区間の始まった順）。まだ1章も無ければ空 */
+  chapters: StreamChapter[]
+  /** 最後に作った「これまでのあらすじ」。作っていなければ null */
+  summary: string | null
 }
 
 export interface FollowerSample {
@@ -219,7 +225,7 @@ export const listSessions = async (db: Database, now: number): Promise<SessionSu
   }))
 }
 
-/** 配信セッションと、その視聴者数の時系列（古い順）。存在しなければ null */
+/** 配信セッションと、その視聴者数の時系列（古い順）・章・あらすじ。存在しなければ null */
 export const getSession = async (db: Database, id: string): Promise<SessionDetail | null> => {
   const session = await db.prepare(`SELECT ${SESSION_COLUMNS} FROM stream_sessions AS s WHERE s.id = ?1`).bind(id).first<SessionRow>()
   if (!session) return null
@@ -228,7 +234,9 @@ export const getSession = async (db: Database, id: string): Promise<SessionDetai
     .prepare('SELECT sampled_at AS sampledAt, viewer_count AS viewerCount FROM viewer_samples WHERE session_id = ?1 ORDER BY sampled_at ASC')
     .bind(id)
     .all<ViewerSample>()
-  return { ...session, samples }
+  const chapters = await listStreamChapters(db, id)
+  const summary = await readStreamSummary(db, id)
+  return { ...session, samples, chapters, summary: summary?.summary ?? null }
 }
 
 /** フォロワー数の時系列（古い順）。値が変わった時点だけが並ぶ */
