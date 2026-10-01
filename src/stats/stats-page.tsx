@@ -2,7 +2,8 @@
  * ダッシュボード（配信の記録）
  *
  * ログイン後に最初に出す画面。Workerが貯めた記録（/api/admin/stats/*）を読み、
- * 期間の概要・フォロワー数の推移・配信の一覧を出す。配信を選ぶと、その配信の視聴者数の推移を読み込んで一覧の中に出す。
+ * 期間の概要・フォロワー数の推移・配信の一覧を出す。配信を選ぶと、その配信の視聴者数の推移と、
+ * 何が話されたか（約30分ごとの章）・最後のあらすじを読み込んで一覧の中に出す。
  * 集計と整形は summary.ts、Workerの呼び出しは api.ts に任せ、ここは表示だけを受け持つ。
  *
  * 注意: 読み込みに失敗したら、記録が無いように見せず理由を出す（Fail-Fast）。
@@ -24,6 +25,7 @@ import {
   formatDateTime,
   formatDelta,
   formatDuration,
+  formatTimeRange,
   PERIOD_DAYS,
   sessionDurationMs,
   summarize,
@@ -59,7 +61,7 @@ type Loaded =
   | { status: 'ready'; sessions: readonly SessionSummary[]; followers: readonly FollowerSample[] }
   | { status: 'failed'; message: string }
 
-/** 選んだ配信の視聴者数の推移 */
+/** 選んだ配信の詳細（視聴者数の推移・章・あらすじ） */
 type Selected = { id: string; state: { status: 'loading' } | { status: 'ready'; detail: SessionDetail } | { status: 'failed'; message: string } }
 
 /** 概要の数値をひとつ出す枠 */
@@ -75,7 +77,42 @@ const StatCard = ({ label, value, note }: { label: string; value: string; note?:
   </Card>
 )
 
-/** 配信の一覧の1行と、選ばれていればその配信の視聴者数の推移 */
+/**
+ * 配信で何が話されたか（章）と、最後に作ったあらすじ。
+ *
+ * 章もあらすじも無いときは、何も出さずに済ませず、記録が無いことを文で伝える（読み込めていないのと見分けるため）。
+ */
+const SessionTalk = ({ detail, displayTitle }: { detail: SessionDetail; displayTitle: string }) => {
+  if (detail.chapters.length === 0 && detail.summary === null) {
+    return <p className="text-sm text-muted-foreground">この配信には話されたことの記録がありません。</p>
+  }
+  return (
+    // 一覧のセルは折り返さない（whitespace-nowrap）ので、文章を出すここだけ折り返させる
+    <div className="space-y-3 whitespace-normal">
+      {detail.chapters.length > 0 && (
+        <ol aria-label={`${displayTitle} で話されたこと`} className="space-y-3">
+          {detail.chapters.map((chapter) => (
+            <li key={chapter.startedAt} className="space-y-1">
+              <p className="flex flex-wrap items-baseline gap-x-2">
+                <span className="text-sm text-muted-foreground tabular-nums">{formatTimeRange(chapter.startedAt, chapter.endedAt)}</span>
+                <strong className="font-medium">{chapter.title}</strong>
+              </p>
+              <p className="text-sm">{chapter.summary}</p>
+            </li>
+          ))}
+        </ol>
+      )}
+      {detail.summary !== null && (
+        <div className="space-y-1">
+          <p className="text-sm text-muted-foreground">最後のあらすじ</p>
+          <p className="text-sm">{detail.summary}</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** 配信の一覧の1行と、選ばれていればその配信の詳細（視聴者数の推移・話されたこと） */
 const SessionRow = ({ session, now, selected, onSelect }: { session: SessionSummary; now: number; selected?: Selected; onSelect(): void }) => {
   const totals = eventTotals(session)
   const isSelected = selected?.id === session.id
@@ -102,7 +139,7 @@ const SessionRow = ({ session, now, selected, onSelect }: { session: SessionSumm
             variant="ghost"
             size="sm"
             aria-expanded={isSelected}
-            aria-label={isSelected ? `${displayTitle} の視聴者数の推移を閉じる` : `${displayTitle} の視聴者数の推移を見る`}
+            aria-label={isSelected ? `${displayTitle} の詳細を閉じる` : `${displayTitle} の詳細を見る`}
             onClick={onSelect}
           >
             {isSelected ? '閉じる' : '見る'}
@@ -112,19 +149,23 @@ const SessionRow = ({ session, now, selected, onSelect }: { session: SessionSumm
       {isSelected && selected && (
         <TableRow>
           <TableCell colSpan={COLUMN_COUNT + 1}>
-            {selected.state.status === 'loading' && <Skeleton className="h-56 w-full" aria-label={`${displayTitle} の視聴者数の推移を読み込んでいます`} />}
+            {selected.state.status === 'loading' && <Skeleton className="h-56 w-full" aria-label={`${displayTitle} の詳細を読み込んでいます`} />}
             {selected.state.status === 'failed' && (
               <Alert variant="destructive">
-                <AlertTitle>視聴者数の推移を読み込めませんでした</AlertTitle>
+                <AlertTitle>配信の詳細を読み込めませんでした</AlertTitle>
                 <AlertDescription>{selected.state.message}</AlertDescription>
               </Alert>
             )}
-            {selected.state.status === 'ready' &&
-              (selected.state.detail.samples.length === 0 ? (
-                <p className="text-sm text-muted-foreground">この配信には視聴者数の記録がありません。</p>
-              ) : (
-                <LazyTimeChart label={`${displayTitle} の視聴者数の推移`} dataKey="viewers" points={viewerPoints(selected.state.detail.samples)} />
-              ))}
+            {selected.state.status === 'ready' && (
+              <div className="space-y-4">
+                {selected.state.detail.samples.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">この配信には視聴者数の記録がありません。</p>
+                ) : (
+                  <LazyTimeChart label={`${displayTitle} の視聴者数の推移`} dataKey="viewers" points={viewerPoints(selected.state.detail.samples)} />
+                )}
+                <SessionTalk detail={selected.state.detail} displayTitle={displayTitle} />
+              </div>
+            )}
           </TableCell>
         </TableRow>
       )}

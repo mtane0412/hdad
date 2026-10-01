@@ -15,6 +15,7 @@
 | [ad-break.md](ad-break.md) | 広告の開始と終了（`AdBreakTimer`） |
 | [transcript.md](transcript.md) | 配信中の文字起こし（`/transcript/`） |
 | [stream-summary.md](stream-summary.md) | これまでのあらすじ（`{summary}`） |
+| [stream-chapters.md](stream-chapters.md) | 配信で何が話されたか（章。ダッシュボードの配信の詳細） |
 | [viewers.md](viewers.md) | 視聴者の記録（`/viewers/`） |
 | [side-super.md](side-super.md) | サイドスーパー（素材の種類 `sideSuper`） |
 | [comments.md](comments.md) | コメントビューアー（`/comments/`） |

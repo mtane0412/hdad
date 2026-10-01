@@ -73,11 +73,39 @@ describe('session（配信ごとの視聴者数の推移）', () => {
         { sampledAt: '2026-09-19T12:05:00.000Z', viewerCount: 8 },
         { sampledAt: '2026-09-19T12:10:00.000Z', viewerCount: 15 },
       ],
+      chapters: [
+        {
+          startedAt: '2026-09-19T12:00:00.000Z',
+          endedAt: '2026-09-19T12:30:00.000Z',
+          title: 'エディタの設定を見直す',
+          summary: '配信者がエディタの拡張機能を整理し、視聴者からおすすめの拡張が寄せられた。',
+        },
+      ],
+      summary: 'エディタを整えた配信者。いまは新しい機能の実装に取りかかったところ。',
     }
     const { requests, fetchImpl } = fetchReturning(200, detail)
 
     expect(await createStatsApi(fetchImpl).session('配信ID-2026-09-19')).toEqual(detail)
     expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/stats/sessions/%E9%85%8D%E4%BF%A1ID-2026-09-19')
+  })
+
+  it('章の形が想定と違えば、黙って捨てずにエラーにする', async () => {
+    const detail = {
+      id: '配信ID-2026-09-19',
+      startedAt: '2026-09-19T12:00:00.000Z',
+      endedAt: null,
+      title: '配信',
+      categoryName: 'Just Chatting',
+      samples: [],
+      chapters: [{ startedAt: '2026-09-19T12:00:00.000Z', title: '見出しだけの章' }],
+      summary: null,
+    }
+    await expect(createStatsApi(fetchReturning(200, detail).fetchImpl).session('配信ID-2026-09-19')).rejects.toThrow('chapters[0]')
+  })
+
+  it('あらすじが文字列でも null でもなければエラーにする', async () => {
+    const detail = { id: '配信ID-2026-09-19', startedAt: '2026-09-19T12:00:00.000Z', endedAt: null, title: '配信', categoryName: 'Just Chatting', samples: [], chapters: [], summary: 0 }
+    await expect(createStatsApi(fetchReturning(200, detail).fetchImpl).session('配信ID-2026-09-19')).rejects.toThrow('配信セッション')
   })
 
   it('応答が想定した形でなければエラーにする', async () => {

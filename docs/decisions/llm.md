@@ -2,7 +2,7 @@
 
 ## 呼び先の決め方（`worker/llm.ts`）
 
-LLMを呼ぶのは4か所（`LLM_USAGES`: `aiChat`（トリガーの動作のチャットの文面）・`sideSuper`・`viewerSummary`・`streamSummary`）だが、**呼び先を決めるのは `worker/llm.ts` だけ**である。呼び出し側はモデル名ではなく**どこで使うか**を指名し、どの提供元（Cloudflare の Workers AI・OpenRouter）のどのモデルを使うかは保存された設定（`worker/llm-config.ts`。KVのキーは `llm-settings`）が決める。
+LLMを呼ぶのは4か所（`LLM_USAGES`: `aiChat`（トリガーの動作のチャットの文面）・`sideSuper`・`viewerSummary`・`streamSummary`）だが（配信の章は箇所を増やさず `streamSummary` を指名する。経緯は `docs/decisions/stream-chapters.md`）、**呼び先を決めるのは `worker/llm.ts` だけ**である。呼び出し側はモデル名ではなく**どこで使うか**を指名し、どの提供元（Cloudflare の Workers AI・OpenRouter）のどのモデルを使うかは保存された設定（`worker/llm-config.ts`。KVのキーは `llm-settings`）が決める。
 
 **提供元は箇所ごとに選べる**（あらすじだけ賢いモデルに任せ、発言ごとに呼ばれるチャットの文面は無料枠の Workers AI に留める、といった使い分けをするためである。1回の cron の中で両方の提供元を呼ぶこともある）。
 

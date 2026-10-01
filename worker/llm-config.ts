@@ -36,6 +36,7 @@ export const LLM_PROVIDERS = ['workers-ai', 'openrouter'] as const
  *
  * 並び順は管理画面に出す順で、発言ごとに呼ばれるもの（aiChat）から、cron が5分おきに呼ぶもの
  * （sideSuper・viewerSummary・streamSummary）へと並べる。
+ * streamSummary は、あらすじ（worker/stream-summary.ts）と配信の章（worker/stream-chapter.ts）の両方が指名する。
  */
 export const LLM_USAGES = ['aiChat', 'sideSuper', 'viewerSummary', 'streamSummary'] as const
 

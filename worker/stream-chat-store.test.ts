@@ -27,6 +27,12 @@ const startStream = async (db: ReturnType<typeof createFakeDatabase>) => {
   await recordStreamOnline(db, { id: 'stream-1', startedAt: STREAM_START })
 }
 
+/** 配信を終え、その配信を終わりまで章にし終えた状態にする（人物像の材料になるのは、この状態の配信の発言だけである） */
+const endStreamAndChapter = async (db: ReturnType<typeof createFakeDatabase>, endedAt: number) => {
+  await recordStreamOffline(db, endedAt)
+  db.sqlite.prepare('UPDATE stream_sessions SET chaptered_until = ended_at').run()
+}
+
 describe('recordStreamChatMessage', () => {
   it('配信中に届いた発言を、その配信の区切りに結びつけて貯める', async () => {
     const db = createFakeDatabase()
@@ -64,7 +70,7 @@ describe('listSummaryTargets', () => {
     await recordStreamChatMessage(db, createChat({ messageId: 'm1', userId: '100' }), STREAM_START + ONE_MINUTE)
     await recordStreamChatMessage(db, createChat({ messageId: 'm2', userId: '200' }), STREAM_START + ONE_MINUTE)
     await recordStreamChatMessage(db, createChat({ messageId: 'm3', userId: '200' }), STREAM_START + 2 * ONE_MINUTE)
-    await recordStreamOffline(db, STREAM_START + 3 * ONE_MINUTE)
+    await endStreamAndChapter(db, STREAM_START + 3 * ONE_MINUTE)
 
     expect(await listSummaryTargets(db, 10)).toEqual([
       { userId: '200', messageCount: 2 },
@@ -80,12 +86,24 @@ describe('listSummaryTargets', () => {
     expect(await listSummaryTargets(db, 10)).toEqual([])
   })
 
+  it('終わった配信でも、終わりまで章にし終えるまでは材料にしない（人物像を作ると発言が消え、最後の章から視聴者の反応が抜けるため）', async () => {
+    const db = createFakeDatabase()
+    await startStream(db)
+    await recordStreamChatMessage(db, createChat(), STREAM_START + ONE_MINUTE)
+    // 配信は終わったが、章立てはまだ配信の途中までしか進んでいない
+    await recordStreamOffline(db, STREAM_START + 3 * ONE_MINUTE)
+    db.sqlite.prepare('UPDATE stream_sessions SET chaptered_until = ?').run(new Date(STREAM_START + 2 * ONE_MINUTE).toISOString())
+
+    expect(await listSummaryTargets(db, 10)).toEqual([])
+    expect(await readViewerMessages(db, '100', 10)).toEqual([])
+  })
+
   it('一度に返す人数を、渡された上限までに抑える', async () => {
     const db = createFakeDatabase()
     await startStream(db)
     await recordStreamChatMessage(db, createChat({ messageId: 'm1', userId: '100' }), STREAM_START + ONE_MINUTE)
     await recordStreamChatMessage(db, createChat({ messageId: 'm2', userId: '200' }), STREAM_START + ONE_MINUTE)
-    await recordStreamOffline(db, STREAM_START + 3 * ONE_MINUTE)
+    await endStreamAndChapter(db, STREAM_START + 3 * ONE_MINUTE)
 
     expect(await listSummaryTargets(db, 1)).toHaveLength(1)
   })
@@ -97,7 +115,7 @@ describe('readViewerMessages', () => {
     await startStream(db)
     await recordStreamChatMessage(db, createChat({ messageId: 'm1', text: 'こんばんは' }), STREAM_START + ONE_MINUTE)
     await recordStreamChatMessage(db, createChat({ messageId: 'm2', text: 'ギターいいですね' }), STREAM_START + 2 * ONE_MINUTE)
-    await recordStreamOffline(db, STREAM_START + 3 * ONE_MINUTE)
+    await endStreamAndChapter(db, STREAM_START + 3 * ONE_MINUTE)
 
     expect(await readViewerMessages(db, '100', 10)).toEqual(['こんばんは', 'ギターいいですね'])
   })
@@ -107,7 +125,7 @@ describe('readViewerMessages', () => {
     await startStream(db)
     await recordStreamChatMessage(db, createChat({ messageId: 'm1', text: '1つめ' }), STREAM_START + ONE_MINUTE)
     await recordStreamChatMessage(db, createChat({ messageId: 'm2', text: '2つめ' }), STREAM_START + 2 * ONE_MINUTE)
-    await recordStreamOffline(db, STREAM_START + 3 * ONE_MINUTE)
+    await endStreamAndChapter(db, STREAM_START + 3 * ONE_MINUTE)
 
     expect(await readViewerMessages(db, '100', 1)).toEqual(['1つめ'])
   })
@@ -119,11 +137,22 @@ describe('deleteStreamChatMessages', () => {
     await startStream(db)
     await recordStreamChatMessage(db, createChat({ messageId: 'm1', userId: '100' }), STREAM_START + ONE_MINUTE)
     await recordStreamChatMessage(db, createChat({ messageId: 'm2', userId: '200' }), STREAM_START + ONE_MINUTE)
-    await recordStreamOffline(db, STREAM_START + 3 * ONE_MINUTE)
+    await endStreamAndChapter(db, STREAM_START + 3 * ONE_MINUTE)
 
     await deleteStreamChatMessages(db, '100')
 
     expect(await listSummaryTargets(db, 10)).toEqual([{ userId: '200', messageCount: 1 }])
+  })
+
+  it('終わりまで章にし終えていない配信の発言は消さない（最後の章の材料になる）', async () => {
+    const db = createFakeDatabase()
+    await startStream(db)
+    await recordStreamChatMessage(db, createChat({ messageId: 'm1', userId: '100' }), STREAM_START + ONE_MINUTE)
+    await recordStreamOffline(db, STREAM_START + 3 * ONE_MINUTE)
+
+    await deleteStreamChatMessages(db, '100')
+
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM stream_chat_messages').get()).toEqual({ count: 1 })
   })
 
   it('配信中の発言は消さない（その配信が終わったあとの材料になる）', async () => {

@@ -9,6 +9,7 @@ import type { LlmUsage } from './llm-config'
 import { MAX_VIEWER_SUMMARY_LENGTH } from './viewer-summary'
 import { COLLECT_BUDGET_MS, STREAM_CHAT_RETENTION_MS, SUMMARY_BATCH_SIZE, collectStats } from './collect'
 import { readStreamSummary } from './stream-summary-store'
+import { listStreamChapters } from './stream-chapter-store'
 import { readSideSuper } from './side-super-store'
 import { MAX_SIDE_SUPER_BODY_LENGTH } from './side-super'
 import { createFakeDatabase } from './fake-database'
@@ -615,6 +616,140 @@ describe('あらすじの生成', () => {
   })
 })
 
+describe('章立ての生成', () => {
+  /** 章の応答。1行目が見出し、2行目が要約（worker/stream-chapter.ts） */
+  const chapterResponse = '新しいゲームの導入\n配信者が新しいゲームを始め、視聴者が期待を寄せた。'
+  /** 配信の最初の区間（12:00〜12:30）が閉じ、落ち着くまで待った時刻 */
+  const afterFirstWindow = Date.parse('2026-09-21T12:31:00Z')
+  const at = (time: string): string => new Date(Date.parse(`2026-09-21T${time}Z`)).toISOString()
+
+  const createLiveSession = (db: ReturnType<typeof createFakeDatabase>) => {
+    db.sqlite
+      .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, NULL, ?, ?)')
+      .run(chatStream.id, chatStream.startedAt, chatStream.title, chatStream.categoryName)
+  }
+  const insertTranscript = (db: ReturnType<typeof createFakeDatabase>, messageId: string, time: string, text: string) => {
+    db.sqlite.prepare('INSERT INTO transcripts (message_id, session_id, spoken_at, text) VALUES (?, ?, ?, ?)').run(messageId, chatStream.id, at(time), text)
+  }
+  const insertChat = (db: ReturnType<typeof createFakeDatabase>, messageId: string, time: string, text: string) => {
+    db.sqlite
+      .prepare('INSERT INTO stream_chat_messages (message_id, session_id, user_id, sent_at, text) VALUES (?, ?, ?, ?, ?)')
+      .run(messageId, chatStream.id, '100', at(time), text)
+  }
+  const chapteredUntil = (db: ReturnType<typeof createFakeDatabase>) =>
+    (db.sqlite.prepare('SELECT chaptered_until FROM stream_sessions WHERE id = ?').get(chatStream.id) as { chaptered_until: string | null }).chaptered_until
+  /** LLMに渡った章の材料（あらすじも同じ箇所を指名するので、章の指示文を含むものだけを選ぶ） */
+  const chapterPrompts = (ai: ReturnType<typeof fakeAi>) => ai.receivedMaterial('streamSummary').filter((prompt) => prompt.includes('見出しと要約'))
+
+  it('配信中に30分の区間が閉じたら、その区間の発話・発言から章を作って貯める', async () => {
+    const { db, store } = await createEnv()
+    createLiveSession(db)
+    insertTranscript(db, 'hatsuwa-1', '12:10:00', 'ここから新しいゲームを始めます')
+    insertChat(db, 'hatsugen-1', '12:11:00', 'たのしみ！')
+    // 次の区間の発話は、この章の材料にしない
+    insertTranscript(db, 'hatsuwa-2', '12:30:30', 'ステージ2に入りました')
+    const ai = fakeAi(chapterResponse)
+
+    await collectStats({ db, store, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now: afterFirstWindow })
+
+    expect(await listStreamChapters(db, chatStream.id)).toEqual([
+      { startedAt: at('12:00:00'), endedAt: at('12:30:00'), title: '新しいゲームの導入', summary: '配信者が新しいゲームを始め、視聴者が期待を寄せた。' },
+    ])
+    const [prompt] = chapterPrompts(ai)
+    expect(prompt).toContain('配信者: ここから新しいゲームを始めます')
+    expect(prompt).toContain('視聴者: たのしみ！')
+    expect(prompt).not.toContain('ステージ2に入りました')
+    expect(chapteredUntil(db)).toBe(at('12:30:00'))
+  })
+
+  it('発話の無い区間は、章を作らずに飛ばす（視聴者の書き込みだけを配信の出来事として書かせないため）', async () => {
+    const { db, store } = await createEnv()
+    createLiveSession(db)
+    insertChat(db, 'hatsugen-1', '12:11:00', 'たのしみ！')
+    const ai = fakeAi(chapterResponse)
+
+    await collectStats({ db, store, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now: afterFirstWindow })
+
+    expect(await listStreamChapters(db, chatStream.id)).toEqual([])
+    expect(chapterPrompts(ai)).toEqual([])
+    expect(chapteredUntil(db)).toBe(at('12:30:00'))
+  })
+
+  it('1回の収集で作る章は1つまでにする（Workers AI の無料枠を一度に使い切らないため）', async () => {
+    const { db, store } = await createEnv()
+    createLiveSession(db)
+    insertTranscript(db, 'hatsuwa-1', '12:10:00', 'ここから新しいゲームを始めます')
+    insertTranscript(db, 'hatsuwa-2', '12:40:00', 'ステージ2に入りました')
+
+    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(chapterResponse), ...withoutBgmJudgment, broadcasterId: streamerId, now: Date.parse('2026-09-21T13:01:00Z') })
+
+    expect(await listStreamChapters(db, chatStream.id)).toHaveLength(1)
+    expect(chapteredUntil(db)).toBe(at('12:30:00'))
+  })
+
+  it('配信が終わったら、最後の区間を配信の終わりで切って章にし、そのあとで人物像を作る（人物像を作ると発言が消えるため）', async () => {
+    const { db, store } = await createEnv()
+    createLiveSession(db)
+    await recordViewerMessage(db, { userId: '100', login: 'hanako', displayName: '花子', badges: [], messageId: 'hatsugen-1' }, Date.parse(at('12:11:00')))
+    insertTranscript(db, 'hatsuwa-1', '12:10:00', 'ここから新しいゲームを始めます')
+    insertChat(db, 'hatsugen-1', '12:11:00', 'たのしみ！')
+    const ended = Date.parse('2026-09-21T12:20:00Z')
+    // 章にはあらすじと同じ箇所の設定を使い、人物像には人物像の箇所の設定を使う
+    const prompts: { usage: LlmUsage; prompt: string }[] = []
+    const ai: TextGenerator = {
+      run: async (usage, request) => {
+        prompts.push({ usage, prompt: request.messages.map((message) => message.content).join('\n') })
+        return usage === 'streamSummary' ? chapterResponse : 'ゲームの話をよくする常連さん'
+      },
+    }
+
+    await collectStats({ db, store, twitch: fakeTwitch({ getLiveStream: async () => null }), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now: ended })
+
+    expect(await listStreamChapters(db, chatStream.id)).toEqual([
+      { startedAt: at('12:00:00'), endedAt: at('12:20:00'), title: '新しいゲームの導入', summary: '配信者が新しいゲームを始め、視聴者が期待を寄せた。' },
+    ])
+    const chapterIndex = prompts.findIndex(({ prompt }) => prompt.includes('見出しと要約'))
+    const viewerIndex = prompts.findIndex(({ usage }) => usage === 'viewerSummary')
+    expect(prompts[chapterIndex]?.prompt).toContain('視聴者: たのしみ！')
+    expect(chapterIndex).toBeLessThan(viewerIndex)
+    expect((await readViewer(db, '100'))?.summary).toBe('ゲームの話をよくする常連さん')
+  })
+
+  it('区間を切れなかったときも収集は止めず、失敗を記録する（同じ時刻の発話が上限を超えて届いた場合）', async () => {
+    const { db, store } = await createEnv()
+    createLiveSession(db)
+    // 区間の始まりと同じ時刻に、件数の上限（300件）を超える発話が記録されている
+    for (let index = 0; index <= 300; index += 1) insertTranscript(db, `hatsuwa-${index}`, '12:00:00', `同じ時刻の発話${index}`)
+
+    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(chapterResponse), ...withoutBgmJudgment, broadcasterId: streamerId, now: afterFirstWindow })
+
+    expect((await listFailures(db)).map((failure) => failure.code)).toContain('stream-chapter-failed')
+    expect(await listStreamChapters(db, chatStream.id)).toEqual([])
+  })
+
+  it('LLMが失敗したら、失敗を記録し、区間を進めずに次の収集でやり直す（その配信の人物像もまだ作らない）', async () => {
+    const { db, store } = await createEnv()
+    createLiveSession(db)
+    insertTranscript(db, 'hatsuwa-1', '12:10:00', 'ここから新しいゲームを始めます')
+    insertChat(db, 'hatsugen-1', '12:11:00', 'たのしみ！')
+
+    await collectStats({
+      db,
+      store,
+      twitch: fakeTwitch({ getLiveStream: async () => null }),
+      ai: fakeAi(new Error('Workers AI の無料枠を使い切りました')),
+      ...withoutBgmJudgment,
+      broadcasterId: streamerId,
+      now: Date.parse('2026-09-21T12:20:00Z'),
+    })
+
+    expect((await listFailures(db)).map((failure) => failure.code)).toContain('stream-chapter-failed')
+    expect(await listStreamChapters(db, chatStream.id)).toEqual([])
+    expect(chapteredUntil(db)).toBeNull()
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM stream_chat_messages').get()).toEqual({ count: 1 })
+  })
+})
+
 describe('BGMの切り替え', () => {
   /** 雑談のときに流したい、落ち着いた曲 */
   const chatTrack: BgmTrack = {
@@ -1122,11 +1257,11 @@ describe('collectStats（1回ぶんの時間予算。issue #126）', () => {
         .prepare('INSERT INTO stream_chat_messages (message_id, session_id, user_id, sent_at, text) VALUES (?, ?, ?, ?, ?)')
         .run(`hatsugen-${userId}`, 'owatta-haishin', userId, new Date(now - 45 * 60 * 1000).toISOString(), 'そのギターいいですね')
     }
-    // 開始・人物像づくりの入口・1人目の前までは予算内で、2人目の前で予算を使い切っている
+    // 開始・章立ての入口・人物像づくりの入口・1人目の前までは予算内で、2人目の前で予算を使い切っている
     let count = 0
     const clock = () => {
       count += 1
-      return count <= 3 ? now : now + COLLECT_BUDGET_MS + 1
+      return count <= 4 ? now : now + COLLECT_BUDGET_MS + 1
     }
     const ai = fakeAi()
 

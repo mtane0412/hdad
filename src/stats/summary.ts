@@ -149,6 +149,12 @@ export const formatDuration = (milliseconds: number): string => {
 export const formatDateTime = (iso: string): string =>
   new Date(iso).toLocaleString('ja-JP', { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
+/** 時刻（ISO 8601）を、ブラウザのタイムゾーンで「21:00」のように表す */
+const formatClockTime = (iso: string): string => new Date(iso).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
+
+/** 章の区間（ISO 8601 の始まりと終わり）を、ブラウザのタイムゾーンで「21:00〜21:30」のように表す */
+export const formatTimeRange = (startIso: string, endIso: string): string => `${formatClockTime(startIso)}〜${formatClockTime(endIso)}`
+
 /** 時刻（ミリ秒）を、ブラウザのタイムゾーンで「9/18 21:00」のように表す（グラフの目盛り用） */
 export const formatShortTime = (at: number): string =>
   new Date(at).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
