@@ -163,6 +163,22 @@ describe('connectSocket', () => {
     expect(handlers.onStatus).not.toHaveBeenCalled()
   })
 
+  it('一度つながったあとは、つなぎ直しが失敗しても手がかりを知らせない', () => {
+    // 一度つながったならキーやログインは正しかったので、つなぎ直しの失敗は一時的な切断として扱う（issue #174）
+    const record = createConnectionRecord()
+    const handlers = noopHandlers()
+    connectSocket('wss://例', handlers, 'オーバーレイ用キーを確かめてください', record.open)
+
+    record.current().connect()
+    record.current().serverClose()
+    vi.advanceTimersByTime(1000)
+    record.current().serverClose()
+
+    expect(handlers.onWarning).not.toHaveBeenCalled()
+    expect(handlers.onStatus).toHaveBeenCalledTimes(1)
+    expect(handlers.onStatus).toHaveBeenCalledWith('disconnected')
+  })
+
   it('つながっていれば送れる', () => {
     const record = createConnectionRecord()
     const connection = connectSocket('wss://例', noopHandlers(), '手がかりの文', record.open)
