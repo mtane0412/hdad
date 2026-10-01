@@ -11,18 +11,46 @@
  * ショートカットは manifest.json の _execute_action に割り当て、ボタンを押したのと同じ扱いにする。
  * ボタンかショートカットで呼ばれると、そのタブを取り込む許可（activeTab と同じ扱い）が得られ、getMediaStreamId を呼べる。
  *
+ * 映さないサイト（issue #165）: 映しているタブの中でページが移り始めたこと（webNavigation.onBeforeNavigate）と、URLが変わったこと
+ * （tabs.onUpdated。history.pushState による画面遷移も含む）を controller.ts の handleNavigation へ渡す。一覧は Worker
+ * （/api/admin/tab/blocked-hosts）が持ち、拡張は chrome.cookies で読んだセッションを Authorization ヘッダーで渡して読み書きする。
+ * ボタンの右クリックに「このサイトを映さない」を出し、押されたら handleBlockSite へ渡す。
+ *
  * 注意: うまくいかないときは黙って何もしないのではなくバッジ「!」で知らせ、理由はボタンの説明に出す。
  */
+import { BLOCKED_HOSTS_PATH, isHostName, parseBlockedHosts } from '../../src/tab/blocked-hosts'
 import { CONFIG_FILE, parseExtensionConfig, type ExtensionConfig } from './config'
 import { OFFSCREEN_PAGE_FILE } from './built-files'
-import { createSerialQueue, describeBadge, handleClick, handleOffscreenEvent, type ControllerApi } from './controller'
-import { reasonOf } from './guards'
+import {
+  createSerialQueue,
+  describeBadge,
+  handleBlockSite,
+  handleClick,
+  handleNavigation,
+  handleOffscreenEvent,
+  type CaptureState,
+  type ControllerApi,
+} from './controller'
+import { isRecord, reasonOf } from './guards'
 import { SESSION_COOKIE_NAME } from './session-cookie'
 import type { OffscreenCommandMessage, OffscreenReply } from './offscreen-command'
 import { parseOffscreenEvent } from './offscreen-event'
 
-/** 映しているタブを覚えておく chrome.storage.session の名前 */
-const CAPTURING_KEY = 'capturingTabId'
+/** 映しているタブの記録（CaptureState）を覚えておく chrome.storage.session の名前 */
+const CAPTURING_KEY = 'capture'
+/** ボタンの右クリックに出す「このサイトを映さない」の識別子 */
+const BLOCK_SITE_MENU_ID = 'block-site'
+/** 映しているタブの中のページ（iframe ではないもの）を表す webNavigation の frameId */
+const MAIN_FRAME_ID = 0
+
+/** chrome.storage.session から読んだ値が、このサービスワーカーが書いた記録の形か */
+const isCaptureState = (value: unknown): value is CaptureState =>
+  isRecord(value) &&
+  typeof value.tabId === 'number' &&
+  typeof value.url === 'string' &&
+  Array.isArray(value.blockedHosts) &&
+  value.blockedHosts.every(isHostName) &&
+  (value.pausedAt === null || typeof value.pausedAt === 'string')
 
 /**
  * 同梱の設定を読む。映し始めるたびに読む（読むのは拡張の中のファイルなので速く、持ち回る状態を作らずに済む）。
@@ -54,6 +82,30 @@ const readSession = async (origin: string): Promise<string> => {
   return cookie.value
 }
 
+/**
+ * 映さないサイトの一覧の経路を、配信者のセッションで呼ぶ。
+ *
+ * 拡張からの通信にクッキーが付くかは当てにせず（offscreen document からの WebSocket には付かなかった）、
+ * chrome.cookies で読んだセッションを Authorization ヘッダーで渡す（worker/tab-routes.ts）。
+ *
+ * @returns 呼んだあとの一覧
+ * @throws 呼べない・Worker が失敗を返した・応答の形が違う場合
+ */
+const callBlockedHosts = async (init: RequestInit = {}): Promise<string[]> => {
+  const config = await loadConfig()
+  const session = await readSession(config.origin)
+  const response = await fetch(`${config.origin}${BLOCKED_HOSTS_PATH}`, {
+    ...init,
+    headers: { Authorization: `Bearer ${session}`, 'Content-Type': 'application/json' },
+  })
+  const body: unknown = await response.json().catch(() => null)
+  if (!response.ok) {
+    const error = isRecord(body) && isRecord(body.error) ? body.error : {}
+    throw new Error(typeof error.message === 'string' ? error.message : `HDAD が ${response.status} を返しました`)
+  }
+  return parseBlockedHosts(body)
+}
+
 const hasOffscreen = async (): Promise<boolean> =>
   (await chrome.runtime.getContexts({ contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT] })).length > 0
 
@@ -80,17 +132,31 @@ const command = async (message: OffscreenCommandMessage): Promise<OffscreenReply
   return reply
 }
 
+/**
+ * offscreen document に、映しているあいだの頼み（送るのを止める・送り直す）をする。
+ *
+ * @throws offscreen document が応じられなかった場合
+ */
+const commandWhileCapturing = async (type: 'pause' | 'resume'): Promise<void> => {
+  const reply = await command({ target: 'offscreen', type })
+  if (!reply.ok) throw new Error(reply.message)
+}
+
 const api: ControllerApi = {
-  capturingTabId: async () => {
+  capturing: async () => {
     // offscreen document が無ければ、覚えていても映していない（拡張を読み込み直したときなど）
     if (!(await hasOffscreen())) return null
     const stored: unknown = (await chrome.storage.session.get(CAPTURING_KEY))[CAPTURING_KEY]
-    return typeof stored === 'number' ? stored : null
+    if (stored === undefined) return null
+    if (!isCaptureState(stored)) throw new Error('映しているタブの記録の形が想定と違います。拡張を読み込み直してください')
+    return stored
   },
-  remember: async (tabId) => {
-    if (tabId === null) await chrome.storage.session.remove(CAPTURING_KEY)
-    else await chrome.storage.session.set({ [CAPTURING_KEY]: tabId })
+  remember: async (state) => {
+    if (state === null) await chrome.storage.session.remove(CAPTURING_KEY)
+    else await chrome.storage.session.set({ [CAPTURING_KEY]: state })
   },
+  loadBlockedHosts: () => callBlockedHosts(),
+  addBlockedHost: (host) => callBlockedHosts({ method: 'POST', body: JSON.stringify({ host }) }),
   getMediaStreamId: (targetTabId) => chrome.tabCapture.getMediaStreamId({ targetTabId }),
   startCapture: async (streamId) => {
     const config = await loadConfig()
@@ -109,6 +175,8 @@ const api: ControllerApi = {
       await chrome.offscreen.closeDocument()
     }
   },
+  pauseCapture: () => commandWhileCapturing('pause'),
+  resumeCapture: () => commandWhileCapturing('resume'),
   show: async (state) => {
     const view = describeBadge(state)
     if (view.color !== null) await chrome.action.setBadgeBackgroundColor({ color: view.color })
@@ -131,6 +199,29 @@ const enqueue = createSerialQueue((error) => report('タブの映像の操作に
 
 chrome.action.onClicked.addListener((tab) => {
   void enqueue(() => handleClick(tab, api))
+})
+
+chrome.runtime.onInstalled.addListener(() => {
+  // 右クリックの項目は拡張を入れた・更新したときに作る（作り直すと Chrome が重複の失敗を返すので、起動のたびには作らない）
+  chrome.contextMenus.create({ id: BLOCK_SITE_MENU_ID, title: 'このサイトを映さない', contexts: ['action'] })
+})
+
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId !== BLOCK_SITE_MENU_ID) return
+  void enqueue(() => handleBlockSite(tab ?? {}, api))
+})
+
+// 映さないサイトへ移り始めたら、新しいページが描かれる前に止める（iframe の中の移動は映っているページを変えないので見ない）
+chrome.webNavigation.onBeforeNavigate.addListener((details) => {
+  if (details.frameId !== MAIN_FRAME_ID) return
+  void enqueue(() => handleNavigation({ tabId: details.tabId, url: details.url, committed: false }, api))
+})
+
+// URLが変わった（新しいページの表示・history.pushState による画面遷移・先読みしたページへの切り替え）
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.url === undefined) return
+  const url = changeInfo.url
+  void enqueue(() => handleNavigation({ tabId, url, committed: true }, api))
 })
 
 chrome.runtime.onMessage.addListener((message: unknown) => {

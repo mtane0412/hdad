@@ -24,6 +24,11 @@ describe('parseOffscreenCommand', () => {
     expect(parseOffscreenCommand({ target: OFFSCREEN_COMMAND_TARGET, type: 'stop' })).toEqual({ type: 'stop' })
   })
 
+  it('送るのを止める頼みと、送り直す頼みを読む', () => {
+    expect(parseOffscreenCommand({ target: OFFSCREEN_COMMAND_TARGET, type: 'pause' })).toEqual({ type: 'pause' })
+    expect(parseOffscreenCommand({ target: OFFSCREEN_COMMAND_TARGET, type: 'resume' })).toEqual({ type: 'resume' })
+  })
+
   it('ほかのあて先の連絡は無視する（null を返す）', () => {
     expect(parseOffscreenCommand({ target: 'background', type: 'ended' })).toBeNull()
   })

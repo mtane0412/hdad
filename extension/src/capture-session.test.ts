@@ -9,6 +9,7 @@
  * - 別のタブのIDが届いたら、前の取り込みを止めて切り替える
  * - 取り込んだタブが閉じられたら、エラーにせず終わったことを知らせる
  * - つながっている合成ページの数と、待てば直るかもしれない失敗を、まとめた状態として知らせる
+ * - 映さないサイトへ移ったら、取り込みは保ったまま送るのだけを止め、映してよいページへ戻ったら送り直す
  */
 import { describe, expect, it } from 'vitest'
 import type { CapturedTab } from '../../src/tab/capture'
@@ -184,5 +185,60 @@ describe('createCaptureSession', () => {
       viewers: 0,
       warning: 'タブの映像の中継先につながりません。Chrome で HDAD にログインしているか確かめてください',
     })
+  })
+
+  it('送るのを止めたら、取り込みと中継先との接続は保ったまま、合成ページへ映すのをやめたと知らせる', async () => {
+    const harness = createHarness()
+    await harness.session.start('ストリームID-1')
+
+    harness.session.pause()
+
+    expect(harness.sent.at(-1)).toEqual({ type: 'stop' })
+    expect(harness.captured[0]?.stopped).toBe(false)
+    expect(harness.socketClosed()).toBe(false)
+  })
+
+  it('送るのを止めているあいだに名乗った合成ページへは、映像を送らない', async () => {
+    const harness = createHarness()
+    await harness.session.start('ストリームID-1')
+    harness.session.pause()
+
+    harness.socket().onMessage({ type: 'hello', viewerId: 'OBSの受け手' })
+
+    expect(harness.peerHandlers).toEqual([])
+  })
+
+  it('送り直すと、同じ取り込みのまま合成ページへ名乗り直しを頼み、名乗った合成ページへ送る', async () => {
+    const harness = createHarness()
+    await harness.session.start('ストリームID-1')
+    harness.session.pause()
+
+    harness.session.resume()
+    harness.socket().onMessage({ type: 'hello', viewerId: 'OBSの受け手' })
+
+    expect(harness.sent.at(-1)).toEqual({ type: 'who' })
+    expect(harness.peerHandlers).toHaveLength(1)
+    expect(harness.captured).toHaveLength(1)
+  })
+
+  it('送るのを止めていなければ、送り直す頼みでは何もしない', async () => {
+    const harness = createHarness()
+    await harness.session.start('ストリームID-1')
+    const sentBefore = harness.sent.length
+
+    harness.session.resume()
+
+    expect(harness.sent).toHaveLength(sentBefore)
+  })
+
+  it('送るのを止めているあいだに別のタブを映し始めたら、そのタブを送る', async () => {
+    const harness = createHarness()
+    await harness.session.start('ストリームID-1')
+    harness.session.pause()
+
+    await harness.session.start('ストリームID-2')
+    harness.socket().onMessage({ type: 'hello', viewerId: 'OBSの受け手' })
+
+    expect(harness.peerHandlers).toHaveLength(1)
   })
 })

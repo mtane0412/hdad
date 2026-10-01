@@ -4,13 +4,15 @@
  * 送り手（拡張の offscreen document）を、連絡の中継先（worker/tab-channel.ts）へつなぐための入口である。
  * 合成ページ側の入口は、守り方がセッションではなくオーバーレイ用キーなので worker/overlay-routes.ts に置く
  * （手書きと同じ置き分け）。映像と音そのものは同じPCの中を WebRTC で流れ、Workerは通らない。
- * 配信者が /tab/ からダウンロードする Chrome 拡張の zip（GET /api/admin/tab/extension.zip）もここに置く。
+ * 配信者が /tab/ からダウンロードする Chrome 拡張の zip（GET /api/admin/tab/extension.zip）と、
+ * 映さないサイトの一覧（/api/admin/tab/blocked-hosts。worker/tab-blocked-hosts.ts）もここに置く。
  */
 import { SENDER_PROTOCOL } from '../src/tab/signal'
-import { HttpError, STATUS, requireSession, type Context } from './http'
+import { HttpError, STATUS, requireAdmin, requireSession, type Context } from './http'
 import { verifySessionToken } from './session'
 import { EXTENSION_ID } from '../extension/src/identity'
 import { connectTabSocket } from './tab-channel'
+import { addBlockedHost, loadBlockedHosts, removeBlockedHost } from './tab-blocked-hosts'
 import { EXTENSION_FOLDER, buildExtensionZip } from './tab-extension'
 
 /** 送り手として受け入れる接続元（manifest.json の key で固定した HDAD の拡張） */
@@ -27,6 +29,17 @@ const senderSessionOf = (request: Request): string | null => {
 }
 
 /**
+ * 拡張が自分で読んで渡したセッションの値が、配信者本人のものか確かめる。
+ *
+ * @throws HttpError 配信者本人のセッションでない場合（401）
+ */
+const requireBroadcasterToken = async (session: string, context: Context): Promise<void> => {
+  if ((await verifySessionToken(session, context.env.SESSION_SECRET, context.now)) !== context.env.TWITCH_BROADCASTER_ID) {
+    throw new HttpError(STATUS.unauthorized, 'unauthorized', 'ログインが必要です。Chrome で HDAD を開いてログインし直してください')
+  }
+}
+
+/**
  * 配信者本人のセッションを確かめる。プロトコルの欄で渡されていればそれを、無ければクッキーを確かめる。
  *
  * @returns プロトコルの欄で受け取ったなら true（応答でプロトコルの名前を応え返す必要がある）
@@ -38,9 +51,7 @@ const requireSenderSession = async (context: Context): Promise<boolean> => {
     await requireSession(context)
     return false
   }
-  if ((await verifySessionToken(session, context.env.SESSION_SECRET, context.now)) !== context.env.TWITCH_BROADCASTER_ID) {
-    throw new HttpError(STATUS.unauthorized, 'unauthorized', 'ログインが必要です。Chrome で HDAD を開いてログインし直してください')
-  }
+  await requireBroadcasterToken(session, context)
   return true
 }
 
@@ -88,4 +99,52 @@ export const tabExtensionZip = async (context: Context): Promise<Response> => {
       'Cache-Control': 'no-store',
     },
   })
+}
+
+/** 拡張がセッションを渡すときの Authorization ヘッダーの書き出し */
+const BEARER_PREFIX = 'Bearer '
+
+/**
+ * 拡張のサービスワーカーか /tab/ のページからの呼び出しであることを確かめる。
+ *
+ * 拡張は chrome.cookies で読んだセッションを Authorization ヘッダーで渡す（拡張からの通信にクッキーが付くかを当てにしない。
+ * offscreen document からの WebSocket には付かなかったため）。ヘッダーが無ければ /tab/ のページとしてクッキーと送信元を確かめる。
+ *
+ * 注意: Authorization ヘッダーの経路では送信元（Origin）を確かめない。ブラウザは Authorization ヘッダーを自動では付けず、
+ * セッションのクッキーは HttpOnly でページのスクリプトから読めないので、別サイトに書き換えさせる（CSRF）ことはできないため。
+ *
+ * @throws HttpError 配信者本人のセッションが確かめられない場合（401）・クッキーで別サイトから書き換えようとした場合（403）
+ */
+const requireExtensionOrAdmin = async (context: Context): Promise<void> => {
+  const authorization = context.request.headers.get('Authorization')
+  if (authorization === null) {
+    await requireAdmin(context)
+    return
+  }
+  if (!authorization.startsWith(BEARER_PREFIX)) {
+    throw new HttpError(STATUS.unauthorized, 'unauthorized', 'Authorization ヘッダーは Bearer の形で渡してください')
+  }
+  await requireBroadcasterToken(authorization.slice(BEARER_PREFIX.length), context)
+}
+
+/** GET /api/admin/tab/blocked-hosts: 映さないサイトの一覧（拡張が映し始めるたびに読み、/tab/ が表示する） */
+export const getTabBlockedHosts = async (context: Context): Promise<Response> => {
+  await requireExtensionOrAdmin(context)
+  return Response.json({ hosts: await loadBlockedHosts(context.env.STORE) })
+}
+
+/** POST /api/admin/tab/blocked-hosts: ホスト名（{ host }）を一覧に加える（拡張のボタンの右クリックから呼ばれる） */
+export const postTabBlockedHost = async (context: Context): Promise<Response> => {
+  await requireExtensionOrAdmin(context)
+  const body: unknown = await context.request.json().catch(() => {
+    throw new HttpError(STATUS.badRequest, 'invalid-body', '本文はJSONにしてください')
+  })
+  const host = typeof body === 'object' && body !== null && 'host' in body ? body.host : undefined
+  return Response.json({ hosts: await addBlockedHost(context.env.STORE, host) })
+}
+
+/** DELETE /api/admin/tab/blocked-hosts/:host: ホスト名を一覧から外す（/tab/ から呼ばれる） */
+export const deleteTabBlockedHost = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  return Response.json({ hosts: await removeBlockedHost(context.env.STORE, context.params.host ?? '') })
 }

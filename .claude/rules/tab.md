@@ -25,6 +25,8 @@ paths:
 
 **タブを閉じた・映すのをやめた・接続が切れたときは、エラーにせず透明に戻す**（配信中に普通に起こる操作のため。状態は拡張のボタンにだけ出す）。合成ページの箱に失敗を出すのは、中継先につながらないときと再生できないときだけである。
 
+**映さないサイト（issue #165）の判定は `extension/src/controller.ts` の `handleNavigation` だけが持ち、照合とホスト名の形の判定は `src/tab/blocked-hosts.ts` だけが持つ**（Worker の検証・拡張・`/tab/` が共有する。拡張のサービスワーカーが読み込むので、ほかのファイルを読み込まない）。登録はホスト名の完全一致だけで、正規表現もパスも持ち込まない。**映さないサイトへは移り始め（`webNavigation.onBeforeNavigate`）で止め、送り直すのは映してよい URL を `tabs.onUpdated` で知ったときだけにする**（移り始めでは前のページがまだ映っている）。止めるのは取り込みを保ったままの `pause`（合成ページとの接続を閉じて `stop` を送る）で、**止められなければ取り込みごと止める**。**一覧は映し始めるたびに Worker（KV の `tab-blocked-hosts`。`worker/tab-blocked-hosts.ts`）から読み、読めなければ映し始めない**（安全側）。拡張は `chrome.cookies` で読んだセッションを `Authorization: Bearer` で渡す（`worker/tab-routes.ts` の `requireExtensionOrAdmin`）。登録は拡張のボタンの右クリック（`contextMenus`）で、いま開いているタブのホスト名をそのまま入れる。`/tab/` は一覧を見て消すだけ（`src/tab/api.ts`）。映しているあいだの記録（タブ・URL・一覧・止めているか）は `CaptureState` としてまとめて `chrome.storage.session` に置く。
+
 **拡張は配信者がアプリ（`/tab/`）からダウンロードする**。`GET /api/admin/tab/extension.zip`（`worker/tab-extension.ts`）が、ビルド済みの拡張（`ASSETS` の `/tab-extension/`）に、リクエストの置き場所を書いた `config.json` を加え、manifest.json へその置き場所の `host_permissions` を書き足して zip にする。**`offscreen.html` は静的アセットにせず Worker が書く**（静的アセットは `.html` で終わるURLを拡張子なしへ 307 で転送するので ASSETS から読めない。中身は `extension/src/built-files.ts`）（置き場所をビルドに埋め込まない。公開先のアドレスはビルドの時点では分からないため）。ファイルが欠けていれば欠けた zip を返さずに失敗させる。拡張のビルド（`npm run build:extension`）は `predev`・`prebuild` で本体の前に走り、`public/tab-extension/` に出す。型チェックは `tsconfig.extension.json`（`npm run type-check` に含まれる）。
 
 利用者向けの説明は `docs/guide/tab.md`。

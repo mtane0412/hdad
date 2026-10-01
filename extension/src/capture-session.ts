@@ -11,6 +11,10 @@
  * 状態（つながっている合成ページの数と、待てば直るかもしれない失敗）は、変わるたびにまとめて report で知らせる。
  * サービスワーカーはそれをボタンの表示にする。
  *
+ * 映しているタブが映さないサイトへ移ったら、サービスワーカーが pause で送るのだけを止めさせ、映してよいページへ戻ったら
+ * resume で送り直させる（issue #165）。取り込みは保つので、配信者がボタンを押し直さずに済む。止めているあいだは
+ * 合成ページとの接続をすべて閉じるので、映像は1枚も流れない（合成ページは透明に戻る）。
+ *
  * 注意: 取り込んだタブが閉じられたら、エラーにせず「終わった」とだけ知らせる。配信中に普通に起こる操作のため。
  * 注意: IDは数秒で使えなくなる（#163 で、5秒後は使え、10秒後は失敗した）ので、受け取ったらすぐ取り込む。
  */
@@ -43,6 +47,10 @@ export interface CaptureSession {
   start(streamId: string): Promise<void>
   /** 映すのをやめ、合成ページへ知らせてから中継先との接続を切る */
   stop(): void
+  /** 取り込みは保ったまま、合成ページへ送るのをやめる（映さないサイトへ移ったとき） */
+  pause(): void
+  /** pause で止めていたなら、同じ取り込みで送り直す */
+  resume(): void
 }
 
 /** 作った時点で中継先へつなぐ（offscreen document は映し始めるときに作られる） */
@@ -53,6 +61,8 @@ export const createCaptureSession = <S>(options: CaptureSessionOptions<S>): Capt
   let viewers = 0
   let warning: string | null = null
   let socket: TabSocket<FromSender> | null = null
+  /** pause で送るのを止めているか */
+  let paused = false
 
   const reportState = (): void => {
     if (current !== null) options.report({ type: 'state', viewers, warning })
@@ -104,6 +114,8 @@ export const createCaptureSession = <S>(options: CaptureSessionOptions<S>): Capt
       }
       release()
       current = next
+      // 別のタブを映し始めたら、前のタブのために止めていたことは忘れる（映してよいかはサービスワーカーが確かめてから頼む）
+      paused = false
       next.onEnded(() => {
         if (current !== next) return
         // タブが閉じられた。エラーにはせず、合成ページを透明に戻して終わったことを知らせる
@@ -122,6 +134,16 @@ export const createCaptureSession = <S>(options: CaptureSessionOptions<S>): Capt
       // 合成ページに映すのをやめたことを知らせてから切る（知らせないと、最後の絵が残ったまましばらく固まる）
       sender.stop()
       socket.close()
+    },
+    pause: () => {
+      if (current === null || paused) return
+      paused = true
+      sender.stop()
+    },
+    resume: () => {
+      if (!paused) return
+      paused = false
+      if (current !== null) sender.start(current.stream)
     },
   }
 }

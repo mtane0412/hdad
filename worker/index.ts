@@ -33,6 +33,8 @@
  * | GET  /api/admin/draw/background  | セッション     | 描く画面の背景に敷く、配信画面を撮った最新の1枚 |
  * | GET  /api/admin/tab/extension.zip | セッション   | 配信者が Chrome に読み込む拡張を、この置き場所につなぐ設定と権限を入れた zip で返す |
  * | GET  /api/admin/tab/socket       | セッション＋拡張のOrigin | 拡張（送り手）からのWebSocketの接続を受け、タブの映像の連絡の中継先へ引き渡す |
+ * | GET・POST /api/admin/tab/blocked-hosts | セッション（拡張は Authorization ヘッダー） | 映さないサイトの一覧の読み出し・登録 |
+ * | DELETE /api/admin/tab/blocked-hosts/:host | セッション | 映さないサイトの一覧から外す |
  * | GET  /api/admin/comments/socket  | セッション     | コメントビューアーからのWebSocketの接続を受け、配送先へ引き渡す |
  * | GET  /api/admin/comments/icons   | セッション     | 発言した人のアイコンのURLを、ユーザーIDからまとめて引く |
  * | POST /api/admin/comments/moderation | セッション   | 配信者が選んだ処分（発言の削除・タイムアウト・BAN）をbotの権限で行う |
@@ -128,7 +130,7 @@ import {
   postTranscript,
 } from './overlay-routes'
 import { drawSocket, getDrawBackground, getDrawStrokes, putDrawStrokes } from './draw-routes'
-import { tabExtensionZip, tabSocket } from './tab-routes'
+import { deleteTabBlockedHost, getTabBlockedHosts, postTabBlockedHost, tabExtensionZip, tabSocket } from './tab-routes'
 import { commentSocket, getCommentIcons, postCommentGreeting, postCommentMessage, postCommentModeration } from './comment-routes'
 import { getStatsFailures, getStatsFollowers, getStatsSession, getStatsSessions } from './stats-routes'
 import { AuthError } from './token'
@@ -209,6 +211,9 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/admin/draw/background', handle: getDrawBackground },
   { method: 'GET', path: '/api/admin/tab/socket', handle: tabSocket },
   { method: 'GET', path: '/api/admin/tab/extension.zip', handle: tabExtensionZip },
+  { method: 'GET', path: '/api/admin/tab/blocked-hosts', handle: getTabBlockedHosts },
+  { method: 'POST', path: '/api/admin/tab/blocked-hosts', handle: postTabBlockedHost },
+  { method: 'DELETE', path: '/api/admin/tab/blocked-hosts/:host', handle: deleteTabBlockedHost },
   { method: 'GET', path: '/api/admin/comments/socket', handle: commentSocket },
   { method: 'GET', path: '/api/admin/comments/icons', handle: getCommentIcons },
   { method: 'POST', path: '/api/admin/comments/moderation', handle: postCommentModeration },
