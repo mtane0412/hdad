@@ -48,6 +48,7 @@ const createApi = (
     failCapture?: string
     failStop?: string
     failPause?: string
+    failResume?: string
     failLoadHosts?: string
     failAddHost?: string
   } = {},
@@ -91,6 +92,7 @@ const createApi = (
     },
     resumeCapture: async () => {
       calls.push('送り直す')
+      if (options.failResume !== undefined) throw new Error(options.failResume)
     },
     show: async (state) => {
       shown.push(state)
@@ -257,6 +259,14 @@ describe('handleNavigation', () => {
     expect(calls).toEqual(['送り直す'])
     expect(capturing()).toEqual(capturingSlide())
     expect(shown.at(-1)).toEqual({ kind: 'capturing', viewers: 0, warning: null })
+  })
+
+  it('送り直せなければ、止めている記録を残す（次に映してよいページが表示されたときにまた送り直す）', async () => {
+    const pausedOnMail = capturingSlide({ url: mailUrl, pausedAt: 'mail.google.com' })
+    const { api, capturing } = createApi({ capturing: pausedOnMail, failResume: 'Could not establish connection' })
+
+    await expect(handleNavigation({ tabId: slideTab.id, url: slideTab.url, committed: true }, api)).rejects.toThrow('Could not establish connection')
+    expect(capturing()).toEqual(pausedOnMail)
   })
 
   it('映してよいページの中を移ったら、URLを覚えるだけにする', async () => {

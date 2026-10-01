@@ -202,9 +202,14 @@ export const handleNavigation = async (navigation: TabNavigation, api: Controlle
     return
   }
   if (!navigation.committed) return
-  await api.remember({ ...state, url: navigation.url, pausedAt: null })
-  if (state.pausedAt === null) return
+  const next: CaptureState = { ...state, url: navigation.url, pausedAt: null }
+  if (state.pausedAt === null) {
+    await api.remember(next)
+    return
+  }
+  // 送り直せたときだけ「止めていない」と覚える。先に覚えると、送り直しに失敗したあと止めたままなのに送り直さなくなる
   await api.resumeCapture()
+  await api.remember(next)
   await api.show({ kind: 'capturing', viewers: 0, warning: null })
 }
 
