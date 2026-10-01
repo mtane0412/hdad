@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import { createFakeWorkersAi } from './fake-ai'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
 import { createFakeAlertChannel } from './fake-alert-channel'
+import { createFakeAssets } from './fake-assets'
 import { createFakeDrawChannel } from './fake-draw-channel'
 import { createFakeTabChannel } from './fake-tab-channel'
 import { createFakeCommentChannel } from './fake-comment-channel'
@@ -28,6 +29,7 @@ const createEnv = () => {
     STORE: createFakeStore(),
     MEDIA: createFakeBucket(),
     DB: db,
+    ASSETS: createFakeAssets(),
     TWITCH_CLIENT_ID: 'test-client-id',
     TWITCH_CLIENT_SECRET: 'テスト用シークレット',
     TWITCH_BROADCASTER_ID: BROADCASTER_ID,

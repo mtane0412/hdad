@@ -13,7 +13,7 @@ import { handOverTab, type ExtensionApi, type TabInfo } from './hand-over'
 
 const slideTab: TabInfo = { id: 7, title: '配信の資料 - Google スライド', url: 'https://docs.google.com/presentation/d/abc' }
 const senderTab: TabInfo = { id: 3, title: 'HDAD', url: 'https://hdad.example.workers.dev/tab/' }
-/** ビルドのときに HDAD_ORIGINS で渡した、信頼する HDAD の置き場所 */
+/** 拡張に同梱の config.json に書かれた、信頼する HDAD の置き場所 */
 const trustedOrigins = ['https://hdad.example.workers.dev']
 
 const createApi = (tabs: readonly TabInfo[], options: { failStreamId?: string } = {}) => {

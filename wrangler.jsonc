@@ -23,6 +23,8 @@
   "main": "./worker/index.ts",
   "compatibility_date": "2026-09-01",
   "assets": {
+    // ASSETS は Worker から静的アセットを読むためのもの（拡張の zip を作るときに public/tab-extension/ のファイルを読む）
+    "binding": "ASSETS",
     "html_handling": "auto-trailing-slash",
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*"]

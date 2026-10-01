@@ -16,6 +16,7 @@ import { saveAlertConfig } from './alert-config'
 import { listFailures } from './stats-store'
 import { createFakeWorkersAi } from './fake-ai'
 import { createFakeAlertChannel } from './fake-alert-channel'
+import { createFakeAssets } from './fake-assets'
 import { createFakeDrawChannel } from './fake-draw-channel'
 import { createFakeTabChannel } from './fake-tab-channel'
 import { createFakeCommentChannel } from './fake-comment-channel'
@@ -75,6 +76,7 @@ const createEnv = async (): Promise<Env> => {
     STORE: createFakeStore({ 'overlay-key': 'issued-overlay-key-0123456789abcdefghij' }),
     MEDIA: createFakeBucket(),
     DB: createFakeDatabase(),
+    ASSETS: createFakeAssets(),
     TWITCH_CLIENT_ID: 'test-client-id',
     TWITCH_CLIENT_SECRET: 'テスト用シークレット',
     TWITCH_BROADCASTER_ID: broadcasterId,
