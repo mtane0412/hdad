@@ -4,7 +4,7 @@
  * ツールバーのボタン（ショートカットの既定は Alt+Shift+T）が押されたら、そのタブを映す。映しているタブで押されたら止める。
  * 手順そのものは controller.ts にあり、ここは Chrome の API をつなぐだけにする。
  *
- * 取り込みと送信は offscreen document（offscreen.html・offscreen.ts）が受け持つ。サービスワーカーは眠ると変数も
+ * 取り込みと送信は offscreen document（offscreen.html は zip を作るときに Worker が書く。中身は offscreen.ts）が受け持つ。サービスワーカーは眠ると変数も
  * 映像も失うので、映像を持ち続けられる画面が要るため（chrome.offscreen の USER_MEDIA）。映しているタブは
  * chrome.storage.session に覚える。
  *
@@ -14,13 +14,12 @@
  * 注意: うまくいかないときは黙って何もしないのではなくバッジ「!」で知らせ、理由はボタンの説明に出す。
  */
 import { CONFIG_FILE, parseExtensionConfig, type ExtensionConfig } from './config'
+import { OFFSCREEN_PAGE_FILE } from './built-files'
 import { createSerialQueue, describeBadge, handleClick, handleOffscreenEvent, type ControllerApi } from './controller'
 import { reasonOf } from './guards'
 import type { OffscreenCommandMessage, OffscreenReply } from './offscreen-command'
 import { parseOffscreenEvent } from './offscreen-event'
 
-/** offscreen document のページ（extension/public/offscreen.html） */
-const OFFSCREEN_PAGE = 'offscreen.html'
 /** 映しているタブを覚えておく chrome.storage.session の名前 */
 const CAPTURING_KEY = 'capturingTabId'
 
@@ -45,7 +44,7 @@ const hasOffscreen = async (): Promise<boolean> =>
 const ensureOffscreen = async (): Promise<void> => {
   if (await hasOffscreen()) return
   await chrome.offscreen.createDocument({
-    url: OFFSCREEN_PAGE,
+    url: OFFSCREEN_PAGE_FILE,
     reasons: [chrome.offscreen.Reason.USER_MEDIA],
     justification: '映すタブの映像と音を取り込み、HDAD の合成ページへ送り続けるため',
   })

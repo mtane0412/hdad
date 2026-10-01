@@ -25,6 +25,6 @@ paths:
 
 **タブを閉じた・映すのをやめた・接続が切れたときは、エラーにせず透明に戻す**（配信中に普通に起こる操作のため。状態は拡張のボタンにだけ出す）。合成ページの箱に失敗を出すのは、中継先につながらないときと再生できないときだけである。
 
-**拡張は配信者がアプリ（`/tab/`）からダウンロードする**。`GET /api/admin/tab/extension.zip`（`worker/tab-extension.ts`）が、ビルド済みの拡張（`ASSETS` の `/tab-extension/`）に、リクエストの置き場所を書いた `config.json` を加え、manifest.json へその置き場所の `host_permissions` を書き足して zip にする（置き場所をビルドに埋め込まない。公開先のアドレスはビルドの時点では分からないため）。ファイルが欠けていれば欠けた zip を返さずに失敗させる。拡張のビルド（`npm run build:extension`）は `predev`・`prebuild` で本体の前に走り、`public/tab-extension/` に出す。型チェックは `tsconfig.extension.json`（`npm run type-check` に含まれる）。
+**拡張は配信者がアプリ（`/tab/`）からダウンロードする**。`GET /api/admin/tab/extension.zip`（`worker/tab-extension.ts`）が、ビルド済みの拡張（`ASSETS` の `/tab-extension/`）に、リクエストの置き場所を書いた `config.json` を加え、manifest.json へその置き場所の `host_permissions` を書き足して zip にする。**`offscreen.html` は静的アセットにせず Worker が書く**（静的アセットは `.html` で終わるURLを拡張子なしへ 307 で転送するので ASSETS から読めない。中身は `extension/src/built-files.ts`）（置き場所をビルドに埋め込まない。公開先のアドレスはビルドの時点では分からないため）。ファイルが欠けていれば欠けた zip を返さずに失敗させる。拡張のビルド（`npm run build:extension`）は `predev`・`prebuild` で本体の前に走り、`public/tab-extension/` に出す。型チェックは `tsconfig.extension.json`（`npm run type-check` に含まれる）。
 
 利用者向けの説明は `docs/guide/tab.md`。

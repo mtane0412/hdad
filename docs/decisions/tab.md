@@ -77,6 +77,12 @@ WebSocket は GET なので、Worker は `Origin` も確かめます。パッケ
 
 拡張はサービスワーカーと offscreen document の2つの入口を持ちます。両方が同じモジュールを実行時に読み込むと、ビルドが共有のファイル（チャンク）を作ります。Worker は決まったファイルだけを zip に詰めるので、共有のファイルが漏れて拡張が動かなくなります。そこで連絡の形はあて先ごとにファイルを分け（`offscreen-command.ts`・`offscreen-event.ts`）、片方は型だけを読み込みます。決まったファイル以外ができたら、ビルドを失敗させます。
 
+### offscreen.html は Worker が zip に書きます
+
+はじめは offscreen.html も manifest.json と同じく静的アセットとして配り、Worker が ASSETS から読んで zip に詰めていました。ところが公開先では、`/tab-extension/offscreen.html` が拡張子なしのURLへ 307 で転送されます（Workers の静的アセットの `html_handling` の既定）。そのため Worker は「ファイルが欠けている」と判断し、ダウンロードが失敗しました。テストの偽のアセットはこの転送を再現しないので、気づけませんでした。
+
+`html_handling` を変えると、アプリのページ（`overlay/stage/` など）の配り方まで変わります。そこで offscreen.html は、`offscreen.js` を読み込むだけの固定の数行なので、`config.json` と同じく Worker が zip に書く形にしました。
+
 ## 拡張は TypeScript で書き、別にビルドします
 
 拡張はビルドなしの素の JavaScript にもできますが、送り手のページと同じ受け渡しの書式（`src/tab/signal.ts` の `buildStreamHash`・`readStreamHash`）を2か所に書くと食い違うので、TypeScript で書いて同じファイルを読み込むことにしました（取り込みと送信を拡張へ移したいまは、送るふるまいそのものを `src/tab/` から読み込んでいます）。拡張のビルド（`npm run build:extension`）は本体の `npm run dev`・`npm run build` の前に自動で走り（`predev`・`prebuild`）、出力（`public/tab-extension/`）を本体が静的アセットとして配ります。Worker はそれを `ASSETS` バインディングで読んで zip にします。型チェックは `tsconfig.extension.json`（`@types/chrome`）で、`npm run type-check` に含めています。
