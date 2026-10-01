@@ -8,7 +8,7 @@
  *
  * 注意: 一度もつながらないまま閉じた場合（キーの誤り・未ログインでWorkerが401を返した場合を含む）も、
  * ブラウザのWebSocketからは状態コードを読めないため、原因の手がかりを呼び出し側へ渡したうえで
- * つなぎ直しは続ける。
+ * つなぎ直しは続ける。一度つながったあとのつなぎ直しの失敗は、手がかりではなく切断として知らせる。
  */
 
 /** つなぎ直しまでの待ち時間（ミリ秒）。失敗のたびに倍にし、上限で止める */
@@ -96,6 +96,11 @@ export const connectSocket = (
 ): SocketConnection => {
   let retryDelay = RETRY_INITIAL_MS
   let disconnected = false
+  /**
+   * これまでに一度でもつながったか。つながったならキーやログインは正しかったので、
+   * その後のつなぎ直しの失敗では手がかり（キーを疑う文）を出さず、切断として扱う（issue #174）
+   */
+  let everOpened = false
   /** いまつながっている接続。つながっていなければ null（送る先がない） */
   let usableConnection: SocketLike | null = null
   /** いまの接続。閉じるときに使う（つながる前でも閉じられるようにする） */
@@ -112,11 +117,9 @@ export const connectSocket = (
     if (abandoned) return
     const socket = open(url)
     currentConnection = socket
-    /** この接続が一度でもつながったか。つながらないまま閉じたなら、キーや設定を疑う手がかりを出す */
-    let opened = false
 
     socket.onopen = () => {
-      opened = true
+      everOpened = true
       usableConnection = socket
       retryDelay = RETRY_INITIAL_MS
       if (disconnected) handlers.onStatus('reconnected')
@@ -139,7 +142,7 @@ export const connectSocket = (
       if (abandoned) return
       // ブラウザのWebSocketは、つながらなかった理由（Workerの401など）を教えてくれない。
       // 一度もつながっていないなら、いちばんありそうな原因を添えて知らせる
-      if (!opened) handlers.onWarning(hint)
+      if (!everOpened) handlers.onWarning(hint)
       else if (!disconnected) handlers.onStatus('disconnected')
       disconnected = true
       retryTimer = window.setTimeout(connect, retryDelay)
