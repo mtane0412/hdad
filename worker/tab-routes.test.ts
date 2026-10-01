@@ -2,10 +2,10 @@
  * タブの映像の連絡の経路（/api/admin/tab/socket・/api/overlay/tab）のテスト
  *
  * 確かめるのは次の4点である。
- * - 送り手（配信者のセッション）からの接続が、送り手として中継先へ引き渡されること
+ * - 送り手（拡張の offscreen document が配信者のセッションでつなぐ）からの接続が、送り手として中継先へ引き渡されること
  * - 合成ページ（オーバーレイ用キー）からの接続が、合成ページとして引き渡されること
  * - ログインしていない接続・キーの誤った接続を断ること
- * - 別のサイトから開かれた接続を断ること（WebSocketはGETなので、書き換えのときのCSRF対策が効かない）
+ * - HDAD の拡張以外から開かれた接続を断ること（WebSocketはGETなので、書き換えのときのCSRF対策が効かない）
  */
 import { describe, expect, it } from 'vitest'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
@@ -18,6 +18,7 @@ import { createFakeDatabase } from './fake-database'
 import { createFakeDrawChannel } from './fake-draw-channel'
 import { createFakeStore } from './fake-store'
 import { createFakeTabChannel } from './fake-tab-channel'
+import { EXTENSION_ID } from '../extension/src/identity'
 import { handleRequest, type Env } from './index'
 import { createSessionToken } from './session'
 
@@ -25,6 +26,8 @@ const now = Date.parse('2026-10-01T10:00:00Z')
 const broadcasterId = '12345'
 const site = 'https://hdad.example.com'
 const issuedKey = 'issued-overlay-key-0123456789abcdefghij'
+/** HDAD の拡張（manifest.json の key で固定したID）の Origin */
+const extensionOrigin = `chrome-extension://${EXTENSION_ID}`
 
 const createEnv = () => {
   const relayTarget = createFakeTabChannel()
@@ -64,10 +67,10 @@ const invoke = (request: Request, env: Env) => handleRequest(request, env, { fet
 const connect = (env: Env, path: string, headers: Record<string, string> = {}) =>
   invoke(new Request(`${site}${path}`, { headers: { Upgrade: 'websocket', Origin: site, ...headers } }), env)
 
-/** 配信者としてログインした状態でつなぐ */
+/** 配信者としてログインした拡張からつなぐ（拡張は置き場所への権限を持つので、配信者のクッキーが付く） */
 const connectAsBroadcaster = async (env: Env, path: string, headers: Record<string, string> = {}) => {
   const session = await createSessionToken(broadcasterId, env.SESSION_SECRET, now)
-  return connect(env, path, { Cookie: `__Host-session=${session}`, ...headers })
+  return connect(env, path, { Cookie: `__Host-session=${session}`, Origin: extensionOrigin, ...headers })
 }
 
 /** 中継先へ引き渡された接続の役割 */
@@ -75,7 +78,7 @@ const forwardedRoles = (relayTarget: ReturnType<typeof createFakeTabChannel>) =>
   relayTarget.forwardedConnections.map(({ url }) => new URL(url).searchParams.get('role'))
 
 describe('GET /api/admin/tab/socket', () => {
-  it('配信者の接続を、送り手として中継先へ引き渡す', async () => {
+  it('拡張からの配信者の接続を、送り手として中継先へ引き渡す', async () => {
     const { env, relayTarget } = createEnv()
 
     const response = await connectAsBroadcaster(env, '/api/admin/tab/socket')
@@ -103,11 +106,20 @@ describe('GET /api/admin/tab/socket', () => {
     expect(relayTarget.forwardedConnections).toEqual([])
   })
 
+  it('ほかの拡張から開かれた接続は断る', async () => {
+    const { env, relayTarget } = createEnv()
+
+    const response = await connectAsBroadcaster(env, '/api/admin/tab/socket', { Origin: 'chrome-extension://abcdefghijklmnopabcdefghijklmnop' })
+
+    expect(response.status).toBe(403)
+    expect(relayTarget.forwardedConnections).toEqual([])
+  })
+
   it('WebSocketでない要求は断る', async () => {
     const { env } = createEnv()
     const session = await createSessionToken(broadcasterId, env.SESSION_SECRET, now)
 
-    const response = await invoke(new Request(`${site}/api/admin/tab/socket`, { headers: { Cookie: `__Host-session=${session}`, Origin: site } }), env)
+    const response = await invoke(new Request(`${site}/api/admin/tab/socket`, { headers: { Cookie: `__Host-session=${session}`, Origin: extensionOrigin } }), env)
 
     expect(response.status).toBe(400)
   })

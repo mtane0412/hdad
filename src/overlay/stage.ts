@@ -649,13 +649,13 @@ const mountBgm = (box: HTMLElement, item: OverlayItem, { key, demo }: MountConte
 }
 
 /**
- * タブの映像。配信者が送り手のページ（/tab/）で取り込んだ Chrome のタブ1枚の映像と音を映す（issue #164）。
+ * タブの映像。配信者が Chrome 拡張（extension/）で取り込んだ Chrome のタブ1枚の映像と音を映す（issue #164）。
  *
  * 映像と音は送り手から WebRTC で同じPCの中を直接届き、Workerを通るのはつなぐための連絡だけである
  * （中継先は worker/tab-channel.ts、連絡への応じ方は src/tab/receiver.ts）。音も <video> から鳴らすので、
  * OBSのブラウザソースで「OBSで音声を制御する」を有効にしてもらう（docs/guide/tab.md）。
  *
- * 注意: 何も届いていないあいだ（タブを閉じた・送り手のページを閉じた・映すのをやめた）は透明にするだけで、
+ * 注意: 何も届いていないあいだ（タブを閉じた・映すのをやめた）は透明にするだけで、
  * 箱に失敗を出さない。配信中に普通に起こる操作のため。箱に出すのは中継先につながらないときだけである。
  */
 const mountTab = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {

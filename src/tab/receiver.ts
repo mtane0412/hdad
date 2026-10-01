@@ -1,14 +1,14 @@
 /**
  * 合成ページ（素材 `tab`）の受け手のふるまい
  *
- * 送り手（/tab/）からの連絡（src/tab/signal.ts）に応じて、WebRTC の接続を作り直したり閉じたりする。
+ * 送り手（拡張の offscreen document）からの連絡（src/tab/signal.ts）に応じて、WebRTC の接続を作り直したり閉じたりする。
  * 接続そのもの（RTCPeerConnection）とWebSocketは外から受け取り、ここは「いつ名乗り、どの offer に応じ、
  * いつ映すのをやめるか」だけを決める（テストで偽物に差し替えるため）。
  *
  * 映すのは常に最新の接続から届いた映像だけである。送り手がタブを切り替えると新しい offer が届くので、前の接続は閉じる。
  *
  * 注意: 送り手が映すのをやめたとき・接続が切れたときは、何も映さない状態に戻すだけでエラーにしない。
- * タブを閉じる・送り手のページを閉じるのは配信中に普通に起こる操作なので、素材の枠に失敗を出さない（issue #164）。
+ * タブを閉じる・拡張で映すのをやめるのは配信中に普通に起こる操作なので、素材の枠に失敗を出さない（issue #164）。
  */
 import type { FromSender, FromViewer } from './signal'
 
@@ -16,7 +16,7 @@ import type { FromSender, FromViewer } from './signal'
 export interface ReceiverPeerHandlers<S> {
   /** 映像（と音）が届いた */
   onStream(stream: S): void
-  /** 接続が切れて戻らない（failed）。送り手のページやタブが閉じられたときに起こる */
+  /** 接続が切れて戻らない（failed）。映すのをやめたときやタブが閉じられたときに起こる */
   onClosed(): void
 }
 

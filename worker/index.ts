@@ -31,8 +31,8 @@
  * | GET・PUT /api/admin/overlay/layout | セッション   | 合成オーバーレイの構成（オーバーレイと素材）の取得・保存 |
  * | GET・PUT /api/admin/draw/strokes | セッション     | 手書きで描いたものの取得・保存 |
  * | GET  /api/admin/draw/background  | セッション     | 描く画面の背景に敷く、配信画面を撮った最新の1枚 |
- * | GET  /api/admin/tab/extension.zip | セッション   | 配信者が Chrome に読み込む拡張を、この置き場所を信頼する設定を入れた zip で返す |
- * | GET  /api/admin/tab/socket       | セッション     | 送り手のページ（/tab/）からのWebSocketの接続を受け、タブの映像の連絡の中継先へ引き渡す |
+ * | GET  /api/admin/tab/extension.zip | セッション   | 配信者が Chrome に読み込む拡張を、この置き場所につなぐ設定と権限を入れた zip で返す |
+ * | GET  /api/admin/tab/socket       | セッション＋拡張のOrigin | 拡張（送り手）からのWebSocketの接続を受け、タブの映像の連絡の中継先へ引き渡す |
  * | GET  /api/admin/comments/socket  | セッション     | コメントビューアーからのWebSocketの接続を受け、配送先へ引き渡す |
  * | GET  /api/admin/comments/icons   | セッション     | 発言した人のアイコンのURLを、ユーザーIDからまとめて引く |
  * | POST /api/admin/comments/moderation | セッション   | 配信者が選んだ処分（発言の削除・タイムアウト・BAN）をbotの権限で行う |

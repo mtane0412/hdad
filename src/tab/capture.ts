@@ -1,8 +1,8 @@
 /**
  * Chrome のタブ1枚の取り込み
  *
- * 拡張（extension/）が chrome.tabCapture.getMediaStreamId で得たIDを getUserMedia に渡し、そのタブの映像と音を取る。
- * IDは取り込む側（consumerTabId）にこのページのタブを指定して発行されているので、ほかのページでは使えない。
+ * 拡張（extension/）のサービスワーカーが chrome.tabCapture.getMediaStreamId で得たIDを、拡張の offscreen document が
+ * getUserMedia に渡し、そのタブの映像と音を取る。IDは取り込む側を指定せずに発行され、同じ拡張の画面でしか使えない。
  *
  * 映像は 1920×1080・30fps までに抑える（合成ページの推奨の大きさが配信画面と同じ 1920×1080 のため。
  * #163 の試作でこの条件の負荷と遅延を確かめてある）。
@@ -15,7 +15,15 @@
  *
  * 注意: 取り込んでいるあいだ、元のタブの音は Chrome からは聞こえなくなる（#163 で確かめた）。配信者は OBS のモニターで聞く。
  */
-import type { CapturedTab } from './tab-page'
+/** 取り込んだタブ1枚 */
+export interface CapturedTab<S> {
+  /** 映像と音 */
+  stream: S
+  /** 取り込みが終わったとき（タブが閉じられたとき）に呼ぶものを登録する */
+  onEnded(listener: () => void): void
+  /** 取り込みをやめる */
+  stop(): void
+}
 
 /** 取り込む映像の上限 */
 const MAX_WIDTH = 1920

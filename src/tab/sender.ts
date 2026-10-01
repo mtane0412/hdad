@@ -1,5 +1,5 @@
 /**
- * 送り手（/tab/）のふるまい
+ * 送り手（拡張の offscreen document）のふるまい
  *
  * 取り込んだタブの映像を、名乗った合成ページごとに WebRTC で送る。接続そのもの（RTCPeerConnection）と
  * WebSocketは外から受け取り、ここは「いつ名乗り直しを頼み、どの合成ページへ offer を送り、いつ作り直すか」だけを決める
@@ -40,7 +40,7 @@ export interface TabSenderOptions<S> {
   send(message: FromSender): void
   /** 合成ページ1つぶんの接続を作る */
   openPeer(viewerId: string, stream: S, handlers: SenderPeerHandlers): SenderPeer
-  /** つながっている合成ページの数が変わった（送り手のページの表示に使う） */
+  /** つながっている合成ページの数が変わった（拡張のボタンの表示に使う） */
   onConnectedCount(count: number): void
   /** 待てば直るかもしれない失敗 */
   onWarning(message: string): void

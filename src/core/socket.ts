@@ -70,9 +70,13 @@ export interface SocketConnection {
   close(): void
 }
 
-/** 同じサイトのWorkerへ、httpではなくwsのURLでつなぐ */
-export const socketUrl = (path: string, query: Record<string, string> = {}): string => {
-  const url = new URL(path, location.origin)
+/**
+ * Workerへ、httpではなくwsのURLでつなぐ。
+ *
+ * @param origin つなぐ先の置き場所。既定は同じサイト（拡張の画面のように、開いている場所と HDAD が違うときだけ渡す）
+ */
+export const socketUrl = (path: string, query: Record<string, string> = {}, origin: string = location.origin): string => {
+  const url = new URL(path, origin)
   for (const [name, value] of Object.entries(query)) url.searchParams.set(name, value)
   return url.toString().replace(/^http/, 'ws')
 }

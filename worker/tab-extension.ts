@@ -1,23 +1,26 @@
 /**
  * 配信者へ渡す Chrome 拡張の zip づくり
  *
- * 拡張（extension/）は、信頼する HDAD の置き場所の /tab/ にだけストリームIDを渡す。置き場所は公開先（workers.dev）の
+ * 拡張（extension/）は、タブを取り込んで HDAD の中継先へ配信者のセッションでつなぐ。置き場所は公開先（workers.dev）の
  * アカウントごとに違い、ビルドの時点では分からないので、ダウンロードのときに Worker が受けたリクエストから置き場所を
- * 取り、それを書いた設定（config.json。形は extension/src/config.ts）を加えて zip にする（issue #168）。
+ * 取り、次の2つを書き込んで zip にする（issue #168）。
  *
- * 拡張そのもの（manifest.json・background.js）は、本体のビルドの前に npm run build:extension が public/tab-extension/
- * へ出し、静的アセットとして配られている。ここは ASSETS から読むだけにする。
+ * - 設定（config.json。形は extension/src/config.ts）: つなぐ先の置き場所
+ * - manifest.json の host_permissions: その置き場所への権限。権限があると、拡張からのWebSocketに配信者のクッキー
+ *   （SameSite=Lax）が付く。権限が無いと別サイトからの接続と同じ扱いになり、クッキーが付かない
+ *
+ * 拡張そのもの（manifest.json・background.js・offscreen.html・offscreen.js）は、本体のビルドの前に npm run build:extension が
+ * public/tab-extension/ へ出し、静的アセットとして配られている。ここは ASSETS から読むだけにする。
  *
  * 注意: ファイルが1つでも読めなければ、欠けた zip を返さずに失敗させる（読み込めない拡張を配らない。Fail-Fast）。
  */
-import { strToU8, zipSync } from 'fflate'
+import { strFromU8, strToU8, zipSync } from 'fflate'
 import { CONFIG_FILE, type ExtensionConfig } from '../extension/src/config'
+import { BUILT_FILES, MANIFEST_FILE } from '../extension/src/built-files'
 import { HttpError, STATUS, type AssetFetcher } from './http'
 
 /** ビルド済みの拡張が静的アセットとして置かれている場所 */
 const ASSET_DIR = '/tab-extension/'
-/** zip に入れるビルド済みのファイル（extension/vite.config.ts が出すもの） */
-const BUILT_FILES = ['manifest.json', 'background.js'] as const
 /** zip を展開したときにできるフォルダの名前。Chrome にはこのフォルダを読み込んでもらう */
 export const EXTENSION_FOLDER = 'hdad-tab'
 
@@ -40,16 +43,39 @@ const readBuiltFile = async (assets: AssetFetcher, base: URL, name: string): Pro
   return new Uint8Array(await response.arrayBuffer())
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
+
+/**
+ * ビルド済みの manifest.json に、置き場所への権限を書き足す。
+ *
+ * @throws HttpError manifest.json を JSON として読めない場合
+ */
+const withHostPermission = (manifest: Uint8Array, origin: string): Uint8Array => {
+  let value: unknown
+  try {
+    value = JSON.parse(strFromU8(manifest))
+  } catch {
+    value = null
+  }
+  if (!isRecord(value)) {
+    throw new HttpError(STATUS.internalServerError, 'tab-extension-missing', `ビルド済みの拡張（${ASSET_DIR}${MANIFEST_FILE}）を読み取れません。npm run build でデプロイし直してください`)
+  }
+  return strToU8(`${JSON.stringify({ ...value, host_permissions: [`${origin}/*`] }, null, 2)}\n`)
+}
+
 /**
  * 拡張の zip を作る。
  *
- * @param origin 信頼する置き場所（ダウンロードを受けたリクエストのオリジン）
+ * @param origin HDAD の置き場所（ダウンロードを受けたリクエストのオリジン）
  * @throws HttpError ビルド済みのファイルが見つからない場合
  */
 export const buildExtensionZip = async (assets: AssetFetcher, origin: string): Promise<Uint8Array> => {
   const base = new URL(origin)
-  const config: ExtensionConfig = { trustedOrigins: [origin] }
+  const config: ExtensionConfig = { origin }
   const entries: Record<string, Uint8Array> = { [`${EXTENSION_FOLDER}/${CONFIG_FILE}`]: strToU8(`${JSON.stringify(config, null, 2)}\n`) }
-  for (const name of BUILT_FILES) entries[`${EXTENSION_FOLDER}/${name}`] = await readBuiltFile(assets, base, name)
+  for (const name of BUILT_FILES) {
+    const file = await readBuiltFile(assets, base, name)
+    entries[`${EXTENSION_FOLDER}/${name}`] = name === MANIFEST_FILE ? withHostPermission(file, origin) : file
+  }
   return zipSync(entries)
 }
