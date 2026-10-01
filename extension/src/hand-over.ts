@@ -5,9 +5,11 @@
  * chrome.tabCapture.getMediaStreamId でIDを取り、送り手のページの URL の # に入れて渡す（issue #164）。
  * 取り込みと送信は送り手のページが配信者のセッションで行うので、拡張はログインも鍵も持たない。
  *
- * # で渡すのは、フォークした人ごとに HDAD のドメインが違い、拡張がドメインを前もって知らなくても済むためである
- * （ページへスクリプトを差し込むにはドメインごとの権限が要る）。# だけを書き換えてもページは読み込み直されない。
- * IDは受け取り先のタブでしか使えないので、URL に出ても他人には使えない。
+ * # で渡すのは、ページへスクリプトを差し込むのと違ってドメインごとの権限が要らないためである。# だけを書き換えても
+ * ページは読み込み直されない。IDは受け取り先のタブでしか使えないので、URL に出ても他人には使えない。
+ *
+ * 受け取り先は、信頼する置き場所（ビルドのときに HDAD_ORIGINS で渡す。origins.ts）の /tab/ に限る。
+ * パスだけで探すと、別のサイトの /tab/ にIDを渡してしまい、そのサイトが映したいタブの映像と音を取り込めてしまう。
  *
  * Chrome の API は ExtensionApi として外から受け取り、ここは「どのタブへ渡すか・いつ知らせるか」だけを決める（テストのため）。
  *
@@ -37,12 +39,14 @@ export interface ExtensionApi {
   showProblem(message: string | null): Promise<void>
 }
 
-/** パスが /tab/ のタブか（ドメインは問わない。フォークした人ごとに違うため） */
-const isSenderTab = (tab: TabInfo): boolean => {
+/** 信頼する置き場所の、パスが /tab/ のタブか */
+const isSenderTab = (tab: TabInfo, trustedOrigins: readonly string[]): boolean => {
   if (tab.url === undefined) return false
   try {
-    return new URL(tab.url).pathname === SENDER_PATH
+    const url = new URL(tab.url)
+    return trustedOrigins.includes(url.origin) && url.pathname === SENDER_PATH
   } catch {
+    // chrome:// など URL として読めないタブは、送り手のページではない
     return false
   }
 }
@@ -54,9 +58,13 @@ const withoutHash = (url: string): string => {
   return parsed.toString()
 }
 
-/** 押されたタブ（target）を映すよう、送り手のページへIDを渡す */
-export const handOverTab = async (target: TabInfo, api: ExtensionApi): Promise<void> => {
-  const senders = (await api.listTabs()).filter(isSenderTab)
+/**
+ * 押されたタブ（target）を映すよう、送り手のページへIDを渡す。
+ *
+ * @param trustedOrigins 信頼する HDAD の置き場所（https://ドメイン）。ここにある /tab/ にだけ渡す
+ */
+export const handOverTab = async (target: TabInfo, api: ExtensionApi, trustedOrigins: readonly string[]): Promise<void> => {
+  const senders = (await api.listTabs()).filter((tab) => isSenderTab(tab, trustedOrigins))
   const [sender] = senders
   if (sender?.id === undefined || sender.url === undefined) {
     await api.showProblem('HDAD の「タブの映像」のページ（/tab/）を開いてから押してください')

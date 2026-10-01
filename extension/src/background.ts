@@ -2,7 +2,8 @@
  * 拡張のサービスワーカー
  *
  * ツールバーのボタン（ショートカットの既定は Alt+Shift+T）が押されたら、そのタブを HDAD の送り手のページ（/tab/）へ渡す。
- * 手順そのものは hand-over.ts にあり、ここは Chrome の API をつないで渡すだけにする。
+ * 手順そのものは hand-over.ts にあり、ここは Chrome の API と、ビルドのときに埋め込んだ信頼する置き場所
+ * （__HDAD_ORIGINS__。origins.ts）を渡すだけにする。
  *
  * ショートカットは manifest.json の _execute_action に割り当て、ボタンを押したのと同じ扱いにする。
  * ボタンかショートカットで呼ばれると、そのタブを取り込む許可（activeTab と同じ扱い）が得られ、getMediaStreamId を呼べる。
@@ -31,7 +32,7 @@ const api: ExtensionApi = {
 }
 
 chrome.action.onClicked.addListener((tab) => {
-  handOverTab(tab, api).catch((error: unknown) => {
+  handOverTab(tab, api, __HDAD_ORIGINS__).catch((error: unknown) => {
     // 手順の途中で Chrome の API が失敗した。原因を追えるよう記録し、バッジでも知らせる
     console.error('タブを送り手のページへ渡せませんでした', error)
     void api.showProblem(`タブを渡せませんでした: ${error instanceof Error ? error.message : String(error)}`)
