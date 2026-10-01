@@ -1,0 +1,79 @@
+/**
+ * タブの映像をつなぐ連絡の中継（Durable Object）のテスト
+ *
+ * WebSocketの接続そのもの（Upgrade）は Cloudflare のランタイムでしか作れないため、ここでは確かめない。
+ * 確かめるのは、手書きの中継と違って両方向に配ること（送り手 → 合成ページ、合成ページ → 送り手）、
+ * そして同じ側どうしには配らないことである。
+ */
+import { describe, expect, it } from 'vitest'
+import { SENDER, TabChannel, VIEWER, type TabChannelState, type TabSocket } from './tab-channel'
+
+/** 送られた文字列を覚えておく、テスト用の接続 */
+const createConnection = (): TabSocket & { sentMessages: string[] } => {
+  const sentMessages: string[] = []
+  return { sentMessages, send: (message) => sentMessages.push(message), close: () => {} }
+}
+
+/** 接続とその役割を覚えておく、テスト用の保持の仕組み */
+const createStorage = (connections: readonly (readonly [TabSocket, string])[]): TabChannelState => ({
+  acceptWebSocket: () => {},
+  getWebSockets: () => connections.map(([socket]) => socket),
+  getTags: (socket) => connections.find(([candidate]) => candidate === socket)?.[1].split(',') ?? [],
+  setWebSocketAutoResponse: () => {},
+})
+
+describe('TabChannel', () => {
+  it('送り手から届いた連絡を、合成ページへ配る', () => {
+    const senderPage = createConnection()
+    const obsStage = createConnection()
+    const channel = new TabChannel(createStorage([
+      [senderPage, SENDER],
+      [obsStage, VIEWER],
+    ]))
+
+    channel.webSocketMessage(senderPage, '{"type":"who"}')
+
+    expect(obsStage.sentMessages).toEqual(['{"type":"who"}'])
+    expect(senderPage.sentMessages).toEqual([])
+  })
+
+  it('合成ページから届いた連絡を、送り手へ配る', () => {
+    const senderPage = createConnection()
+    const obsStage = createConnection()
+    const channel = new TabChannel(createStorage([
+      [senderPage, SENDER],
+      [obsStage, VIEWER],
+    ]))
+
+    channel.webSocketMessage(obsStage, '{"type":"hello","viewerId":"OBSの受け手"}')
+
+    expect(senderPage.sentMessages).toEqual(['{"type":"hello","viewerId":"OBSの受け手"}'])
+  })
+
+  it('合成ページから届いた連絡は、ほかの合成ページへ配らない', () => {
+    // オーバーレイ用キーは配信画面に映りうるので、それを持つだけで他の合成ページへ offer を送り込めないようにする
+    const obsStage = createConnection()
+    const anotherStage = createConnection()
+    const channel = new TabChannel(createStorage([
+      [obsStage, VIEWER],
+      [anotherStage, VIEWER],
+    ]))
+
+    channel.webSocketMessage(obsStage, '{"type":"offer","viewerId":"別の受け手","sdp":"v=0"}')
+
+    expect(anotherStage.sentMessages).toEqual([])
+  })
+
+  it('文字列でないものは配らない', () => {
+    const senderPage = createConnection()
+    const obsStage = createConnection()
+    const channel = new TabChannel(createStorage([
+      [senderPage, SENDER],
+      [obsStage, VIEWER],
+    ]))
+
+    channel.webSocketMessage(senderPage, new ArrayBuffer(8))
+
+    expect(obsStage.sentMessages).toEqual([])
+  })
+})

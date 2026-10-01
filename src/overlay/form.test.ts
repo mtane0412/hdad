@@ -36,7 +36,7 @@ describe('designsFor', () => {
   })
 
   it('デザインIDを持たない種類には1件も並べない', () => {
-    for (const kind of ['alerts', 'sideSuper', 'focus', 'bgm'] as const) expect(designsFor(kind)).toEqual([])
+    for (const kind of ['alerts', 'sideSuper', 'focus', 'bgm', 'tab'] as const) expect(designsFor(kind)).toEqual([])
   })
 })
 
@@ -49,10 +49,11 @@ describe('schemaFor', () => {
     expect(schemaFor('sideSuper', '')).toHaveProperty('position')
   })
 
-  it('アラート・注目コメント・再生中の曲は、配信者が決めるパラメータを持たない', () => {
+  it('アラート・注目コメント・再生中の曲・タブの映像は、配信者が決めるパラメータを持たない', () => {
     expect(schemaFor('alerts', '')).toEqual({})
     expect(schemaFor('focus', '')).toEqual({})
     expect(schemaFor('bgm', '')).toEqual({})
+    expect(schemaFor('tab', '')).toEqual({})
   })
 
   it('レジストリに無いデザインでは undefined を返す（既定のスキーマへ黙って倒さない）', () => {
@@ -61,7 +62,7 @@ describe('schemaFor', () => {
 })
 
 describe('defaultRectFor', () => {
-  it('配信画面と同じ大きさで使う素材（背景・アラート・サイドスーパー・注目コメント・再生中の曲）はオーバーレイいっぱいにする', () => {
+  it('配信画面と同じ大きさで使う素材（背景・アラート・サイドスーパー・注目コメント・再生中の曲・タブの映像）はオーバーレイいっぱいにする', () => {
     const full = { x: '0', y: '0', width: '100', height: '100' }
 
     expect(defaultRectFor('wallpaper')).toEqual(full)
@@ -69,6 +70,7 @@ describe('defaultRectFor', () => {
     expect(defaultRectFor('sideSuper')).toEqual(full)
     expect(defaultRectFor('focus')).toEqual(full)
     expect(defaultRectFor('bgm')).toEqual(full)
+    expect(defaultRectFor('tab')).toEqual(full)
   })
 
   it('小さく置く素材は、推奨の大きさ（時計は600×240px・チャットは480×800px）を割合にする', () => {

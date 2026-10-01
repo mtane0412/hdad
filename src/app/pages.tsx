@@ -4,7 +4,7 @@
  * サイドバーの項目と、パスごとに描く中身をここで決める。
  * 実ファイルとして配信されるページ（overlay/stage/・overlay/backstage/・speech/reader/・transcript/relay/）は、ここには載せない。
  */
-import { Bot, BrainCircuit, Camera, Captions, Gift, Layers, LayoutDashboard, MessagesSquare, Music, Pencil, Quote, Upload, Users, Volume2, Wrench, Zap, type LucideIcon } from 'lucide-react'
+import { AppWindow, Bot, BrainCircuit, Camera, Captions, Gift, Layers, LayoutDashboard, MessagesSquare, Music, Pencil, Quote, Upload, Users, Volume2, Wrench, Zap, type LucideIcon } from 'lucide-react'
 import type { AdminApi, Me } from '@/admin/api'
 import { BackstagePage } from '@/backstage/backstage-page'
 import type { BgmApi } from '@/bgm/api'
@@ -35,6 +35,10 @@ import { ScreenPage } from '@/screen/screen-page'
 import type { SpeechApi } from '@/speech/api'
 import { SpeechPage } from '@/speech/speech-page'
 import { TranscriptPage } from '@/transcript/transcript-page'
+import { captureTab } from '@/tab/capture'
+import { openSenderPeer } from '@/tab/peer'
+import { connectTabSender } from '@/tab/socket'
+import { TabPage } from '@/tab/tab-page'
 
 /** ページが中身を描くのに使うもの */
 export interface PageContext {
@@ -127,6 +131,14 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
         icon: Pencil,
         // 描いた線は中継先（Durable Object）を通って合成ページへその場で届き、引き終えたものはWorkerへ写して残す
         render: ({ drawApi }) => <DrawPage connect={connectDrawWriter} api={drawApi} />,
+      },
+      {
+        path: '/tab/',
+        name: 'タブの映像',
+        icon: AppWindow,
+        // 映像と音は合成ページへ WebRTC で直接流れ、Worker（Durable Object）を通るのはつなぐための連絡だけ。
+        // 映すタブは拡張（extension/）のショートカットで決め、拡張はこのページの URL の # にIDを入れて渡す
+        render: () => <TabPage connect={connectTabSender} capture={captureTab} openPeer={openSenderPeer} />,
       },
       {
         path: '/overlay/',

@@ -5,6 +5,7 @@
  */
 import { connectAlertSocket } from './alert-channel'
 import { connectDrawSocket } from './draw-channel'
+import { connectTabSocket } from './tab-channel'
 import { loadStrokes } from './draw-config'
 import { createGyazoClient } from './gyazo'
 import { loadFocusTarget } from './focus-config'
@@ -45,6 +46,20 @@ export const overlayDrawSocket = async (context: Context): Promise<Response> => 
     throw new HttpError(STATUS.badRequest, 'expected-websocket', 'この経路はWebSocketの接続にだけ使えます')
   }
   return connectDrawSocket(context.env.DRAW, context.request, false)
+}
+
+/**
+ * GET /api/overlay/tab?key=: 合成ページからのWebSocketの接続を、映す側として中継先へ引き渡す。
+ *
+ * 送り手のページ（/tab/）とのあいだで WebRTC の連絡をやりとりする。オーバーレイ用キーは配信画面に映りうるので、
+ * この接続から送ったものは送り手にしか届かない（他の合成ページへは配らない。worker/tab-channel.ts）。
+ */
+export const overlayTabSocket = async (context: Context): Promise<Response> => {
+  await requireOverlayKey(context)
+  if (context.request.headers.get('Upgrade') !== 'websocket') {
+    throw new HttpError(STATUS.badRequest, 'expected-websocket', 'この経路はWebSocketの接続にだけ使えます')
+  }
+  return connectTabSocket(context.env.TAB, context.request, false)
 }
 
 /**

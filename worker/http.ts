@@ -10,6 +10,7 @@ import type { AdBreakTimerNamespace } from './ad-break-timer'
 import type { AlertChannelNamespace } from './alert-channel'
 import type { CommentChannelNamespace } from './comment-channel'
 import type { DrawChannelNamespace } from './draw-channel'
+import type { TabChannelNamespace } from './tab-channel'
 import type { Database } from './database'
 import type { MediaBucket } from './media-bucket'
 import { isValidOverlayKey } from './overlay-key'
@@ -34,6 +35,7 @@ export interface Env {
    * 接続へ中継する）も量（1本の線で毎秒20〜30通）も違うためである（worker/draw-channel.ts）。
    */
   DRAW: DrawChannelNamespace
+  TAB: TabChannelNamespace
   /**
    * コメントビューアー（/comments/）へチャットの発言や出来事を配る Durable Object。
    *

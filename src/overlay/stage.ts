@@ -63,6 +63,9 @@ import { createSideSuperApi } from '../side-super/api'
 import { demoSideSupers } from '../side-super/demo'
 import { sideSuperParamSchema } from '../side-super/params'
 import { createSideSuperView } from '../side-super/view'
+import { openReceiverPeer } from '../tab/peer'
+import { createTabReceiver } from '../tab/receiver'
+import { connectTabViewer } from '../tab/socket'
 import { backgrounds } from '../wallpaper/registry'
 import { createOverlayLayoutApi } from './api'
 import { itemsInOverlay, overlayNamesOf, rectStyle, type ItemKind, type Overlay, type OverlayItem } from './layout'
@@ -82,6 +85,7 @@ const NOUNS: Readonly<Record<ItemKind, string>> = {
   focus: '注目コメント',
   draw: '手書き',
   bgm: '再生中の曲',
+  tab: 'タブの映像',
 }
 
 /** サイドスーパーの文言を読みに行く間隔（ミリ秒）。文言は cron が5分おきに作るので、30秒あれば十分に追いつく */
@@ -644,6 +648,75 @@ const mountBgm = (box: HTMLElement, item: OverlayItem, { key, demo }: MountConte
   return {}
 }
 
+/**
+ * タブの映像。配信者が送り手のページ（/tab/）で取り込んだ Chrome のタブ1枚の映像と音を映す（issue #164）。
+ *
+ * 映像と音は送り手から WebRTC で同じPCの中を直接届き、Workerを通るのはつなぐための連絡だけである
+ * （中継先は worker/tab-channel.ts、連絡への応じ方は src/tab/receiver.ts）。音も <video> から鳴らすので、
+ * OBSのブラウザソースで「OBSで音声を制御する」を有効にしてもらう（docs/guide/tab.md）。
+ *
+ * 注意: 何も届いていないあいだ（タブを閉じた・送り手のページを閉じた・映すのをやめた）は透明にするだけで、
+ * 箱に失敗を出さない。配信中に普通に起こる操作のため。箱に出すのは中継先につながらないときだけである。
+ */
+const mountTab = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
+  // この素材は配信者が決めるパラメータを持たない（映すタブは拡張のショートカットでその場で決める）
+  parseParams({}, new URLSearchParams(item.params))
+
+  if (demo) {
+    // プレビューでは中継先へつながず、置いた場所と大きさが分かる見本を出す（何も映していないと透明で確かめられない）
+    const sample = document.createElement('div')
+    sample.className = 'tab-sample'
+    sample.textContent = 'タブの映像'
+    box.append(sample)
+    return {}
+  }
+
+  const video = document.createElement('video')
+  video.className = 'tab-video'
+  video.autoplay = true
+  video.playsInline = true
+  video.hidden = true
+  box.append(video)
+
+  const showWarning = (message: string): void => {
+    // 前に出した知らせを消してから出す（つなぎ直しは繰り返すので、消さないと配信画面に積み上がる）
+    clearError(box, 'read')
+    showError(new Error(message), NOUNS.tab, box, 'read')
+  }
+
+  const receiver = createTabReceiver<MediaStream>({
+    // 合成ページごとに名前を分ける（OBSの別のシーンにも置かれていると、送り手は名前ごとに接続を作る）
+    viewerId: crypto.randomUUID(),
+    send: (message) => {
+      socket.send(message)
+    },
+    openPeer: openReceiverPeer,
+    onStream: (stream) => {
+      video.srcObject = stream
+      video.hidden = stream === null
+      if (stream === null) return
+      // OBSのブラウザソースは操作なしで音を鳴らせる（#163 で確かめた）。鳴らせなければ理由を箱に出す
+      video.play().catch((error: unknown) => showWarning(`タブの映像を再生できませんでした: ${error instanceof Error ? error.message : String(error)}`))
+    },
+    onWarning: showWarning,
+  })
+
+  const socket = connectTabViewer(key, {
+    onMessage: (message) => receiver.receive(message),
+    // つながるたびに名乗る（つなぎ直したあとも、送り手が映していればまた offer が届く）
+    onOpen: () => {
+      clearError(box, 'read')
+      receiver.opened()
+    },
+    onStatus: (status) => {
+      // 中継先との接続が切れても、WebRTC の映像はそのまま流れ続けるので出さない。つなぎ直せたら前の知らせを消す
+      if (status === 'reconnected') clearError(box, 'read')
+    },
+    onWarning: showWarning,
+  })
+  return {}
+}
+
 const mountItem = (box: HTMLElement, item: OverlayItem, context: MountContext): MountedItem => {
   switch (item.kind) {
     case 'wallpaper':
@@ -661,6 +734,8 @@ const mountItem = (box: HTMLElement, item: OverlayItem, context: MountContext): 
       return mountDraw(box, item, context)
     case 'bgm':
       return mountBgm(box, item, context)
+    case 'tab':
+      return mountTab(box, item, context)
   }
 }
 

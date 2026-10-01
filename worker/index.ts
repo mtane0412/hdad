@@ -31,6 +31,7 @@
  * | GET・PUT /api/admin/overlay/layout | セッション   | 合成オーバーレイの構成（オーバーレイと素材）の取得・保存 |
  * | GET・PUT /api/admin/draw/strokes | セッション     | 手書きで描いたものの取得・保存 |
  * | GET  /api/admin/draw/background  | セッション     | 描く画面の背景に敷く、配信画面を撮った最新の1枚 |
+ * | GET  /api/admin/tab/socket       | セッション     | 送り手のページ（/tab/）からのWebSocketの接続を受け、タブの映像の連絡の中継先へ引き渡す |
  * | GET  /api/admin/comments/socket  | セッション     | コメントビューアーからのWebSocketの接続を受け、配送先へ引き渡す |
  * | GET  /api/admin/comments/icons   | セッション     | 発言した人のアイコンのURLを、ユーザーIDからまとめて引く |
  * | POST /api/admin/comments/moderation | セッション   | 配信者が選んだ処分（発言の削除・タイムアウト・BAN）をbotの権限で行う |
@@ -62,6 +63,7 @@
  * | GET  /api/overlay/bgm            | オーバーレイ用キー | いま流しているBGMを返す（裏方のページから） |
  * | GET  /api/overlay/bgm/socket     | オーバーレイ用キー | 裏方のページからのWebSocketの接続を受け、BGMの切り替えの配送先へ引き渡す |
  * | GET  /api/overlay/draw/strokes   | オーバーレイ用キー | 保存されている手書きの線を返す（合成ページが開いたときに1度読む） |
+ * | GET  /api/overlay/tab            | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、タブの映像の連絡の中継先へ引き渡す |
  * | GET  /api/media/:id              | オーバーレイ用キーかセッション | 素材の中身を返す |
  *
  * これとは別に、cron（wrangler.jsonc の triggers.crons）から scheduled が呼ばれ、配信の記録を収集する（collect.ts）。
@@ -119,11 +121,13 @@ import {
   media,
   getScreen as getOverlayScreen,
   overlayDrawSocket,
+  overlayTabSocket,
   overlaySocket,
   postScreen,
   postTranscript,
 } from './overlay-routes'
 import { drawSocket, getDrawBackground, getDrawStrokes, putDrawStrokes } from './draw-routes'
+import { tabSocket } from './tab-routes'
 import { commentSocket, getCommentIcons, postCommentGreeting, postCommentMessage, postCommentModeration } from './comment-routes'
 import { getStatsFailures, getStatsFollowers, getStatsSession, getStatsSessions } from './stats-routes'
 import { AuthError } from './token'
@@ -134,6 +138,7 @@ import { TwitchApiError, createTwitchClient, type TwitchClient } from './twitch'
 export type { Env } from './http'
 export { AlertChannel } from './alert-channel'
 export { DrawChannel } from './draw-channel'
+export { TabChannel } from './tab-channel'
 export { CommentChannel } from './comment-channel'
 export { AdBreakTimer } from './ad-break-timer'
 
@@ -201,6 +206,7 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/admin/draw/strokes', handle: getDrawStrokes },
   { method: 'PUT', path: '/api/admin/draw/strokes', handle: putDrawStrokes },
   { method: 'GET', path: '/api/admin/draw/background', handle: getDrawBackground },
+  { method: 'GET', path: '/api/admin/tab/socket', handle: tabSocket },
   { method: 'GET', path: '/api/admin/comments/socket', handle: commentSocket },
   { method: 'GET', path: '/api/admin/comments/icons', handle: getCommentIcons },
   { method: 'POST', path: '/api/admin/comments/moderation', handle: postCommentModeration },
@@ -232,6 +238,7 @@ const ROUTES: readonly Route[] = [
   { method: 'POST', path: '/api/overlay/screen', handle: postScreen },
   { method: 'GET', path: '/api/overlay/draw', handle: overlayDrawSocket },
   { method: 'GET', path: '/api/overlay/draw/strokes', handle: getOverlayDrawStrokes },
+  { method: 'GET', path: '/api/overlay/tab', handle: overlayTabSocket },
   { method: 'GET', path: '/api/overlay/focus', handle: getOverlayFocus },
   { method: 'GET', path: '/api/overlay/bgm', handle: getOverlayBgm },
   { method: 'GET', path: '/api/overlay/bgm/socket', handle: overlayBgmSocket },

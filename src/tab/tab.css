@@ -1,0 +1,34 @@
+/*
+ * タブの映像（合成ページの素材）の見た目
+ *
+ * 送り手のページ（/tab/）から WebRTC で届いたタブの映像を、置かれた箱いっぱいに縦横比を保って映す。
+ * 縦横比が箱と違えば余白を空けて収め、余白は透明のままにする（後ろのソースを隠さない）。
+ * 何も届いていないあいだ（タブを閉じた・映すのをやめた）は映像を隠し、箱ごと透明にする。
+ */
+.tab-video {
+  /* 位置は画面ではなく置かれた箱を基準にする（合成ページのレイヤーの箱に入れるため。issue #101） */
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: transparent;
+}
+
+.tab-video[hidden] {
+  display: none;
+}
+
+/* プレビュー（管理画面の /overlay/）で、置いた場所と大きさを確かめるための見本 */
+.tab-sample {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border: 4px dashed rgb(255 255 255 / 60%);
+  background: rgb(30 34 48 / 70%);
+  color: rgb(255 255 255 / 85%);
+  font-family: 'Zen Kaku Gothic New', 'Hiragino Sans', 'Yu Gothic UI', sans-serif;
+  font-size: 48px;
+  font-weight: 700;
+}

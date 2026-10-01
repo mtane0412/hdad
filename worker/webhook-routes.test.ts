@@ -23,6 +23,7 @@ import { saveToken } from './token'
 import { listViewers, recordViewerMessage, updateViewerNote } from './viewer-store'
 import { createFakeAlertChannel } from './fake-alert-channel'
 import { createFakeDrawChannel } from './fake-draw-channel'
+import { createFakeTabChannel } from './fake-tab-channel'
 import { createFakeCommentChannel } from './fake-comment-channel'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
 
@@ -63,6 +64,7 @@ const createEnv = ({ channelShouldFail = false, overlayKey = ISSUED_OVERLAY_KEY,
     EVENTSUB_SECRET: SECRET,
     ALERTS: alertChannel.namespace,
     DRAW: createFakeDrawChannel().namespace,
+    TAB: createFakeTabChannel().namespace,
     COMMENTS: commentChannel.namespace,
     AD_BREAKS: adBreakTimer.namespace,
     AI: ai,

@@ -1,0 +1,14 @@
+/**
+ * Chrome 拡張（extension/）の型チェック設定
+ *
+ * 拡張は Chrome の拡張用 API の型（@types/chrome）を使うので、ブラウザ向け（tsconfig.json）とは分けてある。
+ * 送り手のページとの受け渡しの書式（src/tab/signal.ts）は拡張からも読み込むので、読み込んだ先も一緒に確かめられる。
+ * npm run type-check はこれも走らせる。
+ */
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["chrome", "node"]
+  },
+  "include": ["extension"]
+}

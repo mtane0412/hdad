@@ -13,6 +13,7 @@ import { createFakeAdBreakTimer } from './fake-ad-break-timer'
 import { createFakeWorkersAi } from './fake-ai'
 import { createFakeAlertChannel } from './fake-alert-channel'
 import { createFakeDrawChannel } from './fake-draw-channel'
+import { createFakeTabChannel } from './fake-tab-channel'
 import { createFakeCommentChannel } from './fake-comment-channel'
 import { createFakeBucket } from './fake-bucket'
 import { createFakeDatabase } from './fake-database'
@@ -54,6 +55,7 @@ const createEnv = () => {
     EVENTSUB_SECRET: 'テスト用のWebhookシークレット',
     ALERTS: createFakeAlertChannel().namespace,
     DRAW: createFakeDrawChannel().namespace,
+    TAB: createFakeTabChannel().namespace,
     COMMENTS: createFakeCommentChannel().namespace,
     AD_BREAKS: createFakeAdBreakTimer().namespace,
     AI: createFakeWorkersAi(),

@@ -97,6 +97,12 @@ describe('parseOverlayLayout', () => {
     expect(parseOverlayLayout({ overlays: [{ name: 'front', items: [nowPlayingTrack] }] })).toEqual({ overlays: [{ name: 'front', items: [nowPlayingTrack] }] })
   })
 
+  it('タブの映像（tab）はデザインIDを持たない種類として受け取る', () => {
+    const capturedTab: OverlayItem = { kind: 'tab', id: '', params: '', rect: { x: 0, y: 0, width: 100, height: 100 } }
+
+    expect(parseOverlayLayout({ overlays: [{ name: 'front', items: [capturedTab] }] })).toEqual({ overlays: [{ name: 'front', items: [capturedTab] }] })
+  })
+
   it('壁紙・時計・チャットはデザインIDが空だと拒む', () => {
     expect(issues({ overlays: [{ name: 'back', items: [{ ...wallpaper, id: '' }] }] })).toEqual([
       'overlays[0].items[0].id: デザインIDを指定してください（英数字と下線・ハイフン、40文字まで）',
