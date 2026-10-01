@@ -2,7 +2,8 @@
  * Chrome 拡張（extension/）のビルド設定
  *
  * サービスワーカー（src/background.ts）と offscreen document（src/offscreen.ts）を、それぞれ1つの ES モジュール
- * （background.js・offscreen.js）にまとめ、public/ の manifest.json・offscreen.html と並べて本体の public/tab-extension/ へ出す。
+ * （background.js・offscreen.js）にまとめ、public/ の manifest.json と並べて本体の public/tab-extension/ へ出す。
+ * offscreen.html は出さない（静的アセットの .html は Worker から読めないので、Worker が zip に書く。src/built-files.ts）。
  * 本体のビルドがそれを静的アセットとして配り、Worker（GET /api/admin/tab/extension.zip。worker/tab-extension.ts）が読んで、
  * 置き場所を書いた config.json と置き場所への権限を加えた zip にして配信者へ返す。
  *

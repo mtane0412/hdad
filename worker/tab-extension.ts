@@ -9,14 +9,16 @@
  * - manifest.json の host_permissions: その置き場所への権限。権限があると、拡張からのWebSocketに配信者のクッキー
  *   （SameSite=Lax）が付く。権限が無いと別サイトからの接続と同じ扱いになり、クッキーが付かない
  *
- * 拡張そのもの（manifest.json・background.js・offscreen.html・offscreen.js）は、本体のビルドの前に npm run build:extension が
+ * 拡張そのもの（manifest.json・background.js・offscreen.js）は、本体のビルドの前に npm run build:extension が
  * public/tab-extension/ へ出し、静的アセットとして配られている。ここは ASSETS から読むだけにする。
+ * offscreen document のページ（offscreen.html）だけは、ここで中身を書く（静的アセットは .html で終わるURLを
+ * 拡張子なしのURLへリダイレクトするので、ASSETS から読めないため。中身は extension/src/built-files.ts）。
  *
  * 注意: ファイルが1つでも読めなければ、欠けた zip を返さずに失敗させる（読み込めない拡張を配らない。Fail-Fast）。
  */
 import { strFromU8, strToU8, zipSync } from 'fflate'
 import { CONFIG_FILE, type ExtensionConfig } from '../extension/src/config'
-import { BUILT_FILES, MANIFEST_FILE } from '../extension/src/built-files'
+import { BUILT_FILES, MANIFEST_FILE, OFFSCREEN_PAGE, OFFSCREEN_PAGE_FILE } from '../extension/src/built-files'
 import { HttpError, STATUS, type AssetFetcher } from './http'
 
 /** ビルド済みの拡張が静的アセットとして置かれている場所 */
@@ -72,7 +74,10 @@ const withHostPermission = (manifest: Uint8Array, origin: string): Uint8Array =>
 export const buildExtensionZip = async (assets: AssetFetcher, origin: string): Promise<Uint8Array> => {
   const base = new URL(origin)
   const config: ExtensionConfig = { origin }
-  const entries: Record<string, Uint8Array> = { [`${EXTENSION_FOLDER}/${CONFIG_FILE}`]: strToU8(`${JSON.stringify(config, null, 2)}\n`) }
+  const entries: Record<string, Uint8Array> = {
+    [`${EXTENSION_FOLDER}/${CONFIG_FILE}`]: strToU8(`${JSON.stringify(config, null, 2)}\n`),
+    [`${EXTENSION_FOLDER}/${OFFSCREEN_PAGE_FILE}`]: strToU8(OFFSCREEN_PAGE),
+  }
   for (const name of BUILT_FILES) {
     const file = await readBuiltFile(assets, base, name)
     entries[`${EXTENSION_FOLDER}/${name}`] = name === MANIFEST_FILE ? withHostPermission(file, origin) : file
