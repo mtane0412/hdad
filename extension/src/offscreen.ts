@@ -4,8 +4,9 @@
  * サービスワーカー（background.ts）から届いた頼みに応じて、タブを取り込み、HDAD の合成ページへ WebRTC で送る。
  * ふるまいは capture-session.ts にあり、ここは Chrome の API とブラウザの取り込み・接続をつなぐだけにする。
  *
- * 中継先へは、config.json に書かれた HDAD の置き場所へ配信者のセッションでつなぐ（manifest.json の host_permissions が
- * あるので、配信者のクッキーが付く）。
+ * 中継先へは、config.json に書かれた HDAD の置き場所へ配信者のセッションでつなぐ。offscreen document からの WebSocket には
+ * クッキーが付かないので、サービスワーカーが chrome.cookies で読んだセッションを WebSocket のプロトコルの欄で渡す
+ * （src/tab/socket.ts の connectTabSender）。
  *
  * 注意: 頼みの形が違う・取り込めないときは、黙らずに理由を返事で返す（サービスワーカーがバッジで知らせる）。
  */
@@ -28,7 +29,9 @@ const report = (event: OffscreenEvent): void => {
   })
 }
 
-let session: CaptureSession | null = null
+let captureSession: CaptureSession | null = null
+/** いちばん新しく受け取った配信者のセッション。中継先へつなぎ直すたびに読む（映し始めるたびに読み直した値に置き換える） */
+let latestSession = ''
 
 chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse: (reply: OffscreenReply) => void) => {
   let command
@@ -41,19 +44,22 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse: (
   if (command === null) return false
 
   if (command.type === 'stop') {
-    session?.stop()
-    session = null
+    captureSession?.stop()
+    captureSession = null
     sendResponse({ ok: true })
     return false
   }
-  const { origin, streamId } = command
-  session ??= createCaptureSession({
-    connect: (handlers) => connectTabSender(origin, handlers),
+  // 中継先への接続は、最初に映し始めたときの置き場所で作る（止めるまで offscreen document ごと持ち続ける）。
+  // セッションはつなぎ直すたびに読むので、切り替えのたびに受け取る新しい値に置き換える
+  const { origin, streamId, session } = command
+  latestSession = session
+  captureSession ??= createCaptureSession({
+    connect: (handlers) => connectTabSender(origin, () => latestSession, handlers),
     capture: captureTab,
     openPeer: openSenderPeer,
     report,
   })
-  session.start(streamId).then(
+  captureSession.start(streamId).then(
     () => sendResponse({ ok: true }),
     (error: unknown) => sendResponse({ ok: false, message: reasonOf(error) }),
   )

@@ -10,8 +10,14 @@ import { OFFSCREEN_COMMAND_TARGET, parseOffscreenCommand } from './offscreen-com
 describe('parseOffscreenCommand', () => {
   it('取り込み始める頼みを読む', () => {
     expect(
-      parseOffscreenCommand({ target: OFFSCREEN_COMMAND_TARGET, type: 'start', streamId: 'ストリームID-1', origin: 'https://hdad.example.workers.dev' }),
-    ).toEqual({ type: 'start', streamId: 'ストリームID-1', origin: 'https://hdad.example.workers.dev' })
+      parseOffscreenCommand({
+        target: OFFSCREEN_COMMAND_TARGET,
+        type: 'start',
+        streamId: 'ストリームID-1',
+        origin: 'https://hdad.example.workers.dev',
+        session: '12345.1790000000.署名',
+      }),
+    ).toEqual({ type: 'start', streamId: 'ストリームID-1', origin: 'https://hdad.example.workers.dev', session: '12345.1790000000.署名' })
   })
 
   it('止める頼みを読む', () => {
@@ -23,7 +29,10 @@ describe('parseOffscreenCommand', () => {
   })
 
   it('offscreen document あてなのに形が違えばエラーにする', () => {
-    expect(() => parseOffscreenCommand({ target: OFFSCREEN_COMMAND_TARGET, type: 'start', streamId: '', origin: 'https://hdad.example.workers.dev' })).toThrow(
+    expect(() => parseOffscreenCommand({ target: OFFSCREEN_COMMAND_TARGET, type: 'start', streamId: '', origin: 'https://hdad.example.workers.dev', session: '12345.1790000000.署名' })).toThrow(
+      'サービスワーカーからの頼みの形が想定と違います',
+    )
+    expect(() => parseOffscreenCommand({ target: OFFSCREEN_COMMAND_TARGET, type: 'start', streamId: 'ストリームID-1', origin: 'https://hdad.example.workers.dev' })).toThrow(
       'サービスワーカーからの頼みの形が想定と違います',
     )
     expect(() => parseOffscreenCommand({ target: OFFSCREEN_COMMAND_TARGET, type: '不明' })).toThrow('サービスワーカーからの頼みの形が想定と違います')
