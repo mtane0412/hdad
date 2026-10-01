@@ -8,6 +8,7 @@
  * - HDAD の拡張以外から開かれた接続を断ること（WebSocketはGETなので、書き換えのときのCSRF対策が効かない）
  * - 拡張が WebSocket のプロトコルの欄で渡したセッションを確かめること（拡張からの WebSocket にはクッキーが付かないため）
  * - 拡張が読むクッキーの名前が、Worker が発行する名前と一致すること
+ * - 映さないサイトの一覧を、拡張（Authorization ヘッダーのセッション）と /tab/（クッキー）から読み書きできること
  */
 import { describe, expect, it } from 'vitest'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
@@ -22,6 +23,7 @@ import { createFakeStore } from './fake-store'
 import { createFakeTabChannel } from './fake-tab-channel'
 import { EXTENSION_ID } from '../extension/src/identity'
 import { SESSION_COOKIE_NAME } from '../extension/src/session-cookie'
+import { BLOCKED_HOSTS_PATH } from '../src/tab/blocked-hosts'
 import { SENDER_PROTOCOL } from '../src/tab/signal'
 import { SESSION_COOKIE } from './http'
 import { handleRequest, type Env } from './index'
@@ -186,6 +188,85 @@ describe('GET /api/overlay/tab', () => {
     const response = await invoke(new Request(`${site}/api/overlay/tab?key=${issuedKey}`), env)
 
     expect(response.status).toBe(400)
+  })
+})
+
+describe('映さないサイトの一覧（/api/admin/tab/blocked-hosts）', () => {
+  /** 拡張のサービスワーカーと同じく、chrome.cookies で読んだセッションを Authorization ヘッダーで渡して呼ぶ */
+  const callAsExtension = async (env: Env, init: RequestInit = {}, session?: string) => {
+    const token = session ?? (await createSessionToken(broadcasterId, env.SESSION_SECRET, now))
+    return invoke(
+      new Request(`${site}${BLOCKED_HOSTS_PATH}`, { ...init, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }),
+      env,
+    )
+  }
+
+  /** /tab/ のページと同じく、クッキーを付けて同じサイトから呼ぶ */
+  const callAsPage = async (env: Env, path: string, init: RequestInit = {}) => {
+    const session = await createSessionToken(broadcasterId, env.SESSION_SECRET, now)
+    return invoke(new Request(`${site}${path}`, { ...init, headers: { Cookie: `__Host-session=${session}`, Origin: site } }), env)
+  }
+
+  it('拡張がボタンの右クリックで登録したホスト名を、拡張と /tab/ の両方から読める', async () => {
+    const { env } = createEnv()
+
+    const added = await callAsExtension(env, { method: 'POST', body: JSON.stringify({ host: 'mail.google.com' }) })
+    expect(added.status).toBe(200)
+    expect(await added.json()).toEqual({ hosts: ['mail.google.com'] })
+
+    expect(await (await callAsExtension(env)).json()).toEqual({ hosts: ['mail.google.com'] })
+    expect(await (await callAsPage(env, BLOCKED_HOSTS_PATH)).json()).toEqual({ hosts: ['mail.google.com'] })
+  })
+
+  it('ホスト名でないものは登録せずに 400 を返す', async () => {
+    const { env } = createEnv()
+
+    const response = await callAsExtension(env, { method: 'POST', body: JSON.stringify({ host: 'https://mail.google.com/mail' }) })
+
+    expect(response.status).toBe(400)
+    expect(await (await callAsExtension(env)).json()).toEqual({ hosts: [] })
+  })
+
+  it('/tab/ から消したホスト名は一覧から外れる', async () => {
+    const { env } = createEnv()
+    await callAsExtension(env, { method: 'POST', body: JSON.stringify({ host: 'mail.google.com' }) })
+
+    const response = await callAsPage(env, `${BLOCKED_HOSTS_PATH}/mail.google.com`, { method: 'DELETE' })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ hosts: [] })
+  })
+
+  it('Authorization ヘッダーのセッションが正しくなければ断る', async () => {
+    const { env } = createEnv()
+
+    const response = await callAsExtension(env, {}, '12345.9999999999.forged-signature')
+
+    expect(response.status).toBe(401)
+  })
+
+  it('ログインしていなければ断る', async () => {
+    const { env } = createEnv()
+
+    const response = await invoke(new Request(`${site}${BLOCKED_HOSTS_PATH}`), env)
+
+    expect(response.status).toBe(401)
+  })
+
+  it('クッキーで呼ぶなら、別のサイトからの書き換えは断る（CSRF対策）', async () => {
+    const { env } = createEnv()
+    const session = await createSessionToken(broadcasterId, env.SESSION_SECRET, now)
+
+    const response = await invoke(
+      new Request(`${site}${BLOCKED_HOSTS_PATH}`, {
+        method: 'POST',
+        body: JSON.stringify({ host: 'mail.google.com' }),
+        headers: { Cookie: `__Host-session=${session}`, Origin: 'https://evil.example.com' },
+      }),
+      env,
+    )
+
+    expect(response.status).toBe(403)
   })
 })
 

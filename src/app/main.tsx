@@ -17,6 +17,7 @@ import { createScreenAdminApi } from '@/screen/api'
 import { createSpeechApi } from '@/speech/api'
 import { createStatsApi } from '@/stats/api'
 import { createViewerApi } from '@/viewers/api'
+import { createTabApi } from '@/tab/api'
 import { App } from './app'
 import './app.css'
 
@@ -37,9 +38,10 @@ const drawApi = createDrawApi(callWorker)
 const llmApi = createLlmApi(callWorker)
 const overlayApi = createOverlayLayoutAdminApi(callWorker)
 const bgmApi = createBgmApi(callWorker)
+const tabApi = createTabApi(callWorker)
 
 createRoot(root).render(
   <StrictMode>
-    <App api={api} statsApi={statsApi} botApi={botApi} viewerApi={viewerApi} speechApi={speechApi} screenApi={screenApi} focusApi={focusApi} commentApi={commentApi} drawApi={drawApi} llmApi={llmApi} overlayApi={overlayApi} bgmApi={bgmApi} />
+    <App api={api} statsApi={statsApi} botApi={botApi} viewerApi={viewerApi} speechApi={speechApi} screenApi={screenApi} focusApi={focusApi} commentApi={commentApi} drawApi={drawApi} llmApi={llmApi} overlayApi={overlayApi} bgmApi={bgmApi} tabApi={tabApi} />
   </StrictMode>,
 )

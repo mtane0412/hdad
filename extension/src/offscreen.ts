@@ -49,6 +49,17 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse: (
     sendResponse({ ok: true })
     return false
   }
+  if (command.type === 'pause' || command.type === 'resume') {
+    if (captureSession === null) {
+      // 映していないのに頼まれた（サービスワーカーの記録と食い違っている）。黙らずに返す
+      sendResponse({ ok: false, message: 'タブを映していません' })
+      return false
+    }
+    if (command.type === 'pause') captureSession.pause()
+    else captureSession.resume()
+    sendResponse({ ok: true })
+    return false
+  }
   // 中継先への接続は、最初に映し始めたときの置き場所で作る（止めるまで offscreen document ごと持ち続ける）。
   // セッションはつなぎ直すたびに読むので、切り替えのたびに受け取る新しい値に置き換える
   const { origin, streamId, session } = command

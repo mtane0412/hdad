@@ -7,6 +7,9 @@
  * - offscreen: 取り込んで送り続ける画面を作る（background.ts）
  * - storage: 映しているタブを chrome.storage.session に覚える（background.ts。無いと、映しているタブで押しても止められない）
  * - cookies: 配信者のセッションのクッキーを読む（background.ts。offscreen document からの WebSocket にはクッキーが付かないため）
+ * - webNavigation: 映しているタブが映さないサイトへ移り始めたことを、新しいページが描かれる前に知る（background.ts）
+ * - tabs: 映しているタブのURLの変化（history.pushState による画面遷移を含む）を知る（background.ts。無いと URL が渡されない）
+ * - contextMenus: ボタンの右クリックに「このサイトを映さない」を出す（background.ts）
  */
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -17,6 +20,6 @@ describe('manifest.json', () => {
     const manifest: unknown = JSON.parse(readFileSync(resolve(import.meta.dirname, '../public/manifest.json'), 'utf8'))
     const permissions = typeof manifest === 'object' && manifest !== null && 'permissions' in manifest ? manifest.permissions : undefined
 
-    expect(permissions).toEqual(expect.arrayContaining(['tabCapture', 'offscreen', 'storage', 'cookies']))
+    expect(permissions).toEqual(expect.arrayContaining(['tabCapture', 'offscreen', 'storage', 'cookies', 'webNavigation', 'tabs', 'contextMenus']))
   })
 })

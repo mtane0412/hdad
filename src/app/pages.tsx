@@ -35,6 +35,7 @@ import { ScreenPage } from '@/screen/screen-page'
 import type { SpeechApi } from '@/speech/api'
 import { SpeechPage } from '@/speech/speech-page'
 import { TranscriptPage } from '@/transcript/transcript-page'
+import type { TabApi } from '@/tab/api'
 import { TabPage } from '@/tab/tab-page'
 
 /** ページが中身を描くのに使うもの */
@@ -62,6 +63,8 @@ export interface PageContext {
   overlayApi: OverlayLayoutAdminApi
   /** BGMの曲と、流す曲・音量の読み書き（BGMのページが使う） */
   bgmApi: BgmApi
+  /** 映さないサイトの一覧の読み出しと削除（タブの映像のページが使う） */
+  tabApi: TabApi
   me: Me
   /** オーバーレイ用キーを再発行した。ほかのページから戻ってきても新しいキーを出せるよう、枠が持つログイン情報を書き換える */
   onOverlayKeyChange(overlayKey: string): void
@@ -133,8 +136,8 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
         path: '/tab/',
         name: 'タブの映像',
         icon: AppWindow,
-        // 取り込みと送信は拡張（extension/）の中で行い、このページは拡張を配って使い方を案内するだけ
-        render: () => <TabPage />,
+        // 取り込みと送信は拡張（extension/）の中で行い、このページは拡張を配って使い方を案内し、映さないサイトの一覧を消せるようにする
+        render: ({ tabApi }) => <TabPage api={tabApi} />,
       },
       {
         path: '/overlay/',
