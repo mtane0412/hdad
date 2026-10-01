@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "HDAD タブの映像",
+  "version": "0.1.0",
+  "description": "映したいタブで押すと、HDAD の「タブの映像」のページ（/tab/）へそのタブを渡します。ログインや鍵は持ちません。",
+  "permissions": ["tabCapture", "tabs"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": { "default_title": "このタブを配信に映す（HDAD）" },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": { "default": "Alt+Shift+T" },
+      "description": "このタブを配信に映す"
+    }
+  }
+}
