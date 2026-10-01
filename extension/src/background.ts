@@ -17,6 +17,7 @@ import { CONFIG_FILE, parseExtensionConfig, type ExtensionConfig } from './confi
 import { OFFSCREEN_PAGE_FILE } from './built-files'
 import { createSerialQueue, describeBadge, handleClick, handleOffscreenEvent, type ControllerApi } from './controller'
 import { reasonOf } from './guards'
+import { SESSION_COOKIE_NAME } from './session-cookie'
 import type { OffscreenCommandMessage, OffscreenReply } from './offscreen-command'
 import { parseOffscreenEvent } from './offscreen-event'
 
@@ -36,6 +37,21 @@ const loadConfig = async (): Promise<ExtensionConfig> => {
     throw new Error(`拡張の設定（${CONFIG_FILE}）がありません。HDAD の「タブの映像」のページ（/tab/）から拡張をダウンロードし直してください`)
   }
   return parseExtensionConfig(value)
+}
+
+/**
+ * 配信者のセッションのクッキーを読む。offscreen document からの WebSocket にはクッキーが付かないので、値を読んで渡す。
+ *
+ * @throws クッキーが無い場合（Chrome で HDAD にログインしていない・拡張にサイトへのアクセスが許可されていない）
+ */
+const readSession = async (origin: string): Promise<string> => {
+  const cookie = await chrome.cookies.get({ url: origin, name: SESSION_COOKIE_NAME })
+  if (cookie === null || cookie.value === '') {
+    throw new Error(
+      `Chrome で HDAD（${origin}）にログインしていません。HDAD を開いてログインしてから押してください（ログインしているなら、chrome://extensions で拡張のサイトへのアクセスを許可してください）`,
+    )
+  }
+  return cookie.value
 }
 
 const hasOffscreen = async (): Promise<boolean> =>
@@ -78,8 +94,9 @@ const api: ControllerApi = {
   getMediaStreamId: (targetTabId) => chrome.tabCapture.getMediaStreamId({ targetTabId }),
   startCapture: async (streamId) => {
     const config = await loadConfig()
+    const session = await readSession(config.origin)
     await ensureOffscreen()
-    const reply = await command({ target: 'offscreen', type: 'start', streamId, origin: config.origin })
+    const reply = await command({ target: 'offscreen', type: 'start', streamId, origin: config.origin, session })
     if (!reply.ok) throw new Error(reply.message)
   },
   stopCapture: async () => {

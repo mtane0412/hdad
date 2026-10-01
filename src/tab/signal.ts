@@ -13,6 +13,16 @@
  */
 import { isRecord } from '../core/api'
 
+/**
+ * 送り手（拡張）が中継先へつなぐときに WebSocket のプロトコル（Sec-WebSocket-Protocol）の先頭に置く名前。
+ *
+ * 拡張の offscreen document からの WebSocket には配信者のクッキーが付かないので、拡張は chrome.cookies で読んだ
+ * セッションの値をプロトコルの2つ目に置いて渡す（[SENDER_PROTOCOL, セッション]）。URL に載せると Worker の記録に
+ * 7日間使える値が残るため、URL には載せない。Worker（worker/tab-routes.ts）はこの名前を応え返す
+ * （応えないと、ブラウザは接続を失敗させる）。
+ */
+export const SENDER_PROTOCOL = 'hdad-tab-sender'
+
 /** 合成ページから送り手へ送る連絡 */
 export type FromViewer = { type: 'hello'; viewerId: string } | { type: 'answer'; viewerId: string; sdp: string }
 

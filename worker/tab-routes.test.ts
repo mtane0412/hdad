@@ -1,11 +1,13 @@
 /**
  * タブの映像の連絡の経路（/api/admin/tab/socket・/api/overlay/tab）のテスト
  *
- * 確かめるのは次の4点である。
+ * 確かめるのは次の6点である。
  * - 送り手（拡張の offscreen document が配信者のセッションでつなぐ）からの接続が、送り手として中継先へ引き渡されること
  * - 合成ページ（オーバーレイ用キー）からの接続が、合成ページとして引き渡されること
  * - ログインしていない接続・キーの誤った接続を断ること
  * - HDAD の拡張以外から開かれた接続を断ること（WebSocketはGETなので、書き換えのときのCSRF対策が効かない）
+ * - 拡張が WebSocket のプロトコルの欄で渡したセッションを確かめること（拡張からの WebSocket にはクッキーが付かないため）
+ * - 拡張が読むクッキーの名前が、Worker が発行する名前と一致すること
  */
 import { describe, expect, it } from 'vitest'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
@@ -19,6 +21,9 @@ import { createFakeDrawChannel } from './fake-draw-channel'
 import { createFakeStore } from './fake-store'
 import { createFakeTabChannel } from './fake-tab-channel'
 import { EXTENSION_ID } from '../extension/src/identity'
+import { SESSION_COOKIE_NAME } from '../extension/src/session-cookie'
+import { SENDER_PROTOCOL } from '../src/tab/signal'
+import { SESSION_COOKIE } from './http'
 import { handleRequest, type Env } from './index'
 import { createSessionToken } from './session'
 
@@ -87,6 +92,37 @@ describe('GET /api/admin/tab/socket', () => {
     expect(forwardedRoles(relayTarget)).toEqual(['sender'])
   })
 
+  it('拡張がプロトコルの欄で渡したセッションを確かめて、送り手として引き渡し、プロトコルを応える', async () => {
+    // 拡張の offscreen document からの WebSocket にはクッキーが付かないので、拡張は chrome.cookies で読んだ値をここで渡す
+    const { env, relayTarget } = createEnv()
+    const session = await createSessionToken(broadcasterId, env.SESSION_SECRET, now)
+
+    const response = await connect(env, '/api/admin/tab/socket', { Origin: extensionOrigin, 'Sec-WebSocket-Protocol': `${SENDER_PROTOCOL}, ${session}` })
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Sec-WebSocket-Protocol')).toBe(SENDER_PROTOCOL)
+    expect(forwardedRoles(relayTarget)).toEqual(['sender'])
+  })
+
+  it('プロトコルの欄のセッションが正しくなければ断る', async () => {
+    const { env, relayTarget } = createEnv()
+
+    const response = await connect(env, '/api/admin/tab/socket', { Origin: extensionOrigin, 'Sec-WebSocket-Protocol': `${SENDER_PROTOCOL}, 12345.9999999999.forged-signature` })
+
+    expect(response.status).toBe(401)
+    expect(relayTarget.forwardedConnections).toEqual([])
+  })
+
+  it('プロトコルの欄のセッションが正しくても、HDAD の拡張以外からの接続は断る', async () => {
+    const { env, relayTarget } = createEnv()
+    const session = await createSessionToken(broadcasterId, env.SESSION_SECRET, now)
+
+    const response = await connect(env, '/api/admin/tab/socket', { Origin: 'https://evil.example.com', 'Sec-WebSocket-Protocol': `${SENDER_PROTOCOL}, ${session}` })
+
+    expect(response.status).toBe(403)
+    expect(relayTarget.forwardedConnections).toEqual([])
+  })
+
   it('ログインしていない接続は断る', async () => {
     const { env, relayTarget } = createEnv()
 
@@ -150,5 +186,12 @@ describe('GET /api/overlay/tab', () => {
     const response = await invoke(new Request(`${site}/api/overlay/tab?key=${issuedKey}`), env)
 
     expect(response.status).toBe(400)
+  })
+})
+
+describe('拡張が読むセッションのクッキーの名前', () => {
+  it('Worker が発行するセッションのクッキーの名前と一致する', () => {
+    // 食い違うと、拡張は「ログインしていない」と誤って知らせ続ける（extension/src/session-cookie.ts）
+    expect(SESSION_COOKIE_NAME).toBe(SESSION_COOKIE)
   })
 })

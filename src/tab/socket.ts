@@ -7,7 +7,7 @@
  * つなぎ直し・生存確認は src/core/socket.ts が受け持ち、ここは経路と連絡の読み書き（signal.ts）だけを足す。
  */
 import { connectSocket, socketUrl } from '../core/socket'
-import { parseFromSender, parseFromViewer, type FromSender, type FromViewer } from './signal'
+import { SENDER_PROTOCOL, parseFromSender, parseFromViewer, type FromSender, type FromViewer } from './signal'
 
 /** 送り手がつなぐ経路（配信者のセッションで守られている） */
 const SENDER_PATH = '/api/admin/tab/socket'
@@ -40,8 +40,18 @@ export interface TabSocket<M> {
   close(): void
 }
 
-/** 経路へつなぎ、届いた文字列を読んで渡す */
-const connect = <In, Out>(url: string, parse: (text: string) => In, handlers: TabSocketHandlers<In>, hint: string): TabSocket<Out> => {
+/**
+ * 経路へつなぎ、届いた文字列を読んで渡す。
+ *
+ * @param protocols WebSocket のプロトコル（送り手だけが使う。SENDER_PROTOCOL を参照）
+ */
+const connect = <In, Out>(
+  url: string,
+  parse: (text: string) => In,
+  handlers: TabSocketHandlers<In>,
+  hint: string,
+  protocols: readonly string[] = [],
+): TabSocket<Out> => {
   const connection = connectSocket(
     url,
     {
@@ -59,6 +69,7 @@ const connect = <In, Out>(url: string, parse: (text: string) => In, handlers: Ta
       onWarning: (message) => handlers.onWarning(message),
     },
     hint,
+    (target) => new WebSocket(target, [...protocols]),
   )
   return { send: (message) => connection.send(JSON.stringify(message)), close: () => connection.close() }
 }
@@ -75,6 +86,7 @@ export const connectTabViewer = (key: string, handlers: TabSocketHandlers<FromSe
  * 送り手として中継先へつなぐ。
  *
  * @param origin HDAD の置き場所（送り手は拡張の画面なので、開いている場所と HDAD が違う）
+ * @param session 配信者のセッション（拡張が chrome.cookies で読んだ値）。クッキーが付かないので、プロトコルの欄で渡す
  */
-export const connectTabSender = (origin: string, handlers: TabSocketHandlers<FromViewer>): TabSocket<FromSender> =>
-  connect(socketUrl(SENDER_PATH, {}, origin), parseFromViewer, handlers, SENDER_HINT)
+export const connectTabSender = (origin: string, session: string, handlers: TabSocketHandlers<FromViewer>): TabSocket<FromSender> =>
+  connect(socketUrl(SENDER_PATH, {}, origin), parseFromViewer, handlers, SENDER_HINT, [SENDER_PROTOCOL, session])

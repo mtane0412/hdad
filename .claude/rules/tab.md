@@ -13,7 +13,7 @@ paths:
 
 **サービスワーカーと offscreen document は `chrome.runtime.sendMessage` であて先（`target`）を付けてやりとりする**（形は `extension/src/offscreen-command.ts`・`offscreen-event.ts`）。offscreen document は状態が変わるたびに全体（合成ページの数と失敗の知らせ）を送る。**2つの入口から同じモジュールを実行時に読み込まない**（共有のチャンクができると zip に入らない。サービスワーカー側の小さな判定は `extension/src/guards.ts`、offscreen document 側は `src/core/api.ts` の `isRecord` を使う。`extension/vite.config.ts` が決まったファイル以外を出したらビルドを失敗させる。一覧は `extension/src/built-files.ts`）。
 
-**拡張は配信者のセッション（クッキー）で中継先へつなぐ**。拡張にログイン情報や鍵は持たせない。クッキーが付くのは、ダウンロードのときに Worker が manifest.json へ置き場所の `host_permissions` を書き込むからである。Worker は `Origin` が `chrome-extension://<固定のID>` のときだけ送り手として受け入れる（IDは manifest.json の `key` で固定し、`extension/src/identity.ts` に持つ。一致は `identity.test.ts` が確かめる）。
+**拡張は配信者のセッションで中継先へつなぐ**。拡張にログイン情報や鍵を保存しない。**offscreen document からの WebSocket にはクッキーが付かない**（権限があっても付かないことを実機で確かめた）ので、サービスワーカーが `chrome.cookies` でセッションのクッキー（名前は `extension/src/session-cookie.ts`。Worker の `SESSION_COOKIE` との一致は `worker/tab-routes.test.ts` が確かめる）を読み、**WebSocket のプロトコルの欄で `[SENDER_PROTOCOL, セッション]` として渡す**（`src/tab/signal.ts`。URL に載せない。Worker の記録に7日間使える値が残るため）。Worker（`worker/tab-routes.ts`）はそれを確かめ、`SENDER_PROTOCOL` だけを応え返す。クッキーを読むのに要る `host_permissions` は、ダウンロードのときに Worker が manifest.json へ書き込む。Worker は `Origin` が `chrome-extension://<固定のID>` のときだけ送り手として受け入れる（IDは manifest.json の `key` で固定し、`extension/src/identity.ts` に持つ。一致は `identity.test.ts` が確かめる）。
 
 **連絡の中継（`worker/tab-channel.ts` の `TabChannel`）は中身を読まず、両方向に配る**。送り手から届いたものは合成ページ全員へ、合成ページから届いたものは送り手へだけ配り、**合成ページどうしには配らない**（オーバーレイ用キーは配信画面に映りうるため）。送り手として受け入れるのはセッションで守られた経路（`worker/tab-routes.ts`）だけで、WebSocket は GET なので `Origin` を自分で確かめる。合成ページ側の入口は `worker/overlay-routes.ts` の `overlayTabSocket`。
 

@@ -17,8 +17,11 @@ export const OFFSCREEN_COMMAND_TARGET = 'offscreen'
 
 /** サービスワーカーから届く頼み */
 export type OffscreenCommand =
-  /** このIDのタブを取り込んで、origin の HDAD の中継先へ送る（映していたものは置き換える） */
-  | { type: 'start'; streamId: string; origin: string }
+  /**
+   * このIDのタブを取り込んで、origin の HDAD の中継先へ送る（映していたものは置き換える）。
+   * session は配信者のセッション（サービスワーカーが chrome.cookies で読んだ値。offscreen document は chrome.cookies を使えない）
+   */
+  | { type: 'start'; streamId: string; origin: string; session: string }
   /** 映すのをやめる */
   | { type: 'stop' }
 
@@ -42,8 +45,8 @@ export const parseOffscreenCommand = (value: unknown): OffscreenCommand | null =
   if (!isRecord(value) || value.target !== OFFSCREEN_COMMAND_TARGET) return null
   if (value.type === 'stop') return { type: 'stop' }
   if (value.type === 'start') {
-    if (!isText(value.streamId) || !isText(value.origin)) throw new Error(INVALID)
-    return { type: 'start', streamId: value.streamId, origin: value.origin }
+    if (!isText(value.streamId) || !isText(value.origin) || !isText(value.session)) throw new Error(INVALID)
+    return { type: 'start', streamId: value.streamId, origin: value.origin, session: value.session }
   }
   throw new Error(INVALID)
 }
