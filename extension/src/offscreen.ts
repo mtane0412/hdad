@@ -30,6 +30,8 @@ const report = (event: OffscreenEvent): void => {
 }
 
 let captureSession: CaptureSession | null = null
+/** いちばん新しく受け取った配信者のセッション。中継先へつなぎ直すたびに読む（映し始めるたびに読み直した値に置き換える） */
+let latestSession = ''
 
 chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse: (reply: OffscreenReply) => void) => {
   let command
@@ -47,10 +49,12 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse: (
     sendResponse({ ok: true })
     return false
   }
-  // 中継先への接続は、最初に映し始めたときの置き場所とセッションで作る（止めるまで offscreen document ごと持ち続ける）
+  // 中継先への接続は、最初に映し始めたときの置き場所で作る（止めるまで offscreen document ごと持ち続ける）。
+  // セッションはつなぎ直すたびに読むので、切り替えのたびに受け取る新しい値に置き換える
   const { origin, streamId, session } = command
+  latestSession = session
   captureSession ??= createCaptureSession({
-    connect: (handlers) => connectTabSender(origin, session, handlers),
+    connect: (handlers) => connectTabSender(origin, () => latestSession, handlers),
     capture: captureTab,
     openPeer: openSenderPeer,
     report,

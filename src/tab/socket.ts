@@ -43,14 +43,14 @@ export interface TabSocket<M> {
 /**
  * 経路へつなぎ、届いた文字列を読んで渡す。
  *
- * @param protocols WebSocket のプロトコル（送り手だけが使う。SENDER_PROTOCOL を参照）
+ * @param protocols つなぐ（つなぎ直す）たびに読む WebSocket のプロトコル（送り手だけが使う。SENDER_PROTOCOL を参照）
  */
 const connect = <In, Out>(
   url: string,
   parse: (text: string) => In,
   handlers: TabSocketHandlers<In>,
   hint: string,
-  protocols: readonly string[] = [],
+  protocols: () => readonly string[] = () => [],
 ): TabSocket<Out> => {
   const connection = connectSocket(
     url,
@@ -69,7 +69,7 @@ const connect = <In, Out>(
       onWarning: (message) => handlers.onWarning(message),
     },
     hint,
-    (target) => new WebSocket(target, [...protocols]),
+    (target) => new WebSocket(target, [...protocols()]),
   )
   return { send: (message) => connection.send(JSON.stringify(message)), close: () => connection.close() }
 }
@@ -86,7 +86,8 @@ export const connectTabViewer = (key: string, handlers: TabSocketHandlers<FromSe
  * 送り手として中継先へつなぐ。
  *
  * @param origin HDAD の置き場所（送り手は拡張の画面なので、開いている場所と HDAD が違う）
- * @param session 配信者のセッション（拡張が chrome.cookies で読んだ値）。クッキーが付かないので、プロトコルの欄で渡す
+ * @param session 配信者のセッション（拡張が chrome.cookies で読んだ値）を返す関数。クッキーが付かないので、プロトコルの欄で渡す。
+ *   つなぎ直すたびに呼ぶので、映し始めるたびに読み直した新しい値が次のつなぎ直しから使われる（古い値で断られ続けない）
  */
-export const connectTabSender = (origin: string, session: string, handlers: TabSocketHandlers<FromViewer>): TabSocket<FromSender> =>
-  connect(socketUrl(SENDER_PATH, {}, origin), parseFromViewer, handlers, SENDER_HINT, [SENDER_PROTOCOL, session])
+export const connectTabSender = (origin: string, session: () => string, handlers: TabSocketHandlers<FromViewer>): TabSocket<FromSender> =>
+  connect(socketUrl(SENDER_PATH, {}, origin), parseFromViewer, handlers, SENDER_HINT, () => [SENDER_PROTOCOL, session()])
