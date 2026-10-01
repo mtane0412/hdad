@@ -76,7 +76,8 @@ export const openSenderPeer = (stream: MediaStream, handlers: SenderPeerHandlers
 export const openReceiverPeer = (handlers: ReceiverPeerHandlers<MediaStream>): ReceiverPeer => {
   const pc = new RTCPeerConnection()
   pc.addEventListener('track', (event) => {
-    // 映像と音は同じ stream に入って別々に届く。どちらで呼んでも同じ stream を映すだけなので、両方で知らせる
+    // 映像と音は同じ stream に入って別々に届くので、ここは届くたびに知らせる。同じ stream を2回知らせても
+    // 映し直させないのは受け手のふるまい（receiver.ts）の役目である（映し直すと再生が中断される）
     const [stream] = event.streams
     if (stream !== undefined) handlers.onStream(stream)
   })
