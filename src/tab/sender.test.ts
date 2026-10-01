@@ -184,6 +184,42 @@ describe('createTabSender', () => {
     expect(sent).toEqual([{ type: 'who' }, { type: 'who' }])
   })
 
+  it('offer を作れなかった接続は閉じ、次に名乗られたら作り直す', async () => {
+    // 閉じずに残すと「つながっていない接続」が残り続ける。名乗り直しを自分から頼まないのは、
+    // H.264 で送れないなど毎回失敗する原因のときに、失敗を繰り返し続けないため
+    let attempts = 0
+    const closed: boolean[] = []
+    const sender = createTabSender<FakeStream>({
+      send: () => undefined,
+      openPeer: () => {
+        attempts += 1
+        const index = closed.push(false) - 1
+        return {
+          offer: async () => {
+            throw new Error('接続の経路（ICE）を集め終えられませんでした')
+          },
+          accept: async () => undefined,
+          close: () => {
+            closed[index] = true
+          },
+        }
+      },
+      onConnectedCount: () => undefined,
+      onWarning: () => undefined,
+    })
+    sender.start({ label: '資料のタブ' })
+
+    sender.receive({ type: 'hello', viewerId: 'OBSの受け手' })
+    await settle()
+    // 失敗した時点で閉じている
+    expect(closed).toEqual([true])
+
+    sender.receive({ type: 'hello', viewerId: 'OBSの受け手' })
+
+    expect(closed).toEqual([true, false])
+    expect(attempts).toBe(2)
+  })
+
   it('offer を作れなかったら知らせる', async () => {
     const warnings: string[] = []
     const sender = createTabSender<FakeStream>({

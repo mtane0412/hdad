@@ -104,6 +104,12 @@ export const createTabSender = <S>(options: TabSenderOptions<S>): TabSender<S> =
         if (peers.get(viewerId) === entry) send({ type: 'offer', viewerId, sdp })
       })
       .catch((error: unknown) => {
+        // 失敗した接続は閉じて外す（残すと「つながっていない接続」が残り続ける）。名乗り直しは自分から頼まない。
+        // H.264 で送れないなど毎回失敗する原因のときに、失敗を繰り返し続けないため（次に名乗られたら作り直す）
+        if (peers.get(viewerId) === entry) {
+          entry.peer.close()
+          peers.delete(viewerId)
+        }
         options.onWarning(`合成ページへ映像を送れませんでした: ${error instanceof Error ? error.message : String(error)}`)
       })
   }

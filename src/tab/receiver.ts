@@ -89,6 +89,8 @@ export const createTabReceiver = <S>(options: TabReceiverOptions<S>): TabReceive
         if (current === peer) send({ type: 'answer', viewerId, sdp })
       })
       .catch((error: unknown) => {
+        // 失敗した接続は閉じる（送り手は、次に名乗ったときに作り直す）
+        if (current === peer) closeCurrent()
         options.onWarning(`タブの映像を受け取れませんでした: ${error instanceof Error ? error.message : String(error)}`)
       })
   }

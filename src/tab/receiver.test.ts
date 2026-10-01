@@ -141,6 +141,32 @@ describe('createTabReceiver', () => {
     expect(warnings).toEqual([])
   })
 
+  it('answer を作れなかった接続は閉じる', async () => {
+    const closed: boolean[] = []
+    const receiver = createTabReceiver<FakeStream>({
+      viewerId: 'OBSの受け手',
+      send: () => undefined,
+      openPeer: () => {
+        const index = closed.push(false) - 1
+        return {
+          answer: async () => {
+            throw new Error('接続の経路（ICE）を集め終えられませんでした')
+          },
+          close: () => {
+            closed[index] = true
+          },
+        }
+      },
+      onStream: () => undefined,
+      onWarning: () => undefined,
+    })
+
+    receiver.receive({ type: 'offer', viewerId: 'OBSの受け手', sdp: '申し込み1' })
+    await settle()
+
+    expect(closed).toEqual([true])
+  })
+
   it('answer を作れなかったら知らせる', async () => {
     const warnings: string[] = []
     const receiver = createTabReceiver<FakeStream>({
