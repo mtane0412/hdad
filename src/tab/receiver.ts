@@ -54,8 +54,11 @@ export interface TabReceiver {
 export const createTabReceiver = <S>(options: TabReceiverOptions<S>): TabReceiver => {
   const { viewerId, send } = options
   let current: ReceiverPeer | null = null
-  /** いま何かを映しているか。映していないのに「何も映さない」を知らせ直さないために持つ */
-  let showing = false
+  /**
+   * いま映している映像（null は何も映していない）。同じものを知らせ直さないために持つ
+   * （映像と音は別々に届くが同じ映像を指す。知らせ直すと合成ページが <video> にセットし直し、再生が中断される）
+   */
+  let shown: S | null = null
 
   const hello = (): void => send({ type: 'hello', viewerId })
 
@@ -64,8 +67,8 @@ export const createTabReceiver = <S>(options: TabReceiverOptions<S>): TabReceive
     if (current === null) return
     current.close()
     current = null
-    if (!showing) return
-    showing = false
+    if (shown === null) return
+    shown = null
     options.onStream(null)
   }
 
@@ -74,8 +77,8 @@ export const createTabReceiver = <S>(options: TabReceiverOptions<S>): TabReceive
     const peer: ReceiverPeer = options.openPeer({
       // 閉じた古い接続から遅れて届いたものは映さない（切り替える前のタブが映り戻らないように）
       onStream: (stream) => {
-        if (current !== peer) return
-        showing = true
+        if (current !== peer || shown === stream) return
+        shown = stream
         options.onStream(stream)
       },
       onClosed: () => {

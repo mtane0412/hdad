@@ -692,6 +692,8 @@ const mountTab = (box: HTMLElement, item: OverlayItem, { key, demo }: MountConte
     },
     openPeer: openReceiverPeer,
     onStream: (stream) => {
+      // 同じ映像をセットし直すと読み込みがやり直しになり、再生中の play() が中断されて失敗する
+      if (video.srcObject === stream) return
       video.srcObject = stream
       video.hidden = stream === null
       if (stream === null) return
