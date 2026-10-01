@@ -22,6 +22,7 @@ import { saveAlertConfig, type StoredTrigger } from './alert-config'
 import { saveToken } from './token'
 import { listViewers, recordViewerMessage, updateViewerNote } from './viewer-store'
 import { createFakeAlertChannel } from './fake-alert-channel'
+import { createFakeAssets } from './fake-assets'
 import { createFakeDrawChannel } from './fake-draw-channel'
 import { createFakeTabChannel } from './fake-tab-channel'
 import { createFakeCommentChannel } from './fake-comment-channel'
@@ -57,6 +58,7 @@ const createEnv = ({ channelShouldFail = false, overlayKey = ISSUED_OVERLAY_KEY,
     STORE: createFakeStore(overlayKey === null ? {} : { 'overlay-key': overlayKey }),
     MEDIA: createFakeBucket(),
     DB: db,
+    ASSETS: createFakeAssets(),
     TWITCH_CLIENT_ID: 'test-client-id',
     TWITCH_CLIENT_SECRET: 'テスト用シークレット',
     TWITCH_BROADCASTER_ID: BROADCASTER_ID,

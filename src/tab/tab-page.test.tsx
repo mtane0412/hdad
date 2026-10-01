@@ -9,6 +9,7 @@
  * - 「止める」で取り込みを止め、合成ページへ知らせる
  * - 取り込んだタブが閉じられたら、エラーにせず「映していません」に戻る
  * - つながっている合成ページの数を出す
+ * - Chrome 拡張をこの置き場所用にダウンロードできる
  */
 import { act, cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -157,6 +158,15 @@ describe('TabPage', () => {
     expect(screen.getByText('映していません')).toBeTruthy()
     expect(screen.queryByRole('alert')).toBeNull()
     expect(harness.sent.at(-1)).toEqual({ type: 'stop' })
+  })
+
+  it('Chrome 拡張をダウンロードできる', () => {
+    // 拡張には、ダウンロードしたときの置き場所を信頼する設定が入る（worker/tab-extension.ts）
+    const harness = createHarness()
+
+    render(<TabPage {...harness.props} />)
+
+    expect(screen.getByRole('link', { name: '拡張をダウンロード' }).getAttribute('href')).toBe('/api/admin/tab/extension.zip')
   })
 
   it('つながっている合成ページの数を出す', async () => {

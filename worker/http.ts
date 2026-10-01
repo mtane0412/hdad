@@ -19,6 +19,15 @@ import type { KeyValueStore } from './store'
 import type { TwitchClient } from './twitch'
 
 /** wrangler.jsonc のバインディングと、シークレット（.dev.vars／ダッシュボードで設定） */
+/**
+ * 静的アセット（Workers の ASSETS バインディング）。テストで差し替えられるよう、使うものだけを受け取る。
+ *
+ * Cloudflare の Fetcher はこの形を満たす。
+ */
+export interface AssetFetcher {
+  fetch(request: Request): Promise<Response>
+}
+
 export interface Env {
   /** Twitchのトークン・オーバーレイ用キー・アラートの設定（KV） */
   STORE: KeyValueStore
@@ -26,6 +35,8 @@ export interface Env {
   MEDIA: MediaBucket
   /** 配信の記録（D1） */
   DB: Database
+  /** 静的アセット（ビルド済みのページと拡張のファイル。拡張の zip を作るときに読む） */
+  ASSETS: AssetFetcher
   /** オーバーレイへアラートを配る Durable Object。Workerは接続を保持できないため、配送だけをここに任せる */
   ALERTS: AlertChannelNamespace
   /**

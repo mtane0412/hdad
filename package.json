@@ -6,8 +6,10 @@
   "description": "HDAD (Hyperfocus-Driven Assistant Director) — Twitch配信用の素材とアシスタント（OBSブラウザソース向け背景・チャット・アラート、チャットボット）",
   "type": "module",
   "scripts": {
+    "predev": "npm run build:extension",
     "dev": "vite",
     "dev:op": "op run --env-file=.dev.vars.op -- npm run dev",
+    "prebuild": "npm run build:extension",
     "build": "vite build",
     "build:extension": "vite build --config extension/vite.config.ts",
     "preview": "vite preview",
@@ -73,6 +75,7 @@
     "@fontsource-variable/geist": "^5.3.0",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.3.0",
+    "fflate": "^0.8.3",
     "lucide-react": "^1.47.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",

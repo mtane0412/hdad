@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
 import { createFakeWorkersAi } from './fake-ai'
 import { createFakeAlertChannel } from './fake-alert-channel'
+import { createFakeAssets } from './fake-assets'
 import { createFakeDrawChannel } from './fake-draw-channel'
 import { createFakeTabChannel } from './fake-tab-channel'
 import { createFakeCommentChannel } from './fake-comment-channel'
@@ -48,6 +49,7 @@ const createEnv = () => {
     STORE: createFakeStore({ 'overlay-key': issuedKey }),
     MEDIA: createFakeBucket(),
     DB: createFakeDatabase(),
+    ASSETS: createFakeAssets(),
     TWITCH_CLIENT_ID: 'test-client-id',
     TWITCH_CLIENT_SECRET: 'テスト用シークレット',
     TWITCH_BROADCASTER_ID: streamerId,

@@ -13,6 +13,7 @@ import { createFakeAdBreakTimer } from './fake-ad-break-timer'
 import { createFakeDatabase } from './fake-database'
 import { createFakeWorkersAi } from './fake-ai'
 import { createFakeAlertChannel } from './fake-alert-channel'
+import { createFakeAssets } from './fake-assets'
 import { createFakeDrawChannel } from './fake-draw-channel'
 import { createFakeTabChannel } from './fake-tab-channel'
 import { createFakeCommentChannel } from './fake-comment-channel'
@@ -62,6 +63,7 @@ const createEnv = () => {
     STORE: store,
     MEDIA: createFakeBucket(),
     DB: createFakeDatabase(),
+    ASSETS: createFakeAssets(),
     TWITCH_CLIENT_ID: 'test-client-id',
     TWITCH_CLIENT_SECRET: 'テスト用シークレット',
     TWITCH_BROADCASTER_ID: BROADCASTER_ID,

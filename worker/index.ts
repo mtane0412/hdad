@@ -31,6 +31,7 @@
  * | GET・PUT /api/admin/overlay/layout | セッション   | 合成オーバーレイの構成（オーバーレイと素材）の取得・保存 |
  * | GET・PUT /api/admin/draw/strokes | セッション     | 手書きで描いたものの取得・保存 |
  * | GET  /api/admin/draw/background  | セッション     | 描く画面の背景に敷く、配信画面を撮った最新の1枚 |
+ * | GET  /api/admin/tab/extension.zip | セッション   | 配信者が Chrome に読み込む拡張を、この置き場所を信頼する設定を入れた zip で返す |
  * | GET  /api/admin/tab/socket       | セッション     | 送り手のページ（/tab/）からのWebSocketの接続を受け、タブの映像の連絡の中継先へ引き渡す |
  * | GET  /api/admin/comments/socket  | セッション     | コメントビューアーからのWebSocketの接続を受け、配送先へ引き渡す |
  * | GET  /api/admin/comments/icons   | セッション     | 発言した人のアイコンのURLを、ユーザーIDからまとめて引く |
@@ -127,7 +128,7 @@ import {
   postTranscript,
 } from './overlay-routes'
 import { drawSocket, getDrawBackground, getDrawStrokes, putDrawStrokes } from './draw-routes'
-import { tabSocket } from './tab-routes'
+import { tabExtensionZip, tabSocket } from './tab-routes'
 import { commentSocket, getCommentIcons, postCommentGreeting, postCommentMessage, postCommentModeration } from './comment-routes'
 import { getStatsFailures, getStatsFollowers, getStatsSession, getStatsSessions } from './stats-routes'
 import { AuthError } from './token'
@@ -207,6 +208,7 @@ const ROUTES: readonly Route[] = [
   { method: 'PUT', path: '/api/admin/draw/strokes', handle: putDrawStrokes },
   { method: 'GET', path: '/api/admin/draw/background', handle: getDrawBackground },
   { method: 'GET', path: '/api/admin/tab/socket', handle: tabSocket },
+  { method: 'GET', path: '/api/admin/tab/extension.zip', handle: tabExtensionZip },
   { method: 'GET', path: '/api/admin/comments/socket', handle: commentSocket },
   { method: 'GET', path: '/api/admin/comments/icons', handle: getCommentIcons },
   { method: 'POST', path: '/api/admin/comments/moderation', handle: postCommentModeration },

@@ -1,5 +1,7 @@
 node_modules/
 dist/
+# 拡張のビルドの出力（npm run build:extension。本体が静的アセットとして配る）
+public/tab-extension/
 .DS_Store
 .wrangler/
 .dev.vars

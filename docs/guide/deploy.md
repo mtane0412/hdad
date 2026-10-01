@@ -87,6 +87,7 @@ R2は無料枠（保存10GB・転送無料）だけを使う場合でも、デ�
 | `GET`・`PUT /api/admin/overlay/layout` | 合成オーバーレイの構成（オーバーレイと素材）の取得・保存（要セッション） |
 | `GET /api/admin/draw/socket` | 描く画面からのWebSocketの接続を受け、引いた線を合成ページへ中継する（同じサイトからの接続だけを受け付ける。要セッション） |
 | `GET`・`PUT /api/admin/draw/strokes` | 手書きで描いたものの取得・保存（描く画面が線を1本引き終えてから数秒まとめて保存する。要セッション） |
+| `GET /api/admin/tab/extension.zip` | 配信者が Chrome に読み込む拡張を、この置き場所を信頼する設定を入れた zip で返す（要セッション） |
 | `GET /api/admin/tab/socket` | 送り手のページ（`/tab/`）からのWebSocketの接続を受け、合成ページとタブの映像をつなぐための連絡を中継する（同じサイトからの接続だけを受け付ける。要セッション） |
 | `GET /api/admin/draw/background` | 描く画面の背景に敷く、画面の取り込みが最後に撮った1枚の Gyazo の画像のURLを返す（同じ1枚なら304。要セッション） |
 | `GET /api/admin/comments/socket` | コメントビューアーからのWebSocketの接続を受け、直近の履歴とそのあとの発言・出来事を届ける（同じサイトからの接続だけを受け付ける。要セッション） |
