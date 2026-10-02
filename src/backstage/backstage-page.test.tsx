@@ -21,6 +21,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, test } from 'vitest'
 import type { ScreenAdminApi, ScreenSettings } from '@/screen/api'
 import type { SpeechApi, SpeechSettings } from '@/speech/api'
+import { RecognitionProvider, type RecognitionDeps } from '@/transcript/recognition-context'
 import { BackstagePage } from './backstage-page'
 
 const overlayKey = 'overlay-key_0123456789abcdefghij'
@@ -45,8 +46,21 @@ const screenApi: ScreenAdminApi = { load: () => Promise.resolve(screenSettings),
 /** botは未接続 */
 const botApi = { status: () => Promise.resolve(null) }
 
+/** 音声認識はこのページでは動かさない（オフのまま。動かし方は recognition-context.test.tsx で確かめる） */
+const recognitionDeps: RecognitionDeps = {
+  api: { send: () => Promise.resolve(true) },
+  createRecognition: null,
+  openMicrophone: () => Promise.reject(new Error('このテストではマイクを開きません')),
+  locks: { request: () => Promise.reject(new Error('このテストでは鍵を取りません')) },
+  storage: { getItem: () => null, setItem: () => {} },
+}
+
 const renderPage = (key: string | null = overlayKey) =>
-  render(<BackstagePage overlayKey={key} speechApi={speechApi} screenApi={screenApi} botApi={botApi} />)
+  render(
+    <RecognitionProvider deps={recognitionDeps}>
+      <BackstagePage overlayKey={key} speechApi={speechApi} screenApi={screenApi} botApi={botApi} />
+    </RecognitionProvider>,
+  )
 
 afterEach(cleanup)
 
@@ -60,10 +74,11 @@ const screenSwitch = () => screen.getByRole('checkbox', { name: 'Gyazo' })
 const bgmSwitch = () => screen.getByRole('checkbox', { name: 'BGM' })
 
 describe('コネクターのページ', () => {
-  test('VOICEVOX・Gyazo・HDAD-tab の区画を同じページに並べる', async () => {
+  test('VOICEVOX・Gyazo・HDAD-tab・Web Speech API の区画を同じページに並べる', async () => {
     renderPage()
 
     expect(await screen.findByRole('heading', { name: 'VOICEVOX' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Web Speech API' })).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: 'Gyazo' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'HDAD-tab' })).toBeInTheDocument()
   })

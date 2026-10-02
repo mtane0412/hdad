@@ -3,7 +3,9 @@
  *
  * 外部のサービスとつなぐものをまとめたページ。映すものを持たない裏方（VOICEVOX による読み上げ・ゆかコネNEO の
  * 文字起こしの中継・Gyazo への配信画面の取り込み・BGM）を1つのブラウザソースで動かすための、OBSに貼るURLを出し
- * （issue #108）、その下に各サービスの設定の区画（VOICEVOX・Gyazo・HDAD-tab）を並べる。
+ * （issue #108）、その下に各サービスの設定の区画（VOICEVOX・Gyazo・HDAD-tab・Web Speech API）を並べる。
+ * Web Speech API の区画は、アプリの枠で動かす音声認識（src/transcript/recognition-context.tsx）のオン・オフと様子を出す
+ * （issue #189。認識そのものは枠が持つので、ほかのページに移っても続く）。
  * 裏方そのものは overlay/backstage/index.html が行う（OBSに貼ってあるURLを変えないよう、そちらの名前は裏方のまま）。
  *
  * どの裏方を動かすかは「このブラウザソースが何をするか」という構造の指定なので、Worker には保存せず
@@ -31,6 +33,7 @@ import { ScreenSection } from '@/screen/screen-section'
 import type { SpeechApi } from '@/speech/api'
 import { SpeechSection } from '@/speech/speech-section'
 import { TabSection } from '@/tab/tab-section'
+import { RecognitionSection } from '@/transcript/recognition-section'
 import { DEFAULT_TRANSCRIPT_PORT } from '@/transcript/url'
 import { iconButtonName } from '@/core/icon-button'
 import { backstageUrl } from './url'
@@ -55,6 +58,7 @@ export const BackstagePage = ({ overlayKey, speechApi, botApi, screenApi }: Back
     <SpeechSection api={speechApi} botApi={botApi} />
     <ScreenSection api={screenApi} />
     <TabSection />
+    <RecognitionSection />
   </div>
 )
 

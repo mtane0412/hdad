@@ -60,7 +60,7 @@ npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 |---|---|---|
 | `chat.md` | チャットボックス（素材の種類 `chat`） | `src/chat/**` |
 | `alerts.md` | アラート（素材・トリガー・動作・広告） | `src/alerts/**`・`worker/alert-*.ts`・`worker/trigger-menu.ts`・`worker/ad-break-timer.ts`・`worker/ai-chat.ts`・`worker/bot-chat.ts`・`worker/webhook-routes.ts` |
-| `transcript.md` | 配信中の文字起こし（`transcript/relay/`・裏方の `?transcript=`） | `src/transcript/**`・`transcript/**`・`worker/transcript-store.ts` |
+| `transcript.md` | 配信中の文字起こし（アプリの枠の Web Speech API・`transcript/relay/`・裏方の `?transcript=`） | `src/transcript/**`・`transcript/**`・`worker/transcript-store.ts`・`worker/transcript-routes.ts`・`worker/overlay-routes.ts` |
 | `stream-chapters.md` | 配信で何が話されたか（章。ダッシュボードの配信の詳細） | `worker/stream-chapter*.ts`・`worker/collect.ts`・`worker/stream-chat-store.ts`・`worker/stats-store.ts`・`src/stats/**`・`migrations/*chapter*.sql` |
 | `stream-summary.md` | これまでのあらすじ（`{summary}`） | `worker/stream-summary*.ts`・`worker/collect.ts`・`worker/chat-command.ts`・`worker/alert-event.ts`・`worker/webhook-routes.ts` |
 | `viewers.md` | 視聴者の記録（`/viewers/`） | `src/viewers/**`・`worker/viewer-*.ts`・`worker/stream-chat-store.ts`・`worker/webhook-routes.ts`・`worker/collect.ts`・`worker/ai-chat.ts`・`migrations/*viewer*.sql` |
