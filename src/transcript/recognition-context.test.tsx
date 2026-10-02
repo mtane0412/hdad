@@ -6,9 +6,9 @@
  * 確かめるのは、オン・オフが覚えられること、鍵を取れたタブだけが認識すること、確定した発話が Worker へ送られること。
  */
 import { act, cleanup, render, screen } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { TranscriptApi } from './api'
-import { RecognitionProvider, useRecognition, type RecognitionDeps } from './recognition-context'
+import { browserRecognitionDeps, RecognitionProvider, useRecognition, type RecognitionDeps } from './recognition-context'
 import type { RecognitionLike, RecognitionResultEvent } from './recognizer'
 
 /** 呼ばれた操作を記録する SpeechRecognition の代役 */
@@ -224,5 +224,28 @@ describe('RecognitionProvider', () => {
 
     expect(screen.getByText('状態: unsupported')).toBeTruthy()
     expect(requested).toEqual([])
+  })
+})
+
+describe('browserRecognitionDeps', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  const api: TranscriptApi = { send: () => Promise.resolve(true) }
+
+  it('音声認識があり、タブ間の鍵も使えるブラウザでは、認識を作れる', () => {
+    vi.stubGlobal('webkitSpeechRecognition', FakeRecognition)
+    vi.stubGlobal('navigator', { ...navigator, locks: createLocks(true).locks })
+
+    expect(browserRecognitionDeps(api).createRecognition).not.toBeNull()
+  })
+
+  it('音声認識があっても、タブ間の鍵（Web Locks）が無ければ使えないものとして扱う', () => {
+    // 前提: https でないページなどでは navigator.locks が無い
+    vi.stubGlobal('webkitSpeechRecognition', FakeRecognition)
+    vi.stubGlobal('navigator', { ...navigator, locks: undefined })
+
+    expect(browserRecognitionDeps(api).createRecognition).toBeNull()
   })
 })

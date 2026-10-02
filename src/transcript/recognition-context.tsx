@@ -169,12 +169,19 @@ const findRecognitionConstructor = (): (new () => RecognitionLike) | null => {
   return found ? (found as new () => RecognitionLike) : null
 }
 
-/** このブラウザの音声認識・マイク・鍵・localStorage と、Worker への送信を組み立てる */
+/**
+ * このブラウザの音声認識・マイク・鍵・localStorage と、Worker への送信を組み立てる。
+ *
+ * 注意: タブ間の鍵（navigator.locks）が無いブラウザ（https でないページなど）では、音声認識があっても
+ * 使えないものとして扱う（createRecognition を null にする）。鍵なしで認識すると、2つのタブで二重に記録してしまうためである。
+ */
 export const browserRecognitionDeps = (api: TranscriptApi): RecognitionDeps => {
   const Recognition = findRecognitionConstructor()
+  // DOM の型では navigator.locks は必ずあることになっているが、実際には無いブラウザがある
+  const hasLocks: boolean = Reflect.get(navigator, 'locks') !== undefined
   return {
     api,
-    createRecognition: Recognition ? () => new Recognition() : null,
+    createRecognition: Recognition && hasLocks ? () => new Recognition() : null,
     async openMicrophone(onLost) {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       for (const track of stream.getAudioTracks()) track.addEventListener('ended', onLost)
