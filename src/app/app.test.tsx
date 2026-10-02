@@ -200,6 +200,7 @@ const createRecognitionDeps = (recognitionSetting: string | null = null): Recogn
   openMicrophone: () => Promise.reject(new Error('このテストではマイクを開きません')),
   locks: { request: () => Promise.reject(new Error('このテストでは鍵を取りません')) },
   storage: { getItem: () => recognitionSetting, setItem: () => {} },
+  connectCaption: () => ({ send: () => true, close: () => {} }),
 })
 
 describe('ログインしていないとき', () => {

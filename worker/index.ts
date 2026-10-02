@@ -31,6 +31,7 @@
  * | GET・PUT /api/admin/overlay/layout | セッション   | 合成オーバーレイの構成（オーバーレイと素材）の取得・保存 |
  * | GET・PUT /api/admin/draw/strokes | セッション     | 手書きで描いたものの取得・保存 |
  * | GET  /api/admin/draw/background  | セッション     | 描く画面の背景に敷く、配信画面を撮った最新の1枚 |
+ * | GET  /api/admin/caption/socket   | セッション     | アプリの枠の音声認識からのWebSocketの接続を受け、字幕の中継先へ引き渡す |
  * | GET  /api/admin/tab/extension.zip | セッション   | 配信者が Chrome に読み込む拡張を、この置き場所につなぐ設定と権限を入れた zip で返す |
  * | GET  /api/admin/tab/socket       | セッション＋拡張のOrigin | 拡張（送り手）からのWebSocketの接続を受け、タブの映像の連絡の中継先へ引き渡す |
  * | GET・POST /api/admin/tab/blocked-hosts | セッション（拡張は Authorization ヘッダー） | 映さないサイトの一覧の読み出し・登録 |
@@ -66,6 +67,7 @@
  * | GET  /api/overlay/bgm            | オーバーレイ用キー | いま流しているBGMを返す（裏方のページから） |
  * | GET  /api/overlay/bgm/socket     | オーバーレイ用キー | 裏方のページからのWebSocketの接続を受け、BGMの切り替えの配送先へ引き渡す |
  * | GET  /api/overlay/draw/strokes   | オーバーレイ用キー | 保存されている手書きの線を返す（合成ページが開いたときに1度読む） |
+ * | GET  /api/overlay/caption        | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、字幕の中継先へ引き渡す |
  * | GET  /api/overlay/tab            | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、タブの映像の連絡の中継先へ引き渡す |
  * | GET  /api/media/:id              | オーバーレイ用キーかセッション | 素材の中身を返す |
  *
@@ -123,6 +125,7 @@ import {
   getSpeech as getOverlaySpeech,
   media,
   getScreen as getOverlayScreen,
+  overlayCaptionSocket,
   overlayDrawSocket,
   overlayTabSocket,
   overlaySocket,
@@ -130,6 +133,7 @@ import {
   postTranscript,
 } from './overlay-routes'
 import { postAdminTranscript } from './transcript-routes'
+import { captionSocket } from './caption-routes'
 import { drawSocket, getDrawBackground, getDrawStrokes, putDrawStrokes } from './draw-routes'
 import { deleteTabBlockedHost, getTabBlockedHosts, postTabBlockedHost, tabExtensionZip, tabSocket } from './tab-routes'
 import { commentSocket, getCommentIcons, postCommentGreeting, postCommentMessage, postCommentModeration } from './comment-routes'
@@ -210,6 +214,7 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/admin/draw/strokes', handle: getDrawStrokes },
   { method: 'PUT', path: '/api/admin/draw/strokes', handle: putDrawStrokes },
   { method: 'GET', path: '/api/admin/draw/background', handle: getDrawBackground },
+  { method: 'GET', path: '/api/admin/caption/socket', handle: captionSocket },
   { method: 'GET', path: '/api/admin/tab/socket', handle: tabSocket },
   { method: 'GET', path: '/api/admin/tab/extension.zip', handle: tabExtensionZip },
   { method: 'GET', path: '/api/admin/tab/blocked-hosts', handle: getTabBlockedHosts },
@@ -247,6 +252,7 @@ const ROUTES: readonly Route[] = [
   { method: 'POST', path: '/api/overlay/screen', handle: postScreen },
   { method: 'GET', path: '/api/overlay/draw', handle: overlayDrawSocket },
   { method: 'GET', path: '/api/overlay/draw/strokes', handle: getOverlayDrawStrokes },
+  { method: 'GET', path: '/api/overlay/caption', handle: overlayCaptionSocket },
   { method: 'GET', path: '/api/overlay/tab', handle: overlayTabSocket },
   { method: 'GET', path: '/api/overlay/focus', handle: getOverlayFocus },
   { method: 'GET', path: '/api/overlay/bgm', handle: getOverlayBgm },

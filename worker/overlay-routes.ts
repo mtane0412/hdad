@@ -49,6 +49,20 @@ export const overlayDrawSocket = async (context: Context): Promise<Response> => 
 }
 
 /**
+ * GET /api/overlay/caption?key=: 合成ページからのWebSocketの接続を、見るだけとして字幕の中継先へ引き渡す。
+ *
+ * アプリの枠の音声認識が送る暫定・確定の文がここへ流れてくる（issue #190）。オーバーレイ用キーは配信画面に映りうるので、
+ * この接続からは字幕を出せない（送る側として受け入れるのは worker/caption-routes.ts の経路だけ）。
+ */
+export const overlayCaptionSocket = async (context: Context): Promise<Response> => {
+  await requireOverlayKey(context)
+  if (context.request.headers.get('Upgrade') !== 'websocket') {
+    throw new HttpError(STATUS.badRequest, 'expected-websocket', 'この経路はWebSocketの接続にだけ使えます')
+  }
+  return connectDrawSocket(context.env.DRAW, context.request, false, 'caption')
+}
+
+/**
  * GET /api/overlay/tab?key=: 合成ページからのWebSocketの接続を、映す側として中継先へ引き渡す。
  *
  * 送り手（拡張）とのあいだで WebRTC の連絡をやりとりする。オーバーレイ用キーは配信画面に映りうるので、

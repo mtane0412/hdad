@@ -7,7 +7,7 @@ paths:
 
 # 手書き（`/draw/`・素材の種類 `draw`）
 
-手書きは配信者がその場で引いた線を配信画面へ出す素材（素材の種類 `draw`）で、描く画面が `/draw/` である。描く画面と合成ページの両方が中継先（`worker/draw-channel.ts` の `DrawChannel`）へWebSocketでつなぎ、描く画面から届いた線をそのまま他の接続へ配る。アラートの配送（`AlertChannel`）と分けてあるのは、向き（接続から接続へ中継する）も量（1本の線で毎秒20〜30通）も違うためである。→ `docs/decisions/draw.md`
+手書きは配信者がその場で引いた線を配信画面へ出す素材（素材の種類 `draw`）で、描く画面が `/draw/` である。描く画面と合成ページの両方が中継先（`worker/draw-channel.ts` の `DrawChannel`）へWebSocketでつなぎ、描く画面から届いた線をそのまま他の接続へ配る。アラートの配送（`AlertChannel`）と分けてあるのは、向き（接続から接続へ中継する）も量（1本の線で毎秒20〜30通）も違うためである。→ `docs/decisions/draw.md`。**同じクラスを字幕も名前 `caption` の別のインスタンスとして使う**ので、`DrawChannel` に手書きだけの判断を持ち込まない（`.claude/rules/caption.md`）。
 
 **中継先は中身を読まない**（形の検証は受け取った側の `src/draw/stroke.ts` が持つ）。**描ける接続と見るだけの接続は、受け入れるときの目印（タグ）で分ける**。描く側として受け入れるのは配信者のセッションで守られた経路（`worker/draw-routes.ts`）だけで、合成ページが使うオーバーレイ用キー（`GET /api/overlay/draw`）では描けない（キーは配信画面に映りうるため）。**WebSocketの接続はGETなので `requireAdmin` の送信元の確認が効かない**。`drawSocket` が `Origin` を自分で確かめる（`SameSite=Lax` のクッキーは別サイトからのWebSocketには付かないが、ブラウザの決まりだけに頼らない）。
 

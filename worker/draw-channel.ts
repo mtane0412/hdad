@@ -21,13 +21,20 @@
  *
  * 描いたものを貯めないので、合成ページを開いていない間に引いた線は届かない（残す仕組みは Phase 3 で追加する）。
  *
+ * 字幕（issue #190）も、このクラスを別の名前（caption）のインスタンスとして使う。アプリの枠の音声認識が送る暫定・確定の文を、
+ * 合成ページの字幕の素材へ中継する。役割（送り手から見るだけの接続へ、中身を読まずに配る）が手書きと同じで、
+ * インスタンスを分ければ手書きの線と字幕は互いの接続にも負荷にも混ざらないためである。新しいクラスにしないのは、
+ * 同じ作りを2つ持たずに済み、Durable Object の追加（マイグレーション）も要らないためである。→ docs/decisions/caption.md
+ *
  * 注意: WebSocketの接続（Upgrade）は Cloudflare のランタイムでしか作れないので、テストでは中継の部分だけを確かめる。
  */
 import { STATUS } from './http'
 import { broadcast, type SocketLike } from './socket-broadcast'
 
-/** Durable Object の名前。中継先は1つだけなので、決め打ちの名前で同じものを指す */
-const CHANNEL_NAME = 'draw'
+/**
+ * 中継先の名前（Durable Object のインスタンスの名前）。手書きと字幕でそれぞれ1つだけなので、決め打ちの名前で同じものを指す
+ */
+export type RelayChannel = 'draw' | 'caption'
 
 /** 描く画面からの接続に付ける目印。この接続から届いたものだけを中継する */
 export const WRITER = 'writer'
@@ -100,24 +107,26 @@ export class DrawChannel {
     broadcast(
       this.ctx.getWebSockets().filter((peer) => peer !== socket),
       message,
-      '手書きの線',
+      '中継する1通（手書きの線・字幕）',
     )
   }
 }
 
-/** 中継先（1つだけ）を指す */
-const channelOf = (namespace: DrawChannelNamespace): { fetch(request: Request): Promise<Response> } => namespace.get(namespace.idFromName(CHANNEL_NAME))
+/** 中継先を名前で指す */
+const channelOf = (namespace: DrawChannelNamespace, channel: RelayChannel): { fetch(request: Request): Promise<Response> } =>
+  namespace.get(namespace.idFromName(channel))
 
 /**
  * WebSocketの接続を Durable Object へ引き渡す。
  *
  * 描く側として受け入れてよいか（配信者のセッションで守られた経路から来たか）の確認は、呼び出し側
- * （draw-routes.ts・overlay-routes.ts）が済ませている。
+ * （draw-routes.ts・caption-routes.ts・overlay-routes.ts）が済ませている。
  *
- * @param writable 描く側として受け入れるなら true
+ * @param writable 描く側（字幕なら送る側）として受け入れるなら true
+ * @param channel 引き渡す中継先。既定は手書き
  */
-export const connectDrawSocket = (namespace: DrawChannelNamespace, request: Request, writable: boolean): Promise<Response> => {
+export const connectDrawSocket = (namespace: DrawChannelNamespace, request: Request, writable: boolean, channel: RelayChannel = 'draw'): Promise<Response> => {
   const url = new URL(request.url)
   url.searchParams.set(ROLE_PARAM, writable ? WRITER : VIEWER)
-  return channelOf(namespace).fetch(new Request(url, request))
+  return channelOf(namespace, channel).fetch(new Request(url, request))
 }

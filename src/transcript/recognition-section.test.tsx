@@ -17,6 +17,7 @@ const baseValue = (overrides: Partial<RecognitionContextValue> = {}): Recognitio
   error: null,
   recognizer: { status: { kind: 'stopped' }, interim: '', restarts: 0, interruptedMs: 0 },
   lines: [],
+  captionWarning: null,
   ...overrides,
 })
 
@@ -62,6 +63,21 @@ describe('RecognitionSectionView', () => {
     fireEvent.click(screen.getByRole('button', { name: 'もう一度始める' }))
 
     expect(value.restart).toHaveBeenCalled()
+  })
+
+  it('字幕の中継先へ送れていなければ、その理由を出す', () => {
+    render(
+      <RecognitionSectionView
+        value={baseValue({
+          enabled: true,
+          phase: 'running',
+          recognizer: { status: { kind: 'listening' }, interim: '', restarts: 0, interruptedMs: 0 },
+          captionWarning: '字幕の中継先につながりません。ログインが切れていないか確かめてください',
+        })}
+      />,
+    )
+
+    expect(screen.getByText('字幕の中継先につながりません。ログインが切れていないか確かめてください')).toBeTruthy()
   })
 
   it('送った発話を、記録できたかどうかと一緒に新しいものから並べる', () => {

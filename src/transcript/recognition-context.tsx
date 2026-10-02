@@ -11,11 +11,15 @@
  *   アプリを2つのタブで開いて両方が認識すると、同じ発話が二重に記録されるためである。鍵を待つタブは、
  *   認識しているタブが閉じられたら代わりに始める
  * - ほかのタブでオン・オフを切り替えたら、storage の出来事で知り、このタブも合わせる
+ * - 認識しているタブは、話している途中の文と確定した文を字幕の中継先へも送る（issue #190。合成ページの字幕の素材が映す）。
+ *   途中の文は変わったときだけ送り、空になったことも送る（字幕から消すため）。字幕は流れていくものなので、
+ *   つながっていないあいだの分は貯めずに落とす
  *
  * 注意: Chrome の音声認識・マイク・鍵・localStorage・Worker への送信は deps で受け取る（テストで差し替えるため）。
  * ブラウザのものは browserRecognitionDeps が組み立てる。
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { connectCaptionWriter, type CaptionSocketHandlers, type CaptionWriter } from '../caption/socket'
 import type { TranscriptApi } from './api'
 import { createTranscriptDelivery, type DeliveredLine } from './delivery'
 import { createRecognizer, type MicrophoneHold, type RecognitionLike, type RecognizerState } from './recognizer'
@@ -34,6 +38,8 @@ export interface RecognitionDeps {
   /** タブ間の鍵（navigator.locks のうち使う部分） */
   locks: { request(name: string, options: { signal: AbortSignal }, callback: () => Promise<void>): Promise<void> }
   storage: Pick<Storage, 'getItem' | 'setItem'>
+  /** 字幕の中継先へ送る側としてつなぐ */
+  connectCaption(handlers: CaptionSocketHandlers): CaptionWriter
 }
 
 /**
@@ -57,6 +63,8 @@ export interface RecognitionContextValue {
   recognizer: RecognizerState
   /** 送った発話（新しいものが先頭） */
   lines: readonly DeliveredLine[]
+  /** 字幕の中継先へ送れていない理由（送れているか、認識していなければ null） */
+  captionWarning: string | null
 }
 
 const INITIAL_RECOGNIZER_STATE: RecognizerState = { status: { kind: 'stopped' }, interim: '', restarts: 0, interruptedMs: 0 }
@@ -80,6 +88,7 @@ export const RecognitionProvider = ({ deps, children }: { deps: RecognitionDeps;
   const [error, setError] = useState<string | null>(null)
   const [recognizer, setRecognizer] = useState<RecognizerState>(INITIAL_RECOGNIZER_STATE)
   const [lines, setLines] = useState<readonly DeliveredLine[]>([])
+  const [captionWarning, setCaptionWarning] = useState<string | null>(null)
 
   const delivery = useMemo(
     () =>
@@ -121,6 +130,7 @@ export const RecognitionProvider = ({ deps, children }: { deps: RecognitionDeps;
     }
     const controller = new AbortController()
     let running: ReturnType<typeof createRecognizer> | null = null
+    let caption: CaptionWriter | null = null
     let releaseLock: (() => void) | null = null
     setPhase('waiting')
     setError(null)
@@ -128,12 +138,27 @@ export const RecognitionProvider = ({ deps, children }: { deps: RecognitionDeps;
       .request(LOCK_NAME, { signal: controller.signal }, async () => {
         if (controller.signal.aborted) return
         setPhase('running')
+        const writer = deps.connectCaption({
+          onStatus: (status) => setCaptionWarning(status === 'disconnected' ? '字幕の中継先との接続が切れました。つなぎ直しています' : null),
+          onWarning: setCaptionWarning,
+        })
+        caption = writer
+        /** 最後に送った話している途中の文。状態は途中の文のほかにも変わるので、変わったときだけ送る */
+        let sentInterim = ''
         running = createRecognizer({
           createRecognition,
           openMicrophone: (onLost) => deps.openMicrophone(onLost),
           now: () => Date.now(),
-          onChange: setRecognizer,
-          onFinal: (text) => void delivery.deliver(text),
+          onChange: (state) => {
+            setRecognizer(state)
+            if (state.interim === sentInterim) return
+            sentInterim = state.interim
+            writer.send({ type: 'interim', text: state.interim })
+          },
+          onFinal: (text) => {
+            writer.send({ type: 'final', text })
+            void delivery.deliver(text)
+          },
         })
         void running.start()
         // オフにする・始め直す・枠が消えるまで鍵を持ち続ける
@@ -150,13 +175,15 @@ export const RecognitionProvider = ({ deps, children }: { deps: RecognitionDeps;
     return () => {
       controller.abort()
       running?.stop()
+      caption?.close()
+      setCaptionWarning(null)
       releaseLock?.()
     }
   }, [enabled, attempt, deps, delivery])
 
   const value = useMemo<RecognitionContextValue>(
-    () => ({ enabled, setEnabled, restart: () => setAttempt((current) => current + 1), phase, error, recognizer, lines }),
-    [enabled, setEnabled, phase, error, recognizer, lines],
+    () => ({ enabled, setEnabled, restart: () => setAttempt((current) => current + 1), phase, error, recognizer, lines, captionWarning }),
+    [enabled, setEnabled, phase, error, recognizer, lines, captionWarning],
   )
   return <RecognitionContext.Provider value={value}>{children}</RecognitionContext.Provider>
 }
@@ -193,5 +220,6 @@ export const browserRecognitionDeps = (api: TranscriptApi): RecognitionDeps => {
     },
     locks: navigator.locks,
     storage: window.localStorage,
+    connectCaption: connectCaptionWriter,
   }
 }

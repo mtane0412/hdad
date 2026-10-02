@@ -68,6 +68,7 @@ npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 | `comments.md` | コメントビューアー（`/comments/`） | `src/comments/**`・`worker/comment-*.ts`・`worker/chat-store.ts` |
 | `focus.md` | 注目コメント（素材の種類 `focus`） | `src/focus/**`・`worker/focus-*.ts` |
 | `draw.md` | 手書き（`/draw/`・素材の種類 `draw`） | `src/draw/**`・`worker/draw-*.ts`・`src/core/socket.ts` |
+| `caption.md` | 字幕（素材の種類 `caption`） | `src/caption/**`・`worker/caption-*.ts`・`worker/draw-channel.ts`・`src/transcript/recognition-context.tsx` |
 | `tab.md` | タブの映像（素材の種類 `tab`・Chrome 拡張 `extension/`） | `src/tab/**`・`extension/**`・`worker/tab-*.ts` |
 | `overlay.md` | 合成ページと構成の管理画面（`overlay/stage/`・`/overlay/`） | `src/overlay/**`・`overlay/**`・`worker/overlay-*.ts` |
 | `speech.md` | チャットの読み上げ（`speech/reader/`） | `src/speech/**`・`speech/**`・`worker/speech-config.ts` |

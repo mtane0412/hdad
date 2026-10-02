@@ -44,6 +44,7 @@ export interface Env {
    *
    * 描く画面（/draw/）と合成ページの両方がここへつなぐ。アラートの配送と分けてあるのは、向き（接続から
    * 接続へ中継する）も量（1本の線で毎秒20〜30通）も違うためである（worker/draw-channel.ts）。
+   * 字幕（アプリの枠の音声認識 → 合成ページ）も、別の名前（caption）のインスタンスとしてこれを使う。
    */
   DRAW: DrawChannelNamespace
   TAB: TabChannelNamespace

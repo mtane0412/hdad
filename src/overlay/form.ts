@@ -34,6 +34,7 @@ export const ITEM_KIND_LABELS: Readonly<Record<ItemKind, string>> = {
   draw: '手書き',
   bgm: '再生中の曲',
   tab: 'タブの映像',
+  caption: '字幕',
 }
 
 /** Workerが返す問題点に出る項目の名前を、画面の言い方にする */
@@ -61,6 +62,7 @@ const DESIGNS: Readonly<Record<ItemKind, readonly DesignItem[]>> = {
   draw: [],
   bgm: [],
   tab: [],
+  caption: [],
 }
 
 /**
