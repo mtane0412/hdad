@@ -105,10 +105,10 @@ export const tabExtensionZip = async (context: Context): Promise<Response> => {
 const BEARER_PREFIX = 'Bearer '
 
 /**
- * 拡張のサービスワーカーか /tab/ のページからの呼び出しであることを確かめる。
+ * 拡張のサービスワーカーか、配信者がログインしたブラウザ（クッキー）からの呼び出しであることを確かめる。
  *
  * 拡張は chrome.cookies で読んだセッションを Authorization ヘッダーで渡す（拡張からの通信にクッキーが付くかを当てにしない。
- * offscreen document からの WebSocket には付かなかったため）。ヘッダーが無ければ /tab/ のページとしてクッキーと送信元を確かめる。
+ * offscreen document からの WebSocket には付かなかったため）。ヘッダーが無ければクッキーと送信元を確かめる。
  *
  * 注意: Authorization ヘッダーの経路では送信元（Origin）を確かめない。ブラウザは Authorization ヘッダーを自動では付けず、
  * セッションのクッキーは HttpOnly でページのスクリプトから読めないので、別サイトに書き換えさせる（CSRF）ことはできないため。
@@ -127,13 +127,13 @@ const requireExtensionOrAdmin = async (context: Context): Promise<void> => {
   await requireBroadcasterToken(authorization.slice(BEARER_PREFIX.length), context)
 }
 
-/** GET /api/admin/tab/blocked-hosts: 映さないサイトの一覧（拡張が映し始めるたびに読み、/tab/ が表示する） */
+/** GET /api/admin/tab/blocked-hosts: 映さないサイトの一覧（拡張が映し始めるたびと、設定ページを開いたときに読む） */
 export const getTabBlockedHosts = async (context: Context): Promise<Response> => {
   await requireExtensionOrAdmin(context)
   return Response.json({ hosts: await loadBlockedHosts(context.env.STORE) })
 }
 
-/** POST /api/admin/tab/blocked-hosts: ホスト名（{ host }）を一覧に加える（拡張のボタンの右クリックから呼ばれる） */
+/** POST /api/admin/tab/blocked-hosts: ホスト名（{ host }）を一覧に加える（拡張の右クリックと設定ページから呼ばれる） */
 export const postTabBlockedHost = async (context: Context): Promise<Response> => {
   await requireExtensionOrAdmin(context)
   const body: unknown = await context.request.json().catch(() => {
@@ -143,8 +143,8 @@ export const postTabBlockedHost = async (context: Context): Promise<Response> =>
   return Response.json({ hosts: await addBlockedHost(context.env.STORE, host) })
 }
 
-/** DELETE /api/admin/tab/blocked-hosts/:host: ホスト名を一覧から外す（/tab/ から呼ばれる） */
+/** DELETE /api/admin/tab/blocked-hosts/:host: ホスト名を一覧から外す（拡張の右クリックと設定ページから呼ばれる） */
 export const deleteTabBlockedHost = async (context: Context): Promise<Response> => {
-  await requireAdmin(context)
+  await requireExtensionOrAdmin(context)
   return Response.json({ hosts: await removeBlockedHost(context.env.STORE, context.params.host ?? '') })
 }

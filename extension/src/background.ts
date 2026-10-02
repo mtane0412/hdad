@@ -14,7 +14,9 @@
  * 映さないサイト（issue #165）: 映しているタブの中でページが移り始めたこと（webNavigation.onBeforeNavigate）と、URLが変わったこと
  * （tabs.onUpdated。history.pushState による画面遷移も含む）を controller.ts の handleNavigation へ渡す。一覧は Worker
  * （/api/admin/tab/blocked-hosts）が持ち、拡張は chrome.cookies で読んだセッションを Authorization ヘッダーで渡して読み書きする。
- * ボタンの右クリックに「このサイトを映さない」を出し、押されたら handleBlockSite へ渡す。
+ * ボタンの右クリックに「このサイトを映さない」（登録済みなら「映す」）を出し、押されたら handleSiteMenuClick へ渡す。項目の名前は、
+ * 前に出ているタブが変わるたびに覚えている一覧から決め直す（refreshSiteMenu）。拡張の設定ページ（options.ts）からの頼みは
+ * handleSettingsRequest へ渡す。一覧は拡張を入れたときと Chrome を起動したときにも読んでおく（項目の名前を正しく出すため）。
  *
  * 注意: うまくいかないときは黙って何もしないのではなくバッジ「!」で知らせ、理由はボタンの説明に出す。
  */
@@ -24,10 +26,12 @@ import { OFFSCREEN_PAGE_FILE } from './built-files'
 import {
   createSerialQueue,
   describeBadge,
-  handleBlockSite,
   handleClick,
   handleNavigation,
   handleOffscreenEvent,
+  handleSettingsRequest,
+  handleSiteMenuClick,
+  refreshSiteMenu,
   type CaptureState,
   type ControllerApi,
 } from './controller'
@@ -35,11 +39,14 @@ import { isRecord, reasonOf } from './guards'
 import { SESSION_COOKIE_NAME } from './session-cookie'
 import type { OffscreenCommandMessage, OffscreenReply } from './offscreen-command'
 import { parseOffscreenEvent } from './offscreen-event'
+import { parseSettingsRequest, type SettingsReply } from './settings-request'
 
 /** 映しているタブの記録（CaptureState）を覚えておく chrome.storage.session の名前 */
 const CAPTURING_KEY = 'capture'
-/** ボタンの右クリックに出す「このサイトを映さない」の識別子 */
-const BLOCK_SITE_MENU_ID = 'block-site'
+/** 最後に読んだ映さないサイトの一覧を覚えておく chrome.storage.session の名前 */
+const BLOCKED_HOSTS_KEY = 'blockedHosts'
+/** ボタンの右クリックに出す「このサイトを映さない・映す」の識別子 */
+const SITE_MENU_ID = 'block-site'
 /** 映しているタブの中のページ（iframe ではないもの）を表す webNavigation の frameId */
 const MAIN_FRAME_ID = 0
 
@@ -91,10 +98,11 @@ const readSession = async (origin: string): Promise<string> => {
  * @returns 呼んだあとの一覧
  * @throws 呼べない・Worker が失敗を返した・応答の形が違う場合
  */
-const callBlockedHosts = async (init: RequestInit = {}): Promise<string[]> => {
+const callBlockedHosts = async (init: RequestInit = {}, host?: string): Promise<string[]> => {
   const config = await loadConfig()
   const session = await readSession(config.origin)
-  const response = await fetch(`${config.origin}${BLOCKED_HOSTS_PATH}`, {
+  const path = host === undefined ? BLOCKED_HOSTS_PATH : `${BLOCKED_HOSTS_PATH}/${encodeURIComponent(host)}`
+  const response = await fetch(`${config.origin}${path}`, {
     ...init,
     headers: { Authorization: `Bearer ${session}`, 'Content-Type': 'application/json' },
   })
@@ -157,6 +165,17 @@ const api: ControllerApi = {
   },
   loadBlockedHosts: () => callBlockedHosts(),
   addBlockedHost: (host) => callBlockedHosts({ method: 'POST', body: JSON.stringify({ host }) }),
+  removeBlockedHost: (host) => callBlockedHosts({ method: 'DELETE' }, host),
+  knownBlockedHosts: async () => {
+    const stored: unknown = (await chrome.storage.session.get(BLOCKED_HOSTS_KEY))[BLOCKED_HOSTS_KEY]
+    if (stored === undefined) return null
+    if (!Array.isArray(stored) || !stored.every(isHostName)) throw new Error('覚えている映さないサイトの一覧の形が想定と違います。拡張を読み込み直してください')
+    return stored
+  },
+  rememberBlockedHosts: async (hosts) => {
+    await chrome.storage.session.set({ [BLOCKED_HOSTS_KEY]: hosts })
+  },
+  activeTab: async () => (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0] ?? null,
   getMediaStreamId: (targetTabId) => chrome.tabCapture.getMediaStreamId({ targetTabId }),
   startCapture: async (streamId) => {
     const config = await loadConfig()
@@ -183,6 +202,9 @@ const api: ControllerApi = {
     await chrome.action.setBadgeText({ text: view.text })
     await chrome.action.setTitle({ title: view.title })
   },
+  showSiteMenu: async (menu) => {
+    await chrome.contextMenus.update(SITE_MENU_ID, { title: menu.title, enabled: menu.enabled })
+  },
 }
 
 /** 思わぬ失敗。原因を追えるよう記録し、バッジでも知らせる */
@@ -201,14 +223,42 @@ chrome.action.onClicked.addListener((tab) => {
   void enqueue(() => handleClick(tab, api))
 })
 
+/**
+ * 映さないサイトの一覧を読んでおき、右クリックの項目の名前を決める。
+ *
+ * 読めなくても（ログインしていないなど）ここでは知らせない。項目は「切り替える」の名前のまま押せ、押したときに読み直して理由を出すため。
+ */
+const preloadBlockedHosts = async (): Promise<void> => {
+  try {
+    await api.rememberBlockedHosts(await api.loadBlockedHosts())
+  } catch (error) {
+    console.error('映さないサイトの一覧を前もって読めませんでした', error)
+  }
+  await refreshSiteMenu(api)
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   // 右クリックの項目は拡張を入れた・更新したときに作る（作り直すと Chrome が重複の失敗を返すので、起動のたびには作らない）
-  chrome.contextMenus.create({ id: BLOCK_SITE_MENU_ID, title: 'このサイトを映さない', contexts: ['action'] })
+  chrome.contextMenus.create({ id: SITE_MENU_ID, title: 'このサイトを映さない', contexts: ['action'] })
+  void enqueue(preloadBlockedHosts)
+})
+
+// chrome.storage.session は Chrome を閉じると消えるので、起動したときに読み直す
+chrome.runtime.onStartup.addListener(() => {
+  void enqueue(preloadBlockedHosts)
 })
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-  if (info.menuItemId !== BLOCK_SITE_MENU_ID) return
-  void enqueue(() => handleBlockSite(tab ?? {}, api))
+  if (info.menuItemId !== SITE_MENU_ID) return
+  void enqueue(() => handleSiteMenuClick(tab ?? {}, api))
+})
+
+// 前に出ているタブが変わったら、右クリックの項目の名前を合わせる
+chrome.tabs.onActivated.addListener(() => {
+  void enqueue(() => refreshSiteMenu(api))
+})
+chrome.windows.onFocusChanged.addListener(() => {
+  void enqueue(() => refreshSiteMenu(api))
 })
 
 // 映さないサイトへ移り始めたら、新しいページが描かれる前に止める（iframe の中の移動は映っているページを変えないので見ない）
@@ -221,10 +271,34 @@ chrome.webNavigation.onBeforeNavigate.addListener((details) => {
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.url === undefined) return
   const url = changeInfo.url
-  void enqueue(() => handleNavigation({ tabId, url, committed: true }, api))
+  void enqueue(async () => {
+    await handleNavigation({ tabId, url, committed: true }, api)
+    await refreshSiteMenu(api)
+  })
 })
 
-chrome.runtime.onMessage.addListener((message: unknown) => {
+chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse: (reply: SettingsReply) => void) => {
+  let request
+  try {
+    request = parseSettingsRequest(message)
+  } catch (error) {
+    sendResponse({ ok: false, message: reasonOf(error) })
+    return false
+  }
+  if (request !== null) {
+    // 設定ページからの頼みも、押下や知らせと同じ順番に並べる（映しているタブの記録を読み書きするため）
+    void enqueue(async () => {
+      try {
+        sendResponse(await handleSettingsRequest(request, api))
+      } catch (error) {
+        // 返事をしないと設定ページが待ち続けるので、思わぬ失敗でも理由を返してから知らせる
+        sendResponse({ ok: false, message: reasonOf(error) })
+        throw error
+      }
+    })
+    // 返事を非同期で送るので true を返す（Chrome の決まり）
+    return true
+  }
   try {
     const event = parseOffscreenEvent(message)
     // 映し始めの途中に届いた知らせは、押下の処理（映しているタブの記録）が終わってから表示に反映する

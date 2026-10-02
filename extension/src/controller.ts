@@ -7,9 +7,12 @@
  * Chrome の API は ControllerApi として外から受け取り、ここは「押されたら何をするか・何を表示するか」だけを決める（テストのため）。
  * 映しているタブは api.remember で覚える（サービスワーカーは眠ると変数を失うので、chrome.storage.session に置く）。
  *
- * 映さないサイト（issue #165）: 映し始めるたびに Worker から一覧を読み、押したタブが一覧のサイトなら映さない。
- * 映しているタブが一覧のサイトへ移り始めたら（handleNavigation）送るのを止め、映してよいページが表示されたら送り直す。
- * ボタンの右クリック（handleBlockSite）で、そのタブのホスト名を一覧に加える。
+ * 映さないサイト（issue #165）: 一覧は Worker が持ち、拡張は最後に読んだ一覧を api.rememberBlockedHosts で覚える。
+ * - 映し始めるたびに Worker から読み直し、押したタブが一覧のサイトなら映さない
+ * - 映しているタブが一覧のサイトへ移り始めたら（handleNavigation）送るのを止め、映してよいページが表示されたら送り直す
+ * - ボタンの右クリック（handleSiteMenuClick）で、そのタブのサイトを登録する。登録済みなら一覧から外す（項目の名前も切り替える）
+ * - 拡張の設定ページ（handleSettingsRequest）で一覧を見て、ホスト名を入力して登録し、消す
+ * 一覧が変わったら（applyBlockedHosts）、映しているタブにもすぐ反映する（止める・送り直す）。
  *
  * 注意: IDを取れない・取り込めないときは、黙って何もしないのではなくバッジ「!」で知らせ、理由はボタンの説明に出す。
  * 注意: 映さないサイトの一覧を読めないときは映し始めない。保険が読めないまま映し続けるのは危険なので、安全側に倒す。
@@ -17,6 +20,7 @@
 import { hostOfPageUrl, isBlockedUrl } from '../../src/tab/blocked-hosts'
 import { reasonOf } from './guards'
 import type { OffscreenEvent } from './offscreen-event'
+import type { SettingsReply, SettingsRequest } from './settings-request'
 
 /** ボタンの状態 */
 export type BadgeState =
@@ -27,17 +31,24 @@ export type BadgeState =
   | { kind: 'paused'; host: string }
   /** 映さないサイトに登録した */
   | { kind: 'registered'; host: string }
+  /** 映さないサイトから外した */
+  | { kind: 'unregistered'; host: string }
 
 /** 映しているあいだに覚えておくこと（サービスワーカーは眠ると変数を失うので、まとめて chrome.storage.session に置く） */
 export interface CaptureState {
   /** 映しているタブ */
   readonly tabId: number
-  /** 映しているタブで最後に知ったURL（登録したサイトがいま映っているかを確かめるのに使う） */
+  /** 映しているタブで最後に知ったURL（一覧が変わったとき、いま映っているページを照合し直すのに使う） */
   readonly url: string
-  /** 映し始めたときに読んだ映さないサイトの一覧（右クリックで登録したら覚え直す） */
-  readonly blockedHosts: readonly string[]
   /** 映さないサイトにいて送るのを止めているなら、そのサイト（止めていなければ null） */
   readonly pausedAt: string | null
+}
+
+/** ボタンの右クリックに出す「映さない・映す」の項目 */
+export interface SiteMenuView {
+  readonly title: string
+  /** false なら押せなくする（ホスト名で登録できないページ） */
+  readonly enabled: boolean
 }
 
 /** この手順が使う Chrome の機能 */
@@ -46,6 +57,12 @@ export interface ControllerApi {
   capturing(): Promise<CaptureState | null>
   /** 映しているタブの記録を覚える（null は映していない） */
   remember(state: CaptureState | null): Promise<void>
+  /** 最後に読んだ映さないサイトの一覧（読んだことが無い・忘れたなら null） */
+  knownBlockedHosts(): Promise<readonly string[] | null>
+  /** 読んだ映さないサイトの一覧を覚える */
+  rememberBlockedHosts(hosts: readonly string[]): Promise<void>
+  /** いま前に出ているタブ（右クリックの項目の名前を決めるのに使う。無ければ null） */
+  activeTab(): Promise<ClickedTab | null>
   /**
    * 映さないサイトの一覧を Worker から読む。
    *
@@ -56,9 +73,16 @@ export interface ControllerApi {
    * ホスト名を映さないサイトに登録する。
    *
    * @returns 登録したあとの一覧
-   * @throws 登録できなかった場合
+   * @throws 登録できなかった場合（ホスト名の形が違う場合を含む。形の検証は Worker が持つ）
    */
   addBlockedHost(host: string): Promise<string[]>
+  /**
+   * ホスト名を映さないサイトから外す。
+   *
+   * @returns 外したあとの一覧
+   * @throws 外せなかった場合
+   */
+  removeBlockedHost(host: string): Promise<string[]>
   /** targetTabId のタブを、この拡張の画面で取り込むためのIDを取る */
   getMediaStreamId(targetTabId: number): Promise<string>
   /**
@@ -75,9 +99,11 @@ export interface ControllerApi {
   resumeCapture(): Promise<void>
   /** ボタンの表示を変える */
   show(state: BadgeState): Promise<void>
+  /** 右クリックの「映さない・映す」の項目を変える */
+  showSiteMenu(menu: SiteMenuView): Promise<void>
 }
 
-/** 押されたタブ（url はボタンかショートカットで呼ばれたときに Chrome が渡す。activeTab と同じ扱い） */
+/** 押されたタブ（url は権限 tabs があるので Chrome が渡す） */
 export interface ClickedTab {
   id?: number
   url?: string
@@ -97,10 +123,22 @@ export interface TabNavigation {
 }
 
 const IDLE: BadgeState = { kind: 'idle' }
-const HOW_TO_UNBLOCK = '一覧は HDAD の「タブの映像」のページで消せます'
+const CAPTURING: BadgeState = { kind: 'capturing', viewers: 0, warning: null }
+const HOW_TO_UNBLOCK = 'ボタンの右クリックか拡張の設定で外せます'
+const NOT_A_SITE = 'このページはホスト名で登録できません（登録できるのは http・https のページだけです）'
 
 /** 映さないサイトとして表示する名前（読めないURLはホスト名が無いので、URLのまま出す） */
 const siteOf = (url: string): string => hostOfPageUrl(url) ?? url
+
+/** 止めているあいだ・止められなかったとき・一覧が分からないときに、取り込みごと止めて理由を出す */
+const stopWith = async (message: string, api: ControllerApi): Promise<void> => {
+  try {
+    await api.stopCapture()
+  } finally {
+    await api.remember(null)
+  }
+  await api.show({ kind: 'problem', message })
+}
 
 /**
  * 映さないサイトへ移ったので、送るのを止めて覚える。
@@ -113,17 +151,60 @@ const pauseAt = async (state: CaptureState, url: string, api: ControllerApi): Pr
     try {
       await api.pauseCapture()
     } catch (error) {
-      try {
-        await api.stopCapture()
-      } finally {
-        await api.remember(null)
-      }
-      await api.show({ kind: 'problem', message: `映さないサイト（${site}）へ移りましたが、送るのを止められなかったので映すのをやめました: ${reasonOf(error)}` })
+      await stopWith(`映さないサイト（${site}）へ移りましたが、送るのを止められなかったので映すのをやめました: ${reasonOf(error)}`, api)
       return
     }
   }
   await api.remember({ ...state, url, pausedAt: site })
   await api.show({ kind: 'paused', host: site })
+}
+
+/**
+ * 止めていた送信を再開して覚える。
+ *
+ * 送り直せたときだけ「止めていない」と覚える。先に覚えると、送り直しに失敗したあと止めたままなのに送り直さなくなる。
+ */
+const resumeAt = async (state: CaptureState, url: string, api: ControllerApi): Promise<void> => {
+  await api.resumeCapture()
+  await api.remember({ ...state, url, pausedAt: null })
+  await api.show(CAPTURING)
+}
+
+/** 右クリックの項目の名前を、ページのURLと覚えている一覧から決める */
+export const describeSiteMenu = (url: string | undefined, hosts: readonly string[] | null): SiteMenuView => {
+  const host = url === undefined ? null : hostOfPageUrl(url)
+  if (host === null) return { title: 'このページは映さないサイトに登録できません', enabled: false }
+  // 一覧を覚えていなければ、押したときに読んでから切り替える
+  if (hosts === null) return { title: `このサイト（${host}）を映さない・映すを切り替える`, enabled: true }
+  return { title: hosts.includes(host) ? `このサイト（${host}）を映す` : `このサイト（${host}）を映さない`, enabled: true }
+}
+
+/** いま前に出ているタブに合わせて、右クリックの項目の名前を変える（タブの切り替え・URLの変化・一覧の変化のたびに呼ぶ） */
+export const refreshSiteMenu = async (api: ControllerApi): Promise<void> => {
+  const tab = await api.activeTab()
+  await api.showSiteMenu(describeSiteMenu(tab?.url, await api.knownBlockedHosts()))
+}
+
+/**
+ * 一覧が変わったことを覚え、映しているタブにすぐ反映する（いま映っているページを照合し直し、止める・送り直す）。
+ *
+ * @returns 映しているタブの表示を変えたなら true（呼び出し側は、登録した・外したことの表示を重ねない）
+ */
+const applyBlockedHosts = async (hosts: readonly string[], api: ControllerApi): Promise<boolean> => {
+  await api.rememberBlockedHosts(hosts)
+  await refreshSiteMenu(api)
+  const state = await api.capturing()
+  if (state === null) return false
+  const blocked = isBlockedUrl(state.url, hosts)
+  if (blocked && state.pausedAt === null) {
+    await pauseAt(state, state.url, api)
+    return true
+  }
+  if (!blocked && state.pausedAt !== null) {
+    await resumeAt(state, state.url, api)
+    return true
+  }
+  return false
 }
 
 /** 押されたタブを映す。映しているタブなら止める */
@@ -156,6 +237,7 @@ export const handleClick = async (tab: ClickedTab, api: ControllerApi): Promise<
     await api.show({ kind: 'problem', message: `映さないサイトの一覧を読めないので映しません: ${reasonOf(error)}` })
     return
   }
+  await api.rememberBlockedHosts(blockedHosts)
   if (isBlockedUrl(tab.url, blockedHosts)) {
     await api.show({ kind: 'problem', message: `${siteOf(tab.url)} は映さないサイトに登録されているので映しません（${HOW_TO_UNBLOCK}）` })
     return
@@ -184,8 +266,8 @@ export const handleClick = async (tab: ClickedTab, api: ControllerApi): Promise<
     await api.show({ kind: 'problem', message: `タブを取り込めませんでした: ${reasonOf(error)}。もう一度押してください` })
     return
   }
-  await api.remember({ tabId: tab.id, url: tab.url, blockedHosts, pausedAt: null })
-  await api.show({ kind: 'capturing', viewers: 0, warning: null })
+  await api.remember({ tabId: tab.id, url: tab.url, pausedAt: null })
+  await api.show(CAPTURING)
 }
 
 /**
@@ -197,52 +279,83 @@ export const handleClick = async (tab: ClickedTab, api: ControllerApi): Promise<
 export const handleNavigation = async (navigation: TabNavigation, api: ControllerApi): Promise<void> => {
   const state = await api.capturing()
   if (state === null || state.tabId !== navigation.tabId) return
-  if (isBlockedUrl(navigation.url, state.blockedHosts)) {
+  const hosts = await api.knownBlockedHosts()
+  if (hosts === null) {
+    // 映し始めるときに覚えたはずの一覧が無い。照合できないまま映し続けるのは危険なので止める
+    await stopWith('映さないサイトの一覧が分からなくなったので映すのをやめました。もう一度押してください', api)
+    return
+  }
+  if (isBlockedUrl(navigation.url, hosts)) {
     await pauseAt(state, navigation.url, api)
     return
   }
   if (!navigation.committed) return
-  const next: CaptureState = { ...state, url: navigation.url, pausedAt: null }
   if (state.pausedAt === null) {
-    await api.remember(next)
+    await api.remember({ ...state, url: navigation.url })
     return
   }
-  // 送り直せたときだけ「止めていない」と覚える。先に覚えると、送り直しに失敗したあと止めたままなのに送り直さなくなる
-  await api.resumeCapture()
-  await api.remember(next)
-  await api.show({ kind: 'capturing', viewers: 0, warning: null })
+  await resumeAt(state, navigation.url, api)
 }
 
 /**
- * ボタンの右クリックで、そのタブのホスト名を映さないサイトに登録する。映しているタブがそのサイトなら、すぐに送るのを止める。
+ * ボタンの右クリックで、そのタブのサイトを映さないサイトに登録する。登録済みなら一覧から外す。
  *
- * 手で打たせないので、登録できるのはいま開いているタブのホスト名だけである（docs/principles.md の方針2）。
+ * どちらにするかは、項目の名前を決めたのと同じ「覚えている一覧」で決める（名前と違う操作をしないため）。覚えていなければ読んでから決める。
+ * 手で打たせないので、登録できるのはいま開いているタブのホスト名だけである（手で入力するのは設定ページ）。
  */
-export const handleBlockSite = async (tab: ClickedTab, api: ControllerApi): Promise<void> => {
+export const handleSiteMenuClick = async (tab: ClickedTab, api: ControllerApi): Promise<void> => {
   const host = tab.url === undefined ? null : hostOfPageUrl(tab.url)
   if (host === null) {
-    await api.show({ kind: 'problem', message: 'このページはホスト名で登録できません（登録できるのは http・https のページだけです）' })
+    await api.show({ kind: 'problem', message: NOT_A_SITE })
     return
   }
-  let blockedHosts: string[]
+  let hosts = await api.knownBlockedHosts()
+  if (hosts === null) {
+    try {
+      hosts = await api.loadBlockedHosts()
+    } catch (error) {
+      await api.show({ kind: 'problem', message: `映さないサイトの一覧を読めないので切り替えられません: ${reasonOf(error)}` })
+      return
+    }
+  }
+  const registered = hosts.includes(host)
+  let next: string[]
   try {
-    blockedHosts = await api.addBlockedHost(host)
+    next = registered ? await api.removeBlockedHost(host) : await api.addBlockedHost(host)
   } catch (error) {
-    await api.show({ kind: 'problem', message: `映さないサイトに登録できませんでした: ${reasonOf(error)}` })
+    await api.show({ kind: 'problem', message: `${registered ? '映すサイトに戻せませんでした' : '映さないサイトに登録できませんでした'}: ${reasonOf(error)}` })
     return
   }
-  const state = await api.capturing()
-  if (state === null) {
-    await api.show({ kind: 'registered', host })
-    return
+  const changedCapture = await applyBlockedHosts(next, api)
+  // 映しているなら、映している状態の表示を残す（登録したことは右クリックの項目の名前で分かる）
+  if (changedCapture || (await api.capturing()) !== null) return
+  await api.show({ kind: registered ? 'unregistered' : 'registered', host })
+}
+
+/**
+ * 拡張の設定ページからの頼み（一覧・追加・削除）に応じる。一覧が変わったら映しているタブにもすぐ反映する。
+ *
+ * 注意: 失敗は投げずに理由を返す（設定ページがそのまま画面に出す）。ホスト名の形の検証は Worker が持つ。
+ */
+export const handleSettingsRequest = async (request: SettingsRequest, api: ControllerApi): Promise<SettingsReply> => {
+  let hosts: string[]
+  try {
+    switch (request.type) {
+      case 'list':
+        hosts = await api.loadBlockedHosts()
+        break
+      case 'add':
+        hosts = await api.addBlockedHost(request.host)
+        break
+      case 'remove':
+        hosts = await api.removeBlockedHost(request.host)
+        break
+    }
+  } catch (error) {
+    return { ok: false, message: reasonOf(error) }
   }
-  const next: CaptureState = { ...state, blockedHosts }
-  if (state.pausedAt === null && isBlockedUrl(state.url, blockedHosts)) {
-    await pauseAt(next, state.url, api)
-    return
-  }
-  // 映しているタブには関わらないので、ボタンの表示（映している状態）はそのままにする
-  await api.remember(next)
+  await applyBlockedHosts(hosts, api)
+  return { ok: true, hosts }
 }
 
 /** offscreen document からの知らせを、ボタンの表示に反映する */
@@ -312,7 +425,9 @@ export const describeBadge = (state: BadgeState): BadgeView => {
         title: `映さないサイト（${state.host}）なので、合成ページへ送るのを止めています。映してよいページへ移ると再開します`,
       }
     case 'registered':
-      return { text: '', color: null, title: `${state.host} を映さないサイトに登録しました（${HOW_TO_UNBLOCK}）` }
+      return { text: '', color: null, title: `${state.host} を映さないサイトに登録しました（もう一度右クリックすると外せます。一覧は拡張の設定で見られます）` }
+    case 'unregistered':
+      return { text: '', color: null, title: `${state.host} を映さないサイトから外しました` }
     case 'capturing': {
       if (state.warning !== null) return { text: PROBLEM_BADGE, color: PROBLEM_COLOR, title: `${state.warning}（${HOW_TO_STOP}）` }
       const viewers =

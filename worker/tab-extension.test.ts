@@ -34,6 +34,7 @@ const builtExtension = {
   '/tab-extension/manifest.json': '{"manifest_version":3,"name":"HDAD タブの映像","permissions":["tabCapture","offscreen"]}',
   '/tab-extension/background.js': 'console.log("ボタンを受ける")',
   '/tab-extension/offscreen.js': 'console.log("取り込んで送る")',
+  '/tab-extension/options.js': 'console.log("映さないサイトを管理する")',
 }
 
 const createEnv = (assets: Readonly<Record<string, FakeAsset>> = builtExtension) =>
@@ -85,11 +86,20 @@ describe('GET /api/admin/tab/extension.zip', () => {
       'hdad-tab/manifest.json',
       'hdad-tab/offscreen.html',
       'hdad-tab/offscreen.js',
+      'hdad-tab/options.html',
+      'hdad-tab/options.js',
     ])
     expect(strFromU8(files['hdad-tab/offscreen.js'] ?? new Uint8Array())).toBe('console.log("取り込んで送る")')
     expect(parseExtensionConfig(JSON.parse(strFromU8(files['hdad-tab/config.json'] ?? new Uint8Array())))).toEqual({
       origin: 'https://hdad.example.workers.dev',
     })
+  })
+
+  it('設定ページ（options.html）も静的アセットから読まずに書く', async () => {
+    const response = await download(createEnv())
+
+    const files = unzipSync(new Uint8Array(await response.arrayBuffer()))
+    expect(strFromU8(files['hdad-tab/options.html'] ?? new Uint8Array())).toContain('<script type="module" src="options.js"></script>')
   })
 
   it('offscreen.html は静的アセットから読まずに書く', async () => {

@@ -1,9 +1,9 @@
 /**
  * Chrome 拡張（extension/）のビルド設定
  *
- * サービスワーカー（src/background.ts）と offscreen document（src/offscreen.ts）を、それぞれ1つの ES モジュール
- * （background.js・offscreen.js）にまとめ、public/ の manifest.json と並べて本体の public/tab-extension/ へ出す。
- * offscreen.html は出さない（静的アセットの .html は Worker から読めないので、Worker が zip に書く。src/built-files.ts）。
+ * サービスワーカー（src/background.ts）・offscreen document（src/offscreen.ts）・設定ページ（src/options.ts）を、それぞれ1つの ES モジュール
+ * （background.js・offscreen.js・options.js）にまとめ、public/ の manifest.json と並べて本体の public/tab-extension/ へ出す。
+ * offscreen.html と options.html は出さない（静的アセットの .html は Worker から読めないので、Worker が zip に書く。src/built-files.ts）。
  * 本体のビルドがそれを静的アセットとして配り、Worker（GET /api/admin/tab/extension.zip。worker/tab-extension.ts）が読んで、
  * 置き場所を書いた config.json と置き場所への権限を加えた zip にして配信者へ返す。
  *
@@ -39,7 +39,11 @@ export default defineConfig({
     outDir: resolve(here, '../public/tab-extension'),
     emptyOutDir: true,
     rollupOptions: {
-      input: { background: resolve(here, 'src/background.ts'), offscreen: resolve(here, 'src/offscreen.ts') },
+      input: {
+        background: resolve(here, 'src/background.ts'),
+        offscreen: resolve(here, 'src/offscreen.ts'),
+        options: resolve(here, 'src/options.ts'),
+      },
       output: { format: 'es', entryFileNames: '[name].js' },
     },
   },

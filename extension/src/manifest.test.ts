@@ -14,10 +14,19 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { OPTIONS_PAGE_FILE } from './built-files'
+
+const manifest: unknown = JSON.parse(readFileSync(resolve(import.meta.dirname, '../public/manifest.json'), 'utf8'))
 
 describe('manifest.json', () => {
+  it('拡張の設定に、映さないサイトを管理する設定ページ（Worker が zip に書く options.html）を出す', () => {
+    // 設定ページがあると、Chrome はボタンの右クリックに「オプション」を出す
+    const options = typeof manifest === 'object' && manifest !== null && 'options_ui' in manifest ? manifest.options_ui : undefined
+
+    expect(options).toEqual({ page: OPTIONS_PAGE_FILE, open_in_tab: true })
+  })
+
   it('拡張が使う API の権限がそろっている', () => {
-    const manifest: unknown = JSON.parse(readFileSync(resolve(import.meta.dirname, '../public/manifest.json'), 'utf8'))
     const permissions = typeof manifest === 'object' && manifest !== null && 'permissions' in manifest ? manifest.permissions : undefined
 
     expect(permissions).toEqual(expect.arrayContaining(['tabCapture', 'offscreen', 'storage', 'cookies', 'webNavigation', 'tabs', 'contextMenus']))
