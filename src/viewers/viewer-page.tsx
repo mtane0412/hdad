@@ -13,7 +13,7 @@
 import { Search, Trash2 } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { LoadFailure } from '@/components/load-failure'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -82,10 +82,7 @@ export const ViewerPage = ({ api }: { api: ViewerApi }) => {
   if (loaded.status === 'loading') return <Skeleton className="h-64 w-full" aria-label="視聴者の記録を読み込んでいます" />
   if (loaded.status === 'failed') {
     return (
-      <Alert variant="destructive">
-        <AlertTitle>読み込みに失敗しました</AlertTitle>
-        <AlertDescription>視聴者の記録を表示できません: {loaded.message}</AlertDescription>
-      </Alert>
+      <LoadFailure title="視聴者の記録を表示できません" message={loaded.message} />
     )
   }
 
@@ -111,7 +108,7 @@ export const ViewerPage = ({ api }: { api: ViewerApi }) => {
   }
 
   return (
-    <div className="flex max-w-4xl flex-col gap-6">
+    <div className="flex flex-col gap-6">
       {actions.feedback}
 
       <Card>

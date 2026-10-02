@@ -791,7 +791,16 @@ export const OverlayPage = ({ api, overlayKey }: { api: OverlayLayoutAdminApi; o
           <CardTitle>オーバーレイを追加する</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
-          <div className="flex flex-wrap items-center gap-3">
+          {/* フォームにして、名前を打って Enter でも追加できるようにする（日本語の変換を確定する Enter ではブラウザは送信しない） */}
+          <form
+            className="flex flex-wrap items-center gap-3"
+            onSubmit={(event) => {
+              event.preventDefault()
+              if (trimmedNewName === '' || nameTaken) return
+              setDrafts([...drafts, newOverlayDraft(trimmedNewName)])
+              setNewName('')
+            }}
+          >
             {/* 見出しが「オーバーレイを追加する」なので、入力欄の見出しは画面には出さず、読み上げにだけ残す */}
             {/* 名前の書式（英小文字・数字・ハイフン）は Worker が確かめる */}
             <Input
@@ -805,19 +814,10 @@ export const OverlayPage = ({ api, overlayKey }: { api: OverlayLayoutAdminApi; o
               autoCapitalize="off"
               onChange={(event) => setNewName(event.currentTarget.value)}
             />
-            <Button
-              type="button"
-              size="icon"
-              {...iconButtonName('オーバーレイを追加する')}
-              disabled={trimmedNewName === '' || nameTaken}
-              onClick={() => {
-                setDrafts([...drafts, newOverlayDraft(trimmedNewName)])
-                setNewName('')
-              }}
-            >
+            <Button type="submit" size="icon" {...iconButtonName('オーバーレイを追加する')} disabled={trimmedNewName === '' || nameTaken}>
               <Plus aria-hidden="true" />
             </Button>
-          </div>
+          </form>
           {/* どちらも1行に収め、打ち始めても行がずれないよう高さを確保しておく */}
           <div className="min-h-5 text-sm">
             {/* 名前がOBSに貼るURLに載ることは、文章で説明せずURLそのものを見せて分からせる。

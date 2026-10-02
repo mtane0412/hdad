@@ -339,6 +339,15 @@ describe('オーバーレイ', () => {
     ])
   })
 
+  test('名前を打って Enter を押しても、オーバーレイを追加できる', async () => {
+    renderPage(fakeApi())
+
+    await userEvent.type(await screen.findByLabelText('追加するオーバーレイの名前'), 'talk{Enter}')
+
+    expect(await overlayRegion('talk')).toBeInTheDocument()
+    expect(screen.getByLabelText('追加するオーバーレイの名前')).toHaveValue('')
+  })
+
   test('名前を打つと、その名前の載ったOBS用URLをその場で見せる（名前とURLの関わりを文章で説明しない）', async () => {
     renderPage(fakeApi())
 

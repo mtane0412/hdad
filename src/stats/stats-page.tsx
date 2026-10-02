@@ -13,6 +13,7 @@
  */
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { LoadFailure } from '@/components/load-failure'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -204,10 +205,7 @@ export const StatsPage = ({ api, now }: StatsPageProps) => {
   if (loaded.status === 'loading') return <Skeleton className="h-64 w-full" aria-label="配信の記録を読み込んでいます" />
   if (loaded.status === 'failed') {
     return (
-      <Alert variant="destructive">
-        <AlertTitle>配信の記録を読み込めませんでした</AlertTitle>
-        <AlertDescription>{loaded.message}</AlertDescription>
-      </Alert>
+      <LoadFailure title="配信の記録を読み込めませんでした" message={loaded.message} />
     )
   }
 
@@ -261,7 +259,7 @@ export const StatsPage = ({ api, now }: StatsPageProps) => {
         <h2 id="overview-heading" className="text-lg font-semibold">
           直近{days}日の概要
         </h2>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-5">
           <StatCard label="配信回数" value={`${overview.streamCount}回`} />
           <StatCard label="配信時間" value={formatDuration(overview.totalDurationMs)} />
           <StatCard label="平均視聴者数" value={formatCount(overview.averageViewers)} note="人" />

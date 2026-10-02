@@ -21,6 +21,7 @@ import { useEffect, useId, useState } from 'react'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
 import type { BotApi } from '@/bot/api'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { LoadFailure } from '@/components/load-failure'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -143,10 +144,7 @@ export const SpeechPage = ({ api, botApi, overlayKey }: SpeechPageProps) => {
 
   if (loadFailure !== '') {
     return (
-      <Alert variant="destructive">
-        <AlertTitle>読み上げの設定を読み込めませんでした</AlertTitle>
-        <AlertDescription>{loadFailure}</AlertDescription>
-      </Alert>
+      <LoadFailure title="読み上げの設定を読み込めませんでした" message={loadFailure} />
     )
   }
 

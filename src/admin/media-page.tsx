@@ -10,7 +10,7 @@
  */
 import { Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { LoadFailure } from '@/components/load-failure'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -69,10 +69,7 @@ export const MediaPage = ({ api }: { api: AdminApi }) => {
   if (loaded.status === 'loading') return <Skeleton className="h-64 w-full" aria-label="素材を読み込んでいます" />
   if (loaded.status === 'failed') {
     return (
-      <Alert variant="destructive">
-        <AlertTitle>読み込みに失敗しました</AlertTitle>
-        <AlertDescription>素材を表示できません: {loaded.message}</AlertDescription>
-      </Alert>
+      <LoadFailure title="素材を表示できません" message={loaded.message} />
     )
   }
 
@@ -92,7 +89,7 @@ export const MediaPage = ({ api }: { api: AdminApi }) => {
   }
 
   return (
-    <div className="flex max-w-4xl flex-col gap-6">
+    <div className="flex flex-col gap-6">
       {actions.feedback}
 
       <Card>
@@ -113,12 +110,14 @@ export const MediaPage = ({ api }: { api: AdminApi }) => {
           ) : (
             <ul aria-label="素材の一覧" className="grid gap-3 sm:grid-cols-2">
               {media.map((item) => (
-                <li key={item.id} className="flex items-center gap-3 rounded-lg border p-3">
+                <li key={item.id} className="flex min-w-0 items-center gap-3 rounded-lg border p-3">
                   <div className="flex h-16 w-28 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted">
                     <MediaPreview item={item} />
                   </div>
                   <div className="flex min-w-0 flex-1 flex-col gap-1">
-                    <strong className="truncate text-sm font-medium">{item.name}</strong>
+                    <strong className="truncate text-sm font-medium" title={item.name}>
+                      {item.name}
+                    </strong>
                     <span className="text-xs text-muted-foreground">{`${kindLabels[item.kind]}・${formatBytes(item.size)}`}</span>
                   </div>
                   <Button

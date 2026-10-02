@@ -18,6 +18,7 @@
 import { useEffect, useId, useState } from 'react'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { LoadFailure } from '@/components/load-failure'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -120,10 +121,7 @@ export const ScreenPage = ({ api }: ScreenPageProps) => {
 
   if (loadFailure !== '') {
     return (
-      <Alert variant="destructive">
-        <AlertTitle>画面の取り込みの設定を読み込めませんでした</AlertTitle>
-        <AlertDescription>{loadFailure}</AlertDescription>
-      </Alert>
+      <LoadFailure title="画面の取り込みの設定を読み込めませんでした" message={loadFailure} />
     )
   }
 
