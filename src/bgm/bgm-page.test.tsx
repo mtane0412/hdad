@@ -3,21 +3,22 @@
  * BGMのページのテスト
  *
  * 確かめること:
- * - 保存済みの曲を並べ、いま流している曲が分かること
- * - 曲を流す・止める・音量を変えると、すぐに Worker へ送ること（配信中に切り替えるため）
- * - 上げた音声から曲を追加し、情報を書いて保存できること
+ * - 保存済みの曲を表（曲の一覧）に並べ、いま流している曲が分かること
+ * - プレーヤーで再生・停止・次の曲・前の曲・リピート・シャッフル・音量を操作すると、すぐに Worker へ送ること（配信中に切り替えるため）
+ * - 押し出された「いま流している曲」（曲の終わりで進んだ・Jev が切り替えた）をプレーヤーと表に映すこと
+ * - 上げた音声から曲を追加し、表の中で情報を書いて保存できること
  * - Workerが返した問題点を、画面に見えている名前で並べること（検証はWorkerだけが持つ）
  * - 読み込めなかったときは、黙って空の一覧に倒さず理由を出すこと
  * - Jev に話題に合う曲へ切り替えさせるかを、その場で入れたり切ったりできること（既定はオフ。issue #153）
  */
 import '@testing-library/jest-dom/vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, test } from 'vitest'
 import type { MediaItem } from '@/admin/api'
 import { ApiError } from '@/core/api'
-import type { BgmApi, BgmPlayback, BgmSettings, BgmTrack } from './api'
-import { BgmPage } from './bgm-page'
+import type { BgmApi, BgmNowPlaying, BgmPlayback, BgmSettings, BgmStep, BgmTrack } from './api'
+import { BgmPage, type BgmWatchHandlers } from './bgm-page'
 
 afterEach(cleanup)
 
@@ -41,6 +42,9 @@ const hypeTrack: BgmTrack = {
   scene: 'ボス戦・盛り上がったとき',
 }
 
+/** 雑談の曲を、リピートもシャッフルも切って流している */
+const playingChat: BgmPlayback = { mediaId: chatTrack.mediaId, volume: 0.3, repeat: false, shuffle: false }
+
 /** 上げてある素材。曲にしている2つの音声のほかに、まだ曲にしていない音声と画像がある */
 const uploadedMaterial: MediaItem[] = [
   { id: 'media-zatsudan', name: 'hidamari.mp3', kind: 'audio', contentType: 'audio/mpeg', size: 100, uploadedAt: '2026-09-29T00:00:00Z' },
@@ -49,18 +53,24 @@ const uploadedMaterial: MediaItem[] = [
   { id: 'media-gazou', name: 'kanpai.png', kind: 'image', contentType: 'image/png', size: 100, uploadedAt: '2026-09-29T00:00:00Z' },
 ]
 
-/** 読み書きを記録する、BGMのAPI */
+/** 読み書きを記録する、BGMのAPI。次の曲・前の曲へ進めると、Worker の代わりに全力疾走を流したことにする */
 const bgmApi = (
   tracks: BgmTrack[] = [chatTrack, hypeTrack],
-  playback: BgmPlayback = { mediaId: chatTrack.mediaId, volume: 0.3 },
-): BgmApi & { savedTracks: BgmTrack[][]; sentPlayback: BgmPlayback[]; savedSettings: BgmSettings[] } => {
+  playback: BgmPlayback = playingChat,
+): BgmApi & { savedTracks: BgmTrack[][]; sentPlayback: BgmPlayback[]; savedSettings: BgmSettings[]; skipped: BgmStep[] } => {
   const savedTracks: BgmTrack[][] = []
   const sentPlayback: BgmPlayback[] = []
   const savedSettings: BgmSettings[] = []
+  const skipped: BgmStep[] = []
   return {
     savedTracks,
     sentPlayback,
     savedSettings,
+    skipped,
+    skip: (step) => {
+      skipped.push(step)
+      return Promise.resolve({ ...playback, mediaId: hypeTrack.mediaId })
+    },
     load: () => Promise.resolve({ tracks, playback, settings: { judgeWithJev: false } }),
     saveSettings: (next) => {
       savedSettings.push(next)
@@ -79,13 +89,39 @@ const bgmApi = (
 
 const mediaApi = { media: () => Promise.resolve(uploadedMaterial) }
 
-const renderPage = (api: BgmApi = bgmApi()) => render(<BgmPage api={api} mediaApi={mediaApi} />)
+/** 押し出しの接続の代役。ページが渡した受け口を覚えておき、テストから押し出しを届ける */
+const fakeConnection = () => {
+  let handlers: BgmWatchHandlers | null = null
+  const connect = (_overlayKey: string, next: BgmWatchHandlers) => {
+    handlers = next
+    return { close: () => undefined }
+  }
+  const getHandlers = (): BgmWatchHandlers => {
+    if (handlers === null) throw new Error('ページがまだ押し出しの接続をつないでいません')
+    return handlers
+  }
+  return {
+    connect,
+    /** Worker から「いま流している曲」が押し出されてきた */
+    push: (nowPlaying: BgmNowPlaying) => act(() => getHandlers().onMessage(JSON.stringify(nowPlaying))),
+    /** 切れていた接続がつながり直した */
+    reconnect: () => act(() => getHandlers().onStatus('reconnected')),
+  }
+}
 
-/** 曲の一覧が出るまで待つ */
-const waitForLoad = () => screen.findByRole('list', { name: '曲の一覧' })
+const renderPage = (api: BgmApi = bgmApi(), connection = fakeConnection()) => {
+  render(<BgmPage api={api} mediaApi={mediaApi} overlayKey="overlay-key" connect={connection.connect} />)
+  return connection
+}
+
+/** 曲の表が出るまで待つ */
+const waitForLoad = () => screen.findByRole('table', { name: '曲の一覧' })
 
 /** 曲の行を、曲名で探す */
-const trackRow = (title: string) => within(screen.getByRole('listitem', { name: title }))
+const trackRow = (title: string) => within(screen.getByRole('row', { name: title }))
+
+/** プレーヤー */
+const player = () => within(screen.getByRole('region', { name: 'プレーヤー' }))
 
 /**
  * スライダーの入力要素を名前で探す。
@@ -95,42 +131,94 @@ const trackRow = (title: string) => within(screen.getByRole('listitem', { name: 
 const volumeSlider = () => within(screen.getByRole('group', { name: '音量' })).getByRole('slider', { hidden: true })
 
 describe('BGMのページ', () => {
-  test('保存済みの曲を並べ、いま流している曲を示す', async () => {
+  test('保存済みの曲を表に並べ、いま流している曲をプレーヤーと表の両方に示す', async () => {
     renderPage()
     await waitForLoad()
 
     expect(trackRow('ひだまりの午後').getByText('流しています')).toBeInTheDocument()
     expect(trackRow('全力疾走').queryByText('流しています')).not.toBeInTheDocument()
-    expect(screen.getByText(/「ひだまりの午後」を流しています/)).toBeInTheDocument()
+    expect(player().getByText('ひだまりの午後')).toBeInTheDocument()
+    expect(player().getByText('音楽: 甘茶の音楽工房')).toBeInTheDocument()
   })
 
-  test('曲の「流す」を押すと、その曲を流すよう Worker へ送る', async () => {
+  test('表の「流す」を押すと、その曲を流すよう Worker へ送る', async () => {
     const api = bgmApi()
     renderPage(api)
     await waitForLoad()
 
     await userEvent.click(trackRow('全力疾走').getByRole('button', { name: '「全力疾走」を流す' }))
 
-    await waitFor(() => expect(api.sentPlayback).toEqual([{ mediaId: hypeTrack.mediaId, volume: 0.3 }]))
-    expect(await screen.findByText(/「全力疾走」を流しています/)).toBeInTheDocument()
+    await waitFor(() => expect(api.sentPlayback).toEqual([{ ...playingChat, mediaId: hypeTrack.mediaId }]))
+    expect(await player().findByText('全力疾走')).toBeInTheDocument()
   })
 
-  test('「止める」を押すと、止めるよう Worker へ送る', async () => {
+  test('プレーヤーの「停止」を押すと、止めるよう Worker へ送る', async () => {
     const api = bgmApi()
     renderPage(api)
     await waitForLoad()
 
-    await userEvent.click(screen.getByRole('button', { name: '止める' }))
+    await userEvent.click(player().getByRole('button', { name: '停止' }))
 
-    await waitFor(() => expect(api.sentPlayback).toEqual([{ mediaId: null, volume: 0.3 }]))
-    expect(await screen.findByText('BGMを止めています')).toBeInTheDocument()
+    await waitFor(() => expect(api.sentPlayback).toEqual([{ ...playingChat, mediaId: null }]))
+    expect(await player().findByText('BGMを止めています')).toBeInTheDocument()
   })
 
-  test('何も流していなければ「止める」は押せない', async () => {
-    renderPage(bgmApi([chatTrack], { mediaId: null, volume: 0.3 }))
+  test('止めているときは「再生」を押すと、次の曲から流してもらう（どの曲にするかは Worker が決める）', async () => {
+    const api = bgmApi([chatTrack, hypeTrack], { ...playingChat, mediaId: null })
+    renderPage(api)
     await waitForLoad()
 
-    expect(screen.getByRole('button', { name: '止める' })).toBeDisabled()
+    await userEvent.click(player().getByRole('button', { name: '再生' }))
+
+    await waitFor(() => expect(api.skipped).toEqual(['next']))
+    expect(await player().findByText('全力疾走')).toBeInTheDocument()
+  })
+
+  test('「次の曲」「前の曲」を押すと、その向きへ進めてもらう', async () => {
+    const api = bgmApi()
+    renderPage(api)
+    await waitForLoad()
+
+    await userEvent.click(player().getByRole('button', { name: '次の曲' }))
+    await waitFor(() => expect(api.skipped).toEqual(['next']))
+    await userEvent.click(player().getByRole('button', { name: '前の曲' }))
+
+    await waitFor(() => expect(api.skipped).toEqual(['next', 'previous']))
+  })
+
+  test('曲がまだ1つも無ければ、再生も次の曲・前の曲も押せない', async () => {
+    renderPage(bgmApi([], { ...playingChat, mediaId: null }))
+    await screen.findByText('曲はまだありません。')
+
+    expect(player().getByRole('button', { name: '再生' })).toBeDisabled()
+    expect(player().getByRole('button', { name: '次の曲' })).toBeDisabled()
+    expect(player().getByRole('button', { name: '前の曲' })).toBeDisabled()
+  })
+
+  test('「リピート」を押すと、流している曲を繰り返すよう Worker へ送る', async () => {
+    const api = bgmApi()
+    renderPage(api)
+    await waitForLoad()
+
+    const repeat = player().getByRole('button', { name: 'リピート' })
+    expect(repeat).toHaveAttribute('aria-pressed', 'false')
+    await userEvent.click(repeat)
+
+    await waitFor(() => expect(api.sentPlayback).toEqual([{ ...playingChat, repeat: true }]))
+    expect(repeat).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  test('「シャッフル」を押すと、次の曲をでたらめに選ぶよう Worker へ送る', async () => {
+    const api = bgmApi()
+    renderPage(api)
+    await waitForLoad()
+
+    const shuffle = player().getByRole('button', { name: 'シャッフル' })
+    expect(shuffle).toHaveAttribute('aria-pressed', 'false')
+    await userEvent.click(shuffle)
+
+    await waitFor(() => expect(api.sentPlayback).toEqual([{ ...playingChat, shuffle: true }]))
+    expect(shuffle).toHaveAttribute('aria-pressed', 'true')
   })
 
   test('音量を動かすと、流している曲のまま音量を Worker へ送る', async () => {
@@ -140,7 +228,73 @@ describe('BGMのページ', () => {
 
     fireEvent.change(volumeSlider(), { target: { value: '45' } })
 
-    await waitFor(() => expect(api.sentPlayback.at(-1)).toEqual({ mediaId: chatTrack.mediaId, volume: 0.45 }))
+    await waitFor(() => expect(api.sentPlayback.at(-1)).toEqual({ ...playingChat, volume: 0.45 }))
+  })
+
+  test('曲の終わりで次の曲へ進んだ（押し出された）ら、プレーヤーと表をその曲に合わせる', async () => {
+    const connection = renderPage()
+    await waitForLoad()
+
+    connection.push({
+      track: { mediaId: hypeTrack.mediaId, title: hypeTrack.title, credit: hypeTrack.credit, creditUrl: hypeTrack.creditUrl, url: '/api/media/media-moriagari?key=k' },
+      volume: 0.5,
+      repeat: true,
+      shuffle: false,
+    })
+
+    expect(await player().findByText('全力疾走')).toBeInTheDocument()
+    expect(trackRow('全力疾走').getByText('流しています')).toBeInTheDocument()
+    expect(player().getByRole('button', { name: 'リピート' })).toHaveAttribute('aria-pressed', 'true')
+    expect(player().getByRole('status', { name: '音量' })).toHaveTextContent('50%')
+  })
+
+  test('次の曲の応答より先に、もっと新しい曲が押し出されてきたら、遅れて届いた応答で巻き戻さない', async () => {
+    // 次の曲の応答（全力疾走）を止めておき、そのあいだに曲の終わりで「夕暮れの帰り道」へ進んだことが押し出されてくる
+    let respondSkip: (playback: BgmPlayback) => void = () => undefined
+    const api: BgmApi = {
+      ...bgmApi(),
+      skip: () =>
+        new Promise((resolve) => {
+          respondSkip = resolve
+        }),
+    }
+    const eveningTrack: BgmTrack = { ...chatTrack, mediaId: 'media-yuugure', title: '夕暮れの帰り道' }
+    const connection = renderPage({ ...api, load: () => Promise.resolve({ tracks: [chatTrack, hypeTrack, eveningTrack], playback: playingChat, settings: { judgeWithJev: false } }) })
+    await waitForLoad()
+
+    await userEvent.click(player().getByRole('button', { name: '次の曲' }))
+    await connection.push({
+      track: { mediaId: eveningTrack.mediaId, title: eveningTrack.title, credit: eveningTrack.credit, creditUrl: '', url: '/api/media/media-yuugure?key=k' },
+      volume: 0.3,
+      repeat: false,
+      shuffle: false,
+    })
+    await act(async () => respondSkip({ ...playingChat, mediaId: hypeTrack.mediaId }))
+
+    expect(player().getByText('夕暮れの帰り道')).toBeInTheDocument()
+    expect(player().queryByText('全力疾走')).not.toBeInTheDocument()
+  })
+
+  test('つなぎ直したら読み直し、切れているあいだに別の画面で足された曲を流していても、プレーヤーにその曲を出す', async () => {
+    // 開いたときは2曲。切れているあいだに別の画面で「夕暮れの帰り道」が足され、それに切り替わった
+    const eveningTrack: BgmTrack = { ...chatTrack, mediaId: 'media-yuugure', title: '夕暮れの帰り道', credit: '音楽: 魔王魂' }
+    const api = bgmApi()
+    let loads = 0
+    const reloadingApi: BgmApi = {
+      ...api,
+      load: () => {
+        loads += 1
+        return loads === 1
+          ? api.load()
+          : Promise.resolve({ tracks: [chatTrack, hypeTrack, eveningTrack], playback: { ...playingChat, mediaId: eveningTrack.mediaId }, settings: { judgeWithJev: false } })
+      },
+    }
+    const connection = renderPage(reloadingApi)
+    await waitForLoad()
+
+    await connection.reconnect()
+
+    expect(await player().findByText('夕暮れの帰り道')).toBeInTheDocument()
   })
 
   test('上げた音声から曲を追加し、クレジットを書いて保存できる', async () => {
@@ -155,7 +309,7 @@ describe('BGMのページ', () => {
 
     // 曲名はファイル名から下書きされる。クレジットは書いてもらう
     const addedTrack = trackRow('夕暮れの帰り道')
-    await userEvent.type(addedTrack.getByLabelText('クレジット表記'), '音楽: 魔王魂')
+    await userEvent.type(addedTrack.getByRole('textbox', { name: 'クレジット表記' }), '音楽: 魔王魂')
     await userEvent.click(screen.getByRole('button', { name: '曲の一覧を保存' }))
 
     await waitFor(() => expect(api.savedTracks).toHaveLength(1))
@@ -205,17 +359,17 @@ describe('BGMのページ', () => {
     expect(await screen.findByText(/2曲目のクレジット表記: 1〜200文字で指定してください/)).toBeInTheDocument()
   })
 
-  test('話題に合う曲へ Jev に切り替えさせるかを、その場で保存する（既定はオフ）', async () => {
+  test('プレーヤーの Jev のボタンで、話題に合う曲へ自動で切り替えさせるかをその場で保存する（既定はオフ）', async () => {
     const api = bgmApi()
     renderPage(api)
     await waitForLoad()
 
-    const autoSwitch = screen.getByRole('checkbox', { name: '配信の話題に合う曲へ自動で切り替える（Jev）' })
-    expect(autoSwitch).not.toBeChecked()
+    const autoSwitch = player().getByRole('button', { name: '配信の話題に合う曲へ自動で切り替える（Jev）' })
+    expect(autoSwitch).toHaveAttribute('aria-pressed', 'false')
     await userEvent.click(autoSwitch)
 
     await waitFor(() => expect(api.savedSettings).toEqual([{ judgeWithJev: true }]))
-    expect(autoSwitch).toBeChecked()
+    expect(autoSwitch).toHaveAttribute('aria-pressed', 'true')
   })
 
   test('読み込めなければ、空の一覧を出さずに理由を出す', async () => {
@@ -223,6 +377,6 @@ describe('BGMのページ', () => {
     renderPage(api)
 
     expect(await screen.findByText(/通信が切れました/)).toBeInTheDocument()
-    expect(screen.queryByRole('list', { name: '曲の一覧' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('table', { name: '曲の一覧' })).not.toBeInTheDocument()
   })
 })

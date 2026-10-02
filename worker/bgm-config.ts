@@ -61,12 +61,16 @@ export interface BgmTrack {
   readonly scene: string
 }
 
-/** いま流す曲と音量 */
+/** いま流す曲と音量と、曲の終わりにどうするか */
 export interface BgmPlayback {
   /** 流す曲の素材のID。止めているときは null */
   readonly mediaId: string | null
   /** 音量（0〜1） */
   readonly volume: number
+  /** 流している曲を繰り返すか。切っていれば、曲の終わりに次の曲へ進む */
+  readonly repeat: boolean
+  /** 次の曲を一覧の順ではなく、でたらめに選ぶか（worker/bgm-order.ts） */
+  readonly shuffle: boolean
 }
 
 /** BGMの設定 */
@@ -87,10 +91,17 @@ export interface BgmNowPlaying {
     readonly url: string
   } | null
   readonly volume: number
+  /** 流している曲を繰り返すか。裏方のページは切っているときだけ曲の終わりを知らせる */
+  readonly repeat: boolean
+  /** 次の曲をでたらめに選ぶか（管理画面のボタンの表示に使う） */
+  readonly shuffle: boolean
 }
 
-/** 未保存のときの再生の設定。何も流さず、流し始めたときに声を邪魔しない音量にしておく */
-export const DEFAULT_BGM_PLAYBACK: BgmPlayback = { mediaId: null, volume: 0.3 }
+/**
+ * 未保存のときの再生の設定。何も流さず、流し始めたときに声を邪魔しない音量にしておく。
+ * 曲の終わりには一覧の順に次の曲へ進む（リピートもシャッフルも切っておく）
+ */
+export const DEFAULT_BGM_PLAYBACK: BgmPlayback = { mediaId: null, volume: 0.3, repeat: false, shuffle: false }
 
 /** 未保存のときの設定。誤った切り替えは配信の雰囲気を壊すので、Jev に選ばせるのは配信者が入れたときだけにする */
 export const DEFAULT_BGM_SETTINGS: BgmSettings = { judgeWithJev: false }
@@ -165,7 +176,7 @@ export const parseBgmTracks = (
 /**
  * 管理画面から送られてきた「いま流す曲・音量」を検証する。
  *
- * @param input `{ mediaId: string | null, volume: number }`
+ * @param input `{ mediaId: string | null, volume: number, repeat: boolean, shuffle: boolean }`
  * @param trackMediaIds 一覧にある曲の素材のID
  * @throws ConfigError 問題が1件でもある場合
  */
@@ -174,16 +185,18 @@ export const parseBgmPlayback = (input: unknown, trackMediaIds: readonly string[
 
   const problems: string[] = []
 
-  const { mediaId, volume } = input
+  const { mediaId, volume, repeat, shuffle } = input
   if (mediaId !== null && (typeof mediaId !== 'string' || !trackMediaIds.includes(mediaId))) {
     problems.push(`mediaId: 素材「${String(mediaId)}」の曲は一覧にありません`)
   }
   if (typeof volume !== 'number' || !Number.isFinite(volume) || volume < MIN_VOLUME || volume > MAX_VOLUME) {
     problems.push(`volume: ${MIN_VOLUME}〜${MAX_VOLUME} の数で指定してください`)
   }
+  if (typeof repeat !== 'boolean') problems.push('repeat: true か false で指定してください')
+  if (typeof shuffle !== 'boolean') problems.push('shuffle: true か false で指定してください')
 
   if (problems.length > 0) throw new ConfigError(PLAYBACK_SUBJECT, problems)
-  return { mediaId: mediaId as string | null, volume: volume as number }
+  return { mediaId: mediaId as string | null, volume: volume as number, repeat: repeat as boolean, shuffle: shuffle as boolean }
 }
 
 /**
@@ -210,10 +223,17 @@ export const loadBgmTracks = async (store: KeyValueStore): Promise<BgmTrack[]> =
 export const saveBgmPlayback = (store: KeyValueStore, playback: BgmPlayback): Promise<void> =>
   store.put(PLAYBACK_KEY, JSON.stringify(playback))
 
-/** 保存済みの再生の設定を読む。未保存なら何も流さない */
+/**
+ * 保存済みの再生の設定を読む。未保存なら何も流さない。
+ *
+ * 注意: リピートとシャッフルが無かったころ（どちらも足す前）に保存した設定には、その2つが無い。
+ * 不正な値ではなく項目が増える前の形なので、どちらも切った状態（未保存のときと同じ）として読む。
+ */
 export const loadBgmPlayback = async (store: KeyValueStore): Promise<BgmPlayback> => {
   const text = await store.get(PLAYBACK_KEY)
-  return text === null ? DEFAULT_BGM_PLAYBACK : (JSON.parse(text) as BgmPlayback)
+  if (text === null) return DEFAULT_BGM_PLAYBACK
+  const saved = JSON.parse(text) as Pick<BgmPlayback, 'mediaId' | 'volume'> & Partial<Pick<BgmPlayback, 'repeat' | 'shuffle'>>
+  return { mediaId: saved.mediaId, volume: saved.volume, repeat: saved.repeat ?? false, shuffle: saved.shuffle ?? false }
 }
 
 export const saveBgmSettings = (store: KeyValueStore, settings: BgmSettings): Promise<void> =>
@@ -254,9 +274,12 @@ export const playingTrackOf = (tracks: readonly BgmTrack[], playback: BgmPlaybac
  */
 export const nowPlayingOf = (tracks: readonly BgmTrack[], playback: BgmPlayback, overlayKey: string): BgmNowPlaying => {
   const track = playingTrackOf(tracks, playback)
-  if (track === null) return { track: null, volume: playback.volume }
+  const { volume, repeat, shuffle } = playback
+  if (track === null) return { track: null, volume, repeat, shuffle }
   return {
     track: { mediaId: track.mediaId, title: track.title, credit: track.credit, creditUrl: track.creditUrl, url: mediaPath(track.mediaId, overlayKey) },
-    volume: playback.volume,
+    volume,
+    repeat,
+    shuffle,
   }
 }

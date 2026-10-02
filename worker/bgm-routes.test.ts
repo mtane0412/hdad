@@ -110,7 +110,7 @@ describe('GET /api/admin/bgm', () => {
     const response = await callAsBroadcaster(env, '/api/admin/bgm')
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ tracks: [], playback: { mediaId: null, volume: 0.3 }, settings: { judgeWithJev: false } })
+    expect(await response.json()).toEqual({ tracks: [], playback: { mediaId: null, volume: 0.3, repeat: false, shuffle: false }, settings: { judgeWithJev: false } })
   })
 
   it('ログインしていなければ401にする', async () => {
@@ -147,7 +147,7 @@ describe('PUT /api/admin/bgm/tracks', () => {
   it('流している曲は一覧から消させない', async () => {
     const { env } = await setupEnv()
     await saveTracks(env, [casualTrack, hypeTrack])
-    await changePlayback(env, { mediaId: casualTrack.mediaId, volume: 0.3 })
+    await changePlayback(env, { mediaId: casualTrack.mediaId, volume: 0.3, repeat: false, shuffle: false })
 
     const response = await saveTracks(env, [hypeTrack])
 
@@ -158,7 +158,7 @@ describe('PUT /api/admin/bgm/tracks', () => {
   it('流している曲の情報を直したら、裏方のページへ押し出す（クレジットの表示を合わせるため）', async () => {
     const { env, alertChannel } = await setupEnv()
     await saveTracks(env, [casualTrack])
-    await changePlayback(env, { mediaId: casualTrack.mediaId, volume: 0.3 })
+    await changePlayback(env, { mediaId: casualTrack.mediaId, volume: 0.3, repeat: false, shuffle: false })
 
     await saveTracks(env, [{ ...casualTrack, title: 'ひだまりの午後（ピアノ版）' }])
 
@@ -179,11 +179,11 @@ describe('PUT /api/admin/bgm/playback', () => {
     const { env, alertChannel } = await setupEnv()
     await saveTracks(env, [casualTrack, hypeTrack])
 
-    const response = await changePlayback(env, { mediaId: hypeTrack.mediaId, volume: 0.5 })
+    const response = await changePlayback(env, { mediaId: hypeTrack.mediaId, volume: 0.5, repeat: false, shuffle: false })
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ playback: { mediaId: hypeTrack.mediaId, volume: 0.5 } })
-    expect(await loadBgmPlayback(env.STORE)).toEqual({ mediaId: hypeTrack.mediaId, volume: 0.5 })
+    expect(await response.json()).toEqual({ playback: { mediaId: hypeTrack.mediaId, volume: 0.5, repeat: false, shuffle: false } })
+    expect(await loadBgmPlayback(env.STORE)).toEqual({ mediaId: hypeTrack.mediaId, volume: 0.5, repeat: false, shuffle: false })
     expect(alertChannel.pushedBgm).toEqual([
       {
         track: {
@@ -194,6 +194,8 @@ describe('PUT /api/admin/bgm/playback', () => {
           url: `/api/media/media-moriagari?key=${ISSUED_KEY}`,
         },
         volume: 0.5,
+        repeat: false,
+        shuffle: false,
       },
     ])
   })
@@ -201,20 +203,20 @@ describe('PUT /api/admin/bgm/playback', () => {
   it('止めたことも押し出す', async () => {
     const { env, alertChannel } = await setupEnv()
     await saveTracks(env, [casualTrack])
-    await changePlayback(env, { mediaId: casualTrack.mediaId, volume: 0.5 })
+    await changePlayback(env, { mediaId: casualTrack.mediaId, volume: 0.5, repeat: false, shuffle: false })
 
-    await changePlayback(env, { mediaId: null, volume: 0.5 })
+    await changePlayback(env, { mediaId: null, volume: 0.5, repeat: false, shuffle: false })
 
-    expect(alertChannel.pushedBgm.at(-1)).toEqual({ track: null, volume: 0.5 })
+    expect(alertChannel.pushedBgm.at(-1)).toEqual({ track: null, volume: 0.5, repeat: false, shuffle: false })
   })
 
   it('一覧に無い曲は400にして、保存も押し出しもしない', async () => {
     const { env, alertChannel } = await setupEnv()
 
-    const response = await changePlayback(env, { mediaId: casualTrack.mediaId, volume: 0.5 })
+    const response = await changePlayback(env, { mediaId: casualTrack.mediaId, volume: 0.5, repeat: false, shuffle: false })
 
     expect(response.status).toBe(400)
-    expect(await loadBgmPlayback(env.STORE)).toEqual({ mediaId: null, volume: 0.3 })
+    expect(await loadBgmPlayback(env.STORE)).toEqual({ mediaId: null, volume: 0.3, repeat: false, shuffle: false })
     expect(alertChannel.pushedBgm).toEqual([])
   })
 })
@@ -224,7 +226,7 @@ describe('PUT /api/admin/bgm/playback の切り替えた時刻', () => {
     const { env } = await setupEnv()
     await saveTracks(env, [casualTrack, hypeTrack])
 
-    await changePlayback(env, { mediaId: casualTrack.mediaId, volume: 0.3 })
+    await changePlayback(env, { mediaId: casualTrack.mediaId, volume: 0.3, repeat: false, shuffle: false })
 
     expect(await loadBgmSwitchedAt(env.STORE)).toBe(NOW)
   })
@@ -232,11 +234,11 @@ describe('PUT /api/admin/bgm/playback の切り替えた時刻', () => {
   it('音量だけを変えたときは、切り替えた時刻を動かさない（曲は変わっていないため）', async () => {
     const { env } = await setupEnv()
     await saveTracks(env, [casualTrack, hypeTrack])
-    await changePlayback(env, { mediaId: casualTrack.mediaId, volume: 0.3 })
+    await changePlayback(env, { mediaId: casualTrack.mediaId, volume: 0.3, repeat: false, shuffle: false })
     const previousSwitchedAt = NOW - 60 * 60 * 1000
     await saveBgmSwitchedAt(env.STORE, previousSwitchedAt)
 
-    await changePlayback(env, { mediaId: casualTrack.mediaId, volume: 0.6 })
+    await changePlayback(env, { mediaId: casualTrack.mediaId, volume: 0.6, repeat: false, shuffle: false })
 
     expect(await loadBgmSwitchedAt(env.STORE)).toBe(previousSwitchedAt)
   })
@@ -275,7 +277,7 @@ describe('GET /api/overlay/bgm', () => {
   it('オーバーレイ用キーで、いま流している曲を読める（裏方のページが開いたときとつなぎ直したときに読む）', async () => {
     const { env } = await setupEnv()
     await saveTracks(env, [casualTrack])
-    await changePlayback(env, { mediaId: casualTrack.mediaId, volume: 0.4 })
+    await changePlayback(env, { mediaId: casualTrack.mediaId, volume: 0.4, repeat: false, shuffle: false })
 
     const response = await callHandler(new Request(`${SITE}/api/overlay/bgm?key=${ISSUED_KEY}`), env)
 
@@ -289,6 +291,8 @@ describe('GET /api/overlay/bgm', () => {
         url: `/api/media/media-zatsudan?key=${ISSUED_KEY}`,
       },
       volume: 0.4,
+      repeat: false,
+      shuffle: false,
     })
   })
 
@@ -316,6 +320,130 @@ describe('GET /api/overlay/bgm/socket', () => {
     const response = await callHandler(new Request(`${SITE}/api/overlay/bgm/socket?key=${ISSUED_KEY}`), env)
 
     expect(response.status).toBe(400)
+  })
+})
+
+describe('POST /api/admin/bgm/skip', () => {
+  const skip = (env: Env, step: unknown) => callAsBroadcaster(env, '/api/admin/bgm/skip', { method: 'POST', body: JSON.stringify({ step }) })
+
+  it('次の曲へ進めて保存し、裏方のページへ押し出し、切り替えた時刻を記録する', async () => {
+    const { env, alertChannel } = await setupEnv()
+    await saveTracks(env, [casualTrack, hypeTrack])
+    await changePlayback(env, { mediaId: casualTrack.mediaId, volume: 0.4, repeat: true, shuffle: false })
+    await saveBgmSwitchedAt(env.STORE, NOW - 60 * 60 * 1000)
+
+    const response = await skip(env, 'next')
+
+    expect(response.status).toBe(200)
+    const playback = { mediaId: hypeTrack.mediaId, volume: 0.4, repeat: true, shuffle: false }
+    expect(await response.json()).toEqual({ playback })
+    expect(await loadBgmPlayback(env.STORE)).toEqual(playback)
+    expect(alertChannel.pushedBgm.at(-1)?.track?.mediaId).toBe(hypeTrack.mediaId)
+    expect(await loadBgmSwitchedAt(env.STORE)).toBe(NOW)
+  })
+
+  it('止めているときに次の曲へ進めると、最初の曲から流し始める', async () => {
+    const { env } = await setupEnv()
+    await saveTracks(env, [casualTrack, hypeTrack])
+
+    const response = await skip(env, 'next')
+
+    expect(await response.json()).toEqual({ playback: { mediaId: casualTrack.mediaId, volume: 0.3, repeat: false, shuffle: false } })
+  })
+
+  it('前の曲へ戻せる', async () => {
+    const { env } = await setupEnv()
+    await saveTracks(env, [casualTrack, hypeTrack])
+    await changePlayback(env, { mediaId: hypeTrack.mediaId, volume: 0.4, repeat: false, shuffle: false })
+
+    const response = await skip(env, 'previous')
+
+    expect(await response.json()).toEqual({ playback: { mediaId: casualTrack.mediaId, volume: 0.4, repeat: false, shuffle: false } })
+  })
+
+  it('曲が1つも無ければ409にして、何も押し出さない', async () => {
+    const { env, alertChannel } = await setupEnv()
+
+    const response = await skip(env, 'next')
+
+    expect(response.status).toBe(409)
+    expect(alertChannel.pushedBgm).toEqual([])
+  })
+
+  it('進む向きが next か previous でなければ400にする', async () => {
+    const { env } = await setupEnv()
+    await saveTracks(env, [casualTrack])
+
+    const response = await skip(env, 'tsugi')
+
+    expect(response.status).toBe(400)
+  })
+})
+
+describe('POST /api/overlay/bgm/ended', () => {
+  const ended = (env: Env, mediaId: unknown, key = ISSUED_KEY) =>
+    callHandler(
+      new Request(`${SITE}/api/overlay/bgm/ended?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mediaId }) }),
+      env,
+    )
+
+  it('流している曲が終わったら次の曲へ進め、押し出したうえで、いま流している曲を返す', async () => {
+    const { env, alertChannel } = await setupEnv()
+    await saveTracks(env, [casualTrack, hypeTrack])
+    await changePlayback(env, { mediaId: casualTrack.mediaId, volume: 0.4, repeat: false, shuffle: false })
+    await saveBgmSwitchedAt(env.STORE, NOW - 60 * 60 * 1000)
+
+    const response = await ended(env, casualTrack.mediaId)
+
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as { track: { mediaId: string } | null }
+    expect(body.track?.mediaId).toBe(hypeTrack.mediaId)
+    expect((await loadBgmPlayback(env.STORE)).mediaId).toBe(hypeTrack.mediaId)
+    expect(alertChannel.pushedBgm.at(-1)?.track?.mediaId).toBe(hypeTrack.mediaId)
+    // 自動で進んだだけなので、手で切り替えた時刻（Jev の待ち時間の起点）は動かさない
+    expect(await loadBgmSwitchedAt(env.STORE)).toBe(NOW - 60 * 60 * 1000)
+  })
+
+  it('シャッフルなら、終わった曲以外から選ぶ', async () => {
+    const { env } = await setupEnv()
+    await saveTracks(env, [casualTrack, hypeTrack])
+    await changePlayback(env, { mediaId: hypeTrack.mediaId, volume: 0.4, repeat: false, shuffle: true })
+
+    await ended(env, hypeTrack.mediaId)
+
+    expect((await loadBgmPlayback(env.STORE)).mediaId).toBe(casualTrack.mediaId)
+  })
+
+  it('もう別の曲に切り替わっていたら（別の裏方が先に知らせた・手で切り替えた）、進めずにいま流している曲を返す', async () => {
+    const { env, alertChannel } = await setupEnv()
+    await saveTracks(env, [casualTrack, hypeTrack])
+    await changePlayback(env, { mediaId: hypeTrack.mediaId, volume: 0.4, repeat: false, shuffle: false })
+    const pushedBefore = alertChannel.pushedBgm.length
+
+    const response = await ended(env, casualTrack.mediaId)
+
+    const body = (await response.json()) as { track: { mediaId: string } | null }
+    expect(body.track?.mediaId).toBe(hypeTrack.mediaId)
+    expect((await loadBgmPlayback(env.STORE)).mediaId).toBe(hypeTrack.mediaId)
+    expect(alertChannel.pushedBgm).toHaveLength(pushedBefore)
+  })
+
+  it('リピート中なら進めない（同じ曲を流し続ける）', async () => {
+    const { env } = await setupEnv()
+    await saveTracks(env, [casualTrack, hypeTrack])
+    await changePlayback(env, { mediaId: casualTrack.mediaId, volume: 0.4, repeat: true, shuffle: false })
+
+    await ended(env, casualTrack.mediaId)
+
+    expect((await loadBgmPlayback(env.STORE)).mediaId).toBe(casualTrack.mediaId)
+  })
+
+  it('キーが違えば401にする', async () => {
+    const { env } = await setupEnv()
+
+    const response = await ended(env, casualTrack.mediaId, 'chigau-key')
+
+    expect(response.status).toBe(401)
   })
 })
 

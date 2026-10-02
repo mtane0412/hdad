@@ -3,8 +3,10 @@
  *
  * BGMの曲の一覧と「いま流す曲・音量」と設定は Worker（KVの bgm-tracks・bgm-playback・bgm-settings）が持ち、2つの経路から読まれる。
  * - 管理画面（/bgm/ のページ）: 配信者のセッションで /api/admin/bgm を読み書きする
- * - 裏方のページ（overlay/backstage/ の ?bgm=true）: オーバーレイ用キーで /api/overlay/bgm を読むだけ。
+ * - 裏方のページ（overlay/backstage/ の ?bgm=true）: オーバーレイ用キーで /api/overlay/bgm を読み、リピートを切っているときは
+ *   曲の終わりを /api/overlay/bgm/ended で知らせる（次の曲は Worker が決める）。
  *   切り替えは WebSocket で押し出されてくるので、その文字列の読み取り（parseBgmNowPlaying）もここに置く
+ *   （管理画面も、Jev や曲の終わりで変わった曲を映すために同じ押し出しを受け取る）
  *
  * 呼び出しと失敗の扱いは `../core/api` に任せ、fetch を引数で受け取るのはテストで差し替えるためである。
  *
@@ -18,9 +20,11 @@ const ADMIN_PATH = '/api/admin/bgm'
 const TRACKS_PATH = '/api/admin/bgm/tracks'
 const PLAYBACK_PATH = '/api/admin/bgm/playback'
 const SETTINGS_PATH = '/api/admin/bgm/settings'
+const SKIP_PATH = '/api/admin/bgm/skip'
 const OVERLAY_PATH = '/api/overlay/bgm'
+const ENDED_PATH = '/api/overlay/bgm/ended'
 
-/** 切り替えを押し出してもらう WebSocket のパス。裏方のページ（task.ts）と合成ページの素材「再生中の曲」がつなぐ */
+/** 切り替えを押し出してもらう WebSocket のパス。裏方のページ（task.ts）と合成ページの素材「再生中の曲」と管理画面がつなぐ */
 export const BGM_SOCKET_PATH = '/api/overlay/bgm/socket'
 
 /** 一度もつながらないまま閉じたときに出す、いちばんありそうな原因 */
@@ -42,13 +46,20 @@ export interface BgmTrack {
   scene: string
 }
 
-/** いま流す曲と音量 */
+/** いま流す曲と音量と、曲の終わりにどうするか。項目は worker/bgm-config.ts と合わせる */
 export interface BgmPlayback {
   /** 流す曲の素材のID。止めているときは null */
   mediaId: string | null
   /** 音量（0〜1） */
   volume: number
+  /** 流している曲を繰り返すか。切っていれば、曲の終わりに次の曲へ進む */
+  repeat: boolean
+  /** 次の曲を一覧の順ではなく、でたらめに選ぶか */
+  shuffle: boolean
 }
+
+/** 次の曲・前の曲のどちらへ進めるか */
+export type BgmStep = 'next' | 'previous'
 
 /** BGMの設定。項目は worker/bgm-config.ts と合わせる */
 export interface BgmSettings {
@@ -68,6 +79,10 @@ export interface BgmNowPlaying {
     url: string
   } | null
   volume: number
+  /** 流している曲を繰り返すか */
+  repeat: boolean
+  /** 次の曲をでたらめに選ぶか */
+  shuffle: boolean
 }
 
 const isBgmTrack = (value: unknown): value is BgmTrack =>
@@ -80,7 +95,11 @@ const isBgmTrack = (value: unknown): value is BgmTrack =>
   typeof value.scene === 'string'
 
 const isBgmPlayback = (value: unknown): value is BgmPlayback =>
-  isRecord(value) && (value.mediaId === null || typeof value.mediaId === 'string') && typeof value.volume === 'number'
+  isRecord(value) &&
+  (value.mediaId === null || typeof value.mediaId === 'string') &&
+  typeof value.volume === 'number' &&
+  typeof value.repeat === 'boolean' &&
+  typeof value.shuffle === 'boolean'
 
 const isNowPlayingTrack = (value: unknown): value is NonNullable<BgmNowPlaying['track']> =>
   isRecord(value) &&
@@ -92,16 +111,22 @@ const isNowPlayingTrack = (value: unknown): value is NonNullable<BgmNowPlaying['
 
 /** いま流している曲として読む。想定した形でなければエラーにする */
 const readNowPlaying = (body: unknown, source: string): BgmNowPlaying => {
-  if (!isRecord(body) || typeof body.volume !== 'number' || !(body.track === null || isNowPlayingTrack(body.track))) {
+  if (
+    !isRecord(body) ||
+    typeof body.volume !== 'number' ||
+    typeof body.repeat !== 'boolean' ||
+    typeof body.shuffle !== 'boolean' ||
+    !(body.track === null || isNowPlayingTrack(body.track))
+  ) {
     throw new Error(`${source}のBGMが想定した形ではありません`)
   }
-  return { track: body.track, volume: body.volume }
+  return { track: body.track, volume: body.volume, repeat: body.repeat, shuffle: body.shuffle }
 }
 
 /** 再生の設定として読む。想定した形でなければエラーにする */
 const readPlayback = (value: unknown, path: string): BgmPlayback => {
   if (!isBgmPlayback(value)) throw new Error(`Workerの ${path} の応答の playback が想定した形ではありません`)
-  return { mediaId: value.mediaId, volume: value.volume }
+  return { mediaId: value.mediaId, volume: value.volume, repeat: value.repeat, shuffle: value.shuffle }
 }
 
 /** BGMの設定として読む。想定した形でなければエラーにする */
@@ -131,8 +156,10 @@ export interface BgmApi {
   load(): Promise<{ tracks: BgmTrack[]; playback: BgmPlayback; settings: BgmSettings }>
   /** 曲の一覧をまるごと置き換えて保存する。検証はWorkerが行う */
   saveTracks(tracks: readonly BgmTrack[]): Promise<BgmTrack[]>
-  /** 流す曲と音量を保存する。Workerが裏方のページへ押し出す */
+  /** 流す曲と音量とリピート・シャッフルを保存する。Workerが裏方のページへ押し出す */
   savePlayback(playback: BgmPlayback): Promise<BgmPlayback>
+  /** 次の曲・前の曲へ進めてもらう（どの曲にするかは Worker が決める）。Workerが裏方のページへ押し出す */
+  skip(step: BgmStep): Promise<BgmPlayback>
   /** BGMの設定を保存する。検証はWorkerが行う */
   saveSettings(settings: BgmSettings): Promise<BgmSettings>
 }
@@ -141,6 +168,8 @@ export interface BgmApi {
 export interface BgmOverlayApi {
   /** いま流している曲を読む */
   read(): Promise<BgmNowPlaying>
+  /** 流していた曲が終わったことを知らせ、いま流している曲（次の曲へ進めたなら進めた先）を受け取る */
+  ended(mediaId: string): Promise<BgmNowPlaying>
 }
 
 /**
@@ -150,8 +179,9 @@ export interface BgmOverlayApi {
  */
 export const createBgmApi = (fetchImpl: typeof fetch): BgmApi => {
   const call = createCaller(fetchImpl)
-  const put = (path: string, body: unknown) =>
-    call(path, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  const send = (method: 'PUT' | 'POST', path: string, body: unknown) =>
+    call(path, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  const put = (path: string, body: unknown) => send('PUT', path, body)
 
   return {
     load: async () => {
@@ -166,6 +196,10 @@ export const createBgmApi = (fetchImpl: typeof fetch): BgmApi => {
     savePlayback: async (playback) => {
       const body = await put(PLAYBACK_PATH, playback)
       return readPlayback(isRecord(body) ? body.playback : undefined, PLAYBACK_PATH)
+    },
+    skip: async (step) => {
+      const body = await send('POST', SKIP_PATH, { step })
+      return readPlayback(isRecord(body) ? body.playback : undefined, SKIP_PATH)
     },
     saveSettings: async (settings) => {
       const body = await put(SETTINGS_PATH, settings)
@@ -184,9 +218,17 @@ export const createBgmApi = (fetchImpl: typeof fetch): BgmApi => {
  */
 export const createBgmOverlayApi = (fetchImpl: typeof fetch, key: string): BgmOverlayApi => {
   const call = createCaller(fetchImpl)
-  const path = `${OVERLAY_PATH}?key=${encodeURIComponent(key)}`
+  const query = `?key=${encodeURIComponent(key)}`
 
   return {
-    read: async () => readNowPlaying(await call(path), `Workerの ${OVERLAY_PATH} の応答`),
+    read: async () => readNowPlaying(await call(`${OVERLAY_PATH}${query}`), `Workerの ${OVERLAY_PATH} の応答`),
+    ended: async (mediaId) => {
+      const body = await call(`${ENDED_PATH}${query}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mediaId }),
+      })
+      return readNowPlaying(body, `Workerの ${ENDED_PATH} の応答`)
+    },
   }
 }

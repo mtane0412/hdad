@@ -84,7 +84,7 @@ const createFakeJev = (
 const setupPlayingCasualTrack = async (overrides: { tracks?: readonly BgmTrack[]; switchedAt?: number } = {}) => {
   const store = createFakeStore({ 'overlay-key': ISSUED_KEY })
   await saveBgmTracks(store, overrides.tracks ?? [casualTrack, hypeTrack])
-  await saveBgmPlayback(store, { mediaId: casualTrack.mediaId, volume: 0.4 })
+  await saveBgmPlayback(store, { mediaId: casualTrack.mediaId, volume: 0.4, repeat: false, shuffle: false })
   await saveBgmSettings(store, { judgeWithJev: true })
   await saveBgmSwitchedAt(store, overrides.switchedAt ?? NOW - BGM_SWITCH_COOLDOWN_MS)
   const alertChannel = createFakeAlertChannel()
@@ -127,7 +127,7 @@ describe('chooseBgm', () => {
 
     expect(jev.usages).toEqual(['bgm'])
     // 音量は配信者が決めたまま変えない
-    expect(await loadBgmPlayback(store)).toEqual({ mediaId: hypeTrack.mediaId, volume: 0.4 })
+    expect(await loadBgmPlayback(store)).toEqual({ mediaId: hypeTrack.mediaId, volume: 0.4, repeat: false, shuffle: false })
     expect(await loadBgmSwitchedAt(store)).toBe(NOW)
     expect(alertChannel.pushedBgm).toEqual([
       {
@@ -139,6 +139,8 @@ describe('chooseBgm', () => {
           url: `/api/media/media-moriagari?key=${ISSUED_KEY}`,
         },
         volume: 0.4,
+        repeat: false,
+        shuffle: false,
       },
     ])
   })
@@ -149,7 +151,7 @@ describe('chooseBgm', () => {
 
     await chooseBgm({ store, jev, alerts: alertChannel.namespace, now: NOW, ...material })
 
-    expect(await loadBgmPlayback(store)).toEqual({ mediaId: casualTrack.mediaId, volume: 0.4 })
+    expect(await loadBgmPlayback(store)).toEqual({ mediaId: casualTrack.mediaId, volume: 0.4, repeat: false, shuffle: false })
     expect(alertChannel.pushedBgm).toEqual([])
   })
 
@@ -176,7 +178,7 @@ describe('chooseBgm', () => {
 
   it('BGMを止めているなら Jev を呼ばない（配信者が止めたものを勝手に流し始めない）', async () => {
     const { store, alertChannel } = await setupPlayingCasualTrack()
-    await saveBgmPlayback(store, { mediaId: null, volume: 0.4 })
+    await saveBgmPlayback(store, { mediaId: null, volume: 0.4, repeat: false, shuffle: false })
     const jev = createFakeJev(new Error('呼ばれないはず'))
 
     await chooseBgm({ store, jev, alerts: alertChannel.namespace, now: NOW, ...material })
@@ -196,7 +198,7 @@ describe('chooseBgm', () => {
   it('まだ一度も切り替えた記録が無ければ、控えずに Jev を呼ぶ', async () => {
     const store = createFakeStore({ 'overlay-key': ISSUED_KEY })
     await saveBgmTracks(store, [casualTrack, hypeTrack])
-    await saveBgmPlayback(store, { mediaId: casualTrack.mediaId, volume: 0.4 })
+    await saveBgmPlayback(store, { mediaId: casualTrack.mediaId, volume: 0.4, repeat: false, shuffle: false })
     await saveBgmSettings(store, { judgeWithJev: true })
     const jev = createFakeJev({ choice: 't0', confidence: 0.9 })
 
@@ -219,14 +221,14 @@ describe('chooseBgm', () => {
     const jev: JevClient = {
       decide: async <Qs extends Readonly<Record<string, JevQuestion>>>(): Promise<JevAnswers<Qs>> => {
         // 判定を待っているあいだに、配信者が管理画面で止めた
-        await saveBgmPlayback(store, { mediaId: null, volume: 0.4 })
+        await saveBgmPlayback(store, { mediaId: null, volume: 0.4, repeat: false, shuffle: false })
         return { track: { choice: 't1', confidence: 0.99 } } as JevAnswers<Qs>
       },
     }
 
     await chooseBgm({ store, jev, alerts: alertChannel.namespace, now: NOW, ...material })
 
-    expect(await loadBgmPlayback(store)).toEqual({ mediaId: null, volume: 0.4 })
+    expect(await loadBgmPlayback(store)).toEqual({ mediaId: null, volume: 0.4, repeat: false, shuffle: false })
     expect(alertChannel.pushedBgm).toEqual([])
   })
 
@@ -242,7 +244,7 @@ describe('chooseBgm', () => {
 
     await chooseBgm({ store, jev, alerts: alertChannel.namespace, now: NOW, ...material })
 
-    expect(await loadBgmPlayback(store)).toEqual({ mediaId: casualTrack.mediaId, volume: 0.4 })
+    expect(await loadBgmPlayback(store)).toEqual({ mediaId: casualTrack.mediaId, volume: 0.4, repeat: false, shuffle: false })
     expect(alertChannel.pushedBgm).toEqual([])
   })
 
@@ -251,7 +253,7 @@ describe('chooseBgm', () => {
     const jev = createFakeJev({ choice: 't1', confidence: null })
 
     await expect(chooseBgm({ store, jev, alerts: alertChannel.namespace, now: NOW, ...material })).rejects.toThrow('確信度')
-    expect(await loadBgmPlayback(store)).toEqual({ mediaId: casualTrack.mediaId, volume: 0.4 })
+    expect(await loadBgmPlayback(store)).toEqual({ mediaId: casualTrack.mediaId, volume: 0.4, repeat: false, shuffle: false })
   })
 
   it('Jev が失敗したら、曲を変えずにそのまま投げる', async () => {
@@ -259,7 +261,7 @@ describe('chooseBgm', () => {
     const jev = createFakeJev(new Error('Jev が失敗を返しました（402）'))
 
     await expect(chooseBgm({ store, jev, alerts: alertChannel.namespace, now: NOW, ...material })).rejects.toThrow('402')
-    expect(await loadBgmPlayback(store)).toEqual({ mediaId: casualTrack.mediaId, volume: 0.4 })
+    expect(await loadBgmPlayback(store)).toEqual({ mediaId: casualTrack.mediaId, volume: 0.4, repeat: false, shuffle: false })
     expect(alertChannel.pushedBgm).toEqual([])
   })
 })

@@ -781,7 +781,7 @@ describe('BGMの切り替え', () => {
       .prepare('INSERT INTO transcripts (message_id, session_id, spoken_at, text) VALUES (?, ?, ?, ?)')
       .run('hatsuwa-1', chatStream.id, new Date(now - 2 * 60 * 1000).toISOString(), 'ボス戦だ、いくぞ！')
     await saveBgmTracks(store, [chatTrack, upbeatTrack])
-    await saveBgmPlayback(store, { mediaId: chatTrack.mediaId, volume: 0.4 })
+    await saveBgmPlayback(store, { mediaId: chatTrack.mediaId, volume: 0.4, repeat: false, shuffle: false })
     await saveBgmSettings(store, { judgeWithJev: true })
     return { db, store }
   }

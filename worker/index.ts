@@ -94,7 +94,7 @@ import {
   putSpeech,
 } from './admin-routes'
 import { getFocus, getFocusMessages, putFocus } from './focus-routes'
-import { getBgm, getOverlayBgm, overlayBgmSocket, putBgmPlayback, putBgmSettings, putBgmTracks } from './bgm-routes'
+import { getBgm, getOverlayBgm, overlayBgmSocket, postBgmSkip, postOverlayBgmEnded, putBgmPlayback, putBgmSettings, putBgmTracks } from './bgm-routes'
 import { deleteViewerRoute, getViewers, patchViewer } from './viewer-routes'
 import { deleteReward, getRewards, patchReward, postReward } from './reward-routes'
 import {
@@ -226,6 +226,7 @@ const ROUTES: readonly Route[] = [
   { method: 'PUT', path: '/api/admin/bgm/tracks', handle: putBgmTracks },
   { method: 'PUT', path: '/api/admin/bgm/playback', handle: putBgmPlayback },
   { method: 'PUT', path: '/api/admin/bgm/settings', handle: putBgmSettings },
+  { method: 'POST', path: '/api/admin/bgm/skip', handle: postBgmSkip },
   { method: 'GET', path: '/api/admin/viewers', handle: getViewers },
   { method: 'PATCH', path: '/api/admin/viewers/:userId', handle: patchViewer },
   { method: 'DELETE', path: '/api/admin/viewers/:userId', handle: deleteViewerRoute },
@@ -249,6 +250,7 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/overlay/focus', handle: getOverlayFocus },
   { method: 'GET', path: '/api/overlay/bgm', handle: getOverlayBgm },
   { method: 'GET', path: '/api/overlay/bgm/socket', handle: overlayBgmSocket },
+  { method: 'POST', path: '/api/overlay/bgm/ended', handle: postOverlayBgmEnded },
   { method: 'GET', path: '/api/overlay/layout', handle: getOverlayLayoutForPage },
   { method: 'GET', path: '/api/media/:id', handle: media },
 ]
