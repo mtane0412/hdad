@@ -16,7 +16,7 @@ paths:
 - **トリガーの照合は `worker/alert-event.ts` の `matches` だけが持ち**、展開後の形しか見ない（展開は `trigger-menu.ts` の `expandSource`）。→ `.claude/rules/alerts.md`
 - **何を映すかの判断は `src/focus/focused.ts` だけが持つ**（通信もDOMも持ち込まない）。→ `.claude/rules/focus.md`
 - **Durable Object は配送者（`AlertChannel`）・時計（`AdBreakTimer`）であって判定者ではない**（設定を持たせると管理画面での変更がすぐ反映される性質が壊れる）
-- **同じ通知を2か所で読み解かない**（発言の読み取りは `worker/chat-command.ts` の `readChatMessage` に集め、`alert-event.ts` の `extract` からも呼ぶ）。同じ数を2か所に書かない（素材の推奨の大きさは `src/overlay/layout.ts` の `RECOMMENDED_ITEM_SIZES` だけ、ポートの検証は `src/transcript/url.ts` の `assertTranscriptPort` を共有する）
+- **同じ通知を2か所で読み解かない**（発言の読み取りは `worker/chat-command.ts` の `readChatMessage` に集め、`alert-event.ts` の `extract` からも呼ぶ）。同じ数を2か所に書かない（素材の推奨の大きさは `src/overlay/layout.ts` の `RECOMMENDED_ITEM_SIZES` だけ）
 
 ## 通信とDOMを持たない部分に切り出してテストする
 

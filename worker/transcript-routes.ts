@@ -1,13 +1,9 @@
 /**
  * 配信中の文字起こしの受け口
  *
- * 確定した発話を1件受け取り、worker/transcript-store.ts で記録する。送り手は2つある。
- * - アプリのページの音声認識（Chrome の Web Speech API。src/transcript/recognizer.ts）: POST /api/admin/transcripts。
- *   ログインしたアプリのページから送るので、配信者のセッションで守る（issue #189）
- * - OBSに置いた中継ページ（ゆかコネNEO から受け取る）: POST /api/overlay/transcript。オーバーレイ用キーで守り、
- *   入口は worker/overlay-routes.ts に置く
- *
- * 本文の検証（readTranscript）と記録は、どちらの入口からも同じものを通す（同じ判断を2か所に書かない）。
+ * 確定した発話を1件受け取り、worker/transcript-store.ts で記録する。送り手はアプリの枠の音声認識
+ * （Chrome の Web Speech API。src/transcript/recognizer.ts）で、ログインしたアプリのページから送るので、
+ * 配信者のセッションで守る（issue #189）。
  *
  * 配信していなければ記録せず、記録しなかったことを応答で知らせる（送り手が画面に出せるように）。
  * 捨てるのを失敗にしないのは、配信の前後に送り手を動かしたままにしておくのが普通の使い方だからである。
@@ -51,19 +47,10 @@ const readTranscript = async (request: Request): Promise<Transcript> => {
   return { messageId, text: spoken }
 }
 
-/**
- * 送り手の確かめが済んだ要求から発話を読み、記録して { recorded } で答える。
- *
- * 注意: 送り手を確かめる（requireAdmin・requireOverlayKey）のは呼び出し側の入口である。
- */
-export const receiveTranscript = async ({ request, env, now }: Context): Promise<Response> => {
-  const transcript = await readTranscript(request)
-  const recorded = await recordTranscript(env.DB, transcript, now)
-  return Response.json({ recorded })
-}
-
-/** POST /api/admin/transcripts: アプリのページの音声認識が確定した発話を1件受け取る */
+/** POST /api/admin/transcripts: アプリのページの音声認識が確定した発話を1件受け取り、記録して { recorded } で答える */
 export const postAdminTranscript = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
-  return receiveTranscript(context)
+  const transcript = await readTranscript(context.request)
+  const recorded = await recordTranscript(context.env.DB, transcript, context.now)
+  return Response.json({ recorded })
 }

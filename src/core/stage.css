@@ -2,8 +2,7 @@
  * OBSに載せるページ共通のスタイル。OBSのブラウザソースで透過できるよう、ページ自体は塗らない。
  *
  * 大きさはどれも「入っている箱」を基準にする（100vw/100vh ではなく100%）。合成ページ
- * （overlay/stage/index.html）ではレイヤーの箱の大きさに合い、裏方のページ（speech/reader/・
- * transcript/relay/）では箱＝body（高さ100%）なのでページ全体に広がる（issue #101）。
+ * （overlay/stage/index.html）ではレイヤーの箱の大きさに合い、裏方のページ（speech/reader/）では箱＝body（高さ100%）なのでページ全体に広がる（issue #101）。
  */
 html,
 body {

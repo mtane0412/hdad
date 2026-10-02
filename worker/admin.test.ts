@@ -283,114 +283,6 @@ describe('オーバーレイ用API', () => {
     expect(await errorCode(response)).toBe('expected-websocket')
   })
 
-  describe('POST /api/overlay/transcript（文字起こしの受け口）', () => {
-    /** 配信中の区切りを1件作る。ended_at が NULL なら配信中である */
-    const startStream = (env: Env): void => {
-      ;(env.DB as ReturnType<typeof createFakeDatabase>).sqlite
-        .prepare('INSERT INTO stream_sessions (id, started_at, title, category_name) VALUES (?, ?, ?, ?)')
-        .run('配信1', new Date(now - 60_000).toISOString(), '雑談配信', 'Just Chatting')
-    }
-
-    /** 発話を送る（この経路は応答のあとに続く処理を使わない） */
-    const send = async (env: Env, body: unknown, key = issuedKey) =>
-      invoke(
-        new Request(`${origin}/api/overlay/transcript?key=${key}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: typeof body === 'string' ? body : JSON.stringify(body),
-        }),
-        env,
-      )
-
-    const countRows = (env: Env): number =>
-      (
-        (env.DB as ReturnType<typeof createFakeDatabase>).sqlite.prepare('SELECT COUNT(*) AS count FROM transcripts').get() as {
-          count: number
-        }
-      ).count
-
-    it('配信中なら、届いた発話を記録して記録したと答える', async () => {
-      const { env } = createEnv()
-      startStream(env)
-
-      const response = await send(env, { messageId: '発話1', text: 'こんばんは、配信を始めます' })
-
-      expect(response.status).toBe(200)
-      expect(await response.json()).toEqual({ recorded: true })
-      expect(countRows(env)).toBe(1)
-    })
-
-    it('配信していなければ捨て、捨てたと答える', async () => {
-      const { env } = createEnv()
-
-      const response = await send(env, { messageId: '独り言', text: 'マイクの確認です' })
-
-      expect(response.status).toBe(200)
-      expect(await response.json()).toEqual({ recorded: false })
-      expect(countRows(env)).toBe(0)
-    })
-
-    it('同じメッセージIDが二度届いても行が増えない', async () => {
-      const { env } = createEnv()
-      startStream(env)
-
-      await send(env, { messageId: '発話1', text: 'こんばんは' })
-      const response = await send(env, { messageId: '発話1', text: 'こんばんは' })
-
-      expect(response.status).toBe(200)
-      expect(countRows(env)).toBe(1)
-    })
-
-    it('オーバーレイ用キーが違えば401を返し、記録しない', async () => {
-      const { env } = createEnv()
-      startStream(env)
-
-      const response = await send(env, { messageId: '発話1', text: 'こんばんは' }, 'atezuppou')
-
-      expect(response.status).toBe(401)
-      expect(await errorCode(response)).toBe('invalid-overlay-key')
-      expect(countRows(env)).toBe(0)
-    })
-
-    it('JSONでない本文は400で拒否する', async () => {
-      const { env } = createEnv()
-      const response = await send(env, 'JSONではない')
-      expect(response.status).toBe(400)
-      expect(await errorCode(response)).toBe('invalid-body')
-    })
-
-    it('メッセージIDが無ければ400で拒否する', async () => {
-      const { env } = createEnv()
-      const response = await send(env, { text: 'こんばんは' })
-      expect(response.status).toBe(400)
-      expect(await errorCode(response)).toBe('invalid-message-id')
-    })
-
-    it('本文が空なら400で拒否する', async () => {
-      const { env } = createEnv()
-      const response = await send(env, { messageId: '発話1', text: '   ' })
-      expect(response.status).toBe(400)
-      expect(await errorCode(response)).toBe('invalid-text')
-    })
-
-    it('本文が長すぎれば400で拒否する', async () => {
-      const { env } = createEnv()
-      const response = await send(env, { messageId: '発話1', text: 'あ'.repeat(TRANSCRIPT_MAX_LENGTH + 1) })
-      expect(response.status).toBe(400)
-      expect(await errorCode(response)).toBe('text-too-long')
-    })
-
-    it('前後の空白を落とせば上限に収まる本文は受け付ける（長さは保存する形で数える）', async () => {
-      const { env } = createEnv()
-      startStream(env)
-
-      const response = await send(env, { messageId: '発話1', text: `  ${'あ'.repeat(TRANSCRIPT_MAX_LENGTH)}  ` })
-
-      expect(response.status).toBe(200)
-      expect(await response.json()).toEqual({ recorded: true })
-    })
-  })
-
   describe('POST /api/admin/transcripts（アプリのページで認識した発話の受け口）', () => {
     /** 配信中の区切りを1件作る。ended_at が NULL なら配信中である */
     const startStream = (env: Env): void => {
@@ -466,11 +358,70 @@ describe('オーバーレイ用API', () => {
       expect(readRows(env)).toEqual([])
     })
 
-    it('本文の検証は中継ページの受け口と同じ（長すぎれば400で拒否する）', async () => {
+    it('同じメッセージIDが二度届いても行が増えない', async () => {
+      const { env } = createEnv()
+      startStream(env)
+
+      await sendAsBroadcaster(env, { messageId: 'webspeech:発話1', text: 'こんばんは' })
+      const response = await sendAsBroadcaster(env, { messageId: 'webspeech:発話1', text: 'こんばんは' })
+
+      expect(response.status).toBe(200)
+      expect(readRows(env)).toEqual([{ message_id: 'webspeech:発話1', text: 'こんばんは' }])
+    })
+
+    it('JSONでない本文は400で拒否する', async () => {
+      const { env } = createEnv()
+      const response = await sendAsBroadcaster(env, 'JSONではない')
+      expect(response.status).toBe(400)
+      expect(await errorCode(response)).toBe('invalid-body')
+    })
+
+    it('メッセージIDが無ければ400で拒否する', async () => {
+      const { env } = createEnv()
+      const response = await sendAsBroadcaster(env, { text: 'こんばんは' })
+      expect(response.status).toBe(400)
+      expect(await errorCode(response)).toBe('invalid-message-id')
+    })
+
+    it('本文が空なら400で拒否する', async () => {
+      const { env } = createEnv()
+      const response = await sendAsBroadcaster(env, { messageId: 'webspeech:発話1', text: '   ' })
+      expect(response.status).toBe(400)
+      expect(await errorCode(response)).toBe('invalid-text')
+    })
+
+    it('本文が長すぎれば400で拒否する', async () => {
       const { env } = createEnv()
       const response = await sendAsBroadcaster(env, { messageId: 'webspeech:発話1', text: 'あ'.repeat(TRANSCRIPT_MAX_LENGTH + 1) })
       expect(response.status).toBe(400)
       expect(await errorCode(response)).toBe('text-too-long')
+    })
+
+    it('前後の空白を落とせば上限に収まる本文は受け付ける（長さは保存する形で数える）', async () => {
+      const { env } = createEnv()
+      startStream(env)
+
+      const response = await sendAsBroadcaster(env, { messageId: 'webspeech:発話1', text: `  ${'あ'.repeat(TRANSCRIPT_MAX_LENGTH)}  ` })
+
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({ recorded: true })
+    })
+
+    it('ゆかコネNEO の中継の受け口（POST /api/overlay/transcript）は、もう受け付けない', async () => {
+      const { env } = createEnv()
+      startStream(env)
+
+      const response = await invoke(
+        new Request(`${origin}/api/overlay/transcript?key=${issuedKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messageId: '発話1', text: 'こんばんは' }),
+        }),
+        env,
+      )
+
+      expect(response.status).toBe(404)
+      expect(readRows(env)).toEqual([])
     })
   })
 

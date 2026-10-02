@@ -59,8 +59,6 @@
  * | POST /api/admin/transcripts      | セッション     | 配信中の文字起こしを1件受け取る（アプリのページの音声認識から） |
  * | POST /api/eventsub/webhook       | Twitchの署名   | EventSubの通知を受け、イベントの件数と配信の開始・終了を記録する |
  * | GET  /api/overlay/socket         | オーバーレイ用キー | オーバーレイからのWebSocketの接続を受け、アラートの配送先へ引き渡す |
- * | POST /api/overlay/transcript     | オーバーレイ用キー | 配信中の文字起こしを1件受け取る（中継ページから） |
- * | DELETE /api/overlay/transcript/:messageId | オーバーレイ用キー | 記録済みの発話を取り消す |
  * | GET  /api/overlay/side-super    | オーバーレイ用キー | いま出すサイドスーパーの文言を返す |
  * | GET  /api/overlay/speech         | オーバーレイ用キー | チャットの読み上げの設定を返す |
  * | GET  /api/overlay/screen         | オーバーレイ用キー | 配信画面の取り込みの設定を返す |
@@ -133,7 +131,6 @@ import {
   overlayTabSocket,
   overlaySocket,
   postScreen,
-  postTranscript,
 } from './overlay-routes'
 import { postAdminTranscript } from './transcript-routes'
 import { captionSocket } from './caption-routes'
@@ -253,7 +250,6 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/chat/badges', handle: chatBadges },
   { method: 'GET', path: '/api/chat/cheermotes', handle: chatCheermotes },
   { method: 'GET', path: '/api/overlay/socket', handle: overlaySocket },
-  { method: 'POST', path: '/api/overlay/transcript', handle: postTranscript },
   { method: 'GET', path: '/api/overlay/side-super', handle: getSideSuper },
   { method: 'GET', path: '/api/overlay/speech', handle: getOverlaySpeech },
   { method: 'GET', path: '/api/overlay/screen', handle: getOverlayScreen },

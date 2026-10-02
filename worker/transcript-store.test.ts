@@ -100,7 +100,7 @@ describe('readTranscriptsSince', () => {
 
   it('同じ時刻の発話の途中で上限に当たっても、残りは次に読める（取りこぼさない）', async () => {
     startStream('配信1')
-    // ゆかコネNEO からの押し込みが立て続けに届くと、記録する時刻（Workerが受け取った時刻）が同じになりうる
+    // 発話が立て続けに届くと、記録する時刻（Workerが受け取った時刻）が同じになりうる
     await recordTranscript(db, { messageId: '発話A', text: '同時刻の一件目' }, speechTime)
     await recordTranscript(db, { messageId: '発話B', text: '同時刻の二件目' }, speechTime)
 
