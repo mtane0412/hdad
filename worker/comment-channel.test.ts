@@ -15,8 +15,8 @@ const createConnection = (): CommentSocket & { received: string[] } => {
 }
 
 /** 接続と保管先を持つ、テスト用の保持の仕組み */
-const createStorage = (connections: readonly CommentSocket[]): CommentChannelState => {
-  const storage = new Map<string, unknown>()
+const createStorage = (connections: readonly CommentSocket[], saved: Record<string, unknown> = {}): CommentChannelState => {
+  const storage = new Map<string, unknown>(Object.entries(saved))
   return {
     acceptWebSocket: () => {},
     getWebSockets: () => [...connections],
@@ -70,6 +70,13 @@ describe('CommentChannel', () => {
 
   it('まだ何も押し出されていなければ、空の履歴を返す', async () => {
     const channel = new CommentChannel(createStorage([]))
+
+    expect(await channel.backlog()).toBe('{"type":"backlog","items":[]}')
+  })
+
+  it('形を変える前の鍵に覚えていた履歴は渡さない（画面が古い形の1件で読み取りに失敗しないように）', async () => {
+    const oldShapeChat = '{"kind":"chat","id":"既読管理のころの発言","at":0}'
+    const channel = new CommentChannel(createStorage([], { recent: [oldShapeChat] }))
 
     expect(await channel.backlog()).toBe('{"type":"backlog","items":[]}')
   })
