@@ -79,14 +79,26 @@ export const startBgm = async ({ key, box }: BgmTaskOptions): Promise<void> => {
    * 鳴らし直さずに黙ってしまわないためである。応答より先に同じ切り替えが押し出されてきても、
    * 後から届いたほうは同じ曲なので何もしない。
    * 終わった曲は届いた時点で控える。列の順番を待つあいだに別の曲へ切り替わったら、その曲は流し続ける。
+   *
+   * 知らせに失敗したら、箱に出したうえで Worker のいまの曲を読み直して流す。「何も鳴らしていない」ことにしたまま
+   * 押し出しを待つと、Worker の曲は変わらないので押し出しも来ず、つなぎ直すまで黙ってしまうためである。
+   * 読み直した曲で鳴らせても、知らせの失敗は箱に残す（次の曲へ進めなかったことに気づけるように）。
    */
   const onEnded = (): void => {
     const endedMediaId = current?.track?.mediaId
     if (endedMediaId === undefined) return
-    followLater(async () => {
-      if (current?.track?.mediaId === endedMediaId) current = { ...current, track: null }
-      return api.ended(endedMediaId)
-    })
+    queue = queue
+      .then(async () => {
+        if (current?.track?.mediaId === endedMediaId) current = { ...current, track: null }
+        try {
+          await follow(await api.ended(endedMediaId))
+          clearError(box, 'read')
+        } catch (error) {
+          showError(error, BGM_NOUN, box, 'read')
+          await follow(await api.read())
+        }
+      })
+      .catch((error: unknown) => showError(error, BGM_NOUN, box, 'read'))
   }
 
   // 1回目は起動の一部として扱う。ここで失敗したら画面に出して原因が分かるようにする

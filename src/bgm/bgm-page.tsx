@@ -24,7 +24,7 @@
  * 注意: 曲や素材を読めなかったときは、黙って空の一覧に倒さず理由を出す（Fail-Fast）。押し出しを読めなかったときも理由を出す。
  */
 import { Headphones, Music, Pause, Play, Plus, Repeat1, Shuffle, SkipBack, SkipForward, Sparkles, Trash2, Volume2 } from 'lucide-react'
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { AdminApi, MediaItem } from '@/admin/api'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
 import { Link } from '@/app/router'
@@ -190,6 +190,21 @@ export const BgmPage = ({ api, mediaApi, overlayKey, connect }: BgmPageProps) =>
   const playerTitleId = useId()
   const volumeLabelId = useId()
 
+  /**
+   * 再生の設定の世代。押し出しが届くたび・再生の設定を取りに行くたびに進める。
+   *
+   * 操作の応答（HTTP）は Worker が押し出したあとに返るので、曲の終わりや Jev によるもっと新しい押し出しより
+   * 遅れて届くことがある。取りに行ったときから世代が進んでいたら、その応答は古いので映さない。
+   */
+  const playbackRevision = useRef(0)
+
+  /** 再生の設定を取りに行く直前に呼ぶ。返した関数は、応答を映してよい（あいだに新しいものが届いていない）かを答える */
+  const beginPlaybackRequest = (): (() => boolean) => {
+    playbackRevision.current += 1
+    const revision = playbackRevision.current
+    return () => revision === playbackRevision.current
+  }
+
   /** Worker から読んだ・受け取った再生の設定を画面に映す */
   const showPlayback = (next: BgmPlayback): void => {
     setPlayback(next)
@@ -198,12 +213,13 @@ export const BgmPage = ({ api, mediaApi, overlayKey, connect }: BgmPageProps) =>
 
   useEffect(() => {
     let cancelled = false
+    const isLatest = beginPlaybackRequest()
     Promise.all([api.load(), mediaApi.media()]).then(
       ([bgm, loadedMedia]) => {
         if (cancelled) return
         setSavedTracks(bgm.tracks)
         setTracks(bgm.tracks)
-        showPlayback(bgm.playback)
+        if (isLatest()) showPlayback(bgm.playback)
         setSettings(bgm.settings)
         setMedia(loadedMedia)
         setLoaded({ status: 'ready' })
@@ -226,6 +242,7 @@ export const BgmPage = ({ api, mediaApi, overlayKey, connect }: BgmPageProps) =>
         try {
           const nowPlaying = parseBgmNowPlaying(text)
           const { volume, repeat, shuffle } = nowPlaying
+          beginPlaybackRequest()
           showPlayback({ mediaId: nowPlaying.track?.mediaId ?? null, volume, repeat, shuffle })
           setWatchProblem(null)
         } catch (error) {
@@ -239,10 +256,11 @@ export const BgmPage = ({ api, mediaApi, overlayKey, connect }: BgmPageProps) =>
         }
         // つながっていない間に切り替わっていたかもしれないので、読み直す。別の画面で曲の一覧が保存されていても
         // 流している曲を引けるよう、保存済みの一覧も読み直す（書きかけの入力欄はそのまま残す）
+        const isLatest = beginPlaybackRequest()
         api.load().then(
           (bgm) => {
             setSavedTracks(bgm.tracks)
-            showPlayback(bgm.playback)
+            if (isLatest()) showPlayback(bgm.playback)
             setWatchProblem(null)
           },
           (error: unknown) => setWatchProblem(errorMessage(error)),
@@ -272,15 +290,18 @@ export const BgmPage = ({ api, mediaApi, overlayKey, connect }: BgmPageProps) =>
   /** 流す曲・音量・リピート・シャッフルを Worker へ送る。Worker が裏方のページへ押し出す */
   const sendPlayback = (next: BgmPlayback, message: string) =>
     actions.run(async () => {
-      showPlayback(await api.savePlayback(next))
+      const isLatest = beginPlaybackRequest()
+      const saved = await api.savePlayback(next)
+      if (isLatest()) showPlayback(saved)
       return message
     })
 
   /** 次の曲・前の曲へ進めてもらう。どの曲にするか（一覧の順・シャッフル）は Worker が決める */
   const skip = (step: BgmStep) =>
     actions.run(async () => {
+      const isLatest = beginPlaybackRequest()
       const next = await api.skip(step)
-      showPlayback(next)
+      if (isLatest()) showPlayback(next)
       const title = savedTracks.find((track) => track.mediaId === next.mediaId)?.title ?? ''
       return `「${title}」に切り替えました`
     })

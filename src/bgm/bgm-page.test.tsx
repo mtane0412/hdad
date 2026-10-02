@@ -248,6 +248,33 @@ describe('BGMのページ', () => {
     expect(player().getByRole('status', { name: '音量' })).toHaveTextContent('50%')
   })
 
+  test('次の曲の応答より先に、もっと新しい曲が押し出されてきたら、遅れて届いた応答で巻き戻さない', async () => {
+    // 次の曲の応答（全力疾走）を止めておき、そのあいだに曲の終わりで「夕暮れの帰り道」へ進んだことが押し出されてくる
+    let respondSkip: (playback: BgmPlayback) => void = () => undefined
+    const api: BgmApi = {
+      ...bgmApi(),
+      skip: () =>
+        new Promise((resolve) => {
+          respondSkip = resolve
+        }),
+    }
+    const eveningTrack: BgmTrack = { ...chatTrack, mediaId: 'media-yuugure', title: '夕暮れの帰り道' }
+    const connection = renderPage({ ...api, load: () => Promise.resolve({ tracks: [chatTrack, hypeTrack, eveningTrack], playback: playingChat, settings: { judgeWithJev: false } }) })
+    await waitForLoad()
+
+    await userEvent.click(player().getByRole('button', { name: '次の曲' }))
+    await connection.push({
+      track: { mediaId: eveningTrack.mediaId, title: eveningTrack.title, credit: eveningTrack.credit, creditUrl: '', url: '/api/media/media-yuugure?key=k' },
+      volume: 0.3,
+      repeat: false,
+      shuffle: false,
+    })
+    await act(async () => respondSkip({ ...playingChat, mediaId: hypeTrack.mediaId }))
+
+    expect(player().getByText('夕暮れの帰り道')).toBeInTheDocument()
+    expect(player().queryByText('全力疾走')).not.toBeInTheDocument()
+  })
+
   test('つなぎ直したら読み直し、切れているあいだに別の画面で足された曲を流していても、プレーヤーにその曲を出す', async () => {
     // 開いたときは2曲。切れているあいだに別の画面で「夕暮れの帰り道」が足され、それに切り替わった
     const eveningTrack: BgmTrack = { ...chatTrack, mediaId: 'media-yuugure', title: '夕暮れの帰り道', credit: '音楽: 魔王魂' }
