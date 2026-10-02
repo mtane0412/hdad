@@ -1,7 +1,8 @@
 /**
  * BGMの再生
  *
- * 裏方のページで曲をループで鳴らし、切り替えるときは前の曲を消えていくように下げながら次の曲を上げてつなぐ。
+ * 裏方のページで曲を鳴らし、切り替えるときは前の曲を消えていくように下げながら次の曲を上げてつなぐ。
+ * リピートを入れていればループで鳴らし、切っていれば曲の終わりで呼び出し側へ知らせる（次の曲は Worker が決める）。
  * DOM（Audio 要素）を扱うため、何をするかの判断（change.ts）と分けてテストの対象外にしている
  * （読み上げの src/speech/audio.ts と同じ分け方）。
  *
@@ -48,6 +49,8 @@ interface Playing {
   readonly fader: ReturnType<typeof createFader>
   /** 音声を読めなかったときの見張り。止めるときに外す */
   readonly onAudioError: () => void
+  /** 曲の終わりの見張り。止めるときに外す */
+  readonly onAudioEnded: () => void
 }
 
 export interface BgmPlayer {
@@ -63,8 +66,9 @@ export interface BgmPlayer {
  * BGMの再生を用意する。
  *
  * @param onError 鳴らしている途中で音声を読めなくなったときに呼ぶ（読み込みの途中で通信が切れた場合など）
+ * @param onEnded ループせずに鳴らしていた曲が終わったときに呼ぶ
  */
-export const createBgmPlayer = (onError: (error: Error) => void): BgmPlayer => {
+export const createBgmPlayer = (onError: (error: Error) => void, onEnded: () => void): BgmPlayer => {
   let playing: Playing | null = null
 
   /**
@@ -76,25 +80,34 @@ export const createBgmPlayer = (onError: (error: Error) => void): BgmPlayer => {
   const release = (target: Playing): void => {
     target.fader.stop()
     target.audio.removeEventListener('error', target.onAudioError)
+    target.audio.removeEventListener('ended', target.onAudioEnded)
     target.audio.pause()
     target.audio.removeAttribute('src')
     target.audio.load()
   }
 
-  /** 鳴らしている曲を下げきってから止める */
+  /**
+   * 鳴らしている曲を下げきってから止める。
+   *
+   * 曲の終わりの見張りは先に外す。下げているあいだに曲が終わると、もう鳴らしていない曲の終わりを知らせてしまうためである。
+   */
   const fadeOut = async (target: Playing): Promise<void> => {
+    target.audio.removeEventListener('ended', target.onAudioEnded)
     await target.fader.fadeTo(0, FADE_MS)
     release(target)
   }
 
   /** 次の曲を音量0で鳴らし始め、上げていく。鳴らし始められなければ片付けてから投げる */
-  const fadeIn = async (url: string, volume: number): Promise<Playing> => {
+  const fadeIn = async (url: string, volume: number, loop: boolean): Promise<Playing> => {
     const audio = new Audio(url)
-    audio.loop = true
+    audio.loop = loop
     audio.volume = 0
     const onAudioError = (): void => onError(new Error('BGMの音声を読めませんでした（素材が消えた・通信が切れた可能性があります）'))
+    // ループしているあいだは ended が起きないので、終わりを知らせるのはリピートを切っているときだけになる
+    const onAudioEnded = (): void => onEnded()
     audio.addEventListener('error', onAudioError)
-    const next: Playing = { audio, fader: createFader(audio), onAudioError }
+    audio.addEventListener('ended', onAudioEnded)
+    const next: Playing = { audio, fader: createFader(audio), onAudioError, onAudioEnded }
     // OBSのブラウザソースでは自動再生が許されるが、普通のブラウザのタブでは操作前の再生を拒まれることがある
     await audio.play().catch((error: unknown) => {
       release(next)
@@ -109,8 +122,11 @@ export const createBgmPlayer = (onError: (error: Error) => void): BgmPlayer => {
       switch (change.type) {
         case 'none':
           return
-        case 'volume':
-          if (playing) void playing.fader.fadeTo(change.volume, VOLUME_FADE_MS)
+        case 'adjust':
+          if (playing) {
+            playing.audio.loop = change.loop
+            void playing.fader.fadeTo(change.volume, VOLUME_FADE_MS)
+          }
           return
         case 'stop': {
           const previous = playing
@@ -122,7 +138,7 @@ export const createBgmPlayer = (onError: (error: Error) => void): BgmPlayer => {
           const previous = playing
           // 次の曲を先に鳴らし始めてから前の曲を下げる。次の曲を鳴らせなかったら前の曲は流したままにする
           // （切り替えの失敗で配信が無音になるより、前の曲が続くほうが害が小さい）
-          playing = await fadeIn(change.url, change.volume)
+          playing = await fadeIn(change.url, change.volume, change.loop)
           if (previous) await fadeOut(previous)
           return
         }

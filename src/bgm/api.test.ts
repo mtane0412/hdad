@@ -32,6 +32,8 @@ const playingChatTrack: BgmNowPlaying = {
     url: `/api/media/media-zatsudan?key=${overlayKey}`,
   },
   volume: 0.3,
+  repeat: false,
+  shuffle: true,
 }
 
 /** 呼ばれた内容を記録し、決めた応答を返す fetch */
@@ -46,7 +48,7 @@ const fetchReturning = (status: number, body: unknown) => {
 
 describe('createBgmApi（管理画面）', () => {
   it('曲の一覧と、いま流す曲・音量と、BGMの設定を管理用の経路から読む', async () => {
-    const saved = { tracks: [chatTrack], playback: { mediaId: 'media-zatsudan', volume: 0.3 }, settings: { judgeWithJev: false } }
+    const saved = { tracks: [chatTrack], playback: { mediaId: 'media-zatsudan', volume: 0.3, repeat: false, shuffle: false }, settings: { judgeWithJev: false } }
     const { calls, fetchImpl } = fetchReturning(200, saved)
 
     expect(await createBgmApi(fetchImpl).load()).toEqual(saved)
@@ -61,10 +63,18 @@ describe('createBgmApi（管理画面）', () => {
   })
 
   it('流す曲と音量を保存する（止めるときは mediaId に null）', async () => {
-    const { calls, fetchImpl } = fetchReturning(200, { playback: { mediaId: null, volume: 0.5 } })
+    const { calls, fetchImpl } = fetchReturning(200, { playback: { mediaId: null, volume: 0.5, repeat: false, shuffle: false } })
 
-    expect(await createBgmApi(fetchImpl).savePlayback({ mediaId: null, volume: 0.5 })).toEqual({ mediaId: null, volume: 0.5 })
-    expect(calls).toEqual([{ path: '/api/admin/bgm/playback', method: 'PUT', body: JSON.stringify({ mediaId: null, volume: 0.5 }) }])
+    expect(await createBgmApi(fetchImpl).savePlayback({ mediaId: null, volume: 0.5, repeat: false, shuffle: false })).toEqual({ mediaId: null, volume: 0.5, repeat: false, shuffle: false })
+    expect(calls).toEqual([{ path: '/api/admin/bgm/playback', method: 'PUT', body: JSON.stringify({ mediaId: null, volume: 0.5, repeat: false, shuffle: false }) }])
+  })
+
+  it('次の曲・前の曲へ進めてもらい、進めた先の再生の設定を受け取る', async () => {
+    const playback = { mediaId: 'media-zatsudan', volume: 0.3, repeat: false, shuffle: false }
+    const { calls, fetchImpl } = fetchReturning(200, { playback })
+
+    expect(await createBgmApi(fetchImpl).skip('next')).toEqual(playback)
+    expect(calls).toEqual([{ path: '/api/admin/bgm/skip', method: 'POST', body: JSON.stringify({ step: 'next' }) }])
   })
 
   it('Jev に曲を選ばせるかを保存する', async () => {
@@ -75,7 +85,7 @@ describe('createBgmApi（管理画面）', () => {
   })
 
   it('応答の設定の形が違えばエラーにする', async () => {
-    const { fetchImpl } = fetchReturning(200, { tracks: [], playback: { mediaId: null, volume: 0.3 }, settings: {} })
+    const { fetchImpl } = fetchReturning(200, { tracks: [], playback: { mediaId: null, volume: 0.3, repeat: false, shuffle: false }, settings: {} })
 
     await expect(createBgmApi(fetchImpl).load()).rejects.toThrow('settings')
   })
@@ -90,7 +100,7 @@ describe('createBgmApi（管理画面）', () => {
   })
 
   it('応答の曲の形が違えばエラーにする', async () => {
-    const { fetchImpl } = fetchReturning(200, { tracks: [{ mediaId: 'media-zatsudan' }], playback: { mediaId: null, volume: 0.3 }, settings: { judgeWithJev: false } })
+    const { fetchImpl } = fetchReturning(200, { tracks: [{ mediaId: 'media-zatsudan' }], playback: { mediaId: null, volume: 0.3, repeat: false, shuffle: false }, settings: { judgeWithJev: false } })
 
     await expect(createBgmApi(fetchImpl).load()).rejects.toThrow('tracks[0]')
   })
@@ -103,6 +113,13 @@ describe('createBgmOverlayApi（裏方のページ）', () => {
     expect(await createBgmOverlayApi(fetchImpl, overlayKey).read()).toEqual(playingChatTrack)
     expect(calls).toEqual([{ path: `/api/overlay/bgm?key=${overlayKey}`, method: 'GET', body: '' }])
   })
+
+  it('曲が終わったことを知らせ、いま流している曲（次の曲へ進めたなら進めた先）を受け取る', async () => {
+    const { calls, fetchImpl } = fetchReturning(200, playingChatTrack)
+
+    expect(await createBgmOverlayApi(fetchImpl, overlayKey).ended('media-moriagari')).toEqual(playingChatTrack)
+    expect(calls).toEqual([{ path: `/api/overlay/bgm/ended?key=${overlayKey}`, method: 'POST', body: JSON.stringify({ mediaId: 'media-moriagari' }) }])
+  })
 })
 
 describe('parseBgmNowPlaying', () => {
@@ -111,11 +128,11 @@ describe('parseBgmNowPlaying', () => {
   })
 
   it('止めているときは track が null', () => {
-    expect(parseBgmNowPlaying(JSON.stringify({ track: null, volume: 0.3 }))).toEqual({ track: null, volume: 0.3 })
+    expect(parseBgmNowPlaying(JSON.stringify({ track: null, volume: 0.3, repeat: false, shuffle: false }))).toEqual({ track: null, volume: 0.3, repeat: false, shuffle: false })
   })
 
   it('JSONとして読めない・形が違うものはエラーにする', () => {
     expect(() => parseBgmNowPlaying('ひだまりの午後')).toThrow('BGM')
-    expect(() => parseBgmNowPlaying(JSON.stringify({ track: { title: 'ひだまりの午後' }, volume: 0.3 }))).toThrow('BGM')
+    expect(() => parseBgmNowPlaying(JSON.stringify({ track: { title: 'ひだまりの午後' }, volume: 0.3, repeat: false, shuffle: false }))).toThrow('BGM')
   })
 })

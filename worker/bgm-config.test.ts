@@ -148,17 +148,33 @@ describe('parseBgmPlayback', () => {
   const trackMediaIds = [casualTrack.mediaId, hypeTrack.mediaId]
 
   it('一覧にある曲と音量を受け取る', () => {
-    expect(parseBgmPlayback({ mediaId: casualTrack.mediaId, volume: 0.4 }, trackMediaIds)).toEqual({ mediaId: casualTrack.mediaId, volume: 0.4 })
+    expect(parseBgmPlayback({ mediaId: casualTrack.mediaId, volume: 0.4, repeat: false, shuffle: false }, trackMediaIds)).toEqual({ mediaId: casualTrack.mediaId, volume: 0.4, repeat: false, shuffle: false })
   })
 
   it('止めるときは mediaId に null を送る', () => {
-    expect(parseBgmPlayback({ mediaId: null, volume: 0.4 }, trackMediaIds)).toEqual({ mediaId: null, volume: 0.4 })
+    expect(parseBgmPlayback({ mediaId: null, volume: 0.4, repeat: false, shuffle: false }, trackMediaIds)).toEqual({ mediaId: null, volume: 0.4, repeat: false, shuffle: false })
   })
 
   it('一覧にない曲と範囲の外の音量は、両方の問題点をまとめて返す', () => {
-    expect(problemsOf(() => parseBgmPlayback({ mediaId: 'media-nai', volume: 1.5 }, trackMediaIds))).toEqual([
+    expect(problemsOf(() => parseBgmPlayback({ mediaId: 'media-nai', volume: 1.5, repeat: false, shuffle: false }, trackMediaIds))).toEqual([
       'mediaId: 素材「media-nai」の曲は一覧にありません',
       'volume: 0〜1 の数で指定してください',
+    ])
+  })
+
+  it('リピートとシャッフルを受け取る', () => {
+    expect(parseBgmPlayback({ mediaId: casualTrack.mediaId, volume: 0.4, repeat: true, shuffle: true }, trackMediaIds)).toEqual({
+      mediaId: casualTrack.mediaId,
+      volume: 0.4,
+      repeat: true,
+      shuffle: true,
+    })
+  })
+
+  it('リピートとシャッフルが true か false でなければ、両方の問題点をまとめて返す', () => {
+    expect(problemsOf(() => parseBgmPlayback({ mediaId: null, volume: 0.4, repeat: 'はい', shuffle: undefined }, trackMediaIds))).toEqual([
+      'repeat: true か false で指定してください',
+      'shuffle: true か false で指定してください',
     ])
   })
 
@@ -180,16 +196,22 @@ describe('保存と読み出し', () => {
     const store = createFakeStore()
 
     await saveBgmTracks(store, [casualTrack])
-    await saveBgmPlayback(store, { mediaId: casualTrack.mediaId, volume: 0.2 })
+    await saveBgmPlayback(store, { mediaId: casualTrack.mediaId, volume: 0.2, repeat: false, shuffle: false })
 
     expect(await loadBgmTracks(store)).toEqual([casualTrack])
-    expect(await loadBgmPlayback(store)).toEqual({ mediaId: casualTrack.mediaId, volume: 0.2 })
+    expect(await loadBgmPlayback(store)).toEqual({ mediaId: casualTrack.mediaId, volume: 0.2, repeat: false, shuffle: false })
+  })
+
+  it('リピートとシャッフルが無かったころに保存した再生の設定は、どちらも切った状態として読む', async () => {
+    const store = createFakeStore({ 'bgm-playback': JSON.stringify({ mediaId: casualTrack.mediaId, volume: 0.2 }) })
+
+    expect(await loadBgmPlayback(store)).toEqual({ mediaId: casualTrack.mediaId, volume: 0.2, repeat: false, shuffle: false })
   })
 })
 
 describe('nowPlayingOf', () => {
   it('流している曲の情報に、オーバーレイ用キーつきの音声のURLを添える', () => {
-    expect(nowPlayingOf([casualTrack, hypeTrack], { mediaId: hypeTrack.mediaId, volume: 0.5 }, 'overlay-key')).toEqual({
+    expect(nowPlayingOf([casualTrack, hypeTrack], { mediaId: hypeTrack.mediaId, volume: 0.5, repeat: false, shuffle: false }, 'overlay-key')).toEqual({
       track: {
         mediaId: hypeTrack.mediaId,
         title: '全力疾走',
@@ -198,29 +220,31 @@ describe('nowPlayingOf', () => {
         url: '/api/media/media-moriagari?key=overlay-key',
       },
       volume: 0.5,
+      repeat: false,
+      shuffle: false,
     })
   })
 
   it('止めているときは track が null', () => {
-    expect(nowPlayingOf([casualTrack], { mediaId: null, volume: 0.5 }, 'overlay-key')).toEqual({ track: null, volume: 0.5 })
+    expect(nowPlayingOf([casualTrack], { mediaId: null, volume: 0.5, repeat: false, shuffle: false }, 'overlay-key')).toEqual({ track: null, volume: 0.5, repeat: false, shuffle: false })
   })
 
   it('流す曲が一覧に無ければ、黙って止めずに投げる', () => {
-    expect(() => nowPlayingOf([casualTrack], { mediaId: 'media-nai', volume: 0.5 }, 'overlay-key')).toThrow('素材「media-nai」の曲が一覧にありません')
+    expect(() => nowPlayingOf([casualTrack], { mediaId: 'media-nai', volume: 0.5, repeat: false, shuffle: false }, 'overlay-key')).toThrow('素材「media-nai」の曲が一覧にありません')
   })
 })
 
 describe('playingTrackOf', () => {
   it('流している曲を一覧から引く', () => {
-    expect(playingTrackOf([casualTrack, hypeTrack], { mediaId: hypeTrack.mediaId, volume: 0.5 })).toEqual(hypeTrack)
+    expect(playingTrackOf([casualTrack, hypeTrack], { mediaId: hypeTrack.mediaId, volume: 0.5, repeat: false, shuffle: false })).toEqual(hypeTrack)
   })
 
   it('止めているときは null（止めているのは正常な状態なので投げない）', () => {
-    expect(playingTrackOf([casualTrack], { mediaId: null, volume: 0.5 })).toBeNull()
+    expect(playingTrackOf([casualTrack], { mediaId: null, volume: 0.5, repeat: false, shuffle: false })).toBeNull()
   })
 
   it('流す曲が一覧に無ければ、黙って止めずに投げる', () => {
-    expect(() => playingTrackOf([casualTrack], { mediaId: 'media-nai', volume: 0.5 })).toThrow('素材「media-nai」の曲が一覧にありません')
+    expect(() => playingTrackOf([casualTrack], { mediaId: 'media-nai', volume: 0.5, repeat: false, shuffle: false })).toThrow('素材「media-nai」の曲が一覧にありません')
   })
 })
 

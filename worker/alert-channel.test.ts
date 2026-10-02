@@ -27,7 +27,8 @@ const playingTrack: BgmNowPlaying = {
     creditUrl: 'https://amachamusic.chagasi.com/',
     url: '/api/media/media-zatsudan?key=オーバーレイ用キー',
   },
-  volume: 0.3,
+  volume: 0.3,  repeat: false,
+  shuffle: false,
 }
 
 /** 送られた文字列を覚えておく、テスト用の接続 */

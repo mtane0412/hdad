@@ -9,6 +9,7 @@ import type { AdminApi, Me } from '@/admin/api'
 import { BackstagePage } from '@/backstage/backstage-page'
 import type { BgmApi } from '@/bgm/api'
 import { BgmPage } from '@/bgm/bgm-page'
+import { connectBgmWatch } from '@/bgm/socket'
 import { MediaPage } from '@/admin/media-page'
 import { RewardPage } from '@/admin/reward-page'
 import { TriggerPage } from '@/admin/trigger-page'
@@ -117,7 +118,7 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
         icon: Music,
         // 鳴らすのは裏方のページ（/backstage/ で BGM を入れる）で、流す曲と音量の切り替えは Worker が押し出す（issue #151）。
         // 曲にする音声は、アップロードのページで上げた素材から選ぶ
-        render: ({ bgmApi, api }) => <BgmPage api={bgmApi} mediaApi={api} />,
+        render: ({ bgmApi, api, me }) => <BgmPage api={bgmApi} mediaApi={api} overlayKey={me.overlayKey} connect={connectBgmWatch} />,
       },
       { path: '/viewers/', keywords: ['常連', '人物像'], name: '視聴者', icon: Users, render: ({ viewerApi }) => <ViewerPage api={viewerApi} /> },
     ],

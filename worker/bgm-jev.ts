@@ -134,7 +134,7 @@ export const chooseBgm = async ({ store, jev, alerts, now, summary, transcript }
   if (latest.mediaId !== playback.mediaId || (await loadBgmSwitchedAt(store)) !== switchedAt) return
   if (!latestTracks.some((track) => track.mediaId === chosen.mediaId)) return
 
-  const next = { mediaId: chosen.mediaId, volume: latest.volume }
+  const next = { ...latest, mediaId: chosen.mediaId }
   await saveBgmPlayback(store, next)
   await saveBgmSwitchedAt(store, now)
   await pushBgmNowPlaying(store, alerts, latestTracks, next)

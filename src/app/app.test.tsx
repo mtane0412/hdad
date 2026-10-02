@@ -88,9 +88,10 @@ const createFakeViewerApi: ViewerApi = {
 }
 
 const createFakeBgmApi: BgmApi = {
-  load: vi.fn(async () => ({ tracks: [], playback: { mediaId: null, volume: 0.3 }, settings: { judgeWithJev: false } })),
+  load: vi.fn(async () => ({ tracks: [], playback: { mediaId: null, volume: 0.3, repeat: false, shuffle: false }, settings: { judgeWithJev: false } })),
   saveTracks: vi.fn(async () => []),
-  savePlayback: vi.fn(async () => ({ mediaId: null, volume: 0.3 })),
+  savePlayback: vi.fn(async () => ({ mediaId: null, volume: 0.3, repeat: false, shuffle: false })),
+  skip: vi.fn(async () => ({ mediaId: null, volume: 0.3, repeat: false, shuffle: false })),
   saveSettings: vi.fn(async () => ({ judgeWithJev: false })),
 }
 

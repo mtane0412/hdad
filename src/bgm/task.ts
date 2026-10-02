@@ -5,6 +5,7 @@
  * 開いたときに /api/overlay/bgm を読んで鳴らし始め、以後は切り替えを WebSocket（/api/overlay/bgm/socket）で
  * 押し出してもらう（issue #151）。ポーリングにしないのは、配信中の切り替えが数十秒遅れるためである。
  * つなぎ直したときは、つながっていない間の切り替えを取りこぼさないよう、もう一度読む。
+ * リピートを切っているときは、曲が終わったら /api/overlay/bgm/ended で知らせ、Worker が決めた次の曲を流す。
  *
  * 何をするかの判断は change.ts、音の再生は player.ts にあり、ここはそれらをつなぐだけである。
  * OBSに載せるページの約束どおり React もログインも持ち込まない。
@@ -40,7 +41,10 @@ export interface BgmTaskOptions {
  */
 export const startBgm = async ({ key, box }: BgmTaskOptions): Promise<void> => {
   const api = createBgmOverlayApi((input, init) => fetch(input, init), key)
-  const player = createBgmPlayer((error) => showError(error, BGM_NOUN, box, 'read'))
+  const player = createBgmPlayer(
+    (error) => showError(error, BGM_NOUN, box, 'read'),
+    () => onEnded(),
+  )
 
   const status = document.createElement('p')
   status.className = 'backstage-status'
@@ -66,6 +70,23 @@ export const startBgm = async ({ key, box }: BgmTaskOptions): Promise<void> => {
         clearError(box, 'read')
       })
       .catch((error: unknown) => showError(error, BGM_NOUN, box, 'read'))
+  }
+
+  /**
+   * 鳴らしていた曲が終わった。Worker に知らせて次の曲を受け取る。
+   *
+   * 知らせる前に「何も鳴らしていない」ことにしておく。曲が1つだけで次の曲も同じ曲のとき、同じ曲だからと
+   * 鳴らし直さずに黙ってしまわないためである。応答より先に同じ切り替えが押し出されてきても、
+   * 後から届いたほうは同じ曲なので何もしない。
+   * 終わった曲は届いた時点で控える。列の順番を待つあいだに別の曲へ切り替わったら、その曲は流し続ける。
+   */
+  const onEnded = (): void => {
+    const endedMediaId = current?.track?.mediaId
+    if (endedMediaId === undefined) return
+    followLater(async () => {
+      if (current?.track?.mediaId === endedMediaId) current = { ...current, track: null }
+      return api.ended(endedMediaId)
+    })
   }
 
   // 1回目は起動の一部として扱う。ここで失敗したら画面に出して原因が分かるようにする
