@@ -14,10 +14,15 @@
  * - 拡張の設定ページ（handleSettingsRequest）で一覧を見て、ホスト名を入力して登録し、消す
  * 一覧が変わったら（applyBlockedHosts）、映しているタブにもすぐ反映する（止める・送り直す）。
  *
+ * 映す範囲（issue #166）: ボタンの右クリック「映す範囲を選ぶ」（handlePickAreaClick）で、映しているタブに範囲を選ぶ画面を差し込む。
+ * 選ばれた範囲は、そのタブから知らせが届いたら（handleAreaPicked）offscreen document に送らせる。「範囲を外す」
+ * （handleClearAreaClick）でタブ全体に戻す。範囲は offscreen document が1つだけ持ち、別のタブに切り替えたら外れる。
+ *
  * 注意: IDを取れない・取り込めないときは、黙って何もしないのではなくバッジ「!」で知らせ、理由はボタンの説明に出す。
  * 注意: 映さないサイトの一覧を読めないときは映し始めない。保険が読めないまま映し続けるのは危険なので、安全側に倒す。
  */
 import { hostOfPageUrl, isBlockedUrl } from '../../src/tab/blocked-hosts'
+import type { TabCrop } from '../../src/tab/crop'
 import { reasonOf } from './guards'
 import type { OffscreenEvent } from './offscreen-event'
 import type { SettingsReply, SettingsRequest } from './settings-request'
@@ -97,10 +102,29 @@ export interface ControllerApi {
   pauseCapture(): Promise<void>
   /** pauseCapture で止めていた送信を再開させる */
   resumeCapture(): Promise<void>
+  /**
+   * このタブに、映す範囲を選ぶ画面を差し込む（選ばれたら、そのタブから知らせが届く）。
+   *
+   * @throws 差し込めないページ（chrome:// のページなど）の場合
+   */
+  pickArea(tabId: number): Promise<void>
+  /**
+   * offscreen document に映す範囲を送らせる（null はタブ全体）。
+   *
+   * @throws offscreen document が応じられなかった場合
+   */
+  setCrop(crop: TabCrop | null): Promise<void>
   /** ボタンの表示を変える */
   show(state: BadgeState): Promise<void>
   /** 右クリックの「映さない・映す」の項目を変える */
   showSiteMenu(menu: SiteMenuView): Promise<void>
+}
+
+/** 範囲を選ぶ画面から届いた、選ばれた範囲 */
+export interface PickedArea {
+  /** 選ばれたタブ（知らせの送り主。Chrome が渡す） */
+  readonly tabId: number
+  readonly crop: TabCrop
 }
 
 /** 押されたタブ（url は権限 tabs があるので Chrome が渡す） */
@@ -356,6 +380,54 @@ export const handleSettingsRequest = async (request: SettingsRequest, api: Contr
   }
   await applyBlockedHosts(hosts, api)
   return { ok: true, hosts }
+}
+
+/** offscreen document に範囲を送らせる。送れなければボタンで知らせる */
+const sendCrop = async (crop: TabCrop | null, api: ControllerApi): Promise<void> => {
+  try {
+    await api.setCrop(crop)
+  } catch (error) {
+    await api.show({ kind: 'problem', message: `映す範囲を変えられませんでした: ${reasonOf(error)}` })
+  }
+}
+
+/** ボタンの右クリック「映す範囲を選ぶ」。映しているタブでだけ、範囲を選ぶ画面を出す */
+export const handlePickAreaClick = async (tab: ClickedTab, api: ControllerApi): Promise<void> => {
+  const state = await api.capturing()
+  if (state === null) {
+    await api.show({ kind: 'problem', message: 'タブを映していません。映したいタブでボタンを押してから、範囲を選んでください' })
+    return
+  }
+  // 範囲は映しているタブの見た目に対する割合なので、ほかのタブの上では選ばせない
+  if (tab.id !== state.tabId) {
+    await api.show({ kind: 'problem', message: '映す範囲は、映しているタブを開いて選んでください' })
+    return
+  }
+  try {
+    await api.pickArea(state.tabId)
+  } catch (error) {
+    await api.show({ kind: 'problem', message: `このページでは範囲を選べません: ${reasonOf(error)}` })
+  }
+}
+
+/** 範囲を選ぶ画面で範囲が決まったら、offscreen document に送らせる */
+export const handleAreaPicked = async (picked: PickedArea, api: ControllerApi): Promise<void> => {
+  const state = await api.capturing()
+  // 選んでいるあいだに別のタブへ切り替えた・止めたなら、その範囲は今の映像に合わない
+  if (state?.tabId !== picked.tabId) {
+    await api.show({ kind: 'problem', message: '範囲を選んでいるあいだに映すタブが変わったので、選んだ範囲は使いませんでした' })
+    return
+  }
+  await sendCrop(picked.crop, api)
+}
+
+/** ボタンの右クリック「範囲を外す」。タブ全体を映す */
+export const handleClearAreaClick = async (api: ControllerApi): Promise<void> => {
+  if ((await api.capturing()) === null) {
+    await api.show({ kind: 'problem', message: 'タブを映していないので、外す範囲はありません' })
+    return
+  }
+  await sendCrop(null, api)
 }
 
 /** offscreen document からの知らせを、ボタンの表示に反映する */

@@ -10,6 +10,7 @@
  * - 取り込んだタブが閉じられたら、エラーにせず終わったことを知らせる
  * - つながっている合成ページの数と、待てば直るかもしれない失敗を、まとめた状態として知らせる
  * - 映さないサイトへ移ったら、取り込みは保ったまま送るのだけを止め、映してよいページへ戻ったら送り直す
+ * - 映す範囲（issue #166）を変えたら合成ページへ送り、別のタブに切り替えたら範囲を外す（タブ全体に戻す）
  */
 import { describe, expect, it } from 'vitest'
 import type { CapturedTab } from '../../src/tab/capture'
@@ -212,11 +213,13 @@ describe('createCaptureSession', () => {
     const harness = createHarness()
     await harness.session.start('ストリームID-1')
     harness.session.pause()
+    const sentBeforeResume = harness.sent.length
 
     harness.session.resume()
     harness.socket().onMessage({ type: 'hello', viewerId: 'OBSの受け手' })
 
-    expect(harness.sent.at(-1)).toEqual({ type: 'who' })
+    // 名乗り直しを頼み、名乗った合成ページへ範囲（タブ全体）を送ってから映像をつなぐ
+    expect(harness.sent.slice(sentBeforeResume)).toEqual([{ type: 'who' }, { type: 'crop', crop: null }])
     expect(harness.peerHandlers).toHaveLength(1)
     expect(harness.captured).toHaveLength(1)
   })
@@ -240,5 +243,37 @@ describe('createCaptureSession', () => {
     harness.socket().onMessage({ type: 'hello', viewerId: 'OBSの受け手' })
 
     expect(harness.peerHandlers).toHaveLength(1)
+  })
+
+  it('映す範囲を変えたら、合成ページへ送る', async () => {
+    const harness = createHarness()
+    await harness.session.start('ストリームID-1')
+
+    harness.session.setCrop({ x: 0.25, y: 0, width: 0.5, height: 1 })
+
+    expect(harness.sent.at(-1)).toEqual({ type: 'crop', crop: { x: 0.25, y: 0, width: 0.5, height: 1 } })
+  })
+
+  it('別のタブに切り替えたら、範囲を外してタブ全体を映す', async () => {
+    const harness = createHarness()
+    await harness.session.start('ストリームID-1')
+    harness.session.setCrop({ x: 0.25, y: 0, width: 0.5, height: 1 })
+
+    await harness.session.start('ストリームID-2')
+    harness.socket().onMessage({ type: 'hello', viewerId: 'OBSの受け手' })
+
+    expect(harness.sent.at(-1)).toEqual({ type: 'crop', crop: null })
+  })
+
+  it('送るのを止めているあいだに選んだ範囲で、送り直したときに映す', async () => {
+    const harness = createHarness()
+    await harness.session.start('ストリームID-1')
+    harness.session.pause()
+
+    harness.session.setCrop({ x: 0.25, y: 0, width: 0.5, height: 1 })
+    harness.session.resume()
+    harness.socket().onMessage({ type: 'hello', viewerId: 'OBSの受け手' })
+
+    expect(harness.sent.at(-1)).toEqual({ type: 'crop', crop: { x: 0.25, y: 0, width: 0.5, height: 1 } })
   })
 })

@@ -6,8 +6,10 @@
  * - つながったとき・名乗り直しを頼まれたときに名乗る
  * - 自分あての offer にだけ answer を返し、届いた映像を映す
  * - 送り手が映すのをやめたとき・接続が切れたときは、何も映さない（エラーにしない）
+ * - 送り手から映す範囲（issue #166）が届いたら知らせる
  */
 import { describe, expect, it } from 'vitest'
+import type { TabCrop } from './crop'
 import type { FromViewer } from './signal'
 import { createTabReceiver, type ReceiverPeerHandlers } from './receiver'
 
@@ -25,6 +27,7 @@ type FakeStream = { readonly label: string }
 const createHarness = () => {
   const sent: FromViewer[] = []
   const shown: (FakeStream | null)[] = []
+  const crops: (TabCrop | null)[] = []
   const warnings: string[] = []
   const peers: { offerSdp: string | null; closed: boolean; handlers: ReceiverPeerHandlers<FakeStream> }[] = []
   const receiver = createTabReceiver<FakeStream>({
@@ -44,15 +47,25 @@ const createHarness = () => {
       }
     },
     onStream: (stream) => shown.push(stream),
+    onCrop: (crop) => crops.push(crop),
     onWarning: (message) => warnings.push(message),
   })
-  return { receiver, sent, shown, warnings, peers }
+  return { receiver, sent, shown, crops, warnings, peers }
 }
 
 /** answer を作る非同期の処理が終わるのを待つ */
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 describe('createTabReceiver', () => {
+  it('送り手から映す範囲が届いたら知らせる（範囲を外した知らせも同じ）', () => {
+    const { receiver, crops } = createHarness()
+
+    receiver.receive({ type: 'crop', crop: { x: 0, y: 0.5, width: 1, height: 0.5 } })
+    receiver.receive({ type: 'crop', crop: null })
+
+    expect(crops).toEqual([{ x: 0, y: 0.5, width: 1, height: 0.5 }, null])
+  })
+
   it('つながったら名乗る', () => {
     const { receiver, sent } = createHarness()
 
@@ -185,6 +198,7 @@ describe('createTabReceiver', () => {
         }
       },
       onStream: () => undefined,
+      onCrop: () => undefined,
       onWarning: () => undefined,
     })
 
@@ -206,6 +220,7 @@ describe('createTabReceiver', () => {
         close: () => undefined,
       }),
       onStream: () => undefined,
+      onCrop: () => undefined,
       onWarning: (message) => warnings.push(message),
     })
 

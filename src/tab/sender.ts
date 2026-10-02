@@ -11,7 +11,12 @@
  * 接続が切れたら（failed）閉じて名乗り直しを頼み、名乗った合成ページへ作り直す。#163 の試作で、H.264 の最初の1回だけ
  * 送信が止まったまま failed になったことがあり（原因は特定できていない）、作り直せば映ったため。
  * 合成ページが閉じられていれば名乗る相手がいないので、作り直しは起こらない。
+ *
+ * 映す範囲（issue #166）は映像とは別に持ち、名乗った合成ページへ offer の前に送る（OBS がブラウザソースを読み込み直しても
+ * 同じ範囲で映るように）。映しているあいだに変わったら全員へすぐ送る。映すタブを切り替えても範囲は外さない
+ * （外すかどうかは呼び出し側が決める。送るのを一時的に止めて送り直すときは同じ範囲のまま映すため）。
  */
+import type { TabCrop } from './crop'
 import type { FromSender, FromViewer } from './signal'
 
 /** 送り手の接続1本が知らせること */
@@ -51,6 +56,8 @@ export interface TabSender<S> {
   start(stream: S): void
   /** 映すのをやめる */
   stop(): void
+  /** 映す範囲を変える（null はタブ全体）。映しているあいだなら合成ページへすぐ送る */
+  setCrop(crop: TabCrop | null): void
   /** 中継先へつながった（つなぎ直しも含む） */
   opened(): void
   /** 合成ページから連絡が届いた */
@@ -66,6 +73,7 @@ interface PeerEntry {
 export const createTabSender = <S>(options: TabSenderOptions<S>): TabSender<S> => {
   const { send } = options
   let stream: S | null = null
+  let crop: TabCrop | null = null
   const peers = new Map<string, PeerEntry>()
 
   const reportConnected = (): void => options.onConnectedCount([...peers.values()].filter((entry) => entry.connected).length)
@@ -116,6 +124,8 @@ export const createTabSender = <S>(options: TabSenderOptions<S>): TabSender<S> =
 
   const hello = (viewerId: string): void => {
     if (stream === null) return
+    // 範囲は映像より先に届ける（映った最初のコマからその範囲で映すため）
+    send({ type: 'crop', crop })
     const existing = peers.get(viewerId)
     // 名乗り直しは全員に頼むので、つながっている合成ページも名乗る。そこは作り直さない
     if (existing?.connected === true) return
@@ -143,6 +153,10 @@ export const createTabSender = <S>(options: TabSenderOptions<S>): TabSender<S> =
       closeAll()
       stream = null
       send({ type: 'stop' })
+    },
+    setCrop: (next) => {
+      crop = next
+      if (stream !== null) send({ type: 'crop', crop })
     },
     opened: () => {
       if (stream !== null) send({ type: 'who' })

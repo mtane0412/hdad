@@ -7,6 +7,7 @@
  * - Chrome 拡張をこの置き場所用にダウンロードできる
  * - 映しているタブでもう一度押すと止まることを案内する（このページを開いたままにする必要がないことも）
  * - 映さないサイトの登録・解除の仕方（右クリックと拡張の設定）を案内する
+ * - 映す範囲の選び方と外し方（右クリック）を案内する（issue #166）
  */
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -34,5 +35,12 @@ describe('TabPage', () => {
 
     expect(screen.getByText(/拡張のボタンを右クリックして「このサイトを映さない」/)).toBeTruthy()
     expect(screen.getByText(/右クリックの「オプション」/)).toBeTruthy()
+  })
+
+  it('映す範囲の選び方と外し方を案内する', () => {
+    render(<TabPage />)
+
+    expect(screen.getByText(/拡張のボタンを右クリックして「映す範囲を選ぶ」/)).toBeTruthy()
+    expect(screen.getByText(/「範囲を外す（タブ全体を映す）」/)).toBeTruthy()
   })
 })

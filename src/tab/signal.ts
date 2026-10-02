@@ -8,10 +8,13 @@
  * 1. 合成ページはつながるたびに名乗る（hello）。送り手は映しているあいだ、名乗った合成ページごとに offer を送る
  * 2. 合成ページは自分あての offer にだけ answer を返す（合成ページが複数あっても、接続は合成ページごとに分かれる）
  * 3. 送り手は、映し始めたときと接続が切れたときに名乗り直しを頼む（who）。映すのをやめたら stop を送る
+ * 4. 送り手は、名乗った合成ページへ offer の前に映す範囲（crop）を送り、映しているあいだに範囲が変わったらすぐ送る（issue #166）。
+ *    範囲は合成ページの名前によらず同じなので、あて先を付けずに全員へ送る
  *
  * ICE の候補は集め終えてから SDP にまとめて送るので、候補を1つずつ送る連絡は持たない（同じPCの中でつなぐため、すぐに集まる）。
  */
 import { isRecord } from '../core/api'
+import { parseTabCrop, type TabCrop } from './crop'
 
 /**
  * 送り手（拡張）が中継先へつなぐときに WebSocket のプロトコル（Sec-WebSocket-Protocol）の先頭に置く名前。
@@ -27,7 +30,12 @@ export const SENDER_PROTOCOL = 'hdad-tab-sender'
 export type FromViewer = { type: 'hello'; viewerId: string } | { type: 'answer'; viewerId: string; sdp: string }
 
 /** 送り手から合成ページへ送る連絡 */
-export type FromSender = { type: 'who' } | { type: 'offer'; viewerId: string; sdp: string } | { type: 'stop' }
+export type FromSender =
+  | { type: 'who' }
+  | { type: 'offer'; viewerId: string; sdp: string }
+  | { type: 'stop' }
+  /** 映す範囲（null はタブ全体） */
+  | { type: 'crop'; crop: TabCrop | null }
 
 const isText = (value: unknown): value is string => typeof value === 'string' && value !== ''
 
@@ -61,6 +69,7 @@ export const parseFromSender = (payload: string): FromSender => {
   if (!isRecord(value)) throw new Error('送り手からの連絡の形が想定と違います')
   if (value.type === 'who') return { type: 'who' }
   if (value.type === 'stop') return { type: 'stop' }
+  if (value.type === 'crop') return { type: 'crop', crop: value.crop === null ? null : parseTabCrop(value.crop) }
   if (value.type === 'offer') {
     if (!isText(value.viewerId) || !isText(value.sdp)) throw new Error('送り手からの連絡の形が想定と違います')
     return { type: 'offer', viewerId: value.viewerId, sdp: value.sdp }

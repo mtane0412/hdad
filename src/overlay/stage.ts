@@ -63,6 +63,7 @@ import { createSideSuperApi } from '../side-super/api'
 import { demoSideSupers } from '../side-super/demo'
 import { sideSuperParamSchema } from '../side-super/params'
 import { createSideSuperView } from '../side-super/view'
+import { layoutCrop, type Rect, type TabCrop } from '../tab/crop'
 import { openReceiverPeer } from '../tab/peer'
 import { createTabReceiver } from '../tab/receiver'
 import { connectTabViewer } from '../tab/socket'
@@ -654,6 +655,9 @@ const mountBgm = (box: HTMLElement, item: OverlayItem, { key, demo }: MountConte
  * （中継先は worker/tab-channel.ts、連絡への応じ方は src/tab/receiver.ts）。音も <video> から鳴らすので、
  * OBSのブラウザソースで「OBSで音声を制御する」を有効にしてもらう（docs/guide/tab.md）。
  *
+ * 配信者が拡張で映す範囲を選んでいれば（issue #166）、その範囲だけを縦横比を保って箱に収める（src/tab/crop.ts の layoutCrop）。
+ * canvas に描き直さず <video> を外枠の中で拡大してずらすので、毎フレームの処理は増えない。
+ *
  * 注意: 何も届いていないあいだ（タブを閉じた・映すのをやめた）は透明にするだけで、
  * 箱に失敗を出さない。配信中に普通に起こる操作のため。箱に出すのは中継先につながらないときだけである。
  */
@@ -670,12 +674,36 @@ const mountTab = (box: HTMLElement, item: OverlayItem, { key, demo }: MountConte
     return {}
   }
 
+  // 映す範囲（issue #166）だけを見せる外枠。映像を拡大してずらし、外枠からはみ出した分を隠す
+  const clip = document.createElement('div')
+  clip.className = 'tab-clip'
+  clip.hidden = true
   const video = document.createElement('video')
   video.className = 'tab-video'
   video.autoplay = true
   video.playsInline = true
   video.hidden = true
-  box.append(video)
+  clip.append(video)
+  box.append(clip)
+
+  /** 送り手から届いた映す範囲（null はタブ全体） */
+  let crop: TabCrop | null = null
+  const setRect = (element: HTMLElement, rect: Rect): void => {
+    Object.assign(element.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` })
+  }
+  /** 箱・映像の大きさ・範囲のどれかが変わったら置き直す。映像の大きさがまだ分からなければ外枠ごと隠す */
+  const place = (): void => {
+    const layout = layoutCrop({ width: box.clientWidth, height: box.clientHeight }, { width: video.videoWidth, height: video.videoHeight }, crop)
+    clip.hidden = layout === null
+    if (layout === null) return
+    setRect(clip, layout.clip)
+    setRect(video, layout.video)
+  }
+  // 映像の大きさは、届いたとき・映すタブの大きさが変わったときに変わる
+  video.addEventListener('resize', place)
+  video.addEventListener('loadedmetadata', place)
+  // 箱の大きさは、管理画面で構成を変えたときに変わる
+  new ResizeObserver(place).observe(box)
 
   const showWarning = (message: string): void => {
     // 前に出した知らせを消してから出す（つなぎ直しは繰り返すので、消さないと配信画面に積み上がる）
@@ -698,6 +726,10 @@ const mountTab = (box: HTMLElement, item: OverlayItem, { key, demo }: MountConte
       if (stream === null) return
       // OBSのブラウザソースは操作なしで音を鳴らせる（#163 で確かめた）。鳴らせなければ理由を箱に出す
       video.play().catch((error: unknown) => showWarning(`タブの映像を再生できませんでした: ${error instanceof Error ? error.message : String(error)}`))
+    },
+    onCrop: (next) => {
+      crop = next
+      place()
     },
     onWarning: showWarning,
   })

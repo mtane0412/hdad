@@ -49,14 +49,15 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse: (
     sendResponse({ ok: true })
     return false
   }
-  if (command.type === 'pause' || command.type === 'resume') {
+  if (command.type === 'pause' || command.type === 'resume' || command.type === 'crop') {
     if (captureSession === null) {
       // 映していないのに頼まれた（サービスワーカーの記録と食い違っている）。黙らずに返す
       sendResponse({ ok: false, message: 'タブを映していません' })
       return false
     }
     if (command.type === 'pause') captureSession.pause()
-    else captureSession.resume()
+    else if (command.type === 'resume') captureSession.resume()
+    else captureSession.setCrop(command.crop)
     sendResponse({ ok: true })
     return false
   }

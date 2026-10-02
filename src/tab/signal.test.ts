@@ -50,6 +50,21 @@ describe('parseFromSender（合成ページが送り手から受け取る連絡�
     expect(parseFromSender('{"type":"stop"}')).toEqual({ type: 'stop' })
   })
 
+  it('映す範囲（crop）を読み取る', () => {
+    expect(parseFromSender('{"type":"crop","crop":{"x":0.5,"y":0,"width":0.5,"height":1}}')).toEqual({
+      type: 'crop',
+      crop: { x: 0.5, y: 0, width: 0.5, height: 1 },
+    })
+  })
+
+  it('範囲を外した知らせ（crop が null）を読み取る', () => {
+    expect(parseFromSender('{"type":"crop","crop":null}')).toEqual({ type: 'crop', crop: null })
+  })
+
+  it('タブの外にはみ出す範囲はエラーにする', () => {
+    expect(() => parseFromSender('{"type":"crop","crop":{"x":0.8,"y":0,"width":0.5,"height":1}}')).toThrow('映す範囲の形が想定と違います')
+  })
+
   it('中身が空の offer はエラーにする', () => {
     expect(() => parseFromSender('{"type":"offer","viewerId":"OBSの受け手","sdp":""}')).toThrow('送り手からの連絡の形が想定と違います')
   })

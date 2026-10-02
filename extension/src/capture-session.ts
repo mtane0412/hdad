@@ -15,10 +15,14 @@
  * resume で送り直させる（issue #165）。取り込みは保つので、配信者がボタンを押し直さずに済む。止めているあいだは
  * 合成ページとの接続をすべて閉じるので、映像は1枚も流れない（合成ページは透明に戻る）。
  *
+ * 映す範囲（issue #166）は setCrop で受け取って送り手（src/tab/sender.ts）に渡す。別のタブを映し始めたら範囲を外す
+ * （範囲は1つだけ持ち、選んだタブのためのものなので）。送るのを止めて送り直すときは同じタブなので外さない。
+ *
  * 注意: 取り込んだタブが閉じられたら、エラーにせず「終わった」とだけ知らせる。配信中に普通に起こる操作のため。
  * 注意: IDは数秒で使えなくなる（#163 で、5秒後は使え、10秒後は失敗した）ので、受け取ったらすぐ取り込む。
  */
 import type { CapturedTab } from '../../src/tab/capture'
+import type { TabCrop } from '../../src/tab/crop'
 import { createTabSender, type SenderPeer, type SenderPeerHandlers } from '../../src/tab/sender'
 import type { FromSender, FromViewer } from '../../src/tab/signal'
 import type { TabSocket, TabSocketHandlers } from '../../src/tab/socket'
@@ -51,6 +55,8 @@ export interface CaptureSession {
   pause(): void
   /** pause で止めていたなら、同じ取り込みで送り直す */
   resume(): void
+  /** 映す範囲を変える（null はタブ全体） */
+  setCrop(crop: TabCrop | null): void
 }
 
 /** 作った時点で中継先へつなぐ（offscreen document は映し始めるときに作られる） */
@@ -116,6 +122,8 @@ export const createCaptureSession = <S>(options: CaptureSessionOptions<S>): Capt
       current = next
       // 別のタブを映し始めたら、前のタブのために止めていたことは忘れる（映してよいかはサービスワーカーが確かめてから頼む）
       paused = false
+      // 範囲は前のタブで選んだものなので外す（新しいタブはまず全体を映す）
+      sender.setCrop(null)
       next.onEnded(() => {
         if (current !== next) return
         // タブが閉じられた。エラーにはせず、合成ページを透明に戻して終わったことを知らせる
@@ -145,5 +153,6 @@ export const createCaptureSession = <S>(options: CaptureSessionOptions<S>): Capt
       paused = false
       if (current !== null) sender.start(current.stream)
     },
+    setCrop: (crop) => sender.setCrop(crop),
   }
 }

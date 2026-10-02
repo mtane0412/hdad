@@ -29,6 +29,18 @@ describe('parseOffscreenCommand', () => {
     expect(parseOffscreenCommand({ target: OFFSCREEN_COMMAND_TARGET, type: 'resume' })).toEqual({ type: 'resume' })
   })
 
+  it('映す範囲を変える頼みを読む（範囲を外す null も読む）', () => {
+    expect(parseOffscreenCommand({ target: OFFSCREEN_COMMAND_TARGET, type: 'crop', crop: { x: 0, y: 0, width: 0.5, height: 0.5 } })).toEqual({
+      type: 'crop',
+      crop: { x: 0, y: 0, width: 0.5, height: 0.5 },
+    })
+    expect(parseOffscreenCommand({ target: OFFSCREEN_COMMAND_TARGET, type: 'crop', crop: null })).toEqual({ type: 'crop', crop: null })
+  })
+
+  it('タブの外にはみ出す範囲はエラーにする', () => {
+    expect(() => parseOffscreenCommand({ target: OFFSCREEN_COMMAND_TARGET, type: 'crop', crop: { x: 0.8, y: 0, width: 0.5, height: 1 } })).toThrow('映す範囲の形が想定と違います')
+  })
+
   it('ほかのあて先の連絡は無視する（null を返す）', () => {
     expect(parseOffscreenCommand({ target: 'background', type: 'ended' })).toBeNull()
   })

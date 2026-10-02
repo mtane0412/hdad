@@ -11,6 +11,7 @@
  * - 映しているタブが映さないサイトへ移ったら送るのを止め、映してよいページが表示されたら送り直す
  * - ボタンの右クリックで、そのタブのサイトを映さないサイトに登録し、登録済みなら映すサイトに戻す（項目の名前も切り替える）
  * - 設定ページからの頼み（一覧・追加・削除）に応じ、映しているタブにもすぐ反映する
+ * - ボタンの右クリックで、映しているタブに範囲を選ぶ画面を出し、選ばれた範囲を送る。範囲を外してタブ全体に戻す（issue #166）
  * - ボタンの表示（バッジと説明）が状態ごとに分かれる
  */
 import { describe, expect, it } from 'vitest'
@@ -18,8 +19,11 @@ import {
   createSerialQueue,
   describeBadge,
   describeSiteMenu,
+  handleAreaPicked,
+  handleClearAreaClick,
   handleClick,
   handleNavigation,
+  handlePickAreaClick,
   handleOffscreenEvent,
   handleSettingsRequest,
   handleSiteMenuClick,
@@ -57,6 +61,8 @@ const createApi = (
     failLoadHosts?: string
     failAddHost?: string
     failRemoveHost?: string
+    failPickArea?: string
+    failSetCrop?: string
     /** 拡張が覚えている一覧（null は覚えていない。既定は Worker と同じ一覧） */
     known?: string[] | null
     /** いま前に出ているタブ（右クリックの項目の名前を決める） */
@@ -116,6 +122,14 @@ const createApi = (
     resumeCapture: async () => {
       calls.push('送り直す')
       if (options.failResume !== undefined) throw new Error(options.failResume)
+    },
+    pickArea: async (tabId) => {
+      calls.push(`範囲を選ぶ画面を出す:${tabId}`)
+      if (options.failPickArea !== undefined) throw new Error(options.failPickArea)
+    },
+    setCrop: async (crop) => {
+      calls.push(`範囲を送る:${JSON.stringify(crop)}`)
+      if (options.failSetCrop !== undefined) throw new Error(options.failSetCrop)
     },
     show: async (state) => {
       shown.push(state)
@@ -526,6 +540,90 @@ describe('handleOffscreenEvent', () => {
     expect(calls).toEqual(['止める'])
     expect(capturing()).toBeNull()
     expect(shown).toEqual([{ kind: 'idle' }])
+  })
+})
+
+describe('handlePickAreaClick', () => {
+  it('映しているタブで選ばれたら、そのタブに範囲を選ぶ画面を出す', async () => {
+    const { api, calls } = createApi({ capturing: capturingSlide() })
+
+    await handlePickAreaClick(slideTab, api)
+
+    expect(calls).toEqual(['範囲を選ぶ画面を出す:7'])
+  })
+
+  it('映していなければ、画面を出さずに知らせる', async () => {
+    const { api, calls, shown } = createApi()
+
+    await handlePickAreaClick(slideTab, api)
+
+    expect(calls).toEqual([])
+    expect(shown.at(-1)).toEqual({ kind: 'problem', message: 'タブを映していません。映したいタブでボタンを押してから、範囲を選んでください' })
+  })
+
+  it('映していない別のタブで選ばれたら、画面を出さずに知らせる', async () => {
+    const { api, calls, shown } = createApi({ capturing: capturingSlide() })
+
+    await handlePickAreaClick(videoTab, api)
+
+    expect(calls).toEqual([])
+    expect(shown.at(-1)).toEqual({ kind: 'problem', message: '映す範囲は、映しているタブを開いて選んでください' })
+  })
+
+  it('画面を出せないページ（chrome:// のページなど）なら知らせる', async () => {
+    const { api, shown } = createApi({ capturing: capturingSlide(), failPickArea: 'Cannot access a chrome:// URL' })
+
+    await handlePickAreaClick(slideTab, api)
+
+    expect(shown.at(-1)).toEqual({ kind: 'problem', message: 'このページでは範囲を選べません: Cannot access a chrome:// URL' })
+  })
+})
+
+describe('handleAreaPicked', () => {
+  const rightHalf = { x: 0.5, y: 0, width: 0.5, height: 1 }
+
+  it('映しているタブで選ばれた範囲を送る', async () => {
+    const { api, calls } = createApi({ capturing: capturingSlide() })
+
+    await handleAreaPicked({ tabId: slideTab.id, crop: rightHalf }, api)
+
+    expect(calls).toEqual([`範囲を送る:${JSON.stringify(rightHalf)}`])
+  })
+
+  it('選んでいるあいだに映すタブが変わっていたら、範囲を送らずに知らせる', async () => {
+    const { api, calls, shown } = createApi({ capturing: capturingSlide({ tabId: videoTab.id, url: videoTab.url }) })
+
+    await handleAreaPicked({ tabId: slideTab.id, crop: rightHalf }, api)
+
+    expect(calls).toEqual([])
+    expect(shown.at(-1)).toEqual({ kind: 'problem', message: '範囲を選んでいるあいだに映すタブが変わったので、選んだ範囲は使いませんでした' })
+  })
+
+  it('範囲を送れなければ知らせる', async () => {
+    const { api, shown } = createApi({ capturing: capturingSlide(), failSetCrop: 'タブを映していません' })
+
+    await handleAreaPicked({ tabId: slideTab.id, crop: rightHalf }, api)
+
+    expect(shown.at(-1)).toEqual({ kind: 'problem', message: '映す範囲を変えられませんでした: タブを映していません' })
+  })
+})
+
+describe('handleClearAreaClick', () => {
+  it('映していれば、範囲を外してタブ全体に戻す', async () => {
+    const { api, calls } = createApi({ capturing: capturingSlide() })
+
+    await handleClearAreaClick(api)
+
+    expect(calls).toEqual(['範囲を送る:null'])
+  })
+
+  it('映していなければ知らせる', async () => {
+    const { api, calls, shown } = createApi()
+
+    await handleClearAreaClick(api)
+
+    expect(calls).toEqual([])
+    expect(shown.at(-1)).toEqual({ kind: 'problem', message: 'タブを映していないので、外す範囲はありません' })
   })
 })
 

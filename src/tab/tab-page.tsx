@@ -10,6 +10,7 @@
  *
  * 映さないサイト（issue #165）の登録・解除は拡張（ボタンの右クリックと拡張の設定ページ）で行うので、ここでは仕方を案内するだけにする
  * （拡張が覚えている一覧と食い違わないよう、一覧を管理する場所を拡張の1か所にまとめる）。
+ * 映す範囲（issue #166）も、映しているタブの上で選ぶので拡張の右クリックで行い、ここでは仕方を案内するだけにする。
  */
 import { buttonVariants } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -63,6 +64,19 @@ export const TabPage = () => (
           <li>開いているサイトを登録するには、拡張のボタンを右クリックして「このサイトを映さない」を選びます。登録済みのサイトでは同じ場所が「このサイトを映す」になり、選ぶと外れます</li>
           <li>一覧を見る・まだ開いていないサイトをホスト名で登録する・消すには、拡張のボタンの右クリックの「オプション」から設定を開きます</li>
         </ul>
+      </CardContent>
+    </Card>
+    <Card>
+      <CardHeader>
+        <CardTitle>映す範囲を絞る</CardTitle>
+        <CardDescription>タブの一部分だけを、合成オーバーレイに置いた箱に合わせて大きく映せます。範囲は1つだけで、別のタブに切り替えるとタブ全体に戻ります。</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <ol className="list-decimal space-y-1 pl-5 text-sm">
+          <li>映しているタブを開いたまま、拡張のボタンを右クリックして「映す範囲を選ぶ」を選びます</li>
+          <li>ページが暗くなったら、映したい範囲をドラッグで囲み、Enter を押します（Esc でやめます）。選んでいるあいだの画面も配信に映ります</li>
+          <li>タブ全体に戻すには、拡張のボタンを右クリックして「範囲を外す（タブ全体を映す）」を選びます</li>
+        </ol>
       </CardContent>
     </Card>
   </div>

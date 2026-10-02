@@ -7,9 +7,12 @@
  *
  * 映すのは常に最新の接続から届いた映像だけである。送り手がタブを切り替えると新しい offer が届くので、前の接続は閉じる。
  *
+ * 映す範囲（issue #166）は届いたまま知らせ、映すのをやめても忘れない（送り手が映し直すときは、名乗ったときに範囲を送り直す）。
+ *
  * 注意: 送り手が映すのをやめたとき・接続が切れたときは、何も映さない状態に戻すだけでエラーにしない。
  * タブを閉じる・拡張で映すのをやめるのは配信中に普通に起こる操作なので、素材の枠に失敗を出さない（issue #164）。
  */
+import type { TabCrop } from './crop'
 import type { FromSender, FromViewer } from './signal'
 
 /** 受け手の接続1本が知らせること */
@@ -40,6 +43,8 @@ export interface TabReceiverOptions<S> {
   openPeer(handlers: ReceiverPeerHandlers<S>): ReceiverPeer
   /** 映すものが変わった（null は何も映さない） */
   onStream(stream: S | null): void
+  /** 映す範囲が届いた（null はタブ全体） */
+  onCrop(crop: TabCrop | null): void
   /** 待てば直るかもしれない失敗 */
   onWarning(message: string): void
 }
@@ -110,6 +115,9 @@ export const createTabReceiver = <S>(options: TabReceiverOptions<S>): TabReceive
           return
         case 'stop':
           closeCurrent()
+          return
+        case 'crop':
+          options.onCrop(message.crop)
           return
       }
     },

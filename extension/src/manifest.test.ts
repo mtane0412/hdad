@@ -9,7 +9,8 @@
  * - cookies: 配信者のセッションのクッキーを読む（background.ts。offscreen document からの WebSocket にはクッキーが付かないため）
  * - webNavigation: 映しているタブが映さないサイトへ移り始めたことを、新しいページが描かれる前に知る（background.ts）
  * - tabs: 映しているタブのURLの変化（history.pushState による画面遷移を含む）を知る（background.ts。無いと URL が渡されない）
- * - contextMenus: ボタンの右クリックに「このサイトを映さない」を出す（background.ts）
+ * - contextMenus: ボタンの右クリックに「このサイトを映さない」「映す範囲を選ぶ」などを出す（background.ts）
+ * - scripting・activeTab: 映しているタブに、範囲を選ぶ画面を出す（background.ts。右クリックの項目を押したタブにだけ差し込める）
  */
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -29,6 +30,6 @@ describe('manifest.json', () => {
   it('拡張が使う API の権限がそろっている', () => {
     const permissions = typeof manifest === 'object' && manifest !== null && 'permissions' in manifest ? manifest.permissions : undefined
 
-    expect(permissions).toEqual(expect.arrayContaining(['tabCapture', 'offscreen', 'storage', 'cookies', 'webNavigation', 'tabs', 'contextMenus']))
+    expect(permissions).toEqual(expect.arrayContaining(['tabCapture', 'offscreen', 'storage', 'cookies', 'webNavigation', 'tabs', 'contextMenus', 'scripting', 'activeTab']))
   })
 })

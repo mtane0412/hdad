@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
   "name": "HDAD タブの映像",
-  "version": "0.4.0",
-  "description": "映したいタブで押すと、そのタブの映像と音を HDAD の合成ページへ送ります。映しているタブでもう一度押すと止めます。右クリックか設定で登録したサイトのページでは送るのを止めます。",
+  "version": "0.5.0",
+  "description": "映したいタブで押すと、そのタブの映像と音を HDAD の合成ページへ送ります。映しているタブでもう一度押すと止めます。右クリックか設定で登録したサイトのページでは送るのを止めます。右クリックで、映す範囲をタブの一部分に絞れます。",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAv3LoXHFS+rAhZ4bKoNdQZqweAzFCEVM8CuteO6ESs7QNl0w8tbnz+EYp0Y/s8C2oEd9Bs+JzrYanBg0UIrGQBGE5EoQANhxPLeoRwj+Fz6SCNZfsXgfP8NX2fV/6phrTba4SMPkHBmAoA05GCxUgD+UvF4skJwlu9a2+SEEBqv6ikAF/Ds1xwRt9TaCYp0K1cfMRTYg8Ghf7Bt2Bfil/VSZh1XOUMsd1RF5MBaEUQhsAjap8vKXQ3kUamx8f4r3RGOWfb7A793duWdiBEXWd1+XBNcczuL+M5lORIJXgLCrVCsVmCi5vGAl8K32sjT0at56lfgmKOKT1xOcAKwIblwIDAQAB",
-  "permissions": ["tabCapture", "offscreen", "storage", "cookies", "webNavigation", "tabs", "contextMenus"],
+  "permissions": ["tabCapture", "offscreen", "storage", "cookies", "webNavigation", "tabs", "contextMenus", "scripting", "activeTab"],
   "background": { "service_worker": "background.js", "type": "module" },
   "options_ui": { "page": "options.html", "open_in_tab": true },
   "action": { "default_title": "このタブを配信に映す（HDAD）" },
