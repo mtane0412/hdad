@@ -4,7 +4,7 @@
  * サイドバーの項目と、パスごとに描く中身をここで決める。
  * 実ファイルとして配信されるページ（overlay/stage/・overlay/backstage/・speech/reader/・transcript/relay/）は、ここには載せない。
  */
-import { AppWindow, Bot, BrainCircuit, Camera, Captions, Gift, Layers, LayoutDashboard, MessagesSquare, Music, Pencil, Quote, Upload, Users, Volume2, Wrench, Zap, type LucideIcon } from 'lucide-react'
+import { AppWindow, Bot, BrainCircuit, Camera, Captions, Gift, Layers, LayoutDashboard, MessagesSquare, Music, Pencil, Upload, Users, Volume2, Wrench, Zap, type LucideIcon } from 'lucide-react'
 import type { AdminApi, Me } from '@/admin/api'
 import { BackstagePage } from '@/backstage/backstage-page'
 import type { BgmApi } from '@/bgm/api'
@@ -22,7 +22,6 @@ import type { DrawApi } from '@/draw/api'
 import { DrawPage } from '@/draw/draw-page'
 import { connectDrawWriter } from '@/draw/socket'
 import type { FocusApi } from '@/focus/api'
-import { FocusPage } from '@/focus/focus-page'
 import type { LlmApi } from '@/llm/api'
 import { LlmPage } from '@/llm/llm-page'
 import type { OverlayLayoutAdminApi } from '@/overlay/admin-api'
@@ -51,7 +50,7 @@ export interface PageContext {
   speechApi: SpeechApi
   /** 画面の取り込みの設定の読み書き（画面の取り込みのページが使う） */
   screenApi: ScreenAdminApi
-  /** 注目コメント（いま取り上げているもの）の読み書き（注目コメントのページが使う） */
+  /** 注目コメント（いま取り上げているもの）の読み書き（コメントのページが使う） */
   focusApi: FocusApi
   /** 発言した人のアイコンとバッジの画像の読み出し（コメントビューアーのページが使う） */
   commentApi: CommentApi
@@ -88,20 +87,12 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
       { path: '/', keywords: ['統計', '配信の記録', 'フォロワー'], name: 'ダッシュボード', icon: LayoutDashboard, render: ({ statsApi }) => <StatsPage api={statsApi} /> },
       {
         path: '/comments/',
-        keywords: ['チャット', '初コメ', '挨拶'],
+        keywords: ['チャット', '初コメ', '挨拶', '注目コメント', '取り上げ'],
         name: 'コメント',
         icon: MessagesSquare,
         // 発言と出来事は配送先（Durable Object）から WebSocket でその場で届く。開き直すと直近の履歴から並べ直す。
-        // 発言は注目コメントのページと同じ Worker の経路で、注目コメントに設定できる
+        // 発言は行のボタンから注目コメントに設定できる（注目コメント専用のページは持たない）
         render: ({ commentApi, focusApi }) => <CommentsPage api={commentApi} focusApi={focusApi} connect={connectCommentFeed} />,
-      },
-      {
-        path: '/focus/',
-        keywords: ['取り上げ', 'コメント'],
-        name: '注目コメント',
-        icon: Quote,
-        // 取り上げるものはWorkerに保存されるので、オーバーレイはURLを貼り替えずに切り替わる
-        render: ({ focusApi }) => <FocusPage api={focusApi} />,
       },
       {
         path: '/draw/',

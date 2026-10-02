@@ -66,7 +66,7 @@ npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 | `viewers.md` | 視聴者の記録（`/viewers/`） | `src/viewers/**`・`worker/viewer-*.ts`・`worker/stream-chat-store.ts`・`worker/webhook-routes.ts`・`worker/collect.ts`・`worker/ai-chat.ts`・`migrations/*viewer*.sql` |
 | `side-super.md` | サイドスーパー（素材の種類 `sideSuper`） | `src/side-super/**`・`worker/side-super*.ts`・`worker/collect.ts`・`worker/overlay-routes.ts` |
 | `comments.md` | コメントビューアー（`/comments/`） | `src/comments/**`・`worker/comment-*.ts`・`worker/chat-store.ts` |
-| `focus.md` | 注目コメント（`/focus/`・素材の種類 `focus`） | `src/focus/**`・`worker/focus-*.ts` |
+| `focus.md` | 注目コメント（素材の種類 `focus`） | `src/focus/**`・`worker/focus-*.ts` |
 | `draw.md` | 手書き（`/draw/`・素材の種類 `draw`） | `src/draw/**`・`worker/draw-*.ts`・`src/core/socket.ts` |
 | `tab.md` | タブの映像（`/tab/`・素材の種類 `tab`・Chrome 拡張 `extension/`） | `src/tab/**`・`extension/**`・`worker/tab-*.ts` |
 | `overlay.md` | 合成ページと構成の管理画面（`overlay/stage/`・`/overlay/`） | `src/overlay/**`・`overlay/**`・`worker/overlay-*.ts` |

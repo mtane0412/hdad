@@ -5,7 +5,6 @@
  * - 管理画面（セッション）とオーバーレイ（オーバーレイ用キー）の両方から、同じ内容が読めること
  * - 取り上げたときに、発言した人のアイコンをTwitchから引いて添えること
  * - 検証で見つかった問題点が、400の応答に並んで返ること（画面で一度に直せるようにするため）
- * - 取り上げる発言を選ぶ一覧が、いま進んでいる配信の直近の発言を新しい順で返すこと
  * - 書き換え（PUT）に送信元の確認（CSRF対策）が効くこと
  */
 import { describe, expect, it } from 'vitest'
@@ -22,9 +21,6 @@ import { createFakeStore } from './fake-store'
 import { loadFocusTarget, type FocusTarget } from './focus-config'
 import { handleRequest, type Env } from './index'
 import { createSessionToken } from './session'
-import { recordStreamOnline } from './stats-store'
-import { recordStreamChatMessage } from './stream-chat-store'
-import { recordViewerMessage } from './viewer-store'
 
 const now = Date.parse('2026-09-27T12:10:00Z')
 const streamerId = '12345'
@@ -191,47 +187,6 @@ describe('PUT /api/admin/focus', () => {
     )
 
     expect(response.status).toBe(403)
-  })
-})
-
-describe('GET /api/admin/focus/messages', () => {
-  /** 配信中の発言を1件記録する（発言者の記録も作る。取り上げるには名前が要る） */
-  const recordChat = async (env: Env, messageId: string, text: string, at: number) => {
-    await recordViewerMessage(env.DB, { userId: '100', login: 'kowai_hanashi', displayName: '怖い話す人', badges: [], messageId: 'viewer-100' }, at)
-    await recordStreamChatMessage(env.DB, { messageId, userId: '100', text }, at)
-  }
-
-  it('いま進んでいる配信の直近の発言を、新しい順に名前付きで返す', async () => {
-    const { env } = createEnv()
-    await recordStreamOnline(env.DB, { id: 'stream-1', startedAt: now - 60 * 60 * 1000 })
-    await recordChat(env, '発言1', 'こんばんは！', now - 60 * 1000)
-    await recordChat(env, '発言2', '今から怖い話をするね', now)
-
-    const response = await invokeAsStreamer(env, '/api/admin/focus/messages')
-
-    expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({
-      messages: [
-        { messageId: '発言2', login: 'kowai_hanashi', displayName: '怖い話す人', text: '今から怖い話をするね', at: '2026-09-27T12:10:00.000Z' },
-        { messageId: '発言1', login: 'kowai_hanashi', displayName: '怖い話す人', text: 'こんばんは！', at: '2026-09-27T12:09:00.000Z' },
-      ],
-    })
-  })
-
-  it('配信していなければ空の一覧を返す（配信中のあいだだけ本文を貯めているため）', async () => {
-    const { env } = createEnv()
-
-    const response = await invokeAsStreamer(env, '/api/admin/focus/messages')
-
-    expect(await response.json()).toEqual({ messages: [] })
-  })
-
-  it('ログインしていなければ401にする', async () => {
-    const { env } = createEnv()
-
-    const response = await invoke(new Request(`${site}/api/admin/focus/messages`), env)
-
-    expect(response.status).toBe(401)
   })
 })
 

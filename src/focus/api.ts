@@ -2,7 +2,7 @@
  * 注目コメントの読み書き（Workerの呼び出し）
  *
  * 取り上げている発言1件は Worker（KVの focus-comment）が持ち、2つの経路から読まれる。
- * - 管理画面（/focus/ のページ）: 配信者のセッションで /api/admin/focus を読み書きする
+ * - 管理画面（コメントの画面 /comments/）: 配信者のセッションで /api/admin/focus を読み書きする
  * - 合成ページ（overlay/stage/ の「注目コメント」の素材）: オーバーレイ用キーで /api/overlay/focus を読むだけ
  *
  * どちらも同じ形を受け取るので、形の確かめ（readFocusTarget）をここで共有する（読み上げの api.ts と同じ作り）。
@@ -13,22 +13,11 @@
  * 届かなくなっていても、配信中は「まだ取り上げていない」と見分けが付かない。
  * 注意: 値の検証（ログイン名の書式・本文の長さ）は Worker（worker/focus-config.ts）だけが持つ。
  */
-import { createCaller, isRecord, readList } from '../core/api'
+import { createCaller, isRecord } from '../core/api'
 import type { FocusTarget } from './focused'
 
 const ADMIN_PATH = '/api/admin/focus'
-const ADMIN_MESSAGES_PATH = '/api/admin/focus/messages'
 const OVERLAY_PATH = '/api/overlay/focus'
-
-/** 取り上げる発言を選ぶ一覧の1件。worker/stream-chat-store.ts の PickableChatMessage と合わせる */
-export interface PickableMessage {
-  messageId: string
-  login: string
-  displayName: string
-  text: string
-  /** 届いた日時（ISO 8601） */
-  at: string
-}
 
 /**
  * 管理画面が選んで送る発言1件。worker/focus-config.ts の FocusPick と合わせる。
@@ -61,23 +50,12 @@ const readFocusTarget = (body: unknown, path: string): FocusTarget | null => {
   }
 }
 
-/** 取り上げる発言を選ぶ一覧の1件として読めるか */
-const isPickableMessage = (value: unknown): value is PickableMessage =>
-  isRecord(value) &&
-  typeof value.messageId === 'string' &&
-  typeof value.login === 'string' &&
-  typeof value.displayName === 'string' &&
-  typeof value.text === 'string' &&
-  typeof value.at === 'string'
-
 /** 管理画面からの読み書き */
 export interface FocusApi {
   /** いま取り上げているものを読む。取り上げていなければ null */
   load(): Promise<FocusTarget | null>
   /** 選んだ発言を取り上げる（外すときは null）。検証とアイコンの取得はWorkerが行い、アイコンを添えた1件が返る */
   save(pick: FocusPick | null): Promise<FocusTarget | null>
-  /** 取り上げる発言を選ぶための、いま進んでいる配信の直近の発言（新しい順） */
-  recent(): Promise<PickableMessage[]>
 }
 
 /** オーバーレイからの読み出し */
@@ -108,8 +86,6 @@ export const createFocusApi = (fetchImpl: typeof fetch): FocusApi => {
         }),
         ADMIN_PATH,
       ),
-
-    recent: async () => readList(await call(ADMIN_MESSAGES_PATH), 'messages', isPickableMessage),
   }
 }
 

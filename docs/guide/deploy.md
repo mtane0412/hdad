@@ -99,7 +99,6 @@ R2は無料枠（保存10GB・転送無料）だけを使う場合でも、デ�
 | `PUT /api/admin/bgm/tracks` | BGMの曲の一覧の保存。流している曲は外せない（要セッション） |
 | `PUT /api/admin/bgm/playback` | 流すBGM（止めるなら `null`）と音量を保存し、裏方のページへ押し出す（要セッション） |
 | `GET`・`PUT /api/admin/focus` | 注目コメント（いま取り上げているもの）の取得・保存（要セッション） |
-| `GET /api/admin/focus/messages` | 取り上げる発言を選ぶための、いま進んでいる配信の直近の発言の一覧（要セッション） |
 | `GET`・`PUT /api/admin/llm` | LLMの提供元とモデルの設定の取得・保存（要セッション） |
 | `GET /api/admin/llm/models` | その提供元で選べるモデルの一覧（`?provider=`。要セッション） |
 | `GET /api/admin/llm/usage` | LLMを呼んだ回数・トークン数・実費の日ごとのまとめ（要セッション） |

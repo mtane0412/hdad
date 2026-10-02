@@ -29,14 +29,6 @@ const focusedChat: FocusTarget = {
   profileImageUrl: 'https://static-cdn.jtvnw.net/jtv_user_pictures/kowai_hanashi.png',
 }
 
-const selectableChat = {
-  messageId: '発言1',
-  login: 'kowai_hanashi',
-  displayName: '怖い話す人',
-  text: '今から怖い話をするね',
-  at: '2026-09-27T12:10:00.000Z',
-}
-
 /** 送られたリクエストを記録し、決めた応答を返す fetch */
 const fetchReturning = (status: number, body: unknown) => {
   const requests: Request[] = []
@@ -78,13 +70,6 @@ describe('createFocusApi（管理画面からの読み書き）', () => {
     expect(await requests[0]!.json()).toEqual({ target: null })
   })
 
-  it('取り上げる発言を選ぶための、直近の発言を読む', async () => {
-    const { requests, fetchImpl } = fetchReturning(200, { messages: [selectableChat] })
-
-    expect(await createFocusApi(fetchImpl).recent()).toEqual([selectableChat])
-    expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/focus/messages')
-  })
-
   it('Workerが失敗を返したらエラーにする', async () => {
     const { fetchImpl } = fetchReturning(401, { error: { code: 'unauthorized', message: 'ログインしてください' } })
 
@@ -109,11 +94,6 @@ describe('createFocusApi（管理画面からの読み書き）', () => {
     await expect(createFocusApi(fetchImpl).load()).rejects.toThrow(/想定した形/)
   })
 
-  it('直近の発言の項目が欠けた応答はエラーにする', async () => {
-    const { fetchImpl } = fetchReturning(200, { messages: [{ messageId: '発言1' }] })
-
-    await expect(createFocusApi(fetchImpl).recent()).rejects.toThrow(/想定した形/)
-  })
 })
 
 describe('createFocusOverlayApi（オーバーレイからの読み出し）', () => {

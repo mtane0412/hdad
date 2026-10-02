@@ -494,7 +494,7 @@ const mountFocus = (box: HTMLElement, item: OverlayItem, { key, demo, hub }: Mou
         case 'message':
         case 'room':
         case 'notice':
-          // 新しい発言と接続の知らせは映すものに関係しない（映す1件は配信者が /focus/ で選ぶ）
+          // 新しい発言と接続の知らせは映すものに関係しない（映す1件は配信者が /comments/ で選ぶ）
           break
       }
     },

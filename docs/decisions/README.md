@@ -19,7 +19,7 @@
 | [viewers.md](viewers.md) | 視聴者の記録（`/viewers/`） |
 | [side-super.md](side-super.md) | サイドスーパー（素材の種類 `sideSuper`） |
 | [comments.md](comments.md) | コメントビューアー（`/comments/`） |
-| [focus.md](focus.md) | 注目コメント（`/focus/`） |
+| [focus.md](focus.md) | 注目コメント（素材の種類 `focus`） |
 | [overlay-stage.md](overlay-stage.md) | 素材を重ねる合成ページ（`overlay/stage/`） |
 | [overlay-editor.md](overlay-editor.md) | 構成を編集する管理画面（`/overlay/`） |
 | [speech.md](speech.md) | チャットの読み上げ（`speech/reader/`） |

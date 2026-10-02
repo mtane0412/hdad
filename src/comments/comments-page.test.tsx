@@ -9,6 +9,7 @@
  * - 発言した人のアイコンを問い合わせて出すこと
  * - 読み取れないものが届いた・接続が切れたときは、黙らずに画面で知らせること
  * - 発言を注目コメントに設定でき、取り上げている発言に印を付け、やめられること
+ * - いま取り上げている1件を流れの上に出し、流れに無い発言でもそこからやめられること
  * - 発言の削除・タイムアウト・BANを行えること（BANは確かめてから）
  * - 配信者としてチャットを送れること（IMEの変換確定の Enter では送らない）
  * - その配信で初めての発言に「挨拶した」を付け外しでき、印は配送先から届いた付け替えで付くこと
@@ -59,7 +60,6 @@ const createFakeApi = (overrides: Partial<CommentApi> = {}): CommentApi => ({
 const createFakeFocusApi = (overrides: Partial<FocusApi> = {}): FocusApi => ({
   load: vi.fn(async () => null),
   save: vi.fn(async (pick: FocusPick | null) => (pick === null ? null : { ...pick, profileImageUrl: 'https://static-cdn.jtvnw.net/jtv_user_pictures/jouren.png' })),
-  recent: vi.fn(async () => []),
   ...overrides,
 })
 
@@ -243,7 +243,7 @@ describe('CommentsPage', () => {
       await receive({ type: 'item', item: regularViewerChat })
       await userEvent.click(focusButton('常連さん'))
       await screen.findByText('常連さん さんの発言を注目コメントにしました')
-      // 前提: このあと注目コメントのページで、別の発言に取り上げ直された
+      // 前提: このあと別のタブで開いたコメントの画面で、別の発言に取り上げ直された
       vi.mocked(focusApi.load).mockResolvedValue(otherChat)
 
       await userEvent.click(focusButton('常連さん'))
@@ -265,6 +265,42 @@ describe('CommentsPage', () => {
       await act(async () => resolveLoad(null))
 
       expect(findRow('常連さん')).toHaveTextContent('注目中')
+    })
+
+    /** 流れの上にある、いま取り上げているものの欄 */
+    const focusSection = () => screen.getByRole('region', { name: '注目コメント' })
+
+    test('何も取り上げていなければ、流れの上の欄にそう書く', async () => {
+      renderPage()
+
+      expect(await within(focusSection()).findByText(/いまは何も取り上げていません/)).toBeInTheDocument()
+    })
+
+    test('行から取り上げた発言を、流れの上の欄に名前と本文で出す', async () => {
+      const { receive } = renderPage()
+      await receive({ type: 'item', item: regularViewerChat })
+
+      await userEvent.click(focusButton('常連さん'))
+      await screen.findByText('常連さん さんの発言を注目コメントにしました')
+
+      expect(focusSection()).toHaveTextContent('常連さん')
+      expect(focusSection()).toHaveTextContent('こんばんは Kappa')
+    })
+
+    test('流れに無い発言を取り上げていても、流れの上の欄からやめられる', async () => {
+      // 前提: 開く前に取り上げた発言で、直近の履歴にはもう残っていない
+      const focusApi = createFakeFocusApi({
+        load: vi.fn(async () => ({ messageId: '発言0', login: 'shoken_san', displayName: '初見さん', text: '昨日の質問です', profileImageUrl: 'https://static-cdn.jtvnw.net/jtv_user_pictures/shoken.png' })),
+      })
+      renderPage(createFakeApi(), focusApi)
+      await vi.waitFor(() => expect(focusSection()).toHaveTextContent('昨日の質問です'))
+      // 取り上げるのをやめる前に読み直したときも、同じ発言のまま
+
+      await userEvent.click(within(focusSection()).getByRole('button', { name: '取り上げをやめる' }))
+
+      expect(focusApi.save).toHaveBeenLastCalledWith(null)
+      expect(await screen.findByText('注目コメントの取り上げをやめました')).toBeInTheDocument()
+      expect(within(focusSection()).getByText(/いまは何も取り上げていません/)).toBeInTheDocument()
     })
 
     test('モデレーターに消された発言は取り上げられない（配信画面に出さないため）', async () => {
