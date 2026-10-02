@@ -398,13 +398,15 @@ const makeSideSuper = async (db: Database, ai: TextGenerator, stream: LiveStream
   const transcripts = await readRecentTranscripts(db, stream.id, SIDE_SUPER_TRANSCRIPT_LIMIT)
   const chats = await readRecentSessionChat(db, stream.id, SIDE_SUPER_CHAT_LIMIT)
   const screen = await readCurrentScreenLines(db, stream.id, SIDE_SUPER_SCREEN_LIMIT)
-  // 前回作ったとき以降に届いた材料があるかを、材料そのものの時刻で見る（どれも同じ形の ISO 8601 なので文字列で比べられる）。
-  // 「以降」（同じ時刻を含む）にするのは、篩がサイドスーパーより後に走り、前回と同じ収集の時刻（now）で
-  // 画面の文字を積むためである。「より後」にすると、その行は前回の材料に入っていないのに新しいと見なされない
+  // 前回作ったあとに届いた材料があるかを、材料そのものの時刻で見る（どれも同じ形の ISO 8601 なので文字列で比べられる）。
+  // 画面の文字だけは「以降」（同じ時刻を含む）で見る。篩がサイドスーパーより後に走り、前回と同じ収集の時刻（now）で
+  // 行を積むので、「より後」にすると、前回の材料に入っていない行が新しいと見なされない。発話と発言は別のリクエストが
+  // 記録するので「より後」で見る（同じ時刻のものは前回の材料に入っており、含めると無駄にLLMを呼ぶ）
   const hasNewMaterial =
     previous === null
       ? transcripts.length > 0 || chats.length > 0 || screen.length > 0
-      : [...transcripts, ...chats, ...screen].some((line) => line.at >= previous.updatedAt)
+      : [...transcripts, ...chats].some((line) => line.at > previous.updatedAt) ||
+        screen.some((line) => line.at >= previous.updatedAt)
   if (!hasNewMaterial) return
 
   let lines

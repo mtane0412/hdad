@@ -899,6 +899,23 @@ describe('サイドスーパーの生成', () => {
     expect(await readSideSuper(db, chatStream.id)).toEqual({ lines: ['新作ゲーム', '城を攻略中'], updatedAt: new Date(fiveMinutesLater).toISOString() })
   })
 
+  it('前回作った時刻とちょうど同じ時刻の発話は、前回の材料に入っているので作り直さない', async () => {
+    const { db, store } = await createEnv()
+    createLiveMaterial(db)
+    // 前提: 収集の時刻と同じ時刻に届いた発話がある。1回目の収集では、この発話も材料に入る
+    db.sqlite
+      .prepare('INSERT INTO transcripts (message_id, session_id, spoken_at, text) VALUES (?, ?, ?, ?)')
+      .run('hatsuwa-same-time', chatStream.id, new Date(now).toISOString(), 'ボス戦に挑みます')
+    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(allSuccessResponse), ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    const ai = fakeAi('新作ゲーム\n城を攻略中')
+
+    // そのあと発話も発言も画面の文字も増えていないので、LLMを呼ばない
+    await collectStats({ db, store, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now: now + 5 * 60 * 1000 })
+
+    expect(ai.receivedMaterial('sideSuper')).toEqual([])
+    expect(await readSideSuper(db, chatStream.id)).toEqual({ lines: ['初見プレイ中', 'ボス戦へ向けて装備集め'], updatedAt: new Date(now).toISOString() })
+  })
+
   it('画面の文字を取りに行く前に、サイドスーパーを作り終えている（画面の処理が重くても止まらないため）', async () => {
     const { db, store } = await createEnv()
     createLiveMaterial(db)
