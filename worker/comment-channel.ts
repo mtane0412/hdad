@@ -31,8 +31,14 @@ import { broadcast, type SocketLike } from './socket-broadcast'
 /** Durable Object の名前。配送先は1つだけなので、決め打ちの名前で同じものを指す */
 const CHANNEL_NAME = 'comments'
 const PUSH_PATH = '/push'
-/** 覚えておく直近の1件を入れる保管の鍵 */
-const RECENT_KEY = 'recent'
+/**
+ * 覚えておく直近の1件を入れる保管の鍵。
+ *
+ * 注意: 1件の形（worker/comment-feed.ts の FeedItem）を画面が読めない形に変えたら、鍵の版を上げる。
+ * この Durable Object は中身を読まないので、古い鍵のままだと前の形の1件が履歴として渡り、画面が読み取りに失敗する。
+ * 版2は、既読（read）を挨拶（greeting）に替え、発言に firstOfStream を加えたときのもの（#159）。
+ */
+const RECENT_KEY = 'recent-v2'
 
 /**
  * 覚えておく直近の件数。
