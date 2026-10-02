@@ -37,6 +37,7 @@
  */
 import { ArrowDown, ArrowUp, ChevronDown, Copy, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useUnsavedChanges } from '@/app/router'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -685,6 +686,7 @@ export const OverlayPage = ({ api, overlayKey }: { api: OverlayLayoutAdminApi; o
 
   const overlayNames = overlayNameChoices(drafts)
   const changed = savedJson !== undefined && savedJson !== JSON.stringify(drafts)
+  useUnsavedChanges(changed)
   /** 追加しようとしている名前（前後の空白を落としたもの）と、それがすでに使われているか */
   const trimmedNewName = newName.trim()
   const nameTaken = drafts.some((draft) => draft.name === trimmedNewName)

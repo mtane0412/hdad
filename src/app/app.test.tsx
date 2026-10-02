@@ -11,6 +11,7 @@
  * - サイドバーのリンクで、再読み込みなしにページが切り替わり、現在地の印が付け替わること
  * - ページUIのURLを直接開いても、そのページが出ること（未ログインならログインの入口だけ）
  * - 存在しないパスでは、見つからないことを伝える画面を出すこと
+ * - 未保存の変更があるページから離れようとすると確認を出し、「留まる」なら編集した内容を残すこと
  */
 import '@testing-library/jest-dom/vitest'
 import { cleanup, render, screen, within } from '@testing-library/react'
@@ -403,5 +404,52 @@ describe('ログインの確認に失敗したときの立て直し', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'もう一度確かめる' }))
 
     expect(await screen.findByRole('heading', { level: 1, name: 'ダッシュボード' })).toBeInTheDocument()
+  })
+})
+
+describe('未保存の変更があるままページを離れようとしたとき', () => {
+  /** チャットボットのページを開き、自動モデレーションの有効・無効を切り替えて（保存せずに）おく */
+  const editBotPageWithoutSaving = async () => {
+    openPage('/bot/')
+    renderSignedIn()
+    const enabled = await screen.findByRole('checkbox', { name: '自動モデレーションを有効にする' })
+    await userEvent.click(enabled)
+    expect(enabled).toBeChecked()
+  }
+
+  test('サイドバーで移ろうとすると確認が出て、「留まる」を選べば編集した内容がそのまま残る', async () => {
+    await editBotPageWithoutSaving()
+
+    await userEvent.click(screen.getByRole('link', { name: 'ダッシュボード' }))
+
+    const dialog = await screen.findByRole('alertdialog', { name: '保存していない変更があります' })
+    await userEvent.click(within(dialog).getByRole('button', { name: '留まる' }))
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(window.location.pathname).toBe('/bot/')
+    expect(screen.getByRole('heading', { level: 1, name: 'チャットボット' })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: '自動モデレーションを有効にする' })).toBeChecked()
+  })
+
+  test('確認で「保存せずに移る」を選べば、そのページへ移る', async () => {
+    await editBotPageWithoutSaving()
+
+    await userEvent.click(screen.getByRole('link', { name: 'ダッシュボード' }))
+    const dialog = await screen.findByRole('alertdialog', { name: '保存していない変更があります' })
+    await userEvent.click(within(dialog).getByRole('button', { name: '保存せずに移る' }))
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'ダッシュボード' })).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/')
+  })
+
+  test('編集していなければ、確認を出さずにすぐ移る', async () => {
+    openPage('/bot/')
+    renderSignedIn()
+    await screen.findByRole('checkbox', { name: '自動モデレーションを有効にする' })
+
+    await userEvent.click(screen.getByRole('link', { name: 'ダッシュボード' }))
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'ダッシュボード' })).toBeInTheDocument()
   })
 })

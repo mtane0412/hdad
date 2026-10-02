@@ -31,6 +31,7 @@
 | [rewards.md](rewards.md) | チャンネルポイント報酬（`/rewards/`） |
 | [dashboard.md](dashboard.md) | ダッシュボード（`/`） |
 | [bot.md](bot.md) | チャットボット（`/bot/`） |
+| [page-ui.md](page-ui.md) | ページUIの枠（`src/app/`） |
 | [worker.md](worker.md) | Worker（`worker/`）と失敗の記録 |
 | [docs.md](docs.md) | 利用者向けの説明の置き場（`README.md` と `docs/guide/`） |
 

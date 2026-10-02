@@ -46,6 +46,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { PageSearch } from './page-search'
 import { findPage, PAGE_GROUPS, type PageContext } from './pages'
 import { Link, usePathname } from './router'
+import { UnsavedChangesDialog } from './unsaved-changes-dialog'
 
 const LOGIN_PATH = '/api/auth/login'
 const APP_NAME = 'HDAD'
@@ -184,6 +185,7 @@ const Shell = ({ context, onLogout }: { context: PageContext; onLogout: () => vo
           </div>
         </SidebarInset>
       </SidebarProvider>
+      <UnsavedChangesDialog />
     </TooltipProvider>
   )
 }

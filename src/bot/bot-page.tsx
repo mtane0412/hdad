@@ -29,6 +29,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { useUnsavedChanges } from '@/app/router'
 import { ApiError } from '@/core/api'
 import { PlaceholderInput } from '@/core/placeholder-input'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -369,6 +370,13 @@ export const BotPage = ({ api }: BotPageProps) => {
     [],
   )
 
+  /** 保存していない変更があるか。入力の中身をそのまま見比べる（件数も並び順も含めて確かめたいため） */
+  const dirty = JSON.stringify(drafts) !== JSON.stringify(savedDrafts)
+  /** 自動モデレーションに、保存していない変更があるか */
+  const moderationDirty = JSON.stringify(moderation) !== JSON.stringify(savedModeration)
+  // 読み込みが終わるまでは入力も保存済みの中身も空のままなので、食い違わない（確認は出ない）
+  useUnsavedChanges(dirty || moderationDirty)
+
   if (loaded.status === 'loading') return <Skeleton className="h-48 w-full" aria-label="botの接続状態を読み込んでいます" />
   if (loaded.status === 'failed') {
     return (
@@ -377,10 +385,6 @@ export const BotPage = ({ api }: BotPageProps) => {
   }
 
   const { bot } = loaded
-  /** 保存していない変更があるか。入力の中身をそのまま見比べる（件数も並び順も含めて確かめたいため） */
-  const dirty = JSON.stringify(drafts) !== JSON.stringify(savedDrafts)
-  /** 自動モデレーションに、保存していない変更があるか */
-  const moderationDirty = JSON.stringify(moderation) !== JSON.stringify(savedModeration)
 
   /** 操作を実行し、終わったら結果を知らせる。実行中はボタンを押せなくして二重の送信を防ぐ */
   const run = async (action: () => Promise<string>): Promise<void> => {

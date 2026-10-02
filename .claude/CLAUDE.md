@@ -31,6 +31,7 @@ npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 - アプリのページは `src/app/pages.tsx` に登録する（サイドバーの項目・見出し・中身がここから決まる）。登録のないパスは「見つからない」画面を出す
 - ページの移動は `src/app/router.tsx`（History API。ライブラリなし）の `Link` を使い、アプリの外（OBSに載せるページ・`/api/*`）は普通の `<a>` で開く
 - ログインの確認は `src/app/app.tsx` が `/api/me` で行い、失敗したら未ログイン扱いにせずエラーを出す
+- 保存ボタンを持つページは、未保存の変更があるあいだ `src/app/router.tsx` の `useUnsavedChanges(true)` を呼ぶ（移動・戻る・再読み込みの前に確認が出る。経緯は `docs/decisions/page-ui.md`）
 - OBSに載せるページ（`overlay/stage/`・`overlay/backstage/` など）には React もログインも持ち込まない
 
 ### shadcn/ui
