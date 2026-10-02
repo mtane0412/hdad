@@ -38,7 +38,7 @@
  * 注意: 残高（OpenRouter）は鍵が設定されているときだけ読む。鍵が無ければWorkerが断るので、読みに行っても
  * 理由の出る場所が増えるだけである。
  */
-import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
+import { Component, lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
 import { HelpButton } from '@/components/help-button'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -68,11 +68,37 @@ import type { UsageChartProps } from './usage-chart'
 /** グラフ（Recharts）は重いので、ほかのページを開くときに運ばないよう切り離して読み込む */
 const UsageChart = lazy(async () => ({ default: (await import('./usage-chart')).UsageChart }))
 
-/** グラフを読み込み終えるまでは、同じ大きさの枠を出しておく */
+/**
+ * グラフの読み込みの失敗を、グラフの場所だけに留めるエラー境界。
+ *
+ * グラフは切り離して読み込むので、デプロイの直後に古いファイル名を読みに行くなどして失敗しうる。
+ * 境界が無いとページ全体が消え、表示のためのグラフのせいで提供元やモデルを直せなくなる。
+ */
+class ChartErrorBoundary extends Component<{ children: ReactNode }, { failure: string }> {
+  override state = { failure: '' }
+
+  static getDerivedStateFromError(error: unknown): { failure: string } {
+    return { failure: errorMessage(error) }
+  }
+
+  override render() {
+    if (this.state.failure === '') return this.props.children
+    return (
+      <Alert variant="destructive">
+        <AlertTitle>グラフを読み込めませんでした</AlertTitle>
+        <AlertDescription>{this.state.failure}（ページを再読み込みすると直ることがあります）</AlertDescription>
+      </Alert>
+    )
+  }
+}
+
+/** グラフを読み込み終えるまでは、同じ大きさの枠を出しておく。失敗したらグラフの場所にだけ理由を出す */
 const LazyUsageChart = ({ label, points }: UsageChartProps) => (
-  <Suspense fallback={<Skeleton className="h-48 w-full" aria-label={`${label}のグラフを読み込んでいます`} />}>
-    <UsageChart label={label} points={points} />
-  </Suspense>
+  <ChartErrorBoundary>
+    <Suspense fallback={<Skeleton className="h-48 w-full" aria-label={`${label}のグラフを読み込んでいます`} />}>
+      <UsageChart label={label} points={points} />
+    </Suspense>
+  </ChartErrorBoundary>
 )
 
 /** グラフに並べる日数。Worker（worker/admin-routes.ts の USAGE_WINDOW_DAYS）が返す期間に合わせる */
