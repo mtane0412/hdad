@@ -8,6 +8,7 @@
  * - つながっている合成ページには二重に offer を送らない
  * - 接続が切れたら（failed）作り直す（#163 の試作で、H.264 の最初の1回だけ送信が止まったため）
  * - 映すのをやめたら、すべての接続を閉じて合成ページに知らせる
+ * - 映す範囲（issue #166）は、名乗った合成ページへ offer の前に送り、映しているあいだに変えたらすぐ送る
  */
 import { describe, expect, it } from 'vitest'
 import type { FromSender } from './signal'
@@ -75,7 +76,43 @@ describe('createTabSender', () => {
     sender.receive({ type: 'hello', viewerId: 'OBSの受け手' })
     await settle()
 
-    expect(sent).toEqual([{ type: 'who' }, { type: 'offer', viewerId: 'OBSの受け手', sdp: '申し込み（OBSの受け手・資料のタブ）' }])
+    expect(sent).toEqual([
+      { type: 'who' },
+      { type: 'crop', crop: null },
+      { type: 'offer', viewerId: 'OBSの受け手', sdp: '申し込み（OBSの受け手・資料のタブ）' },
+    ])
+  })
+
+  it('名乗った合成ページへ、offer の前にいまの映す範囲を送る', () => {
+    const { sender, sent } = createHarness()
+    sender.setCrop({ x: 0, y: 0, width: 0.5, height: 1 })
+    sender.start({ label: '資料のタブ' })
+
+    sender.receive({ type: 'hello', viewerId: 'OBSの受け手' })
+
+    expect(sent).toEqual([{ type: 'who' }, { type: 'crop', crop: { x: 0, y: 0, width: 0.5, height: 1 } }])
+  })
+
+  it('映しているあいだに範囲を変えたら、合成ページへすぐ送る', () => {
+    const { sender, sent } = createHarness()
+    sender.start({ label: '資料のタブ' })
+
+    sender.setCrop({ x: 0.5, y: 0.5, width: 0.5, height: 0.5 })
+    sender.setCrop(null)
+
+    expect(sent).toEqual([
+      { type: 'who' },
+      { type: 'crop', crop: { x: 0.5, y: 0.5, width: 0.5, height: 0.5 } },
+      { type: 'crop', crop: null },
+    ])
+  })
+
+  it('映していないあいだに範囲を変えても送らない（映し始めて名乗られたときに送る）', () => {
+    const { sender, sent } = createHarness()
+
+    sender.setCrop({ x: 0.5, y: 0.5, width: 0.5, height: 0.5 })
+
+    expect(sent).toEqual([])
   })
 
   it('映していないあいだは、名乗られても offer を送らない', async () => {

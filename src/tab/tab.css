@@ -1,20 +1,26 @@
 /*
  * タブの映像（合成ページの素材）の見た目
  *
- * 送り手のページ（/tab/）から WebRTC で届いたタブの映像を、置かれた箱いっぱいに縦横比を保って映す。
+ * 拡張から WebRTC で届いたタブの映像を、置かれた箱いっぱいに縦横比を保って映す。
  * 縦横比が箱と違えば余白を空けて収め、余白は透明のままにする（後ろのソースを隠さない）。
+ * 映す範囲が選ばれていれば（issue #166）、その範囲だけを同じように収める。
+ * 外枠（.tab-clip）と映像（.tab-video）の位置と大きさは、合成ページ（src/overlay/stage.ts）が src/tab/crop.ts の layoutCrop で決めて書き込む。
+ * 外枠は映す範囲の大きさで、はみ出した映像を隠す。
  * 何も届いていないあいだ（タブを閉じた・映すのをやめた）は映像を隠し、箱ごと透明にする。
  */
-.tab-video {
+.tab-clip {
   /* 位置は画面ではなく置かれた箱を基準にする（合成ページのレイヤーの箱に入れるため。issue #101） */
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
+  overflow: hidden;
+}
+
+.tab-video {
+  position: absolute;
+  max-width: none;
   background: transparent;
 }
 
+.tab-clip[hidden],
 .tab-video[hidden] {
   display: none;
 }

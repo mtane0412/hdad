@@ -3,7 +3,7 @@
  *
  * ボタンが押されたら、サービスワーカー（background.ts）が取ったストリームIDで offscreen document（offscreen.ts）に
  * 取り込ませる。映しているタブでもう一度押されたら止めさせる。映しているタブが映さないサイトへ移ったら送るのを止めさせ
- * （pause）、映してよいページへ移ったら送り直させる（resume）。
+ * （pause）、映してよいページへ移ったら送り直させる（resume）。配信者が映す範囲を選んだ・外したら、その範囲を送らせる（crop。issue #166）。
  *
  * chrome.runtime.sendMessage は拡張の中のすべての画面に届くので、あて先（target）を付けて読み分ける。
  *
@@ -12,6 +12,7 @@
  * サービスワーカーは送る連絡を OffscreenCommandMessage の型で縛り、あて先の値を直接書く。
  */
 import { isRecord } from '../../src/core/api'
+import { parseTabCrop, type TabCrop } from '../../src/tab/crop'
 
 /** offscreen document あての頼みに付けるあて先 */
 export const OFFSCREEN_COMMAND_TARGET = 'offscreen'
@@ -29,6 +30,8 @@ export type OffscreenCommand =
   | { type: 'pause' }
   /** pause で止めていた送信を再開する（映してよいページへ移ったとき） */
   | { type: 'resume' }
+  /** 映す範囲を変える（null はタブ全体。issue #166） */
+  | { type: 'crop'; crop: TabCrop | null }
 
 /** 送るときの形（あて先を付ける） */
 export type OffscreenCommandMessage = OffscreenCommand & { target: typeof OFFSCREEN_COMMAND_TARGET }
@@ -49,6 +52,7 @@ const INVALID = 'サービスワーカーからの頼みの形が想定と違い
 export const parseOffscreenCommand = (value: unknown): OffscreenCommand | null => {
   if (!isRecord(value) || value.target !== OFFSCREEN_COMMAND_TARGET) return null
   if (value.type === 'stop' || value.type === 'pause' || value.type === 'resume') return { type: value.type }
+  if (value.type === 'crop') return { type: 'crop', crop: value.crop === null ? null : parseTabCrop(value.crop) }
   if (value.type === 'start') {
     if (!isText(value.streamId) || !isText(value.origin) || !isText(value.session)) throw new Error(INVALID)
     return { type: 'start', streamId: value.streamId, origin: value.origin, session: value.session }

@@ -18,17 +18,25 @@
  * 前に出ているタブが変わるたびに覚えている一覧から決め直す（refreshSiteMenu）。拡張の設定ページ（options.ts）からの頼みは
  * handleSettingsRequest へ渡す。一覧は拡張を入れたときと Chrome を起動したときにも読んでおく（項目の名前を正しく出すため）。
  *
+ * 映す範囲（issue #166）: ボタンの右クリックに「映す範囲を選ぶ」と「範囲を外す（タブ全体を映す）」を出す。選ぶときは、映しているタブへ
+ * 範囲を選ぶ画面（area-picker.ts の pickArea）を chrome.scripting で差し込む（右クリックの項目を押すと、そのタブへの activeTab の
+ * 許可が得られる）。選ばれた範囲はそのタブから知らせが届くので、送り主のタブを添えて handleAreaPicked へ渡す。
+ *
  * 注意: うまくいかないときは黙って何もしないのではなくバッジ「!」で知らせ、理由はボタンの説明に出す。
  */
 import { BLOCKED_HOSTS_PATH, isHostName, parseBlockedHosts } from '../../src/tab/blocked-hosts'
+import { AREA_PICKER_TARGET, parseAreaPicked, pickArea } from './area-picker'
 import { CONFIG_FILE, parseExtensionConfig, type ExtensionConfig } from './config'
 import { OFFSCREEN_PAGE_FILE } from './built-files'
 import {
   createSerialQueue,
   describeBadge,
+  handleAreaPicked,
+  handleClearAreaClick,
   handleClick,
   handleNavigation,
   handleOffscreenEvent,
+  handlePickAreaClick,
   handleSettingsRequest,
   handleSiteMenuClick,
   refreshSiteMenu,
@@ -47,6 +55,10 @@ const CAPTURING_KEY = 'capture'
 const BLOCKED_HOSTS_KEY = 'blockedHosts'
 /** ボタンの右クリックに出す「このサイトを映さない・映す」の識別子 */
 const SITE_MENU_ID = 'block-site'
+/** ボタンの右クリックに出す「映す範囲を選ぶ」の識別子 */
+const PICK_AREA_MENU_ID = 'pick-area'
+/** ボタンの右クリックに出す「範囲を外す」の識別子 */
+const CLEAR_AREA_MENU_ID = 'clear-area'
 /** 映しているタブの中のページ（iframe ではないもの）を表す webNavigation の frameId */
 const MAIN_FRAME_ID = 0
 
@@ -196,6 +208,13 @@ const api: ControllerApi = {
   },
   pauseCapture: () => commandWhileCapturing('pause'),
   resumeCapture: () => commandWhileCapturing('resume'),
+  pickArea: async (tabId) => {
+    await chrome.scripting.executeScript({ target: { tabId }, func: pickArea, args: [AREA_PICKER_TARGET] })
+  },
+  setCrop: async (crop) => {
+    const reply = await command({ target: 'offscreen', type: 'crop', crop })
+    if (!reply.ok) throw new Error(reply.message)
+  },
   show: async (state) => {
     const view = describeBadge(state)
     if (view.color !== null) await chrome.action.setBadgeBackgroundColor({ color: view.color })
@@ -240,6 +259,8 @@ const preloadBlockedHosts = async (): Promise<void> => {
 chrome.runtime.onInstalled.addListener(() => {
   // 右クリックの項目は拡張を入れた・更新したときに作る（作り直すと Chrome が重複の失敗を返すので、起動のたびには作らない）
   chrome.contextMenus.create({ id: SITE_MENU_ID, title: 'このサイトを映さない', contexts: ['action'] })
+  chrome.contextMenus.create({ id: PICK_AREA_MENU_ID, title: '映す範囲を選ぶ', contexts: ['action'] })
+  chrome.contextMenus.create({ id: CLEAR_AREA_MENU_ID, title: '範囲を外す（タブ全体を映す）', contexts: ['action'] })
   void enqueue(preloadBlockedHosts)
 })
 
@@ -249,8 +270,17 @@ chrome.runtime.onStartup.addListener(() => {
 })
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-  if (info.menuItemId !== SITE_MENU_ID) return
-  void enqueue(() => handleSiteMenuClick(tab ?? {}, api))
+  switch (info.menuItemId) {
+    case SITE_MENU_ID:
+      void enqueue(() => handleSiteMenuClick(tab ?? {}, api))
+      return
+    case PICK_AREA_MENU_ID:
+      void enqueue(() => handlePickAreaClick(tab ?? {}, api))
+      return
+    case CLEAR_AREA_MENU_ID:
+      void enqueue(() => handleClearAreaClick(api))
+      return
+  }
 })
 
 // 前に出ているタブが変わったら、右クリックの項目の名前を合わせる
@@ -277,7 +307,25 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   })
 })
 
-chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse: (reply: SettingsReply) => void) => {
+chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse: (reply: SettingsReply) => void) => {
+  let picked
+  try {
+    picked = parseAreaPicked(message)
+  } catch (error) {
+    report('範囲を選ぶ画面からの知らせを読み取れませんでした', error)
+    return false
+  }
+  if (picked !== null) {
+    // どのタブで選ばれたかは知らせの中身ではなく、Chrome が添える送り主から取る
+    const tabId = sender.tab?.id
+    if (tabId === undefined) {
+      report('範囲を選ぶ画面からの知らせを読み取れませんでした', new Error('送り主のタブが分かりません'))
+      return false
+    }
+    void enqueue(() => handleAreaPicked({ tabId, crop: picked.crop }, api))
+    return false
+  }
+
   let request
   try {
     request = parseSettingsRequest(message)
