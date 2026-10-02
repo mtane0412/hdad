@@ -22,7 +22,7 @@ npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 - `src/core/` は素材横断の共通部品（canvas の起動は `src/core/mount.ts`、パラメータの宣言と直列化は `params.ts`・`url.ts`、パラメータの入力欄は `fields.tsx`、Workerの呼び出しの共通部分は `api.ts`、アイコンだけのボタンに渡す名前は `icon-button.ts`）
 - 素材（壁紙・時計・チャットのデザイン）はレジストリ（`src/<種類>/registry.ts`）に登録すると、合成オーバーレイのデザインの選択欄（`src/overlay/form.ts` の `DESIGNS`）に並ぶ。壁紙と時計はこの登録だけで済み、チャットのデザインは専用のCSSも要る（`.claude/rules/chat.md`）
 - Chrome 拡張（`extension/`）は `npm run build:extension` で `public/tab-extension/` にビルドする（`npm run dev`・`npm run build` の前に自動で走る）。型チェックは `tsconfig.extension.json` で行う（`npm run type-check` に含まれる）
-- OBSに載せるページは Workers 静的アセットの都合でパスごとに実ファイルが必要なので、`vite.config.ts` の入力に追加する。載せるのは合成ページ（`overlay/stage/`）と映すものを持たない裏方（`overlay/backstage/`・`speech/reader/`・`transcript/relay/`）だけにする
+- OBSに載せるページは Workers 静的アセットの都合でパスごとに実ファイルが必要なので、`vite.config.ts` の入力に追加する。載せるのは合成ページ（`overlay/stage/`）と映すものを持たない裏方（`overlay/backstage/`・`speech/reader/`）だけにする
 
 ### ページUI（`src/app/`）
 
@@ -60,7 +60,7 @@ npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 |---|---|---|
 | `chat.md` | チャットボックス（素材の種類 `chat`） | `src/chat/**` |
 | `alerts.md` | アラート（素材・トリガー・動作・広告） | `src/alerts/**`・`worker/alert-*.ts`・`worker/trigger-menu.ts`・`worker/ad-break-timer.ts`・`worker/ai-chat.ts`・`worker/bot-chat.ts`・`worker/webhook-routes.ts` |
-| `transcript.md` | 配信中の文字起こし（アプリの枠の Web Speech API・`transcript/relay/`・裏方の `?transcript=`） | `src/transcript/**`・`transcript/**`・`worker/transcript-store.ts`・`worker/transcript-routes.ts`・`worker/overlay-routes.ts` |
+| `transcript.md` | 配信中の文字起こし（アプリの枠の Web Speech API） | `src/transcript/**`・`worker/transcript-store.ts`・`worker/transcript-routes.ts` |
 | `stream-chapters.md` | 配信で何が話されたか（章。ダッシュボードの配信の詳細） | `worker/stream-chapter*.ts`・`worker/collect.ts`・`worker/stream-chat-store.ts`・`worker/stats-store.ts`・`src/stats/**`・`migrations/*chapter*.sql` |
 | `stream-summary.md` | これまでのあらすじ（`{summary}`） | `worker/stream-summary*.ts`・`worker/collect.ts`・`worker/chat-command.ts`・`worker/alert-event.ts`・`worker/webhook-routes.ts` |
 | `viewers.md` | 視聴者の記録（`/viewers/`） | `src/viewers/**`・`worker/viewer-*.ts`・`worker/stream-chat-store.ts`・`worker/webhook-routes.ts`・`worker/collect.ts`・`worker/ai-chat.ts`・`migrations/*viewer*.sql` |

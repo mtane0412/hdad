@@ -222,7 +222,7 @@ const summarizeStream = async (db: Database, ai: TextGenerator, sessionId: strin
   const chats = await readSessionChatSince(db, sessionId, chatFrom, STREAM_SUMMARY_CHAT_LIMIT)
   const screen = await readScreenLinesSince(db, sessionId, screenFrom, STREAM_SUMMARY_SCREEN_LIMIT)
   // 配信者の発話が1件も無いときは、視聴者の発言があっても作らない。書き込みだけを材料にすると、
-  // 書き込みの中身が配信で起きたこととして書かれてしまうためである（ゆかコネNEO を動かし忘れた配信で実際に起きた）。
+  // 書き込みの中身が配信で起きたこととして書かれてしまうためである（文字起こしを動かし忘れた配信で実際に起きた）。
   // 目印を進めないので、文字起こしが届いた回で、このあいだの発言もまとめて材料になる
   // （上限（STREAM_SUMMARY_CHAT_LIMIT）を超えて溜まったぶんは、古いほうから何回かに分けて材料になる）。
   // 前回までのあらすじがある場合でも同じく作らない。あらすじという文脈を与えても、書き込みがそのまま

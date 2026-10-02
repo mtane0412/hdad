@@ -1,8 +1,8 @@
 /**
  * コネクターのページ（/connectors/）
  *
- * 外部のサービスとつなぐものをまとめたページ。映すものを持たない裏方（VOICEVOX による読み上げ・ゆかコネNEO の
- * 文字起こしの中継・Gyazo への配信画面の取り込み・BGM）を1つのブラウザソースで動かすための、OBSに貼るURLを出し
+ * 外部のサービスとつなぐものをまとめたページ。映すものを持たない裏方（VOICEVOX による読み上げ・
+ * Gyazo への配信画面の取り込み・BGM）を1つのブラウザソースで動かすための、OBSに貼るURLを出し
  * （issue #108）、その下に各サービスの設定の区画（VOICEVOX・Gyazo・HDAD-tab・Web Speech API）を並べる。
  * Web Speech API の区画は、アプリの枠で動かす音声認識（src/transcript/recognition-context.tsx）のオン・オフと様子を出す
  * （issue #189。認識そのものは枠が持つので、ほかのページに移っても続く）。
@@ -15,7 +15,7 @@
  * URLの組み立ては url.ts に分けてテストする。オーバーレイ用キーはアプリの枠から受け取り、
  * 再発行はトリガーのページ（/triggers/）が受け持つ。ブラウザソースの置き方はヘルプボタンの中で案内する。
  *
- * 注意: ポートが読めない値・裏方をひとつも選んでいないときはURLを出さず、理由を画面に出す（Fail-Fast）。
+ * 注意: 裏方をひとつも選んでいないときはURLを出さず、理由を画面に出す（Fail-Fast）。
  */
 import { Copy } from 'lucide-react'
 import { useId, useState } from 'react'
@@ -34,7 +34,6 @@ import type { SpeechApi } from '@/speech/api'
 import { SpeechSection } from '@/speech/speech-section'
 import { TabSection } from '@/tab/tab-section'
 import { RecognitionSection } from '@/transcript/recognition-section'
-import { DEFAULT_TRANSCRIPT_PORT } from '@/transcript/url'
 import { iconButtonName } from '@/core/icon-button'
 import { backstageUrl } from './url'
 
@@ -65,25 +64,21 @@ export const BackstagePage = ({ overlayKey, speechApi, botApi, screenApi }: Back
 /** 動かす裏方を選び、OBSのブラウザソースに貼るURLを出す */
 const BackstageUrlCard = ({ overlayKey }: { overlayKey: string | null }) => {
   const [speech, setSpeech] = useState(true)
-  const [transcript, setTranscript] = useState(true)
   // 画面の取り込みは既定で外す。OBSのWebSocketサーバーと Gyazo のアクセストークンの両方が要るためである
   const [screen, setScreen] = useState(false)
   // BGMも既定で外す。OBSに貼ってある裏方のブラウザソースが、曲を選んだ途端に黙って鳴り出さないようにする
   const [bgm, setBgm] = useState(false)
-  const [port, setPort] = useState(String(DEFAULT_TRANSCRIPT_PORT))
   const actions = usePageActions()
   const urlFieldId = useId()
   const speechFieldId = useId()
-  const transcriptFieldId = useId()
   const screenFieldId = useId()
   const bgmFieldId = useId()
-  const portFieldId = useId()
 
   let url: string
   let urlFailure = ''
   try {
     if (overlayKey === null) throw new Error('オーバーレイ用キーが発行されていません。ログアウトしてログインし直してください')
-    url = backstageUrl(window.location.origin, overlayKey, { speech, transcript, screen, bgm, port: Number(port.trim()) })
+    url = backstageUrl(window.location.origin, overlayKey, { speech, screen, bgm })
   } catch (error) {
     url = ''
     urlFailure = errorMessage(error)
@@ -105,7 +100,7 @@ const BackstageUrlCard = ({ overlayKey }: { overlayKey: string | null }) => {
             {/* 「表示をオフにしてよい」とは書かない。OBSの「非アクティブ時にソースをシャットダウン」が有効だと、
                 非表示にした時点でこのページが閉じられ、読み上げも取り込みも止まってしまう */}
             <HelpButton topic="OBS用のURL">
-              <p>選んだものを1つのブラウザソースでまとめて動かします。同じPCの VOICEVOX・ゆかコネNEO・OBS につなぐので、OBSと同じPCで開きます。</p>
+              <p>選んだものを1つのブラウザソースでまとめて動かします。同じPCの VOICEVOX・OBS につなぐので、OBSと同じPCで開きます。</p>
               <p>
                 配信画面には映らないので、見えない位置に置いてかまいません。推奨の大きさは {BACKSTAGE_SIZE.width} × {BACKSTAGE_SIZE.height} px です。
               </p>
@@ -118,25 +113,6 @@ const BackstageUrlCard = ({ overlayKey }: { overlayKey: string | null }) => {
             <Checkbox id={speechFieldId} checked={speech} onCheckedChange={(checked) => setSpeech(checked === true)} />
             <Label htmlFor={speechFieldId}>VOICEVOX</Label>
           </div>
-
-          <div className="flex items-center gap-2">
-            <Checkbox id={transcriptFieldId} checked={transcript} onCheckedChange={(checked) => setTranscript(checked === true)} />
-            <Label htmlFor={transcriptFieldId}>ゆかコネNEO</Label>
-          </div>
-
-          {/* ポートはゆかコネNEO へのつなぎ先なので、中継を動かすときだけ出す（使われない入力欄を残さない） */}
-          {transcript && (
-            <div className="flex flex-col gap-2 pl-6">
-              <Label htmlFor={portFieldId}>ゆかコネNEO のポート番号</Label>
-              <Input
-                id={portFieldId}
-                inputMode="numeric"
-                value={port}
-                onChange={(event) => setPort(event.target.value)}
-                className="max-w-40"
-              />
-            </div>
-          )}
 
           <div className="flex items-center gap-2">
             <Checkbox id={screenFieldId} checked={screen} onCheckedChange={(checked) => setScreen(checked === true)} />

@@ -1,7 +1,7 @@
 /**
  * 裏方のページ（overlay/backstage/index.html）のエントリスクリプト
  *
- * OBSに置くWebのページのうち、映すものを持たないもの（チャットの読み上げ・文字起こしの中継・配信画面の取り込み・BGM）を1枚にまとめる
+ * OBSに置くWebのページのうち、映すものを持たないもの（チャットの読み上げ・配信画面の取り込み・BGM）を1枚にまとめる
  * （issue #108）。ブラウザソースはその数だけ Chromium のレンダラを立ち上げるので、裏方をそれぞれ別のソースに
  * 置くと配信中のメモリを食う。
  *
@@ -11,7 +11,7 @@
  *
  * どの裏方を動かすかは「このブラウザソースが何をするか」という構造の指定なので、合成ページの ?overlay=<名前> と
  * 同じくURLに持たせる（配信中に変える設定ではないため、issue #86 でWorkerへ移した「設定」とは扱いを分ける）。
- * 裏方そのものは src/speech/task.ts・src/transcript/task.ts・src/screen/task.ts・src/bgm/task.ts にあり、単独ページを持つものは
+ * 裏方そのものは src/speech/task.ts・src/screen/task.ts・src/bgm/task.ts にあり、単独ページを持つものは
  * そのページと同じものを呼ぶ。
  *
  * 注意: 1つの裏方の失敗で、もう一方は動かし続ける（合成ページが素材について設けた例外と同じ。
@@ -23,7 +23,6 @@ import { showError } from '../core/mount'
 import { ParamError, parseParams, type ParamSchema } from '../core/params'
 import { SCREEN_NOUN, startScreen } from '../screen/task'
 import { SPEECH_NOUN, startSpeech } from '../speech/task'
-import { startTranscript, TRANSCRIPT_NOUN } from '../transcript/task'
 
 /** ページ全体の失敗（キーが無い・動かす裏方が無い）でエラー表示に使う呼び名 */
 const NOUN = '裏方'
@@ -42,11 +41,6 @@ const schema = {
     default: true,
     description: 'チャットの読み上げを動かす（VOICEVOX ENGINE を使う）',
   },
-  transcript: {
-    type: 'boolean',
-    default: true,
-    description: '文字起こしの中継を動かす（ゆかコネNEO を使う）',
-  },
   screen: {
     type: 'boolean',
     // 既定では動かさない。OBSのWebSocketサーバーと Gyazo のアクセストークンの両方が要るので、
@@ -59,22 +53,6 @@ const schema = {
     // 既定では鳴らさない。OBSに貼ってある裏方のブラウザソースが、曲を選んだ途端に黙って鳴り出さないようにする
     default: false,
     description: 'BGMを鳴らす（流す曲と音量は管理画面の「BGM」で選ぶ）',
-  },
-  host: {
-    type: 'string',
-    default: 'localhost',
-    // ブラウザが ws:// への接続（混在コンテンツ）を許すのはループバックだけなので、そのどちらかしか受け取らない
-    pattern: /^(?:localhost|127\.0\.0\.1)$/,
-    example: 'localhost または 127.0.0.1',
-    description: 'ゆかコネNEO が動いているホスト（OBSと同じPCなので localhost のまま使う）',
-  },
-  port: {
-    type: 'number',
-    default: 11901,
-    min: 1,
-    max: 65535,
-    integer: true,
-    description: 'ゆかコネNEO の WebSocket のポート番号（レジストリ HKCU\\Software\\YukarinetteConnectorNeo\\WebSocket の値。既定は 11901）',
   },
 } as const satisfies ParamSchema
 
@@ -117,23 +95,11 @@ const start = async (): Promise<void> => {
   if (params.key === '') {
     throw new ParamError(['key: オーバーレイ用キーを指定してください（例: ?key=<キー>）'])
   }
-  if (!params.speech && !params.transcript && !params.screen && !params.bgm) {
-    throw new ParamError(['speech・transcript・screen・bgm: 動かす裏方がありません（どれかを true にしてください）'])
+  if (!params.speech && !params.screen && !params.bgm) {
+    throw new ParamError(['speech・screen・bgm: 動かす裏方がありません（どれかを true にしてください）'])
   }
 
-  // 文字起こしの中継を先に始める。つなぎ始めるまで待つものが無く、読み上げの起動（Workerと VOICEVOX への
-  // 問い合わせ）を待たせずに済むためである
-  if (params.transcript) {
-    const box = addTaskBox(root, TRANSCRIPT_NOUN)
-    try {
-      startTranscript({ key: params.key, host: params.host, port: params.port, root: box })
-    } catch (error) {
-      // 1つの裏方の失敗で、もう一方を止めない
-      showError(error, TRANSCRIPT_NOUN, box)
-    }
-  }
-
-  // BGMも待つものが無いので、読み上げの起動より先に始める（読み上げが VOICEVOX を待つあいだに鳴り始められる）
+  // BGMは待つものが無いので、読み上げの起動より先に始める（読み上げが VOICEVOX を待つあいだに鳴り始められる）
   if (params.bgm) {
     const box = addTaskBox(root, BGM_NOUN)
     startBgm({ key: params.key, box }).catch((error: unknown) => showError(error, BGM_NOUN, box))

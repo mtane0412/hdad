@@ -16,7 +16,6 @@ import { loadScreenSettings } from './screen-config'
 import { isStreaming, recordScreenCapture } from './screen-store'
 import { readCurrentSideSuper } from './side-super-store'
 import { loadSpeechSettings } from './speech-config'
-import { receiveTranscript } from './transcript-routes'
 
 /**
  * GET /api/overlay/socket?key=: オーバーレイからのWebSocketの接続を受け、配送先（Durable Object）へ引き渡す。
@@ -116,17 +115,6 @@ export const media = async (context: Context): Promise<Response> => {
   })
 }
 
-/**
- * POST /api/overlay/transcript: 配信中の文字起こしを1件受け取る。
- *
- * OBSのブラウザソースに置いた中継ページ（transcript/index.html）が、同じPCで動いているゆかコネNEO の
- * 音声認識の結果のうち、確定した発話だけを押し込んでくる。あらすじ（issue #65）の材料になる。
- * 本文の検証と記録は、アプリのページの音声認識の受け口と同じもの（worker/transcript-routes.ts）を通す。
- */
-export const postTranscript = async (context: Context): Promise<Response> => {
-  await requireOverlayKey(context)
-  return receiveTranscript(context)
-}
 
 /**
  * GET /api/overlay/screen: 配信画面の取り込みのうち、撮るのに要る設定を返す。

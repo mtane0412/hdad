@@ -1,8 +1,8 @@
 /**
  * 配信中の文字起こしの読み書き
  *
- * OBSのブラウザソースに置いた中継ページ（transcript/index.html）が、同じPCで動いているゆかコネNEO の
- * 音声認識の結果を押し込んでくる（POST /api/overlay/transcript）。ここはその保存と読み出しだけを受け持つ。
+ * アプリの枠の音声認識（Chrome の Web Speech API）が確定した発話を送ってくる（POST /api/admin/transcripts。
+ * worker/transcript-routes.ts）。ここはその保存と読み出しだけを受け持つ。
  *
  * 貯めるのは配信中のぶんだけで、「途中から来た人向けのあらすじ」（issue #65）の材料にする。
  * チャットの本文を配信中だけ貯める stream-chat-store.ts と同じ考え方で、永く持つものではない。
@@ -18,7 +18,7 @@ const toIso = (milliseconds: number): string => new Date(milliseconds).toISOStri
 
 /** 記録する発話。中継ページが読み解いた値（src/transcript/message.ts）をそのまま受け取る */
 export interface Transcript {
-  /** ゆかコネNEO が振った MsgID。同じ発話を二度貯めないための鍵 */
+  /** 送り手が振ったメッセージID（webspeech:<UUID>）。同じ発話を二度貯めないための鍵 */
   messageId: string
   /** 確定した発話の本文（母国語。翻訳は保存しない） */
   text: string
@@ -61,7 +61,7 @@ export interface TranscriptLine {
   text: string
   /** 喋った日時（ISO 8601） */
   at: string
-  /** ゆかコネNEO が振った MsgID */
+  /** 送り手が振ったメッセージID */
   messageId: string
 }
 

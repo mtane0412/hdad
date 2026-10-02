@@ -2,7 +2,7 @@
  * アプリのページの一覧
  *
  * サイドバーの項目と、パスごとに描く中身をここで決める。
- * 実ファイルとして配信されるページ（overlay/stage/・overlay/backstage/・speech/reader/・transcript/relay/）は、ここには載せない。
+ * 実ファイルとして配信されるページ（overlay/stage/・overlay/backstage/・speech/reader/）は、ここには載せない。
  */
 import { Bot, BrainCircuit, Gift, Layers, LayoutDashboard, MessagesSquare, Music, Pencil, Plug, Upload, Users, Zap, type LucideIcon } from 'lucide-react'
 import type { AdminApi, Me } from '@/admin/api'
@@ -124,11 +124,11 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
       },
       {
         path: '/connectors/',
-        keywords: ['裏方', 'OBS', 'ブラウザソース', 'URL', 'VOICEVOX', '読み上げ', 'ゆかコネNEO', '文字起こし', 'Gyazo', '画面の取り込み', 'OCR', 'HDAD-tab', 'タブの映像', 'Chrome', '拡張'],
+        keywords: ['裏方', 'OBS', 'ブラウザソース', 'URL', 'VOICEVOX', '読み上げ', 'Web Speech API', '音声認識', '文字起こし', 'Gyazo', '画面の取り込み', 'OCR', 'HDAD-tab', 'タブの映像', 'Chrome', '拡張'],
         name: 'コネクター',
         icon: Plug,
-        // 外部のサービスとつなぐものをまとめる。映すものを持たない裏方（VOICEVOX・ゆかコネNEO・Gyazo・BGM）を
-        // 1つのブラウザソースにまとめるURLを出し（issue #108）、VOICEVOX・Gyazo の設定と HDAD-tab の配布を同じページに並べる
+        // 外部のサービスとつなぐものをまとめる。映すものを持たない裏方（VOICEVOX・Gyazo・BGM）を
+        // 1つのブラウザソースにまとめるURLを出し（issue #108）、VOICEVOX・Gyazo の設定と HDAD-tab の配布、音声認識のオン・オフを同じページに並べる
         render: ({ me, speechApi, botApi, screenApi }) => (
           <BackstagePage overlayKey={me.overlayKey} speechApi={speechApi} botApi={botApi} screenApi={screenApi} />
         ),

@@ -2,7 +2,7 @@
 /**
  * コネクターのページ（/connectors/）のテスト
  *
- * 外部のサービスとつなぐ裏方（VOICEVOX・ゆかコネNEO・Gyazo・BGM）を1つのブラウザソースで動かすURLを出し、
+ * 外部のサービスとつなぐ裏方（VOICEVOX・Gyazo・BGM）を1つのブラウザソースで動かすURLを出し、
  * 各サービスの設定の区画（VOICEVOX・Gyazo・HDAD-tab）を並べる。各区画の中身はそれぞれのテストで確かめる。
  *
  * 確かめること:
@@ -10,8 +10,7 @@
  * - OBSに貼るURLに、オーバーレイ用キーが入ること
  * - 動かす裏方を外すと、URLに書き足されること
  * - 画面の取り込みは既定で外れていて、入れるとURLに書き足されること
- * - 文字起こしを動かすときだけ、ポートの入力欄を出すこと
- * - ポートが読めない値なら、URLを出さずに理由を出すこと（既定へ黙って戻さない）
+ * - ゆかコネNEO の中継は選べないこと（アプリの枠の音声認識に置き換えた。issue #192）
  * - 裏方をひとつも選んでいなければ、URLを出さずに理由を出すこと
  * - オーバーレイ用キーが無ければ、URLを出さずに理由を出すこと
  */
@@ -71,7 +70,6 @@ const urlField = () => screen.getByLabelText('OBSのブラウザソースに貼�
 /** URLの中身（toHaveValue は部分一致を受け取れないので、値そのものを取り出して調べる） */
 const urlValue = () => (urlField() as HTMLInputElement).value
 const speechSwitch = () => screen.getByRole('checkbox', { name: 'VOICEVOX' })
-const transcriptSwitch = () => screen.getByRole('checkbox', { name: 'ゆかコネNEO' })
 const screenSwitch = () => screen.getByRole('checkbox', { name: 'Gyazo' })
 const bgmSwitch = () => screen.getByRole('checkbox', { name: 'BGM' })
 
@@ -137,47 +135,23 @@ describe('コネクターのページ', () => {
   test('読み上げを外すと、URLに書き足す', async () => {
     renderPage()
 
+    await userEvent.click(screenSwitch())
     await userEvent.click(speechSwitch())
 
-    expect(urlField()).toHaveValue(`${window.location.origin}/overlay/backstage/?key=${encodeURIComponent(overlayKey)}&speech=false`)
+    expect(urlField()).toHaveValue(`${window.location.origin}/overlay/backstage/?key=${encodeURIComponent(overlayKey)}&speech=false&screen=true`)
   })
 
-  test('文字起こしを動かすときだけ、ポートの入力欄を出す', async () => {
+  test('ゆかコネNEO の中継は選べない（アプリの枠の音声認識に置き換えた）', () => {
     renderPage()
 
-    expect(screen.getByLabelText('ゆかコネNEO のポート番号')).toBeInTheDocument()
-
-    await userEvent.click(transcriptSwitch())
-
+    expect(screen.queryByRole('checkbox', { name: 'ゆかコネNEO' })).not.toBeInTheDocument()
     expect(screen.queryByLabelText('ゆかコネNEO のポート番号')).not.toBeInTheDocument()
-  })
-
-  test('ポートを既定から変えると、URLに書き足す', async () => {
-    renderPage()
-
-    const portField = screen.getByLabelText('ゆかコネNEO のポート番号')
-    await userEvent.clear(portField)
-    await userEvent.type(portField, '20000')
-
-    expect(urlField()).toHaveValue(`${window.location.origin}/overlay/backstage/?key=${encodeURIComponent(overlayKey)}&port=20000`)
-  })
-
-  test('ポートが読めない値なら、URLを出さずに理由を出す', async () => {
-    renderPage()
-
-    const portField = screen.getByLabelText('ゆかコネNEO のポート番号')
-    await userEvent.clear(portField)
-    await userEvent.type(portField, 'ななまんばん')
-
-    expect(screen.queryByLabelText('OBSのブラウザソースに貼るURL')).not.toBeInTheDocument()
-    expect(screen.getByText(/ポート番号は/)).toBeInTheDocument()
   })
 
   test('裏方をひとつも選んでいなければ、URLを出さずに理由を出す', async () => {
     renderPage()
 
     await userEvent.click(speechSwitch())
-    await userEvent.click(transcriptSwitch())
 
     expect(screen.queryByLabelText('OBSのブラウザソースに貼るURL')).not.toBeInTheDocument()
     expect(screen.getByText(/1つ以上選んでください/)).toBeInTheDocument()

@@ -1,8 +1,8 @@
 /**
  * VOICEVOX ENGINE（同じPCで動く音声合成サーバー）の呼び出し
  *
- * 読み上げのページは OBS のブラウザソースとして、VOICEVOX と同じPCの上で開かれる前提で、その localhost へつなぐ
- * （ゆかコネNEO へつなぐ src/transcript/connection.ts と同じ考え方）。Workers AI に合成させないのは、
+ * 読み上げのページは OBS のブラウザソースとして、VOICEVOX と同じPCの上で開かれる前提で、その localhost へつなぐ。
+ * Workers AI に合成させないのは、
  * 発言のたびに無料枠を消費させないためである。
  *
  * つなぎ先（起点）は起動のときに決まるが、話者と読み上げ速度は合成のたびに受け取る。読み上げの設定は

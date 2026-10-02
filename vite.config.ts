@@ -4,7 +4,7 @@
  * ページUI（ダッシュボード・管理画面）はトップの index.html ひとつで、パスに応じた中身をアプリ（src/app/）が描く。
  * /overlay/ のように実ファイルのないパスには、Workers 静的アセットが index.html を返す（wrangler.jsonc の not_found_handling）。
  * OBSに載せるページ（素材を重ねる合成ページ overlay/stage/index.html、映すものを持たない裏方をまとめた
- * overlay/backstage/index.html と、その裏方それぞれ speech/reader/index.html・transcript/relay/index.html）は、
+ * overlay/backstage/index.html と、その裏方それぞれ speech/reader/index.html）は、
  * パスごとに実ファイルが必要なので、すべてをエントリとするマルチページ構成でビルドする。
  * index.html は /overlay/ などネストしたパスでも返されるので、base は絶対パス（/）にしてアセットをどのパスからでも解決できるようにする。
  *
@@ -32,7 +32,6 @@ export default defineConfig({
         rollupOptions: {
           input: {
             index: resolve(root, 'index.html'),
-            'transcript/relay': resolve(root, 'transcript/relay/index.html'),
             'speech/reader': resolve(root, 'speech/reader/index.html'),
             'overlay/stage': resolve(root, 'overlay/stage/index.html'),
             'overlay/backstage': resolve(root, 'overlay/backstage/index.html'),
