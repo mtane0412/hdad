@@ -129,7 +129,6 @@ const fakeLlmApi: LlmApi = {
 const createFakeFocusApi: FocusApi = {
   load: vi.fn(async () => null),
   save: vi.fn(async () => null),
-  recent: vi.fn(async () => []),
 }
 
 const createFakeCommentApi: CommentApi = {

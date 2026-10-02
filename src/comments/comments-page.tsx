@@ -9,8 +9,9 @@
  * 画面を開き直しても直前の流れが見える。並べ方の決まり（二重に並べない・消された発言に印を付ける）は feed.ts が持つ。
  * アイコンは初めて見た人のぶんだけをまとめて問い合わせる（api.ts）。
  *
- * 発言の行のボタンから、その発言を注目コメント（配信画面に大きく映す1件）に設定できる。保存は注目コメントの
- * ページと同じ Worker の経路（src/focus/api.ts の save）で行い、取り上げている発言には印を付ける。
+ * 発言の行のボタンから、その発言を注目コメント（配信画面に大きく映す1件）に設定できる。保存は Worker の
+ * 経路（src/focus/api.ts の save）で行い、取り上げている発言には印を付ける。いま取り上げている1件は流れの上にも出し、
+ * そこからやめられる（開く前に取り上げた発言は流れに無いことがあるため）。注目コメント専用のページは持たない。
  * モデレーターに消された発言は取り上げられない（配信画面に出さないため）。
  *
  * 発言の行のボタンから、モデレーターの操作（発言の削除・タイムアウト・BAN）もできる。どれも botの権限で行われ
@@ -43,6 +44,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { iconButtonName } from '@/core/icon-button'
 import type { FocusApi } from '@/focus/api'
+import type { FocusTarget } from '@/focus/focused'
 import { cn } from '@/lib/utils'
 import { describeModeration, pickUnknownUserIds, type CommentApi, type ModerationAction } from './api'
 import {
@@ -74,7 +76,7 @@ const rowElementId = (item: ChatItem): string => `comment-row-${item.id}`
 
 export interface CommentsPageProps {
   api: CommentApi
-  /** 注目コメントの読み書き（注目コメントのページと同じもの） */
+  /** 注目コメントの読み書き */
   focusApi: FocusApi
   /** 配送先へつなぐ。テストで差し替えるために受け取る（本番は socket.ts の connectCommentFeed） */
   connect(handlers: CommentFeedHandlers): CommentFeedConnection
@@ -86,7 +88,7 @@ const formatTime = (at: number): string => new Date(at).toLocaleTimeString(undef
 /**
  * 発言した人のアイコン。まだ引けていない・引けなかった人は同じ大きさの丸を置く（行の高さと並びを揃えるため）。
  *
- * 注意: shadcn/ui の Avatar ではなく素の img で出す（注目コメントのページと同じ。読み込むまで img を置かない
+ * 注意: shadcn/ui の Avatar ではなく素の img で出す（配信画面の注目コメントと同じ。読み込むまで img を置かない
  * Avatar では、URLが壊れていても気付けない）。隣の名前と同じ人を指す飾りなので、代替文字は空にする。
  */
 const Icon = ({ user, icons }: { user: FeedUser | null; icons: ReadonlyMap<string, string> }) => {
@@ -330,8 +332,14 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
   const [problem, setProblem] = useState<string | null>(null)
   /** 接続の状態のお知らせ。つながっていれば null */
   const [connectionNotice, setConnectionNotice] = useState<string | null>(null)
-  /** 注目コメントとして取り上げている発言のID。取り上げていなければ null */
-  const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null)
+  /** 注目コメントとして取り上げている1件。取り上げていなければ null */
+  const [focusTarget, setFocusTarget] = useState<FocusTarget | null>(null)
+  const focusedMessageId = focusTarget?.messageId ?? null
+  /**
+   * 取り上げているものを読めたか。読み込み中・読めなかったときに「何も取り上げていない」と書かないために持つ
+   * （この画面で取り上げ直した・やめたあとは、その結果を読めたものとして扱う）
+   */
+  const [focusLoad, setFocusLoad] = useState<'loading' | 'loaded' | 'failed'>('loading')
   const actions = usePageActions()
   /** 送る文言の入力欄 */
   const [draft, setDraft] = useState('')
@@ -392,10 +400,14 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
     let cancelled = false
     focusApi.load().then(
       (target) => {
-        if (!cancelled && !reselected.current) setFocusedMessageId(target?.messageId ?? null)
+        if (cancelled || reselected.current) return
+        setFocusTarget(target)
+        setFocusLoad('loaded')
       },
       (error: unknown) => {
-        if (!cancelled) reportFailure(error)
+        if (cancelled) return
+        reportFailure(error)
+        if (!reselected.current) setFocusLoad('failed')
       },
     )
     return () => {
@@ -404,29 +416,40 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
   }, [focusApi, reportFailure])
 
   /**
-   * 発言を注目コメントに設定する。すでに取り上げている発言なら、取り上げをやめる。
+   * 取り上げている発言（messageId）の取り上げをやめる。
    *
-   * やめる前にいま取り上げているものを読み直し、ほかの画面（/focus/ など）で別の発言に取り上げ直されていたら、
-   * やめずに表示のほうを合わせる（ほかの画面での選択を消さないため）。保存先のKVには「比べてから書き換える」
-   * 仕組みがないので、読み直してから保存するまでのわずかな隙間は残る。
+   * やめる前にいま取り上げているものを読み直し、ほかの画面（別のタブで開いたこの画面など）で別の発言に
+   * 取り上げ直されていたら、やめずに表示のほうを合わせる（ほかの画面での選択を消さないため）。保存先のKVには
+   * 「比べてから書き換える」仕組みがないので、読み直してから保存するまでのわずかな隙間は残る。
    */
-  const toggleFocus = (item: ChatItem) =>
+  const stopFocus = (messageId: string) =>
     void actions.run(async () => {
       reselected.current = true
-      if (focusedMessageId === item.messageId) {
-        const current = await focusApi.load()
-        if (current !== null && current.messageId !== item.messageId) {
-          setFocusedMessageId(current.messageId)
-          return `注目コメントはほかの画面で別の発言に変わっていたので、やめずに表示を合わせました（いまは ${current.displayName} さんの発言）`
-        }
-        await focusApi.save(null)
-        setFocusedMessageId(null)
-        return '注目コメントの取り上げをやめました'
+      const current = await focusApi.load()
+      if (current !== null && current.messageId !== messageId) {
+        setFocusTarget(current)
+        setFocusLoad('loaded')
+        return `注目コメントはほかの画面で別の発言に変わっていたので、やめずに表示を合わせました（いまは ${current.displayName} さんの発言）`
       }
-      const target = await focusApi.save(toFocusPick(item))
-      setFocusedMessageId(target?.messageId ?? null)
+      await focusApi.save(null)
+      setFocusTarget(null)
+      setFocusLoad('loaded')
+      return '注目コメントの取り上げをやめました'
+    })
+
+  /** 発言を注目コメントに設定する。すでに取り上げている発言なら、取り上げをやめる */
+  const toggleFocus = (item: ChatItem) => {
+    if (focusedMessageId === item.messageId) {
+      stopFocus(item.messageId)
+      return
+    }
+    void actions.run(async () => {
+      reselected.current = true
+      setFocusTarget(await focusApi.save(toFocusPick(item)))
+      setFocusLoad('loaded')
       return `${item.user.name} さんの発言を注目コメントにしました`
     })
+  }
 
   /** 発言した人（または発言）を処分する。BANは取り返しが重いので確かめてから行う */
   const moderate = (item: ChatItem, action: ModerationAction) => {
@@ -517,6 +540,28 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
         </Alert>
       )}
       {connectionNotice !== null && <p className="text-sm text-muted-foreground">{connectionNotice}</p>}
+
+      <section aria-label="注目コメント" className="flex items-center gap-3 rounded-md border px-3 py-2 text-sm">
+        {focusLoad === 'loading' ? (
+          <p className="text-muted-foreground">注目コメント: いま取り上げているものを読み込んでいます…</p>
+        ) : focusLoad === 'failed' ? (
+          <p className="text-destructive">注目コメント: いま取り上げているものを読めませんでした（理由は上に出ています）</p>
+        ) : focusTarget === null ? (
+          <p className="text-muted-foreground">注目コメント: いまは何も取り上げていません（発言の行のボタンで取り上げる）</p>
+        ) : (
+          <>
+            {/* 隣の名前と同じ人を指す飾りなので、代替文字は空にする（素の img にする理由は Icon と同じ） */}
+            <img src={focusTarget.profileImageUrl} alt="" className="size-8 shrink-0 rounded-full" />
+            <div className="flex min-w-0 flex-1 flex-col">
+              <p className="text-xs text-muted-foreground">注目コメント: {focusTarget.displayName} さん</p>
+              <p className="truncate">{focusTarget.text}</p>
+            </div>
+            <Button type="button" variant="outline" size="sm" disabled={actions.busy} onClick={() => stopFocus(focusTarget.messageId)}>
+              取り上げをやめる
+            </Button>
+          </>
+        )}
+      </section>
 
       <section aria-label="まだ挨拶していない人" className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm">
         {waiting.length === 0 ? (
