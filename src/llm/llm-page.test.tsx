@@ -3,7 +3,8 @@
  * LLMのページのテスト
  *
  * 確かめること:
- * - AIを使う4か所ぶんの設定を読み込んで、箇所ごとに提供元とモデルを選べること（モデルは入力ではなく選択）
+ * - AIを使う4か所ぶんの設定を読み込んで、表の1行ずつで提供元とモデルを選べること（モデルは入力ではなく選択）
+ * - 箇所の説明は画面に並べず、ヘルプボタンを押したときだけ出すこと
  * - モデルの候補は提供元ごとにWorkerから読むこと。切り替えたら、その提供元の候補に入れ替わること
  * - 候補を読めなかったときは、黙って空の選択欄を出さず理由を出すこと
  * - 保存の応答を待っているあいだは選べなくすること（どの設定が保存されたかを取り違えないため）
@@ -12,19 +13,32 @@
  * - OpenRouter を選んでいる箇所があるのに鍵が設定されていなければ、その場で知らせること
  * - Workerが返した問題点を、そのまま画面に並べること（検証はWorkerだけが持つ）
  * - 設定を読めなかったときは、黙って既定に倒さず理由を出すこと
- * - 使用状況（今日・直近7日の呼び出し回数と失敗の回数）を箇所ごとに出すこと
+ * - 使用状況（今日・直近7日の呼び出し回数と失敗の回数）を、全体の合計と箇所の表の行ごとに出すこと
+ * - 日ごとの呼び出し回数をグラフで出すこと
  * - 鍵が設定されているときだけ OpenRouter の残高を読み、出すこと
  * - 使用状況や残高を読めなくても設定の画面は出し、理由だけを添えること（モニターのために設定が触れなくならないようにする）
  */
 import '@testing-library/jest-dom/vitest'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
 import { ApiError } from '@/core/api'
 import { LlmPage } from './llm-page'
 import type { LlmApi, LlmCredits, LlmModelOption, LlmProvider, LlmSettings, LlmState, LlmUsageDay } from './api'
 
 afterEach(cleanup)
+
+beforeAll(() => {
+  // jsdom には ResizeObserver がない。グラフが大きさを測るのに使うので、何もしない代役を置く
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe(): void {}
+      disconnect(): void {}
+      unobserve(): void {}
+    },
+  )
+})
 
 /**
  * 「今」として使う時刻（UTC）。
@@ -141,12 +155,19 @@ const waitForCandidates = async (optionName: string, provider: LlmProvider) => {
   )
 }
 
+/** 箇所の表から、その箇所の行を取り出す */
+const usageRowOf = (name: string) => within(screen.getByRole('table', { name: 'AIを使う箇所' })).getByRole('row', { name })
+
 const save = async () => userEvent.click(screen.getByRole('button', { name: '設定を保存' }))
 
 describe('LlmPage', () => {
-  test('AIを使う4か所ぶんの提供元とモデルを、選択欄として出す', async () => {
+  test('AIを使う4か所ぶんの提供元とモデルを、表の1行ずつに選択欄として出す', async () => {
     renderPage()
     await waitForLoad()
+
+    for (const optionName of ['チャットの文面', 'サイドスーパー', '視聴者の人物像', '配信のあらすじ']) {
+      expect(within(usageRowOf(optionName)).getByLabelText(`${optionName}の提供元`)).toBeInTheDocument()
+    }
 
     for (const optionName of ['チャットの文面', 'サイドスーパー', '視聴者の人物像', '配信のあらすじ']) {
       expect(screen.getByLabelText(`${optionName}の提供元`)).toHaveValue('workers-ai')
@@ -300,6 +321,16 @@ describe('LlmPage', () => {
     await waitFor(() => expect(screen.getByLabelText('サイドスーパーのモデル')).toHaveValue('@cf/meta/一覧から消えたモデル'))
   })
 
+  test('箇所の説明は画面に並べず、ヘルプボタンを押したときだけ出す', async () => {
+    renderPage()
+    await waitForLoad()
+    expect(screen.queryByText(/発言ごとに呼ばれる/)).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'チャットの文面の説明' }))
+
+    expect(await screen.findByText(/発言ごとに呼ばれる/)).toBeInTheDocument()
+  })
+
   test('設定を読めなければ、黙って既定に倒さず理由を出す', async () => {
     renderPage({
       load: () => Promise.reject(new Error('通信できませんでした')),
@@ -315,7 +346,7 @@ describe('LlmPage', () => {
 })
 
 describe('使用状況', () => {
-  test('箇所ごとに、今日と直近7日の呼び出し回数・失敗の回数を出す', async () => {
+  test('全体の合計と、箇所の表の行ごとに、今日と直近7日の呼び出し回数・失敗の回数・トークン数を出す', async () => {
     const api = llmApi({
       usage: [
         usageRow(today, 'aiChat', { calls: 12, failures: 1, promptTokens: 9_000, completionTokens: 3_000 }),
@@ -325,33 +356,47 @@ describe('使用状況', () => {
     renderPage(api)
     await waitForLoad()
 
-    // チャットの文面の箇所と、全体の合計の両方に出る（ほかの3か所は呼んでいないので、合計はこの箇所と同じ数になる）
-    await waitFor(() => expect(screen.getAllByText(/今日 12回（失敗1回）・12,000トークン/)).toHaveLength(2))
-    expect(screen.getAllByText(/直近7日 42回（失敗1回）・37,000トークン/)).toHaveLength(2)
+    // 全体の合計（ほかの箇所は呼んでいないので、チャットの文面と同じ数になる）
+    await waitFor(() => expect(screen.getByRole('group', { name: '今日' })).toHaveTextContent('12回（失敗1回）'))
+    expect(screen.getByRole('group', { name: '今日' })).toHaveTextContent('12,000トークン')
+    expect(screen.getByRole('group', { name: '直近7日' })).toHaveTextContent('42回（失敗1回）')
+    expect(screen.getByRole('group', { name: '直近7日' })).toHaveTextContent('37,000トークン')
+    // 箇所の行
+    expect(usageRowOf('チャットの文面')).toHaveTextContent('12回（失敗1回）')
+    expect(usageRowOf('チャットの文面')).toHaveTextContent('42回（失敗1回）')
+    expect(usageRowOf('サイドスーパー')).toHaveTextContent('0回')
   })
 
-  test('判定用のモデル Jev の箇所（BGMの選択）の使用状況も出す（選ぶモデルは無いので、選択欄は出さない）', async () => {
+  test('直近7日の実費（OpenRouter のぶん）を出す', async () => {
+    renderPage(llmApi({ usage: [usageRow(today, 'streamSummary', { calls: 1, provider: 'openrouter', costUsd: 0.0123 })] }))
+    await waitForLoad()
+
+    await waitFor(() => expect(screen.getByRole('group', { name: '直近7日の実費' })).toHaveTextContent('$0.0123'))
+  })
+
+  test('判定用のモデル Jev の箇所（BGMの選択）も表に並べる（選ぶモデルは無いので、選択欄は出さない）', async () => {
     renderPage(llmApi({ usage: [usageRow(today, 'bgm', { calls: 3, promptTokens: 3_000, completionTokens: 30 })] }))
     await waitForLoad()
 
-    const part = await screen.findByRole('region', { name: 'BGMの選択（Jev）' })
-    expect(within(part).getByText(/今日 3回・3,030トークン/)).toBeInTheDocument()
-    expect(within(part).queryByRole('combobox')).not.toBeInTheDocument()
+    await waitFor(() => expect(usageRowOf('BGMの選択（Jev）')).toHaveTextContent('3回'))
+    expect(usageRowOf('BGMの選択（Jev）')).toHaveTextContent('3,030トークン')
+    expect(within(usageRowOf('BGMの選択（Jev）')).queryByRole('combobox')).not.toBeInTheDocument()
   })
 
-  test('まだ一度も呼んでいない箇所は 0回 と出す（数えられていないのか使っていないのかを取り違えないため）', async () => {
-    renderPage(llmApi())
+  test('日ごとの呼び出し回数をグラフで出す', async () => {
+    renderPage()
     await waitForLoad()
 
-    await waitFor(() => expect(screen.getAllByText(/今日 0回/).length).toBeGreaterThan(0))
+    // グラフ（Recharts）は React.lazy で切り離してあるので、出るまで待つ
+    expect(await screen.findByRole('img', { name: '直近30日の呼び出し回数の推移' })).toBeInTheDocument()
   })
 
   test('鍵が設定されていれば OpenRouter の残高を出す', async () => {
     renderPage(llmApi({ apiKeyConfigured: true, credits: { totalCredits: 10, totalUsage: 2.5, remaining: 7.5 } }))
     await waitForLoad()
 
-    await waitFor(() => expect(screen.getByText(/残り \$7\.50/)).toBeInTheDocument())
-    expect(screen.getByText(/付与 \$10\.00/)).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('group', { name: 'OpenRouter の残高' })).toHaveTextContent('$7.50'))
+    expect(screen.getByRole('group', { name: 'OpenRouter の残高' })).toHaveTextContent('付与 $10.00')
   })
 
   test('鍵が設定されていなければ、残高は読みに行かない', async () => {
@@ -359,8 +404,9 @@ describe('使用状況', () => {
     renderPage(api)
     await waitForLoad()
 
-    await waitFor(() => expect(screen.getAllByText(/今日 0回/).length).toBeGreaterThan(0))
+    await waitFor(() => expect(screen.getByRole('group', { name: '今日' })).toHaveTextContent('0回'))
     expect(api.balanceReadCount()).toBe(0)
+    expect(screen.queryByRole('group', { name: 'OpenRouter の残高' })).not.toBeInTheDocument()
   })
 
   test('使用状況を読めなくても設定は触れるようにし、理由だけを添える', async () => {
@@ -377,6 +423,6 @@ describe('使用状況', () => {
     await waitForLoad()
 
     await waitFor(() => expect(screen.getByText(/残高を取れませんでした/)).toBeInTheDocument())
-    expect(screen.getAllByText(/今日 0回/).length).toBeGreaterThan(0)
+    expect(screen.getByRole('group', { name: '今日' })).toHaveTextContent('0回')
   })
 })

@@ -3,10 +3,10 @@
  *
  * 視聴者数・フォロワー数の推移を描く。横軸は時刻（ミリ秒）で、目盛りはブラウザのタイムゾーンで出す。
  *
- * 注意: このファイルだけが Recharts（`@/components/ui/chart`）を読み込みます。
+ * 注意: Recharts（`@/components/ui/chart`）を読み込むのはグラフのファイル（このファイルと src/llm/usage-chart.tsx）だけです。
  * ダッシュボード（stats-page.tsx）から `React.lazy` で切り離して読み込むため、
  * ギャラリーや管理画面を開いたときに Recharts を読み込まずに済みます。
- * この約束を守るため、ここ以外から Recharts を読み込まないでください。
+ * この約束を守るため、グラフのファイル以外から Recharts を読み込まないでください。
  * グラフの色はテーマのトークン（--chart-2）を使い、明暗のどちらでも読める中間の濃さにします。
  */
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts'
