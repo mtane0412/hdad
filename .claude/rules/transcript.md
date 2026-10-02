@@ -4,6 +4,7 @@ paths:
   - "transcript/**"
   - "worker/transcript-store.ts"
   - "worker/transcript-routes.ts"
+  - "worker/overlay-routes.ts"
 ---
 
 # 配信中の文字起こし（アプリの枠の Web Speech API・`transcript/relay/`・裏方の `?transcript=`）

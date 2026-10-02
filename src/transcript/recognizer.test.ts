@@ -186,14 +186,18 @@ describe('createRecognizer', () => {
   })
 
   it('マイクが外れたら止まって理由を出す', async () => {
-    const { recognition, microphone, recognizer, latest } = setup()
+    const { recognition, microphone, recognizer, latest, finals } = setup()
     await recognizer.start()
     recognition.fireStart()
 
     microphone.lose()
+    // 止めたあとで Chrome が遅れて知らせてくる終わりと結果は、止まった理由を上書きせず、発話としても渡さない
+    recognition.fireResult(0, [{ text: '外れた後の発話', isFinal: true }])
+    recognition.fireEnd()
 
     expect(recognition.stops).toBe(1)
-    expect(latest().status).toMatchObject({ kind: 'failed' })
+    expect(latest().status).toEqual({ kind: 'failed', message: 'マイクが外れました。マイクがつながっているか確かめてください' })
+    expect(finals).toEqual([])
   })
 
   it('止めたら始め直さず、Chrome が終えたところで止まった状態になってマイクを閉じる', async () => {

@@ -120,10 +120,22 @@ export const createRecognizer = (options: RecognizerOptions): Recognizer => {
     microphone = null
   }
 
-  /** 止めて理由を出す。Chrome の認識がまだ動いていれば止める */
+  /**
+   * 止めて理由を出す。Chrome の認識がまだ動いていれば止める。
+   *
+   * 注意: 止める前に出来事の受け口を外す。止めると Chrome が遅れて onend（と残っていた onresult）を知らせてくるが、
+   * そのまま受けると handleEnd が「止めた」状態で止まった理由を上書きし、画面から理由が消えてしまうためである。
+   */
   const fail = (message: string): void => {
     running = false
-    recognition?.stop()
+    if (recognition) {
+      recognition.onstart = null
+      recognition.onresult = null
+      recognition.onerror = null
+      recognition.onend = null
+      recognition.stop()
+      recognition = null
+    }
     releaseMicrophone()
     update({ status: { kind: 'failed', message }, interim: '' })
   }
