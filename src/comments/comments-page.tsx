@@ -335,6 +335,11 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
   /** 注目コメントとして取り上げている1件。取り上げていなければ null */
   const [focusTarget, setFocusTarget] = useState<FocusTarget | null>(null)
   const focusedMessageId = focusTarget?.messageId ?? null
+  /**
+   * 取り上げているものを読めたか。読み込み中・読めなかったときに「何も取り上げていない」と書かないために持つ
+   * （この画面で取り上げ直した・やめたあとは、その結果を読めたものとして扱う）
+   */
+  const [focusLoad, setFocusLoad] = useState<'loading' | 'loaded' | 'failed'>('loading')
   const actions = usePageActions()
   /** 送る文言の入力欄 */
   const [draft, setDraft] = useState('')
@@ -395,10 +400,14 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
     let cancelled = false
     focusApi.load().then(
       (target) => {
-        if (!cancelled && !reselected.current) setFocusTarget(target)
+        if (cancelled || reselected.current) return
+        setFocusTarget(target)
+        setFocusLoad('loaded')
       },
       (error: unknown) => {
-        if (!cancelled) reportFailure(error)
+        if (cancelled) return
+        reportFailure(error)
+        if (!reselected.current) setFocusLoad('failed')
       },
     )
     return () => {
@@ -419,10 +428,12 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
       const current = await focusApi.load()
       if (current !== null && current.messageId !== messageId) {
         setFocusTarget(current)
+        setFocusLoad('loaded')
         return `注目コメントはほかの画面で別の発言に変わっていたので、やめずに表示を合わせました（いまは ${current.displayName} さんの発言）`
       }
       await focusApi.save(null)
       setFocusTarget(null)
+      setFocusLoad('loaded')
       return '注目コメントの取り上げをやめました'
     })
 
@@ -435,6 +446,7 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
     void actions.run(async () => {
       reselected.current = true
       setFocusTarget(await focusApi.save(toFocusPick(item)))
+      setFocusLoad('loaded')
       return `${item.user.name} さんの発言を注目コメントにしました`
     })
   }
@@ -530,7 +542,11 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
       {connectionNotice !== null && <p className="text-sm text-muted-foreground">{connectionNotice}</p>}
 
       <section aria-label="注目コメント" className="flex items-center gap-3 rounded-md border px-3 py-2 text-sm">
-        {focusTarget === null ? (
+        {focusLoad === 'loading' ? (
+          <p className="text-muted-foreground">注目コメント: いま取り上げているものを読み込んでいます…</p>
+        ) : focusLoad === 'failed' ? (
+          <p className="text-destructive">注目コメント: いま取り上げているものを読めませんでした（理由は上に出ています）</p>
+        ) : focusTarget === null ? (
           <p className="text-muted-foreground">注目コメント: いまは何も取り上げていません（発言の行のボタンで取り上げる）</p>
         ) : (
           <>

@@ -276,6 +276,22 @@ describe('CommentsPage', () => {
       expect(await within(focusSection()).findByText(/いまは何も取り上げていません/)).toBeInTheDocument()
     })
 
+    test('取り上げているものを読み込んでいるあいだは、何も取り上げていないとは書かない', async () => {
+      const focusApi = createFakeFocusApi({ load: vi.fn(() => new Promise<null>(() => {})) })
+      renderPage(createFakeApi(), focusApi)
+
+      expect(within(focusSection()).getByText(/読み込んでいます/)).toBeInTheDocument()
+      expect(within(focusSection()).queryByText(/いまは何も取り上げていません/)).not.toBeInTheDocument()
+    })
+
+    test('取り上げているものを読めなかったら、何も取り上げていないとは書かずに読めなかったと書く', async () => {
+      const focusApi = createFakeFocusApi({ load: vi.fn(async () => Promise.reject(new Error('ログインしてください'))) })
+      renderPage(createFakeApi(), focusApi)
+
+      expect(await within(focusSection()).findByText(/読めませんでした/)).toBeInTheDocument()
+      expect(within(focusSection()).queryByText(/いまは何も取り上げていません/)).not.toBeInTheDocument()
+    })
+
     test('行から取り上げた発言を、流れの上の欄に名前と本文で出す', async () => {
       const { receive } = renderPage()
       await receive({ type: 'item', item: regularViewerChat })
