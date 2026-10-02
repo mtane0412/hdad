@@ -5,9 +5,9 @@ paths:
   - "worker/tab-*.ts"
 ---
 
-# タブの映像（`/tab/`・素材の種類 `tab`・`extension/`）
+# タブの映像（コネクターの HDAD-tab・素材の種類 `tab`・`extension/`）
 
-タブの映像は、Chrome のタブ1枚の映像と音を配信画面へ出す素材（素材の種類 `tab`）である。**取り込みと送信は拡張（`extension/`）の offscreen document が受け持つ**（`extension/src/capture-session.ts`。`/tab/` は拡張を配って案内するだけで、開いておく必要はない）。映像と音は拡張から合成ページへ WebRTC で同じPCの中を直接流れ、Worker を通るのはつなぐための連絡（`src/tab/signal.ts`）だけである。→ `docs/decisions/tab.md`
+タブの映像は、Chrome のタブ1枚の映像と音を配信画面へ出す素材（素材の種類 `tab`）である。**取り込みと送信は拡張（`extension/`）の offscreen document が受け持つ**（`extension/src/capture-session.ts`。拡張はコネクターのページ（`/connectors/`）の HDAD-tab の区画（`src/tab/tab-section.tsx`）が配って案内するだけで、開いておく必要はない）。映像と音は拡張から合成ページへ WebRTC で同じPCの中を直接流れ、Worker を通るのはつなぐための連絡（`src/tab/signal.ts`）だけである。→ `docs/decisions/tab.md`
 
 **ボタン（ショートカット）の手順は `extension/src/controller.ts` だけが持つ**。押されたタブを映し、**映しているタブでもう一度押されたら止め**、別のタブなら切り替える。映しているタブは `chrome.storage.session` に覚える（サービスワーカーは眠ると変数を失う。権限 `storage` が要る。拡張の API は権限が無いと例外を投げずに undefined になるので、権限は `extension/src/manifest.test.ts` で確かめる）。**押下と offscreen document からの知らせは `createSerialQueue` で1つずつ順に処理する**（並ぶと、記録する前の押下や知らせが「映していない」と判断する）。IDは `getMediaStreamId({ targetTabId })` で取り込む側を指定せずに取り、同じ拡張の offscreen document で使う。**IDは数秒で使えなくなるので、受け取ったらすぐ取り込む**。取れない・取り込めない・中継先につながらないときは**黙らずにバッジ「!」と説明で知らせる**。
 
@@ -29,6 +29,6 @@ paths:
 
 **映す範囲（issue #166）は拡張で選び、送り手が持つ**（Worker にも URL にも置かない）。右クリック「映す範囲を選ぶ」（`handlePickAreaClick`）で映しているタブにだけ `extension/src/area-picker.ts` の `pickArea` を `chrome.scripting.executeScript` で差し込み（権限 `scripting`・`activeTab`）、決まった範囲は `chrome.runtime.sendMessage` で届く（`handleAreaPicked`。どのタブかは `sender.tab` から取る）。**`pickArea` は文字列にしてタブへ送られるので、関数の外の値を参照しない**（`area-picker.test.ts` が関数の文字列から動かして確かめる）。範囲は表示領域に対する割合で、形の検証は `src/tab/crop.ts` の `parseTabCrop` だけが持つ（サービスワーカーは同じファイルを読み込めないので、`parseAreaPicked` は4つの数であることだけを見る）。送り手（`src/tab/sender.ts`）は名乗った合成ページへ offer の前に `crop` を送り、変わったら全員へすぐ送る。**範囲は1つだけで、別のタブを映し始めたら外す**（`capture-session.ts`。送るのを止めて送り直すときは外さない）。合成ページは canvas に描き直さず、外枠（`.tab-clip`）の中で `<video>` を拡大してずらす（置き方は `layoutCrop`。範囲が全部見えるように収め、余白は透明）。
 
-**拡張は配信者がアプリ（`/tab/`）からダウンロードする**。`GET /api/admin/tab/extension.zip`（`worker/tab-extension.ts`）が、ビルド済みの拡張（`ASSETS` の `/tab-extension/`）に、リクエストの置き場所を書いた `config.json` を加え、manifest.json へその置き場所の `host_permissions` を書き足して zip にする。**`offscreen.html` は静的アセットにせず Worker が書く**（静的アセットは `.html` で終わるURLを拡張子なしへ 307 で転送するので ASSETS から読めない。中身は `extension/src/built-files.ts`）（置き場所をビルドに埋め込まない。公開先のアドレスはビルドの時点では分からないため）。ファイルが欠けていれば欠けた zip を返さずに失敗させる。拡張のビルド（`npm run build:extension`）は `predev`・`prebuild` で本体の前に走り、`public/tab-extension/` に出す。型チェックは `tsconfig.extension.json`（`npm run type-check` に含まれる）。
+**拡張は配信者がアプリ（`/connectors/` の HDAD-tab）からダウンロードする**。`GET /api/admin/tab/extension.zip`（`worker/tab-extension.ts`）が、ビルド済みの拡張（`ASSETS` の `/tab-extension/`）に、リクエストの置き場所を書いた `config.json` を加え、manifest.json へその置き場所の `host_permissions` を書き足して zip にする。**`offscreen.html` は静的アセットにせず Worker が書く**（静的アセットは `.html` で終わるURLを拡張子なしへ 307 で転送するので ASSETS から読めない。中身は `extension/src/built-files.ts`）（置き場所をビルドに埋め込まない。公開先のアドレスはビルドの時点では分からないため）。ファイルが欠けていれば欠けた zip を返さずに失敗させる。拡張のビルド（`npm run build:extension`）は `predev`・`prebuild` で本体の前に走り、`public/tab-extension/` に出す。型チェックは `tsconfig.extension.json`（`npm run type-check` に含まれる）。
 
 利用者向けの説明は `docs/guide/tab.md`。

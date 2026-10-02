@@ -1,12 +1,12 @@
 /**
- * 配信画面の取り込みのページ
+ * コネクターのページの Gyazo（配信画面の取り込み）の区画
  *
- * 画面の取り込みの設定を Worker（KVの screen-settings）に保存する画面である。取り込みそのものはOBSに載せる
- * 裏方のページ（overlay/backstage/）が行い、この画面で保存した設定を撮るたびに読み直す（issue #122）。
- * 読み上げのページ（src/speech/speech-page.tsx）と同じ形で、Workerの呼び出しは api.ts に分けてテストする。
+ * 画面の取り込みの設定を Worker（KVの screen-settings）に保存する。取り込みそのものはOBSに載せる
+ * 裏方のページ（overlay/backstage/）が行い、この区画で保存した設定を撮るたびに読み直す（issue #122）。
+ * VOICEVOX の区画（src/speech/speech-section.tsx）と同じ形で、Workerの呼び出しは api.ts に分けてテストする。
  *
- * OBSに貼るURLはここでは出さない。画面の取り込みは裏方のページの一部として動くので、URLは
- * 「裏方」のページ（/backstage/）が出す（そこで取り込みを動かすかどうかも選ぶ）。
+ * OBSに貼るURLはここでは出さない。取り込みを動かすかどうかとURLは、コネクターのページの「OBS用のURL」が受け持つ。
+ * 何をするか・入力欄の目安は、画面に並べずヘルプボタンの中で案内する。
  *
  * 注意: 値の範囲の検証は Worker だけが持つ（画面とWorkerで二重に持たない）。そのため入力欄の値は
  * そのまま送り、返ってきた問題点を並べて出す。空欄も 0 に丸めず、数として読めない値のまま送る。
@@ -20,7 +20,8 @@ import { errorMessage, usePageActions } from '@/admin/page-actions'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { LoadFailure } from '@/components/load-failure'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { HelpButton } from '@/components/help-button'
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
@@ -31,7 +32,7 @@ import type { ScreenAdminApi, ScreenSettings } from './api'
 /** OBS を動かせるホスト。ブラウザが混在コンテンツを許すループバックだけに限る（worker/screen-config.ts と同じ） */
 const HOST_OPTIONS = ['localhost', '127.0.0.1'] as const
 
-export interface ScreenPageProps {
+export interface ScreenSectionProps {
   /** 画面の取り込みの設定の読み書き */
   api: ScreenAdminApi
 }
@@ -89,7 +90,7 @@ const failureLines = (error: unknown): string[] =>
 /** つなぎ先（起動のときにしか使えない項目）を変えたか */
 const endpointOf = (form: ScreenForm): string => [form.host, form.port, form.password].join('\u0000')
 
-export const ScreenPage = ({ api }: ScreenPageProps) => {
+export const ScreenSection = ({ api }: ScreenSectionProps) => {
   /** 読み込み中は undefined、読めたら入力欄の値 */
   const [form, setForm] = useState<ScreenForm>()
   const [loadFailure, setLoadFailure] = useState('')
@@ -145,10 +146,16 @@ export const ScreenPage = ({ api }: ScreenPageProps) => {
 
       <Card>
         <CardHeader>
-          <CardTitle>画面の取り込みの設定</CardTitle>
-          <CardDescription>
-            同じPCのOBS（ツール &gt; WebSocketサーバー設定）につなぎ、いま映しているシーンを一定の間隔で1枚撮る。撮った画面に出ている文字は、あらすじとサイドスーパーの材料になる。
-          </CardDescription>
+          <CardTitle>Gyazo</CardTitle>
+          <CardAction>
+            <HelpButton topic="Gyazo">
+              <p>
+                同じPCのOBS（ツール &gt; WebSocketサーバー設定）につなぎ、いま映しているシーンを一定の間隔で1枚撮って Gyazo に上げます。撮った画面に出ている文字は、あらすじとサイドスーパーの材料になります。Worker 側に Gyazo のアクセストークンが要ります。
+              </p>
+              <p>OBSで認証を切っているなら、パスワードは空にします。撮る間隔は短くするほどOBSの負荷が上がるので、60秒から始めて様子を見ます。</p>
+              <p>コレクションのURLを貼ると、その末尾のIDを取り出して保存します。空にすると、どのコレクションにも入れずに上げます。</p>
+            </HelpButton>
+          </CardAction>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-2">
@@ -160,7 +167,6 @@ export const ScreenPage = ({ api }: ScreenPageProps) => {
                 </NativeSelectOption>
               ))}
             </NativeSelect>
-            <p className="text-sm text-muted-foreground">OBSと同じPCで開くので、ふつうは localhost のままでよい。</p>
           </div>
 
           <div className="flex flex-col gap-2">
@@ -174,7 +180,6 @@ export const ScreenPage = ({ api }: ScreenPageProps) => {
               value={form.port}
               onChange={(event) => change('port', event.currentTarget.value)}
             />
-            <p className="text-sm text-muted-foreground">既定は 4455。</p>
           </div>
 
           <div className="flex flex-col gap-2">
@@ -187,7 +192,6 @@ export const ScreenPage = ({ api }: ScreenPageProps) => {
               value={form.password}
               onChange={(event) => change('password', event.currentTarget.value)}
             />
-            <p className="text-sm text-muted-foreground">OBSで認証を切っているなら空にする。</p>
           </div>
 
           <div className="flex flex-col gap-2">
@@ -201,7 +205,6 @@ export const ScreenPage = ({ api }: ScreenPageProps) => {
               value={form.intervalSeconds}
               onChange={(event) => change('intervalSeconds', event.currentTarget.value)}
             />
-            <p className="text-sm text-muted-foreground">短くするほどOBSの負荷が上がる。60秒から始めて様子を見る。</p>
           </div>
 
           <div className="flex flex-col gap-2 sm:col-span-2">
@@ -213,9 +216,6 @@ export const ScreenPage = ({ api }: ScreenPageProps) => {
               value={form.collectionId}
               onChange={(event) => change('collectionId', event.currentTarget.value)}
             />
-            <p className="text-sm text-muted-foreground">
-              コレクションのURLを貼ると、その末尾のIDを取り出して保存する。空にすると、どのコレクションにも入れずに上げる。
-            </p>
           </div>
 
           {endpointChanged && (

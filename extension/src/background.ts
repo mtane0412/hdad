@@ -72,7 +72,7 @@ const loadConfig = async (): Promise<ExtensionConfig> => {
   try {
     value = await (await fetch(chrome.runtime.getURL(CONFIG_FILE))).json()
   } catch {
-    throw new Error(`拡張の設定（${CONFIG_FILE}）がありません。HDAD の「タブの映像」のページ（/tab/）から拡張をダウンロードし直してください`)
+    throw new Error(`拡張の設定（${CONFIG_FILE}）がありません。HDAD の「コネクター」のページ（/connectors/）から拡張をダウンロードし直してください`)
   }
   return parseExtensionConfig(value)
 }

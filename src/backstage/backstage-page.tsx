@@ -1,16 +1,17 @@
 /**
- * 裏方のページ
+ * コネクターのページ（/connectors/）
  *
- * 映すものを持たない裏方（チャットの読み上げ・文字起こしの中継・配信画面の取り込み）を1つのブラウザソースで動かすための、
- * OBSに貼るURLを出す（issue #108）。裏方そのものは overlay/backstage/index.html が行い、この画面は
- * その案内だけを受け持つ（文字起こしのページ・サイドスーパーのページと同じ形）。
+ * 外部のサービスとつなぐものをまとめたページ。映すものを持たない裏方（VOICEVOX による読み上げ・ゆかコネNEO の
+ * 文字起こしの中継・Gyazo への配信画面の取り込み・BGM）を1つのブラウザソースで動かすための、OBSに貼るURLを出し
+ * （issue #108）、その下に各サービスの設定の区画（VOICEVOX・Gyazo・HDAD-tab）を並べる。
+ * 裏方そのものは overlay/backstage/index.html が行う（OBSに貼ってあるURLを変えないよう、そちらの名前は裏方のまま）。
  *
  * どの裏方を動かすかは「このブラウザソースが何をするか」という構造の指定なので、Worker には保存せず
- * URLに載せる（合成ページの ?overlay=<名前> と同じ扱い）。読み上げの設定（話者・速度・音量など）は
- * 今までどおり Worker が持ち、/speech/ で変える。
+ * URLに載せる（合成ページの ?overlay=<名前> と同じ扱い）。読み上げと画面の取り込みの設定は Worker が持ち、
+ * それぞれの区画で変える。
  *
  * URLの組み立ては url.ts に分けてテストする。オーバーレイ用キーはアプリの枠から受け取り、
- * 再発行はトリガーのページ（/triggers/）が受け持つ。
+ * 再発行はトリガーのページ（/triggers/）が受け持つ。ブラウザソースの置き方はヘルプボタンの中で案内する。
  *
  * 注意: ポートが読めない値・裏方をひとつも選んでいないときはURLを出さず、理由を画面に出す（Fail-Fast）。
  */
@@ -18,11 +19,18 @@ import { Copy } from 'lucide-react'
 import { useId, useState } from 'react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { HelpButton } from '@/components/help-button'
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
+import type { BotApi } from '@/bot/api'
+import type { ScreenAdminApi } from '@/screen/api'
+import { ScreenSection } from '@/screen/screen-section'
+import type { SpeechApi } from '@/speech/api'
+import { SpeechSection } from '@/speech/speech-section'
+import { TabSection } from '@/tab/tab-section'
 import { DEFAULT_TRANSCRIPT_PORT } from '@/transcript/url'
 import { iconButtonName } from '@/core/icon-button'
 import { backstageUrl } from './url'
@@ -30,7 +38,28 @@ import { backstageUrl } from './url'
 /** ブラウザソースに設定する推奨の大きさ。配信画面には映さないので、状態を読める最小限でよい */
 const BACKSTAGE_SIZE = { width: 600, height: 600 }
 
-export const BackstagePage = ({ overlayKey }: { overlayKey: string | null }) => {
+export interface BackstagePageProps {
+  /** オーバーレイ用キー。OBSに貼るURLに入れる */
+  overlayKey: string | null
+  /** 読み上げの設定の読み書き（VOICEVOX の区画が使う） */
+  speechApi: SpeechApi
+  /** botの接続状態の読み出し（VOICEVOX の区画が、botを読み上げない人に追加するために使う） */
+  botApi: Pick<BotApi, 'status'>
+  /** 画面の取り込みの設定の読み書き（Gyazo の区画が使う） */
+  screenApi: ScreenAdminApi
+}
+
+export const BackstagePage = ({ overlayKey, speechApi, botApi, screenApi }: BackstagePageProps) => (
+  <div className="flex flex-col gap-6">
+    <BackstageUrlCard overlayKey={overlayKey} />
+    <SpeechSection api={speechApi} botApi={botApi} />
+    <ScreenSection api={screenApi} />
+    <TabSection />
+  </div>
+)
+
+/** 動かす裏方を選び、OBSのブラウザソースに貼るURLを出す */
+const BackstageUrlCard = ({ overlayKey }: { overlayKey: string | null }) => {
   const [speech, setSpeech] = useState(true)
   const [transcript, setTranscript] = useState(true)
   // 画面の取り込みは既定で外す。OBSのWebSocketサーバーと Gyazo のアクセストークンの両方が要るためである
@@ -45,20 +74,11 @@ export const BackstagePage = ({ overlayKey }: { overlayKey: string | null }) => 
   const screenFieldId = useId()
   const bgmFieldId = useId()
   const portFieldId = useId()
-  const sizeHintId = useId()
-
-  if (overlayKey === null) {
-    return (
-      <Alert variant="destructive">
-        <AlertTitle>OBS用のURLを表示できません</AlertTitle>
-        <AlertDescription>オーバーレイ用キーが発行されていません。ログアウトしてログインし直してください</AlertDescription>
-      </Alert>
-    )
-  }
 
   let url: string
   let urlFailure = ''
   try {
+    if (overlayKey === null) throw new Error('オーバーレイ用キーが発行されていません。ログアウトしてログインし直してください')
     url = backstageUrl(window.location.origin, overlayKey, { speech, transcript, screen, bgm, port: Number(port.trim()) })
   } catch (error) {
     url = ''
@@ -77,63 +97,60 @@ export const BackstagePage = ({ overlayKey }: { overlayKey: string | null }) => 
       <Card>
         <CardHeader>
           <CardTitle>OBS用のURL</CardTitle>
-          {/* 「表示をオフにしてよい」とは書かない。OBSの「非アクティブ時にソースをシャットダウン」が有効だと、
-              非表示にした時点でこのページが閉じられ、読み上げも取り込みも止まってしまう */}
-          <CardDescription>
-            配信画面に映すものを持たない裏方を、1つのブラウザソースでまとめて動かす。見えない位置に置いてよい。どちらも同じPCの
-            VOICEVOX ENGINE・ゆかコネNEO につなぐので、OBSと同じPCで開く必要がある。
-          </CardDescription>
+          <CardAction>
+            {/* 「表示をオフにしてよい」とは書かない。OBSの「非アクティブ時にソースをシャットダウン」が有効だと、
+                非表示にした時点でこのページが閉じられ、読み上げも取り込みも止まってしまう */}
+            <HelpButton topic="OBS用のURL">
+              <p>選んだものを1つのブラウザソースでまとめて動かします。同じPCの VOICEVOX・ゆかコネNEO・OBS につなぐので、OBSと同じPCで開きます。</p>
+              <p>
+                配信画面には映らないので、見えない位置に置いてかまいません。推奨の大きさは {BACKSTAGE_SIZE.width} × {BACKSTAGE_SIZE.height} px です。
+              </p>
+              <p>VOICEVOX か BGM を選んだときは、「OBSで音声を制御する」を有効にして音声を配信に乗せます。流すBGMと音量は BGM のページで変えます。</p>
+            </HelpButton>
+          </CardAction>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <div className="flex items-center gap-2">
             <Checkbox id={speechFieldId} checked={speech} onCheckedChange={(checked) => setSpeech(checked === true)} />
-            <Label htmlFor={speechFieldId}>チャットの読み上げ</Label>
+            <Label htmlFor={speechFieldId}>VOICEVOX</Label>
           </div>
-          <p className="text-sm text-muted-foreground">話者・速度・音量などの設定は「読み上げ」のページで変える。</p>
 
           <div className="flex items-center gap-2">
             <Checkbox id={transcriptFieldId} checked={transcript} onCheckedChange={(checked) => setTranscript(checked === true)} />
-            <Label htmlFor={transcriptFieldId}>文字起こしの中継</Label>
+            <Label htmlFor={transcriptFieldId}>ゆかコネNEO</Label>
           </div>
 
           {/* ポートはゆかコネNEO へのつなぎ先なので、中継を動かすときだけ出す（使われない入力欄を残さない） */}
           {transcript && (
-            <>
+            <div className="flex flex-col gap-2 pl-6">
               <Label htmlFor={portFieldId}>ゆかコネNEO のポート番号</Label>
               <Input
                 id={portFieldId}
                 inputMode="numeric"
+                placeholder={String(DEFAULT_TRANSCRIPT_PORT)}
                 value={port}
                 onChange={(event) => setPort(event.target.value)}
                 className="max-w-40"
               />
-              <p className="text-sm text-muted-foreground">既定は {DEFAULT_TRANSCRIPT_PORT}。</p>
-            </>
+            </div>
           )}
 
           <div className="flex items-center gap-2">
             <Checkbox id={screenFieldId} checked={screen} onCheckedChange={(checked) => setScreen(checked === true)} />
-            <Label htmlFor={screenFieldId}>配信画面の取り込み</Label>
+            <Label htmlFor={screenFieldId}>Gyazo</Label>
           </div>
-          <p className="text-sm text-muted-foreground">
-            OBSのつなぎ先と撮る間隔は「画面の取り込み」のページで変える。Worker 側に Gyazo のアクセストークンが要る。
-          </p>
 
           <div className="flex items-center gap-2">
             <Checkbox id={bgmFieldId} checked={bgm} onCheckedChange={(checked) => setBgm(checked === true)} />
             <Label htmlFor={bgmFieldId}>BGM</Label>
           </div>
-          <p className="text-sm text-muted-foreground">流す曲と音量は「BGM」のページで変える。OBSでこのブラウザソースの音声を配信に乗せる。</p>
 
           {urlFailure === '' ? (
             <>
               <Label htmlFor={urlFieldId}>OBSのブラウザソースに貼るURL</Label>
-              <p id={sizeHintId} className="text-sm text-muted-foreground">
-                推奨の大きさ: {BACKSTAGE_SIZE.width} × {BACKSTAGE_SIZE.height} px
-              </p>
               <div className="flex gap-2">
                 {/* URLにはオーバーレイ用キーが含まれる。配信画面に映り込んでも読めないよう、伏せ字で表示する */}
-                <Input id={urlFieldId} type="password" readOnly autoComplete="off" value={url} aria-describedby={sizeHintId} />
+                <Input id={urlFieldId} type="password" readOnly autoComplete="off" value={url} />
                 <Button type="button" size="icon" {...iconButtonName('URLをコピー')} disabled={actions.busy} onClick={() => void actions.run(copyUrl)}>
                   <Copy aria-hidden="true" />
                 </Button>

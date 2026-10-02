@@ -1,7 +1,7 @@
 /**
  * 拡張に同梱する設定（config.json）の読み取り
  *
- * 配信者がアプリ（/tab/）から拡張をダウンロードすると、Worker（worker/tab-extension.ts）がそのときの HDAD の置き場所
+ * 配信者がアプリ（/connectors/ の HDAD-tab）から拡張をダウンロードすると、Worker（worker/tab-extension.ts）がそのときの HDAD の置き場所
  * （オリジン）を書いた config.json を拡張に入れて返す。拡張は、ここに書かれた置き場所の中継先へ配信者のセッションでつなぐ。
  *
  * 置き場所をビルドのときに渡さないのは、公開先（workers.dev）のアドレスがアカウントごとに違い、ビルドの時点では
@@ -37,7 +37,7 @@ const isOrigin = (value: unknown): value is string => {
  */
 export const parseExtensionConfig = (value: unknown): ExtensionConfig => {
   if (!isRecord(value) || !isOrigin(value.origin)) {
-    throw new Error(`拡張の設定（${CONFIG_FILE}）を読み取れません。HDAD の「タブの映像」のページ（/tab/）から拡張をダウンロードし直してください`)
+    throw new Error(`拡張の設定（${CONFIG_FILE}）を読み取れません。HDAD の「コネクター」のページ（/connectors/）から拡張をダウンロードし直してください`)
   }
   return { origin: value.origin }
 }
