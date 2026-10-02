@@ -49,7 +49,7 @@ import {
   saveScreenLines,
   saveScreenOcr,
 } from './screen-store'
-import { extractNewScreenLines } from './screen-ocr'
+import { createScreenSieve, type ScreenSieve } from './screen-ocr'
 import { GyazoApiError, type GyazoClient } from './gyazo'
 import { deleteOldTranscripts, readRecentTranscripts, readTranscriptsSince } from './transcript-store'
 import { ViewerSummaryContentError, generateViewerSummary } from './viewer-summary'
@@ -398,11 +398,15 @@ const makeSideSuper = async (db: Database, ai: TextGenerator, stream: LiveStream
   const transcripts = await readRecentTranscripts(db, stream.id, SIDE_SUPER_TRANSCRIPT_LIMIT)
   const chats = await readRecentSessionChat(db, stream.id, SIDE_SUPER_CHAT_LIMIT)
   const screen = await readCurrentScreenLines(db, stream.id, SIDE_SUPER_SCREEN_LIMIT)
-  // 前回より後に届いた材料があるかを、材料そのものの時刻で見る（どれも同じ形の ISO 8601 なので文字列で比べられる）
+  // 前回作ったあとに届いた材料があるかを、材料そのものの時刻で見る（どれも同じ形の ISO 8601 なので文字列で比べられる）。
+  // 画面の文字だけは「以降」（同じ時刻を含む）で見る。篩がサイドスーパーより後に走り、前回と同じ収集の時刻（now）で
+  // 行を積むので、「より後」にすると、前回の材料に入っていない行が新しいと見なされない。発話と発言は別のリクエストが
+  // 記録するので「より後」で見る（同じ時刻のものは前回の材料に入っており、含めると無駄にLLMを呼ぶ）
   const hasNewMaterial =
     previous === null
       ? transcripts.length > 0 || chats.length > 0 || screen.length > 0
-      : [...transcripts, ...chats, ...screen].some((line) => line.at > previous.updatedAt)
+      : [...transcripts, ...chats].some((line) => line.at > previous.updatedAt) ||
+        screen.some((line) => line.at >= previous.updatedAt)
   if (!hasNewMaterial) return
 
   let lines
@@ -631,32 +635,28 @@ const SEEN_LINE_LIMIT = 300
  *
  * 篩そのものは worker/screen-ocr.ts が持ち、ここは材料（自前の文字・既に渡した行）を読んで渡すだけである。
  *
- * 注意: 材料は配信の区切りごとに一度だけ読む。1枚ごとに読み直すとD1の読み出しが枚数ぶん増える。
- * ただし既出の行は篩を通すたびに増えるので、残った行をその場で追加する（そうしないと、同じ収集で処理する
- * 2枚目以降が1枚目と同じ行を積んでしまう）。
+ * 注意: 篩は配信の区切りごとに一度だけ作り、同じ収集の何枚もを同じ篩に通す。1枚ごとに材料を読み直すと
+ * D1の読み出しが枚数ぶん増え、篩を作り直すと材料の前処理が枚数ぶん積み上がる（Workers の Free プランでは
+ * CPU 時間が1回10msしかなく、配信の終盤にこれを超えて cron ごと止まっていた）。篩は残した行をその場で
+ * 既出に加えるので、同じ収集で処理する2枚目以降が1枚目と同じ行を積むこともない。
  * 注意: 残った行が0行でも、その1枚は通し終えたことにする（saveScreenLines が sifted_at を入れる）。
  * 同じ画面を撮り続けるあいだ0行になるのが普通で、通し直す意味がない。
  */
 const siftScreenOcr = async (db: Database, now: number): Promise<void> => {
   const pending = await listPendingSift(db, SCREEN_SIFT_BATCH_SIZE)
-  const ownText = new Map<string, string[]>()
-  const seenLines = new Map<string, string[]>()
+  const sieves = new Map<string, ScreenSieve>()
 
   for (const capture of pending) {
-    let own = ownText.get(capture.sessionId)
-    if (!own) {
-      own = await readOwnScreenTexts(db, capture.sessionId, OWN_TEXT_LIMIT)
-      ownText.set(capture.sessionId, own)
-    }
-    let seen = seenLines.get(capture.sessionId)
-    if (!seen) {
-      seen = await readRecentScreenLines(db, capture.sessionId, SEEN_LINE_LIMIT)
-      seenLines.set(capture.sessionId, seen)
+    let sieve = sieves.get(capture.sessionId)
+    if (!sieve) {
+      const own = await readOwnScreenTexts(db, capture.sessionId, OWN_TEXT_LIMIT)
+      const seen = await readRecentScreenLines(db, capture.sessionId, SEEN_LINE_LIMIT)
+      sieve = createScreenSieve(own, seen)
+      sieves.set(capture.sessionId, sieve)
     }
 
-    const lines = extractNewScreenLines(capture.ocrText, own, seen)
+    const lines = sieve.extract(capture.ocrText)
     await saveScreenLines(db, capture, lines, now)
-    seen.push(...lines)
   }
 }
 
@@ -705,15 +705,6 @@ const collect = async ({ db, store, twitch, ai, jev, alerts, gyazo, broadcasterI
   await deleteOldScreenCaptures(db, now - SCREEN_CAPTURE_RETENTION_MS)
   await deleteOldScreenLines(db, now - SCREEN_CAPTURE_RETENTION_MS)
 
-  // 画面から読み取った文字は、あらすじとサイドスーパーの材料になるので、それらを作る前に取りに行き、篩にかける。
-  // 篩は Gyazo を呼ばないので、トークンが無くても（前の収集で取れているぶんを）通す
-  if (gyazo) {
-    const keptCount = await fetchScreenOcr(db, gyazo, now, budgetExhausted)
-    if (keptCount > 0) deferredToNextCollect.push(`画面の文字の取得（残り${keptCount}枚）`)
-  }
-  // 篩は外へ出ないので、予算を過ぎていても通す（通さないと、取れた文字が篩の前で溜まっていくだけになる）
-  await siftScreenOcr(db, now)
-
   // あらすじづくりと人物像づくりは、配信の記録を残したあとに行う（LLMが使えなくても記録は残す）。
   // あらすじを先にするのは、配信中の視聴者がコマンドで読むものであり、待たせる相手がいるためである
   // （人物像は終わった配信のぶんを作るので、1回遅れても誰も困らない）。無料枠は両者で分け合う。
@@ -724,6 +715,19 @@ const collect = async ({ db, store, twitch, ai, jev, alerts, gyazo, broadcasterI
     if (typeof summary === 'string') await withinBudget('BGMの切り替え', () => chooseBgmForStream({ db, store, jev, alerts }, stream.id, summary, now))
     await withinBudget('サイドスーパー', () => makeSideSuper(db, ai, stream, now))
   }
+
+  // 画面から読み取った文字は、あらすじとサイドスーパーより後に取りに行き、篩にかける（積んだ行は次の収集で材料になる）。
+  // 先に行っていたころは、篩が Workers の CPU 時間の上限（Free プランで1回10ms）を超えると cron ごと強制終了され、
+  // 配信の終盤にあらすじもサイドスーパーも止まった。強制終了は例外として捕まえられず、collection_failures にも残らない。
+  // 章立てより前に行うのは、章が画面の文字を積んだ時刻で区間に振り分けるためである。
+  // 篩は Gyazo を呼ばないので、トークンが無くても（前の収集で取れているぶんを）通す
+  if (gyazo) {
+    const keptCount = await fetchScreenOcr(db, gyazo, now, budgetExhausted)
+    if (keptCount > 0) deferredToNextCollect.push(`画面の文字の取得（残り${keptCount}枚）`)
+  }
+  // 篩は外へ出ないので、予算を過ぎていても通す（通さないと、取れた文字が篩の前で溜まっていくだけになる）
+  await siftScreenOcr(db, now)
+
   // 章立ては人物像より先に行う。人物像を作ると発言の材料が消えるので、配信が終わった回の最後の章から
   // 視聴者の反応が抜けないようにするためである（人物像は、章にし終えた配信の発言だけを材料にする）
   await withinBudget('章立て', () => makeStreamChapter(db, ai, now))
