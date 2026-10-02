@@ -49,6 +49,7 @@ const botApi = { status: () => Promise.resolve(null) }
 /** 音声認識はこのページでは動かさない（オフのまま。動かし方は recognition-context.test.tsx で確かめる） */
 const recognitionDeps: RecognitionDeps = {
   api: { send: () => Promise.resolve(true) },
+  translation: { translate: () => Promise.resolve(null) },
   createRecognition: null,
   openMicrophone: () => Promise.reject(new Error('このテストではマイクを開きません')),
   locks: { request: () => Promise.reject(new Error('このテストでは鍵を取りません')) },

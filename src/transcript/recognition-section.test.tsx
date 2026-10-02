@@ -18,6 +18,7 @@ const baseValue = (overrides: Partial<RecognitionContextValue> = {}): Recognitio
   recognizer: { status: { kind: 'stopped' }, interim: '', restarts: 0, interruptedMs: 0 },
   lines: [],
   captionWarning: null,
+  translationWarning: null,
   ...overrides,
 })
 
@@ -78,6 +79,21 @@ describe('RecognitionSectionView', () => {
     )
 
     expect(screen.getByText('字幕の中継先につながりません。ログインが切れていないか確かめてください')).toBeTruthy()
+  })
+
+  it('字幕の翻訳に失敗していれば、その理由を出す', () => {
+    render(
+      <RecognitionSectionView
+        value={baseValue({
+          enabled: true,
+          phase: 'running',
+          recognizer: { status: { kind: 'listening' }, interim: '', restarts: 0, interruptedMs: 0 },
+          translationWarning: '字幕の翻訳に失敗しました: DeepL が失敗を返しました（456）',
+        })}
+      />,
+    )
+
+    expect(screen.getByText('字幕の翻訳に失敗しました: DeepL が失敗を返しました（456）')).toBeTruthy()
   })
 
   it('送った発話を、記録できたかどうかと一緒に新しいものから並べる', () => {

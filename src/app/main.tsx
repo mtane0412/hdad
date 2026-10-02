@@ -19,6 +19,7 @@ import { createStatsApi } from '@/stats/api'
 import { createViewerApi } from '@/viewers/api'
 import { createAppTranscriptApi } from '@/transcript/api'
 import { browserRecognitionDeps } from '@/transcript/recognition-context'
+import { createTranslationApi } from '@/transcript/translation-api'
 import { App } from './app'
 import './app.css'
 
@@ -39,7 +40,7 @@ const drawApi = createDrawApi(callWorker)
 const llmApi = createLlmApi(callWorker)
 const overlayApi = createOverlayLayoutAdminApi(callWorker)
 const bgmApi = createBgmApi(callWorker)
-const recognitionDeps = browserRecognitionDeps(createAppTranscriptApi(callWorker))
+const recognitionDeps = browserRecognitionDeps(createAppTranscriptApi(callWorker), createTranslationApi(callWorker))
 
 createRoot(root).render(
   <StrictMode>

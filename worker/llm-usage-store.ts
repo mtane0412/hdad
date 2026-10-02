@@ -3,8 +3,9 @@
  *
  * LLMを呼んだ回数・トークン数・実費を「日 × 箇所 × 提供元 × モデル」の1行へ足し込み（llm_usage）、
  * 管理画面（/llm/）のために読み出す。記録するのは worker/llm.ts で、そこがLLMへの唯一の入口なので
- * 4か所（aiChat・sideSuper・viewerSummary・streamSummary）すべてを取りこぼさずに数えられる。
+ * 5か所（translation・aiChat・sideSuper・viewerSummary・streamSummary）すべてを取りこぼさずに数えられる。
  * 判定用のモデル Jev の呼び出し（worker/jev.ts）も、使う箇所（JEV_USAGES）ごとに同じ表へ足し込む。
+ * 字幕の翻訳（worker/translation.ts）も、LLM を通さない提供元（Workers AI の m2m100・DeepL）のぶんを箇所 translation として足し込む。
  *
  * 注意: 1回の呼び出しで1行を追加しない。チャットの文面（aiChat）は視聴者の発言ごとに呼ばれるため、
  * 1呼び出し1行にすると行が際限なく増える（viewers が「発言ではなく人を貯める」のと同じ考え方）。
@@ -21,11 +22,17 @@ import type { LlmProvider, LlmUsage } from './llm-config'
 /** 記録を残す期間（日）。1回の配信を振り返るだけでなく、月ごとの増減も読める長さにする */
 const RETENTION_DAYS = 90
 
-/** LLMを1回呼んだ結果。llm.ts と jev.ts が呼び出しのたびに渡す */
+/**
+ * 使用状況に記録する提供元。LLM の提供元に、字幕の翻訳だけが使う DeepL を加えたもの
+ * （DeepL は LLM ではないので LLM_PROVIDERS には載せない）
+ */
+export type UsageProvider = LlmProvider | 'deepl'
+
+/** LLMを1回呼んだ結果。llm.ts・jev.ts・translation.ts が呼び出しのたびに渡す */
 export interface LlmCallRecord {
   /** 使った箇所（LLM の箇所か Jev の箇所） */
   readonly usage: LlmUsage | JevUsage
-  readonly provider: LlmProvider
+  readonly provider: UsageProvider
   readonly model: string
   /** 提供元が応答に入れてきたトークン数。返してこなければ 0 */
   readonly promptTokens: number

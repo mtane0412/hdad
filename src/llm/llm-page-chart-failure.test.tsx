@@ -29,6 +29,7 @@ const api: LlmApi = {
     Promise.resolve({
       settings: {
         usages: {
+          translation: { provider: 'workers-ai', models: { ...lightModel } },
           aiChat: { provider: 'workers-ai', models: { ...lightModel } },
           sideSuper: { provider: 'workers-ai', models: { ...lightModel } },
           viewerSummary: { provider: 'workers-ai', models: { ...lightModel } },
@@ -41,6 +42,9 @@ const api: LlmApi = {
   listModels: () => Promise.resolve([{ id: lightModel['workers-ai'], name: 'Llama 3.1 8B Instruct（fp8）' }]),
   loadUsage: () => Promise.resolve([]),
   loadCredits: () => Promise.reject(new Error('呼ばれない')),
+  loadTranslation: () => Promise.resolve({ provider: 'off', deeplKeyConfigured: false }),
+  saveTranslation: (provider) => Promise.resolve(provider),
+  loadDeeplUsage: () => Promise.reject(new Error('呼ばれない')),
 }
 
 describe('グラフの読み込みに失敗したとき', () => {

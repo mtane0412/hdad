@@ -651,6 +651,7 @@ describe('LLMの設定（/api/admin/llm）', () => {
   /** 配信者が画面で組み立てた設定。あらすじだけ OpenRouter に切り替えている */
   const broadcasterConfig = {
     usages: {
+      translation: { provider: 'workers-ai', models: { 'workers-ai': '@cf/meta/llama-3.1-8b-instruct-fp8', openrouter: 'meta-llama/llama-3.1-8b-instruct' } },
       aiChat: { provider: 'workers-ai', models: { 'workers-ai': '@cf/meta/llama-3.1-8b-instruct-fp8', openrouter: 'meta-llama/llama-3.1-8b-instruct' } },
       sideSuper: { provider: 'workers-ai', models: { 'workers-ai': '@cf/meta/llama-3.1-8b-instruct-fp8', openrouter: 'meta-llama/llama-3.1-8b-instruct' } },
       viewerSummary: {
@@ -698,7 +699,7 @@ describe('LLMの設定（/api/admin/llm）', () => {
 
     expect(response.status).toBe(200)
     const body = (await response.json()) as { usages: Record<string, { provider: string }> }
-    expect(Object.values(body.usages).map(({ provider }) => provider)).toEqual(['workers-ai', 'workers-ai', 'workers-ai', 'workers-ai'])
+    expect(Object.values(body.usages).map(({ provider }) => provider)).toEqual(['workers-ai', 'workers-ai', 'workers-ai', 'workers-ai', 'workers-ai'])
   })
 
   it('OpenRouter のAPIキーが設定されているかを添えて返す（鍵そのものは返さない）', async () => {

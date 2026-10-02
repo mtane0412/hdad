@@ -26,6 +26,13 @@ EVENTSUB_SECRET=
 # 本番では `npx wrangler secret put OPENROUTER_API_KEY` で設定してください。
 # OPENROUTER_API_KEY=
 
+# DeepL API Free のAPIキー（任意）。
+# 字幕の翻訳の提供元を、管理画面（/llm/ の「字幕の翻訳」）で DeepL にするときだけ必要です。既定は「訳さない」です。
+# 意図的にコメントアウトしてあります（Deploy to Cloudflare ボタンの入力欄に必須の項目として出さないため）。
+# 使うときは https://www.deepl.com/your-account/keys で発行し（Free の鍵は末尾が :fx）、この行の # を外してローカルの .dev.vars に書くか、
+# 本番では `npx wrangler secret put DEEPL_API_KEY` で設定してください。
+# DEEPL_API_KEY=
+
 # Gyazo のアクセストークン（任意）。
 # 配信画面の取り込み（裏方のページの「配信画面の取り込み」）を使うときだけ必要です。撮った画面を Gyazo へ
 # 上げ、そこで作られるOCRのテキストを、あらすじとサイドスーパーの材料にします。使わないなら不要です。

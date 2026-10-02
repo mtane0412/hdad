@@ -3,7 +3,7 @@
  * LLMのページのテスト
  *
  * 確かめること:
- * - AIを使う4か所ぶんの設定を読み込んで、表の1行ずつで提供元とモデルを選べること（モデルは入力ではなく選択）
+ * - AIを使う5か所ぶんの設定を読み込んで、表の1行ずつで提供元とモデルを選べること（モデルは入力ではなく選択）
  * - 箇所の説明は画面に並べず、ヘルプボタンを押したときだけ出すこと
  * - モデルの候補は提供元ごとにWorkerから読むこと。切り替えたら、その提供元の候補に入れ替わること
  * - 候補を読めなかったときは、黙って空の選択欄を出さず理由を出すこと
@@ -16,6 +16,7 @@
  * - 使用状況（今日・直近7日の呼び出し回数と失敗の回数）を、全体の合計と箇所の表の行ごとに出すこと
  * - 日ごとの呼び出し回数をグラフで出すこと
  * - 鍵が設定されているときだけ OpenRouter の残高を読み、出すこと
+ * - 字幕の翻訳の提供元を選ぶ区画を、箇所の表の前に出すこと（区画そのものは translation-card.test.tsx で確かめる）
  * - 使用状況や残高を読めなくても設定の画面は出し、理由だけを添えること（モニターのために設定が触れなくならないようにする）
  */
 import '@testing-library/jest-dom/vitest'
@@ -65,6 +66,7 @@ const largeModel = { 'workers-ai': '@cf/meta/llama-3.3-70b-instruct-fp8-fast', o
 /** 前提: Workerに保存されている、既定のままの設定（どこも Workers AI） */
 const savedSettings: LlmSettings = {
   usages: {
+    translation: { provider: 'workers-ai', models: { ...lightModel } },
     aiChat: { provider: 'workers-ai', models: { ...lightModel } },
     sideSuper: { provider: 'workers-ai', models: { ...lightModel } },
     viewerSummary: { provider: 'workers-ai', models: { ...lightModel } },
@@ -132,6 +134,9 @@ const llmApi = (state: pagePrerequisites = {}): LlmApi & { saved: LlmSettings[];
       if (state.creditsFailure) return Promise.reject(state.creditsFailure)
       return Promise.resolve(state.credits ?? { totalCredits: 0, totalUsage: 0, remaining: 0 })
     },
+    loadTranslation: () => Promise.resolve({ provider: 'llm', deeplKeyConfigured: false }),
+    saveTranslation: (provider) => Promise.resolve(provider),
+    loadDeeplUsage: () => Promise.reject(new Error('このテストでは DeepL の使用量を読みません')),
   }
 }
 
@@ -161,11 +166,11 @@ const usageRowOf = (name: string) => within(screen.getByRole('table', { name: 'A
 const save = async () => userEvent.click(screen.getByRole('button', { name: '設定を保存' }))
 
 describe('LlmPage', () => {
-  test('AIを使う4か所ぶんの提供元とモデルを、表の1行ずつに選択欄として出す', async () => {
+  test('AIを使う5か所ぶんの提供元とモデルを、表の1行ずつに選択欄として出す', async () => {
     renderPage()
     await waitForLoad()
 
-    for (const optionName of ['チャットの文面', 'サイドスーパー', '視聴者の人物像', '配信のあらすじ']) {
+    for (const optionName of ['字幕の翻訳（LLM）', 'チャットの文面', 'サイドスーパー', '視聴者の人物像', '配信のあらすじ']) {
       expect(within(usageRowOf(optionName)).getByLabelText(`${optionName}の提供元`)).toBeInTheDocument()
     }
 
@@ -338,6 +343,9 @@ describe('LlmPage', () => {
       listModels: () => Promise.resolve(candidates['workers-ai']),
       loadUsage: () => Promise.resolve([]),
       loadCredits: () => Promise.reject(new Error('呼ばれない')),
+      loadTranslation: () => Promise.resolve({ provider: 'off', deeplKeyConfigured: false }),
+      saveTranslation: () => Promise.reject(new Error('呼ばれない')),
+      loadDeeplUsage: () => Promise.reject(new Error('呼ばれない')),
     })
 
     expect(await screen.findByText('通信できませんでした')).toBeInTheDocument()
@@ -424,5 +432,11 @@ describe('使用状況', () => {
 
     await waitFor(() => expect(screen.getByText(/残高を取れませんでした/)).toBeInTheDocument())
     expect(screen.getByRole('group', { name: '今日' })).toHaveTextContent('0回')
+  })
+
+  test('字幕の翻訳の提供元を選ぶ区画を出す', async () => {
+    renderPage()
+
+    expect(await screen.findByLabelText('字幕の翻訳の提供元')).toHaveValue('llm')
   })
 })

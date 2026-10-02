@@ -6,7 +6,8 @@
  *
  * 見た目の既定は配信者に選ばせず、ここで決め切る（docs/principles.md の方針1。経緯は docs/decisions/caption.md）。
  * - 映すのは新しいものから CAPTION_LINES 行まで。話している途中の文がいちばん下に来る
- * - 確定した行は、確定してから FINAL_LIFETIME_MS で消す
+ * - 確定した行は、確定してから FINAL_LIFETIME_MS で消す。訳文（issue #191）が届いたら同じIDの行の下に添え、
+ *   訳文が届いてから数え直す（訳は原文より遅れて届くので、訳を読む時間を取る）。添える先の行がもう無い訳文は捨てる
  * - 話している途中の文は、書き換わらないまま INTERIM_LIFETIME_MS が経ったら消す。認識していたタブが閉じられると
  *   「途中の文が無くなった」知らせが届かないので、話しかけの文が配信画面に残り続けないようにする
  */
@@ -33,10 +34,16 @@ interface TimedLine {
   readonly at: number
 }
 
+/** 確定した1行。訳文が届いたら添える */
+interface FinalLine extends TimedLine {
+  readonly id: string
+  readonly translation: string | null
+}
+
 /** 届いた字幕の積み上げ */
 export interface CaptionState {
   /** 確定した行（古いものから。上限を超えたら古いものから捨てる） */
-  readonly finals: readonly TimedLine[]
+  readonly finals: readonly FinalLine[]
   /** 話している途中の文（無ければ null） */
   readonly interim: TimedLine | null
 }
@@ -46,6 +53,8 @@ export interface CaptionLine {
   readonly text: string
   /** 確定した行なら true、話している途中の文なら false */
   readonly final: boolean
+  /** 原文の下に添える訳文。まだ届いていない・訳さない・話している途中の文なら null */
+  readonly translation: string | null
 }
 
 /** まだ何も届いていない */
@@ -60,14 +69,23 @@ export const applyCaptionMessage = (state: CaptionState, message: CaptionMessage
   if (message.type === 'interim') {
     return { ...state, interim: message.text === '' ? null : { text: message.text, at: now } }
   }
+  if (message.type === 'translation') {
+    // 添える先がもう消えていれば捨てる。消えた行を訳文で呼び戻すと、話の流れから遅れた字幕が現れて紛らわしい
+    const index = state.finals.findIndex((line) => line.id === message.id && now - line.at < FINAL_LIFETIME_MS)
+    if (index === -1) return state
+    return { ...state, finals: state.finals.map((line, at) => (at === index ? { ...line, translation: message.text, at: now } : line)) }
+  }
   // 確定した文は、それまで話していた途中の文の続きなので、途中の文と入れ替える。
   // 映すのは CAPTION_LINES 行までなので、それより古い確定の行は持っておかない
-  return { finals: [...state.finals, { text: message.text, at: now }].slice(-CAPTION_LINES), interim: null }
+  const line: FinalLine = { id: message.id, text: message.text, at: now, translation: null }
+  return { finals: [...state.finals, line].slice(-CAPTION_LINES), interim: null }
 }
 
 /** いま映す行（上から下へ。新しいものが下） */
 export const visibleCaptions = (state: CaptionState, now: number): CaptionLine[] => {
-  const finals = state.finals.filter((line) => now - line.at < FINAL_LIFETIME_MS).map((line) => ({ text: line.text, final: true }))
-  const interim = state.interim !== null && now - state.interim.at < INTERIM_LIFETIME_MS ? [{ text: state.interim.text, final: false }] : []
+  const finals = state.finals
+    .filter((line) => now - line.at < FINAL_LIFETIME_MS)
+    .map((line) => ({ text: line.text, final: true, translation: line.translation }))
+  const interim = state.interim !== null && now - state.interim.at < INTERIM_LIFETIME_MS ? [{ text: state.interim.text, final: false, translation: null }] : []
   return [...finals, ...interim].slice(-CAPTION_LINES)
 }

@@ -4,7 +4,8 @@
  * 実際の通信はせず、fetch を差し替える（speech/api.test.ts と同じ形）。
  * 確かめること:
  * - 管理用の経路（/api/admin/llm）を読み書きすること
- * - AIを使う4か所ぶんの設定を、そのまま受け取れること
+ * - AIを使う5か所ぶんの設定を、そのまま受け取れること
+ * - 字幕の翻訳の提供元の設定（/api/admin/translation）と DeepL の使用量を読み書きできること
  * - 提供元ごとに選べるモデルの一覧を読めること（画面の選択欄に出す候補）
  * - 応答が想定した形でなければエラーにすること（黙って既定の提供元に倒さない）
  */
@@ -18,6 +19,7 @@ const lightModel = { 'workers-ai': '@cf/meta/llama-3.1-8b-instruct-fp8', openrou
 /** Workerが返す、保存済みの設定。あらすじだけ OpenRouter に切り替えている */
 const savedSettings: LlmSettings = {
   usages: {
+    translation: { provider: 'workers-ai', models: { ...lightModel } },
     aiChat: { provider: 'workers-ai', models: { ...lightModel } },
     sideSuper: { provider: 'workers-ai', models: { ...lightModel } },
     viewerSummary: { provider: 'workers-ai', models: { ...lightModel } },
@@ -190,5 +192,34 @@ describe('createLlmApi.loadCredits', () => {
     })
 
     await expect(createLlmApi(fetchImpl).loadCredits()).rejects.toThrow(ApiError)
+  })
+})
+
+describe('字幕の翻訳の設定', () => {
+  it('提供元と、DeepL の鍵が設定されているかを読む', async () => {
+    const { calls, fetchImpl } = fetchReturning(200, { provider: 'deepl', deeplKeyConfigured: true })
+
+    expect(await createLlmApi(fetchImpl).loadTranslation()).toEqual({ provider: 'deepl', deeplKeyConfigured: true })
+    expect(calls[0]?.path).toBe('/api/admin/translation')
+  })
+
+  it('知らない提供元が返ってきたらエラーにする（黙って「訳さない」に倒さない）', async () => {
+    const { fetchImpl } = fetchReturning(200, { provider: 'google', deeplKeyConfigured: false })
+
+    await expect(createLlmApi(fetchImpl).loadTranslation()).rejects.toThrow('/api/admin/translation')
+  })
+
+  it('選んだ提供元を保存する', async () => {
+    const { calls, fetchImpl } = fetchReturning(200, { provider: 'm2m100' })
+
+    expect(await createLlmApi(fetchImpl).saveTranslation('m2m100')).toBe('m2m100')
+    expect(calls[0]).toMatchObject({ path: '/api/admin/translation', method: 'PUT', body: JSON.stringify({ provider: 'm2m100' }) })
+  })
+
+  it('DeepL の今月の使用量を読む', async () => {
+    const { calls, fetchImpl } = fetchReturning(200, { characterCount: 1200, characterLimit: 500000 })
+
+    expect(await createLlmApi(fetchImpl).loadDeeplUsage()).toEqual({ characterCount: 1200, characterLimit: 500000 })
+    expect(calls[0]?.path).toBe('/api/admin/translation/deepl-usage')
   })
 })

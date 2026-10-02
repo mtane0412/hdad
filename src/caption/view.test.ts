@@ -4,6 +4,7 @@
  *
  * 合成ページは毎フレーム映す行を渡すので、次の3点を確かめる。
  * - 映す行を上から順に、確定したかどうかの印を付けて出すこと
+ * - 訳文があれば、原文のすぐ下に出すこと
  * - 映す行が無ければ何も映さないこと（OBSでは透過の枠だけが残る）
  * - 同じ行を渡し直されたときにDOMを作り直さないこと（毎フレーム作り直すと重い）
  */
@@ -21,8 +22,8 @@ beforeEach(() => {
 describe('createCaptionView', () => {
   it('映す行を上から順に、確定したかどうかの印を付けて出す', () => {
     createCaptionView(root).render([
-      { text: 'こんばんは', final: true },
-      { text: '今日はゲームを', final: false },
+      { text: 'こんばんは', final: true, translation: null },
+      { text: '今日はゲームを', final: false, translation: null },
     ])
 
     const lines = [...root.querySelectorAll<HTMLElement>('.caption-line')]
@@ -30,9 +31,30 @@ describe('createCaptionView', () => {
     expect(lines.map((line) => line.dataset.final)).toEqual(['true', 'false'])
   })
 
+  it('訳文があれば、原文のすぐ下に出す', () => {
+    createCaptionView(root).render([
+      { text: 'こんばんは', final: true, translation: 'Good evening' },
+      { text: '今日はゲームを', final: false, translation: null },
+    ])
+
+    expect([...root.children].map((element) => [element.className, element.textContent])).toEqual([
+      ['caption-line', 'こんばんは'],
+      ['caption-translation', 'Good evening'],
+      ['caption-line', '今日はゲームを'],
+    ])
+  })
+
+  it('訳文が後から届いたら出し直す', () => {
+    const view = createCaptionView(root)
+    view.render([{ text: 'こんばんは', final: true, translation: null }])
+    view.render([{ text: 'こんばんは', final: true, translation: 'Good evening' }])
+
+    expect(root.querySelector('.caption-translation')?.textContent).toBe('Good evening')
+  })
+
   it('映す行が無ければ何も映さない', () => {
     const view = createCaptionView(root)
-    view.render([{ text: 'こんばんは', final: true }])
+    view.render([{ text: 'こんばんは', final: true, translation: null }])
     view.render([])
 
     expect(root.querySelectorAll('.caption-line')).toHaveLength(0)
@@ -40,9 +62,9 @@ describe('createCaptionView', () => {
 
   it('同じ行を渡し直されても、要素を作り直さない', () => {
     const view = createCaptionView(root)
-    view.render([{ text: 'こんばんは', final: true }])
+    view.render([{ text: 'こんばんは', final: true, translation: null }])
     const first = root.querySelector('.caption-line')
-    view.render([{ text: 'こんばんは', final: true }])
+    view.render([{ text: 'こんばんは', final: true, translation: null }])
 
     expect(root.querySelector('.caption-line')).toBe(first)
   })

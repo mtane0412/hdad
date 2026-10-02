@@ -97,6 +97,7 @@ export const RecognitionSectionView = ({ value }: { value: RecognitionContextVal
             <p className="text-muted-foreground">{`つなぎ直し ${restarts}回・途切れた時間 ${formatDuration(interruptedMs)}`}</p>
             {interim !== '' && <p className="text-muted-foreground italic">{interim}</p>}
             {value.captionWarning && <p className="text-destructive">{value.captionWarning}</p>}
+            {value.translationWarning && <p className="text-destructive">{value.translationWarning}</p>}
           </div>
         )}
 

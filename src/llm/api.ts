@@ -1,7 +1,7 @@
 /**
  * LLMの設定の読み書き（Workerの呼び出し）
  *
- * AIを使う4か所（トリガーの動作 aiChat・サイドスーパー・視聴者の人物像・配信のあらすじ）それぞれについて、
+ * AIを使う5か所（字幕の翻訳・トリガーの動作 aiChat・サイドスーパー・視聴者の人物像・配信のあらすじ）それぞれについて、
  * どの提供元（Cloudflare の Workers AI・OpenRouter）のどのモデルに作らせるかは Worker（KVの llm-settings）が持ち、
  * 管理画面（/llm/ のページ）が配信者のセッションで /api/admin/llm を読み書きする。
  * 呼び出しと失敗の扱いは `../core/api` に任せ、fetch を引数で受け取るのはテストで差し替えるためである。
@@ -15,6 +15,8 @@
  * 注意: 使用状況（どれだけLLMを呼んだか）と OpenRouter の残高は、設定とは別の経路で読む。出どころが違い
  * （使用状況は自前で数えたD1の記録、残高は OpenRouter への問い合わせ）、片方を読めなかったことをもう片方に
  * 波及させないためである（モデルの一覧を提供元ごとに分けて読むのと同じ考え方）。
+ * 同じページに置く「字幕の翻訳」の区画（translation-card.tsx）が、翻訳の提供元の設定（/api/admin/translation）と
+ * DeepL の今月の使用量（/api/admin/translation/deepl-usage）もここから読み書きする（issue #191）。
  * 注意: 使用状況・残高も、応答が想定した形でなければエラーにする。数えられていないことを 0 として見せると、
  * 配信者は「まだ使っていない」と取り違える。
  */
@@ -24,12 +26,34 @@ const ADMIN_PATH = '/api/admin/llm'
 const MODELS_PATH = '/api/admin/llm/models'
 const USAGE_PATH = '/api/admin/llm/usage'
 const CREDITS_PATH = '/api/admin/llm/credits'
+const TRANSLATION_PATH = '/api/admin/translation'
+const DEEPL_USAGE_PATH = '/api/admin/translation/deepl-usage'
 
 /** 呼び先。worker/llm-config.ts の LLM_PROVIDERS と合わせる */
 export const LLM_PROVIDERS = ['workers-ai', 'openrouter'] as const
 
 /** LLMに文面を作らせる箇所。並び順も worker/llm-config.ts の LLM_USAGES と合わせる（画面に出す順になる） */
-export const LLM_USAGES = ['aiChat', 'sideSuper', 'viewerSummary', 'streamSummary'] as const
+export const LLM_USAGES = ['translation', 'aiChat', 'sideSuper', 'viewerSummary', 'streamSummary'] as const
+
+/** 字幕の翻訳の提供元。worker/translation-config.ts の TRANSLATION_PROVIDERS と合わせる（画面の選択欄に出す順になる） */
+export const TRANSLATION_PROVIDERS = ['off', 'llm', 'm2m100', 'deepl'] as const
+
+export type TranslationProvider = (typeof TRANSLATION_PROVIDERS)[number]
+
+/** 字幕の翻訳の設定の読み出しの結果。鍵の有無は設定ではなくWorkerの状態なので、設定とは分けて持つ */
+export interface TranslationState {
+  provider: TranslationProvider
+  /** DeepL のAPIキー（WorkerのシークレットDEEPL_API_KEY）が設定されているか */
+  deeplKeyConfigured: boolean
+}
+
+/** DeepL の今月の使用量。worker/translation.ts の DeeplUsage と合わせる */
+export interface DeeplUsage {
+  /** 今月訳した文字数 */
+  characterCount: number
+  /** 今月訳せる文字数の上限 */
+  characterLimit: number
+}
 
 /**
  * 判定用のモデル Jev を使う箇所。worker/jev.ts の JEV_USAGES と合わせる。
@@ -151,6 +175,21 @@ const readCredits = (body: unknown, path: string): LlmCredits => {
   return body as unknown as LlmCredits
 }
 
+/** 字幕の翻訳の提供元として読む。知らない名前ならエラーにする（黙って「訳さない」に倒さない） */
+const readTranslationProvider = (value: unknown, path: string): TranslationProvider => {
+  const found = TRANSLATION_PROVIDERS.find((provider) => provider === value)
+  if (found === undefined) throw new Error(`Workerの ${path} の応答が想定した形ではありません`)
+  return found
+}
+
+/** DeepL の使用量として読む。足りなければエラーにする */
+const readDeeplUsage = (body: unknown, path: string): DeeplUsage => {
+  if (!isRecord(body) || typeof body.characterCount !== 'number' || typeof body.characterLimit !== 'number') {
+    throw new Error(`Workerの ${path} の応答が想定した形ではありません`)
+  }
+  return { characterCount: body.characterCount, characterLimit: body.characterLimit }
+}
+
 /** 管理画面からの読み書き */
 export interface LlmApi {
   /** 保存済みの設定と、鍵が設定されているかを読む。未保存なら既定の設定が返る */
@@ -177,6 +216,16 @@ export interface LlmApi {
    * Workers AI（Cloudflare）には対応するものが無い（残量を読むにはアカウント単位の鍵が要るため）。
    */
   loadCredits(): Promise<LlmCredits>
+  /** 字幕の翻訳の提供元と、DeepL の鍵が設定されているかを読む。未保存なら「訳さない」が返る */
+  loadTranslation(): Promise<TranslationState>
+  /** 字幕の翻訳の提供元を保存する。検証はWorkerが行う */
+  saveTranslation(provider: TranslationProvider): Promise<TranslationProvider>
+  /**
+   * DeepL の今月の使用量を読む。
+   *
+   * 鍵が無ければWorkerが断る（ApiError）ので、呼ぶのは鍵が設定されているときだけにする。
+   */
+  loadDeeplUsage(): Promise<DeeplUsage>
 }
 
 /**
@@ -216,5 +265,24 @@ export const createLlmApi = (fetchImpl: typeof fetch): LlmApi => {
     loadUsage: async () => readUsageDays(await call(USAGE_PATH), USAGE_PATH),
 
     loadCredits: async () => readCredits(await call(CREDITS_PATH), CREDITS_PATH),
+
+    loadTranslation: async () => {
+      const body = await call(TRANSLATION_PATH)
+      return {
+        provider: readTranslationProvider(isRecord(body) ? body.provider : undefined, TRANSLATION_PATH),
+        deeplKeyConfigured: isRecord(body) && body.deeplKeyConfigured === true,
+      }
+    },
+
+    saveTranslation: async (provider) => {
+      const body = await call(TRANSLATION_PATH, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider }),
+      })
+      return readTranslationProvider(isRecord(body) ? body.provider : undefined, TRANSLATION_PATH)
+    },
+
+    loadDeeplUsage: async () => readDeeplUsage(await call(DEEPL_USAGE_PATH), DEEPL_USAGE_PATH),
   }
 }

@@ -26,6 +26,9 @@
  * | GET  /api/admin/llm/models       | セッション     | その提供元で選べるモデルの一覧 |
  * | GET  /api/admin/llm/usage        | セッション     | LLMを呼んだ回数・トークン数・実費の日ごとのまとめ |
  * | GET  /api/admin/llm/credits      | セッション     | OpenRouter の残高 |
+ * | GET・PUT /api/admin/translation  | セッション     | 字幕の翻訳の提供元の設定の取得・保存 |
+ * | GET  /api/admin/translation/deepl-usage | セッション | DeepL の今月の使用量 |
+ * | POST /api/admin/translations     | セッション     | アプリの枠の音声認識が確定した1件を英語に訳す |
  * | GET・PUT /api/admin/speech       | セッション     | チャットの読み上げの設定の取得・保存 |
  * | GET・PUT /api/admin/screen       | セッション     | 配信画面の取り込みの設定の取得・保存 |
  * | GET・PUT /api/admin/overlay/layout | セッション   | 合成オーバーレイの構成（オーバーレイと素材）の取得・保存 |
@@ -134,6 +137,7 @@ import {
 } from './overlay-routes'
 import { postAdminTranscript } from './transcript-routes'
 import { captionSocket } from './caption-routes'
+import { getDeeplUsage, getTranslation, postTranslation, putTranslation } from './translation-routes'
 import { drawSocket, getDrawBackground, getDrawStrokes, putDrawStrokes } from './draw-routes'
 import { deleteTabBlockedHost, getTabBlockedHosts, postTabBlockedHost, tabExtensionZip, tabSocket } from './tab-routes'
 import { commentSocket, getCommentIcons, postCommentGreeting, postCommentMessage, postCommentModeration } from './comment-routes'
@@ -204,6 +208,10 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/admin/llm/usage', handle: getLlmUsage },
   { method: 'GET', path: '/api/admin/llm/credits', handle: getLlmCredits },
   { method: 'PUT', path: '/api/admin/llm', handle: putLlm },
+  { method: 'GET', path: '/api/admin/translation', handle: getTranslation },
+  { method: 'PUT', path: '/api/admin/translation', handle: putTranslation },
+  { method: 'GET', path: '/api/admin/translation/deepl-usage', handle: getDeeplUsage },
+  { method: 'POST', path: '/api/admin/translations', handle: postTranslation },
   { method: 'GET', path: '/api/admin/screen', handle: getScreenSettings },
   { method: 'PUT', path: '/api/admin/screen', handle: putScreenSettings },
   { method: 'GET', path: '/api/admin/speech', handle: getSpeech },
