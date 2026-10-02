@@ -32,6 +32,11 @@ import type { Alert } from '../alerts/alert'
 import { demoAlerts } from '../alerts/demo'
 import { EMPTY_QUEUE, advance, enqueue } from '../alerts/queue'
 import { connectAlerts } from '../alerts/socket'
+import { NO_CAPTIONS, applyCaptionMessage, visibleCaptions, type CaptionState } from '../caption/captions'
+import { demoCaptionMessages } from '../caption/demo'
+import type { CaptionMessage } from '../caption/message'
+import { connectCaptionViewer } from '../caption/socket'
+import { createCaptionView } from '../caption/view'
 import { createDrawOverlayApi } from '../draw/api'
 import { demoStrokes } from '../draw/demo'
 import { connectDrawViewer } from '../draw/socket'
@@ -87,6 +92,7 @@ const NOUNS: Readonly<Record<ItemKind, string>> = {
   draw: '手書き',
   bgm: '再生中の曲',
   tab: 'タブの映像',
+  caption: '字幕',
 }
 
 /** サイドスーパーの文言を読みに行く間隔（ミリ秒）。文言は cron が5分おきに作るので、30秒あれば十分に追いつく */
@@ -98,6 +104,8 @@ const FOCUS_INTERVAL_MS = 10000
 const DEMO_ALERT_INTERVAL_MS = 9000
 /** プレビューでサンプルの文言・注目コメントを切り替える間隔（ミリ秒）。読み終わるだけの間を置く */
 const DEMO_SAMPLE_INTERVAL_MS = 6000
+/** プレビューでサンプルの字幕を1通ずつ流す間隔（ミリ秒）。話している途中の文が伸びていく様子が分かる速さにする */
+const DEMO_CAPTION_INTERVAL_MS = 1200
 /** プレビューが親の窓から構成を受け取るまで待つ上限（ミリ秒）。届かなければ理由を画面に出す */
 const PREVIEW_WAIT_MS = 5000
 
@@ -570,6 +578,50 @@ const mountDraw = (box: HTMLElement, item: OverlayItem, { key, demo }: MountCont
 }
 
 /**
+ * 字幕。アプリの枠の音声認識が送る暫定・確定の文が、字幕の中継先（worker/draw-channel.ts を caption の名前で使う）から届く
+ * （issue #190）。
+ *
+ * 届いた文は captions.ts の積み上げへ入れ、映す行は毎フレーム「いまの時刻」から決め直す（確定した行を一定時間で消すため。
+ * フレーム間の状態は持たない）。中継先は貯めないので、開く前に話したことは映らない（字幕は流れていくものなので読み直さない）。
+ */
+const mountCaption = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
+  // この素材は配信者が決めるパラメータを持たない（見た目の既定は captions.ts と caption.css が決め切る）
+  parseParams({}, new URLSearchParams(item.params))
+
+  const root = document.createElement('div')
+  root.className = 'caption'
+  root.dataset.caption = ''
+  box.append(root)
+
+  const view = createCaptionView(root)
+  let state: CaptionState = NO_CAPTIONS
+  /** 届いた時刻は、描画ループに渡される時刻と同じ時計（performance.now）で測る */
+  const receive = (message: CaptionMessage): void => {
+    state = applyCaptionMessage(state, message, performance.now())
+  }
+
+  if (demo) {
+    // プレビューでは中継先へつながず、サンプルの発話を順に流す（話していなければ何も出ず、置いた場所を確かめられない）
+    startSampleCycle(demoCaptionMessages, DEMO_CAPTION_INTERVAL_MS, receive)
+  } else {
+    connectCaptionViewer(key, {
+      onMessage: receive,
+      onStatus: (status) => {
+        // 切断は出さない。字幕の箱はふつう画面全体に置くので、失敗の表示が配信画面全体を塗ってしまう（手書きと同じ。issue #174）。
+        // つなぎ直しは src/core/socket.ts が続ける。つなぎ直せたら前の知らせを消す
+        if (status === 'reconnected') clearError(box, 'read')
+      },
+      onWarning: (message) => {
+        clearError(box, 'read')
+        showError(new Error(message), NOUNS.caption, box, 'read')
+      },
+    })
+  }
+
+  return { draw: (elapsedMs) => view.render(visibleCaptions(state, elapsedMs)) }
+}
+
+/**
  * 再生中の曲。裏方のページで流しているBGMの曲名とクレジット表記を映す（issue #152）。
  *
  * 切り替えは裏方のページと同じ WebSocket（/api/overlay/bgm/socket）で押し出してもらう。ポーリングにしないのは、
@@ -769,6 +821,8 @@ const mountItem = (box: HTMLElement, item: OverlayItem, context: MountContext): 
       return mountBgm(box, item, context)
     case 'tab':
       return mountTab(box, item, context)
+    case 'caption':
+      return mountCaption(box, item, context)
   }
 }
 

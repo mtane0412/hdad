@@ -53,6 +53,7 @@ const recognitionDeps: RecognitionDeps = {
   openMicrophone: () => Promise.reject(new Error('このテストではマイクを開きません')),
   locks: { request: () => Promise.reject(new Error('このテストでは鍵を取りません')) },
   storage: { getItem: () => null, setItem: () => {} },
+  connectCaption: () => ({ send: () => true, close: () => {} }),
 }
 
 const renderPage = (key: string | null = overlayKey) =>

@@ -16,7 +16,7 @@
  */
 
 /** オーバーレイに置ける素材の種類。worker/overlay-layout.ts の ITEM_KINDS と合わせる */
-export const ITEM_KINDS = ['wallpaper', 'clock', 'chat', 'alerts', 'sideSuper', 'focus', 'draw', 'bgm', 'tab'] as const
+export const ITEM_KINDS = ['wallpaper', 'clock', 'chat', 'alerts', 'sideSuper', 'focus', 'draw', 'bgm', 'tab', 'caption'] as const
 
 /** オーバーレイに置ける素材の種類 */
 export type ItemKind = (typeof ITEM_KINDS)[number]
@@ -48,6 +48,7 @@ export const STAGE_SIZE = { width: 1920, height: 1080 } as const
  * 寄せる場所を決めるので、余白ごと配信画面と同じ大きさにする。壁紙と手書きも画面いっぱいに描く
  * （手書きは描く画面と同じ縦横比でないと図が歪むので、配信画面と同じ大きさで使う）。タブの映像も、取り込むタブが
  * 1920×1080 までの横長なので配信画面と同じ大きさを推奨にする（縦横比が違えば箱の中で余白を空けて収める）。
+ * 字幕も、下端に寄せる場所を素材のCSS（src/caption/caption.css）が決めるので配信画面と同じ大きさにする。
  * 時計とチャットボックスだけは画面の一部に置くものなので、ギャラリーが案内している大きさに合わせる。
  */
 export const RECOMMENDED_ITEM_SIZES: Readonly<Record<ItemKind, { readonly width: number; readonly height: number }>> = {
@@ -60,6 +61,7 @@ export const RECOMMENDED_ITEM_SIZES: Readonly<Record<ItemKind, { readonly width:
   draw: STAGE_SIZE,
   bgm: STAGE_SIZE,
   tab: STAGE_SIZE,
+  caption: STAGE_SIZE,
 }
 
 /** オーバーレイの中での位置と大きさ（オーバーレイの幅・高さに対する割合。％） */

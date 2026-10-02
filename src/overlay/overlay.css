@@ -22,6 +22,7 @@
 @import '../draw/draw.css';
 @import '../bgm/bgm.css';
 @import '../tab/tab.css';
+@import '../caption/caption.css';
 
 .overlay {
   position: relative;

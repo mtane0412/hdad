@@ -1,0 +1,51 @@
+/*
+ * 字幕（合成ページの素材）の見た目
+ *
+ * 配信者の話していることを、配信画面の下端に字幕として出す（issue #190）。次の3つを守る。
+ * - 配信の画面（ゲームなど）の上に重なるので、板を敷かずに白い文字を黒で縁取る（何の上でも読め、隠す面積が小さい）
+ * - 新しい行が下に来るよう下から積み、はみ出したら古い（上の）ほうを箱の外へ逃がす
+ * - 話している途中の文は書き換わるので、確定した行より少しだけ薄くして見分けられるようにする
+ *
+ * 行数と消えるまでの時間は src/caption/captions.ts が決める（見た目の既定は配信者に選ばせない。docs/decisions/caption.md）。
+ * 素材の箱は配信画面と同じ大きさを推奨にしているので（src/overlay/layout.ts の RECOMMENDED_ITEM_SIZES）、
+ * 下端の余白はここで取る。
+ */
+.caption {
+  /* 位置は画面ではなく置かれた箱を基準にする（合成ページのレイヤーの箱に入れるため。issue #101） */
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+  padding: 0 96px 48px;
+  overflow: hidden;
+  font-family: 'Zen Kaku Gothic New', 'Hiragino Sans', 'Yu Gothic UI', sans-serif;
+}
+
+.caption-line {
+  margin: 0;
+  max-width: 100%;
+  color: #fff;
+  font-size: 44px;
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: center;
+  /* 切れ目のない英数字が続いても、箱からはみ出させずに折り返す */
+  overflow-wrap: anywhere;
+  /* 黒の縁取り。8方向に影を置いて、文字の周りをふちどる */
+  text-shadow:
+    3px 0 0 #000,
+    -3px 0 0 #000,
+    0 3px 0 #000,
+    0 -3px 0 #000,
+    2px 2px 0 #000,
+    -2px 2px 0 #000,
+    2px -2px 0 #000,
+    -2px -2px 0 #000;
+}
+
+.caption-line[data-final='false'] {
+  opacity: 0.85;
+}

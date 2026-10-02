@@ -2,7 +2,7 @@
  * コネクターのページの Web Speech API の区画（issue #189）
  *
  * アプリの枠で動かす音声認識（recognition-context.tsx）のオン・オフと、いまの様子を出す。
- * 様子は、状態・話している途中の文・つなぎ直した回数と途切れた時間の合計・送った発話と記録できたかどうか。
+ * 様子は、状態・話している途中の文・つなぎ直した回数と途切れた時間の合計・字幕の中継先へ送れているか・送った発話と記録できたかどうか。
  * ゆかコネNEO と並べて動かし、取りこぼしと精度を比べるための材料にもなる。
  *
  * 認識そのものは枠が持つので、このページを離れても止まらない。止まってしまったときの理由と始め直しのボタンもここに出す
@@ -58,6 +58,7 @@ export const RecognitionSectionView = ({ value }: { value: RecognitionContextVal
         <CardAction>
           <HelpButton topic="Web Speech API">
             <p>Chrome の音声認識で配信者の声を文字にし、確定した発話を配信の記録（あらすじ・章立ての材料）に送ります。</p>
+            <p>話している途中の文と確定した文は、オーバーレイの素材「字幕」にも送ります。</p>
             <p>認識するのは HDAD のページを開いている Chrome のタブです。どのページに移っても続きますが、タブを閉じると止まります。配信中は HDAD を別のウィンドウで開いたままにしてください。</p>
             <p>HDAD を2つ以上のタブで開いていても、認識するのは1つのタブだけです。そのタブを閉じると、ほかのタブが代わりに始めます。</p>
             <p>裏に回したタブが止められないよう、Chrome の設定の「パフォーマンス」で、このサイトを「常にアクティブにするサイト」に追加してください。</p>
@@ -95,6 +96,7 @@ export const RecognitionSectionView = ({ value }: { value: RecognitionContextVal
           <div className="space-y-1 text-sm">
             <p className="text-muted-foreground">{`つなぎ直し ${restarts}回・途切れた時間 ${formatDuration(interruptedMs)}`}</p>
             {interim !== '' && <p className="text-muted-foreground italic">{interim}</p>}
+            {value.captionWarning && <p className="text-destructive">{value.captionWarning}</p>}
           </div>
         )}
 

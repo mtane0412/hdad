@@ -3,10 +3,13 @@
  * アプリの枠で動かす音声認識（recognition-context.tsx）のテスト
  *
  * Chrome の音声認識・マイク・タブ間の鍵（Web Locks）・Worker への送信は代役に差し替える。
- * 確かめるのは、オン・オフが覚えられること、鍵を取れたタブだけが認識すること、確定した発話が Worker へ送られること。
+ * 確かめるのは、オン・オフが覚えられること、鍵を取れたタブだけが認識すること、確定した発話が Worker へ送られること、
+ * 話している途中の文と確定した文が字幕の中継先へ送られること（issue #190）。
  */
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { CaptionSocketHandlers } from '../caption/socket'
+import type { CaptionMessage } from '../caption/message'
 import type { TranscriptApi } from './api'
 import { browserRecognitionDeps, RecognitionProvider, useRecognition, type RecognitionDeps } from './recognition-context'
 import type { RecognitionLike, RecognitionResultEvent } from './recognizer'
@@ -56,6 +59,8 @@ const setup = ({ available = true, supported = true } = {}) => {
   }
   const { locks, requested } = createLocks(available)
   const microphone = { released: 0 }
+  /** 字幕の中継先への接続の代役。送ったものと、閉じた回数と、つなぐときに渡された受け口を残す */
+  const caption = { connects: 0, closes: 0, sent: [] as CaptionMessage[], handlers: null as CaptionSocketHandlers | null }
   const deps: RecognitionDeps = {
     api,
     createRecognition: supported ? () => recognition : null,
@@ -66,16 +71,30 @@ const setup = ({ available = true, supported = true } = {}) => {
     }),
     locks,
     storage: window.localStorage,
+    connectCaption: (handlers) => {
+      caption.connects += 1
+      caption.handlers = handlers
+      return {
+        send: (message) => {
+          caption.sent.push(message)
+          return true
+        },
+        close: () => {
+          caption.closes += 1
+        },
+      }
+    },
   }
-  return { deps, recognition, sent, requested, microphone }
+  return { deps, recognition, sent, requested, microphone, caption }
 }
 
 /** 文脈の中身を画面に出し、オン・オフを切り替えるボタンを置く */
 const Probe = () => {
-  const { enabled, setEnabled, phase, recognizer, lines } = useRecognition()
+  const { enabled, setEnabled, phase, recognizer, lines, captionWarning } = useRecognition()
   return (
     <div>
       <p>状態: {phase}</p>
+      <p>字幕: {captionWarning ?? 'つながっている'}</p>
       <p>認識: {recognizer.status.kind}</p>
       <ul>
         {lines.map((line) => (
@@ -164,8 +183,83 @@ describe('RecognitionProvider', () => {
     expect(screen.getByText('こんばんは（recorded）')).toBeTruthy()
   })
 
+  it('話している途中の文と確定した文を、字幕の中継先へ順に送る', async () => {
+    const { deps, recognition, caption } = setup()
+    render(
+      <RecognitionProvider deps={deps}>
+        <Probe />
+      </RecognitionProvider>,
+    )
+    await act(async () => screen.getByRole('button', { name: '始める' }).click())
+
+    await act(async () => {
+      recognition.onstart?.()
+      recognition.onresult?.({ resultIndex: 0, results: [{ isFinal: false, 0: { transcript: 'こんばん' } }] })
+      recognition.onresult?.({ resultIndex: 0, results: [{ isFinal: false, 0: { transcript: 'こんばんは今日は' } }] })
+      recognition.onresult?.({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: 'こんばんは、今日は' } }] })
+    })
+
+    expect(caption.connects).toBe(1)
+    expect(caption.sent).toEqual([
+      { type: 'interim', text: 'こんばん' },
+      { type: 'interim', text: 'こんばんは今日は' },
+      { type: 'final', text: 'こんばんは、今日は' },
+      // 確定したので、話している途中の文が無くなったことも知らせる
+      { type: 'interim', text: '' },
+    ])
+  })
+
+  it('話している途中の文が変わらなければ、字幕の中継先へ送り直さない', async () => {
+    const { deps, recognition, caption } = setup()
+    render(
+      <RecognitionProvider deps={deps}>
+        <Probe />
+      </RecognitionProvider>,
+    )
+    await act(async () => screen.getByRole('button', { name: '始める' }).click())
+
+    await act(async () => {
+      // 認識が始まったという知らせでも状態は変わるが、話している途中の文は空のまま
+      recognition.onstart?.()
+      recognition.onresult?.({ resultIndex: 0, results: [{ isFinal: false, 0: { transcript: 'こんばん' } }] })
+      recognition.onresult?.({ resultIndex: 0, results: [{ isFinal: false, 0: { transcript: 'こんばん' } }] })
+    })
+
+    expect(caption.sent).toEqual([{ type: 'interim', text: 'こんばん' }])
+  })
+
+  it('字幕の中継先につながらなければ、その理由を出し、つなぎ直せたら消す', async () => {
+    const { deps, caption } = setup()
+    render(
+      <RecognitionProvider deps={deps}>
+        <Probe />
+      </RecognitionProvider>,
+    )
+    await act(async () => screen.getByRole('button', { name: '始める' }).click())
+
+    await act(async () => caption.handlers?.onWarning('字幕の中継先につながりません'))
+    expect(screen.getByText('字幕: 字幕の中継先につながりません')).toBeTruthy()
+
+    await act(async () => caption.handlers?.onStatus('reconnected'))
+    expect(screen.getByText('字幕: つながっている')).toBeTruthy()
+  })
+
+  it('オフにすると、字幕の中継先への接続も閉じる', async () => {
+    const { deps, caption } = setup()
+    render(
+      <RecognitionProvider deps={deps}>
+        <Probe />
+      </RecognitionProvider>,
+    )
+    await act(async () => screen.getByRole('button', { name: '始める' }).click())
+
+    await act(async () => screen.getByRole('button', { name: '止める' }).click())
+
+    expect(caption.closes).toBe(1)
+  })
+
   it('別のタブが鍵を持っていれば、認識を始めずに待つ', async () => {
-    const { deps, recognition } = setup({ available: false })
+    const { deps, recognition, caption } = setup({ available: false })
     render(
       <RecognitionProvider deps={deps}>
         <Probe />
@@ -176,6 +270,8 @@ describe('RecognitionProvider', () => {
 
     expect(screen.getByText('状態: waiting')).toBeTruthy()
     expect(recognition.starts).toBe(0)
+    // 字幕を送るのも認識しているタブだけ（2つのタブがつなぐと、片方の空の知らせがもう片方の字幕を消してしまう）
+    expect(caption.connects).toBe(0)
   })
 
   it('オフにすると認識を止め、オフを覚える', async () => {
