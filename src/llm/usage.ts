@@ -12,6 +12,8 @@
  * 注意: 判定用のモデル Jev の呼び出し（worker/jev.ts）も同じ表に記録されるので、箇所ごとにまとめて全体の合計に含める。
  * 注意: 日ごとの行の型（LlmUsageDay）は、Workerの応答を読む api.ts が持つものをそのまま使う（同じ形を二重に書かない）。
  * まとめだけを使う側のために、ここからも再び出しておく。
+ * 注意: グラフ用の日ごとの数（dailyLlmCalls）は、記録の無い日も 0 として埋める。抜けたままにすると、
+ * 呼ばなかった日が横軸から消え、使い方の偏りを読み違える。
  */
 import { JEV_USAGES, LLM_USAGES, type JevUsage, type LlmUsage, type LlmUsageDay } from './api'
 
@@ -47,6 +49,9 @@ export interface LlmUsageSummary {
   total: LlmUsagePeriods
 }
 
+/** 1日をミリ秒で表した長さ */
+const DAY_MS = 24 * 60 * 60 * 1000
+
 const EMPTY_TOTAL = (): LlmUsageTotals => ({ calls: 0, failures: 0, promptTokens: 0, completionTokens: 0, costUsd: 0 })
 
 /** ミリ秒をUTCの日（YYYY-MM-DD）にする */
@@ -69,7 +74,7 @@ const addUsage = (totals: LlmUsageTotals, row: LlmUsageDay): void => {
  */
 export const summarizeLlmUsage = (days: readonly LlmUsageDay[], now: number): LlmUsageSummary => {
   const today = toUtcDay(now)
-  const recentStart = toUtcDay(now - (WEEK_DAYS - 1) * 24 * 60 * 60 * 1000)
+  const recentStart = toUtcDay(now - (WEEK_DAYS - 1) * DAY_MS)
 
   const usages = Object.fromEntries(LLM_USAGES.map((usage) => [usage, { today: EMPTY_TOTAL(), week: EMPTY_TOTAL() }])) as Record<LlmUsage, LlmUsagePeriods>
   const jevUsages = Object.fromEntries(JEV_USAGES.map((usage) => [usage, { today: EMPTY_TOTAL(), week: EMPTY_TOTAL() }])) as Record<JevUsage, LlmUsagePeriods>
@@ -90,4 +95,38 @@ export const summarizeLlmUsage = (days: readonly LlmUsageDay[], now: number): Ll
   }
 
   return { usages, jevUsages, total }
+}
+
+/** グラフに渡す1日ぶんの数 */
+export interface LlmDailyCalls {
+  /** UTCの日（YYYY-MM-DD） */
+  day: string
+  /** すべての箇所を合わせた、文面を受け取れた回数 */
+  calls: number
+  /** すべての箇所を合わせた、失敗した回数 */
+  failures: number
+}
+
+/**
+ * 日ごとの行を、すべての箇所を合わせた1日ごとの回数にする（使用状況のグラフ用）。
+ *
+ * @param days Workerから受け取った日ごとの行（順番は問わない）
+ * @param now 現在時刻（ミリ秒）。UTCの今日を決めるのに使う
+ * @param windowDays 今日を含めて並べる日数
+ * @returns 古い順に windowDays 件。記録の無い日も 0 として含める
+ */
+export const dailyLlmCalls = (days: readonly LlmUsageDay[], now: number, windowDays: number): LlmDailyCalls[] => {
+  const series = Array.from({ length: windowDays }, (_, index) => ({
+    day: toUtcDay(now - (windowDays - 1 - index) * DAY_MS),
+    calls: 0,
+    failures: 0,
+  }))
+  const byDay = new Map(series.map((entry) => [entry.day, entry]))
+  for (const row of days) {
+    const entry = byDay.get(row.day)
+    if (entry === undefined) continue
+    entry.calls += row.calls
+    entry.failures += row.failures
+  }
+  return series
 }

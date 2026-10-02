@@ -8,9 +8,10 @@
  * - 7日より前の行は直近7日に入れないこと
  * - 記録が1件も無い箇所も 0 として並ぶこと（画面に穴ができないようにする）
  * - 判定用のモデル Jev の箇所（bgm）も同じようにまとめ、全体の合計に含めること
+ * - グラフ用に、日ごとの呼び出し回数と失敗の回数を、記録の無い日も 0 として古い順に並べること
  */
 import { describe, expect, it } from 'vitest'
-import { summarizeLlmUsage, type LlmUsageDay } from './usage'
+import { dailyLlmCalls, summarizeLlmUsage, type LlmUsageDay } from './usage'
 
 /** UTCで2026-09-27の昼。この時刻を「今」として数える */
 const now = Date.parse('2026-09-27T12:00:00.000Z')
@@ -88,5 +89,27 @@ describe('summarizeLlmUsage', () => {
     expect(Object.keys({ ...usages, ...jevUsages })).not.toContain('commentReaction')
     expect(total.today.calls).toBe(5)
     expect(total.today.costUsd).toBeCloseTo(0.000_2, 8)
+  })
+})
+
+describe('dailyLlmCalls', () => {
+  it('今日を含む指定の日数ぶんを古い順に並べ、記録の無い日も 0 として埋める（グラフの横軸が飛ばないようにする）', () => {
+    const days = [
+      row('2026-09-27', 'aiChat', { calls: 4, failures: 1 }),
+      row('2026-09-27', 'bgm', { calls: 2 }),
+      row('2026-09-25', 'streamSummary', { calls: 3 }),
+    ]
+
+    expect(dailyLlmCalls(days, now, 3)).toEqual([
+      { day: '2026-09-25', calls: 3, failures: 0 },
+      { day: '2026-09-26', calls: 0, failures: 0 },
+      { day: '2026-09-27', calls: 6, failures: 1 },
+    ])
+  })
+
+  it('指定の日数より前の行は数えない', () => {
+    const days = [row('2026-09-24', 'aiChat', { calls: 9 })]
+
+    expect(dailyLlmCalls(days, now, 3).map(({ calls }) => calls)).toEqual([0, 0, 0])
   })
 })

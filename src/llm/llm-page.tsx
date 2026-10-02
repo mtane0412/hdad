@@ -27,6 +27,9 @@
  * 鍵が無いままではその箇所の文面が作られない）。
  * 注意: 設定を読めなかったときは、黙って既定に倒さず理由を出す（Fail-Fast）。読めないまま入力欄を出すと、
  * 配信者が「保存済みの設定はこれだ」と取り違えたまま上書きしてしまう。
+ * 注意: 箇所ごとの設定と使用状況は、LLM と Jev の箇所をまとめた1つの表に並べる（1行1か所）。箇所の説明や
+ * 注意書きは画面に並べず、ヘルプボタン（src/components/help-button.tsx）を押したときだけ出す。
+ * 注意: 日ごとの呼び出し回数のグラフ（usage-chart.tsx）は Recharts を使うので重い。React.lazy で切り離して読み込む。
  * 注意: 使用状況（どれだけ呼んだか）は自前で数えた記録である（worker/llm-usage-store.ts）。日の区切りはUTCで、
  * Workers AI の無料枠の切り替わりに合わせてある。Cloudflare側の残り無料枠（Neurons）は、読むのに
  * アカウント単位のAPIトークンが要るので出せない（そのために強い鍵を増やさない）。画面にもその旨を書く。
@@ -35,15 +38,16 @@
  * 注意: 残高（OpenRouter）は鍵が設定されているときだけ読む。鍵が無ければWorkerが断るので、読みに行っても
  * 理由の出る場所が増えるだけである。
  */
-import { useEffect, useId, useState } from 'react'
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
+import { HelpButton } from '@/components/help-button'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { LoadFailure } from '@/components/load-failure'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Label } from '@/components/ui/label'
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { ApiError } from '@/core/api'
 import {
   JEV_USAGES,
@@ -58,7 +62,21 @@ import {
   type LlmUsage,
   type LlmUsageDay,
 } from './api'
-import { summarizeLlmUsage, type LlmUsageTotals } from './usage'
+import { dailyLlmCalls, summarizeLlmUsage, type LlmUsagePeriods, type LlmUsageTotals } from './usage'
+import type { UsageChartProps } from './usage-chart'
+
+/** グラフ（Recharts）は重いので、ほかのページを開くときに運ばないよう切り離して読み込む */
+const UsageChart = lazy(async () => ({ default: (await import('./usage-chart')).UsageChart }))
+
+/** グラフを読み込み終えるまでは、同じ大きさの枠を出しておく */
+const LazyUsageChart = ({ label, points }: UsageChartProps) => (
+  <Suspense fallback={<Skeleton className="h-48 w-full" aria-label={`${label}のグラフを読み込んでいます`} />}>
+    <UsageChart label={label} points={points} />
+  </Suspense>
+)
+
+/** グラフに並べる日数。Worker（worker/admin-routes.ts の USAGE_WINDOW_DAYS）が返す期間に合わせる */
+const CHART_DAYS = 30
 
 /** 提供元の名前 */
 const PROVIDER_LABELS: Readonly<Record<LlmProvider, string>> = {
@@ -103,11 +121,47 @@ const formatCost = (usd: number): string => `$${usd.toFixed(4)}`
 /** 残高（米ドル）を出す。こちらは課金の単位なので小数2桁でよい */
 const formatCredits = (usd: number): string => `$${usd.toFixed(2)}`
 
-/** 期間ぶんの数を1行にする。失敗が無いときは括弧を付けない（ふだんの表示を短く保つ） */
-const usageLine = (label: string, totals: LlmUsageTotals): string => {
-  const failure = totals.failures > 0 ? `（失敗${totals.failures}回）` : ''
-  return `${label} ${totals.calls}回${failure}・${formatTokens(totals.promptTokens + totals.completionTokens)}トークン`
-}
+/** 回数を出す。失敗が無いときは括弧を付けない（ふだんの表示を短く保つ） */
+const formatCalls = (totals: LlmUsageTotals): string =>
+  `${totals.calls}回${totals.failures > 0 ? `（失敗${totals.failures}回）` : ''}`
+
+/** 回数とトークン数を2段にして出す（表のセルと集計のタイルで共通） */
+const UsageFigure = ({ totals }: { totals: LlmUsageTotals }) => (
+  <div className="flex flex-col">
+    <span className="tabular-nums">{formatCalls(totals)}</span>
+    <span className="text-xs text-muted-foreground tabular-nums">{formatTokens(totals.promptTokens + totals.completionTokens)}トークン</span>
+  </div>
+)
+
+/** 集計のタイル。読み上げでは見出し（label）を名前にしたひとまとまりとして読ませる */
+const StatTile = ({ label, children }: { label: string; children: ReactNode }) => (
+  <div role="group" aria-label={label} className="flex flex-col gap-1 rounded-md border p-3">
+    <span className="text-xs text-muted-foreground">{label}</span>
+    <div className="text-lg font-medium">{children}</div>
+  </div>
+)
+
+/** 表の、今日と直近7日の使用状況の2列 */
+const UsageCells = ({ periods }: { periods: LlmUsagePeriods }) => (
+  <>
+    <TableCell>
+      <UsageFigure totals={periods.today} />
+    </TableCell>
+    <TableCell>
+      <UsageFigure totals={periods.week} />
+    </TableCell>
+  </>
+)
+
+/** 箇所の名前と、その説明を出すヘルプボタン */
+const UsageName = ({ name, description }: { name: string; description: string }) => (
+  <div className="flex items-center gap-1">
+    <span className="font-medium">{name}</span>
+    <HelpButton topic={name}>
+      <p className="text-sm">{description}</p>
+    </HelpButton>
+  </div>
+)
 
 export interface LlmPageProps {
   /** LLMの設定の読み書き */
@@ -139,8 +193,6 @@ export const LlmPage = ({ api }: LlmPageProps) => {
   /** 残高を読めなかった理由 */
   const [creditsFailure, setCreditsFailure] = useState('')
   const actions = usePageActions(failureLines)
-  /** 入力欄のidは箇所ごとに要るので、1つのidを土台にして箇所の名前を追加する */
-  const fieldIdPrefix = useId()
 
   // 使用状況は設定とは別に読む（片方を読めなかったことを、もう片方に波及させない）
   useEffect(() => {
@@ -302,109 +354,124 @@ export const LlmPage = ({ api }: LlmPageProps) => {
       <Card>
         <CardHeader>
           <CardTitle>使用状況</CardTitle>
-          <CardDescription>
-            日の区切りはUTC（Workers AI の無料枠の切り替わりに合わせている）。Workers AI の残り無料枠そのものは読めないため、呼び出した回数から見当をつける。
-          </CardDescription>
+          <CardAction>
+            <HelpButton topic="使用状況">
+              <div className="flex flex-col gap-2 text-sm">
+                <p>日の区切りはUTCです（Workers AI の無料枠の切り替わりに合わせています）。</p>
+                <p>Workers AI の残り無料枠そのものは読めないため、呼び出した回数から見当をつけてください。</p>
+                <p>実費は OpenRouter が返した額の合計です（Workers AI は返さないので含みません）。</p>
+              </div>
+            </HelpButton>
+          </CardAction>
         </CardHeader>
-        <CardContent className="flex flex-col gap-2 text-sm">
-          <p>{usageLine('今日', usageSummary.total.today)}</p>
-          <p>{usageLine('直近7日', usageSummary.total.week)}</p>
-          <p className="text-muted-foreground">直近7日の実費（OpenRouter のぶん）{formatCost(usageSummary.total.week.costUsd)}</p>
-          {credits !== undefined && (
-            <p>
-              OpenRouter の残高 残り {formatCredits(credits.remaining)}（付与 {formatCredits(credits.totalCredits)}・使用{' '}
-              {formatCredits(credits.totalUsage)}）
-            </p>
-          )}
+        <CardContent className="flex flex-col gap-4">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <StatTile label="今日">
+              <UsageFigure totals={usageSummary.total.today} />
+            </StatTile>
+            <StatTile label="直近7日">
+              <UsageFigure totals={usageSummary.total.week} />
+            </StatTile>
+            <StatTile label="直近7日の実費">
+              <span className="tabular-nums">{formatCost(usageSummary.total.week.costUsd)}</span>
+            </StatTile>
+            {credits !== undefined && (
+              <StatTile label="OpenRouter の残高">
+                <div className="flex flex-col">
+                  <span className="tabular-nums">{formatCredits(credits.remaining)}</span>
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    付与 {formatCredits(credits.totalCredits)}・使用 {formatCredits(credits.totalUsage)}
+                  </span>
+                </div>
+              </StatTile>
+            )}
+          </div>
+          <LazyUsageChart label={`直近${CHART_DAYS}日の呼び出し回数の推移`} points={dailyLlmCalls(usageDays, Date.now(), CHART_DAYS)} />
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
           <CardTitle>AIを使う箇所</CardTitle>
-          <CardDescription>箇所ごとに提供元とモデルを選べる。保存すると次に作るぶんから効く。</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-6">
-          {LLM_USAGES.map((usage) => {
-            const { name, description } = USAGE_LABELS[usage]
-            const { provider, models } = settings.usages[usage]
-            const providerFieldId = `${fieldIdPrefix}-${usage}-provider`
-            const modelFieldId = `${fieldIdPrefix}-${usage}-model`
-            return (
-              <div key={usage} className="flex flex-col gap-3 rounded-md border p-4">
-                <div className="flex flex-col gap-1">
-                  <h3 className="font-medium">{name}</h3>
-                  <p className="text-sm text-muted-foreground">{description}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {usageLine('今日', usageSummary.usages[usage].today)} / {usageLine('直近7日', usageSummary.usages[usage].week)}
-                  </p>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="flex flex-col gap-2">
-                    <Label htmlFor={providerFieldId}>
-                      {/* 画面には「提供元」とだけ出し、読み上げの名前には箇所の名前を含める（同じ名前の選択欄が4つ並ばないようにする） */}
-                      <span className="sr-only">{name}の</span>提供元
-                    </Label>
-                    <NativeSelect
-                      id={providerFieldId}
-                      className="w-full"
-                      value={provider}
-                      disabled={actions.busy}
-                      onChange={(event) => changeProvider(usage, event.currentTarget.value as LlmProvider)}
-                    >
-                      {LLM_PROVIDERS.map((candidate) => (
-                        <NativeSelectOption key={candidate} value={candidate}>
-                          {PROVIDER_LABELS[candidate]}
-                        </NativeSelectOption>
-                      ))}
-                    </NativeSelect>
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <Label htmlFor={modelFieldId}>
-                      <span className="sr-only">{name}の</span>モデル
-                    </Label>
-                    <NativeSelect
-                      id={modelFieldId}
-                      className="w-full"
-                      value={models[provider]}
-                      disabled={actions.busy || modelOptions[provider] === undefined}
-                      onChange={(event) => changeModel(usage, event.currentTarget.value)}
-                    >
-                      {optionsFor(provider, models[provider]).map(({ id, name: modelName }) => (
-                        <NativeSelectOption key={id} value={id}>
-                          {modelName}
-                        </NativeSelectOption>
-                      ))}
-                    </NativeSelect>
-                  </div>
-                </div>
+          <CardAction>
+            <HelpButton topic="AIを使う箇所">
+              <div className="flex flex-col gap-2 text-sm">
+                <p>箇所ごとに提供元とモデルを選べます。保存すると次に作るぶんから効きます。</p>
+                <p>Jev の箇所は文面を作らず判定だけを返すモデル（TypeSafe の Jev。OpenRouter 経由）です。版を固定しているので選べません。</p>
               </div>
-            )
-          })}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>判定に使う箇所</CardTitle>
-          <CardDescription>文面を作らず、判定だけを返すモデル（TypeSafe の Jev。OpenRouter 経由）。モデルは版を固定しているので選べない。</CardDescription>
+            </HelpButton>
+          </CardAction>
         </CardHeader>
-        <CardContent className="flex flex-col gap-6">
-          {JEV_USAGES.map((usage) => {
-            const { name, description } = JEV_USAGE_LABELS[usage]
-            const headingId = `${fieldIdPrefix}-${usage}-heading`
-            return (
-              <section key={usage} aria-labelledby={headingId} className="flex flex-col gap-1 rounded-md border p-4">
-                <h3 id={headingId} className="font-medium">
-                  {name}
-                </h3>
-                <p className="text-sm text-muted-foreground">{description}</p>
-                <p className="text-sm text-muted-foreground">
-                  {usageLine('今日', usageSummary.jevUsages[usage].today)} / {usageLine('直近7日', usageSummary.jevUsages[usage].week)}
-                </p>
-              </section>
-            )
-          })}
+        <CardContent>
+          <Table aria-label="AIを使う箇所">
+            <TableHeader>
+              <TableRow>
+                <TableHead>箇所</TableHead>
+                <TableHead>提供元</TableHead>
+                <TableHead>モデル</TableHead>
+                <TableHead>今日</TableHead>
+                <TableHead>直近7日</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {LLM_USAGES.map((usage) => {
+                const { name, description } = USAGE_LABELS[usage]
+                const { provider, models } = settings.usages[usage]
+                return (
+                  <TableRow key={usage} aria-label={name}>
+                    <TableCell>
+                      <UsageName name={name} description={description} />
+                    </TableCell>
+                    <TableCell>
+                      {/* 表の見出しは「提供元」だけなので、読み上げの名前には箇所の名前を含める（同じ名前の選択欄が並ばないようにする） */}
+                      <NativeSelect
+                        aria-label={`${name}の提供元`}
+                        className="min-w-44"
+                        value={provider}
+                        disabled={actions.busy}
+                        onChange={(event) => changeProvider(usage, event.currentTarget.value as LlmProvider)}
+                      >
+                        {LLM_PROVIDERS.map((candidate) => (
+                          <NativeSelectOption key={candidate} value={candidate}>
+                            {PROVIDER_LABELS[candidate]}
+                          </NativeSelectOption>
+                        ))}
+                      </NativeSelect>
+                    </TableCell>
+                    <TableCell>
+                      <NativeSelect
+                        aria-label={`${name}のモデル`}
+                        className="min-w-56"
+                        value={models[provider]}
+                        disabled={actions.busy || modelOptions[provider] === undefined}
+                        onChange={(event) => changeModel(usage, event.currentTarget.value)}
+                      >
+                        {optionsFor(provider, models[provider]).map(({ id, name: modelName }) => (
+                          <NativeSelectOption key={id} value={id}>
+                            {modelName}
+                          </NativeSelectOption>
+                        ))}
+                      </NativeSelect>
+                    </TableCell>
+                    <UsageCells periods={usageSummary.usages[usage]} />
+                  </TableRow>
+                )
+              })}
+              {JEV_USAGES.map((usage) => {
+                const { name, description } = JEV_USAGE_LABELS[usage]
+                return (
+                  <TableRow key={usage} aria-label={name}>
+                    <TableCell>
+                      <UsageName name={name} description={description} />
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{PROVIDER_LABELS.openrouter}</TableCell>
+                    <TableCell className="text-muted-foreground">Jev（版を固定）</TableCell>
+                    <UsageCells periods={usageSummary.jevUsages[usage]} />
+                  </TableRow>
+                )
+              })}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
 
