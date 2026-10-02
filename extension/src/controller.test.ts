@@ -9,20 +9,26 @@
  * - 取り込んだタブが閉じられたら（offscreen document からの知らせ）、止めて何も映していない表示に戻す
  * - 映さないサイトの一覧を読めない・押したタブが映さないサイトなら、映し始めない
  * - 映しているタブが映さないサイトへ移ったら送るのを止め、映してよいページが表示されたら送り直す
- * - ボタンの右クリックで、そのタブのホスト名を映さないサイトに登録する
+ * - ボタンの右クリックで、そのタブのサイトを映さないサイトに登録し、登録済みなら映すサイトに戻す（項目の名前も切り替える）
+ * - 設定ページからの頼み（一覧・追加・削除）に応じ、映しているタブにもすぐ反映する
  * - ボタンの表示（バッジと説明）が状態ごとに分かれる
  */
 import { describe, expect, it } from 'vitest'
 import {
   createSerialQueue,
   describeBadge,
-  handleBlockSite,
+  describeSiteMenu,
   handleClick,
   handleNavigation,
   handleOffscreenEvent,
+  handleSettingsRequest,
+  handleSiteMenuClick,
+  refreshSiteMenu,
   type BadgeState,
   type CaptureState,
+  type ClickedTab,
   type ControllerApi,
+  type SiteMenuView,
 } from './controller'
 
 const slideTab = { id: 7, url: 'https://docs.google.com/presentation/d/配信のスライド' }
@@ -36,7 +42,6 @@ const blockedHosts = ['mail.google.com']
 const capturingSlide = (overrides: Partial<CaptureState> = {}): CaptureState => ({
   tabId: slideTab.id,
   url: slideTab.url,
-  blockedHosts,
   pausedAt: null,
   ...overrides,
 })
@@ -51,17 +56,29 @@ const createApi = (
     failResume?: string
     failLoadHosts?: string
     failAddHost?: string
+    failRemoveHost?: string
+    /** 拡張が覚えている一覧（null は覚えていない。既定は Worker と同じ一覧） */
+    known?: string[] | null
+    /** いま前に出ているタブ（右クリックの項目の名前を決める） */
+    activeTab?: ClickedTab | null
   } = {},
 ) => {
   let capturing: CaptureState | null = options.capturing ?? null
   let storedHosts = [...blockedHosts]
+  let known: readonly string[] | null = options.known === undefined ? [...blockedHosts] : options.known
   const calls: string[] = []
   const shown: BadgeState[] = []
+  const menus: SiteMenuView[] = []
   const api: ControllerApi = {
     capturing: async () => capturing,
     remember: async (state) => {
       capturing = state
     },
+    knownBlockedHosts: async () => known,
+    rememberBlockedHosts: async (hosts) => {
+      known = hosts
+    },
+    activeTab: async () => (options.activeTab === undefined ? slideTab : options.activeTab),
     loadBlockedHosts: async () => {
       calls.push('一覧を読む')
       if (options.failLoadHosts !== undefined) throw new Error(options.failLoadHosts)
@@ -71,6 +88,12 @@ const createApi = (
       calls.push(`登録する:${host}`)
       if (options.failAddHost !== undefined) throw new Error(options.failAddHost)
       storedHosts = [...storedHosts, host]
+      return storedHosts
+    },
+    removeBlockedHost: async (host) => {
+      calls.push(`外す:${host}`)
+      if (options.failRemoveHost !== undefined) throw new Error(options.failRemoveHost)
+      storedHosts = storedHosts.filter((entry) => entry !== host)
       return storedHosts
     },
     getMediaStreamId: async (targetTabId) => {
@@ -97,8 +120,11 @@ const createApi = (
     show: async (state) => {
       shown.push(state)
     },
+    showSiteMenu: async (menu) => {
+      menus.push(menu)
+    },
   }
-  return { api, calls, shown, capturing: () => capturing }
+  return { api, calls, shown, menus, capturing: () => capturing, known: () => known }
 }
 
 describe('handleClick', () => {
@@ -209,7 +235,7 @@ describe('handleClick と映さないサイト', () => {
     expect(capturing()).toBeNull()
     expect(shown.at(-1)).toEqual({
       kind: 'problem',
-      message: 'mail.google.com は映さないサイトに登録されているので映しません（一覧は HDAD の「タブの映像」のページで消せます）',
+      message: 'mail.google.com は映さないサイトに登録されているので映しません（ボタンの右クリックか拡張の設定で外せます）',
     })
   })
 
@@ -280,6 +306,17 @@ describe('handleNavigation', () => {
     expect(capturing()?.url).toBe(nextSlide)
   })
 
+  it('映さないサイトの一覧を覚えていなければ、映し続けずに止める', async () => {
+    // 映しているあいだは一覧を覚えているはずだが、失っていたら照合できないので安全側に倒す
+    const { api, calls, shown, capturing } = createApi({ capturing: capturingSlide(), known: null })
+
+    await handleNavigation({ tabId: slideTab.id, url: videoTab.url, committed: true }, api)
+
+    expect(calls).toEqual(['止める'])
+    expect(capturing()).toBeNull()
+    expect(shown.at(-1)).toEqual({ kind: 'problem', message: '映さないサイトの一覧が分からなくなったので映すのをやめました。もう一度押してください' })
+  })
+
   it('映していないタブが移っても何もしない', async () => {
     const { api, calls, capturing } = createApi({ capturing: capturingSlide() })
 
@@ -303,40 +340,70 @@ describe('handleNavigation', () => {
   })
 })
 
-describe('handleBlockSite', () => {
-  it('右クリックしたタブのホスト名を登録し、登録したことを知らせる', async () => {
-    const { api, calls, shown } = createApi()
+describe('handleSiteMenuClick', () => {
+  it('登録していないサイトで押したら、映さないサイトに登録したことを知らせ、項目を「映す」に切り替える', async () => {
+    const { api, calls, shown, menus, known } = createApi({ activeTab: videoTab })
 
-    await handleBlockSite(videoTab, api)
+    await handleSiteMenuClick(videoTab, api)
 
     expect(calls).toEqual(['登録する:www.youtube.com'])
+    expect(known()).toEqual([...blockedHosts, 'www.youtube.com'])
     expect(shown.at(-1)).toEqual({ kind: 'registered', host: 'www.youtube.com' })
+    expect(menus.at(-1)).toEqual({ title: 'このサイト（www.youtube.com）を映す', enabled: true })
+  })
+
+  it('登録済みのサイトで押したら、映すサイトに戻したことを知らせ、項目を「映さない」に切り替える', async () => {
+    const { api, calls, shown, menus, known } = createApi({ activeTab: mailTab })
+
+    await handleSiteMenuClick(mailTab, api)
+
+    expect(calls).toEqual(['外す:mail.google.com'])
+    expect(known()).toEqual([])
+    expect(shown.at(-1)).toEqual({ kind: 'unregistered', host: 'mail.google.com' })
+    expect(menus.at(-1)).toEqual({ title: 'このサイト（mail.google.com）を映さない', enabled: true })
   })
 
   it('映しているタブのサイトを登録したら、すぐに送るのを止める', async () => {
     const { api, calls, shown, capturing } = createApi({ capturing: capturingSlide() })
 
-    await handleBlockSite(slideTab, api)
+    await handleSiteMenuClick(slideTab, api)
 
     expect(calls).toEqual(['登録する:docs.google.com', '送るのを止める'])
-    expect(capturing()).toEqual(capturingSlide({ blockedHosts: [...blockedHosts, 'docs.google.com'], pausedAt: 'docs.google.com' }))
+    expect(capturing()).toEqual(capturingSlide({ pausedAt: 'docs.google.com' }))
     expect(shown.at(-1)).toEqual({ kind: 'paused', host: 'docs.google.com' })
   })
 
-  it('映しているタブと関係ないサイトを登録したら、一覧だけ覚え直して表示は変えない', async () => {
+  it('止めているサイトを映すサイトに戻したら、すぐに送り直す', async () => {
+    const { api, calls, shown, capturing } = createApi({ capturing: capturingSlide({ url: mailUrl, pausedAt: 'mail.google.com' }) })
+
+    await handleSiteMenuClick(mailTab, api)
+
+    expect(calls).toEqual(['外す:mail.google.com', '送り直す'])
+    expect(capturing()).toEqual(capturingSlide({ url: mailUrl }))
+    expect(shown.at(-1)).toEqual({ kind: 'capturing', viewers: 0, warning: null })
+  })
+
+  it('映しているタブと関係ないサイトを登録したら、ボタンの表示（映している状態）は変えない', async () => {
     const { api, shown, capturing } = createApi({ capturing: capturingSlide() })
 
-    await handleBlockSite(videoTab, api)
+    await handleSiteMenuClick(videoTab, api)
 
-    expect(capturing()?.blockedHosts).toEqual([...blockedHosts, 'www.youtube.com'])
-    expect(capturing()?.pausedAt).toBeNull()
+    expect(capturing()).toEqual(capturingSlide())
     expect(shown).toEqual([])
   })
 
-  it('ホスト名で登録できないページ（chrome:// など）では、登録せずに知らせる', async () => {
+  it('一覧を覚えていなければ、読んでから切り替える', async () => {
+    const { api, calls } = createApi({ known: null })
+
+    await handleSiteMenuClick(mailTab, api)
+
+    expect(calls).toEqual(['一覧を読む', '外す:mail.google.com'])
+  })
+
+  it('ホスト名で登録できないページ（chrome:// など）では、何もせずに知らせる', async () => {
     const { api, calls, shown } = createApi()
 
-    await handleBlockSite({ id: 3, url: 'chrome://settings/' }, api)
+    await handleSiteMenuClick({ id: 3, url: 'chrome://settings/' }, api)
 
     expect(calls).toEqual([])
     expect(shown.at(-1)).toEqual({ kind: 'problem', message: 'このページはホスト名で登録できません（登録できるのは http・https のページだけです）' })
@@ -345,9 +412,83 @@ describe('handleBlockSite', () => {
   it('登録できなければ理由を知らせる', async () => {
     const { api, shown } = createApi({ failAddHost: 'ログインが必要です' })
 
-    await handleBlockSite(videoTab, api)
+    await handleSiteMenuClick(videoTab, api)
 
     expect(shown.at(-1)).toEqual({ kind: 'problem', message: '映さないサイトに登録できませんでした: ログインが必要です' })
+  })
+
+  it('映すサイトに戻せなければ理由を知らせる', async () => {
+    const { api, shown } = createApi({ failRemoveHost: 'ログインが必要です' })
+
+    await handleSiteMenuClick(mailTab, api)
+
+    expect(shown.at(-1)).toEqual({ kind: 'problem', message: '映すサイトに戻せませんでした: ログインが必要です' })
+  })
+})
+
+describe('describeSiteMenu', () => {
+  it('登録していないサイトでは「映さない」、登録済みのサイトでは「映す」にする', () => {
+    expect(describeSiteMenu(videoTab.url, blockedHosts)).toEqual({ title: 'このサイト（www.youtube.com）を映さない', enabled: true })
+    expect(describeSiteMenu(mailUrl, blockedHosts)).toEqual({ title: 'このサイト（mail.google.com）を映す', enabled: true })
+  })
+
+  it('一覧を覚えていなければ、押すと切り替わることだけを出す', () => {
+    expect(describeSiteMenu(mailUrl, null)).toEqual({ title: 'このサイト（mail.google.com）を映さない・映すを切り替える', enabled: true })
+  })
+
+  it('ホスト名で登録できないページでは押せなくする', () => {
+    expect(describeSiteMenu('chrome://settings/', blockedHosts)).toEqual({ title: 'このページは映さないサイトに登録できません', enabled: false })
+    expect(describeSiteMenu(undefined, blockedHosts)).toEqual({ title: 'このページは映さないサイトに登録できません', enabled: false })
+  })
+})
+
+describe('refreshSiteMenu', () => {
+  it('いま前に出ているタブと覚えている一覧から、項目の名前を決める', async () => {
+    const { api, menus } = createApi({ activeTab: mailTab })
+
+    await refreshSiteMenu(api)
+
+    expect(menus).toEqual([{ title: 'このサイト（mail.google.com）を映す', enabled: true }])
+  })
+
+  it('前に出ているタブが無ければ押せなくする', async () => {
+    const { api, menus } = createApi({ activeTab: null })
+
+    await refreshSiteMenu(api)
+
+    expect(menus).toEqual([{ title: 'このページは映さないサイトに登録できません', enabled: false }])
+  })
+})
+
+describe('handleSettingsRequest', () => {
+  it('一覧を頼まれたら、Worker から読み直して返し、覚え直す', async () => {
+    const { api, known } = createApi({ known: null })
+
+    expect(await handleSettingsRequest({ type: 'list' }, api)).toEqual({ ok: true, hosts: blockedHosts })
+    expect(known()).toEqual(blockedHosts)
+  })
+
+  it('手で入力したホスト名を登録し、登録したあとの一覧を返す', async () => {
+    const { api, calls } = createApi()
+
+    expect(await handleSettingsRequest({ type: 'add', host: 'bank.example.jp' }, api)).toEqual({ ok: true, hosts: [...blockedHosts, 'bank.example.jp'] })
+    expect(calls).toEqual(['登録する:bank.example.jp'])
+  })
+
+  it('消したサイトで止めていたら、すぐに送り直す', async () => {
+    const { api, calls } = createApi({ capturing: capturingSlide({ url: mailUrl, pausedAt: 'mail.google.com' }) })
+
+    expect(await handleSettingsRequest({ type: 'remove', host: 'mail.google.com' }, api)).toEqual({ ok: true, hosts: [] })
+    expect(calls).toEqual(['外す:mail.google.com', '送り直す'])
+  })
+
+  it('失敗したら理由を返す（Worker が形の違うホスト名を拒んだときなど）', async () => {
+    const { api } = createApi({ failAddHost: '映さないサイトに問題があります: host: ホスト名（例: mail.google.com）だけを指定してください' })
+
+    expect(await handleSettingsRequest({ type: 'add', host: 'https://bank.example.jp/' }, api)).toEqual({
+      ok: false,
+      message: '映さないサイトに問題があります: host: ホスト名（例: mail.google.com）だけを指定してください',
+    })
   })
 })
 
@@ -423,11 +564,19 @@ describe('describeBadge', () => {
     })
   })
 
+  it('映すサイトに戻したら、バッジは出さずに説明で知らせる', () => {
+    expect(describeBadge({ kind: 'unregistered', host: 'mail.google.com' })).toEqual({
+      text: '',
+      color: null,
+      title: 'mail.google.com を映さないサイトから外しました',
+    })
+  })
+
   it('映さないサイトに登録したら、バッジは出さずに説明で知らせる', () => {
     expect(describeBadge({ kind: 'registered', host: 'mail.google.com' })).toEqual({
       text: '',
       color: null,
-      title: 'mail.google.com を映さないサイトに登録しました（一覧は HDAD の「タブの映像」のページで消せます）',
+      title: 'mail.google.com を映さないサイトに登録しました（もう一度右クリックすると外せます。一覧は拡張の設定で見られます）',
     })
   })
 

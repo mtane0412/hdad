@@ -193,10 +193,10 @@ describe('GET /api/overlay/tab', () => {
 
 describe('映さないサイトの一覧（/api/admin/tab/blocked-hosts）', () => {
   /** 拡張のサービスワーカーと同じく、chrome.cookies で読んだセッションを Authorization ヘッダーで渡して呼ぶ */
-  const callAsExtension = async (env: Env, init: RequestInit = {}, session?: string) => {
+  const callAsExtension = async (env: Env, init: RequestInit = {}, session?: string, path = BLOCKED_HOSTS_PATH) => {
     const token = session ?? (await createSessionToken(broadcasterId, env.SESSION_SECRET, now))
     return invoke(
-      new Request(`${site}${BLOCKED_HOSTS_PATH}`, { ...init, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }),
+      new Request(`${site}${path}`, { ...init, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }),
       env,
     )
   }
@@ -232,6 +232,16 @@ describe('映さないサイトの一覧（/api/admin/tab/blocked-hosts）', () 
     await callAsExtension(env, { method: 'POST', body: JSON.stringify({ host: 'mail.google.com' }) })
 
     const response = await callAsPage(env, `${BLOCKED_HOSTS_PATH}/mail.google.com`, { method: 'DELETE' })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ hosts: [] })
+  })
+
+  it('拡張の設定ページから消したホスト名は一覧から外れる', async () => {
+    const { env } = createEnv()
+    await callAsExtension(env, { method: 'POST', body: JSON.stringify({ host: 'mail.google.com' }) })
+
+    const response = await callAsExtension(env, { method: 'DELETE' }, undefined, `${BLOCKED_HOSTS_PATH}/mail.google.com`)
 
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ hosts: [] })

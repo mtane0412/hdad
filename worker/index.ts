@@ -34,7 +34,7 @@
  * | GET  /api/admin/tab/extension.zip | セッション   | 配信者が Chrome に読み込む拡張を、この置き場所につなぐ設定と権限を入れた zip で返す |
  * | GET  /api/admin/tab/socket       | セッション＋拡張のOrigin | 拡張（送り手）からのWebSocketの接続を受け、タブの映像の連絡の中継先へ引き渡す |
  * | GET・POST /api/admin/tab/blocked-hosts | セッション（拡張は Authorization ヘッダー） | 映さないサイトの一覧の読み出し・登録 |
- * | DELETE /api/admin/tab/blocked-hosts/:host | セッション | 映さないサイトの一覧から外す |
+ * | DELETE /api/admin/tab/blocked-hosts/:host | セッション（拡張は Authorization ヘッダー） | 映さないサイトの一覧から外す |
  * | GET  /api/admin/comments/socket  | セッション     | コメントビューアーからのWebSocketの接続を受け、配送先へ引き渡す |
  * | GET  /api/admin/comments/icons   | セッション     | 発言した人のアイコンのURLを、ユーザーIDからまとめて引く |
  * | POST /api/admin/comments/moderation | セッション   | 配信者が選んだ処分（発言の削除・タイムアウト・BAN）をbotの権限で行う |

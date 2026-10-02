@@ -8,84 +8,16 @@
  * 拡張はこのページからダウンロードさせる（GET /api/admin/tab/extension.zip）。Worker がこの置き場所につなぐ設定と権限を
  * 入れて返すので、配信者が置き場所を書かずに済む（issue #168）。
  *
- * 映さないサイト（issue #165）の一覧を出し、消せるようにする。登録は拡張のボタンの右クリックから行うので、ここに入力欄は置かない
- * （手で打たせない。docs/principles.md の方針2）。
- *
- * 注意: 一覧を読めないときは、空の一覧と見分けがつくよう理由を出す。
+ * 映さないサイト（issue #165）の登録・解除は拡張（ボタンの右クリックと拡張の設定ページ）で行うので、ここでは仕方を案内するだけにする
+ * （拡張が覚えている一覧と食い違わないよう、一覧を管理する場所を拡張の1か所にまとめる）。
  */
-import { X } from 'lucide-react'
-import { useEffect, useState } from 'react'
-import { errorMessage, usePageActions } from '@/admin/page-actions'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Button, buttonVariants } from '@/components/ui/button'
+import { buttonVariants } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Skeleton } from '@/components/ui/skeleton'
-import { iconButtonName } from '@/core/icon-button'
-import type { TabApi } from './api'
 
 /** 拡張の zip。この置き場所につなぐ設定と権限が入る（worker/tab-extension.ts） */
 const EXTENSION_ZIP_PATH = '/api/admin/tab/extension.zip'
 
-/** 映さないサイトの一覧。読み込み・消す操作を受け持つ */
-const BlockedHosts = ({ api }: { api: TabApi }) => {
-  /** 読み込み中は undefined */
-  const [hosts, setHosts] = useState<string[]>()
-  const [loadFailure, setLoadFailure] = useState('')
-  const actions = usePageActions()
-
-  useEffect(() => {
-    let cancelled = false
-    api.loadBlockedHosts().then(
-      (loaded) => {
-        if (!cancelled) setHosts(loaded)
-      },
-      (error: unknown) => {
-        if (!cancelled) setLoadFailure(errorMessage(error))
-      },
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [api])
-
-  const remove = (host: string) =>
-    actions.run(async () => {
-      setHosts(await api.removeBlockedHost(host))
-      return `${host} を一覧から消しました`
-    })
-
-  if (loadFailure !== '') {
-    return (
-      <Alert variant="destructive">
-        <AlertTitle>映さないサイトの一覧を読み込めませんでした</AlertTitle>
-        <AlertDescription>{loadFailure}</AlertDescription>
-      </Alert>
-    )
-  }
-  if (hosts === undefined) return <Skeleton className="h-16 w-full" aria-label="映さないサイトの一覧を読み込んでいます" />
-
-  return (
-    <div className="flex flex-col gap-3">
-      {actions.feedback}
-      {hosts.length === 0 ? (
-        <p className="text-sm text-muted-foreground">まだ登録していません。</p>
-      ) : (
-        <ul className="flex flex-col gap-1">
-          {hosts.map((host) => (
-            <li key={host} className="flex items-center justify-between gap-2 rounded-md border px-3 py-1.5 text-sm">
-              <span className="font-mono">{host}</span>
-              <Button variant="ghost" size="icon-sm" {...iconButtonName(`${host} を一覧から消す`)} disabled={actions.busy} onClick={() => void remove(host)}>
-                <X />
-              </Button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  )
-}
-
-export const TabPage = ({ api }: { api: TabApi }) => (
+export const TabPage = () => (
   <div className="flex flex-col gap-6">
     <Card>
       <CardHeader>
@@ -123,12 +55,14 @@ export const TabPage = ({ api }: { api: TabApi }) => (
       <CardHeader>
         <CardTitle>映さないサイト</CardTitle>
         <CardDescription>
-          映しているタブがここにあるサイトへ移ると、拡張は合成ページへ送るのを止め（ボタンに「止」が出ます）、映してよいページへ戻ると再開します。
-          登録するには、映したくないサイトを開いて、拡張のボタンを右クリックして「このサイトを映さない」を選びます。
+          映しているタブが登録したサイトへ移ると、拡張は合成ページへ送るのを止め（ボタンに「止」が出ます）、映してよいページへ戻ると再開します。
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <BlockedHosts api={api} />
+        <ul className="list-disc space-y-1 pl-5 text-sm">
+          <li>開いているサイトを登録するには、拡張のボタンを右クリックして「このサイトを映さない」を選びます。登録済みのサイトでは同じ場所が「このサイトを映す」になり、選ぶと外れます</li>
+          <li>一覧を見る・まだ開いていないサイトをホスト名で登録する・消すには、拡張のボタンの右クリックの「オプション」から設定を開きます</li>
+        </ul>
       </CardContent>
     </Card>
   </div>
