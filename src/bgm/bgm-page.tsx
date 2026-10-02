@@ -24,7 +24,7 @@ import { useEffect, useId, useState } from 'react'
 import type { AdminApi, MediaItem } from '@/admin/api'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
 import { Link } from '@/app/router'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { LoadFailure } from '@/components/load-failure'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -166,10 +166,7 @@ export const BgmPage = ({ api, mediaApi }: BgmPageProps) => {
   if (loaded.status === 'loading') return <Skeleton className="h-64 w-full" aria-label="BGMを読み込んでいます" />
   if (loaded.status === 'failed') {
     return (
-      <Alert variant="destructive">
-        <AlertTitle>読み込みに失敗しました</AlertTitle>
-        <AlertDescription>BGMを表示できません: {loaded.message}</AlertDescription>
-      </Alert>
+      <LoadFailure title="BGMを表示できません" message={loaded.message} />
     )
   }
 
@@ -205,7 +202,7 @@ export const BgmPage = ({ api, mediaApi }: BgmPageProps) => {
     })
 
   return (
-    <div className="flex max-w-4xl flex-col gap-6">
+    <div className="flex flex-col gap-6">
       {actions.feedback}
 
       <Card>

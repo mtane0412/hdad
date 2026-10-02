@@ -137,7 +137,9 @@ describe('読み込みの失敗', () => {
       />,
     )
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('素材を表示できません: Workerに接続できません')
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('素材を表示できません')
+    expect(alert).toHaveTextContent('Workerに接続できません')
     expect(screen.queryByRole('button', { name: 'アップロード' })).not.toBeInTheDocument()
   })
 })

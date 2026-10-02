@@ -38,6 +38,7 @@
 import { useEffect, useId, useState } from 'react'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { LoadFailure } from '@/components/load-failure'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
@@ -221,10 +222,7 @@ export const LlmPage = ({ api }: LlmPageProps) => {
 
   if (loadFailure !== '') {
     return (
-      <Alert variant="destructive">
-        <AlertTitle>LLMの設定を読み込めませんでした</AlertTitle>
-        <AlertDescription>{loadFailure}</AlertDescription>
-      </Alert>
+      <LoadFailure title="LLMの設定を読み込めませんでした" message={loadFailure} />
     )
   }
 

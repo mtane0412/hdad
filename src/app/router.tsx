@@ -19,9 +19,10 @@ const normalize = (pathname: string): string => (pathname.endsWith('/') ? pathna
 /** 現在のパス（末尾は必ずスラッシュ）。移動のたびに描き直される */
 export const usePathname = (): string => useSyncExternalStore(subscribe, () => normalize(window.location.pathname))
 
-/** 再読み込みなしでアプリ内のパスへ移動する */
+/** 再読み込みなしでアプリ内のパスへ移動する。移った先は先頭から見せる（前のページのスクロール位置を持ち越さない） */
 export const navigate = (href: string): void => {
   window.history.pushState(null, '', href)
+  window.scrollTo(0, 0)
   // pushState は popstate を起こさないので、自分で知らせる
   window.dispatchEvent(new PopStateEvent('popstate'))
 }

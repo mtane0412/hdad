@@ -64,10 +64,12 @@
     --muted-foreground: oklch(0.556 0 0);
     --accent: oklch(0.97 0 0);
     --accent-foreground: oklch(0.205 0 0);
-    --destructive: oklch(0.577 0.245 27.325);
+    /* 白地で文字のコントラスト比 4.5:1 を超える濃さにする（shadcn の既定 0.577 は 4.49:1 で足りない） */
+    --destructive: oklch(0.53 0.22 27.325);
     --border: oklch(0.922 0 0);
     --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
+    /* フォーカスの印の色。背景との差が 3:1 を超えるよう、灰色ではなく青にする */
+    --ring: oklch(0.55 0.2 260);
     --chart-1: oklch(0.87 0 0);
     --chart-2: oklch(0.556 0 0);
     --chart-3: oklch(0.439 0 0);
@@ -81,7 +83,7 @@
     --sidebar-accent: oklch(0.97 0 0);
     --sidebar-accent-foreground: oklch(0.205 0 0);
     --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
+    --sidebar-ring: oklch(0.55 0.2 260);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -103,7 +105,7 @@
       --destructive: oklch(0.704 0.191 22.216);
       --border: oklch(1 0 0 / 10%);
       --input: oklch(1 0 0 / 15%);
-      --ring: oklch(0.556 0 0);
+      --ring: oklch(0.72 0.15 250);
       --chart-1: oklch(0.87 0 0);
       --chart-2: oklch(0.556 0 0);
       --chart-3: oklch(0.439 0 0);
@@ -116,7 +118,7 @@
       --sidebar-accent: oklch(0.269 0 0);
       --sidebar-accent-foreground: oklch(0.985 0 0);
       --sidebar-border: oklch(1 0 0 / 10%);
-      --sidebar-ring: oklch(0.556 0 0);
+      --sidebar-ring: oklch(0.72 0.15 250);
   }
 }
 
@@ -131,3 +133,15 @@
     @apply font-sans;
     }
 }
+
+/*
+ * キーボードで動かしたときのフォーカスの印。
+ * 部品ごとの印（ring の半透明）は白地で見えにくいので、どの部品にも同じ濃さの枠を重ねる。
+ * レイヤーの外に書くのは、部品が付ける outline-none（utilities レイヤー）より優先させるため。
+ * ページを移ったときに見出しへ移すフォーカス（tabindex="-1"）と、ページを探す窓の入力欄（開いている間ずっとフォーカスがある）は除く。
+ */
+:focus-visible:not([tabindex="-1"]):not([cmdk-input]) {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+

@@ -12,6 +12,7 @@
 import { Plus, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { LoadFailure } from '@/components/load-failure'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -371,10 +372,7 @@ export const BotPage = ({ api }: BotPageProps) => {
   if (loaded.status === 'loading') return <Skeleton className="h-48 w-full" aria-label="botの接続状態を読み込んでいます" />
   if (loaded.status === 'failed') {
     return (
-      <Alert variant="destructive">
-        <AlertTitle>読み込みに失敗しました</AlertTitle>
-        <AlertDescription>botの接続状態を確認できません: {loaded.message}</AlertDescription>
-      </Alert>
+      <LoadFailure title="botの接続状態を確認できません" message={loaded.message} />
     )
   }
 
@@ -582,7 +580,7 @@ export const BotPage = ({ api }: BotPageProps) => {
         </CardHeader>
         <CardContent className="flex flex-col items-start gap-4">
           {drafts.length > 0 && (
-            <Table aria-label="コマンドの一覧">
+            <Table aria-label="コマンドの一覧" className="min-w-2xl">
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-48">コマンド</TableHead>
@@ -665,7 +663,7 @@ export const BotPage = ({ api }: BotPageProps) => {
           </p>
 
           {moderation.rules.length > 0 && (
-            <Table aria-label="自動モデレーションのルールの一覧">
+            <Table aria-label="自動モデレーションのルールの一覧" className="min-w-2xl">
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-44">種類</TableHead>

@@ -13,7 +13,7 @@
  * - 存在しないパスでは、見つからないことを伝える画面を出すこと
  */
 import '@testing-library/jest-dom/vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeAll, describe, expect, test, vi } from 'vitest'
 import type { AdminApi, Me } from '@/admin/api'
@@ -170,13 +170,17 @@ beforeAll(() => {
     dispatchEvent: () => false,
   })
   // jsdom には ResizeObserver がない。オーバーレイのプレビューが縮小率を決めるのに使うので、何もしない代役を置く
+  // （ページを探す窓（cmdk）は一覧の高さを測るのに unobserve も呼ぶ）
   vi.stubGlobal(
     'ResizeObserver',
     class {
       observe(): void {}
+      unobserve(): void {}
       disconnect(): void {}
     },
   )
+  // jsdom には scrollIntoView がない。ページを探す窓が選んでいる項目を見える位置へ送るのに使う
+  Element.prototype.scrollIntoView = () => {}
 })
 
 afterEach(() => {
@@ -302,5 +306,102 @@ describe('ログインの確認に失敗したとき', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Workerに接続できません')
     expect(screen.queryByRole('link', { name: 'Twitchでログイン' })).not.toBeInTheDocument()
+  })
+})
+
+/** ログイン済みの配信者としてアプリを開く */
+const renderSignedIn = () =>
+  render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} api={createFakeAdminApi(async () => broadcaster)} />)
+
+describe('迷わず移動できること', () => {
+  test('サイドバーの項目を、使う場面ごとのまとまりに分けて並べる', async () => {
+    renderSignedIn()
+    await screen.findByRole('link', { name: 'ダッシュボード' })
+
+    for (const label of ['配信中', '配信画面', '自動化', '素材']) {
+      expect(screen.getByText(label, { selector: '[data-slot="sidebar-group-label"]' })).toBeInTheDocument()
+    }
+  })
+
+  test('ブラウザのタブの題名に、いま開いているページの名前を出す', async () => {
+    openPage('/viewers/')
+    renderSignedIn()
+    await screen.findByRole('heading', { level: 1, name: '視聴者' })
+    expect(document.title).toBe('視聴者 · HDAD')
+
+    await userEvent.click(within(screen.getByRole('navigation', { name: 'サイト内の移動' })).getByRole('link', { name: 'アップロード' }))
+    expect(document.title).toBe('アップロード · HDAD')
+  })
+
+  test('ログアウトしてログインの入口に戻ったら、タブの題名をアプリ名だけに戻す', async () => {
+    openPage('/viewers/')
+    renderSignedIn()
+    await screen.findByRole('heading', { level: 1, name: '視聴者' })
+
+    await userEvent.click(screen.getByRole('button', { name: 'ログアウト' }))
+
+    expect(await screen.findByRole('link', { name: 'Twitchでログイン' })).toBeInTheDocument()
+    expect(document.title).toBe('HDAD')
+  })
+
+  test('キーボードで操作する人のために、サイドバーを飛ばして本文へ移るリンクを置く', async () => {
+    renderSignedIn()
+    const skip = await screen.findByRole('link', { name: '本文へ移動' })
+    expect(skip).toHaveAttribute('href', '#main')
+    expect(document.getElementById('main')).toBeInTheDocument()
+  })
+
+  test('ページを移ったら、読み上げソフトが新しいページの見出しから読めるよう、見出しへフォーカスを移す', async () => {
+    renderSignedIn()
+    await userEvent.click(await screen.findByRole('link', { name: '視聴者' }))
+    expect(screen.getByRole('heading', { level: 1, name: '視聴者' })).toHaveFocus()
+  })
+
+  test('Cmd+K でページを探す窓が開き、名前の一部を打って Enter でそのページへ移る', async () => {
+    renderSignedIn()
+    await screen.findByRole('link', { name: 'ダッシュボード' })
+
+    await userEvent.keyboard('{Meta>}k{/Meta}')
+    const dialog = await screen.findByRole('dialog', { name: 'ページを移動' })
+    expect(dialog).toBeInTheDocument()
+
+    await userEvent.keyboard('トリガ')
+    await userEvent.keyboard('{Enter}')
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'トリガー' })).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/triggers/')
+    expect(screen.queryByRole('dialog', { name: 'ページを移動' })).not.toBeInTheDocument()
+  })
+
+  test('見出しの横のボタンからも、ページを探す窓を開ける', async () => {
+    renderSignedIn()
+    await userEvent.click(await screen.findByRole('button', { name: /ページを探す/ }))
+    expect(await screen.findByRole('dialog', { name: 'ページを移動' })).toBeInTheDocument()
+  })
+})
+
+describe('見出しで飛べること', () => {
+  test('ログインの入口では、アプリ名をページの見出しにする', async () => {
+    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} api={createFakeAdminApi(async () => null)} />)
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'HDAD' })).toBeInTheDocument()
+  })
+
+  test('ページの中のまとまり（カード）の題名を、ページの見出しの1段下の見出しにする', async () => {
+    openPage('/media/')
+    renderSignedIn()
+
+    expect(await screen.findByRole('heading', { level: 2, name: '素材' })).toBeInTheDocument()
+  })
+})
+
+describe('ログインの確認に失敗したときの立て直し', () => {
+  test('エラーと一緒に、もう一度確かめるボタンを出す', async () => {
+    const me = vi.fn<AdminApi['me']>().mockRejectedValueOnce(new Error('Workerに接続できません')).mockResolvedValueOnce(broadcaster)
+    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} api={createFakeAdminApi(me)} />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'もう一度確かめる' }))
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'ダッシュボード' })).toBeInTheDocument()
   })
 })

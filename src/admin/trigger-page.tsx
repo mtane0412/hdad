@@ -18,6 +18,7 @@
 import { ChevronDown, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { LoadFailure } from '@/components/load-failure'
 import { Badge } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -510,9 +511,10 @@ const TriggerRow = ({ label, heading, description, note, phases, media, rewards,
           <ChevronDown aria-hidden="true" className={open ? 'rotate-180' : ''} />
           {/* 読み上げでは、どの行の見出しかが分かるように呼び名から始める（見出しに出ていない複数持ての行だけ） */}
           {heading === null && <span className="sr-only">{label}:</span>}
-          <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
-            <span className="truncate font-medium">{title}</span>
-            {description !== null && <span className="truncate text-xs font-normal text-muted-foreground">{description}</span>}
+          {/* 狭い画面でも右のバッジと重ならないよう、名前と説明は切り詰めずに折り返す（ボタンの既定は折り返さない） */}
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5 text-left whitespace-normal">
+            <span className="font-medium">{title}</span>
+            {description !== null && <span className="text-xs font-normal text-muted-foreground">{description}</span>}
             {/* 1行だけの項目でも絞り込みを持つことがある（久しぶりの人の日数・広告の自動と手動） */}
             {heading !== null && param !== null && <span className="truncate text-xs font-normal text-muted-foreground">{param}</span>}
           </span>
@@ -788,10 +790,7 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
   if (loaded.status === 'loading') return <Skeleton className="h-64 w-full" aria-label="トリガーの設定を読み込んでいます" />
   if (loaded.status === 'failed') {
     return (
-      <Alert variant="destructive">
-        <AlertTitle>読み込みに失敗しました</AlertTitle>
-        <AlertDescription>トリガーを表示できません: {loaded.message}</AlertDescription>
-      </Alert>
+      <LoadFailure title="トリガーを表示できません" message={loaded.message} />
     )
   }
 
@@ -848,7 +847,7 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
   }
 
   return (
-    <div className="flex max-w-4xl flex-col gap-6">
+    <div className="flex flex-col gap-6">
       {actions.feedback}
       {bot.status === 'failed' && (
         <Alert variant="destructive">

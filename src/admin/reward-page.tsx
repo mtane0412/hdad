@@ -13,7 +13,7 @@
  */
 import { Plus, Trash2 } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { LoadFailure } from '@/components/load-failure'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -134,10 +134,7 @@ export const RewardPage = ({ api }: { api: AdminApi }) => {
   if (loaded.status === 'loading') return <Skeleton className="h-64 w-full" aria-label="チャンネルポイント報酬を読み込んでいます" />
   if (loaded.status === 'failed') {
     return (
-      <Alert variant="destructive">
-        <AlertTitle>読み込みに失敗しました</AlertTitle>
-        <AlertDescription>チャンネルポイント報酬を表示できません: {loaded.message}</AlertDescription>
-      </Alert>
+      <LoadFailure title="チャンネルポイント報酬を表示できません" message={loaded.message} />
     )
   }
 
@@ -166,7 +163,7 @@ export const RewardPage = ({ api }: { api: AdminApi }) => {
   }
 
   return (
-    <div className="flex max-w-3xl flex-col gap-6">
+    <div className="flex flex-col gap-6">
       {actions.feedback}
 
       <Card>
