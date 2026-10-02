@@ -39,8 +39,8 @@ import {
   handlePickAreaClick,
   handleSettingsRequest,
   handleSiteMenuClick,
+  isCaptureState,
   refreshSiteMenu,
-  type CaptureState,
   type ControllerApi,
 } from './controller'
 import { isRecord, reasonOf } from './guards'
@@ -61,15 +61,6 @@ const PICK_AREA_MENU_ID = 'pick-area'
 const CLEAR_AREA_MENU_ID = 'clear-area'
 /** 映しているタブの中のページ（iframe ではないもの）を表す webNavigation の frameId */
 const MAIN_FRAME_ID = 0
-
-/** chrome.storage.session から読んだ値が、このサービスワーカーが書いた記録の形か */
-const isCaptureState = (value: unknown): value is CaptureState =>
-  isRecord(value) &&
-  typeof value.tabId === 'number' &&
-  typeof value.url === 'string' &&
-  Array.isArray(value.blockedHosts) &&
-  value.blockedHosts.every(isHostName) &&
-  (value.pausedAt === null || typeof value.pausedAt === 'string')
 
 /**
  * 同梱の設定を読む。映し始めるたびに読む（読むのは拡張の中のファイルなので速く、持ち回る状態を作らずに済む）。

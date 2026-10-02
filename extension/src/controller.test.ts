@@ -13,6 +13,7 @@
  * - 設定ページからの頼み（一覧・追加・削除）に応じ、映しているタブにもすぐ反映する
  * - ボタンの右クリックで、映しているタブに範囲を選ぶ画面を出し、選ばれた範囲を送る。範囲を外してタブ全体に戻す（issue #166）
  * - ボタンの表示（バッジと説明）が状態ごとに分かれる
+ * - chrome.storage.session から読み戻した記録が、覚えたときの形か確かめられる
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -27,6 +28,7 @@ import {
   handleOffscreenEvent,
   handleSettingsRequest,
   handleSiteMenuClick,
+  isCaptureState,
   refreshSiteMenu,
   type BadgeState,
   type CaptureState,
@@ -624,6 +626,26 @@ describe('handleClearAreaClick', () => {
 
     expect(calls).toEqual([])
     expect(shown.at(-1)).toEqual({ kind: 'problem', message: 'タブを映していないので、外す範囲はありません' })
+  })
+})
+
+describe('isCaptureState', () => {
+  it('映し始めたときに覚えた記録を、読み戻したときに受け入れる', async () => {
+    // 覚える形と読み戻すときの確認が食い違うと、映し始めたあとの操作（止める・範囲を選ぶ）がすべて失敗する
+    const { api, capturing } = createApi()
+    await handleClick(slideTab, api)
+
+    expect(isCaptureState(structuredClone(capturing()))).toBe(true)
+  })
+
+  it('映さないサイトで送るのを止めているときの記録も受け入れる', () => {
+    expect(isCaptureState(capturingSlide({ pausedAt: 'mail.google.com' }))).toBe(true)
+  })
+
+  it('形の違う記録（前の版が覚えたものなど）は受け入れない', () => {
+    expect(isCaptureState({ tabId: '7', url: slideTab.url, pausedAt: null })).toBe(false)
+    expect(isCaptureState({ tabId: 7, url: slideTab.url })).toBe(false)
+    expect(isCaptureState(null)).toBe(false)
   })
 })
 

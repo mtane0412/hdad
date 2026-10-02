@@ -23,7 +23,7 @@
  */
 import { hostOfPageUrl, isBlockedUrl } from '../../src/tab/blocked-hosts'
 import type { TabCrop } from '../../src/tab/crop'
-import { reasonOf } from './guards'
+import { isRecord, reasonOf } from './guards'
 import type { OffscreenEvent } from './offscreen-event'
 import type { SettingsReply, SettingsRequest } from './settings-request'
 
@@ -48,6 +48,15 @@ export interface CaptureState {
   /** 映さないサイトにいて送るのを止めているなら、そのサイト（止めていなければ null） */
   readonly pausedAt: string | null
 }
+
+/**
+ * chrome.storage.session から読み戻した値が、CaptureState として覚えた形か確かめる。
+ *
+ * 注意: CaptureState の項目を変えたら、ここも合わせて変える（食い違うと、映し始めたあとに記録を読む操作がすべて失敗する。
+ * PR #178 で blockedHosts を外したときにここだけ残り、止める・範囲を選ぶが失敗した）。
+ */
+export const isCaptureState = (value: unknown): value is CaptureState =>
+  isRecord(value) && typeof value.tabId === 'number' && typeof value.url === 'string' && (value.pausedAt === null || typeof value.pausedAt === 'string')
 
 /** ボタンの右クリックに出す「映さない・映す」の項目 */
 export interface SiteMenuView {
