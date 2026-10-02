@@ -899,6 +899,41 @@ describe('サイドスーパーの生成', () => {
     expect(await readSideSuper(db, chatStream.id)).toEqual({ lines: ['新作ゲーム', '城を攻略中'], updatedAt: new Date(fiveMinutesLater).toISOString() })
   })
 
+  it('画面の文字を取りに行く前に、サイドスーパーを作り終えている（画面の処理が重くても止まらないため）', async () => {
+    const { db, store } = await createEnv()
+    createLiveMaterial(db)
+    await recordScreenCapture(db, '1枚目', now - 60 * 1000)
+    // Gyazo に読み取った文字を取りに行った時点で、サイドスーパーが貯まっているかを覚えておく
+    let sideSuperWhenFetchingOcr: Awaited<ReturnType<typeof readSideSuper>> = null
+    const gyazo = {
+      fetchOcr: async () => {
+        sideSuperWhenFetchingOcr = await readSideSuper(db, chatStream.id)
+        return '画面に出ていた文字'
+      },
+    }
+
+    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(allSuccessResponse), ...withoutBgmJudgment, broadcasterId: streamerId, now, gyazo })
+
+    expect(sideSuperWhenFetchingOcr).not.toBeNull()
+  })
+
+  it('サイドスーパーを作ったあとに同じ収集で篩を通った画面の文字は、次の収集で材料にする', async () => {
+    const { db, store } = await createEnv()
+    createLiveMaterial(db)
+    // 前提: 読み取りまで済んだ1枚がある。1回目の収集では、サイドスーパーを作ったあとで篩を通って積まれる
+    await recordScreenCapture(db, '1枚目', now - 60 * 1000)
+    await saveScreenOcr(db, '1枚目', 'ストームヴィル城')
+    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(allSuccessResponse), ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    const fiveMinutesLater = now + 5 * 60 * 1000
+    const ai = fakeAi('新作ゲーム\n城を攻略中')
+
+    // 喋りも発言も増えていないが、前回のサイドスーパーに入っていない画面の文字があるので作り直す
+    await collectStats({ db, store, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now: fiveMinutesLater })
+
+    expect(ai.receivedMaterial('sideSuper').some((material) => material.includes('ストームヴィル城'))).toBe(true)
+    expect(await readSideSuper(db, chatStream.id)).toEqual({ lines: ['新作ゲーム', '城を攻略中'], updatedAt: new Date(fiveMinutesLater).toISOString() })
+  })
+
   it('配信していなければ、サイドスーパーを作らない', async () => {
     const { db, store } = await createEnv()
 
@@ -1187,11 +1222,12 @@ describe('collectStats（1回ぶんの時間予算。issue #126）', () => {
     await recordScreenCapture(db, '画像2', now - 60 * 1000)
     const fetched: string[] = []
     const gyazo = { fetchOcr: async (imageId: string) => (fetched.push(imageId), '画面に出ていた文字') }
-    // 1枚目を取りに行ったところで予算を使い切る時計（開始の1回と、1枚目の前の1回までは予算内）
+    // 1枚目を取りに行ったところで予算を使い切る時計。開始・あらすじの前・サイドスーパーの前・1枚目の前の
+    // 4回までは予算内（画面の文字はあらすじとサイドスーパーより後に取りに行く）
     let count = 0
     const clock = () => {
       count += 1
-      return count <= 2 ? now : now + COLLECT_BUDGET_MS + 1
+      return count <= 4 ? now : now + COLLECT_BUDGET_MS + 1
     }
 
     await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now, gyazo, clock })

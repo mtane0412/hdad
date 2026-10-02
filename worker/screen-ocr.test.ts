@@ -8,7 +8,7 @@
  * - 比べ方が完全一致ではないこと（OCRは同じ画面でも毎回違う文字を返すため、ここを外すと2枚目が畳めない）
  */
 import { describe, expect, it } from 'vitest'
-import { bigramSimilarity, extractNewScreenLines, normalizeScreenLine } from './screen-ocr'
+import { SCREEN_LINE_SIMILARITY, bigramSimilarity, createScreenSieve, extractNewScreenLines, normalizeScreenLine } from './screen-ocr'
 
 describe('normalizeScreenLine', () => {
   it('全角と半角の違い・大文字小文字・空白・記号を落とす', () => {
@@ -97,5 +97,49 @@ describe('extractNewScreenLines', () => {
     const remainingLines = extractNewScreenLines('岩手17歳女性殺害事件\n盛岡市のガソリンスタンド', [], alreadyPassedLines)
 
     expect(remainingLines).toEqual(['盛岡市のガソリンスタンド'])
+  })
+})
+
+describe('createScreenSieve', () => {
+  it('1枚目に残した行を、2枚目では既出として落とす（同じ篩を続けて使うとき）', () => {
+    const sieve = createScreenSieve([], [])
+
+    const firstCapture = sieve.extract('岩手17歳女性殺害事件')
+    // OCRの揺れで1文字違って返っても、1枚目に残した行と同じ行として畳む
+    const secondCapture = sieve.extract('岩手17歳女性殺書事件\n盛岡市のガソリンスタンド')
+
+    expect(firstCapture).toEqual(['岩手17歳女性殺害事件'])
+    expect(secondCapture).toEqual(['盛岡市のガソリンスタンド'])
+  })
+
+  it('既出かどうかの判定は、既に渡した行と1行ずつ文字2連の重なりで比べたときと同じになる', () => {
+    // 前提: 同じ2連を何度も含む行・しきい値（0.7）の前後の行・長さが大きく違う行を混ぜる
+    const alreadyPassedLines = ['ああああああ', '盛岡市のガソリンスタンド', '2008年6月29日0200', '岩手17歳女性殺害事件の続報', 'カメラ']
+    // 候補はどれも3文字以上にする（3文字未満は既出の判定より前に、中身のない行として落ちるため）
+    const candidateLines = [
+      'あああ',
+      'ああああ',
+      '盛岡市のガソリンスタンド前',
+      '盛岡市のコンビニエンスストア',
+      '2006年6月29日0200',
+      '岩手17歳女性殺害事件',
+      'カメラに映る人物',
+      'カメラ',
+      'まったく別の話題です',
+    ]
+
+    for (const candidate of candidateLines) {
+      // 期待値: 既に渡した行のどれか1つと、しきい値以上に似ているか（素朴に全部と比べた結果）
+      const resemblesAny = alreadyPassedLines.some((passed) => bigramSimilarity(candidate, passed) >= SCREEN_LINE_SIMILARITY)
+      const sieve = createScreenSieve([], alreadyPassedLines)
+
+      expect(sieve.extract(candidate), candidate).toEqual(resemblesAny ? [] : [candidate])
+    }
+  })
+
+  it('自前の文字によく似た行（OCRの揺れ）も落とす', () => {
+    const sieve = createScreenSieve(['それは面白いですねえ'], [])
+
+    expect(sieve.extract('それは面臼いですねえ\n盛岡市のガソリンスタンド')).toEqual(['盛岡市のガソリンスタンド'])
   })
 })
