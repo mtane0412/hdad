@@ -17,7 +17,7 @@ paths:
 
 **訳文（issue #191）は確定した文にIDを付けて結び付ける。** アプリの枠は確定した1件ごとに UUID を作って `final` に載せ、直前に確定した2件を文脈として `POST /api/admin/translations`（`worker/translation-routes.ts`。セッションで守る）へ送り、返ってきた訳文を同じIDの `translation` として中継先へ送る。原文は訳を待たずに送り、訳せなかった理由は `translationWarning` としてコネクターのページに出す。暫定の文は訳さない。訳す先は英語だけで設定項目にしない。提供元（訳さない・LLM・m2m100・DeepL）は `worker/translation-config.ts`（KVは `translation-settings`。既定は訳さない）が決め、選ぶ画面は `/llm/` の区画（`src/llm/translation-card.tsx`）である。LLM で訳すときは `worker/llm.ts` に箇所 `translation` を指名する（`.claude/rules/llm.md`）。失敗は黙って別の提供元へ落とさず502で返し、`collection_failures`（`translation-failed`）にも残す。合成ページは訳文を同じIDの確定した行の下に添え、訳文が届いてから `FINAL_LIFETIME_MS` 映す。添える先が消えていれば捨てる。
 
-**行数・消えるまでの時間・位置は設定項目にしない**（`docs/principles.md` の方針1）。数は `src/caption/captions.ts`（`CAPTION_LINES`・`FINAL_LIFETIME_MS`・`INTERIM_LIFETIME_MS`）、見た目は `src/caption/caption.css` だけが持つ。映す行は届いた時刻といまの時刻だけから決め（`visibleCaptions`）、合成ページの描画ループが毎フレーム呼ぶ（タイマーを持たない）。
+**行数・消えるまでの時間・位置は設定項目にしない**（`docs/principles.md` の方針1）。数は `src/caption/captions.ts`（`CAPTION_LINES`・`FINAL_LIFETIME_MS`・`INTERIM_LIFETIME_MS`・1行の字数の上限 `CAPTION_MAX_CHARS`・`TRANSLATION_MAX_CHARS`）、見た目は `src/caption/caption.css` だけが持つ。長い行は末尾だけを残して先頭を「…」で落とす（`tailOf`。状態には全文を持ち、切るのは `visibleCaptions` だけ）。映す行は届いた時刻といまの時刻だけから決め（`visibleCaptions`）、合成ページの描画ループが毎フレーム呼ぶ（タイマーを持たない）。
 
 **合成ページの字幕の箱には切断を出さない**（箱は配信画面と同じ大きさに置くので、失敗の表示が配信画面全体を覆う。手書きの issue #174 と同じ）。
 

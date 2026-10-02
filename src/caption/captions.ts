@@ -10,6 +10,8 @@
  *   訳文が届いてから数え直す（訳は原文より遅れて届くので、訳を読む時間を取る）。添える先の行がもう無い訳文は捨てる
  * - 話している途中の文は、書き換わらないまま INTERIM_LIFETIME_MS が経ったら消す。認識していたタブが閉じられると
  *   「途中の文が無くなった」知らせが届かないので、話しかけの文が配信画面に残り続けないようにする
+ * - 長い行は末尾（新しく話した部分）だけを CAPTION_MAX_CHARS 字まで映し、先頭を「…」で落とす（訳文は TRANSLATION_MAX_CHARS 字）。
+ *   Web Speech API は話し続けるあいだ文を確定しないので、1発話が数百字になり、折り返すと配信画面の半分を埋める
  */
 import type { CaptionMessage } from './message'
 
@@ -26,6 +28,36 @@ export const FINAL_LIFETIME_MS = 6000
 
 /** 話している途中の文を、書き換わらないまま映しておく時間（ミリ秒）。ふつうは話しているあいだ1秒に何度も書き換わる */
 export const INTERIM_LIFETIME_MS = 10000
+
+/**
+ * 原文の1行に映す字数の上限（「…」を含む）。
+ *
+ * 44pxの文字を左右96pxの余白を除いた1728px（src/caption/caption.css）に並べると1行に約39字入るので、2行ぶんにする。
+ * 2026-10-02 の配信（Web Speech API）では 229 発話のうち 20 件がこれを超え、最長は268字だった。
+ */
+export const CAPTION_MAX_CHARS = 76
+
+/** 訳文の1行に映す字数の上限（「…」を含む）。34pxの英字は1行に約90字入るので、単語の折り返しの余裕を見て2行ぶん弱にする */
+export const TRANSLATION_MAX_CHARS = 160
+
+/** 落とした先頭の代わりに付ける印 */
+const ELLIPSIS = '…'
+
+/**
+ * 文の末尾だけを、「…」を含めて max 字までに切り詰める。
+ *
+ * 残す部分の前半に空白があれば、その次から始める（Web Speech API は話の間に空白を挟み、英語は単語の間に空白があるので、
+ * 言葉の途中から始まらないようにする）。後半の空白にはそろえない（残る文が短くなりすぎる）。
+ * 字数はコードポイントで数え、絵文字などを途中で割らない。
+ */
+export const tailOf = (text: string, max: number): string => {
+  const chars = Array.from(text)
+  if (chars.length <= max) return text
+  const kept = chars.slice(chars.length - (max - 1))
+  const space = kept.findIndex((char) => /\s/.test(char))
+  const start = space !== -1 && space < kept.length / 2 ? space + 1 : 0
+  return ELLIPSIS + kept.slice(start).join('')
+}
 
 /** 届いた時刻つきの1行 */
 interface TimedLine {
@@ -85,7 +117,14 @@ export const applyCaptionMessage = (state: CaptionState, message: CaptionMessage
 export const visibleCaptions = (state: CaptionState, now: number): CaptionLine[] => {
   const finals = state.finals
     .filter((line) => now - line.at < FINAL_LIFETIME_MS)
-    .map((line) => ({ text: line.text, final: true, translation: line.translation }))
-  const interim = state.interim !== null && now - state.interim.at < INTERIM_LIFETIME_MS ? [{ text: state.interim.text, final: false, translation: null }] : []
+    .map((line) => ({
+      text: tailOf(line.text, CAPTION_MAX_CHARS),
+      final: true,
+      translation: line.translation === null ? null : tailOf(line.translation, TRANSLATION_MAX_CHARS),
+    }))
+  const interim =
+    state.interim !== null && now - state.interim.at < INTERIM_LIFETIME_MS
+      ? [{ text: tailOf(state.interim.text, CAPTION_MAX_CHARS), final: false, translation: null }]
+      : []
   return [...finals, ...interim].slice(-CAPTION_LINES)
 }
