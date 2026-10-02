@@ -22,7 +22,7 @@
  * 消したことは線の名前で中継先へ送り、保存は線を引き終えたときと同じく、ポインタを離してから数秒まとめて書く。
  *
  * キャンバスの下には、配信画面を撮った最新の1枚を薄く敷ける（背景のアイコンを押すたびに切り替わる。既定は敷かない）。画面の取り込み
- * （/screen/）が Gyazo へ上げた最後の1枚を読み続ける（src/draw/use-background.ts）。
+ * （コネクターのページの Gyazo）が Gyazo へ上げた最後の1枚を読み続ける（src/draw/use-background.ts）。
  * 撮る間隔ぶん古い画面なので、画面の構成を見て「このあたり」を指すためのものである。
  *
  * 道具箱はアイコンだけで1行に収める。色・太さ・背景の濃さはアイコンを押して開く選択肢で選び、
@@ -155,7 +155,7 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
   /** 背景について、道具箱の下に出す知らせ（気付いてほしいものだけ）。失敗は赤く出す */
   const backgroundNotice = ((): { text: string; isError: boolean } | null => {
     if (backgroundError !== null) return { text: `背景を読めませんでした: ${backgroundError}`, isError: true }
-    if (background.kind === 'none') return { text: '背景にできる配信画面がまだありません。配信中に画面の取り込み（/screen/）を動かすと撮れます。', isError: false }
+    if (background.kind === 'none') return { text: '背景にできる配信画面がまだありません。配信中にコネクターのページで Gyazo を動かすと撮れます。', isError: false }
     if (background.kind === 'image' && background.url === unreadableImage) {
       return { text: '背景の画像を読み込めませんでした（公開範囲が「自分だけ」の画像は使えません。次に撮られた画面から出ます）。', isError: true }
     }

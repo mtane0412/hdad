@@ -68,7 +68,7 @@ describe('Gyazo の区画', () => {
     const intervalField = await screen.findByLabelText('撮る間隔（秒）')
     await userEvent.clear(intervalField)
     await userEvent.type(intervalField, '90')
-    await userEvent.click(screen.getByRole('button', { name: '保存' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Gyazoの設定を保存' }))
 
     await waitFor(() => expect(api.save).toHaveBeenCalledWith({ ...savedConfig, intervalSeconds: 90 }))
   })
@@ -78,7 +78,7 @@ describe('Gyazo の区画', () => {
     renderPage(api)
 
     await userEvent.type(await screen.findByLabelText('上げ先の Gyazo のコレクション（任意）'), collectionUrl)
-    await userEvent.click(screen.getByRole('button', { name: '保存' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Gyazoの設定を保存' }))
 
     await waitFor(() => expect(api.save).toHaveBeenCalledWith({ ...savedConfig, collectionId: 'f19e74cebe47c9cadad31b6790098eac' }))
   })
@@ -88,7 +88,7 @@ describe('Gyazo の区画', () => {
     renderPage(api)
 
     await screen.findByLabelText('上げ先の Gyazo のコレクション（任意）')
-    await userEvent.click(screen.getByRole('button', { name: '保存' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Gyazoの設定を保存' }))
 
     await waitFor(() => expect(api.save).toHaveBeenCalledWith(savedConfig))
   })
@@ -98,7 +98,7 @@ describe('Gyazo の区画', () => {
     renderPage(api)
 
     await userEvent.clear(await screen.findByLabelText('撮る間隔（秒）'))
-    await userEvent.click(screen.getByRole('button', { name: '保存' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Gyazoの設定を保存' }))
 
     await waitFor(() => expect(api.save).toHaveBeenCalledWith({ ...savedConfig, intervalSeconds: Number.NaN }))
   })
@@ -111,7 +111,7 @@ describe('Gyazo の区画', () => {
     renderPage(api)
 
     await screen.findByLabelText('撮る間隔（秒）')
-    await userEvent.click(screen.getByRole('button', { name: '保存' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Gyazoの設定を保存' }))
 
     // 問題点は1つの要素に改行で並ぶので、部分一致で確かめる
     expect(await screen.findByText(/・intervalSeconds: 15〜600 の整数で指定してください/)).toBeInTheDocument()

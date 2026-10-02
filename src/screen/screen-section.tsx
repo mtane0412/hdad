@@ -229,7 +229,7 @@ export const ScreenSection = ({ api }: ScreenSectionProps) => {
 
           <div className="sm:col-span-2">
             <Button type="button" disabled={actions.busy} onClick={() => void actions.run(save)}>
-              保存
+              Gyazoの設定を保存
             </Button>
           </div>
         </CardContent>

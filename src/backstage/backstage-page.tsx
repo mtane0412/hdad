@@ -127,7 +127,6 @@ const BackstageUrlCard = ({ overlayKey }: { overlayKey: string | null }) => {
               <Input
                 id={portFieldId}
                 inputMode="numeric"
-                placeholder={String(DEFAULT_TRANSCRIPT_PORT)}
                 value={port}
                 onChange={(event) => setPort(event.target.value)}
                 className="max-w-40"

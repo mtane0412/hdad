@@ -305,7 +305,7 @@ export const SpeechSection = ({ api, botApi }: SpeechSectionProps) => {
 
           <div className="sm:col-span-2">
             <Button type="button" disabled={actions.busy} onClick={() => void actions.run(save)}>
-              保存
+              VOICEVOXの設定を保存
             </Button>
           </div>
         </CardContent>
