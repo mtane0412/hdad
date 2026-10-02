@@ -20,7 +20,7 @@ import { createFakeStore } from './fake-store'
 import { handleRequest, type Env } from './index'
 import { createSessionToken } from './session'
 import { recordLlmUsage } from './llm-usage-store'
-import { TRANSCRIPT_MAX_LENGTH } from './overlay-routes'
+import { TRANSCRIPT_MAX_LENGTH } from './transcript-routes'
 
 const now = Date.UTC(2026, 8, 21, 12, 0, 0)
 const broadcasterId = '12345'
@@ -388,6 +388,89 @@ describe('オーバーレイ用API', () => {
 
       expect(response.status).toBe(200)
       expect(await response.json()).toEqual({ recorded: true })
+    })
+  })
+
+  describe('POST /api/admin/transcripts（アプリのページで認識した発話の受け口）', () => {
+    /** 配信中の区切りを1件作る。ended_at が NULL なら配信中である */
+    const startStream = (env: Env): void => {
+      ;(env.DB as ReturnType<typeof createFakeDatabase>).sqlite
+        .prepare('INSERT INTO stream_sessions (id, started_at, title, category_name) VALUES (?, ?, ?, ?)')
+        .run('配信1', new Date(now - 60_000).toISOString(), '雑談配信', 'Just Chatting')
+    }
+
+    const sendAsBroadcaster = async (env: Env, body: unknown) =>
+      invoke(
+        await broadcasterRequest(env, '/api/admin/transcripts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: typeof body === 'string' ? body : JSON.stringify(body),
+        }),
+        env,
+      )
+
+    const readRows = (env: Env) =>
+      (env.DB as ReturnType<typeof createFakeDatabase>).sqlite.prepare('SELECT message_id, text FROM transcripts').all()
+
+    it('配信中なら、ログインした配信者が送った発話を記録して記録したと答える', async () => {
+      const { env } = createEnv()
+      startStream(env)
+
+      const response = await sendAsBroadcaster(env, { messageId: 'webspeech:発話1', text: ' こんばんは、配信を始めます ' })
+
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({ recorded: true })
+      expect(readRows(env)).toEqual([{ message_id: 'webspeech:発話1', text: 'こんばんは、配信を始めます' }])
+    })
+
+    it('配信していなければ捨て、捨てたと答える', async () => {
+      const { env } = createEnv()
+
+      const response = await sendAsBroadcaster(env, { messageId: 'webspeech:独り言', text: 'マイクの確認です' })
+
+      expect(await response.json()).toEqual({ recorded: false })
+      expect(readRows(env)).toEqual([])
+    })
+
+    it('ログインしていなければ401を返し、記録しない', async () => {
+      const { env } = createEnv()
+      startStream(env)
+
+      const response = await invoke(
+        new Request(`${origin}/api/admin/transcripts`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Origin: origin },
+          body: JSON.stringify({ messageId: 'webspeech:発話1', text: 'こんばんは' }),
+        }),
+        env,
+      )
+
+      expect(response.status).toBe(401)
+      expect(readRows(env)).toEqual([])
+    })
+
+    it('別のサイトから送られたら403を返し、記録しない', async () => {
+      const { env } = createEnv()
+      startStream(env)
+
+      const response = await invoke(
+        await broadcasterRequest(env, '/api/admin/transcripts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Origin: 'https://evil.example.com' },
+          body: JSON.stringify({ messageId: 'webspeech:発話1', text: 'こんばんは' }),
+        }),
+        env,
+      )
+
+      expect(response.status).toBe(403)
+      expect(readRows(env)).toEqual([])
+    })
+
+    it('本文の検証は中継ページの受け口と同じ（長すぎれば400で拒否する）', async () => {
+      const { env } = createEnv()
+      const response = await sendAsBroadcaster(env, { messageId: 'webspeech:発話1', text: 'あ'.repeat(TRANSCRIPT_MAX_LENGTH + 1) })
+      expect(response.status).toBe(400)
+      expect(await errorCode(response)).toBe('text-too-long')
     })
   })
 

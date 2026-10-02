@@ -16,7 +16,7 @@ import { loadScreenSettings } from './screen-config'
 import { isStreaming, recordScreenCapture } from './screen-store'
 import { readCurrentSideSuper } from './side-super-store'
 import { loadSpeechSettings } from './speech-config'
-import { recordTranscript } from './transcript-store'
+import { receiveTranscript } from './transcript-routes'
 
 /**
  * GET /api/overlay/socket?key=: オーバーレイからのWebSocketの接続を受け、配送先（Durable Object）へ引き渡す。
@@ -103,52 +103,15 @@ export const media = async (context: Context): Promise<Response> => {
 }
 
 /**
- * 1件の発話として受け付ける本文の長さの上限（文字数）。
- *
- * ゆかコネNEO が渡してくるのは確定した1文なので、これを超えるのは中継ページの誤りか、別のものが
- * 押し込まれているかである。長いものを黙って切り詰めず、拒む（Fail-Fast）。
- */
-export const TRANSCRIPT_MAX_LENGTH = 1000
-
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
-
-/**
  * POST /api/overlay/transcript: 配信中の文字起こしを1件受け取る。
  *
  * OBSのブラウザソースに置いた中継ページ（transcript/index.html）が、同じPCで動いているゆかコネNEO の
  * 音声認識の結果のうち、確定した発話だけを押し込んでくる。あらすじ（issue #65）の材料になる。
- *
- * 配信していなければ記録せず、記録しなかったことを応答で知らせる（中継ページが画面に出せるように）。
- * 捨てるのを失敗にしないのは、配信の前後に中継ページを開いたままにしておくのが普通の使い方だからである。
- *
- * 注意: 同じ MsgID が二度届いても行は増えない（transcripts.message_id が主キー）。
+ * 本文の検証と記録は、アプリのページの音声認識の受け口と同じもの（worker/transcript-routes.ts）を通す。
  */
 export const postTranscript = async (context: Context): Promise<Response> => {
   await requireOverlayKey(context)
-  const { request, env, now } = context
-
-  const body: unknown = await request.json().catch(() => {
-    throw new HttpError(STATUS.badRequest, 'invalid-body', '本文はJSONにしてください')
-  })
-  const messageId: unknown = isRecord(body) ? body.messageId : undefined
-  if (typeof messageId !== 'string' || messageId === '') {
-    throw new HttpError(STATUS.badRequest, 'invalid-message-id', 'messageId は空でない文字列にしてください（ゆかコネNEO の MsgID）')
-  }
-  const text: unknown = isRecord(body) ? body.text : undefined
-  if (typeof text !== 'string') {
-    throw new HttpError(STATUS.badRequest, 'invalid-text', 'text は空でない文字列にしてください')
-  }
-  // 空かどうかも長さも、実際に保存する形（前後の空白を落としたもの）で判定する
-  const spoken = text.trim()
-  if (spoken === '') {
-    throw new HttpError(STATUS.badRequest, 'invalid-text', 'text は空でない文字列にしてください')
-  }
-  if (spoken.length > TRANSCRIPT_MAX_LENGTH) {
-    throw new HttpError(STATUS.badRequest, 'text-too-long', `発話は${TRANSCRIPT_MAX_LENGTH}文字までにしてください`)
-  }
-
-  const recorded = await recordTranscript(env.DB, { messageId, text: spoken }, now)
-  return Response.json({ recorded })
+  return receiveTranscript(context)
 }
 
 /**

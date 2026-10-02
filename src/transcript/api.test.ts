@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { ApiError } from '../core/api'
-import { createTranscriptApi, isRetryable } from './api'
+import { createAppTranscriptApi, createTranscriptApi, isRetryable } from './api'
 
 const OVERLAY_KEY = 'overlay-key_0123456789abcdefghij'
 
@@ -21,6 +21,28 @@ const createFetchWithResponse = (status: number, body: unknown) => {
   }
   return { calls, fetchImpl: fetchImpl as unknown as typeof fetch }
 }
+
+describe('createAppTranscriptApi の send', () => {
+  it('ログインのセッションで守る経路へ、キーを付けずにメッセージIDと本文を送る', async () => {
+    const { calls, fetchImpl } = createFetchWithResponse(200, { recorded: true })
+
+    const recorded = await createAppTranscriptApi(fetchImpl).send('webspeech:発話1', 'こんばんは、配信を始めます')
+
+    expect(recorded).toBe(true)
+    expect(calls).toEqual([
+      {
+        path: '/api/admin/transcripts',
+        method: 'POST',
+        body: JSON.stringify({ messageId: 'webspeech:発話1', text: 'こんばんは、配信を始めます' }),
+      },
+    ])
+  })
+
+  it('Workerの応答に recorded がなければエラーにする', async () => {
+    const { fetchImpl } = createFetchWithResponse(200, {})
+    await expect(createAppTranscriptApi(fetchImpl).send('webspeech:発話1', 'こんばんは')).rejects.toThrow(/recorded/)
+  })
+})
 
 describe('send', () => {
   it('オーバーレイ用キー付きの経路へ、メッセージIDと本文を送る', async () => {

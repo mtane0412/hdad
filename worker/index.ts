@@ -52,6 +52,7 @@
  * | GET  /api/admin/stats/sessions/:id | セッション   | 配信セッションと視聴者数の時系列 |
  * | GET  /api/admin/stats/followers  | セッション     | フォロワー数の時系列 |
  * | GET  /api/admin/stats/failures   | セッション     | 記録の収集の失敗の一覧 |
+ * | POST /api/admin/transcripts      | セッション     | 配信中の文字起こしを1件受け取る（アプリのページの音声認識から） |
  * | POST /api/eventsub/webhook       | Twitchの署名   | EventSubの通知を受け、イベントの件数と配信の開始・終了を記録する |
  * | GET  /api/overlay/socket         | オーバーレイ用キー | オーバーレイからのWebSocketの接続を受け、アラートの配送先へ引き渡す |
  * | POST /api/overlay/transcript     | オーバーレイ用キー | 配信中の文字起こしを1件受け取る（中継ページから） |
@@ -128,6 +129,7 @@ import {
   postScreen,
   postTranscript,
 } from './overlay-routes'
+import { postAdminTranscript } from './transcript-routes'
 import { drawSocket, getDrawBackground, getDrawStrokes, putDrawStrokes } from './draw-routes'
 import { deleteTabBlockedHost, getTabBlockedHosts, postTabBlockedHost, tabExtensionZip, tabSocket } from './tab-routes'
 import { commentSocket, getCommentIcons, postCommentGreeting, postCommentMessage, postCommentModeration } from './comment-routes'
@@ -232,6 +234,7 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/admin/stats/sessions/:id', handle: getStatsSession },
   { method: 'GET', path: '/api/admin/stats/followers', handle: getStatsFollowers },
   { method: 'GET', path: '/api/admin/stats/failures', handle: getStatsFailures },
+  { method: 'POST', path: '/api/admin/transcripts', handle: postAdminTranscript },
   { method: 'POST', path: WEBHOOK_PATH, handle: eventsubWebhook },
   { method: 'GET', path: '/api/chat/channel', handle: chatChannel },
   { method: 'GET', path: '/api/chat/badges', handle: chatBadges },

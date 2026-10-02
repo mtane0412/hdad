@@ -29,3 +29,23 @@ https のページから `ws://` へつなぐのは混在コンテンツにあ�
 結びつけ方は `stream_chat_messages` と同じ1文で、再送は `message_id`（ゆかコネNEO の `MsgID`）の主キーで弾く。同じ `MsgID` で二度呼ばれてもどちらにも `true` を返す（`claimFirstChatOfStream` と同じ考え方である）。
 
 古い行は cron（`worker/collect.ts`。1日より前。配信中の区切りのぶんは残す）が消す。あらすじ（issue #65）の材料にするための一時的な記録なので、配信後には残さない。
+
+## アプリのページで Web Speech API を動かす（issue #189）
+
+ゆかコネNEO が使っている音声認識は Chrome の Web Speech API（「ブラウザ音声認識」）なので、同じものを HDAD のアプリのページで直接動かし、PCに常駐させるもの（ゆかコネNEO と中継の `transcript/relay/`）をなくす。Soniox などの有料の認識を見送った経緯は issue #188〜#192 にある。OBS 内蔵の CEF では Web Speech API が使えないので、認識は Chrome で開いたアプリのページが受け持つ。
+
+**認識はページではなくアプリの枠（`src/app/app.tsx` の `Shell`）が持つ**（`src/transcript/recognition-context.tsx`）。アプリのページはどれも1つの React アプリで、ページを移っても読み込み直さない（`src/app/router.tsx`）ので、枠に置けばどのページを見ていても認識が続く。独立した認識のページにすると、配信中にそのページを開いたままにしておく必要があり、ダッシュボードやコメントのページを見ているあいだ止まってしまう。オン・オフと詳しい様子はコネクターのページの区画（`src/transcript/recognition-section.tsx`）に置き、サイドバーにはオンのあいだだけ状態（`src/transcript/recognition-status.tsx`）を出す（どのページを見ていても、途切れたことに気づけるようにするため）。
+
+- **オン・オフはこのブラウザの localStorage に覚える**（`hdad:transcript-recognition`）。Worker に保存すると、別の端末（スマートフォンなど）で HDAD を開いたときにそこでも認識が始まってしまう
+- **認識するのはタブ間の鍵（Web Locks の `hdad-transcript-recognition`）を取れた1つのタブだけにする**。2つのタブが同時に認識すると、同じ発話が別々のメッセージIDで二重に記録される。鍵を待つタブは、認識しているタブが閉じられたら代わりに始める。ほかのタブでのオン・オフは `storage` の出来事で知り、合わせる
+- **途切れたらタイマーを挟まずすぐ `start()` を呼び、`getUserMedia` でマイクを開いたままにする**（`src/transcript/recognizer.ts`）。裏に回したタブではタイマーが抑えられてつなぎ直しが遅れ、マイクを使っていないタブは Chrome に凍らされるためである（issue #188 で見立てた対策）。マイクの許可がない・言語が使えないなどの失敗では始め直さず止める。始め直しが1分に30回を超えたときも止める（通信が切れていると、始めてもすぐ終わるのを繰り返して回り続けるため）
+- 黙っているだけでも Chrome は数秒ごとに認識を終えるので、つなぎ直しが5秒を超えて戻らないときだけ「途切れています」と出す（`src/transcript/recognition-label.ts`）。つなぎ直すたびに警告を出すと見慣れて見落とす
+
+### 受け口と重複を防ぐ鍵
+
+**受け口はセッションで守る `POST /api/admin/transcripts`（`worker/transcript-routes.ts`）を足す**。ログインしたアプリのページから送るので、オーバーレイ用キーをページに持たせる理由がない。本文の検証と記録は `receiveTranscript` に集め、ゆかコネNEO からの `POST /api/overlay/transcript` もそれを通す（同じ検証を2か所に書かない）。
+
+**メッセージIDは確定した1件ごとに `webspeech:` の後ろへ `crypto.randomUUID()` を付けて作る**（`src/transcript/delivery.ts`）。Web Speech API の結果には ゆかコネNEO の `MsgID` にあたる識別子が無い。認識の区切りと結果の番号を組み合わせる案もあったが、つなぎ直すたびに番号が0から振り直されるので区切りの識別子も持ち回る必要があり、1件ごとに振るほうが単純である。`webspeech:` の印は、並べて動かしているあいだ ゆかコネNEO の `MsgID` と重ならないためである。
+
+ゆかコネNEO と違って同じ1件を押し出し直してくれる相手がいないので、送り直しはページが行う（通信の失敗と 5xx だけを、2秒・5秒・15秒待って同じIDで送り直す。4xx は同じ答えになるので送り直さない）。
+

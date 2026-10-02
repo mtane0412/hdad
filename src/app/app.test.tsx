@@ -28,6 +28,7 @@ import type { FocusApi } from '@/focus/api'
 import type { ScreenAdminApi } from '@/screen/api'
 import type { SpeechApi } from '@/speech/api'
 import type { StatsApi } from '@/stats/api'
+import type { RecognitionDeps } from '@/transcript/recognition-context'
 import type { ViewerApi } from '@/viewers/api'
 import { App } from './app'
 
@@ -189,9 +190,21 @@ afterEach(() => {
   openPage('/')
 })
 
+/**
+ * 音声認識の代役。このブラウザには音声認識が無いものとし、オン・オフは recognitionSetting から読む。
+ * 前提: 既定ではオフ（文字起こしを使っていない配信者）
+ */
+const createRecognitionDeps = (recognitionSetting: string | null = null): RecognitionDeps => ({
+  api: { send: () => Promise.resolve(true) },
+  createRecognition: null,
+  openMicrophone: () => Promise.reject(new Error('このテストではマイクを開きません')),
+  locks: { request: () => Promise.reject(new Error('このテストでは鍵を取りません')) },
+  storage: { getItem: () => recognitionSetting, setItem: () => {} },
+})
+
 describe('ログインしていないとき', () => {
   test('Twitchログインへのリンクだけを出し、サイドバーは出さない', async () => {
-    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} api={createFakeAdminApi(async () => null)} />)
+    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} recognitionDeps={createRecognitionDeps()} api={createFakeAdminApi(async () => null)} />)
 
     const login = await screen.findByRole('link', { name: 'Twitchでログイン' })
     expect(login).toHaveAttribute('href', '/api/auth/login')
@@ -199,7 +212,7 @@ describe('ログインしていないとき', () => {
   })
 
   test('アプリ名と正式名称を出す', async () => {
-    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} api={createFakeAdminApi(async () => null)} />)
+    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} recognitionDeps={createRecognitionDeps()} api={createFakeAdminApi(async () => null)} />)
 
     expect(await screen.findByText('HDAD')).toBeInTheDocument()
     expect(screen.getByText('Hyperfocus-Driven Assistant Director')).toBeInTheDocument()
@@ -207,8 +220,22 @@ describe('ログインしていないとき', () => {
 })
 
 describe('ログインしているとき', () => {
+  test('文字起こしをオンにしてあれば、どのページでもサイドバーに状態を出し、押すとコネクターのページへ移る', async () => {
+    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} recognitionDeps={createRecognitionDeps('on')} api={createFakeAdminApi(async () => broadcaster)} />)
+
+    const status = await screen.findByRole('link', { name: '文字起こし: このブラウザでは使えません' })
+    expect(status).toHaveAttribute('href', '/connectors/')
+  })
+
+  test('文字起こしをオフにしてあれば、サイドバーに状態を出さない', async () => {
+    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} recognitionDeps={createRecognitionDeps()} api={createFakeAdminApi(async () => broadcaster)} />)
+
+    await screen.findByRole('navigation', { name: 'サイト内の移動' })
+    expect(screen.queryByText(/^文字起こし:/)).not.toBeInTheDocument()
+  })
+
   test('サイドバーに配信者の名前と各ページへのリンクを出す', async () => {
-    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} api={createFakeAdminApi(async () => broadcaster)} />)
+    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} recognitionDeps={createRecognitionDeps()} api={createFakeAdminApi(async () => broadcaster)} />)
 
     const nav = await screen.findByRole('navigation', { name: 'サイト内の移動' })
     expect(nav).toBeInTheDocument()
@@ -231,7 +258,7 @@ describe('ログインしているとき', () => {
 
   test('ログアウトすると、ログインの入口に戻る', async () => {
     const api = createFakeAdminApi(async () => broadcaster)
-    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} api={api} />)
+    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} recognitionDeps={createRecognitionDeps()} api={api} />)
 
     await userEvent.click(await screen.findByRole('button', { name: 'ログアウト' }))
 
@@ -242,7 +269,7 @@ describe('ログインしているとき', () => {
 
 describe('ページの移動', () => {
   test('サイドバーのリンクを押すと、再読み込みなしでページが切り替わり、現在地の印が付け替わる', async () => {
-    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} api={createFakeAdminApi(async () => broadcaster)} />)
+    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} recognitionDeps={createRecognitionDeps()} api={createFakeAdminApi(async () => broadcaster)} />)
     expect(await screen.findByRole('link', { name: 'ダッシュボード' })).toHaveAttribute('aria-current', 'page')
 
     await userEvent.click(screen.getByRole('link', { name: 'アップロード' }))
@@ -254,7 +281,7 @@ describe('ページの移動', () => {
   })
 
   test('ブラウザの「戻る」で、前のページに戻る', async () => {
-    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} api={createFakeAdminApi(async () => broadcaster)} />)
+    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} recognitionDeps={createRecognitionDeps()} api={createFakeAdminApi(async () => broadcaster)} />)
     await userEvent.click(await screen.findByRole('link', { name: '視聴者' }))
     expect(screen.getByRole('heading', { level: 1, name: '視聴者' })).toBeInTheDocument()
 
@@ -265,7 +292,7 @@ describe('ページの移動', () => {
 
   test('ページUIのURLを直接開くと、そのページが出る', async () => {
     openPage('/triggers/')
-    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} api={createFakeAdminApi(async () => broadcaster)} />)
+    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} recognitionDeps={createRecognitionDeps()} api={createFakeAdminApi(async () => broadcaster)} />)
 
     expect(await screen.findByRole('heading', { level: 1, name: 'トリガー' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'トリガー' })).toHaveAttribute('aria-current', 'page')
@@ -273,14 +300,14 @@ describe('ページの移動', () => {
 
   test('末尾のスラッシュがないURLでも、同じページが出る', async () => {
     openPage('/media')
-    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} api={createFakeAdminApi(async () => broadcaster)} />)
+    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} recognitionDeps={createRecognitionDeps()} api={createFakeAdminApi(async () => broadcaster)} />)
 
     expect(await screen.findByRole('heading', { level: 1, name: 'アップロード' })).toBeInTheDocument()
   })
 
   test('未ログインでページUIのURLを開くと、ログインの入口だけが出る', async () => {
     openPage('/media/')
-    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} api={createFakeAdminApi(async () => null)} />)
+    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} recognitionDeps={createRecognitionDeps()} api={createFakeAdminApi(async () => null)} />)
 
     expect(await screen.findByRole('link', { name: 'Twitchでログイン' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { level: 1, name: 'アップロード' })).not.toBeInTheDocument()
@@ -288,7 +315,7 @@ describe('ページの移動', () => {
 
   test('存在しないパスでは、見つからないことを伝え、ダッシュボードへ戻れる', async () => {
     openPage('/nai-page/')
-    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} api={createFakeAdminApi(async () => broadcaster)} />)
+    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} recognitionDeps={createRecognitionDeps()} api={createFakeAdminApi(async () => broadcaster)} />)
 
     expect(await screen.findByRole('heading', { level: 1, name: 'ページが見つかりません' })).toBeInTheDocument()
     expect(screen.getByText('/nai-page/')).toBeInTheDocument()
@@ -303,7 +330,7 @@ describe('ログインの確認に失敗したとき', () => {
     render(
       <App
         statsApi={createFakeRecordApi}
-        botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi}
+        botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} recognitionDeps={createRecognitionDeps()}
         api={createFakeAdminApi(async () => {
           throw new Error('Workerに接続できません')
         })}
@@ -317,7 +344,7 @@ describe('ログインの確認に失敗したとき', () => {
 
 /** ログイン済みの配信者としてアプリを開く */
 const renderSignedIn = () =>
-  render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} api={createFakeAdminApi(async () => broadcaster)} />)
+  render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} recognitionDeps={createRecognitionDeps()} api={createFakeAdminApi(async () => broadcaster)} />)
 
 describe('迷わず移動できること', () => {
   test('サイドバーの項目を、使う場面ごとのまとまりに分けて並べる', async () => {
@@ -388,7 +415,7 @@ describe('迷わず移動できること', () => {
 
 describe('見出しで飛べること', () => {
   test('ログインの入口では、アプリ名をページの見出しにする', async () => {
-    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} api={createFakeAdminApi(async () => null)} />)
+    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} recognitionDeps={createRecognitionDeps()} api={createFakeAdminApi(async () => null)} />)
 
     expect(await screen.findByRole('heading', { level: 1, name: 'HDAD' })).toBeInTheDocument()
   })
@@ -404,7 +431,7 @@ describe('見出しで飛べること', () => {
 describe('ログインの確認に失敗したときの立て直し', () => {
   test('エラーと一緒に、もう一度確かめるボタンを出す', async () => {
     const me = vi.fn<AdminApi['me']>().mockRejectedValueOnce(new Error('Workerに接続できません')).mockResolvedValueOnce(broadcaster)
-    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} api={createFakeAdminApi(me)} />)
+    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} recognitionDeps={createRecognitionDeps()} api={createFakeAdminApi(me)} />)
 
     await userEvent.click(await screen.findByRole('button', { name: 'もう一度確かめる' }))
 
