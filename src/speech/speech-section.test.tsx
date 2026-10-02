@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 /**
- * チャットの読み上げのページのテスト
+ * コネクターのページの VOICEVOX（チャットの読み上げ）の区画のテスト
  *
  * 確かめること:
+ * - 区画の見出しはサービス名（VOICEVOX）であること
  * - 保存済みの設定を読み込んで入力欄に出し、変えて保存できること
  * - Workerが返した問題点を、そのまま画面に並べること（検証はWorkerだけが持つ）
- * - OBSに貼るURLにはオーバーレイ用キーしか入らないこと
+ * - VOICEVOX 側のCORSの設定は、ヘルプボタンを押したときだけ案内すること
  * - ホスト・ポートを変えたときは、OBSの再読み込みが要ると知らせること
  * - 設定やbotの接続状態を読めなかったときは、黙って既定に倒さず理由を出すこと
  */
@@ -15,12 +16,10 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, test } from 'vitest'
 import type { BotStatus } from '@/bot/api'
 import { ApiError } from '@/core/api'
-import { SpeechPage } from './speech-page'
+import { SpeechSection } from './speech-section'
 import type { SpeechApi, SpeechSettings } from './api'
 
 afterEach(cleanup)
-
-const overlayKey = 'overlay-key_0123456789abcdefghij'
 
 /** 前提: botアカウント「hdad_bot」が接続されている */
 const connectedBot: BotStatus = { userId: '123456789', login: 'hdad_bot', missingScopes: [], isModerator: true }
@@ -53,23 +52,35 @@ const speechApi = (settings: SpeechSettings = savedConfig): SpeechApi & { saved:
   }
 }
 
-const renderPage = (overrides: { api?: SpeechApi; bot?: BotStatus | null; key?: string | null } = {}) =>
-  render(
-    <SpeechPage
-      api={overrides.api ?? speechApi()}
-      botApi={botApi(overrides.bot ?? null)}
-      overlayKey={overrides.key === undefined ? overlayKey : overrides.key}
-    />,
-  )
+const renderPage = (overrides: { api?: SpeechApi; bot?: BotStatus | null } = {}) =>
+  render(<SpeechSection api={overrides.api ?? speechApi()} botApi={botApi(overrides.bot ?? null)} />)
 
 /** 設定が読み込まれて、入力欄が出るまで待つ */
 const waitForLoad = async () => {
   await waitFor(() => expect(screen.getByLabelText('話者ID')).toBeInTheDocument())
 }
 
-const save = async () => userEvent.click(screen.getByRole('button', { name: '設定を保存' }))
+const save = async () => userEvent.click(screen.getByRole('button', { name: 'VOICEVOXの設定を保存' }))
 
-describe('チャットの読み上げのページ', () => {
+describe('VOICEVOX の区画', () => {
+  test('見出しはサービス名（VOICEVOX）にする', async () => {
+    renderPage()
+    await waitForLoad()
+
+    expect(screen.getByRole('heading', { name: 'VOICEVOX' })).toBeInTheDocument()
+  })
+
+  test('VOICEVOX 側のCORSの設定は、ヘルプボタンを押したときだけ案内する', async () => {
+    renderPage()
+    await waitForLoad()
+    expect(screen.queryByText(window.location.origin)).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'VOICEVOXの説明' }))
+
+    expect(await screen.findByText(window.location.origin)).toBeInTheDocument()
+    expect(screen.getByText('http://localhost:50021/setting')).toBeInTheDocument()
+  })
+
   test('保存済みの設定を読み込んで入力欄に出す', async () => {
     const api = speechApi({ ...savedConfig, speaker: 8, volume: 0.5, readName: true, ignoreLogins: ['hdad_bot', 'nightbot'] })
     renderPage({ api })
@@ -82,14 +93,6 @@ describe('チャットの読み上げのページ', () => {
     expect(screen.getByLabelText('読み上げない人（ログイン名をカンマ区切り）')).toHaveValue('hdad_bot, nightbot')
   })
 
-  test('URLのコピーはアイコンだけのボタンにし、名前は読み上げとホバー（title）に残す', async () => {
-    renderPage({})
-    await waitForLoad()
-
-    const copyButton = screen.getByRole('button', { name: 'URLをコピー' })
-    expect(copyButton).toHaveTextContent('')
-    expect(copyButton).toHaveAttribute('title', 'URLをコピー')
-  })
 
   test('変えた設定をWorkerへ保存し、保存できたことを知らせる', async () => {
     const api = speechApi()
@@ -130,14 +133,6 @@ describe('チャットの読み上げのページ', () => {
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('port: 1〜65535 の整数で指定してください'))
   })
 
-  test('OBSに貼るURLには、オーバーレイ用キーだけが入る', async () => {
-    renderPage()
-    await waitForLoad()
-
-    expect(screen.getByLabelText('OBSのブラウザソースに貼るURL')).toHaveValue(
-      `${window.location.origin}/speech/reader/?key=${overlayKey}`,
-    )
-  })
 
   test('ホストかポートを変えたら、OBSの再読み込みが要ることを知らせる', async () => {
     renderPage()
@@ -176,18 +171,11 @@ describe('チャットの読み上げのページ', () => {
 
   test('botの接続状態を読めなくても、設定は出して理由を添える（未接続と取り違えないため）', async () => {
     render(
-      <SpeechPage api={speechApi()} botApi={{ status: () => Promise.reject(new Error('セッションが切れています')) }} overlayKey={overlayKey} />,
+      <SpeechSection api={speechApi()} botApi={{ status: () => Promise.reject(new Error('セッションが切れています')) }} />,
     )
 
     await waitFor(() => expect(screen.getByText(/セッションが切れています/)).toBeInTheDocument())
     expect(screen.getByLabelText('話者ID')).toBeInTheDocument()
   })
 
-  test('オーバーレイ用キーが無ければ、URLの代わりに理由を出す', async () => {
-    renderPage({ key: null })
-    await waitForLoad()
-
-    expect(screen.queryByLabelText('OBSのブラウザソースに貼るURL')).not.toBeInTheDocument()
-    expect(screen.getByText(/オーバーレイ用キーが発行されていません/)).toBeInTheDocument()
-  })
 })

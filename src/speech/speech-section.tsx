@@ -1,29 +1,31 @@
 /**
- * チャットの読み上げのページ
+ * コネクターのページの VOICEVOX（チャットの読み上げ）の区画
  *
- * 読み上げの設定を Worker（KVの speech-settings）に保存し、OBSに貼るURLを出す画面である。
- * 読み上げそのものはOBSに載せるページ（speech/reader/）が行い、この画面で保存した設定を定期的に読み直して
- * 次の1件から反映する（issue #86）。以前は設定をすべてURLのクエリに埋めていたため、配信中に音量ひとつ
- * 変えるにもURLを貼り替える必要があった。
+ * 読み上げの設定を Worker（KVの speech-settings）に保存する。読み上げそのものはOBSに載せる裏方のページ
+ * （overlay/backstage/）が行い、この区画で保存した設定を定期的に読み直して次の1件から反映する（issue #86）。
+ * OBSに貼るURLはこの区画では出さず、コネクターのページの「OBS用のURL」が出す（読み上げ単独のページ
+ * speech/reader/ は、貼ってあるブラウザソースのために残してあるが案内しない）。
  *
- * Workerの呼び出しは api.ts、入力欄の値の変換は form.ts、URLの組み立ては url.ts に分けてテストする。
+ * Workerの呼び出しは api.ts、入力欄の値の変換は form.ts に分けてテストする。
  * 保存の形（ボタンを押す → Workerを呼ぶ → 成功なら知らせ、失敗なら理由を出す）は usePageActions に合わせる。
+ * 入力欄の目安と VOICEVOX 側の設定（CORS）は、画面に並べずヘルプボタンの中で案内する。
  *
  * 注意: 値の範囲の検証は Worker だけが持つ（画面とWorkerで二重に持たない）。そのため入力欄の値は
  * そのまま送り、返ってきた問題点を並べて出す。
- * 注意: ホストとポートは読み上げのページが起動のときにしか使えないので、変えたらOBSの再読み込みが要ることを
+ * 注意: ホストとポートは裏方のページが起動のときにしか使えないので、変えたらOBSの再読み込みが要ることを
  * その場で知らせる。
  * 注意: 設定とbotの接続状態を読めなかったときは、黙って既定や未接続に倒さず理由を出す（Fail-Fast）。
  * 設定を読めないまま入力欄を出すと、配信者が「保存済みの設定はこれだ」と取り違えたまま上書きしてしまう。
  */
-import { Copy, Plus } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
 import type { BotApi } from '@/bot/api'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { LoadFailure } from '@/components/load-failure'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { HelpButton } from '@/components/help-button'
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -33,18 +35,15 @@ import { ApiError } from '@/core/api'
 import { iconButtonName } from '@/core/icon-button'
 import type { SpeechApi, SpeechSettings } from './api'
 import { joinIgnoreLogins, numberOf, splitIgnoreLogins } from './form'
-import { speechUrl } from './url'
 
 /** VOICEVOX ENGINE を動かせるホスト。ブラウザが混在コンテンツを許すループバックだけに限る（worker/speech-config.ts と同じ） */
 const HOST_OPTIONS = ['localhost', '127.0.0.1'] as const
 
-export interface SpeechPageProps {
+export interface SpeechSectionProps {
   /** 読み上げの設定の読み書き */
   api: SpeechApi
   /** botの接続状態の読み出し。接続していれば、そのログイン名を読み上げない人に追加できるようにする */
   botApi: Pick<BotApi, 'status'>
-  /** オーバーレイ用キー。読み上げのページはこれで設定を読む */
-  overlayKey: string | null
 }
 
 /** 入力欄が持つ値。数の欄は文字のまま持ち、保存のときに数へ直す（空欄を 0 に丸めないため） */
@@ -89,7 +88,7 @@ const failureLines = (error: unknown): string[] =>
     ? ['読み上げの設定に問題があります。直してから保存し直してください', ...error.problems.map((problem) => `・${problem}`)]
     : [errorMessage(error)]
 
-export const SpeechPage = ({ api, botApi, overlayKey }: SpeechPageProps) => {
+export const SpeechSection = ({ api, botApi }: SpeechSectionProps) => {
   /** 読み込み中は undefined、読めなければ理由（string）、読めたら入力欄の値 */
   const [form, setForm] = useState<SpeechForm>()
   const [loadFailure, setLoadFailure] = useState('')
@@ -100,7 +99,6 @@ export const SpeechPage = ({ api, botApi, overlayKey }: SpeechPageProps) => {
   /** botの接続状態を読めなかった理由。設定は出したうえで添える（未接続と取り違えないため） */
   const [botFailure, setBotFailure] = useState('')
   const actions = usePageActions(failureLines)
-  const urlFieldId = useId()
   const hostFieldId = useId()
   const portFieldId = useId()
   const speakerFieldId = useId()
@@ -167,14 +165,6 @@ export const SpeechPage = ({ api, botApi, overlayKey }: SpeechPageProps) => {
     return '読み上げの設定を保存しました'
   }
 
-  const copyUrl = async (): Promise<string> => {
-    if (overlayKey === null) throw new Error('オーバーレイ用キーが発行されていません')
-    // Clipboard API は https か localhost でしか提供されず、それ以外では navigator.clipboard が undefined になる
-    if (!navigator.clipboard) throw new Error('このページではクリップボードを使えません（https か localhost で開いてください）')
-    await navigator.clipboard.writeText(speechUrl(window.location.origin, overlayKey))
-    return 'OBS用のURLをコピーしました'
-  }
-
   return (
     <div className="flex flex-col gap-6">
       {actions.feedback}
@@ -188,8 +178,17 @@ export const SpeechPage = ({ api, botApi, overlayKey }: SpeechPageProps) => {
 
       <Card>
         <CardHeader>
-          <CardTitle>読み上げの設定</CardTitle>
-          <CardDescription>同じPCの VOICEVOX に読み上げさせる。保存すると次に読む1件から効く。</CardDescription>
+          <CardTitle>VOICEVOX</CardTitle>
+          <CardAction>
+            <HelpButton topic="VOICEVOX">
+              <p>同じPCの VOICEVOX にチャットを読み上げさせます。保存すると次に読む1件から効きます。</p>
+              <p>
+                はじめに一度だけ、配信に使うPCで <code>http://{form.host}:{form.port}/setting</code> を開き、CORSの許可するオリジンに{' '}
+                <code>{window.location.origin}</code> を追加して保存し、VOICEVOX を再起動します（既定ではこのサイトからの読み出しを拒むため）。
+              </p>
+              <p>話者IDの 3 はずんだもん（ノーマル）です。長さの上限より長い発言は途中まで読みます。</p>
+            </HelpButton>
+          </CardAction>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-2">
@@ -202,7 +201,6 @@ export const SpeechPage = ({ api, botApi, overlayKey }: SpeechPageProps) => {
               value={form.speaker}
               onChange={(event) => change('speaker', event.currentTarget.value)}
             />
-            <p className="text-sm text-muted-foreground">3 はずんだもん（ノーマル）。</p>
           </div>
 
           <div className="flex flex-col gap-2">
@@ -242,7 +240,6 @@ export const SpeechPage = ({ api, botApi, overlayKey }: SpeechPageProps) => {
               value={form.maxLength}
               onChange={(event) => change('maxLength', event.currentTarget.value)}
             />
-            <p className="text-sm text-muted-foreground">これより長い発言は途中まで読む。</p>
           </div>
 
           <div className="flex flex-col gap-2 sm:col-span-2">
@@ -274,15 +271,7 @@ export const SpeechPage = ({ api, botApi, overlayKey }: SpeechPageProps) => {
             <Checkbox id={readNameFieldId} checked={form.readName} onCheckedChange={(checked) => change('readName', checked === true)} />
             <Label htmlFor={readNameFieldId}>発言者の名前も読む</Label>
           </div>
-        </CardContent>
-      </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>VOICEVOX のつなぎ先</CardTitle>
-          <CardDescription>変えたらOBSでブラウザソースを再読み込みする。</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-2">
             <Label htmlFor={hostFieldId}>ホスト</Label>
             <NativeSelect id={hostFieldId} className="w-full" value={form.host} onChange={(event) => change('host', event.currentTarget.value)}>
@@ -292,7 +281,6 @@ export const SpeechPage = ({ api, botApi, overlayKey }: SpeechPageProps) => {
                 </NativeSelectOption>
               ))}
             </NativeSelect>
-            <p className="text-sm text-muted-foreground">ふつうは localhost のまま使う。</p>
           </div>
 
           <div className="flex flex-col gap-2">
@@ -314,51 +302,12 @@ export const SpeechPage = ({ api, botApi, overlayKey }: SpeechPageProps) => {
               <AlertDescription>保存したあと、OBSでブラウザソースを再読み込みしてください</AlertDescription>
             </Alert>
           )}
-        </CardContent>
-      </Card>
 
-      <div>
-        <Button type="button" disabled={actions.busy} onClick={() => void actions.run(save)}>
-          設定を保存
-        </Button>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>OBS用のURL</CardTitle>
-          <CardDescription>ブラウザソースに貼り、「OBSで音声を制御する」を有効にする。</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          {overlayKey === null ? (
-            <Alert variant="destructive">
-              <AlertTitle>OBS用のURLを表示できません</AlertTitle>
-              <AlertDescription>オーバーレイ用キーが発行されていません。ログアウトしてログインし直してください</AlertDescription>
-            </Alert>
-          ) : (
-            <>
-              <Label htmlFor={urlFieldId}>OBSのブラウザソースに貼るURL</Label>
-              <div className="flex gap-2">
-                {/* URLにはオーバーレイ用キーが含まれる。配信画面に映り込んでも読めないよう、伏せ字で表示する */}
-                <Input id={urlFieldId} type="password" readOnly autoComplete="off" value={speechUrl(window.location.origin, overlayKey)} />
-                <Button type="button" size="icon" {...iconButtonName('URLをコピー')} disabled={actions.busy} onClick={() => void actions.run(copyUrl)}>
-                  <Copy aria-hidden="true" />
-                </Button>
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>VOICEVOX 側の設定（最初の1回だけ）</CardTitle>
-          <CardDescription>VOICEVOX は既定でこのサイトからの読み出しを拒むので、許可しないとつながらない。</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-2 text-sm text-muted-foreground">
-          <p>
-            配信に使うPCで <code>http://{form.host}:{form.port}/setting</code> を開き、CORSの許可するオリジンに{' '}
-            <code>{window.location.origin}</code> を追加して保存し、VOICEVOX を再起動する。
-          </p>
+          <div className="sm:col-span-2">
+            <Button type="button" disabled={actions.busy} onClick={() => void actions.run(save)}>
+              VOICEVOXの設定を保存
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </div>

@@ -4,7 +4,7 @@
  * サイドバーの項目と、パスごとに描く中身をここで決める。
  * 実ファイルとして配信されるページ（overlay/stage/・overlay/backstage/・speech/reader/・transcript/relay/）は、ここには載せない。
  */
-import { AppWindow, Bot, BrainCircuit, Camera, Captions, Gift, Layers, LayoutDashboard, MessagesSquare, Music, Pencil, Upload, Users, Volume2, Wrench, Zap, type LucideIcon } from 'lucide-react'
+import { Bot, BrainCircuit, Gift, Layers, LayoutDashboard, MessagesSquare, Music, Pencil, Plug, Upload, Users, Zap, type LucideIcon } from 'lucide-react'
 import type { AdminApi, Me } from '@/admin/api'
 import { BackstagePage } from '@/backstage/backstage-page'
 import type { BgmApi } from '@/bgm/api'
@@ -31,11 +31,7 @@ import { StatsPage } from '@/stats/stats-page'
 import type { ViewerApi } from '@/viewers/api'
 import { ViewerPage } from '@/viewers/viewer-page'
 import type { ScreenAdminApi } from '@/screen/api'
-import { ScreenPage } from '@/screen/screen-page'
 import type { SpeechApi } from '@/speech/api'
-import { SpeechPage } from '@/speech/speech-page'
-import { TranscriptPage } from '@/transcript/transcript-page'
-import { TabPage } from '@/tab/tab-page'
 
 /** ページが中身を描くのに使うもの */
 export interface PageContext {
@@ -46,9 +42,9 @@ export interface PageContext {
   botApi: BotApi
   /** 視聴者の記録の読み書き（視聴者のページが使う） */
   viewerApi: ViewerApi
-  /** 読み上げの設定の読み書き（読み上げのページが使う） */
+  /** 読み上げの設定の読み書き（コネクターのページの VOICEVOX の区画が使う） */
   speechApi: SpeechApi
-  /** 画面の取り込みの設定の読み書き（画面の取り込みのページが使う） */
+  /** 画面の取り込みの設定の読み書き（コネクターのページの Gyazo の区画が使う） */
   screenApi: ScreenAdminApi
   /** 注目コメント（いま取り上げているもの）の読み書き（コメントのページが使う） */
   focusApi: FocusApi
@@ -107,7 +103,7 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
         keywords: ['音楽', '曲', 'クレジット'],
         name: 'BGM',
         icon: Music,
-        // 鳴らすのは裏方のページ（/backstage/ で BGM を入れる）で、流す曲と音量の切り替えは Worker が押し出す（issue #151）。
+        // 鳴らすのは裏方のページ（/connectors/ で BGM を入れる）で、流す曲と音量の切り替えは Worker が押し出す（issue #151）。
         // 曲にする音声は、アップロードのページで上げた素材から選ぶ
         render: ({ bgmApi, api, me }) => <BgmPage api={bgmApi} mediaApi={api} overlayKey={me.overlayKey} connect={connectBgmWatch} />,
       },
@@ -127,37 +123,15 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
         render: ({ overlayApi, me }) => <OverlayPage api={overlayApi} overlayKey={me.overlayKey} />,
       },
       {
-        path: '/backstage/',
-        keywords: ['OBS', 'ブラウザソース', 'URL'],
-        name: '裏方',
-        icon: Wrench,
-        // 映すものを持たない裏方（読み上げ・文字起こしの中継・画面の取り込み・BGM）を1つのブラウザソースにまとめるURLを出す（issue #108）
-        render: ({ me }) => <BackstagePage overlayKey={me.overlayKey} />,
-      },
-      {
-        path: '/tab/',
-        keywords: ['Chrome', '拡張', 'ブラウザ'],
-        name: 'タブの映像',
-        icon: AppWindow,
-        // 取り込みと送信・映さないサイトの管理は拡張（extension/）の中で行い、このページは拡張を配って使い方を案内するだけ
-        render: () => <TabPage />,
-      },
-      { path: '/transcript/', keywords: ['ゆかコネNEO', '字幕', 'OBS'], name: '文字起こし', icon: Captions, render: ({ me }) => <TranscriptPage overlayKey={me.overlayKey} /> },
-      {
-        path: '/speech/',
-        keywords: ['VOICEVOX', '棒読み'],
-        name: '読み上げ',
-        icon: Volume2,
-        // 読み上げのページはWorkerに置いた設定をオーバーレイ用キーで読む。botの状態は「読み上げない人」に追加するために読む
-        render: ({ speechApi, botApi, me }) => <SpeechPage api={speechApi} botApi={botApi} overlayKey={me.overlayKey} />,
-      },
-      {
-        path: '/screen/',
-        keywords: ['OCR', 'Gyazo', 'obs-websocket'],
-        name: '画面の取り込み',
-        icon: Camera,
-        // 撮るのは裏方のページ（/backstage/ で動かすかどうかを選ぶ）で、この画面はつなぎ先と間隔の設定だけを持つ
-        render: ({ screenApi }) => <ScreenPage api={screenApi} />,
+        path: '/connectors/',
+        keywords: ['裏方', 'OBS', 'ブラウザソース', 'URL', 'VOICEVOX', '読み上げ', 'ゆかコネNEO', '文字起こし', 'Gyazo', '画面の取り込み', 'OCR', 'HDAD-tab', 'タブの映像', 'Chrome', '拡張'],
+        name: 'コネクター',
+        icon: Plug,
+        // 外部のサービスとつなぐものをまとめる。映すものを持たない裏方（VOICEVOX・ゆかコネNEO・Gyazo・BGM）を
+        // 1つのブラウザソースにまとめるURLを出し（issue #108）、VOICEVOX・Gyazo の設定と HDAD-tab の配布を同じページに並べる
+        render: ({ me, speechApi, botApi, screenApi }) => (
+          <BackstagePage overlayKey={me.overlayKey} speechApi={speechApi} botApi={botApi} screenApi={screenApi} />
+        ),
       },
     ],
   },

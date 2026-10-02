@@ -1,7 +1,7 @@
 /**
  * 読み上げの設定の入力欄の値の変換（form.ts）のテスト
  *
- * 画面（speech-page.tsx）から分けてテストする（src/admin/form.ts と同じ扱い）。
+ * 画面（speech-section.tsx）から分けてテストする（src/admin/form.ts と同じ扱い）。
  * 値の範囲の検証は Worker が行うので、ここで確かめるのは「入力欄の文字と設定の値を行き来できること」だけである。
  */
 import { describe, expect, it } from 'vitest'

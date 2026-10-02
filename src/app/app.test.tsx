@@ -219,8 +219,13 @@ describe('ログインしているとき', () => {
       ['オーバーレイ', '/overlay/'],
       ['視聴者', '/viewers/'],
       ['アップロード', '/media/'],
+      ['コネクター', '/connectors/'],
     ] as const) {
       expect(screen.getByRole('link', { name })).toHaveAttribute('href', href)
+    }
+    // 読み上げ・文字起こし・画面の取り込み・タブの映像はコネクターのページにまとめたので、サイドバーには出さない
+    for (const name of ['読み上げ', '文字起こし', '画面の取り込み', 'タブの映像', '裏方']) {
+      expect(screen.queryByRole('link', { name })).not.toBeInTheDocument()
     }
   })
 

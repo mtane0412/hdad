@@ -1,6 +1,6 @@
 # 配信中の文字起こし（`/transcript/`）
 
-配信中の文字起こし（`/transcript/`）はアプリのページ（`src/transcript/transcript-page.tsx`）だが、取り込むのはOBSのブラウザソースに置く中継ページ（`transcript/relay/index.html`）で、アプリのページはそこへ貼るURLを出すだけである（`src/transcript/url.ts` の `relayUrl` に分けてテストする。オーバーレイ用キーはアラートと共通なので、再発行は `/triggers/` に置いたまま増やさない）。
+配信中の文字起こし（`/transcript/`）はアプリのページ（`src/transcript/transcript-page.tsx`）だが、取り込むのはOBSのブラウザソースに置く中継ページ（`transcript/relay/index.html`）で、アプリのページはそこへ貼るURLを出すだけである（`src/transcript/url.ts` の `relayUrl` に分けてテストする。オーバーレイ用キーはアラートと共通なので、再発行は `/triggers/` に置いたまま増やさない）。のちにこのアプリのページは消し、ポートとURLはコネクターのページ（`/connectors/`）が裏方の1枚として出すようにした（`relayUrl` も消した。[裏方をまとめたページ](./backstage.md#アプリのページをコネクターにまとめる)）。
 
 ## つなぎ先はゆかコネNEO
 

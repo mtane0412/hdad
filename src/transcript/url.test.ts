@@ -1,35 +1,25 @@
 /**
- * OBS用のURLの組み立て（url.ts）のテスト
+ * ゆかコネNEO のポート番号の検証（url.ts）のテスト
  *
- * 画面（transcript-page.tsx）から分けてテストする。
+ * 裏方をまとめたページのURL（src/backstage/url.ts）が、入力されたポートをこれで確かめる。
  */
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_TRANSCRIPT_PORT, relayUrl } from './url'
+import { assertTranscriptPort, DEFAULT_TRANSCRIPT_PORT } from './url'
 
-const OVERLAY_KEY = 'overlay-key_0123456789abcdefghij'
-const SITE = 'https://hdad.example.com'
-
-describe('relayUrl', () => {
-  it('中継ページのURLに、オーバーレイ用キーを付ける', () => {
-    expect(relayUrl(SITE, OVERLAY_KEY, DEFAULT_TRANSCRIPT_PORT)).toBe(
-      `${SITE}/transcript/relay/?key=${encodeURIComponent(OVERLAY_KEY)}`,
-    )
+describe('assertTranscriptPort', () => {
+  it('既定のポートと、範囲の両端は通す', () => {
+    expect(() => assertTranscriptPort(DEFAULT_TRANSCRIPT_PORT)).not.toThrow()
+    expect(() => assertTranscriptPort(1)).not.toThrow()
+    expect(() => assertTranscriptPort(65535)).not.toThrow()
   })
 
-  it('ポートが既定と違えば、URLに書き足す', () => {
-    expect(relayUrl(SITE, OVERLAY_KEY, 20000)).toBe(`${SITE}/transcript/relay/?key=${encodeURIComponent(OVERLAY_KEY)}&port=20000`)
+  it('数として読めない値は、既定へ黙って戻さずエラーにする', () => {
+    expect(() => assertTranscriptPort(Number.NaN)).toThrow(/ポート/)
   })
 
-  it('ポートが既定と同じなら書き足さない（URLを短く保つ）', () => {
-    expect(relayUrl(SITE, OVERLAY_KEY, DEFAULT_TRANSCRIPT_PORT)).not.toContain('port=')
-  })
-
-  it('ポートが数でなければエラーにする（既定へ黙って戻さない）', () => {
-    expect(() => relayUrl(SITE, OVERLAY_KEY, Number.NaN)).toThrow(/ポート/)
-  })
-
-  it('ポートが範囲の外ならエラーにする', () => {
-    expect(() => relayUrl(SITE, OVERLAY_KEY, 0)).toThrow(/ポート/)
-    expect(() => relayUrl(SITE, OVERLAY_KEY, 65536)).toThrow(/ポート/)
+  it('範囲の外と整数でない値はエラーにする', () => {
+    expect(() => assertTranscriptPort(0)).toThrow(/ポート/)
+    expect(() => assertTranscriptPort(65536)).toThrow(/ポート/)
+    expect(() => assertTranscriptPort(11901.5)).toThrow(/ポート/)
   })
 })

@@ -446,7 +446,7 @@ export const BgmPage = ({ api, mediaApi, overlayKey, connect }: BgmPageProps) =>
           <CardTitle>曲</CardTitle>
           <CardDescription>
             音声は「<Link href="/media/" className="underline underline-offset-4">アップロード</Link>」のページで上げる。クレジット表記は配布元が求める書き方のまま書く。
-            鳴らすのは「裏方」のページで BGM を入れたURL（OBSのブラウザソース）。
+            鳴らすのは「コネクター」のページで BGM を入れたURL（OBSのブラウザソース）。
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">

@@ -1,7 +1,7 @@
 /**
  * タブの映像をつなぐ連絡の中継（Durable Object）
  *
- * Chromeのタブの映像と音は、送り手（/tab/）から合成ページ（素材 `tab`）へ WebRTC で同じPCの中を直接流れる。
+ * Chromeのタブの映像と音は、送り手（拡張 HDAD-tab）から合成ページ（素材 `tab`）へ WebRTC で同じPCの中を直接流れる。
  * Workerを通るのは、つなぐための連絡（offer・answer など。src/tab/signal.ts）だけである。
  * 送り手と合成ページは、どちらも接続を保持できるこの Durable Object へつなぐ。
  *
@@ -23,7 +23,7 @@ import { broadcast, type SocketLike } from './socket-broadcast'
 /** Durable Object の名前。中継先は1つだけなので、決め打ちの名前で同じものを指す */
 const CHANNEL_NAME = 'tab'
 
-/** 送り手（/tab/）からの接続に付ける目印 */
+/** 送り手（拡張 HDAD-tab）からの接続に付ける目印 */
 export const SENDER = 'sender'
 /** 合成ページからの接続に付ける目印 */
 export const VIEWER = 'viewer'

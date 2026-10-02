@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 /**
- * 画面の取り込みのページのテスト
+ * コネクターのページの Gyazo（配信画面の取り込み）の区画のテスト
  *
  * 確かめること:
+ * - 区画の見出しはサービス名（Gyazo）で、何をするかはヘルプボタンを押したときだけ案内すること
  * - 保存済みの設定が入力欄に出ること
  * - 入力した値がそのまま Worker へ渡ること（空欄を 0 に丸めない）
  * - コレクションのURLを貼ったら、その末尾のIDだけを送ること
@@ -16,7 +17,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { ApiError } from '@/core/api'
 import type { ScreenSettings } from './api'
-import { ScreenPage } from './screen-page'
+import { ScreenSection } from './screen-section'
 
 const savedConfig: ScreenSettings = {
   host: 'localhost',
@@ -32,7 +33,7 @@ const collectionUrl = 'https://gyazo.com/collections/f19e74cebe47c9cadad31b67900
 afterEach(cleanup)
 
 const renderPage = (api: { load: () => Promise<ScreenSettings>; save: (settings: ScreenSettings) => Promise<ScreenSettings> }) => {
-  render(<ScreenPage api={api} />)
+  render(<ScreenSection api={api} />)
 }
 
 const workingFakeApi = () => ({
@@ -40,7 +41,18 @@ const workingFakeApi = () => ({
   save: vi.fn(async (settings: ScreenSettings) => settings),
 })
 
-describe('画面の取り込みのページ', () => {
+describe('Gyazo の区画', () => {
+  test('見出しはサービス名（Gyazo）にし、何をするかはヘルプボタンを押したときだけ案内する', async () => {
+    renderPage(workingFakeApi())
+
+    expect(await screen.findByRole('heading', { name: 'Gyazo' })).toBeInTheDocument()
+    expect(screen.queryByText(/WebSocketサーバー設定/)).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Gyazoの説明' }))
+
+    expect(await screen.findByText(/WebSocketサーバー設定/)).toBeInTheDocument()
+  })
+
   test('保存済みの設定を入力欄に出す', async () => {
     renderPage(workingFakeApi())
 
@@ -56,7 +68,7 @@ describe('画面の取り込みのページ', () => {
     const intervalField = await screen.findByLabelText('撮る間隔（秒）')
     await userEvent.clear(intervalField)
     await userEvent.type(intervalField, '90')
-    await userEvent.click(screen.getByRole('button', { name: '保存' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Gyazoの設定を保存' }))
 
     await waitFor(() => expect(api.save).toHaveBeenCalledWith({ ...savedConfig, intervalSeconds: 90 }))
   })
@@ -66,7 +78,7 @@ describe('画面の取り込みのページ', () => {
     renderPage(api)
 
     await userEvent.type(await screen.findByLabelText('上げ先の Gyazo のコレクション（任意）'), collectionUrl)
-    await userEvent.click(screen.getByRole('button', { name: '保存' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Gyazoの設定を保存' }))
 
     await waitFor(() => expect(api.save).toHaveBeenCalledWith({ ...savedConfig, collectionId: 'f19e74cebe47c9cadad31b6790098eac' }))
   })
@@ -76,7 +88,7 @@ describe('画面の取り込みのページ', () => {
     renderPage(api)
 
     await screen.findByLabelText('上げ先の Gyazo のコレクション（任意）')
-    await userEvent.click(screen.getByRole('button', { name: '保存' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Gyazoの設定を保存' }))
 
     await waitFor(() => expect(api.save).toHaveBeenCalledWith(savedConfig))
   })
@@ -86,7 +98,7 @@ describe('画面の取り込みのページ', () => {
     renderPage(api)
 
     await userEvent.clear(await screen.findByLabelText('撮る間隔（秒）'))
-    await userEvent.click(screen.getByRole('button', { name: '保存' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Gyazoの設定を保存' }))
 
     await waitFor(() => expect(api.save).toHaveBeenCalledWith({ ...savedConfig, intervalSeconds: Number.NaN }))
   })
@@ -99,7 +111,7 @@ describe('画面の取り込みのページ', () => {
     renderPage(api)
 
     await screen.findByLabelText('撮る間隔（秒）')
-    await userEvent.click(screen.getByRole('button', { name: '保存' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Gyazoの設定を保存' }))
 
     // 問題点は1つの要素に改行で並ぶので、部分一致で確かめる
     expect(await screen.findByText(/・intervalSeconds: 15〜600 の整数で指定してください/)).toBeInTheDocument()

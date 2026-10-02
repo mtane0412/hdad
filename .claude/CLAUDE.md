@@ -60,7 +60,7 @@ npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 |---|---|---|
 | `chat.md` | チャットボックス（素材の種類 `chat`） | `src/chat/**` |
 | `alerts.md` | アラート（素材・トリガー・動作・広告） | `src/alerts/**`・`worker/alert-*.ts`・`worker/trigger-menu.ts`・`worker/ad-break-timer.ts`・`worker/ai-chat.ts`・`worker/bot-chat.ts`・`worker/webhook-routes.ts` |
-| `transcript.md` | 配信中の文字起こし（`/transcript/`） | `src/transcript/**`・`transcript/**`・`worker/transcript-store.ts` |
+| `transcript.md` | 配信中の文字起こし（`transcript/relay/`・裏方の `?transcript=`） | `src/transcript/**`・`transcript/**`・`worker/transcript-store.ts` |
 | `stream-chapters.md` | 配信で何が話されたか（章。ダッシュボードの配信の詳細） | `worker/stream-chapter*.ts`・`worker/collect.ts`・`worker/stream-chat-store.ts`・`worker/stats-store.ts`・`src/stats/**`・`migrations/*chapter*.sql` |
 | `stream-summary.md` | これまでのあらすじ（`{summary}`） | `worker/stream-summary*.ts`・`worker/collect.ts`・`worker/chat-command.ts`・`worker/alert-event.ts`・`worker/webhook-routes.ts` |
 | `viewers.md` | 視聴者の記録（`/viewers/`） | `src/viewers/**`・`worker/viewer-*.ts`・`worker/stream-chat-store.ts`・`worker/webhook-routes.ts`・`worker/collect.ts`・`worker/ai-chat.ts`・`migrations/*viewer*.sql` |
@@ -68,12 +68,12 @@ npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 | `comments.md` | コメントビューアー（`/comments/`） | `src/comments/**`・`worker/comment-*.ts`・`worker/chat-store.ts` |
 | `focus.md` | 注目コメント（素材の種類 `focus`） | `src/focus/**`・`worker/focus-*.ts` |
 | `draw.md` | 手書き（`/draw/`・素材の種類 `draw`） | `src/draw/**`・`worker/draw-*.ts`・`src/core/socket.ts` |
-| `tab.md` | タブの映像（`/tab/`・素材の種類 `tab`・Chrome 拡張 `extension/`） | `src/tab/**`・`extension/**`・`worker/tab-*.ts` |
+| `tab.md` | タブの映像（素材の種類 `tab`・Chrome 拡張 `extension/`） | `src/tab/**`・`extension/**`・`worker/tab-*.ts` |
 | `overlay.md` | 合成ページと構成の管理画面（`overlay/stage/`・`/overlay/`） | `src/overlay/**`・`overlay/**`・`worker/overlay-*.ts` |
 | `speech.md` | チャットの読み上げ（`speech/reader/`） | `src/speech/**`・`speech/**`・`worker/speech-config.ts` |
-| `backstage.md` | 裏方をまとめたページ（`overlay/backstage/`） | `src/backstage/**`・`overlay/backstage/**` |
+| `backstage.md` | 裏方をまとめたページ（`overlay/backstage/`）とコネクターのページ（`/connectors/`） | `src/backstage/**`・`overlay/backstage/**` |
 | `bgm.md` | BGM（`/bgm/`・裏方の `?bgm=true`） | `src/bgm/**`・`worker/bgm-*.ts`・`worker/alert-channel.ts` |
-| `screen.md` | 配信画面の取り込み（`/screen/`） | `src/screen/**`・`worker/screen-*.ts`・`worker/gyazo.ts` |
+| `screen.md` | 配信画面の取り込み（コネクターの Gyazo） | `src/screen/**`・`worker/screen-*.ts`・`worker/gyazo.ts` |
 | `llm.md` | LLMの呼び先・使用状況・モデルの選択（判定用の Jev を含む） | `src/llm/**`・`worker/llm*.ts`・`worker/jev*.ts`・`worker/ai-chat.ts`・`worker/side-super.ts`・`worker/viewer-summary.ts`・`worker/stream-summary.ts` |
 | `dashboard.md` | ダッシュボード（`/`） | `src/stats/**`・`worker/stats-*.ts` |
 | `triggers-page.md` | トリガーの管理画面（`/triggers/`） | `src/admin/**` |
