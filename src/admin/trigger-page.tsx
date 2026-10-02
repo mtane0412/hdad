@@ -29,7 +29,7 @@ import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Slider } from '@/components/ui/slider'
 import { Textarea } from '@/components/ui/textarea'
-import { Link } from '@/app/router'
+import { Link, useUnsavedChanges } from '@/app/router'
 import type { BotApi, BotStatus } from '@/bot/api'
 import { ApiError } from '@/core/api'
 import { PlaceholderInput } from '@/core/placeholder-input'
@@ -779,6 +779,11 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
     }
   }, [api, botApi])
 
+  // 追加した設定も書き換えた値も、保存するまで反映されない。読み込んだ（保存した）時点の中身と比べて知らせる。
+  // 読み込みが終わるまでは比べる基準が無いので、未保存とは扱わない
+  const unsaved = loaded.status === 'ready' && JSON.stringify(drafts) !== savedSignature
+  useUnsavedChanges(unsaved)
+
   if (overlayKey === null) {
     return (
       <Alert variant="destructive">
@@ -793,9 +798,6 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
       <LoadFailure title="トリガーを表示できません" message={loaded.message} />
     )
   }
-
-  // 追加した設定も書き換えた値も、保存するまで反映されない。読み込んだ（保存した）時点の中身と比べて知らせる
-  const unsaved = JSON.stringify(drafts) !== savedSignature
 
   const rotateKey = async (): Promise<string> => {
     onOverlayKeyChange(await api.rotateOverlayKey())
