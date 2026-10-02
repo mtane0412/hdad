@@ -84,6 +84,13 @@ export interface Env {
    */
   OPENROUTER_API_KEY?: string
   /**
+   * DeepL API Free のAPIキー。
+   *
+   * 字幕の翻訳の提供元に DeepL を選んだときだけ要る（worker/translation.ts）ので、設定していなくてもWorkerは動く。
+   * 選んでいるのに無ければ、黙って別の提供元へ落とさずに失敗させる（Fail-Fast）。
+   */
+  DEEPL_API_KEY?: string
+  /**
    * Gyazo のアクセストークン。
    *
    * 配信画面の取り込み（issue #122）が、撮った1枚を上げてOCRを作らせるために使う。画面の取り込みを

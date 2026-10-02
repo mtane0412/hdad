@@ -14,6 +14,8 @@
  * - 認識しているタブは、話している途中の文と確定した文を字幕の中継先へも送る（issue #190。合成ページの字幕の素材が映す）。
  *   途中の文は変わったときだけ送り、空になったことも送る（字幕から消すため）。字幕は流れていくものなので、
  *   つながっていないあいだの分は貯めずに落とす
+ * - 確定した文は、直前に確定した2件と一緒に Worker へ送って英訳してもらい、訳文を同じIDで字幕の中継先へ送る（issue #191）。
+ *   原文は訳を待たずに送るので、訳せなかった1件のために原文の字幕は止まらない。訳せなかった理由は translationWarning に出す
  *
  * 注意: Chrome の音声認識・マイク・鍵・localStorage・Worker への送信は deps で受け取る（テストで差し替えるため）。
  * ブラウザのものは browserRecognitionDeps が組み立てる。
@@ -23,6 +25,7 @@ import { connectCaptionWriter, type CaptionSocketHandlers, type CaptionWriter } 
 import type { TranscriptApi } from './api'
 import { createTranscriptDelivery, type DeliveredLine } from './delivery'
 import { createRecognizer, type MicrophoneHold, type RecognitionLike, type RecognizerState } from './recognizer'
+import type { TranslationApi } from './translation-api'
 
 /** オン・オフを覚えておく localStorage の名前 */
 const STORAGE_KEY = 'hdad:transcript-recognition'
@@ -30,8 +33,13 @@ const STORAGE_KEY = 'hdad:transcript-recognition'
 /** 認識するタブを1つに決めるための、タブ間の鍵の名前 */
 const LOCK_NAME = 'hdad-transcript-recognition'
 
+/** 訳すときに文脈として添える、直前に確定した発話の数（issue #191。Worker の TRANSLATION_CONTEXT_LINES と合わせる） */
+const TRANSLATION_CONTEXT_LINES = 2
+
 export interface RecognitionDeps {
   api: TranscriptApi
+  /** 確定した文を英訳してもらう */
+  translation: TranslationApi
   /** 認識を作る。このブラウザに音声認識が無ければ null */
   createRecognition: (() => RecognitionLike) | null
   openMicrophone(onLost: () => void): Promise<MicrophoneHold>
@@ -65,6 +73,8 @@ export interface RecognitionContextValue {
   lines: readonly DeliveredLine[]
   /** 字幕の中継先へ送れていない理由（送れているか、認識していなければ null） */
   captionWarning: string | null
+  /** 直前の1件を訳せなかった理由（訳せているか、訳さない設定なら null） */
+  translationWarning: string | null
 }
 
 const INITIAL_RECOGNIZER_STATE: RecognizerState = { status: { kind: 'stopped' }, interim: '', restarts: 0, interruptedMs: 0 }
@@ -89,6 +99,7 @@ export const RecognitionProvider = ({ deps, children }: { deps: RecognitionDeps;
   const [recognizer, setRecognizer] = useState<RecognizerState>(INITIAL_RECOGNIZER_STATE)
   const [lines, setLines] = useState<readonly DeliveredLine[]>([])
   const [captionWarning, setCaptionWarning] = useState<string | null>(null)
+  const [translationWarning, setTranslationWarning] = useState<string | null>(null)
 
   const delivery = useMemo(
     () =>
@@ -145,6 +156,8 @@ export const RecognitionProvider = ({ deps, children }: { deps: RecognitionDeps;
         caption = writer
         /** 最後に送った話している途中の文。状態は途中の文のほかにも変わるので、変わったときだけ送る */
         let sentInterim = ''
+        /** 直前に確定した発話（古いものから）。訳すときの文脈にする */
+        let recentFinals: readonly string[] = []
         running = createRecognizer({
           createRecognition,
           openMicrophone: (onLost) => deps.openMicrophone(onLost),
@@ -156,8 +169,24 @@ export const RecognitionProvider = ({ deps, children }: { deps: RecognitionDeps;
             writer.send({ type: 'interim', text: state.interim })
           },
           onFinal: (text) => {
-            writer.send({ type: 'final', text })
+            // 訳文を添える先を示すID。記録のメッセージIDとは別に作る（記録は送り直しのたびに状態が変わるため、字幕とは切り離す）
+            const id = crypto.randomUUID()
+            writer.send({ type: 'final', id, text })
             void delivery.deliver(text)
+            const context = recentFinals
+            recentFinals = [...recentFinals, text].slice(-TRANSLATION_CONTEXT_LINES)
+            // オフにした・始め直したあとに届いた結果は使わない（閉じた接続へ送らず、消した警告を出し直さない）
+            deps.translation.translate(text, context).then(
+              (translated) => {
+                if (controller.signal.aborted) return
+                setTranslationWarning(null)
+                if (translated !== null) writer.send({ type: 'translation', id, text: translated })
+              },
+              (reason: unknown) => {
+                if (controller.signal.aborted) return
+                setTranslationWarning(`字幕の翻訳に失敗しました: ${errorMessage(reason)}`)
+              },
+            )
           },
         })
         void running.start()
@@ -177,13 +206,24 @@ export const RecognitionProvider = ({ deps, children }: { deps: RecognitionDeps;
       running?.stop()
       caption?.close()
       setCaptionWarning(null)
+      setTranslationWarning(null)
       releaseLock?.()
     }
   }, [enabled, attempt, deps, delivery])
 
   const value = useMemo<RecognitionContextValue>(
-    () => ({ enabled, setEnabled, restart: () => setAttempt((current) => current + 1), phase, error, recognizer, lines, captionWarning }),
-    [enabled, setEnabled, phase, error, recognizer, lines, captionWarning],
+    () => ({
+      enabled,
+      setEnabled,
+      restart: () => setAttempt((current) => current + 1),
+      phase,
+      error,
+      recognizer,
+      lines,
+      captionWarning,
+      translationWarning,
+    }),
+    [enabled, setEnabled, phase, error, recognizer, lines, captionWarning, translationWarning],
   )
   return <RecognitionContext.Provider value={value}>{children}</RecognitionContext.Provider>
 }
@@ -197,17 +237,18 @@ const findRecognitionConstructor = (): (new () => RecognitionLike) | null => {
 }
 
 /**
- * このブラウザの音声認識・マイク・鍵・localStorage と、Worker への送信を組み立てる。
+ * このブラウザの音声認識・マイク・鍵・localStorage と、Worker への送信・翻訳の依頼を組み立てる。
  *
  * 注意: タブ間の鍵（navigator.locks）が無いブラウザ（https でないページなど）では、音声認識があっても
  * 使えないものとして扱う（createRecognition を null にする）。鍵なしで認識すると、2つのタブで二重に記録してしまうためである。
  */
-export const browserRecognitionDeps = (api: TranscriptApi): RecognitionDeps => {
+export const browserRecognitionDeps = (api: TranscriptApi, translation: TranslationApi): RecognitionDeps => {
   const Recognition = findRecognitionConstructor()
   // DOM の型では navigator.locks は必ずあることになっているが、実際には無いブラウザがある
   const hasLocks: boolean = Reflect.get(navigator, 'locks') !== undefined
   return {
     api,
+    translation,
     createRecognition: Recognition && hasLocks ? () => new Recognition() : null,
     async openMicrophone(onLost) {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })

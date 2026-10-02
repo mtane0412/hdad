@@ -1,7 +1,7 @@
 /**
  * 字幕の表示（合成ページの素材「字幕」）
  *
- * 映す行（captions.ts の visibleCaptions）をDOMへ出す。DOMを扱うのはここだけにして、字幕の受け取り
+ * 映す行（captions.ts の visibleCaptions）をDOMへ出す。訳文があれば原文のすぐ下に出す。DOMを扱うのはここだけにして、字幕の受け取り
  * （src/overlay/stage.ts の mountCaption）から切り離す。
  *
  * 注意: 合成ページは毎フレーム映す行を渡してくるので、前と同じなら要素に触れない。毎フレーム作り直すと、
@@ -16,7 +16,21 @@ export interface CaptionView {
 
 /** 映している行と同じか */
 const sameLines = (a: readonly CaptionLine[], b: readonly CaptionLine[]): boolean =>
-  a.length === b.length && a.every((line, index) => line.text === b[index]?.text && line.final === b[index]?.final)
+  a.length === b.length &&
+  a.every((line, index) => line.text === b[index]?.text && line.final === b[index]?.final && line.translation === b[index]?.translation)
+
+/** 1行ぶんの要素。訳文があれば、原文のすぐ下に別の要素として置く */
+const lineElements = (line: CaptionLine): HTMLElement[] => {
+  const original = document.createElement('p')
+  original.className = 'caption-line'
+  original.dataset.final = String(line.final)
+  original.textContent = line.text
+  if (line.translation === null) return [original]
+  const translation = document.createElement('p')
+  translation.className = 'caption-translation'
+  translation.textContent = line.translation
+  return [original, translation]
+}
 
 /**
  * 字幕の表示を組み立てる。
@@ -30,15 +44,7 @@ export const createCaptionView = (root: HTMLElement): CaptionView => {
     render(lines) {
       if (sameLines(displayed, lines)) return
       displayed = lines
-      root.replaceChildren(
-        ...lines.map((line) => {
-          const element = document.createElement('p')
-          element.className = 'caption-line'
-          element.dataset.final = String(line.final)
-          element.textContent = line.text
-          return element
-        }),
-      )
+      root.replaceChildren(...lines.flatMap(lineElements))
     },
   }
 }

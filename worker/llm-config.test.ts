@@ -11,10 +11,10 @@
  */
 import { describe, expect, it } from 'vitest'
 import { createFakeStore } from './fake-store'
-import { DEFAULT_LLM_SETTINGS, LLM_USAGES, loadLlmSettings, parseLlmSettings, saveLlmSettings, type LlmSettings } from './llm-config'
+import { DEFAULT_LLM_SETTINGS, LLM_USAGES, loadLlmSettings, parseLlmSettings, saveLlmSettings, type LlmSettings, type LlmUsage } from './llm-config'
 
 /** 既定の設定のうち、1か所だけを差し替えたものを作る */
-const replaceWith = (usage: 'aiChat' | 'sideSuper' | 'viewerSummary' | 'streamSummary', settings: unknown): unknown => ({
+const replaceWith = (usage: LlmUsage, settings: unknown): unknown => ({
   usages: { ...DEFAULT_LLM_SETTINGS.usages, [usage]: settings },
 })
 
@@ -105,11 +105,11 @@ describe('parseLlmSettings', () => {
   })
 
   it('問題点は最初の1件で止めず、すべて集めてから拒否する', () => {
-    expect(issues({ usages: { aiChat: { provider: 'openai', models: { 'workers-ai': 1, openrouter: '' } } } })).toHaveLength(6)
+    expect(issues({ usages: { aiChat: { provider: 'openai', models: { 'workers-ai': 1, openrouter: '' } } } })).toHaveLength(7)
   })
 
-  it('使う箇所は4つで、それぞれ既定の提供元は Workers AI である', () => {
-    expect(LLM_USAGES).toEqual(['aiChat', 'sideSuper', 'viewerSummary', 'streamSummary'])
+  it('使う箇所は5つで、それぞれ既定の提供元は Workers AI である', () => {
+    expect(LLM_USAGES).toEqual(['translation', 'aiChat', 'sideSuper', 'viewerSummary', 'streamSummary'])
     for (const usage of LLM_USAGES) expect(DEFAULT_LLM_SETTINGS.usages[usage].provider).toBe('workers-ai')
   })
 
@@ -119,6 +119,10 @@ describe('parseLlmSettings', () => {
     expect(sideSuper.models).toEqual(aiChat.models)
     expect(viewerSummary.models).toEqual(aiChat.models)
     expect(streamSummary.models['workers-ai']).not.toBe(aiChat.models['workers-ai'])
+  })
+
+  it('字幕の翻訳は、発話ごとに呼ばれるので軽いモデルを既定にする', () => {
+    expect(DEFAULT_LLM_SETTINGS.usages.translation.models).toEqual(DEFAULT_LLM_SETTINGS.usages.aiChat.models)
   })
 })
 
@@ -138,6 +142,20 @@ describe('loadLlmSettings', () => {
     const store = createFakeStore({
       'llm-settings': JSON.stringify({ provider: 'workers-ai', workersAi: { chat: 'a', summary: 'b' }, openrouter: { chat: 'c', summary: 'd' } }),
     })
+
+    await expect(loadLlmSettings(store)).rejects.toThrow('llm-settings')
+  })
+
+  it('箇所を足す前に保存された設定は、足した箇所だけ既定で補って読み出す（ほかの箇所の選択は残す）', async () => {
+    // 前提: 字幕の翻訳（translation）を足す前に保存された設定には、そのキーが無い
+    const savedBeforeTranslation = Object.fromEntries(Object.entries(broadcasterConfig.usages).filter(([usage]) => usage !== 'translation'))
+    const store = createFakeStore({ 'llm-settings': JSON.stringify({ usages: savedBeforeTranslation }) })
+
+    expect(await loadLlmSettings(store)).toEqual({ usages: { ...broadcasterConfig.usages, translation: DEFAULT_LLM_SETTINGS.usages.translation } })
+  })
+
+  it('保存されている箇所の中身が壊れていれば、補わずにエラーにする', async () => {
+    const store = createFakeStore({ 'llm-settings': JSON.stringify({ usages: { ...broadcasterConfig.usages, aiChat: { provider: 'openai' } } }) })
 
     await expect(loadLlmSettings(store)).rejects.toThrow('llm-settings')
   })

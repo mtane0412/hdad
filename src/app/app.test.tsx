@@ -108,6 +108,7 @@ const fakeLlmApi: LlmApi = {
     return {
       settings: {
         usages: {
+          translation: usageSetting,
           aiChat: usageSetting,
           sideSuper: usageSetting,
           viewerSummary: usageSetting,
@@ -125,6 +126,9 @@ const fakeLlmApi: LlmApi = {
   // まだ一度もLLMを呼んでいない状態（使用状況の表示はこのテストでは問わない）
   loadUsage: vi.fn(async () => []),
   loadCredits: vi.fn(async () => ({ totalCredits: 0, totalUsage: 0, remaining: 0 })),
+  loadTranslation: vi.fn(async () => ({ provider: 'off' as const, deeplKeyConfigured: false })),
+  saveTranslation: vi.fn(async (provider) => provider),
+  loadDeeplUsage: vi.fn(async () => ({ characterCount: 0, characterLimit: 500_000 })),
 }
 
 const createFakeFocusApi: FocusApi = {
@@ -196,6 +200,7 @@ afterEach(() => {
  */
 const createRecognitionDeps = (recognitionSetting: string | null = null): RecognitionDeps => ({
   api: { send: () => Promise.resolve(true) },
+  translation: { translate: () => Promise.resolve(null) },
   createRecognition: null,
   openMicrophone: () => Promise.reject(new Error('このテストではマイクを開きません')),
   locks: { request: () => Promise.reject(new Error('このテストでは鍵を取りません')) },

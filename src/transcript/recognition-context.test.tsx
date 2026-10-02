@@ -4,13 +4,15 @@
  *
  * Chrome の音声認識・マイク・タブ間の鍵（Web Locks）・Worker への送信は代役に差し替える。
  * 確かめるのは、オン・オフが覚えられること、鍵を取れたタブだけが認識すること、確定した発話が Worker へ送られること、
- * 話している途中の文と確定した文が字幕の中継先へ送られること（issue #190）。
+ * 話している途中の文と確定した文が字幕の中継先へ送られること（issue #190）、確定した文を直前の2件と一緒に訳してもらい、
+ * 訳文を字幕の中継先へ送ること（issue #191）。
  */
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CaptionSocketHandlers } from '../caption/socket'
 import type { CaptionMessage } from '../caption/message'
 import type { TranscriptApi } from './api'
+import type { TranslationApi } from './translation-api'
 import { browserRecognitionDeps, RecognitionProvider, useRecognition, type RecognitionDeps } from './recognition-context'
 import type { RecognitionLike, RecognitionResultEvent } from './recognizer'
 
@@ -48,7 +50,23 @@ const createLocks = (available: boolean) => {
   return { locks, requested }
 }
 
-const setup = ({ available = true, supported = true } = {}) => {
+/** 頼まれた訳を残し、決めた結果を返す翻訳の代役 */
+const createTranslation = (result: (text: string) => Promise<string | null>) => {
+  const requests: { text: string; context: readonly string[] }[] = []
+  const translation: TranslationApi = {
+    translate: (text, context) => {
+      requests.push({ text, context })
+      return result(text)
+    },
+  }
+  return { translation, requests }
+}
+
+const setup = ({
+  available = true,
+  supported = true,
+  translate = (): Promise<string | null> => Promise.resolve(null),
+}: { available?: boolean; supported?: boolean; translate?: (text: string) => Promise<string | null> } = {}) => {
   const recognition = new FakeRecognition()
   const sent: { messageId: string; text: string }[] = []
   const api: TranscriptApi = {
@@ -58,11 +76,13 @@ const setup = ({ available = true, supported = true } = {}) => {
     },
   }
   const { locks, requested } = createLocks(available)
+  const { translation, requests: translationRequests } = createTranslation(translate)
   const microphone = { released: 0 }
   /** 字幕の中継先への接続の代役。送ったものと、閉じた回数と、つなぐときに渡された受け口を残す */
   const caption = { connects: 0, closes: 0, sent: [] as CaptionMessage[], handlers: null as CaptionSocketHandlers | null }
   const deps: RecognitionDeps = {
     api,
+    translation,
     createRecognition: supported ? () => recognition : null,
     openMicrophone: async () => ({
       release: () => {
@@ -85,16 +105,17 @@ const setup = ({ available = true, supported = true } = {}) => {
       }
     },
   }
-  return { deps, recognition, sent, requested, microphone, caption }
+  return { deps, recognition, sent, requested, microphone, caption, translationRequests }
 }
 
 /** 文脈の中身を画面に出し、オン・オフを切り替えるボタンを置く */
 const Probe = () => {
-  const { enabled, setEnabled, phase, recognizer, lines, captionWarning } = useRecognition()
+  const { enabled, setEnabled, phase, recognizer, lines, captionWarning, translationWarning } = useRecognition()
   return (
     <div>
       <p>状態: {phase}</p>
       <p>字幕: {captionWarning ?? 'つながっている'}</p>
+      <p>翻訳: {translationWarning ?? '問題なし'}</p>
       <p>認識: {recognizer.status.kind}</p>
       <ul>
         {lines.map((line) => (
@@ -203,10 +224,115 @@ describe('RecognitionProvider', () => {
     expect(caption.sent).toEqual([
       { type: 'interim', text: 'こんばん' },
       { type: 'interim', text: 'こんばんは今日は' },
-      { type: 'final', text: 'こんばんは、今日は' },
+      { type: 'final', id: expect.any(String), text: 'こんばんは、今日は' },
       // 確定したので、話している途中の文が無くなったことも知らせる
       { type: 'interim', text: '' },
     ])
+  })
+
+  it('確定した文を直前の2件と一緒に訳してもらい、訳文を同じIDで字幕の中継先へ送る', async () => {
+    const english: Record<string, string> = { こんばんは: 'Good evening', 配信はじめます: "Let's start the stream", ボスに挑みます: "I'll take on the boss" }
+    const { deps, recognition, caption, translationRequests } = setup({ translate: (text) => Promise.resolve(english[text] ?? null) })
+    render(
+      <RecognitionProvider deps={deps}>
+        <Probe />
+      </RecognitionProvider>,
+    )
+    await act(async () => screen.getByRole('button', { name: '始める' }).click())
+
+    await act(async () => {
+      recognition.onstart?.()
+      for (const text of ['こんばんは', '配信はじめます', 'ボスに挑みます']) {
+        recognition.onresult?.({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: text } }] })
+      }
+    })
+
+    expect(translationRequests).toEqual([
+      { text: 'こんばんは', context: [] },
+      { text: '配信はじめます', context: ['こんばんは'] },
+      { text: 'ボスに挑みます', context: ['こんばんは', '配信はじめます'] },
+    ])
+    const finals = caption.sent.filter((message) => message.type === 'final')
+    const translations = caption.sent.filter((message) => message.type === 'translation')
+    expect(translations).toEqual([
+      { type: 'translation', id: finals[0]?.id, text: 'Good evening' },
+      { type: 'translation', id: finals[1]?.id, text: "Let's start the stream" },
+      { type: 'translation', id: finals[2]?.id, text: "I'll take on the boss" },
+    ])
+    expect(new Set(finals.map(({ id }) => id)).size).toBe(3)
+  })
+
+  it('訳さない設定なら、訳文を送らない', async () => {
+    const { deps, recognition, caption } = setup()
+    render(
+      <RecognitionProvider deps={deps}>
+        <Probe />
+      </RecognitionProvider>,
+    )
+    await act(async () => screen.getByRole('button', { name: '始める' }).click())
+
+    await act(async () => {
+      recognition.onstart?.()
+      recognition.onresult?.({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: 'こんばんは' } }] })
+    })
+
+    expect(caption.sent.filter((message) => message.type === 'translation')).toEqual([])
+  })
+
+  it('訳せなかったら理由を出し（原文の字幕と記録は止めない）、次に訳せたら消す', async () => {
+    let fail = true
+    const { deps, recognition, caption, sent } = setup({
+      translate: () => (fail ? Promise.reject(new Error('DeepL が失敗を返しました（456）')) : Promise.resolve('Good evening')),
+    })
+    render(
+      <RecognitionProvider deps={deps}>
+        <Probe />
+      </RecognitionProvider>,
+    )
+    await act(async () => screen.getByRole('button', { name: '始める' }).click())
+
+    await act(async () => {
+      recognition.onstart?.()
+      recognition.onresult?.({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: 'こんばんは' } }] })
+    })
+
+    expect(screen.getByText('翻訳: 字幕の翻訳に失敗しました: DeepL が失敗を返しました（456）')).toBeTruthy()
+    expect(caption.sent).toContainEqual({ type: 'final', id: expect.any(String), text: 'こんばんは' })
+    expect(sent).toHaveLength(1)
+
+    fail = false
+    await act(async () => {
+      recognition.onresult?.({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: 'こんばんは' } }] })
+    })
+
+    expect(screen.getByText('翻訳: 問題なし')).toBeTruthy()
+  })
+
+  it('オフにしたあとに届いた訳の結果は、警告にも字幕にも使わない', async () => {
+    let rejectLate: (reason: Error) => void = () => {}
+    const { deps, recognition, caption } = setup({
+      translate: () =>
+        new Promise<string | null>((_resolve, reject) => {
+          rejectLate = reject
+        }),
+    })
+    render(
+      <RecognitionProvider deps={deps}>
+        <Probe />
+      </RecognitionProvider>,
+    )
+    await act(async () => screen.getByRole('button', { name: '始める' }).click())
+    await act(async () => {
+      recognition.onstart?.()
+      recognition.onresult?.({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: 'こんばんは' } }] })
+    })
+
+    // 前提: 訳を待っているあいだにオフにする
+    await act(async () => screen.getByRole('button', { name: '止める' }).click())
+    await act(async () => rejectLate(new Error('DeepL が失敗を返しました（456）')))
+
+    expect(screen.getByText('翻訳: 問題なし')).toBeTruthy()
+    expect(caption.sent.filter((message) => message.type === 'translation')).toEqual([])
   })
 
   it('話している途中の文が変わらなければ、字幕の中継先へ送り直さない', async () => {
@@ -329,12 +455,13 @@ describe('browserRecognitionDeps', () => {
   })
 
   const api: TranscriptApi = { send: () => Promise.resolve(true) }
+  const { translation } = createTranslation(() => Promise.resolve(null))
 
   it('音声認識があり、タブ間の鍵も使えるブラウザでは、認識を作れる', () => {
     vi.stubGlobal('webkitSpeechRecognition', FakeRecognition)
     vi.stubGlobal('navigator', { ...navigator, locks: createLocks(true).locks })
 
-    expect(browserRecognitionDeps(api).createRecognition).not.toBeNull()
+    expect(browserRecognitionDeps(api, translation).createRecognition).not.toBeNull()
   })
 
   it('音声認識があっても、タブ間の鍵（Web Locks）が無ければ使えないものとして扱う', () => {
@@ -342,6 +469,6 @@ describe('browserRecognitionDeps', () => {
     vi.stubGlobal('webkitSpeechRecognition', FakeRecognition)
     vi.stubGlobal('navigator', { ...navigator, locks: undefined })
 
-    expect(browserRecognitionDeps(api).createRecognition).toBeNull()
+    expect(browserRecognitionDeps(api, translation).createRecognition).toBeNull()
   })
 })

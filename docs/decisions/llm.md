@@ -2,13 +2,15 @@
 
 ## 呼び先の決め方（`worker/llm.ts`）
 
-LLMを呼ぶのは4か所（`LLM_USAGES`: `aiChat`（トリガーの動作のチャットの文面）・`sideSuper`・`viewerSummary`・`streamSummary`）だが（配信の章は箇所を増やさず `streamSummary` を指名する。経緯は `docs/decisions/stream-chapters.md`）、**呼び先を決めるのは `worker/llm.ts` だけ**である。呼び出し側はモデル名ではなく**どこで使うか**を指名し、どの提供元（Cloudflare の Workers AI・OpenRouter）のどのモデルを使うかは保存された設定（`worker/llm-config.ts`。KVのキーは `llm-settings`）が決める。
+LLMを呼ぶのは5か所（`LLM_USAGES`: `translation`（字幕の翻訳。提供元に LLM を選んだときだけ。`docs/decisions/caption.md` の「翻訳」）・`aiChat`（トリガーの動作のチャットの文面）・`sideSuper`・`viewerSummary`・`streamSummary`）だが（配信の章は箇所を増やさず `streamSummary` を指名する。経緯は `docs/decisions/stream-chapters.md`）、**呼び先を決めるのは `worker/llm.ts` だけ**である。呼び出し側はモデル名ではなく**どこで使うか**を指名し、どの提供元（Cloudflare の Workers AI・OpenRouter）のどのモデルを使うかは保存された設定（`worker/llm-config.ts`。KVのキーは `llm-settings`）が決める。
 
 **提供元は箇所ごとに選べる**（あらすじだけ賢いモデルに任せ、発言ごとに呼ばれるチャットの文面は無料枠の Workers AI に留める、といった使い分けをするためである。1回の cron の中で両方の提供元を呼ぶこともある）。
 
 **モデル名は提供元ごとに別に持つ**（`models['workers-ai']`・`models.openrouter`）。`@cf/…` と `提供者/モデル` で書き方がまったく違うので、1組にすると切り替えるたびに両方を書き直すことになり、戻したときに前の名前も消える。使っていない提供元のモデル名も検証するのは、保存時にしか検証しない約束（`speech-config.ts` と同じ）のもとで空のまま保存できると、切り替えた瞬間に初めて呼び出しが失敗するためである。
 
 保存されている形が古ければ（用途を `chat`・`summary` の2つにまとめていたころの形）`loadLlmSettings` が読み替えずにエラーにし、直し方（KVのキーを消して保存し直す）を文面に出す（`loadAlertConfig` と同じ考え方である）。応答の形の読み分け（従来は `response`、新しいモデルと OpenRouter は OpenAI 互換の `choices`）は `llm.ts` の `readResponse` 1か所に持つ。
+
+**箇所を足したときは、保存済みの設定に無い箇所だけを読み出しで既定に補う**（`loadLlmSettings` の `fillAddedUsages`。字幕の翻訳の `translation` を足したとき、issue #191）。補わないと、デプロイしてから `/llm/` で保存し直すまでのあいだ、すべての箇所の LLM が「保存されている形が古い」で止まる。補うのは箇所のキーそのものが無いときだけで、キーがあって中身が壊れているものは今までどおり拒む。保存（PUT）の検証は補わない（画面は全箇所を送るので、欠けているのは送り手の誤りである）。
 
 設定の読み出しは最初に使われたときの1回だけで、覚えておく（チャットの発言のたびに通る道なので、一度も使わなければKVを読まない。`alert-state.ts` の「要らなければ読まない」と同じ考え方である）。
 
@@ -29,6 +31,8 @@ LLMを呼ぶのは4か所（`LLM_USAGES`: `aiChat`（トリガーの動作のチ
 失敗（無料枠切れ・残高不足・推論モデルで本文が空）も `failures` として数える（`collection_failures` には最新の50件しか残らないので、「今日は何回失敗したか」はここから読む）。トークン数は応答の `usage` から読み（`llm.ts` の `readUsage`。返さないモデルでは 0 のまま回数だけ増える）、実費は OpenRouter だけが返す（`usage: { include: true }` を付けて頼む）。
 
 **Workers AI の残り無料枠（Neurons）は出せない**（GraphQLの分析APIがアカウント単位のAPIトークンを要求するため。`llm-models.ts` がモデルの一覧を手で持つのと同じ理由で、そのために強い鍵を増やさない）。
+
+字幕の翻訳の m2m100（Workers AI）と DeepL は LLM ではないので `llm.ts` を通らないが、使用状況は `worker/translation.ts` が同じ `llm_usage` の箇所 `translation` へ足し込む（訳した回数を1つの行で見られるようにするため。提供元の型は `llm-usage-store.ts` の `UsageProvider` で、DeepL は `deepl`）。
 
 **使用状況の記録に失敗しても、作れた文面はそのまま返す**（`llm.ts` の `recordUsage`）。モニターのための記録のために配信中のチャットの文面やあらすじが出なくなるのは本末転倒である。この1か所だけは Fail-Fast の例外で、黙って捨てずに `llm-usage-record-failed` として記録し、その記録まで失敗したらあきらめる。
 

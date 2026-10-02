@@ -1,7 +1,7 @@
 /**
  * LLMの設定（AIを使う箇所ごとに、どの提供元のどのモデルに作らせるか）
  *
- * このツールがLLMに文面を作らせる箇所は4つある（トリガーの動作 aiChat のチャットの文面・サイドスーパー・
+ * このツールがLLMに文面を作らせる箇所は5つある（字幕の翻訳・トリガーの動作 aiChat のチャットの文面・サイドスーパー・
  * 視聴者の人物像・配信のあらすじ）。呼び先は Cloudflare の Workers AI（Env.AI）だけとは限らないので、
  * 提供元とモデル名を箇所ごとにここへ持たせ、管理画面（/llm/）から変えられるようにする
  * （実際の呼び出しは worker/llm.ts）。作りは speech-config.ts・bot-config.ts・moderation-config.ts と
@@ -34,11 +34,12 @@ export const LLM_PROVIDERS = ['workers-ai', 'openrouter'] as const
 /**
  * LLMに文面を作らせる箇所。
  *
- * 並び順は管理画面に出す順で、発言ごとに呼ばれるもの（aiChat）から、cron が5分おきに呼ぶもの
- * （sideSuper・viewerSummary・streamSummary）へと並べる。
+ * 並び順は管理画面に出す順で、配信者の発話ごとに呼ばれるもの（translation）・視聴者の発言ごとに呼ばれるもの（aiChat）から、
+ * cron が5分おきに呼ぶもの（sideSuper・viewerSummary・streamSummary）へと並べる。
+ * translation は、字幕の翻訳の提供元に LLM を選んだときだけ呼ばれる（worker/translation.ts）。
  * streamSummary は、あらすじ（worker/stream-summary.ts）と配信の章（worker/stream-chapter.ts）の両方が指名する。
  */
-export const LLM_USAGES = ['aiChat', 'sideSuper', 'viewerSummary', 'streamSummary'] as const
+export const LLM_USAGES = ['translation', 'aiChat', 'sideSuper', 'viewerSummary', 'streamSummary'] as const
 
 export type LlmProvider = (typeof LLM_PROVIDERS)[number]
 export type LlmUsage = (typeof LLM_USAGES)[number]
@@ -81,6 +82,7 @@ const LARGE_MODELS: LlmModels = { 'workers-ai': '@cf/meta/llama-3.3-70b-instruct
  */
 export const DEFAULT_LLM_SETTINGS: LlmSettings = {
   usages: {
+    translation: { provider: 'workers-ai', models: LIGHT_MODELS },
     aiChat: { provider: 'workers-ai', models: LIGHT_MODELS },
     sideSuper: { provider: 'workers-ai', models: LIGHT_MODELS },
     viewerSummary: { provider: 'workers-ai', models: LIGHT_MODELS },
@@ -156,7 +158,23 @@ export const parseLlmSettings = (input: unknown): LlmSettings => {
 export const saveLlmSettings = (store: KeyValueStore, settings: LlmSettings): Promise<void> => store.put(CONFIG_KEY, JSON.stringify(settings))
 
 /**
+ * 保存されている設定に、後から足した箇所のキーが無ければ既定の設定で補う。
+ *
+ * 箇所を足すたびに保存済みの設定が読めなくなると、デプロイしてから保存し直すまでのあいだ、すべての箇所のLLMが止まる。
+ * 補うのは「箇所のキーそのものが無い」ときだけで、キーがあって中身が壊れているものは補わずに parseLlmSettings が拒む。
+ * 保存（PUT）の検証は補わない（画面は全箇所を送るので、欠けているのは送り手の誤りである）。経緯は docs/decisions/llm.md。
+ */
+const fillAddedUsages = (saved: unknown): unknown => {
+  if (!isRecord(saved) || !isRecord(saved.usages)) return saved
+  const usages = saved.usages
+  const added = LLM_USAGES.filter((usage) => !(usage in usages))
+  return { ...saved, usages: { ...usages, ...Object.fromEntries(added.map((usage) => [usage, DEFAULT_LLM_SETTINGS.usages[usage]])) } }
+}
+
+/**
  * 保存済みの設定を読む。未保存なら既定の設定を返す。
+ *
+ * 注意: 箇所を足す前に保存された設定は、足した箇所だけを既定で補う（fillAddedUsages）。
  *
  * 注意: 保存されている形が古ければ（用途を chat・summary の2つにまとめていたころの形など）、読み替えずに
  * エラーにする（Fail-Fast。alert-config.ts の loadAlertConfig と同じ考え方で、開発中で後方互換を保つ必要が
@@ -167,7 +185,7 @@ export const loadLlmSettings = async (store: KeyValueStore): Promise<LlmSettings
   const text = await store.get(CONFIG_KEY)
   if (text === null) return DEFAULT_LLM_SETTINGS
   try {
-    return parseLlmSettings(JSON.parse(text))
+    return parseLlmSettings(fillAddedUsages(JSON.parse(text)))
   } catch (error) {
     throw new Error(
       `保存されている${SUBJECT}を読めません（${error instanceof Error ? error.message : String(error)}）。KVの ${CONFIG_KEY} を消してから、管理画面で保存し直してください`,

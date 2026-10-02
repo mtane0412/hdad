@@ -1,7 +1,7 @@
 /**
  * LLMのページ
  *
- * AIを使う4か所（トリガーの動作 aiChat のチャットの文面・サイドスーパー・視聴者の人物像・配信のあらすじ）
+ * AIを使う5か所（字幕の翻訳・トリガーの動作 aiChat のチャットの文面・サイドスーパー・視聴者の人物像・配信のあらすじ）
  * それぞれについて、どの提供元（Cloudflare の Workers AI・OpenRouter）のどのモデルに作らせるかを
  * Worker（KVの llm-settings）に保存する画面である。箇所ごとに選べるようにしてあるのは、あらすじだけ
  * 賢いモデルに任せて、発言ごとに呼ばれるチャットの文面は無料枠の Workers AI に留める、といった
@@ -29,6 +29,8 @@
  * 配信者が「保存済みの設定はこれだ」と取り違えたまま上書きしてしまう。
  * 注意: 箇所ごとの設定と使用状況は、LLM と Jev の箇所をまとめた1つの表に並べる（1行1か所）。箇所の説明や
  * 注意書きは画面に並べず、ヘルプボタン（src/components/help-button.tsx）を押したときだけ出す。
+ * 注意: 字幕の翻訳の提供元（訳さない・LLM・m2m100・DeepL）は、箇所の表の前の区画（translation-card.tsx）で選ぶ。
+ * LLM を選んだときのモデルは、表の「字幕の翻訳（LLM）」の行で選ぶ（issue #191）。
  * 注意: 日ごとの呼び出し回数のグラフ（usage-chart.tsx）は Recharts を使うので重い。React.lazy で切り離して読み込む。
  * 注意: 使用状況（どれだけ呼んだか）は自前で数えた記録である（worker/llm-usage-store.ts）。日の区切りはUTCで、
  * Workers AI の無料枠の切り替わりに合わせてある。Cloudflare側の残り無料枠（Neurons）は、読むのに
@@ -62,6 +64,7 @@ import {
   type LlmUsage,
   type LlmUsageDay,
 } from './api'
+import { TranslationCard } from './translation-card'
 import { dailyLlmCalls, summarizeLlmUsage, type LlmUsagePeriods, type LlmUsageTotals } from './usage'
 import type { UsageChartProps } from './usage-chart'
 
@@ -112,6 +115,11 @@ const PROVIDER_LABELS: Readonly<Record<LlmProvider, string>> = {
 
 /** 使う箇所ごとの、画面に出す名前と説明 */
 const USAGE_LABELS: Readonly<Record<LlmUsage, { name: string; description: string }>> = {
+  translation: {
+    name: '字幕の翻訳（LLM）',
+    description:
+      '「字幕の翻訳」で LLM を選んだときだけ使う。確定した発話ごとに呼ばれるので軽いモデル向き。m2m100・DeepL で訳した回数もこの行に数える。',
+  },
   aiChat: {
     name: 'チャットの文面',
     description: 'トリガーの「AIに文面を作らせて送る」。発言ごとに呼ばれるので軽いモデル向き。',
@@ -201,7 +209,7 @@ const failureLines = (error: unknown): string[] =>
     : [errorMessage(error)]
 
 export const LlmPage = ({ api }: LlmPageProps) => {
-  /** 読み込み中は undefined、読めたら4か所ぶんの設定（提供元ごとのモデル名を両方持つ） */
+  /** 読み込み中は undefined、読めたら5か所ぶんの設定（提供元ごとのモデル名を両方持つ） */
   const [settings, setSettings] = useState<LlmSettings>()
   const [loadFailure, setLoadFailure] = useState('')
   /** OpenRouter のAPIキーがWorkerに設定されているか */
@@ -415,6 +423,8 @@ export const LlmPage = ({ api }: LlmPageProps) => {
           <LazyUsageChart label={`直近${CHART_DAYS}日の呼び出し回数の推移`} points={dailyLlmCalls(usageDays, Date.now(), CHART_DAYS)} />
         </CardContent>
       </Card>
+
+      <TranslationCard api={api} />
 
       <Card>
         <CardHeader>

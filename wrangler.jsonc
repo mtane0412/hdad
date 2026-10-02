@@ -32,7 +32,7 @@
   "kv_namespaces": [{ "binding": "STORE" }],
   "r2_buckets": [{ "binding": "MEDIA" }],
   "d1_databases": [{ "binding": "DB" }],
-  // 文面づくり（チャットの文面・サイドスーパー・人物像・配信のあらすじ）に使うLLM（Workers AI）。
+  // 文面づくり（チャットの文面・サイドスーパー・人物像・配信のあらすじ）と字幕の翻訳に使うLLM・翻訳専用モデル（Workers AI）。
   // 押した人が用意するものはないので、Deploy to Cloudflare ボタンの入力欄には出ない（Durable Object と同じ扱い）。
   // 呼び先は管理画面（/llm/）で OpenRouter に切り替えられる（そのときはシークレットOPENROUTER_API_KEYが要り、
   // このバインディングは呼ばれない。worker/llm.ts）。
