@@ -93,12 +93,22 @@ export const postOverlayKey = async (context: Context): Promise<Response> => {
   const { env } = context
   const overlayKey = await rotateOverlayKey(env.STORE)
   const keyTag = await overlayKeyTag(overlayKey)
-  await Promise.all([
-    revokeAlertSockets(env.ALERTS, keyTag),
-    revokeRelayViewers(env.DRAW, 'draw', keyTag),
-    revokeRelayViewers(env.DRAW, 'caption', keyTag),
-    revokeTabViewers(env.TAB, keyTag),
-  ])
+  try {
+    await Promise.all([
+      revokeAlertSockets(env.ALERTS, keyTag),
+      revokeRelayViewers(env.DRAW, 'draw', keyTag),
+      revokeRelayViewers(env.DRAW, 'caption', keyTag),
+      revokeTabViewers(env.TAB, keyTag),
+    ])
+  } catch (error) {
+    // KVのキーは書き換わっているが、古いキーの接続が残っているかもしれない。新しいキーは返さず、発行し直しを促す
+    console.error('オーバーレイ用キーを発行し直しましたが、開いている接続を切れませんでした', error)
+    throw new HttpError(
+      STATUS.internalServerError,
+      'overlay-key-revoke-failed',
+      'キーは発行し直しましたが、古いキーで開いている接続を切れませんでした。もう一度キーを発行し直してください',
+    )
+  }
   return Response.json({ overlayKey })
 }
 

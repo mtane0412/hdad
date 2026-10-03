@@ -495,6 +495,20 @@ describe('POST /api/admin/overlay-key（キーの再発行）', () => {
     expect(tabRelay.revokedKeyTags).toEqual([newTag])
   })
 
+  it('接続を切れなかったら、新しいキーを返さずに失敗を返し、発行し直しを促す', async () => {
+    // KVのキーは書き換わっているので、黙って成功にすると古いキーの接続が残ったことに気づけない
+    const { env } = createEnv()
+    const failingEnv = { ...env, ALERTS: createFakeAlertChannel({ shouldFail: true }).namespace }
+
+    const response = await invoke(await broadcasterRequest(failingEnv, '/api/admin/overlay-key', { method: 'POST' }), failingEnv)
+
+    expect(response.status).toBe(500)
+    const body = (await response.json()) as { overlayKey?: string; error: { code: string; message: string } }
+    expect(body.overlayKey).toBeUndefined()
+    expect(body.error.code).toBe('overlay-key-revoke-failed')
+    expect(body.error.message).toContain('もう一度')
+  })
+
   it('オーバーレイ用キーで開く接続には、確かめたキーの目印を付けて Durable Object へ引き渡す', async () => {
     const { env, delivery, relay, tabRelay } = createEnv()
     const issuedTag = await overlayKeyTag(issuedKey)
