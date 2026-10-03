@@ -26,7 +26,14 @@ export interface TaskDeclarationInput {
   readonly messageId: string
 }
 
-/** 完了にした結果。already-done は、もう完了している宣言に重ねて !done が届いたとき（再送を含む） */
+/** 完了にする !done */
+export interface TaskCompletionInput {
+  readonly userId: string
+  /** !done の発言のID。同じ発言の再送を見分けるのに使う */
+  readonly messageId: string
+}
+
+/** 完了にした結果。already-done は、もう完了している宣言に重ねて !done が届いたときと、処理済みの !done が再送されたとき */
 export type CompleteResult = 'completed' | 'already-done' | 'no-task' | 'offline'
 
 /** モデレーションで消されたもの。1件の発言・ある人の発言すべて・チャット全体（worker/comment-feed.ts の FeedItem と同じ形） */
@@ -63,23 +70,40 @@ export const declareTask = async (db: Database, declaration: TaskDeclarationInpu
 /**
  * いまの配信の、その人の宣言を完了にする。
  *
- * もう完了している宣言の完了の時刻は変えない（同じ !done の再送や打ち直しで、祝い直したり並びを変えたりしない）。
+ * もう完了している宣言の完了の時刻は変えない（打ち直しで祝い直したり並びを変えたりしない）。
+ * 処理済みの !done が再送されたら何もしない。再送までのあいだに打ち直した新しい宣言を、前の !done で完了にしないためである。
+ * 処理済みかどうかは、!done の発言のIDに ':taskDone' を付けた鍵を replied_chat_messages に残して見分ける。
+ * 完了と鍵の記録は1つのトランザクションで行う（完了だけが失敗して鍵が残ると、Twitch の再送で完了し直せなくなるため）。
  */
-export const completeTask = async (db: Database, userId: string, now: number): Promise<CompleteResult> => {
+export const completeTask = async (db: Database, completion: TaskCompletionInput, now: number): Promise<CompleteResult> => {
   const session = await db.prepare(CURRENT_SESSION).bind(toIso(now)).first<{ id: string }>()
   if (session === null) return 'offline'
 
-  const completed = await db
-    .prepare('UPDATE task_declarations SET done_at = ?3 WHERE session_id = ?1 AND user_id = ?2 AND done_at IS NULL RETURNING user_id')
-    .bind(session.id, userId, toIso(now))
-    .first<{ user_id: string }>()
-  if (completed !== null) return 'completed'
+  const readDoneAt = async (): Promise<{ doneAt: string | null } | null> =>
+    db
+      .prepare('SELECT done_at AS doneAt FROM task_declarations WHERE session_id = ?1 AND user_id = ?2')
+      .bind(session.id, completion.userId)
+      .first<{ doneAt: string | null }>()
+  const before = await readDoneAt()
+  if (before === null) return 'no-task'
+  if (before.doneAt !== null) return 'already-done'
 
-  const declared = await db
-    .prepare('SELECT user_id FROM task_declarations WHERE session_id = ?1 AND user_id = ?2')
-    .bind(session.id, userId)
-    .first<{ user_id: string }>()
-  return declared === null ? 'no-task' : 'already-done'
+  const key = `${completion.messageId}:taskDone`
+  await db.batch([
+    // 鍵の記録より先に完了させる。鍵がまだ無いとき（初めて届いた !done）だけ当てはまる
+    db
+      .prepare(
+        `UPDATE task_declarations SET done_at = ?3
+         WHERE session_id = ?1 AND user_id = ?2 AND done_at IS NULL
+           AND NOT EXISTS (SELECT 1 FROM replied_chat_messages WHERE message_id = ?4)`,
+      )
+      .bind(session.id, completion.userId, toIso(now), key),
+    db.prepare('INSERT INTO replied_chat_messages (message_id, replied_at) VALUES (?1, ?2) ON CONFLICT DO NOTHING').bind(key, toIso(now)),
+  ])
+
+  // 未完了の行があって鍵が新しければ必ず完了するので、未完了のまま残っているのは処理済みの !done の再送のときだけである
+  const after = await readDoneAt()
+  return after === null || after.doneAt === null ? 'already-done' : 'completed'
 }
 
 /**

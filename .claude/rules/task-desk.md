@@ -14,7 +14,7 @@ paths:
 
 チャットの受け口（`worker/webhook-routes.ts` の `replyToChatMessage`）は、自動モデレーションとトリガーの判定のあと、登録したコマンドより先に `handleTaskDeskCommand` を呼ぶ。bot が無くても宣言は残す（理由だけは返せない）。組み込みの名前（`BUILT_IN_COMMAND_NAMES`）は `worker/bot-config.ts` が登録させない。モデレーションの削除の通知（`FEED_ONLY_EVENT_TYPES` のうち削除系）は、自分のチャンネルのものだけ `applyModerationToTaskDesk` に渡し、当たる宣言を消して押し出し直す。
 
-宣言は `task_declarations`（`migrations/0024_task_declarations.sql`）に配信 × 視聴者で1人1行持ち、配信中にしか残さない（配信中の区切りは `INSERT ... SELECT` の中で引く）。同じ発言の再送では宣言した時刻も完了も変えず、もう完了している行に `!done` が届いても何もしない。押し出しは `AlertChannel` の目印 `taskDesk`（`pushTaskDesk`・`connectTaskDeskSocket`）に相乗りし、作業机を丸ごと（`TaskDeskSnapshot`）送る。押し出しと返信の失敗は投げずに `task-desk-push-failed`・`chat-reply-failed` として記録する。
+宣言は `task_declarations`（`migrations/0024_task_declarations.sql`）に配信 × 視聴者で1人1行持つ。宣言・完了・作業机の表示・モデレーションでの削除は配信中の配信の行だけを対象にし（配信中の区切りは `INSERT ... SELECT` などの文の中で引く）、終わった配信の行は消さずに残す。同じ発言の再送では宣言した時刻も完了も変えず、もう完了している行に `!done` が届いても何もしない。処理済みの `!done` の再送で新しい宣言を完了にしないよう、完了と鍵（`<発言ID>:taskDone` を `replied_chat_messages` へ）の記録は1つの `batch` で行う。作業の文字数は書記素クラスタ（`Intl.Segmenter`）で数える。押し出しは `AlertChannel` の目印 `taskDesk`（`pushTaskDesk`・`connectTaskDeskSocket`）に相乗りし、作業机を丸ごと（`TaskDeskSnapshot`）送る。押し出しと返信の失敗は投げずに `task-desk-push-failed`・`chat-reply-failed` として記録する。
 
 合成ページ（`src/overlay/stage.ts` の `mountTaskDesk`）は、開いたとき・つながるたび・5分おきに `GET /api/overlay/task-desk`（`worker/task-desk-routes.ts`）で読み直し、押し出しが届いたら置き換える（読んでいるあいだに押し出しが届いたら読んだ結果は捨てる）。並びと人数の上限（`TASK_DESK_LIMIT`。未完了が上）は Worker の `readTaskDesk` だけが決める。祝うかどうかは `src/task-desk/entry.ts` の `justCompleted` だけが決める。1行の形は `worker/task-desk.ts` の `TaskDeskEntry` と `src/task-desk/entry.ts` で合わせる。→ `docs/decisions/task-desk.md`
 

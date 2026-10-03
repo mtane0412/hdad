@@ -920,8 +920,8 @@ const mountWorkLog = (box: HTMLElement, item: OverlayItem, { key, demo }: MountC
  *
  * 作業机が変わるたびに、アラートと同じ配送先から WebSocket（/api/overlay/task-desk/socket）で丸ごと押し出してもらい、
  * 届いたもので置き換える。開いたとき・つながるたび・定期的に読み直し、つながっていない間の変化と配信の切り替わりを拾う。
- * 読んでいるあいだに押し出しが届いたら、読んだ結果は捨てる（押し出しのほうが新しいので、古い作業机に戻さない）。
- * 読み出しが重なったときは、いちばん新しく始めた読み出しの結果だけを映す。
+ * 読んでいるあいだに押し出しが届いたら、読んだ結果も読み出しの失敗も捨てる（押し出しのほうが新しいので、古い作業机に戻さず、
+ * 映せている作業机に古い失敗を重ねない）。読み出しが重なったときは、いちばん新しく始めた読み出しの結果だけを映す。
  */
 const mountTaskDesk = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
   // この素材は配信者が決めるパラメータを持たない（並べるものは視聴者のコマンドで決まる）
@@ -949,19 +949,29 @@ const mountTaskDesk = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
   let latestRead = 0
   /** 押し出しを受け取った回数。読んでいるあいだに押し出しが届いたかを見分けるために使う */
   let pushCount = 0
-  const read = async (): Promise<void> => {
+  /**
+   * 作業机を読み直す。失敗は onError に渡すが、あとから始めた読み出しや押し出しに追い越されていれば捨てる。
+   *
+   * @param onError 追い越されていない失敗の扱い（箱に出す・記録に残すだけ、を呼び出し側が決める）
+   */
+  const read = async (onError: (error: unknown) => void): Promise<void> => {
     latestRead += 1
     const generation = latestRead
     const pushCountAtStart = pushCount
-    const entries = await api.read()
-    if (generation !== latestRead || pushCountAtStart !== pushCount) return
-    view.setEntries(entries)
-    // 前の失敗が箱に出ていれば消す（直ったのに赤い表示が残ったままにしない）
-    clearError(box, 'read')
+    const isStale = (): boolean => generation !== latestRead || pushCountAtStart !== pushCount
+    try {
+      const entries = await api.read()
+      if (isStale()) return
+      view.setEntries(entries)
+      // 前の失敗が箱に出ていれば消す（直ったのに赤い表示が残ったままにしない）
+      clearError(box, 'read')
+    } catch (error) {
+      if (!isStale()) onError(error)
+    }
   }
 
   // 1回目は起動の一部として扱い、失敗はこの箱に出す（ほかの素材は動かし続ける）
-  void read().catch(showReadError)
+  void read(showReadError)
 
   connectSocket(
     socketUrl(TASK_DESK_SOCKET_PATH, { key }),
@@ -971,12 +981,14 @@ const mountTaskDesk = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
           const entries = parseTaskDeskSnapshot(text)
           pushCount += 1
           view.setEntries(entries)
+          // 最新の作業机を映せたので、前の読み出しの失敗が箱に出ていれば消す
+          clearError(box, 'read')
         } catch (error) {
           showReadError(error)
         }
       },
       // つながるたびに読み直す。つながっていない間の変化を取りこぼさないため
-      onOpen: () => void read().catch(showReadError),
+      onOpen: () => void read(showReadError),
       onStatus: () => {
         // 切断・再接続は出さない。つながったときの読み直しは onOpen が受け持ち、映している行はそのまま残す
       },
@@ -989,7 +1001,7 @@ const mountTaskDesk = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
     task: {
       intervalMs: TASK_DESK_INTERVAL_MS,
       run: () => {
-        void read().catch((error: unknown) => {
+        void read((error) => {
           // 一時的な通信の失敗で配信画面を汚さない。映している行はそのまま残し、原因は記録に残す（作業ログと同じ）
           console.error('作業机を読み込めませんでした', error)
         })

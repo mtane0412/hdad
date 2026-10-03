@@ -125,6 +125,16 @@
   font-size: 14px;
 }
 
+/* 動きを減らす設定では、出現も祝いも動かさない（祝ったことはチェックの印で分かる） */
+@media (prefers-reduced-motion: reduce) {
+  .task-desk-entry,
+  .task-desk-entry[data-celebrate],
+  .task-desk-entry[data-celebrate] .task-desk-check,
+  .task-desk-entry[data-celebrate] .task-desk-check::after {
+    animation: none;
+  }
+}
+
 @keyframes task-desk-in {
   from {
     opacity: 0;

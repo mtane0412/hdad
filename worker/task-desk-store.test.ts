@@ -28,6 +28,10 @@ const createStream = (id: string, started: string): void => {
     .run(id, started, '作業配信', 'Software and Game Development')
 }
 
+/** 呼ぶたびに別の発言として !done を作る（同じ発言の再送と見分けるため、発言のIDを毎回変える） */
+let doneCount = 0
+const doneBy = (userId: string, messageId = `done-message-${(doneCount += 1)}`) => ({ userId, messageId })
+
 /** 視聴者の宣言（userId と名前と作業）を、発言のIDを添えて作る */
 const declaration = (userId: string, name: string, task: string, messageId = `message-${userId}`) => ({ userId, name, task, messageId })
 
@@ -60,7 +64,7 @@ describe('declareTask', () => {
   it('同じ人が打ち直すと、作業と宣言の時刻を差し替え、完了を外す（1人1行）', async () => {
     createStream('今日の配信', STARTED_AT)
     await declareTask(db, declaration('11111', 'たなか', '英単語を50個覚える', 'message-1'), at(5))
-    await completeTask(db, '11111', at(30))
+    await completeTask(db, doneBy('11111'), at(30))
 
     await declareTask(db, declaration('11111', 'たなか', '数学の問題集を3ページ', 'message-2'), at(31))
 
@@ -72,7 +76,7 @@ describe('declareTask', () => {
   it('同じ発言の再送では、宣言の時刻も完了も変えない（Twitch の再送で完了が外れないように）', async () => {
     createStream('今日の配信', STARTED_AT)
     await declareTask(db, declaration('11111', 'たなか', '英単語を50個覚える', 'message-1'), at(5))
-    await completeTask(db, '11111', at(30))
+    await completeTask(db, doneBy('11111'), at(30))
 
     expect(await declareTask(db, declaration('11111', 'たなか', '英単語を50個覚える', 'message-1'), at(31))).toBe(true)
 
@@ -94,7 +98,7 @@ describe('completeTask', () => {
     createStream('今日の配信', STARTED_AT)
     await declareTask(db, declaration('11111', 'たなか', '英単語を50個覚える'), at(5))
 
-    expect(await completeTask(db, '11111', at(30))).toBe('completed')
+    expect(await completeTask(db, doneBy('11111'), at(30))).toBe('completed')
 
     expect(await readTaskDesk(db, at(30), 12)).toEqual([
       { userId: '11111', name: 'たなか', task: '英単語を50個覚える', declaredAt: iso(at(5)), doneAt: iso(at(30)) },
@@ -104,22 +108,34 @@ describe('completeTask', () => {
   it('もう完了していれば、完了の時刻を変えずに already-done を返す（再送や打ち直しで祝い直さない）', async () => {
     createStream('今日の配信', STARTED_AT)
     await declareTask(db, declaration('11111', 'たなか', '英単語を50個覚える'), at(5))
-    await completeTask(db, '11111', at(30))
+    await completeTask(db, doneBy('11111'), at(30))
 
-    expect(await completeTask(db, '11111', at(31))).toBe('already-done')
+    expect(await completeTask(db, doneBy('11111'), at(31))).toBe('already-done')
 
     expect((await readTaskDesk(db, at(31), 12))[0]?.doneAt).toBe(iso(at(30)))
+  })
+
+  it('同じ !done の再送では、そのあとに打ち直した新しい宣言を完了にしない', async () => {
+    createStream('今日の配信', STARTED_AT)
+    await declareTask(db, declaration('11111', 'たなか', '英単語を50個覚える', 'message-1'), at(5))
+    await completeTask(db, doneBy('11111', 'done-message-1'), at(30))
+    await declareTask(db, declaration('11111', 'たなか', '数学の問題集を3ページ', 'message-2'), at(31))
+
+    // Twitch が最初の !done（done-message-1）を再送してきた
+    expect(await completeTask(db, doneBy('11111', 'done-message-1'), at(32))).toBe('already-done')
+
+    expect((await readTaskDesk(db, at(32), 12))[0]).toMatchObject({ task: '数学の問題集を3ページ', doneAt: null })
   })
 
   it('いまの配信で宣言していなければ no-task を返す', async () => {
     await declareInPreviousStream()
     createStream('今日の配信', STARTED_AT)
 
-    expect(await completeTask(db, '11111', at(30))).toBe('no-task')
+    expect(await completeTask(db, doneBy('11111'), at(30))).toBe('no-task')
   })
 
   it('配信していなければ offline を返す', async () => {
-    expect(await completeTask(db, '11111', at(30))).toBe('offline')
+    expect(await completeTask(db, doneBy('11111'), at(30))).toBe('offline')
   })
 })
 
@@ -130,8 +146,8 @@ describe('readTaskDesk', () => {
     await declareTask(db, declaration('2', '先に完了した人', '作業B'), at(2))
     await declareTask(db, declaration('3', 'あとで完了した人', '作業C'), at(3))
     await declareTask(db, declaration('4', 'いちばんあとに宣言した人', '作業D'), at(4))
-    await completeTask(db, '2', at(10))
-    await completeTask(db, '3', at(20))
+    await completeTask(db, doneBy('2'), at(10))
+    await completeTask(db, doneBy('3'), at(20))
 
     const names = (await readTaskDesk(db, at(20), 12)).map((entry) => entry.name)
 
@@ -141,7 +157,7 @@ describe('readTaskDesk', () => {
   it('上限を超えたら、完了した人から落とす（作業中の人を押し出さない）', async () => {
     createStream('今日の配信', STARTED_AT)
     await declareTask(db, declaration('1', '完了した人', '作業A'), at(1))
-    await completeTask(db, '1', at(2))
+    await completeTask(db, doneBy('1'), at(2))
     await declareTask(db, declaration('2', '作業中の人その1', '作業B'), at(3))
     await declareTask(db, declaration('3', '作業中の人その2', '作業C'), at(4))
 

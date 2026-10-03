@@ -85,10 +85,10 @@ export const handleTaskDeskCommand = async (context: TaskDeskCommandContext, mes
       break
     }
     case 'complete': {
-      const result = await completeTask(db, message.chatterUserId, now)
+      const result = await completeTask(db, { userId: message.chatterUserId, messageId: message.messageId }, now)
       if (result === 'completed') await pushCurrentDesk(context)
       else if (result === 'offline' || result === 'no-task') await replyRefusal(context, message, { kind: result })
-      // already-done（もう完了している・同じ !done の再送）は、作業机が変わらないので何もしない
+      // already-done（もう完了している・処理済みの !done の再送）は、作業机が変わらないので何もしない
       break
     }
   }

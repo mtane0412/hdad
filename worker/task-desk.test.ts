@@ -45,6 +45,12 @@ describe('readTaskDeskCommand', () => {
     expect(readTaskDeskCommand(`!task ${task}`)).toEqual({ kind: 'declare', task })
   })
 
+  it('家族や国旗のような組み合わせの絵文字も、見た目どおり1文字として数える', () => {
+    const family = '👨‍👩‍👧'
+    expect(readTaskDeskCommand(`!task ${family.repeat(MAX_TASK_LENGTH)}`)).toEqual({ kind: 'declare', task: family.repeat(MAX_TASK_LENGTH) })
+    expect(readTaskDeskCommand(`!task ${'🇯🇵'.repeat(MAX_TASK_LENGTH + 1)}`)).toEqual({ kind: 'refuse', refusal: { kind: 'too-long', length: MAX_TASK_LENGTH + 1 } })
+  })
+
   it('組み込みのコマンドでない発言は null', () => {
     expect(readTaskDeskCommand('こんにちは')).toBeNull()
     expect(readTaskDeskCommand('!ping')).toBeNull()

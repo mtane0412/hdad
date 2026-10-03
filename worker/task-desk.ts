@@ -15,7 +15,7 @@
 /** 組み込みのコマンドの名前（`!` を除き、小文字で比べる）。管理画面で同じ名前のコマンドは登録させない（worker/bot-config.ts） */
 export const BUILT_IN_COMMAND_NAMES = ['task', 'done'] as const
 
-/** 作業の文言の上限（文字数。絵文字も1文字と数える）。作業机の1行に収まる長さにする */
+/** 作業の文言の上限（見た目の文字数。組み合わせの絵文字も1文字と数える）。作業机の1行に収まる長さにする */
 export const MAX_TASK_LENGTH = 40
 
 /** 作業机に並べる人数の上限。未完了の人を優先して残す（worker/task-desk-store.ts の readTaskDesk） */
@@ -55,6 +55,9 @@ export type TaskDeskCommand =
 /** コマンドの先頭に付ける文字（worker/chat-command.ts の登録したコマンドと同じ） */
 const PREFIX = '!'
 
+/** 見た目の1文字（書記素クラスタ）ごとに分ける。家族や国旗のような組み合わせの絵文字も1文字になる */
+const graphemes = new Intl.Segmenter('ja', { granularity: 'grapheme' })
+
 /**
  * 発言から組み込みのコマンドを読み取る。
  *
@@ -73,8 +76,8 @@ export const readTaskDeskCommand = (text: string): TaskDeskCommand | null => {
       // 区切りの空白も含めて分けたので、つなぎ直せば途中の空白はそのまま残る
       const task = rest.join('').trim()
       if (task === '') return { kind: 'refuse', refusal: { kind: 'empty' } }
-      // 文字数は見た目の1文字ずつ数える（UTF-16 の長さだと絵文字が2文字になり、見た目より早く断ってしまう）
-      const length = [...task].length
+      // 文字数は見た目の1文字ずつ数える（UTF-16 の長さやコードポイントの数だと、絵文字が何文字にも数えられて見た目より早く断ってしまう）
+      const length = [...graphemes.segment(task)].length
       if (length > MAX_TASK_LENGTH) return { kind: 'refuse', refusal: { kind: 'too-long', length } }
       return { kind: 'declare', task }
     }
