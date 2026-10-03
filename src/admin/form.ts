@@ -28,6 +28,8 @@ const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const CHAT_MESSAGE = 'channel.chat.message'
 const AD_BREAK_BEGIN = 'channel.ad_break.begin'
 const AD_BREAK_END = 'channel.ad_break.end'
+const GITHUB_PUSH = 'github.push'
+const GITHUB_PULL_REQUEST_MERGED = 'github.pull_request.merged'
 const PERCENT = 100
 const BYTES_PER_UNIT = 1024
 /** 報酬を絞り込まない（すべての報酬が対象）ことを表す選択肢の値。Workerへは null として送る */
@@ -76,6 +78,8 @@ const MENU_LABELS: Readonly<Record<TriggerKind, string>> = {
   raid: 'レイドされた',
   adBreakBegin: '広告が始まった',
   adBreakEnd: '広告が終わった',
+  commitPushed: 'コミットがpushされた',
+  pullRequestMerged: 'PRがマージされた',
 }
 
 /** メニュー項目の日本語の名前。画面の見出しと要約で使う */
@@ -157,7 +161,7 @@ const AD_BREAK_ITEM: MenuItem = {
  * 配信者はトリガーを作るのではなく、**並んでいる出来事に効果を追加していく**。
  * そのため項目の増減は配信者の操作では起きず、この一覧がそのまま画面の構成になる。
  *
- * 区分は配信者から見た関心ごと（チャットの書き込みか、それ以外のイベントか）で分ける。
+ * 区分は配信者から見た関心ごと（チャットの書き込みか、それ以外のイベントか、配信者自身の開発作業か）で分ける。
  * 並びは絞り込みの細かいものからにして、「誰かが発言した」はチャットの区分の最後に置く。
  * 当てはまった行はすべて実行されるので動く・動かないは順番に左右されないが、
  * 何にでも当てはまる行が先頭にあると、一覧が読みにくくなるためである。
@@ -187,6 +191,15 @@ export const menuGroups: readonly MenuGroup[] = [
       item('resubscribe', '継続のサブスクがメッセージ付きで届いたとき'),
       item('raid', 'ほかの配信からレイドで来たとき'),
       AD_BREAK_ITEM,
+    ],
+  },
+  {
+    label: '開発',
+    // GitHub の Webhook から届くので、設定していなければ何も起きない。配信していないときに届いたものも捨てる（worker/github-routes.ts）
+    description: 'GitHub の Webhook を設定したリポジトリの出来事。配信していないときに届いたものは鳴らさない。',
+    items: [
+      item('commitPushed', 'どのブランチでも、新しいコミットがpushされたとき'),
+      item('pullRequestMerged', 'PRがマージされたとき'),
     ],
   },
 ]
@@ -265,6 +278,8 @@ const EVENT_OF_KIND: Readonly<Record<TriggerKind, AlertEvent>> = {
   raid: 'channel.raid',
   adBreakBegin: AD_BREAK_BEGIN,
   adBreakEnd: AD_BREAK_END,
+  commitPushed: GITHUB_PUSH,
+  pullRequestMerged: GITHUB_PULL_REQUEST_MERGED,
 }
 
 /**
@@ -286,6 +301,10 @@ const EVENT_PLACEHOLDERS: Readonly<Record<AlertEvent, readonly string[]>> = {
   // {duration} は広告の長さ（秒）。{user} は広告を打った人で、自動で入った広告では配信者自身になる
   [AD_BREAK_BEGIN]: ['{user}', '{duration}', ...COMMON_PLACEHOLDERS],
   [AD_BREAK_END]: ['{user}', '{duration}', ...COMMON_PLACEHOLDERS],
+  // {user} は GitHub のユーザー名。{message} は最後のコミットのメッセージの1行目（チャットの発言の本文と同じ語にそろえる）
+  [GITHUB_PUSH]: ['{user}', '{repo}', '{branch}', '{message}', ...COMMON_PLACEHOLDERS],
+  // {user} はマージした人の GitHub のユーザー名
+  [GITHUB_PULL_REQUEST_MERGED]: ['{user}', '{repo}', '{title}', '{number}', ...COMMON_PLACEHOLDERS],
 }
 
 /** そのメニュー項目の文言で使える差し込み語。選んだ項目に存在しない語は置き換わらないため、画面で知らせる */

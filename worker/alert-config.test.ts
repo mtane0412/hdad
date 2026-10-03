@@ -103,6 +103,15 @@ describe('parseAlertConfig', () => {
     expect(parseAlertConfig(noColor, materialKind).triggers[0]?.actions[0]).toMatchObject({ type: 'announce', color: 'primary' })
   })
 
+  it('開発の出来事（コミットのpush・PRのマージ）のトリガーを受け付ける', () => {
+    const config = parseAlertConfig(
+      { triggers: [{ kind: 'commitPushed', actions: [chatAction()] }, { kind: 'pullRequestMerged', actions: [chatAction()] }] },
+      materialKind,
+    )
+
+    expect(config.triggers.map((trigger) => trigger.kind)).toEqual(['commitPushed', 'pullRequestMerged'])
+  })
+
   it('レイドのトリガーなら、シャウトアウトを送る動作（shoutout）を受け付ける', () => {
     const config = parseAlertConfig({ triggers: [{ kind: 'raid', actions: [{ type: 'shoutout' }] }] }, materialKind)
 

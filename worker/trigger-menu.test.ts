@@ -31,6 +31,11 @@ describe('expandSource', () => {
     expect(expandSource({ kind: 'raid' })).toEqual({ event: 'channel.raid', conditions: [] })
   })
 
+  it('開発の出来事（コミットのpush・PRのマージ）は、GitHub から届く出来事の種別だけになる', () => {
+    expect(expandSource({ kind: 'commitPushed' })).toEqual({ event: 'github.push', conditions: [] })
+    expect(expandSource({ kind: 'pullRequestMerged' })).toEqual({ event: 'github.pull_request.merged', conditions: [] })
+  })
+
   it('挨拶のメニュー項目は、チャットの発言と対応する条件になる', () => {
     expect(expandSource({ kind: 'newViewer' })).toEqual({ event: CHAT_MESSAGE, conditions: [{ kind: 'firstChatEver' }] })
     expect(expandSource({ kind: 'welcome' })).toEqual({ event: CHAT_MESSAGE, conditions: [{ kind: 'firstChatOfStream' }] })
@@ -91,6 +96,8 @@ describe('expandSource', () => {
       raid: { kind: 'raid' },
       adBreakBegin: { kind: 'adBreakBegin', automatic: null },
       adBreakEnd: { kind: 'adBreakEnd', automatic: null },
+      commitPushed: { kind: 'commitPushed' },
+      pullRequestMerged: { kind: 'pullRequestMerged' },
     }
     for (const kind of TRIGGER_KINDS) {
       expect(expandSource(sample[kind]).event).toBe(eventOf(kind))

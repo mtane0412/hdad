@@ -54,6 +54,8 @@ const EVENT_LABELS: Readonly<Record<Extracted['event'], string>> = {
   'channel.chat.message': 'チャットの発言',
   'channel.ad_break.begin': '広告の開始',
   'channel.ad_break.end': '広告の終了',
+  'github.push': '配信者の開発作業でのコミットのpush（GitHub）',
+  'github.pull_request.merged': '配信者の開発作業でのPRのマージ（GitHub）',
 }
 
 /** イベントごとに、文面の手がかりになる中身を並べる */
@@ -75,6 +77,10 @@ const eventDetails = (extracted: Extracted): string[] => {
     case 'channel.ad_break.begin':
     case 'channel.ad_break.end':
       return [`広告の長さ: ${extracted.durationSeconds}秒`, extracted.automatic ? '自動で入った広告です' : '配信者が手動で打った広告です']
+    case 'github.push':
+      return [`リポジトリ: ${extracted.repository}`, `ブランチ: ${extracted.branch}`, `コミットのメッセージ: ${extracted.commitMessage}`]
+    case 'github.pull_request.merged':
+      return [`リポジトリ: ${extracted.repository}`, `PRの番号: ${extracted.number}`, `PRのタイトル: ${extracted.title}`]
   }
 }
 

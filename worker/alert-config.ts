@@ -12,9 +12,10 @@
  * - shoutout: Workerがbotとしてシャウトアウト（相手の配信者を紹介するTwitch組み込みの機能）を送る。
  *   紹介する相手が配信者であるレイドのトリガーにだけ置ける
  *
- * メニュー項目は13種類（worker/trigger-menu.ts の TRIGGER_KINDS）で、そのうちチャットの発言を対象にするものは
+ * メニュー項目は15種類（worker/trigger-menu.ts の TRIGGER_KINDS）で、そのうちチャットの発言を対象にするものは
  * botを接続しているときだけ通知が届く。広告の終了（adBreakEnd）だけはTwitchから届く通知ではなく、
  * 広告の開始の通知に入っている長さからWorkerが作る擬似イベントである（worker/ad-break-timer.ts）。
+ * 開発の出来事（commitPushed・pullRequestMerged）はTwitchではなく GitHub の Webhook から届く（worker/github-routes.ts）。
  *
  * 注意: 検証は最初の1件で止めず、問題点をすべて集めてから拒否する（管理画面で一度に直せるようにする）。
  * 注意: 既定メニューにする前の保存内容（event と conditions を直接持つ形）は読み替えず、読み込みで失敗させる（Fail-Fast）。
@@ -208,6 +209,8 @@ const parseSource = (candidate: Record<string, unknown>, at: string, problems: s
     case 'subscribe':
     case 'resubscribe':
     case 'raid':
+    case 'commitPushed':
+    case 'pullRequestMerged':
       return { kind }
     case 'comeback': {
       const { days } = candidate

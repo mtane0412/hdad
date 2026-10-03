@@ -58,6 +58,7 @@
  * | GET  /api/admin/stats/failures   | セッション     | 記録の収集の失敗の一覧 |
  * | POST /api/admin/transcripts      | セッション     | 配信中の文字起こしを1件受け取る（アプリのページの音声認識から） |
  * | POST /api/eventsub/webhook       | Twitchの署名   | EventSubの通知を受け、イベントの件数と配信の開始・終了を記録する |
+ * | POST /api/github/webhook         | GitHubの署名   | GitHub の Webhook を受け、配信中ならコミットの push・PR のマージのトリガーを実行する |
  * | GET  /api/overlay/socket         | オーバーレイ用キー | オーバーレイからのWebSocketの接続を受け、アラートの配送先へ引き渡す |
  * | GET  /api/overlay/side-super    | オーバーレイ用キー | いま出すサイドスーパーの文言を返す |
  * | GET  /api/overlay/speech         | オーバーレイ用キー | チャットの読み上げの設定を返す |
@@ -141,6 +142,7 @@ import { commentSocket, getCommentIcons, postCommentGreeting, postCommentMessage
 import { getStatsFailures, getStatsFollowers, getStatsSession, getStatsSessions } from './stats-routes'
 import { AuthError } from './token'
 import { WEBHOOK_PATH, eventsubWebhook } from './webhook-routes'
+import { GITHUB_WEBHOOK_PATH, githubWebhook } from './github-routes'
 import { chatBadges, chatChannel, chatCheermotes } from './chat-routes'
 import { TwitchApiError, createTwitchClient, type TwitchClient } from './twitch'
 
@@ -246,6 +248,7 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/admin/stats/failures', handle: getStatsFailures },
   { method: 'POST', path: '/api/admin/transcripts', handle: postAdminTranscript },
   { method: 'POST', path: WEBHOOK_PATH, handle: eventsubWebhook },
+  { method: 'POST', path: GITHUB_WEBHOOK_PATH, handle: githubWebhook },
   { method: 'GET', path: '/api/chat/channel', handle: chatChannel },
   { method: 'GET', path: '/api/chat/badges', handle: chatBadges },
   { method: 'GET', path: '/api/chat/cheermotes', handle: chatCheermotes },
