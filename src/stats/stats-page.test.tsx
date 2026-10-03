@@ -81,6 +81,8 @@ const FRIDAY_SESSION_DETAIL: SessionDetail = {
     },
   ],
   summary: 'エディタを整えた配信者。ログイン機能に取りかかり、いまはセッションの持ち方を決めているところ。',
+  // 作業机で5人が合わせて14時間32分作業した
+  workTime: { people: 5, totalMs: (14 * 60 + 32) * 60 * 1000 },
 }
 
 /** 決めた記録を返す代役のAPI。個別に差し替えたいものだけ patch で渡す */
@@ -251,6 +253,26 @@ describe('配信ごとの詳細（視聴者数の推移と話されたこと）'
     await user.click(screen.getByRole('button', { name: '金曜夜のもくもく配信 の詳細を見る' }))
 
     expect(await screen.findByText('この配信には話されたことの記録がありません。')).toBeInTheDocument()
+  })
+
+  it('配信を選ぶと、作業机でみんなが作業した時間の合計と人数を出す', async () => {
+    const user = userEvent.setup()
+    render(<StatsPage api={createFakeApi()} now={NOW} />)
+    await waitForDisplay()
+
+    await user.click(screen.getByRole('button', { name: '金曜夜のもくもく配信 の詳細を見る' }))
+
+    expect(await screen.findByRole('group', { name: 'みんなの作業時間' })).toHaveTextContent('14時間32分（5人）')
+  })
+
+  it('誰も作業を宣言しなかった配信では、作業時間を 0 ではなく「—」と出す', async () => {
+    const user = userEvent.setup()
+    render(<StatsPage api={createFakeApi({ session: vi.fn(async () => ({ ...FRIDAY_SESSION_DETAIL, workTime: null })) })} now={NOW} />)
+    await waitForDisplay()
+
+    await user.click(screen.getByRole('button', { name: '金曜夜のもくもく配信 の詳細を見る' }))
+
+    expect(await screen.findByRole('group', { name: 'みんなの作業時間' })).toHaveTextContent('—')
   })
 
   it('推移の読み込みに失敗したら、理由を出す', async () => {

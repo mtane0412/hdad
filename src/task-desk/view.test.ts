@@ -7,9 +7,10 @@
  * - 祝うのは、映しているあいだに完了した行だけであること（開いたときに完了済みの人を祝わない）
  * - 変わっていない行の要素は作り直さないこと（作り直すと出現のアニメーションが全行で走る）
  * - 誰も宣言していないあいだも、参加のしかた（!task・!done）を出しておくこと
+ * - みんなの作業時間の合計を出し、記録が無いあいだは隠すこと（issue #209）
  */
 import { beforeEach, describe, expect, it } from 'vitest'
-import type { TaskDeskEntry } from './entry'
+import type { TaskDeskEntry, TaskDeskWorkTime } from './entry'
 import { createTaskDeskView } from './view'
 
 const tanakaWorking: TaskDeskEntry = { userId: '11111', name: 'たなか', task: '英単語を50個覚える', declaredAt: '2026-10-03T12:10:00.000Z', doneAt: null }
@@ -75,5 +76,30 @@ describe('createTaskDeskView', () => {
 
     expect(rows()).toHaveLength(0)
     expect(root.querySelector('.task-desk-hint')?.textContent).toBe('!task 作業の内容 で宣言・!done で完了')
+  })
+})
+
+describe('みんなの作業時間', () => {
+  /** 12:40 に読んだ合計。2人が合わせて40分作業し、1人がいまも作業中 */
+  const workTime: TaskDeskWorkTime = { people: 2, totalMs: 40 * 60 * 1000, working: 1, measuredAt: '2026-10-03T12:40:00.000Z' }
+  const total = (): HTMLElement | null => root.querySelector<HTMLElement>('.task-desk-total')
+
+  it('合計と人数を、いまの時刻まで進めて出す', () => {
+    const view = createTaskDeskView(root)
+
+    // 5分経った: 作業中の1人ぶん5分が増える
+    view.renderWorkTime(workTime, Date.parse('2026-10-03T12:45:00.000Z'))
+
+    expect(total()?.hidden).toBe(false)
+    expect(total()?.textContent).toBe('みんなの作業時間 45分（2人）')
+  })
+
+  it('記録が無いあいだは隠す（0分と出さない）', () => {
+    const view = createTaskDeskView(root)
+    view.renderWorkTime(workTime, Date.parse('2026-10-03T12:45:00.000Z'))
+
+    view.renderWorkTime(null, Date.parse('2026-10-03T12:46:00.000Z'))
+
+    expect(total()?.hidden).toBe(true)
   })
 })

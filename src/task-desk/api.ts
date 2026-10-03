@@ -9,8 +9,8 @@
  * 注意: 想定した形でなければエラーにする（Fail-Fast）。黙って空の一覧にすると、Workerの作りが変わって行が届かなくなっても、
  * 配信中は「まだ誰も宣言していない」と見分けが付かない。
  */
-import { createCaller, readList } from '../core/api'
-import { isTaskDeskEntry, type TaskDeskEntry } from './entry'
+import { createCaller } from '../core/api'
+import { readTaskDeskSnapshot, type TaskDeskSnapshot } from './entry'
 
 const PATH = '/api/overlay/task-desk'
 
@@ -24,9 +24,9 @@ export interface TaskDeskApi {
   /**
    * いまの配信の作業机を読む。
    *
-   * @returns 並べる順の行（未完了が上）。配信していなければ空の一覧
+   * @returns 並べる順の行（未完了が上）と、作業した時間の合計。配信していなければ空の一覧と null の合計
    */
-  read(): Promise<TaskDeskEntry[]>
+  read(): Promise<TaskDeskSnapshot>
 }
 
 /**
@@ -40,6 +40,6 @@ export const createTaskDeskApi = (fetchImpl: typeof fetch, key: string): TaskDes
   const path = `${PATH}?key=${encodeURIComponent(key)}`
 
   return {
-    read: async () => readList(await call(path), 'entries', isTaskDeskEntry),
+    read: async () => readTaskDeskSnapshot(await call(path)),
   }
 }

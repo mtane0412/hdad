@@ -78,7 +78,7 @@ import { parsePomodoroSnapshot, type PomodoroTimer } from '../pomodoro/phase'
 import { createPomodoroView } from '../pomodoro/view'
 import { TASK_DESK_SOCKET_HINT, TASK_DESK_SOCKET_PATH, createTaskDeskApi } from '../task-desk/api'
 import { demoTaskDeskScenes } from '../task-desk/demo'
-import { parseTaskDeskSnapshot } from '../task-desk/entry'
+import { parseTaskDeskSnapshot, type TaskDeskSnapshot, type TaskDeskWorkTime } from '../task-desk/entry'
 import { createTaskDeskView } from '../task-desk/view'
 import { backgrounds } from '../wallpaper/registry'
 import { WORK_LOG_SOCKET_HINT, WORK_LOG_SOCKET_PATH, createWorkLogApi } from '../work-log/api'
@@ -932,6 +932,7 @@ const mountWorkLog = (box: HTMLElement, item: OverlayItem, { key, demo }: MountC
  * 届いたもので置き換える。開いたとき・つながるたび・定期的に読み直し、つながっていない間の変化と配信の切り替わりを拾う。
  * 読んでいるあいだに押し出しが届いたら、読んだ結果も読み出しの失敗も捨てる（押し出しのほうが新しいので、古い作業机に戻さず、
  * 映せている作業机に古い失敗を重ねない）。読み出しが重なったときは、いちばん新しく始めた読み出しの結果だけを映す。
+ * みんなの作業時間の合計（issue #209）は届いたものを持っておき、毎フレーム現在時刻まで進めて映す（読み直しを待たずに時間が進む）。
  */
 const mountTaskDesk = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
   // この素材は配信者が決めるパラメータを持たない（並べるものは視聴者のコマンドで決まる）
@@ -943,11 +944,20 @@ const mountTaskDesk = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
   box.append(root)
 
   const view = createTaskDeskView(root)
+  /** 映している作業時間の合計。届くたびに置き換え、毎フレーム現在時刻まで進めて映す */
+  let workTime: TaskDeskWorkTime | null = null
+  const draw = (): void => view.renderWorkTime(workTime, Date.now())
+  const show = (snapshot: TaskDeskSnapshot): void => {
+    view.setEntries(snapshot.entries)
+    workTime = snapshot.workTime
+  }
 
   if (demo) {
-    // プレビューではWorkerにつながず、宣言が増えて1人が完了する場面を順に流す
-    startSampleCycle(demoTaskDeskScenes, DEMO_SAMPLE_INTERVAL_MS, (scene) => view.setEntries(scene))
-    return {}
+    // プレビューではWorkerにつながず、宣言が増えて1人が完了する場面を順に流す。合計は場面を映した時刻から進める
+    startSampleCycle(demoTaskDeskScenes, DEMO_SAMPLE_INTERVAL_MS, (scene) =>
+      show({ entries: scene.entries, workTime: { ...scene.workTime, measuredAt: new Date(Date.now()).toISOString() } }),
+    )
+    return { draw }
   }
 
   const api = createTaskDeskApi(callWorker, key)
@@ -970,9 +980,9 @@ const mountTaskDesk = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
     const pushCountAtStart = pushCount
     const isStale = (): boolean => generation !== latestRead || pushCountAtStart !== pushCount
     try {
-      const entries = await api.read()
+      const snapshot = await api.read()
       if (isStale()) return
-      view.setEntries(entries)
+      show(snapshot)
       // 前の失敗が箱に出ていれば消す（直ったのに赤い表示が残ったままにしない）
       clearError(box, 'read')
     } catch (error) {
@@ -988,9 +998,9 @@ const mountTaskDesk = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
     {
       onMessage: (text) => {
         try {
-          const entries = parseTaskDeskSnapshot(text)
+          const snapshot = parseTaskDeskSnapshot(text)
           pushCount += 1
-          view.setEntries(entries)
+          show(snapshot)
           // 最新の作業机を映せたので、前の読み出しの失敗が箱に出ていれば消す
           clearError(box, 'read')
         } catch (error) {
@@ -1008,6 +1018,7 @@ const mountTaskDesk = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
   )
 
   return {
+    draw,
     task: {
       intervalMs: TASK_DESK_INTERVAL_MS,
       run: () => {

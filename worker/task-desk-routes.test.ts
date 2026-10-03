@@ -58,7 +58,7 @@ const callHandler = (request: Request, env: Env) =>
   handleRequest(request, env, { fetch: noFetch, now: () => NOW, wait: async () => {}, waitUntil: () => {} })
 
 describe('GET /api/overlay/task-desk', () => {
-  it('いまの配信の作業机を返す', async () => {
+  it('いまの配信の作業机と、作業した時間の合計を返す', async () => {
     const { env, db } = createEnv()
     await recordLiveStream(db, LIVE_STREAM, NOW - 60 * 60 * 1000)
     await declareTask(db, { userId: '11111', name: 'たなか', task: '英単語を50個覚える', messageId: 'chat-message-1' }, Date.parse('2026-10-03T12:40:00Z'))
@@ -68,6 +68,8 @@ describe('GET /api/overlay/task-desk', () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({
       entries: [{ userId: '11111', name: 'たなか', task: '英単語を50個覚える', declaredAt: '2026-10-03T12:40:00.000Z', doneAt: null }],
+      // たなかが 12:40 に宣言してから、いま（NOW）までの時間
+      workTime: { people: 1, totalMs: NOW - Date.parse('2026-10-03T12:40:00Z'), working: 1, measuredAt: new Date(NOW).toISOString() },
     })
   })
 
@@ -77,7 +79,7 @@ describe('GET /api/overlay/task-desk', () => {
     const response = await callHandler(new Request(`${SITE}/api/overlay/task-desk?key=${OVERLAY_KEY}`), env)
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ entries: [] })
+    expect(await response.json()).toEqual({ entries: [], workTime: null })
   })
 
   it('オーバーレイ用キーが違えば401にする', async () => {

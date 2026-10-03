@@ -67,7 +67,11 @@ describe('handleTaskDeskCommand', () => {
     expect(await handleTaskDeskCommand(contextOf(), chatOf('!task 英単語を50個覚える'))).toBe(true)
 
     expect(alertChannel.pushedTaskDesk).toEqual([
-      { entries: [{ userId: '11111', name: 'たなか', task: '英単語を50個覚える', declaredAt: new Date(NOW).toISOString(), doneAt: null }] },
+      {
+        entries: [{ userId: '11111', name: 'たなか', task: '英単語を50個覚える', declaredAt: new Date(NOW).toISOString(), doneAt: null }],
+        // 宣言した直後なので、合計はまだ0分で1人が作業中
+        workTime: { people: 1, totalMs: 0, working: 1, measuredAt: new Date(NOW).toISOString() },
+      },
     ])
     expect(sentReplies).toEqual([])
   })
@@ -171,7 +175,7 @@ describe('applyModerationToTaskDesk', () => {
       message_id: 'chat-message-arashi',
     })
 
-    expect(alertChannel.pushedTaskDesk.at(-1)).toEqual({ entries: [] })
+    expect(alertChannel.pushedTaskDesk.at(-1)).toEqual({ entries: [], workTime: null })
   })
 
   it('その人の発言がすべて消されたら（BAN・タイムアウト）、その人の宣言を外した作業机を押し出す', async () => {
@@ -185,7 +189,7 @@ describe('applyModerationToTaskDesk', () => {
       target_user_name: 'たなか',
     })
 
-    expect(alertChannel.pushedTaskDesk.at(-1)).toEqual({ entries: [] })
+    expect(alertChannel.pushedTaskDesk.at(-1)).toEqual({ entries: [], workTime: null })
   })
 
   it('消された発言が宣言でなければ、押し出さない（作業机が変わらないのに配らない）', async () => {

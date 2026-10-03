@@ -7,7 +7,7 @@
  * 注意: 記録が無いことと 0 は別物として扱う。記録が無い値は null のまま持ち、表示のときに「—」にする（Fail-Fast）。
  * 日時は配信者のブラウザのタイムゾーンで表示する（Date の既定のタイムゾーンに任せる）。
  */
-import type { FollowerSample, SessionSummary, ViewerSample } from './api'
+import type { FollowerSample, SessionSummary, ViewerSample, WorkTime } from './api'
 
 /** サブスク（新規）のイベントの種類 */
 const SUBSCRIBE = 'channel.subscribe'
@@ -144,6 +144,10 @@ export const formatDuration = (milliseconds: number): string => {
   const hours = Math.floor(minutes / 60)
   return hours === 0 ? `${minutes}分` : `${hours}時間${minutes % 60}分`
 }
+
+/** 作業机でみんなが作業した時間の合計を「14時間32分（5人）」のように表す。記録が無ければ 0 ではなく「—」にする */
+export const formatWorkTime = (workTime: WorkTime | null): string =>
+  workTime === null ? '—' : `${formatDuration(workTime.totalMs)}（${workTime.people}人）`
 
 /** 日時（ISO 8601）を、ブラウザのタイムゾーンで「2026/9/18 21:00」のように表す */
 export const formatDateTime = (iso: string): string =>

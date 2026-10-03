@@ -12,11 +12,11 @@ export const getStatsSessions = async (context: Context): Promise<Response> => {
   return Response.json({ sessions: await listSessions(context.env.DB, context.now) })
 }
 
-/** GET /api/admin/stats/sessions/:id: 配信セッションと視聴者数の時系列 */
+/** GET /api/admin/stats/sessions/:id: 配信セッションと視聴者数の時系列・章・あらすじ・作業した時間の合計 */
 export const getStatsSession = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
   const id = context.params.id ?? ''
-  const session = await getSession(context.env.DB, id)
+  const session = await getSession(context.env.DB, id, context.now)
   if (!session) throw new HttpError(STATUS.notFound, 'session-not-found', `配信「${id}」の記録が存在しません`)
   return Response.json(session)
 }

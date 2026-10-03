@@ -59,6 +59,14 @@ export interface SessionDetail {
   chapters: StreamChapter[]
   /** 最後に作った「これまでのあらすじ」。作っていなければ null */
   summary: string | null
+  /** 作業机でみんなが作業した時間の合計（ミリ秒）と人数。誰も宣言しなかった配信では null */
+  workTime: WorkTime | null
+}
+
+/** 作業机でみんなが作業した時間の合計（worker/stats-store.ts の SessionDetail の workTime と合わせる） */
+export interface WorkTime {
+  people: number
+  totalMs: number
 }
 
 /** ある時点のフォロワー数。値が変わった時点だけが記録される */
@@ -92,6 +100,8 @@ const isStreamChapter = (value: unknown): value is StreamChapter =>
   typeof value.title === 'string' &&
   typeof value.summary === 'string'
 
+const isWorkTime = (value: unknown): value is WorkTime => isRecord(value) && typeof value.people === 'number' && typeof value.totalMs === 'number'
+
 const isFollowerSample = (value: unknown): value is FollowerSample =>
   isRecord(value) && typeof value.sampledAt === 'string' && typeof value.followerTotal === 'number'
 
@@ -124,7 +134,8 @@ export const createStatsApi = (fetchImpl: typeof fetch): StatsApi => {
         !(body.endedAt === null || typeof body.endedAt === 'string') ||
         typeof body.title !== 'string' ||
         typeof body.categoryName !== 'string' ||
-        !(body.summary === null || typeof body.summary === 'string')
+        !(body.summary === null || typeof body.summary === 'string') ||
+        !(body.workTime === null || isWorkTime(body.workTime))
       ) {
         throw new Error('Workerの配信セッションの応答が想定した形ではありません')
       }
@@ -137,6 +148,7 @@ export const createStatsApi = (fetchImpl: typeof fetch): StatsApi => {
         samples,
         chapters,
         summary: body.summary,
+        workTime: body.workTime,
       }
     },
 

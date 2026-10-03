@@ -10,12 +10,16 @@
  */
 import { BGM_PLACEHOLDER, fillBgmCredit, type BgmCreditSource } from './bgm-credit'
 import { fillStreamSummary, STREAM_SUMMARY_PLACEHOLDER } from './stream-summary'
+import { fillWorkTime, WORK_TIME_PLACEHOLDER, type WorkTime } from './task-desk-worktime'
 
 /** コマンド1つぶんの定義 */
 export interface BotCommand {
   /** `!` を除いたコマンド名（小文字で比べる） */
   name: string
-  /** 送り返す文言。差し込み語 {user} が発言者のログイン名に、{summary} があらすじに、{bgm} が流している曲に置き換わる */
+  /**
+   * 送り返す文言。差し込み語 {user} が発言者のログイン名に、{summary} があらすじに、{bgm} が流している曲に、
+   * {worktime} がいまの配信でみんなが作業した時間の合計に置き換わる
+   */
   reply: string
 }
 
@@ -48,7 +52,7 @@ const USER_PLACEHOLDER = '{user}'
 
 /** 応答文の差し込み語をまとめて探す形 */
 const REPLY_PLACEHOLDER_PATTERN = new RegExp(
-  [USER_PLACEHOLDER, STREAM_SUMMARY_PLACEHOLDER, BGM_PLACEHOLDER].map((placeholder) => placeholder.replaceAll(/[{}]/g, '\\$&')).join('|'),
+  [USER_PLACEHOLDER, STREAM_SUMMARY_PLACEHOLDER, BGM_PLACEHOLDER, WORK_TIME_PLACEHOLDER].map((placeholder) => placeholder.replaceAll(/[{}]/g, '\\$&')).join('|'),
   'g',
 )
 
@@ -146,17 +150,32 @@ export const needsStreamSummary = (command: BotCommand): boolean => command.repl
 export const needsBgmCredit = (command: BotCommand): boolean => command.reply.includes(BGM_PLACEHOLDER)
 
 /**
+ * その応答文が、作業した時間の合計（{worktime}）を必要とするか。
+ *
+ * 呼び出し側（webhook-routes.ts）は、これが true のときだけデータベースから合計を読む（needsStreamSummary と同じ考え方）。
+ */
+export const needsWorkTime = (command: BotCommand): boolean => command.reply.includes(WORK_TIME_PLACEHOLDER)
+
+/**
  * コマンドの応答文の差し込み語を、実際の値に置き換える。
  *
  * @param summary 貯めてあるあらすじ。配信していない・まだ作っていない・読む必要がない場合は null
  * @param bgm 流している曲。止めている・読む必要がない場合は null
+ * @param workTime いまの配信でみんなが作業した時間の合計。配信していない・まだ誰も宣言していない・読む必要がない場合は null
  */
-export const applyReply = (command: BotCommand, message: ChatMessage, summary: string | null, bgm: BgmCreditSource | null = null): string =>
+export const applyReply = (
+  command: BotCommand,
+  message: ChatMessage,
+  summary: string | null,
+  bgm: BgmCreditSource | null = null,
+  workTime: WorkTime | null = null,
+): string =>
   // 応答文を1回だけ走査して置き換える。順に置き換えると、あらすじの中の {bgm} のように、
   // 差し込んだ値に含まれる差し込み語まで置き換えてしまうため
   command.reply.replaceAll(REPLY_PLACEHOLDER_PATTERN, (placeholder) => {
     if (placeholder === USER_PLACEHOLDER) return message.chatterUserLogin
     if (placeholder === STREAM_SUMMARY_PLACEHOLDER) return fillStreamSummary(placeholder, summary)
+    if (placeholder === WORK_TIME_PLACEHOLDER) return fillWorkTime(placeholder, workTime)
     return fillBgmCredit(placeholder, bgm)
   })
 
@@ -167,7 +186,8 @@ export const resolveReply = (
   botUserId: string,
   summary: string | null = null,
   bgm: BgmCreditSource | null = null,
+  workTime: WorkTime | null = null,
 ): string | null => {
   const command = findCommand(commands, message, botUserId)
-  return command ? applyReply(command, message, summary, bgm) : null
+  return command ? applyReply(command, message, summary, bgm, workTime) : null
 }

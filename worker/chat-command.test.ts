@@ -5,7 +5,7 @@
  * 特に重要なのは、bot自身の発言に応答しないこと（応答するとbotがbotに応答し続けて止まらなくなる）。
  */
 import { describe, expect, it } from 'vitest'
-import { needsBgmCredit, needsStreamSummary, readChatMessage, resolveReply, type BotCommand, type ChatMessage } from './chat-command'
+import { needsBgmCredit, needsStreamSummary, needsWorkTime, readChatMessage, resolveReply, type BotCommand, type ChatMessage } from './chat-command'
 
 const botId = '67890'
 
@@ -242,5 +242,33 @@ describe('needsBgmCredit', () => {
 
   it('応答文に {bgm} が無ければ false（曲を読みに行かせないため）', () => {
     expect(needsBgmCredit({ name: 'ping', reply: '@{user} pong' })).toBe(false)
+  })
+})
+
+describe('作業した時間の合計の差し込み語', () => {
+  const worktimeCommand: BotCommand[] = [{ name: 'worktime', reply: '今日はみんなで {worktime} 作業しています' }]
+
+  it('{worktime} を、いまの配信でみんなが作業した時間の合計に置き換える', () => {
+    const workTime = { people: 5, totalMs: (14 * 60 + 32) * 60 * 1000, working: 2 }
+
+    expect(resolveReply(worktimeCommand, viewerMessage('!worktime'), botId, null, null, workTime)).toBe(
+      '今日はみんなで 14時間32分（5人） 作業しています',
+    )
+  })
+
+  it('記録が無くても、無応答にならずその旨を返す', () => {
+    expect(resolveReply(worktimeCommand, viewerMessage('!worktime'), botId, null, null, null)).toBe(
+      '今日はみんなで まだ作業の記録がありません 作業しています',
+    )
+  })
+})
+
+describe('needsWorkTime', () => {
+  it('応答文に {worktime} があれば true', () => {
+    expect(needsWorkTime({ name: 'worktime', reply: '作業時間: {worktime}' })).toBe(true)
+  })
+
+  it('応答文に {worktime} が無ければ false（合計を読みに行かせないため）', () => {
+    expect(needsWorkTime({ name: 'ping', reply: '@{user} pong' })).toBe(false)
   })
 })

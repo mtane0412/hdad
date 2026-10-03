@@ -102,6 +102,18 @@ describe('parseBotConfig', () => {
     expect(parseBotConfig({ commands: [{ ...greetingCommand, reply: fittingReply }] }).commands).toHaveLength(1)
   })
 
+  it('{worktime} が置き換わったときに500文字を超える応答文は拒否する（作業した時間の合計は最大30文字と見積もるため）', () => {
+    const overflowingReply = `${'あ'.repeat(471)}{worktime}`
+
+    expect(() => parseBotConfig({ commands: [{ ...greetingCommand, reply: overflowingReply }] })).toThrow(/\{worktime\} は最大30文字/)
+  })
+
+  it('{worktime} を含んでいても、置き換わったあとが500文字以内なら通る', () => {
+    const fittingReply = `${'あ'.repeat(470)}{worktime}`
+
+    expect(parseBotConfig({ commands: [{ ...greetingCommand, reply: fittingReply }] }).commands).toHaveLength(1)
+  })
+
   it('{summary} を含んでいても、置き換わったあとが500文字以内なら通る', () => {
     expect(parseBotConfig({ commands: [{ ...greetingCommand, reply: 'これまでのあらすじ: {summary}' }] }).commands).toHaveLength(1)
   })
