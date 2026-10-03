@@ -72,6 +72,10 @@ import { layoutCrop, type Rect, type TabCrop } from '../tab/crop'
 import { openReceiverPeer } from '../tab/peer'
 import { createTabReceiver } from '../tab/receiver'
 import { connectTabViewer } from '../tab/socket'
+import { POMODORO_SOCKET_HINT, POMODORO_SOCKET_PATH, createPomodoroOverlayApi } from '../pomodoro/api'
+import { demoPomodoroScenes, demoTimerOf } from '../pomodoro/demo'
+import { parsePomodoroSnapshot, type PomodoroTimer } from '../pomodoro/phase'
+import { createPomodoroView } from '../pomodoro/view'
 import { TASK_DESK_SOCKET_HINT, TASK_DESK_SOCKET_PATH, createTaskDeskApi } from '../task-desk/api'
 import { demoTaskDeskScenes } from '../task-desk/demo'
 import { parseTaskDeskSnapshot } from '../task-desk/entry'
@@ -103,6 +107,7 @@ const NOUNS: Readonly<Record<ItemKind, string>> = {
   caption: '字幕',
   workLog: '作業ログ',
   taskDesk: '作業机',
+  pomodoro: 'ポモドーロ',
 }
 
 /** サイドスーパーの文言を読みに行く間隔（ミリ秒）。文言は cron が5分おきに作るので、30秒あれば十分に追いつく */
@@ -117,6 +122,11 @@ const WORK_LOG_INTERVAL_MS = 300000
  * （前の配信の宣言を片付ける）を拾うためだけにある。作業ログと同じ理由で、cron の間隔（5分）に合わせる
  */
 const TASK_DESK_INTERVAL_MS = 300000
+/**
+ * ポモドーロのタイマーを読み直す間隔（ミリ秒）。始めた・止めたなどは押し出しで届き、区切りは始めた時刻から合成ページが計算するので、
+ * 読み直しは取りこぼしと、配信が終わって Worker がタイマーを止めたこと（押し出しが届かなかったとき）を拾うためだけにある。作業机と同じく cron の間隔に合わせる
+ */
+const POMODORO_INTERVAL_MS = 300000
 /** 取り上げている注目コメントを読みに行く間隔（ミリ秒）。配信中に選び直したとき、待たされすぎない長さにする */
 const FOCUS_INTERVAL_MS = 10000
 
@@ -1010,6 +1020,106 @@ const mountTaskDesk = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
   }
 }
 
+/**
+ * ポモドーロ。25分の作業と5分の休憩の残り時間を、画面の隅の札に出す（issue #208）。
+ *
+ * Worker から受け取るのはタイマー（始めた時刻・一時停止の時刻。止めたら null）だけで、区間と残り時間は毎フレーム
+ * 現在時刻から計算する（src/pomodoro/phase.ts。区切りの時刻に押し出しを待たない）。タイマーは始めた・一時停止した・再開した・止めたときに
+ * アラートと同じ配送先から WebSocket（/api/overlay/pomodoro/socket）で押し出してもらい、開いたとき・つながるたび・定期的に読み直す。
+ * 読んでいるあいだに押し出しが届いたら、読んだ結果も読み出しの失敗も捨てる（作業机と同じ。押し出しのほうが新しい）。
+ */
+const mountPomodoro = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
+  // この素材は配信者が決めるパラメータを持たない（何を映すかはタイマーで決まる）
+  parseParams({}, new URLSearchParams(item.params))
+
+  const root = document.createElement('div')
+  root.className = 'pomodoro'
+  root.dataset.pomodoro = ''
+  box.append(root)
+
+  const view = createPomodoroView(root)
+  let timer: PomodoroTimer | null = null
+  const draw = (): void => view.render(timer, Date.now())
+
+  if (demo) {
+    // プレビューではWorkerにつながず、作業中・休憩中・一時停止中の札を順に流す
+    startSampleCycle(demoPomodoroScenes, DEMO_SAMPLE_INTERVAL_MS, (scene) => {
+      timer = demoTimerOf(scene, Date.now())
+    })
+    return { draw }
+  }
+
+  const api = createPomodoroOverlayApi(callWorker, key)
+  const showReadError = (error: unknown): void => {
+    clearError(box, 'read')
+    showError(error, NOUNS.pomodoro, box, 'read')
+  }
+  /** いちばん新しく始めた読み出しの世代。重なった読み出しのうち、古いものの結果で新しいタイマーを上書きしないために使う */
+  let latestRead = 0
+  /** 押し出しを受け取った回数。読んでいるあいだに押し出しが届いたかを見分けるために使う */
+  let pushCount = 0
+  /**
+   * タイマーを読み直す。失敗は onError に渡すが、あとから始めた読み出しや押し出しに追い越されていれば捨てる。
+   *
+   * @param onError 追い越されていない失敗の扱い（箱に出す・記録に残すだけ、を呼び出し側が決める）
+   */
+  const read = async (onError: (error: unknown) => void): Promise<void> => {
+    latestRead += 1
+    const generation = latestRead
+    const pushCountAtStart = pushCount
+    const isStale = (): boolean => generation !== latestRead || pushCountAtStart !== pushCount
+    try {
+      const next = await api.read()
+      if (isStale()) return
+      timer = next
+      // 前の失敗が箱に出ていれば消す（直ったのに赤い表示が残ったままにしない）
+      clearError(box, 'read')
+    } catch (error) {
+      if (!isStale()) onError(error)
+    }
+  }
+
+  // 1回目は起動の一部として扱い、失敗はこの箱に出す（ほかの素材は動かし続ける）
+  void read(showReadError)
+
+  connectSocket(
+    socketUrl(POMODORO_SOCKET_PATH, { key }),
+    {
+      onMessage: (text) => {
+        try {
+          const next = parsePomodoroSnapshot(text)
+          pushCount += 1
+          timer = next
+          // 最新のタイマーを受け取れたので、前の読み出しの失敗が箱に出ていれば消す
+          clearError(box, 'read')
+        } catch (error) {
+          showReadError(error)
+        }
+      },
+      // つながるたびに読み直す。つながっていない間の変化を取りこぼさないため
+      onOpen: () => void read(showReadError),
+      onStatus: () => {
+        // 切断・再接続は出さない。つながったときの読み直しは onOpen が受け持ち、映している札はそのまま残す（残り時間は進み続ける）
+      },
+      onWarning: (message) => showReadError(new Error(message)),
+    },
+    POMODORO_SOCKET_HINT,
+  )
+
+  return {
+    draw,
+    task: {
+      intervalMs: POMODORO_INTERVAL_MS,
+      run: () => {
+        void read((error) => {
+          // 一時的な通信の失敗で配信画面を汚さない。映している札はそのまま残し、原因は記録に残す（作業机と同じ）
+          console.error('ポモドーロのタイマーを読み込めませんでした', error)
+        })
+      },
+    },
+  }
+}
+
 const mountItem = (box: HTMLElement, item: OverlayItem, context: MountContext): MountedItem => {
   switch (item.kind) {
     case 'wallpaper':
@@ -1035,6 +1145,8 @@ const mountItem = (box: HTMLElement, item: OverlayItem, context: MountContext): 
       return mountWorkLog(box, item, context)
     case 'taskDesk':
       return mountTaskDesk(box, item, context)
+    case 'pomodoro':
+      return mountPomodoro(box, item, context)
   }
 }
 

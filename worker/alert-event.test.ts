@@ -184,6 +184,16 @@ describe('extract', () => {
     expect(() => extract('github.pull_request.merged', { sender: { login: 'mtane0412' }, repository: { name: 'hdad' } })).toThrowError(/pull_request/)
   })
 
+  it('ポモドーロの区切りから、何本目かと区間の長さ（分）を取り出す', () => {
+    // Twitchの通知ではなく、Workerのタイマー（worker/pomodoro-timer.ts）が作る中身である
+    expect(extract('hdad.pomodoro.work_begin', { round: 2, minutes: 25 })).toEqual({ event: 'hdad.pomodoro.work_begin', round: 2, minutes: 25 })
+    expect(extract('hdad.pomodoro.break_begin', { round: 2, minutes: 5 })).toEqual({ event: 'hdad.pomodoro.break_begin', round: 2, minutes: 5 })
+  })
+
+  it('ポモドーロの区切りの中身が想定と違えば、どの項目が足りないかを示してエラーにする', () => {
+    expect(() => extract('hdad.pomodoro.work_begin', { minutes: 25 })).toThrowError(/round/)
+  })
+
   it('対応していないイベントの種類は null を返す（Twitchが種類を増やしてもWorkerを止めない）', () => {
     expect(extract('channel.cheer', { user_name: '田中太郎' })).toBeNull()
   })
@@ -233,6 +243,17 @@ describe('matches', () => {
 
   it('user の条件は大文字小文字を区別しない（Twitchのユーザー名は小文字だが、配信者が表示名の綴りで入れても当てる）', () => {
     expect(matches(redeemTrigger([{ kind: 'user', login: 'Tanaka_Taro' }]), redeemed, notFirstTime)).toBe(true)
+  })
+
+  it('user の条件は、相手のいないポモドーロの区切りでは満たさない', () => {
+    const pomodoroTrigger: ResolvedTrigger = {
+      kind: 'pomodoroBreakBegin',
+      event: 'hdad.pomodoro.break_begin',
+      conditions: [{ kind: 'user', login: 'tanaka_taro' }],
+      actions: [{ type: 'chat', message: '休憩です' }],
+    }
+
+    expect(matches(pomodoroTrigger, { event: 'hdad.pomodoro.break_begin', round: 1, minutes: 5 }, notFirstTime)).toBe(false)
   })
 
   it('条件が2つあれば、すべてを満たしたときだけ当てはまる（and）', () => {
@@ -329,6 +350,18 @@ describe('fillMessage', () => {
     expect(fillMessage('{repo} の {branch} に「{message}」をpushしました（{user}）', pushed, null)).toBe(
       'hdad の feature/github-webhook に「テストを先に書く」をpushしました（mtane0412）',
     )
+  })
+
+  it('ポモドーロの区切りでは、{round}・{minutes} が何本目かと区間の長さ（分）に置き換わる', () => {
+    const breakBegan = { event: 'hdad.pomodoro.break_begin', round: 3, minutes: 5 } as const
+
+    expect(fillMessage('{round}本目おつかれさまでした。{minutes}分休憩です', breakBegan, null)).toBe('3本目おつかれさまでした。5分休憩です')
+  })
+
+  it('ポモドーロの区切りには相手がいないので、{user} は置き換えずに残す', () => {
+    const workBegan = { event: 'hdad.pomodoro.work_begin', round: 1, minutes: 25 } as const
+
+    expect(fillMessage('{user} さん、作業開始です', workBegan, null)).toBe('{user} さん、作業開始です')
   })
 
   it('PRのマージでは、{title}・{number} がPRのタイトルと番号に置き換わる', () => {

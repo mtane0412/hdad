@@ -21,3 +21,7 @@
 広告の購読には配信者の `channel:read:ads` が要るため、**スコープが増えた＝配信者のログインし直しが必要**である。
 
 テストでは保管とアラームを差し替え（`worker/ad-break-timer.test.ts`）、Workerからの予約は `worker/fake-ad-break-timer.ts` で確かめる。
+
+## ポモドーロの区切りも同じクラスで預かる
+
+ポモドーロのタイマー（issue #208）の区切りのアラームも、このクラスの別のインスタンス（名前 `pomodoro`）で預かる（新しい Durable Object のクラスを足すと PR のプレビューのビルドが失敗するため）。アラームはインスタンスごとに1つなので広告の予約とは取り合わない。アラームからトリガーを動かす文脈の組み立ては `worker/alarm-actions.ts` の `runAlarmActions` に移して共有した。経緯は [pomodoro.md](pomodoro.md)。

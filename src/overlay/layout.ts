@@ -16,7 +16,7 @@
  */
 
 /** オーバーレイに置ける素材の種類。worker/overlay-layout.ts の ITEM_KINDS と合わせる */
-export const ITEM_KINDS = ['wallpaper', 'clock', 'chat', 'alerts', 'sideSuper', 'focus', 'draw', 'bgm', 'tab', 'caption', 'workLog', 'taskDesk'] as const
+export const ITEM_KINDS = ['wallpaper', 'clock', 'chat', 'alerts', 'sideSuper', 'focus', 'draw', 'bgm', 'tab', 'caption', 'workLog', 'taskDesk', 'pomodoro'] as const
 
 /** オーバーレイに置ける素材の種類 */
 export type ItemKind = (typeof ITEM_KINDS)[number]
@@ -52,6 +52,7 @@ export const STAGE_SIZE = { width: 1920, height: 1080 } as const
  * 時計とチャットボックスだけは画面の一部に置くものなので、ギャラリーが案内している大きさに合わせる。
  * 作業ログも画面の一部（横の余白）に縦に積むものなので、行が十行ほど収まる縦長の大きさにする。
  * 作業机も同じく横の余白に1人1行で積むので、作業ログと同じ大きさにする。
+ * ポモドーロは残り時間と区間の名前を出す小さな札なので、時計と同じく画面の隅に置ける大きさにする。
  */
 export const RECOMMENDED_ITEM_SIZES: Readonly<Record<ItemKind, { readonly width: number; readonly height: number }>> = {
   wallpaper: STAGE_SIZE,
@@ -66,6 +67,7 @@ export const RECOMMENDED_ITEM_SIZES: Readonly<Record<ItemKind, { readonly width:
   caption: STAGE_SIZE,
   workLog: { width: 560, height: 640 },
   taskDesk: { width: 560, height: 640 },
+  pomodoro: { width: 420, height: 200 },
 }
 
 /** オーバーレイの中での位置と大きさ（オーバーレイの幅・高さに対する割合。％） */

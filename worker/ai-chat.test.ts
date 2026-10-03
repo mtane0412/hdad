@@ -147,6 +147,22 @@ describe('buildPrompt', () => {
     expect(merged).toContain('156')
   })
 
+  it('ポモドーロの区切りでは、何本目かと区間の長さを材料に書き、相手の表示名の行は出さない', () => {
+    const prompt = buildPrompt({
+      instruction: '休憩に入ることを伝えてください',
+      extracted: { event: 'hdad.pomodoro.break_begin', round: 2, minutes: 5 },
+      viewer: null,
+      state: { firstChatOfStream: false, firstChatEver: false, daysSinceLastChat: null },
+      streamSummary: null,
+    })
+
+    expect(prompt).toContain('ポモドーロの休憩の開始')
+    expect(prompt).toContain('2本目')
+    expect(prompt).toContain('5分')
+    // 区切りは視聴者の行動ではないので、相手はいない
+    expect(prompt).not.toContain('相手の表示名')
+  })
+
   it('Twitchの上限（500文字）に収めるよう指示する', () => {
     const prompt = buildPrompt({ instruction: '一言返してください', extracted: chatEvent, viewer: record, state: regularVisit, streamSummary: null })
 

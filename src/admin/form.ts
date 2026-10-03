@@ -30,6 +30,8 @@ const AD_BREAK_BEGIN = 'channel.ad_break.begin'
 const AD_BREAK_END = 'channel.ad_break.end'
 const GITHUB_PUSH = 'github.push'
 const GITHUB_PULL_REQUEST_MERGED = 'github.pull_request.merged'
+const POMODORO_WORK_BEGIN = 'hdad.pomodoro.work_begin'
+const POMODORO_BREAK_BEGIN = 'hdad.pomodoro.break_begin'
 const PERCENT = 100
 const BYTES_PER_UNIT = 1024
 /** 報酬を絞り込まない（すべての報酬が対象）ことを表す選択肢の値。Workerへは null として送る */
@@ -80,6 +82,8 @@ const MENU_LABELS: Readonly<Record<TriggerKind, string>> = {
   adBreakEnd: '広告が終わった',
   commitPushed: 'コミットがpushされた',
   pullRequestMerged: 'PRがマージされた',
+  pomodoroWorkBegin: '作業が始まった',
+  pomodoroBreakBegin: '休憩が始まった',
 }
 
 /** メニュー項目の日本語の名前。画面の見出しと要約で使う */
@@ -161,7 +165,7 @@ const AD_BREAK_ITEM: MenuItem = {
  * 配信者はトリガーを作るのではなく、**並んでいる出来事に効果を追加していく**。
  * そのため項目の増減は配信者の操作では起きず、この一覧がそのまま画面の構成になる。
  *
- * 区分は配信者から見た関心ごと（チャットの書き込みか、それ以外のイベントか、配信者自身の開発作業か）で分ける。
+ * 区分は配信者から見た関心ごと（チャットの書き込みか、それ以外のイベントか、配信者自身の開発作業か、ポモドーロのタイマーか）で分ける。
  * 並びは絞り込みの細かいものからにして、「誰かが発言した」はチャットの区分の最後に置く。
  * 当てはまった行はすべて実行されるので動く・動かないは順番に左右されないが、
  * 何にでも当てはまる行が先頭にあると、一覧が読みにくくなるためである。
@@ -200,6 +204,15 @@ export const menuGroups: readonly MenuGroup[] = [
     items: [
       item('commitPushed', 'どのブランチでも、新しいコミットがpushされたとき'),
       item('pullRequestMerged', 'PRがマージされたとき'),
+    ],
+  },
+  {
+    label: 'ポモドーロ',
+    // 区切りは Worker のタイマーが決める。配信していないときに区切りを迎えたら、鳴らさずにタイマーを止める（worker/pomodoro-timer.ts）
+    description: 'ポモドーロのタイマー（25分の作業と5分の休憩）の区切り。配信していないときは鳴らさない。',
+    items: [
+      item('pomodoroWorkBegin', 'タイマーを始めたときと、休憩が明けたとき'),
+      item('pomodoroBreakBegin', '25分の作業が終わったとき'),
     ],
   },
 ]
@@ -280,6 +293,8 @@ const EVENT_OF_KIND: Readonly<Record<TriggerKind, AlertEvent>> = {
   adBreakEnd: AD_BREAK_END,
   commitPushed: GITHUB_PUSH,
   pullRequestMerged: GITHUB_PULL_REQUEST_MERGED,
+  pomodoroWorkBegin: POMODORO_WORK_BEGIN,
+  pomodoroBreakBegin: POMODORO_BREAK_BEGIN,
 }
 
 /**
@@ -305,6 +320,9 @@ const EVENT_PLACEHOLDERS: Readonly<Record<AlertEvent, readonly string[]>> = {
   [GITHUB_PUSH]: ['{user}', '{repo}', '{branch}', '{message}', ...COMMON_PLACEHOLDERS],
   // {user} はマージした人の GitHub のユーザー名
   [GITHUB_PULL_REQUEST_MERGED]: ['{user}', '{repo}', '{title}', '{number}', ...COMMON_PLACEHOLDERS],
+  // {round} は何本目か（休憩は直前の作業と同じ番号）、{minutes} は始まった区間の長さ（分）。相手がいないので {user} は無い
+  [POMODORO_WORK_BEGIN]: ['{round}', '{minutes}', ...COMMON_PLACEHOLDERS],
+  [POMODORO_BREAK_BEGIN]: ['{round}', '{minutes}', ...COMMON_PLACEHOLDERS],
 }
 
 /** そのメニュー項目の文言で使える差し込み語。選んだ項目に存在しない語は置き換わらないため、画面で知らせる */

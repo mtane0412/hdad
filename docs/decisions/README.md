@@ -21,6 +21,7 @@
 | [side-super.md](side-super.md) | サイドスーパー（素材の種類 `sideSuper`） |
 | [work-log.md](work-log.md) | 作業ログ（素材の種類 `workLog`） |
 | [task-desk.md](task-desk.md) | 作業机（素材の種類 `taskDesk`。視聴者の `!task`・`!done`） |
+| [pomodoro.md](pomodoro.md) | ポモドーロ（`/pomodoro/`・素材の種類 `pomodoro`。区切りのトリガーと休憩中のBGM） |
 | [comments.md](comments.md) | コメントビューアー（`/comments/`） |
 | [focus.md](focus.md) | 注目コメント（素材の種類 `focus`） |
 | [overlay-stage.md](overlay-stage.md) | 素材を重ねる合成ページ（`overlay/stage/`） |

@@ -56,6 +56,8 @@ const EVENT_LABELS: Readonly<Record<Extracted['event'], string>> = {
   'channel.ad_break.end': '広告の終了',
   'github.push': '配信者の開発作業でのコミットのpush（GitHub）',
   'github.pull_request.merged': '配信者の開発作業でのPRのマージ（GitHub）',
+  'hdad.pomodoro.work_begin': 'ポモドーロの作業の開始（配信者と視聴者がいっしょに作業する時間）',
+  'hdad.pomodoro.break_begin': 'ポモドーロの休憩の開始（作業の区切り）',
 }
 
 /** イベントごとに、文面の手がかりになる中身を並べる */
@@ -81,6 +83,9 @@ const eventDetails = (extracted: Extracted): string[] => {
       return [`リポジトリ: ${extracted.repository}`, `ブランチ: ${extracted.branch}`, `コミットのメッセージ: ${extracted.commitMessage}`]
     case 'github.pull_request.merged':
       return [`リポジトリ: ${extracted.repository}`, `PRの番号: ${extracted.number}`, `PRのタイトル: ${extracted.title}`]
+    case 'hdad.pomodoro.work_begin':
+    case 'hdad.pomodoro.break_begin':
+      return [`何本目か: ${extracted.round}本目`, `区間の長さ: ${extracted.minutes}分`]
   }
 }
 
@@ -151,7 +156,8 @@ export const buildPrompt = (material: AiChatMaterial): string => {
     '',
     '# 相手と出来事',
     `出来事: ${EVENT_LABELS[extracted.event]}`,
-    `相手の表示名: ${extracted.userName}`,
+    // ポモドーロの区切りのように相手のいない出来事では、相手の行を出さない
+    ...('userName' in extracted ? [`相手の表示名: ${extracted.userName}`] : []),
     ...eventDetails(extracted),
     ...visitDetails(state),
     '',

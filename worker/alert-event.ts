@@ -44,6 +44,8 @@ const AD_BREAK_BEGIN = 'channel.ad_break.begin'
 const AD_BREAK_END = 'channel.ad_break.end'
 const GITHUB_PUSH = 'github.push'
 const GITHUB_PULL_REQUEST_MERGED = 'github.pull_request.merged'
+const POMODORO_WORK_BEGIN = 'hdad.pomodoro.work_begin'
+const POMODORO_BREAK_BEGIN = 'hdad.pomodoro.break_begin'
 
 /**
  * Twitchへ送る1通の上限（チャットもアナウンスも500文字。worker/alert-config.ts の検証と同じ値）。
@@ -101,6 +103,9 @@ export type Extracted =
       readonly title: string
       readonly number: number
     }
+  // ポモドーロの区切り。視聴者の行動ではないので、相手（userName・userLogin）を持たない。
+  // round は何本目か（休憩は直前の作業と同じ番号）、minutes は始まった区間の長さ（分）
+  | { readonly event: typeof POMODORO_WORK_BEGIN | typeof POMODORO_BREAK_BEGIN; readonly round: number; readonly minutes: number }
 
 /**
  * 通知の中身だけでは決まらない条件の判定結果。呼び出し側（worker/alert-state.ts）が先に調べて渡す。
@@ -314,6 +319,10 @@ export const extract = (subscriptionType: string, body: unknown): Extracted | nu
         number: readNumber(pullRequest, 'number'),
       }
     }
+    // ポモドーロの区切りはWorkerのタイマー（worker/pomodoro-timer.ts）が作る擬似イベントで、中身もそこが作る
+    case POMODORO_WORK_BEGIN:
+    case POMODORO_BREAK_BEGIN:
+      return { event: subscriptionType, round: readNumber(body, 'round'), minutes: readNumber(body, 'minutes') }
     default:
       return null
   }
@@ -330,8 +339,9 @@ const satisfiesCondition = (condition: StoredCondition, extracted: Extracted, st
   switch (condition.kind) {
     case 'reward':
       return extracted.event === REDEMPTION && condition.rewardId === extracted.rewardId
+    // 相手を持たない出来事（ポモドーロの区切り）では満たさないものとして扱う（reward と同じ扱い）
     case 'user':
-      return condition.login.toLowerCase() === extracted.userLogin.toLowerCase()
+      return 'userLogin' in extracted && condition.login.toLowerCase() === extracted.userLogin.toLowerCase()
     case 'text':
       // 本文を持つのはチャットの発言だけなので、ほかのイベントでは満たさないものとして扱う（reward と同じ扱い）
       return extracted.event === CHAT_MESSAGE && extracted.text.toLowerCase().includes(condition.contains.toLowerCase())
@@ -391,6 +401,10 @@ const placeholderValues = (extracted: Extracted): Record<string, string> => {
       return { '{user}': extracted.userName, '{repo}': extracted.repository, '{branch}': extracted.branch, '{message}': extracted.commitMessage }
     case GITHUB_PULL_REQUEST_MERGED:
       return { '{user}': extracted.userName, '{repo}': extracted.repository, '{title}': extracted.title, '{number}': String(extracted.number) }
+    // 相手がいないので {user} は持たない（書かれていれば置き換えずに残し、配信者が誤りに気付けるようにする）
+    case POMODORO_WORK_BEGIN:
+    case POMODORO_BREAK_BEGIN:
+      return { '{round}': String(extracted.round), '{minutes}': String(extracted.minutes) }
   }
 }
 

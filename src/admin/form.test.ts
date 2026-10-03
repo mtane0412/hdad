@@ -64,10 +64,15 @@ const alertAction = (overrides: Record<string, unknown> = {}) => ({
 })
 
 describe('menuGroups', () => {
-  it('メニュー項目を「チャット・イベント・開発」の3つに分けて並べる', () => {
+  it('メニュー項目を「チャット・イベント・開発・ポモドーロ」の4つに分けて並べる', () => {
     // 広告は配信者から見れば「配信中に起きる出来事」の1つなので、応援と同じ「イベント」にまとめる。
-    // GitHub から届く出来事は視聴者の行動ではないので、別の区分「開発」にする
-    expect(menuGroups.map((group) => group.label)).toEqual(['チャット', 'イベント', '開発'])
+    // GitHub から届く出来事は視聴者の行動ではないので、別の区分「開発」にする。
+    // ポモドーロの区切りは配信者が動かすタイマーから起きるので、さらに別の区分にする
+    expect(menuGroups.map((group) => group.label)).toEqual(['チャット', 'イベント', '開発', 'ポモドーロ'])
+  })
+
+  it('ポモドーロの区分には、作業の開始と休憩の開始を並べる', () => {
+    expect(menuGroups[3]?.items.map((item) => item.kind)).toEqual(['pomodoroWorkBegin', 'pomodoroBreakBegin'])
   })
 
   it('開発の区分には、コミットのpushとPRのマージを並べる', () => {
@@ -320,6 +325,8 @@ describe('withFixedRows', () => {
       'adBreakEnd',
       'commitPushed',
       'pullRequestMerged',
+      'pomodoroWorkBegin',
+      'pomodoroBreakBegin',
     ])
     expect(rows.every((row) => !hasAnyAction(row))).toBe(true)
   })
@@ -433,6 +440,9 @@ describe('placeholdersFor', () => {
     ['pullRequestMerged', ['{user}', '{repo}', '{title}', '{number}', '{summary}']],
     ['adBreakBegin', ['{user}', '{duration}', '{summary}']],
     ['adBreakEnd', ['{user}', '{duration}', '{summary}']],
+    // ポモドーロの区切りには相手がいないので {user} を持たない
+    ['pomodoroWorkBegin', ['{round}', '{minutes}', '{summary}']],
+    ['pomodoroBreakBegin', ['{round}', '{minutes}', '{summary}']],
   ] as const)('%s で使える差し込み語を返す', (kind, expected) => {
     expect(placeholdersFor(kind)).toEqual(expected)
   })

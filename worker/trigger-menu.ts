@@ -38,6 +38,13 @@ export const AD_BREAK_END = 'channel.ad_break.end'
 export const GITHUB_PUSH = 'github.push'
 /** PR のマージ。GitHub の pull_request のうち、マージして閉じられたものだけに付けた名前である（同上） */
 export const GITHUB_PULL_REQUEST_MERGED = 'github.pull_request.merged'
+/**
+ * ポモドーロの作業の開始。Twitchにも GitHub にも無い出来事で、Workerのタイマー（worker/pomodoro-timer.ts）が
+ * 作業の区間に入ったとき（始めたときと、休憩が明けたとき）に作る擬似イベントである。頭の hdad. は Worker が付けた名前であることを表す
+ */
+export const POMODORO_WORK_BEGIN = 'hdad.pomodoro.work_begin'
+/** ポモドーロの休憩の開始。作業の区間が終わったときに Workerのタイマーが作る擬似イベントである（同上） */
+export const POMODORO_BREAK_BEGIN = 'hdad.pomodoro.break_begin'
 
 /**
  * トリガーが対象にできるイベントの種類。
@@ -55,6 +62,8 @@ export const ALERT_EVENTS = [
   AD_BREAK_END,
   GITHUB_PUSH,
   GITHUB_PULL_REQUEST_MERGED,
+  POMODORO_WORK_BEGIN,
+  POMODORO_BREAK_BEGIN,
 ] as const
 
 export type AlertEvent = (typeof ALERT_EVENTS)[number]
@@ -86,7 +95,7 @@ export type StoredCondition =
 /**
  * メニュー項目の識別子。
  *
- * 画面ではこれを区分（チャット・イベント・開発）に分けて並べる。区分と日本語の名前は管理画面（src/admin/）が持つ
+ * 画面ではこれを区分（チャット・イベント・開発・ポモドーロ）に分けて並べる。区分と日本語の名前は管理画面（src/admin/）が持つ
  * （Workerはブラウザ向けの表示を持たない）。
  *
  * 並びは絞り込みの細かいものからにする。挨拶の段（GREETING_KINDS）ではこの並びが優先順位そのものになる。
@@ -107,6 +116,8 @@ export const TRIGGER_KINDS = [
   'adBreakEnd',
   'commitPushed',
   'pullRequestMerged',
+  'pomodoroWorkBegin',
+  'pomodoroBreakBegin',
 ] as const
 
 export type TriggerKind = (typeof TRIGGER_KINDS)[number]
@@ -140,6 +151,7 @@ export type TriggerSource =
   | { kind: 'follow' | 'subscribe' | 'resubscribe' | 'raid' }
   | { kind: 'adBreakBegin' | 'adBreakEnd'; automatic: boolean | null }
   | { kind: 'commitPushed' | 'pullRequestMerged' }
+  | { kind: 'pomodoroWorkBegin' | 'pomodoroBreakBegin' }
 
 /** メニュー項目が対象にするイベント種別 */
 const EVENT_OF_KIND: Readonly<Record<TriggerKind, AlertEvent>> = {
@@ -158,6 +170,8 @@ const EVENT_OF_KIND: Readonly<Record<TriggerKind, AlertEvent>> = {
   adBreakEnd: AD_BREAK_END,
   commitPushed: GITHUB_PUSH,
   pullRequestMerged: GITHUB_PULL_REQUEST_MERGED,
+  pomodoroWorkBegin: POMODORO_WORK_BEGIN,
+  pomodoroBreakBegin: POMODORO_BREAK_BEGIN,
 }
 
 /**
@@ -183,6 +197,8 @@ export const expandSource = (source: TriggerSource): { event: AlertEvent; condit
     case 'raid':
     case 'commitPushed':
     case 'pullRequestMerged':
+    case 'pomodoroWorkBegin':
+    case 'pomodoroBreakBegin':
       return { event, conditions: [] }
     case 'newViewer':
       return { event, conditions: [{ kind: 'firstChatEver' }] }

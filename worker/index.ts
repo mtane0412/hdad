@@ -49,6 +49,9 @@
  * | PUT  /api/admin/bgm/tracks       | セッション     | BGMの曲の一覧の保存（流している曲を直したら裏方のページへ押し出す） |
  * | PUT  /api/admin/bgm/playback     | セッション     | 流すBGMと音量の保存と、裏方のページへの押し出し |
  * | PUT  /api/admin/bgm/settings     | セッション     | BGMの設定（Jev に話題に合う曲へ切り替えさせるか）の保存 |
+ * | GET  /api/admin/pomodoro         | セッション     | ポモドーロのタイマーと、休憩の曲の設定 |
+ * | PUT  /api/admin/pomodoro/settings | セッション    | ポモドーロの休憩の曲の保存 |
+ * | POST /api/admin/pomodoro/control | セッション     | ポモドーロのタイマーの操作（始める・一時停止・再開・止める） |
  * | GET  /api/admin/viewers          | セッション     | 視聴者の記録の一覧（検索・ページ送り） |
  * | PATCH /api/admin/viewers/:userId | セッション     | 視聴者へのメモの保存 |
  * | DELETE /api/admin/viewers/:userId | セッション    | 視聴者の記録の削除 |
@@ -75,6 +78,8 @@
  * | GET  /api/overlay/work-log/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、作業ログの配送先へ引き渡す |
  * | GET  /api/overlay/task-desk      | オーバーレイ用キー | いまの配信の作業机（視聴者が !task で宣言した作業）を返す |
  * | GET  /api/overlay/task-desk/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、作業机の配送先へ引き渡す |
+ * | GET  /api/overlay/pomodoro       | オーバーレイ用キー | いまのポモドーロのタイマー（止めていれば null）を返す |
+ * | GET  /api/overlay/pomodoro/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、ポモドーロのタイマーの配送先へ引き渡す |
  * | GET  /api/media/:id              | オーバーレイ用キーかセッション | 素材の中身を返す |
  *
  * これとは別に、cron（wrangler.jsonc の triggers.crons）から scheduled が呼ばれ、配信の記録を収集する（collect.ts）。
@@ -141,6 +146,7 @@ import { postAdminTranscript } from './transcript-routes'
 import { captionSocket } from './caption-routes'
 import { getWorkLog, workLogSocket } from './work-log-routes'
 import { getTaskDesk, taskDeskSocket } from './task-desk-routes'
+import { getOverlayPomodoro, getPomodoro, pomodoroSocket, postPomodoroControl, putPomodoroSettings } from './pomodoro-routes'
 import { getDeeplUsage, getTranslation, postTranslation, putTranslation } from './translation-routes'
 import { drawSocket, getDrawBackground, getDrawStrokes, putDrawStrokes } from './draw-routes'
 import { deleteTabBlockedHost, getTabBlockedHosts, postTabBlockedHost, tabExtensionZip, tabSocket } from './tab-routes'
@@ -245,6 +251,9 @@ const ROUTES: readonly Route[] = [
   { method: 'PUT', path: '/api/admin/bgm/playback', handle: putBgmPlayback },
   { method: 'PUT', path: '/api/admin/bgm/settings', handle: putBgmSettings },
   { method: 'POST', path: '/api/admin/bgm/skip', handle: postBgmSkip },
+  { method: 'GET', path: '/api/admin/pomodoro', handle: getPomodoro },
+  { method: 'PUT', path: '/api/admin/pomodoro/settings', handle: putPomodoroSettings },
+  { method: 'POST', path: '/api/admin/pomodoro/control', handle: postPomodoroControl },
   { method: 'GET', path: '/api/admin/viewers', handle: getViewers },
   { method: 'PATCH', path: '/api/admin/viewers/:userId', handle: patchViewer },
   { method: 'DELETE', path: '/api/admin/viewers/:userId', handle: deleteViewerRoute },
@@ -271,6 +280,8 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/overlay/work-log/socket', handle: workLogSocket },
   { method: 'GET', path: '/api/overlay/task-desk', handle: getTaskDesk },
   { method: 'GET', path: '/api/overlay/task-desk/socket', handle: taskDeskSocket },
+  { method: 'GET', path: '/api/overlay/pomodoro', handle: getOverlayPomodoro },
+  { method: 'GET', path: '/api/overlay/pomodoro/socket', handle: pomodoroSocket },
   { method: 'GET', path: '/api/overlay/focus', handle: getOverlayFocus },
   { method: 'GET', path: '/api/overlay/bgm', handle: getOverlayBgm },
   { method: 'GET', path: '/api/overlay/bgm/socket', handle: overlayBgmSocket },

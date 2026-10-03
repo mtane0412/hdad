@@ -17,13 +17,16 @@
  * 新しい予約が来たら古いものは上書きする。
  * 注意: アラームは1回しか鳴らないので、鳴ったら予約を消す。消してから実行するのは、実行が失敗したときに
  * アラームの再試行で同じ告知を二度送らないためである（送信そのものの二重防止は alert-actions.ts の鍵が受け持つ）。
+ *
+ * ポモドーロのタイマー（issue #208）の区切りも、このクラスの別のインスタンス（名前 pomodoro）が預かる。アラームはインスタンスごとに
+ * 1つなので、広告の予約とは取り合わない。新しい Durable Object のクラスを足さないのは、足したPRではプレビューのビルドが失敗するためで、
+ * クラス名は広告のまま残す（名前を変えるには Durable Object のマイグレーションが要る）。パス /pomodoro/ と区切りのアラームの中身は
+ * worker/pomodoro-timer.ts が持ち、ここは振り分けるだけである。
  */
-import { recordLateFailure, runAlertActions } from './alert-actions'
+import { runAlarmActions, type AlarmDependencies } from './alarm-actions'
+import { handlePomodoroRequest, runPomodoroAlarm } from './pomodoro-timer'
 import { AD_BREAK_END } from './trigger-menu'
 import { STATUS, type Env } from './http'
-import { createLlm } from './llm'
-import { loadToken } from './token'
-import { createTwitchClient } from './twitch'
 
 /** Durable Object の名前。預け先は1つだけなので、決め打ちの名前で同じものを指す */
 const TIMER_NAME = 'ad-break'
@@ -60,6 +63,8 @@ export interface AdBreakTimerState {
     put(key: string, value: unknown): Promise<void>
     delete(key: string): Promise<boolean>
     setAlarm(scheduledTime: number): Promise<void>
+    /** 仕掛けたアラームを外す（ポモドーロのタイマーを一時停止したとき・止めたとき） */
+    deleteAlarm(): Promise<void>
   }
 }
 
@@ -74,16 +79,9 @@ export interface AdBreakTimerNamespace {
 }
 
 /**
- * アラームが鳴ったときに要る依存。Cloudflare のランタイムから受け取れないものをテストで差し替えるために分ける
- * （Workerの入口が fetch・現在時刻を引数で受け取るのと同じ作り）。
+ * アラームが鳴ったときに要る依存（worker/alarm-actions.ts の AlarmDependencies）。ポモドーロのタイマーも同じものを使う。
  */
-export interface AdBreakDependencies {
-  fetch: typeof fetch
-  /** 現在時刻（ミリ秒） */
-  now(): number
-  /** 指定した時間だけ待つ。アナウンスの送信間隔を空けるのに使う */
-  wait(milliseconds: number): Promise<void>
-}
+export type AdBreakDependencies = AlarmDependencies
 
 const PRODUCTION_DEPENDENCIES: AdBreakDependencies = {
   fetch: (input, init) => fetch(input, init),
@@ -121,31 +119,15 @@ export const scheduleAdBreakEnd = async (namespace: AdBreakTimerNamespace, end: 
  * 投げてアラームを再試行させても予約が無く空振りするだけで、失敗が誰にも届かないまま消えてしまう
  * （送信そのものの失敗は runAlertActions の中で動作ごとに記録される。ここで受け止めるのはその手前の失敗である）。
  */
-const runAdBreakEnd = async (env: Env, end: AdBreakEnd, dependencies: AdBreakDependencies): Promise<void> => {
-  const deferredTask: Promise<unknown>[] = []
-  const twitch = createTwitchClient({ clientId: env.TWITCH_CLIENT_ID, clientSecret: env.TWITCH_CLIENT_SECRET, fetch: dependencies.fetch })
-  const context = {
-    env,
-    twitch,
-    // アラームからも、通知を受けたときと同じLLM（設定に従って呼び先を決めるもの）を通す
-    llm: createLlm({ ai: env.AI, store: env.STORE, fetch: dependencies.fetch, apiKey: env.OPENROUTER_API_KEY, db: env.DB, now: dependencies.now }),
-    now: dependencies.now(),
-    wait: dependencies.wait,
-    waitUntil: (promise: Promise<unknown>): void => void deferredTask.push(promise),
-  }
-
-  await recordLateFailure(context, 'ad-break-end-failed', async () => {
-    // botの接続はここで調べる（チャット・アナウンスの動作は送り主のアカウントが要る）。
-    // 通知の中身は預かったものをそのまま渡し、状態を持つ条件（初めての発言かなど）は発言ではないので使わない
-    await runAlertActions(context, AD_BREAK_END, { event: end.event }, `${end.messageId}:ad-end`, async () => (await loadToken(env.STORE, 'bot')) !== null, null)
-    await Promise.all(deferredTask)
-  })
-}
+const runAdBreakEnd = (env: Env, end: AdBreakEnd, dependencies: AdBreakDependencies): Promise<void> =>
+  // 状態を持つ条件（初めての発言かなど）は発言ではないので使わない
+  runAlarmActions(env, dependencies, 'ad-break-end-failed', AD_BREAK_END, { event: end.event }, `${end.messageId}:ad-end`)
 
 /**
  * 広告の終了の時刻を預かり、そのときに動作を実行する Durable Object。
  *
- * 呼ぶのは Worker だけで、POST /schedule（予約）だけを受け付ける。
+ * 呼ぶのは Worker だけで、POST /schedule（広告の終了の予約）と、/pomodoro/ で始まるパス（ポモドーロのタイマーの操作。
+ * worker/pomodoro-timer.ts の handlePomodoroRequest）を受け付ける。
  */
 export class AdBreakTimer {
   /**
@@ -159,6 +141,8 @@ export class AdBreakTimer {
   ) {}
 
   async fetch(request: Request): Promise<Response> {
+    const pomodoroResponse = await handlePomodoroRequest(this.ctx.storage, this.env, this.dependencies, request)
+    if (pomodoroResponse !== null) return pomodoroResponse
     if (new URL(request.url).pathname !== SCHEDULE_PATH) return new Response(null, { status: STATUS.notFound })
 
     const end = (await request.json()) as AdBreakEnd
@@ -168,8 +152,14 @@ export class AdBreakTimer {
     return new Response(null, { status: STATUS.noContent })
   }
 
-  /** 広告が終わる時刻に呼ばれる。預かった中身を擬似イベントとして照合へ回す */
+  /**
+   * 広告が終わる時刻か、ポモドーロの区切りの時刻に呼ばれる。
+   *
+   * どちらのアラームかはインスタンスで決まる（storage はインスタンスごとに別なので、ポモドーロの状態があるのは pomodoro のインスタンスだけ）。
+   */
   async alarm(): Promise<void> {
+    if (await runPomodoroAlarm(this.ctx.storage, this.env, this.dependencies)) return
+
     const end = await this.ctx.storage.get<AdBreakEnd>(PENDING_KEY)
     // 予約を消したあとにアラームが鳴ることはないが、鳴っても何もしないでおく（空振りを失敗にしない）
     if (end === undefined) return

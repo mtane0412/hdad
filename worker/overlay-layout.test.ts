@@ -115,6 +115,12 @@ describe('parseOverlayLayout', () => {
     expect(parseOverlayLayout({ overlays: [{ name: 'front', items: [taskDesk] }] })).toEqual({ overlays: [{ name: 'front', items: [taskDesk] }] })
   })
 
+  it('ポモドーロ（pomodoro）はデザインIDを持たない種類として受け取る', () => {
+    const pomodoro: OverlayItem = { kind: 'pomodoro', id: '', params: '', rect: { x: 75, y: 5, width: 20, height: 15 } }
+
+    expect(parseOverlayLayout({ overlays: [{ name: 'front', items: [pomodoro] }] })).toEqual({ overlays: [{ name: 'front', items: [pomodoro] }] })
+  })
+
   it('壁紙・時計・チャットはデザインIDが空だと拒む', () => {
     expect(issues({ overlays: [{ name: 'back', items: [{ ...wallpaper, id: '' }] }] })).toEqual([
       'overlays[0].items[0].id: デザインIDを指定してください（英数字と下線・ハイフン、40文字まで）',

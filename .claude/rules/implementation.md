@@ -11,11 +11,12 @@ paths:
 同じ判断を2か所に書き分けると必ず食い違うので、**判断の持ち主を1つに決めてほかは通り道にする**。
 
 - **値の検証は Worker だけが持つ**（`worker/overlay-layout.ts`・`speech-config.ts`・`focus-config.ts`・`bot-config.ts`・`moderation-config.ts`・`llm-config.ts`。どれも問題点をすべて集めてから拒む）。画面は空欄を 0 に丸めず NaN のまま送り、返ってきた問題点を送った順の名前へ読み替えて並べる（`describeProblem`・`describeOverlayProblem`）
-- **手書きの線1本ぶんとして読めるかの判定は `src/draw/strokes.ts` の `isStroke` だけが持つ**（`worker/draw-config.ts` の検証も `src/draw/api.ts` の応答の確かめもこれを呼ぶ。選べる色と太さの一覧が `src/draw/tools.ts` にあるため、Workerから `src/draw/` を読み込む唯一の例外になっている）。→ `.claude/rules/draw.md`
+- **手書きの線1本ぶんとして読めるかの判定は `src/draw/strokes.ts` の `isStroke` だけが持つ**（`worker/draw-config.ts` の検証も `src/draw/api.ts` の応答の確かめもこれを呼ぶ。選べる色と太さの一覧が `src/draw/tools.ts` にあるため、Workerから `src/draw/` を読み込む例外になっている）。→ `.claude/rules/draw.md`
+- **ポモドーロの区間（作業か休憩か・何本目か・残り時間）の計算は `src/pomodoro/phase.ts` だけが持つ**（合成ページ・アプリのページ・Worker のアラームが同じものを呼ぶ。Workerから `src/` を読み込む2例目の例外）。→ `.claude/rules/pomodoro.md`
 - **LLMの呼び先を決めるのは `worker/llm.ts` だけ**で、呼び出し側はモデル名ではなく使う箇所（`LLM_USAGES`）を指名する。→ `.claude/rules/llm.md`
 - **トリガーの照合は `worker/alert-event.ts` の `matches` だけが持ち**、展開後の形しか見ない（展開は `trigger-menu.ts` の `expandSource`）。→ `.claude/rules/alerts.md`
 - **何を映すかの判断は `src/focus/focused.ts` だけが持つ**（通信もDOMも持ち込まない）。→ `.claude/rules/focus.md`
-- **Durable Object は配送者（`AlertChannel`）・時計（`AdBreakTimer`）であって判定者ではない**（設定を持たせると管理画面での変更がすぐ反映される性質が壊れる）
+- **Durable Object は配送者（`AlertChannel`）・時計（`AdBreakTimer`。別のインスタンスでポモドーロの区切りも預かる）であって判定者ではない**（設定を持たせると管理画面での変更がすぐ反映される性質が壊れる）
 - **同じ通知を2か所で読み解かない**（発言の読み取りは `worker/chat-command.ts` の `readChatMessage` に集め、`alert-event.ts` の `extract` からも呼ぶ）。同じ数を2か所に書かない（素材の推奨の大きさは `src/overlay/layout.ts` の `RECOMMENDED_ITEM_SIZES` だけ）
 
 ## 通信とDOMを持たない部分に切り出してテストする

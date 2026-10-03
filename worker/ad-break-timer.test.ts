@@ -65,6 +65,7 @@ const fakeStorage = (): { state: AdBreakTimerState; storage: Map<string, unknown
         put: async (key: string, value: unknown): Promise<void> => void storage.set(key, value),
         delete: async (key: string): Promise<boolean> => storage.delete(key),
         setAlarm: async (scheduledTime: number): Promise<void> => void scheduledAlarm.push(scheduledTime),
+        deleteAlarm: async (): Promise<void> => {},
       },
     },
   }

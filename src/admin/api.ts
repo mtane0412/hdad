@@ -18,6 +18,9 @@ const AD_BREAK_END = 'channel.ad_break.end'
 /** コミットの push・PR のマージ。Twitchではなく GitHub の Webhook から届く出来事（worker/github-routes.ts） */
 const GITHUB_PUSH = 'github.push'
 const GITHUB_PULL_REQUEST_MERGED = 'github.pull_request.merged'
+/** ポモドーロの作業の開始・休憩の開始。Workerのタイマーが作る擬似イベント（worker/pomodoro-timer.ts） */
+const POMODORO_WORK_BEGIN = 'hdad.pomodoro.work_begin'
+const POMODORO_BREAK_BEGIN = 'hdad.pomodoro.break_begin'
 
 /** アラートを出せるイベントの種類。worker/alert-config.ts の ALERT_EVENTS と同じ並び（worker/ の型は読み込めないのでここで定義する） */
 export const ALERT_EVENTS = [
@@ -31,6 +34,8 @@ export const ALERT_EVENTS = [
   AD_BREAK_END,
   GITHUB_PUSH,
   GITHUB_PULL_REQUEST_MERGED,
+  POMODORO_WORK_BEGIN,
+  POMODORO_BREAK_BEGIN,
 ] as const
 
 export type AlertEvent = (typeof ALERT_EVENTS)[number]
@@ -132,6 +137,8 @@ export const TRIGGER_KINDS = [
   'adBreakEnd',
   'commitPushed',
   'pullRequestMerged',
+  'pomodoroWorkBegin',
+  'pomodoroBreakBegin',
 ] as const
 
 export type TriggerKind = (typeof TRIGGER_KINDS)[number]
@@ -150,6 +157,7 @@ export type TriggerSource =
   | { kind: 'follow' | 'subscribe' | 'resubscribe' | 'raid' }
   | { kind: 'adBreakBegin' | 'adBreakEnd'; automatic: boolean | null }
   | { kind: 'commitPushed' | 'pullRequestMerged' }
+  | { kind: 'pomodoroWorkBegin' | 'pomodoroBreakBegin' }
 
 /** 保存するトリガー。既定メニューの項目と、そのとき行う動作の一覧からなる */
 export type TriggerInput = TriggerSource & { actions: ActionInput[] }

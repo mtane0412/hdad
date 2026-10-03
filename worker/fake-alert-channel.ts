@@ -8,6 +8,7 @@ import type { AlertChannelNamespace } from './alert-channel'
 import type { OverlayAlert } from './alert-event'
 import type { BgmNowPlaying } from './bgm-config'
 import { STATUS } from './http'
+import type { PomodoroSnapshot } from './pomodoro-timer'
 import type { TaskDeskSnapshot } from './task-desk'
 import type { WorkLogEntry } from './work-log'
 
@@ -26,6 +27,8 @@ export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelO
   pushedWorkLog: WorkLogEntry[]
   /** 押し出された作業机 */
   pushedTaskDesk: TaskDeskSnapshot[]
+  /** 押し出されたポモドーロのタイマー */
+  pushedPomodoro: PomodoroSnapshot[]
   /** WebSocketの接続として引き渡されたリクエスト */
   forwardedConnections: Request[]
   /** 接続をすべて閉じるよう頼まれたときに添えられた、新しいキーの目印（オーバーレイ用キーの再発行） */
@@ -35,6 +38,7 @@ export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelO
   const evictedBgm: BgmNowPlaying[] = []
   const evictedWorkLog: WorkLogEntry[] = []
   const evictedTaskDesk: TaskDeskSnapshot[] = []
+  const evictedPomodoro: PomodoroSnapshot[] = []
   const handedOverConnections: Request[] = []
   const revokedTags: string[] = []
   const id: DurableObjectId = { toString: () => 'alerts', equals: (other) => other.toString() === 'alerts', name: 'alerts' }
@@ -44,6 +48,7 @@ export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelO
     pushedBgm: evictedBgm,
     pushedWorkLog: evictedWorkLog,
     pushedTaskDesk: evictedTaskDesk,
+    pushedPomodoro: evictedPomodoro,
     forwardedConnections: handedOverConnections,
     revokedKeyTags: revokedTags,
     namespace: {
@@ -64,6 +69,7 @@ export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelO
           if (pathname === '/push/bgm') evictedBgm.push((await request.json()) as BgmNowPlaying)
           else if (pathname === '/push/work-log') evictedWorkLog.push((await request.json()) as WorkLogEntry)
           else if (pathname === '/push/task-desk') evictedTaskDesk.push((await request.json()) as TaskDeskSnapshot)
+          else if (pathname === '/push/pomodoro') evictedPomodoro.push((await request.json()) as PomodoroSnapshot)
           else evictedAlerts.push((await request.json()) as OverlayAlert)
           return new Response(null, { status: STATUS.noContent })
         },
