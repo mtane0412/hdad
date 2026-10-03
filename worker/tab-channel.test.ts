@@ -6,8 +6,9 @@
  * そして同じ側どうしには配らないことである。
  */
 import { describe, expect, it } from 'vitest'
-import { SENDER, TabChannel, VIEWER, type TabChannelState, type TabSocket, revokeTabViewers } from './tab-channel'
+import { SENDER, TabChannel, VIEWER, type TabChannelState, type TabSocket, connectTabSocket, revokeTabViewers } from './tab-channel'
 import { createFakeTabChannel } from './fake-tab-channel'
+import { createFakeDurableStorage } from './fake-durable-storage'
 
 /** 送られた文字列を覚えておく、テスト用の接続 */
 const createConnection = (): TabSocket & { sentMessages: string[] } => {
@@ -21,6 +22,7 @@ const createStorage = (connections: readonly (readonly [TabSocket, string])[]): 
   getWebSockets: () => connections.map(([socket]) => socket),
   getTags: (socket) => connections.find(([candidate]) => candidate === socket)?.[1].split(',') ?? [],
   setWebSocketAutoResponse: () => {},
+  storage: createFakeDurableStorage(),
 })
 
 describe('TabChannel', () => {
@@ -86,7 +88,7 @@ describe('オーバーレイ用キーの再発行に伴う切断', () => {
     return { closedWith, send: () => {}, close: (code) => closedWith.push(code ?? 0) }
   }
 
-  it('POST /revoke を受けたら、合成ページの接続（オーバーレイ用キーで開かれたもの）だけを閉じる', () => {
+  it('POST /revoke を受けたら、合成ページの接続（オーバーレイ用キーで開かれたもの）だけを閉じる', async () => {
     const senderPage = createClosableConnection()
     const obsStage = createClosableConnection()
     const channel = new TabChannel(createStorage([
@@ -94,7 +96,7 @@ describe('オーバーレイ用キーの再発行に伴う切断', () => {
       [obsStage, VIEWER],
     ]))
 
-    const response = channel.fetch(new Request('https://tab-channel/revoke', { method: 'POST' }))
+    const response = await channel.fetch(new Request('https://tab-channel/revoke', { method: 'POST', body: JSON.stringify({ keyTag: 'tag-new' }) }))
 
     expect(response.status).toBe(204)
     expect(obsStage.closedWith).toEqual([4001])
@@ -102,12 +104,32 @@ describe('オーバーレイ用キーの再発行に伴う切断', () => {
     expect(senderPage.closedWith).toEqual([])
   })
 
-  it('revokeTabViewers は Durable Object へ切断を頼む', async () => {
+  it('覚えている目印と違うキーで合成ページの接続を開こうとしたら、受け入れずに401を返す', async () => {
+    const channel = new TabChannel(createStorage([]))
+    await channel.fetch(new Request('https://tab-channel/revoke', { method: 'POST', body: JSON.stringify({ keyTag: 'tag-new' }) }))
+
+    const response = await channel.fetch(new Request('https://tab-channel/api/overlay/tab?role=viewer&keyTag=tag-old', { headers: { Upgrade: 'websocket' } }))
+
+    expect(response.status).toBe(401)
+  })
+
+  it('接続の引き渡しでは、合成ページの接続に Worker の確かめた目印を付け、利用者の送ってきた目印は捨てる', async () => {
+    const relay = createFakeTabChannel()
+    const forged = new Request('https://hdad.example.com/api/overlay/tab?key=k&keyTag=forged&role=sender', { headers: { Upgrade: 'websocket' } })
+
+    await connectTabSocket(relay.namespace, forged, { role: 'viewer', keyTag: 'tag-of-key' })
+
+    const forwarded = relay.forwardedConnections.map((request) => new URL(request.url).searchParams)
+    expect(forwarded.map((params) => params.getAll('keyTag'))).toEqual([['tag-of-key']])
+    expect(forwarded.map((params) => params.getAll('role'))).toEqual([['viewer']])
+  })
+
+  it('revokeTabViewers は新しいキーの目印を付けて切断を頼む', async () => {
     const relay = createFakeTabChannel()
 
-    await revokeTabViewers(relay.namespace)
+    await revokeTabViewers(relay.namespace, 'tag-new')
 
-    expect(relay.revocations).toBe(1)
+    expect(relay.revokedKeyTags).toEqual(['tag-new'])
     expect(relay.forwardedConnections).toEqual([])
   })
 })

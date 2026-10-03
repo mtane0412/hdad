@@ -25,7 +25,8 @@
  */
 import type { OverlayAlert } from './alert-event'
 import type { BgmNowPlaying } from './bgm-config'
-import { STATUS } from './http'
+import { STATUS, errorResponse } from './http'
+import { KEY_TAG_PARAM, isCurrentKeyTag, rememberKeyTag, revokeRequest, type DurableStorage } from './overlay-key'
 import { broadcast, closeForRevokedKey, type SocketLike } from './socket-broadcast'
 
 /** Durable Object の名前。配送先は1つだけなので、決め打ちの名前で同じものを指す */
@@ -61,7 +62,13 @@ export interface AlertChannelState {
   acceptWebSocket(socket: WebSocket, tags?: string[]): void
   getWebSockets(tag?: string): AlertSocket[]
   setWebSocketAutoResponse(pair: WebSocketRequestResponsePair): void
+  /** いまのオーバーレイ用キーの目印を覚えておく保管庫 */
+  storage: DurableStorage
 }
+
+/** 目印の違うキーで開こうとした接続に返す応答。Worker の requireOverlayKey と同じ形にする */
+const staleKeyResponse = (): Response =>
+  errorResponse(STATUS.unauthorized, 'invalid-overlay-key', 'オーバーレイ用キーが正しくありません。管理画面のURLを貼り直してください')
 
 /**
  * Worker が Durable Object を呼ぶための入口。テストで差し替えられるよう、使うものだけを受け取る。
@@ -81,7 +88,9 @@ export interface AlertChannelNamespace {
  *   クエリの topic が bgm ならBGMの接続、それ以外はアラートの接続として受け入れる
  * - POST /push: Worker が押し出したアラートを、アラートの接続すべてへ配る
  * - POST /push/bgm: Worker が押し出した「いま流している曲」を、BGMの接続すべてへ配る
- * - POST /revoke: 接続をすべて閉じる（オーバーレイ用キーを発行し直したとき。どの接続もオーバーレイ用キーで開かれている）
+ * - POST /revoke: 新しいキーの目印を覚え、接続をすべて閉じる（オーバーレイ用キーを発行し直したとき。どの接続もオーバーレイ用キーで開かれている）
+ *
+ * 接続はどれもオーバーレイ用キーで開かれるので、覚えている目印と違うキーの接続は受け入れない（worker/overlay-key.ts）。
  */
 export class AlertChannel {
   /** Cloudflare は (state, env) の2つを渡すが、この Durable Object は保管も外部との通信も行わないので state だけを受け取る */
@@ -89,10 +98,15 @@ export class AlertChannel {
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url)
-    if (request.headers.get('Upgrade') === 'websocket') return this.accept(url.searchParams.get(TOPIC_PARAM) === BGM_TOPIC ? BGM_TOPIC : ALERTS_TOPIC)
+    if (request.headers.get('Upgrade') === 'websocket') {
+      if (!(await isCurrentKeyTag(this.ctx.storage, url.searchParams.get(KEY_TAG_PARAM)))) return staleKeyResponse()
+      return this.accept(url.searchParams.get(TOPIC_PARAM) === BGM_TOPIC ? BGM_TOPIC : ALERTS_TOPIC)
+    }
     if (url.pathname === PUSH_PATH) return this.push(ALERTS_TOPIC, await request.text(), 'アラート')
     if (url.pathname === PUSH_BGM_PATH) return this.push(BGM_TOPIC, await request.text(), 'BGMの切り替え')
     if (url.pathname === REVOKE_PATH) {
+      // 先に目印を覚えてから閉じる。閉じたあとすぐ古いキーでつなぎ直されても受け入れないため
+      if (!(await rememberKeyTag(this.ctx.storage, request))) return new Response(null, { status: STATUS.badRequest })
       closeForRevokedKey(this.ctx.getWebSockets())
       return new Response(null, { status: STATUS.noContent })
     }
@@ -125,22 +139,27 @@ const channelOf = (namespace: AlertChannelNamespace): { fetch(request: Request):
  * オーバーレイからのWebSocketの接続を Durable Object へ引き渡す。
  *
  * オーバーレイ用キーの確認は呼び出し側（overlay-routes.ts）が済ませている。
+ *
+ * @param keyTag 確かめたキーの目印（overlayKeyTag）
  */
-export const connectAlertSocket = (namespace: AlertChannelNamespace, request: Request): Promise<Response> =>
-  connectWithTopic(namespace, request, ALERTS_TOPIC)
+export const connectAlertSocket = (namespace: AlertChannelNamespace, request: Request, keyTag: string): Promise<Response> =>
+  connectWithTopic(namespace, request, ALERTS_TOPIC, keyTag)
 
 /**
  * 裏方のページからのWebSocketの接続を、BGMの切り替えを受け取る接続として Durable Object へ引き渡す。
  *
- * オーバーレイ用キーの確認は呼び出し側（overlay-routes.ts）が済ませている。
+ * オーバーレイ用キーの確認は呼び出し側（bgm-routes.ts）が済ませている。
+ *
+ * @param keyTag 確かめたキーの目印（overlayKeyTag）
  */
-export const connectBgmSocket = (namespace: AlertChannelNamespace, request: Request): Promise<Response> =>
-  connectWithTopic(namespace, request, BGM_TOPIC)
+export const connectBgmSocket = (namespace: AlertChannelNamespace, request: Request, keyTag: string): Promise<Response> =>
+  connectWithTopic(namespace, request, BGM_TOPIC, keyTag)
 
-/** 目印をクエリに載せて接続を引き渡す */
-const connectWithTopic = (namespace: AlertChannelNamespace, request: Request, topic: string): Promise<Response> => {
+/** 受け取る側の目印とキーの目印をクエリに載せて接続を引き渡す。利用者の送ってきた値は上書きする */
+const connectWithTopic = (namespace: AlertChannelNamespace, request: Request, topic: string, keyTag: string): Promise<Response> => {
   const url = new URL(request.url)
   url.searchParams.set(TOPIC_PARAM, topic)
+  url.searchParams.set(KEY_TAG_PARAM, keyTag)
   return channelOf(namespace).fetch(new Request(url, request))
 }
 
@@ -169,11 +188,13 @@ export const pushBgm = (namespace: AlertChannelNamespace, nowPlaying: BgmNowPlay
   pushJson(namespace, PUSH_BGM_PATH, nowPlaying, 'BGMの切り替え')
 
 /**
- * オーバーレイ用キーを発行し直したときに、開いている接続（アラート・BGM）をすべて閉じさせる。
+ * オーバーレイ用キーを発行し直したときに、新しいキーの目印を覚えさせ、開いている接続（アラート・BGM）をすべて閉じさせる。
  *
  * 注意: 失敗を黙って握りつぶさない。閉じられないと古いキーの接続が残るので、呼び出し側（admin-routes.ts）が失敗を返す。
+ *
+ * @param keyTag 新しいキーの目印（overlayKeyTag）
  */
-export const revokeAlertSockets = async (namespace: AlertChannelNamespace): Promise<void> => {
-  const response = await channelOf(namespace).fetch(new Request(`https://alert-channel${REVOKE_PATH}`, { method: 'POST' }))
+export const revokeAlertSockets = async (namespace: AlertChannelNamespace, keyTag: string): Promise<void> => {
+  const response = await channelOf(namespace).fetch(revokeRequest(`https://alert-channel${REVOKE_PATH}`, keyTag))
   if (!response.ok) throw new Error(`アラート・BGMの接続を切断できませんでした（${response.status}）`)
 }

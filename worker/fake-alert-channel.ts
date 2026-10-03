@@ -22,22 +22,20 @@ export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelO
   pushedBgm: BgmNowPlaying[]
   /** WebSocketの接続として引き渡されたリクエスト */
   forwardedConnections: Request[]
-  /** 接続をすべて閉じるよう頼まれた回数（オーバーレイ用キーの再発行） */
-  readonly revocations: number
+  /** 接続をすべて閉じるよう頼まれたときに添えられた、新しいキーの目印（オーバーレイ用キーの再発行） */
+  revokedKeyTags: string[]
 } => {
   const evictedAlerts: OverlayAlert[] = []
   const evictedBgm: BgmNowPlaying[] = []
   const handedOverConnections: Request[] = []
-  let revoked = 0
+  const revokedTags: string[] = []
   const id: DurableObjectId = { toString: () => 'alerts', equals: (other) => other.toString() === 'alerts', name: 'alerts' }
 
   return {
     pushedAlerts: evictedAlerts,
     pushedBgm: evictedBgm,
     forwardedConnections: handedOverConnections,
-    get revocations() {
-      return revoked
-    },
+    revokedKeyTags: revokedTags,
     namespace: {
       idFromName: () => id,
       get: () => ({
@@ -50,7 +48,7 @@ export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelO
           }
           const { pathname } = new URL(request.url)
           if (pathname === '/revoke') {
-            revoked += 1
+            revokedTags.push(((await request.json()) as { keyTag: string }).keyTag)
             return new Response(null, { status: STATUS.noContent })
           }
           if (pathname === '/push/bgm') evictedBgm.push((await request.json()) as BgmNowPlaying)

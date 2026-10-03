@@ -12,24 +12,22 @@ export const createFakeTabChannel = (): {
   namespace: TabChannelNamespace
   /** WebSocketの接続として引き渡されたリクエスト */
   forwardedConnections: Request[]
-  /** 合成ページの接続を閉じるよう頼まれた回数（オーバーレイ用キーの再発行） */
-  readonly revocations: number
+  /** 合成ページの接続を閉じるよう頼まれたときに添えられた、新しいキーの目印（オーバーレイ用キーの再発行） */
+  revokedKeyTags: string[]
 } => {
   const handedOverConnections: Request[] = []
-  let revoked = 0
+  const revokedTags: string[] = []
   const id: DurableObjectId = { toString: () => 'tab', equals: (other) => other.toString() === 'tab', name: 'tab' }
 
   return {
     forwardedConnections: handedOverConnections,
-    get revocations() {
-      return revoked
-    },
+    revokedKeyTags: revokedTags,
     namespace: {
       idFromName: () => id,
       get: () => ({
         fetch: async (request: Request) => {
           if (new URL(request.url).pathname === '/revoke') {
-            revoked += 1
+            revokedTags.push(((await request.json()) as { keyTag: string }).keyTag)
             return new Response(null, { status: STATUS.noContent })
           }
           // WebSocketの接続（101）はテストの環境では作れないので、引き渡されたことだけを記録して200を返す

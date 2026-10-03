@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest'
 import { AlertChannel, connectAlertSocket, connectBgmSocket, pushAlert, pushBgm, revokeAlertSockets, type AlertSocket } from './alert-channel'
 import type { BgmNowPlaying } from './bgm-config'
 import { createFakeAlertChannel } from './fake-alert-channel'
+import { createFakeDurableStorage } from './fake-durable-storage'
 import type { OverlayAlert } from './alert-event'
 
 const alert: OverlayAlert = {
@@ -49,6 +50,7 @@ describe('AlertChannel', () => {
       acceptWebSocket: () => undefined,
       getWebSockets: (tag) => (tag === 'bgm' ? bgmSockets : tag === 'alerts' ? sockets : [...sockets, ...bgmSockets]),
       setWebSocketAutoResponse: () => undefined,
+      storage: createFakeDurableStorage(),
     })
 
   it('押し出されたアラートを、開いている接続すべてへJSONで送る', async () => {
@@ -122,8 +124,8 @@ describe('接続の引き渡し', () => {
     const delivery = createFakeAlertChannel()
     const connectionRequest = (): Request => new Request('https://hdad.example.com/api/overlay/socket?key=k', { headers: { Upgrade: 'websocket' } })
 
-    await connectAlertSocket(delivery.namespace, connectionRequest())
-    await connectBgmSocket(delivery.namespace, connectionRequest())
+    await connectAlertSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
+    await connectBgmSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
 
     expect(delivery.forwardedConnections.map((request) => new URL(request.url).searchParams.get('topic'))).toEqual(['alerts', 'bgm'])
   })
@@ -153,28 +155,72 @@ describe('オーバーレイ用キーの再発行に伴う切断', () => {
     return { closedWith, send: () => undefined, close: (code) => closedWith.push(code ?? 0) }
   }
 
-  it('POST /revoke を受けたら、アラートの接続も BGM の接続もすべて閉じる（どちらも古いキーで開かれたかもしれないため）', async () => {
+  it('POST /revoke を受けたら、新しいキーの目印を覚え、アラートの接続も BGM の接続もすべて閉じる', async () => {
     const stagePage = createClosableConnection()
     const backstagePage = createClosableConnection()
+    const storage = createFakeDurableStorage()
     const destination = new AlertChannel({
       acceptWebSocket: () => undefined,
       getWebSockets: (tag) => (tag === 'bgm' ? [backstagePage] : tag === 'alerts' ? [stagePage] : [stagePage, backstagePage]),
       setWebSocketAutoResponse: () => undefined,
+      storage,
     })
 
-    const response = await destination.fetch(new Request('https://alert-channel/revoke', { method: 'POST' }))
+    const response = await destination.fetch(new Request('https://alert-channel/revoke', { method: 'POST', body: JSON.stringify({ keyTag: 'tag-new' }) }))
 
     expect(response.status).toBe(204)
     expect(stagePage.closedWith).toEqual([4001])
     expect(backstagePage.closedWith).toEqual([4001])
+    expect([...storage.values.values()]).toEqual(['tag-new'])
   })
 
-  it('revokeAlertSockets は Durable Object へ切断を頼み、失敗を返されたら投げる', async () => {
+  it('POST /revoke に新しいキーの目印がなければ400を返し、何も閉じない', async () => {
+    const stagePage = createClosableConnection()
+    const destination = new AlertChannel({
+      acceptWebSocket: () => undefined,
+      getWebSockets: () => [stagePage],
+      setWebSocketAutoResponse: () => undefined,
+      storage: createFakeDurableStorage(),
+    })
+
+    const response = await destination.fetch(new Request('https://alert-channel/revoke', { method: 'POST', body: '{}' }))
+
+    expect(response.status).toBe(400)
+    expect(stagePage.closedWith).toEqual([])
+  })
+
+  it('覚えている目印と違うキーで開こうとした接続は、受け入れずに401を返す（KVの反映待ちで古いキーが通ってしまっても弾く）', async () => {
+    const accepted: string[][] = []
+    const storage = createFakeDurableStorage()
+    const destination = new AlertChannel({
+      acceptWebSocket: (_socket, tags) => accepted.push(tags ?? []),
+      getWebSockets: () => [],
+      setWebSocketAutoResponse: () => undefined,
+      storage,
+    })
+    await destination.fetch(new Request('https://alert-channel/revoke', { method: 'POST', body: JSON.stringify({ keyTag: 'tag-new' }) }))
+
+    const response = await destination.fetch(new Request('https://alert-channel/api/overlay/socket?topic=alerts&keyTag=tag-old', { headers: { Upgrade: 'websocket' } }))
+
+    expect(response.status).toBe(401)
+    expect(accepted).toEqual([])
+  })
+
+  it('接続の引き渡しでは、利用者が送ってきた目印を Worker の確かめた目印で上書きする', async () => {
     const delivery = createFakeAlertChannel()
-    await revokeAlertSockets(delivery.namespace)
-    expect(delivery.revocations).toBe(1)
+    const forged = new Request('https://hdad.example.com/api/overlay/socket?key=k&keyTag=forged', { headers: { Upgrade: 'websocket' } })
+
+    await connectAlertSocket(delivery.namespace, forged, 'tag-of-key')
+
+    expect(delivery.forwardedConnections.map((request) => new URL(request.url).searchParams.getAll('keyTag'))).toEqual([['tag-of-key']])
+  })
+
+  it('revokeAlertSockets は新しいキーの目印を付けて切断を頼み、失敗を返されたら投げる', async () => {
+    const delivery = createFakeAlertChannel()
+    await revokeAlertSockets(delivery.namespace, 'tag-new')
+    expect(delivery.revokedKeyTags).toEqual(['tag-new'])
     expect(delivery.pushedAlerts).toEqual([])
 
-    await expect(revokeAlertSockets(createFakeAlertChannel({ shouldFail: true }).namespace)).rejects.toThrow('切断')
+    await expect(revokeAlertSockets(createFakeAlertChannel({ shouldFail: true }).namespace, 'tag-new')).rejects.toThrow('切断')
   })
 })

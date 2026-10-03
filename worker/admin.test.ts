@@ -19,6 +19,7 @@ import { createFakeCommentChannel } from './fake-comment-channel'
 import { createFakeStore } from './fake-store'
 import { handleRequest, type Env } from './index'
 import { createSessionToken } from './session'
+import { overlayKeyTag } from './overlay-key'
 import { recordLlmUsage } from './llm-usage-store'
 import { TRANSCRIPT_MAX_LENGTH } from './transcript-routes'
 
@@ -477,16 +478,36 @@ describe('POST /api/admin/overlay-key（キーの再発行）', () => {
     expect((await requestConnection(overlayKey)).status).toBe(200)
   })
 
-  it('古いキーで開かれたままの接続（アラート・BGM・手書き・字幕・タブの映像）をすべて切るよう頼む', async () => {
+  it('古いキーで開かれたままの接続（アラート・BGM・手書き・字幕・タブの映像）をすべて切り、新しいキーの目印を覚えさせる', async () => {
     // 接続はつないだときに一度だけキーを確かめるので、切らないと古いキーのまま受け取り続けてしまう
     const { env, delivery, relay, tabRelay } = createEnv()
 
     const response = await invoke(await broadcasterRequest(env, '/api/admin/overlay-key', { method: 'POST' }), env)
 
     expect(response.status).toBe(200)
-    expect(delivery.revocations).toBe(1)
-    expect([...relay.revokedChannels].sort()).toEqual(['caption', 'draw'])
-    expect(tabRelay.revocations).toBe(1)
+    const { overlayKey } = (await response.json()) as { overlayKey: string }
+    const newTag = await overlayKeyTag(overlayKey)
+    expect(delivery.revokedKeyTags).toEqual([newTag])
+    expect([...relay.revocations].sort((a, b) => a.channel.localeCompare(b.channel))).toEqual([
+      { channel: 'caption', keyTag: newTag },
+      { channel: 'draw', keyTag: newTag },
+    ])
+    expect(tabRelay.revokedKeyTags).toEqual([newTag])
+  })
+
+  it('オーバーレイ用キーで開く接続には、確かめたキーの目印を付けて Durable Object へ引き渡す', async () => {
+    const { env, delivery, relay, tabRelay } = createEnv()
+    const issuedTag = await overlayKeyTag(issuedKey)
+    const connect = (path: string) => invoke(new Request(`${origin}${path}?key=${issuedKey}&keyTag=forged`, { headers: { Upgrade: 'websocket' } }), env)
+
+    for (const path of ['/api/overlay/socket', '/api/overlay/bgm/socket', '/api/overlay/draw', '/api/overlay/caption', '/api/overlay/tab']) {
+      expect((await connect(path)).status).toBe(200)
+    }
+
+    const tagsOf = (requests: Request[]) => requests.map((request) => new URL(request.url).searchParams.getAll('keyTag'))
+    expect(tagsOf(delivery.forwardedConnections)).toEqual([[issuedTag], [issuedTag]])
+    expect(tagsOf(relay.forwardedConnections)).toEqual([[issuedTag], [issuedTag]])
+    expect(tagsOf(tabRelay.forwardedConnections)).toEqual([[issuedTag]])
   })
 })
 

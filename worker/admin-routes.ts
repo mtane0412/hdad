@@ -11,7 +11,7 @@ import { revokeRelayViewers } from './draw-channel'
 import { HttpError, STATUS, requireAdmin, type Context } from './http'
 import { listMedia, uploadMedia } from './media'
 import { loadBgmTracks } from './bgm-config'
-import { rotateOverlayKey } from './overlay-key'
+import { overlayKeyTag, rotateOverlayKey } from './overlay-key'
 import { revokeTabViewers } from './tab-channel'
 import { loadOverlayLayout, parseOverlayLayout, saveOverlayLayout } from './overlay-layout'
 import { LLM_PROVIDERS, loadLlmSettings, parseLlmSettings, saveLlmSettings, type LlmProvider } from './llm-config'
@@ -82,19 +82,22 @@ export const deleteMedia = async (context: Context): Promise<Response> => {
 /**
  * POST /api/admin/overlay-key: オーバーレイ用キーを発行し直す。
  *
- * 発行し直したら、古いキーで開かれたままの接続（アラート・BGM・手書き・字幕・タブの映像）をすべて閉じさせる。
- * 接続はつないだときに一度だけキーを確かめるので、閉じないと漏れたキーの持ち主が受け取り続けてしまう。
+ * 発行し直したら、接続を保持する Durable Object に新しいキーの目印を覚えさせ、古いキーで開かれたままの接続
+ * （アラート・BGM・手書き・字幕・タブの映像）をすべて閉じさせる。接続はつないだときに一度だけキーを確かめるので、
+ * 閉じないと漏れたキーの持ち主が受け取り続けてしまう。目印を覚えさせるのは、KVの反映待ちのあいだに古いキーで
+ * つなぎ直されても Durable Object が受け入れないようにするためである（worker/overlay-key.ts）。
  * OBSのページは閉じられたあと新しいキーのURLでつなぎ直す。
  */
 export const postOverlayKey = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
   const { env } = context
   const overlayKey = await rotateOverlayKey(env.STORE)
+  const keyTag = await overlayKeyTag(overlayKey)
   await Promise.all([
-    revokeAlertSockets(env.ALERTS),
-    revokeRelayViewers(env.DRAW, 'draw'),
-    revokeRelayViewers(env.DRAW, 'caption'),
-    revokeTabViewers(env.TAB),
+    revokeAlertSockets(env.ALERTS, keyTag),
+    revokeRelayViewers(env.DRAW, 'draw', keyTag),
+    revokeRelayViewers(env.DRAW, 'caption', keyTag),
+    revokeTabViewers(env.TAB, keyTag),
   ])
   return Response.json({ overlayKey })
 }

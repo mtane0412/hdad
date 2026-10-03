@@ -6,8 +6,9 @@
  * そして合成ページ（見るだけの接続）から送られてきたものは配らないことである。
  */
 import { describe, expect, it } from 'vitest'
-import { DrawChannel, WRITER, VIEWER, revokeRelayViewers, type DrawSocket, type DrawChannelState } from './draw-channel'
+import { DrawChannel, WRITER, VIEWER, connectDrawSocket, revokeRelayViewers, type DrawSocket, type DrawChannelState } from './draw-channel'
 import { createFakeDrawChannel } from './fake-draw-channel'
+import { createFakeDurableStorage } from './fake-durable-storage'
 
 /** 送られた文字列を覚えておく、テスト用の接続 */
 const createConnection = (): DrawSocket & { sentMessages: string[] } => {
@@ -26,6 +27,7 @@ const createStorage = (
     getWebSockets: () => connections.map(([socket]) => socket),
     getTags: (socket) => connections.find(([candidate]) => candidate === socket)?.[1].split(',') ?? [],
     setWebSocketAutoResponse: () => {},
+    storage: createFakeDurableStorage(),
   }
 }
 
@@ -89,7 +91,7 @@ describe('オーバーレイ用キーの再発行に伴う切断', () => {
     return { closedWith, send: () => {}, close: (code) => closedWith.push(code ?? 0) }
   }
 
-  it('POST /revoke を受けたら、見るだけの接続（オーバーレイ用キーで開かれたもの）だけを閉じる', () => {
+  it('POST /revoke を受けたら、見るだけの接続（オーバーレイ用キーで開かれたもの）だけを閉じる', async () => {
     const drawScreen = createClosableConnection()
     const stagePage = createClosableConnection()
     const channel = new DrawChannel(createStorage([
@@ -97,7 +99,7 @@ describe('オーバーレイ用キーの再発行に伴う切断', () => {
       [stagePage, VIEWER],
     ]))
 
-    const response = channel.fetch(new Request('https://draw-channel/revoke', { method: 'POST' }))
+    const response = await channel.fetch(new Request('https://draw-channel/revoke', { method: 'POST', body: JSON.stringify({ keyTag: 'tag-new' }) }))
 
     expect(response.status).toBe(204)
     expect(stagePage.closedWith).toEqual([4001])
@@ -105,13 +107,38 @@ describe('オーバーレイ用キーの再発行に伴う切断', () => {
     expect(drawScreen.closedWith).toEqual([])
   })
 
-  it('revokeRelayViewers は指定した中継先（手書き・字幕）へ切断を頼む', async () => {
+  it('覚えている目印と違うキーで見るだけの接続を開こうとしたら、受け入れずに401を返す', async () => {
+    const storage = createStorage([])
+    const channel = new DrawChannel(storage)
+    await channel.fetch(new Request('https://draw-channel/revoke', { method: 'POST', body: JSON.stringify({ keyTag: 'tag-new' }) }))
+
+    const response = await channel.fetch(new Request('https://draw-channel/api/overlay/caption?role=viewer&keyTag=tag-old', { headers: { Upgrade: 'websocket' } }))
+
+    expect(response.status).toBe(401)
+    expect(storage.acceptedRoles).toEqual([])
+  })
+
+  it('接続の引き渡しでは、見るだけの接続に Worker の確かめた目印を付け、利用者の送ってきた目印は捨てる', async () => {
+    const relay = createFakeDrawChannel()
+    const forged = new Request('https://hdad.example.com/api/overlay/draw?key=k&keyTag=forged&role=writer', { headers: { Upgrade: 'websocket' } })
+
+    await connectDrawSocket(relay.namespace, forged, { role: 'viewer', keyTag: 'tag-of-key' })
+
+    const forwarded = relay.forwardedConnections.map((request) => new URL(request.url).searchParams)
+    expect(forwarded.map((params) => params.getAll('keyTag'))).toEqual([['tag-of-key']])
+    expect(forwarded.map((params) => params.getAll('role'))).toEqual([['viewer']])
+  })
+
+  it('revokeRelayViewers は指定した中継先（手書き・字幕）へ、新しいキーの目印を付けて切断を頼む', async () => {
     const relay = createFakeDrawChannel()
 
-    await revokeRelayViewers(relay.namespace, 'draw')
-    await revokeRelayViewers(relay.namespace, 'caption')
+    await revokeRelayViewers(relay.namespace, 'draw', 'tag-new')
+    await revokeRelayViewers(relay.namespace, 'caption', 'tag-new')
 
-    expect(relay.revokedChannels).toEqual(['draw', 'caption'])
+    expect(relay.revocations).toEqual([
+      { channel: 'draw', keyTag: 'tag-new' },
+      { channel: 'caption', keyTag: 'tag-new' },
+    ])
     expect(relay.forwardedConnections).toEqual([])
   })
 })

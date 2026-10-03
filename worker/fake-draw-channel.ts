@@ -14,24 +14,24 @@ export const createFakeDrawChannel = (): {
   forwardedConnections: Request[]
   /** 引き渡された先の中継先の名前（forwardedConnections と同じ並び） */
   forwardedChannels: string[]
-  /** 見るだけの接続を閉じるよう頼まれた中継先の名前（オーバーレイ用キーの再発行） */
-  revokedChannels: string[]
+  /** 見るだけの接続を閉じるよう頼まれた中継先と、添えられた新しいキーの目印（オーバーレイ用キーの再発行） */
+  revocations: { channel: string; keyTag: string }[]
 } => {
   const handedOverConnections: Request[] = []
   const handedOverChannels: string[] = []
-  const revokedChannelNames: string[] = []
+  const revokedRelays: { channel: string; keyTag: string }[] = []
   const idOf = (name: string): DurableObjectId => ({ toString: () => name, equals: (other) => other.toString() === name, name })
 
   return {
     forwardedConnections: handedOverConnections,
     forwardedChannels: handedOverChannels,
-    revokedChannels: revokedChannelNames,
+    revocations: revokedRelays,
     namespace: {
       idFromName: idOf,
       get: (id) => ({
         fetch: async (request: Request) => {
           if (new URL(request.url).pathname === '/revoke') {
-            revokedChannelNames.push(id.toString())
+            revokedRelays.push({ channel: id.toString(), keyTag: ((await request.json()) as { keyTag: string }).keyTag })
             return new Response(null, { status: STATUS.noContent })
           }
           // WebSocketの接続（101）はテストの環境では作れないので、引き渡されたことだけを記録して200を返す

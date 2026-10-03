@@ -30,6 +30,10 @@ const hmac = async (value: string, secret: string): Promise<Uint8Array> => {
 /** 文字列 value に秘密鍵 secret で署名する（HMAC-SHA256） */
 export const sign = async (value: string, secret: string): Promise<string> => toBase64Url(await hmac(value, secret))
 
+/** 文字列の SHA-256 の要約を、16進数の小文字で返す */
+export const sha256Hex = async (value: string): Promise<string> =>
+  toHex(new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(value))))
+
 /** sign と同じ署名を、16進数の小文字で返す（TwitchのEventSubの署名の形式） */
 export const signHex = async (value: string, secret: string): Promise<string> => toHex(await hmac(value, secret))
 

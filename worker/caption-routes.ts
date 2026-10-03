@@ -26,5 +26,5 @@ export const captionSocket = async (context: Context): Promise<Response> => {
   if (context.request.headers.get('Upgrade') !== 'websocket') {
     throw new HttpError(STATUS.badRequest, 'expected-websocket', 'この経路はWebSocketの接続にだけ使えます')
   }
-  return connectDrawSocket(context.env.DRAW, context.request, true, 'caption')
+  return connectDrawSocket(context.env.DRAW, context.request, { role: 'writer' }, 'caption')
 }
