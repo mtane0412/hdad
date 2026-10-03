@@ -11,13 +11,14 @@ import { scheduleAdBreakEnd } from './ad-break-timer'
 import { runAlertActions } from './alert-actions'
 import { loadAlertConfig } from './alert-config'
 import { sendAsBot } from './bot-chat'
-import { applyReply, findCommand, needsBgmCredit, needsStreamSummary, readChatMessage, type ChatMessage } from './chat-command'
+import { applyReply, findCommand, needsBgmCredit, needsStreamSummary, needsWorkTime, readChatMessage, type ChatMessage } from './chat-command'
 import { loadBgmPlayback, loadBgmTracks, playingTrackOf } from './bgm-config'
 import { loadBotConfig } from './bot-config'
 import { punishAsBot } from './bot-moderation'
 import { judge, repeatRuleOf } from './chat-moderation'
 import { recordStreamChatMessage } from './stream-chat-store'
 import { applyModerationToTaskDesk, handleTaskDeskCommand } from './task-desk-command'
+import { readCurrentWorkTime } from './task-desk-store'
 import { readCurrentStreamSummary } from './stream-summary-store'
 import { recordViewerMessage } from './viewer-store'
 import { loadModerationConfig } from './moderation-config'
@@ -229,10 +230,12 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
   // 貯めてあるものをそのまま返すだけなので、ここでLLMは呼ばない（応答を待たせないため）。
   // 配信していない・まだ作っていないときは null のままで、応答文にはその旨が入る（無応答にはしない）
   const summary = needsStreamSummary(command) ? ((await readCurrentStreamSummary(env.DB, now))?.summary ?? null) : null
+  // 作業した時間の合計（issue #209）も、{worktime} を使う応答文のときだけ読む。記録が無いときは null のままで、応答文にはその旨が入る
+  const workTime = needsWorkTime(command) ? await readCurrentWorkTime(env.DB, now) : null
 
   try {
     // 組み立ても try の中で行う。上限を縮める前に保存した長い曲では {bgm} の組み立てが投げるので、その理由も失敗として記録する
-    await sendAsBot(context, applyReply(command, message, summary, bgm))
+    await sendAsBot(context, applyReply(command, message, summary, bgm, workTime))
   } catch (error) {
     await recordFailure(env.DB, 'chat-reply-failed', error instanceof Error ? error.message : String(error), now)
   }

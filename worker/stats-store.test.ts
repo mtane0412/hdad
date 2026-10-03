@@ -21,8 +21,11 @@ import {
 import type { LiveStream } from './twitch'
 import { saveStreamChapter } from './stream-chapter-store'
 import { saveStreamSummary } from './stream-summary-store'
+import { declareTask } from './task-desk-store'
 
 const at = (text: string): number => Date.parse(text)
+/** 配信の詳細を読む時刻。どの配信よりも後にとる（配信中の配信の作業した時間の合計は、この時刻までを数える） */
+const READ_AT = at('2026-09-22T00:00:00Z')
 
 const CHAT_STREAM: LiveStream = {
   id: '40000000001',
@@ -37,7 +40,7 @@ describe('recordLiveStream', () => {
     const db = createFakeDatabase()
     await recordLiveStream(db, CHAT_STREAM, at('2026-09-21T12:05:00Z'))
 
-    expect(await getSession(db, CHAT_STREAM.id)).toEqual({
+    expect(await getSession(db, CHAT_STREAM.id, READ_AT)).toEqual({
       id: '40000000001',
       startedAt: '2026-09-21T12:00:00.000Z',
       endedAt: null,
@@ -46,6 +49,7 @@ describe('recordLiveStream', () => {
       samples: [{ sampledAt: '2026-09-21T12:05:00.000Z', viewerCount: 10 }],
       chapters: [],
       summary: null,
+      workTime: null,
     })
   })
 
@@ -58,7 +62,7 @@ describe('recordLiveStream', () => {
       at('2026-09-21T12:10:00Z'),
     )
 
-    const session = await getSession(db, CHAT_STREAM.id)
+    const session = await getSession(db, CHAT_STREAM.id, READ_AT)
     expect(session?.title).toBe('ゲームに切り替えました')
     expect(session?.categoryName).toBe('Minecraft')
     expect(session?.samples).toEqual([
@@ -73,8 +77,8 @@ describe('recordLiveStream', () => {
     await recordLiveStream(db, { ...CHAT_STREAM, id: '40000000002', startedAt: '2026-09-21T15:00:00.000Z' }, at('2026-09-21T15:05:00Z'))
 
     // 前の配信は、遅くとも新しい配信が始まるまでには終わっている
-    expect((await getSession(db, '40000000001'))?.endedAt).toBe('2026-09-21T15:00:00.000Z')
-    expect((await getSession(db, '40000000002'))?.endedAt).toBeNull()
+    expect((await getSession(db, '40000000001', READ_AT))?.endedAt).toBe('2026-09-21T15:00:00.000Z')
+    expect((await getSession(db, '40000000002', READ_AT))?.endedAt).toBeNull()
   })
 
   it('閉じたはずの配信がまだ続いていたら、開き直す', async () => {
@@ -83,7 +87,7 @@ describe('recordLiveStream', () => {
     await closeOpenSessions(db, at('2026-09-21T12:10:00Z'))
     await recordLiveStream(db, CHAT_STREAM, at('2026-09-21T12:15:00Z'))
 
-    expect((await getSession(db, CHAT_STREAM.id))?.endedAt).toBeNull()
+    expect((await getSession(db, CHAT_STREAM.id, READ_AT))?.endedAt).toBeNull()
   })
 
   it('同じ時刻に2回呼ばれても、サンプルを二重に記録しない', async () => {
@@ -91,7 +95,7 @@ describe('recordLiveStream', () => {
     await recordLiveStream(db, CHAT_STREAM, at('2026-09-21T12:05:00Z'))
     await recordLiveStream(db, CHAT_STREAM, at('2026-09-21T12:05:00Z'))
 
-    expect((await getSession(db, CHAT_STREAM.id))?.samples).toHaveLength(1)
+    expect((await getSession(db, CHAT_STREAM.id, READ_AT))?.samples).toHaveLength(1)
   })
 })
 
@@ -102,7 +106,7 @@ describe('closeOpenSessions', () => {
     await closeOpenSessions(db, at('2026-09-21T14:00:00Z'))
     await closeOpenSessions(db, at('2026-09-21T14:05:00Z'))
 
-    expect((await getSession(db, CHAT_STREAM.id))?.endedAt).toBe('2026-09-21T14:00:00.000Z')
+    expect((await getSession(db, CHAT_STREAM.id, READ_AT))?.endedAt).toBe('2026-09-21T14:00:00.000Z')
   })
 })
 
@@ -192,7 +196,7 @@ describe('listSessions', () => {
 
 describe('getSession', () => {
   it('存在しない配信は null を返す', async () => {
-    expect(await getSession(createFakeDatabase(), '存在しないID')).toBeNull()
+    expect(await getSession(createFakeDatabase(), '存在しないID', READ_AT)).toBeNull()
   })
 
   it('その配信の章（何が話されたか）と、最後に作ったあらすじを添える', async () => {
@@ -217,7 +221,7 @@ describe('getSession', () => {
       at('2026-09-21T12:30:00Z'),
     )
 
-    const session = await getSession(db, CHAT_STREAM.id)
+    const session = await getSession(db, CHAT_STREAM.id, READ_AT)
 
     expect(session?.chapters).toEqual([
       {
@@ -228,6 +232,33 @@ describe('getSession', () => {
       },
     ])
     expect(session?.summary).toBe('マイクを新調した配信者。いまはその音を聞かせているところ。')
+  })
+})
+
+describe('getSession の作業した時間の合計', () => {
+  it('終わった配信では、完了しなかった宣言を配信の終わりで打ち切った合計を添える', async () => {
+    const db = createFakeDatabase()
+    await recordLiveStream(db, CHAT_STREAM, at('2026-09-21T12:05:00Z'))
+    // たなかが 12:30 に宣言し、完了しないまま 15:00 に配信が終わった
+    await declareTask(db, { userId: '11111', name: 'たなか', task: '英単語を50個覚える', messageId: 'task-message-1' }, at('2026-09-21T12:30:00Z'))
+    await recordStreamOffline(db, at('2026-09-21T15:00:00Z'))
+
+    expect((await getSession(db, CHAT_STREAM.id, READ_AT))?.workTime).toEqual({ people: 1, totalMs: 150 * 60 * 1000 })
+  })
+
+  it('配信中なら、いままでの合計を添える', async () => {
+    const db = createFakeDatabase()
+    await recordLiveStream(db, CHAT_STREAM, at('2026-09-21T12:05:00Z'))
+    await declareTask(db, { userId: '11111', name: 'たなか', task: '英単語を50個覚える', messageId: 'task-message-1' }, at('2026-09-21T12:30:00Z'))
+
+    expect((await getSession(db, CHAT_STREAM.id, at('2026-09-21T13:00:00Z')))?.workTime).toEqual({ people: 1, totalMs: 30 * 60 * 1000 })
+  })
+
+  it('誰も宣言しなかった配信では null にする（「—」と出すため）', async () => {
+    const db = createFakeDatabase()
+    await recordLiveStream(db, CHAT_STREAM, at('2026-09-21T12:05:00Z'))
+
+    expect((await getSession(db, CHAT_STREAM.id, READ_AT))?.workTime).toBeNull()
   })
 })
 
@@ -270,7 +301,7 @@ describe('recordStreamOnline', () => {
     const db = createFakeDatabase()
     await recordStreamOnline(db, { id: CHAT_STREAM.id, startedAt: at('2026-09-21T12:00:00Z') })
 
-    expect(await getSession(db, CHAT_STREAM.id)).toEqual({
+    expect(await getSession(db, CHAT_STREAM.id, READ_AT)).toEqual({
       id: '40000000001',
       startedAt: '2026-09-21T12:00:00.000Z',
       endedAt: null,
@@ -279,10 +310,11 @@ describe('recordStreamOnline', () => {
       samples: [],
       chapters: [],
       summary: null,
+      workTime: null,
     })
 
     await recordLiveStream(db, CHAT_STREAM, at('2026-09-21T12:05:00Z'))
-    expect(await getSession(db, CHAT_STREAM.id)).toMatchObject({ title: '月曜の雑談配信', categoryName: 'Just Chatting' })
+    expect(await getSession(db, CHAT_STREAM.id, READ_AT)).toMatchObject({ title: '月曜の雑談配信', categoryName: 'Just Chatting' })
   })
 
   it('cron が先に記録していたセッションは書き換えない。閉じ済みのセッションを開き直すこともしない（通知の再送に備える）', async () => {
@@ -291,7 +323,7 @@ describe('recordStreamOnline', () => {
     await closeOpenSessions(db, at('2026-09-21T14:00:00Z'))
     await recordStreamOnline(db, { id: CHAT_STREAM.id, startedAt: at('2026-09-21T12:00:00Z') })
 
-    expect(await getSession(db, CHAT_STREAM.id)).toMatchObject({ title: '月曜の雑談配信', endedAt: '2026-09-21T14:00:00.000Z' })
+    expect(await getSession(db, CHAT_STREAM.id, READ_AT)).toMatchObject({ title: '月曜の雑談配信', endedAt: '2026-09-21T14:00:00.000Z' })
   })
 
   it('開いたままの前のセッションは、新しい配信の開始時刻で閉じる', async () => {
@@ -299,8 +331,8 @@ describe('recordStreamOnline', () => {
     await recordLiveStream(db, CHAT_STREAM, at('2026-09-21T12:05:00Z'))
     await recordStreamOnline(db, { id: '40000000002', startedAt: at('2026-09-22T12:00:00Z') })
 
-    expect((await getSession(db, CHAT_STREAM.id))?.endedAt).toBe('2026-09-22T12:00:00.000Z')
-    expect((await getSession(db, '40000000002'))?.endedAt).toBeNull()
+    expect((await getSession(db, CHAT_STREAM.id, READ_AT))?.endedAt).toBe('2026-09-22T12:00:00.000Z')
+    expect((await getSession(db, '40000000002', READ_AT))?.endedAt).toBeNull()
   })
 })
 
@@ -311,7 +343,7 @@ describe('recordStreamOffline', () => {
     await recordStreamOffline(db, at('2026-09-21T13:58:30Z'))
     await closeOpenSessions(db, at('2026-09-21T14:00:00Z'))
 
-    expect((await getSession(db, CHAT_STREAM.id))?.endedAt).toBe('2026-09-21T13:58:30.000Z')
+    expect((await getSession(db, CHAT_STREAM.id, READ_AT))?.endedAt).toBe('2026-09-21T13:58:30.000Z')
   })
 
   it('遅れて届いた前の配信の終了で、そのあとに始まった配信を閉じない', async () => {
@@ -319,7 +351,7 @@ describe('recordStreamOffline', () => {
     await recordStreamOnline(db, { id: '40000000002', startedAt: at('2026-09-22T12:00:00Z') })
     await recordStreamOffline(db, at('2026-09-21T13:58:30Z'))
 
-    expect((await getSession(db, '40000000002'))?.endedAt).toBeNull()
+    expect((await getSession(db, '40000000002', READ_AT))?.endedAt).toBeNull()
   })
 })
 

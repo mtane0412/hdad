@@ -16,6 +16,7 @@ import { handleRequest, type Env } from './index'
 import { getSession, listFailures, listSessions, recordLiveStream } from './stats-store'
 import { saveBotConfig } from './bot-config'
 import { saveStreamSummary } from './stream-summary-store'
+import { declareTask } from './task-desk-store'
 import { saveModerationConfig } from './moderation-config'
 import type { ModerationConfig, ModerationRule } from './chat-moderation'
 import { saveAlertConfig, type StoredTrigger } from './alert-config'
@@ -350,14 +351,14 @@ describe('配信の開始と終了', () => {
       createNotification({ body: { subscription: { type: 'stream.online' }, event: { id: '40000000001', type: 'live', started_at: '2026-09-21T12:00:00Z' } } }),
       env,
     )
-    expect(await getSession(db, '40000000001')).toMatchObject({ startedAt: '2026-09-21T12:00:00.000Z', endedAt: null })
+    expect(await getSession(db, '40000000001', NOW)).toMatchObject({ startedAt: '2026-09-21T12:00:00.000Z', endedAt: null })
 
     const response = await callWebhook(
       createNotification({ messageId: 'message-2', timestamp: '2026-09-21T12:29:55.5Z', body: { subscription: { type: 'stream.offline' }, event: {} } }),
       env,
     )
     expect(response.status).toBe(204)
-    expect((await getSession(db, '40000000001'))?.endedAt).toBe('2026-09-21T12:29:55.500Z')
+    expect((await getSession(db, '40000000001', NOW))?.endedAt).toBe('2026-09-21T12:29:55.500Z')
   })
 
   it('stream.online の通知に配信IDや開始日時が無ければ400にする', async () => {
@@ -701,6 +702,18 @@ describe('チャットの応答の設定・連打・再送', () => {
     await sendNotification(env, twitch.fetchImpl, createChatNotification('!summary'))
 
     expect(await twitch.sentChats[0]!.json()).toMatchObject({ message: 'これまでのあらすじ: まだあらすじがありません' })
+  })
+
+  it('{worktime} を含むコマンドには、いまの配信でみんなが作業した時間の合計を差し込んで応答する', async () => {
+    const { env, db } = await envWithBotConnected([{ name: 'worktime', reply: 'みんなの作業時間: {worktime}', cooldownSeconds: 0 }])
+    await recordLiveStream(db, CHAT_STREAM, NOW - 60 * 1000)
+    // 配信が 12:00 に始まり、たなかが 12:10 に宣言していまも作業中（いまは 12:30）
+    await declareTask(db, { userId: '11111', name: 'たなか', task: '英単語を50個覚える', messageId: 'task-message-1' }, Date.parse('2026-09-21T12:10:00Z'))
+    const twitch = fakeTwitchAcceptingSends()
+
+    await sendNotification(env, twitch.fetchImpl, createChatNotification('!worktime'))
+
+    expect(await twitch.sentChats[0]!.json()).toMatchObject({ message: 'みんなの作業時間: 20分（1人）' })
   })
 
   it('コマンドに一致しない発言では、D1に何も書かない（チャット全件を記録しないため）', async () => {
@@ -2120,7 +2133,7 @@ describe('作業机の組み込みコマンド（!task・!done）', () => {
     const response = await callWebhook(createNotification({ body: deletion, messageId: 'notification-2' }), env)
 
     expect(response.status).toBe(204)
-    expect(alertChannel.pushedTaskDesk.at(-1)).toEqual({ entries: [] })
+    expect(alertChannel.pushedTaskDesk.at(-1)).toEqual({ entries: [], workTime: null })
   })
   it('別のチャンネルのチャットのクリアでは、作業机を消さない（古い購読が残っていても、他人のモデレーションで消さないため）', async () => {
     const { env, alertChannel } = await liveEnvWithBot()

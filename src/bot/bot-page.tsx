@@ -59,7 +59,7 @@ const MAX_COOLDOWN_SECONDS = 60 * 60
 /** タイムアウトの上限（秒）。Twitchの決まりで7日 */
 const MAX_TIMEOUT_SECONDS = 7 * 24 * 60 * 60
 /** コマンドの応答文に押して入れられる差し込み語。置き換えは worker/chat-command.ts の applyReply が行う */
-const REPLY_PLACEHOLDERS = ['{user}', '{summary}', '{bgm}'] as const
+const REPLY_PLACEHOLDERS = ['{user}', '{summary}', '{bgm}', '{worktime}'] as const
 
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
@@ -625,7 +625,7 @@ export const BotPage = ({ api }: BotPageProps) => {
           {drafts.length > 0 && (
             <p className="text-xs text-muted-foreground">
               応答文の {'{user}'} は発言した人の名前に、{'{summary}'} は配信の「これまでのあらすじ」に、{'{bgm}'}{' '}
-              は流しているBGMの曲名とクレジットに置き換わります
+              は流しているBGMの曲名とクレジットに、{'{worktime}'} は作業机でみんなが作業した時間の合計に置き換わります
             </p>
           )}
         </CardContent>

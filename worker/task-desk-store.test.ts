@@ -7,10 +7,11 @@
  * - 読み出しは、未完了を宣言の新しい順、そのあと完了を完了の新しい順に並べ、上限で切ること
  * - モデレーションで消された発言・人・チャット全体に当たる宣言を、いまの配信から消すこと
  * - 前の配信の宣言は、いまの配信の作業机に混ざらないこと
+ * - 作業した時間の合計は、打ち直す前の宣言の時間も含み、配信ごとに分かれること（issue #209）
  */
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createFakeDatabase } from './fake-database'
-import { completeTask, declareTask, readTaskDesk, removeModeratedTasks } from './task-desk-store'
+import { completeTask, declareTask, readCurrentWorkTime, readSessionWorkTime, readTaskDesk, readTaskDeskSnapshot, removeModeratedTasks } from './task-desk-store'
 
 const STARTED_AT = '2026-10-03T12:00:00.000Z'
 const startedAt = Date.parse(STARTED_AT)
@@ -219,5 +220,95 @@ describe('removeModeratedTasks', () => {
 
     const remaining = db.sqlite.prepare('SELECT COUNT(*) AS count FROM task_declarations').get() as { count: number }
     expect(remaining.count).toBe(1)
+  })
+})
+
+describe('作業した時間の合計', () => {
+  it('打ち直す前の完了した宣言の時間を、合計に残す（1人1行でも時間が消えない）', async () => {
+    createStream('今日の配信', STARTED_AT)
+    // たなか: 5分〜30分（25分）で完了し、31分に打ち直していまも作業中
+    await declareTask(db, declaration('11111', 'たなか', '英単語を50個覚える', 'message-1'), at(5))
+    await completeTask(db, doneBy('11111'), at(30))
+    await declareTask(db, declaration('11111', 'たなか', '数学の問題集を3ページ', 'message-2'), at(31))
+
+    // 41分の時点: 前の宣言の25分 + いまの宣言の10分
+    expect(await readCurrentWorkTime(db, at(41))).toEqual({ people: 1, totalMs: 35 * MINUTE, working: 1 })
+  })
+
+  it('完了せずに打ち直したときは、打ち直すまでの時間を残す', async () => {
+    createStream('今日の配信', STARTED_AT)
+    await declareTask(db, declaration('11111', 'たなか', '英単語を50個覚える', 'message-1'), at(5))
+    await declareTask(db, declaration('11111', 'たなか', '数学の問題集を3ページ', 'message-2'), at(20))
+
+    // 30分の時点: 前の宣言の15分 + いまの宣言の10分
+    expect(await readCurrentWorkTime(db, at(30))).toEqual({ people: 1, totalMs: 25 * MINUTE, working: 1 })
+  })
+
+  it('同じ発言の再送では、打ち直しとして時間を足し込まない', async () => {
+    createStream('今日の配信', STARTED_AT)
+    await declareTask(db, declaration('11111', 'たなか', '英単語を50個覚える', 'message-1'), at(5))
+    await completeTask(db, doneBy('11111'), at(30))
+    await declareTask(db, declaration('11111', 'たなか', '英単語を50個覚える', 'message-1'), at(31))
+
+    expect(await readCurrentWorkTime(db, at(40))).toEqual({ people: 1, totalMs: 25 * MINUTE, working: 0 })
+  })
+
+  it('配信していない・まだ誰も宣言していなければ null を返す', async () => {
+    expect(await readCurrentWorkTime(db, at(5))).toBeNull()
+
+    createStream('今日の配信', STARTED_AT)
+    expect(await readCurrentWorkTime(db, at(5))).toBeNull()
+  })
+
+  it('前の配信の宣言は、いまの配信の合計に入らない', async () => {
+    await declareInPreviousStream()
+    createStream('今日の配信', STARTED_AT)
+    await declareTask(db, declaration('22222', 'すずき', '洗濯物をたたむ'), at(10))
+
+    expect(await readCurrentWorkTime(db, at(20))).toEqual({ people: 1, totalMs: 10 * MINUTE, working: 1 })
+  })
+
+  it('終わった配信の合計は、完了しなかった宣言を渡した時刻（配信の終わり）で打ち切る', async () => {
+    // 前の配信: たなかが 13:00 に宣言し、完了しないまま 15:00 に配信が終わった
+    await declareInPreviousStream()
+
+    expect(await readSessionWorkTime(db, '前の配信', Date.parse('2026-10-02T15:00:00.000Z'))).toEqual({
+      people: 1,
+      totalMs: 120 * MINUTE,
+      working: 1,
+    })
+  })
+
+  it('宣言が無い配信の合計は null を返す（0 と出さないため）', async () => {
+    createStream('今日の配信', STARTED_AT)
+
+    expect(await readSessionWorkTime(db, '今日の配信', at(60))).toBeNull()
+  })
+})
+
+describe('readTaskDeskSnapshot', () => {
+  it('作業机の行と、読んだ時刻つきの合計をまとめて返す', async () => {
+    createStream('今日の配信', STARTED_AT)
+    await declareTask(db, declaration('11111', 'たなか', '英単語を50個覚える'), at(5))
+
+    expect(await readTaskDeskSnapshot(db, at(15), 12)).toEqual({
+      entries: [{ userId: '11111', name: 'たなか', task: '英単語を50個覚える', declaredAt: iso(at(5)), doneAt: null }],
+      workTime: { people: 1, totalMs: 10 * MINUTE, working: 1, measuredAt: iso(at(15)) },
+    })
+  })
+
+  it('合計は作業机に並べる人数の上限に関係なく、全員ぶんを足す', async () => {
+    createStream('今日の配信', STARTED_AT)
+    await declareTask(db, declaration('1', 'たなか', '作業A'), at(0))
+    await declareTask(db, declaration('2', 'すずき', '作業B'), at(0))
+
+    const snapshot = await readTaskDeskSnapshot(db, at(10), 1)
+
+    expect(snapshot.entries).toHaveLength(1)
+    expect(snapshot.workTime).toMatchObject({ people: 2, totalMs: 20 * MINUTE })
+  })
+
+  it('配信していなければ、空の行と null の合計を返す', async () => {
+    expect(await readTaskDeskSnapshot(db, at(5), 12)).toEqual({ entries: [], workTime: null })
   })
 })

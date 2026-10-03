@@ -15,6 +15,7 @@ import {
   formatDelta,
   formatDuration,
   formatShortTime,
+  formatWorkTime,
   sessionDurationMs,
   summarize,
   viewerPoints,
@@ -219,5 +220,15 @@ describe('formatDuration・formatDateTime・formatCount（表示用の整形）'
 describe('formatTimeRange（章の区間の時刻）', () => {
   it('始まりと終わりを、ブラウザのタイムゾーンの時刻で「21:00〜21:30」のように表す', () => {
     expect(formatTimeRange('2026-09-18T12:00:00.000Z', '2026-09-18T12:30:00.000Z')).toBe('21:00〜21:30')
+  })
+})
+
+describe('formatWorkTime（作業机でみんなが作業した時間の合計）', () => {
+  it('合計を「◯時間◯分（◯人）」で表す', () => {
+    expect(formatWorkTime({ people: 5, totalMs: (14 * 60 + 32) * 60 * 1000 })).toBe('14時間32分（5人）')
+  })
+
+  it('記録が無ければ 0 ではなく「—」にする', () => {
+    expect(formatWorkTime(null)).toBe('—')
   })
 })

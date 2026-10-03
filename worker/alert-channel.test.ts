@@ -55,6 +55,7 @@ const mergedEntry: WorkLogEntry = { id: 'github:delivery-1', kind: 'merge', at: 
 /** 視聴者が !task で作業を宣言したあとの作業机 */
 const deskWithOneTask: TaskDeskSnapshot = {
   entries: [{ userId: '11111', name: 'たなか', task: '英単語を50個覚える', declaredAt: '2026-10-03T12:10:00.000Z', doneAt: null }],
+  workTime: { people: 1, totalMs: 0, working: 1, measuredAt: '2026-10-03T12:10:00.000Z' },
 }
 
 /** ポモドーロのタイマーを始めたあとの状態 */

@@ -17,7 +17,7 @@ import { CHAT_CLEAR, CHAT_CLEAR_USER_MESSAGES, CHAT_MESSAGE_DELETE, toFeedItem }
 import type { Database } from './database'
 import { recordFailure } from './stats-store'
 import { readTaskDeskCommand, refusalReply, TASK_DESK_LIMIT, type TaskDeskRefusal } from './task-desk'
-import { completeTask, declareTask, readTaskDesk, removeModeratedTasks } from './task-desk-store'
+import { completeTask, declareTask, readTaskDeskSnapshot, removeModeratedTasks } from './task-desk-store'
 
 /** 作業机の組み込みコマンドを実行するのに要るもの */
 export interface TaskDeskCommandContext {
@@ -39,7 +39,7 @@ const messageOf = (error: unknown): string => (error instanceof Error ? error.me
 /** いまの作業机を読み、合成ページへ押し出す。失敗は収集の失敗として残す */
 const pushCurrentDesk = async ({ db, alerts, now }: TaskDeskCommandContext): Promise<void> => {
   try {
-    await pushTaskDesk(alerts, { entries: await readTaskDesk(db, now, TASK_DESK_LIMIT) })
+    await pushTaskDesk(alerts, await readTaskDeskSnapshot(db, now, TASK_DESK_LIMIT))
   } catch (error) {
     await recordFailure(db, 'task-desk-push-failed', messageOf(error), now)
   }

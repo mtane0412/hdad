@@ -82,6 +82,8 @@ describe('session（配信ごとの視聴者数の推移）', () => {
         },
       ],
       summary: 'エディタを整えた配信者。いまは新しい機能の実装に取りかかったところ。',
+      // 作業机で3人が合わせて2時間作業した
+      workTime: { people: 3, totalMs: 2 * 60 * 60 * 1000 },
     }
     const { requests, fetchImpl } = fetchReturning(200, detail)
 
@@ -99,12 +101,18 @@ describe('session（配信ごとの視聴者数の推移）', () => {
       samples: [],
       chapters: [{ startedAt: '2026-09-19T12:00:00.000Z', title: '見出しだけの章' }],
       summary: null,
+      workTime: null,
     }
     await expect(createStatsApi(fetchReturning(200, detail).fetchImpl).session('配信ID-2026-09-19')).rejects.toThrow('chapters[0]')
   })
 
   it('あらすじが文字列でも null でもなければエラーにする', async () => {
-    const detail = { id: '配信ID-2026-09-19', startedAt: '2026-09-19T12:00:00.000Z', endedAt: null, title: '配信', categoryName: 'Just Chatting', samples: [], chapters: [], summary: 0 }
+    const detail = { id: '配信ID-2026-09-19', startedAt: '2026-09-19T12:00:00.000Z', endedAt: null, title: '配信', categoryName: 'Just Chatting', samples: [], chapters: [], summary: 0, workTime: null }
+    await expect(createStatsApi(fetchReturning(200, detail).fetchImpl).session('配信ID-2026-09-19')).rejects.toThrow('配信セッション')
+  })
+
+  it('作業した時間の合計が人数と時間の組でも null でもなければエラーにする（0 に読み替えない）', async () => {
+    const detail = { id: '配信ID-2026-09-19', startedAt: '2026-09-19T12:00:00.000Z', endedAt: null, title: '配信', categoryName: 'Just Chatting', samples: [], chapters: [], summary: null, workTime: { people: 3 } }
     await expect(createStatsApi(fetchReturning(200, detail).fetchImpl).session('配信ID-2026-09-19')).rejects.toThrow('配信セッション')
   })
 

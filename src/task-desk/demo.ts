@@ -7,8 +7,10 @@
  *
  * 注意: 作業の文言は上限（40文字）ちょうどのものを1件入れ、折り返したときの幅を確かめられるようにする。
  * 並びは Worker（worker/task-desk-store.ts の readTaskDesk）と同じく、未完了を宣言の新しい順、そのあとに完了した行にする。
+ * みんなの作業時間の合計も場面ごとに持つ。読んだ時刻（measuredAt）は持たず、合成ページが場面を映した時刻を入れる
+ * （固定の時刻にすると、プレビューを開いた時刻までの経過時間が足されて合計が大きくなりすぎるため）。
  */
-import type { TaskDeskEntry } from './entry'
+import type { TaskDeskEntry, TaskDeskWorkTime } from './entry'
 
 const tanaka: TaskDeskEntry = { userId: 'demo-1', name: 'たなか', task: '英単語を50個覚える', declaredAt: '2026-10-03T12:00:00.000Z', doneAt: null }
 const suzuki: TaskDeskEntry = { userId: 'demo-2', name: 'すずき', task: '洗濯物をたたむ', declaredAt: '2026-10-03T12:05:00.000Z', doneAt: null }
@@ -21,10 +23,18 @@ const yamada: TaskDeskEntry = {
 }
 const tanakaDone: TaskDeskEntry = { ...tanaka, doneAt: '2026-10-03T12:30:00.000Z' }
 
+/** プレビューの1場面。並べる行と、その場面の作業時間の合計（読んだ時刻は映すときに決める） */
+export interface DemoTaskDeskScene {
+  readonly entries: TaskDeskEntry[]
+  readonly workTime: Omit<TaskDeskWorkTime, 'measuredAt'>
+}
+
+const MINUTE = 60 * 1000
+
 /** プレビューで順に流す場面。3人が順に宣言し、最初に宣言した人が完了する */
-export const demoTaskDeskScenes: readonly (readonly TaskDeskEntry[])[] = [
-  [tanaka],
-  [suzuki, tanaka],
-  [yamada, suzuki, tanaka],
-  [yamada, suzuki, tanakaDone],
+export const demoTaskDeskScenes: readonly DemoTaskDeskScene[] = [
+  { entries: [tanaka], workTime: { people: 1, totalMs: 5 * MINUTE, working: 1 } },
+  { entries: [suzuki, tanaka], workTime: { people: 2, totalMs: 15 * MINUTE, working: 2 } },
+  { entries: [yamada, suzuki, tanaka], workTime: { people: 3, totalMs: 35 * MINUTE, working: 3 } },
+  { entries: [yamada, suzuki, tanakaDone], workTime: { people: 3, totalMs: 75 * MINUTE, working: 2 } },
 ]

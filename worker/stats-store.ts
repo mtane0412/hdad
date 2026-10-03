@@ -10,6 +10,7 @@ import type { Database } from './database'
 import type { LiveStream } from './twitch'
 import { listStreamChapters, type StreamChapter } from './stream-chapter-store'
 import { readStreamSummary } from './stream-summary-store'
+import { readSessionWorkTime } from './task-desk-store'
 
 /** 一覧で返す配信セッションの上限（新しい順） */
 const SESSION_LIST_LIMIT = 100
@@ -50,6 +51,11 @@ export interface SessionDetail {
   chapters: StreamChapter[]
   /** 最後に作った「これまでのあらすじ」。作っていなければ null */
   summary: string | null
+  /**
+   * 作業机でみんなが作業した時間の合計と人数（issue #209）。完了しなかった宣言は配信の終わり（配信中ならいま）までを数える。
+   * 誰も宣言しなかった配信では null（0 と出すと「誰も作業しなかった」と「作業机を使っていなかった」が見分けられないため）
+   */
+  workTime: { people: number; totalMs: number } | null
 }
 
 export interface FollowerSample {
@@ -225,8 +231,12 @@ export const listSessions = async (db: Database, now: number): Promise<SessionSu
   }))
 }
 
-/** 配信セッションと、その視聴者数の時系列（古い順）・章・あらすじ。存在しなければ null */
-export const getSession = async (db: Database, id: string): Promise<SessionDetail | null> => {
+/**
+ * 配信セッションと、その視聴者数の時系列（古い順）・章・あらすじ・作業した時間の合計。存在しなければ null
+ *
+ * @param now 現在時刻（ミリ秒）。配信中の配信の作業した時間の合計を、この時刻までで数える
+ */
+export const getSession = async (db: Database, id: string, now: number): Promise<SessionDetail | null> => {
   const session = await db.prepare(`SELECT ${SESSION_COLUMNS} FROM stream_sessions AS s WHERE s.id = ?1`).bind(id).first<SessionRow>()
   if (!session) return null
 
@@ -236,7 +246,15 @@ export const getSession = async (db: Database, id: string): Promise<SessionDetai
     .all<ViewerSample>()
   const chapters = await listStreamChapters(db, id)
   const summary = await readStreamSummary(db, id)
-  return { ...session, samples, chapters, summary: summary?.summary ?? null }
+  const workTime = await readSessionWorkTime(db, id, session.endedAt === null ? now : Date.parse(session.endedAt))
+  return {
+    ...session,
+    samples,
+    chapters,
+    summary: summary?.summary ?? null,
+    // 作業中の人数は合成ページが合計を進めるためのものなので、配信の記録には持ち出さない
+    workTime: workTime === null ? null : { people: workTime.people, totalMs: workTime.totalMs },
+  }
 }
 
 /** フォロワー数の時系列（古い順）。値が変わった時点だけが並ぶ */

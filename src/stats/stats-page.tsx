@@ -27,6 +27,7 @@ import {
   formatDelta,
   formatDuration,
   formatTimeRange,
+  formatWorkTime,
   PERIOD_DAYS,
   sessionDurationMs,
   summarize,
@@ -62,7 +63,7 @@ type Loaded =
   | { status: 'ready'; sessions: readonly SessionSummary[]; followers: readonly FollowerSample[] }
   | { status: 'failed'; message: string }
 
-/** 選んだ配信の詳細（視聴者数の推移・章・あらすじ） */
+/** 選んだ配信の詳細（視聴者数の推移・章・あらすじ・みんなの作業時間） */
 type Selected = { id: string; state: { status: 'loading' } | { status: 'ready'; detail: SessionDetail } | { status: 'failed'; message: string } }
 
 /** 概要の数値をひとつ出す枠 */
@@ -165,6 +166,10 @@ const SessionRow = ({ session, now, selected, onSelect }: { session: SessionSumm
                   <LazyTimeChart label={`${displayTitle} の視聴者数の推移`} dataKey="viewers" points={viewerPoints(selected.state.detail.samples)} />
                 )}
                 <SessionTalk detail={selected.state.detail} displayTitle={displayTitle} />
+                <p role="group" aria-label="みんなの作業時間" className="flex items-baseline gap-2 text-sm">
+                  <span className="text-muted-foreground">みんなの作業時間</span>
+                  <strong className="font-medium tabular-nums">{formatWorkTime(selected.state.detail.workTime)}</strong>
+                </p>
               </div>
             )}
           </TableCell>

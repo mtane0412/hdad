@@ -22,16 +22,23 @@ const createFetchWithResponse = (status: number, body: unknown) => {
 describe('read', () => {
   it('オーバーレイ用キー付きの経路から、いまの配信の作業机を読む', async () => {
     const working = { userId: '11111', name: 'たなか', task: '英単語を50個覚える', declaredAt: '2026-10-03T12:10:00.000Z', doneAt: null }
-    const { calls, fetchImpl } = createFetchWithResponse(200, { entries: [working] })
+    const workTime = { people: 1, totalMs: 30 * 60 * 1000, working: 1, measuredAt: '2026-10-03T12:40:00.000Z' }
+    const { calls, fetchImpl } = createFetchWithResponse(200, { entries: [working], workTime })
 
-    expect(await createTaskDeskApi(fetchImpl, OVERLAY_KEY).read()).toEqual([working])
+    expect(await createTaskDeskApi(fetchImpl, OVERLAY_KEY).read()).toEqual({ entries: [working], workTime })
     expect(calls).toEqual([`/api/overlay/task-desk?key=${encodeURIComponent(OVERLAY_KEY)}`])
   })
 
   it('行の形が違えばエラーにする', async () => {
-    const { fetchImpl } = createFetchWithResponse(200, { entries: [{ userId: '11111', name: 'たなか' }] })
+    const { fetchImpl } = createFetchWithResponse(200, { entries: [{ userId: '11111', name: 'たなか' }], workTime: null })
 
     await expect(createTaskDeskApi(fetchImpl, OVERLAY_KEY).read()).rejects.toThrow(/entries/)
+  })
+
+  it('作業した時間の合計の形が違えばエラーにする', async () => {
+    const { fetchImpl } = createFetchWithResponse(200, { entries: [], workTime: { people: 1 } })
+
+    await expect(createTaskDeskApi(fetchImpl, OVERLAY_KEY).read()).rejects.toThrow(/workTime/)
   })
 
   it('Workerが失敗を返したらエラーにする', async () => {

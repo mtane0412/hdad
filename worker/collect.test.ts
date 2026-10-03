@@ -140,7 +140,7 @@ describe('collectStats', () => {
     await collectStats({ db, store, twitch, ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
 
     expect(receivedArgs).toEqual([['保管中のアクセストークン', '12345']])
-    expect((await getSession(db, chatStream.id))?.samples).toEqual([{ sampledAt: '2026-09-21T12:05:00.000Z', viewerCount: 42 }])
+    expect((await getSession(db, chatStream.id, now))?.samples).toEqual([{ sampledAt: '2026-09-21T12:05:00.000Z', viewerCount: 42 }])
     expect(await listFollowerSamples(db)).toEqual([{ sampledAt: '2026-09-21T12:05:00.000Z', followerTotal: 1234 }])
     expect(await listFailures(db)).toEqual([])
   })
@@ -152,7 +152,7 @@ describe('collectStats', () => {
     const fiveMinutesLater = now + 5 * 60 * 1000
     await collectStats({ db, store, twitch: fakeTwitch({ getLiveStream: async () => null }), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now: fiveMinutesLater })
 
-    const session = await getSession(db, chatStream.id)
+    const session = await getSession(db, chatStream.id, now)
     expect(session?.endedAt).toBe('2026-09-21T12:10:00.000Z')
     expect(session?.samples).toHaveLength(1)
   })
@@ -612,7 +612,7 @@ describe('あらすじの生成', () => {
     expect((await readStreamSummary(db, chatStream.id))?.summary).toBe('ギターの話をよくする常連さん')
     expect((await listFailures(db)).map((failure) => failure.code)).toContain('stream-summary-failed')
     // 収集そのものは止まらないので、視聴者数は2回とも記録されている
-    expect((await getSession(db, chatStream.id))?.samples).toHaveLength(2)
+    expect((await getSession(db, chatStream.id, now))?.samples).toHaveLength(2)
   })
 })
 
@@ -1049,7 +1049,7 @@ describe('サイドスーパーの生成', () => {
 
     expect((await readSideSuper(db, chatStream.id))?.lines).toEqual(['新作ゲーム', '初見プレイ中'])
     expect((await listFailures(db)).map((failure) => failure.code)).toContain('side-super-failed')
-    expect((await getSession(db, chatStream.id))?.samples).toHaveLength(2)
+    expect((await getSession(db, chatStream.id, now))?.samples).toHaveLength(2)
   })
 
   it('上限より長い行が返ってきたら、切り詰めずに失敗として記録する', async () => {
@@ -1136,7 +1136,7 @@ describe('collectStats（配信画面から読み取った文字の取得）', (
 
     expect((await listFailures(db)).map((failure) => failure.code)).toContain('screen-ocr-failed')
     // 画面の文字が取れなくても、配信の記録は残す
-    expect((await getSession(db, chatStream.id))?.samples).toHaveLength(1)
+    expect((await getSession(db, chatStream.id, now))?.samples).toHaveLength(1)
   })
 
   it('1枚目で失敗したら、残りは取りに行かない（同じ理由で続けて失敗するため）', async () => {

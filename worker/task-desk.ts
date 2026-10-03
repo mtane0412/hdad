@@ -11,6 +11,7 @@
  *
  * 注意: 作業の文言が上限を超えたら、切り詰めずに受け付けない（方針4）。黙って切り詰めると、本人の書いたものと違う文が配信画面に出る。
  */
+import type { WorkTime } from './task-desk-worktime'
 
 /** 組み込みのコマンドの名前（`!` を除き、小文字で比べる）。管理画面で同じ名前のコマンドは登録させない（worker/bot-config.ts） */
 export const BUILT_IN_COMMAND_NAMES = ['task', 'done'] as const
@@ -34,9 +35,20 @@ export interface TaskDeskEntry {
   readonly doneAt: string | null
 }
 
+/**
+ * 作業机に出す、作業した時間の合計（worker/task-desk-worktime.ts の WorkTime に、読んだ時刻を添えたもの）。
+ * 合成ページは measuredAt からの経過時間 × 作業中の人数を足して、読み直さずに合計を進める。項目は src/task-desk/entry.ts と合わせる
+ */
+export interface TaskDeskWorkTime extends WorkTime {
+  /** 合計を読んだ時刻（ISO 8601） */
+  readonly measuredAt: string
+}
+
 /** 合成ページへ押し出す、いまの作業机。少人数なので1行ずつではなく丸ごと送り、合成ページは受け取るたびに置き換える */
 export interface TaskDeskSnapshot {
   readonly entries: readonly TaskDeskEntry[]
+  /** 配信でみんなが作業した時間の合計。配信していない・まだ誰も宣言していなければ null（issue #209） */
+  readonly workTime: TaskDeskWorkTime | null
 }
 
 /** 受け付けない理由。botがチャットで返す */

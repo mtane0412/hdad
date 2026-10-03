@@ -3,13 +3,15 @@
  *
  * 視聴者の作業の宣言を migrations/0024_task_declarations.sql の task_declarations に配信ごと1人1行で残し、
  * 合成ページの素材「作業机」へ押し出す一覧と、開き直したときに取り戻す一覧を読む（issue #207）。
+ * 配信でみんなが作業した時間の合計（issue #209）の材料も、同じ行から読む（計算は worker/task-desk-worktime.ts）。
  *
  * 注意: 残すのは配信中の宣言だけで、配信中の区切りは INSERT ... SELECT の中で引く
  * （「配信中かどうかを読んでから書く」に分けると、その間に配信が終わったときに食い違う。dev_events と同じ考え方）。
  * 注意: SQLに値を埋め込まず、必ずプレースホルダで渡す。
  */
 import type { Database } from './database'
-import type { TaskDeskEntry } from './task-desk'
+import type { TaskDeskEntry, TaskDeskSnapshot } from './task-desk'
+import { sumWorkTime, type WorkTime, type WorkTimeRow } from './task-desk-worktime'
 
 const toIso = (milliseconds: number): string => new Date(milliseconds).toISOString()
 
@@ -44,6 +46,8 @@ export type ModerationTarget = { readonly kind: 'delete'; readonly messageId: st
  *
  * 同じ人がもう宣言していれば、作業と宣言した時刻を差し替えて完了を外す（1人1件）。ただし同じ発言の再送では
  * 宣言した時刻も完了も変えない（再送のあいだに !done していたら、完了が外れてしまうため）。
+ * 差し替えるときは、前の宣言で作業した時間（完了まで、未完了なら打ち直した時刻まで）を prior_work_ms に足し込む
+ * （作業した時間の合計から、打ち直す前の時間が消えないように。issue #209）。
  *
  * @returns 残したなら true。配信していなくて残さなかったなら false
  */
@@ -54,7 +58,16 @@ export const declareTask = async (db: Database, declaration: TaskDeclarationInpu
       // WHERE true は、SELECT のあとの ON CONFLICT を結合の条件と読み違えさせないために SQLite が求めるもの
       `INSERT INTO task_declarations (session_id, user_id, display_name, task, message_id, declared_at, done_at)
        SELECT id, ?2, ?3, ?4, ?5, ?1, NULL FROM (${CURRENT_SESSION}) WHERE true
+       -- SET の右辺はどれも差し替える前の行の値を読む（SQLite の UPDATE の決まり）ので、prior_work_ms は前の宣言の時刻から計算できる。
+       -- 時間は julianday の差（日）をミリ秒に直して整数に丸める
        ON CONFLICT (session_id, user_id) DO UPDATE SET
+         prior_work_ms = iif(
+           task_declarations.message_id = excluded.message_id,
+           task_declarations.prior_work_ms,
+           task_declarations.prior_work_ms + max(0, CAST(round(
+             (julianday(coalesce(task_declarations.done_at, excluded.declared_at)) - julianday(task_declarations.declared_at)) * 86400000
+           ) AS INTEGER))
+         ),
          display_name = excluded.display_name,
          task = excluded.task,
          declared_at = iif(task_declarations.message_id = excluded.message_id, task_declarations.declared_at, excluded.declared_at),
@@ -150,4 +163,42 @@ export const removeModeratedTasks = async (db: Database, target: ModerationTarge
   })()
   const { results } = await statement.all<{ user_id: string }>()
   return results.length > 0
+}
+
+/** 作業した時間の合計の材料にする、ある配信の宣言の行を読む */
+const readWorkTimeRows = async (db: Database, sessionCondition: string, values: readonly (string | number)[]): Promise<WorkTimeRow[]> => {
+  const { results } = await db
+    .prepare(`SELECT declared_at AS declaredAt, done_at AS doneAt, prior_work_ms AS priorWorkMs FROM task_declarations WHERE session_id = ${sessionCondition}`)
+    .bind(...values)
+    .all<WorkTimeRow>()
+  return results
+}
+
+/**
+ * いまの配信でみんなが作業した時間の合計を読む。完了していない宣言は now までを数える。
+ *
+ * @returns 配信していない・まだ誰も宣言していなければ null
+ */
+export const readCurrentWorkTime = async (db: Database, now: number): Promise<WorkTime | null> =>
+  sumWorkTime(await readWorkTimeRows(db, `(${CURRENT_SESSION})`, [toIso(now)]), now)
+
+/**
+ * ある配信でみんなが作業した時間の合計を読む（ダッシュボードの配信の詳細）。
+ *
+ * @param until 打ち切る時刻（ミリ秒）。終わった配信なら終わった時刻、配信中ならいまを渡す
+ * @returns その配信で誰も宣言していなければ null
+ */
+export const readSessionWorkTime = async (db: Database, sessionId: string, until: number): Promise<WorkTime | null> =>
+  sumWorkTime(await readWorkTimeRows(db, '?1', [sessionId]), until)
+
+/**
+ * 合成ページへ送る、いまの作業机を丸ごと読む（並べる行と、作業した時間の合計）。
+ *
+ * 合計は並べる人数の上限に関係なく全員ぶんを足す。合計に読んだ時刻を添えるのは、合成ページが読み直さずに
+ * 作業中の人数ぶんの経過時間を足して、合計を進めるためである。
+ */
+export const readTaskDeskSnapshot = async (db: Database, now: number, limit: number): Promise<TaskDeskSnapshot> => {
+  const entries = await readTaskDesk(db, now, limit)
+  const workTime = await readCurrentWorkTime(db, now)
+  return { entries, workTime: workTime === null ? null : { ...workTime, measuredAt: toIso(now) } }
 }
