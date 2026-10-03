@@ -2031,3 +2031,105 @@ describe('コメントビューアーへの配送', () => {
     expect(await listFailures(db)).toMatchObject([{ code: 'comment-feed-failed', message: expect.stringContaining('fragments') }])
   })
 })
+
+describe('作業机の組み込みコマンド（!task・!done）', () => {
+  const BOT_ID = '67890'
+
+  /** 配信中で、botを接続済みの環境を作る。コマンドは1つも登録しない（組み込みのコマンドは登録しなくても動く） */
+  const liveEnvWithBot = async () => {
+    const created = createEnv()
+    await recordLiveStream(created.db, CHAT_STREAM, Date.parse('2026-09-21T12:05:00Z'))
+    await saveToken(created.env.STORE, 'bot', {
+      accessToken: 'bot-access-token',
+      refreshToken: 'bot-refresh-token',
+      expiresAt: NOW + 60 * 60 * 1000,
+      scopes: ['user:bot', 'user:read:chat', 'user:write:chat'],
+      userId: BOT_ID,
+      login: 'haishinsha_bot',
+    })
+    return created
+  }
+
+  /** 視聴者「たなか」の発言としての通知 */
+  const chatFromTanaka = (text: string, messageId: string) => ({
+    subscription: { type: 'channel.chat.message' },
+    event: {
+      broadcaster_user_id: BROADCASTER_ID,
+      chatter_user_id: '11111',
+      chatter_user_login: 'tanaka',
+      chatter_user_name: 'たなか',
+      message_id: messageId,
+      message: { text, fragments: [{ type: 'text', text }] },
+    },
+  })
+
+  /** チャット送信に応える Twitch の代役 */
+  const fakeTwitchAcceptingSends = () => {
+    const sentChats: Request[] = []
+    const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const request = new Request(input, init)
+      if (request.url === 'https://api.twitch.tv/helix/chat/messages') {
+        sentChats.push(request.clone())
+        return Response.json({ data: [{ message_id: 'sent', is_sent: true }] })
+      }
+      throw new Error(`テストで想定していない通信です: ${request.url}`)
+    }
+    return { sentChats, fetchImpl }
+  }
+
+  it('コマンドを登録していなくても、!task で作業机に並べて押し出す', async () => {
+    const { env, alertChannel } = await liveEnvWithBot()
+    const twitch = fakeTwitchAcceptingSends()
+
+    const response = await callWebhook(createNotification({ body: chatFromTanaka('!task 英単語を50個覚える', 'chat-message-1'), messageId: 'notification-1' }), env, twitch.fetchImpl)
+
+    expect(response.status).toBe(204)
+    expect(alertChannel.pushedTaskDesk).toMatchObject([{ entries: [{ userId: '11111', name: 'たなか', task: '英単語を50個覚える', doneAt: null }] }])
+    expect(twitch.sentChats).toEqual([])
+  })
+
+  it('!done で完了にすると、完了の時刻つきで押し出す', async () => {
+    const { env, alertChannel } = await liveEnvWithBot()
+    const twitch = fakeTwitchAcceptingSends()
+    await callWebhook(createNotification({ body: chatFromTanaka('!task 英単語を50個覚える', 'chat-message-1'), messageId: 'notification-1' }), env, twitch.fetchImpl)
+
+    await callWebhook(createNotification({ body: chatFromTanaka('!done', 'chat-message-2'), messageId: 'notification-2' }), env, twitch.fetchImpl)
+
+    expect(alertChannel.pushedTaskDesk.at(-1)?.entries[0]?.doneAt).toBe(new Date(NOW).toISOString())
+  })
+
+  it('作業が長すぎれば、botが理由を返す', async () => {
+    const { env, alertChannel } = await liveEnvWithBot()
+    const twitch = fakeTwitchAcceptingSends()
+
+    await callWebhook(createNotification({ body: chatFromTanaka(`!task ${'あ'.repeat(41)}`, 'chat-message-1') }), env, twitch.fetchImpl)
+
+    expect(alertChannel.pushedTaskDesk).toEqual([])
+    expect(await twitch.sentChats[0]!.json()).toMatchObject({ message: '@tanaka 作業は40文字以内で書いてください（いまは41文字です）' })
+  })
+
+  it('宣言の発言をモデレーターが消したら、作業机から外して押し出す', async () => {
+    const { env, alertChannel } = await liveEnvWithBot()
+    const twitch = fakeTwitchAcceptingSends()
+    await callWebhook(createNotification({ body: chatFromTanaka('!task 見せたくない文言', 'chat-message-arashi'), messageId: 'notification-1' }), env, twitch.fetchImpl)
+    const deletion = {
+      subscription: { type: 'channel.chat.message_delete' },
+      event: { broadcaster_user_id: BROADCASTER_ID, target_user_id: '11111', target_user_login: 'tanaka', target_user_name: 'たなか', message_id: 'chat-message-arashi' },
+    }
+
+    const response = await callWebhook(createNotification({ body: deletion, messageId: 'notification-2' }), env)
+
+    expect(response.status).toBe(204)
+    expect(alertChannel.pushedTaskDesk.at(-1)).toEqual({ entries: [] })
+  })
+  it('別のチャンネルのチャットのクリアでは、作業机を消さない（古い購読が残っていても、他人のモデレーションで消さないため）', async () => {
+    const { env, alertChannel } = await liveEnvWithBot()
+    const twitch = fakeTwitchAcceptingSends()
+    await callWebhook(createNotification({ body: chatFromTanaka('!task 英単語を50個覚える', 'chat-message-1'), messageId: 'notification-1' }), env, twitch.fetchImpl)
+    const otherChannelClear = { subscription: { type: 'channel.chat.clear' }, event: { broadcaster_user_id: '99999' } }
+
+    await callWebhook(createNotification({ body: otherChannelClear, messageId: 'notification-2' }), env)
+
+    expect(alertChannel.pushedTaskDesk).toHaveLength(1)
+  })
+})

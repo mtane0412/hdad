@@ -17,6 +17,7 @@ import { loadBotConfig } from './bot-config'
 import { punishAsBot } from './bot-moderation'
 import { judge, repeatRuleOf } from './chat-moderation'
 import { recordStreamChatMessage } from './stream-chat-store'
+import { applyModerationToTaskDesk, handleTaskDeskCommand } from './task-desk-command'
 import { readCurrentStreamSummary } from './stream-summary-store'
 import { recordViewerMessage } from './viewer-store'
 import { loadModerationConfig } from './moderation-config'
@@ -204,6 +205,11 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
   // botの接続はもう調べ済みなので、判定の関数はその結果を返すだけでよい
   await runAlertActions(context, CHAT_MESSAGE, body, message.messageId, () => Promise.resolve(bot !== null), message)
 
+  // 作業机の組み込みのコマンド（!task・!done。issue #207）は、登録したコマンドより先に見る（同じ名前は登録させない）。
+  // 作業机に並べるのに bot は要らないので、bot が無くても宣言は残す（受け付けない理由だけは返せない）
+  const taskDeskContext = { db: env.DB, alerts: env.ALERTS, now, reply: bot ? (text: string) => sendAsBot(context, text) : null }
+  if (await handleTaskDeskCommand(taskDeskContext, message)) return
+
   if (!bot) return
 
   // コマンドに一致しない発言では、ここから先へ進まない（チャットの全件をD1に書かないため）
@@ -250,6 +256,15 @@ const isFirstChatToGreet = async (context: Context, event: unknown, bot: StoredT
 }
 
 /**
+ * 通知がこのWorkerの扱う配信者のチャンネルのものか。
+ *
+ * 古い購読が残っていると他人のチャンネルの通知も届くので、それを並べたり作業机を消したりしないために見る。
+ * broadcaster_user_id を持たない通知は、ここでは除かない（中身の確かめは読み取る側が受け持つ）。
+ */
+const isOwnChannelEvent = ({ env }: Context, event: unknown): boolean =>
+  !(isRecord(event) && typeof event.broadcaster_user_id === 'string' && event.broadcaster_user_id !== env.TWITCH_BROADCASTER_ID)
+
+/**
  * 通知をコメントビューアー（/comments/）に並べる1件に直し、配送先へ押し出す。
  *
  * ほかの処理（自動モデレーション・トリガー・応答）より先に呼ぶ。発言より先に、その発言を消した通知が
@@ -275,7 +290,7 @@ const pushToCommentFeed = async (
 ): Promise<void> => {
   const { env, now } = context
   const { event } = body
-  if (isRecord(event) && typeof event.broadcaster_user_id === 'string' && event.broadcaster_user_id !== env.TWITCH_BROADCASTER_ID) return
+  if (!isOwnChannelEvent(context, event)) return
   try {
     const firstOfStream = type === CHAT_MESSAGE && (await isFirstChatToGreet(context, event, bot))
     const item = toFeedItem(type, event, { id: messageId, at: occurredAt }, firstOfStream)
@@ -355,8 +370,12 @@ export const eventsubWebhook = async (context: Context): Promise<Response> => {
       // 失敗として投げ、Twitch に再送させる（壊れたトークンのまま、自動モデレーションやコマンドを黙って飛ばさない）
       const botLoad = type === CHAT_MESSAGE ? loadToken(env.STORE, 'bot') : Promise.resolve(null)
       await pushToCommentFeed(context, type, body, messageId, occurredAt, await botLoad.catch(() => null))
-      // コメントビューアーのためだけに購読している通知は、記録もトリガーの判定もしない
-      if (FEED_ONLY_EVENT_TYPES.includes(type)) return new Response(null, { status: STATUS.noContent })
+      // コメントビューアーのためだけに購読している通知は、記録もトリガーの判定もしない。
+      // ただしモデレーションの削除は作業机にも反映する（荒らしが宣言した文言を配信画面に残さない）
+      if (FEED_ONLY_EVENT_TYPES.includes(type)) {
+        if (isOwnChannelEvent(context, body.event)) await applyModerationToTaskDesk({ db: env.DB, alerts: env.ALERTS, now }, type, body.event)
+        return new Response(null, { status: STATUS.noContent })
+      }
       if (type === CHAT_MESSAGE) await replyToChatMessage(context, body, await botLoad)
       else {
         await recordNotification({ db: env.DB, messageId, occurredAt, body })

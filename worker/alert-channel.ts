@@ -24,6 +24,9 @@
  * 合成ページの素材「作業ログ」へ、開発の出来事と章の見出しを1行ずつ配るのもこの Durable Object である（issue #211）。
  * 理由はBGMと同じで、受け取る素材がアラートと違うので、3つ目の目印（workLog）を付けた接続へだけ配る。
  *
+ * 合成ページの素材「作業机」へ、視聴者の作業の宣言（いまの作業机の丸ごと）を配るのもこの Durable Object である（issue #207）。
+ * 作業ログと同じ理由で、4つ目の目印（taskDesk）を付けた接続へだけ配る。
+ *
  * 注意: WebSocketの接続（Upgrade）は Cloudflare のランタイムでしか作れないので、テストでは配送の部分だけを確かめる。
  */
 import type { OverlayAlert } from './alert-event'
@@ -31,6 +34,7 @@ import type { BgmNowPlaying } from './bgm-config'
 import { STATUS, errorResponse } from './http'
 import { KEY_TAG_PARAM, isCurrentKeyTag, rememberKeyTag, revokeRequest, type DurableStorage } from './overlay-key'
 import { broadcast, closeForRevokedKey, type SocketLike } from './socket-broadcast'
+import type { TaskDeskSnapshot } from './task-desk'
 import type { WorkLogEntry } from './work-log'
 
 /** Durable Object の名前。配送先は1つだけなので、決め打ちの名前で同じものを指す */
@@ -42,6 +46,8 @@ const PUSH_PATH = '/push'
 const PUSH_BGM_PATH = '/push/bgm'
 /** Worker が作業ログの1行の押し出しに使うパス */
 const PUSH_WORK_LOG_PATH = '/push/work-log'
+/** Worker が作業机の押し出しに使うパス */
+const PUSH_TASK_DESK_PATH = '/push/task-desk'
 /** Worker がオーバーレイ用キーを発行し直したときに、開いている接続を閉じさせるパス */
 const REVOKE_PATH = '/revoke'
 
@@ -51,8 +57,10 @@ const ALERTS_TOPIC = 'alerts'
 const BGM_TOPIC = 'bgm'
 /** 作業ログの1行を受け取る接続（合成ページの素材「作業ログ」）に付ける目印 */
 const WORK_LOG_TOPIC = 'workLog'
+/** 作業机を受け取る接続（合成ページの素材「作業机」）に付ける目印 */
+const TASK_DESK_TOPIC = 'taskDesk'
 /** 受け入れる接続の目印。知らない値はアラートの接続として受け入れる（Worker が必ずどれかを付けて渡す） */
-const TOPICS: readonly string[] = [ALERTS_TOPIC, BGM_TOPIC, WORK_LOG_TOPIC]
+const TOPICS: readonly string[] = [ALERTS_TOPIC, BGM_TOPIC, WORK_LOG_TOPIC, TASK_DESK_TOPIC]
 /** どちらの目印で受け入れるかを Worker が伝えるためのクエリ。外には出ない */
 const TOPIC_PARAM = 'topic'
 
@@ -95,10 +103,11 @@ export interface AlertChannelNamespace {
  *
  * 呼ぶのは Worker だけで、次の2つを受け付ける。
  * - Upgrade: websocket のリクエスト: オーバーレイからの接続を受ける（パスはWorkerのものがそのまま届く）。
- *   クエリの topic が bgm ならBGMの接続、workLog なら作業ログの接続、それ以外はアラートの接続として受け入れる
+ *   クエリの topic が bgm ならBGMの接続、workLog なら作業ログの接続、taskDesk なら作業机の接続、それ以外はアラートの接続として受け入れる
  * - POST /push: Worker が押し出したアラートを、アラートの接続すべてへ配る
  * - POST /push/bgm: Worker が押し出した「いま流している曲」を、BGMの接続すべてへ配る
  * - POST /push/work-log: Worker が押し出した作業ログの1行を、作業ログの接続すべてへ配る
+ * - POST /push/task-desk: Worker が押し出したいまの作業机を、作業机の接続すべてへ配る
  * - POST /revoke: 新しいキーの目印を覚え、接続をすべて閉じる（オーバーレイ用キーを発行し直したとき。どの接続もオーバーレイ用キーで開かれている）
  *
  * 接続はどれもオーバーレイ用キーで開かれるので、覚えている目印と違うキーの接続は受け入れない（worker/overlay-key.ts）。
@@ -117,6 +126,7 @@ export class AlertChannel {
     if (url.pathname === PUSH_PATH) return this.push(ALERTS_TOPIC, await request.text(), 'アラート')
     if (url.pathname === PUSH_BGM_PATH) return this.push(BGM_TOPIC, await request.text(), 'BGMの切り替え')
     if (url.pathname === PUSH_WORK_LOG_PATH) return this.push(WORK_LOG_TOPIC, await request.text(), '作業ログ')
+    if (url.pathname === PUSH_TASK_DESK_PATH) return this.push(TASK_DESK_TOPIC, await request.text(), '作業机')
     if (url.pathname === REVOKE_PATH) {
       // 先に目印を覚えてから閉じる。閉じたあとすぐ古いキーでつなぎ直されても受け入れないため
       if (!(await rememberKeyTag(this.ctx.storage, request))) return new Response(null, { status: STATUS.badRequest })
@@ -178,6 +188,16 @@ export const connectBgmSocket = (namespace: AlertChannelNamespace, request: Requ
 export const connectWorkLogSocket = (namespace: AlertChannelNamespace, request: Request, keyTag: string): Promise<Response> =>
   connectWithTopic(namespace, request, WORK_LOG_TOPIC, keyTag)
 
+/**
+ * 合成ページの素材「作業机」からのWebSocketの接続を、作業机を受け取る接続として Durable Object へ引き渡す。
+ *
+ * オーバーレイ用キーの確認は呼び出し側（task-desk-routes.ts）が済ませている。
+ *
+ * @param keyTag 確かめたキーの目印（overlayKeyTag）
+ */
+export const connectTaskDeskSocket = (namespace: AlertChannelNamespace, request: Request, keyTag: string): Promise<Response> =>
+  connectWithTopic(namespace, request, TASK_DESK_TOPIC, keyTag)
+
 /** 受け取る側の目印とキーの目印をクエリに載せて接続を引き渡す。利用者の送ってきた値は上書きする */
 const connectWithTopic = (namespace: AlertChannelNamespace, request: Request, topic: string, keyTag: string): Promise<Response> => {
   const url = new URL(request.url)
@@ -219,7 +239,15 @@ export const pushWorkLogEntry = (namespace: AlertChannelNamespace, entry: WorkLo
   pushJson(namespace, PUSH_WORK_LOG_PATH, entry, '作業ログ')
 
 /**
- * オーバーレイ用キーを発行し直したときに、新しいキーの目印を覚えさせ、開いている接続（アラート・BGM・作業ログ）をすべて閉じさせる。
+ * いまの作業机を Durable Object へ押し出す。視聴者の宣言・完了と、モデレーションで宣言を消したときに呼ぶ。
+ *
+ * 注意: 失敗を黙って握りつぶさない。呼び出し側（task-desk-command.ts）が失敗として記録する。
+ */
+export const pushTaskDesk = (namespace: AlertChannelNamespace, snapshot: TaskDeskSnapshot): Promise<void> =>
+  pushJson(namespace, PUSH_TASK_DESK_PATH, snapshot, '作業机')
+
+/**
+ * オーバーレイ用キーを発行し直したときに、新しいキーの目印を覚えさせ、開いている接続（アラート・BGM・作業ログ・作業机）をすべて閉じさせる。
  *
  * 注意: 失敗を黙って握りつぶさない。閉じられないと古いキーの接続が残るので、呼び出し側（admin-routes.ts）が失敗を返す。
  *
@@ -227,5 +255,5 @@ export const pushWorkLogEntry = (namespace: AlertChannelNamespace, entry: WorkLo
  */
 export const revokeAlertSockets = async (namespace: AlertChannelNamespace, keyTag: string): Promise<void> => {
   const response = await channelOf(namespace).fetch(revokeRequest(`https://alert-channel${REVOKE_PATH}`, keyTag))
-  if (!response.ok) throw new Error(`アラート・BGM・作業ログの接続を切断できませんでした（${response.status}）`)
+  if (!response.ok) throw new Error(`アラート・BGM・作業ログ・作業机の接続を切断できませんでした（${response.status}）`)
 }

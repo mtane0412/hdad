@@ -24,6 +24,7 @@
 @import '../tab/tab.css';
 @import '../caption/caption.css';
 @import '../work-log/work-log.css';
+@import '../task-desk/task-desk.css';
 
 .overlay {
   position: relative;
