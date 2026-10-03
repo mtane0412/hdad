@@ -36,6 +36,10 @@ Webhook の Content type の既定は `application/x-www-form-urlencoded` なの
 
 再送で二重に実行しないよう、動作ごとの鍵は `X-GitHub-Delivery` から作る（GitHub の Redeliver は同じ値を使う）。Twitch のメッセージIDと同じ表（`replied_chat_messages`）に書くので、頭に `github:` を付けて取り違えないようにした。GitHub の通知には時刻のヘッダーが無いので、EventSub のように古い通知を拒むことはしない。盗み見た通知の使い回しは、鍵が残っているあいだ（`chat-store.ts` の保持期間）は鍵で弾かれる。
 
+## 作業ログにも残す
+
+配信中に届いた push・マージは、トリガーの動作とは別に、合成ページの素材「作業ログ」へ1行残して押し出すようにした（issue #211）。そのため受け口は、トリガーの動作を実行したあとで `dev_events` に残し、押し出しに失敗したら500で返す。経緯は [作業ログ](work-log.md) にある。
+
 ## 別の issue に分けたもの
 
 「テストが全部通った」のような手元の出来事を Claude Code の hooks から送る案は、認証の決め方が別に要るので、この issue には含めなかった。

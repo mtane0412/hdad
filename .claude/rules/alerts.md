@@ -20,6 +20,6 @@ paths:
 
 広告の終了に相当する通知はTwitchに無いので、`channel.ad_break.end` はWorkerが作る擬似イベントである。開始を受けたら終わる時刻を Durable Object（`worker/ad-break-timer.ts` の `AdBreakTimer`。時計であって判定者ではない）へ預け、`storage.setAlarm` で起こしてもらってから照合へ回す。→ `docs/decisions/ad-break.md`
 
-区分「開発」（`commitPushed`・`pullRequestMerged`）は Twitch ではなく GitHub の Webhook（`POST /api/github/webhook`。`worker/github-routes.ts`）から届く。受け口は EventSub と分けるが、実行は同じ `runAlertActions` を通し、鍵は `github:<X-GitHub-Delivery>` にする。どの通知をどの種別にするか（タグの push・マージしない PR を外す）は `worker/github-webhook.ts` の `githubAlertEventOf` だけが持ち、中身の読み取りは `extract` が行う。配信していないときに届いたものは捨て、受け付けるリポジトリの一覧は持たない（Webhook を設定したリポジトリ＝選んだもの）。→ `docs/decisions/github-webhook.md`
+区分「開発」（`commitPushed`・`pullRequestMerged`）は Twitch ではなく GitHub の Webhook（`POST /api/github/webhook`。`worker/github-routes.ts`）から届く。受け口は EventSub と分けるが、実行は同じ `runAlertActions` を通し、鍵は `github:<X-GitHub-Delivery>` にする。どの通知をどの種別にするか（タグの push・マージしない PR を外す）は `worker/github-webhook.ts` の `githubAlertEventOf` だけが持ち、中身の読み取りは `extract` が行う。配信していないときに届いたものは捨て、受け付けるリポジトリの一覧は持たない（Webhook を設定したリポジトリ＝選んだもの）。配信中に届いたものは、トリガーとは別に作業ログにも残す（`.claude/rules/work-log.md`）。→ `docs/decisions/github-webhook.md`
 
 利用者向けの説明は `docs/guide/alerts.md`（トリガーの決め方と素材のアップロードもここ）。

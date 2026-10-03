@@ -73,6 +73,10 @@ import { openReceiverPeer } from '../tab/peer'
 import { createTabReceiver } from '../tab/receiver'
 import { connectTabViewer } from '../tab/socket'
 import { backgrounds } from '../wallpaper/registry'
+import { WORK_LOG_SOCKET_HINT, WORK_LOG_SOCKET_PATH, createWorkLogApi } from '../work-log/api'
+import { demoWorkLogScenes } from '../work-log/demo'
+import { WORK_LOG_LIMIT, mergeEntries, parseWorkLogEntry, type WorkLogEntry } from '../work-log/entry'
+import { createWorkLogView } from '../work-log/view'
 import { createOverlayLayoutApi } from './api'
 import { itemsInOverlay, overlayNamesOf, rectStyle, type ItemKind, type Overlay, type OverlayItem } from './layout'
 import { dueTasks, pollTickMs, type PollInterval } from './poll'
@@ -93,10 +97,16 @@ const NOUNS: Readonly<Record<ItemKind, string>> = {
   bgm: '再生中の曲',
   tab: 'タブの映像',
   caption: '字幕',
+  workLog: '作業ログ',
 }
 
 /** サイドスーパーの文言を読みに行く間隔（ミリ秒）。文言は cron が5分おきに作るので、30秒あれば十分に追いつく */
 const SIDE_SUPER_INTERVAL_MS = 30000
+/**
+ * 作業ログを読み直す間隔（ミリ秒）。増えた1行は押し出しで届くので、読み直しは取りこぼしと配信の切り替わりを拾うためだけにある。
+ * 配信の切り替わり（前の配信のログを消す）を拾うのに、cron の間隔（5分）より細かくする意味はない
+ */
+const WORK_LOG_INTERVAL_MS = 300000
 /** 取り上げている注目コメントを読みに行く間隔（ミリ秒）。配信中に選び直したとき、待たされすぎない長さにする */
 const FOCUS_INTERVAL_MS = 10000
 
@@ -802,6 +812,92 @@ const mountTab = (box: HTMLElement, item: OverlayItem, { key, demo }: MountConte
   return {}
 }
 
+/**
+ * 作業ログ。その配信の開発の出来事と章の見出しを、時刻つきで新しい順に映す（issue #211）。
+ *
+ * 増えた1行はアラートと同じ配送先から WebSocket（/api/overlay/work-log/socket）で押し出してもらう。開いたとき・つながるたび・
+ * 定期的に一覧を読み直し、つながっていない間に増えた行と、配信が変わったこと（前の配信の行を消す）を拾う。
+ * 読み直しは一覧を置き換えるが、読んでいる間に押し出された行は重ねて残す（古い読み出しで新しい行を消さないため）。
+ */
+const mountWorkLog = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
+  // この素材は配信者が決めるパラメータを持たない（並べるものは Worker が決める）
+  parseParams({}, new URLSearchParams(item.params))
+
+  const root = document.createElement('div')
+  root.className = 'work-log'
+  root.dataset.workLog = ''
+  box.append(root)
+
+  const view = createWorkLogView(root)
+
+  if (demo) {
+    // プレビューではWorkerにつながず、サンプルの行が1行ずつ増えていく場面を順に流す
+    startSampleCycle(demoWorkLogScenes, DEMO_SAMPLE_INTERVAL_MS, (scene) => view.setEntries(scene))
+    return {}
+  }
+
+  const api = createWorkLogApi(callWorker, key)
+  let entries: WorkLogEntry[] = []
+  /** 読んでいる最中の読み出しごとの、その間に押し出された行。読み終えたら結果に重ねる */
+  const pushedWhileReading = new Set<WorkLogEntry[]>()
+  const show = (next: WorkLogEntry[]): void => {
+    entries = next
+    view.setEntries(entries)
+  }
+  const showReadError = (error: unknown): void => {
+    clearError(box, 'read')
+    showError(error, NOUNS.workLog, box, 'read')
+  }
+  const read = async (): Promise<void> => {
+    const pushed: WorkLogEntry[] = []
+    pushedWhileReading.add(pushed)
+    try {
+      show(mergeEntries(await api.read(), pushed, WORK_LOG_LIMIT))
+      // 前の失敗が箱に出ていれば消す（直ったのに赤い表示が残ったままにしない）
+      clearError(box, 'read')
+    } finally {
+      pushedWhileReading.delete(pushed)
+    }
+  }
+
+  // 1回目は起動の一部として扱い、失敗はこの箱に出す（ほかの素材は動かし続ける）
+  void read().catch(showReadError)
+
+  connectSocket(
+    socketUrl(WORK_LOG_SOCKET_PATH, { key }),
+    {
+      onMessage: (text) => {
+        try {
+          const entry = parseWorkLogEntry(text)
+          for (const pushed of pushedWhileReading) pushed.push(entry)
+          show(mergeEntries(entries, [entry], WORK_LOG_LIMIT))
+        } catch (error) {
+          showReadError(error)
+        }
+      },
+      // つながるたびに読み直す。つながっていない間に増えた行を取りこぼさないため
+      onOpen: () => void read().catch(showReadError),
+      onStatus: () => {
+        // 切断・再接続は出さない。つながったときの読み直しは onOpen が受け持ち、映している行はそのまま残す
+      },
+      onWarning: (message) => showReadError(new Error(message)),
+    },
+    WORK_LOG_SOCKET_HINT,
+  )
+
+  return {
+    task: {
+      intervalMs: WORK_LOG_INTERVAL_MS,
+      run: () => {
+        void read().catch((error: unknown) => {
+          // 一時的な通信の失敗で配信画面を汚さない。映している行はそのまま残し、原因は記録に残す（サイドスーパーと同じ）
+          console.error('作業ログを読み込めませんでした', error)
+        })
+      },
+    },
+  }
+}
+
 const mountItem = (box: HTMLElement, item: OverlayItem, context: MountContext): MountedItem => {
   switch (item.kind) {
     case 'wallpaper':
@@ -823,6 +919,8 @@ const mountItem = (box: HTMLElement, item: OverlayItem, context: MountContext): 
       return mountTab(box, item, context)
     case 'caption':
       return mountCaption(box, item, context)
+    case 'workLog':
+      return mountWorkLog(box, item, context)
   }
 }
 

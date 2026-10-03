@@ -6,11 +6,22 @@
  * 失敗を握りつぶさないことである（配る部分そのものは worker/socket-broadcast.test.ts が確かめる）。
  */
 import { describe, expect, it } from 'vitest'
-import { AlertChannel, connectAlertSocket, connectBgmSocket, pushAlert, pushBgm, revokeAlertSockets, type AlertSocket } from './alert-channel'
+import {
+  AlertChannel,
+  connectAlertSocket,
+  connectBgmSocket,
+  connectWorkLogSocket,
+  pushAlert,
+  pushBgm,
+  pushWorkLogEntry,
+  revokeAlertSockets,
+  type AlertSocket,
+} from './alert-channel'
 import type { BgmNowPlaying } from './bgm-config'
 import { createFakeAlertChannel } from './fake-alert-channel'
 import { createFakeDurableStorage } from './fake-durable-storage'
 import type { OverlayAlert } from './alert-event'
+import type { WorkLogEntry } from './work-log'
 
 const alert: OverlayAlert = {
   media: { kind: 'image', url: '/api/media/media-1?key=オーバーレイ用キー' },
@@ -32,6 +43,9 @@ const playingTrack: BgmNowPlaying = {
   shuffle: false,
 }
 
+/** PR をマージしたときに作業ログへ1行増やすもの */
+const mergedEntry: WorkLogEntry = { id: 'github:delivery-1', kind: 'merge', at: '2026-10-03T12:10:00.000Z', text: '#213 作業ログを出す' }
+
 /** 送られた文字列を覚えておく、テスト用の接続 */
 const createConnection = (): AlertSocket & { sentMessages: string[] } => {
   const sentMessages: string[] = []
@@ -45,10 +59,15 @@ describe('AlertChannel', () => {
    * 接続は目印（アラート用か BGM 用か）ごとに渡す。目印を指定して引いたときは、その目印の接続だけを返す
    * （Cloudflare の getWebSockets(tag) と同じ振る舞い）。
    */
-  const createDestination = (sockets: AlertSocket[], bgmSockets: AlertSocket[] = []): AlertChannel =>
+  const createDestination = (sockets: AlertSocket[], bgmSockets: AlertSocket[] = [], workLogSockets: AlertSocket[] = []): AlertChannel =>
     new AlertChannel({
       acceptWebSocket: () => undefined,
-      getWebSockets: (tag) => (tag === 'bgm' ? bgmSockets : tag === 'alerts' ? sockets : [...sockets, ...bgmSockets]),
+      getWebSockets: (tag) => {
+        if (tag === 'bgm') return bgmSockets
+        if (tag === 'alerts') return sockets
+        if (tag === 'workLog') return workLogSockets
+        return [...sockets, ...bgmSockets, ...workLogSockets]
+      },
       setWebSocketAutoResponse: () => undefined,
       storage: createFakeDurableStorage(),
     })
@@ -86,6 +105,18 @@ describe('AlertChannel', () => {
     expect(stagePage.sentMessages).toEqual([])
   })
 
+  it('作業ログの1行は、作業ログを受け取る接続だけへ送る（アラートとしては読めないため）', async () => {
+    const alertsItem = createConnection()
+    const workLogItem = createConnection()
+    const destination = createDestination([alertsItem], [], [workLogItem])
+
+    const response = await destination.fetch(new Request('https://alert-channel/push/work-log', { method: 'POST', body: JSON.stringify(mergedEntry) }))
+
+    expect(response.status).toBe(204)
+    expect(workLogItem.sentMessages).toEqual([JSON.stringify(mergedEntry)])
+    expect(alertsItem.sentMessages).toEqual([])
+  })
+
   it('接続が1本もなければ、送らずに終わる（オーバーレイを開いていない間のアラートは落とす）', async () => {
     const destination = createDestination([])
 
@@ -120,14 +151,15 @@ describe('pushAlert', () => {
 })
 
 describe('接続の引き渡し', () => {
-  it('アラートの接続と BGM の接続を、目印を付けて Durable Object へ引き渡す', async () => {
+  it('アラート・BGM・作業ログの接続を、目印を付けて Durable Object へ引き渡す', async () => {
     const delivery = createFakeAlertChannel()
     const connectionRequest = (): Request => new Request('https://hdad.example.com/api/overlay/socket?key=k', { headers: { Upgrade: 'websocket' } })
 
     await connectAlertSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
     await connectBgmSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
+    await connectWorkLogSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
 
-    expect(delivery.forwardedConnections.map((request) => new URL(request.url).searchParams.get('topic'))).toEqual(['alerts', 'bgm'])
+    expect(delivery.forwardedConnections.map((request) => new URL(request.url).searchParams.get('topic'))).toEqual(['alerts', 'bgm', 'workLog'])
   })
 })
 
@@ -145,6 +177,23 @@ describe('pushBgm', () => {
     const delivery = createFakeAlertChannel({ shouldFail: true })
 
     await expect(pushBgm(delivery.namespace, playingTrack)).rejects.toThrow('BGM')
+  })
+})
+
+describe('pushWorkLogEntry', () => {
+  it('Durable Object へ、作業ログの1行を送る', async () => {
+    const delivery = createFakeAlertChannel()
+
+    await pushWorkLogEntry(delivery.namespace, mergedEntry)
+
+    expect(delivery.pushedWorkLog).toEqual([mergedEntry])
+    expect(delivery.pushedAlerts).toEqual([])
+  })
+
+  it('Durable Object が失敗を返したら、黙って成功にせず投げる', async () => {
+    const delivery = createFakeAlertChannel({ shouldFail: true })
+
+    await expect(pushWorkLogEntry(delivery.namespace, mergedEntry)).rejects.toThrow('作業ログ')
   })
 })
 
