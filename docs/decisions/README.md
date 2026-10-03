@@ -19,6 +19,7 @@
 | [stream-chapters.md](stream-chapters.md) | 配信で何が話されたか（章。ダッシュボードの配信の詳細） |
 | [viewers.md](viewers.md) | 視聴者の記録（`/viewers/`） |
 | [side-super.md](side-super.md) | サイドスーパー（素材の種類 `sideSuper`） |
+| [work-log.md](work-log.md) | 作業ログ（素材の種類 `workLog`） |
 | [comments.md](comments.md) | コメントビューアー（`/comments/`） |
 | [focus.md](focus.md) | 注目コメント（素材の種類 `focus`） |
 | [overlay-stage.md](overlay-stage.md) | 素材を重ねる合成ページ（`overlay/stage/`） |

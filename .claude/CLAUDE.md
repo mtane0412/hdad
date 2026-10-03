@@ -70,6 +70,7 @@ npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 | `draw.md` | 手書き（`/draw/`・素材の種類 `draw`） | `src/draw/**`・`worker/draw-*.ts`・`src/core/socket.ts` |
 | `caption.md` | 字幕（素材の種類 `caption`）と字幕の翻訳 | `src/caption/**`・`worker/caption-*.ts`・`worker/draw-channel.ts`・`src/transcript/recognition-context.tsx`・`src/transcript/translation-api.ts`・`worker/translation*.ts`・`src/llm/translation-card.tsx` |
 | `tab.md` | タブの映像（素材の種類 `tab`・Chrome 拡張 `extension/`） | `src/tab/**`・`extension/**`・`worker/tab-*.ts` |
+| `work-log.md` | 作業ログ（素材の種類 `workLog`。開発の出来事と章の見出し） | `src/work-log/**`・`worker/work-log*.ts`・`worker/github-routes.ts`・`worker/collect.ts`・`worker/alert-channel.ts`・`migrations/*dev_events*.sql` |
 | `overlay.md` | 合成ページと構成の管理画面（`overlay/stage/`・`/overlay/`） | `src/overlay/**`・`overlay/**`・`worker/overlay-*.ts` |
 | `speech.md` | チャットの読み上げ（`speech/reader/`） | `src/speech/**`・`speech/**`・`worker/speech-config.ts` |
 | `backstage.md` | 裏方をまとめたページ（`overlay/backstage/`）とコネクターのページ（`/connectors/`） | `src/backstage/**`・`overlay/backstage/**` |

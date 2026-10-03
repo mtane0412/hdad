@@ -22,6 +22,7 @@ import { createFakeStore } from './fake-store'
 import { createFakeTabChannel } from './fake-tab-channel'
 import { handleRequest, type Env } from './index'
 import { recordLiveStream } from './stats-store'
+import { readWorkLog } from './work-log-store'
 
 const NOW = Date.parse('2026-10-03T12:30:00Z')
 const SITE = 'https://hdad.example.com'
@@ -233,5 +234,51 @@ describe('トリガーの実行', () => {
     await callWebhook(createDelivery({ body: MERGED_PAYLOAD }), env)
 
     expect(alertChannel.pushedAlerts).toHaveLength(1)
+  })
+})
+
+describe('作業ログ', () => {
+  it('配信中に PR がマージされたら、トリガーを置いていなくても作業ログに1行残して押し出す', async () => {
+    const { env, db, alertChannel } = createEnv()
+    await recordLiveStream(db, LIVE_STREAM, NOW - 60 * 1000)
+
+    const response = await callWebhook(createDelivery({ body: MERGED_PAYLOAD }), env)
+
+    // トリガーに当てはまらなくても、作業ログは配信で起きた出来事として残す
+    expect(response.status).toBe(204)
+    const merged = { id: 'github:72d3162e-cc78-11e3-81ab-4c9367dc0958', kind: 'merge', at: new Date(NOW).toISOString(), text: '#212 コミットとPRのマージをトリガーのきっかけにする' }
+    expect(alertChannel.pushedWorkLog).toEqual([merged])
+    expect(await readWorkLog(db, NOW, 20)).toEqual([merged])
+  })
+
+  it('配信中にコミットが push されたら、コミットのメッセージの1行目を作業ログに残す', async () => {
+    const { env, db, alertChannel } = createEnv()
+    await recordLiveStream(db, LIVE_STREAM, NOW - 60 * 1000)
+
+    await callWebhook(createDelivery({ event: 'push', delivery: 'push-delivery-1', body: PUSH_PAYLOAD }), env)
+
+    expect(alertChannel.pushedWorkLog.map((entry) => `${entry.kind}:${entry.text}`)).toEqual(['commit:テストを先に書く'])
+  })
+
+  it('配信していないときに届いた出来事は、作業ログにも残さない', async () => {
+    const { env, db, alertChannel } = createEnv()
+
+    await callWebhook(createDelivery({ body: MERGED_PAYLOAD }), env)
+
+    expect(alertChannel.pushedWorkLog).toEqual([])
+    expect(await readWorkLog(db, NOW, 20)).toEqual([])
+  })
+
+  it('同じ通知が再送されても、作業ログは1行のまま（押し出しは同じ1行を繰り返し、合成ページが id で重ねる）', async () => {
+    const { env, db, alertChannel } = createEnv()
+    await recordLiveStream(db, LIVE_STREAM, NOW - 60 * 1000)
+
+    await callWebhook(createDelivery({ body: MERGED_PAYLOAD }), env)
+    // 前回の押し出しに失敗したときに Redeliver で届け直せるよう、再送でも押し出す
+    await callWebhook(createDelivery({ body: MERGED_PAYLOAD }), env)
+
+    expect(await readWorkLog(db, NOW, 20)).toHaveLength(1)
+    const [first, second] = alertChannel.pushedWorkLog
+    expect(second).toEqual(first)
   })
 })

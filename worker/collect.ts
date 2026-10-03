@@ -15,7 +15,7 @@
  * あるが（worker/timeout.ts）、Gyazo を最大30枚とLLMを4か所ぶん逐次に呼ぶので、遅い相手が続くと1回の収集が
  * 積み上がって長くなる。予算を過ぎたら配信の記録は残したまま、材料づくりだけを次の収集へ回す。
  */
-import type { AlertChannelNamespace } from './alert-channel'
+import { pushWorkLogEntry, type AlertChannelNamespace } from './alert-channel'
 import { BGM_TRANSCRIPT_CONTEXT, chooseBgm } from './bgm-jev'
 import type { JevClient } from './jev'
 import type { TextGenerator } from './llm'
@@ -58,6 +58,7 @@ import { closeOpenSessions, recordFailure, recordFollowerTotal, recordLiveStream
 import type { KeyValueStore } from './store'
 import { AuthError, getAccessToken } from './token'
 import { TwitchApiError, type ChannelInfo, type LiveStream, type TwitchClient } from './twitch'
+import { chapterEntryOf } from './work-log'
 
 const UNAUTHORIZED = 401
 
@@ -316,8 +317,11 @@ const MAX_CHAPTER_WINDOWS_PER_COLLECT = 24
  * 注意: 失敗しても収集そのものを止めず、区間も進めない（次の収集でやり直す）。区間が進まないあいだは、
  * その配信の人物像も作られない（stream-chat-store.ts の CHAPTERED_SESSIONS）。材料の文字起こしが保持期間で
  * 消えれば、残りの区間は発話の無い区間として飛ばされるので、人物像がいつまでも作られないことはない。
+ * 注意: 配信中の配信の章ができたら、見出しを合成ページの素材「作業ログ」へ押し出す（issue #211）。終わった配信の章は
+ * 押し出さない（合成ページが映すのは配信中の配信のログだけ）。押し出しの失敗は章づくりの失敗とは分けて記録し、
+ * 章は残して区間も進める。作り直すとLLMの枠を使ううえ、合成ページは次の読み直しで取り戻せるためである。
  */
-const makeStreamChapter = async (db: Database, ai: TextGenerator, now: number): Promise<void> => {
+const makeStreamChapter = async (db: Database, ai: TextGenerator, alerts: AlertChannelNamespace, now: number): Promise<void> => {
   let windowCount = 0
   for (const target of await listChapterTargets(db)) {
     let current: ChapterTarget = target
@@ -347,7 +351,13 @@ const makeStreamChapter = async (db: Database, ai: TextGenerator, now: number): 
           chats: material.chats.map((line) => line.text),
           screen: material.screen.map((line) => line.text),
         })
-        await saveStreamChapter(db, { sessionId: current.id, startedAt: material.from, endedAt: material.to, ...chapter })
+        const saved = { startedAt: material.from, endedAt: material.to, ...chapter }
+        await saveStreamChapter(db, { sessionId: current.id, ...saved })
+        if (current.endedAt === null) {
+          await pushWorkLogEntry(alerts, chapterEntryOf(saved)).catch((error: unknown) =>
+            recordFailure(db, 'work-log-push-failed', error instanceof Error ? error.message : String(error), now),
+          )
+        }
       } catch (error) {
         await recordFailure(db, 'stream-chapter-failed', error instanceof Error ? error.message : String(error), now)
       }
@@ -730,7 +740,7 @@ const collect = async ({ db, store, twitch, ai, jev, alerts, gyazo, broadcasterI
 
   // 章立ては人物像より先に行う。人物像を作ると発言の材料が消えるので、配信が終わった回の最後の章から
   // 視聴者の反応が抜けないようにするためである（人物像は、章にし終えた配信の発言だけを材料にする）
-  await withinBudget('章立て', () => makeStreamChapter(db, ai, now))
+  await withinBudget('章立て', () => makeStreamChapter(db, ai, alerts, now))
   if (budgetExhausted()) {
     deferredToNextCollect.push('人物像')
   } else {

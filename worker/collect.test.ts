@@ -662,6 +662,38 @@ describe('章立ての生成', () => {
     expect(chapteredUntil(db)).toBe(at('12:30:00'))
   })
 
+  it('配信中に章を作ったら、その見出しを作業ログの1行として合成ページへ押し出す', async () => {
+    const { db, store } = await createEnv()
+    createLiveSession(db)
+    insertTranscript(db, 'hatsuwa-1', '12:10:00', 'ここから新しいゲームを始めます')
+    const delivery = createFakeAlertChannel()
+
+    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(chapterResponse), jev: uncalledJev, alerts: delivery.namespace, broadcasterId: streamerId, now: afterFirstWindow })
+
+    expect(delivery.pushedWorkLog).toEqual([{ id: `chapter:${at('12:00:00')}`, kind: 'chapter', at: at('12:00:00'), text: '新しいゲームの導入' }])
+  })
+
+  it('作業ログへの押し出しに失敗しても章は残し、失敗を記録する（章を作り直してLLMの枠を使わないため）', async () => {
+    const { db, store } = await createEnv()
+    createLiveSession(db)
+    insertTranscript(db, 'hatsuwa-1', '12:10:00', 'ここから新しいゲームを始めます')
+
+    await collectStats({
+      db,
+      store,
+      twitch: fakeTwitch(),
+      ai: fakeAi(chapterResponse),
+      jev: uncalledJev,
+      alerts: createFakeAlertChannel({ shouldFail: true }).namespace,
+      broadcasterId: streamerId,
+      now: afterFirstWindow,
+    })
+
+    expect(await listStreamChapters(db, chatStream.id)).toHaveLength(1)
+    expect(chapteredUntil(db)).toBe(at('12:30:00'))
+    expect((await listFailures(db)).map((failure) => failure.code)).toContain('work-log-push-failed')
+  })
+
   it('発話の無い区間は、章を作らずに飛ばす（視聴者の書き込みだけを配信の出来事として書かせないため）', async () => {
     const { db, store } = await createEnv()
     createLiveSession(db)
@@ -713,6 +745,27 @@ describe('章立ての生成', () => {
     expect(prompts[chapterIndex]?.prompt).toContain('視聴者: たのしみ！')
     expect(chapterIndex).toBeLessThan(viewerIndex)
     expect((await readViewer(db, '100'))?.summary).toBe('ゲームの話をよくする常連さん')
+  })
+
+  it('終わった配信の章は、作業ログへ押し出さない（合成ページに映っているのは次の配信のログのため）', async () => {
+    const { db, store } = await createEnv()
+    createLiveSession(db)
+    insertTranscript(db, 'hatsuwa-1', '12:10:00', 'ここから新しいゲームを始めます')
+    const delivery = createFakeAlertChannel()
+
+    await collectStats({
+      db,
+      store,
+      twitch: fakeTwitch({ getLiveStream: async () => null }),
+      ai: fakeAi(chapterResponse),
+      jev: uncalledJev,
+      alerts: delivery.namespace,
+      broadcasterId: streamerId,
+      now: Date.parse('2026-09-21T12:20:00Z'),
+    })
+
+    expect(await listStreamChapters(db, chatStream.id)).toHaveLength(1)
+    expect(delivery.pushedWorkLog).toEqual([])
   })
 
   it('区間を切れなかったときも収集は止めず、失敗を記録する（同じ時刻の発話が上限を超えて届いた場合）', async () => {

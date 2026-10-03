@@ -11,15 +11,22 @@
  * 注意: 配信していないときに届いた出来事は捨てる。配信外の作業で Twitch のチャットに bot が書き込んだり、
  *   次に OBS を開いたときに古いアラートが鳴ったりしないようにするためである。捨てた理由は本文に書いて 200 で返し、
  *   GitHub の Recent Deliveries から「なぜ鳴らなかったか」を読めるようにする。
+ * 配信中に届いた出来事は、トリガーに当てはまるかどうかと関係なく、合成ページの素材「作業ログ」に1行残して押し出す
+ * （issue #211）。作業ログは「その配信で実際に起きたこと」の記録なので、トリガーの設定に左右されないようにする。
+ *
  * 注意: 同じ通知の再送（GitHub の Redeliver は同じ X-GitHub-Delivery を使う）で二重に実行しないよう、
  *   動作ごとの鍵は X-GitHub-Delivery から作る（runAlertActions の reserveChatReply）。GitHub の通知には時刻の
  *   ヘッダーが無いので、EventSub のように古い通知を拒むことはしない。
  */
 import { runAlertActions } from './alert-actions'
+import { pushWorkLogEntry } from './alert-channel'
+import { extract } from './alert-event'
 import { GITHUB_EVENT, githubAlertEventOf, verifyGithubSignature } from './github-webhook'
 import { HttpError, STATUS, type Context } from './http'
 import { isStreaming } from './screen-store'
 import { loadToken } from './token'
+import { devEventOf } from './work-log'
+import { recordDevEvent } from './work-log-store'
 
 export const GITHUB_WEBHOOK_PATH = '/api/github/webhook'
 
@@ -93,6 +100,17 @@ export const githubWebhook = async (context: Context): Promise<Response> => {
   if (type === null) return ignored('not-a-trigger')
   if (!(await isStreaming(env.DB, now))) return ignored('not-streaming')
 
+  // 作業ログに出す1行は、トリガーと同じ読み解き（alert-event.ts の extract）から作る。形が違えば何も実行せずに400にする
+  const devEvent = (() => {
+    try {
+      const extracted = extract(type, payload)
+      return extracted === null ? null : devEventOf(extracted)
+    } catch (error) {
+      throw invalid(error instanceof Error ? error.message : String(error))
+    }
+  })()
+  if (devEvent === null) throw new Error(`開発の出来事として読めない種別です: ${type}`)
+
   // 実行は Twitch の通知と同じ入口を通す（照合・鍵の確保・失敗の記録をすべて共有する）。
   // 通知の中身は、Twitchの通知の event に当たる位置へ置く（alert-event.ts の extract が読む）
   await runAlertActions(
@@ -103,5 +121,10 @@ export const githubWebhook = async (context: Context): Promise<Response> => {
     async () => (await loadToken(env.STORE, 'bot')) !== null,
     null,
   )
+
+  // 作業ログはトリガーの動作のあとに残す。押し出しに失敗したら500で返し、GitHub の Redeliver で届け直せるようにする
+  // （再送では動作は鍵で弾かれ、作業ログは同じ1行のまま押し出し直される）
+  const entry = await recordDevEvent(env.DB, { id: `${DELIVERY_KEY_PREFIX}${delivery}`, ...devEvent }, now)
+  if (entry !== null) await pushWorkLogEntry(env.ALERTS, entry)
   return new Response(null, { status: STATUS.noContent })
 }

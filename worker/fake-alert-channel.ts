@@ -8,6 +8,7 @@ import type { AlertChannelNamespace } from './alert-channel'
 import type { OverlayAlert } from './alert-event'
 import type { BgmNowPlaying } from './bgm-config'
 import { STATUS } from './http'
+import type { WorkLogEntry } from './work-log'
 
 interface FakeAlertChannelOptions {
   /** 配送先が失敗を返す場合（押し出し側が失敗を握りつぶさないことを確かめる） */
@@ -20,6 +21,8 @@ export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelO
   pushedAlerts: OverlayAlert[]
   /** 押し出された「いま流している曲」 */
   pushedBgm: BgmNowPlaying[]
+  /** 押し出された作業ログの1行 */
+  pushedWorkLog: WorkLogEntry[]
   /** WebSocketの接続として引き渡されたリクエスト */
   forwardedConnections: Request[]
   /** 接続をすべて閉じるよう頼まれたときに添えられた、新しいキーの目印（オーバーレイ用キーの再発行） */
@@ -27,6 +30,7 @@ export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelO
 } => {
   const evictedAlerts: OverlayAlert[] = []
   const evictedBgm: BgmNowPlaying[] = []
+  const evictedWorkLog: WorkLogEntry[] = []
   const handedOverConnections: Request[] = []
   const revokedTags: string[] = []
   const id: DurableObjectId = { toString: () => 'alerts', equals: (other) => other.toString() === 'alerts', name: 'alerts' }
@@ -34,6 +38,7 @@ export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelO
   return {
     pushedAlerts: evictedAlerts,
     pushedBgm: evictedBgm,
+    pushedWorkLog: evictedWorkLog,
     forwardedConnections: handedOverConnections,
     revokedKeyTags: revokedTags,
     namespace: {
@@ -52,6 +57,7 @@ export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelO
             return new Response(null, { status: STATUS.noContent })
           }
           if (pathname === '/push/bgm') evictedBgm.push((await request.json()) as BgmNowPlaying)
+          else if (pathname === '/push/work-log') evictedWorkLog.push((await request.json()) as WorkLogEntry)
           else evictedAlerts.push((await request.json()) as OverlayAlert)
           return new Response(null, { status: STATUS.noContent })
         },

@@ -54,7 +54,7 @@ R2は無料枠（保存10GB・転送無料）だけを使う場合でも、デ�
 | `POST /api/auth/logout` | セッションを終える |
 | `GET /api/me` | ログイン中の配信者とオーバーレイ用キーを返す（要セッション） |
 | `POST /api/eventsub/webhook` | Twitchから届くEventSubの通知を受け、イベントの件数と配信の開始・終了を記録する（Twitchの署名を `EVENTSUB_SECRET` で確かめる） |
-| `POST /api/github/webhook` | GitHub の Webhook を受け、配信中ならコミットの push・PR のマージのトリガーを実行する（GitHub の署名を `GITHUB_WEBHOOK_SECRET` で確かめる。鍵が無ければ500。配信していない・対象でない出来事では何もせず、理由を本文に書いて200を返す） |
+| `POST /api/github/webhook` | GitHub の Webhook を受け、配信中ならコミットの push・PR のマージのトリガーを実行し、作業ログに1行残す（GitHub の署名を `GITHUB_WEBHOOK_SECRET` で確かめる。鍵が無ければ500。配信していない・対象でない出来事では何もせず、理由を本文に書いて200を返す） |
 | `GET /api/overlay/socket?key=` | アラート用オーバーレイからのWebSocketの接続を受け、当てはまったアラート（素材のURL・表示時間・音量・文言）を押し出す（要オーバーレイ用キー） |
 | `GET /api/overlay/side-super` | いま出すサイドスーパーの文言を返す（cron が作って貯めたものをそのまま返し、ここでLLMは呼ばない。配信していない・まだ作っていないときは空の行を返す。要オーバーレイ用キー） |
 | `GET /api/overlay/speech` | チャットの読み上げの設定を返す（未保存なら既定の設定。読み上げのページが起動のときと30秒おきに読む。要オーバーレイ用キー） |
@@ -66,6 +66,8 @@ R2は無料枠（保存10GB・転送無料）だけを使う場合でも、デ�
 | `GET /api/overlay/draw?key=` | 合成ページからのWebSocketの接続を受け、配信者が描く画面で引いた線を届ける（この接続からは描けない。要オーバーレイ用キー） |
 | `GET /api/overlay/tab?key=` | 合成ページからのWebSocketの接続を受け、送り手（拡張 HDAD-tab）とタブの映像をつなぐための連絡を中継する（映像そのものは通らない。要オーバーレイ用キー） |
 | `GET /api/overlay/draw/strokes` | 保存されている手書きの線を返す。合成ページが起動のときに1度読み、それを初期状態として描く（要オーバーレイ用キー） |
+| `GET /api/overlay/work-log` | いまの配信の作業ログ（GitHub のコミット・PRのマージと、章の見出し）を新しい順に20行まで返す（配信していなければ空の一覧。合成ページの素材「作業ログ」が起動のとき・つなぎ直したとき・5分おきに読む。要オーバーレイ用キー） |
+| `GET /api/overlay/work-log/socket?key=` | 合成ページからのWebSocketの接続を受け、作業ログに増えた1行を押し出す（要オーバーレイ用キー） |
 | `GET /api/overlay/layout` | 合成オーバーレイの構成（どのオーバーレイにどの素材をどこへ置くか）を返す。合成ページが起動のときに読む（要オーバーレイ用キー） |
 | `GET /api/chat/channel` | このWorkerが扱う配信者のチャンネル名を返す（**キーもセッションも要らない**。チャットボックスと読み上げが接続先を知るために読む） |
 | `GET /api/chat/badges` | チャットの公式バッジ画像の一覧を返す（キー不要。KVに1時間貯める） |
@@ -126,7 +128,7 @@ R2は無料枠（保存10GB・転送無料）だけを使う場合でも、デ�
 
 ## GitHub の Webhook の設定（任意）
 
-トリガーの「開発」の区分（コミットがpushされた・PRがマージされた。[アラート](./alerts.md#開発の項目github)）を使うときだけ設定します。GitHub には個人アカウント単位の Webhook が無いので、配信に出したいリポジトリごとに設定します。**設定したリポジトリが、受け付けるリポジトリになります**（非公開のリポジトリに設定すると、そのコミットのメッセージが配信に出ます）。
+トリガーの「開発」の区分（コミットがpushされた・PRがマージされた。[アラート](./alerts.md#開発の項目github)）か、合成ページの素材「[作業ログ](./work-log.md)」にコミット・マージを並べるときだけ設定します。GitHub には個人アカウント単位の Webhook が無いので、配信に出したいリポジトリごとに設定します。**設定したリポジトリが、受け付けるリポジトリになります**（非公開のリポジトリに設定すると、そのコミットのメッセージが配信に出ます）。
 
 1. 署名の鍵を `openssl rand -hex 32` で作り、Worker のシークレット `GITHUB_WEBHOOK_SECRET` に設定する（`npx wrangler secret put GITHUB_WEBHOOK_SECRET`。ローカルでは `.dev.vars` に書く）
 2. GitHub のリポジトリの Settings > Webhooks > Add webhook で、次のとおりに入れる
@@ -136,4 +138,4 @@ R2は無料枠（保存10GB・転送無料）だけを使う場合でも、デ�
    - **Which events would you like to trigger this webhook?**: 「Let me select individual events.」を選び、**Pushes** と **Pull requests** だけにチェックを入れる（ほかの出来事が届くと400で拒みます）
 3. 保存すると GitHub が `ping` を送ってくるので、Recent Deliveries で応答が `204` になっていることを確かめる
 
-同じ通知を Recent Deliveries の Redeliver で送り直しても、同じ動作は二度実行しません（`X-GitHub-Delivery` を鍵にしているためです）。
+同じ通知を Recent Deliveries の Redeliver で送り直しても、同じ動作は二度実行せず、作業ログの行も増えません（`X-GitHub-Delivery` を鍵にしているためです）。作業ログへの押し出しに失敗したときは500を返すので、Redeliver で届け直せます。
