@@ -10,10 +10,12 @@ import {
   AlertChannel,
   connectAlertSocket,
   connectBgmSocket,
+  connectPomodoroSocket,
   connectTaskDeskSocket,
   connectWorkLogSocket,
   pushAlert,
   pushBgm,
+  pushPomodoro,
   pushTaskDesk,
   pushWorkLogEntry,
   revokeAlertSockets,
@@ -24,6 +26,7 @@ import { createFakeAlertChannel } from './fake-alert-channel'
 import { createFakeDurableStorage } from './fake-durable-storage'
 import type { OverlayAlert } from './alert-event'
 import type { TaskDeskSnapshot } from './task-desk'
+import type { PomodoroSnapshot } from './pomodoro-timer'
 import type { WorkLogEntry } from './work-log'
 
 const alert: OverlayAlert = {
@@ -54,6 +57,11 @@ const deskWithOneTask: TaskDeskSnapshot = {
   entries: [{ userId: '11111', name: 'たなか', task: '英単語を50個覚える', declaredAt: '2026-10-03T12:10:00.000Z', doneAt: null }],
 }
 
+/** ポモドーロのタイマーを始めたあとの状態 */
+const runningPomodoro: PomodoroSnapshot = {
+  timer: { startedAt: Date.parse('2026-10-03T12:00:00Z'), anchorAt: Date.parse('2026-10-03T12:00:00Z'), pausedAt: null },
+}
+
 /** 送られた文字列を覚えておく、テスト用の接続 */
 const createConnection = (): AlertSocket & { sentMessages: string[] } => {
   const sentMessages: string[] = []
@@ -72,6 +80,7 @@ describe('AlertChannel', () => {
     bgmSockets: AlertSocket[] = [],
     workLogSockets: AlertSocket[] = [],
     taskDeskSockets: AlertSocket[] = [],
+    pomodoroSockets: AlertSocket[] = [],
   ): AlertChannel =>
     new AlertChannel({
       acceptWebSocket: () => undefined,
@@ -80,7 +89,8 @@ describe('AlertChannel', () => {
         if (tag === 'alerts') return sockets
         if (tag === 'workLog') return workLogSockets
         if (tag === 'taskDesk') return taskDeskSockets
-        return [...sockets, ...bgmSockets, ...workLogSockets, ...taskDeskSockets]
+        if (tag === 'pomodoro') return pomodoroSockets
+        return [...sockets, ...bgmSockets, ...workLogSockets, ...taskDeskSockets, ...pomodoroSockets]
       },
       setWebSocketAutoResponse: () => undefined,
       storage: createFakeDurableStorage(),
@@ -143,6 +153,18 @@ describe('AlertChannel', () => {
     expect(workLogItem.sentMessages).toEqual([])
   })
 
+  it('ポモドーロのタイマーは、タイマーを受け取る接続だけへ送る（作業机やアラートとしては読めないため）', async () => {
+    const taskDeskItem = createConnection()
+    const pomodoroItem = createConnection()
+    const destination = createDestination([], [], [], [taskDeskItem], [pomodoroItem])
+
+    const response = await destination.fetch(new Request('https://alert-channel/push/pomodoro', { method: 'POST', body: JSON.stringify(runningPomodoro) }))
+
+    expect(response.status).toBe(204)
+    expect(pomodoroItem.sentMessages).toEqual([JSON.stringify(runningPomodoro)])
+    expect(taskDeskItem.sentMessages).toEqual([])
+  })
+
   it('接続が1本もなければ、送らずに終わる（オーバーレイを開いていない間のアラートは落とす）', async () => {
     const destination = createDestination([])
 
@@ -177,7 +199,7 @@ describe('pushAlert', () => {
 })
 
 describe('接続の引き渡し', () => {
-  it('アラート・BGM・作業ログ・作業机の接続を、目印を付けて Durable Object へ引き渡す', async () => {
+  it('アラート・BGM・作業ログ・作業机・ポモドーロの接続を、目印を付けて Durable Object へ引き渡す', async () => {
     const delivery = createFakeAlertChannel()
     const connectionRequest = (): Request => new Request('https://hdad.example.com/api/overlay/socket?key=k', { headers: { Upgrade: 'websocket' } })
 
@@ -185,8 +207,9 @@ describe('接続の引き渡し', () => {
     await connectBgmSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
     await connectWorkLogSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
     await connectTaskDeskSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
+    await connectPomodoroSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
 
-    expect(delivery.forwardedConnections.map((request) => new URL(request.url).searchParams.get('topic'))).toEqual(['alerts', 'bgm', 'workLog', 'taskDesk'])
+    expect(delivery.forwardedConnections.map((request) => new URL(request.url).searchParams.get('topic'))).toEqual(['alerts', 'bgm', 'workLog', 'taskDesk', 'pomodoro'])
   })
 })
 
@@ -238,6 +261,23 @@ describe('pushTaskDesk', () => {
     const delivery = createFakeAlertChannel({ shouldFail: true })
 
     await expect(pushTaskDesk(delivery.namespace, deskWithOneTask)).rejects.toThrow('作業机')
+  })
+})
+
+describe('pushPomodoro', () => {
+  it('Durable Object へ、いまのタイマーを送る', async () => {
+    const delivery = createFakeAlertChannel()
+
+    await pushPomodoro(delivery.namespace, runningPomodoro)
+
+    expect(delivery.pushedPomodoro).toEqual([runningPomodoro])
+    expect(delivery.pushedAlerts).toEqual([])
+  })
+
+  it('Durable Object が失敗を返したら、黙って成功にせず投げる', async () => {
+    const delivery = createFakeAlertChannel({ shouldFail: true })
+
+    await expect(pushPomodoro(delivery.namespace, runningPomodoro)).rejects.toThrow('ポモドーロ')
   })
 })
 

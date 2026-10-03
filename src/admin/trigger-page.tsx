@@ -75,6 +75,8 @@ const MESSAGE_PLACEHOLDERS: Readonly<Record<TriggerKind, string>> = {
   adBreakEnd: '広告が終わりました。おかえりなさい',
   commitPushed: '{repo} の {branch} に「{message}」をpushしました',
   pullRequestMerged: '{repo} #{number}「{title}」をマージしました',
+  pomodoroWorkBegin: '{round}本目の作業を始めます。{minutes}分がんばりましょう',
+  pomodoroBreakBegin: '{round}本目おつかれさまでした。{minutes}分休憩です。進捗どうでした？',
 }
 const MIN_DURATION_SECONDS = 1
 const MAX_DURATION_SECONDS = 60
@@ -914,7 +916,7 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
         </CardContent>
       </Card>
 
-      {/* 一覧そのものはカードに入れず、区分（チャット・イベント・開発）ごとにカードにする
+      {/* 一覧そのものはカードに入れず、区分（チャット・イベント・開発・ポモドーロ）ごとにカードにする
           （全体を1枚のカードで囲むと、その中に区分の見出しと項目の枠が入れ子で並び、どこまでが1つのまとまりか読み取りにくい） */}
       <section className="flex flex-col gap-6">
         <div className="flex flex-col gap-1.5">

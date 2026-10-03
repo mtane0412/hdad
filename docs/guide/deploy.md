@@ -70,6 +70,8 @@ R2は無料枠（保存10GB・転送無料）だけを使う場合でも、デ�
 | `GET /api/overlay/work-log/socket?key=` | 合成ページからのWebSocketの接続を受け、作業ログに増えた1行を押し出す（要オーバーレイ用キー） |
 | `GET /api/overlay/task-desk` | いまの配信の作業机（視聴者が `!task` で宣言した作業）を、作業中の人を上にして12人まで返す（配信していなければ空の一覧。合成ページの素材「作業机」が起動のとき・つなぎ直したとき・5分おきに読む。要オーバーレイ用キー） |
 | `GET /api/overlay/task-desk/socket?key=` | 合成ページからのWebSocketの接続を受け、作業机が変わるたびに丸ごと押し出す（要オーバーレイ用キー） |
+| `GET /api/overlay/pomodoro` | いまのポモドーロのタイマー（止めていれば `null`。合成ページの素材「ポモドーロ」が起動のとき・つなぎ直したとき・5分おきに読む。要オーバーレイ用キー） |
+| `GET /api/overlay/pomodoro/socket?key=` | 合成ページからのWebSocketの接続を受け、ポモドーロのタイマーを始めた・一時停止・再開・止めたときに押し出す（要オーバーレイ用キー） |
 | `GET /api/overlay/layout` | 合成オーバーレイの構成（どのオーバーレイにどの素材をどこへ置くか）を返す。合成ページが起動のときに読む（要オーバーレイ用キー） |
 | `GET /api/chat/channel` | このWorkerが扱う配信者のチャンネル名を返す（**キーもセッションも要らない**。チャットボックスと読み上げが接続先を知るために読む） |
 | `GET /api/chat/badges` | チャットの公式バッジ画像の一覧を返す（キー不要。KVに1時間貯める） |
@@ -102,6 +104,9 @@ R2は無料枠（保存10GB・転送無料）だけを使う場合でも、デ�
 | `GET /api/admin/bgm` | BGMの曲の一覧と、いま流す曲・音量（要セッション） |
 | `PUT /api/admin/bgm/tracks` | BGMの曲の一覧の保存。流している曲は外せない（要セッション） |
 | `PUT /api/admin/bgm/playback` | 流すBGM（止めるなら `null`）と音量を保存し、裏方のページへ押し出す（要セッション） |
+| `GET /api/admin/pomodoro` | ポモドーロのタイマー（止めていれば `null`）と休憩の曲の設定（要セッション） |
+| `PUT /api/admin/pomodoro/settings` | ポモドーロの休憩中に流す曲（BGMの一覧にある曲か `null`）の保存（要セッション） |
+| `POST /api/admin/pomodoro/control` | ポモドーロのタイマーの操作（`command` は `start`・`pause`・`resume`・`stop`。今の状態でできない操作は409。要セッション） |
 | `GET`・`PUT /api/admin/focus` | 注目コメント（いま取り上げているもの）の取得・保存（要セッション） |
 | `GET`・`PUT /api/admin/llm` | LLMの提供元とモデルの設定の取得・保存（要セッション） |
 | `GET /api/admin/llm/models` | その提供元で選べるモデルの一覧（`?provider=`。要セッション） |

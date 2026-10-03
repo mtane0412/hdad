@@ -31,6 +31,11 @@ describe('expandSource', () => {
     expect(expandSource({ kind: 'raid' })).toEqual({ event: 'channel.raid', conditions: [] })
   })
 
+  it('ポモドーロの区切り（作業の開始・休憩の開始）は、Workerが作る擬似イベントの種別だけになる', () => {
+    expect(expandSource({ kind: 'pomodoroWorkBegin' })).toEqual({ event: 'hdad.pomodoro.work_begin', conditions: [] })
+    expect(expandSource({ kind: 'pomodoroBreakBegin' })).toEqual({ event: 'hdad.pomodoro.break_begin', conditions: [] })
+  })
+
   it('開発の出来事（コミットのpush・PRのマージ）は、GitHub から届く出来事の種別だけになる', () => {
     expect(expandSource({ kind: 'commitPushed' })).toEqual({ event: 'github.push', conditions: [] })
     expect(expandSource({ kind: 'pullRequestMerged' })).toEqual({ event: 'github.pull_request.merged', conditions: [] })
@@ -98,6 +103,8 @@ describe('expandSource', () => {
       adBreakEnd: { kind: 'adBreakEnd', automatic: null },
       commitPushed: { kind: 'commitPushed' },
       pullRequestMerged: { kind: 'pullRequestMerged' },
+      pomodoroWorkBegin: { kind: 'pomodoroWorkBegin' },
+      pomodoroBreakBegin: { kind: 'pomodoroBreakBegin' },
     }
     for (const kind of TRIGGER_KINDS) {
       expect(expandSource(sample[kind]).event).toBe(eventOf(kind))

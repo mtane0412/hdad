@@ -103,6 +103,15 @@ describe('parseAlertConfig', () => {
     expect(parseAlertConfig(noColor, materialKind).triggers[0]?.actions[0]).toMatchObject({ type: 'announce', color: 'primary' })
   })
 
+  it('ポモドーロの区切り（作業の開始・休憩の開始）のトリガーを受け付ける', () => {
+    const config = parseAlertConfig(
+      { triggers: [{ kind: 'pomodoroWorkBegin', actions: [chatAction()] }, { kind: 'pomodoroBreakBegin', actions: [chatAction()] }] },
+      materialKind,
+    )
+
+    expect(config.triggers.map((trigger) => trigger.kind)).toEqual(['pomodoroWorkBegin', 'pomodoroBreakBegin'])
+  })
+
   it('開発の出来事（コミットのpush・PRのマージ）のトリガーを受け付ける', () => {
     const config = parseAlertConfig(
       { triggers: [{ kind: 'commitPushed', actions: [chatAction()] }, { kind: 'pullRequestMerged', actions: [chatAction()] }] },
