@@ -29,7 +29,7 @@
  * 注意: WebSocketの接続（Upgrade）は Cloudflare のランタイムでしか作れないので、テストでは中継の部分だけを確かめる。
  */
 import { STATUS } from './http'
-import { broadcast, type SocketLike } from './socket-broadcast'
+import { broadcast, closeForRevokedKey, type SocketLike } from './socket-broadcast'
 
 /**
  * 中継先の名前（Durable Object のインスタンスの名前）。手書きと字幕でそれぞれ1つだけなので、決め打ちの名前で同じものを指す
@@ -43,6 +43,8 @@ export const VIEWER = 'viewer'
 
 /** 描く側として受け入れてよいかを Worker が伝えるためのクエリ。外には出ない（守りは Worker が済ませている） */
 const ROLE_PARAM = 'role'
+/** Worker がオーバーレイ用キーを発行し直したときに、見るだけの接続を閉じさせるパス */
+const REVOKE_PATH = '/revoke'
 
 /** 眠ったまま応えられる合図と、それに返す合図 */
 const PING = 'ping'
@@ -79,8 +81,19 @@ export class DrawChannel {
   constructor(private readonly ctx: DrawChannelState) {}
 
   fetch(request: Request): Response {
-    if (request.headers.get('Upgrade') !== 'websocket') return new Response(null, { status: STATUS.notFound })
-    return this.accept(new URL(request.url).searchParams.get(ROLE_PARAM) === WRITER ? WRITER : VIEWER)
+    const url = new URL(request.url)
+    if (request.headers.get('Upgrade') === 'websocket') return this.accept(url.searchParams.get(ROLE_PARAM) === WRITER ? WRITER : VIEWER)
+    if (url.pathname === REVOKE_PATH) return this.revokeViewers()
+    return new Response(null, { status: STATUS.notFound })
+  }
+
+  /**
+   * 見るだけの接続（オーバーレイ用キーで開かれたもの）をすべて閉じる。オーバーレイ用キーを発行し直したときに呼ばれる。
+   * 描く側の接続は配信者のセッションで開かれているので残す。
+   */
+  private revokeViewers(): Response {
+    closeForRevokedKey(this.ctx.getWebSockets().filter((socket) => this.ctx.getTags(socket).includes(VIEWER)))
+    return new Response(null, { status: STATUS.noContent })
   }
 
   /** 接続を受け取り、片方を返す。Hibernation API で受けるので、待っている間は課金されない */
@@ -129,4 +142,14 @@ export const connectDrawSocket = (namespace: DrawChannelNamespace, request: Requ
   const url = new URL(request.url)
   url.searchParams.set(ROLE_PARAM, writable ? WRITER : VIEWER)
   return channelOf(namespace, channel).fetch(new Request(url, request))
+}
+
+/**
+ * オーバーレイ用キーを発行し直したときに、中継先の見るだけの接続を閉じさせる。
+ *
+ * 注意: 失敗を黙って握りつぶさない。閉じられないと古いキーの接続が残るので、呼び出し側（admin-routes.ts）が失敗を返す。
+ */
+export const revokeRelayViewers = async (namespace: DrawChannelNamespace, channel: RelayChannel): Promise<void> => {
+  const response = await channelOf(namespace, channel).fetch(new Request(`https://draw-channel${REVOKE_PATH}`, { method: 'POST' }))
+  if (!response.ok) throw new Error(`${channel === 'draw' ? '手書き' : '字幕'}の接続を切断できませんでした（${response.status}）`)
 }

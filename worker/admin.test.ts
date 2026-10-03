@@ -31,6 +31,8 @@ const createEnv = () => {
   const store = createFakeStore({ 'overlay-key': issuedKey })
   const bucket = createFakeBucket()
   const delivery = createFakeAlertChannel()
+  const relay = createFakeDrawChannel()
+  const tabRelay = createFakeTabChannel()
   const env = {
     STORE: store,
     MEDIA: bucket,
@@ -42,13 +44,13 @@ const createEnv = () => {
     SESSION_SECRET: 'テスト用のセッション秘密鍵',
     EVENTSUB_SECRET: 'テスト用のWebhookシークレット',
     ALERTS: delivery.namespace,
-    DRAW: createFakeDrawChannel().namespace,
-    TAB: createFakeTabChannel().namespace,
+    DRAW: relay.namespace,
+    TAB: tabRelay.namespace,
     COMMENTS: createFakeCommentChannel().namespace,
     AD_BREAKS: createFakeAdBreakTimer().namespace,
     AI: createFakeWorkersAi(),
   } satisfies Env
-  return { env, store, bucket, delivery }
+  return { env, store, bucket, delivery, relay, tabRelay }
 }
 
 const noTwitchFetch = async (input: RequestInfo | URL): Promise<Response> => {
@@ -473,6 +475,18 @@ describe('POST /api/admin/overlay-key（キーの再発行）', () => {
     expect((await requestConnection(issuedKey)).status).toBe(401)
     expect((await invoke(new Request(`${origin}/api/media/${id}?key=${issuedKey}`), env)).status).toBe(401)
     expect((await requestConnection(overlayKey)).status).toBe(200)
+  })
+
+  it('古いキーで開かれたままの接続（アラート・BGM・手書き・字幕・タブの映像）をすべて切るよう頼む', async () => {
+    // 接続はつないだときに一度だけキーを確かめるので、切らないと古いキーのまま受け取り続けてしまう
+    const { env, delivery, relay, tabRelay } = createEnv()
+
+    const response = await invoke(await broadcasterRequest(env, '/api/admin/overlay-key', { method: 'POST' }), env)
+
+    expect(response.status).toBe(200)
+    expect(delivery.revocations).toBe(1)
+    expect([...relay.revokedChannels].sort()).toEqual(['caption', 'draw'])
+    expect(tabRelay.revocations).toBe(1)
   })
 })
 

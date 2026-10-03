@@ -6,7 +6,8 @@
  * そして同じ側どうしには配らないことである。
  */
 import { describe, expect, it } from 'vitest'
-import { SENDER, TabChannel, VIEWER, type TabChannelState, type TabSocket } from './tab-channel'
+import { SENDER, TabChannel, VIEWER, type TabChannelState, type TabSocket, revokeTabViewers } from './tab-channel'
+import { createFakeTabChannel } from './fake-tab-channel'
 
 /** 送られた文字列を覚えておく、テスト用の接続 */
 const createConnection = (): TabSocket & { sentMessages: string[] } => {
@@ -75,5 +76,38 @@ describe('TabChannel', () => {
     channel.webSocketMessage(senderPage, new ArrayBuffer(8))
 
     expect(obsStage.sentMessages).toEqual([])
+  })
+})
+
+describe('オーバーレイ用キーの再発行に伴う切断', () => {
+  /** 閉じられたかどうかを覚えておく、テスト用の接続 */
+  const createClosableConnection = (): TabSocket & { closedWith: number[] } => {
+    const closedWith: number[] = []
+    return { closedWith, send: () => {}, close: (code) => closedWith.push(code ?? 0) }
+  }
+
+  it('POST /revoke を受けたら、合成ページの接続（オーバーレイ用キーで開かれたもの）だけを閉じる', () => {
+    const senderPage = createClosableConnection()
+    const obsStage = createClosableConnection()
+    const channel = new TabChannel(createStorage([
+      [senderPage, SENDER],
+      [obsStage, VIEWER],
+    ]))
+
+    const response = channel.fetch(new Request('https://tab-channel/revoke', { method: 'POST' }))
+
+    expect(response.status).toBe(204)
+    expect(obsStage.closedWith).toEqual([4001])
+    // 送り手（拡張）は配信者のセッションで開かれているので、キーの再発行とは関係なく残す
+    expect(senderPage.closedWith).toEqual([])
+  })
+
+  it('revokeTabViewers は Durable Object へ切断を頼む', async () => {
+    const relay = createFakeTabChannel()
+
+    await revokeTabViewers(relay.namespace)
+
+    expect(relay.revocations).toBe(1)
+    expect(relay.forwardedConnections).toEqual([])
   })
 })

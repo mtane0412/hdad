@@ -26,7 +26,7 @@
 import type { OverlayAlert } from './alert-event'
 import type { BgmNowPlaying } from './bgm-config'
 import { STATUS } from './http'
-import { broadcast, type SocketLike } from './socket-broadcast'
+import { broadcast, closeForRevokedKey, type SocketLike } from './socket-broadcast'
 
 /** Durable Object の名前。配送先は1つだけなので、決め打ちの名前で同じものを指す */
 const CHANNEL_NAME = 'alerts'
@@ -35,6 +35,8 @@ const CHANNEL_NAME = 'alerts'
 const PUSH_PATH = '/push'
 /** Worker がBGMの切り替えの押し出しに使うパス */
 const PUSH_BGM_PATH = '/push/bgm'
+/** Worker がオーバーレイ用キーを発行し直したときに、開いている接続を閉じさせるパス */
+const REVOKE_PATH = '/revoke'
 
 /** アラートを受け取る接続（合成ページ）に付ける目印 */
 const ALERTS_TOPIC = 'alerts'
@@ -79,6 +81,7 @@ export interface AlertChannelNamespace {
  *   クエリの topic が bgm ならBGMの接続、それ以外はアラートの接続として受け入れる
  * - POST /push: Worker が押し出したアラートを、アラートの接続すべてへ配る
  * - POST /push/bgm: Worker が押し出した「いま流している曲」を、BGMの接続すべてへ配る
+ * - POST /revoke: 接続をすべて閉じる（オーバーレイ用キーを発行し直したとき。どの接続もオーバーレイ用キーで開かれている）
  */
 export class AlertChannel {
   /** Cloudflare は (state, env) の2つを渡すが、この Durable Object は保管も外部との通信も行わないので state だけを受け取る */
@@ -89,6 +92,10 @@ export class AlertChannel {
     if (request.headers.get('Upgrade') === 'websocket') return this.accept(url.searchParams.get(TOPIC_PARAM) === BGM_TOPIC ? BGM_TOPIC : ALERTS_TOPIC)
     if (url.pathname === PUSH_PATH) return this.push(ALERTS_TOPIC, await request.text(), 'アラート')
     if (url.pathname === PUSH_BGM_PATH) return this.push(BGM_TOPIC, await request.text(), 'BGMの切り替え')
+    if (url.pathname === REVOKE_PATH) {
+      closeForRevokedKey(this.ctx.getWebSockets())
+      return new Response(null, { status: STATUS.noContent })
+    }
     return new Response(null, { status: STATUS.notFound })
   }
 
@@ -160,3 +167,13 @@ export const pushAlert = (namespace: AlertChannelNamespace, alert: OverlayAlert)
  */
 export const pushBgm = (namespace: AlertChannelNamespace, nowPlaying: BgmNowPlaying): Promise<void> =>
   pushJson(namespace, PUSH_BGM_PATH, nowPlaying, 'BGMの切り替え')
+
+/**
+ * オーバーレイ用キーを発行し直したときに、開いている接続（アラート・BGM）をすべて閉じさせる。
+ *
+ * 注意: 失敗を黙って握りつぶさない。閉じられないと古いキーの接続が残るので、呼び出し側（admin-routes.ts）が失敗を返す。
+ */
+export const revokeAlertSockets = async (namespace: AlertChannelNamespace): Promise<void> => {
+  const response = await channelOf(namespace).fetch(new Request(`https://alert-channel${REVOKE_PATH}`, { method: 'POST' }))
+  if (!response.ok) throw new Error(`アラート・BGMの接続を切断できませんでした（${response.status}）`)
+}

@@ -6,7 +6,8 @@
  * そして合成ページ（見るだけの接続）から送られてきたものは配らないことである。
  */
 import { describe, expect, it } from 'vitest'
-import { DrawChannel, WRITER, VIEWER, type DrawSocket, type DrawChannelState } from './draw-channel'
+import { DrawChannel, WRITER, VIEWER, revokeRelayViewers, type DrawSocket, type DrawChannelState } from './draw-channel'
+import { createFakeDrawChannel } from './fake-draw-channel'
 
 /** 送られた文字列を覚えておく、テスト用の接続 */
 const createConnection = (): DrawSocket & { sentMessages: string[] } => {
@@ -78,5 +79,39 @@ describe('DrawChannel', () => {
     channel.webSocketMessage(drawScreen, new ArrayBuffer(8))
 
     expect(stagePage.sentMessages).toEqual([])
+  })
+})
+
+describe('オーバーレイ用キーの再発行に伴う切断', () => {
+  /** 閉じられたかどうかを覚えておく、テスト用の接続 */
+  const createClosableConnection = (): DrawSocket & { closedWith: number[] } => {
+    const closedWith: number[] = []
+    return { closedWith, send: () => {}, close: (code) => closedWith.push(code ?? 0) }
+  }
+
+  it('POST /revoke を受けたら、見るだけの接続（オーバーレイ用キーで開かれたもの）だけを閉じる', () => {
+    const drawScreen = createClosableConnection()
+    const stagePage = createClosableConnection()
+    const channel = new DrawChannel(createStorage([
+      [drawScreen, WRITER],
+      [stagePage, VIEWER],
+    ]))
+
+    const response = channel.fetch(new Request('https://draw-channel/revoke', { method: 'POST' }))
+
+    expect(response.status).toBe(204)
+    expect(stagePage.closedWith).toEqual([4001])
+    // 描く画面は配信者のセッションで開かれているので、キーの再発行とは関係なく残す
+    expect(drawScreen.closedWith).toEqual([])
+  })
+
+  it('revokeRelayViewers は指定した中継先（手書き・字幕）へ切断を頼む', async () => {
+    const relay = createFakeDrawChannel()
+
+    await revokeRelayViewers(relay.namespace, 'draw')
+    await revokeRelayViewers(relay.namespace, 'caption')
+
+    expect(relay.revokedChannels).toEqual(['draw', 'caption'])
+    expect(relay.forwardedConnections).toEqual([])
   })
 })

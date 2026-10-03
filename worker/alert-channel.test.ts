@@ -6,7 +6,7 @@
  * 失敗を握りつぶさないことである（配る部分そのものは worker/socket-broadcast.test.ts が確かめる）。
  */
 import { describe, expect, it } from 'vitest'
-import { AlertChannel, connectAlertSocket, connectBgmSocket, pushAlert, pushBgm, type AlertSocket } from './alert-channel'
+import { AlertChannel, connectAlertSocket, connectBgmSocket, pushAlert, pushBgm, revokeAlertSockets, type AlertSocket } from './alert-channel'
 import type { BgmNowPlaying } from './bgm-config'
 import { createFakeAlertChannel } from './fake-alert-channel'
 import type { OverlayAlert } from './alert-event'
@@ -143,5 +143,38 @@ describe('pushBgm', () => {
     const delivery = createFakeAlertChannel({ shouldFail: true })
 
     await expect(pushBgm(delivery.namespace, playingTrack)).rejects.toThrow('BGM')
+  })
+})
+
+describe('オーバーレイ用キーの再発行に伴う切断', () => {
+  /** 閉じられたかどうかを覚えておく、テスト用の接続 */
+  const createClosableConnection = (): AlertSocket & { closedWith: number[] } => {
+    const closedWith: number[] = []
+    return { closedWith, send: () => undefined, close: (code) => closedWith.push(code ?? 0) }
+  }
+
+  it('POST /revoke を受けたら、アラートの接続も BGM の接続もすべて閉じる（どちらも古いキーで開かれたかもしれないため）', async () => {
+    const stagePage = createClosableConnection()
+    const backstagePage = createClosableConnection()
+    const destination = new AlertChannel({
+      acceptWebSocket: () => undefined,
+      getWebSockets: (tag) => (tag === 'bgm' ? [backstagePage] : tag === 'alerts' ? [stagePage] : [stagePage, backstagePage]),
+      setWebSocketAutoResponse: () => undefined,
+    })
+
+    const response = await destination.fetch(new Request('https://alert-channel/revoke', { method: 'POST' }))
+
+    expect(response.status).toBe(204)
+    expect(stagePage.closedWith).toEqual([4001])
+    expect(backstagePage.closedWith).toEqual([4001])
+  })
+
+  it('revokeAlertSockets は Durable Object へ切断を頼み、失敗を返されたら投げる', async () => {
+    const delivery = createFakeAlertChannel()
+    await revokeAlertSockets(delivery.namespace)
+    expect(delivery.revocations).toBe(1)
+    expect(delivery.pushedAlerts).toEqual([])
+
+    await expect(revokeAlertSockets(createFakeAlertChannel({ shouldFail: true }).namespace)).rejects.toThrow('切断')
   })
 })
