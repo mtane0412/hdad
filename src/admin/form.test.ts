@@ -64,9 +64,14 @@ const alertAction = (overrides: Record<string, unknown> = {}) => ({
 })
 
 describe('menuGroups', () => {
-  it('メニュー項目を「チャット・イベント」の2つに分けて並べる', () => {
-    // 広告は配信者から見れば「配信中に起きる出来事」の1つなので、応援と同じ「イベント」にまとめる
-    expect(menuGroups.map((group) => group.label)).toEqual(['チャット', 'イベント'])
+  it('メニュー項目を「チャット・イベント・開発」の3つに分けて並べる', () => {
+    // 広告は配信者から見れば「配信中に起きる出来事」の1つなので、応援と同じ「イベント」にまとめる。
+    // GitHub から届く出来事は視聴者の行動ではないので、別の区分「開発」にする
+    expect(menuGroups.map((group) => group.label)).toEqual(['チャット', 'イベント', '開発'])
+  })
+
+  it('開発の区分には、コミットのpushとPRのマージを並べる', () => {
+    expect(menuGroups[2]?.items.map((item) => item.kind)).toEqual(['commitPushed', 'pullRequestMerged'])
   })
 
   it('すべてのイベント種別がどれかの区分に1回だけ出る（追加し忘れ・重複を防ぐ）', () => {
@@ -313,6 +318,8 @@ describe('withFixedRows', () => {
       'raid',
       'adBreakBegin',
       'adBreakEnd',
+      'commitPushed',
+      'pullRequestMerged',
     ])
     expect(rows.every((row) => !hasAnyAction(row))).toBe(true)
   })
@@ -420,6 +427,10 @@ describe('placeholdersFor', () => {
     ['raid', ['{user}', '{viewers}', '{summary}']],
     ['everyMessage', ['{user}', '{message}', '{summary}']],
     ['newViewer', ['{user}', '{message}', '{summary}']],
+    // {user} は GitHub のユーザー名、{message} は最後のコミットのメッセージの1行目
+    ['commitPushed', ['{user}', '{repo}', '{branch}', '{message}', '{summary}']],
+    // {user} はマージした人の GitHub のユーザー名
+    ['pullRequestMerged', ['{user}', '{repo}', '{title}', '{number}', '{summary}']],
     ['adBreakBegin', ['{user}', '{duration}', '{summary}']],
     ['adBreakEnd', ['{user}', '{duration}', '{summary}']],
   ] as const)('%s で使える差し込み語を返す', (kind, expected) => {

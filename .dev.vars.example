@@ -40,3 +40,11 @@ EVENTSUB_SECRET=
 # 使うときは https://gyazo.com/oauth/applications でアプリを登録してトークンを発行し、この行の # を外して
 # ローカルの .dev.vars に書くか、本番では `npx wrangler secret put GYAZO_ACCESS_TOKEN` で設定してください。
 # GYAZO_ACCESS_TOKEN=
+
+# GitHub の Webhook の署名の鍵（任意）。
+# トリガーの「開発」の区分（コミットがpushされた・PRがマージされた）を使うときだけ必要です。使わないなら不要です。
+# 意図的にコメントアウトしてあります（Deploy to Cloudflare ボタンの入力欄に必須の項目として出さないため）。
+# 使うときは `openssl rand -hex 32` で作り、GitHub のリポジトリの Webhook の Secret にも同じ値を入れます
+# （手順は docs/guide/deploy.md の「GitHub の Webhook の設定」）。この行の # を外してローカルの .dev.vars に書くか、
+# 本番では `npx wrangler secret put GITHUB_WEBHOOK_SECRET` で設定してください。
+# GITHUB_WEBHOOK_SECRET=

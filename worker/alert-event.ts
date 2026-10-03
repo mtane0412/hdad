@@ -30,6 +30,7 @@ import {
   type ResolvedTrigger,
 } from './alert-config'
 import { readChatMessage } from './chat-command'
+import { BRANCH_REF_PREFIX } from './github-webhook'
 import { GREETING_KINDS, isGreeting, type StoredCondition } from './trigger-menu'
 import { fillStreamSummary, STREAM_SUMMARY_PLACEHOLDER } from './stream-summary'
 
@@ -41,6 +42,8 @@ const RAID = 'channel.raid'
 const CHAT_MESSAGE = 'channel.chat.message'
 const AD_BREAK_BEGIN = 'channel.ad_break.begin'
 const AD_BREAK_END = 'channel.ad_break.end'
+const GITHUB_PUSH = 'github.push'
+const GITHUB_PULL_REQUEST_MERGED = 'github.pull_request.merged'
 
 /**
  * Twitchへ送る1通の上限（チャットもアナウンスも500文字。worker/alert-config.ts の検証と同じ値）。
@@ -79,6 +82,24 @@ export type Extracted =
       readonly userLogin: string
       readonly durationSeconds: number
       readonly automatic: boolean
+    }
+  // GitHub から届く開発の出来事。userName・userLogin はどちらも GitHub のユーザー名（sender.login）で、Twitchのユーザーではない。
+  // commitMessage は最後のコミット（head_commit）のメッセージの1行目だけ（2行目以降の本文は配信に出さない）
+  | {
+      readonly event: typeof GITHUB_PUSH
+      readonly userName: string
+      readonly userLogin: string
+      readonly repository: string
+      readonly branch: string
+      readonly commitMessage: string
+    }
+  | {
+      readonly event: typeof GITHUB_PULL_REQUEST_MERGED
+      readonly userName: string
+      readonly userLogin: string
+      readonly repository: string
+      readonly title: string
+      readonly number: number
     }
 
 /**
@@ -198,6 +219,27 @@ const readReward = (event: EventBody): { rewardId: string; rewardTitle: string }
   return { rewardId: id, rewardTitle: title }
 }
 
+/** 通知の中身の、入れ子のオブジェクトを読む。無ければどの項目が欠けているかを示してエラーにする */
+const readRecord = (event: EventBody, key: string): EventBody => {
+  const value = event[key]
+  if (!isRecord(value)) throw new Error(`イベントの通知に ${key} がありません`)
+  return value
+}
+
+/**
+ * GitHub の通知から、どの出来事でも共通に使う項目（GitHub のユーザー名とリポジトリ名）を読む。
+ *
+ * リポジトリは owner を含まない名前（name）を使う。Webhook を設定するのは配信者自身のリポジトリなので、
+ * owner は配信者で決まっており、配信に出すには短い名前のほうが読みやすいためである。
+ */
+const readGithubCommon = (event: EventBody): { userName: string; userLogin: string; repository: string } => {
+  const login = readString(readRecord(event, 'sender'), 'login')
+  return { userName: login, userLogin: login, repository: readString(readRecord(event, 'repository'), 'name') }
+}
+
+/** コミットのメッセージの1行目。2行目以降（本文）は長く、配信に出す文言に向かないので落とす */
+const firstLineOf = (message: string): string => message.split('\n')[0] ?? ''
+
 /**
  * 通知から、照合と文言に使う項目をイベント種別ごとに取り出す。
  *
@@ -249,6 +291,24 @@ export const extract = (subscriptionType: string, body: unknown): Extracted | nu
         durationSeconds: readNumber(body, 'duration_seconds'),
         automatic: readBoolean(body, 'is_automatic'),
       }
+    // GitHub の出来事は、受け口（worker/github-routes.ts）が push・PRのマージだけに振り分けてから渡してくる。
+    // タグの push とブランチの削除はそこで外してあるので、ref は必ず refs/heads/ で始まり、head_commit も必ずある
+    case GITHUB_PUSH:
+      return {
+        event: GITHUB_PUSH,
+        ...readGithubCommon(body),
+        branch: readString(body, 'ref').replace(BRANCH_REF_PREFIX, ''),
+        commitMessage: firstLineOf(readString(readRecord(body, 'head_commit'), 'message')),
+      }
+    case GITHUB_PULL_REQUEST_MERGED: {
+      const pullRequest = readRecord(body, 'pull_request')
+      return {
+        event: GITHUB_PULL_REQUEST_MERGED,
+        ...readGithubCommon(body),
+        title: readString(pullRequest, 'title'),
+        number: readNumber(pullRequest, 'number'),
+      }
+    }
     default:
       return null
   }
@@ -321,6 +381,11 @@ const placeholderValues = (extracted: Extracted): Record<string, string> => {
     case AD_BREAK_BEGIN:
     case AD_BREAK_END:
       return { '{user}': extracted.userName, '{duration}': String(extracted.durationSeconds) }
+    // {message} はチャットの発言と同じ語を使う（どちらも「その出来事の本文」で、配信者が覚える語を増やさない）
+    case GITHUB_PUSH:
+      return { '{user}': extracted.userName, '{repo}': extracted.repository, '{branch}': extracted.branch, '{message}': extracted.commitMessage }
+    case GITHUB_PULL_REQUEST_MERGED:
+      return { '{user}': extracted.userName, '{repo}': extracted.repository, '{title}': extracted.title, '{number}': String(extracted.number) }
   }
 }
 

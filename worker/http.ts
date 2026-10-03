@@ -98,6 +98,13 @@ export interface Env {
    * 無ければ、黙って捨てずに失敗させる（Fail-Fast。worker/overlay-routes.ts の postScreen）。
    */
   GYAZO_ACCESS_TOKEN?: string
+  /**
+   * GitHub の Webhook の署名の鍵（Webhook の設定の Secret に入れたものと同じ値）。
+   *
+   * 開発の出来事（コミットの push・PR のマージ）をトリガーのきっかけにするときだけ要る（worker/github-routes.ts）ので、
+   * 設定していなくてもWorkerは動く。通知が届いたのに無ければ、署名を確かめずに通すことはせず失敗させる（Fail-Fast）。
+   */
+  GITHUB_WEBHOOK_SECRET?: string
 }
 
 /** 経路の処理が受け取る文脈 */

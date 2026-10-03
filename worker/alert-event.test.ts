@@ -141,6 +141,47 @@ describe('extract', () => {
     })
   })
 
+  it('GitHub のpushから、pushした人・リポジトリ・ブランチ・最後のコミットのメッセージの1行目を取り出す', () => {
+    const payload = {
+      ref: 'refs/heads/feature/github-webhook',
+      sender: { login: 'mtane0412' },
+      repository: { name: 'hdad', full_name: 'mtane0412/hdad' },
+      head_commit: { message: 'GitHub の Webhook を受ける口を足す\n\n本文の2行目以降は配信に出さない' },
+    }
+
+    expect(extract('github.push', payload)).toEqual({
+      event: 'github.push',
+      userName: 'mtane0412',
+      userLogin: 'mtane0412',
+      repository: 'hdad',
+      branch: 'feature/github-webhook',
+      commitMessage: 'GitHub の Webhook を受ける口を足す',
+    })
+  })
+
+  it('GitHub のPRのマージから、マージした人・リポジトリ・PRのタイトルと番号を取り出す', () => {
+    const payload = {
+      action: 'closed',
+      sender: { login: 'mtane0412' },
+      repository: { name: 'hdad', full_name: 'mtane0412/hdad' },
+      pull_request: { number: 212, title: 'コミットとPRのマージをトリガーのきっかけにする', merged: true },
+    }
+
+    expect(extract('github.pull_request.merged', payload)).toEqual({
+      event: 'github.pull_request.merged',
+      userName: 'mtane0412',
+      userLogin: 'mtane0412',
+      repository: 'hdad',
+      title: 'コミットとPRのマージをトリガーのきっかけにする',
+      number: 212,
+    })
+  })
+
+  it('GitHub の通知の中身が想定と違えば、どの項目が足りないかを示してエラーにする', () => {
+    expect(() => extract('github.push', { ref: 'refs/heads/main', sender: { login: 'mtane0412' }, repository: { name: 'hdad' } })).toThrowError(/head_commit/)
+    expect(() => extract('github.pull_request.merged', { sender: { login: 'mtane0412' }, repository: { name: 'hdad' } })).toThrowError(/pull_request/)
+  })
+
   it('対応していないイベントの種類は null を返す（Twitchが種類を増やしてもWorkerを止めない）', () => {
     expect(extract('channel.cheer', { user_name: '田中太郎' })).toBeNull()
   })
@@ -271,6 +312,27 @@ describe('fillMessage', () => {
     const chatted = { event: CHAT_MESSAGE, userName: '田中太郎', userLogin: 'tanaka_taro', text: 'おはよう' } as const
 
     expect(fillMessage('{user} さんが「{message}」と言いました', chatted, null)).toBe('田中太郎 さんが「おはよう」と言いました')
+  })
+
+  it('コミットのpushでは、{repo}・{branch}・{message} がリポジトリ名・ブランチ名・コミットのメッセージに置き換わる', () => {
+    const pushed = {
+      event: 'github.push',
+      userName: 'mtane0412',
+      userLogin: 'mtane0412',
+      repository: 'hdad',
+      branch: 'feature/github-webhook',
+      commitMessage: 'テストを先に書く',
+    } as const
+
+    expect(fillMessage('{repo} の {branch} に「{message}」をpushしました（{user}）', pushed, null)).toBe(
+      'hdad の feature/github-webhook に「テストを先に書く」をpushしました（mtane0412）',
+    )
+  })
+
+  it('PRのマージでは、{title}・{number} がPRのタイトルと番号に置き換わる', () => {
+    const merged = { event: 'github.pull_request.merged', userName: 'mtane0412', userLogin: 'mtane0412', repository: 'hdad', title: '字幕を直す', number: 197 } as const
+
+    expect(fillMessage('{repo} #{number}「{title}」をマージしました', merged, null)).toBe('hdad #197「字幕を直す」をマージしました')
   })
 
   it('広告では、{duration} が広告の長さ（秒）に置き換わる', () => {

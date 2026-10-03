@@ -4,7 +4,7 @@
 
 **イベント種別と条件を自由に組み合わせる形は採らない。** このツールは Firebot のような汎用ノーコードを目指していないためで、組み合わせを画面で組み立てさせると、「初見さんに反応したい」だけでも2段の手順が要り、意味を持たない組み合わせも作れてしまう。
 
-メニュー項目は13種類（`worker/trigger-menu.ts` の `TRIGGER_KINDS`）で、`newViewer`（初めて来た人の発言）・`comeback`（`days` 日以上空いた人の発言。1〜365の整数）・`welcome`（その配信で最初の発言）・`everyMessage`（すべての発言）・`keyword`（`contains`。大文字小文字を区別しない部分一致）・`fromUser`（`login`。大文字小文字を区別しない）・`reward`（`rewardId`。`null` はすべての報酬）・`follow`・`subscribe`・`resubscribe`・`raid`・`adBreakBegin`／`adBreakEnd`（`automatic`。`null` は自動・手動のどちらでも）である。
+メニュー項目は15種類（`worker/trigger-menu.ts` の `TRIGGER_KINDS`）で、`newViewer`（初めて来た人の発言）・`comeback`（`days` 日以上空いた人の発言。1〜365の整数）・`welcome`（その配信で最初の発言）・`everyMessage`（すべての発言）・`keyword`（`contains`。大文字小文字を区別しない部分一致）・`fromUser`（`login`。大文字小文字を区別しない）・`reward`（`rewardId`。`null` はすべての報酬）・`follow`・`subscribe`・`resubscribe`・`raid`・`adBreakBegin`／`adBreakEnd`（`automatic`。`null` は自動・手動のどちらでも）・`commitPushed`・`pullRequestMerged`（GitHub の Webhook から届く開発の出来事。[GitHub の Webhook](github-webhook.md)）である。
 
 ## 挨拶は排他にする
 

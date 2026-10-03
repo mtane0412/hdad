@@ -54,6 +54,7 @@ R2は無料枠（保存10GB・転送無料）だけを使う場合でも、デ�
 | `POST /api/auth/logout` | セッションを終える |
 | `GET /api/me` | ログイン中の配信者とオーバーレイ用キーを返す（要セッション） |
 | `POST /api/eventsub/webhook` | Twitchから届くEventSubの通知を受け、イベントの件数と配信の開始・終了を記録する（Twitchの署名を `EVENTSUB_SECRET` で確かめる） |
+| `POST /api/github/webhook` | GitHub の Webhook を受け、配信中ならコミットの push・PR のマージのトリガーを実行する（GitHub の署名を `GITHUB_WEBHOOK_SECRET` で確かめる。鍵が無ければ500。配信していない・対象でない出来事では何もせず、理由を本文に書いて200を返す） |
 | `GET /api/overlay/socket?key=` | アラート用オーバーレイからのWebSocketの接続を受け、当てはまったアラート（素材のURL・表示時間・音量・文言）を押し出す（要オーバーレイ用キー） |
 | `GET /api/overlay/side-super` | いま出すサイドスーパーの文言を返す（cron が作って貯めたものをそのまま返し、ここでLLMは呼ばない。配信していない・まだ作っていないときは空の行を返す。要オーバーレイ用キー） |
 | `GET /api/overlay/speech` | チャットの読み上げの設定を返す（未保存なら既定の設定。読み上げのページが起動のときと30秒おきに読む。要オーバーレイ用キー） |
@@ -122,3 +123,17 @@ R2は無料枠（保存10GB・転送無料）だけを使う場合でも、デ�
 ---
 
 開発者向け: この作りにした理由は [Workerと失敗の記録](../decisions/worker.md) にあります。
+
+## GitHub の Webhook の設定（任意）
+
+トリガーの「開発」の区分（コミットがpushされた・PRがマージされた。[アラート](./alerts.md#開発の項目github)）を使うときだけ設定します。GitHub には個人アカウント単位の Webhook が無いので、配信に出したいリポジトリごとに設定します。**設定したリポジトリが、受け付けるリポジトリになります**（非公開のリポジトリに設定すると、そのコミットのメッセージが配信に出ます）。
+
+1. 署名の鍵を `openssl rand -hex 32` で作り、Worker のシークレット `GITHUB_WEBHOOK_SECRET` に設定する（`npx wrangler secret put GITHUB_WEBHOOK_SECRET`。ローカルでは `.dev.vars` に書く）
+2. GitHub のリポジトリの Settings > Webhooks > Add webhook で、次のとおりに入れる
+   - **Payload URL**: `https://<公開先のドメイン>/api/github/webhook`
+   - **Content type**: `application/json`（既定の `application/x-www-form-urlencoded` のままだと400で拒みます）
+   - **Secret**: 手順1で作った鍵
+   - **Which events would you like to trigger this webhook?**: 「Let me select individual events.」を選び、**Pushes** と **Pull requests** だけにチェックを入れる（ほかの出来事が届くと400で拒みます）
+3. 保存すると GitHub が `ping` を送ってくるので、Recent Deliveries で応答が `204` になっていることを確かめる
+
+同じ通知を Recent Deliveries の Redeliver で送り直しても、同じ動作は二度実行しません（`X-GitHub-Delivery` を鍵にしているためです）。

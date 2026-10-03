@@ -15,6 +15,9 @@ const CHAT_MESSAGE = 'channel.chat.message'
 const AD_BREAK_BEGIN = 'channel.ad_break.begin'
 /** 広告の終了。Twitchから届く通知ではなく、Workerが広告の長さから作る擬似イベント（worker/ad-break-timer.ts） */
 const AD_BREAK_END = 'channel.ad_break.end'
+/** コミットの push・PR のマージ。Twitchではなく GitHub の Webhook から届く出来事（worker/github-routes.ts） */
+const GITHUB_PUSH = 'github.push'
+const GITHUB_PULL_REQUEST_MERGED = 'github.pull_request.merged'
 
 /** アラートを出せるイベントの種類。worker/alert-config.ts の ALERT_EVENTS と同じ並び（worker/ の型は読み込めないのでここで定義する） */
 export const ALERT_EVENTS = [
@@ -26,6 +29,8 @@ export const ALERT_EVENTS = [
   CHAT_MESSAGE,
   AD_BREAK_BEGIN,
   AD_BREAK_END,
+  GITHUB_PUSH,
+  GITHUB_PULL_REQUEST_MERGED,
 ] as const
 
 export type AlertEvent = (typeof ALERT_EVENTS)[number]
@@ -125,6 +130,8 @@ export const TRIGGER_KINDS = [
   'raid',
   'adBreakBegin',
   'adBreakEnd',
+  'commitPushed',
+  'pullRequestMerged',
 ] as const
 
 export type TriggerKind = (typeof TRIGGER_KINDS)[number]
@@ -142,6 +149,7 @@ export type TriggerSource =
   | { kind: 'reward'; rewardId: string | null }
   | { kind: 'follow' | 'subscribe' | 'resubscribe' | 'raid' }
   | { kind: 'adBreakBegin' | 'adBreakEnd'; automatic: boolean | null }
+  | { kind: 'commitPushed' | 'pullRequestMerged' }
 
 /** 保存するトリガー。既定メニューの項目と、そのとき行う動作の一覧からなる */
 export type TriggerInput = TriggerSource & { actions: ActionInput[] }

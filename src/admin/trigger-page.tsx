@@ -73,6 +73,8 @@ const MESSAGE_PLACEHOLDERS: Readonly<Record<TriggerKind, string>> = {
   raid: '{user} さんが{viewers}人でレイドしました',
   adBreakBegin: 'ここで{duration}秒の広告が入ります',
   adBreakEnd: '広告が終わりました。おかえりなさい',
+  commitPushed: '{repo} の {branch} に「{message}」をpushしました',
+  pullRequestMerged: '{repo} #{number}「{title}」をマージしました',
 }
 const MIN_DURATION_SECONDS = 1
 const MAX_DURATION_SECONDS = 60
@@ -912,7 +914,7 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
         </CardContent>
       </Card>
 
-      {/* 一覧そのものはカードに入れず、区分（チャット・イベント）ごとにカードにする
+      {/* 一覧そのものはカードに入れず、区分（チャット・イベント・開発）ごとにカードにする
           （全体を1枚のカードで囲むと、その中に区分の見出しと項目の枠が入れ子で並び、どこまでが1つのまとまりか読み取りにくい） */}
       <section className="flex flex-col gap-6">
         <div className="flex flex-col gap-1.5">

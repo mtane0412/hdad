@@ -122,6 +122,31 @@ describe('buildPrompt', () => {
     expect(prompt).toContain('自動で入った広告')
   })
 
+  it('開発の出来事では、リポジトリとコミットのメッセージ・PRのタイトルを材料に書く', () => {
+    const noVisit = { firstChatOfStream: false, firstChatEver: false, daysSinceLastChat: null }
+    const pushed = buildPrompt({
+      instruction: '作業が進んだことを伝えてください',
+      extracted: { event: 'github.push', userName: 'mtane0412', userLogin: 'mtane0412', repository: 'hdad', branch: 'main', commitMessage: '字幕を直す' },
+      viewer: null,
+      state: noVisit,
+      streamSummary: null,
+    })
+    const merged = buildPrompt({
+      instruction: 'マージを祝ってください',
+      extracted: { event: 'github.pull_request.merged', userName: 'mtane0412', userLogin: 'mtane0412', repository: 'hdad', title: 'BGMを足す', number: 156 },
+      viewer: null,
+      state: noVisit,
+      streamSummary: null,
+    })
+
+    expect(pushed).toContain('コミットのpush')
+    expect(pushed).toContain('hdad')
+    expect(pushed).toContain('字幕を直す')
+    expect(merged).toContain('PRのマージ')
+    expect(merged).toContain('BGMを足す')
+    expect(merged).toContain('156')
+  })
+
   it('Twitchの上限（500文字）に収めるよう指示する', () => {
     const prompt = buildPrompt({ instruction: '一言返してください', extracted: chatEvent, viewer: record, state: regularVisit, streamSummary: null })
 

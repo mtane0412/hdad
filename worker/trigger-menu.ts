@@ -31,13 +31,31 @@ export const AD_BREAK_BEGIN = 'channel.ad_break.begin'
  * （worker/ad-break-timer.ts）。購読の一覧（worker/eventsub.ts の EVENT_TYPES）には入らない。
  */
 export const AD_BREAK_END = 'channel.ad_break.end'
+/**
+ * コミットの push。Twitchではなく GitHub の Webhook から届く出来事で、Workerが付けた名前である
+ * （GitHub の X-GitHub-Event は push。タグの push とブランチの削除は含めない。振り分けは worker/github-webhook.ts）。
+ */
+export const GITHUB_PUSH = 'github.push'
+/** PR のマージ。GitHub の pull_request のうち、マージして閉じられたものだけに付けた名前である（同上） */
+export const GITHUB_PULL_REQUEST_MERGED = 'github.pull_request.merged'
 
 /**
  * トリガーが対象にできるイベントの種類。
  *
  * 配信者はこれを直接選ばない（メニュー項目から決まる）。照合と、文言の差し込み語の種類を決めるために使う。
  */
-export const ALERT_EVENTS = [REDEMPTION, FOLLOW, SUBSCRIBE, SUBSCRIPTION_MESSAGE, RAID, CHAT_MESSAGE, AD_BREAK_BEGIN, AD_BREAK_END] as const
+export const ALERT_EVENTS = [
+  REDEMPTION,
+  FOLLOW,
+  SUBSCRIBE,
+  SUBSCRIPTION_MESSAGE,
+  RAID,
+  CHAT_MESSAGE,
+  AD_BREAK_BEGIN,
+  AD_BREAK_END,
+  GITHUB_PUSH,
+  GITHUB_PULL_REQUEST_MERGED,
+] as const
 
 export type AlertEvent = (typeof ALERT_EVENTS)[number]
 
@@ -68,7 +86,7 @@ export type StoredCondition =
 /**
  * メニュー項目の識別子。
  *
- * 画面ではこれを区分（チャット・応援・配信）に分けて並べる。区分と日本語の名前は管理画面（src/admin/）が持つ
+ * 画面ではこれを区分（チャット・イベント・開発）に分けて並べる。区分と日本語の名前は管理画面（src/admin/）が持つ
  * （Workerはブラウザ向けの表示を持たない）。
  *
  * 並びは絞り込みの細かいものからにする。挨拶の段（GREETING_KINDS）ではこの並びが優先順位そのものになる。
@@ -87,6 +105,8 @@ export const TRIGGER_KINDS = [
   'raid',
   'adBreakBegin',
   'adBreakEnd',
+  'commitPushed',
+  'pullRequestMerged',
 ] as const
 
 export type TriggerKind = (typeof TRIGGER_KINDS)[number]
@@ -119,6 +139,7 @@ export type TriggerSource =
   | { kind: 'reward'; rewardId: string | null }
   | { kind: 'follow' | 'subscribe' | 'resubscribe' | 'raid' }
   | { kind: 'adBreakBegin' | 'adBreakEnd'; automatic: boolean | null }
+  | { kind: 'commitPushed' | 'pullRequestMerged' }
 
 /** メニュー項目が対象にするイベント種別 */
 const EVENT_OF_KIND: Readonly<Record<TriggerKind, AlertEvent>> = {
@@ -135,6 +156,8 @@ const EVENT_OF_KIND: Readonly<Record<TriggerKind, AlertEvent>> = {
   raid: RAID,
   adBreakBegin: AD_BREAK_BEGIN,
   adBreakEnd: AD_BREAK_END,
+  commitPushed: GITHUB_PUSH,
+  pullRequestMerged: GITHUB_PULL_REQUEST_MERGED,
 }
 
 /**
@@ -158,6 +181,8 @@ export const expandSource = (source: TriggerSource): { event: AlertEvent; condit
     case 'subscribe':
     case 'resubscribe':
     case 'raid':
+    case 'commitPushed':
+    case 'pullRequestMerged':
       return { event, conditions: [] }
     case 'newViewer':
       return { event, conditions: [{ kind: 'firstChatEver' }] }
