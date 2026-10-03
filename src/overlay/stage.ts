@@ -818,6 +818,7 @@ const mountTab = (box: HTMLElement, item: OverlayItem, { key, demo }: MountConte
  * 増えた1行はアラートと同じ配送先から WebSocket（/api/overlay/work-log/socket）で押し出してもらう。開いたとき・つながるたび・
  * 定期的に一覧を読み直し、つながっていない間に増えた行と、配信が変わったこと（前の配信の行を消す）を拾う。
  * 読み直しは一覧を置き換えるが、読んでいる間に押し出された行は重ねて残す（古い読み出しで新しい行を消さないため）。
+ * 読み出しが重なったとき（開いたときとつながったときなど）は、いちばん新しく始めた読み出しの結果だけを映す。
  */
 const mountWorkLog = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
   // この素材は配信者が決めるパラメータを持たない（並べるものは Worker が決める）
@@ -848,11 +849,17 @@ const mountWorkLog = (box: HTMLElement, item: OverlayItem, { key, demo }: MountC
     clearError(box, 'read')
     showError(error, NOUNS.workLog, box, 'read')
   }
+  /** いちばん新しく始めた読み出しの世代。重なった読み出しのうち、古いものの結果で新しい一覧を上書きしないために使う */
+  let latestRead = 0
   const read = async (): Promise<void> => {
+    latestRead += 1
+    const generation = latestRead
     const pushed: WorkLogEntry[] = []
     pushedWhileReading.add(pushed)
     try {
-      show(mergeEntries(await api.read(), pushed, WORK_LOG_LIMIT))
+      const readEntries = await api.read()
+      if (generation !== latestRead) return
+      show(mergeEntries(readEntries, pushed, WORK_LOG_LIMIT))
       // 前の失敗が箱に出ていれば消す（直ったのに赤い表示が残ったままにしない）
       clearError(box, 'read')
     } finally {
