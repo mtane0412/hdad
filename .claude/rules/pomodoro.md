@@ -15,7 +15,7 @@ paths:
 
 区切りでは、トリガー（`pomodoroWorkBegin`・`pomodoroBreakBegin`。擬似イベント `hdad.pomodoro.work_begin`・`hdad.pomodoro.break_begin`、区分「ポモドーロ」）を動かす。差し込み語は `{round}`（何本目か。休憩は直前の作業と同じ番号）と `{minutes}`（始まった区間の長さ）で、相手がいないので `{user}` は持たない（`user` の条件も満たさない）。鍵は `pomodoro:<startedAt>:<round>:<work|break>`。始めたときも1本目の作業の開始として動かすが、配信していなければ動かさない（始めるのは配信の前でもよい）。**配信していないときに区切りを迎えたら、トリガーを動かさずにタイマーを止める**（休憩の前の曲へ戻し、止めたことを押し出す）。
 
-休憩中の BGM は `worker/pomodoro-bgm.ts` が切り替える。休憩の曲は KV `pomodoro-settings`（`worker/pomodoro-config.ts`。BGM の一覧にある曲か `null`）から区切りのたびに読み、休憩の曲は繰り返しで流す。休憩が明けたら（休憩中に止めたときも）休憩の前の「流す曲」と「繰り返すか」だけを戻し、音量とシャッフルは戻さない。どちらも切り替えた時刻を記録するので、Jev の切り替えを控える時間（`BGM_SWITCH_COOLDOWN_MS`。10分）が5分の休憩を覆い、休憩中に Jev が曲を変えない（この関係は `worker/pomodoro-bgm.test.ts` が確かめる。休憩を長くするときは見直す）。
+休憩中の BGM は `worker/pomodoro-bgm.ts` が切り替える。休憩の曲は KV `pomodoro-settings`（`worker/pomodoro-config.ts`。BGM の一覧にある曲か `null`）から区切りのたびに読み、休憩の曲は繰り返しで流す。休憩が明けたら（休憩中に止めたときも）休憩の前の「流す曲」と「繰り返すか」だけを戻し、音量とシャッフルは戻さない。どちらも切り替えた時刻を記録するので、Jev の切り替えを控える時間（`BGM_SWITCH_COOLDOWN_MS`。10分）が5分の休憩を覆い、一時停止しなければ休憩中に Jev が曲を変えない（休憩中に10分を超えて一時停止すると変えうる。この関係は `worker/pomodoro-bgm.test.ts` が確かめる。休憩を長くするときは見直す）。
 
 押し出し・BGMの切り替え・トリガーの失敗は投げずに記録する（`pomodoro-push-failed`・`pomodoro-bgm-failed`・`pomodoro-trigger-failed`）。押し出しは始めた・一時停止・再開・止めたときだけで、区切りでは押し出さない。押し出しは `AlertChannel` の目印 `pomodoro`（`pushPomodoro`・`connectPomodoroSocket`）に相乗りする。合成ページ（`src/overlay/stage.ts` の `mountPomodoro`）は、開いたとき・つながるたび・5分おきに `GET /api/overlay/pomodoro` で読み直し（読んでいるあいだに押し出しが届いたら読んだ結果は捨てる）、札（`src/pomodoro/view.ts`）は毎フレーム現在時刻から描く。アプリのページ（`src/pomodoro/pomodoro-page.tsx`）は休憩の曲を選んだらすぐ保存し、保存ボタンを持たない。→ `docs/decisions/pomodoro.md`
 
