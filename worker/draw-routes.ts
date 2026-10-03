@@ -34,7 +34,7 @@ export const drawSocket = async (context: Context): Promise<Response> => {
   if (context.request.headers.get('Upgrade') !== 'websocket') {
     throw new HttpError(STATUS.badRequest, 'expected-websocket', 'この経路はWebSocketの接続にだけ使えます')
   }
-  return connectDrawSocket(context.env.DRAW, context.request, true)
+  return connectDrawSocket(context.env.DRAW, context.request, { role: 'writer' })
 }
 
 /** GET /api/admin/draw/strokes: 保存されている線。描く画面を開き直したときに、続きから描くために読む */

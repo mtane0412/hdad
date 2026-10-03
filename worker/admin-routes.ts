@@ -6,10 +6,13 @@
  * 合成オーバーレイの構成（どのオーバーレイにどの素材を置くか）の取得と保存、LLMの設定とその使用状況を受け持つ。
  */
 import { alertActionOf, loadAlertConfig, parseAlertConfig, saveAlertConfig } from './alert-config'
+import { revokeAlertSockets } from './alert-channel'
+import { revokeRelayViewers } from './draw-channel'
 import { HttpError, STATUS, requireAdmin, type Context } from './http'
 import { listMedia, uploadMedia } from './media'
 import { loadBgmTracks } from './bgm-config'
-import { rotateOverlayKey } from './overlay-key'
+import { overlayKeyTag, rotateOverlayKey } from './overlay-key'
+import { revokeTabViewers } from './tab-channel'
 import { loadOverlayLayout, parseOverlayLayout, saveOverlayLayout } from './overlay-layout'
 import { LLM_PROVIDERS, loadLlmSettings, parseLlmSettings, saveLlmSettings, type LlmProvider } from './llm-config'
 import { readOpenRouterCredits } from './llm-credits'
@@ -76,10 +79,37 @@ export const deleteMedia = async (context: Context): Promise<Response> => {
   return new Response(null, { status: STATUS.noContent })
 }
 
-/** POST /api/admin/overlay-key: オーバーレイ用キーを発行し直す */
+/**
+ * POST /api/admin/overlay-key: オーバーレイ用キーを発行し直す。
+ *
+ * 発行し直したら、接続を保持する Durable Object に新しいキーの目印を覚えさせ、古いキーで開かれたままの接続
+ * （アラート・BGM・手書き・字幕・タブの映像）をすべて閉じさせる。接続はつないだときに一度だけキーを確かめるので、
+ * 閉じないと漏れたキーの持ち主が受け取り続けてしまう。目印を覚えさせるのは、KVの反映待ちのあいだに古いキーで
+ * つなぎ直されても Durable Object が受け入れないようにするためである（worker/overlay-key.ts）。
+ * OBSのページは閉じられたあと新しいキーのURLでつなぎ直す。
+ */
 export const postOverlayKey = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
-  return Response.json({ overlayKey: await rotateOverlayKey(context.env.STORE) })
+  const { env } = context
+  const overlayKey = await rotateOverlayKey(env.STORE)
+  const keyTag = await overlayKeyTag(overlayKey)
+  try {
+    await Promise.all([
+      revokeAlertSockets(env.ALERTS, keyTag),
+      revokeRelayViewers(env.DRAW, 'draw', keyTag),
+      revokeRelayViewers(env.DRAW, 'caption', keyTag),
+      revokeTabViewers(env.TAB, keyTag),
+    ])
+  } catch (error) {
+    // KVのキーは書き換わっているが、古いキーの接続が残っているかもしれない。新しいキーは返さず、発行し直しを促す
+    console.error('オーバーレイ用キーを発行し直しましたが、開いている接続を切れませんでした', error)
+    throw new HttpError(
+      STATUS.internalServerError,
+      'overlay-key-revoke-failed',
+      'キーは発行し直しましたが、古いキーで開いている接続を切れませんでした。もう一度キーを発行し直してください',
+    )
+  }
+  return Response.json({ overlayKey })
 }
 
 /** GET /api/admin/speech: チャットの読み上げの設定。未保存なら既定の設定が返る */

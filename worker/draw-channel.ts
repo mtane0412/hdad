@@ -28,8 +28,9 @@
  *
  * 注意: WebSocketの接続（Upgrade）は Cloudflare のランタイムでしか作れないので、テストでは中継の部分だけを確かめる。
  */
-import { STATUS } from './http'
-import { broadcast, type SocketLike } from './socket-broadcast'
+import { STATUS, errorResponse } from './http'
+import { KEY_TAG_PARAM, isCurrentKeyTag, rememberKeyTag, revokeRequest, type DurableStorage } from './overlay-key'
+import { broadcast, closeForRevokedKey, type SocketLike } from './socket-broadcast'
 
 /**
  * 中継先の名前（Durable Object のインスタンスの名前）。手書きと字幕でそれぞれ1つだけなので、決め打ちの名前で同じものを指す
@@ -43,6 +44,8 @@ export const VIEWER = 'viewer'
 
 /** 描く側として受け入れてよいかを Worker が伝えるためのクエリ。外には出ない（守りは Worker が済ませている） */
 const ROLE_PARAM = 'role'
+/** Worker がオーバーレイ用キーを発行し直したときに、見るだけの接続を閉じさせるパス */
+const REVOKE_PATH = '/revoke'
 
 /** 眠ったまま応えられる合図と、それに返す合図 */
 const PING = 'ping'
@@ -61,7 +64,19 @@ export interface DrawChannelState {
   getWebSockets(): DrawSocket[]
   getTags(socket: DrawSocket): string[]
   setWebSocketAutoResponse(pair: WebSocketRequestResponsePair): void
+  /** いまのオーバーレイ用キーの目印を覚えておく保管庫 */
+  storage: DurableStorage
 }
+
+/** 目印の違うキーで開こうとした接続に返す応答。Worker の requireOverlayKey と同じ形にする */
+const staleKeyResponse = (): Response =>
+  errorResponse(STATUS.unauthorized, 'invalid-overlay-key', 'オーバーレイ用キーが正しくありません。管理画面のURLを貼り直してください')
+
+/**
+ * 接続をどちらとして受け入れるか。描く側は配信者のセッションで守られた経路から来たもの、
+ * 見るだけの側はオーバーレイ用キーで守られた経路から来たもので、確かめたキーの目印を添える。
+ */
+export type RelayAccess = { role: 'writer' } | { role: 'viewer'; keyTag: string }
 
 /**
  * Worker が Durable Object を呼ぶための入口。テストで差し替えられるよう、使うものだけを受け取る。
@@ -78,9 +93,27 @@ export class DrawChannel {
   /** Cloudflare は (state, env) の2つを渡すが、この Durable Object は保管も外部との通信も行わないので state だけを受け取る */
   constructor(private readonly ctx: DrawChannelState) {}
 
-  fetch(request: Request): Response {
-    if (request.headers.get('Upgrade') !== 'websocket') return new Response(null, { status: STATUS.notFound })
-    return this.accept(new URL(request.url).searchParams.get(ROLE_PARAM) === WRITER ? WRITER : VIEWER)
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url)
+    if (request.headers.get('Upgrade') === 'websocket') {
+      if (url.searchParams.get(ROLE_PARAM) === WRITER) return this.accept(WRITER)
+      // 見るだけの接続はオーバーレイ用キーで開かれるので、覚えている目印と違うキーなら受け入れない（worker/overlay-key.ts）
+      if (!(await isCurrentKeyTag(this.ctx.storage, url.searchParams.get(KEY_TAG_PARAM)))) return staleKeyResponse()
+      return this.accept(VIEWER)
+    }
+    if (url.pathname === REVOKE_PATH) return this.revokeViewers(request)
+    return new Response(null, { status: STATUS.notFound })
+  }
+
+  /**
+   * 新しいキーの目印を覚え、見るだけの接続（オーバーレイ用キーで開かれたもの）をすべて閉じる。
+   * オーバーレイ用キーを発行し直したときに呼ばれる。描く側の接続は配信者のセッションで開かれているので残す。
+   */
+  private async revokeViewers(request: Request): Promise<Response> {
+    // 先に目印を覚えてから閉じる。閉じたあとすぐ古いキーでつなぎ直されても受け入れないため
+    if (!(await rememberKeyTag(this.ctx.storage, request))) return new Response(null, { status: STATUS.badRequest })
+    closeForRevokedKey(this.ctx.getWebSockets().filter((socket) => this.ctx.getTags(socket).includes(VIEWER)))
+    return new Response(null, { status: STATUS.noContent })
   }
 
   /** 接続を受け取り、片方を返す。Hibernation API で受けるので、待っている間は課金されない */
@@ -122,11 +155,26 @@ const channelOf = (namespace: DrawChannelNamespace, channel: RelayChannel): { fe
  * 描く側として受け入れてよいか（配信者のセッションで守られた経路から来たか）の確認は、呼び出し側
  * （draw-routes.ts・caption-routes.ts・overlay-routes.ts）が済ませている。
  *
- * @param writable 描く側（字幕なら送る側）として受け入れるなら true
+ * @param access 描く側（字幕なら送る側）か、見るだけの側（確かめたキーの目印を添える）か
  * @param channel 引き渡す中継先。既定は手書き
  */
-export const connectDrawSocket = (namespace: DrawChannelNamespace, request: Request, writable: boolean, channel: RelayChannel = 'draw'): Promise<Response> => {
+export const connectDrawSocket = (namespace: DrawChannelNamespace, request: Request, access: RelayAccess, channel: RelayChannel = 'draw'): Promise<Response> => {
   const url = new URL(request.url)
-  url.searchParams.set(ROLE_PARAM, writable ? WRITER : VIEWER)
+  // 利用者の送ってきた役割と目印は捨て、Worker が確かめたものだけを載せる
+  url.searchParams.set(ROLE_PARAM, access.role === 'writer' ? WRITER : VIEWER)
+  url.searchParams.delete(KEY_TAG_PARAM)
+  if (access.role === 'viewer') url.searchParams.set(KEY_TAG_PARAM, access.keyTag)
   return channelOf(namespace, channel).fetch(new Request(url, request))
+}
+
+/**
+ * オーバーレイ用キーを発行し直したときに、中継先に新しいキーの目印を覚えさせ、見るだけの接続を閉じさせる。
+ *
+ * 注意: 失敗を黙って握りつぶさない。閉じられないと古いキーの接続が残るので、呼び出し側（admin-routes.ts）が失敗を返す。
+ *
+ * @param keyTag 新しいキーの目印（overlayKeyTag）
+ */
+export const revokeRelayViewers = async (namespace: DrawChannelNamespace, channel: RelayChannel, keyTag: string): Promise<void> => {
+  const response = await channelOf(namespace, channel).fetch(revokeRequest(`https://draw-channel${REVOKE_PATH}`, keyTag))
+  if (!response.ok) throw new Error(`${channel === 'draw' ? '手書き' : '字幕'}の接続を切断できませんでした（${response.status}）`)
 }

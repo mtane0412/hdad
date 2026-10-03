@@ -3,6 +3,7 @@
  *
  * どれもTwitchのトークンではなくオーバーレイ用キーで守る。素材だけは、管理画面でのプレビューのために配信者のセッションでも読める。
  */
+import { overlayKeyTag } from './overlay-key'
 import { connectAlertSocket } from './alert-channel'
 import { connectDrawSocket } from './draw-channel'
 import { connectTabSocket } from './tab-channel'
@@ -26,11 +27,11 @@ import { loadSpeechSettings } from './speech-config'
  * 注意: 接続を保持するのは Durable Object で、Workerはキーを確かめて引き渡すだけである。
  */
 export const overlaySocket = async (context: Context): Promise<Response> => {
-  await requireOverlayKey(context)
+  const key = await requireOverlayKey(context)
   if (context.request.headers.get('Upgrade') !== 'websocket') {
     throw new HttpError(STATUS.badRequest, 'expected-websocket', 'この経路はWebSocketの接続にだけ使えます')
   }
-  return connectAlertSocket(context.env.ALERTS, context.request)
+  return connectAlertSocket(context.env.ALERTS, context.request, await overlayKeyTag(key))
 }
 
 /**
@@ -40,11 +41,11 @@ export const overlaySocket = async (context: Context): Promise<Response> => {
  * この接続からは描けない（描く側として受け入れるのは worker/draw-routes.ts の経路だけ）。
  */
 export const overlayDrawSocket = async (context: Context): Promise<Response> => {
-  await requireOverlayKey(context)
+  const key = await requireOverlayKey(context)
   if (context.request.headers.get('Upgrade') !== 'websocket') {
     throw new HttpError(STATUS.badRequest, 'expected-websocket', 'この経路はWebSocketの接続にだけ使えます')
   }
-  return connectDrawSocket(context.env.DRAW, context.request, false)
+  return connectDrawSocket(context.env.DRAW, context.request, { role: 'viewer', keyTag: await overlayKeyTag(key) })
 }
 
 /**
@@ -54,11 +55,11 @@ export const overlayDrawSocket = async (context: Context): Promise<Response> => 
  * この接続からは字幕を出せない（送る側として受け入れるのは worker/caption-routes.ts の経路だけ）。
  */
 export const overlayCaptionSocket = async (context: Context): Promise<Response> => {
-  await requireOverlayKey(context)
+  const key = await requireOverlayKey(context)
   if (context.request.headers.get('Upgrade') !== 'websocket') {
     throw new HttpError(STATUS.badRequest, 'expected-websocket', 'この経路はWebSocketの接続にだけ使えます')
   }
-  return connectDrawSocket(context.env.DRAW, context.request, false, 'caption')
+  return connectDrawSocket(context.env.DRAW, context.request, { role: 'viewer', keyTag: await overlayKeyTag(key) }, 'caption')
 }
 
 /**
@@ -68,11 +69,11 @@ export const overlayCaptionSocket = async (context: Context): Promise<Response> 
  * この接続から送ったものは送り手にしか届かない（他の合成ページへは配らない。worker/tab-channel.ts）。
  */
 export const overlayTabSocket = async (context: Context): Promise<Response> => {
-  await requireOverlayKey(context)
+  const key = await requireOverlayKey(context)
   if (context.request.headers.get('Upgrade') !== 'websocket') {
     throw new HttpError(STATUS.badRequest, 'expected-websocket', 'この経路はWebSocketの接続にだけ使えます')
   }
-  return connectTabSocket(context.env.TAB, context.request, false)
+  return connectTabSocket(context.env.TAB, context.request, { role: 'viewer', keyTag: await overlayKeyTag(key) })
 }
 
 /**

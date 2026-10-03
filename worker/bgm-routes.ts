@@ -15,6 +15,7 @@
  * 注意: 押し出しの失敗は握りつぶさず、管理画面へ失敗として返す（保存は済んでいるので、裏方のページはつなぎ直したときに
  * 新しい曲を読む。それでも配信者が「切り替わったはず」と思い込まないよう、失敗は知らせる）。
  */
+import { overlayKeyTag } from './overlay-key'
 import { connectBgmSocket } from './alert-channel'
 import {
   loadBgmPlayback,
@@ -179,9 +180,9 @@ export const postOverlayBgmEnded = async (context: Context): Promise<Response> =
  * GET /api/overlay/bgm/socket?key=: 裏方のページからのWebSocketの接続を、BGMの切り替えを受け取る接続として配送先へ引き渡す。
  */
 export const overlayBgmSocket = async (context: Context): Promise<Response> => {
-  await requireOverlayKey(context)
+  const key = await requireOverlayKey(context)
   if (context.request.headers.get('Upgrade') !== 'websocket') {
     throw new HttpError(STATUS.badRequest, 'expected-websocket', 'この経路はWebSocketの接続にだけ使えます')
   }
-  return connectBgmSocket(context.env.ALERTS, context.request)
+  return connectBgmSocket(context.env.ALERTS, context.request, await overlayKeyTag(key))
 }

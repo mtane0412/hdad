@@ -74,7 +74,7 @@ export const tabSocket = async (context: Context): Promise<Response> => {
   if (context.request.headers.get('Upgrade') !== 'websocket') {
     throw new HttpError(STATUS.badRequest, 'expected-websocket', 'この経路はWebSocketの接続にだけ使えます')
   }
-  const response = await connectTabSocket(context.env.TAB, context.request, true)
+  const response = await connectTabSocket(context.env.TAB, context.request, { role: 'sender' })
   if (!viaProtocol) return response
   // ブラウザは、頼んだプロトコルのどれかを応え返されないと接続を失敗させる。セッションの値は応え返さない
   const headers = new Headers(response.headers)

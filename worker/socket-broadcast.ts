@@ -16,6 +16,24 @@ export interface SocketLike {
   close(code?: number, reason?: string): void
 }
 
+/**
+ * オーバーレイ用キーを発行し直したときに、古いキーで開かれた接続を閉じる番号（4000番台はアプリが自由に使える）。
+ * 接続はつないだときに一度だけキーを確かめるので、閉じないと古いキーのまま受け取り続けてしまう。
+ */
+export const KEY_REVOKED = 4001
+const KEY_REVOKED_REASON = 'オーバーレイ用キーが発行し直されました'
+
+/** 渡された接続をすべて閉じる。1本が閉じられなくても残りは閉じる（閉じられない接続は Cloudflare 側で片付けられる） */
+export const closeForRevokedKey = (sockets: readonly SocketLike[]): void => {
+  for (const socket of sockets) {
+    try {
+      socket.close(KEY_REVOKED, KEY_REVOKED_REASON)
+    } catch (error) {
+      console.error('古いキーで開かれた接続を閉じられませんでした', error)
+    }
+  }
+}
+
 /** 接続が壊れていたときに閉じる理由（WebSocketの「予期しない状況」を表す番号） */
 const INTERNAL_ERROR = 1011
 
