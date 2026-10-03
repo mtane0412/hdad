@@ -10,9 +10,11 @@ import {
   AlertChannel,
   connectAlertSocket,
   connectBgmSocket,
+  connectTaskDeskSocket,
   connectWorkLogSocket,
   pushAlert,
   pushBgm,
+  pushTaskDesk,
   pushWorkLogEntry,
   revokeAlertSockets,
   type AlertSocket,
@@ -21,6 +23,7 @@ import type { BgmNowPlaying } from './bgm-config'
 import { createFakeAlertChannel } from './fake-alert-channel'
 import { createFakeDurableStorage } from './fake-durable-storage'
 import type { OverlayAlert } from './alert-event'
+import type { TaskDeskSnapshot } from './task-desk'
 import type { WorkLogEntry } from './work-log'
 
 const alert: OverlayAlert = {
@@ -46,6 +49,11 @@ const playingTrack: BgmNowPlaying = {
 /** PR をマージしたときに作業ログへ1行増やすもの */
 const mergedEntry: WorkLogEntry = { id: 'github:delivery-1', kind: 'merge', at: '2026-10-03T12:10:00.000Z', text: '#213 作業ログを出す' }
 
+/** 視聴者が !task で作業を宣言したあとの作業机 */
+const deskWithOneTask: TaskDeskSnapshot = {
+  entries: [{ userId: '11111', name: 'たなか', task: '英単語を50個覚える', declaredAt: '2026-10-03T12:10:00.000Z', doneAt: null }],
+}
+
 /** 送られた文字列を覚えておく、テスト用の接続 */
 const createConnection = (): AlertSocket & { sentMessages: string[] } => {
   const sentMessages: string[] = []
@@ -59,14 +67,20 @@ describe('AlertChannel', () => {
    * 接続は目印（アラート用か BGM 用か）ごとに渡す。目印を指定して引いたときは、その目印の接続だけを返す
    * （Cloudflare の getWebSockets(tag) と同じ振る舞い）。
    */
-  const createDestination = (sockets: AlertSocket[], bgmSockets: AlertSocket[] = [], workLogSockets: AlertSocket[] = []): AlertChannel =>
+  const createDestination = (
+    sockets: AlertSocket[],
+    bgmSockets: AlertSocket[] = [],
+    workLogSockets: AlertSocket[] = [],
+    taskDeskSockets: AlertSocket[] = [],
+  ): AlertChannel =>
     new AlertChannel({
       acceptWebSocket: () => undefined,
       getWebSockets: (tag) => {
         if (tag === 'bgm') return bgmSockets
         if (tag === 'alerts') return sockets
         if (tag === 'workLog') return workLogSockets
-        return [...sockets, ...bgmSockets, ...workLogSockets]
+        if (tag === 'taskDesk') return taskDeskSockets
+        return [...sockets, ...bgmSockets, ...workLogSockets, ...taskDeskSockets]
       },
       setWebSocketAutoResponse: () => undefined,
       storage: createFakeDurableStorage(),
@@ -117,6 +131,18 @@ describe('AlertChannel', () => {
     expect(alertsItem.sentMessages).toEqual([])
   })
 
+  it('作業机は、作業机を受け取る接続だけへ送る（作業ログやアラートとしては読めないため）', async () => {
+    const workLogItem = createConnection()
+    const taskDeskItem = createConnection()
+    const destination = createDestination([], [], [workLogItem], [taskDeskItem])
+
+    const response = await destination.fetch(new Request('https://alert-channel/push/task-desk', { method: 'POST', body: JSON.stringify(deskWithOneTask) }))
+
+    expect(response.status).toBe(204)
+    expect(taskDeskItem.sentMessages).toEqual([JSON.stringify(deskWithOneTask)])
+    expect(workLogItem.sentMessages).toEqual([])
+  })
+
   it('接続が1本もなければ、送らずに終わる（オーバーレイを開いていない間のアラートは落とす）', async () => {
     const destination = createDestination([])
 
@@ -151,15 +177,16 @@ describe('pushAlert', () => {
 })
 
 describe('接続の引き渡し', () => {
-  it('アラート・BGM・作業ログの接続を、目印を付けて Durable Object へ引き渡す', async () => {
+  it('アラート・BGM・作業ログ・作業机の接続を、目印を付けて Durable Object へ引き渡す', async () => {
     const delivery = createFakeAlertChannel()
     const connectionRequest = (): Request => new Request('https://hdad.example.com/api/overlay/socket?key=k', { headers: { Upgrade: 'websocket' } })
 
     await connectAlertSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
     await connectBgmSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
     await connectWorkLogSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
+    await connectTaskDeskSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
 
-    expect(delivery.forwardedConnections.map((request) => new URL(request.url).searchParams.get('topic'))).toEqual(['alerts', 'bgm', 'workLog'])
+    expect(delivery.forwardedConnections.map((request) => new URL(request.url).searchParams.get('topic'))).toEqual(['alerts', 'bgm', 'workLog', 'taskDesk'])
   })
 })
 
@@ -194,6 +221,23 @@ describe('pushWorkLogEntry', () => {
     const delivery = createFakeAlertChannel({ shouldFail: true })
 
     await expect(pushWorkLogEntry(delivery.namespace, mergedEntry)).rejects.toThrow('作業ログ')
+  })
+})
+
+describe('pushTaskDesk', () => {
+  it('Durable Object へ、いまの作業机を送る', async () => {
+    const delivery = createFakeAlertChannel()
+
+    await pushTaskDesk(delivery.namespace, deskWithOneTask)
+
+    expect(delivery.pushedTaskDesk).toEqual([deskWithOneTask])
+    expect(delivery.pushedAlerts).toEqual([])
+  })
+
+  it('Durable Object が失敗を返したら、黙って成功にせず投げる', async () => {
+    const delivery = createFakeAlertChannel({ shouldFail: true })
+
+    await expect(pushTaskDesk(delivery.namespace, deskWithOneTask)).rejects.toThrow('作業机')
   })
 })
 

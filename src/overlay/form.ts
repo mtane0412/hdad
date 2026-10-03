@@ -36,6 +36,7 @@ export const ITEM_KIND_LABELS: Readonly<Record<ItemKind, string>> = {
   tab: 'タブの映像',
   caption: '字幕',
   workLog: '作業ログ',
+  taskDesk: '作業机',
 }
 
 /** Workerが返す問題点に出る項目の名前を、画面の言い方にする */
@@ -65,6 +66,7 @@ const DESIGNS: Readonly<Record<ItemKind, readonly DesignItem[]>> = {
   tab: [],
   caption: [],
   workLog: [],
+  taskDesk: [],
 }
 
 /**

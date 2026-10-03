@@ -72,6 +72,10 @@ import { layoutCrop, type Rect, type TabCrop } from '../tab/crop'
 import { openReceiverPeer } from '../tab/peer'
 import { createTabReceiver } from '../tab/receiver'
 import { connectTabViewer } from '../tab/socket'
+import { TASK_DESK_SOCKET_HINT, TASK_DESK_SOCKET_PATH, createTaskDeskApi } from '../task-desk/api'
+import { demoTaskDeskScenes } from '../task-desk/demo'
+import { parseTaskDeskSnapshot } from '../task-desk/entry'
+import { createTaskDeskView } from '../task-desk/view'
 import { backgrounds } from '../wallpaper/registry'
 import { WORK_LOG_SOCKET_HINT, WORK_LOG_SOCKET_PATH, createWorkLogApi } from '../work-log/api'
 import { demoWorkLogScenes } from '../work-log/demo'
@@ -98,6 +102,7 @@ const NOUNS: Readonly<Record<ItemKind, string>> = {
   tab: 'タブの映像',
   caption: '字幕',
   workLog: '作業ログ',
+  taskDesk: '作業机',
 }
 
 /** サイドスーパーの文言を読みに行く間隔（ミリ秒）。文言は cron が5分おきに作るので、30秒あれば十分に追いつく */
@@ -107,6 +112,11 @@ const SIDE_SUPER_INTERVAL_MS = 30000
  * 配信の切り替わり（前の配信のログを消す）を拾うのに、cron の間隔（5分）より細かくする意味はない
  */
 const WORK_LOG_INTERVAL_MS = 300000
+/**
+ * 作業机を読み直す間隔（ミリ秒）。変わった作業机は押し出しで届くので、読み直しは取りこぼしと配信の切り替わり
+ * （前の配信の宣言を片付ける）を拾うためだけにある。作業ログと同じ理由で、cron の間隔（5分）に合わせる
+ */
+const TASK_DESK_INTERVAL_MS = 300000
 /** 取り上げている注目コメントを読みに行く間隔（ミリ秒）。配信中に選び直したとき、待たされすぎない長さにする */
 const FOCUS_INTERVAL_MS = 10000
 
@@ -905,6 +915,101 @@ const mountWorkLog = (box: HTMLElement, item: OverlayItem, { key, demo }: MountC
   }
 }
 
+/**
+ * 作業机。視聴者が !task で宣言した作業を1人1行で映し、!done で完了した行を祝う（issue #207）。
+ *
+ * 作業机が変わるたびに、アラートと同じ配送先から WebSocket（/api/overlay/task-desk/socket）で丸ごと押し出してもらい、
+ * 届いたもので置き換える。開いたとき・つながるたび・定期的に読み直し、つながっていない間の変化と配信の切り替わりを拾う。
+ * 読んでいるあいだに押し出しが届いたら、読んだ結果も読み出しの失敗も捨てる（押し出しのほうが新しいので、古い作業机に戻さず、
+ * 映せている作業机に古い失敗を重ねない）。読み出しが重なったときは、いちばん新しく始めた読み出しの結果だけを映す。
+ */
+const mountTaskDesk = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
+  // この素材は配信者が決めるパラメータを持たない（並べるものは視聴者のコマンドで決まる）
+  parseParams({}, new URLSearchParams(item.params))
+
+  const root = document.createElement('div')
+  root.className = 'task-desk'
+  root.dataset.taskDesk = ''
+  box.append(root)
+
+  const view = createTaskDeskView(root)
+
+  if (demo) {
+    // プレビューではWorkerにつながず、宣言が増えて1人が完了する場面を順に流す
+    startSampleCycle(demoTaskDeskScenes, DEMO_SAMPLE_INTERVAL_MS, (scene) => view.setEntries(scene))
+    return {}
+  }
+
+  const api = createTaskDeskApi(callWorker, key)
+  const showReadError = (error: unknown): void => {
+    clearError(box, 'read')
+    showError(error, NOUNS.taskDesk, box, 'read')
+  }
+  /** いちばん新しく始めた読み出しの世代。重なった読み出しのうち、古いものの結果で新しい作業机を上書きしないために使う */
+  let latestRead = 0
+  /** 押し出しを受け取った回数。読んでいるあいだに押し出しが届いたかを見分けるために使う */
+  let pushCount = 0
+  /**
+   * 作業机を読み直す。失敗は onError に渡すが、あとから始めた読み出しや押し出しに追い越されていれば捨てる。
+   *
+   * @param onError 追い越されていない失敗の扱い（箱に出す・記録に残すだけ、を呼び出し側が決める）
+   */
+  const read = async (onError: (error: unknown) => void): Promise<void> => {
+    latestRead += 1
+    const generation = latestRead
+    const pushCountAtStart = pushCount
+    const isStale = (): boolean => generation !== latestRead || pushCountAtStart !== pushCount
+    try {
+      const entries = await api.read()
+      if (isStale()) return
+      view.setEntries(entries)
+      // 前の失敗が箱に出ていれば消す（直ったのに赤い表示が残ったままにしない）
+      clearError(box, 'read')
+    } catch (error) {
+      if (!isStale()) onError(error)
+    }
+  }
+
+  // 1回目は起動の一部として扱い、失敗はこの箱に出す（ほかの素材は動かし続ける）
+  void read(showReadError)
+
+  connectSocket(
+    socketUrl(TASK_DESK_SOCKET_PATH, { key }),
+    {
+      onMessage: (text) => {
+        try {
+          const entries = parseTaskDeskSnapshot(text)
+          pushCount += 1
+          view.setEntries(entries)
+          // 最新の作業机を映せたので、前の読み出しの失敗が箱に出ていれば消す
+          clearError(box, 'read')
+        } catch (error) {
+          showReadError(error)
+        }
+      },
+      // つながるたびに読み直す。つながっていない間の変化を取りこぼさないため
+      onOpen: () => void read(showReadError),
+      onStatus: () => {
+        // 切断・再接続は出さない。つながったときの読み直しは onOpen が受け持ち、映している行はそのまま残す
+      },
+      onWarning: (message) => showReadError(new Error(message)),
+    },
+    TASK_DESK_SOCKET_HINT,
+  )
+
+  return {
+    task: {
+      intervalMs: TASK_DESK_INTERVAL_MS,
+      run: () => {
+        void read((error) => {
+          // 一時的な通信の失敗で配信画面を汚さない。映している行はそのまま残し、原因は記録に残す（作業ログと同じ）
+          console.error('作業机を読み込めませんでした', error)
+        })
+      },
+    },
+  }
+}
+
 const mountItem = (box: HTMLElement, item: OverlayItem, context: MountContext): MountedItem => {
   switch (item.kind) {
     case 'wallpaper':
@@ -928,6 +1033,8 @@ const mountItem = (box: HTMLElement, item: OverlayItem, context: MountContext): 
       return mountCaption(box, item, context)
     case 'workLog':
       return mountWorkLog(box, item, context)
+    case 'taskDesk':
+      return mountTaskDesk(box, item, context)
   }
 }
 

@@ -73,6 +73,8 @@
  * | GET  /api/overlay/tab            | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、タブの映像の連絡の中継先へ引き渡す |
  * | GET  /api/overlay/work-log       | オーバーレイ用キー | いまの配信の作業ログ（開発の出来事と章の見出し）を新しい順に返す |
  * | GET  /api/overlay/work-log/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、作業ログの配送先へ引き渡す |
+ * | GET  /api/overlay/task-desk      | オーバーレイ用キー | いまの配信の作業机（視聴者が !task で宣言した作業）を返す |
+ * | GET  /api/overlay/task-desk/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、作業机の配送先へ引き渡す |
  * | GET  /api/media/:id              | オーバーレイ用キーかセッション | 素材の中身を返す |
  *
  * これとは別に、cron（wrangler.jsonc の triggers.crons）から scheduled が呼ばれ、配信の記録を収集する（collect.ts）。
@@ -138,6 +140,7 @@ import {
 import { postAdminTranscript } from './transcript-routes'
 import { captionSocket } from './caption-routes'
 import { getWorkLog, workLogSocket } from './work-log-routes'
+import { getTaskDesk, taskDeskSocket } from './task-desk-routes'
 import { getDeeplUsage, getTranslation, postTranslation, putTranslation } from './translation-routes'
 import { drawSocket, getDrawBackground, getDrawStrokes, putDrawStrokes } from './draw-routes'
 import { deleteTabBlockedHost, getTabBlockedHosts, postTabBlockedHost, tabExtensionZip, tabSocket } from './tab-routes'
@@ -266,6 +269,8 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/overlay/tab', handle: overlayTabSocket },
   { method: 'GET', path: '/api/overlay/work-log', handle: getWorkLog },
   { method: 'GET', path: '/api/overlay/work-log/socket', handle: workLogSocket },
+  { method: 'GET', path: '/api/overlay/task-desk', handle: getTaskDesk },
+  { method: 'GET', path: '/api/overlay/task-desk/socket', handle: taskDeskSocket },
   { method: 'GET', path: '/api/overlay/focus', handle: getOverlayFocus },
   { method: 'GET', path: '/api/overlay/bgm', handle: getOverlayBgm },
   { method: 'GET', path: '/api/overlay/bgm/socket', handle: overlayBgmSocket },

@@ -53,6 +53,12 @@ describe('parseBotConfig', () => {
     expect(issue[0]).toContain('重複')
   })
 
+  it('組み込みのコマンド（task・done）と同じ名前は、大文字小文字を問わず拒否する（組み込みが先に応えて、登録した応答が届かないため）', () => {
+    const issue = issues({ commands: [{ ...greetingCommand, name: 'task' }, { ...discordCommand, name: 'DONE' }] })
+    expect(issue).toEqual([expect.stringContaining('commands[0].name'), expect.stringContaining('commands[1].name')])
+    expect(issue[0]).toContain('組み込み')
+  })
+
   it('応答文が空なら拒否する', () => {
     expect(issues({ commands: [{ ...greetingCommand, reply: '' }] })).toEqual([expect.stringContaining('commands[0].reply')])
   })

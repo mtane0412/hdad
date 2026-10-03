@@ -12,6 +12,7 @@ import { BGM_PLACEHOLDER, MAX_BGM_CREDIT_LENGTH } from './bgm-credit'
 import type { BotCommand } from './chat-command'
 import { MAX_STREAM_SUMMARY_LENGTH } from './stream-summary'
 import type { KeyValueStore } from './store'
+import { BUILT_IN_COMMAND_NAMES } from './task-desk'
 
 const CONFIG_KEY = 'bot-commands'
 /** 問題点のメッセージに出す、何の設定かの名前 */
@@ -80,6 +81,7 @@ export const parseBotConfig = (input: unknown): BotConfig => {
     // 判定結果を変数に置くのは、問題点の記録と、下の if での型の絞り込みの両方に使うため
     const nameOk = isValidName(name)
     const duplicated = nameOk && seenNames.has(name.toLowerCase())
+    const builtIn = nameOk && BUILT_IN_COMMAND_NAMES.some((builtInName) => builtInName === name.toLowerCase())
     // 空白だけの文言はTwitchが受け付けない。長さは差し込み後で見る
     const replyFilled = typeof reply === 'string' && reply.trim() !== ''
     const replyOk = replyFilled && expandedLength(reply) <= MAX_REPLY_LENGTH
@@ -88,6 +90,7 @@ export const parseBotConfig = (input: unknown): BotConfig => {
 
     if (!nameOk) problems.push(`${at}.name: 空白と ! を含まない${MAX_NAME_LENGTH}文字以内の文字列で指定してください`)
     else if (duplicated) problems.push(`${at}.name: コマンド名「${name}」が重複しています（大文字小文字は区別しません）`)
+    else if (builtIn) problems.push(`${at}.name: 「${name}」は作業机の組み込みのコマンドなので使えません（${BUILT_IN_COMMAND_NAMES.map((builtInName) => `!${builtInName}`).join('・')}）`)
     if (!replyFilled) problems.push(`${at}.reply: 送り返す文言を入力してください`)
     else if (!replyOk) {
       problems.push(
@@ -96,7 +99,7 @@ export const parseBotConfig = (input: unknown): BotConfig => {
     }
     if (!cooldownOk) problems.push(`${at}.cooldownSeconds: 0〜${MAX_COOLDOWN_SECONDS} の整数で指定してください`)
 
-    if (!nameOk || duplicated || !replyOk || !cooldownOk) return []
+    if (!nameOk || duplicated || builtIn || !replyOk || !cooldownOk) return []
     seenNames.add(name.toLowerCase())
     return [{ name, reply, cooldownSeconds }]
   })

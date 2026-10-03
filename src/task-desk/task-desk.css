@@ -1,0 +1,193 @@
+/*
+ * 作業机（合成ページの素材）の見た目
+ *
+ * 作業配信の画面の横の余白に、視聴者が宣言した作業を1人1行で縦に積む。出しっぱなしにするので次の4つを守る。
+ * - 主役（作業している画面）の邪魔をしないよう、半透明の暗い板に小さめの文字で置く（作業ログ src/work-log/work-log.css と同じ板）
+ * - チェックの印・名前・作業の3つで並べ、完了した行（data-done）は印を塗って本文を少し淡くする
+ * - 映しているあいだに完了した行（data-celebrate）だけ、印が弾んで「🎉」が浮かび上がる。祝いは一度きりで、終わったら止まる
+ * - 変わった行だけが動く（変わっていない行は作り直さない。src/task-desk/view.ts）
+ *
+ * 行は上から積み、箱からあふれた行は見せない（箱の大きさで何人映すかが決まる）。参加のしかたは下にいつも出しておく。
+ */
+.task-desk {
+  /* 位置は画面ではなく置かれた箱を基準にする（合成ページのレイヤーの箱に入れるため。issue #101） */
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+  font-family: 'Zen Kaku Gothic New', 'Hiragino Sans', 'Yu Gothic UI', sans-serif;
+}
+
+.task-desk-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+}
+
+/* 誰も宣言していないあいだは板を出さず、参加のしかただけを残す */
+.task-desk-list:empty {
+  display: none;
+}
+
+.task-desk-entry {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 10px;
+  align-items: baseline;
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: rgb(12 14 20 / 62%);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 35%);
+  color: #fff;
+  font-size: 18px;
+  line-height: 1.4;
+  animation: task-desk-in 400ms ease-out;
+}
+
+/* 作業中は枠線だけの丸、完了は塗った丸にチェックを入れる */
+.task-desk-check {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 20px;
+  height: 20px;
+  /* 本文の1行目と高さをそろえる（中身の無い印は baseline 揃えで下にずれ、中央揃えでは2行の作業の真ん中に来るため） */
+  align-self: start;
+  margin-top: 3px;
+  border: 2px solid rgb(255 255 255 / 70%);
+  border-radius: 50%;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.task-desk-entry[data-done] .task-desk-check {
+  border-color: #2f9e62;
+  background: #2f9e62;
+}
+
+.task-desk-entry[data-done] .task-desk-check::before {
+  content: '✓';
+  color: #fff;
+}
+
+.task-desk-name {
+  color: #ffd166;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.task-desk-task {
+  font-weight: 700;
+  /* 切れ目のない英数字（URLなど）でも、板からはみ出させずに折り返す */
+  overflow-wrap: anywhere;
+}
+
+.task-desk-entry[data-done] .task-desk-task {
+  color: rgb(255 255 255 / 70%);
+  font-weight: 400;
+}
+
+/* 映しているあいだに完了した行だけ。板が一度光り、印が弾み、🎉が浮かんで消える */
+.task-desk-entry[data-celebrate] {
+  animation: task-desk-glow 1600ms ease-out;
+}
+
+.task-desk-entry[data-celebrate] .task-desk-check {
+  animation: task-desk-pop 600ms ease-out;
+}
+
+.task-desk-entry[data-celebrate] .task-desk-check::after {
+  content: '🎉';
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  font-size: 22px;
+  opacity: 0;
+  pointer-events: none;
+  animation: task-desk-party 1600ms ease-out;
+}
+
+.task-desk-hint {
+  align-self: flex-start;
+  margin: 0;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgb(12 14 20 / 45%);
+  color: rgb(255 255 255 / 80%);
+  font-size: 14px;
+}
+
+/* 動きを減らす設定では、出現も祝いも動かさない（祝ったことはチェックの印で分かる） */
+@media (prefers-reduced-motion: reduce) {
+  .task-desk-entry,
+  .task-desk-entry[data-celebrate],
+  .task-desk-entry[data-celebrate] .task-desk-check,
+  .task-desk-entry[data-celebrate] .task-desk-check::after {
+    animation: none;
+  }
+}
+
+@keyframes task-desk-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes task-desk-glow {
+  0% {
+    box-shadow: 0 0 0 0 rgb(255 209 102 / 0%);
+  }
+
+  25% {
+    box-shadow: 0 0 0 4px rgb(255 209 102 / 85%);
+  }
+
+  100% {
+    box-shadow: 0 4px 14px rgb(0 0 0 / 35%);
+  }
+}
+
+@keyframes task-desk-pop {
+  0% {
+    transform: scale(0.4);
+  }
+
+  60% {
+    transform: scale(1.35);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes task-desk-party {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 6px) scale(0.6);
+  }
+
+  20% {
+    opacity: 1;
+    transform: translate(-50%, -4px) scale(1.1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -28px) scale(1);
+  }
+}
