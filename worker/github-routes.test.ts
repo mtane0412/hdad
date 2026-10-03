@@ -80,9 +80,10 @@ const MERGED_PAYLOAD = {
 const PUSH_PAYLOAD = {
   ref: 'refs/heads/feature/github-webhook',
   deleted: false,
+  pusher: { name: 'mtane0412', email: 'mtane0412@example.com' },
   sender: { login: 'mtane0412' },
   repository: { name: 'hdad', full_name: 'mtane0412/hdad', private: false },
-  commits: [{ id: 'abc123', message: 'テストを先に書く\n\n詳しい説明' }],
+  commits: [{ id: 'abc123', message: 'テストを先に書く\n\n詳しい説明', distinct: true }],
   head_commit: { id: 'abc123', message: 'テストを先に書く\n\n詳しい説明' },
 }
 

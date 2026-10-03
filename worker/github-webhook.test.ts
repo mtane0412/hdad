@@ -33,7 +33,7 @@ describe('githubAlertEventOf', () => {
   const push = {
     ref: 'refs/heads/feature/github-webhook',
     deleted: false,
-    commits: [{ id: 'abc123', message: 'テストを先に書く' }],
+    commits: [{ id: 'abc123', message: 'テストを先に書く', distinct: true }],
     head_commit: { id: 'abc123', message: 'テストを先に書く' },
   }
 
@@ -53,6 +53,12 @@ describe('githubAlertEventOf', () => {
   it('新しいコミットを含まない push（既存のコミットからブランチを作っただけ）は扱わない', () => {
     // head_commit には既存のコミットが入るので、それで鳴らすと古いコミットのメッセージが配信に出てしまう
     expect(githubAlertEventOf('push', { ...push, commits: [] })).toBeNull()
+  })
+
+  it('並んだコミットがすべて以前に push 済み（distinct が false）なら扱わない（既存のコミットから作ったブランチの push）', () => {
+    const fromExisting = { ...push, created: true, commits: [{ id: 'abc123', message: 'テストを先に書く', distinct: false }] }
+
+    expect(githubAlertEventOf('push', fromExisting)).toBeNull()
   })
 
   it('PR が閉じられ、マージされていれば PR のマージの出来事になる', () => {

@@ -83,7 +83,7 @@ export type Extracted =
       readonly durationSeconds: number
       readonly automatic: boolean
     }
-  // GitHub から届く開発の出来事。userName・userLogin はどちらも GitHub のユーザー名（sender.login）で、Twitchのユーザーではない。
+  // GitHub から届く開発の出来事。userName・userLogin はどちらも GitHub のユーザー名（push は pusher.name、PRのマージは sender.login）で、Twitchのユーザーではない。
   // commitMessage は最後のコミット（head_commit）のメッセージの1行目だけ（2行目以降の本文は配信に出さない）
   | {
       readonly event: typeof GITHUB_PUSH
@@ -231,11 +231,14 @@ const readRecord = (event: EventBody, key: string): EventBody => {
  *
  * リポジトリは owner を含まない名前（name）を使う。Webhook を設定するのは配信者自身のリポジトリなので、
  * owner は配信者で決まっており、配信に出すには短い名前のほうが読みやすいためである。
+ *
+ * @param login その出来事を起こした人の GitHub のユーザー名。どこに入っているかは出来事ごとに違うので、呼び出し側が読んで渡す
  */
-const readGithubCommon = (event: EventBody): { userName: string; userLogin: string; repository: string } => {
-  const login = readString(readRecord(event, 'sender'), 'login')
-  return { userName: login, userLogin: login, repository: readString(readRecord(event, 'repository'), 'name') }
-}
+const readGithubCommon = (event: EventBody, login: string): { userName: string; userLogin: string; repository: string } => ({
+  userName: login,
+  userLogin: login,
+  repository: readString(readRecord(event, 'repository'), 'name'),
+})
 
 /** コミットのメッセージの1行目。2行目以降（本文）は長く、配信に出す文言に向かないので落とす */
 const firstLineOf = (message: string): string => message.split('\n')[0] ?? ''
@@ -296,7 +299,8 @@ export const extract = (subscriptionType: string, body: unknown): Extracted | nu
     case GITHUB_PUSH:
       return {
         event: GITHUB_PUSH,
-        ...readGithubCommon(body),
+        // push の通知では sender が省略されうるので、必ずある pusher.name（pushした人の GitHub のユーザー名）を読む
+        ...readGithubCommon(body, readString(readRecord(body, 'pusher'), 'name')),
         branch: readString(body, 'ref').replace(BRANCH_REF_PREFIX, ''),
         commitMessage: firstLineOf(readString(readRecord(body, 'head_commit'), 'message')),
       }
@@ -304,7 +308,8 @@ export const extract = (subscriptionType: string, body: unknown): Extracted | nu
       const pullRequest = readRecord(body, 'pull_request')
       return {
         event: GITHUB_PULL_REQUEST_MERGED,
-        ...readGithubCommon(body),
+        // PR の closed では sender がマージした人になる
+        ...readGithubCommon(body, readString(readRecord(body, 'sender'), 'login')),
         title: readString(pullRequest, 'title'),
         number: readNumber(pullRequest, 'number'),
       }

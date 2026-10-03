@@ -142,9 +142,10 @@ describe('extract', () => {
   })
 
   it('GitHub のpushから、pushした人・リポジトリ・ブランチ・最後のコミットのメッセージの1行目を取り出す', () => {
+    // push の通知では sender が省略されうるので、必ずある pusher.name（pushした人の GitHub のユーザー名）を読む
     const payload = {
       ref: 'refs/heads/feature/github-webhook',
-      sender: { login: 'mtane0412' },
+      pusher: { name: 'mtane0412', email: 'mtane0412@example.com' },
       repository: { name: 'hdad', full_name: 'mtane0412/hdad' },
       head_commit: { message: 'GitHub の Webhook を受ける口を足す\n\n本文の2行目以降は配信に出さない' },
     }
@@ -178,7 +179,8 @@ describe('extract', () => {
   })
 
   it('GitHub の通知の中身が想定と違えば、どの項目が足りないかを示してエラーにする', () => {
-    expect(() => extract('github.push', { ref: 'refs/heads/main', sender: { login: 'mtane0412' }, repository: { name: 'hdad' } })).toThrowError(/head_commit/)
+    expect(() => extract('github.push', { ref: 'refs/heads/main', pusher: { name: 'mtane0412' }, repository: { name: 'hdad' } })).toThrowError(/head_commit/)
+    expect(() => extract('github.push', { ref: 'refs/heads/main', repository: { name: 'hdad' }, head_commit: { message: '直す' } })).toThrowError(/pusher/)
     expect(() => extract('github.pull_request.merged', { sender: { login: 'mtane0412' }, repository: { name: 'hdad' } })).toThrowError(/pull_request/)
   })
 

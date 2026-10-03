@@ -42,18 +42,23 @@ export const verifyGithubSignature = async ({ body, signature, secret }: GithubS
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
 
+/** 以前に push されたことのないコミットか（GitHub が各コミットに付ける distinct） */
+const isDistinctCommit = (commit: unknown): boolean => isRecord(commit) && commit.distinct === true
+
 /**
  * push が、新しいコミットを含むブランチへの push か。
  *
  * タグの push・ブランチの削除・既存のコミットからブランチを作っただけの push は含めない。
  * 最後のものは head_commit に既存のコミットが入るので、鳴らすと古いコミットのメッセージが配信に出てしまう。
+ * 新しく作ったブランチの push では commits に既存のコミットが並ぶこともあるので、件数ではなく
+ * distinct（以前に push されたことがないか）が付いたコミットが1件でもあるかで見分ける。
  */
 const isCommitPush = (payload: Record<string, unknown>): boolean =>
   typeof payload.ref === 'string' &&
   payload.ref.startsWith(BRANCH_REF_PREFIX) &&
   payload.deleted !== true &&
   Array.isArray(payload.commits) &&
-  payload.commits.length > 0
+  payload.commits.some(isDistinctCommit)
 
 /** pull_request の通知が、PR をマージして閉じたものか */
 const isMerge = (payload: Record<string, unknown>): boolean =>
