@@ -82,6 +82,8 @@ import { parseTaskDeskSnapshot, type TaskDeskSnapshot, type TaskDeskWorkTime } f
 import { createTaskDeskView } from '../task-desk/view'
 import { TOWN_TOUR_SOCKET_HINT, TOWN_TOUR_SOCKET_PATH, createTownTourApi } from '../town-tour/api'
 import { DEMO_INTRO_DELAY_MS, DEMO_TOWN_TOUR_INTERVAL_MS, demoTownTourCall, demoTownTourIntro } from '../town-tour/demo'
+import { dueSoundCues } from '../town-tour/sound-cues'
+import { createTownTourSoundPlayer } from '../town-tour/sound-player'
 import { sceneAt, type Playback } from '../town-tour/timeline'
 import { decodeTownShapes } from '../town-tour/topo'
 import { parseTownTourCall, type TownTourCall } from '../town-tour/tour'
@@ -136,6 +138,8 @@ const TASK_DESK_INTERVAL_MS = 300000
 const POMODORO_INTERVAL_MS = 300000
 /** 取り上げている注目コメントを読みに行く間隔（ミリ秒）。配信中に選び直したとき、待たされすぎない長さにする */
 const FOCUS_INTERVAL_MS = 10000
+/** 市町村紹介の音を鳴らす時刻を迎えたか確かめる間隔（ミリ秒）。場面の切り替わりとずれて聞こえない短さにする */
+const TOWN_TOUR_SOUND_TICK_MS = 50
 
 /** プレビューでサンプルのアラートを流す間隔（ミリ秒）。アラート1件の再生が終わるだけの間を置く */
 const DEMO_ALERT_INTERVAL_MS = 9000
@@ -1148,6 +1152,11 @@ const mountPomodoro = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
  *
  * 日本地図（約3.7MB）は起動時に1回だけ読み、読み終えるまでに届いた呼び出しは待たせておく。
  * 紹介を作れなかったときは、黙って何も流さないのではなく、失敗をこの箱に出して次の1件へ進む（次を流しはじめたら消す）。
+ *
+ * 音（issue #244）は、いつ何を鳴らすかを表（src/town-tour/sound-cues.ts）が決め、ここは鳴らした音の id を覚えて
+ * 二重に鳴らさないことと、再生の終わり・失敗で止めることだけを受け持つ。描画のループではなくタイマーで刻むのは、
+ * OBSのブラウザソースが映っていないあいだ描画を間引いても、音の時刻をずらさないためである。
+ * 再生を始められなかった音は、黙って無音で続けずにこの箱に失敗を出す。
  */
 const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
   // この素材は配信者が決めるパラメータを持たない（何を流すかはトリガーと試し再生で決まる）
@@ -1164,10 +1173,14 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
   let playback: Playback | null = null
   /** 流すのを待っている呼び出し（届いた順） */
   let waiting: readonly TownTourCall[] = []
+  /** 流している1件で鳴らした音の id（sound-cues.ts の SoundCue.id） */
+  let played = new Set<string>()
+  const sound = createTownTourSoundPlayer((error) => showError(error, NOUNS.townTour, box, 'read'))
 
   /** 1件を流しはじめ、紹介を作らせる。作らせている間に別の1件へ進んでいたら、届いた結果は捨てる */
   const start = (call: TownTourCall): void => {
     clearError(box, 'read')
+    played = new Set()
     const started: Playback = { call, startedAt: Date.now(), intro: { status: 'loading' } }
     playback = started
     const introduce = demo
@@ -1180,6 +1193,8 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
       (error: unknown) => {
         if (playback !== started) return
         playback = { ...started, intro: { status: 'failed' } }
+        // 紹介を作れなかった再生では、鳴りはじめていた BGM も止めて何も鳴らさない
+        sound.stop()
         showError(error, NOUNS.townTour, box, 'read')
       },
     )
@@ -1206,11 +1221,20 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
     })
     .catch((error: unknown) => showError(error, NOUNS.townTour, box, 'layer'))
 
+  window.setInterval(() => {
+    if (playback === null) return
+    for (const cue of dueSoundCues(playback, Date.now(), played)) {
+      played.add(cue.id)
+      sound.play(cue)
+    }
+  }, TOWN_TOUR_SOUND_TICK_MS)
+
   const draw = startCanvasSurface(canvas, (ctx, width, height) => {
     if (renderer === null) return
     const now = Date.now()
     if (playback !== null && sceneAt(playback, now).done) {
       playback = null
+      sound.stop()
       startNext()
     }
     renderer.render(ctx, width, height, playback === null ? null : { playback, scene: sceneAt(playback, now) })

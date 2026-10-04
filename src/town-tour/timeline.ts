@@ -15,8 +15,8 @@
  */
 import { tourItemsOf, type TourLine, type TownTourCall, type TownTourIntro } from './tour'
 
-/** 日本全体を映しておく時間（ミリ秒） */
-const JAPAN_HOLD_MS = 1500
+/** 日本全体を映しておく時間（ミリ秒）。ここから市町村へ寄り始める */
+export const JAPAN_HOLD_MS = 1500
 /** 市町村へズームする時間（ミリ秒） */
 const ZOOM_MS = 3000
 /** ズームが終わる時刻（再生を始めてからのミリ秒）。ここから項目を流せる */
@@ -32,7 +32,7 @@ const CREDIT_HOLD_MS = 4000
 /** 冒頭の一文を出しきるまでの時間（ミリ秒） */
 const HEADLINE_FADE_MS = 500
 /** 終わりに全体を薄くする時間（ミリ秒） */
-const FADE_OUT_MS = 600
+export const FADE_OUT_MS = 600
 
 /** 紹介の届き具合 */
 export type IntroState =
@@ -79,6 +79,30 @@ const fadeWithin = (elapsed: number, duration: number, fade: number): number => 
 /** 出典の表記（Wikipedia の本文は CC BY-SA 4.0） */
 const creditOf = (intro: TownTourIntro): string => `出典: Wikipedia「${intro.article.title}」（CC BY-SA 4.0）`
 
+/** 紹介が届いた再生の流れ。時刻はどれも再生を始めてからのミリ秒 */
+export interface TourSpan {
+  /** 流す項目（材料に無かった項目は除いたもの） */
+  readonly lines: readonly TourLine[]
+  /** 項目を流しはじめる時刻。ズームが終わってから、紹介が届くのが遅ければ届いてから */
+  readonly itemsStart: number
+  /** 項目を流し終え、出典だけを残しはじめる時刻 */
+  readonly itemsEnd: number
+  /** 再生を終える時刻 */
+  readonly end: number
+}
+
+/**
+ * 紹介が届いた再生の流れを決める。場面（sceneAt）と鳴らす音の表（sound-cues.ts）が同じ時刻を使うためにまとめてある。
+ *
+ * @param readyAt 紹介が届いた時刻（ミリ秒。Date.now() と同じ基準）
+ */
+export const tourSpanOf = (startedAt: number, intro: TownTourIntro, readyAt: number): TourSpan => {
+  const lines = tourItemsOf(intro.tour)
+  const itemsStart = Math.max(ZOOM_END_MS, readyAt - startedAt)
+  const itemsEnd = itemsStart + lines.length * ITEM_MS
+  return { lines, itemsStart, itemsEnd, end: itemsEnd + CREDIT_HOLD_MS }
+}
+
 /**
  * 再生の now での場面を決める。
  *
@@ -96,10 +120,7 @@ export const sceneAt = (playback: Playback, now: number): Scene => {
   if (intro.status === 'failed') return { ...base, item: null, credit: null, waiting: false, opacity: 0, done: true }
   if (intro.status === 'loading') return { ...base, item: null, credit: null, waiting: elapsed >= ZOOM_END_MS, opacity: 1, done: false }
 
-  // 項目はズームが終わってから、紹介が届くのが遅ければ届いてから流しはじめる
-  const lines = tourItemsOf(intro.intro.tour)
-  const itemsStart = Math.max(ZOOM_END_MS, intro.readyAt - playback.startedAt)
-  const end = itemsStart + lines.length * ITEM_MS + CREDIT_HOLD_MS
+  const { lines, itemsStart, end } = tourSpanOf(playback.startedAt, intro.intro, intro.readyAt)
   const sinceItems = elapsed - itemsStart
   const line = sinceItems < 0 ? undefined : lines[Math.floor(sinceItems / ITEM_MS)]
 
