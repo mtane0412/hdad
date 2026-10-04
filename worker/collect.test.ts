@@ -98,11 +98,14 @@ const fakeAi = (
   }
 }
 
-type collectTwitch = Pick<TwitchClient, 'refresh' | 'getLiveStream' | 'getFollowerTotal' | 'getChannel'>
+type collectTwitch = Pick<TwitchClient, 'refresh' | 'revoke' | 'getLiveStream' | 'getFollowerTotal' | 'getChannel'>
 
 const fakeTwitch = (overrides: Partial<collectTwitch> = {}): collectTwitch => ({
   refresh: async () => {
     throw new Error('テストで想定していないトークンの更新です')
+  },
+  revoke: async () => {
+    throw new Error('テストで想定していないトークンの失効です')
   },
   getLiveStream: async () => chatStream,
   getFollowerTotal: async () => 1234,

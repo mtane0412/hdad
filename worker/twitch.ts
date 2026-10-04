@@ -14,6 +14,7 @@ import { withTimeout } from './timeout'
 const AUTHORIZE_URL = 'https://id.twitch.tv/oauth2/authorize'
 const TOKEN_URL = 'https://id.twitch.tv/oauth2/token'
 const VALIDATE_URL = 'https://id.twitch.tv/oauth2/validate'
+const REVOKE_URL = 'https://id.twitch.tv/oauth2/revoke'
 const SUBSCRIPTIONS_URL = 'https://api.twitch.tv/helix/eventsub/subscriptions'
 const CUSTOM_REWARDS_URL = 'https://api.twitch.tv/helix/channel_points/custom_rewards'
 const STREAMS_URL = 'https://api.twitch.tv/helix/streams'
@@ -51,6 +52,10 @@ const IMAGE_SCALE = '2'
 const DEFAULT_ANNOUNCEMENT_COLOR = 'primary'
 /** Twitchの応答として成り立っていない（必要な項目がない）ときに使う状態コード */
 const BAD_GATEWAY = 502
+/** 失効の要求で、トークンがすでに無効（期限切れ・失効済み）なときにTwitchが返す状態コード */
+const INVALID_TOKEN_STATUS = 400
+/** 失効の要求で、トークンがすでに無効なときにTwitchが返すメッセージ */
+const INVALID_TOKEN_MESSAGE = 'Invalid token'
 
 /** Twitchが失敗を返した、または応答が想定した形でなかった */
 export class TwitchApiError extends Error {
@@ -244,6 +249,16 @@ export interface TwitchClient {
   exchangeCode(code: string, redirectUri: string): Promise<TokenGrant>
   refresh(refreshToken: string): Promise<TokenGrant>
   validate(accessToken: string): Promise<TokenOwner>
+  /**
+   * ユーザーアクセストークンをTwitchで失効させる（oauth2/revoke）。トークンの持ち主の操作は要らない。
+   *
+   * トークンがすでに無効（400 で message が Invalid token）なら、失効させるものが無いので成功として扱う。
+   * 注意: 期限切れのアクセストークンも「すでに無効」と答えられ、リフレッシュトークンは失効しない。
+   * 期限切れのものは取り直してから渡す（worker/token.ts の revokeReleasedToken）。
+   *
+   * @throws TwitchApiError そのほかの失敗（Twitchの障害など）
+   */
+  revoke(accessToken: string): Promise<void>
   /** アプリアクセストークン（ユーザーに紐づかないトークン）を発行する。Webhook宛ての購読の登録・一覧・削除に要る */
   getAppAccessToken(): Promise<string>
   /** このアプリが登録しているEventSubの購読をすべて返す（アプリアクセストークンならWebhook宛てが返る） */
@@ -641,6 +656,16 @@ export const createTwitchClient = ({
         throw new TwitchApiError(BAD_GATEWAY, 'Twitchのトークン検証の応答に user_id・login・scopes が揃っていません')
       }
       return { userId, login, scopes: scopes.filter((scope): scope is string => typeof scope === 'string') }
+    },
+
+    revoke: async (accessToken) => {
+      const response = await fetchImpl(REVOKE_URL, { method: 'POST', body: new URLSearchParams({ client_id: clientId, token: accessToken }) })
+      if (response.status === INVALID_TOKEN_STATUS) {
+        // 400 はクライアントIDの誤りなどでも返るので、トークンが無効だと答えたときだけ「失効済み」とみなす
+        const body: unknown = await response.clone().json().catch(() => null)
+        if (isRecord(body) && body.message === INVALID_TOKEN_MESSAGE) return
+      }
+      await ensureOk(response)
     },
 
     getAppAccessToken: async () => {

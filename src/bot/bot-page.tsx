@@ -50,6 +50,8 @@ import { nextIntervalSeconds } from './poll'
 
 /** botの接続を始めるURL。Twitchの認可画面へ移動する */
 const CONNECT_PATH = '/api/auth/login?role=bot'
+/** 切断のうち、Twitchでの失効だけに失敗したときの Worker のエラーコード（worker/token.ts の revokeReleasedToken） */
+const REVOKE_FAILED_CODE = 'revoke-failed'
 /** Twitchが決めているチャット本文の上限（文字） */
 const MAX_MESSAGE_LENGTH = 500
 const MILLISECONDS_PER_SECOND = 1000
@@ -439,7 +441,11 @@ export const BotPage = ({ api }: BotPageProps) => {
   }
 
   const disconnect = async (): Promise<string> => {
-    await api.disconnect()
+    await api.disconnect().catch((error: unknown) => {
+      // Twitchでの失効だけに失敗した場合も、Worker は保管庫からトークンを消し終えている。未接続の表示に変えたうえで案内を出す
+      if (error instanceof ApiError && error.code === REVOKE_FAILED_CODE) setLoaded({ status: 'ready', bot: null })
+      throw error
+    })
     setLoaded({ status: 'ready', bot: null })
     return 'botを切断しました'
   }

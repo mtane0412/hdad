@@ -167,7 +167,7 @@ export interface CollectStatsOptions {
   jev: JevClient
   /** Jev が BGM を切り替えたときに、裏方のページへ押し出す配送先 */
   alerts: AlertChannelNamespace
-  twitch: Pick<TwitchClient, 'refresh' | 'getLiveStream' | 'getFollowerTotal' | 'getChannel'>
+  twitch: Pick<TwitchClient, 'refresh' | 'revoke' | 'getLiveStream' | 'getFollowerTotal' | 'getChannel'>
   /**
    * 配信画面から読み取った文字を取りに行く Gyazo（worker/gyazo.ts）。
    *

@@ -16,7 +16,7 @@ import { TwitchApiError, type TwitchClient } from './twitch'
 /** 処分の実行に必要なものだけを受け取る（テストで差し替えやすくするため、Context そのものは要求しない） */
 export interface ModerationContext {
   env: { TOKENS: TokenVaultNamespace; TWITCH_BROADCASTER_ID: string }
-  twitch: Pick<TwitchClient, 'refresh' | 'banUser' | 'deleteChatMessage'>
+  twitch: Pick<TwitchClient, 'refresh' | 'revoke' | 'banUser' | 'deleteChatMessage'>
   /** 現在時刻（ミリ秒） */
   now: number
 }

@@ -81,20 +81,35 @@ const createEnv = () => {
   return { env, store }
 }
 
-/** Twitchの代わりに応答する fetch。チャット送信に来たリクエストを控える */
-const fakeTwitch = (chatResponse: Response = Response.json({ data: [{ message_id: 'abc', is_sent: true }] })) => {
+const REVOKE_URL = 'https://id.twitch.tv/oauth2/revoke'
+
+/** 失効の要求（oauth2/revoke）なら、失効させたトークンを控えて応答する。当てはまらないリクエストには null を返す */
+const answerRevoke = async (request: Request, revokedTokens: string[], revokeResponse: Response): Promise<Response | null> => {
+  if (request.url !== REVOKE_URL) return null
+  revokedTokens.push(new URLSearchParams(await request.clone().text()).get('token') ?? '')
+  return revokeResponse.clone()
+}
+
+/** Twitchの代わりに応答する fetch。チャット送信に来たリクエストと、失効させたトークンを控える */
+const fakeTwitch = (
+  chatResponse: Response = Response.json({ data: [{ message_id: 'abc', is_sent: true }] }),
+  revokeResponse: Response = new Response(null, { status: 200 }),
+) => {
   const sentChats: Request[] = []
+  const revokedTokens: string[] = []
   const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const request = new Request(input, init)
     if (request.url === 'https://api.twitch.tv/helix/chat/messages') {
       sentChats.push(request.clone())
       return chatResponse.clone()
     }
+    const revoked = await answerRevoke(request, revokedTokens, revokeResponse)
+    if (revoked) return revoked
     const subscriptions = answerSubscriptionQuery(request)
     if (subscriptions) return subscriptions
     throw new Error(`テストで想定していない通信です: ${request.url}`)
   }
-  return { sentChats, fetchImpl }
+  return { sentChats, revokedTokens, fetchImpl }
 }
 
 const noTwitchCalls = async (input: RequestInfo | URL): Promise<Response> => {
@@ -241,7 +256,7 @@ describe('DELETE /api/admin/bot', () => {
   it('botのトークンを消す。配信者のトークンには触れない', async () => {
     const { env } = createEnv()
     await saveToken(env.TOKENS, 'bot', BOT_TOKEN())
-    await saveToken(env.TOKENS, 'broadcaster', { ...BOT_TOKEN(), userId: BROADCASTER_ID, login: 'haishinsha' })
+    await saveToken(env.TOKENS, 'broadcaster', BROADCASTER_TOKEN())
 
     const response = await invoke(await broadcasterRequest(env, '/api/admin/bot', { method: 'DELETE' }), env, fakeTwitch().fetchImpl)
 
@@ -250,11 +265,37 @@ describe('DELETE /api/admin/bot', () => {
     expect(await loadToken(env.TOKENS, 'broadcaster')).not.toBeNull()
   })
 
-  it('接続していなくても204を返す（切断を何度押しても同じ結果になるように）', async () => {
+  it('消したbotのトークンをTwitchで失効させる。配信者のトークンは失効させない（issue #221）', async () => {
     const { env } = createEnv()
-    const response = await invoke(await broadcasterRequest(env, '/api/admin/bot', { method: 'DELETE' }), env, fakeTwitch().fetchImpl)
+    await saveToken(env.TOKENS, 'bot', BOT_TOKEN())
+    await saveToken(env.TOKENS, 'broadcaster', BROADCASTER_TOKEN())
+    const twitch = fakeTwitch()
+
+    await invoke(await broadcasterRequest(env, '/api/admin/bot', { method: 'DELETE' }), env, twitch.fetchImpl)
+
+    expect(twitch.revokedTokens).toEqual(['bot-access-token'])
+  })
+
+  it('Twitchでの失効に失敗しても、botのトークンは消したうえで、手で解除するよう502で伝える', async () => {
+    const { env } = createEnv()
+    await saveToken(env.TOKENS, 'bot', BOT_TOKEN())
+    const twitch = fakeTwitch(undefined, Response.json({ status: 503, message: 'Service Unavailable' }, { status: 503 }))
+
+    const response = await invoke(await broadcasterRequest(env, '/api/admin/bot', { method: 'DELETE' }), env, twitch.fetchImpl)
+
+    expect(response.status).toBe(502)
+    expect(await errorCode(response)).toBe('revoke-failed')
+    // HDADはもう使わない。Twitchの障害で切断できなくなるのを避ける
+    expect(await loadToken(env.TOKENS, 'bot')).toBeNull()
+  })
+
+  it('接続していなくても204を返し、Twitchへは何も送らない（切断を何度押しても同じ結果になるように）', async () => {
+    const { env } = createEnv()
+    const twitch = fakeTwitch()
+    const response = await invoke(await broadcasterRequest(env, '/api/admin/bot', { method: 'DELETE' }), env, twitch.fetchImpl)
 
     expect(response.status).toBe(204)
+    expect(twitch.revokedTokens).toEqual([])
   })
 })
 
@@ -430,9 +471,12 @@ describe('POST /api/admin/bot/device-code', () => {
 
 describe('POST /api/admin/bot/device-token', () => {
   /** デバイスコードの交換に、決めた応答を返す Twitch の代役 */
-  const twitchAnsweringExchange = (tokenResponse: Response) => {
+  const twitchAnsweringExchange = (tokenResponse: Response, revokeResponse: Response = new Response(null, { status: 200 })) => {
+    const revokedTokens: string[] = []
     const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-        const request = new Request(input, init)
+      const request = new Request(input, init)
+      const revoked = await answerRevoke(request, revokedTokens, revokeResponse)
+      if (revoked) return revoked
       // デバイスコードの交換と、購読を揃えるときのアプリアクセストークンの発行は、どちらも同じURLを使う。
       // 交換は本文に device_code を含むので、それで見分ける
       const body = request.method === 'POST' ? await request.clone().text() : ''
@@ -447,7 +491,7 @@ describe('POST /api/admin/bot/device-token', () => {
       if (moderator) return moderator
       throw new Error(`テストで想定していない通信です: ${request.url}`)
     }
-    return { fetchImpl }
+    return { revokedTokens, fetchImpl }
   }
 
   const authorizedResponse = () =>
@@ -520,6 +564,34 @@ describe('POST /api/admin/bot/device-token', () => {
     // トークンはWorkerの中に留め、ブラウザへ返さない
     expect(JSON.stringify(body)).not.toContain('bot-access-token')
     expect(await loadToken(env.TOKENS, 'bot')).toMatchObject({ accessToken: 'bot-access-token', userId: BOT_ID, login: 'haishinsha_bot' })
+    // 初めての接続なので、失効させる旧トークンは無い
+    expect(twitch.revokedTokens).toEqual([])
+  })
+
+  it('別のbotから付け替えたら、外した旧botのトークンをTwitchで失効させる（issue #221）', async () => {
+    const { env } = createEnv()
+    await saveToken(env.TOKENS, 'broadcaster', BROADCASTER_TOKEN())
+    await saveToken(env.TOKENS, 'bot', { ...BOT_TOKEN(), accessToken: '旧botのアクセストークン', refreshToken: '旧botのリフレッシュトークン' })
+    const twitch = twitchAnsweringExchange(authorizedResponse())
+
+    const response = await exchange(env, twitch.fetchImpl)
+
+    expect(response.status).toBe(200)
+    expect(twitch.revokedTokens).toEqual(['旧botのアクセストークン'])
+    expect(await loadToken(env.TOKENS, 'bot')).toMatchObject({ accessToken: 'bot-access-token' })
+  })
+
+  it('旧botの失効に失敗したら、新しいbotを保存せず、もう一度試すよう502で伝える', async () => {
+    const { env } = createEnv()
+    await saveToken(env.TOKENS, 'broadcaster', BROADCASTER_TOKEN())
+    await saveToken(env.TOKENS, 'bot', { ...BOT_TOKEN(), accessToken: '旧botのアクセストークン', refreshToken: '旧botのリフレッシュトークン' })
+    const twitch = twitchAnsweringExchange(authorizedResponse(), Response.json({ status: 503, message: 'Service Unavailable' }, { status: 503 }))
+
+    const response = await exchange(env, twitch.fetchImpl)
+
+    expect(response.status).toBe(502)
+    expect(await errorCode(response)).toBe('revoke-failed')
+    expect(await loadToken(env.TOKENS, 'bot')).toMatchObject({ accessToken: '旧botのアクセストークン' })
   })
 
   it('モデレーターかどうかを確かめられなければ、トークンを保存せずにエラーを返す（接続できたのに画面にはエラーだけ、という半端な状態にしない）', async () => {
