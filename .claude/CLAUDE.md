@@ -73,13 +73,13 @@ npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 | `work-log.md` | 作業ログ（素材の種類 `workLog`。開発の出来事と章の見出し） | `src/work-log/**`・`worker/work-log*.ts`・`worker/github-routes.ts`・`worker/collect.ts`・`worker/alert-channel.ts`・`migrations/*dev_events*.sql` |
 | `task-desk.md` | 作業机（素材の種類 `taskDesk`。視聴者の `!task`・`!done`） | `src/task-desk/**`・`worker/task-desk*.ts`・`worker/webhook-routes.ts`・`worker/bot-config.ts`・`worker/alert-channel.ts`・`migrations/*task_declarations*.sql` |
 | `pomodoro.md` | ポモドーロ（`/pomodoro/`・素材の種類 `pomodoro`。区切りのトリガーと休憩中のBGM） | `src/pomodoro/**`・`worker/pomodoro*.ts`・`worker/ad-break-timer.ts`・`worker/alarm-actions.ts`・`worker/alert-channel.ts` |
-| `town-tour.md` | 市町村紹介（レイドで流すランダムな市区町村。一覧と日本地図は N03 からの生成物） | `src/town-tour/**`・`scripts/town-tour/**`・`public/town-tour/**` |
+| `town-tour.md` | 市町村紹介（レイドで流すランダムな市区町村。一覧と日本地図は N03 からの生成物、紹介は Wikipedia を材料にその都度作る） | `src/town-tour/**`・`scripts/town-tour/**`・`public/town-tour/**`・`worker/town-*.ts` |
 | `overlay.md` | 合成ページと構成の管理画面（`overlay/stage/`・`/overlay/`） | `src/overlay/**`・`overlay/**`・`worker/overlay-*.ts` |
 | `speech.md` | チャットの読み上げ（`speech/reader/`。合成先にさくらのAI Engine） | `src/speech/**`・`speech/**`・`worker/speech-*.ts` |
 | `backstage.md` | 裏方をまとめたページ（`overlay/backstage/`）とコネクターのページ（`/connectors/`） | `src/backstage/**`・`overlay/backstage/**` |
 | `bgm.md` | BGM（`/bgm/`・裏方の `?bgm=true`） | `src/bgm/**`・`worker/bgm-*.ts`・`worker/alert-channel.ts` |
 | `screen.md` | 配信画面の取り込み（コネクターの Gyazo） | `src/screen/**`・`worker/screen-*.ts`・`worker/gyazo.ts` |
-| `llm.md` | LLMの呼び先・使用状況・モデルの選択（判定用の Jev を含む） | `src/llm/**`・`worker/llm*.ts`・`worker/jev*.ts`・`worker/ai-chat.ts`・`worker/side-super.ts`・`worker/viewer-summary.ts`・`worker/stream-summary.ts` |
+| `llm.md` | LLMの呼び先・使用状況・モデルの選択（判定用の Jev を含む） | `src/llm/**`・`worker/llm*.ts`・`worker/jev*.ts`・`worker/ai-chat.ts`・`worker/side-super.ts`・`worker/viewer-summary.ts`・`worker/stream-summary.ts`・`worker/town-tour.ts` |
 | `dashboard.md` | ダッシュボード（`/`） | `src/stats/**`・`worker/stats-*.ts` |
 | `triggers-page.md` | トリガーの管理画面（`/triggers/`） | `src/admin/**` |
 | `rewards.md` | チャンネルポイント報酬（`/rewards/`） | `src/admin/reward-*`・`worker/reward-*.ts` |

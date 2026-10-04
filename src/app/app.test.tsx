@@ -123,6 +123,10 @@ const fakeLlmApi: LlmApi = {
             provider: 'workers-ai' as const,
             models: { 'workers-ai': '@cf/meta/llama-3.3-70b-instruct-fp8-fast', openrouter: 'meta-llama/llama-3.3-70b-instruct' },
           },
+          townTour: {
+            provider: 'workers-ai' as const,
+            models: { 'workers-ai': '@cf/meta/llama-3.3-70b-instruct-fp8-fast', openrouter: 'meta-llama/llama-3.3-70b-instruct' },
+          },
         },
       },
       apiKeyConfigured: true,

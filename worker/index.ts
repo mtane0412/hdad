@@ -149,6 +149,7 @@ import { postAdminTranscript } from './transcript-routes'
 import { captionSocket } from './caption-routes'
 import { getWorkLog, workLogSocket } from './work-log-routes'
 import { getTaskDesk, taskDeskSocket } from './task-desk-routes'
+import { getTownTour } from './town-tour-routes'
 import { getOverlayPomodoro, getPomodoro, pomodoroSocket, postPomodoroControl, putPomodoroSettings } from './pomodoro-routes'
 import { getDeeplUsage, getTranslation, postTranslation, putTranslation } from './translation-routes'
 import { drawSocket, getDrawBackground, getDrawStrokes, putDrawStrokes } from './draw-routes'
@@ -293,6 +294,7 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/overlay/bgm/socket', handle: overlayBgmSocket },
   { method: 'POST', path: '/api/overlay/bgm/ended', handle: postOverlayBgmEnded },
   { method: 'GET', path: '/api/overlay/layout', handle: getOverlayLayoutForPage },
+  { method: 'GET', path: '/api/overlay/town-tour', handle: getTownTour },
   { method: 'GET', path: '/api/media/:id', handle: media },
 ]
 

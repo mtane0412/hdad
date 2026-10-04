@@ -105,11 +105,11 @@ describe('parseLlmSettings', () => {
   })
 
   it('問題点は最初の1件で止めず、すべて集めてから拒否する', () => {
-    expect(issues({ usages: { aiChat: { provider: 'openai', models: { 'workers-ai': 1, openrouter: '' } } } })).toHaveLength(7)
+    expect(issues({ usages: { aiChat: { provider: 'openai', models: { 'workers-ai': 1, openrouter: '' } } } })).toHaveLength(8)
   })
 
-  it('使う箇所は5つで、それぞれ既定の提供元は Workers AI である', () => {
-    expect(LLM_USAGES).toEqual(['translation', 'aiChat', 'sideSuper', 'viewerSummary', 'streamSummary'])
+  it('使う箇所は6つで、それぞれ既定の提供元は Workers AI である', () => {
+    expect(LLM_USAGES).toEqual(['translation', 'aiChat', 'sideSuper', 'viewerSummary', 'streamSummary', 'townTour'])
     for (const usage of LLM_USAGES) expect(DEFAULT_LLM_SETTINGS.usages[usage].provider).toBe('workers-ai')
   })
 
@@ -123,6 +123,10 @@ describe('parseLlmSettings', () => {
 
   it('字幕の翻訳は、発話ごとに呼ばれるので軽いモデルを既定にする', () => {
     expect(DEFAULT_LLM_SETTINGS.usages.translation.models).toEqual(DEFAULT_LLM_SETTINGS.usages.aiChat.models)
+  })
+
+  it('市町村紹介は、レイドのときだけ呼ばれ材料にない内容を書かせたくないので、あらすじと同じ大きいモデルを既定にする', () => {
+    expect(DEFAULT_LLM_SETTINGS.usages.townTour.models).toEqual(DEFAULT_LLM_SETTINGS.usages.streamSummary.models)
   })
 })
 
