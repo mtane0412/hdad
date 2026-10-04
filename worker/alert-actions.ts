@@ -26,6 +26,7 @@ import { loadOverlayKey } from './overlay-key'
 import { recordFailure } from './stats-store'
 import { readCurrentStreamSummary } from './stream-summary-store'
 import { pickTown, townTourCallOf } from './town-tour-call'
+import { loadTownTourSound, playbackSoundOf } from './town-tour-sound'
 import { readViewer } from './viewer-store'
 
 /**
@@ -113,11 +114,16 @@ export const runAlertActions = async (
   })()
   // 素材の再生はbotと関わりなく行う（botを接続していなくてもアラートは鳴る）
   await pushMatchedAlerts(context, config, subscriptionType, body, messageId, state, summary)
-  // 市町村紹介も素材が流すので、botの接続を見る前に押し出す。市町村は1件ごとに引き直す（紹介を作るのは素材が受け取ってから）
-  for (const [index, townTour] of townTours.entries()) {
-    await sendAndRecordFailure(context, messageId, 'townTour', index, 'town-tour-push-failed', () =>
-      pushTownTour(env.ALERTS, townTourCallOf(pickTown(Math.random), townTour)),
-    )
+  // 市町村紹介も素材が流すので、botの接続を見る前に押し出す。市町村は1件ごとに引き直す（紹介を作るのは素材が受け取ってから）。
+  // 音の設定とオーバーレイ用キーは、当てはまった行があるときだけ読む（チャットの発言のたびにKVを読まないため）
+  if (townTours.length > 0) {
+    const [sound, overlayKey] = await Promise.all([loadTownTourSound(env.STORE), loadOverlayKey(env.STORE)])
+    for (const [index, townTour] of townTours.entries()) {
+      // キーが未発行で音のURLを作れないときも、押し出しの失敗として記録する（黙って無音で流さない）
+      await sendAndRecordFailure(context, messageId, 'townTour', index, 'town-tour-push-failed', () =>
+        pushTownTour(env.ALERTS, townTourCallOf(pickTown(Math.random), townTour, playbackSoundOf(sound, overlayKey))),
+      )
+    }
   }
 
   if (messages.length === 0 && announcements.length === 0 && aiChats.length === 0 && shoutouts.length === 0) return

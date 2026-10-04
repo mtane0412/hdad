@@ -49,6 +49,12 @@ const fakeApi = (overrides: Partial<AdminApi> = {}): AdminApi => ({
   removeMedia: vi.fn(async () => {}),
   rotateOverlayKey: vi.fn(async () => 'atarashii-key'),
   playTownTourDemo: vi.fn(async () => '試し再生: 本日は北海道石狩郡当別町をご紹介します'),
+  townTourSound: vi.fn(async () => ({
+    slots: { bgm: null, opening: null, zoom: null, landing: null, item: null, closing: null },
+    bgmVolume: 0.3,
+    effectVolume: 0.6,
+  })),
+  saveTownTourSound: vi.fn(async (sound) => sound),
   rewards: vi.fn(async () => [applauseReward]),
   createReward: vi.fn(async () => {
     throw new Error('このテストでは報酬を変更しません')

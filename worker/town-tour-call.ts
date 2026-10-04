@@ -5,10 +5,13 @@
  * 押し出すのは市町村と一文だけで、紹介そのものは素材が受け取ってから GET /api/overlay/town-tour?code= で作らせる
  * （Twitch の Webhook の中では LLM の待ち時間が収まらないため。.claude/rules/town-tour.md）。
  *
+ * 演出で鳴らす音（issue #243）も一緒に押し出す。素材が受け取ったその場で始まりの音を鳴らせるよう、紹介とは別に先に渡す。
+ *
  * 一覧（towns.json）は src/town-tour/ にあり、合成ページと同じものを読む（Worker から src/ を読み込む例外）。
  */
 import towns from '../src/town-tour/towns.json'
 import type { TownTourOccasion } from './alert-event'
+import type { TownTourPlaybackSound } from './town-tour-sound'
 
 /** 一覧の市町村（コードは全国地方公共団体コードの5桁。名前は一意でないので識別には使わない） */
 export interface Town {
@@ -23,6 +26,8 @@ export interface Town {
 export interface TownTourCall extends Town {
   /** 冒頭に出す一文（「○○さんのレイドを記念して、本日は△△町をご紹介します」など） */
   headline: string
+  /** 演出の場面ごとに鳴らす音（音声のURL）と音量 */
+  sound: TownTourPlaybackSound
 }
 
 /** 冒頭の一文を決めるきっかけ。demo は管理画面の試し再生で、相手を持たない */
@@ -39,8 +44,8 @@ export const pickTown = (random: () => number): Town => {
   return town
 }
 
-/** 市町村と、きっかけから決まる冒頭の一文を組み合わせて、押し出す中身にする */
-export const townTourCallOf = (town: Town, caller: TownTourCaller): TownTourCall => {
+/** 市町村と、きっかけから決まる冒頭の一文と、鳴らす音を組み合わせて、押し出す中身にする */
+export const townTourCallOf = (town: Town, caller: TownTourCaller, sound: TownTourPlaybackSound): TownTourCall => {
   const place = `${town.prefecture}${town.county}${town.name}`
   const headline = ((): string => {
     switch (caller.occasion) {
@@ -52,5 +57,5 @@ export const townTourCallOf = (town: Town, caller: TownTourCaller): TownTourCall
         return `試し再生: 本日は${place}をご紹介します`
     }
   })()
-  return { ...town, headline }
+  return { ...town, headline, sound }
 }

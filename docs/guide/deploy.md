@@ -83,7 +83,7 @@ R2は無料枠（保存10GB・転送無料）だけを使う場合でも、デ�
 | `GET /api/media/<素材ID>?key=` | 素材の中身を返す（要オーバーレイ用キー、または配信者のセッション） |
 | `GET`・`PUT /api/admin/config` | アラートの設定の取得・保存（要セッション） |
 | `GET`・`POST /api/admin/media` | 素材の一覧・アップロード（要セッション） |
-| `DELETE /api/admin/media/<素材ID>` | 素材の削除。トリガーやBGMの曲に使われている素材は409で拒否する（要セッション） |
+| `DELETE /api/admin/media/<素材ID>` | 素材の削除。トリガー・BGMの曲・市町村紹介の音に使われている素材は409で拒否する（要セッション） |
 | `POST /api/admin/overlay-key` | オーバーレイ用キーの再発行。古いキーを含むURLは使えなくなり、古いキーで開いたままの接続（アラート・BGM・手書き・字幕・タブの映像）も切れる（要セッション） |
 | `GET /api/admin/bot` | チャットボットの接続状態（ログイン名・ユーザーID・不足しているスコープ・モデレーターかどうか）。トークンは返さない（要セッション） |
 | `DELETE /api/admin/bot` | チャットボットの切断（Workerが持つトークンを消す。要セッション） |
@@ -111,6 +111,8 @@ R2は無料枠（保存10GB・転送無料）だけを使う場合でも、デ�
 | `GET /api/admin/pomodoro` | ポモドーロのタイマー（止めていれば `null`）と休憩の曲の設定（要セッション） |
 | `PUT /api/admin/pomodoro/settings` | ポモドーロの休憩中に流す曲（BGMの一覧にある曲か `null`）の保存（要セッション） |
 | `POST /api/admin/town-tour/demo` | 市町村紹介の試し再生。市町村を1つ引いて合成ページへ押し出し、押し出したものを返す（配送先が失敗したら502。要セッション） |
+| `GET /api/admin/town-tour/sound` | 市町村紹介の演出で鳴らす音の設定（枠ごとの素材と音量。未保存ならどの枠も鳴らさない。要セッション） |
+| `PUT /api/admin/town-tour/sound` | 市町村紹介の音の設定を検証して保存する（音声でない素材などは問題点付きの400。要セッション） |
 | `POST /api/admin/pomodoro/control` | ポモドーロのタイマーの操作（`command` は `start`・`pause`・`resume`・`stop`。今の状態でできない操作は409。要セッション） |
 | `GET`・`PUT /api/admin/focus` | 注目コメント（いま取り上げているもの）の取得・保存（要セッション） |
 | `GET`・`PUT /api/admin/llm` | LLMの提供元とモデルの設定の取得・保存（要セッション） |

@@ -24,6 +24,7 @@ import { overlayKeyTag } from './overlay-key'
 import { recordLlmUsage } from './llm-usage-store'
 import { TRANSCRIPT_MAX_LENGTH } from './transcript-routes'
 import { SPEECH_TEXT_MAX_LENGTH } from './speech-config'
+import { DEFAULT_TOWN_TOUR_SOUND, saveTownTourSound } from './town-tour-sound'
 
 const now = Date.UTC(2026, 8, 21, 12, 0, 0)
 const broadcasterId = '12345'
@@ -201,6 +202,18 @@ describe('素材（/api/admin/media）', () => {
     const { env, bucket } = createEnv()
     const { id } = await uploadImage(env)
     await invoke(await broadcasterRequest(env, '/api/admin/config', { method: 'PUT', body: JSON.stringify({ triggers: [trigger(id)] }) }), env)
+
+    const response = await invoke(await broadcasterRequest(env, `/api/admin/media/${id}`, { method: 'DELETE' }), env)
+
+    expect(response.status).toBe(409)
+    expect(bucket.entries.size).toBe(1)
+  })
+
+  it('市町村紹介の音の枠に選ばれている素材は409で削除を拒否する（紹介が黙って無音になるのを防ぐ）', async () => {
+    const { env, bucket } = createEnv()
+    const { id } = await uploadImage(env)
+    // 検証（音声であること）は town-tour-sound.test.ts が確かめるので、ここでは保存済みの設定として直接置く
+    await saveTownTourSound(env.STORE, { ...DEFAULT_TOWN_TOUR_SOUND, slots: { ...DEFAULT_TOWN_TOUR_SOUND.slots, closing: id } })
 
     const response = await invoke(await broadcasterRequest(env, `/api/admin/media/${id}`, { method: 'DELETE' }), env)
 

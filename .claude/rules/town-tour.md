@@ -18,8 +18,9 @@ paths:
 - 材料は記事の本文から見出しの名前で系統ごとに拾う（`worker/town-wikipedia.ts` の `pickTownMaterial`）。LLM には材料にある内容で固定の5項目（`worker/town-tour.ts` の `TOWN_TOUR_ITEMS`）を埋めさせるだけにし、材料に無い項目は空のまま返す。失敗は空の紹介で取り繕わず502にし、`collection_failures`（`town-tour-failed`）に残す
 - 出典として記事の URL を紹介と一緒に返す（Wikipedia の本文は CC BY-SA）
 - Worker は一覧と記事名の表を `src/town-tour/` から読む（Worker から `src/` を読み込む例外）
-- 流すきっかけはトリガーの動作 `townTour`（レイドとキーワードの行だけ。`worker/alert-config.ts` の `TOWN_TOUR_KINDS`）と、トリガー画面の試し再生（`POST /api/admin/town-tour/demo`）。どちらも Worker は市町村を引いて冒頭の一文を添え（`worker/town-tour-call.ts`）、`AlertChannel` の目印 `townTour` の接続へ押し出すだけにする
+- 流すきっかけはトリガーの動作 `townTour`（レイドとキーワードの行だけ。`worker/alert-config.ts` の `TOWN_TOUR_KINDS`）と、トリガー画面の試し再生（`POST /api/admin/town-tour/demo`）。どちらも Worker は市町村を引いて冒頭の一文と音の設定を添え（`worker/town-tour-call.ts`）、`AlertChannel` の目印 `townTour` の接続へ押し出すだけにする
 - 合成ページの素材の種類は `townTour`（`src/overlay/stage.ts` の `mountTownTour`）。アラートの列には入れず、素材の中で届いた順に1件ずつ流す。場面は再生を始めた時刻・紹介が届いた時刻と現在時刻だけから決める（`src/town-tour/timeline.ts` の `sceneAt`）。地図の読み解きは `topo.ts`、映す範囲は `camera.ts`、描画は `view.ts` で、描画だけがテストを持たない
 - 紹介を作れなかった1件はすぐに終え、失敗を素材の箱に出して次へ進む。出典（記事名と CC BY-SA 4.0）は紹介を流すあいだ画面に出し続ける
+- 演出で鳴らす音の枠は `src/town-tour/sound.ts` の `TOWN_TOUR_SOUND_SLOTS` で固定し（Worker もここから読む例外）、配信者は枠ごとにアップロード済みの音声を選ぶか「鳴らさない」にするだけにする。設定は市町村紹介として1つ（`worker/town-tour-sound.ts`。KV の `town-tour-sound`）で、画面はトリガーのページの「市町村紹介」のカード（`src/admin/town-tour-sound-card.tsx`）。押し出しの中身に音声の URL にして載せる（`playbackSoundOf`）。音声ファイルはリポジトリに入れない（配布元が再配布を禁じている）
 
 経緯は `docs/decisions/town-tour.md`、出典の表記と作り直しの手順は `docs/guide/town-tour.md`。
