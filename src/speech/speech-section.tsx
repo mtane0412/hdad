@@ -204,7 +204,6 @@ export const SpeechSection = ({ api, botApi }: SpeechSectionProps) => {
               <p>話者IDの 3 はずんだもん（ノーマル）です。長さの上限より長い発言は途中まで読みます。</p>
               <p>
                 さくらのAI Engine を使うときは、Worker のシークレット <code>SAKURA_AI_API_KEY</code> にAPIキーを設定し、使うキャラクターの利用規約にコントロールパネルで同意しておきます。
-                さくらではずんだもん（ノーマル）の 3 が拒まれることがあり、1 と 7 は使えることを確かめています。
               </p>
             </HelpButton>
           </CardAction>
