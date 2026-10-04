@@ -13,9 +13,9 @@
  * 2xx以外を返すとTwitchは同じ通知を再送するので、送信が成功していた場合に二重投稿になってしまう。
  */
 import { loadAlertConfig, type AlertConfig, type StoredAnnounceAction } from './alert-config'
-import { pushAlert } from './alert-channel'
+import { pushAlert, pushTownTour } from './alert-channel'
 import { generateChatMessage } from './ai-chat'
-import { aiChatsFor, alertsFor, announcementsFor, chatMessagesFor, hasAlertAction, requiresStreamSummary, shoutoutsFor } from './alert-event'
+import { aiChatsFor, alertsFor, announcementsFor, chatMessagesFor, hasAlertAction, requiresStreamSummary, shoutoutsFor, townToursFor } from './alert-event'
 import { resolveConditionState } from './alert-state'
 import type { ConditionState } from './alert-event'
 import { announceAsBot, sendAsBot, shoutoutAsBot } from './bot-chat'
@@ -25,6 +25,7 @@ import { HttpError, STATUS, type Context } from './http'
 import { loadOverlayKey } from './overlay-key'
 import { recordFailure } from './stats-store'
 import { readCurrentStreamSummary } from './stream-summary-store'
+import { pickTown, townTourCallOf } from './town-tour-call'
 import { readViewer } from './viewer-store'
 
 /**
@@ -103,8 +104,21 @@ export const runAlertActions = async (
       throw invalid(error instanceof Error ? error.message : String(error))
     }
   })()
+  const townTours = ((): ReturnType<typeof townToursFor> => {
+    try {
+      return townToursFor(config, subscriptionType, body.event, state)
+    } catch (error) {
+      throw invalid(error instanceof Error ? error.message : String(error))
+    }
+  })()
   // 素材の再生はbotと関わりなく行う（botを接続していなくてもアラートは鳴る）
   await pushMatchedAlerts(context, config, subscriptionType, body, messageId, state, summary)
+  // 市町村紹介も素材が流すので、botの接続を見る前に押し出す。市町村は1件ごとに引き直す（紹介を作るのは素材が受け取ってから）
+  for (const [index, townTour] of townTours.entries()) {
+    await sendAndRecordFailure(context, messageId, 'townTour', index, 'town-tour-push-failed', () =>
+      pushTownTour(env.ALERTS, townTourCallOf(pickTown(Math.random), townTour)),
+    )
+  }
 
   if (messages.length === 0 && announcements.length === 0 && aiChats.length === 0 && shoutouts.length === 0) return
 
@@ -242,7 +256,7 @@ export const recordLateFailure = async (context: AlertActionContext, failureCode
 const sendAndRecordFailure = async (
   context: AlertActionContext,
   messageId: string,
-  actionType: 'chat' | 'announce' | 'alert' | 'aiChat' | 'shoutout',
+  actionType: 'chat' | 'announce' | 'alert' | 'aiChat' | 'shoutout' | 'townTour',
   index: number,
   failureCode: string,
   send: () => Promise<void>,

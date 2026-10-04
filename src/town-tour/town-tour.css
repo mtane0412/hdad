@@ -1,0 +1,11 @@
+/*
+ * 市町村紹介の見た目
+ *
+ * 日本地図・冒頭の一文・紹介の項目・出典はすべて canvas に描く（src/town-tour/view.ts）ので、ここが持つのは
+ * canvas を箱いっぱいに広げることだけである（手書きと同じ）。
+ */
+[data-town-tour] {
+  display: block;
+  width: 100%;
+  height: 100%;
+}

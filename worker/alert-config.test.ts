@@ -13,6 +13,7 @@ import {
   aiChatActionOf,
   announceActionOf,
   shoutoutActionOf,
+  townTourActionOf,
   chatActionOf,
   loadAlertConfig,
   parseAlertConfig,
@@ -131,6 +132,26 @@ describe('parseAlertConfig', () => {
     expect(() => parseAlertConfig({ triggers: [{ kind: 'follow', actions: [{ type: 'shoutout' }] }] }, materialKind)).toThrow(
       expect.objectContaining({
         problems: ['triggers[0].actions: シャウトアウト（shoutout）はレイドのトリガーにだけ置けます'],
+      }),
+    )
+  })
+
+  it('レイドのトリガーなら、市町村紹介を流す動作（townTour）を受け付ける', () => {
+    const config = parseAlertConfig({ triggers: [{ kind: 'raid', actions: [{ type: 'townTour' }] }] }, materialKind)
+
+    expect(config.triggers[0]?.actions).toEqual([{ type: 'townTour' }])
+  })
+
+  it('キーワードのトリガー（!darts など）なら、市町村紹介を流す動作（townTour）を受け付ける', () => {
+    const config = parseAlertConfig({ triggers: [{ kind: 'keyword', contains: '!darts', actions: [{ type: 'townTour' }] }] }, materialKind)
+
+    expect(config.triggers[0]?.actions).toEqual([{ type: 'townTour' }])
+  })
+
+  it('レイドとキーワード以外のトリガーに市町村紹介を置いたら拒否する（冒頭で名前を出す相手が決まらないため）', () => {
+    expect(() => parseAlertConfig({ triggers: [{ kind: 'follow', actions: [{ type: 'townTour' }] }] }, materialKind)).toThrow(
+      expect.objectContaining({
+        problems: ['triggers[0].actions: 市町村紹介（townTour）はレイドとキーワードのトリガーにだけ置けます'],
       }),
     )
   })
@@ -316,7 +337,7 @@ describe('parseAlertConfig', () => {
 
   it('対応していない動作の種類は拒否する', () => {
     expect(() => parseAlertConfig({ triggers: [receivedTrigger({ actions: [alertAction({ type: 'ban' })] })] }, materialKind)).toThrowError(
-      expect.objectContaining({ problems: ['triggers[0].actions[0].type: alert / chat / announce / aiChat / shoutout のいずれかを指定してください'] }),
+      expect.objectContaining({ problems: ['triggers[0].actions[0].type: alert / chat / announce / aiChat / shoutout / townTour のいずれかを指定してください'] }),
     )
   })
 
@@ -464,6 +485,18 @@ describe('shoutoutActionOf', () => {
 
   it('シャウトアウトを送る動作がなければ null を返す', () => {
     expect(shoutoutActionOf({ kind: 'raid', actions: [storedAlertAction] })).toBeNull()
+  })
+})
+
+describe('townTourActionOf', () => {
+  it('トリガーから市町村紹介を流す動作を取り出す', () => {
+    const trigger: StoredTrigger = { kind: 'raid', actions: [storedAlertAction, { type: 'townTour' }] }
+
+    expect(townTourActionOf(trigger)).toEqual({ type: 'townTour' })
+  })
+
+  it('市町村紹介を流す動作がなければ null を返す', () => {
+    expect(townTourActionOf({ kind: 'raid', actions: [storedAlertAction] })).toBeNull()
   })
 })
 

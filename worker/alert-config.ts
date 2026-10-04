@@ -11,6 +11,8 @@
  * - aiChat: Workerが配信者の指示とその人の記録からLLMに文面を作らせ、botとしてチャットへ送る（worker/ai-chat.ts）
  * - shoutout: Workerがbotとしてシャウトアウト（相手の配信者を紹介するTwitch組み込みの機能）を送る。
  *   紹介する相手が配信者であるレイドのトリガーにだけ置ける
+ * - townTour: Workerが市町村を1つ引いて合成ページの素材「市町村紹介」へ押し出す（issue #229）。
+ *   冒頭で名前を出す相手が決まるレイドとキーワード（!darts など）のトリガーにだけ置ける
  *
  * メニュー項目は17種類（worker/trigger-menu.ts の TRIGGER_KINDS）で、そのうちチャットの発言を対象にするものは
  * botを接続しているときだけ通知が届く。広告の終了（adBreakEnd）だけはTwitchから届く通知ではなく、
@@ -29,7 +31,7 @@ import { ANNOUNCEMENT_COLORS, type AnnouncementColor } from './twitch'
 const CONFIG_KEY = 'alert-config'
 
 /** 動作の種類。同じ種類は1トリガーに1件まで */
-export const ACTION_TYPES = ['alert', 'chat', 'announce', 'aiChat', 'shoutout'] as const
+export const ACTION_TYPES = ['alert', 'chat', 'announce', 'aiChat', 'shoutout', 'townTour'] as const
 
 export type ActionType = (typeof ACTION_TYPES)[number]
 
@@ -110,7 +112,26 @@ export interface StoredShoutoutAction {
   type: 'shoutout'
 }
 
-export type StoredAction = StoredAlertAction | StoredChatAction | StoredAnnounceAction | StoredAiChatAction | StoredShoutoutAction
+/**
+ * 市町村を1つ引いて、合成ページの素材「市町村紹介」に日本地図からのズームと紹介を流させる動作（issue #229）。
+ *
+ * 引く市町村はその都度ランダムに決まるので、配信者が決める項目を持たない。
+ * 置けるのはレイドとキーワードのトリガーだけである（冒頭の「○○さんのレイドを記念して」の○○が決まるきっかけに限る）。
+ */
+export interface StoredTownTourAction {
+  type: 'townTour'
+}
+
+export type StoredAction =
+  | StoredAlertAction
+  | StoredChatAction
+  | StoredAnnounceAction
+  | StoredAiChatAction
+  | StoredShoutoutAction
+  | StoredTownTourAction
+
+/** 市町村紹介を置けるきっかけ。レイドはレイド元、キーワード（!darts など）は発言した人の名前を冒頭に出す */
+export const TOWN_TOUR_KINDS: readonly TriggerKind[] = ['raid', 'keyword']
 
 /**
  * 保存するトリガー。
@@ -289,6 +310,8 @@ const parseAction = (
   // シャウトアウトは配信者が決める項目を持たないので、種類が分かれば読み取れる
   // （レイドのトリガーにだけ置けるという決まりは、きっかけも見える parseAlertConfig で確かめる）
   if (type === 'shoutout') return { type }
+  // 市町村紹介も同じく配信者が決める項目を持たない（置けるきっかけは parseAlertConfig で確かめる）
+  if (type === 'townTour') return { type }
 
   if (type === 'aiChat') {
     const { instruction } = candidate
@@ -387,7 +410,12 @@ export const parseAlertConfig = (input: unknown, kindOfMedia: (mediaId: string) 
     const shoutoutOk = !hasShoutout || source === null || source.kind === 'raid'
     if (!shoutoutOk) problems.push(`${at}.actions: シャウトアウト（shoutout）はレイドのトリガーにだけ置けます`)
 
-    if (source !== null && actions !== null && shoutoutOk) return [{ ...source, actions }]
+    // 市町村紹介は冒頭で名前を出す相手が要るので、相手の決まるきっかけにだけ置かせる
+    const hasTownTour = actions !== null && actions.some((action) => action.type === 'townTour')
+    const townTourOk = !hasTownTour || source === null || TOWN_TOUR_KINDS.includes(source.kind)
+    if (!townTourOk) problems.push(`${at}.actions: 市町村紹介（townTour）はレイドとキーワードのトリガーにだけ置けます`)
+
+    if (source !== null && actions !== null && shoutoutOk && townTourOk) return [{ ...source, actions }]
     return []
   })
 
@@ -461,6 +489,10 @@ export const announceActionOf = (trigger: WithActions): StoredAnnounceAction | n
 /** トリガーからシャウトアウトを送る動作を取り出す。なければ null */
 export const shoutoutActionOf = (trigger: WithActions): StoredShoutoutAction | null =>
   trigger.actions.find((action): action is StoredShoutoutAction => action.type === 'shoutout') ?? null
+
+/** トリガーから市町村紹介を流す動作を取り出す。なければ null */
+export const townTourActionOf = (trigger: WithActions): StoredTownTourAction | null =>
+  trigger.actions.find((action): action is StoredTownTourAction => action.type === 'townTour') ?? null
 
 /** トリガーからアラートを出す動作を取り出す。なければ null */
 export const alertActionOf = (trigger: WithActions): StoredAlertAction | null =>

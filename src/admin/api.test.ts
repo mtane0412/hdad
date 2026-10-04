@@ -228,13 +228,27 @@ describe('createReward・updateReward・removeReward（チャンネルポイン�
   })
 })
 
-describe('rotateOverlayKey・rewards・logout', () => {
+describe('rotateOverlayKey・playTownTourDemo・rewards・logout', () => {
   it('オーバーレイ用キーを発行し直し、新しいキーを返す', async () => {
     const { requests, fetchImpl } = fetchReturning(200, { overlayKey: '新しいキー' })
 
     expect(await createAdminApi(fetchImpl).rotateOverlayKey()).toBe('新しいキー')
     expect(requests[0]!.method).toBe('POST')
     expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/overlay-key')
+  })
+
+  it('市町村紹介の試し再生を頼み、押し出された冒頭の一文を返す', async () => {
+    const { requests, fetchImpl } = fetchReturning(200, {
+      code: '01303',
+      prefecture: '北海道',
+      county: '石狩郡',
+      name: '当別町',
+      headline: '試し再生: 本日は北海道石狩郡当別町をご紹介します',
+    })
+
+    expect(await createAdminApi(fetchImpl).playTownTourDemo()).toBe('試し再生: 本日は北海道石狩郡当別町をご紹介します')
+    expect(requests[0]!.method).toBe('POST')
+    expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/town-tour/demo')
   })
 
   it('チャンネルポイント報酬の一覧を取得する', async () => {

@@ -11,11 +11,13 @@ import {
   connectAlertSocket,
   connectBgmSocket,
   connectPomodoroSocket,
+  connectTownTourSocket,
   connectTaskDeskSocket,
   connectWorkLogSocket,
   pushAlert,
   pushBgm,
   pushPomodoro,
+  pushTownTour,
   pushTaskDesk,
   pushWorkLogEntry,
   revokeAlertSockets,
@@ -27,6 +29,7 @@ import { createFakeDurableStorage } from './fake-durable-storage'
 import type { OverlayAlert } from './alert-event'
 import type { TaskDeskSnapshot } from './task-desk'
 import type { PomodoroSnapshot } from './pomodoro-timer'
+import type { TownTourCall } from './town-tour-call'
 import type { WorkLogEntry } from './work-log'
 
 const alert: OverlayAlert = {
@@ -59,6 +62,15 @@ const deskWithOneTask: TaskDeskSnapshot = {
 }
 
 /** ポモドーロのタイマーを始めたあとの状態 */
+/** レイドで引いた市町村の紹介の呼び出し */
+const raidTownTour: TownTourCall = {
+  code: '01303',
+  prefecture: '北海道',
+  county: '石狩郡',
+  name: '当別町',
+  headline: '山田花子さんのレイドを記念して、本日は北海道石狩郡当別町をご紹介します',
+}
+
 const runningPomodoro: PomodoroSnapshot = {
   timer: { startedAt: Date.parse('2026-10-03T12:00:00Z'), anchorAt: Date.parse('2026-10-03T12:00:00Z'), pausedAt: null },
 }
@@ -82,6 +94,7 @@ describe('AlertChannel', () => {
     workLogSockets: AlertSocket[] = [],
     taskDeskSockets: AlertSocket[] = [],
     pomodoroSockets: AlertSocket[] = [],
+    townTourSockets: AlertSocket[] = [],
   ): AlertChannel =>
     new AlertChannel({
       acceptWebSocket: () => undefined,
@@ -91,7 +104,8 @@ describe('AlertChannel', () => {
         if (tag === 'workLog') return workLogSockets
         if (tag === 'taskDesk') return taskDeskSockets
         if (tag === 'pomodoro') return pomodoroSockets
-        return [...sockets, ...bgmSockets, ...workLogSockets, ...taskDeskSockets, ...pomodoroSockets]
+        if (tag === 'townTour') return townTourSockets
+        return [...sockets, ...bgmSockets, ...workLogSockets, ...taskDeskSockets, ...pomodoroSockets, ...townTourSockets]
       },
       setWebSocketAutoResponse: () => undefined,
       storage: createFakeDurableStorage(),
@@ -166,6 +180,18 @@ describe('AlertChannel', () => {
     expect(taskDeskItem.sentMessages).toEqual([])
   })
 
+  it('市町村紹介の呼び出しは、市町村紹介を受け取る接続だけへ送る（アラートとしては読めないため）', async () => {
+    const alertItem = createConnection()
+    const townTourItem = createConnection()
+    const destination = createDestination([alertItem], [], [], [], [], [townTourItem])
+
+    const response = await destination.fetch(new Request('https://alert-channel/push/town-tour', { method: 'POST', body: JSON.stringify(raidTownTour) }))
+
+    expect(response.status).toBe(204)
+    expect(townTourItem.sentMessages).toEqual([JSON.stringify(raidTownTour)])
+    expect(alertItem.sentMessages).toEqual([])
+  })
+
   it('接続が1本もなければ、送らずに終わる（オーバーレイを開いていない間のアラートは落とす）', async () => {
     const destination = createDestination([])
 
@@ -200,7 +226,7 @@ describe('pushAlert', () => {
 })
 
 describe('接続の引き渡し', () => {
-  it('アラート・BGM・作業ログ・作業机・ポモドーロの接続を、目印を付けて Durable Object へ引き渡す', async () => {
+  it('アラート・BGM・作業ログ・作業机・ポモドーロ・市町村紹介の接続を、目印を付けて Durable Object へ引き渡す', async () => {
     const delivery = createFakeAlertChannel()
     const connectionRequest = (): Request => new Request('https://hdad.example.com/api/overlay/socket?key=k', { headers: { Upgrade: 'websocket' } })
 
@@ -209,8 +235,16 @@ describe('接続の引き渡し', () => {
     await connectWorkLogSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
     await connectTaskDeskSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
     await connectPomodoroSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
+    await connectTownTourSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
 
-    expect(delivery.forwardedConnections.map((request) => new URL(request.url).searchParams.get('topic'))).toEqual(['alerts', 'bgm', 'workLog', 'taskDesk', 'pomodoro'])
+    expect(delivery.forwardedConnections.map((request) => new URL(request.url).searchParams.get('topic'))).toEqual([
+      'alerts',
+      'bgm',
+      'workLog',
+      'taskDesk',
+      'pomodoro',
+      'townTour',
+    ])
   })
 })
 
@@ -279,6 +313,23 @@ describe('pushPomodoro', () => {
     const delivery = createFakeAlertChannel({ shouldFail: true })
 
     await expect(pushPomodoro(delivery.namespace, runningPomodoro)).rejects.toThrow('ポモドーロ')
+  })
+})
+
+describe('pushTownTour', () => {
+  it('Durable Object へ、市町村紹介の呼び出しを送る', async () => {
+    const delivery = createFakeAlertChannel()
+
+    await pushTownTour(delivery.namespace, raidTownTour)
+
+    expect(delivery.pushedTownTours).toEqual([raidTownTour])
+    expect(delivery.pushedAlerts).toEqual([])
+  })
+
+  it('Durable Object が失敗を返したら、黙って成功にせず投げる', async () => {
+    const delivery = createFakeAlertChannel({ shouldFail: true })
+
+    await expect(pushTownTour(delivery.namespace, raidTownTour)).rejects.toThrow('市町村紹介')
   })
 })
 

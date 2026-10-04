@@ -48,6 +48,7 @@ const fakeApi = (overrides: Partial<AdminApi> = {}): AdminApi => ({
   upload: vi.fn(async () => fireworksImage),
   removeMedia: vi.fn(async () => {}),
   rotateOverlayKey: vi.fn(async () => 'atarashii-key'),
+  playTownTourDemo: vi.fn(async () => '試し再生: 本日は北海道石狩郡当別町をご紹介します'),
   rewards: vi.fn(async () => [applauseReward]),
   createReward: vi.fn(async () => {
     throw new Error('このテストでは報酬を変更しません')
@@ -379,6 +380,27 @@ describe('効果の付け外し', () => {
     await save()
 
     expect(api.saveConfig).toHaveBeenCalledWith([{ kind: 'raid', actions: [{ type: 'shoutout' }] }])
+  })
+
+  test('レイドの項目で市町村紹介を選んで保存すると、市町村紹介の効果として送る', async () => {
+    const api = fakeApi({ config: vi.fn(async () => []) })
+    render(triggerPage(api))
+
+    const row = await openedItem('レイドされた')
+    await userEvent.click(row.getByRole('checkbox', { name: '市町村紹介を流す' }))
+    await save()
+
+    expect(api.saveConfig).toHaveBeenCalledWith([{ kind: 'raid', actions: [{ type: 'townTour' }] }])
+  })
+
+  test('市町村紹介の試し再生を押すと、Workerに流させ、送った一文を知らせる', async () => {
+    const api = fakeApi()
+    render(triggerPage(api))
+
+    await userEvent.click(await screen.findByRole('button', { name: '市町村紹介を試しに流す' }))
+
+    expect(api.playTownTourDemo).toHaveBeenCalledTimes(1)
+    expect(await notice('北海道石狩郡当別町')).toBeInTheDocument()
   })
 
   test('レイド以外の項目にはシャウトアウトを出さない（紹介する相手が配信者でないため）', async () => {

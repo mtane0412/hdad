@@ -48,6 +48,7 @@ import {
   rowActionLabels,
   rowParamSummary,
   supportsShoutout,
+  supportsTownTour,
   toDraft,
   toTriggerInputs,
   withFixedRows,
@@ -437,6 +438,27 @@ const ActionFields = ({ draft, media, heading, onChange }: ActionFieldsProps) =>
           )}
         </div>
       )}
+
+      {/* 市町村紹介は冒頭で名前を出す相手が要るので、レイドとキーワードの項目にだけ出す（Workerも保存時にそれ以外を拒む） */}
+      {supportsTownTour(draft.kind) && (
+        <div className="flex flex-col gap-4 rounded-md border border-dashed p-3 sm:col-span-2">
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id={`${id}-town-tour-enabled`}
+              checked={draft.townTourEnabled}
+              onCheckedChange={(checked) => update({ townTourEnabled: checked === true })}
+            />
+            <Label htmlFor={`${id}-town-tour-enabled`}>市町村紹介を流す</Label>
+          </div>
+          {draft.townTourEnabled && (
+            // 文言も市町村も持たない（市町村はその都度ランダムに引き、紹介は合成ページが受け取ってから作らせる）
+            <p className="text-xs text-muted-foreground">
+              全国の市区町村から1つを引き、日本地図からズームして紹介を流します。映すには、オーバーレイに「市町村紹介」の素材を置いてください。
+              キーワード（!darts など）では、発言した人の投げたダーツが刺さった市町村として紹介します。
+            </p>
+          )}
+        </div>
+      )}
     </>
   )
 
@@ -808,6 +830,9 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
     return 'キーを再発行しました。新しいURLをOBSに貼り替えてください'
   }
 
+  const playTownTourDemo = async (): Promise<string> =>
+    `「${await api.playTownTourDemo()}」を送りました。オーバーレイに「市町村紹介」の素材を置いていれば流れます`
+
   /** その項目の行（一覧の並びのままの位置付き）。位置は開閉と書き換えの目印に使う */
   const rowsOf = (kind: TriggerKind): { position: number; draft: TriggerDraft }[] =>
     drafts.flatMap((draft, position) => (draft.kind === kind ? [{ position, draft }] : []))
@@ -912,6 +937,12 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
             }
           >
             キーを再発行する
+          </Button>
+          <p className="text-sm text-muted-foreground">
+            市町村紹介は、トリガーを待たずに試しに流せる（引く市町村はランダム。オーバーレイに「市町村紹介」の素材を置いておく）。
+          </p>
+          <Button type="button" variant="outline" className="self-start" disabled={actions.busy} onClick={() => void actions.run(playTownTourDemo)}>
+            市町村紹介を試しに流す
           </Button>
         </CardContent>
       </Card>

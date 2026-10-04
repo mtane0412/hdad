@@ -55,6 +55,7 @@ const fakeApi = (overrides: Partial<AdminApi> = {}): AdminApi => {
     upload: vi.fn(unused),
     removeMedia: vi.fn(unused),
     rotateOverlayKey: vi.fn(unused),
+    playTownTourDemo: vi.fn(unused),
     rewards: vi.fn(async () => [toastReward, hydrateReward]),
     createReward: vi.fn(async (input: RewardInput) => ({ ...input, id: '報酬ID-新しい', imageUrl: 'https://static-cdn.jtvnw.net/custom-reward-images/default-2.png', manageable: true })),
     updateReward: vi.fn(async (id: string, input: RewardInput) => ({ ...input, id, imageUrl: toastReward.imageUrl, manageable: true })),
