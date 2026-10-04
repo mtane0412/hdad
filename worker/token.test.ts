@@ -160,4 +160,68 @@ describe('getAccessToken', () => {
 
     await expect(getAccessToken(store, 'broadcaster', twitch, now)).rejects.toMatchObject({ name: 'TwitchApiError', status: 503 })
   })
+  describe('取り直している間に、保存済みのトークンが変わった場合', () => {
+    /** Twitchへの更新を、テストが合図するまで止めておく */
+    const twitchRefreshPaused = () => {
+      let resume = (): void => undefined
+      const paused = new Promise<void>((resolve) => {
+        resume = resolve
+      })
+      const refresh = vi.fn(async () => {
+        await paused
+        return { accessToken: '旧botの新しいアクセストークン', refreshToken: '旧botの新しいリフレッシュトークン', expiresIn: 14400 }
+      })
+      return { twitch: { refresh }, resume: () => resume() }
+    }
+
+    it('切断された（消された）なら、旧トークンを書き戻さず、未接続のエラーにする', async () => {
+      const store = createFakeStore()
+      await saveToken(store, 'bot', savedToken(now + 30 * 1000))
+      const { twitch, resume } = twitchRefreshPaused()
+
+      const pending = getAccessToken(store, 'bot', twitch, now).catch((caught: unknown) => caught)
+      await vi.waitFor(() => expect(twitch.refresh).toHaveBeenCalled())
+      await deleteToken(store, 'bot')
+      resume()
+
+      expect(await pending).toMatchObject({ name: 'AuthError', code: 'not-logged-in' })
+      expect(await loadToken(store, 'bot')).toBeNull()
+    })
+
+    it('別のアカウントに付け替えられたなら、新しいトークンを上書きせず、取り直した旧トークンも返さない', async () => {
+      const store = createFakeStore()
+      await saveToken(store, 'bot', savedToken(now + 30 * 1000))
+      const { twitch, resume } = twitchRefreshPaused()
+      const replacement: StoredToken = {
+        ...savedToken(now + oneHour),
+        accessToken: '新botのアクセストークン',
+        refreshToken: '新botのリフレッシュトークン',
+        userId: '67890',
+        login: 'atarashii_bot',
+      }
+
+      const pending = getAccessToken(store, 'bot', twitch, now).catch((caught: unknown) => caught)
+      await vi.waitFor(() => expect(twitch.refresh).toHaveBeenCalled())
+      await saveToken(store, 'bot', replacement)
+      resume()
+
+      expect(await pending).toMatchObject({ name: 'AuthError', code: 'token-changed' })
+      expect(await loadToken(store, 'bot')).toEqual(replacement)
+    })
+
+    it('同じアカウントで接続し直された（リフレッシュトークンが変わった）なら、接続し直したトークンを上書きしない', async () => {
+      const store = createFakeStore()
+      await saveToken(store, 'bot', savedToken(now + 30 * 1000))
+      const { twitch, resume } = twitchRefreshPaused()
+      const reconnected: StoredToken = { ...savedToken(now + oneHour), accessToken: '接続し直したアクセストークン', refreshToken: '接続し直したリフレッシュトークン' }
+
+      const pending = getAccessToken(store, 'bot', twitch, now).catch((caught: unknown) => caught)
+      await vi.waitFor(() => expect(twitch.refresh).toHaveBeenCalled())
+      await saveToken(store, 'bot', reconnected)
+      resume()
+
+      expect(await pending).toMatchObject({ name: 'AuthError', code: 'token-changed' })
+      expect(await loadToken(store, 'bot')).toEqual(reconnected)
+    })
+  })
 })
