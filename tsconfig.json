@@ -3,6 +3,7 @@
  *
  * Worker（worker/）は Cloudflare のランタイムの型（@cloudflare/workers-types）を使い、DOMの型とは同時に読めないため、
  * tsconfig.worker.json に分けてある。npm run type-check は両方を走らせる。
+ * scripts/ は Node で直接実行するデータの作り直し用スクリプトで、Node の型だけを使うのでここで一緒に確かめる。
  */
 {
   "compilerOptions": {
@@ -21,5 +22,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src", "vite.config.ts", "eslint.config.js"]
+  "include": ["src", "scripts", "vite.config.ts", "eslint.config.js"]
 }
