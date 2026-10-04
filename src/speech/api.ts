@@ -18,8 +18,18 @@ import { createCaller, isRecord } from '../core/api'
 const ADMIN_PATH = '/api/admin/speech'
 const OVERLAY_PATH = '/api/overlay/speech'
 
+/** 合成先。local は同じPCの VOICEVOX ENGINE、sakura はさくらのAI Engine（Worker 経由）。worker/speech-config.ts と合わせる */
+export const SPEECH_ENGINES = ['local', 'sakura'] as const
+
+/** 合成先 */
+export type SpeechEngine = (typeof SPEECH_ENGINES)[number]
+
+const isSpeechEngine = (value: unknown): value is SpeechEngine => SPEECH_ENGINES.some((engine) => engine === value)
+
 /** チャットの読み上げの設定。項目と値の範囲は worker/speech-config.ts と合わせる */
 export interface SpeechSettings {
+  /** 合成先（読み上げのページが起動のときにしか使わない） */
+  engine: SpeechEngine
   /** VOICEVOX ENGINE が動いているホスト（読み上げのページが起動のときにしか使わない） */
   host: string
   /** VOICEVOX ENGINE のポート番号（読み上げのページが起動のときにしか使わない） */
@@ -42,6 +52,7 @@ export interface SpeechSettings {
 const readSpeechSettings = (body: unknown, path: string): SpeechSettings => {
   if (
     !isRecord(body) ||
+    !isSpeechEngine(body.engine) ||
     typeof body.host !== 'string' ||
     typeof body.port !== 'number' ||
     typeof body.speaker !== 'number' ||
@@ -55,6 +66,7 @@ const readSpeechSettings = (body: unknown, path: string): SpeechSettings => {
     throw new Error(`Workerの ${path} の応答が想定した形ではありません`)
   }
   return {
+    engine: body.engine,
     host: body.host,
     port: body.port,
     speaker: body.speaker,

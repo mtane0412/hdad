@@ -1,11 +1,11 @@
 /**
  * チャットの読み上げの起動
  *
- * Twitchのチャットを匿名IRCで受けて、同じPCで動いている VOICEVOX ENGINE（既定 http://localhost:50021）に
- * 読み上げさせる。読み上げの単独ページ（speech/reader/index.html）と、裏方をまとめたページ
+ * Twitchのチャットを匿名IRCで受けて、同じPCで動いている VOICEVOX ENGINE（既定 http://localhost:50021）か、
+ * さくらのAI Engine（Worker 経由。issue #225）に読み上げさせる。読み上げの単独ページ（speech/reader/index.html）と、裏方をまとめたページ
  * （overlay/backstage/index.html。issue #108）の両方がここを呼ぶ。
  *
- * 読み上げ文の組み立ては text.ts、順番待ちは queue.ts、合成は voicevox.ts、再生は audio.ts にあり、
+ * 読み上げ文の組み立ては text.ts、順番待ちは queue.ts、合成は voicevox.ts（ローカル）か sakura.ts（さくら）、再生は audio.ts にあり、
  * ここはそれらをつなぐだけである。OBSに載せるページの約束どおり React もログインも持ち込まない。
  * チャットの受け取りはチャットボックス（src/chat/）と同じ匿名IRCなので、Twitchのトークンは持たない。
  *
@@ -14,7 +14,7 @@
  * それだと配信中に音量ひとつ変えるにもURLを貼り替えることになるためである。設定は起動のあとも一定間隔で
  * 読み直し、次に読む1件から反映する（サイドスーパーと同じポーリング。押し出しを使うほどの即時性は要らない）。
  *
- * 注意: ホストとポートだけは起動のときにしか使えない。つなぎ先が変わるとつなぎ直しが要るためで、
+ * 注意: 合成先・ホスト・ポートだけは起動のときにしか使えない。つなぎ先が変わるとつなぎ直しが要るためで、
  * 変わったことに気づいたらOBSの再読み込みが要ることを画面に出す（黙って古いつなぎ先のまま読み続けない）。
  * 注意: 起動のときの失敗（VOICEVOX が動いていない・設定やチャンネル名が読めない）は投げて呼び出し側に
  * 画面へ出させ、この裏方は止める（Fail-Fast。読み上げが動いていないことに配信中に気づけないため）。
@@ -27,8 +27,10 @@ import { showError } from '../core/mount'
 import { createSpeechOverlayApi, type SpeechSettings } from './api'
 import { playSpeech } from './audio'
 import { advanceSpeech, EMPTY_SPEECH_QUEUE, enqueueSpeech, type SpeechQueue } from './queue'
+import { speechEndpointOf } from './engine'
+import { createSakuraSpeech } from './sakura'
 import { speechTextOf } from './text'
-import { createVoicevox, voicevoxOrigin } from './voicevox'
+import { createVoicevox, voicevoxOrigin, type Voicevox } from './voicevox'
 
 /** エラー表示でこの裏方を指す呼び名 */
 export const SPEECH_NOUN = 'チャットの読み上げ'
@@ -43,7 +45,7 @@ const POLL_INTERVAL_MS = 30000
 
 /** つなぎ先が変わったときに画面へ出す文面。読み上げは古いつなぎ先のまま続くので、直し方を添える */
 const RECONNECT_NEEDED = new Error(
-  'VOICEVOX のホストかポートが変わりました。新しいつなぎ先で読み上げるには、OBSでこのブラウザソースを再読み込みしてください（それまでは前のつなぎ先のまま読み上げます）',
+  '読み上げの合成先か、VOICEVOX のホストかポートが変わりました。新しいつなぎ先で読み上げるには、OBSでこのブラウザソースを再読み込みしてください（それまでは前のつなぎ先のまま読み上げます）',
 )
 
 export interface SpeechTaskOptions {
@@ -60,29 +62,32 @@ export interface SpeechTaskOptions {
 
 /** 読み上げを始めた結果 */
 export interface StartedSpeech {
-  /** つないだ VOICEVOX ENGINE の起点（画面に「どこへつないだか」を出すために返す） */
+  /** つないだ先の起点。ローカルなら VOICEVOX ENGINE、さくらなら合成を頼む Worker（画面に「どこへつないだか」を出すために返す） */
   readonly origin: string
 }
 
 /**
  * 読み上げを始める。
  *
- * @throws 起動に失敗した場合（設定が読めない・VOICEVOX が動いていない・チャンネル名が読めない）
+ * @throws 起動に失敗した場合（設定が読めない・VOICEVOX が動いていない・さくらが話者を拒んだ・チャンネル名が読めない）
  */
 export const startSpeech = async ({ key, box }: SpeechTaskOptions): Promise<StartedSpeech> => {
   const api = createSpeechOverlayApi((input, init) => fetch(input, init), key)
   // 1回目は起動の一部として扱う。ここで失敗したら画面に出して原因が分かるようにする
   let settings: SpeechSettings = await api.read()
   /** 起動のときのつなぎ先。以後これと違う設定が届いたら、OBSの再読み込みが要ると知らせる */
-  const connectedTo = { host: settings.host, port: settings.port }
-  const origin = voicevoxOrigin(settings.host, settings.port)
+  const connectedTo = speechEndpointOf(settings)
+  const origin = settings.engine === 'sakura' ? location.origin : voicevoxOrigin(settings.host, settings.port)
 
-  const voicevox = createVoicevox((input, init) => fetch(input, init), {
-    origin,
-    // つながらないとき、ENGINE の設定で許可すべきオリジンとして画面に出すために渡す
-    pageOrigin: location.origin,
-  })
-  // 読み上げ先が動いていないまま配信を始めないよう、つなぎ始める前に確かめる
+  const voicevox: Voicevox =
+    settings.engine === 'sakura'
+      ? createSakuraSpeech((input, init) => fetch(input, init), key)
+      : createVoicevox((input, init) => fetch(input, init), {
+          origin,
+          // つながらないとき、ENGINE の設定で許可すべきオリジンとして画面に出すために渡す
+          pageOrigin: location.origin,
+        })
+  // 読み上げ先が動いていない（さくらなら話者が使えない）まま配信を始めないよう、つなぎ始める前に確かめる
   await voicevox.checkReady()
 
   /** つなぎ先が変わったことを、すでに画面へ出したか。30秒ごとに貼り出し続けないための印 */
@@ -92,7 +97,7 @@ export const startSpeech = async ({ key, box }: SpeechTaskOptions): Promise<Star
       .read()
       .then((latest) => {
         settings = latest
-        if (reconnectNoticed || (latest.host === connectedTo.host && latest.port === connectedTo.port)) return
+        if (reconnectNoticed || speechEndpointOf(latest) === connectedTo) return
         reconnectNoticed = true
         showError(RECONNECT_NEEDED, SPEECH_NOUN, box)
       })

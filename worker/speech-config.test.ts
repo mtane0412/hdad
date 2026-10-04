@@ -12,6 +12,7 @@ import { DEFAULT_SPEECH_SETTINGS, loadSpeechSettings, parseSpeechSettings, saveS
 
 /** 配信者が画面で組み立てた、既定とは違う設定 */
 const streamerSettings: SpeechSettings = {
+  engine: 'sakura',
   host: '127.0.0.1',
   port: 50022,
   speaker: 8,
@@ -50,6 +51,10 @@ describe('parseSpeechSettings', () => {
 
   it('ホストがループバック以外なら拒否する（ブラウザが混在コンテンツを許すのはループバックだけのため）', () => {
     expect(issues(submit({ host: 'example.com' }))).toEqual([expect.stringContaining('host')])
+  })
+
+  it('合成先が「ローカル」か「さくら」でなければ拒否する', () => {
+    expect(issues(submit({ engine: 'workers-ai' }))).toEqual([expect.stringContaining('engine')])
   })
 
   it('ポート番号が範囲の外なら拒否する', () => {
@@ -107,5 +112,17 @@ describe('loadSpeechSettings・saveSpeechSettings', () => {
 
   it('未保存なら既定の設定を返す（保存していない配信者の読み上げを止めない）', async () => {
     expect(await loadSpeechSettings(createFakeStore())).toEqual(DEFAULT_SPEECH_SETTINGS)
+  })
+
+  it('既定の合成先はローカルの VOICEVOX ENGINE（従量課金のさくらは配信者が選んだときだけ使う）', () => {
+    expect(DEFAULT_SPEECH_SETTINGS.engine).toBe('local')
+  })
+
+  it('合成先を選べるようになる前に保存した設定は、合成先をローカルとして読む（それまではローカルしかなかったため）', async () => {
+    // 合成先の項目が無いころの形（engine 以外はすべて同じ）
+    const savedBeforeEngine = Object.fromEntries(Object.entries(streamerSettings).filter(([name]) => name !== 'engine'))
+    const store = createFakeStore({ 'speech-settings': JSON.stringify(savedBeforeEngine) })
+
+    expect(await loadSpeechSettings(store)).toEqual({ ...streamerSettings, engine: 'local' })
   })
 })

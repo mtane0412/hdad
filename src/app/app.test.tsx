@@ -163,7 +163,7 @@ const createFakeScreenApi: ScreenAdminApi = {
 }
 
 const createFakeSpeechApi: SpeechApi = {
-  load: vi.fn(async () => ({ host: 'localhost', port: 50021, speaker: 3, speed: 1, volume: 1, maxLength: 60, readName: false, ignoreLogins: [] })),
+  load: vi.fn(async () => ({ engine: 'local' as const, host: 'localhost', port: 50021, speaker: 3, speed: 1, volume: 1, maxLength: 60, readName: false, ignoreLogins: [] })),
   save: vi.fn(async (settings) => settings),
 }
 

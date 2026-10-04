@@ -33,6 +33,14 @@ EVENTSUB_SECRET=
 # 本番では `npx wrangler secret put DEEPL_API_KEY` で設定してください。
 # DEEPL_API_KEY=
 
+# さくらのAI Engine のAPIキー（任意）。
+# チャットの読み上げの合成先を、コネクターのページ（/connectors/ の VOICEVOX）で「さくらのAI Engine」にするときだけ必要です。
+# 既定はこのPCの VOICEVOX ENGINE で、そのときこの鍵は使いません。さくらの音声合成は従量課金です（3円/1万モーラ）。
+# 意図的にコメントアウトしてあります（Deploy to Cloudflare ボタンの入力欄に必須の項目として出さないため）。
+# 使うときは さくらのクラウドのコントロールパネルの AI Engine で発行し（使うキャラクターの利用規約にも同意しておく）、
+# この行の # を外してローカルの .dev.vars に書くか、本番では `npx wrangler secret put SAKURA_AI_API_KEY` で設定してください。
+# SAKURA_AI_API_KEY=
+
 # Gyazo のアクセストークン（任意）。
 # 配信画面の取り込み（裏方のページの「配信画面の取り込み」）を使うときだけ必要です。撮った画面を Gyazo へ
 # 上げ、そこで作られるOCRのテキストを、あらすじとサイドスーパーの材料にします。使わないなら不要です。

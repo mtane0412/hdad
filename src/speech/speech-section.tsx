@@ -12,8 +12,10 @@
  *
  * 注意: 値の範囲の検証は Worker だけが持つ（画面とWorkerで二重に持たない）。そのため入力欄の値は
  * そのまま送り、返ってきた問題点を並べて出す。
- * 注意: ホストとポートは裏方のページが起動のときにしか使えないので、変えたらOBSの再読み込みが要ることを
+ * 注意: 合成先・ホスト・ポートは裏方のページが起動のときにしか使えないので、変えたらOBSの再読み込みが要ることを
  * その場で知らせる。
+ * 注意: 合成先のさくらのAI Engine（issue #225）は従量課金なので、選んだときにその場で料金を出す（既定はローカル）。
+ * さくらはホストとポートを使わないので、さくらを選んでいるあいだはその欄を出さない（値は保存済みのまま残す）。
  * 注意: 設定とbotの接続状態を読めなかったときは、黙って既定や未接続に倒さず理由を出す（Fail-Fast）。
  * 設定を読めないまま入力欄を出すと、配信者が「保存済みの設定はこれだ」と取り違えたまま上書きしてしまう。
  */
@@ -33,8 +35,15 @@ import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ApiError } from '@/core/api'
 import { iconButtonName } from '@/core/icon-button'
-import type { SpeechApi, SpeechSettings } from './api'
+import type { SpeechApi, SpeechEngine, SpeechSettings } from './api'
+import { speechEndpointOf } from './engine'
 import { joinIgnoreLogins, numberOf, splitIgnoreLogins } from './form'
+
+/** 合成先の選択肢。値は worker/speech-config.ts と合わせる */
+const ENGINE_OPTIONS: readonly { value: SpeechEngine; label: string }[] = [
+  { value: 'local', label: 'このPCの VOICEVOX（無料）' },
+  { value: 'sakura', label: 'さくらのAI Engine（従量課金）' },
+]
 
 /** VOICEVOX ENGINE を動かせるホスト。ブラウザが混在コンテンツを許すループバックだけに限る（worker/speech-config.ts と同じ） */
 const HOST_OPTIONS = ['localhost', '127.0.0.1'] as const
@@ -48,6 +57,7 @@ export interface SpeechSectionProps {
 
 /** 入力欄が持つ値。数の欄は文字のまま持ち、保存のときに数へ直す（空欄を 0 に丸めないため） */
 interface SpeechForm {
+  engine: SpeechEngine
   host: string
   port: string
   speaker: string
@@ -60,6 +70,7 @@ interface SpeechForm {
 
 /** 保存済みの設定を入力欄の値にする */
 const toForm = (settings: SpeechSettings): SpeechForm => ({
+  engine: settings.engine,
   host: settings.host,
   port: String(settings.port),
   speaker: String(settings.speaker),
@@ -72,6 +83,7 @@ const toForm = (settings: SpeechSettings): SpeechForm => ({
 
 /** 入力欄の値を、Workerへ送る設定にする。範囲の検証はWorkerが行う */
 const toSettings = (form: SpeechForm): SpeechSettings => ({
+  engine: form.engine,
   host: form.host,
   port: numberOf(form.port),
   speaker: numberOf(form.speaker),
@@ -92,13 +104,14 @@ export const SpeechSection = ({ api, botApi }: SpeechSectionProps) => {
   /** 読み込み中は undefined、読めなければ理由（string）、読めたら入力欄の値 */
   const [form, setForm] = useState<SpeechForm>()
   const [loadFailure, setLoadFailure] = useState('')
-  /** 保存済みのつなぎ先。入力欄がこれと違えば、OBSの再読み込みが要ると知らせる */
-  const [savedEndpoint, setSavedEndpoint] = useState({ host: '', port: '' })
+  /** 保存済みのつなぎ先（speechEndpointOf の値）。入力欄がこれと違えば、OBSの再読み込みが要ると知らせる */
+  const [savedEndpoint, setSavedEndpoint] = useState('')
   /** 接続しているbotのログイン名。未接続なら空 */
   const [botLogin, setBotLogin] = useState('')
   /** botの接続状態を読めなかった理由。設定は出したうえで添える（未接続と取り違えないため） */
   const [botFailure, setBotFailure] = useState('')
   const actions = usePageActions(failureLines)
+  const engineFieldId = useId()
   const hostFieldId = useId()
   const portFieldId = useId()
   const speakerFieldId = useId()
@@ -114,7 +127,7 @@ export const SpeechSection = ({ api, botApi }: SpeechSectionProps) => {
       (settings) => {
         if (cancelled) return
         setForm(toForm(settings))
-        setSavedEndpoint({ host: settings.host, port: String(settings.port) })
+        setSavedEndpoint(speechEndpointOf(settings))
       },
       (error: unknown) => {
         if (!cancelled) setLoadFailure(errorMessage(error))
@@ -152,7 +165,9 @@ export const SpeechSection = ({ api, botApi }: SpeechSectionProps) => {
   const change = <Key extends keyof SpeechForm>(name: Key, value: SpeechForm[Key]): void => setForm({ ...form, [name]: value })
 
   /** つなぎ先を変えたか。読み上げのページは起動のときにしか読まないので、OBSの再読み込みが要る */
-  const endpointChanged = form.host !== savedEndpoint.host || form.port !== savedEndpoint.port
+  const endpointChanged = speechEndpointOf({ engine: form.engine, host: form.host, port: numberOf(form.port) }) !== savedEndpoint
+  /** さくらのAI Engine を選んでいるか（ホストとポートの欄を出さず、料金を出す） */
+  const usesSakura = form.engine === 'sakura'
 
   /** botが接続されていて、まだ読み上げない人に入っていないか */
   const canIgnoreBot =
@@ -161,7 +176,7 @@ export const SpeechSection = ({ api, botApi }: SpeechSectionProps) => {
   const save = async (): Promise<string> => {
     const saved = await api.save(toSettings(form))
     setForm(toForm(saved))
-    setSavedEndpoint({ host: saved.host, port: String(saved.port) })
+    setSavedEndpoint(speechEndpointOf(saved))
     return '読み上げの設定を保存しました'
   }
 
@@ -181,16 +196,39 @@ export const SpeechSection = ({ api, botApi }: SpeechSectionProps) => {
           <CardTitle>VOICEVOX</CardTitle>
           <CardAction>
             <HelpButton topic="VOICEVOX">
-              <p>同じPCの VOICEVOX にチャットを読み上げさせます。保存すると次に読む1件から効きます。</p>
+              <p>VOICEVOX にチャットを読み上げさせます。保存すると次に読む1件から効きます。</p>
               <p>
-                はじめに一度だけ、配信に使うPCで <code>http://{form.host}:{form.port}/setting</code> を開き、CORSの許可するオリジンに{' '}
+                このPCの VOICEVOX を使うときは、はじめに一度だけ、配信に使うPCで <code>http://{form.host}:{form.port}/setting</code> を開き、CORSの許可するオリジンに{' '}
                 <code>{window.location.origin}</code> を追加して保存し、VOICEVOX を再起動します（既定ではこのサイトからの読み出しを拒むため）。
               </p>
               <p>話者IDの 3 はずんだもん（ノーマル）です。長さの上限より長い発言は途中まで読みます。</p>
+              <p>
+                さくらのAI Engine を使うときは、Worker のシークレット <code>SAKURA_AI_API_KEY</code> にAPIキーを設定し、使うキャラクターの利用規約にコントロールパネルで同意しておきます。
+              </p>
             </HelpButton>
           </CardAction>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
+          <div className="flex flex-col gap-2 sm:col-span-2">
+            <Label htmlFor={engineFieldId}>合成先</Label>
+            <NativeSelect
+              id={engineFieldId}
+              className="w-full"
+              value={form.engine}
+              onChange={(event) => change('engine', event.currentTarget.value === 'sakura' ? 'sakura' : 'local')}
+            >
+              {ENGINE_OPTIONS.map((option) => (
+                <NativeSelectOption key={option.value} value={option.value}>
+                  {option.label}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+            {usesSakura && (
+              <p className="text-sm text-muted-foreground">
+                さくらのAI Engine は従量課金です（合成したモーラ数の合計に対して 3円/1万モーラ。無料枠は月50回まで）。1件ごとの切り上げはなく、1配信で500件読んでも数円です。
+              </p>
+            )}
+          </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor={speakerFieldId}>話者ID</Label>
             <Input
@@ -272,29 +310,33 @@ export const SpeechSection = ({ api, botApi }: SpeechSectionProps) => {
             <Label htmlFor={readNameFieldId}>発言者の名前も読む</Label>
           </div>
 
-          <div className="flex flex-col gap-2">
-            <Label htmlFor={hostFieldId}>ホスト</Label>
-            <NativeSelect id={hostFieldId} className="w-full" value={form.host} onChange={(event) => change('host', event.currentTarget.value)}>
-              {HOST_OPTIONS.map((host) => (
-                <NativeSelectOption key={host} value={host}>
-                  {host}
-                </NativeSelectOption>
-              ))}
-            </NativeSelect>
-          </div>
+          {!usesSakura && (
+            <>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor={hostFieldId}>ホスト</Label>
+                <NativeSelect id={hostFieldId} className="w-full" value={form.host} onChange={(event) => change('host', event.currentTarget.value)}>
+                  {HOST_OPTIONS.map((host) => (
+                    <NativeSelectOption key={host} value={host}>
+                      {host}
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelect>
+              </div>
 
-          <div className="flex flex-col gap-2">
-            <Label htmlFor={portFieldId}>ポート番号</Label>
-            <Input
-              id={portFieldId}
-              type="number"
-              min={1}
-              max={65535}
-              step={1}
-              value={form.port}
-              onChange={(event) => change('port', event.currentTarget.value)}
-            />
-          </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor={portFieldId}>ポート番号</Label>
+                <Input
+                  id={portFieldId}
+                  type="number"
+                  min={1}
+                  max={65535}
+                  step={1}
+                  value={form.port}
+                  onChange={(event) => change('port', event.currentTarget.value)}
+                />
+              </div>
+            </>
+          )}
 
           {endpointChanged && (
             <Alert className="sm:col-span-2">

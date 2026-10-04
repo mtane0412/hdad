@@ -98,6 +98,13 @@ export interface Env {
    */
   DEEPL_API_KEY?: string
   /**
+   * さくらのAI Engine のAPIキー。
+   *
+   * チャットの読み上げの合成先にさくらを選んだときだけ要る（worker/speech-routes.ts）ので、設定していなくてもWorkerは動く。
+   * 選んでいるのに無ければ、黙ってローカルの VOICEVOX ENGINE へ落とさずに失敗させる（Fail-Fast）。
+   */
+  SAKURA_AI_API_KEY?: string
+  /**
    * Gyazo のアクセストークン。
    *
    * 配信画面の取り込み（issue #122）が、撮った1枚を上げてOCRを作らせるために使う。画面の取り込みを

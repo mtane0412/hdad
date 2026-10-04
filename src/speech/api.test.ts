@@ -14,6 +14,7 @@ const overlayKey = 'overlay-key_0123456789abcdefghij'
 
 /** Workerが返す、保存済みの設定 */
 const savedConfig: SpeechSettings = {
+  engine: 'local',
   host: '127.0.0.1',
   port: 50022,
   speaker: 8,
@@ -76,6 +77,18 @@ describe('createSpeechOverlayApi（読み上げのページ）', () => {
     const { fetchImpl } = fetchReturning(401, { error: { code: 'invalid-overlay-key', message: 'オーバーレイ用キーが正しくありません' } })
 
     await expect(createSpeechOverlayApi(fetchImpl, overlayKey).read()).rejects.toThrow(ApiError)
+  })
+
+  it('合成先が「ローカル」か「さくら」でなければエラーにする（知らない合成先で読み上げを始めない）', async () => {
+    const { fetchImpl } = fetchReturning(200, { ...savedConfig, engine: 'workers-ai' })
+
+    await expect(createSpeechOverlayApi(fetchImpl, overlayKey).read()).rejects.toThrow(/想定した形/)
+  })
+
+  it('合成先がさくらの設定も読める', async () => {
+    const { fetchImpl } = fetchReturning(200, { ...savedConfig, engine: 'sakura' })
+
+    expect(await createSpeechOverlayApi(fetchImpl, overlayKey).read()).toEqual({ ...savedConfig, engine: 'sakura' })
   })
 
   it('読み上げない人が文字列の配列でなければエラーにする', async () => {

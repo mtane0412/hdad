@@ -65,6 +65,8 @@
  * | GET  /api/overlay/socket         | オーバーレイ用キー | オーバーレイからのWebSocketの接続を受け、アラートの配送先へ引き渡す |
  * | GET  /api/overlay/side-super    | オーバーレイ用キー | いま出すサイドスーパーの文言を返す |
  * | GET  /api/overlay/speech         | オーバーレイ用キー | チャットの読み上げの設定を返す |
+ * | POST /api/overlay/speech/check   | オーバーレイ用キー | さくらのAI Engine で保存済みの話者が使えるかを確かめる（課金されない） |
+ * | POST /api/overlay/speech/synthesis | オーバーレイ用キー | 読み上げ文1件をさくらのAI Engine で合成する（合成先にさくらを選んだときだけ） |
  * | GET  /api/overlay/screen         | オーバーレイ用キー | 配信画面の取り込みの設定を返す |
  * | POST /api/overlay/screen         | オーバーレイ用キー | 配信画面を撮った1枚を受け取り、Gyazo へ上げて記録する |
  * | GET  /api/overlay/layout         | オーバーレイ用キー | 合成オーバーレイの構成を返す（合成ページから） |
@@ -142,6 +144,7 @@ import {
   overlaySocket,
   postScreen,
 } from './overlay-routes'
+import { postSpeechCheck, postSpeechSynthesis } from './speech-routes'
 import { postAdminTranscript } from './transcript-routes'
 import { captionSocket } from './caption-routes'
 import { getWorkLog, workLogSocket } from './work-log-routes'
@@ -271,6 +274,8 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/overlay/socket', handle: overlaySocket },
   { method: 'GET', path: '/api/overlay/side-super', handle: getSideSuper },
   { method: 'GET', path: '/api/overlay/speech', handle: getOverlaySpeech },
+  { method: 'POST', path: '/api/overlay/speech/check', handle: postSpeechCheck },
+  { method: 'POST', path: '/api/overlay/speech/synthesis', handle: postSpeechSynthesis },
   { method: 'GET', path: '/api/overlay/screen', handle: getOverlayScreen },
   { method: 'POST', path: '/api/overlay/screen', handle: postScreen },
   { method: 'GET', path: '/api/overlay/draw', handle: overlayDrawSocket },

@@ -12,8 +12,10 @@
  * 注意: ホストは localhost と 127.0.0.1 の2つしか受け取らない。読み上げのページは https で配信されるので
  * http:// の VOICEVOX ENGINE への通信は混在コンテンツにあたるが、ブラウザはループバックを安全な接続元として
  * 例外扱いするため、そこだけは通る（src/speech/voicevox.ts と同じ理由。値の範囲もそちらと合わせる）。
- * 注意: ホストとポートは読み上げのページが起動のときにしか読まない（つなぎ先が変わるので、つなぎ直しが要る）。
+ * 注意: 合成先・ホスト・ポートは読み上げのページが起動のときにしか読まない（つなぎ先が変わるので、つなぎ直しが要る）。
  * 変えたらOBSの再読み込みが必要であることは、管理画面と読み上げのページが知らせる。
+ * 注意: 合成先のさくら（さくらのAI Engine。issue #225）は従量課金なので、既定はローカルのままにする。
+ * さくらを選んだときの合成は Worker が受け持つ（worker/speech-sakura.ts。APIキーをブラウザに置かないため）。
  */
 import { ConfigError } from './alert-config'
 import type { KeyValueStore } from './store'
@@ -21,6 +23,11 @@ import type { KeyValueStore } from './store'
 const CONFIG_KEY = 'speech-settings'
 /** 問題点のメッセージに出す、何の設定かの名前 */
 const SUBJECT = '読み上げの設定'
+
+/**
+ * 合成先。local は同じPCの VOICEVOX ENGINE（ブラウザから直接呼ぶ）、sakura はさくらのAI Engine の音声合成（Worker 経由）
+ */
+const ENGINES = ['local', 'sakura'] as const
 
 /** VOICEVOX ENGINE を動かせるホスト。ブラウザが混在コンテンツを許すループバックだけに限る */
 const ALLOWED_HOSTS = ['localhost', '127.0.0.1'] as const
@@ -41,11 +48,25 @@ const MAX_IGNORE_LOGINS = 50
 /** Twitchのログイン名（英数字と下線、25文字まで） */
 const LOGIN_PATTERN = /^[A-Za-z0-9_]{1,25}$/
 
+/**
+ * 合成を頼む読み上げ文の長さの上限（文字数）。
+ *
+ * 読み上げ文は本文（長さの上限は MAX_MAX_LENGTH）の前に、表示名（Twitchの表示名は25文字まで）と区切りの読点を付けたものになる
+ * （src/speech/text.ts）。さくらの合成の経路はオーバーレイ用キーで呼べるので、これより長いものは断って課金を抑える。
+ */
+const MAX_DISPLAY_NAME_LENGTH = 25
+export const SPEECH_TEXT_MAX_LENGTH = MAX_MAX_LENGTH + MAX_DISPLAY_NAME_LENGTH + 1
+
+/** 合成先 */
+export type SpeechEngine = (typeof ENGINES)[number]
+
 /** VOICEVOX ENGINE を動かすホスト */
 export type SpeechHost = (typeof ALLOWED_HOSTS)[number]
 
 /** チャットの読み上げの設定。値の範囲は src/speech/ のスキーマと合わせる */
 export interface SpeechSettings {
+  /** 合成先（起動のときにしか読まない） */
+  readonly engine: SpeechEngine
   /** VOICEVOX ENGINE が動いているホスト（起動のときにしか読まない） */
   readonly host: SpeechHost
   /** VOICEVOX ENGINE のポート番号（起動のときにしか読まない） */
@@ -66,6 +87,7 @@ export interface SpeechSettings {
 
 /** 未保存のときに使う設定。話者IDの 3 は VOICEVOX の既定で入っている「ずんだもん（ノーマル）」 */
 export const DEFAULT_SPEECH_SETTINGS: SpeechSettings = {
+  engine: 'local',
   host: 'localhost',
   port: 50021,
   speaker: 3,
@@ -99,6 +121,14 @@ export const parseSpeechSettings = (input: unknown): SpeechSettings => {
     }
     problems.push(`${name}: ${min}〜${max} の${integer ? '整数' : '数'}で指定してください`)
     return DEFAULT_SPEECH_SETTINGS[name]
+  }
+
+  /** 合成先を読む */
+  const readEngine = (): SpeechEngine => {
+    const value = input.engine
+    if (ENGINES.includes(value as SpeechEngine)) return value as SpeechEngine
+    problems.push(`engine: ${ENGINES.join(' か ')} で指定してください`)
+    return DEFAULT_SPEECH_SETTINGS.engine
   }
 
   /** ホストを読む。ループバック以外は、そう書けない理由まで添えて拒む */
@@ -141,6 +171,7 @@ export const parseSpeechSettings = (input: unknown): SpeechSettings => {
   }
 
   // 呼ぶ順番が、問題点に並ぶ順番になる
+  const engine = readEngine()
   const host = readHost()
   const port = readNumber('port', MIN_PORT, MAX_PORT, true)
   const speaker = readNumber('speaker', MIN_SPEAKER, MAX_SPEAKER, true)
@@ -154,7 +185,7 @@ export const parseSpeechSettings = (input: unknown): SpeechSettings => {
   const ignoreLogins = readIgnoreLogins()
 
   if (problems.length > 0) throw new ConfigError(SUBJECT, problems)
-  return { host, port, speaker, speed, volume, maxLength, readName: readName as boolean, ignoreLogins }
+  return { engine, host, port, speaker, speed, volume, maxLength, readName: readName as boolean, ignoreLogins }
 }
 
 export const saveSpeechSettings = (store: KeyValueStore, settings: SpeechSettings): Promise<void> =>
@@ -164,8 +195,12 @@ export const saveSpeechSettings = (store: KeyValueStore, settings: SpeechSetting
  * 保存済みの設定を読む。未保存なら既定の設定を返す。
  *
  * 注意: 保存時に検証済みの内容しか書き込まないため、読み出し時の再検証はしない。
+ * 注意: 合成先（engine）を選べるようになる前（issue #225）に保存した設定には engine が無い。
+ * それまでの合成先はローカルしかなかったので、無ければローカルとして読む（保存し直さなくても読み上げを止めないため）。
  */
 export const loadSpeechSettings = async (store: KeyValueStore): Promise<SpeechSettings> => {
   const text = await store.get(CONFIG_KEY)
-  return text === null ? DEFAULT_SPEECH_SETTINGS : (JSON.parse(text) as SpeechSettings)
+  if (text === null) return DEFAULT_SPEECH_SETTINGS
+  const saved = JSON.parse(text) as Omit<SpeechSettings, 'engine'> & Partial<Pick<SpeechSettings, 'engine'>>
+  return { ...saved, engine: saved.engine ?? 'local' }
 }
