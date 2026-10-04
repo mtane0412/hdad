@@ -7,7 +7,8 @@
  * - 保存済みの設定を読み込んで入力欄に出し、変えて保存できること
  * - Workerが返した問題点を、そのまま画面に並べること（検証はWorkerだけが持つ）
  * - VOICEVOX 側のCORSの設定は、ヘルプボタンを押したときだけ案内すること
- * - ホスト・ポートを変えたときは、OBSの再読み込みが要ると知らせること
+ * - 合成先・ホスト・ポートを変えたときは、OBSの再読み込みが要ると知らせること
+ * - 合成先にさくらのAI Engine を選ぶと、従量課金であることを知らせること
  * - 設定やbotの接続状態を読めなかったときは、黙って既定に倒さず理由を出すこと
  */
 import '@testing-library/jest-dom/vitest'
@@ -26,6 +27,7 @@ const connectedBot: BotStatus = { userId: '123456789', login: 'hdad_bot', missin
 
 /** 前提: Workerに保存されている、既定のままの設定 */
 const savedConfig: SpeechSettings = {
+  engine: 'local',
   host: 'localhost',
   port: 50021,
   speaker: 3,
@@ -141,6 +143,44 @@ describe('VOICEVOX の区画', () => {
 
     await userEvent.clear(screen.getByLabelText('ポート番号'))
     await userEvent.type(screen.getByLabelText('ポート番号'), '50022')
+
+    expect(screen.getByText('OBSの再読み込みが必要です')).toBeInTheDocument()
+  })
+
+  test('合成先にさくらのAI Engine を選んで保存できる', async () => {
+    const api = speechApi()
+    renderPage({ api })
+    await waitForLoad()
+
+    await userEvent.selectOptions(screen.getByLabelText('合成先'), 'sakura')
+    await save()
+
+    await waitFor(() => expect(api.saved).toEqual([{ ...savedConfig, engine: 'sakura' }]))
+  })
+
+  test('さくらのAI Engine を選ぶと、従量課金であることを知らせる（費用がかかることに気づけるようにする）', async () => {
+    renderPage()
+    await waitForLoad()
+    expect(screen.queryByText(/3円\/1万モーラ/)).not.toBeInTheDocument()
+
+    await userEvent.selectOptions(screen.getByLabelText('合成先'), 'sakura')
+
+    expect(screen.getByText(/3円\/1万モーラ/)).toBeInTheDocument()
+  })
+
+  test('さくらのAI Engine を選んでいるあいだは、ホストとポートの欄を出さない（さくらでは使わないため）', async () => {
+    renderPage({ api: speechApi({ ...savedConfig, engine: 'sakura' }) })
+    await waitForLoad()
+
+    expect(screen.queryByLabelText('ホスト')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('ポート番号')).not.toBeInTheDocument()
+  })
+
+  test('合成先を変えたら、OBSの再読み込みが要ることを知らせる', async () => {
+    renderPage()
+    await waitForLoad()
+
+    await userEvent.selectOptions(screen.getByLabelText('合成先'), 'sakura')
 
     expect(screen.getByText('OBSの再読み込みが必要です')).toBeInTheDocument()
   })

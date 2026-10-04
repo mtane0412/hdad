@@ -27,6 +27,7 @@ const overlayKey = 'overlay-key_0123456789abcdefghij'
 
 /** 前提: Workerに保存されている、既定のままの読み上げの設定 */
 const speechSettings: SpeechSettings = {
+  engine: 'local',
   host: 'localhost',
   port: 50021,
   speaker: 3,

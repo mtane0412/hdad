@@ -23,6 +23,7 @@ import { createSessionToken } from './session'
 import { overlayKeyTag } from './overlay-key'
 import { recordLlmUsage } from './llm-usage-store'
 import { TRANSCRIPT_MAX_LENGTH } from './transcript-routes'
+import { SPEECH_TEXT_MAX_LENGTH } from './speech-config'
 
 const now = Date.UTC(2026, 8, 21, 12, 0, 0)
 const broadcasterId = '12345'
@@ -582,6 +583,7 @@ describe('GET /api/overlay/side-super（サイドスーパーの読み出し）'
 describe('読み上げの設定（/api/admin/speech・/api/overlay/speech）', () => {
   /** 配信者が画面で組み立てた、既定とは違う設定 */
   const broadcasterConfig = {
+    engine: 'local',
     host: '127.0.0.1',
     port: 50022,
     speaker: 8,
@@ -626,7 +628,7 @@ describe('読み上げの設定（/api/admin/speech・/api/overlay/speech）', (
     const response = await speechPageReads(env)
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toMatchObject({ host: 'localhost', port: 50021, speaker: 3, volume: 1, ignoreLogins: [] })
+    expect(await response.json()).toMatchObject({ engine: 'local', host: 'localhost', port: 50021, speaker: 3, volume: 1, ignoreLogins: [] })
   })
 
   it('値が範囲の外なら400で拒み、問題点をすべて返す（画面で一度に直せるようにする）', async () => {
@@ -646,6 +648,143 @@ describe('読み上げの設定（/api/admin/speech・/api/overlay/speech）', (
 
     expect(response.status).toBe(401)
     expect(await errorCode(response)).toBe('invalid-overlay-key')
+  })
+})
+
+describe('さくらのAI Engine での合成（/api/overlay/speech/check・/api/overlay/speech/synthesis）', () => {
+  /** テストで使うさくらのAPIキー */
+  const sakuraApiKey = 'sakura-test-api-key'
+
+  /** 合成先にさくらを選び、話者7・速度1.2で保存した設定 */
+  const sakuraSettings = {
+    engine: 'sakura',
+    host: 'localhost',
+    port: 50021,
+    speaker: 7,
+    speed: 1.2,
+    volume: 0.8,
+    maxLength: 60,
+    readName: true,
+    ignoreLogins: [],
+  }
+
+  /** 設定を保存済みにした環境を作る。APIキーは既定で設定済みにし、null なら設定していないものとする */
+  const createSpeechEnv = (settings: unknown, apiKey: string | null = sakuraApiKey) => {
+    const { env, store } = createEnv()
+    store.entries.set('speech-settings', JSON.stringify(settings))
+    return { ...env, SAKURA_AI_API_KEY: apiKey ?? undefined } satisfies Env
+  }
+
+  /** さくらの代役。送られた要求のURLを記録し、audio_query には読み方を、synthesis には音声を返す */
+  const createSakuraFetch = (respond: (url: URL) => Response | undefined = () => undefined) => {
+    const sentUrls: URL[] = []
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const request = new Request(input, init)
+      const url = new URL(request.url)
+      sentUrls.push(url)
+      const replaced = respond(url)
+      if (replaced) return replaced
+      if (url.pathname === '/tts/v1/audio_query') return Response.json({ accent_phrases: [], speedScale: 1 })
+      if (url.pathname === '/tts/v1/synthesis') return new Response('ずんだもんの声（WAV）', { headers: { 'Content-Type': 'audio/wav' } })
+      throw new Error(`テストで想定していない通信です: ${request.url}`)
+    }
+    return { fetchImpl, sentUrls }
+  }
+
+  const synthesize = (env: Env, body: unknown, fetchImpl: typeof fetch = noTwitchFetch, key = issuedKey) =>
+    invoke(
+      new Request(`${origin}/api/overlay/speech/synthesis?key=${key}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+      env,
+      fetchImpl,
+    )
+
+  const check = (env: Env, fetchImpl: typeof fetch = noTwitchFetch, key = issuedKey) =>
+    invoke(new Request(`${origin}/api/overlay/speech/check?key=${key}`, { method: 'POST' }), env, fetchImpl)
+
+  it('オーバーレイ用キーが違えば401を返す（さくらは呼ばない）', async () => {
+    const env = createSpeechEnv(sakuraSettings)
+
+    expect((await synthesize(env, { text: 'こんばんは' }, noTwitchFetch, 'atezuppou')).status).toBe(401)
+    expect((await check(env, noTwitchFetch, 'atezuppou')).status).toBe(401)
+  })
+
+  it('合成先にさくらを選んでいなければ409で断る（選んでいない配信者に課金を起こさない）', async () => {
+    const env = createSpeechEnv({ ...sakuraSettings, engine: 'local' })
+
+    const response = await synthesize(env, { text: 'こんばんは' })
+
+    expect(response.status).toBe(409)
+    expect(await errorCode(response)).toBe('speech-engine-not-sakura')
+    expect((await check(env)).status).toBe(409)
+  })
+
+  it('APIキーが設定されていなければ400で断る', async () => {
+    const env = createSpeechEnv(sakuraSettings, null)
+
+    const response = await synthesize(env, { text: 'こんばんは' })
+
+    expect(response.status).toBe(400)
+    expect(await errorCode(response)).toBe('no-api-key')
+  })
+
+  it('保存済みの話者と速度で合成し、音声をそのまま返す', async () => {
+    const env = createSpeechEnv(sakuraSettings)
+    const { fetchImpl, sentUrls } = createSakuraFetch()
+
+    const response = await synthesize(env, { text: 'こんばんは' }, fetchImpl)
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Content-Type')).toBe('audio/wav')
+    expect(await response.text()).toBe('ずんだもんの声（WAV）')
+    expect(sentUrls.map((url) => [url.pathname, url.searchParams.get('speaker')])).toEqual([
+      ['/tts/v1/audio_query', '7'],
+      ['/tts/v1/synthesis', '7'],
+    ])
+    expect(sentUrls[0]?.searchParams.get('text')).toBe('こんばんは')
+  })
+
+  it('読み上げ文が空か長すぎれば400で断る（さくらは呼ばない）', async () => {
+    const env = createSpeechEnv(sakuraSettings)
+
+    expect((await synthesize(env, { text: '' })).status).toBe(400)
+    expect((await synthesize(env, { text: 'あ'.repeat(SPEECH_TEXT_MAX_LENGTH + 1) })).status).toBe(400)
+    expect((await synthesize(env, { message: 'こんばんは' })).status).toBe(400)
+  })
+
+  it('さくらが失敗を返したら502で、さくらの理由を返す', async () => {
+    const env = createSpeechEnv(sakuraSettings)
+    const { fetchImpl } = createSakuraFetch(() => Response.json({ detail: 'This speaker is not available.' }, { status: 400 }))
+
+    const response = await synthesize(env, { text: 'こんばんは' }, fetchImpl)
+
+    expect(response.status).toBe(502)
+    const body = (await response.json()) as { error: { code: string; message: string } }
+    expect(body.error.code).toBe('speech-synthesis-failed')
+    expect(body.error.message).toContain('This speaker is not available.')
+  })
+
+  it('起動時の確認は、課金されない読み方の問い合わせだけを呼んで204を返す', async () => {
+    const env = createSpeechEnv(sakuraSettings)
+    const { fetchImpl, sentUrls } = createSakuraFetch()
+
+    const response = await check(env, fetchImpl)
+
+    expect(response.status).toBe(204)
+    expect(sentUrls.map((url) => url.pathname)).toEqual(['/tts/v1/audio_query'])
+  })
+
+  it('起動時の確認で話者が使えなければ502で、さくらの理由を返す', async () => {
+    const env = createSpeechEnv(sakuraSettings)
+    const { fetchImpl } = createSakuraFetch(() => Response.json({ detail: 'This model is not available.' }, { status: 400 }))
+
+    const response = await check(env, fetchImpl)
+
+    expect(response.status).toBe(502)
+    expect(await response.text()).toContain('This model is not available.')
   })
 })
 
