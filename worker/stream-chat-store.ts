@@ -14,6 +14,7 @@
  * 注意: 材料として読み出すのは終わった配信のぶんだけである。配信中に人物像を作ると、その後の発言が入らない。
  * 注意: SQLに値を埋め込まず、必ずプレースホルダで渡す。
  */
+import type { ModerationTarget } from './comment-feed'
 import type { Database } from './database'
 
 const toIso = (milliseconds: number): string => new Date(milliseconds).toISOString()
@@ -26,6 +27,9 @@ const toIso = (milliseconds: number): string => new Date(milliseconds).toISOStri
  * 保持期間で消えれば残りの区間は発話の無い区間として飛ばされるので、人物像がいつまでも作られないことはない。
  */
 const CHAPTERED_SESSIONS = 'SELECT id FROM stream_sessions WHERE ended_at IS NOT NULL AND chaptered_until >= ended_at'
+
+/** いま配信中の配信を選ぶ副問い合わせ（?1 に現在時刻を渡す。recordStreamChatMessage の結びつけ方と同じ） */
+const CURRENT_SESSION = 'SELECT id FROM stream_sessions WHERE ended_at IS NULL AND started_at <= ?1 ORDER BY started_at DESC LIMIT 1'
 
 /** 貯める発言。通知から取り出した値（chat-command.ts の ChatMessage）を組み替えて渡す */
 export interface StreamChatMessage {
@@ -174,6 +178,32 @@ export const readRecentSessionChat = async (db: Database, sessionId: string, lim
     .bind(sessionId, limit)
     .all<StreamChatLine>()
   return results.reverse()
+}
+
+/**
+ * モデレーションで消された発言を、材料から消す（issue #202）。
+ *
+ * ここに貯めた発言は、人物像のほかにサイドスーパー・あらすじ・章立ての材料にもなる。Twitch で消された発言
+ * （個人情報の書き込み・差別語・スパムなど）が配信画面や公開チャットに出るLLMの出力に混ざらないよう、行ごと消す。
+ * 印を付けて読み出しで除くのではなく消すのは、視聴者の記録（荒らしの履歴）が viewers の行で持たれていて、
+ * この本文に頼っていないためである（docs/decisions/viewers.md）。
+ *
+ * 1件の発言が消されたときは、その発言の行だけを消す（メッセージIDは配信をまたいで重ならないので、配信で絞らない）。
+ * ある人の発言の一掃とチャットのクリアは、いま配信中の配信の行だけを対象にする（作業机の removeModeratedTasks と同じ範囲）。
+ */
+export const removeModeratedStreamChat = async (db: Database, target: ModerationTarget, now: number): Promise<void> => {
+  const inCurrentSession = `DELETE FROM stream_chat_messages WHERE session_id = (${CURRENT_SESSION})`
+  const statement = (() => {
+    switch (target.kind) {
+      case 'delete':
+        return db.prepare('DELETE FROM stream_chat_messages WHERE message_id = ?1').bind(target.messageId)
+      case 'clearUser':
+        return db.prepare(`${inCurrentSession} AND user_id = ?2`).bind(toIso(now), target.userId)
+      case 'clear':
+        return db.prepare(inCurrentSession).bind(toIso(now))
+    }
+  })()
+  await statement.run()
 }
 
 /**

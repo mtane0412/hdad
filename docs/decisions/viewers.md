@@ -57,3 +57,12 @@
 視聴者の記録を消すときは、まだ人物像にしていない本文も配信中のぶんまで含めて一緒に消す（`deleteViewer`）。この失敗で収集そのものは止めない（LLMが使えない日に配信の記録まで止まらないためである）。
 
 作った人物像は `ai-chat.ts` の材料にも渡す。作りは文面づくり（`ai-chat.ts`）と同じで、LLMを呼ばない `buildSummaryPrompt` をテストし、呼び先は `worker/llm.ts` に `viewerSummary` の箇所として任せる（モデルの選択と応答の読み取りは `llm.ts` が持つ）。
+
+## モデレーションで消された発言は材料から消す（issue #202）
+
+`stream_chat_messages` は人物像だけでなく、サイドスーパー・あらすじ（`{summary}` で公開チャットに出る）・章立ての材料にもなる。モデレーターが消した発言（個人情報の書き込み・差別語・スパムなど）が残ると、配信画面や公開チャットに出るLLMの出力に混ざりうる。そこで次の2つを行う。
+
+- **Twitch から削除の通知が届いたら、行を消す**（`worker/webhook-routes.ts` の `applyModerationToStreamChat` → `worker/stream-chat-store.ts` の `removeModeratedStreamChat`）。発言の削除（`channel.chat.message_delete`）はその発言の行を、ある人の発言の一掃（`channel.chat.clear_user_messages`）とチャットのクリア（`channel.chat.clear`）は配信中の配信の行を消す。範囲は作業机（`removeModeratedTasks`）と揃えた。消し損ねたら握りつぶさずに投げて Twitch に再送させる（消すのは何度行っても同じ結果になるため）。
+- **自動モデレーションで処分した発言は、はじめから貯めない**（`replyToChatMessage` で、貯めるのを処分の判定のあとに移した）。処分しても Twitch からは削除の通知が届くが、処分の呼び出しが失敗したときや、通知より先に cron が材料を読んだときにも混ざらないようにするためである。
+
+**印（`removed_at` 列）を付けて読み出しで除く案は採らなかった。** 荒らしの履歴を配信者に残すのは視聴者の記録（`viewers` の1人1行。発言数・最後の発言日時など）の役目で、こちらは処分の前に書いたまま変えない。`stream_chat_messages` の本文はその履歴に使っておらず、消された本文を手元に持ち続ける理由が無い。印にすると、読み出す5か所（`listSummaryTargets`・`readViewerMessages`・`readSessionChatSince`・`readRecentSessionChat`・章立ての `readChapterLines`）すべてに条件を足す必要があり、1か所でも忘れると材料に戻ってしまう。マイグレーションも要らない。

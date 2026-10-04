@@ -9,6 +9,7 @@
  * （「配信中かどうかを読んでから書く」に分けると、その間に配信が終わったときに食い違う。dev_events と同じ考え方）。
  * 注意: SQLに値を埋め込まず、必ずプレースホルダで渡す。
  */
+import type { ModerationTarget } from './comment-feed'
 import type { Database } from './database'
 import type { TaskDeskEntry, TaskDeskSnapshot } from './task-desk'
 import { sumWorkTime, type WorkTime, type WorkTimeRow } from './task-desk-worktime'
@@ -37,9 +38,6 @@ export interface TaskCompletionInput {
 
 /** 完了にした結果。already-done は、もう完了している宣言に重ねて !done が届いたときと、処理済みの !done が再送されたとき */
 export type CompleteResult = 'completed' | 'already-done' | 'no-task' | 'offline'
-
-/** モデレーションで消されたもの。1件の発言・ある人の発言すべて・チャット全体（worker/comment-feed.ts の FeedItem と同じ形） */
-export type ModerationTarget = { readonly kind: 'delete'; readonly messageId: string } | { readonly kind: 'clearUser'; readonly userId: string } | { readonly kind: 'clear' }
 
 /**
  * いまの配信の作業机に、宣言を残す。
