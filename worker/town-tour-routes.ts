@@ -43,7 +43,16 @@ export const getTownTour = async (context: Context): Promise<Response> => {
     return Response.json({ ...town, article: { title: article.title, url: article.url }, tour })
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
-    await recordFailure(context.env.DB, 'town-tour-failed', `市町村紹介（${town.prefecture}${town.county}${town.name}）を作れませんでした: ${reason}`, context.now)
-    throw new HttpError(STATUS.badGateway, 'town-tour-failed', reason)
+    // 記録に失敗しても、紹介を作れなかった理由を記録の失敗で置き換えない。記録の失敗も黙って捨てず、応答の理由に添える
+    const recordProblem = await recordFailure(
+      context.env.DB,
+      'town-tour-failed',
+      `市町村紹介（${town.prefecture}${town.county}${town.name}）を作れませんでした: ${reason}`,
+      context.now,
+    ).then(
+      () => '',
+      (recordError: unknown) => `（失敗の記録にも失敗しました: ${recordError instanceof Error ? recordError.message : String(recordError)}）`,
+    )
+    throw new HttpError(STATUS.badGateway, 'town-tour-failed', `${reason}${recordProblem}`)
   }
 }

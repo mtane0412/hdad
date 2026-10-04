@@ -144,6 +144,20 @@ describe('GET /api/overlay/town-tour', () => {
     expect(await listFailures(env.DB)).toEqual([expect.objectContaining({ code: 'town-tour-failed' })])
   })
 
+  it('失敗の記録そのものに失敗しても、紹介を作れなかった理由を 502 で返し、記録の失敗も添える', async () => {
+    // 前提: データベース（D1）への書き込みが失敗する
+    const env = { ...createEnv('府中市は広島県の市です。'), DB: { ...createFakeDatabase(), batch: () => Promise.reject(new Error('D1 が応答しません')) } }
+    const { fetchImpl } = fakeWikipedia(fuchuArticle)
+
+    const response = await invoke(`/api/overlay/town-tour?key=${overlayKey}&code=${FUCHU_HIROSHIMA}`, env, fetchImpl)
+
+    expect(response.status).toBe(502)
+    const body = (await response.json()) as { error: { code: string; message: string } }
+    expect(body.error.code).toBe('town-tour-failed')
+    expect(body.error.message).toContain('JSON')
+    expect(body.error.message).toContain('D1 が応答しません')
+  })
+
   it('LLM の応答の形が違えば 502 で理由を返し、失敗の記録に残す', async () => {
     const env = createEnv('府中市は広島県の市です。')
     const { fetchImpl } = fakeWikipedia(fuchuArticle)
