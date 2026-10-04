@@ -205,9 +205,10 @@ export const TownTourSoundCard = ({ api, media }: TownTourSoundCardProps) => {
         {actions.feedback}
         {body}
         <p className="text-sm text-muted-foreground">
-          トリガーを待たずに試しに流せる（引く市町村はランダム。オーバーレイに「市町村紹介」の素材を置いておく）。音は保存したものが鳴る。
+          トリガーを待たずに試しに流せる（引く市町村はランダム。オーバーレイに「市町村紹介」の素材を置いておく）。音は保存したものが鳴るので、未保存の変更があるあいだは押せない。
         </p>
-        <Button type="button" variant="outline" className="self-start" disabled={actions.busy} onClick={() => void actions.run(playDemo)}>
+        {/* 試し再生は保存済みの音で鳴る。選び直した音を保存せずに流すと、聞き比べたつもりの音と食い違うので押させない */}
+        <Button type="button" variant="outline" className="self-start" disabled={actions.busy || unsaved} onClick={() => void actions.run(playDemo)}>
           市町村紹介を試しに流す
         </Button>
       </CardContent>

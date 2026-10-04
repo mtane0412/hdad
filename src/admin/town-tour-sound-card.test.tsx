@@ -119,4 +119,12 @@ describe('TownTourSoundCard', () => {
     expect(api.playTownTourDemo).toHaveBeenCalledTimes(1)
     expect(await screen.findByText(/北海道石狩郡当別町/)).toBeInTheDocument()
   })
+
+  test('未保存の変更があるあいだは試し再生を押せない（試し再生は保存済みの音で鳴り、選び直した音と食い違うため）', async () => {
+    render(<TownTourSoundCard api={fakeApi()} media={media} />)
+
+    await userEvent.selectOptions(await screen.findByLabelText('始まり（日本全体を映したとき）'), 'media-jajean')
+
+    expect(screen.getByRole('button', { name: '市町村紹介を試しに流す' })).toBeDisabled()
+  })
 })

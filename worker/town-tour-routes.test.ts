@@ -243,6 +243,19 @@ describe('POST /api/admin/town-tour/demo', () => {
     expect(response.status).toBe(502)
   })
 
+  it('音を選んでいるのにオーバーレイ用キーが未発行なら、押し出さずに理由つきの409で返す', async () => {
+    const alertChannel = createFakeAlertChannel()
+    const env = createEnv('', alertChannel)
+    await env.STORE.delete('overlay-key')
+    await saveTownTourSound(env.STORE, { ...DEFAULT_TOWN_TOUR_SOUND, slots: { ...DEFAULT_TOWN_TOUR_SOUND.slots, bgm: 'media-cookie' } })
+
+    const response = await callAsBroadcaster(env)
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toMatchObject({ error: { code: 'overlay-key-missing' } })
+    expect(alertChannel.pushedTownTours).toEqual([])
+  })
+
   it('保存した音の設定を、トリガーと同じく音声のURLにして一緒に押し出す（試し再生で聞き比べられるように）', async () => {
     const alertChannel = createFakeAlertChannel()
     const env = createEnv('', alertChannel)

@@ -85,12 +85,20 @@ export const townTourSocket = async (context: Context): Promise<Response> => {
  * 何を引いたかを画面に出せるよう、押し出したものを返す。音もトリガーと同じく保存済みの設定で鳴らす（聞き比べられるように）。
  *
  * 注意: 配送先の失敗は黙って成功にせず 502 で返す（管理画面に理由を出す）。
+ * 注意: 音を選んでいるのにオーバーレイ用キーが未発行なら、音のURLを作れないので押し出さずに 409 で返す（黙って無音で流さない）。
  */
 export const postTownTourDemo = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
   const { STORE } = context.env
   const [sound, overlayKey] = await Promise.all([loadTownTourSound(STORE), loadOverlayKey(STORE)])
-  const call = townTourCallOf(pickTown(Math.random), { occasion: 'demo' }, playbackSoundOf(sound, overlayKey))
+  const playbackSound = ((): ReturnType<typeof playbackSoundOf> => {
+    try {
+      return playbackSoundOf(sound, overlayKey)
+    } catch (error) {
+      throw new HttpError(STATUS.conflict, 'overlay-key-missing', error instanceof Error ? error.message : String(error))
+    }
+  })()
+  const call = townTourCallOf(pickTown(Math.random), { occasion: 'demo' }, playbackSound)
   try {
     await pushTownTour(context.env.ALERTS, call)
   } catch (error) {
