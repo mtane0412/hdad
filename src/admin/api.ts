@@ -264,6 +264,8 @@ const isTriggerSource = (value: unknown): value is TriggerSource => {
 /** 保存済みの動作1件の形。種類ごとに持つ項目が違う */
 const isStoredAction = (value: unknown): value is StoredAction => {
   if (!isRecord(value)) return false
+  // shoutout と townTour は配信者が決める項目を持たないので、種類だけを見る
+  if (value.type === 'shoutout' || value.type === 'townTour') return true
   // aiChat だけは送る文言を持たず、文面の作り方の指示を持つ
   if (value.type === 'aiChat') return typeof value.instruction === 'string'
   if (typeof value.message !== 'string') return false
