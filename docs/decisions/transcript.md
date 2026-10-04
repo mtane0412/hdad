@@ -34,7 +34,7 @@ https のページから `ws://` へつなぐのは混在コンテンツにあ�
 
 ゆかコネNEO が使っている音声認識は Chrome の Web Speech API（「ブラウザ音声認識」）なので、同じものを HDAD のアプリのページで直接動かし、PCに常駐させるもの（ゆかコネNEO と中継の `transcript/relay/`）をなくす。Soniox などの有料の認識を見送った経緯は issue #188〜#192 にある。OBS 内蔵の CEF では Web Speech API が使えないので、認識は Chrome で開いたアプリのページが受け持つ。
 
-**認識はページではなくアプリの枠（`src/app/app.tsx` の `Shell`）が持つ**（`src/transcript/recognition-context.tsx`）。アプリのページはどれも1つの React アプリで、ページを移っても読み込み直さない（`src/app/router.tsx`）ので、枠に置けばどのページを見ていても認識が続く。独立した認識のページにすると、配信中にそのページを開いたままにしておく必要があり、ダッシュボードやコメントのページを見ているあいだ止まってしまう。オン・オフと詳しい様子はコネクターのページの区画（`src/transcript/recognition-section.tsx`）に置き、サイドバーにはオンのあいだだけ状態（`src/transcript/recognition-status.tsx`）を出す（どのページを見ていても、途切れたことに気づけるようにするため）。
+**認識はページではなくアプリの枠（`src/app/app.tsx` の `Shell`）が持つ**（`src/transcript/recognition-context.tsx`）。アプリのページはどれも1つの React アプリで、ページを移っても読み込み直さない（`src/app/router.tsx`）ので、枠に置けばどのページを見ていても認識が続く。独立した認識のページにすると、配信中にそのページを開いたままにしておく必要があり、ダッシュボードやコメントのページを見ているあいだ止まってしまう。オン・オフと詳しい様子はコネクターのページの区画（`src/transcript/recognition-section.tsx`）に置き、サイドバーにはオンのあいだだけ状態（`src/transcript/recognition-status.tsx`）を出す（どのページを見ていても、途切れたことに気づけるようにするため）。issue #235 で、オン・オフのボタンと状態はどのページからでも触れる下部バー（`src/transcript/recognition-control.tsx`）へ移し、サイドバーからは消した（経緯は [ページUIの枠](./page-ui.md)）。
 
 - **オン・オフはこのブラウザの localStorage に覚える**（`hdad:transcript-recognition`）。Worker に保存すると、別の端末（スマートフォンなど）で HDAD を開いたときにそこでも認識が始まってしまう
 - **認識するのはタブ間の鍵（Web Locks の `hdad-transcript-recognition`）を取れた1つのタブだけにする**。2つのタブが同時に認識すると、同じ発話が別々のメッセージIDで二重に記録される。鍵を待つタブは、認識しているタブが閉じられたら代わりに始める。ほかのタブでのオン・オフは `storage` の出来事で知り、合わせる

@@ -29,6 +29,7 @@ npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 - ページUI（ダッシュボード・管理画面）はトップ `index.html` ひとつのReactアプリで、Twitchログインを前提にサイドバー付きの画面を出す
 - `/overlay/` など実ファイルのないパスには Workers が `index.html` を返し（`wrangler.jsonc` の `not_found_handling`）、アプリがパスに応じた中身を描く。そのため `vite.config.ts` の `base` は `/`
 - アプリのページは `src/app/pages.tsx` に登録する（サイドバーの項目・見出し・中身がここから決まる）。登録のないパスは「見つからない」画面を出す
+- 本文の上にバーを持たない。サイドバーの開閉と「ページを探す」はサイドバーの上部、ページの見出しは本文の先頭に置く。どのページからでも触る配信中の操作は、下端に固定した下部バー（`src/app/bottom-bar.tsx`）に項目として足す
 - ページの移動は `src/app/router.tsx`（History API。ライブラリなし）の `Link` を使い、アプリの外（OBSに載せるページ・`/api/*`）は普通の `<a>` で開く
 - ログインの確認は `src/app/app.tsx` が `/api/me` で行い、失敗したら未ログイン扱いにせずエラーを出す
 - 保存ボタンを持つページは、未保存の変更があるあいだ `src/app/router.tsx` の `useUnsavedChanges(true)` を呼ぶ（移動・戻る・再読み込みの前に確認が出る。経緯は `docs/decisions/page-ui.md`）

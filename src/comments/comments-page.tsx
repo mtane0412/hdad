@@ -579,7 +579,8 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
       </section>
 
       <div className="relative">
-        <div ref={scroller} onScroll={checkPosition} className="h-[calc(100dvh-12rem)] min-h-80 overflow-y-auto rounded-md border">
+        {/* 画面の高さから、本文の見出し・下部バー・余白・上の区画の分を引いた高さにする（上部バーをなくし下部バーを足したとき 12rem から直した。issue #235） */}
+        <div ref={scroller} onScroll={checkPosition} className="h-[calc(100dvh-15rem)] min-h-80 overflow-y-auto rounded-md border">
           {feed.entries.length === 0 ? (
             <p className="p-4 text-sm text-muted-foreground">まだ何も届いていません。チャットの発言や出来事が届くと、ここに並びます。</p>
           ) : (

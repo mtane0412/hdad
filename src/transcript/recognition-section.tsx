@@ -20,7 +20,7 @@ import { Switch } from '@/components/ui/switch'
 import type { DeliveredLine, DeliveryState } from './delivery'
 import { useRecognition, type RecognitionContextValue } from './recognition-context'
 import { describeRecognition, formatDuration } from './recognition-label'
-import { RecognitionDot } from './recognition-status'
+import { RecognitionDot } from './recognition-control'
 import { useStallClock } from './use-stall-clock'
 
 /** 送った発話に添える言葉 */

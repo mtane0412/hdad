@@ -12,6 +12,9 @@
  * - ページUIのURLを直接開いても、そのページが出ること（未ログインならログインの入口だけ）
  * - 存在しないパスでは、見つからないことを伝える画面を出すこと
  * - 未保存の変更があるページから離れようとすると確認を出し、「留まる」なら編集した内容を残すこと
+ * - 下部バー（配信中の操作）に文字起こしのオン・オフと状態を出し、サイドバーには出さないこと
+ * - 本文の上にバーを持たず、サイドバーの開閉と「ページを探す」をサイドバーの上部に置くこと
+ * - 狭い画面では、閉じたサイドバーを下部バーから開けること
  */
 import '@testing-library/jest-dom/vitest'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
@@ -238,18 +241,29 @@ describe('ログインしていないとき', () => {
 })
 
 describe('ログインしているとき', () => {
-  test('文字起こしをオンにしてあれば、どのページでもサイドバーに状態を出し、押すとコネクターのページへ移る', async () => {
+  test('文字起こしをオンにしてあれば、どのページでも下部バーに状態を出し、押すとコネクターのページへ移る', async () => {
     render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} pomodoroApi={createFakePomodoroApi} recognitionDeps={createRecognitionDeps('on')} api={createFakeAdminApi(async () => broadcaster)} />)
 
-    const status = await screen.findByRole('link', { name: '文字起こし: このブラウザでは使えません' })
-    expect(status).toHaveAttribute('href', '/connectors/')
+    // 前提: このブラウザには音声認識が無い代役なので、状態は「使えません」になる
+    const bar = await screen.findByRole('region', { name: '配信中の操作' })
+    expect(within(bar).getByRole('button', { name: '文字起こし' })).toHaveAttribute('aria-pressed', 'true')
+    // 音声認識が無いと分かるのは枠を描いたあとなので、状態が出るのを待つ
+    expect(await within(bar).findByRole('link', { name: '文字起こしの様子: このブラウザでは使えません' })).toHaveAttribute('href', '/connectors/')
   })
 
-  test('文字起こしをオフにしてあれば、サイドバーに状態を出さない', async () => {
+  test('文字起こしをオフにしてあれば、下部バーにはオンにするボタンだけを出し、状態は出さない', async () => {
     render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} pomodoroApi={createFakePomodoroApi} recognitionDeps={createRecognitionDeps()} api={createFakeAdminApi(async () => broadcaster)} />)
 
-    await screen.findByRole('navigation', { name: 'サイト内の移動' })
-    expect(screen.queryByText(/^文字起こし:/)).not.toBeInTheDocument()
+    const bar = await screen.findByRole('region', { name: '配信中の操作' })
+    expect(within(bar).getByRole('button', { name: '文字起こし' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.queryByRole('link', { name: /^文字起こしの様子/ })).not.toBeInTheDocument()
+  })
+
+  test('文字起こしの状態は、サイドバーではなく下部バーだけに出す', async () => {
+    render(<App statsApi={createFakeRecordApi} botApi={createFakeBotApi} viewerApi={createFakeViewerApi} speechApi={createFakeSpeechApi} screenApi={createFakeScreenApi} focusApi={createFakeFocusApi} commentApi={createFakeCommentApi} drawApi={createFakeDrawApi} llmApi={fakeLlmApi} overlayApi={createFakeOverlayApi} bgmApi={createFakeBgmApi} pomodoroApi={createFakePomodoroApi} recognitionDeps={createRecognitionDeps('on')} api={createFakeAdminApi(async () => broadcaster)} />)
+
+    const account = await screen.findByRole('region', { name: 'アカウント' })
+    expect(within(account).queryByText(/文字起こし/)).not.toBeInTheDocument()
   })
 
   test('サイドバーに配信者の名前と各ページへのリンクを出す', async () => {
@@ -427,10 +441,55 @@ describe('迷わず移動できること', () => {
     expect(screen.queryByRole('dialog', { name: 'ページを移動' })).not.toBeInTheDocument()
   })
 
-  test('見出しの横のボタンからも、ページを探す窓を開ける', async () => {
+  test('サイドバーの上部のボタンからも、ページを探す窓を開ける', async () => {
     renderSignedIn()
-    await userEvent.click(await screen.findByRole('button', { name: /ページを探す/ }))
+    const sidebarTop = await screen.findByRole('banner')
+    await userEvent.click(within(sidebarTop).getByRole('button', { name: /ページを探す/ }))
     expect(await screen.findByRole('dialog', { name: 'ページを移動' })).toBeInTheDocument()
+  })
+
+  test('サイドバーの開閉ボタンを、サイドバーの上部に置く', async () => {
+    renderSignedIn()
+    const sidebarTop = await screen.findByRole('banner')
+    expect(within(sidebarTop).getByRole('button', { name: 'サイドバーを開閉する' })).toBeInTheDocument()
+  })
+
+  test('ページの見出しは本文の中に置く（本文の上に別のバーを持たない）', async () => {
+    openPage('/viewers/')
+    renderSignedIn()
+    // ログインを確かめているあいだの画面も main を持つので、見出しが出てから本文を探す
+    const heading = await screen.findByRole('heading', { level: 1, name: '視聴者' })
+    const main = screen.getByRole('main')
+    expect(main).toContainElement(heading)
+    expect(main.querySelector('header')).toBeNull()
+  })
+})
+
+describe('狭い画面', () => {
+  const wideWidth = window.innerWidth
+
+  afterEach(() => {
+    window.innerWidth = wideWidth
+  })
+
+  test('サイドバーを閉じていても、下部バーのボタンから開ける', async () => {
+    // 前提: スマホの幅。サイドバーは閉じた状態で始まり、サイト内の移動は見えない
+    window.innerWidth = 500
+    renderSignedIn()
+    const bar = await screen.findByRole('region', { name: '配信中の操作' })
+    // 画面の幅は描いたあとに判定されるので、開くボタンが出るのを待つ
+    const opener = await within(bar).findByRole('button', { name: 'サイドバーを開く' })
+    expect(screen.queryByRole('navigation', { name: 'サイト内の移動' })).not.toBeInTheDocument()
+
+    await userEvent.click(opener)
+
+    expect(await screen.findByRole('navigation', { name: 'サイト内の移動' })).toBeInTheDocument()
+  })
+
+  test('広い画面では、下部バーにサイドバーを開くボタンを出さない', async () => {
+    renderSignedIn()
+    const bar = await screen.findByRole('region', { name: '配信中の操作' })
+    expect(within(bar).queryByRole('button', { name: 'サイドバーを開く' })).not.toBeInTheDocument()
   })
 })
 

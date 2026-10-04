@@ -1,7 +1,7 @@
 /**
  * アプリの枠で動かす音声認識の状態を、画面に出す言葉と色の種類にする
  *
- * サイドバー（recognition-status.tsx）とコネクターのページの区画（recognition-section.tsx）で同じ言い方にするため、
+ * 下部バー（recognition-control.tsx）とコネクターのページの区画（recognition-section.tsx）で同じ言い方にするため、
  * ここだけが決める。
  *
  * 注意: Chrome は黙っているだけでも数秒ごとに認識を終えるので、つなぎ直しが一瞬で済んでいるあいだは
