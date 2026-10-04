@@ -454,6 +454,15 @@ describe('迷わず移動できること', () => {
     expect(within(sidebarTop).getByRole('button', { name: 'サイドバーを開閉する' })).toBeInTheDocument()
   })
 
+  test('下部バーは本文の外に置き、サイドバーの下まで画面の幅いっぱいに広げる（音楽プレーヤーの形）', async () => {
+    renderSignedIn()
+    const bar = await screen.findByRole('region', { name: '配信中の操作' })
+    const sidebarTop = screen.getByRole('banner')
+    expect(screen.getByRole('main')).not.toContainElement(bar)
+    // サイドバーの中でもない（サイドバーはバーの上で終わる）
+    expect(sidebarTop.closest('[data-slot="sidebar"]')).not.toContainElement(bar)
+  })
+
   test('ページの見出しは本文の中に置く（本文の上に別のバーを持たない）', async () => {
     openPage('/viewers/')
     renderSignedIn()

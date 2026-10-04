@@ -40,6 +40,14 @@ describe('RecognitionControlView', () => {
     expect(value.setEnabled).toHaveBeenCalledWith(true)
   })
 
+  it('プレーヤーの操作と同じく、ボタンは文字を出さずアイコンだけにする（名前は読み上げとホバーで分かる）', () => {
+    render(<RecognitionControlView value={baseValue()} />)
+
+    const button = screen.getByRole('button', { name: '文字起こし' })
+    expect(button).toHaveTextContent(/^$/)
+    expect(button).toHaveAttribute('title', '文字起こし')
+  })
+
   it('オフのときは状態を出さない', () => {
     render(<RecognitionControlView value={baseValue()} />)
 

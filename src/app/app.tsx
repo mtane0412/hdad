@@ -8,7 +8,8 @@
  *
  * 枠は配信中の文字起こしの音声認識も持つ（src/transcript/recognition-context.tsx。issue #189）。ページを移っても
  * 枠は作り直されないので、どのページを見ていても認識が続く。
- * 本文の下端には配信中の操作のバー（bottom-bar.tsx。issue #235）を固定し、文字起こしのオン・オフと状態はそこに出す。
+ * 画面の下端には配信中の操作のバー（bottom-bar.tsx。issue #235）を、音楽プレーヤーのように画面の幅いっぱいに固定し、
+ * 文字起こしのオン・オフと状態はそこに出す。サイドバーと本文はバーの上で終わる（高さは --bottom-bar-height）。
  * 本文の上にはバーを持たず、サイドバーの開閉と「ページを探す」はサイドバーの上部に置き、ページの見出しは本文の先頭に置く。
  *
  * 注意: ログインの確認に失敗したとき（Workerに届かないなど）は未ログイン扱いにせず、エラーを出す（Fail-Fast）。
@@ -132,8 +133,10 @@ const Shell = ({ context, recognitionDeps, onLogout }: { context: PageContext; r
         >
           本文へ移動
         </a>
-        <SidebarProvider>
-          <Sidebar collapsible="icon">
+        {/* 下部バーの高さ。サイドバーの下端・本文の下の余白・バー自身の高さが同じ値を使う */}
+        <SidebarProvider className="[--bottom-bar-height:4rem]">
+          {/* サイドバーは画面の下端ではなく下部バーの上で終わらせる（下部バーをサイドバーの下まで通すため） */}
+          <Sidebar collapsible="icon" className="bottom-(--bottom-bar-height) h-auto">
             {/* サイドバーの見出しと末尾も、読み上げソフトの「ランドマーク」で飛べる領域にする */}
             <SidebarHeader role="banner">
               <div className="flex items-center gap-1">
@@ -188,7 +191,7 @@ const Shell = ({ context, recognitionDeps, onLogout }: { context: PageContext; r
               </SidebarMenu>
             </SidebarFooter>
           </Sidebar>
-          <SidebarInset id="main">
+          <SidebarInset id="main" className="pb-(--bottom-bar-height)">
             <div className="mx-auto w-full max-w-5xl flex-1 p-4 sm:p-6">
               <h1 ref={headingRef} tabIndex={-1} className="mb-4 truncate text-lg font-semibold tracking-tight outline-none sm:mb-6">
                 {title}
@@ -196,8 +199,8 @@ const Shell = ({ context, recognitionDeps, onLogout }: { context: PageContext; r
               {/* ページが変わったら key で作り直し、前のページの状態を持ち越さない */}
               <div key={pathname}>{page ? page.render(context) : <NotFound pathname={pathname} />}</div>
             </div>
-            <BottomBar />
           </SidebarInset>
+          <BottomBar />
         </SidebarProvider>
         <UnsavedChangesDialog />
       </TooltipProvider>
