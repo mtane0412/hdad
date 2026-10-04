@@ -41,6 +41,12 @@ export interface PomodoroTimerValue {
   loaded: PomodoroLoaded
   /** いまのタイマー。止めていれば null */
   timer: PomodoroTimer | null
+  /**
+   * 最後に映すと決めたタイマーを、描き直しを待たずに返す。
+   *
+   * 操作が断られた直後（読み直しを映すと決めたが、まだ描き直していない時点）に、どのタイマーに対する理由かを記録するために使う。
+   */
+  latestTimer(): PomodoroTimer | null
   /** 押し出しを受け取れていない理由（オーバーレイ用キーが無いときを含む）。受け取れていれば null */
   watchNotice: string | null
   /**
@@ -81,6 +87,13 @@ export const PomodoroTimerProvider = ({
   const [timer, setTimer] = useState<PomodoroTimer | null>(null)
   const [watchProblem, setWatchProblem] = useState<string | null>(null)
 
+  /** 最後に映すと決めたタイマー（latestTimer が返すもの）。setTimer は必ず applyTimer を通す */
+  const latestTimerRef = useRef<PomodoroTimer | null>(null)
+  const applyTimer = useCallback((next: PomodoroTimer | null): void => {
+    latestTimerRef.current = next
+    setTimer(next)
+  }, [])
+
   /** タイマーの世代（冒頭の注意を参照） */
   const revision = useRef(0)
 
@@ -95,8 +108,8 @@ export const PomodoroTimerProvider = ({
   const reload = useCallback(async (): Promise<void> => {
     const isLatest = beginRevision()
     const { timer: next } = await api.read()
-    if (isLatest()) setTimer(next)
-  }, [api, beginRevision])
+    if (isLatest()) applyTimer(next)
+  }, [api, applyTimer, beginRevision])
 
   useEffect(() => {
     let cancelled = false
@@ -105,7 +118,8 @@ export const PomodoroTimerProvider = ({
         if (!cancelled) setLoaded({ status: 'ready' })
       },
       (error: unknown) => {
-        if (!cancelled) setLoaded({ status: 'failed', message: errorMessage(error) })
+        // 読んでいるあいだに押し出しや読み直しで立ち直っていれば、それを「読めない」で上書きしない
+        if (!cancelled) setLoaded((previous) => (previous.status === 'ready' ? previous : { status: 'failed', message: errorMessage(error) }))
       },
     )
     return () => {
@@ -124,7 +138,9 @@ export const PomodoroTimerProvider = ({
         try {
           const next = parsePomodoroSnapshot(text)
           beginRevision()
-          setTimer(next)
+          applyTimer(next)
+          // 押し出しはタイマーのすべてなので、開いたときに読めなかった場合もここで立ち直る
+          setLoaded({ status: 'ready' })
           setWatchProblem(null)
         } catch (error) {
           setWatchProblem(errorMessage(error))
@@ -153,18 +169,19 @@ export const PomodoroTimerProvider = ({
       cancelled = true
       connection.close()
     }
-  }, [connect, overlayKey, beginRevision, reload])
+  }, [connect, overlayKey, applyTimer, beginRevision, reload])
 
   const value = useMemo<PomodoroTimerValue>(
     () => ({
       loaded,
       timer,
+      latestTimer: () => latestTimerRef.current,
       watchNotice: overlayKey === null ? NO_OVERLAY_KEY_NOTICE : watchProblem,
       control: async (command) => {
         const isLatest = beginRevision()
         try {
           const next = await api.control(command)
-          if (isLatest()) setTimer(next)
+          if (isLatest()) applyTimer(next)
           return next
         } catch (error) {
           // 断られたのは画面の状態が古いためなので、今の状態を読み直してから投げ直す。
@@ -174,7 +191,7 @@ export const PomodoroTimerProvider = ({
         }
       },
     }),
-    [api, beginRevision, loaded, overlayKey, reload, timer, watchProblem],
+    [api, applyTimer, beginRevision, loaded, overlayKey, reload, timer, watchProblem],
   )
 
   return <PomodoroTimerContext.Provider value={value}>{children}</PomodoroTimerContext.Provider>

@@ -12,13 +12,13 @@
  *   成功のお知らせは出さない（ボタンと残り時間が変わることで分かるため）。
  */
 import { Pause, Play, Square, Timer, type LucideIcon } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { errorMessage } from '@/admin/page-actions'
 import { Link } from '@/app/router'
 import { Button } from '@/components/ui/button'
 import { iconButtonName } from '@/core/icon-button'
 import type { PomodoroCommand } from './api'
-import { formatRemaining, phaseAt } from './phase'
+import { formatRemaining, phaseAt, type PomodoroTimer } from './phase'
 import { commandsOf, usePomodoroTimer, useSecondTick } from './timer-context'
 
 /** 休憩の曲の選択と、詳しい説明があるページ */
@@ -32,15 +32,30 @@ const COMMAND_BUTTONS: Readonly<Record<PomodoroCommand, { name: string; icon: Lu
   stop: { name: 'ポモドーロを止める', icon: Square },
 }
 
+/** タイマーが変わったかを比べるための値。区間を決める3つの時刻だけを見る（止めていれば 'stopped'） */
+const timerKeyOf = (timer: PomodoroTimer | null): string =>
+  timer === null ? 'stopped' : `${timer.startedAt}:${timer.anchorAt}:${timer.pausedAt ?? 'running'}`
+
+/** 断られた理由と、そのとき映すと決まっていたタイマー（断られたあとの読み直しを含む） */
+interface Failure {
+  readonly message: string
+  readonly timerKey: string
+}
+
 /**
  * @param now 現在時刻（ミリ秒）を返す。テストで時刻を決めるために受け取る
  */
 export const PomodoroBar = ({ now = Date.now }: { now?: () => number }) => {
   const pomodoro = usePomodoroTimer()
   const [busy, setBusy] = useState(false)
-  /** 直前の操作が断られた理由。次の操作が通ったら消す */
-  const [failure, setFailure] = useState<string | null>(null)
+  /** 直前の操作が断られた理由。次の操作が通ったとき・そのあとタイマーが変わったとき（別の窓での操作など）に消す */
+  const [failure, setFailure] = useState<Failure | null>(null)
   useSecondTick(pomodoro.timer)
+
+  const currentKey = timerKeyOf(pomodoro.timer)
+  useEffect(() => {
+    setFailure((previous) => (previous !== null && previous.timerKey !== currentKey ? null : previous))
+  }, [currentKey])
 
   const control = async (command: PomodoroCommand): Promise<void> => {
     setBusy(true)
@@ -48,7 +63,8 @@ export const PomodoroBar = ({ now = Date.now }: { now?: () => number }) => {
       await pomodoro.control(command)
       setFailure(null)
     } catch (error) {
-      setFailure(errorMessage(error))
+      // 枠は断られたあとに読み直してから投げるので、読み直したタイマーを基準にする（読み直しで理由が消えないように）
+      setFailure({ message: errorMessage(error), timerKey: timerKeyOf(pomodoro.latestTimer()) })
     } finally {
       setBusy(false)
     }
@@ -58,7 +74,7 @@ export const PomodoroBar = ({ now = Date.now }: { now?: () => number }) => {
   const phase = timer === null ? null : phaseAt(timer, now())
   const state = timer === null || phase === null ? null : timer.pausedAt !== null ? '一時停止中' : phase.kind === 'work' ? '作業中' : '休憩中'
   /** 出す理由。何も問題がなければ null */
-  const problem = failure ?? (pomodoro.loaded.status === 'failed' ? pomodoro.loaded.message : pomodoro.watchNotice)
+  const problem = failure?.message ?? (pomodoro.loaded.status === 'failed' ? pomodoro.loaded.message : pomodoro.watchNotice)
 
   return (
     <div className="flex min-w-0 items-center gap-1">

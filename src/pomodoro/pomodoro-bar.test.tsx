@@ -8,6 +8,8 @@
  * - 区間と残り時間を押すと、ポモドーロのページ（/pomodoro/）へ移れること
  * - 押し出されたタイマー（別の窓での操作・配信していないときの区切りで止めた）をバーに映すこと
  * - 操作が断られたら理由を出して今の状態を読み直すこと、読めない・押し出しを受け取れていないときも理由を出すこと（Fail-Fast）
+ * - 断られた理由は、そのあとタイマーが変わったら消すこと（古い理由を出し続けない）
+ * - 最初に読めなくても、押し出しが届いたら立ち直ること。押し出しのあとに最初の読み込みが失敗しても「読めない」に戻さないこと
  */
 import '@testing-library/jest-dom/vitest'
 import { act, cleanup, render, screen } from '@testing-library/react'
@@ -144,6 +146,56 @@ describe('PomodoroBar', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('ポモドーロのタイマーはもう動いています')
     expect(screen.getByRole('button', { name: 'ポモドーロを一時停止' })).toBeInTheDocument()
     expect(api.reads()).toBe(2)
+  })
+
+  test('断られた理由は、そのあと別の窓でタイマーが変わったら消す', async () => {
+    // 前提: 別の窓で始めていたので「始める」が断られ、読み直して「動いている」になった
+    const { api } = createApi()
+    const connection = fakeConnection()
+    renderBar(api, connection)
+    const startButton = await screen.findByRole('button', { name: 'ポモドーロを始める' })
+    api.current = runningTimer
+    api.failNext = new ApiError(409, 'pomodoro-running', 'ポモドーロのタイマーはもう動いています', [])
+    await userEvent.click(startButton)
+    expect(await screen.findByRole('alert')).toHaveTextContent('ポモドーロのタイマーはもう動いています')
+
+    // 別の窓で一時停止したことが押し出されてくる
+    connection.push(pausedTimer)
+
+    expect(screen.getByRole('button', { name: 'ポモドーロを再開' })).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  test('最初に読めなくても、押し出しが届いたら理由を消して操作できるようにする', async () => {
+    const { api } = createApi({ failRead: true })
+    const connection = fakeConnection()
+    renderBar(api, connection)
+    expect(await screen.findByRole('alert')).toHaveTextContent('Workerにつながりません')
+
+    connection.push(runningTimer)
+
+    expect(screen.getByText('15:00')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'ポモドーロを一時停止' })).toBeEnabled()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  test('押し出しが届いたあとで最初の読み込みが失敗しても、「読めない」に戻さない', async () => {
+    // 前提: 最初の読み込みは、押し出しが届いてから失敗する
+    const { api } = createApi()
+    let rejectRead: (error: Error) => void = () => undefined
+    api.read = () =>
+      new Promise((_resolve, reject) => {
+        rejectRead = reject
+      })
+    const connection = fakeConnection()
+    renderBar(api, connection)
+    connection.push(runningTimer)
+
+    await act(async () => rejectRead(new Error('Workerにつながりません')))
+
+    expect(screen.getByText('15:00')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'ポモドーロを一時停止' })).toBeEnabled()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   test('読み込めなければ、理由を出す', async () => {
