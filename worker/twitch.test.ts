@@ -141,6 +141,12 @@ describe('revoke', () => {
     await expect(createClient(fetchImpl).revoke('期限切れのアクセストークン')).resolves.toBeUndefined()
   })
 
+  it('トークン以外の理由の400（クライアントIDの誤りなど）は、失効できていないのでエラーにする', async () => {
+    const { fetchImpl } = fetchReturning(400, { status: 400, message: 'invalid client' })
+
+    await expect(createClient(fetchImpl).revoke('外したbotのアクセストークン')).rejects.toMatchObject({ name: 'TwitchApiError', status: 400 })
+  })
+
   it('Twitch側の障害（5xx）は、状態コードを残したエラーにする', async () => {
     const { fetchImpl } = fetchReturning(503, { status: 503, message: 'Service Unavailable' })
 

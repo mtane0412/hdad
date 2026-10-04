@@ -471,11 +471,11 @@ describe('POST /api/admin/bot/device-code', () => {
 
 describe('POST /api/admin/bot/device-token', () => {
   /** デバイスコードの交換に、決めた応答を返す Twitch の代役 */
-  const twitchAnsweringExchange = (tokenResponse: Response) => {
+  const twitchAnsweringExchange = (tokenResponse: Response, revokeResponse: Response = new Response(null, { status: 200 })) => {
     const revokedTokens: string[] = []
     const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const request = new Request(input, init)
-      const revoked = await answerRevoke(request, revokedTokens, new Response(null, { status: 200 }))
+      const revoked = await answerRevoke(request, revokedTokens, revokeResponse)
       if (revoked) return revoked
       // デバイスコードの交換と、購読を揃えるときのアプリアクセストークンの発行は、どちらも同じURLを使う。
       // 交換は本文に device_code を含むので、それで見分ける
@@ -579,6 +579,19 @@ describe('POST /api/admin/bot/device-token', () => {
     expect(response.status).toBe(200)
     expect(twitch.revokedTokens).toEqual(['旧botのアクセストークン'])
     expect(await loadToken(env.TOKENS, 'bot')).toMatchObject({ accessToken: 'bot-access-token' })
+  })
+
+  it('旧botの失効に失敗したら、新しいbotを保存せず、もう一度試すよう502で伝える', async () => {
+    const { env } = createEnv()
+    await saveToken(env.TOKENS, 'broadcaster', BROADCASTER_TOKEN())
+    await saveToken(env.TOKENS, 'bot', { ...BOT_TOKEN(), accessToken: '旧botのアクセストークン', refreshToken: '旧botのリフレッシュトークン' })
+    const twitch = twitchAnsweringExchange(authorizedResponse(), Response.json({ status: 503, message: 'Service Unavailable' }, { status: 503 }))
+
+    const response = await exchange(env, twitch.fetchImpl)
+
+    expect(response.status).toBe(502)
+    expect(await errorCode(response)).toBe('revoke-failed')
+    expect(await loadToken(env.TOKENS, 'bot')).toMatchObject({ accessToken: '旧botのアクセストークン' })
   })
 
   it('モデレーターかどうかを確かめられなければ、トークンを保存せずにエラーを返す（接続できたのに画面にはエラーだけ、という半端な状態にしない）', async () => {

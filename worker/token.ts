@@ -83,72 +83,110 @@ const jsonInit = (method: string, body: unknown): RequestInit => ({
   body: JSON.stringify(body),
 })
 
-/** 保存・削除の応答から、それまで保存していたトークンを取り出す。無ければ null、内容が壊れていればエラー */
-const readPrevious = async (response: Response, role: TokenRole): Promise<StoredToken | null> => {
+/**
+ * 保管庫から外すトークンとして読む。無ければ null。
+ *
+ * 注意: 中身が壊れていても null にする（エラーにしない）。読めないトークンは失効させようがなく、
+ * ここで失敗させると、壊れた値を再ログイン・切断で置き換えて直すこともできなくなるため。
+ */
+const toReleasable = (value: unknown): StoredToken | null => (isStoredToken(value) ? value : null)
+
+/** 保存・削除の応答から、それまで保存していたトークンを取り出す（toReleasable） */
+const readPrevious = async (response: Response): Promise<StoredToken | null> => {
   const body: unknown = await response.json()
-  const previous = typeof body === 'object' && body !== null && 'previous' in body ? body.previous : undefined
-  if (previous === null) return null
-  if (!isStoredToken(previous)) throw new Error(`保管庫の ${role} のトークンの内容が壊れていたため、外したトークンを失効させられません`)
-  return previous
+  return toReleasable(typeof body === 'object' && body !== null && 'previous' in body ? body.previous : undefined)
 }
 
 /**
- * トークンを保存する。上書きしたトークン（初めてなら null）を返す。
+ * トークンを保存する。上書きしたトークン（初めて、または中身が壊れていたなら null）を返す。
  *
  * 前の値は、保管庫が上書きと同じ1回の要求の中で読んで返す。別に読み直すと、その間の更新・付け替えを取りこぼすため。
  */
 export const saveToken = async (vault: TokenVaultNamespace, role: TokenRole, token: StoredToken): Promise<StoredToken | null> =>
-  readPrevious(await requestVault(vault, role, TOKEN_PATH, jsonInit('PUT', token)), role)
+  readPrevious(await requestVault(vault, role, TOKEN_PATH, jsonInit('PUT', token)))
 
 /**
- * 保存済みのトークンを消し、消したトークン（無ければ null）を返す。
+ * 保存済みのトークンを消し、消したトークン（無い、または中身が壊れていたなら null）を返す。
  * 保存されていなくてもエラーにしない（切断を何度押しても同じ結果になるように）。
  */
 export const deleteToken = async (vault: TokenVaultNamespace, role: TokenRole): Promise<StoredToken | null> =>
-  readPrevious(await requestVault(vault, role, TOKEN_PATH, { method: 'DELETE' }), role)
+  readPrevious(await requestVault(vault, role, TOKEN_PATH, { method: 'DELETE' }))
 
-/** リフレッシュトークンで取り直す。無効（400・401）なら再ログインを求めるエラーにする */
-const refreshOrRelogin = (twitch: Pick<TwitchClient, 'refresh'>, refreshToken: string) =>
-  twitch.refresh(refreshToken).catch((error: unknown) => {
-    if (error instanceof TwitchApiError && INVALID_REFRESH_TOKEN_STATUSES.includes(error.status)) {
-      throw new AuthError('relogin-required', `Twitchのトークンを更新できませんでした。ログインし直してください（${error.message}）`)
-    }
-    throw error
-  })
+/** リフレッシュトークンが無効だとTwitchが答えたか */
+const isInvalidRefreshToken = (error: unknown): boolean =>
+  error instanceof TwitchApiError && INVALID_REFRESH_TOKEN_STATUSES.includes(error.status)
+
+const describeError = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
 /**
- * 保管庫から外した（切断・付け替えで消した・上書きした）トークンを、Twitchで失効させる（issue #221）。
+ * トークンをTwitchで失効させる。失敗はそのまま投げる（呼び出し側が場面に合った案内を付ける）。
+ *
+ * アクセストークンが期限切れ（間近を含む）のときは、Twitchが失効の要求を「すでに無効」として受け流し、
+ * リフレッシュトークンが生き残るので、先に取り直してから新しいアクセストークンを失効させる。
+ * リフレッシュトークンもすでに無効なら、失効させるものは無い。
+ */
+const revokeOnTwitch = async (twitch: Pick<TwitchClient, 'refresh' | 'revoke'>, token: StoredToken, now: number): Promise<void> => {
+  if (token.expiresAt - now >= REFRESH_MARGIN_MS) {
+    await twitch.revoke(token.accessToken)
+    return
+  }
+  const grant = await twitch.refresh(token.refreshToken).catch((error: unknown) => {
+    if (isInvalidRefreshToken(error)) return null
+    throw error
+  })
+  if (grant) await twitch.revoke(grant.accessToken)
+}
+
+/**
+ * 保管庫から外した（切断で消した・上書きした）トークンを、Twitchで失効させる（issue #221）。
  *
  * 保管庫から外しただけでは、Twitch上ではトークンが有効なまま残る。外したアカウントの権限を確実に止めるために失効させる。
- * アクセストークンが期限切れのときは、Twitchが失効の要求を「すでに無効」として受け流し、リフレッシュトークンが生き残るので、
- * 先に取り直してから新しいアクセストークンを失効させる。リフレッシュトークンもすでに無効なら、失効させるものは無い。
  *
- * 注意: 呼ぶのは保管庫から外したあと。Twitchの障害で切断・付け替えそのものができなくなるのを避けるため、
+ * 注意: 呼ぶのは保管庫から外したあと。Twitchの障害で切断そのものができなくなるのを避けるため、
  * 失効に失敗しても保管庫には戻さず、手で解除するよう案内するエラーにする。
  *
  * @param now 現在時刻（ミリ秒）
  * @throws HttpError 失効させられなかった（502・revoke-failed）
  */
 export const revokeReleasedToken = async (twitch: Pick<TwitchClient, 'refresh' | 'revoke'>, token: StoredToken, now: number): Promise<void> => {
-  try {
-    if (token.expiresAt > now) {
-      await twitch.revoke(token.accessToken)
-      return
-    }
-    const grant = await refreshOrRelogin(twitch, token.refreshToken).catch((error: unknown) => {
-      // リフレッシュトークンもすでに無効なら、失効させるものは無い
-      if (error instanceof AuthError) return null
-      throw error
-    })
-    if (grant) await twitch.revoke(grant.accessToken)
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error)
+  await revokeOnTwitch(twitch, token, now).catch((error: unknown) => {
     throw new HttpError(
       STATUS.badGateway,
       'revoke-failed',
-      `HDADからは ${token.login} のトークンを外しましたが、Twitch上で失効させられませんでした。Twitchの設定の「接続」から、このアプリの接続を解除してください（${detail}）`,
+      `HDADからは ${token.login} のトークンを外しましたが、Twitch上で失効させられませんでした。Twitchの設定の「接続」から、このアプリの接続を解除してください（${describeError(error)}）`,
     )
+  })
+}
+
+/**
+ * 保存済みのトークンをTwitchで失効させてから、新しいトークンに置き換える（付け替え。issue #221）。
+ *
+ * 失効に失敗したら保存しない。保存してから失効させると、失敗したときに「接続できたのに画面はエラー、旧アカウントも生きている」
+ * という半端な状態になるため。失効させてから保存するまでの間に、更新で旧トークンが置き換わっていたら、置き換わったほうも失効させる。
+ *
+ * @param now 現在時刻（ミリ秒）
+ * @throws HttpError 旧トークンを失効させられなかった（502・revoke-failed。新しいトークンは保存していない）
+ */
+export const saveReplacingToken = async (
+  vault: TokenVaultNamespace,
+  role: TokenRole,
+  token: StoredToken,
+  twitch: Pick<TwitchClient, 'refresh' | 'revoke'>,
+  now: number,
+): Promise<void> => {
+  const response = await requestVault(vault, role, TOKEN_PATH, { method: 'GET' })
+  const current = response.status === STATUS.notFound ? null : toReleasable(JSON.parse(await response.text()))
+  if (current) {
+    await revokeOnTwitch(twitch, current, now).catch((error: unknown) => {
+      throw new HttpError(
+        STATUS.badGateway,
+        'revoke-failed',
+        `今まで接続していた ${current.login} のトークンをTwitch上で失効させられなかったため、接続し直していません（今までのアカウントのままです）。少し待ってからもう一度試してください（${describeError(error)}）`,
+      )
+    })
   }
+  const previous = await saveToken(vault, role, token)
+  if (previous && previous.accessToken !== current?.accessToken) await revokeReleasedToken(twitch, previous, now)
 }
 
 /** 保存済みのトークンを読む。未保存なら null、保存内容が壊れていればエラー */
@@ -176,7 +214,6 @@ const replaceToken = async (vault: TokenVaultNamespace, role: TokenRole, expecte
  * @param role どちらのアカウントのトークンか
  * @param now 現在時刻（ミリ秒）
  * @throws AuthError 未ログイン、またはリフレッシュトークンが無効
- * @throws HttpError 取り直している間に切断・付け替えされ、捨てたトークンを失効させられなかった（revoke-failed）
  */
 export const getAccessToken = async (
   vault: TokenVaultNamespace,
@@ -189,7 +226,12 @@ export const getAccessToken = async (
   if (!token) throw new AuthError('not-logged-in', NOT_LOGGED_IN_MESSAGES[role])
   if (!options.forceRefresh && token.expiresAt - now >= REFRESH_MARGIN_MS) return token
 
-  const grant = await refreshOrRelogin(twitch, token.refreshToken)
+  const grant = await twitch.refresh(token.refreshToken).catch((error: unknown) => {
+    if (isInvalidRefreshToken(error)) {
+      throw new AuthError('relogin-required', `Twitchのトークンを更新できませんでした。ログインし直してください（${describeError(error)}）`)
+    }
+    throw error
+  })
   const refreshed: StoredToken = {
     ...token,
     accessToken: grant.accessToken,
@@ -199,11 +241,16 @@ export const getAccessToken = async (
   // Twitchへの更新を待つ間に切断・付け替えされていたら、書き戻すとそれを取り消してしまう。
   // 確かめることと書き戻すことを保管庫への1回の要求にまとめ、その間に割り込まれないようにする
   const result = await replaceToken(vault, role, { userId: token.userId, refreshToken: token.refreshToken }, refreshed)
-  // 書き戻さずに捨てるトークンも、Twitch上では有効なまま残るので失効させる（issue #221）
-  if (result !== 'replaced') await revokeReleasedToken(twitch, refreshed, now)
-  if (result === 'missing') throw new AuthError('not-logged-in', NOT_LOGGED_IN_MESSAGES[role])
-  if (result === 'changed') {
-    throw new AuthError('token-changed', 'トークンを更新している間に、アカウントが接続し直されました。もう一度試してください')
-  }
-  return refreshed
+  if (result === 'replaced') return refreshed
+
+  const discarded =
+    result === 'missing'
+      ? new AuthError('not-logged-in', NOT_LOGGED_IN_MESSAGES[role])
+      : new AuthError('token-changed', 'トークンを更新している間に、アカウントが接続し直されました。もう一度試してください')
+  // 書き戻さずに捨てるトークンも、Twitch上では有効なまま残るので失効させる（issue #221）。
+  // 失効に失敗しても、呼び出し側が扱いを分けられるよう、エラーの種類（code）は変えずに書き添える
+  await revokeOnTwitch(twitch, refreshed, now).catch((error: unknown) => {
+    throw new AuthError(discarded.code, `${discarded.message}（取り直したトークンをTwitch上で失効させられませんでした: ${describeError(error)}）`)
+  })
+  throw discarded
 }

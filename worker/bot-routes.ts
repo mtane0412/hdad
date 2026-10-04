@@ -17,7 +17,7 @@ import { loadBotConfig, parseBotConfig, saveBotConfig } from './bot-config'
 import { BOT_SCOPES } from './eventsub'
 import { HttpError, STATUS, requireAdmin, type Context } from './http'
 import { loadModerationConfig, parseModerationConfig, saveModerationConfig } from './moderation-config'
-import { AuthError, deleteToken, getAccessToken, loadToken, revokeReleasedToken, saveToken, type StoredToken } from './token'
+import { AuthError, deleteToken, getAccessToken, loadToken, revokeReleasedToken, saveReplacingToken, type StoredToken } from './token'
 
 /** Twitchが決めているチャット本文の上限（文字） */
 const MAX_MESSAGE_LENGTH = 500
@@ -163,9 +163,8 @@ export const postBotDeviceToken = async (context: Context): Promise<Response> =>
   // 画面にはエラーだけが出て、状態が半端になる
   const isModerator = await isBotModerator(context, owner.userId)
 
-  const replaced = await saveToken(env.TOKENS, 'bot', token)
-  // 付け替えで外した旧botのトークンも、Twitchで失効させる（issue #221）
-  if (replaced) await revokeReleasedToken(twitch, replaced, now)
+  // 付け替えなら、旧botのトークンをTwitchで失効させてから保存する（issue #221）
+  await saveReplacingToken(env.TOKENS, 'bot', token, twitch, now)
   return Response.json({ status: 'connected', bot: toBotStatus(token, isModerator) })
 }
 

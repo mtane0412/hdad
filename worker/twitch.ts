@@ -54,6 +54,8 @@ const DEFAULT_ANNOUNCEMENT_COLOR = 'primary'
 const BAD_GATEWAY = 502
 /** 失効の要求で、トークンがすでに無効（期限切れ・失効済み）なときにTwitchが返す状態コード */
 const INVALID_TOKEN_STATUS = 400
+/** 失効の要求で、トークンがすでに無効なときにTwitchが返すメッセージ */
+const INVALID_TOKEN_MESSAGE = 'Invalid token'
 
 /** Twitchが失敗を返した、または応答が想定した形でなかった */
 export class TwitchApiError extends Error {
@@ -250,7 +252,7 @@ export interface TwitchClient {
   /**
    * ユーザーアクセストークンをTwitchで失効させる（oauth2/revoke）。トークンの持ち主の操作は要らない。
    *
-   * トークンがすでに無効（400 Invalid token）なら、失効させるものが無いので成功として扱う。
+   * トークンがすでに無効（400 で message が Invalid token）なら、失効させるものが無いので成功として扱う。
    * 注意: 期限切れのアクセストークンも「すでに無効」と答えられ、リフレッシュトークンは失効しない。
    * 期限切れのものは取り直してから渡す（worker/token.ts の revokeReleasedToken）。
    *
@@ -658,7 +660,11 @@ export const createTwitchClient = ({
 
     revoke: async (accessToken) => {
       const response = await fetchImpl(REVOKE_URL, { method: 'POST', body: new URLSearchParams({ client_id: clientId, token: accessToken }) })
-      if (response.status === INVALID_TOKEN_STATUS) return
+      if (response.status === INVALID_TOKEN_STATUS) {
+        // 400 はクライアントIDの誤りなどでも返るので、トークンが無効だと答えたときだけ「失効済み」とみなす
+        const body: unknown = await response.clone().json().catch(() => null)
+        if (isRecord(body) && body.message === INVALID_TOKEN_MESSAGE) return
+      }
       await ensureOk(response)
     },
 
