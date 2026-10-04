@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest'
 import { createFakeBucket } from './fake-bucket'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
+import { createFakeTokenVault } from './fake-token-vault'
 import { createFakeDatabase } from './fake-database'
 import { createFakeWorkersAi } from './fake-ai'
 import { createFakeAlertChannel } from './fake-alert-channel'
@@ -49,6 +50,7 @@ const createEnv = () => {
     TAB: tabRelay.namespace,
     COMMENTS: createFakeCommentChannel().namespace,
     AD_BREAKS: createFakeAdBreakTimer().namespace,
+    TOKENS: createFakeTokenVault().namespace,
     AI: createFakeWorkersAi(),
   } satisfies Env
   return { env, store, bucket, delivery, relay, tabRelay }

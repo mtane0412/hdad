@@ -19,6 +19,7 @@ import { createFakeCommentChannel } from './fake-comment-channel'
 import { createFakeDatabase } from './fake-database'
 import { createFakeDrawChannel } from './fake-draw-channel'
 import { createFakeStore } from './fake-store'
+import { createFakeTokenVault } from './fake-token-vault'
 import { createFakeTabChannel } from './fake-tab-channel'
 import { createTimerInstances } from './fake-timer-instances'
 import { handleRequest, type Env } from './index'
@@ -53,6 +54,7 @@ const setupEnv = async () => {
     TAB: createFakeTabChannel().namespace,
     COMMENTS: createFakeCommentChannel().namespace,
     AD_BREAKS: undefined as unknown as AdBreakTimerNamespace,
+    TOKENS: createFakeTokenVault().namespace,
     AI: createFakeWorkersAi(),
   } satisfies Env
   env.AD_BREAKS = createTimerInstances(() => env, { fetch: noTwitchFetch, now: () => NOW, wait: async () => {} }, () => {}).namespace

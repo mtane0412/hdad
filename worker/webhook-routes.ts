@@ -389,7 +389,7 @@ export const eventsubWebhook = async (context: Context): Promise<Response> => {
       // bot のトークンはチャットの発言のときだけ1度読み、配送（bot 自身の発言を見分ける）と応答の両方で使う。
       // 読めなかったとき、配送は bot を見分けずに続ける（コメントビューアーを止めない）。応答の側はこれまでどおり
       // 失敗として投げ、Twitch に再送させる（壊れたトークンのまま、自動モデレーションやコマンドを黙って飛ばさない）
-      const botLoad = type === CHAT_MESSAGE ? loadToken(env.STORE, 'bot') : Promise.resolve(null)
+      const botLoad = type === CHAT_MESSAGE ? loadToken(env.TOKENS, 'bot') : Promise.resolve(null)
       await pushToCommentFeed(context, type, body, messageId, occurredAt, await botLoad.catch(() => null))
       // コメントビューアーのためだけに購読している通知は、記録もトリガーの判定もしない。
       // ただしモデレーションの削除は作業机とLLMの材料にも反映する（荒らしが書いた文言を配信画面に残さない）
@@ -403,7 +403,7 @@ export const eventsubWebhook = async (context: Context): Promise<Response> => {
       if (type === CHAT_MESSAGE) await replyToChatMessage(context, body, await botLoad)
       else {
         await recordNotification({ db: env.DB, messageId, occurredAt, body })
-        await runAlertActions(context, type, body, messageId, async () => (await loadToken(env.STORE, 'bot')) !== null, null)
+        await runAlertActions(context, type, body, messageId, async () => (await loadToken(env.TOKENS, 'bot')) !== null, null)
         // 広告は開始しか届かないので、終了の告知に使う時刻をここで預ける（開始の告知そのものは上で済んでいる）
         if (type === AD_BREAK_BEGIN) await scheduleAdBreakEndIfNeeded(context, body, messageId)
       }

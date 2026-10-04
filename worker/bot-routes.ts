@@ -67,7 +67,7 @@ const toBotStatus = (token: StoredToken, isModerator: boolean): Record<string, u
  */
 const isBotModerator = async (context: Context, botUserId: string): Promise<boolean> => {
   const { env, twitch, now } = context
-  const token = await getAccessToken(env.STORE, 'broadcaster', twitch, now)
+  const token = await getAccessToken(env.TOKENS, 'broadcaster', twitch, now)
   if (!token.scopes.includes(MODERATION_READ_SCOPE)) {
     throw new AuthError(
       'missing-scope',
@@ -80,7 +80,7 @@ const isBotModerator = async (context: Context, botUserId: string): Promise<bool
 /** GET /api/admin/bot: botの接続状態。未接続なら bot は null */
 export const getBot = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
-  const token = await loadToken(context.env.STORE, 'bot')
+  const token = await loadToken(context.env.TOKENS, 'bot')
   if (!token) return Response.json({ bot: null })
   return Response.json({ bot: toBotStatus(token, await isBotModerator(context, token.userId)) })
 }
@@ -93,7 +93,7 @@ export const getBot = async (context: Context): Promise<Response> => {
  */
 export const deleteBot = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
-  await deleteToken(context.env.STORE, 'bot')
+  await deleteToken(context.env.TOKENS, 'bot')
   return new Response(null, { status: STATUS.noContent })
 }
 
@@ -162,7 +162,7 @@ export const postBotDeviceToken = async (context: Context): Promise<Response> =>
   // 画面にはエラーだけが出て、状態が半端になる
   const isModerator = await isBotModerator(context, owner.userId)
 
-  await saveToken(env.STORE, 'bot', token)
+  await saveToken(env.TOKENS, 'bot', token)
   return Response.json({ status: 'connected', bot: toBotStatus(token, isModerator) })
 }
 

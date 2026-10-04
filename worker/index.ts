@@ -164,6 +164,7 @@ export { DrawChannel } from './draw-channel'
 export { TabChannel } from './tab-channel'
 export { CommentChannel } from './comment-channel'
 export { AdBreakTimer } from './ad-break-timer'
+export { TokenVault } from './token-vault'
 
 interface Dependencies {
   fetch: typeof fetch
@@ -396,6 +397,7 @@ export const handleScheduled = async (env: Env, dependencies: Pick<Dependencies,
   await collectStats({
     db: env.DB,
     store: env.STORE,
+    tokens: env.TOKENS,
     twitch,
     ai: llm,
     jev,

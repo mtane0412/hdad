@@ -20,7 +20,7 @@ import type { AnnouncementColor } from './twitch'
  */
 export const sendAsBot = async (context: Pick<Context, 'env' | 'twitch' | 'now'>, message: string): Promise<void> => {
   const { env, twitch, now } = context
-  const token = await getAccessToken(env.STORE, 'bot', twitch, now)
+  const token = await getAccessToken(env.TOKENS, 'bot', twitch, now)
   await twitch.sendChatMessage(token.accessToken, {
     broadcasterId: env.TWITCH_BROADCASTER_ID,
     senderId: token.userId,
@@ -49,7 +49,7 @@ export const announceAsBot = async (
   const { env, twitch, now, wait } = context
   // トークンの取り出しを枠の確保より先に行う。逆にすると、トークンを取れずに送れなかったときでも
   // 枠を消費してしまい、あとから届くアナウンスを無駄に待たせる
-  const token = await getAccessToken(env.STORE, 'bot', twitch, now)
+  const token = await getAccessToken(env.TOKENS, 'bot', twitch, now)
 
   const waitMilliseconds = await reserveAnnouncementSlot(env.DB, env.TWITCH_BROADCASTER_ID, now)
   if (waitMilliseconds === null) {
@@ -81,7 +81,7 @@ export const announceAsBot = async (
  */
 export const shoutoutAsBot = async (context: Pick<Context, 'env' | 'twitch' | 'now'>, toBroadcasterId: string): Promise<void> => {
   const { env, twitch, now } = context
-  const token = await getAccessToken(env.STORE, 'bot', twitch, now)
+  const token = await getAccessToken(env.TOKENS, 'bot', twitch, now)
   await twitch.sendShoutout(token.accessToken, {
     broadcasterId: env.TWITCH_BROADCASTER_ID,
     // シャウトアウトを送るモデレーターは bot 自身（トークンの持ち主と一致している必要がある）

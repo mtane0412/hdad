@@ -2,30 +2,20 @@
  * Twitchのトークンの保管と更新
  *
  * このWorkerは2つのTwitchアカウントのトークンを扱う。配信者本人（broadcaster）と、チャットを読み書きする
- * チャットボット（bot）である。役割ごとに別のキーでストア（KV）へ保存し、期限が近ければリフレッシュトークンで取り直す。
- * トークンはWorkerの外（ブラウザ・OBSのURL）へ出さない。
+ * チャットボット（bot）である。役割ごとに保管庫（Durable Object。worker/token-vault.ts）へ保存し、
+ * 期限が近ければリフレッシュトークンで取り直す。トークンはWorkerの外（ブラウザ・OBSのURL）へ出さない。
  *
  * 注意: 取り直せない場合に古いトークンを返すことはしない。再ログインが必要であることをエラーで伝える（Fail-Fast）。
  * 注意: 取り直している間に保存済みのトークンが消された・差し替えられた（切断・付け替え）場合は、取り直した結果を
  * 書き戻さず、使いもしない。書き戻すと、切断や付け替えが取り消されてしまうため（issue #201）。
- * 読み直してから書き込むまでの間はなお競合しうる（KVに条件付きの書き込みがない）が、Twitchへの更新を待つ間よりずっと短い。
+ * 確かめることと書き戻すことは、保管庫への1回の要求（置き換え）にまとめ、間に切断・付け替えが割り込めないようにしている（issue #220）。
  */
-import type { KeyValueStore } from './store'
+import { REPLACE_PATH, TOKEN_PATH, TOKEN_VAULT_NAME, type ReplaceExpectation, type ReplaceResult, type TokenVaultNamespace } from './token-vault'
+import { STATUS } from './http'
 import { TwitchApiError, type TwitchClient } from './twitch'
 
 /** トークンを持つアカウントの役割 */
 export type TokenRole = 'broadcaster' | 'bot'
-
-/**
- * 役割ごとのKVのキー。
- *
- * 注意: 配信者のキーは、役割を分ける前から使っている 'twitch-token' のまま据え置く。
- * 変えると、既にログイン済みの環境で配信者のログインが一度切れてしまうため。
- */
-const TOKEN_KEYS: Record<TokenRole, string> = {
-  broadcaster: 'twitch-token',
-  bot: 'twitch-token:bot',
-}
 
 /** 未ログインのときの案内。役割によって「やるべきこと」が違うので文言を分ける */
 const NOT_LOGGED_IN_MESSAGES: Record<TokenRole, string> = {
@@ -74,20 +64,50 @@ const isStoredToken = (value: unknown): value is StoredToken => {
   )
 }
 
-export const saveToken = (store: KeyValueStore, role: TokenRole, token: StoredToken): Promise<void> =>
-  store.put(TOKEN_KEYS[role], JSON.stringify(token))
+const REPLACE_RESULTS: readonly ReplaceResult[] = ['replaced', 'missing', 'changed']
+
+/** 保管庫へ要求を送る。保管庫が失敗を返したら、どの操作が失敗したかを添えてエラーにする（未保存の404だけは呼び出し側が読む） */
+const requestVault = async (vault: TokenVaultNamespace, role: TokenRole, path: string, init: RequestInit): Promise<Response> => {
+  const url = `https://token-vault${path}?role=${role}`
+  const response = await vault.get(vault.idFromName(TOKEN_VAULT_NAME)).fetch(new Request(url, init))
+  if (!response.ok && response.status !== STATUS.notFound) {
+    throw new Error(`トークンの保管庫への要求（${init.method} ${path}）が失敗しました（${response.status}）`)
+  }
+  return response
+}
+
+const jsonInit = (method: string, body: unknown): RequestInit => ({
+  method,
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(body),
+})
+
+export const saveToken = async (vault: TokenVaultNamespace, role: TokenRole, token: StoredToken): Promise<void> => {
+  await requestVault(vault, role, TOKEN_PATH, jsonInit('PUT', token))
+}
 
 /** 保存済みのトークンを消す。保存されていなくてもエラーにしない（切断を何度押しても同じ結果になるように） */
-export const deleteToken = (store: KeyValueStore, role: TokenRole): Promise<void> => store.delete(TOKEN_KEYS[role])
+export const deleteToken = async (vault: TokenVaultNamespace, role: TokenRole): Promise<void> => {
+  await requestVault(vault, role, TOKEN_PATH, { method: 'DELETE' })
+}
 
 /** 保存済みのトークンを読む。未保存なら null、保存内容が壊れていればエラー */
-export const loadToken = async (store: KeyValueStore, role: TokenRole): Promise<StoredToken | null> => {
-  const key = TOKEN_KEYS[role]
-  const text = await store.get(key)
-  if (text === null) return null
-  const value: unknown = JSON.parse(text)
-  if (!isStoredToken(value)) throw new Error(`ストアの ${key} の内容が壊れています。ログインし直してください`)
+export const loadToken = async (vault: TokenVaultNamespace, role: TokenRole): Promise<StoredToken | null> => {
+  const response = await requestVault(vault, role, TOKEN_PATH, { method: 'GET' })
+  if (response.status === STATUS.notFound) return null
+  const value: unknown = JSON.parse(await response.text())
+  if (!isStoredToken(value)) throw new Error(`保管庫の ${role} のトークンの内容が壊れています。ログインし直してください`)
   return value
+}
+
+/** 保存済みのトークンが expected のものであるときだけ、next に置き換える */
+const replaceToken = async (vault: TokenVaultNamespace, role: TokenRole, expected: ReplaceExpectation, next: StoredToken): Promise<ReplaceResult> => {
+  const response = await requestVault(vault, role, REPLACE_PATH, jsonInit('POST', { expected, next }))
+  const body: unknown = await response.json()
+  const result = typeof body === 'object' && body !== null && 'result' in body ? body.result : undefined
+  const known = REPLACE_RESULTS.find((candidate) => candidate === result)
+  if (known === undefined) throw new Error(`トークンの保管庫が想定外の結果を返しました（${JSON.stringify(body)}）`)
+  return known
 }
 
 /**
@@ -98,13 +118,13 @@ export const loadToken = async (store: KeyValueStore, role: TokenRole): Promise<
  * @throws AuthError 未ログイン、またはリフレッシュトークンが無効
  */
 export const getAccessToken = async (
-  store: KeyValueStore,
+  vault: TokenVaultNamespace,
   role: TokenRole,
   twitch: Pick<TwitchClient, 'refresh'>,
   now: number,
   options: { forceRefresh?: boolean } = {},
 ): Promise<StoredToken> => {
-  const token = await loadToken(store, role)
+  const token = await loadToken(vault, role)
   if (!token) throw new AuthError('not-logged-in', NOT_LOGGED_IN_MESSAGES[role])
   if (!options.forceRefresh && token.expiresAt - now >= REFRESH_MARGIN_MS) return token
 
@@ -114,18 +134,18 @@ export const getAccessToken = async (
     }
     throw error
   })
-  // Twitchへの更新を待つ間に切断・付け替えされていたら、書き戻すとそれを取り消してしまう。保存する直前に読み直して確かめる
-  const current = await loadToken(store, role)
-  if (!current) throw new AuthError('not-logged-in', NOT_LOGGED_IN_MESSAGES[role])
-  if (current.userId !== token.userId || current.refreshToken !== token.refreshToken) {
-    throw new AuthError('token-changed', 'トークンを更新している間に、アカウントが接続し直されました。もう一度試してください')
-  }
   const refreshed: StoredToken = {
     ...token,
     accessToken: grant.accessToken,
     refreshToken: grant.refreshToken,
     expiresAt: now + grant.expiresIn * MILLISECONDS_PER_SECOND,
   }
-  await saveToken(store, role, refreshed)
+  // Twitchへの更新を待つ間に切断・付け替えされていたら、書き戻すとそれを取り消してしまう。
+  // 確かめることと書き戻すことを保管庫への1回の要求にまとめ、その間に割り込まれないようにする
+  const result = await replaceToken(vault, role, { userId: token.userId, refreshToken: token.refreshToken }, refreshed)
+  if (result === 'missing') throw new AuthError('not-logged-in', NOT_LOGGED_IN_MESSAGES[role])
+  if (result === 'changed') {
+    throw new AuthError('token-changed', 'トークンを更新している間に、アカウントが接続し直されました。もう一度試してください')
+  }
   return refreshed
 }

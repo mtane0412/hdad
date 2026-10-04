@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import { createFakeBucket } from './fake-bucket'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
+import { createFakeTokenVault } from './fake-token-vault'
 import { createFakeDatabase } from './fake-database'
 import { createFakeWorkersAi } from './fake-ai'
 import { createFakeAlertChannel } from './fake-alert-channel'
@@ -41,6 +42,7 @@ const createEnv = () => {
     TAB: createFakeTabChannel().namespace,
     COMMENTS: createFakeCommentChannel().namespace,
     AD_BREAKS: createFakeAdBreakTimer().namespace,
+    TOKENS: createFakeTokenVault().namespace,
     AI: createFakeWorkersAi(),
   } satisfies Env
   return { env, db, store }
@@ -188,8 +190,8 @@ describe('handleScheduled（cron の入口）', () => {
   }
 
   it('保管しているトークンでTwitchから取得し、配信とフォロワー数を記録する', async () => {
-    const { env, store } = createEnv()
-    await saveToken(store, 'broadcaster', {
+    const { env } = createEnv()
+    await saveToken(env.TOKENS, 'broadcaster', {
       accessToken: '保管中のアクセストークン',
       refreshToken: '保管中のリフレッシュトークン',
       expiresAt: NOW + 60 * 60 * 1000,

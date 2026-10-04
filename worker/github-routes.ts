@@ -118,7 +118,7 @@ export const githubWebhook = async (context: Context): Promise<Response> => {
     type,
     { event: payload },
     `${DELIVERY_KEY_PREFIX}${delivery}`,
-    async () => (await loadToken(env.STORE, 'bot')) !== null,
+    async () => (await loadToken(env.TOKENS, 'bot')) !== null,
     null,
   )
 

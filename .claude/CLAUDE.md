@@ -82,7 +82,7 @@ npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 | `dashboard.md` | ダッシュボード（`/`） | `src/stats/**`・`worker/stats-*.ts` |
 | `triggers-page.md` | トリガーの管理画面（`/triggers/`） | `src/admin/**` |
 | `rewards.md` | チャンネルポイント報酬（`/rewards/`） | `src/admin/reward-*`・`worker/reward-*.ts` |
-| `bot.md` | チャットボット（`/bot/`） | `src/bot/**`・`worker/auth-routes.ts`・`worker/token.ts`・`worker/webhook-routes.ts`・`worker/bot-*.ts`・`worker/chat-*.ts`・`worker/moderation-config.ts`・`worker/eventsub*.ts` |
+| `bot.md` | チャットボット（`/bot/`） | `src/bot/**`・`worker/auth-routes.ts`・`worker/token.ts`・`worker/token-vault.ts`・`worker/webhook-routes.ts`・`worker/bot-*.ts`・`worker/chat-*.ts`・`worker/moderation-config.ts`・`worker/eventsub*.ts` |
 | `worker.md` | Worker（`worker/`）と失敗の記録 | `worker/**` |
 | `implementation.md` | 判定・検証の置き場とテストの分け方（話題をまたぐ） | `src/**`・`worker/**` |
 

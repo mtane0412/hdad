@@ -139,7 +139,7 @@ export const postCommentMessage = async (context: Context): Promise<Response> =>
   await requireAdmin(context)
   const message = await readMessageToSend(context.request)
   const { env, twitch, now } = context
-  const token = await getAccessToken(env.STORE, 'broadcaster', twitch, now)
+  const token = await getAccessToken(env.TOKENS, 'broadcaster', twitch, now)
   if (!token.scopes.includes(WRITE_CHAT_SCOPE)) {
     throw new AuthError('missing-scope', `配信者のトークンに ${WRITE_CHAT_SCOPE} がありません。ログインし直してください（配信者としてチャットを送れません）`)
   }

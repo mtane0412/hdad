@@ -10,6 +10,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
+import { createFakeTokenVault } from './fake-token-vault'
 import { createFakeWorkersAi } from './fake-ai'
 import { createFakeAlertChannel } from './fake-alert-channel'
 import { createFakeAssets } from './fake-assets'
@@ -22,6 +23,7 @@ import { createFakeStore } from './fake-store'
 import { handleRequest, type Env } from './index'
 import { createSessionToken } from './session'
 import { saveToken } from './token'
+import type { TokenVaultNamespace } from './token-vault'
 
 const now = Date.UTC(2026, 8, 30, 12, 0, 0)
 const broadcasterId = '12345'
@@ -46,14 +48,15 @@ const createEnv = () => {
     TAB: createFakeTabChannel().namespace,
     COMMENTS: createFakeCommentChannel().namespace,
     AD_BREAKS: createFakeAdBreakTimer().namespace,
+    TOKENS: createFakeTokenVault().namespace,
     AI: createFakeWorkersAi(),
   } satisfies Env
   return { env, store }
 }
 
 /** 配信者のトークンを保管する。scopes を省くと、報酬の書き換えまでできるトークンになる */
-const saveBroadcasterToken = (store: ReturnType<typeof createFakeStore>, scopes: string[] = ['channel:read:redemptions', MANAGE_SCOPE]) =>
-  saveToken(store, 'broadcaster', {
+const saveBroadcasterToken = (tokens: TokenVaultNamespace, scopes: string[] = ['channel:read:redemptions', MANAGE_SCOPE]) =>
+  saveToken(tokens, 'broadcaster', {
     accessToken: 'test-access-token',
     refreshToken: 'リフレッシュトークン',
     expiresAt: now + 60 * 60 * 1000,
@@ -146,8 +149,8 @@ describe('チャンネルポイント報酬の一覧（GET /api/admin/rewards）
   })
 
   it('すべての報酬を返し、HDADから変更できる報酬にだけ manageable を立てる', async () => {
-    const { env, store } = createEnv()
-    await saveBroadcasterToken(store, ['channel:read:redemptions'])
+    const { env } = createEnv()
+    await saveBroadcasterToken(env.TOKENS, ['channel:read:redemptions'])
     const twitch = createFakeTwitch((request) => {
       const onlyManageable = new URL(request.url).searchParams.get('only_manageable_rewards') === 'true'
       return Response.json({ data: onlyManageable ? [toastReward] : [toastReward, hydrateReward] })
@@ -167,8 +170,8 @@ describe('チャンネルポイント報酬の一覧（GET /api/admin/rewards）
   })
 
   it('Twitchが失敗を返したら、502でTwitchのメッセージを伝える', async () => {
-    const { env, store } = createEnv()
-    await saveBroadcasterToken(store)
+    const { env } = createEnv()
+    await saveBroadcasterToken(env.TOKENS)
     const twitch = createFakeTwitch(() => Response.json({ message: 'channel points are not available' }, { status: 403 }))
 
     const response = await invoke(await broadcasterRequest(env, '/api/admin/rewards'), env, twitch.fetchImpl)
@@ -180,8 +183,8 @@ describe('チャンネルポイント報酬の一覧（GET /api/admin/rewards）
 
 describe('チャンネルポイント報酬の作成（POST /api/admin/rewards）', () => {
   it('入力を検証してTwitchで報酬を作り、作られた報酬を201で返す', async () => {
-    const { env, store } = createEnv()
-    await saveBroadcasterToken(store)
+    const { env } = createEnv()
+    await saveBroadcasterToken(env.TOKENS)
     const twitch = createFakeTwitch(() => Response.json({ data: [toastReward] }))
 
     const response = await invoke(await broadcasterRequest(env, '/api/admin/rewards', jsonBody('POST', rewardInput)), env, twitch.fetchImpl)
@@ -193,8 +196,8 @@ describe('チャンネルポイント報酬の作成（POST /api/admin/rewards�
   })
 
   it('入力に問題があれば、Twitchへ送らずに問題点を並べた400を返す', async () => {
-    const { env, store } = createEnv()
-    await saveBroadcasterToken(store)
+    const { env } = createEnv()
+    await saveBroadcasterToken(env.TOKENS)
 
     const response = await invoke(await broadcasterRequest(env, '/api/admin/rewards', jsonBody('POST', { ...rewardInput, title: '', cost: 0 })), env)
 
@@ -205,8 +208,8 @@ describe('チャンネルポイント報酬の作成（POST /api/admin/rewards�
   })
 
   it('トークンに channel:manage:redemptions が無ければ、Twitchへ送らずにログインし直しを求める', async () => {
-    const { env, store } = createEnv()
-    await saveBroadcasterToken(store, ['channel:read:redemptions'])
+    const { env } = createEnv()
+    await saveBroadcasterToken(env.TOKENS, ['channel:read:redemptions'])
 
     const response = await invoke(await broadcasterRequest(env, '/api/admin/rewards', jsonBody('POST', rewardInput)), env)
 
@@ -217,8 +220,8 @@ describe('チャンネルポイント報酬の作成（POST /api/admin/rewards�
   })
 
   it('本文がJSONでなければ400を返す', async () => {
-    const { env, store } = createEnv()
-    await saveBroadcasterToken(store)
+    const { env } = createEnv()
+    await saveBroadcasterToken(env.TOKENS)
 
     const response = await invoke(await broadcasterRequest(env, '/api/admin/rewards', { method: 'POST', body: '乾杯する' }), env)
 
@@ -226,8 +229,8 @@ describe('チャンネルポイント報酬の作成（POST /api/admin/rewards�
   })
 
   it('送信元が違えば、Twitchへ送らずに断る（CSRF対策）', async () => {
-    const { env, store } = createEnv()
-    await saveBroadcasterToken(store)
+    const { env } = createEnv()
+    await saveBroadcasterToken(env.TOKENS)
 
     const request = await broadcasterRequest(env, '/api/admin/rewards', {
       ...jsonBody('POST', rewardInput),
@@ -241,8 +244,8 @@ describe('チャンネルポイント報酬の作成（POST /api/admin/rewards�
 
 describe('チャンネルポイント報酬の更新（PATCH /api/admin/rewards/:id）', () => {
   it('報酬のIDを指定してTwitchで更新し、更新後の報酬を返す', async () => {
-    const { env, store } = createEnv()
-    await saveBroadcasterToken(store)
+    const { env } = createEnv()
+    await saveBroadcasterToken(env.TOKENS)
     const twitch = createFakeTwitch(() => Response.json({ data: [{ ...toastReward, cost: 800 }] }))
 
     const response = await invoke(
@@ -258,8 +261,8 @@ describe('チャンネルポイント報酬の更新（PATCH /api/admin/rewards/
   })
 
   it('入力に問題があれば、Twitchへ送らずに400を返す', async () => {
-    const { env, store } = createEnv()
-    await saveBroadcasterToken(store)
+    const { env } = createEnv()
+    await saveBroadcasterToken(env.TOKENS)
 
     const response = await invoke(
       await broadcasterRequest(env, '/api/admin/rewards/報酬ID-乾杯', jsonBody('PATCH', { ...rewardInput, prompt: 'あ'.repeat(201) })),
@@ -270,8 +273,8 @@ describe('チャンネルポイント報酬の更新（PATCH /api/admin/rewards/
   })
 
   it('HDADが作っていない報酬ではTwitchが拒むので、502でTwitchのメッセージを伝える', async () => {
-    const { env, store } = createEnv()
-    await saveBroadcasterToken(store)
+    const { env } = createEnv()
+    await saveBroadcasterToken(env.TOKENS)
     const twitch = createFakeTwitch(() => Response.json({ message: 'The client-id does not match' }, { status: 403 }))
 
     const response = await invoke(
@@ -287,8 +290,8 @@ describe('チャンネルポイント報酬の更新（PATCH /api/admin/rewards/
 
 describe('チャンネルポイント報酬の削除（DELETE /api/admin/rewards/:id）', () => {
   it('報酬のIDを指定してTwitchで削除し、204を返す', async () => {
-    const { env, store } = createEnv()
-    await saveBroadcasterToken(store)
+    const { env } = createEnv()
+    await saveBroadcasterToken(env.TOKENS)
     const twitch = createFakeTwitch(() => new Response(null, { status: 204 }))
 
     const response = await invoke(await broadcasterRequest(env, '/api/admin/rewards/報酬ID-乾杯', { method: 'DELETE' }), env, twitch.fetchImpl)
@@ -300,7 +303,7 @@ describe('チャンネルポイント報酬の削除（DELETE /api/admin/rewards
 
   it('トリガーに使われている報酬は、Twitchへ送らずに409で断る', async () => {
     const { env, store } = createEnv()
-    await saveBroadcasterToken(store)
+    await saveBroadcasterToken(env.TOKENS)
     await store.put(
       'alert-config',
       JSON.stringify({ triggers: [{ kind: 'reward', rewardId: '報酬ID-乾杯', actions: [{ type: 'chat', message: '{user} さん、乾杯！' }] }] }),
@@ -313,8 +316,8 @@ describe('チャンネルポイント報酬の削除（DELETE /api/admin/rewards
   })
 
   it('トークンに channel:manage:redemptions が無ければ、Twitchへ送らずにログインし直しを求める', async () => {
-    const { env, store } = createEnv()
-    await saveBroadcasterToken(store, ['channel:read:redemptions'])
+    const { env } = createEnv()
+    await saveBroadcasterToken(env.TOKENS, ['channel:read:redemptions'])
 
     const response = await invoke(await broadcasterRequest(env, '/api/admin/rewards/報酬ID-乾杯', { method: 'DELETE' }), env)
 
