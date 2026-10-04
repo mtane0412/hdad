@@ -17,7 +17,7 @@ import { loadBotConfig, parseBotConfig, saveBotConfig } from './bot-config'
 import { BOT_SCOPES } from './eventsub'
 import { HttpError, STATUS, requireAdmin, type Context } from './http'
 import { loadModerationConfig, parseModerationConfig, saveModerationConfig } from './moderation-config'
-import { AuthError, deleteToken, getAccessToken, loadToken, saveToken, type StoredToken } from './token'
+import { AuthError, deleteToken, getAccessToken, loadToken, revokeReleasedToken, saveToken, type StoredToken } from './token'
 
 /** Twitchが決めているチャット本文の上限（文字） */
 const MAX_MESSAGE_LENGTH = 500
@@ -86,14 +86,15 @@ export const getBot = async (context: Context): Promise<Response> => {
 }
 
 /**
- * DELETE /api/admin/bot: botを切断する。
+ * DELETE /api/admin/bot: botを切断する。保管庫から消したトークンは、Twitchでも失効させる（issue #221）。
  *
- * 注意: Twitch側の認可の取り消しまでは行わない（それにはbot本人の操作が要る）。
- * このWorkerがトークンを持たなくなるだけで、botとしての読み書きは止まる。
+ * 失効にbot本人の操作は要らない（クライアントIDとトークンだけで行える）。
+ * 注意: 失効に失敗しても、保管庫から消したことは取り消さない。手で解除するよう案内する502を返す（revokeReleasedToken）。
  */
 export const deleteBot = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
-  await deleteToken(context.env.TOKENS, 'bot')
+  const removed = await deleteToken(context.env.TOKENS, 'bot')
+  if (removed) await revokeReleasedToken(context.twitch, removed, context.now)
   return new Response(null, { status: STATUS.noContent })
 }
 
@@ -162,7 +163,9 @@ export const postBotDeviceToken = async (context: Context): Promise<Response> =>
   // 画面にはエラーだけが出て、状態が半端になる
   const isModerator = await isBotModerator(context, owner.userId)
 
-  await saveToken(env.TOKENS, 'bot', token)
+  const replaced = await saveToken(env.TOKENS, 'bot', token)
+  // 付け替えで外した旧botのトークンも、Twitchで失効させる（issue #221）
+  if (replaced) await revokeReleasedToken(twitch, replaced, now)
   return Response.json({ status: 'connected', bot: toBotStatus(token, isModerator) })
 }
 

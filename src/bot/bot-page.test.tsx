@@ -122,6 +122,22 @@ describe('切断', () => {
     expect(await screen.findByRole('link', { name: /接続/ })).toBeInTheDocument()
   })
 
+  test('Twitchでの失効に失敗しても、HDADからは外れているので未接続の表示に変え、手で解除する案内を出す', async () => {
+    const api = fakeApi({
+      disconnect: vi.fn(async () => {
+        throw new ApiError(502, 'revoke-failed', 'Twitchの設定の「接続」から、このアプリの接続を解除してください', [])
+      }),
+    })
+    render(<BotPage api={api} />)
+    await screen.findByText(/haishinsha_bot/)
+
+    await userEvent.click(screen.getByRole('button', { name: 'botを切断する' }))
+    await userEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: '切断する' }))
+
+    expect(await notice('このアプリの接続を解除してください')).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: /接続/ })).toBeInTheDocument()
+  })
+
   test('確認でやめたら、切断しない', async () => {
     const api = fakeApi()
     render(<BotPage api={api} />)

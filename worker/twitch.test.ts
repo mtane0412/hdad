@@ -120,6 +120,34 @@ describe('validate', () => {
   })
 })
 
+describe('revoke', () => {
+  it('クライアントIDとアクセストークンを送り、Twitchでトークンを失効させる', async () => {
+    const { requests, fetchImpl } = fetchReturningNoBody(200)
+
+    await createClient(fetchImpl).revoke('外したbotのアクセストークン')
+
+    expect(requests[0]!.url).toBe('https://id.twitch.tv/oauth2/revoke')
+    expect(requests[0]!.method).toBe('POST')
+    const form = new URLSearchParams(await requests[0]!.text())
+    expect(form.get('client_id')).toBe('test-client-id')
+    expect(form.get('token')).toBe('外したbotのアクセストークン')
+    // 失効にはクライアントシークレットが要らない。要らない秘密は送らない
+    expect(form.has('client_secret')).toBe(false)
+  })
+
+  it('トークンがすでに無効（400 Invalid token）なら、失効済みとして成功にする', async () => {
+    const { fetchImpl } = fetchReturning(400, { status: 400, message: 'Invalid token' })
+
+    await expect(createClient(fetchImpl).revoke('期限切れのアクセストークン')).resolves.toBeUndefined()
+  })
+
+  it('Twitch側の障害（5xx）は、状態コードを残したエラーにする', async () => {
+    const { fetchImpl } = fetchReturning(503, { status: 503, message: 'Service Unavailable' })
+
+    await expect(createClient(fetchImpl).revoke('外したbotのアクセストークン')).rejects.toMatchObject({ name: 'TwitchApiError', status: 503 })
+  })
+})
+
 describe('createSubscription', () => {
   it('HelixへEventSubの購読を登録する', async () => {
     const { requests, fetchImpl } = fetchReturning(202, { data: [] })

@@ -27,7 +27,7 @@ const BOT_TOKEN: StoredToken = {
 /** 処分の対象。荒らしの発言1件 */
 const target = { messageId: 'chat-message-1', userId: '11111' }
 
-type moderationTwitch = Pick<TwitchClient, 'refresh' | 'banUser' | 'deleteChatMessage'>
+type moderationTwitch = Pick<TwitchClient, 'refresh' | 'revoke' | 'banUser' | 'deleteChatMessage'>
 
 /** 呼び出しの記録を残すTwitchの代役 */
 const fakeTwitch = (overrides: Partial<moderationTwitch> = {}) => {
@@ -37,6 +37,9 @@ const fakeTwitch = (overrides: Partial<moderationTwitch> = {}) => {
   const twitch: moderationTwitch = {
     refresh: async () => {
       throw new Error('テストで想定していないトークンの更新です（期限内のトークンを渡しています）')
+    },
+    revoke: async () => {
+      throw new Error('テストで想定していないトークンの失効です')
     },
     deleteChatMessage: async (_accessToken, message) => {
       calledOperations.push('deleteChatMessage')

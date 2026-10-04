@@ -8,7 +8,8 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { createFakeTokenVault } from './fake-token-vault'
-import { AuthError, deleteToken, getAccessToken, loadToken, saveToken, type StoredToken } from './token'
+import { HttpError } from './http'
+import { AuthError, deleteToken, getAccessToken, loadToken, revokeReleasedToken, saveToken, type StoredToken } from './token'
 import { TwitchApiError } from './twitch'
 
 const now = Date.UTC(2026, 8, 21, 12, 0, 0)
@@ -25,6 +26,7 @@ const savedToken = (expiresAt: number): StoredToken => ({
 
 const twitchRefreshSucceeds = () => ({
   refresh: vi.fn(async () => ({ accessToken: '新しいアクセストークン', refreshToken: '新しいリフレッシュトークン', expiresIn: 14400 })),
+  revoke: vi.fn(async () => undefined),
 })
 
 describe('saveToken / loadToken', () => {
@@ -75,8 +77,72 @@ describe('deleteToken', () => {
     expect(await loadToken(store, 'broadcaster')).not.toBeNull()
   })
 
-  it('保存されていなくてもエラーにならない', async () => {
-    await expect(deleteToken(createFakeTokenVault().namespace, 'bot')).resolves.toBeUndefined()
+  it('保存されていなくてもエラーにならず、null を返す', async () => {
+    await expect(deleteToken(createFakeTokenVault().namespace, 'bot')).resolves.toBeNull()
+  })
+
+  it('消したトークンを返す（Twitchで失効させるため。issue #221）', async () => {
+    const store = createFakeTokenVault().namespace
+    await saveToken(store, 'bot', savedToken(now + oneHour))
+
+    expect(await deleteToken(store, 'bot')).toEqual(savedToken(now + oneHour))
+  })
+})
+
+describe('saveToken の戻り値', () => {
+  it('上書きしたトークンを返す。初めての保存なら null を返す（付け替えで外したトークンを失効させるため。issue #221）', async () => {
+    const store = createFakeTokenVault().namespace
+    const replacement: StoredToken = { ...savedToken(now + oneHour), accessToken: '新botのアクセストークン', refreshToken: '新botのリフレッシュトークン' }
+
+    expect(await saveToken(store, 'bot', savedToken(now + oneHour))).toBeNull()
+    expect(await saveToken(store, 'bot', replacement)).toEqual(savedToken(now + oneHour))
+  })
+})
+
+describe('revokeReleasedToken', () => {
+  it('アクセストークンが期限内なら、それをTwitchで失効させる', async () => {
+    const twitch = twitchRefreshSucceeds()
+
+    await revokeReleasedToken(twitch, savedToken(now + oneHour), now)
+
+    expect(twitch.revoke).toHaveBeenCalledWith('保存済みのアクセストークン')
+    expect(twitch.refresh).not.toHaveBeenCalled()
+  })
+
+  it('アクセストークンが期限切れなら、リフレッシュトークンで取り直したうえで失効させる（期限切れのトークンは失効の要求を受け付けられないため）', async () => {
+    const twitch = twitchRefreshSucceeds()
+
+    await revokeReleasedToken(twitch, savedToken(now - oneHour), now)
+
+    expect(twitch.refresh).toHaveBeenCalledWith('保存済みのリフレッシュトークン')
+    expect(twitch.revoke).toHaveBeenCalledWith('新しいアクセストークン')
+  })
+
+  it('期限切れで、リフレッシュトークンもすでに無効なら、失効させるものが無いので成功にする', async () => {
+    const twitch = {
+      refresh: vi.fn(async () => {
+        throw new TwitchApiError(400, 'Invalid refresh token')
+      }),
+      revoke: vi.fn(async () => undefined),
+    }
+
+    await expect(revokeReleasedToken(twitch, savedToken(now - oneHour), now)).resolves.toBeUndefined()
+    expect(twitch.revoke).not.toHaveBeenCalled()
+  })
+
+  it('Twitchが失効の要求に失敗したら、手で解除するよう案内する502のエラーにする', async () => {
+    const twitch = {
+      refresh: vi.fn(),
+      revoke: vi.fn(async () => {
+        throw new TwitchApiError(503, 'Service Unavailable')
+      }),
+    }
+
+    const error = await revokeReleasedToken(twitch, savedToken(now + oneHour), now).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(HttpError)
+    expect(error).toMatchObject({ status: 502, code: 'revoke-failed' })
+    expect((error as Error).message).toContain('接続')
   })
 })
 
@@ -142,6 +208,7 @@ describe('getAccessToken', () => {
       refresh: vi.fn(async () => {
         throw new TwitchApiError(400, 'Invalid refresh token')
       }),
+      revoke: vi.fn(),
     }
 
     const error = await getAccessToken(store, 'broadcaster', twitch, now).catch((caught: unknown) => caught)
@@ -157,6 +224,7 @@ describe('getAccessToken', () => {
       refresh: vi.fn(async () => {
         throw new TwitchApiError(503, 'Service Unavailable')
       }),
+      revoke: vi.fn(),
     }
 
     await expect(getAccessToken(store, 'broadcaster', twitch, now)).rejects.toMatchObject({ name: 'TwitchApiError', status: 503 })
@@ -172,7 +240,8 @@ describe('getAccessToken', () => {
         await paused
         return { accessToken: '旧botの新しいアクセストークン', refreshToken: '旧botの新しいリフレッシュトークン', expiresIn: 14400 }
       })
-      return { twitch: { refresh }, resume: () => resume() }
+      const revoke = vi.fn(async () => undefined)
+      return { twitch: { refresh, revoke }, resume: () => resume() }
     }
 
     it('切断された（消された）なら、旧トークンを書き戻さず、未接続のエラーにする', async () => {
@@ -187,6 +256,8 @@ describe('getAccessToken', () => {
 
       expect(await pending).toMatchObject({ name: 'AuthError', code: 'not-logged-in' })
       expect(await loadToken(store, 'bot')).toBeNull()
+      // 書き戻さずに捨てたトークンも、Twitch上では有効なまま残るので失効させる（issue #221）
+      expect(twitch.revoke).toHaveBeenCalledWith('旧botの新しいアクセストークン')
     })
 
     it('別のアカウントに付け替えられたなら、新しいトークンを上書きせず、取り直した旧トークンも返さない', async () => {
@@ -208,6 +279,9 @@ describe('getAccessToken', () => {
 
       expect(await pending).toMatchObject({ name: 'AuthError', code: 'token-changed' })
       expect(await loadToken(store, 'bot')).toEqual(replacement)
+      // 捨てたのは取り直した旧botのトークンだけ。付け替えた新botのトークンは失効させない
+      expect(twitch.revoke).toHaveBeenCalledWith('旧botの新しいアクセストークン')
+      expect(twitch.revoke).not.toHaveBeenCalledWith('新botのアクセストークン')
     })
 
     it('同じアカウントで接続し直された（リフレッシュトークンが変わった）なら、接続し直したトークンを上書きしない', async () => {

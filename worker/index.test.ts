@@ -54,6 +54,8 @@ const createEnv = (store = createFakeStore()) => {
 /** Twitchの代わりに応答する fetch。ログインしてきた人のユーザーID・ログイン名・スコープを切り替えられる */
 const fakeTwitch = (loginUserId: string, owner: { login?: string; scopes?: readonly string[] } = {}) => {
   const requests: Request[] = []
+  /** 失効（oauth2/revoke）させたトークン */
+  const revokedTokens: string[] = []
   const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const request = new Request(input, init)
     requests.push(request)
@@ -66,9 +68,13 @@ const fakeTwitch = (loginUserId: string, owner: { login?: string; scopes?: reado
     if (request.url === 'https://api.twitch.tv/helix/eventsub/subscriptions') {
       return Response.json({ data: [] }, { status: 202 })
     }
+    if (request.url === 'https://id.twitch.tv/oauth2/revoke') {
+      revokedTokens.push(new URLSearchParams(await request.clone().text()).get('token') ?? '')
+      return new Response(null, { status: 200 })
+    }
     throw new Error(`テストで想定していない通信です: ${request.url}`)
   }
-  return { requests, fetchImpl }
+  return { requests, revokedTokens, fetchImpl }
 }
 
 /** アナウンスの送信間隔を空けるための待ちは、テストでは実際に待たない */
@@ -192,6 +198,25 @@ describe('GET /api/auth/callback（botの接続）', () => {
     expect(await loadToken(env.TOKENS, 'bot')).toMatchObject({ userId: '67890', login: 'haishinsha_bot' })
     // 配信者のトークンは書き換えない
     expect(await loadToken(env.TOKENS, 'broadcaster')).toBeNull()
+  })
+
+  it('別のbotから付け替えたら、外した旧botのトークンをTwitchで失効させる（issue #221）', async () => {
+    const { env } = createEnv()
+    await saveToken(env.TOKENS, 'bot', {
+      accessToken: '旧botのアクセストークン',
+      refreshToken: '旧botのリフレッシュトークン',
+      expiresAt: now + 60 * 60 * 1000,
+      scopes: [...BOT_SCOPES],
+      userId: '11111',
+      login: 'furui_bot',
+    })
+    const twitch = fakeTwitch('67890', { login: 'haishinsha_bot', scopes: BOT_SCOPES })
+
+    const response = await connectBot(env, twitch.fetchImpl)
+
+    expect(response.status).toBe(302)
+    expect(twitch.revokedTokens).toEqual(['旧botのアクセストークン'])
+    expect(await loadToken(env.TOKENS, 'bot')).toMatchObject({ userId: '67890' })
   })
 
   it('botの接続では、配信者のセッションを新たに発行しない', async () => {

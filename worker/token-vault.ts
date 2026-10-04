@@ -93,6 +93,10 @@ const isTokenRole = (value: string | null): value is TokenRole => TOKEN_ROLES.so
 
 const json = (body: unknown): Response => new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } })
 
+/** 保存・削除の応答。それまで保存していたトークン（無ければ null）を { previous } で返す */
+const previousResponse = (previousText: string | undefined): Response =>
+  json({ previous: previousText === undefined ? null : (JSON.parse(previousText) as unknown) })
+
 /**
  * 保存済みのトークンを期待と比べ、一致すれば置き換える。
  *
@@ -111,8 +115,8 @@ const replaceIfUnchanged = (storage: TokenVaultStorage, role: TokenRole, { expec
  * 保管庫への要求を処理する。
  *
  * - GET /token?role=… 保存済みのトークン（JSON）。無ければ404
- * - PUT /token?role=… 本文のトークンを保存する（ログイン・接続・付け替え）
- * - DELETE /token?role=… 消す（切断）。無くてもエラーにしない
+ * - PUT /token?role=… 本文のトークンを保存する（ログイン・接続・付け替え）。それまでのトークンを { previous } で返す
+ * - DELETE /token?role=… 消す（切断）。無くてもエラーにしない。消したトークンを { previous } で返す
  * - POST /token/replace?role=… 期待どおりのときだけ置き換え、結果を { result } で返す
  *
  * 本文の形は確かめない。呼ぶのは Worker（worker/token.ts）だけで、読み出す側（loadToken）が形を確かめるため。
@@ -135,12 +139,16 @@ export const handleTokenVaultRequest = async (storage: TokenVaultStorage, reques
     }
     case 'PUT': {
       const token = (await request.json()) as StoredToken
+      // 外したトークンを呼び出し側がTwitchで失効させられるよう、読んでから書くまでを await を挟まずに行い、前の値を返す
+      const previous = storage.get(role)
       storage.put(role, JSON.stringify(token))
-      return new Response(null, { status: STATUS.noContent })
+      return previousResponse(previous)
     }
-    case 'DELETE':
+    case 'DELETE': {
+      const previous = storage.get(role)
       storage.delete(role)
-      return new Response(null, { status: STATUS.noContent })
+      return previousResponse(previous)
+    }
     default:
       return new Response(null, { status: STATUS.methodNotAllowed })
   }

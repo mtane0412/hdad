@@ -16,7 +16,7 @@ import { HttpError, SESSION_COOKIE, STATUS, readCookie, requireSession, setCooki
 import { ensureOverlayKey, loadOverlayKey } from './overlay-key'
 import { randomToken, timingSafeEqual } from './secret'
 import { SESSION_TTL_SECONDS, createSessionToken } from './session'
-import { AuthError, loadToken, saveToken, type TokenRole } from './token'
+import { AuthError, loadToken, revokeReleasedToken, saveToken, type TokenRole } from './token'
 
 const STATE_COOKIE = '__Host-oauth-state'
 /** Twitchの認可画面から戻ってくるまでの猶予（秒） */
@@ -94,12 +94,14 @@ export const callback = async (context: Context): Promise<Response> => {
     throw new HttpError(STATUS.forbidden, 'not-broadcaster', `このTwitchアカウント（${owner.login}）ではログインできません`)
   }
 
-  await saveToken(env.TOKENS, role, {
+  const replaced = await saveToken(env.TOKENS, role, {
     accessToken: grant.accessToken,
     refreshToken: grant.refreshToken,
     expiresAt: now + grant.expiresIn * MILLISECONDS_PER_SECOND,
     ...owner,
   })
+  // botの付け替えで外した旧botのトークンは、Twitchでも失効させる（issue #221）。配信者のログインし直しでは何もしない
+  if (role === 'bot' && replaced) await revokeReleasedToken(twitch, replaced, now)
 
   const headers = new Headers({ Location: ROLES[role].returnPath })
   if (role === 'broadcaster') {

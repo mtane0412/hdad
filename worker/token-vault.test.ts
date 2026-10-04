@@ -52,6 +52,21 @@ describe('handleTokenVaultRequest', () => {
     expect((await handleTokenVaultRequest(storage, request('GET', '/token?role=bot'))).status).toBe(404)
   })
 
+  it('保存（PUT）と削除（DELETE）は、それまで保存していたトークンを返す（外したトークンをTwitchで失効させるため。issue #221）', async () => {
+    const storage = createFakeTokenStorage()
+    const replacement = botToken({ accessToken: '新botのアクセストークン', refreshToken: '新botのリフレッシュトークン' })
+
+    const first = await handleTokenVaultRequest(storage, request('PUT', '/token?role=bot', botToken()))
+    const second = await handleTokenVaultRequest(storage, request('PUT', '/token?role=bot', replacement))
+    const removed = await handleTokenVaultRequest(storage, request('DELETE', '/token?role=bot'))
+    const removedAgain = await handleTokenVaultRequest(storage, request('DELETE', '/token?role=bot'))
+
+    expect(await first.json()).toEqual({ previous: null })
+    expect(await second.json()).toEqual({ previous: botToken() })
+    expect(await removed.json()).toEqual({ previous: replacement })
+    expect(await removedAgain.json()).toEqual({ previous: null })
+  })
+
   it('知らない役割は受け付けない', async () => {
     const response = await handleTokenVaultRequest(createFakeTokenStorage(), request('GET', '/token?role=viewer'))
 
