@@ -60,7 +60,7 @@ export const runAlarmActions = async (
   await recordLateFailure(context, failureCode, async () => {
     // botの接続はここで調べる（チャット・アナウンスの動作は送り主のアカウントが要る）。
     // 状態を持つ条件（初めての発言かなど）は発言ではないので使わない
-    await runAlertActions(context, subscriptionType, body, messageId, async () => (await loadToken(env.STORE, 'bot')) !== null, null)
+    await runAlertActions(context, subscriptionType, body, messageId, async () => (await loadToken(env.TOKENS, 'bot')) !== null, null)
     await Promise.all(deferredTask)
   })
 }

@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { AUTO_MODERATION_REASON, punishAsBot } from './bot-moderation'
-import { createFakeStore } from './fake-store'
+import { createFakeTokenVault } from './fake-token-vault'
 import { saveToken, type StoredToken } from './token'
 import { TwitchApiError, type BanToApply, type ChatMessageToDelete, type TwitchClient } from './twitch'
 
@@ -52,9 +52,9 @@ const fakeTwitch = (overrides: Partial<moderationTwitch> = {}) => {
 }
 
 const createEnv = async () => {
-  const store = createFakeStore()
-  await saveToken(store, 'bot', BOT_TOKEN)
-  return { STORE: store, TWITCH_BROADCASTER_ID: BROADCASTER_ID }
+  const tokens = createFakeTokenVault().namespace
+  await saveToken(tokens, 'bot', BOT_TOKEN)
+  return { TOKENS: tokens, TWITCH_BROADCASTER_ID: BROADCASTER_ID }
 }
 
 /** テストで使う文脈。punishAsBot が見るのは環境・Twitch・現在時刻だけ */

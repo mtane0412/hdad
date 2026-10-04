@@ -94,7 +94,7 @@ export const callback = async (context: Context): Promise<Response> => {
     throw new HttpError(STATUS.forbidden, 'not-broadcaster', `このTwitchアカウント（${owner.login}）ではログインできません`)
   }
 
-  await saveToken(env.STORE, role, {
+  await saveToken(env.TOKENS, role, {
     accessToken: grant.accessToken,
     refreshToken: grant.refreshToken,
     expiresAt: now + grant.expiresIn * MILLISECONDS_PER_SECOND,
@@ -117,7 +117,7 @@ export const logout = (): Response =>
 
 export const me = async (context: Context): Promise<Response> => {
   await requireSession(context)
-  const token = await loadToken(context.env.STORE, 'broadcaster')
+  const token = await loadToken(context.env.TOKENS, 'broadcaster')
   if (!token) throw new AuthError('not-logged-in', 'Twitchのトークンが保存されていません。ログインし直してください')
   return Response.json({ userId: token.userId, login: token.login, overlayKey: await loadOverlayKey(context.env.STORE) })
 }

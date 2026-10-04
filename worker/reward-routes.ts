@@ -44,7 +44,7 @@ const requireRewardId = ({ params }: Context): string => {
  * @throws AuthError トークンが保管されていない・更新できない・channel:manage:redemptions が無い
  */
 const getManageToken = async ({ env, twitch, now }: Context): Promise<StoredToken> => {
-  const token = await getAccessToken(env.STORE, 'broadcaster', twitch, now)
+  const token = await getAccessToken(env.TOKENS, 'broadcaster', twitch, now)
   if (!token.scopes.includes(MANAGE_SCOPE)) {
     throw new AuthError('missing-scope', `配信者のトークンに ${MANAGE_SCOPE} がありません。ログインし直してください（チャンネルポイント報酬を変更できません）`)
   }
@@ -63,7 +63,7 @@ const getManageToken = async ({ env, twitch, now }: Context): Promise<StoredToke
 export const getRewards = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
   const { env, twitch, now } = context
-  const { accessToken } = await getAccessToken(env.STORE, 'broadcaster', twitch, now)
+  const { accessToken } = await getAccessToken(env.TOKENS, 'broadcaster', twitch, now)
   const [all, manageable] = await Promise.all([
     twitch.listCustomRewards(accessToken, env.TWITCH_BROADCASTER_ID),
     twitch.listCustomRewards(accessToken, env.TWITCH_BROADCASTER_ID, { onlyManageable: true }),

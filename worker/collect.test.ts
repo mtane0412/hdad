@@ -14,6 +14,7 @@ import { readSideSuper } from './side-super-store'
 import { MAX_SIDE_SUPER_BODY_LENGTH } from './side-super'
 import { createFakeDatabase } from './fake-database'
 import { createFakeStore } from './fake-store'
+import { createFakeTokenVault } from './fake-token-vault'
 import { getSession, listFailures, listFollowerSamples, listSessions, recordStreamOnline } from './stats-store'
 import { AuthError, loadToken, saveToken, type StoredToken } from './token'
 import { deleteViewer, readViewer, recordViewerMessage } from './viewer-store'
@@ -122,13 +123,14 @@ const withoutBgmJudgment = { jev: uncalledJev, alerts: createFakeAlertChannel().
 const createEnv = async (token: StoredToken | null = storedToken) => {
   const db = createFakeDatabase()
   const store = createFakeStore()
-  if (token) await saveToken(store, 'broadcaster', token)
-  return { db, store }
+  const tokens = createFakeTokenVault().namespace
+  if (token) await saveToken(tokens, 'broadcaster', token)
+  return { db, store, tokens }
 }
 
 describe('collectStats', () => {
   it('配信中なら、セッション・視聴者数・フォロワー数を記録する', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     const receivedArgs: string[][] = []
     const twitch = fakeTwitch({
       getLiveStream: async (accessToken, broadcasterId) => {
@@ -137,7 +139,7 @@ describe('collectStats', () => {
       },
     })
 
-    await collectStats({ db, store, twitch, ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch, ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
 
     expect(receivedArgs).toEqual([['保管中のアクセストークン', '12345']])
     expect((await getSession(db, chatStream.id, now))?.samples).toEqual([{ sampledAt: '2026-09-21T12:05:00.000Z', viewerCount: 42 }])
@@ -146,11 +148,11 @@ describe('collectStats', () => {
   })
 
   it('配信していなければ、開いているセッションを閉じ、フォロワー数だけを記録する', async () => {
-    const { db, store } = await createEnv()
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    const { db, store, tokens } = await createEnv()
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
 
     const fiveMinutesLater = now + 5 * 60 * 1000
-    await collectStats({ db, store, twitch: fakeTwitch({ getLiveStream: async () => null }), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now: fiveMinutesLater })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch({ getLiveStream: async () => null }), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now: fiveMinutesLater })
 
     const session = await getSession(db, chatStream.id, now)
     expect(session?.endedAt).toBe('2026-09-21T12:10:00.000Z')
@@ -158,7 +160,7 @@ describe('collectStats', () => {
   })
 
   it('期限内のトークンをTwitchが拒んだら、1回だけ取り直してやり直す', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     const usedToken: string[] = []
     const twitch = fakeTwitch({
       refresh: async () => ({ accessToken: '取り直したアクセストークン', refreshToken: '新しいリフレッシュトークン', expiresIn: 14400 }),
@@ -169,17 +171,17 @@ describe('collectStats', () => {
       },
     })
 
-    await collectStats({ db, store, twitch, ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch, ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
 
     expect(usedToken).toEqual(['保管中のアクセストークン', '取り直したアクセストークン'])
-    expect((await loadToken(store, 'broadcaster'))?.accessToken).toBe('取り直したアクセストークン')
+    expect((await loadToken(tokens, 'broadcaster'))?.accessToken).toBe('取り直したアクセストークン')
     expect(await listSessions(db, now)).toHaveLength(1)
   })
 
   it('トークンが保管されていなければ、黙って飛ばさず、失敗を記録してエラーにする', async () => {
-    const { db, store } = await createEnv(null)
+    const { db, store, tokens } = await createEnv(null)
 
-    await expect(collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })).rejects.toBeInstanceOf(AuthError)
+    await expect(collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })).rejects.toBeInstanceOf(AuthError)
 
     expect(await listFailures(db)).toEqual([
       { occurredAt: '2026-09-21T12:05:00.000Z', code: 'not-logged-in', message: expect.stringContaining('ログイン') },
@@ -187,27 +189,27 @@ describe('collectStats', () => {
   })
 
   it('トークンを更新できなければ、再ログインが必要な失敗として記録する', async () => {
-    const { db, store } = await createEnv({ ...storedToken, expiresAt: now - 1 })
+    const { db, store, tokens } = await createEnv({ ...storedToken, expiresAt: now - 1 })
     const twitch = fakeTwitch({
       refresh: async () => {
         throw new TwitchApiError(400, 'Twitchが 400 を返しました: Invalid refresh token')
       },
     })
 
-    await expect(collectStats({ db, store, twitch, ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })).rejects.toBeInstanceOf(AuthError)
+    await expect(collectStats({ db, store, tokens, twitch, ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })).rejects.toBeInstanceOf(AuthError)
 
     expect((await listFailures(db))[0]?.code).toBe('relogin-required')
   })
 
   it('フォロワー数の取得に失敗しても、先に取れた配信の記録は残し、失敗を記録する', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     const twitch = fakeTwitch({
       getFollowerTotal: async () => {
         throw new TwitchApiError(500, 'Twitchが 500 を返しました: Internal Server Error')
       },
     })
 
-    await expect(collectStats({ db, store, twitch, ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })).rejects.toBeInstanceOf(TwitchApiError)
+    await expect(collectStats({ db, store, tokens, twitch, ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })).rejects.toBeInstanceOf(TwitchApiError)
 
     expect(await listSessions(db, now)).toHaveLength(1)
     expect(await listFailures(db)).toEqual([
@@ -220,7 +222,8 @@ describe('古い記録の掃除', () => {
   it('保持期間より古い「その配信で初めての発言」の記録を消す（配信を重ねても行が積み上がらないようにするため）', async () => {
     const db = createFakeDatabase()
     const store = createFakeStore()
-    await saveToken(store, 'broadcaster', storedToken)
+    const tokens = createFakeTokenVault().namespace
+    await saveToken(tokens, 'broadcaster', storedToken)
     const thirtyDays = 30 * 24 * 60 * 60 * 1000
     db.sqlite
       .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, ?, ?, ?)')
@@ -233,7 +236,7 @@ describe('古い記録の掃除', () => {
     addRecord('mukashi-no-hito', now - thirtyDays)
     addRecord('kyou-no-hito', now)
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
 
     expect(db.sqlite.prepare('SELECT chatter_user_id FROM first_chatters').all()).toEqual([{ chatter_user_id: 'kyou-no-hito' }])
   })
@@ -241,7 +244,8 @@ describe('古い記録の掃除', () => {
   it('保持期間より古い文字起こしを消す（配信中だけ持つものなので、終わった配信のぶんを残さない）', async () => {
     const db = createFakeDatabase()
     const store = createFakeStore()
-    await saveToken(store, 'broadcaster', storedToken)
+    const tokens = createFakeTokenVault().namespace
+    await saveToken(tokens, 'broadcaster', storedToken)
     const thirtyDays = 30 * 24 * 60 * 60 * 1000
     db.sqlite
       .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, ?, ?, ?)')
@@ -254,7 +258,7 @@ describe('古い記録の掃除', () => {
     addSpeech('mukashi-no-hatsuwa', now - thirtyDays)
     addSpeech('kyou-no-hatsuwa', now)
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
 
     expect(db.sqlite.prepare('SELECT message_id FROM transcripts').all()).toEqual([{ message_id: 'kyou-no-hatsuwa' }])
   })
@@ -262,7 +266,8 @@ describe('古い記録の掃除', () => {
   it('保持期間より古い画面の取り込みの記録を消す（文字起こしと同じく、配信中だけ持つものであるため）', async () => {
     const db = createFakeDatabase()
     const store = createFakeStore()
-    await saveToken(store, 'broadcaster', storedToken)
+    const tokens = createFakeTokenVault().namespace
+    await saveToken(tokens, 'broadcaster', storedToken)
     const thirtyDays = 30 * 24 * 60 * 60 * 1000
     db.sqlite
       .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, ?, ?, ?)')
@@ -275,7 +280,7 @@ describe('古い記録の掃除', () => {
     addImport('mukashi-no-gamen', now - thirtyDays)
     addImport('kyou-no-gamen', now)
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
 
     expect(db.sqlite.prepare('SELECT image_id FROM screen_captures').all()).toEqual([{ image_id: 'kyou-no-gamen' }])
   })
@@ -294,17 +299,17 @@ describe('人物像の生成', () => {
   }
 
   it('終わった配信の発言から人物像を作り、使い終えた材料を消す', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     await createEndedStreamWithChats(db)
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
 
     expect(await readViewer(db, '100')).toMatchObject({ summary: 'ギターの話をよくする常連さん', summarizedAt: '2026-09-21T12:05:00.000Z' })
     expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM stream_chat_messages').get()).toEqual({ count: 0 })
   })
 
   it('配信中の発言では人物像を作らない（その配信の残りの発言が入らないため）', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     await recordViewerMessage(db, { userId: '100', login: 'hanako', displayName: '花子', badges: [], messageId: 'chat-100' }, now)
     db.sqlite
       .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, NULL, ?, ?)')
@@ -314,7 +319,7 @@ describe('人物像の生成', () => {
       .run('hatsugen-1', chatStream.id, '100', new Date(now).toISOString(), 'こんばんは')
     const ai = fakeAi()
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now })
 
     // LLMの呼び出しそのものは、この配信のあらすじづくり（issue #65）で起きうる。ここで確かめたいのは
     // 「配信中の発言から人物像を作らないこと」なので、人物像が空のままであることで判断する
@@ -322,10 +327,10 @@ describe('人物像の生成', () => {
   })
 
   it('LLMが失敗したら、収集自体は成功させたうえで失敗を記録し、材料は消さない（次の収集でやり直せるようにするため）', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     await createEndedStreamWithChats(db)
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(new Error('無料枠を使い切りました')), ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(new Error('無料枠を使い切りました')), ...withoutBgmJudgment, broadcasterId: streamerId, now })
 
     expect(await listFailures(db)).toEqual([
       { occurredAt: '2026-09-21T12:05:00.000Z', code: 'viewer-summary-failed', message: expect.stringContaining('無料枠') },
@@ -335,19 +340,19 @@ describe('人物像の生成', () => {
   })
 
   it('記録を消された人の材料は、LLMを呼ばずに消す', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     await createEndedStreamWithChats(db)
     await deleteViewer(db, '100')
     const ai = fakeAi()
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now })
 
     expect(ai.callCount()).toBe(0)
     expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM stream_chat_messages').get()).toEqual({ count: 0 })
   })
 
   it('人物像を作る人のチャンネルを観測して記録し、その内容を材料に渡す', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     await createEndedStreamWithChats(db)
     const queriedUserIds: string[] = []
     const twitch = fakeTwitch({
@@ -364,7 +369,7 @@ describe('人物像の生成', () => {
       },
     }
 
-    await collectStats({ db, store, twitch, ai, ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch, ai, ...withoutBgmJudgment, broadcasterId: streamerId, now })
 
     expect(queriedUserIds).toEqual(['100'])
     expect(await readViewer(db, '100')).toMatchObject({
@@ -375,7 +380,7 @@ describe('人物像の生成', () => {
   })
 
   it('チャンネルを観測できなくても、人物像づくりは続けて失敗だけを記録する', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     await createEndedStreamWithChats(db)
     const twitch = fakeTwitch({
       getChannel: async () => {
@@ -383,7 +388,7 @@ describe('人物像の生成', () => {
       },
     })
 
-    await collectStats({ db, store, twitch, ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch, ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
 
     expect(await readViewer(db, '100')).toMatchObject({ summary: 'ギターの話をよくする常連さん', channel: null })
     expect(await listFailures(db)).toEqual([
@@ -392,7 +397,7 @@ describe('人物像の生成', () => {
   })
 
   it('同じ収集で2人ぶん観測できなくても、両方の理由が残る（1行にまとめて記録するため）', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     await createEndedStreamWithChats(db, '100')
     await recordViewerMessage(db, { userId: '200', login: 'taro', displayName: '太郎', badges: [], messageId: 'chat-200' }, now - 10 * 60 * 1000)
     db.sqlite
@@ -404,7 +409,7 @@ describe('人物像の生成', () => {
       },
     })
 
-    await collectStats({ db, store, twitch, ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch, ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
 
     // 失敗の記録は「時刻と種類」で1行なので（migrations/0012_collection_failures_key.sql）、
     // 人ごとに記録すると後の人が前の人を上書きしてしまう。1行にまとめて両方を残す
@@ -415,7 +420,7 @@ describe('人物像の生成', () => {
   })
 
   it('記録を消された人のチャンネルは問い合わせない（消えた人のためにTwitchを呼ばない）', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     await createEndedStreamWithChats(db)
     await deleteViewer(db, '100')
     let queryCount = 0
@@ -426,13 +431,13 @@ describe('人物像の生成', () => {
       },
     })
 
-    await collectStats({ db, store, twitch, ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch, ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
 
     expect(queryCount).toBe(0)
   })
 
   it('その人の発言が原因の失敗（長すぎる・空）では、次の人へ進む（1人で列の先頭を塞がないため）', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     await createEndedStreamWithChats(db, '100')
     await recordViewerMessage(db, { userId: '200', login: 'taro', displayName: '太郎', badges: [], messageId: 'chat-200' }, now - 10 * 60 * 1000)
     db.sqlite
@@ -450,14 +455,14 @@ describe('人物像の生成', () => {
       },
     }
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now })
 
     expect(await readViewer(db, '200')).toMatchObject({ summary: '元気な人' })
     expect(await listFailures(db)).toMatchObject([{ code: 'viewer-summary-failed' }])
   })
 
   it('1回の収集で人物像を作る人数に上限を設ける（Workers AI の無料枠を一度に使い切らないため）', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     await createEndedStreamWithChats(db)
     for (const userId of ['200', '300', '400', '500', '600', '700']) {
       await recordViewerMessage(db, { userId, login: `user${userId}`, displayName: userId, badges: [], messageId: `chat-${userId}` }, now - 10 * 60 * 1000)
@@ -467,19 +472,19 @@ describe('人物像の生成', () => {
     }
     const ai = fakeAi()
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now })
 
     expect(ai.callCount()).toBe(SUMMARY_BATCH_SIZE)
   })
 
   it('古い材料は、人物像を作れないまま積み上がらないように消す', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     await createEndedStreamWithChats(db)
     db.sqlite
       .prepare('UPDATE stream_chat_messages SET sent_at = ?')
       .run(new Date(now - STREAM_CHAT_RETENTION_MS - 1000).toISOString())
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(new Error('呼ばれないはず')), ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(new Error('呼ばれないはず')), ...withoutBgmJudgment, broadcasterId: streamerId, now })
 
     expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM stream_chat_messages').get()).toEqual({ count: 0 })
   })
@@ -500,12 +505,13 @@ describe('あらすじの生成', () => {
   }
 
   it('配信中なら、文字起こしと発言からあらすじを作って貯める', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     createLiveMaterial(db)
 
     await collectStats({
       db,
       store,
+      tokens,
       twitch: fakeTwitch(),
       ai: fakeAi('配信者は新しいゲームを始めたところです'),
       ...withoutBgmJudgment, broadcasterId: streamerId,
@@ -522,12 +528,12 @@ describe('あらすじの生成', () => {
   })
 
   it('画面に新しく現れた文字も材料にして、どこまで渡したかを目印に残す', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     createLiveMaterial(db)
     createScreenLines(db, '1枚目', now - 90 * 1000, '岩手17歳女性殺害事件')
     const ai = fakeAi('配信者は未解決事件の資料を読んでいます')
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now })
 
     expect(ai.receivedMaterial('streamSummary').some((material) => material.includes('岩手17歳女性殺害事件'))).toBe(true)
     expect((await readStreamSummary(db, chatStream.id))?.screenUntil).toEqual({
@@ -538,19 +544,19 @@ describe('あらすじの生成', () => {
   })
 
   it('画面に新しく現れた文字しか無ければ、あらすじを作らない（読み取った文字だけを地の文にしないため）', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     db.sqlite
       .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, NULL, ?, ?)')
       .run(chatStream.id, chatStream.startedAt, '月曜の雑談配信', 'Just Chatting')
     createScreenLines(db, '1枚目', now - 90 * 1000, '岩手17歳女性殺害事件')
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(allSuccessResponse), ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(allSuccessResponse), ...withoutBgmJudgment, broadcasterId: streamerId, now })
 
     expect(await readStreamSummary(db, chatStream.id)).toBeNull()
   })
 
   it('文字起こしが1件も無ければ、視聴者の発言があってもあらすじを作らない', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     db.sqlite
       .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, NULL, ?, ?)')
       .run(chatStream.id, chatStream.startedAt, '月曜の雑談配信', 'Just Chatting')
@@ -559,19 +565,20 @@ describe('あらすじの生成', () => {
       .run('hatsugen-1', chatStream.id, '100', new Date(now - 60 * 1000).toISOString(), 'たのしみ！')
     const ai = fakeAi(allSuccessResponse)
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now })
 
     // 視聴者の書き込みだけを材料にすると、書き込みの中身が配信で起きたこととして書かれてしまう
     expect(await readStreamSummary(db, chatStream.id)).toBeNull()
   })
 
   it('配信していなければ、あらすじを作らない', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     const ai = fakeAi()
 
     await collectStats({
       db,
       store,
+      tokens,
       twitch: fakeTwitch({ getLiveStream: async () => null }),
       ai,
       ...withoutBgmJudgment, broadcasterId: streamerId,
@@ -582,20 +589,20 @@ describe('あらすじの生成', () => {
   })
 
   it('前回のあらすじのあとに新しい材料が無ければ、作り直さない', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     createLiveMaterial(db)
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(allSuccessResponse), ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(allSuccessResponse), ...withoutBgmJudgment, broadcasterId: streamerId, now })
     const ai = fakeAi()
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now: now + 5 * 60 * 1000 })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now: now + 5 * 60 * 1000 })
 
     expect(ai.callCount()).toBe(0)
   })
 
   it('LLMが失敗しても収集は止めず、失敗を記録して前回のあらすじを残す', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     createLiveMaterial(db)
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
     db.sqlite
       .prepare('INSERT INTO transcripts (message_id, session_id, spoken_at, text) VALUES (?, ?, ?, ?)')
       .run('hatsuwa-2', chatStream.id, new Date(now + 60 * 1000).toISOString(), 'ボスに負けました')
@@ -603,6 +610,7 @@ describe('あらすじの生成', () => {
     await collectStats({
       db,
       store,
+      tokens,
       twitch: fakeTwitch(),
       ai: fakeAi(new Error('Workers AI の無料枠を使い切りました')),
       ...withoutBgmJudgment, broadcasterId: streamerId,
@@ -642,7 +650,7 @@ describe('章立ての生成', () => {
   const chapterPrompts = (ai: ReturnType<typeof fakeAi>) => ai.receivedMaterial('streamSummary').filter((prompt) => prompt.includes('見出しと要約'))
 
   it('配信中に30分の区間が閉じたら、その区間の発話・発言から章を作って貯める', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     createLiveSession(db)
     insertTranscript(db, 'hatsuwa-1', '12:10:00', 'ここから新しいゲームを始めます')
     insertChat(db, 'hatsugen-1', '12:11:00', 'たのしみ！')
@@ -650,7 +658,7 @@ describe('章立ての生成', () => {
     insertTranscript(db, 'hatsuwa-2', '12:30:30', 'ステージ2に入りました')
     const ai = fakeAi(chapterResponse)
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now: afterFirstWindow })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now: afterFirstWindow })
 
     expect(await listStreamChapters(db, chatStream.id)).toEqual([
       { startedAt: at('12:00:00'), endedAt: at('12:30:00'), title: '新しいゲームの導入', summary: '配信者が新しいゲームを始め、視聴者が期待を寄せた。' },
@@ -663,24 +671,25 @@ describe('章立ての生成', () => {
   })
 
   it('配信中に章を作ったら、その見出しを作業ログの1行として合成ページへ押し出す', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     createLiveSession(db)
     insertTranscript(db, 'hatsuwa-1', '12:10:00', 'ここから新しいゲームを始めます')
     const delivery = createFakeAlertChannel()
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(chapterResponse), jev: uncalledJev, alerts: delivery.namespace, broadcasterId: streamerId, now: afterFirstWindow })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(chapterResponse), jev: uncalledJev, alerts: delivery.namespace, broadcasterId: streamerId, now: afterFirstWindow })
 
     expect(delivery.pushedWorkLog).toEqual([{ id: `chapter:${at('12:00:00')}`, kind: 'chapter', at: at('12:00:00'), text: '新しいゲームの導入' }])
   })
 
   it('作業ログへの押し出しに失敗しても章は残し、失敗を記録する（章を作り直してLLMの枠を使わないため）', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     createLiveSession(db)
     insertTranscript(db, 'hatsuwa-1', '12:10:00', 'ここから新しいゲームを始めます')
 
     await collectStats({
       db,
       store,
+      tokens,
       twitch: fakeTwitch(),
       ai: fakeAi(chapterResponse),
       jev: uncalledJev,
@@ -695,12 +704,12 @@ describe('章立ての生成', () => {
   })
 
   it('発話の無い区間は、章を作らずに飛ばす（視聴者の書き込みだけを配信の出来事として書かせないため）', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     createLiveSession(db)
     insertChat(db, 'hatsugen-1', '12:11:00', 'たのしみ！')
     const ai = fakeAi(chapterResponse)
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now: afterFirstWindow })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now: afterFirstWindow })
 
     expect(await listStreamChapters(db, chatStream.id)).toEqual([])
     expect(chapterPrompts(ai)).toEqual([])
@@ -708,19 +717,19 @@ describe('章立ての生成', () => {
   })
 
   it('1回の収集で作る章は1つまでにする（Workers AI の無料枠を一度に使い切らないため）', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     createLiveSession(db)
     insertTranscript(db, 'hatsuwa-1', '12:10:00', 'ここから新しいゲームを始めます')
     insertTranscript(db, 'hatsuwa-2', '12:40:00', 'ステージ2に入りました')
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(chapterResponse), ...withoutBgmJudgment, broadcasterId: streamerId, now: Date.parse('2026-09-21T13:01:00Z') })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(chapterResponse), ...withoutBgmJudgment, broadcasterId: streamerId, now: Date.parse('2026-09-21T13:01:00Z') })
 
     expect(await listStreamChapters(db, chatStream.id)).toHaveLength(1)
     expect(chapteredUntil(db)).toBe(at('12:30:00'))
   })
 
   it('配信が終わったら、最後の区間を配信の終わりで切って章にし、そのあとで人物像を作る（人物像を作ると発言が消えるため）', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     createLiveSession(db)
     await recordViewerMessage(db, { userId: '100', login: 'hanako', displayName: '花子', badges: [], messageId: 'hatsugen-1' }, Date.parse(at('12:11:00')))
     insertTranscript(db, 'hatsuwa-1', '12:10:00', 'ここから新しいゲームを始めます')
@@ -735,7 +744,7 @@ describe('章立ての生成', () => {
       },
     }
 
-    await collectStats({ db, store, twitch: fakeTwitch({ getLiveStream: async () => null }), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now: ended })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch({ getLiveStream: async () => null }), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now: ended })
 
     expect(await listStreamChapters(db, chatStream.id)).toEqual([
       { startedAt: at('12:00:00'), endedAt: at('12:20:00'), title: '新しいゲームの導入', summary: '配信者が新しいゲームを始め、視聴者が期待を寄せた。' },
@@ -748,7 +757,7 @@ describe('章立ての生成', () => {
   })
 
   it('終わった配信の章は、作業ログへ押し出さない（合成ページに映っているのは次の配信のログのため）', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     createLiveSession(db)
     insertTranscript(db, 'hatsuwa-1', '12:10:00', 'ここから新しいゲームを始めます')
     const delivery = createFakeAlertChannel()
@@ -756,6 +765,7 @@ describe('章立ての生成', () => {
     await collectStats({
       db,
       store,
+      tokens,
       twitch: fakeTwitch({ getLiveStream: async () => null }),
       ai: fakeAi(chapterResponse),
       jev: uncalledJev,
@@ -769,19 +779,19 @@ describe('章立ての生成', () => {
   })
 
   it('区間を切れなかったときも収集は止めず、失敗を記録する（同じ時刻の発話が上限を超えて届いた場合）', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     createLiveSession(db)
     // 区間の始まりと同じ時刻に、件数の上限（300件）を超える発話が記録されている
     for (let index = 0; index <= 300; index += 1) insertTranscript(db, `hatsuwa-${index}`, '12:00:00', `同じ時刻の発話${index}`)
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(chapterResponse), ...withoutBgmJudgment, broadcasterId: streamerId, now: afterFirstWindow })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(chapterResponse), ...withoutBgmJudgment, broadcasterId: streamerId, now: afterFirstWindow })
 
     expect((await listFailures(db)).map((failure) => failure.code)).toContain('stream-chapter-failed')
     expect(await listStreamChapters(db, chatStream.id)).toEqual([])
   })
 
   it('LLMが失敗したら、失敗を記録し、区間を進めずに次の収集でやり直す（その配信の人物像もまだ作らない）', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     createLiveSession(db)
     insertTranscript(db, 'hatsuwa-1', '12:10:00', 'ここから新しいゲームを始めます')
     insertChat(db, 'hatsugen-1', '12:11:00', 'たのしみ！')
@@ -789,6 +799,7 @@ describe('章立ての生成', () => {
     await collectStats({
       db,
       store,
+      tokens,
       twitch: fakeTwitch({ getLiveStream: async () => null }),
       ai: fakeAi(new Error('Workers AI の無料枠を使い切りました')),
       ...withoutBgmJudgment,
@@ -825,7 +836,7 @@ describe('BGMの切り替え', () => {
 
   /** 配信中で文字起こしがあり、雑談の曲を流していて、Jev に選ばせる設定を入れた状態を作る */
   const streamPlayingChatTrack = async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     await store.put('overlay-key', 'issued-overlay-key-0123456789abcdefghij')
     db.sqlite
       .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, NULL, ?, ?)')
@@ -836,7 +847,7 @@ describe('BGMの切り替え', () => {
     await saveBgmTracks(store, [chatTrack, upbeatTrack])
     await saveBgmPlayback(store, { mediaId: chatTrack.mediaId, volume: 0.4, repeat: false, shuffle: false })
     await saveBgmSettings(store, { judgeWithJev: true })
-    return { db, store }
+    return { db, store, tokens }
   }
 
   /** 決めた曲（選択肢の名前）を選ぶ Jev の代役。渡された注文を控える */
@@ -852,11 +863,11 @@ describe('BGMの切り替え', () => {
   }
 
   it('あらすじを作り直したら、作ったあらすじと直近の発話を材料に Jev に曲を選ばせて切り替える', async () => {
-    const { db, store } = await streamPlayingChatTrack()
+    const { db, store, tokens } = await streamPlayingChatTrack()
     const jev = trackPickingJev('t1')
     const delivery = createFakeAlertChannel()
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi('ボス戦に挑んでいます'), jev, alerts: delivery.namespace, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi('ボス戦に挑んでいます'), jev, alerts: delivery.namespace, broadcasterId: streamerId, now })
 
     expect(jev.order.map((order) => order.state)).toEqual([{ summary: 'ボス戦に挑んでいます', transcript: ['ボス戦だ、いくぞ！'] }])
     expect((await loadBgmPlayback(store)).mediaId).toBe(upbeatTrack.mediaId)
@@ -864,26 +875,26 @@ describe('BGMの切り替え', () => {
   })
 
   it('あらすじを作り直さなかった回は Jev を呼ばない（新しい材料が無ければ呼ばない）', async () => {
-    const { db, store } = await streamPlayingChatTrack()
+    const { db, store, tokens } = await streamPlayingChatTrack()
     await saveBgmSettings(store, { judgeWithJev: false })
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(allSuccessResponse), ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(allSuccessResponse), ...withoutBgmJudgment, broadcasterId: streamerId, now })
     await saveBgmSettings(store, { judgeWithJev: true })
     const jev = trackPickingJev('t1')
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(), jev, alerts: createFakeAlertChannel().namespace, broadcasterId: streamerId, now: now + 5 * 60 * 1000 })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(), jev, alerts: createFakeAlertChannel().namespace, broadcasterId: streamerId, now: now + 5 * 60 * 1000 })
 
     expect(jev.order).toEqual([])
   })
 
   it('Jev が失敗しても収集は止めず、失敗を記録して曲はそのままにする', async () => {
-    const { db, store } = await streamPlayingChatTrack()
+    const { db, store, tokens } = await streamPlayingChatTrack()
     const jev: JevClient = {
       decide: async () => {
         throw new Error('Jev が失敗を返しました（402）')
       },
     }
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(allSuccessResponse), jev, alerts: createFakeAlertChannel().namespace, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(allSuccessResponse), jev, alerts: createFakeAlertChannel().namespace, broadcasterId: streamerId, now })
 
     expect((await loadBgmPlayback(store)).mediaId).toBe(chatTrack.mediaId)
     const failed = (await listFailures(db)).filter((failure) => failure.code === 'bgm-choice-failed')
@@ -908,12 +919,13 @@ describe('サイドスーパーの生成', () => {
   }
 
   it('配信中なら、直近の材料からサイドスーパーを作って貯める', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     createLiveMaterial(db)
 
     await collectStats({
       db,
       store,
+      tokens,
       twitch: fakeTwitch(),
       ai: fakeAi('新作ゲーム\n初見プレイ中'),
       ...withoutBgmJudgment, broadcasterId: streamerId,
@@ -927,50 +939,50 @@ describe('サイドスーパーの生成', () => {
   })
 
   it('直近に画面へ現れた文字も材料にする', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     createLiveMaterial(db)
     createScreenLines(db, '1枚目', now - 90 * 1000, 'ストームヴィル城')
     const ai = fakeAi('新作ゲーム\n城を攻略中')
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now })
 
     expect(ai.receivedMaterial('sideSuper').some((material) => material.includes('ストームヴィル城'))).toBe(true)
   })
 
   it('前回のあとに画面へ新しい文字が現れていれば、喋りも発言も無くても作り直す', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     createLiveMaterial(db)
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(allSuccessResponse), ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(allSuccessResponse), ...withoutBgmJudgment, broadcasterId: streamerId, now })
     const fiveMinutesLater = now + 5 * 60 * 1000
     // 撮ったのは前回サイドスーパーを作るより前で、篩を通って材料になったのはそのあと、という並びにする。
     // OCRの取得と篩は5分おきの収集で遅れて起きるので、実際にはこの並びが普通である
     createScreenLines(db, '1枚目', now - 60 * 1000, 'ストームヴィル城', fiveMinutesLater - 1000)
     const ai = fakeAi('新作ゲーム\n城を攻略中')
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now: fiveMinutesLater })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now: fiveMinutesLater })
 
     expect(await readSideSuper(db, chatStream.id)).toEqual({ lines: ['新作ゲーム', '城を攻略中'], updatedAt: new Date(fiveMinutesLater).toISOString() })
   })
 
   it('前回作った時刻とちょうど同じ時刻の発話は、前回の材料に入っているので作り直さない', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     createLiveMaterial(db)
     // 前提: 収集の時刻と同じ時刻に届いた発話がある。1回目の収集では、この発話も材料に入る
     db.sqlite
       .prepare('INSERT INTO transcripts (message_id, session_id, spoken_at, text) VALUES (?, ?, ?, ?)')
       .run('hatsuwa-same-time', chatStream.id, new Date(now).toISOString(), 'ボス戦に挑みます')
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(allSuccessResponse), ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(allSuccessResponse), ...withoutBgmJudgment, broadcasterId: streamerId, now })
     const ai = fakeAi('新作ゲーム\n城を攻略中')
 
     // そのあと発話も発言も画面の文字も増えていないので、LLMを呼ばない
-    await collectStats({ db, store, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now: now + 5 * 60 * 1000 })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now: now + 5 * 60 * 1000 })
 
     expect(ai.receivedMaterial('sideSuper')).toEqual([])
     expect(await readSideSuper(db, chatStream.id)).toEqual({ lines: ['初見プレイ中', 'ボス戦へ向けて装備集め'], updatedAt: new Date(now).toISOString() })
   })
 
   it('画面の文字を取りに行く前に、サイドスーパーを作り終えている（画面の処理が重くても止まらないため）', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     createLiveMaterial(db)
     await recordScreenCapture(db, '1枚目', now - 60 * 1000)
     // Gyazo に読み取った文字を取りに行った時点で、サイドスーパーが貯まっているかを覚えておく
@@ -982,34 +994,35 @@ describe('サイドスーパーの生成', () => {
       },
     }
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(allSuccessResponse), ...withoutBgmJudgment, broadcasterId: streamerId, now, gyazo })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(allSuccessResponse), ...withoutBgmJudgment, broadcasterId: streamerId, now, gyazo })
 
     expect(sideSuperWhenFetchingOcr).not.toBeNull()
   })
 
   it('サイドスーパーを作ったあとに同じ収集で篩を通った画面の文字は、次の収集で材料にする', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     createLiveMaterial(db)
     // 前提: 読み取りまで済んだ1枚がある。1回目の収集では、サイドスーパーを作ったあとで篩を通って積まれる
     await recordScreenCapture(db, '1枚目', now - 60 * 1000)
     await saveScreenOcr(db, '1枚目', 'ストームヴィル城')
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(allSuccessResponse), ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(allSuccessResponse), ...withoutBgmJudgment, broadcasterId: streamerId, now })
     const fiveMinutesLater = now + 5 * 60 * 1000
     const ai = fakeAi('新作ゲーム\n城を攻略中')
 
     // 喋りも発言も増えていないが、前回のサイドスーパーに入っていない画面の文字があるので作り直す
-    await collectStats({ db, store, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now: fiveMinutesLater })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now: fiveMinutesLater })
 
     expect(ai.receivedMaterial('sideSuper').some((material) => material.includes('ストームヴィル城'))).toBe(true)
     expect(await readSideSuper(db, chatStream.id)).toEqual({ lines: ['新作ゲーム', '城を攻略中'], updatedAt: new Date(fiveMinutesLater).toISOString() })
   })
 
   it('配信していなければ、サイドスーパーを作らない', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
 
     await collectStats({
       db,
       store,
+      tokens,
       twitch: fakeTwitch({ getLiveStream: async () => null }),
       ai: fakeAi(),
       ...withoutBgmJudgment, broadcasterId: streamerId,
@@ -1020,20 +1033,20 @@ describe('サイドスーパーの生成', () => {
   })
 
   it('前回作ったあとに新しい材料が無ければ、作り直さない', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     createLiveMaterial(db)
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(allSuccessResponse), ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(allSuccessResponse), ...withoutBgmJudgment, broadcasterId: streamerId, now })
     const ai = fakeAi()
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now: now + 5 * 60 * 1000 })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now: now + 5 * 60 * 1000 })
 
     expect(ai.callCount()).toBe(0)
   })
 
   it('LLMが失敗しても収集は止めず、失敗を記録して前回のサイドスーパーを残す', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     createLiveMaterial(db)
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi('新作ゲーム\n初見プレイ中'), ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi('新作ゲーム\n初見プレイ中'), ...withoutBgmJudgment, broadcasterId: streamerId, now })
     db.sqlite
       .prepare('INSERT INTO transcripts (message_id, session_id, spoken_at, text) VALUES (?, ?, ?, ?)')
       .run('hatsuwa-2', chatStream.id, new Date(now + 60 * 1000).toISOString(), 'ボスに負けました')
@@ -1041,6 +1054,7 @@ describe('サイドスーパーの生成', () => {
     await collectStats({
       db,
       store,
+      tokens,
       twitch: fakeTwitch(),
       ai: fakeAi(new Error('Workers AI の無料枠を使い切りました')),
       ...withoutBgmJudgment, broadcasterId: streamerId,
@@ -1053,12 +1067,13 @@ describe('サイドスーパーの生成', () => {
   })
 
   it('上限より長い行が返ってきたら、切り詰めずに失敗として記録する', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     createLiveMaterial(db)
 
     await collectStats({
       db,
       store,
+      tokens,
       twitch: fakeTwitch(),
       ai: fakeAi(`新作ゲーム\n${'あ'.repeat(MAX_SIDE_SUPER_BODY_LENGTH + 1)}`),
       ...withoutBgmJudgment, broadcasterId: streamerId,
@@ -1092,11 +1107,11 @@ describe('collectStats（配信画面から読み取った文字の取得）', (
   }
 
   it('まだ読み取っていない画像のOCRを取りに行き、取れた文字を記録する', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     await createCapture(db)
     const gyazo = fakeGyazo(() => '岩手17歳女性殺害事件')
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now, gyazo })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now, gyazo })
 
     expect(gyazo.fetched).toEqual(['画像1'])
     expect(await listPendingOcr(db, 10)).toEqual([])
@@ -1104,23 +1119,23 @@ describe('collectStats（配信画面から読み取った文字の取得）', (
   })
 
   it('まだ生成されていなければ記録せず、次の収集に回す', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     await createCapture(db)
     const gyazo = fakeGyazo(() => null)
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now, gyazo })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now, gyazo })
 
     expect(await listPendingOcr(db, 10)).toHaveLength(1)
     expect(await listFailures(db)).toEqual([])
   })
 
   it('取りに行っても生成されないままなら、上限で諦める', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     await createCapture(db)
     const gyazo = fakeGyazo(() => null)
 
     for (let round = 0; round < OCR_MAX_ATTEMPTS + 1; round += 1) {
-      await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now, gyazo })
+      await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now, gyazo })
     }
 
     // 上限に達したあとの収集では、もう取りに行かない
@@ -1128,11 +1143,11 @@ describe('collectStats（配信画面から読み取った文字の取得）', (
   })
 
   it('Gyazo が失敗を返したら、失敗として記録したうえで収集そのものは続ける', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     await createCapture(db)
     const gyazo = fakeGyazo(() => new GyazoApiError(401, 'Gyazo からのOCRの取得が 401 で失敗しました: unauthorized'))
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now, gyazo })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now, gyazo })
 
     expect((await listFailures(db)).map((failure) => failure.code)).toContain('screen-ocr-failed')
     // 画面の文字が取れなくても、配信の記録は残す
@@ -1140,25 +1155,25 @@ describe('collectStats（配信画面から読み取った文字の取得）', (
   })
 
   it('1枚目で失敗したら、残りは取りに行かない（同じ理由で続けて失敗するため）', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     await createCapture(db, '画像1')
     await recordScreenCapture(db, '画像2', now - 30 * 1000)
     const gyazo = fakeGyazo(() => new GyazoApiError(401, 'Gyazo からのOCRの取得が 401 で失敗しました: unauthorized'))
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now, gyazo })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now, gyazo })
 
     expect(gyazo.fetched).toEqual(['画像1'])
   })
 
   it('その画像が Gyazo から消えていたら（404）、その1枚だけを諦めて残りは取りに行く', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     await createCapture(db, '消された画像')
     await recordScreenCapture(db, '残っている画像', now - 30 * 1000)
     const gyazo = fakeGyazo((imageId) =>
       imageId === '消された画像' ? new GyazoApiError(404, 'Gyazo からのOCRの取得が 404 で失敗しました') : '画面に出ていた文字',
     )
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now, gyazo })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now, gyazo })
 
     expect(gyazo.fetched).toEqual(['消された画像', '残っている画像'])
     expect((await listFailures(db)).map((failure) => failure.code)).toContain('screen-ocr-failed')
@@ -1167,10 +1182,10 @@ describe('collectStats（配信画面から読み取った文字の取得）', (
   })
 
   it('Gyazo のアクセストークンが無ければ、取りに行かない', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     await createCapture(db)
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
 
     expect(await listPendingOcr(db, 10)).toHaveLength(1)
     expect(await listFailures(db)).toEqual([])
@@ -1186,43 +1201,43 @@ describe('collectStats（画面に新しく現れた文字の取り出し）', (
   }
 
   it('読み取った文字を篩に通し、残った行を積む', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     await createOcrImage(db, '岩手17歳女性殺害事件\nあ\n盛岡市のガソリンスタンド')
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
 
     // 中身のない行（3文字未満）は落ちる
     expect(await readRecentScreenLines(db, chatStream.id, 10)).toEqual(['盛岡市のガソリンスタンド', '岩手17歳女性殺害事件'])
   })
 
   it('自前の文字（配信者の発話）は積まない', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     await createOcrImage(db, '岩手の事件について話します\n盛岡市のガソリンスタンド')
     await recordTranscript(db, { messageId: 't1', text: '岩手の事件について話します' }, now - 90 * 1000)
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
 
     expect(await readRecentScreenLines(db, chatStream.id, 10)).toEqual(['盛岡市のガソリンスタンド'])
   })
 
   it('同じ画面を撮り続けても、2枚目からは積まない', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     await createOcrImage(db, '岩手17歳女性殺害事件', '画像1')
     await recordScreenCapture(db, '画像2', now - 30 * 1000)
     // OCRは同じ画面でも毎回違う文字を返すので、完全一致では畳めない（「2008」→「2006」の実測と同じ形）
     await saveScreenOcr(db, '画像2', '岩手17歳女性殺書事件')
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
 
     expect(await readRecentScreenLines(db, chatStream.id, 10)).toEqual(['岩手17歳女性殺害事件'])
   })
 
   it('篩に通し終えた1枚は、次の収集で通し直さない', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     await createOcrImage(db, '岩手17歳女性殺害事件')
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now })
 
     expect(db.sqlite.prepare('SELECT COUNT(*) AS itemCount FROM screen_lines').get()).toEqual({ itemCount: 1 })
   })
@@ -1249,11 +1264,12 @@ describe('collectStats（1回ぶんの時間予算。issue #126）', () => {
   }
 
   it('予算を過ぎても、配信の記録（視聴者数・フォロワー数）は残す', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
 
     await collectStats({
       db,
       store,
+      tokens,
       twitch: fakeTwitch(),
       ai: fakeAi(),
       ...withoutBgmJudgment, broadcasterId: streamerId,
@@ -1266,13 +1282,14 @@ describe('collectStats（1回ぶんの時間予算。issue #126）', () => {
   })
 
   it('予算を過ぎたら、材料づくり（あらすじ・サイドスーパー・人物像）は次の収集へ回す', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     createLiveMaterial(db)
     const ai = fakeAi()
 
     await collectStats({
       db,
       store,
+      tokens,
       twitch: fakeTwitch(),
       ai,
       ...withoutBgmJudgment, broadcasterId: streamerId,
@@ -1286,7 +1303,7 @@ describe('collectStats（1回ぶんの時間予算。issue #126）', () => {
   })
 
   it('予算を過ぎたら、まだ読み取っていない画像のOCRは取りに行かない', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     await recordStreamOnline(db, { id: chatStream.id, startedAt: Date.parse(chatStream.startedAt) })
     await recordScreenCapture(db, '画像1', now - 120 * 1000)
     await recordScreenCapture(db, '画像2', now - 60 * 1000)
@@ -1300,18 +1317,19 @@ describe('collectStats（1回ぶんの時間予算。issue #126）', () => {
       return count <= 4 ? now : now + COLLECT_BUDGET_MS + 1
     }
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now, gyazo, clock })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now, gyazo, clock })
 
     expect(fetched).toEqual(['画像1'])
   })
 
   it('予算で打ち切ったことを、何を次へ回したかとともに失敗として記録する', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     createLiveMaterial(db)
 
     await collectStats({
       db,
       store,
+      tokens,
       twitch: fakeTwitch(),
       ai: fakeAi(),
       ...withoutBgmJudgment, broadcasterId: streamerId,
@@ -1326,7 +1344,7 @@ describe('collectStats（1回ぶんの時間予算。issue #126）', () => {
   })
 
   it('あらすじを作っているあいだに予算を使い切ったら、サイドスーパーと人物像を次の収集へ回す', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     createLiveMaterial(db)
     // 開始と、あらすじを作る前の1回までは予算内。そのあとは予算を使い切っている
     let count = 0
@@ -1336,7 +1354,7 @@ describe('collectStats（1回ぶんの時間予算。issue #126）', () => {
     }
     const ai = fakeAi(allSuccessResponse)
 
-    await collectStats({ db, store, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now, clock })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now, clock })
 
     // あらすじは作られ、そのあとのサイドスーパーと人物像は次の収集へ回る
     expect(ai.callCount()).toBe(1)
@@ -1349,7 +1367,7 @@ describe('collectStats（1回ぶんの時間予算。issue #126）', () => {
   })
 
   it('人物像は1人ごとに予算を見て、残りの人数を次の収集へ回す', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     // 終わった配信で発言した2人ぶんの材料を置く（人物像はまだ無い）
     db.sqlite
       .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, ?, ?, ?)')
@@ -1371,7 +1389,7 @@ describe('collectStats（1回ぶんの時間予算。issue #126）', () => {
     }
     const ai = fakeAi()
 
-    await collectStats({ db, store, twitch: fakeTwitch({ getLiveStream: async () => null }), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now, clock })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch({ getLiveStream: async () => null }), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now, clock })
 
     expect(ai.callCount()).toBe(1)
     const failed = await listFailures(db)
@@ -1380,13 +1398,14 @@ describe('collectStats（1回ぶんの時間予算。issue #126）', () => {
   })
 
   it('予算のうちに終われば、何も打ち切らず失敗も残さない', async () => {
-    const { db, store } = await createEnv()
+    const { db, store, tokens } = await createEnv()
     createLiveMaterial(db)
     const ai = fakeAi(allSuccessResponse)
 
     await collectStats({
       db,
       store,
+      tokens,
       twitch: fakeTwitch(),
       ai,
       ...withoutBgmJudgment, broadcasterId: streamerId,

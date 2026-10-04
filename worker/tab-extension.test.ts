@@ -13,6 +13,7 @@ import { unzipSync, strFromU8 } from 'fflate'
 import { describe, expect, it } from 'vitest'
 import { parseExtensionConfig } from '../extension/src/config'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
+import { createFakeTokenVault } from './fake-token-vault'
 import { createFakeWorkersAi } from './fake-ai'
 import { createFakeAlertChannel } from './fake-alert-channel'
 import { createFakeAssets, type FakeAsset } from './fake-assets'
@@ -53,6 +54,7 @@ const createEnv = (assets: Readonly<Record<string, FakeAsset>> = builtExtension)
     TAB: createFakeTabChannel().namespace,
     COMMENTS: createFakeCommentChannel().namespace,
     AD_BREAKS: createFakeAdBreakTimer().namespace,
+    TOKENS: createFakeTokenVault().namespace,
     AI: createFakeWorkersAi(),
   }) satisfies Env
 

@@ -37,7 +37,7 @@ Cloudflare Workers で公開します。設定は `wrangler.jsonc` にあり、V
 
 ## Twitchログイン（`/api/*`）の設定
 
-チャンネルポイントなどのイベントを受け取るには配信者のTwitchトークンが必要です。Worker がTwitchログインを受け持ち、トークンを Cloudflare KV（`STORE`）に保管します。トークンはブラウザにもOBSのURLにも出しません。アラートの素材は Cloudflare R2（`MEDIA`）に置きます。KVの名前空間とR2のバケットは、デプロイ時に wrangler が自動で作成します。
+チャンネルポイントなどのイベントを受け取るには配信者のTwitchトークンが必要です。Worker がTwitchログインを受け持ち、トークンを Durable Object（`TOKENS`）に保管します。トークンはブラウザにもOBSのURLにも出しません（以前のバージョンでKV（`STORE`）に保管していたトークンは、更新後に初めて使うときに自動で移し、KVからは消します。ログインし直す必要はありません）。アラートの素材は Cloudflare R2（`MEDIA`）に置きます。KVの名前空間とR2のバケットは、デプロイ時に wrangler が自動で作成します。
 
 アラートをオーバーレイへ押し出すために、Worker は Durable Object（`ALERTS`）を1つ使います。Worker 自身は接続を保持できないためで、OBSのブラウザソースとのWebSocketの接続はこの Durable Object が持ちます。入力を求められることはなく、`wrangler.jsonc` の `migrations` の指定からデプロイ時に作られます。接続は Hibernation（待っている間は課金されない仕組み）で保持するので、配信中つなぎっぱなしでも無料枠に収まります。
 

@@ -16,7 +16,7 @@
 
 ## 保存先と記録
 
-Twitchのトークンは応答に含めず、保存先はKV（`STORE`）、素材はR2（`MEDIA`）、配信の記録はD1（`DB`。テーブルは `migrations/`、SQLは `stats-store.ts` に集め、必ずプレースホルダを使う）である。
+Twitchのトークンは応答に含めず、保存先は Durable Object（`TOKENS`。経緯は `docs/decisions/bot.md`）、設定はKV（`STORE`）、素材はR2（`MEDIA`）、配信の記録はD1（`DB`。テーブルは `migrations/`、SQLは `stats-store.ts` に集め、必ずプレースホルダを使う）である。
 
 配信の記録は cron（`worker/index.ts` の `scheduled` → `collect.ts`）が5分おきに集め、失敗は `collection_failures` に記録してから投げる。イベントの件数と配信の開始・終了は、Twitchから直接届くWebhook（`webhook-routes.ts` の `POST /api/eventsub/webhook`。署名を `EVENTSUB_SECRET` で確かめる）で記録し、その購読はログイン時にアプリアクセストークンで揃える（`eventsub-webhook.ts`。失敗してもログインは止めず `collection_failures` に記録する）。
 

@@ -28,6 +28,7 @@ import { createFakeDrawChannel } from './fake-draw-channel'
 import { createFakeTabChannel } from './fake-tab-channel'
 import { createFakeCommentChannel } from './fake-comment-channel'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
+import { createFakeTokenVault } from './fake-token-vault'
 
 interface EnvOptions {
   /** アラートの配送先（Durable Object）が失敗を返す場合 */
@@ -70,6 +71,7 @@ const createEnv = ({ channelShouldFail = false, overlayKey = ISSUED_OVERLAY_KEY,
     TAB: createFakeTabChannel().namespace,
     COMMENTS: commentChannel.namespace,
     AD_BREAKS: adBreakTimer.namespace,
+    TOKENS: createFakeTokenVault().namespace,
     AI: ai,
   } satisfies Env
   return { env, db, alertChannel, ai, adBreakTimer, commentChannel }
@@ -208,7 +210,7 @@ describe('広告の通知（channel.ad_break.begin）', () => {
   const envWithAdTrigger = async (trigger: StoredTrigger) => {
     const { env, db, adBreakTimer } = createEnv()
     await saveAlertConfig(env.STORE, { triggers: [trigger] })
-    await saveToken(env.STORE, 'bot', {
+    await saveToken(env.TOKENS, 'bot', {
       accessToken: 'bot-access-token',
       refreshToken: 'bot-refresh-token',
       expiresAt: NOW + 60 * 60 * 1000,
@@ -390,7 +392,7 @@ describe('チャットの通知（channel.chat.message）', () => {
   const envWithBotConnected = async (cooldownSeconds = 0) => {
     const { env, db } = createEnv()
     await saveBotConfig(env.STORE, { commands: [{ name: 'ping', reply: '@{user} pong', cooldownSeconds }] })
-    await saveToken(env.STORE, 'bot', {
+    await saveToken(env.TOKENS, 'bot', {
       accessToken: 'bot-access-token',
       refreshToken: 'bot-refresh-token',
       expiresAt: NOW + 60 * 60 * 1000,
@@ -590,7 +592,7 @@ describe('チャットの応答の設定・連打・再送', () => {
   const envWithBotConnected = async (commands: { name: string; reply: string; cooldownSeconds: number }[]) => {
     const { env, db } = createEnv()
     await saveBotConfig(env.STORE, { commands })
-    await saveToken(env.STORE, 'bot', {
+    await saveToken(env.TOKENS, 'bot', {
       accessToken: 'bot-access-token',
       refreshToken: 'bot-refresh-token',
       expiresAt: NOW + 60 * 60 * 1000,
@@ -734,7 +736,7 @@ describe('アラートのトリガーによるチャット送信', () => {
   const envWithTriggers = async (triggers: StoredTrigger[]) => {
     const { env, db } = createEnv()
     await saveAlertConfig(env.STORE, { triggers })
-    await saveToken(env.STORE, 'bot', {
+    await saveToken(env.TOKENS, 'bot', {
       accessToken: 'bot-access-token',
       refreshToken: 'bot-refresh-token',
       expiresAt: NOW + 60 * 60 * 1000,
@@ -1098,7 +1100,7 @@ describe('チャットの発言によるアラートのトリガー', () => {
     const { env, db } = createEnv()
     await saveAlertConfig(env.STORE, { triggers })
     if (commands.length > 0) await saveBotConfig(env.STORE, { commands })
-    await saveToken(env.STORE, 'bot', {
+    await saveToken(env.TOKENS, 'bot', {
       accessToken: 'bot-access-token',
       refreshToken: 'bot-refresh-token',
       expiresAt: NOW + 60 * 60 * 1000,
@@ -1319,7 +1321,7 @@ describe('チャットの自動モデレーション', () => {
   const moderationEnv = async (config: ModerationConfig) => {
     const { env, db } = createEnv()
     await saveModerationConfig(env.STORE, config)
-    await saveToken(env.STORE, 'bot', {
+    await saveToken(env.TOKENS, 'bot', {
       accessToken: 'bot-access-token',
       refreshToken: 'bot-refresh-token',
       expiresAt: NOW + 60 * 60 * 1000,
@@ -1527,7 +1529,7 @@ describe('オーバーレイへのアラートの押し出し', () => {
   })
 
   const connectBot = (env: Env) =>
-    saveToken(env.STORE, 'bot', {
+    saveToken(env.TOKENS, 'bot', {
       accessToken: 'bot-access-token',
       refreshToken: 'bot-refresh-token',
       expiresAt: NOW + 60 * 60 * 1000,
@@ -1669,7 +1671,7 @@ describe('LLMに文面を作らせる動作（aiChat）', () => {
   }
 
   const connectBot = (env: Env) =>
-    saveToken(env.STORE, 'bot', {
+    saveToken(env.TOKENS, 'bot', {
       accessToken: 'bot-access-token',
       refreshToken: 'bot-refresh-token',
       expiresAt: NOW + 60 * 60 * 1000,
@@ -1910,7 +1912,7 @@ describe('コメントビューアーへの配送', () => {
     const BOT_ID = '67890'
     /** bot をつないでおく（bot 自身の発言を見分けるため） */
     const connectBot = (env: Env) =>
-      saveToken(env.STORE, 'bot', {
+      saveToken(env.TOKENS, 'bot', {
         accessToken: 'bot-access-token',
         refreshToken: 'bot-refresh-token',
         expiresAt: NOW + 60 * 60 * 1000,
@@ -1965,8 +1967,10 @@ describe('コメントビューアーへの配送', () => {
   })
 
   it('bot のトークンが壊れていても、チャットの発言はコメントビューアーへ押し出す（応答の側はこれまでどおり失敗にする）', async () => {
-    const { env, commentChannel } = createEnv()
-    await env.STORE.put('twitch-token:bot', '壊れたトークン')
+    const created = createEnv()
+    const { commentChannel } = created
+    // 保管庫に、トークンとして読めない値が入っている
+    const env: Env = { ...created.env, TOKENS: createFakeTokenVault({ bot: '"壊れたトークン"' }).namespace }
 
     const response = await callWebhook(createNotification({ messageId: 'eventsub-1', body: viewerMessage }), env)
 
@@ -2063,7 +2067,7 @@ describe('作業机の組み込みコマンド（!task・!done）', () => {
   const liveEnvWithBot = async () => {
     const created = createEnv()
     await recordLiveStream(created.db, CHAT_STREAM, Date.parse('2026-09-21T12:05:00Z'))
-    await saveToken(created.env.STORE, 'bot', {
+    await saveToken(created.env.TOKENS, 'bot', {
       accessToken: 'bot-access-token',
       refreshToken: 'bot-refresh-token',
       expiresAt: NOW + 60 * 60 * 1000,

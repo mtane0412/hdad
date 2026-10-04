@@ -9,13 +9,13 @@
  * （失敗にすると、連投のたびに収集の失敗が積み上がる）。
  */
 import type { Punishment } from './chat-moderation'
-import type { KeyValueStore } from './store'
+import type { TokenVaultNamespace } from './token-vault'
 import { getAccessToken } from './token'
 import { TwitchApiError, type TwitchClient } from './twitch'
 
 /** 処分の実行に必要なものだけを受け取る（テストで差し替えやすくするため、Context そのものは要求しない） */
 export interface ModerationContext {
-  env: { STORE: KeyValueStore; TWITCH_BROADCASTER_ID: string }
+  env: { TOKENS: TokenVaultNamespace; TWITCH_BROADCASTER_ID: string }
   twitch: Pick<TwitchClient, 'refresh' | 'banUser' | 'deleteChatMessage'>
   /** 現在時刻（ミリ秒） */
   now: number
@@ -62,7 +62,7 @@ export const punishAsBot = async (
   reason: string = AUTO_MODERATION_REASON,
 ): Promise<void> => {
   const { env, twitch, now } = context
-  const token = await getAccessToken(env.STORE, 'bot', twitch, now)
+  const token = await getAccessToken(env.TOKENS, 'bot', twitch, now)
   // 操作するモデレーターは bot 自身（トークンの持ち主と一致している必要がある）
   const moderation = { broadcasterId: env.TWITCH_BROADCASTER_ID, moderatorId: token.userId }
 

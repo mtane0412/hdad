@@ -8,7 +8,7 @@
  * ページUI（/wallpaper/・/admin/ など）は実ファイルを持たず、not_found_handling によってトップの index.html を返してアプリに描かせる。
  * 存在しないパスでも index.html が返るので、「見つからない」画面はアプリが出す。
  *
- * STORE（KV）にはTwitchのトークン・オーバーレイ用キー・アラートの設定を、MEDIA（R2）にはアラートの素材を、DB（D1）には配信の記録を保存する。
+ * STORE（KV）にはオーバーレイ用キー・アラートの設定を、MEDIA（R2）にはアラートの素材を、DB（D1）には配信の記録を保存する。
  * ALERTS（Durable Object）はオーバーレイとのWebSocketの接続を保持し、Workerが当てはめたアラートを配る（worker/alert-channel.ts）。
  * Durable Object はデプロイする人が用意するものではなく、migrations の指定から Cloudflare が作る（無料枠で使うため SQLite を土台にする）。
  * id やバケット名を書いていないのは、デプロイ時に wrangler が自動で作成して結び付けるため（フォークした人が書き換えずに済む）。
@@ -40,7 +40,7 @@
   // ALERTS はオーバーレイへアラートを配る接続の保持、DRAW は描く画面と合成ページのあいだの手書きの線の中継（字幕も別の名前のインスタンスで同じものを使う）、
   // TAB は送り手のページ（/tab/）と合成ページのあいだのタブの映像の連絡（WebRTC の offer・answer）の中継、
   // AD_BREAKS は広告の終了の時刻を預かるタイマー、COMMENTS はコメントビューアーへチャットと出来事を配る接続の保持
-  // （Workerは接続もタイマーも持てない）。
+  // （Workerは接続もタイマーも持てない）。TOKENS はTwitchのトークンの保管庫（更新と切断・付け替えを食い違わせないため。worker/token-vault.ts）。
   // どれも押した人が用意するものはないので入力欄には出ない
   "durable_objects": {
     "bindings": [
@@ -48,7 +48,8 @@
       { "name": "DRAW", "class_name": "DrawChannel" },
       { "name": "TAB", "class_name": "TabChannel" },
       { "name": "AD_BREAKS", "class_name": "AdBreakTimer" },
-      { "name": "COMMENTS", "class_name": "CommentChannel" }
+      { "name": "COMMENTS", "class_name": "CommentChannel" },
+      { "name": "TOKENS", "class_name": "TokenVault" }
     ]
   },
   "migrations": [
@@ -56,7 +57,8 @@
     { "tag": "v2", "new_sqlite_classes": ["AdBreakTimer"] },
     { "tag": "v3", "new_sqlite_classes": ["DrawChannel"] },
     { "tag": "v4", "new_sqlite_classes": ["CommentChannel"] },
-    { "tag": "v5", "new_sqlite_classes": ["TabChannel"] }
+    { "tag": "v5", "new_sqlite_classes": ["TabChannel"] },
+    { "tag": "v6", "new_sqlite_classes": ["TokenVault"] }
   ],
   "triggers": { "crons": ["*/5 * * * *"] }
 }

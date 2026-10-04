@@ -7,6 +7,7 @@
 import type { JevClient } from './jev'
 import type { TextGenerator, WorkersAi } from './llm'
 import type { AdBreakTimerNamespace } from './ad-break-timer'
+import type { TokenVaultNamespace } from './token-vault'
 import type { AlertChannelNamespace } from './alert-channel'
 import type { CommentChannelNamespace } from './comment-channel'
 import type { DrawChannelNamespace } from './draw-channel'
@@ -29,7 +30,7 @@ export interface AssetFetcher {
 }
 
 export interface Env {
-  /** Twitchのトークン・オーバーレイ用キー・アラートの設定（KV） */
+  /** オーバーレイ用キー・アラートの設定（KV）。Twitchのトークンは TOKENS に置く */
   STORE: KeyValueStore
   /** アラートの素材（R2） */
   MEDIA: MediaBucket
@@ -61,6 +62,12 @@ export interface Env {
    * （Workerはタイマーを持てない。worker/ad-break-timer.ts）。
    */
   AD_BREAKS: AdBreakTimerNamespace
+  /**
+   * 配信者とbotのTwitchのトークンを保管する Durable Object。
+   *
+   * 更新と切断・付け替えが食い違わないよう、確かめてから書き込むまでを1か所で行う（worker/token-vault.ts）。
+   */
+  TOKENS: TokenVaultNamespace
   /**
    * Cloudflare の Workers AI のバインディング。
    *

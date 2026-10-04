@@ -57,6 +57,7 @@ import { readViewer, updateViewerChannel, updateViewerSummary, type ViewerChanne
 import { closeOpenSessions, recordFailure, recordFollowerTotal, recordLiveStream } from './stats-store'
 import type { KeyValueStore } from './store'
 import { AuthError, getAccessToken } from './token'
+import type { TokenVaultNamespace } from './token-vault'
 import { TwitchApiError, type ChannelInfo, type LiveStream, type TwitchClient } from './twitch'
 import { chapterEntryOf } from './work-log'
 
@@ -158,6 +159,8 @@ export const COLLECT_BUDGET_MS = 2 * 60 * 1000
 export interface CollectStatsOptions {
   db: Database
   store: KeyValueStore
+  /** 配信者のトークンの保管庫（worker/token-vault.ts） */
+  tokens: TokenVaultNamespace
   /** 人物像・あらすじ・サイドスーパーを作らせるLLM（worker/llm.ts。呼び先は設定が決める） */
   ai: TextGenerator
   /** 配信の話題に合う BGM を選ばせる Jev（worker/jev.ts） */
@@ -670,7 +673,7 @@ const siftScreenOcr = async (db: Database, now: number): Promise<void> => {
   }
 }
 
-const collect = async ({ db, store, twitch, ai, jev, alerts, gyazo, broadcasterId, now, clock = Date.now }: CollectStatsOptions): Promise<void> => {
+const collect = async ({ db, store, tokens, twitch, ai, jev, alerts, gyazo, broadcasterId, now, clock = Date.now }: CollectStatsOptions): Promise<void> => {
   const startedAt = clock()
   const budgetExhausted = (): boolean => clock() - startedAt > COLLECT_BUDGET_MS
   /** 予算を過ぎて次の収集へ回したもの。まとめて1行に記録する */
@@ -684,7 +687,7 @@ const collect = async ({ db, store, twitch, ai, jev, alerts, gyazo, broadcasterI
     return await create()
   }
 
-  let token = await getAccessToken(store, 'broadcaster', twitch, now)
+  let token = await getAccessToken(tokens, 'broadcaster', twitch, now)
   let refreshed = false
 
   /** 保管しているトークンでTwitchを呼ぶ。期限内でもTwitch側で無効になっていることがあるので、401なら1回だけ取り直してやり直す */
@@ -695,7 +698,7 @@ const collect = async ({ db, store, twitch, ai, jev, alerts, gyazo, broadcasterI
       const tokenRejected = error instanceof TwitchApiError && error.status === UNAUTHORIZED
       if (!tokenRejected || refreshed) throw error
       refreshed = true
-      token = await getAccessToken(store, 'broadcaster', twitch, now, { forceRefresh: true })
+      token = await getAccessToken(tokens, 'broadcaster', twitch, now, { forceRefresh: true })
       return await call(token.accessToken)
     }
   }

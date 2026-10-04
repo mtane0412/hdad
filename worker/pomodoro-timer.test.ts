@@ -19,6 +19,7 @@ import { createFakeCommentChannel } from './fake-comment-channel'
 import { createFakeDatabase } from './fake-database'
 import { createFakeDrawChannel } from './fake-draw-channel'
 import { createFakeStore } from './fake-store'
+import { createFakeTokenVault } from './fake-token-vault'
 import { createFakeTabChannel } from './fake-tab-channel'
 import { createTimerInstances } from './fake-timer-instances'
 import { HttpError, type Env } from './http'
@@ -87,12 +88,13 @@ const setUp = async ({ streaming = true }: { streaming?: boolean } = {}) => {
     TAB: createFakeTabChannel().namespace,
     COMMENTS: createFakeCommentChannel().namespace,
     AD_BREAKS: undefined as unknown as AdBreakTimerNamespace,
+    TOKENS: createFakeTokenVault().namespace,
     AI: createFakeWorkersAi(),
   } satisfies Env
   const timers = createTimerInstances(() => env, { fetch: twitch.fetchImpl, now: clock.now, wait: async () => {} }, clock.set)
   env.AD_BREAKS = timers.namespace
 
-  await saveToken(env.STORE, 'bot', {
+  await saveToken(env.TOKENS, 'bot', {
     accessToken: 'bot-access-token',
     refreshToken: 'bot-refresh-token',
     expiresAt: startedAt + 24 * 60 * MINUTE,

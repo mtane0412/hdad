@@ -11,6 +11,7 @@ import { BOT_SCOPES, REQUIRED_SCOPES } from './eventsub'
 import { webhookEventTypes } from './eventsub-webhook'
 import { createFakeBucket } from './fake-bucket'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
+import { createFakeTokenVault } from './fake-token-vault'
 import { createFakeDatabase } from './fake-database'
 import { createFakeWorkersAi } from './fake-ai'
 import { createFakeAlertChannel } from './fake-alert-channel'
@@ -44,6 +45,7 @@ const createEnv = (store = createFakeStore()) => {
     TAB: createFakeTabChannel().namespace,
     COMMENTS: createFakeCommentChannel().namespace,
     AD_BREAKS: createFakeAdBreakTimer().namespace,
+    TOKENS: createFakeTokenVault().namespace,
     AI: createFakeWorkersAi(),
   } satisfies Env
   return { env, store }
@@ -181,15 +183,15 @@ describe('GET /api/auth/login?role=bot', () => {
 
 describe('GET /api/auth/callback（botの接続）', () => {
   it('配信者とは別のアカウントでも、botとして接続できる', async () => {
-    const { env, store } = createEnv()
+    const { env } = createEnv()
     const twitch = fakeTwitch('67890', { login: 'haishinsha_bot', scopes: BOT_SCOPES })
 
     const response = await connectBot(env, twitch.fetchImpl)
 
     expect(response.status).toBe(302)
-    expect(await loadToken(store, 'bot')).toMatchObject({ userId: '67890', login: 'haishinsha_bot' })
+    expect(await loadToken(env.TOKENS, 'bot')).toMatchObject({ userId: '67890', login: 'haishinsha_bot' })
     // 配信者のトークンは書き換えない
-    expect(await loadToken(store, 'broadcaster')).toBeNull()
+    expect(await loadToken(env.TOKENS, 'broadcaster')).toBeNull()
   })
 
   it('botの接続では、配信者のセッションを新たに発行しない', async () => {
@@ -220,7 +222,7 @@ describe('GET /api/auth/callback（botの接続）', () => {
   })
 
   it('配信者のセッションが切れていたら、botのトークンを保存しない', async () => {
-    const { env, store } = createEnv()
+    const { env } = createEnv()
     const twitch = fakeTwitch('67890', { login: 'haishinsha_bot', scopes: BOT_SCOPES })
     const session = await broadcasterSessionCookie(env)
     const login = await call(new Request(`${site}/api/auth/login?role=bot`, { headers: { Cookie: session } }), env, twitch.fetchImpl)
@@ -235,7 +237,7 @@ describe('GET /api/auth/callback（botの接続）', () => {
     )
 
     expect(response.status).toBe(401)
-    expect(await loadToken(store, 'bot')).toBeNull()
+    expect(await loadToken(env.TOKENS, 'bot')).toBeNull()
   })
 })
 
@@ -246,7 +248,7 @@ describe('GET /api/auth/callback', () => {
 
     expect(response.status).toBe(302)
     expect(response.headers.get('Location')).toBe('/')
-    expect(await loadToken(store, 'broadcaster')).toMatchObject({
+    expect(await loadToken(env.TOKENS, 'broadcaster')).toMatchObject({
       accessToken: 'test-access-token',
       refreshToken: 'リフレッシュトークン',
       expiresAt: now + 14400 * 1000,
@@ -258,11 +260,11 @@ describe('GET /api/auth/callback', () => {
   })
 
   it('配信者以外のアカウントは403で拒否し、トークンを保存しない', async () => {
-    const { env, store } = createEnv()
+    const { env } = createEnv()
     const response = await loginAs(env, fakeTwitch('99999').fetchImpl)
 
     expect(response.status).toBe(403)
-    expect(await loadToken(store, 'broadcaster')).toBeNull()
+    expect(await loadToken(env.TOKENS, 'broadcaster')).toBeNull()
     expect(response.headers.getSetCookie().some((cookie) => cookie.startsWith('__Host-session='))).toBe(false)
   })
 
@@ -363,8 +365,8 @@ describe('GET /api/me', () => {
   })
 
   it('配信者のセッションがあれば、ログイン名とオーバーレイ用キーを返す', async () => {
-    const { env, store } = createEnv(createFakeStore({ 'overlay-key': '発行済みのオーバーレイ用キー' }))
-    await saveToken(store, 'broadcaster', {
+    const { env } = createEnv(createFakeStore({ 'overlay-key': '発行済みのオーバーレイ用キー' }))
+    await saveToken(env.TOKENS, 'broadcaster', {
       accessToken: 'test-access-token',
       refreshToken: 'リフレッシュトークン',
       expiresAt: now + 1000,

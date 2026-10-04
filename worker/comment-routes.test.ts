@@ -11,6 +11,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
+import { createFakeTokenVault } from './fake-token-vault'
 import { createFakeWorkersAi } from './fake-ai'
 import { createFakeAlertChannel } from './fake-alert-channel'
 import { createFakeAssets } from './fake-assets'
@@ -46,6 +47,7 @@ const createEnv = () => {
     TAB: createFakeTabChannel().namespace,
     COMMENTS: deliveryTarget.namespace,
     AD_BREAKS: createFakeAdBreakTimer().namespace,
+    TOKENS: createFakeTokenVault().namespace,
     AI: createFakeWorkersAi(),
   } satisfies Env
   return { env, deliveryTarget }
@@ -164,7 +166,7 @@ describe('POST /api/admin/comments/moderation', () => {
   /** botを接続済みにした環境を作る */
   const envWithBotConnected = async () => {
     const created = createEnv()
-    await saveToken(created.env.STORE, 'bot', {
+    await saveToken(created.env.TOKENS, 'bot', {
       accessToken: 'bot-access-token',
       refreshToken: 'bot-refresh-token',
       expiresAt: now + 60 * 60 * 1000,
@@ -271,7 +273,7 @@ describe('POST /api/admin/comments/messages', () => {
   /** 配信者のトークンを保存した環境を作る。scopes を変えると、許可を取り直す前の状態を作れる */
   const envLoggedInAsBroadcaster = async (scopes: string[] = ['user:read:chat', 'user:write:chat']) => {
     const created = createEnv()
-    await saveToken(created.env.STORE, 'broadcaster', {
+    await saveToken(created.env.TOKENS, 'broadcaster', {
       accessToken: 'broadcaster-access-token',
       refreshToken: 'broadcaster-refresh-token',
       expiresAt: now + 60 * 60 * 1000,

@@ -21,6 +21,7 @@ import { createFakeDrawChannel } from './fake-draw-channel'
 import { createFakeTabChannel } from './fake-tab-channel'
 import { createFakeCommentChannel } from './fake-comment-channel'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
+import { createFakeTokenVault } from './fake-token-vault'
 import { createFakeBucket } from './fake-bucket'
 import { createFakeDatabase } from './fake-database'
 import { createFakeStore } from './fake-store'
@@ -88,10 +89,11 @@ const createEnv = async (): Promise<Env> => {
     TAB: createFakeTabChannel().namespace,
     COMMENTS: createFakeCommentChannel().namespace,
     AD_BREAKS: createFakeAdBreakTimer().namespace,
+    TOKENS: createFakeTokenVault().namespace,
     AI: createFakeWorkersAi(),
   } satisfies Env
 
-  await saveToken(env.STORE, 'bot', {
+  await saveToken(env.TOKENS, 'bot', {
     accessToken: 'bot-access-token',
     refreshToken: 'bot-refresh-token',
     expiresAt: now + 60 * 60 * 1000,

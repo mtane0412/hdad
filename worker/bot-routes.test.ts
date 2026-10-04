@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest'
 import { BOT_SCOPES, REQUIRED_SCOPES } from './eventsub'
 import { createFakeBucket } from './fake-bucket'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
+import { createFakeTokenVault } from './fake-token-vault'
 import { createFakeDatabase } from './fake-database'
 import { createFakeWorkersAi } from './fake-ai'
 import { createFakeAlertChannel } from './fake-alert-channel'
@@ -74,6 +75,7 @@ const createEnv = () => {
     TAB: createFakeTabChannel().namespace,
     COMMENTS: createFakeCommentChannel().namespace,
     AD_BREAKS: createFakeAdBreakTimer().namespace,
+    TOKENS: createFakeTokenVault().namespace,
     AI: createFakeWorkersAi(),
   } satisfies Env
   return { env, store }
@@ -158,9 +160,9 @@ describe('GET /api/admin/bot', () => {
   })
 
   it('接続済みなら、ログイン名とユーザーIDを返す。トークンは返さない', async () => {
-    const { env, store } = createEnv()
-    await saveToken(store, 'bot', BOT_TOKEN())
-    await saveToken(store, 'broadcaster', BROADCASTER_TOKEN())
+    const { env } = createEnv()
+    await saveToken(env.TOKENS, 'bot', BOT_TOKEN())
+    await saveToken(env.TOKENS, 'broadcaster', BROADCASTER_TOKEN())
 
     const response = await invoke(await broadcasterRequest(env, '/api/admin/bot'), env, async (input, init) => {
       const moderator = answerModeratorQuery(new Request(input, init), true)
@@ -174,9 +176,9 @@ describe('GET /api/admin/bot', () => {
   })
 
   it('botがモデレーターにされていなければ isModerator は false になる（管理画面で /mod を促すため）', async () => {
-    const { env, store } = createEnv()
-    await saveToken(store, 'bot', BOT_TOKEN())
-    await saveToken(store, 'broadcaster', BROADCASTER_TOKEN())
+    const { env } = createEnv()
+    await saveToken(env.TOKENS, 'bot', BOT_TOKEN())
+    await saveToken(env.TOKENS, 'broadcaster', BROADCASTER_TOKEN())
 
     const response = await invoke(await broadcasterRequest(env, '/api/admin/bot'), env, async (input, init) => {
       const moderator = answerModeratorQuery(new Request(input, init), false)
@@ -188,9 +190,9 @@ describe('GET /api/admin/bot', () => {
   })
 
   it('配信者のトークンに moderation:read が無ければ、黙ってfalseにせずエラーで伝える', async () => {
-    const { env, store } = createEnv()
-    await saveToken(store, 'bot', BOT_TOKEN())
-    await saveToken(store, 'broadcaster', BROADCASTER_TOKEN(REQUIRED_SCOPES.filter((scope) => scope !== 'moderation:read')))
+    const { env } = createEnv()
+    await saveToken(env.TOKENS, 'bot', BOT_TOKEN())
+    await saveToken(env.TOKENS, 'broadcaster', BROADCASTER_TOKEN(REQUIRED_SCOPES.filter((scope) => scope !== 'moderation:read')))
 
     const response = await invoke(await broadcasterRequest(env, '/api/admin/bot'), env)
 
@@ -200,9 +202,9 @@ describe('GET /api/admin/bot', () => {
   })
 
   it('スコープが足りなければ、不足しているスコープを示す（接続し直しが要ることを管理画面で伝えるため）', async () => {
-    const { env, store } = createEnv()
-    await saveToken(store, 'bot', BOT_TOKEN(['user:read:chat']))
-    await saveToken(store, 'broadcaster', BROADCASTER_TOKEN())
+    const { env } = createEnv()
+    await saveToken(env.TOKENS, 'bot', BOT_TOKEN(['user:read:chat']))
+    await saveToken(env.TOKENS, 'broadcaster', BROADCASTER_TOKEN())
 
     const response = await invoke(await broadcasterRequest(env, '/api/admin/bot'), env, async (input, init) => {
       const moderator = answerModeratorQuery(new Request(input, init), true)
@@ -227,25 +229,25 @@ describe('GET /api/admin/bot', () => {
 
 describe('DELETE /api/admin/bot', () => {
   it('セッションがなければ401を返し、トークンを消さない', async () => {
-    const { env, store } = createEnv()
-    await saveToken(store, 'bot', BOT_TOKEN())
+    const { env } = createEnv()
+    await saveToken(env.TOKENS, 'bot', BOT_TOKEN())
 
     const response = await invoke(new Request(`${site}/api/admin/bot`, { method: 'DELETE' }), env)
 
     expect(response.status).toBe(401)
-    expect(await loadToken(store, 'bot')).not.toBeNull()
+    expect(await loadToken(env.TOKENS, 'bot')).not.toBeNull()
   })
 
   it('botのトークンを消す。配信者のトークンには触れない', async () => {
-    const { env, store } = createEnv()
-    await saveToken(store, 'bot', BOT_TOKEN())
-    await saveToken(store, 'broadcaster', { ...BOT_TOKEN(), userId: BROADCASTER_ID, login: 'haishinsha' })
+    const { env } = createEnv()
+    await saveToken(env.TOKENS, 'bot', BOT_TOKEN())
+    await saveToken(env.TOKENS, 'broadcaster', { ...BOT_TOKEN(), userId: BROADCASTER_ID, login: 'haishinsha' })
 
     const response = await invoke(await broadcasterRequest(env, '/api/admin/bot', { method: 'DELETE' }), env, fakeTwitch().fetchImpl)
 
     expect(response.status).toBe(204)
-    expect(await loadToken(store, 'bot')).toBeNull()
-    expect(await loadToken(store, 'broadcaster')).not.toBeNull()
+    expect(await loadToken(env.TOKENS, 'bot')).toBeNull()
+    expect(await loadToken(env.TOKENS, 'broadcaster')).not.toBeNull()
   })
 
   it('接続していなくても204を返す（切断を何度押しても同じ結果になるように）', async () => {
@@ -269,8 +271,8 @@ describe('POST /api/admin/bot/messages', () => {
     )
 
   it('セッションがなければ401を返し、Twitchへは送らない', async () => {
-    const { env, store } = createEnv()
-    await saveToken(store, 'bot', BOT_TOKEN())
+    const { env } = createEnv()
+    await saveToken(env.TOKENS, 'bot', BOT_TOKEN())
     const twitch = fakeTwitch()
 
     const response = await invoke(
@@ -288,8 +290,8 @@ describe('POST /api/admin/bot/messages', () => {
   })
 
   it('botの名前で、配信者のチャンネルへメッセージを送る', async () => {
-    const { env, store } = createEnv()
-    await saveToken(store, 'bot', BOT_TOKEN())
+    const { env } = createEnv()
+    await saveToken(env.TOKENS, 'bot', BOT_TOKEN())
     const twitch = fakeTwitch()
 
     const response = await send(env, 'こんばんは、配信が始まりました', twitch.fetchImpl)
@@ -314,8 +316,8 @@ describe('POST /api/admin/bot/messages', () => {
   })
 
   it('本文が空なら、Twitchへ送らずに400で拒否する', async () => {
-    const { env, store } = createEnv()
-    await saveToken(store, 'bot', BOT_TOKEN())
+    const { env } = createEnv()
+    await saveToken(env.TOKENS, 'bot', BOT_TOKEN())
     const twitch = fakeTwitch()
 
     const response = await send(env, '   ', twitch.fetchImpl)
@@ -326,8 +328,8 @@ describe('POST /api/admin/bot/messages', () => {
   })
 
   it('本文が500文字を超えるなら、Twitchへ送らずに400で拒否する', async () => {
-    const { env, store } = createEnv()
-    await saveToken(store, 'bot', BOT_TOKEN())
+    const { env } = createEnv()
+    await saveToken(env.TOKENS, 'bot', BOT_TOKEN())
     const twitch = fakeTwitch()
 
     const response = await send(env, 'あ'.repeat(MAX_BODY_LENGTH + 1), twitch.fetchImpl)
@@ -338,8 +340,8 @@ describe('POST /api/admin/bot/messages', () => {
   })
 
   it('本文が文字列でなければ400で拒否する', async () => {
-    const { env, store } = createEnv()
-    await saveToken(store, 'bot', BOT_TOKEN())
+    const { env } = createEnv()
+    await saveToken(env.TOKENS, 'bot', BOT_TOKEN())
     const twitch = fakeTwitch()
 
     const response = await send(env, 42, twitch.fetchImpl)
@@ -349,8 +351,8 @@ describe('POST /api/admin/bot/messages', () => {
   })
 
   it('Twitchが受け取ったうえで送信しなかった場合（AutoModの保留など）は、成功扱いにしない', async () => {
-    const { env, store } = createEnv()
-    await saveToken(store, 'bot', BOT_TOKEN())
+    const { env } = createEnv()
+    await saveToken(env.TOKENS, 'bot', BOT_TOKEN())
     const twitch = fakeTwitch(
       Response.json({
         data: [{ message_id: '', is_sent: false, drop_reason: { code: 'msg_rejected', message: 'メッセージがAutoModに保留されました' } }],
@@ -464,7 +466,7 @@ describe('POST /api/admin/bot/device-token', () => {
     )
 
   it('セッションがなければ401を返し、トークンを保存しない', async () => {
-    const { env, store } = createEnv()
+    const { env } = createEnv()
     const twitch = twitchAnsweringExchange(authorizedResponse())
 
     const response = await invoke(
@@ -478,22 +480,22 @@ describe('POST /api/admin/bot/device-token', () => {
     )
 
     expect(response.status).toBe(401)
-    expect(await loadToken(store, 'bot')).toBeNull()
+    expect(await loadToken(env.TOKENS, 'bot')).toBeNull()
   })
 
   it('利用者がまだ認可していなければ、待っている状態を返す（エラーにしない）', async () => {
-    const { env, store } = createEnv()
+    const { env } = createEnv()
     const twitch = twitchAnsweringExchange(Response.json({ status: 400, message: 'authorization_pending' }, { status: 400 }))
 
     const response = await exchange(env, twitch.fetchImpl)
 
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ status: 'pending' })
-    expect(await loadToken(store, 'bot')).toBeNull()
+    expect(await loadToken(env.TOKENS, 'bot')).toBeNull()
   })
 
   it('問い合わせが速すぎると言われたら、間隔を延ばして待つよう伝える（エラーにしない）', async () => {
-    const { env, store } = createEnv()
+    const { env } = createEnv()
     const twitch = twitchAnsweringExchange(Response.json({ status: 400, message: 'slow_down' }, { status: 400 }))
 
     const response = await exchange(env, twitch.fetchImpl)
@@ -501,13 +503,13 @@ describe('POST /api/admin/bot/device-token', () => {
     expect(response.status).toBe(200)
     // 管理画面が間隔を延ばせるよう、pending とは区別して返す
     expect(await response.json()).toEqual({ status: 'slow-down' })
-    expect(await loadToken(store, 'bot')).toBeNull()
+    expect(await loadToken(env.TOKENS, 'bot')).toBeNull()
   })
 
   it('認可が済んでいれば、botのトークンを保存して接続状態を返す', async () => {
-    const { env, store } = createEnv()
+    const { env } = createEnv()
     // モデレーターかどうかの確認には配信者のトークンが要る
-    await saveToken(store, 'broadcaster', BROADCASTER_TOKEN())
+    await saveToken(env.TOKENS, 'broadcaster', BROADCASTER_TOKEN())
     const twitch = twitchAnsweringExchange(authorizedResponse())
 
     const response = await exchange(env, twitch.fetchImpl)
@@ -517,18 +519,18 @@ describe('POST /api/admin/bot/device-token', () => {
     expect(body).toEqual({ status: 'connected', bot: { userId: BOT_ID, login: 'haishinsha_bot', missingScopes: [], isModerator: true } })
     // トークンはWorkerの中に留め、ブラウザへ返さない
     expect(JSON.stringify(body)).not.toContain('bot-access-token')
-    expect(await loadToken(store, 'bot')).toMatchObject({ accessToken: 'bot-access-token', userId: BOT_ID, login: 'haishinsha_bot' })
+    expect(await loadToken(env.TOKENS, 'bot')).toMatchObject({ accessToken: 'bot-access-token', userId: BOT_ID, login: 'haishinsha_bot' })
   })
 
   it('モデレーターかどうかを確かめられなければ、トークンを保存せずにエラーを返す（接続できたのに画面にはエラーだけ、という半端な状態にしない）', async () => {
-    const { env, store } = createEnv()
+    const { env } = createEnv()
     // 配信者のトークンが無いので、モデレーターかどうかを確かめられない
     const twitch = twitchAnsweringExchange(authorizedResponse())
 
     const response = await exchange(env, twitch.fetchImpl)
 
     expect(response.status).toBe(401)
-    expect(await loadToken(store, 'bot')).toBeNull()
+    expect(await loadToken(env.TOKENS, 'bot')).toBeNull()
   })
 
   it('コードの期限が切れていたら、待ち続けずにエラーを返す', async () => {
