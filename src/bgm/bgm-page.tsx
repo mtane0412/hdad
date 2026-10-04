@@ -7,7 +7,9 @@
  *
  * プレーヤーは音楽プレーヤーと同じ形にする。リピートを切っているあいだは、曲が終わると次の曲へ進む
  * （一覧の順。シャッフルを入れていればでたらめに選ぶ。次の曲を決めるのは Worker の worker/bgm-order.ts）。
- * 曲の終わりで進んだ・Jev が切り替えた曲は、裏方のページと同じ押し出しを受け取ってプレーヤーと表に映す。
+ * 再生の状態（保存済みの曲・いま流す曲と音量・自動の切り替え）と押し出しの接続はアプリの枠の BgmPlayerProvider
+ * （player-context.tsx）が持ち、下部バーのプレーヤーと同じものを映す（issue #236）。曲の終わりで進んだ・Jev が切り替えた曲も
+ * そこから受け取ってプレーヤーと表に映す。前の曲・再生／停止・次の曲・音量の部品は下部バーと共通（player-controls.tsx）。
  *
  * 曲の一覧はデータベースの表のように1曲1行で並べ、行の中で曲名やクレジットを直す。
  * 曲の音声は「アップロード」のページで上げた音声から選ぶ（アラートの素材と同じ置き場）。音声1つにつき曲は1つである。
@@ -22,9 +24,10 @@
  * 返ってきた問題点を画面に見えている名前へ読み替えて並べる。
  * 注意: まだ保存していない曲は流せない（Worker の一覧に無いため）。流している曲は外せない（Worker も拒む）。
  * 注意: 曲や素材を読めなかったときは、黙って空の一覧に倒さず理由を出す（Fail-Fast）。押し出しを読めなかったときも理由を出す。
+ * 注意: 入力欄の曲は開いたときの保存済みの一覧から始める。押し出しのつなぎ直しで保存済みの一覧が読み直されても、書きかけの入力欄はそのまま残す。
  */
-import { Headphones, Music, Pause, Play, Plus, Repeat1, Shuffle, SkipBack, SkipForward, Sparkles, Trash2, Volume2 } from 'lucide-react'
-import { useEffect, useId, useRef, useState } from 'react'
+import { Headphones, Music, Play, Plus, Repeat1, Shuffle, Sparkles, Trash2, Volume2 } from 'lucide-react'
+import { useEffect, useId, useState } from 'react'
 import type { AdminApi, MediaItem } from '@/admin/api'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
 import { Link } from '@/app/router'
@@ -34,42 +37,25 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Slider } from '@/components/ui/slider'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Toggle } from '@/components/ui/toggle'
 import { ApiError } from '@/core/api'
 import { iconButtonName } from '@/core/icon-button'
-import { parseBgmNowPlaying, type BgmApi, type BgmPlayback, type BgmSettings, type BgmStep, type BgmTrack } from './api'
-import { describeBgmProblem, newTrackOf, unusedAudioOf, volumeOfPercent, volumePercentOf } from './form'
+import type { BgmPlayback, BgmSettings, BgmTrack } from './api'
+import { describeBgmProblem, newTrackOf, unusedAudioOf } from './form'
+import { BgmTransport, BgmVolume } from './player-controls'
+import { useBgmPlayer } from './player-context'
 
 /** 曲の音声を試し聴きするためのパス。この画面は配信者のセッションで読めるので、オーバーレイ用キーは付けない */
 const MEDIA_PATH = '/api/media/'
 
-/** スライダーの上限（百分率） */
-const MAX_VOLUME_PERCENT = 100
-
-/** 押し出しの接続から受け取るもの（src/core/socket.ts の SocketHandlers と同じ形） */
-export interface BgmWatchHandlers {
-  /** 生存確認の返事でない文字列が届いた */
-  onMessage(text: string): void
-  /** 切断した（disconnected）・切断後に再びつながった（reconnected） */
-  onStatus(status: 'disconnected' | 'reconnected'): void
-  /** 待てば直るかもしれない失敗（つなぎ直しは続ける） */
-  onWarning(message: string): void
-}
-
 export interface BgmPageProps {
-  /** BGMの読み書き */
-  api: BgmApi
   /** 上げてある素材の読み出し（曲にする音声を選ぶために使う） */
   mediaApi: Pick<AdminApi, 'media'>
-  /** ログイン中の配信者のオーバーレイ用キー。押し出しの経路はこのキーで守られている。未発行なら null */
-  overlayKey: string | null
-  /** 「いま流している曲」の押し出しにつなぐ。テストで差し替えるために受け取る（本番は socket.ts の connectBgmWatch） */
-  connect(overlayKey: string, handlers: BgmWatchHandlers): { close(): void }
 }
 
-type Loaded = { status: 'loading' } | { status: 'ready' } | { status: 'failed'; message: string }
+/** 上げてある素材の読み込み */
+type MediaLoaded = { status: 'loading' } | { status: 'ready'; items: readonly MediaItem[] } | { status: 'failed'; message: string }
 
 /** プレーヤーのリピート・シャッフルの見た目。入れているあいだは背景を付けず、色で示す（音楽プレーヤーと同じ） */
 const PLAYER_TOGGLE_CLASS = 'text-muted-foreground aria-pressed:bg-transparent aria-pressed:text-primary hover:aria-pressed:bg-muted'
@@ -170,145 +156,60 @@ const TrackRow = ({
   )
 }
 
-export const BgmPage = ({ api, mediaApi, overlayKey, connect }: BgmPageProps) => {
-  const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' })
-  /** Worker に保存されている曲。流せるかどうかはこちらで決める */
-  const [savedTracks, setSavedTracks] = useState<readonly BgmTrack[]>([])
-  /** 入力欄の曲（保存前の書き換えを含む） */
-  const [tracks, setTracks] = useState<readonly BgmTrack[]>([])
-  const [playback, setPlayback] = useState<BgmPlayback>({ mediaId: null, volume: 0, repeat: false, shuffle: false })
-  const [settings, setSettings] = useState<BgmSettings>({ judgeWithJev: false })
-  /** スライダーの位置。動かしているあいだは送らず、離したときに送る */
-  const [volumePercent, setVolumePercent] = useState(0)
-  const [media, setMedia] = useState<readonly MediaItem[]>([])
-  const [adding, setAdding] = useState('')
-  /** 試し聴きしている曲の素材のID */
-  const [previewId, setPreviewId] = useState<string | null>(null)
-  /** 押し出しを受け取れていないときの理由。受け取れていれば null */
-  const [watchProblem, setWatchProblem] = useState<string | null>(null)
-  const actions = usePageActions(failureLines)
-  const playerTitleId = useId()
-  const volumeLabelId = useId()
-
-  /**
-   * 再生の設定の世代。押し出しが届くたび・再生の設定を取りに行くたびに進める。
-   *
-   * 操作の応答（HTTP）は Worker が押し出したあとに返るので、曲の終わりや Jev によるもっと新しい押し出しより
-   * 遅れて届くことがある。取りに行ったときから世代が進んでいたら、その応答は古いので映さない。
-   */
-  const playbackRevision = useRef(0)
-
-  /** 再生の設定を取りに行く直前に呼ぶ。返した関数は、応答を映してよい（あいだに新しいものが届いていない）かを答える */
-  const beginPlaybackRequest = (): (() => boolean) => {
-    playbackRevision.current += 1
-    const revision = playbackRevision.current
-    return () => revision === playbackRevision.current
-  }
-
-  /** Worker から読んだ・受け取った再生の設定を画面に映す */
-  const showPlayback = (next: BgmPlayback): void => {
-    setPlayback(next)
-    setVolumePercent(volumePercentOf(next.volume))
-  }
+export const BgmPage = ({ mediaApi }: BgmPageProps) => {
+  const player = useBgmPlayer()
+  const [media, setMedia] = useState<MediaLoaded>({ status: 'loading' })
 
   useEffect(() => {
     let cancelled = false
-    const isLatest = beginPlaybackRequest()
-    Promise.all([api.load(), mediaApi.media()]).then(
-      ([bgm, loadedMedia]) => {
-        if (cancelled) return
-        setSavedTracks(bgm.tracks)
-        setTracks(bgm.tracks)
-        if (isLatest()) showPlayback(bgm.playback)
-        setSettings(bgm.settings)
-        setMedia(loadedMedia)
-        setLoaded({ status: 'ready' })
+    mediaApi.media().then(
+      (items) => {
+        if (!cancelled) setMedia({ status: 'ready', items })
       },
       (error: unknown) => {
-        if (!cancelled) setLoaded({ status: 'failed', message: errorMessage(error) })
+        if (!cancelled) setMedia({ status: 'failed', message: errorMessage(error) })
       },
     )
     return () => {
       cancelled = true
     }
-  }, [api, mediaApi])
+  }, [mediaApi])
 
-  // 曲の終わりで次の曲へ進んだ・Jev が切り替えたことを、裏方のページと同じ押し出しで受け取る
-  useEffect(() => {
-    // キーが無ければつなげない（表示は下の watchNotice が受け持つ）
-    if (overlayKey === null) return
-    const connection = connect(overlayKey, {
-      onMessage: (text) => {
-        try {
-          const nowPlaying = parseBgmNowPlaying(text)
-          const { volume, repeat, shuffle } = nowPlaying
-          beginPlaybackRequest()
-          showPlayback({ mediaId: nowPlaying.track?.mediaId ?? null, volume, repeat, shuffle })
-          setWatchProblem(null)
-        } catch (error) {
-          setWatchProblem(errorMessage(error))
-        }
-      },
-      onStatus: (status) => {
-        if (status === 'disconnected') {
-          setWatchProblem('BGMの切り替えを受け取れていません。つなぎ直しています')
-          return
-        }
-        // つながっていない間に切り替わっていたかもしれないので、読み直す。別の画面で曲の一覧が保存されていても
-        // 流している曲を引けるよう、保存済みの一覧も読み直す（書きかけの入力欄はそのまま残す）
-        const isLatest = beginPlaybackRequest()
-        api.load().then(
-          (bgm) => {
-            setSavedTracks(bgm.tracks)
-            if (isLatest()) showPlayback(bgm.playback)
-            setWatchProblem(null)
-          },
-          (error: unknown) => setWatchProblem(errorMessage(error)),
-        )
-      },
-      onWarning: (message) => setWatchProblem(message),
-    })
-    return () => connection.close()
-  }, [api, connect, overlayKey])
+  if (player.loaded.status === 'loading' || media.status === 'loading') return <Skeleton className="h-64 w-full" aria-label="BGMを読み込んでいます" />
+  if (player.loaded.status === 'failed') return <LoadFailure title="BGMを表示できません" message={player.loaded.message} />
+  if (media.status === 'failed') return <LoadFailure title="BGMを表示できません" message={media.message} />
 
-  if (loaded.status === 'loading') return <Skeleton className="h-64 w-full" aria-label="BGMを読み込んでいます" />
-  if (loaded.status === 'failed') {
-    return <LoadFailure title="BGMを表示できません" message={loaded.message} />
-  }
+  // 入力欄の曲は保存済みの一覧が読めてから始めるので、読めてから中身を描く
+  return <BgmPageContent media={media.items} />
+}
 
-  /** 押し出しを受け取れていないことの知らせ。受け取れていれば null */
-  const watchNotice =
-    overlayKey === null ? 'オーバーレイ用キーが未発行のため、曲の終わりや Jev による切り替えをこの画面に映せません' : watchProblem
+const BgmPageContent = ({ media }: { media: readonly MediaItem[] }) => {
+  const { savedTracks, playback, settings, watchNotice, ...player } = useBgmPlayer()
+  /** 入力欄の曲（保存前の書き換えを含む） */
+  const [tracks, setTracks] = useState<readonly BgmTrack[]>(savedTracks)
+  const [adding, setAdding] = useState('')
+  /** 試し聴きしている曲の素材のID */
+  const [previewId, setPreviewId] = useState<string | null>(null)
+  const actions = usePageActions(failureLines)
+  const playerTitleId = useId()
+
   const playingTrack = savedTracks.find((track) => track.mediaId === playback.mediaId) ?? null
-  const hasSavedTracks = savedTracks.length > 0
   const candidates = unusedAudioOf(media, tracks)
   /** 選択欄の値。選んだ音声が候補から消えていたら（追加したあとなど）先頭を選んでいることにする */
   const addingId = candidates.some((item) => item.id === adding) ? adding : (candidates[0]?.id ?? '')
   const previewIndex = tracks.findIndex((track) => track.mediaId === previewId)
   const previewTrack = tracks[previewIndex]
 
-  /** 流す曲・音量・リピート・シャッフルを Worker へ送る。Worker が裏方のページへ押し出す */
+  /** 流す曲・リピート・シャッフルを Worker へ送る。Worker が裏方のページへ押し出す */
   const sendPlayback = (next: BgmPlayback, message: string) =>
     actions.run(async () => {
-      const isLatest = beginPlaybackRequest()
-      const saved = await api.savePlayback(next)
-      if (isLatest()) showPlayback(saved)
+      await player.savePlayback(next)
       return message
-    })
-
-  /** 次の曲・前の曲へ進めてもらう。どの曲にするか（一覧の順・シャッフル）は Worker が決める */
-  const skip = (step: BgmStep) =>
-    actions.run(async () => {
-      const isLatest = beginPlaybackRequest()
-      const next = await api.skip(step)
-      if (isLatest()) showPlayback(next)
-      const title = savedTracks.find((track) => track.mediaId === next.mediaId)?.title ?? ''
-      return `「${title}」に切り替えました`
     })
 
   const saveSettings = (next: BgmSettings) =>
     actions.run(async () => {
-      setSettings(await api.saveSettings(next))
+      await player.saveSettings(next)
       return next.judgeWithJev ? '配信の話題に合う曲へ自動で切り替えます' : '自動の切り替えをやめました'
     })
 
@@ -319,9 +220,7 @@ export const BgmPage = ({ api, mediaApi, overlayKey, connect }: BgmPageProps) =>
 
   const saveTracks = () =>
     actions.run(async () => {
-      const saved = await api.saveTracks(tracks)
-      setSavedTracks(saved)
-      setTracks(saved)
+      setTracks(await player.saveTracks(tracks))
       return '曲の一覧を保存しました'
     })
 
@@ -359,35 +258,7 @@ export const BgmPage = ({ api, mediaApi, overlayKey, connect }: BgmPageProps) =>
               >
                 <Shuffle aria-hidden="true" />
               </Toggle>
-              <Button type="button" variant="ghost" size="icon-sm" {...iconButtonName('前の曲')} disabled={actions.busy || !hasSavedTracks} onClick={() => void skip('previous')}>
-                <SkipBack aria-hidden="true" className="fill-current" />
-              </Button>
-              {playback.mediaId === null ? (
-                <Button
-                  type="button"
-                  size="icon"
-                  className="mx-1 rounded-full"
-                  {...iconButtonName('再生')}
-                  disabled={actions.busy || !hasSavedTracks}
-                  onClick={() => void skip('next')}
-                >
-                  <Play aria-hidden="true" className="fill-current" />
-                </Button>
-              ) : (
-                <Button
-                  type="button"
-                  size="icon"
-                  className="mx-1 rounded-full"
-                  {...iconButtonName('停止')}
-                  disabled={actions.busy}
-                  onClick={() => void sendPlayback({ ...playback, mediaId: null }, 'BGMを止めました')}
-                >
-                  <Pause aria-hidden="true" className="fill-current" />
-                </Button>
-              )}
-              <Button type="button" variant="ghost" size="icon-sm" {...iconButtonName('次の曲')} disabled={actions.busy || !hasSavedTracks} onClick={() => void skip('next')}>
-                <SkipForward aria-hidden="true" className="fill-current" />
-              </Button>
+              <BgmTransport disabled={actions.busy} run={actions.run} />
               <Toggle
                 size="sm"
                 aria-label="リピート"
@@ -416,25 +287,7 @@ export const BgmPage = ({ api, mediaApi, overlayKey, connect }: BgmPageProps) =>
               >
                 <Sparkles aria-hidden="true" />
               </Toggle>
-              <span id={volumeLabelId} className="sr-only">
-                音量
-              </span>
-              <Volume2 aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
-              <Slider
-                aria-labelledby={volumeLabelId}
-                className="w-28"
-                min={0}
-                max={MAX_VOLUME_PERCENT}
-                value={[volumePercent]}
-                onValueChange={(next) => setVolumePercent(Array.isArray(next) ? (next[0] ?? 0) : next)}
-                onValueCommitted={(next) => {
-                  const percent = Array.isArray(next) ? (next[0] ?? 0) : next
-                  void sendPlayback({ ...playback, volume: volumeOfPercent(percent) }, `音量を${percent}%にしました`)
-                }}
-              />
-              <output aria-labelledby={volumeLabelId} className="w-9 text-right font-mono text-xs text-muted-foreground tabular-nums">
-                {volumePercent}%
-              </output>
+              <BgmVolume disabled={actions.busy} run={actions.run} />
             </div>
           </CardContent>
         </Card>

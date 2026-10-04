@@ -18,7 +18,8 @@ import { afterEach, describe, expect, test } from 'vitest'
 import type { MediaItem } from '@/admin/api'
 import { ApiError } from '@/core/api'
 import type { BgmApi, BgmNowPlaying, BgmPlayback, BgmSettings, BgmStep, BgmTrack } from './api'
-import { BgmPage, type BgmWatchHandlers } from './bgm-page'
+import { BgmPage } from './bgm-page'
+import { BgmPlayerProvider, type BgmWatchHandlers } from './player-context'
 
 afterEach(cleanup)
 
@@ -110,7 +111,12 @@ const fakeConnection = () => {
 }
 
 const renderPage = (api: BgmApi = bgmApi(), connection = fakeConnection()) => {
-  render(<BgmPage api={api} mediaApi={mediaApi} overlayKey="overlay-key" connect={connection.connect} />)
+  // 再生の状態はアプリの枠の Provider が持つので、ページはその内側に置く
+  render(
+    <BgmPlayerProvider api={api} overlayKey="overlay-key" connect={connection.connect}>
+      <BgmPage mediaApi={mediaApi} />
+    </BgmPlayerProvider>,
+  )
   return connection
 }
 
