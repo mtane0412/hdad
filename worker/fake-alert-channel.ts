@@ -10,6 +10,7 @@ import type { BgmNowPlaying } from './bgm-config'
 import { STATUS } from './http'
 import type { PomodoroSnapshot } from './pomodoro-timer'
 import type { TaskDeskSnapshot } from './task-desk'
+import type { TownTourCall } from './town-tour-call'
 import type { WorkLogEntry } from './work-log'
 
 interface FakeAlertChannelOptions {
@@ -29,6 +30,8 @@ export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelO
   pushedTaskDesk: TaskDeskSnapshot[]
   /** 押し出されたポモドーロのタイマー */
   pushedPomodoro: PomodoroSnapshot[]
+  /** 押し出された市町村紹介の呼び出し */
+  pushedTownTours: TownTourCall[]
   /** WebSocketの接続として引き渡されたリクエスト */
   forwardedConnections: Request[]
   /** 接続をすべて閉じるよう頼まれたときに添えられた、新しいキーの目印（オーバーレイ用キーの再発行） */
@@ -39,6 +42,7 @@ export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelO
   const evictedWorkLog: WorkLogEntry[] = []
   const evictedTaskDesk: TaskDeskSnapshot[] = []
   const evictedPomodoro: PomodoroSnapshot[] = []
+  const evictedTownTours: TownTourCall[] = []
   const handedOverConnections: Request[] = []
   const revokedTags: string[] = []
   const id: DurableObjectId = { toString: () => 'alerts', equals: (other) => other.toString() === 'alerts', name: 'alerts' }
@@ -49,6 +53,7 @@ export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelO
     pushedWorkLog: evictedWorkLog,
     pushedTaskDesk: evictedTaskDesk,
     pushedPomodoro: evictedPomodoro,
+    pushedTownTours: evictedTownTours,
     forwardedConnections: handedOverConnections,
     revokedKeyTags: revokedTags,
     namespace: {
@@ -70,6 +75,7 @@ export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelO
           else if (pathname === '/push/work-log') evictedWorkLog.push((await request.json()) as WorkLogEntry)
           else if (pathname === '/push/task-desk') evictedTaskDesk.push((await request.json()) as TaskDeskSnapshot)
           else if (pathname === '/push/pomodoro') evictedPomodoro.push((await request.json()) as PomodoroSnapshot)
+          else if (pathname === '/push/town-tour') evictedTownTours.push((await request.json()) as TownTourCall)
           else evictedAlerts.push((await request.json()) as OverlayAlert)
           return new Response(null, { status: STATUS.noContent })
         },

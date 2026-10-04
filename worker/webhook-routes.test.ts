@@ -1664,6 +1664,43 @@ describe('オーバーレイへのアラートの押し出し', () => {
   })
 })
 
+describe('市町村紹介を流す動作（townTour）', () => {
+  const raidTownTourTrigger: StoredTrigger = { kind: 'raid', actions: [{ type: 'townTour' }] }
+
+  it('レイドされたら、引いた市町村とレイド元の名前を入れた一文を合成ページへ押し出す（botを接続していなくても流す）', async () => {
+    const { env, alertChannel } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [raidTownTourTrigger] })
+
+    const response = await callWebhook(createNotification({ body: RAID_NOTIFICATION }), env)
+
+    expect(response.status).toBe(204)
+    // 市町村はランダムに引くので、一覧のコード（5桁）であることと、一文の形だけを確かめる
+    expect(alertChannel.pushedTownTours).toHaveLength(1)
+    expect(alertChannel.pushedTownTours[0]?.code).toMatch(/^\d{5}$/)
+    expect(alertChannel.pushedTownTours[0]?.headline).toMatch(/^レイド元の配信者さんのレイドを記念して、本日は.+をご紹介します$/)
+  })
+
+  it('同じ通知が再送されても、二度は押し出さない', async () => {
+    const { env, alertChannel } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [raidTownTourTrigger] })
+
+    await callWebhook(createNotification({ body: RAID_NOTIFICATION }), env)
+    await callWebhook(createNotification({ body: RAID_NOTIFICATION }), env)
+
+    expect(alertChannel.pushedTownTours).toHaveLength(1)
+  })
+
+  it('配送先が失敗しても、Twitchへは2xxを返して失敗として記録する', async () => {
+    const { env } = createEnv({ channelShouldFail: true })
+    await saveAlertConfig(env.STORE, { triggers: [raidTownTourTrigger] })
+
+    const response = await callWebhook(createNotification({ body: RAID_NOTIFICATION }), env)
+
+    expect(response.status).toBe(204)
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'town-tour-push-failed' }])
+  })
+})
+
 describe('LLMに文面を作らせる動作（aiChat）', () => {
   const BOT_ID = '67890'
   const createFollowNotification = { subscription: { type: 'channel.follow' }, event: { user_id: '22222', user_name: '田中太郎', user_login: 'tanaka_taro' } }

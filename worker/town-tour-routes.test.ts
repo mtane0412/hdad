@@ -7,6 +7,9 @@
  * - 一覧のコードなら、対応する記事を Wikipedia から取り、LLM に紹介を作らせ、出典の URL と一緒に返す
  * - 記事が取れない・LLM の応答の形が違うときは 502 で理由を返し、ダッシュボードの失敗の記録にも残す
  *
+ * - 合成ページの素材「市町村紹介」の WebSocket の接続を、市町村紹介を受け取る接続として配送先へ引き渡す
+ * - 管理画面の試し再生（POST /api/admin/town-tour/demo）は、ログインした配信者にだけ、市町村を1つ引いて押し出す
+ *
  * 材料の拾い方と紹介の読み取りは worker/town-wikipedia.test.ts・worker/town-tour.test.ts が確かめるので、ここでは経路の受け渡しだけを見る。
  */
 import { describe, expect, it } from 'vitest'
@@ -22,6 +25,7 @@ import { createFakeStore } from './fake-store'
 import { createFakeTabChannel } from './fake-tab-channel'
 import { createFakeTokenVault } from './fake-token-vault'
 import { handleRequest, type Env } from './index'
+import { createSessionToken } from './session'
 import { listFailures } from './stats-store'
 
 const now = Date.parse('2026-10-04T12:00:00Z')
@@ -40,7 +44,7 @@ const fuchuTour = {
   surprise: 'ミンチ肉を使う「府中焼き」というお好み焼きがあります。',
 }
 
-const createEnv = (aiResponse: string) =>
+const createEnv = (aiResponse: string, alertChannel = createFakeAlertChannel()) =>
   ({
     STORE: createFakeStore({ 'overlay-key': overlayKey }),
     MEDIA: createFakeBucket(),
@@ -51,7 +55,7 @@ const createEnv = (aiResponse: string) =>
     TWITCH_BROADCASTER_ID: '12345',
     SESSION_SECRET: 'テスト用のセッション秘密鍵',
     EVENTSUB_SECRET: 'テスト用のWebhookシークレット',
-    ALERTS: createFakeAlertChannel().namespace,
+    ALERTS: alertChannel.namespace,
     DRAW: createFakeDrawChannel().namespace,
     TAB: createFakeTabChannel().namespace,
     COMMENTS: createFakeCommentChannel().namespace,
@@ -85,8 +89,8 @@ const fuchuArticle = {
   },
 }
 
-const invoke = (path: string, env: Env, fetchImpl: typeof fetch) =>
-  handleRequest(new Request(`${site}${path}`), env, {
+const invoke = (path: string, env: Env, fetchImpl: typeof fetch, init: RequestInit = {}) =>
+  handleRequest(new Request(`${site}${path}`, init), env, {
     fetch: fetchImpl,
     now: () => now,
     wait: async () => {},
@@ -167,5 +171,73 @@ describe('GET /api/overlay/town-tour', () => {
     expect(response.status).toBe(502)
     expect(await response.json()).toMatchObject({ error: { code: 'town-tour-failed', message: expect.stringContaining('JSON') } })
     expect(await listFailures(env.DB)).toEqual([expect.objectContaining({ code: 'town-tour-failed' })])
+  })
+})
+
+describe('GET /api/overlay/town-tour/socket', () => {
+  const noFetch: typeof fetch = async () => {
+    throw new Error('このテストでは外へ通信しません')
+  }
+
+  it('WebSocketの接続でなければ400にする', async () => {
+    const response = await invoke(`/api/overlay/town-tour/socket?key=${overlayKey}`, createEnv(''), noFetch)
+
+    expect(response.status).toBe(400)
+  })
+
+  it('WebSocketの接続なら、市町村紹介を受け取る接続として配送先へ引き渡す', async () => {
+    const alertChannel = createFakeAlertChannel()
+    const env = createEnv('', alertChannel)
+
+    const response = await handleRequest(new Request(`${site}/api/overlay/town-tour/socket?key=${overlayKey}`, { headers: { Upgrade: 'websocket' } }), env, {
+      fetch: noFetch,
+      now: () => now,
+      wait: async () => {},
+      waitUntil: () => undefined,
+    })
+
+    expect(response.status).toBe(200)
+    expect(alertChannel.forwardedConnections.map((request) => new URL(request.url).searchParams.get('topic'))).toEqual(['townTour'])
+  })
+})
+
+describe('POST /api/admin/town-tour/demo', () => {
+  const noFetch: typeof fetch = async () => {
+    throw new Error('このテストでは外へ通信しません')
+  }
+
+  /** 配信者としてログインした状態で呼ぶ。書き換えなので Origin も付ける（ブラウザが付けるのと同じ） */
+  const callAsBroadcaster = async (env: Env): Promise<Response> => {
+    const session = await createSessionToken(env.TWITCH_BROADCASTER_ID, env.SESSION_SECRET, now)
+    return invoke('/api/admin/town-tour/demo', env, noFetch, {
+      method: 'POST',
+      headers: { Cookie: `__Host-session=${session}`, Origin: site },
+    })
+  }
+
+  it('ログインしていなければ401にし、押し出さない', async () => {
+    const alertChannel = createFakeAlertChannel()
+
+    const response = await invoke('/api/admin/town-tour/demo', createEnv('', alertChannel), noFetch, { method: 'POST', headers: { Origin: site } })
+
+    expect(response.status).toBe(401)
+    expect(alertChannel.pushedTownTours).toEqual([])
+  })
+
+  it('市町村を1つ引き、試し再生と分かる一文を添えて押し出し、押し出したものを返す', async () => {
+    const alertChannel = createFakeAlertChannel()
+
+    const response = await callAsBroadcaster(createEnv('', alertChannel))
+
+    expect(response.status).toBe(200)
+    expect(alertChannel.pushedTownTours).toHaveLength(1)
+    expect(alertChannel.pushedTownTours[0]?.headline).toMatch(/^試し再生: 本日は.+をご紹介します$/)
+    expect(await response.json()).toEqual(alertChannel.pushedTownTours[0])
+  })
+
+  it('配送先が失敗したら、黙って成功にせず 502 で返す', async () => {
+    const response = await callAsBroadcaster(createEnv('', createFakeAlertChannel({ shouldFail: true })))
+
+    expect(response.status).toBe(502)
   })
 })

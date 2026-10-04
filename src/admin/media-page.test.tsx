@@ -28,6 +28,7 @@ const fakeApi = (overrides: Partial<AdminApi> = {}): AdminApi => ({
   upload: vi.fn(async () => fireworksImage),
   removeMedia: vi.fn(async () => {}),
   rotateOverlayKey: vi.fn(async () => 'atarashii-key'),
+  playTownTourDemo: vi.fn(async () => '試し再生: 本日は東京都千代田区をご紹介します'),
   rewards: vi.fn(async () => []),
   createReward: vi.fn(async () => {
     throw new Error('このテストでは報酬を変更しません')

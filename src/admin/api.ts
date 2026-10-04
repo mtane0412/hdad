@@ -113,7 +113,17 @@ export interface ShoutoutAction {
   type: 'shoutout'
 }
 
-export type ActionInput = AlertActionInput | ChatAction | AnnounceAction | AiChatAction | ShoutoutAction
+/**
+ * 市町村を1つ引いて、合成ページの素材「市町村紹介」に流させる動作（issue #229）。
+ *
+ * 引く市町村はその都度ランダムなので、配信者が決める項目を持たない。
+ * 置けるのはレイドとキーワードの項目だけである（src/admin/form.ts の supportsTownTour）。
+ */
+export interface TownTourAction {
+  type: 'townTour'
+}
+
+export type ActionInput = AlertActionInput | ChatAction | AnnounceAction | AiChatAction | ShoutoutAction | TownTourAction
 
 /**
  * 既定メニューの項目。worker/trigger-menu.ts の TRIGGER_KINDS と同じ並び（worker/ の型は読み込めないのでここで定義する）。
@@ -165,7 +175,7 @@ export type TriggerInput = TriggerSource & { actions: ActionInput[] }
 /** 保存済みの「アラートを出す」動作（Workerが素材の種類を書き足したもの） */
 export type StoredAlertAction = AlertActionInput & { mediaKind: MediaKind }
 
-export type StoredAction = StoredAlertAction | ChatAction | AnnounceAction | AiChatAction | ShoutoutAction
+export type StoredAction = StoredAlertAction | ChatAction | AnnounceAction | AiChatAction | ShoutoutAction | TownTourAction
 
 /** 保存済みのトリガー */
 export type StoredTrigger = TriggerSource & { actions: StoredAction[] }
@@ -204,6 +214,8 @@ export interface AdminApi {
   removeMedia(id: string): Promise<void>
   /** オーバーレイ用キーを発行し直す。古いキーを含むURLは使えなくなる */
   rotateOverlayKey(): Promise<string>
+  /** 市町村紹介の試し再生。Workerが市町村を1つ引いて合成ページへ押し出し、冒頭の一文を返す */
+  playTownTourDemo(): Promise<string>
   rewards(): Promise<Reward[]>
   /** チャンネルポイント報酬を作る。作られた報酬を返す */
   createReward(input: RewardInput): Promise<Reward>
@@ -336,6 +348,12 @@ export const createAdminApi = (fetchImpl: typeof fetch): AdminApi => {
       const body = await call('/api/admin/overlay-key', { method: 'POST' })
       if (!isRecord(body) || typeof body.overlayKey !== 'string') throw new Error('Workerの応答に overlayKey がありません')
       return body.overlayKey
+    },
+
+    playTownTourDemo: async () => {
+      const body = await call('/api/admin/town-tour/demo', { method: 'POST' })
+      if (!isRecord(body) || typeof body.headline !== 'string') throw new Error('Workerの応答に headline がありません')
+      return body.headline
     },
 
     rewards: async () => readList(await call(REWARDS_PATH), 'rewards', isReward),

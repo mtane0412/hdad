@@ -1,5 +1,9 @@
 /**
- * 市町村紹介の経路（GET /api/overlay/town-tour?key=&code=）
+ * 市町村紹介の経路
+ *
+ * - GET /api/overlay/town-tour?key=&code=: コードの市町村の紹介を作って返す
+ * - GET /api/overlay/town-tour/socket?key=: 合成ページの素材「市町村紹介」の WebSocket の接続を配送先（AlertChannel）へ引き渡す
+ * - POST /api/admin/town-tour/demo: 管理画面の試し再生。市町村を1つ引いて素材へ押し出す（トリガーと同じ配送の経路を通す）
  *
  * 合成ページの素材（issue #229）が、レイドで引いた市町村のコードを渡して呼ぶ。Worker はコードから記事名を引き
  * （src/town-tour/articles.json）、Wikipedia の記事を材料に LLM に紹介を作らせ、出典の URL と一緒に返す。
@@ -14,9 +18,12 @@
  */
 import articles from '../src/town-tour/articles.json'
 import towns from '../src/town-tour/towns.json'
-import { HttpError, STATUS, requireOverlayKey, type Context } from './http'
+import { connectTownTourSocket, pushTownTour } from './alert-channel'
+import { HttpError, STATUS, requireAdmin, requireOverlayKey, type Context } from './http'
+import { overlayKeyTag } from './overlay-key'
 import { recordFailure } from './stats-store'
 import { generateTownTour } from './town-tour'
+import { pickTown, townTourCallOf } from './town-tour-call'
 import { fetchTownArticle, pickTownMaterial } from './town-wikipedia'
 
 /** コードから記事名を引く表。JSON のキーは文字列なので Map に移しておき、プロトタイプのキー（toString など）に当たらないようにする */
@@ -55,4 +62,32 @@ export const getTownTour = async (context: Context): Promise<Response> => {
     )
     throw new HttpError(STATUS.badGateway, 'town-tour-failed', `${reason}${recordProblem}`)
   }
+}
+
+/** GET /api/overlay/town-tour/socket?key=: 合成ページからのWebSocketの接続を、市町村紹介の呼び出しを受け取る接続として配送先へ引き渡す */
+export const townTourSocket = async (context: Context): Promise<Response> => {
+  const key = await requireOverlayKey(context)
+  if (context.request.headers.get('Upgrade') !== 'websocket') {
+    throw new HttpError(STATUS.badRequest, 'expected-websocket', 'この経路はWebSocketの接続にだけ使えます')
+  }
+  return connectTownTourSocket(context.env.ALERTS, context.request, await overlayKeyTag(key))
+}
+
+/**
+ * POST /api/admin/town-tour/demo: 管理画面の試し再生。市町村を1つ引き、試しと分かる一文を添えて素材へ押し出す。
+ *
+ * トリガーと同じ配送の経路（AlertChannel）を通すので、合成ページを開いていれば OBS の画面にもそのまま流れる。
+ * 何を引いたかを画面に出せるよう、押し出したものを返す。
+ *
+ * 注意: 配送先の失敗は黙って成功にせず 502 で返す（管理画面に理由を出す）。
+ */
+export const postTownTourDemo = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  const call = townTourCallOf(pickTown(Math.random), { occasion: 'demo' })
+  try {
+    await pushTownTour(context.env.ALERTS, call)
+  } catch (error) {
+    throw new HttpError(STATUS.badGateway, 'town-tour-push-failed', error instanceof Error ? error.message : String(error))
+  }
+  return Response.json(call)
 }

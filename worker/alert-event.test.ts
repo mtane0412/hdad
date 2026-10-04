@@ -22,6 +22,7 @@ import {
   requiresFirstChatOfStream,
   requiresStreamSummary,
   shoutoutsFor,
+  townToursFor,
   type ConditionState,
 } from './alert-event'
 
@@ -764,6 +765,50 @@ describe('shoutoutsFor', () => {
     const config = alertConfig([{ kind: 'raid', actions: [{ type: 'shoutout' }] }])
 
     expect(shoutoutsFor(config, 'channel.follow', { user_name: '田中太郎', user_login: 'tanaka_taro' }, notFirstTime)).toEqual([])
+  })
+})
+
+describe('townToursFor', () => {
+  const alertConfig = (triggers: StoredTrigger[]): AlertConfig => ({ triggers })
+  const raidNotification = {
+    from_broadcaster_user_id: 'レイド元のユーザーID',
+    from_broadcaster_user_name: '山田花子',
+    from_broadcaster_user_login: 'yamada_hanako',
+    viewers: 25,
+  }
+  const dartsMessage = {
+    broadcaster_user_id: '配信者ID',
+    chatter_user_id: '発言者ID',
+    chatter_user_login: 'tanaka_taro',
+    chatter_user_name: '田中太郎',
+    message_id: '発言ID-1',
+    message: { text: '!darts' },
+  }
+
+  it('レイドのトリガーの市町村紹介を、レイド元の表示名と一緒に返す', () => {
+    const config = alertConfig([{ kind: 'raid', actions: [{ type: 'townTour' }] }])
+
+    expect(townToursFor(config, 'channel.raid', raidNotification, notFirstTime)).toEqual([{ occasion: 'raid', userName: '山田花子' }])
+  })
+
+  it('キーワードのトリガーの市町村紹介を、発言した人の表示名と一緒に返す', () => {
+    const config = alertConfig([{ kind: 'keyword', contains: '!darts', actions: [{ type: 'townTour' }] }])
+
+    expect(townToursFor(config, CHAT_MESSAGE, dartsMessage, notFirstTime)).toEqual([{ occasion: 'keyword', userName: '田中太郎' }])
+  })
+
+  it('市町村紹介を流す動作を持たないトリガーには反応しない', () => {
+    const chatOnly: StoredTrigger = { kind: 'raid', actions: [{ type: 'chat', message: 'レイドありがとう' }] }
+
+    expect(townToursFor(alertConfig([chatOnly]), 'channel.raid', raidNotification, notFirstTime)).toEqual([])
+  })
+
+  it('レイドとキーワード以外のトリガーに置かれていたら、黙って流さずに投げる', () => {
+    const config = alertConfig([{ kind: 'follow', actions: [{ type: 'townTour' }] }])
+
+    expect(() => townToursFor(config, 'channel.follow', { user_name: '田中太郎', user_login: 'tanaka_taro' }, notFirstTime)).toThrow(
+      '市町村紹介はレイドとキーワードのトリガーにだけ置けます',
+    )
   })
 })
 

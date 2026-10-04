@@ -22,6 +22,7 @@ import {
   placeholdersFor,
   rewardOptions,
   supportsShoutout,
+  supportsTownTour,
   toDraft,
   toTriggerInput,
   type TriggerDraft,
@@ -49,6 +50,7 @@ const inputs = (overrides: Partial<TriggerDraft> = {}): TriggerDraft => ({
   aiChatEnabled: false,
   aiChatInstruction: '',
   shoutoutEnabled: false,
+  townTourEnabled: false,
   ...overrides,
 })
 
@@ -208,6 +210,12 @@ describe('toTriggerInput', () => {
     expect(toTriggerInput(draft).actions).toEqual([{ type: 'shoutout' }])
   })
 
+  it('市町村紹介を流すを選んでいれば、項目を持たない動作として送る', () => {
+    const draft = inputs({ kind: 'raid', alertEnabled: false, townTourEnabled: true })
+
+    expect(toTriggerInput(draft).actions).toEqual([{ type: 'townTour' }])
+  })
+
   it('表示時間が数として読めなければエラーにする（何番目のトリガーかは呼び出し側が添える）', () => {
     expect(() => toTriggerInput(inputs({ durationSeconds: '' }))).toThrowError(/表示時間/)
   })
@@ -264,6 +272,12 @@ describe('toDraft', () => {
     expect(toDraft(trigger)).toMatchObject({ kind: 'raid', alertEnabled: false, shoutoutEnabled: true })
   })
 
+  it('市町村紹介を流す動作を持つトリガーは、その印を付けて戻す', () => {
+    const trigger: StoredTrigger = { kind: 'keyword', contains: '!darts', actions: [{ type: 'townTour' }] }
+
+    expect(toDraft(trigger)).toMatchObject({ kind: 'keyword', alertEnabled: false, townTourEnabled: true })
+  })
+
   it('LLMに文面を作らせる動作を持つトリガーは、指示の入力欄を埋めて戻す', () => {
     const trigger: StoredTrigger = { kind: 'newViewer', actions: [{ type: 'aiChat', instruction: '歓迎してください' }] }
 
@@ -281,6 +295,12 @@ describe('supportsShoutout', () => {
   it('レイドの項目だけがシャウトアウトを置ける（ほかのイベントの相手は配信者とは限らないため）', () => {
     expect(supportsShoutout('raid')).toBe(true)
     expect(TRIGGER_KINDS.filter((kind) => kind !== 'raid').filter(supportsShoutout)).toEqual([])
+  })
+})
+
+describe('supportsTownTour', () => {
+  it('レイドとキーワードの項目だけが市町村紹介を置ける（冒頭で名前を出す相手が決まるため）', () => {
+    expect(TRIGGER_KINDS.filter(supportsTownTour)).toEqual(['keyword', 'raid'])
   })
 })
 
@@ -382,6 +402,7 @@ describe('emptyDraft', () => {
       announceEnabled: false,
       aiChatEnabled: false,
       shoutoutEnabled: false,
+      townTourEnabled: false,
     })
   })
 })
@@ -414,6 +435,10 @@ describe('rowActionLabels', () => {
 
   it('シャウトアウトの効果は「シャウトアウト」として出す', () => {
     expect(rowActionLabels(inputs({ kind: 'raid', alertEnabled: false, shoutoutEnabled: true }))).toEqual(['シャウトアウト'])
+  })
+
+  it('市町村紹介の効果は「市町村紹介」として出す', () => {
+    expect(rowActionLabels(inputs({ kind: 'raid', alertEnabled: false, townTourEnabled: true }))).toEqual(['市町村紹介'])
   })
 
   it('AIに文面を作らせる効果は「AIチャット」として出す', () => {

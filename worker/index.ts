@@ -52,6 +52,7 @@
  * | GET  /api/admin/pomodoro         | セッション     | ポモドーロのタイマーと、休憩の曲の設定 |
  * | PUT  /api/admin/pomodoro/settings | セッション    | ポモドーロの休憩の曲の保存 |
  * | POST /api/admin/pomodoro/control | セッション     | ポモドーロのタイマーの操作（始める・一時停止・再開・止める） |
+ * | POST /api/admin/town-tour/demo   | セッション     | 市町村紹介の試し再生（市町村を1つ引いて合成ページへ押し出す） |
  * | GET  /api/admin/viewers          | セッション     | 視聴者の記録の一覧（検索・ページ送り） |
  * | PATCH /api/admin/viewers/:userId | セッション     | 視聴者へのメモの保存 |
  * | DELETE /api/admin/viewers/:userId | セッション    | 視聴者の記録の削除 |
@@ -82,6 +83,8 @@
  * | GET  /api/overlay/task-desk/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、作業机の配送先へ引き渡す |
  * | GET  /api/overlay/pomodoro       | オーバーレイ用キー | いまのポモドーロのタイマー（止めていれば null）を返す |
  * | GET  /api/overlay/pomodoro/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、ポモドーロのタイマーの配送先へ引き渡す |
+ * | GET  /api/overlay/town-tour      | オーバーレイ用キー | コードの市町村の紹介を Wikipedia を材料に作って返す |
+ * | GET  /api/overlay/town-tour/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、市町村紹介の呼び出しの配送先へ引き渡す |
  * | GET  /api/media/:id              | オーバーレイ用キーかセッション | 素材の中身を返す |
  *
  * これとは別に、cron（wrangler.jsonc の triggers.crons）から scheduled が呼ばれ、配信の記録を収集する（collect.ts）。
@@ -149,7 +152,7 @@ import { postAdminTranscript } from './transcript-routes'
 import { captionSocket } from './caption-routes'
 import { getWorkLog, workLogSocket } from './work-log-routes'
 import { getTaskDesk, taskDeskSocket } from './task-desk-routes'
-import { getTownTour } from './town-tour-routes'
+import { getTownTour, postTownTourDemo, townTourSocket } from './town-tour-routes'
 import { getOverlayPomodoro, getPomodoro, pomodoroSocket, postPomodoroControl, putPomodoroSettings } from './pomodoro-routes'
 import { getDeeplUsage, getTranslation, postTranslation, putTranslation } from './translation-routes'
 import { drawSocket, getDrawBackground, getDrawStrokes, putDrawStrokes } from './draw-routes'
@@ -295,6 +298,8 @@ const ROUTES: readonly Route[] = [
   { method: 'POST', path: '/api/overlay/bgm/ended', handle: postOverlayBgmEnded },
   { method: 'GET', path: '/api/overlay/layout', handle: getOverlayLayoutForPage },
   { method: 'GET', path: '/api/overlay/town-tour', handle: getTownTour },
+  { method: 'GET', path: '/api/overlay/town-tour/socket', handle: townTourSocket },
+  { method: 'POST', path: '/api/admin/town-tour/demo', handle: postTownTourDemo },
   { method: 'GET', path: '/api/media/:id', handle: media },
 ]
 
