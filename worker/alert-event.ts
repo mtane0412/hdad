@@ -377,6 +377,9 @@ export const matches = (trigger: ResolvedTrigger, extracted: Extracted, state: C
  */
 const tierLabel = (tier: string): string => TIER_LABELS[tier] ?? tier
 
+/** 文言の中の差し込み語らしい部分（{英小文字}）。そのイベントに無い語は置き換えずに残す（fillMessage） */
+const PLACEHOLDER_PATTERN = /\{[a-z]+\}/g
+
 /** 文言に差し込む語と、その値の対応をイベント種別ごとに作る */
 const placeholderValues = (extracted: Extracted): Record<string, string> => {
   switch (extracted.event) {
@@ -417,17 +420,20 @@ const placeholderValues = (extracted: Extracted): Record<string, string> => {
  *
  * 注意: 置き換える値は関数で渡す。文字列で渡すと `$&` などが置換の特殊な指定として解釈され、
  * 報酬名にそうした文字が含まれるときに意図しない文言になる。
- * 注意: あらすじは最後に差し込む。先に差し込むと、あらすじの中の文字が差し込み語として読まれてしまう
- * （あらすじはLLMが書くもので、配信者が書いた文言ではない）。
+ * 注意: 文言は1回だけ走査して置き換える。語ごとに順に置き換えると、差し込んだ値（視聴者の発言や
+ * LLMが書いたあらすじ）に含まれる差し込み語まで置き換えてしまう。視聴者が {summary} を並べるだけで
+ * アラート文が際限なく長くなるため（chat-command.ts の applyReply と同じ作り）。
  *
  * @param summary 貯めてある配信のあらすじ。配信していない・まだ作っていない・読む必要がない場合は null で、
  *   そのときは「まだあらすじがありません」が入る（stream-summary.ts）
  */
-export const fillMessage = (template: string, extracted: Extracted, summary: string | null): string =>
-  fillStreamSummary(
-    Object.entries(placeholderValues(extracted)).reduce((text, [placeholder, value]) => text.replaceAll(placeholder, () => value), template),
-    summary,
-  )
+export const fillMessage = (template: string, extracted: Extracted, summary: string | null): string => {
+  const values = placeholderValues(extracted)
+  return template.replaceAll(PLACEHOLDER_PATTERN, (placeholder) => {
+    if (placeholder === STREAM_SUMMARY_PLACEHOLDER) return fillStreamSummary(placeholder, summary)
+    return values[placeholder] ?? placeholder
+  })
+}
 
 /**
  * 挨拶の段に当てはまったもののうち、最も細かい1つだけを残す。

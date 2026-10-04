@@ -407,6 +407,14 @@ describe('fillMessage', () => {
 
     expect(fillMessage('{summary}', followed, '$& と $1 の話をしていました')).toBe('$& と $1 の話をしていました')
   })
+
+  it('視聴者の発言に書かれた {summary} は、あらすじに置き換えずそのまま残す（差し込んだ値を差し込み語として読まない）', () => {
+    const chatted = { event: CHAT_MESSAGE, userName: '田中太郎', userLogin: 'tanaka_taro', text: '{summary}{summary}' } as const
+
+    expect(fillMessage('{user}「{message}」 いまの話: {summary}', chatted, '新しいゲームを遊んでいます')).toBe(
+      '田中太郎「{summary}{summary}」 いまの話: 新しいゲームを遊んでいます',
+    )
+  })
 })
 
 describe('aiChatsFor', () => {
@@ -468,6 +476,20 @@ describe('chatMessagesFor', () => {
     expect(chatMessagesFor(config, 'channel.follow', followNotification, notFirstTime, '新しいゲームを遊んでいます')).toEqual([
       '田中太郎 さん、いま「新しいゲームを遊んでいます」って話をしてます',
     ])
+  })
+
+  it('視聴者の発言に書かれた {summary} は、あらすじに置き換えずそのまま送る', () => {
+    const config = alertConfig([{ kind: 'everyMessage', actions: [{ type: 'chat', message: '{user}「{message}」' }] }])
+    const chatMessage = {
+      broadcaster_user_id: '配信者ID',
+      chatter_user_id: '発言者ID',
+      chatter_user_login: 'tanaka_taro',
+      chatter_user_name: '田中太郎',
+      message_id: '発言ID-1',
+      message: { text: 'あらすじは {summary} です' },
+    }
+
+    expect(chatMessagesFor(config, CHAT_MESSAGE, chatMessage, notFirstTime, '新しいゲームを遊んでいます')).toEqual(['田中太郎「あらすじは {summary} です」'])
   })
 
   it('当てはまるトリガーがなければ null を返す', () => {
@@ -969,6 +991,22 @@ describe('alertsFor', () => {
 
   const overlayKey = 'overlay-key_1'
   const followNotification = { user_name: '田中太郎', user_login: 'tanaka_taro' }
+
+  it('視聴者の発言に書かれた {summary} は、あらすじに置き換えずアラート文にそのまま出す（文が際限なく長くならない）', () => {
+    const config: AlertConfig = { triggers: [{ kind: 'everyMessage', actions: [{ ...alertAction, message: '{message}' }] }] }
+    const chatMessage = {
+      broadcaster_user_id: '配信者ID',
+      chatter_user_id: '発言者ID',
+      chatter_user_login: 'tanaka_taro',
+      chatter_user_name: '田中太郎',
+      message_id: '発言ID-1',
+      message: { text: '{summary}{summary}{summary}' },
+    }
+
+    expect(alertsFor(config, CHAT_MESSAGE, chatMessage, overlayKey, notFirstTime, '新しいゲームを遊んでいます').map((alert) => alert.text)).toEqual([
+      '{summary}{summary}{summary}',
+    ])
+  })
   const alertAction = {
     type: 'alert',
     mediaId: '素材ID-乾杯の動画',
