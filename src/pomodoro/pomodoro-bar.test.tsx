@@ -33,15 +33,19 @@ const pausedTimer: PomodoroTimer = { startedAt, anchorAt: startedAt, pausedAt: s
 
 /** 操作を記録し、決めたタイマーを返す代役。readTimer は Worker にある今のタイマーを返す */
 const createApi = ({ timer = null as PomodoroTimer | null, failRead = false } = {}) => {
+  let shouldFailRead = failRead
   const commands: PomodoroCommand[] = []
   let reads = 0
-  const api: PomodoroApi & { current: PomodoroTimer | null; failNext: ApiError | null; reads: () => number } = {
+  const api: PomodoroApi & { current: PomodoroTimer | null; failNext: ApiError | null; reads: () => number; recoverRead: () => void } = {
     current: timer,
+    recoverRead: () => {
+      shouldFailRead = false
+    },
     failNext: null,
     reads: () => reads,
     read: async () => {
       reads += 1
-      if (failRead) throw new Error('Workerにつながりません')
+      if (shouldFailRead) throw new Error('Workerにつながりません')
       return { timer: api.current, settings: { breakMediaId: null } }
     },
     saveSettings: async (settings) => settings,
@@ -70,6 +74,7 @@ const fakeConnection = () => {
     },
     push: (timer: PomodoroTimer | null) => act(() => getHandlers().onMessage(JSON.stringify({ timer }))),
     disconnect: () => act(() => getHandlers().onStatus('disconnected')),
+    reconnect: () => act(() => getHandlers().onStatus('reconnected')),
   }
 }
 
@@ -146,6 +151,21 @@ describe('PomodoroBar', () => {
     renderBar(api)
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Workerにつながりません')
+  })
+
+  test('最初に読めなくても、つなぎ直して読めたら理由を消して操作できるようにする', async () => {
+    // 前提: 開いたときは Worker に届かなかったが、そのあと届くようになった
+    const { api } = createApi({ failRead: true, timer: runningTimer })
+    const connection = fakeConnection()
+    renderBar(api, connection)
+    expect(await screen.findByRole('alert')).toHaveTextContent('Workerにつながりません')
+    api.recoverRead()
+
+    await connection.reconnect()
+
+    expect(await screen.findByText('15:00')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'ポモドーロを一時停止' })).toBeEnabled()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   test('押し出しが切れたら、受け取れていないことを出す', async () => {

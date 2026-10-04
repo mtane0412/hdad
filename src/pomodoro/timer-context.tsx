@@ -135,10 +135,12 @@ export const PomodoroTimerProvider = ({
           setWatchProblem(DISCONNECTED_NOTICE)
           return
         }
-        // つながっていない間に変わっていたかもしれないので読み直す
+        // つながっていない間に変わっていたかもしれないので読み直す。開いたときに読めなかった場合も、ここで読めたら立ち直る
         reload().then(
           () => {
-            if (!cancelled) setWatchProblem(null)
+            if (cancelled) return
+            setLoaded({ status: 'ready' })
+            setWatchProblem(null)
           },
           (error: unknown) => {
             if (!cancelled) setWatchProblem(errorMessage(error))
