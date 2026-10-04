@@ -10,7 +10,7 @@
  */
 import { connectSocket, socketUrl } from '../core/socket'
 import { BGM_SOCKET_HINT, BGM_SOCKET_PATH } from './api'
-import type { BgmWatchHandlers } from './bgm-page'
+import type { BgmWatchHandlers } from './player-context'
 
 /**
  * 押し出しの配送先へつなぎ、切れてもつなぎ直し続ける。

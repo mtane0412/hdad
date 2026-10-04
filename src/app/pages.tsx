@@ -9,7 +9,6 @@ import type { AdminApi, Me } from '@/admin/api'
 import { BackstagePage } from '@/backstage/backstage-page'
 import type { BgmApi } from '@/bgm/api'
 import { BgmPage } from '@/bgm/bgm-page'
-import { connectBgmWatch } from '@/bgm/socket'
 import { MediaPage } from '@/admin/media-page'
 import { RewardPage } from '@/admin/reward-page'
 import { TriggerPage } from '@/admin/trigger-page'
@@ -58,7 +57,7 @@ export interface PageContext {
   llmApi: LlmApi
   /** 合成オーバーレイの構成の読み書き（オーバーレイのページが使う） */
   overlayApi: OverlayLayoutAdminApi
-  /** BGMの曲と、流す曲・音量の読み書き（BGMのページが使う） */
+  /** BGMの曲と、流す曲・音量の読み書き（アプリの枠が持つBGMの再生の状態と、ポモドーロのページが使う） */
   bgmApi: BgmApi
   /** ポモドーロのタイマーと休憩の曲の読み書き（ポモドーロのページが使う） */
   pomodoroApi: PomodoroApi
@@ -108,8 +107,8 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
         name: 'BGM',
         icon: Music,
         // 鳴らすのは裏方のページ（/connectors/ で BGM を入れる）で、流す曲と音量の切り替えは Worker が押し出す（issue #151）。
-        // 曲にする音声は、アップロードのページで上げた素材から選ぶ
-        render: ({ bgmApi, api, me }) => <BgmPage api={bgmApi} mediaApi={api} overlayKey={me.overlayKey} connect={connectBgmWatch} />,
+        // 曲にする音声は、アップロードのページで上げた素材から選ぶ。再生の状態は下部バーと共有するのでアプリの枠が持つ（issue #236）
+        render: ({ api }) => <BgmPage mediaApi={api} />,
       },
       {
         path: '/pomodoro/',
