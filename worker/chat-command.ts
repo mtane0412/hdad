@@ -25,7 +25,12 @@ export interface BotCommand {
 
 /** 通知から取り出した、1件の発言 */
 export interface ChatMessage {
-  /** 発言があったチャンネルの持ち主のユーザーID。このWorkerが扱う配信者のものかを確かめるのに使う */
+  /**
+   * 発言があったチャンネルの持ち主のユーザーID。このWorkerが扱う配信者のものかを確かめるのに使う。
+   *
+   * Shared Chat 中は、相手チャンネルで書かれた発言も自チャンネルの購読に届く（broadcaster_user_id は自チャンネルのまま）。
+   * そのため購読したチャンネルではなく、書かれたチャンネル（source_broadcaster_user_id）を入れる（issue #205）
+   */
   broadcasterUserId: string
   /** Twitchが振ったメッセージのID */
   messageId: string
@@ -86,6 +91,7 @@ export const readChatMessage = (event: unknown, toError: (message: string) => Er
     chatter_user_id: chatterUserId,
     chatter_user_login: chatterUserLogin,
     chatter_user_name: chatterUserName,
+    source_broadcaster_user_id: sourceBroadcasterUserId,
     message_id: messageId,
     message,
     badges,
@@ -103,7 +109,20 @@ export const readChatMessage = (event: unknown, toError: (message: string) => Er
       'channel.chat.message の通知に broadcaster_user_id・chatter_user_id・chatter_user_login・chatter_user_name・message_id・message.text が揃っていません',
     )
   }
-  return { broadcasterUserId, messageId, chatterUserId, chatterUserLogin, chatterUserName, text, badges: readBadgeNames(badges) }
+  // 自チャンネルで書かれた発言では null で届く。それ以外の値を自チャンネルの発言として扱うと、相手チャンネルの発言で
+  // 処罰・応答・記録をしてしまうので、黙って読み替えずにエラーにする
+  if (sourceBroadcasterUserId !== undefined && sourceBroadcasterUserId !== null && typeof sourceBroadcasterUserId !== 'string') {
+    throw toError('channel.chat.message の通知の source_broadcaster_user_id が文字列でも null でもありません')
+  }
+  return {
+    broadcasterUserId: sourceBroadcasterUserId ?? broadcasterUserId,
+    messageId,
+    chatterUserId,
+    chatterUserLogin,
+    chatterUserName,
+    text,
+    badges: readBadgeNames(badges),
+  }
 }
 
 /**

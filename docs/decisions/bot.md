@@ -41,6 +41,18 @@ KVに残っていたトークンは、保管庫が起きたときに1度だけ�
 
 発言の読み取りは `worker/chat-command.ts` の `readChatMessage` に集め、アラートのイベントの読み取り（`worker/alert-event.ts` の `extract`）からも呼ぶ（同じ通知を2か所で読み解かないため。そのため引数は通知そのものではなく `event` の中身である）。
 
+### Shared Chat の相手チャンネルの発言（issue #205）
+
+Shared Chat 中は、相手チャンネルで書かれた発言も自チャンネルの `channel.chat.message` の購読に届く。そのとき `broadcaster_user_id` は自チャンネルのままで、書かれたチャンネルは `source_broadcaster_user_id` に入る（自チャンネルで書かれた発言では null。Twitch の EventSub リファレンスによる）。以前は `broadcaster_user_id` だけを見ていたので、相手チャンネルの発言でも視聴者の記録・LLMの材料・自動モデレーション・トリガー・コマンドの応答・初めての発言の判定がすべて動いていた。
+
+`readChatMessage` が返す「発言があったチャンネル」（`broadcasterUserId`）を `source_broadcaster_user_id ?? broadcaster_user_id` にし、自チャンネルかの判定をその値で行う。処理ごとの扱いは次のとおり。
+
+- **コメントビューアーには並べる。** 自チャンネルのチャット欄にも見えている発言なので、配信者の画面から消すと食い違う（`pushToCommentFeed` は購読したチャンネル＝`broadcaster_user_id` で判定したまま）。どのチャンネルの発言かの印は付けていない
+- **初めての発言の印・記録（`first_chatters`）は付けない。** 自チャンネルの視聴者ではないため
+- **視聴者の記録・LLMの材料・自動モデレーション・トリガー・コマンド・作業机からは外す**（`replyToChatMessage` の入口で返す）。自動モデレーションも外すのは、相手チャンネルの視聴者を自チャンネルで処罰する判断を、自チャンネル向けのルールで自動に下さないためである。荒らしがいれば、配信者・モデレーターがコメントビューアーや Twitch の画面から手で処分する
+
+`source_broadcaster_user_id` が文字列でも null でもない通知は、自チャンネルの発言として扱わずエラーにする（取り違えると相手チャンネルの発言で処罰・応答・記録をしてしまうため）。
+
 ## コマンドの応答
 
 コマンドの判定（`worker/chat-command.ts`）は通信を伴わないので分けてテストし、コマンドの一覧は引数で受け取る（保存と検証は `worker/bot-config.ts`、KVのキーは `bot-commands`）。

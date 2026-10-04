@@ -114,6 +114,31 @@ describe('readChatMessage', () => {
     }
     expect(() => readChatMessage(event)).toThrow(/chatter_user_name/)
   })
+
+  describe('Shared Chat の相手チャンネルで書かれた発言（issue #205）', () => {
+    /** 自チャンネル（12345）の購読に届いた、相手チャンネルで書かれた発言 */
+    const sharedChatEvent = (sourceBroadcasterUserId: unknown) => ({
+      broadcaster_user_id: '12345',
+      source_broadcaster_user_id: sourceBroadcasterUserId,
+      chatter_user_id: '11111',
+      chatter_user_login: 'shichousha',
+      chatter_user_name: '相手チャンネルの視聴者さん',
+      message_id: 'message-id-0123456789',
+      message: { text: '!ping' },
+    })
+
+    it('発言があったチャンネルとして、購読したチャンネルではなく書かれたチャンネル（source_broadcaster_user_id）を返す', () => {
+      expect(readChatMessage(sharedChatEvent('相手チャンネルのID')).broadcasterUserId).toBe('相手チャンネルのID')
+    })
+
+    it('source_broadcaster_user_id が null なら、購読したチャンネルで書かれた発言として扱う', () => {
+      expect(readChatMessage(sharedChatEvent(null)).broadcasterUserId).toBe('12345')
+    })
+
+    it('source_broadcaster_user_id が文字列でも null でもなければエラーになる（自チャンネルの発言と取り違えないため）', () => {
+      expect(() => readChatMessage(sharedChatEvent(99999))).toThrow(/source_broadcaster_user_id/)
+    })
+  })
 })
 
 describe('resolveReply', () => {

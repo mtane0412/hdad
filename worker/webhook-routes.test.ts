@@ -531,6 +531,22 @@ describe('チャットの通知（channel.chat.message）', () => {
     expect(await listViewers(env.DB, {})).toEqual([])
   })
 
+  it('Shared Chat の相手チャンネルで書かれた発言には、記録・材料・応答のどれも行わない（issue #205）', async () => {
+    const { env, db } = await envWithBotConnected()
+    await recordLiveStream(db, CHAT_STREAM, Date.parse('2026-09-21T12:05:00Z'))
+    const twitch = fakeTwitchAcceptingSends()
+    // 自チャンネルの購読に届くが、書かれたのは相手チャンネル（source_broadcaster_user_id）
+    const sharedChatNotification = createChatNotification('!ping')
+    const body = { ...sharedChatNotification, event: { ...sharedChatNotification.event, source_broadcaster_user_id: '相手チャンネルのID' } }
+
+    const response = await callWebhook(createNotification({ body }), env, twitch.fetchImpl)
+
+    expect(response.status).toBe(204)
+    expect(twitch.sentChats).toHaveLength(0)
+    expect(await listViewers(env.DB, {})).toEqual([])
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM stream_chat_messages').get()).toEqual({ count: 0 })
+  })
+
   it('botを接続していなければ、応答せずに受け取るだけにする', async () => {
     const { env } = createEnv()
     await saveBotConfig(env.STORE, { commands: [{ name: 'ping', reply: '@{user} pong', cooldownSeconds: 0 }] })
@@ -1985,6 +2001,18 @@ describe('コメントビューアーへの配送', () => {
     await callWebhook(createNotification({ body: otherChannel }), env)
 
     expect(commentChannel.pushedItems).toEqual([])
+  })
+
+  it('Shared Chat の相手チャンネルで書かれた発言は押し出すが、初めての発言の印は付けず記録もしない（issue #205）', async () => {
+    const { env, db, commentChannel } = createEnv()
+    await recordLiveStream(db, CHAT_STREAM, Date.parse('2026-09-21T12:05:00Z'))
+    const sharedChat = { ...viewerMessage, event: { ...viewerMessage.event, source_broadcaster_user_id: '相手チャンネルのID' } }
+
+    await callWebhook(createNotification({ body: sharedChat }), env)
+
+    // 自チャンネルのチャット欄にも見えている発言なので、コメントビューアーには並べる
+    expect(commentChannel.pushedItems).toMatchObject([{ kind: 'chat', messageId: 'chat-message-1', firstOfStream: false }])
+    expect(db.sqlite.prepare('SELECT message_id FROM first_chatters').all()).toEqual([])
   })
 
   it('チャットのお知らせ（サブスクなど）は押し出すだけで、配信の記録にもトリガーにもかけない', async () => {
