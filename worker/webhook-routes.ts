@@ -171,7 +171,9 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
 
   // このWorkerが扱う配信者以外のチャンネルのチャットには応答しない。
   // 応答先は常に TWITCH_BROADCASTER_ID なので、古い購読が残っていると、他人のチャットの発言に対して
-  // こちらのチャンネルで応答してしまう。受け取り自体は成功として返す（2xx以外だとTwitchが再送し続ける）
+  // こちらのチャンネルで応答してしまう。受け取り自体は成功として返す（2xx以外だとTwitchが再送し続ける）。
+  // Shared Chat の相手チャンネルで書かれた発言もここで外す（発言があったチャンネルは readChatMessage が書かれた側を返す）。
+  // 記録・LLMの材料・自動モデレーション・トリガー・コマンドはどれも自チャンネルの視聴者のためのものだからである（issue #205）
   if (message.broadcasterUserId !== env.TWITCH_BROADCASTER_ID) return
 
   // 視聴者の記録は、処分や応答の判定より先に残す。処分した発言も記録に含めるのは、荒らしの履歴も配信者には有用なため。
@@ -251,11 +253,14 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
  * トリガーが1件も無くても判定する（挨拶の管理は通知音の有無と関係ないため。書き込むのは1配信につき1人1行）。
  *
  * 注意: 配信者自身と bot の発言は挨拶の相手ではないので、判定も記録もしない。
+ * Shared Chat の相手チャンネルで書かれた発言も、自チャンネルの視聴者ではないので同じく扱う。
  */
 const isFirstChatToGreet = async (context: Context, event: unknown, bot: StoredToken | null): Promise<boolean> => {
   const { env, now } = context
   // 発言の読み取りはコマンドの判定と同じものを使う（同じ通知を2か所で読み解かない）
   const message = readChatMessage(event)
+  // Shared Chat の相手チャンネルで書かれた発言は、自チャンネルの初めての発言として数えない（issue #205）
+  if (message.broadcasterUserId !== env.TWITCH_BROADCASTER_ID) return false
   if (message.chatterUserId === env.TWITCH_BROADCASTER_ID || message.chatterUserId === bot?.userId) return false
   return claimFirstChatOfStream(env.DB, { chatterUserId: message.chatterUserId, messageId: message.messageId }, now)
 }
