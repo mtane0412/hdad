@@ -7,9 +7,10 @@
  * - 動いているときは「一時停止」「止める」、一時停止しているときは「再開」「止める」を出すこと
  * - 休憩の曲は BGM の一覧から選び、選んだらすぐ保存すること（「曲を変えない」も選べる）
  * - 読み込めなかったとき・操作が断られたときは、黙らずに理由を出すこと（断られたら今の状態を読み直す）
+ * - タイマーは枠の PomodoroTimerProvider から読むので、下部バーや別の窓での操作（押し出し）もページに映ること（issue #237）
  */
 import '@testing-library/jest-dom/vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, test } from 'vitest'
 import type { BgmApi, BgmTrack } from '@/bgm/api'
@@ -17,6 +18,7 @@ import { ApiError } from '@/core/api'
 import type { PomodoroApi, PomodoroCommand, PomodoroSettings } from './api'
 import type { PomodoroTimer } from './phase'
 import { PomodoroPage } from './pomodoro-page'
+import { PomodoroTimerProvider, type PomodoroWatchHandlers } from './timer-context'
 
 afterEach(cleanup)
 
@@ -60,7 +62,29 @@ const createApi = ({ timer = null as PomodoroTimer | null, settings = { breakMed
   return { api, commands, savedSettings }
 }
 
-const renderPage = (api: PomodoroApi) => render(<PomodoroPage api={api} bgmApi={bgmApi} now={() => now} />)
+/** 押し出しの接続の代役。渡された受け口を覚えておき、テストから押し出しを届ける */
+const fakeConnection = () => {
+  let handlers: PomodoroWatchHandlers | null = null
+  return {
+    connect: (_overlayKey: string, next: PomodoroWatchHandlers) => {
+      handlers = next
+      return { close: () => undefined }
+    },
+    push: (timer: PomodoroTimer | null) =>
+      act(() => {
+        if (handlers === null) throw new Error('まだ押し出しの接続をつないでいません')
+        handlers.onMessage(JSON.stringify({ timer }))
+      }),
+  }
+}
+
+/** アプリの枠と同じく、タイマーの Provider の内側にページを描く */
+const renderPage = (api: PomodoroApi, connection = fakeConnection()) =>
+  render(
+    <PomodoroTimerProvider api={api} overlayKey="overlay-key" connect={connection.connect}>
+      <PomodoroPage api={api} bgmApi={bgmApi} now={() => now} />
+    </PomodoroTimerProvider>,
+  )
 
 describe('PomodoroPage', () => {
   test('止めているときは「始める」だけを出し、押すと残り時間を出す', async () => {
@@ -94,6 +118,18 @@ describe('PomodoroPage', () => {
     await userEvent.click(screen.getByRole('button', { name: '再開' }))
 
     expect(commands).toEqual(['resume'])
+  })
+
+  test('別の窓や下部バーで始めたことが押し出されたら、ページにも残り時間を出す', async () => {
+    const { api } = createApi()
+    const connection = fakeConnection()
+    renderPage(api, connection)
+    await screen.findByRole('button', { name: '始める' })
+
+    connection.push({ startedAt, anchorAt: startedAt, pausedAt: null })
+
+    expect(screen.getByText('15:00')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '一時停止' })).toBeInTheDocument()
   })
 
   test('休憩の曲を BGM の一覧から選ぶと、すぐ保存する', async () => {

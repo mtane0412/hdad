@@ -11,6 +11,7 @@
  * 画面の下端には配信中の操作のバー（bottom-bar.tsx。issue #235）を、音楽プレーヤーのように画面の幅いっぱいに固定し、
  * 文字起こしのオン・オフと状態はそこに出す。サイドバーと本文はバーの上で終わる（高さは --bottom-bar-height）。
  * BGMの再生の状態と押し出しの接続も枠が持ち（src/bgm/player-context.tsx。issue #236）、下部バーと BGM のページが同じものを映す。
+ * ポモドーロのタイマーと押し出しの接続も同じく枠が持ち（src/pomodoro/timer-context.tsx。issue #237）、下部バーとポモドーロのページが同じものを映す。
  * 本文の上にはバーを持たず、サイドバーの開閉と「ページを探す」はサイドバーの上部に置き、ページの見出しは本文の先頭に置く。
  *
  * 注意: ログインの確認に失敗したとき（Workerに届かないなど）は未ログイン扱いにせず、エラーを出す（Fail-Fast）。
@@ -22,6 +23,7 @@ import type { AdminApi, Me } from '@/admin/api'
 import type { BgmApi } from '@/bgm/api'
 import { BgmPlayerProvider, type BgmConnect } from '@/bgm/player-context'
 import type { PomodoroApi } from '@/pomodoro/api'
+import { PomodoroTimerProvider, type PomodoroConnect } from '@/pomodoro/timer-context'
 import type { BotApi } from '@/bot/api'
 import type { DrawApi } from '@/draw/api'
 import type { CommentApi } from '@/comments/api'
@@ -106,11 +108,13 @@ const Shell = ({
   context,
   recognitionDeps,
   connectBgm,
+  connectPomodoro,
   onLogout,
 }: {
   context: PageContext
   recognitionDeps: RecognitionDeps
   connectBgm: BgmConnect
+  connectPomodoro: PomodoroConnect
   onLogout: () => void
 }) => {
   const pathname = usePathname()
@@ -139,84 +143,86 @@ const Shell = ({
   return (
     <RecognitionProvider deps={recognitionDeps}>
       <BgmPlayerProvider api={context.bgmApi} overlayKey={context.me.overlayKey} connect={connectBgm}>
-        <TooltipProvider>
-          <a
-            href="#main"
-            className="sr-only z-50 rounded-md bg-background px-3 py-2 text-sm shadow-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2"
-          >
-            本文へ移動
-          </a>
-          {/* 下部バーの高さ。サイドバーの下端・本文の下の余白・バー自身の高さが同じ値を使う */}
-          <SidebarProvider className="[--bottom-bar-height:4rem]">
-            {/* サイドバーは画面の下端ではなく下部バーの上で終わらせる（下部バーをサイドバーの下まで通すため） */}
-            <Sidebar collapsible="icon" className="bottom-(--bottom-bar-height) h-auto">
-              {/* サイドバーの見出しと末尾も、読み上げソフトの「ランドマーク」で飛べる領域にする */}
-              <SidebarHeader role="banner">
-                <div className="flex items-center gap-1">
-                  <div className="min-w-0 flex-1 px-2 py-1 group-data-[collapsible=icon]:hidden">
-                    <span className="font-mono text-sm font-semibold">HDAD</span>
-                    <span className="block text-[10px] leading-tight text-muted-foreground">Hyperfocus-Driven Assistant Director</span>
+        <PomodoroTimerProvider api={context.pomodoroApi} overlayKey={context.me.overlayKey} connect={connectPomodoro}>
+          <TooltipProvider>
+            <a
+              href="#main"
+              className="sr-only z-50 rounded-md bg-background px-3 py-2 text-sm shadow-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2"
+            >
+              本文へ移動
+            </a>
+            {/* 下部バーの高さ。サイドバーの下端・本文の下の余白・バー自身の高さが同じ値を使う */}
+            <SidebarProvider className="[--bottom-bar-height:4rem]">
+              {/* サイドバーは画面の下端ではなく下部バーの上で終わらせる（下部バーをサイドバーの下まで通すため） */}
+              <Sidebar collapsible="icon" className="bottom-(--bottom-bar-height) h-auto">
+                {/* サイドバーの見出しと末尾も、読み上げソフトの「ランドマーク」で飛べる領域にする */}
+                <SidebarHeader role="banner">
+                  <div className="flex items-center gap-1">
+                    <div className="min-w-0 flex-1 px-2 py-1 group-data-[collapsible=icon]:hidden">
+                      <span className="font-mono text-sm font-semibold">HDAD</span>
+                      <span className="block text-[10px] leading-tight text-muted-foreground">Hyperfocus-Driven Assistant Director</span>
+                    </div>
+                    <SidebarTrigger aria-label="サイドバーを開閉する" />
                   </div>
-                  <SidebarTrigger aria-label="サイドバーを開閉する" />
+                  <SidebarMenu>
+                    <SidebarMenuItem>
+                      <PageSearch pathname={pathname} />
+                    </SidebarMenuItem>
+                  </SidebarMenu>
+                </SidebarHeader>
+                <SidebarContent>
+                  <nav aria-label="サイト内の移動">
+                    {PAGE_GROUPS.map((group) => (
+                      <SidebarGroup key={group.label}>
+                        <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
+                        <SidebarGroupContent>
+                          <SidebarMenu>
+                            {group.pages.map((item) => (
+                              <SidebarMenuItem key={item.path}>
+                                <SidebarMenuButton
+                                  isActive={item.path === pathname}
+                                  tooltip={item.name}
+                                  render={<Link href={item.path} aria-current={item.path === pathname ? 'page' : undefined} />}
+                                >
+                                  <item.icon aria-hidden="true" />
+                                  <span>{item.name}</span>
+                                </SidebarMenuButton>
+                              </SidebarMenuItem>
+                            ))}
+                          </SidebarMenu>
+                        </SidebarGroupContent>
+                      </SidebarGroup>
+                    ))}
+                  </nav>
+                </SidebarContent>
+                <SidebarFooter role="region" aria-label="アカウント">
+                  <SidebarMenu>
+                    <SidebarMenuItem>
+                      <span className="truncate px-2 font-mono text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">{context.me.login}</span>
+                    </SidebarMenuItem>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton tooltip="ログアウト" onClick={onLogout}>
+                        <LogOut aria-hidden="true" />
+                        <span>ログアウト</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  </SidebarMenu>
+                </SidebarFooter>
+              </Sidebar>
+              <SidebarInset id="main" className="pb-(--bottom-bar-height)">
+                <div className="mx-auto w-full max-w-5xl flex-1 p-4 sm:p-6">
+                  <h1 ref={headingRef} tabIndex={-1} className="mb-4 truncate text-lg font-semibold tracking-tight outline-none sm:mb-6">
+                    {title}
+                  </h1>
+                  {/* ページが変わったら key で作り直し、前のページの状態を持ち越さない */}
+                  <div key={pathname}>{page ? page.render(context) : <NotFound pathname={pathname} />}</div>
                 </div>
-                <SidebarMenu>
-                  <SidebarMenuItem>
-                    <PageSearch pathname={pathname} />
-                  </SidebarMenuItem>
-                </SidebarMenu>
-              </SidebarHeader>
-              <SidebarContent>
-                <nav aria-label="サイト内の移動">
-                  {PAGE_GROUPS.map((group) => (
-                    <SidebarGroup key={group.label}>
-                      <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
-                      <SidebarGroupContent>
-                        <SidebarMenu>
-                          {group.pages.map((item) => (
-                            <SidebarMenuItem key={item.path}>
-                              <SidebarMenuButton
-                                isActive={item.path === pathname}
-                                tooltip={item.name}
-                                render={<Link href={item.path} aria-current={item.path === pathname ? 'page' : undefined} />}
-                              >
-                                <item.icon aria-hidden="true" />
-                                <span>{item.name}</span>
-                              </SidebarMenuButton>
-                            </SidebarMenuItem>
-                          ))}
-                        </SidebarMenu>
-                      </SidebarGroupContent>
-                    </SidebarGroup>
-                  ))}
-                </nav>
-              </SidebarContent>
-              <SidebarFooter role="region" aria-label="アカウント">
-                <SidebarMenu>
-                  <SidebarMenuItem>
-                    <span className="truncate px-2 font-mono text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">{context.me.login}</span>
-                  </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton tooltip="ログアウト" onClick={onLogout}>
-                      <LogOut aria-hidden="true" />
-                      <span>ログアウト</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                </SidebarMenu>
-              </SidebarFooter>
-            </Sidebar>
-            <SidebarInset id="main" className="pb-(--bottom-bar-height)">
-              <div className="mx-auto w-full max-w-5xl flex-1 p-4 sm:p-6">
-                <h1 ref={headingRef} tabIndex={-1} className="mb-4 truncate text-lg font-semibold tracking-tight outline-none sm:mb-6">
-                  {title}
-                </h1>
-                {/* ページが変わったら key で作り直し、前のページの状態を持ち越さない */}
-                <div key={pathname}>{page ? page.render(context) : <NotFound pathname={pathname} />}</div>
-              </div>
-            </SidebarInset>
-            <BottomBar />
-          </SidebarProvider>
-          <UnsavedChangesDialog />
-        </TooltipProvider>
+              </SidebarInset>
+              <BottomBar />
+            </SidebarProvider>
+            <UnsavedChangesDialog />
+          </TooltipProvider>
+        </PomodoroTimerProvider>
       </BgmPlayerProvider>
     </RecognitionProvider>
   )
@@ -238,6 +244,7 @@ export const App = ({
   pomodoroApi,
   recognitionDeps,
   connectBgm,
+  connectPomodoro,
 }: {
   api: AdminApi
   statsApi: StatsApi
@@ -256,6 +263,8 @@ export const App = ({
   recognitionDeps: RecognitionDeps
   /** BGMの「いま流している曲」の押し出しにつなぐ（ブラウザでは src/bgm/socket.ts の connectBgmWatch） */
   connectBgm: BgmConnect
+  /** ポモドーロのタイマーの押し出しにつなぐ（ブラウザでは src/pomodoro/socket.ts の connectPomodoroWatch） */
+  connectPomodoro: PomodoroConnect
 }) => {
   const [session, setSession] = useState<Session>({ status: 'checking' })
   // 確かめ直すたびに増やし、ログインの確認をもう一度走らせる
@@ -337,6 +346,7 @@ export const App = ({
           }}
           recognitionDeps={recognitionDeps}
           connectBgm={connectBgm}
+          connectPomodoro={connectPomodoro}
           onLogout={logout}
         />
       )

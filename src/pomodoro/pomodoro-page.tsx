@@ -4,14 +4,14 @@
  * 配信中に、ポモドーロのタイマー（25分の作業と5分の休憩。issue #208）を始める・一時停止する・再開する・止める画面である。
  * 区切りで何をするか（botの書き込み・アラートなど）はトリガーのページの区分「ポモドーロ」で決め、ここでは休憩中に流す曲だけを選ぶ。
  *
- * タイマーの状態は Worker（Durable Object）が持つ。画面は受け取ったタイマー（始めた時刻・一時停止の時刻）と現在時刻から、
- * 区間と残り時間を1秒ごとに計算して出す（src/pomodoro/phase.ts。合成ページの札と同じ計算）。
+ * タイマーの状態は Worker（Durable Object）が持つ。画面はアプリの枠の PomodoroTimerProvider（timer-context.tsx）から
+ * タイマー（始めた時刻・一時停止の時刻）を受け取り、現在時刻から区間と残り時間を1秒ごとに計算して出す
+ * （src/pomodoro/phase.ts。合成ページの札と同じ計算）。枠から読むので、下部バーや別の窓での操作もそのまま映る（issue #237）。
  *
  * 注意: 休憩の曲は選んだらすぐ保存する（BGMのプレーヤーの操作と同じく、配信中に切り替えるもので保存ボタンを持たない）。
- * 注意: 読み込めなかったとき・操作が断られたときは、黙らずに理由を出す（Fail-Fast）。操作が断られたのは画面の状態が古いため
- *   （配信が終わって Worker が止めた・別の窓で操作した）なので、理由を出すのと合わせて今の状態を読み直す。
+ * 注意: 読み込めなかったとき・操作が断られたときは、黙らずに理由を出す（Fail-Fast）。操作が断られたときの読み直しは枠が受け持つ。
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
 import { Link } from '@/app/router'
 import type { BgmApi, BgmTrack } from '@/bgm/api'
@@ -22,10 +22,9 @@ import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { PomodoroApi, PomodoroCommand, PomodoroSettings } from './api'
-import { formatRemaining, phaseAt, type PomodoroTimer } from './phase'
+import { formatRemaining, phaseAt } from './phase'
+import { commandsOf, usePomodoroTimer, useSecondTick } from './timer-context'
 
-/** 残り時間を描き直す間隔（ミリ秒）。秒まで出すので1秒ごと */
-const TICK_MS = 1000
 /** 休憩の曲を選ばない（休憩中も曲を変えない）ことを表す選択肢の値。Workerへは null として送る */
 const NO_BREAK_TRACK = ''
 const BREAK_TRACK_SELECT_ID = 'pomodoro-break-track'
@@ -38,14 +37,7 @@ const COMMAND_LABELS: Readonly<Record<PomodoroCommand, { label: string; notice: 
   stop: { label: '止める', notice: 'ポモドーロを止めました' },
 }
 
-/** そのタイマーで押せる操作。止めていれば始めるだけ、動いていれば一時停止と止める、一時停止中なら再開と止める */
-const commandsOf = (timer: PomodoroTimer | null): PomodoroCommand[] => {
-  if (timer === null) return ['start']
-  return timer.pausedAt === null ? ['pause', 'stop'] : ['resume', 'stop']
-}
-
 interface Loaded {
-  timer: PomodoroTimer | null
   settings: PomodoroSettings
   tracks: BgmTrack[]
 }
@@ -56,40 +48,26 @@ interface Loaded {
 export const PomodoroPage = ({ api, bgmApi, now = Date.now }: { api: PomodoroApi; bgmApi: BgmApi; now?: () => number }) => {
   const [loaded, setLoaded] = useState<Loaded>()
   const [loadError, setLoadError] = useState<string>()
-  const [, setTick] = useState(0)
+  const pomodoro = usePomodoroTimer()
   const actions = usePageActions()
+  useSecondTick(pomodoro.timer)
 
-  const load = useCallback(async (): Promise<void> => {
-    const [{ timer, settings }, { tracks }] = await Promise.all([api.read(), bgmApi.load()])
-    setLoaded({ timer, settings, tracks })
+  // タイマーは枠が読むので、ここでは休憩の曲の設定と BGM の一覧だけを読む
+  useEffect(() => {
+    Promise.all([api.read(), bgmApi.load()]).then(
+      ([{ settings }, { tracks }]) => setLoaded({ settings, tracks }),
+      (error: unknown) => setLoadError(errorMessage(error)),
+    )
   }, [api, bgmApi])
 
-  useEffect(() => {
-    load().catch((error: unknown) => setLoadError(errorMessage(error)))
-  }, [load])
-
-  // 動いているあいだだけ、残り時間を1秒ごとに描き直す
-  const running = loaded?.timer !== null && loaded?.timer !== undefined && loaded.timer.pausedAt === null
-  useEffect(() => {
-    if (!running) return
-    const interval = setInterval(() => setTick((tick) => tick + 1), TICK_MS)
-    return () => clearInterval(interval)
-  }, [running])
-
-  if (loadError !== undefined) return <LoadFailure title="ポモドーロのタイマーを読み込めませんでした" message={loadError} />
-  if (loaded === undefined) return <Skeleton className="h-48 w-full" />
+  const failure = loadError ?? (pomodoro.loaded.status === 'failed' ? pomodoro.loaded.message : undefined)
+  if (failure !== undefined) return <LoadFailure title="ポモドーロのタイマーを読み込めませんでした" message={failure} />
+  if (loaded === undefined || pomodoro.loaded.status === 'loading') return <Skeleton className="h-48 w-full" />
 
   const control = (command: PomodoroCommand): Promise<void> =>
     actions.run(async () => {
-      try {
-        const timer = await api.control(command)
-        setLoaded((previous) => (previous === undefined ? previous : { ...previous, timer }))
-        return COMMAND_LABELS[command].notice
-      } catch (error) {
-        // 断られたのは画面の状態が古いためなので、今の状態を読み直してから理由を出す
-        await load().catch(() => undefined)
-        throw error
-      }
+      await pomodoro.control(command)
+      return COMMAND_LABELS[command].notice
     })
 
   const saveBreakTrack = (value: string): Promise<void> =>
@@ -99,7 +77,8 @@ export const PomodoroPage = ({ api, bgmApi, now = Date.now }: { api: PomodoroApi
       return '休憩中に流す曲を保存しました'
     })
 
-  const { timer, settings, tracks } = loaded
+  const { settings, tracks } = loaded
+  const { timer } = pomodoro
   const phase = timer === null ? null : phaseAt(timer, now())
 
   return (
