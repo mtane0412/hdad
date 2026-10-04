@@ -80,6 +80,12 @@ import { TASK_DESK_SOCKET_HINT, TASK_DESK_SOCKET_PATH, createTaskDeskApi } from 
 import { demoTaskDeskScenes } from '../task-desk/demo'
 import { parseTaskDeskSnapshot, type TaskDeskSnapshot, type TaskDeskWorkTime } from '../task-desk/entry'
 import { createTaskDeskView } from '../task-desk/view'
+import { TOWN_TOUR_SOCKET_HINT, TOWN_TOUR_SOCKET_PATH, createTownTourApi } from '../town-tour/api'
+import { DEMO_INTRO_DELAY_MS, DEMO_TOWN_TOUR_INTERVAL_MS, demoTownTourCall, demoTownTourIntro } from '../town-tour/demo'
+import { sceneAt, type Playback } from '../town-tour/timeline'
+import { decodeTownShapes } from '../town-tour/topo'
+import { parseTownTourCall, type TownTourCall } from '../town-tour/tour'
+import { createTownTourRenderer, type TownTourRenderer } from '../town-tour/view'
 import { backgrounds } from '../wallpaper/registry'
 import { WORK_LOG_SOCKET_HINT, WORK_LOG_SOCKET_PATH, createWorkLogApi } from '../work-log/api'
 import { demoWorkLogScenes } from '../work-log/demo'
@@ -108,6 +114,7 @@ const NOUNS: Readonly<Record<ItemKind, string>> = {
   workLog: '作業ログ',
   taskDesk: '作業机',
   pomodoro: 'ポモドーロ',
+  townTour: '市町村紹介',
 }
 
 /** サイドスーパーの文言を読みに行く間隔（ミリ秒）。文言は cron が5分おきに作るので、30秒あれば十分に追いつく */
@@ -1131,6 +1138,114 @@ const mountPomodoro = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
   }
 }
 
+/**
+ * 市町村紹介（issue #229）。Workerから押し出された呼び出し（市町村と冒頭の一文）を1件ずつ順に流す。
+ *
+ * 呼び出しはアラートと同じ配送先から WebSocket（/api/overlay/town-tour/socket）で届く。流しはじめたら紹介を Worker に作らせ
+ * （GET /api/overlay/town-tour?code=。2〜5秒）、そのあいだは日本地図から市町村へズームする演出で待つ。
+ * 場面は再生を始めた時刻・紹介が届いた時刻と現在時刻だけから決める（src/town-tour/timeline.ts）。
+ * 流している最中に次の呼び出しが届いたら、いまの1件を流し終えてから順に流す（アラートの列とは別に持つ）。
+ *
+ * 日本地図（約3.7MB）は起動時に1回だけ読み、読み終えるまでに届いた呼び出しは待たせておく。
+ * 紹介を作れなかったときは、黙って何も流さないのではなく、失敗をこの箱に出して次の1件へ進む（次を流しはじめたら消す）。
+ */
+const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
+  // この素材は配信者が決めるパラメータを持たない（何を流すかはトリガーと試し再生で決まる）
+  parseParams({}, new URLSearchParams(item.params))
+
+  const canvas = document.createElement('canvas')
+  canvas.dataset.townTour = ''
+  box.append(canvas)
+
+  const api = createTownTourApi(callWorker, key)
+  /** 地図を読み終えたら作る。それまでは流しはじめない */
+  let renderer: TownTourRenderer | null = null
+  /** 流している1件。流していなければ null */
+  let playback: Playback | null = null
+  /** 流すのを待っている呼び出し（届いた順） */
+  let waiting: readonly TownTourCall[] = []
+
+  /** 1件を流しはじめ、紹介を作らせる。作らせている間に別の1件へ進んでいたら、届いた結果は捨てる */
+  const start = (call: TownTourCall): void => {
+    clearError(box, 'read')
+    const started: Playback = { call, startedAt: Date.now(), intro: { status: 'loading' } }
+    playback = started
+    const introduce = demo
+      ? new Promise<typeof demoTownTourIntro>((resolve) => window.setTimeout(() => resolve(demoTownTourIntro), DEMO_INTRO_DELAY_MS))
+      : api.introduce(call.code)
+    introduce.then(
+      (intro) => {
+        if (playback === started) playback = { ...started, intro: { status: 'ready', intro, readyAt: Date.now() } }
+      },
+      (error: unknown) => {
+        if (playback !== started) return
+        playback = { ...started, intro: { status: 'failed' } }
+        showError(error, NOUNS.townTour, box, 'read')
+      },
+    )
+  }
+
+  /** 待っている先頭を流しはじめる。地図を読み終えていなければ、読み終えたときに呼び直す */
+  const startNext = (): void => {
+    const [next, ...rest] = waiting
+    if (renderer === null || playback !== null || next === undefined) return
+    waiting = rest
+    start(next)
+  }
+
+  const enqueue = (call: TownTourCall): void => {
+    waiting = [...waiting, call]
+    startNext()
+  }
+
+  void api
+    .japanMap()
+    .then((topology) => {
+      renderer = createTownTourRenderer(decodeTownShapes(topology))
+      startNext()
+    })
+    .catch((error: unknown) => showError(error, NOUNS.townTour, box, 'layer'))
+
+  const draw = startCanvasSurface(canvas, (ctx, width, height) => {
+    if (renderer === null) return
+    const now = Date.now()
+    if (playback !== null && sceneAt(playback, now).done) {
+      playback = null
+      startNext()
+    }
+    renderer.render(ctx, width, height, playback === null ? null : { playback, scene: sceneAt(playback, now) })
+  })
+
+  if (demo) {
+    // プレビューではWorkerにつながず、決まった1件をくり返し流す（紹介も作らせず、作らせたときと同じくらい待ってから届いたことにする）
+    startSampleCycle([demoTownTourCall], DEMO_TOWN_TOUR_INTERVAL_MS, enqueue)
+    return { draw }
+  }
+
+  connectSocket(
+    socketUrl(TOWN_TOUR_SOCKET_PATH, { key }),
+    {
+      onMessage: (text) => {
+        try {
+          enqueue(parseTownTourCall(text))
+        } catch (error) {
+          showError(error, NOUNS.townTour, box, 'read')
+        }
+      },
+      onOpen: () => {
+        // 呼び出しは押し出しでしか届かない（読み直すものを持たない）。つながっていない間の呼び出しは配送先が落とす
+      },
+      onStatus: () => {
+        // 切断・再接続は出さない。流している1件はそのまま流しきる
+      },
+      onWarning: (message) => showError(new Error(message), NOUNS.townTour, box, 'read'),
+    },
+    TOWN_TOUR_SOCKET_HINT,
+  )
+
+  return { draw }
+}
+
 const mountItem = (box: HTMLElement, item: OverlayItem, context: MountContext): MountedItem => {
   switch (item.kind) {
     case 'wallpaper':
@@ -1158,6 +1273,8 @@ const mountItem = (box: HTMLElement, item: OverlayItem, context: MountContext): 
       return mountTaskDesk(box, item, context)
     case 'pomodoro':
       return mountPomodoro(box, item, context)
+    case 'townTour':
+      return mountTownTour(box, item, context)
   }
 }
 
