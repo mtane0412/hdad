@@ -89,7 +89,12 @@ export const createTownTourSoundPlayer = (onError: (error: Error) => void): Town
     const audio = new Audio(url)
     audio.loop = true
     audio.volume = volume
-    const onAudioError = (): void => onError(new Error('市町村紹介の BGM の音声を読めませんでした（素材が消えた・通信が切れた可能性があります）'))
+    // 先に止めてから知らせる。止めておけば、続く play() の失敗は isCurrent で弾かれ、同じ失敗を二重に知らせない
+    const onAudioError = (): void => {
+      if (bgm !== playing) return
+      stopBgm()
+      onError(new Error('市町村紹介の BGM の音声を読めませんでした（素材が消えた・通信が切れた可能性があります）'))
+    }
     audio.addEventListener('error', onAudioError)
     const playing: PlayingBgm = { audio, onAudioError, fadeTimer: undefined }
     bgm = playing
