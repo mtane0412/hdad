@@ -7,10 +7,12 @@
  * - 一覧のすべての市町村に地図の形があり、地図に一覧に無い形が無いこと（1対1）
  * - 政令市は区ではなく市として1件になっていること
  * - 東京23区と北方領土の村が1件ずつ入っていること
+ * - 一覧のすべての市町村に Wikipedia の記事名（articles.json。scripts/town-tour/build-articles.ts が作る）があること
  */
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import articles from './articles.json'
 import towns from './towns.json'
 
 /** 地図の TopoJSON のうち、突き合わせに使う部分 */
@@ -45,5 +47,9 @@ describe('市町村の一覧と地図', () => {
     expect(findTowns('北海道', '色丹村')).toHaveLength(1)
     // 泊村は古宇郡（積丹半島）と国後郡の2つがある
     expect(findTowns('北海道', '泊村').map((town) => town.county).sort()).toEqual(['古宇郡', '国後郡'])
+  })
+
+  it('一覧のすべての市町村に記事名があり、一覧に無いコードの記事名が無い', () => {
+    expect(Object.keys(articles).sort()).toEqual([...townCodes].sort())
   })
 })

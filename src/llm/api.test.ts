@@ -27,6 +27,7 @@ const savedSettings: LlmSettings = {
       provider: 'openrouter',
       models: { 'workers-ai': '@cf/meta/llama-3.3-70b-instruct-fp8-fast', openrouter: 'anthropic/claude-3.5-haiku' },
     },
+    townTour: { provider: 'workers-ai', models: { 'workers-ai': '@cf/meta/llama-3.3-70b-instruct-fp8-fast', openrouter: 'meta-llama/llama-3.3-70b-instruct' } },
   },
 }
 

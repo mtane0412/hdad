@@ -136,6 +136,10 @@ const USAGE_LABELS: Readonly<Record<LlmUsage, { name: string; description: strin
     name: '配信のあらすじ',
     description: '途中から来た人向けのまとめと、ダッシュボードに残す約30分ごとの章。材料が多いので大きいモデル向き。',
   },
+  townTour: {
+    name: '市町村紹介',
+    description: 'レイドで流す、ランダムな市町村の紹介。Wikipedia の記事を材料に、その都度作る。材料にないことを書かせないよう大きいモデル向き。',
+  },
 }
 
 /** Jev を使う箇所ごとの、画面に出す名前と説明 */

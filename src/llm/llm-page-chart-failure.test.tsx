@@ -34,6 +34,7 @@ const api: LlmApi = {
           sideSuper: { provider: 'workers-ai', models: { ...lightModel } },
           viewerSummary: { provider: 'workers-ai', models: { ...lightModel } },
           streamSummary: { provider: 'workers-ai', models: { ...lightModel } },
+          townTour: { provider: 'workers-ai', models: { ...lightModel } },
         },
       },
       apiKeyConfigured: false,

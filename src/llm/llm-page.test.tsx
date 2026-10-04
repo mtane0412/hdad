@@ -71,6 +71,7 @@ const savedSettings: LlmSettings = {
     sideSuper: { provider: 'workers-ai', models: { ...lightModel } },
     viewerSummary: { provider: 'workers-ai', models: { ...lightModel } },
     streamSummary: { provider: 'workers-ai', models: { ...largeModel } },
+    townTour: { provider: 'workers-ai', models: { ...largeModel } },
   },
 }
 
@@ -166,11 +167,11 @@ const usageRowOf = (name: string) => within(screen.getByRole('table', { name: 'A
 const save = async () => userEvent.click(screen.getByRole('button', { name: '設定を保存' }))
 
 describe('LlmPage', () => {
-  test('AIを使う5か所ぶんの提供元とモデルを、表の1行ずつに選択欄として出す', async () => {
+  test('AIを使う6か所ぶんの提供元とモデルを、表の1行ずつに選択欄として出す', async () => {
     renderPage()
     await waitForLoad()
 
-    for (const optionName of ['字幕の翻訳（LLM）', 'チャットの文面', 'サイドスーパー', '視聴者の人物像', '配信のあらすじ']) {
+    for (const optionName of ['字幕の翻訳（LLM）', 'チャットの文面', 'サイドスーパー', '視聴者の人物像', '配信のあらすじ', '市町村紹介']) {
       expect(within(usageRowOf(optionName)).getByLabelText(`${optionName}の提供元`)).toBeInTheDocument()
     }
 
