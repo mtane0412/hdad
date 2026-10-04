@@ -7,7 +7,10 @@
  * OBSに載せるページ（overlay/stage/・overlay/backstage/ など）はこの枠を通らないので、ログインなしで動く。
  *
  * 枠は配信中の文字起こしの音声認識も持つ（src/transcript/recognition-context.tsx。issue #189）。ページを移っても
- * 枠は作り直されないので、どのページを見ていても認識が続き、状態はサイドバーの末尾に出る。
+ * 枠は作り直されないので、どのページを見ていても認識が続く。
+ * 画面の下端には配信中の操作のバー（bottom-bar.tsx。issue #235）を、音楽プレーヤーのように画面の幅いっぱいに固定し、
+ * 文字起こしのオン・オフと状態はそこに出す。サイドバーと本文はバーの上で終わる（高さは --bottom-bar-height）。
+ * 本文の上にはバーを持たず、サイドバーの開閉と「ページを探す」はサイドバーの上部に置き、ページの見出しは本文の先頭に置く。
  *
  * 注意: ログインの確認に失敗したとき（Workerに届かないなど）は未ログイン扱いにせず、エラーを出す（Fail-Fast）。
  * api を引数で受け取るのは、テストで差し替えるため。
@@ -28,7 +31,6 @@ import type { SpeechApi } from '@/speech/api'
 import type { StatsApi } from '@/stats/api'
 import type { ViewerApi } from '@/viewers/api'
 import { RecognitionProvider, type RecognitionDeps } from '@/transcript/recognition-context'
-import { RecognitionStatus } from '@/transcript/recognition-status'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader } from '@/components/ui/card'
@@ -49,6 +51,7 @@ import {
 } from '@/components/ui/sidebar'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { BottomBar } from './bottom-bar'
 import { PageSearch } from './page-search'
 import { findPage, PAGE_GROUPS, type PageContext } from './pages'
 import { Link, usePathname } from './router'
@@ -130,14 +133,24 @@ const Shell = ({ context, recognitionDeps, onLogout }: { context: PageContext; r
         >
           本文へ移動
         </a>
-        <SidebarProvider>
-          <Sidebar collapsible="icon">
+        {/* 下部バーの高さ。サイドバーの下端・本文の下の余白・バー自身の高さが同じ値を使う */}
+        <SidebarProvider className="[--bottom-bar-height:4rem]">
+          {/* サイドバーは画面の下端ではなく下部バーの上で終わらせる（下部バーをサイドバーの下まで通すため） */}
+          <Sidebar collapsible="icon" className="bottom-(--bottom-bar-height) h-auto">
             {/* サイドバーの見出しと末尾も、読み上げソフトの「ランドマーク」で飛べる領域にする */}
             <SidebarHeader role="banner">
-              <div className="px-2 py-1 group-data-[collapsible=icon]:hidden">
-                <span className="font-mono text-sm font-semibold">HDAD</span>
-                <span className="block text-[10px] leading-tight text-muted-foreground">Hyperfocus-Driven Assistant Director</span>
+              <div className="flex items-center gap-1">
+                <div className="min-w-0 flex-1 px-2 py-1 group-data-[collapsible=icon]:hidden">
+                  <span className="font-mono text-sm font-semibold">HDAD</span>
+                  <span className="block text-[10px] leading-tight text-muted-foreground">Hyperfocus-Driven Assistant Director</span>
+                </div>
+                <SidebarTrigger aria-label="サイドバーを開閉する" />
               </div>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <PageSearch pathname={pathname} />
+                </SidebarMenuItem>
+              </SidebarMenu>
             </SidebarHeader>
             <SidebarContent>
               <nav aria-label="サイト内の移動">
@@ -166,7 +179,6 @@ const Shell = ({ context, recognitionDeps, onLogout }: { context: PageContext; r
             </SidebarContent>
             <SidebarFooter role="region" aria-label="アカウント">
               <SidebarMenu>
-                <RecognitionStatus />
                 <SidebarMenuItem>
                   <span className="truncate px-2 font-mono text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">{context.me.login}</span>
                 </SidebarMenuItem>
@@ -179,19 +191,16 @@ const Shell = ({ context, recognitionDeps, onLogout }: { context: PageContext; r
               </SidebarMenu>
             </SidebarFooter>
           </Sidebar>
-          <SidebarInset id="main">
-            <header className="sticky top-0 z-10 flex h-14 items-center gap-2 border-b bg-background/90 px-4 backdrop-blur supports-backdrop-filter:bg-background/75">
-              <SidebarTrigger aria-label="サイドバーを開閉する" />
-              <h1 ref={headingRef} tabIndex={-1} className="truncate text-base font-semibold tracking-tight outline-none">
+          <SidebarInset id="main" className="pb-(--bottom-bar-height)">
+            <div className="mx-auto w-full max-w-5xl flex-1 p-4 sm:p-6">
+              <h1 ref={headingRef} tabIndex={-1} className="mb-4 truncate text-lg font-semibold tracking-tight outline-none sm:mb-6">
                 {title}
               </h1>
-              <PageSearch pathname={pathname} />
-            </header>
-            {/* ページが変わったら key で作り直し、前のページの状態を持ち越さない */}
-            <div key={pathname} className="mx-auto w-full max-w-5xl p-4 sm:p-6">
-              {page ? page.render(context) : <NotFound pathname={pathname} />}
+              {/* ページが変わったら key で作り直し、前のページの状態を持ち越さない */}
+              <div key={pathname}>{page ? page.render(context) : <NotFound pathname={pathname} />}</div>
             </div>
           </SidebarInset>
+          <BottomBar />
         </SidebarProvider>
         <UnsavedChangesDialog />
       </TooltipProvider>

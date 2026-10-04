@@ -2,8 +2,8 @@
  * アプリの枠で動かす音声認識（issue #189）
  *
  * アプリのページはどれも1つの React アプリで、ページを移っても読み込み直さない（router.tsx）。認識をページではなく
- * 枠（app.tsx の Shell）に置くことで、どのページを見ていても認識が続く。状態はサイドバー（recognition-status.tsx）に、
- * オン・オフと詳しい様子はコネクターのページの区画（recognition-section.tsx）に出す。
+ * 枠（app.tsx の Shell）に置くことで、どのページを見ていても認識が続く。オン・オフと状態は下部バー（recognition-control.tsx）に、
+ * 詳しい様子はコネクターのページの区画（recognition-section.tsx）に出す。
  *
  * - オン・オフはこのブラウザの localStorage に覚える。開き直したときに、オンなら開いただけで始め直す
  *   （別の端末でアプリを開いても、そこで勝手に認識を始めない）

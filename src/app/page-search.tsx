@@ -2,15 +2,15 @@
  * ページを探して移る窓（コマンドパレット）
  *
  * サイドバーの項目は15を超えるので、名前の一部や言い換え（「OBS」「アラート」など）を打って Enter で移れるようにする。
- * Cmd+K（Mac 以外は Ctrl+K）でどのページからでも開き、見出しの横のボタンからも開ける。
+ * Cmd+K（Mac 以外は Ctrl+K）でどのページからでも開き、サイドバーの上部のボタンからも開ける。
  *
  * 注意: 一覧は pages.tsx の PAGE_GROUPS から作る。ページを足したらここを直す必要はない。
  */
 import { Search } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Button } from '@/components/ui/button'
 import { Command, CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
 import { Kbd, KbdGroup } from '@/components/ui/kbd'
+import { SidebarMenuButton } from '@/components/ui/sidebar'
 import { PAGE_GROUPS } from './pages'
 import { navigate } from './router'
 
@@ -22,7 +22,9 @@ const isOpenShortcut = (event: KeyboardEvent): boolean =>
   !event.isComposing && event.key.toLowerCase() === 'k' && (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey
 
 /**
- * 見出しの横に置くボタンと、それが開く窓。
+ * サイドバーの上部に置くボタンと、それが開く窓。
+ *
+ * 注意: ボタンはサイドバーの項目の形なので、SidebarMenuItem の内側に置く。
  *
  * @param pathname いまのパス。窓の中でいまのページに印を付けるのに使う
  */
@@ -46,22 +48,21 @@ export const PageSearch = ({ pathname }: { pathname: string }) => {
 
   return (
     <>
-      <Button
-        type="button"
+      <SidebarMenuButton
         variant="outline"
-        size="sm"
-        className="ml-auto shrink-0 gap-2 text-muted-foreground max-sm:size-9 max-sm:px-0"
+        tooltip="ページを探す"
+        className="text-muted-foreground"
         onClick={() => setOpen(true)}
         aria-keyshortcuts={isMac() ? 'Meta+K' : 'Control+K'}
       >
         <Search aria-hidden="true" />
-        {/* 狭い画面では虫眼鏡だけにして見出しの場所を空ける（名前は読み上げ用に残す） */}
-        <span className="max-sm:sr-only">ページを探す</span>
-        <KbdGroup aria-hidden="true" className="max-sm:hidden">
+        <span>ページを探す</span>
+        {/* アイコンだけに畳んだサイドバーでは、キーの案内を隠して虫眼鏡だけにする */}
+        <KbdGroup aria-hidden="true" className="ml-auto group-data-[collapsible=icon]:hidden">
           <Kbd>{isMac() ? '⌘' : 'Ctrl'}</Kbd>
           <Kbd>K</Kbd>
         </KbdGroup>
-      </Button>
+      </SidebarMenuButton>
       <CommandDialog open={open} onOpenChange={setOpen} title="ページを移動" description="ページの名前の一部を打って、Enter で移ります">
         <Command>
         <CommandInput placeholder="ページの名前・OBS・アラートなど" />
