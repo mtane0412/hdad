@@ -16,7 +16,7 @@ import { loadBgmPlayback, loadBgmTracks, playingTrackOf } from './bgm-config'
 import { loadBotConfig } from './bot-config'
 import { punishAsBot } from './bot-moderation'
 import { judge, repeatRuleOf } from './chat-moderation'
-import { recordStreamChatMessage } from './stream-chat-store'
+import { recordStreamChatMessage, removeModeratedStreamChat } from './stream-chat-store'
 import { applyModerationToTaskDesk, handleTaskDeskCommand } from './task-desk-command'
 import { readCurrentWorkTime } from './task-desk-store'
 import { readCurrentStreamSummary } from './stream-summary-store'
@@ -191,10 +191,6 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
       },
       now,
     )
-    // 配信中なら、人物像（viewers の summary）の材料として本文も貯める。配信が終わったあとに cron が
-    // 人ごとにまとめて人物像を作り、使い終えた材料を消す（stream-chat-store.ts・collect.ts）。
-    // チャットの全文は貯めないという方針の、意識して設けた例外である（集計値だけでは人物像を作れないため）
-    await recordStreamChatMessage(env.DB, { messageId: message.messageId, userId: message.chatterUserId, text: message.text }, now)
   }
 
   // 自動モデレーションはコマンドの応答より先に判定する。処分した発言には応答もトリガーも返さない
@@ -202,6 +198,12 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
 
   // bot自身の発言ではトリガーを引かない。引くと、その応答にまた反応して止まらなくなる（コマンドの応答と同じ考え方）
   if (message.chatterUserId === bot?.userId) return
+
+  // 配信中なら、人物像（viewers の summary）やサイドスーパー・あらすじ・章立ての材料として本文も貯める。配信が終わったあとに
+  // cron が人ごとにまとめて人物像を作り、使い終えた材料を消す（stream-chat-store.ts・collect.ts）。
+  // チャットの全文は貯めないという方針の、意識して設けた例外である（集計値だけでは人物像を作れないため）。
+  // 視聴者の記録と違って自動モデレーションのあとに貯めるのは、処分した発言をLLMの材料に混ぜないためである（issue #202）
+  await recordStreamChatMessage(env.DB, { messageId: message.messageId, userId: message.chatterUserId, text: message.text }, now)
 
   // botの接続はもう調べ済みなので、判定の関数はその結果を返すだけでよい
   await runAlertActions(context, CHAT_MESSAGE, body, message.messageId, () => Promise.resolve(bot !== null), message)
@@ -266,6 +268,22 @@ const isFirstChatToGreet = async (context: Context, event: unknown, bot: StoredT
  */
 const isOwnChannelEvent = ({ env }: Context, event: unknown): boolean =>
   !(isRecord(event) && typeof event.broadcaster_user_id === 'string' && event.broadcaster_user_id !== env.TWITCH_BROADCASTER_ID)
+
+/**
+ * モデレーションの削除の通知（発言の削除・ある人の発言の一掃・チャットのクリア）を、LLMの材料（stream_chat_messages）に反映する（issue #202）。
+ *
+ * 消された発言を、サイドスーパー・あらすじ・章立て・人物像の材料に残さないためである。ほかの種類の通知では何もしない。
+ * 通知の読み取りはコメントビューアーと同じ toFeedItem を使う（同じ通知を2か所で読み解かない）。
+ *
+ * 注意: 失敗は握りつぶさずに投げ、Twitch に再送させる。消すのは何度行っても同じ結果になり、コメントビューアーの
+ * 並べ方も同じ通知を二度当てはめないので、再送で困ることはない。消し損ねたまま2xxを返すと、材料に残り続けてしまう。
+ */
+const applyModerationToStreamChat = async ({ env, now }: Context, type: string, event: unknown): Promise<void> => {
+  // 目印（id・at）は材料の削除では使わないので、読み取りのためだけに埋める
+  const item = toFeedItem(type, event, { id: '', at: now }, false)
+  if (item === null || (item.kind !== 'delete' && item.kind !== 'clearUser' && item.kind !== 'clear')) return
+  await removeModeratedStreamChat(env.DB, item, now)
+}
 
 /**
  * 通知をコメントビューアー（/comments/）に並べる1件に直し、配送先へ押し出す。
@@ -374,9 +392,12 @@ export const eventsubWebhook = async (context: Context): Promise<Response> => {
       const botLoad = type === CHAT_MESSAGE ? loadToken(env.STORE, 'bot') : Promise.resolve(null)
       await pushToCommentFeed(context, type, body, messageId, occurredAt, await botLoad.catch(() => null))
       // コメントビューアーのためだけに購読している通知は、記録もトリガーの判定もしない。
-      // ただしモデレーションの削除は作業机にも反映する（荒らしが宣言した文言を配信画面に残さない）
+      // ただしモデレーションの削除は作業机とLLMの材料にも反映する（荒らしが書いた文言を配信画面に残さない）
       if (FEED_ONLY_EVENT_TYPES.includes(type)) {
-        if (isOwnChannelEvent(context, body.event)) await applyModerationToTaskDesk({ db: env.DB, alerts: env.ALERTS, now }, type, body.event)
+        if (isOwnChannelEvent(context, body.event)) {
+          await applyModerationToTaskDesk({ db: env.DB, alerts: env.ALERTS, now }, type, body.event)
+          await applyModerationToStreamChat(context, type, body.event)
+        }
         return new Response(null, { status: STATUS.noContent })
       }
       if (type === CHAT_MESSAGE) await replyToChatMessage(context, body, await botLoad)

@@ -61,6 +61,13 @@ export interface FeedStamp {
   at: number
 }
 
+/**
+ * モデレーションで消されたもの。1件の発言・ある人の発言すべて・チャット全体（FeedItem の delete・clearUser・clear と同じ形）
+ *
+ * 作業机（task-desk-store.ts）とLLMの材料（stream-chat-store.ts）が、同じ削除の通知を反映するのに使う。
+ */
+export type ModerationTarget = { readonly kind: 'delete'; readonly messageId: string } | { readonly kind: 'clearUser'; readonly userId: string } | { readonly kind: 'clear' }
+
 /** コメントビューアーに流す1件 */
 export type FeedItem = FeedStamp &
   (

@@ -5,10 +5,11 @@
  * - 配信中に届いた発言だけを貯め、配信していないときは1行も書かないこと
  * - 同じ通知が再送されても、同じ発言を二重に貯めないこと
  * - 人物像を作る対象として返すのは、終わった配信の発言だけであること（配信中の発言はまだ材料にしない）
+ * - モデレーションで消された発言は、サイドスーパー・あらすじ・章立て・人物像の材料から外れること（issue #202）
  */
 import { describe, expect, it } from 'vitest'
 import { createFakeDatabase } from './fake-database'
-import { deleteOldStreamChatMessages, deleteStreamChatMessages, listSummaryTargets, readRecentSessionChat, readSessionChatSince, readViewerMessages, recordStreamChatMessage } from './stream-chat-store'
+import { deleteOldStreamChatMessages, deleteStreamChatMessages, listSummaryTargets, readRecentSessionChat, readSessionChatSince, readViewerMessages, recordStreamChatMessage, removeModeratedStreamChat } from './stream-chat-store'
 import { recordStreamOffline, recordStreamOnline } from './stats-store'
 
 const STREAM_START = Date.UTC(2026, 8, 21, 12, 0, 0)
@@ -261,5 +262,55 @@ describe('readRecentSessionChat', () => {
     await recordStreamChatMessage(db, createChat({ messageId: '発言2', text: '今の配信の反応' }), STREAM_START + ONE_MINUTE * 4)
 
     expect((await readRecentSessionChat(db, 'stream-2', 10)).map((line) => line.text)).toEqual(['今の配信の反応'])
+  })
+})
+
+describe('removeModeratedStreamChat', () => {
+  /** 配信中に、たなかさんの発言2件と、すずきさんの発言1件を貯めた状態を作る */
+  const recordThreeMessages = async (db: ReturnType<typeof createFakeDatabase>) => {
+    await startStream(db)
+    await recordStreamChatMessage(db, createChat({ messageId: '荒らしの発言', userId: '100', text: '見せたくない書き込み' }), STREAM_START + ONE_MINUTE)
+    await recordStreamChatMessage(db, createChat({ messageId: 'たなかの挨拶', userId: '100', text: 'こんばんは' }), STREAM_START + ONE_MINUTE * 2)
+    await recordStreamChatMessage(db, createChat({ messageId: 'すずきの挨拶', userId: '200', text: 'わこつ' }), STREAM_START + ONE_MINUTE * 3)
+  }
+  const textsOfCurrentStream = async (db: ReturnType<typeof createFakeDatabase>) =>
+    (await readRecentSessionChat(db, 'stream-1', 10)).map((line) => line.text)
+
+  it('1件の発言が消されたら、その発言だけを材料から外す', async () => {
+    const db = createFakeDatabase()
+    await recordThreeMessages(db)
+
+    await removeModeratedStreamChat(db, { kind: 'delete', messageId: '荒らしの発言' }, STREAM_START + ONE_MINUTE * 4)
+
+    expect(await textsOfCurrentStream(db)).toEqual(['こんばんは', 'わこつ'])
+  })
+
+  it('ある人の発言が一掃されたら、いまの配信のその人の発言をすべて材料から外す', async () => {
+    const db = createFakeDatabase()
+    await recordThreeMessages(db)
+
+    await removeModeratedStreamChat(db, { kind: 'clearUser', userId: '100' }, STREAM_START + ONE_MINUTE * 4)
+
+    expect(await textsOfCurrentStream(db)).toEqual(['わこつ'])
+  })
+
+  it('チャットがクリアされたら、いまの配信の発言をすべて材料から外す', async () => {
+    const db = createFakeDatabase()
+    await recordThreeMessages(db)
+
+    await removeModeratedStreamChat(db, { kind: 'clear' }, STREAM_START + ONE_MINUTE * 4)
+
+    expect(await textsOfCurrentStream(db)).toEqual([])
+  })
+
+  it('チャットのクリアでは、終わった配信の発言（人物像の材料）は消さない', async () => {
+    const db = createFakeDatabase()
+    await recordThreeMessages(db)
+    await endStreamAndChapter(db, STREAM_START + ONE_MINUTE * 10)
+    await recordStreamOnline(db, { id: 'stream-2', startedAt: STREAM_START + ONE_MINUTE * 20 })
+
+    await removeModeratedStreamChat(db, { kind: 'clear' }, STREAM_START + ONE_MINUTE * 21)
+
+    expect(await readViewerMessages(db, '100', 10)).toEqual(['見せたくない書き込み', 'こんばんは'])
   })
 })

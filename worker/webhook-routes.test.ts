@@ -1390,6 +1390,17 @@ describe('チャットの自動モデレーション', () => {
     expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM chat_recent_messages').get()).toEqual({ count: 0 })
   })
 
+  it('自動モデレーションで処分した発言は、LLMの材料（stream_chat_messages）に貯めない（issue #202）', async () => {
+    const { env, db } = await moderationEnv(createConfig([{ kind: 'word', word: '宣伝', punishment: { type: 'delete' } }]))
+    await recordLiveStream(db, CHAT_STREAM, NOW - 60 * 1000)
+    const twitch = fakeTwitchForModeration()
+
+    await sendNotification(env, twitch.fetchImpl, createChatNotification('宣伝です'))
+    await sendNotification(env, twitch.fetchImpl, createChatNotification('こんばんは', { messageId: 'chat-message-2' }), 'notification-2')
+
+    expect(db.sqlite.prepare('SELECT text FROM stream_chat_messages').all()).toEqual([{ text: 'こんばんは' }])
+  })
+
   it('禁止語を含む発言を削除する', async () => {
     const { env } = await moderationEnv(createConfig([{ kind: 'word', word: '宣伝', punishment: { type: 'delete' } }]))
     const twitch = fakeTwitchForModeration()
@@ -2135,6 +2146,67 @@ describe('作業机の組み込みコマンド（!task・!done）', () => {
     expect(response.status).toBe(204)
     expect(alertChannel.pushedTaskDesk.at(-1)).toEqual({ entries: [], workTime: null })
   })
+  describe('モデレーションで消された発言を、LLMの材料（stream_chat_messages）から外す（issue #202）', () => {
+    const storedTexts = (db: ReturnType<typeof createFakeDatabase>) => db.sqlite.prepare('SELECT text FROM stream_chat_messages ORDER BY sent_at, message_id').all()
+
+    /** たなかさんの荒らしの発言と、すずきさんの挨拶を、配信中に届けておく */
+    const chatTwoMessages = async (env: Env, fetchImpl: typeof fetch) => {
+      await callWebhook(createNotification({ body: chatFromTanaka('見せたくない書き込み', 'chat-message-arashi'), messageId: 'notification-1' }), env, fetchImpl)
+      const fromSuzuki = chatFromTanaka('わこつ', 'chat-message-suzuki')
+      await callWebhook(
+        createNotification({ body: { ...fromSuzuki, event: { ...fromSuzuki.event, chatter_user_id: '22222', chatter_user_login: 'suzuki' } }, messageId: 'notification-2' }),
+        env,
+        fetchImpl,
+      )
+    }
+
+    it('発言の削除では、その発言だけを外す', async () => {
+      const { env, db } = await liveEnvWithBot()
+      await chatTwoMessages(env, fakeTwitchAcceptingSends().fetchImpl)
+      const deletion = {
+        subscription: { type: 'channel.chat.message_delete' },
+        event: { broadcaster_user_id: BROADCASTER_ID, target_user_id: '11111', target_user_login: 'tanaka', target_user_name: 'たなか', message_id: 'chat-message-arashi' },
+      }
+
+      await callWebhook(createNotification({ body: deletion, messageId: 'notification-3' }), env)
+
+      expect(storedTexts(db)).toEqual([{ text: 'わこつ' }])
+    })
+
+    it('ある人の発言の一掃では、その人の発言を外す', async () => {
+      const { env, db } = await liveEnvWithBot()
+      await chatTwoMessages(env, fakeTwitchAcceptingSends().fetchImpl)
+      const clearUser = {
+        subscription: { type: 'channel.chat.clear_user_messages' },
+        event: { broadcaster_user_id: BROADCASTER_ID, target_user_id: '11111', target_user_login: 'tanaka', target_user_name: 'たなか' },
+      }
+
+      await callWebhook(createNotification({ body: clearUser, messageId: 'notification-3' }), env)
+
+      expect(storedTexts(db)).toEqual([{ text: 'わこつ' }])
+    })
+
+    it('チャットのクリアでは、いまの配信の発言をすべて外す', async () => {
+      const { env, db } = await liveEnvWithBot()
+      await chatTwoMessages(env, fakeTwitchAcceptingSends().fetchImpl)
+      const clear = { subscription: { type: 'channel.chat.clear' }, event: { broadcaster_user_id: BROADCASTER_ID } }
+
+      await callWebhook(createNotification({ body: clear, messageId: 'notification-3' }), env)
+
+      expect(storedTexts(db)).toEqual([])
+    })
+
+    it('別のチャンネルのチャットのクリアでは、材料を消さない', async () => {
+      const { env, db } = await liveEnvWithBot()
+      await chatTwoMessages(env, fakeTwitchAcceptingSends().fetchImpl)
+      const otherChannelClear = { subscription: { type: 'channel.chat.clear' }, event: { broadcaster_user_id: '99999' } }
+
+      await callWebhook(createNotification({ body: otherChannelClear, messageId: 'notification-3' }), env)
+
+      expect(storedTexts(db)).toHaveLength(2)
+    })
+  })
+
   it('別のチャンネルのチャットのクリアでは、作業机を消さない（古い購読が残っていても、他人のモデレーションで消さないため）', async () => {
     const { env, alertChannel } = await liveEnvWithBot()
     const twitch = fakeTwitchAcceptingSends()
