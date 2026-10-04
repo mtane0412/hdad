@@ -10,6 +10,9 @@
  * 描画を間引くことがあり、描画に合わせて刻むとフェードが止まったままになるためである。刻むたびに経過時間から
  * 音量を決めるので、タイマーが遅れてもフェードの長さは変わらない。
  *
+ * 市町村紹介のBGMが鳴るあいだは、配信のBGMを決まった割合（DUCK_RATIO）まで下げ、終わったら元の音量へ戻す（issue #245）。
+ * 下げる量は設定項目にしない（docs/principles.md の方針1）。下げているあいだに曲や音量が変わっても、下げた割合を掛けて鳴らす。
+ *
  * 注意: 再生を始められなかった（ブラウザが自動再生を拒んだ・音声を読めなかった）ら投げる。黙って無音のまま続けない。
  */
 import type { BgmChange } from './change'
@@ -18,6 +21,10 @@ import type { BgmChange } from './change'
 const FADE_MS = 2000
 /** 音量だけを変えるときの長さ（ミリ秒）。つまみを動かした感触が残る程度に短くする */
 const VOLUME_FADE_MS = 300
+/** 配信のBGMを下げる・戻す長さ（ミリ秒）。紹介のBGMの立ち上がりと重ならないよう、すばやく下げる */
+const DUCK_FADE_MS = 800
+/** 配信のBGMを下げるときの割合。紹介のBGMの邪魔にならず、鳴っていることは分かる程度にする */
+const DUCK_RATIO = 0.25
 /** 音量を刻む間隔（ミリ秒） */
 const FADE_STEP_MS = 50
 
@@ -47,6 +54,8 @@ const createFader = (audio: HTMLAudioElement) => {
 interface Playing {
   readonly audio: HTMLAudioElement
   readonly fader: ReturnType<typeof createFader>
+  /** 配信者が決めた音量（下げる前のもの）。下げているあいだは、これに DUCK_RATIO を掛けて鳴らす */
+  volume: number
   /** 音声を読めなかったときの見張り。止めるときに外す */
   readonly onAudioError: () => void
   /** 曲の終わりの見張り。止めるときに外す */
@@ -60,6 +69,8 @@ export interface BgmPlayer {
    * @throws 次の曲の再生を始められなかった場合
    */
   apply(change: BgmChange): Promise<void>
+  /** 配信のBGMを下げる（true）・元の音量へ戻す（false）。鳴らしていないときは、次に鳴らす曲から従う */
+  duck(ducked: boolean): void
 }
 
 /**
@@ -70,6 +81,11 @@ export interface BgmPlayer {
  */
 export const createBgmPlayer = (onError: (error: Error) => void, onEnded: () => void): BgmPlayer => {
   let playing: Playing | null = null
+  /** いま下げているか */
+  let ducking = false
+
+  /** 配信者が決めた音量を、下げているかに合わせて実際に鳴らす音量にする */
+  const audibleVolumeOf = (volume: number): number => (ducking ? volume * DUCK_RATIO : volume)
 
   /**
    * 曲を止め、見張りを外して読み込みも捨てる。
@@ -107,13 +123,13 @@ export const createBgmPlayer = (onError: (error: Error) => void, onEnded: () => 
     const onAudioEnded = (): void => onEnded()
     audio.addEventListener('error', onAudioError)
     audio.addEventListener('ended', onAudioEnded)
-    const next: Playing = { audio, fader: createFader(audio), onAudioError, onAudioEnded }
+    const next: Playing = { audio, fader: createFader(audio), volume, onAudioError, onAudioEnded }
     // OBSのブラウザソースでは自動再生が許されるが、普通のブラウザのタブでは操作前の再生を拒まれることがある
     await audio.play().catch((error: unknown) => {
       release(next)
       throw new Error(`BGMを再生できませんでした: ${String(error)}`)
     })
-    void next.fader.fadeTo(volume, FADE_MS)
+    void next.fader.fadeTo(audibleVolumeOf(volume), FADE_MS)
     return next
   }
 
@@ -125,7 +141,8 @@ export const createBgmPlayer = (onError: (error: Error) => void, onEnded: () => 
         case 'adjust':
           if (playing) {
             playing.audio.loop = change.loop
-            void playing.fader.fadeTo(change.volume, VOLUME_FADE_MS)
+            playing.volume = change.volume
+            void playing.fader.fadeTo(audibleVolumeOf(change.volume), VOLUME_FADE_MS)
           }
           return
         case 'stop': {
@@ -143,6 +160,11 @@ export const createBgmPlayer = (onError: (error: Error) => void, onEnded: () => 
           return
         }
       }
+    },
+    duck: (ducked) => {
+      if (ducking === ducked) return
+      ducking = ducked
+      if (playing) void playing.fader.fadeTo(audibleVolumeOf(playing.volume), DUCK_FADE_MS)
     },
   }
 }

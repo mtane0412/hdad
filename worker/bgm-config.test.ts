@@ -19,6 +19,7 @@ import {
   nowPlayingOf,
   playingTrackOf,
   parseBgmPlayback,
+  parseBgmDuck,
   parseBgmSettings,
   parseBgmTracks,
   saveBgmPlayback,
@@ -256,6 +257,21 @@ describe('parseBgmSettings', () => {
   it('true か false でなければ拒む', () => {
     expect(() => parseBgmSettings({ judgeWithJev: 'はい' })).toThrow(ConfigError)
     expect(() => parseBgmSettings(null)).toThrow(ConfigError)
+  })
+})
+
+describe('parseBgmDuck', () => {
+  it('配信のBGMを下げておく長さ（ミリ秒）を受け取る。0 は「いますぐ戻す」', () => {
+    expect(parseBgmDuck({ holdMs: 42_000 })).toEqual({ holdMs: 42_000 })
+    expect(parseBgmDuck({ holdMs: 0 })).toEqual({ holdMs: 0 })
+  })
+
+  it('負の数・小数・数でない値・上限（5分）を超える長さは拒む（下げたまま残さないため）', () => {
+    expect(() => parseBgmDuck({ holdMs: -1 })).toThrow(ConfigError)
+    expect(() => parseBgmDuck({ holdMs: 1.5 })).toThrow(ConfigError)
+    expect(() => parseBgmDuck({ holdMs: '42秒' })).toThrow(ConfigError)
+    expect(() => parseBgmDuck({ holdMs: 5 * 60 * 1000 + 1 })).toThrow(ConfigError)
+    expect(() => parseBgmDuck(null)).toThrow(ConfigError)
   })
 })
 

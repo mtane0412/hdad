@@ -7,6 +7,8 @@
  *   曲の終わりを /api/overlay/bgm/ended で知らせる（次の曲は Worker が決める）。
  *   切り替えは WebSocket で押し出されてくるので、その文字列の読み取り（parseBgmNowPlaying）もここに置く
  *   （管理画面も、Jev や曲の終わりで変わった曲を映すために同じ押し出しを受け取る）
+ * - 合成ページ（overlay/stage/ の素材「市町村紹介」）: 紹介のBGMを鳴らすあいだ、オーバーレイ用キーで /api/overlay/bgm/duck に
+ *   「配信のBGMを下げておく長さ」を送る。裏方のページはそれを別の WebSocket で受け取る（parseBgmDuck。issue #245）
  *
  * 呼び出しと失敗の扱いは `../core/api` に任せ、fetch を引数で受け取るのはテストで差し替えるためである。
  *
@@ -23,12 +25,22 @@ const SETTINGS_PATH = '/api/admin/bgm/settings'
 const SKIP_PATH = '/api/admin/bgm/skip'
 const OVERLAY_PATH = '/api/overlay/bgm'
 const ENDED_PATH = '/api/overlay/bgm/ended'
+const DUCK_PATH = '/api/overlay/bgm/duck'
 
 /** 切り替えを押し出してもらう WebSocket のパス。裏方のページ（task.ts）と合成ページの素材「再生中の曲」と管理画面がつなぐ */
 export const BGM_SOCKET_PATH = '/api/overlay/bgm/socket'
 
+/**
+ * 配信のBGMを下げる知らせを押し出してもらう WebSocket のパス。裏方のページ（task.ts）だけがつなぐ。
+ * 曲の切り替えとは別の経路にするのは、切り替えを受け取る素材「再生中の曲」と管理画面に、読まない知らせを届けないためである
+ */
+export const BGM_DUCK_SOCKET_PATH = '/api/overlay/bgm/duck/socket'
+
 /** 一度もつながらないまま閉じたときに出す、いちばんありそうな原因 */
 export const BGM_SOCKET_HINT = 'BGMの切り替えの配送先につながりません。URLのオーバーレイ用キーが正しいか確かめてください'
+
+/** 配信のBGMを下げる知らせの経路が、一度もつながらないまま閉じたときに出す原因 */
+export const BGM_DUCK_SOCKET_HINT = '配信のBGMを下げる知らせの配送先につながりません。URLのオーバーレイ用キーが正しいか確かめてください'
 
 /** BGMの曲1つ。項目は worker/bgm-config.ts と合わせる */
 export interface BgmTrack {
@@ -150,6 +162,28 @@ export const parseBgmNowPlaying = (payload: string): BgmNowPlaying => {
   return readNowPlaying(body, '押し出された切り替え')
 }
 
+/** 配信のBGMを下げる知らせ。項目は worker/bgm-config.ts と合わせる */
+export interface BgmDuck {
+  /** 受け取ってから下げておく長さ（ミリ秒）。0 は「いますぐ戻す」 */
+  holdMs: number
+}
+
+/**
+ * WebSocket で押し出された文字列を、配信のBGMを下げる知らせとして読む。
+ *
+ * @throws JSONとして読めない・想定した形でない場合
+ */
+export const parseBgmDuck = (payload: string): BgmDuck => {
+  let body: unknown
+  try {
+    body = JSON.parse(payload)
+  } catch {
+    throw new Error('押し出された配信のBGMを下げる知らせをJSONとして読めません')
+  }
+  if (!isRecord(body) || typeof body.holdMs !== 'number') throw new Error('押し出された配信のBGMを下げる知らせが想定した形ではありません')
+  return { holdMs: body.holdMs }
+}
+
 /** 管理画面からの読み書き */
 export interface BgmApi {
   /** 曲の一覧と、いま流す曲・音量と、BGMの設定を読む */
@@ -164,12 +198,14 @@ export interface BgmApi {
   saveSettings(settings: BgmSettings): Promise<BgmSettings>
 }
 
-/** 裏方のページからの読み出し */
+/** 裏方のページ・合成ページからの読み書き */
 export interface BgmOverlayApi {
   /** いま流している曲を読む */
   read(): Promise<BgmNowPlaying>
   /** 流していた曲が終わったことを知らせ、いま流している曲（次の曲へ進めたなら進めた先）を受け取る */
   ended(mediaId: string): Promise<BgmNowPlaying>
+  /** 配信のBGMを holdMs ミリ秒のあいだ下げるよう、裏方のページへ知らせてもらう（0 は戻す）。合成ページの市町村紹介が呼ぶ */
+  duck(holdMs: number): Promise<void>
 }
 
 /**
@@ -209,7 +245,7 @@ export const createBgmApi = (fetchImpl: typeof fetch): BgmApi => {
 }
 
 /**
- * 裏方のページからの読み出しを組み立てる。
+ * 裏方のページ・合成ページからの読み書きを組み立てる。
  *
  * 裏方のページはOBSに載せるページなのでログインを持たず、オーバーレイ用キー（URLの ?key=）で Worker に受け付けてもらう。
  *
@@ -229,6 +265,9 @@ export const createBgmOverlayApi = (fetchImpl: typeof fetch, key: string): BgmOv
         body: JSON.stringify({ mediaId }),
       })
       return readNowPlaying(body, `Workerの ${ENDED_PATH} の応答`)
+    },
+    duck: async (holdMs) => {
+      await call(`${DUCK_PATH}${query}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ holdMs }) })
     },
   }
 }

@@ -449,6 +449,60 @@ describe('POST /api/overlay/bgm/ended', () => {
   })
 })
 
+describe('POST /api/overlay/bgm/duck', () => {
+  const duck = (env: Env, body: unknown, key = ISSUED_KEY) =>
+    callHandler(
+      new Request(`${SITE}/api/overlay/bgm/duck?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+      env,
+    )
+
+  it('合成ページからの「配信のBGMを下げておく長さ」を、裏方のページへ押し出す', async () => {
+    const { env, alertChannel } = await setupEnv()
+
+    const response = await duck(env, { holdMs: 42_000 })
+
+    expect(response.status).toBe(204)
+    expect(alertChannel.pushedBgmDucks).toEqual([{ holdMs: 42_000 }])
+    // 曲の切り替えではないので、いま流している曲は押し出さない
+    expect(alertChannel.pushedBgm).toEqual([])
+  })
+
+  it('長さが正しくなければ400にして、押し出さない', async () => {
+    const { env, alertChannel } = await setupEnv()
+
+    const response = await duck(env, { holdMs: -1 })
+
+    expect(response.status).toBe(400)
+    expect(alertChannel.pushedBgmDucks).toEqual([])
+  })
+
+  it('キーが違えば401にする', async () => {
+    const { env } = await setupEnv()
+
+    const response = await duck(env, { holdMs: 42_000 }, 'chigau-key')
+
+    expect(response.status).toBe(401)
+  })
+})
+
+describe('GET /api/overlay/bgm/duck/socket', () => {
+  it('配信のBGMを下げる知らせを受け取る接続として配送先へ引き渡す', async () => {
+    const { env, alertChannel } = await setupEnv()
+
+    await callHandler(new Request(`${SITE}/api/overlay/bgm/duck/socket?key=${ISSUED_KEY}`, { headers: { Upgrade: 'websocket' } }), env)
+
+    expect(alertChannel.forwardedConnections.map((request) => new URL(request.url).searchParams.get('topic'))).toEqual(['bgmDuck'])
+  })
+
+  it('WebSocketでなければ400にする', async () => {
+    const { env } = await setupEnv()
+
+    const response = await callHandler(new Request(`${SITE}/api/overlay/bgm/duck/socket?key=${ISSUED_KEY}`), env)
+
+    expect(response.status).toBe(400)
+  })
+})
+
 describe('DELETE /api/admin/media/:id', () => {
   it('BGMの曲に使われている素材は409で削除を拒否する（配信中に黙って無音にならないように）', async () => {
     const { env } = await setupEnv()

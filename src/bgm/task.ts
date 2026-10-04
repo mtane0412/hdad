@@ -7,6 +7,11 @@
  * つなぎ直したときは、つながっていない間の切り替えを取りこぼさないよう、もう一度読む。
  * リピートを切っているときは、曲が終わったら /api/overlay/bgm/ended で知らせ、Worker が決めた次の曲を流す。
  *
+ * 市町村紹介のBGMが鳴るあいだは、合成ページから Worker 経由で「配信のBGMを下げておく長さ」が別の WebSocket
+ * （/api/overlay/bgm/duck/socket）で届くので、受け取ってからその長さだけ下げ、過ぎたら自分で戻す（issue #245）。
+ * 戻す時刻を受け取った側で数えるのは、合成ページが閉じられた・紹介が途中で失敗した・知らせが届かなかったときに、
+ * 配信のBGMが下がったまま残らないようにするためである。
+ *
  * 何をするかの判断は change.ts、音の再生は player.ts にあり、ここはそれらをつなぐだけである。
  * OBSに載せるページの約束どおり React もログインも持ち込まない。
  *
@@ -16,7 +21,7 @@
  */
 import { clearError, showError } from '../core/mount'
 import { connectSocket, socketUrl } from '../core/socket'
-import { BGM_SOCKET_HINT, BGM_SOCKET_PATH, createBgmOverlayApi, parseBgmNowPlaying, type BgmNowPlaying } from './api'
+import { BGM_DUCK_SOCKET_HINT, BGM_DUCK_SOCKET_PATH, BGM_SOCKET_HINT, BGM_SOCKET_PATH, createBgmOverlayApi, parseBgmDuck, parseBgmNowPlaying, type BgmNowPlaying } from './api'
 import { bgmChangeOf } from './change'
 import { createBgmPlayer } from './player'
 
@@ -116,5 +121,29 @@ export const startBgm = async ({ key, box }: BgmTaskOptions): Promise<void> => {
       onWarning: (message) => showError(new Error(message), BGM_NOUN, box, 'read'),
     },
     BGM_SOCKET_HINT,
+  )
+
+  /** 下げたあと、元の音量へ戻すタイマー */
+  let restoreTimer: number | undefined
+  connectSocket(
+    socketUrl(BGM_DUCK_SOCKET_PATH, { key }),
+    {
+      onMessage: (text) => {
+        try {
+          const { holdMs } = parseBgmDuck(text)
+          // 新しい知らせが届いたら、前の知らせの戻す時刻は捨てて、新しい長さで数え直す
+          window.clearTimeout(restoreTimer)
+          player.duck(holdMs > 0)
+          if (holdMs > 0) restoreTimer = window.setTimeout(() => player.duck(false), holdMs)
+        } catch (error) {
+          showError(error, BGM_NOUN, box, 'read')
+        }
+      },
+      onStatus: () => {
+        // つながっていない間の知らせは読み直さない（取りこぼしても、下げないほうへ倒れるだけで下がったまま残らない）
+      },
+      onWarning: (message) => showError(new Error(message), BGM_NOUN, box, 'read'),
+    },
+    BGM_DUCK_SOCKET_HINT,
   )
 }

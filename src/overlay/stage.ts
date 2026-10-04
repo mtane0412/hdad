@@ -81,8 +81,9 @@ import { demoTaskDeskScenes } from '../task-desk/demo'
 import { parseTaskDeskSnapshot, type TaskDeskSnapshot, type TaskDeskWorkTime } from '../task-desk/entry'
 import { createTaskDeskView } from '../task-desk/view'
 import { TOWN_TOUR_SOCKET_HINT, TOWN_TOUR_SOCKET_PATH, createTownTourApi } from '../town-tour/api'
+import { bgmDuckHoldOf } from '../town-tour/bgm-duck'
 import { DEMO_INTRO_DELAY_MS, DEMO_TOWN_TOUR_INTERVAL_MS, demoTownTourCall, demoTownTourIntro } from '../town-tour/demo'
-import { dueSoundCues } from '../town-tour/sound-cues'
+import { BGM_START_CUE_ID, dueSoundCues } from '../town-tour/sound-cues'
 import { createTownTourSoundPlayer } from '../town-tour/sound-player'
 import { sceneAt, type Playback } from '../town-tour/timeline'
 import { decodeTownShapes } from '../town-tour/topo'
@@ -1176,6 +1177,20 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
   /** 流している1件で鳴らした音の id（sound-cues.ts の SoundCue.id） */
   let played = new Set<string>()
   const sound = createTownTourSoundPlayer((error) => showError(error, NOUNS.townTour, box, 'read'))
+  const bgmApi = createBgmOverlayApi(callWorker, key)
+
+  /**
+   * 紹介のBGMを鳴らしている再生なら、配信のBGMを下げておく長さを裏方のページへ知らせる（issue #245）。
+   *
+   * 鳴らしはじめたとき・紹介が届いたとき・紹介を作れなかったときに呼ぶ。プレビューでは配信のBGMを動かさないので送らない。
+   * 知らせに失敗しても紹介は止めず、箱に出すだけにする（下げられなくても、配信のBGMが下がったまま残ることはない）。
+   */
+  const duckStreamBgm = (target: Playback): void => {
+    if (demo || !played.has(BGM_START_CUE_ID)) return
+    const holdMs = bgmDuckHoldOf(target, Date.now())
+    if (holdMs === null) return
+    bgmApi.duck(holdMs).catch((error: unknown) => showError(error, NOUNS.townTour, box, 'read'))
+  }
 
   /** 1件を流しはじめ、紹介を作らせる。作らせている間に別の1件へ進んでいたら、届いた結果は捨てる */
   const start = (call: TownTourCall): void => {
@@ -1188,13 +1203,17 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
       : api.introduce(call.code)
     introduce.then(
       (intro) => {
-        if (playback === started) playback = { ...started, intro: { status: 'ready', intro, readyAt: Date.now() } }
+        if (playback !== started) return
+        playback = { ...started, intro: { status: 'ready', intro, readyAt: Date.now() } }
+        // 終わりが決まったので、配信のBGMを下げておく長さを再生の終わりまでに送り直す
+        duckStreamBgm(playback)
       },
       (error: unknown) => {
         if (playback !== started) return
         playback = { ...started, intro: { status: 'failed' } }
-        // 紹介を作れなかった再生では、鳴りはじめていた BGM も止めて何も鳴らさない
+        // 紹介を作れなかった再生では、鳴りはじめていた BGM も止めて何も鳴らさない。下げていた配信のBGMもすぐ戻す
         sound.stop()
+        duckStreamBgm(playback)
         showError(error, NOUNS.townTour, box, 'read')
       },
     )
@@ -1237,6 +1256,7 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
     for (const cue of dueSoundCues(playback, now, played)) {
       played.add(cue.id)
       sound.play(cue)
+      if (cue.type === 'bgmStart') duckStreamBgm(playback)
     }
   }, TOWN_TOUR_SOUND_TICK_MS)
 

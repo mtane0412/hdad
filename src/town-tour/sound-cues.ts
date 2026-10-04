@@ -17,6 +17,9 @@ import { FADE_OUT_MS, JAPAN_HOLD_MS, ITEM_MS, ZOOM_END_MS, tourSpanOf, type Play
 /** 効果音を鳴らしてよい遅れの上限（ミリ秒）。これより遅れたら、場面とずれて聞こえるので鳴らさない */
 const EFFECT_LATE_LIMIT_MS = 500
 
+/** BGM を鳴らしはじめる行の id。合成ページは、これを鳴らした再生でだけ配信のBGMを下げる（bgm-duck.ts） */
+export const BGM_START_CUE_ID = 'bgm'
+
 /** 表の1行。id は1件の再生の中で一意で、鳴らしたことの記録に使う。at は再生を始めてからのミリ秒 */
 export type SoundCue =
   /** BGM をループで鳴らしはじめる */
@@ -43,7 +46,7 @@ export const soundCuesOf = (playback: Playback): SoundCue[] => {
   }
 
   const opening: SoundCue[] = [
-    ...(slots.bgm === null ? [] : [{ id: 'bgm', at: 0, type: 'bgmStart', url: slots.bgm, volume: bgmVolume } as const]),
+    ...(slots.bgm === null ? [] : [{ id: BGM_START_CUE_ID, at: 0, type: 'bgmStart', url: slots.bgm, volume: bgmVolume } as const]),
     ...effect('opening', 'opening', 0),
     ...effect('zoom', 'zoom', JAPAN_HOLD_MS),
     ...effect('landing', 'landing', ZOOM_END_MS),
