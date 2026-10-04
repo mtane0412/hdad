@@ -93,6 +93,13 @@ describe('config・saveConfig（トリガーの設定）', () => {
     expect(await requests[0]!.json()).toEqual({ triggers: [triggerInput] })
   })
 
+  it('項目を持たない動作（シャウトアウト・市町村紹介）を持つトリガーも受け取る', async () => {
+    const raidTrigger = { kind: 'raid', actions: [{ type: 'shoutout' }, { type: 'townTour' }] }
+    const { fetchImpl } = fetchReturning(200, { triggers: [raidTrigger] })
+
+    expect(await createAdminApi(fetchImpl).config()).toEqual([raidTrigger])
+  })
+
   it('知らないメニュー項目のトリガーを受け取ったらエラーにする（黙って無視すると、絞り込みが効かないまま画面に出る）', async () => {
     const { fetchImpl } = fetchReturning(200, { triggers: [{ ...toastTrigger, kind: 'cheer' }] })
     await expect(createAdminApi(fetchImpl).config()).rejects.toThrow('triggers[0]')
