@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { ApiError } from '../core/api'
-import { createBgmApi, createBgmOverlayApi, parseBgmNowPlaying, type BgmNowPlaying, type BgmTrack } from './api'
+import { createBgmApi, createBgmOverlayApi, parseBgmDuck, parseBgmNowPlaying, type BgmNowPlaying, type BgmTrack } from './api'
 
 const overlayKey = 'overlay-key_0123456789abcdefghij'
 
@@ -119,6 +119,31 @@ describe('createBgmOverlayApi（裏方のページ）', () => {
 
     expect(await createBgmOverlayApi(fetchImpl, overlayKey).ended('media-moriagari')).toEqual(playingChatTrack)
     expect(calls).toEqual([{ path: `/api/overlay/bgm/ended?key=${overlayKey}`, method: 'POST', body: JSON.stringify({ mediaId: 'media-moriagari' }) }])
+  })
+})
+
+describe('createBgmOverlayApi（合成ページの市町村紹介）', () => {
+  it('配信のBGMを下げておく長さを知らせる', async () => {
+    const calls: { path: string; method: string; body: string }[] = []
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      calls.push({ path: String(input), method: init?.method ?? 'GET', body: String(init?.body ?? '') })
+      return new Response(null, { status: 204 })
+    }) as unknown as typeof fetch
+
+    await createBgmOverlayApi(fetchImpl, overlayKey).duck(42_000)
+
+    expect(calls).toEqual([{ path: `/api/overlay/bgm/duck?key=${overlayKey}`, method: 'POST', body: JSON.stringify({ holdMs: 42_000 }) }])
+  })
+})
+
+describe('parseBgmDuck', () => {
+  it('押し出された文字列を、配信のBGMを下げておく長さとして読む', () => {
+    expect(parseBgmDuck(JSON.stringify({ holdMs: 42_000 }))).toEqual({ holdMs: 42_000 })
+  })
+
+  it('JSONとして読めない・形が違うものはエラーにする', () => {
+    expect(() => parseBgmDuck('42秒')).toThrow('BGM')
+    expect(() => parseBgmDuck(JSON.stringify({ holdMs: '42秒' }))).toThrow('BGM')
   })
 })
 

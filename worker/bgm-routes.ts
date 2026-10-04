@@ -9,6 +9,9 @@
  * リピートを切っているときは、裏方のページが曲の終わりを POST /api/overlay/bgm/ended で知らせ、ここで次の曲へ進める
  * （次の曲を決めるのは worker/bgm-order.ts。管理画面の「次の曲」「前の曲」も同じ決め方を使う）。
  *
+ * 合成ページが市町村紹介のBGMを鳴らすあいだは、POST /api/overlay/bgm/duck で「配信のBGMを下げておく長さ」が届くので、
+ * 裏方のページへそのまま押し出す（issue #245。保存はしない。裏方のページが受け取ってからの長さで自分で戻す）。
+ *
  * 手で流す曲を変えたら、切り替えた時刻を記録する。そのすぐあとに Jev（worker/bgm-jev.ts）が曲を上書きしないためである（issue #153）。
  *
  * 注意: 値の検証は worker/bgm-config.ts だけが持つ（画面とWorkerで二重に持たない。speech-config.ts と同じ）。
@@ -16,12 +19,13 @@
  * 新しい曲を読む。それでも配信者が「切り替わったはず」と思い込まないよう、失敗は知らせる）。
  */
 import { overlayKeyTag } from './overlay-key'
-import { connectBgmSocket } from './alert-channel'
+import { connectBgmDuckSocket, connectBgmSocket, pushBgmDuck } from './alert-channel'
 import {
   loadBgmPlayback,
   loadBgmSettings,
   loadBgmTracks,
   nowPlayingOf,
+  parseBgmDuck,
   parseBgmPlayback,
   parseBgmSettings,
   parseBgmTracks,
@@ -185,4 +189,30 @@ export const overlayBgmSocket = async (context: Context): Promise<Response> => {
     throw new HttpError(STATUS.badRequest, 'expected-websocket', 'この経路はWebSocketの接続にだけ使えます')
   }
   return connectBgmSocket(context.env.ALERTS, context.request, await overlayKeyTag(key))
+}
+
+/**
+ * POST /api/overlay/bgm/duck?key=: 合成ページが「配信のBGMを下げておく長さ」（holdMs。0 は戻す）を知らせる。
+ *
+ * 裏方のページへ押し出すだけで保存しない。下げたまま残さないよう、戻すのは裏方のページが受け取ってからの長さで自分で行う。
+ * 裏方のページが開いていなくても成功にする（届け先が無いことは失敗ではないため）。
+ *
+ * @throws ConfigError 長さが正しくない場合（index.ts が問題点付きの400にする）
+ */
+export const postOverlayBgmDuck = async (context: Context): Promise<Response> => {
+  await requireOverlayKey(context)
+  const duck = parseBgmDuck(await readJson(context))
+  await pushBgmDuck(context.env.ALERTS, duck)
+  return new Response(null, { status: STATUS.noContent })
+}
+
+/**
+ * GET /api/overlay/bgm/duck/socket?key=: 裏方のページからのWebSocketの接続を、配信のBGMを下げる知らせを受け取る接続として配送先へ引き渡す。
+ */
+export const overlayBgmDuckSocket = async (context: Context): Promise<Response> => {
+  const key = await requireOverlayKey(context)
+  if (context.request.headers.get('Upgrade') !== 'websocket') {
+    throw new HttpError(STATUS.badRequest, 'expected-websocket', 'この経路はWebSocketの接続にだけ使えます')
+  }
+  return connectBgmDuckSocket(context.env.ALERTS, context.request, await overlayKeyTag(key))
 }

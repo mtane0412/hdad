@@ -27,6 +27,7 @@ const SWITCHED_AT_KEY = 'bgm-switched-at'
 const TRACKS_SUBJECT = 'BGMの曲'
 const PLAYBACK_SUBJECT = 'BGMの再生'
 const SETTINGS_SUBJECT = 'BGMの設定'
+const DUCK_SUBJECT = '配信のBGMを下げる長さ'
 
 /** 曲の数の上限。配信で使い分ける数としては十分で、1つの鍵に収まる大きさに保つ */
 const MAX_TRACKS = 100
@@ -42,6 +43,11 @@ export const MAX_CREDIT_URL_LENGTH = 200
 const MAX_DESCRIPTION_LENGTH = 200
 const MIN_VOLUME = 0
 const MAX_VOLUME = 1
+/**
+ * 配信のBGMを下げておく長さの上限（ミリ秒）。市町村紹介の1件（紹介を待つ時間を含めて1分ほど）より十分に長く、
+ * 送り手が壊れて大きな値を送っても、下げたまま配信が続かない長さにする（issue #245）
+ */
+const MAX_DUCK_HOLD_MS = 5 * 60 * 1000
 /** クレジット先として受け取るURL。視聴者が開くものなので、スクリプトを動かせる形（javascript: など）を入れさせない */
 const CREDIT_URL_PATTERN = /^https?:\/\/\S+$/
 
@@ -77,6 +83,17 @@ export interface BgmPlayback {
 export interface BgmSettings {
   /** 配信の話題や雰囲気に合う曲へ、Jev に切り替えさせるか */
   readonly judgeWithJev: boolean
+}
+
+/**
+ * 配信のBGMを下げる知らせ（issue #245）。合成ページが市町村紹介のBGMを鳴らすあいだ送る。
+ *
+ * 「いつまで」を時刻ではなく受け取ってからの長さで送るのは、合成ページと裏方のページの時計がずれていても
+ * 下げる長さが変わらないようにするためである。裏方のページは受け取ってから holdMs 経ったら自分で戻す。
+ */
+export interface BgmDuck {
+  /** 受け取ってから下げておく長さ（ミリ秒）。0 は「いますぐ戻す」 */
+  readonly holdMs: number
 }
 
 /** 裏方のページへ渡す、いま流している曲 */
@@ -282,4 +299,19 @@ export const nowPlayingOf = (tracks: readonly BgmTrack[], playback: BgmPlayback,
     repeat,
     shuffle,
   }
+}
+
+/**
+ * 合成ページから送られてきた「配信のBGMを下げておく長さ」を検証する。
+ *
+ * @param input `{ holdMs: number }`（0 以上 MAX_DUCK_HOLD_MS 以下の整数）
+ * @throws ConfigError 問題がある場合
+ */
+export const parseBgmDuck = (input: unknown): BgmDuck => {
+  if (!isRecord(input)) throw new ConfigError(DUCK_SUBJECT, ['オブジェクトで指定してください'])
+  const { holdMs } = input
+  if (typeof holdMs !== 'number' || !Number.isInteger(holdMs) || holdMs < 0 || holdMs > MAX_DUCK_HOLD_MS) {
+    throw new ConfigError(DUCK_SUBJECT, [`holdMs: 0〜${MAX_DUCK_HOLD_MS} の整数（ミリ秒）で指定してください`])
+  }
+  return { holdMs }
 }

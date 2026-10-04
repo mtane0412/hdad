@@ -24,4 +24,6 @@ paths:
 - 演出で鳴らす音の枠は `src/town-tour/sound.ts` の `TOWN_TOUR_SOUND_SLOTS` で固定し（Worker もここから読む例外）、配信者は枠ごとにアップロード済みの音声を選ぶか「鳴らさない」にするだけにする。設定は市町村紹介として1つ（`worker/town-tour-sound.ts`。KV の `town-tour-sound`）で、画面はトリガーのページの「市町村紹介」のカード（`src/admin/town-tour-sound-card.tsx`）。押し出しの中身に音声の URL にして載せる（`playbackSoundOf`）。音声ファイルはリポジトリに入れない（配布元が再配布を禁じている）
 - 合成ページで鳴らす時刻は `src/town-tour/sound-cues.ts` の表（`soundCuesOf`）だけが決め、秒数は `timeline.ts` の定数と `tourSpanOf` から取る（場面とずらさない）。鳴らしたことの記録（`SoundCue.id`）と止める判断（再生の終わり・紹介の失敗）は `mountTownTour`、Audio 要素の操作は `sound-player.ts` が受け持ち、後者だけがテストを持たない。刻むのは描画のループではなくタイマーにする。再生を始められなかった音は素材の箱に失敗を出す
 
+- 紹介の BGM を鳴らした再生では、配信の BGM を下げておく長さ（`src/town-tour/bgm-duck.ts` の `bgmDuckHoldOf`）を、鳴らしはじめた・紹介が届いた・紹介を作れなかったときに `POST /api/overlay/bgm/duck` へ送る。「戻す」は送らず長さで送り、戻すのは裏方のページに任せる（合成ページが閉じられても下がったまま残さない）。BGM の枠が空なら送らず、プレビューでも送らない。送れなくても紹介は止めない
+
 経緯は `docs/decisions/town-tour.md`、出典の表記と作り直しの手順は `docs/guide/town-tour.md`。

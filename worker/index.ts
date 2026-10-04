@@ -76,6 +76,8 @@
  * | GET  /api/overlay/focus          | オーバーレイ用キー | いま取り上げている注目コメントを返す |
  * | GET  /api/overlay/bgm            | オーバーレイ用キー | いま流しているBGMを返す（裏方のページから） |
  * | GET  /api/overlay/bgm/socket     | オーバーレイ用キー | 裏方のページからのWebSocketの接続を受け、BGMの切り替えの配送先へ引き渡す |
+ * | POST /api/overlay/bgm/duck       | オーバーレイ用キー | 配信のBGMを下げておく長さを裏方のページへ押し出す（合成ページの市町村紹介から） |
+ * | GET  /api/overlay/bgm/duck/socket | オーバーレイ用キー | 裏方のページからのWebSocketの接続を受け、配信のBGMを下げる知らせの配送先へ引き渡す |
  * | GET  /api/overlay/draw/strokes   | オーバーレイ用キー | 保存されている手書きの線を返す（合成ページが開いたときに1度読む） |
  * | GET  /api/overlay/caption        | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、字幕の中継先へ引き渡す |
  * | GET  /api/overlay/tab            | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、タブの映像の連絡の中継先へ引き渡す |
@@ -114,7 +116,7 @@ import {
   putSpeech,
 } from './admin-routes'
 import { getFocus, putFocus } from './focus-routes'
-import { getBgm, getOverlayBgm, overlayBgmSocket, postBgmSkip, postOverlayBgmEnded, putBgmPlayback, putBgmSettings, putBgmTracks } from './bgm-routes'
+import { getBgm, getOverlayBgm, overlayBgmDuckSocket, overlayBgmSocket, postBgmSkip, postOverlayBgmDuck, postOverlayBgmEnded, putBgmPlayback, putBgmSettings, putBgmTracks } from './bgm-routes'
 import { deleteViewerRoute, getViewers, patchViewer } from './viewer-routes'
 import { deleteReward, getRewards, patchReward, postReward } from './reward-routes'
 import {
@@ -298,6 +300,8 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/overlay/bgm', handle: getOverlayBgm },
   { method: 'GET', path: '/api/overlay/bgm/socket', handle: overlayBgmSocket },
   { method: 'POST', path: '/api/overlay/bgm/ended', handle: postOverlayBgmEnded },
+  { method: 'POST', path: '/api/overlay/bgm/duck', handle: postOverlayBgmDuck },
+  { method: 'GET', path: '/api/overlay/bgm/duck/socket', handle: overlayBgmDuckSocket },
   { method: 'GET', path: '/api/overlay/layout', handle: getOverlayLayoutForPage },
   { method: 'GET', path: '/api/overlay/town-tour', handle: getTownTour },
   { method: 'GET', path: '/api/overlay/town-tour/socket', handle: townTourSocket },

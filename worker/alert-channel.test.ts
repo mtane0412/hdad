@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest'
 import {
   AlertChannel,
   connectAlertSocket,
+  connectBgmDuckSocket,
   connectBgmSocket,
   connectPomodoroSocket,
   connectTownTourSocket,
@@ -16,6 +17,7 @@ import {
   connectWorkLogSocket,
   pushAlert,
   pushBgm,
+  pushBgmDuck,
   pushPomodoro,
   pushTownTour,
   pushTaskDesk,
@@ -23,7 +25,7 @@ import {
   revokeAlertSockets,
   type AlertSocket,
 } from './alert-channel'
-import type { BgmNowPlaying } from './bgm-config'
+import type { BgmDuck, BgmNowPlaying } from './bgm-config'
 import { createFakeAlertChannel } from './fake-alert-channel'
 import { createFakeDurableStorage } from './fake-durable-storage'
 import type { OverlayAlert } from './alert-event'
@@ -77,6 +79,9 @@ const runningPomodoro: PomodoroSnapshot = {
   timer: { startedAt: Date.parse('2026-10-03T12:00:00Z'), anchorAt: Date.parse('2026-10-03T12:00:00Z'), pausedAt: null },
 }
 
+/** 市町村紹介のBGMが鳴るあいだ、配信のBGMを42秒下げておく知らせ */
+const duringTownTour: BgmDuck = { holdMs: 42_000 }
+
 /** 送られた文字列を覚えておく、テスト用の接続 */
 const createConnection = (): AlertSocket & { sentMessages: string[] } => {
   const sentMessages: string[] = []
@@ -97,6 +102,7 @@ describe('AlertChannel', () => {
     taskDeskSockets: AlertSocket[] = [],
     pomodoroSockets: AlertSocket[] = [],
     townTourSockets: AlertSocket[] = [],
+    bgmDuckSockets: AlertSocket[] = [],
   ): AlertChannel =>
     new AlertChannel({
       acceptWebSocket: () => undefined,
@@ -107,7 +113,8 @@ describe('AlertChannel', () => {
         if (tag === 'taskDesk') return taskDeskSockets
         if (tag === 'pomodoro') return pomodoroSockets
         if (tag === 'townTour') return townTourSockets
-        return [...sockets, ...bgmSockets, ...workLogSockets, ...taskDeskSockets, ...pomodoroSockets, ...townTourSockets]
+        if (tag === 'bgmDuck') return bgmDuckSockets
+        return [...sockets, ...bgmSockets, ...workLogSockets, ...taskDeskSockets, ...pomodoroSockets, ...townTourSockets, ...bgmDuckSockets]
       },
       setWebSocketAutoResponse: () => undefined,
       storage: createFakeDurableStorage(),
@@ -194,6 +201,18 @@ describe('AlertChannel', () => {
     expect(alertItem.sentMessages).toEqual([])
   })
 
+  it('配信のBGMを下げる知らせは、下げる知らせを受け取る接続（裏方のページ）だけへ送る（曲の切り替えとしては読めないため）', async () => {
+    const bgmItem = createConnection()
+    const backstageDuck = createConnection()
+    const destination = createDestination([], [bgmItem], [], [], [], [], [backstageDuck])
+
+    const response = await destination.fetch(new Request('https://alert-channel/push/bgm-duck', { method: 'POST', body: JSON.stringify(duringTownTour) }))
+
+    expect(response.status).toBe(204)
+    expect(backstageDuck.sentMessages).toEqual([JSON.stringify(duringTownTour)])
+    expect(bgmItem.sentMessages).toEqual([])
+  })
+
   it('接続が1本もなければ、送らずに終わる（オーバーレイを開いていない間のアラートは落とす）', async () => {
     const destination = createDestination([])
 
@@ -238,6 +257,7 @@ describe('接続の引き渡し', () => {
     await connectTaskDeskSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
     await connectPomodoroSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
     await connectTownTourSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
+    await connectBgmDuckSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
 
     expect(delivery.forwardedConnections.map((request) => new URL(request.url).searchParams.get('topic'))).toEqual([
       'alerts',
@@ -246,6 +266,7 @@ describe('接続の引き渡し', () => {
       'taskDesk',
       'pomodoro',
       'townTour',
+      'bgmDuck',
     ])
   })
 })
@@ -332,6 +353,23 @@ describe('pushTownTour', () => {
     const delivery = createFakeAlertChannel({ shouldFail: true })
 
     await expect(pushTownTour(delivery.namespace, raidTownTour)).rejects.toThrow('市町村紹介')
+  })
+})
+
+describe('pushBgmDuck', () => {
+  it('Durable Object へ、配信のBGMを下げる知らせを送る', async () => {
+    const delivery = createFakeAlertChannel()
+
+    await pushBgmDuck(delivery.namespace, duringTownTour)
+
+    expect(delivery.pushedBgmDucks).toEqual([duringTownTour])
+    expect(delivery.pushedBgm).toEqual([])
+  })
+
+  it('Durable Object が失敗を返したら、黙って成功にせず投げる', async () => {
+    const delivery = createFakeAlertChannel({ shouldFail: true })
+
+    await expect(pushBgmDuck(delivery.namespace, duringTownTour)).rejects.toThrow('BGM')
   })
 })
 

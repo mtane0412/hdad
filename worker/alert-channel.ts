@@ -33,10 +33,13 @@
  * 合成ページの素材「市町村紹介」へ、引いた市町村と冒頭の一文を配るのもこの Durable Object である（issue #229）。
  * 同じ理由で、6つ目の目印（townTour）を付けた接続へだけ配る。
  *
+ * 市町村紹介のBGMが鳴るあいだ配信のBGMを下げる知らせを、裏方のページへ配るのもこの Durable Object である（issue #245）。
+ * 曲の切り替え（bgm）を受け取る素材「再生中の曲」と管理画面は下げる知らせを読まないので、7つ目の目印（bgmDuck）を付けた接続へだけ配る。
+ *
  * 注意: WebSocketの接続（Upgrade）は Cloudflare のランタイムでしか作れないので、テストでは配送の部分だけを確かめる。
  */
 import type { OverlayAlert } from './alert-event'
-import type { BgmNowPlaying } from './bgm-config'
+import type { BgmDuck, BgmNowPlaying } from './bgm-config'
 import { STATUS, errorResponse } from './http'
 import { KEY_TAG_PARAM, isCurrentKeyTag, rememberKeyTag, revokeRequest, type DurableStorage } from './overlay-key'
 import { broadcast, closeForRevokedKey, type SocketLike } from './socket-broadcast'
@@ -60,6 +63,8 @@ const PUSH_TASK_DESK_PATH = '/push/task-desk'
 const PUSH_POMODORO_PATH = '/push/pomodoro'
 /** Worker が市町村紹介の呼び出しの押し出しに使うパス */
 const PUSH_TOWN_TOUR_PATH = '/push/town-tour'
+/** Worker が配信のBGMを下げる知らせの押し出しに使うパス */
+const PUSH_BGM_DUCK_PATH = '/push/bgm-duck'
 /** Worker がオーバーレイ用キーを発行し直したときに、開いている接続を閉じさせるパス */
 const REVOKE_PATH = '/revoke'
 
@@ -75,8 +80,10 @@ const TASK_DESK_TOPIC = 'taskDesk'
 const POMODORO_TOPIC = 'pomodoro'
 /** 市町村紹介の呼び出しを受け取る接続（合成ページの素材「市町村紹介」）に付ける目印 */
 const TOWN_TOUR_TOPIC = 'townTour'
+/** 配信のBGMを下げる知らせを受け取る接続（裏方のページ）に付ける目印 */
+const BGM_DUCK_TOPIC = 'bgmDuck'
 /** 受け入れる接続の目印。知らない値はアラートの接続として受け入れる（Worker が必ずどれかを付けて渡す） */
-const TOPICS: readonly string[] = [ALERTS_TOPIC, BGM_TOPIC, WORK_LOG_TOPIC, TASK_DESK_TOPIC, POMODORO_TOPIC, TOWN_TOUR_TOPIC]
+const TOPICS: readonly string[] = [ALERTS_TOPIC, BGM_TOPIC, WORK_LOG_TOPIC, TASK_DESK_TOPIC, POMODORO_TOPIC, TOWN_TOUR_TOPIC, BGM_DUCK_TOPIC]
 /** どちらの目印で受け入れるかを Worker が伝えるためのクエリ。外には出ない */
 const TOPIC_PARAM = 'topic'
 
@@ -120,13 +127,14 @@ export interface AlertChannelNamespace {
  * 呼ぶのは Worker だけで、次の2つを受け付ける。
  * - Upgrade: websocket のリクエスト: オーバーレイからの接続を受ける（パスはWorkerのものがそのまま届く）。
  *   クエリの topic が bgm ならBGMの接続、workLog なら作業ログの接続、taskDesk なら作業机の接続、pomodoro ならポモドーロの接続、
- *   townTour なら市町村紹介の接続、それ以外はアラートの接続として受け入れる
+ *   townTour なら市町村紹介の接続、bgmDuck なら配信のBGMを下げる知らせの接続、それ以外はアラートの接続として受け入れる
  * - POST /push: Worker が押し出したアラートを、アラートの接続すべてへ配る
  * - POST /push/bgm: Worker が押し出した「いま流している曲」を、BGMの接続すべてへ配る
  * - POST /push/work-log: Worker が押し出した作業ログの1行を、作業ログの接続すべてへ配る
  * - POST /push/task-desk: Worker が押し出したいまの作業机を、作業机の接続すべてへ配る
  * - POST /push/pomodoro: Worker が押し出したいまのポモドーロのタイマーを、ポモドーロの接続すべてへ配る
  * - POST /push/town-tour: Worker が押し出した市町村紹介の呼び出しを、市町村紹介の接続すべてへ配る
+ * - POST /push/bgm-duck: Worker が押し出した配信のBGMを下げる知らせを、下げる知らせの接続すべてへ配る
  * - POST /revoke: 新しいキーの目印を覚え、接続をすべて閉じる（オーバーレイ用キーを発行し直したとき。どの接続もオーバーレイ用キーで開かれている）
  *
  * 接続はどれもオーバーレイ用キーで開かれるので、覚えている目印と違うキーの接続は受け入れない（worker/overlay-key.ts）。
@@ -148,6 +156,7 @@ export class AlertChannel {
     if (url.pathname === PUSH_TASK_DESK_PATH) return this.push(TASK_DESK_TOPIC, await request.text(), '作業机')
     if (url.pathname === PUSH_POMODORO_PATH) return this.push(POMODORO_TOPIC, await request.text(), 'ポモドーロのタイマー')
     if (url.pathname === PUSH_TOWN_TOUR_PATH) return this.push(TOWN_TOUR_TOPIC, await request.text(), '市町村紹介')
+    if (url.pathname === PUSH_BGM_DUCK_PATH) return this.push(BGM_DUCK_TOPIC, await request.text(), '配信のBGMを下げる知らせ')
     if (url.pathname === REVOKE_PATH) {
       // 先に目印を覚えてから閉じる。閉じたあとすぐ古いキーでつなぎ直されても受け入れないため
       if (!(await rememberKeyTag(this.ctx.storage, request))) return new Response(null, { status: STATUS.badRequest })
@@ -239,6 +248,16 @@ export const connectPomodoroSocket = (namespace: AlertChannelNamespace, request:
 export const connectTownTourSocket = (namespace: AlertChannelNamespace, request: Request, keyTag: string): Promise<Response> =>
   connectWithTopic(namespace, request, TOWN_TOUR_TOPIC, keyTag)
 
+/**
+ * 裏方のページからのWebSocketの接続を、配信のBGMを下げる知らせを受け取る接続として Durable Object へ引き渡す。
+ *
+ * オーバーレイ用キーの確認は呼び出し側（bgm-routes.ts）が済ませている。
+ *
+ * @param keyTag 確かめたキーの目印（overlayKeyTag）
+ */
+export const connectBgmDuckSocket = (namespace: AlertChannelNamespace, request: Request, keyTag: string): Promise<Response> =>
+  connectWithTopic(namespace, request, BGM_DUCK_TOPIC, keyTag)
+
 /** 受け取る側の目印とキーの目印をクエリに載せて接続を引き渡す。利用者の送ってきた値は上書きする */
 const connectWithTopic = (namespace: AlertChannelNamespace, request: Request, topic: string, keyTag: string): Promise<Response> => {
   const url = new URL(request.url)
@@ -305,7 +324,17 @@ export const pushTownTour = (namespace: AlertChannelNamespace, call: TownTourCal
   pushJson(namespace, PUSH_TOWN_TOUR_PATH, call, '市町村紹介')
 
 /**
- * オーバーレイ用キーを発行し直したときに、新しいキーの目印を覚えさせ、開いている接続（アラート・BGM・作業ログ・作業机・ポモドーロ・市町村紹介）をすべて閉じさせる。
+ * 配信のBGMを下げる知らせを Durable Object へ押し出す。合成ページが市町村紹介のBGMを鳴らすあいだに呼ぶ。
+ *
+ * 裏方のページが開いていなければ配る先が無いだけで、失敗ではない（配送先は204を返す）。
+ *
+ * 注意: 失敗を黙って握りつぶさない。呼び出し側（bgm-routes.ts）が合成ページへ失敗を返す。
+ */
+export const pushBgmDuck = (namespace: AlertChannelNamespace, duck: BgmDuck): Promise<void> =>
+  pushJson(namespace, PUSH_BGM_DUCK_PATH, duck, '配信のBGMを下げる知らせ')
+
+/**
+ * オーバーレイ用キーを発行し直したときに、新しいキーの目印を覚えさせ、開いている接続（アラート・BGM・作業ログ・作業机・ポモドーロ・市町村紹介・配信のBGMを下げる知らせ）をすべて閉じさせる。
  *
  * 注意: 失敗を黙って握りつぶさない。閉じられないと古いキーの接続が残るので、呼び出し側（admin-routes.ts）が失敗を返す。
  *
@@ -313,5 +342,5 @@ export const pushTownTour = (namespace: AlertChannelNamespace, call: TownTourCal
  */
 export const revokeAlertSockets = async (namespace: AlertChannelNamespace, keyTag: string): Promise<void> => {
   const response = await channelOf(namespace).fetch(revokeRequest(`https://alert-channel${REVOKE_PATH}`, keyTag))
-  if (!response.ok) throw new Error(`アラート・BGM・作業ログ・作業机・ポモドーロ・市町村紹介の接続を切断できませんでした（${response.status}）`)
+  if (!response.ok) throw new Error(`アラート・BGM・作業ログ・作業机・ポモドーロ・市町村紹介・配信のBGMを下げる知らせの接続を切断できませんでした（${response.status}）`)
 }
