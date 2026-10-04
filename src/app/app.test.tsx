@@ -14,7 +14,7 @@
  * - 未保存の変更があるページから離れようとすると確認を出し、「留まる」なら編集した内容を残すこと
  */
 import '@testing-library/jest-dom/vitest'
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeAll, describe, expect, test, vi } from 'vitest'
 import type { AdminApi, Me } from '@/admin/api'
@@ -378,10 +378,12 @@ describe('迷わず移動できること', () => {
     openPage('/viewers/')
     renderSignedIn()
     await screen.findByRole('heading', { level: 1, name: '視聴者' })
-    expect(document.title).toBe('視聴者 · HDAD')
+    // 題名は見出しを描いたあとの effect で付く。ログインの確認（/api/me）は act の外で解決するので effect が遅れて走ることがあり、
+    // CI の負荷が高いと見出しが出た直後にはまだ題名が変わっていない。付くのを待ってから確かめる
+    await waitFor(() => expect(document.title).toBe('視聴者 · HDAD'))
 
     await userEvent.click(within(screen.getByRole('navigation', { name: 'サイト内の移動' })).getByRole('link', { name: 'アップロード' }))
-    expect(document.title).toBe('アップロード · HDAD')
+    await waitFor(() => expect(document.title).toBe('アップロード · HDAD'))
   })
 
   test('ログアウトしてログインの入口に戻ったら、タブの題名をアプリ名だけに戻す', async () => {
