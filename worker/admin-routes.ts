@@ -11,6 +11,7 @@ import { revokeRelayViewers } from './draw-channel'
 import { HttpError, STATUS, requireAdmin, type Context } from './http'
 import { listMedia, uploadMedia } from './media'
 import { loadBgmTracks } from './bgm-config'
+import { loadTownTourSound, townTourSoundUses } from './town-tour-sound'
 import { overlayKeyTag, rotateOverlayKey } from './overlay-key'
 import { revokeTabViewers } from './tab-channel'
 import { loadOverlayLayout, parseOverlayLayout, saveOverlayLayout } from './overlay-layout'
@@ -58,8 +59,8 @@ export const postMedia = async (context: Context): Promise<Response> => {
 }
 
 /**
- * DELETE /api/admin/media/:id: トリガーやBGMの曲に使われている素材は消させない
- * （配信中にアラートが出なくなる・BGMが黙って無音になるのを防ぐ）
+ * DELETE /api/admin/media/:id: トリガー・BGMの曲・市町村紹介の音に使われている素材は消させない
+ * （配信中にアラートが出なくなる・BGMや市町村紹介が黙って無音になるのを防ぐ）
  */
 export const deleteMedia = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
@@ -73,6 +74,9 @@ export const deleteMedia = async (context: Context): Promise<Response> => {
   }
   if ((await loadBgmTracks(env.STORE)).some((track) => track.mediaId === id)) {
     throw new HttpError(STATUS.conflict, 'media-in-use', 'この素材はBGMの曲に使われています。先にBGMの一覧から外してください')
+  }
+  if (townTourSoundUses(await loadTownTourSound(env.STORE), id)) {
+    throw new HttpError(STATUS.conflict, 'media-in-use', 'この素材は市町村紹介の音に使われています。先にトリガーのページの「市町村紹介」で外してください')
   }
 
   await env.MEDIA.delete(id)

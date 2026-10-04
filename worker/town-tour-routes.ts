@@ -4,6 +4,8 @@
  * - GET /api/overlay/town-tour?key=&code=: コードの市町村の紹介を作って返す
  * - GET /api/overlay/town-tour/socket?key=: 合成ページの素材「市町村紹介」の WebSocket の接続を配送先（AlertChannel）へ引き渡す
  * - POST /api/admin/town-tour/demo: 管理画面の試し再生。市町村を1つ引いて素材へ押し出す（トリガーと同じ配送の経路を通す）
+ * - GET /api/admin/town-tour/sound: 演出で鳴らす音の設定。未保存ならどの枠も鳴らさない設定（issue #243）
+ * - PUT /api/admin/town-tour/sound: 音の設定を検証して保存する（問題があれば index.ts が問題点付きの400にする）
  *
  * 合成ページの素材（issue #229）が、レイドで引いた市町村のコードを渡して呼ぶ。Worker はコードから記事名を引き
  * （src/town-tour/articles.json）、Wikipedia の記事を材料に LLM に紹介を作らせ、出典の URL と一緒に返す。
@@ -19,11 +21,14 @@
 import articles from '../src/town-tour/articles.json'
 import towns from '../src/town-tour/towns.json'
 import { connectTownTourSocket, pushTownTour } from './alert-channel'
+import { listMedia } from './media'
+import { loadOverlayKey } from './overlay-key'
 import { HttpError, STATUS, requireAdmin, requireOverlayKey, type Context } from './http'
 import { overlayKeyTag } from './overlay-key'
 import { recordFailure } from './stats-store'
 import { generateTownTour } from './town-tour'
 import { pickTown, townTourCallOf } from './town-tour-call'
+import { loadTownTourSound, parseTownTourSound, playbackSoundOf, saveTownTourSound } from './town-tour-sound'
 import { fetchTownArticle, pickTownMaterial } from './town-wikipedia'
 
 /** コードから記事名を引く表。JSON のキーは文字列なので Map に移しておき、プロトタイプのキー（toString など）に当たらないようにする */
@@ -77,17 +82,42 @@ export const townTourSocket = async (context: Context): Promise<Response> => {
  * POST /api/admin/town-tour/demo: 管理画面の試し再生。市町村を1つ引き、試しと分かる一文を添えて素材へ押し出す。
  *
  * トリガーと同じ配送の経路（AlertChannel）を通すので、合成ページを開いていれば OBS の画面にもそのまま流れる。
- * 何を引いたかを画面に出せるよう、押し出したものを返す。
+ * 何を引いたかを画面に出せるよう、押し出したものを返す。音もトリガーと同じく保存済みの設定で鳴らす（聞き比べられるように）。
  *
  * 注意: 配送先の失敗は黙って成功にせず 502 で返す（管理画面に理由を出す）。
  */
 export const postTownTourDemo = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
-  const call = townTourCallOf(pickTown(Math.random), { occasion: 'demo' })
+  const { STORE } = context.env
+  const [sound, overlayKey] = await Promise.all([loadTownTourSound(STORE), loadOverlayKey(STORE)])
+  const call = townTourCallOf(pickTown(Math.random), { occasion: 'demo' }, playbackSoundOf(sound, overlayKey))
   try {
     await pushTownTour(context.env.ALERTS, call)
   } catch (error) {
     throw new HttpError(STATUS.badGateway, 'town-tour-push-failed', error instanceof Error ? error.message : String(error))
   }
   return Response.json(call)
+}
+
+/** GET /api/admin/town-tour/sound: 演出で鳴らす音の設定。未保存ならどの枠も鳴らさない設定が返る */
+export const getTownTourSound = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  return Response.json(await loadTownTourSound(context.env.STORE))
+}
+
+/**
+ * PUT /api/admin/town-tour/sound: 音の設定を検証して保存し、保存したものを返す。
+ *
+ * @throws ConfigError 設定に問題がある場合（index.ts が問題点付きの400にする）
+ */
+export const putTownTourSound = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  const { request, env } = context
+  const body: unknown = await request.json().catch(() => {
+    throw new HttpError(STATUS.badRequest, 'invalid-body', '本文はJSONにしてください')
+  })
+  const kinds = new Map((await listMedia(env.MEDIA)).map((item) => [item.id, item.kind]))
+  const sound = parseTownTourSound(body, (mediaId) => kinds.get(mediaId) ?? null)
+  await saveTownTourSound(env.STORE, sound)
+  return Response.json(sound)
 }

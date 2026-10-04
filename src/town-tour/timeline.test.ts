@@ -20,6 +20,12 @@ const tobetsuCall: TownTourCall = {
   county: '石狩郡',
   name: '当別町',
   headline: '山田花子さんのレイドを記念して、本日は北海道石狩郡当別町をご紹介します',
+  // 場面の進み方は音に左右されないので、どの枠も鳴らさない設定にしておく
+  sound: {
+    slots: { bgm: null, opening: null, zoom: null, landing: null, item: null, closing: null },
+    bgmVolume: 0.3,
+    effectVolume: 0.6,
+  },
 }
 
 /** 項目が2つだけの紹介（ほかは材料に無かった） */

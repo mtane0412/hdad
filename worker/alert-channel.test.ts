@@ -30,6 +30,7 @@ import type { OverlayAlert } from './alert-event'
 import type { TaskDeskSnapshot } from './task-desk'
 import type { PomodoroSnapshot } from './pomodoro-timer'
 import type { TownTourCall } from './town-tour-call'
+import { DEFAULT_TOWN_TOUR_SOUND, playbackSoundOf } from './town-tour-sound'
 import type { WorkLogEntry } from './work-log'
 
 const alert: OverlayAlert = {
@@ -69,6 +70,7 @@ const raidTownTour: TownTourCall = {
   county: '石狩郡',
   name: '当別町',
   headline: '山田花子さんのレイドを記念して、本日は北海道石狩郡当別町をご紹介します',
+  sound: playbackSoundOf(DEFAULT_TOWN_TOUR_SOUND, null),
 }
 
 const runningPomodoro: PomodoroSnapshot = {

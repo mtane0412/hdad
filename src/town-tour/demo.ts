@@ -16,6 +16,12 @@ export const demoTownTourCall: TownTourCall = {
   county: '',
   name: '千代田区',
   headline: 'プレビュー: 視聴者さんのレイドを記念して、本日は東京都千代田区をご紹介します',
+  // プレビューは配信者の音声を読めない（オーバーレイ用キーを持たない）ので、どの枠も鳴らさない
+  sound: {
+    slots: { bgm: null, opening: null, zoom: null, landing: null, item: null, closing: null },
+    bgmVolume: 0,
+    effectVolume: 0,
+  },
 }
 
 /** プレビューで流す紹介（Worker が返す形と同じ。歴史は材料に無かったものとして空にしてある） */

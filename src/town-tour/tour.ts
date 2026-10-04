@@ -2,7 +2,8 @@
  * 市町村紹介の呼び出しと紹介の形（合成ページの素材「市町村紹介」が受け取るもの）
  *
  * 素材は2つのものを Worker から受け取る。
- * - 呼び出し: トリガー（レイド・キーワード）や試し再生で、AlertChannel から WebSocket で押し出される。市町村と冒頭の一文だけを持つ
+ * - 呼び出し: トリガー（レイド・キーワード）や試し再生で、AlertChannel から WebSocket で押し出される。市町村と冒頭の一文と、
+ *   演出で鳴らす音（sound.ts）を持つ
  *   （worker/town-tour-call.ts の TownTourCall と同じ形）
  * - 紹介: 呼び出しを受け取ってから GET /api/overlay/town-tour?code= で作らせる。記事名・出典の URL・5項目を持つ
  *   （worker/town-tour-routes.ts の応答と同じ形）
@@ -11,6 +12,7 @@
  * 特に通さない。
  */
 import { isRecord } from '../core/api'
+import { readPlaybackSound, type TownTourPlaybackSound } from './sound'
 
 /** 紹介の項目。並び順は画面に流す順で、worker/town-tour.ts の TOWN_TOUR_ITEMS と同じ */
 export const TOUR_ITEMS = ['location', 'nameOrigin', 'history', 'specialty', 'surprise'] as const
@@ -26,7 +28,7 @@ const TOUR_ITEM_LABELS: Readonly<Record<TourItem, string>> = {
   surprise: '意外な一面',
 }
 
-/** 押し出された呼び出し。市町村（コードは全国地方公共団体コードの5桁）と、冒頭に出す一文 */
+/** 押し出された呼び出し。市町村（コードは全国地方公共団体コードの5桁）と、冒頭に出す一文と、鳴らす音 */
 export interface TownTourCall {
   readonly code: string
   readonly prefecture: string
@@ -34,6 +36,7 @@ export interface TownTourCall {
   readonly county: string
   readonly name: string
   readonly headline: string
+  readonly sound: TownTourPlaybackSound
 }
 
 /** 作らせた紹介。材料に無かった項目は空文字になる */
@@ -49,7 +52,8 @@ export interface TourLine {
   readonly text: string
 }
 
-const isTownTourCall = (value: unknown): value is TownTourCall =>
+/** 市町村と冒頭の一文の形だけを見る（音の設定は readPlaybackSound が理由つきで確かめる） */
+const isTownTourCall = (value: unknown): value is Omit<TownTourCall, 'sound'> & { sound: unknown } =>
   isRecord(value) &&
   typeof value.code === 'string' &&
   typeof value.prefecture === 'string' &&
@@ -71,7 +75,7 @@ export const parseTownTourCall = (payload: string): TownTourCall => {
   }
   if (!isTownTourCall(body)) throw new Error('押し出された市町村紹介が想定した形ではありません')
   const { code, prefecture, county, name, headline } = body
-  return { code, prefecture, county, name, headline }
+  return { code, prefecture, county, name, headline, sound: readPlaybackSound(body.sound) }
 }
 
 /**

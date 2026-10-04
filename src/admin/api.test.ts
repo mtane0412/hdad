@@ -235,7 +235,7 @@ describe('createReward・updateReward・removeReward（チャンネルポイン�
   })
 })
 
-describe('rotateOverlayKey・playTownTourDemo・rewards・logout', () => {
+describe('rotateOverlayKey・playTownTourDemo・townTourSound・rewards・logout', () => {
   it('オーバーレイ用キーを発行し直し、新しいキーを返す', async () => {
     const { requests, fetchImpl } = fetchReturning(200, { overlayKey: '新しいキー' })
 
@@ -256,6 +256,38 @@ describe('rotateOverlayKey・playTownTourDemo・rewards・logout', () => {
     expect(await createAdminApi(fetchImpl).playTownTourDemo()).toBe('試し再生: 本日は北海道石狩郡当別町をご紹介します')
     expect(requests[0]!.method).toBe('POST')
     expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/town-tour/demo')
+  })
+
+  it('市町村紹介の音の設定を読み、枠ごとの素材のIDと音量を返す', async () => {
+    const sound = {
+      slots: { bgm: 'media-cookie', opening: null, zoom: null, landing: 'media-peta', item: null, closing: null },
+      bgmVolume: 0.3,
+      effectVolume: 0.6,
+    }
+    const { requests, fetchImpl } = fetchReturning(200, sound)
+
+    expect(await createAdminApi(fetchImpl).townTourSound()).toEqual(sound)
+    expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/town-tour/sound')
+  })
+
+  it('市町村紹介の音の設定を PUT で保存し、Workerが保存したものを返す', async () => {
+    const sound = {
+      slots: { bgm: null, opening: 'media-jajean', zoom: null, landing: null, item: null, closing: null },
+      bgmVolume: 0.3,
+      effectVolume: 0.8,
+    }
+    const { requests, fetchImpl } = fetchReturning(200, sound)
+
+    expect(await createAdminApi(fetchImpl).saveTownTourSound(sound)).toEqual(sound)
+    expect(requests[0]!.method).toBe('PUT')
+    expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/town-tour/sound')
+    expect(await requests[0]!.json()).toEqual(sound)
+  })
+
+  it('市町村紹介の音の設定の応答に枠が欠けていれば、鳴らさない枠と見なさずにエラーにする', async () => {
+    const { fetchImpl } = fetchReturning(200, { slots: { bgm: null }, bgmVolume: 0.3, effectVolume: 0.6 })
+
+    await expect(createAdminApi(fetchImpl).townTourSound()).rejects.toThrow('opening')
   })
 
   it('チャンネルポイント報酬の一覧を取得する', async () => {

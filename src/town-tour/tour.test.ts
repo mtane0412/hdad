@@ -13,6 +13,12 @@ const tobetsuCall = {
   county: '石狩郡',
   name: '当別町',
   headline: '山田花子さんのレイドを記念して、本日は北海道石狩郡当別町をご紹介します',
+  // 音は BGM だけを選んである
+  sound: {
+    slots: { bgm: '/api/media/media-cookie?key=overlay-key', opening: null, zoom: null, landing: null, item: null, closing: null },
+    bgmVolume: 0.3,
+    effectVolume: 0.6,
+  },
 }
 
 /** 当別町の紹介（歴史は材料に無かったので空） */
@@ -29,7 +35,7 @@ const tobetsuIntro = {
 }
 
 describe('parseTownTourCall', () => {
-  it('押し出された文字列を、市町村と冒頭の一文として読む', () => {
+  it('押し出された文字列を、市町村と冒頭の一文と鳴らす音として読む', () => {
     expect(parseTownTourCall(JSON.stringify(tobetsuCall))).toEqual(tobetsuCall)
   })
 
@@ -41,6 +47,13 @@ describe('parseTownTourCall', () => {
     const withoutHeadline = { code: tobetsuCall.code, prefecture: tobetsuCall.prefecture, county: tobetsuCall.county, name: tobetsuCall.name }
 
     expect(() => parseTownTourCall(JSON.stringify(withoutHeadline))).toThrow('市町村紹介')
+  })
+
+  it('鳴らす音の設定が欠けていれば、無音で流さずに投げる', () => {
+    const { code, prefecture, county, name, headline } = tobetsuCall
+    const withoutSound = { code, prefecture, county, name, headline }
+
+    expect(() => parseTownTourCall(JSON.stringify(withoutSound))).toThrow('音の設定')
   })
 })
 

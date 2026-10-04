@@ -9,6 +9,7 @@
  * 注意: 応答が想定した形でなければエラーにする。黙って空の一覧にすると、設定や素材が消えたように見えてしまう。
  */
 import { ApiError, createCaller, isRecord, readList } from '@/core/api'
+import { readTownTourSound, type TownTourSound } from '@/town-tour/sound'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const CHAT_MESSAGE = 'channel.chat.message'
@@ -216,6 +217,10 @@ export interface AdminApi {
   rotateOverlayKey(): Promise<string>
   /** 市町村紹介の試し再生。Workerが市町村を1つ引いて合成ページへ押し出し、冒頭の一文を返す */
   playTownTourDemo(): Promise<string>
+  /** 市町村紹介の演出で鳴らす音の設定。未保存ならどの枠も鳴らさない設定が返る */
+  townTourSound(): Promise<TownTourSound>
+  /** 市町村紹介の音の設定を保存する。Workerが保存したものを返す */
+  saveTownTourSound(sound: TownTourSound): Promise<TownTourSound>
   rewards(): Promise<Reward[]>
   /** チャンネルポイント報酬を作る。作られた報酬を返す */
   createReward(input: RewardInput): Promise<Reward>
@@ -302,6 +307,7 @@ const readReward = (body: unknown): Reward => {
 }
 
 const REWARDS_PATH = '/api/admin/rewards'
+const TOWN_TOUR_SOUND_PATH = '/api/admin/town-tour/sound'
 
 export const createAdminApi = (fetchImpl: typeof fetch): AdminApi => {
   const call = createCaller(fetchImpl)
@@ -357,6 +363,13 @@ export const createAdminApi = (fetchImpl: typeof fetch): AdminApi => {
       if (!isRecord(body) || typeof body.headline !== 'string') throw new Error('Workerの応答に headline がありません')
       return body.headline
     },
+
+    townTourSound: async () => readTownTourSound(await call(TOWN_TOUR_SOUND_PATH)),
+
+    saveTownTourSound: async (sound) =>
+      readTownTourSound(
+        await call(TOWN_TOUR_SOUND_PATH, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sound) }),
+      ),
 
     rewards: async () => readList(await call(REWARDS_PATH), 'rewards', isReward),
 

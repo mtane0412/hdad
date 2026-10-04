@@ -29,6 +29,7 @@ import { createFakeTabChannel } from './fake-tab-channel'
 import { createFakeCommentChannel } from './fake-comment-channel'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
 import { createFakeTokenVault } from './fake-token-vault'
+import { DEFAULT_TOWN_TOUR_SOUND, saveTownTourSound } from './town-tour-sound'
 
 interface EnvOptions {
   /** アラートの配送先（Durable Object）が失敗を返す場合 */
@@ -1678,6 +1679,43 @@ describe('市町村紹介を流す動作（townTour）', () => {
     expect(alertChannel.pushedTownTours).toHaveLength(1)
     expect(alertChannel.pushedTownTours[0]?.code).toMatch(/^\d{5}$/)
     expect(alertChannel.pushedTownTours[0]?.headline).toMatch(/^レイド元の配信者さんのレイドを記念して、本日は.+をご紹介します$/)
+  })
+
+  it('保存した音の設定を、音声のURL（オーバーレイ用キーつき）にして一緒に押し出す', async () => {
+    const { env, alertChannel } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [raidTownTourTrigger] })
+    // BGM と始まりの音だけを選び、ほかの枠は鳴らさない
+    await saveTownTourSound(env.STORE, {
+      ...DEFAULT_TOWN_TOUR_SOUND,
+      slots: { ...DEFAULT_TOWN_TOUR_SOUND.slots, bgm: 'media-cookie', opening: 'media-jajean' },
+    })
+
+    await callWebhook(createNotification({ body: RAID_NOTIFICATION }), env)
+
+    expect(alertChannel.pushedTownTours[0]?.sound).toEqual({
+      slots: {
+        bgm: `/api/media/media-cookie?key=${ISSUED_OVERLAY_KEY}`,
+        opening: `/api/media/media-jajean?key=${ISSUED_OVERLAY_KEY}`,
+        zoom: null,
+        landing: null,
+        item: null,
+        closing: null,
+      },
+      bgmVolume: DEFAULT_TOWN_TOUR_SOUND.bgmVolume,
+      effectVolume: DEFAULT_TOWN_TOUR_SOUND.effectVolume,
+    })
+  })
+
+  it('音を選んでいるのにオーバーレイ用キーが未発行なら、押し出さずに失敗として記録する（黙って無音で流さない）', async () => {
+    const { env, alertChannel } = createEnv({ overlayKey: null })
+    await saveAlertConfig(env.STORE, { triggers: [raidTownTourTrigger] })
+    await saveTownTourSound(env.STORE, { ...DEFAULT_TOWN_TOUR_SOUND, slots: { ...DEFAULT_TOWN_TOUR_SOUND.slots, bgm: 'media-cookie' } })
+
+    const response = await callWebhook(createNotification({ body: RAID_NOTIFICATION }), env)
+
+    expect(response.status).toBe(204)
+    expect(alertChannel.pushedTownTours).toEqual([])
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'town-tour-push-failed' }])
   })
 
   it('同じ通知が再送されても、二度は押し出さない', async () => {

@@ -16,6 +16,7 @@
  * - 本文の上にバーを持たず、サイドバーの開閉と「ページを探す」をサイドバーの上部に置くこと
  * - 狭い画面では、閉じたサイドバーを下部バーから開けること
  */
+import type { TownTourSound } from '@/town-tour/sound'
 import '@testing-library/jest-dom/vitest'
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -52,6 +53,8 @@ const createFakeAdminApi = (me: AdminApi['me']): AdminApi => ({
   removeMedia: vi.fn(async () => {}),
   rotateOverlayKey: vi.fn(async () => 'new-overlay-key'),
   playTownTourDemo: vi.fn(async () => '試し再生: 本日は東京都千代田区をご紹介します'),
+  townTourSound: vi.fn(async () => ({ slots: { bgm: null, opening: null, zoom: null, landing: null, item: null, closing: null }, bgmVolume: 0.3, effectVolume: 0.6 })),
+  saveTownTourSound: vi.fn(async (sound: TownTourSound) => sound),
   rewards: vi.fn(async () => []),
   createReward: vi.fn(async () => {
     throw new Error('このテストでは報酬を変更しません')

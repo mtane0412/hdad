@@ -6,7 +6,7 @@
  * （media-page.tsx）が受け持ち、ここでは置いてある素材から選ぶだけにする。ログインの確認とログアウトは
  * アプリの枠（src/app/app.tsx）が受け持つので、ここではログイン済みを前提にする。
  * 画面の状態（素材・報酬・入力中のトリガー）はここで持ち、Workerの呼び出しは api.ts、入力欄の値の変換は form.ts、
- * 操作の実行と結果の表示は page-actions.tsx に任せる。
+ * 操作の実行と結果の表示は page-actions.tsx に任せる。市町村紹介の音の設定と試し再生は town-tour-sound-card.tsx が受け持つ。
  *
  * アラートを配信画面に出すURLはここでは配らない。アラート専用のオーバーレイ（alerts/）は消したので
  * （issue #107）、出すには合成オーバーレイの管理画面（/overlay/）で「アラート」の素材を置く。
@@ -58,6 +58,7 @@ import {
   type TriggerDraft,
 } from './form'
 import { errorMessage, usePageActions } from './page-actions'
+import { TownTourSoundCard } from './town-tour-sound-card'
 
 /** 文言欄の入力例。メニュー項目ごとに、使える差し込み語だけを使った例を出す */
 const MESSAGE_PLACEHOLDERS: Readonly<Record<TriggerKind, string>> = {
@@ -830,9 +831,6 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
     return 'キーを再発行しました。新しいURLをOBSに貼り替えてください'
   }
 
-  const playTownTourDemo = async (): Promise<string> =>
-    `「${await api.playTownTourDemo()}」を送りました。オーバーレイに「市町村紹介」の素材を置いていれば流れます`
-
   /** その項目の行（一覧の並びのままの位置付き）。位置は開閉と書き換えの目印に使う */
   const rowsOf = (kind: TriggerKind): { position: number; draft: TriggerDraft }[] =>
     drafts.flatMap((draft, position) => (draft.kind === kind ? [{ position, draft }] : []))
@@ -938,14 +936,11 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
           >
             キーを再発行する
           </Button>
-          <p className="text-sm text-muted-foreground">
-            市町村紹介は、トリガーを待たずに試しに流せる（引く市町村はランダム。オーバーレイに「市町村紹介」の素材を置いておく）。
-          </p>
-          <Button type="button" variant="outline" className="self-start" disabled={actions.busy} onClick={() => void actions.run(playTownTourDemo)}>
-            市町村紹介を試しに流す
-          </Button>
         </CardContent>
       </Card>
+
+      {/* 市町村紹介の音はトリガーの行ごとではなく1つだけ持つので、トリガーの一覧の外に置く（保存も別） */}
+      <TownTourSoundCard api={api} media={media} />
 
       {/* 一覧そのものはカードに入れず、区分（チャット・イベント・開発・ポモドーロ）ごとにカードにする
           （全体を1枚のカードで囲むと、その中に区分の見出しと項目の枠が入れ子で並び、どこまでが1つのまとまりか読み取りにくい） */}

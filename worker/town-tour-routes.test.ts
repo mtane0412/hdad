@@ -9,6 +9,7 @@
  *
  * - 合成ページの素材「市町村紹介」の WebSocket の接続を、市町村紹介を受け取る接続として配送先へ引き渡す
  * - 管理画面の試し再生（POST /api/admin/town-tour/demo）は、ログインした配信者にだけ、市町村を1つ引いて押し出す
+ * - 音の設定（GET・PUT /api/admin/town-tour/sound）は、ログインした配信者にだけ読み書きさせ、音声でない素材を選んだ設定は400で断る
  *
  * 材料の拾い方と紹介の読み取りは worker/town-wikipedia.test.ts・worker/town-tour.test.ts が確かめるので、ここでは経路の受け渡しだけを見る。
  */
@@ -27,6 +28,7 @@ import { createFakeTokenVault } from './fake-token-vault'
 import { handleRequest, type Env } from './index'
 import { createSessionToken } from './session'
 import { listFailures } from './stats-store'
+import { DEFAULT_TOWN_TOUR_SOUND, loadTownTourSound, saveTownTourSound } from './town-tour-sound'
 
 const now = Date.parse('2026-10-04T12:00:00Z')
 const site = 'https://hdad.example.com'
@@ -239,5 +241,76 @@ describe('POST /api/admin/town-tour/demo', () => {
     const response = await callAsBroadcaster(createEnv('', createFakeAlertChannel({ shouldFail: true })))
 
     expect(response.status).toBe(502)
+  })
+
+  it('保存した音の設定を、トリガーと同じく音声のURLにして一緒に押し出す（試し再生で聞き比べられるように）', async () => {
+    const alertChannel = createFakeAlertChannel()
+    const env = createEnv('', alertChannel)
+    await saveTownTourSound(env.STORE, { ...DEFAULT_TOWN_TOUR_SOUND, slots: { ...DEFAULT_TOWN_TOUR_SOUND.slots, landing: 'media-peta' } })
+
+    await callAsBroadcaster(env)
+
+    expect(alertChannel.pushedTownTours[0]?.sound.slots.landing).toBe(`/api/media/media-peta?key=${overlayKey}`)
+  })
+})
+
+describe('GET・PUT /api/admin/town-tour/sound', () => {
+  /** 配信者としてログインした状態で呼ぶ。書き換えのときは Origin も付ける（ブラウザが付けるのと同じ） */
+  const callAsBroadcaster = async (env: Env, init: RequestInit = {}): Promise<Response> => {
+    const session = await createSessionToken(env.TWITCH_BROADCASTER_ID, env.SESSION_SECRET, now)
+    return invoke('/api/admin/town-tour/sound', env, noNetwork, { ...init, headers: { Cookie: `__Host-session=${session}`, Origin: site } })
+  }
+  const noNetwork: typeof fetch = async () => {
+    throw new Error('このテストでは外へ通信しません')
+  }
+
+  /** BGM（ピアノの曲）と着地の効果音、地図の画像を上げておいた環境 */
+  const createEnvWithMedia = async (): Promise<Env> => {
+    const env = createEnv('')
+    await env.MEDIA.put('media-cookie', new ArrayBuffer(8), { httpMetadata: { contentType: 'audio/mpeg' }, customMetadata: { name: 'cookie-cookie.mp3' } })
+    await env.MEDIA.put('media-peta', new ArrayBuffer(8), { httpMetadata: { contentType: 'audio/mpeg' }, customMetadata: { name: 'peta1.mp3' } })
+    await env.MEDIA.put('media-chizu', new ArrayBuffer(8), { httpMetadata: { contentType: 'image/png' }, customMetadata: { name: 'chizu.png' } })
+    return env
+  }
+
+  const sound = {
+    slots: { bgm: 'media-cookie', opening: null, zoom: null, landing: 'media-peta', item: null, closing: null },
+    bgmVolume: 0.25,
+    effectVolume: 0.8,
+  }
+
+  it('ログインしていなければ読ませない', async () => {
+    const response = await invoke('/api/admin/town-tour/sound', createEnv(''), noNetwork)
+
+    expect(response.status).toBe(401)
+  })
+
+  it('未保存なら、どの枠も鳴らさない設定を返す', async () => {
+    const response = await callAsBroadcaster(createEnv(''))
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual(DEFAULT_TOWN_TOUR_SOUND)
+  })
+
+  it('保存した設定を返し、次に読んだときも同じものを返す', async () => {
+    const env = await createEnvWithMedia()
+
+    const saved = await callAsBroadcaster(env, { method: 'PUT', body: JSON.stringify(sound) })
+    const loaded = await callAsBroadcaster(env)
+
+    expect(saved.status).toBe(200)
+    expect(await saved.json()).toEqual(sound)
+    expect(await loaded.json()).toEqual(sound)
+  })
+
+  it('音声でない素材を選んだ設定は、問題点つきの400で断って保存しない', async () => {
+    const env = await createEnvWithMedia()
+
+    const response = await callAsBroadcaster(env, { method: 'PUT', body: JSON.stringify({ ...sound, slots: { ...sound.slots, zoom: 'media-chizu' } }) })
+
+    expect(response.status).toBe(400)
+    const body = (await response.json()) as { error: { problems: string[] } }
+    expect(body.error.problems).toEqual(['slots.zoom: 素材「media-chizu」は音声ではありません'])
+    expect(await loadTownTourSound(env.STORE)).toEqual(DEFAULT_TOWN_TOUR_SOUND)
   })
 })

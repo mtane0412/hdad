@@ -53,6 +53,8 @@
  * | PUT  /api/admin/pomodoro/settings | セッション    | ポモドーロの休憩の曲の保存 |
  * | POST /api/admin/pomodoro/control | セッション     | ポモドーロのタイマーの操作（始める・一時停止・再開・止める） |
  * | POST /api/admin/town-tour/demo   | セッション     | 市町村紹介の試し再生（市町村を1つ引いて合成ページへ押し出す） |
+ * | GET  /api/admin/town-tour/sound  | セッション     | 市町村紹介の演出で鳴らす音の設定 |
+ * | PUT  /api/admin/town-tour/sound  | セッション     | 市町村紹介の音の設定を検証して保存 |
  * | GET  /api/admin/viewers          | セッション     | 視聴者の記録の一覧（検索・ページ送り） |
  * | PATCH /api/admin/viewers/:userId | セッション     | 視聴者へのメモの保存 |
  * | DELETE /api/admin/viewers/:userId | セッション    | 視聴者の記録の削除 |
@@ -152,7 +154,7 @@ import { postAdminTranscript } from './transcript-routes'
 import { captionSocket } from './caption-routes'
 import { getWorkLog, workLogSocket } from './work-log-routes'
 import { getTaskDesk, taskDeskSocket } from './task-desk-routes'
-import { getTownTour, postTownTourDemo, townTourSocket } from './town-tour-routes'
+import { getTownTour, getTownTourSound, postTownTourDemo, putTownTourSound, townTourSocket } from './town-tour-routes'
 import { getOverlayPomodoro, getPomodoro, pomodoroSocket, postPomodoroControl, putPomodoroSettings } from './pomodoro-routes'
 import { getDeeplUsage, getTranslation, postTranslation, putTranslation } from './translation-routes'
 import { drawSocket, getDrawBackground, getDrawStrokes, putDrawStrokes } from './draw-routes'
@@ -300,6 +302,8 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/overlay/town-tour', handle: getTownTour },
   { method: 'GET', path: '/api/overlay/town-tour/socket', handle: townTourSocket },
   { method: 'POST', path: '/api/admin/town-tour/demo', handle: postTownTourDemo },
+  { method: 'GET', path: '/api/admin/town-tour/sound', handle: getTownTourSound },
+  { method: 'PUT', path: '/api/admin/town-tour/sound', handle: putTownTourSound },
   { method: 'GET', path: '/api/media/:id', handle: media },
 ]
 
