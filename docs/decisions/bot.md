@@ -12,6 +12,8 @@ botの接続には2つの道がある。認可コードフロー（`/api/auth/lo
 
 「まだ認可されていない」は失敗ではないので、`authorization_pending` と `slow_down` だけを待っている状態として扱い、それ以外の失敗は飲み込まない（飲み込むと終わらないポーリングになる）。`slow_down` は `authorization_pending` と区別して返し、次からの問い合わせの間隔を5秒延ばす（RFC 8628。間隔の計算は `src/bot/poll.ts` に分けてテストする）。Workerの呼び出し（`src/bot/api.ts`）は画面から分けてテストする。
 
+トークンの更新（`worker/token.ts` の `getAccessToken`）は、Twitchへの更新を待ったあと、書き戻す直前にKVを読み直す。消されていれば未接続のエラー、`userId` か `refreshToken` が変わっていれば `token-changed` のエラーにして、取り直した結果は書き戻さず使いもしない（issue #201）。読み直さずに書き戻すと、更新を待つ間に行われた切断（`DELETE /api/admin/bot`）や付け替えが、旧botのトークンで上書きされて取り消される。差し替わった新しいトークンで続けることはしない（呼び出し元が想定していないアカウントで送ることになるため）。読み直しから書き込みまでの間の競合は残るが（KVには条件付きの書き込みがない）、Twitchへの往復を待つ間よりずっと短いので、Durable Objectでの直列化までは行っていない。切断・付け替えのときにTwitchの `oauth2/revoke` で旧トークンを失効させることも、まだ行っていない。
+
 ## チャットの受信
 
 チャットの受信は EventSub の `channel.chat.message` を Webhook で購読する（`worker/eventsub-webhook.ts`）。購読の条件にある「チャットを読む人」（`user_id`）には配信者自身を指定するので、購読の内容は配信者だけで決まり、botの接続とは無関係である（`syncWebhookSubscriptions` を呼ぶのは配信者のログインのときだけ）。アプリアクセストークンでこの購読を作るには、読む人＝配信者から `user:read:chat` と `user:bot` に加えて、そのチャンネルの `channel:bot`（またはbotがモデレーターにされていること）が要る。配信者自身が読む人なので `channel:bot` をまとめて要求している（`worker/eventsub.ts` の `EXTRA_BROADCASTER_SCOPES` は `channel:bot`・`user:bot`・`moderation:read`・`user:write:chat` の4つ。最後の1つはコメントビューアーから配信者として送るためのもの＝`docs/decisions/comments.md`）。

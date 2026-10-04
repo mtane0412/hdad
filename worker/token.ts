@@ -6,6 +6,9 @@
  * トークンはWorkerの外（ブラウザ・OBSのURL）へ出さない。
  *
  * 注意: 取り直せない場合に古いトークンを返すことはしない。再ログインが必要であることをエラーで伝える（Fail-Fast）。
+ * 注意: 取り直している間に保存済みのトークンが消された・差し替えられた（切断・付け替え）場合は、取り直した結果を
+ * 書き戻さず、使いもしない。書き戻すと、切断や付け替えが取り消されてしまうため（issue #201）。
+ * 読み直してから書き込むまでの間はなお競合しうる（KVに条件付きの書き込みがない）が、Twitchへの更新を待つ間よりずっと短い。
  */
 import type { KeyValueStore } from './store'
 import { TwitchApiError, type TwitchClient } from './twitch'
@@ -51,7 +54,7 @@ export class AuthError extends Error {
   override name = 'AuthError'
 
   constructor(
-    readonly code: 'not-logged-in' | 'relogin-required' | 'missing-scope',
+    readonly code: 'not-logged-in' | 'relogin-required' | 'missing-scope' | 'token-changed',
     message: string,
   ) {
     super(message)
@@ -111,6 +114,12 @@ export const getAccessToken = async (
     }
     throw error
   })
+  // Twitchへの更新を待つ間に切断・付け替えされていたら、書き戻すとそれを取り消してしまう。保存する直前に読み直して確かめる
+  const current = await loadToken(store, role)
+  if (!current) throw new AuthError('not-logged-in', NOT_LOGGED_IN_MESSAGES[role])
+  if (current.userId !== token.userId || current.refreshToken !== token.refreshToken) {
+    throw new AuthError('token-changed', 'トークンを更新している間に、アカウントが接続し直されました。もう一度試してください')
+  }
   const refreshed: StoredToken = {
     ...token,
     accessToken: grant.accessToken,
