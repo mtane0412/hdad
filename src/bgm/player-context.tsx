@@ -111,6 +111,8 @@ export const BgmPlayerProvider = ({
   useEffect(() => {
     // キーが無ければつなげない（知らせは watchNotice が受け持つ）
     if (overlayKey === null) return
+    // 閉じたあと（キーが変わった・枠が消えた）に読み直しの結果が届いても映さない
+    let cancelled = false
     const connection = connect(overlayKey, {
       onMessage: (text) => {
         try {
@@ -133,16 +135,23 @@ export const BgmPlayerProvider = ({
         const isLatest = beginPlaybackRequest()
         api.load().then(
           (bgm) => {
+            if (cancelled) return
+            // 曲の一覧は世代に関係なく映す（あいだに押し出しが届いても、足された曲の名前を引けるようにするため）
             setSavedTracks(bgm.tracks)
             if (isLatest()) setPlayback(bgm.playback)
             setWatchProblem(null)
           },
-          (error: unknown) => setWatchProblem(errorMessage(error)),
+          (error: unknown) => {
+            if (!cancelled) setWatchProblem(errorMessage(error))
+          },
         )
       },
       onWarning: (message) => setWatchProblem(message),
     })
-    return () => connection.close()
+    return () => {
+      cancelled = true
+      connection.close()
+    }
   }, [api, connect, overlayKey, beginPlaybackRequest])
 
   const value = useMemo<BgmPlayerValue>(() => {
