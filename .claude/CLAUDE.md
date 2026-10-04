@@ -73,6 +73,7 @@ npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 | `work-log.md` | 作業ログ（素材の種類 `workLog`。開発の出来事と章の見出し） | `src/work-log/**`・`worker/work-log*.ts`・`worker/github-routes.ts`・`worker/collect.ts`・`worker/alert-channel.ts`・`migrations/*dev_events*.sql` |
 | `task-desk.md` | 作業机（素材の種類 `taskDesk`。視聴者の `!task`・`!done`） | `src/task-desk/**`・`worker/task-desk*.ts`・`worker/webhook-routes.ts`・`worker/bot-config.ts`・`worker/alert-channel.ts`・`migrations/*task_declarations*.sql` |
 | `pomodoro.md` | ポモドーロ（`/pomodoro/`・素材の種類 `pomodoro`。区切りのトリガーと休憩中のBGM） | `src/pomodoro/**`・`worker/pomodoro*.ts`・`worker/ad-break-timer.ts`・`worker/alarm-actions.ts`・`worker/alert-channel.ts` |
+| `town-tour.md` | 市町村紹介（レイドで流すランダムな市区町村。一覧と日本地図は N03 からの生成物） | `src/town-tour/**`・`scripts/town-tour/**`・`public/town-tour/**` |
 | `overlay.md` | 合成ページと構成の管理画面（`overlay/stage/`・`/overlay/`） | `src/overlay/**`・`overlay/**`・`worker/overlay-*.ts` |
 | `speech.md` | チャットの読み上げ（`speech/reader/`。合成先にさくらのAI Engine） | `src/speech/**`・`speech/**`・`worker/speech-*.ts` |
 | `backstage.md` | 裏方をまとめたページ（`overlay/backstage/`）とコネクターのページ（`/connectors/`） | `src/backstage/**`・`overlay/backstage/**` |
