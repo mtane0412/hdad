@@ -117,4 +117,24 @@ describe('dueSoundCues', () => {
   it('始めた瞬間には、BGM と始まりの音を返す', () => {
     expect(dueSoundCues(loadingPlayback, STARTED_AT, new Set()).map((cue) => cue.id)).toEqual(['bgm', 'opening'])
   })
+
+  it('タイマーが遅れて、効果音の時刻を大きく過ぎていたら、その効果音は鳴らさない（場面とずれた音をまとめて鳴らさない）', () => {
+    // 前提: 始めてから3秒間、確かめられなかった。始まり（0秒）とズーム（1.5秒）の時刻は過ぎている
+    const due = dueSoundCues(loadingPlayback, STARTED_AT + 3000, new Set())
+
+    // BGM は流れ続けるものなので、遅れても鳴らしはじめる
+    expect(due.map((cue) => cue.id)).toEqual(['bgm'])
+  })
+
+  it('効果音の時刻を少しだけ過ぎていたら、鳴らす', () => {
+    expect(dueSoundCues(loadingPlayback, STARTED_AT + 1500 + 200, new Set(['bgm', 'opening'])).map((cue) => cue.id)).toEqual(['zoom'])
+  })
+
+  it('BGM を下げる時刻を過ぎていたら、BGM を鳴らしはじめず、下げる指示だけを返す', () => {
+    // 前提: 項目2つの紹介で、終わる直前までまったく確かめられなかった
+    const end = ZOOM_END_MS + ITEM_MS * 2 + 4000
+    const due = dueSoundCues(readyPlayback(0), STARTED_AT + end - 100, new Set())
+
+    expect(due.map((cue) => cue.id)).toEqual(['bgm-end'])
+  })
 })

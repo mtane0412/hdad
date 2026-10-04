@@ -14,6 +14,9 @@
 import type { TownTourSoundSlot } from './sound'
 import { FADE_OUT_MS, JAPAN_HOLD_MS, ITEM_MS, ZOOM_END_MS, tourSpanOf, type Playback } from './timeline'
 
+/** 効果音を鳴らしてよい遅れの上限（ミリ秒）。これより遅れたら、場面とずれて聞こえるので鳴らさない */
+const EFFECT_LATE_LIMIT_MS = 500
+
 /** 表の1行。id は1件の再生の中で一意で、鳴らしたことの記録に使う。at は再生を始めてからのミリ秒 */
 export type SoundCue =
   /** BGM をループで鳴らしはじめる */
@@ -60,8 +63,22 @@ export const soundCuesOf = (playback: Playback): SoundCue[] => {
 /**
  * 時刻を迎えた音のうち、まだ鳴らしていないものを鳴らす順に返す。
  *
+ * 確かめるタイマーが遅れた（OBSがページを止めていた など）ときに、過ぎた音をまとめて鳴らさないよう、次のものは返さない。
+ * - 時刻から EFFECT_LATE_LIMIT_MS より遅れた効果音（遅れて返さなかった効果音は、その後も返らない）
+ * - BGM を下げる時刻を過ぎてからの BGM の鳴らしはじめ
+ *
  * @param now 現在時刻（ミリ秒。Date.now() と同じ基準）
  * @param played この再生で鳴らした音の id
  */
-export const dueSoundCues = (playback: Playback, now: number, played: ReadonlySet<string>): SoundCue[] =>
-  soundCuesOf(playback).filter((cue) => cue.at <= now - playback.startedAt && !played.has(cue.id))
+export const dueSoundCues = (playback: Playback, now: number, played: ReadonlySet<string>): SoundCue[] => {
+  const elapsed = now - playback.startedAt
+  const cues = soundCuesOf(playback)
+  const bgmEnd = cues.find((cue) => cue.type === 'bgmFadeOut')
+  const bgmEnded = bgmEnd !== undefined && bgmEnd.at <= elapsed
+  return cues.filter((cue) => {
+    if (cue.at > elapsed || played.has(cue.id)) return false
+    if (cue.type === 'effect') return elapsed - cue.at <= EFFECT_LATE_LIMIT_MS
+    if (cue.type === 'bgmStart') return !bgmEnded
+    return true
+  })
+}

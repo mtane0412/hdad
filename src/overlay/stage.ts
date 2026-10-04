@@ -1155,7 +1155,7 @@ const mountPomodoro = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
  *
  * 音（issue #244）は、いつ何を鳴らすかを表（src/town-tour/sound-cues.ts）が決め、ここは鳴らした音の id を覚えて
  * 二重に鳴らさないことと、再生の終わり・失敗で止めることだけを受け持つ。描画のループではなくタイマーで刻むのは、
- * OBSのブラウザソースが映っていないあいだ描画を間引いても、音の時刻をずらさないためである。
+ * OBSのブラウザソースが映っていないあいだ描画を間引いても、音の時刻をずらさず、終わった1件の音を止めて次へ進むためである。
  * 再生を始められなかった音は、黙って無音で続けずにこの箱に失敗を出す。
  */
 const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
@@ -1221,9 +1221,20 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
     })
     .catch((error: unknown) => showError(error, NOUNS.townTour, box, 'layer'))
 
+  /** 流している1件を終える時刻を過ぎていたら終え、次の1件へ進む */
+  const finishIfDone = (now: number): void => {
+    if (playback === null || !sceneAt(playback, now).done) return
+    playback = null
+    sound.stop()
+    startNext()
+  }
+
   window.setInterval(() => {
+    const now = Date.now()
+    // 描画が間引かれていても、音を止めて次へ進めるよう、ここでも終わりを確かめる
+    finishIfDone(now)
     if (playback === null) return
-    for (const cue of dueSoundCues(playback, Date.now(), played)) {
+    for (const cue of dueSoundCues(playback, now, played)) {
       played.add(cue.id)
       sound.play(cue)
     }
@@ -1232,11 +1243,7 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
   const draw = startCanvasSurface(canvas, (ctx, width, height) => {
     if (renderer === null) return
     const now = Date.now()
-    if (playback !== null && sceneAt(playback, now).done) {
-      playback = null
-      sound.stop()
-      startNext()
-    }
+    finishIfDone(now)
     renderer.render(ctx, width, height, playback === null ? null : { playback, scene: sceneAt(playback, now) })
   })
 
