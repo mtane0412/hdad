@@ -9,6 +9,7 @@ import { createAdminApi } from '@/admin/api'
 import { createBgmApi } from '@/bgm/api'
 import { connectBgmWatch } from '@/bgm/socket'
 import { createPomodoroApi } from '@/pomodoro/api'
+import { connectPomodoroWatch } from '@/pomodoro/socket'
 import { createBotApi } from '@/bot/api'
 import { createDrawApi } from '@/draw/api'
 import { createCommentApi } from '@/comments/api'
@@ -47,6 +48,6 @@ const recognitionDeps = browserRecognitionDeps(createAppTranscriptApi(callWorker
 
 createRoot(root).render(
   <StrictMode>
-    <App api={api} statsApi={statsApi} botApi={botApi} viewerApi={viewerApi} speechApi={speechApi} screenApi={screenApi} focusApi={focusApi} commentApi={commentApi} drawApi={drawApi} llmApi={llmApi} overlayApi={overlayApi} bgmApi={bgmApi} pomodoroApi={pomodoroApi} recognitionDeps={recognitionDeps} connectBgm={connectBgmWatch} />
+    <App api={api} statsApi={statsApi} botApi={botApi} viewerApi={viewerApi} speechApi={speechApi} screenApi={screenApi} focusApi={focusApi} commentApi={commentApi} drawApi={drawApi} llmApi={llmApi} overlayApi={overlayApi} bgmApi={bgmApi} pomodoroApi={pomodoroApi} recognitionDeps={recognitionDeps} connectBgm={connectBgmWatch} connectPomodoro={connectPomodoroWatch} />
   </StrictMode>,
 )
