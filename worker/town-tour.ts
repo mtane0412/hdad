@@ -14,11 +14,11 @@
  * 呼び出し（generateTownTour）はLLM（worker/llm.ts の TextGenerator）を引数で受け取る。
  * どこで使うか（townTour）を指名するだけにして、提供元とモデルは設定（llm-config.ts）に任せる。
  *
- * 注意: 返ってきた応答をそのまま信用しない。形が違う・長すぎる・項目の数が合わない・振りが空の応答は、補わず切り詰めずに投げる
- * （合成ページの枠からはみ出す、あるいは中身の無い紹介を配信に出さないため）。
+ * 注意: 返ってきた応答をそのまま信用しない。形が違う・長すぎる・項目の数が合わない・振りが空の応答は、補わず切り詰めない
+ * （合成ページの枠からはみ出す、あるいは中身の無い紹介を配信に出さないため）。問題を伝えて1回だけ作り直させ、それでも合わなければ投げる。
  * 注意: 材料は Wikipedia の本文で、誰でも書き換えられる。指示のように書かれた文が混ざりうるので、材料であって指示ではないことを伝える。
  */
-import type { TextGenerator } from './llm'
+import type { LlmMessage, TextGenerator } from './llm'
 import type { TownMaterial } from './town-wikipedia'
 
 /** 大見出しを支える1項目 */
@@ -171,21 +171,46 @@ export const parseTownTour = (text: string): TownTour => {
 }
 
 /**
+ * 決まりに合わなかった応答を伝え、作り直させる指示の文章を組み立てる。
+ *
+ * LLM の呼び先は会話の役に assistant を持たないので、前回の応答は指示の中に引用して渡す。
+ */
+const buildRetryPrompt = (previous: string, error: TownTourContentError): string =>
+  [
+    '# 作り直し',
+    `前回の出力は決まりに合いませんでした。問題: ${error.message}`,
+    '上限の文字数を必ず守り、同じ形の JSON だけを出力し直してください。長すぎる文は、事実を減らして短くしてください。',
+    '',
+    '# 前回の出力',
+    previous,
+  ].join('\n')
+
+/**
  * 材料から市町村の紹介を1つ作る。
  *
- * @throws TownTourContentError 返ってきた紹介の形が違う場合（parseTownTour を参照）
- * @throws Error LLMが失敗した（無料枠切れを含む）場合
+ * LLM は日本語の文字数の指示を守りきれないことがあるので、決まりに合わない紹介（長すぎるなど）が返ったら、
+ * 問題を伝えて1回だけ作り直させる。作り直しても合わなければ投げる（切り詰めて補うことはしない）。
+ *
+ * @throws TownTourContentError 作り直した紹介も形が違う場合（parseTownTour を参照）
+ * @throws Error LLMが失敗した（無料枠切れを含む）場合。このときは作り直させない
  */
 export const generateTownTour = async (ai: TextGenerator, input: TownTourInput): Promise<TownTour> => {
-  const result = await ai.run('townTour', {
-    messages: [
-      {
-        role: 'system',
-        content: 'あなたはTwitchの配信者の助手です。Wikipedia の記事の抜粋だけを材料に、市町村の紹介を決まった形の JSON で作ります。材料に無いことは書きません。',
-      },
-      { role: 'user', content: buildTownTourPrompt(input) },
-    ],
-    maxTokens: MAX_TOKENS,
-  })
-  return parseTownTour(result)
+  const messages: LlmMessage[] = [
+    {
+      role: 'system',
+      content: 'あなたはTwitchの配信者の助手です。Wikipedia の記事の抜粋だけを材料に、市町村の紹介を決まった形の JSON で作ります。材料に無いことは書きません。',
+    },
+    { role: 'user', content: buildTownTourPrompt(input) },
+  ]
+  const first = await ai.run('townTour', { messages, maxTokens: MAX_TOKENS })
+  try {
+    return parseTownTour(first)
+  } catch (error) {
+    if (!(error instanceof TownTourContentError)) throw error
+    const retried = await ai.run('townTour', {
+      messages: [...messages, { role: 'user', content: buildRetryPrompt(first, error) }],
+      maxTokens: MAX_TOKENS,
+    })
+    return parseTownTour(retried)
+  }
 }
