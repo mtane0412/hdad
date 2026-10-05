@@ -1308,10 +1308,12 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
     const { visit, code } = target.call
     if (demo || visitSent || visit === null || recordAt === null || now - target.startedAt < recordAt) return
     visitSent = true
-    api.recordVisit(code, visit).then(
-      () => recordedCodes.add(code),
-      (error: unknown) => showError(error, NOUNS.townTour, box, 'read'),
-    )
+    // 応答を待つあいだに次の1件を流しはじめても制覇数に入るよう、送った時点で足しておき、記録できなかったら外す
+    recordedCodes.add(code)
+    api.recordVisit(code, visit).catch((error: unknown) => {
+      recordedCodes.delete(code)
+      showError(error, NOUNS.townTour, box, 'read')
+    })
   }
 
   /** 流している1件を終える時刻を過ぎていたら終え、次の1件へ進む */

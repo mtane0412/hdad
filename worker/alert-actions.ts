@@ -127,12 +127,12 @@ export const runAlertActions = async (
     ])
     const visitedCodes = new Set(visited)
     for (const [index, townTour] of townTours.entries()) {
+      // 同じ通知で2回以上流すとき、まだ記録されていない先の市町村を続けて引かないよう、引いたものは次の抽選から除く
+      const town = pickTown(Math.random, visitedCodes)
+      visitedCodes.add(town.code)
       // キーが未発行で音のURLを作れないときも、押し出しの失敗として記録する（黙って無音で流さない）
       await sendAndRecordFailure(context, messageId, 'townTour', index, 'town-tour-push-failed', () =>
-        pushTownTour(
-          env.ALERTS,
-          townTourCallOf(pickTown(Math.random, visitedCodes), townTour, playbackSoundOf(sound, overlayKey), liveViewers, crypto.randomUUID(), visited),
-        ),
+        pushTownTour(env.ALERTS, townTourCallOf(town, townTour, playbackSoundOf(sound, overlayKey), liveViewers, crypto.randomUUID(), visited)),
       )
     }
   }

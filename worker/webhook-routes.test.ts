@@ -7,7 +7,7 @@
  * - 同じ通知が再送されても二重に数えないこと
  */
 import { createHmac } from 'node:crypto'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createFakeBucket } from './fake-bucket'
 import { createFakeWorkersAi } from './fake-ai'
 import { createFakeDatabase } from './fake-database'
@@ -1696,6 +1696,27 @@ describe('市町村紹介を流す動作（townTour）', () => {
     expect(alertChannel.pushedTownTours[0]?.code).toBe('01303')
     expect(alertChannel.pushedTownTours[0]?.visited).toHaveLength(visitedCodes.length)
     expect(alertChannel.pushedTownTours[0]?.visit).toEqual({ occasion: 'raid', userName: 'レイド元の配信者' })
+  })
+
+  it('1つの通知で市町村紹介を2回流すときは、同じ市町村を引かない', async () => {
+    const { env, alertChannel } = createEnv()
+    // レイドの行を2つ置き、どちらにも市町村紹介を置く
+    await saveAlertConfig(env.STORE, { triggers: [raidTownTourTrigger, raidTownTourTrigger] })
+    // 北海道石狩郡当別町（01303）と東京都千代田区（13101）だけを残して、ほかの市町村はすべて紹介済みにしておく
+    const remaining = ['01303', '13101']
+    for (const code of towns.map((town) => town.code).filter((code) => !remaining.includes(code))) {
+      await recordTownTourVisit(env.DB, { code, occasion: 'raid', userName: '過去のレイド' }, Date.UTC(2026, 8, 1))
+    }
+
+    // 乱数をいつも0にする（除かなければ、2回とも残りの先頭の当別町を引いてしまう）
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0)
+    try {
+      await callWebhook(createNotification({ body: RAID_NOTIFICATION }), env)
+    } finally {
+      random.mockRestore()
+    }
+
+    expect(alertChannel.pushedTownTours.map(({ code }) => code).sort()).toEqual(remaining)
   })
 
   it('保存した音の設定を、音声のURL（オーバーレイ用キーつき）にして一緒に押し出す', async () => {
