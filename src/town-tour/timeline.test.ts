@@ -9,13 +9,15 @@
  * 2. 市町村へズームしながら形を塗る（3秒）
  * 3. 大見出し（7秒。前半1.5秒は「この町、実は…」だけで溜める）→ ゆさぶりの項目（6秒ずつ）→ オチの項目（最後の項目。5秒）
  *    → 配信者への振り（6秒）の順に流す。紹介が届くのが遅ければ、届くまで待ってから始める
- * 4. 最後に出典だけを残して（2秒）終わる
+ * 4. 振りを流し終えたら日本全体へ引き、全国制覇マップを出して（6秒）終わる。引ききった後に今回の市町村を数え、節目の一文を出す（issue #252）
  */
 import { describe, expect, it } from 'vitest'
 import type { TownTourCall, TownTourIntro } from './tour'
 import { QUIZ_HINT_INTERVAL_MS, QUIZ_MS } from './quiz'
 import {
-  CREDIT_HOLD_MS,
+  CONQUEST_MS,
+  CONQUEST_STAMP_MS,
+  CONQUEST_ZOOM_MS,
   CUE_MS,
   HOOK_MS,
   HOOK_TEASE_MS,
@@ -25,6 +27,7 @@ import {
   REVEAL_MS,
   ZOOM_END_MS,
   sceneAt,
+  visitRecordAtOf,
   type Playback,
 } from './timeline'
 
@@ -47,7 +50,12 @@ const tobetsuCall: TownTourCall = {
   population: 14974,
   area: 422.86,
   audience: { kind: 'raid', count: 50 },
+  visited: ['01100'],
+  visit: { occasion: 'raid', userName: '山田花子' },
 }
+
+/** 当別町を数えた制覇マップ（札幌市だけを紹介済みで、当別町で2つめ） */
+const tobetsuConquest: Playback['conquest'] = { before: 1, after: 2, total: 1747, visited: new Set(['01100']), milestones: [] }
 
 /** 大見出しと項目2つの紹介 */
 const tobetsuIntro: TownTourIntro = {
@@ -77,9 +85,10 @@ const readyPlayback = (readyAfterMs: number): Playback => ({
   startedAt: STARTED_AT,
   intro: { status: 'ready', intro: tobetsuIntro, readyAt: STARTED_AT + readyAfterMs },
   quiz: unansweredQuiz,
+  conquest: tobetsuConquest,
 })
 
-const loadingPlayback: Playback = { call: tobetsuCall, startedAt: STARTED_AT, intro: { status: 'loading' }, quiz: unansweredQuiz }
+const loadingPlayback: Playback = { call: tobetsuCall, startedAt: STARTED_AT, intro: { status: 'loading' }, quiz: unansweredQuiz, conquest: tobetsuConquest }
 
 /** 再生を始めてから answeredAfterMs ミリ秒後に「たなか」さんが正解した再生（紹介は始めた時点で届いている） */
 const answeredPlayback = (answeredAfterMs: number): Playback => ({
@@ -188,31 +197,70 @@ describe('sceneAt', () => {
       startedAt: STARTED_AT,
       intro: { status: 'ready', intro: { ...tobetsuIntro, tour: { ...tobetsuIntro.tour, hook: '' } }, readyAt: STARTED_AT },
       quiz: unansweredQuiz,
+      conquest: tobetsuConquest,
     }
 
     expect(sceneAt(noHook, STARTED_AT + MAP_START + ZOOM_END_MS + 1).item?.line.label).toBe('どこにある？')
   })
 
-  it('振りを流し終えたら、出典だけを残す', () => {
-    const scenesEnd = HOOK_MS + POINT_MS + PUNCHLINE_MS + CUE_MS
-
-    expect(sceneAt(readyPlayback(0), STARTED_AT + MAP_START + ZOOM_END_MS + scenesEnd + 1)).toMatchObject({
-      item: null,
-      credit: '出典: Wikipedia「当別町」（CC BY-SA 4.0）',
-      done: false,
-    })
-  })
-
-  it('出典を残す時間も過ぎたら、終わる', () => {
-    const end = MAP_START + ZOOM_END_MS + HOOK_MS + POINT_MS + PUNCHLINE_MS + CUE_MS + CREDIT_HOLD_MS
-
-    expect(sceneAt(readyPlayback(0), STARTED_AT + end - 1).done).toBe(false)
-    expect(sceneAt(readyPlayback(0), STARTED_AT + end).done).toBe(true)
-  })
-
   it('紹介を作れなかったら、その場で終わる（失敗は素材の箱に出す）', () => {
-    const failed: Playback = { call: tobetsuCall, startedAt: STARTED_AT, intro: { status: 'failed' }, quiz: unansweredQuiz }
+    const failed: Playback = { call: tobetsuCall, startedAt: STARTED_AT, intro: { status: 'failed' }, quiz: unansweredQuiz, conquest: tobetsuConquest }
 
     expect(sceneAt(failed, STARTED_AT + 1000).done).toBe(true)
+  })
+})
+
+describe('sceneAt の全国制覇マップ（issue #252）', () => {
+  /** 振りを流し終える時刻（再生を始めてからのミリ秒）。ここから制覇マップを出す */
+  const CONQUEST_START = MAP_START + ZOOM_END_MS + HOOK_MS + POINT_MS + PUNCHLINE_MS + CUE_MS
+  const at = (ms: number) => sceneAt(readyPlayback(0), STARTED_AT + CONQUEST_START + ms)
+
+  it('振りを流しているあいだは、制覇マップを出さない', () => {
+    expect(at(-1).conquest).toBeNull()
+  })
+
+  it('振りを流し終えたら、紹介の場面を消し、日本全体へ引きながら、これまでの制覇数を出す', () => {
+    const scene = at(CONQUEST_ZOOM_MS / 2)
+
+    expect(scene).toMatchObject({ item: null, credit: '出典: Wikipedia「当別町」（CC BY-SA 4.0）', done: false })
+    expect(scene.zoom).toBeGreaterThan(0)
+    expect(scene.zoom).toBeLessThan(1)
+    expect(scene.conquest).toMatchObject({ label: '制覇 1 / 1,747（0.1%）', stamp: 0 })
+  })
+
+  it('引ききったら日本全体を映す', () => {
+    expect(at(CONQUEST_ZOOM_MS).zoom).toBe(0)
+  })
+
+  it('今回の市町村を数える時刻を過ぎたら、今回を数えた制覇数と節目の一文を出す', () => {
+    const milestonePlayback: Playback = { ...readyPlayback(0), conquest: { ...tobetsuConquest, milestones: ['北海道に初上陸！'] } }
+    const before = sceneAt(milestonePlayback, STARTED_AT + CONQUEST_START + CONQUEST_STAMP_MS - 1).conquest
+    const after = sceneAt(milestonePlayback, STARTED_AT + CONQUEST_START + CONQUEST_STAMP_MS + 1000).conquest
+
+    expect(before).toMatchObject({ label: '制覇 1 / 1,747（0.1%）', milestones: [] })
+    expect(after).toMatchObject({ label: '制覇 2 / 1,747（0.1%）', milestones: ['北海道に初上陸！'], stamp: 1 })
+  })
+
+  it('制覇マップを6秒出したら、終わる', () => {
+    expect(at(CONQUEST_MS - 1).done).toBe(false)
+    expect(at(CONQUEST_MS).done).toBe(true)
+  })
+})
+
+describe('visitRecordAtOf（issue #252）', () => {
+  /** 振りを流し終える時刻（再生を始めてからのミリ秒） */
+  const CONQUEST_START = MAP_START + ZOOM_END_MS + HOOK_MS + POINT_MS + PUNCHLINE_MS + CUE_MS
+
+  it('流しきったら記録する紹介なら、振りを流し終えた時刻（制覇マップを出しはじめる時刻）を返す', () => {
+    expect(visitRecordAtOf(readyPlayback(0))).toBe(CONQUEST_START)
+  })
+
+  it('試し再生（記録するきっかけが無い）なら、記録しないので null を返す', () => {
+    expect(visitRecordAtOf({ ...readyPlayback(0), call: { ...tobetsuCall, visit: null } })).toBeNull()
+  })
+
+  it('紹介が届いていない・作れなかった再生は、流しきっていないので null を返す', () => {
+    expect(visitRecordAtOf(loadingPlayback)).toBeNull()
+    expect(visitRecordAtOf({ ...loadingPlayback, intro: { status: 'failed' } })).toBeNull()
   })
 })

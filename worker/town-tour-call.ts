@@ -13,6 +13,10 @@
  * 冒頭の都道府県当てクイズ（issue #251）のために、出題の識別子と、都道府県を伏せた一文も一緒に押し出す。
  * 合成ページは出題の識別子で出題を開き（POST /api/overlay/town-tour/quiz）、チャットの正解者は同じ識別子で届く。
  *
+ * 全国制覇マップ（issue #252）のために、紹介済みの市町村は除いて引き、これまでに紹介した市町村のコードと、
+ * 流しきったら記録するきっかけと相手（試し再生は記録しないので null）も一緒に押し出す。記録するのは流しきった合成ページである
+ * （POST /api/overlay/town-tour/visit）。
+ *
  * 一覧（towns.json）と人口・面積の表（stats.json）は src/town-tour/ にあり、合成ページと同じものを読む（Worker から src/ を読み込む例外）。
  */
 import stats from '../src/town-tour/stats.json'
@@ -20,6 +24,7 @@ import towns from '../src/town-tour/towns.json'
 import type { TownTourAudience } from '../src/town-tour/scale'
 import type { TownTourTrigger } from './alert-event'
 import type { TownTourPlaybackSound } from './town-tour-sound'
+import type { TownTourVisitOccasion } from './town-tour-visits'
 
 /** コードから人口と面積を引く表。JSON のキーは文字列なので Map に移しておき、プロトタイプのキー（toString など）に当たらないようにする */
 const statsByCode: ReadonlyMap<string, { population: number | null; area: number }> = new Map(Object.entries(stats))
@@ -49,6 +54,10 @@ export interface TownTourCall extends Town {
   area: number
   /** 人口と比べる、いま見ている人数。分からない（配信中でない）ときは null */
   audience: TownTourAudience | null
+  /** これまでに紹介した市町村のコード（制覇マップに塗る） */
+  visited: readonly string[]
+  /** 流しきったら記録するきっかけと、冒頭で名前を出した相手。試し再生は記録しないので null */
+  visit: { occasion: TownTourVisitOccasion; userName: string } | null
 }
 
 /**
@@ -67,12 +76,15 @@ export interface TownTourAnswerMessage {
 export type TownTourCaller = TownTourTrigger | { occasion: 'demo' }
 
 /**
- * 一覧から市町村を1つ引く。
+ * 一覧から、紹介済みの市町村を除いて1つ引く。すべて紹介済み（全国制覇の後）なら、一覧の全体から引く。
  *
  * @param random 0以上1未満の乱数を返す関数（Math.random。テストで差し替えられるよう受け取る）
+ * @param visited これまでに紹介した市町村のコード（worker/town-tour-visits.ts の listTownTourVisits）
  */
-export const pickTown = (random: () => number): Town => {
-  const town = towns[Math.floor(random() * towns.length)]
+export const pickTown = (random: () => number, visited: ReadonlySet<string>): Town => {
+  const unvisited = towns.filter(({ code }) => !visited.has(code))
+  const candidates = unvisited.length === 0 ? towns : unvisited
+  const town = candidates[Math.floor(random() * candidates.length)]
   if (town === undefined) throw new Error('市町村の一覧が空です')
   return town
 }
@@ -85,6 +97,7 @@ export const pickTown = (random: () => number): Town => {
  *
  * @param liveViewers 配信中の配信で最後に記録した同接（worker/stats-store.ts の latestViewerCount）。配信中でなければ null
  * @param quizId 冒頭のクイズの出題の識別子（crypto.randomUUID。テストで決まった値を渡せるよう受け取る）
+ * @param visited これまでに紹介した市町村のコード（制覇マップに塗る）
  * @throws 人口と面積の表に無いコードの市町村のとき（一覧と表の1対1は src/town-tour/towns.test.ts が検証する）
  */
 export const townTourCallOf = (
@@ -93,6 +106,7 @@ export const townTourCallOf = (
   sound: TownTourPlaybackSound,
   liveViewers: number | null,
   quizId: string,
+  visited: readonly string[],
 ): TownTourCall => {
   const townStats = statsByCode.get(town.code)
   if (townStats === undefined) throw new Error(`人口と面積の表に無い市町村です: ${town.code}`)
@@ -120,5 +134,7 @@ export const townTourCallOf = (
     population: townStats.population,
     area: townStats.area,
     audience,
+    visited,
+    visit: caller.occasion === 'demo' ? null : { occasion: caller.occasion, userName: caller.userName },
   }
 }

@@ -82,6 +82,8 @@ const raidTownTour: TownTourCall = {
   area: 422.86,
   // 同接20人にレイドの30人が加わった
   audience: { kind: 'raid', count: 50 },
+  visited: [],
+  visit: { occasion: 'raid', userName: '山田花子' },
 }
 
 const runningPomodoro: PomodoroSnapshot = {

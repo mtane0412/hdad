@@ -8,6 +8,7 @@
  * - 記事が取れない・LLM の応答の形が違うときは 502 で理由を返し、ダッシュボードの失敗の記録にも残す
  *
  * - 合成ページがクイズを流しはじめたら（POST /api/overlay/town-tour/quiz）、一覧のコードの都道府県を正解として出題を開く
+ * - 合成ページが紹介を流しきったら（POST /api/overlay/town-tour/visit）、紹介した市町村として記録する（issue #252）
  * - 合成ページの素材「市町村紹介」の WebSocket の接続を、市町村紹介を受け取る接続として配送先へ引き渡す
  * - 管理画面の試し再生（POST /api/admin/town-tour/demo）は、ログインした配信者にだけ、市町村を1つ引いて押し出す
  * - 音の設定（GET・PUT /api/admin/town-tour/sound）は、ログインした配信者にだけ読み書きさせ、音声でない素材を選んだ設定は400で断る
@@ -30,6 +31,7 @@ import { handleRequest, type Env } from './index'
 import { createSessionToken } from './session'
 import { listFailures } from './stats-store'
 import { DEFAULT_TOWN_TOUR_SOUND, loadTownTourSound, saveTownTourSound } from './town-tour-sound'
+import { recordTownTourVisit } from './town-tour-visits'
 
 const now = Date.parse('2026-10-04T12:00:00Z')
 const site = 'https://hdad.example.com'
@@ -222,6 +224,62 @@ describe('POST /api/overlay/town-tour/quiz', () => {
   })
 })
 
+describe('POST /api/overlay/town-tour/visit', () => {
+  const noFetch: typeof fetch = async () => {
+    throw new Error('このテストでは外へ通信しません')
+  }
+  const recordVisit = (env: Env, key: string, body: unknown) =>
+    invoke(`/api/overlay/town-tour/visit?key=${key}`, env, noFetch, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+  /** レイドで流しきった広島県府中市の紹介 */
+  const fuchuVisit = { code: FUCHU_HIROSHIMA, occasion: 'raid', userName: '山田花子' }
+
+  it('オーバーレイ用キーが違えば断り、記録しない', async () => {
+    const env = createEnv('')
+
+    const response = await recordVisit(env, 'wrong-key', fuchuVisit)
+
+    expect(response.status).toBe(401)
+    expect(env.DB.sqlite.prepare('SELECT code FROM town_tour_visits').all()).toEqual([])
+  })
+
+  it('流しきった紹介を、きっかけと相手の名前と一緒に記録する', async () => {
+    const env = createEnv('')
+
+    const response = await recordVisit(env, overlayKey, fuchuVisit)
+
+    expect(response.status).toBe(204)
+    expect(env.DB.sqlite.prepare('SELECT code, visited_at, occasion, user_name FROM town_tour_visits').all()).toEqual([
+      { code: FUCHU_HIROSHIMA, visited_at: '2026-10-04T12:00:00.000Z', occasion: 'raid', user_name: '山田花子' },
+    ])
+  })
+
+  it('一覧に無いコードは 404 で断る', async () => {
+    const response = await recordVisit(createEnv(''), overlayKey, { ...fuchuVisit, code: '99999' })
+
+    expect(response.status).toBe(404)
+  })
+
+  it('きっかけがレイドでもキーワードでもない（試し再生など）・相手の名前が欠けていれば 400 で断る', async () => {
+    expect((await recordVisit(createEnv(''), overlayKey, { ...fuchuVisit, occasion: 'demo' })).status).toBe(400)
+    expect((await recordVisit(createEnv(''), overlayKey, { code: FUCHU_HIROSHIMA, occasion: 'raid' })).status).toBe(400)
+  })
+
+  it('記録に失敗したら 502 で理由を返し、ダッシュボードの失敗の記録に残す', async () => {
+    const env = createEnv('')
+    env.DB.sqlite.exec('DROP TABLE town_tour_visits')
+
+    const response = await recordVisit(env, overlayKey, fuchuVisit)
+
+    expect(response.status).toBe(502)
+    expect(await response.json()).toMatchObject({ error: { code: 'town-tour-visit-failed' } })
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'town-tour-visit-failed' }])
+  })
+})
+
 describe('GET /api/overlay/town-tour/socket', () => {
   const noFetch: typeof fetch = async () => {
     throw new Error('このテストでは外へ通信しません')
@@ -281,6 +339,17 @@ describe('POST /api/admin/town-tour/demo', () => {
     expect(alertChannel.pushedTownTours).toHaveLength(1)
     expect(alertChannel.pushedTownTours[0]?.headline).toMatch(/^試し再生: 本日は.+をご紹介します$/)
     expect(await response.json()).toEqual(alertChannel.pushedTownTours[0])
+  })
+
+  it('これまでの記録を制覇マップの材料として添えるが、試し再生は記録しないので記録するきっかけを持たない', async () => {
+    const alertChannel = createFakeAlertChannel()
+    const env = createEnv('', alertChannel)
+    await recordTownTourVisit(env.DB, { code: FUCHU_HIROSHIMA, occasion: 'raid', userName: '山田花子' }, now)
+
+    await callAsBroadcaster(env)
+
+    expect(alertChannel.pushedTownTours[0]?.visited).toEqual([FUCHU_HIROSHIMA])
+    expect(alertChannel.pushedTownTours[0]?.visit).toBeNull()
   })
 
   it('配送先が失敗したら、黙って成功にせず 502 で返す', async () => {

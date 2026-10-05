@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest'
 import type { TownTourPlaybackSound } from './sound'
 import { dueSoundCues, soundCuesOf } from './sound-cues'
 import { QUIZ_MS } from './quiz'
-import { CREDIT_HOLD_MS, CUE_MS, HOOK_MS, JAPAN_HOLD_MS, POINT_MS, PUNCHLINE_MS, ZOOM_END_MS, type Playback } from './timeline'
+import { CONQUEST_MS, CUE_MS, HOOK_MS, JAPAN_HOLD_MS, POINT_MS, PUNCHLINE_MS, ZOOM_END_MS, type Playback } from './timeline'
 import type { TownTourCall, TownTourIntro } from './tour'
 
 const STARTED_AT = 1_000_000
@@ -43,6 +43,8 @@ const callWith = (sound: TownTourPlaybackSound): TownTourCall => ({
   population: 14974,
   area: 422.86,
   audience: { kind: 'raid', count: 50 },
+  visited: [],
+  visit: { occasion: 'raid', userName: '山田花子' },
 })
 
 /** 大見出しと項目2つの紹介 */
@@ -61,6 +63,9 @@ const tobetsuIntro: TownTourIntro = {
 /** 誰も正解しなかったクイズ */
 const unansweredQuiz: Playback['quiz'] = { hints: [], answer: null, unopenedAt: null }
 
+/** 当別町で1つめを数えた制覇マップ（音の時刻と下げる長さは、制覇数に左右されない） */
+const firstConquest: Playback['conquest'] = { before: 0, after: 1, total: 1747, visited: new Set(), milestones: [] }
+
 /** 正解者が出なかった再生では、クイズの長さいっぱいで日本地図へ移る */
 const MAP_START = QUIZ_MS
 
@@ -70,9 +75,10 @@ const readyPlayback = (readyAfterMs: number, sound: TownTourPlaybackSound = full
   startedAt: STARTED_AT,
   intro: { status: 'ready', intro: tobetsuIntro, readyAt: STARTED_AT + readyAfterMs },
   quiz: unansweredQuiz,
+  conquest: firstConquest,
 })
 
-const loadingPlayback: Playback = { call: callWith(fullSound), startedAt: STARTED_AT, intro: { status: 'loading' }, quiz: unansweredQuiz }
+const loadingPlayback: Playback = { call: callWith(fullSound), startedAt: STARTED_AT, intro: { status: 'loading' }, quiz: unansweredQuiz, conquest: firstConquest }
 
 describe('soundCuesOf', () => {
   it('紹介が届く前は、BGM と始まり・ズーム・着地だけを並べる（項目と締めの時刻はまだ決まらない）', () => {
@@ -87,7 +93,7 @@ describe('soundCuesOf', () => {
   it('紹介が届いたら、大見出しと項目の数だけ項目ごとの音を並べ、振りで締めの音を鳴らし、BGM の下げ止めを加える', () => {
     const itemsStart = MAP_START + ZOOM_END_MS
     const cueStart = itemsStart + HOOK_MS + POINT_MS + PUNCHLINE_MS
-    const end = cueStart + CUE_MS + CREDIT_HOLD_MS
+    const end = cueStart + CUE_MS + CONQUEST_MS
 
     expect(soundCuesOf(readyPlayback(2000))).toEqual([
       { id: 'bgm', at: 0, type: 'bgmStart', url: 'https://example.com/ピアノ25.mp3', volume: 0.3 },
@@ -115,6 +121,7 @@ describe('soundCuesOf', () => {
       startedAt: STARTED_AT,
       intro: { status: 'ready', intro: { ...tobetsuIntro, tour: { ...tobetsuIntro.tour, hook: '' } }, readyAt: STARTED_AT },
       quiz: unansweredQuiz,
+      conquest: firstConquest,
     }
 
     expect(soundCuesOf(noHook).filter((cue) => cue.id.startsWith('item-')).map((cue) => cue.at)).toEqual([
@@ -144,7 +151,7 @@ describe('soundCuesOf', () => {
   })
 
   it('紹介を作れなかった再生では、何も並べない（鳴っている BGM は再生の終わりに止める）', () => {
-    const failed: Playback = { call: callWith(fullSound), startedAt: STARTED_AT, intro: { status: 'failed' }, quiz: unansweredQuiz }
+    const failed: Playback = { call: callWith(fullSound), startedAt: STARTED_AT, intro: { status: 'failed' }, quiz: unansweredQuiz, conquest: firstConquest }
 
     expect(soundCuesOf(failed)).toEqual([])
   })
@@ -180,7 +187,7 @@ describe('dueSoundCues', () => {
 
   it('BGM を下げる時刻を過ぎていたら、BGM を鳴らしはじめず、下げる指示だけを返す', () => {
     // 前提: 大見出しと項目2つの紹介で、終わる直前までまったく確かめられなかった
-    const end = MAP_START + ZOOM_END_MS + HOOK_MS + POINT_MS + PUNCHLINE_MS + CUE_MS + CREDIT_HOLD_MS
+    const end = MAP_START + ZOOM_END_MS + HOOK_MS + POINT_MS + PUNCHLINE_MS + CUE_MS + CONQUEST_MS
     const due = dueSoundCues(readyPlayback(0), STARTED_AT + end - 100, new Set())
 
     expect(due.map((cue) => cue.id)).toEqual(['bgm-end'])
