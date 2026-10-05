@@ -4,10 +4,11 @@
  * LLM の文面そのものは確かめられないので、次の点を確かめる。
  * - buildTownTourPrompt: 市町村の名前と、Wikipedia から拾った材料が漏れなく入り、材料が無い系統はその旨を伝えること
  * - parseTownTour: LLM の応答（JSON）を大見出し・項目・振りとして読み、形が違う・長すぎる・項目の数が合わない応答はエラーにすること
- * - generateTownTour: 「市町村紹介」の箇所を指名して LLM を呼ぶこと
+ * - generateTownTour: 「市町村紹介」の箇所を指名して LLM を呼ぶこと。決まりに合わない紹介が返ったら、問題を伝えて1回だけ作り直させること
  */
 import { describe, expect, it } from 'vitest'
 import { createFakeAi } from './fake-ai'
+import type { LlmRequest, TextGenerator } from './llm'
 import {
   MAX_CUE_LENGTH,
   MAX_HOOK_LENGTH,
@@ -129,5 +130,52 @@ describe('generateTownTour', () => {
     expect(await generateTownTour(ai, hinoemataInput)).toEqual(validResponse)
     expect(ai.calls.map((call) => call.usage)).toEqual(['townTour'])
     expect(ai.calls[0]?.request.messages.at(-1)?.content).toBe(buildTownTourPrompt(hinoemataInput))
+  })
+
+  /** 呼ばれるたびに、渡した応答を順に返す LLM の代役（作り直しを確かめるため） */
+  const createSequenceAi = (responses: readonly string[]): TextGenerator & { requests: LlmRequest[] } => {
+    const requests: LlmRequest[] = []
+    return {
+      requests,
+      run: (_usage, request) => {
+        requests.push(request)
+        const response = responses[requests.length - 1]
+        if (response === undefined) return Promise.reject(new Error('用意した応答より多く呼ばれました'))
+        return Promise.resolve(response)
+      },
+    }
+  }
+
+  /** 項目の文が上限より長い応答 */
+  const tooLongResponse = JSON.stringify({
+    ...validResponse,
+    points: [{ label: '名物', text: 'あ'.repeat(MAX_POINT_LENGTH + 5) }],
+  })
+
+  it('上限より長い紹介が返ったら、問題と前回の応答を伝えて作り直させ、作り直した紹介を返す', async () => {
+    const ai = createSequenceAi([tooLongResponse, JSON.stringify(validResponse)])
+
+    expect(await generateTownTour(ai, hinoemataInput)).toEqual(validResponse)
+    expect(ai.requests).toHaveLength(2)
+    const retryMessages = ai.requests[1]?.messages ?? []
+    // 最初の指示はそのまま残し、そのあとに作り直しの指示を足す
+    expect(retryMessages.slice(0, -1)).toEqual(ai.requests[0]?.messages)
+    const retryPrompt = retryMessages.at(-1)?.content ?? ''
+    expect(retryPrompt).toContain(`points[0].text が${MAX_POINT_LENGTH + 5}文字で、上限（${MAX_POINT_LENGTH}文字）を超えています`)
+    expect(retryPrompt).toContain(tooLongResponse)
+  })
+
+  it('作り直しても決まりに合わなければ、作り直した応答の問題でエラーにする', async () => {
+    const ai = createSequenceAi([tooLongResponse, JSON.stringify({ ...validResponse, cue: 'あ'.repeat(MAX_CUE_LENGTH + 1) })])
+
+    await expect(generateTownTour(ai, hinoemataInput)).rejects.toThrow(/cue が/)
+    expect(ai.requests).toHaveLength(2)
+  })
+
+  it('LLM そのものが失敗したときは作り直させない', async () => {
+    const ai = createFakeAi({ shouldFail: true })
+
+    await expect(generateTownTour(ai, hinoemataInput)).rejects.toThrow('LLMの無料枠を使い切りました')
+    expect(ai.calls).toHaveLength(1)
   })
 })
