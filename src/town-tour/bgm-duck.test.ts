@@ -12,7 +12,7 @@
 import { describe, expect, it } from 'vitest'
 import { LOADING_DUCK_HOLD_MS, bgmDuckHoldOf } from './bgm-duck'
 import type { TownTourPlaybackSound } from './sound'
-import { ITEM_MS, ZOOM_END_MS, type Playback } from './timeline'
+import { CREDIT_HOLD_MS, CUE_MS, HOOK_MS, POINT_MS, PUNCHLINE_MS, ZOOM_END_MS, type Playback } from './timeline'
 import type { TownTourCall, TownTourIntro } from './tour'
 
 const STARTED_AT = 1_000_000
@@ -36,22 +36,29 @@ const callWith = (sound: TownTourPlaybackSound): TownTourCall => ({
   sound,
 })
 
-/** 項目が2つだけの紹介（ほかは材料に無かった） */
+/** 大見出しと項目2つの紹介 */
 const tobetsuIntro: TownTourIntro = {
   article: { title: '当別町', url: 'https://ja.wikipedia.org/wiki/%E5%BD%93%E5%88%A5%E7%94%BA' },
-  tour: { location: '石狩平野の北東部にある町です。', nameOrigin: '', history: '', specialty: '当別米が名物です。', surprise: '' },
+  tour: {
+    hook: '北欧の街並みがある米どころ',
+    points: [
+      { label: 'どこにある？', text: '石狩平野の北東部にある町です。' },
+      { label: '名物', text: '当別米が名物です。' },
+    ],
+    cue: '当別米、食べたことありますか？',
+  },
 }
 
 /** 紹介を待っている再生 */
 const loadingPlayback = (sound: TownTourPlaybackSound = bgmOnly): Playback => ({ call: callWith(sound), startedAt: STARTED_AT, intro: { status: 'loading' } })
 
-/** 始めてから2秒後に紹介が届いた再生。項目はズームを終えてから2つ流し、出典を4秒残して終わる */
+/** 始めてから2秒後に紹介が届いた再生。ズームを終えてから大見出し・項目2つ・振りを流し、出典を残して終わる */
 const readyPlayback: Playback = {
   call: callWith(bgmOnly),
   startedAt: STARTED_AT,
   intro: { status: 'ready', intro: tobetsuIntro, readyAt: STARTED_AT + 2000 },
 }
-const READY_END = STARTED_AT + ZOOM_END_MS + ITEM_MS * 2 + 4000
+const READY_END = STARTED_AT + ZOOM_END_MS + HOOK_MS + POINT_MS + PUNCHLINE_MS + CUE_MS + CREDIT_HOLD_MS
 
 describe('bgmDuckHoldOf', () => {
   it('紹介を待っているあいだは、決まった長さだけ下げる（終わりがまだ決まらないため）', () => {

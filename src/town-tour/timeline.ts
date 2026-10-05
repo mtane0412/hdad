@@ -7,13 +7,14 @@
  * 流れは次のとおり。
  * 1. 日本全体を映す（JAPAN_HOLD_MS）
  * 2. 市町村へズームしながら、形を塗る（ZOOM_MS）
- * 3. 紹介の項目を1つずつ流す（1項目 ITEM_MS）。紹介は受け取ってから作らせる（2〜5秒）ので、ズームが終わっても
- *    届いていなければ、届くまで待ってから始める
+ * 3. 紹介の場面を順に流す。大見出し（HOOK_MS。前半 HOOK_TEASE_MS は見出し「この町、実は…」だけで溜める）→
+ *    ゆさぶりの項目（POINT_MS ずつ）→ オチ（最後の項目。PUNCHLINE_MS）→ 配信者への振り（CUE_MS）。長さは配信者が決めた（issue #249）。
+ *    紹介は受け取ってから作らせる（2〜5秒）ので、ズームが終わっても届いていなければ、届くまで待ってから始める
  * 4. 出典だけを残して（CREDIT_HOLD_MS）、薄くして終わる
  *
  * 紹介を作れなかった再生はその場で終わる。失敗は素材の箱に出す（合成ページの stage.ts が受け持つ）。
  */
-import { tourItemsOf, type TourLine, type TownTourCall, type TownTourIntro } from './tour'
+import { tourLinesOf, type TourLine, type TownTourCall, type TownTourIntro } from './tour'
 
 /** 日本全体を映しておく時間（ミリ秒）。ここから市町村へ寄り始める */
 export const JAPAN_HOLD_MS = 1500
@@ -23,12 +24,20 @@ const ZOOM_MS = 3000
 export const ZOOM_END_MS = JAPAN_HOLD_MS + ZOOM_MS
 /** 市町村の形を塗りはじめる時刻（再生を始めてからのミリ秒）。ズームの後半で、市町村が見分けられる大きさになってから塗る */
 const FILL_START_MS = 3000
-/** 1項目を流す時間（ミリ秒）。配信者が決めた長さ（issue #229） */
-export const ITEM_MS = 6000
-/** 項目の出入りで薄くする時間（ミリ秒） */
+/** 大見出しを流す時間（ミリ秒）。溜めて長くする */
+export const HOOK_MS = 7000
+/** 大見出しの前半で、文を伏せて見出し（「この町、実は…」）だけを出しておく時間（ミリ秒） */
+export const HOOK_TEASE_MS = 1500
+/** ゆさぶりの項目（最後でない項目）を流す時間（ミリ秒） */
+export const POINT_MS = 6000
+/** オチ（最後の項目）を流す時間（ミリ秒）。短く切る */
+export const PUNCHLINE_MS = 5000
+/** 配信者への振りを流す時間（ミリ秒）。配信者がリアクションする間 */
+export const CUE_MS = 6000
+/** 場面の出入りで薄くする時間（ミリ秒） */
 const ITEM_FADE_MS = 400
-/** 項目を流し終えてから、出典だけを残しておく時間（ミリ秒） */
-const CREDIT_HOLD_MS = 4000
+/** 振りを流し終えてから、出典だけを残しておく時間（ミリ秒） */
+export const CREDIT_HOLD_MS = 2000
 /** 冒頭の一文を出しきるまでの時間（ミリ秒） */
 const HEADLINE_FADE_MS = 500
 /** 終わりに全体を薄くする時間（ミリ秒） */
@@ -56,8 +65,8 @@ export interface Scene {
   readonly fill: number
   /** 冒頭の一文の濃さ（0〜1） */
   readonly headline: number
-  /** 流している項目と、その濃さ（0〜1）。流していなければ null */
-  readonly item: { readonly line: TourLine; readonly opacity: number } | null
+  /** 流している場面と、その濃さ（0〜1）・文の濃さ（0〜1。大見出しの溜めのあいだは 0）。流していなければ null */
+  readonly item: { readonly line: TourLine; readonly opacity: number; readonly textOpacity: number } | null
   /** 出典の表記。紹介が届くまでは null */
   readonly credit: string | null
   /** ズームを終えて、紹介が届くのを待っているか */
@@ -79,16 +88,30 @@ const fadeWithin = (elapsed: number, duration: number, fade: number): number => 
 /** 出典の表記（Wikipedia の本文は CC BY-SA 4.0） */
 const creditOf = (intro: TownTourIntro): string => `出典: Wikipedia「${intro.article.title}」（CC BY-SA 4.0）`
 
+/** 流す1場面と、その時刻（再生を始めてからのミリ秒） */
+export interface TourSegment {
+  readonly line: TourLine
+  readonly start: number
+  readonly duration: number
+}
+
 /** 紹介が届いた再生の流れ。時刻はどれも再生を始めてからのミリ秒 */
 export interface TourSpan {
-  /** 流す項目（材料に無かった項目は除いたもの） */
-  readonly lines: readonly TourLine[]
-  /** 項目を流しはじめる時刻。ズームが終わってから、紹介が届くのが遅ければ届いてから */
+  /** 流す場面（大見出し・項目・振り）を順に並べたもの */
+  readonly segments: readonly TourSegment[]
+  /** 場面を流しはじめる時刻。ズームが終わってから、紹介が届くのが遅ければ届いてから */
   readonly itemsStart: number
-  /** 項目を流し終え、出典だけを残しはじめる時刻 */
+  /** 場面を流し終え、出典だけを残しはじめる時刻 */
   readonly itemsEnd: number
   /** 再生を終える時刻 */
   readonly end: number
+}
+
+/** 場面の長さ。項目は最後のもの（オチ）だけを短くする */
+const durationOf = (line: TourLine, isLastPoint: boolean): number => {
+  if (line.kind === 'hook') return HOOK_MS
+  if (line.kind === 'cue') return CUE_MS
+  return isLastPoint ? PUNCHLINE_MS : POINT_MS
 }
 
 /**
@@ -96,12 +119,26 @@ export interface TourSpan {
  *
  * @param readyAt 紹介が届いた時刻（ミリ秒。Date.now() と同じ基準）
  */
-export const tourSpanOf = (startedAt: number, intro: TownTourIntro, readyAt: number): TourSpan => {
-  const lines = tourItemsOf(intro.tour)
-  const itemsStart = Math.max(ZOOM_END_MS, readyAt - startedAt)
-  const itemsEnd = itemsStart + lines.length * ITEM_MS
-  return { lines, itemsStart, itemsEnd, end: itemsEnd + CREDIT_HOLD_MS }
+export const tourSpanOf = (playback: Playback, intro: TownTourIntro, readyAt: number): TourSpan => {
+  const lines = tourLinesOf(intro.tour, playback.call.name)
+  const lastPointIndex = lines.map((line) => line.kind).lastIndexOf('point')
+  const itemsStart = Math.max(ZOOM_END_MS, readyAt - playback.startedAt)
+  const segments: TourSegment[] = []
+  let cursor = itemsStart
+  lines.forEach((line, index) => {
+    const duration = durationOf(line, index === lastPointIndex)
+    segments.push({ line, start: cursor, duration })
+    cursor += duration
+  })
+  return { segments, itemsStart, itemsEnd: cursor, end: cursor + CREDIT_HOLD_MS }
 }
+
+/** 流している場面の、始まってから sinceStart ミリ秒での濃さ。大見出しは溜めのあいだ文を伏せ、溜めが終わったら文を出す */
+const itemSceneOf = ({ line, duration }: TourSegment, sinceStart: number): NonNullable<Scene['item']> => ({
+  line,
+  opacity: fadeWithin(sinceStart, duration, ITEM_FADE_MS),
+  textOpacity: line.kind === 'hook' ? clamp01((sinceStart - HOOK_TEASE_MS) / ITEM_FADE_MS) : 1,
+})
 
 /**
  * 再生の now での場面を決める。
@@ -120,13 +157,13 @@ export const sceneAt = (playback: Playback, now: number): Scene => {
   if (intro.status === 'failed') return { ...base, item: null, credit: null, waiting: false, opacity: 0, done: true }
   if (intro.status === 'loading') return { ...base, item: null, credit: null, waiting: elapsed >= ZOOM_END_MS, opacity: 1, done: false }
 
-  const { lines, itemsStart, end } = tourSpanOf(playback.startedAt, intro.intro, intro.readyAt)
+  const { segments, itemsStart, end } = tourSpanOf(playback, intro.intro, intro.readyAt)
   const sinceItems = elapsed - itemsStart
-  const line = sinceItems < 0 ? undefined : lines[Math.floor(sinceItems / ITEM_MS)]
+  const segment = segments.find(({ start, duration }) => start <= elapsed && elapsed < start + duration)
 
   return {
     ...base,
-    item: line === undefined ? null : { line, opacity: fadeWithin(sinceItems % ITEM_MS, ITEM_MS, ITEM_FADE_MS) },
+    item: segment === undefined ? null : itemSceneOf(segment, elapsed - segment.start),
     credit: sinceItems < 0 ? null : creditOf(intro.intro),
     waiting: elapsed >= ZOOM_END_MS && sinceItems < 0,
     opacity: clamp01((end - elapsed) / FADE_OUT_MS),

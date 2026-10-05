@@ -16,8 +16,8 @@
  * - opening: 日本全体を映した瞬間
  * - zoom: 市町村へ寄り始めたとき
  * - landing: ズームが終わり、形を塗り終えたとき
- * - item: 紹介の項目が出るたび
- * - closing: 出典だけを残し始めたとき
+ * - item: 大見出しと各項目が出るたび
+ * - closing: 配信者への振りが出たとき
  */
 export const TOWN_TOUR_SOUND_SLOTS = ['bgm', 'opening', 'zoom', 'landing', 'item', 'closing'] as const
 

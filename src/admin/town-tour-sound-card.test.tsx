@@ -53,8 +53,8 @@ describe('TownTourSoundCard', () => {
       '始まり（日本全体を映したとき）',
       'ズーム（市町村へ寄り始めたとき）',
       '着地（形を塗り終えたとき）',
-      '項目ごと（紹介の項目が出るたび）',
-      '締め（出典だけを残したとき）',
+      '項目ごと（大見出しと各項目が出るたび）',
+      '締め（配信者への振りが出たとき）',
     ])
     expect(screen.getByLabelText('BGM（紹介のあいだ流す）')).toHaveValue('media-cookie')
     expect(screen.getByLabelText('始まり（日本全体を映したとき）')).toHaveValue('')
