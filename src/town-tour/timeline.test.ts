@@ -9,12 +9,14 @@
  * 2. 市町村へズームしながら形を塗る（3秒）
  * 3. 大見出し（7秒。前半1.5秒は「この町、実は…」だけで溜める）→ ゆさぶりの項目（6秒ずつ）→ オチの項目（最後の項目。5秒）
  *    → 配信者への振り（6秒）の順に流す。紹介が届くのが遅ければ、届くまで待ってから始める
- * 4. 振りを流し終えたら日本全体へ引き、全国制覇マップを出して（6秒）終わる。引ききった後に今回の市町村を数え、節目の一文を出す（issue #252）
+ * 4. 振りを流し終えたら日本全体へ引き、全国制覇マップを出す（6秒）。引ききった後に今回の市町村を数え、節目の一文を出す（issue #252）
+ * 5. レイドなら、レイド元を名誉町民に任命する認定証を出して（8秒）終わる（issue #253）。キーワードでは出さずに制覇マップで終わる
  */
 import { describe, expect, it } from 'vitest'
 import type { TownTourCall, TownTourIntro } from './tour'
 import { QUIZ_HINT_INTERVAL_MS, QUIZ_MS } from './quiz'
 import {
+  CERTIFICATE_MS,
   CONQUEST_MS,
   CONQUEST_STAMP_MS,
   CONQUEST_ZOOM_MS,
@@ -52,6 +54,7 @@ const tobetsuCall: TownTourCall = {
   audience: { kind: 'raid', count: 50 },
   visited: ['01100'],
   visit: { occasion: 'raid', userName: '山田花子' },
+  honoraryCitizen: '山田花子',
 }
 
 /** 当別町を数えた制覇マップ（札幌市だけを紹介済みで、当別町で2つめ） */
@@ -241,9 +244,38 @@ describe('sceneAt の全国制覇マップ（issue #252）', () => {
     expect(after).toMatchObject({ label: '制覇 2 / 1,747（0.1%）', milestones: ['北海道に初上陸！'], stamp: 1 })
   })
 
-  it('制覇マップを6秒出したら、終わる', () => {
-    expect(at(CONQUEST_MS - 1).done).toBe(false)
-    expect(at(CONQUEST_MS).done).toBe(true)
+  it('認定証を出さない再生（キーワード）は、制覇マップを6秒出したら終わる', () => {
+    const keywordPlayback: Playback = { ...readyPlayback(0), call: { ...tobetsuCall, visit: { occasion: 'keyword', userName: '山田花子' }, honoraryCitizen: null } }
+
+    expect(sceneAt(keywordPlayback, STARTED_AT + CONQUEST_START + CONQUEST_MS - 1).done).toBe(false)
+    expect(sceneAt(keywordPlayback, STARTED_AT + CONQUEST_START + CONQUEST_MS)).toMatchObject({ certificate: null, done: true })
+  })
+})
+
+describe('sceneAt の名誉町民の認定証（issue #253）', () => {
+  /** 制覇マップを出し終える時刻（再生を始めてからのミリ秒）。ここから認定証を出す */
+  const CERTIFICATE_START = MAP_START + ZOOM_END_MS + HOOK_MS + POINT_MS + PUNCHLINE_MS + CUE_MS + CONQUEST_MS
+  const at = (ms: number) => sceneAt(readyPlayback(0), STARTED_AT + CERTIFICATE_START + ms)
+
+  it('制覇マップを出しているあいだは、認定証を出さない', () => {
+    expect(at(-1).certificate).toBeNull()
+  })
+
+  it('制覇マップを出し終えたら、制覇マップの帯を消し、レイド元の名前を入れた認定証を出す。出典は出し続ける', () => {
+    const scene = at(1000)
+
+    expect(scene).toMatchObject({ conquest: null, credit: '出典: Wikipedia「当別町」（CC BY-SA 4.0）', done: false })
+    expect(scene.certificate).toMatchObject({ title: '名誉町民証', holder: '山田花子 様', opacity: 1 })
+  })
+
+  it('認定証の日付は、再生を始めた日にする', () => {
+    // STARTED_AT は 1970年1月1日（日本時間）
+    expect(at(0).certificate?.date).toBe('昭和45年1月1日')
+  })
+
+  it('認定証を8秒出したら、終わる', () => {
+    expect(at(CERTIFICATE_MS - 1).done).toBe(false)
+    expect(at(CERTIFICATE_MS).done).toBe(true)
   })
 })
 

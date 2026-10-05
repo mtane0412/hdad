@@ -17,6 +17,9 @@
  * 流しきったら記録するきっかけと相手（試し再生は記録しないので null）も一緒に押し出す。記録するのは流しきった合成ページである
  * （POST /api/overlay/town-tour/visit）。
  *
+ * 締めの名誉町民の認定証（issue #253）のために、名誉町民にする相手も一緒に押し出す。認定証はレイドだけで出し、
+ * 試し再生では見た目を確かめられるよう見本の名前にする。文面は合成ページが組み立てる（src/town-tour/certificate.ts）。
+ *
  * 一覧（towns.json）と人口・面積の表（stats.json）は src/town-tour/ にあり、合成ページと同じものを読む（Worker から src/ を読み込む例外）。
  */
 import stats from '../src/town-tour/stats.json'
@@ -58,7 +61,12 @@ export interface TownTourCall extends Town {
   visited: readonly string[]
   /** 流しきったら記録するきっかけと、冒頭で名前を出した相手。試し再生は記録しないので null */
   visit: { occasion: TownTourVisitOccasion; userName: string } | null
+  /** 締めの認定証で名誉町民にする相手。認定証を出さない（キーワード）なら null */
+  honoraryCitizen: string | null
 }
+
+/** 試し再生の認定証で、名誉町民にする見本の名前 */
+const DEMO_HONORARY_CITIZEN = 'レイド元の配信者'
 
 /**
  * 都道府県当てクイズの最初の正解者の知らせ。呼び出しと同じ接続へ押し出すので、type で呼び出しと見分ける
@@ -87,6 +95,18 @@ export const pickTown = (random: () => number, visited: ReadonlySet<string>): To
   const town = candidates[Math.floor(random() * candidates.length)]
   if (town === undefined) throw new Error('市町村の一覧が空です')
   return town
+}
+
+/** 締めの認定証で名誉町民にする相手。レイドはレイド元、試し再生は見本の名前で、キーワードでは出さない（配信者が決めた） */
+const honoraryCitizenOf = (caller: TownTourCaller): string | null => {
+  switch (caller.occasion) {
+    case 'raid':
+      return caller.userName
+    case 'keyword':
+      return null
+    case 'demo':
+      return DEMO_HONORARY_CITIZEN
+  }
 }
 
 /**
@@ -136,5 +156,6 @@ export const townTourCallOf = (
     audience,
     visited,
     visit: caller.occasion === 'demo' ? null : { occasion: caller.occasion, userName: caller.userName },
+    honoraryCitizen: honoraryCitizenOf(caller),
   }
 }

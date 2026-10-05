@@ -13,11 +13,14 @@
  *    ゆさぶりの項目（POINT_MS ずつ）→ オチ（最後の項目。PUNCHLINE_MS）→ 配信者への振り（CUE_MS）。長さは配信者が決めた（issue #249）。
  *    紹介は受け取ってから作らせる（2〜5秒）ので、ズームが終わっても届いていなければ、届くまで待ってから始める
  * 4. 日本全体へ引きながら、これまでに紹介した市町村を塗った全国制覇マップと制覇数を出す（CONQUEST_MS。issue #252）。
- *    引ききった後（CONQUEST_STAMP_MS）に今回の市町村を数えた制覇数と節目の一文に替え、薄くして終わる。出典は終わりまで出し続ける
+ *    引ききった後（CONQUEST_STAMP_MS）に今回の市町村を数えた制覇数と節目の一文に替える
+ * 5. 名誉町民にする相手がいれば（レイドと試し再生）、認定証を出す（CERTIFICATE_MS。issue #253）。いなければ（キーワード）制覇マップで終える。
+ *    最後は薄くして終わる。出典は終わりまで出し続ける
  *
  * 紹介を作れなかった再生はその場で終わる。失敗は素材の箱に出す（合成ページの stage.ts が受け持つ）。
  */
 import { QUIZ_HINT_INTERVAL_MS, QUIZ_LABEL, QUIZ_MS, QUIZ_UNOPENED_LABEL, quizQuestionOf, revealLabelOf, revealTextOf } from './quiz'
+import { certificateOf, type Certificate } from './certificate'
 import { conquestLabelOf, type Conquest } from './conquest'
 import { tourLinesOf, type TourLine, type TownTourCall, type TownTourIntro } from './tour'
 
@@ -49,6 +52,8 @@ export const CONQUEST_MS = 6000
 export const CONQUEST_ZOOM_MS = 1500
 /** 全国制覇マップで、今回の市町村を数える時刻（制覇マップを出しはじめてからのミリ秒）。引ききって一呼吸おいてから、塗りを1つ増やす */
 export const CONQUEST_STAMP_MS = 2500
+/** 名誉町民の認定証を出しておく時間（ミリ秒）。制覇マップを出し終えてから数える。文面を読み、スクリーンショットを撮れる長さとして配信者が決めた（issue #253） */
+export const CERTIFICATE_MS = 8000
 /** 冒頭の一文を出しきるまでの時間（ミリ秒） */
 const HEADLINE_FADE_MS = 500
 /** 終わりに全体を薄くする時間（ミリ秒） */
@@ -108,6 +113,8 @@ export interface Scene {
     readonly opacity: number
     readonly stamp: number
   } | null
+  /** 出している名誉町民の認定証の文面と、その濃さ（0〜1）。出していなければ null */
+  readonly certificate: (Certificate & { readonly opacity: number }) | null
   /** 出典の表記。紹介が届くまでは null */
   readonly credit: string | null
   /** ズームを終えて、紹介が届くのを待っているか */
@@ -161,6 +168,8 @@ export interface TourSpan {
   readonly itemsStart: number
   /** 場面を流し終え、全国制覇マップを出しはじめる時刻 */
   readonly itemsEnd: number
+  /** 全国制覇マップを出し終える時刻。認定証を出す再生では、ここから認定証を出す */
+  readonly conquestEnd: number
   /** 再生を終える時刻 */
   readonly end: number
 }
@@ -188,7 +197,9 @@ export const tourSpanOf = (playback: Playback, intro: TownTourIntro, readyAt: nu
     segments.push({ line, start: cursor, duration })
     cursor += duration
   })
-  return { segments, itemsStart, itemsEnd: cursor, end: cursor + CONQUEST_MS }
+  const conquestEnd = cursor + CONQUEST_MS
+  const certificateDuration = playback.call.honoraryCitizen === null ? 0 : CERTIFICATE_MS
+  return { segments, itemsStart, itemsEnd: cursor, conquestEnd, end: conquestEnd + certificateDuration }
 }
 
 /**
@@ -246,21 +257,26 @@ export const sceneAt = (playback: Playback, now: number): Scene => {
   }
   const waiting = sinceQuiz >= ZOOM_END_MS
 
-  if (intro.status === 'failed') return { ...base, item: null, conquest: null, credit: null, waiting: false, opacity: 0, done: true }
-  if (intro.status === 'loading') return { ...base, item: null, conquest: null, credit: null, waiting, opacity: 1, done: false }
+  const hidden = { item: null, conquest: null, certificate: null, credit: null }
+  if (intro.status === 'failed') return { ...base, ...hidden, waiting: false, opacity: 0, done: true }
+  if (intro.status === 'loading') return { ...base, ...hidden, waiting, opacity: 1, done: false }
 
-  const { segments, itemsStart, itemsEnd, end } = tourSpanOf(playback, intro.intro, intro.readyAt)
+  const { segments, itemsStart, itemsEnd, conquestEnd, end } = tourSpanOf(playback, intro.intro, intro.readyAt)
   const sinceItems = elapsed - itemsStart
   const segment = segments.find(({ start, duration }) => start <= elapsed && elapsed < start + duration)
   /** 全国制覇マップを出しはじめてからの経過時間。負ならまだ出さない */
   const sinceConquest = elapsed - itemsEnd
+  /** 認定証を出しはじめてからの経過時間。負ならまだ出さない */
+  const sinceCertificate = elapsed - conquestEnd
+  const certificate = sinceCertificate < 0 ? null : certificateOf(call, playback.startedAt)
 
   return {
     ...base,
     // 全国制覇マップのあいだは、寄っていた市町村から日本全体へ引く
     zoom: sinceConquest < 0 ? base.zoom : 1 - easeInOut(clamp01(sinceConquest / CONQUEST_ZOOM_MS)),
     item: segment === undefined ? null : itemSceneOf(segment, elapsed - segment.start),
-    conquest: sinceConquest < 0 ? null : conquestSceneOf(playback.conquest, sinceConquest),
+    conquest: sinceConquest < 0 || sinceCertificate >= 0 ? null : conquestSceneOf(playback.conquest, sinceConquest),
+    certificate: certificate === null ? null : { ...certificate, opacity: clamp01(sinceCertificate / ITEM_FADE_MS) },
     credit: sinceItems < 0 ? null : creditOf(intro.intro),
     waiting: waiting && sinceItems < 0,
     opacity: clamp01((end - elapsed) / FADE_OUT_MS),

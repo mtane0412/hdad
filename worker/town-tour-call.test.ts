@@ -52,7 +52,16 @@ describe('townTourCallOf', () => {
       audience: { kind: 'raid', count: 50 },
       visited: [],
       visit: { occasion: 'raid', userName: '山田花子' },
+      honoraryCitizen: '山田花子',
     })
+  })
+
+  it('名誉町民の認定証はレイドだけで出すので、キーワードでは名誉町民にする相手を持たない', () => {
+    expect(townTourCallOf(countyTown, { occasion: 'keyword', userName: '田中太郎' }, sound, null, 'quiz-1', []).honoraryCitizen).toBeNull()
+  })
+
+  it('試し再生では、認定証の見た目を確かめられるよう、見本の名前を名誉町民にする相手にする', () => {
+    expect(townTourCallOf(town, { occasion: 'demo' }, sound, null, 'quiz-1', []).honoraryCitizen).toBe('レイド元の配信者')
   })
 
   it('これまでに紹介した市町村のコードを、制覇マップの材料として添える', () => {
