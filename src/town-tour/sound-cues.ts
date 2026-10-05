@@ -12,7 +12,7 @@
  * 再生の終わりに合成ページが止める）。
  */
 import type { TownTourSoundSlot } from './sound'
-import { FADE_OUT_MS, JAPAN_HOLD_MS, ITEM_MS, ZOOM_END_MS, tourSpanOf, type Playback } from './timeline'
+import { FADE_OUT_MS, JAPAN_HOLD_MS, ZOOM_END_MS, tourSpanOf, type Playback } from './timeline'
 
 /** 効果音を鳴らしてよい遅れの上限（ミリ秒）。これより遅れたら、場面とずれて聞こえるので鳴らさない */
 const EFFECT_LATE_LIMIT_MS = 500
@@ -32,7 +32,8 @@ export type SoundCue =
 /**
  * 1件の再生で鳴らす音の表を、鳴らす順に作る。
  *
- * 紹介が届く前は、項目の数と項目を流しはじめる時刻が決まらないので、BGM と始まり・ズーム・着地だけを載せる。
+ * 紹介が届く前は、場面の数と流しはじめる時刻が決まらないので、BGM と始まり・ズーム・着地だけを載せる。
+ * 届いたら、大見出しと各項目の出だしで「項目ごと」の音を、配信者への振りの出だしで「締め」の音を鳴らす（issue #249）。
  */
 export const soundCuesOf = (playback: Playback): SoundCue[] => {
   const { intro } = playback
@@ -53,11 +54,13 @@ export const soundCuesOf = (playback: Playback): SoundCue[] => {
   ]
   if (intro.status === 'loading') return opening
 
-  const { lines, itemsStart, itemsEnd, end } = tourSpanOf(playback.startedAt, intro.intro, intro.readyAt)
+  const { segments, end } = tourSpanOf(playback, intro.intro, intro.readyAt)
+  const items = segments.filter(({ line }) => line.kind !== 'cue')
+  const cue = segments.find(({ line }) => line.kind === 'cue')
   return [
     ...opening,
-    ...lines.flatMap((_line, index) => effect('item', `item-${index}`, itemsStart + index * ITEM_MS)),
-    ...effect('closing', 'closing', itemsEnd),
+    ...items.flatMap(({ start }, index) => effect('item', `item-${index}`, start)),
+    ...(cue === undefined ? [] : effect('closing', 'closing', cue.start)),
     // 終わりに全体を薄くするあいだに合わせて BGM を下げる
     ...(slots.bgm === null ? [] : [{ id: 'bgm-end', at: end - FADE_OUT_MS, type: 'bgmFadeOut', duration: FADE_OUT_MS } as const]),
   ]

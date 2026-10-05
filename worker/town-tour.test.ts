@@ -3,12 +3,23 @@
  *
  * LLM の文面そのものは確かめられないので、次の点を確かめる。
  * - buildTownTourPrompt: 市町村の名前と、Wikipedia から拾った材料が漏れなく入り、材料が無い系統はその旨を伝えること
- * - parseTownTour: LLM の応答（JSON）を項目ごとに読み、形が違う・長すぎる・全部が空の応答はエラーにすること
+ * - parseTownTour: LLM の応答（JSON）を大見出し・項目・振りとして読み、形が違う・長すぎる・項目の数が合わない応答はエラーにすること
  * - generateTownTour: 「市町村紹介」の箇所を指名して LLM を呼ぶこと
  */
 import { describe, expect, it } from 'vitest'
 import { createFakeAi } from './fake-ai'
-import { MAX_ITEM_LENGTH, TownTourContentError, buildTownTourPrompt, generateTownTour, parseTownTour, type TownTourInput } from './town-tour'
+import {
+  MAX_CUE_LENGTH,
+  MAX_HOOK_LENGTH,
+  MAX_LABEL_LENGTH,
+  MAX_POINTS,
+  MAX_POINT_LENGTH,
+  TownTourContentError,
+  buildTownTourPrompt,
+  generateTownTour,
+  parseTownTour,
+  type TownTourInput,
+} from './town-tour'
 
 /** 檜枝岐村の記事から拾った材料（縮めたもの）。名前の由来の節は記事に無い */
 const hinoemataInput: TownTourInput = {
@@ -27,11 +38,13 @@ const hinoemataInput: TownTourInput = {
 
 /** LLM が返す、正しい形の紹介 */
 const validResponse = {
-  location: '福島県の南西の端、尾瀬の入口にある山あいの村です。',
-  nameOrigin: '',
-  history: '平家の落人が隠れ住んだという伝説が残っています。',
-  specialty: 'サンショウウオまで使う「山人料理」が名物です。',
-  surprise: '村の面積の約98%が林野です。',
+  hook: 'サンショウウオを食べる村',
+  points: [
+    { label: 'どこにある？', text: '福島県の南西の端、尾瀬の入口にある山あいの村です。' },
+    { label: '名物', text: 'イワナやサンショウウオまで使う「山人料理」が名物です。' },
+    { label: '伝説', text: '平家の落人が隠れ住んだという伝説が残っています。' },
+  ],
+  cue: 'サンショウウオ、食べてみたいですか？',
 }
 
 describe('buildTownTourPrompt', () => {
@@ -54,7 +67,7 @@ describe('buildTownTourPrompt', () => {
 })
 
 describe('parseTownTour', () => {
-  it('JSON の応答を項目ごとに読む', () => {
+  it('JSON の応答を、大見出し・項目・振りとして読む', () => {
     expect(parseTownTour(JSON.stringify(validResponse))).toEqual(validResponse)
   })
 
@@ -63,27 +76,49 @@ describe('parseTownTour', () => {
   })
 
   it('前後の空白は落とす', () => {
-    expect(parseTownTour(JSON.stringify({ ...validResponse, history: '  平家の落人伝説が残っています。 ' })).history).toBe('平家の落人伝説が残っています。')
+    const padded = { ...validResponse, hook: ' サンショウウオを食べる村 ', points: [{ label: ' 名物 ', text: '  山人料理が名物です。 ' }] }
+
+    expect(parseTownTour(JSON.stringify(padded))).toEqual({ ...validResponse, points: [{ label: '名物', text: '山人料理が名物です。' }] })
+  })
+
+  it('大見出しが空の紹介は、大見出しなしとして読む（材料が薄い町）', () => {
+    expect(parseTownTour(JSON.stringify({ ...validResponse, hook: '' })).hook).toBe('')
   })
 
   it('JSON でなければエラーにする', () => {
     expect(() => parseTownTour('檜枝岐村は福島県の村です。')).toThrow(TownTourContentError)
   })
 
-  it('項目が欠けている・文字列でなければエラーにする', () => {
-    // 前提: 意外な一面（surprise）の項目そのものが無い応答
-    const withoutSurprise = Object.fromEntries(Object.entries(validResponse).filter(([item]) => item !== 'surprise'))
-    expect(() => parseTownTour(JSON.stringify(withoutSurprise))).toThrow(TownTourContentError)
-    expect(() => parseTownTour(JSON.stringify({ ...validResponse, history: null }))).toThrow(TownTourContentError)
+  it('大見出し・項目・振りが欠けている・文字列でなければエラーにする', () => {
+    // 前提: 振り（cue）そのものが無い応答
+    const withoutCue = Object.fromEntries(Object.entries(validResponse).filter(([key]) => key !== 'cue'))
+    expect(() => parseTownTour(JSON.stringify(withoutCue))).toThrow(TownTourContentError)
+    expect(() => parseTownTour(JSON.stringify({ ...validResponse, hook: null }))).toThrow(TownTourContentError)
+    expect(() => parseTownTour(JSON.stringify({ ...validResponse, points: '山人料理が名物です。' }))).toThrow(TownTourContentError)
+    expect(() => parseTownTour(JSON.stringify({ ...validResponse, points: [{ label: '名物' }] }))).toThrow(TownTourContentError)
   })
 
-  it('上限より長い項目があればエラーにする', () => {
-    expect(() => parseTownTour(JSON.stringify({ ...validResponse, history: 'あ'.repeat(MAX_ITEM_LENGTH + 1) }))).toThrow(TownTourContentError)
+  it('項目の見出しか文が空ならエラーにする', () => {
+    expect(() => parseTownTour(JSON.stringify({ ...validResponse, points: [{ label: '', text: '山人料理が名物です。' }] }))).toThrow(TownTourContentError)
+    expect(() => parseTownTour(JSON.stringify({ ...validResponse, points: [{ label: '名物', text: '' }] }))).toThrow(TownTourContentError)
   })
 
-  it('すべての項目が空ならエラーにする', () => {
-    const empty = { location: '', nameOrigin: '', history: '', specialty: '', surprise: '' }
-    expect(() => parseTownTour(JSON.stringify(empty))).toThrow(TownTourContentError)
+  it('振りが空ならエラーにする', () => {
+    expect(() => parseTownTour(JSON.stringify({ ...validResponse, cue: '' }))).toThrow(TownTourContentError)
+  })
+
+  it('項目が1つも無い・上限より多ければエラーにする', () => {
+    expect(() => parseTownTour(JSON.stringify({ ...validResponse, points: [] }))).toThrow(TownTourContentError)
+    const tooMany = Array.from({ length: MAX_POINTS + 1 }, () => validResponse.points[0])
+    expect(() => parseTownTour(JSON.stringify({ ...validResponse, points: tooMany }))).toThrow(TownTourContentError)
+  })
+
+  it('上限より長い大見出し・見出し・文・振りがあればエラーにする', () => {
+    const point = validResponse.points[0]
+    expect(() => parseTownTour(JSON.stringify({ ...validResponse, hook: 'あ'.repeat(MAX_HOOK_LENGTH + 1) }))).toThrow(TownTourContentError)
+    expect(() => parseTownTour(JSON.stringify({ ...validResponse, points: [{ ...point, label: 'あ'.repeat(MAX_LABEL_LENGTH + 1) }] }))).toThrow(TownTourContentError)
+    expect(() => parseTownTour(JSON.stringify({ ...validResponse, points: [{ ...point, text: 'あ'.repeat(MAX_POINT_LENGTH + 1) }] }))).toThrow(TownTourContentError)
+    expect(() => parseTownTour(JSON.stringify({ ...validResponse, cue: 'あ'.repeat(MAX_CUE_LENGTH + 1) }))).toThrow(TownTourContentError)
   })
 })
 

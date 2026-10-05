@@ -1,7 +1,8 @@
 /**
  * 市町村紹介の描画（Canvas 2D）
  *
- * 1フレームぶんの場面（timeline.ts の sceneAt）を受け取り、日本地図・市町村の塗り・冒頭の一文・紹介の項目・出典を描く。
+ * 1フレームぶんの場面（timeline.ts の sceneAt）を受け取り、日本地図・市町村の塗り・冒頭の一文・紹介の場面（大見出し・項目・振り）・出典を描く。
+ * 大見出しは項目より大きな文字で描く。
  * どこを映すかは camera.ts、文の折り返しは wrap.ts が決め、ここは描くだけを受け持つ（通信も状態も持たない）。
  *
  * 地図の形は、起動時に全国ぶんを1つの Path2D にまとめておき、毎フレームは拡大と移動を掛けて塗り直すだけにする
@@ -44,18 +45,21 @@ const SIZES = {
   labelFont: 30,
   itemFont: 46,
   itemLineHeight: 64,
+  hookFont: 64,
+  hookLineHeight: 84,
   panelPadding: 28,
   creditFont: 22,
   margin: 32,
 } as const
 
-/** 紹介の項目の帯を置く高さ（箱の高さに対する割合）。帯の上端 */
+/** 紹介の場面の帯を置く高さ（箱の高さに対する割合）。帯の上端 */
 const PANEL_TOP = 0.66
 /** 文を折り返す幅（箱の幅に対する割合） */
 const TEXT_WIDTH = 0.86
-/** 冒頭の一文と紹介の項目の、行数の上限（紹介の項目は Worker が80文字以内にそろえている） */
+/** 冒頭の一文と紹介の場面の、行数の上限（項目は Worker が80文字以内、大見出しは30文字以内にそろえている） */
 const MAX_HEADLINE_LINES = 2
 const MAX_ITEM_LINES = 3
+const MAX_HOOK_LINES = 2
 /** 紹介が届くのを待っているあいだに出す文言 */
 const WAITING_TEXT = '紹介を準備しています…'
 
@@ -170,20 +174,23 @@ const drawHeadline = (ctx: CanvasRenderingContext2D, width: number, unit: number
   ctx.restore()
 }
 
-/** 紹介の項目（見出しと文）、または紹介を待っている旨を下の帯に描く */
+/** 紹介の場面（見出しと文）、または紹介を待っている旨を下の帯に描く。帯の高さは文を伏せているあいだも文の行数ぶん取る（溜めの後に帯が伸びないように） */
 const drawPanel = (ctx: CanvasRenderingContext2D, width: number, height: number, unit: number, scene: Scene): void => {
-  const content = scene.item ?? (scene.waiting ? { line: { label: '', text: WAITING_TEXT }, opacity: 1 } : null)
+  const content = scene.item ?? (scene.waiting ? { line: { kind: 'point', label: '', text: WAITING_TEXT }, opacity: 1, textOpacity: 1 } : null)
   if (content === null) return
 
+  const isHook = content.line.kind === 'hook'
+  const textFont = `bold ${(isHook ? SIZES.hookFont : SIZES.itemFont) * unit}px ${FONT_FAMILY}`
+  const lineHeight = (isHook ? SIZES.hookLineHeight : SIZES.itemLineHeight) * unit
   ctx.save()
   ctx.globalAlpha *= content.opacity
-  ctx.font = `bold ${SIZES.itemFont * unit}px ${FONT_FAMILY}`
-  const lines = wrapText(content.line.text, width * TEXT_WIDTH, (text) => ctx.measureText(text).width).slice(0, MAX_ITEM_LINES)
+  ctx.font = textFont
+  const lines = wrapText(content.line.text, width * TEXT_WIDTH, (text) => ctx.measureText(text).width).slice(0, isHook ? MAX_HOOK_LINES : MAX_ITEM_LINES)
   const padding = SIZES.panelPadding * unit
   const top = height * PANEL_TOP
   const labelHeight = content.line.label === '' ? 0 : SIZES.labelFont * unit + padding / 2
   ctx.fillStyle = COLORS.band
-  ctx.fillRect(0, top, width, padding * 2 + labelHeight + SIZES.itemLineHeight * unit * lines.length)
+  ctx.fillRect(0, top, width, padding * 2 + labelHeight + lineHeight * lines.length)
 
   ctx.textAlign = 'center'
   ctx.textBaseline = 'top'
@@ -192,9 +199,10 @@ const drawPanel = (ctx: CanvasRenderingContext2D, width: number, height: number,
     ctx.fillStyle = COLORS.label
     ctx.fillText(content.line.label, width / 2, top + padding)
   }
-  ctx.font = `bold ${SIZES.itemFont * unit}px ${FONT_FAMILY}`
+  ctx.font = textFont
   ctx.fillStyle = COLORS.text
-  drawLines(ctx, lines, width / 2, top + padding + labelHeight, SIZES.itemLineHeight * unit)
+  ctx.globalAlpha *= content.textOpacity
+  drawLines(ctx, lines, width / 2, top + padding + labelHeight, lineHeight)
   ctx.restore()
 }
 

@@ -5,13 +5,13 @@
  * ここでは場面の切り替わりと同じ時刻に音が並ぶことを確かめる。
  * - BGM: 始めた瞬間からループで流し、終わりの薄くなる間に下げて止める
  * - 始まり: 日本全体を映した瞬間 / ズーム: 寄り始めたとき / 着地: ズームを終えたとき
- * - 項目ごと: 項目が出るたび（材料に無い項目は出ないので鳴らさない）
- * - 締め: 出典だけを残し始めたとき
+ * - 項目ごと: 大見出しと各項目が出るたび（大見出しが空なら大見出しでは鳴らさない）
+ * - 締め: 配信者への振りが出たとき
  */
 import { describe, expect, it } from 'vitest'
 import type { TownTourPlaybackSound } from './sound'
 import { dueSoundCues, soundCuesOf } from './sound-cues'
-import { ITEM_MS, ZOOM_END_MS, type Playback } from './timeline'
+import { CREDIT_HOLD_MS, CUE_MS, HOOK_MS, POINT_MS, PUNCHLINE_MS, ZOOM_END_MS, type Playback } from './timeline'
 import type { TownTourCall, TownTourIntro } from './tour'
 
 const STARTED_AT = 1_000_000
@@ -39,10 +39,17 @@ const callWith = (sound: TownTourPlaybackSound): TownTourCall => ({
   sound,
 })
 
-/** 項目が2つだけの紹介（ほかは材料に無かった） */
+/** 大見出しと項目2つの紹介 */
 const tobetsuIntro: TownTourIntro = {
   article: { title: '当別町', url: 'https://ja.wikipedia.org/wiki/%E5%BD%93%E5%88%A5%E7%94%BA' },
-  tour: { location: '石狩平野の北東部にある町です。', nameOrigin: '', history: '', specialty: '当別米が名物です。', surprise: '' },
+  tour: {
+    hook: '北欧の街並みがある米どころ',
+    points: [
+      { label: 'どこにある？', text: '石狩平野の北東部にある町です。' },
+      { label: '名物', text: '当別米が名物です。' },
+    ],
+    cue: '当別米、食べたことありますか？',
+  },
 }
 
 /** 再生を始めてから readyAfterMs ミリ秒後に紹介が届いた再生 */
@@ -64,9 +71,10 @@ describe('soundCuesOf', () => {
     ])
   })
 
-  it('紹介が届いたら、項目の数だけ項目ごとの音を並べ、締めと BGM の下げ止めを加える', () => {
+  it('紹介が届いたら、大見出しと項目の数だけ項目ごとの音を並べ、振りで締めの音を鳴らし、BGM の下げ止めを加える', () => {
     const itemsStart = ZOOM_END_MS
-    const end = itemsStart + ITEM_MS * 2 + 4000
+    const cueStart = itemsStart + HOOK_MS + POINT_MS + PUNCHLINE_MS
+    const end = cueStart + CUE_MS + CREDIT_HOLD_MS
 
     expect(soundCuesOf(readyPlayback(2000))).toEqual([
       { id: 'bgm', at: 0, type: 'bgmStart', url: 'https://example.com/ピアノ25.mp3', volume: 0.3 },
@@ -74,8 +82,9 @@ describe('soundCuesOf', () => {
       { id: 'zoom', at: 1500, type: 'effect', url: 'https://example.com/ヒューン.mp3', volume: 0.6 },
       { id: 'landing', at: ZOOM_END_MS, type: 'effect', url: 'https://example.com/ペタッ.mp3', volume: 0.6 },
       { id: 'item-0', at: itemsStart, type: 'effect', url: 'https://example.com/パッ.mp3', volume: 0.6 },
-      { id: 'item-1', at: itemsStart + ITEM_MS, type: 'effect', url: 'https://example.com/パッ.mp3', volume: 0.6 },
-      { id: 'closing', at: itemsStart + ITEM_MS * 2, type: 'effect', url: 'https://example.com/チャンチャン.mp3', volume: 0.6 },
+      { id: 'item-1', at: itemsStart + HOOK_MS, type: 'effect', url: 'https://example.com/パッ.mp3', volume: 0.6 },
+      { id: 'item-2', at: itemsStart + HOOK_MS + POINT_MS, type: 'effect', url: 'https://example.com/パッ.mp3', volume: 0.6 },
+      { id: 'closing', at: cueStart, type: 'effect', url: 'https://example.com/チャンチャン.mp3', volume: 0.6 },
       { id: 'bgm-end', at: end - 600, type: 'bgmFadeOut', duration: 600 },
     ])
   })
@@ -84,7 +93,17 @@ describe('soundCuesOf', () => {
     const readyAfterMs = ZOOM_END_MS + 3000
 
     expect(soundCuesOf(readyPlayback(readyAfterMs)).find((cue) => cue.id === 'item-0')?.at).toBe(readyAfterMs)
-    expect(soundCuesOf(readyPlayback(readyAfterMs)).find((cue) => cue.id === 'closing')?.at).toBe(readyAfterMs + ITEM_MS * 2)
+    expect(soundCuesOf(readyPlayback(readyAfterMs)).find((cue) => cue.id === 'closing')?.at).toBe(readyAfterMs + HOOK_MS + POINT_MS + PUNCHLINE_MS)
+  })
+
+  it('大見出しが空なら、項目の数だけ項目ごとの音を並べる', () => {
+    const noHook: Playback = {
+      call: callWith(fullSound),
+      startedAt: STARTED_AT,
+      intro: { status: 'ready', intro: { ...tobetsuIntro, tour: { ...tobetsuIntro.tour, hook: '' } }, readyAt: STARTED_AT },
+    }
+
+    expect(soundCuesOf(noHook).filter((cue) => cue.id.startsWith('item-')).map((cue) => cue.at)).toEqual([ZOOM_END_MS, ZOOM_END_MS + POINT_MS])
   })
 
   it('「鳴らさない」にした枠は並べない（BGM を鳴らさなければ下げ止めも並べない）', () => {
@@ -131,8 +150,8 @@ describe('dueSoundCues', () => {
   })
 
   it('BGM を下げる時刻を過ぎていたら、BGM を鳴らしはじめず、下げる指示だけを返す', () => {
-    // 前提: 項目2つの紹介で、終わる直前までまったく確かめられなかった
-    const end = ZOOM_END_MS + ITEM_MS * 2 + 4000
+    // 前提: 大見出しと項目2つの紹介で、終わる直前までまったく確かめられなかった
+    const end = ZOOM_END_MS + HOOK_MS + POINT_MS + PUNCHLINE_MS + CUE_MS + CREDIT_HOLD_MS
     const due = dueSoundCues(readyPlayback(0), STARTED_AT + end - 100, new Set())
 
     expect(due.map((cue) => cue.id)).toEqual(['bgm-end'])

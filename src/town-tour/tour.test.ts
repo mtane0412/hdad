@@ -4,7 +4,7 @@
  * どちらも Worker から届くものなので、想定した形でなければ補わずに投げることを確かめる（Fail-Fast）。
  */
 import { describe, expect, it } from 'vitest'
-import { parseTownTourCall, readTownTourIntro, tourItemsOf } from './tour'
+import { parseTownTourCall, readTownTourIntro, tourLinesOf } from './tour'
 
 /** レイドで引いた北海道当別町の呼び出し */
 const tobetsuCall = {
@@ -21,16 +21,17 @@ const tobetsuCall = {
   },
 }
 
-/** 当別町の紹介（歴史は材料に無かったので空） */
+/** 当別町の紹介 */
 const tobetsuIntro = {
   ...tobetsuCall,
   article: { title: '当別町', url: 'https://ja.wikipedia.org/wiki/%E5%BD%93%E5%88%A5%E7%94%BA' },
   tour: {
-    location: '石狩平野の北東部にある町です。',
-    nameOrigin: 'アイヌ語の「トペッ」に由来するとされます。',
-    history: '',
-    specialty: '当別米とブロッコリーが名物です。',
-    surprise: '町内に北欧風の街並みがあります。',
+    hook: '北欧の街並みがある米どころ',
+    points: [
+      { label: '名物', text: '当別米とブロッコリーが名物です。' },
+      { label: '北欧の街', text: '町内に北欧風の街並みがあります。' },
+    ],
+    cue: '北欧、行ってみたいですか？',
   },
 }
 
@@ -58,18 +59,26 @@ describe('parseTownTourCall', () => {
 })
 
 describe('readTownTourIntro', () => {
-  it('Worker の応答を、記事名・出典の URL・5項目の紹介として読む', () => {
+  it('Worker の応答を、記事名・出典の URL と、大見出し・項目・振りの紹介として読む', () => {
     expect(readTownTourIntro(tobetsuIntro)).toEqual({
       article: tobetsuIntro.article,
       tour: tobetsuIntro.tour,
     })
   })
 
-  it('紹介の項目が欠けていれば、補わずに投げる', () => {
-    const { location, nameOrigin, history, specialty } = tobetsuIntro.tour
-    const fourItems = { location, nameOrigin, history, specialty }
+  it('大見出しが空の紹介（材料が薄い町）も読む', () => {
+    expect(readTownTourIntro({ ...tobetsuIntro, tour: { ...tobetsuIntro.tour, hook: '' } }).tour.hook).toBe('')
+  })
 
-    expect(() => readTownTourIntro({ ...tobetsuIntro, tour: fourItems })).toThrow('紹介')
+  it('振りが欠けていれば、補わずに投げる', () => {
+    const { hook, points } = tobetsuIntro.tour
+
+    expect(() => readTownTourIntro({ ...tobetsuIntro, tour: { hook, points } })).toThrow('紹介')
+  })
+
+  it('項目が無い・項目の見出しか文が欠けていれば、補わずに投げる', () => {
+    expect(() => readTownTourIntro({ ...tobetsuIntro, tour: { ...tobetsuIntro.tour, points: [] } })).toThrow('紹介')
+    expect(() => readTownTourIntro({ ...tobetsuIntro, tour: { ...tobetsuIntro.tour, points: [{ label: '名物' }] } })).toThrow('紹介')
   })
 
   it('出典の記事名が無ければ、補わずに投げる（出典を出さずに Wikipedia の文を流さないため）', () => {
@@ -77,13 +86,18 @@ describe('readTownTourIntro', () => {
   })
 })
 
-describe('tourItemsOf', () => {
-  it('空でない項目だけを、決まった順に見出しを付けて並べる', () => {
-    expect(tourItemsOf(tobetsuIntro.tour)).toEqual([
-      { label: 'どこにある？', text: '石狩平野の北東部にある町です。' },
-      { label: '名前の由来', text: 'アイヌ語の「トペッ」に由来するとされます。' },
-      { label: '名物', text: '当別米とブロッコリーが名物です。' },
-      { label: '意外な一面', text: '町内に北欧風の街並みがあります。' },
+describe('tourLinesOf', () => {
+  it('大見出し・項目・振りの順に、場面の種類と見出しを付けて並べる（大見出しの見出しは市町村の種類に合わせる）', () => {
+    expect(tourLinesOf(tobetsuIntro.tour, '当別町')).toEqual([
+      { kind: 'hook', label: 'この町、実は…', text: '北欧の街並みがある米どころ' },
+      { kind: 'point', label: '名物', text: '当別米とブロッコリーが名物です。' },
+      { kind: 'point', label: '北欧の街', text: '町内に北欧風の街並みがあります。' },
+      { kind: 'cue', label: 'ところで…', text: '北欧、行ってみたいですか？' },
     ])
+    expect(tourLinesOf(tobetsuIntro.tour, '府中市')[0]?.label).toBe('この市、実は…')
+  })
+
+  it('大見出しが空なら、大見出しの場面を飛ばす', () => {
+    expect(tourLinesOf({ ...tobetsuIntro.tour, hook: '' }, '当別町').map((line) => line.kind)).toEqual(['point', 'point', 'cue'])
   })
 })

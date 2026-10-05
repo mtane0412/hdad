@@ -19,7 +19,7 @@ const createFetchWithResponse = (status: number, body: unknown) => {
   return { calls, fetchImpl: fetchImpl as unknown as typeof fetch }
 }
 
-/** 東京都千代田区の紹介（名物は材料に無かったので空） */
+/** 東京都千代田区の紹介 */
 const chiyodaIntro = {
   code: '13101',
   prefecture: '東京都',
@@ -27,11 +27,12 @@ const chiyodaIntro = {
   name: '千代田区',
   article: { title: '千代田区', url: 'https://ja.wikipedia.org/wiki/%E5%8D%83%E4%BB%A3%E7%94%B0%E5%8C%BA' },
   tour: {
-    location: '東京都の中心部にある区です。',
-    nameOrigin: '江戸城の別名「千代田城」に由来します。',
-    history: '江戸時代から政治の中心でした。',
-    specialty: '',
-    surprise: '夜間の人口が昼間の人口よりずっと少ない区です。',
+    hook: '住む人より働きに来る人が多い区',
+    points: [
+      { label: '名前の由来', text: '江戸城の別名「千代田城」に由来します。' },
+      { label: '昼と夜', text: '夜間の人口が昼間の人口よりずっと少ない区です。' },
+    ],
+    cue: '千代田区で働いたことはありますか？',
   },
 }
 

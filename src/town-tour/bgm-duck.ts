@@ -33,7 +33,7 @@ export const bgmDuckHoldOf = (playback: Playback, now: number): number | null =>
     case 'failed':
       return 0
     case 'ready': {
-      const { end } = tourSpanOf(playback.startedAt, intro.intro, intro.readyAt)
+      const { end } = tourSpanOf(playback, intro.intro, intro.readyAt)
       return Math.max(0, playback.startedAt + end - now)
     }
   }

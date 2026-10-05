@@ -39,11 +39,12 @@ const FUCHU_HIROSHIMA = '34208'
 
 /** LLM が返す、正しい形の紹介 */
 const fuchuTour = {
-  location: '広島県の南東部、芦田川が流れる盆地の市です。',
-  nameOrigin: '備後国の国府が置かれたことに由来するとされます。',
-  history: '',
-  specialty: '約400年の歴史を持つ府中味噌が名物です。',
-  surprise: 'ミンチ肉を使う「府中焼き」というお好み焼きがあります。',
+  hook: 'お好み焼きにミンチ肉を使う市',
+  points: [
+    { label: '名物', text: '約400年の歴史を持つ府中味噌が名物です。' },
+    { label: 'ご当地の味', text: 'ミンチ肉を使う「府中焼き」というお好み焼きがあります。' },
+  ],
+  cue: '府中焼き、食べたことありますか？',
 }
 
 const createEnv = (aiResponse: string, alertChannel = createFakeAlertChannel()) =>

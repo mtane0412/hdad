@@ -5,7 +5,7 @@
  * - 呼び出し: トリガー（レイド・キーワード）や試し再生で、AlertChannel から WebSocket で押し出される。市町村と冒頭の一文と、
  *   演出で鳴らす音（sound.ts）を持つ
  *   （worker/town-tour-call.ts の TownTourCall と同じ形）
- * - 紹介: 呼び出しを受け取ってから GET /api/overlay/town-tour?code= で作らせる。記事名・出典の URL・5項目を持つ
+ * - 紹介: 呼び出しを受け取ってから GET /api/overlay/town-tour?code= で作らせる。記事名・出典の URL と、大見出し・項目・配信者への振りを持つ
  *   （worker/town-tour-routes.ts の応答と同じ形）
  *
  * 注意: どちらも想定した形でなければ補わずに投げる（Fail-Fast）。出典が欠けた紹介は Wikipedia の文を出典なしで流すことになるので、
@@ -14,19 +14,10 @@
 import { isRecord } from '../core/api'
 import { readPlaybackSound, type TownTourPlaybackSound } from './sound'
 
-/** 紹介の項目。並び順は画面に流す順で、worker/town-tour.ts の TOWN_TOUR_ITEMS と同じ */
-export const TOUR_ITEMS = ['location', 'nameOrigin', 'history', 'specialty', 'surprise'] as const
-
-export type TourItem = (typeof TOUR_ITEMS)[number]
-
-/** 項目ごとに画面に出す見出し */
-const TOUR_ITEM_LABELS: Readonly<Record<TourItem, string>> = {
-  location: 'どこにある？',
-  nameOrigin: '名前の由来',
-  history: '歴史',
-  specialty: '名物',
-  surprise: '意外な一面',
-}
+/** 大見出しの場面に添える見出し。「この町、実は…」の「町」は市町村の名前の最後の字（市・町・村・区）にする */
+const hookLabelOf = (townName: string): string => `この${townName.slice(-1)}、実は…`
+/** 配信者への振りの場面に添える見出し */
+const CUE_LABEL = 'ところで…'
 
 /** 押し出された呼び出し。市町村（コードは全国地方公共団体コードの5桁）と、冒頭に出す一文と、鳴らす音 */
 export interface TownTourCall {
@@ -39,15 +30,29 @@ export interface TownTourCall {
   readonly sound: TownTourPlaybackSound
 }
 
-/** 作らせた紹介。材料に無かった項目は空文字になる */
+/** 大見出しを支える1項目（worker/town-tour.ts の TownTourPoint と同じ形） */
+export interface TourPoint {
+  readonly label: string
+  readonly text: string
+}
+
+/** 作らせた紹介（worker/town-tour.ts の TownTour と同じ形） */
 export interface TownTourIntro {
   /** 出典の記事（Wikipedia の本文は CC BY-SA なので、記事名と URL を画面に出す） */
   readonly article: { readonly title: string; readonly url: string }
-  readonly tour: Readonly<Record<TourItem, string>>
+  readonly tour: {
+    /** 大見出し。材料が薄くて立てられなかった町は空文字 */
+    readonly hook: string
+    /** 大見出しを支える項目（1つ以上）。最後の項目がオチ */
+    readonly points: readonly TourPoint[]
+    /** 配信者への振り */
+    readonly cue: string
+  }
 }
 
-/** 画面に流す1項目 */
+/** 画面に流す1場面。kind は場面の種類で、長さと描き方を決める（timeline.ts・view.ts） */
 export interface TourLine {
+  readonly kind: 'hook' | 'point' | 'cue'
   readonly label: string
   readonly text: string
 }
@@ -81,7 +86,7 @@ export const parseTownTourCall = (payload: string): TownTourCall => {
 /**
  * Worker の応答（GET /api/overlay/town-tour）を、紹介として読む。
  *
- * @throws 出典（記事名・URL）か5項目のどれかが欠けている場合
+ * @throws 出典（記事名・URL）か、大見出し・項目・振りのどれかが欠けている場合
  */
 export const readTownTourIntro = (body: unknown): TownTourIntro => {
   const article: unknown = isRecord(body) ? body.article : undefined
@@ -89,23 +94,30 @@ export const readTownTourIntro = (body: unknown): TownTourIntro => {
     throw new Error('Workerの応答に、紹介の出典（記事名と URL）がありません')
   }
   const tour: unknown = isRecord(body) ? body.tour : undefined
-  const itemOf = (item: TourItem): string => {
-    const text = isRecord(tour) ? tour[item] : undefined
-    if (typeof text !== 'string') throw new Error(`Workerの応答の紹介に、項目 ${item} がありません`)
-    return text
+  if (!isRecord(tour) || typeof tour.hook !== 'string' || typeof tour.cue !== 'string') {
+    throw new Error('Workerの応答の紹介に、大見出しか配信者への振りがありません')
+  }
+  const { points } = tour
+  if (!Array.isArray(points) || points.length === 0) throw new Error('Workerの応答の紹介に、項目がありません')
+  const readPoint = (point: unknown): TourPoint => {
+    if (!isRecord(point) || typeof point.label !== 'string' || typeof point.text !== 'string') {
+      throw new Error('Workerの応答の紹介に、見出しか文が欠けた項目があります')
+    }
+    return { label: point.label, text: point.text }
   }
   return {
     article: { title: article.title, url: article.url },
-    tour: {
-      location: itemOf('location'),
-      nameOrigin: itemOf('nameOrigin'),
-      history: itemOf('history'),
-      specialty: itemOf('specialty'),
-      surprise: itemOf('surprise'),
-    },
+    tour: { hook: tour.hook, points: points.map(readPoint), cue: tour.cue },
   }
 }
 
-/** 紹介から、画面に流す項目を決まった順に並べる。材料に無かった（空の）項目は飛ばす */
-export const tourItemsOf = (tour: TownTourIntro['tour']): TourLine[] =>
-  TOUR_ITEMS.filter((item) => tour[item] !== '').map((item) => ({ label: TOUR_ITEM_LABELS[item], text: tour[item] }))
+/**
+ * 紹介から、画面に流す場面を順に並べる（大見出し → 項目 → 配信者への振り）。大見出しが空なら大見出しの場面を飛ばす。
+ *
+ * @param townName 市町村の名前（大見出しの見出し「この町、実は…」に使う）
+ */
+export const tourLinesOf = (tour: TownTourIntro['tour'], townName: string): TourLine[] => [
+  ...(tour.hook === '' ? [] : [{ kind: 'hook', label: hookLabelOf(townName), text: tour.hook } as const]),
+  ...tour.points.map((point) => ({ kind: 'point', label: point.label, text: point.text }) as const),
+  { kind: 'cue', label: CUE_LABEL, text: tour.cue },
+]

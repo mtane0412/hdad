@@ -24,20 +24,22 @@ export const demoTownTourCall: TownTourCall = {
   },
 }
 
-/** プレビューで流す紹介（Worker が返す形と同じ。歴史は材料に無かったものとして空にしてある） */
+/** プレビューで流す紹介（Worker が返す形と同じ） */
 export const demoTownTourIntro: TownTourIntro = {
   article: { title: '千代田区', url: 'https://ja.wikipedia.org/wiki/%E5%8D%83%E4%BB%A3%E7%94%B0%E5%8C%BA' },
   tour: {
-    location: '東京都の中心部にあり、皇居を囲むように広がる区です。',
-    nameOrigin: '江戸城の別名「千代田城」に由来します。',
-    history: '',
-    specialty: '神田神保町には、古書店が軒を連ねる街並みがあります。',
-    surprise: '昼間は多くの人が働きに来ますが、住んでいる人は少ない区です。',
+    hook: '住む人より働きに来る人が多い区',
+    points: [
+      { label: '名前の由来', text: '江戸城の別名「千代田城」に由来します。' },
+      { label: '本の街', text: '神田神保町には、古書店が軒を連ねる街並みがあります。' },
+      { label: '昼と夜', text: '昼間は多くの人が働きに来ますが、住んでいる人は少ない区です。' },
+    ],
+    cue: '千代田区で働いたことはありますか？',
   },
 }
 
 /** 紹介が届くまでの待ち時間（ミリ秒）。Worker に作らせたときの実測（2.7〜5.1秒）に合わせる */
 export const DEMO_INTRO_DELAY_MS = 3000
 
-/** 次の1件を流しはじめるまでの間隔（ミリ秒）。1件を流し終える長さ（4項目でおよそ33秒）より長くする */
+/** 次の1件を流しはじめるまでの間隔（ミリ秒）。1件を流し終える長さ（大見出しと3項目でおよそ37秒）より長くする */
 export const DEMO_TOWN_TOUR_INTERVAL_MS = 40000

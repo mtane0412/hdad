@@ -35,8 +35,8 @@ const SLOT_LABELS: Readonly<Record<TownTourSoundSlot, string>> = {
   opening: '始まり（日本全体を映したとき）',
   zoom: 'ズーム（市町村へ寄り始めたとき）',
   landing: '着地（形を塗り終えたとき）',
-  item: '項目ごと（紹介の項目が出るたび）',
-  closing: '締め（出典だけを残したとき）',
+  item: '項目ごと（大見出しと各項目が出るたび）',
+  closing: '締め（配信者への振りが出たとき）',
 }
 
 /** 音量の項目の名前（Worker の問題点の読み替えにも使う） */
