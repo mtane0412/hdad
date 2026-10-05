@@ -14,6 +14,10 @@
  * それだと配信中に音量ひとつ変えるにもURLを貼り替えることになるためである。設定は起動のあとも一定間隔で
  * 読み直し、次に読む1件から反映する（サイドスーパーと同じポーリング。押し出しを使うほどの即時性は要らない）。
  *
+ * 下部バーのミュート（issue #238）は、30秒の読み直しを待つと「その場で黙らせる」には遅いので、Worker から WebSocket
+ * （/api/overlay/speech/mute/socket）で押し出してもらう。ミュートしたら鳴っている1件を止めて待ちを捨て、ミュート中に届いたコメントは
+ * 読まずに捨てる（戻したときに溜まった分を一気に読まない）。起動のときとつなぎ直したときは、保存済みのミュートを設定と一緒に読む。
+ *
  * 注意: 合成先・ホスト・ポートだけは起動のときにしか使えない。つなぎ先が変わるとつなぎ直しが要るためで、
  * 変わったことに気づいたらOBSの再読み込みが要ることを画面に出す（黙って古いつなぎ先のまま読み続けない）。
  * 注意: 起動のときの失敗（VOICEVOX が動いていない・設定やチャンネル名が読めない）は投げて呼び出し側に
@@ -24,7 +28,8 @@
 import { loadChannel } from '../chat/channel'
 import { connectChat } from '../chat/connection'
 import { showError } from '../core/mount'
-import { createSpeechOverlayApi, type SpeechSettings } from './api'
+import { connectSocket, socketUrl } from '../core/socket'
+import { createSpeechOverlayApi, parseSpeechMute, SPEECH_MUTE_SOCKET_HINT, SPEECH_MUTE_SOCKET_PATH, type SpeechSettings } from './api'
 import { playSpeech } from './audio'
 import { advanceSpeech, EMPTY_SPEECH_QUEUE, enqueueSpeech, type SpeechQueue } from './queue'
 import { speechEndpointOf } from './engine'
@@ -74,7 +79,10 @@ export interface StartedSpeech {
 export const startSpeech = async ({ key, box }: SpeechTaskOptions): Promise<StartedSpeech> => {
   const api = createSpeechOverlayApi((input, init) => fetch(input, init), key)
   // 1回目は起動の一部として扱う。ここで失敗したら画面に出して原因が分かるようにする
-  let settings: SpeechSettings = await api.read()
+  const initial = await api.read()
+  let settings: SpeechSettings = initial
+  /** ミュートしているか。下部バーからの押し出しと、起動・つなぎ直しのときの読み出しだけで変える */
+  let muted = initial.muted
   /** 起動のときのつなぎ先。以後これと違う設定が届いたら、OBSの再読み込みが要ると知らせる */
   const connectedTo = speechEndpointOf(settings)
   const origin = settings.engine === 'sakura' ? location.origin : voicevoxOrigin(settings.host, settings.port)
@@ -96,6 +104,7 @@ export const startSpeech = async ({ key, box }: SpeechTaskOptions): Promise<Star
     void api
       .read()
       .then((latest) => {
+        // ミュートはここでは変えない。押し出しで切り替えた直後に、KV から古い値を読んで戻してしまわないためである
         settings = latest
         if (reconnectNoticed || speechEndpointOf(latest) === connectedTo) return
         reconnectNoticed = true
@@ -110,6 +119,22 @@ export const startSpeech = async ({ key, box }: SpeechTaskOptions): Promise<Star
   let queue: SpeechQueue = EMPTY_SPEECH_QUEUE
   /** いま読み上げの処理を回しているか。1件ずつ順に読むため、回っているあいだは新しく始めない */
   let speaking = false
+  /** 鳴っている1件を止める合図。ミュートしたときに使う */
+  let playback = new AbortController()
+  /**
+   * ミュートで待ちを捨てた回数。合成や再生を待つあいだに捨てられたかを見分けるために使う
+   * （捨てたあとに解除して新しいコメントが並んでいると、待ちを進めたときにその1件を読まずに消してしまうため）
+   */
+  let discardCount = 0
+
+  /** ミュートを切り替える。ミュートしたら鳴っている1件を止め、待ちを捨てる（戻しても読まない） */
+  const applyMute = (next: boolean): void => {
+    muted = next
+    if (!next) return
+    queue = EMPTY_SPEECH_QUEUE
+    discardCount += 1
+    playback.abort()
+  }
 
   const pump = async (): Promise<void> => {
     if (speaking) return
@@ -117,14 +142,20 @@ export const startSpeech = async ({ key, box }: SpeechTaskOptions): Promise<Star
     try {
       while (queue.current !== null) {
         const text = queue.current
+        const discardsBefore = discardCount
         try {
           // 声と音量は、その1件を鳴らす時点の設定で決める（読み上げの途中で変えても次の1件から効く）
           const audio = await voicevox.synthesize(text, { speaker: settings.speaker, speed: settings.speed })
-          await playSpeech(audio, settings.volume)
+          // 合成を待つあいだにミュートで捨てられたら鳴らさず、捨てたあとの待ちから続ける
+          if (discardCount !== discardsBefore) continue
+          playback = new AbortController()
+          await playSpeech(audio, settings.volume, playback.signal)
         } catch (error) {
           // 読めなかった1件のために、以降の読み上げを止めない。原因を追えるよう記録だけ残す
           console.error('読み上げできませんでした', text, error)
         }
+        // 鳴らしているあいだにミュートで捨てられていたら、待ちはもう空から並び直しているので進めない
+        if (discardCount !== discardsBefore) continue
         queue = advanceSpeech(queue)
       }
     } finally {
@@ -132,10 +163,50 @@ export const startSpeech = async ({ key, box }: SpeechTaskOptions): Promise<Star
     }
   }
 
+  /**
+   * 押し出されたミュートを受け取った回数。つなぎ直しの読み出しを待つあいだに新しい押し出しが届いたら、
+   * 読み出した（古いかもしれない）値でそれを上書きしないために使う
+   */
+  let notificationCount = 0
+
+  connectSocket(
+    socketUrl(SPEECH_MUTE_SOCKET_PATH, { key }),
+    {
+      onMessage: (text) => {
+        try {
+          const { muted: next } = parseSpeechMute(text)
+          notificationCount += 1
+          applyMute(next)
+        } catch (error) {
+          showError(error, SPEECH_NOUN, box)
+        }
+      },
+      onOpen: () => {
+        // つながっていない間に切り替えられていても取りこぼさないよう、保存済みのミュートを読み直す
+        const notificationsBefore = notificationCount
+        void api
+          .read()
+          .then((latest) => {
+            // 読み出しを待つあいだに押し出しが届いていたら、そちらが新しいので読み出した値は使わない
+            if (notificationCount === notificationsBefore) applyMute(latest.muted)
+          })
+          .catch((error: unknown) => {
+            // 読み直しに失敗しても読み上げは止めない。次の押し出しで正しい状態に戻る
+            console.error('読み上げのミュートを読み直せませんでした', error)
+          })
+      },
+      // 切断と再接続は onOpen で読み直すので、ここでは何もしない
+      onStatus: () => undefined,
+      onWarning: (message) => showError(new Error(message), SPEECH_NOUN, box),
+    },
+    SPEECH_MUTE_SOCKET_HINT,
+  )
+
   const { login } = await loadChannel((input, init) => fetch(input, init))
   connectChat(login, {
     onEvent: (event) => {
-      if (event.type !== 'message') return
+      // ミュート中に届いたコメントは、戻したあとも読まないので並べない
+      if (event.type !== 'message' || muted) return
       // 読むかどうかの判断も、届いた時点の設定で行う（読み上げない人を追加したら次の発言から効く）
       const text = speechTextOf(event.message, {
         readName: settings.readName,

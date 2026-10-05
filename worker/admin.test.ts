@@ -632,7 +632,8 @@ describe('読み上げの設定（/api/admin/speech・/api/overlay/speech）', (
     expect((await save(env, broadcasterConfig)).status).toBe(200)
 
     expect(await (await invoke(await broadcasterRequest(env, '/api/admin/speech'), env)).json()).toEqual(broadcasterConfig)
-    expect(await (await speechPageReads(env)).json()).toEqual(broadcasterConfig)
+    // 読み上げのページには、ミュートしているかも添えて返す（issue #238）
+    expect(await (await speechPageReads(env)).json()).toEqual({ ...broadcasterConfig, muted: false })
   })
 
   it('まだ保存していなければ、既定の設定を返す（読み上げが止まらないようにする）', async () => {

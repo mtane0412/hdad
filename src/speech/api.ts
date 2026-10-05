@@ -3,7 +3,11 @@
  *
  * 読み上げの設定は Worker（KVの speech-settings）が持ち、2つの経路から読まれる。
  * - 管理画面（/speech/ のページ）: 配信者のセッションで /api/admin/speech を読み書きする
- * - 読み上げのページ（speech/reader/）: オーバーレイ用キーで /api/overlay/speech を読むだけ
+ * - 読み上げのページ（speech/reader/）: オーバーレイ用キーで /api/overlay/speech を読むだけ（ミュートしているかも添えて返る）
+ *
+ * 読み上げのミュート（issue #238）は設定とは別の経路で読み書きする。
+ * - 下部バー: 配信者のセッションで /api/admin/speech/mute を読み・切り替える
+ * - 読み上げのページ: 切り替えは WebSocket（/api/overlay/speech/mute/socket）で押し出されてくるので、その読み取り（parseSpeechMute）もここに置く
  *
  * どちらも同じ形の設定を受け取るので、形の確かめ（readSpeechSettings）をここで共有する。
  * 呼び出しと失敗の扱いは `../core/api` に任せ、fetch を引数で受け取るのはテストで差し替えるためである。
@@ -17,6 +21,13 @@ import { createCaller, isRecord } from '../core/api'
 
 const ADMIN_PATH = '/api/admin/speech'
 const OVERLAY_PATH = '/api/overlay/speech'
+const MUTE_PATH = '/api/admin/speech/mute'
+
+/** ミュートの切り替えを押し出してもらう WebSocket のパス。読み上げのページ（task.ts）だけがつなぐ */
+export const SPEECH_MUTE_SOCKET_PATH = '/api/overlay/speech/mute/socket'
+
+/** ミュートの経路が、一度もつながらないまま閉じたときに出す原因 */
+export const SPEECH_MUTE_SOCKET_HINT = '読み上げのミュートの配送先につながりません。URLのオーバーレイ用キーが正しいか確かめてください'
 
 /** 合成先。local は同じPCの VOICEVOX ENGINE、sakura はさくらのAI Engine（Worker 経由）。worker/speech-config.ts と合わせる */
 export const SPEECH_ENGINES = ['local', 'sakura'] as const
@@ -78,6 +89,40 @@ const readSpeechSettings = (body: unknown, path: string): SpeechSettings => {
   }
 }
 
+/** 読み上げのページが読む設定。ミュートしているかが添えられている */
+export interface SpeechReaderSettings extends SpeechSettings {
+  /** ミュートしているか。ミュート中に届いたコメントは読まずに捨てる */
+  muted: boolean
+}
+
+/** 読み上げのページが読む設定として読む。想定した形でなければエラーにする */
+const readSpeechReaderSettings = (body: unknown, path: string): SpeechReaderSettings => {
+  const settings = readSpeechSettings(body, path)
+  if (!isRecord(body) || typeof body.muted !== 'boolean') throw new Error(`Workerの ${path} の応答が想定した形ではありません`)
+  return { ...settings, muted: body.muted }
+}
+
+/** 読み上げのミュートの知らせ。項目は worker/speech-config.ts と合わせる */
+export interface SpeechMute {
+  muted: boolean
+}
+
+/**
+ * WebSocket で押し出された文字列を、読み上げのミュートとして読む。
+ *
+ * @throws JSONとして読めない・想定した形でない場合
+ */
+export const parseSpeechMute = (payload: string): SpeechMute => {
+  let body: unknown
+  try {
+    body = JSON.parse(payload)
+  } catch {
+    throw new Error('押し出された読み上げのミュートをJSONとして読めません')
+  }
+  if (!isRecord(body) || typeof body.muted !== 'boolean') throw new Error('押し出された読み上げのミュートが想定した形ではありません')
+  return { muted: body.muted }
+}
+
 /** 管理画面からの読み書き */
 export interface SpeechApi {
   /** 保存済みの設定を読む。未保存なら既定の設定が返る */
@@ -88,8 +133,16 @@ export interface SpeechApi {
 
 /** 読み上げのページからの読み出し */
 export interface SpeechOverlayApi {
-  /** いまの設定を読む */
-  read(): Promise<SpeechSettings>
+  /** いまの設定とミュートしているかを読む */
+  read(): Promise<SpeechReaderSettings>
+}
+
+/** 下部バーからのミュートの読み書き */
+export interface SpeechMuteApi {
+  /** ミュートしているかを読む */
+  load(): Promise<boolean>
+  /** ミュートを切り替え、切り替えたあとの値を受け取る。Worker が読み上げのページへ押し出す */
+  save(muted: boolean): Promise<boolean>
 }
 
 /**
@@ -131,6 +184,27 @@ export const createSpeechOverlayApi = (fetchImpl: typeof fetch, key: string): Sp
   const path = `${OVERLAY_PATH}?key=${encodeURIComponent(key)}`
 
   return {
-    read: async () => readSpeechSettings(await call(path), OVERLAY_PATH),
+    read: async () => readSpeechReaderSettings(await call(path), OVERLAY_PATH),
+  }
+}
+
+/** ミュートの応答を読む。想定した形でなければエラーにする */
+const readMuted = (body: unknown): boolean => {
+  if (!isRecord(body) || typeof body.muted !== 'boolean') throw new Error(`Workerの ${MUTE_PATH} の応答が想定した形ではありません`)
+  return body.muted
+}
+
+/**
+ * 下部バーからのミュートの読み書きを組み立てる。セッションのクッキーと Origin ヘッダーはブラウザが付ける。
+ *
+ * @param fetchImpl 通信の実装
+ */
+export const createSpeechMuteApi = (fetchImpl: typeof fetch): SpeechMuteApi => {
+  const call = createCaller(fetchImpl)
+
+  return {
+    load: async () => readMuted(await call(MUTE_PATH)),
+    save: async (muted) =>
+      readMuted(await call(MUTE_PATH, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ muted }) })),
   }
 }

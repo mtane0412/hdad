@@ -12,6 +12,7 @@ import {
   connectBgmDuckSocket,
   connectBgmSocket,
   connectPomodoroSocket,
+  connectSpeechMuteSocket,
   connectTownTourSocket,
   connectTaskDeskSocket,
   connectWorkLogSocket,
@@ -19,6 +20,7 @@ import {
   pushBgm,
   pushBgmDuck,
   pushPomodoro,
+  pushSpeechMute,
   pushTownTour,
   pushTaskDesk,
   pushWorkLogEntry,
@@ -82,6 +84,9 @@ const runningPomodoro: PomodoroSnapshot = {
 /** 市町村紹介のBGMが鳴るあいだ、配信のBGMを42秒下げておく知らせ */
 const duringTownTour: BgmDuck = { holdMs: 42_000 }
 
+/** 下部バーで読み上げをミュートした知らせ */
+const speechMuted = { muted: true }
+
 /** 送られた文字列を覚えておく、テスト用の接続 */
 const createConnection = (): AlertSocket & { sentMessages: string[] } => {
   const sentMessages: string[] = []
@@ -103,6 +108,7 @@ describe('AlertChannel', () => {
     pomodoroSockets: AlertSocket[] = [],
     townTourSockets: AlertSocket[] = [],
     bgmDuckSockets: AlertSocket[] = [],
+    speechMuteSockets: AlertSocket[] = [],
   ): AlertChannel =>
     new AlertChannel({
       acceptWebSocket: () => undefined,
@@ -114,7 +120,17 @@ describe('AlertChannel', () => {
         if (tag === 'pomodoro') return pomodoroSockets
         if (tag === 'townTour') return townTourSockets
         if (tag === 'bgmDuck') return bgmDuckSockets
-        return [...sockets, ...bgmSockets, ...workLogSockets, ...taskDeskSockets, ...pomodoroSockets, ...townTourSockets, ...bgmDuckSockets]
+        if (tag === 'speechMute') return speechMuteSockets
+        return [
+          ...sockets,
+          ...bgmSockets,
+          ...workLogSockets,
+          ...taskDeskSockets,
+          ...pomodoroSockets,
+          ...townTourSockets,
+          ...bgmDuckSockets,
+          ...speechMuteSockets,
+        ]
       },
       setWebSocketAutoResponse: () => undefined,
       storage: createFakeDurableStorage(),
@@ -213,6 +229,18 @@ describe('AlertChannel', () => {
     expect(bgmItem.sentMessages).toEqual([])
   })
 
+  it('読み上げのミュートの知らせは、ミュートを受け取る接続（読み上げのページ）だけへ送る', async () => {
+    const alertItem = createConnection()
+    const reader = createConnection()
+    const destination = createDestination([alertItem], [], [], [], [], [], [], [reader])
+
+    const response = await destination.fetch(new Request('https://alert-channel/push/speech-mute', { method: 'POST', body: JSON.stringify(speechMuted) }))
+
+    expect(response.status).toBe(204)
+    expect(reader.sentMessages).toEqual([JSON.stringify(speechMuted)])
+    expect(alertItem.sentMessages).toEqual([])
+  })
+
   it('接続が1本もなければ、送らずに終わる（オーバーレイを開いていない間のアラートは落とす）', async () => {
     const destination = createDestination([])
 
@@ -247,7 +275,7 @@ describe('pushAlert', () => {
 })
 
 describe('接続の引き渡し', () => {
-  it('アラート・BGM・作業ログ・作業机・ポモドーロ・市町村紹介の接続を、目印を付けて Durable Object へ引き渡す', async () => {
+  it('アラート・BGM・作業ログ・作業机・ポモドーロ・市町村紹介・BGMを下げる知らせ・読み上げのミュートの接続を、目印を付けて Durable Object へ引き渡す', async () => {
     const delivery = createFakeAlertChannel()
     const connectionRequest = (): Request => new Request('https://hdad.example.com/api/overlay/socket?key=k', { headers: { Upgrade: 'websocket' } })
 
@@ -258,6 +286,7 @@ describe('接続の引き渡し', () => {
     await connectPomodoroSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
     await connectTownTourSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
     await connectBgmDuckSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
+    await connectSpeechMuteSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
 
     expect(delivery.forwardedConnections.map((request) => new URL(request.url).searchParams.get('topic'))).toEqual([
       'alerts',
@@ -267,6 +296,7 @@ describe('接続の引き渡し', () => {
       'pomodoro',
       'townTour',
       'bgmDuck',
+      'speechMute',
     ])
   })
 })
@@ -370,6 +400,22 @@ describe('pushBgmDuck', () => {
     const delivery = createFakeAlertChannel({ shouldFail: true })
 
     await expect(pushBgmDuck(delivery.namespace, duringTownTour)).rejects.toThrow('BGM')
+  })
+})
+
+describe('pushSpeechMute', () => {
+  it('Durable Object へ、読み上げのミュートの知らせを送る', async () => {
+    const delivery = createFakeAlertChannel()
+
+    await pushSpeechMute(delivery.namespace, speechMuted)
+
+    expect(delivery.pushedSpeechMutes).toEqual([speechMuted])
+  })
+
+  it('Durable Object が失敗を返したら、黙って成功にせず投げる', async () => {
+    const delivery = createFakeAlertChannel({ shouldFail: true })
+
+    await expect(pushSpeechMute(delivery.namespace, speechMuted)).rejects.toThrow('読み上げ')
   })
 })
 

@@ -4,7 +4,7 @@
  * どのページを見ていても、配信中に何度も触る操作（文字起こしのオン・オフなど）に手が届くようにする。
  * 形は音楽プレーヤー（Spotify など）にならい、サイドバーの下まで画面の幅いっぱいに通す。
  * 並びは左・中央・右の3つに分け、左にいま流している曲・中央に再生の操作・右に音量（BGM。src/bgm/bgm-bar.tsx。#236）を置き、
- * 右にはそのほかの切り替え（ポモドーロ（src/pomodoro/pomodoro-bar.tsx。#237）・文字起こし・読み上げのミュート（#238））を並べていく。
+ * 右にはそのほかの切り替え（ポモドーロ（src/pomodoro/pomodoro-bar.tsx。#237）・文字起こし・読み上げのミュート（src/speech/speech-mute-control.tsx。#238））を並べる。
  *
  * 狭い画面ではサイドバーが重ねて開く形になり、閉じているあいだはサイドバーの中の開閉ボタンが見えない。
  * そのときだけ、左端にサイドバーを開くボタンを出す。
@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/button'
 import { useSidebar } from '@/components/ui/sidebar'
 import { iconButtonName } from '@/core/icon-button'
 import { PomodoroBar } from '@/pomodoro/pomodoro-bar'
+import { SpeechMuteControl } from '@/speech/speech-mute-control'
 import { RecognitionControl } from '@/transcript/recognition-control'
 
 export const BottomBar = () => {
@@ -48,6 +49,7 @@ export const BottomBar = () => {
           <>
             <PomodoroBar />
             <RecognitionControl />
+            <SpeechMuteControl />
           </>
         }
       />

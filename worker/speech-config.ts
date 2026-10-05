@@ -14,6 +14,8 @@
  * 例外扱いするため、そこだけは通る（src/speech/voicevox.ts と同じ理由。値の範囲もそちらと合わせる）。
  * 注意: 合成先・ホスト・ポートは読み上げのページが起動のときにしか読まない（つなぎ先が変わるので、つなぎ直しが要る）。
  * 変えたらOBSの再読み込みが必要であることは、管理画面と読み上げのページが知らせる。
+ * 注意: ミュート（その場で黙らせる。issue #238）は設定とは別に保存し、読み上げのページへは押し出しで知らせる
+ * （worker/speech-routes.ts）。設定の読み直し（30秒ごと）を待つと「その場で黙らせる」には遅いためである。
  * 注意: 合成先のさくら（さくらのAI Engine。issue #225）は従量課金なので、既定はローカルのままにする。
  * さくらを選んだときの合成は Worker が受け持つ（worker/speech-sakura.ts。APIキーをブラウザに置かないため）。
  */
@@ -21,6 +23,12 @@ import { ConfigError } from './alert-config'
 import type { KeyValueStore } from './store'
 
 const CONFIG_KEY = 'speech-settings'
+/**
+ * ミュートしているかの保存先。設定（CONFIG_KEY）とは分ける。
+ * 管理画面は設定をまるごと置き換えて保存するので、同じ所に置くと、開いたままの管理画面の保存が
+ * 下部バーで切り替えたミュートを古い値へ戻してしまうためである（issue #238）
+ */
+const MUTED_KEY = 'speech-muted'
 /** 問題点のメッセージに出す、何の設定かの名前 */
 const SUBJECT = '読み上げの設定'
 
@@ -204,3 +212,24 @@ export const loadSpeechSettings = async (store: KeyValueStore): Promise<SpeechSe
   const saved = JSON.parse(text) as Omit<SpeechSettings, 'engine'> & Partial<Pick<SpeechSettings, 'engine'>>
   return { ...saved, engine: saved.engine ?? 'local' }
 }
+
+/** 読み上げのミュートの知らせ。下部バーから受け取り、読み上げのページへそのまま押し出す */
+export interface SpeechMute {
+  /** ミュートしているか。ミュート中に届いたコメントは、戻したあとも読まない */
+  readonly muted: boolean
+}
+
+/**
+ * 下部バーから送られてきたミュートの切り替えを検証する。
+ *
+ * @throws ConfigError muted が真偽値でない場合
+ */
+export const parseSpeechMute = (input: unknown): SpeechMute => {
+  if (!isRecord(input) || typeof input.muted !== 'boolean') throw new ConfigError(SUBJECT, ['muted: true か false で指定してください'])
+  return { muted: input.muted }
+}
+
+export const saveSpeechMuted = (store: KeyValueStore, muted: boolean): Promise<void> => store.put(MUTED_KEY, JSON.stringify(muted))
+
+/** ミュートしているかを読む。一度も切り替えていなければミュートしていない */
+export const loadSpeechMuted = async (store: KeyValueStore): Promise<boolean> => (await store.get(MUTED_KEY)) === 'true'

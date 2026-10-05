@@ -16,7 +16,7 @@ import { loadOverlayLayout } from './overlay-layout'
 import { loadScreenSettings } from './screen-config'
 import { isStreaming, recordScreenCapture } from './screen-store'
 import { readCurrentSideSuper } from './side-super-store'
-import { loadSpeechSettings } from './speech-config'
+import { loadSpeechMuted, loadSpeechSettings } from './speech-config'
 
 /**
  * GET /api/overlay/socket?key=: オーバーレイからのWebSocketの接続を受け、配送先（Durable Object）へ引き渡す。
@@ -239,10 +239,13 @@ export const getSideSuper = async (context: Context): Promise<Response> => {
  *
  * 注意: ホストとポートは読み上げのページが起動のときにしか使わない（つなぎ先が変わるので、つなぎ直しが要る）。
  * それ以外の項目は、読みに来るたびに次の1件から効く。
+ * 注意: ミュートしているか（muted。issue #238）も添えて返す。OBSを読み込み直してもミュートのまま始めるためで、
+ * 配信中の切り替えは押し出し（worker/speech-routes.ts）で届く。
  */
 export const getSpeech = async (context: Context): Promise<Response> => {
   await requireOverlayKey(context)
-  return Response.json(await loadSpeechSettings(context.env.STORE))
+  const [settings, muted] = await Promise.all([loadSpeechSettings(context.env.STORE), loadSpeechMuted(context.env.STORE)])
+  return Response.json({ ...settings, muted })
 }
 
 /**
