@@ -2,7 +2,8 @@
  * 市町村紹介のカード（トリガーのページ）
  *
  * 市町村紹介の演出で鳴らす音を場面ごとに選び、BGM と効果音の音量を決めて保存する（issue #243）。
- * 試し再生のボタンも置き、選んだ音をその場で聞き比べられるようにする。
+ * ナレーション（issue #255）の設定もこのカードの区画（town-tour-narration-section.tsx）で選ぶ。保存は音と別に行う。
+ * 試し再生のボタンも置き、選んだ音と声をその場で聞き比べられるようにする。
  *
  * 鳴らす場面（枠）はコードで固定で（src/town-tour/sound.ts の TOWN_TOUR_SOUND_SLOTS）、ここでは枠ごとに
  * アップロード済みの音声を選ぶか「鳴らさない」にするだけにする。音声の追加はアップロードのページが受け持つ。
@@ -12,7 +13,7 @@
  *
  * 注意: 値の検証は Worker だけが持つ（.claude/rules/implementation.md）。ここでは返ってきた問題点を枠の名前に読み替えて並べる。
  */
-import { useEffect, useId, useState } from 'react'
+import { useCallback, useEffect, useId, useState } from 'react'
 import { LoadFailure } from '@/components/load-failure'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -25,9 +26,10 @@ import { ApiError } from '@/core/api'
 import { TOWN_TOUR_SOUND_SLOTS, type TownTourSound, type TownTourSoundSlot } from '@/town-tour/sound'
 import type { AdminApi, MediaItem } from './api'
 import { errorMessage, usePageActions } from './page-actions'
+import { TownTourNarrationSection, type TownTourNarrationApi } from './town-tour-narration-section'
 
 /** このカードが使う Worker の呼び出し */
-export type TownTourSoundApi = Pick<AdminApi, 'townTourSound' | 'saveTownTourSound' | 'playTownTourDemo'>
+export type TownTourSoundApi = Pick<AdminApi, 'townTourSound' | 'saveTownTourSound' | 'playTownTourDemo'> & TownTourNarrationApi
 
 /** 枠ごとの選択欄の名前。括弧の中はいつ鳴るか */
 const SLOT_LABELS: Readonly<Record<TownTourSoundSlot, string>> = {
@@ -108,6 +110,9 @@ export const TownTourSoundCard = ({ api, media }: TownTourSoundCardProps) => {
   // 最後に保存した（または読み込んだ）設定。今の入力と食い違えば、未保存の変更があると知らせる
   const [saved, setSaved] = useState<TownTourSound | null>(null)
   const actions = usePageActions(failureLines)
+  // ナレーションの区画に未保存の変更があるか（試し再生を止めるため）
+  const [narrationUnsaved, setNarrationUnsaved] = useState(false)
+  const onNarrationUnsavedChange = useCallback((value: boolean) => setNarrationUnsaved(value), [])
 
   useEffect(() => {
     let cancelled = false
@@ -199,16 +204,23 @@ export const TownTourSoundCard = ({ api, media }: TownTourSoundCardProps) => {
     <Card>
       <CardHeader>
         <CardTitle>市町村紹介</CardTitle>
-        <CardDescription>レイドやキーワードで流す市町村紹介の、場面ごとに鳴らす音を選ぶ。音声はアップロードのページで追加する。</CardDescription>
+        <CardDescription>レイドやキーワードで流す市町村紹介の、場面ごとに鳴らす音とナレーションの声を選ぶ。音声はアップロードのページで追加する。</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         {actions.feedback}
         {body}
+        <TownTourNarrationSection api={api} onUnsavedChange={onNarrationUnsavedChange} />
         <p className="text-sm text-muted-foreground">
-          トリガーを待たずに試しに流せる（引く市町村はランダム。オーバーレイに「市町村紹介」の素材を置いておく）。音は保存したものが鳴るので、未保存の変更があるあいだは押せない。
+          トリガーを待たずに試しに流せる（引く市町村はランダム。オーバーレイに「市町村紹介」の素材を置いておく）。音と声は保存したものが鳴るので、未保存の変更があるあいだは押せない。
         </p>
-        {/* 試し再生は保存済みの音で鳴る。選び直した音を保存せずに流すと、聞き比べたつもりの音と食い違うので押させない */}
-        <Button type="button" variant="outline" className="self-start" disabled={actions.busy || unsaved} onClick={() => void actions.run(playDemo)}>
+        {/* 試し再生は保存済みの音と声で鳴る。選び直した音や声を保存せずに流すと、聞き比べたつもりのものと食い違うので押させない */}
+        <Button
+          type="button"
+          variant="outline"
+          className="self-start"
+          disabled={actions.busy || unsaved || narrationUnsaved}
+          onClick={() => void actions.run(playDemo)}
+        >
           市町村紹介を試しに流す
         </Button>
       </CardContent>

@@ -5,7 +5,7 @@
  * - 呼び出し: トリガー（レイド・キーワード）や試し再生で、AlertChannel から WebSocket で押し出される。市町村と冒頭の一文と、
  *   演出で鳴らす音（sound.ts）と、着地で大きさの文（scale.ts）にする人口・面積・いま見ている人数と、
  *   全国制覇マップ（conquest.ts。issue #252）にするこれまでに紹介した市町村と、流しきったら記録するきっかけと、
- *   締めの認定証（certificate.ts。issue #253）で名誉町民にする相手を持つ
+ *   締めの認定証（certificate.ts。issue #253）で名誉町民にする相手と、ナレーション（narration.ts。issue #255）で読み上げるかを持つ
  *   （worker/town-tour-call.ts の TownTourCall と同じ形）
  * - クイズの最初の正解者: チャットで最初に正解した人が決まると、呼び出しと同じ接続へ type: answer を持つ形で押し出される
  *   （worker/town-tour-call.ts の TownTourAnswerMessage と同じ形。issue #251）
@@ -49,6 +49,8 @@ export interface TownTourCall {
   readonly visit: TownTourVisit | null
   /** 締めの認定証で名誉町民にする相手。認定証を出さない（キーワード）なら null */
   readonly honoraryCitizen: string | null
+  /** 紹介をナレーションで読み上げるか（issue #255）。読み上げるなら、紹介が届いてから読み上げる文の合成を頼む */
+  readonly narration: boolean
 }
 
 /** 流しきったら記録するきっかけ（レイドかキーワード）と相手（worker/town-tour-visits.ts の TownTourVisit からコードを除いたもの） */
@@ -169,6 +171,16 @@ const readHonoraryCitizen = (value: unknown): string | null => {
 }
 
 /**
+ * ナレーションで読み上げるかを読む
+ *
+ * @throws 真偽値でないとき（欠けた呼び出しを「読み上げない」と読むと、壊れた押し出しに気づけないため）
+ */
+const readNarration = (value: unknown): boolean => {
+  if (typeof value !== 'boolean') throw new Error('押し出された市町村紹介に、ナレーションを読み上げるかがありません')
+  return value
+}
+
+/**
  * WebSocket で押し出された文字列を、市町村紹介の呼び出しか、クイズの最初の正解者として読む。type が answer なら正解者、
  * type を持たなければ呼び出しとして読む。
  *
@@ -191,7 +203,20 @@ export const parseTownTourMessage = (payload: string): TownTourMessage => {
   const { code, prefecture, county, name, headline, quizId, quizHeadline } = body
   return {
     type: 'call',
-    call: { code, prefecture, county, name, headline, quizId, quizHeadline, sound: readPlaybackSound(body.sound), ...readScale(body), ...readConquest(body), honoraryCitizen: readHonoraryCitizen(body.honoraryCitizen) },
+    call: {
+      code,
+      prefecture,
+      county,
+      name,
+      headline,
+      quizId,
+      quizHeadline,
+      sound: readPlaybackSound(body.sound),
+      ...readScale(body),
+      ...readConquest(body),
+      honoraryCitizen: readHonoraryCitizen(body.honoraryCitizen),
+      narration: readNarration(body.narration),
+    },
   }
 }
 

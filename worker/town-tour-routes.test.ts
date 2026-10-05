@@ -12,6 +12,8 @@
  * - 合成ページの素材「市町村紹介」の WebSocket の接続を、市町村紹介を受け取る接続として配送先へ引き渡す
  * - 管理画面の試し再生（POST /api/admin/town-tour/demo）は、ログインした配信者にだけ、市町村を1つ引いて押し出す
  * - 音の設定（GET・PUT /api/admin/town-tour/sound）は、ログインした配信者にだけ読み書きさせ、音声でない素材を選んだ設定は400で断る
+ * - ナレーション（issue #255）の合成（POST /api/overlay/town-tour/narration）は、読み上げる設定のときだけ、保存済みの話者と速度で
+ *   さくらのAI Engine に合成させる。設定（GET・PUT /api/admin/town-tour/narration）は、ログインした配信者にだけ読み書きさせる
  *
  * 材料の拾い方と紹介の読み取りは worker/town-wikipedia.test.ts・worker/town-tour.test.ts が確かめるので、ここでは経路の受け渡しだけを見る。
  */
@@ -30,7 +32,9 @@ import { createFakeTokenVault } from './fake-token-vault'
 import { handleRequest, type Env } from './index'
 import { createSessionToken } from './session'
 import { listFailures } from './stats-store'
+import { DEFAULT_TOWN_TOUR_NARRATION, loadTownTourNarration, saveTownTourNarration } from './town-tour-narration'
 import { DEFAULT_TOWN_TOUR_SOUND, loadTownTourSound, saveTownTourSound } from './town-tour-sound'
+import { TOWN_TOUR_NARRATION_TEXT_MAX_LENGTH } from '../src/town-tour/narration'
 import { recordTownTourVisit } from './town-tour-visits'
 
 const now = Date.parse('2026-10-04T12:00:00Z')
@@ -434,6 +438,163 @@ describe('POST /api/admin/town-tour/demo', () => {
     await callAsBroadcaster(env)
 
     expect(alertChannel.pushedTownTours[0]?.sound.slots.landing).toBe(`/api/media/media-peta?key=${overlayKey}`)
+  })
+
+  it('ナレーションを読み上げる設定なら、読み上げることを一緒に押し出す（試し再生で声を確かめられるように）', async () => {
+    const alertChannel = createFakeAlertChannel()
+    const env = createEnv('', alertChannel)
+
+    await callAsBroadcaster(env)
+    await saveTownTourNarration(env.STORE, { enabled: true, speaker: 13, speed: 1.1 })
+    await callAsBroadcaster(env)
+
+    expect(alertChannel.pushedTownTours.map((call) => call.narration)).toEqual([false, true])
+  })
+})
+
+describe('POST /api/overlay/town-tour/narration', () => {
+  const sakuraApiKey = 'sakura-test-api-key'
+  /** 読み上げる設定にし、話者13・速度1.1で保存した環境。APIキーは既定で設定済みにし、null なら設定していないものとする */
+  const createNarrationEnv = async (narration = { enabled: true, speaker: 13, speed: 1.1 }, apiKey: string | null = sakuraApiKey) => {
+    const env = { ...createEnv(''), SAKURA_AI_API_KEY: apiKey ?? undefined } satisfies Env
+    await saveTownTourNarration(env.STORE, narration)
+    return env
+  }
+
+  /** さくらの代役。送られた要求のURLと本文を記録し、audio_query には読み方を、synthesis には音声を返す */
+  const createSakuraFetch = (respond: (url: URL) => Response | undefined = () => undefined) => {
+    const sent: { url: URL; body: string }[] = []
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const request = new Request(input, init)
+      const url = new URL(request.url)
+      sent.push({ url, body: await request.text() })
+      const replaced = respond(url)
+      if (replaced) return replaced
+      if (url.pathname === '/tts/v1/audio_query') return Response.json({ accent_phrases: [], speedScale: 1 })
+      if (url.pathname === '/tts/v1/synthesis') return new Response('ナレーターの声（WAV）', { headers: { 'Content-Type': 'audio/wav' } })
+      throw new Error(`テストで想定していない通信です: ${request.url}`)
+    }
+    return { fetchImpl, sent }
+  }
+  const noNetwork: typeof fetch = async () => {
+    throw new Error('このテストでは外へ通信しません')
+  }
+
+  const narrate = (env: Env, body: unknown, fetchImpl: typeof fetch = noNetwork, key = overlayKey) =>
+    invoke(`/api/overlay/town-tour/narration?key=${key}`, env, fetchImpl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+
+  const errorCodeOf = async (response: Response): Promise<string> => ((await response.json()) as { error: { code: string } }).error.code
+
+  it('オーバーレイ用キーが違えば401を返す（さくらは呼ばない）', async () => {
+    const response = await narrate(await createNarrationEnv(), { text: '府中味噌が名物です。' }, noNetwork, 'wrong-key')
+
+    expect(response.status).toBe(401)
+  })
+
+  it('読み上げない設定なら409で断る（選んでいない配信者に課金を起こさない）', async () => {
+    const env = await createNarrationEnv({ ...DEFAULT_TOWN_TOUR_NARRATION, enabled: false })
+
+    const response = await narrate(env, { text: '府中味噌が名物です。' })
+
+    expect(response.status).toBe(409)
+    expect(await errorCodeOf(response)).toBe('town-tour-narration-disabled')
+  })
+
+  it('APIキーが設定されていなければ400で断る', async () => {
+    const env = await createNarrationEnv(undefined, null)
+
+    const response = await narrate(env, { text: '府中味噌が名物です。' })
+
+    expect(response.status).toBe(400)
+    expect(await errorCodeOf(response)).toBe('no-api-key')
+  })
+
+  it('保存済みの話者と速度で合成し、音声をそのまま返す（チャットの読み上げの設定は使わない）', async () => {
+    const env = await createNarrationEnv()
+    const { fetchImpl, sent } = createSakuraFetch()
+
+    const response = await narrate(env, { text: '府中味噌が名物です。' }, fetchImpl)
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Content-Type')).toBe('audio/wav')
+    expect(await response.text()).toBe('ナレーターの声（WAV）')
+    expect(sent.map(({ url }) => [url.pathname, url.searchParams.get('speaker')])).toEqual([
+      ['/tts/v1/audio_query', '13'],
+      ['/tts/v1/synthesis', '13'],
+    ])
+    expect(sent[0]?.url.searchParams.get('text')).toBe('府中味噌が名物です。')
+    expect(JSON.parse(sent[1]?.body ?? '{}')).toMatchObject({ speedScale: 1.1 })
+  })
+
+  it('読み上げ文が空か長すぎれば400で断る（さくらは呼ばない）', async () => {
+    const env = await createNarrationEnv()
+
+    expect((await narrate(env, { text: '' })).status).toBe(400)
+    expect((await narrate(env, { text: 'あ'.repeat(TOWN_TOUR_NARRATION_TEXT_MAX_LENGTH + 1) })).status).toBe(400)
+    expect((await narrate(env, { message: '府中味噌が名物です。' })).status).toBe(400)
+  })
+
+  it('さくらが失敗を返したら502で、さくらの理由を返す', async () => {
+    const env = await createNarrationEnv()
+    const { fetchImpl } = createSakuraFetch(() => Response.json({ detail: 'This model is not available.' }, { status: 400 }))
+
+    const response = await narrate(env, { text: '府中味噌が名物です。' }, fetchImpl)
+
+    expect(response.status).toBe(502)
+    const body = (await response.json()) as { error: { code: string; message: string } }
+    expect(body.error.code).toBe('town-tour-narration-failed')
+    expect(body.error.message).toContain('This model is not available.')
+  })
+})
+
+describe('GET・PUT /api/admin/town-tour/narration', () => {
+  /** 配信者としてログインした状態で呼ぶ。書き換えのときは Origin も付ける（ブラウザが付けるのと同じ） */
+  const callAsBroadcaster = async (env: Env, init: RequestInit = {}): Promise<Response> => {
+    const session = await createSessionToken(env.TWITCH_BROADCASTER_ID, env.SESSION_SECRET, now)
+    return invoke('/api/admin/town-tour/narration', env, noNetwork, { ...init, headers: { Cookie: `__Host-session=${session}`, Origin: site } })
+  }
+  const noNetwork: typeof fetch = async () => {
+    throw new Error('このテストでは外へ通信しません')
+  }
+
+  it('ログインしていなければ読ませない', async () => {
+    const response = await invoke('/api/admin/town-tour/narration', createEnv(''), noNetwork)
+
+    expect(response.status).toBe(401)
+  })
+
+  it('未保存なら、読み上げない設定を返す', async () => {
+    const response = await callAsBroadcaster(createEnv(''))
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual(DEFAULT_TOWN_TOUR_NARRATION)
+  })
+
+  it('保存した設定を返し、次に読んだときも同じものを返す', async () => {
+    const env = createEnv('')
+    const narration = { enabled: true, speaker: 13, speed: 1.1 }
+
+    const saved = await callAsBroadcaster(env, { method: 'PUT', body: JSON.stringify(narration) })
+    const loaded = await callAsBroadcaster(env)
+
+    expect(saved.status).toBe(200)
+    expect(await saved.json()).toEqual(narration)
+    expect(await loaded.json()).toEqual(narration)
+  })
+
+  it('範囲の外の速度は、問題点つきの400で断って保存しない', async () => {
+    const env = createEnv('')
+
+    const response = await callAsBroadcaster(env, { method: 'PUT', body: JSON.stringify({ enabled: true, speaker: 13, speed: 5 }) })
+
+    expect(response.status).toBe(400)
+    const body = (await response.json()) as { error: { problems: string[] } }
+    expect(body.error.problems).toEqual(['speed: 0.5〜2 の数で指定してください'])
+    expect(await loadTownTourNarration(env.STORE)).toEqual(DEFAULT_TOWN_TOUR_NARRATION)
   })
 })
 

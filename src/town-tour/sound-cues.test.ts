@@ -7,8 +7,10 @@
  * - 始まり: クイズを終えて日本全体を映した瞬間 / ズーム: 寄り始めたとき / 着地: ズームを終えたとき（どれもクイズを終えた時刻から数える。issue #251）
  * - 項目ごと: 大見出しと各項目が出るたび（大見出しが空なら大見出しでは鳴らさない）
  * - 締め: 配信者への振りが出たとき
+ * - ナレーション（issue #255）: 冒頭の一文は着地で、大見出し・項目・振りはそれぞれの出だしで読み上げ、読んでいるあいだ BGM を下げる
  */
 import { describe, expect, it } from 'vitest'
+import { NARRATION_BGM_RATIO, NARRATION_TAIL_MS, type Narration } from './narration'
 import type { TownTourPlaybackSound } from './sound'
 import { dueSoundCues, soundCuesOf } from './sound-cues'
 import { QUIZ_MS } from './quiz'
@@ -47,6 +49,7 @@ const callWith = (sound: TownTourPlaybackSound): TownTourCall => ({
   visit: { occasion: 'raid', userName: '山田花子' },
   // レイドなので、締めに認定証を出す（issue #253）
   honoraryCitizen: '山田花子',
+  narration: false,
 })
 
 /** 大見出しと項目2つの紹介 */
@@ -76,7 +79,7 @@ const MAP_START = QUIZ_MS
 const readyPlayback = (readyAfterMs: number, sound: TownTourPlaybackSound = fullSound): Playback => ({
   call: callWith(sound),
   startedAt: STARTED_AT,
-  intro: { status: 'ready', intro: tobetsuIntro, readyAt: STARTED_AT + readyAfterMs },
+  intro: { status: 'ready', intro: tobetsuIntro, readyAt: STARTED_AT + readyAfterMs, narration: null },
   quiz: unansweredQuiz,
   conquest: firstConquest,
 })
@@ -122,7 +125,7 @@ describe('soundCuesOf', () => {
     const noHook: Playback = {
       call: callWith(fullSound),
       startedAt: STARTED_AT,
-      intro: { status: 'ready', intro: { ...tobetsuIntro, tour: { ...tobetsuIntro.tour, hook: '' } }, readyAt: STARTED_AT },
+      intro: { status: 'ready', intro: { ...tobetsuIntro, tour: { ...tobetsuIntro.tour, hook: '' } }, readyAt: STARTED_AT, narration: null },
       quiz: unansweredQuiz,
       conquest: firstConquest,
     }
@@ -194,5 +197,79 @@ describe('dueSoundCues', () => {
     const due = dueSoundCues(readyPlayback(0), STARTED_AT + end - 100, new Set())
 
     expect(due.map((cue) => cue.id)).toEqual(['bgm-end'])
+  })
+})
+
+describe('ナレーションの音（issue #255）', () => {
+  /** BGM だけを鳴らす設定（読み上げと BGM の下げ戻しだけを見るため） */
+  const bgmOnly: TownTourPlaybackSound = { ...fullSound, slots: { ...fullSound.slots, opening: null, zoom: null, landing: null, item: null, closing: null } }
+  /** 読み上げた音声（url は合成ページが読み込んだ音声を指す。長さはミリ秒） */
+  const clip = (name: string, duration: number) => ({ url: `blob:${name}`, duration })
+  /** 紹介が始めた時点で届き、ナレーションを読み込み終えた再生 */
+  const narrated = (narration: Narration, sound: TownTourPlaybackSound = bgmOnly): Playback => ({
+    ...readyPlayback(0, sound),
+    call: { ...callWith(sound), narration: true },
+    intro: { status: 'ready', intro: tobetsuIntro, readyAt: STARTED_AT, narration },
+  })
+  const LANDING = MAP_START + ZOOM_END_MS
+  /** 下げているあいだの BGM の音量 */
+  const ducked = 0.3 * NARRATION_BGM_RATIO
+
+  it('冒頭の一文を着地で、大見出し・項目・振りをそれぞれの出だしで読み上げ、読んでいるあいだだけ BGM を下げる', () => {
+    const playback = narrated({
+      opening: clip('冒頭', 4000),
+      lines: [clip('大見出し', 3000), clip('項目1', 2000), clip('オチ', 2500), clip('振り', 2000)],
+    })
+    const itemsStart = LANDING + 4000 + NARRATION_TAIL_MS
+    const pointStart = itemsStart + HOOK_MS
+    const punchlineStart = pointStart + POINT_MS
+    const cueStart = punchlineStart + PUNCHLINE_MS
+
+    expect(soundCuesOf(playback).filter((cue) => cue.id !== 'bgm' && cue.id !== 'bgm-end')).toEqual([
+      { id: 'narration-opening', at: LANDING, type: 'narration', url: 'blob:冒頭' },
+      { id: 'narration-opening-duck', at: LANDING, type: 'bgmVolume', volume: ducked },
+      { id: 'narration-opening-restore', at: LANDING + 4000, type: 'bgmVolume', volume: 0.3 },
+      { id: 'narration-0', at: itemsStart, type: 'narration', url: 'blob:大見出し' },
+      { id: 'narration-0-duck', at: itemsStart, type: 'bgmVolume', volume: ducked },
+      { id: 'narration-0-restore', at: itemsStart + 3000, type: 'bgmVolume', volume: 0.3 },
+      { id: 'narration-1', at: pointStart, type: 'narration', url: 'blob:項目1' },
+      { id: 'narration-1-duck', at: pointStart, type: 'bgmVolume', volume: ducked },
+      { id: 'narration-1-restore', at: pointStart + 2000, type: 'bgmVolume', volume: 0.3 },
+      { id: 'narration-2', at: punchlineStart, type: 'narration', url: 'blob:オチ' },
+      { id: 'narration-2-duck', at: punchlineStart, type: 'bgmVolume', volume: ducked },
+      { id: 'narration-2-restore', at: punchlineStart + 2500, type: 'bgmVolume', volume: 0.3 },
+      { id: 'narration-3', at: cueStart, type: 'narration', url: 'blob:振り' },
+      { id: 'narration-3-duck', at: cueStart, type: 'bgmVolume', volume: ducked },
+      { id: 'narration-3-restore', at: cueStart + 2000, type: 'bgmVolume', volume: 0.3 },
+    ])
+  })
+
+  it('BGM を鳴らさない設定なら、読み上げだけを並べる', () => {
+    const silent: TownTourPlaybackSound = { ...bgmOnly, slots: { ...bgmOnly.slots, bgm: null } }
+    const playback = narrated({ opening: clip('冒頭', 4000), lines: [null, null, null, null] }, silent)
+
+    expect(soundCuesOf(playback).map((cue) => cue.id)).toEqual(['narration-opening'])
+  })
+
+  it('合成できなかった場面は、読み上げを並べない（文字だけを流す）', () => {
+    const playback = narrated({ opening: null, lines: [null, clip('項目1', 2000), null, null] })
+
+    expect(soundCuesOf(playback).filter((cue) => cue.type === 'narration').map((cue) => cue.id)).toEqual(['narration-1'])
+  })
+
+  it('同じ時刻の効果音（着地）は、読み上げより先に鳴らす', () => {
+    const playback = narrated({ opening: clip('冒頭', 4000), lines: [null, null, null, null] }, fullSound)
+
+    expect(soundCuesOf(playback).filter((cue) => cue.at === LANDING).map((cue) => cue.id)).toEqual(['landing', 'narration-opening', 'narration-opening-duck'])
+  })
+
+  it('タイマーが遅れて、読み上げの時刻を大きく過ぎていたら、その読み上げも BGM の下げも行わない（場面とずれた声を流さない）', () => {
+    const playback = narrated({ opening: clip('冒頭', 4000), lines: [null, null, null, null] })
+    const played = new Set(['bgm'])
+
+    expect(dueSoundCues(playback, STARTED_AT + LANDING + 200, played).map((cue) => cue.id)).toEqual(['narration-opening', 'narration-opening-duck'])
+    expect(dueSoundCues(playback, STARTED_AT + LANDING + 1000, played)).toEqual([])
+    // 戻す指示は遅れても返す（下げたままにしない）
+    expect(dueSoundCues(playback, STARTED_AT + LANDING + 5000, played).map((cue) => cue.id)).toEqual(['narration-opening-restore'])
   })
 })

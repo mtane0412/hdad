@@ -20,6 +20,9 @@
  * 締めの名誉町民の認定証（issue #253）のために、名誉町民にする相手も一緒に押し出す。認定証はレイドだけで出し、
  * 試し再生では見た目を確かめられるよう見本の名前にする。文面は合成ページが組み立てる（src/town-tour/certificate.ts）。
  *
+ * ナレーション（issue #255）のために、紹介を読み上げるかどうかも一緒に押し出す。読み上げるなら、合成ページは紹介が届いてから
+ * 読み上げる文の合成を頼む（POST /api/overlay/town-tour/narration）。話者と速度は押し出さず、Worker が合成のときに設定から取る。
+ *
  * 一覧（towns.json）と人口・面積の表（stats.json）は src/town-tour/ にあり、合成ページと同じものを読む（Worker から src/ を読み込む例外）。
  */
 import stats from '../src/town-tour/stats.json'
@@ -63,6 +66,8 @@ export interface TownTourCall extends Town {
   visit: { occasion: TownTourVisitOccasion; userName: string } | null
   /** 締めの認定証で名誉町民にする相手。認定証を出さない（キーワード）なら null */
   honoraryCitizen: string | null
+  /** 紹介をナレーションで読み上げるか（worker/town-tour-narration.ts の enabled） */
+  narration: boolean
 }
 
 /** 試し再生の認定証で、名誉町民にする見本の名前 */
@@ -118,6 +123,7 @@ const honoraryCitizenOf = (caller: TownTourCaller): string | null => {
  * @param liveViewers 配信中の配信で最後に記録した同接（worker/stats-store.ts の latestViewerCount）。配信中でなければ null
  * @param quizId 冒頭のクイズの出題の識別子（crypto.randomUUID。テストで決まった値を渡せるよう受け取る）
  * @param visited これまでに紹介した市町村のコード（制覇マップに塗る）
+ * @param narration 紹介をナレーションで読み上げるか
  * @throws 人口と面積の表に無いコードの市町村のとき（一覧と表の1対1は src/town-tour/towns.test.ts が検証する）
  */
 export const townTourCallOf = (
@@ -127,6 +133,7 @@ export const townTourCallOf = (
   liveViewers: number | null,
   quizId: string,
   visited: readonly string[],
+  narration: boolean,
 ): TownTourCall => {
   const townStats = statsByCode.get(town.code)
   if (townStats === undefined) throw new Error(`人口と面積の表に無い市町村です: ${town.code}`)
@@ -157,5 +164,6 @@ export const townTourCallOf = (
     visited,
     visit: caller.occasion === 'demo' ? null : { occasion: caller.occasion, userName: caller.userName },
     honoraryCitizen: honoraryCitizenOf(caller),
+    narration,
   }
 }

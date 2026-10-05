@@ -8,6 +8,7 @@
  * - 削除は確認してから行うこと（確認でやめたら削除しない）
  * - 失敗は黙って無視せず、理由を出すこと
  */
+import type { TownTourNarration } from '@/town-tour/narration'
 import type { TownTourSound } from '@/town-tour/sound'
 import '@testing-library/jest-dom/vitest'
 import { cleanup, render, screen, within } from '@testing-library/react'
@@ -32,6 +33,8 @@ const fakeApi = (overrides: Partial<AdminApi> = {}): AdminApi => ({
   playTownTourDemo: vi.fn(async () => '試し再生: 本日は東京都千代田区をご紹介します'),
   townTourSound: vi.fn(async () => ({ slots: { bgm: null, opening: null, zoom: null, landing: null, item: null, closing: null }, bgmVolume: 0.3, effectVolume: 0.6 })),
   saveTownTourSound: vi.fn(async (sound: TownTourSound) => sound),
+  townTourNarration: vi.fn(async () => ({ enabled: false, speaker: 3, speed: 1 })),
+  saveTownTourNarration: vi.fn(async (narration: TownTourNarration) => narration),
   rewards: vi.fn(async () => []),
   createReward: vi.fn(async () => {
     throw new Error('このテストでは報酬を変更しません')

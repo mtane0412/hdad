@@ -34,6 +34,8 @@ export const demoTownTourCall: TownTourCall = {
   visit: { occasion: 'raid', userName: '視聴者' },
   // 締めの認定証の見栄えが分かるよう、レイドの呼び出しと同じく名誉町民にする相手を置いておく
   honoraryCitizen: '視聴者',
+  // プレビューは Worker につながないので、ナレーションの合成も頼まない
+  narration: false,
 }
 
 /** プレビューで流す紹介（Worker が返す形と同じ） */

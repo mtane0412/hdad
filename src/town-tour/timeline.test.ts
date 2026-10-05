@@ -11,8 +11,12 @@
  *    → 配信者への振り（6秒）の順に流す。紹介が届くのが遅ければ、届くまで待ってから始める
  * 4. 振りを流し終えたら日本全体へ引き、全国制覇マップを出す（6秒）。引ききった後に今回の市町村を数え、節目の一文を出す（issue #252）
  * 5. レイドなら、レイド元を名誉町民に任命する認定証を出して（8秒）終わる（issue #253）。キーワードでは出さずに制覇マップで終わる
+ *
+ * ナレーション（issue #255）を読み上げる再生では、冒頭の一文を着地で読み、大見出し・項目・振りはそれぞれの出だしで読む。
+ * 読み上げが場面の長さに収まらなければ、場面を「読み上げの長さ＋余白」まで延ばす（決まった長さより短くはしない）。
  */
 import { describe, expect, it } from 'vitest'
+import { NARRATION_TAIL_MS, type Narration } from './narration'
 import type { TownTourCall, TownTourIntro } from './tour'
 import { QUIZ_HINT_INTERVAL_MS, QUIZ_MS } from './quiz'
 import {
@@ -57,6 +61,7 @@ const tobetsuCall: TownTourCall = {
   visited: ['01100'],
   visit: { occasion: 'raid', userName: '山田花子' },
   honoraryCitizen: '山田花子',
+  narration: false,
 }
 
 /** 当別町を数えた制覇マップ（札幌市だけを紹介済みで、当別町で2つめ） */
@@ -99,7 +104,7 @@ const MAP_START = QUIZ_MS
 const readyPlayback = (readyAfterMs: number): Playback => ({
   call: tobetsuCall,
   startedAt: STARTED_AT,
-  intro: { status: 'ready', intro: tobetsuIntro, readyAt: STARTED_AT + readyAfterMs },
+  intro: { status: 'ready', intro: tobetsuIntro, readyAt: STARTED_AT + readyAfterMs, narration: null },
   quiz: unansweredQuiz,
   conquest: tobetsuConquest,
 })
@@ -111,6 +116,12 @@ const answeredPlayback = (answeredAfterMs: number): Playback => ({
   ...readyPlayback(0),
   quiz: { hints: tobetsuHints, answer: { userName: 'たなか', answeredAt: STARTED_AT + answeredAfterMs }, unopenedAt: null },
 })
+
+/** 紹介が届いた再生の、届いた紹介の状態（tourSpanOf に渡すもの） */
+const readyOf = ({ intro }: Playback) => {
+  if (intro.status !== 'ready') throw new Error('紹介が届いた再生を渡してください')
+  return intro
+}
 
 describe('sceneAt のクイズ', () => {
   it('始めた直後は、都道府県を伏せた一文と、市町村の名前を入れた問いを出し、ヒントはまだ出さない', () => {
@@ -211,7 +222,7 @@ describe('sceneAt', () => {
     const noHook: Playback = {
       call: tobetsuCall,
       startedAt: STARTED_AT,
-      intro: { status: 'ready', intro: { ...tobetsuIntro, tour: { ...tobetsuIntro.tour, hook: '' } }, readyAt: STARTED_AT },
+      intro: { status: 'ready', intro: { ...tobetsuIntro, tour: { ...tobetsuIntro.tour, hook: '' } }, readyAt: STARTED_AT, narration: null },
       quiz: unansweredQuiz,
       conquest: tobetsuConquest,
     }
@@ -228,7 +239,7 @@ describe('sceneAt', () => {
 
 describe('sceneAt の代表画像（issue #254）', () => {
   /** 代表画像のある紹介が、始めた時点で届いている再生（誰も正解しなかった） */
-  const withImage: Playback = { ...readyPlayback(0), intro: { status: 'ready', intro: tobetsuIntroWithImage, readyAt: STARTED_AT } }
+  const withImage: Playback = { ...readyPlayback(0), intro: { status: 'ready', intro: tobetsuIntroWithImage, readyAt: STARTED_AT, narration: null } }
   /** ズームが着地した時刻（再生を始めてからのミリ秒） */
   const LANDING = MAP_START + ZOOM_END_MS
 
@@ -244,7 +255,7 @@ describe('sceneAt の代表画像（issue #254）', () => {
   it('作者の無い画像（パブリック・ドメイン）は、ライセンスだけを出す', () => {
     const publicDomain: Playback = {
       ...withImage,
-      intro: { status: 'ready', intro: { ...tobetsuIntroWithImage, image: { url: 'https://upload.wikimedia.org/lake.jpg', artist: '', license: 'Public domain' } }, readyAt: STARTED_AT },
+      intro: { status: 'ready', intro: { ...tobetsuIntroWithImage, image: { url: 'https://upload.wikimedia.org/lake.jpg', artist: '', license: 'Public domain' } }, readyAt: STARTED_AT, narration: null },
     }
 
     expect(sceneAt(publicDomain, STARTED_AT + LANDING + 1).image?.credit).toBe('写真: Public domain')
@@ -258,7 +269,7 @@ describe('sceneAt の代表画像（issue #254）', () => {
   })
 
   it('画像の場面のぶん、締めまでの時刻がずれる', () => {
-    expect(tourSpanOf(withImage, tobetsuIntroWithImage, STARTED_AT).end).toBe(tourSpanOf(readyPlayback(0), tobetsuIntro, STARTED_AT).end + IMAGE_MS)
+    expect(tourSpanOf(withImage, readyOf(withImage)).end).toBe(tourSpanOf(readyPlayback(0), readyOf(readyPlayback(0))).end + IMAGE_MS)
   })
 
   it('出せる代表画像が無ければ、画像の場面を飛ばして着地から大見出しを流す', () => {
@@ -350,5 +361,74 @@ describe('visitRecordAtOf（issue #252）', () => {
   it('紹介が届いていない・作れなかった再生は、流しきっていないので null を返す', () => {
     expect(visitRecordAtOf(loadingPlayback)).toBeNull()
     expect(visitRecordAtOf({ ...loadingPlayback, intro: { status: 'failed' } })).toBeNull()
+  })
+})
+
+describe('ナレーション（issue #255）', () => {
+  /** ズームが着地した時刻（再生を始めてからのミリ秒） */
+  const LANDING = MAP_START + ZOOM_END_MS
+  /** 読み上げた音声（url は合成ページが読み込んだ音声を指す。長さはミリ秒） */
+  const clip = (duration: number) => ({ url: `blob:narration-${duration}`, duration })
+  /** 紹介が始めた時点で届き、ナレーションを読み込み終えた再生 */
+  const narrated = (narration: Narration, intro: TownTourIntro = tobetsuIntro): Playback => ({
+    ...readyPlayback(0),
+    call: { ...tobetsuCall, narration: true },
+    intro: { status: 'ready', intro, readyAt: STARTED_AT, narration },
+  })
+  /** どの場面も決まった長さより短い読み上げ（大見出し・項目2つ・振り） */
+  const shortLines = [clip(2000), clip(2000), clip(2000), clip(2000)]
+
+  it('冒頭の一文を読み上げるあいだは、着地のまま項目を出さず、読み終えて余白を置いてから大見出しを流す', () => {
+    const playback = narrated({ opening: clip(4000), lines: shortLines })
+    const itemsStart = LANDING + 4000 + NARRATION_TAIL_MS
+
+    expect(tourSpanOf(playback, readyOf(playback))).toMatchObject({ landing: LANDING, itemsStart })
+    expect(sceneAt(playback, STARTED_AT + itemsStart - 1)).toMatchObject({ item: null, waiting: false })
+    expect(sceneAt(playback, STARTED_AT + itemsStart + 1).item?.line.kind).toBe('hook')
+  })
+
+  it('代表画像があれば、冒頭の一文は画像を出しながら読み、画像の場面より長ければ読み終えるまで画像を出す', () => {
+    const shorter = narrated({ opening: clip(2000), lines: shortLines }, tobetsuIntroWithImage)
+    const longer = narrated({ opening: clip(IMAGE_MS + 1000), lines: shortLines }, tobetsuIntroWithImage)
+
+    expect(tourSpanOf(shorter, readyOf(shorter)).itemsStart).toBe(LANDING + IMAGE_MS)
+    expect(tourSpanOf(longer, readyOf(longer)).itemsStart).toBe(LANDING + IMAGE_MS + 1000 + NARRATION_TAIL_MS)
+    expect(sceneAt(longer, STARTED_AT + LANDING + IMAGE_MS + 500).image).not.toBeNull()
+  })
+
+  it('読み上げが決まった長さに収まる場面は、決まった長さのまま流す', () => {
+    const playback = narrated({ opening: null, lines: shortLines })
+
+    expect(tourSpanOf(playback, readyOf(playback)).segments.map(({ duration }) => duration)).toEqual([HOOK_MS, POINT_MS, PUNCHLINE_MS, CUE_MS])
+  })
+
+  it('読み上げが決まった長さより長い場面は、読み上げの長さに余白を足した長さまで延ばす', () => {
+    const playback = narrated({ opening: null, lines: [clip(2000), clip(9000), clip(2000), clip(2000)] })
+
+    expect(tourSpanOf(playback, readyOf(playback)).segments.map(({ duration }) => duration)).toEqual([
+      HOOK_MS,
+      9000 + NARRATION_TAIL_MS,
+      PUNCHLINE_MS,
+      CUE_MS,
+    ])
+  })
+
+  it('合成できなかった場面（null）は、文字だけを決まった長さで流す', () => {
+    const playback = narrated({ opening: null, lines: [null, clip(9000), null, null] })
+
+    expect(tourSpanOf(playback, readyOf(playback)).segments.map(({ duration }) => duration)).toEqual([
+      HOOK_MS,
+      9000 + NARRATION_TAIL_MS,
+      PUNCHLINE_MS,
+      CUE_MS,
+    ])
+  })
+
+  it('場面ごとに、その場面で読み上げる音声を持つ（音の表が出だしで鳴らすため）', () => {
+    const playback = narrated({ opening: clip(4000), lines: [null, clip(3000), clip(2500), clip(2000)] })
+    const span = tourSpanOf(playback, readyOf(playback))
+
+    expect(span.openingNarration).toEqual(clip(4000))
+    expect(span.segments.map(({ narration }) => narration)).toEqual([null, clip(3000), clip(2500), clip(2000)])
   })
 })

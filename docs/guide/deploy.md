@@ -77,6 +77,7 @@ R2は無料枠（保存10GB・転送無料）だけを使う場合でも、デ�
 | `GET /api/overlay/layout` | 合成オーバーレイの構成（どのオーバーレイにどの素材をどこへ置くか）を返す。合成ページが起動のときに読む（要オーバーレイ用キー） |
 | `GET /api/overlay/town-tour/socket?key=` | 合成ページからのWebSocketの接続を受け、市町村紹介の呼び出し（引いた市町村と冒頭の一文）を、トリガーと試し再生のときに押し出す（要オーバーレイ用キー） |
 | `GET /api/overlay/town-tour?key=&code=` | 市町村紹介。一覧のコード（5桁）の市町村について、Wikipedia の記事を材料に LLM で紹介を作り、出典の URL と一緒に返す。一覧に無いコードは404、作れなければ502で、ダッシュボードの失敗の記録にも残す（要オーバーレイ用キー） |
+| `POST /api/overlay/town-tour/narration?key=` | 市町村紹介のナレーション。読み上げる文1件 `{ text }`（100文字まで）を、ナレーションの設定の話者と速度でさくらのAI Engine に合成させ、WAV を返す。読み上げない設定なら409、`SAKURA_AI_API_KEY` が無ければ400、合成の失敗は502（要オーバーレイ用キー） |
 | `GET /api/chat/channel` | このWorkerが扱う配信者のチャンネル名を返す（**キーもセッションも要らない**。チャットボックスと読み上げが接続先を知るために読む） |
 | `GET /api/chat/badges` | チャットの公式バッジ画像の一覧を返す（キー不要。KVに1時間貯める） |
 | `GET /api/chat/cheermotes` | Cheermote（ビッツの絵）の一覧を返す（キー不要。KVに1時間貯める） |
@@ -113,6 +114,8 @@ R2は無料枠（保存10GB・転送無料）だけを使う場合でも、デ�
 | `POST /api/admin/town-tour/demo` | 市町村紹介の試し再生。市町村を1つ引いて合成ページへ押し出し、押し出したものを返す（配送先が失敗したら502。要セッション） |
 | `GET /api/admin/town-tour/sound` | 市町村紹介の演出で鳴らす音の設定（枠ごとの素材と音量。未保存ならどの枠も鳴らさない。要セッション） |
 | `PUT /api/admin/town-tour/sound` | 市町村紹介の音の設定を検証して保存する（音声でない素材などは問題点付きの400。要セッション） |
+| `GET /api/admin/town-tour/narration` | 市町村紹介のナレーションの設定（読み上げるか・話者ID・速度。未保存なら読み上げない。要セッション） |
+| `PUT /api/admin/town-tour/narration` | 市町村紹介のナレーションの設定を検証して保存する（範囲の外の値は問題点付きの400。要セッション） |
 | `POST /api/admin/pomodoro/control` | ポモドーロのタイマーの操作（`command` は `start`・`pause`・`resume`・`stop`。今の状態でできない操作は409。要セッション） |
 | `GET`・`PUT /api/admin/focus` | 注目コメント（いま取り上げているもの）の取得・保存（要セッション） |
 | `GET`・`PUT /api/admin/llm` | LLMの提供元とモデルの設定の取得・保存（要セッション） |

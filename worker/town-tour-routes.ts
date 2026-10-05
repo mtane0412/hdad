@@ -8,6 +8,9 @@
  * - POST /api/admin/town-tour/demo: 管理画面の試し再生。市町村を1つ引いて素材へ押し出す（トリガーと同じ配送の経路を通す）
  * - GET /api/admin/town-tour/sound: 演出で鳴らす音の設定。未保存ならどの枠も鳴らさない設定（issue #243）
  * - PUT /api/admin/town-tour/sound: 音の設定を検証して保存する（問題があれば index.ts が問題点付きの400にする）
+ * - POST /api/overlay/town-tour/narration?key=: 読み上げる文1件 { text } を、ナレーションの設定の話者と速度で合成し、WAV を返す（issue #255）
+ * - GET /api/admin/town-tour/narration: ナレーションの設定。未保存なら読み上げない設定
+ * - PUT /api/admin/town-tour/narration: ナレーションの設定を検証して保存する（問題があれば index.ts が問題点付きの400にする）
  *
  * 合成ページの素材（issue #229）が、レイドで引いた市町村のコードを渡して呼ぶ。Worker はコードから記事名を引き
  * （src/town-tour/articles.json）、Wikipedia の記事を材料に LLM に紹介を作らせ、出典の URL と一緒に返す。
@@ -20,16 +23,22 @@
  * （Worker から src/ を読み込む例外。.claude/rules/town-tour.md）。
  *
  * 注意: 失敗は空の紹介で取り繕わず 502 で返し、ダッシュボードの失敗の記録（collection_failures）にも残す（Fail-Fast）。
+ * 注意: ナレーションの合成は、読み上げない設定なら 409 で断り、さくらは呼ばない（オーバーレイ用キーは配信画面に映りうるので、
+ * 読み上げを選んでいない配信者に課金を起こさないため）。話者と速度は要求の本文ではなく保存済みの設定から取る。
+ * 合成の失敗は合成ページが素材の箱に出してその場面だけ無音で流すので、失敗の記録には残さない（チャットの読み上げと同じ）。
  */
 import articles from '../src/town-tour/articles.json'
 import towns from '../src/town-tour/towns.json'
 import { connectTownTourSocket, pushTownTour } from './alert-channel'
+import { TOWN_TOUR_NARRATION_TEXT_MAX_LENGTH } from '../src/town-tour/narration'
 import { listMedia } from './media'
 import { loadOverlayKey } from './overlay-key'
 import { HttpError, STATUS, requireAdmin, requireOverlayKey, type Context } from './http'
 import { overlayKeyTag } from './overlay-key'
 import { latestViewerCount, recordFailure } from './stats-store'
+import { createSakuraTts } from './speech-sakura'
 import { generateTownTour } from './town-tour'
+import { loadTownTourNarration, parseTownTourNarration, saveTownTourNarration } from './town-tour-narration'
 import { openTownTourQuiz } from './town-tour-quiz'
 import { listTownTourVisits, recordTownTourVisit, type TownTourVisitOccasion } from './town-tour-visits'
 import { pickTown, townTourCallOf } from './town-tour-call'
@@ -168,7 +177,7 @@ export const townTourSocket = async (context: Context): Promise<Response> => {
  * POST /api/admin/town-tour/demo: 管理画面の試し再生。市町村を1つ引き、試しと分かる一文を添えて素材へ押し出す。
  *
  * トリガーと同じ配送の経路（AlertChannel）を通すので、合成ページを開いていれば OBS の画面にもそのまま流れる。
- * 何を引いたかを画面に出せるよう、押し出したものを返す。音もトリガーと同じく保存済みの設定で鳴らす（聞き比べられるように）。
+ * 何を引いたかを画面に出せるよう、押し出したものを返す。音とナレーションもトリガーと同じく保存済みの設定で鳴らす（聞き比べられるように）。
  * 引くときはトリガーと同じく紹介済みの市町村を除き、制覇マップも出すが、試し再生そのものは記録しない（issue #252）。
  *
  * 注意: 配送先の失敗は黙って成功にせず 502 で返す（管理画面に理由を出す）。
@@ -177,8 +186,9 @@ export const townTourSocket = async (context: Context): Promise<Response> => {
 export const postTownTourDemo = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
   const { STORE } = context.env
-  const [sound, overlayKey, liveViewers, visited] = await Promise.all([
+  const [sound, narration, overlayKey, liveViewers, visited] = await Promise.all([
     loadTownTourSound(STORE),
+    loadTownTourNarration(STORE),
     loadOverlayKey(STORE),
     latestViewerCount(context.env.DB),
     listTownTourVisits(context.env.DB),
@@ -190,7 +200,15 @@ export const postTownTourDemo = async (context: Context): Promise<Response> => {
       throw new HttpError(STATUS.conflict, 'overlay-key-missing', error instanceof Error ? error.message : String(error))
     }
   })()
-  const call = townTourCallOf(pickTown(Math.random, new Set(visited)), { occasion: 'demo' }, playbackSound, liveViewers, crypto.randomUUID(), visited)
+  const call = townTourCallOf(
+    pickTown(Math.random, new Set(visited)),
+    { occasion: 'demo' },
+    playbackSound,
+    liveViewers,
+    crypto.randomUUID(),
+    visited,
+    narration.enabled,
+  )
   try {
     await pushTownTour(context.env.ALERTS, call)
   } catch (error) {
@@ -220,4 +238,64 @@ export const putTownTourSound = async (context: Context): Promise<Response> => {
   const sound = parseTownTourSound(body, (mediaId) => kinds.get(mediaId) ?? null)
   await saveTownTourSound(env.STORE, sound)
   return Response.json(sound)
+}
+
+/**
+ * POST /api/overlay/town-tour/narration?key=: 合成ページが紹介の読み上げる文1件 { text } を、ナレーションの設定の話者と速度で
+ * さくらのAI Engine に合成させ、WAV をそのまま返す（issue #255）。
+ *
+ * @throws HttpError 読み上げない設定（409）・APIキーが無い（400）・文が空か長すぎる（400）・さくらの失敗（502）
+ */
+export const postTownTourNarration = async (context: Context): Promise<Response> => {
+  await requireOverlayKey(context)
+  const narration = await loadTownTourNarration(context.env.STORE)
+  if (!narration.enabled) {
+    throw new HttpError(
+      STATUS.conflict,
+      'town-tour-narration-disabled',
+      '市町村紹介のナレーションを読み上げない設定です。OBSでこのブラウザソースを再読み込みしてください',
+    )
+  }
+  const apiKey = context.env.SAKURA_AI_API_KEY ?? ''
+  if (apiKey === '') {
+    throw new HttpError(
+      STATUS.badRequest,
+      'no-api-key',
+      '市町村紹介のナレーションを読み上げる設定ですが、WorkerのシークレットSAKURA_AI_API_KEYが設定されていません',
+    )
+  }
+  const body: unknown = await context.request.json().catch(() => {
+    throw new HttpError(STATUS.badRequest, 'invalid-body', '本文はJSONにしてください')
+  })
+  const text = typeof body === 'object' && body !== null && 'text' in body && typeof body.text === 'string' ? body.text : ''
+  if (text.trim() === '' || [...text].length > TOWN_TOUR_NARRATION_TEXT_MAX_LENGTH) {
+    throw new HttpError(STATUS.badRequest, 'invalid-text', `text は${TOWN_TOUR_NARRATION_TEXT_MAX_LENGTH}文字までの空でない文字列にしてください`)
+  }
+  const tts = createSakuraTts({ fetch: context.fetch, apiKey })
+  const audio = await tts.synthesize(text, { speaker: narration.speaker, speed: narration.speed }).catch((error: unknown) => {
+    throw new HttpError(STATUS.badGateway, 'town-tour-narration-failed', error instanceof Error ? error.message : String(error))
+  })
+  // さくらの合成が返すのは WAV（24kHz・モノラル）だけなので、種類はそのまま WAV として渡す
+  return new Response(audio.body, { headers: { 'Content-Type': 'audio/wav' } })
+}
+
+/** GET /api/admin/town-tour/narration: ナレーションの設定。未保存なら読み上げない設定が返る */
+export const getTownTourNarration = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  return Response.json(await loadTownTourNarration(context.env.STORE))
+}
+
+/**
+ * PUT /api/admin/town-tour/narration: ナレーションの設定を検証して保存し、保存したものを返す。
+ *
+ * @throws ConfigError 設定に問題がある場合（index.ts が問題点付きの400にする）
+ */
+export const putTownTourNarration = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  const body: unknown = await context.request.json().catch(() => {
+    throw new HttpError(STATUS.badRequest, 'invalid-body', '本文はJSONにしてください')
+  })
+  const narration = parseTownTourNarration(body)
+  await saveTownTourNarration(context.env.STORE, narration)
+  return Response.json(narration)
 }

@@ -18,11 +18,17 @@
  * 6. 名誉町民にする相手がいれば（レイドと試し再生）、認定証を出す（CERTIFICATE_MS。issue #253）。いなければ（キーワード）制覇マップで終える。
  *    最後は薄くして終わる。出典は終わりまで出し続ける
  *
+ * ナレーション（issue #255）を読み上げる再生では、冒頭の一文を 3. の始まり（着地）で読み、4. の場面はそれぞれの出だしで読む。
+ * 読み上げが決まった長さに収まらない場面は「読み上げの長さ＋余白（NARRATION_TAIL_MS）」まで延ばし、冒頭の一文を読み終えるまで
+ * 4. へ進まない。読み上げの音声の長さは、紹介が届いたときに読み込み終えておく（ReadyIntro.narration）ので、場面は
+ * 時刻だけから決まるまま変わらない。
+ *
  * 紹介を作れなかった再生はその場で終わる。失敗は素材の箱に出す（合成ページの stage.ts が受け持つ）。
  */
 import { QUIZ_HINT_INTERVAL_MS, QUIZ_LABEL, QUIZ_MS, QUIZ_UNOPENED_LABEL, quizQuestionOf, revealLabelOf, revealTextOf } from './quiz'
 import { certificateOf, type Certificate } from './certificate'
 import { conquestLabelOf, type Conquest } from './conquest'
+import { NARRATION_TAIL_MS, type Narration, type NarrationClip } from './narration'
 import { tourLinesOf, type TourLine, type TownTourCall, type TownTourIntro } from './tour'
 
 /** クイズを終えてから、正解（と最初の正解者）を出しておく時間（ミリ秒）。日本全体を映し、寄り始めるところまで重ねる */
@@ -62,11 +68,19 @@ const HEADLINE_FADE_MS = 500
 /** 終わりに全体を薄くする時間（ミリ秒） */
 export const FADE_OUT_MS = 600
 
+/**
+ * 届いた紹介。readyAt は紹介（と代表画像・ナレーションの音声）を読み込み終えた時刻（ミリ秒。Date.now() と同じ基準）。
+ * narration は読み込み終えた読み上げの音声で、ナレーションを読み上げない再生では null（issue #255）
+ */
+export interface ReadyIntro {
+  readonly status: 'ready'
+  readonly intro: TownTourIntro
+  readonly readyAt: number
+  readonly narration: Narration | null
+}
+
 /** 紹介の届き具合 */
-export type IntroState =
-  | { readonly status: 'loading' }
-  | { readonly status: 'ready'; readonly intro: TownTourIntro; readonly readyAt: number }
-  | { readonly status: 'failed' }
+export type IntroState = { readonly status: 'loading' } | ReadyIntro | { readonly status: 'failed' }
 
 /** 冒頭の都道府県当てクイズの状態 */
 export interface QuizState {
@@ -145,11 +159,12 @@ const creditOf = (intro: TownTourIntro): string => `出典: Wikipedia「${intro.
 const imageCreditOf = ({ artist, license }: NonNullable<TownTourIntro['image']>): string =>
   artist === '' ? `写真: ${license}` : `写真: ${artist}（${license}）`
 
-/** 流す1場面と、その時刻（再生を始めてからのミリ秒） */
+/** 流す1場面と、その時刻（再生を始めてからのミリ秒）と、出だしで読み上げる音声（読み上げなければ null） */
 export interface TourSegment {
   readonly line: TourLine
   readonly start: number
   readonly duration: number
+  readonly narration: NarrationClip | null
 }
 
 /**
@@ -173,9 +188,11 @@ const revealLabelFor = ({ startedAt, quiz }: Playback, quizEnd: number): string 
 export interface TourSpan {
   /** 紹介を出しはじめる時刻（代表画像があれば画像、無ければ場面）。クイズとズームが終わってから、紹介が届くのが遅ければ届いてから */
   readonly landing: number
+  /** 紹介を出しはじめる時刻に読み上げる冒頭の一文の音声。読み上げなければ null */
+  readonly openingNarration: NarrationClip | null
   /** 流す場面（大見出し・項目・振り）を順に並べたもの */
   readonly segments: readonly TourSegment[]
-  /** 場面を流しはじめる時刻。代表画像があれば、画像を出し終えてから */
+  /** 場面を流しはじめる時刻。代表画像があれば画像を出し終えてから、冒頭の一文を読み上げるなら読み終えて余白を置いてから */
   readonly itemsStart: number
   /** 場面を流し終え、全国制覇マップを出しはじめる時刻 */
   readonly itemsEnd: number
@@ -185,33 +202,41 @@ export interface TourSpan {
   readonly end: number
 }
 
-/** 場面の長さ。項目は最後のもの（オチ）だけを短くする */
-const durationOf = (line: TourLine, isLastPoint: boolean): number => {
+/** 場面の決まった長さ。項目は最後のもの（オチ）だけを短くする */
+const fixedDurationOf = (line: TourLine, isLastPoint: boolean): number => {
   if (line.kind === 'hook') return HOOK_MS
   if (line.kind === 'cue') return CUE_MS
   return isLastPoint ? PUNCHLINE_MS : POINT_MS
 }
 
+/** 読み上げに要る長さ（読み上げの長さ＋余白）。読み上げなければ 0 */
+const narrationSpanOf = (clip: NarrationClip | null): number => (clip === null ? 0 : clip.duration + NARRATION_TAIL_MS)
+
 /**
  * 紹介が届いた再生の流れを決める。場面（sceneAt）と鳴らす音の表（sound-cues.ts）が同じ時刻を使うためにまとめてある。
  *
- * @param readyAt 紹介が届いた時刻（ミリ秒。Date.now() と同じ基準）
+ * ナレーションを読み上げる再生では、場面を「読み上げの長さ＋余白」まで延ばす（決まった長さより短くはしない。issue #255）。
+ * 冒頭の一文は紹介を出しはじめる時刻に読み、代表画像があれば画像を出しながら読む。
+ *
+ * @param ready 届いた紹介（紹介・届いた時刻・読み込み終えた読み上げの音声）
  */
-export const tourSpanOf = (playback: Playback, intro: TownTourIntro, readyAt: number): TourSpan => {
+export const tourSpanOf = (playback: Playback, { intro, readyAt, narration }: ReadyIntro): TourSpan => {
   const lines = tourLinesOf(intro.tour, playback.call.name)
   const lastPointIndex = lines.map((line) => line.kind).lastIndexOf('point')
   const landing = Math.max(quizEndOf(playback) + ZOOM_END_MS, readyAt - playback.startedAt)
-  const itemsStart = landing + (intro.image === null ? 0 : IMAGE_MS)
+  const openingNarration = narration?.opening ?? null
+  const itemsStart = landing + Math.max(intro.image === null ? 0 : IMAGE_MS, narrationSpanOf(openingNarration))
   const segments: TourSegment[] = []
   let cursor = itemsStart
   lines.forEach((line, index) => {
-    const duration = durationOf(line, index === lastPointIndex)
-    segments.push({ line, start: cursor, duration })
+    const clip = narration?.lines[index] ?? null
+    const duration = Math.max(fixedDurationOf(line, index === lastPointIndex), narrationSpanOf(clip))
+    segments.push({ line, start: cursor, duration, narration: clip })
     cursor += duration
   })
   const conquestEnd = cursor + CONQUEST_MS
   const certificateDuration = playback.call.honoraryCitizen === null ? 0 : CERTIFICATE_MS
-  return { landing, segments, itemsStart, itemsEnd: cursor, conquestEnd, end: conquestEnd + certificateDuration }
+  return { landing, openingNarration, segments, itemsStart, itemsEnd: cursor, conquestEnd, end: conquestEnd + certificateDuration }
 }
 
 /**
@@ -221,7 +246,7 @@ export const tourSpanOf = (playback: Playback, intro: TownTourIntro, readyAt: nu
 export const visitRecordAtOf = (playback: Playback): number | null => {
   const { intro, call } = playback
   if (call.visit === null || intro.status !== 'ready') return null
-  return tourSpanOf(playback, intro.intro, intro.readyAt).itemsEnd
+  return tourSpanOf(playback, intro).itemsEnd
 }
 
 /** 流している場面の、始まってから sinceStart ミリ秒での濃さ。大見出しは溜めのあいだ文を伏せ、溜めが終わったら文を出す */
@@ -273,7 +298,7 @@ export const sceneAt = (playback: Playback, now: number): Scene => {
   if (intro.status === 'failed') return { ...base, ...hidden, waiting: false, opacity: 0, done: true }
   if (intro.status === 'loading') return { ...base, ...hidden, waiting, opacity: 1, done: false }
 
-  const { landing, segments, itemsStart, itemsEnd, conquestEnd, end } = tourSpanOf(playback, intro.intro, intro.readyAt)
+  const { landing, segments, itemsStart, itemsEnd, conquestEnd, end } = tourSpanOf(playback, intro)
   /** 紹介を出しはじめてからの経過時間。負ならまだ出さない */
   const sinceLanding = elapsed - landing
   const { image } = intro.intro

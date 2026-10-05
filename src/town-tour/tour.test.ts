@@ -30,6 +30,7 @@ const tobetsuCall = {
   visit: { occasion: 'raid', userName: '山田花子' },
   // 締めの認定証で、レイド元を名誉町民にする
   honoraryCitizen: '山田花子',
+  narration: true,
 }
 
 /** 当別町の紹介 */
@@ -141,6 +142,11 @@ describe('parseTownTourMessage（名誉町民にする相手）', () => {
   it('名誉町民にする相手が欠けているか、文字列でなければ、補わずに投げる', () => {
     expect(() => parseTownTourMessage(JSON.stringify({ ...tobetsuCall, honoraryCitizen: undefined }))).toThrow('名誉町民')
     expect(() => parseTownTourMessage(JSON.stringify({ ...tobetsuCall, honoraryCitizen: 1 }))).toThrow('名誉町民')
+  })
+
+  it('ナレーションを読み上げるかが欠けているか、真偽値でなければ、補わずに投げる（issue #255）', () => {
+    expect(() => parseTownTourMessage(JSON.stringify({ ...tobetsuCall, narration: undefined }))).toThrow('ナレーション')
+    expect(() => parseTownTourMessage(JSON.stringify({ ...tobetsuCall, narration: 'はい' }))).toThrow('ナレーション')
   })
 })
 

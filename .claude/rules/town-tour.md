@@ -35,5 +35,7 @@ paths:
 - 合成ページで鳴らす時刻は `src/town-tour/sound-cues.ts` の表（`soundCuesOf`）だけが決め（「項目ごと」は大見出しと各項目、「締め」は振りの出だし）、秒数は `timeline.ts` の定数と `tourSpanOf` から取る（場面とずらさない）。鳴らしたことの記録（`SoundCue.id`）と止める判断（再生の終わり・紹介の失敗）は `mountTownTour`、Audio 要素の操作は `sound-player.ts` が受け持ち、後者だけがテストを持たない。刻むのは描画のループではなくタイマーにする。再生を始められなかった音は素材の箱に失敗を出す
 
 - 紹介の BGM を鳴らした再生では、配信の BGM を下げておく長さ（`src/town-tour/bgm-duck.ts` の `bgmDuckHoldOf`）を、鳴らしはじめた・紹介が届いた・紹介を作れなかったときに `POST /api/overlay/bgm/duck` へ送る。「戻す」は送らず長さで送り、戻すのは裏方のページに任せる（合成ページが閉じられても下がったまま残さない）。BGM の枠が空なら送らず、プレビューでも送らない。送れなくても紹介は止めない
+- ナレーション（冒頭の一文・大見出し・各項目・振りの読み上げ）の設定（読み上げるか・話者・速度）は、チャットの読み上げと別に市町村紹介として1つ持つ（`worker/town-tour-narration.ts`。KV の `town-tour-narration`。既定は読み上げない）。画面は「市町村紹介」のカードの区画（`src/admin/town-tour-narration-section.tsx`）で、音とは別に保存する。Worker は呼び出しに読み上げるかだけを載せ（`narration`）、話者と速度は合成の経路 `POST /api/overlay/town-tour/narration` が保存済みの設定から取る（読み上げない設定なら409。さくらは `createSakuraTts` で呼ぶ）。何を読むかと文の長さの上限は `src/town-tour/narration.ts` だけが持つ（Worker もここから読む例外）
+- 合成ページは紹介が届いたら全部の文を並べて合成させ、音声の長さを読み終えてから（`narration-loader.ts`。テストを持たない）紹介を届いたものとして流す（`ReadyIntro.narration`）。場面は「読み上げの長さ＋余白」まで延ばし（決まった長さを下限にする）、冒頭の一文は着地で読み終えるまで大見出しへ進まない（`tourSpanOf`）。読み上げと、読んでいるあいだ紹介の BGM を下げて戻す時刻は音の表（`soundCuesOf`）に載せる。合成・読み込みに失敗した文は素材の箱に失敗を出し、その場面だけ文字を決まった長さで流す（紹介は止めない）。音声の URL は再生を終えたら手放す
 
 経緯は `docs/decisions/town-tour.md`、出典の表記と作り直しの手順は `docs/guide/town-tour.md`。

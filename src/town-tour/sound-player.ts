@@ -3,6 +3,7 @@
  *
  * 鳴らす時刻の表（sound-cues.ts）の1行を受け取って、Audio 要素で鳴らす。BGM はループで鳴らし、下げる指示で
  * 音量を0まで下げてから止める。効果音は1回ずつ鳴らす（重なってもよい）。
+ * ナレーション（issue #255）の読み上げも効果音と同じく1回ずつ鳴らし、読んでいるあいだは表の指示どおり BGM の音量を変える。
  * DOM（Audio 要素）を扱うため、何をいつ鳴らすかの判断（sound-cues.ts）と分けてテストの対象外にしている
  * （BGM の src/bgm/player.ts と同じ分け方）。
  *
@@ -16,6 +17,8 @@ import type { SoundCue } from './sound-cues'
 
 /** 音量を刻む間隔（ミリ秒） */
 const FADE_STEP_MS = 50
+/** 読み上げの音量。声は BGM を下げて聞かせるので、音量の設定は持たずに最大で鳴らす */
+const NARRATION_VOLUME = 1
 
 /** 鳴らしている BGM */
 interface PlayingBgm {
@@ -53,7 +56,7 @@ const release = (audio: HTMLAudioElement, onAudioError: () => void): void => {
  */
 export const createTownTourSoundPlayer = (onError: (error: Error) => void): TownTourSoundPlayer => {
   let bgm: PlayingBgm | null = null
-  /** 鳴らしている効果音と、その読み込みの失敗の見張り */
+  /** 鳴らしている効果音・読み上げと、その読み込みの失敗の見張り */
   const effects = new Map<HTMLAudioElement, () => void>()
 
   const stopBgm = (): void => {
@@ -116,18 +119,28 @@ export const createTownTourSoundPlayer = (onError: (error: Error) => void): Town
     }, FADE_STEP_MS)
   }
 
-  const playEffect = (url: string, volume: number): void => {
+  /** BGM の音量を変える（ナレーションを読むあいだ下げ、読み終えたら戻す）。下げて止めている途中なら、止めるほうを優先する */
+  const setBgmVolume = (volume: number): void => {
+    if (bgm === null || bgm.fadeTimer !== undefined) return
+    bgm.audio.volume = volume
+  }
+
+  /**
+   * 1回だけ鳴らす音（効果音・ナレーションの読み上げ）を鳴らす。鳴り終えたら手放す（短いので、終わるまで持っていてよい）
+   *
+   * @param what 失敗を知らせる文に出す、何の音か
+   */
+  const playOnce = (url: string, volume: number, what: string): void => {
     const audio = new Audio(url)
     audio.volume = volume
     const onAudioError = (): void => {
       stopEffect(audio)
-      onError(new Error('市町村紹介の効果音の音声を読めませんでした（素材が消えた・通信が切れた可能性があります）'))
+      onError(new Error(`${what}の音声を読めませんでした（素材が消えた・通信が切れた可能性があります）`))
     }
     audio.addEventListener('error', onAudioError)
-    // 鳴り終えたら手放す（効果音は短いので、終わるまで持っていてよい）
     audio.addEventListener('ended', () => stopEffect(audio), { once: true })
     effects.set(audio, onAudioError)
-    start(audio, '市町村紹介の効果音', () => effects.has(audio), () => stopEffect(audio))
+    start(audio, what, () => effects.has(audio), () => stopEffect(audio))
   }
 
   return {
@@ -140,7 +153,13 @@ export const createTownTourSoundPlayer = (onError: (error: Error) => void): Town
           fadeOutBgm(cue.duration)
           return
         case 'effect':
-          playEffect(cue.url, cue.volume)
+          playOnce(cue.url, cue.volume, '市町村紹介の効果音')
+          return
+        case 'narration':
+          playOnce(cue.url, NARRATION_VOLUME, '市町村紹介のナレーション')
+          return
+        case 'bgmVolume':
+          setBgmVolume(cue.volume)
           return
       }
     },

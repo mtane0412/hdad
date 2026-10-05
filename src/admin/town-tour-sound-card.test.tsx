@@ -9,12 +9,15 @@
  * - 保存を断られたら、問題点を枠の名前に読み替えて1行ずつ出すこと
  * - 設定を読めなければ、枠を出さずに理由を出すこと
  * - 試し再生を押すと、Workerに流させること
+ * - ナレーション（issue #255）の設定を同じカードで選べ、その未保存の変更があるあいだも試し再生を押せないこと
+ *   （ナレーションの区画そのものは town-tour-narration-section.test.tsx が確かめる）
  */
 import '@testing-library/jest-dom/vitest'
 import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { ApiError } from '@/core/api'
+import type { TownTourNarration } from '@/town-tour/narration'
 import type { TownTourSound } from '@/town-tour/sound'
 import type { MediaItem } from './api'
 import { TownTourSoundCard, type TownTourSoundApi } from './town-tour-sound-card'
@@ -36,6 +39,8 @@ const fakeApi = (overrides: Partial<TownTourSoundApi> = {}): TownTourSoundApi =>
   townTourSound: vi.fn(async () => savedSound),
   saveTownTourSound: vi.fn(async (sound: TownTourSound) => sound),
   playTownTourDemo: vi.fn(async () => '試し再生: 本日は北海道石狩郡当別町をご紹介します'),
+  townTourNarration: vi.fn(async () => ({ enabled: false, speaker: 3, speed: 1 })),
+  saveTownTourNarration: vi.fn(async (narration: TownTourNarration) => narration),
   ...overrides,
 })
 
@@ -124,6 +129,14 @@ describe('TownTourSoundCard', () => {
     render(<TownTourSoundCard api={fakeApi()} media={media} />)
 
     await userEvent.selectOptions(await screen.findByLabelText('始まり（日本全体を映したとき）'), 'media-jajean')
+
+    expect(screen.getByRole('button', { name: '市町村紹介を試しに流す' })).toBeDisabled()
+  })
+
+  test('ナレーションの設定に未保存の変更があるあいだも試し再生を押せない（試し再生は保存済みの声で読み上げるため）', async () => {
+    render(<TownTourSoundCard api={fakeApi()} media={media} />)
+
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'ナレーションで読み上げる' }))
 
     expect(screen.getByRole('button', { name: '市町村紹介を試しに流す' })).toBeDisabled()
   })

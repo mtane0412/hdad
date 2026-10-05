@@ -58,6 +58,8 @@ const fakeApi = (overrides: Partial<AdminApi> = {}): AdminApi => {
     playTownTourDemo: vi.fn(unused),
     townTourSound: vi.fn(unused),
     saveTownTourSound: vi.fn(unused),
+    townTourNarration: vi.fn(unused),
+    saveTownTourNarration: vi.fn(unused),
     rewards: vi.fn(async () => [toastReward, hydrateReward]),
     createReward: vi.fn(async (input: RewardInput) => ({ ...input, id: '報酬ID-新しい', imageUrl: 'https://static-cdn.jtvnw.net/custom-reward-images/default-2.png', manageable: true })),
     updateReward: vi.fn(async (id: string, input: RewardInput) => ({ ...input, id, imageUrl: toastReward.imageUrl, manageable: true })),

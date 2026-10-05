@@ -9,6 +9,7 @@
  * 注意: 応答が想定した形でなければエラーにする。黙って空の一覧にすると、設定や素材が消えたように見えてしまう。
  */
 import { ApiError, createCaller, isRecord, readList } from '@/core/api'
+import { readTownTourNarration, type TownTourNarration } from '@/town-tour/narration'
 import { readTownTourSound, type TownTourSound } from '@/town-tour/sound'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
@@ -221,6 +222,10 @@ export interface AdminApi {
   townTourSound(): Promise<TownTourSound>
   /** 市町村紹介の音の設定を保存する。Workerが保存したものを返す */
   saveTownTourSound(sound: TownTourSound): Promise<TownTourSound>
+  /** 市町村紹介のナレーションの設定（issue #255）。未保存なら読み上げない設定が返る */
+  townTourNarration(): Promise<TownTourNarration>
+  /** 市町村紹介のナレーションの設定を保存する。Workerが保存したものを返す */
+  saveTownTourNarration(narration: TownTourNarration): Promise<TownTourNarration>
   rewards(): Promise<Reward[]>
   /** チャンネルポイント報酬を作る。作られた報酬を返す */
   createReward(input: RewardInput): Promise<Reward>
@@ -308,6 +313,7 @@ const readReward = (body: unknown): Reward => {
 
 const REWARDS_PATH = '/api/admin/rewards'
 const TOWN_TOUR_SOUND_PATH = '/api/admin/town-tour/sound'
+const TOWN_TOUR_NARRATION_PATH = '/api/admin/town-tour/narration'
 
 export const createAdminApi = (fetchImpl: typeof fetch): AdminApi => {
   const call = createCaller(fetchImpl)
@@ -369,6 +375,13 @@ export const createAdminApi = (fetchImpl: typeof fetch): AdminApi => {
     saveTownTourSound: async (sound) =>
       readTownTourSound(
         await call(TOWN_TOUR_SOUND_PATH, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sound) }),
+      ),
+
+    townTourNarration: async () => readTownTourNarration(await call(TOWN_TOUR_NARRATION_PATH)),
+
+    saveTownTourNarration: async (narration) =>
+      readTownTourNarration(
+        await call(TOWN_TOUR_NARRATION_PATH, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(narration) }),
       ),
 
     rewards: async () => readList(await call(REWARDS_PATH), 'rewards', isReward),

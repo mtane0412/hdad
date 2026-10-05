@@ -85,12 +85,14 @@ import { bgmDuckHoldOf } from '../town-tour/bgm-duck'
 import { DEMO_INTRO_DELAY_MS, DEMO_TOWN_TOUR_INTERVAL_MS, demoTownTourCall, demoTownTourIntro } from '../town-tour/demo'
 import { BGM_START_CUE_ID, dueSoundCues } from '../town-tour/sound-cues'
 import { loadTownTourImage } from '../town-tour/image-loader'
+import { narrationTextsOf, type Narration, type NarrationClip } from '../town-tour/narration'
+import { loadNarrationClip, releaseNarration } from '../town-tour/narration-loader'
 import { createTownTourSoundPlayer } from '../town-tour/sound-player'
 import { QUIZ_MS, quizClueOf, quizHintsOf } from '../town-tour/quiz'
 import { conquestOf } from '../town-tour/conquest'
 import { sceneAt, visitRecordAtOf, type Playback } from '../town-tour/timeline'
 import { decodeTownBorders, decodeTownShapes, type TownBorders } from '../town-tour/topo'
-import { parseTownTourMessage, type TownTourCall, type TownTourIntro } from '../town-tour/tour'
+import { parseTownTourMessage, tourLinesOf, type TownTourCall, type TownTourIntro } from '../town-tour/tour'
 import { createTownTourRenderer, type TownTourRenderer } from '../town-tour/view'
 import { backgrounds } from '../wallpaper/registry'
 import { WORK_LOG_SOCKET_HINT, WORK_LOG_SOCKET_PATH, createWorkLogApi } from '../work-log/api'
@@ -1170,6 +1172,11 @@ const mountPomodoro = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
  * （src/town-tour/conquest.ts）、振りを流し終えたら（流しきったら）Worker に記録させる（POST /api/overlay/town-tour/visit）。
  * 試し再生とプレビューは記録しない。記録に失敗しても制覇マップは止めず、失敗をこの箱に出す（Worker も失敗の記録に残す）。
  * 呼び出しのこれまでの記録は押し出した時点のものなので、この箱が記録した市町村を足して、続けて流す1件の地図と数に反映する。
+ *
+ * ナレーション（issue #255）を読み上げる呼び出しでは、紹介が届いたら冒頭の一文と場面ごとの文の合成を Worker に頼み
+ * （POST /api/overlay/town-tour/narration）、音声の長さを読み終えてから紹介を届いたものとして流す（代表画像の読み込みと並べて待つ）。
+ * 場面の長さは読み上げの長さで決まる（timeline.ts）。合成・読み込みに失敗した文は、失敗をこの箱に出してその場面だけ無音で流す。
+ * 音声の URL は再生を終えたら手放す。
  */
 const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
   // この素材は配信者が決めるパラメータを持たない（何を流すかはトリガーと試し再生で決まる）
@@ -1188,6 +1195,13 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
   let playback: Playback | null = null
   /** 流している1件の、読み込み終えた代表画像。画像の無い紹介・まだ届いていなければ null（issue #254） */
   let image: HTMLImageElement | null = null
+  /** 流している1件の、読み込み終えたナレーションの音声。読み上げない再生・まだ届いていなければ null（issue #255） */
+  let narration: Narration | null = null
+  /** 流している1件のナレーションの音声を手放す（再生を終えたとき） */
+  const releaseCurrentNarration = (): void => {
+    if (narration !== null) releaseNarration(narration)
+    narration = null
+  }
   /** 流すのを待っている呼び出し（届いた順） */
   let waiting: readonly TownTourCall[] = []
   /** 流している1件で鳴らした音の id（sound-cues.ts の SoundCue.id） */
@@ -1262,12 +1276,40 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
         return { intro: { ...intro, image: null }, loaded: null }
       }
     }
-    introduce.then(withImage).then(
-      ({ intro, loaded }) => {
+    /**
+     * ナレーションを読み上げる呼び出しなら、冒頭の一文と場面ごとの文を合成させ、音声の長さを読み終えておく。
+     * 合成・読み込みに失敗した文は失敗を箱に出して null にし、その場面だけ無音で流す（配信者が決めた）
+     */
+    const withNarration = async (intro: TownTourIntro): Promise<Narration | null> => {
+      if (!call.narration) return null
+      const texts = narrationTextsOf(call.headline, tourLinesOf(intro.tour, call.name))
+      const clipOf = (text: string): Promise<NarrationClip | null> =>
+        api
+          .narrate(text)
+          .then(loadNarrationClip)
+          .catch((error: unknown) => {
+            if (current() !== null) showError(error, NOUNS.townTour, box, 'read')
+            return null
+          })
+      const [opening = null, ...lines] = await Promise.all([texts.opening, ...texts.lines].map(clipOf))
+      return { opening, lines }
+    }
+    // 代表画像の読み込みとナレーションの合成は関わりがないので、並べて待つ
+    const prepared = introduce.then(async (intro) => {
+      const [shown, voiced] = await Promise.all([withImage(intro), withNarration(intro)])
+      return { ...shown, voiced }
+    })
+    prepared.then(
+      ({ intro, loaded, voiced }) => {
         const target = current()
-        if (target === null) return
+        if (target === null) {
+          // 読み込んでいるあいだに別の1件へ進んでいたら、使わない音声を手放す
+          if (voiced !== null) releaseNarration(voiced)
+          return
+        }
         image = loaded
-        playback = { ...target, intro: { status: 'ready', intro, readyAt: Date.now() } }
+        narration = voiced
+        playback = { ...target, intro: { status: 'ready', intro, readyAt: Date.now(), narration: voiced } }
         // 終わりが決まったので、配信のBGMを下げておく長さを再生の終わりまでに送り直す
         duckStreamBgm(playback)
       },
@@ -1370,6 +1412,7 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
     recordVisitIfDue(playback, now)
     playback = null
     sound.stop()
+    releaseCurrentNarration()
     startNext()
   }
 

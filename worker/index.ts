@@ -56,6 +56,8 @@
  * | POST /api/admin/town-tour/demo   | セッション     | 市町村紹介の試し再生（市町村を1つ引いて合成ページへ押し出す） |
  * | GET  /api/admin/town-tour/sound  | セッション     | 市町村紹介の演出で鳴らす音の設定 |
  * | PUT  /api/admin/town-tour/sound  | セッション     | 市町村紹介の音の設定を検証して保存 |
+ * | GET  /api/admin/town-tour/narration | セッション  | 市町村紹介のナレーションの設定（読み上げるか・話者・速度） |
+ * | PUT  /api/admin/town-tour/narration | セッション  | 市町村紹介のナレーションの設定を検証して保存 |
  * | GET  /api/admin/viewers          | セッション     | 視聴者の記録の一覧（検索・ページ送り） |
  * | PATCH /api/admin/viewers/:userId | セッション     | 視聴者へのメモの保存 |
  * | DELETE /api/admin/viewers/:userId | セッション    | 視聴者の記録の削除 |
@@ -92,6 +94,7 @@
  * | GET  /api/overlay/town-tour      | オーバーレイ用キー | コードの市町村の紹介を Wikipedia を材料に作って返す |
  * | POST /api/overlay/town-tour/quiz | オーバーレイ用キー | 市町村紹介の冒頭の都道府県当てクイズの出題を開く |
  * | POST /api/overlay/town-tour/visit | オーバーレイ用キー | 市町村紹介を流しきった市町村を、全国制覇マップの記録に残す |
+ * | POST /api/overlay/town-tour/narration | オーバーレイ用キー | 市町村紹介の読み上げる文1件を、ナレーションの設定の話者と速度でさくらのAI Engine に合成させる |
  * | GET  /api/overlay/town-tour/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、市町村紹介の呼び出しの配送先へ引き渡す |
  * | GET  /api/media/:id              | オーバーレイ用キーかセッション | 素材の中身を返す |
  *
@@ -162,10 +165,13 @@ import { getWorkLog, workLogSocket } from './work-log-routes'
 import { getTaskDesk, taskDeskSocket } from './task-desk-routes'
 import {
   getTownTour,
+  getTownTourNarration,
   getTownTourSound,
   postTownTourDemo,
   postTownTourQuiz,
   postTownTourVisit,
+  postTownTourNarration,
+  putTownTourNarration,
   putTownTourSound,
   townTourSocket,
 } from './town-tour-routes'
@@ -321,10 +327,13 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/overlay/town-tour', handle: getTownTour },
   { method: 'POST', path: '/api/overlay/town-tour/quiz', handle: postTownTourQuiz },
   { method: 'POST', path: '/api/overlay/town-tour/visit', handle: postTownTourVisit },
+  { method: 'POST', path: '/api/overlay/town-tour/narration', handle: postTownTourNarration },
   { method: 'GET', path: '/api/overlay/town-tour/socket', handle: townTourSocket },
   { method: 'POST', path: '/api/admin/town-tour/demo', handle: postTownTourDemo },
   { method: 'GET', path: '/api/admin/town-tour/sound', handle: getTownTourSound },
   { method: 'PUT', path: '/api/admin/town-tour/sound', handle: putTownTourSound },
+  { method: 'GET', path: '/api/admin/town-tour/narration', handle: getTownTourNarration },
+  { method: 'PUT', path: '/api/admin/town-tour/narration', handle: putTownTourNarration },
   { method: 'GET', path: '/api/media/:id', handle: media },
 ]
 
