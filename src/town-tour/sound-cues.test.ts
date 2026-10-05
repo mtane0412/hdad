@@ -60,6 +60,7 @@ const tobetsuIntro: TownTourIntro = {
     ],
     cue: '当別米、食べたことありますか？',
   },
+  image: null,
 }
 
 /** 誰も正解しなかったクイズ */

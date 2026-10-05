@@ -7,6 +7,7 @@
  * クイズを終えたら、正解（と最初の正解者）を下の帯に描く。
  * 締めの全国制覇マップ（issue #252）では、これまでに紹介した市町村を今回の市町村とは別の色で塗り、今回の市町村を数えたら
  * その位置に印を描き、制覇数と節目の一文を下の帯に描く。
+ * ズームの着地のあとの代表画像（issue #254）は、地図の上に白い縁を付けて縦横比を保って収め、作者とライセンスを出典の上の行に描く。
  * 最後の名誉町民の認定証（issue #253）は、地図の上に賞状風の枠の紙を重ね、表題・市町村の形・宛名・任命の文・日付・発行者を描く。
  * どこを映すかは camera.ts、文の折り返しは wrap.ts、大きさの文は scale.ts が決め、ここは描くだけを受け持つ（通信も状態も持たない）。
  *
@@ -48,6 +49,8 @@ const COLORS = {
   certificatePaper: '#fbf6e9',
   certificateFrame: '#b8892d',
   certificateText: '#3a2a10',
+  /** 代表画像の縁 */
+  imageFrame: '#ffffff',
 } as const
 
 /** 配信画面（1920×1080）での寸法（px） */
@@ -87,6 +90,8 @@ const SIZES = {
   certificateFooterFont: 30,
   certificateFooterLineHeight: 46,
   certificateGap: 28,
+  /** 代表画像の縁の太さ */
+  imageFrame: 8,
 } as const
 
 /** 紹介の場面の帯を置く高さ（箱の高さに対する割合）。帯の上端 */
@@ -94,6 +99,16 @@ const PANEL_TOP = 0.66
 /** クイズのあいだシルエットを収める範囲（箱の高さに対する割合）。上の冒頭の一文の帯と、下のクイズの帯に重ならないようにする */
 const SILHOUETTE_TOP = 0.1
 const SILHOUETTE_BOTTOM = PANEL_TOP - 0.02
+/**
+ * 代表画像を収める範囲（箱の高さ・幅に対する割合）。上は冒頭の一文と大きさの文の下、下は作者とライセンス・出典の2行の上
+ */
+const IMAGE_TOP = 0.31
+const IMAGE_BOTTOM = 0.87
+const IMAGE_WIDTH = 0.8
+/** 作者とライセンス・出典の行を詰めて描く幅の上限（箱の幅に対する割合）。作者が長くても画面からはみ出さない */
+const CREDIT_WIDTH = 0.9
+/** 作者とライセンスの行を、出典の行から離す高さ（文字の大きさに対する倍率） */
+const CREDIT_LINE_SPACING = 1.5
 /** 文を折り返す幅（箱の幅に対する割合） */
 const TEXT_WIDTH = 0.86
 /** 冒頭の一文と紹介の場面の、行数の上限（項目は Worker が80文字以内、大見出しは30文字以内にそろえている） */
@@ -125,9 +140,14 @@ export interface TownTourRenderer {
   /**
    * 1フレームぶんを描く。
    *
-   * @param frame いま再生している1件とその場面。再生していなければ null（何も描かない）
+   * @param frame いま再生している1件とその場面と、読み込み終えた代表画像（無ければ null）。再生していなければ null（何も描かない）
    */
-  render(ctx: CanvasRenderingContext2D, width: number, height: number, frame: { playback: Playback; scene: Scene } | null): void
+  render(
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    height: number,
+    frame: { playback: Playback; scene: Scene; image: HTMLImageElement | null } | null,
+  ): void
 }
 
 /**
@@ -166,7 +186,7 @@ export const createTownTourRenderer = (shapes: ReadonlyMap<string, readonly Ring
     render: (ctx, width, height, frame) => {
       ctx.clearRect(0, 0, width, height)
       if (frame === null) return
-      const { playback, scene } = frame
+      const { playback, scene, image } = frame
       const unit = Math.min(width / BASE_WIDTH, height / BASE_HEIGHT)
       const figure = figureOf(playback.call.code)
 
@@ -183,7 +203,8 @@ export const createTownTourRenderer = (shapes: ReadonlyMap<string, readonly Ring
       else if (scene.conquest !== null) drawConquestPanel(ctx, width, height, unit, scene.conquest)
       else if (scene.certificate !== null) drawCertificate(ctx, width, height, unit, figure, scene.certificate)
       else drawPanel(ctx, width, height, unit, scene)
-      if (scene.credit !== null) drawCredit(ctx, width, height, unit, scene.credit)
+      if (scene.image !== null && image !== null) drawImage(ctx, width, height, unit, image, scene.image)
+      if (scene.credit !== null) drawCredit(ctx, width, height, unit, scene.credit, scene.image?.credit ?? null)
       ctx.restore()
     },
   }
@@ -477,13 +498,43 @@ const drawCertificate = (
   ctx.restore()
 }
 
-/** 出典（「出典: Wikipedia「当別町」（CC BY-SA 4.0）」）を右下に描く */
-const drawCredit = (ctx: CanvasRenderingContext2D, width: number, height: number, unit: number, credit: string): void => {
+/** 代表画像を、縦横比を保って収める範囲の中ほどに、白い縁を付けて描く */
+const drawImage = (
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  unit: number,
+  image: HTMLImageElement,
+  scene: NonNullable<Scene['image']>,
+): void => {
+  const areaHeight = height * (IMAGE_BOTTOM - IMAGE_TOP)
+  const scale = Math.min((width * IMAGE_WIDTH) / image.naturalWidth, areaHeight / image.naturalHeight)
+  const drawWidth = image.naturalWidth * scale
+  const drawHeight = image.naturalHeight * scale
+  const left = (width - drawWidth) / 2
+  const top = height * IMAGE_TOP + (areaHeight - drawHeight) / 2
+  const frame = SIZES.imageFrame * unit
+  ctx.save()
+  ctx.globalAlpha *= scene.opacity
+  ctx.fillStyle = COLORS.imageFrame
+  ctx.fillRect(left - frame, top - frame, drawWidth + frame * 2, drawHeight + frame * 2)
+  ctx.drawImage(image, left, top, drawWidth, drawHeight)
+  ctx.restore()
+}
+
+/**
+ * 出典（「出典: Wikipedia「当別町」（CC BY-SA 4.0）」）を右下に描く。
+ * 代表画像を出しているあいだは、その上の行に作者とライセンス（「写真: 撮影者（CC BY-SA 4.0）」）を描く
+ */
+const drawCredit = (ctx: CanvasRenderingContext2D, width: number, height: number, unit: number, credit: string, imageCredit: string | null): void => {
+  const right = width - SIZES.margin * unit
+  const bottom = height - SIZES.margin * unit
   ctx.save()
   ctx.font = `${SIZES.creditFont * unit}px ${FONT_FAMILY}`
   ctx.fillStyle = COLORS.credit
   ctx.textAlign = 'right'
   ctx.textBaseline = 'bottom'
-  ctx.fillText(credit, width - SIZES.margin * unit, height - SIZES.margin * unit)
+  ctx.fillText(credit, right, bottom, width * CREDIT_WIDTH)
+  if (imageCredit !== null) ctx.fillText(imageCredit, right, bottom - SIZES.creditFont * unit * CREDIT_LINE_SPACING, width * CREDIT_WIDTH)
   ctx.restore()
 }

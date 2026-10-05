@@ -10,6 +10,9 @@
  * 記事の全文は LLM に渡さず、見出しの名前で紹介に使う系統の節だけを拾い（pickTownMaterial）、系統ごとに長さを切る。
  * 見出しの名前は記事ごとに違う（名物の節は「名物」「名品」「特産品」などと書かれる）ので、系統ごとに名前の型を持つ。
  *
+ * 同じ問い合わせで、記事の代表画像のファイル名も PageImages（prop=pageimages）から受け取る。作者とライセンスは
+ * town-image.ts が別に取る（issue #254）。
+ *
  * 注意: Wikipedia の本文は CC BY-SA なので、紹介を出すときは出典として記事の URL を添える。
  * URL は転送（redirects）を解決したあとの記事名で作る。
  */
@@ -26,11 +29,11 @@ export const WIKIPEDIA_TIMEOUT_MS = 15_000
 /** 系統ごとの材料の長さの上限（文字）。5系統と冒頭を合わせても、LLM に渡す材料が数千文字に収まるようにする */
 export const MAX_SECTION_LENGTH = 1_000
 
-const API_ENDPOINT = 'https://ja.wikipedia.org/w/api.php'
+export const API_ENDPOINT = 'https://ja.wikipedia.org/w/api.php'
 const ARTICLE_BASE_URL = 'https://ja.wikipedia.org/wiki/'
 
 /** Wikimedia の利用規約が求める、連絡先の分かる User-Agent */
-const USER_AGENT = 'hdad-town-tour/1.0 (https://github.com/mtane0412/hdad)'
+export const USER_AGENT = 'hdad-town-tour/1.0 (https://github.com/mtane0412/hdad)'
 
 /** 記事が取れなかったときの失敗（記事が無い・本文が空・Wikipedia が失敗を返した・応答の形が違う） */
 export class TownArticleError extends Error {}
@@ -43,6 +46,8 @@ export interface TownArticle {
   url: string
   /** 見出し付きのプレーンテキストの本文（見出しは「== 歴史 ==」の形） */
   extract: string
+  /** 代表画像（PageImages）のファイル名（「File:」は付かない）。自由なライセンスの代表画像が無ければ null（issue #254） */
+  image: string | null
 }
 
 /** 紹介の材料。記事に当てはまる節が無い系統は空文字になる */
@@ -166,7 +171,10 @@ export const fetchTownArticle = async (fetchImpl: typeof fetch, title: string): 
   const url = new URL(API_ENDPOINT)
   url.search = new URLSearchParams({
     action: 'query',
-    prop: 'extracts',
+    // 代表画像のファイル名も同じ問い合わせで受け取る。作者とライセンスは town-image.ts が別に取る
+    prop: 'extracts|pageimages',
+    piprop: 'name',
+    pilicense: 'free',
     explaintext: '1',
     exsectionformat: 'wiki',
     redirects: '1',
@@ -185,5 +193,5 @@ export const fetchTownArticle = async (fetchImpl: typeof fetch, title: string): 
   if (typeof page.title !== 'string' || typeof page.extract !== 'string' || page.extract.trim() === '') {
     throw new TownArticleError(`Wikipedia の記事の本文が取れませんでした: ${title}`)
   }
-  return { title: page.title, url: articleUrl(page.title), extract: page.extract }
+  return { title: page.title, url: articleUrl(page.title), extract: page.extract, image: typeof page.pageimage === 'string' ? page.pageimage : null }
 }
