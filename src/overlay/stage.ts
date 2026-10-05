@@ -1193,6 +1193,10 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
   let visitSent = false
   /** この箱が記録させた市町村のコード。押し出された時点の記録に足して、続けて流す1件の制覇マップに反映する */
   const recordedCodes = new Set<string>()
+  /** 市町村のコードごとの、記録させている最中の件数（別の通知で同じ市町村を引くと、送信が重なることがある） */
+  const pendingVisits = new Map<string, number>()
+  /** Worker が記録を受け付けた市町村のコード。同じ市町村の別の送信が失敗しても、制覇数から外さない */
+  const confirmedCodes = new Set<string>()
   /** 呼び出しの記録に、この箱が記録させた市町村を足して、制覇マップを決める */
   const conquestFor = (call: TownTourCall, townBorders: TownBorders): Playback['conquest'] =>
     conquestOf({ ...call, visited: [...new Set([...call.visited, ...recordedCodes])] }, townBorders)
@@ -1313,14 +1317,32 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
     visitSent = true
     // 応答を待つあいだに次の1件を流しはじめても制覇数に入るよう、送った時点で足しておき、記録できなかったら外す
     recordedCodes.add(code)
-    api.recordVisit(code, visit).catch((error: unknown) => {
-      recordedCodes.delete(code)
-      // 足した市町村込みで流しはじめた後の1件があれば、その制覇マップを決め直す（流している1件は止めない）
-      if (playback !== null && playback.call !== target.call && borders !== null) {
-        playback = { ...playback, conquest: conquestFor(playback.call, borders) }
-      }
-      showError(error, NOUNS.townTour, box, 'read')
-    })
+    pendingVisits.set(code, (pendingVisits.get(code) ?? 0) + 1)
+    /** この送信が終わったので、送信中の件数を1つ減らし、まだ同じ市町村を送っている最中かを返す */
+    const settle = (): boolean => {
+      const remaining = (pendingVisits.get(code) ?? 1) - 1
+      if (remaining === 0) pendingVisits.delete(code)
+      else pendingVisits.set(code, remaining)
+      return remaining > 0
+    }
+    api.recordVisit(code, visit).then(
+      () => {
+        settle()
+        confirmedCodes.add(code)
+        recordedCodes.add(code)
+      },
+      (error: unknown) => {
+        // 同じ市町村を別に送っている最中か、もう記録を受け付けられていれば、制覇数から外さない
+        if (!settle() && !confirmedCodes.has(code)) {
+          recordedCodes.delete(code)
+          // 足した市町村込みで流しはじめた後の1件があれば、その制覇マップを決め直す（流している1件は止めない）
+          if (playback !== null && playback.call !== target.call && borders !== null) {
+            playback = { ...playback, conquest: conquestFor(playback.call, borders) }
+          }
+        }
+        showError(error, NOUNS.townTour, box, 'read')
+      },
+    )
   }
 
   /** 流している1件を終える時刻を過ぎていたら終え、次の1件へ進む */
