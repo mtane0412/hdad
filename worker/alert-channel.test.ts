@@ -75,6 +75,10 @@ const raidTownTour: TownTourCall = {
   name: '当別町',
   headline: '山田花子さんのレイドを記念して、本日は北海道石狩郡当別町をご紹介します',
   sound: playbackSoundOf(DEFAULT_TOWN_TOUR_SOUND, null),
+  population: 14974,
+  area: 422.86,
+  // 同接20人にレイドの30人が加わった
+  audience: { kind: 'raid', count: 50 },
 }
 
 const runningPomodoro: PomodoroSnapshot = {

@@ -25,7 +25,7 @@ import { listMedia } from './media'
 import { loadOverlayKey } from './overlay-key'
 import { HttpError, STATUS, requireAdmin, requireOverlayKey, type Context } from './http'
 import { overlayKeyTag } from './overlay-key'
-import { recordFailure } from './stats-store'
+import { latestViewerCount, recordFailure } from './stats-store'
 import { generateTownTour } from './town-tour'
 import { pickTown, townTourCallOf } from './town-tour-call'
 import { loadTownTourSound, parseTownTourSound, playbackSoundOf, saveTownTourSound } from './town-tour-sound'
@@ -90,7 +90,11 @@ export const townTourSocket = async (context: Context): Promise<Response> => {
 export const postTownTourDemo = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
   const { STORE } = context.env
-  const [sound, overlayKey] = await Promise.all([loadTownTourSound(STORE), loadOverlayKey(STORE)])
+  const [sound, overlayKey, liveViewers] = await Promise.all([
+    loadTownTourSound(STORE),
+    loadOverlayKey(STORE),
+    latestViewerCount(context.env.DB),
+  ])
   const playbackSound = ((): ReturnType<typeof playbackSoundOf> => {
     try {
       return playbackSoundOf(sound, overlayKey)
@@ -98,7 +102,7 @@ export const postTownTourDemo = async (context: Context): Promise<Response> => {
       throw new HttpError(STATUS.conflict, 'overlay-key-missing', error instanceof Error ? error.message : String(error))
     }
   })()
-  const call = townTourCallOf(pickTown(Math.random), { occasion: 'demo' }, playbackSound)
+  const call = townTourCallOf(pickTown(Math.random), { occasion: 'demo' }, playbackSound, liveViewers)
   try {
     await pushTownTour(context.env.ALERTS, call)
   } catch (error) {

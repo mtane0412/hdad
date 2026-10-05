@@ -14,10 +14,12 @@ paths:
 - 政令市は市のコードで1件（市のコードは `DESIGNATED_CITY_CODES` の表）、東京23区は1区ずつ、北方領土の6村は入れ、所属未定地は外す
 - 実行時に外部（geolonia など）へ一覧を取りに行かない。地図は Canvas 2D で描き、外部のタイルや MapLibre を持ち込まない
 - 記事名の表（`src/town-tour/articles.json`。コード → 日本語版 Wikipedia の記事名）は `scripts/town-tour/build-articles.ts` が Wikidata の全国地方公共団体コード（P429。検査数字付きの6桁）から作る生成物で、**手で直さない**。同じコードの項目が複数ある市町村は `PREFERRED_ITEMS` の表で指名し、表に無ければエラーで止める。一覧との1対1は `towns.test.ts` が検証する
+- 人口と面積の表（`src/town-tour/stats.json`。コード → 住民基本台帳の人口と面積調の面積）は `scripts/town-tour/build-stats.ts` が作る生成物で、**手で直さない**。突き合わせはコードで行い、名前の揺れは `POPULATION_NAME_VARIANTS` の表で指名する。北方領土の6村の人口は null のまま持つ。一覧との1対1は `towns.test.ts` が検証する
+- 人口と面積は LLM に作らせない。Worker は押し出しの中身に人口・面積・いま見ている人数（レイドは最後に記録した同接＋レイドの人数、キーワードと試し再生は最後に記録した同接で、配信中でなければ null。`worker/stats-store.ts` の `latestViewerCount`）の数だけを載せ（`townTourCallOf`）、文は合成ページの `src/town-tour/scale.ts` の `scaleLinesOf` だけが組み立てる。人数は割合で比べず「ひとり何人倒せば制圧」の形にする（少ない人数でも小ささを目立たせないため）
 - 紹介は貯めずに、合成ページが `GET /api/overlay/town-tour?code=` を呼ぶたびに作る（`worker/town-tour-routes.ts`）。Twitch の Webhook の中では作らない（`waitUntil` の30秒に LLM の待ち時間が収まらない）
 - 材料は記事の本文から見出しの名前で系統ごとに拾う（`worker/town-wikipedia.ts` の `pickTownMaterial`）。LLM には材料にある内容だけで、大見出し（`hook`）・それを支える1〜3項目（`points`。最後がオチ）・配信者への振り（`cue`）を作らせる（`worker/town-tour.ts` の `TownTour`）。材料が薄ければ大見出しは空にさせ、合成ページは大見出しの場面を飛ばす（これは失敗ではなく決めた形）。項目が無い・振りが空・長すぎる応答は補わず投げる。失敗は空の紹介で取り繕わず502にし、`collection_failures`（`town-tour-failed`）に残す
 - 出典として記事の URL を紹介と一緒に返す（Wikipedia の本文は CC BY-SA）
-- Worker は一覧と記事名の表を `src/town-tour/` から読む（Worker から `src/` を読み込む例外）
+- Worker は一覧と記事名の表と人口・面積の表を `src/town-tour/` から読む（Worker から `src/` を読み込む例外）
 - 流すきっかけはトリガーの動作 `townTour`（レイドとキーワードの行だけ。`worker/alert-config.ts` の `TOWN_TOUR_KINDS`）と、トリガー画面の試し再生（`POST /api/admin/town-tour/demo`）。どちらも Worker は市町村を引いて冒頭の一文と音の設定を添え（`worker/town-tour-call.ts`）、`AlertChannel` の目印 `townTour` の接続へ押し出すだけにする
 - 合成ページの素材の種類は `townTour`（`src/overlay/stage.ts` の `mountTownTour`）。アラートの列には入れず、素材の中で届いた順に1件ずつ流す。場面は再生を始めた時刻・紹介が届いた時刻と現在時刻だけから決める（`src/town-tour/timeline.ts` の `sceneAt`）。場面の並び（大見出し → 項目 → 振り）は `tour.ts` の `tourLinesOf`、場面ごとの長さは `timeline.ts` の定数（`HOOK_MS`・`POINT_MS`・`PUNCHLINE_MS`・`CUE_MS`）と `tourSpanOf` が決める。地図の読み解きは `topo.ts`、映す範囲は `camera.ts`、描画は `view.ts` で、描画だけがテストを持たない
 - 紹介を作れなかった1件はすぐに終え、失敗を素材の箱に出して次へ進む。出典（記事名と CC BY-SA 4.0）は紹介を流すあいだ画面に出し続ける

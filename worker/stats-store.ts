@@ -232,6 +232,22 @@ export const listSessions = async (db: Database, now: number): Promise<SessionSu
 }
 
 /**
+ * 配信中の配信で最後に記録した視聴者数（市町村紹介で人口と比べる人数。issue #250）。配信中でないか、まだ記録が無ければ null
+ *
+ * 注意: 記録は cron（5分おき）なので、いまの値より最大5分古い。Twitch へ取りに行かないのは、Webhook の中で呼ぶため。
+ */
+export const latestViewerCount = async (db: Database): Promise<number | null> => {
+  const sample = await db
+    .prepare(
+      `SELECT v.viewer_count AS viewerCount FROM viewer_samples AS v
+       JOIN stream_sessions AS s ON s.id = v.session_id
+       WHERE s.ended_at IS NULL ORDER BY v.sampled_at DESC LIMIT 1`,
+    )
+    .first<{ viewerCount: number }>()
+  return sample?.viewerCount ?? null
+}
+
+/**
  * 配信セッションと、その視聴者数の時系列（古い順）・章・あらすじ・作業した時間の合計。存在しなければ null
  *
  * @param now 現在時刻（ミリ秒）。配信中の配信の作業した時間の合計を、この時刻までで数える

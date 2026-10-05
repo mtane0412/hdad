@@ -27,6 +27,9 @@ const tobetsuCall: TownTourCall = {
     bgmVolume: 0.3,
     effectVolume: 0.6,
   },
+  population: 14974,
+  area: 422.86,
+  audience: { kind: 'raid', count: 50 },
 }
 
 /** 大見出しと項目2つの紹介 */

@@ -1,9 +1,9 @@
 /**
  * 市町村紹介の描画（Canvas 2D）
  *
- * 1フレームぶんの場面（timeline.ts の sceneAt）を受け取り、日本地図・市町村の塗り・冒頭の一文・紹介の場面（大見出し・項目・振り）・出典を描く。
- * 大見出しは項目より大きな文字で描く。
- * どこを映すかは camera.ts、文の折り返しは wrap.ts が決め、ここは描くだけを受け持つ（通信も状態も持たない）。
+ * 1フレームぶんの場面（timeline.ts の sceneAt）を受け取り、日本地図・市町村の塗り・冒頭の一文・大きさの文（人口・面積と挑む文）・
+ * 紹介の場面（大見出し・項目・振り）・出典を描く。大見出しは項目より大きな文字で描く。
+ * どこを映すかは camera.ts、文の折り返しは wrap.ts、大きさの文は scale.ts が決め、ここは描くだけを受け持つ（通信も状態も持たない）。
  *
  * 地図の形は、起動時に全国ぶんを1つの Path2D にまとめておき、毎フレームは拡大と移動を掛けて塗り直すだけにする
  * （1,700余りの市町村を毎フレーム作り直さないため）。線の太さは拡大率で割り、画面上で一定の太さに見せる。
@@ -12,6 +12,7 @@
  * ここで投げるのは地図の読み込みが壊れたときだけである。
  */
 import { cameraAt } from './camera'
+import { scaleLinesOf } from './scale'
 import type { Playback, Scene } from './timeline'
 import { boundsOf, type Bounds, type Ring } from './topo'
 import { wrapText } from './wrap'
@@ -49,6 +50,9 @@ const SIZES = {
   hookLineHeight: 84,
   panelPadding: 28,
   creditFont: 22,
+  scaleFont: 34,
+  scaleLineHeight: 48,
+  scalePadding: 16,
   margin: 32,
 } as const
 
@@ -119,7 +123,9 @@ export const createTownTourRenderer = (shapes: ReadonlyMap<string, readonly Ring
       ctx.fillStyle = COLORS.backdrop
       ctx.fillRect(0, 0, width, height)
       drawMap(ctx, width, height, unit, land, figure, scene)
-      drawHeadline(ctx, width, unit, playback.call.headline, scene.headline)
+      const headlineBottom = drawHeadline(ctx, width, unit, playback.call.headline, scene.headline)
+      // 大きさの文は、市町村の形が塗られる（ズームが着地する）のに合わせて出し、そのまま最後まで残す
+      if (scene.fill > 0) drawScale(ctx, width, unit, headlineBottom, scaleLinesOf(playback.call), scene.fill)
       drawPanel(ctx, width, height, unit, scene)
       if (scene.credit !== null) drawCredit(ctx, width, height, unit, scene.credit)
       ctx.restore()
@@ -158,8 +164,8 @@ const drawLines = (ctx: CanvasRenderingContext2D, lines: readonly string[], cent
   lines.forEach((line, index) => ctx.fillText(line, centerX, top + lineHeight * index))
 }
 
-/** 冒頭の一文（「○○さんのレイドを記念して、本日は△△町をご紹介します」）を上の帯に描く */
-const drawHeadline = (ctx: CanvasRenderingContext2D, width: number, unit: number, headline: string, opacity: number): void => {
+/** 冒頭の一文（「○○さんのレイドを記念して、本日は△△町をご紹介します」）を上の帯に描き、帯の下端の高さを返す */
+const drawHeadline = (ctx: CanvasRenderingContext2D, width: number, unit: number, headline: string, opacity: number): number => {
   ctx.save()
   ctx.font = `bold ${SIZES.headlineFont * unit}px ${FONT_FAMILY}`
   const lines = wrapText(headline, width * TEXT_WIDTH, (text) => ctx.measureText(text).width).slice(0, MAX_HEADLINE_LINES)
@@ -171,6 +177,25 @@ const drawHeadline = (ctx: CanvasRenderingContext2D, width: number, unit: number
   ctx.textAlign = 'center'
   ctx.textBaseline = 'top'
   drawLines(ctx, lines, width / 2, SIZES.headlineTop * unit, SIZES.headlineLineHeight * unit)
+  ctx.restore()
+  return bandHeight
+}
+
+/** 大きさの文（人口・面積と、挑む文）を、冒頭の一文の帯のすぐ下に描く。挑む文は目立つ色にする */
+const drawScale = (ctx: CanvasRenderingContext2D, width: number, unit: number, top: number, lines: readonly string[], opacity: number): void => {
+  const padding = SIZES.scalePadding * unit
+  const lineHeight = SIZES.scaleLineHeight * unit
+  ctx.save()
+  ctx.globalAlpha *= opacity
+  ctx.fillStyle = COLORS.band
+  ctx.fillRect(0, top, width, padding * 2 + lineHeight * lines.length)
+  ctx.font = `bold ${SIZES.scaleFont * unit}px ${FONT_FAMILY}`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'top'
+  lines.forEach((line, index) => {
+    ctx.fillStyle = index === 0 ? COLORS.text : COLORS.label
+    ctx.fillText(line, width / 2, top + padding + lineHeight * index, width * TEXT_WIDTH)
+  })
   ctx.restore()
 }
 

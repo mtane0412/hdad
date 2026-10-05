@@ -8,6 +8,7 @@ import { createFakeDatabase } from './fake-database'
 import {
   closeOpenSessions,
   getSession,
+  latestViewerCount,
   listFailures,
   listFollowerSamples,
   listSessions,
@@ -96,6 +97,28 @@ describe('recordLiveStream', () => {
     await recordLiveStream(db, CHAT_STREAM, at('2026-09-21T12:05:00Z'))
 
     expect((await getSession(db, CHAT_STREAM.id, READ_AT))?.samples).toHaveLength(1)
+  })
+})
+
+describe('latestViewerCount', () => {
+  it('配信中なら、その配信で最後に記録した視聴者数を返す', async () => {
+    const db = createFakeDatabase()
+    await recordLiveStream(db, CHAT_STREAM, at('2026-09-21T12:05:00Z'))
+    await recordLiveStream(db, { ...CHAT_STREAM, viewerCount: 14 }, at('2026-09-21T12:10:00Z'))
+
+    expect(await latestViewerCount(db)).toBe(14)
+  })
+
+  it('配信中でなければ、前の配信の記録があっても null を返す', async () => {
+    const db = createFakeDatabase()
+    await recordLiveStream(db, CHAT_STREAM, at('2026-09-21T12:05:00Z'))
+    await closeOpenSessions(db, at('2026-09-21T14:00:00Z'))
+
+    expect(await latestViewerCount(db)).toBeNull()
+  })
+
+  it('配信の記録が1件も無ければ null を返す', async () => {
+    expect(await latestViewerCount(createFakeDatabase())).toBeNull()
   })
 })
 
