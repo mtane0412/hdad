@@ -1193,6 +1193,9 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
   let visitSent = false
   /** この箱が記録させた市町村のコード。押し出された時点の記録に足して、続けて流す1件の制覇マップに反映する */
   const recordedCodes = new Set<string>()
+  /** 呼び出しの記録に、この箱が記録させた市町村を足して、制覇マップを決める */
+  const conquestFor = (call: TownTourCall, townBorders: TownBorders): Playback['conquest'] =>
+    conquestOf({ ...call, visited: [...new Set([...call.visited, ...recordedCodes])] }, townBorders)
   const sound = createTownTourSoundPlayer((error) => showError(error, NOUNS.townTour, box, 'read'))
   const bgmApi = createBgmOverlayApi(callWorker, key)
 
@@ -1220,7 +1223,7 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
       startedAt,
       intro: { status: 'loading' },
       quiz: { hints: quizHintsOf(quizClueOf(call.code, townBorders)), answer: null, unopenedAt: null },
-      conquest: conquestOf({ ...call, visited: [...new Set([...call.visited, ...recordedCodes])] }, townBorders),
+      conquest: conquestFor(call, townBorders),
     }
     /** いま流しているのが、この呼び出しの再生か（正解者が届くと再生を作り直すので、同じものかではなく呼び出しと始めた時刻で見る） */
     const current = (): Playback | null => (playback !== null && playback.call === call && playback.startedAt === startedAt ? playback : null)
@@ -1312,6 +1315,10 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
     recordedCodes.add(code)
     api.recordVisit(code, visit).catch((error: unknown) => {
       recordedCodes.delete(code)
+      // 足した市町村込みで流しはじめた後の1件があれば、その制覇マップを決め直す（流している1件は止めない）
+      if (playback !== null && playback.call !== target.call && borders !== null) {
+        playback = { ...playback, conquest: conquestFor(playback.call, borders) }
+      }
       showError(error, NOUNS.townTour, box, 'read')
     })
   }
