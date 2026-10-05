@@ -3,6 +3,7 @@
  *
  * - GET /api/overlay/town-tour?key=&code=: コードの市町村の紹介を作って返す
  * - POST /api/overlay/town-tour/quiz?key=: 合成ページが冒頭の都道府県当てクイズを流しはじめたときに、出題を開く（issue #251）
+ * - POST /api/overlay/town-tour/visit?key=: 合成ページが紹介を流しきったら、紹介した市町村として記録する（issue #252）
  * - GET /api/overlay/town-tour/socket?key=: 合成ページの素材「市町村紹介」の WebSocket の接続を配送先（AlertChannel）へ引き渡す
  * - POST /api/admin/town-tour/demo: 管理画面の試し再生。市町村を1つ引いて素材へ押し出す（トリガーと同じ配送の経路を通す）
  * - GET /api/admin/town-tour/sound: 演出で鳴らす音の設定。未保存ならどの枠も鳴らさない設定（issue #243）
@@ -29,6 +30,7 @@ import { overlayKeyTag } from './overlay-key'
 import { latestViewerCount, recordFailure } from './stats-store'
 import { generateTownTour } from './town-tour'
 import { openTownTourQuiz } from './town-tour-quiz'
+import { listTownTourVisits, recordTownTourVisit, type TownTourVisitOccasion } from './town-tour-visits'
 import { pickTown, townTourCallOf } from './town-tour-call'
 import { loadTownTourSound, parseTownTourSound, playbackSoundOf, saveTownTourSound } from './town-tour-sound'
 import { fetchTownArticle, pickTownMaterial } from './town-wikipedia'
@@ -95,6 +97,58 @@ export const postTownTourQuiz = async (context: Context): Promise<Response> => {
   return new Response(null, { status: STATUS.noContent })
 }
 
+/** 記録するきっかけとして受け付けるもの（試し再生は記録しないので受け付けない） */
+const VISIT_OCCASIONS: readonly string[] = ['raid', 'keyword'] satisfies TownTourVisitOccasion[]
+
+const isVisitOccasion = (value: unknown): value is TownTourVisitOccasion => typeof value === 'string' && VISIT_OCCASIONS.includes(value)
+
+/**
+ * POST /api/overlay/town-tour/visit?key=: 合成ページが紹介を流しきったら（配信者への振りまで流したら）、紹介した市町村として記録する。
+ * 本文は { code, occasion, userName }（呼び出しの visit に入れて押し出したもの）。
+ *
+ * 合成ページを2つ開いていて同じ紹介が2回届いても、記録は最初の1行のまま（town-tour-visits.ts）。
+ *
+ * 注意: 記録に失敗したら 502 で返し、ダッシュボードの失敗の記録（collection_failures）にも残す。合成ページは失敗を素材の箱に出すが、
+ * 紹介（制覇マップ）は止めない（docs/decisions/town-tour.md）。
+ */
+export const postTownTourVisit = async (context: Context): Promise<Response> => {
+  await requireOverlayKey(context)
+  const body: unknown = await context.request.json().catch(() => {
+    throw new HttpError(STATUS.badRequest, 'invalid-body', '本文はJSONにしてください')
+  })
+  const isObject = typeof body === 'object' && body !== null
+  const code = isObject && 'code' in body ? body.code : undefined
+  const occasion = isObject && 'occasion' in body ? body.occasion : undefined
+  const userName = isObject && 'userName' in body ? body.userName : undefined
+  if (typeof code !== 'string' || !isVisitOccasion(occasion) || typeof userName !== 'string' || userName === '') {
+    throw new HttpError(
+      STATUS.badRequest,
+      'invalid-body',
+      '本文に市町村のコード（code）と、きっかけ（occasion。raid か keyword）と、相手の名前（userName）を入れてください',
+    )
+  }
+  const town = towns.find((candidate) => candidate.code === code)
+  if (town === undefined) throw new HttpError(STATUS.notFound, 'unknown-town', `市町村の一覧に無いコードです: ${code}`)
+
+  try {
+    await recordTownTourVisit(context.env.DB, { code, occasion, userName }, context.now)
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    // 記録の失敗を、失敗の記録の失敗で置き換えない。失敗の記録の失敗も黙って捨てず、応答の理由に添える
+    const recordProblem = await recordFailure(
+      context.env.DB,
+      'town-tour-visit-failed',
+      `紹介した市町村（${town.prefecture}${town.county}${town.name}）を記録できませんでした: ${reason}`,
+      context.now,
+    ).then(
+      () => '',
+      (recordError: unknown) => `（失敗の記録にも失敗しました: ${recordError instanceof Error ? recordError.message : String(recordError)}）`,
+    )
+    throw new HttpError(STATUS.badGateway, 'town-tour-visit-failed', `紹介した市町村を記録できませんでした: ${reason}${recordProblem}`)
+  }
+  return new Response(null, { status: STATUS.noContent })
+}
+
 /** GET /api/overlay/town-tour/socket?key=: 合成ページからのWebSocketの接続を、市町村紹介の呼び出しを受け取る接続として配送先へ引き渡す */
 export const townTourSocket = async (context: Context): Promise<Response> => {
   const key = await requireOverlayKey(context)
@@ -109,6 +163,7 @@ export const townTourSocket = async (context: Context): Promise<Response> => {
  *
  * トリガーと同じ配送の経路（AlertChannel）を通すので、合成ページを開いていれば OBS の画面にもそのまま流れる。
  * 何を引いたかを画面に出せるよう、押し出したものを返す。音もトリガーと同じく保存済みの設定で鳴らす（聞き比べられるように）。
+ * 引くときはトリガーと同じく紹介済みの市町村を除き、制覇マップも出すが、試し再生そのものは記録しない（issue #252）。
  *
  * 注意: 配送先の失敗は黙って成功にせず 502 で返す（管理画面に理由を出す）。
  * 注意: 音を選んでいるのにオーバーレイ用キーが未発行なら、音のURLを作れないので押し出さずに 409 で返す（黙って無音で流さない）。
@@ -116,10 +171,11 @@ export const townTourSocket = async (context: Context): Promise<Response> => {
 export const postTownTourDemo = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
   const { STORE } = context.env
-  const [sound, overlayKey, liveViewers] = await Promise.all([
+  const [sound, overlayKey, liveViewers, visited] = await Promise.all([
     loadTownTourSound(STORE),
     loadOverlayKey(STORE),
     latestViewerCount(context.env.DB),
+    listTownTourVisits(context.env.DB),
   ])
   const playbackSound = ((): ReturnType<typeof playbackSoundOf> => {
     try {
@@ -128,7 +184,7 @@ export const postTownTourDemo = async (context: Context): Promise<Response> => {
       throw new HttpError(STATUS.conflict, 'overlay-key-missing', error instanceof Error ? error.message : String(error))
     }
   })()
-  const call = townTourCallOf(pickTown(Math.random), { occasion: 'demo' }, playbackSound, liveViewers, crypto.randomUUID())
+  const call = townTourCallOf(pickTown(Math.random, new Set(visited)), { occasion: 'demo' }, playbackSound, liveViewers, crypto.randomUUID(), visited)
   try {
     await pushTownTour(context.env.ALERTS, call)
   } catch (error) {

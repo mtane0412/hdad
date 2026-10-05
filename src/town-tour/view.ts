@@ -5,6 +5,8 @@
  * 紹介の場面（大見出し・項目・振り）・出典を描く。大見出しは項目より大きな文字で描く。
  * 冒頭のクイズ（issue #251）のあいだは、日本地図を描かずに市町村の形だけをシルエットで描き、問いとヒントを下の帯に描く。
  * クイズを終えたら、正解（と最初の正解者）を下の帯に描く。
+ * 締めの全国制覇マップ（issue #252）では、これまでに紹介した市町村を今回の市町村とは別の色で塗り、今回の市町村を数えたら
+ * その位置に印を描き、制覇数と節目の一文を下の帯に描く。
  * どこを映すかは camera.ts、文の折り返しは wrap.ts、大きさの文は scale.ts が決め、ここは描くだけを受け持つ（通信も状態も持たない）。
  *
  * 地図の形は、起動時に全国ぶんを1つの Path2D にまとめておき、毎フレームは拡大と移動を掛けて塗り直すだけにする
@@ -37,6 +39,8 @@ const COLORS = {
   label: '#f4b63f',
   credit: 'rgba(255, 255, 255, 0.8)',
   silhouette: '#f2f2f2',
+  /** 全国制覇マップで、これまでに紹介した市町村の塗り。今回の市町村（town）と見分けられる色にする */
+  visited: '#4fb3a9',
 } as const
 
 /** 配信画面（1920×1080）での寸法（px） */
@@ -57,6 +61,9 @@ const SIZES = {
   scaleLineHeight: 48,
   scalePadding: 16,
   margin: 32,
+  /** 全国制覇マップで、今回の市町村に描く印の半径。日本全体を映すと小さな市町村は点にしか見えないので、画面上の大きさで描く */
+  stampRadius: 22,
+  stampWidth: 5,
 } as const
 
 /** 紹介の場面の帯を置く高さ（箱の高さに対する割合）。帯の上端 */
@@ -70,6 +77,8 @@ const TEXT_WIDTH = 0.86
 const MAX_HEADLINE_LINES = 2
 const MAX_ITEM_LINES = 3
 const MAX_HOOK_LINES = 2
+/** 全国制覇マップの帯の見出し */
+const CONQUEST_LABEL = '全国制覇マップ'
 /** 紹介が届くのを待っているあいだに出す文言 */
 const WAITING_TEXT = '紹介を準備しています…'
 
@@ -106,6 +115,20 @@ export interface TownTourRenderer {
 export const createTownTourRenderer = (shapes: ReadonlyMap<string, readonly Ring[]>): TownTourRenderer => {
   const land = pathOf([...shapes.values()].flat())
   const figures = new Map<string, TownFigure>()
+  /** これまでに紹介した市町村をまとめた形。再生ごとに記録が変わるので、元にした記録と一緒に覚えておく */
+  let visitedCache: { readonly source: ReadonlySet<string>; readonly path: Path2D } | null = null
+  const visitedPathOf = (codes: ReadonlySet<string>): Path2D => {
+    if (visitedCache?.source === codes) return visitedCache.path
+    const path = pathOf(
+      [...codes].flatMap((code) => {
+        const rings = shapes.get(code)
+        if (rings === undefined) throw new Error(`日本地図に、紹介済みのコード ${code} の市町村の形がありません`)
+        return rings
+      }),
+    )
+    visitedCache = { source: codes, path }
+    return path
+  }
   const figureOf = (code: string): TownFigure => {
     const known = figures.get(code)
     if (known !== undefined) return known
@@ -128,11 +151,13 @@ export const createTownTourRenderer = (shapes: ReadonlyMap<string, readonly Ring
       ctx.globalAlpha = scene.opacity
       ctx.fillStyle = COLORS.backdrop
       ctx.fillRect(0, 0, width, height)
-      drawMap(ctx, width, height, unit, land, figure, scene)
+      const visited = scene.conquest === null ? null : { path: visitedPathOf(playback.conquest.visited), ...scene.conquest }
+      drawMap(ctx, width, height, unit, land, figure, scene, visited)
       const headlineBottom = drawHeadline(ctx, width, unit, scene.headlineText, scene.headline)
       // 大きさの文は、市町村の形が塗られる（ズームが着地する）のに合わせて出し、そのまま最後まで残す
       if (scene.fill > 0) drawScale(ctx, width, unit, headlineBottom, scaleLinesOf(playback.call), scene.fill)
       if (scene.quiz !== null) drawQuizPanel(ctx, width, height, unit, scene.quiz)
+      else if (scene.conquest !== null) drawConquestPanel(ctx, width, height, unit, scene.conquest)
       else drawPanel(ctx, width, height, unit, scene)
       if (scene.credit !== null) drawCredit(ctx, width, height, unit, scene.credit)
       ctx.restore()
@@ -140,8 +165,20 @@ export const createTownTourRenderer = (shapes: ReadonlyMap<string, readonly Ring
   }
 }
 
-/** 全国の形と、引いた市町村の塗りを描く。クイズのあいだは、市町村だけを寄った位置にシルエットで描く */
-const drawMap = (ctx: CanvasRenderingContext2D, width: number, height: number, unit: number, land: Path2D, figure: TownFigure, scene: Scene): void => {
+/**
+ * 全国の形と、引いた市町村の塗りを描く。クイズのあいだは、市町村だけを寄った位置にシルエットで描く。
+ * 全国制覇マップのあいだ（visited が null でない）は、これまでに紹介した市町村も塗り、今回の市町村を数えたら印を描く
+ */
+const drawMap = (
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  unit: number,
+  land: Path2D,
+  figure: TownFigure,
+  scene: Scene,
+  visited: { readonly path: Path2D; readonly opacity: number; readonly stamp: number } | null,
+): void => {
   const inQuiz = scene.quiz !== null
   // クイズのあいだは寄りきった映し方で、帯に挟まれた範囲の真ん中に置く
   const viewHeight = inQuiz ? height * (SILHOUETTE_BOTTOM - SILHOUETTE_TOP) : height
@@ -165,6 +202,27 @@ const drawMap = (ctx: CanvasRenderingContext2D, width: number, height: number, u
   ctx.strokeStyle = COLORS.border
   ctx.lineWidth = (SIZES.borderWidth * unit) / camera.scale
   ctx.stroke(land)
+
+  if (visited !== null) {
+    ctx.save()
+    ctx.globalAlpha *= visited.opacity
+    ctx.fillStyle = COLORS.visited
+    ctx.fill(visited.path)
+    ctx.restore()
+  }
+
+  if (visited !== null && visited.stamp > 0) {
+    // 今回の市町村の中心に、画面上で一定の大きさの輪を描く（拡大率で割って、日本全体を映していても見える大きさにする）
+    const { bounds } = figure
+    ctx.save()
+    ctx.globalAlpha *= visited.stamp
+    ctx.strokeStyle = COLORS.town
+    ctx.lineWidth = (SIZES.stampWidth * unit) / camera.scale
+    ctx.beginPath()
+    ctx.arc((bounds.minX + bounds.maxX) / 2, (bounds.minY + bounds.maxY) / 2, (SIZES.stampRadius * unit) / camera.scale, 0, Math.PI * 2)
+    ctx.stroke()
+    ctx.restore()
+  }
 
   if (scene.fill > 0) {
     ctx.globalAlpha *= scene.fill
@@ -283,6 +341,34 @@ const drawPanel = (ctx: CanvasRenderingContext2D, width: number, height: number,
   ctx.fillStyle = COLORS.text
   ctx.globalAlpha *= content.textOpacity
   drawLines(ctx, lines, width / 2, top + padding + labelHeight, lineHeight)
+  ctx.restore()
+}
+
+/** 全国制覇マップの見出し・制覇数と、節目の一文を下の帯に描く */
+const drawConquestPanel = (ctx: CanvasRenderingContext2D, width: number, height: number, unit: number, conquest: NonNullable<Scene['conquest']>): void => {
+  const padding = SIZES.panelPadding * unit
+  const top = height * PANEL_TOP
+  const labelHeight = SIZES.labelFont * unit + padding / 2
+  const countHeight = SIZES.itemLineHeight * unit
+  const milestoneHeight = SIZES.scaleLineHeight * unit
+  ctx.save()
+  ctx.globalAlpha *= conquest.opacity
+  ctx.fillStyle = COLORS.band
+  ctx.fillRect(0, top, width, padding * 2 + labelHeight + countHeight + milestoneHeight * conquest.milestones.length)
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'top'
+  ctx.font = `bold ${SIZES.labelFont * unit}px ${FONT_FAMILY}`
+  ctx.fillStyle = COLORS.label
+  ctx.fillText(CONQUEST_LABEL, width / 2, top + padding)
+  ctx.font = `bold ${SIZES.itemFont * unit}px ${FONT_FAMILY}`
+  ctx.fillStyle = COLORS.text
+  ctx.fillText(conquest.label, width / 2, top + padding + labelHeight, width * TEXT_WIDTH)
+  ctx.font = `bold ${SIZES.scaleFont * unit}px ${FONT_FAMILY}`
+  ctx.fillStyle = COLORS.label
+  ctx.globalAlpha *= conquest.stamp
+  conquest.milestones.forEach((milestone, index) => {
+    ctx.fillText(milestone, width / 2, top + padding + labelHeight + countHeight + milestoneHeight * index, width * TEXT_WIDTH)
+  })
   ctx.restore()
 }
 

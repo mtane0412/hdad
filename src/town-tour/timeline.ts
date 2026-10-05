@@ -12,11 +12,13 @@
  * 3. 紹介の場面を順に流す。大見出し（HOOK_MS。前半 HOOK_TEASE_MS は見出し「この町、実は…」だけで溜める）→
  *    ゆさぶりの項目（POINT_MS ずつ）→ オチ（最後の項目。PUNCHLINE_MS）→ 配信者への振り（CUE_MS）。長さは配信者が決めた（issue #249）。
  *    紹介は受け取ってから作らせる（2〜5秒）ので、ズームが終わっても届いていなければ、届くまで待ってから始める
- * 4. 出典だけを残して（CREDIT_HOLD_MS）、薄くして終わる
+ * 4. 日本全体へ引きながら、これまでに紹介した市町村を塗った全国制覇マップと制覇数を出す（CONQUEST_MS。issue #252）。
+ *    引ききった後（CONQUEST_STAMP_MS）に今回の市町村を数えた制覇数と節目の一文に替え、薄くして終わる。出典は終わりまで出し続ける
  *
  * 紹介を作れなかった再生はその場で終わる。失敗は素材の箱に出す（合成ページの stage.ts が受け持つ）。
  */
 import { QUIZ_HINT_INTERVAL_MS, QUIZ_LABEL, QUIZ_MS, QUIZ_UNOPENED_LABEL, quizQuestionOf, revealLabelOf, revealTextOf } from './quiz'
+import { conquestLabelOf, type Conquest } from './conquest'
 import { tourLinesOf, type TourLine, type TownTourCall, type TownTourIntro } from './tour'
 
 /** クイズを終えてから、正解（と最初の正解者）を出しておく時間（ミリ秒）。日本全体を映し、寄り始めるところまで重ねる */
@@ -41,8 +43,12 @@ export const PUNCHLINE_MS = 5000
 export const CUE_MS = 6000
 /** 場面の出入りで薄くする時間（ミリ秒） */
 const ITEM_FADE_MS = 400
-/** 振りを流し終えてから、出典だけを残しておく時間（ミリ秒） */
-export const CREDIT_HOLD_MS = 2000
+/** 全国制覇マップを出しておく時間（ミリ秒）。振りを流し終えてから数え、これが過ぎたら再生を終える。長さは配信者が決めた（issue #252） */
+export const CONQUEST_MS = 6000
+/** 全国制覇マップで、日本全体へ引く時間（ミリ秒） */
+export const CONQUEST_ZOOM_MS = 1500
+/** 全国制覇マップで、今回の市町村を数える時刻（制覇マップを出しはじめてからのミリ秒）。引ききって一呼吸おいてから、塗りを1つ増やす */
+export const CONQUEST_STAMP_MS = 2500
 /** 冒頭の一文を出しきるまでの時間（ミリ秒） */
 const HEADLINE_FADE_MS = 500
 /** 終わりに全体を薄くする時間（ミリ秒） */
@@ -71,6 +77,8 @@ export interface Playback {
   readonly startedAt: number
   readonly intro: IntroState
   readonly quiz: QuizState
+  /** 締めに出す全国制覇マップ（conquest.ts の conquestOf。地図の境界が要るので、流しはじめるときに決めておく） */
+  readonly conquest: Conquest
 }
 
 /** ある時刻の場面 */
@@ -89,6 +97,17 @@ export interface Scene {
   readonly reveal: { readonly label: string; readonly text: string; readonly opacity: number } | null
   /** 流している場面と、その濃さ（0〜1）・文の濃さ（0〜1。大見出しの溜めのあいだは 0）。流していなければ null */
   readonly item: { readonly line: TourLine; readonly opacity: number; readonly textOpacity: number } | null
+  /**
+   * 出している全国制覇マップ。出していなければ null。
+   * label は制覇数の表記、milestones は節目の一文（今回を数えるまでは空）、opacity は出しはじめの濃さ（0〜1）、
+   * stamp は今回の市町村を数えたことを示す強調の濃さ（0〜1。数えるまでは 0）
+   */
+  readonly conquest: {
+    readonly label: string
+    readonly milestones: readonly string[]
+    readonly opacity: number
+    readonly stamp: number
+  } | null
   /** 出典の表記。紹介が届くまでは null */
   readonly credit: string | null
   /** ズームを終えて、紹介が届くのを待っているか */
@@ -140,7 +159,7 @@ export interface TourSpan {
   readonly segments: readonly TourSegment[]
   /** 場面を流しはじめる時刻。クイズとズームが終わってから、紹介が届くのが遅ければ届いてから */
   readonly itemsStart: number
-  /** 場面を流し終え、出典だけを残しはじめる時刻 */
+  /** 場面を流し終え、全国制覇マップを出しはじめる時刻 */
   readonly itemsEnd: number
   /** 再生を終える時刻 */
   readonly end: number
@@ -169,7 +188,17 @@ export const tourSpanOf = (playback: Playback, intro: TownTourIntro, readyAt: nu
     segments.push({ line, start: cursor, duration })
     cursor += duration
   })
-  return { segments, itemsStart, itemsEnd: cursor, end: cursor + CREDIT_HOLD_MS }
+  return { segments, itemsStart, itemsEnd: cursor, end: cursor + CONQUEST_MS }
+}
+
+/**
+ * 紹介した市町村として記録する時刻（再生を始めてからのミリ秒）。振りを流し終えた（流しきった）ときで、制覇マップを出しはじめる時刻と同じ。
+ * 記録しない再生（試し再生）と、流しきっていない再生（紹介が届いていない・作れなかった）は null（issue #252）。
+ */
+export const visitRecordAtOf = (playback: Playback): number | null => {
+  const { intro, call } = playback
+  if (call.visit === null || intro.status !== 'ready') return null
+  return tourSpanOf(playback, intro.intro, intro.readyAt).itemsEnd
 }
 
 /** 流している場面の、始まってから sinceStart ミリ秒での濃さ。大見出しは溜めのあいだ文を伏せ、溜めが終わったら文を出す */
@@ -178,6 +207,17 @@ const itemSceneOf = ({ line, duration }: TourSegment, sinceStart: number): NonNu
   opacity: fadeWithin(sinceStart, duration, ITEM_FADE_MS),
   textOpacity: line.kind === 'hook' ? clamp01((sinceStart - HOOK_TEASE_MS) / ITEM_FADE_MS) : 1,
 })
+
+/** 全国制覇マップを出しはじめてから sinceStart ミリ秒での、制覇マップの場面。今回の市町村を数える時刻で、制覇数と節目を替える */
+const conquestSceneOf = ({ before, after, total, milestones }: Conquest, sinceStart: number): NonNullable<Scene['conquest']> => {
+  const stamped = sinceStart >= CONQUEST_STAMP_MS
+  return {
+    label: conquestLabelOf(stamped ? after : before, total),
+    milestones: stamped ? milestones : [],
+    opacity: clamp01(sinceStart / ITEM_FADE_MS),
+    stamp: clamp01((sinceStart - CONQUEST_STAMP_MS) / ITEM_FADE_MS),
+  }
+}
 
 /**
  * 再生の now での場面を決める。
@@ -206,16 +246,21 @@ export const sceneAt = (playback: Playback, now: number): Scene => {
   }
   const waiting = sinceQuiz >= ZOOM_END_MS
 
-  if (intro.status === 'failed') return { ...base, item: null, credit: null, waiting: false, opacity: 0, done: true }
-  if (intro.status === 'loading') return { ...base, item: null, credit: null, waiting, opacity: 1, done: false }
+  if (intro.status === 'failed') return { ...base, item: null, conquest: null, credit: null, waiting: false, opacity: 0, done: true }
+  if (intro.status === 'loading') return { ...base, item: null, conquest: null, credit: null, waiting, opacity: 1, done: false }
 
-  const { segments, itemsStart, end } = tourSpanOf(playback, intro.intro, intro.readyAt)
+  const { segments, itemsStart, itemsEnd, end } = tourSpanOf(playback, intro.intro, intro.readyAt)
   const sinceItems = elapsed - itemsStart
   const segment = segments.find(({ start, duration }) => start <= elapsed && elapsed < start + duration)
+  /** 全国制覇マップを出しはじめてからの経過時間。負ならまだ出さない */
+  const sinceConquest = elapsed - itemsEnd
 
   return {
     ...base,
+    // 全国制覇マップのあいだは、寄っていた市町村から日本全体へ引く
+    zoom: sinceConquest < 0 ? base.zoom : 1 - easeInOut(clamp01(sinceConquest / CONQUEST_ZOOM_MS)),
     item: segment === undefined ? null : itemSceneOf(segment, elapsed - segment.start),
+    conquest: sinceConquest < 0 ? null : conquestSceneOf(playback.conquest, sinceConquest),
     credit: sinceItems < 0 ? null : creditOf(intro.intro),
     waiting: waiting && sinceItems < 0,
     opacity: clamp01((end - elapsed) / FADE_OUT_MS),

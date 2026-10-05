@@ -86,7 +86,8 @@ import { DEMO_INTRO_DELAY_MS, DEMO_TOWN_TOUR_INTERVAL_MS, demoTownTourCall, demo
 import { BGM_START_CUE_ID, dueSoundCues } from '../town-tour/sound-cues'
 import { createTownTourSoundPlayer } from '../town-tour/sound-player'
 import { QUIZ_MS, quizClueOf, quizHintsOf } from '../town-tour/quiz'
-import { sceneAt, type Playback } from '../town-tour/timeline'
+import { conquestOf } from '../town-tour/conquest'
+import { sceneAt, visitRecordAtOf, type Playback } from '../town-tour/timeline'
 import { decodeTownBorders, decodeTownShapes, type TownBorders } from '../town-tour/topo'
 import { parseTownTourMessage, type TownTourCall } from '../town-tour/tour'
 import { createTownTourRenderer, type TownTourRenderer } from '../town-tour/view'
@@ -1163,6 +1164,11 @@ const mountPomodoro = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
  * 冒頭の都道府県当てクイズ（issue #251）は、流しはじめたら Worker に出題を開かせ（POST /api/overlay/town-tour/quiz）、
  * 最初の正解者が同じ WebSocket で届いたら、その時刻をクイズを終えた時刻として再生に書き込む。ヒントは地図の形から
  * 起動時に求めた境界（海に面しているか・隣り合う市町村）で作る。プレビューでは出題を開かないので、いつも時間切れになる。
+ *
+ * 全国制覇マップ（issue #252）は、流しはじめるときに呼び出しのこれまでの記録と境界から制覇数と節目を決めておき
+ * （src/town-tour/conquest.ts）、振りを流し終えたら（流しきったら）Worker に記録させる（POST /api/overlay/town-tour/visit）。
+ * 試し再生とプレビューは記録しない。記録に失敗しても制覇マップは止めず、失敗をこの箱に出す（Worker も失敗の記録に残す）。
+ * 呼び出しのこれまでの記録は押し出した時点のものなので、この箱が記録した市町村を足して、続けて流す1件の地図と数に反映する。
  */
 const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
   // この素材は配信者が決めるパラメータを持たない（何を流すかはトリガーと試し再生で決まる）
@@ -1183,6 +1189,17 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
   let waiting: readonly TownTourCall[] = []
   /** 流している1件で鳴らした音の id（sound-cues.ts の SoundCue.id） */
   let played = new Set<string>()
+  /** 流している1件を、紹介した市町村として記録させたか */
+  let visitSent = false
+  /** この箱が記録させた市町村のコード。押し出された時点の記録に足して、続けて流す1件の制覇マップに反映する */
+  const recordedCodes = new Set<string>()
+  /** 市町村のコードごとの、記録させている最中の件数（別の通知で同じ市町村を引くと、送信が重なることがある） */
+  const pendingVisits = new Map<string, number>()
+  /** Worker が記録を受け付けた市町村のコード。同じ市町村の別の送信が失敗しても、制覇数から外さない */
+  const confirmedCodes = new Set<string>()
+  /** 呼び出しの記録に、この箱が記録させた市町村を足して、制覇マップを決める */
+  const conquestFor = (call: TownTourCall, townBorders: TownBorders): Playback['conquest'] =>
+    conquestOf({ ...call, visited: [...new Set([...call.visited, ...recordedCodes])] }, townBorders)
   const sound = createTownTourSoundPlayer((error) => showError(error, NOUNS.townTour, box, 'read'))
   const bgmApi = createBgmOverlayApi(callWorker, key)
 
@@ -1203,8 +1220,15 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
   const start = (call: TownTourCall, townBorders: TownBorders): void => {
     clearError(box, 'read')
     played = new Set()
+    visitSent = false
     const startedAt = Date.now()
-    playback = { call, startedAt, intro: { status: 'loading' }, quiz: { hints: quizHintsOf(quizClueOf(call.code, townBorders)), answer: null, unopenedAt: null } }
+    playback = {
+      call,
+      startedAt,
+      intro: { status: 'loading' },
+      quiz: { hints: quizHintsOf(quizClueOf(call.code, townBorders)), answer: null, unopenedAt: null },
+      conquest: conquestFor(call, townBorders),
+    }
     /** いま流しているのが、この呼び出しの再生か（正解者が届くと再生を作り直すので、同じものかではなく呼び出しと始めた時刻で見る） */
     const current = (): Playback | null => (playback !== null && playback.call === call && playback.startedAt === startedAt ? playback : null)
     if (!demo) {
@@ -1282,9 +1306,50 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
     })
     .catch((error: unknown) => showError(error, NOUNS.townTour, box, 'layer'))
 
+  /**
+   * 流している1件を流しきっていたら、紹介した市町村として Worker に記録させる（1件につき1回）。
+   * プレビューと、記録しない再生（試し再生）・流しきっていない再生では送らない。記録に失敗しても紹介は止めず、箱に出すだけにする。
+   */
+  const recordVisitIfDue = (target: Playback, now: number): void => {
+    const recordAt = visitRecordAtOf(target)
+    const { visit, code } = target.call
+    if (demo || visitSent || visit === null || recordAt === null || now - target.startedAt < recordAt) return
+    visitSent = true
+    // 応答を待つあいだに次の1件を流しはじめても制覇数に入るよう、送った時点で足しておき、記録できなかったら外す
+    recordedCodes.add(code)
+    pendingVisits.set(code, (pendingVisits.get(code) ?? 0) + 1)
+    /** この送信が終わったので、送信中の件数を1つ減らし、まだ同じ市町村を送っている最中かを返す */
+    const settle = (): boolean => {
+      const remaining = (pendingVisits.get(code) ?? 1) - 1
+      if (remaining === 0) pendingVisits.delete(code)
+      else pendingVisits.set(code, remaining)
+      return remaining > 0
+    }
+    api.recordVisit(code, visit).then(
+      () => {
+        settle()
+        confirmedCodes.add(code)
+        recordedCodes.add(code)
+      },
+      (error: unknown) => {
+        // 同じ市町村を別に送っている最中か、もう記録を受け付けられていれば、制覇数から外さない
+        if (!settle() && !confirmedCodes.has(code)) {
+          recordedCodes.delete(code)
+          // 足した市町村込みで流しはじめた後の1件があれば、その制覇マップを決め直す（流している1件は止めない）
+          if (playback !== null && playback.call !== target.call && borders !== null) {
+            playback = { ...playback, conquest: conquestFor(playback.call, borders) }
+          }
+        }
+        showError(error, NOUNS.townTour, box, 'read')
+      },
+    )
+  }
+
   /** 流している1件を終える時刻を過ぎていたら終え、次の1件へ進む */
   const finishIfDone = (now: number): void => {
     if (playback === null || !sceneAt(playback, now).done) return
+    // タイマーが止められていて記録の時刻を確かめられないまま終わった1件も、流しきったものとして記録させる
+    recordVisitIfDue(playback, now)
     playback = null
     sound.stop()
     startNext()
@@ -1295,6 +1360,7 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
     // 描画が間引かれていても、音を止めて次へ進めるよう、ここでも終わりを確かめる
     finishIfDone(now)
     if (playback === null) return
+    recordVisitIfDue(playback, now)
     for (const cue of dueSoundCues(playback, now, played)) {
       played.add(cue.id)
       sound.play(cue)

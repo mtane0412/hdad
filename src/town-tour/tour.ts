@@ -3,7 +3,8 @@
  *
  * 素材は2つのものを Worker から受け取る。
  * - 呼び出し: トリガー（レイド・キーワード）や試し再生で、AlertChannel から WebSocket で押し出される。市町村と冒頭の一文と、
- *   演出で鳴らす音（sound.ts）と、着地で大きさの文（scale.ts）にする人口・面積・いま見ている人数を持つ
+ *   演出で鳴らす音（sound.ts）と、着地で大きさの文（scale.ts）にする人口・面積・いま見ている人数と、
+ *   全国制覇マップ（conquest.ts。issue #252）にするこれまでに紹介した市町村と、流しきったら記録するきっかけを持つ
  *   （worker/town-tour-call.ts の TownTourCall と同じ形）
  * - クイズの最初の正解者: チャットで最初に正解した人が決まると、呼び出しと同じ接続へ type: answer を持つ形で押し出される
  *   （worker/town-tour-call.ts の TownTourAnswerMessage と同じ形。issue #251）
@@ -41,6 +42,16 @@ export interface TownTourCall {
   readonly area: number
   /** 人口と比べる、いま見ている人数。分からない（配信中でない）ときは null */
   readonly audience: TownTourAudience | null
+  /** これまでに紹介した市町村のコード（制覇マップに塗る） */
+  readonly visited: readonly string[]
+  /** 流しきったら記録するきっかけと、冒頭で名前を出した相手。試し再生は記録しないので null */
+  readonly visit: TownTourVisit | null
+}
+
+/** 流しきったら記録するきっかけ（レイドかキーワード）と相手（worker/town-tour-visits.ts の TownTourVisit からコードを除いたもの） */
+export interface TownTourVisit {
+  readonly occasion: 'raid' | 'keyword'
+  readonly userName: string
 }
 
 /** 大見出しを支える1項目（worker/town-tour.ts の TownTourPoint と同じ形） */
@@ -112,6 +123,26 @@ const readScale = (body: Record<string, unknown>): Pick<TownTourCall, 'populatio
   return { population, area, audience: readAudience(body.audience) }
 }
 
+/** 記録するきっかけとして読むもの */
+const VISIT_OCCASIONS: readonly string[] = ['raid', 'keyword'] satisfies TownTourVisit['occasion'][]
+
+/**
+ * これまでに紹介した市町村と、流しきったら記録するきっかけを読む（null は試し再生で、記録しないことを表すのでそのまま通す）
+ *
+ * @throws 紹介した市町村がコード（文字列）の並びでない・記録するきっかけの形が違うとき
+ */
+const readConquest = (body: Record<string, unknown>): Pick<TownTourCall, 'visited' | 'visit'> => {
+  const { visited, visit } = body
+  if (!Array.isArray(visited) || !visited.every((code): code is string => typeof code === 'string')) {
+    throw new Error('押し出された市町村紹介に、これまでに紹介した市町村がありません')
+  }
+  if (visit === null) return { visited, visit: null }
+  if (!isRecord(visit) || typeof visit.userName !== 'string' || typeof visit.occasion !== 'string' || !VISIT_OCCASIONS.includes(visit.occasion)) {
+    throw new Error('押し出された市町村紹介の、記録するきっかけが想定した形ではありません')
+  }
+  return { visited, visit: { occasion: visit.occasion === 'raid' ? 'raid' : 'keyword', userName: visit.userName } }
+}
+
 /**
  * WebSocket で押し出された文字列を、市町村紹介の呼び出しか、クイズの最初の正解者として読む。type が answer なら正解者、
  * type を持たなければ呼び出しとして読む。
@@ -135,7 +166,7 @@ export const parseTownTourMessage = (payload: string): TownTourMessage => {
   const { code, prefecture, county, name, headline, quizId, quizHeadline } = body
   return {
     type: 'call',
-    call: { code, prefecture, county, name, headline, quizId, quizHeadline, sound: readPlaybackSound(body.sound), ...readScale(body) },
+    call: { code, prefecture, county, name, headline, quizId, quizHeadline, sound: readPlaybackSound(body.sound), ...readScale(body), ...readConquest(body) },
   }
 }
 

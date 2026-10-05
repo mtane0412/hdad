@@ -13,7 +13,7 @@ import { describe, expect, it } from 'vitest'
 import { LOADING_DUCK_HOLD_MS, bgmDuckHoldOf } from './bgm-duck'
 import type { TownTourPlaybackSound } from './sound'
 import { QUIZ_MS } from './quiz'
-import { CREDIT_HOLD_MS, CUE_MS, HOOK_MS, POINT_MS, PUNCHLINE_MS, ZOOM_END_MS, type Playback } from './timeline'
+import { CONQUEST_MS, CUE_MS, HOOK_MS, POINT_MS, PUNCHLINE_MS, ZOOM_END_MS, type Playback } from './timeline'
 import type { TownTourCall, TownTourIntro } from './tour'
 
 const STARTED_AT = 1_000_000
@@ -40,6 +40,8 @@ const callWith = (sound: TownTourPlaybackSound): TownTourCall => ({
   population: 14974,
   area: 422.86,
   audience: { kind: 'raid', count: 50 },
+  visited: [],
+  visit: { occasion: 'raid', userName: '山田花子' },
 })
 
 /** 大見出しと項目2つの紹介 */
@@ -58,23 +60,28 @@ const tobetsuIntro: TownTourIntro = {
 /** 誰も正解しなかったクイズ */
 const unansweredQuiz: Playback['quiz'] = { hints: [], answer: null, unopenedAt: null }
 
+/** 当別町で1つめを数えた制覇マップ（音の時刻と下げる長さは、制覇数に左右されない） */
+const firstConquest: Playback['conquest'] = { before: 0, after: 1, total: 1747, visited: new Set(), milestones: [] }
+
 /** 紹介を待っている再生 */
 const loadingPlayback = (sound: TownTourPlaybackSound = bgmOnly): Playback => ({
   call: callWith(sound),
   startedAt: STARTED_AT,
   intro: { status: 'loading' },
   quiz: unansweredQuiz,
+  conquest: firstConquest,
 })
 
-/** 始めてから2秒後に紹介が届いた再生。誰も正解しないままクイズを終え、ズームを終えてから大見出し・項目2つ・振りを流し、出典を残して終わる */
+/** 始めてから2秒後に紹介が届いた再生。誰も正解しないままクイズを終え、ズームを終えてから大見出し・項目2つ・振りを流し、全国制覇マップを出して終わる */
 const readyPlayback: Playback = {
   call: callWith(bgmOnly),
   startedAt: STARTED_AT,
   intro: { status: 'ready', intro: tobetsuIntro, readyAt: STARTED_AT + 2000 },
   quiz: unansweredQuiz,
+  conquest: firstConquest,
 }
 /** 流し終える長さのうち、クイズを終えてからのもの */
-const AFTER_QUIZ = ZOOM_END_MS + HOOK_MS + POINT_MS + PUNCHLINE_MS + CUE_MS + CREDIT_HOLD_MS
+const AFTER_QUIZ = ZOOM_END_MS + HOOK_MS + POINT_MS + PUNCHLINE_MS + CUE_MS + CONQUEST_MS
 const READY_END = STARTED_AT + QUIZ_MS + AFTER_QUIZ
 
 describe('bgmDuckHoldOf', () => {

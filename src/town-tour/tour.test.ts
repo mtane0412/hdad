@@ -25,6 +25,9 @@ const tobetsuCall = {
   population: 14974,
   area: 422.86,
   audience: { kind: 'raid', count: 50 },
+  // これまでに札幌市を紹介済みで、流しきったらレイドとして記録する
+  visited: ['01100'],
+  visit: { occasion: 'raid', userName: '山田花子' },
 }
 
 /** 当別町の紹介 */
@@ -99,6 +102,22 @@ describe('parseTownTourMessage', () => {
   it('見ている人数の形が違えば、補わずに投げる', () => {
     expect(() => parseTownTourMessage(JSON.stringify({ ...tobetsuCall, audience: { kind: 'raid' } }))).toThrow('見ている人数')
     expect(() => parseTownTourMessage(JSON.stringify({ ...tobetsuCall, audience: { kind: 'host', count: 50 } }))).toThrow('見ている人数')
+  })
+
+  it('試し再生の呼び出し（記録するきっかけが null）も読む', () => {
+    const demoCall = { ...tobetsuCall, visit: null }
+
+    expect(parseTownTourMessage(JSON.stringify(demoCall))).toEqual({ type: 'call', call: demoCall })
+  })
+
+  it('これまでに紹介した市町村が欠けているか、コードの並びでなければ、補わずに投げる', () => {
+    expect(() => parseTownTourMessage(JSON.stringify({ ...tobetsuCall, visited: undefined }))).toThrow('紹介した市町村')
+    expect(() => parseTownTourMessage(JSON.stringify({ ...tobetsuCall, visited: [1100] }))).toThrow('紹介した市町村')
+  })
+
+  it('記録するきっかけの形が違えば、補わずに投げる', () => {
+    expect(() => parseTownTourMessage(JSON.stringify({ ...tobetsuCall, visit: undefined }))).toThrow('記録するきっかけ')
+    expect(() => parseTownTourMessage(JSON.stringify({ ...tobetsuCall, visit: { occasion: 'demo', userName: '山田花子' } }))).toThrow('記録するきっかけ')
   })
 })
 

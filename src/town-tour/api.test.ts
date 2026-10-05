@@ -77,6 +77,31 @@ describe('openQuiz', () => {
   })
 })
 
+describe('recordVisit', () => {
+  it('オーバーレイ用キーを付けて、流しきった市町村のコードと、きっかけと相手の名前を送り、記録させる', async () => {
+    const requests: Request[] = []
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      requests.push(new Request(new URL(String(input), 'https://hdad.example.com'), init))
+      return new Response(null, { status: 204 })
+    }) as typeof fetch
+
+    await createTownTourApi(fetchImpl, OVERLAY_KEY).recordVisit('13101', { occasion: 'raid', userName: '山田花子' })
+
+    expect(requests.map((request) => [request.method, new URL(request.url).pathname + new URL(request.url).search])).toEqual([
+      ['POST', `/api/overlay/town-tour/visit?key=${encodeURIComponent(OVERLAY_KEY)}`],
+    ])
+    expect(await requests[0]?.json()).toEqual({ code: '13101', occasion: 'raid', userName: '山田花子' })
+  })
+
+  it('記録できなかったときは、Workerが返した理由ごと投げる', async () => {
+    const { fetchImpl } = createFetchWithResponse(502, { error: { code: 'town-tour-visit-failed', message: '紹介した市町村を記録できませんでした' } })
+
+    await expect(createTownTourApi(fetchImpl, OVERLAY_KEY).recordVisit('13101', { occasion: 'raid', userName: '山田花子' })).rejects.toThrow(
+      '紹介した市町村を記録できませんでした',
+    )
+  })
+})
+
 describe('japanMap', () => {
   it('同梱の日本地図（TopoJSON）を、静的なファイルとして読む', async () => {
     const topology = { type: 'Topology', objects: {}, arcs: [] }

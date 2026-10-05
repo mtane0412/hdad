@@ -29,6 +29,9 @@ export const demoTownTourCall: TownTourCall = {
   population: 69139,
   area: 11.66,
   audience: { kind: 'raid', count: 50 },
+  // 締めの全国制覇マップの見栄えが分かるよう、各地の大きな市を紹介済みにしておく。プレビューは記録しないので、きっかけを置いても記録されない
+  visited: ['01100', '04100', '13104', '23100', '27100', '34100', '40130', '47201'],
+  visit: { occasion: 'raid', userName: '視聴者' },
 }
 
 /** プレビューで流す紹介（Worker が返す形と同じ） */
@@ -48,5 +51,5 @@ export const demoTownTourIntro: TownTourIntro = {
 /** 紹介が届くまでの待ち時間（ミリ秒）。Worker に作らせたときの実測（2.7〜5.1秒）に合わせる */
 export const DEMO_INTRO_DELAY_MS = 3000
 
-/** 次の1件を流しはじめるまでの間隔（ミリ秒）。1件を流し終える長さ（時間切れまでのクイズ15秒と、大見出しと3項目でおよそ52秒）より長くする */
+/** 次の1件を流しはじめるまでの間隔（ミリ秒）。1件を流し終える長さ（時間切れまでのクイズ15秒と、大見出しと3項目と全国制覇マップでおよそ56秒）より長くする */
 export const DEMO_TOWN_TOUR_INTERVAL_MS = 60000
