@@ -16,7 +16,7 @@
  *
  * 紹介を作れなかった再生はその場で終わる。失敗は素材の箱に出す（合成ページの stage.ts が受け持つ）。
  */
-import { QUIZ_HINT_INTERVAL_MS, QUIZ_LABEL, QUIZ_MS, quizQuestionOf, revealLabelOf, revealTextOf } from './quiz'
+import { QUIZ_HINT_INTERVAL_MS, QUIZ_LABEL, QUIZ_MS, QUIZ_UNOPENED_LABEL, quizQuestionOf, revealLabelOf, revealTextOf } from './quiz'
 import { tourLinesOf, type TourLine, type TownTourCall, type TownTourIntro } from './tour'
 
 /** クイズを終えてから、正解（と最初の正解者）を出しておく時間（ミリ秒）。日本全体を映し、寄り始めるところまで重ねる */
@@ -60,6 +60,8 @@ export interface QuizState {
   readonly hints: readonly string[]
   /** 最初の正解者と、それを受け取った時刻（ミリ秒。Date.now() と同じ基準）。まだ届いていなければ null */
   readonly answer: { readonly userName: string; readonly answeredAt: number } | null
+  /** 出題を開けなかった（Worker に断られた・届かなかった）時刻。開けていれば null。答えても届かない問いを出し続けないよう、ここで打ち切る */
+  readonly unopenedAt: number | null
 }
 
 /** 1件の再生 */
@@ -117,11 +119,19 @@ export interface TourSegment {
 
 /**
  * クイズを終える時刻（再生を始めてからのミリ秒）。地図の演出はここから始まる。
- * クイズの長さのうちに最初の正解者が届いていれば届いた時刻、届いていなければクイズの長さいっぱい。
+ * クイズの長さのうちに最初の正解者が届いたか、出題を開けなかったならその時刻、どちらでもなければクイズの長さいっぱい。
  */
 export const quizEndOf = ({ startedAt, quiz }: Playback): number => {
   const answeredAfter = quiz.answer === null ? QUIZ_MS : quiz.answer.answeredAt - startedAt
-  return Math.min(QUIZ_MS, Math.max(0, answeredAfter))
+  const unopenedAfter = quiz.unopenedAt === null ? QUIZ_MS : quiz.unopenedAt - startedAt
+  return Math.min(QUIZ_MS, Math.max(0, Math.min(answeredAfter, unopenedAfter)))
+}
+
+/** 正解の場面の見出し。最初の正解者・出題を開けなかった・時間切れの順に見る */
+const revealLabelFor = ({ startedAt, quiz }: Playback, quizEnd: number): string => {
+  if (quiz.answer !== null && quiz.answer.answeredAt - startedAt <= quizEnd && quizEnd < QUIZ_MS) return revealLabelOf(quiz.answer.userName)
+  if (quiz.unopenedAt !== null && quiz.unopenedAt - startedAt <= quizEnd && quizEnd < QUIZ_MS) return QUIZ_UNOPENED_LABEL
+  return revealLabelOf(null)
 }
 
 /** 紹介が届いた再生の流れ。時刻はどれも再生を始めてからのミリ秒 */
@@ -181,7 +191,6 @@ export const sceneAt = (playback: Playback, now: number): Scene => {
   /** クイズを終えてからの経過時間。地図の演出はこれで決める */
   const sinceQuiz = elapsed - quizEnd
   const inQuiz = sinceQuiz < 0
-  const winner = quiz.answer !== null && quizEnd < QUIZ_MS ? quiz.answer.userName : null
   const base = {
     zoom: easeInOut(clamp01((sinceQuiz - JAPAN_HOLD_MS) / ZOOM_MS)),
     fill: clamp01((sinceQuiz - FILL_START_MS) / (ZOOM_END_MS - FILL_START_MS)),
@@ -193,7 +202,7 @@ export const sceneAt = (playback: Playback, now: number): Scene => {
     reveal:
       inQuiz || sinceQuiz >= REVEAL_MS
         ? null
-        : { label: revealLabelOf(winner), text: revealTextOf(call.prefecture), opacity: fadeWithin(sinceQuiz, REVEAL_MS, ITEM_FADE_MS) },
+        : { label: revealLabelFor(playback, quizEnd), text: revealTextOf(call.prefecture), opacity: fadeWithin(sinceQuiz, REVEAL_MS, ITEM_FADE_MS) },
   }
   const waiting = sinceQuiz >= ZOOM_END_MS
 

@@ -59,7 +59,7 @@ const tobetsuIntro: TownTourIntro = {
 }
 
 /** 誰も正解しなかったクイズ */
-const unansweredQuiz: Playback['quiz'] = { hints: [], answer: null }
+const unansweredQuiz: Playback['quiz'] = { hints: [], answer: null, unopenedAt: null }
 
 /** 正解者が出なかった再生では、クイズの長さいっぱいで日本地図へ移る */
 const MAP_START = QUIZ_MS
@@ -133,7 +133,7 @@ describe('soundCuesOf', () => {
   })
 
   it('チャットで正解が早く出たら、始まり・ズーム・着地の音を、正解が届いた時刻から数える', () => {
-    const answered: Playback = { ...loadingPlayback, quiz: { hints: [], answer: { userName: 'たなか', answeredAt: STARTED_AT + 5000 } } }
+    const answered: Playback = { ...loadingPlayback, quiz: { hints: [], answer: { userName: 'たなか', answeredAt: STARTED_AT + 5000 }, unopenedAt: null } }
 
     expect(soundCuesOf(answered).map((cue) => [cue.id, cue.at])).toEqual([
       ['bgm', 0],

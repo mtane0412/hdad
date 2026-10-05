@@ -24,6 +24,16 @@ describe('answeredPrefectureOf', () => {
     expect(answeredPrefectureOf('答えは鹿児島！')).toBe('鹿児島県')
   })
 
+  it('省いた書き方のすぐ後に普通の言葉が続く発言は、回答とみなさない（「大分むずかしい」の「大分」は大分県ではない）', () => {
+    expect(answeredPrefectureOf('大分むずかしい')).toBeNull()
+    expect(answeredPrefectureOf('山形に見える')).toBeNull()
+  })
+
+  it('省いた書き方のあとに「かな」「？」などの答える言い方が続く発言は、回答とみなす', () => {
+    expect(answeredPrefectureOf('大分かな？')).toBe('大分県')
+    expect(answeredPrefectureOf('山形！')).toBe('山形県')
+  })
+
   it('「東京都」の中の「京都」は京都府と読まない', () => {
     expect(answeredPrefectureOf('東京都だと思う')).toBe('東京都')
   })

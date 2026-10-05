@@ -29,6 +29,9 @@ export const quizQuestionOf = (townName: string): string => `${townName}はど�
 /** 正解の場面の見出し。最初の正解者がいればその名前、いなければ時間切れ */
 export const revealLabelOf = (winner: string | null): string => (winner === null ? '時間切れ！' : `最初の正解: ${winner}さん`)
 
+/** 出題を開けなかった（Worker に断られた・届かなかった）ときの、正解の場面の見出し */
+export const QUIZ_UNOPENED_LABEL = 'クイズを受け付けられませんでした'
+
 /** 正解の場面の文 */
 export const revealTextOf = (prefecture: string): string => `正解は${prefecture}`
 
@@ -98,17 +101,29 @@ const REGIONS: readonly { readonly name: string; readonly lastNumber: number }[]
 /** 名前の末尾の「都・府・県」。北海道の「道」は省くと「北海」になって通じないので省かない */
 const SUFFIX_PATTERN = /[都府県]$/
 
-/** チャットに書かれうる書き方と、それが指す都道府県。長い書き方を先に照らすため、長さの降順に並べておく */
-const SPELLINGS: readonly { readonly text: string; readonly prefecture: string }[] = PREFECTURES.flatMap((prefecture) => {
+/** チャットに書かれうる書き方と、それが指す都道府県。short は「都・府・県」を省いた書き方。長い書き方を先に照らすため、長さの降順に並べておく */
+const SPELLINGS: readonly { readonly text: string; readonly prefecture: string; readonly short: boolean }[] = PREFECTURES.flatMap((prefecture) => {
   const short = prefecture.replace(SUFFIX_PATTERN, '')
-  return short === prefecture ? [{ text: prefecture, prefecture }] : [{ text: prefecture, prefecture }, { text: short, prefecture }]
+  const full = { text: prefecture, prefecture, short: false }
+  return short === prefecture ? [full] : [full, { text: short, prefecture, short: true }]
 }).sort((a, b) => b.text.length - a.text.length)
+
+/**
+ * 省いた書き方のすぐ後に続いてよいもの（答える言い方・句読点・記号。「か」「と」は「岩手か宮城」のように並べた回答を2つと数えるため）。これ以外のひらがなや漢字が続けば、普通の言葉の一部とみなす
+ * （「大分むずかしい」の「大分」・「山形に見える」の「山形」を回答と読まないため）。
+ */
+const ANSWER_ENDING_PATTERN = /^(?:$|[\s、。，．,.！？!?…ー〜~wｗ笑]|か|と|だ|です|でしょ|じゃ|や[ろね]|っしょ|と思)/
+
+/** 書き方 spelling が text の index で、回答として書かれているか。正式な名前はどこにあってもよく、省いた書き方は続く言葉を見る */
+const isAnswerAt = (text: string, index: number, spelling: (typeof SPELLINGS)[number]): boolean =>
+  text.startsWith(spelling.text, index) && (!spelling.short || ANSWER_ENDING_PATTERN.test(text.slice(index + spelling.text.length)))
 
 /**
  * チャットの発言から、答えた都道府県を読み取る。
  *
  * 発言を先頭から見ていき、それぞれの位置でいちばん長く当てはまる書き方を取って、その分だけ先へ進む。
  * こうすると「東京都」は「東京都」として読まれ、中の「京都」を京都府と読まない。
+ * 「都・府・県」を省いた書き方は、すぐ後に答える言い方（「かな」「？」など）か発言の終わりが続くときだけ数える。
  *
  * @returns 答えた都道府県（正式な名前）。都道府県が書かれていない・2つ以上の都道府県を挙げた発言は null（回答とみなさない）
  */
@@ -116,7 +131,7 @@ export const answeredPrefectureOf = (text: string): string | null => {
   const found = new Set<string>()
   let index = 0
   while (index < text.length) {
-    const spelling = SPELLINGS.find((candidate) => text.startsWith(candidate.text, index))
+    const spelling = SPELLINGS.find((candidate) => isAnswerAt(text, index, candidate))
     if (spelling === undefined) {
       index += 1
       continue

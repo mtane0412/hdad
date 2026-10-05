@@ -1204,10 +1204,20 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
     clearError(box, 'read')
     played = new Set()
     const startedAt = Date.now()
-    playback = { call, startedAt, intro: { status: 'loading' }, quiz: { hints: quizHintsOf(quizClueOf(call.code, townBorders)), answer: null } }
+    playback = { call, startedAt, intro: { status: 'loading' }, quiz: { hints: quizHintsOf(quizClueOf(call.code, townBorders)), answer: null, unopenedAt: null } }
     /** いま流しているのが、この呼び出しの再生か（正解者が届くと再生を作り直すので、同じものかではなく呼び出しと始めた時刻で見る） */
     const current = (): Playback | null => (playback !== null && playback.call === call && playback.startedAt === startedAt ? playback : null)
-    if (!demo) api.openQuiz(call.quizId, call.code).catch((error: unknown) => showError(error, NOUNS.townTour, box, 'read'))
+    if (!demo) {
+      api.openQuiz(call.quizId, call.code).catch((error: unknown) => {
+        showError(error, NOUNS.townTour, box, 'read')
+        // 答えても届かない問いを出し続けないよう、まだクイズの最中ならその場で打ち切る
+        const target = current()
+        const now = Date.now()
+        if (target === null || target.quiz.answer !== null || now - target.startedAt >= QUIZ_MS) return
+        playback = { ...target, quiz: { ...target.quiz, unopenedAt: now } }
+        duckStreamBgm(playback)
+      })
+    }
     const introduce = demo
       ? new Promise<typeof demoTownTourIntro>((resolve) => window.setTimeout(() => resolve(demoTownTourIntro), DEMO_INTRO_DELAY_MS))
       : api.introduce(call.code)
@@ -1236,7 +1246,14 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
     const [next, ...rest] = waiting
     if (renderer === null || borders === null || playback !== null || next === undefined) return
     waiting = rest
-    start(next, borders)
+    try {
+      start(next, borders)
+    } catch (error) {
+      // 想定外の呼び出しで1件が黙って消えないよう、失敗を箱に出して次の1件へ進む
+      playback = null
+      showError(error, NOUNS.townTour, box, 'read')
+      startNext()
+    }
   }
 
   /**

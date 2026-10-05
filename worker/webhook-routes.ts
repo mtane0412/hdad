@@ -258,14 +258,25 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
  * 発言に都道府県が1つだけ書かれていれば、受け付けている出題と照らし、最初の正解者なら合成ページへ押し出す
  * （worker/town-tour-quiz.ts。2人目以降と、時間切れの後の回答は押し出さない）。
  *
- * 注意: 押し出しの失敗は投げる。正解者はもう記録されているので、Twitch が再送しても二度は押し出さない
- * （画面に正解者が出ないだけで、時間切れの扱いで紹介は続く）。
+ * 注意: 照らし合わせ（D1）と押し出しの失敗は投げずに、失敗の記録（town-tour-quiz-failed）に残して続ける。
+ * 投げると Twitch へ2xx以外を返して再送させ、作業机のコマンドやコマンドの応答まで止めてしまうためである
+ * （マイグレーション 0026 を適用する前にも起きる）。正解者は押し出す前に記録されているので、押し出しに失敗した正解者は
+ * 画面に出ず、時間切れの扱いで紹介は続く。
  */
 const answerTownTourQuizFromChat = async (context: Context, message: ChatMessage): Promise<void> => {
   const prefecture = answeredPrefectureOf(message.text)
   if (prefecture === null) return
-  const quizIds = await answerTownTourQuiz(context.env.DB, { prefecture, userName: message.chatterUserName }, context.now)
-  for (const quizId of quizIds) await pushTownTourAnswer(context.env.ALERTS, { quizId, userName: message.chatterUserName })
+  try {
+    const quizIds = await answerTownTourQuiz(context.env.DB, { prefecture, userName: message.chatterUserName }, context.now)
+    for (const quizId of quizIds) await pushTownTourAnswer(context.env.ALERTS, { quizId, userName: message.chatterUserName })
+  } catch (error) {
+    await recordFailure(
+      context.env.DB,
+      'town-tour-quiz-failed',
+      `市町村紹介のクイズの回答（${message.chatterUserName}さん: ${prefecture}）を照らせませんでした: ${error instanceof Error ? error.message : String(error)}`,
+      context.now,
+    )
+  }
 }
 
 /**

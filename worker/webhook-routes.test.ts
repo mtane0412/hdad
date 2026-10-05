@@ -1787,6 +1787,28 @@ describe('市町村紹介の都道府県当てクイズの回答（issue #251）
     expect(alertChannel.pushedTownTourAnswers).toEqual([])
   })
 
+  it('クイズの照らし合わせに失敗しても、Twitchへは2xxを返して失敗として記録し、ほかの処理を止めない', async () => {
+    const { env, db, alertChannel } = createEnv()
+    // マイグレーション 0026 を適用する前を再現する
+    db.sqlite.exec('DROP TABLE town_tour_quizzes')
+
+    const response = await callWebhook(createNotification({ body: chatFrom('たなか', '11111', '北海道', 'chat-1'), messageId: 'notification-1' }), env)
+
+    expect(response.status).toBe(204)
+    expect(alertChannel.pushedTownTourAnswers).toEqual([])
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'town-tour-quiz-failed' }])
+  })
+
+  it('正解者を合成ページへ押し出せなくても、Twitchへは2xxを返して失敗として記録する', async () => {
+    const { env, db } = createEnv({ channelShouldFail: true })
+    await openTownTourQuiz(db, tobetsuQuiz, NOW - 3000)
+
+    const response = await callWebhook(createNotification({ body: chatFrom('たなか', '11111', '北海道', 'chat-1'), messageId: 'notification-1' }), env)
+
+    expect(response.status).toBe(204)
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'town-tour-quiz-failed' }])
+  })
+
   it('出題していなければ、都道府県を書いた発言でも何も押し出さない', async () => {
     const { env, alertChannel } = createEnv()
 

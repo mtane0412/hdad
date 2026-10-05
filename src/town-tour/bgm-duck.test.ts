@@ -56,7 +56,7 @@ const tobetsuIntro: TownTourIntro = {
 }
 
 /** 誰も正解しなかったクイズ */
-const unansweredQuiz: Playback['quiz'] = { hints: [], answer: null }
+const unansweredQuiz: Playback['quiz'] = { hints: [], answer: null, unopenedAt: null }
 
 /** 紹介を待っている再生 */
 const loadingPlayback = (sound: TownTourPlaybackSound = bgmOnly): Playback => ({
@@ -79,7 +79,7 @@ const READY_END = STARTED_AT + QUIZ_MS + AFTER_QUIZ
 
 describe('bgmDuckHoldOf', () => {
   it('クイズで正解が早く出たら、そのぶん早い再生の終わりまで下げる', () => {
-    const answered: Playback = { ...readyPlayback, quiz: { hints: [], answer: { userName: 'たなか', answeredAt: STARTED_AT + 5000 } } }
+    const answered: Playback = { ...readyPlayback, quiz: { hints: [], answer: { userName: 'たなか', answeredAt: STARTED_AT + 5000 }, unopenedAt: null } }
 
     expect(bgmDuckHoldOf(answered, STARTED_AT + 5000)).toBe(AFTER_QUIZ)
   })

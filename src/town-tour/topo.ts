@@ -150,7 +150,9 @@ export interface TownBorders {
 /** 点の列が囲む面積（符号付き。向きによって符号が変わる） */
 const signedAreaOf = (points: readonly Point[]): number =>
   points.reduce((sum, [x1, y1], index) => {
-    const [x2, y2] = points[(index + 1) % points.length] ?? [x1, y1]
+    const next = points[(index + 1) % points.length]
+    if (next === undefined) throw new Error('面積を求める点の列が途中で欠けています')
+    const [x2, y2] = next
     return sum + x1 * y2 - x2 * y1
   }, 0) / 2
 
@@ -170,8 +172,10 @@ const pointKeyOf = ([x, y]: Point): string => `${x},${y}`
  * @throws 点を1つも持たない弧の場合
  */
 const endKeyOf = (index: number, arcs: readonly Point[][], end: 'start' | 'end'): string => {
-  const points = directedPointsOf(index, arcs)
-  const point = end === 'start' ? points[0] : points.at(-1)
+  const arc = arcs[index < 0 ? ~index : index]
+  if (arc === undefined) throw new Error(`日本地図に無い弧の番号を指しています: ${index}`)
+  // 負の番号は逆向きにたどるので、始点と終点が入れ替わる（弧を複製して逆順にはしない）
+  const point = (end === 'start') === index >= 0 ? arc[0] : arc.at(-1)
   if (point === undefined) throw new Error(`日本地図に、点を持たない弧があります: ${index}`)
   return pointKeyOf(point)
 }

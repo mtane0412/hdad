@@ -222,9 +222,14 @@ const drawQuizPanel = (ctx: CanvasRenderingContext2D, width: number, height: num
   const padding = SIZES.panelPadding * unit
   const top = height * PANEL_TOP
   const labelHeight = SIZES.labelFont * unit + padding / 2
-  const questionHeight = SIZES.itemLineHeight * unit
+  const questionLineHeight = SIZES.itemLineHeight * unit
   const hintHeight = SIZES.scaleLineHeight * unit
+  const questionFont = `bold ${SIZES.itemFont * unit}px ${FONT_FAMILY}`
   ctx.save()
+  // 問いは市町村の名前の長さで伸びるので、ほかの場面と同じく折り返す
+  ctx.font = questionFont
+  const questionLines = wrapText(quiz.question, width * TEXT_WIDTH, (text) => ctx.measureText(text).width).slice(0, MAX_ITEM_LINES)
+  const questionHeight = questionLineHeight * questionLines.length
   ctx.fillStyle = COLORS.band
   ctx.fillRect(0, top, width, padding * 2 + labelHeight + questionHeight + hintHeight * quiz.hints.length)
   ctx.textAlign = 'center'
@@ -232,9 +237,9 @@ const drawQuizPanel = (ctx: CanvasRenderingContext2D, width: number, height: num
   ctx.font = `bold ${SIZES.labelFont * unit}px ${FONT_FAMILY}`
   ctx.fillStyle = COLORS.label
   ctx.fillText(quiz.label, width / 2, top + padding)
-  ctx.font = `bold ${SIZES.itemFont * unit}px ${FONT_FAMILY}`
+  ctx.font = questionFont
   ctx.fillStyle = COLORS.text
-  ctx.fillText(quiz.question, width / 2, top + padding + labelHeight, width * TEXT_WIDTH)
+  drawLines(ctx, questionLines, width / 2, top + padding + labelHeight, questionLineHeight)
   ctx.font = `bold ${SIZES.scaleFont * unit}px ${FONT_FAMILY}`
   ctx.fillStyle = COLORS.label
   quiz.hints.forEach((hint, index) => {

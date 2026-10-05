@@ -66,7 +66,7 @@ const tobetsuIntro: TownTourIntro = {
 const tobetsuHints = ['海に面していません', '北海道地方にあります', '陸で接する都道府県はありません']
 
 /** 誰も正解しなかったクイズ */
-const unansweredQuiz: Playback['quiz'] = { hints: tobetsuHints, answer: null }
+const unansweredQuiz: Playback['quiz'] = { hints: tobetsuHints, answer: null, unopenedAt: null }
 
 /** 正解者が出なかった再生では、クイズの長さいっぱいで日本地図へ移る */
 const MAP_START = QUIZ_MS
@@ -84,7 +84,7 @@ const loadingPlayback: Playback = { call: tobetsuCall, startedAt: STARTED_AT, in
 /** 再生を始めてから answeredAfterMs ミリ秒後に「たなか」さんが正解した再生（紹介は始めた時点で届いている） */
 const answeredPlayback = (answeredAfterMs: number): Playback => ({
   ...readyPlayback(0),
-  quiz: { hints: tobetsuHints, answer: { userName: 'たなか', answeredAt: STARTED_AT + answeredAfterMs } },
+  quiz: { hints: tobetsuHints, answer: { userName: 'たなか', answeredAt: STARTED_AT + answeredAfterMs }, unopenedAt: null },
 })
 
 describe('sceneAt のクイズ', () => {
@@ -119,6 +119,15 @@ describe('sceneAt のクイズ', () => {
     expect(sceneAt(answeredPlayback(5000), STARTED_AT + 5000 + 1)).toMatchObject({
       quiz: null,
       reveal: { label: '最初の正解: たなかさん', text: '正解は北海道' },
+    })
+  })
+
+  it('出題を開けなかったら、その時点でクイズを打ち切り、受け付けられなかった旨と正解を出す（答えても届かない問いを出し続けない）', () => {
+    const unopened: Playback = { ...loadingPlayback, quiz: { hints: tobetsuHints, answer: null, unopenedAt: STARTED_AT + 800 } }
+
+    expect(sceneAt(unopened, STARTED_AT + 1000)).toMatchObject({
+      quiz: null,
+      reveal: { label: 'クイズを受け付けられませんでした', text: '正解は北海道' },
     })
   })
 
