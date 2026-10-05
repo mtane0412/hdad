@@ -140,8 +140,23 @@ describe('fetchTownArticle', () => {
       title: '府中市 (広島県)',
       url: 'https://ja.wikipedia.org/wiki/%E5%BA%9C%E4%B8%AD%E5%B8%82_(%E5%BA%83%E5%B3%B6%E7%9C%8C)',
       extract: '府中市は、広島県の南東部に位置する市。',
+      image: null,
     })
     expect(new URL(String(urls[0])).searchParams.get('titles')).toBe('府中市 (広島県)')
+  })
+
+  it('記事に代表画像があれば、本文と同じ問い合わせでファイル名も受け取る', async () => {
+    const { fetchImpl, urls } = fakeWikipedia({
+      query: { pages: [{ pageid: 1, title: '府中市 (広島県)', extract: '府中市は、広島県の南東部に位置する市。', pageimage: 'Fuchu_Hiroshima_view.jpg' }] },
+    })
+
+    const article = await fetchTownArticle(fetchImpl, '府中市 (広島県)')
+
+    expect(article.image).toBe('Fuchu_Hiroshima_view.jpg')
+    // 自由なライセンスの画像だけを代表画像として受け取る
+    const params = new URL(String(urls[0])).searchParams
+    expect(params.get('prop')).toBe('extracts|pageimages')
+    expect(params.get('pilicense')).toBe('free')
   })
 
   it('記事が転送されていたら、転送先の記事名で出典の URL を作る', async () => {

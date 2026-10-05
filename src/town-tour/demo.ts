@@ -48,13 +48,19 @@ export const demoTownTourIntro: TownTourIntro = {
     ],
     cue: '千代田区で働いたことはありますか？',
   },
+  // 記事「千代田区」の代表画像（国会議事堂）。画像の場面の見栄えが分かるよう、Worker が返すのと同じ作者とライセンスを置いておく
+  image: {
+    url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/16/National_Diet_Building_02.jpg/1280px-National_Diet_Building_02.jpg',
+    artist: 'Kakidai',
+    license: 'CC BY-SA 4.0',
+  },
 }
 
 /** 紹介が届くまでの待ち時間（ミリ秒）。Worker に作らせたときの実測（2.7〜5.1秒）に合わせる */
 export const DEMO_INTRO_DELAY_MS = 3000
 
 /**
- * 次の1件を流しはじめるまでの間隔（ミリ秒）。1件を流し終える長さ（時間切れまでのクイズ15秒と、大見出しと3項目と全国制覇マップと
- * 認定証でおよそ64秒）より長くする
+ * 次の1件を流しはじめるまでの間隔（ミリ秒）。1件を流し終える長さ（時間切れまでのクイズ15秒と、代表画像と大見出しと3項目と
+ * 全国制覇マップと認定証でおよそ70秒）より長くする
  */
-export const DEMO_TOWN_TOUR_INTERVAL_MS = 70000
+export const DEMO_TOWN_TOUR_INTERVAL_MS = 75000

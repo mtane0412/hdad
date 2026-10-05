@@ -84,12 +84,13 @@ import { TOWN_TOUR_SOCKET_HINT, TOWN_TOUR_SOCKET_PATH, createTownTourApi } from 
 import { bgmDuckHoldOf } from '../town-tour/bgm-duck'
 import { DEMO_INTRO_DELAY_MS, DEMO_TOWN_TOUR_INTERVAL_MS, demoTownTourCall, demoTownTourIntro } from '../town-tour/demo'
 import { BGM_START_CUE_ID, dueSoundCues } from '../town-tour/sound-cues'
+import { loadTownTourImage } from '../town-tour/image-loader'
 import { createTownTourSoundPlayer } from '../town-tour/sound-player'
 import { QUIZ_MS, quizClueOf, quizHintsOf } from '../town-tour/quiz'
 import { conquestOf } from '../town-tour/conquest'
 import { sceneAt, visitRecordAtOf, type Playback } from '../town-tour/timeline'
 import { decodeTownBorders, decodeTownShapes, type TownBorders } from '../town-tour/topo'
-import { parseTownTourMessage, type TownTourCall } from '../town-tour/tour'
+import { parseTownTourMessage, type TownTourCall, type TownTourIntro } from '../town-tour/tour'
 import { createTownTourRenderer, type TownTourRenderer } from '../town-tour/view'
 import { backgrounds } from '../wallpaper/registry'
 import { WORK_LOG_SOCKET_HINT, WORK_LOG_SOCKET_PATH, createWorkLogApi } from '../work-log/api'
@@ -1185,6 +1186,8 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
   let borders: TownBorders | null = null
   /** 流している1件。流していなければ null */
   let playback: Playback | null = null
+  /** 流している1件の、読み込み終えた代表画像。画像の無い紹介・まだ届いていなければ null（issue #254） */
+  let image: HTMLImageElement | null = null
   /** 流すのを待っている呼び出し（届いた順） */
   let waiting: readonly TownTourCall[] = []
   /** 流している1件で鳴らした音の id（sound-cues.ts の SoundCue.id） */
@@ -1221,6 +1224,7 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
     clearError(box, 'read')
     played = new Set()
     visitSent = false
+    image = null
     const startedAt = Date.now()
     playback = {
       call,
@@ -1245,10 +1249,24 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
     const introduce = demo
       ? new Promise<typeof demoTownTourIntro>((resolve) => window.setTimeout(() => resolve(demoTownTourIntro), DEMO_INTRO_DELAY_MS))
       : api.introduce(call.code)
-    introduce.then(
-      (intro) => {
+    /**
+     * 代表画像のある紹介なら、画像の場面の前に画像を読み込んでおく。読み込めなければ失敗を箱に出し、
+     * 画像を外した紹介にして流す（画像の場面を飛ばす。issue #254）
+     */
+    const withImage = async (intro: TownTourIntro): Promise<{ intro: TownTourIntro; loaded: HTMLImageElement | null }> => {
+      if (intro.image === null) return { intro, loaded: null }
+      try {
+        return { intro, loaded: await loadTownTourImage(intro.image.url) }
+      } catch (error) {
+        if (current() !== null) showError(error, NOUNS.townTour, box, 'read')
+        return { intro: { ...intro, image: null }, loaded: null }
+      }
+    }
+    introduce.then(withImage).then(
+      ({ intro, loaded }) => {
         const target = current()
         if (target === null) return
+        image = loaded
         playback = { ...target, intro: { status: 'ready', intro, readyAt: Date.now() } }
         // 終わりが決まったので、配信のBGMを下げておく長さを再生の終わりまでに送り直す
         duckStreamBgm(playback)
@@ -1372,7 +1390,7 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
     if (renderer === null) return
     const now = Date.now()
     finishIfDone(now)
-    renderer.render(ctx, width, height, playback === null ? null : { playback, scene: sceneAt(playback, now) })
+    renderer.render(ctx, width, height, playback === null ? null : { playback, scene: sceneAt(playback, now), image })
   })
 
   if (demo) {

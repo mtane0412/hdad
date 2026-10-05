@@ -44,6 +44,14 @@ const tobetsuIntro = {
     ],
     cue: '北欧、行ってみたいですか？',
   },
+  image: null,
+}
+
+/** 当別町の代表画像（作者とライセンス付き） */
+const tobetsuImage = {
+  url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Tobetsu_Sweden_Hills.jpg/1280px-Tobetsu_Sweden_Hills.jpg',
+  artist: '当別の写真家',
+  license: 'CC BY-SA 4.0',
 }
 
 describe('parseTownTourMessage', () => {
@@ -141,7 +149,17 @@ describe('readTownTourIntro', () => {
     expect(readTownTourIntro(tobetsuIntro)).toEqual({
       article: tobetsuIntro.article,
       tour: tobetsuIntro.tour,
+      image: null,
     })
+  })
+
+  it('代表画像があれば、画像の URL・作者・ライセンスも読む（issue #254）', () => {
+    expect(readTownTourIntro({ ...tobetsuIntro, image: tobetsuImage }).image).toEqual(tobetsuImage)
+  })
+
+  it('代表画像の欄が無い・ライセンスが欠けていれば、補わずに投げる（作者とライセンスを出さずに画像を出さないため）', () => {
+    expect(() => readTownTourIntro({ ...tobetsuIntro, image: undefined })).toThrow('画像')
+    expect(() => readTownTourIntro({ ...tobetsuIntro, image: { ...tobetsuImage, license: undefined } })).toThrow('画像')
   })
 
   it('大見出しが空の紹介（材料が薄い町）も読む', () => {

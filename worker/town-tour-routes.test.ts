@@ -70,30 +70,56 @@ const createEnv = (aiResponse: string, alertChannel = createFakeAlertChannel()) 
     AI: createFakeWorkersAi({ response: aiResponse }),
   }) satisfies Env
 
-/** Wikipedia の API だけに答える通信の代役。渡された URL を控える */
-const fakeWikipedia = (body: unknown) => {
+/**
+ * Wikipedia の API だけに答える通信の代役。渡された URL を控える。
+ * 記事の本文の問い合わせには body を、代表画像の情報（prop=imageinfo）の問い合わせには imageInfo を返す
+ */
+const fakeWikipedia = (body: unknown, imageInfo: { body: unknown; status: number } | null = null) => {
   const urls: URL[] = []
   const fetchImpl: typeof fetch = async (input) => {
     const url = new URL(String(input))
     if (url.hostname !== 'ja.wikipedia.org') throw new Error(`テストで想定していない通信です: ${url.href}`)
     urls.push(url)
-    return Response.json(body)
+    if (url.searchParams.get('prop') !== 'imageinfo') return Response.json(body)
+    if (imageInfo === null) throw new Error('このテストでは代表画像の情報を問い合わせません')
+    return Response.json(imageInfo.body, { status: imageInfo.status })
   }
   return { fetchImpl, urls }
 }
 
-/** 府中市 (広島県) の記事を返す Wikipedia の応答 */
-const fuchuArticle = {
+/** 代表画像のある府中市 (広島県) の記事を返す Wikipedia の応答 */
+const fuchuArticleWithImage = {
+  query: { pages: [{ ...fuchuArticleOf(), pageimage: 'Fuchu_Hiroshima_view.jpg' }] },
+}
+
+/** 府中市 (広島県) の代表画像の情報（作者とライセンス）を返す Wikipedia の応答 */
+const fuchuImageInfo = {
   query: {
     pages: [
       {
-        pageid: 1,
-        title: '府中市 (広島県)',
-        extract: ['府中市は、広島県の南東部に位置する市。', '== 名物 ==', '府中味噌 - およそ400年の歴史を持つ味噌。'].join('\n'),
+        title: 'ファイル:Fuchu_Hiroshima_view.jpg',
+        imageinfo: [
+          {
+            thumburl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Fuchu_Hiroshima_view.jpg/1280px-Fuchu_Hiroshima_view.jpg',
+            extmetadata: { License: { value: 'cc-by-sa-4.0' }, LicenseShortName: { value: 'CC BY-SA 4.0' }, Artist: { value: '府中の写真家' } },
+          },
+        ],
       },
     ],
   },
 }
+
+/** 府中市 (広島県) の記事の1ページぶん（代表画像なし） */
+function fuchuArticleOf() {
+  return {
+    pageid: 1,
+    title: '府中市 (広島県)',
+    extract: ['府中市は、広島県の南東部に位置する市。', '== 名物 ==', '府中味噌 - およそ400年の歴史を持つ味噌。'].join('\n'),
+  }
+}
+
+/** 府中市 (広島県) の記事を返す Wikipedia の応答（代表画像なし） */
+const fuchuArticle = { query: { pages: [fuchuArticleOf()] } }
 
 const invoke = (path: string, env: Env, fetchImpl: typeof fetch, init: RequestInit = {}) =>
   handleRequest(new Request(`${site}${path}`, init), env, {
@@ -138,9 +164,38 @@ describe('GET /api/overlay/town-tour', () => {
       name: '府中市',
       article: { title: '府中市 (広島県)', url: 'https://ja.wikipedia.org/wiki/%E5%BA%9C%E4%B8%AD%E5%B8%82_(%E5%BA%83%E5%B3%B6%E7%9C%8C)' },
       tour: fuchuTour,
+      image: null,
     })
-    // 名前（府中市）ではなく、コードから引いた記事名で取りに行く
+    // 名前（府中市）ではなく、コードから引いた記事名で取りに行く。代表画像が無いので画像の情報は問い合わせない
     expect(urls.map((url) => url.searchParams.get('titles'))).toEqual(['府中市 (広島県)'])
+  })
+
+  it('記事に代表画像があれば、作者とライセンスを取って紹介と一緒に返す', async () => {
+    const { fetchImpl, urls } = fakeWikipedia(fuchuArticleWithImage, { body: fuchuImageInfo, status: 200 })
+
+    const response = await invoke(`/api/overlay/town-tour?key=${overlayKey}&code=${FUCHU_HIROSHIMA}`, createEnv(JSON.stringify(fuchuTour)), fetchImpl)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      tour: fuchuTour,
+      image: {
+        url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Fuchu_Hiroshima_view.jpg/1280px-Fuchu_Hiroshima_view.jpg',
+        artist: '府中の写真家',
+        license: 'CC BY-SA 4.0',
+      },
+    })
+    expect(urls.map((url) => url.searchParams.get('titles'))).toEqual(['府中市 (広島県)', 'File:Fuchu_Hiroshima_view.jpg'])
+  })
+
+  it('代表画像の情報が取れなければ 502 で理由を返し、失敗の記録に残す', async () => {
+    const env = createEnv(JSON.stringify(fuchuTour))
+    const { fetchImpl } = fakeWikipedia(fuchuArticleWithImage, { body: { error: '混み合っています' }, status: 503 })
+
+    const response = await invoke(`/api/overlay/town-tour?key=${overlayKey}&code=${FUCHU_HIROSHIMA}`, env, fetchImpl)
+
+    expect(response.status).toBe(502)
+    expect(await response.json()).toMatchObject({ error: { code: 'town-tour-failed', message: expect.stringContaining('Fuchu_Hiroshima_view.jpg') } })
+    expect(await listFailures(env.DB)).toEqual([expect.objectContaining({ code: 'town-tour-failed' })])
   })
 
   it('記事が取れなければ 502 で理由を返し、失敗の記録に残す', async () => {

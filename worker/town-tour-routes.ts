@@ -11,6 +11,7 @@
  *
  * 合成ページの素材（issue #229）が、レイドで引いた市町村のコードを渡して呼ぶ。Worker はコードから記事名を引き
  * （src/town-tour/articles.json）、Wikipedia の記事を材料に LLM に紹介を作らせ、出典の URL と一緒に返す。
+ * 記事に出せる代表画像があれば、作者とライセンスも添えて返す（出せる画像が無ければ image は null。issue #254）。
  *
  * 紹介は貯めずにその都度作る。待ち時間は合成ページが日本地図の演出のあいだに吸収する（経緯は docs/decisions/town-tour.md）。
  * Twitch の Webhook の中で作らないのは、Free プランの waitUntil が30秒で打ち切られ、LLM の待ち時間の上限（60秒）に足りないためである。
@@ -33,6 +34,7 @@ import { openTownTourQuiz } from './town-tour-quiz'
 import { listTownTourVisits, recordTownTourVisit, type TownTourVisitOccasion } from './town-tour-visits'
 import { pickTown, townTourCallOf } from './town-tour-call'
 import { loadTownTourSound, parseTownTourSound, playbackSoundOf, saveTownTourSound } from './town-tour-sound'
+import { fetchTownImage } from './town-image'
 import { fetchTownArticle, pickTownMaterial } from './town-wikipedia'
 
 /** コードから記事名を引く表。JSON のキーは文字列なので Map に移しておき、プロトタイプのキー（toString など）に当たらないようにする */
@@ -50,13 +52,17 @@ export const getTownTour = async (context: Context): Promise<Response> => {
 
   try {
     const article = await fetchTownArticle(context.fetch, title)
-    const tour = await generateTownTour(context.llm, {
-      prefecture: town.prefecture,
-      county: town.county,
-      name: town.name,
-      material: pickTownMaterial(article.extract),
-    })
-    return Response.json({ ...town, article: { title: article.title, url: article.url }, tour })
+    // 代表画像の情報は紹介と関わりがないので、LLM の待ち時間のあいだに取る（issue #254）
+    const [tour, image] = await Promise.all([
+      generateTownTour(context.llm, {
+        prefecture: town.prefecture,
+        county: town.county,
+        name: town.name,
+        material: pickTownMaterial(article.extract),
+      }),
+      article.image === null ? null : fetchTownImage(context.fetch, article.image),
+    ])
+    return Response.json({ ...town, article: { title: article.title, url: article.url }, tour, image })
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
     // 記録に失敗しても、紹介を作れなかった理由を記録の失敗で置き換えない。記録の失敗も黙って捨てず、応答の理由に添える

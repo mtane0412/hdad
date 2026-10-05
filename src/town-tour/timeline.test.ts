@@ -23,12 +23,14 @@ import {
   CUE_MS,
   HOOK_MS,
   HOOK_TEASE_MS,
+  IMAGE_MS,
   JAPAN_HOLD_MS,
   POINT_MS,
   PUNCHLINE_MS,
   REVEAL_MS,
   ZOOM_END_MS,
   sceneAt,
+  tourSpanOf,
   visitRecordAtOf,
   type Playback,
 } from './timeline'
@@ -70,6 +72,17 @@ const tobetsuIntro: TownTourIntro = {
       { label: '名物', text: '当別米が名物です。' },
     ],
     cue: '当別米、食べたことありますか？',
+  },
+  image: null,
+}
+
+/** 代表画像のある紹介（作者とライセンス付き） */
+const tobetsuIntroWithImage: TownTourIntro = {
+  ...tobetsuIntro,
+  image: {
+    url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Tobetsu_Sweden_Hills.jpg/1280px-Tobetsu_Sweden_Hills.jpg',
+    artist: '当別の写真家',
+    license: 'CC BY-SA 4.0',
   },
 }
 
@@ -210,6 +223,49 @@ describe('sceneAt', () => {
     const failed: Playback = { call: tobetsuCall, startedAt: STARTED_AT, intro: { status: 'failed' }, quiz: unansweredQuiz, conquest: tobetsuConquest }
 
     expect(sceneAt(failed, STARTED_AT + 1000).done).toBe(true)
+  })
+})
+
+describe('sceneAt の代表画像（issue #254）', () => {
+  /** 代表画像のある紹介が、始めた時点で届いている再生（誰も正解しなかった） */
+  const withImage: Playback = { ...readyPlayback(0), intro: { status: 'ready', intro: tobetsuIntroWithImage, readyAt: STARTED_AT } }
+  /** ズームが着地した時刻（再生を始めてからのミリ秒） */
+  const LANDING = MAP_START + ZOOM_END_MS
+
+  it('ズームが着地したら、大見出しの前に画像を出し、作者とライセンスを出典と一緒に出す', () => {
+    const scene = sceneAt(withImage, STARTED_AT + LANDING + IMAGE_MS / 2)
+
+    expect(scene.item).toBeNull()
+    expect(scene.image).toEqual({ url: tobetsuIntroWithImage.image?.url, credit: '写真: 当別の写真家（CC BY-SA 4.0）', opacity: 1 })
+    expect(scene.credit).toBe('出典: Wikipedia「当別町」（CC BY-SA 4.0）')
+    expect(scene.waiting).toBe(false)
+  })
+
+  it('作者の無い画像（パブリック・ドメイン）は、ライセンスだけを出す', () => {
+    const publicDomain: Playback = {
+      ...withImage,
+      intro: { status: 'ready', intro: { ...tobetsuIntroWithImage, image: { url: 'https://upload.wikimedia.org/lake.jpg', artist: '', license: 'Public domain' } }, readyAt: STARTED_AT },
+    }
+
+    expect(sceneAt(publicDomain, STARTED_AT + LANDING + 1).image?.credit).toBe('写真: Public domain')
+  })
+
+  it('画像を出し終えたら画像を消し、大見出しから流す', () => {
+    const scene = sceneAt(withImage, STARTED_AT + LANDING + IMAGE_MS + 1)
+
+    expect(scene.image).toBeNull()
+    expect(scene.item?.line.kind).toBe('hook')
+  })
+
+  it('画像の場面のぶん、締めまでの時刻がずれる', () => {
+    expect(tourSpanOf(withImage, tobetsuIntroWithImage, STARTED_AT).end).toBe(tourSpanOf(readyPlayback(0), tobetsuIntro, STARTED_AT).end + IMAGE_MS)
+  })
+
+  it('出せる代表画像が無ければ、画像の場面を飛ばして着地から大見出しを流す', () => {
+    const scene = sceneAt(readyPlayback(0), STARTED_AT + LANDING + 1)
+
+    expect(scene.image).toBeNull()
+    expect(scene.item?.line.kind).toBe('hook')
   })
 })
 

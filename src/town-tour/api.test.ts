@@ -34,13 +34,14 @@ const chiyodaIntro = {
     ],
     cue: '千代田区で働いたことはありますか？',
   },
+  image: null,
 }
 
 describe('introduce', () => {
   it('オーバーレイ用キーとコードを付けて、市町村の紹介を作らせる', async () => {
     const { calls, fetchImpl } = createFetchWithResponse(200, chiyodaIntro)
 
-    expect(await createTownTourApi(fetchImpl, OVERLAY_KEY).introduce('13101')).toEqual({ article: chiyodaIntro.article, tour: chiyodaIntro.tour })
+    expect(await createTownTourApi(fetchImpl, OVERLAY_KEY).introduce('13101')).toEqual({ article: chiyodaIntro.article, tour: chiyodaIntro.tour, image: null })
     expect(calls).toEqual([`/api/overlay/town-tour?key=${encodeURIComponent(OVERLAY_KEY)}&code=13101`])
   })
 
