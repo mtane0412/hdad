@@ -3,6 +3,8 @@
  *
  * 1フレームぶんの場面（timeline.ts の sceneAt）を受け取り、日本地図・市町村の塗り・冒頭の一文・大きさの文（人口・面積と挑む文）・
  * 紹介の場面（大見出し・項目・振り）・出典を描く。大見出しは項目より大きな文字で描く。
+ * 冒頭のクイズ（issue #251）のあいだは、日本地図を描かずに市町村の形だけをシルエットで描き、問いとヒントを下の帯に描く。
+ * クイズを終えたら、正解（と最初の正解者）を下の帯に描く。
  * どこを映すかは camera.ts、文の折り返しは wrap.ts、大きさの文は scale.ts が決め、ここは描くだけを受け持つ（通信も状態も持たない）。
  *
  * 地図の形は、起動時に全国ぶんを1つの Path2D にまとめておき、毎フレームは拡大と移動を掛けて塗り直すだけにする
@@ -34,6 +36,7 @@ const COLORS = {
   text: '#ffffff',
   label: '#f4b63f',
   credit: 'rgba(255, 255, 255, 0.8)',
+  silhouette: '#f2f2f2',
 } as const
 
 /** 配信画面（1920×1080）での寸法（px） */
@@ -58,6 +61,9 @@ const SIZES = {
 
 /** 紹介の場面の帯を置く高さ（箱の高さに対する割合）。帯の上端 */
 const PANEL_TOP = 0.66
+/** クイズのあいだシルエットを収める範囲（箱の高さに対する割合）。上の冒頭の一文の帯と、下のクイズの帯に重ならないようにする */
+const SILHOUETTE_TOP = 0.1
+const SILHOUETTE_BOTTOM = PANEL_TOP - 0.02
 /** 文を折り返す幅（箱の幅に対する割合） */
 const TEXT_WIDTH = 0.86
 /** 冒頭の一文と紹介の場面の、行数の上限（項目は Worker が80文字以内、大見出しは30文字以内にそろえている） */
@@ -123,24 +129,36 @@ export const createTownTourRenderer = (shapes: ReadonlyMap<string, readonly Ring
       ctx.fillStyle = COLORS.backdrop
       ctx.fillRect(0, 0, width, height)
       drawMap(ctx, width, height, unit, land, figure, scene)
-      const headlineBottom = drawHeadline(ctx, width, unit, playback.call.headline, scene.headline)
+      const headlineBottom = drawHeadline(ctx, width, unit, scene.headlineText, scene.headline)
       // 大きさの文は、市町村の形が塗られる（ズームが着地する）のに合わせて出し、そのまま最後まで残す
       if (scene.fill > 0) drawScale(ctx, width, unit, headlineBottom, scaleLinesOf(playback.call), scene.fill)
-      drawPanel(ctx, width, height, unit, scene)
+      if (scene.quiz !== null) drawQuizPanel(ctx, width, height, unit, scene.quiz)
+      else drawPanel(ctx, width, height, unit, scene)
       if (scene.credit !== null) drawCredit(ctx, width, height, unit, scene.credit)
       ctx.restore()
     },
   }
 }
 
-/** 全国の形と、引いた市町村の塗りを描く */
+/** 全国の形と、引いた市町村の塗りを描く。クイズのあいだは、市町村だけを寄った位置にシルエットで描く */
 const drawMap = (ctx: CanvasRenderingContext2D, width: number, height: number, unit: number, land: Path2D, figure: TownFigure, scene: Scene): void => {
-  const camera = cameraAt(scene.zoom, figure.bounds, width, height)
+  const inQuiz = scene.quiz !== null
+  // クイズのあいだは寄りきった映し方で、帯に挟まれた範囲の真ん中に置く
+  const viewHeight = inQuiz ? height * (SILHOUETTE_BOTTOM - SILHOUETTE_TOP) : height
+  const viewCenterY = inQuiz ? height * ((SILHOUETTE_TOP + SILHOUETTE_BOTTOM) / 2) : height / 2
+  const camera = cameraAt(inQuiz ? 1 : scene.zoom, figure.bounds, width, viewHeight)
   ctx.save()
-  ctx.translate(width / 2, height / 2)
+  ctx.translate(width / 2, viewCenterY)
   ctx.scale(camera.scale, camera.scale)
   ctx.translate(-camera.centerX, -camera.centerY)
   ctx.lineJoin = 'round'
+
+  if (inQuiz) {
+    ctx.fillStyle = COLORS.silhouette
+    ctx.fill(figure.path)
+    ctx.restore()
+    return
+  }
 
   ctx.fillStyle = COLORS.land
   ctx.fill(land)
@@ -199,9 +217,41 @@ const drawScale = (ctx: CanvasRenderingContext2D, width: number, unit: number, t
   ctx.restore()
 }
 
-/** 紹介の場面（見出しと文）、または紹介を待っている旨を下の帯に描く。帯の高さは文を伏せているあいだも文の行数ぶん取る（溜めの後に帯が伸びないように） */
+/** クイズの見出し・問いと、ここまでに出したヒントを下の帯に描く */
+const drawQuizPanel = (ctx: CanvasRenderingContext2D, width: number, height: number, unit: number, quiz: NonNullable<Scene['quiz']>): void => {
+  const padding = SIZES.panelPadding * unit
+  const top = height * PANEL_TOP
+  const labelHeight = SIZES.labelFont * unit + padding / 2
+  const questionHeight = SIZES.itemLineHeight * unit
+  const hintHeight = SIZES.scaleLineHeight * unit
+  ctx.save()
+  ctx.fillStyle = COLORS.band
+  ctx.fillRect(0, top, width, padding * 2 + labelHeight + questionHeight + hintHeight * quiz.hints.length)
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'top'
+  ctx.font = `bold ${SIZES.labelFont * unit}px ${FONT_FAMILY}`
+  ctx.fillStyle = COLORS.label
+  ctx.fillText(quiz.label, width / 2, top + padding)
+  ctx.font = `bold ${SIZES.itemFont * unit}px ${FONT_FAMILY}`
+  ctx.fillStyle = COLORS.text
+  ctx.fillText(quiz.question, width / 2, top + padding + labelHeight, width * TEXT_WIDTH)
+  ctx.font = `bold ${SIZES.scaleFont * unit}px ${FONT_FAMILY}`
+  ctx.fillStyle = COLORS.label
+  quiz.hints.forEach((hint, index) => {
+    ctx.fillText(`ヒント${index + 1}: ${hint}`, width / 2, top + padding + labelHeight + questionHeight + hintHeight * index, width * TEXT_WIDTH)
+  })
+  ctx.restore()
+}
+
+/**
+ * 紹介の場面（見出しと文）、正解の場面、または紹介を待っている旨を下の帯に描く。
+ * 帯の高さは文を伏せているあいだも文の行数ぶん取る（溜めの後に帯が伸びないように）
+ */
 const drawPanel = (ctx: CanvasRenderingContext2D, width: number, height: number, unit: number, scene: Scene): void => {
-  const content = scene.item ?? (scene.waiting ? { line: { kind: 'point', label: '', text: WAITING_TEXT }, opacity: 1, textOpacity: 1 } : null)
+  const content =
+    scene.item ??
+    (scene.reveal === null ? null : { line: { kind: 'point', label: scene.reveal.label, text: scene.reveal.text }, opacity: scene.reveal.opacity, textOpacity: 1 }) ??
+    (scene.waiting ? { line: { kind: 'point', label: '', text: WAITING_TEXT }, opacity: 1, textOpacity: 1 } : null)
   if (content === null) return
 
   const isHook = content.line.kind === 'hook'

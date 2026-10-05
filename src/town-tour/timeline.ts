@@ -5,7 +5,9 @@
  * 現在時刻だけから決める（.claude/CLAUDE.md の「描画とパラメータ」。フレーム間の状態を持たない）。
  *
  * 流れは次のとおり。
- * 1. 日本全体を映す（JAPAN_HOLD_MS）
+ * 0. 市町村の形だけをシルエットで出し、都道府県当てクイズを出す（QUIZ_MS。QUIZ_HINT_INTERVAL_MS ごとにヒントを1つ足す。issue #251）。
+ *    チャットで最初の正解者が届いたら、その時点でクイズを終える。終えたら正解（と最初の正解者）を出す（REVEAL_MS）
+ * 1. クイズを終えたら、日本全体を映す（JAPAN_HOLD_MS）。ここから先の時刻は、どれもクイズを終えた時刻から数える
  * 2. 市町村へズームしながら、形を塗る（ZOOM_MS）
  * 3. 紹介の場面を順に流す。大見出し（HOOK_MS。前半 HOOK_TEASE_MS は見出し「この町、実は…」だけで溜める）→
  *    ゆさぶりの項目（POINT_MS ずつ）→ オチ（最後の項目。PUNCHLINE_MS）→ 配信者への振り（CUE_MS）。長さは配信者が決めた（issue #249）。
@@ -14,15 +16,18 @@
  *
  * 紹介を作れなかった再生はその場で終わる。失敗は素材の箱に出す（合成ページの stage.ts が受け持つ）。
  */
+import { QUIZ_HINT_INTERVAL_MS, QUIZ_LABEL, QUIZ_MS, quizQuestionOf, revealLabelOf, revealTextOf } from './quiz'
 import { tourLinesOf, type TourLine, type TownTourCall, type TownTourIntro } from './tour'
 
-/** 日本全体を映しておく時間（ミリ秒）。ここから市町村へ寄り始める */
+/** クイズを終えてから、正解（と最初の正解者）を出しておく時間（ミリ秒）。日本全体を映し、寄り始めるところまで重ねる */
+export const REVEAL_MS = 3000
+/** 日本全体を映しておく時間（ミリ秒。クイズを終えてから）。ここから市町村へ寄り始める */
 export const JAPAN_HOLD_MS = 1500
 /** 市町村へズームする時間（ミリ秒） */
 const ZOOM_MS = 3000
-/** ズームが終わる時刻（再生を始めてからのミリ秒）。ここから項目を流せる */
+/** ズームが終わる時刻（クイズを終えてからのミリ秒）。ここから項目を流せる */
 export const ZOOM_END_MS = JAPAN_HOLD_MS + ZOOM_MS
-/** 市町村の形を塗りはじめる時刻（再生を始めてからのミリ秒）。ズームの後半で、市町村が見分けられる大きさになってから塗る */
+/** 市町村の形を塗りはじめる時刻（クイズを終えてからのミリ秒）。ズームの後半で、市町村が見分けられる大きさになってから塗る */
 const FILL_START_MS = 3000
 /** 大見出しを流す時間（ミリ秒）。溜めて長くする */
 export const HOOK_MS = 7000
@@ -49,12 +54,21 @@ export type IntroState =
   | { readonly status: 'ready'; readonly intro: TownTourIntro; readonly readyAt: number }
   | { readonly status: 'failed' }
 
+/** 冒頭の都道府県当てクイズの状態 */
+export interface QuizState {
+  /** 出す順に並べたヒントの文（quiz.ts の quizHintsOf） */
+  readonly hints: readonly string[]
+  /** 最初の正解者と、それを受け取った時刻（ミリ秒。Date.now() と同じ基準）。まだ届いていなければ null */
+  readonly answer: { readonly userName: string; readonly answeredAt: number } | null
+}
+
 /** 1件の再生 */
 export interface Playback {
   readonly call: TownTourCall
   /** 再生を始めた時刻（ミリ秒。Date.now() と同じ基準） */
   readonly startedAt: number
   readonly intro: IntroState
+  readonly quiz: QuizState
 }
 
 /** ある時刻の場面 */
@@ -65,6 +79,12 @@ export interface Scene {
   readonly fill: number
   /** 冒頭の一文の濃さ（0〜1） */
   readonly headline: number
+  /** 冒頭の一文。クイズのあいだは都道府県を伏せたもの、終えたら都道府県入りのもの */
+  readonly headlineText: string
+  /** 出しているクイズ（見出し・問い・ここまでに出したヒント）。クイズを終えたら null */
+  readonly quiz: { readonly label: string; readonly question: string; readonly hints: readonly string[] } | null
+  /** 出している正解の場面と、その濃さ（0〜1）。出していなければ null */
+  readonly reveal: { readonly label: string; readonly text: string; readonly opacity: number } | null
   /** 流している場面と、その濃さ（0〜1）・文の濃さ（0〜1。大見出しの溜めのあいだは 0）。流していなければ null */
   readonly item: { readonly line: TourLine; readonly opacity: number; readonly textOpacity: number } | null
   /** 出典の表記。紹介が届くまでは null */
@@ -95,11 +115,20 @@ export interface TourSegment {
   readonly duration: number
 }
 
+/**
+ * クイズを終える時刻（再生を始めてからのミリ秒）。地図の演出はここから始まる。
+ * クイズの長さのうちに最初の正解者が届いていれば届いた時刻、届いていなければクイズの長さいっぱい。
+ */
+export const quizEndOf = ({ startedAt, quiz }: Playback): number => {
+  const answeredAfter = quiz.answer === null ? QUIZ_MS : quiz.answer.answeredAt - startedAt
+  return Math.min(QUIZ_MS, Math.max(0, answeredAfter))
+}
+
 /** 紹介が届いた再生の流れ。時刻はどれも再生を始めてからのミリ秒 */
 export interface TourSpan {
   /** 流す場面（大見出し・項目・振り）を順に並べたもの */
   readonly segments: readonly TourSegment[]
-  /** 場面を流しはじめる時刻。ズームが終わってから、紹介が届くのが遅ければ届いてから */
+  /** 場面を流しはじめる時刻。クイズとズームが終わってから、紹介が届くのが遅ければ届いてから */
   readonly itemsStart: number
   /** 場面を流し終え、出典だけを残しはじめる時刻 */
   readonly itemsEnd: number
@@ -122,7 +151,7 @@ const durationOf = (line: TourLine, isLastPoint: boolean): number => {
 export const tourSpanOf = (playback: Playback, intro: TownTourIntro, readyAt: number): TourSpan => {
   const lines = tourLinesOf(intro.tour, playback.call.name)
   const lastPointIndex = lines.map((line) => line.kind).lastIndexOf('point')
-  const itemsStart = Math.max(ZOOM_END_MS, readyAt - playback.startedAt)
+  const itemsStart = Math.max(quizEndOf(playback) + ZOOM_END_MS, readyAt - playback.startedAt)
   const segments: TourSegment[] = []
   let cursor = itemsStart
   lines.forEach((line, index) => {
@@ -147,15 +176,29 @@ const itemSceneOf = ({ line, duration }: TourSegment, sinceStart: number): NonNu
  */
 export const sceneAt = (playback: Playback, now: number): Scene => {
   const elapsed = now - playback.startedAt
-  const { intro } = playback
+  const { intro, call, quiz } = playback
+  const quizEnd = quizEndOf(playback)
+  /** クイズを終えてからの経過時間。地図の演出はこれで決める */
+  const sinceQuiz = elapsed - quizEnd
+  const inQuiz = sinceQuiz < 0
+  const winner = quiz.answer !== null && quizEnd < QUIZ_MS ? quiz.answer.userName : null
   const base = {
-    zoom: easeInOut(clamp01((elapsed - JAPAN_HOLD_MS) / ZOOM_MS)),
-    fill: clamp01((elapsed - FILL_START_MS) / (ZOOM_END_MS - FILL_START_MS)),
+    zoom: easeInOut(clamp01((sinceQuiz - JAPAN_HOLD_MS) / ZOOM_MS)),
+    fill: clamp01((sinceQuiz - FILL_START_MS) / (ZOOM_END_MS - FILL_START_MS)),
     headline: clamp01(elapsed / HEADLINE_FADE_MS),
+    headlineText: inQuiz ? call.quizHeadline : call.headline,
+    quiz: inQuiz
+      ? { label: QUIZ_LABEL, question: quizQuestionOf(call.name), hints: quiz.hints.slice(0, Math.floor(elapsed / QUIZ_HINT_INTERVAL_MS)) }
+      : null,
+    reveal:
+      inQuiz || sinceQuiz >= REVEAL_MS
+        ? null
+        : { label: revealLabelOf(winner), text: revealTextOf(call.prefecture), opacity: fadeWithin(sinceQuiz, REVEAL_MS, ITEM_FADE_MS) },
   }
+  const waiting = sinceQuiz >= ZOOM_END_MS
 
   if (intro.status === 'failed') return { ...base, item: null, credit: null, waiting: false, opacity: 0, done: true }
-  if (intro.status === 'loading') return { ...base, item: null, credit: null, waiting: elapsed >= ZOOM_END_MS, opacity: 1, done: false }
+  if (intro.status === 'loading') return { ...base, item: null, credit: null, waiting, opacity: 1, done: false }
 
   const { segments, itemsStart, end } = tourSpanOf(playback, intro.intro, intro.readyAt)
   const sinceItems = elapsed - itemsStart
@@ -165,7 +208,7 @@ export const sceneAt = (playback: Playback, now: number): Scene => {
     ...base,
     item: segment === undefined ? null : itemSceneOf(segment, elapsed - segment.start),
     credit: sinceItems < 0 ? null : creditOf(intro.intro),
-    waiting: elapsed >= ZOOM_END_MS && sinceItems < 0,
+    waiting: waiting && sinceItems < 0,
     opacity: clamp01((end - elapsed) / FADE_OUT_MS),
     done: elapsed >= end,
   }

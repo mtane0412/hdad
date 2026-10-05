@@ -10,6 +10,9 @@
  * 人口と面積（issue #250）も同梱した表（stats.json）から引いて押し出し、いま見ている人数と一緒に、素材が着地で大きさの文にする
  * （src/town-tour/scale.ts）。数字は LLM に作らせない。
  *
+ * 冒頭の都道府県当てクイズ（issue #251）のために、出題の識別子と、都道府県を伏せた一文も一緒に押し出す。
+ * 合成ページは出題の識別子で出題を開き（POST /api/overlay/town-tour/quiz）、チャットの正解者は同じ識別子で届く。
+ *
  * 一覧（towns.json）と人口・面積の表（stats.json）は src/town-tour/ にあり、合成ページと同じものを読む（Worker から src/ を読み込む例外）。
  */
 import stats from '../src/town-tour/stats.json'
@@ -34,6 +37,10 @@ export interface Town {
 export interface TownTourCall extends Town {
   /** 冒頭に出す一文（「○○さんのレイドを記念して、本日は△△町をご紹介します」など） */
   headline: string
+  /** 冒頭の都道府県当てクイズの出題の識別子。合成ページが出題を開くときと、正解者を受け取るときに使う */
+  quizId: string
+  /** クイズのあいだに出す一文。答えが分からないよう、都道府県と郡を伏せて市町村の名前だけにする */
+  quizHeadline: string
   /** 演出の場面ごとに鳴らす音（音声のURL）と音量 */
   sound: TownTourPlaybackSound
   /** 住民基本台帳の人口。記録が無い村（北方領土の6村）は null */
@@ -42,6 +49,18 @@ export interface TownTourCall extends Town {
   area: number
   /** 人口と比べる、いま見ている人数。分からない（配信中でない）ときは null */
   audience: TownTourAudience | null
+}
+
+/**
+ * 都道府県当てクイズの最初の正解者の知らせ。呼び出しと同じ接続へ押し出すので、type で呼び出しと見分ける
+ * （呼び出しは type を持たない）
+ */
+export interface TownTourAnswerMessage {
+  type: 'answer'
+  /** 正解者が決まった出題の識別子（呼び出しの quizId） */
+  quizId: string
+  /** 正解者の表示名 */
+  userName: string
 }
 
 /** 冒頭の一文を決めるきっかけ。demo は管理画面の試し再生で、相手を持たない */
@@ -65,6 +84,7 @@ export const pickTown = (random: () => number): Town => {
  * キーワードと試し再生なら最後に記録した同接（配信中でなければ null）にする。
  *
  * @param liveViewers 配信中の配信で最後に記録した同接（worker/stats-store.ts の latestViewerCount）。配信中でなければ null
+ * @param quizId 冒頭のクイズの出題の識別子（crypto.randomUUID。テストで決まった値を渡せるよう受け取る）
  * @throws 人口と面積の表に無いコードの市町村のとき（一覧と表の1対1は src/town-tour/towns.test.ts が検証する）
  */
 export const townTourCallOf = (
@@ -72,11 +92,12 @@ export const townTourCallOf = (
   caller: TownTourCaller,
   sound: TownTourPlaybackSound,
   liveViewers: number | null,
+  quizId: string,
 ): TownTourCall => {
   const townStats = statsByCode.get(town.code)
   if (townStats === undefined) throw new Error(`人口と面積の表に無い市町村です: ${town.code}`)
-  const place = `${town.prefecture}${town.county}${town.name}`
-  const headline = ((): string => {
+  /** 冒頭の一文。place は市町村の呼び方（クイズのあいだは都道府県と郡を伏せる） */
+  const headlineOf = (place: string): string => {
     switch (caller.occasion) {
       case 'raid':
         return `${caller.userName}さんのレイドを記念して、本日は${place}をご紹介します`
@@ -85,10 +106,19 @@ export const townTourCallOf = (
       case 'demo':
         return `試し再生: 本日は${place}をご紹介します`
     }
-  })()
+  }
   const audience = ((): TownTourAudience | null => {
     if (caller.occasion === 'raid') return { kind: 'raid', count: (liveViewers ?? 0) + caller.viewers }
     return liveViewers === null ? null : { kind: 'live', count: liveViewers }
   })()
-  return { ...town, headline, sound, population: townStats.population, area: townStats.area, audience }
+  return {
+    ...town,
+    headline: headlineOf(`${town.prefecture}${town.county}${town.name}`),
+    quizId,
+    quizHeadline: headlineOf(town.name),
+    sound,
+    population: townStats.population,
+    area: townStats.area,
+    audience,
+  }
 }

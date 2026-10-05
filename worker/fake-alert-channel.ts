@@ -11,7 +11,7 @@ import { STATUS } from './http'
 import type { PomodoroSnapshot } from './pomodoro-timer'
 import type { SpeechMute } from './speech-config'
 import type { TaskDeskSnapshot } from './task-desk'
-import type { TownTourCall } from './town-tour-call'
+import type { TownTourAnswerMessage, TownTourCall } from './town-tour-call'
 import type { WorkLogEntry } from './work-log'
 
 interface FakeAlertChannelOptions {
@@ -33,6 +33,8 @@ export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelO
   pushedPomodoro: PomodoroSnapshot[]
   /** 押し出された市町村紹介の呼び出し */
   pushedTownTours: TownTourCall[]
+  /** 押し出された都道府県当てクイズの正解者（呼び出しと同じ経路で、type: answer を持つ） */
+  pushedTownTourAnswers: TownTourAnswerMessage[]
   /** 押し出された配信のBGMを下げる知らせ */
   pushedBgmDucks: BgmDuck[]
   /** 押し出された読み上げのミュート */
@@ -48,6 +50,7 @@ export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelO
   const evictedTaskDesk: TaskDeskSnapshot[] = []
   const evictedPomodoro: PomodoroSnapshot[] = []
   const evictedTownTours: TownTourCall[] = []
+  const evictedTownTourAnswers: TownTourAnswerMessage[] = []
   const evictedBgmDucks: BgmDuck[] = []
   const evictedSpeechMutes: SpeechMute[] = []
   const handedOverConnections: Request[] = []
@@ -61,6 +64,7 @@ export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelO
     pushedTaskDesk: evictedTaskDesk,
     pushedPomodoro: evictedPomodoro,
     pushedTownTours: evictedTownTours,
+    pushedTownTourAnswers: evictedTownTourAnswers,
     pushedBgmDucks: evictedBgmDucks,
     pushedSpeechMutes: evictedSpeechMutes,
     forwardedConnections: handedOverConnections,
@@ -86,7 +90,11 @@ export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelO
           else if (pathname === '/push/pomodoro') evictedPomodoro.push((await request.json()) as PomodoroSnapshot)
           else if (pathname === '/push/bgm-duck') evictedBgmDucks.push((await request.json()) as BgmDuck)
           else if (pathname === '/push/speech-mute') evictedSpeechMutes.push((await request.json()) as SpeechMute)
-          else if (pathname === '/push/town-tour') evictedTownTours.push((await request.json()) as TownTourCall)
+          else if (pathname === '/push/town-tour') {
+            const body = (await request.json()) as TownTourCall | TownTourAnswerMessage
+            if ('type' in body) evictedTownTourAnswers.push(body)
+            else evictedTownTours.push(body)
+          }
           else evictedAlerts.push((await request.json()) as OverlayAlert)
           return new Response(null, { status: STATUS.noContent })
         },

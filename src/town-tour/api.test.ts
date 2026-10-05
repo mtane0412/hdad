@@ -54,6 +54,29 @@ describe('introduce', () => {
   })
 })
 
+describe('openQuiz', () => {
+  it('オーバーレイ用キーを付けて、出題の識別子と市町村のコードを送り、出題を開かせる', async () => {
+    const requests: Request[] = []
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      requests.push(new Request(new URL(String(input), 'https://hdad.example.com'), init))
+      return new Response(null, { status: 204 })
+    }) as typeof fetch
+
+    await createTownTourApi(fetchImpl, OVERLAY_KEY).openQuiz('quiz-chiyoda', '13101')
+
+    expect(requests.map((request) => [request.method, new URL(request.url).pathname + new URL(request.url).search])).toEqual([
+      ['POST', `/api/overlay/town-tour/quiz?key=${encodeURIComponent(OVERLAY_KEY)}`],
+    ])
+    expect(await requests[0]?.json()).toEqual({ quizId: 'quiz-chiyoda', code: '13101' })
+  })
+
+  it('出題を開けなかったときは、Workerが返した理由ごと投げる', async () => {
+    const { fetchImpl } = createFetchWithResponse(404, { error: { code: 'unknown-town', message: '市町村の一覧に無いコードです: 99999' } })
+
+    await expect(createTownTourApi(fetchImpl, OVERLAY_KEY).openQuiz('quiz-unknown', '99999')).rejects.toThrow('99999')
+  })
+})
+
 describe('japanMap', () => {
   it('同梱の日本地図（TopoJSON）を、静的なファイルとして読む', async () => {
     const topology = { type: 'Topology', objects: {}, arcs: [] }

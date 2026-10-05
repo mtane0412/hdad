@@ -4,7 +4,7 @@
  * どちらも Worker から届くものなので、想定した形でなければ補わずに投げることを確かめる（Fail-Fast）。
  */
 import { describe, expect, it } from 'vitest'
-import { parseTownTourCall, readTownTourIntro, tourLinesOf } from './tour'
+import { parseTownTourMessage, readTownTourIntro, tourLinesOf } from './tour'
 
 /** レイドで引いた北海道当別町の呼び出し */
 const tobetsuCall = {
@@ -13,6 +13,8 @@ const tobetsuCall = {
   county: '石狩郡',
   name: '当別町',
   headline: '山田花子さんのレイドを記念して、本日は北海道石狩郡当別町をご紹介します',
+  quizId: 'quiz-tobetsu',
+  quizHeadline: '山田花子さんのレイドを記念して、本日は当別町をご紹介します',
   // 音は BGM だけを選んである
   sound: {
     slots: { bgm: '/api/media/media-cookie?key=overlay-key', opening: null, zoom: null, landing: null, item: null, closing: null },
@@ -39,47 +41,64 @@ const tobetsuIntro = {
   },
 }
 
-describe('parseTownTourCall', () => {
+describe('parseTownTourMessage', () => {
   it('押し出された文字列を、市町村と冒頭の一文と鳴らす音として読む', () => {
-    expect(parseTownTourCall(JSON.stringify(tobetsuCall))).toEqual(tobetsuCall)
+    expect(parseTownTourMessage(JSON.stringify(tobetsuCall))).toEqual({ type: 'call', call: tobetsuCall })
+  })
+
+  it('type: answer を持つ文字列は、クイズの最初の正解者として読む', () => {
+    expect(parseTownTourMessage(JSON.stringify({ type: 'answer', quizId: 'quiz-tobetsu', userName: 'たなか' }))).toEqual({
+      type: 'answer',
+      quizId: 'quiz-tobetsu',
+      userName: 'たなか',
+    })
+  })
+
+  it('正解者の名前が欠けていれば、補わずに投げる', () => {
+    expect(() => parseTownTourMessage(JSON.stringify({ type: 'answer', quizId: 'quiz-tobetsu' }))).toThrow('正解者')
+  })
+
+  it('クイズの出題の識別子か、都道府県を伏せた一文が欠けた呼び出しは、補わずに投げる', () => {
+    const withoutQuizHeadline = { ...tobetsuCall, quizHeadline: undefined }
+
+    expect(() => parseTownTourMessage(JSON.stringify(withoutQuizHeadline))).toThrow('市町村紹介')
   })
 
   it('JSONとして読めなければ投げる', () => {
-    expect(() => parseTownTourCall('当別町')).toThrow('JSON')
+    expect(() => parseTownTourMessage('当別町')).toThrow('JSON')
   })
 
   it('冒頭の一文が欠けていれば、補わずに投げる', () => {
     const withoutHeadline = { code: tobetsuCall.code, prefecture: tobetsuCall.prefecture, county: tobetsuCall.county, name: tobetsuCall.name }
 
-    expect(() => parseTownTourCall(JSON.stringify(withoutHeadline))).toThrow('市町村紹介')
+    expect(() => parseTownTourMessage(JSON.stringify(withoutHeadline))).toThrow('市町村紹介')
   })
 
   it('鳴らす音の設定が欠けていれば、無音で流さずに投げる', () => {
-    const { code, prefecture, county, name, headline } = tobetsuCall
-    const withoutSound = { code, prefecture, county, name, headline }
+    const withoutSound = { ...tobetsuCall, sound: undefined }
 
-    expect(() => parseTownTourCall(JSON.stringify(withoutSound))).toThrow('音の設定')
+    expect(() => parseTownTourMessage(JSON.stringify(withoutSound))).toThrow('音の設定')
   })
 
   it('人口の記録が無い村（北方領土）と、見ている人数が分からない（配信中でない）呼び出しも読む', () => {
     const shikotanCall = { ...tobetsuCall, code: '01695', county: '色丹郡', name: '色丹村', population: null, area: 250.57, audience: null }
 
-    expect(parseTownTourCall(JSON.stringify(shikotanCall))).toEqual(shikotanCall)
+    expect(parseTownTourMessage(JSON.stringify(shikotanCall))).toEqual({ type: 'call', call: shikotanCall })
   })
 
   it('面積が欠けていれば、補わずに投げる', () => {
     const withoutArea = { ...tobetsuCall, area: undefined }
 
-    expect(() => parseTownTourCall(JSON.stringify(withoutArea))).toThrow('人口と面積')
+    expect(() => parseTownTourMessage(JSON.stringify(withoutArea))).toThrow('人口と面積')
   })
 
   it('人口が数でも null でもなければ、補わずに投げる', () => {
-    expect(() => parseTownTourCall(JSON.stringify({ ...tobetsuCall, population: '14974人' }))).toThrow('人口と面積')
+    expect(() => parseTownTourMessage(JSON.stringify({ ...tobetsuCall, population: '14974人' }))).toThrow('人口と面積')
   })
 
   it('見ている人数の形が違えば、補わずに投げる', () => {
-    expect(() => parseTownTourCall(JSON.stringify({ ...tobetsuCall, audience: { kind: 'raid' } }))).toThrow('見ている人数')
-    expect(() => parseTownTourCall(JSON.stringify({ ...tobetsuCall, audience: { kind: 'host', count: 50 } }))).toThrow('見ている人数')
+    expect(() => parseTownTourMessage(JSON.stringify({ ...tobetsuCall, audience: { kind: 'raid' } }))).toThrow('見ている人数')
+    expect(() => parseTownTourMessage(JSON.stringify({ ...tobetsuCall, audience: { kind: 'host', count: 50 } }))).toThrow('見ている人数')
   })
 })
 

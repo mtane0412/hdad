@@ -125,7 +125,7 @@ export const runAlertActions = async (
     for (const [index, townTour] of townTours.entries()) {
       // キーが未発行で音のURLを作れないときも、押し出しの失敗として記録する（黙って無音で流さない）
       await sendAndRecordFailure(context, messageId, 'townTour', index, 'town-tour-push-failed', () =>
-        pushTownTour(env.ALERTS, townTourCallOf(pickTown(Math.random), townTour, playbackSoundOf(sound, overlayKey), liveViewers)),
+        pushTownTour(env.ALERTS, townTourCallOf(pickTown(Math.random), townTour, playbackSoundOf(sound, overlayKey), liveViewers, crypto.randomUUID())),
       )
     }
   }

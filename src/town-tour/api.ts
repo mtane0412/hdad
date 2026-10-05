@@ -4,6 +4,8 @@
  * 合成ページ（overlay/stage/index.html）はOBSに載せるページなのでログインを持たず、オーバーレイ用キー（URLの ?key=）で
  * Worker に受け付けてもらう。呼び出し（市町村と冒頭の一文）は WebSocket（TOWN_TOUR_SOCKET_PATH）で押し出してもらい、
  * 受け取ってから紹介を作らせる（1件2〜5秒。日本地図からズームする演出のあいだに待つ）。
+ * 冒頭の都道府県当てクイズ（issue #251）を流しはじめたら、出題を開かせる（POST /api/overlay/town-tour/quiz）。
+ * 開いてからクイズの長さのあいだ、Worker はチャットの発言を回答として照らし、最初の正解者を同じ WebSocket で押し出す。
  * 日本地図は Worker ではなく静的なファイル（public/town-tour/japan.topo.json）なので、キーを付けずに読む。
  * 呼び出しと失敗の扱いは `../core/api` に任せ、fetch を引数で受け取るのはテストで差し替えるためである。
  *
@@ -13,6 +15,7 @@ import { createCaller } from '../core/api'
 import { readTownTourIntro, type TownTourIntro } from './tour'
 
 const PATH = '/api/overlay/town-tour'
+const QUIZ_PATH = '/api/overlay/town-tour/quiz'
 
 /** 呼び出しを押し出してもらう WebSocket のパス */
 export const TOWN_TOUR_SOCKET_PATH = '/api/overlay/town-tour/socket'
@@ -30,6 +33,12 @@ export interface TownTourApi {
    * @throws ApiError 紹介を作れなかった（502）・一覧に無いコード（404）など。Worker の理由を持つ
    */
   introduce(code: string): Promise<TownTourIntro>
+  /**
+   * 冒頭のクイズの出題を開かせる。正解の都道府県は Worker がコードから引く。
+   *
+   * @throws ApiError 一覧に無いコード（404）など。Worker の理由を持つ
+   */
+  openQuiz(quizId: string, code: string): Promise<void>
   /** 同梱の日本地図を読む。形の確かめは topo.ts の decodeTownShapes が行う */
   japanMap(): Promise<unknown>
 }
@@ -45,6 +54,13 @@ export const createTownTourApi = (fetchImpl: typeof fetch, key: string): TownTou
 
   return {
     introduce: async (code) => readTownTourIntro(await call(`${PATH}?key=${encodeURIComponent(key)}&code=${encodeURIComponent(code)}`)),
+    openQuiz: async (quizId, code) => {
+      await call(`${QUIZ_PATH}?key=${encodeURIComponent(key)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quizId, code }),
+      })
+    },
     japanMap: () => call(JAPAN_MAP_PATH),
   }
 }

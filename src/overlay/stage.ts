@@ -85,9 +85,10 @@ import { bgmDuckHoldOf } from '../town-tour/bgm-duck'
 import { DEMO_INTRO_DELAY_MS, DEMO_TOWN_TOUR_INTERVAL_MS, demoTownTourCall, demoTownTourIntro } from '../town-tour/demo'
 import { BGM_START_CUE_ID, dueSoundCues } from '../town-tour/sound-cues'
 import { createTownTourSoundPlayer } from '../town-tour/sound-player'
+import { QUIZ_MS, quizClueOf, quizHintsOf } from '../town-tour/quiz'
 import { sceneAt, type Playback } from '../town-tour/timeline'
-import { decodeTownShapes } from '../town-tour/topo'
-import { parseTownTourCall, type TownTourCall } from '../town-tour/tour'
+import { decodeTownBorders, decodeTownShapes, type TownBorders } from '../town-tour/topo'
+import { parseTownTourMessage, type TownTourCall } from '../town-tour/tour'
 import { createTownTourRenderer, type TownTourRenderer } from '../town-tour/view'
 import { backgrounds } from '../wallpaper/registry'
 import { WORK_LOG_SOCKET_HINT, WORK_LOG_SOCKET_PATH, createWorkLogApi } from '../work-log/api'
@@ -1158,6 +1159,10 @@ const mountPomodoro = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
  * 二重に鳴らさないことと、再生の終わり・失敗で止めることだけを受け持つ。描画のループではなくタイマーで刻むのは、
  * OBSのブラウザソースが映っていないあいだ描画を間引いても、音の時刻をずらさず、終わった1件の音を止めて次へ進むためである。
  * 再生を始められなかった音は、黙って無音で続けずにこの箱に失敗を出す。
+ *
+ * 冒頭の都道府県当てクイズ（issue #251）は、流しはじめたら Worker に出題を開かせ（POST /api/overlay/town-tour/quiz）、
+ * 最初の正解者が同じ WebSocket で届いたら、その時刻をクイズを終えた時刻として再生に書き込む。ヒントは地図の形から
+ * 起動時に求めた境界（海に面しているか・隣り合う市町村）で作る。プレビューでは出題を開かないので、いつも時間切れになる。
  */
 const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
   // この素材は配信者が決めるパラメータを持たない（何を流すかはトリガーと試し再生で決まる）
@@ -1170,6 +1175,8 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
   const api = createTownTourApi(callWorker, key)
   /** 地図を読み終えたら作る。それまでは流しはじめない */
   let renderer: TownTourRenderer | null = null
+  /** 地図から求めた市町村の境界（クイズのヒントの材料）。地図を読み終えたら作る */
+  let borders: TownBorders | null = null
   /** 流している1件。流していなければ null */
   let playback: Playback | null = null
   /** 流すのを待っている呼び出し（届いた順） */
@@ -1192,25 +1199,30 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
     bgmApi.duck(holdMs).catch((error: unknown) => showError(error, NOUNS.townTour, box, 'read'))
   }
 
-  /** 1件を流しはじめ、紹介を作らせる。作らせている間に別の1件へ進んでいたら、届いた結果は捨てる */
-  const start = (call: TownTourCall): void => {
+  /** 1件を流しはじめ、紹介を作らせ、クイズの出題を開かせる。作らせている間に別の1件へ進んでいたら、届いた結果は捨てる */
+  const start = (call: TownTourCall, townBorders: TownBorders): void => {
     clearError(box, 'read')
     played = new Set()
-    const started: Playback = { call, startedAt: Date.now(), intro: { status: 'loading' } }
-    playback = started
+    const startedAt = Date.now()
+    playback = { call, startedAt, intro: { status: 'loading' }, quiz: { hints: quizHintsOf(quizClueOf(call.code, townBorders)), answer: null } }
+    /** いま流しているのが、この呼び出しの再生か（正解者が届くと再生を作り直すので、同じものかではなく呼び出しと始めた時刻で見る） */
+    const current = (): Playback | null => (playback !== null && playback.call === call && playback.startedAt === startedAt ? playback : null)
+    if (!demo) api.openQuiz(call.quizId, call.code).catch((error: unknown) => showError(error, NOUNS.townTour, box, 'read'))
     const introduce = demo
       ? new Promise<typeof demoTownTourIntro>((resolve) => window.setTimeout(() => resolve(demoTownTourIntro), DEMO_INTRO_DELAY_MS))
       : api.introduce(call.code)
     introduce.then(
       (intro) => {
-        if (playback !== started) return
-        playback = { ...started, intro: { status: 'ready', intro, readyAt: Date.now() } }
+        const target = current()
+        if (target === null) return
+        playback = { ...target, intro: { status: 'ready', intro, readyAt: Date.now() } }
         // 終わりが決まったので、配信のBGMを下げておく長さを再生の終わりまでに送り直す
         duckStreamBgm(playback)
       },
       (error: unknown) => {
-        if (playback !== started) return
-        playback = { ...started, intro: { status: 'failed' } }
+        const target = current()
+        if (target === null) return
+        playback = { ...target, intro: { status: 'failed' } }
         // 紹介を作れなかった再生では、鳴りはじめていた BGM も止めて何も鳴らさない。下げていた配信のBGMもすぐ戻す
         sound.stop()
         duckStreamBgm(playback)
@@ -1222,9 +1234,21 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
   /** 待っている先頭を流しはじめる。地図を読み終えていなければ、読み終えたときに呼び直す */
   const startNext = (): void => {
     const [next, ...rest] = waiting
-    if (renderer === null || playback !== null || next === undefined) return
+    if (renderer === null || borders === null || playback !== null || next === undefined) return
     waiting = rest
-    start(next)
+    start(next, borders)
+  }
+
+  /**
+   * クイズの最初の正解者を、流している再生に書き込む。届いた時刻がクイズを終えた時刻になる（timeline.ts の quizEndOf）。
+   * 別の出題の正解者・正解者が決まった後・クイズの長さを過ぎてから届いた正解者は出さない（画面はもう時間切れで先へ進んでいる）。
+   */
+  const acceptAnswer = (quizId: string, userName: string): void => {
+    const now = Date.now()
+    if (playback === null || playback.call.quizId !== quizId || playback.quiz.answer !== null || now - playback.startedAt >= QUIZ_MS) return
+    playback = { ...playback, quiz: { ...playback.quiz, answer: { userName, answeredAt: now } } }
+    // 終わりが早まったので、配信のBGMを下げておく長さを送り直す
+    duckStreamBgm(playback)
   }
 
   const enqueue = (call: TownTourCall): void => {
@@ -1236,6 +1260,7 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
     .japanMap()
     .then((topology) => {
       renderer = createTownTourRenderer(decodeTownShapes(topology))
+      borders = decodeTownBorders(topology)
       startNext()
     })
     .catch((error: unknown) => showError(error, NOUNS.townTour, box, 'layer'))
@@ -1278,7 +1303,9 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
     {
       onMessage: (text) => {
         try {
-          enqueue(parseTownTourCall(text))
+          const message = parseTownTourMessage(text)
+          if (message.type === 'call') enqueue(message.call)
+          else acceptAnswer(message.quizId, message.userName)
         } catch (error) {
           showError(error, NOUNS.townTour, box, 'read')
         }

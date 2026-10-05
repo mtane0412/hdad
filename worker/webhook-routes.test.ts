@@ -30,6 +30,7 @@ import { createFakeCommentChannel } from './fake-comment-channel'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
 import { createFakeTokenVault } from './fake-token-vault'
 import { DEFAULT_TOWN_TOUR_SOUND, saveTownTourSound } from './town-tour-sound'
+import { openTownTourQuiz } from './town-tour-quiz'
 
 interface EnvOptions {
   /** アラートの配送先（Durable Object）が失敗を返す場合 */
@@ -1736,6 +1737,62 @@ describe('市町村紹介を流す動作（townTour）', () => {
 
     expect(response.status).toBe(204)
     expect(await listFailures(env.DB)).toMatchObject([{ code: 'town-tour-push-failed' }])
+  })
+})
+
+describe('市町村紹介の都道府県当てクイズの回答（issue #251）', () => {
+  /** 北海道石狩郡当別町の出題（3秒前に合成ページが開いた） */
+  const tobetsuQuiz = { id: 'quiz-tobetsu', code: '01303', prefecture: '北海道' }
+
+  /** 視聴者の発言としての通知 */
+  const chatFrom = (userName: string, chatterUserId: string, text: string, messageId: string) => ({
+    subscription: { type: 'channel.chat.message' },
+    event: {
+      broadcaster_user_id: BROADCASTER_ID,
+      chatter_user_id: chatterUserId,
+      chatter_user_login: `viewer${chatterUserId}`,
+      chatter_user_name: userName,
+      message_id: messageId,
+      message: { text, fragments: [{ type: 'text', text }] },
+    },
+  })
+
+  it('出題中に正しい都道府県を書いた最初の人を、正解者として合成ページへ押し出す', async () => {
+    const { env, db, alertChannel } = createEnv()
+    await openTownTourQuiz(db, tobetsuQuiz, NOW - 3000)
+
+    const response = await callWebhook(createNotification({ body: chatFrom('たなか', '11111', '北海道！', 'chat-1'), messageId: 'notification-1' }), env)
+
+    expect(response.status).toBe(204)
+    expect(alertChannel.pushedTownTourAnswers).toEqual([{ type: 'answer', quizId: 'quiz-tobetsu', userName: 'たなか' }])
+  })
+
+  it('違う都道府県の回答と、2人目の正解者は押し出さない', async () => {
+    const { env, db, alertChannel } = createEnv()
+    await openTownTourQuiz(db, tobetsuQuiz, NOW - 3000)
+
+    await callWebhook(createNotification({ body: chatFrom('すずき', '22222', '青森県かな', 'chat-1'), messageId: 'notification-1' }), env)
+    await callWebhook(createNotification({ body: chatFrom('たなか', '11111', '北海道', 'chat-2'), messageId: 'notification-2' }), env)
+    await callWebhook(createNotification({ body: chatFrom('さとう', '33333', '北海道だ', 'chat-3'), messageId: 'notification-3' }), env)
+
+    expect(alertChannel.pushedTownTourAnswers).toEqual([{ type: 'answer', quizId: 'quiz-tobetsu', userName: 'たなか' }])
+  })
+
+  it('2つ以上の都道府県を挙げた発言は、正解を含んでいても回答とみなさない', async () => {
+    const { env, db, alertChannel } = createEnv()
+    await openTownTourQuiz(db, tobetsuQuiz, NOW - 3000)
+
+    await callWebhook(createNotification({ body: chatFrom('たなか', '11111', '北海道か青森', 'chat-1'), messageId: 'notification-1' }), env)
+
+    expect(alertChannel.pushedTownTourAnswers).toEqual([])
+  })
+
+  it('出題していなければ、都道府県を書いた発言でも何も押し出さない', async () => {
+    const { env, alertChannel } = createEnv()
+
+    await callWebhook(createNotification({ body: chatFrom('たなか', '11111', '北海道', 'chat-1'), messageId: 'notification-1' }), env)
+
+    expect(alertChannel.pushedTownTourAnswers).toEqual([])
   })
 })
 
