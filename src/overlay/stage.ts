@@ -1164,7 +1164,7 @@ const mountPomodoro = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
  *
  * 冒頭の都道府県当てクイズ（issue #251）は、流しはじめたら Worker に出題を開かせ（POST /api/overlay/town-tour/quiz）、
  * 最初の正解者が同じ WebSocket で届いたら、その時刻をクイズを終えた時刻として再生に書き込む。ヒントは地図の形から
- * 起動時に求めた境界（海に面しているか・隣り合う市町村）で作る。プレビューでは出題を開かないので、いつも時間切れになる。
+ * 起動時に求めた境界（都道府県ごとの市町村・隣り合う市町村）で作る。プレビューでは出題を開かないので、いつも時間切れになる。
  *
  * 全国制覇マップ（issue #252）は、流しはじめるときに呼び出しのこれまでの記録と境界から制覇数と節目を決めておき
  * （src/town-tour/conquest.ts）、振りを流し終えたら（流しきったら）Worker に記録させる（POST /api/overlay/town-tour/visit）。
