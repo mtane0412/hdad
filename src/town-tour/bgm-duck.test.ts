@@ -13,7 +13,7 @@ import { describe, expect, it } from 'vitest'
 import { LOADING_DUCK_HOLD_MS, bgmDuckHoldOf } from './bgm-duck'
 import type { TownTourPlaybackSound } from './sound'
 import { QUIZ_MS } from './quiz'
-import { CONQUEST_MS, CUE_MS, HOOK_MS, POINT_MS, PUNCHLINE_MS, ZOOM_END_MS, type Playback } from './timeline'
+import { CERTIFICATE_MS, CONQUEST_MS, CUE_MS, HOOK_MS, POINT_MS, PUNCHLINE_MS, ZOOM_END_MS, type Playback } from './timeline'
 import type { TownTourCall, TownTourIntro } from './tour'
 
 const STARTED_AT = 1_000_000
@@ -42,6 +42,8 @@ const callWith = (sound: TownTourPlaybackSound): TownTourCall => ({
   audience: { kind: 'raid', count: 50 },
   visited: [],
   visit: { occasion: 'raid', userName: '山田花子' },
+  // レイドなので、締めに認定証を出す（issue #253）
+  honoraryCitizen: '山田花子',
 })
 
 /** 大見出しと項目2つの紹介 */
@@ -81,7 +83,7 @@ const readyPlayback: Playback = {
   conquest: firstConquest,
 }
 /** 流し終える長さのうち、クイズを終えてからのもの */
-const AFTER_QUIZ = ZOOM_END_MS + HOOK_MS + POINT_MS + PUNCHLINE_MS + CUE_MS + CONQUEST_MS
+const AFTER_QUIZ = ZOOM_END_MS + HOOK_MS + POINT_MS + PUNCHLINE_MS + CUE_MS + CONQUEST_MS + CERTIFICATE_MS
 const READY_END = STARTED_AT + QUIZ_MS + AFTER_QUIZ
 
 describe('bgmDuckHoldOf', () => {

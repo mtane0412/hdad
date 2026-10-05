@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest'
 import type { TownTourPlaybackSound } from './sound'
 import { dueSoundCues, soundCuesOf } from './sound-cues'
 import { QUIZ_MS } from './quiz'
-import { CONQUEST_MS, CUE_MS, HOOK_MS, JAPAN_HOLD_MS, POINT_MS, PUNCHLINE_MS, ZOOM_END_MS, type Playback } from './timeline'
+import { CERTIFICATE_MS, CONQUEST_MS, CUE_MS, HOOK_MS, JAPAN_HOLD_MS, POINT_MS, PUNCHLINE_MS, ZOOM_END_MS, type Playback } from './timeline'
 import type { TownTourCall, TownTourIntro } from './tour'
 
 const STARTED_AT = 1_000_000
@@ -45,6 +45,8 @@ const callWith = (sound: TownTourPlaybackSound): TownTourCall => ({
   audience: { kind: 'raid', count: 50 },
   visited: [],
   visit: { occasion: 'raid', userName: '山田花子' },
+  // レイドなので、締めに認定証を出す（issue #253）
+  honoraryCitizen: '山田花子',
 })
 
 /** 大見出しと項目2つの紹介 */
@@ -93,7 +95,7 @@ describe('soundCuesOf', () => {
   it('紹介が届いたら、大見出しと項目の数だけ項目ごとの音を並べ、振りで締めの音を鳴らし、BGM の下げ止めを加える', () => {
     const itemsStart = MAP_START + ZOOM_END_MS
     const cueStart = itemsStart + HOOK_MS + POINT_MS + PUNCHLINE_MS
-    const end = cueStart + CUE_MS + CONQUEST_MS
+    const end = cueStart + CUE_MS + CONQUEST_MS + CERTIFICATE_MS
 
     expect(soundCuesOf(readyPlayback(2000))).toEqual([
       { id: 'bgm', at: 0, type: 'bgmStart', url: 'https://example.com/ピアノ25.mp3', volume: 0.3 },
@@ -187,7 +189,7 @@ describe('dueSoundCues', () => {
 
   it('BGM を下げる時刻を過ぎていたら、BGM を鳴らしはじめず、下げる指示だけを返す', () => {
     // 前提: 大見出しと項目2つの紹介で、終わる直前までまったく確かめられなかった
-    const end = MAP_START + ZOOM_END_MS + HOOK_MS + POINT_MS + PUNCHLINE_MS + CUE_MS + CONQUEST_MS
+    const end = MAP_START + ZOOM_END_MS + HOOK_MS + POINT_MS + PUNCHLINE_MS + CUE_MS + CONQUEST_MS + CERTIFICATE_MS
     const due = dueSoundCues(readyPlayback(0), STARTED_AT + end - 100, new Set())
 
     expect(due.map((cue) => cue.id)).toEqual(['bgm-end'])

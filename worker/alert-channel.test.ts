@@ -84,6 +84,7 @@ const raidTownTour: TownTourCall = {
   audience: { kind: 'raid', count: 50 },
   visited: [],
   visit: { occasion: 'raid', userName: '山田花子' },
+  honoraryCitizen: '山田花子',
 }
 
 const runningPomodoro: PomodoroSnapshot = {
