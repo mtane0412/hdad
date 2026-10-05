@@ -8,7 +8,16 @@
  */
 import { describe, expect, it } from 'vitest'
 import { createFakeStore } from './fake-store'
-import { DEFAULT_SPEECH_SETTINGS, loadSpeechSettings, parseSpeechSettings, saveSpeechSettings, type SpeechSettings } from './speech-config'
+import {
+  DEFAULT_SPEECH_SETTINGS,
+  loadSpeechMuted,
+  loadSpeechSettings,
+  parseSpeechMute,
+  parseSpeechSettings,
+  saveSpeechMuted,
+  saveSpeechSettings,
+  type SpeechSettings,
+} from './speech-config'
 
 /** 配信者が画面で組み立てた、既定とは違う設定 */
 const streamerSettings: SpeechSettings = {
@@ -124,5 +133,41 @@ describe('loadSpeechSettings・saveSpeechSettings', () => {
     const store = createFakeStore({ 'speech-settings': JSON.stringify(savedBeforeEngine) })
 
     expect(await loadSpeechSettings(store)).toEqual({ ...streamerSettings, engine: 'local' })
+  })
+})
+
+describe('parseSpeechMute', () => {
+  it('ミュートするか（真偽値）を読む', () => {
+    expect(parseSpeechMute({ muted: true })).toEqual({ muted: true })
+    expect(parseSpeechMute({ muted: false })).toEqual({ muted: false })
+  })
+
+  it('真偽値でなければ拒否する', () => {
+    expect(() => parseSpeechMute({ muted: 'true' })).toThrow('muted')
+    expect(() => parseSpeechMute(null)).toThrow()
+  })
+})
+
+describe('loadSpeechMuted・saveSpeechMuted', () => {
+  it('ミュートしたことを保存して読み出せる（OBSを読み込み直してもミュートのまま始めるため）', async () => {
+    const store = createFakeStore()
+
+    await saveSpeechMuted(store, true)
+
+    expect(await loadSpeechMuted(store)).toBe(true)
+  })
+
+  it('未保存ならミュートしていない', async () => {
+    expect(await loadSpeechMuted(createFakeStore())).toBe(false)
+  })
+
+  it('ミュートは設定とは別に保存し、設定の保存で上書きされない（管理画面の設定の保存が、下部バーで切り替えたミュートを戻さないため）', async () => {
+    const store = createFakeStore()
+
+    await saveSpeechMuted(store, true)
+    await saveSpeechSettings(store, streamerSettings)
+
+    expect(await loadSpeechMuted(store)).toBe(true)
+    expect(await loadSpeechSettings(store)).toEqual(streamerSettings)
   })
 })

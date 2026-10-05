@@ -30,6 +30,7 @@
  * | GET  /api/admin/translation/deepl-usage | セッション | DeepL の今月の使用量 |
  * | POST /api/admin/translations     | セッション     | アプリの枠の音声認識が確定した1件を英語に訳す |
  * | GET・PUT /api/admin/speech       | セッション     | チャットの読み上げの設定の取得・保存 |
+ * | GET・PUT /api/admin/speech/mute  | セッション     | チャットの読み上げのミュートの取得・切り替え（切り替えたら読み上げのページへ押し出す） |
  * | GET・PUT /api/admin/screen       | セッション     | 配信画面の取り込みの設定の取得・保存 |
  * | GET・PUT /api/admin/overlay/layout | セッション   | 合成オーバーレイの構成（オーバーレイと素材）の取得・保存 |
  * | GET・PUT /api/admin/draw/strokes | セッション     | 手書きで描いたものの取得・保存 |
@@ -67,7 +68,8 @@
  * | POST /api/github/webhook         | GitHubの署名   | GitHub の Webhook を受け、配信中ならコミットの push・PR のマージのトリガーを実行する |
  * | GET  /api/overlay/socket         | オーバーレイ用キー | オーバーレイからのWebSocketの接続を受け、アラートの配送先へ引き渡す |
  * | GET  /api/overlay/side-super    | オーバーレイ用キー | いま出すサイドスーパーの文言を返す |
- * | GET  /api/overlay/speech         | オーバーレイ用キー | チャットの読み上げの設定を返す |
+ * | GET  /api/overlay/speech         | オーバーレイ用キー | チャットの読み上げの設定（ミュートしているかを含む）を返す |
+ * | GET  /api/overlay/speech/mute/socket | オーバーレイ用キー | 読み上げのページからのWebSocketの接続を受け、読み上げのミュートの配送先へ引き渡す |
  * | POST /api/overlay/speech/check   | オーバーレイ用キー | さくらのAI Engine で保存済みの話者が使えるかを確かめる（課金されない） |
  * | POST /api/overlay/speech/synthesis | オーバーレイ用キー | 読み上げ文1件をさくらのAI Engine で合成する（合成先にさくらを選んだときだけ） |
  * | GET  /api/overlay/screen         | オーバーレイ用キー | 配信画面の取り込みの設定を返す |
@@ -151,7 +153,7 @@ import {
   overlaySocket,
   postScreen,
 } from './overlay-routes'
-import { postSpeechCheck, postSpeechSynthesis } from './speech-routes'
+import { getSpeechMute, overlaySpeechMuteSocket, postSpeechCheck, postSpeechSynthesis, putSpeechMute } from './speech-routes'
 import { postAdminTranscript } from './transcript-routes'
 import { captionSocket } from './caption-routes'
 import { getWorkLog, workLogSocket } from './work-log-routes'
@@ -239,6 +241,8 @@ const ROUTES: readonly Route[] = [
   { method: 'PUT', path: '/api/admin/screen', handle: putScreenSettings },
   { method: 'GET', path: '/api/admin/speech', handle: getSpeech },
   { method: 'PUT', path: '/api/admin/speech', handle: putSpeech },
+  { method: 'GET', path: '/api/admin/speech/mute', handle: getSpeechMute },
+  { method: 'PUT', path: '/api/admin/speech/mute', handle: putSpeechMute },
   { method: 'GET', path: '/api/admin/overlay/layout', handle: getOverlayLayout },
   { method: 'PUT', path: '/api/admin/overlay/layout', handle: putOverlayLayout },
   { method: 'GET', path: '/api/admin/draw/socket', handle: drawSocket },
@@ -282,6 +286,7 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/overlay/socket', handle: overlaySocket },
   { method: 'GET', path: '/api/overlay/side-super', handle: getSideSuper },
   { method: 'GET', path: '/api/overlay/speech', handle: getOverlaySpeech },
+  { method: 'GET', path: '/api/overlay/speech/mute/socket', handle: overlaySpeechMuteSocket },
   { method: 'POST', path: '/api/overlay/speech/check', handle: postSpeechCheck },
   { method: 'POST', path: '/api/overlay/speech/synthesis', handle: postSpeechSynthesis },
   { method: 'GET', path: '/api/overlay/screen', handle: getOverlayScreen },

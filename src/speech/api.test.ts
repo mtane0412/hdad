@@ -5,10 +5,11 @@
  * 確かめること:
  * - 管理画面（セッション）と読み上げのページ（オーバーレイ用キー）が、それぞれの経路を呼ぶこと
  * - 応答が想定した形でなければエラーにすること（黙って既定に倒さない）
+ * - 下部バーのミュートの読み書きと、押し出されたミュートの読み取り（issue #238）
  */
 import { describe, expect, it } from 'vitest'
 import { ApiError } from '../core/api'
-import { createSpeechApi, createSpeechOverlayApi, type SpeechSettings } from './api'
+import { createSpeechApi, createSpeechMuteApi, createSpeechOverlayApi, parseSpeechMute, type SpeechSettings } from './api'
 
 const overlayKey = 'overlay-key_0123456789abcdefghij'
 
@@ -65,11 +66,14 @@ describe('createSpeechApi（管理画面）', () => {
   })
 })
 
-describe('createSpeechOverlayApi（読み上げのページ）', () => {
-  it('オーバーレイ用キー付きの経路から設定を読む', async () => {
-    const { call, fetchImpl } = fetchReturning(200, savedConfig)
+/** 読み上げのページへ返る、ミュートしているかを添えた設定 */
+const readerConfig = { ...savedConfig, muted: false }
 
-    expect(await createSpeechOverlayApi(fetchImpl, overlayKey).read()).toEqual(savedConfig)
+describe('createSpeechOverlayApi（読み上げのページ）', () => {
+  it('オーバーレイ用キー付きの経路から、設定とミュートしているかを読む', async () => {
+    const { call, fetchImpl } = fetchReturning(200, { ...savedConfig, muted: true })
+
+    expect(await createSpeechOverlayApi(fetchImpl, overlayKey).read()).toEqual({ ...savedConfig, muted: true })
     expect(call).toEqual([{ path: `/api/overlay/speech?key=${encodeURIComponent(overlayKey)}`, method: 'GET', body: '' }])
   })
 
@@ -79,21 +83,60 @@ describe('createSpeechOverlayApi（読み上げのページ）', () => {
     await expect(createSpeechOverlayApi(fetchImpl, overlayKey).read()).rejects.toThrow(ApiError)
   })
 
+  it('ミュートしているかが無ければエラーにする（ミュート中のつもりで読み上げを始めない）', async () => {
+    const { fetchImpl } = fetchReturning(200, savedConfig)
+
+    await expect(createSpeechOverlayApi(fetchImpl, overlayKey).read()).rejects.toThrow(/想定した形/)
+  })
+
   it('合成先が「ローカル」か「さくら」でなければエラーにする（知らない合成先で読み上げを始めない）', async () => {
-    const { fetchImpl } = fetchReturning(200, { ...savedConfig, engine: 'workers-ai' })
+    const { fetchImpl } = fetchReturning(200, { ...readerConfig, engine: 'workers-ai' })
 
     await expect(createSpeechOverlayApi(fetchImpl, overlayKey).read()).rejects.toThrow(/想定した形/)
   })
 
   it('合成先がさくらの設定も読める', async () => {
-    const { fetchImpl } = fetchReturning(200, { ...savedConfig, engine: 'sakura' })
+    const { fetchImpl } = fetchReturning(200, { ...readerConfig, engine: 'sakura' })
 
-    expect(await createSpeechOverlayApi(fetchImpl, overlayKey).read()).toEqual({ ...savedConfig, engine: 'sakura' })
+    expect(await createSpeechOverlayApi(fetchImpl, overlayKey).read()).toEqual({ ...readerConfig, engine: 'sakura' })
   })
 
   it('読み上げない人が文字列の配列でなければエラーにする', async () => {
-    const { fetchImpl } = fetchReturning(200, { ...savedConfig, ignoreLogins: 'hdad_bot' })
+    const { fetchImpl } = fetchReturning(200, { ...readerConfig, ignoreLogins: 'hdad_bot' })
 
     await expect(createSpeechOverlayApi(fetchImpl, overlayKey).read()).rejects.toThrow(/想定した形/)
+  })
+})
+
+describe('createSpeechMuteApi（下部バー）', () => {
+  it('ミュートしているかを管理用の経路から読む', async () => {
+    const { call, fetchImpl } = fetchReturning(200, { muted: true })
+
+    expect(await createSpeechMuteApi(fetchImpl).load()).toBe(true)
+    expect(call).toEqual([{ path: '/api/admin/speech/mute', method: 'GET', body: '' }])
+  })
+
+  it('ミュートを切り替え、切り替えたあとの値を受け取る', async () => {
+    const { call, fetchImpl } = fetchReturning(200, { muted: false })
+
+    expect(await createSpeechMuteApi(fetchImpl).save(false)).toBe(false)
+    expect(call).toEqual([{ path: '/api/admin/speech/mute', method: 'PUT', body: JSON.stringify({ muted: false }) }])
+  })
+
+  it('応答が想定した形でなければエラーにする', async () => {
+    const { fetchImpl } = fetchReturning(200, { muted: 'はい' })
+
+    await expect(createSpeechMuteApi(fetchImpl).load()).rejects.toThrow(/想定した形/)
+  })
+})
+
+describe('parseSpeechMute（押し出されたミュート）', () => {
+  it('押し出された文字列を、ミュートしているかとして読む', () => {
+    expect(parseSpeechMute(JSON.stringify({ muted: true }))).toEqual({ muted: true })
+  })
+
+  it('JSONとして読めない・想定した形でなければエラーにする', () => {
+    expect(() => parseSpeechMute('ミュート')).toThrow(/JSON/)
+    expect(() => parseSpeechMute(JSON.stringify({ muted: 1 }))).toThrow(/想定した形/)
   })
 })
