@@ -19,6 +19,10 @@ const tobetsuCall = {
     bgmVolume: 0.3,
     effectVolume: 0.6,
   },
+  // 当別町の人口と面積。同接20人にレイドの30人が加わった
+  population: 14974,
+  area: 422.86,
+  audience: { kind: 'raid', count: 50 },
 }
 
 /** 当別町の紹介 */
@@ -55,6 +59,27 @@ describe('parseTownTourCall', () => {
     const withoutSound = { code, prefecture, county, name, headline }
 
     expect(() => parseTownTourCall(JSON.stringify(withoutSound))).toThrow('音の設定')
+  })
+
+  it('人口の記録が無い村（北方領土）と、見ている人数が分からない（配信中でない）呼び出しも読む', () => {
+    const shikotanCall = { ...tobetsuCall, code: '01695', county: '色丹郡', name: '色丹村', population: null, area: 250.57, audience: null }
+
+    expect(parseTownTourCall(JSON.stringify(shikotanCall))).toEqual(shikotanCall)
+  })
+
+  it('面積が欠けていれば、補わずに投げる', () => {
+    const withoutArea = { ...tobetsuCall, area: undefined }
+
+    expect(() => parseTownTourCall(JSON.stringify(withoutArea))).toThrow('人口と面積')
+  })
+
+  it('人口が数でも null でもなければ、補わずに投げる', () => {
+    expect(() => parseTownTourCall(JSON.stringify({ ...tobetsuCall, population: '14974人' }))).toThrow('人口と面積')
+  })
+
+  it('見ている人数の形が違えば、補わずに投げる', () => {
+    expect(() => parseTownTourCall(JSON.stringify({ ...tobetsuCall, audience: { kind: 'raid' } }))).toThrow('見ている人数')
+    expect(() => parseTownTourCall(JSON.stringify({ ...tobetsuCall, audience: { kind: 'host', count: 50 } }))).toThrow('見ている人数')
   })
 })
 

@@ -23,7 +23,7 @@ import type { ChatMessage } from './chat-command'
 import { reserveChatReply } from './chat-store'
 import { HttpError, STATUS, type Context } from './http'
 import { loadOverlayKey } from './overlay-key'
-import { recordFailure } from './stats-store'
+import { latestViewerCount, recordFailure } from './stats-store'
 import { readCurrentStreamSummary } from './stream-summary-store'
 import { pickTown, townTourCallOf } from './town-tour-call'
 import { loadTownTourSound, playbackSoundOf } from './town-tour-sound'
@@ -115,13 +115,17 @@ export const runAlertActions = async (
   // 素材の再生はbotと関わりなく行う（botを接続していなくてもアラートは鳴る）
   await pushMatchedAlerts(context, config, subscriptionType, body, messageId, state, summary)
   // 市町村紹介も素材が流すので、botの接続を見る前に押し出す。市町村は1件ごとに引き直す（紹介を作るのは素材が受け取ってから）。
-  // 音の設定とオーバーレイ用キーは、当てはまった行があるときだけ読む（チャットの発言のたびにKVを読まないため）
+  // 音の設定とオーバーレイ用キーと、人口と比べる同接は、当てはまった行があるときだけ読む（チャットの発言のたびにKVとD1を読まないため）
   if (townTours.length > 0) {
-    const [sound, overlayKey] = await Promise.all([loadTownTourSound(env.STORE), loadOverlayKey(env.STORE)])
+    const [sound, overlayKey, liveViewers] = await Promise.all([
+      loadTownTourSound(env.STORE),
+      loadOverlayKey(env.STORE),
+      latestViewerCount(env.DB),
+    ])
     for (const [index, townTour] of townTours.entries()) {
       // キーが未発行で音のURLを作れないときも、押し出しの失敗として記録する（黙って無音で流さない）
       await sendAndRecordFailure(context, messageId, 'townTour', index, 'town-tour-push-failed', () =>
-        pushTownTour(env.ALERTS, townTourCallOf(pickTown(Math.random), townTour, playbackSoundOf(sound, overlayKey))),
+        pushTownTour(env.ALERTS, townTourCallOf(pickTown(Math.random), townTour, playbackSoundOf(sound, overlayKey), liveViewers)),
       )
     }
   }

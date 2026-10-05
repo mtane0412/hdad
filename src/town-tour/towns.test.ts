@@ -8,11 +8,13 @@
  * - 政令市は区ではなく市として1件になっていること
  * - 東京23区と北方領土の村が1件ずつ入っていること
  * - 一覧のすべての市町村に Wikipedia の記事名（articles.json。scripts/town-tour/build-articles.ts が作る）があること
+ * - 一覧のすべての市町村に人口と面積（stats.json。scripts/town-tour/build-stats.ts が作る）があり、人口が無いのは北方領土の6村だけであること
  */
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import articles from './articles.json'
+import stats from './stats.json'
 import towns from './towns.json'
 
 /** 地図の TopoJSON のうち、突き合わせに使う部分 */
@@ -51,5 +53,15 @@ describe('市町村の一覧と地図', () => {
 
   it('一覧のすべての市町村に記事名があり、一覧に無いコードの記事名が無い', () => {
     expect(Object.keys(articles).sort()).toEqual([...townCodes].sort())
+  })
+
+  it('一覧のすべての市町村に人口と面積があり、一覧に無いコードの人口と面積が無い', () => {
+    expect(Object.keys(stats).sort()).toEqual([...townCodes].sort())
+  })
+
+  it('人口が無い（null）のは北方領土の6村だけで、面積はすべての市町村が持つ', () => {
+    const withoutPopulation = Object.entries(stats).filter(([, town]) => town.population === null).map(([code]) => code)
+    expect(withoutPopulation.sort()).toEqual(['01695', '01696', '01697', '01698', '01699', '01700'])
+    expect(Object.values(stats).every((town) => town.area > 0)).toBe(true)
   })
 })

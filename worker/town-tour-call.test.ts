@@ -22,24 +22,60 @@ describe('townTourCallOf', () => {
   /** BGM だけを選んだ音の設定 */
   const sound = playbackSoundOf({ ...DEFAULT_TOWN_TOUR_SOUND, slots: { ...DEFAULT_TOWN_TOUR_SOUND.slots, bgm: 'media-cookie' } }, 'overlay-key')
 
-  it('レイドなら「○○さんのレイドを記念して」で始まる一文を添える', () => {
-    expect(townTourCallOf(town, { occasion: 'raid', userName: '山田花子' }, sound)).toEqual({
+  it('レイドなら「○○さんのレイドを記念して」で始まる一文と、同梱した人口・面積と、同接にレイドの人数を足した人数を添える', () => {
+    // 最後に記録した同接は20人、レイドは30人
+    expect(townTourCallOf(town, { occasion: 'raid', userName: '山田花子', viewers: 30 }, sound, 20)).toEqual({
       code: '13101',
       prefecture: '東京都',
       county: '',
       name: '千代田区',
       headline: '山田花子さんのレイドを記念して、本日は東京都千代田区をご紹介します',
       sound,
+      population: 69139,
+      area: 11.66,
+      audience: { kind: 'raid', count: 50 },
     })
   })
 
+  it('レイドで同接の記録が無ければ、レイドの人数だけを見ている人数にする', () => {
+    expect(townTourCallOf(town, { occasion: 'raid', userName: '山田花子', viewers: 30 }, sound, null).audience).toEqual({
+      kind: 'raid',
+      count: 30,
+    })
+  })
+
+  it('キーワードと試し再生では、最後に記録した同接を見ている人数にする', () => {
+    expect(townTourCallOf(countyTown, { occasion: 'keyword', userName: '田中太郎' }, sound, 12).audience).toEqual({
+      kind: 'live',
+      count: 12,
+    })
+    expect(townTourCallOf(countyTown, { occasion: 'demo' }, sound, 12).audience).toEqual({ kind: 'live', count: 12 })
+  })
+
+  it('キーワードと試し再生で配信中でなければ（同接が null）、見ている人数を null にする', () => {
+    expect(townTourCallOf(countyTown, { occasion: 'keyword', userName: '田中太郎' }, sound, null).audience).toBeNull()
+    expect(townTourCallOf(countyTown, { occasion: 'demo' }, sound, null).audience).toBeNull()
+  })
+
+  it('人口の記録が無い北方領土の村は、人口を null のまま添える', () => {
+    const shikotan = { code: '01695', prefecture: '北海道', county: '色丹郡', name: '色丹村' }
+
+    expect(townTourCallOf(shikotan, { occasion: 'demo' }, sound, null)).toMatchObject({ population: null, area: 250.57 })
+  })
+
+  it('人口と面積の表に無いコードの市町村なら、黙って流さずに投げる', () => {
+    const unknownTown = { code: '99999', prefecture: '架空県', county: '', name: '架空市' }
+
+    expect(() => townTourCallOf(unknownTown, { occasion: 'demo' }, sound, null)).toThrow('99999')
+  })
+
   it('キーワード（!darts など）なら、発言した人の投げたダーツに見立てた一文を添える', () => {
-    expect(townTourCallOf(countyTown, { occasion: 'keyword', userName: '田中太郎' }, sound).headline).toBe(
+    expect(townTourCallOf(countyTown, { occasion: 'keyword', userName: '田中太郎' }, sound, null).headline).toBe(
       '田中太郎さんのダーツが刺さったのは、北海道石狩郡当別町でした',
     )
   })
 
   it('管理画面の試し再生なら、試しであることが分かる一文を添える', () => {
-    expect(townTourCallOf(town, { occasion: 'demo' }, sound).headline).toBe('試し再生: 本日は東京都千代田区をご紹介します')
+    expect(townTourCallOf(town, { occasion: 'demo' }, sound, null).headline).toBe('試し再生: 本日は東京都千代田区をご紹介します')
   })
 })

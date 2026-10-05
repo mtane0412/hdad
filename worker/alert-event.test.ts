@@ -785,10 +785,12 @@ describe('townToursFor', () => {
     message: { text: '!darts' },
   }
 
-  it('レイドのトリガーの市町村紹介を、レイド元の表示名と一緒に返す', () => {
+  it('レイドのトリガーの市町村紹介を、レイド元の表示名とレイドの人数と一緒に返す', () => {
     const config = alertConfig([{ kind: 'raid', actions: [{ type: 'townTour' }] }])
 
-    expect(townToursFor(config, 'channel.raid', raidNotification, notFirstTime)).toEqual([{ occasion: 'raid', userName: '山田花子' }])
+    expect(townToursFor(config, 'channel.raid', raidNotification, notFirstTime)).toEqual([
+      { occasion: 'raid', userName: '山田花子', viewers: 25 },
+    ])
   })
 
   it('キーワードのトリガーの市町村紹介を、発言した人の表示名と一緒に返す', () => {

@@ -22,6 +22,10 @@ export const demoTownTourCall: TownTourCall = {
     bgmVolume: 0,
     effectVolume: 0,
   },
+  // 千代田区の人口と面積（src/town-tour/stats.json と同じ値）。見ている人数は、配置を決めるときに挑む文まで見えるよう置いておく
+  population: 69139,
+  area: 11.66,
+  audience: { kind: 'raid', count: 50 },
 }
 
 /** プレビューで流す紹介（Worker が返す形と同じ） */

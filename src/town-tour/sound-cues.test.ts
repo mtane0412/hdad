@@ -37,6 +37,9 @@ const callWith = (sound: TownTourPlaybackSound): TownTourCall => ({
   name: '当別町',
   headline: '山田花子さんのレイドを記念して、本日は北海道石狩郡当別町をご紹介します',
   sound,
+  population: 14974,
+  area: 422.86,
+  audience: { kind: 'raid', count: 50 },
 })
 
 /** 大見出しと項目2つの紹介 */
