@@ -101,6 +101,14 @@ describe('fetchTownImage', () => {
     expect(image?.artist).toBe('photo: 撮影者 & 友人 (トーク)')
   })
 
+  it('Unicode の範囲外の文字参照は、投げずにそのまま残す', async () => {
+    const { fetchImpl } = fakeWikipedia(
+      imageInfoOf('Town.jpg', { License: { value: 'cc-by-3.0' }, LicenseShortName: { value: 'CC BY 3.0' }, Artist: { value: '撮影者&#99999999;&#x110000;' } }),
+    )
+
+    expect((await fetchTownImage(fetchImpl, 'Town.jpg'))?.artist).toBe('撮影者&#99999999;&#x110000;')
+  })
+
   it('パブリック・ドメインなら作者が無くても出す', async () => {
     const { fetchImpl } = fakeWikipedia(imageInfoOf('Lake.jpg', { License: { value: 'pd' }, LicenseShortName: { value: 'Public domain' } }))
 

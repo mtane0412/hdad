@@ -56,6 +56,9 @@ const NO_ATTRIBUTION_LICENSES: ReadonlySet<string> = new Set(['cc0', 'pd'])
  */
 export const isShowableImageFile = (fileName: string): boolean => !SVG_PATTERN.test(fileName) && !MAP_OR_EMBLEM_PATTERN.test(fileName)
 
+/** Unicode の符号位置の最大値。これを超える数値の文字参照は戻さない */
+const MAX_CODE_POINT = 0x10ffff
+
 /** 名前付きの文字参照のうち、作者の欄に出てくるもの */
 const NAMED_ENTITIES: Readonly<Record<string, string>> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' }
 
@@ -67,9 +70,11 @@ const textOfHtml = (html: string): string =>
   html
     .replace(/<[^>]*>/g, '')
     .replace(/&(#x[0-9a-f]+|#[0-9]+|[a-z]+);/gi, (entity, name: string) => {
-      if (name.startsWith('#x') || name.startsWith('#X')) return String.fromCodePoint(Number.parseInt(name.slice(2), 16))
-      if (name.startsWith('#')) return String.fromCodePoint(Number.parseInt(name.slice(1), 10))
-      return NAMED_ENTITIES[name.toLowerCase()] ?? entity
+      if (!name.startsWith('#')) return NAMED_ENTITIES[name.toLowerCase()] ?? entity
+      const isHex = name[1] === 'x' || name[1] === 'X'
+      const codePoint = Number.parseInt(name.slice(isHex ? 2 : 1), isHex ? 16 : 10)
+      // Unicode の範囲外の値は String.fromCodePoint が投げるので、戻さずにそのまま残す
+      return codePoint <= MAX_CODE_POINT ? String.fromCodePoint(codePoint) : entity
     })
     .replace(/\s+/g, ' ')
     .trim()
