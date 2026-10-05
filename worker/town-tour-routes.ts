@@ -2,6 +2,7 @@
  * 市町村紹介の経路
  *
  * - GET /api/overlay/town-tour?key=&code=: コードの市町村の紹介を作って返す
+ * - POST /api/overlay/town-tour/quiz?key=: 合成ページが冒頭の都道府県当てクイズを流しはじめたときに、出題を開く（issue #251）
  * - GET /api/overlay/town-tour/socket?key=: 合成ページの素材「市町村紹介」の WebSocket の接続を配送先（AlertChannel）へ引き渡す
  * - POST /api/admin/town-tour/demo: 管理画面の試し再生。市町村を1つ引いて素材へ押し出す（トリガーと同じ配送の経路を通す）
  * - GET /api/admin/town-tour/sound: 演出で鳴らす音の設定。未保存ならどの枠も鳴らさない設定（issue #243）
@@ -27,6 +28,7 @@ import { HttpError, STATUS, requireAdmin, requireOverlayKey, type Context } from
 import { overlayKeyTag } from './overlay-key'
 import { latestViewerCount, recordFailure } from './stats-store'
 import { generateTownTour } from './town-tour'
+import { openTownTourQuiz } from './town-tour-quiz'
 import { pickTown, townTourCallOf } from './town-tour-call'
 import { loadTownTourSound, parseTownTourSound, playbackSoundOf, saveTownTourSound } from './town-tour-sound'
 import { fetchTownArticle, pickTownMaterial } from './town-wikipedia'
@@ -69,6 +71,30 @@ export const getTownTour = async (context: Context): Promise<Response> => {
   }
 }
 
+/**
+ * POST /api/overlay/town-tour/quiz?key=: 合成ページがクイズの場面を流しはじめたときに、出題を開く。本文は { quizId, code }。
+ *
+ * 正解の都道府県は合成ページから受け取らず、一覧のコードから引く。開いてからクイズの長さ（と遅れの余裕）のあいだ、
+ * Webhook が受けたチャットの発言を回答として照らす（webhook-routes.ts）。合成ページを2つ開いていて同じ出題が2回届いても、
+ * 受け付ける長さは最初に開いたときから数える（town-tour-quiz.ts）。
+ */
+export const postTownTourQuiz = async (context: Context): Promise<Response> => {
+  await requireOverlayKey(context)
+  const body: unknown = await context.request.json().catch(() => {
+    throw new HttpError(STATUS.badRequest, 'invalid-body', '本文はJSONにしてください')
+  })
+  const isObject = typeof body === 'object' && body !== null
+  const quizId = isObject && 'quizId' in body ? body.quizId : undefined
+  const code = isObject && 'code' in body ? body.code : undefined
+  if (typeof quizId !== 'string' || quizId === '' || typeof code !== 'string') {
+    throw new HttpError(STATUS.badRequest, 'invalid-body', '本文に出題の識別子（quizId）と市町村のコード（code）を入れてください')
+  }
+  const town = towns.find((candidate) => candidate.code === code)
+  if (town === undefined) throw new HttpError(STATUS.notFound, 'unknown-town', `市町村の一覧に無いコードです: ${code}`)
+  await openTownTourQuiz(context.env.DB, { id: quizId, code, prefecture: town.prefecture }, context.now)
+  return new Response(null, { status: STATUS.noContent })
+}
+
 /** GET /api/overlay/town-tour/socket?key=: 合成ページからのWebSocketの接続を、市町村紹介の呼び出しを受け取る接続として配送先へ引き渡す */
 export const townTourSocket = async (context: Context): Promise<Response> => {
   const key = await requireOverlayKey(context)
@@ -102,7 +128,7 @@ export const postTownTourDemo = async (context: Context): Promise<Response> => {
       throw new HttpError(STATUS.conflict, 'overlay-key-missing', error instanceof Error ? error.message : String(error))
     }
   })()
-  const call = townTourCallOf(pickTown(Math.random), { occasion: 'demo' }, playbackSound, liveViewers)
+  const call = townTourCallOf(pickTown(Math.random), { occasion: 'demo' }, playbackSound, liveViewers, crypto.randomUUID())
   try {
     await pushTownTour(context.env.ALERTS, call)
   } catch (error) {

@@ -7,6 +7,7 @@
  * - 一覧のコードなら、対応する記事を Wikipedia から取り、LLM に紹介を作らせ、出典の URL と一緒に返す
  * - 記事が取れない・LLM の応答の形が違うときは 502 で理由を返し、ダッシュボードの失敗の記録にも残す
  *
+ * - 合成ページがクイズを流しはじめたら（POST /api/overlay/town-tour/quiz）、一覧のコードの都道府県を正解として出題を開く
  * - 合成ページの素材「市町村紹介」の WebSocket の接続を、市町村紹介を受け取る接続として配送先へ引き渡す
  * - 管理画面の試し再生（POST /api/admin/town-tour/demo）は、ログインした配信者にだけ、市町村を1つ引いて押し出す
  * - 音の設定（GET・PUT /api/admin/town-tour/sound）は、ログインした配信者にだけ読み書きさせ、音声でない素材を選んだ設定は400で断る
@@ -174,6 +175,50 @@ describe('GET /api/overlay/town-tour', () => {
     expect(response.status).toBe(502)
     expect(await response.json()).toMatchObject({ error: { code: 'town-tour-failed', message: expect.stringContaining('JSON') } })
     expect(await listFailures(env.DB)).toEqual([expect.objectContaining({ code: 'town-tour-failed' })])
+  })
+})
+
+describe('POST /api/overlay/town-tour/quiz', () => {
+  const noFetch: typeof fetch = async () => {
+    throw new Error('このテストでは外へ通信しません')
+  }
+  const openQuiz = (env: Env, key: string, body: unknown) =>
+    invoke(`/api/overlay/town-tour/quiz?key=${key}`, env, noFetch, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+
+  it('オーバーレイ用キーが違えば断り、出題を開かない', async () => {
+    const env = createEnv('')
+
+    const response = await openQuiz(env, 'wrong-key', { quizId: 'quiz-fuchu', code: FUCHU_HIROSHIMA })
+
+    expect(response.status).toBe(401)
+    expect(env.DB.sqlite.prepare('SELECT id FROM town_tour_quizzes').all()).toEqual([])
+  })
+
+  it('一覧のコードなら、その市町村の都道府県を正解として出題を開く', async () => {
+    const env = createEnv('')
+
+    const response = await openQuiz(env, overlayKey, { quizId: 'quiz-fuchu', code: FUCHU_HIROSHIMA })
+
+    expect(response.status).toBe(204)
+    expect(env.DB.sqlite.prepare('SELECT id, code, prefecture FROM town_tour_quizzes').all()).toEqual([
+      { id: 'quiz-fuchu', code: FUCHU_HIROSHIMA, prefecture: '広島県' },
+    ])
+  })
+
+  it('一覧に無いコードは 404 で断る', async () => {
+    const response = await openQuiz(createEnv(''), overlayKey, { quizId: 'quiz-unknown', code: '99999' })
+
+    expect(response.status).toBe(404)
+  })
+
+  it('出題の識別子かコードが欠けていれば 400 で断る', async () => {
+    const response = await openQuiz(createEnv(''), overlayKey, { code: FUCHU_HIROSHIMA })
+
+    expect(response.status).toBe(400)
   })
 })
 

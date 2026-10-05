@@ -31,7 +31,8 @@
  * 同じ理由で、5つ目の目印（pomodoro）を付けた接続へだけ配る。
  *
  * 合成ページの素材「市町村紹介」へ、引いた市町村と冒頭の一文を配るのもこの Durable Object である（issue #229）。
- * 同じ理由で、6つ目の目印（townTour）を付けた接続へだけ配る。
+ * 同じ理由で、6つ目の目印（townTour）を付けた接続へだけ配る。冒頭の都道府県当てクイズの最初の正解者（issue #251）も、
+ * 同じ素材が受け取るので同じ接続へ配る（type: answer で呼び出しと見分けさせる）。
  *
  * 市町村紹介のBGMが鳴るあいだ配信のBGMを下げる知らせを、裏方のページへ配るのもこの Durable Object である（issue #245）。
  * 曲の切り替え（bgm）を受け取る素材「再生中の曲」と管理画面は下げる知らせを読まないので、7つ目の目印（bgmDuck）を付けた接続へだけ配る。
@@ -49,7 +50,7 @@ import { broadcast, closeForRevokedKey, type SocketLike } from './socket-broadca
 import type { PomodoroSnapshot } from './pomodoro-timer'
 import type { SpeechMute } from './speech-config'
 import type { TaskDeskSnapshot } from './task-desk'
-import type { TownTourCall } from './town-tour-call'
+import type { TownTourAnswerMessage, TownTourCall } from './town-tour-call'
 import type { WorkLogEntry } from './work-log'
 
 /** Durable Object の名前。配送先は1つだけなので、決め打ちの名前で同じものを指す */
@@ -352,6 +353,16 @@ export const pushPomodoro = (namespace: AlertChannelNamespace, snapshot: Pomodor
  */
 export const pushTownTour = (namespace: AlertChannelNamespace, call: TownTourCall): Promise<void> =>
   pushJson(namespace, PUSH_TOWN_TOUR_PATH, call, '市町村紹介')
+
+/**
+ * 都道府県当てクイズ（issue #251）の最初の正解者を Durable Object へ押し出す。Webhook がチャットの正解を受けたときに呼ぶ。
+ *
+ * 受け取るのは呼び出しと同じ素材「市町村紹介」なので、同じ経路で送り、type: answer で呼び出しと見分けさせる。
+ *
+ * 注意: 失敗を黙って握りつぶさない。呼び出し側（webhook-routes.ts）が失敗として投げる。
+ */
+export const pushTownTourAnswer = (namespace: AlertChannelNamespace, answer: Omit<TownTourAnswerMessage, 'type'>): Promise<void> =>
+  pushJson(namespace, PUSH_TOWN_TOUR_PATH, { type: 'answer', ...answer } satisfies TownTourAnswerMessage, 'クイズの正解者')
 
 /**
  * 配信のBGMを下げる知らせを Durable Object へ押し出す。合成ページが市町村紹介のBGMを鳴らすあいだに呼ぶ。

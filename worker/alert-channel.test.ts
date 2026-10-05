@@ -22,6 +22,7 @@ import {
   pushPomodoro,
   pushSpeechMute,
   pushTownTour,
+  pushTownTourAnswer,
   pushTaskDesk,
   pushWorkLogEntry,
   revokeAlertSockets,
@@ -74,6 +75,8 @@ const raidTownTour: TownTourCall = {
   county: '石狩郡',
   name: '当別町',
   headline: '山田花子さんのレイドを記念して、本日は北海道石狩郡当別町をご紹介します',
+  quizId: 'quiz-tobetsu',
+  quizHeadline: '山田花子さんのレイドを記念して、本日は当別町をご紹介します',
   sound: playbackSoundOf(DEFAULT_TOWN_TOUR_SOUND, null),
   population: 14974,
   area: 422.86,
@@ -387,6 +390,23 @@ describe('pushTownTour', () => {
     const delivery = createFakeAlertChannel({ shouldFail: true })
 
     await expect(pushTownTour(delivery.namespace, raidTownTour)).rejects.toThrow('市町村紹介')
+  })
+})
+
+describe('pushTownTourAnswer', () => {
+  it('Durable Object へ、クイズの最初の正解者を、呼び出しと見分けられる形（type: answer）で送る', async () => {
+    const delivery = createFakeAlertChannel()
+
+    await pushTownTourAnswer(delivery.namespace, { quizId: 'quiz-tobetsu', userName: '山田花子' })
+
+    expect(delivery.pushedTownTourAnswers).toEqual([{ type: 'answer', quizId: 'quiz-tobetsu', userName: '山田花子' }])
+    expect(delivery.pushedTownTours).toEqual([])
+  })
+
+  it('Durable Object が失敗を返したら、黙って成功にせず投げる', async () => {
+    const delivery = createFakeAlertChannel({ shouldFail: true })
+
+    await expect(pushTownTourAnswer(delivery.namespace, { quizId: 'quiz-tobetsu', userName: '山田花子' })).rejects.toThrow('正解者')
   })
 })
 

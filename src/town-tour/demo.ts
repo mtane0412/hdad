@@ -16,6 +16,9 @@ export const demoTownTourCall: TownTourCall = {
   county: '',
   name: '千代田区',
   headline: 'プレビュー: 視聴者さんのレイドを記念して、本日は東京都千代田区をご紹介します',
+  // プレビューは Worker に出題を開かせないので、チャットの正解者は届かず、いつも時間切れで正解を出す
+  quizId: 'demo-quiz',
+  quizHeadline: 'プレビュー: 視聴者さんのレイドを記念して、本日は千代田区をご紹介します',
   // プレビューは配信者の音声を読めない（オーバーレイ用キーを持たない）ので、どの枠も鳴らさない
   sound: {
     slots: { bgm: null, opening: null, zoom: null, landing: null, item: null, closing: null },
@@ -45,5 +48,5 @@ export const demoTownTourIntro: TownTourIntro = {
 /** 紹介が届くまでの待ち時間（ミリ秒）。Worker に作らせたときの実測（2.7〜5.1秒）に合わせる */
 export const DEMO_INTRO_DELAY_MS = 3000
 
-/** 次の1件を流しはじめるまでの間隔（ミリ秒）。1件を流し終える長さ（大見出しと3項目でおよそ37秒）より長くする */
-export const DEMO_TOWN_TOUR_INTERVAL_MS = 40000
+/** 次の1件を流しはじめるまでの間隔（ミリ秒）。1件を流し終える長さ（時間切れまでのクイズ15秒と、大見出しと3項目でおよそ52秒）より長くする */
+export const DEMO_TOWN_TOUR_INTERVAL_MS = 60000

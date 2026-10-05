@@ -21,6 +21,9 @@ import { applyModerationToTaskDesk, handleTaskDeskCommand } from './task-desk-co
 import { readCurrentWorkTime } from './task-desk-store'
 import { readCurrentStreamSummary } from './stream-summary-store'
 import { recordViewerMessage } from './viewer-store'
+import { answeredPrefectureOf } from '../src/town-tour/quiz'
+import { pushTownTourAnswer } from './alert-channel'
+import { answerTownTourQuiz } from './town-tour-quiz'
 import { loadModerationConfig } from './moderation-config'
 import { claimFirstChatOfStream, consumeCooldown, recordAndCountRecentMessage, reserveChatReply } from './chat-store'
 import { pushFeedItem } from './comment-channel'
@@ -210,6 +213,10 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
   // botの接続はもう調べ済みなので、判定の関数はその結果を返すだけでよい
   await runAlertActions(context, CHAT_MESSAGE, body, message.messageId, () => Promise.resolve(bot !== null), message)
 
+  // 市町村紹介の冒頭の都道府県当てクイズ（issue #251）。都道府県を1つだけ書いた発言のときだけ、受け付けている出題と照らす
+  // （チャットの全件でD1を読まないため）。bot と処分した発言は上で外れているので、回答にならない
+  await answerTownTourQuizFromChat(context, message)
+
   // 作業机の組み込みのコマンド（!task・!done。issue #207）は、登録したコマンドより先に見る（同じ名前は登録させない）。
   // 作業机に並べるのに bot は要らないので、bot が無くても宣言は残す（受け付けない理由だけは返せない）
   const taskDeskContext = { db: env.DB, alerts: env.ALERTS, now, reply: bot ? (text: string) => sendAsBot(context, text) : null }
@@ -242,6 +249,33 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
     await sendAsBot(context, applyReply(command, message, summary, bgm, workTime))
   } catch (error) {
     await recordFailure(env.DB, 'chat-reply-failed', error instanceof Error ? error.message : String(error), now)
+  }
+}
+
+/**
+ * チャットの発言を、市町村紹介の冒頭の都道府県当てクイズの回答として照らす（issue #251）。
+ *
+ * 発言に都道府県が1つだけ書かれていれば、受け付けている出題と照らし、最初の正解者なら合成ページへ押し出す
+ * （worker/town-tour-quiz.ts。2人目以降と、時間切れの後の回答は押し出さない）。
+ *
+ * 注意: 照らし合わせ（D1）と押し出しの失敗は投げずに、失敗の記録（town-tour-quiz-failed）に残して続ける。
+ * 投げると Twitch へ2xx以外を返して再送させ、作業机のコマンドやコマンドの応答まで止めてしまうためである
+ * （マイグレーション 0026 を適用する前にも起きる）。正解者は押し出す前に記録されているので、押し出しに失敗した正解者は
+ * 画面に出ず、時間切れの扱いで紹介は続く。
+ */
+const answerTownTourQuizFromChat = async (context: Context, message: ChatMessage): Promise<void> => {
+  const prefecture = answeredPrefectureOf(message.text)
+  if (prefecture === null) return
+  try {
+    const quizIds = await answerTownTourQuiz(context.env.DB, { prefecture, userName: message.chatterUserName }, context.now)
+    for (const quizId of quizIds) await pushTownTourAnswer(context.env.ALERTS, { quizId, userName: message.chatterUserName })
+  } catch (error) {
+    await recordFailure(
+      context.env.DB,
+      'town-tour-quiz-failed',
+      `市町村紹介のクイズの回答（${message.chatterUserName}さん: ${prefecture}）を照らせませんでした: ${error instanceof Error ? error.message : String(error)}`,
+      context.now,
+    )
   }
 }
 

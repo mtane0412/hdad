@@ -5,6 +5,8 @@
  * - 呼び出し: トリガー（レイド・キーワード）や試し再生で、AlertChannel から WebSocket で押し出される。市町村と冒頭の一文と、
  *   演出で鳴らす音（sound.ts）と、着地で大きさの文（scale.ts）にする人口・面積・いま見ている人数を持つ
  *   （worker/town-tour-call.ts の TownTourCall と同じ形）
+ * - クイズの最初の正解者: チャットで最初に正解した人が決まると、呼び出しと同じ接続へ type: answer を持つ形で押し出される
+ *   （worker/town-tour-call.ts の TownTourAnswerMessage と同じ形。issue #251）
  * - 紹介: 呼び出しを受け取ってから GET /api/overlay/town-tour?code= で作らせる。記事名・出典の URL と、大見出し・項目・配信者への振りを持つ
  *   （worker/town-tour-routes.ts の応答と同じ形）
  *
@@ -28,6 +30,10 @@ export interface TownTourCall {
   readonly county: string
   readonly name: string
   readonly headline: string
+  /** 冒頭の都道府県当てクイズの出題の識別子。出題を開くときと、正解者を受け取るときに使う */
+  readonly quizId: string
+  /** クイズのあいだに出す一文（都道府県と郡を伏せたもの） */
+  readonly quizHeadline: string
   readonly sound: TownTourPlaybackSound
   /** 住民基本台帳の人口。記録が無い村（北方領土の6村）は null */
   readonly population: number | null
@@ -64,14 +70,22 @@ export interface TourLine {
   readonly text: string
 }
 
-/** 市町村と冒頭の一文の形だけを見る（音の設定は readPlaybackSound、人口と面積と見ている人数は readScale が理由つきで確かめる） */
-const isTownTourCall = (value: unknown): value is Pick<TownTourCall, 'code' | 'prefecture' | 'county' | 'name' | 'headline'> & Record<string, unknown> =>
-  isRecord(value) &&
+/** 押し出されたもの。市町村紹介の呼び出しか、クイズの最初の正解者 */
+export type TownTourMessage =
+  | { readonly type: 'call'; readonly call: TownTourCall }
+  | { readonly type: 'answer'; readonly quizId: string; readonly userName: string }
+
+/** 市町村と冒頭の一文と出題の形だけを見る（音の設定は readPlaybackSound、人口と面積と見ている人数は readScale が理由つきで確かめる） */
+const isTownTourCall = (
+  value: Record<string, unknown>,
+): value is Pick<TownTourCall, 'code' | 'prefecture' | 'county' | 'name' | 'headline' | 'quizId' | 'quizHeadline'> & Record<string, unknown> =>
   typeof value.code === 'string' &&
   typeof value.prefecture === 'string' &&
   typeof value.county === 'string' &&
   typeof value.name === 'string' &&
-  typeof value.headline === 'string'
+  typeof value.headline === 'string' &&
+  typeof value.quizId === 'string' &&
+  typeof value.quizHeadline === 'string'
 
 /** 見ている人数のきっかけ（レイドか、いまの同接か） */
 const AUDIENCE_KINDS: readonly string[] = ['raid', 'live'] satisfies TownTourAudience['kind'][]
@@ -99,20 +113,30 @@ const readScale = (body: Record<string, unknown>): Pick<TownTourCall, 'populatio
 }
 
 /**
- * WebSocket で押し出された文字列を、市町村紹介の呼び出しとして読む。
+ * WebSocket で押し出された文字列を、市町村紹介の呼び出しか、クイズの最初の正解者として読む。type が answer なら正解者、
+ * type を持たなければ呼び出しとして読む。
  *
  * @throws JSONとして読めない・想定した形でない場合
  */
-export const parseTownTourCall = (payload: string): TownTourCall => {
+export const parseTownTourMessage = (payload: string): TownTourMessage => {
   let body: unknown
   try {
     body = JSON.parse(payload)
   } catch {
     throw new Error('押し出された市町村紹介をJSONとして読めません')
   }
+  if (!isRecord(body)) throw new Error('押し出された市町村紹介が想定した形ではありません')
+  if (body.type === 'answer') {
+    const { quizId, userName } = body
+    if (typeof quizId !== 'string' || typeof userName !== 'string') throw new Error('押し出されたクイズの正解者が想定した形ではありません')
+    return { type: 'answer', quizId, userName }
+  }
   if (!isTownTourCall(body)) throw new Error('押し出された市町村紹介が想定した形ではありません')
-  const { code, prefecture, county, name, headline } = body
-  return { code, prefecture, county, name, headline, sound: readPlaybackSound(body.sound), ...readScale(body) }
+  const { code, prefecture, county, name, headline, quizId, quizHeadline } = body
+  return {
+    type: 'call',
+    call: { code, prefecture, county, name, headline, quizId, quizHeadline, sound: readPlaybackSound(body.sound), ...readScale(body) },
+  }
 }
 
 /**

@@ -5,13 +5,14 @@
  * 「いまから何ミリ秒、配信のBGMを下げておくか」を裏方のページへ送る（issue #245）。ここではその長さが
  * 再生の状態と現在時刻だけから決まることを確かめる。
  * - 紹介を待っているあいだは、終わりがまだ決まらないので、決まった長さだけ下げる（届いたら送り直す）
- * - 紹介が届いたら、再生の終わりまで下げる
+ * - 紹介が届いたら、再生の終わりまで下げる（冒頭のクイズで正解が早く出たら、そのぶん早く終わる。issue #251）
  * - 紹介を作れなかったら、すぐ戻す
  * - 紹介のBGMの枠が空なら、下げない
  */
 import { describe, expect, it } from 'vitest'
 import { LOADING_DUCK_HOLD_MS, bgmDuckHoldOf } from './bgm-duck'
 import type { TownTourPlaybackSound } from './sound'
+import { QUIZ_MS } from './quiz'
 import { CREDIT_HOLD_MS, CUE_MS, HOOK_MS, POINT_MS, PUNCHLINE_MS, ZOOM_END_MS, type Playback } from './timeline'
 import type { TownTourCall, TownTourIntro } from './tour'
 
@@ -33,6 +34,8 @@ const callWith = (sound: TownTourPlaybackSound): TownTourCall => ({
   county: '石狩郡',
   name: '当別町',
   headline: '山田花子さんのレイドを記念して、本日は北海道石狩郡当別町をご紹介します',
+  quizId: 'quiz-tobetsu',
+  quizHeadline: '山田花子さんのレイドを記念して、本日は当別町をご紹介します',
   sound,
   population: 14974,
   area: 422.86,
@@ -52,18 +55,35 @@ const tobetsuIntro: TownTourIntro = {
   },
 }
 
-/** 紹介を待っている再生 */
-const loadingPlayback = (sound: TownTourPlaybackSound = bgmOnly): Playback => ({ call: callWith(sound), startedAt: STARTED_AT, intro: { status: 'loading' } })
+/** 誰も正解しなかったクイズ */
+const unansweredQuiz: Playback['quiz'] = { hints: [], answer: null, unopenedAt: null }
 
-/** 始めてから2秒後に紹介が届いた再生。ズームを終えてから大見出し・項目2つ・振りを流し、出典を残して終わる */
+/** 紹介を待っている再生 */
+const loadingPlayback = (sound: TownTourPlaybackSound = bgmOnly): Playback => ({
+  call: callWith(sound),
+  startedAt: STARTED_AT,
+  intro: { status: 'loading' },
+  quiz: unansweredQuiz,
+})
+
+/** 始めてから2秒後に紹介が届いた再生。誰も正解しないままクイズを終え、ズームを終えてから大見出し・項目2つ・振りを流し、出典を残して終わる */
 const readyPlayback: Playback = {
   call: callWith(bgmOnly),
   startedAt: STARTED_AT,
   intro: { status: 'ready', intro: tobetsuIntro, readyAt: STARTED_AT + 2000 },
+  quiz: unansweredQuiz,
 }
-const READY_END = STARTED_AT + ZOOM_END_MS + HOOK_MS + POINT_MS + PUNCHLINE_MS + CUE_MS + CREDIT_HOLD_MS
+/** 流し終える長さのうち、クイズを終えてからのもの */
+const AFTER_QUIZ = ZOOM_END_MS + HOOK_MS + POINT_MS + PUNCHLINE_MS + CUE_MS + CREDIT_HOLD_MS
+const READY_END = STARTED_AT + QUIZ_MS + AFTER_QUIZ
 
 describe('bgmDuckHoldOf', () => {
+  it('クイズで正解が早く出たら、そのぶん早い再生の終わりまで下げる', () => {
+    const answered: Playback = { ...readyPlayback, quiz: { hints: [], answer: { userName: 'たなか', answeredAt: STARTED_AT + 5000 }, unopenedAt: null } }
+
+    expect(bgmDuckHoldOf(answered, STARTED_AT + 5000)).toBe(AFTER_QUIZ)
+  })
+
   it('紹介を待っているあいだは、決まった長さだけ下げる（終わりがまだ決まらないため）', () => {
     expect(bgmDuckHoldOf(loadingPlayback(), STARTED_AT)).toBe(LOADING_DUCK_HOLD_MS)
   })

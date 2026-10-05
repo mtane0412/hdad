@@ -90,6 +90,7 @@
  * | GET  /api/overlay/pomodoro       | オーバーレイ用キー | いまのポモドーロのタイマー（止めていれば null）を返す |
  * | GET  /api/overlay/pomodoro/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、ポモドーロのタイマーの配送先へ引き渡す |
  * | GET  /api/overlay/town-tour      | オーバーレイ用キー | コードの市町村の紹介を Wikipedia を材料に作って返す |
+ * | POST /api/overlay/town-tour/quiz | オーバーレイ用キー | 市町村紹介の冒頭の都道府県当てクイズの出題を開く |
  * | GET  /api/overlay/town-tour/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、市町村紹介の呼び出しの配送先へ引き渡す |
  * | GET  /api/media/:id              | オーバーレイ用キーかセッション | 素材の中身を返す |
  *
@@ -158,7 +159,7 @@ import { postAdminTranscript } from './transcript-routes'
 import { captionSocket } from './caption-routes'
 import { getWorkLog, workLogSocket } from './work-log-routes'
 import { getTaskDesk, taskDeskSocket } from './task-desk-routes'
-import { getTownTour, getTownTourSound, postTownTourDemo, putTownTourSound, townTourSocket } from './town-tour-routes'
+import { getTownTour, getTownTourSound, postTownTourDemo, postTownTourQuiz, putTownTourSound, townTourSocket } from './town-tour-routes'
 import { getOverlayPomodoro, getPomodoro, pomodoroSocket, postPomodoroControl, putPomodoroSettings } from './pomodoro-routes'
 import { getDeeplUsage, getTranslation, postTranslation, putTranslation } from './translation-routes'
 import { drawSocket, getDrawBackground, getDrawStrokes, putDrawStrokes } from './draw-routes'
@@ -309,6 +310,7 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/overlay/bgm/duck/socket', handle: overlayBgmDuckSocket },
   { method: 'GET', path: '/api/overlay/layout', handle: getOverlayLayoutForPage },
   { method: 'GET', path: '/api/overlay/town-tour', handle: getTownTour },
+  { method: 'POST', path: '/api/overlay/town-tour/quiz', handle: postTownTourQuiz },
   { method: 'GET', path: '/api/overlay/town-tour/socket', handle: townTourSocket },
   { method: 'POST', path: '/api/admin/town-tour/demo', handle: postTownTourDemo },
   { method: 'GET', path: '/api/admin/town-tour/sound', handle: getTownTourSound },
