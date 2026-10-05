@@ -163,21 +163,33 @@ export const startSpeech = async ({ key, box }: SpeechTaskOptions): Promise<Star
     }
   }
 
+  /**
+   * 押し出されたミュートを受け取った回数。つなぎ直しの読み出しを待つあいだに新しい押し出しが届いたら、
+   * 読み出した（古いかもしれない）値でそれを上書きしないために使う
+   */
+  let notificationCount = 0
+
   connectSocket(
     socketUrl(SPEECH_MUTE_SOCKET_PATH, { key }),
     {
       onMessage: (text) => {
         try {
-          applyMute(parseSpeechMute(text).muted)
+          const { muted: next } = parseSpeechMute(text)
+          notificationCount += 1
+          applyMute(next)
         } catch (error) {
           showError(error, SPEECH_NOUN, box)
         }
       },
       onOpen: () => {
         // つながっていない間に切り替えられていても取りこぼさないよう、保存済みのミュートを読み直す
+        const notificationsBefore = notificationCount
         void api
           .read()
-          .then((latest) => applyMute(latest.muted))
+          .then((latest) => {
+            // 読み出しを待つあいだに押し出しが届いていたら、そちらが新しいので読み出した値は使わない
+            if (notificationCount === notificationsBefore) applyMute(latest.muted)
+          })
           .catch((error: unknown) => {
             // 読み直しに失敗しても読み上げは止めない。次の押し出しで正しい状態に戻る
             console.error('読み上げのミュートを読み直せませんでした', error)
