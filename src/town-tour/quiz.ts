@@ -5,7 +5,8 @@
  * ここはクイズの決まりごと（待つ長さ・ヒントを出す間隔）と、通信を持たない判断だけを置く。
  * - チャットの発言から、答えた都道府県を1つだけ読み取る（answeredPrefectureOf。Worker が Webhook で受けた発言に使う）
  * - 市町村のコードの上2桁から都道府県を引く（prefectureOfCode）
- * - ヒントの文を作る（quizHintsOf。海に面しているか・隣り合う都道府県は、合成ページが地図の形から求めて渡す。topo.ts の decodeTownBorders）
+ * - ヒントの文を作る（quizHintsOf。都道府県の市町村の数・隣り合う都道府県は、合成ページが地図の形から求めて渡す。topo.ts の decodeTownBorders）
+ *   答えは都道府県なので、ヒントはどれも都道府県についてのものにする（市町村についてのヒントは、都道府県のことと読まれて誤解を招く）
  *
  * Worker（判定と、出題を受け付ける長さ）と合成ページ（場面の長さ）が同じ長さを使うため、ここに置いて両方から読む
  * （Worker から src/ を読み込む例外。.claude/rules/town-tour.md）。
@@ -169,12 +170,12 @@ const regionOf = (prefecture: string): string => {
   return region.name
 }
 
-/** ヒントの材料。海に面しているかと隣り合う都道府県は、合成ページが地図の形から求める（topo.ts の decodeTownBorders） */
+/** ヒントの材料。都道府県の市町村の数と隣り合う都道府県は、合成ページが地図の形から求める（topo.ts の decodeTownBorders） */
 export interface QuizClue {
   /** 正解の都道府県 */
   readonly prefecture: string
-  /** 出題した市町村が海に面しているか */
-  readonly coastal: boolean
+  /** 正解の都道府県の市町村の数（地図の市町村を数える。区は市にまとめてある） */
+  readonly townCount: number
   /** 正解の都道府県と陸で接する都道府県 */
   readonly neighbors: readonly string[]
 }
@@ -182,6 +183,7 @@ export interface QuizClue {
 /**
  * 出題する市町村のヒントの材料を、地図の境界の分け合い方から求める。
  *
+ * 市町村の数は、正解の都道府県の市町村を地図から数えたものにする。
  * 隣り合う都道府県は、正解の都道府県の市町村と境界を分け合う市町村の都道府県を、コードの順に並べたものにする。
  *
  * @param borders 同梱の日本地図から求めた境界（topo.ts の decodeTownBorders）
@@ -190,26 +192,28 @@ export interface QuizClue {
 export const quizClueOf = (code: string, borders: TownBorders): QuizClue => {
   const prefecture = prefectureOfCode(code)
   const neighborNumbers = new Set<number>()
+  let townCount = 0
   for (const [town, others] of borders.adjacent) {
     if (prefectureOfCode(town) !== prefecture) continue
+    townCount += 1
     for (const other of others) {
       if (prefectureOfCode(other) !== prefecture) neighborNumbers.add(prefectureNumberOf(other))
     }
   }
   return {
     prefecture,
-    coastal: borders.coastal.has(code),
+    townCount,
     neighbors: [...neighborNumbers].sort((a, b) => a - b).map((number) => prefectureOfCode(String(number).padStart(2, '0'))),
   }
 }
 
 /**
- * 出す順に並べたヒントの文を作る（海に面しているか → 地方 → 隣り合う都道府県。あとのものほど答えに近い）。
+ * 出す順に並べたヒントの文を作る（都道府県の市町村の数 → 地方 → 隣り合う都道府県。あとのものほど答えに近い）。
  *
  * @throws 正解が都道府県の名前でない場合
  */
-export const quizHintsOf = ({ prefecture, coastal, neighbors }: QuizClue): string[] => [
-  coastal ? '海に面しています' : '海に面していません',
+export const quizHintsOf = ({ prefecture, townCount, neighbors }: QuizClue): string[] => [
+  `市町村の数: ${townCount}`,
   `${regionOf(prefecture)}地方にあります`,
   neighbors.length === 0 ? '陸で接する都道府県はありません' : `隣り合う都道府県: ${neighbors.join('・')}`,
 ]

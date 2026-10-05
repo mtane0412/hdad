@@ -3,7 +3,7 @@
  *
  * - チャットの発言から、答えた都道府県を1つだけ読み取る（表記ゆれ・「東京都」の中の「京都」・2つ以上を挙げた発言）
  * - 市町村のコードの上2桁から都道府県を引く
- * - ヒント（海に面しているか → 地方 → 隣り合う都道府県）の文を作る
+ * - ヒント（都道府県の市町村の数 → 地方 → 隣り合う都道府県）の文を作る
  */
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
@@ -68,41 +68,41 @@ describe('prefectureOfCode', () => {
 })
 
 describe('quizHintsOf', () => {
-  it('海に面しているか → 地方 → 隣り合う都道府県 の順にヒントを並べる', () => {
-    expect(quizHintsOf({ prefecture: '埼玉県', coastal: false, neighbors: ['群馬県', '東京都'] })).toEqual([
-      '海に面していません',
+  it('都道府県の市町村の数 → 地方 → 隣り合う都道府県 の順にヒントを並べる（どれも答えの都道府県についてのヒント）', () => {
+    expect(quizHintsOf({ prefecture: '埼玉県', townCount: 63, neighbors: ['群馬県', '東京都'] })).toEqual([
+      '市町村の数: 63',
       '関東地方にあります',
       '隣り合う都道府県: 群馬県・東京都',
     ])
   })
 
-  it('海に面した町には、海に面している旨を出す', () => {
-    expect(quizHintsOf({ prefecture: '鹿児島県', coastal: true, neighbors: ['宮崎県', '熊本県'] })[0]).toBe('海に面しています')
-  })
-
   it('沖縄県は九州・沖縄地方、北海道は北海道地方とする', () => {
-    expect(quizHintsOf({ prefecture: '沖縄県', coastal: true, neighbors: [] })[1]).toBe('九州・沖縄地方にあります')
-    expect(quizHintsOf({ prefecture: '北海道', coastal: true, neighbors: [] })[1]).toBe('北海道地方にあります')
+    expect(quizHintsOf({ prefecture: '沖縄県', townCount: 41, neighbors: [] })[1]).toBe('九州・沖縄地方にあります')
+    expect(quizHintsOf({ prefecture: '北海道', townCount: 185, neighbors: [] })[1]).toBe('北海道地方にあります')
   })
 
   it('陸で接する都道府県が無ければ、その旨を出す', () => {
-    expect(quizHintsOf({ prefecture: '沖縄県', coastal: true, neighbors: [] })[2]).toBe('陸で接する都道府県はありません')
+    expect(quizHintsOf({ prefecture: '沖縄県', townCount: 41, neighbors: [] })[2]).toBe('陸で接する都道府県はありません')
   })
 })
 
 describe('quizClueOf', () => {
-  /** 同梱の日本地図から求めた、海に面しているかと隣り合う市町村 */
+  /** 同梱の日本地図から求めた、隣り合う市町村 */
   const borders = decodeTownBorders(JSON.parse(readFileSync(new URL('../../public/town-tour/japan.topo.json', import.meta.url), 'utf8')))
 
-  it('埼玉県秩父市なら、内陸で、埼玉県と陸で接する7都県をコードの順に挙げる', () => {
+  it('埼玉県秩父市なら、埼玉県の市町村の数と、埼玉県と陸で接する7都県をコードの順に挙げる', () => {
     expect(quizClueOf('11207', borders)).toEqual({
       prefecture: '埼玉県',
-      coastal: false,
+      townCount: 63,
       neighbors: ['茨城県', '栃木県', '群馬県', '千葉県', '東京都', '山梨県', '長野県'],
     })
   })
 
-  it('沖縄県那覇市なら、海に面していて、陸で接する都道府県は無い', () => {
-    expect(quizClueOf('47201', borders)).toEqual({ prefecture: '沖縄県', coastal: true, neighbors: [] })
+  it('宮崎県の内陸の町（高千穂町）でも、町ではなく宮崎県についてのヒントを出す', () => {
+    expect(quizClueOf('45441', borders)).toEqual({ prefecture: '宮崎県', townCount: 26, neighbors: ['熊本県', '大分県', '鹿児島県'] })
+  })
+
+  it('沖縄県那覇市なら、沖縄県の市町村の数を挙げ、陸で接する都道府県は無い', () => {
+    expect(quizClueOf('47201', borders)).toEqual({ prefecture: '沖縄県', townCount: 41, neighbors: [] })
   })
 })

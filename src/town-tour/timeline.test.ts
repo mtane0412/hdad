@@ -86,8 +86,8 @@ const tobetsuIntroWithImage: TownTourIntro = {
   },
 }
 
-/** 地図の形から作ったヒント（海に面しているか → 地方 → 隣り合う都道府県） */
-const tobetsuHints = ['海に面していません', '北海道地方にあります', '陸で接する都道府県はありません']
+/** 地図の形から作ったヒント（都道府県の市町村の数 → 地方 → 隣り合う都道府県） */
+const tobetsuHints = ['市町村の数: 185', '北海道地方にあります', '陸で接する都道府県はありません']
 
 /** 誰も正解しなかったクイズ */
 const unansweredQuiz: Playback['quiz'] = { hints: tobetsuHints, answer: null, unopenedAt: null }
@@ -126,7 +126,7 @@ describe('sceneAt のクイズ', () => {
     const hintsAt = (ms: number) => sceneAt(loadingPlayback, STARTED_AT + ms).quiz?.hints
 
     expect(hintsAt(QUIZ_HINT_INTERVAL_MS - 1)).toEqual([])
-    expect(hintsAt(QUIZ_HINT_INTERVAL_MS)).toEqual(['海に面していません'])
+    expect(hintsAt(QUIZ_HINT_INTERVAL_MS)).toEqual(['市町村の数: 185'])
     expect(hintsAt(QUIZ_HINT_INTERVAL_MS * 3)).toEqual(tobetsuHints)
   })
 
