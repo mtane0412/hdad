@@ -24,6 +24,7 @@
 | [task-desk.md](task-desk.md) | 作業机（素材の種類 `taskDesk`。視聴者の `!task`・`!done`） |
 | [pomodoro.md](pomodoro.md) | ポモドーロ（`/pomodoro/`・素材の種類 `pomodoro`。区切りのトリガーと休憩中のBGM） |
 | [town-tour.md](town-tour.md) | 市町村紹介（レイドとキーワードで流すランダムな市区町村。一覧と日本地図のデータ源・紹介の作り方・素材の流し方） |
+| [twister.md](twister.md) | ツイスター（レイドで流す3Dのツイスターゲーム。物理を先に計算して再生する・指示の選び方） |
 | [comments.md](comments.md) | コメントビューアー（`/comments/`） |
 | [focus.md](focus.md) | 注目コメント（素材の種類 `focus`） |
 | [overlay-stage.md](overlay-stage.md) | 素材を重ねる合成ページ（`overlay/stage/`） |
