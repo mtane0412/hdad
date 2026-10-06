@@ -22,7 +22,9 @@ export const LOADING_DUCK_HOLD_MS = 30_000
  * 配信のBGMを now から下げておく長さ（ミリ秒）を決める。
  *
  * @param now 現在時刻（ミリ秒。Date.now() と同じ基準）
- * @returns 下げておく長さ。0 は「すぐ戻す」。紹介のBGMの枠が空なら下げないので null
+ * @returns 下げておく長さ（整数のミリ秒）。0 は「すぐ戻す」。紹介のBGMの枠が空なら下げないので null
+ * 注意: ナレーションの長さは音声の秒数から換算するので端数が出る。Worker は整数しか受け付けないため切り上げる
+ *       （切り捨てると再生の終わりより一瞬早く戻ってしまう）。
  */
 export const bgmDuckHoldOf = (playback: Playback, now: number): number | null => {
   if (playback.call.sound.slots.bgm === null) return null
@@ -34,7 +36,7 @@ export const bgmDuckHoldOf = (playback: Playback, now: number): number | null =>
       return 0
     case 'ready': {
       const { end } = tourSpanOf(playback, intro)
-      return Math.max(0, playback.startedAt + end - now)
+      return Math.max(0, Math.ceil(playback.startedAt + end - now))
     }
   }
 }
