@@ -112,7 +112,7 @@ export const fetchTownImage = async (fetchImpl: typeof fetch, fileName: string):
     iiurlwidth: String(TOWN_IMAGE_WIDTH),
     iiextmetadatafilter: 'License|LicenseShortName|Artist|ImageDescription',
     // 説明が複数の言語で書かれていれば日本語を選ばせる（日本語が無ければ別の言語が返る）
-    extmetalang: 'ja',
+    iiextmetadatalanguage: 'ja',
     format: 'json',
     formatversion: '2',
     titles: `File:${fileName}`,

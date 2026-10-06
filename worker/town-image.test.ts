@@ -102,7 +102,7 @@ describe('fetchTownImage', () => {
     const image = await fetchTownImage(fetchImpl, '安楽寺_Anraku-ji_Temple.jpg')
 
     expect(image?.description).toBe('広島県府中市の安楽寺')
-    expect(urls[0]?.searchParams.get('extmetalang')).toBe('ja')
+    expect(urls[0]?.searchParams.get('iiextmetadatalanguage')).toBe('ja')
     expect(urls[0]?.searchParams.get('iiextmetadatafilter')).toContain('ImageDescription')
   })
 
