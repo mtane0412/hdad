@@ -33,7 +33,7 @@ const DEEPL_USAGE_PATH = '/api/admin/translation/deepl-usage'
 export const LLM_PROVIDERS = ['workers-ai', 'openrouter'] as const
 
 /** LLMに文面を作らせる箇所。並び順も worker/llm-config.ts の LLM_USAGES と合わせる（画面に出す順になる） */
-export const LLM_USAGES = ['translation', 'aiChat', 'sideSuper', 'viewerSummary', 'streamSummary', 'townTour'] as const
+export const LLM_USAGES = ['translation', 'aiChat', 'sideSuper', 'viewerSummary', 'streamSummary', 'streamTitle', 'townTour'] as const
 
 /** 字幕の翻訳の提供元。worker/translation-config.ts の TRANSLATION_PROVIDERS と合わせる（画面の選択欄に出す順になる） */
 export const TRANSLATION_PROVIDERS = ['off', 'llm', 'm2m100', 'deepl'] as const
@@ -60,7 +60,7 @@ export interface DeeplUsage {
  *
  * Jev はモデルを選ばせない（worker/jev.ts が版を固定している）ので、設定には含まれず、使用状況にだけ並ぶ。
  */
-export const JEV_USAGES = ['bgm'] as const
+export const JEV_USAGES = ['bgm', 'streamTitle'] as const
 
 export type LlmProvider = (typeof LLM_PROVIDERS)[number]
 export type LlmUsage = (typeof LLM_USAGES)[number]

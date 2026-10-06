@@ -35,11 +35,12 @@ export const LLM_PROVIDERS = ['workers-ai', 'openrouter'] as const
  * LLMに文面を作らせる箇所。
  *
  * 並び順は管理画面に出す順で、配信者の発話ごとに呼ばれるもの（translation）・視聴者の発言ごとに呼ばれるもの（aiChat）から、
- * cron が5分おきに呼ぶもの（sideSuper・viewerSummary・streamSummary）、レイドのときだけ呼ぶもの（townTour）へと並べる。
+ * cron が5分おきに呼ぶもの（sideSuper・viewerSummary・streamSummary）、章ごとに呼ぶもの（streamTitle）、レイドのときだけ呼ぶもの（townTour）へと並べる。
  * translation は、字幕の翻訳の提供元に LLM を選んだときだけ呼ばれる（worker/translation.ts）。
  * streamSummary は、あらすじ（worker/stream-summary.ts）と配信の章（worker/stream-chapter.ts）の両方が指名する。
+ * streamTitle は、配信タイトルの候補づくり（worker/stream-title.ts。試験運用）を入れたときだけ呼ばれる。
  */
-export const LLM_USAGES = ['translation', 'aiChat', 'sideSuper', 'viewerSummary', 'streamSummary', 'townTour'] as const
+export const LLM_USAGES = ['translation', 'aiChat', 'sideSuper', 'viewerSummary', 'streamSummary', 'streamTitle', 'townTour'] as const
 
 export type LlmProvider = (typeof LLM_PROVIDERS)[number]
 export type LlmUsage = (typeof LLM_USAGES)[number]
@@ -87,6 +88,8 @@ export const DEFAULT_LLM_SETTINGS: LlmSettings = {
     sideSuper: { provider: 'workers-ai', models: LIGHT_MODELS },
     viewerSummary: { provider: 'workers-ai', models: LIGHT_MODELS },
     streamSummary: { provider: 'workers-ai', models: LARGE_MODELS },
+    // 配信タイトルの候補（worker/stream-title.ts）は章ごと（30分に1回）にしか呼ばず、8bでは日本語の言い回しが弱いと見込むので大きいモデルにする
+    streamTitle: { provider: 'workers-ai', models: LARGE_MODELS },
     // 市町村紹介（worker/town-tour.ts）はレイドのときだけ呼ぶので回数が少なく、材料にない内容を書かせないことを優先して大きいモデルにする
     townTour: { provider: 'workers-ai', models: LARGE_MODELS },
   },

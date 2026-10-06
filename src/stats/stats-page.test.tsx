@@ -11,12 +11,14 @@
  * - 期間を切り替えると、対象の配信だけに変わること
  * - 配信を選ぶと、その配信の視聴者数の推移を読み込んで出すこと
  * - 配信を選ぶと、その配信で何が話されたか（章）と最後のあらすじを出すこと
+ * - 章ごとに作った配信タイトルの候補と Jev の判定を、機械が作ったものと分かる形で章の下に出すこと（試験運用）
+ * - 配信タイトルの候補を作るかを、スイッチで切り替えて保存できること
  *
  * 日時はブラウザのタイムゾーンで出す決まりなので、テストでは TZ を東京に固定する。
  * 現在時刻は now で渡して固定し、テストの結果が実行日で変わらないようにする。
  */
 import '@testing-library/jest-dom/vitest'
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { FollowerSample, SessionDetail, SessionSummary, StatsApi } from './api'
@@ -80,6 +82,8 @@ const FRIDAY_SESSION_DETAIL: SessionDetail = {
       summary: '配信者がログイン画面を作りはじめ、セッションの持ち方で視聴者と相談した。',
     },
   ],
+  // 2つ目の章にだけ配信タイトルの候補がある（1つ目は作れなかった）
+  titleCandidates: [{ chapterStartedAt: '2026-09-18T12:30:00.000Z', candidate: 'ログイン画面を作り中', publishable: 0.934 }],
   summary: 'エディタを整えた配信者。ログイン機能に取りかかり、いまはセッションの持ち方を決めているところ。',
   // 作業机で5人が合わせて14時間32分作業した
   workTime: { people: 5, totalMs: (14 * 60 + 32) * 60 * 1000 },
@@ -90,6 +94,8 @@ const createFakeApi = (patch: Partial<StatsApi> = {}): StatsApi => ({
   sessions: vi.fn(async () => [FRIDAY_SESSION, LAST_MONTH_SESSION]),
   session: vi.fn(async () => FRIDAY_SESSION_DETAIL),
   followers: vi.fn(async () => FOLLOWER_TREND),
+  titleSettings: vi.fn(async () => ({ enabled: false })),
+  saveTitleSettings: vi.fn(async (settings) => settings),
   ...patch,
 })
 
@@ -245,6 +251,21 @@ describe('配信ごとの詳細（視聴者数の推移と話されたこと）'
     expect(screen.getByText('エディタを整えた配信者。ログイン機能に取りかかり、いまはセッションの持ち方を決めているところ。')).toBeInTheDocument()
   })
 
+  it('章の下に、その章で作った配信タイトルの候補と、公開してよいかの判定を出す（候補の無い章には出さない）', async () => {
+    const user = userEvent.setup()
+    render(<StatsPage api={createFakeApi()} now={NOW} />)
+    await waitForDisplay()
+
+    await user.click(screen.getByRole('button', { name: '金曜夜のもくもく配信 の詳細を見る' }))
+
+    const chapters = within(await screen.findByRole('list', { name: '金曜夜のもくもく配信 で話されたこと' })).getAllByRole('listitem')
+    expect(chapters[0]).not.toHaveTextContent('タイトルの候補')
+    // 機械が作ったものと分かる見出しを付け、Jev の確率は百分率で出す
+    expect(chapters[1]).toHaveTextContent('タイトルの候補（機械）')
+    expect(chapters[1]).toHaveTextContent('ログイン画面を作り中')
+    expect(chapters[1]).toHaveTextContent('公開してよい 93%')
+  })
+
   it('章もあらすじも無い配信では、記録が無いことを伝える（何も出さないと、読み込めていないのと見分けられないため）', async () => {
     const user = userEvent.setup()
     render(<StatsPage api={createFakeApi({ session: vi.fn(async () => ({ ...FRIDAY_SESSION_DETAIL, chapters: [], summary: null })) })} now={NOW} />)
@@ -288,5 +309,43 @@ describe('配信ごとの詳細（視聴者数の推移と話されたこと）'
     await user.click(screen.getByRole('button', { name: '金曜夜のもくもく配信 の詳細を見る' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('配信「配信ID-金曜」の記録が存在しません')
+  })
+})
+
+describe('配信タイトルの候補の設定（試験運用）', () => {
+  it('読み込んだ設定をスイッチに出し、切り替えると保存する', async () => {
+    const api = createFakeApi()
+    render(<StatsPage api={api} now={NOW} />)
+
+    const toggle = await screen.findByRole('switch', { name: '配信タイトルの候補を作る' })
+    expect(toggle).not.toBeChecked()
+
+    fireEvent.click(toggle)
+
+    expect(api.saveTitleSettings).toHaveBeenCalledWith({ enabled: true })
+    expect(await screen.findByRole('switch', { name: '配信タイトルの候補を作る', checked: true })).toBeInTheDocument()
+  })
+
+  it('配信の記録がまだ無くても、設定は切り替えられる（配信を始める前に入れておけるように）', async () => {
+    render(<StatsPage api={createFakeApi({ sessions: vi.fn(async () => []), followers: vi.fn(async () => []) })} now={NOW} />)
+
+    expect(await screen.findByRole('switch', { name: '配信タイトルの候補を作る' })).toBeInTheDocument()
+  })
+
+  it('保存に失敗したら、理由を出してスイッチを元に戻す', async () => {
+    const api = createFakeApi({ saveTitleSettings: vi.fn(async () => Promise.reject(new Error('ネットワークに接続できません'))) })
+    render(<StatsPage api={api} now={NOW} />)
+
+    fireEvent.click(await screen.findByRole('switch', { name: '配信タイトルの候補を作る' }))
+
+    expect(await screen.findByText('ネットワークに接続できません')).toBeInTheDocument()
+    expect(screen.getByRole('switch', { name: '配信タイトルの候補を作る' })).not.toBeChecked()
+  })
+
+  it('設定を読み込めなかったら、「作らない」に見せかけずに理由を出す', async () => {
+    render(<StatsPage api={createFakeApi({ titleSettings: vi.fn(async () => Promise.reject(new Error('Workerが応答しません'))) })} now={NOW} />)
+
+    expect(await screen.findByText('Workerが応答しません')).toBeInTheDocument()
+    expect(screen.queryByRole('switch', { name: '配信タイトルの候補を作る' })).not.toBeInTheDocument()
   })
 })

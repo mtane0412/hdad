@@ -71,6 +71,7 @@ const savedSettings: LlmSettings = {
     sideSuper: { provider: 'workers-ai', models: { ...lightModel } },
     viewerSummary: { provider: 'workers-ai', models: { ...lightModel } },
     streamSummary: { provider: 'workers-ai', models: { ...largeModel } },
+    streamTitle: { provider: 'workers-ai', models: { ...largeModel } },
     townTour: { provider: 'workers-ai', models: { ...largeModel } },
   },
 }

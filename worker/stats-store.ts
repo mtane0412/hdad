@@ -10,6 +10,7 @@ import type { Database } from './database'
 import type { LiveStream } from './twitch'
 import { listStreamChapters, type StreamChapter } from './stream-chapter-store'
 import { readStreamSummary } from './stream-summary-store'
+import { listStreamTitleCandidates, type StreamTitleCandidate } from './stream-title-store'
 import { readSessionWorkTime } from './task-desk-store'
 
 /** 一覧で返す配信セッションの上限（新しい順） */
@@ -49,6 +50,8 @@ export interface SessionDetail {
   samples: ViewerSample[]
   /** 何が話されたかの記録（約30分ごとの章。区間の始まった順）。まだ1章も無ければ空 */
   chapters: StreamChapter[]
+  /** 章ごとに作った配信タイトルの候補と Jev の判定（試験運用。issue #268。章の始まった順）。作っていなければ空 */
+  titleCandidates: StreamTitleCandidate[]
   /** 最後に作った「これまでのあらすじ」。作っていなければ null */
   summary: string | null
   /**
@@ -261,12 +264,14 @@ export const getSession = async (db: Database, id: string, now: number): Promise
     .bind(id)
     .all<ViewerSample>()
   const chapters = await listStreamChapters(db, id)
+  const titleCandidates = await listStreamTitleCandidates(db, id)
   const summary = await readStreamSummary(db, id)
   const workTime = await readSessionWorkTime(db, id, session.endedAt === null ? now : Date.parse(session.endedAt))
   return {
     ...session,
     samples,
     chapters,
+    titleCandidates,
     summary: summary?.summary ?? null,
     // 作業中の人数は合成ページが合計を進めるためのものなので、配信の記録には持ち出さない
     workTime: workTime === null ? null : { people: workTime.people, totalMs: workTime.totalMs },
