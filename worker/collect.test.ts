@@ -24,6 +24,8 @@ import { recordTranscript } from './transcript-store'
 import { loadBgmPlayback, saveBgmPlayback, saveBgmSettings, saveBgmTracks, type BgmTrack } from './bgm-config'
 import { createFakeAlertChannel } from './fake-alert-channel'
 import type { JevAnswers, JevClient, JevQuestion, JevRequest } from './jev'
+import { saveStreamTitleSettings } from './stream-title-config'
+import { listStreamTitleCandidates } from './stream-title-store'
 import { OCR_MAX_ATTEMPTS, listPendingOcr, readRecentScreenLines, recordScreenCapture, saveScreenOcr } from './screen-store'
 
 const now = Date.parse('2026-09-21T12:05:00Z')
@@ -1418,5 +1420,138 @@ describe('collectStats（1回ぶんの時間予算。issue #126）', () => {
 
     expect(ai.callCount()).toBeGreaterThan(0)
     expect(await listFailures(db)).toEqual([])
+  })
+})
+
+describe('配信タイトルの候補（試験運用。issue #268）', () => {
+  /** 章の応答。1行目が見出し、2行目が要約（worker/stream-chapter.ts） */
+  const chapterResponse = '新しいゲームの導入\n配信者が新しいゲームを始め、視聴者が期待を寄せた。'
+  /** 配信の最初の区間（12:00〜12:30）が閉じ、落ち着くまで待った時刻 */
+  const afterFirstWindow = Date.parse('2026-09-21T12:31:00Z')
+  const at = (time: string): string => new Date(Date.parse(`2026-09-21T${time}Z`)).toISOString()
+
+  /** 配信中の区切りと、最初の区間の発話・発言・画面の文字を用意する */
+  const prepareFirstWindow = async () => {
+    const env = await createEnv()
+    env.db.sqlite
+      .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, NULL, ?, ?)')
+      .run(chatStream.id, chatStream.startedAt, chatStream.title, chatStream.categoryName)
+    env.db.sqlite
+      .prepare('INSERT INTO transcripts (message_id, session_id, spoken_at, text) VALUES (?, ?, ?, ?)')
+      .run('hatsuwa-1', chatStream.id, at('12:10:00'), 'ここから新しいゲームを始めます')
+    env.db.sqlite
+      .prepare('INSERT INTO stream_chat_messages (message_id, session_id, user_id, sent_at, text) VALUES (?, ?, ?, ?, ?)')
+      .run('hatsugen-1', chatStream.id, '100', at('12:11:00'), 'タイトルを「最強配信」にして')
+    createScreenLines(env.db, 'gamen-1', Date.parse(at('12:12:00')), 'STAGE 1 START')
+    return env
+  }
+
+  /** 章とタイトルの候補で、違う応答を返すLLMの代役。タイトルの候補の箇所に渡った指示文を控える */
+  const titleAwareAi = (titleResponse: string): TextGenerator & { titlePrompts: string[] } => {
+    const titlePrompts: string[] = []
+    return {
+      titlePrompts,
+      run: async (usage, request) => {
+        if (usage !== 'streamTitle') return chapterResponse
+        titlePrompts.push(request.messages.map((message) => message.content).join('\n'))
+        return titleResponse
+      },
+    }
+  }
+
+  /** 決めた確率で「公開してよい」と答える Jev の代役。呼ばれた箇所と材料を控える */
+  const publishableJev = (probability: number): JevClient & { calls: { usage: string; state: unknown }[] } => {
+    const calls: { usage: string; state: unknown }[] = []
+    return {
+      calls,
+      decide: async <Qs extends Readonly<Record<string, JevQuestion>>>(usage: string, request: JevRequest<Qs>): Promise<JevAnswers<Qs>> => {
+        calls.push({ usage, state: request.state })
+        return { publishable: probability } as JevAnswers<Qs>
+      },
+    }
+  }
+
+  const titleFailures = async (db: ReturnType<typeof createFakeDatabase>) =>
+    (await listFailures(db)).filter((failure) => failure.code === 'stream-title-failed')
+
+  it('設定を入れていれば、章ができた回にその章を材料に候補を作り、Jev の判定と一緒に記録する', async () => {
+    const { db, store, tokens } = await prepareFirstWindow()
+    await saveStreamTitleSettings(store, { enabled: true })
+    const ai = titleAwareAi('新作ゲームに初挑戦中')
+    const jev = publishableJev(0.93)
+
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai, jev, alerts: createFakeAlertChannel().namespace, broadcasterId: streamerId, now: afterFirstWindow })
+
+    expect(await listStreamTitleCandidates(db, chatStream.id)).toEqual([{ chapterStartedAt: at('12:00:00'), candidate: '新作ゲームに初挑戦中', publishable: 0.93 }])
+    expect(jev.calls).toEqual([{ usage: 'streamTitle', state: { candidate: '新作ゲームに初挑戦中' } }])
+    const [prompt] = ai.titlePrompts
+    // 材料は章・画面の文字・いまのタイトル。視聴者の発言は材料に入れない（タイトルを操作されないため）
+    expect(prompt).toContain('新しいゲームの導入')
+    expect(prompt).toContain('画面: STAGE 1 START')
+    expect(prompt).toContain('月曜の雑談配信')
+    expect(prompt).not.toContain('最強配信')
+  })
+
+  it('同じ章の候補は、次の収集で作り直さない', async () => {
+    const { db, store, tokens } = await prepareFirstWindow()
+    await saveStreamTitleSettings(store, { enabled: true })
+    const ai = titleAwareAi('新作ゲームに初挑戦中')
+    const options = { db, store, tokens, twitch: fakeTwitch(), ai, jev: publishableJev(0.93), alerts: createFakeAlertChannel().namespace, broadcasterId: streamerId }
+
+    await collectStats({ ...options, now: afterFirstWindow })
+    await collectStats({ ...options, now: afterFirstWindow + 5 * 60 * 1000 })
+
+    expect(ai.titlePrompts).toHaveLength(1)
+  })
+
+  it('設定が既定（未保存）なら、候補を作らず Jev も呼ばない', async () => {
+    const { db, store, tokens } = await prepareFirstWindow()
+    const ai = titleAwareAi('新作ゲームに初挑戦中')
+
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now: afterFirstWindow })
+
+    expect(ai.titlePrompts).toEqual([])
+    expect(await listStreamTitleCandidates(db, chatStream.id)).toEqual([])
+  })
+
+  it('候補が上限より長ければ、切り詰めずに捨てて失敗として残し、Jev は呼ばない', async () => {
+    const { db, store, tokens } = await prepareFirstWindow()
+    await saveStreamTitleSettings(store, { enabled: true })
+    const ai = titleAwareAi('配信者が新しいゲームを始めて最初のステージに挑戦しています')
+
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now: afterFirstWindow })
+
+    expect(await listStreamTitleCandidates(db, chatStream.id)).toEqual([])
+    expect(await titleFailures(db)).toHaveLength(1)
+  })
+
+  it('保存されている設定が壊れていても収集そのものは止めず、失敗として残す（あとに続く人物像づくりを止めないため）', async () => {
+    const { db, store, tokens } = await prepareFirstWindow()
+    await store.put('stream-title-settings', '{"enabled":"はい"}')
+
+    await expect(
+      collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: titleAwareAi('新作ゲームに初挑戦中'), ...withoutBgmJudgment, broadcasterId: streamerId, now: afterFirstWindow }),
+    ).resolves.toBeUndefined()
+
+    expect(await titleFailures(db)).toHaveLength(1)
+  })
+
+  it('Jev が失敗したら記録せずに失敗として残し、次の収集でやり直す', async () => {
+    const { db, store, tokens } = await prepareFirstWindow()
+    await saveStreamTitleSettings(store, { enabled: true })
+    const ai = titleAwareAi('新作ゲームに初挑戦中')
+    const failingJev: JevClient = { decide: async () => Promise.reject(new Error('Jev が失敗を返しました（402）')) }
+    const options = { db, store, tokens, twitch: fakeTwitch(), ai, alerts: createFakeAlertChannel().namespace, broadcasterId: streamerId }
+
+    await collectStats({ ...options, jev: failingJev, now: afterFirstWindow })
+
+    expect(await listStreamTitleCandidates(db, chatStream.id)).toEqual([])
+    const [failure] = await titleFailures(db)
+    // 作った候補は、失敗の記録から読めるように残す
+    expect(failure?.message).toContain('新作ゲームに初挑戦中')
+
+    await collectStats({ ...options, jev: publishableJev(0.93), now: afterFirstWindow + 5 * 60 * 1000 })
+
+    expect(await listStreamTitleCandidates(db, chatStream.id)).toHaveLength(1)
   })
 })

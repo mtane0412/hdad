@@ -22,6 +22,7 @@ import {
 import type { LiveStream } from './twitch'
 import { saveStreamChapter } from './stream-chapter-store'
 import { saveStreamSummary } from './stream-summary-store'
+import { saveStreamTitleCandidate } from './stream-title-store'
 import { declareTask } from './task-desk-store'
 
 const at = (text: string): number => Date.parse(text)
@@ -49,6 +50,7 @@ describe('recordLiveStream', () => {
       categoryName: 'Just Chatting',
       samples: [{ sampledAt: '2026-09-21T12:05:00.000Z', viewerCount: 10 }],
       chapters: [],
+      titleCandidates: [],
       summary: null,
       workTime: null,
     })
@@ -256,6 +258,27 @@ describe('getSession', () => {
     ])
     expect(session?.summary).toBe('マイクを新調した配信者。いまはその音を聞かせているところ。')
   })
+
+  it('章ごとに作った配信タイトルの候補と、Jev の判定を添える（試験運用。issue #268）', async () => {
+    const db = createFakeDatabase()
+    await recordLiveStream(db, CHAT_STREAM, at('2026-09-21T12:05:00Z'))
+    await saveStreamChapter(db, {
+      sessionId: CHAT_STREAM.id,
+      startedAt: '2026-09-21T12:00:00.000Z',
+      endedAt: '2026-09-21T12:30:00.000Z',
+      title: '新しいマイクのお披露目',
+      summary: '配信者が買い替えたマイクの音を聞かせた。',
+    })
+    await saveStreamTitleCandidate(
+      db,
+      { sessionId: CHAT_STREAM.id, chapterStartedAt: '2026-09-21T12:00:00.000Z', candidate: '新しいマイクを試し中', publishable: 0.91 },
+      at('2026-09-21T12:31:00Z'),
+    )
+
+    const session = await getSession(db, CHAT_STREAM.id, READ_AT)
+
+    expect(session?.titleCandidates).toEqual([{ chapterStartedAt: '2026-09-21T12:00:00.000Z', candidate: '新しいマイクを試し中', publishable: 0.91 }])
+  })
 })
 
 describe('getSession の作業した時間の合計', () => {
@@ -332,6 +355,7 @@ describe('recordStreamOnline', () => {
       categoryName: '',
       samples: [],
       chapters: [],
+      titleCandidates: [],
       summary: null,
       workTime: null,
     })

@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest'
 import type { FollowerSample, SessionSummary } from './api'
 import {
+  formatProbability,
   eventTotals,
   followerPoints,
   formatCount,
@@ -220,6 +221,14 @@ describe('formatDuration・formatDateTime・formatCount（表示用の整形）'
 describe('formatTimeRange（章の区間の時刻）', () => {
   it('始まりと終わりを、ブラウザのタイムゾーンの時刻で「21:00〜21:30」のように表す', () => {
     expect(formatTimeRange('2026-09-18T12:00:00.000Z', '2026-09-18T12:30:00.000Z')).toBe('21:00〜21:30')
+  })
+})
+
+describe('formatProbability（Jev の確率）', () => {
+  it('0〜1 の確率を、整数に丸めた百分率で表す', () => {
+    expect(formatProbability(0.934)).toBe('93%')
+    expect(formatProbability(0.006)).toBe('1%')
+    expect(formatProbability(1)).toBe('100%')
   })
 })
 

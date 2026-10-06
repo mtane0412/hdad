@@ -136,6 +136,10 @@ const USAGE_LABELS: Readonly<Record<LlmUsage, { name: string; description: strin
     name: '配信のあらすじ',
     description: '途中から来た人向けのまとめと、ダッシュボードに残す約30分ごとの章。材料が多いので大きいモデル向き。',
   },
+  streamTitle: {
+    name: '配信タイトルの候補',
+    description: 'ダッシュボードで「配信タイトルの候補を作る」を入れていると、配信中に章が切り替わるたびに1回呼ばれる（試験運用）。日本語の言い回しが要るので大きいモデル向き。',
+  },
   townTour: {
     name: '市町村紹介',
     description: 'レイドで流す、ランダムな市町村の紹介。Wikipedia の記事を材料に、その都度作る。材料にないことを書かせないよう大きいモデル向き。',
@@ -147,6 +151,10 @@ const JEV_USAGE_LABELS: Readonly<Record<JevUsage, { name: string; description: s
   bgm: {
     name: 'BGMの選択（Jev）',
     description: 'BGMで「配信の話題に合う曲へ自動で切り替える」を入れていると、配信中にあらすじを作り直すたびに呼ばれる（切り替えの直後は呼ばない）。',
+  },
+  streamTitle: {
+    name: '配信タイトルの候補の判定（Jev）',
+    description: '配信タイトルの候補を作るたびに、配信タイトルとして公開してよいかを尋ねる（試験運用）。',
   },
 }
 

@@ -817,6 +817,10 @@ describe('LLMの設定（/api/admin/llm）', () => {
         provider: 'openrouter',
         models: { 'workers-ai': '@cf/meta/llama-3.3-70b-instruct-fp8-fast', openrouter: 'anthropic/claude-3.5-haiku' },
       },
+      streamTitle: {
+        provider: 'workers-ai',
+        models: { 'workers-ai': '@cf/meta/llama-3.3-70b-instruct-fp8-fast', openrouter: 'meta-llama/llama-3.3-70b-instruct' },
+      },
       townTour: {
         provider: 'workers-ai',
         models: { 'workers-ai': '@cf/meta/llama-3.3-70b-instruct-fp8-fast', openrouter: 'meta-llama/llama-3.3-70b-instruct' },
@@ -858,7 +862,7 @@ describe('LLMの設定（/api/admin/llm）', () => {
 
     expect(response.status).toBe(200)
     const body = (await response.json()) as { usages: Record<string, { provider: string }> }
-    expect(Object.values(body.usages).map(({ provider }) => provider)).toEqual(['workers-ai', 'workers-ai', 'workers-ai', 'workers-ai', 'workers-ai', 'workers-ai'])
+    expect(Object.values(body.usages).map(({ provider }) => provider)).toEqual(['workers-ai', 'workers-ai', 'workers-ai', 'workers-ai', 'workers-ai', 'workers-ai', 'workers-ai'])
   })
 
   it('OpenRouter のAPIキーが設定されているかを添えて返す（鍵そのものは返さない）', async () => {

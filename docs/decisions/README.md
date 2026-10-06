@@ -17,6 +17,7 @@
 | [transcript.md](transcript.md) | 配信中の文字起こし（`/transcript/`） |
 | [stream-summary.md](stream-summary.md) | これまでのあらすじ（`{summary}`） |
 | [stream-chapters.md](stream-chapters.md) | 配信で何が話されたか（章。ダッシュボードの配信の詳細） |
+| [stream-title.md](stream-title.md) | 配信タイトルの候補（試験運用。Twitch には書き込まず、候補と Jev の判定を記録する） |
 | [viewers.md](viewers.md) | 視聴者の記録（`/viewers/`） |
 | [side-super.md](side-super.md) | サイドスーパー（素材の種類 `sideSuper`） |
 | [work-log.md](work-log.md) | 作業ログ（素材の種類 `workLog`） |

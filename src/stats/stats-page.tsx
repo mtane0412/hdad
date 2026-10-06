@@ -4,6 +4,7 @@
  * ログイン後に最初に出す画面。Workerが貯めた記録（/api/admin/stats/*）を読み、
  * 期間の概要・フォロワー数の推移・配信の一覧を出す。配信を選ぶと、その配信の視聴者数の推移と、
  * 何が話されたか（約30分ごとの章）・最後のあらすじを読み込んで一覧の中に出す。
+ * 配信タイトルの候補（試験運用。issue #268）を作るかの設定もここで切り替え、作った候補は章の下に出す。
  * 集計と整形は summary.ts、Workerの呼び出しは api.ts に任せ、ここは表示だけを受け持つ。
  *
  * 注意: 読み込みに失敗したら、記録が無いように見せず理由を出す（Fail-Fast）。
@@ -11,14 +12,16 @@
  * グラフ（time-chart.tsx）は Recharts を使うので重い。ここでは React.lazy で切り離して読み込み、
  * ギャラリーや管理画面を開くときに Recharts を読み込まないようにする。
  */
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useId, useState } from 'react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { LoadFailure } from '@/components/load-failure'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Switch } from '@/components/ui/switch'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import type { FollowerSample, SessionDetail, SessionSummary, StatsApi } from './api'
+import type { FollowerSample, SessionDetail, SessionSummary, StatsApi, StreamTitleSettings } from './api'
 import {
   eventTotals,
   followerPoints,
@@ -26,6 +29,7 @@ import {
   formatDateTime,
   formatDelta,
   formatDuration,
+  formatProbability,
   formatTimeRange,
   formatWorkTime,
   PERIOD_DAYS,
@@ -93,15 +97,26 @@ const SessionTalk = ({ detail, displayTitle }: { detail: SessionDetail; displayT
     <div className="space-y-3 whitespace-normal">
       {detail.chapters.length > 0 && (
         <ol aria-label={`${displayTitle} で話されたこと`} className="space-y-3">
-          {detail.chapters.map((chapter) => (
-            <li key={chapter.startedAt} className="space-y-1">
-              <p className="flex flex-wrap items-baseline gap-x-2">
-                <span className="text-sm text-muted-foreground tabular-nums">{formatTimeRange(chapter.startedAt, chapter.endedAt)}</span>
-                <strong className="font-medium">{chapter.title}</strong>
-              </p>
-              <p className="text-sm">{chapter.summary}</p>
-            </li>
-          ))}
+          {detail.chapters.map((chapter) => {
+            const titleCandidate = detail.titleCandidates.find((candidate) => candidate.chapterStartedAt === chapter.startedAt)
+            return (
+              <li key={chapter.startedAt} className="space-y-1">
+                <p className="flex flex-wrap items-baseline gap-x-2">
+                  <span className="text-sm text-muted-foreground tabular-nums">{formatTimeRange(chapter.startedAt, chapter.endedAt)}</span>
+                  <strong className="font-medium">{chapter.title}</strong>
+                </p>
+                <p className="text-sm">{chapter.summary}</p>
+                {titleCandidate !== undefined && (
+                  // 機械が作った文なので、配信者が書いたものと見分けられる見出しを付ける（docs/principles.md の方針11）
+                  <p className="flex flex-wrap items-baseline gap-x-2 text-sm">
+                    <span className="text-muted-foreground">タイトルの候補（機械）</span>
+                    <span>{titleCandidate.candidate}</span>
+                    <span className="text-muted-foreground tabular-nums">公開してよい {formatProbability(titleCandidate.publishable)}</span>
+                  </p>
+                )}
+              </li>
+            )
+          })}
         </ol>
       )}
       {detail.summary !== null && (
@@ -111,6 +126,82 @@ const SessionTalk = ({ detail, displayTitle }: { detail: SessionDetail; displayT
         </div>
       )}
     </div>
+  )
+}
+
+/** 設定の読み込みと保存の状態。失敗したら理由を持つ */
+type TitleSettingsState =
+  | { status: 'loading' }
+  | { status: 'failed'; message: string }
+  | { status: 'ready'; settings: StreamTitleSettings; saving: boolean; saveError: string | null }
+
+/**
+ * 配信タイトルの候補を作るかの設定（試験運用）。
+ *
+ * 切り替えたらすぐ保存する（保存ボタンを持たない）。保存に失敗したら理由を出し、スイッチは保存されている側に戻す。
+ * 読み込みに失敗したら、「作らない」に見せかけずに理由を出す（Fail-Fast）。
+ */
+const TitleCandidateSetting = ({ api }: { api: StatsApi }) => {
+  const switchId = useId()
+  const [state, setState] = useState<TitleSettingsState>({ status: 'loading' })
+
+  useEffect(() => {
+    let cancelled = false
+    api.titleSettings().then(
+      (settings) => {
+        if (!cancelled) setState({ status: 'ready', settings, saving: false, saveError: null })
+      },
+      (error: unknown) => {
+        if (!cancelled) setState({ status: 'failed', message: errorMessage(error) })
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [api])
+
+  /** 切り替えを保存する。保存が終わるまでは切り替えた側を出し、失敗したら元の設定に戻す */
+  const save = (current: StreamTitleSettings, enabled: boolean): void => {
+    setState({ status: 'ready', settings: { enabled }, saving: true, saveError: null })
+    api.saveTitleSettings({ enabled }).then(
+      (settings) => setState({ status: 'ready', settings, saving: false, saveError: null }),
+      (error: unknown) => setState({ status: 'ready', settings: current, saving: false, saveError: errorMessage(error) }),
+    )
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>配信タイトルの候補（試験運用）</CardTitle>
+        <CardDescription>
+          入れると、配信中に章が切り替わるたびに、いま何をしているかを表す短い一言を作り、配信タイトルとして公開してよいかを Jev
+          に判定させて、配信の詳細の章の下に出す。Twitch のタイトルは変えない。
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {state.status === 'loading' && <Skeleton className="h-6 w-48" aria-label="配信タイトルの候補の設定を読み込んでいます" />}
+        {state.status === 'failed' && <LoadFailure title="配信タイトルの候補の設定を読み込めませんでした" message={state.message} />}
+        {state.status === 'ready' && (
+          <>
+            <div className="flex items-center gap-3">
+              <Switch
+                id={switchId}
+                checked={state.settings.enabled}
+                disabled={state.saving}
+                onCheckedChange={(checked) => save(state.settings, checked)}
+              />
+              <Label htmlFor={switchId}>配信タイトルの候補を作る</Label>
+            </div>
+            {state.saveError !== null && (
+              <Alert variant="destructive">
+                <AlertTitle>設定を保存できませんでした</AlertTitle>
+                <AlertDescription>{state.saveError}</AlertDescription>
+              </Alert>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 
@@ -234,6 +325,7 @@ export const StatsPage = ({ api, now }: StatsPageProps) => {
       <div className="flex flex-col gap-2">
         <p className="font-medium">まだ配信の記録がありません</p>
         <p className="text-sm text-muted-foreground">配信を始めると記録が貯まり、ここに視聴者数やフォロワー数の推移が出ます。</p>
+        <TitleCandidateSetting api={api} />
       </div>
     )
   }
@@ -320,6 +412,8 @@ export const StatsPage = ({ api, now }: StatsPageProps) => {
           </div>
         )}
       </section>
+
+      <TitleCandidateSetting api={api} />
     </div>
   )
 }

@@ -149,6 +149,9 @@ export const formatDuration = (milliseconds: number): string => {
 export const formatWorkTime = (workTime: WorkTime | null): string =>
   workTime === null ? '—' : `${formatDuration(workTime.totalMs)}（${workTime.people}人）`
 
+/** Jev が返した確率（0〜1）を、整数に丸めた百分率（「93%」）で表す */
+export const formatProbability = (probability: number): string => `${Math.round(probability * 100)}%`
+
 /** 日時（ISO 8601）を、ブラウザのタイムゾーンで「2026/9/18 21:00」のように表す */
 export const formatDateTime = (iso: string): string =>
   new Date(iso).toLocaleString('ja-JP', { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })

@@ -7,12 +7,13 @@
  * 配信画面を撮った1枚から Gyazo が読み取った文字を取りに行き、
  * あらすじを作り直せたら、そのあらすじに合う BGM を Jev に選ばせ（issue #153。worker/bgm-jev.ts）、
  * 区間が閉じた配信の章（見出しと要約。worker/stream-chapter.ts）を作り、
+ * 設定を入れていれば配信中の最後の章から配信タイトルの候補（試験運用。worker/stream-title.ts）を作って Jev に判定させ、
  * 古くなった記録（first_chatters・stream_chat_messages・transcripts）を消す。
  *
  * 注意: トークンが無い・更新できない・Twitchが失敗を返したときは、黙って飛ばさない。
  * 失敗をデータベース（collection_failures）に記録したうえでエラーを投げ、cron の実行も失敗として残す（Fail-Fast）。
  * 注意: 1回ぶんに時間の予算を持つ（COLLECT_BUDGET_MS。issue #126）。外への呼び出し1回ずつには時間制限が
- * あるが（worker/timeout.ts）、Gyazo を最大30枚とLLMを4か所ぶん逐次に呼ぶので、遅い相手が続くと1回の収集が
+ * あるが（worker/timeout.ts）、Gyazo を最大30枚とLLMを5か所ぶん逐次に呼ぶので、遅い相手が続くと1回の収集が
  * 積み上がって長くなる。予算を過ぎたら配信の記録は残したまま、材料づくりだけを次の収集へ回す。
  */
 import { pushWorkLogEntry, type AlertChannelNamespace } from './alert-channel'
@@ -35,6 +36,9 @@ import { readStreamSummary, saveStreamSummary } from './stream-summary-store'
 import { generateStreamSummary } from './stream-summary'
 import { listChapterTargets, readChapterLines, saveStreamChapter, skipChapterWindow } from './stream-chapter-store'
 import { fitChapterMaterial, generateStreamChapter, nextChapterWindow, type ChapterTarget } from './stream-chapter'
+import { loadStreamTitleSettings } from './stream-title-config'
+import { readStreamTitleTarget, saveStreamTitleCandidate } from './stream-title-store'
+import { generateStreamTitleCandidate, judgeStreamTitleCandidate } from './stream-title'
 import {
   abandonOcr,
   countOcrAttempt,
@@ -163,7 +167,7 @@ export interface CollectStatsOptions {
   tokens: TokenVaultNamespace
   /** 人物像・あらすじ・サイドスーパーを作らせるLLM（worker/llm.ts。呼び先は設定が決める） */
   ai: TextGenerator
-  /** 配信の話題に合う BGM を選ばせる Jev（worker/jev.ts） */
+  /** 配信の話題に合う BGM を選ばせ、配信タイトルの候補を公開してよいかを判定させる Jev（worker/jev.ts） */
   jev: JevClient
   /** Jev が BGM を切り替えたときに、裏方のページへ押し出す配送先 */
   alerts: AlertChannelNamespace
@@ -366,6 +370,46 @@ const makeStreamChapter = async (db: Database, ai: TextGenerator, alerts: AlertC
       }
       return
     }
+  }
+}
+
+/**
+ * 配信中の最後の章から、配信タイトルの候補を1つ作り、公開してよいかを Jev に判定させて記録する（試験運用。issue #268）。
+ *
+ * 設定（worker/stream-title-config.ts）を入れたときだけ動く。材料は最後の章・これまでのあらすじ・その章の区間の画面の文字・
+ * いまのタイトルとカテゴリで、視聴者の発言は入れない（worker/stream-title.ts）。Twitch のタイトルは書き換えない。
+ *
+ * 注意: 最後の章にまだ候補が無いときだけ作る（stream-title-store.ts の readStreamTitleTarget）。章は30分に1つなので、
+ * LLMと Jev を呼ぶのも章ごとに1回になる。
+ * 注意: 失敗（設定の読み出し・LLMの失敗・形の合わない候補・Jev の失敗・保存の失敗）は候補を記録せず、stream-title-failed として残す。
+ * 候補が無いままなので次の収集でやり直すが、次の章ができたら前の章には戻らない。候補を作れたあとの失敗では、作った候補を
+ * 失敗の文面に残す（試験運用で見比べる材料を失わないため）。収集そのものは止めない。
+ */
+const proposeStreamTitle = async (
+  { db, store, ai, jev }: Pick<CollectStatsOptions, 'db' | 'store' | 'ai' | 'jev'>,
+  stream: LiveStream,
+  now: number,
+): Promise<void> => {
+  /** 作った候補。Jev が失敗したときに、失敗の文面へ残すために持つ */
+  let candidate: string | null = null
+  try {
+    if (!(await loadStreamTitleSettings(store)).enabled) return
+    const target = await readStreamTitleTarget(db, stream.id)
+    if (target === null) return
+    const summary = (await readStreamSummary(db, stream.id))?.summary ?? null
+    candidate = await generateStreamTitleCandidate(ai, {
+      title: stream.title,
+      categoryName: stream.categoryName,
+      chapter: { title: target.chapter.title, summary: target.chapter.summary },
+      summary,
+      screen: target.screen,
+    })
+    const publishable = await judgeStreamTitleCandidate(jev, candidate)
+    await saveStreamTitleCandidate(db, { sessionId: stream.id, chapterStartedAt: target.chapter.startedAt, candidate, publishable }, now)
+  } catch (error) {
+    // 設定が壊れている・表が無い（マイグレーションの適用漏れ）場合も、LLMや Jev の失敗と同じく記録して、収集は続ける
+    const message = error instanceof Error ? error.message : String(error)
+    await recordFailure(db, 'stream-title-failed', candidate === null ? message : `配信タイトルの候補「${candidate}」を記録できませんでした: ${message}`, now)
   }
 }
 
@@ -744,6 +788,8 @@ const collect = async ({ db, store, tokens, twitch, ai, jev, alerts, gyazo, broa
   // 章立ては人物像より先に行う。人物像を作ると発言の材料が消えるので、配信が終わった回の最後の章から
   // 視聴者の反応が抜けないようにするためである（人物像は、章にし終えた配信の発言だけを材料にする）
   await withinBudget('章立て', () => makeStreamChapter(db, ai, alerts, now))
+  // タイトルの候補は章を材料にするので、章立てのあとに行う。配信中のタイトルにしか使い道が無いので、配信中だけ作る
+  if (stream) await withinBudget('配信タイトルの候補', () => proposeStreamTitle({ db, store, ai, jev }, stream, now))
   if (budgetExhausted()) {
     deferredToNextCollect.push('人物像')
   } else {
