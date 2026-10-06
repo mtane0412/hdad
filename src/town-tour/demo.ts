@@ -55,6 +55,7 @@ export const demoTownTourIntro: TownTourIntro = {
     url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/16/National_Diet_Building_02.jpg/1280px-National_Diet_Building_02.jpg',
     artist: 'Kakidai',
     license: 'CC BY-SA 4.0',
+    caption: '国会議事堂',
   },
 }
 

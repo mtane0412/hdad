@@ -65,7 +65,7 @@ export interface TourPoint {
   readonly text: string
 }
 
-/** 記事の代表画像（worker/town-image.ts の TownImage と同じ形） */
+/** 記事の代表画像（worker/town-tour-routes.ts が返す形。TownImage の作者・ライセンスに、LLM が書いた写真の説明を添えたもの） */
 export interface TownTourImage {
   /** 画面に出す大きさの画像の URL（Wikimedia Commons） */
   readonly url: string
@@ -73,6 +73,8 @@ export interface TownTourImage {
   readonly artist: string
   /** ライセンスの名前（「CC BY-SA 4.0」「Public domain」） */
   readonly license: string
+  /** 写真が何を写しているかの短い説明（LLM が画像のファイル名と Commons の説明から書いたもの）。分からなかった画像は空文字 */
+  readonly caption: string
 }
 
 /** 作らせた紹介（worker/town-tour.ts の TownTour と同じ形） */
@@ -223,14 +225,20 @@ export const parseTownTourMessage = (payload: string): TownTourMessage => {
 /**
  * 代表画像を読む（null は出せる画像が無いことを表すのでそのまま通す）
  *
- * @throws 欄が無い・URL か作者かライセンスが欠けているとき（作者とライセンスを出さずに画像を出さないため）
+ * @throws 欄が無い・URL か作者かライセンスか写真の説明が欠けているとき（作者とライセンスを出さずに画像を出さないため）
  */
 const readImage = (value: unknown): TownTourImage | null => {
   if (value === null) return null
-  if (!isRecord(value) || typeof value.url !== 'string' || typeof value.artist !== 'string' || typeof value.license !== 'string') {
-    throw new Error('Workerの応答に、代表画像（URL・作者・ライセンス）がありません')
+  if (
+    !isRecord(value) ||
+    typeof value.url !== 'string' ||
+    typeof value.artist !== 'string' ||
+    typeof value.license !== 'string' ||
+    typeof value.caption !== 'string'
+  ) {
+    throw new Error('Workerの応答に、代表画像（URL・作者・ライセンス・写真の説明）がありません')
   }
-  return { url: value.url, artist: value.artist, license: value.license }
+  return { url: value.url, artist: value.artist, license: value.license, caption: value.caption }
 }
 
 /**

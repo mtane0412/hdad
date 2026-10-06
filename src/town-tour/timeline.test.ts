@@ -88,6 +88,7 @@ const tobetsuIntroWithImage: TownTourIntro = {
     url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Tobetsu_Sweden_Hills.jpg/1280px-Tobetsu_Sweden_Hills.jpg',
     artist: '当別の写真家',
     license: 'CC BY-SA 4.0',
+    caption: 'スウェーデンヒルズの家並み',
   },
 }
 
@@ -194,7 +195,7 @@ describe('sceneAt', () => {
     const scene = sceneAt(readyPlayback(2000), STARTED_AT + MAP_START + ZOOM_END_MS + HOOK_MS / 2)
 
     expect(scene.item).toMatchObject({ line: { kind: 'hook', label: 'この町、実は…', text: '北欧の街並みがある米どころ' }, opacity: 1, textOpacity: 1 })
-    expect(scene.credit).toBe('出典: Wikipedia「当別町」（CC BY-SA 4.0）')
+    expect(scene.credit).toBe('紹介文: Wikipedia「当別町」（CC BY-SA 4.0）')
   })
 
   it('大見出しの前半は、見出し（「この町、実は…」）だけを出して文を伏せておく', () => {
@@ -243,19 +244,24 @@ describe('sceneAt の代表画像（issue #254）', () => {
   /** ズームが着地した時刻（再生を始めてからのミリ秒） */
   const LANDING = MAP_START + ZOOM_END_MS
 
-  it('ズームが着地したら、大見出しの前に画像を出し、作者とライセンスを出典と一緒に出す', () => {
+  it('ズームが着地したら、大見出しの前に画像を写真の説明と一緒に出し、作者とライセンスを出典と一緒に出す', () => {
     const scene = sceneAt(withImage, STARTED_AT + LANDING + IMAGE_MS / 2)
 
     expect(scene.item).toBeNull()
-    expect(scene.image).toEqual({ url: tobetsuIntroWithImage.image?.url, credit: '写真: 当別の写真家（CC BY-SA 4.0）', opacity: 1 })
-    expect(scene.credit).toBe('出典: Wikipedia「当別町」（CC BY-SA 4.0）')
+    expect(scene.image).toEqual({
+      url: tobetsuIntroWithImage.image?.url,
+      caption: 'スウェーデンヒルズの家並み',
+      credit: '写真: 当別の写真家（CC BY-SA 4.0）',
+      opacity: 1,
+    })
+    expect(scene.credit).toBe('紹介文: Wikipedia「当別町」（CC BY-SA 4.0）')
     expect(scene.waiting).toBe(false)
   })
 
   it('作者の無い画像（パブリック・ドメイン）は、ライセンスだけを出す', () => {
     const publicDomain: Playback = {
       ...withImage,
-      intro: { status: 'ready', intro: { ...tobetsuIntroWithImage, image: { url: 'https://upload.wikimedia.org/lake.jpg', artist: '', license: 'Public domain' } }, readyAt: STARTED_AT, narration: null },
+      intro: { status: 'ready', intro: { ...tobetsuIntroWithImage, image: { url: 'https://upload.wikimedia.org/lake.jpg', artist: '', license: 'Public domain', caption: '' } }, readyAt: STARTED_AT, narration: null },
     }
 
     expect(sceneAt(publicDomain, STARTED_AT + LANDING + 1).image?.credit).toBe('写真: Public domain')
@@ -292,7 +298,7 @@ describe('sceneAt の全国制覇マップ（issue #252）', () => {
   it('振りを流し終えたら、紹介の場面を消し、日本全体へ引きながら、これまでの制覇数を出す', () => {
     const scene = at(CONQUEST_ZOOM_MS / 2)
 
-    expect(scene).toMatchObject({ item: null, credit: '出典: Wikipedia「当別町」（CC BY-SA 4.0）', done: false })
+    expect(scene).toMatchObject({ item: null, credit: '紹介文: Wikipedia「当別町」（CC BY-SA 4.0）', done: false })
     expect(scene.zoom).toBeGreaterThan(0)
     expect(scene.zoom).toBeLessThan(1)
     expect(scene.conquest).toMatchObject({ label: '制覇 1 / 1,747（0.1%）', stamp: 0 })
@@ -331,7 +337,7 @@ describe('sceneAt の名誉町民の認定証（issue #253）', () => {
   it('制覇マップを出し終えたら、制覇マップの帯を消し、レイド元の名前を入れた認定証を出す。出典は出し続ける', () => {
     const scene = at(1000)
 
-    expect(scene).toMatchObject({ conquest: null, credit: '出典: Wikipedia「当別町」（CC BY-SA 4.0）', done: false })
+    expect(scene).toMatchObject({ conquest: null, credit: '紹介文: Wikipedia「当別町」（CC BY-SA 4.0）', done: false })
     expect(scene.certificate).toMatchObject({ title: '名誉町民証', holder: '山田花子 様', opacity: 1 })
   })
 
