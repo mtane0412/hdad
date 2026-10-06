@@ -106,6 +106,16 @@ describe('bgmDuckHoldOf', () => {
     expect(bgmDuckHoldOf(narrated, STARTED_AT)).toBe(READY_END - STARTED_AT + 4000 + NARRATION_TAIL_MS)
   })
 
+  it('読み上げの長さが小数のミリ秒でも、切り上げた整数で下げる（Worker は整数しか受け付けないため）', () => {
+    // 前提: 音声の長さは秒の小数から換算するので、4000.5 ミリ秒のような端数が出る
+    const narrated: Playback = {
+      ...readyPlayback,
+      intro: { status: 'ready', intro: tobetsuIntro, readyAt: STARTED_AT + 2000, narration: { opening: { url: 'blob:冒頭', duration: 4000.5 }, lines: [null, null, null, null] } },
+    }
+
+    expect(bgmDuckHoldOf(narrated, STARTED_AT)).toBe(READY_END - STARTED_AT + 4001 + NARRATION_TAIL_MS)
+  })
+
   it('紹介を待っているあいだは、決まった長さだけ下げる（終わりがまだ決まらないため）', () => {
     expect(bgmDuckHoldOf(loadingPlayback(), STARTED_AT)).toBe(LOADING_DUCK_HOLD_MS)
   })
