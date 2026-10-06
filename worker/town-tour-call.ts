@@ -103,9 +103,12 @@ export interface TownTourAnswerMessage {
 }
 
 /**
- * 冒頭の一文を決めるきっかけ。demo は管理画面の試し再生で、ユーザー名が入っていればその配信者をレイド元とみなす（issue #275）
+ * 冒頭の一文を決めるきっかけ。demo は管理画面の試し再生で、ユーザー名が入っていればその配信者をレイド元とみなす（issue #275）。
+ * レイドの人数も入っていれば、連れてきた人数として共通点の材料にする
  */
-export type TownTourCaller = TownTourTrigger | { occasion: 'demo'; raider: { userName: string; userLogin: string } | null }
+export type TownTourCaller =
+  | TownTourTrigger
+  | { occasion: 'demo'; raider: { userName: string; userLogin: string; viewers: number | null } | null }
 
 /**
  * 一覧から、紹介済みの市町村を除いて1つ引く。すべて紹介済み（全国制覇の後）なら、一覧の全体から引く。
@@ -138,7 +141,7 @@ const raiderOf = (caller: TownTourCaller): TownTourRaider | null => {
     case 'keyword':
       return { login: caller.userLogin, viewers: null }
     case 'demo':
-      return caller.raider === null ? null : { login: caller.raider.userLogin, viewers: null }
+      return caller.raider === null ? null : { login: caller.raider.userLogin, viewers: caller.raider.viewers }
   }
 }
 

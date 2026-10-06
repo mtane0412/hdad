@@ -230,8 +230,9 @@ export interface AdminApi {
    * 市町村紹介の試し再生。Workerが市町村を1つ引いて合成ページへ押し出し、冒頭の一文を返す。
    *
    * @param userName レイド元とみなす配信者のログイン名（issue #275）。空文字なら見本の名前で流し、共通点は作らせない
+   * @param viewers レイド元が連れてきたとみなす人数（共通点の材料）。入れなければ null
    */
-  playTownTourDemo(userName: string): Promise<string>
+  playTownTourDemo(userName: string, viewers: number | null): Promise<string>
   /** ツイスターの試し再生。Workerが試しの相手と配信者の対戦を合成ページへ押し出し、「A vs B」の形の2人を返す */
   playTwisterDemo(): Promise<string>
   /** 市町村紹介の演出で鳴らす音の設定。未保存ならどの枠も鳴らさない設定が返る */
@@ -380,11 +381,11 @@ export const createAdminApi = (fetchImpl: typeof fetch): AdminApi => {
       return body.overlayKey
     },
 
-    playTownTourDemo: async (userName) => {
+    playTownTourDemo: async (userName, viewers) => {
       const body = await call('/api/admin/town-tour/demo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userName }),
+        body: JSON.stringify({ userName, viewers }),
       })
       if (!isRecord(body) || typeof body.headline !== 'string') throw new Error('Workerの応答に headline がありません')
       return body.headline

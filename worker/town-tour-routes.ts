@@ -6,7 +6,7 @@
  * - POST /api/overlay/town-tour/visit?key=: 合成ページが紹介を流しきったら、紹介した市町村として記録する（issue #252）
  * - GET /api/overlay/town-tour/socket?key=: 合成ページの素材「市町村紹介」の WebSocket の接続を配送先（AlertChannel）へ引き渡す
  * - POST /api/admin/town-tour/demo: 管理画面の試し再生。市町村を1つ引いて素材へ押し出す（トリガーと同じ配送の経路を通す）。
- *   本文に { userName } があれば、そのログイン名の配信者をレイド元とみなす（issue #275）
+ *   本文に { userName, viewers } があれば、そのログイン名の配信者が viewers 人を連れてレイドしてきたものとみなす（issue #275。どちらも任意）
  * - GET /api/admin/town-tour/sound: 演出で鳴らす音の設定。未保存ならどの枠も鳴らさない設定（issue #243）
  * - PUT /api/admin/town-tour/sound: 音の設定を検証して保存する（問題があれば index.ts が問題点付きの400にする）
  * - POST /api/overlay/town-tour/narration?key=: 読み上げる文1件 { text } を、ナレーションの設定の話者と速度で合成し、WAV を返す（issue #255）
@@ -285,13 +285,17 @@ export const townTourSocket = async (context: Context): Promise<Response> => {
   return connectTownTourSocket(context.env.ALERTS, context.request, await overlayKeyTag(key))
 }
 
+/** 試し再生で入れられるレイドの人数の上限。共通点の材料に「○人」と書くだけなので、際限なく大きな数を受け付けない */
+const MAX_DEMO_VIEWERS = 999_999_999
+
 /**
- * 試し再生の本文から、レイド元とみなす配信者を読む。本文が空か、ユーザー名が空なら null（見本の名前で流す）。
+ * 試し再生の本文から、レイド元とみなす配信者と連れてきた人数を読む。本文が空か、ユーザー名が空なら null（見本の名前で流す）。
  * 打ち間違いに気づけるよう、Twitch にいるかをここで確かめ、表示名を引く。
  *
- * @throws HttpError 本文が JSON でない・ユーザー名がログイン名の形でない（400）・そのログイン名の配信者がいない（404）・Twitch の失敗（502）
+ * @throws HttpError 本文が JSON でない・ユーザー名がログイン名の形でない・人数が0以上の整数でも null でもない・
+ * ユーザー名なしで人数だけがある（400）・そのログイン名の配信者がいない（404）・Twitch の失敗（502）
  */
-const readDemoRaider = async (context: Context): Promise<{ userName: string; userLogin: string } | null> => {
+const readDemoRaider = async (context: Context): Promise<{ userName: string; userLogin: string; viewers: number | null } | null> => {
   const text = await context.request.text()
   if (text.trim() === '') return null
   let body: unknown
@@ -300,8 +304,16 @@ const readDemoRaider = async (context: Context): Promise<{ userName: string; use
   } catch {
     throw new HttpError(STATUS.badRequest, 'invalid-body', '本文はJSONにしてください')
   }
-  const userName = typeof body === 'object' && body !== null && 'userName' in body ? body.userName : undefined
-  if (userName === undefined || userName === '') return null
+  const fields: Record<string, unknown> = typeof body === 'object' && body !== null ? { ...body } : {}
+  const { userName } = fields
+  const viewers = fields.viewers ?? null
+  if (viewers !== null && (typeof viewers !== 'number' || !Number.isInteger(viewers) || viewers < 0 || viewers > MAX_DEMO_VIEWERS)) {
+    throw new HttpError(STATUS.badRequest, 'invalid-viewers', `レイドの人数は0〜${MAX_DEMO_VIEWERS}の整数で入れてください`)
+  }
+  if (userName === undefined || userName === '') {
+    if (viewers !== null) throw new HttpError(STATUS.badRequest, 'invalid-viewers', 'レイドの人数は、レイド元とみなすユーザー名と一緒に入れてください')
+    return null
+  }
   if (typeof userName !== 'string' || !TWITCH_LOGIN_PATTERN.test(userName)) {
     throw new HttpError(STATUS.badRequest, 'invalid-user-name', 'レイド元とみなすユーザー名は、Twitch のログイン名（英数字とアンダースコア）で入れてください')
   }
@@ -313,7 +325,7 @@ const readDemoRaider = async (context: Context): Promise<{ userName: string; use
     }
   })()
   if (user === null) throw new HttpError(STATUS.notFound, 'unknown-twitch-user', `Twitch にログイン名 ${userName} の配信者がいません`)
-  return { userName: user.displayName, userLogin: user.login }
+  return { userName: user.displayName, userLogin: user.login, viewers }
 }
 
 /**

@@ -104,6 +104,15 @@ describe('parseTownTour', () => {
     expect(parseTownTour(`\`\`\`json\n${JSON.stringify(validResponse)}\n\`\`\``)).toEqual(validResponse)
   })
 
+  it('振りが「ところで」で始まっていればエラーにする（画面の見出しが「ところで…」なので、表示も読み上げも二重になる）', () => {
+    expect(() => parseTownTour(JSON.stringify({ ...validResponse, cue: 'ところで…サンショウウオ、食べてみたいですか？' }))).toThrow(/cue が「ところで」で始まっています/)
+    expect(() => parseTownTour(JSON.stringify({ ...validResponse, cue: 'ところで、サンショウウオ食べます？' }))).toThrow(TownTourContentError)
+  })
+
+  it('振りを作らせる指示で、「ところで」から始めないよう伝える', () => {
+    expect(buildTownTourPrompt(hinoemataInput)).toContain('cue の頭に「ところで」を付けないでください')
+  })
+
   it('前後の空白は落とす', () => {
     const padded = { ...validResponse, hook: ' サンショウウオを食べる村 ', points: [{ label: ' 名物 ', text: '  山人料理が名物です。 ' }] }
 
