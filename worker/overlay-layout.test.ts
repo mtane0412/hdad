@@ -121,6 +121,12 @@ describe('parseOverlayLayout', () => {
     expect(parseOverlayLayout({ overlays: [{ name: 'front', items: [townTour] }] })).toEqual({ overlays: [{ name: 'front', items: [townTour] }] })
   })
 
+  it('ツイスター（twister）はデザインIDを持たない種類として受け取る', () => {
+    const twister: OverlayItem = { kind: 'twister', id: '', params: '', rect: { x: 0, y: 0, width: 100, height: 100 } }
+
+    expect(parseOverlayLayout({ overlays: [{ name: 'front', items: [twister] }] })).toEqual({ overlays: [{ name: 'front', items: [twister] }] })
+  })
+
   it('ポモドーロ（pomodoro）はデザインIDを持たない種類として受け取る', () => {
     const pomodoro: OverlayItem = { kind: 'pomodoro', id: '', params: '', rect: { x: 75, y: 5, width: 20, height: 15 } }
 
