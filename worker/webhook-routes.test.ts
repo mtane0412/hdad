@@ -31,6 +31,7 @@ import { createFakeAdBreakTimer } from './fake-ad-break-timer'
 import { createFakeTokenVault } from './fake-token-vault'
 import { DEFAULT_TOWN_TOUR_SOUND, saveTownTourSound } from './town-tour-sound'
 import { openTownTourQuiz } from './town-tour-quiz'
+import { saveTownTourNarration } from './town-tour-narration'
 import { recordTownTourVisit } from './town-tour-visits'
 import towns from '../src/town-tour/towns.json'
 
@@ -1682,6 +1683,16 @@ describe('市町村紹介を流す動作（townTour）', () => {
     expect(alertChannel.pushedTownTours).toHaveLength(1)
     expect(alertChannel.pushedTownTours[0]?.code).toMatch(/^\d{5}$/)
     expect(alertChannel.pushedTownTours[0]?.headline).toMatch(/^レイド元の配信者さんのレイドを記念して、本日は.+をご紹介します$/)
+  })
+
+  it('ナレーションを読み上げる設定なら、読み上げることを一緒に押し出す（issue #255）', async () => {
+    const { env, alertChannel } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [raidTownTourTrigger] })
+    await saveTownTourNarration(env.STORE, { enabled: true, speaker: 13, speed: 1 })
+
+    await callWebhook(createNotification({ body: RAID_NOTIFICATION }), env)
+
+    expect(alertChannel.pushedTownTours[0]?.narration).toBe(true)
   })
 
   it('紹介済みの市町村は除いて引き、これまでの記録と、流しきったら記録するきっかけと相手を一緒に押し出す（issue #252）', async () => {

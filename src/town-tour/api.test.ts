@@ -103,6 +103,30 @@ describe('recordVisit', () => {
   })
 })
 
+describe('narrate（issue #255）', () => {
+  it('オーバーレイ用キーを付けて読み上げる文を送り、合成された音声を受け取る', async () => {
+    const requests: Request[] = []
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      requests.push(new Request(new URL(String(input), 'https://hdad.example.com'), init))
+      return new Response('ナレーターの声（WAV）', { headers: { 'Content-Type': 'audio/wav' } })
+    }) as typeof fetch
+
+    const audio = await createTownTourApi(fetchImpl, OVERLAY_KEY).narrate('当別米が名物です。')
+
+    expect(requests.map((request) => [request.method, new URL(request.url).pathname + new URL(request.url).search])).toEqual([
+      ['POST', `/api/overlay/town-tour/narration?key=${encodeURIComponent(OVERLAY_KEY)}`],
+    ])
+    expect(await requests[0]?.json()).toEqual({ text: '当別米が名物です。' })
+    expect(await audio.text()).toBe('ナレーターの声（WAV）')
+  })
+
+  it('合成できなかったときは、Workerが返した理由ごと投げる', async () => {
+    const { fetchImpl } = createFetchWithResponse(502, { error: { code: 'town-tour-narration-failed', message: 'This model is not available.' } })
+
+    await expect(createTownTourApi(fetchImpl, OVERLAY_KEY).narrate('当別米が名物です。')).rejects.toThrow('This model is not available.')
+  })
+})
+
 describe('japanMap', () => {
   it('同梱の日本地図（TopoJSON）を、静的なファイルとして読む', async () => {
     const topology = { type: 'Topology', objects: {}, arcs: [] }

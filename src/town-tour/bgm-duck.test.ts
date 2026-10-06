@@ -11,6 +11,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { LOADING_DUCK_HOLD_MS, bgmDuckHoldOf } from './bgm-duck'
+import { NARRATION_TAIL_MS } from './narration'
 import type { TownTourPlaybackSound } from './sound'
 import { QUIZ_MS } from './quiz'
 import { CERTIFICATE_MS, CONQUEST_MS, CUE_MS, HOOK_MS, POINT_MS, PUNCHLINE_MS, ZOOM_END_MS, type Playback } from './timeline'
@@ -44,6 +45,7 @@ const callWith = (sound: TownTourPlaybackSound): TownTourCall => ({
   visit: { occasion: 'raid', userName: '山田花子' },
   // レイドなので、締めに認定証を出す（issue #253）
   honoraryCitizen: '山田花子',
+  narration: false,
 })
 
 /** 大見出しと項目2つの紹介 */
@@ -79,7 +81,7 @@ const loadingPlayback = (sound: TownTourPlaybackSound = bgmOnly): Playback => ({
 const readyPlayback: Playback = {
   call: callWith(bgmOnly),
   startedAt: STARTED_AT,
-  intro: { status: 'ready', intro: tobetsuIntro, readyAt: STARTED_AT + 2000 },
+  intro: { status: 'ready', intro: tobetsuIntro, readyAt: STARTED_AT + 2000, narration: null },
   quiz: unansweredQuiz,
   conquest: firstConquest,
 }
@@ -92,6 +94,16 @@ describe('bgmDuckHoldOf', () => {
     const answered: Playback = { ...readyPlayback, quiz: { hints: [], answer: { userName: 'たなか', answeredAt: STARTED_AT + 5000 }, unopenedAt: null } }
 
     expect(bgmDuckHoldOf(answered, STARTED_AT + 5000)).toBe(AFTER_QUIZ)
+  })
+
+  it('ナレーションの読み上げで場面が延びたら、そのぶん長く下げる（issue #255）', () => {
+    // 前提: 冒頭の一文の読み上げが4秒で、着地から大見出しまでが読み上げと余白のぶん空く
+    const narrated: Playback = {
+      ...readyPlayback,
+      intro: { status: 'ready', intro: tobetsuIntro, readyAt: STARTED_AT + 2000, narration: { opening: { url: 'blob:冒頭', duration: 4000 }, lines: [null, null, null, null] } },
+    }
+
+    expect(bgmDuckHoldOf(narrated, STARTED_AT)).toBe(READY_END - STARTED_AT + 4000 + NARRATION_TAIL_MS)
   })
 
   it('紹介を待っているあいだは、決まった長さだけ下げる（終わりがまだ決まらないため）', () => {

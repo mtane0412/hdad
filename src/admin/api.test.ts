@@ -290,6 +290,30 @@ describe('rotateOverlayKey・playTownTourDemo・townTourSound・rewards・logout
     await expect(createAdminApi(fetchImpl).townTourSound()).rejects.toThrow('opening')
   })
 
+  it('市町村紹介のナレーションの設定を読み、読み上げるか・話者・速度を返す（issue #255）', async () => {
+    const narration = { enabled: true, speaker: 13, speed: 1.1 }
+    const { requests, fetchImpl } = fetchReturning(200, narration)
+
+    expect(await createAdminApi(fetchImpl).townTourNarration()).toEqual(narration)
+    expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/town-tour/narration')
+  })
+
+  it('市町村紹介のナレーションの設定を PUT で保存し、Workerが保存したものを返す', async () => {
+    const narration = { enabled: false, speaker: 3, speed: 1 }
+    const { requests, fetchImpl } = fetchReturning(200, narration)
+
+    expect(await createAdminApi(fetchImpl).saveTownTourNarration(narration)).toEqual(narration)
+    expect(requests[0]!.method).toBe('PUT')
+    expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/town-tour/narration')
+    expect(await requests[0]!.json()).toEqual(narration)
+  })
+
+  it('市町村紹介のナレーションの設定の応答に読み上げるかが欠けていれば、読み上げないと見なさずにエラーにする', async () => {
+    const { fetchImpl } = fetchReturning(200, { speaker: 3, speed: 1 })
+
+    await expect(createAdminApi(fetchImpl).townTourNarration()).rejects.toThrow('ナレーション')
+  })
+
   it('チャンネルポイント報酬の一覧を取得する', async () => {
     const { requests, fetchImpl } = fetchReturning(200, { rewards: [toastReward] })
 
