@@ -19,6 +19,9 @@ const baseValue = (overrides: Partial<RecognitionContextValue> = {}): Recognitio
   lines: [],
   captionWarning: null,
   translationWarning: null,
+  obsMuteInputName: '',
+  setObsMuteInputName: vi.fn(),
+  obsMute: null,
   ...overrides,
 })
 
@@ -94,6 +97,39 @@ describe('RecognitionSectionView', () => {
     )
 
     expect(screen.getByText('字幕の翻訳に失敗しました: DeepL が失敗を返しました（456）')).toBeTruthy()
+  })
+
+  it('ミュートを見張る OBS の入力の名前を入れて保存すると、前後の空白を落として覚えさせる', () => {
+    const value = baseValue()
+    render(<RecognitionSectionView value={value} />)
+
+    fireEvent.change(screen.getByLabelText('ミュートを見張るOBSの入力'), { target: { value: ' マイク ' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    expect(value.setObsMuteInputName).toHaveBeenCalledWith('マイク')
+  })
+
+  it('入力の名前を変えていなければ、保存ボタンを押せない', () => {
+    render(<RecognitionSectionView value={baseValue({ obsMuteInputName: 'マイク' })} />)
+
+    expect(screen.getByLabelText('ミュートを見張るOBSの入力')).toHaveProperty('value', 'マイク')
+    expect(screen.getByRole('button', { name: '保存' })).toHaveProperty('disabled', true)
+  })
+
+  it('OBS のミュートを見張れていなければ、その理由を出す', () => {
+    render(
+      <RecognitionSectionView
+        value={baseValue({
+          enabled: true,
+          phase: 'running',
+          obsMuteInputName: 'マイク',
+          recognizer: { status: { kind: 'listening' }, interim: '', restarts: 0, interruptedMs: 0 },
+          obsMute: { state: { kind: 'failed', message: 'ws://localhost:4455 につながりませんでした' }, muted: false },
+        })}
+      />,
+    )
+
+    expect(screen.getByText('OBSのミュートを見張れていません: ws://localhost:4455 につながりませんでした')).toBeTruthy()
   })
 
   it('送った発話を、記録できたかどうかと一緒に新しいものから並べる', () => {

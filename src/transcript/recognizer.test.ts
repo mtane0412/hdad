@@ -18,6 +18,7 @@ class FakeRecognition implements RecognitionLike {
   onend: (() => void) | null = null
   starts = 0
   stops = 0
+  aborts = 0
   /** start() で投げる失敗（Chrome は始まっている最中に start() を呼ぶと InvalidStateError を投げる） */
   startError: Error | null = null
 
@@ -28,6 +29,10 @@ class FakeRecognition implements RecognitionLike {
 
   stop(): void {
     this.stops += 1
+  }
+
+  abort(): void {
+    this.aborts += 1
   }
 
   fireStart(): void {
@@ -212,6 +217,39 @@ describe('createRecognizer', () => {
     expect(recognition.starts).toBe(1)
     expect(latest().status).toEqual({ kind: 'stopped' })
     expect(microphone.released).toBe(1)
+  })
+
+  it('取りやめたら、話している途中の文を確定させずに捨て、すぐ止まった状態になってマイクを閉じる', async () => {
+    const { recognition, microphone, recognizer, latest, finals } = setup()
+    await recognizer.start()
+    recognition.fireStart()
+    recognition.fireResult(0, [{ text: 'もしもし', isFinal: false }])
+
+    recognizer.abort()
+    // 取りやめたあとに Chrome が遅れて届けた結果と終わりは受け取らない
+    recognition.fireResult(0, [{ text: 'もしもし、いま配信中で', isFinal: true }])
+    recognition.fireEnd()
+
+    expect(recognition.aborts).toBe(1)
+    expect(recognition.stops).toBe(0)
+    expect(recognition.starts).toBe(1)
+    expect(finals).toEqual([])
+    expect(latest()).toMatchObject({ status: { kind: 'stopped' }, interim: '' })
+    expect(microphone.released).toBe(1)
+  })
+
+  it('取りやめたあとに始めれば、マイクを開き直して認識を始める', async () => {
+    const { recognition, microphone, recognizer, latest } = setup()
+    await recognizer.start()
+    recognition.fireStart()
+    recognizer.abort()
+
+    await recognizer.start()
+    recognition.fireStart()
+
+    expect(recognition.starts).toBe(2)
+    expect(microphone.opened).toBe(2)
+    expect(latest().status).toEqual({ kind: 'listening' })
   })
 
   it('マイクを開いている途中で止めたら、認識を始めずにマイクを閉じて止まった状態になる', async () => {

@@ -20,6 +20,9 @@ const baseValue = (overrides: Partial<RecognitionContextValue> = {}): Recognitio
   lines: [],
   captionWarning: null,
   translationWarning: null,
+  obsMuteInputName: '',
+  setObsMuteInputName: vi.fn(),
+  obsMute: null,
   ...overrides,
 })
 

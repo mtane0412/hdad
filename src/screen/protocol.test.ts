@@ -81,8 +81,28 @@ describe('readObsMessage', () => {
     })
   })
 
-  it('関心のないもの（イベントなど）は無視できる形で返す', () => {
-    expect(readObsMessage(JSON.stringify({ op: 5, d: { eventType: 'CurrentProgramSceneChanged' } }))).toEqual({ type: 'other' })
+  it('イベントを、種類と中身とともに読む（文字起こしがマイクのミュートを知るため）', () => {
+    const message = readObsMessage(
+      JSON.stringify({ op: 5, d: { eventType: 'InputMuteStateChanged', eventIntent: 8, eventData: { inputName: 'マイク', inputMuted: true } } }),
+    )
+
+    expect(message).toEqual({ type: 'event', eventType: 'InputMuteStateChanged', data: { inputName: 'マイク', inputMuted: true } })
+  })
+
+  it('中身の無いイベントは、空の中身として読む', () => {
+    expect(readObsMessage(JSON.stringify({ op: 5, d: { eventType: 'ExitStarted', eventIntent: 1 } }))).toEqual({
+      type: 'event',
+      eventType: 'ExitStarted',
+      data: {},
+    })
+  })
+
+  it('種類の無いイベントはエラーにする（黙って無視しない）', () => {
+    expect(() => readObsMessage(JSON.stringify({ op: 5, d: { eventData: {} } }))).toThrow()
+  })
+
+  it('関心のないオペコードは無視できる形で返す', () => {
+    expect(readObsMessage(JSON.stringify({ op: 9, d: {} }))).toEqual({ type: 'other' })
   })
 
   it('読めないものはエラーにする（黙って無視しない）', () => {

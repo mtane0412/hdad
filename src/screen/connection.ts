@@ -4,9 +4,10 @@
  * OBS は動かしているPCの上に WebSocket サーバーを立てる（既定のポートは 4455。ツール > WebSocket サーバー設定）。
  * 裏方のページは OBS のブラウザソースとして同じPCの上で開かれる前提で、その localhost へつなぐ。
  *
- * ここは接続・名乗り（Identify）・要求と応答の結び付けだけを受け持ち、届いた1件の読み取りは protocol.ts に
- * 任せる（src/transcript/ と同じ分け方）。つなぎ直しは持たない。撮影は一定の間隔でしか起きないので、
+ * ここは接続・名乗り（Identify）・要求と応答の結び付け・イベントと切断の受け渡しだけを受け持ち、届いた1件の読み取りは
+ * protocol.ts に任せる（src/transcript/ と同じ分け方）。つなぎ直しは持たない。撮影は一定の間隔でしか起きないので、
  * 切れていたら次の撮影のときにつなぎ直せばよく、切れているあいだ試み続ける必要がない（src/screen/task.ts）。
+ * 文字起こしのタブも OBS のマイクのミュートを見張るためにここを使い、つなぎ直しは src/transcript/obs-mute.ts が持つ（issue #270）。
  *
  * 注意: このページ自体は https で配信されるため、ws:// への接続は混在コンテンツにあたる。ブラウザは
  * localhost を安全な接続元として例外扱いするので通る見込みだが、OBS内蔵のCEFのバージョン次第である
@@ -81,6 +82,14 @@ export interface ConnectObsOptions {
   readonly password: string
   /** WebSocket を作る。テストで差し替えるために受け取る */
   readonly createSocket: (url: string) => ObsSocketLike
+  /** つながったあとに OBS で起きた出来事（イベント）を受け取る。撮影は使わない */
+  readonly onEvent?: (eventType: string, data: Record<string, unknown>) => void
+  /**
+   * つながったあとに切れたことを受け取る。撮影は使わない（次の撮影のときに isOpen で気づけばよい）。
+   *
+   * 注意: つながる前に閉じたときは呼ばない。そのときは connectObs の失敗として届く。
+   */
+  readonly onClose?: (error: Error) => void
 }
 
 /**
@@ -88,7 +97,7 @@ export interface ConnectObsOptions {
  *
  * @throws つながらないまま閉じた場合、認証に失敗した場合、届いたものを読めなかった場合
  */
-export const connectObs = ({ url, password, createSocket }: ConnectObsOptions): Promise<ObsConnection> =>
+export const connectObs = ({ url, password, createSocket, onEvent, onClose }: ConnectObsOptions): Promise<ObsConnection> =>
   new Promise<ObsConnection>((resolve, reject) => {
     const socket = createSocket(url)
     /** 答えを待っている要求。requestId で引く */
@@ -159,6 +168,11 @@ export const connectObs = ({ url, password, createSocket }: ConnectObsOptions): 
           resolve(connection)
           return
         }
+        if (message.type === 'event') {
+          // つながる前に届いたイベントは、名乗りが通っていないので受け取らない
+          if (open) onEvent?.(message.eventType, message.data)
+          return
+        }
         if (message.type === 'response') {
           const pending = waiting.get(message.requestId)
           if (!pending) return
@@ -204,7 +218,13 @@ export const connectObs = ({ url, password, createSocket }: ConnectObsOptions): 
     }
 
     socket.addEventListener('close', (event) => {
-      fail(open ? new Error(`${url} との接続が切れました`) : failureOfClose(event))
+      if (!open) {
+        fail(failureOfClose(event))
+        return
+      }
+      const error = new Error(`${url} との接続が切れました`)
+      fail(error)
+      onClose?.(error)
     })
   })
 

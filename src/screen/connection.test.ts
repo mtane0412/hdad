@@ -8,6 +8,7 @@
  * - つながらないまま閉じたときに、待っている呼び出しを失敗させること（黙って待ち続けない）
  * - 閉じられた理由（クローズコード）を文面に反映すること（パスワード違いを接続の失敗と取り違えないため）
  * - 名乗りへの答えが返ってこないまま時間が過ぎたら、待ち続けずに失敗させること
+ * - つながったあとに届いたイベントと、つながったあとに切れたことを知らせること（文字起こしがマイクのミュートを見張るため）
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CONNECT_TIMEOUT_MS, connectObs, type ObsSocketLike } from './connection'
@@ -207,5 +208,54 @@ describe('connectObs', () => {
 
     await expect(shoot).rejects.toThrow()
     expect(connection.isOpen()).toBe(false)
+  })
+
+  it('つながったあとに届いたイベントを、種類と中身とともに知らせる', async () => {
+    const fakeSocket = createFakeSocket()
+    const events: { eventType: string; data: Record<string, unknown> }[] = []
+    const connect = connectObs({
+      url: 'ws://localhost:4455',
+      password: '',
+      createSocket: () => fakeSocket.socket,
+      onEvent: (eventType, data) => events.push({ eventType, data }),
+    })
+    fakeSocket.open()
+    fakeSocket.deliver(helloWithoutAuth)
+    fakeSocket.deliver(Identified)
+    await connect
+
+    fakeSocket.deliver({ op: 5, d: { eventType: 'InputMuteStateChanged', eventIntent: 8, eventData: { inputName: 'マイク', inputMuted: true } } })
+
+    expect(events).toEqual([{ eventType: 'InputMuteStateChanged', data: { inputName: 'マイク', inputMuted: true } }])
+  })
+
+  it('つながったあとに切れたら、そのことを知らせる', async () => {
+    const fakeSocket = createFakeSocket()
+    const closes: string[] = []
+    const connect = connectObs({
+      url: 'ws://localhost:4455',
+      password: '',
+      createSocket: () => fakeSocket.socket,
+      onClose: (error) => closes.push(error.message),
+    })
+    fakeSocket.open()
+    fakeSocket.deliver(helloWithoutAuth)
+    fakeSocket.deliver(Identified)
+    await connect
+
+    fakeSocket.close({ code: 1001 })
+
+    expect(closes).toEqual(['ws://localhost:4455 との接続が切れました'])
+  })
+
+  it('つながる前に閉じたときは、切れたことを知らせず、つなぎに行った呼び出しだけを失敗させる', async () => {
+    const fakeSocket = createFakeSocket()
+    const onClose = vi.fn()
+    const connect = connectObs({ url: 'ws://localhost:4455', password: '', createSocket: () => fakeSocket.socket, onClose })
+
+    fakeSocket.close({ code: 1006 })
+
+    await expect(connect).rejects.toThrow(/1006/)
+    expect(onClose).not.toHaveBeenCalled()
   })
 })
