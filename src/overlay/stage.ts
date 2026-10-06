@@ -1532,11 +1532,19 @@ const mountTwister = (box: HTMLElement, item: OverlayItem, { key, demo }: MountC
         return null
       }
     }
-    void Promise.all([loadFace(call.players[0].iconUrl), loadFace(call.players[1].iconUrl)]).then((faces) => {
-      renderer.setFaces(call, faces)
-      playback = { call, game, startedAt: Date.now() }
-      preparing = false
-    })
+    void Promise.all([loadFace(call.players[0].iconUrl), loadFace(call.players[1].iconUrl)])
+      .then((faces) => {
+        renderer.setFaces(call, faces)
+        playback = { call, game, startedAt: Date.now() }
+      })
+      .catch((error: unknown) => {
+        // 顔を作れなかった1件は流さず、失敗を出して次へ進む（待っている呼び出しを止めない）
+        showError(error, NOUNS.twister, box, 'read')
+      })
+      .finally(() => {
+        preparing = false
+        if (playback === null) startNext()
+      })
   }
 
   const enqueue = (call: TwisterCall): void => {
