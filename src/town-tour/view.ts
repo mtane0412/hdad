@@ -8,6 +8,7 @@
  * 締めの全国制覇マップ（issue #252）では、これまでに紹介した市町村を今回の市町村とは別の色で塗り、今回の市町村を数えたら
  * その位置に印を描き、制覇数と節目の一文を下の帯に描く。
  * ズームの着地のあとの代表画像（issue #254）は、地図の上に白い縁を付けて縦横比を保って収め、作者とライセンスを出典の上の行に描く。
+ * 写真の説明があれば、画像の下端に重ねた帯に描く（テレビの写真の説明のように、画像の中で何が写っているかを示す）。
  * 最後の名誉町民の認定証（issue #253）は、地図の上に賞状風の枠の紙を重ね、表題・市町村の形・宛名・任命の文・日付・発行者を描く。
  * どこを映すかは camera.ts、文の折り返しは wrap.ts、大きさの文は scale.ts が決め、ここは描くだけを受け持つ（通信も状態も持たない）。
  *
@@ -92,6 +93,9 @@ const SIZES = {
   certificateGap: 28,
   /** 代表画像の縁の太さ */
   imageFrame: 8,
+  /** 代表画像の下端に重ねる写真の説明の文字の大きさと、帯の上下の余白 */
+  imageCaptionFont: 32,
+  imageCaptionPadding: 12,
 } as const
 
 /** 紹介の場面の帯を置く高さ（箱の高さに対する割合）。帯の上端 */
@@ -498,7 +502,7 @@ const drawCertificate = (
   ctx.restore()
 }
 
-/** 代表画像を、縦横比を保って収める範囲の中ほどに、白い縁を付けて描く */
+/** 代表画像を、縦横比を保って収める範囲の中ほどに、白い縁を付けて描く。写真の説明があれば画像の下端の帯に描く */
 const drawImage = (
   ctx: CanvasRenderingContext2D,
   width: number,
@@ -519,11 +523,24 @@ const drawImage = (
   ctx.fillStyle = COLORS.imageFrame
   ctx.fillRect(left - frame, top - frame, drawWidth + frame * 2, drawHeight + frame * 2)
   ctx.drawImage(image, left, top, drawWidth, drawHeight)
+  if (scene.caption !== '') {
+    // 写真の説明は画像の下端に重ねた帯に描き、画像の幅からはみ出さないよう詰める
+    const font = SIZES.imageCaptionFont * unit
+    const padding = SIZES.imageCaptionPadding * unit
+    const bandHeight = font + padding * 2
+    ctx.fillStyle = COLORS.band
+    ctx.fillRect(left, top + drawHeight - bandHeight, drawWidth, bandHeight)
+    ctx.font = `${font}px ${FONT_FAMILY}`
+    ctx.fillStyle = COLORS.text
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(scene.caption, width / 2, top + drawHeight - bandHeight / 2, drawWidth - padding * 2)
+  }
   ctx.restore()
 }
 
 /**
- * 出典（「出典: Wikipedia「当別町」（CC BY-SA 4.0）」）を右下に描く。
+ * 紹介文の出典（「紹介文: Wikipedia「当別町」（CC BY-SA 4.0）」）を右下に描く。
  * 代表画像を出しているあいだは、その上の行に作者とライセンス（「写真: 撮影者（CC BY-SA 4.0）」）を描く
  */
 const drawCredit = (ctx: CanvasRenderingContext2D, width: number, height: number, unit: number, credit: string, imageCredit: string | null): void => {

@@ -7,6 +7,7 @@
  * - ライセンスがクリエイティブ・コモンズでもパブリック・ドメインでもない・取れない画像は外す
  * - 作者の表記が要るのに作者が無い・画面に収まらないほど長い画像は外す
  * - 作者の HTML はタグを外し、文字参照を戻して文にする
+ * - 画像の説明（日本語を優先）を、紹介を作る LLM の材料として取る
  * - Wikipedia が失敗を返した・画像の情報が無いときはエラーにする（外したのではないので黙って捨てない）
  */
 import { describe, expect, it } from 'vitest'
@@ -81,10 +82,28 @@ describe('fetchTownImage', () => {
       url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Fuchu_Hiroshima_view.jpg/1280px-Fuchu_Hiroshima_view.jpg',
       artist: '府中の写真家',
       license: 'CC BY-SA 4.0',
+      description: '',
     })
     const params = urls[0]?.searchParams
     expect(params?.get('titles')).toBe('File:Fuchu_Hiroshima_view.jpg')
     expect(params?.get('iiurlwidth')).toBe(String(TOWN_IMAGE_WIDTH))
+  })
+
+  it('画像の説明を日本語で頼み、HTML を外して取る（紹介を作る LLM が写真の説明を書く材料）', async () => {
+    const { fetchImpl, urls } = fakeWikipedia(
+      imageInfoOf('安楽寺_Anraku-ji_Temple.jpg', {
+        License: { value: 'cc-by-sa-4.0' },
+        LicenseShortName: { value: 'CC BY-SA 4.0' },
+        Artist: { value: '府中の写真家' },
+        ImageDescription: { value: '<span lang="ja">広島県府中市の<b>安楽寺</b></span>' },
+      }),
+    )
+
+    const image = await fetchTownImage(fetchImpl, '安楽寺_Anraku-ji_Temple.jpg')
+
+    expect(image?.description).toBe('広島県府中市の安楽寺')
+    expect(urls[0]?.searchParams.get('iiextmetadatalanguage')).toBe('ja')
+    expect(urls[0]?.searchParams.get('iiextmetadatafilter')).toContain('ImageDescription')
   })
 
   it('作者の HTML の文字参照を戻し、空白をまとめる', async () => {

@@ -2,8 +2,9 @@
  * 市町村の紹介づくり（town-tour.ts）のテスト
  *
  * LLM の文面そのものは確かめられないので、次の点を確かめる。
- * - buildTownTourPrompt: 市町村の名前と、Wikipedia から拾った材料が漏れなく入り、材料が無い系統はその旨を伝えること
- * - parseTownTour: LLM の応答（JSON）を大見出し・項目・振りとして読み、形が違う・長すぎる・項目の数が合わない応答はエラーにすること
+ * - buildTownTourPrompt: 市町村の名前と、Wikipedia から拾った材料が漏れなく入り、材料が無い系統はその旨を伝えること。
+ *   代表画像があれば、そのファイル名と説明を渡して写真の説明を頼み、無ければ写真の説明を空にさせること
+ * - parseTownTour: LLM の応答（JSON）を大見出し・項目・振り・写真の説明として読み、形が違う・長すぎる・項目の数が合わない応答はエラーにすること
  * - generateTownTour: 「市町村紹介」の箇所を指名して LLM を呼ぶこと。決まりに合わない紹介が返ったら、問題を伝えて1回だけ作り直させること
  */
 import { describe, expect, it } from 'vitest'
@@ -12,6 +13,7 @@ import type { LlmRequest, TextGenerator } from './llm'
 import {
   MAX_CUE_LENGTH,
   MAX_HOOK_LENGTH,
+  MAX_IMAGE_CAPTION_LENGTH,
   MAX_LABEL_LENGTH,
   MAX_POINTS,
   MAX_POINT_LENGTH,
@@ -35,6 +37,13 @@ const hinoemataInput: TownTourInput = {
     specialty: '山人（やもーど）料理 - 山菜やキノコ、イワナ、サンショウウオなどを使った料理。',
     topics: '尾瀬\n桧枝岐温泉',
   },
+  image: null,
+}
+
+/** 代表画像のある檜枝岐村（ファイル名と Commons の説明） */
+const hinoemataWithImage: TownTourInput = {
+  ...hinoemataInput,
+  image: { fileName: 'Hinoemata_kabuki_stage.jpg', description: '檜枝岐の舞台（国の重要有形民俗文化財）' },
 }
 
 /** LLM が返す、正しい形の紹介 */
@@ -46,6 +55,7 @@ const validResponse = {
     { label: '伝説', text: '平家の落人が隠れ住んだという伝説が残っています。' },
   ],
   cue: 'サンショウウオ、食べてみたいですか？',
+  imageCaption: '',
 }
 
 describe('buildTownTourPrompt', () => {
@@ -64,6 +74,24 @@ describe('buildTownTourPrompt', () => {
 
   it('郡に属さない市は、都道府県と名前だけで呼ぶ', () => {
     expect(buildTownTourPrompt({ ...hinoemataInput, prefecture: '広島県', county: '', name: '府中市' })).toContain('広島県府中市')
+  })
+
+  it('代表画像があれば、ファイル名と説明を渡して写真の説明を頼む', () => {
+    const prompt = buildTownTourPrompt(hinoemataWithImage)
+
+    expect(prompt).toContain('Hinoemata_kabuki_stage.jpg')
+    expect(prompt).toContain('檜枝岐の舞台（国の重要有形民俗文化財）')
+    expect(prompt).toMatch(/- imageCaption: 画面に出す写真/)
+  })
+
+  it('代表画像が無ければ、写真の説明を空文字にさせる', () => {
+    expect(buildTownTourPrompt(hinoemataInput)).toMatch(/- imageCaption: 写真は出さないので、空文字 ""/)
+  })
+
+  it('振りには、題材を入れ替えるだけでどの町にも使える問いかけを避けさせる', () => {
+    const prompt = buildTownTourPrompt(hinoemataInput)
+
+    expect(prompt).toContain('悪い例:「祭りに行ったことがありますか？」')
   })
 })
 
@@ -102,6 +130,17 @@ describe('parseTownTour', () => {
   it('項目の見出しか文が空ならエラーにする', () => {
     expect(() => parseTownTour(JSON.stringify({ ...validResponse, points: [{ label: '', text: '山人料理が名物です。' }] }))).toThrow(TownTourContentError)
     expect(() => parseTownTour(JSON.stringify({ ...validResponse, points: [{ label: '名物', text: '' }] }))).toThrow(TownTourContentError)
+  })
+
+  it('写真の説明を読む。空文字は説明なしとして読む', () => {
+    expect(parseTownTour(JSON.stringify({ ...validResponse, imageCaption: ' 檜枝岐の舞台 ' })).imageCaption).toBe('檜枝岐の舞台')
+    expect(parseTownTour(JSON.stringify({ ...validResponse, imageCaption: '' })).imageCaption).toBe('')
+  })
+
+  it('写真の説明が欠けている・上限より長ければエラーにする', () => {
+    const withoutCaption = Object.fromEntries(Object.entries(validResponse).filter(([key]) => key !== 'imageCaption'))
+    expect(() => parseTownTour(JSON.stringify(withoutCaption))).toThrow(TownTourContentError)
+    expect(() => parseTownTour(JSON.stringify({ ...validResponse, imageCaption: 'あ'.repeat(MAX_IMAGE_CAPTION_LENGTH + 1) }))).toThrow(TownTourContentError)
   })
 
   it('振りが空ならエラーにする', () => {

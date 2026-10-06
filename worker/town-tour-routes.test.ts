@@ -52,7 +52,14 @@ const fuchuTour = {
     { label: 'ご当地の味', text: 'ミンチ肉を使う「府中焼き」というお好み焼きがあります。' },
   ],
   cue: '府中焼き、食べたことありますか？',
+  imageCaption: '',
 }
+
+/** 代表画像のある府中市で LLM が返す紹介（写真の説明つき） */
+const fuchuTourWithCaption = { ...fuchuTour, imageCaption: '府中市の町並み' }
+
+/** 応答の tour は写真の説明を除いたもの（写真の説明は image の caption として返す） */
+const fuchuTourResponse = { hook: fuchuTour.hook, points: fuchuTour.points, cue: fuchuTour.cue }
 
 const createEnv = (aiResponse: string, alertChannel = createFakeAlertChannel()) =>
   ({
@@ -105,7 +112,12 @@ const fuchuImageInfo = {
         imageinfo: [
           {
             thumburl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Fuchu_Hiroshima_view.jpg/1280px-Fuchu_Hiroshima_view.jpg',
-            extmetadata: { License: { value: 'cc-by-sa-4.0' }, LicenseShortName: { value: 'CC BY-SA 4.0' }, Artist: { value: '府中の写真家' } },
+            extmetadata: {
+              License: { value: 'cc-by-sa-4.0' },
+              LicenseShortName: { value: 'CC BY-SA 4.0' },
+              Artist: { value: '府中の写真家' },
+              ImageDescription: { value: '府中市の眺め' },
+            },
           },
         ],
       },
@@ -167,28 +179,34 @@ describe('GET /api/overlay/town-tour', () => {
       county: '',
       name: '府中市',
       article: { title: '府中市 (広島県)', url: 'https://ja.wikipedia.org/wiki/%E5%BA%9C%E4%B8%AD%E5%B8%82_(%E5%BA%83%E5%B3%B6%E7%9C%8C)' },
-      tour: fuchuTour,
+      tour: fuchuTourResponse,
       image: null,
     })
     // 名前（府中市）ではなく、コードから引いた記事名で取りに行く。代表画像が無いので画像の情報は問い合わせない
     expect(urls.map((url) => url.searchParams.get('titles'))).toEqual(['府中市 (広島県)'])
   })
 
-  it('記事に代表画像があれば、作者とライセンスを取って紹介と一緒に返す', async () => {
+  it('記事に代表画像があれば、作者とライセンスと、LLM が書いた写真の説明を紹介と一緒に返す', async () => {
+    const env = createEnv(JSON.stringify(fuchuTourWithCaption))
     const { fetchImpl, urls } = fakeWikipedia(fuchuArticleWithImage, { body: fuchuImageInfo, status: 200 })
 
-    const response = await invoke(`/api/overlay/town-tour?key=${overlayKey}&code=${FUCHU_HIROSHIMA}`, createEnv(JSON.stringify(fuchuTour)), fetchImpl)
+    const response = await invoke(`/api/overlay/town-tour?key=${overlayKey}&code=${FUCHU_HIROSHIMA}`, env, fetchImpl)
 
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({
-      tour: fuchuTour,
+      tour: fuchuTourResponse,
       image: {
         url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Fuchu_Hiroshima_view.jpg/1280px-Fuchu_Hiroshima_view.jpg',
         artist: '府中の写真家',
         license: 'CC BY-SA 4.0',
+        caption: '府中市の町並み',
       },
     })
     expect(urls.map((url) => url.searchParams.get('titles'))).toEqual(['府中市 (広島県)', 'File:Fuchu_Hiroshima_view.jpg'])
+    // 写真の説明を書かせるため、画像の情報を取ってから、ファイル名と Commons の説明を LLM に渡す
+    const prompt = JSON.stringify(env.AI.calls[0]?.input)
+    expect(prompt).toContain('Fuchu_Hiroshima_view.jpg')
+    expect(prompt).toContain('府中市の眺め')
   })
 
   it('代表画像の情報が取れなければ 502 で理由を返し、失敗の記録に残す', async () => {

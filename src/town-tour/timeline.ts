@@ -117,8 +117,10 @@ export interface Scene {
   readonly quiz: { readonly label: string; readonly question: string; readonly hints: readonly string[] } | null
   /** 出している正解の場面と、その濃さ（0〜1）。出していなければ null */
   readonly reveal: { readonly label: string; readonly text: string; readonly opacity: number } | null
-  /** 出している代表画像の URL・作者とライセンスの表記・濃さ（0〜1）。出していなければ null（issue #254） */
-  readonly image: { readonly url: string; readonly credit: string; readonly opacity: number } | null
+  /**
+   * 出している代表画像の URL・写真の説明（無ければ空文字）・作者とライセンスの表記・濃さ（0〜1）。出していなければ null（issue #254）
+   */
+  readonly image: { readonly url: string; readonly caption: string; readonly credit: string; readonly opacity: number } | null
   /** 流している場面と、その濃さ（0〜1）・文の濃さ（0〜1。大見出しの溜めのあいだは 0）。流していなければ null */
   readonly item: { readonly line: TourLine; readonly opacity: number; readonly textOpacity: number } | null
   /**
@@ -152,8 +154,11 @@ const easeInOut = (t: number): number => (t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2
 /** 長さ duration の区間の中の elapsed での濃さ。出入りの fade ミリ秒で薄くする */
 const fadeWithin = (elapsed: number, duration: number, fade: number): number => clamp01(Math.min(elapsed / fade, (duration - elapsed) / fade))
 
-/** 出典の表記（Wikipedia の本文は CC BY-SA 4.0） */
-const creditOf = (intro: TownTourIntro): string => `出典: Wikipedia「${intro.article.title}」（CC BY-SA 4.0）`
+/**
+ * 紹介の文の出典の表記（Wikipedia の本文は CC BY-SA 4.0）。
+ * 代表画像の作者の行（「写真: …」）と並ぶので、「出典」ではなく「紹介文」と書いて、画像の出典と読み違えさせない
+ */
+const creditOf = (intro: TownTourIntro): string => `紹介文: Wikipedia「${intro.article.title}」（CC BY-SA 4.0）`
 
 /** 代表画像の作者とライセンスの表記。作者の無い画像（パブリック・ドメイン・CC0）はライセンスだけにする */
 const imageCreditOf = ({ artist, license }: NonNullable<TownTourIntro['image']>): string =>
@@ -316,7 +321,12 @@ export const sceneAt = (playback: Playback, now: number): Scene => {
     image:
       image === null || sinceLanding < 0 || elapsed >= itemsStart
         ? null
-        : { url: image.url, credit: imageCreditOf(image), opacity: fadeWithin(sinceLanding, itemsStart - landing, ITEM_FADE_MS) },
+        : {
+            url: image.url,
+            caption: image.caption,
+            credit: imageCreditOf(image),
+            opacity: fadeWithin(sinceLanding, itemsStart - landing, ITEM_FADE_MS),
+          },
     item: segment === undefined ? null : itemSceneOf(segment, elapsed - segment.start),
     conquest: sinceConquest < 0 || sinceCertificate >= 0 ? null : conquestSceneOf(playback.conquest, sinceConquest),
     certificate: certificate === null ? null : { ...certificate, opacity: clamp01(sinceCertificate / ITEM_FADE_MS) },

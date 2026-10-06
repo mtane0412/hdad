@@ -5,6 +5,7 @@
  * （town-wikipedia.ts の fetchTownArticle）、ここでは Wikimedia Commons の imageinfo（extmetadata）で
  * 作者とライセンスと、画面に出す大きさの画像の URL を取る。日本語版 Wikipedia の API に問い合わせれば、
  * Commons にある画像の情報もまとめて返る。
+ * 同じ問い合わせで画像の説明（ImageDescription。日本語があれば日本語）も取り、紹介を作る LLM に写真の説明を書かせる材料にする。
  *
  * 出さない画像は null にする（失敗ではなく決めた形で、合成ページは画像の場面を飛ばす）。
  * - 地図・位置図・市町村章・写真の無い記事の代わりの絵（Gthumb.svg）。ファイル名の型で見分け、問い合わせない
@@ -34,6 +35,11 @@ export interface TownImage {
   artist: string
   /** ライセンスの名前（「CC BY-SA 4.0」「Public domain」） */
   license: string
+  /**
+   * Commons に書かれた画像の説明（HTML を外した文）。無ければ空文字。
+   * 画面には出さず、紹介を作る LLM が写真の説明を書く材料にする（誰でも編集できるので、そのまま画面に出さない）
+   */
+  description: string
 }
 
 /**
@@ -63,7 +69,7 @@ const MAX_CODE_POINT = 0x10ffff
 const NAMED_ENTITIES: Readonly<Record<string, string>> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' }
 
 /**
- * 作者の欄（HTML）を文にする。タグを外し、文字参照を戻し、空白をまとめる。
+ * 作者・説明の欄（HTML）を文にする。タグを外し、文字参照を戻し、空白をまとめる。
  * 戻せない文字参照はそのまま残す（作者の名前を黙って欠けさせない）。
  */
 const textOfHtml = (html: string): string =>
@@ -104,7 +110,9 @@ export const fetchTownImage = async (fetchImpl: typeof fetch, fileName: string):
     prop: 'imageinfo',
     iiprop: 'url|extmetadata',
     iiurlwidth: String(TOWN_IMAGE_WIDTH),
-    iiextmetadatafilter: 'License|LicenseShortName|Artist',
+    iiextmetadatafilter: 'License|LicenseShortName|Artist|ImageDescription',
+    // 説明が複数の言語で書かれていれば日本語を選ばせる（日本語が無ければ別の言語が返る）
+    iiextmetadatalanguage: 'ja',
     format: 'json',
     formatversion: '2',
     titles: `File:${fileName}`,
@@ -126,5 +134,5 @@ export const fetchTownImage = async (fetchImpl: typeof fetch, fileName: string):
   if (!FREE_LICENSE_PATTERN.test(licenseCode) || license === '') return null
   if (artist === '' && !NO_ATTRIBUTION_LICENSES.has(licenseCode)) return null
   if ([...artist].length > MAX_ARTIST_LENGTH) return null
-  return { url: info.thumburl, artist, license }
+  return { url: info.thumburl, artist, license, description: textOfHtml(metadataValue(info.extmetadata, 'ImageDescription')) }
 }
