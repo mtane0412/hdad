@@ -253,9 +253,18 @@ describe('rotateOverlayKey・playTownTourDemo・townTourSound・rewards・logout
       headline: '試し再生: 本日は北海道石狩郡当別町をご紹介します',
     })
 
-    expect(await createAdminApi(fetchImpl).playTownTourDemo()).toBe('試し再生: 本日は北海道石狩郡当別町をご紹介します')
+    expect(await createAdminApi(fetchImpl).playTownTourDemo('')).toBe('試し再生: 本日は北海道石狩郡当別町をご紹介します')
     expect(requests[0]!.method).toBe('POST')
     expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/town-tour/demo')
+    expect(await requests[0]!.json()).toEqual({ userName: '' })
+  })
+
+  it('市町村紹介の試し再生で、レイド元とみなすユーザー名を一緒に送る（issue #275）', async () => {
+    const { requests, fetchImpl } = fetchReturning(200, { headline: '試し再生: 本日は北海道石狩郡当別町をご紹介します' })
+
+    await createAdminApi(fetchImpl).playTownTourDemo('hoshino_yu')
+
+    expect(await requests[0]!.json()).toEqual({ userName: 'hoshino_yu' })
   })
 
   it('ツイスターの試し再生を頼み、押し出された対戦の2人を「A vs B」の形で返す', async () => {

@@ -8,12 +8,15 @@ paths:
   - "worker/viewer-summary.ts"
   - "worker/stream-summary.ts"
   - "worker/town-tour.ts"
+  - "worker/town-bond.ts"
   - "worker/stream-title.ts"
 ---
 
 # LLMの呼び先・使用状況・モデルの選択
 
-LLMを呼ぶのは7か所（`LLM_USAGES`: `translation`・`aiChat`・`sideSuper`・`viewerSummary`・`streamSummary`・`streamTitle`・`townTour`。`streamTitle` は配信タイトルの候補（`worker/stream-title.ts`。試験運用で、設定を入れたときだけ呼ぶ）。`townTour` は市町村紹介（`worker/town-tour.ts`）で、合成ページから呼ばれるたびに作る。配信の章も `streamSummary` を指名する。`translation` は字幕の翻訳の提供元に LLM を選んだときだけ `worker/translation.ts` が指名する）だが、呼び先を決めるのは `worker/llm.ts` だけである。呼び出し側はモデル名ではなくどこで使うかを指名し、提供元（Workers AI・OpenRouter）とモデルは設定（`worker/llm-config.ts`。KVは `llm-settings`）が箇所ごとに決める。失敗は黙って別の提供元へ落とさない。使用状況は `worker/llm-usage-store.ts` が「日（UTC）× 箇所 × 提供元 × モデル」の1行へ足し込む。モデルは入力させず `worker/llm-models.ts` の候補から選ばせる。管理画面は `/llm/`。→ `docs/decisions/llm.md`
+LLMを呼ぶのは8か所（`LLM_USAGES`: `translation`・`aiChat`・`sideSuper`・`viewerSummary`・`streamSummary`・`streamTitle`・`townTour`・`townBond`。`townBond` は市町村紹介のレイド元との共通点（`worker/town-bond.ts`）で、既定の提供元が OpenRouter（`google/gemini-3.8-flash`）の唯一の箇所。`streamTitle` は配信タイトルの候補（`worker/stream-title.ts`。試験運用で、設定を入れたときだけ呼ぶ）。`townTour` は市町村紹介（`worker/town-tour.ts`）で、合成ページから呼ばれるたびに作る。配信の章も `streamSummary` を指名する。`translation` は字幕の翻訳の提供元に LLM を選んだときだけ `worker/translation.ts` が指名する）だが、呼び先を決めるのは `worker/llm.ts` だけである。呼び出し側はモデル名ではなくどこで使うかを指名し、提供元（Workers AI・OpenRouter）とモデルは設定（`worker/llm-config.ts`。KVは `llm-settings`）が箇所ごとに決める。失敗は黙って別の提供元へ落とさない。使用状況は `worker/llm-usage-store.ts` が「日（UTC）× 箇所 × 提供元 × モデル」の1行へ足し込む。モデルは入力させず `worker/llm-models.ts` の候補から選ばせる。管理画面は `/llm/`。→ `docs/decisions/llm.md`
+
+**OpenRouter へは既定で推論を切って送る**（`reasoning: { enabled: false }`）。推論を止められないモデル（`google/gemini-3.8-flash` は400で断る）を既定にする箇所だけが、呼び出しで `LlmRequest.reasoning: 'low'` を指定し、`maxTokens` を思考のぶんまで大きくとる（いまは `townBond` だけ）。
 
 **箇所を足したら、保存済みの `llm-settings` に無い箇所だけ読み出しで既定を補う**（`loadLlmSettings` の `fillAddedUsages`。キーがあって中身が壊れているものは補わず拒む。保存（PUT）の検証は補わない）。字幕の翻訳の m2m100・DeepL は LLM ではないが、使用状況は `llm_usage` の箇所 `translation` へ足し込む（提供元の型は `UsageProvider`。DeepL は `deepl`）。
 

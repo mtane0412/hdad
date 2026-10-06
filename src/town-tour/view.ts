@@ -9,7 +9,9 @@
  * その位置に印を描き、制覇数と節目の一文を下の帯に描く。
  * ズームの着地のあとの代表画像（issue #254）は、地図の上に白い縁を付けて縦横比を保って収め、作者とライセンスを出典の上の行に描く。
  * 写真の説明があれば、画像の下端に重ねた帯に描く（テレビの写真の説明のように、画像の中で何が写っているかを示す）。
- * 最後の名誉町民の認定証（issue #253）は、地図の上に賞状風の枠の紙を重ね、表題・市町村の形・宛名・任命の文・日付・発行者を描く。
+ * 締めの振りの代わりの、レイド元との共通点（issue #275）は、見出しの下に左右の2枠（左はレイド元のアイコンと配信者側の語句、右は町側の語句）と
+ * 共通点の文を、ふつうの場面より高い帯に描く。
+ * 最後の名誉町民の認定証（issue #253）は、地図の上に賞状風の枠の紙を重ね、表題・市町村の形・宛名・任命の文・任命理由（あれば）・日付・発行者を描く。
  * どこを映すかは camera.ts、文の折り返しは wrap.ts、大きさの文は scale.ts が決め、ここは描くだけを受け持つ（通信も状態も持たない）。
  *
  * 地図の形は、起動時に全国ぶんを1つの Path2D にまとめておき、毎フレームは拡大と移動を掛けて塗り直すだけにする
@@ -21,6 +23,7 @@
 import { cameraAt } from './camera'
 import { scaleLinesOf } from './scale'
 import type { Playback, Scene } from './timeline'
+import type { TourLine } from './tour'
 import { boundsOf, type Bounds, type Ring } from './topo'
 import { wrapText } from './wrap'
 
@@ -77,7 +80,8 @@ const SIZES = {
   stampWidth: 5,
   /** 認定証の紙の大きさ・余白と、枠の線（外側の太い線と、内側の細い線の二重） */
   certificateWidth: 1080,
-  certificateHeight: 800,
+  /** 任命理由（issue #275）の2行ぶんを足した高さ */
+  certificateHeight: 880,
   certificatePadding: 56,
   certificateOuterFrame: 10,
   certificateInnerFrame: 2,
@@ -91,6 +95,11 @@ const SIZES = {
   certificateFooterFont: 30,
   certificateFooterLineHeight: 46,
   certificateGap: 28,
+  /** 共通点の場面（issue #275）の左右の枠の高さ・枠のあいだ・語句の文字・レイド元のアイコンの大きさ */
+  bondBoxHeight: 96,
+  bondBoxGap: 72,
+  bondQuoteFont: 40,
+  bondIconSize: 64,
   /** 代表画像の縁の太さ */
   imageFrame: 8,
   /** 代表画像の下端に重ねる写真の説明の文字の大きさと、帯の上下の余白 */
@@ -121,6 +130,12 @@ const MAX_ITEM_LINES = 3
 const MAX_HOOK_LINES = 2
 /** 全国制覇マップの帯の見出し */
 const CONQUEST_LABEL = '全国制覇マップ'
+/** 共通点の場面の帯の上端（画面の高さに対する割合）。左右の枠のぶん、ふつうの場面の帯より上から始める */
+const BOND_PANEL_TOP = 0.56
+/** 共通点の場面の左右の枠のあいだに置く記号 */
+const BOND_JOINT = '×'
+/** 共通点の文の行数の上限 */
+const MAX_BOND_LINES = 2
 /** 紹介が届くのを待っているあいだに出す文言 */
 const WAITING_TEXT = '紹介を準備しています…'
 
@@ -144,13 +159,13 @@ export interface TownTourRenderer {
   /**
    * 1フレームぶんを描く。
    *
-   * @param frame いま再生している1件とその場面と、読み込み終えた代表画像（無ければ null）。再生していなければ null（何も描かない）
+   * @param frame いま再生している1件とその場面と、読み込み終えた代表画像とレイド元のアイコン（無ければ null）。再生していなければ null（何も描かない）
    */
   render(
     ctx: CanvasRenderingContext2D,
     width: number,
     height: number,
-    frame: { playback: Playback; scene: Scene; image: HTMLImageElement | null } | null,
+    frame: { playback: Playback; scene: Scene; image: HTMLImageElement | null; icon: HTMLImageElement | null } | null,
   ): void
 }
 
@@ -190,7 +205,7 @@ export const createTownTourRenderer = (shapes: ReadonlyMap<string, readonly Ring
     render: (ctx, width, height, frame) => {
       ctx.clearRect(0, 0, width, height)
       if (frame === null) return
-      const { playback, scene, image } = frame
+      const { playback, scene, image, icon } = frame
       const unit = Math.min(width / BASE_WIDTH, height / BASE_HEIGHT)
       const figure = figureOf(playback.call.code)
 
@@ -206,6 +221,7 @@ export const createTownTourRenderer = (shapes: ReadonlyMap<string, readonly Ring
       if (scene.quiz !== null) drawQuizPanel(ctx, width, height, unit, scene.quiz)
       else if (scene.conquest !== null) drawConquestPanel(ctx, width, height, unit, scene.conquest)
       else if (scene.certificate !== null) drawCertificate(ctx, width, height, unit, figure, scene.certificate)
+      else if (scene.item?.line.kind === 'bond') drawBondPanel(ctx, width, height, unit, scene.item.line, scene.item.opacity, icon)
       else drawPanel(ctx, width, height, unit, scene)
       if (scene.image !== null && image !== null) drawImage(ctx, width, height, unit, image, scene.image)
       if (scene.credit !== null) drawCredit(ctx, width, height, unit, scene.credit, scene.image?.credit ?? null)
@@ -393,6 +409,65 @@ const drawPanel = (ctx: CanvasRenderingContext2D, width: number, height: number,
   ctx.restore()
 }
 
+/**
+ * 共通点の場面（issue #275）を下の帯に描く。上から見出し（「○○さんとこの町、実は…」）・左右の枠（左はレイド元のアイコンと配信者側の語句、
+ * 右は町側の語句）・共通点の文の順に並べる
+ */
+const drawBondPanel = (
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  unit: number,
+  line: Extract<TourLine, { kind: 'bond' }>,
+  opacity: number,
+  icon: HTMLImageElement | null,
+): void => {
+  const padding = SIZES.panelPadding * unit
+  const top = height * BOND_PANEL_TOP
+  const labelHeight = SIZES.labelFont * unit + padding / 2
+  const boxHeight = SIZES.bondBoxHeight * unit
+  const lineHeight = SIZES.itemLineHeight * unit
+  const textFont = `bold ${SIZES.itemFont * unit}px ${FONT_FAMILY}`
+  ctx.save()
+  ctx.globalAlpha *= opacity
+  ctx.font = textFont
+  const lines = wrapText(line.text, width * TEXT_WIDTH, (text) => ctx.measureText(text).width).slice(0, MAX_BOND_LINES)
+  ctx.fillStyle = COLORS.band
+  ctx.fillRect(0, top, width, padding * 3 + labelHeight + boxHeight + lineHeight * lines.length)
+
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'top'
+  ctx.font = `bold ${SIZES.labelFont * unit}px ${FONT_FAMILY}`
+  ctx.fillStyle = COLORS.label
+  ctx.fillText(line.label, width / 2, top + padding)
+
+  // 左右の枠。真ん中に記号を置き、左に配信者側（アイコン付き）、右に町側の語句を出す
+  const boxTop = top + padding + labelHeight
+  const gap = SIZES.bondBoxGap * unit
+  const boxWidth = (width * TEXT_WIDTH - gap) / 2
+  const leftX = width / 2 - gap / 2 - boxWidth
+  const rightX = width / 2 + gap / 2
+  ctx.strokeStyle = COLORS.label
+  ctx.lineWidth = SIZES.stampWidth * unit
+  ctx.strokeRect(leftX, boxTop, boxWidth, boxHeight)
+  ctx.strokeRect(rightX, boxTop, boxWidth, boxHeight)
+  ctx.textBaseline = 'middle'
+  ctx.font = `bold ${SIZES.bondQuoteFont * unit}px ${FONT_FAMILY}`
+  ctx.fillStyle = COLORS.text
+  ctx.fillText(BOND_JOINT, width / 2, boxTop + boxHeight / 2)
+  const iconSize = SIZES.bondIconSize * unit
+  const iconSpace = icon === null ? 0 : iconSize + padding / 2
+  if (icon !== null) ctx.drawImage(icon, leftX + padding / 2, boxTop + (boxHeight - iconSize) / 2, iconSize, iconSize)
+  const leftTextWidth = boxWidth - padding - iconSpace
+  ctx.fillText(line.raiderQuote, leftX + padding / 2 + iconSpace + leftTextWidth / 2, boxTop + boxHeight / 2, leftTextWidth)
+  ctx.fillText(line.townQuote, rightX + boxWidth / 2, boxTop + boxHeight / 2, boxWidth - padding)
+
+  ctx.textBaseline = 'top'
+  ctx.font = textFont
+  drawLines(ctx, lines, width / 2, boxTop + boxHeight + padding, lineHeight)
+  ctx.restore()
+}
+
 /** 全国制覇マップの見出し・制覇数と、節目の一文を下の帯に描く */
 const drawConquestPanel = (ctx: CanvasRenderingContext2D, width: number, height: number, unit: number, conquest: NonNullable<Scene['conquest']>): void => {
   const padding = SIZES.panelPadding * unit
@@ -422,7 +497,7 @@ const drawConquestPanel = (ctx: CanvasRenderingContext2D, width: number, height:
 }
 
 /**
- * 名誉町民の認定証を、画面の中央に賞状風の紙として描く。上から表題・市町村の形・宛名・任命の文・日付と発行者の順に並べる。
+ * 名誉町民の認定証を、画面の中央に賞状風の紙として描く。上から表題・市町村の形・宛名・任命の文・任命理由（あれば）・日付と発行者の順に並べる。
  * 紙は箱に収まる大きさまで縮める（配信画面より小さい箱でも、文字と紙の釣り合いを変えない）
  */
 const drawCertificate = (
@@ -492,6 +567,14 @@ const drawCertificate = (
   ctx.font = font(SIZES.certificateBodyFont)
   const bodyLines = wrapText(certificate.appointment, textWidth, (text) => ctx.measureText(text).width).slice(0, MAX_HEADLINE_LINES)
   drawLines(ctx, bodyLines, centerX, cursor, SIZES.certificateBodyLineHeight * u)
+  cursor += SIZES.certificateBodyLineHeight * u * bodyLines.length + SIZES.certificateGap * u
+
+  // 任命理由（レイド元との共通点を作れた回だけ。issue #275）は、任命の文の下に一回り小さく添える
+  if (certificate.reason !== null) {
+    ctx.font = font(SIZES.certificateFooterFont)
+    const reasonLines = wrapText(certificate.reason, textWidth, (text) => ctx.measureText(text).width).slice(0, MAX_HEADLINE_LINES)
+    drawLines(ctx, reasonLines, centerX, cursor, SIZES.certificateFooterLineHeight * u)
+  }
 
   // 日付と発行者は紙の下端にそろえる
   ctx.font = font(SIZES.certificateFooterFont)

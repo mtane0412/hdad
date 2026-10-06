@@ -128,6 +128,20 @@ describe('createLlm（OpenRouter）', () => {
     })
   })
 
+  it('軽い推論を指定された呼び出しは、推論を切らずに effort を low にして送る（推論を止められないモデルのため）', async () => {
+    const store = createFakeStore()
+    await saveLlmSettings(store, openRouterConfig)
+    const fetchImpl = fakeFetch(openRouterResponse('共通点です'))
+    const llm = createLlm({ ...recordCondition(), ai: fakeBinding(), store, fetch: fetchImpl, apiKey: 'openrouter-test-key' })
+
+    await llm.run('streamSummary', { ...material, reasoning: 'low' })
+
+    const request = fetchImpl.called[0]
+    if (request === undefined) throw new Error('OpenRouter へ送られていません')
+    // reasoning.enabled を偽にして送ると、推論を止められないモデル（google/gemini-3.8-flash）は 400 を返す
+    expect(await request.json()).toMatchObject({ reasoning: { effort: 'low' } })
+  })
+
   it('箇所ごとに提供元が違えば、それぞれの呼び先へ送る（あらすじだけ OpenRouter にする使い方）', async () => {
     const store = createFakeStore()
     await saveLlmSettings(store, openRouterConfig)

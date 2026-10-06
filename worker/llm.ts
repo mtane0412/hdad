@@ -22,7 +22,7 @@
  * 注意: 呼び出しには時間制限をかける（worker/timeout.ts）。LLMが黙り続けると、cron の1回分が
  * そこで止まり、後ろの処理（人物像づくり）へ進めない（issue #126）。Workers AI のバインディングは
  * 中断の合図を受け取れないので、呼び出しそのものは中断できず、待つのをやめるだけである。
- * 注意: OpenRouter へは推論を切って送る（reasoning.enabled を偽にする）。このツールが送る上限は箇所ごとに
+ * 注意: OpenRouter へは既定で推論を切って送る（reasoning.enabled を偽にする）。このツールが送る上限は箇所ごとに
  * 100〜400トークンと小さく、推論モデルではそれを思考トークンが使い切って content が null のまま
  * finish_reason が length で返るためである（実際に openai/gpt-6-luna をあらすじに選んだ配信で、
  * 5分おきの収集がすべてこれで失敗した）。
@@ -60,6 +60,12 @@ export interface LlmRequest {
   readonly messages: readonly LlmMessage[]
   /** 作らせる文面の長さの上限（トークン）。箇所ごとに呼び出し側が決める */
   readonly maxTokens: number
+  /**
+   * OpenRouter での推論のかけ方。省略すると推論を切る（off）。
+   * low は推論を止められないモデル（google/gemini-3.8-flash など）を既定にする箇所が指定し、maxTokens を思考のぶんまで大きくとる。
+   * Workers AI へは送らない
+   */
+  readonly reasoning?: 'off' | 'low'
 }
 
 /**
@@ -187,10 +193,17 @@ const runOpenRouter = async (fetchImpl: typeof fetch, apiKey: string | undefined
   const response = await fetchImpl(OPENROUTER_URL, {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    // 推論を切って送る。推論モデルでは思考トークンがこの小さな上限（100〜400）を使い切り、本文が空で返るため。
-    // 推論を持たないモデルでは無視される項目なので、モデルによる場合分けは持たない
+    // 既定では推論を切って送る。推論モデルでは思考トークンがこの小さな上限（100〜400）を使い切り、本文が空で返るため。
+    // 推論を止められないモデルは enabled: false を 400 で断るので、呼び出し側が low を指定したときは軽い推論で送る。
+    // 推論を持たないモデルではどちらも無視される項目なので、モデルによる場合分けは持たない
     // usage.include を付けると、応答の usage にこの呼び出しの実費（cost）が入る（管理画面に出すために頼む）
-    body: JSON.stringify({ model, messages: request.messages, max_tokens: request.maxTokens, reasoning: { enabled: false }, usage: { include: true } }),
+    body: JSON.stringify({
+      model,
+      messages: request.messages,
+      max_tokens: request.maxTokens,
+      reasoning: request.reasoning === 'low' ? { effort: 'low' } : { enabled: false },
+      usage: { include: true },
+    }),
   })
   if (!response.ok) {
     const body = (await response.text()).slice(0, MAX_ERROR_BODY_LENGTH)

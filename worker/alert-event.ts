@@ -582,16 +582,34 @@ export const shoutoutsFor = (
  * 市町村紹介を流したきっかけと相手。きっかけで冒頭の一文の言い回しが変わる（レイドは「レイドを記念して」、キーワードはダーツに見立てる）。
  * レイドはレイドの人数（viewers）も持ち、人口と比べる人数に足す（issue #250）
  */
-export type TownTourTrigger = { occasion: 'raid'; userName: string; viewers: number } | { occasion: 'keyword'; userName: string }
+export type TownTourTrigger =
+  | { occasion: 'raid'; userName: string; userLogin: string; viewers: number }
+  | { occasion: 'keyword'; userName: string; userLogin: string }
 
 /**
- * 通知に当てはまるトリガーを探し、市町村紹介を流すきっかけと、冒頭で名前を出す相手（表示名）を返す（issue #229）。
+ * チャットの発言を書いたのが、購読しているチャンネルの配信者本人か。
+ *
+ * 発言の読み取り（readChatMessage）の broadcasterUserId は、Shared Chat 中は書かれたチャンネルに置き換わるので使わず、
+ * 通知そのものの broadcaster_user_id（購読しているチャンネル）と発言者を比べる（相手の配信者が相手のチャンネルで書いた発言を本人と取り違えない）。
+ */
+const isWrittenByBroadcaster = (body: unknown): boolean =>
+  typeof body === 'object' &&
+  body !== null &&
+  'broadcaster_user_id' in body &&
+  'chatter_user_id' in body &&
+  typeof body.broadcaster_user_id === 'string' &&
+  body.broadcaster_user_id === body.chatter_user_id &&
+  !('source_broadcaster_user_id' in body && body.source_broadcaster_user_id !== null && body.source_broadcaster_user_id !== body.broadcaster_user_id)
+
+/**
+ * 通知に当てはまるトリガーを探し、市町村紹介を流すきっかけと、冒頭で名前を出す相手（表示名とログイン名）を返す（issue #229）。
  *
  * 置けるのはレイドとキーワードのトリガーだけなので（worker/alert-config.ts の parseAlertConfig が保存時に拒む）、
  * ほかのトリガーでこの動作が見つかったら、黙って流さずに投げる（Fail-Fast。冒頭の一文を組み立てられないため）。
  * 引く市町村は呼び出し側が決める（このファイルは乱数を持たないため）。
+ * キーワードは配信者本人の動作確認用なので、配信者本人でない人の発言では流さない（issue #275。本人をレイド元とみなして共通点まで流す）。
  *
- * @returns きっかけ（レイドかキーワードか）と相手の表示名（レイドはレイドの人数も）を、当てはまったトリガーの並びの順に返す
+ * @returns きっかけ（レイドかキーワードか）と相手の表示名・ログイン名（レイドはレイドの人数も）を、当てはまったトリガーの並びの順に返す
  * @throws 通知の中身が想定した形でない場合、またはレイドとキーワード以外のトリガーにこの動作があった場合
  */
 export const townToursFor = (
@@ -601,10 +619,14 @@ export const townToursFor = (
   state: ConditionState,
 ): TownTourTrigger[] =>
   // 動作そのものは項目を持たないので、代わりにトリガーの項目（kind）を取り出して、きっかけの判定に使う
-  matchedActionsFor(config, subscriptionType, body, (trigger) => (townTourActionOf(trigger) === null ? null : trigger.kind), state).map(
-    ({ action: kind, extracted }) => {
-      if (kind === 'raid' && extracted.event === RAID) return { occasion: 'raid', userName: extracted.userName, viewers: extracted.viewers }
-      if (kind === 'keyword' && extracted.event === CHAT_MESSAGE) return { occasion: 'keyword', userName: extracted.userName }
+  matchedActionsFor(config, subscriptionType, body, (trigger) => (townTourActionOf(trigger) === null ? null : trigger.kind), state).flatMap(
+    ({ action: kind, extracted }): TownTourTrigger[] => {
+      if (kind === 'raid' && extracted.event === RAID) {
+        return [{ occasion: 'raid', userName: extracted.userName, userLogin: extracted.userLogin, viewers: extracted.viewers }]
+      }
+      if (kind === 'keyword' && extracted.event === CHAT_MESSAGE) {
+        return isWrittenByBroadcaster(body) ? [{ occasion: 'keyword', userName: extracted.userName, userLogin: extracted.userLogin }] : []
+      }
       throw new Error(`市町村紹介はレイドとキーワードのトリガーにだけ置けます（${kind} のトリガーに置かれています）`)
     },
   )

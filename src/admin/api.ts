@@ -226,8 +226,12 @@ export interface AdminApi {
   removeMedia(id: string): Promise<void>
   /** オーバーレイ用キーを発行し直す。古いキーを含むURLは使えなくなる */
   rotateOverlayKey(): Promise<string>
-  /** 市町村紹介の試し再生。Workerが市町村を1つ引いて合成ページへ押し出し、冒頭の一文を返す */
-  playTownTourDemo(): Promise<string>
+  /**
+   * 市町村紹介の試し再生。Workerが市町村を1つ引いて合成ページへ押し出し、冒頭の一文を返す。
+   *
+   * @param userName レイド元とみなす配信者のログイン名（issue #275）。空文字なら見本の名前で流し、共通点は作らせない
+   */
+  playTownTourDemo(userName: string): Promise<string>
   /** ツイスターの試し再生。Workerが試しの相手と配信者の対戦を合成ページへ押し出し、「A vs B」の形の2人を返す */
   playTwisterDemo(): Promise<string>
   /** 市町村紹介の演出で鳴らす音の設定。未保存ならどの枠も鳴らさない設定が返る */
@@ -376,8 +380,12 @@ export const createAdminApi = (fetchImpl: typeof fetch): AdminApi => {
       return body.overlayKey
     },
 
-    playTownTourDemo: async () => {
-      const body = await call('/api/admin/town-tour/demo', { method: 'POST' })
+    playTownTourDemo: async (userName) => {
+      const body = await call('/api/admin/town-tour/demo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userName }),
+      })
       if (!isRecord(body) || typeof body.headline !== 'string') throw new Error('Workerの応答に headline がありません')
       return body.headline
     },

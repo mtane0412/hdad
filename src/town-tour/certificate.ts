@@ -5,9 +5,10 @@
  * お土産にするためのもの。ここは呼び出し（名誉町民にする相手と市町村）と日付から文面を組み立てるだけを受け持つ
  * （描くのは view.ts、出す時刻は timeline.ts）。
  *
- * 注意: 文面はコードで組み立て、LLM に作らせない。町の公式なものと誤解されないよう、自治体の名義や町章は使わず、
+ * 注意: 文面はコードで組み立て、LLM に作らせない。ただし任命理由（reason）だけは、レイド元との共通点（issue #275）と一緒に LLM が書いたものを
+ * そのまま添える（Worker が長さと結び方を確かめてから返す。worker/town-bond.ts）。町の公式なものと誤解されないよう、自治体の名義や町章は使わず、
  * 発行者はこの配信（ISSUER）にする。
- * 注意: 名誉町民にする相手を決めるのは Worker（worker/town-tour-call.ts。レイドはレイド元、試し再生は見本の名前、キーワードは null）。
+ * 注意: 名誉町民にする相手を決めるのは Worker（worker/town-tour-call.ts。レイドはレイド元、キーワードは配信者本人、試し再生は入力した配信者か見本の名前）。
  */
 import type { TownTourCall } from './tour'
 
@@ -34,6 +35,8 @@ export interface Certificate {
   readonly holder: string
   /** 任命の文（「あなたを北海道石狩郡当別町の名誉町民に任命します」） */
   readonly appointment: string
+  /** 任命の理由（「〜につき」）。レイド元との共通点を作れなかった回は null で、出さない */
+  readonly reason: string | null
   /** 和暦の日付 */
   readonly date: string
   readonly issuer: string
@@ -45,11 +48,13 @@ export interface Certificate {
  * 「町民」の「町」は市町村の名前の最後の字（市・町・村・区）にする（tour.ts の「この町、実は…」と同じ考え方）。
  *
  * @param issuedAt 認定証の日付にする時刻（ミリ秒。Date.now() と同じ基準）
- * @returns 名誉町民にする相手がいない（キーワードの）呼び出しなら null
+ * @param reason 任命の理由（紹介の bond.certificateReason）。共通点が無い回は null
+ * @returns 名誉町民にする相手がいない呼び出しなら null
  */
 export const certificateOf = (
   call: Pick<TownTourCall, 'prefecture' | 'county' | 'name' | 'honoraryCitizen'>,
   issuedAt: number,
+  reason: string | null,
 ): Certificate | null => {
   if (call.honoraryCitizen === null) return null
   const honorary = `名誉${call.name.slice(-1)}民`
@@ -57,6 +62,7 @@ export const certificateOf = (
     title: `${honorary}証`,
     holder: `${call.honoraryCitizen} 様`,
     appointment: `あなたを${call.prefecture}${call.county}${call.name}の${honorary}に任命します`,
+    reason,
     date: japaneseDateFormat.format(issuedAt),
     issuer: ISSUER,
   }

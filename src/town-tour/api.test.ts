@@ -35,20 +35,44 @@ const chiyodaIntro = {
     cue: '千代田区で働いたことはありますか？',
   },
   image: null,
+  bond: null,
+  bondFailure: null,
 }
 
 describe('introduce', () => {
   it('オーバーレイ用キーとコードを付けて、市町村の紹介を作らせる', async () => {
     const { calls, fetchImpl } = createFetchWithResponse(200, chiyodaIntro)
 
-    expect(await createTownTourApi(fetchImpl, OVERLAY_KEY).introduce('13101')).toEqual({ article: chiyodaIntro.article, tour: chiyodaIntro.tour, image: null })
+    expect(await createTownTourApi(fetchImpl, OVERLAY_KEY).introduce('13101', null)).toEqual({
+      article: chiyodaIntro.article,
+      tour: chiyodaIntro.tour,
+      image: null,
+      bond: null,
+      bondFailure: null,
+    })
     expect(calls).toEqual([`/api/overlay/town-tour?key=${encodeURIComponent(OVERLAY_KEY)}&code=13101`])
+  })
+
+  it('レイド元があれば、ログイン名と連れてきた人数も付けて、共通点も作らせる（issue #275）', async () => {
+    const { calls, fetchImpl } = createFetchWithResponse(200, chiyodaIntro)
+
+    await createTownTourApi(fetchImpl, OVERLAY_KEY).introduce('13101', { login: 'yamada_hanako', viewers: 30 })
+
+    expect(calls).toEqual([`/api/overlay/town-tour?key=${encodeURIComponent(OVERLAY_KEY)}&code=13101&raider=yamada_hanako&viewers=30`])
+  })
+
+  it('連れてきた人数の無いレイド元（配信者本人のキーワード・試し再生）は、ログイン名だけを付ける', async () => {
+    const { calls, fetchImpl } = createFetchWithResponse(200, chiyodaIntro)
+
+    await createTownTourApi(fetchImpl, OVERLAY_KEY).introduce('13101', { login: 'tanenobu', viewers: null })
+
+    expect(calls).toEqual([`/api/overlay/town-tour?key=${encodeURIComponent(OVERLAY_KEY)}&code=13101&raider=tanenobu`])
   })
 
   it('紹介を作れなかった（502）ときは、Workerが返した理由ごと投げる', async () => {
     const { fetchImpl } = createFetchWithResponse(502, { error: { code: 'town-tour-failed', message: 'Wikipedia の記事を取得できませんでした' } })
 
-    const failure = createTownTourApi(fetchImpl, OVERLAY_KEY).introduce('13101')
+    const failure = createTownTourApi(fetchImpl, OVERLAY_KEY).introduce('13101', null)
 
     await expect(failure).rejects.toBeInstanceOf(ApiError)
     await expect(failure).rejects.toThrow('Wikipedia の記事を取得できませんでした')

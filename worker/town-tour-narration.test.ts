@@ -14,6 +14,7 @@ import { ConfigError } from './alert-config'
 import { createFakeStore } from './fake-store'
 import { loadSpeechSettings } from './speech-config'
 import { MAX_CUE_LENGTH, MAX_HOOK_LENGTH, MAX_LABEL_LENGTH, MAX_POINT_LENGTH, MAX_POINTS } from './town-tour'
+import { MAX_BOND_LENGTH, MAX_CERTIFICATE_REASON_LENGTH, MAX_RAIDER_QUOTE_LENGTH, MAX_TOWN_QUOTE_LENGTH } from './town-bond'
 import { townTourCallOf } from './town-tour-call'
 import { DEFAULT_TOWN_TOUR_SOUND } from './town-tour-sound'
 import { DEFAULT_TOWN_TOUR_NARRATION, loadTownTourNarration, parseTownTourNarration, saveTownTourNarration } from './town-tour-narration'
@@ -75,7 +76,7 @@ describe('読み上げる文の長さ', () => {
     const longest = Math.max(
       ...towns.map(
         (town) =>
-          [...townTourCallOf(town, { occasion: 'raid', userName: longestUserName, viewers: 1 }, DEFAULT_TOWN_TOUR_SOUND, null, 'quiz-1', [], true).headline].length,
+          [...townTourCallOf(town, { occasion: 'raid', userName: longestUserName, userLogin: 'longest_user', viewers: 1 }, DEFAULT_TOWN_TOUR_SOUND, null, 'quiz-1', [], true).headline].length,
       ),
     )
     expect(longest).toBeLessThanOrEqual(TOWN_TOUR_NARRATION_TEXT_MAX_LENGTH)
@@ -87,7 +88,21 @@ describe('読み上げる文の長さ', () => {
       points: Array.from({ length: MAX_POINTS }, () => ({ label: 'い'.repeat(MAX_LABEL_LENGTH), text: 'う'.repeat(MAX_POINT_LENGTH) })),
       cue: 'え'.repeat(MAX_CUE_LENGTH),
     }
-    const { lines } = narrationTextsOf('冒頭の一文', tourLinesOf(longestTour, '府中市'))
+    const { lines } = narrationTextsOf('冒頭の一文', tourLinesOf({ tour: longestTour, bond: null }, '府中市'))
     expect(Math.max(...lines.map((line) => [...line].length))).toBeLessThanOrEqual(TOWN_TOUR_NARRATION_TEXT_MAX_LENGTH)
+  })
+
+  it('最長の表示名のレイド元との、LLM が作れる最長の共通点も、見出しから読んで合成を頼める長さに収まる', () => {
+    const longestTour = { hook: '', points: [{ label: '名物', text: '府中味噌が名物です。' }], cue: '府中味噌、どう食べます？' }
+    const longestBond = {
+      raiderName: longestUserName,
+      raiderIcon: 'https://static-cdn.jtvnw.net/longest.png',
+      raiderQuote: 'お'.repeat(MAX_RAIDER_QUOTE_LENGTH),
+      townQuote: 'か'.repeat(MAX_TOWN_QUOTE_LENGTH),
+      text: 'き'.repeat(MAX_BOND_LENGTH),
+      certificateReason: `${'く'.repeat(MAX_CERTIFICATE_REASON_LENGTH - 3)}につき`,
+    }
+    const { lines } = narrationTextsOf('冒頭の一文', tourLinesOf({ tour: longestTour, bond: longestBond }, '府中市'))
+    expect([...(lines.at(-1) ?? '')].length).toBeLessThanOrEqual(TOWN_TOUR_NARRATION_TEXT_MAX_LENGTH)
   })
 })

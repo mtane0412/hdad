@@ -437,6 +437,70 @@ describe('getChannel', () => {
   })
 })
 
+describe('getChannelDetail', () => {
+  it('チャンネルの、最後に配信したカテゴリとタイトルに加えて、タグを返す', async () => {
+    const { requests, fetchImpl } = fetchReturning(200, {
+      data: [{ broadcaster_id: '100', game_name: 'ELDEN RING', title: '初見DLC', tags: ['日本語', '初見'] }],
+    })
+
+    expect(await createClient(fetchImpl).getChannelDetail('test-access-token', '100')).toEqual({
+      categoryName: 'ELDEN RING',
+      title: '初見DLC',
+      tags: ['日本語', '初見'],
+    })
+    expect(requests[0]!.url).toBe('https://api.twitch.tv/helix/channels?broadcaster_id=100')
+  })
+
+  it('タグを付けていないチャンネルでは、空の並びを返す（Twitch が空の配列を返すため）', async () => {
+    const { fetchImpl } = fetchReturning(200, { data: [{ broadcaster_id: '100', game_name: '', title: '', tags: [] }] })
+
+    expect(await createClient(fetchImpl).getChannelDetail('test-access-token', '100')).toEqual({ categoryName: '', title: '', tags: [] })
+  })
+
+  it('タグが文字列の並びでなければエラーになる', async () => {
+    const { fetchImpl } = fetchReturning(200, { data: [{ broadcaster_id: '100', game_name: '', title: '', tags: null }] })
+
+    await expect(createClient(fetchImpl).getChannelDetail('test-access-token', '100')).rejects.toBeInstanceOf(TwitchApiError)
+  })
+})
+
+describe('getUserByLogin', () => {
+  it('ログイン名から、ユーザーID・表示名・自己紹介・アイコンを返す', async () => {
+    const { requests, fetchImpl } = fetchReturning(200, {
+      data: [
+        {
+          id: '200',
+          login: 'hoshino_yu',
+          display_name: '星野ゆう',
+          description: '週末に歌枠をしています',
+          profile_image_url: 'https://static-cdn.jtvnw.net/hoshino.png',
+        },
+      ],
+    })
+
+    expect(await createClient(fetchImpl).getUserByLogin('test-access-token', 'hoshino_yu')).toEqual({
+      id: '200',
+      login: 'hoshino_yu',
+      displayName: '星野ゆう',
+      description: '週末に歌枠をしています',
+      profileImageUrl: 'https://static-cdn.jtvnw.net/hoshino.png',
+    })
+    expect(requests[0]!.url).toBe('https://api.twitch.tv/helix/users?login=hoshino_yu')
+  })
+
+  it('そのログイン名のユーザーがいなければ null を返す（打ち間違いを、Twitch の失敗と分けて伝えるため）', async () => {
+    const { fetchImpl } = fetchReturning(200, { data: [] })
+
+    expect(await createClient(fetchImpl).getUserByLogin('test-access-token', 'no_such_user')).toBeNull()
+  })
+
+  it('必要な項目が欠けていればエラーになる', async () => {
+    const { fetchImpl } = fetchReturning(200, { data: [{ id: '200', login: 'hoshino_yu' }] })
+
+    await expect(createClient(fetchImpl).getUserByLogin('test-access-token', 'hoshino_yu')).rejects.toBeInstanceOf(TwitchApiError)
+  })
+})
+
 describe('getFollowerTotal', () => {
   it('配信者のフォロワー数を返す', async () => {
     const { requests, fetchImpl } = fetchReturning(200, { total: 1234, data: [], pagination: {} })

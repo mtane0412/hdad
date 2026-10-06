@@ -34,6 +34,7 @@ export const demoTownTourCall: TownTourCall = {
   visit: { occasion: 'raid', userName: '視聴者' },
   // 締めの認定証の見栄えが分かるよう、レイドの呼び出しと同じく名誉町民にする相手を置いておく
   honoraryCitizen: '視聴者',
+  raider: null,
   // プレビューは Worker につながないので、ナレーションの合成も頼まない
   narration: false,
 }
@@ -57,6 +58,8 @@ export const demoTownTourIntro: TownTourIntro = {
     license: 'CC BY-SA 4.0',
     caption: '国会議事堂',
   },
+  bond: null,
+  bondFailure: null,
 }
 
 /** 紹介が届くまでの待ち時間（ミリ秒）。Worker に作らせたときの実測（2.7〜5.1秒）に合わせる */

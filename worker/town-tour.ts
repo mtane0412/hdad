@@ -64,8 +64,8 @@ export const MAX_POINTS = 3
  */
 const MAX_TOKENS = 1_000
 
-/** 材料の系統ごとの、プロンプトでの見出し */
-const MATERIAL_HEADINGS: Readonly<Record<keyof TownMaterial, string>> = {
+/** 材料の系統ごとの、プロンプトでの見出し（共通点づくりの town-bond.ts も同じ見出しで渡す） */
+export const MATERIAL_HEADINGS: Readonly<Record<keyof TownMaterial, string>> = {
   lead: '記事の冒頭と概要',
   geography: '地理について書かれた節',
   origin: '名前の由来について書かれた節',
@@ -75,7 +75,7 @@ const MATERIAL_HEADINGS: Readonly<Record<keyof TownMaterial, string>> = {
 }
 
 /** 材料の系統の並び。プロンプトに出す順 */
-const MATERIAL_ORDER: readonly (keyof TownMaterial)[] = ['lead', 'geography', 'origin', 'history', 'specialty', 'topics']
+export const MATERIAL_ORDER: readonly (keyof TownMaterial)[] = ['lead', 'geography', 'origin', 'history', 'specialty', 'topics']
 
 /** 返ってきた紹介そのものに問題があったときの失敗（JSON でない・項目が欠けている・長すぎる・全部が空） */
 export class TownTourContentError extends Error {}
@@ -140,8 +140,8 @@ export const buildTownTourPrompt = ({ prefecture, county, name, material, image 
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
 
-/** 応答の全体をコードブロック（```json … ```）で囲むモデルがあるので、その囲みだけを外す */
-const CODE_FENCE_PATTERN = /^```(?:json)?\s*([\s\S]*?)\s*```$/
+/** 応答の全体をコードブロック（```json … ```）で囲むモデルがあるので、その囲みだけを外す（town-bond.ts も使う） */
+export const CODE_FENCE_PATTERN = /^```(?:json)?\s*([\s\S]*?)\s*```$/
 
 /**
  * LLM の応答を、大見出し・項目・振り・写真の説明の紹介として読む。

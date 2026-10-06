@@ -105,12 +105,18 @@ describe('parseLlmSettings', () => {
   })
 
   it('問題点は最初の1件で止めず、すべて集めてから拒否する', () => {
-    expect(issues({ usages: { aiChat: { provider: 'openai', models: { 'workers-ai': 1, openrouter: '' } } } })).toHaveLength(9)
+    expect(issues({ usages: { aiChat: { provider: 'openai', models: { 'workers-ai': 1, openrouter: '' } } } })).toHaveLength(10)
   })
 
-  it('使う箇所は7つで、それぞれ既定の提供元は Workers AI である', () => {
-    expect(LLM_USAGES).toEqual(['translation', 'aiChat', 'sideSuper', 'viewerSummary', 'streamSummary', 'streamTitle', 'townTour'])
-    for (const usage of LLM_USAGES) expect(DEFAULT_LLM_SETTINGS.usages[usage].provider).toBe('workers-ai')
+  it('使う箇所は8つで、市町村紹介の共通点のほかは既定の提供元が Workers AI である', () => {
+    expect(LLM_USAGES).toEqual(['translation', 'aiChat', 'sideSuper', 'viewerSummary', 'streamSummary', 'streamTitle', 'townTour', 'townBond'])
+    for (const usage of LLM_USAGES.filter((candidate) => candidate !== 'townBond')) expect(DEFAULT_LLM_SETTINGS.usages[usage].provider).toBe('workers-ai')
+  })
+
+  it('市町村紹介の共通点は、試作でいちばん良かった OpenRouter の google/gemini-3.8-flash を既定にする', () => {
+    // Workers AI の llama-3.3-70b は例文の中身を写して町の事実を作ったので、既定にしない（issue #275）
+    expect(DEFAULT_LLM_SETTINGS.usages.townBond.provider).toBe('openrouter')
+    expect(DEFAULT_LLM_SETTINGS.usages.townBond.models.openrouter).toBe('google/gemini-3.8-flash')
   })
 
   it('既定では、あらすじだけ大きいモデルを使う（ほかの3か所とモデル名が違う）', () => {

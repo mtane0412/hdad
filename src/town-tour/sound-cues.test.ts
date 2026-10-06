@@ -49,6 +49,7 @@ const callWith = (sound: TownTourPlaybackSound): TownTourCall => ({
   visit: { occasion: 'raid', userName: '山田花子' },
   // レイドなので、締めに認定証を出す（issue #253）
   honoraryCitizen: '山田花子',
+  raider: { login: 'yamada_hanako', viewers: 30 },
   narration: false,
 })
 
@@ -64,6 +65,8 @@ const tobetsuIntro: TownTourIntro = {
     cue: '当別米、食べたことありますか？',
   },
   image: null,
+  bond: null,
+  bondFailure: null,
 }
 
 /** 誰も正解しなかったクイズ */
@@ -112,6 +115,23 @@ describe('soundCuesOf', () => {
       { id: 'closing', at: cueStart, type: 'effect', url: 'https://example.com/チャンチャン.mp3', volume: 0.6 },
       { id: 'bgm-end', at: end - 600, type: 'bgmFadeOut', duration: 600 },
     ])
+  })
+
+  it('振りの代わりに共通点を出す紹介では、共通点の出だしで締めの音を鳴らし、項目ごとの音は鳴らさない（issue #275）', () => {
+    const bond = {
+      raiderName: '山田花子',
+      raiderIcon: 'https://static-cdn.jtvnw.net/yamada.png',
+      raiderQuote: '花子',
+      townQuote: '当別米',
+      text: '花子さんと当別米。どちらも実りを待つ存在なのです。',
+      certificateReason: '本町の当別米と同じく実りを待たれた功績につき',
+    }
+    const playback = readyPlayback(0)
+    const withBond: Playback = { ...playback, intro: { status: 'ready', intro: { ...tobetsuIntro, bond }, readyAt: STARTED_AT, narration: null } }
+    const cues = soundCuesOf(withBond)
+
+    expect(cues.find((cue) => cue.id === 'closing')?.at).toBe(MAP_START + ZOOM_END_MS + HOOK_MS + POINT_MS + PUNCHLINE_MS)
+    expect(cues.filter((cue) => cue.id.startsWith('item-'))).toHaveLength(3)
   })
 
   it('紹介が遅れて届いたら、項目ごとの音と締めは届いた時刻から数える（場面と同じ時刻にする）', () => {

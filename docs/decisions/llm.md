@@ -58,6 +58,8 @@ OpenRouter の候補は公開API（`https://openrouter.ai/api/v1/models`。鍵�
 
 **OpenRouter へは推論を切って送る**（`llm.ts` が `reasoning: { enabled: false }` を付ける）。このツールが送る上限は箇所ごとに100〜400トークンと小さく、推論モデルではそれを思考トークンが使い切って、`content` が `null` のまま `finish_reason` が `length` で返る（`openai/gpt-6-luna` をあらすじに選んだ配信で、5分おきの収集がすべてこれで失敗した）。Workers AI の候補には推論モデルを載せないので済んでいたが、OpenRouter の候補は遠隔の一覧をそのまま出すため選べてしまう。推論を持たないモデルでは無視される項目なので、モデルによる場合分けは持たない。
 
+ただし、推論を止められないモデルもある。市町村紹介の共通点（issue #275）の試作で最も良かった `google/gemini-3.8-flash` は、`reasoning: { enabled: false }` を送ると400（`Reasoning is mandatory for this endpoint`）で断る。そこで既定は切ったまま、呼び出し側が `LlmRequest.reasoning: 'low'` を指定したときだけ `reasoning: { effort: 'low' }` を送るようにした。モデル名で場合分けしないのは、OpenRouter の一覧が遠隔で日々変わり、止められるかどうかをこちらで持てないためである。指定する箇所は思考のぶんまで `maxTokens` を大きくとる（共通点は4,000）。400の応答を見て推論ありで送り直す案は、黙った作り直しになるので採らなかった。
+
 それでも上限で切れたときは、「応答の形が違う」と混ぜずに推論モデルの可能性を挙げた文面で投げる（`readResponse`。原因がモデルの選択にあることに気づけるようにするためである）。
 
 Twitch以外への通信が要る経路のために `Context.fetch` を追加してある（Twitchへの通信は `twitch` が持つ）。
