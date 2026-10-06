@@ -122,7 +122,7 @@ describe('TownTourSoundCard', () => {
     await userEvent.click(await screen.findByRole('button', { name: '市町村紹介を試しに流す' }))
 
     // ユーザー名を入れていなければ、空のまま送る（Worker は見本の名前で流す）
-    expect(api.playTownTourDemo).toHaveBeenCalledWith('')
+    expect(api.playTownTourDemo).toHaveBeenCalledWith('', null)
     expect(await screen.findByText(/北海道石狩郡当別町/)).toBeInTheDocument()
   })
 
@@ -133,7 +133,18 @@ describe('TownTourSoundCard', () => {
     await userEvent.type(await screen.findByLabelText('レイド元とみなすユーザー名（任意）'), 'hoshino_yu')
     await userEvent.click(screen.getByRole('button', { name: '市町村紹介を試しに流す' }))
 
-    expect(api.playTownTourDemo).toHaveBeenCalledWith('hoshino_yu')
+    expect(api.playTownTourDemo).toHaveBeenCalledWith('hoshino_yu', null)
+  })
+
+  test('レイドの人数も入れて試し再生を押すと、人数を数にして送る', async () => {
+    const api = fakeApi()
+    render(<TownTourSoundCard api={api} media={media} />)
+
+    await userEvent.type(await screen.findByLabelText('レイド元とみなすユーザー名（任意）'), 'hoshino_yu')
+    await userEvent.type(screen.getByLabelText('レイドの人数（任意）'), '7')
+    await userEvent.click(screen.getByRole('button', { name: '市町村紹介を試しに流す' }))
+
+    expect(api.playTownTourDemo).toHaveBeenCalledWith('hoshino_yu', 7)
   })
 
   test('未保存の変更があるあいだは試し再生を押せない（試し再生は保存済みの音で鳴り、選び直した音と食い違うため）', async () => {

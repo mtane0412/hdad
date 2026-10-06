@@ -72,10 +72,16 @@ describe('townTourCallOf', () => {
   })
 
   it('試し再生でユーザー名が入っていれば、その配信者をレイド元とみなして共通点を作らせ、名誉町民にする', () => {
-    const call = townTourCallOf(town, { occasion: 'demo', raider: { userName: '星野ゆう', userLogin: 'hoshino_yu' } }, sound, null, 'quiz-1', [], false)
+    const call = townTourCallOf(town, { occasion: 'demo', raider: { userName: '星野ゆう', userLogin: 'hoshino_yu', viewers: null } }, sound, null, 'quiz-1', [], false)
 
     expect(call.raider).toEqual({ login: 'hoshino_yu', viewers: null })
     expect(call.honoraryCitizen).toBe('星野ゆう')
+  })
+
+  it('試し再生でレイドの人数も入っていれば、連れてきた人数として共通点の材料に添える', () => {
+    const call = townTourCallOf(town, { occasion: 'demo', raider: { userName: '星野ゆう', userLogin: 'hoshino_yu', viewers: 7 } }, sound, null, 'quiz-1', [], false)
+
+    expect(call.raider).toEqual({ login: 'hoshino_yu', viewers: 7 })
   })
 
   it('ユーザー名を入れない試し再生では、共通点を作らせない', () => {

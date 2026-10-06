@@ -559,7 +559,7 @@ describe('POST /api/admin/town-tour/demo', () => {
   })
 
   /** ユーザー名を入れて試し再生を押す。Twitch には users を返させる */
-  const callWithUserName = async (env: Env, userName: string, users: readonly unknown[]): Promise<Response> => {
+  const callWithUserName = async (env: Env, userName: string, users: readonly unknown[], viewers?: unknown): Promise<Response> => {
     const session = await createSessionToken(env.TWITCH_BROADCASTER_ID, env.SESSION_SECRET, now)
     const twitchFetch: typeof fetch = async (input) => {
       const url = new URL(input instanceof Request ? input.url : String(input))
@@ -570,7 +570,7 @@ describe('POST /api/admin/town-tour/demo', () => {
     return invoke('/api/admin/town-tour/demo', env, twitchFetch, {
       method: 'POST',
       headers: { Cookie: `__Host-session=${session}`, Origin: site, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userName }),
+      body: JSON.stringify(viewers === undefined ? { userName } : { userName, viewers }),
     })
   }
 
@@ -598,6 +598,30 @@ describe('POST /api/admin/town-tour/demo', () => {
 
     expect(response.status).toBe(200)
     expect(alertChannel.pushedTownTours[0]).toMatchObject({ raider: { login: 'hoshino_yu', viewers: null }, honoraryCitizen: '星野ゆう' })
+  })
+
+  it('レイドの人数も入れて押したら、連れてきた人数として共通点の材料に添える', async () => {
+    const alertChannel = createFakeAlertChannel()
+
+    const response = await callWithUserName(createEnv('', alertChannel), 'hoshino_yu', [hoshinoUser], 7)
+
+    expect(response.status).toBe(200)
+    expect(alertChannel.pushedTownTours[0]?.raider).toEqual({ login: 'hoshino_yu', viewers: 7 })
+  })
+
+  it('レイドの人数が0以上の整数でなければ、押し出さずに 400 で返す', async () => {
+    const alertChannel = createFakeAlertChannel()
+
+    expect((await callWithUserName(createEnv('', alertChannel), 'hoshino_yu', [hoshinoUser], -1)).status).toBe(400)
+    expect((await callWithUserName(createEnv('', alertChannel), 'hoshino_yu', [hoshinoUser], 1.5)).status).toBe(400)
+    expect(alertChannel.pushedTownTours).toEqual([])
+  })
+
+  it('ユーザー名を入れずにレイドの人数だけを入れたら、押し出さずに 400 で返す（連れてきた相手がいないため）', async () => {
+    const alertChannel = createFakeAlertChannel()
+
+    expect((await callWithUserName(createEnv('', alertChannel), '', [], 7)).status).toBe(400)
+    expect(alertChannel.pushedTownTours).toEqual([])
   })
 
   it('入れたユーザー名の配信者が Twitch にいなければ、押し出さずに 404 で返す（打ち間違いに気づけるように）', async () => {
