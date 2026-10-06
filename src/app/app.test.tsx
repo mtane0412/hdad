@@ -241,6 +241,7 @@ const createRecognitionDeps = (recognitionSetting: string | null = null): Recogn
   locks: { request: () => Promise.reject(new Error('このテストでは鍵を取りません')) },
   storage: { getItem: () => recognitionSetting, setItem: () => {} },
   connectCaption: () => ({ send: () => true, close: () => {} }),
+  watchObsMute: () => ({ stop: () => {} }),
 })
 
 describe('ログインしていないとき', () => {

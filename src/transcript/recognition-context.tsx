@@ -16,6 +16,11 @@
  *   つながっていないあいだの分は貯めずに落とす
  * - 確定した文は、直前に確定した2件と一緒に Worker へ送って英訳してもらい、訳文を同じIDで字幕の中継先へ送る（issue #191）。
  *   原文は訳を待たずに送るので、訳せなかった1件のために原文の字幕は止まらない。訳せなかった理由は translationWarning に出す
+ * - 見張る OBS の入力の名前を決めてあれば、認識しているタブがその入力のミュートを見張り（obs-mute.ts）、ミュートしたら認識を
+ *   取りやめ、解除したら始め直す（issue #270）。電話などで OBS のマイクだけをミュートしても、Chrome の認識は別にマイクを
+ *   開いているので止まらず、通話の声が字幕と記録に出てしまうためである。名前はオン・オフと同じく localStorage に覚え、空なら見張らない
+ * - ミュートしているあいだに OBS を見張れなくなったら、解除が分かるまで認識を始めない（通話中に OBS が落ちても、通話の声を出さないため）。
+ *   ミュートしていないときに見張れなくなったら、認識は続けて理由を出す（OBS を起動する前にアプリを開いても文字起こしできるようにするため）
  *
  * 注意: Chrome の音声認識・マイク・鍵・localStorage・Worker への送信は deps で受け取る（テストで差し替えるため）。
  * ブラウザのものは browserRecognitionDeps が組み立てる。
@@ -24,11 +29,16 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { connectCaptionWriter, type CaptionSocketHandlers, type CaptionWriter } from '../caption/socket'
 import type { TranscriptApi } from './api'
 import { createTranscriptDelivery, type DeliveredLine } from './delivery'
+import { connectObs, obsSocketUrl } from '../screen/connection'
+import { watchObsMute, type ObsMuteState, type ObsMuteWatcher } from './obs-mute'
 import { createRecognizer, type MicrophoneHold, type RecognitionLike, type RecognizerState } from './recognizer'
 import type { TranslationApi } from './translation-api'
 
 /** オン・オフを覚えておく localStorage の名前 */
 const STORAGE_KEY = 'hdad:transcript-recognition'
+
+/** 見張る OBS の入力の名前を覚えておく localStorage の名前 */
+const OBS_MUTE_INPUT_KEY = 'hdad:transcript-obs-mute-input'
 
 /** 認識するタブを1つに決めるための、タブ間の鍵の名前 */
 const LOCK_NAME = 'hdad-transcript-recognition'
@@ -48,6 +58,16 @@ export interface RecognitionDeps {
   storage: Pick<Storage, 'getItem' | 'setItem'>
   /** 字幕の中継先へ送る側としてつなぐ */
   connectCaption(handlers: CaptionSocketHandlers): CaptionWriter
+  /** OBS の入力のミュートを見張る（obs-mute.ts の watchObsMute に、OBS への接続を結び付けたもの） */
+  watchObsMute(inputName: string, onChange: (state: ObsMuteState) => void): ObsMuteWatcher
+}
+
+/** OBS のミュートの見張りの様子 */
+export interface ObsMuteStatus {
+  /** 見張りの状態（つないでいる・見張っている・見張れていない） */
+  state: ObsMuteState
+  /** 認識をミュートとして止めているか。見張れなくなっても、解除が分かるまでは true のまま */
+  muted: boolean
 }
 
 /**
@@ -75,6 +95,11 @@ export interface RecognitionContextValue {
   captionWarning: string | null
   /** 直前の1件を訳せなかった理由（訳せているか、訳さない設定なら null） */
   translationWarning: string | null
+  /** 見張る OBS の入力の名前。空なら見張らない */
+  obsMuteInputName: string
+  setObsMuteInputName(inputName: string): void
+  /** OBS のミュートの見張りの様子（このタブが見張っていなければ null） */
+  obsMute: ObsMuteStatus | null
 }
 
 const INITIAL_RECOGNIZER_STATE: RecognizerState = { status: { kind: 'stopped' }, interim: '', restarts: 0, interruptedMs: 0 }
@@ -100,6 +125,8 @@ export const RecognitionProvider = ({ deps, children }: { deps: RecognitionDeps;
   const [lines, setLines] = useState<readonly DeliveredLine[]>([])
   const [captionWarning, setCaptionWarning] = useState<string | null>(null)
   const [translationWarning, setTranslationWarning] = useState<string | null>(null)
+  const [obsMuteInputName, setObsMuteInputNameState] = useState(() => deps.storage.getItem(OBS_MUTE_INPUT_KEY) ?? '')
+  const [obsMute, setObsMute] = useState<ObsMuteStatus | null>(null)
 
   const delivery = useMemo(
     () =>
@@ -120,10 +147,19 @@ export const RecognitionProvider = ({ deps, children }: { deps: RecognitionDeps;
     [deps.storage],
   )
 
-  // ほかのタブで切り替えたオン・オフに合わせる（storage の出来事は、書いたタブ以外にだけ届く）
+  const setObsMuteInputName = useCallback(
+    (next: string) => {
+      deps.storage.setItem(OBS_MUTE_INPUT_KEY, next)
+      setObsMuteInputNameState(next)
+    },
+    [deps.storage],
+  )
+
+  // ほかのタブで切り替えたオン・オフと見張る入力に合わせる（storage の出来事は、書いたタブ以外にだけ届く）
   useEffect(() => {
     const handleStorage = (event: StorageEvent): void => {
       if (event.key === STORAGE_KEY) setEnabledState(event.newValue === 'on')
+      if (event.key === OBS_MUTE_INPUT_KEY) setObsMuteInputNameState(event.newValue ?? '')
     }
     window.addEventListener('storage', handleStorage)
     return () => window.removeEventListener('storage', handleStorage)
@@ -142,6 +178,7 @@ export const RecognitionProvider = ({ deps, children }: { deps: RecognitionDeps;
     const controller = new AbortController()
     let running: ReturnType<typeof createRecognizer> | null = null
     let caption: CaptionWriter | null = null
+    let watcher: ObsMuteWatcher | null = null
     let releaseLock: (() => void) | null = null
     setPhase('waiting')
     setError(null)
@@ -189,7 +226,22 @@ export const RecognitionProvider = ({ deps, children }: { deps: RecognitionDeps;
             )
           },
         })
-        void running.start()
+        const started = running
+        void started.start()
+        if (obsMuteInputName !== '') {
+          /** 認識をミュートとして止めているか */
+          let muted = false
+          watcher = deps.watchObsMute(obsMuteInputName, (state) => {
+            // 見張れなくなったときはミュートかどうかが分からないので、最後に分かった状態のまま変えない
+            if (state.kind === 'watching' && state.muted !== muted) {
+              muted = state.muted
+              // 取りやめると話している途中の文が空になり、onChange が字幕からも消す
+              if (muted) started.abort()
+              else void started.start()
+            }
+            setObsMute({ state, muted })
+          })
+        }
         // オフにする・始め直す・枠が消えるまで鍵を持ち続ける
         await new Promise<void>((resolve) => {
           releaseLock = resolve
@@ -203,13 +255,15 @@ export const RecognitionProvider = ({ deps, children }: { deps: RecognitionDeps;
       })
     return () => {
       controller.abort()
+      watcher?.stop()
+      setObsMute(null)
       running?.stop()
       caption?.close()
       setCaptionWarning(null)
       setTranslationWarning(null)
       releaseLock?.()
     }
-  }, [enabled, attempt, deps, delivery])
+  }, [enabled, attempt, deps, delivery, obsMuteInputName])
 
   const value = useMemo<RecognitionContextValue>(
     () => ({
@@ -222,8 +276,11 @@ export const RecognitionProvider = ({ deps, children }: { deps: RecognitionDeps;
       lines,
       captionWarning,
       translationWarning,
+      obsMuteInputName,
+      setObsMuteInputName,
+      obsMute,
     }),
-    [enabled, setEnabled, phase, error, recognizer, lines, captionWarning, translationWarning],
+    [enabled, setEnabled, phase, error, recognizer, lines, captionWarning, translationWarning, obsMuteInputName, setObsMuteInputName, obsMute],
   )
   return <RecognitionContext.Provider value={value}>{children}</RecognitionContext.Provider>
 }
@@ -236,13 +293,26 @@ const findRecognitionConstructor = (): (new () => RecognitionLike) | null => {
   return found ? (found as new () => RecognitionLike) : null
 }
 
+/** OBS へつなぐのに要る設定（Gyazo の区画で保存した、obs-websocket のつなぎ先とパスワード） */
+export interface ObsSocketSettings {
+  host: string
+  port: number
+  password: string
+}
+
 /**
- * このブラウザの音声認識・マイク・鍵・localStorage と、Worker への送信・翻訳の依頼を組み立てる。
+ * このブラウザの音声認識・マイク・鍵・localStorage と、Worker への送信・翻訳の依頼・OBS のミュートの見張りを組み立てる。
+ *
+ * @param loadObsSettings OBS へつなぐ設定を読む。つなぎ直すたびに読み直すので、区画で直した設定は次のつなぎ直しから効く
  *
  * 注意: タブ間の鍵（navigator.locks）が無いブラウザ（https でないページなど）では、音声認識があっても
  * 使えないものとして扱う（createRecognition を null にする）。鍵なしで認識すると、2つのタブで二重に記録してしまうためである。
  */
-export const browserRecognitionDeps = (api: TranscriptApi, translation: TranslationApi): RecognitionDeps => {
+export const browserRecognitionDeps = (
+  api: TranscriptApi,
+  translation: TranslationApi,
+  loadObsSettings: () => Promise<ObsSocketSettings>,
+): RecognitionDeps => {
   const Recognition = findRecognitionConstructor()
   // DOM の型では navigator.locks は必ずあることになっているが、実際には無いブラウザがある
   const hasLocks: boolean = Reflect.get(navigator, 'locks') !== undefined
@@ -262,5 +332,14 @@ export const browserRecognitionDeps = (api: TranscriptApi, translation: Translat
     locks: navigator.locks,
     storage: window.localStorage,
     connectCaption: connectCaptionWriter,
+    watchObsMute: (inputName, onChange) =>
+      watchObsMute({
+        inputName,
+        onChange,
+        async connect({ onEvent, onClose }) {
+          const { host, port, password } = await loadObsSettings()
+          return connectObs({ url: obsSocketUrl(host, port), password, createSocket: (url) => new WebSocket(url), onEvent, onClose })
+        },
+      }),
   }
 }

@@ -5,13 +5,14 @@
  * Chrome の音声認識・マイク・タブ間の鍵（Web Locks）・Worker への送信は代役に差し替える。
  * 確かめるのは、オン・オフが覚えられること、鍵を取れたタブだけが認識すること、確定した発話が Worker へ送られること、
  * 話している途中の文と確定した文が字幕の中継先へ送られること（issue #190）、確定した文を直前の2件と一緒に訳してもらい、
- * 訳文を字幕の中継先へ送ること（issue #191）。
+ * 訳文を字幕の中継先へ送ること（issue #191）。OBS でマイクをミュートしたら認識を取りやめ、解除したら始め直すこと（issue #270）。
  */
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CaptionSocketHandlers } from '../caption/socket'
 import type { CaptionMessage } from '../caption/message'
 import type { TranscriptApi } from './api'
+import type { ObsMuteState } from './obs-mute'
 import type { TranslationApi } from './translation-api'
 import { browserRecognitionDeps, RecognitionProvider, useRecognition, type RecognitionDeps } from './recognition-context'
 import type { RecognitionLike, RecognitionResultEvent } from './recognizer'
@@ -27,6 +28,7 @@ class FakeRecognition implements RecognitionLike {
   onend: (() => void) | null = null
   starts = 0
   stops = 0
+  aborts = 0
 
   start(): void {
     this.starts += 1
@@ -34,6 +36,10 @@ class FakeRecognition implements RecognitionLike {
 
   stop(): void {
     this.stops += 1
+  }
+
+  abort(): void {
+    this.aborts += 1
   }
 }
 
@@ -80,6 +86,9 @@ const setup = ({
   const microphone = { released: 0 }
   /** 字幕の中継先への接続の代役。送ったものと、閉じた回数と、つなぐときに渡された受け口を残す */
   const caption = { connects: 0, closes: 0, sent: [] as CaptionMessage[], handlers: null as CaptionSocketHandlers | null }
+  /** OBS のミュートの見張りの代役。見張った入力の名前と、状態を知らせる口と、やめた回数を残す */
+  const notWatchedYet: (state: ObsMuteState) => void = () => {}
+  const obsMute = { inputNames: [] as string[], report: notWatchedYet, stops: 0 }
   const deps: RecognitionDeps = {
     api,
     translation,
@@ -104,16 +113,26 @@ const setup = ({
         },
       }
     },
+    watchObsMute: (inputName, onChange) => {
+      obsMute.inputNames.push(inputName)
+      obsMute.report = onChange
+      return {
+        stop: () => {
+          obsMute.stops += 1
+        },
+      }
+    },
   }
-  return { deps, recognition, sent, requested, microphone, caption, translationRequests }
+  return { deps, recognition, sent, requested, microphone, caption, translationRequests, obsMute }
 }
 
 /** 文脈の中身を画面に出し、オン・オフを切り替えるボタンを置く */
 const Probe = () => {
-  const { enabled, setEnabled, phase, recognizer, lines, captionWarning, translationWarning } = useRecognition()
+  const { enabled, setEnabled, phase, recognizer, lines, captionWarning, translationWarning, obsMute, setObsMuteInputName } = useRecognition()
   return (
     <div>
       <p>状態: {phase}</p>
+      <p>OBSのミュート: {obsMute === null ? '見張っていない' : `${obsMute.state.kind}・${obsMute.muted ? 'ミュート中' : '音あり'}`}</p>
       <p>字幕: {captionWarning ?? 'つながっている'}</p>
       <p>翻訳: {translationWarning ?? '問題なし'}</p>
       <p>認識: {recognizer.status.kind}</p>
@@ -127,11 +146,15 @@ const Probe = () => {
       <button type="button" onClick={() => setEnabled(!enabled)}>
         {enabled ? '止める' : '始める'}
       </button>
+      <button type="button" onClick={() => setObsMuteInputName('マイク')}>
+        OBSのマイクを見張る
+      </button>
     </div>
   )
 }
 
 const STORAGE_KEY = 'hdad:transcript-recognition'
+const OBS_MUTE_INPUT_KEY = 'hdad:transcript-obs-mute-input'
 
 beforeEach(() => {
   window.localStorage.clear()
@@ -447,6 +470,121 @@ describe('RecognitionProvider', () => {
     expect(screen.getByText('状態: unsupported')).toBeTruthy()
     expect(requested).toEqual([])
   })
+
+  describe('OBS のマイクのミュート（issue #270）', () => {
+    /** 見張る入力を決めてからオンにし、ミュートしていない状態まで進める */
+    const startWatching = async (setupResult: ReturnType<typeof setup>) => {
+      window.localStorage.setItem(OBS_MUTE_INPUT_KEY, 'マイク')
+      render(
+        <RecognitionProvider deps={setupResult.deps}>
+          <Probe />
+        </RecognitionProvider>,
+      )
+      await act(async () => screen.getByRole('button', { name: '始める' }).click())
+      await act(async () => setupResult.obsMute.report({ kind: 'watching', muted: false }))
+    }
+
+    it('見張る入力の名前が空なら、OBS を見張らない', async () => {
+      const { deps, obsMute } = setup()
+      render(
+        <RecognitionProvider deps={deps}>
+          <Probe />
+        </RecognitionProvider>,
+      )
+
+      await act(async () => screen.getByRole('button', { name: '始める' }).click())
+
+      expect(obsMute.inputNames).toEqual([])
+      expect(screen.getByText('OBSのミュート: 見張っていない')).toBeTruthy()
+    })
+
+    it('見張る入力の名前を覚え、認識しているタブがその入力を見張る', async () => {
+      const { deps, obsMute } = setup()
+      render(
+        <RecognitionProvider deps={deps}>
+          <Probe />
+        </RecognitionProvider>,
+      )
+      await act(async () => screen.getByRole('button', { name: '始める' }).click())
+
+      await act(async () => screen.getByRole('button', { name: 'OBSのマイクを見張る' }).click())
+
+      expect(window.localStorage.getItem(OBS_MUTE_INPUT_KEY)).toBe('マイク')
+      expect(obsMute.inputNames).toEqual(['マイク'])
+    })
+
+    it('別のタブが認識しているあいだは、OBS を見張らない', async () => {
+      window.localStorage.setItem(OBS_MUTE_INPUT_KEY, 'マイク')
+      const { deps, obsMute } = setup({ available: false })
+      render(
+        <RecognitionProvider deps={deps}>
+          <Probe />
+        </RecognitionProvider>,
+      )
+
+      await act(async () => screen.getByRole('button', { name: '始める' }).click())
+
+      expect(obsMute.inputNames).toEqual([])
+    })
+
+    it('ミュートしたら話している途中の文を捨てて認識を取りやめ、字幕からも消す', async () => {
+      const result = setup()
+      await startWatching(result)
+      await act(async () => {
+        result.recognition.onstart?.()
+        result.recognition.onresult?.({ resultIndex: 0, results: [{ isFinal: false, 0: { transcript: 'もしもし' } }] })
+      })
+
+      await act(async () => result.obsMute.report({ kind: 'watching', muted: true }))
+
+      expect(result.recognition.aborts).toBe(1)
+      expect(result.caption.sent.at(-1)).toEqual({ type: 'interim', text: '' })
+      expect(screen.getByText('OBSのミュート: watching・ミュート中')).toBeTruthy()
+    })
+
+    it('ミュートを解除したら、認識を始め直す', async () => {
+      const result = setup()
+      await startWatching(result)
+      await act(async () => result.obsMute.report({ kind: 'watching', muted: true }))
+
+      await act(async () => result.obsMute.report({ kind: 'watching', muted: false }))
+
+      expect(result.recognition.starts).toBe(2)
+      expect(screen.getByText('OBSのミュート: watching・音あり')).toBeTruthy()
+    })
+
+    it('ミュートしているあいだに OBS を見張れなくなっても、解除が分かるまで認識を始めない', async () => {
+      // 通話中に OBS が落ちても、通話の声を字幕に出さないため
+      const result = setup()
+      await startWatching(result)
+      await act(async () => result.obsMute.report({ kind: 'watching', muted: true }))
+
+      await act(async () => result.obsMute.report({ kind: 'failed', message: 'ws://localhost:4455 との接続が切れました' }))
+
+      expect(result.recognition.starts).toBe(1)
+      expect(screen.getByText('OBSのミュート: failed・ミュート中')).toBeTruthy()
+    })
+
+    it('ミュートしていないときに OBS を見張れなくなっても、認識は続ける', async () => {
+      const result = setup()
+      await startWatching(result)
+
+      await act(async () => result.obsMute.report({ kind: 'failed', message: 'ws://localhost:4455 につながりませんでした' }))
+
+      expect(result.recognition.aborts).toBe(0)
+      expect(screen.getByText('OBSのミュート: failed・音あり')).toBeTruthy()
+    })
+
+    it('オフにすると見張りをやめる', async () => {
+      const result = setup()
+      await startWatching(result)
+
+      await act(async () => screen.getByRole('button', { name: '止める' }).click())
+
+      expect(result.obsMute.stops).toBe(1)
+      expect(screen.getByText('OBSのミュート: 見張っていない')).toBeTruthy()
+    })
+  })
 })
 
 describe('browserRecognitionDeps', () => {
@@ -456,12 +594,13 @@ describe('browserRecognitionDeps', () => {
 
   const api: TranscriptApi = { send: () => Promise.resolve(true) }
   const { translation } = createTranslation(() => Promise.resolve(null))
+  const loadObsSettings = () => Promise.resolve({ host: 'localhost', port: 4455, password: '' })
 
   it('音声認識があり、タブ間の鍵も使えるブラウザでは、認識を作れる', () => {
     vi.stubGlobal('webkitSpeechRecognition', FakeRecognition)
     vi.stubGlobal('navigator', { ...navigator, locks: createLocks(true).locks })
 
-    expect(browserRecognitionDeps(api, translation).createRecognition).not.toBeNull()
+    expect(browserRecognitionDeps(api, translation, loadObsSettings).createRecognition).not.toBeNull()
   })
 
   it('音声認識があっても、タブ間の鍵（Web Locks）が無ければ使えないものとして扱う', () => {
@@ -469,6 +608,6 @@ describe('browserRecognitionDeps', () => {
     vi.stubGlobal('webkitSpeechRecognition', FakeRecognition)
     vi.stubGlobal('navigator', { ...navigator, locks: undefined })
 
-    expect(browserRecognitionDeps(api, translation).createRecognition).toBeNull()
+    expect(browserRecognitionDeps(api, translation, loadObsSettings).createRecognition).toBeNull()
   })
 })

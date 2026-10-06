@@ -42,6 +42,8 @@ export interface RecognitionLike {
   onend: (() => void) | null
   start(): void
   stop(): void
+  /** 話している途中の文を確定させずに捨てて止める */
+  abort(): void
 }
 
 /** 開いたままにしているマイク */
@@ -80,6 +82,13 @@ export interface RecognizerOptions {
 export interface Recognizer {
   start(): Promise<void>
   stop(): void
+  /**
+   * 話している途中の文を確定させずに捨て、すぐ止める（OBS でマイクをミュートしたとき。issue #270）。
+   *
+   * stop() は Chrome が話している途中の文を確定させてから終わるので、ミュートの直前の言葉が字幕と記録に残ってしまう。
+   * 取りやめたあとに start() を呼べば、マイクを開き直して始める。
+   */
+  abort(): void
 }
 
 const LANGUAGE = 'ja-JP'
@@ -121,22 +130,28 @@ export const createRecognizer = (options: RecognizerOptions): Recognizer => {
   }
 
   /**
-   * 止めて理由を出す。Chrome の認識がまだ動いていれば止める。
+   * Chrome の認識から出来事の受け口を外してから終わらせ、マイクを閉じる。
    *
-   * 注意: 止める前に出来事の受け口を外す。止めると Chrome が遅れて onend（と残っていた onresult）を知らせてくるが、
-   * そのまま受けると handleEnd が「止めた」状態で止まった理由を上書きし、画面から理由が消えてしまうためである。
+   * 注意: 終わらせる前に受け口を外す。終わらせると Chrome が遅れて onend（と残っていた onresult）を知らせてくるが、
+   * そのまま受けると handleEnd が止まった理由を上書きし、取りやめた後の結果を渡してしまうためである。
    */
-  const fail = (message: string): void => {
+  const detach = (end: 'stop' | 'abort'): void => {
     running = false
     if (recognition) {
       recognition.onstart = null
       recognition.onresult = null
       recognition.onerror = null
       recognition.onend = null
-      recognition.stop()
+      if (end === 'stop') recognition.stop()
+      else recognition.abort()
       recognition = null
     }
     releaseMicrophone()
+  }
+
+  /** 止めて理由を出す。Chrome の認識がまだ動いていれば止める */
+  const fail = (message: string): void => {
+    detach('stop')
     update({ status: { kind: 'failed', message }, interim: '' })
   }
 
@@ -233,6 +248,11 @@ export const createRecognizer = (options: RecognizerOptions): Recognizer => {
       running = false
       // 止めると Chrome が onend を呼ぶので、そこで止まった状態にしてマイクを閉じる
       recognition?.stop()
+    },
+    abort() {
+      if (!running) return
+      detach('abort')
+      update({ status: { kind: 'stopped' }, interim: '' })
     },
   }
 }

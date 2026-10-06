@@ -44,7 +44,7 @@ const llmApi = createLlmApi(callWorker)
 const overlayApi = createOverlayLayoutAdminApi(callWorker)
 const bgmApi = createBgmApi(callWorker)
 const pomodoroApi = createPomodoroApi(callWorker)
-const recognitionDeps = browserRecognitionDeps(createAppTranscriptApi(callWorker), createTranslationApi(callWorker))
+const recognitionDeps = browserRecognitionDeps(createAppTranscriptApi(callWorker), createTranslationApi(callWorker), () => screenApi.load())
 
 createRoot(root).render(
   <StrictMode>

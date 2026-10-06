@@ -2,7 +2,7 @@
  * obs-websocket（v5）のやりとりの読み書き
  *
  * OBS は動かしているPCの上に WebSocket サーバーを立てる（既定のポートは 4455。ツール > WebSocket サーバー設定）。
- * ここは「届いた1件をどう読むか」「認証の応答をどう作るか」「撮れた画像をどう送れる形に直すか」だけを受け持ち、
+ * ここは「届いた1件（要求への応答とイベント）をどう読むか」「認証の応答をどう作るか」「撮れた画像をどう送れる形に直すか」だけを受け持ち、
  * 接続とつなぎ直しは connection.ts に任せる（src/transcript/ と同じ分け方）。
  *
  * 認証は obs-websocket が決めたチャレンジ応答である。パスワードとソルトを SHA256 にかけて Base64 にしたものを
@@ -20,6 +20,7 @@ const OP = {
   hello: 0,
   identify: 1,
   identified: 2,
+  event: 5,
   request: 6,
   requestResponse: 7,
 } as const
@@ -30,11 +31,13 @@ export interface ObsAuthenticationChallenge {
   readonly salt: string
 }
 
-/** 読み取った1件。関心のないもの（イベントなど）は 'other' にまとめる */
+/** 読み取った1件。関心のないものは 'other' にまとめる */
 export type ObsMessage =
   | { readonly type: 'hello'; readonly authentication: ObsAuthenticationChallenge | null }
   | { readonly type: 'identified' }
   | { readonly type: 'response'; readonly requestId: string; readonly data: Record<string, unknown> | null; readonly error: string | null }
+  /** OBS の側で起きた出来事（InputMuteStateChanged など）。data は eventData で、無ければ空 */
+  | { readonly type: 'event'; readonly eventType: string; readonly data: Record<string, unknown> }
   | { readonly type: 'other' }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
@@ -92,6 +95,12 @@ export const readObsMessage = (data: string): ObsMessage => {
     const requestType = typeof payload.requestType === 'string' ? payload.requestType : '要求'
     const comment = typeof status.comment === 'string' ? status.comment : '（理由は添えられていません）'
     return { type: 'response', requestId, data: null, error: `${requestType} が失敗しました（コード ${String(status.code)}）: ${comment}` }
+  }
+
+  if (parsed.op === OP.event) {
+    const eventType = payload.eventType
+    if (typeof eventType !== 'string') throw new Error('OBS のイベントに eventType がありません')
+    return { type: 'event', eventType, data: isRecord(payload.eventData) ? payload.eventData : {} }
   }
 
   return { type: 'other' }

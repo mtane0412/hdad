@@ -55,6 +55,7 @@ const recognitionDeps: RecognitionDeps = {
   locks: { request: () => Promise.reject(new Error('このテストでは鍵を取りません')) },
   storage: { getItem: () => null, setItem: () => {} },
   connectCaption: () => ({ send: () => true, close: () => {} }),
+  watchObsMute: () => ({ stop: () => {} }),
 }
 
 const renderPage = (key: string | null = overlayKey) =>

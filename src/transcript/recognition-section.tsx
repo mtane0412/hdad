@@ -7,14 +7,19 @@
  * 認識そのものは枠が持つので、このページを離れても止まらない。止まってしまったときの理由と始め直しのボタンもここに出す
  * （マイクの許可を求め直すには、ボタンを押すことが要る場合がある）。
  *
+ * ミュートを見張る OBS の入力の名前もここで決める（issue #270）。名前はこのブラウザに覚え、空なら見張らない。
+ * OBS のつなぎ先とパスワードは、Gyazo の区画で保存したものを使う。
+ *
  * 注意: 値を受け取って描くだけの RecognitionSectionView を分けているのは、テストで文脈を組み立てずに確かめるためである。
  */
 import { RotateCw } from 'lucide-react'
-import { useId } from 'react'
+import { useId, useState } from 'react'
+import { useUnsavedChanges } from '@/app/router'
 import { HelpButton } from '@/components/help-button'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import type { DeliveredLine, DeliveryState } from './delivery'
@@ -45,6 +50,11 @@ export const RecognitionSection = () => <RecognitionSectionView value={useRecogn
 
 export const RecognitionSectionView = ({ value }: { value: RecognitionContextValue }) => {
   const switchId = useId()
+  const inputNameId = useId()
+  const [inputNameDraft, setInputNameDraft] = useState(value.obsMuteInputName)
+  const inputNameChanged = inputNameDraft.trim() !== value.obsMuteInputName
+  useUnsavedChanges(inputNameChanged)
+  const obsMuteFailure = value.obsMute?.state.kind === 'failed' ? value.obsMute.state.message : null
   const now = useStallClock(value.recognizer)
   const { label, tone } = describeRecognition(value, now)
   const failure = failureMessage(value)
@@ -61,6 +71,10 @@ export const RecognitionSectionView = ({ value }: { value: RecognitionContextVal
             <p>認識するのは HDAD のページを開いている Chrome のタブです。どのページに移っても続きますが、タブを閉じると止まります。配信中は HDAD を別のウィンドウで開いたままにしてください。</p>
             <p>HDAD を2つ以上のタブで開いていても、認識するのは1つのタブだけです。そのタブを閉じると、ほかのタブが代わりに始めます。</p>
             <p>裏に回したタブが止められないよう、Chrome の設定の「パフォーマンス」で、このサイトを「常にアクティブにするサイト」に追加してください。</p>
+            <p>
+              「ミュートを見張るOBSの入力」に OBS の音声ミキサーに出ているマイクの名前を入れると、OBS でそのマイクをミュートしているあいだは文字起こしを止めます（電話に出るときなどに、字幕と記録に声を出さないため）。OBS のつなぎ先とパスワードは Gyazo の区画の設定を使います。
+            </p>
+            <p>OBS とつながらないあいだは、文字起こしを続けたまま警告を出します。ミュートしたまま OBS とつながらなくなったときは、ミュートの解除が分かるまで止めたままにします。</p>
           </HelpButton>
         </CardAction>
       </CardHeader>
@@ -91,12 +105,29 @@ export const RecognitionSectionView = ({ value }: { value: RecognitionContextVal
           </Alert>
         )}
 
+        <form
+          className="flex items-end gap-2"
+          onSubmit={(event) => {
+            event.preventDefault()
+            value.setObsMuteInputName(inputNameDraft.trim())
+          }}
+        >
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <Label htmlFor={inputNameId}>ミュートを見張るOBSの入力</Label>
+            <Input id={inputNameId} value={inputNameDraft} placeholder="空なら見張りません" onChange={(event) => setInputNameDraft(event.target.value)} />
+          </div>
+          <Button type="submit" variant="outline" disabled={!inputNameChanged}>
+            保存
+          </Button>
+        </form>
+
         {value.phase === 'running' && (
           <div className="space-y-1 text-sm">
             <p className="text-muted-foreground">{`つなぎ直し ${restarts}回・途切れた時間 ${formatDuration(interruptedMs)}`}</p>
             {interim !== '' && <p className="text-muted-foreground italic">{interim}</p>}
             {value.captionWarning && <p className="text-destructive">{value.captionWarning}</p>}
             {value.translationWarning && <p className="text-destructive">{value.translationWarning}</p>}
+            {obsMuteFailure && <p className="text-destructive">{`OBSのミュートを見張れていません: ${obsMuteFailure}`}</p>}
           </div>
         )}
 
