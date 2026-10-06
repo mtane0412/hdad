@@ -68,8 +68,10 @@ export const soundCuesOf = (playback: Playback): SoundCue[] => {
   if (intro.status === 'loading') return opening
 
   const { landing, openingNarration, segments, end } = tourSpanOf(playback, intro)
-  const items = segments.filter(({ line }) => line.kind !== 'cue')
-  const cue = segments.find(({ line }) => line.kind === 'cue')
+  // 締めの音は、振りか、振りの代わりに出す共通点（issue #275）の出だしで鳴らす
+  const isClosing = ({ line }: (typeof segments)[number]): boolean => line.kind === 'cue' || line.kind === 'bond'
+  const items = segments.filter((segment) => !isClosing(segment))
+  const cue = segments.find(isClosing)
 
   /** 読み上げの1行と、BGM を鳴らしていれば読んでいるあいだ下げて戻す2行を作る。読み上げない場面は作らない */
   const narration = (id: string, at: number, clip: NarrationClip | null): SoundCue[] => {

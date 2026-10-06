@@ -14,7 +14,7 @@
  * 注意: 紹介を作れなかった（502）ときは Worker の理由ごと投げる。黙って何も流さないと、配信者は壊れていることに気付けない。
  */
 import { createCaller, toApiError } from '../core/api'
-import { readTownTourIntro, type TownTourIntro, type TownTourVisit } from './tour'
+import { readTownTourIntro, type TownTourIntro, type TownTourRaider, type TownTourVisit } from './tour'
 
 const PATH = '/api/overlay/town-tour'
 const QUIZ_PATH = '/api/overlay/town-tour/quiz'
@@ -32,11 +32,12 @@ export const JAPAN_MAP_PATH = '/town-tour/japan.topo.json'
 
 export interface TownTourApi {
   /**
-   * コードの市町村の紹介を作らせる。
+   * コードの市町村の紹介を作らせる。レイド元があれば、その配信者との共通点も一緒に作らせる（issue #275）。
    *
-   * @throws ApiError 紹介を作れなかった（502）・一覧に無いコード（404）など。Worker の理由を持つ
+   * @param raider 呼び出しの raider（共通点を作らせないなら null）
+   * @throws ApiError 紹介を作れなかった（502）・一覧に無いコード（404）など。Worker の理由を持つ。共通点だけの失敗では投げず、紹介の bondFailure に入る
    */
-  introduce(code: string): Promise<TownTourIntro>
+  introduce(code: string, raider: TownTourRaider | null): Promise<TownTourIntro>
   /**
    * 冒頭のクイズの出題を開かせる。正解の都道府県は Worker がコードから引く。
    *
@@ -69,7 +70,12 @@ export const createTownTourApi = (fetchImpl: typeof fetch, key: string): TownTou
   const call = createCaller(fetchImpl)
 
   return {
-    introduce: async (code) => readTownTourIntro(await call(`${PATH}?key=${encodeURIComponent(key)}&code=${encodeURIComponent(code)}`)),
+    introduce: async (code, raider) => {
+      const query = new URLSearchParams({ key, code })
+      if (raider !== null) query.set('raider', raider.login)
+      if (raider !== null && raider.viewers !== null) query.set('viewers', String(raider.viewers))
+      return readTownTourIntro(await call(`${PATH}?${query.toString()}`))
+    },
     openQuiz: async (quizId, code) => {
       await call(`${QUIZ_PATH}?key=${encodeURIComponent(key)}`, {
         method: 'POST',

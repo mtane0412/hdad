@@ -39,8 +39,9 @@ export const LLM_PROVIDERS = ['workers-ai', 'openrouter'] as const
  * translation は、字幕の翻訳の提供元に LLM を選んだときだけ呼ばれる（worker/translation.ts）。
  * streamSummary は、あらすじ（worker/stream-summary.ts）と配信の章（worker/stream-chapter.ts）の両方が指名する。
  * streamTitle は、配信タイトルの候補づくり（worker/stream-title.ts。試験運用）を入れたときだけ呼ばれる。
+ * townBond は、市町村紹介でレイド元と市町村の共通点を作るとき（worker/town-bond.ts）だけ呼ばれる。
  */
-export const LLM_USAGES = ['translation', 'aiChat', 'sideSuper', 'viewerSummary', 'streamSummary', 'streamTitle', 'townTour'] as const
+export const LLM_USAGES = ['translation', 'aiChat', 'sideSuper', 'viewerSummary', 'streamSummary', 'streamTitle', 'townTour', 'townBond'] as const
 
 export type LlmProvider = (typeof LLM_PROVIDERS)[number]
 export type LlmUsage = (typeof LLM_USAGES)[number]
@@ -78,7 +79,7 @@ const LARGE_MODELS: LlmModels = { 'workers-ai': '@cf/meta/llama-3.3-70b-instruct
 /**
  * 未保存のときに使う設定。
  *
- * 提供元はどこも Workers AI（無料枠だけで動くため）。モデル名は、これまで使っていた値をそのまま既定にする。
+ * 提供元は共通点（townBond）のほかはどこも Workers AI（無料枠だけで動くため）。モデル名は、これまで使っていた値をそのまま既定にする。
  * OpenRouter 側の既定も同じ系統のモデルにして、提供元を切り替えただけで文体が変わらないようにする。
  */
 export const DEFAULT_LLM_SETTINGS: LlmSettings = {
@@ -92,6 +93,10 @@ export const DEFAULT_LLM_SETTINGS: LlmSettings = {
     streamTitle: { provider: 'workers-ai', models: LARGE_MODELS },
     // 市町村紹介（worker/town-tour.ts）はレイドのときだけ呼ぶので回数が少なく、材料にない内容を書かせないことを優先して大きいモデルにする
     townTour: { provider: 'workers-ai', models: LARGE_MODELS },
+    // 市町村紹介の共通点（worker/town-bond.ts）は、試作で OpenRouter の google/gemini-3.8-flash がいちばん良かった（約2.5秒・約0.3円）。
+    // Workers AI の llama-3.3-70b は例文の中身を写して町の事実を作ったので、ここだけ既定の提供元を OpenRouter にする（issue #275）。
+    // OpenRouter の鍵が無い配信者には共通点を出さない（worker/town-tour-routes.ts）
+    townBond: { provider: 'openrouter', models: { 'workers-ai': LARGE_MODELS['workers-ai'], openrouter: 'google/gemini-3.8-flash' } },
   },
 }
 

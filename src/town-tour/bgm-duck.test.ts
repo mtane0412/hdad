@@ -45,6 +45,7 @@ const callWith = (sound: TownTourPlaybackSound): TownTourCall => ({
   visit: { occasion: 'raid', userName: '山田花子' },
   // レイドなので、締めに認定証を出す（issue #253）
   honoraryCitizen: '山田花子',
+  raider: { login: 'yamada_hanako', viewers: 30 },
   narration: false,
 })
 
@@ -60,6 +61,8 @@ const tobetsuIntro: TownTourIntro = {
     cue: '当別米、食べたことありますか？',
   },
   image: null,
+  bond: null,
+  bondFailure: null,
 }
 
 /** 誰も正解しなかったクイズ */

@@ -17,8 +17,12 @@
  * 流しきったら記録するきっかけと相手（試し再生は記録しないので null）も一緒に押し出す。記録するのは流しきった合成ページである
  * （POST /api/overlay/town-tour/visit）。
  *
- * 締めの名誉町民の認定証（issue #253）のために、名誉町民にする相手も一緒に押し出す。認定証はレイドだけで出し、
- * 試し再生では見た目を確かめられるよう見本の名前にする。文面は合成ページが組み立てる（src/town-tour/certificate.ts）。
+ * 締めの名誉町民の認定証（issue #253）のために、名誉町民にする相手も一緒に押し出す。レイドはレイド元、キーワードは配信者本人、
+ * 試し再生は入力したユーザー名の配信者（入力が無ければ見た目を確かめる見本の名前）にする。文面は合成ページが組み立てる（src/town-tour/certificate.ts）。
+ *
+ * 締めの共通点（issue #275）のために、レイド元とみなす配信者のログイン名と連れてきた人数も一緒に押し出す。Twitch の公開情報は
+ * ここでは引かず、合成ページが紹介を頼んだときに Worker が引く（Webhook の中で Twitch を呼ばない約束。docs/decisions/town-tour.md）。
+ * キーワードは配信者本人の動作確認用なので、本人をレイド元とみなし、制覇の記録には数えない。
  *
  * ナレーション（issue #255）のために、紹介を読み上げるかどうかも一緒に押し出す。読み上げるなら、合成ページは紹介が届いてから
  * 読み上げる文の合成を頼む（POST /api/overlay/town-tour/narration）。話者と速度は押し出さず、Worker が合成のときに設定から取る。
@@ -64,10 +68,23 @@ export interface TownTourCall extends Town {
   visited: readonly string[]
   /** 流しきったら記録するきっかけと、冒頭で名前を出した相手。試し再生は記録しないので null */
   visit: { occasion: TownTourVisitOccasion; userName: string } | null
-  /** 締めの認定証で名誉町民にする相手。認定証を出さない（キーワード）なら null */
+  /** 締めの認定証で名誉町民にする相手。認定証を出さないなら null */
   honoraryCitizen: string | null
+  /**
+   * 共通点（worker/town-bond.ts）を作らせるレイド元の配信者のログイン名と、連れてきた人数（レイドでなければ null）。
+   * 共通点を作らせない（ユーザー名を入れない試し再生）なら null。合成ページは紹介を頼むときにこれを添える（issue #275）
+   */
+  raider: TownTourRaider | null
   /** 紹介をナレーションで読み上げるか（worker/town-tour-narration.ts の enabled） */
   narration: boolean
+}
+
+/** 共通点を作らせるレイド元の配信者 */
+export interface TownTourRaider {
+  /** ログイン名（Twitch の公開情報を引くのに使う） */
+  login: string
+  /** 連れてきた人数。レイドでなければ null */
+  viewers: number | null
 }
 
 /** 試し再生の認定証で、名誉町民にする見本の名前 */
@@ -85,8 +102,10 @@ export interface TownTourAnswerMessage {
   userName: string
 }
 
-/** 冒頭の一文を決めるきっかけ。demo は管理画面の試し再生で、相手を持たない */
-export type TownTourCaller = TownTourTrigger | { occasion: 'demo' }
+/**
+ * 冒頭の一文を決めるきっかけ。demo は管理画面の試し再生で、ユーザー名が入っていればその配信者をレイド元とみなす（issue #275）
+ */
+export type TownTourCaller = TownTourTrigger | { occasion: 'demo'; raider: { userName: string; userLogin: string } | null }
 
 /**
  * 一覧から、紹介済みの市町村を除いて1つ引く。すべて紹介済み（全国制覇の後）なら、一覧の全体から引く。
@@ -102,15 +121,24 @@ export const pickTown = (random: () => number, visited: ReadonlySet<string>): To
   return town
 }
 
-/** 締めの認定証で名誉町民にする相手。レイドはレイド元、試し再生は見本の名前で、キーワードでは出さない（配信者が決めた） */
-const honoraryCitizenOf = (caller: TownTourCaller): string | null => {
+/**
+ * 締めの認定証で名誉町民にする相手。レイドはレイド元、キーワードは配信者本人（レイド元とみなす。issue #275）、
+ * 試し再生は入力したユーザー名の配信者で、入力が無ければ見本の名前
+ */
+const honoraryCitizenOf = (caller: TownTourCaller): string => {
+  if (caller.occasion !== 'demo') return caller.userName
+  return caller.raider?.userName ?? DEMO_HONORARY_CITIZEN
+}
+
+/** 共通点を作らせるレイド元。連れてきた人数はレイドだけが持つ */
+const raiderOf = (caller: TownTourCaller): TownTourRaider | null => {
   switch (caller.occasion) {
     case 'raid':
-      return caller.userName
+      return { login: caller.userLogin, viewers: caller.viewers }
     case 'keyword':
-      return null
+      return { login: caller.userLogin, viewers: null }
     case 'demo':
-      return DEMO_HONORARY_CITIZEN
+      return caller.raider === null ? null : { login: caller.raider.userLogin, viewers: null }
   }
 }
 
@@ -162,8 +190,10 @@ export const townTourCallOf = (
     area: townStats.area,
     audience,
     visited,
-    visit: caller.occasion === 'demo' ? null : { occasion: caller.occasion, userName: caller.userName },
+    // 試し再生と、配信者本人の動作確認用のキーワードは制覇の記録に数えない（issue #275）
+    visit: caller.occasion === 'raid' ? { occasion: caller.occasion, userName: caller.userName } : null,
     honoraryCitizen: honoraryCitizenOf(caller),
+    raider: raiderOf(caller),
     narration,
   }
 }

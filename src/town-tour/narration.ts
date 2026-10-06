@@ -6,7 +6,7 @@
  * 合成は合成ページが Worker の POST /api/overlay/town-tour/narration に頼み（api.ts）、Worker はこの上限を超える文を断る
  * （Worker から src/ を読み込む例外。同じ上限を2か所に書くと食い違うため）。
  *
- * 大見出しと振りは見出し（「この町、実は…」「ところで…」）から読み、項目は見出し（「名物」など）を読まずに文だけを読む。
+ * 大見出しと振りと共通点（issue #275）は見出し（「この町、実は…」「ところで…」「○○さんとこの町、実は…」）から読み、項目は見出し（「名物」など）を読まずに文だけを読む。
  * 大見出しの見出しは文より先に画面に出る溜めで、読み上げでも溜めにするためである。
  *
  * 設定（読み上げるか・話者・速度。TownTourNarration）の形と読み取りもここに置く（Worker の worker/town-tour-narration.ts の
@@ -88,7 +88,7 @@ export interface NarrationTexts {
   readonly lines: readonly string[]
 }
 
-/** 場面1つぶんの読み上げる文。項目は見出しを読まず、大見出しと振りは見出しから読む */
+/** 場面1つぶんの読み上げる文。項目は見出しを読まず、大見出しと振りと共通点は見出しから読む */
 const narrationTextOf = (line: TourLine): string => (line.kind === 'point' ? line.text : `${line.label}${line.text}`)
 
 /**

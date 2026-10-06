@@ -181,6 +181,8 @@ describe('GET /api/overlay/town-tour', () => {
       article: { title: '府中市 (広島県)', url: 'https://ja.wikipedia.org/wiki/%E5%BA%9C%E4%B8%AD%E5%B8%82_(%E5%BA%83%E5%B3%B6%E7%9C%8C)' },
       tour: fuchuTourResponse,
       image: null,
+      bond: null,
+      bondFailure: null,
     })
     // 名前（府中市）ではなく、コードから引いた記事名で取りに行く。代表画像が無いので画像の情報は問い合わせない
     expect(urls.map((url) => url.searchParams.get('titles'))).toEqual(['府中市 (広島県)'])
@@ -254,6 +256,133 @@ describe('GET /api/overlay/town-tour', () => {
     expect(response.status).toBe(502)
     expect(await response.json()).toMatchObject({ error: { code: 'town-tour-failed', message: expect.stringContaining('JSON') } })
     expect(await listFailures(env.DB)).toEqual([expect.objectContaining({ code: 'town-tour-failed' })])
+  })
+})
+
+describe('GET /api/overlay/town-tour のレイド元との共通点（issue #275）', () => {
+  /** 府中市の材料（fuchuArticle）と、7人を連れてきた kenta_dev さんの情報から作った共通点 */
+  const kentaBond = {
+    townQuote: '府中味噌',
+    raiderField: '配信タイトル',
+    raiderQuote: '味噌汁',
+    bond: '府中味噌と味噌汁配信。どちらも味噌で人を温める、同じ釜の仲間なのです。',
+    certificateReason: '本市の府中味噌と同じく味噌で視聴者を温められた功績につき',
+  }
+
+  /** kenta_dev さんの Twitch の公開情報 */
+  const kentaUser = {
+    id: '500',
+    login: 'kenta_dev',
+    display_name: 'kenta_dev',
+    description: '週末に個人開発をしています',
+    profile_image_url: 'https://static-cdn.jtvnw.net/kenta.png',
+  }
+  const kentaChannel = { broadcaster_id: '500', game_name: 'Software and Game Development', title: '味噌汁を飲みながら開発', tags: ['日本語', '個人開発'] }
+
+  /**
+   * Wikipedia・Twitch・OpenRouter に答える通信の代役。OpenRouter には bondResponses を順に返し、送られた本文を控える
+   *
+   * @param users ログイン名で引いたときに Twitch が返すユーザー（空ならいない）
+   */
+  const fakeServices = (bondResponses: readonly string[], users: readonly unknown[] = [kentaUser]) => {
+    const openRouterBodies: unknown[] = []
+    const twitchUrls: string[] = []
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const url = new URL(input instanceof Request ? input.url : String(input))
+      if (url.hostname === 'ja.wikipedia.org') return Response.json(fuchuArticle)
+      if (url.href === 'https://id.twitch.tv/oauth2/token') return Response.json({ access_token: 'test-app-token' })
+      if (url.hostname === 'api.twitch.tv') {
+        twitchUrls.push(url.href)
+        if (url.pathname === '/helix/users') return Response.json({ data: users })
+        if (url.pathname === '/helix/channels') return Response.json({ data: [kentaChannel] })
+      }
+      if (url.hostname === 'openrouter.ai') {
+        const body: unknown = JSON.parse(input instanceof Request ? await input.text() : String(init?.body))
+        openRouterBodies.push(body)
+        const content = bondResponses[openRouterBodies.length - 1]
+        if (content === undefined) throw new Error('用意した共通点の応答より多く呼ばれました')
+        return Response.json({ choices: [{ message: { role: 'assistant', content } }] })
+      }
+      throw new Error(`テストで想定していない通信です: ${url.href}`)
+    }
+    return { fetchImpl, openRouterBodies, twitchUrls }
+  }
+
+  /** OpenRouter の鍵を設定した環境 */
+  const envWithKey = () => ({ ...createEnv(JSON.stringify(fuchuTour)), OPENROUTER_API_KEY: 'openrouter-test-key' })
+
+  it('レイド元が添えられていれば、Twitch の公開情報を材料に共通点を作り、レイド元の名前とアイコンと一緒に返す', async () => {
+    const { fetchImpl, openRouterBodies, twitchUrls } = fakeServices([JSON.stringify(kentaBond)])
+
+    const response = await invoke(`/api/overlay/town-tour?key=${overlayKey}&code=${FUCHU_HIROSHIMA}&raider=kenta_dev&viewers=7`, envWithKey(), fetchImpl)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      tour: fuchuTourResponse,
+      bond: {
+        raiderName: 'kenta_dev',
+        raiderIcon: 'https://static-cdn.jtvnw.net/kenta.png',
+        raiderQuote: '味噌汁',
+        townQuote: '府中味噌',
+        text: kentaBond.bond,
+        certificateReason: kentaBond.certificateReason,
+      },
+      bondFailure: null,
+    })
+    expect(twitchUrls).toEqual(['https://api.twitch.tv/helix/users?login=kenta_dev', 'https://api.twitch.tv/helix/channels?broadcaster_id=500'])
+    // 既定のモデル（推論を止められない）に、軽い推論をかけて頼む。材料には連れてきた人数も入れる
+    expect(openRouterBodies[0]).toMatchObject({ model: 'google/gemini-3.8-flash', reasoning: { effort: 'low' } })
+    expect(JSON.stringify(openRouterBodies[0])).toContain('連れてきた人数: 7人')
+  })
+
+  it('OpenRouter の鍵が無ければ、Twitch も LLM も呼ばずに、共通点なし（失敗でもない）として紹介だけを返す', async () => {
+    const env = createEnv(JSON.stringify(fuchuTour))
+    const { fetchImpl, openRouterBodies, twitchUrls } = fakeServices([])
+
+    const response = await invoke(`/api/overlay/town-tour?key=${overlayKey}&code=${FUCHU_HIROSHIMA}&raider=kenta_dev&viewers=7`, env, fetchImpl)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ tour: fuchuTourResponse, bond: null, bondFailure: null })
+    expect(twitchUrls).toEqual([])
+    expect(openRouterBodies).toEqual([])
+    expect(await listFailures(env.DB)).toEqual([])
+  })
+
+  it('材料に無い語句の共通点しか返らなければ、紹介は返したうえで共通点を出さず、理由を返して失敗の記録に残す', async () => {
+    const env = envWithKey()
+    const invented = JSON.stringify({ ...kentaBond, townQuote: '府中焼き' })
+    const { fetchImpl } = fakeServices([invented, invented])
+
+    const response = await invoke(`/api/overlay/town-tour?key=${overlayKey}&code=${FUCHU_HIROSHIMA}&raider=kenta_dev`, env, fetchImpl)
+
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as { tour: unknown; bond: unknown; bondFailure: string }
+    expect(body.tour).toEqual(fuchuTourResponse)
+    expect(body.bond).toBeNull()
+    expect(body.bondFailure).toContain('府中焼き')
+    expect(await listFailures(env.DB)).toEqual([expect.objectContaining({ code: 'town-tour-bond-failed' })])
+  })
+
+  it('そのログイン名の配信者が Twitch にいなければ、共通点を出さず、理由を返して失敗の記録に残す', async () => {
+    const env = envWithKey()
+    const { fetchImpl } = fakeServices([], [])
+
+    const response = await invoke(`/api/overlay/town-tour?key=${overlayKey}&code=${FUCHU_HIROSHIMA}&raider=no_such_user`, env, fetchImpl)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ bond: null, bondFailure: expect.stringContaining('no_such_user') })
+    expect(await listFailures(env.DB)).toEqual([expect.objectContaining({ code: 'town-tour-bond-failed' })])
+  })
+
+  it('ログイン名か連れてきた人数の形が違えば、外を呼ばずに 400 で断る', async () => {
+    const env = envWithKey()
+    const { fetchImpl, twitchUrls } = fakeServices([])
+
+    expect((await invoke(`/api/overlay/town-tour?key=${overlayKey}&code=${FUCHU_HIROSHIMA}&raider=${encodeURIComponent('名前')}`, env, fetchImpl)).status).toBe(400)
+    expect((await invoke(`/api/overlay/town-tour?key=${overlayKey}&code=${FUCHU_HIROSHIMA}&raider=kenta_dev&viewers=-1`, env, fetchImpl)).status).toBe(400)
+    expect((await invoke(`/api/overlay/town-tour?key=${overlayKey}&code=${FUCHU_HIROSHIMA}&viewers=7`, env, fetchImpl)).status).toBe(400)
+    expect(twitchUrls).toEqual([])
+    expect(env.AI.calls).toEqual([])
   })
 })
 
@@ -427,6 +556,67 @@ describe('POST /api/admin/town-tour/demo', () => {
 
     expect(alertChannel.pushedTownTours[0]?.visited).toEqual([FUCHU_HIROSHIMA])
     expect(alertChannel.pushedTownTours[0]?.visit).toBeNull()
+  })
+
+  /** ユーザー名を入れて試し再生を押す。Twitch には users を返させる */
+  const callWithUserName = async (env: Env, userName: string, users: readonly unknown[]): Promise<Response> => {
+    const session = await createSessionToken(env.TWITCH_BROADCASTER_ID, env.SESSION_SECRET, now)
+    const twitchFetch: typeof fetch = async (input) => {
+      const url = new URL(input instanceof Request ? input.url : String(input))
+      if (url.href === 'https://id.twitch.tv/oauth2/token') return Response.json({ access_token: 'test-app-token' })
+      if (url.hostname === 'api.twitch.tv' && url.pathname === '/helix/users') return Response.json({ data: users })
+      throw new Error(`テストで想定していない通信です: ${url.href}`)
+    }
+    return invoke('/api/admin/town-tour/demo', env, twitchFetch, {
+      method: 'POST',
+      headers: { Cookie: `__Host-session=${session}`, Origin: site, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userName }),
+    })
+  }
+
+  /** 星野ゆうさんの Twitch の公開情報 */
+  const hoshinoUser = {
+    id: '600',
+    login: 'hoshino_yu',
+    display_name: '星野ゆう',
+    description: '',
+    profile_image_url: 'https://static-cdn.jtvnw.net/hoshino.png',
+  }
+
+  it('ユーザー名を入れずに押したら、共通点を作らせず、見本の名前を名誉町民にする', async () => {
+    const alertChannel = createFakeAlertChannel()
+
+    await callAsBroadcaster(createEnv('', alertChannel))
+
+    expect(alertChannel.pushedTownTours[0]).toMatchObject({ raider: null, honoraryCitizen: 'レイド元の配信者' })
+  })
+
+  it('ユーザー名を入れて押したら、その配信者をレイド元とみなし、共通点を作らせて名誉町民にする（issue #275）', async () => {
+    const alertChannel = createFakeAlertChannel()
+
+    const response = await callWithUserName(createEnv('', alertChannel), 'hoshino_yu', [hoshinoUser])
+
+    expect(response.status).toBe(200)
+    expect(alertChannel.pushedTownTours[0]).toMatchObject({ raider: { login: 'hoshino_yu', viewers: null }, honoraryCitizen: '星野ゆう' })
+  })
+
+  it('入れたユーザー名の配信者が Twitch にいなければ、押し出さずに 404 で返す（打ち間違いに気づけるように）', async () => {
+    const alertChannel = createFakeAlertChannel()
+
+    const response = await callWithUserName(createEnv('', alertChannel), 'no_such_user', [])
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toMatchObject({ error: { code: 'unknown-twitch-user', message: expect.stringContaining('no_such_user') } })
+    expect(alertChannel.pushedTownTours).toEqual([])
+  })
+
+  it('ユーザー名が Twitch のログイン名の形でなければ、押し出さずに 400 で返す', async () => {
+    const alertChannel = createFakeAlertChannel()
+
+    const response = await callWithUserName(createEnv('', alertChannel), '星野 ゆう', [hoshinoUser])
+
+    expect(response.status).toBe(400)
+    expect(alertChannel.pushedTownTours).toEqual([])
   })
 
   it('配送先が失敗したら、黙って成功にせず 502 で返す', async () => {

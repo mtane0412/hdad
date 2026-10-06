@@ -121,8 +121,19 @@ describe('TownTourSoundCard', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: '市町村紹介を試しに流す' }))
 
-    expect(api.playTownTourDemo).toHaveBeenCalledTimes(1)
+    // ユーザー名を入れていなければ、空のまま送る（Worker は見本の名前で流す）
+    expect(api.playTownTourDemo).toHaveBeenCalledWith('')
     expect(await screen.findByText(/北海道石狩郡当別町/)).toBeInTheDocument()
+  })
+
+  test('レイド元とみなすユーザー名を入れて試し再生を押すと、その名前を送る（issue #275）', async () => {
+    const api = fakeApi()
+    render(<TownTourSoundCard api={api} media={media} />)
+
+    await userEvent.type(await screen.findByLabelText('レイド元とみなすユーザー名（任意）'), 'hoshino_yu')
+    await userEvent.click(screen.getByRole('button', { name: '市町村紹介を試しに流す' }))
+
+    expect(api.playTownTourDemo).toHaveBeenCalledWith('hoshino_yu')
   })
 
   test('未保存の変更があるあいだは試し再生を押せない（試し再生は保存済みの音で鳴り、選び直した音と食い違うため）', async () => {

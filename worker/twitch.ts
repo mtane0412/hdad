@@ -170,6 +170,23 @@ export interface ChannelInfo {
   title: string
 }
 
+/** チャンネルの内容に、配信者が付けたタグを加えたもの（市町村紹介の共通点の材料。issue #275） */
+export interface ChannelDetail extends ChannelInfo {
+  /** チャンネルのタグ。付けていなければ空の並び */
+  tags: string[]
+}
+
+/** ログイン名から引いた、ユーザーの公開情報 */
+export interface TwitchUser {
+  id: string
+  login: string
+  displayName: string
+  /** 自己紹介。書いていなければ空文字 */
+  description: string
+  /** アイコン画像の URL（https） */
+  profileImageUrl: string
+}
+
 /** デバイスコードフローの開始で受け取る内容 */
 export interface DeviceAuthorization {
   /** トークンと交換するためのコード。利用者には見せず、交換のときにそのまま送り返す */
@@ -297,6 +314,13 @@ export interface TwitchClient {
    *   空のチャンネルとして扱わず投げる。呼び出し側が観測できなかったこととして扱う）
    */
   getChannel(accessToken: string, userId: string): Promise<ChannelInfo>
+  /**
+   * getChannel の内容に、チャンネルのタグを加えて返す。スコープは不要で、アプリアクセストークンでも読める。
+   * 市町村紹介の共通点（worker/town-bond.ts）の材料に、レイド元の配信者の公開情報として読む。
+   *
+   * @throws TwitchApiError Twitchが失敗を返した、または応答にチャンネルが無かった・形が違った
+   */
+  getChannelDetail(accessToken: string, userId: string): Promise<ChannelDetail>
   /** 配信者のフォロワー数（moderator:read:followers が必要） */
   getFollowerTotal(accessToken: string, broadcasterId: string): Promise<number>
   /**
@@ -311,6 +335,13 @@ export interface TwitchClient {
   getUserLogin(accessToken: string, userId: string): Promise<string>
   /** ログイン名から、その人のアイコン画像のURLを引く。スコープは不要 */
   getProfileImageUrl(accessToken: string, login: string): Promise<string>
+  /**
+   * ログイン名から、ユーザーID・表示名・自己紹介・アイコンを引く。スコープは不要。
+   *
+   * @returns そのログイン名のユーザーがいなければ null（打ち間違いを Twitch の失敗と分けて伝えるため）
+   * @throws TwitchApiError Twitchが失敗を返した、または応答の形が違った
+   */
+  getUserByLogin(accessToken: string, login: string): Promise<TwitchUser | null>
   /**
    * ユーザーIDから、それぞれのアイコン画像のURLをまとめて引く（1度に100人まで）。スコープは不要。
    *
@@ -632,6 +663,22 @@ export const createTwitchClient = ({
   const getHelix = async (url: URL, accessToken: string): Promise<Record<string, unknown>> =>
     readJson(await fetchImpl(url, { headers: { Authorization: `Bearer ${accessToken}`, 'Client-Id': clientId } }))
 
+  /**
+   * チャンネルの内容を1件読む（getChannel と getChannelDetail が共有する）。tags は形を確かめずに渡し、要る側が確かめる
+   *
+   * @throws TwitchApiError 応答にチャンネルが無い・カテゴリかタイトルが文字列でないとき
+   */
+  const readChannel = async (accessToken: string, userId: string): Promise<ChannelInfo & { tags: unknown }> => {
+    const url = new URL(CHANNELS_URL)
+    url.searchParams.set('broadcaster_id', userId)
+    const { data } = await getHelix(url, accessToken)
+    const channel: unknown = Array.isArray(data) ? data[0] : undefined
+    if (!isRecord(channel) || typeof channel.game_name !== 'string' || typeof channel.title !== 'string') {
+      throw new TwitchApiError(BAD_GATEWAY, `TwitchにユーザーID ${userId} のチャンネルがありません`)
+    }
+    return { categoryName: channel.game_name, title: channel.title, tags: channel.tags }
+  }
+
   return {
     authorizeUrl: (redirectUri, state, scopes) => {
       const url = new URL(AUTHORIZE_URL)
@@ -760,14 +807,16 @@ export const createTwitchClient = ({
     },
 
     getChannel: async (accessToken, userId) => {
-      const url = new URL(CHANNELS_URL)
-      url.searchParams.set('broadcaster_id', userId)
-      const { data } = await getHelix(url, accessToken)
-      const channel: unknown = Array.isArray(data) ? data[0] : undefined
-      if (!isRecord(channel) || typeof channel.game_name !== 'string' || typeof channel.title !== 'string') {
-        throw new TwitchApiError(BAD_GATEWAY, `TwitchにユーザーID ${userId} のチャンネルがありません`)
+      const { categoryName, title } = await readChannel(accessToken, userId)
+      return { categoryName, title }
+    },
+
+    getChannelDetail: async (accessToken, userId) => {
+      const { categoryName, title, tags } = await readChannel(accessToken, userId)
+      if (!Array.isArray(tags) || !tags.every((tag): tag is string => typeof tag === 'string')) {
+        throw new TwitchApiError(BAD_GATEWAY, `TwitchのユーザーID ${userId} のチャンネルの tags が文字列の並びではありません`)
       }
-      return { categoryName: channel.game_name, title: channel.title }
+      return { categoryName, title, tags }
     },
 
     getFollowerTotal: async (accessToken, broadcasterId) => {
@@ -817,6 +866,28 @@ export const createTwitchClient = ({
         throw new TwitchApiError(BAD_GATEWAY, `Twitchにログイン名 ${login} のアイコンがありません`)
       }
       return user.profile_image_url
+    },
+
+    getUserByLogin: async (accessToken, login) => {
+      const url = new URL(USERS_URL)
+      url.searchParams.set('login', login)
+      const { data } = await getHelix(url, accessToken)
+      if (!Array.isArray(data)) throw new TwitchApiError(BAD_GATEWAY, 'Twitchのユーザーの応答に data の配列がありません')
+      const user: unknown = data[0]
+      if (user === undefined) return null
+      // アイコンは配信画面の img にそのまま入れるので、https の画像URLとして読めるものだけを受け付ける
+      if (
+        !isRecord(user) ||
+        typeof user.id !== 'string' ||
+        typeof user.login !== 'string' ||
+        typeof user.display_name !== 'string' ||
+        typeof user.description !== 'string' ||
+        typeof user.profile_image_url !== 'string' ||
+        !user.profile_image_url.startsWith('https://')
+      ) {
+        throw new TwitchApiError(BAD_GATEWAY, `Twitchのログイン名 ${login} のユーザーに、id・login・display_name・description・https のアイコンが揃っていません`)
+      }
+      return { id: user.id, login: user.login, displayName: user.display_name, description: user.description, profileImageUrl: user.profile_image_url }
     },
 
     getProfileImageUrls: async (accessToken, userIds) => {

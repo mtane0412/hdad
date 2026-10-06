@@ -3,7 +3,8 @@
  *
  * 市町村紹介の演出で鳴らす音を場面ごとに選び、BGM と効果音の音量を決めて保存する（issue #243）。
  * ナレーション（issue #255）の設定もこのカードの区画（town-tour-narration-section.tsx）で選ぶ。保存は音と別に行う。
- * 試し再生のボタンも置き、選んだ音と声をその場で聞き比べられるようにする。
+ * 試し再生のボタンも置き、選んだ音と声をその場で聞き比べられるようにする。ボタンの横の入力欄にユーザー名を入れると、
+ * その配信者をレイド元とみなして締めの共通点まで流す（issue #275。入力欄の値は保存しない）。
  *
  * 鳴らす場面（枠）はコードで固定で（src/town-tour/sound.ts の TOWN_TOUR_SOUND_SLOTS）、ここでは枠ごとに
  * アップロード済みの音声を選ぶか「鳴らさない」にするだけにする。音声の追加はアップロードのページが受け持つ。
@@ -17,6 +18,7 @@ import { useCallback, useEffect, useId, useState } from 'react'
 import { LoadFailure } from '@/components/load-failure'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -112,6 +114,8 @@ export const TownTourSoundCard = ({ api, media }: TownTourSoundCardProps) => {
   const actions = usePageActions(failureLines)
   // ナレーションの区画に未保存の変更があるか（試し再生を止めるため）
   const [narrationUnsaved, setNarrationUnsaved] = useState(false)
+  /** 試し再生でレイド元とみなす配信者のログイン名（issue #275）。空なら見本の名前で流す。保存はしない */
+  const [demoUserName, setDemoUserName] = useState('')
   const onNarrationUnsavedChange = useCallback((value: boolean) => setNarrationUnsaved(value), [])
 
   useEffect(() => {
@@ -146,7 +150,7 @@ export const TownTourSoundCard = ({ api, media }: TownTourSoundCardProps) => {
   }
 
   const playDemo = async (): Promise<string> =>
-    `「${await api.playTownTourDemo()}」を送りました。オーバーレイに「市町村紹介」の素材を置いていれば流れます`
+    `「${await api.playTownTourDemo(demoUserName.trim())}」を送りました。オーバーレイに「市町村紹介」の素材を置いていれば流れます`
 
   const body = (() => {
     if (loaded.status === 'loading' || draft === null) {
@@ -212,7 +216,18 @@ export const TownTourSoundCard = ({ api, media }: TownTourSoundCardProps) => {
         <TownTourNarrationSection api={api} onUnsavedChange={onNarrationUnsavedChange} />
         <p className="text-sm text-muted-foreground">
           トリガーを待たずに試しに流せる（引く市町村はランダム。オーバーレイに「市町村紹介」の素材を置いておく）。音と声は保存したものが鳴るので、未保存の変更があるあいだは押せない。
+          ユーザー名を入れると、その配信者がレイドしてきたものとみなして、締めの共通点と認定証の任命理由まで流す（OpenRouter の鍵が要る）。
         </p>
+        <div className="flex flex-col gap-2 sm:max-w-xs">
+          <Label htmlFor={`${id}-demo-user`}>レイド元とみなすユーザー名（任意）</Label>
+          <Input
+            id={`${id}-demo-user`}
+            value={demoUserName}
+            placeholder="Twitch のログイン名"
+            autoComplete="off"
+            onChange={(event) => setDemoUserName(event.currentTarget.value)}
+          />
+        </div>
         {/* 試し再生は保存済みの音と声で鳴る。選び直した音や声を保存せずに流すと、聞き比べたつもりのものと食い違うので押させない */}
         <Button
           type="button"

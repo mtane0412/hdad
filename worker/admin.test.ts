@@ -825,6 +825,10 @@ describe('LLMの設定（/api/admin/llm）', () => {
         provider: 'workers-ai',
         models: { 'workers-ai': '@cf/meta/llama-3.3-70b-instruct-fp8-fast', openrouter: 'meta-llama/llama-3.3-70b-instruct' },
       },
+      townBond: {
+        provider: 'openrouter',
+        models: { 'workers-ai': '@cf/meta/llama-3.3-70b-instruct-fp8-fast', openrouter: 'google/gemini-3.8-flash' },
+      },
     },
   }
 
@@ -855,14 +859,23 @@ describe('LLMの設定（/api/admin/llm）', () => {
     expect(await (await read(env)).json()).toMatchObject(broadcasterConfig)
   })
 
-  it('まだ保存していなければ、既定の設定（すべて Workers AI）を返す', async () => {
+  it('まだ保存していなければ、既定の設定（市町村紹介の共通点のほかは Workers AI）を返す', async () => {
     const { env } = createEnv()
 
     const response = await read(env)
 
     expect(response.status).toBe(200)
     const body = (await response.json()) as { usages: Record<string, { provider: string }> }
-    expect(Object.values(body.usages).map(({ provider }) => provider)).toEqual(['workers-ai', 'workers-ai', 'workers-ai', 'workers-ai', 'workers-ai', 'workers-ai', 'workers-ai'])
+    expect(Object.values(body.usages).map(({ provider }) => provider)).toEqual([
+      'workers-ai',
+      'workers-ai',
+      'workers-ai',
+      'workers-ai',
+      'workers-ai',
+      'workers-ai',
+      'workers-ai',
+      'openrouter',
+    ])
   })
 
   it('OpenRouter のAPIキーが設定されているかを添えて返す（鍵そのものは返さない）', async () => {

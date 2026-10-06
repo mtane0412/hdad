@@ -20,6 +20,7 @@ import { NARRATION_TAIL_MS, type Narration } from './narration'
 import type { TownTourCall, TownTourIntro } from './tour'
 import { QUIZ_HINT_INTERVAL_MS, QUIZ_MS } from './quiz'
 import {
+  BOND_MS,
   CERTIFICATE_MS,
   CONQUEST_MS,
   CONQUEST_STAMP_MS,
@@ -61,6 +62,7 @@ const tobetsuCall: TownTourCall = {
   visited: ['01100'],
   visit: { occasion: 'raid', userName: '山田花子' },
   honoraryCitizen: '山田花子',
+  raider: { login: 'yamada_hanako', viewers: 30 },
   narration: false,
 }
 
@@ -79,6 +81,8 @@ const tobetsuIntro: TownTourIntro = {
     cue: '当別米、食べたことありますか？',
   },
   image: null,
+  bond: null,
+  bondFailure: null,
 }
 
 /** 代表画像のある紹介（作者とライセンス付き） */
@@ -90,6 +94,8 @@ const tobetsuIntroWithImage: TownTourIntro = {
     license: 'CC BY-SA 4.0',
     caption: 'スウェーデンヒルズの家並み',
   },
+  bond: null,
+  bondFailure: null,
 }
 
 /** 地図の形から作ったヒント（都道府県の市町村の数 → 地方 → 隣り合う都道府県） */
@@ -349,6 +355,45 @@ describe('sceneAt の名誉町民の認定証（issue #253）', () => {
   it('認定証を8秒出したら、終わる', () => {
     expect(at(CERTIFICATE_MS - 1).done).toBe(false)
     expect(at(CERTIFICATE_MS).done).toBe(true)
+  })
+})
+
+describe('共通点の場面（issue #275）', () => {
+  const bond = {
+    raiderName: '山田花子',
+    raiderIcon: 'https://static-cdn.jtvnw.net/yamada.png',
+    raiderQuote: '花子',
+    townQuote: '当別米',
+    text: '花子さんと当別米。どちらも実りを待つ存在なのです。',
+    certificateReason: '本町の当別米と同じく実りを待たれた功績につき',
+  }
+  const withBond = (): Playback => {
+    const playback = readyPlayback(0)
+    return { ...playback, intro: { ...readyOf(playback), intro: { ...tobetsuIntro, bond } } }
+  }
+
+  it('振りの代わりに共通点の場面を、振りより長い BOND_MS のあいだ流す', () => {
+    const playback = withBond()
+
+    expect(BOND_MS).toBe(12000)
+    expect(tourSpanOf(playback, readyOf(playback)).segments.map(({ line, duration }) => [line.kind, duration])).toEqual([
+      ['hook', HOOK_MS],
+      ['point', POINT_MS],
+      ['point', PUNCHLINE_MS],
+      ['bond', BOND_MS],
+    ])
+  })
+
+  it('認定証に、共通点と同じ任命理由を添える', () => {
+    const certificateStart = MAP_START + ZOOM_END_MS + HOOK_MS + POINT_MS + PUNCHLINE_MS + BOND_MS + CONQUEST_MS
+
+    expect(sceneAt(withBond(), STARTED_AT + certificateStart + 1000).certificate?.reason).toBe('本町の当別米と同じく実りを待たれた功績につき')
+  })
+
+  it('共通点の無い回の認定証は、任命理由を持たない', () => {
+    const certificateStart = MAP_START + ZOOM_END_MS + HOOK_MS + POINT_MS + PUNCHLINE_MS + CUE_MS + CONQUEST_MS
+
+    expect(sceneAt(readyPlayback(0), STARTED_AT + certificateStart + 1000).certificate?.reason).toBeNull()
   })
 })
 

@@ -88,6 +88,7 @@ const raidTownTour: TownTourCall = {
   visited: [],
   visit: { occasion: 'raid', userName: '山田花子' },
   honoraryCitizen: '山田花子',
+  raider: { login: 'yamada_hanako', viewers: 30 },
   narration: false,
 }
 

@@ -144,6 +144,10 @@ const USAGE_LABELS: Readonly<Record<LlmUsage, { name: string; description: strin
     name: '市町村紹介',
     description: 'レイドで流す、ランダムな市町村の紹介。Wikipedia の記事を材料に、その都度作る。材料にないことを書かせないよう大きいモデル向き。',
   },
+  townBond: {
+    name: '市町村紹介の共通点',
+    description: '市町村紹介の締めに出す、レイド元の配信者とその市町村の意外な共通点と、認定証の任命理由。既定の google/gemini-3.8-flash は推論を止められないので、軽い推論をかけて呼ぶ。',
+  },
 }
 
 /** Jev を使う箇所ごとの、画面に出す名前と説明 */

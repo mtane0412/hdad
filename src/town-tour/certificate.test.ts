@@ -14,17 +14,26 @@ describe('certificateOf', () => {
   it('名誉町民にする相手の名前と、都道府県・郡から書いた市町村と、和暦の日付を入れた文面にする', () => {
     const tobetsu = { prefecture: '北海道', county: '石狩郡', name: '当別町', honoraryCitizen: '山田花子' }
 
-    expect(certificateOf(tobetsu, ISSUED_AT)).toEqual({
+    expect(certificateOf(tobetsu, ISSUED_AT, null)).toEqual({
       title: '名誉町民証',
       holder: '山田花子 様',
       appointment: 'あなたを北海道石狩郡当別町の名誉町民に任命します',
+      reason: null,
       date: '令和8年10月5日',
       issuer: 'HDAD 市町村紹介',
     })
   })
 
+  it('レイド元との共通点を作れた回は、LLM が書いた任命理由を添える（issue #275）', () => {
+    const tobetsu = { prefecture: '北海道', county: '石狩郡', name: '当別町', honoraryCitizen: '山田花子' }
+
+    expect(certificateOf(tobetsu, ISSUED_AT, '本町のブロッコリーと同じく花を背負われた功績につき')?.reason).toBe(
+      '本町のブロッコリーと同じく花を背負われた功績につき',
+    )
+  })
+
   it('市・村・区では、名誉市民・名誉村民・名誉区民にする（市町村の名前の最後の字に合わせる）', () => {
-    const titleOf = (name: string) => certificateOf({ prefecture: '東京都', county: '', name, honoraryCitizen: '山田花子' }, ISSUED_AT)?.title
+    const titleOf = (name: string) => certificateOf({ prefecture: '東京都', county: '', name, honoraryCitizen: '山田花子' }, ISSUED_AT, null)?.title
 
     expect(titleOf('八王子市')).toBe('名誉市民証')
     expect(titleOf('檜原村')).toBe('名誉村民証')
@@ -34,12 +43,12 @@ describe('certificateOf', () => {
   it('日付は日本時間で数える（日本時間で日付が変わった直後は、もう翌日の日付にする）', () => {
     const justAfterMidnight = Date.parse('2026-10-06T00:05:00+09:00')
 
-    expect(certificateOf({ prefecture: '北海道', county: '石狩郡', name: '当別町', honoraryCitizen: '山田花子' }, justAfterMidnight)?.date).toBe(
+    expect(certificateOf({ prefecture: '北海道', county: '石狩郡', name: '当別町', honoraryCitizen: '山田花子' }, justAfterMidnight, null)?.date).toBe(
       '令和8年10月6日',
     )
   })
 
-  it('名誉町民にする相手がいない呼び出し（キーワード）では、認定証を出さないので null を返す', () => {
-    expect(certificateOf({ prefecture: '北海道', county: '石狩郡', name: '当別町', honoraryCitizen: null }, ISSUED_AT)).toBeNull()
+  it('名誉町民にする相手がいない呼び出しでは、認定証を出さないので null を返す', () => {
+    expect(certificateOf({ prefecture: '北海道', county: '石狩郡', name: '当別町', honoraryCitizen: null }, ISSUED_AT, null)).toBeNull()
   })
 })

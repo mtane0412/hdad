@@ -13,9 +13,10 @@
  *    紹介は受け取ってから作らせる（2〜5秒）ので、ズームが終わっても届いていなければ、届くまで待ってから始める
  * 4. 紹介の場面を順に流す。大見出し（HOOK_MS。前半 HOOK_TEASE_MS は見出し「この町、実は…」だけで溜める）→
  *    ゆさぶりの項目（POINT_MS ずつ）→ オチ（最後の項目。PUNCHLINE_MS）→ 配信者への振り（CUE_MS）。長さは配信者が決めた（issue #249）。
+ *    レイド元との共通点を作れた回は、振りの代わりに共通点（BOND_MS。左右の2枠と1文を読む間。issue #275）を流す。
  * 5. 日本全体へ引きながら、これまでに紹介した市町村を塗った全国制覇マップと制覇数を出す（CONQUEST_MS。issue #252）。
  *    引ききった後（CONQUEST_STAMP_MS）に今回の市町村を数えた制覇数と節目の一文に替える
- * 6. 名誉町民にする相手がいれば（レイドと試し再生）、認定証を出す（CERTIFICATE_MS。issue #253）。いなければ（キーワード）制覇マップで終える。
+ * 6. 名誉町民にする相手がいれば、認定証を出す（CERTIFICATE_MS。issue #253）。共通点を作れた回は、その任命理由を添える。いなければ制覇マップで終える。
  *    最後は薄くして終わる。出典は終わりまで出し続ける
  *
  * ナレーション（issue #255）を読み上げる再生では、冒頭の一文を 3. の始まり（着地）で読み、4. の場面はそれぞれの出だしで読む。
@@ -53,6 +54,8 @@ export const POINT_MS = 6000
 export const PUNCHLINE_MS = 5000
 /** 配信者への振りを流す時間（ミリ秒）。配信者がリアクションする間 */
 export const CUE_MS = 6000
+/** レイド元との共通点を流す時間（ミリ秒）。見出し・左右の2枠・50文字の文を読み、配信者がツッコむ間。長さは配信者が決めた（issue #275） */
+export const BOND_MS = 12000
 /** 場面の出入りで薄くする時間（ミリ秒） */
 const ITEM_FADE_MS = 400
 /** 全国制覇マップを出しておく時間（ミリ秒）。振りを流し終えてから数え、これが過ぎたら再生を終える。長さは配信者が決めた（issue #252） */
@@ -211,6 +214,7 @@ export interface TourSpan {
 const fixedDurationOf = (line: TourLine, isLastPoint: boolean): number => {
   if (line.kind === 'hook') return HOOK_MS
   if (line.kind === 'cue') return CUE_MS
+  if (line.kind === 'bond') return BOND_MS
   return isLastPoint ? PUNCHLINE_MS : POINT_MS
 }
 
@@ -226,7 +230,7 @@ const narrationSpanOf = (clip: NarrationClip | null): number => (clip === null ?
  * @param ready 届いた紹介（紹介・届いた時刻・読み込み終えた読み上げの音声）
  */
 export const tourSpanOf = (playback: Playback, { intro, readyAt, narration }: ReadyIntro): TourSpan => {
-  const lines = tourLinesOf(intro.tour, playback.call.name)
+  const lines = tourLinesOf(intro, playback.call.name)
   const lastPointIndex = lines.map((line) => line.kind).lastIndexOf('point')
   const landing = Math.max(quizEndOf(playback) + ZOOM_END_MS, readyAt - playback.startedAt)
   const openingNarration = narration?.opening ?? null
@@ -312,7 +316,7 @@ export const sceneAt = (playback: Playback, now: number): Scene => {
   const sinceConquest = elapsed - itemsEnd
   /** 認定証を出しはじめてからの経過時間。負ならまだ出さない */
   const sinceCertificate = elapsed - conquestEnd
-  const certificate = sinceCertificate < 0 ? null : certificateOf(call, playback.startedAt)
+  const certificate = sinceCertificate < 0 ? null : certificateOf(call, playback.startedAt, intro.intro.bond?.certificateReason ?? null)
 
   return {
     ...base,

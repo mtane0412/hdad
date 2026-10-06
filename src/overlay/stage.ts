@@ -1184,6 +1184,9 @@ const mountPomodoro = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
  * （POST /api/overlay/town-tour/narration）、音声の長さを読み終えてから紹介を届いたものとして流す（代表画像の読み込みと並べて待つ）。
  * 場面の長さは読み上げの長さで決まる（timeline.ts）。合成・読み込みに失敗した文は、失敗をこの箱に出してその場面だけ無音で流す。
  * 音声の URL は再生を終えたら手放す。
+ *
+ * レイド元との共通点（issue #275）は、呼び出しのレイド元を添えて紹介と一緒に作らせ、共通点があればレイド元のアイコンを読み込んでから流す
+ * （代表画像・ナレーションと並べて待つ）。共通点を作れなかった理由が返ったら、この箱に出し、共通点の代わりに振りを流す。
  */
 const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
   // この素材は配信者が決めるパラメータを持たない（何を流すかはトリガーと試し再生で決まる）
@@ -1202,6 +1205,8 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
   let playback: Playback | null = null
   /** 流している1件の、読み込み終えた代表画像。画像の無い紹介・まだ届いていなければ null（issue #254） */
   let image: HTMLImageElement | null = null
+  /** 流している1件の、読み込み終えたレイド元のアイコン（共通点の場面に添える）。共通点の無い紹介・読み込めなければ null（issue #275） */
+  let icon: HTMLImageElement | null = null
   /** 流している1件の、読み込み終えたナレーションの音声。読み上げない再生・まだ届いていなければ null（issue #255） */
   let narration: Narration | null = null
   /** 流している1件のナレーションの音声を手放す（再生を終えたとき） */
@@ -1246,6 +1251,7 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
     played = new Set()
     visitSent = false
     image = null
+    icon = null
     const startedAt = Date.now()
     playback = {
       call,
@@ -1269,7 +1275,7 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
     }
     const introduce = demo
       ? new Promise<typeof demoTownTourIntro>((resolve) => window.setTimeout(() => resolve(demoTownTourIntro), DEMO_INTRO_DELAY_MS))
-      : api.introduce(call.code)
+      : api.introduce(call.code, call.raider)
     /**
      * 代表画像のある紹介なら、画像の場面の前に画像を読み込んでおく。読み込めなければ失敗を箱に出し、
      * 画像を外した紹介にして流す（画像の場面を飛ばす。issue #254）
@@ -1289,7 +1295,7 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
      */
     const withNarration = async (intro: TownTourIntro): Promise<Narration | null> => {
       if (!call.narration) return null
-      const texts = narrationTextsOf(call.headline, tourLinesOf(intro.tour, call.name))
+      const texts = narrationTextsOf(call.headline, tourLinesOf(intro, call.name))
       const clipOf = (text: string): Promise<NarrationClip | null> =>
         api
           .narrate(text)
@@ -1301,13 +1307,27 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
       const [opening = null, ...lines] = await Promise.all([texts.opening, ...texts.lines].map(clipOf))
       return { opening, lines }
     }
-    // 代表画像の読み込みとナレーションの合成は関わりがないので、並べて待つ
+    /**
+     * 共通点のある紹介なら、レイド元のアイコンを読み込んでおく。読み込めなければ失敗を箱に出し、アイコンなしで共通点を流す（issue #275）。
+     * 共通点を作れなかった紹介は、Worker が返した理由を箱に出す（共通点の代わりに振りを流す）
+     */
+    const withIcon = async (intro: TownTourIntro): Promise<HTMLImageElement | null> => {
+      if (intro.bondFailure !== null && current() !== null) showError(new Error(intro.bondFailure), NOUNS.townTour, box, 'read')
+      if (intro.bond === null) return null
+      try {
+        return await loadTownTourImage(intro.bond.raiderIcon)
+      } catch (error) {
+        if (current() !== null) showError(error, NOUNS.townTour, box, 'read')
+        return null
+      }
+    }
+    // 代表画像・アイコンの読み込みとナレーションの合成は関わりがないので、並べて待つ
     const prepared = introduce.then(async (intro) => {
-      const [shown, voiced] = await Promise.all([withImage(intro), withNarration(intro)])
-      return { ...shown, voiced }
+      const [shown, raiderIcon, voiced] = await Promise.all([withImage(intro), withIcon(intro), withNarration(intro)])
+      return { ...shown, raiderIcon, voiced }
     })
     prepared.then(
-      ({ intro, loaded, voiced }) => {
+      ({ intro, loaded, raiderIcon, voiced }) => {
         const target = current()
         if (target === null) {
           // 読み込んでいるあいだに別の1件へ進んでいたら、使わない音声を手放す
@@ -1315,6 +1335,7 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
           return
         }
         image = loaded
+        icon = raiderIcon
         narration = voiced
         playback = { ...target, intro: { status: 'ready', intro, readyAt: Date.now(), narration: voiced } }
         // 終わりが決まったので、配信のBGMを下げておく長さを再生の終わりまでに送り直す
@@ -1440,7 +1461,7 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
     if (renderer === null) return
     const now = Date.now()
     finishIfDone(now)
-    renderer.render(ctx, width, height, playback === null ? null : { playback, scene: sceneAt(playback, now), image })
+    renderer.render(ctx, width, height, playback === null ? null : { playback, scene: sceneAt(playback, now), image, icon })
   })
 
   if (demo) {

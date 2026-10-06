@@ -790,18 +790,42 @@ describe('townToursFor', () => {
     message: { text: '!darts' },
   }
 
-  it('レイドのトリガーの市町村紹介を、レイド元の表示名とレイドの人数と一緒に返す', () => {
+  /** 配信者本人が自分のチャンネルで書いた !darts */
+  const broadcasterDarts = {
+    ...dartsMessage,
+    chatter_user_id: '配信者ID',
+    chatter_user_login: 'tanenobu',
+    chatter_user_name: 'たねのぶ',
+  }
+
+  it('レイドのトリガーの市町村紹介を、レイド元の表示名・ログイン名とレイドの人数と一緒に返す', () => {
     const config = alertConfig([{ kind: 'raid', actions: [{ type: 'townTour' }] }])
 
     expect(townToursFor(config, 'channel.raid', raidNotification, notFirstTime)).toEqual([
-      { occasion: 'raid', userName: '山田花子', viewers: 25 },
+      { occasion: 'raid', userName: '山田花子', userLogin: 'yamada_hanako', viewers: 25 },
     ])
   })
 
-  it('キーワードのトリガーの市町村紹介を、発言した人の表示名と一緒に返す', () => {
+  it('キーワードのトリガーの市町村紹介は、配信者本人の発言なら、本人の表示名・ログイン名と一緒に返す', () => {
     const config = alertConfig([{ kind: 'keyword', contains: '!darts', actions: [{ type: 'townTour' }] }])
 
-    expect(townToursFor(config, CHAT_MESSAGE, dartsMessage, notFirstTime)).toEqual([{ occasion: 'keyword', userName: '田中太郎' }])
+    expect(townToursFor(config, CHAT_MESSAGE, broadcasterDarts, notFirstTime)).toEqual([
+      { occasion: 'keyword', userName: 'たねのぶ', userLogin: 'tanenobu' },
+    ])
+  })
+
+  it('キーワードのトリガーの市町村紹介は、動作確認用なので、配信者本人でない人の発言には反応しない', () => {
+    const config = alertConfig([{ kind: 'keyword', contains: '!darts', actions: [{ type: 'townTour' }] }])
+
+    expect(townToursFor(config, CHAT_MESSAGE, dartsMessage, notFirstTime)).toEqual([])
+  })
+
+  it('Shared Chat の相手の配信者が相手のチャンネルで書いた !darts には反応しない（自チャンネルの配信者本人ではないため）', () => {
+    const config = alertConfig([{ kind: 'keyword', contains: '!darts', actions: [{ type: 'townTour' }] }])
+    // 前提: 相手の配信者（相手ID）が、自分のチャンネル（source_broadcaster_user_id）で書いた発言が、こちらの購読に届いた
+    const partnerDarts = { ...dartsMessage, chatter_user_id: '相手ID', source_broadcaster_user_id: '相手ID' }
+
+    expect(townToursFor(config, CHAT_MESSAGE, partnerDarts, notFirstTime)).toEqual([])
   })
 
   it('市町村紹介を流す動作を持たないトリガーには反応しない', () => {
