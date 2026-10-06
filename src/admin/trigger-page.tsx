@@ -7,6 +7,7 @@
  * アプリの枠（src/app/app.tsx）が受け持つので、ここではログイン済みを前提にする。
  * 画面の状態（素材・報酬・入力中のトリガー）はここで持ち、Workerの呼び出しは api.ts、入力欄の値の変換は form.ts、
  * 操作の実行と結果の表示は page-actions.tsx に任せる。市町村紹介の音の設定と試し再生は town-tour-sound-card.tsx が受け持つ。
+ * ツイスターの試し再生は twister-card.tsx が受け持つ。
  *
  * アラートを配信画面に出すURLはここでは配らない。アラート専用のオーバーレイ（alerts/）は消したので
  * （issue #107）、出すには合成オーバーレイの管理画面（/overlay/）で「アラート」の素材を置く。
@@ -49,6 +50,7 @@ import {
   rowParamSummary,
   supportsShoutout,
   supportsTownTour,
+  supportsTwister,
   toDraft,
   toTriggerInputs,
   withFixedRows,
@@ -59,6 +61,7 @@ import {
 } from './form'
 import { errorMessage, usePageActions } from './page-actions'
 import { TownTourSoundCard } from './town-tour-sound-card'
+import { TwisterCard } from './twister-card'
 
 /** 文言欄の入力例。メニュー項目ごとに、使える差し込み語だけを使った例を出す */
 const MESSAGE_PLACEHOLDERS: Readonly<Record<TriggerKind, string>> = {
@@ -456,6 +459,26 @@ const ActionFields = ({ draft, media, heading, onChange }: ActionFieldsProps) =>
             <p className="text-xs text-muted-foreground">
               全国の市区町村から1つを引き、日本地図からズームして紹介を流します。映すには、オーバーレイに「市町村紹介」の素材を置いてください。
               キーワード（!darts など）では、発言した人の投げたダーツが刺さった市町村として紹介します。
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* ツイスターはレイドした配信者のアイコンを顔に貼って対戦させるので、レイドの項目にだけ出す（Workerも保存時にそれ以外を拒む） */}
+      {supportsTwister(draft.kind) && (
+        <div className="flex flex-col gap-4 rounded-md border border-dashed p-3 sm:col-span-2">
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id={`${id}-twister-enabled`}
+              checked={draft.twisterEnabled}
+              onCheckedChange={(checked) => update({ twisterEnabled: checked === true })}
+            />
+            <Label htmlFor={`${id}-twister-enabled`}>ツイスターで対戦する</Label>
+          </div>
+          {draft.twisterEnabled && (
+            // 指示と勝敗は種からその都度決まるので、配信者が決める項目を持たない
+            <p className="text-xs text-muted-foreground">
+              レイドしてきた配信者と自分が、3Dの人形でツイスターゲームをします。映すには、オーバーレイに「ツイスター」の素材を置いてください。
             </p>
           )}
         </div>
@@ -941,6 +964,9 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
 
       {/* 市町村紹介の音はトリガーの行ごとではなく1つだけ持つので、トリガーの一覧の外に置く（保存も別） */}
       <TownTourSoundCard api={api} media={media} />
+
+      {/* ツイスターは設定を持たず、試し再生のボタンだけを置く */}
+      <TwisterCard api={api} />
 
       {/* 一覧そのものはカードに入れず、区分（チャット・イベント・開発・ポモドーロ）ごとにカードにする
           （全体を1枚のカードで囲むと、その中に区分の見出しと項目の枠が入れ子で並び、どこまでが1つのまとまりか読み取りにくい） */}

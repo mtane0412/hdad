@@ -14,6 +14,7 @@ import {
   announceActionOf,
   shoutoutActionOf,
   townTourActionOf,
+  twisterActionOf,
   chatActionOf,
   loadAlertConfig,
   parseAlertConfig,
@@ -152,6 +153,20 @@ describe('parseAlertConfig', () => {
     expect(() => parseAlertConfig({ triggers: [{ kind: 'follow', actions: [{ type: 'townTour' }] }] }, materialKind)).toThrow(
       expect.objectContaining({
         problems: ['triggers[0].actions: 市町村紹介（townTour）はレイドとキーワードのトリガーにだけ置けます'],
+      }),
+    )
+  })
+
+  it('レイドのトリガーなら、ツイスターで対戦する動作（twister）を受け付ける', () => {
+    const config = parseAlertConfig({ triggers: [{ kind: 'raid', actions: [{ type: 'twister' }] }] }, materialKind)
+
+    expect(config.triggers[0]?.actions).toEqual([{ type: 'twister' }])
+  })
+
+  it('レイド以外のトリガーにツイスターを置いたら拒否する（対戦する相手が配信者とは限らないため）', () => {
+    expect(() => parseAlertConfig({ triggers: [{ kind: 'keyword', contains: '!twister', actions: [{ type: 'twister' }] }] }, materialKind)).toThrow(
+      expect.objectContaining({
+        problems: ['triggers[0].actions: ツイスター（twister）はレイドのトリガーにだけ置けます'],
       }),
     )
   })
@@ -337,7 +352,7 @@ describe('parseAlertConfig', () => {
 
   it('対応していない動作の種類は拒否する', () => {
     expect(() => parseAlertConfig({ triggers: [receivedTrigger({ actions: [alertAction({ type: 'ban' })] })] }, materialKind)).toThrowError(
-      expect.objectContaining({ problems: ['triggers[0].actions[0].type: alert / chat / announce / aiChat / shoutout / townTour のいずれかを指定してください'] }),
+      expect.objectContaining({ problems: ['triggers[0].actions[0].type: alert / chat / announce / aiChat / shoutout / townTour / twister のいずれかを指定してください'] }),
     )
   })
 
@@ -485,6 +500,18 @@ describe('shoutoutActionOf', () => {
 
   it('シャウトアウトを送る動作がなければ null を返す', () => {
     expect(shoutoutActionOf({ kind: 'raid', actions: [storedAlertAction] })).toBeNull()
+  })
+})
+
+describe('twisterActionOf', () => {
+  it('トリガーからツイスターで対戦する動作を取り出す', () => {
+    const trigger: StoredTrigger = { kind: 'raid', actions: [storedAlertAction, { type: 'twister' }] }
+
+    expect(twisterActionOf(trigger)).toEqual({ type: 'twister' })
+  })
+
+  it('ツイスターで対戦する動作がなければ null を返す', () => {
+    expect(twisterActionOf({ kind: 'raid', actions: [storedAlertAction] })).toBeNull()
   })
 })
 

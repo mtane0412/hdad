@@ -93,8 +93,8 @@ describe('config・saveConfig（トリガーの設定）', () => {
     expect(await requests[0]!.json()).toEqual({ triggers: [triggerInput] })
   })
 
-  it('項目を持たない動作（シャウトアウト・市町村紹介）を持つトリガーも受け取る', async () => {
-    const raidTrigger = { kind: 'raid', actions: [{ type: 'shoutout' }, { type: 'townTour' }] }
+  it('項目を持たない動作（シャウトアウト・市町村紹介・ツイスター）を持つトリガーも受け取る', async () => {
+    const raidTrigger = { kind: 'raid', actions: [{ type: 'shoutout' }, { type: 'townTour' }, { type: 'twister' }] }
     const { fetchImpl } = fetchReturning(200, { triggers: [raidTrigger] })
 
     expect(await createAdminApi(fetchImpl).config()).toEqual([raidTrigger])
@@ -256,6 +256,27 @@ describe('rotateOverlayKey・playTownTourDemo・townTourSound・rewards・logout
     expect(await createAdminApi(fetchImpl).playTownTourDemo()).toBe('試し再生: 本日は北海道石狩郡当別町をご紹介します')
     expect(requests[0]!.method).toBe('POST')
     expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/town-tour/demo')
+  })
+
+  it('ツイスターの試し再生を頼み、押し出された対戦の2人を「A vs B」の形で返す', async () => {
+    const { requests, fetchImpl } = fetchReturning(200, {
+      id: '試しID',
+      seed: 42,
+      players: [
+        { name: 'レイドした人（試し）', iconUrl: null },
+        { name: '配信者', iconUrl: 'https://static-cdn.jtvnw.net/jtv_user_pictures/tanenobu.png' },
+      ],
+    })
+
+    expect(await createAdminApi(fetchImpl).playTwisterDemo()).toBe('レイドした人（試し） vs 配信者')
+    expect(requests[0]!.method).toBe('POST')
+    expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/twister/demo')
+  })
+
+  it('ツイスターの試し再生の応答が想定した形でなければエラーにする', async () => {
+    const { fetchImpl } = fetchReturning(200, { id: '試しID' })
+
+    await expect(createAdminApi(fetchImpl).playTwisterDemo()).rejects.toThrow()
   })
 
   it('市町村紹介の音の設定を読み、枠ごとの素材のIDと音量を返す', async () => {

@@ -56,6 +56,7 @@ const fakeApi = (overrides: Partial<AdminApi> = {}): AdminApi => {
     removeMedia: vi.fn(unused),
     rotateOverlayKey: vi.fn(unused),
     playTownTourDemo: vi.fn(unused),
+    playTwisterDemo: vi.fn(unused),
     townTourSound: vi.fn(unused),
     saveTownTourSound: vi.fn(unused),
     townTourNarration: vi.fn(unused),

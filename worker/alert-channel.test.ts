@@ -14,6 +14,7 @@ import {
   connectPomodoroSocket,
   connectSpeechMuteSocket,
   connectTownTourSocket,
+  connectTwisterSocket,
   connectTaskDeskSocket,
   connectWorkLogSocket,
   pushAlert,
@@ -23,6 +24,7 @@ import {
   pushSpeechMute,
   pushTownTour,
   pushTownTourAnswer,
+  pushTwister,
   pushTaskDesk,
   pushWorkLogEntry,
   revokeAlertSockets,
@@ -35,6 +37,7 @@ import type { OverlayAlert } from './alert-event'
 import type { TaskDeskSnapshot } from './task-desk'
 import type { PomodoroSnapshot } from './pomodoro-timer'
 import type { TownTourCall } from './town-tour-call'
+import type { TwisterCall } from './twister-call'
 import { DEFAULT_TOWN_TOUR_SOUND, playbackSoundOf } from './town-tour-sound'
 import type { WorkLogEntry } from './work-log'
 
@@ -93,6 +96,16 @@ const runningPomodoro: PomodoroSnapshot = {
 }
 
 /** 市町村紹介のBGMが鳴るあいだ、配信のBGMを42秒下げておく知らせ */
+/** レイドで押し出すツイスターの呼び出し */
+const raidTwister: TwisterCall = {
+  id: 'ツイスターの呼び出しID',
+  seed: 20261006,
+  players: [
+    { name: '山田花子', iconUrl: 'https://static-cdn.jtvnw.net/jtv_user_pictures/yamada.png' },
+    { name: 'たねのぶ', iconUrl: null },
+  ],
+}
+
 const duringTownTour: BgmDuck = { holdMs: 42_000 }
 
 /** 下部バーで読み上げをミュートした知らせ */
@@ -120,6 +133,7 @@ describe('AlertChannel', () => {
     townTourSockets: AlertSocket[] = [],
     bgmDuckSockets: AlertSocket[] = [],
     speechMuteSockets: AlertSocket[] = [],
+    twisterSockets: AlertSocket[] = [],
   ): AlertChannel =>
     new AlertChannel({
       acceptWebSocket: () => undefined,
@@ -132,6 +146,7 @@ describe('AlertChannel', () => {
         if (tag === 'townTour') return townTourSockets
         if (tag === 'bgmDuck') return bgmDuckSockets
         if (tag === 'speechMute') return speechMuteSockets
+        if (tag === 'twister') return twisterSockets
         return [
           ...sockets,
           ...bgmSockets,
@@ -141,6 +156,7 @@ describe('AlertChannel', () => {
           ...townTourSockets,
           ...bgmDuckSockets,
           ...speechMuteSockets,
+          ...twisterSockets,
         ]
       },
       setWebSocketAutoResponse: () => undefined,
@@ -228,6 +244,20 @@ describe('AlertChannel', () => {
     expect(alertItem.sentMessages).toEqual([])
   })
 
+  it('ツイスターの呼び出しは、ツイスターを受け取る接続だけへ送る（アラートとしても市町村紹介としても読めないため）', async () => {
+    const alertItem = createConnection()
+    const townTourItem = createConnection()
+    const twisterItem = createConnection()
+    const destination = createDestination([alertItem], [], [], [], [], [townTourItem], [], [], [twisterItem])
+
+    const response = await destination.fetch(new Request('https://alert-channel/push/twister', { method: 'POST', body: JSON.stringify(raidTwister) }))
+
+    expect(response.status).toBe(204)
+    expect(twisterItem.sentMessages).toEqual([JSON.stringify(raidTwister)])
+    expect(alertItem.sentMessages).toEqual([])
+    expect(townTourItem.sentMessages).toEqual([])
+  })
+
   it('配信のBGMを下げる知らせは、下げる知らせを受け取る接続（裏方のページ）だけへ送る（曲の切り替えとしては読めないため）', async () => {
     const bgmItem = createConnection()
     const backstageDuck = createConnection()
@@ -286,7 +316,7 @@ describe('pushAlert', () => {
 })
 
 describe('接続の引き渡し', () => {
-  it('アラート・BGM・作業ログ・作業机・ポモドーロ・市町村紹介・BGMを下げる知らせ・読み上げのミュートの接続を、目印を付けて Durable Object へ引き渡す', async () => {
+  it('アラート・BGM・作業ログ・作業机・ポモドーロ・市町村紹介・BGMを下げる知らせ・読み上げのミュート・ツイスターの接続を、目印を付けて Durable Object へ引き渡す', async () => {
     const delivery = createFakeAlertChannel()
     const connectionRequest = (): Request => new Request('https://hdad.example.com/api/overlay/socket?key=k', { headers: { Upgrade: 'websocket' } })
 
@@ -298,6 +328,7 @@ describe('接続の引き渡し', () => {
     await connectTownTourSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
     await connectBgmDuckSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
     await connectSpeechMuteSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
+    await connectTwisterSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
 
     expect(delivery.forwardedConnections.map((request) => new URL(request.url).searchParams.get('topic'))).toEqual([
       'alerts',
@@ -308,6 +339,7 @@ describe('接続の引き渡し', () => {
       'townTour',
       'bgmDuck',
       'speechMute',
+      'twister',
     ])
   })
 })
@@ -377,6 +409,23 @@ describe('pushPomodoro', () => {
     const delivery = createFakeAlertChannel({ shouldFail: true })
 
     await expect(pushPomodoro(delivery.namespace, runningPomodoro)).rejects.toThrow('ポモドーロ')
+  })
+})
+
+describe('pushTwister', () => {
+  it('Durable Object へ、ツイスターの呼び出しを送る', async () => {
+    const delivery = createFakeAlertChannel()
+
+    await pushTwister(delivery.namespace, raidTwister)
+
+    expect(delivery.pushedTwisters).toEqual([raidTwister])
+    expect(delivery.pushedAlerts).toEqual([])
+  })
+
+  it('Durable Object が失敗を返したら、黙って成功にせず投げる', async () => {
+    const delivery = createFakeAlertChannel({ shouldFail: true })
+
+    await expect(pushTwister(delivery.namespace, raidTwister)).rejects.toThrow('ツイスター')
   })
 })
 

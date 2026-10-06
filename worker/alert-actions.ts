@@ -13,9 +13,19 @@
  * 2xx以外を返すとTwitchは同じ通知を再送するので、送信が成功していた場合に二重投稿になってしまう。
  */
 import { loadAlertConfig, type AlertConfig, type StoredAnnounceAction } from './alert-config'
-import { pushAlert, pushTownTour } from './alert-channel'
+import { pushAlert, pushTownTour, pushTwister } from './alert-channel'
 import { generateChatMessage } from './ai-chat'
-import { aiChatsFor, alertsFor, announcementsFor, chatMessagesFor, hasAlertAction, requiresStreamSummary, shoutoutsFor, townToursFor } from './alert-event'
+import {
+  aiChatsFor,
+  alertsFor,
+  announcementsFor,
+  chatMessagesFor,
+  hasAlertAction,
+  requiresStreamSummary,
+  shoutoutsFor,
+  townToursFor,
+  twistersFor,
+} from './alert-event'
 import { resolveConditionState } from './alert-state'
 import type { ConditionState } from './alert-event'
 import { announceAsBot, sendAsBot, shoutoutAsBot } from './bot-chat'
@@ -29,6 +39,7 @@ import { pickTown, townTourCallOf } from './town-tour-call'
 import { listTownTourVisits } from './town-tour-visits'
 import { loadTownTourNarration } from './town-tour-narration'
 import { loadTownTourSound, playbackSoundOf } from './town-tour-sound'
+import { twisterCallOf, twisterSeedOf } from './twister-call'
 import { readViewer } from './viewer-store'
 
 /**
@@ -137,6 +148,24 @@ export const runAlertActions = async (
         pushTownTour(env.ALERTS, townTourCallOf(town, townTour, playbackSoundOf(sound, overlayKey), liveViewers, crypto.randomUUID(), visited, narration.enabled)),
       )
     }
+  }
+
+  // ツイスター（issue #272）も素材が流すので、botの接続を見る前に押し出す。アイコンはレイド元と配信者の2人ぶんを1回で引き、
+  // 対戦の種は1回ごとに引き直す。アイコンを引けなければ押し出さずに失敗として記録する（顔の無い対戦を黙って流さない）
+  const twisters = ((): ReturnType<typeof twistersFor> => {
+    try {
+      return twistersFor(config, subscriptionType, body.event, state)
+    } catch (error) {
+      throw invalid(error instanceof Error ? error.message : String(error))
+    }
+  })()
+  for (const [index, twister] of twisters.entries()) {
+    await sendAndRecordFailure(context, messageId, 'twister', index, 'twister-push-failed', async () => {
+      const { twitch } = context
+      const icons = await twitch.getProfileImageUrls(await twitch.getAppAccessToken(), [twister.raiderId, env.TWITCH_BROADCASTER_ID])
+      const seed = twisterSeedOf(crypto.getRandomValues(new Uint32Array(1)))
+      await pushTwister(env.ALERTS, twisterCallOf(twister, icons, env.TWITCH_BROADCASTER_ID, seed, crypto.randomUUID()))
+    })
   }
 
   if (messages.length === 0 && announcements.length === 0 && aiChats.length === 0 && shoutouts.length === 0) return
@@ -275,7 +304,7 @@ export const recordLateFailure = async (context: AlertActionContext, failureCode
 const sendAndRecordFailure = async (
   context: AlertActionContext,
   messageId: string,
-  actionType: 'chat' | 'announce' | 'alert' | 'aiChat' | 'shoutout' | 'townTour',
+  actionType: 'chat' | 'announce' | 'alert' | 'aiChat' | 'shoutout' | 'townTour' | 'twister',
   index: number,
   failureCode: string,
   send: () => Promise<void>,

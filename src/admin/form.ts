@@ -263,6 +263,8 @@ export interface TriggerDraft {
   shoutoutEnabled: boolean
   /** 市町村を1つ引いて合成ページに紹介を流させるか。レイドとキーワードの項目でだけ選べる */
   townTourEnabled: boolean
+  /** レイドした人と配信者に、合成ページでツイスターの対戦をさせるか。レイドの項目でだけ選べる */
+  twisterEnabled: boolean
 }
 
 /**
@@ -280,6 +282,14 @@ export const supportsShoutout = (kind: TriggerKind): boolean => kind === 'raid'
  * 冒頭の「○○さんのレイドを記念して」「○○さんのダーツが刺さったのは」の○○が決まるきっかけに限るため。
  */
 export const supportsTownTour = (kind: TriggerKind): boolean => kind === 'raid' || kind === 'keyword'
+
+/**
+ * その項目にツイスターを置けるか（issue #272）。
+ *
+ * 置けるのはレイドだけである（Workerも保存時にそれ以外を拒む）。レイドした配信者のアイコンを人形の顔に貼って対戦させるため、
+ * 相手が配信者でなければならない。
+ */
+export const supportsTwister = (kind: TriggerKind): boolean => kind === 'raid'
 
 export interface SelectOption {
   value: string
@@ -366,6 +376,7 @@ const toActions = (draft: TriggerDraft): ActionInput[] => {
   if (draft.aiChatEnabled) actions.push({ type: 'aiChat', instruction: draft.aiChatInstruction })
   if (draft.shoutoutEnabled) actions.push({ type: 'shoutout' })
   if (draft.townTourEnabled) actions.push({ type: 'townTour' })
+  if (draft.twisterEnabled) actions.push({ type: 'twister' })
   return actions
 }
 
@@ -448,6 +459,7 @@ export const toDraft = (trigger: StoredTrigger): TriggerDraft => {
   const aiChat = trigger.actions.find((action) => action.type === 'aiChat')
   const shoutout = trigger.actions.find((action) => action.type === 'shoutout')
   const townTour = trigger.actions.find((action) => action.type === 'townTour')
+  const twister = trigger.actions.find((action) => action.type === 'twister')
 
   return {
     kind: trigger.kind,
@@ -471,6 +483,7 @@ export const toDraft = (trigger: StoredTrigger): TriggerDraft => {
     aiChatInstruction: aiChat?.instruction ?? '',
     shoutoutEnabled: shoutout !== undefined,
     townTourEnabled: townTour !== undefined,
+    twisterEnabled: twister !== undefined,
   }
 }
 
@@ -505,6 +518,7 @@ export const createDraft = (kind: TriggerKind, media: readonly MediaItem[]): Tri
     aiChatInstruction: '',
     shoutoutEnabled: false,
     townTourEnabled: false,
+    twisterEnabled: false,
   }
 }
 
@@ -528,11 +542,18 @@ export const emptyDraft = (kind: TriggerKind): TriggerDraft => ({
   aiChatInstruction: '',
   shoutoutEnabled: false,
   townTourEnabled: false,
+  twisterEnabled: false,
 })
 
 /** その行が効果をひとつでも持つか。持たない行は何も起きないので保存しない */
 export const hasAnyAction = (draft: TriggerDraft): boolean =>
-  draft.alertEnabled || draft.chatEnabled || draft.announceEnabled || draft.aiChatEnabled || draft.shoutoutEnabled || draft.townTourEnabled
+  draft.alertEnabled ||
+  draft.chatEnabled ||
+  draft.announceEnabled ||
+  draft.aiChatEnabled ||
+  draft.shoutoutEnabled ||
+  draft.townTourEnabled ||
+  draft.twisterEnabled
 
 /**
  * 保存済みの行に、パラメータを持たない項目の行を追加し、一覧の並び順にそろえる。
@@ -632,6 +653,7 @@ export const rowActionLabels = (draft: TriggerDraft): readonly string[] =>
     draft.aiChatEnabled ? 'AIチャット' : null,
     draft.shoutoutEnabled ? 'シャウトアウト' : null,
     draft.townTourEnabled ? '市町村紹介' : null,
+    draft.twisterEnabled ? 'ツイスター' : null,
   ].filter((label) => label !== null)
 
 /** 素材の大きさを読みやすい単位で表す */

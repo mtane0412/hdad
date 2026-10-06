@@ -23,6 +23,7 @@ import {
   rewardOptions,
   supportsShoutout,
   supportsTownTour,
+  supportsTwister,
   toDraft,
   toTriggerInput,
   type TriggerDraft,
@@ -51,6 +52,7 @@ const inputs = (overrides: Partial<TriggerDraft> = {}): TriggerDraft => ({
   aiChatInstruction: '',
   shoutoutEnabled: false,
   townTourEnabled: false,
+  twisterEnabled: false,
   ...overrides,
 })
 
@@ -216,6 +218,12 @@ describe('toTriggerInput', () => {
     expect(toTriggerInput(draft).actions).toEqual([{ type: 'townTour' }])
   })
 
+  it('ツイスターで対戦するを選んでいれば、項目を持たない動作として送る', () => {
+    const draft = inputs({ kind: 'raid', alertEnabled: false, twisterEnabled: true })
+
+    expect(toTriggerInput(draft).actions).toEqual([{ type: 'twister' }])
+  })
+
   it('表示時間が数として読めなければエラーにする（何番目のトリガーかは呼び出し側が添える）', () => {
     expect(() => toTriggerInput(inputs({ durationSeconds: '' }))).toThrowError(/表示時間/)
   })
@@ -276,6 +284,12 @@ describe('toDraft', () => {
     const trigger: StoredTrigger = { kind: 'keyword', contains: '!darts', actions: [{ type: 'townTour' }] }
 
     expect(toDraft(trigger)).toMatchObject({ kind: 'keyword', alertEnabled: false, townTourEnabled: true })
+  })
+
+  it('ツイスターで対戦する動作を持つトリガーは、その印を付けて戻す', () => {
+    const trigger: StoredTrigger = { kind: 'raid', actions: [{ type: 'twister' }] }
+
+    expect(toDraft(trigger)).toMatchObject({ kind: 'raid', alertEnabled: false, twisterEnabled: true })
   })
 
   it('LLMに文面を作らせる動作を持つトリガーは、指示の入力欄を埋めて戻す', () => {
@@ -403,6 +417,7 @@ describe('emptyDraft', () => {
       aiChatEnabled: false,
       shoutoutEnabled: false,
       townTourEnabled: false,
+      twisterEnabled: false,
     })
   })
 })
@@ -439,6 +454,20 @@ describe('rowActionLabels', () => {
 
   it('市町村紹介の効果は「市町村紹介」として出す', () => {
     expect(rowActionLabels(inputs({ kind: 'raid', alertEnabled: false, townTourEnabled: true }))).toEqual(['市町村紹介'])
+  })
+
+  it('ツイスターの効果は「ツイスター」として出す', () => {
+    expect(rowActionLabels(inputs({ kind: 'raid', alertEnabled: false, twisterEnabled: true }))).toEqual(['ツイスター'])
+  })
+
+  it('ツイスターだけを選んだ行も、効果を持つ行として保存する', () => {
+    expect(toTriggerInputs([inputs({ kind: 'raid', alertEnabled: false, twisterEnabled: true })])).toEqual([{ kind: 'raid', actions: [{ type: 'twister' }] }])
+  })
+
+  it('ツイスターはレイドの項目にだけ置ける', () => {
+    expect(supportsTwister('raid')).toBe(true)
+    expect(supportsTwister('keyword')).toBe(false)
+    expect(supportsTwister('follow')).toBe(false)
   })
 
   it('AIに文面を作らせる効果は「AIチャット」として出す', () => {

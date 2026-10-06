@@ -23,6 +23,7 @@ import {
   requiresStreamSummary,
   shoutoutsFor,
   townToursFor,
+  twistersFor,
   type ConditionState,
 } from './alert-event'
 
@@ -91,7 +92,7 @@ describe('extract', () => {
     })
   })
 
-  it('レイドから、レイドしてきた配信者と人数を取り出す（受け取る側は to_broadcaster なので from_broadcaster を読む）', () => {
+  it('レイドから、レイドしてきた配信者と人数と、受け取った配信者の表示名を取り出す（レイドしてきた側は from_broadcaster を読む）', () => {
     const event = {
       from_broadcaster_user_id: 'レイド元のユーザーID',
       from_broadcaster_user_name: '山田花子',
@@ -106,6 +107,7 @@ describe('extract', () => {
       userName: '山田花子',
       userLogin: 'yamada_hanako',
       viewers: 42,
+      broadcasterName: '配信者本人',
     })
   })
 
@@ -710,6 +712,7 @@ describe('announcementsFor', () => {
     from_broadcaster_user_id: 'レイド元のユーザーID',
     from_broadcaster_user_name: '山田花子',
     from_broadcaster_user_login: 'yamada_hanako',
+    to_broadcaster_user_name: 'たねのぶ',
     viewers: 25,
   }
 
@@ -744,6 +747,7 @@ describe('shoutoutsFor', () => {
     from_broadcaster_user_id: 'レイド元のユーザーID',
     from_broadcaster_user_name: '山田花子',
     from_broadcaster_user_login: 'yamada_hanako',
+    to_broadcaster_user_name: 'たねのぶ',
     viewers: 25,
   }
 
@@ -774,6 +778,7 @@ describe('townToursFor', () => {
     from_broadcaster_user_id: 'レイド元のユーザーID',
     from_broadcaster_user_name: '山田花子',
     from_broadcaster_user_login: 'yamada_hanako',
+    to_broadcaster_user_name: 'たねのぶ',
     viewers: 25,
   }
   const dartsMessage = {
@@ -811,6 +816,37 @@ describe('townToursFor', () => {
     expect(() => townToursFor(config, 'channel.follow', { user_name: '田中太郎', user_login: 'tanaka_taro' }, notFirstTime)).toThrow(
       '市町村紹介はレイドとキーワードのトリガーにだけ置けます',
     )
+  })
+})
+
+describe('twistersFor', () => {
+  const alertConfig = (triggers: StoredTrigger[]): AlertConfig => ({ triggers })
+  const raidNotification = {
+    from_broadcaster_user_id: 'レイド元のユーザーID',
+    from_broadcaster_user_name: '山田花子',
+    from_broadcaster_user_login: 'yamada_hanako',
+    to_broadcaster_user_name: 'たねのぶ',
+    viewers: 25,
+  }
+
+  it('レイドのトリガーのツイスターを、レイド元のユーザーIDと表示名、配信者の表示名と一緒に返す', () => {
+    const config = alertConfig([{ kind: 'raid', actions: [{ type: 'twister' }] }])
+
+    expect(twistersFor(config, 'channel.raid', raidNotification, notFirstTime)).toEqual([
+      { raiderId: 'レイド元のユーザーID', raiderName: '山田花子', broadcasterName: 'たねのぶ' },
+    ])
+  })
+
+  it('ツイスターを置いたトリガーが無ければ空の一覧を返す', () => {
+    const config = alertConfig([{ kind: 'raid', actions: [{ type: 'shoutout' }] }])
+
+    expect(twistersFor(config, 'channel.raid', raidNotification, notFirstTime)).toEqual([])
+  })
+
+  it('レイド以外のトリガーにツイスターがあったら投げる（保存時に拒むので、あれば設定の読み違い）', () => {
+    const config = alertConfig([{ kind: 'follow', actions: [{ type: 'twister' }] }])
+
+    expect(() => twistersFor(config, 'channel.follow', { user_name: '田中太郎', user_login: 'tanaka_taro' }, notFirstTime)).toThrowError(/レイドのトリガーにだけ/)
   })
 })
 
@@ -891,7 +927,7 @@ describe('returningAfter の条件', () => {
       conditions: [{ kind: 'returningAfter', days: 30 }],
       actions: [{ type: 'chat', message: 'ありがとう' }],
     }
-    const raided = { event: 'channel.raid', userId: 'レイド元のユーザーID', userName: '田中太郎', userLogin: 'tanaka_taro', viewers: 10 } as const
+    const raided = { event: 'channel.raid', userId: 'レイド元のユーザーID', userName: '田中太郎', userLogin: 'tanaka_taro', viewers: 10, broadcasterName: 'たねのぶ' } as const
 
     expect(matches(raidWithLongAbsence, raided, { ...notFirstTime, daysSinceLastChat: 40 })).toBe(false)
   })
