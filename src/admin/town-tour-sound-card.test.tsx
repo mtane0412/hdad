@@ -136,6 +136,14 @@ describe('TownTourSoundCard', () => {
     expect(api.playTownTourDemo).toHaveBeenCalledWith('hoshino_yu', null)
   })
 
+  test('ユーザー名が空のあいだは、レイドの人数を入れられない（連れてきた相手がいないため）', async () => {
+    render(<TownTourSoundCard api={fakeApi()} media={media} />)
+
+    expect(await screen.findByLabelText('レイドの人数（任意）')).toBeDisabled()
+    await userEvent.type(screen.getByLabelText('レイド元とみなすユーザー名（任意）'), 'hoshino_yu')
+    expect(screen.getByLabelText('レイドの人数（任意）')).toBeEnabled()
+  })
+
   test('レイドの人数も入れて試し再生を押すと、人数を数にして送る', async () => {
     const api = fakeApi()
     render(<TownTourSoundCard api={api} media={media} />)

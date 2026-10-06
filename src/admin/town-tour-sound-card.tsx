@@ -238,6 +238,8 @@ export const TownTourSoundCard = ({ api, media }: TownTourSoundCardProps) => {
             inputMode="numeric"
             min={0}
             step={1}
+            // 連れてきた相手がいないと人数だけでは意味が無い（Worker も400で断る）ので、ユーザー名が空のあいだは入れさせない
+            disabled={demoUserName.trim() === ''}
             value={demoViewers}
             onChange={(event) => setDemoViewers(event.currentTarget.value)}
           />
