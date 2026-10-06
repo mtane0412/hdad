@@ -12,6 +12,7 @@ import type { PomodoroSnapshot } from './pomodoro-timer'
 import type { SpeechMute } from './speech-config'
 import type { TaskDeskSnapshot } from './task-desk'
 import type { TownTourAnswerMessage, TownTourCall } from './town-tour-call'
+import type { TwisterCall } from './twister-call'
 import type { WorkLogEntry } from './work-log'
 
 interface FakeAlertChannelOptions {
@@ -35,6 +36,8 @@ export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelO
   pushedTownTours: TownTourCall[]
   /** 押し出された都道府県当てクイズの正解者（呼び出しと同じ経路で、type: answer を持つ） */
   pushedTownTourAnswers: TownTourAnswerMessage[]
+  /** 押し出されたツイスターの呼び出し */
+  pushedTwisters: TwisterCall[]
   /** 押し出された配信のBGMを下げる知らせ */
   pushedBgmDucks: BgmDuck[]
   /** 押し出された読み上げのミュート */
@@ -51,6 +54,7 @@ export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelO
   const evictedPomodoro: PomodoroSnapshot[] = []
   const evictedTownTours: TownTourCall[] = []
   const evictedTownTourAnswers: TownTourAnswerMessage[] = []
+  const evictedTwisters: TwisterCall[] = []
   const evictedBgmDucks: BgmDuck[] = []
   const evictedSpeechMutes: SpeechMute[] = []
   const handedOverConnections: Request[] = []
@@ -65,6 +69,7 @@ export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelO
     pushedPomodoro: evictedPomodoro,
     pushedTownTours: evictedTownTours,
     pushedTownTourAnswers: evictedTownTourAnswers,
+    pushedTwisters: evictedTwisters,
     pushedBgmDucks: evictedBgmDucks,
     pushedSpeechMutes: evictedSpeechMutes,
     forwardedConnections: handedOverConnections,
@@ -88,6 +93,7 @@ export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelO
           else if (pathname === '/push/work-log') evictedWorkLog.push((await request.json()) as WorkLogEntry)
           else if (pathname === '/push/task-desk') evictedTaskDesk.push((await request.json()) as TaskDeskSnapshot)
           else if (pathname === '/push/pomodoro') evictedPomodoro.push((await request.json()) as PomodoroSnapshot)
+          else if (pathname === '/push/twister') evictedTwisters.push((await request.json()) as TwisterCall)
           else if (pathname === '/push/bgm-duck') evictedBgmDucks.push((await request.json()) as BgmDuck)
           else if (pathname === '/push/speech-mute') evictedSpeechMutes.push((await request.json()) as SpeechMute)
           else if (pathname === '/push/town-tour') {

@@ -125,7 +125,17 @@ export interface TownTourAction {
   type: 'townTour'
 }
 
-export type ActionInput = AlertActionInput | ChatAction | AnnounceAction | AiChatAction | ShoutoutAction | TownTourAction
+/**
+ * レイドした人と配信者に、合成ページの素材「ツイスター」で対戦させる動作（issue #272）。
+ *
+ * 対戦の種はその都度ランダムなので、配信者が決める項目を持たない。
+ * 置けるのはレイドの項目だけである（src/admin/form.ts の supportsTwister）。
+ */
+export interface TwisterAction {
+  type: 'twister'
+}
+
+export type ActionInput = AlertActionInput | ChatAction | AnnounceAction | AiChatAction | ShoutoutAction | TownTourAction | TwisterAction
 
 /**
  * 既定メニューの項目。worker/trigger-menu.ts の TRIGGER_KINDS と同じ並び（worker/ の型は読み込めないのでここで定義する）。
@@ -177,7 +187,7 @@ export type TriggerInput = TriggerSource & { actions: ActionInput[] }
 /** 保存済みの「アラートを出す」動作（Workerが素材の種類を書き足したもの） */
 export type StoredAlertAction = AlertActionInput & { mediaKind: MediaKind }
 
-export type StoredAction = StoredAlertAction | ChatAction | AnnounceAction | AiChatAction | ShoutoutAction | TownTourAction
+export type StoredAction = StoredAlertAction | ChatAction | AnnounceAction | AiChatAction | ShoutoutAction | TownTourAction | TwisterAction
 
 /** 保存済みのトリガー */
 export type StoredTrigger = TriggerSource & { actions: StoredAction[] }
@@ -218,6 +228,8 @@ export interface AdminApi {
   rotateOverlayKey(): Promise<string>
   /** 市町村紹介の試し再生。Workerが市町村を1つ引いて合成ページへ押し出し、冒頭の一文を返す */
   playTownTourDemo(): Promise<string>
+  /** ツイスターの試し再生。Workerが試しの相手と配信者の対戦を合成ページへ押し出し、「A vs B」の形の2人を返す */
+  playTwisterDemo(): Promise<string>
   /** 市町村紹介の演出で鳴らす音の設定。未保存ならどの枠も鳴らさない設定が返る */
   townTourSound(): Promise<TownTourSound>
   /** 市町村紹介の音の設定を保存する。Workerが保存したものを返す */
@@ -274,8 +286,8 @@ const isTriggerSource = (value: unknown): value is TriggerSource => {
 /** 保存済みの動作1件の形。種類ごとに持つ項目が違う */
 const isStoredAction = (value: unknown): value is StoredAction => {
   if (!isRecord(value)) return false
-  // shoutout と townTour は配信者が決める項目を持たないので、種類だけを見る
-  if (value.type === 'shoutout' || value.type === 'townTour') return true
+  // shoutout と townTour と twister は配信者が決める項目を持たないので、種類だけを見る
+  if (value.type === 'shoutout' || value.type === 'townTour' || value.type === 'twister') return true
   // aiChat だけは送る文言を持たず、文面の作り方の指示を持つ
   if (value.type === 'aiChat') return typeof value.instruction === 'string'
   if (typeof value.message !== 'string') return false
@@ -368,6 +380,14 @@ export const createAdminApi = (fetchImpl: typeof fetch): AdminApi => {
       const body = await call('/api/admin/town-tour/demo', { method: 'POST' })
       if (!isRecord(body) || typeof body.headline !== 'string') throw new Error('Workerの応答に headline がありません')
       return body.headline
+    },
+
+    playTwisterDemo: async () => {
+      const body = await call('/api/admin/twister/demo', { method: 'POST' })
+      const players = isRecord(body) && Array.isArray(body.players) ? body.players.map((player: unknown) => (isRecord(player) ? player.name : null)) : []
+      const [raider, streamer] = players
+      if (players.length !== 2 || typeof raider !== 'string' || typeof streamer !== 'string') throw new Error('Workerの応答に、対戦する2人の名前がありません')
+      return `${raider} vs ${streamer}`
     },
 
     townTourSound: async () => readTownTourSound(await call(TOWN_TOUR_SOUND_PATH)),

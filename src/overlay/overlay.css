@@ -27,6 +27,7 @@
 @import '../task-desk/task-desk.css';
 @import '../pomodoro/pomodoro.css';
 @import '../town-tour/town-tour.css';
+@import '../twister/twister.css';
 
 .overlay {
   position: relative;

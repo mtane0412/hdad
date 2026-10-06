@@ -94,6 +94,12 @@ import { sceneAt, visitRecordAtOf, type Playback } from '../town-tour/timeline'
 import { decodeTownBorders, decodeTownShapes, type TownBorders } from '../town-tour/topo'
 import { parseTownTourMessage, tourLinesOf, type TownTourCall, type TownTourIntro } from '../town-tour/tour'
 import { createTownTourRenderer, type TownTourRenderer } from '../town-tour/view'
+import { TWISTER_SOCKET_HINT, TWISTER_SOCKET_PATH } from '../twister/api'
+import { parseTwisterCall, type TwisterCall } from '../twister/call'
+import { DEMO_TWISTER_CALLS, DEMO_TWISTER_INTERVAL_MS } from '../twister/demo'
+import { loadFaceImage } from '../twister/face-loader'
+import { createGame, gameSceneAt, type Game } from '../twister/game'
+import { createTwisterRenderer } from '../twister/view'
 import { backgrounds } from '../wallpaper/registry'
 import { WORK_LOG_SOCKET_HINT, WORK_LOG_SOCKET_PATH, createWorkLogApi } from '../work-log/api'
 import { demoWorkLogScenes } from '../work-log/demo'
@@ -123,6 +129,7 @@ const NOUNS: Readonly<Record<ItemKind, string>> = {
   taskDesk: '作業机',
   pomodoro: 'ポモドーロ',
   townTour: '市町村紹介',
+  twister: 'ツイスター',
 }
 
 /** サイドスーパーの文言を読みに行く間隔（ミリ秒）。文言は cron が5分おきに作るので、30秒あれば十分に追いつく */
@@ -1468,6 +1475,124 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
   return { draw }
 }
 
+/**
+ * ツイスター（issue #272）。レイドした人と配信者が、three.js の3Dの人形でツイスターゲームをする。
+ *
+ * Worker から押し出された呼び出し（種と2人の名前・アイコン）を届いた順に1件ずつ流す。対戦の中身（指示・倒れ方・勝敗）は
+ * 種から計算し（src/twister/game.ts。倒れ込みの物理も流しはじめる前に計算しておく）、場面と姿勢は再生を始めてからの経過時間だけから決める。
+ * 2人のアイコンは流しはじめる前に読み込む。読み込めなかった人は失敗をこの箱に出し、名前の頭文字の顔で流す（対戦は止めない）。
+ * 種から対戦を計算できなかった1件は、失敗をこの箱に出して次へ進む。
+ *
+ * 3Dは WebGL の canvas に、名札・スピナー・文言はその上の2Dの canvas に描く（src/twister/view.ts）。
+ */
+const mountTwister = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
+  // この素材は配信者が決めるパラメータを持たない（何を流すかはレイドと試し再生で決まる）
+  parseParams({}, new URLSearchParams(item.params))
+
+  const glCanvas = document.createElement('canvas')
+  glCanvas.dataset.twister = 'stage'
+  const hudCanvas = document.createElement('canvas')
+  hudCanvas.dataset.twister = 'hud'
+  box.append(glCanvas, hudCanvas)
+  const renderer = createTwisterRenderer(glCanvas)
+
+  /** 流している1件。流していなければ null */
+  let playback: { readonly call: TwisterCall; readonly game: Game; readonly startedAt: number } | null = null
+  /** 流すのを待っている呼び出し（届いた順） */
+  let waiting: readonly TwisterCall[] = []
+  /** 次の1件のアイコンを読み込んでいる最中か */
+  let preparing = false
+
+  /** 流していなければ、待っている呼び出しの先頭を準備して流しはじめる */
+  const startNext = (): void => {
+    if (playback !== null || preparing) return
+    const [call, ...rest] = waiting
+    if (call === undefined) return
+    waiting = rest
+    clearError(box, 'read')
+    const game = ((): Game | null => {
+      try {
+        return createGame(call.seed)
+      } catch (error) {
+        showError(error, NOUNS.twister, box, 'read')
+        return null
+      }
+    })()
+    if (game === null) {
+      startNext()
+      return
+    }
+    preparing = true
+    const loadFace = async (iconUrl: string | null): Promise<HTMLImageElement | null> => {
+      if (iconUrl === null) return null
+      try {
+        return await loadFaceImage(iconUrl)
+      } catch (error) {
+        showError(error, NOUNS.twister, box, 'read')
+        return null
+      }
+    }
+    void Promise.all([loadFace(call.players[0].iconUrl), loadFace(call.players[1].iconUrl)])
+      .then((faces) => {
+        renderer.setFaces(call, faces)
+        playback = { call, game, startedAt: Date.now() }
+      })
+      .catch((error: unknown) => {
+        // 顔を作れなかった1件は流さず、失敗を出して次へ進む（待っている呼び出しを止めない）
+        showError(error, NOUNS.twister, box, 'read')
+      })
+      .finally(() => {
+        preparing = false
+        if (playback === null) startNext()
+      })
+  }
+
+  const enqueue = (call: TwisterCall): void => {
+    waiting = [...waiting, call]
+    startNext()
+  }
+
+  const draw = startCanvasSurface(hudCanvas, (ctx, width, height) => {
+    ctx.clearRect(0, 0, width, height)
+    const now = Date.now()
+    if (playback !== null && now - playback.startedAt >= playback.game.totalMs) {
+      playback = null
+      startNext()
+    }
+    const elapsedMs = playback === null ? 0 : now - playback.startedAt
+    renderer.render(ctx, width, height, playback === null ? null : { call: playback.call, scene: gameSceneAt(playback.game, elapsedMs), elapsedMs })
+  })
+
+  if (demo) {
+    // プレビューではWorkerにつながず、決まった呼び出しを順にくり返し流す
+    startSampleCycle(DEMO_TWISTER_CALLS, DEMO_TWISTER_INTERVAL_MS, enqueue)
+    return { draw }
+  }
+
+  connectSocket(
+    socketUrl(TWISTER_SOCKET_PATH, { key }),
+    {
+      onMessage: (text) => {
+        try {
+          enqueue(parseTwisterCall(text))
+        } catch (error) {
+          showError(error, NOUNS.twister, box, 'read')
+        }
+      },
+      onOpen: () => {
+        // 呼び出しは押し出しでしか届かない（読み直すものを持たない）。つながっていない間の呼び出しは配送先が落とす
+      },
+      onStatus: () => {
+        // 切断・再接続は出さない。流している1件はそのまま流しきる
+      },
+      onWarning: (message) => showError(new Error(message), NOUNS.twister, box, 'read'),
+    },
+    TWISTER_SOCKET_HINT,
+  )
+
+  return { draw }
+}
+
 const mountItem = (box: HTMLElement, item: OverlayItem, context: MountContext): MountedItem => {
   switch (item.kind) {
     case 'wallpaper':
@@ -1497,6 +1622,8 @@ const mountItem = (box: HTMLElement, item: OverlayItem, context: MountContext): 
       return mountPomodoro(box, item, context)
     case 'townTour':
       return mountTownTour(box, item, context)
+    case 'twister':
+      return mountTwister(box, item, context)
   }
 }
 

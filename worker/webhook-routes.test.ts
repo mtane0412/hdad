@@ -154,6 +154,7 @@ const RAID_NOTIFICATION = {
     from_broadcaster_user_id: 'レイド元の配信者のユーザーID',
     from_broadcaster_user_name: 'レイド元の配信者',
     from_broadcaster_user_login: 'raid_moto',
+    to_broadcaster_user_name: 'たねのぶ',
     viewers: 30,
   },
 }
@@ -1666,6 +1667,73 @@ describe('オーバーレイへのアラートの押し出し', () => {
     expect(response.status).toBe(204)
     expect(alertChannel.pushedAlerts).toHaveLength(0)
     expect(await listFailures(env.DB)).toMatchObject([{ code: 'alert-push-failed' }])
+  })
+})
+
+describe('ツイスターで対戦する動作（twister）', () => {
+  const raidTwisterTrigger: StoredTrigger = { kind: 'raid', actions: [{ type: 'twister' }] }
+  /** レイド元と配信者のアイコンを返す Twitch の代役。引かれたユーザーIDを控える */
+  const fakeTwitchReturningIcons = () => {
+    const requestedIds: string[][] = []
+    const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const request = new Request(input, init)
+      if (request.url === 'https://id.twitch.tv/oauth2/token') return Response.json({ access_token: 'test-app-token' })
+      const url = new URL(request.url)
+      if (url.origin + url.pathname === 'https://api.twitch.tv/helix/users') {
+        requestedIds.push(url.searchParams.getAll('id'))
+        return Response.json({
+          data: [
+            { id: 'レイド元の配信者のユーザーID', login: 'raid_moto', profile_image_url: 'https://static-cdn.jtvnw.net/jtv_user_pictures/raid_moto.png' },
+            { id: BROADCASTER_ID, login: 'tanenobu', profile_image_url: 'https://static-cdn.jtvnw.net/jtv_user_pictures/tanenobu.png' },
+          ],
+        })
+      }
+      return new Response(null, { status: 404 })
+    }
+    return { requestedIds, fetchImpl }
+  }
+
+  it('レイドされたら、対戦の種と、レイド元と配信者の名前・アイコンを合成ページへ押し出す（botを接続していなくても流す）', async () => {
+    const { env, alertChannel } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [raidTwisterTrigger] })
+    const twitch = fakeTwitchReturningIcons()
+
+    const response = await callWebhook(createNotification({ body: RAID_NOTIFICATION }), env, twitch.fetchImpl)
+
+    expect(response.status).toBe(204)
+    expect(twitch.requestedIds).toEqual([['レイド元の配信者のユーザーID', BROADCASTER_ID]])
+    expect(alertChannel.pushedTwisters).toHaveLength(1)
+    // 種はランダムに引くので、0以上2^32未満の整数であることだけを確かめる
+    const call = alertChannel.pushedTwisters[0]
+    expect(Number.isInteger(call?.seed)).toBe(true)
+    expect(call?.seed).toBeGreaterThanOrEqual(0)
+    expect(call?.seed).toBeLessThan(2 ** 32)
+    expect(call?.players).toEqual([
+      { name: 'レイド元の配信者', iconUrl: 'https://static-cdn.jtvnw.net/jtv_user_pictures/raid_moto.png' },
+      { name: 'たねのぶ', iconUrl: 'https://static-cdn.jtvnw.net/jtv_user_pictures/tanenobu.png' },
+    ])
+  })
+
+  it('アイコンを引けなければ押し出さず、失敗として記録する', async () => {
+    const { env, alertChannel } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [raidTwisterTrigger] })
+
+    const response = await callWebhook(createNotification({ body: RAID_NOTIFICATION }), env, async () => new Response(null, { status: 500 }))
+
+    expect(response.status).toBe(204)
+    expect(alertChannel.pushedTwisters).toHaveLength(0)
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'twister-push-failed' }])
+  })
+
+  it('ツイスターを置いていなければ、Twitch にアイコンを引きに行かない', async () => {
+    const { env, alertChannel } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [{ kind: 'raid', actions: [{ type: 'townTour' }] }] })
+    const twitch = fakeTwitchReturningIcons()
+
+    await callWebhook(createNotification({ body: RAID_NOTIFICATION }), env, twitch.fetchImpl)
+
+    expect(twitch.requestedIds).toEqual([])
+    expect(alertChannel.pushedTwisters).toHaveLength(0)
   })
 })
 

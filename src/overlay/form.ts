@@ -39,6 +39,7 @@ export const ITEM_KIND_LABELS: Readonly<Record<ItemKind, string>> = {
   taskDesk: '作業机',
   pomodoro: 'ポモドーロ',
   townTour: '市町村紹介',
+  twister: 'ツイスター',
 }
 
 /** Workerが返す問題点に出る項目の名前を、画面の言い方にする */
@@ -71,6 +72,7 @@ const DESIGNS: Readonly<Record<ItemKind, readonly DesignItem[]>> = {
   taskDesk: [],
   pomodoro: [],
   townTour: [],
+  twister: [],
 }
 
 /**

@@ -23,6 +23,7 @@ import {
   mediaPath,
   shoutoutActionOf,
   townTourActionOf,
+  twisterActionOf,
   type AlertConfig,
   type MediaKind,
   type StoredAiChatAction,
@@ -76,7 +77,15 @@ export type Extracted =
       readonly cumulativeMonths: number
     }
   // userId はレイドしてきた配信者のユーザーID。シャウトアウト（相手の配信者を紹介する）を送る宛先に要る
-  | { readonly event: typeof RAID; readonly userId: string; readonly userName: string; readonly userLogin: string; readonly viewers: number }
+  | {
+      readonly event: typeof RAID
+      readonly userId: string
+      readonly userName: string
+      readonly userLogin: string
+      readonly viewers: number
+      /** レイドを受け取った配信者の表示名（ツイスターで対戦する配信者の名前に使う。issue #272） */
+      readonly broadcasterName: string
+    }
   | { readonly event: typeof CHAT_MESSAGE; readonly userName: string; readonly userLogin: string; readonly text: string }
   // 広告の開始と終了。userName・userLogin は広告を打った人（自動で入った広告では配信者自身が入る）
   | {
@@ -283,6 +292,7 @@ export const extract = (subscriptionType: string, body: unknown): Extracted | nu
         userName: readString(body, 'from_broadcaster_user_name'),
         userLogin: readString(body, 'from_broadcaster_user_login'),
         viewers: readNumber(body, 'viewers'),
+        broadcasterName: readString(body, 'to_broadcaster_user_name'),
       }
     // 発言の読み取りはチャットボットと同じものを使う（同じ通知を2か所で読み解かないため）
     case CHAT_MESSAGE: {
@@ -596,6 +606,35 @@ export const townToursFor = (
       if (kind === 'raid' && extracted.event === RAID) return { occasion: 'raid', userName: extracted.userName, viewers: extracted.viewers }
       if (kind === 'keyword' && extracted.event === CHAT_MESSAGE) return { occasion: 'keyword', userName: extracted.userName }
       throw new Error(`市町村紹介はレイドとキーワードのトリガーにだけ置けます（${kind} のトリガーに置かれています）`)
+    },
+  )
+
+/** ツイスターで対戦する2人（レイドした人と、レイドを受けた配信者） */
+export interface TwisterTrigger {
+  /** レイドした配信者のユーザーID（アイコンを引くのに使う） */
+  readonly raiderId: string
+  readonly raiderName: string
+  /** レイドを受けた配信者の表示名 */
+  readonly broadcasterName: string
+}
+
+/**
+ * 通知に当てはまるトリガーを探し、ツイスターで対戦する2人を返す（issue #272）。
+ *
+ * 置けるのはレイドのトリガーだけなので（worker/alert-config.ts の parseAlertConfig が保存時に拒む）、
+ * ほかのトリガーでこの動作が見つかったら、黙って流さずに投げる（Fail-Fast。対戦する相手が決まらないため）。
+ * 対戦の種とアイコンは呼び出し側が決める（このファイルは乱数も通信も持たないため）。
+ *
+ * @returns 対戦する2人を、当てはまったトリガーの並びの順に返す
+ * @throws 通知の中身が想定した形でない場合、またはレイド以外のトリガーにこの動作があった場合
+ */
+export const twistersFor = (config: AlertConfig, subscriptionType: string, body: unknown, state: ConditionState): TwisterTrigger[] =>
+  matchedActionsFor(config, subscriptionType, body, (trigger) => (twisterActionOf(trigger) === null ? null : trigger.kind), state).map(
+    ({ action: kind, extracted }) => {
+      if (kind === 'raid' && extracted.event === RAID) {
+        return { raiderId: extracted.userId, raiderName: extracted.userName, broadcasterName: extracted.broadcasterName }
+      }
+      throw new Error(`ツイスターはレイドのトリガーにだけ置けます（${kind} のトリガーに置かれています）`)
     },
   )
 

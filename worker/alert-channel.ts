@@ -40,6 +40,9 @@
  * 読み上げのページ（speech/reader/・裏方のページの ?speech=true）へ、下部バーで切り替えた読み上げのミュートを配るのもこの Durable Object である
  * （issue #238）。同じ理由で、8つ目の目印（speechMute）を付けた接続へだけ配る。
  *
+ * 合成ページの素材「ツイスター」へ、対戦の種と2人の名前・アイコンを配るのもこの Durable Object である（issue #272）。
+ * 同じ理由で、9つ目の目印（twister）を付けた接続へだけ配る。
+ *
  * 注意: WebSocketの接続（Upgrade）は Cloudflare のランタイムでしか作れないので、テストでは配送の部分だけを確かめる。
  */
 import type { OverlayAlert } from './alert-event'
@@ -51,6 +54,7 @@ import type { PomodoroSnapshot } from './pomodoro-timer'
 import type { SpeechMute } from './speech-config'
 import type { TaskDeskSnapshot } from './task-desk'
 import type { TownTourAnswerMessage, TownTourCall } from './town-tour-call'
+import type { TwisterCall } from './twister-call'
 import type { WorkLogEntry } from './work-log'
 
 /** Durable Object の名前。配送先は1つだけなので、決め打ちの名前で同じものを指す */
@@ -72,6 +76,8 @@ const PUSH_TOWN_TOUR_PATH = '/push/town-tour'
 const PUSH_BGM_DUCK_PATH = '/push/bgm-duck'
 /** Worker が読み上げのミュートの押し出しに使うパス */
 const PUSH_SPEECH_MUTE_PATH = '/push/speech-mute'
+/** Worker がツイスターの呼び出しの押し出しに使うパス */
+const PUSH_TWISTER_PATH = '/push/twister'
 /** Worker がオーバーレイ用キーを発行し直したときに、開いている接続を閉じさせるパス */
 const REVOKE_PATH = '/revoke'
 
@@ -91,6 +97,8 @@ const TOWN_TOUR_TOPIC = 'townTour'
 const BGM_DUCK_TOPIC = 'bgmDuck'
 /** 読み上げのミュートを受け取る接続（読み上げのページ）に付ける目印 */
 const SPEECH_MUTE_TOPIC = 'speechMute'
+/** ツイスターの呼び出しを受け取る接続（合成ページの素材「ツイスター」）に付ける目印 */
+const TWISTER_TOPIC = 'twister'
 /** 受け入れる接続の目印。知らない値はアラートの接続として受け入れる（Worker が必ずどれかを付けて渡す） */
 const TOPICS: readonly string[] = [
   ALERTS_TOPIC,
@@ -101,6 +109,7 @@ const TOPICS: readonly string[] = [
   TOWN_TOUR_TOPIC,
   BGM_DUCK_TOPIC,
   SPEECH_MUTE_TOPIC,
+  TWISTER_TOPIC,
 ]
 /** どちらの目印で受け入れるかを Worker が伝えるためのクエリ。外には出ない */
 const TOPIC_PARAM = 'topic'
@@ -146,7 +155,7 @@ export interface AlertChannelNamespace {
  * - Upgrade: websocket のリクエスト: オーバーレイからの接続を受ける（パスはWorkerのものがそのまま届く）。
  *   クエリの topic が bgm ならBGMの接続、workLog なら作業ログの接続、taskDesk なら作業机の接続、pomodoro ならポモドーロの接続、
  *   townTour なら市町村紹介の接続、bgmDuck なら配信のBGMを下げる知らせの接続、speechMute なら読み上げのミュートの接続、
- *   それ以外はアラートの接続として受け入れる
+ *   twister ならツイスターの接続、それ以外はアラートの接続として受け入れる
  * - POST /push: Worker が押し出したアラートを、アラートの接続すべてへ配る
  * - POST /push/bgm: Worker が押し出した「いま流している曲」を、BGMの接続すべてへ配る
  * - POST /push/work-log: Worker が押し出した作業ログの1行を、作業ログの接続すべてへ配る
@@ -155,6 +164,7 @@ export interface AlertChannelNamespace {
  * - POST /push/town-tour: Worker が押し出した市町村紹介の呼び出しを、市町村紹介の接続すべてへ配る
  * - POST /push/bgm-duck: Worker が押し出した配信のBGMを下げる知らせを、下げる知らせの接続すべてへ配る
  * - POST /push/speech-mute: Worker が押し出した読み上げのミュートを、ミュートの接続すべてへ配る
+ * - POST /push/twister: Worker が押し出したツイスターの呼び出しを、ツイスターの接続すべてへ配る
  * - POST /revoke: 新しいキーの目印を覚え、接続をすべて閉じる（オーバーレイ用キーを発行し直したとき。どの接続もオーバーレイ用キーで開かれている）
  *
  * 接続はどれもオーバーレイ用キーで開かれるので、覚えている目印と違うキーの接続は受け入れない（worker/overlay-key.ts）。
@@ -178,6 +188,7 @@ export class AlertChannel {
     if (url.pathname === PUSH_TOWN_TOUR_PATH) return this.push(TOWN_TOUR_TOPIC, await request.text(), '市町村紹介')
     if (url.pathname === PUSH_BGM_DUCK_PATH) return this.push(BGM_DUCK_TOPIC, await request.text(), '配信のBGMを下げる知らせ')
     if (url.pathname === PUSH_SPEECH_MUTE_PATH) return this.push(SPEECH_MUTE_TOPIC, await request.text(), '読み上げのミュート')
+    if (url.pathname === PUSH_TWISTER_PATH) return this.push(TWISTER_TOPIC, await request.text(), 'ツイスター')
     if (url.pathname === REVOKE_PATH) {
       // 先に目印を覚えてから閉じる。閉じたあとすぐ古いキーでつなぎ直されても受け入れないため
       if (!(await rememberKeyTag(this.ctx.storage, request))) return new Response(null, { status: STATUS.badRequest })
@@ -268,6 +279,16 @@ export const connectPomodoroSocket = (namespace: AlertChannelNamespace, request:
  */
 export const connectTownTourSocket = (namespace: AlertChannelNamespace, request: Request, keyTag: string): Promise<Response> =>
   connectWithTopic(namespace, request, TOWN_TOUR_TOPIC, keyTag)
+
+/**
+ * 合成ページの素材「ツイスター」からのWebSocketの接続を、ツイスターの呼び出しを受け取る接続として Durable Object へ引き渡す。
+ *
+ * オーバーレイ用キーの確認は呼び出し側（twister-routes.ts）が済ませている。
+ *
+ * @param keyTag 確かめたキーの目印（overlayKeyTag）
+ */
+export const connectTwisterSocket = (namespace: AlertChannelNamespace, request: Request, keyTag: string): Promise<Response> =>
+  connectWithTopic(namespace, request, TWISTER_TOPIC, keyTag)
 
 /**
  * 裏方のページからのWebSocketの接続を、配信のBGMを下げる知らせを受け取る接続として Durable Object へ引き渡す。
@@ -363,6 +384,15 @@ export const pushTownTour = (namespace: AlertChannelNamespace, call: TownTourCal
  */
 export const pushTownTourAnswer = (namespace: AlertChannelNamespace, answer: Omit<TownTourAnswerMessage, 'type'>): Promise<void> =>
   pushJson(namespace, PUSH_TOWN_TOUR_PATH, { type: 'answer', ...answer } satisfies TownTourAnswerMessage, 'クイズの正解者')
+
+/**
+ * ツイスターの呼び出し（対戦の種と2人）を Durable Object へ押し出す。レイドのトリガーと管理画面の試し再生で呼ぶ。
+ *
+ * 合成ページを開いていなければ配る先が無いだけで、失敗ではない（配送先は204を返す。つながっていない間の呼び出しは貯めずに落とす）。
+ *
+ * 注意: 失敗を黙って握りつぶさない。呼び出し側が失敗として記録する（試し再生は502にする）。
+ */
+export const pushTwister = (namespace: AlertChannelNamespace, call: TwisterCall): Promise<void> => pushJson(namespace, PUSH_TWISTER_PATH, call, 'ツイスター')
 
 /**
  * 配信のBGMを下げる知らせを Durable Object へ押し出す。合成ページが市町村紹介のBGMを鳴らすあいだに呼ぶ。

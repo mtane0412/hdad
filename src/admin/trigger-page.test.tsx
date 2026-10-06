@@ -49,6 +49,7 @@ const fakeApi = (overrides: Partial<AdminApi> = {}): AdminApi => ({
   removeMedia: vi.fn(async () => {}),
   rotateOverlayKey: vi.fn(async () => 'atarashii-key'),
   playTownTourDemo: vi.fn(async () => '試し再生: 本日は北海道石狩郡当別町をご紹介します'),
+  playTwisterDemo: vi.fn(async () => 'レイドした人（試し） vs 配信者'),
   townTourSound: vi.fn(async () => ({
     slots: { bgm: null, opening: null, zoom: null, landing: null, item: null, closing: null },
     bgmVolume: 0.3,
@@ -409,6 +410,35 @@ describe('効果の付け外し', () => {
 
     expect(api.playTownTourDemo).toHaveBeenCalledTimes(1)
     expect(await notice('北海道石狩郡当別町')).toBeInTheDocument()
+  })
+
+  test('レイドの項目でツイスターを選んで保存すると、ツイスターの効果として送る', async () => {
+    const api = fakeApi({ config: vi.fn(async () => []) })
+    render(triggerPage(api))
+
+    const row = await openedItem('レイドされた')
+    await userEvent.click(row.getByRole('checkbox', { name: 'ツイスターで対戦する' }))
+    await save()
+
+    expect(api.saveConfig).toHaveBeenCalledWith([{ kind: 'raid', actions: [{ type: 'twister' }] }])
+  })
+
+  test('レイド以外の項目にはツイスターを出さない（対戦する相手が配信者でないため）', async () => {
+    render(triggerPage(fakeApi()))
+
+    const row = await openedItem('フォローされた')
+
+    expect(row.queryByRole('checkbox', { name: 'ツイスターで対戦する' })).not.toBeInTheDocument()
+  })
+
+  test('ツイスターの試し再生を押すと、Workerに流させ、対戦する2人を知らせる', async () => {
+    const api = fakeApi()
+    render(triggerPage(api))
+
+    await userEvent.click(await screen.findByRole('button', { name: 'ツイスターを試しに流す' }))
+
+    expect(api.playTwisterDemo).toHaveBeenCalledTimes(1)
+    expect(await notice('レイドした人（試し） vs 配信者')).toBeInTheDocument()
   })
 
   test('レイド以外の項目にはシャウトアウトを出さない（紹介する相手が配信者でないため）', async () => {

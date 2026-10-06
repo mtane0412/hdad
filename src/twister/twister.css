@@ -1,0 +1,13 @@
+/*
+ * ツイスターの見た目
+ *
+ * マットと人形は WebGL の canvas に、名札・スピナー・文言は2Dの canvas に描く（src/twister/view.ts）。
+ * ここが持つのは、2枚の canvas を箱いっぱいに広げて重ねることだけである（2Dの canvas が上）。
+ */
+[data-twister] {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}

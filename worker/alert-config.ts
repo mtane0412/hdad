@@ -13,6 +13,8 @@
  *   紹介する相手が配信者であるレイドのトリガーにだけ置ける
  * - townTour: Workerが市町村を1つ引いて合成ページの素材「市町村紹介」へ押し出す（issue #229）。
  *   冒頭で名前を出す相手が決まるレイドとキーワード（!darts など）のトリガーにだけ置ける
+ * - twister: Workerが対戦の種と2人（レイドした人・配信者）の名前とアイコンを、合成ページの素材「ツイスター」へ押し出す（issue #272）。
+ *   対戦する相手が配信者であるレイドのトリガーにだけ置ける
  *
  * メニュー項目は17種類（worker/trigger-menu.ts の TRIGGER_KINDS）で、そのうちチャットの発言を対象にするものは
  * botを接続しているときだけ通知が届く。広告の終了（adBreakEnd）だけはTwitchから届く通知ではなく、
@@ -31,7 +33,7 @@ import { ANNOUNCEMENT_COLORS, type AnnouncementColor } from './twitch'
 const CONFIG_KEY = 'alert-config'
 
 /** 動作の種類。同じ種類は1トリガーに1件まで */
-export const ACTION_TYPES = ['alert', 'chat', 'announce', 'aiChat', 'shoutout', 'townTour'] as const
+export const ACTION_TYPES = ['alert', 'chat', 'announce', 'aiChat', 'shoutout', 'townTour', 'twister'] as const
 
 export type ActionType = (typeof ACTION_TYPES)[number]
 
@@ -122,6 +124,16 @@ export interface StoredTownTourAction {
   type: 'townTour'
 }
 
+/**
+ * レイドした人と配信者に、合成ページの素材「ツイスター」で対戦させる動作（issue #272）。
+ *
+ * 対戦の中身は種から決まり、種はその都度ランダムに引くので、配信者が決める項目を持たない。
+ * 置けるのはレイドのトリガーだけである（相手のアイコンを顔に貼るので、相手が配信者でなければならない）。
+ */
+export interface StoredTwisterAction {
+  type: 'twister'
+}
+
 export type StoredAction =
   | StoredAlertAction
   | StoredChatAction
@@ -129,6 +141,7 @@ export type StoredAction =
   | StoredAiChatAction
   | StoredShoutoutAction
   | StoredTownTourAction
+  | StoredTwisterAction
 
 /** 市町村紹介を置けるきっかけ。レイドはレイド元、キーワード（!darts など）は発言した人の名前を冒頭に出す */
 export const TOWN_TOUR_KINDS: readonly TriggerKind[] = ['raid', 'keyword']
@@ -312,6 +325,8 @@ const parseAction = (
   if (type === 'shoutout') return { type }
   // 市町村紹介も同じく配信者が決める項目を持たない（置けるきっかけは parseAlertConfig で確かめる）
   if (type === 'townTour') return { type }
+  // ツイスターも同じく配信者が決める項目を持たない（レイドにだけ置けることは parseAlertConfig で確かめる）
+  if (type === 'twister') return { type }
 
   if (type === 'aiChat') {
     const { instruction } = candidate
@@ -415,7 +430,12 @@ export const parseAlertConfig = (input: unknown, kindOfMedia: (mediaId: string) 
     const townTourOk = !hasTownTour || source === null || TOWN_TOUR_KINDS.includes(source.kind)
     if (!townTourOk) problems.push(`${at}.actions: 市町村紹介（townTour）はレイドとキーワードのトリガーにだけ置けます`)
 
-    if (source !== null && actions !== null && shoutoutOk && townTourOk) return [{ ...source, actions }]
+    // ツイスターはレイドした人と対戦するので、レイドのトリガーにだけ置かせる
+    const hasTwister = actions !== null && actions.some((action) => action.type === 'twister')
+    const twisterOk = !hasTwister || source === null || source.kind === 'raid'
+    if (!twisterOk) problems.push(`${at}.actions: ツイスター（twister）はレイドのトリガーにだけ置けます`)
+
+    if (source !== null && actions !== null && shoutoutOk && townTourOk && twisterOk) return [{ ...source, actions }]
     return []
   })
 
@@ -493,6 +513,10 @@ export const shoutoutActionOf = (trigger: WithActions): StoredShoutoutAction | n
 /** トリガーから市町村紹介を流す動作を取り出す。なければ null */
 export const townTourActionOf = (trigger: WithActions): StoredTownTourAction | null =>
   trigger.actions.find((action): action is StoredTownTourAction => action.type === 'townTour') ?? null
+
+/** トリガーからツイスターで対戦する動作を取り出す。なければ null */
+export const twisterActionOf = (trigger: WithActions): StoredTwisterAction | null =>
+  trigger.actions.find((action): action is StoredTwisterAction => action.type === 'twister') ?? null
 
 /** トリガーからアラートを出す動作を取り出す。なければ null */
 export const alertActionOf = (trigger: WithActions): StoredAlertAction | null =>
