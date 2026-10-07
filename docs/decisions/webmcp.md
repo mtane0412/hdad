@@ -6,7 +6,9 @@
 
 WebMCP の仕様は 2026年7月に `navigator.modelContext` から `document.modelContext` へ移った（ツールはブラウザ全体ではなく文書に属する、という理由）。Chrome は origin trial（149〜156）のあいだ両方を残しているが、古いほうは 150 で非推奨になったので新しいほうだけを使う。`provideContext`・`clearContext` は3月に仕様から消え、`unregisterTool` は出荷されなかったので、登録の解除は `registerTool` に渡す `AbortSignal` で行う。型は `webmcp-types` を開発時の依存に入れて使う。
 
-origin trial のトークンはページに入れない。試すのは `chrome://flags/#enable-webmcp-testing` を有効にしたブラウザだけでよく、本番のオリジンを登録して期限つきのトークンを持ち回る手間に見合わないためである（2026-10-07 時点で、主要なエージェントがまだ WebMCP のツールを呼ばないことも理由にある）。
+origin trial のトークンはページに入れない。試すのは `chrome://flags/#enable-webmcp-testing` を有効にしたブラウザだけでよく、本番のオリジンを登録して期限つきのトークンを持ち回る手間に見合わないためである。
+
+エージェント側の対応は、2026-10-07 時点では利用環境によって分かれている。ChatGPT のデスクトップアプリ（Windows・macOS）の組み込みブラウザーは、2026-08-25 の発表で WebMCP に対応し、対応したページのツールを見つけて使う（GPT-5.6 Sol・Terra に限り、Enterprise・Edu のワークスペースでは使えない）。発表で対応が挙げられたのはこの組み込みブラウザーだけで、Chrome で開いたページのツールを ChatGPT が使うことは発表されていない。Chrome で開いたページのツールを試すときは、Model Context Tool Inspector 拡張を使う。
 
 ## 段階を分ける
 
