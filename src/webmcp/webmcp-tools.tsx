@@ -22,15 +22,24 @@ import { usePomodoroTimer } from '@/pomodoro/timer-context'
 import { createSpeechMuteApi, type SpeechMuteApi } from '@/speech/api'
 import { useRecognition } from '@/transcript/recognition-context'
 import { registerTools, type ToolRegistry } from './register'
-import { buildTools, type PageEntry, type WebMcpDeps } from './tools'
+import { buildTools, type PageEntry, type WebMcpApis, type WebMcpDeps } from './tools'
 
 const defaultSpeechMuteApi = createSpeechMuteApi((input, init) => fetch(input, init))
 
 /**
  * @param pages エージェントに見せるページ（サイドバーの項目）
+ * @param apis 段階2以降のツールが使う Worker の Api（アプリの枠の PageContext。変わると登録し直すので、同じものを渡し続ける）
  * @param speechMuteApi 読み上げのミュートの読み書き。テストで差し替えるために受け取る
  */
-export const WebMcpTools = ({ pages, speechMuteApi = defaultSpeechMuteApi }: { pages: readonly PageEntry[]; speechMuteApi?: SpeechMuteApi }) => {
+export const WebMcpTools = ({
+  pages,
+  apis,
+  speechMuteApi = defaultSpeechMuteApi,
+}: {
+  pages: readonly PageEntry[]
+  apis: WebMcpApis
+  speechMuteApi?: SpeechMuteApi
+}) => {
   const bgm = useBgmPlayer()
   const pomodoro = usePomodoroTimer()
   const recognition = useRecognition()
@@ -58,6 +67,7 @@ export const WebMcpTools = ({ pages, speechMuteApi = defaultSpeechMuteApi }: { p
       now: () => Date.now(),
       speechMute: speechMuteApi,
       recognition: () => latest.current.recognition,
+      apis,
     }
     const modelContext: ToolRegistry | undefined = document.modelContext
     registerTools(modelContext, buildTools(deps), controller.signal).then(
@@ -72,7 +82,7 @@ export const WebMcpTools = ({ pages, speechMuteApi = defaultSpeechMuteApi }: { p
       },
     )
     return () => controller.abort()
-  }, [pages, speechMuteApi])
+  }, [pages, apis, speechMuteApi])
 
   if (problem === null) return null
   return (

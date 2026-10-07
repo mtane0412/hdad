@@ -1,6 +1,8 @@
 /**
  * WebMCP で登録するツールの定義（issue #279 の段階1: 配信中の操作とページの移動）
  *
+ * 段階2（配信に出る操作。broadcast-tools.ts）以降のツールは話題ごとのファイルに分け、buildTools がまとめて返す。
+ *
  * ブラウザのエージェントが HDAD を操作できるよう、下部バーでできること（BGM・ポモドーロ・読み上げのミュート・
  * 文字起こし）とページの移動をツールにする。ツールは画面のボタンと同じくアプリの枠の状態（BgmPlayerProvider など）を
  * 通して操作するので、エージェントが操作した結果は下部バーやページにもそのまま映る。
@@ -21,6 +23,8 @@ import { formatRemaining, phaseAt, type PomodoroTimer } from '@/pomodoro/phase'
 import type { PomodoroTimerValue } from '@/pomodoro/timer-context'
 import type { SpeechMuteApi } from '@/speech/api'
 import type { RecognitionContextValue } from '@/transcript/recognition-context'
+import { buildBroadcastTools, type BroadcastApis } from './broadcast-tools'
+import { NO_INPUT, readBoolean, readChoice } from './input'
 
 /** ページの一覧の1項目（サイドバーの項目と同じ） */
 export interface PageEntry {
@@ -44,30 +48,17 @@ export interface WebMcpDeps {
   now(): number
   speechMute: SpeechMuteApi
   recognition(): Pick<RecognitionContextValue, 'enabled' | 'phase' | 'error' | 'setEnabled'>
+  /** Worker の Api（段階2以降のツールが使う。名前はアプリの枠の PageContext と同じ） */
+  apis: WebMcpApis
 }
+
+/** 段階2以降のツールが使う Worker の Api。アプリの枠の PageContext をそのまま渡せる形にする */
+export type WebMcpApis = BroadcastApis
 
 const BGM_STEPS: readonly BgmStep[] = ['next', 'previous']
 const POMODORO_COMMANDS: readonly PomodoroCommand[] = ['start', 'pause', 'resume', 'stop']
 /** 音量の上限（百分率） */
 const MAX_VOLUME_PERCENT = 100
-
-/** 入力を持たないツールの入力の形 */
-const NO_INPUT = { type: 'object', properties: {} } as const
-
-/** 入力のうち、決まった候補のどれかでなければならない値を読む */
-const readChoice = <T extends string>(input: Record<string, unknown>, key: string, choices: readonly T[]): T => {
-  const value = input[key]
-  const found = choices.find((choice) => choice === value)
-  if (found === undefined) throw new Error(`${key} は ${choices.join('・')} のどれかにしてください`)
-  return found
-}
-
-/** 入力のうち、真偽値でなければならない値を読む */
-const readBoolean = (input: Record<string, unknown>, key: string): boolean => {
-  const value = input[key]
-  if (typeof value !== 'boolean') throw new Error(`${key} は true か false にしてください`)
-  return value
-}
 
 /** 読み込みが終わっていなければ投げる（読み込み中の既定値を、いまの状態として返さないため） */
 const ensureLoaded = (loaded: BgmPlayerValue['loaded'] | PomodoroTimerValue['loaded'], loadingMessage: string): void => {
@@ -275,4 +266,5 @@ export const buildTools = (deps: WebMcpDeps): WebMCP.ModelContextTool[] => [
       return '文字起こしをオフにしました'
     },
   },
+  ...buildBroadcastTools(deps.apis),
 ]

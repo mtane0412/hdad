@@ -218,7 +218,7 @@ const Shell = ({
                   <div key={pathname}>{page ? page.render(context) : <NotFound pathname={pathname} />}</div>
                 </div>
               </SidebarInset>
-              <BottomBar />
+              <BottomBar apis={context} />
             </SidebarProvider>
             <UnsavedChangesDialog />
           </TooltipProvider>
