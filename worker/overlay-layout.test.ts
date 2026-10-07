@@ -127,6 +127,20 @@ describe('parseOverlayLayout', () => {
     expect(parseOverlayLayout({ overlays: [{ name: 'front', items: [twister] }] })).toEqual({ overlays: [{ name: 'front', items: [twister] }] })
   })
 
+  it('ワイプ（wipe）はデザインIDを持たない種類として受け取る', () => {
+    const wipe: OverlayItem = { kind: 'wipe', id: '', params: '', rect: { x: 70, y: 3, width: 28, height: 30 } }
+
+    expect(parseOverlayLayout({ overlays: [{ name: 'front', items: [wipe] }] })).toEqual({ overlays: [{ name: 'front', items: [wipe] }] })
+  })
+
+  it('ワイプが構成全体で2つあれば受け付けない（どちらもチャットを読み上げ、同じ発言が二重に読まれるため）', () => {
+    const wipe: OverlayItem = { kind: 'wipe', id: '', params: '', rect: { x: 70, y: 3, width: 28, height: 30 } }
+
+    expect(issues({ overlays: [{ name: 'front', items: [wipe] }, { name: 'game', items: [wipe] }] })).toEqual([
+      'overlays[1].items[0]: ワイプは構成全体で1つまでにしてください（それぞれがチャットを読み上げ、同じ発言が二重に読まれるため）',
+    ])
+  })
+
   it('ポモドーロ（pomodoro）はデザインIDを持たない種類として受け取る', () => {
     const pomodoro: OverlayItem = { kind: 'pomodoro', id: '', params: '', rect: { x: 75, y: 5, width: 20, height: 15 } }
 

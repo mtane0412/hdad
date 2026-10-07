@@ -9,7 +9,7 @@ https://hdad.<サブドメイン>.workers.dev/overlay/backstage/?key=<オーバ�
 | パラメータ | 内容 |
 | --- | --- |
 | `key` | オーバーレイ用キー（必須）。ほかのオーバーレイと同じキーです |
-| `speech` | チャットの読み上げを動かすか（既定は `true`）。`false` にすると VOICEVOX にはつなぎません |
+| `speech` | チャットの読み上げを動かすか（既定は `true`）。`false` にすると VOICEVOX にはつなぎません。合成オーバーレイに[ワイプ](./wipe.md)を置いたときは、ワイプが読み上げるので `false` にします（`true` のままだと理由を出して読み上げません） |
 | `screen` | 配信画面の取り込みを動かすか（**既定は `false`**）。`true` にしたときだけ OBS（obs-websocket）につなぎます |
 | `bgm` | BGMを鳴らすか（**既定は `false`**）。`true` にしたときだけ、「BGM」のページで選んだ曲を鳴らします |
 

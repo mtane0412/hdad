@@ -68,6 +68,7 @@ import { createSideSuperApi } from '../side-super/api'
 import { demoSideSupers } from '../side-super/demo'
 import { sideSuperParamSchema } from '../side-super/params'
 import { createSideSuperView } from '../side-super/view'
+import { startSpeechVoice, type SpeechVoice } from '../speech/voice'
 import { layoutCrop, type Rect, type TabCrop } from '../tab/crop'
 import { openReceiverPeer } from '../tab/peer'
 import { createTabReceiver } from '../tab/receiver'
@@ -103,6 +104,11 @@ import { loadFaceImage } from '../twister/face-loader'
 import { createGame, gameSceneAt, type Game } from '../twister/game'
 import { createTwisterRenderer } from '../twister/view'
 import { backgrounds } from '../wallpaper/registry'
+import { createWipeOverlayApi } from '../wipe/api'
+import { wipeCommentOf } from '../wipe/comment'
+import { demoWipeComments } from '../wipe/demo'
+import { createWipeRunner, waitOrAbort, type WipeRunner } from '../wipe/runner'
+import { createWipeView } from '../wipe/view'
 import { WORK_LOG_SOCKET_HINT, WORK_LOG_SOCKET_PATH, createWorkLogApi } from '../work-log/api'
 import { demoWorkLogScenes } from '../work-log/demo'
 import { WORK_LOG_LIMIT, mergeEntries, parseWorkLogEntry, type WorkLogEntry } from '../work-log/entry'
@@ -132,6 +138,7 @@ const NOUNS: Readonly<Record<ItemKind, string>> = {
   pomodoro: 'ポモドーロ',
   townTour: '市町村紹介',
   twister: 'ツイスター',
+  wipe: 'ワイプ',
 }
 
 /** サイドスーパーの文言を読みに行く間隔（ミリ秒）。文言は cron が5分おきに作るので、30秒あれば十分に追いつく */
@@ -579,6 +586,101 @@ const mountFocus = (box: HTMLElement, item: OverlayItem, { key, demo, hub }: Mou
       },
     },
   }
+}
+
+/**
+ * ワイプ。バラエティ番組のワイプのように、チャットの発言を1件ずつ、発言した人のアイコンの枠と吹き出しで出す。
+ *
+ * 読み上げはこの素材が自分で行い、読み上げているあいだだけ吹き出しを出す（音と表示を合わせるため。順番の進め方は
+ * src/wipe/runner.ts）。読み上げの設定とミュートは裏方の読み上げと同じものを使う（src/speech/voice.ts）。
+ * ミュート中は読まずに、文の長さに応じた時間だけ出す。
+ *
+ * 注意: 声の準備（設定の読み出しと合成先の確認）に失敗したら、この素材は何も出さずに失敗を箱に出す（Fail-Fast）。
+ * 準備ができるまでに届いた発言は並べない（どの発言を出すかを、読み上げない人の設定なしには決められないため）。
+ * 注意: 同じ発言を裏方の読み上げも読むと二重になるので、裏方の読み上げは構成にワイプがあれば始めない（src/speech/task.ts）。
+ */
+const mountWipe = (box: HTMLElement, item: OverlayItem, { key, demo, hub }: MountContext): MountedItem => {
+  // この素材は配信者が決めるパラメータを持たない（読み上げの設定は Worker が持つ）
+  parseParams({}, new URLSearchParams(item.params))
+
+  const root = document.createElement('div')
+  root.className = 'wipe'
+  root.dataset.wipe = ''
+  box.append(root)
+
+  const view = createWipeView(root)
+
+  if (demo) {
+    // プレビューではチャットにつながず、読み上げもせずにサンプルを順に出す
+    startSampleCycle(demoWipeComments, DEMO_SAMPLE_INTERVAL_MS, (shown) => view.show(shown))
+    return {}
+  }
+
+  const api = createWipeOverlayApi(callWorker, key)
+  /** 声と順番の進め方。声の準備ができるまでは null */
+  let started: { readonly voice: SpeechVoice; readonly runner: WipeRunner } | null = null
+
+  void startSpeechVoice({
+    key,
+    box,
+    noun: NOUNS.wipe,
+    // ミュートしたら鳴っている1件を止める（吹き出しは少し残してから次へ進み、以降は読まずに出す）
+    onMute: (muted) => {
+      if (muted) started?.runner.stopSpeaking()
+    },
+  })
+    .then(({ voice }) => {
+      const runner = createWipeRunner({
+        lookupIcon: (login) => api.lookupIcon(login),
+        speak: (text, signal) => voice.speak(text, signal),
+        muted: () => voice.muted(),
+        wait: waitOrAbort,
+        show: (shown) => {
+          view.show(shown)
+          // 前の1件の失敗が箱に出ていれば消す（直ったのに赤い表示が残ったままにしない）
+          clearError(box, 'read')
+        },
+        hide: () => view.hide(),
+        onError: (error) => showError(error, NOUNS.wipe, box, 'read'),
+      })
+      started = { voice, runner }
+    })
+    .catch((error: unknown) => showError(error, NOUNS.wipe, box, 'layer'))
+
+  // 要るものを伝えないのは、バッジもサードパーティエモートも使わないためである
+  hub.listen({
+    onEvent: (event) => {
+      if (started === null) return
+      const { voice, runner } = started
+      switch (event.type) {
+        case 'message': {
+          // 出すかどうかは、届いた時点の読み上げの設定で決める（読み上げない人を追加したら次の発言から効く）
+          const { readName, maxLength, ignoreLogins } = voice.settings()
+          const comment = wipeCommentOf(hub.decorate(event.message, false), { readName, maxLength, ignoreLogins })
+          if (comment !== null) runner.enqueue(comment)
+          break
+        }
+        case 'delete':
+          runner.remove((comment) => comment.messageId === event.id)
+          break
+        case 'clear-user':
+          runner.remove((comment) => comment.login === event.login)
+          break
+        case 'clear-all':
+          runner.remove(() => true)
+          break
+        case 'room':
+        case 'notice':
+          // 接続の知らせはワイプに関係しない
+          break
+      }
+    },
+    onStatus: () => {
+      // 切断・再接続は出さない。再接続は connection.ts が続けるので、出している1件はそのまま出しきる
+    },
+  })
+
+  return { usesChat: true }
 }
 
 /** 素材1つを起動する */
@@ -1663,6 +1765,8 @@ const mountItem = (box: HTMLElement, item: OverlayItem, context: MountContext): 
       return mountTownTour(box, item, context)
     case 'twister':
       return mountTwister(box, item, context)
+    case 'wipe':
+      return mountWipe(box, item, context)
   }
 }
 

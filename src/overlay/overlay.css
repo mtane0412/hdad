@@ -28,6 +28,7 @@
 @import '../pomodoro/pomodoro.css';
 @import '../town-tour/town-tour.css';
 @import '../twister/twister.css';
+@import '../wipe/wipe.css';
 
 .overlay {
   position: relative;
