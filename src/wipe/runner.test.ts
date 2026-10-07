@@ -5,12 +5,13 @@
  * 特に重要なのは次の点。
  * - 1件ずつ順に出し、読み上げているあいだだけ吹き出しを出すこと（読み終えたら少し残してから次へ）
  * - ミュート中は読まず、文の長さに応じた時間だけ出して次へ進むこと
+ * - 次の発言が無ければ、引っ込めずにしばらく残し、そのあいだに届いた発言へはそのまま替えること
  * - アイコンを引けなかった1件は、失敗を知らせて飛ばし、以降を止めないこと
  * - モデレーターに消された発言は、出している途中でも引っ込め、待ちからも外すこと
  */
 import { describe, expect, it, vi } from 'vitest'
 import { silentDurationOf, type WipeComment } from './comment'
-import { HOLD_AFTER_SPEECH_MS, createWipeRunner, waitOrAbort, type ShownComment } from './runner'
+import { HOLD_AFTER_SPEECH_MS, LINGER_MS, createWipeRunner, waitOrAbort, type ShownComment } from './runner'
 
 /** 前提: たねのぶさんの「こんにちは」 */
 const greeting: WipeComment = {
@@ -47,7 +48,16 @@ const createFakeSpeech = () => {
   return { spoken, speak }
 }
 
-const setup = (options: { muted?: boolean; failingLogins?: readonly string[] } = {}) => {
+/**
+ * 前提の組み立て。
+ * keepLingering を true にすると、次の発言を待って残す時間（LINGER_MS）の待ちだけは、止める合図が来るまで終わらない
+ * （残しているあいだに起きることを確かめるため）。それ以外の待ちは長さだけ記録してすぐ進める
+ */
+const setup = (
+  options: { muted?: boolean; failingLogins?: readonly string[]; keepLingering?: boolean; pendingIconLogins?: readonly string[] } = {},
+) => {
+  /** アイコンを引き終えるのをテストが決める人の、引き終える処理（pendingIconLogins に挙げた人だけ） */
+  const iconResolvers = new Map<string, () => void>()
   const speech = createFakeSpeech()
   const events: string[] = []
   const shown: ShownComment[] = []
@@ -58,13 +68,17 @@ const setup = (options: { muted?: boolean; failingLogins?: readonly string[] } =
     lookupIcon: async (login) => {
       iconLookups.push(login)
       if (options.failingLogins?.includes(login)) throw new Error(`${login} のアイコンを引けませんでした`)
+      if (options.pendingIconLogins?.includes(login)) {
+        await new Promise<void>((resolve) => iconResolvers.set(login, resolve))
+      }
       return iconOf(login)
     },
     speak: speech.speak,
     muted: () => options.muted ?? false,
-    // 待ち時間は長さだけ記録してすぐ進める
-    wait: async (ms) => {
+    wait: (ms, signal) => {
       waits.push(ms)
+      if (!(options.keepLingering === true && ms === LINGER_MS)) return Promise.resolve()
+      return new Promise((resolve) => signal.addEventListener('abort', () => resolve()))
     },
     show: (comment) => {
       shown.push(comment)
@@ -73,7 +87,7 @@ const setup = (options: { muted?: boolean; failingLogins?: readonly string[] } =
     hide: () => events.push('引っ込める'),
     onError: (error) => errors.push(error),
   })
-  return { runner, speech, events, shown, waits, errors, iconLookups }
+  return { runner, speech, events, shown, waits, errors, iconLookups, iconResolvers }
 }
 
 describe('createWipeRunner（読み上げ中）', () => {
@@ -89,7 +103,7 @@ describe('createWipeRunner（読み上げ中）', () => {
     expect(events).toEqual(['出す: たねのぶ'])
   })
 
-  it('読み終えたら少し残してから引っ込める', async () => {
+  it('読み終えて次の発言が無ければ、しばらく残してから引っ込める', async () => {
     const { runner, speech, events, waits } = setup()
 
     runner.enqueue(greeting)
@@ -97,8 +111,34 @@ describe('createWipeRunner（読み上げ中）', () => {
     speech.spoken[0]?.finish()
     await flush()
 
-    expect(waits).toEqual([HOLD_AFTER_SPEECH_MS])
+    // 読み終わりの余韻のあと、次の発言を待ってしばらく残す
+    expect(waits).toEqual([HOLD_AFTER_SPEECH_MS, LINGER_MS])
     expect(events).toEqual(['出す: たねのぶ', '引っ込める'])
+  })
+
+  it('残しているあいだは引っ込めない', async () => {
+    const { runner, speech, events } = setup({ keepLingering: true })
+
+    runner.enqueue(greeting)
+    await flush()
+    speech.spoken[0]?.finish()
+    await flush()
+
+    expect(events).toEqual(['出す: たねのぶ'])
+  })
+
+  it('残しているあいだに次の発言が届いたら、引っ込めずにすぐ次の人へ替えて読む', async () => {
+    const { runner, speech, events } = setup({ keepLingering: true })
+
+    runner.enqueue(greeting)
+    await flush()
+    speech.spoken[0]?.finish()
+    await flush()
+    runner.enqueue(scaryTalk)
+    await flush()
+
+    expect(events).toEqual(['出す: たねのぶ', '出す: 怖い話す人'])
+    expect(speech.spoken.map(({ text }) => text)).toEqual(['こんにちは', '今から怖い話をするね'])
   })
 
   it('続けて届いた発言は、前の1件を読み終えてから順に出す', async () => {
@@ -150,7 +190,7 @@ describe('createWipeRunner（ミュート中）', () => {
     await flush()
 
     expect(speech.spoken).toEqual([])
-    expect(waits).toEqual([silentDurationOf('今から怖い話をするね')])
+    expect(waits).toEqual([silentDurationOf('今から怖い話をするね'), LINGER_MS])
     expect(events).toEqual(['出す: 怖い話す人', '引っ込める'])
   })
 
@@ -163,7 +203,7 @@ describe('createWipeRunner（ミュート中）', () => {
     await flush()
 
     expect(speech.spoken[0]?.signal.aborted).toBe(true)
-    expect(waits).toEqual([HOLD_AFTER_SPEECH_MS])
+    expect(waits).toEqual([HOLD_AFTER_SPEECH_MS, LINGER_MS])
     expect(events).toEqual(['出す: たねのぶ', '引っ込める'])
   })
 })
@@ -218,6 +258,54 @@ describe('createWipeRunner（モデレーターによる消去）', () => {
     // 消された発言は少しでも残さない
     expect(waits).toEqual([])
     expect(events).toEqual(['出す: たねのぶ', '引っ込める'])
+  })
+
+  it('残している発言が消されたら、すぐ引っ込める', async () => {
+    const { runner, speech, events } = setup({ keepLingering: true })
+
+    runner.enqueue(greeting)
+    await flush()
+    speech.spoken[0]?.finish()
+    await flush()
+    runner.remove((comment) => comment.login === 'tanenob')
+    await flush()
+
+    expect(events).toEqual(['出す: たねのぶ', '引っ込める'])
+  })
+
+  it('次の人のアイコンを待つあいだに、出したままの前の発言が消されたら、すぐ引っ込める', async () => {
+    const { runner, speech, events, iconResolvers } = setup({ keepLingering: true, pendingIconLogins: ['kowai_hanashi'] })
+
+    runner.enqueue(greeting)
+    await flush()
+    speech.spoken[0]?.finish()
+    await flush()
+    // 残しているあいだに次の人の発言が届き、その人のアイコンを引いている
+    runner.enqueue(scaryTalk)
+    await flush()
+    runner.remove((comment) => comment.login === 'tanenob')
+    await flush()
+
+    // 消された発言は、次の人を出すまで待たずに引っ込める
+    expect(events).toEqual(['出す: たねのぶ', '引っ込める'])
+
+    iconResolvers.get('kowai_hanashi')?.()
+    await flush()
+
+    expect(events).toEqual(['出す: たねのぶ', '引っ込める', '出す: 怖い話す人'])
+  })
+
+  it('残している発言と別の人の発言が消されても、引っ込めない', async () => {
+    const { runner, speech, events } = setup({ keepLingering: true })
+
+    runner.enqueue(greeting)
+    await flush()
+    speech.spoken[0]?.finish()
+    await flush()
+    runner.remove((comment) => comment.login === 'kowai_hanashi')
+    await flush()
+
+    expect(events).toEqual(['出す: たねのぶ'])
   })
 
   it('待っている発言が消されたら、その発言は出さない', async () => {

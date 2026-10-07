@@ -27,9 +27,12 @@
  * OBSの再読み込みが要るためである。設定の読み直しの失敗も止めず、前に読んだ設定のまま読み上げを続ける。
  * 注意: 構成にワイプ（素材の種類 wipe）があれば読み上げを始めずに投げる。ワイプが同じチャットを自分で読み上げるので、
  * 両方が動くと同じ発言が二重に読まれるためである（黙って片方を止めず、裏方の読み上げを外すよう画面に出す）。
+ * 起動のあとも構成を一定間隔で読み直し、あとからワイプが置かれたら読み上げをやめて同じ理由を画面に出す
+ * （起動のときだけ確かめていたため、裏方を開いたままワイプを置くと二重に読まれていた）。
  */
 import { loadChannel } from '../chat/channel'
 import { connectChat } from '../chat/connection'
+import { showError } from '../core/mount'
 import { createOverlayLayoutApi } from '../overlay/api'
 import { wipeOverlayNameOf } from '../wipe/layout'
 import { advanceSpeech, EMPTY_SPEECH_QUEUE, enqueueSpeech, type SpeechQueue } from './queue'
@@ -38,6 +41,18 @@ import { startSpeechVoice } from './voice'
 
 /** エラー表示でこの裏方を指す呼び名 */
 export const SPEECH_NOUN = 'チャットの読み上げ'
+
+/**
+ * 起動のあとに構成を読み直す間隔（ミリ秒）。あとからワイプが置かれたら、これだけ待つあいだに読み上げをやめる。
+ * 読み上げの設定を読み直す間隔（src/speech/voice.ts）と揃えてある
+ */
+const LAYOUT_CHECK_INTERVAL_MS = 30000
+
+/** ワイプが読み上げるので、ここでは読み上げないことを知らせるエラー */
+const yieldToWipe = (overlayName: string): Error =>
+  new Error(
+    `オーバーレイ「${overlayName}」のワイプがチャットを読み上げるので、ここでは読み上げません（同じ発言が二重に読まれるため）。裏方のURLを ?speech=false にするか、ワイプを構成から外してOBSでこのブラウザソースを再読み込みしてください`,
+  )
 
 export interface SpeechTaskOptions {
   /** オーバーレイ用キー（読み上げの設定を Worker から読むために使う） */
@@ -63,12 +78,11 @@ export interface StartedSpeech {
  * @throws 起動に失敗した場合（構成にワイプがある・設定が読めない・VOICEVOX が動いていない・さくらが話者を拒んだ・チャンネル名が読めない）
  */
 export const startSpeech = async ({ key, box }: SpeechTaskOptions): Promise<StartedSpeech> => {
-  const wipeOverlay = wipeOverlayNameOf(await createOverlayLayoutApi((input, init) => fetch(input, init), key).read())
-  if (wipeOverlay !== null) {
-    throw new Error(
-      `オーバーレイ「${wipeOverlay}」のワイプがチャットを読み上げるので、ここでは読み上げません（同じ発言が二重に読まれるため）。裏方のURLを ?speech=false にするか、ワイプを構成から外してください`,
-    )
-  }
+  const layoutApi = createOverlayLayoutApi((input, init) => fetch(input, init), key)
+  const wipeOverlay = wipeOverlayNameOf(await layoutApi.read())
+  if (wipeOverlay !== null) throw yieldToWipe(wipeOverlay)
+  /** あとからワイプが置かれて、読み上げをやめたか。やめたら戻さない（戻すにはOBSでの再読み込みが要る） */
+  let yielded = false
 
   let queue: SpeechQueue = EMPTY_SPEECH_QUEUE
   /** いま読み上げの処理を回しているか。1件ずつ順に読むため、回っているあいだは新しく始めない */
@@ -93,6 +107,26 @@ export const startSpeech = async ({ key, box }: SpeechTaskOptions): Promise<Star
       playback.abort()
     },
   })
+
+  const layoutCheck = window.setInterval(() => {
+    void layoutApi
+      .read()
+      .then((overlays) => {
+        const overlayName = wipeOverlayNameOf(overlays)
+        if (overlayName === null || yielded) return
+        // 鳴っている1件を止めて待ちを捨て、以降は読まない（ミュートと同じ止め方）
+        yielded = true
+        window.clearInterval(layoutCheck)
+        queue = EMPTY_SPEECH_QUEUE
+        discardCount += 1
+        playback.abort()
+        showError(yieldToWipe(overlayName), SPEECH_NOUN, box)
+      })
+      .catch((error: unknown) => {
+        // 一時的な通信の失敗で読み上げを止めない。次の読み直しで確かめる
+        console.error('オーバーレイの構成を読み直せませんでした', error)
+      })
+  }, LAYOUT_CHECK_INTERVAL_MS)
 
   const pump = async (): Promise<void> => {
     if (speaking) return
@@ -120,8 +154,8 @@ export const startSpeech = async ({ key, box }: SpeechTaskOptions): Promise<Star
   const { login } = await loadChannel((input, init) => fetch(input, init))
   connectChat(login, {
     onEvent: (event) => {
-      // ミュート中に届いたコメントは、戻したあとも読まないので並べない
-      if (event.type !== 'message' || voice.muted()) return
+      // ワイプに読み上げを譲ったあとと、ミュート中に届いたコメントは、戻したあとも読まないので並べない
+      if (event.type !== 'message' || yielded || voice.muted()) return
       // 読むかどうかの判断も、届いた時点の設定で行う（読み上げない人を追加したら次の発言から効く）
       const settings = voice.settings()
       const text = speechTextOf(event.message, {

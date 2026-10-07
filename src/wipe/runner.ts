@@ -2,7 +2,8 @@
  * ワイプの順番の進め方
  *
  * 届いた発言を1件ずつ順に、アイコン付きでワイプに出す。読み上げているあいだだけ吹き出しを出し、読み終えたら
- * 少し残してから次の1件へ進む（次が無ければ引っ込める）。ミュート中は読み上げず、文の長さに応じた時間だけ出す。
+ * 少し残してから次の1件へ進む。次が無ければすぐには引っ込めず、しばらく残して次の発言を待つ（そのあいだに届けば
+ * 引っ込めずに次の人へ替える）。ミュート中は読み上げず、文の長さに応じた時間だけ出す。
  *
  * 合成・再生・DOM・時間待ちはすべて引数で受け取り、ここは「いつ何を出し、いつ読むか」だけを持つ
  * （テストで差し替えるため。つなぐのは src/overlay/stage.ts の mountWipe）。待ちの列は読み上げと同じもの
@@ -18,6 +19,12 @@ import { silentDurationOf, type WipeComment } from './comment'
 
 /** 読み終えてから吹き出しを残しておく時間（ミリ秒）。読み終わりと同時に消えると、最後の言葉を目で追えないため */
 export const HOLD_AFTER_SPEECH_MS = 800
+
+/**
+ * 次の発言が無いとき、引っ込めずに残しておく時間（ミリ秒）。読み終わりですぐ引っ込めると、ワイプが一瞬しか映らず
+ * 誰が言ったのかを見届けられないため
+ */
+export const LINGER_MS = 6000
 
 /** ワイプに出す1件と、その人のアイコン */
 export interface ShownComment {
@@ -80,6 +87,10 @@ export const createWipeRunner =(options: WipeRunnerOptions): WipeRunner => {
   let presentation = new AbortController()
   /** 鳴っている1件を止める合図（ミュートと消去） */
   let playback = new AbortController()
+  /** 次の発言を待って残しているのをやめる合図（次の発言が届いたとき・残している発言が消されたとき） */
+  let lingering = new AbortController()
+  /** いまワイプに出している発言。出していなければ null（残しているあいだに消されたかを見分けるために持つ） */
+  let shown: WipeComment | null = null
   /** ログイン名ごとのアイコンの読み出し。同じ人の発言で何度も引かないために覚えておく */
   const icons = new Map<string, Promise<string>>()
 
@@ -102,6 +113,7 @@ export const createWipeRunner =(options: WipeRunnerOptions): WipeRunner => {
     if (presentation.signal.aborted) return
     options.show({ comment, profileImageUrl })
     showing = true
+    shown = comment
 
     // ミュートかどうかは、その1件を出す時点で決める（途中で切り替えたら次の1件から効く）
     if (options.muted()) {
@@ -119,23 +131,39 @@ export const createWipeRunner =(options: WipeRunnerOptions): WipeRunner => {
     await options.wait(HOLD_AFTER_SPEECH_MS, presentation.signal)
   }
 
+  /** ワイプを引っ込め、何も出していない状態にする */
+  const hideShown = (): void => {
+    options.hide()
+    showing = false
+    shown = null
+  }
+
   const pump = async (): Promise<void> => {
     if (running) return
     running = true
     try {
-      while (queue.current !== null) {
-        presentation = new AbortController()
-        try {
-          await present(queue.current)
-        } catch (error) {
-          options.onError(error)
-        }
-        queue = advanceSpeech(queue)
+      for (;;) {
         // 次が待っていれば引っ込めずにそのまま入れ替える（引っ込めてまた出すと、ワイプがちらつく）
-        if (queue.current === null && showing) {
-          options.hide()
-          showing = false
+        while (queue.current !== null) {
+          presentation = new AbortController()
+          try {
+            await present(queue.current)
+          } catch (error) {
+            options.onError(error)
+          }
+          queue = advanceSpeech(queue)
         }
+        if (!showing) return
+        // 消された発言は残さない。そうでなければ、しばらく残して次の発言を待つ
+        if (!presentation.signal.aborted) {
+          lingering = new AbortController()
+          await options.wait(LINGER_MS, lingering.signal)
+          // 残しているあいだに届いた発言は、引っ込めずにそのまま出す
+          if (queue.current !== null) continue
+        }
+        // 残しているあいだに消されていれば、remove がもう引っ込めている
+        if (showing) hideShown()
+        return
       }
     } finally {
       running = false
@@ -147,14 +175,23 @@ export const createWipeRunner =(options: WipeRunnerOptions): WipeRunner => {
       // 前の1件を読んでいるあいだに、次の人のアイコンを引いておく（出すときに待たせないため）
       void iconOf(comment.login)
       queue = enqueueSpeech(queue, comment)
+      // 残しているあいだに届いたら、待たずに次の人へ替える
+      lingering.abort()
       void pump()
     },
 
     remove(matches) {
       queue = { current: queue.current, waiting: queue.waiting.filter((comment) => !matches(comment)) }
-      if (queue.current === null || !matches(queue.current)) return
-      presentation.abort()
-      playback.abort()
+      if (queue.current !== null && matches(queue.current)) {
+        presentation.abort()
+        playback.abort()
+      }
+      // 出したまま残っている前の発言（読み終えて残している・次の人のアイコンを待っている）が消されたら、
+      // 次の人を出すのを待たずにすぐ引っ込める。順番が回っている発言とは別に見る
+      if (shown !== null && shown !== queue.current && matches(shown)) {
+        lingering.abort()
+        hideShown()
+      }
     },
 
     stopSpeaking() {
