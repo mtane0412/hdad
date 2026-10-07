@@ -113,24 +113,35 @@ export const nextChapterWindow = (target: ChapterTarget, now: number): ChapterWi
  * ほかの材料もそこで切る（残りは次の章に回す）。上限で読むのをやめるだけだと、区間の後半が一度も章にならないためである。
  * 1件多く読んだ行の時刻で切るのは、上限ちょうどの行と同じ時刻の行が残っていても、次の章に丸ごと回すためである。
  *
+ * 注意: 上限を超えた行がすべて区間の始まりと同じ時刻だと、区間が空になり切れない。画面の文字は1回の収集で通した
+ * 数枚ぶんの行が同じ時刻で積まれる（screen-store.ts の saveScreenLines）ので、実際に起きる。このときは null を返し、
+ * 呼び出し側がその時刻の行だけを丸ごと読み直して1つの区間（sameTimeWindow）にする。投げると区間が進まず、
+ * 以後その配信の章が一つも作られなくなるためである。
+ *
  * @param limits 材料ごとの件数の上限
- * @throws Error 上限を超えた行がすべて区間の始まりと同じ時刻で、区間が空になる場合（黙って捨てないため）
+ * @returns 縮めた区間と材料。区間の始まりと同じ時刻で切れないときは null
  */
 export const fitChapterMaterial = (
   window: ChapterWindow,
   lines: ChapterLines,
   limits: Readonly<Record<keyof ChapterLines, number>>,
-): ChapterWindow & ChapterLines => {
+): (ChapterWindow & ChapterLines) | null => {
   const cutAt = (material: readonly TimedLine[], limit: number): string | undefined => material[limit]?.at
   const cuts = [cutAt(lines.transcripts, limits.transcripts), cutAt(lines.chats, limits.chats), cutAt(lines.screen, limits.screen)]
   // ISO 8601 は桁数が揃っているので、文字列のまま大小を比べられる
   const to = cuts.reduce<string>((earliest, cut) => (cut !== undefined && cut < earliest ? cut : earliest), window.to)
-  if (to <= window.from) {
-    throw new Error(`章にする区間（${window.from}〜）で、件数の上限を超える行がすべて同じ時刻に記録されていたため、区間を切れませんでした`)
-  }
+  if (to <= window.from) return null
   const within = (material: readonly TimedLine[]): TimedLine[] => material.filter((line) => line.at < to)
   return { from: window.from, to, transcripts: within(lines.transcripts), chats: within(lines.chats), screen: within(lines.screen) }
 }
+
+/**
+ * 始まりの時刻の行だけを含む区間（始まりから1ミリ秒後まで）を返す。
+ *
+ * fitChapterMaterial が区間を切れなかったときに使う。記録の時刻はミリ秒までの ISO 8601 なので、
+ * 1ミリ秒後を終わりにすると、ちょうど始まりの時刻の行だけが入る。
+ */
+export const sameTimeWindow = (from: string): ChapterWindow => ({ from, to: toIso(Date.parse(from) + 1) })
 
 /** 章を作るための材料 */
 export interface StreamChapterMaterial {

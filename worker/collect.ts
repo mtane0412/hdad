@@ -34,8 +34,8 @@ import { readSideSuper, saveSideSuper } from './side-super-store'
 import { generateSideSuper } from './side-super'
 import { readStreamSummary, saveStreamSummary } from './stream-summary-store'
 import { generateStreamSummary } from './stream-summary'
-import { listChapterTargets, readChapterLines, saveStreamChapter, skipChapterWindow } from './stream-chapter-store'
-import { fitChapterMaterial, generateStreamChapter, nextChapterWindow, type ChapterTarget } from './stream-chapter'
+import { listChapterTargets, readChapterLines, readChapterLinesAt, saveStreamChapter, skipChapterWindow } from './stream-chapter-store'
+import { fitChapterMaterial, generateStreamChapter, nextChapterWindow, sameTimeWindow, type ChapterTarget } from './stream-chapter'
 import { loadStreamTitleSettings } from './stream-title-config'
 import { readStreamTitleTarget, saveStreamTitleCandidate } from './stream-title-store'
 import { generateStreamTitleCandidate, judgeStreamTitleCandidate } from './stream-title'
@@ -321,9 +321,9 @@ const MAX_CHAPTER_WINDOWS_PER_COLLECT = 24
  * Workers AI の無料枠を一度に使い切るためである。cron は5分おきに動くので、残りは順に作られる。
  * 注意: 発話の無い区間は、LLMを呼ばずに飛ばす。視聴者の書き込みや画面の文字だけを材料にすると、
  * それが配信で起きたこととして書かれるためである（あらすじが発話の無いときに作らないのと同じ理由）。
- * 注意: 失敗しても収集そのものを止めず、区間も進めない（次の収集でやり直す）。区間が進まないあいだは、
- * その配信の人物像も作られない（stream-chat-store.ts の CHAPTERED_SESSIONS）。材料の文字起こしが保持期間で
- * 消えれば、残りの区間は発話の無い区間として飛ばされるので、人物像がいつまでも作られないことはない。
+ * 注意: 失敗しても収集そのものを止めず、区間も進めない（次の収集でやり直す）。その回はほかの配信の章づくりへ進み、
+ * 前の配信の失敗に配信中の配信を巻き込まない。区間が進まないあいだは、その配信の人物像も作られない
+ * （stream-chat-store.ts の CHAPTERED_SESSIONS）。材料の文字起こしが保持期間で消えれば、残りの区間は発話の無い区間として飛ばされるので、人物像がいつまでも作られないことはない。
  * 注意: 配信中の配信の章ができたら、見出しを合成ページの素材「作業ログ」へ押し出す（issue #211）。終わった配信の章は
  * 押し出さない（合成ページが映すのは配信中の配信のログだけ）。押し出しの失敗は章づくりの失敗とは分けて記録し、
  * 章は残して区間も進める。作り直すとLLMの枠を使ううえ、合成ページは次の読み直しで取り戻せるためである。
@@ -336,15 +336,10 @@ const makeStreamChapter = async (db: Database, ai: TextGenerator, alerts: AlertC
       windowCount += 1
       if (windowCount > MAX_CHAPTER_WINDOWS_PER_COLLECT) return
       const lines = await readChapterLines(db, current.id, window, CHAPTER_LINE_LIMITS)
-      // 区間を切れない（上限を超える行がすべて区間の始まりと同じ時刻）ときも、LLMの失敗と同じく記録して打ち切る。
-      // ここで投げると、あとに続く人物像づくりまで止まってしまうためである
-      let material: ReturnType<typeof fitChapterMaterial>
-      try {
-        material = fitChapterMaterial(window, lines, CHAPTER_LINE_LIMITS)
-      } catch (error) {
-        await recordFailure(db, 'stream-chapter-failed', error instanceof Error ? error.message : String(error), now)
-        return
-      }
+      // 区間を切れない（上限を超える行がすべて区間の始まりと同じ時刻）ときは、その時刻の行だけを丸ごと1つの区間にする
+      const material =
+        fitChapterMaterial(window, lines, CHAPTER_LINE_LIMITS) ??
+        { ...sameTimeWindow(window.from), ...(await readChapterLinesAt(db, current.id, window.from)) }
       if (material.transcripts.length === 0) {
         await skipChapterWindow(db, current.id, material.to)
         current = { ...current, chapteredUntil: material.to }
@@ -366,7 +361,9 @@ const makeStreamChapter = async (db: Database, ai: TextGenerator, alerts: AlertC
           )
         }
       } catch (error) {
+        // 失敗した配信は次の収集でやり直し、ほかの配信（配信中の配信など）の章づくりには進む
         await recordFailure(db, 'stream-chapter-failed', error instanceof Error ? error.message : String(error), now)
+        break
       }
       return
     }
