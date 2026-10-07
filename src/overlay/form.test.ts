@@ -78,6 +78,10 @@ describe('defaultRectFor', () => {
     expect(defaultRectFor('clock')).toEqual({ x: '0', y: '0', width: '31.3', height: '22.2' })
     expect(defaultRectFor('chat')).toEqual({ x: '0', y: '0', width: '25', height: '74.1' })
   })
+
+  it('ワイプは推奨の大きさ（480×460px）で、配信画面の右上から始める（番組のワイプが出る場所のため）', () => {
+    expect(defaultRectFor('wipe')).toEqual({ x: '75', y: '0', width: '25', height: '42.6' })
+  })
 })
 
 describe('newItemDraft・newOverlayDraft', () => {

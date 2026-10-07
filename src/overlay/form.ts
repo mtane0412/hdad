@@ -83,14 +83,16 @@ const DESIGNS: Readonly<Record<ItemKind, readonly DesignItem[]>> = {
  * 大きさは、その種類の推奨の大きさ（layout.ts の RECOMMENDED_ITEM_SIZES）を配信画面に対する割合へ
  * 直したものにする。すべてをオーバーレイいっぱいで追加すると、時計やチャットボックスが配信画面ぜんたいへ
  * 引き伸ばされた状態から毎回縮めることになる（ギャラリーで確かめた大きさとも食い違う）。
- * 置き場所だけは決められないので左上（0・0）から始め、配置用の枠でつまんで動かしてもらう。
+ * 置き場所は決められないので左上（0・0）から始め、配置用の枠でつまんで動かしてもらう。
+ * ワイプだけは置き場所が決まっている（番組のワイプが出る右上）ので、右上から始める。
  */
 export const defaultRectFor = (kind: ItemKind): RectDraft => {
   const size = RECOMMENDED_ITEM_SIZES[kind]
+  const width = roundPercent((size.width / STAGE_SIZE.width) * 100)
   return {
-    x: '0',
+    x: kind === 'wipe' ? String(roundPercent(100 - width)) : '0',
     y: '0',
-    width: String(roundPercent((size.width / STAGE_SIZE.width) * 100)),
+    width: String(width),
     height: String(roundPercent((size.height / STAGE_SIZE.height) * 100)),
   }
 }

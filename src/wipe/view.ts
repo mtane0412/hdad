@@ -3,13 +3,13 @@
  *
  * DOMを扱うのはここだけにして、変換（comment.ts）・順番の進め方（runner.ts）・起動（src/overlay/stage.ts）から切り離す。
  *
- * 組み立てる構造は次のとおり。素材の枠の右上にワイプの枠を置き、その左に吹き出しを出す（並びと大きさは wipe.css が決める）。
+ * 組み立てる構造は次のとおり。素材の枠の右上にワイプの枠を置き、その下に吹き出しを出す（並びと大きさは wipe.css が決める）。
  *   <div class="wipe-scene">
+ *     <div class="wipe-frame"><img class="wipe-icon" alt="" /></div>
  *     <div class="wipe-bubble">
  *       <p class="wipe-name">たねのぶ</p>
  *       <p class="wipe-body">こんにちは<img class="wipe-emote" alt="Kappa" /></p>
  *     </div>
- *     <div class="wipe-frame"><img class="wipe-icon" alt="" /></div>
  *   </div>
  *
  * 注意: 本文は textContent と img で組み立て、HTMLとして解釈しない（視聴者の書いた文字をそのまま出すため）。
@@ -71,7 +71,7 @@ const createScene = ({ comment, profileImageUrl }: ShownComment): HTMLElement =>
 
   const scene = document.createElement('div')
   scene.className = 'wipe-scene'
-  scene.append(bubble, frame)
+  scene.append(frame, bubble)
   return scene
 }
 
