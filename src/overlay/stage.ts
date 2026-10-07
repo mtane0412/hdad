@@ -1518,8 +1518,17 @@ const mountTwister = (box: HTMLElement, item: OverlayItem, { key, demo }: MountC
   hudCanvas.dataset.twister = 'hud'
   box.append(glCanvas, hudCanvas)
   const renderer = createTwisterRenderer(glCanvas)
-  const bgm = createTwisterBgmPlayer((error) => showError(error, NOUNS.twister, box, 'read'))
   const bgmApi = createBgmOverlayApi(callWorker, key)
+  /** 配信の BGM を holdMs ミリ秒下げておくよう裏方へ知らせる（0 は戻す）。プレビューでは配信の BGM を動かさないので送らない */
+  const duckStreamBgm = (holdMs: number): void => {
+    if (demo) return
+    bgmApi.duck(holdMs).catch((error: unknown) => showError(error, NOUNS.twister, box, 'read'))
+  }
+  // 対戦の BGM を鳴らせなかったら、配信の BGM を対戦の終わりまで下げたままにせず、すぐ戻す
+  const bgm = createTwisterBgmPlayer((error) => {
+    showError(error, NOUNS.twister, box, 'read')
+    duckStreamBgm(0)
+  })
 
   /** 流している1件。流していなければ null */
   let playback: { readonly call: TwisterCall; readonly game: Game; readonly startedAt: number } | null = null
@@ -1563,8 +1572,8 @@ const mountTwister = (box: HTMLElement, item: OverlayItem, { key, demo }: MountC
         playback = { call, game, startedAt: Date.now() }
         const plan = twisterBgmPlanOf(call.sound, game.totalMs)
         if (plan !== null) {
+          duckStreamBgm(plan.duckHoldMs)
           bgm.start(plan)
-          if (!demo) bgmApi.duck(plan.duckHoldMs).catch((error: unknown) => showError(error, NOUNS.twister, box, 'read'))
         }
       })
       .catch((error: unknown) => {
