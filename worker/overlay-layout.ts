@@ -32,7 +32,7 @@ const CONFIG_KEY = 'overlay-layout'
 const SUBJECT = 'オーバーレイの構成'
 
 /** オーバーレイに置ける素材の種類 */
-export const ITEM_KINDS = ['wallpaper', 'clock', 'chat', 'alerts', 'sideSuper', 'focus', 'draw', 'bgm', 'tab', 'caption', 'workLog', 'taskDesk', 'pomodoro', 'townTour', 'twister'] as const
+export const ITEM_KINDS = ['wallpaper', 'clock', 'chat', 'alerts', 'sideSuper', 'focus', 'draw', 'bgm', 'tab', 'caption', 'workLog', 'taskDesk', 'pomodoro', 'townTour', 'twister', 'wipe'] as const
 
 /** オーバーレイに置ける素材の種類 */
 export type ItemKind = (typeof ITEM_KINDS)[number]
@@ -127,6 +127,11 @@ export const parseOverlayLayout = (input: unknown): OverlayLayout => {
   const problems: string[] = []
   /** すでに出てきた名前。同じ名前が2つあると、1つのURLで2通りの中身になってしまう */
   const seenNames = new Set<string>()
+  /**
+   * ワイプをすでに読んだか。ワイプはそれぞれがチャットを読み上げるので、構成全体で2つあると
+   * （別々のオーバーレイでも）同じ発言が二重に読まれる
+   */
+  let wipeSeen = false
 
   /** 素材1件を読む。読めなければ問題点を積んで空を返し、並びから外す */
   const readItem = (raw: unknown, at: string): OverlayItem[] => {
@@ -142,6 +147,13 @@ export const parseOverlayLayout = (input: unknown): OverlayLayout => {
       return []
     }
     const itemKind = kind as ItemKind
+    if (itemKind === 'wipe') {
+      if (wipeSeen) {
+        problems.push(`${at}: ワイプは構成全体で1つまでにしてください（それぞれがチャットを読み上げ、同じ発言が二重に読まれるため）`)
+        return []
+      }
+      wipeSeen = true
+    }
 
     /** デザインIDを読む。持つ種類では空でないこと、持たない種類では空であることを見る */
     const readId = (): string => {

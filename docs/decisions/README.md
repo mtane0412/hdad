@@ -27,6 +27,7 @@
 | [twister.md](twister.md) | ツイスター（レイドで流す3Dのツイスターゲーム。物理を先に計算して再生する・指示の選び方） |
 | [comments.md](comments.md) | コメントビューアー（`/comments/`） |
 | [focus.md](focus.md) | 注目コメント（素材の種類 `focus`） |
+| [wipe.md](wipe.md) | ワイプ（素材の種類 `wipe`。チャットを1件ずつ出し、自分で読み上げる・裏方の読み上げとの二重読みの防ぎ方） |
 | [overlay-stage.md](overlay-stage.md) | 素材を重ねる合成ページ（`overlay/stage/`） |
 | [overlay-editor.md](overlay-editor.md) | 構成を編集する管理画面（`/overlay/`） |
 | [speech.md](speech.md) | チャットの読み上げ（`speech/reader/`） |

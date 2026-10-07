@@ -83,6 +83,7 @@
  * | POST /api/overlay/screen         | オーバーレイ用キー | 配信画面を撮った1枚を受け取り、Gyazo へ上げて記録する |
  * | GET  /api/overlay/layout         | オーバーレイ用キー | 合成オーバーレイの構成を返す（合成ページから） |
  * | GET  /api/overlay/focus          | オーバーレイ用キー | いま取り上げている注目コメントを返す |
+ * | GET  /api/overlay/wipe/icon      | オーバーレイ用キー | ワイプに映す、発言した人のアイコンのURLをログイン名から引く |
  * | GET  /api/overlay/bgm            | オーバーレイ用キー | いま流しているBGMを返す（裏方のページから） |
  * | GET  /api/overlay/bgm/socket     | オーバーレイ用キー | 裏方のページからのWebSocketの接続を受け、BGMの切り替えの配送先へ引き渡す |
  * | POST /api/overlay/bgm/duck       | オーバーレイ用キー | 配信のBGMを下げておく長さを裏方のページへ押し出す（合成ページの市町村紹介から） |
@@ -129,6 +130,7 @@ import {
   putSpeech,
 } from './admin-routes'
 import { getFocus, putFocus } from './focus-routes'
+import { getWipeIcon } from './wipe-routes'
 import { getBgm, getOverlayBgm, overlayBgmDuckSocket, overlayBgmSocket, postBgmSkip, postOverlayBgmDuck, postOverlayBgmEnded, putBgmPlayback, putBgmSettings, putBgmTracks } from './bgm-routes'
 import { deleteViewerRoute, getViewers, patchViewer } from './viewer-routes'
 import { deleteReward, getRewards, patchReward, postReward } from './reward-routes'
@@ -328,6 +330,7 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/overlay/pomodoro', handle: getOverlayPomodoro },
   { method: 'GET', path: '/api/overlay/pomodoro/socket', handle: pomodoroSocket },
   { method: 'GET', path: '/api/overlay/focus', handle: getOverlayFocus },
+  { method: 'GET', path: '/api/overlay/wipe/icon', handle: getWipeIcon },
   { method: 'GET', path: '/api/overlay/bgm', handle: getOverlayBgm },
   { method: 'GET', path: '/api/overlay/bgm/socket', handle: overlayBgmSocket },
   { method: 'POST', path: '/api/overlay/bgm/ended', handle: postOverlayBgmEnded },

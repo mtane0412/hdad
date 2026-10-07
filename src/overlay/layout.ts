@@ -16,7 +16,7 @@
  */
 
 /** オーバーレイに置ける素材の種類。worker/overlay-layout.ts の ITEM_KINDS と合わせる */
-export const ITEM_KINDS = ['wallpaper', 'clock', 'chat', 'alerts', 'sideSuper', 'focus', 'draw', 'bgm', 'tab', 'caption', 'workLog', 'taskDesk', 'pomodoro', 'townTour', 'twister'] as const
+export const ITEM_KINDS = ['wallpaper', 'clock', 'chat', 'alerts', 'sideSuper', 'focus', 'draw', 'bgm', 'tab', 'caption', 'workLog', 'taskDesk', 'pomodoro', 'townTour', 'twister', 'wipe'] as const
 
 /** オーバーレイに置ける素材の種類 */
 export type ItemKind = (typeof ITEM_KINDS)[number]
@@ -55,6 +55,7 @@ export const STAGE_SIZE = { width: 1920, height: 1080 } as const
  * ポモドーロは残り時間と区間の名前を出す小さな札なので、時計と同じく画面の隅に置ける大きさにする。
  * 市町村紹介は日本地図を画面いっぱいに映してからズームするので、配信画面と同じ大きさにする。
  * ツイスターもマットを画面の真ん中に、スピナーと文言を画面の隅と上に出すので、配信画面と同じ大きさにする。
+ * ワイプはアイコンの枠と、その左に出す吹き出しが収まる横長の大きさにする（画面の右上に置く前提）。
  */
 export const RECOMMENDED_ITEM_SIZES: Readonly<Record<ItemKind, { readonly width: number; readonly height: number }>> = {
   wallpaper: STAGE_SIZE,
@@ -72,6 +73,7 @@ export const RECOMMENDED_ITEM_SIZES: Readonly<Record<ItemKind, { readonly width:
   pomodoro: { width: 420, height: 200 },
   townTour: STAGE_SIZE,
   twister: STAGE_SIZE,
+  wipe: { width: 760, height: 320 },
 }
 
 /** オーバーレイの中での位置と大きさ（オーバーレイの幅・高さに対する割合。％） */

@@ -11,24 +11,27 @@
 /** 待たせておく件数の上限。超えたら古いほうから捨てる */
 export const MAX_WAITING_SPEECH = 10
 
-export interface SpeechQueue {
-  /** 読み上げ中の文。何も読んでいなければ null */
-  readonly current: string | null
-  /** 届いた順に待っている文 */
-  readonly waiting: readonly string[]
+/**
+ * 読み上げ待ちの列。並べるものは既定では読み上げ文で、ワイプ（src/wipe/runner.ts）は発言1件ぶんをまとめたものを並べる
+ */
+export interface SpeechQueue<T = string> {
+  /** 読み上げ中のもの。何も読んでいなければ null */
+  readonly current: T | null
+  /** 届いた順に待っているもの */
+  readonly waiting: readonly T[]
 }
 
 export const EMPTY_SPEECH_QUEUE: SpeechQueue = { current: null, waiting: [] }
 
 /** 読み上げ文が届いた。何も読んでいなければすぐ読み上げ中にし、読み上げ中なら後ろに並べる */
-export const enqueueSpeech = (queue: SpeechQueue, text: string): SpeechQueue => {
-  if (queue.current === null) return { current: text, waiting: [] }
-  const waiting = [...queue.waiting, text]
+export const enqueueSpeech = <T>(queue: SpeechQueue<T>, item: T): SpeechQueue<T> => {
+  if (queue.current === null) return { current: item, waiting: [] }
+  const waiting = [...queue.waiting, item]
   return { current: queue.current, waiting: waiting.slice(-MAX_WAITING_SPEECH) }
 }
 
 /** 読み終わった。待っている先頭を読み上げ中にする */
-export const advanceSpeech = (queue: SpeechQueue): SpeechQueue => {
+export const advanceSpeech = <T>(queue: SpeechQueue<T>): SpeechQueue<T> => {
   const [next, ...rest] = queue.waiting
-  return next === undefined ? EMPTY_SPEECH_QUEUE : { current: next, waiting: rest }
+  return next === undefined ? { current: null, waiting: [] } : { current: next, waiting: rest }
 }
