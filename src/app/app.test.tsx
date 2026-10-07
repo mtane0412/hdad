@@ -726,6 +726,22 @@ describe('WebMCP（エージェント向けのツール）', () => {
     expect(createFakeCommentApi.send).toHaveBeenCalledWith('このあと休憩します')
   })
 
+  test('save_settings で開いているページの設定を保存すると、ページを作り直して保存済みの中身を読み直させる', async () => {
+    const registrations = installModelContext()
+    openPage('/pomodoro/')
+    renderSignedIn()
+    await screen.findByRole('heading', { level: 1, name: 'ポモドーロ' })
+    await waitFor(() => expect(() => activeTool(registrations, 'save_settings')).not.toThrow())
+    // 前提: アプリの枠とページが開いたときに読み終えるのを待ってから数える
+    await waitFor(() => expect(vi.mocked(createFakePomodoroApi.read).mock.calls.length).toBeGreaterThanOrEqual(2))
+    const readsBefore = vi.mocked(createFakePomodoroApi.read).mock.calls.length
+
+    await act(() => activeTool(registrations, 'save_settings').execute({ target: 'pomodoro', value: { breakMediaId: 'media-lofi' } }, { signal: new AbortController().signal }))
+
+    expect(createFakePomodoroApi.saveSettings).toHaveBeenCalledWith({ breakMediaId: 'media-lofi' })
+    await waitFor(() => expect(vi.mocked(createFakePomodoroApi.read).mock.calls.length).toBeGreaterThan(readsBefore))
+  })
+
   test('ログアウトすると、登録したツールをすべて消す', async () => {
     const registrations = installModelContext()
     renderSignedIn()

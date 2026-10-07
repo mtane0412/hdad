@@ -8,10 +8,12 @@
  * - 確認で「移る」を選べば移り、「留まる」を選べば同じページに留まること
  * - 未保存の変更がなければ、確認を待たずにすぐ移ること
  * - 未保存の変更があるあいだだけ、再読み込みやタブを閉じる操作をブラウザに止めてもらうこと
+ * - 未保存の変更があるかを、フックの外（WebMCP のツール）からも読めること
+ * - 今のページを作り直させる（保存済みの中身を読み直させる）印を進められること
  */
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { navigate, usePathname, usePendingNavigation, useUnsavedChanges } from './router'
+import { hasUnsavedChanges, navigate, reloadPage, usePageReloads, usePathname, usePendingNavigation, useUnsavedChanges } from './router'
 
 afterEach(() => {
   cleanup()
@@ -161,5 +163,25 @@ describe('再読み込み・タブを閉じる操作', () => {
     const { rerender } = renderPage('/bot/', true)
     rerender({ unsaved: false })
     expect(dispatchBeforeUnload()).toBe(false)
+  })
+})
+
+describe('フックの外から読む・作り直させる', () => {
+  test('未保存の変更があるあいだだけ hasUnsavedChanges が true になる', () => {
+    const { rerender } = renderPage('/triggers/', true)
+    expect(hasUnsavedChanges()).toBe(true)
+
+    // 保存して未保存の変更がなくなった
+    rerender({ unsaved: false })
+    expect(hasUnsavedChanges()).toBe(false)
+  })
+
+  test('reloadPage を呼ぶと、ページを作り直すための印が進む', () => {
+    const { result } = renderHook(() => usePageReloads())
+    const before = result.current
+
+    act(() => reloadPage())
+
+    expect(result.current).toBe(before + 1)
   })
 })
