@@ -16,7 +16,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { errorMessage } from '@/admin/page-actions'
-import { navigate, usePathname } from '@/app/router'
+import { hasUnsavedChanges, navigate, reloadPage, usePathname } from '@/app/router'
 import { useBgmPlayer } from '@/bgm/player-context'
 import { usePomodoroTimer } from '@/pomodoro/timer-context'
 import { createSpeechMuteApi, type SpeechMuteApi } from '@/speech/api'
@@ -68,6 +68,8 @@ export const WebMcpTools = ({
       speechMute: speechMuteApi,
       recognition: () => latest.current.recognition,
       apis,
+      hasUnsavedChanges,
+      reloadPage,
     }
     const modelContext: ToolRegistry | undefined = document.modelContext
     registerTools(modelContext, buildTools(deps), controller.signal).then(

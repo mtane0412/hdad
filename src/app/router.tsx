@@ -9,6 +9,8 @@
  * 再読み込みとタブを閉じる操作は beforeunload でブラウザに止めてもらう。ページは移った時点で作り直され、
  * 編集中の内容が黙って消えるため（issue #182）。
  *
+ * ページの外（WebMCP のツール）が設定を保存したときは、reloadPage で今のページを作り直して読み直させる。
+ *
  * 注意: OBSに載せるページ（/overlay/stage/ など）と /api/* はアプリの外にある。Link では開かず、普通の <a> で開くこと。
  */
 import { useEffect, useSyncExternalStore } from 'react'
@@ -143,6 +145,28 @@ export const useUnsavedChanges = (unsaved: boolean): void => {
     }
   }, [unsaved])
 }
+
+/**
+ * いま開いているページに未保存の変更があるか。フックの外（WebMCP のツール。src/webmcp/settings-tools.ts）から読むためのもの
+ */
+export const hasUnsavedChanges = (): boolean => blockers.size > 0
+
+/** 今のページを作り直した回数。アプリの枠がページの key に含め、増えたらページを作り直す */
+let reloads = 0
+
+/**
+ * 今のページを作り直し、保存済みの中身を読み直させる。
+ *
+ * ページの外（WebMCP のツール）が設定を保存したとき、開いているページに古い中身を出し続けさせないために使う。
+ * 注意: 編集中の内容は消えるので、未保存の変更があるとき（hasUnsavedChanges）は呼ばないこと
+ */
+export const reloadPage = (): void => {
+  reloads += 1
+  notify()
+}
+
+/** 今のページを作り直した回数（アプリの枠がページの key に使う） */
+export const usePageReloads = (): number => useSyncExternalStore(subscribe, () => reloads)
 
 /** 修飾キーなしの左クリックだけをアプリ内の移動として扱う（Cmd+クリックで新しいタブに開く操作などを奪わない） */
 const isPlainLeftClick = (event: React.MouseEvent): boolean =>

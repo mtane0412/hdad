@@ -1,7 +1,7 @@
 /**
  * WebMCP で登録するツールの定義（issue #279 の段階1: 配信中の操作とページの移動）
  *
- * 段階2（配信に出る操作。broadcast-tools.ts）・段階3（記録の読み取り。record-tools.ts）以降のツールは話題ごとのファイルに分け、buildTools がまとめて返す。
+ * 段階2（配信に出る操作。broadcast-tools.ts）・段階3（記録の読み取り。record-tools.ts）・段階4（設定の読み書き。settings-tools.ts）のツールは話題ごとのファイルに分け、buildTools がまとめて返す。
  *
  * ブラウザのエージェントが HDAD を操作できるよう、下部バーでできること（BGM・ポモドーロ・読み上げのミュート・
  * 文字起こし）とページの移動をツールにする。ツールは画面のボタンと同じくアプリの枠の状態（BgmPlayerProvider など）を
@@ -26,6 +26,7 @@ import type { RecognitionContextValue } from '@/transcript/recognition-context'
 import { buildBroadcastTools, type BroadcastApis } from './broadcast-tools'
 import { NO_INPUT, readBoolean, readChoice } from './input'
 import { buildRecordTools, type RecordApis } from './record-tools'
+import { buildSettingsTools, type SettingsApis } from './settings-tools'
 
 /** ページの一覧の1項目（サイドバーの項目と同じ） */
 export interface PageEntry {
@@ -44,17 +45,21 @@ export interface WebMcpDeps {
   pages: readonly PageEntry[]
   currentPath(): string
   openPage(path: string): OpenPageResult
-  bgm(): Pick<BgmPlayerValue, 'loaded' | 'savedTracks' | 'playback' | 'savePlayback' | 'skip'>
+  bgm(): Pick<BgmPlayerValue, 'loaded' | 'savedTracks' | 'playback' | 'settings' | 'savePlayback' | 'skip' | 'saveTracks' | 'saveSettings'>
   pomodoro(): Pick<PomodoroTimerValue, 'loaded' | 'timer' | 'control'>
   now(): number
   speechMute: SpeechMuteApi
   recognition(): Pick<RecognitionContextValue, 'enabled' | 'phase' | 'error' | 'setEnabled'>
   /** Worker の Api（段階2以降のツールが使う。名前はアプリの枠の PageContext と同じ） */
   apis: WebMcpApis
+  /** いま開いているページに未保存の変更があるか（段階4の設定の保存が使う） */
+  hasUnsavedChanges(): boolean
+  /** いま開いているページを作り直し、保存済みの中身を読み直させる（段階4の設定の保存が使う） */
+  reloadPage(): void
 }
 
 /** 段階2以降のツールが使う Worker の Api。アプリの枠の PageContext をそのまま渡せる形にする */
-export type WebMcpApis = BroadcastApis & RecordApis
+export type WebMcpApis = BroadcastApis & RecordApis & SettingsApis
 
 const BGM_STEPS: readonly BgmStep[] = ['next', 'previous']
 const POMODORO_COMMANDS: readonly PomodoroCommand[] = ['start', 'pause', 'resume', 'stop']
@@ -269,4 +274,5 @@ export const buildTools = (deps: WebMcpDeps): WebMCP.ModelContextTool[] => [
   },
   ...buildBroadcastTools(deps.apis),
   ...buildRecordTools(deps.apis, deps.now),
+  ...buildSettingsTools(deps),
 ]

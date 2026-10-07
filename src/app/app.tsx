@@ -58,7 +58,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { BottomBar } from './bottom-bar'
 import { PageSearch } from './page-search'
 import { findPage, PAGE_GROUPS, type PageContext } from './pages'
-import { Link, usePathname } from './router'
+import { Link, usePageReloads, usePathname } from './router'
 import { UnsavedChangesDialog } from './unsaved-changes-dialog'
 
 const LOGIN_PATH = '/api/auth/login'
@@ -118,6 +118,7 @@ const Shell = ({
   onLogout: () => void
 }) => {
   const pathname = usePathname()
+  const reloads = usePageReloads()
   const page = findPage(pathname)
   const title = page ? page.name : 'ページが見つかりません'
   const headingRef = useRef<HTMLHeadingElement>(null)
@@ -214,8 +215,9 @@ const Shell = ({
                   <h1 ref={headingRef} tabIndex={-1} className="mb-4 truncate text-lg font-semibold tracking-tight outline-none sm:mb-6">
                     {title}
                   </h1>
-                  {/* ページが変わったら key で作り直し、前のページの状態を持ち越さない */}
-                  <div key={pathname}>{page ? page.render(context) : <NotFound pathname={pathname} />}</div>
+                  {/* ページが変わったら key で作り直し、前のページの状態を持ち越さない。
+                      ページの外（WebMCP のツール）が設定を保存したときも作り直して、保存済みの中身を読み直させる */}
+                  <div key={`${pathname}#${reloads}`}>{page ? page.render(context) : <NotFound pathname={pathname} />}</div>
                 </div>
               </SidebarInset>
               <BottomBar apis={context} />

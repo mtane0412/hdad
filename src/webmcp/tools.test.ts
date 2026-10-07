@@ -27,6 +27,7 @@ const createDeps = (overrides: Partial<WebMcpDeps> = {}) => {
     pomodoro: [] as PomodoroCommand[],
     muted: [] as boolean[],
     recognition: [] as boolean[],
+    reloads: 0,
   }
   let playback: BgmPlayback = { mediaId: 'media-lofi', volume: 0.4, repeat: false, shuffle: true }
   let timer: PomodoroTimer | null = null
@@ -44,6 +45,9 @@ const createDeps = (overrides: Partial<WebMcpDeps> = {}) => {
       loaded: { status: 'ready' },
       savedTracks: [lofiTrack, jazzTrack],
       playback,
+      settings: { judgeWithJev: false },
+      saveTracks: async (tracks) => tracks,
+      saveSettings: async (next) => next,
       savePlayback: async (next) => {
         calls.savedPlayback.push(next)
         playback = next
@@ -81,13 +85,30 @@ const createDeps = (overrides: Partial<WebMcpDeps> = {}) => {
       },
     }),
     apis: {
-      api: { playTownTourDemo: async () => '富良野市へようこそ', playTwisterDemo: async () => 'raider_sample vs 配信者' },
+      api: { playTownTourDemo: async () => '富良野市へようこそ', playTwisterDemo: async () => 'raider_sample vs 配信者', config: async () => [], saveConfig: async () => [] },
       commentApi: { send: async () => undefined },
-      botApi: { sendMessage: async () => undefined },
+      botApi: { sendMessage: async () => undefined, commands: async () => [], saveCommands: async () => [], moderation: async () => Promise.reject(new Error('モデレーションの設定を読めません')), saveModeration: async (next) => next },
       focusApi: { load: async () => null, save: async () => null },
-      statsApi: { sessions: async () => [], session: async () => Promise.reject(new Error('配信の記録がありません')) },
+      statsApi: {
+        sessions: async () => [],
+        session: async () => Promise.reject(new Error('配信の記録がありません')),
+        titleSettings: async () => ({ enabled: false }),
+        saveTitleSettings: async (next) => next,
+      },
       viewerApi: { list: async () => [], saveNote: async (_userId, note) => note },
-      llmApi: { load: async () => ({ apiKeyConfigured: false }), loadUsage: async () => [], loadCredits: async () => ({ totalCredits: 0, totalUsage: 0, remaining: 0 }) },
+      llmApi: {
+        load: async () => Promise.reject(new Error('LLMの設定を読めません')),
+        save: async (next) => next,
+        loadUsage: async () => [],
+        loadCredits: async () => ({ totalCredits: 0, totalUsage: 0, remaining: 0 }),
+      },
+      speechApi: { load: async () => Promise.reject(new Error('読み上げの設定を読めません')), save: async (next) => next },
+      overlayApi: { load: async () => [], save: async (next) => [...next] },
+      pomodoroApi: { read: async () => ({ timer: null, settings: { breakMediaId: null } }), saveSettings: async (next) => next },
+    },
+    hasUnsavedChanges: () => false,
+    reloadPage: () => {
+      calls.reloads += 1
     },
     ...overrides,
   }
@@ -135,6 +156,7 @@ describe('ツールの一覧', () => {
       'search_viewers',
       'get_llm_usage',
       'get_llm_credits',
+      'get_settings',
     ])
   })
 
@@ -146,6 +168,12 @@ describe('ツールの一覧', () => {
   it('記録を読むツール（段階3）も一緒に登録する', () => {
     const names = buildTools(createDeps().deps).map((tool) => tool.name)
     expect(names).toEqual(expect.arrayContaining(['list_streams', 'get_stream', 'search_viewers', 'save_viewer_note', 'get_llm_usage', 'get_llm_credits']))
+  })
+
+  it('設定を読み書きするツール（段階4）も一緒に登録し、保存したら開いているページを作り直させる', async () => {
+    const { deps, calls } = createDeps({ currentPath: () => '/pomodoro/' })
+    expect(await run(deps, 'save_settings', { target: 'pomodoro', value: { breakMediaId: 'media-lofi' } })).toBe('{"breakMediaId":"media-lofi"}')
+    expect(calls.reloads).toBe(1)
   })
 })
 
