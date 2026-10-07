@@ -24,13 +24,16 @@ import { PomodoroBar } from '@/pomodoro/pomodoro-bar'
 import { SpeechMuteControl } from '@/speech/speech-mute-control'
 import { RecognitionControl } from '@/transcript/recognition-control'
 import { WebMcpTools } from '@/webmcp/webmcp-tools'
-import type { PageEntry } from '@/webmcp/tools'
+import type { PageEntry, WebMcpApis } from '@/webmcp/tools'
 import { PAGE_GROUPS } from './pages'
 
 /** エージェントに見せるページ（サイドバーの項目と同じ並び） */
 const WEBMCP_PAGES: readonly PageEntry[] = PAGE_GROUPS.flatMap((group) => group.pages.map((page) => ({ group: group.label, path: page.path, name: page.name })))
 
-export const BottomBar = () => {
+/**
+ * @param apis WebMCP のツールが使う Worker の Api（アプリの枠の PageContext）
+ */
+export const BottomBar = ({ apis }: { apis: WebMcpApis }) => {
   const { isMobile, setOpenMobile } = useSidebar()
 
   return (
@@ -58,7 +61,7 @@ export const BottomBar = () => {
             <PomodoroBar />
             <RecognitionControl />
             <SpeechMuteControl />
-            <WebMcpTools pages={WEBMCP_PAGES} />
+            <WebMcpTools pages={WEBMCP_PAGES} apis={apis} />
           </>
         }
       />

@@ -80,6 +80,12 @@ const createDeps = (overrides: Partial<WebMcpDeps> = {}) => {
         calls.recognition.push(enabled)
       },
     }),
+    apis: {
+      api: { playTownTourDemo: async () => '富良野市へようこそ', playTwisterDemo: async () => 'raider_sample vs 配信者' },
+      commentApi: { send: async () => undefined },
+      botApi: { sendMessage: async () => undefined },
+      focusApi: { load: async () => null, save: async () => null },
+    },
     ...overrides,
   }
   return { deps, calls }
@@ -116,6 +122,11 @@ describe('ツールの一覧', () => {
     const tools = buildTools(createDeps().deps)
     const readOnly = tools.filter((tool) => tool.annotations?.readOnlyHint === true).map((tool) => tool.name)
     expect(readOnly).toEqual(['list_pages', 'get_bgm', 'get_pomodoro', 'get_speech_mute', 'get_transcription'])
+  })
+
+  it('配信に出る操作のツール（段階2）も一緒に登録する', () => {
+    const names = buildTools(createDeps().deps).map((tool) => tool.name)
+    expect(names).toEqual(expect.arrayContaining(['send_chat_message', 'clear_focus', 'play_town_tour_demo', 'play_twister_demo']))
   })
 })
 

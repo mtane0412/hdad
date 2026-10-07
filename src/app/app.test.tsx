@@ -715,6 +715,17 @@ describe('WebMCP（エージェント向けのツール）', () => {
     expect(listed.pages).toContainEqual({ group: '自動化', path: '/bot/', name: 'チャットボット' })
   })
 
+  test('send_chat_message は、アプリに渡した Api で配信者としてチャットへ送る', async () => {
+    const registrations = installModelContext()
+    renderSignedIn()
+    await waitFor(() => expect(() => activeTool(registrations, 'send_chat_message')).not.toThrow())
+
+    const result = await activeTool(registrations, 'send_chat_message').execute({ sender: 'streamer', message: 'このあと休憩します' }, { signal: new AbortController().signal })
+
+    expect(result).toBe('配信者としてチャットへ送りました')
+    expect(createFakeCommentApi.send).toHaveBeenCalledWith('このあと休憩します')
+  })
+
   test('ログアウトすると、登録したツールをすべて消す', async () => {
     const registrations = installModelContext()
     renderSignedIn()
