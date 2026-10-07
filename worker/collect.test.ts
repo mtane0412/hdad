@@ -783,16 +783,98 @@ describe('章立ての生成', () => {
     expect(delivery.pushedWorkLog).toEqual([])
   })
 
-  it('区間を切れなかったときも収集は止めず、失敗を記録する（同じ時刻の発話が上限を超えて届いた場合）', async () => {
+  const insertScreenLine = (db: ReturnType<typeof createFakeDatabase>, imageId: string, lineNo: number, time: string, text: string) => {
+    db.sqlite
+      .prepare('INSERT INTO screen_lines (image_id, line_no, session_id, captured_at, text, sifted_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(imageId, lineNo, chatStream.id, at(time), text, at(time))
+  }
+
+  it('区間の始まりと同じ時刻の画面の文字が上限を超えていても詰まらず、その時刻を飛ばして次の区間の章を作る', async () => {
+    const { db, store, tokens } = await createEnv()
+    createLiveSession(db)
+    // 1回の収集で通した5枚ぶんの画面の文字は同じ時刻で積まれるので、上限（100件）を超えることがある
+    for (let lineNo = 0; lineNo <= 130; lineNo += 1) insertScreenLine(db, `画像${Math.floor(lineNo / 30)}`, lineNo % 30, '12:00:00', `画面の文字${lineNo}`)
+    insertTranscript(db, 'hatsuwa-1', '12:10:00', 'ここから新しいゲームを始めます')
+    const ai = fakeAi(chapterResponse)
+
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now: Date.parse('2026-09-21T12:32:00Z') })
+
+    expect((await listFailures(db)).map((failure) => failure.code)).not.toContain('stream-chapter-failed')
+    expect(await listStreamChapters(db, chatStream.id)).toEqual([
+      { startedAt: at('12:00:00.001'), endedAt: at('12:30:00.001'), title: '新しいゲームの導入', summary: '配信者が新しいゲームを始め、視聴者が期待を寄せた。' },
+    ])
+    expect(chapterPrompts(ai)[0]).toContain('配信者: ここから新しいゲームを始めます')
+  })
+
+  it('区間の始まりと同じ時刻の発話が上限を超えていたら、その時刻の行を丸ごと材料にした章を作る（黙って捨てないため）', async () => {
     const { db, store, tokens } = await createEnv()
     createLiveSession(db)
     // 区間の始まりと同じ時刻に、件数の上限（300件）を超える発話が記録されている
     for (let index = 0; index <= 300; index += 1) insertTranscript(db, `hatsuwa-${index}`, '12:00:00', `同じ時刻の発話${index}`)
+    const ai = fakeAi(chapterResponse)
 
-    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(chapterResponse), ...withoutBgmJudgment, broadcasterId: streamerId, now: afterFirstWindow })
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now: afterFirstWindow })
+
+    expect((await listFailures(db)).map((failure) => failure.code)).not.toContain('stream-chapter-failed')
+    expect((await listStreamChapters(db, chatStream.id)).map(({ startedAt, endedAt }) => ({ startedAt, endedAt }))).toEqual([
+      { startedAt: at('12:00:00'), endedAt: at('12:00:00.001') },
+    ])
+    const [prompt] = chapterPrompts(ai)
+    expect(prompt).toContain('配信者: 同じ時刻の発話0')
+    expect(prompt).toContain('配信者: 同じ時刻の発話300')
+    expect(chapteredUntil(db)).toBe(at('12:00:00.001'))
+  })
+
+  it('前の配信の章づくりに失敗しても、配信中の配信の章は作る（前の配信の失敗に巻き込まないため）', async () => {
+    const { db, store, tokens } = await createEnv()
+    db.sqlite
+      .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, ?, ?, ?)')
+      .run('zenkai', '2026-09-21T10:00:00.000Z', '2026-09-21T10:20:00.000Z', '前回の配信', 'Just Chatting')
+    db.sqlite.prepare('INSERT INTO transcripts (message_id, session_id, spoken_at, text) VALUES (?, ?, ?, ?)').run('zenkai-1', 'zenkai', '2026-09-21T10:10:00.000Z', '前回の発話')
+    createLiveSession(db)
+    insertTranscript(db, 'hatsuwa-1', '12:10:00', 'ここから新しいゲームを始めます')
+    // 前の配信の章だけ、LLMが失敗する
+    const ai: TextGenerator = {
+      run: async (_usage, request) => {
+        const prompt = request.messages.map((message) => message.content).join('\n')
+        if (prompt.includes('見出しと要約') && prompt.includes('タイトル: 前回の配信')) throw new Error('前回の配信の章を作れませんでした')
+        return chapterResponse
+      },
+    }
+
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now: afterFirstWindow })
 
     expect((await listFailures(db)).map((failure) => failure.code)).toContain('stream-chapter-failed')
+    expect(await listStreamChapters(db, 'zenkai')).toEqual([])
+    expect(await listStreamChapters(db, chatStream.id)).toHaveLength(1)
+  })
+
+  it('前の配信の章づくりに失敗したあとに予算を使い切っていたら、残りの配信は次の収集へ回す（LLMを続けて呼んで次の cron に食い込まないため）', async () => {
+    const { db, store, tokens } = await createEnv()
+    db.sqlite
+      .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, ?, ?, ?)')
+      .run('zenkai', '2026-09-21T10:00:00.000Z', '2026-09-21T10:20:00.000Z', '前回の配信', 'Just Chatting')
+    db.sqlite.prepare('INSERT INTO transcripts (message_id, session_id, spoken_at, text) VALUES (?, ?, ?, ?)').run('zenkai-1', 'zenkai', '2026-09-21T10:10:00.000Z', '前回の発話')
+    createLiveSession(db)
+    insertTranscript(db, 'hatsuwa-1', '12:10:00', 'ここから新しいゲームを始めます')
+    // 前の配信の章を作ろうとしたLLMが、予算を使い切るほど待たされたあとで失敗する
+    let elapsed = 0
+    const ai: TextGenerator = {
+      run: async (_usage, request) => {
+        const prompt = request.messages.map((message) => message.content).join('\n')
+        if (prompt.includes('見出しと要約') && prompt.includes('タイトル: 前回の配信')) {
+          elapsed = COLLECT_BUDGET_MS + 1
+          throw new Error('前回の配信の章を作れませんでした')
+        }
+        return chapterResponse
+      },
+    }
+
+    await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now: afterFirstWindow, clock: () => afterFirstWindow + elapsed })
+
     expect(await listStreamChapters(db, chatStream.id)).toEqual([])
+    const budgetFailure = (await listFailures(db)).find((failure) => failure.code === 'collect-budget-exceeded')
+    expect(budgetFailure?.message).toContain('章立て（残りの配信）')
   })
 
   it('LLMが失敗したら、失敗を記録し、区間を進めずに次の収集でやり直す（その配信の人物像もまだ作らない）', async () => {

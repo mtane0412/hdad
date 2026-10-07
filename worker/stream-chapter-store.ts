@@ -91,6 +91,34 @@ export const readChapterLines = async (
   }
 }
 
+/**
+ * その時刻ちょうどの発話・発言・画面の文字を、それぞれ件数の上限なしで読む。
+ *
+ * 区間の始まりと同じ時刻の行が上限を超えて区間を切れないとき（stream-chapter.ts の fitChapterMaterial が null を返したとき）に、
+ * その時刻の行を取りこぼさず1つの区間の材料にするために使う。同じ時刻に積まれるのは1回の収集で通した数枚ぶんの
+ * 画面の文字くらいなので、上限なしでも読む量は限られる。
+ */
+export const readChapterLinesAt = async (db: Database, sessionId: string, at: string): Promise<ChapterLines> => {
+  const read = async (sql: string) => (await db.prepare(sql).bind(sessionId, at).all<{ text: string; at: string }>()).results
+  return {
+    transcripts: await read(
+      `SELECT text, spoken_at AS at FROM transcripts
+       WHERE session_id = ?1 AND spoken_at = ?2
+       ORDER BY message_id`,
+    ),
+    chats: await read(
+      `SELECT text, sent_at AS at FROM stream_chat_messages
+       WHERE session_id = ?1 AND sent_at = ?2
+       ORDER BY message_id`,
+    ),
+    screen: await read(
+      `SELECT text, sifted_at AS at FROM screen_lines
+       WHERE session_id = ?1 AND sifted_at = ?2
+       ORDER BY image_id, line_no`,
+    ),
+  }
+}
+
 /** 章を保存し、どこまでを章にしたかを章の終わりまで進める（片方だけが書かれないよう、ひとつのトランザクションで行う） */
 export const saveStreamChapter = async (db: Database, chapter: StreamChapterInput): Promise<void> => {
   await db.batch([

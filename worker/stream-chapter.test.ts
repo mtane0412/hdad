@@ -18,6 +18,7 @@ import {
   fitChapterMaterial,
   generateStreamChapter,
   nextChapterWindow,
+  sameTimeWindow,
 } from './stream-chapter'
 
 const STARTED_AT = '2026-09-30T12:00:00.000Z'
@@ -98,10 +99,16 @@ describe('fitChapterMaterial', () => {
     })
   })
 
-  it('上限を超えた同じ時刻の行しか無く区間が空になるときは、黙って捨てずに投げる', () => {
+  it('上限を超えた行がすべて区間の始まりと同じ時刻で区間が空になるときは、null を返す（その時刻の行を呼び出し側が丸ごと読み直すため）', () => {
     const material = { transcripts: [line('あ', 0), line('い', 0)], chats: [], screen: [] }
 
-    expect(() => fitChapterMaterial(window, material, { transcripts: 1, chats: 1, screen: 1 })).toThrow(/同じ時刻/)
+    expect(fitChapterMaterial(window, material, { transcripts: 1, chats: 1, screen: 1 })).toBeNull()
+  })
+})
+
+describe('sameTimeWindow', () => {
+  it('始まりの時刻の行だけを含む区間（始まりの1ミリ秒後まで）を返す', () => {
+    expect(sameTimeWindow('2026-10-06T12:10:06.019Z')).toEqual({ from: '2026-10-06T12:10:06.019Z', to: '2026-10-06T12:10:06.020Z' })
   })
 })
 

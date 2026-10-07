@@ -6,7 +6,7 @@
  */
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createFakeDatabase } from './fake-database'
-import { listChapterTargets, listStreamChapters, readChapterLines, saveStreamChapter, skipChapterWindow } from './stream-chapter-store'
+import { listChapterTargets, listStreamChapters, readChapterLines, readChapterLinesAt, saveStreamChapter, skipChapterWindow } from './stream-chapter-store'
 
 const STARTED_AT = '2026-09-30T12:00:00.000Z'
 const startedAt = Date.parse(STARTED_AT)
@@ -91,6 +91,26 @@ describe('readChapterLines', () => {
     const lines = await readChapterLines(db, '配信1', { from: STARTED_AT, to: iso(startedAt + 30 * MINUTE) }, { transcripts: 1, chats: 1, screen: 1 })
 
     expect(lines.transcripts.map((line) => line.text)).toEqual(['1つめ', '2つめ'])
+  })
+})
+
+describe('readChapterLinesAt', () => {
+  it('その時刻ちょうどの発話・発言・画面の文字を、件数の上限なしで丸ごと読む（同じ時刻の行が上限を超えて区間を切れないときのため）', async () => {
+    createStream('配信1')
+    insertTranscript('発話1', '配信1', 10, '同じ時刻の発話')
+    insertTranscript('発話2', '配信1', 11, '次の時刻の発話')
+    insertChat('発言1', '配信1', 10, '同じ時刻の発言')
+    for (let lineNo = 0; lineNo < 150; lineNo += 1) insertScreenLine('画像1', lineNo, '配信1', 10, `画面の文字${lineNo}`)
+    insertScreenLine('画像2', 0, '配信1', 9, '前の時刻の画面の文字')
+    insertTranscript('ほかの配信', '配信2', 10, 'ほかの配信の発話')
+
+    const lines = await readChapterLinesAt(db, '配信1', iso(startedAt + 10 * MINUTE))
+
+    expect(lines.transcripts).toEqual([{ text: '同じ時刻の発話', at: iso(startedAt + 10 * MINUTE) }])
+    expect(lines.chats).toEqual([{ text: '同じ時刻の発言', at: iso(startedAt + 10 * MINUTE) }])
+    expect(lines.screen).toHaveLength(150)
+    expect(lines.screen[0]).toEqual({ text: '画面の文字0', at: iso(startedAt + 10 * MINUTE) })
+    expect(lines.screen[149]?.text).toBe('画面の文字149')
   })
 })
 
