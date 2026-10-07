@@ -85,6 +85,9 @@ const createDeps = (overrides: Partial<WebMcpDeps> = {}) => {
       commentApi: { send: async () => undefined },
       botApi: { sendMessage: async () => undefined },
       focusApi: { load: async () => null, save: async () => null },
+      statsApi: { sessions: async () => [], session: async () => Promise.reject(new Error('配信の記録がありません')) },
+      viewerApi: { list: async () => [], saveNote: async (_userId, note) => note },
+      llmApi: { load: async () => ({ apiKeyConfigured: false }), loadUsage: async () => [], loadCredits: async () => ({ totalCredits: 0, totalUsage: 0, remaining: 0 }) },
     },
     ...overrides,
   }
@@ -121,12 +124,28 @@ describe('ツールの一覧', () => {
   it('状態を読むだけのツールには readOnlyHint が付いている', () => {
     const tools = buildTools(createDeps().deps)
     const readOnly = tools.filter((tool) => tool.annotations?.readOnlyHint === true).map((tool) => tool.name)
-    expect(readOnly).toEqual(['list_pages', 'get_bgm', 'get_pomodoro', 'get_speech_mute', 'get_transcription'])
+    expect(readOnly).toEqual([
+      'list_pages',
+      'get_bgm',
+      'get_pomodoro',
+      'get_speech_mute',
+      'get_transcription',
+      'list_streams',
+      'get_stream',
+      'search_viewers',
+      'get_llm_usage',
+      'get_llm_credits',
+    ])
   })
 
   it('配信に出る操作のツール（段階2）も一緒に登録する', () => {
     const names = buildTools(createDeps().deps).map((tool) => tool.name)
     expect(names).toEqual(expect.arrayContaining(['send_chat_message', 'clear_focus', 'play_town_tour_demo', 'play_twister_demo']))
+  })
+
+  it('記録を読むツール（段階3）も一緒に登録する', () => {
+    const names = buildTools(createDeps().deps).map((tool) => tool.name)
+    expect(names).toEqual(expect.arrayContaining(['list_streams', 'get_stream', 'search_viewers', 'save_viewer_note', 'get_llm_usage', 'get_llm_credits']))
   })
 })
 
