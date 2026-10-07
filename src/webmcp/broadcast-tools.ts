@@ -100,9 +100,18 @@ export const buildBroadcastTools = (apis: BroadcastApis): WebMCP.ModelContextToo
   {
     name: 'play_twister_demo',
     title: 'ツイスターを試しに流す',
-    description: 'レイドを受けたときのツイスターの対戦を、試しの相手と配信者で配信画面へ流します。',
-    inputSchema: NO_INPUT,
+    description:
+      'レイドを受けたときのツイスターの対戦を、試しの相手と配信者で配信画面へ流します。userName に相手とみなす配信者のログイン名を渡すと、その人のアイコンで対戦します（省くと試しの相手で流します）。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        userName: { type: 'string', description: '相手とみなす配信者の Twitch のログイン名' },
+      },
+    },
     annotations: CONSEQUENTIAL,
-    execute: async () => `「${await apis.api.playTwisterDemo()}」の対戦を送りました。オーバーレイに「ツイスター」の素材を置いていれば流れます`,
+    execute: async (input) => {
+      const players = await apis.api.playTwisterDemo(readOptionalString(input, 'userName') ?? '')
+      return `「${players}」の対戦を送りました。オーバーレイに「ツイスター」の素材を置いていれば流れます`
+    },
   },
 ]

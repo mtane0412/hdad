@@ -46,12 +46,16 @@ export const twisterCallOf = (raid: TwisterTrigger, icons: Readonly<Record<strin
   ],
 })
 
-/** 管理画面の試し再生の呼び出しを作る。相手はアイコンを持たず、配信者は自分のアイコンで対戦する */
-export const demoTwisterCallOf = (broadcasterIcon: string | null, seed: number, id: string): TwisterCall => ({
+/**
+ * 管理画面の試し再生の呼び出しを作る。配信者は自分のアイコンで対戦する。
+ *
+ * @param raider レイドしてきたとみなす相手。null なら試しの相手（アイコンなし）で対戦する
+ */
+export const demoTwisterCallOf = (raider: TwisterPlayer | null, broadcasterIcon: string | null, seed: number, id: string): TwisterCall => ({
   id,
   seed,
   players: [
-    { name: DEMO_RAIDER_NAME, iconUrl: null },
+    raider ?? { name: DEMO_RAIDER_NAME, iconUrl: null },
     { name: DEMO_BROADCASTER_NAME, iconUrl: broadcasterIcon },
   ],
 })

@@ -39,9 +39,16 @@ describe('twisterCallOf', () => {
 
 describe('demoTwisterCallOf', () => {
   it('試し再生の相手はアイコンを持たず、配信者は自分のアイコンで対戦する', () => {
-    const call = demoTwisterCallOf(icons['9999'] ?? null, 7, '試しID')
+    const call = demoTwisterCallOf(null, icons['9999'] ?? null, 7, '試しID')
     expect(call.players[0]).toEqual({ name: 'レイドした人（試し）', iconUrl: null })
     expect(call.players[1]).toEqual({ name: '配信者', iconUrl: icons['9999'] })
+    expect(parseTwisterCall(JSON.stringify(call))).toEqual(call)
+  })
+
+  it('相手を渡せば、試しの相手の代わりにその人の名前とアイコンで対戦する', () => {
+    const raider = { name: '山田花子', iconUrl: icons['1111'] ?? null }
+    const call = demoTwisterCallOf(raider, icons['9999'] ?? null, 7, '試しID')
+    expect(call.players).toEqual([raider, { name: '配信者', iconUrl: icons['9999'] }])
     expect(parseTwisterCall(JSON.stringify(call))).toEqual(call)
   })
 })

@@ -437,8 +437,18 @@ describe('効果の付け外し', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: 'ツイスターを試しに流す' }))
 
-    expect(api.playTwisterDemo).toHaveBeenCalledTimes(1)
+    expect(api.playTwisterDemo).toHaveBeenCalledWith('')
     expect(await notice('レイドした人（試し） vs 配信者')).toBeInTheDocument()
+  })
+
+  test('ツイスターの相手とみなすユーザー名を入れて試し再生を押すと、その名前を送る', async () => {
+    const api = fakeApi()
+    render(triggerPage(api))
+
+    await userEvent.type(await screen.findByRole('textbox', { name: 'ツイスターの相手とみなすユーザー名（任意）' }), ' hoshino_yu ')
+    await userEvent.click(screen.getByRole('button', { name: 'ツイスターを試しに流す' }))
+
+    expect(api.playTwisterDemo).toHaveBeenCalledWith('hoshino_yu')
   })
 
   test('レイド以外の項目にはシャウトアウトを出さない（紹介する相手が配信者でないため）', async () => {

@@ -277,15 +277,30 @@ describe('rotateOverlayKey・playTownTourDemo・townTourSound・rewards・logout
       ],
     })
 
-    expect(await createAdminApi(fetchImpl).playTwisterDemo()).toBe('レイドした人（試し） vs 配信者')
+    expect(await createAdminApi(fetchImpl).playTwisterDemo('')).toBe('レイドした人（試し） vs 配信者')
     expect(requests[0]!.method).toBe('POST')
     expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/twister/demo')
+    expect(await requests[0]!.json()).toEqual({ userName: '' })
+  })
+
+  it('ツイスターの試し再生で、相手とみなすユーザー名を一緒に送る', async () => {
+    const { requests, fetchImpl } = fetchReturning(200, {
+      id: '試しID',
+      seed: 42,
+      players: [
+        { name: '星野ゆう', iconUrl: 'https://static-cdn.jtvnw.net/jtv_user_pictures/hoshino.png' },
+        { name: '配信者', iconUrl: null },
+      ],
+    })
+
+    expect(await createAdminApi(fetchImpl).playTwisterDemo('hoshino_yu')).toBe('星野ゆう vs 配信者')
+    expect(await requests[0]!.json()).toEqual({ userName: 'hoshino_yu' })
   })
 
   it('ツイスターの試し再生の応答が想定した形でなければエラーにする', async () => {
     const { fetchImpl } = fetchReturning(200, { id: '試しID' })
 
-    await expect(createAdminApi(fetchImpl).playTwisterDemo()).rejects.toThrow()
+    await expect(createAdminApi(fetchImpl).playTwisterDemo('')).rejects.toThrow()
   })
 
   it('市町村紹介の音の設定を読み、枠ごとの素材のIDと音量を返す', async () => {

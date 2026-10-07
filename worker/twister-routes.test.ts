@@ -4,6 +4,8 @@
  * - 合成ページの接続（GET /api/overlay/twister/socket）は、ツイスターを受け取る接続として配送先へ引き渡す
  * - 管理画面の試し再生（POST /api/admin/twister/demo）は、ログインした配信者にだけ、試しの相手と配信者の対戦を押し出す。
  *   配信者のアイコンは Twitch から引き、引けなければ押し出さずに 502 にする（顔の無い対戦を黙って流さない）
+ * - 本文で相手のログイン名を渡せば、その人がレイドしてきたものとみなし、Twitch で引いた表示名とアイコンで対戦する。
+ *   ログイン名の形でなければ400、Twitch にいなければ404にし、どちらも押し出さない
  */
 import { describe, expect, it } from 'vitest'
 import { parseTwisterCall } from '../src/twister/call'
@@ -62,6 +64,22 @@ const twitchReturningBroadcasterIcon: typeof fetch = async (input, init) => {
   throw new Error(`テストで想定していない通信です: ${request.url}`)
 }
 
+const RAIDER_LOGIN = 'yamada_hanako'
+const RAIDER_ICON = 'https://static-cdn.jtvnw.net/jtv_user_pictures/yamada.png'
+
+/** 配信者のアイコンに加えて、ログイン名 yamada_hanako の配信者（表示名は山田花子）を返す Twitch の代役。ほかのログイン名はいないことにする */
+const twitchKnowingRaider: typeof fetch = async (input, init) => {
+  const request = new Request(input, init)
+  const url = new URL(request.url)
+  if (url.origin + url.pathname === 'https://api.twitch.tv/helix/users' && url.searchParams.has('login')) {
+    if (url.searchParams.get('login') !== RAIDER_LOGIN) return Response.json({ data: [] })
+    return Response.json({
+      data: [{ id: '1111', login: RAIDER_LOGIN, display_name: '山田花子', description: '', profile_image_url: RAIDER_ICON }],
+    })
+  }
+  return twitchReturningBroadcasterIcon(request)
+}
+
 const invoke = (path: string, env: Env, fetchImpl: typeof fetch, init: RequestInit = {}) =>
   handleRequest(new Request(`${site}${path}`, init), env, {
     fetch: fetchImpl,
@@ -95,9 +113,13 @@ describe('GET /api/overlay/twister/socket', () => {
 
 describe('POST /api/admin/twister/demo', () => {
   /** 配信者としてログインした状態で呼ぶ。書き換えなので Origin も付ける（ブラウザが付けるのと同じ） */
-  const callAsBroadcaster = async (env: Env, fetchImpl: typeof fetch): Promise<Response> => {
+  const callAsBroadcaster = async (env: Env, fetchImpl: typeof fetch, body?: unknown): Promise<Response> => {
     const session = await createSessionToken(env.TWITCH_BROADCASTER_ID, env.SESSION_SECRET, now)
-    return invoke('/api/admin/twister/demo', env, fetchImpl, { method: 'POST', headers: { Cookie: `__Host-session=${session}`, Origin: site } })
+    return invoke('/api/admin/twister/demo', env, fetchImpl, {
+      method: 'POST',
+      headers: { Cookie: `__Host-session=${session}`, Origin: site, 'Content-Type': 'application/json' },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    })
   }
 
   it('ログインしていなければ401にし、押し出さない', async () => {
@@ -124,6 +146,59 @@ describe('POST /api/admin/twister/demo', () => {
     // 合成ページの読み取りがそのまま読める形で押し出す
     expect(parseTwisterCall(JSON.stringify(call))).toEqual(call)
     expect(await response.json()).toEqual(call)
+  })
+
+  it('ユーザー名が空なら、試しの相手で対戦する', async () => {
+    const alertChannel = createFakeAlertChannel()
+
+    const response = await callAsBroadcaster(createEnv(alertChannel), twitchReturningBroadcasterIcon, { userName: '' })
+
+    expect(response.status).toBe(200)
+    expect(alertChannel.pushedTwisters[0]?.players[0]).toEqual({ name: 'レイドした人（試し）', iconUrl: null })
+  })
+
+  it('相手のログイン名を渡せば、その人の表示名とアイコンで対戦する', async () => {
+    const alertChannel = createFakeAlertChannel()
+
+    const response = await callAsBroadcaster(createEnv(alertChannel), twitchKnowingRaider, { userName: RAIDER_LOGIN })
+
+    expect(response.status).toBe(200)
+    expect(alertChannel.pushedTwisters[0]?.players).toEqual([
+      { name: '山田花子', iconUrl: RAIDER_ICON },
+      { name: '配信者', iconUrl: BROADCASTER_ICON },
+    ])
+  })
+
+  it('ログイン名の形でないユーザー名なら、押し出さずに400にする', async () => {
+    const alertChannel = createFakeAlertChannel()
+
+    const response = await callAsBroadcaster(createEnv(alertChannel), noFetch, { userName: 'やまだ はなこ' })
+
+    expect(response.status).toBe(400)
+    expect(alertChannel.pushedTwisters).toEqual([])
+  })
+
+  it('Twitch にいないログイン名なら、押し出さずに404にする', async () => {
+    const alertChannel = createFakeAlertChannel()
+
+    const response = await callAsBroadcaster(createEnv(alertChannel), twitchKnowingRaider, { userName: 'nobody_here' })
+
+    expect(response.status).toBe(404)
+    expect(alertChannel.pushedTwisters).toEqual([])
+  })
+
+  it('本文が JSON でなければ、押し出さずに400にする', async () => {
+    const alertChannel = createFakeAlertChannel()
+    const session = await createSessionToken(BROADCASTER_ID, 'テスト用のセッション秘密鍵', now)
+
+    const response = await invoke('/api/admin/twister/demo', createEnv(alertChannel), noFetch, {
+      method: 'POST',
+      headers: { Cookie: `__Host-session=${session}`, Origin: site },
+      body: 'yamada_hanako',
+    })
+
+    expect(response.status).toBe(400)
+    expect(alertChannel.pushedTwisters).toEqual([])
   })
 
   it('配信者のアイコンを引けなければ、押し出さずに502にする', async () => {
