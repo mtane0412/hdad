@@ -87,6 +87,7 @@ npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 | `triggers-page.md` | トリガーの管理画面（`/triggers/`） | `src/admin/**` |
 | `rewards.md` | チャンネルポイント報酬（`/rewards/`） | `src/admin/reward-*`・`worker/reward-*.ts` |
 | `bot.md` | チャットボット（`/bot/`） | `src/bot/**`・`worker/auth-routes.ts`・`worker/token.ts`・`worker/token-vault.ts`・`worker/webhook-routes.ts`・`worker/bot-*.ts`・`worker/chat-*.ts`・`worker/moderation-config.ts`・`worker/eventsub*.ts` |
+| `webmcp.md` | エージェント向けのツール（WebMCP。ページUIの操作をブラウザのエージェントへ登録する） | `src/webmcp/**`・`src/app/bottom-bar.tsx` |
 | `worker.md` | Worker（`worker/`）と失敗の記録 | `worker/**` |
 | `implementation.md` | 判定・検証の置き場とテストの分け方（話題をまたぐ） | `src/**`・`worker/**` |
 

@@ -5,6 +5,8 @@
  * 形は音楽プレーヤー（Spotify など）にならい、サイドバーの下まで画面の幅いっぱいに通す。
  * 並びは左・中央・右の3つに分け、左にいま流している曲・中央に再生の操作・右に音量（BGM。src/bgm/bgm-bar.tsx。#236）を置き、
  * 右にはそのほかの切り替え（ポモドーロ（src/pomodoro/pomodoro-bar.tsx。#237）・文字起こし・読み上げのミュート（src/speech/speech-mute-control.tsx。#238））を並べる。
+ * 同じ操作をエージェントから呼べるよう、WebMCP のツールの登録（src/webmcp/webmcp-tools.tsx。#279）もここに置く
+ * （普段は何も描かず、登録を断られたときだけ右端に理由を出す）。
  *
  * 狭い画面ではサイドバーが重ねて開く形になり、閉じているあいだはサイドバーの中の開閉ボタンが見えない。
  * そのときだけ、左端にサイドバーを開くボタンを出す。
@@ -21,6 +23,12 @@ import { iconButtonName } from '@/core/icon-button'
 import { PomodoroBar } from '@/pomodoro/pomodoro-bar'
 import { SpeechMuteControl } from '@/speech/speech-mute-control'
 import { RecognitionControl } from '@/transcript/recognition-control'
+import { WebMcpTools } from '@/webmcp/webmcp-tools'
+import type { PageEntry } from '@/webmcp/tools'
+import { PAGE_GROUPS } from './pages'
+
+/** エージェントに見せるページ（サイドバーの項目と同じ並び） */
+const WEBMCP_PAGES: readonly PageEntry[] = PAGE_GROUPS.flatMap((group) => group.pages.map((page) => ({ group: group.label, path: page.path, name: page.name })))
 
 export const BottomBar = () => {
   const { isMobile, setOpenMobile } = useSidebar()
@@ -50,6 +58,7 @@ export const BottomBar = () => {
             <PomodoroBar />
             <RecognitionControl />
             <SpeechMuteControl />
+            <WebMcpTools pages={WEBMCP_PAGES} />
           </>
         }
       />

@@ -15,6 +15,7 @@
  * - 下部バー（配信中の操作）に文字起こしのオン・オフと状態を出し、サイドバーには出さないこと
  * - 本文の上にバーを持たず、サイドバーの開閉と「ページを探す」をサイドバーの上部に置くこと
  * - 狭い画面では、閉じたサイドバーを下部バーから開けること
+ * - WebMCP に対応したブラウザでは、ログインしているあいだだけエージェント向けのツールを登録し、登録できなければエラーを出すこと
  */
 import type { TownTourNarration } from '@/town-tour/narration'
 import type { TownTourSound } from '@/town-tour/sound'
@@ -38,6 +39,7 @@ import type { SpeechApi } from '@/speech/api'
 import type { StatsApi } from '@/stats/api'
 import type { RecognitionDeps } from '@/transcript/recognition-context'
 import type { ViewerApi } from '@/viewers/api'
+import type { WebMCP } from 'webmcp-types'
 import { App } from './app'
 
 const broadcaster: Me = { userId: '12345', login: 'haishin_taro', overlayKey: 'overlay-key' }
@@ -647,5 +649,93 @@ describe('未保存の変更があるままページを離れようとしたと�
 
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { level: 1, name: 'ダッシュボード' })).toBeInTheDocument()
+  })
+})
+
+describe('WebMCP（エージェント向けのツール）', () => {
+  /** 登録されたツールと、その登録を消すための signal */
+  interface Registration {
+    tool: WebMCP.ModelContextTool
+    signal: AbortSignal | undefined
+  }
+
+  /**
+   * WebMCP に対応したブラウザを装い、document.modelContext に registerTool の代役を置く。
+   * rejectName を渡したら、その名前のツールの登録だけを断る
+   */
+  const installModelContext = (rejectName?: string): Registration[] => {
+    const registrations: Registration[] = []
+    Object.defineProperty(document, 'modelContext', {
+      configurable: true,
+      value: {
+        registerTool: async (tool: WebMCP.ModelContextTool, options?: WebMCP.ModelContextRegisterToolOptions) => {
+          if (tool.name === rejectName) throw new Error('このページではツールを登録できません')
+          registrations.push({ tool, signal: options?.signal })
+        },
+      },
+    })
+    return registrations
+  }
+
+  /** いま有効な（消されていない）登録の中から、名前でツールを探す */
+  const activeTool = (registrations: readonly Registration[], name: string): WebMCP.ModelContextTool => {
+    const found = registrations.find((registration) => registration.tool.name === name && registration.signal?.aborted !== true)
+    if (found === undefined) throw new Error(`${name} は登録されていません`)
+    return found.tool
+  }
+
+  afterEach(() => {
+    Reflect.deleteProperty(document, 'modelContext')
+  })
+
+  test('ログインするとツールを登録し、open_page でページを移れる', async () => {
+    const registrations = installModelContext()
+    renderSignedIn()
+    await screen.findByRole('heading', { level: 1, name: 'ダッシュボード' })
+    await waitFor(() => expect(() => activeTool(registrations, 'open_page')).not.toThrow())
+
+    const result = await act(() => activeTool(registrations, 'open_page').execute({ path: '/viewers/' }, { signal: new AbortController().signal }))
+
+    expect(result).toBe('「視聴者」のページへ移りました')
+    expect(await screen.findByRole('heading', { level: 1, name: '視聴者' })).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/viewers/')
+  })
+
+  test('list_pages はサイドバーと同じページを返す', async () => {
+    const registrations = installModelContext()
+    renderSignedIn()
+    await waitFor(() => expect(() => activeTool(registrations, 'list_pages')).not.toThrow())
+
+    const result = await activeTool(registrations, 'list_pages').execute({}, { signal: new AbortController().signal })
+
+    if (typeof result !== 'string') throw new Error('list_pages の結果が文字列ではありません')
+    const listed: { currentPath: string; pages: { group: string; path: string; name: string }[] } = JSON.parse(result)
+    expect(listed.currentPath).toBe('/')
+    expect(listed.pages).toContainEqual({ group: '配信中', path: '/viewers/', name: '視聴者' })
+    expect(listed.pages).toContainEqual({ group: '自動化', path: '/bot/', name: 'チャットボット' })
+  })
+
+  test('ログアウトすると、登録したツールをすべて消す', async () => {
+    const registrations = installModelContext()
+    renderSignedIn()
+    await waitFor(() => expect(() => activeTool(registrations, 'open_page')).not.toThrow())
+
+    await userEvent.click(screen.getByRole('button', { name: 'ログアウト' }))
+    await screen.findByRole('link', { name: 'Twitchでログイン' })
+
+    expect(registrations.length).toBeGreaterThan(0)
+    expect(registrations.every((registration) => registration.signal?.aborted === true)).toBe(true)
+  })
+
+  test('途中のツールの登録を断られたら、下部バーにエラーを出し、先に登録できたツールも消す', async () => {
+    // 前提: list_pages・open_page は登録でき、その次の get_bgm で断られる
+    const registrations = installModelContext('get_bgm')
+    renderSignedIn()
+
+    const bar = await screen.findByRole('region', { name: '配信中の操作' })
+    expect(await within(bar).findByText('WebMCP にツール get_bgm を登録できませんでした: このページではツールを登録できません')).toBeInTheDocument()
+    // 一部のツールだけが呼べる状態を残さない
+    expect(registrations.map((registration) => registration.tool.name)).toEqual(['list_pages', 'open_page'])
+    expect(registrations.every((registration) => registration.signal?.aborted === true)).toBe(true)
   })
 })
