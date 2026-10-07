@@ -1,7 +1,7 @@
 /**
  * WebMCP で登録するツールの定義（issue #279 の段階1: 配信中の操作とページの移動）
  *
- * 段階2（配信に出る操作。broadcast-tools.ts）以降のツールは話題ごとのファイルに分け、buildTools がまとめて返す。
+ * 段階2（配信に出る操作。broadcast-tools.ts）・段階3（記録の読み取り。record-tools.ts）以降のツールは話題ごとのファイルに分け、buildTools がまとめて返す。
  *
  * ブラウザのエージェントが HDAD を操作できるよう、下部バーでできること（BGM・ポモドーロ・読み上げのミュート・
  * 文字起こし）とページの移動をツールにする。ツールは画面のボタンと同じくアプリの枠の状態（BgmPlayerProvider など）を
@@ -25,6 +25,7 @@ import type { SpeechMuteApi } from '@/speech/api'
 import type { RecognitionContextValue } from '@/transcript/recognition-context'
 import { buildBroadcastTools, type BroadcastApis } from './broadcast-tools'
 import { NO_INPUT, readBoolean, readChoice } from './input'
+import { buildRecordTools, type RecordApis } from './record-tools'
 
 /** ページの一覧の1項目（サイドバーの項目と同じ） */
 export interface PageEntry {
@@ -53,7 +54,7 @@ export interface WebMcpDeps {
 }
 
 /** 段階2以降のツールが使う Worker の Api。アプリの枠の PageContext をそのまま渡せる形にする */
-export type WebMcpApis = BroadcastApis
+export type WebMcpApis = BroadcastApis & RecordApis
 
 const BGM_STEPS: readonly BgmStep[] = ['next', 'previous']
 const POMODORO_COMMANDS: readonly PomodoroCommand[] = ['start', 'pause', 'resume', 'stop']
@@ -267,4 +268,5 @@ export const buildTools = (deps: WebMcpDeps): WebMCP.ModelContextTool[] => [
     },
   },
   ...buildBroadcastTools(deps.apis),
+  ...buildRecordTools(deps.apis, deps.now),
 ]
