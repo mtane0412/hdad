@@ -6,6 +6,8 @@
  *   配信者のアイコンは Twitch から引き、引けなければ押し出さずに 502 にする（顔の無い対戦を黙って流さない）
  * - 本文で相手のログイン名を渡せば、その人がレイドしてきたものとみなし、Twitch で引いた表示名とアイコンで対戦する。
  *   ログイン名の形でなければ400、Twitch にいなければ404にし、どちらも押し出さない
+ * - 試し再生もレイドと同じ BGM の設定を添えて押し出す。BGM を選んでいるのにオーバーレイ用キーが未発行なら409にして押し出さない
+ * - BGM の設定（GET・PUT /api/admin/twister/sound）は、ログインした配信者にだけ読み書きさせ、音声でない素材を選んだ設定は400で断る
  */
 import { describe, expect, it } from 'vitest'
 import { parseTwisterCall } from '../src/twister/call'
@@ -22,6 +24,7 @@ import { createFakeTabChannel } from './fake-tab-channel'
 import { createFakeTokenVault } from './fake-token-vault'
 import { handleRequest, type Env } from './index'
 import { createSessionToken } from './session'
+import { DEFAULT_TWISTER_SOUND, loadTwisterSound, saveTwisterSound } from './twister-sound'
 
 const now = Date.parse('2026-10-06T12:00:00Z')
 const site = 'https://hdad.example.com'
@@ -29,9 +32,9 @@ const overlayKey = 'issued-overlay-key-0123456789abcdefghij'
 const BROADCASTER_ID = '12345'
 const BROADCASTER_ICON = 'https://static-cdn.jtvnw.net/jtv_user_pictures/tanenobu.png'
 
-const createEnv = (alertChannel = createFakeAlertChannel()) =>
+const createEnv = (alertChannel = createFakeAlertChannel(), store = createFakeStore({ 'overlay-key': overlayKey })) =>
   ({
-    STORE: createFakeStore({ 'overlay-key': overlayKey }),
+    STORE: store,
     MEDIA: createFakeBucket(),
     DB: createFakeDatabase(),
     ASSETS: createFakeAssets(),
@@ -146,6 +149,30 @@ describe('POST /api/admin/twister/demo', () => {
     // 合成ページの読み取りがそのまま読める形で押し出す
     expect(parseTwisterCall(JSON.stringify(call))).toEqual(call)
     expect(await response.json()).toEqual(call)
+    // BGM を選んでいなければ、流さない設定のまま押し出す
+    expect(call?.sound).toEqual(DEFAULT_TWISTER_SOUND)
+  })
+
+  it('BGM を選んでいれば、レイドと同じく音声のURL（オーバーレイ用キーつき）と音量を添えて押し出す', async () => {
+    const alertChannel = createFakeAlertChannel()
+    const env = createEnv(alertChannel)
+    await saveTwisterSound(env.STORE, { bgm: 'media-taisen', bgmVolume: 0.4 })
+
+    const response = await callAsBroadcaster(env, twitchReturningBroadcasterIcon)
+
+    expect(response.status).toBe(200)
+    expect(alertChannel.pushedTwisters[0]?.sound).toEqual({ bgm: `/api/media/media-taisen?key=${overlayKey}`, bgmVolume: 0.4 })
+  })
+
+  it('BGM を選んでいるのにオーバーレイ用キーが未発行なら、押し出さずに409にする', async () => {
+    const alertChannel = createFakeAlertChannel()
+    const env = createEnv(alertChannel, createFakeStore())
+    await saveTwisterSound(env.STORE, { bgm: 'media-taisen', bgmVolume: 0.4 })
+
+    const response = await callAsBroadcaster(env, twitchReturningBroadcasterIcon)
+
+    expect(response.status).toBe(409)
+    expect(alertChannel.pushedTwisters).toEqual([])
   })
 
   it('ユーザー名が空なら、試しの相手で対戦する', async () => {
@@ -214,5 +241,57 @@ describe('POST /api/admin/twister/demo', () => {
     const response = await callAsBroadcaster(createEnv(createFakeAlertChannel({ shouldFail: true })), twitchReturningBroadcasterIcon)
 
     expect(response.status).toBe(502)
+  })
+})
+
+describe('GET・PUT /api/admin/twister/sound', () => {
+  /** 配信者としてログインした状態で呼ぶ。書き換えのときは Origin も付ける（ブラウザが付けるのと同じ） */
+  const callAsBroadcaster = async (env: Env, init: RequestInit = {}): Promise<Response> => {
+    const session = await createSessionToken(env.TWITCH_BROADCASTER_ID, env.SESSION_SECRET, now)
+    return invoke('/api/admin/twister/sound', env, noFetch, { ...init, headers: { Cookie: `__Host-session=${session}`, Origin: site } })
+  }
+
+  /** 対戦の曲（音声）と、マットの画像を上げておいた環境 */
+  const createEnvWithMedia = async (): Promise<Env> => {
+    const env = createEnv()
+    await env.MEDIA.put('media-taisen', new ArrayBuffer(8), { httpMetadata: { contentType: 'audio/mpeg' }, customMetadata: { name: 'taisen.mp3' } })
+    await env.MEDIA.put('media-mat', new ArrayBuffer(8), { httpMetadata: { contentType: 'image/png' }, customMetadata: { name: 'mat.png' } })
+    return env
+  }
+
+  it('ログインしていなければ読ませない', async () => {
+    const response = await invoke('/api/admin/twister/sound', createEnv(), noFetch)
+
+    expect(response.status).toBe(401)
+  })
+
+  it('未保存なら、BGM を流さない設定を返す', async () => {
+    const response = await callAsBroadcaster(createEnv())
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual(DEFAULT_TWISTER_SOUND)
+  })
+
+  it('保存した設定を返し、次に読んだときも同じものを返す', async () => {
+    const env = await createEnvWithMedia()
+    const sound = { bgm: 'media-taisen', bgmVolume: 0.25 }
+
+    const saved = await callAsBroadcaster(env, { method: 'PUT', body: JSON.stringify(sound) })
+    const loaded = await callAsBroadcaster(env)
+
+    expect(saved.status).toBe(200)
+    expect(await saved.json()).toEqual(sound)
+    expect(await loaded.json()).toEqual(sound)
+  })
+
+  it('音声でない素材を選んだ設定は、問題点つきの400で断って保存しない', async () => {
+    const env = await createEnvWithMedia()
+
+    const response = await callAsBroadcaster(env, { method: 'PUT', body: JSON.stringify({ bgm: 'media-mat', bgmVolume: 0.3 }) })
+
+    expect(response.status).toBe(400)
+    const body = (await response.json()) as { error: { problems: string[] } }
+    expect(body.error.problems).toEqual(['bgm: 素材「media-mat」は音声ではありません'])
+    expect(await loadTwisterSound(env.STORE)).toEqual(DEFAULT_TWISTER_SOUND)
   })
 })

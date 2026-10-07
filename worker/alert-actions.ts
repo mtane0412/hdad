@@ -40,6 +40,7 @@ import { listTownTourVisits } from './town-tour-visits'
 import { loadTownTourNarration } from './town-tour-narration'
 import { loadTownTourSound, playbackSoundOf } from './town-tour-sound'
 import { twisterCallOf, twisterSeedOf } from './twister-call'
+import { loadTwisterSound, playbackTwisterSoundOf } from './twister-sound'
 import { readViewer } from './viewer-store'
 
 /**
@@ -159,13 +160,19 @@ export const runAlertActions = async (
       throw invalid(error instanceof Error ? error.message : String(error))
     }
   })()
-  for (const [index, twister] of twisters.entries()) {
-    await sendAndRecordFailure(context, messageId, 'twister', index, 'twister-push-failed', async () => {
-      const { twitch } = context
-      const icons = await twitch.getProfileImageUrls(await twitch.getAppAccessToken(), [twister.raiderId, env.TWITCH_BROADCASTER_ID])
-      const seed = twisterSeedOf(crypto.getRandomValues(new Uint32Array(1)))
-      await pushTwister(env.ALERTS, twisterCallOf(twister, icons, env.TWITCH_BROADCASTER_ID, seed, crypto.randomUUID()))
-    })
+  // BGM の設定とオーバーレイ用キーは、当てはまった行があるときだけ読む（チャットの発言のたびにKVを読まないため）
+  if (twisters.length > 0) {
+    const [sound, overlayKey] = await Promise.all([loadTwisterSound(env.STORE), loadOverlayKey(env.STORE)])
+    for (const [index, twister] of twisters.entries()) {
+      await sendAndRecordFailure(context, messageId, 'twister', index, 'twister-push-failed', async () => {
+        // キーが未発行で BGM のURLを作れないときも、押し出しの失敗として記録する（黙って無音で流さない）
+        const playbackSound = playbackTwisterSoundOf(sound, overlayKey)
+        const { twitch } = context
+        const icons = await twitch.getProfileImageUrls(await twitch.getAppAccessToken(), [twister.raiderId, env.TWITCH_BROADCASTER_ID])
+        const seed = twisterSeedOf(crypto.getRandomValues(new Uint32Array(1)))
+        await pushTwister(env.ALERTS, twisterCallOf(twister, icons, env.TWITCH_BROADCASTER_ID, playbackSound, seed, crypto.randomUUID()))
+      })
+    }
   }
 
   if (messages.length === 0 && announcements.length === 0 && aiChats.length === 0 && shoutouts.length === 0) return

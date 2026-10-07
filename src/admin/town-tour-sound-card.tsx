@@ -22,13 +22,13 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Slider } from '@/components/ui/slider'
 import { useUnsavedChanges } from '@/app/router'
 import { ApiError } from '@/core/api'
 import { TOWN_TOUR_SOUND_SLOTS, type TownTourSound, type TownTourSoundSlot } from '@/town-tour/sound'
 import type { AdminApi, MediaItem } from './api'
 import { errorMessage, usePageActions } from './page-actions'
 import { TownTourNarrationSection, type TownTourNarrationApi } from './town-tour-narration-section'
+import { VolumeField } from './volume-field'
 
 /** このカードが使う Worker の呼び出し */
 export type TownTourSoundApi = Pick<AdminApi, 'townTourSound' | 'saveTownTourSound' | 'playTownTourDemo'> & TownTourNarrationApi
@@ -48,8 +48,6 @@ const VOLUME_LABELS = { bgmVolume: 'BGMの音量', effectVolume: '効果音の�
 
 /** 選択欄で「鳴らさない」を表す値（選択欄の値は文字列しか持てないので、null と空文字を行き来する） */
 const SILENT = ''
-/** 音量のつまみの最大（％）。保存する値は 0〜1 */
-const MAX_VOLUME_PERCENT = 100
 
 type Loaded = { status: 'loading' } | { status: 'failed'; message: string } | { status: 'ready' }
 
@@ -70,34 +68,6 @@ const failureLines = (error: unknown): string[] =>
   error instanceof ApiError && error.problems.length > 0
     ? ['市町村紹介の音の設定に問題があります。直してから保存し直してください', ...error.problems.map((problem) => `・${describeSoundProblem(problem)}`)]
     : [errorMessage(error)]
-
-/** 0〜1 の音量を、つまみと表示に使う％にする */
-const toPercent = (volume: number): number => Math.round(volume * MAX_VOLUME_PERCENT)
-
-interface VolumeFieldProps {
-  id: string
-  label: string
-  volume: number
-  onChange(volume: number): void
-}
-
-const VolumeField = ({ id, label, volume, onChange }: VolumeFieldProps) => (
-  <div className="flex flex-col gap-2">
-    <span id={id} className="text-sm leading-none font-medium">
-      {label}
-    </span>
-    <div className="flex h-8 items-center gap-3">
-      <Slider
-        aria-labelledby={id}
-        min={0}
-        max={MAX_VOLUME_PERCENT}
-        value={[toPercent(volume)]}
-        onValueChange={(next) => onChange((Array.isArray(next) ? (next[0] ?? 0) : next) / MAX_VOLUME_PERCENT)}
-      />
-      <output className="w-12 text-right font-mono text-xs tabular-nums">{toPercent(volume)}%</output>
-    </div>
-  </div>
-)
 
 interface TownTourSoundCardProps {
   api: TownTourSoundApi

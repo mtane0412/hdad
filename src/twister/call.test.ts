@@ -2,7 +2,7 @@
  * ツイスターの呼び出しの読み取り（call.ts）のテスト
  *
  * Worker は、レイドを受けたとき（と管理画面の試し再生）に、対戦の種と2人（レイドした人・配信者）の名前とアイコンを
- * WebSocket で押し出す。合成ページはそれを読み、形が違えば黙って流さずに投げる（素材の箱に失敗を出す）。
+ * WebSocket で押し出す（対戦のあいだ流す BGM の設定も添える）。合成ページはそれを読み、形が違えば黙って流さずに投げる（素材の箱に失敗を出す）。
  */
 import { describe, expect, it } from 'vitest'
 import { parseTwisterCall } from './call'
@@ -15,6 +15,7 @@ const raidCall = {
     { name: 'こわい話の人', iconUrl: 'https://static-cdn.jtvnw.net/jtv_user_pictures/kowai.png' },
     { name: '配信者さん', iconUrl: 'https://static-cdn.jtvnw.net/jtv_user_pictures/haishin.png' },
   ],
+  sound: { bgm: '/api/media/media-taisen?key=issued-overlay-key', bgmVolume: 0.3 },
 }
 
 describe('parseTwisterCall', () => {
@@ -25,6 +26,22 @@ describe('parseTwisterCall', () => {
   it('アイコンが無い人（試し再生の相手）は null のまま読む', () => {
     const demo = { ...raidCall, players: [{ name: 'レイドした人（試し）', iconUrl: null }, raidCall.players[1]] }
     expect(parseTwisterCall(JSON.stringify(demo)).players[0].iconUrl).toBeNull()
+  })
+
+  it('BGM を流さない設定（bgm が null）はそのまま読む', () => {
+    const silent = { ...raidCall, sound: { bgm: null, bgmVolume: 0.3 } }
+    expect(parseTwisterCall(JSON.stringify(silent)).sound.bgm).toBeNull()
+  })
+
+  it('BGM の設定が無い・形が違えば投げる（黙って無音で流さない）', () => {
+    const broken = [
+      { ...raidCall, sound: undefined },
+      { ...raidCall, sound: { bgm: 42, bgmVolume: 0.3 } },
+      { ...raidCall, sound: { bgm: null, bgmVolume: '小さめ' } },
+    ]
+    for (const call of broken) {
+      expect(() => parseTwisterCall(JSON.stringify(call))).toThrow('想定した形')
+    }
   })
 
   it('JSONとして読めなければ投げる', () => {

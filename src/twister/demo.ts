@@ -6,6 +6,7 @@
  * （市町村紹介の src/town-tour/demo.ts と同じ考え方）。
  *
  * プレビューは Twitch につながないので、2人ともアイコンを持たない（名前の頭文字の顔になる）。
+ * 配信者の音声も読めない（オーバーレイ用キーを持たない）ので、BGM も流さない。
  */
 import type { TwisterCall } from './call'
 
@@ -17,6 +18,7 @@ export const DEMO_TWISTER_CALLS: readonly TwisterCall[] = [20261006, 272, 8128].
     { name: '視聴者', iconUrl: null },
     { name: '配信者', iconUrl: null },
   ],
+  sound: { bgm: null, bgmVolume: 0 },
 }))
 
 /** プレビューで次の呼び出しを流す間隔（ミリ秒）。1回の対戦（30秒前後）を流しきるだけの間を置く */

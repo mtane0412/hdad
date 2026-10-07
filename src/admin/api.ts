@@ -11,6 +11,7 @@
 import { ApiError, createCaller, isRecord, readList } from '@/core/api'
 import { readTownTourNarration, type TownTourNarration } from '@/town-tour/narration'
 import { readTownTourSound, type TownTourSound } from '@/town-tour/sound'
+import { readTwisterSound, type TwisterSound } from '@/twister/sound'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const CHAT_MESSAGE = 'channel.chat.message'
@@ -238,6 +239,10 @@ export interface AdminApi {
    * userName に相手とみなす配信者のログイン名を渡すと、その人のアイコンで対戦する。空なら試しの相手で流す
    */
   playTwisterDemo(userName: string): Promise<string>
+  /** ツイスターの対戦のあいだ流す BGM の設定。未保存なら BGM を流さない設定が返る */
+  twisterSound(): Promise<TwisterSound>
+  /** ツイスターの BGM の設定を保存する。Workerが保存したものを返す */
+  saveTwisterSound(sound: TwisterSound): Promise<TwisterSound>
   /** 市町村紹介の演出で鳴らす音の設定。未保存ならどの枠も鳴らさない設定が返る */
   townTourSound(): Promise<TownTourSound>
   /** 市町村紹介の音の設定を保存する。Workerが保存したものを返す */
@@ -334,6 +339,7 @@ const readReward = (body: unknown): Reward => {
 const REWARDS_PATH = '/api/admin/rewards'
 const TOWN_TOUR_SOUND_PATH = '/api/admin/town-tour/sound'
 const TOWN_TOUR_NARRATION_PATH = '/api/admin/town-tour/narration'
+const TWISTER_SOUND_PATH = '/api/admin/twister/sound'
 
 export const createAdminApi = (fetchImpl: typeof fetch): AdminApi => {
   const call = createCaller(fetchImpl)
@@ -405,6 +411,11 @@ export const createAdminApi = (fetchImpl: typeof fetch): AdminApi => {
       if (players.length !== 2 || typeof raider !== 'string' || typeof streamer !== 'string') throw new Error('Workerの応答に、対戦する2人の名前がありません')
       return `${raider} vs ${streamer}`
     },
+
+    twisterSound: async () => readTwisterSound(await call(TWISTER_SOUND_PATH)),
+
+    saveTwisterSound: async (sound) =>
+      readTwisterSound(await call(TWISTER_SOUND_PATH, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sound) })),
 
     townTourSound: async () => readTownTourSound(await call(TOWN_TOUR_SOUND_PATH)),
 

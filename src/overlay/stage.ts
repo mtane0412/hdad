@@ -95,6 +95,8 @@ import { decodeTownBorders, decodeTownShapes, type TownBorders } from '../town-t
 import { parseTownTourMessage, tourLinesOf, type TownTourCall, type TownTourIntro } from '../town-tour/tour'
 import { createTownTourRenderer, type TownTourRenderer } from '../town-tour/view'
 import { TWISTER_SOCKET_HINT, TWISTER_SOCKET_PATH } from '../twister/api'
+import { twisterBgmPlanOf } from '../twister/bgm'
+import { createTwisterBgmPlayer } from '../twister/bgm-player'
 import { parseTwisterCall, type TwisterCall } from '../twister/call'
 import { DEMO_TWISTER_CALLS, DEMO_TWISTER_INTERVAL_MS } from '../twister/demo'
 import { loadFaceImage } from '../twister/face-loader'
@@ -1516,6 +1518,8 @@ const mountTwister = (box: HTMLElement, item: OverlayItem, { key, demo }: MountC
   hudCanvas.dataset.twister = 'hud'
   box.append(glCanvas, hudCanvas)
   const renderer = createTwisterRenderer(glCanvas)
+  const bgm = createTwisterBgmPlayer((error) => showError(error, NOUNS.twister, box, 'read'))
+  const bgmApi = createBgmOverlayApi(callWorker, key)
 
   /** 流している1件。流していなければ null */
   let playback: { readonly call: TwisterCall; readonly game: Game; readonly startedAt: number } | null = null
@@ -1557,6 +1561,11 @@ const mountTwister = (box: HTMLElement, item: OverlayItem, { key, demo }: MountC
       .then((faces) => {
         renderer.setFaces(call, faces)
         playback = { call, game, startedAt: Date.now() }
+        const plan = twisterBgmPlanOf(call.sound, game.totalMs)
+        if (plan !== null) {
+          bgm.start(plan)
+          if (!demo) bgmApi.duck(plan.duckHoldMs).catch((error: unknown) => showError(error, NOUNS.twister, box, 'read'))
+        }
       })
       .catch((error: unknown) => {
         // 顔を作れなかった1件は流さず、失敗を出して次へ進む（待っている呼び出しを止めない）

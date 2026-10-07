@@ -105,6 +105,7 @@ const raidTwister: TwisterCall = {
     { name: '山田花子', iconUrl: 'https://static-cdn.jtvnw.net/jtv_user_pictures/yamada.png' },
     { name: 'たねのぶ', iconUrl: null },
   ],
+  sound: { bgm: null, bgmVolume: 0.3 },
 }
 
 const duringTownTour: BgmDuck = { holdMs: 42_000 }

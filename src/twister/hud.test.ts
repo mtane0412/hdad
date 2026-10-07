@@ -22,6 +22,7 @@ const call: TwisterCall = {
     { name: 'こわい話の人', iconUrl: null },
     { name: '配信者さん', iconUrl: null },
   ],
+  sound: { bgm: null, bgmVolume: 0.3 },
 }
 
 /** 文言の決め方では姿勢を見ないので、どの場面でも始めの姿勢を置いておく */
