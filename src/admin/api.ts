@@ -233,8 +233,11 @@ export interface AdminApi {
    * @param viewers レイド元が連れてきたとみなす人数（共通点の材料）。入れなければ null
    */
   playTownTourDemo(userName: string, viewers: number | null): Promise<string>
-  /** ツイスターの試し再生。Workerが試しの相手と配信者の対戦を合成ページへ押し出し、「A vs B」の形の2人を返す */
-  playTwisterDemo(): Promise<string>
+  /**
+   * ツイスターの試し再生。Workerが相手と配信者の対戦を合成ページへ押し出し、「A vs B」の形の2人を返す。
+   * userName に相手とみなす配信者のログイン名を渡すと、その人のアイコンで対戦する。空なら試しの相手で流す
+   */
+  playTwisterDemo(userName: string): Promise<string>
   /** 市町村紹介の演出で鳴らす音の設定。未保存ならどの枠も鳴らさない設定が返る */
   townTourSound(): Promise<TownTourSound>
   /** 市町村紹介の音の設定を保存する。Workerが保存したものを返す */
@@ -391,8 +394,12 @@ export const createAdminApi = (fetchImpl: typeof fetch): AdminApi => {
       return body.headline
     },
 
-    playTwisterDemo: async () => {
-      const body = await call('/api/admin/twister/demo', { method: 'POST' })
+    playTwisterDemo: async (userName) => {
+      const body = await call('/api/admin/twister/demo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userName }),
+      })
       const players = isRecord(body) && Array.isArray(body.players) ? body.players.map((player: unknown) => (isRecord(player) ? player.name : null)) : []
       const [raider, streamer] = players
       if (players.length !== 2 || typeof raider !== 'string' || typeof streamer !== 'string') throw new Error('Workerの応答に、対戦する2人の名前がありません')

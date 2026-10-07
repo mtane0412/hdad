@@ -11,7 +11,7 @@ paths:
 
 - Worker は対戦の種（0 以上 2^32 未満の整数）と2人（0番: レイドした人、1番: 配信者）の名前とアイコンの URL だけを押し出す（`worker/twister-call.ts`）。押し出し先は `AlertChannel` の目印 `twister` の接続。対戦の中身（指示・倒れ方・勝敗）は Worker で計算しない（倒れ込みの物理が Workers Free の CPU の上限に収まらないため）
 - アイコンは Worker が Twitch の `getProfileImageUrls` で2人ぶんを1回で引く。引けなければ押し出さずに `twister-push-failed` として記録する（試し再生は502）。Twitch が返さなかった人は `iconUrl: null` にし、合成ページは名前の頭文字の顔で流す
-- 配信者の表示名はレイドの通知の `to_broadcaster_user_name` から取る（読み取りは `worker/alert-event.ts` の `extract` だけ）。試し再生はレイドの通知を持たないので「配信者」と出す
+- 配信者の表示名はレイドの通知の `to_broadcaster_user_name` から取る（読み取りは `worker/alert-event.ts` の `extract` だけ）。試し再生はレイドの通知を持たないので「配信者」と出す。試し再生の相手は、本文の `userName`（ログイン名）があれば `getUserByLogin` で引いた表示名とアイコン、無ければ「レイドした人（試し）」（アイコンなし）にする。いないログイン名は試しの相手に差し替えずに404で返す
 - 対戦は種だけから決まる。`src/twister/game.ts` の `createGame` が指示の並びを決め（`plan.ts`）、倒れ込みを物理で先に計算して記録する（`physics.ts` の `bakeCollapse`）。場面と姿勢は再生を始めてからの経過時間だけから求める（`gameSceneAt`）。乱数は `src/core/background.ts` の `createRandom` だけを使い、`Math.random` を使わない
 - 倒れ込むまでの姿勢は、その時刻の手足の位置から IK で解き（`pose.ts` の `solvePose`）、2人の体のめり込みを押し出して求める（`physics.ts` の `relaxPoses`。重力も速度も持たない）。倒れ込むまでは、手足の先のほかの部位をマットから `STANDING_CLEARANCE` だけ浮かせておく
 - 勝敗は「手足の先のほかの部位（`body.ts` の `LOSING_JOINTS`）が先にマットに着いた人の負け」で、`bakeCollapse` だけが決める。倒れる人の相手は、ぶつかられるか一定の時間が過ぎるまで体を支えている

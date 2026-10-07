@@ -26,7 +26,7 @@ const createApis = (focused: FocusTarget | null = focusedTarget) => {
     botMessages: [] as string[],
     focusSaved: [] as (FocusPick | null)[],
     townTourDemos: [] as { userName: string; viewers: number | null }[],
-    twisterDemos: 0,
+    twisterDemos: [] as string[],
   }
   const apis: BroadcastApis = {
     commentApi: {
@@ -51,8 +51,8 @@ const createApis = (focused: FocusTarget | null = focusedTarget) => {
         calls.townTourDemos.push({ userName, viewers })
         return '北海道の真ん中、富良野市へようこそ'
       },
-      playTwisterDemo: async () => {
-        calls.twisterDemos += 1
+      playTwisterDemo: async (userName) => {
+        calls.twisterDemos.push(userName)
         return 'raider_sample vs 配信者'
       },
     },
@@ -154,6 +154,18 @@ describe('ツイスターの試し再生', () => {
   it('試しの対戦を流し、対戦する2人を伝える', async () => {
     const { apis, calls } = createApis()
     expect(await run(apis, 'play_twister_demo')).toBe('「raider_sample vs 配信者」の対戦を送りました。オーバーレイに「ツイスター」の素材を置いていれば流れます')
-    expect(calls.twisterDemos).toBe(1)
+    expect(calls.twisterDemos).toEqual([''])
+  })
+
+  it('相手のログイン名を渡せば、その人を相手にして流す', async () => {
+    const { apis, calls } = createApis()
+    await run(apis, 'play_twister_demo', { userName: 'raider_sample' })
+    expect(calls.twisterDemos).toEqual(['raider_sample'])
+  })
+
+  it('ログイン名が文字列でなければエラーにする', async () => {
+    const { apis, calls } = createApis()
+    await expect(run(apis, 'play_twister_demo', { userName: 123 })).rejects.toThrow('userName は文字列にしてください')
+    expect(calls.twisterDemos).toEqual([])
   })
 })
