@@ -53,7 +53,11 @@ const createFakeSpeech = () => {
  * keepLingering を true にすると、次の発言を待って残す時間（LINGER_MS）の待ちだけは、止める合図が来るまで終わらない
  * （残しているあいだに起きることを確かめるため）。それ以外の待ちは長さだけ記録してすぐ進める
  */
-const setup = (options: { muted?: boolean; failingLogins?: readonly string[]; keepLingering?: boolean } = {}) => {
+const setup = (
+  options: { muted?: boolean; failingLogins?: readonly string[]; keepLingering?: boolean; pendingIconLogins?: readonly string[] } = {},
+) => {
+  /** アイコンを引き終えるのをテストが決める人の、引き終える処理（pendingIconLogins に挙げた人だけ） */
+  const iconResolvers = new Map<string, () => void>()
   const speech = createFakeSpeech()
   const events: string[] = []
   const shown: ShownComment[] = []
@@ -64,6 +68,9 @@ const setup = (options: { muted?: boolean; failingLogins?: readonly string[]; ke
     lookupIcon: async (login) => {
       iconLookups.push(login)
       if (options.failingLogins?.includes(login)) throw new Error(`${login} のアイコンを引けませんでした`)
+      if (options.pendingIconLogins?.includes(login)) {
+        await new Promise<void>((resolve) => iconResolvers.set(login, resolve))
+      }
       return iconOf(login)
     },
     speak: speech.speak,
@@ -80,7 +87,7 @@ const setup = (options: { muted?: boolean; failingLogins?: readonly string[]; ke
     hide: () => events.push('引っ込める'),
     onError: (error) => errors.push(error),
   })
-  return { runner, speech, events, shown, waits, errors, iconLookups }
+  return { runner, speech, events, shown, waits, errors, iconLookups, iconResolvers }
 }
 
 describe('createWipeRunner（読み上げ中）', () => {
@@ -264,6 +271,28 @@ describe('createWipeRunner（モデレーターによる消去）', () => {
     await flush()
 
     expect(events).toEqual(['出す: たねのぶ', '引っ込める'])
+  })
+
+  it('次の人のアイコンを待つあいだに、出したままの前の発言が消されたら、すぐ引っ込める', async () => {
+    const { runner, speech, events, iconResolvers } = setup({ keepLingering: true, pendingIconLogins: ['kowai_hanashi'] })
+
+    runner.enqueue(greeting)
+    await flush()
+    speech.spoken[0]?.finish()
+    await flush()
+    // 残しているあいだに次の人の発言が届き、その人のアイコンを引いている
+    runner.enqueue(scaryTalk)
+    await flush()
+    runner.remove((comment) => comment.login === 'tanenob')
+    await flush()
+
+    // 消された発言は、次の人を出すまで待たずに引っ込める
+    expect(events).toEqual(['出す: たねのぶ', '引っ込める'])
+
+    iconResolvers.get('kowai_hanashi')?.()
+    await flush()
+
+    expect(events).toEqual(['出す: たねのぶ', '引っ込める', '出す: 怖い話す人'])
   })
 
   it('残している発言と別の人の発言が消されても、引っ込めない', async () => {

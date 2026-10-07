@@ -131,6 +131,13 @@ export const createWipeRunner =(options: WipeRunnerOptions): WipeRunner => {
     await options.wait(HOLD_AFTER_SPEECH_MS, presentation.signal)
   }
 
+  /** ワイプを引っ込め、何も出していない状態にする */
+  const hideShown = (): void => {
+    options.hide()
+    showing = false
+    shown = null
+  }
+
   const pump = async (): Promise<void> => {
     if (running) return
     running = true
@@ -154,9 +161,8 @@ export const createWipeRunner =(options: WipeRunnerOptions): WipeRunner => {
           // 残しているあいだに届いた発言は、引っ込めずにそのまま出す
           if (queue.current !== null) continue
         }
-        options.hide()
-        showing = false
-        shown = null
+        // 残しているあいだに消されていれば、remove がもう引っ込めている
+        if (showing) hideShown()
         return
       }
     } finally {
@@ -176,16 +182,16 @@ export const createWipeRunner =(options: WipeRunnerOptions): WipeRunner => {
 
     remove(matches) {
       queue = { current: queue.current, waiting: queue.waiting.filter((comment) => !matches(comment)) }
-      if (queue.current !== null) {
-        if (!matches(queue.current)) return
+      if (queue.current !== null && matches(queue.current)) {
         presentation.abort()
         playback.abort()
-        return
       }
-      // 読み終えて残している発言が消されたら、残すのをやめてすぐ引っ込める
-      if (shown === null || !matches(shown)) return
-      presentation.abort()
-      lingering.abort()
+      // 出したまま残っている前の発言（読み終えて残している・次の人のアイコンを待っている）が消されたら、
+      // 次の人を出すのを待たずにすぐ引っ込める。順番が回っている発言とは別に見る
+      if (shown !== null && shown !== queue.current && matches(shown)) {
+        lingering.abort()
+        hideShown()
+      }
     },
 
     stopSpeaking() {
