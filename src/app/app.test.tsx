@@ -661,15 +661,15 @@ describe('WebMCP（エージェント向けのツール）', () => {
 
   /**
    * WebMCP に対応したブラウザを装い、document.modelContext に registerTool の代役を置く。
-   * rejectAll が true なら、どの登録も断る
+   * rejectName を渡したら、その名前のツールの登録だけを断る
    */
-  const installModelContext = (rejectAll = false): Registration[] => {
+  const installModelContext = (rejectName?: string): Registration[] => {
     const registrations: Registration[] = []
     Object.defineProperty(document, 'modelContext', {
       configurable: true,
       value: {
         registerTool: async (tool: WebMCP.ModelContextTool, options?: WebMCP.ModelContextRegisterToolOptions) => {
-          if (rejectAll) throw new Error('このページではツールを登録できません')
+          if (tool.name === rejectName) throw new Error('このページではツールを登録できません')
           registrations.push({ tool, signal: options?.signal })
         },
       },
@@ -727,11 +727,15 @@ describe('WebMCP（エージェント向けのツール）', () => {
     expect(registrations.every((registration) => registration.signal?.aborted === true)).toBe(true)
   })
 
-  test('登録を断られたら、下部バーにエラーを出す', async () => {
-    installModelContext(true)
+  test('途中のツールの登録を断られたら、下部バーにエラーを出し、先に登録できたツールも消す', async () => {
+    // 前提: list_pages・open_page は登録でき、その次の get_bgm で断られる
+    const registrations = installModelContext('get_bgm')
     renderSignedIn()
 
     const bar = await screen.findByRole('region', { name: '配信中の操作' })
-    expect(await within(bar).findByText('WebMCP にツール list_pages を登録できませんでした: このページではツールを登録できません')).toBeInTheDocument()
+    expect(await within(bar).findByText('WebMCP にツール get_bgm を登録できませんでした: このページではツールを登録できません')).toBeInTheDocument()
+    // 一部のツールだけが呼べる状態を残さない
+    expect(registrations.map((registration) => registration.tool.name)).toEqual(['list_pages', 'open_page'])
+    expect(registrations.every((registration) => registration.signal?.aborted === true)).toBe(true)
   })
 })

@@ -5,7 +5,7 @@
  * AbortSignal で止めてまとめて消す。ツールは画面のボタンと同じ BgmPlayerProvider・PomodoroTimerProvider・
  * RecognitionProvider を通して操作するので、エージェントの操作は下部バーにもそのまま映る。
  *
- * 普段は何も描かない。登録を断られたときだけ、置かれた場所（下部バー）に理由を出す（Fail-Fast。
+ * 普段は何も描かない。登録を断られたときは、先に登録できたツールも消して、置かれた場所（下部バー）に理由を出す（Fail-Fast。
  * エージェントから呼べないことに気づけるようにするため）。WebMCP に対応していないブラウザでは何も出さない。
  *
  * 注意: BgmPlayerProvider・PomodoroTimerProvider・RecognitionProvider の内側で使う。
@@ -65,7 +65,10 @@ export const WebMcpTools = ({ pages, speechMuteApi = defaultSpeechMuteApi }: { p
         if (!controller.signal.aborted) setProblem(null)
       },
       (error: unknown) => {
-        if (!controller.signal.aborted) setProblem(errorMessage(error))
+        if (controller.signal.aborted) return
+        // 先に登録できたツールも消す（一部のツールだけが呼べる状態を残さないため）
+        controller.abort()
+        setProblem(errorMessage(error))
       },
     )
     return () => controller.abort()
