@@ -323,18 +323,29 @@ const MAX_CHAPTER_WINDOWS_PER_COLLECT = 24
  * それが配信で起きたこととして書かれるためである（あらすじが発話の無いときに作らないのと同じ理由）。
  * 注意: 失敗しても収集そのものを止めず、区間も進めない（次の収集でやり直す）。その回はほかの配信の章づくりへ進み、
  * 前の配信の失敗に配信中の配信を巻き込まない。区間が進まないあいだは、その配信の人物像も作られない
- * （stream-chat-store.ts の CHAPTERED_SESSIONS）。材料の文字起こしが保持期間で消えれば、残りの区間は発話の無い区間として飛ばされるので、人物像がいつまでも作られないことはない。
+ * （stream-chat-store.ts の CHAPTERED_SESSIONS）。材料の文字起こしが保持期間で消えれば、残りの区間は発話の無い区間として
+ * 飛ばされるので、人物像がいつまでも作られないことはない。
+ * 注意: 失敗してほかの配信へ進む前に、収集の時間の予算を見る（issue #126）。LLMの呼び出しは1回で最大60秒かかるので、
+ * 失敗のあとに続けて呼ぶと、章立ての入口では予算内だったのに終わりが次の cron の起動に食い込むことがある。
  * 注意: 配信中の配信の章ができたら、見出しを合成ページの素材「作業ログ」へ押し出す（issue #211）。終わった配信の章は
  * 押し出さない（合成ページが映すのは配信中の配信のログだけ）。押し出しの失敗は章づくりの失敗とは分けて記録し、
  * 章は残して区間も進める。作り直すとLLMの枠を使ううえ、合成ページは次の読み直しで取り戻せるためである。
+ *
+ * @returns 予算を使い切って残りの配信に手を付けなかったら true（呼び出し側がまとめて記録する）
  */
-const makeStreamChapter = async (db: Database, ai: TextGenerator, alerts: AlertChannelNamespace, now: number): Promise<void> => {
+const makeStreamChapter = async (
+  db: Database,
+  ai: TextGenerator,
+  alerts: AlertChannelNamespace,
+  now: number,
+  budgetExhausted: () => boolean,
+): Promise<boolean> => {
   let windowCount = 0
   for (const target of await listChapterTargets(db)) {
     let current: ChapterTarget = target
     for (let window = nextChapterWindow(current, now); window !== null; window = nextChapterWindow(current, now)) {
       windowCount += 1
-      if (windowCount > MAX_CHAPTER_WINDOWS_PER_COLLECT) return
+      if (windowCount > MAX_CHAPTER_WINDOWS_PER_COLLECT) return false
       const lines = await readChapterLines(db, current.id, window, CHAPTER_LINE_LIMITS)
       // 区間を切れない（上限を超える行がすべて区間の始まりと同じ時刻）ときは、その時刻の行だけを丸ごと1つの区間にする
       const material =
@@ -363,11 +374,13 @@ const makeStreamChapter = async (db: Database, ai: TextGenerator, alerts: AlertC
       } catch (error) {
         // 失敗した配信は次の収集でやり直し、ほかの配信（配信中の配信など）の章づくりには進む
         await recordFailure(db, 'stream-chapter-failed', error instanceof Error ? error.message : String(error), now)
+        if (budgetExhausted()) return true
         break
       }
-      return
+      return false
     }
   }
+  return false
 }
 
 /**
@@ -784,7 +797,8 @@ const collect = async ({ db, store, tokens, twitch, ai, jev, alerts, gyazo, broa
 
   // 章立ては人物像より先に行う。人物像を作ると発言の材料が消えるので、配信が終わった回の最後の章から
   // 視聴者の反応が抜けないようにするためである（人物像は、章にし終えた配信の発言だけを材料にする）
-  await withinBudget('章立て', () => makeStreamChapter(db, ai, alerts, now))
+  const chapterDeferred = await withinBudget('章立て', () => makeStreamChapter(db, ai, alerts, now, budgetExhausted))
+  if (chapterDeferred === true) deferredToNextCollect.push('章立て（残りの配信）')
   // タイトルの候補は章を材料にするので、章立てのあとに行う。配信中のタイトルにしか使い道が無いので、配信中だけ作る
   if (stream) await withinBudget('配信タイトルの候補', () => proposeStreamTitle({ db, store, ai, jev }, stream, now))
   if (budgetExhausted()) {
