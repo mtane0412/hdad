@@ -7,7 +7,7 @@
  * アプリの枠（src/app/app.tsx）が受け持つので、ここではログイン済みを前提にする。
  * 画面の状態（素材・報酬・入力中のトリガー）はここで持ち、Workerの呼び出しは api.ts、入力欄の値の変換は form.ts、
  * 操作の実行と結果の表示は page-actions.tsx に任せる。市町村紹介の音の設定と試し再生は town-tour-sound-card.tsx が受け持つ。
- * ツイスターの試し再生は twister-card.tsx が受け持つ。
+ * ツイスターの BGM の設定と試し再生は twister-card.tsx が受け持つ。
  *
  * アラートを配信画面に出すURLはここでは配らない。アラート専用のオーバーレイ（alerts/）は消したので
  * （issue #107）、出すには合成オーバーレイの管理画面（/overlay/）で「アラート」の素材を置く。
@@ -965,8 +965,8 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
       {/* 市町村紹介の音はトリガーの行ごとではなく1つだけ持つので、トリガーの一覧の外に置く（保存も別） */}
       <TownTourSoundCard api={api} media={media} />
 
-      {/* ツイスターは設定を持たず、試し再生のボタンだけを置く */}
-      <TwisterCard api={api} />
+      {/* ツイスターの BGM も市町村紹介の音と同じく1つだけ持つので、トリガーの一覧の外に置く（保存も別） */}
+      <TwisterCard api={api} media={media} />
 
       {/* 一覧そのものはカードに入れず、区分（チャット・イベント・開発・ポモドーロ）ごとにカードにする
           （全体を1枚のカードで囲むと、その中に区分の見出しと項目の枠が入れ子で並び、どこまでが1つのまとまりか読み取りにくい） */}

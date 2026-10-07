@@ -7,7 +7,7 @@
  *   曲の終わりを /api/overlay/bgm/ended で知らせる（次の曲は Worker が決める）。
  *   切り替えは WebSocket で押し出されてくるので、その文字列の読み取り（parseBgmNowPlaying）もここに置く
  *   （管理画面も、Jev や曲の終わりで変わった曲を映すために同じ押し出しを受け取る）
- * - 合成ページ（overlay/stage/ の素材「市町村紹介」）: 紹介のBGMを鳴らすあいだ、オーバーレイ用キーで /api/overlay/bgm/duck に
+ * - 合成ページ（overlay/stage/ の素材「市町村紹介」「ツイスター」）: 紹介・対戦のBGMを鳴らすあいだ、オーバーレイ用キーで /api/overlay/bgm/duck に
  *   「配信のBGMを下げておく長さ」を送る。裏方のページはそれを別の WebSocket で受け取る（parseBgmDuck。issue #245）
  *
  * 呼び出しと失敗の扱いは `../core/api` に任せ、fetch を引数で受け取るのはテストで差し替えるためである。
@@ -204,7 +204,7 @@ export interface BgmOverlayApi {
   read(): Promise<BgmNowPlaying>
   /** 流していた曲が終わったことを知らせ、いま流している曲（次の曲へ進めたなら進めた先）を受け取る */
   ended(mediaId: string): Promise<BgmNowPlaying>
-  /** 配信のBGMを holdMs ミリ秒のあいだ下げるよう、裏方のページへ知らせてもらう（0 は戻す）。合成ページの市町村紹介が呼ぶ */
+  /** 配信のBGMを holdMs ミリ秒のあいだ下げるよう、裏方のページへ知らせてもらう（0 は戻す）。合成ページの市町村紹介とツイスターが呼ぶ */
   duck(holdMs: number): Promise<void>
 }
 

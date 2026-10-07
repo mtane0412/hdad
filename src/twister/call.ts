@@ -2,11 +2,13 @@
  * ツイスターの呼び出し（Worker が押し出す、1回の対戦の種と2人）
  *
  * Worker（worker/twister-call.ts）が、レイドを受けたときと管理画面の試し再生で、合成ページの素材「ツイスター」へ WebSocket で押し出す。
- * 対戦の中身（指示・倒れ方・勝敗）は種だけから合成ページが計算する（game.ts）ので、呼び出しは種と2人の名前・アイコンだけを持つ。
+ * 対戦の中身（指示・倒れ方・勝敗）は種だけから合成ページが計算する（game.ts）ので、呼び出しは種と2人の名前・アイコンと、
+ * 対戦のあいだ流す BGM の設定（Worker の worker/twister-sound.ts が素材のIDを音声のURLに置き換えたもの）だけを持つ。
  *
  * 注意: 形が違えば黙って流さずに投げる（素材の箱に失敗を出す）。アイコンは https の URL か null（試し再生の相手など、映すアイコンが無い）。
  */
 import { isRecord } from '../core/api'
+import { readTwisterSoundShape, type TwisterSound } from './sound'
 
 /** 対戦する1人 */
 export interface TwisterPlayer {
@@ -24,6 +26,8 @@ export interface TwisterCall {
   readonly seed: number
   /** 0番がレイドした人、1番が配信者 */
   readonly players: readonly [TwisterPlayer, TwisterPlayer]
+  /** 対戦のあいだ流す BGM。bgm は音声のURL（オーバーレイ用キーつき）で、流さないなら null */
+  readonly sound: TwisterSound
 }
 
 /** 種の上限（この値は含まない）。乱数（mulberry32）の状態が32ビットなので、それに収まる整数にする */
@@ -51,11 +55,13 @@ export const parseTwisterCall = (payload: string): TwisterCall => {
   }
   const invalid = new Error('押し出されたツイスターの呼び出しが想定した形ではありません')
   if (!isRecord(body)) throw invalid
-  const { id, seed, players } = body
+  const { id, seed, players, sound: soundValue } = body
   if (typeof id !== 'string' || typeof seed !== 'number' || !Number.isInteger(seed) || seed < 0 || seed >= SEED_LIMIT) throw invalid
   if (!Array.isArray(players) || players.length !== 2) throw invalid
   const raider = readPlayer(players[0])
   const streamer = readPlayer(players[1])
   if (raider === null || streamer === null) throw invalid
-  return { id, seed, players: [raider, streamer] }
+  const sound = readTwisterSoundShape(soundValue)
+  if (sound === null) throw invalid
+  return { id, seed, players: [raider, streamer], sound }
 }

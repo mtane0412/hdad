@@ -56,6 +56,8 @@ const fakeApi = (overrides: Partial<AdminApi> = {}): AdminApi => ({
     effectVolume: 0.6,
   })),
   saveTownTourSound: vi.fn(async (sound) => sound),
+  twisterSound: vi.fn(async () => ({ bgm: null, bgmVolume: 0.3 })),
+  saveTwisterSound: vi.fn(async (sound) => sound),
   townTourNarration: vi.fn(async () => ({ enabled: false, speaker: 3, speed: 1 })),
   saveTownTourNarration: vi.fn(async (narration) => narration),
   rewards: vi.fn(async () => [applauseReward]),

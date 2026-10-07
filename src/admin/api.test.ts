@@ -303,6 +303,30 @@ describe('rotateOverlayKey・playTownTourDemo・townTourSound・rewards・logout
     await expect(createAdminApi(fetchImpl).playTwisterDemo('')).rejects.toThrow()
   })
 
+  it('ツイスターの BGM の設定を読み、素材のIDと音量を返す', async () => {
+    const sound = { bgm: 'media-taisen', bgmVolume: 0.3 }
+    const { requests, fetchImpl } = fetchReturning(200, sound)
+
+    expect(await createAdminApi(fetchImpl).twisterSound()).toEqual(sound)
+    expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/twister/sound')
+  })
+
+  it('ツイスターの BGM の設定を PUT で保存し、Workerが保存したものを返す', async () => {
+    const sound = { bgm: null, bgmVolume: 0.5 }
+    const { requests, fetchImpl } = fetchReturning(200, sound)
+
+    expect(await createAdminApi(fetchImpl).saveTwisterSound(sound)).toEqual(sound)
+    expect(requests[0]!.method).toBe('PUT')
+    expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/twister/sound')
+    expect(await requests[0]!.json()).toEqual(sound)
+  })
+
+  it('ツイスターの BGM の設定の応答に音量が無ければ、エラーにする', async () => {
+    const { fetchImpl } = fetchReturning(200, { bgm: null })
+
+    await expect(createAdminApi(fetchImpl).twisterSound()).rejects.toThrow('ツイスターの BGM')
+  })
+
   it('市町村紹介の音の設定を読み、枠ごとの素材のIDと音量を返す', async () => {
     const sound = {
       slots: { bgm: 'media-cookie', opening: null, zoom: null, landing: 'media-peta', item: null, closing: null },

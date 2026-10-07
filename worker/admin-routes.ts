@@ -12,6 +12,7 @@ import { HttpError, STATUS, requireAdmin, type Context } from './http'
 import { listMedia, uploadMedia } from './media'
 import { loadBgmTracks } from './bgm-config'
 import { loadTownTourSound, townTourSoundUses } from './town-tour-sound'
+import { loadTwisterSound, twisterSoundUses } from './twister-sound'
 import { overlayKeyTag, rotateOverlayKey } from './overlay-key'
 import { revokeTabViewers } from './tab-channel'
 import { loadOverlayLayout, parseOverlayLayout, saveOverlayLayout } from './overlay-layout'
@@ -77,6 +78,9 @@ export const deleteMedia = async (context: Context): Promise<Response> => {
   }
   if (townTourSoundUses(await loadTownTourSound(env.STORE), id)) {
     throw new HttpError(STATUS.conflict, 'media-in-use', 'この素材は市町村紹介の音に使われています。先にトリガーのページの「市町村紹介」で外してください')
+  }
+  if (twisterSoundUses(await loadTwisterSound(env.STORE), id)) {
+    throw new HttpError(STATUS.conflict, 'media-in-use', 'この素材はツイスターの BGM に使われています。先にトリガーのページの「ツイスター」で外してください')
   }
 
   await env.MEDIA.delete(id)

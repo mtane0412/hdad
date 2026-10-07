@@ -59,6 +59,8 @@
  * | GET  /api/admin/town-tour/narration | セッション  | 市町村紹介のナレーションの設定（読み上げるか・話者・速度） |
  * | PUT  /api/admin/town-tour/narration | セッション  | 市町村紹介のナレーションの設定を検証して保存 |
  * | POST /api/admin/twister/demo     | セッション     | ツイスターの試し再生（試しの相手と配信者の対戦を合成ページへ押し出す） |
+ * | GET  /api/admin/twister/sound    | セッション     | ツイスターの対戦のあいだ流す BGM の設定 |
+ * | PUT  /api/admin/twister/sound    | セッション     | ツイスターの BGM の設定を検証して保存 |
  * | GET  /api/admin/viewers          | セッション     | 視聴者の記録の一覧（検索・ページ送り） |
  * | PATCH /api/admin/viewers/:userId | セッション     | 視聴者へのメモの保存 |
  * | DELETE /api/admin/viewers/:userId | セッション    | 視聴者の記録の削除 |
@@ -179,7 +181,7 @@ import {
   putTownTourSound,
   townTourSocket,
 } from './town-tour-routes'
-import { postTwisterDemo, twisterSocket } from './twister-routes'
+import { getTwisterSound, postTwisterDemo, putTwisterSound, twisterSocket } from './twister-routes'
 import { getOverlayPomodoro, getPomodoro, pomodoroSocket, postPomodoroControl, putPomodoroSettings } from './pomodoro-routes'
 import { getDeeplUsage, getTranslation, postTranslation, putTranslation } from './translation-routes'
 import { drawSocket, getDrawBackground, getDrawStrokes, putDrawStrokes } from './draw-routes'
@@ -344,6 +346,8 @@ const ROUTES: readonly Route[] = [
   { method: 'PUT', path: '/api/admin/town-tour/narration', handle: putTownTourNarration },
   { method: 'GET', path: '/api/overlay/twister/socket', handle: twisterSocket },
   { method: 'POST', path: '/api/admin/twister/demo', handle: postTwisterDemo },
+  { method: 'GET', path: '/api/admin/twister/sound', handle: getTwisterSound },
+  { method: 'PUT', path: '/api/admin/twister/sound', handle: putTwisterSound },
   { method: 'GET', path: '/api/media/:id', handle: media },
 ]
 

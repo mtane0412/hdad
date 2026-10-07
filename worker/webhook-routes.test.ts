@@ -30,6 +30,7 @@ import { createFakeCommentChannel } from './fake-comment-channel'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
 import { createFakeTokenVault } from './fake-token-vault'
 import { DEFAULT_TOWN_TOUR_SOUND, saveTownTourSound } from './town-tour-sound'
+import { saveTwisterSound } from './twister-sound'
 import { openTownTourQuiz } from './town-tour-quiz'
 import { saveTownTourNarration } from './town-tour-narration'
 import { recordTownTourVisit } from './town-tour-visits'
@@ -1712,6 +1713,31 @@ describe('ツイスターで対戦する動作（twister）', () => {
       { name: 'レイド元の配信者', iconUrl: 'https://static-cdn.jtvnw.net/jtv_user_pictures/raid_moto.png' },
       { name: 'たねのぶ', iconUrl: 'https://static-cdn.jtvnw.net/jtv_user_pictures/tanenobu.png' },
     ])
+    // BGM を選んでいなければ、流さない設定のまま押し出す
+    expect(call?.sound).toEqual({ bgm: null, bgmVolume: 0.3 })
+  })
+
+  it('BGM を選んでいれば、音声のURL（オーバーレイ用キーつき）と音量を添えて押し出す', async () => {
+    const { env, alertChannel } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [raidTwisterTrigger] })
+    // 検証（音声であること）は twister-sound.test.ts が確かめるので、ここでは保存済みの設定として直接置く
+    await saveTwisterSound(env.STORE, { bgm: 'media-taisen', bgmVolume: 0.4 })
+
+    await callWebhook(createNotification({ body: RAID_NOTIFICATION }), env, fakeTwitchReturningIcons().fetchImpl)
+
+    expect(alertChannel.pushedTwisters[0]?.sound).toEqual({ bgm: `/api/media/media-taisen?key=${ISSUED_OVERLAY_KEY}`, bgmVolume: 0.4 })
+  })
+
+  it('BGM を選んでいるのにオーバーレイ用キーが未発行なら、押し出さずに失敗として記録する（黙って無音で流さない）', async () => {
+    const { env, alertChannel } = createEnv({ overlayKey: null })
+    await saveAlertConfig(env.STORE, { triggers: [raidTwisterTrigger] })
+    await saveTwisterSound(env.STORE, { bgm: 'media-taisen', bgmVolume: 0.4 })
+
+    const response = await callWebhook(createNotification({ body: RAID_NOTIFICATION }), env, fakeTwitchReturningIcons().fetchImpl)
+
+    expect(response.status).toBe(204)
+    expect(alertChannel.pushedTwisters).toHaveLength(0)
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'twister-push-failed' }])
   })
 
   it('アイコンを引けなければ押し出さず、失敗として記録する', async () => {

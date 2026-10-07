@@ -1,7 +1,7 @@
 /**
  * ツイスターの呼び出しの組み立て（twister-call.ts）のテスト
  *
- * Worker は対戦の種と2人（レイドした人・配信者）の名前とアイコンだけを押し出す。対戦の中身は合成ページが種から計算する。
+ * Worker は対戦の種と2人（レイドした人・配信者）の名前とアイコンと、対戦のあいだ流す BGM の設定だけを押し出す。対戦の中身は合成ページが種から計算する。
  * 種は 0 以上 2^32 未満の整数で、合成ページの読み取り（src/twister/call.ts の parseTwisterCall）がそのまま受け取れる形にする。
  */
 import { describe, expect, it } from 'vitest'
@@ -9,6 +9,8 @@ import { parseTwisterCall } from '../src/twister/call'
 import { demoTwisterCallOf, twisterCallOf, twisterSeedOf } from './twister-call'
 
 const raid = { raiderId: '1111', raiderName: '山田花子', broadcasterName: 'たねのぶ' }
+/** 対戦のあいだ流す BGM（Worker が音声のURLに置き換えたもの） */
+const sound = { bgm: '/api/media/media-taisen?key=issued-overlay-key-0123456789abcdefghij', bgmVolume: 0.3 }
 const icons = {
   '1111': 'https://static-cdn.jtvnw.net/jtv_user_pictures/yamada.png',
   '9999': 'https://static-cdn.jtvnw.net/jtv_user_pictures/tanenobu.png',
@@ -16,38 +18,41 @@ const icons = {
 
 describe('twisterCallOf', () => {
   it('レイドした人を0番、配信者を1番にして、名前とアイコンを並べる', () => {
-    expect(twisterCallOf(raid, icons, '9999', 42, '呼び出しID')).toEqual({
+    expect(twisterCallOf(raid, icons, '9999', sound, 42, '呼び出しID')).toEqual({
       id: '呼び出しID',
       seed: 42,
       players: [
         { name: '山田花子', iconUrl: 'https://static-cdn.jtvnw.net/jtv_user_pictures/yamada.png' },
         { name: 'たねのぶ', iconUrl: 'https://static-cdn.jtvnw.net/jtv_user_pictures/tanenobu.png' },
       ],
+      sound,
     })
   })
 
   it('Twitch がアイコンを返さなかった人（消えたアカウントなど）は、アイコンを null にする（頭文字の顔で流す）', () => {
-    const call = twisterCallOf(raid, { '9999': icons['9999'] }, '9999', 42, '呼び出しID')
+    const call = twisterCallOf(raid, { '9999': icons['9999'] }, '9999', sound, 42, '呼び出しID')
     expect(call.players[0].iconUrl).toBeNull()
   })
 
   it('合成ページの読み取りが、そのまま同じ呼び出しとして読める', () => {
-    const call = twisterCallOf(raid, icons, '9999', 4294967295, '呼び出しID')
+    const call = twisterCallOf(raid, icons, '9999', sound, 4294967295, '呼び出しID')
     expect(parseTwisterCall(JSON.stringify(call))).toEqual(call)
   })
 })
 
 describe('demoTwisterCallOf', () => {
   it('試し再生の相手はアイコンを持たず、配信者は自分のアイコンで対戦する', () => {
-    const call = demoTwisterCallOf(null, icons['9999'] ?? null, 7, '試しID')
+    const call = demoTwisterCallOf(null, icons['9999'] ?? null, sound, 7, '試しID')
     expect(call.players[0]).toEqual({ name: 'レイドした人（試し）', iconUrl: null })
     expect(call.players[1]).toEqual({ name: '配信者', iconUrl: icons['9999'] })
+    // 試し再生もレイドと同じ BGM で流す（見栄えと音を一緒に確かめられるように）
+    expect(call.sound).toEqual(sound)
     expect(parseTwisterCall(JSON.stringify(call))).toEqual(call)
   })
 
   it('相手を渡せば、試しの相手の代わりにその人の名前とアイコンで対戦する', () => {
     const raider = { name: '山田花子', iconUrl: icons['1111'] ?? null }
-    const call = demoTwisterCallOf(raider, icons['9999'] ?? null, 7, '試しID')
+    const call = demoTwisterCallOf(raider, icons['9999'] ?? null, sound, 7, '試しID')
     expect(call.players).toEqual([raider, { name: '配信者', iconUrl: icons['9999'] }])
     expect(parseTwisterCall(JSON.stringify(call))).toEqual(call)
   })

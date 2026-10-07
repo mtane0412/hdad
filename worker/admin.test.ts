@@ -25,6 +25,7 @@ import { recordLlmUsage } from './llm-usage-store'
 import { TRANSCRIPT_MAX_LENGTH } from './transcript-routes'
 import { SPEECH_TEXT_MAX_LENGTH } from './speech-config'
 import { DEFAULT_TOWN_TOUR_SOUND, saveTownTourSound } from './town-tour-sound'
+import { saveTwisterSound } from './twister-sound'
 
 const now = Date.UTC(2026, 8, 21, 12, 0, 0)
 const broadcasterId = '12345'
@@ -214,6 +215,18 @@ describe('素材（/api/admin/media）', () => {
     const { id } = await uploadImage(env)
     // 検証（音声であること）は town-tour-sound.test.ts が確かめるので、ここでは保存済みの設定として直接置く
     await saveTownTourSound(env.STORE, { ...DEFAULT_TOWN_TOUR_SOUND, slots: { ...DEFAULT_TOWN_TOUR_SOUND.slots, closing: id } })
+
+    const response = await invoke(await broadcasterRequest(env, `/api/admin/media/${id}`, { method: 'DELETE' }), env)
+
+    expect(response.status).toBe(409)
+    expect(bucket.entries.size).toBe(1)
+  })
+
+  it('ツイスターの BGM に選ばれている素材は409で削除を拒否する（対戦が黙って無音になるのを防ぐ）', async () => {
+    const { env, bucket } = createEnv()
+    const { id } = await uploadImage(env)
+    // 検証（音声であること）は twister-sound.test.ts が確かめるので、ここでは保存済みの設定として直接置く
+    await saveTwisterSound(env.STORE, { bgm: id, bgmVolume: 0.3 })
 
     const response = await invoke(await broadcasterRequest(env, `/api/admin/media/${id}`, { method: 'DELETE' }), env)
 
