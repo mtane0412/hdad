@@ -4,10 +4,12 @@
  * migrations/ のSQLをそのまま適用したメモリ上のSQLite（fake-database.ts）で、次の点を確かめる。
  * - 追加したテキストに新しいIDが振られ、一覧は追加した順に並ぶこと
  * - 書き換えは名前・本文・書き換えた時刻を差し替え、無いIDなら null を返すこと
+ * - 同じ名前は、検証のあとで別の窓が先に書いた場合でも、表の制約で拒んで問題点にすること
  * - 消したテキストは一覧から消え、消したIDは次に追加したテキストに使い回されないこと
  *   （素材のパラメータが消えたテキストのIDを指したまま、別のテキストを映してしまわないため）
  */
 import { beforeEach, describe, expect, it } from 'vitest'
+import { ConfigError } from './alert-config'
 import { createFakeDatabase } from './fake-database'
 import { deleteText, insertText, readTexts, updateText } from './text-store'
 
@@ -47,6 +49,22 @@ describe('updateText', () => {
 
   it('無いIDなら null を返す', async () => {
     expect(await updateText(db, 999, { name: '目標', body: '' }, LATER)).toBeNull()
+  })
+})
+
+describe('名前の重なり（表の制約）', () => {
+  it('追加で同じ名前になったら、名前の問題点として拒む', async () => {
+    await insertText(db, { name: '目標', body: '' }, NOW)
+
+    await expect(insertText(db, { name: '目標', body: '別の目標' }, LATER)).rejects.toThrow(ConfigError)
+    await expect(insertText(db, { name: '目標', body: '別の目標' }, LATER)).rejects.toMatchObject({ problems: ['name: 「目標」という名前のテキストはもうあります'] })
+  })
+
+  it('書き換えで同じ名前になったら、名前の問題点として拒む', async () => {
+    await insertText(db, { name: '目標', body: '' }, NOW)
+    const doing = await insertText(db, { name: '今やってること', body: '' }, NOW)
+
+    await expect(updateText(db, doing.id, { name: '目標', body: '' }, LATER)).rejects.toMatchObject({ problems: ['name: 「目標」という名前のテキストはもうあります'] })
   })
 })
 

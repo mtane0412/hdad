@@ -7,9 +7,10 @@
  * - 本文を書き換えて保存すると Worker に書き換えてもらい、窓を閉じること（変えていないあいだは保存できない）
  * - テキストが無いときはページへの行き先を出すこと
  * - 読み込めない・拒まれたときは、黙らずに理由を出すこと
+ * - 窓を開き直して読み込みが重なったら、あとから始めた読み込みの結果だけを映すこと
  */
 import '@testing-library/jest-dom/vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { ApiError } from '@/core/api'
@@ -75,6 +76,24 @@ describe('TextBar', () => {
     await openBar()
 
     expect(await screen.findByRole('link', { name: 'テキストのページ' })).toHaveAttribute('href', '/texts/')
+  })
+
+  test('開き直して読み込みが重なったら、先に始めた読み込みの結果で上書きしない', async () => {
+    // 1回目の読み込みは遅れて、古い本文を返す
+    let resolveFirst: (texts: TextEntry[]) => void = () => undefined
+    const list = vi
+      .fn<TextApi['list']>()
+      .mockImplementationOnce(() => new Promise((resolve) => (resolveFirst = resolve)))
+      .mockImplementationOnce(async () => [{ ...goal, body: 'ログイン画面をデプロイする' }])
+    render(<TextBar api={createApi([], { list })} />)
+
+    await openBar()
+    await userEvent.keyboard('{Escape}')
+    await openBar()
+    const body = await screen.findByRole('textbox', { name: '本文' })
+    await act(async () => resolveFirst([goal]))
+
+    expect(body).toHaveValue('ログイン画面をデプロイする')
   })
 
   test('読み込めなければ理由を出す', async () => {

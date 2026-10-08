@@ -59,6 +59,13 @@ const LINE_BREAK = /\r\n|\r|\n/
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
 
 /**
+ * 名前がほかのテキストと重なったことを伝える問題点を返す。
+ *
+ * 検証（parseTextInput）と、検証のあとで別の窓が先に同じ名前を書いたときの表の制約（worker/text-store.ts）の両方から使う。
+ */
+export const duplicateNameError = (name: string): ConfigError => new ConfigError(SUBJECT, [`name: 「${name}」という名前のテキストはもうあります`])
+
+/**
  * 管理画面と下部バーから送られてきたテキスト1件を検証する。名前は前後の空白を落として受け取る。
  *
  * @param input `{ name: string, body: string }`
@@ -77,7 +84,7 @@ export const parseTextInput = (input: unknown, otherNames: readonly string[]): T
   } else if (lengthOf(name) > MAX_TEXT_NAME_LENGTH) {
     problems.push(`name: 名前は${MAX_TEXT_NAME_LENGTH}文字以内にしてください（いまは${lengthOf(name)}文字です）`)
   } else if (otherNames.includes(name)) {
-    problems.push(`name: 「${name}」という名前のテキストはもうあります`)
+    problems.push(...duplicateNameError(name).problems)
   }
 
   const body = typeof input.body === 'string' ? input.body : undefined

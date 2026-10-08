@@ -13,7 +13,7 @@
  *   窓を開いて書きかけているあいだだけ、ページの再読み込みの前に確認を出す（useUnsavedChanges）。
  */
 import { NotebookPen } from 'lucide-react'
-import { useId, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import { errorMessage } from '@/admin/page-actions'
 import { Link, useUnsavedChanges } from '@/app/router'
 import { Button } from '@/components/ui/button'
@@ -43,6 +43,8 @@ export const TextBar = ({ api }: { api: TextApi }) => {
   const [busy, setBusy] = useState(false)
   /** 断られた理由（1行ずつ） */
   const [failure, setFailure] = useState<readonly string[]>()
+  /** いちばん新しく始めた読み込みの世代。窓を開き直して読み込みが重なったとき、古い読み込みの結果で上書きしないために使う */
+  const latestLoad = useRef(0)
 
   const selected = loaded.status === 'ready' ? loaded.texts.find((text) => text.id === selectedId) : undefined
   const dirty = open && selected !== undefined && body !== selected.body
@@ -55,13 +57,17 @@ export const TextBar = ({ api }: { api: TextApi }) => {
   }
 
   const load = async (): Promise<void> => {
+    latestLoad.current += 1
+    const generation = latestLoad.current
     setLoaded({ status: 'loading' })
     setFailure(undefined)
     try {
       const texts = await api.list()
+      if (generation !== latestLoad.current) return
       setLoaded({ status: 'ready', texts })
       select(texts.find((text) => text.id === selectedId) ?? texts[0])
     } catch (error) {
+      if (generation !== latestLoad.current) return
       setLoaded({ status: 'failed', message: errorMessage(error) })
     }
   }
