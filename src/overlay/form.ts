@@ -19,6 +19,7 @@ import type { DesignItem } from '../core/background'
 import { serializeParams } from '../core/url'
 import { ParamError, parseParams, type AnyParamValue, type ParamSchema } from '../core/params'
 import { sideSuperParamSchema } from '../side-super/params'
+import { textParamSchema } from '../text/params'
 import { backgrounds } from '../wallpaper/registry'
 import { roundPercent } from './drag'
 import { DEFAULT_OVERLAY_NAMES, RECOMMENDED_ITEM_SIZES, STAGE_SIZE, type ItemKind, type Overlay } from './layout'
@@ -41,6 +42,7 @@ export const ITEM_KIND_LABELS: Readonly<Record<ItemKind, string>> = {
   townTour: '市町村紹介',
   twister: 'ツイスター',
   wipe: 'ワイプ',
+  text: 'テキスト',
 }
 
 /** Workerが返す問題点に出る項目の名前を、画面の言い方にする */
@@ -75,6 +77,7 @@ const DESIGNS: Readonly<Record<ItemKind, readonly DesignItem[]>> = {
   townTour: [],
   twister: [],
   wipe: [],
+  text: [],
 }
 
 /**
@@ -195,10 +198,34 @@ export const designsFor = (kind: ItemKind): readonly DesignItem[] => DESIGNS[kin
  */
 export const schemaFor = (kind: ItemKind, id: string): ParamSchema | undefined => {
   if (kind === 'sideSuper') return sideSuperParamSchema
+  if (kind === 'text') return textParamSchema
   const designs = designsFor(kind)
   // アラート・注目コメント・手書き・再生中の曲・タブの映像は配信者が決めるパラメータを持たない（取り上げる相手も設定はWorkerが持つ）
   if (designs.length === 0) return {}
   return designs.find((design) => design.id === id)?.schema
+}
+
+/** 選択欄の選択肢1つ */
+export interface SelectOption {
+  readonly value: string
+  readonly label: string
+}
+
+/**
+ * テキストの素材で、映すテキストを選ぶ選択欄の選択肢。
+ *
+ * 映すテキストはパラメータにIDで持つが、IDを手で打たせず名前で選ばせる（docs/principles.md の2）。
+ * 先頭は「選んでください」（値は空文字。選ばずに保存すると、合成ページがその素材の箱にエラーを出す）。
+ * 選んでいるテキストが消されていたら、消されたことが分かる選択肢を末尾に残す（開いただけで別のテキストへ移らないように。
+ * レジストリに無いデザインと同じ扱い）。
+ *
+ * @param texts いまあるテキスト（追加した順）
+ * @param selected いま選んでいるテキストのID（パラメータ text の値）
+ */
+export const textOptionsFor = (texts: readonly { id: number; name: string }[], selected: string): SelectOption[] => {
+  const options = [{ value: '', label: '選んでください' }, ...texts.map((text) => ({ value: String(text.id), label: text.name }))]
+  if (selected !== '' && !options.some((option) => option.value === selected)) options.push({ value: selected, label: `消されたテキスト（ID ${selected}）` })
+  return options
 }
 
 /** スキーマの既定値をすべて並べた、パラメータの初期値 */

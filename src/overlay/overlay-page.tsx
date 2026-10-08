@@ -34,10 +34,12 @@
  *
  * 注意: 配置用の枠に描くのは四角と名前だけで、素材の中身は映さない（中身はプレビューが受け持つ）。
  * 注意: 吸着（グリッド・他の素材の端に合わせる）は入れていない。まず動かせることを先にする。
+ * 注意: テキストの素材（issue #294）が映すテキストはパラメータにIDで持つが、IDの入力欄は出さず、テキストの名前の選択欄で選ばせる
+ *   （docs/principles.md の2）。そのため開いたときにテキストの一覧も読み、読めなければ選択欄の代わりに理由を出す。
  */
 import { ArrowDown, ArrowUp, ChevronDown, Copy, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import { useUnsavedChanges } from '@/app/router'
+import { Link, useUnsavedChanges } from '@/app/router'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -50,6 +52,8 @@ import { iconButtonName } from '../core/icon-button'
 import { ParamField } from '../core/fields'
 import { Preview, useSettled } from '../core/preview'
 import type { AnyParamValue } from '../core/params'
+import type { TextApi } from '../text/api'
+import { textParamSchema } from '../text/params'
 import type { OverlayLayoutAdminApi } from './admin-api'
 import { deltaPercent, dragRect, HANDLE_LABELS, rectNumbersOf, RESIZE_HANDLES, toRectDraft, type DragHandle } from './drag'
 import {
@@ -65,6 +69,7 @@ import {
   overlayNameChoices,
   savableOverlayDrafts,
   schemaFor,
+  textOptionsFor,
   toOverlayDrafts,
   toOverlays,
   type ItemDraft,
@@ -91,6 +96,14 @@ const RECT_FIELDS: readonly { key: keyof RectDraft; short: string; label: string
   { key: 'width', short: '幅', label: '幅（％）' },
   { key: 'height', short: '高さ', label: '高さ（％）' },
 ]
+
+/**
+ * テキストの素材の選択欄に並べるテキスト。読み込み中・読めなかった（理由を添える）・読めた（名前とID）のどれか。
+ */
+type TextChoices =
+  | { readonly status: 'loading' }
+  | { readonly status: 'failed'; readonly message: string }
+  | { readonly status: 'ready'; readonly texts: readonly { id: number; name: string }[] }
 
 /** 素材の枠の見た目（/triggers/ の項目の枠と同じ扱い。カードの中にカードを並べて見せない） */
 const ITEM_BOX = 'overflow-hidden rounded-lg border'
@@ -298,6 +311,34 @@ interface ItemRowProps {
   onMove(offset: number): void
   onMoveToOverlay(name: string): void
   onRemove(): void
+  /** テキストの素材で選べるテキスト */
+  textChoices: TextChoices
+}
+
+/**
+ * テキストの素材の、映すテキストの選択欄。IDを手で打たせず、テキストの名前で選ばせる。
+ *
+ * @param value いま選んでいるテキストのID（パラメータ text の値）
+ */
+const TextSelectField = ({ id, value, choices, onChange }: { id: string; value: string; choices: TextChoices; onChange(value: string): void }) => {
+  const label = textParamSchema.text.description
+  if (choices.status === 'loading') return <p className="text-sm text-muted-foreground">テキストの一覧を読み込んでいます…</p>
+  if (choices.status === 'failed') return <p className="text-sm text-destructive">テキストの一覧を読み込めないので、映すテキストを選べません（{choices.message}）</p>
+  return (
+    <div className="flex flex-col gap-2">
+      <Label htmlFor={`${id}-text`}>{label}</Label>
+      <NativeSelect id={`${id}-text`} className="w-full" value={value} onChange={(event) => onChange(event.currentTarget.value)}>
+        {textOptionsFor(choices.texts, value).map((option) => (
+          <NativeSelectOption key={option.value} value={option.value}>
+            {option.label}
+          </NativeSelectOption>
+        ))}
+      </NativeSelect>
+      <p className="text-xs text-muted-foreground">
+        テキストの追加と本文の書き換えは<Link href="/texts/" className="underline underline-offset-4">テキスト</Link>のページで行います。
+      </p>
+    </div>
+  )
 }
 
 /**
@@ -319,6 +360,7 @@ const ItemRow = ({
   onMove,
   onMoveToOverlay,
   onRemove,
+  textChoices,
 }: ItemRowProps) => {
   const id = useId()
   const label = itemLabel(draft)
@@ -421,7 +463,14 @@ const ItemRow = ({
           </div>
 
           <div className="flex flex-col gap-5">
-            {schema === undefined ? (
+            {draft.kind === 'text' ? (
+              <TextSelectField
+                id={id}
+                value={String(draft.values.text ?? textParamSchema.text.default)}
+                choices={textChoices}
+                onChange={(value) => onChange({ ...draft, values: { ...draft.values, text: value } })}
+              />
+            ) : schema === undefined ? (
               <p className="text-sm text-muted-foreground">デザインを選び直すと、その素材のパラメータを調整できます。</p>
             ) : Object.keys(schema).length === 0 ? (
               <p className="text-sm text-muted-foreground">この素材に、配信者が決めるパラメータはありません。</p>
@@ -446,6 +495,8 @@ const ItemRow = ({
 
 interface OverlayCardProps {
   draft: OverlayDraft
+  /** テキストの素材で選べるテキスト */
+  textChoices: TextChoices
   overlayNames: readonly string[]
   overlayKey: string | null
   /** 開いている素材の識別子（オーバーレイをまたいで1つだけ開く） */
@@ -470,6 +521,7 @@ interface OverlayCardProps {
 /** オーバーレイ1つ（＝OBSのブラウザソース1つ）ぶんのカード。積んだ素材と、貼るURLを持つ */
 const OverlayCard = ({
   draft,
+  textChoices,
   overlayNames,
   overlayKey,
   openItemKey,
@@ -573,6 +625,7 @@ const OverlayCard = ({
                 onMove={(offset) => moveItem(position, offset)}
                 onMoveToOverlay={(to) => onMoveItemToOverlay(item, to)}
                 onRemove={() => onAskRemoveItem(item)}
+                textChoices={textChoices}
               />
             ))}
             </ul>
@@ -648,8 +701,12 @@ const OverlayCard = ({
   )
 }
 
-export const OverlayPage = ({ api, overlayKey }: { api: OverlayLayoutAdminApi; overlayKey: string | null }) => {
+/**
+ * @param textApi テキストの一覧の読み出し（テキストの素材の選択欄に並べる）
+ */
+export const OverlayPage = ({ api, overlayKey, textApi }: { api: OverlayLayoutAdminApi; overlayKey: string | null; textApi: TextApi }) => {
   const [drafts, setDrafts] = useState<readonly OverlayDraft[]>([])
+  const [textChoices, setTextChoices] = useState<TextChoices>({ status: 'loading' })
   /** 読み込んだ（保存した）時点の中身。いまの中身と食い違えば「未保存の変更があります」と添える */
   const [savedJson, setSavedJson] = useState<string>()
   const [newName, setNewName] = useState('')
@@ -683,6 +740,22 @@ export const OverlayPage = ({ api, overlayKey }: { api: OverlayLayoutAdminApi; o
     }
     // 読み込みは開いたときの1回だけにする（actions は描くたびに作り直されるので、依存には入れない）
   }, [api])
+
+  // テキストの素材の選択欄に並べるテキストを読む。読めなくても構成の編集は続けられるよう、失敗は選択欄の場所にだけ出す
+  useEffect(() => {
+    let cancelled = false
+    textApi.list().then(
+      (texts) => {
+        if (!cancelled) setTextChoices({ status: 'ready', texts })
+      },
+      (error: unknown) => {
+        if (!cancelled) setTextChoices({ status: 'failed', message: errorMessage(error) })
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [textApi])
 
   const overlayNames = overlayNameChoices(drafts)
   const changed = savedJson !== undefined && savedJson !== JSON.stringify(drafts)
@@ -749,6 +822,7 @@ export const OverlayPage = ({ api, overlayKey }: { api: OverlayLayoutAdminApi; o
           <OverlayCard
             key={draft.key}
             draft={draft}
+            textChoices={textChoices}
             overlayNames={overlayNames}
             overlayKey={overlayKey}
             openItemKey={openItemKey}

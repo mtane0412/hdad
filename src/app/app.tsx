@@ -24,6 +24,7 @@ import type { BgmApi } from '@/bgm/api'
 import { BgmPlayerProvider, type BgmConnect } from '@/bgm/player-context'
 import type { PomodoroApi } from '@/pomodoro/api'
 import { PomodoroTimerProvider, type PomodoroConnect } from '@/pomodoro/timer-context'
+import type { TextApi } from '@/text/api'
 import type { BotApi } from '@/bot/api'
 import type { DrawApi } from '@/draw/api'
 import type { CommentApi } from '@/comments/api'
@@ -220,7 +221,7 @@ const Shell = ({
                   <div key={`${pathname}#${reloads}`}>{page ? page.render(context) : <NotFound pathname={pathname} />}</div>
                 </div>
               </SidebarInset>
-              <BottomBar apis={context} />
+              <BottomBar apis={context} textApi={context.textApi} />
             </SidebarProvider>
             <UnsavedChangesDialog />
           </TooltipProvider>
@@ -244,6 +245,7 @@ export const App = ({
   overlayApi,
   bgmApi,
   pomodoroApi,
+  textApi,
   recognitionDeps,
   connectBgm,
   connectPomodoro,
@@ -261,6 +263,7 @@ export const App = ({
   overlayApi: OverlayLayoutAdminApi
   bgmApi: BgmApi
   pomodoroApi: PomodoroApi
+  textApi: TextApi
   /** 配信中の文字起こしの音声認識が使うもの（ブラウザでは browserRecognitionDeps が組み立てる） */
   recognitionDeps: RecognitionDeps
   /** BGMの「いま流している曲」の押し出しにつなぐ（ブラウザでは src/bgm/socket.ts の connectBgmWatch） */
@@ -343,6 +346,7 @@ export const App = ({
             overlayApi,
             bgmApi,
             pomodoroApi,
+            textApi,
             me: session.me,
             onOverlayKeyChange: (overlayKey) => setSession({ status: 'signed-in', me: { ...session.me, overlayKey } }),
           }}

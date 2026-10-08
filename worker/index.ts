@@ -53,6 +53,8 @@
  * | GET  /api/admin/pomodoro         | セッション     | ポモドーロのタイマーと、休憩の曲の設定 |
  * | PUT  /api/admin/pomodoro/settings | セッション    | ポモドーロの休憩の曲の保存 |
  * | POST /api/admin/pomodoro/control | セッション     | ポモドーロのタイマーの操作（始める・一時停止・再開・止める） |
+ * | GET・POST /api/admin/texts       | セッション     | 配信者が書くテキストの一覧・追加 |
+ * | PUT・DELETE /api/admin/texts/:id | セッション     | テキストの書き換え・削除（合成ページへ押し出す） |
  * | POST /api/admin/town-tour/demo   | セッション     | 市町村紹介の試し再生（市町村を1つ引いて合成ページへ押し出す） |
  * | GET  /api/admin/town-tour/sound  | セッション     | 市町村紹介の演出で鳴らす音の設定 |
  * | PUT  /api/admin/town-tour/sound  | セッション     | 市町村紹介の音の設定を検証して保存 |
@@ -97,6 +99,8 @@
  * | GET  /api/overlay/task-desk/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、作業机の配送先へ引き渡す |
  * | GET  /api/overlay/pomodoro       | オーバーレイ用キー | いまのポモドーロのタイマー（止めていれば null）を返す |
  * | GET  /api/overlay/pomodoro/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、ポモドーロのタイマーの配送先へ引き渡す |
+ * | GET  /api/overlay/texts          | オーバーレイ用キー | 配信者が書いたテキストの一覧を返す |
+ * | GET  /api/overlay/texts/socket   | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、テキストの配送先へ引き渡す |
  * | GET  /api/overlay/town-tour      | オーバーレイ用キー | コードの市町村の紹介を Wikipedia を材料に作って返す |
  * | POST /api/overlay/town-tour/quiz | オーバーレイ用キー | 市町村紹介の冒頭の都道府県当てクイズの出題を開く |
  * | POST /api/overlay/town-tour/visit | オーバーレイ用キー | 市町村紹介を流しきった市町村を、全国制覇マップの記録に残す |
@@ -171,6 +175,7 @@ import { postAdminTranscript } from './transcript-routes'
 import { captionSocket } from './caption-routes'
 import { getWorkLog, workLogSocket } from './work-log-routes'
 import { getTaskDesk, taskDeskSocket } from './task-desk-routes'
+import { getOverlayTexts, getTexts, postText, putText, removeText, textSocket } from './text-routes'
 import {
   getTownTour,
   getTownTourNarration,
@@ -296,6 +301,10 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/admin/pomodoro', handle: getPomodoro },
   { method: 'PUT', path: '/api/admin/pomodoro/settings', handle: putPomodoroSettings },
   { method: 'POST', path: '/api/admin/pomodoro/control', handle: postPomodoroControl },
+  { method: 'GET', path: '/api/admin/texts', handle: getTexts },
+  { method: 'POST', path: '/api/admin/texts', handle: postText },
+  { method: 'PUT', path: '/api/admin/texts/:id', handle: putText },
+  { method: 'DELETE', path: '/api/admin/texts/:id', handle: removeText },
   { method: 'GET', path: '/api/admin/viewers', handle: getViewers },
   { method: 'PATCH', path: '/api/admin/viewers/:userId', handle: patchViewer },
   { method: 'DELETE', path: '/api/admin/viewers/:userId', handle: deleteViewerRoute },
@@ -329,6 +338,8 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/overlay/task-desk/socket', handle: taskDeskSocket },
   { method: 'GET', path: '/api/overlay/pomodoro', handle: getOverlayPomodoro },
   { method: 'GET', path: '/api/overlay/pomodoro/socket', handle: pomodoroSocket },
+  { method: 'GET', path: '/api/overlay/texts', handle: getOverlayTexts },
+  { method: 'GET', path: '/api/overlay/texts/socket', handle: textSocket },
   { method: 'GET', path: '/api/overlay/focus', handle: getOverlayFocus },
   { method: 'GET', path: '/api/overlay/wipe/icon', handle: getWipeIcon },
   { method: 'GET', path: '/api/overlay/bgm', handle: getOverlayBgm },

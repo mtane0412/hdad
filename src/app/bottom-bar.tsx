@@ -4,7 +4,7 @@
  * どのページを見ていても、配信中に何度も触る操作（文字起こしのオン・オフなど）に手が届くようにする。
  * 形は音楽プレーヤー（Spotify など）にならい、サイドバーの下まで画面の幅いっぱいに通す。
  * 並びは左・中央・右の3つに分け、左にいま流している曲・中央に再生の操作・右に音量（BGM。src/bgm/bgm-bar.tsx。#236）を置き、
- * 右にはそのほかの切り替え（ポモドーロ（src/pomodoro/pomodoro-bar.tsx。#237）・文字起こし・読み上げのミュート（src/speech/speech-mute-control.tsx。#238））を並べる。
+ * 右にはそのほかの切り替え（ポモドーロ（src/pomodoro/pomodoro-bar.tsx。#237）・テキストの本文の書き換え（src/text/text-bar.tsx。#294）・文字起こし・読み上げのミュート（src/speech/speech-mute-control.tsx。#238））を並べる。
  * 同じ操作をエージェントから呼べるよう、WebMCP のツールの登録（src/webmcp/webmcp-tools.tsx。#279）もここに置く
  * （普段は何も描かず、登録を断られたときだけ右端に理由を出す）。
  *
@@ -22,6 +22,8 @@ import { useSidebar } from '@/components/ui/sidebar'
 import { iconButtonName } from '@/core/icon-button'
 import { PomodoroBar } from '@/pomodoro/pomodoro-bar'
 import { SpeechMuteControl } from '@/speech/speech-mute-control'
+import type { TextApi } from '@/text/api'
+import { TextBar } from '@/text/text-bar'
 import { RecognitionControl } from '@/transcript/recognition-control'
 import { WebMcpTools } from '@/webmcp/webmcp-tools'
 import type { PageEntry, WebMcpApis } from '@/webmcp/tools'
@@ -32,8 +34,9 @@ const WEBMCP_PAGES: readonly PageEntry[] = PAGE_GROUPS.flatMap((group) => group.
 
 /**
  * @param apis WebMCP のツールが使う Worker の Api（アプリの枠の PageContext）
+ * @param textApi テキストの本文の書き換え（text-bar.tsx）が使う Worker の Api
  */
-export const BottomBar = ({ apis }: { apis: WebMcpApis }) => {
+export const BottomBar = ({ apis, textApi }: { apis: WebMcpApis; textApi: TextApi }) => {
   const { isMobile, setOpenMobile } = useSidebar()
 
   return (
@@ -59,6 +62,7 @@ export const BottomBar = ({ apis }: { apis: WebMcpApis }) => {
         end={
           <>
             <PomodoroBar />
+            <TextBar api={textApi} />
             <RecognitionControl />
             <SpeechMuteControl />
             <WebMcpTools pages={WEBMCP_PAGES} apis={apis} />

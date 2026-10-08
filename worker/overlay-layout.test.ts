@@ -115,6 +115,12 @@ describe('parseOverlayLayout', () => {
     expect(parseOverlayLayout({ overlays: [{ name: 'front', items: [taskDesk] }] })).toEqual({ overlays: [{ name: 'front', items: [taskDesk] }] })
   })
 
+  it('テキスト（text）はデザインIDを持たない種類として受け取り、映すテキストはパラメータで持つ', () => {
+    const text: OverlayItem = { kind: 'text', id: '', params: 'text=3', rect: { x: 2, y: 80, width: 40, height: 15 } }
+
+    expect(parseOverlayLayout({ overlays: [{ name: 'front', items: [text] }] })).toEqual({ overlays: [{ name: 'front', items: [text] }] })
+  })
+
   it('市町村紹介（townTour）はデザインIDを持たない種類として受け取る', () => {
     const townTour: OverlayItem = { kind: 'townTour', id: '', params: '', rect: { x: 0, y: 0, width: 100, height: 100 } }
 

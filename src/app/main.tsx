@@ -10,6 +10,7 @@ import { createBgmApi } from '@/bgm/api'
 import { connectBgmWatch } from '@/bgm/socket'
 import { createPomodoroApi } from '@/pomodoro/api'
 import { connectPomodoroWatch } from '@/pomodoro/socket'
+import { createTextApi } from '@/text/api'
 import { createBotApi } from '@/bot/api'
 import { createDrawApi } from '@/draw/api'
 import { createCommentApi } from '@/comments/api'
@@ -44,10 +45,11 @@ const llmApi = createLlmApi(callWorker)
 const overlayApi = createOverlayLayoutAdminApi(callWorker)
 const bgmApi = createBgmApi(callWorker)
 const pomodoroApi = createPomodoroApi(callWorker)
+const textApi = createTextApi(callWorker)
 const recognitionDeps = browserRecognitionDeps(createAppTranscriptApi(callWorker), createTranslationApi(callWorker), () => screenApi.load())
 
 createRoot(root).render(
   <StrictMode>
-    <App api={api} statsApi={statsApi} botApi={botApi} viewerApi={viewerApi} speechApi={speechApi} screenApi={screenApi} focusApi={focusApi} commentApi={commentApi} drawApi={drawApi} llmApi={llmApi} overlayApi={overlayApi} bgmApi={bgmApi} pomodoroApi={pomodoroApi} recognitionDeps={recognitionDeps} connectBgm={connectBgmWatch} connectPomodoro={connectPomodoroWatch} />
+    <App api={api} statsApi={statsApi} botApi={botApi} viewerApi={viewerApi} speechApi={speechApi} screenApi={screenApi} focusApi={focusApi} commentApi={commentApi} drawApi={drawApi} llmApi={llmApi} overlayApi={overlayApi} bgmApi={bgmApi} pomodoroApi={pomodoroApi} textApi={textApi} recognitionDeps={recognitionDeps} connectBgm={connectBgmWatch} connectPomodoro={connectPomodoroWatch} />
   </StrictMode>,
 )

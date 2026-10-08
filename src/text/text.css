@@ -1,0 +1,63 @@
+/*
+ * テキスト（合成ページの素材）の見た目
+ *
+ * 配信者が書いた「目標」「今やってること」などを、画面の隅に出しっぱなしにする札。次の3つを守る。
+ * - 主役（作業している画面）の邪魔をしないよう、半透明の暗い板に置く（作業机 src/task-desk/task-desk.css と同じ板）
+ * - 名前は小さな見出し、本文は大きめの太字にして、本文の改行はそのまま出す
+ * - 本文が書き換わったら、本文だけがふわっと浮かび上がる（src/text/view.ts が本文の要素を作り直す）
+ *
+ * 札は箱の左上から置き、本文の長さに合わせて縮む（箱いっぱいに板を広げない）。箱からあふれた行は見せない。
+ */
+.text-board {
+  /* 位置は画面ではなく置かれた箱を基準にする（合成ページのレイヤーの箱に入れるため。issue #101） */
+  position: absolute;
+  top: 0;
+  left: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 100%;
+  max-height: 100%;
+  padding: 10px 16px 12px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: rgb(12 14 20 / 62%);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 35%);
+  color: #fff;
+  font-family: 'Zen Kaku Gothic New', 'Hiragino Sans', 'Yu Gothic UI', sans-serif;
+}
+
+.text-board[hidden] {
+  display: none;
+}
+
+.text-board-name {
+  margin: 0;
+  color: #ffd166;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.text-board-body {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.45;
+  /* 書いた改行はそのまま出し、切れ目のない英数字（URLなど）でも板からはみ出させずに折り返す */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  animation: text-board-in 500ms ease-out;
+}
+
+@keyframes text-board-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
