@@ -16,7 +16,7 @@
  */
 
 /** オーバーレイに置ける素材の種類。worker/overlay-layout.ts の ITEM_KINDS と合わせる */
-export const ITEM_KINDS = ['wallpaper', 'clock', 'chat', 'alerts', 'sideSuper', 'focus', 'draw', 'bgm', 'tab', 'caption', 'workLog', 'taskDesk', 'pomodoro', 'townTour', 'twister', 'wipe'] as const
+export const ITEM_KINDS = ['wallpaper', 'clock', 'chat', 'alerts', 'sideSuper', 'focus', 'draw', 'bgm', 'tab', 'caption', 'workLog', 'taskDesk', 'pomodoro', 'townTour', 'twister', 'wipe', 'text'] as const
 
 /** オーバーレイに置ける素材の種類 */
 export type ItemKind = (typeof ITEM_KINDS)[number]
@@ -56,6 +56,7 @@ export const STAGE_SIZE = { width: 1920, height: 1080 } as const
  * 市町村紹介は日本地図を画面いっぱいに映してからズームするので、配信画面と同じ大きさにする。
  * ツイスターもマットを画面の真ん中に、スピナーと文言を画面の隅と上に出すので、配信画面と同じ大きさにする。
  * ワイプは右上に寄せた小さなアイコンの枠と、その下に出す吹き出しが収まる大きさにする（画面の右上に置く前提）。
+ * テキストは画面の隅に置く札なので、本文の上限（4行）が収まる高さと、1行が折り返しすぎない幅にする。
  */
 export const RECOMMENDED_ITEM_SIZES: Readonly<Record<ItemKind, { readonly width: number; readonly height: number }>> = {
   wallpaper: STAGE_SIZE,
@@ -74,6 +75,7 @@ export const RECOMMENDED_ITEM_SIZES: Readonly<Record<ItemKind, { readonly width:
   townTour: STAGE_SIZE,
   twister: STAGE_SIZE,
   wipe: { width: 480, height: 460 },
+  text: { width: 720, height: 220 },
 }
 
 /** オーバーレイの中での位置と大きさ（オーバーレイの幅・高さに対する割合。％） */

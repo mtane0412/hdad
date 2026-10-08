@@ -11,6 +11,7 @@ import { STATUS } from './http'
 import type { PomodoroSnapshot } from './pomodoro-timer'
 import type { SpeechMute } from './speech-config'
 import type { TaskDeskSnapshot } from './task-desk'
+import type { TextsSnapshot } from './text'
 import type { TownTourAnswerMessage, TownTourCall } from './town-tour-call'
 import type { TwisterCall } from './twister-call'
 import type { WorkLogEntry } from './work-log'
@@ -42,6 +43,8 @@ export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelO
   pushedBgmDucks: BgmDuck[]
   /** 押し出された読み上げのミュート */
   pushedSpeechMutes: SpeechMute[]
+  /** 押し出されたテキストの一覧 */
+  pushedTexts: TextsSnapshot[]
   /** WebSocketの接続として引き渡されたリクエスト */
   forwardedConnections: Request[]
   /** 接続をすべて閉じるよう頼まれたときに添えられた、新しいキーの目印（オーバーレイ用キーの再発行） */
@@ -57,6 +60,7 @@ export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelO
   const evictedTwisters: TwisterCall[] = []
   const evictedBgmDucks: BgmDuck[] = []
   const evictedSpeechMutes: SpeechMute[] = []
+  const evictedTexts: TextsSnapshot[] = []
   const handedOverConnections: Request[] = []
   const revokedTags: string[] = []
   const id: DurableObjectId = { toString: () => 'alerts', equals: (other) => other.toString() === 'alerts', name: 'alerts' }
@@ -72,6 +76,7 @@ export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelO
     pushedTwisters: evictedTwisters,
     pushedBgmDucks: evictedBgmDucks,
     pushedSpeechMutes: evictedSpeechMutes,
+    pushedTexts: evictedTexts,
     forwardedConnections: handedOverConnections,
     revokedKeyTags: revokedTags,
     namespace: {
@@ -96,6 +101,7 @@ export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelO
           else if (pathname === '/push/twister') evictedTwisters.push((await request.json()) as TwisterCall)
           else if (pathname === '/push/bgm-duck') evictedBgmDucks.push((await request.json()) as BgmDuck)
           else if (pathname === '/push/speech-mute') evictedSpeechMutes.push((await request.json()) as SpeechMute)
+          else if (pathname === '/push/text') evictedTexts.push((await request.json()) as TextsSnapshot)
           else if (pathname === '/push/town-tour') {
             const body = (await request.json()) as TownTourCall | TownTourAnswerMessage
             if ('type' in body) evictedTownTourAnswers.push(body)

@@ -12,12 +12,15 @@
  * - 素材を1つも持たないオーバーレイは送らないこと
  * - Workerが返した問題点を、オーバーレイと素材の名前へ読み替えて並べること
  * - 保存済みの値が読めない素材でも、黙って捨てず理由を出すこと
+ * - テキストの素材は、映すテキストを名前の選択欄から選ばせること（IDを手で打たせない）
  */
 import '@testing-library/jest-dom/vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { ApiError } from '../core/api'
+import type { TextApi } from '../text/api'
+import type { TextEntry } from '../text/entry'
 import type { OverlayLayoutAdminApi } from './admin-api'
 import type { Overlay, OverlayItem } from './layout'
 import { OverlayPage } from './overlay-page'
@@ -42,7 +45,19 @@ const fakeApi = (overrides: Partial<OverlayLayoutAdminApi> = {}): OverlayLayoutA
   ...overrides,
 })
 
-const renderPage = (api: OverlayLayoutAdminApi, overlayKey: string | null = ISSUED_OVERLAY_KEY) => render(<OverlayPage api={api} overlayKey={overlayKey} />)
+/** 配信者が書いたテキスト（テキストの素材の選択欄に並ぶ） */
+const goalText: TextEntry = { id: 1, name: '目標', body: 'ログイン画面を作り終える', updatedAt: '2026-10-08T12:00:00.000Z' }
+const doingText: TextEntry = { id: 3, name: '今やってること', body: 'テストを書いている', updatedAt: '2026-10-08T12:10:00.000Z' }
+
+const fakeTextApi = (list: TextApi['list'] = async () => [goalText, doingText]): TextApi => ({
+  list: vi.fn(list),
+  create: vi.fn(),
+  update: vi.fn(),
+  remove: vi.fn(),
+})
+
+const renderPage = (api: OverlayLayoutAdminApi, overlayKey: string | null = ISSUED_OVERLAY_KEY, textApi: TextApi = fakeTextApi()) =>
+  render(<OverlayPage api={api} overlayKey={overlayKey} textApi={textApi} />)
 
 /** オーバーレイ1つの領域（OBSのブラウザソース1つぶん） */
 const overlayRegion = (name: string): Promise<HTMLElement> => screen.findByRole('group', { name: `オーバーレイ「${name}」` })
@@ -596,5 +611,37 @@ describe('プレビュー', () => {
     await userEvent.clear(within(region).getByLabelText('幅（％）'))
 
     expect(within(region).getByText(/プレビューに出せない素材があります/)).toBeInTheDocument()
+  })
+})
+
+describe('テキストの素材', () => {
+  /** 前面の左下に置いた、「目標」を映すテキストの素材 */
+  const goalItem: OverlayItem = { kind: 'text', id: '', params: 'text=1', rect: { x: 2, y: 80, width: 38, height: 20 } }
+
+  test('映すテキストを名前の選択欄から選び、保存ではテキストのIDのパラメータになる', async () => {
+    const api = fakeApi({ load: vi.fn(async () => [{ name: 'front', items: [goalItem] }]) })
+    renderPage(api)
+
+    const region = await openMaterial('front', 'テキスト')
+    const select = await within(region).findByRole('combobox', { name: '映すテキスト' })
+    expect(select).toHaveValue('1')
+    expect(within(select).getAllByRole('option').map((option) => option.textContent)).toEqual(['選んでください', '目標', '今やってること'])
+
+    await userEvent.selectOptions(select, '今やってること')
+    await save()
+
+    expect(api.save).toHaveBeenCalledWith([{ name: 'front', items: [{ ...goalItem, params: 'text=3' }] }])
+  })
+
+  test('テキストを読み込めなければ、選択欄の代わりに理由を出す', async () => {
+    const api = fakeApi({ load: vi.fn(async () => [{ name: 'front', items: [goalItem] }]) })
+    renderPage(api, ISSUED_OVERLAY_KEY, fakeTextApi(async () => {
+      throw new Error('テキストの一覧を読めませんでした')
+    }))
+
+    const region = await openMaterial('front', 'テキスト')
+
+    expect(await within(region).findByText(/テキストの一覧を読めませんでした/)).toBeInTheDocument()
+    expect(within(region).queryByRole('combobox', { name: '映すテキスト' })).not.toBeInTheDocument()
   })
 })

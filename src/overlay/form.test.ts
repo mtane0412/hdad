@@ -17,6 +17,7 @@ import {
   overlayNameChoices,
   savableOverlayDrafts,
   schemaFor,
+  textOptionsFor,
   toOverlayDrafts,
   toOverlays,
 } from './form'
@@ -58,6 +59,39 @@ describe('schemaFor', () => {
 
   it('レジストリに無いデザインでは undefined を返す（既定のスキーマへ黙って倒さない）', () => {
     expect(schemaFor('clock', 'sundial')).toBeUndefined()
+  })
+})
+
+describe('テキストの素材', () => {
+  it('映すテキストのIDをパラメータに持ち、追加したばかりのときは選んでいない', () => {
+    const draft = newItemDraft('text', '')
+
+    expect(draft.values).toEqual({ text: '' })
+    expect(toOverlays([{ ...newOverlayDraft('front'), items: [{ ...draft, values: { text: '3' } }] }])[0]?.items[0]?.params).toBe('text=3')
+  })
+})
+
+describe('textOptionsFor', () => {
+  const texts = [
+    { id: 1, name: '目標' },
+    { id: 3, name: '今やってること' },
+  ]
+
+  it('「選んでください」のあとに、テキストを名前で並べる（値はID）', () => {
+    expect(textOptionsFor(texts, '')).toEqual([
+      { value: '', label: '選んでください' },
+      { value: '1', label: '目標' },
+      { value: '3', label: '今やってること' },
+    ])
+  })
+
+  it('選んでいるテキストが消されていたら、消されたことが分かる選択肢を残す（開いただけで別のテキストへ移らないように）', () => {
+    expect(textOptionsFor(texts, '7')).toEqual([
+      { value: '', label: '選んでください' },
+      { value: '1', label: '目標' },
+      { value: '3', label: '今やってること' },
+      { value: '7', label: '消されたテキスト（ID 7）' },
+    ])
   })
 })
 

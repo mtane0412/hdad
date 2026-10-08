@@ -4,7 +4,7 @@
  * サイドバーの項目と、パスごとに描く中身をここで決める。
  * 実ファイルとして配信されるページ（overlay/stage/・overlay/backstage/・speech/reader/）は、ここには載せない。
  */
-import { Bot, BrainCircuit, Gift, Layers, LayoutDashboard, MessagesSquare, Music, Pencil, Plug, Timer, Upload, Users, Zap, type LucideIcon } from 'lucide-react'
+import { Bot, BrainCircuit, Gift, Layers, LayoutDashboard, MessagesSquare, Music, NotebookPen, Pencil, Plug, Timer, Upload, Users, Zap, type LucideIcon } from 'lucide-react'
 import type { AdminApi, Me } from '@/admin/api'
 import { BackstagePage } from '@/backstage/backstage-page'
 import type { BgmApi } from '@/bgm/api'
@@ -32,6 +32,8 @@ import { StatsPage } from '@/stats/stats-page'
 import type { ViewerApi } from '@/viewers/api'
 import { ViewerPage } from '@/viewers/viewer-page'
 import type { ScreenAdminApi } from '@/screen/api'
+import type { TextApi } from '@/text/api'
+import { TextPage } from '@/text/text-page'
 import type { SpeechApi } from '@/speech/api'
 
 /** ページが中身を描くのに使うもの */
@@ -61,6 +63,8 @@ export interface PageContext {
   bgmApi: BgmApi
   /** ポモドーロのタイマーと休憩の曲の読み書き（ポモドーロのページが使う） */
   pomodoroApi: PomodoroApi
+  /** 配信者が書くテキストの読み書き（テキストのページ・下部バー・オーバーレイのページの素材「テキスト」が使う） */
+  textApi: TextApi
   me: Me
   /** オーバーレイ用キーを再発行した。ほかのページから戻ってきても新しいキーを出せるよう、枠が持つログイン情報を書き換える */
   onOverlayKeyChange(overlayKey: string): void
@@ -118,6 +122,14 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
         // タイマーの状態と区切りのアラームは Worker（Durable Object）が持つ（issue #208）。休憩の曲は BGM の一覧から選ぶ
         render: ({ pomodoroApi, bgmApi }) => <PomodoroPage api={pomodoroApi} bgmApi={bgmApi} />,
       },
+      {
+        path: '/texts/',
+        keywords: ['文字', '目標', '今やってること', 'メモ', '素材'],
+        name: 'テキスト',
+        icon: NotebookPen,
+        // 配信画面に映す文字（issue #294）。保存するとすぐ合成ページへ押し出す。本文だけなら下部バーからも書き換えられる
+        render: ({ textApi }) => <TextPage api={textApi} />,
+      },
       { path: '/viewers/', keywords: ['常連', '人物像'], name: '視聴者', icon: Users, render: ({ viewerApi }) => <ViewerPage api={viewerApi} /> },
     ],
   },
@@ -131,7 +143,7 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
         name: 'オーバーレイ',
         icon: Layers,
         // 構成はWorkerに保存されるので、オーバーレイごとのブラウザソースのURLは貼り替えずに中身が切り替わる
-        render: ({ overlayApi, me }) => <OverlayPage api={overlayApi} overlayKey={me.overlayKey} />,
+        render: ({ overlayApi, me, textApi }) => <OverlayPage api={overlayApi} overlayKey={me.overlayKey} textApi={textApi} />,
       },
       {
         path: '/connectors/',

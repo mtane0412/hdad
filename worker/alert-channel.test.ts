@@ -15,6 +15,7 @@ import {
   connectSpeechMuteSocket,
   connectTownTourSocket,
   connectTwisterSocket,
+  connectTextSocket,
   connectTaskDeskSocket,
   connectWorkLogSocket,
   pushAlert,
@@ -136,6 +137,7 @@ describe('AlertChannel', () => {
     bgmDuckSockets: AlertSocket[] = [],
     speechMuteSockets: AlertSocket[] = [],
     twisterSockets: AlertSocket[] = [],
+    textSockets: AlertSocket[] = [],
   ): AlertChannel =>
     new AlertChannel({
       acceptWebSocket: () => undefined,
@@ -149,6 +151,7 @@ describe('AlertChannel', () => {
         if (tag === 'bgmDuck') return bgmDuckSockets
         if (tag === 'speechMute') return speechMuteSockets
         if (tag === 'twister') return twisterSockets
+        if (tag === 'text') return textSockets
         return [
           ...sockets,
           ...bgmSockets,
@@ -159,6 +162,7 @@ describe('AlertChannel', () => {
           ...bgmDuckSockets,
           ...speechMuteSockets,
           ...twisterSockets,
+          ...textSockets,
         ]
       },
       setWebSocketAutoResponse: () => undefined,
@@ -260,6 +264,19 @@ describe('AlertChannel', () => {
     expect(townTourItem.sentMessages).toEqual([])
   })
 
+  it('テキストの一覧は、テキストを受け取る接続だけへ送る（アラートとしては読めないため）', async () => {
+    const alertItem = createConnection()
+    const textItem = createConnection()
+    const destination = createDestination([alertItem], [], [], [], [], [], [], [], [], [textItem])
+    const snapshot = { texts: [{ id: 1, name: '目標', body: 'ログイン画面を作り終える', updatedAt: '2026-10-08T12:00:00.000Z' }] }
+
+    const response = await destination.fetch(new Request('https://alert-channel/push/text', { method: 'POST', body: JSON.stringify(snapshot) }))
+
+    expect(response.status).toBe(204)
+    expect(textItem.sentMessages).toEqual([JSON.stringify(snapshot)])
+    expect(alertItem.sentMessages).toEqual([])
+  })
+
   it('配信のBGMを下げる知らせは、下げる知らせを受け取る接続（裏方のページ）だけへ送る（曲の切り替えとしては読めないため）', async () => {
     const bgmItem = createConnection()
     const backstageDuck = createConnection()
@@ -331,6 +348,7 @@ describe('接続の引き渡し', () => {
     await connectBgmDuckSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
     await connectSpeechMuteSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
     await connectTwisterSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
+    await connectTextSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
 
     expect(delivery.forwardedConnections.map((request) => new URL(request.url).searchParams.get('topic'))).toEqual([
       'alerts',
@@ -342,6 +360,7 @@ describe('接続の引き渡し', () => {
       'bgmDuck',
       'speechMute',
       'twister',
+      'text',
     ])
   })
 })
