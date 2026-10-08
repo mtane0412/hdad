@@ -12,19 +12,41 @@
  */
 import { isRecord, readList } from '../core/api'
 
+/** 本文の書き方。manual は配信者が手で書き、auto は指示文に沿って LLM が書き直す（issue #295） */
+export const TEXT_MODES = ['manual', 'auto'] as const
+export type TextMode = (typeof TEXT_MODES)[number]
+
+/** いまの本文を誰が書いたか。human は配信者、llm は自動の書き換え */
+export const TEXT_WRITERS = ['human', 'llm'] as const
+export type TextWriter = (typeof TEXT_WRITERS)[number]
+
 /** テキスト1件 */
 export interface TextEntry {
   /** テキストを見分けるID。素材のパラメータに入る */
   readonly id: number
   readonly name: string
   readonly body: string
+  readonly mode: TextMode
+  /** LLM に本文を書かせるときの指示文。手動のあいだも持ち続ける */
+  readonly instruction: string
+  /** いまの本文を誰が書いたか */
+  readonly writtenBy: TextWriter
   /** 最後に書き換えた時刻（ISO 8601） */
   readonly updatedAt: string
 }
 
+const isOneOf = <T extends string>(choices: readonly T[], value: unknown): value is T => choices.some((choice) => choice === value)
+
 /** テキスト1件として読めるか */
 export const isTextEntry = (value: unknown): value is TextEntry =>
-  isRecord(value) && typeof value.id === 'number' && typeof value.name === 'string' && typeof value.body === 'string' && typeof value.updatedAt === 'string'
+  isRecord(value) &&
+  typeof value.id === 'number' &&
+  typeof value.name === 'string' &&
+  typeof value.body === 'string' &&
+  isOneOf(TEXT_MODES, value.mode) &&
+  typeof value.instruction === 'string' &&
+  isOneOf(TEXT_WRITERS, value.writtenBy) &&
+  typeof value.updatedAt === 'string'
 
 /**
  * Worker の応答（読み出しと押し出しで同じ形）の texts を、テキストの一覧として読む。

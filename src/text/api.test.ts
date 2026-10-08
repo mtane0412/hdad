@@ -10,7 +10,7 @@ import { createTextApi, createTextOverlayApi } from './api'
 import type { TextEntry } from './entry'
 
 const OVERLAY_KEY = 'overlay-key_0123456789abcdefghij'
-const goal: TextEntry = { id: 1, name: '目標', body: 'ログイン画面を作り終える', updatedAt: '2026-10-08T12:00:00.000Z' }
+const goal: TextEntry = { id: 1, name: '目標', body: 'ログイン画面を作り終える', mode: 'manual', instruction: '', writtenBy: 'human', updatedAt: '2026-10-08T12:00:00.000Z' }
 
 /** 呼ばれた内容を記録し、決めた応答を返す fetch（本文が null なら本文の無い応答にする） */
 const createFetchWithResponse = (status: number, body: unknown) => {
@@ -48,16 +48,16 @@ describe('createTextApi', () => {
   it('テキストを追加し、追加したテキストを返す', async () => {
     const { calls, fetchImpl } = createFetchWithResponse(201, { text: goal })
 
-    expect(await createTextApi(fetchImpl).create({ name: '目標', body: 'ログイン画面を作り終える' })).toEqual(goal)
-    expect(calls).toEqual([{ path: '/api/admin/texts', method: 'POST', body: { name: '目標', body: 'ログイン画面を作り終える' } }])
+    expect(await createTextApi(fetchImpl).create({ name: '目標', mode: 'manual', body: 'ログイン画面を作り終える', instruction: '' })).toEqual(goal)
+    expect(calls).toEqual([{ path: '/api/admin/texts', method: 'POST', body: { name: '目標', mode: 'manual', body: 'ログイン画面を作り終える', instruction: '' } }])
   })
 
   it('テキストを書き換え、書き換えたテキストを返す', async () => {
     const updated = { ...goal, body: 'ログイン画面をデプロイする' }
     const { calls, fetchImpl } = createFetchWithResponse(200, { text: updated })
 
-    expect(await createTextApi(fetchImpl).update(1, { name: '目標', body: 'ログイン画面をデプロイする' })).toEqual(updated)
-    expect(calls).toEqual([{ path: '/api/admin/texts/1', method: 'PUT', body: { name: '目標', body: 'ログイン画面をデプロイする' } }])
+    expect(await createTextApi(fetchImpl).update(1, { name: '目標', mode: 'manual', body: 'ログイン画面をデプロイする', instruction: '' })).toEqual(updated)
+    expect(calls).toEqual([{ path: '/api/admin/texts/1', method: 'PUT', body: { name: '目標', mode: 'manual', body: 'ログイン画面をデプロイする', instruction: '' } }])
   })
 
   it('テキストを消す', async () => {
@@ -70,7 +70,7 @@ describe('createTextApi', () => {
   it('応答の text の形が違えばエラーにする', async () => {
     const { fetchImpl } = createFetchWithResponse(201, { text: { id: 1 } })
 
-    await expect(createTextApi(fetchImpl).create({ name: '目標', body: '' })).rejects.toThrow('テキスト')
+    await expect(createTextApi(fetchImpl).create({ name: '目標', mode: 'manual', body: '', instruction: '' })).rejects.toThrow('テキスト')
   })
 
   it('検証で拒まれたら、問題点を持つ ApiError にする', async () => {
@@ -78,6 +78,6 @@ describe('createTextApi', () => {
       error: { code: 'invalid-config', message: 'テキストに問題があります', problems: ['name: 「目標」という名前のテキストはもうあります'] },
     })
 
-    await expect(createTextApi(fetchImpl).create({ name: '目標', body: '' })).rejects.toMatchObject({ problems: ['name: 「目標」という名前のテキストはもうあります'] })
+    await expect(createTextApi(fetchImpl).create({ name: '目標', mode: 'manual', body: '', instruction: '' })).rejects.toMatchObject({ problems: ['name: 「目標」という名前のテキストはもうあります'] })
   })
 })

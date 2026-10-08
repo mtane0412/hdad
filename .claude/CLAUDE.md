@@ -75,7 +75,7 @@ npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 | `work-log.md` | 作業ログ（素材の種類 `workLog`。開発の出来事と章の見出し） | `src/work-log/**`・`worker/work-log*.ts`・`worker/github-routes.ts`・`worker/collect.ts`・`worker/alert-channel.ts`・`migrations/*dev_events*.sql` |
 | `task-desk.md` | 作業机（素材の種類 `taskDesk`。視聴者の `!task`・`!done`） | `src/task-desk/**`・`worker/task-desk*.ts`・`worker/webhook-routes.ts`・`worker/bot-config.ts`・`worker/alert-channel.ts`・`migrations/*task_declarations*.sql` |
 | `pomodoro.md` | ポモドーロ（`/pomodoro/`・素材の種類 `pomodoro`。区切りのトリガーと休憩中のBGM） | `src/pomodoro/**`・`worker/pomodoro*.ts`・`worker/ad-break-timer.ts`・`worker/alarm-actions.ts`・`worker/alert-channel.ts` |
-| `text.md` | テキスト（素材の種類 `text`。配信者が自由に書いた文字。`/texts/`・下部バーで書き換える） | `src/text/**`・`worker/text*.ts`・`worker/alert-channel.ts`・`src/overlay/overlay-page.tsx`・`src/app/bottom-bar.tsx`・`migrations/*texts*.sql` |
+| `text.md` | テキスト（素材の種類 `text`。配信者が自由に書いた文字。`/texts/`・下部バーで書き換える。自動にすると指示文に沿って LLM が書き直す） | `src/text/**`・`worker/text*.ts`・`worker/collect.ts`・`worker/alert-channel.ts`・`src/overlay/overlay-page.tsx`・`src/app/bottom-bar.tsx`・`migrations/*texts*.sql` |
 | `town-tour.md` | 市町村紹介（レイド・キーワードの動作 `townTour` と素材の種類 `townTour`。一覧と日本地図は N03 からの生成物、紹介は Wikipedia を材料にその都度作る） | `src/town-tour/**`・`scripts/town-tour/**`・`public/town-tour/**`・`worker/town-*.ts` |
 | `wipe.md` | ワイプ（素材の種類 `wipe`。チャットを1件ずつアイコンの枠と吹き出しで出し、自分で読み上げる） | `src/wipe/**`・`worker/wipe-*.ts`・`src/speech/voice.ts`・`src/speech/task.ts` |
 | `twister.md` | ツイスター（レイドの動作 `twister` と素材の種類 `twister`。three.js の3Dの人形で対戦し、倒れ込みは物理を先に計算して再生する） | `src/twister/**`・`worker/twister-*.ts`・`src/admin/twister-card.tsx` |
@@ -84,7 +84,7 @@ npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 | `backstage.md` | 裏方をまとめたページ（`overlay/backstage/`）とコネクターのページ（`/connectors/`） | `src/backstage/**`・`overlay/backstage/**` |
 | `bgm.md` | BGM（`/bgm/`・裏方の `?bgm=true`） | `src/bgm/**`・`worker/bgm-*.ts`・`worker/alert-channel.ts` |
 | `screen.md` | 配信画面の取り込み（コネクターの Gyazo） | `src/screen/**`・`worker/screen-*.ts`・`worker/gyazo.ts` |
-| `llm.md` | LLMの呼び先・使用状況・モデルの選択（判定用の Jev を含む） | `src/llm/**`・`worker/llm*.ts`・`worker/jev*.ts`・`worker/ai-chat.ts`・`worker/side-super.ts`・`worker/viewer-summary.ts`・`worker/stream-summary.ts`・`worker/town-tour.ts` |
+| `llm.md` | LLMの呼び先・使用状況・モデルの選択（判定用の Jev を含む） | `src/llm/**`・`worker/llm*.ts`・`worker/jev*.ts`・`worker/ai-chat.ts`・`worker/side-super.ts`・`worker/viewer-summary.ts`・`worker/stream-summary.ts`・`worker/town-tour.ts`・`worker/text-auto.ts` |
 | `dashboard.md` | ダッシュボード（`/`） | `src/stats/**`・`worker/stats-*.ts` |
 | `triggers-page.md` | トリガーの管理画面（`/triggers/`） | `src/admin/**` |
 | `rewards.md` | チャンネルポイント報酬（`/rewards/`） | `src/admin/reward-*`・`worker/reward-*.ts` |

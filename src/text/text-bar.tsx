@@ -5,6 +5,9 @@
  * ボタンを押すと小さな窓を開き、書き換えるテキストを名前で選んで本文を直し、保存するとすぐ合成ページへ押し出される。
  * 名前の変更・追加・削除はバーを狭く保つために置かず、テキストのページ（/texts/。text-page.tsx）だけに残す。
  *
+ * 自動で書き換えているテキスト（issue #295）も書き換えられるが、保存すると手動に切り替わる（form.ts の editBody。人が書いた文を
+ * 機械に上書きさせないため）。そのことを窓の中で先に伝える。
+ *
  * 窓を開くたびにテキストを読み直す（ページや別の窓で書き換えた本文を、古いまま上書きしないため）。
  * ボタンは下部バーのほかの操作に合わせ、文字を出さずアイコンだけにする（名前は読み上げとホバーで出す）。
  *
@@ -24,7 +27,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { iconButtonName } from '@/core/icon-button'
 import type { TextApi } from './api'
 import type { TextEntry } from './entry'
-import { textFailureLines } from './form'
+import { draftOf, editBody, textFailureLines, toTextInput } from './form'
 
 /** テキストの追加・名前の変更・削除ができるページ */
 const TEXT_PAGE_PATH = '/texts/'
@@ -81,7 +84,7 @@ export const TextBar = ({ api }: { api: TextApi }) => {
     if (selected === undefined) return
     setBusy(true)
     try {
-      await api.update(selected.id, { name: selected.name, body })
+      await api.update(selected.id, toTextInput(editBody(draftOf(selected), body)))
       setOpen(false)
     } catch (error) {
       setFailure(textFailureLines(error))
@@ -133,6 +136,7 @@ export const TextBar = ({ api }: { api: TextApi }) => {
             <div className="flex flex-col gap-2">
               <Label htmlFor={`${id}-body`}>本文</Label>
               <Textarea id={`${id}-body`} value={body} rows={4} onChange={(event) => setBody(event.currentTarget.value)} />
+              {selected.mode === 'auto' && <p className="text-xs text-muted-foreground">LLMが自動で書き換えています。保存すると手動に切り替わります</p>}
             </div>
             {failure !== undefined && (
               <p role="alert" className="text-xs whitespace-pre-line text-destructive">

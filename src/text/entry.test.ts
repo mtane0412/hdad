@@ -8,8 +8,8 @@
 import { describe, expect, it } from 'vitest'
 import { parseTextsMessage, readTextList, textToShow, type TextEntry } from './entry'
 
-const goal: TextEntry = { id: 1, name: '目標', body: 'ログイン画面を作り終える', updatedAt: '2026-10-08T12:00:00.000Z' }
-const doing: TextEntry = { id: 3, name: '今やってること', body: 'テストを書いている', updatedAt: '2026-10-08T12:10:00.000Z' }
+const goal: TextEntry = { id: 1, name: '目標', body: 'ログイン画面を作り終える', mode: 'manual', instruction: '', writtenBy: 'human', updatedAt: '2026-10-08T12:00:00.000Z' }
+const doing: TextEntry = { id: 3, name: '今やってること', body: 'テストを書いている', mode: 'manual', instruction: '', writtenBy: 'human', updatedAt: '2026-10-08T12:10:00.000Z' }
 
 describe('readTextList', () => {
   it('応答の texts をテキストの一覧として読む', () => {
@@ -19,6 +19,17 @@ describe('readTextList', () => {
   it('形が違えば投げる', () => {
     expect(() => readTextList({ texts: [{ ...goal, id: '1' }] })).toThrow('texts[0]')
     expect(() => readTextList({})).toThrow('texts')
+  })
+
+  it('手動・自動の別や本文を書いた人が想定と違えば投げる', () => {
+    expect(() => readTextList({ texts: [{ ...goal, mode: 'semi' }] })).toThrow('texts[0]')
+    expect(() => readTextList({ texts: [{ ...goal, writtenBy: 'robot' }] })).toThrow('texts[0]')
+    expect(() => readTextList({ texts: [{ ...goal, instruction: null }] })).toThrow('texts[0]')
+  })
+
+  it('自動で LLM が書いたテキストも読む', () => {
+    const autoDoing: TextEntry = { ...doing, mode: 'auto', instruction: 'いまやっている作業を20字で', writtenBy: 'llm' }
+    expect(readTextList({ texts: [autoDoing] })).toEqual([autoDoing])
   })
 })
 

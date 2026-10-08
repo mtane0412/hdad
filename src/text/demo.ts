@@ -10,12 +10,15 @@ import type { TextEntry } from './entry'
 
 /** プレビューで順に流すテキスト。同じテキストの本文を書き換えていく */
 export const demoTexts: readonly TextEntry[] = [
-  { id: 1, name: '今やってること', body: 'ログイン画面を作っています', updatedAt: '2026-10-08T12:00:00.000Z' },
-  { id: 1, name: '今やってること', body: 'ログイン画面のテストを書いています', updatedAt: '2026-10-08T12:10:00.000Z' },
+  { id: 1, name: '今やってること', body: 'ログイン画面を作っています', mode: 'manual', instruction: '', writtenBy: 'human', updatedAt: '2026-10-08T12:00:00.000Z' },
+  { id: 1, name: '今やってること', body: 'ログイン画面のテストを書いています', mode: 'manual', instruction: '', writtenBy: 'human', updatedAt: '2026-10-08T12:10:00.000Z' },
   {
     id: 1,
     name: '今やってること',
     body: '今日のゴール\n・ログイン画面を作り終える\n・テストを通す\n・デプロイして動かしてみる',
+    mode: 'manual',
+    instruction: '',
+    writtenBy: 'human',
     updatedAt: '2026-10-08T12:20:00.000Z',
   },
 ]

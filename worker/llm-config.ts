@@ -40,8 +40,9 @@ export const LLM_PROVIDERS = ['workers-ai', 'openrouter'] as const
  * streamSummary は、あらすじ（worker/stream-summary.ts）と配信の章（worker/stream-chapter.ts）の両方が指名する。
  * streamTitle は、配信タイトルの候補づくり（worker/stream-title.ts。試験運用）を入れたときだけ呼ばれる。
  * townBond は、市町村紹介でレイド元と市町村の共通点を作るとき（worker/town-bond.ts）だけ呼ばれる。
+ * autoText は、自動で書き換えるテキスト（worker/text-auto.ts。issue #295）があるときだけ cron が5分おきに呼ぶ（後から足したので末尾に置く）。
  */
-export const LLM_USAGES = ['translation', 'aiChat', 'sideSuper', 'viewerSummary', 'streamSummary', 'streamTitle', 'townTour', 'townBond'] as const
+export const LLM_USAGES = ['translation', 'aiChat', 'sideSuper', 'viewerSummary', 'streamSummary', 'streamTitle', 'townTour', 'townBond', 'autoText'] as const
 
 export type LlmProvider = (typeof LLM_PROVIDERS)[number]
 export type LlmUsage = (typeof LLM_USAGES)[number]
@@ -97,6 +98,8 @@ export const DEFAULT_LLM_SETTINGS: LlmSettings = {
     // Workers AI の llama-3.3-70b は例文の中身を写して町の事実を作ったので、ここだけ既定の提供元を OpenRouter にする（issue #275）。
     // OpenRouter の鍵が無い配信者には共通点を出さない（worker/town-tour-routes.ts）
     townBond: { provider: 'openrouter', models: { 'workers-ai': LARGE_MODELS['workers-ai'], openrouter: 'google/gemini-3.8-flash' } },
+    // テキストの自動の書き換え（worker/text-auto.ts）は5分おきの収集で自動のテキストごとに呼ぶので、サイドスーパーと同じ軽いモデルにする
+    autoText: { provider: 'workers-ai', models: LIGHT_MODELS },
   },
 }
 

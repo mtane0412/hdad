@@ -16,7 +16,7 @@
  * あるが（worker/timeout.ts）、Gyazo を最大30枚とLLMを5か所ぶん逐次に呼ぶので、遅い相手が続くと1回の収集が
  * 積み上がって長くなる。予算を過ぎたら配信の記録は残したまま、材料づくりだけを次の収集へ回す。
  */
-import { pushWorkLogEntry, type AlertChannelNamespace } from './alert-channel'
+import { pushTexts, pushWorkLogEntry, type AlertChannelNamespace } from './alert-channel'
 import { BGM_TRANSCRIPT_CONTEXT, chooseBgm } from './bgm-jev'
 import type { JevClient } from './jev'
 import type { TextGenerator } from './llm'
@@ -32,6 +32,8 @@ import {
 } from './stream-chat-store'
 import { readSideSuper, saveSideSuper } from './side-super-store'
 import { generateSideSuper } from './side-super'
+import { readTexts, saveGeneratedText } from './text-store'
+import { generateAutoText } from './text-auto'
 import { readStreamSummary, saveStreamSummary } from './stream-summary-store'
 import { generateStreamSummary } from './stream-summary'
 import { listChapterTargets, readChapterLines, readChapterLinesAt, saveStreamChapter, skipChapterWindow } from './stream-chapter-store'
@@ -495,6 +497,84 @@ const makeSideSuper = async (db: Database, ai: TextGenerator, stream: LiveStream
   await saveSideSuper(db, stream.id, lines, now)
 }
 
+/**
+ * 1回のテキストの自動の書き換えで読む、発話・発言・画面の文字のそれぞれの件数の上限。
+ *
+ * 自動のテキストもサイドスーパーと同じく「いま」を書くものなので、材料も同じく直近のぶんだけにする。
+ */
+const AUTO_TEXT_MATERIAL_LIMIT = SIDE_SUPER_TRANSCRIPT_LIMIT
+
+/**
+ * 自動のテキスト（issue #295）の本文を、配信者の指示文に沿って LLM に書き直させ、書き直したら合成ページへ一覧を押し出す。
+ *
+ * 材料はサイドスーパーと同じ直近の発話・発言・画面の文字と配信のカテゴリ・タイトルに、配信者が手で書いたテキストの本文を加えたもの
+ * （worker/text-auto.ts）。材料は1回だけ読み、自動のテキストごとに LLM を1回呼ぶ。
+ *
+ * 注意: 配信者の発話が1件も無ければ書かない（方針11。視聴者の書き込みが配信で起きたこととして書かれるため。あらすじと同じ）。
+ * 注意: 前回 LLM が書いたあとに配信者が喋っていなければ書き直さない（方針8）。本文を手で書いたまま自動にしたテキストは、
+ *   まだ LLM が書いていないので、直近の発話があれば書く。
+ * 注意: LLM の本文は、読んだあとに配信者が書き換えていないときだけ書く（text-store.ts の saveGeneratedText）。
+ * 注意: 失敗しても収集は止めず、前の本文を残す。1件が失敗してもほかのテキストは書き、失敗はまとめて1行（text-auto-failed）に残す
+ *   （collection_failures は時刻と種類で1行しか持てないため）。押し出しの失敗も text-push-failed として残す（合成ページは5分おきに読み直す）。
+ *
+ * @param stream いま進んでいる配信。カテゴリとタイトルを材料にする
+ * @param budgetExhausted 予算を使い切ったか。LLM を1回呼ぶごとに見る
+ * @returns 予算を使い切って次の収集へ回した、書き直すはずだったテキストの件数
+ */
+const rewriteAutoTexts = async (
+  { db, ai, alerts }: { db: Database; ai: TextGenerator; alerts: AlertChannelNamespace },
+  stream: LiveStream,
+  now: number,
+  budgetExhausted: () => boolean,
+): Promise<number> => {
+  const texts = await readTexts(db)
+  const autoTexts = texts.filter((text) => text.mode === 'auto')
+  if (autoTexts.length === 0) return 0
+  const transcripts = await readRecentTranscripts(db, stream.id, AUTO_TEXT_MATERIAL_LIMIT)
+  // 前回 LLM が書いたあとの発話があるかを、発話の時刻で見る（どちらも同じ形の ISO 8601 なので文字列で比べられる）
+  const pending = autoTexts.filter((text) => text.writtenBy !== 'llm' ? transcripts.length > 0 : transcripts.some((line) => line.at > text.updatedAt))
+  if (pending.length === 0) return 0
+
+  const chats = await readRecentSessionChat(db, stream.id, AUTO_TEXT_MATERIAL_LIMIT)
+  const screen = await readCurrentScreenLines(db, stream.id, AUTO_TEXT_MATERIAL_LIMIT)
+  const manualTexts = texts.filter((text) => text.mode === 'manual' && text.body.trim() !== '').map(({ name, body }) => ({ name, body }))
+  const failures: string[] = []
+  let rewritten = false
+  let deferred = 0
+  for (const [index, text] of pending.entries()) {
+    if (budgetExhausted()) {
+      deferred = pending.length - index
+      break
+    }
+    try {
+      const body = await generateAutoText(ai, {
+        instruction: text.instruction,
+        categoryName: stream.categoryName,
+        title: stream.title,
+        transcripts: transcripts.map((line) => line.text),
+        chats: chats.map((line) => line.text),
+        screen: screen.map((line) => line.text),
+        manualTexts,
+      })
+      // 本文を作っているあいだに配信者が書き換えていたら null が返り、何も書かない（人が書いたものを優先する）
+      if ((await saveGeneratedText(db, text.id, body, text.updatedAt, now)) !== null) rewritten = true
+    } catch (error) {
+      // 返ってきた本文そのものの問題（AutoTextContentError）も、LLMを呼べなかった失敗も同じ扱いでよい
+      failures.push(`「${text.name}」: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
+  if (failures.length > 0) await recordFailure(db, 'text-auto-failed', `${failures.length}件のテキストを書き換えられませんでした。${failures.join(' / ')}`, now)
+  if (rewritten) {
+    try {
+      await pushTexts(alerts, { texts: await readTexts(db) })
+    } catch (error) {
+      await recordFailure(db, 'text-push-failed', `テキストを書き換えましたが、合成ページへすぐには送れませんでした: ${error instanceof Error ? error.message : String(error)}`, now)
+    }
+  }
+  return deferred
+}
+
 /** その人自身のチャンネルを観測する呼び出し。トークンの取り直しを挟めるよう、Twitchの呼び出しは閉じ込めて渡してもらう */
 type ReadChannel = (userId: string) => Promise<ChannelInfo>
 
@@ -781,6 +861,8 @@ const collect = async ({ db, store, tokens, twitch, ai, jev, alerts, gyazo, broa
     const summary = await withinBudget('あらすじ', () => summarizeStream(db, ai, stream.id, now))
     if (typeof summary === 'string') await withinBudget('BGMの切り替え', () => chooseBgmForStream({ db, store, jev, alerts }, stream.id, summary, now))
     await withinBudget('サイドスーパー', () => makeSideSuper(db, ai, stream, now))
+    const keptTexts = await withinBudget('テキストの自動の書き換え', () => rewriteAutoTexts({ db, ai, alerts }, stream, now, budgetExhausted))
+    if (keptTexts !== undefined && keptTexts > 0) deferredToNextCollect.push(`テキストの自動の書き換え（残り${keptTexts}件）`)
   }
 
   // 画面から読み取った文字は、あらすじとサイドスーパーより後に取りに行き、篩にかける（積んだ行は次の収集で材料になる）。

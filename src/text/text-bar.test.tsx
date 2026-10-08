@@ -8,6 +8,7 @@
  * - テキストが無いときはページへの行き先を出すこと
  * - 読み込めない・拒まれたときは、黙らずに理由を出すこと
  * - 窓を開き直して読み込みが重なったら、あとから始めた読み込みの結果だけを映すこと
+ * - 自動で書き換えているテキストは、保存すると手動に切り替わることを伝え、指示文は残して手動で保存すること（issue #295）
  */
 import '@testing-library/jest-dom/vitest'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
@@ -20,13 +21,13 @@ import { TextBar } from './text-bar'
 
 afterEach(cleanup)
 
-const goal: TextEntry = { id: 1, name: '目標', body: 'ログイン画面を作り終える', updatedAt: '2026-10-08T12:00:00.000Z' }
-const doing: TextEntry = { id: 3, name: '今やってること', body: 'テストを書いている', updatedAt: '2026-10-08T12:10:00.000Z' }
+const goal: TextEntry = { id: 1, name: '目標', body: 'ログイン画面を作り終える', mode: 'manual', instruction: '', writtenBy: 'human', updatedAt: '2026-10-08T12:00:00.000Z' }
+const doing: TextEntry = { id: 3, name: '今やってること', body: 'テストを書いている', mode: 'manual', instruction: '', writtenBy: 'human', updatedAt: '2026-10-08T12:10:00.000Z' }
 
 const createApi = (texts: TextEntry[] = [goal, doing], overrides: Partial<TextApi> = {}): TextApi => ({
   list: vi.fn(async () => texts),
   create: vi.fn(),
-  update: vi.fn(async (id: number, input: TextInput) => ({ id, ...input, updatedAt: '2026-10-08T12:30:00.000Z' })),
+  update: vi.fn(async (id: number, input: TextInput): Promise<TextEntry> => ({ id, body: '', writtenBy: 'human', ...input, updatedAt: '2026-10-08T12:30:00.000Z' })),
   remove: vi.fn(),
   ...overrides,
 })
@@ -59,8 +60,23 @@ describe('TextBar', () => {
     await userEvent.type(body, 'ログイン画面をデプロイする')
     await userEvent.click(screen.getByRole('button', { name: '保存する' }))
 
-    expect(api.update).toHaveBeenCalledWith(1, { name: '目標', body: 'ログイン画面をデプロイする' })
+    expect(api.update).toHaveBeenCalledWith(1, { name: '目標', mode: 'manual', body: 'ログイン画面をデプロイする', instruction: '' })
     await waitFor(() => expect(screen.queryByRole('textbox', { name: '本文' })).not.toBeInTheDocument())
+  })
+
+  test('自動で書き換えているテキストは、保存すると手動に切り替わることを伝え、指示文は残して保存する', async () => {
+    const autoDoing: TextEntry = { ...doing, mode: 'auto', instruction: 'いまやっている作業を20字で', writtenBy: 'llm' }
+    const api = createApi([autoDoing])
+    render(<TextBar api={api} />)
+    await openBar()
+
+    const body = await screen.findByRole('textbox', { name: '本文' })
+    expect(screen.getByText('LLMが自動で書き換えています。保存すると手動に切り替わります')).toBeInTheDocument()
+    await userEvent.clear(body)
+    await userEvent.type(body, '休憩中')
+    await userEvent.click(screen.getByRole('button', { name: '保存する' }))
+
+    expect(api.update).toHaveBeenCalledWith(3, { name: '今やってること', mode: 'manual', body: '休憩中', instruction: 'いまやっている作業を20字で' })
   })
 
   test('変えていないあいだは保存できない', async () => {

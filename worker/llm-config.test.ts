@@ -105,12 +105,16 @@ describe('parseLlmSettings', () => {
   })
 
   it('問題点は最初の1件で止めず、すべて集めてから拒否する', () => {
-    expect(issues({ usages: { aiChat: { provider: 'openai', models: { 'workers-ai': 1, openrouter: '' } } } })).toHaveLength(10)
+    expect(issues({ usages: { aiChat: { provider: 'openai', models: { 'workers-ai': 1, openrouter: '' } } } })).toHaveLength(11)
   })
 
-  it('使う箇所は8つで、市町村紹介の共通点のほかは既定の提供元が Workers AI である', () => {
-    expect(LLM_USAGES).toEqual(['translation', 'aiChat', 'sideSuper', 'viewerSummary', 'streamSummary', 'streamTitle', 'townTour', 'townBond'])
+  it('使う箇所は9つで、市町村紹介の共通点のほかは既定の提供元が Workers AI である', () => {
+    expect(LLM_USAGES).toEqual(['translation', 'aiChat', 'sideSuper', 'viewerSummary', 'streamSummary', 'streamTitle', 'townTour', 'townBond', 'autoText'])
     for (const usage of LLM_USAGES.filter((candidate) => candidate !== 'townBond')) expect(DEFAULT_LLM_SETTINGS.usages[usage].provider).toBe('workers-ai')
+  })
+
+  it('テキストの自動の書き換えは、5分おきの収集でテキストごとに呼ぶので、サイドスーパーと同じ軽いモデルを既定にする', () => {
+    expect(DEFAULT_LLM_SETTINGS.usages.autoText.models).toEqual(DEFAULT_LLM_SETTINGS.usages.sideSuper.models)
   })
 
   it('市町村紹介の共通点は、試作でいちばん良かった OpenRouter の google/gemini-3.8-flash を既定にする', () => {

@@ -23,11 +23,14 @@ export const TEXT_SOCKET_PATH = '/api/overlay/texts/socket'
 /** 一度もつながらないまま閉じたときに出す、いちばんありそうな原因 */
 export const TEXT_SOCKET_HINT = 'テキストの配送先につながりません。URLのオーバーレイ用キーが正しいか確かめてください'
 
-/** 追加・書き換えで送る、テキスト1件の中身。検証は Worker（worker/text.ts）だけが持つ */
-export interface TextInput {
-  readonly name: string
-  readonly body: string
-}
+/**
+ * 追加・書き換えで送る、テキスト1件の中身。検証は Worker（worker/text.ts）だけが持つ。
+ *
+ * 自動のテキストは本文を送らない（本文は LLM が書くので、画面が読み込んだときの古い本文で上書きしないため。issue #295）。
+ */
+export type TextInput =
+  | { readonly name: string; readonly mode: 'manual'; readonly body: string; readonly instruction: string }
+  | { readonly name: string; readonly mode: 'auto'; readonly instruction: string }
 
 export interface TextOverlayApi {
   /** テキストの一覧を読む */
@@ -39,7 +42,7 @@ export interface TextApi {
   list(): Promise<TextEntry[]>
   /** テキストを追加し、追加したテキスト（振られたIDを含む）を返す */
   create(input: TextInput): Promise<TextEntry>
-  /** テキストの名前と本文を書き換え、書き換えたテキストを返す */
+  /** テキストの名前・手動／自動の別・指示文（手動なら本文も）を書き換え、書き換えたテキストを返す */
   update(id: number, input: TextInput): Promise<TextEntry>
   /** テキストを消す */
   remove(id: number): Promise<void>

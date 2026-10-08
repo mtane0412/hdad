@@ -11,6 +11,8 @@ import { COLLECT_BUDGET_MS, STREAM_CHAT_RETENTION_MS, SUMMARY_BATCH_SIZE, collec
 import { readStreamSummary } from './stream-summary-store'
 import { listStreamChapters } from './stream-chapter-store'
 import { readSideSuper } from './side-super-store'
+import { insertText, readTexts, saveGeneratedText } from './text-store'
+import { MAX_TEXT_BODY_LENGTH, type TextEntry } from './text'
 import { MAX_SIDE_SUPER_BODY_LENGTH } from './side-super'
 import { createFakeDatabase } from './fake-database'
 import { createFakeStore } from './fake-store'
@@ -1172,6 +1174,200 @@ describe('サイドスーパーの生成', () => {
   })
 })
 
+describe('テキストの自動の書き換え（issue #295）', () => {
+  /** 配信中の区切りと、その配信の発話・発言をそろえる */
+  const createLiveMaterial = (db: ReturnType<typeof createFakeDatabase>) => {
+    db.sqlite
+      .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, NULL, ?, ?)')
+      .run(chatStream.id, chatStream.startedAt, chatStream.title, chatStream.categoryName)
+    addTranscript(db, 'hatsuwa-1', now - 2 * 60 * 1000, 'ログイン画面のテストを書きます')
+    db.sqlite
+      .prepare('INSERT INTO stream_chat_messages (message_id, session_id, user_id, sent_at, text) VALUES (?, ?, ?, ?, ?)')
+      .run('hatsugen-1', chatStream.id, '100', new Date(now - 60 * 1000).toISOString(), 'テスト大事')
+  }
+
+  const addTranscript = (db: ReturnType<typeof createFakeDatabase>, messageId: string, spokenAt: number, text: string) => {
+    db.sqlite
+      .prepare('INSERT INTO transcripts (message_id, session_id, spoken_at, text) VALUES (?, ?, ?, ?)')
+      .run(messageId, chatStream.id, new Date(spokenAt).toISOString(), text)
+  }
+
+  /** テキストを追加し、追加したものを返す */
+  const addText = async (...args: Parameters<typeof insertText>): Promise<TextEntry> => {
+    const text = await insertText(...args)
+    if (text === null) throw new Error('テキストを追加できませんでした')
+    return text
+  }
+
+  /** 自動で書き換える「今やってること」を追加する */
+  const addAutoText = (db: ReturnType<typeof createFakeDatabase>) =>
+    addText(db, { name: '今やってること', mode: 'auto', instruction: 'いまやっている作業を20字で' }, now - 10 * 60 * 1000)
+
+  /** テキストの自動の書き換えにだけ autoTextResponse を返し、ほかの箇所には収集が通る応答を返すLLMの代役 */
+  const aiAnswering = (autoTextResponse: string | Error) => {
+    const autoTextPrompts: string[] = []
+    const ai: TextGenerator = {
+      run: async (usage, request) => {
+        if (usage !== 'autoText') return allSuccessResponse
+        autoTextPrompts.push(request.messages.map((message) => message.content).join('\n'))
+        if (autoTextResponse instanceof Error) throw autoTextResponse
+        return autoTextResponse
+      },
+    }
+    return { ai, autoTextPrompts }
+  }
+
+  const collectWith = async (env: Awaited<ReturnType<typeof createEnv>>, ai: TextGenerator, at = now, failPush = false) => {
+    const channel = createFakeAlertChannel({ shouldFail: failPush })
+    await collectStats({ ...env, twitch: fakeTwitch(), ai, jev: uncalledJev, alerts: channel.namespace, broadcasterId: streamerId, now: at })
+    return channel
+  }
+
+  it('配信中なら、自動のテキストの本文を指示文と材料から書き、合成ページへ一覧を押し出す', async () => {
+    const env = await createEnv()
+    createLiveMaterial(env.db)
+    await addAutoText(env.db)
+    const { ai, autoTextPrompts } = aiAnswering('ログイン画面のテストを書いている')
+
+    const channel = await collectWith(env, ai)
+
+    const texts = await readTexts(env.db)
+    expect(texts).toMatchObject([{ body: 'ログイン画面のテストを書いている', mode: 'auto', writtenBy: 'llm', updatedAt: new Date(now).toISOString() }])
+    expect(channel.pushedTexts).toEqual([{ texts }])
+    // 指示文・配信のタイトル・発話・発言がLLMへ渡っている
+    for (const expected of ['いまやっている作業を20字で', chatStream.title, 'ログイン画面のテストを書きます', 'テスト大事']) {
+      expect(autoTextPrompts[0]).toContain(expected)
+    }
+  })
+
+  it('手動のテキストは書き換えず、その本文を材料に入れる（配信者が書いた目標を踏まえるため）', async () => {
+    const env = await createEnv()
+    createLiveMaterial(env.db)
+    const goal = await addText(env.db, { name: '目標', mode: 'manual', body: 'ログイン画面をデプロイする', instruction: '' }, now - 10 * 60 * 1000)
+    await addAutoText(env.db)
+    const { ai, autoTextPrompts } = aiAnswering('ログイン画面のテストを書いている')
+
+    await collectWith(env, ai)
+
+    expect((await readTexts(env.db))[0]).toEqual(goal)
+    expect(autoTextPrompts).toHaveLength(1)
+    expect(autoTextPrompts[0]).toContain('目標: ログイン画面をデプロイする')
+  })
+
+  it('自動のテキストが無ければ、LLMを呼ばず押し出しもしない', async () => {
+    const env = await createEnv()
+    createLiveMaterial(env.db)
+    await addText(env.db, { name: '目標', mode: 'manual', body: 'ログイン画面をデプロイする', instruction: '' }, now)
+    const { ai, autoTextPrompts } = aiAnswering('ログイン画面のテストを書いている')
+
+    const channel = await collectWith(env, ai)
+
+    expect(autoTextPrompts).toEqual([])
+    expect(channel.pushedTexts).toEqual([])
+  })
+
+  it('配信者の発話が1件も無ければ、視聴者の発言があっても書かない', async () => {
+    const env = await createEnv()
+    env.db.sqlite
+      .prepare('INSERT INTO stream_sessions (id, started_at, ended_at, title, category_name) VALUES (?, ?, NULL, ?, ?)')
+      .run(chatStream.id, chatStream.startedAt, chatStream.title, chatStream.categoryName)
+    env.db.sqlite
+      .prepare('INSERT INTO stream_chat_messages (message_id, session_id, user_id, sent_at, text) VALUES (?, ?, ?, ?, ?)')
+      .run('hatsugen-1', chatStream.id, '100', new Date(now - 60 * 1000).toISOString(), '今日は何するの？')
+    await addAutoText(env.db)
+    const { ai, autoTextPrompts } = aiAnswering('雑談している')
+
+    await collectWith(env, ai)
+
+    expect(autoTextPrompts).toEqual([])
+    expect((await readTexts(env.db))[0]?.body).toBe('')
+  })
+
+  it('前回LLMが書いたあとに配信者が喋っていなければ、書き直さない', async () => {
+    const env = await createEnv()
+    createLiveMaterial(env.db)
+    const doing = await addAutoText(env.db)
+    // 前提: 前回の収集で、発話のあとに LLM が本文を書いている
+    await saveGeneratedText(env.db, doing.id, 'ログイン画面のテストを書いている', doing.updatedAt, now - 60 * 1000)
+    const { ai, autoTextPrompts } = aiAnswering('休憩している')
+
+    await collectWith(env, ai)
+
+    expect(autoTextPrompts).toEqual([])
+    expect((await readTexts(env.db))[0]?.body).toBe('ログイン画面のテストを書いている')
+  })
+
+  it('前回LLMが書いたあとに配信者が喋っていれば、書き直す', async () => {
+    const env = await createEnv()
+    createLiveMaterial(env.db)
+    const doing = await addAutoText(env.db)
+    await saveGeneratedText(env.db, doing.id, 'ログイン画面のテストを書いている', doing.updatedAt, now - 60 * 1000)
+    addTranscript(env.db, 'hatsuwa-2', now - 30 * 1000, 'テストが通ったのでデプロイします')
+    const { ai } = aiAnswering('ログイン画面をデプロイしている')
+
+    await collectWith(env, ai)
+
+    expect((await readTexts(env.db))[0]?.body).toBe('ログイン画面をデプロイしている')
+  })
+
+  it('配信していなければ書かない', async () => {
+    const env = await createEnv()
+    await addAutoText(env.db)
+    const { ai, autoTextPrompts } = aiAnswering('ログイン画面のテストを書いている')
+
+    await collectStats({ ...env, twitch: fakeTwitch({ getLiveStream: async () => null }), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now })
+
+    expect(autoTextPrompts).toEqual([])
+  })
+
+  it('上限を超えた本文が返ってきたら、切り詰めずに失敗として記録し、前の本文を残す', async () => {
+    const env = await createEnv()
+    createLiveMaterial(env.db)
+    await addAutoText(env.db)
+    const { ai } = aiAnswering('あ'.repeat(MAX_TEXT_BODY_LENGTH + 1))
+
+    const channel = await collectWith(env, ai)
+
+    expect((await readTexts(env.db))[0]).toMatchObject({ body: '', writtenBy: 'human' })
+    expect(channel.pushedTexts).toEqual([])
+    const failure = (await listFailures(env.db)).find((recorded) => recorded.code === 'text-auto-failed')
+    expect(failure?.message).toContain('今やってること')
+  })
+
+  it('1件が失敗しても、ほかの自動のテキストは書き換える', async () => {
+    const env = await createEnv()
+    createLiveMaterial(env.db)
+    await addAutoText(env.db)
+    await addText(env.db, { name: '次にやること', mode: 'auto', instruction: '次にやりそうな作業を20字で' }, now - 10 * 60 * 1000)
+    let calls = 0
+    const ai: TextGenerator = {
+      run: async (usage) => {
+        if (usage !== 'autoText') return allSuccessResponse
+        calls += 1
+        if (calls === 1) throw new Error('LLMの無料枠を使い切りました')
+        return 'デプロイする'
+      },
+    }
+
+    await collectWith(env, ai)
+
+    expect((await readTexts(env.db)).map((text) => text.body)).toEqual(['', 'デプロイする'])
+    expect((await listFailures(env.db)).map((failure) => failure.code)).toContain('text-auto-failed')
+  })
+
+  it('押し出しに失敗しても書き換えは残し、失敗として記録する', async () => {
+    const env = await createEnv()
+    createLiveMaterial(env.db)
+    await addAutoText(env.db)
+    const { ai } = aiAnswering('ログイン画面のテストを書いている')
+
+    await collectWith(env, ai, now, true)
+
+    expect((await readTexts(env.db))[0]?.body).toBe('ログイン画面のテストを書いている')
+    expect((await listFailures(env.db)).map((failure) => failure.code)).toContain('text-push-failed')
+  })
+})
+
 describe('collectStats（配信画面から読み取った文字の取得）', () => {
   /** 呼ばれた画像IDを覚え、決めておいた答えを返す Gyazo の代役 */
   const fakeGyazo = (answer: (imageId: string) => string | null | Error = () => '画面に出ていた文字') => {
@@ -1396,12 +1592,12 @@ describe('collectStats（1回ぶんの時間予算。issue #126）', () => {
     await recordScreenCapture(db, '画像2', now - 60 * 1000)
     const fetched: string[] = []
     const gyazo = { fetchOcr: async (imageId: string) => (fetched.push(imageId), '画面に出ていた文字') }
-    // 1枚目を取りに行ったところで予算を使い切る時計。開始・あらすじの前・サイドスーパーの前・1枚目の前の
-    // 4回までは予算内（画面の文字はあらすじとサイドスーパーより後に取りに行く）
+    // 1枚目を取りに行ったところで予算を使い切る時計。開始・あらすじの前・サイドスーパーの前・テキストの自動の書き換えの前・
+    // 1枚目の前の5回までは予算内（画面の文字はあらすじ・サイドスーパー・テキストの自動の書き換えより後に取りに行く）
     let count = 0
     const clock = () => {
       count += 1
-      return count <= 4 ? now : now + COLLECT_BUDGET_MS + 1
+      return count <= 5 ? now : now + COLLECT_BUDGET_MS + 1
     }
 
     await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai: fakeAi(), ...withoutBgmJudgment, broadcasterId: streamerId, now, gyazo, clock })

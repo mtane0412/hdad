@@ -89,6 +89,9 @@ const callAsBroadcaster = async (env: Env, path: string, init: RequestInit = {})
   return callHandler(new Request(`${SITE}${path}`, { ...init, headers }), env)
 }
 
+/** 手で書くテキストの、指示文を持たない入力 */
+const manual = (name: string, body: string) => ({ name, mode: 'manual', body, instruction: '' }) as const
+
 const postText = (env: Env, body: unknown) => callAsBroadcaster(env, '/api/admin/texts', { method: 'POST', body: JSON.stringify(body) })
 const putText = (env: Env, id: number | string, body: unknown) => callAsBroadcaster(env, `/api/admin/texts/${id}`, { method: 'PUT', body: JSON.stringify(body) })
 const removeText = (env: Env, id: number | string) => callAsBroadcaster(env, `/api/admin/texts/${id}`, { method: 'DELETE' })
@@ -96,7 +99,7 @@ const removeText = (env: Env, id: number | string) => callAsBroadcaster(env, `/a
 describe('GET /api/admin/texts', () => {
   it('テキストを追加した順に返す', async () => {
     const { env } = setupEnv()
-    const goal = await addText(env.DB, { name: '目標', body: 'ログイン画面を作り終える' }, NOW)
+    const goal = await addText(env.DB, manual('目標', 'ログイン画面を作り終える'), NOW)
 
     const response = await callAsBroadcaster(env, '/api/admin/texts')
 
@@ -115,7 +118,7 @@ describe('POST /api/admin/texts', () => {
   it('テキストを追加し、合成ページへ一覧を押し出す', async () => {
     const { env, channel } = setupEnv()
 
-    const response = await postText(env, { name: '目標', body: 'ログイン画面を作り終える' })
+    const response = await postText(env, manual('目標', 'ログイン画面を作り終える'))
 
     expect(response.status).toBe(201)
     const texts = await readTexts(env.DB)
@@ -125,9 +128,9 @@ describe('POST /api/admin/texts', () => {
 
   it('ほかのテキストと同じ名前は、問題点を添えて400にする', async () => {
     const { env, channel } = setupEnv()
-    await insertText(env.DB, { name: '目標', body: '' }, NOW)
+    await insertText(env.DB, manual('目標', ''), NOW)
 
-    const response = await postText(env, { name: '目標', body: '別の目標' })
+    const response = await postText(env, manual('目標', '別の目標'))
 
     expect(response.status).toBe(400)
     expect(await response.json()).toMatchObject({ error: { problems: ['name: 「目標」という名前のテキストはもうあります'] } })
@@ -136,9 +139,9 @@ describe('POST /api/admin/texts', () => {
 
   it('持てる数を超えたら409にする', async () => {
     const { env } = setupEnv()
-    for (let index = 0; index < MAX_TEXT_COUNT; index += 1) await insertText(env.DB, { name: `メモ${index + 1}`, body: '' }, NOW)
+    for (let index = 0; index < MAX_TEXT_COUNT; index += 1) await insertText(env.DB, manual(`メモ${index + 1}`, ''), NOW)
 
-    const response = await postText(env, { name: '目標', body: '' })
+    const response = await postText(env, manual('目標', ''))
 
     expect(response.status).toBe(409)
     expect(await response.json()).toMatchObject({ error: { code: 'too-many-texts' } })
@@ -147,7 +150,7 @@ describe('POST /api/admin/texts', () => {
   it('押し出しに失敗したら、追加は済んだことを添えて502にする', async () => {
     const { env } = setupEnv(true)
 
-    const response = await postText(env, { name: '目標', body: 'ログイン画面を作り終える' })
+    const response = await postText(env, manual('目標', 'ログイン画面を作り終える'))
 
     expect(response.status).toBe(502)
     expect(await response.json()).toMatchObject({ error: { code: 'text-push-failed', message: expect.stringContaining('保存しました') } })
@@ -158,9 +161,9 @@ describe('POST /api/admin/texts', () => {
 describe('PUT /api/admin/texts/:id', () => {
   it('名前と本文を書き換え、合成ページへ一覧を押し出す', async () => {
     const { env, channel } = setupEnv()
-    const goal = await addText(env.DB, { name: '目標', body: 'ログイン画面を作り終える' }, NOW)
+    const goal = await addText(env.DB, manual('目標', 'ログイン画面を作り終える'), NOW)
 
-    const response = await putText(env, goal.id, { name: '目標', body: 'ログイン画面をデプロイする' })
+    const response = await putText(env, goal.id, manual('目標', 'ログイン画面をデプロイする'))
 
     expect(response.status).toBe(200)
     const updated = { ...goal, body: 'ログイン画面をデプロイする' }
@@ -170,18 +173,28 @@ describe('PUT /api/admin/texts/:id', () => {
 
   it('自分自身の名前のままなら、名前の重なりとして拒まない', async () => {
     const { env } = setupEnv()
-    const goal = await addText(env.DB, { name: '目標', body: '' }, NOW)
-    await insertText(env.DB, { name: '今やってること', body: '' }, NOW)
+    const goal = await addText(env.DB, manual('目標', ''), NOW)
+    await insertText(env.DB, manual('今やってること', ''), NOW)
 
-    expect((await putText(env, goal.id, { name: '目標', body: '書き換えた' })).status).toBe(200)
-    expect((await putText(env, goal.id, { name: '今やってること', body: '' })).status).toBe(400)
+    expect((await putText(env, goal.id, manual('目標', '書き換えた'))).status).toBe(200)
+    expect((await putText(env, goal.id, manual('今やってること', ''))).status).toBe(400)
+  })
+
+  it('自動へ切り替えた保存では、送られてきた本文で書き換えない（本文は LLM が書くため）', async () => {
+    const { env } = setupEnv()
+    const doing = await addText(env.DB, manual('今やってること', 'テストを書いている'), NOW)
+
+    const response = await putText(env, doing.id, { name: '今やってること', mode: 'auto', body: '画面が古いまま送った本文', instruction: 'いまやっている作業を20字で' })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ text: { ...doing, mode: 'auto', instruction: 'いまやっている作業を20字で' } })
   })
 
   it('本文が上限を超えたら400にする', async () => {
     const { env } = setupEnv()
-    const goal = await addText(env.DB, { name: '目標', body: '' }, NOW)
+    const goal = await addText(env.DB, manual('目標', ''), NOW)
 
-    const response = await putText(env, goal.id, { name: '目標', body: 'あ'.repeat(MAX_TEXT_BODY_LENGTH + 1) })
+    const response = await putText(env, goal.id, manual('目標', 'あ'.repeat(MAX_TEXT_BODY_LENGTH + 1)))
 
     expect(response.status).toBe(400)
   })
@@ -189,15 +202,15 @@ describe('PUT /api/admin/texts/:id', () => {
   it('無いテキスト・IDとして読めない値は404にする', async () => {
     const { env } = setupEnv()
 
-    expect((await putText(env, 999, { name: '目標', body: '' })).status).toBe(404)
-    expect((await putText(env, 'goal', { name: '目標', body: '' })).status).toBe(404)
+    expect((await putText(env, 999, manual('目標', ''))).status).toBe(404)
+    expect((await putText(env, 'goal', manual('目標', ''))).status).toBe(404)
   })
 })
 
 describe('DELETE /api/admin/texts/:id', () => {
   it('テキストを消し、合成ページへ一覧を押し出す', async () => {
     const { env, channel } = setupEnv()
-    const goal = await addText(env.DB, { name: '目標', body: '' }, NOW)
+    const goal = await addText(env.DB, manual('目標', ''), NOW)
 
     const response = await removeText(env, goal.id)
 
@@ -216,7 +229,7 @@ describe('DELETE /api/admin/texts/:id', () => {
 describe('GET /api/overlay/texts', () => {
   it('オーバーレイ用キーで、テキストの一覧を読める', async () => {
     const { env } = setupEnv()
-    const goal = await addText(env.DB, { name: '目標', body: 'ログイン画面を作り終える' }, NOW)
+    const goal = await addText(env.DB, manual('目標', 'ログイン画面を作り終える'), NOW)
 
     const response = await callHandler(new Request(`${SITE}/api/overlay/texts?key=${ISSUED_KEY}`), env)
 
