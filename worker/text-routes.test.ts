@@ -23,13 +23,20 @@ import { createFakeTabChannel } from './fake-tab-channel'
 import { createFakeTokenVault } from './fake-token-vault'
 import { handleRequest, type Env } from './index'
 import { createSessionToken } from './session'
-import { MAX_TEXT_BODY_LENGTH, MAX_TEXT_COUNT } from './text'
+import { MAX_TEXT_BODY_LENGTH, MAX_TEXT_COUNT, type TextEntry } from './text'
 import { insertText, readTexts } from './text-store'
 
 const NOW = Date.parse('2026-10-08T12:00:00.000Z')
 const BROADCASTER_ID = '12345'
 const SITE = 'https://hdad.example.com'
 const ISSUED_KEY = 'issued-overlay-key-0123456789abcdefghij'
+
+/** テキストを追加し、追加したものを返す（上限に達して追加できなければテストを失敗させる） */
+const addText = async (...args: Parameters<typeof insertText>): Promise<TextEntry> => {
+  const text = await insertText(...args)
+  if (text === null) throw new Error('テキストを追加できませんでした（持てる数に達しています）')
+  return text
+}
 
 const noTwitchFetch = async (input: RequestInfo | URL): Promise<Response> => {
   throw new Error(`テストで想定していない通信です: ${String(input)}`)
@@ -89,7 +96,7 @@ const removeText = (env: Env, id: number | string) => callAsBroadcaster(env, `/a
 describe('GET /api/admin/texts', () => {
   it('テキストを追加した順に返す', async () => {
     const { env } = setupEnv()
-    const goal = await insertText(env.DB, { name: '目標', body: 'ログイン画面を作り終える' }, NOW)
+    const goal = await addText(env.DB, { name: '目標', body: 'ログイン画面を作り終える' }, NOW)
 
     const response = await callAsBroadcaster(env, '/api/admin/texts')
 
@@ -151,7 +158,7 @@ describe('POST /api/admin/texts', () => {
 describe('PUT /api/admin/texts/:id', () => {
   it('名前と本文を書き換え、合成ページへ一覧を押し出す', async () => {
     const { env, channel } = setupEnv()
-    const goal = await insertText(env.DB, { name: '目標', body: 'ログイン画面を作り終える' }, NOW)
+    const goal = await addText(env.DB, { name: '目標', body: 'ログイン画面を作り終える' }, NOW)
 
     const response = await putText(env, goal.id, { name: '目標', body: 'ログイン画面をデプロイする' })
 
@@ -163,7 +170,7 @@ describe('PUT /api/admin/texts/:id', () => {
 
   it('自分自身の名前のままなら、名前の重なりとして拒まない', async () => {
     const { env } = setupEnv()
-    const goal = await insertText(env.DB, { name: '目標', body: '' }, NOW)
+    const goal = await addText(env.DB, { name: '目標', body: '' }, NOW)
     await insertText(env.DB, { name: '今やってること', body: '' }, NOW)
 
     expect((await putText(env, goal.id, { name: '目標', body: '書き換えた' })).status).toBe(200)
@@ -172,7 +179,7 @@ describe('PUT /api/admin/texts/:id', () => {
 
   it('本文が上限を超えたら400にする', async () => {
     const { env } = setupEnv()
-    const goal = await insertText(env.DB, { name: '目標', body: '' }, NOW)
+    const goal = await addText(env.DB, { name: '目標', body: '' }, NOW)
 
     const response = await putText(env, goal.id, { name: '目標', body: 'あ'.repeat(MAX_TEXT_BODY_LENGTH + 1) })
 
@@ -190,7 +197,7 @@ describe('PUT /api/admin/texts/:id', () => {
 describe('DELETE /api/admin/texts/:id', () => {
   it('テキストを消し、合成ページへ一覧を押し出す', async () => {
     const { env, channel } = setupEnv()
-    const goal = await insertText(env.DB, { name: '目標', body: '' }, NOW)
+    const goal = await addText(env.DB, { name: '目標', body: '' }, NOW)
 
     const response = await removeText(env, goal.id)
 
@@ -209,7 +216,7 @@ describe('DELETE /api/admin/texts/:id', () => {
 describe('GET /api/overlay/texts', () => {
   it('オーバーレイ用キーで、テキストの一覧を読める', async () => {
     const { env } = setupEnv()
-    const goal = await insertText(env.DB, { name: '目標', body: 'ログイン画面を作り終える' }, NOW)
+    const goal = await addText(env.DB, { name: '目標', body: 'ログイン画面を作り終える' }, NOW)
 
     const response = await callHandler(new Request(`${SITE}/api/overlay/texts?key=${ISSUED_KEY}`), env)
 

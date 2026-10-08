@@ -7,7 +7,7 @@
  * 注意: SQLに値を埋め込まず、必ずプレースホルダで渡す。
  */
 import type { Database } from './database'
-import { duplicateNameError, type TextEntry, type TextInput } from './text'
+import { MAX_TEXT_COUNT, duplicateNameError, type TextEntry, type TextInput } from './text'
 
 const toIso = (milliseconds: number): string => new Date(milliseconds).toISOString()
 
@@ -48,17 +48,26 @@ export const readTexts = async (db: Database): Promise<TextEntry[]> => {
 }
 
 /**
- * テキストを1件追加する。
+ * テキストを1件追加する。持てる数（MAX_TEXT_COUNT）に達していたら追加しない。
  *
- * @returns 追加したテキスト（振られたIDを含む）
+ * 件数の確認と追加は1つの文で行う（「数えてから追加する」に分けると、並んだ追加がどちらも確認を通って上限を超えるため）。
+ *
+ * @returns 追加したテキスト（振られたIDを含む）。持てる数に達していて追加しなかったなら null
  * @throws ConfigError 名前がほかのテキストと重なった場合
  */
-export const insertText = async (db: Database, input: TextInput, now: number): Promise<TextEntry> => {
+export const insertText = async (db: Database, input: TextInput, now: number): Promise<TextEntry | null> => {
   const row = await rejectingDuplicateName(input.name, () =>
-    db.prepare(`INSERT INTO texts (name, body, updated_at) VALUES (?1, ?2, ?3) RETURNING ${COLUMNS}`).bind(input.name, input.body, toIso(now)).first<TextRow>(),
+    db
+      .prepare(
+        // 上限に達していれば SELECT が0行を返すので、INSERT も起きず RETURNING も何も返さない
+        `INSERT INTO texts (name, body, updated_at)
+         SELECT ?1, ?2, ?3 WHERE (SELECT count(*) FROM texts) < ?4
+         RETURNING ${COLUMNS}`,
+      )
+      .bind(input.name, input.body, toIso(now), MAX_TEXT_COUNT)
+      .first<TextRow>(),
   )
-  if (row === null) throw new Error('追加したテキストを読み返せませんでした')
-  return toEntry(row)
+  return row === null ? null : toEntry(row)
 }
 
 /**

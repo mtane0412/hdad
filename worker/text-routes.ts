@@ -80,10 +80,11 @@ export const postText = async (context: Context): Promise<Response> => {
     body,
     texts.map((text) => text.name),
   )
-  if (texts.length >= MAX_TEXT_COUNT) {
+  // 件数の確認は追加と同じ文の中で行う（読んだ一覧で数えると、並んだ追加で上限を超えるため）
+  const text = await insertText(context.env.DB, input, context.now)
+  if (text === null) {
     throw new HttpError(STATUS.conflict, 'too-many-texts', `テキストは${MAX_TEXT_COUNT}件までです。使っていないものを消してから追加してください`)
   }
-  const text = await insertText(context.env.DB, input, context.now)
   await pushCurrentTexts(context)
   return Response.json({ text } satisfies { text: TextEntry }, { status: STATUS.created })
 }
