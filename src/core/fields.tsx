@@ -13,9 +13,10 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Slider } from '@/components/ui/slider'
 import { iconButtonName } from './icon-button'
-import type { AnyParamValue, BooleanParamSpec, ColorParamSpec, ColorsParamSpec, NumberParamSpec, ParamSpec, StringParamSpec } from './params'
+import type { AnyParamValue, BooleanParamSpec, ChoiceParamSpec, ColorParamSpec, ColorsParamSpec, NumberParamSpec, ParamSpec, StringParamSpec } from './params'
 
 /** 小数パラメータのスライダーの刻み */
 const DECIMAL_STEP = 0.05
@@ -181,6 +182,18 @@ const StringField = ({ name, spec, value, onChange }: FieldProps<StringParamSpec
   )
 }
 
+const ChoiceField = ({ name, spec, value, onChange }: FieldProps<ChoiceParamSpec>) => (
+  <Field name={name} description={spec.description}>
+    <NativeSelect className="w-full" aria-label={spec.description} value={String(value)} onChange={(event) => onChange(event.currentTarget.value)}>
+      {spec.choices.map((choice) => (
+        <NativeSelectOption key={choice.value} value={choice.value}>
+          {choice.label}
+        </NativeSelectOption>
+      ))}
+    </NativeSelect>
+  </Field>
+)
+
 /** スキーマの種類に合う入力欄を1つ描く */
 export const ParamField = ({ name, spec, value, onChange }: FieldProps<ParamSpec>) => {
   switch (spec.type) {
@@ -194,5 +207,7 @@ export const ParamField = ({ name, spec, value, onChange }: FieldProps<ParamSpec
       return <BooleanField name={name} spec={spec} value={value} onChange={onChange} />
     case 'string':
       return <StringField name={name} spec={spec} value={value} onChange={onChange} />
+    case 'choice':
+      return <ChoiceField name={name} spec={spec} value={value} onChange={onChange} />
   }
 }

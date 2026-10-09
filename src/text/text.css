@@ -1,31 +1,26 @@
 /*
  * テキスト（合成ページの素材）の見た目
  *
- * 配信者が書いた「目標」「今やってること」などを、画面の隅に出しっぱなしにする札。次の3つを守る。
- * - 主役（作業している画面）の邪魔をしないよう、半透明の暗い板に置く（作業机 src/task-desk/task-desk.css と同じ板）
- * - 名前は小さな見出し、本文は大きめの太字にして、本文の改行はそのまま出す
+ * 配信者が書いた「目標」「今やってること」などを、画面の隅に出しっぱなしにする札。次のことを守る。
+ * - 札は素材の箱いっぱいの固定の大きさで描く（本文の長さで枠の大きさを変えない。OBSでの配置が崩れないように）
+ * - 枠の見た目はパラメータ frame で選ぶ（text-board--board・window・telop・sticky）。名前は小さな見出し、本文は大きめの太字
+ * - 本文が収まらないときの扱いはパラメータ overflow（data-overflow）で選ぶ。固定はあふれた行を隠し、縮めるは src/text/view.ts が
+ *   --text-scale を決め、流すは本文を1行の帯（.text-board-track）にして横へ動かす
  * - 本文が書き換わったら、本文だけがふわっと浮かび上がる（src/text/view.ts が本文の要素を作り直す）
- *
- * 札は箱の左上から置き、本文の長さに合わせて縮む（箱いっぱいに板を広げない）。箱からあふれた行は見せない。
  */
 .text-board {
   /* 位置は画面ではなく置かれた箱を基準にする（合成ページのレイヤーの箱に入れるため。issue #101） */
   position: absolute;
-  top: 0;
-  left: 0;
+  inset: 0;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  max-width: 100%;
-  max-height: 100%;
-  padding: 10px 16px 12px;
   overflow: hidden;
-  border-radius: 8px;
-  background: rgb(12 14 20 / 62%);
-  box-shadow: 0 4px 14px rgb(0 0 0 / 35%);
   color: #fff;
   font-family: 'Zen Kaku Gothic New', 'Hiragino Sans', 'Yu Gothic UI', sans-serif;
+  /* 本文の文字の大きさの基準。枠ごとに変え、縮めるときは --text-scale を掛ける */
+  --text-body-size: 22px;
 }
 
 .text-board[hidden] {
@@ -33,21 +28,172 @@
 }
 
 .text-board-name {
+  flex: none;
   margin: 0;
-  color: #ffd166;
+  overflow: hidden;
   font-size: 15px;
   font-weight: 700;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .text-board-body {
+  flex: 1 1 auto;
+  min-height: 0;
   margin: 0;
-  font-size: 22px;
+  overflow: hidden;
+  font-size: calc(var(--text-body-size) * var(--text-scale, 1));
   font-weight: 700;
   line-height: 1.45;
   /* 書いた改行はそのまま出し、切れ目のない英数字（URLなど）でも板からはみ出させずに折り返す */
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   animation: text-board-in 500ms ease-out;
+}
+
+/* 流す: 本文は1行の帯にして、帯の幅を本文の幅にする（縮めさせない） */
+.text-board[data-overflow='marquee'] .text-board-body {
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.text-board-track {
+  flex: none;
+  white-space: pre;
+}
+
+.text-board-track.is-moving {
+  animation: text-board-marquee var(--marquee-duration) linear infinite;
+}
+
+/* 板: 主役（作業している画面）の邪魔をしない、半透明の暗い板（作業机 src/task-desk/task-desk.css と同じ板） */
+.text-board--board {
+  padding: 10px 16px 12px;
+  border-radius: 8px;
+  background: rgb(12 14 20 / 62%);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 35%);
+}
+
+.text-board--board .text-board-name {
+  color: #ffd166;
+}
+
+/* メッセージウィンドウ: RPG風の濃紺の窓と白の二重枠。名前は上辺に乗るタブにし、右下で▼を点滅させる */
+.text-board--window {
+  isolation: isolate;
+  padding: 36px 28px 24px;
+  font-family: 'M PLUS Rounded 1c', 'Hiragino Sans', sans-serif;
+  --text-body-size: 24px;
+}
+
+/* 窓そのもの。上端を下げて、名前のタブが枠の上辺にまたがるようにする */
+.text-board--window::before {
+  position: absolute;
+  inset: 14px 2px 2px;
+  z-index: -1;
+  border: 3px solid #fff;
+  border-radius: 10px;
+  background: linear-gradient(rgb(28 42 107 / 94%), rgb(13 20 64 / 94%));
+  box-shadow:
+    inset 0 0 0 3px #0d1440,
+    inset 0 0 0 5px rgb(255 255 255 / 45%),
+    0 4px 14px rgb(0 0 0 / 40%);
+  content: '';
+}
+
+.text-board--window::after {
+  position: absolute;
+  right: 20px;
+  bottom: 10px;
+  font-size: 14px;
+  animation: text-board-blink 1s steps(2, jump-none) infinite;
+  content: '▼';
+}
+
+.text-board--window .text-board-name {
+  position: absolute;
+  top: 0;
+  left: 22px;
+  max-width: calc(100% - 44px);
+  box-sizing: border-box;
+  padding: 3px 14px;
+  border: 2px solid #fff;
+  border-radius: 8px;
+  background: #0d1440;
+}
+
+/* テロップ帯: ニュースの下帯のように、左に色付きの名前の札、右に白い帯の本文を並べる */
+.text-board--telop {
+  flex-direction: row;
+  gap: 0;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 40%);
+  font-weight: 900;
+  --text-body-size: 26px;
+}
+
+.text-board--telop .text-board-name {
+  display: flex;
+  align-items: center;
+  max-width: 40%;
+  padding: 0 18px;
+  background: linear-gradient(#e63946, #b71c2c);
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.text-board--telop .text-board-body {
+  display: flex;
+  /* 収まるときは上下の中央に置き、あふれたら先頭の行から見せる（中央のままだと1行目が上に切れる） */
+  align-items: safe center;
+  padding: 0 20px;
+  border-bottom: 4px solid #e63946;
+  background: rgb(255 255 255 / 94%);
+  color: #111;
+  font-weight: 900;
+}
+
+/* 付箋: 黄色い紙を少し傾けてテープで留める。傾けても箱からはみ出さないよう、箱の内側に余白を取る */
+.text-board--sticky {
+  inset: 10px;
+  overflow: visible;
+  padding: 22px 20px 16px;
+  border-radius: 2px;
+  background: linear-gradient(#fff3a0, #ffe66d);
+  box-shadow: 0 6px 12px rgb(0 0 0 / 30%);
+  color: #3d3200;
+  font-family: 'Zen Maru Gothic', 'Hiragino Maru Gothic ProN', sans-serif;
+  transform: rotate(-1.2deg);
+  --text-body-size: 24px;
+}
+
+/* テープ */
+.text-board--sticky::before {
+  position: absolute;
+  top: -9px;
+  left: 50%;
+  width: 96px;
+  height: 22px;
+  background: rgb(255 255 255 / 55%);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 15%);
+  transform: translateX(-50%) rotate(2deg);
+  content: '';
+}
+
+.text-board--sticky .text-board-name {
+  color: #8a5a00;
+}
+
+/*
+ * 動きを減らす設定では、本文の出現・流す帯・▼の点滅を動かさない。
+ * 流す帯は止まると先頭から枠の幅までしか見えない（固定と同じ見え方になる）
+ */
+@media (prefers-reduced-motion: reduce) {
+  .text-board-body,
+  .text-board-track.is-moving,
+  .text-board--window::after {
+    animation: none;
+  }
 }
 
 @keyframes text-board-in {
@@ -59,5 +205,21 @@
   to {
     opacity: 1;
     transform: none;
+  }
+}
+
+@keyframes text-board-marquee {
+  from {
+    transform: translateX(var(--marquee-from));
+  }
+
+  to {
+    transform: translateX(var(--marquee-to));
+  }
+}
+
+@keyframes text-board-blink {
+  to {
+    opacity: 0;
   }
 }

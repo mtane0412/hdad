@@ -1761,7 +1761,12 @@ const mountText = (box: HTMLElement, item: OverlayItem, { key, demo }: MountCont
   root.dataset.text = ''
   box.append(root)
 
-  const view = createTextView(root)
+  const view = createTextView(root, { frame: params.frame, overflow: params.overflow })
+  // 縮める・流すは要素の大きさを測って決めるので、箱の大きさが変わったとき・フォントが読み終わったときに測り直す
+  new ResizeObserver(() => view.refit()).observe(box)
+  void document.fonts.ready.then(() => view.refit())
+  // 札を出したあとに読み込みが始まったフォント（後から使われた字形など）でも測り直す
+  document.fonts.addEventListener('loadingdone', () => view.refit())
 
   if (demo) {
     // プレビューではWorkerにつながず、選んだテキストに関わらずサンプルの本文を順に流す
@@ -1780,8 +1785,10 @@ const mountText = (box: HTMLElement, item: OverlayItem, { key, demo }: MountCont
    */
   const show = (texts: readonly TextEntry[]): void => {
     try {
-      view.show(textToShow(texts, params.text))
+      const text = textToShow(texts, params.text)
+      // 隠したままでは本文の大きさを測れないので、見せてから映す（縮める・流すの計算を正しくするため）
       root.hidden = false
+      view.show(text)
       clearError(box, 'read')
     } catch (error) {
       root.hidden = true

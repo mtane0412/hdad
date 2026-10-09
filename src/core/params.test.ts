@@ -150,4 +150,33 @@ describe('parseParams', () => {
       )
     })
   })
+
+  describe('選択肢パラメータ', () => {
+    // 前提: 札の枠の種類を、決まった選択肢から1つ選ぶ
+    const frameSchema = {
+      frame: {
+        type: 'choice',
+        default: 'board',
+        choices: [
+          { value: 'board', label: '板' },
+          { value: 'sticky', label: '付箋' },
+        ],
+        description: '枠',
+      },
+    } as const satisfies ParamSchema
+
+    it('選択肢にある値は、そのまま受け取る', () => {
+      expect(parseParams(frameSchema, new URLSearchParams('frame=sticky'))).toEqual({ frame: 'sticky' })
+    })
+
+    it('省略すると既定値になる', () => {
+      expect(parseParams(frameSchema, new URLSearchParams(''))).toEqual({ frame: 'board' })
+    })
+
+    it('選択肢にない値は、選べる値を添えてエラーにする', () => {
+      expect(() => parseParams(frameSchema, new URLSearchParams('frame=window'))).toThrow(
+        'frame: 「window」は選べません（board, sticky のどれか）',
+      )
+    })
+  })
 })
