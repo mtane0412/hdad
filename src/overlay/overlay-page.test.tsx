@@ -46,8 +46,8 @@ const fakeApi = (overrides: Partial<OverlayLayoutAdminApi> = {}): OverlayLayoutA
 })
 
 /** 配信者が書いたテキスト（テキストの素材の選択欄に並ぶ） */
-const goalText: TextEntry = { id: 1, name: '目標', body: 'ログイン画面を作り終える', updatedAt: '2026-10-08T12:00:00.000Z' }
-const doingText: TextEntry = { id: 3, name: '今やってること', body: 'テストを書いている', updatedAt: '2026-10-08T12:10:00.000Z' }
+const goalText: TextEntry = { id: 1, name: '目標', body: 'ログイン画面を作り終える', mode: 'manual', instruction: '', writtenBy: 'human', updatedAt: '2026-10-08T12:00:00.000Z' }
+const doingText: TextEntry = { id: 3, name: '今やってること', body: 'テストを書いている', mode: 'manual', instruction: '', writtenBy: 'human', updatedAt: '2026-10-08T12:10:00.000Z' }
 
 const fakeTextApi = (list: TextApi['list'] = async () => [goalText, doingText]): TextApi => ({
   list: vi.fn(list),

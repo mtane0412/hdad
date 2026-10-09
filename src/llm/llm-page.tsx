@@ -148,6 +148,10 @@ const USAGE_LABELS: Readonly<Record<LlmUsage, { name: string; description: strin
     name: '市町村紹介の共通点',
     description: '市町村紹介の締めに出す、レイド元の配信者とその市町村の意外な共通点と、認定証の任命理由。既定の google/gemini-3.8-flash は推論を止められないので、軽い推論をかけて呼ぶ。',
   },
+  autoText: {
+    name: 'テキストの自動の書き換え',
+    description: '「自動で書き換える」を入れたテキストの本文。配信中、前回のあとに喋っていれば5分おきにテキストごとに呼ばれるので軽いモデル向き。',
+  },
 }
 
 /** Jev を使う箇所ごとの、画面に出す名前と説明 */

@@ -842,6 +842,7 @@ describe('LLMの設定（/api/admin/llm）', () => {
         provider: 'openrouter',
         models: { 'workers-ai': '@cf/meta/llama-3.3-70b-instruct-fp8-fast', openrouter: 'google/gemini-3.8-flash' },
       },
+      autoText: { provider: 'workers-ai', models: { 'workers-ai': '@cf/meta/llama-3.1-8b-instruct-fp8', openrouter: 'meta-llama/llama-3.1-8b-instruct' } },
     },
   }
 
@@ -888,6 +889,7 @@ describe('LLMの設定（/api/admin/llm）', () => {
       'workers-ai',
       'workers-ai',
       'openrouter',
+      'workers-ai',
     ])
   })
 

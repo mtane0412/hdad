@@ -11,7 +11,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import type { TextEntry } from './entry'
 import { createTextView } from './view'
 
-const goal: TextEntry = { id: 1, name: '目標', body: 'ログイン画面を作り終える\nテストも書く', updatedAt: '2026-10-08T12:00:00.000Z' }
+const goal: TextEntry = { id: 1, name: '目標', body: 'ログイン画面を作り終える\nテストも書く', mode: 'manual', instruction: '', writtenBy: 'human', updatedAt: '2026-10-08T12:00:00.000Z' }
 
 let root: HTMLElement
 
@@ -42,7 +42,7 @@ describe('createTextView', () => {
     const view = createTextView(root)
     view.show(goal)
 
-    view.show({ ...goal, body: 'ログイン画面をデプロイする', updatedAt: '2026-10-08T12:30:00.000Z' })
+    view.show({ ...goal, body: 'ログイン画面をデプロイする', mode: 'manual', instruction: '', writtenBy: 'human', updatedAt: '2026-10-08T12:30:00.000Z' })
 
     expect(board()?.querySelector('.text-board-body')?.textContent).toBe('ログイン画面をデプロイする')
   })

@@ -3,8 +3,8 @@
  *
  * 配信者が自由に書いた文字（合成ページの素材「テキスト」。issue #294）を、アプリのページ（/texts/）・下部バーと合成ページから使う。
  * - GET /api/admin/texts: テキストを追加した順に返す
- * - POST /api/admin/texts: テキストを検証して追加する（{ name, body }）
- * - PUT /api/admin/texts/:id: テキストの名前と本文を検証して書き換える（{ name, body }）
+ * - POST /api/admin/texts: テキストを検証して追加する（{ name, mode, body, instruction }。自動なら body は読まない）
+ * - PUT /api/admin/texts/:id: テキストの名前・手動／自動の別・指示文（手動なら本文も）を検証して書き換える（同上）
  * - DELETE /api/admin/texts/:id: テキストを消す
  * - GET /api/overlay/texts: テキストの一覧を返す（オーバーレイ用キー）。開いたとき・つなぎ直したとき・定期的に読む
  * - GET /api/overlay/texts/socket: テキストが変わるたびに一覧を丸ごと押し出してもらう WebSocket。接続を保持するのはアラートと同じ

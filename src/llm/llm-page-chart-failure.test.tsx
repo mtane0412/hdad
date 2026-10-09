@@ -37,6 +37,7 @@ const api: LlmApi = {
           streamTitle: { provider: 'workers-ai', models: { ...lightModel } },
           townTour: { provider: 'workers-ai', models: { ...lightModel } },
           townBond: { provider: 'workers-ai', models: { ...lightModel } },
+          autoText: { provider: 'workers-ai', models: { ...lightModel } },
         },
       },
       apiKeyConfigured: false,

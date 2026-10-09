@@ -74,6 +74,7 @@ const savedSettings: LlmSettings = {
     streamTitle: { provider: 'workers-ai', models: { ...largeModel } },
     townTour: { provider: 'workers-ai', models: { ...largeModel } },
     townBond: { provider: 'workers-ai', models: { ...largeModel } },
+    autoText: { provider: 'workers-ai', models: { ...largeModel } },
   },
 }
 

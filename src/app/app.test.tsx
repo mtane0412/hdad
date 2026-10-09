@@ -163,6 +163,7 @@ const fakeLlmApi: LlmApi = {
             provider: 'openrouter' as const,
             models: { 'workers-ai': '@cf/meta/llama-3.3-70b-instruct-fp8-fast', openrouter: 'google/gemini-3.8-flash' },
           },
+          autoText: usageSetting,
         },
       },
       apiKeyConfigured: true,

@@ -44,6 +44,7 @@ const llm: LlmSettings = {
     streamTitle: { provider: 'workers-ai', models: lightModel },
     townTour: { provider: 'openrouter', models: lightModel },
     townBond: { provider: 'openrouter', models: lightModel },
+    autoText: { provider: 'workers-ai', models: lightModel },
   },
 }
 const overlays: Overlay[] = [{ name: '作業配信', items: [] }]
