@@ -184,6 +184,18 @@
   color: #8a5a00;
 }
 
+/*
+ * 動きを減らす設定では、本文の出現・流す帯・▼の点滅を動かさない。
+ * 流す帯は止まると先頭から枠の幅までしか見えない（固定と同じ見え方になる）
+ */
+@media (prefers-reduced-motion: reduce) {
+  .text-board-body,
+  .text-board-track.is-moving,
+  .text-board--window::after {
+    animation: none;
+  }
+}
+
 @keyframes text-board-in {
   from {
     opacity: 0;
