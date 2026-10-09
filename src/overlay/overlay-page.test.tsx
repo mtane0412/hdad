@@ -12,7 +12,7 @@
  * - 素材を1つも持たないオーバーレイは送らないこと
  * - Workerが返した問題点を、オーバーレイと素材の名前へ読み替えて並べること
  * - 保存済みの値が読めない素材でも、黙って捨てず理由を出すこと
- * - テキストの素材は、映すテキストを名前の選択欄から選ばせること（IDを手で打たせない）
+ * - テキストの素材は、映すテキストを名前の選択欄から選ばせること（IDを手で打たせない）。枠と、本文が収まらないときの扱いも選ばせること
  */
 import '@testing-library/jest-dom/vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
@@ -631,6 +631,18 @@ describe('テキストの素材', () => {
     await save()
 
     expect(api.save).toHaveBeenCalledWith([{ name: 'front', items: [{ ...goalItem, params: 'text=3' }] }])
+  })
+
+  test('枠と、本文が収まらないときの扱いを選択欄から選べ、保存ではパラメータになる', async () => {
+    const api = fakeApi({ load: vi.fn(async () => [{ name: 'front', items: [goalItem] }]) })
+    renderPage(api)
+
+    const region = await openMaterial('front', 'テキスト')
+    await userEvent.selectOptions(await within(region).findByRole('combobox', { name: '枠' }), 'メッセージウィンドウ')
+    await userEvent.selectOptions(within(region).getByRole('combobox', { name: '本文が収まらないとき' }), '1行にまとめて横に流す')
+    await save()
+
+    expect(api.save).toHaveBeenCalledWith([{ name: 'front', items: [{ ...goalItem, params: 'text=1&frame=window&overflow=marquee' }] }])
   })
 
   test('テキストを読み込めなければ、選択欄の代わりに理由を出す', async () => {

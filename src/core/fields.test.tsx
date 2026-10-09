@@ -5,12 +5,13 @@
  * 確かめること:
  * - 配色の入力欄が、色の数だけ色見本を出すこと
  * - 色を追加する・減らすボタンがアイコンだけになっていて、名前は読み上げとホバーに残ること
+ * - 選択肢パラメータは、選択肢の名前を並べた選択欄になり、選んだ値をそのまま渡すこと
  */
 import '@testing-library/jest-dom/vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { ParamField } from './fields'
-import type { ColorsParamSpec } from './params'
+import type { ChoiceParamSpec, ColorsParamSpec } from './params'
 
 /** 2〜4色まで選べる配色のパラメータ */
 const paletteDeclaration: ColorsParamSpec = {
@@ -39,5 +40,35 @@ describe('配色の入力欄', () => {
       expect(button).toHaveTextContent('')
       expect(button).toHaveAttribute('title', name)
     }
+  })
+})
+
+/** 札の枠を選ぶパラメータ */
+const frameDeclaration: ChoiceParamSpec = {
+  type: 'choice',
+  default: 'board',
+  choices: [
+    { value: 'board', label: '板' },
+    { value: 'sticky', label: '付箋' },
+  ],
+  description: '枠',
+}
+
+describe('選択肢の入力欄', () => {
+  test('選択肢の名前を並べた選択欄にし、いまの値を選んでおく', () => {
+    render(<ParamField name="frame" spec={frameDeclaration} value="sticky" onChange={vi.fn()} />)
+
+    const select = screen.getByRole('combobox', { name: '枠' })
+    expect(select).toHaveValue('sticky')
+    expect(screen.getByRole('option', { name: '板' })).toHaveValue('board')
+  })
+
+  test('選び直すと、選んだ値をそのまま渡す', () => {
+    const onChange = vi.fn()
+    render(<ParamField name="frame" spec={frameDeclaration} value="board" onChange={onChange} />)
+
+    fireEvent.change(screen.getByRole('combobox', { name: '枠' }), { target: { value: 'sticky' } })
+
+    expect(onChange).toHaveBeenCalledWith('sticky')
   })
 })

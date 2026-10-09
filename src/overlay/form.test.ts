@@ -63,11 +63,11 @@ describe('schemaFor', () => {
 })
 
 describe('テキストの素材', () => {
-  it('映すテキストのIDをパラメータに持ち、追加したばかりのときは選んでいない', () => {
+  it('映すテキストのIDをパラメータに持ち、追加したばかりのときは選んでいない（枠は板、あふれは隠す）', () => {
     const draft = newItemDraft('text', '')
 
-    expect(draft.values).toEqual({ text: '' })
-    expect(toOverlays([{ ...newOverlayDraft('front'), items: [{ ...draft, values: { text: '3' } }] }])[0]?.items[0]?.params).toBe('text=3')
+    expect(draft.values).toEqual({ text: '', frame: 'board', overflow: 'clip' })
+    expect(toOverlays([{ ...newOverlayDraft('front'), items: [{ ...draft, values: { ...draft.values, text: '3' } }] }])[0]?.items[0]?.params).toBe('text=3')
   })
 })
 

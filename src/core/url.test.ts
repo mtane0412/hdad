@@ -61,6 +61,17 @@ describe('serializeParams', () => {
     expect(parseParams(chatSchema, new URLSearchParams(serialized))).toEqual({ channel: 'a&b=c' })
   })
 
+  it('選択肢は値をそのまま出力し、読み戻すと元の値になる', () => {
+    const frameSchema = {
+      frame: { type: 'choice', default: 'board', choices: [{ value: 'board', label: '板' }, { value: 'sticky', label: '付箋' }], description: '枠' },
+    } as const satisfies ParamSchema
+
+    const serialized = serializeParams(frameSchema, { frame: 'sticky' })
+
+    expect(serialized).toBe('frame=sticky')
+    expect(parseParams(frameSchema, new URLSearchParams(serialized))).toEqual({ frame: 'sticky' })
+  })
+
   it('組み立てたクエリ文字列は、同じスキーマで元の値に読み戻せる', () => {
     const value = { speed: 2.5, bg: 'transparent', colors: ['#111111', '#222222'] }
 

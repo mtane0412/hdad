@@ -51,7 +51,7 @@ import { ApiError } from '../core/api'
 import { iconButtonName } from '../core/icon-button'
 import { ParamField } from '../core/fields'
 import { Preview, useSettled } from '../core/preview'
-import type { AnyParamValue } from '../core/params'
+import type { AnyParamValue, ParamSpec } from '../core/params'
 import type { TextApi } from '../text/api'
 import { textParamSchema } from '../text/params'
 import type { OverlayLayoutAdminApi } from './admin-api'
@@ -366,6 +366,18 @@ const ItemRow = ({
   const label = itemLabel(draft)
   const designs = designsFor(draft.kind)
   const schema = schemaFor(draft.kind, draft.id)
+  /** パラメータの入力欄を宣言から並べる。テキストの素材の映すテキスト（text）だけは名前の選択欄で別に出すので、呼び出し側で外す */
+  const paramFields = (entries: [string, ParamSpec][]) =>
+    entries.map(([name, spec]) => (
+      <ParamField
+        // デザインを変えたら、同じ名前のパラメータでも入力欄を作り直す（前のデザインの色を覚えたままにしない）
+        key={`${draft.id}-${name}`}
+        name={name}
+        spec={spec}
+        value={draft.values[name] ?? spec.default}
+        onChange={(value: AnyParamValue) => onChange({ ...draft, values: { ...draft.values, [name]: value } })}
+      />
+    ))
   // レジストリに無いデザインも選択欄に残す（開いただけで別のデザインへ移らないようにする。/llm/ のモデルと同じ扱い）
   const designOptions = designs.some((design) => design.id === draft.id)
     ? designs
@@ -464,27 +476,21 @@ const ItemRow = ({
 
           <div className="flex flex-col gap-5">
             {draft.kind === 'text' ? (
-              <TextSelectField
-                id={id}
-                value={String(draft.values.text ?? textParamSchema.text.default)}
-                choices={textChoices}
-                onChange={(value) => onChange({ ...draft, values: { ...draft.values, text: value } })}
-              />
+              <>
+                <TextSelectField
+                  id={id}
+                  value={String(draft.values.text ?? textParamSchema.text.default)}
+                  choices={textChoices}
+                  onChange={(value) => onChange({ ...draft, values: { ...draft.values, text: value } })}
+                />
+                {paramFields(Object.entries(textParamSchema).filter(([name]) => name !== 'text'))}
+              </>
             ) : schema === undefined ? (
               <p className="text-sm text-muted-foreground">デザインを選び直すと、その素材のパラメータを調整できます。</p>
             ) : Object.keys(schema).length === 0 ? (
               <p className="text-sm text-muted-foreground">この素材に、配信者が決めるパラメータはありません。</p>
             ) : (
-              Object.entries(schema).map(([name, spec]) => (
-                <ParamField
-                  // デザインを変えたら、同じ名前のパラメータでも入力欄を作り直す（前のデザインの色を覚えたままにしない）
-                  key={`${draft.id}-${name}`}
-                  name={name}
-                  spec={spec}
-                  value={draft.values[name] ?? spec.default}
-                  onChange={(value: AnyParamValue) => onChange({ ...draft, values: { ...draft.values, [name]: value } })}
-                />
-              ))
+              paramFields(Object.entries(schema))
             )}
           </div>
         </div>

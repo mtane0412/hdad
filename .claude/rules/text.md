@@ -19,6 +19,8 @@ paths:
 
 追加・書き換え・削除のたびに、いまの一覧を丸ごと `AlertChannel` の目印 `text`（`pushTexts`・`connectTextSocket`）で合成ページへ押し出す。押し出しに失敗しても保存は取り消さず、保存は済んだことを添えて502（`text-push-failed`）で返す。合成ページ（`src/overlay/stage.ts` の `mountText`）は開いたとき・つながるたび・5分おきに `GET /api/overlay/texts` で読み直し、読んでいるあいだに押し出しが届いたら読んだ結果は捨てる（作業机と同じ）。映すテキストを引くのは `src/text/entry.ts` の `textToShow` だけで、選んでいない・消された場合は札を隠して素材の箱にエラーを出す（黙って空にしない）。本文が空のあいだは札ごと隠す（`src/text/view.ts`）。
 
+札は素材の箱いっぱいの固定の大きさで描き、枠の見た目はパラメータ `frame`（板・メッセージウィンドウ・テロップ帯・付箋。`src/text/text.css` の `text-board--<値>`）、本文が収まらないときの扱いはパラメータ `overflow`（固定・縮める・流す）で選ばせる。どちらも決まった値から選ぶ種類 `choice`（`src/core/params.ts`）で宣言し、既定値は #294 の見た目（板・固定）にする。縮める倍率と流す動きの計算は `src/text/fit.ts` だけが持ち、要素を測るのは `src/text/view.ts`。測り直し（`refit`）は合成ページが箱の大きさの変化とフォントの読み込みのたびに呼ぶ。
+
 入口はアプリのページ（`/texts/`。`src/text/text-page.tsx`。追加・名前の変更・削除・本文の編集・自動の切り替えと指示文。本文の下に書いた人を出す。1件ずつ保存する）と、下部バー（`src/text/text-bar.tsx`。本文の書き換えだけ。自動のテキストは保存すると手動になることを窓に出す）。どちらも未保存の変更があるあいだは `useUnsavedChanges(true)` を呼ぶ（下部バーは窓を開いて書きかけているあいだだけ。窓を閉じたら書きかけは捨てる）。問題点の表示は `src/text/form.ts` の `textFailureLines`。→ `docs/decisions/text.md`
 
 利用者向けの説明は `docs/guide/text.md`。

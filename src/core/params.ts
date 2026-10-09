@@ -7,6 +7,7 @@
  * - 色はURLで「#」がフラグメント扱いになるため、「#」なしの16進数（ff0080 / f08）で受け取る
  * - 真偽値は true / false だけを受け取る
  * - 文字列はスキーマに書いた書式（正規表現）に合うものだけを受け取る
+ * - 選択肢はスキーマに並べた値のどれかだけを受け取る
  */
 
 /** 数値パラメータの宣言 */
@@ -60,6 +61,15 @@ export interface StringParamSpec {
   readonly description: string
 }
 
+/** 選択肢パラメータの宣言（決まった値から1つ選ぶ。管理画面では選択欄になる） */
+export interface ChoiceParamSpec {
+  readonly type: 'choice'
+  readonly default: string
+  /** 選べる値と、選択欄に出す名前（並べた順に選択欄へ出す） */
+  readonly choices: readonly { readonly value: string; readonly label: string }[]
+  readonly description: string
+}
+
 /**
  * パラメータの値になりうるもの（宣言の種類によらない）。
  *
@@ -74,11 +84,14 @@ export type ParamSpec =
   | ColorsParamSpec
   | BooleanParamSpec
   | StringParamSpec
+  | ChoiceParamSpec
 export type ParamSchema = Readonly<Record<string, ParamSpec>>
 
 type ParamValue<S extends ParamSpec> = S extends NumberParamSpec
   ? number
-  : S extends ColorParamSpec | StringParamSpec
+  : S extends ChoiceParamSpec
+    ? S['choices'][number]['value']
+    : S extends ColorParamSpec | StringParamSpec
     ? string
     : S extends BooleanParamSpec
       ? boolean
@@ -158,6 +171,11 @@ const parseBoolean = (raw: string): boolean | Problem => {
 const parseString = (raw: string, spec: StringParamSpec): string | Problem =>
   spec.pattern.test(raw) ? raw : new Problem(`「${raw}」は書式に合いません（例: ${spec.example}）`)
 
+const parseChoice = (raw: string, spec: ChoiceParamSpec): string | Problem => {
+  const values = spec.choices.map((choice) => choice.value)
+  return values.includes(raw) ? raw : new Problem(`「${raw}」は選べません（${values.join(', ')} のどれか）`)
+}
+
 const parseValue = (raw: string, spec: ParamSpec) => {
   switch (spec.type) {
     case 'number':
@@ -170,6 +188,8 @@ const parseValue = (raw: string, spec: ParamSpec) => {
       return parseBoolean(raw)
     case 'string':
       return parseString(raw, spec)
+    case 'choice':
+      return parseChoice(raw, spec)
   }
 }
 
