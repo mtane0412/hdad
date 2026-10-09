@@ -85,7 +85,10 @@ export const createTextView = (root: HTMLElement, layout: TextLayout): TextView 
     if (layout.overflow === 'marquee') {
       const track = body.querySelector<HTMLElement>('.text-board-track')
       if (track === null) return
-      const motion = marqueeMotion(body.clientWidth, track.scrollWidth, MARQUEE_PX_PER_SECOND)
+      // 帯は本文の余白（padding）の内側から始まるので、余白を除いた幅を枠の幅として比べ、動きも同じ座標で決める
+      const style = getComputedStyle(body)
+      const viewWidth = body.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
+      const motion = marqueeMotion(viewWidth, track.scrollWidth, MARQUEE_PX_PER_SECOND)
       track.classList.toggle('is-moving', motion !== null)
       if (motion === null) return
       track.style.setProperty('--marquee-from', `${motion.from}px`)
