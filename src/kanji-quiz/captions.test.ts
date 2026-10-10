@@ -4,7 +4,7 @@
  * 級の見出し・出題させた人・正解の読みの並べ方を決める。描くのは view.ts で、ここは文言だけを受け持つ。
  */
 import { describe, expect, it } from 'vitest'
-import { answerLineOf, gradeHeadlineOf, requesterLineOf } from './captions'
+import { answerLineOf, gradeHeadlineOf, requesterLineOf, winnerLineOf } from './captions'
 
 describe('gradeHeadlineOf', () => {
   it('「漢検○級」の形にする（準のつく級も同じ）', () => {
@@ -30,5 +30,11 @@ describe('answerLineOf', () => {
 
   it('正解の読みが複数なら「／」で区切って並べる', () => {
     expect(answerLineOf(['ついたち', 'いちにち', 'いちじつ'])).toBe('ついたち／いちにち／いちじつ')
+  })
+})
+
+describe('winnerLineOf', () => {
+  it('最初の正解者の名前を「○○さん 正解！」にする', () => {
+    expect(winnerLineOf('山田花子')).toBe('山田花子さん 正解！')
   })
 })

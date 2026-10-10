@@ -11,7 +11,7 @@ import { STATUS } from './http'
 import type { PomodoroSnapshot } from './pomodoro-timer'
 import type { SpeechMute } from './speech-config'
 import type { TaskDeskSnapshot } from './task-desk'
-import type { KanjiQuizCall } from './kanji-quiz-call'
+import type { KanjiQuizCall, KanjiQuizNotice } from './kanji-quiz-call'
 import type { TextsSnapshot } from './text'
 import type { TownTourAnswerMessage, TownTourCall } from './town-tour-call'
 import type { TwisterCall } from './twister-call'
@@ -48,6 +48,8 @@ export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelO
   pushedTexts: TextsSnapshot[]
   /** 押し出された漢字クイズの出題 */
   pushedKanjiQuizzes: KanjiQuizCall[]
+  /** 押し出された漢字クイズの知らせ（正解者・失敗。出題と同じ経路で、type を持つ） */
+  pushedKanjiQuizNotices: KanjiQuizNotice[]
   /** WebSocketの接続として引き渡されたリクエスト */
   forwardedConnections: Request[]
   /** 接続をすべて閉じるよう頼まれたときに添えられた、新しいキーの目印（オーバーレイ用キーの再発行） */
@@ -65,6 +67,7 @@ export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelO
   const evictedSpeechMutes: SpeechMute[] = []
   const evictedTexts: TextsSnapshot[] = []
   const evictedKanjiQuizzes: KanjiQuizCall[] = []
+  const evictedKanjiQuizNotices: KanjiQuizNotice[] = []
   const handedOverConnections: Request[] = []
   const revokedTags: string[] = []
   const id: DurableObjectId = { toString: () => 'alerts', equals: (other) => other.toString() === 'alerts', name: 'alerts' }
@@ -82,6 +85,7 @@ export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelO
     pushedSpeechMutes: evictedSpeechMutes,
     pushedTexts: evictedTexts,
     pushedKanjiQuizzes: evictedKanjiQuizzes,
+    pushedKanjiQuizNotices: evictedKanjiQuizNotices,
     forwardedConnections: handedOverConnections,
     revokedKeyTags: revokedTags,
     namespace: {
@@ -107,7 +111,11 @@ export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelO
           else if (pathname === '/push/bgm-duck') evictedBgmDucks.push((await request.json()) as BgmDuck)
           else if (pathname === '/push/speech-mute') evictedSpeechMutes.push((await request.json()) as SpeechMute)
           else if (pathname === '/push/text') evictedTexts.push((await request.json()) as TextsSnapshot)
-          else if (pathname === '/push/kanji-quiz') evictedKanjiQuizzes.push((await request.json()) as KanjiQuizCall)
+          else if (pathname === '/push/kanji-quiz') {
+            const body = (await request.json()) as KanjiQuizCall | KanjiQuizNotice
+            if ('type' in body) evictedKanjiQuizNotices.push(body)
+            else evictedKanjiQuizzes.push(body)
+          }
           else if (pathname === '/push/town-tour') {
             const body = (await request.json()) as TownTourCall | TownTourAnswerMessage
             if ('type' in body) evictedTownTourAnswers.push(body)

@@ -190,7 +190,7 @@ import {
   putTownTourSound,
   townTourSocket,
 } from './town-tour-routes'
-import { kanjiQuizSocket, postKanjiQuizDemo } from './kanji-quiz-routes'
+import { kanjiQuizSocket, postKanjiQuizDemo, postKanjiQuizOpen } from './kanji-quiz-routes'
 import { getTwisterSound, postTwisterDemo, putTwisterSound, twisterSocket } from './twister-routes'
 import { getOverlayPomodoro, getPomodoro, pomodoroSocket, postPomodoroControl, putPomodoroSettings } from './pomodoro-routes'
 import { getDeeplUsage, getTranslation, postTranslation, putTranslation } from './translation-routes'
@@ -365,6 +365,7 @@ const ROUTES: readonly Route[] = [
   { method: 'POST', path: '/api/admin/twister/demo', handle: postTwisterDemo },
   { method: 'GET', path: '/api/overlay/kanji-quiz/socket', handle: kanjiQuizSocket },
   { method: 'POST', path: '/api/admin/kanji-quiz/demo', handle: postKanjiQuizDemo },
+  { method: 'POST', path: '/api/overlay/kanji-quiz/open', handle: postKanjiQuizOpen },
   { method: 'GET', path: '/api/admin/twister/sound', handle: getTwisterSound },
   { method: 'PUT', path: '/api/admin/twister/sound', handle: putTwisterSound },
   { method: 'GET', path: '/api/media/:id', handle: media },

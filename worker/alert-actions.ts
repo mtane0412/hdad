@@ -13,7 +13,7 @@
  * 2xx以外を返すとTwitchは同じ通知を再送するので、送信が成功していた場合に二重投稿になってしまう。
  */
 import { loadAlertConfig, type AlertConfig, type StoredAnnounceAction } from './alert-config'
-import { pushAlert, pushKanjiQuiz, pushTownTour, pushTwister } from './alert-channel'
+import { pushAlert, pushTownTour, pushTwister } from './alert-channel'
 import { generateChatMessage } from './ai-chat'
 import {
   aiChatsFor,
@@ -40,7 +40,7 @@ import { pickTown, townTourCallOf } from './town-tour-call'
 import { listTownTourVisits } from './town-tour-visits'
 import { loadTownTourNarration } from './town-tour-narration'
 import { loadTownTourSound, playbackSoundOf } from './town-tour-sound'
-import { kanjiQuizCallOf, pickKanjiQuizProblem } from './kanji-quiz-call'
+import { issueKanjiQuiz } from './kanji-quiz-issue'
 import { twisterCallOf, twisterSeedOf } from './twister-call'
 import { loadTwisterSound, playbackTwisterSoundOf } from './twister-sound'
 import { readViewer } from './viewer-store'
@@ -177,8 +177,8 @@ export const runAlertActions = async (
     }
   }
 
-  // 漢字クイズ（issue #300）も素材が流すので、botの接続を見る前に押し出す。問題は1件ごとに設定の級から選び直す。
-  // その級の問題が問題集に無いときも、押し出しの失敗として記録する（ほかの級から黙って出さない）
+  // 漢字クイズ（issue #300）も素材が流すので、botの接続を見る前に押し出す。問題は1件ごとに設定の級から、同じ配信で出していないものを選び直す。
+  // その級の問題が問題集に無いとき・同じ配信で出しきったときも、押し出しの失敗として記録する（ほかの級から・重複して黙って出さない。issue #301）
   const kanjiQuizzes = ((): ReturnType<typeof kanjiQuizzesFor> => {
     try {
       return kanjiQuizzesFor(config, subscriptionType, body.event, state)
@@ -188,7 +188,7 @@ export const runAlertActions = async (
   })()
   for (const [index, kanjiQuiz] of kanjiQuizzes.entries()) {
     await sendAndRecordFailure(context, messageId, 'kanjiQuiz', index, 'kanji-quiz-push-failed', () =>
-      pushKanjiQuiz(env.ALERTS, kanjiQuizCallOf(pickKanjiQuizProblem(kanjiQuiz.grade, Math.random), kanjiQuiz.requesterName, crypto.randomUUID())),
+      issueKanjiQuiz({ db: env.DB, alerts: env.ALERTS, now, random: Math.random, id: crypto.randomUUID() }, kanjiQuiz).then(() => undefined),
     )
   }
 

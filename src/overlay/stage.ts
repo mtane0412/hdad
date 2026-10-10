@@ -73,10 +73,10 @@ import { layoutCrop, type Rect, type TabCrop } from '../tab/crop'
 import { openReceiverPeer } from '../tab/peer'
 import { createTabReceiver } from '../tab/receiver'
 import { connectTabViewer } from '../tab/socket'
-import { KANJI_QUIZ_SOCKET_HINT, KANJI_QUIZ_SOCKET_PATH } from '../kanji-quiz/api'
-import { parseKanjiQuizCall, type KanjiQuizCall } from '../kanji-quiz/call'
+import { KANJI_QUIZ_SOCKET_HINT, KANJI_QUIZ_SOCKET_PATH, createKanjiQuizApi } from '../kanji-quiz/api'
+import { parseKanjiQuizMessage, type KanjiQuizCall } from '../kanji-quiz/call'
 import { DEMO_KANJI_QUIZ_CALLS, DEMO_KANJI_QUIZ_INTERVAL_MS } from '../kanji-quiz/demo'
-import { KANJI_QUIZ_TOTAL_MS, kanjiQuizSceneAt } from '../kanji-quiz/scene'
+import { acceptsAnswerAt, kanjiQuizEndOf, kanjiQuizSceneAt } from '../kanji-quiz/scene'
 import { drawKanjiQuiz } from '../kanji-quiz/view'
 import { POMODORO_SOCKET_HINT, POMODORO_SOCKET_PATH, createPomodoroOverlayApi } from '../pomodoro/api'
 import { demoPomodoroScenes, demoTimerOf } from '../pomodoro/demo'
@@ -1754,8 +1754,11 @@ const mountTwister = (box: HTMLElement, item: OverlayItem, { key, demo }: MountC
  * 漢字クイズ（issue #300）。チャンネルポイントの交換で出題された熟語の読みを問う。
  *
  * Worker から押し出された出題（問題1問と交換した人）を届いた順に1件ずつ流す。場面（級→熟語が奥から近づく→制限時間→正解と解説）は
- * 流しはじめてからの経過時間だけから決め（src/kanji-quiz/scene.ts）、canvas 1枚に描く（src/kanji-quiz/view.ts）。
- * 段階1では回答の判定を持たず、いつも時間切れまで流して正解を出す（判定は issue #301）。
+ * 流しはじめてからの経過時間と、正解者が届いた時刻だけから決め（src/kanji-quiz/scene.ts）、canvas 1枚に描く（src/kanji-quiz/view.ts）。
+ * 流しはじめたら Worker に出題を開かせ（POST /api/overlay/kanji-quiz/open）、熟語が出てから制限時間のうちに届いた最初の正解者を出す
+ * （届いた時刻でカウントダウンを止める。issue #301）。時間切れの後に届いた正解者は出さない。
+ *
+ * 注意: 出題を開けなかった・選べる問題が尽きた（Worker からの失敗の知らせ）ときは、素材の箱に出す（黙って流し続けない）。
  */
 const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
   // この素材は配信者が決めるパラメータを持たない（何を出すかはトリガーと試し再生で決まる）
@@ -1765,8 +1768,13 @@ const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo }: Moun
   canvas.dataset.kanjiQuiz = ''
   box.append(canvas)
 
-  /** 流している1件。流していなければ null */
-  let playback: { readonly call: KanjiQuizCall; readonly startedAt: number } | null = null
+  const api = createKanjiQuizApi(callWorker, key)
+  /** 流している1件。流していなければ null。answer は最初の正解者と、流しはじめてから届くまでの経過時間 */
+  let playback: {
+    readonly call: KanjiQuizCall
+    readonly startedAt: number
+    readonly answer: { readonly userName: string; readonly afterMs: number } | null
+  } | null = null
   /** 流すのを待っている出題（届いた順） */
   let waiting: readonly KanjiQuizCall[] = []
 
@@ -1774,18 +1782,38 @@ const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo }: Moun
     waiting = [...waiting, call]
   }
 
+  /** 流している出題の正解者が届いたら、届いた時刻を記録する（最初の1人だけ。熟語が出てから制限時間のうちだけ受け入れる） */
+  const acceptAnswer = (quizId: string, userName: string): void => {
+    if (playback === null || playback.call.id !== quizId || playback.answer !== null) return
+    const afterMs = Date.now() - playback.startedAt
+    if (!acceptsAnswerAt(afterMs)) return
+    playback = { ...playback, answer: { userName, afterMs } }
+  }
+
   const draw = startCanvasSurface(canvas, (ctx, width, height) => {
     const now = Date.now()
-    if (playback !== null && now - playback.startedAt >= KANJI_QUIZ_TOTAL_MS) playback = null
+    if (playback !== null && now - playback.startedAt >= kanjiQuizEndOf(playback.answer?.afterMs ?? null)) playback = null
     // 流していなければ、待っている出題の先頭を流しはじめる
     if (playback === null) {
       const [next, ...rest] = waiting
       if (next !== undefined) {
         waiting = rest
-        playback = { call: next, startedAt: now }
+        playback = { call: next, startedAt: now, answer: null }
+        // プレビューは Worker の選んだ出題ではないので開かせない
+        if (!demo) {
+          // 開けなければ回答が届かないまま時間切れまで流れるので、理由を箱に出す（次の出題の読み取りが届けば消す）
+          api.openQuiz(next.id).catch((error: unknown) => showError(error, NOUNS.kanjiQuiz, box, 'read'))
+        }
       }
     }
-    drawKanjiQuiz(ctx, width, height, playback === null ? null : { call: playback.call, scene: kanjiQuizSceneAt(now - playback.startedAt) })
+    drawKanjiQuiz(
+      ctx,
+      width,
+      height,
+      playback === null
+        ? null
+        : { call: playback.call, scene: kanjiQuizSceneAt(now - playback.startedAt, playback.answer?.afterMs ?? null), winnerName: playback.answer?.userName ?? null },
+    )
   })
 
   if (demo) {
@@ -1799,8 +1827,13 @@ const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo }: Moun
     {
       onMessage: (text) => {
         try {
-          enqueue(parseKanjiQuizCall(text))
-          clearError(box, 'read')
+          const message = parseKanjiQuizMessage(text)
+          if (message.type === 'call') {
+            // 次の出題が届いたら、前の失敗（読み取り・開けなかった・出しきった）の表示を消す
+            clearError(box, 'read')
+            enqueue(message.call)
+          } else if (message.type === 'answer') acceptAnswer(message.quizId, message.userName)
+          else showError(new Error(message.message), NOUNS.kanjiQuiz, box, 'read')
         } catch (error) {
           showError(error, NOUNS.kanjiQuiz, box, 'read')
         }

@@ -22,8 +22,10 @@ import { readCurrentWorkTime } from './task-desk-store'
 import { readCurrentStreamSummary } from './stream-summary-store'
 import { recordViewerMessage } from './viewer-store'
 import { answeredPrefectureOf } from '../src/town-tour/quiz'
-import { pushTownTourAnswer } from './alert-channel'
+import { pushKanjiQuizNotice, pushTownTourAnswer } from './alert-channel'
 import { answerTownTourQuiz } from './town-tour-quiz'
+import { wordsAnsweredBy } from './kanji-quiz-answer'
+import { answerKanjiQuiz } from './kanji-quiz-store'
 import { loadModerationConfig } from './moderation-config'
 import { claimFirstChatOfStream, consumeCooldown, recordAndCountRecentMessage, reserveChatReply } from './chat-store'
 import { pushFeedItem } from './comment-channel'
@@ -217,6 +219,10 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
   // （チャットの全件でD1を読まないため）。bot と処分した発言は上で外れているので、回答にならない
   await answerTownTourQuizFromChat(context, message)
 
+  // 漢字クイズ（issue #301）。発言が問題集のどれかの読みと一致するときだけ、受け付けている出題と照らす（チャットの全件でD1を読まないため）。
+  // 配信者の発言も回答として受ける。bot と処分した発言は上で外れているので、回答にならない
+  await answerKanjiQuizFromChat(context, message)
+
   // 作業机の組み込みのコマンド（!task・!done。issue #207）は、登録したコマンドより先に見る（同じ名前は登録させない）。
   // 作業机に並べるのに bot は要らないので、bot が無くても宣言は残す（受け付けない理由だけは返せない）
   const taskDeskContext = { db: env.DB, alerts: env.ALERTS, now, reply: bot ? (text: string) => sendAsBot(context, text) : null }
@@ -274,6 +280,32 @@ const answerTownTourQuizFromChat = async (context: Context, message: ChatMessage
       context.env.DB,
       'town-tour-quiz-failed',
       `市町村紹介のクイズの回答（${message.chatterUserName}さん: ${prefecture}）を照らせませんでした: ${error instanceof Error ? error.message : String(error)}`,
+      context.now,
+    )
+  }
+}
+
+/**
+ * チャットの発言を、漢字クイズの回答として照らす（issue #301）。
+ *
+ * 発言が問題集の読みのどれかと完全一致すれば（前後の空白とカタカナは直す。worker/kanji-quiz-answer.ts）、受け付けている出題と照らし、
+ * 最初の正解者なら合成ページへ押し出す（worker/kanji-quiz-store.ts。2人目以降と、時間切れの後の回答は押し出さない）。
+ *
+ * 注意: 照らし合わせ（D1）と押し出しの失敗は、黙って不正解にせず失敗の記録（kanji-quiz-answer-failed）に残して続ける（方針4）。
+ * 投げると Twitch へ2xx以外を返して再送させ、作業机のコマンドやコマンドの応答まで止めてしまうためである
+ * （マイグレーション 0031 を適用する前にも起きる）。時間切れで配信を止める判定（issue #302）は、この記録を前提にする。
+ */
+const answerKanjiQuizFromChat = async (context: Context, message: ChatMessage): Promise<void> => {
+  const words = wordsAnsweredBy(message.text)
+  if (words.length === 0) return
+  try {
+    const quizIds = await answerKanjiQuiz(context.env.DB, { words, userName: message.chatterUserName }, context.now)
+    for (const quizId of quizIds) await pushKanjiQuizNotice(context.env.ALERTS, { type: 'answer', quizId, userName: message.chatterUserName })
+  } catch (error) {
+    await recordFailure(
+      context.env.DB,
+      'kanji-quiz-answer-failed',
+      `漢字クイズの回答（${message.chatterUserName}さん: ${message.text}）を照らせませんでした: ${error instanceof Error ? error.message : String(error)}`,
       context.now,
     )
   }

@@ -3,10 +3,13 @@
  *
  * - 合成ページの接続（GET /api/overlay/kanji-quiz/socket）は、漢字クイズを受け取る接続として配送先へ引き渡す
  * - 管理画面の試し再生（POST /api/admin/kanji-quiz/demo）は、ログインした配信者にだけ、本文の級の問題を1問選んで押し出す。
- *   級が無い・知らない値なら400にして押し出さない。配送先の失敗は502にする
+ *   級が無い・知らない値なら400にして押し出さない。配送先の失敗は502にする。同じ配信で選べる問題が尽きたら409にする
+ * - 出題を開く（POST /api/overlay/kanji-quiz/open）は、合成ページが流しはじめたときに呼び、Worker が選んだ出題の行に受付期限を書く。
+ *   選んでいない出題の識別子なら404にする（合成ページから熟語を受け取って作らない）
  */
 import { describe, expect, it } from 'vitest'
-import { parseKanjiQuizCall } from '../src/kanji-quiz/call'
+import { parseKanjiQuizMessage } from '../src/kanji-quiz/call'
+import { GRADE_INTRO_MS } from '../src/kanji-quiz/scene'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
 import { createFakeWorkersAi } from './fake-ai'
 import { createFakeAlertChannel } from './fake-alert-channel'
@@ -18,6 +21,8 @@ import { createFakeDrawChannel } from './fake-draw-channel'
 import { createFakeStore } from './fake-store'
 import { createFakeTabChannel } from './fake-tab-channel'
 import { createFakeTokenVault } from './fake-token-vault'
+import { answerKanjiQuiz, recordKanjiQuiz } from './kanji-quiz-store'
+import { recordStreamOnline } from './stats-store'
 import { handleRequest, type Env } from './index'
 import { createSessionToken } from './session'
 
@@ -113,7 +118,7 @@ describe('POST /api/admin/kanji-quiz/demo', () => {
     expect(call?.problem.grade).toBe('1')
     expect(call?.requesterName).toBeNull()
     // 合成ページの読み取りがそのまま読める形で押し出す
-    expect(parseKanjiQuizCall(JSON.stringify(call))).toEqual(call)
+    expect(parseKanjiQuizMessage(JSON.stringify(call))).toEqual({ type: 'call', call })
     expect(await response.json()).toEqual(call)
   })
 
@@ -130,5 +135,52 @@ describe('POST /api/admin/kanji-quiz/demo', () => {
     const response = await callAsBroadcaster(createEnv(createFakeAlertChannel({ shouldFail: true })), { grade: '6' })
 
     expect(response.status).toBe(502)
+  })
+
+  it('同じ配信で選べる問題が尽きたら、押し出さずに409にする', async () => {
+    const alertChannel = createFakeAlertChannel()
+    const env = createEnv(alertChannel)
+    await recordStreamOnline(env.DB, { id: 'stream-1', startedAt: now - 60_000 })
+
+    // 1級の問題を出しきるまで試し再生する（問題集の1級の問題数は変わりうるので、409が返るまで続ける）
+    const statuses: number[] = []
+    for (let attempt = 0; attempt < 100 && !statuses.includes(409); attempt++) statuses.push((await callAsBroadcaster(env, { grade: '1' })).status)
+
+    expect(statuses.at(-1)).toBe(409)
+    const words = alertChannel.pushedKanjiQuizzes.map(({ problem }) => problem.word)
+    expect(new Set(words).size).toBe(words.length)
+  })
+})
+
+describe('POST /api/overlay/kanji-quiz/open', () => {
+  const open = (env: Env, body: unknown, key = overlayKey) =>
+    invoke(`/api/overlay/kanji-quiz/open?key=${key}`, env, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+
+  it('オーバーレイ用キーが違えば断る', async () => {
+    const response = await open(createEnv(), { quizId: 'quiz-keidai' }, 'wrong-key-0123456789abcdefghijklmn')
+
+    expect(response.status).toBe(401)
+  })
+
+  it('選んだ出題を開き、熟語が出てから回答を受け付けるようにする', async () => {
+    const env = createEnv()
+    await recordKanjiQuiz(env.DB, { id: 'quiz-keidai', word: '境内' }, now - 1000)
+
+    const response = await open(env, { quizId: 'quiz-keidai' })
+
+    expect(response.status).toBe(204)
+    expect(await answerKanjiQuiz(env.DB, { words: ['境内'], userName: '山田花子' }, now + GRADE_INTRO_MS + 1000)).toEqual(['quiz-keidai'])
+  })
+
+  it('選んでいない出題の識別子なら404にする', async () => {
+    const response = await open(createEnv(), { quizId: 'quiz-unknown' })
+
+    expect(response.status).toBe(404)
+  })
+
+  it('本文に出題の識別子が無ければ400にする', async () => {
+    const response = await open(createEnv(), {})
+
+    expect(response.status).toBe(400)
   })
 })

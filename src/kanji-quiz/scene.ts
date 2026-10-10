@@ -7,6 +7,9 @@
  *    制限時間（ANSWER_LIMIT_MS）は熟語が出たときから数え、最後の COUNTDOWN_SECONDS 秒は大きなカウントダウンにする
  * 3. 時間切れで正解の読みと解説を出す（REVEAL_MS）
  *
+ * 制限時間のうちに正解者が届いたら（issue #301）、届いた時刻でカウントダウンを止めて 3. へ進み、解説はそこから REVEAL_MS 出す。
+ * 正解者が届いた時刻は合成ページの時計で測った、流しはじめてからの経過時間として受け取る（フレーム間の状態ではなく、再生の入力）。
+ *
  * 注意: フレーム間の状態を持たない（.claude/CLAUDE.md の「描画とパラメータ」）。描き方は view.ts が受け持つ。
  */
 
@@ -45,12 +48,32 @@ export type KanjiQuizScene =
 /** 出だしが速く、終わりにゆっくり止まる動き（近づいてくる熟語が手前でふわっと止まるように） */
 const easeOutCubic = (t: number): number => 1 - (1 - t) ** 3
 
-/** 流しはじめてから elapsedMs ミリ秒たったときの場面 */
-export const kanjiQuizSceneAt = (elapsedMs: number): KanjiQuizScene => {
+/**
+ * 正解者を受け入れる時間か。熟語が出てから制限時間のあいだだけ受け入れる（時間切れの後に届いた正解者は出さない）。
+ *
+ * @param elapsedMs 流しはじめてから、正解者が届くまでの経過時間
+ */
+export const acceptsAnswerAt = (elapsedMs: number): boolean => elapsedMs >= GRADE_INTRO_MS && elapsedMs < GRADE_INTRO_MS + ANSWER_LIMIT_MS
+
+/**
+ * 1回の出題の長さ（ミリ秒）。正解者が届いていれば、届いた時刻から解説を出し終えるまで。
+ *
+ * @param answeredAfterMs 流しはじめてから正解者が届くまでの経過時間（acceptsAnswerAt が受け入れたもの）。届いていなければ null
+ */
+export const kanjiQuizEndOf = (answeredAfterMs: number | null): number => (answeredAfterMs === null ? KANJI_QUIZ_TOTAL_MS : answeredAfterMs + REVEAL_MS)
+
+/**
+ * 流しはじめてから elapsedMs ミリ秒たったときの場面。
+ *
+ * @param answeredAfterMs 流しはじめてから正解者が届くまでの経過時間（acceptsAnswerAt が受け入れたもの）。届いていなければ null
+ */
+export const kanjiQuizSceneAt = (elapsedMs: number, answeredAfterMs: number | null): KanjiQuizScene => {
   if (elapsedMs < GRADE_INTRO_MS) return { kind: 'grade', progress: elapsedMs / GRADE_INTRO_MS }
 
-  const sinceWord = elapsedMs - GRADE_INTRO_MS
-  if (sinceWord < ANSWER_LIMIT_MS) {
+  // 正解者が届いた時刻、届いていなければ時間切れの時刻から、正解の読みと解説を出す
+  const revealAt = answeredAfterMs ?? GRADE_INTRO_MS + ANSWER_LIMIT_MS
+  if (elapsedMs < revealAt) {
+    const sinceWord = elapsedMs - GRADE_INTRO_MS
     const approach = Math.min(1, sinceWord / APPROACH_MS)
     const remainingSeconds = Math.ceil((ANSWER_LIMIT_MS - sinceWord) / MS_PER_SECOND)
     return {
@@ -61,7 +84,7 @@ export const kanjiQuizSceneAt = (elapsedMs: number): KanjiQuizScene => {
     }
   }
 
-  const sinceTimeUp = sinceWord - ANSWER_LIMIT_MS
-  if (sinceTimeUp < REVEAL_MS) return { kind: 'reveal', progress: sinceTimeUp / REVEAL_MS }
+  const sinceReveal = elapsedMs - revealAt
+  if (sinceReveal < REVEAL_MS) return { kind: 'reveal', progress: sinceReveal / REVEAL_MS }
   return { kind: 'done' }
 }

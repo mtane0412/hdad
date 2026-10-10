@@ -5,13 +5,13 @@
  * - 級の場面: 画面の真ん中に「漢検○級」と、出題させた人
  * - 出題の場面: 上の帯に級と出題させた人と残り秒数、真ん中に熟語（倍率は場面が決め、ctx.scale で奥から近づける）。
  *   最後の数秒は残り秒数を熟語の下に大きく赤で出す
- * - 時間切れの場面: 「時間切れ」と熟語・正解の読み・解説
+ * - 答えの場面: 「時間切れ」（正解者が届いていれば「○○さん 正解！」。issue #301）と熟語・正解の読み・解説
  *
  * 文言は captions.ts、文の折り返しは市町村紹介と同じ wrapText が決め、ここは描くだけを受け持つ（通信も状態も持たない）。
  * テストを持たない（canvas に描くだけのため）。
  */
 import { wrapText } from '../town-tour/wrap'
-import { answerLineOf, gradeHeadlineOf, requesterLineOf } from './captions'
+import { answerLineOf, gradeHeadlineOf, requesterLineOf, winnerLineOf } from './captions'
 import type { KanjiQuizCall } from './call'
 import type { KanjiQuizScene } from './scene'
 
@@ -168,14 +168,16 @@ const drawQuestion = (
   }
 }
 
-const drawReveal = (ctx: CanvasRenderingContext2D, width: number, height: number, unit: number, call: KanjiQuizCall): void => {
+const drawReveal = (ctx: CanvasRenderingContext2D, width: number, height: number, unit: number, call: KanjiQuizCall, winnerName: string | null): void => {
   drawBand(ctx, width, unit, call, null)
   const margin = SIZES.margin * unit
   const top = (SIZES.margin * 2 + SIZES.bandHeight) * unit
   fillPanel(ctx, margin * 2, top, width - margin * 4, height - top - margin, SIZES.panelRadius * unit)
 
   let y = top + (SIZES.panelPadding + SIZES.timeUpFont / 2) * unit
-  centerText(ctx, '時間切れ！ 正解は…', width / 2, y, `bold ${SIZES.timeUpFont * unit}px ${SANS_FAMILY}`, COLORS.countdown)
+  // 正解者がいれば名前を祝い、いなければ時間切れを告げる
+  const headline = winnerName === null ? '時間切れ！ 正解は…' : winnerLineOf(winnerName)
+  centerText(ctx, headline, width / 2, y, `bold ${SIZES.timeUpFont * unit}px ${SANS_FAMILY}`, winnerName === null ? COLORS.countdown : COLORS.accent)
   y += (SIZES.timeUpFont / 2 + SIZES.revealWordFont * REVEAL_LINE_RATIO) * unit
   drawWord(ctx, call.problem.word, width / 2, y, SIZES.revealWordFont * unit, 1)
   y += (SIZES.revealWordFont * REVEAL_LINE_RATIO + SIZES.answerFont * REVEAL_LINE_RATIO) * unit
@@ -191,16 +193,22 @@ const drawReveal = (ctx: CanvasRenderingContext2D, width: number, height: number
 }
 
 /**
- * 1フレームぶんを描く。流していなければ（call が null）何も描かない。
+ * 1フレームぶんを描く。流していなければ（playing が null）何も描かない。
  *
  * @param width 箱のCSS上の幅
  * @param height 箱のCSS上の高さ
+ * @param playing 流している出題と場面と、最初の正解者の名前（届いていなければ null）
  */
-export const drawKanjiQuiz = (ctx: CanvasRenderingContext2D, width: number, height: number, playing: { call: KanjiQuizCall; scene: KanjiQuizScene } | null): void => {
+export const drawKanjiQuiz = (
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  playing: { call: KanjiQuizCall; scene: KanjiQuizScene; winnerName: string | null } | null,
+): void => {
   ctx.clearRect(0, 0, width, height)
   if (playing === null) return
   const unit = Math.min(width / BASE_WIDTH, height / BASE_HEIGHT)
-  const { call, scene } = playing
+  const { call, scene, winnerName } = playing
   switch (scene.kind) {
     case 'grade':
       drawGrade(ctx, width, height, unit, call, scene.progress)
@@ -209,7 +217,7 @@ export const drawKanjiQuiz = (ctx: CanvasRenderingContext2D, width: number, heig
       drawQuestion(ctx, width, height, unit, call, scene)
       return
     case 'reveal':
-      drawReveal(ctx, width, height, unit, call)
+      drawReveal(ctx, width, height, unit, call, winnerName)
       return
     case 'done':
       return
