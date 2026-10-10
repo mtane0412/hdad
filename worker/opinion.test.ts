@@ -6,10 +6,25 @@
  * - コメントのうち、コマンド・エモートだけ・短い反応は規則で落とし、その理由を返すこと（LLM に渡さない）
  * - 返信は、短くても落とさないこと（「それな」は返信先の意見への賛同になりうるため）
  * - 同じ人が短い間隔で続けて書いたコメントは1つの発言につなげ、続きが来るかもしれないあいだは待つこと
+ * - 救い出して作る意見（札の種類・1文・論点）と論点の名前を、切り詰めずに検証すること（issue #308）
+ * - 選んだ論点が、いまの論点と食い違わないか（無い論点・重なる名前・数の上限）を見分けること（issue #308）
  */
 import { describe, expect, it } from 'vitest'
 import { ConfigError } from './alert-config'
-import { MAX_THEME_LENGTH, MERGE_GAP_MS, dropReasonOf, parseThemeInput, readyUtterances, type PendingComment } from './opinion'
+import {
+  MAX_OPINION_LENGTH,
+  MAX_THEME_LENGTH,
+  MAX_TOPICS,
+  MAX_TOPIC_TITLE_LENGTH,
+  MERGE_GAP_MS,
+  dropReasonOf,
+  parseRescuedOpinionInput,
+  parseThemeInput,
+  parseTopicTitleInput,
+  readyUtterances,
+  topicChoiceProblem,
+  type PendingComment,
+} from './opinion'
 
 describe('parseThemeInput', () => {
   it('前後の空白を落としたテーマを返す', () => {
@@ -118,5 +133,71 @@ describe('readyUtterances', () => {
   it('返信は最初のコメントの返信先を添える', () => {
     const reply: PendingComment = { ...comment(1, 'pon_pon', 'それな', 60), replyName: 'tsukimi_dev', replyText: 'AIのまとめが間違ってたら困る' }
     expect(readyUtterances([reply], NOW)[0]).toMatchObject({ replyName: 'tsukimi_dev', replyText: 'AIのまとめが間違ってたら困る' })
+  })
+})
+
+describe('parseRescuedOpinionInput', () => {
+  it('前後の空白を落とし、既にある論点に入れる意見を返す', () => {
+    expect(parseRescuedOpinionInput({ kind: 'issue', text: ' AIの返事は寂しい ', topic: { type: 'existing', id: 3 } })).toEqual({
+      kind: 'issue',
+      text: 'AIの返事は寂しい',
+      topic: { type: 'existing', id: 3 },
+    })
+  })
+
+  it('新しい論点に入れる意見を返す', () => {
+    expect(parseRescuedOpinionInput({ kind: 'question', text: 'AIの声は誰の声？', topic: { type: 'new', title: ' 声と人格 ' } })).toEqual({
+      kind: 'question',
+      text: 'AIの声は誰の声？',
+      topic: { type: 'new', title: '声と人格' },
+    })
+  })
+
+  it('知らない札の種類・空の1文・上限を超える1文は切り詰めずに拒む', () => {
+    expect(() => parseRescuedOpinionInput({ kind: 'agree', text: 'AIの返事は寂しい', topic: { type: 'existing', id: 3 } })).toThrow(ConfigError)
+    expect(() => parseRescuedOpinionInput({ kind: 'issue', text: '  ', topic: { type: 'existing', id: 3 } })).toThrow('意見を入力してください')
+    expect(() => parseRescuedOpinionInput({ kind: 'issue', text: 'あ'.repeat(MAX_OPINION_LENGTH + 1), topic: { type: 'existing', id: 3 } })).toThrow(
+      `${MAX_OPINION_LENGTH}文字以内`,
+    )
+  })
+
+  it('論点の指し方が崩れていれば拒む', () => {
+    expect(() => parseRescuedOpinionInput({ kind: 'issue', text: 'AIの返事は寂しい', topic: { type: 'existing', id: 0 } })).toThrow(ConfigError)
+    expect(() => parseRescuedOpinionInput({ kind: 'issue', text: 'AIの返事は寂しい', topic: { type: 'new', title: '' } })).toThrow(ConfigError)
+    expect(() => parseRescuedOpinionInput({ kind: 'issue', text: 'AIの返事は寂しい' })).toThrow(ConfigError)
+  })
+})
+
+describe('parseTopicTitleInput', () => {
+  it('前後の空白を落とした論点の名前を返す', () => {
+    expect(parseTopicTitleInput({ title: ' 視聴者との距離 ' })).toEqual({ title: '視聴者との距離' })
+  })
+
+  it('空・上限を超える名前は切り詰めずに拒む', () => {
+    expect(() => parseTopicTitleInput({ title: ' ' })).toThrow(ConfigError)
+    expect(() => parseTopicTitleInput({ title: 'あ'.repeat(MAX_TOPIC_TITLE_LENGTH + 1) })).toThrow(`${MAX_TOPIC_TITLE_LENGTH}文字以内`)
+  })
+})
+
+describe('topicChoiceProblem', () => {
+  const topics = [
+    { id: 1, title: '視聴者との距離' },
+    { id: 2, title: '配信の負担' },
+  ]
+
+  it('いまの論点と食い違わなければ null を返す', () => {
+    expect(topicChoiceProblem(topics, { type: 'existing', id: 2 })).toBeNull()
+    expect(topicChoiceProblem(topics, { type: 'new', title: '声と人格' })).toBeNull()
+  })
+
+  it('無い論点・既にある名前の新しい論点を見分ける', () => {
+    expect(topicChoiceProblem(topics, { type: 'existing', id: 9 })).toContain('見つかりません')
+    expect(topicChoiceProblem(topics, { type: 'new', title: '配信の負担' })).toContain('既にあります')
+  })
+
+  it('論点が上限まであれば、新しい論点は作れない', () => {
+    const full = Array.from({ length: MAX_TOPICS }, (_, index) => ({ id: index + 1, title: `論点${index + 1}` }))
+    expect(topicChoiceProblem(full, { type: 'new', title: '声と人格' })).toContain(`${MAX_TOPICS}つまで`)
+    expect(topicChoiceProblem(full, { type: 'existing', id: 1 })).toBeNull()
   })
 })

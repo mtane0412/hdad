@@ -60,6 +60,11 @@
  * | POST /api/admin/opinions/themes/:id/close | セッション | 意見ボードのテーマを締め切り、振り分けを止める |
  * | POST /api/admin/opinions/themes/:id/prompt | セッション | 意見ボードの視聴者への問いかけを、LLM に別のものへ作り直させる |
  * | PUT  /api/admin/opinions/items/:id | セッション   | 意見を隠す・戻す（合成ページへ押し出す） |
+ * | POST /api/admin/opinions/comments/:id/draft | セッション | 意見にならなかったコメントから、意見の下書きを LLM に作らせる（保存しない） |
+ * | POST /api/admin/opinions/comments/:id/opinion | セッション | 意見にならなかったコメントを、配信者が直した意見にする |
+ * | POST /api/admin/opinions/comments/:id/join | セッション | 意見にならなかったコメントを、既にある意見に統合する |
+ * | PUT  /api/admin/opinions/topics/:id | セッション  | 論点の名前を書き換える |
+ * | POST /api/admin/opinions/topics/:id/merge | セッション | 論点を別の論点にまとめる（まとめ先の名前を残す） |
  * | POST /api/admin/town-tour/demo   | セッション     | 市町村紹介の試し再生（市町村を1つ引いて合成ページへ押し出す） |
  * | GET  /api/admin/town-tour/sound  | セッション     | 市町村紹介の演出で鳴らす音の設定 |
  * | PUT  /api/admin/town-tour/sound  | セッション     | 市町村紹介の音の設定を検証して保存 |
@@ -189,7 +194,20 @@ import { captionSocket } from './caption-routes'
 import { getWorkLog, workLogSocket } from './work-log-routes'
 import { getTaskDesk, taskDeskSocket } from './task-desk-routes'
 import { getOverlayTexts, getTexts, postText, putText, removeText, textSocket } from './text-routes'
-import { getAdminOpinions, getOverlayOpinions, opinionSocket, postCloseOpinionTheme, postOpinionPrompt, postOpinionTheme, putOpinion } from './opinion-routes'
+import {
+  getAdminOpinions,
+  getOverlayOpinions,
+  opinionSocket,
+  postCloseOpinionTheme,
+  postJoinRescuedComment,
+  postMergeOpinionTopics,
+  postOpinionDraft,
+  postOpinionPrompt,
+  postOpinionTheme,
+  postRescuedOpinion,
+  putOpinion,
+  putOpinionTopic,
+} from './opinion-routes'
 import {
   getTownTour,
   getTownTourNarration,
@@ -325,6 +343,11 @@ const ROUTES: readonly Route[] = [
   { method: 'POST', path: '/api/admin/opinions/themes/:id/close', handle: postCloseOpinionTheme },
   { method: 'POST', path: '/api/admin/opinions/themes/:id/prompt', handle: postOpinionPrompt },
   { method: 'PUT', path: '/api/admin/opinions/items/:id', handle: putOpinion },
+  { method: 'POST', path: '/api/admin/opinions/comments/:id/draft', handle: postOpinionDraft },
+  { method: 'POST', path: '/api/admin/opinions/comments/:id/opinion', handle: postRescuedOpinion },
+  { method: 'POST', path: '/api/admin/opinions/comments/:id/join', handle: postJoinRescuedComment },
+  { method: 'PUT', path: '/api/admin/opinions/topics/:id', handle: putOpinionTopic },
+  { method: 'POST', path: '/api/admin/opinions/topics/:id/merge', handle: postMergeOpinionTopics },
   { method: 'GET', path: '/api/admin/viewers', handle: getViewers },
   { method: 'PATCH', path: '/api/admin/viewers/:userId', handle: patchViewer },
   { method: 'DELETE', path: '/api/admin/viewers/:userId', handle: deleteViewerRoute },

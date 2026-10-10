@@ -9,26 +9,35 @@
  * - 締め切ったあとも、次のテーマを開くまで最後のテーマを映すこと
  * - 視聴者への問いかけを、開いているテーマにだけ書くこと（issue #307）
  * - Jev の確率をコメントに残し、しきい値に届かなかったコメントだけを振り分け待ちから外すこと（issue #307）
+ * - 管理画面へコメントの内訳と救い出せるコメントを出し、救い出し・論点の名前の書き換え・論点の統合を書けること（issue #308）
+ * - 振り分けの LLM を待つあいだに論点がまとめられた・増えたら、その意見を書かずにコメントを振り分け待ちに残すこと（issue #308）
  */
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createFakeDatabase } from './fake-database'
 import {
   closeTheme,
+  joinRescuedComment,
   markCommentsFailed,
+  mergeTopics,
   openTheme,
   readAdminBoard,
   readOpenTheme,
   readOverlayBoard,
+  readLatestThemeTopics,
   readPendingComments,
+  readRescuableComment,
   readSortingBoard,
   readVisibleBoard,
   recordFilterResults,
   recordOpinionComment,
   applySorting,
+  renameTopic,
+  saveRescuedOpinion,
   saveThemePrompt,
   setOpinionHidden,
   type OpinionCommentInput,
 } from './opinion-store'
+import { MAX_TOPICS } from './opinion'
 
 const NOW = Date.parse('2026-10-10T12:00:00.000Z')
 const LATER = Date.parse('2026-10-10T12:10:00.000Z')
@@ -324,5 +333,181 @@ describe('readVisibleBoard', () => {
     expect(await readVisibleBoard(db, theme.id)).toEqual([
       { id: expect.any(Number), title: '視聴者との距離', opinions: [{ id: expect.any(Number), kind: 'issue', text: 'AIの返事は寂しい' }] },
     ])
+  })
+})
+
+describe('救い出しと論点の整理（issue #308）', () => {
+  /** コメントの状態を直接書き換える（振り分けの結果を作る手間を省く） */
+  const setStatus = (id: number, status: string): void => {
+    db.sqlite.prepare('UPDATE opinion_comments SET status = ? WHERE id = ?').run(status, id)
+  }
+
+  /**
+   * テーマを開き、意見1件（aoi のコメントから）と、意見にならなかったコメントを状態ごとに1件ずつ貯める。
+   * 状態: 規則で落とした（短い反応・コマンド）・Jev が落とした・LLM が無関係とした・振り分けに失敗した・振り分け待ち
+   */
+  const prepare = async () => {
+    const theme = await open('配信中にAIをどこまで使っていい？')
+    await recordOpinionComment(db, comment('m1', 'aoi', 'AIのコメ返しはちょっと寂しい'), NOW)
+    await recordOpinionComment(db, { ...comment('m2', 'nekomaru', '草'), dropReason: 'reaction' }, NOW + 1000)
+    await recordOpinionComment(db, { ...comment('m3', 'mochi', '!task 洗濯'), dropReason: 'command' }, NOW + 2000)
+    await recordOpinionComment(db, comment('m4', 'riku', 'AIは裏方だけでいい'), NOW + 3000)
+    await recordOpinionComment(db, comment('m5', 'mugi', 'AIの声が人っぽすぎると怖い'), NOW + 4000)
+    await recordOpinionComment(db, comment('m6', 'sora', '翻訳だけはAIに任せたい'), NOW + 5000)
+    await recordOpinionComment(db, comment('m7', 'hana', 'あとで考えたい'), NOW + 6000)
+    const ids = db.sqlite.prepare('SELECT id FROM opinion_comments ORDER BY id').all().map((row) => Number((row as { id: number }).id))
+    const [used, reaction, command, filtered, ignored, failed, pending] = ids
+    if (used === undefined || reaction === undefined || command === undefined || filtered === undefined || ignored === undefined || failed === undefined || pending === undefined) {
+      throw new Error('コメントが7件貯まっていません')
+    }
+    await applySorting(db, theme.id, [{ type: 'new', commentIds: [used], topic: { type: 'new', title: '視聴者との距離' }, kind: 'issue', text: 'AIの返事は寂しい' }], NOW)
+    setStatus(filtered, 'filtered')
+    setStatus(ignored, 'ignored')
+    setStatus(failed, 'failed')
+    const topic = (await readSortingBoard(db, theme.id))[0]
+    const opinionId = topic?.opinions[0]?.id
+    if (topic === undefined || opinionId === undefined) throw new Error('意見を作れませんでした')
+    return { theme, topicId: topic.id, opinionId, ids: { used, reaction, command, filtered, ignored, failed, pending } }
+  }
+
+  it('テーマを開いたことがなければ、内訳は全部0で救い出せるコメントも無い', async () => {
+    const board = await readAdminBoard(db)
+    expect(board.counts).toEqual({ received: 0, used: 0, pending: 0, dropped: { command: 0, emote: 0, reaction: 0 }, filtered: 0, ignored: 0, failed: 0 })
+    expect(board.rescuable).toEqual([])
+  })
+
+  it('コメントの内訳を、規則で落とした理由・Jev・LLM・失敗に分けて数える', async () => {
+    await prepare()
+    expect((await readAdminBoard(db)).counts).toEqual({
+      received: 7,
+      used: 1,
+      pending: 1,
+      dropped: { command: 1, emote: 0, reaction: 1 },
+      filtered: 1,
+      ignored: 1,
+      failed: 1,
+    })
+  })
+
+  it('意見にならなかったコメントを新しい順に出す。振り分け待ちは、締め切るまで出さない', async () => {
+    const { theme, ids } = await prepare()
+    const rescuable = (await readAdminBoard(db)).rescuable
+    expect(rescuable.map(({ id }) => id)).toEqual([ids.failed, ids.ignored, ids.filtered, ids.command, ids.reaction])
+    expect(rescuable[3]).toEqual({
+      id: ids.command,
+      userName: 'mochi',
+      text: '!task 洗濯',
+      replyName: null,
+      replyText: null,
+      sentAt: new Date(NOW + 2000).toISOString(),
+      status: 'dropped',
+      dropReason: 'command',
+      jevScore: null,
+    })
+
+    // 締め切ったあとは、振り分けられないまま残ったコメントも救い出せる
+    await closeTheme(db, theme.id, LATER)
+    expect((await readAdminBoard(db)).rescuable[0]).toMatchObject({ id: ids.pending, status: 'pending' })
+  })
+
+  it('救い出せるコメントだけを1件読む。意見になったもの・前のテーマのものは読まない', async () => {
+    const { theme, ids } = await prepare()
+    expect(await readRescuableComment(db, ids.ignored)).toMatchObject({ id: ids.ignored, text: 'AIの声が人っぽすぎると怖い', status: 'ignored' })
+    expect(await readRescuableComment(db, ids.used)).toBeNull()
+    expect(await readRescuableComment(db, ids.pending)).toBeNull()
+
+    await closeTheme(db, theme.id, LATER)
+    await open('次のテーマ', LATER + 1000)
+    expect(await readRescuableComment(db, ids.ignored)).toBeNull()
+  })
+
+  it('救い出したコメントを既にある意見に統合し、人数ともとのコメントに足す', async () => {
+    const { opinionId, ids } = await prepare()
+
+    expect(await joinRescuedComment(db, ids.filtered, opinionId)).toBe(true)
+
+    const opinion = (await readAdminBoard(db)).topics[0]?.opinions[0]
+    expect(opinion?.people).toBe(2)
+    expect(opinion?.sources.map(({ userName }) => userName)).toEqual(['aoi', 'riku'])
+    // 意見になったコメントは、もう救い出せない
+    expect(await joinRescuedComment(db, ids.filtered, opinionId)).toBe(false)
+    expect(await joinRescuedComment(db, ids.ignored, opinionId + 100)).toBe(false)
+  })
+
+  it('救い出したコメントから、既にある論点・新しい論点に意見を作る', async () => {
+    const { topicId, ids } = await prepare()
+
+    expect(await saveRescuedOpinion(db, ids.ignored, { kind: 'insight', text: '人っぽすぎる声は怖い', topic: { type: 'existing', id: topicId } }, LATER)).toBe(true)
+    expect(await saveRescuedOpinion(db, ids.failed, { kind: 'solution', text: '翻訳だけAIに任せる', topic: { type: 'new', title: '使いどころ' } }, LATER)).toBe(true)
+
+    const board = await readAdminBoard(db)
+    expect(board.topics.map(({ title, opinions }) => ({ title, opinions: opinions.map(({ text, author }) => ({ text, author })) }))).toEqual([
+      { title: '視聴者との距離', opinions: [{ text: '人っぽすぎる声は怖い', author: 'mugi' }, { text: 'AIの返事は寂しい', author: 'aoi' }] },
+      { title: '使いどころ', opinions: [{ text: '翻訳だけAIに任せる', author: 'sora' }] },
+    ])
+    expect(board.counts.used).toBe(3)
+    // 意見になったコメントからは、もう作れない
+    expect(await saveRescuedOpinion(db, ids.ignored, { kind: 'insight', text: '二重に作る', topic: { type: 'existing', id: topicId } }, LATER)).toBe(false)
+  })
+
+  it('締め切ったテーマでも救い出せ、振り分け待ちのまま残ったコメントも意見にできる', async () => {
+    const { theme, topicId, ids } = await prepare()
+    await closeTheme(db, theme.id, LATER)
+
+    expect(await saveRescuedOpinion(db, ids.pending, { kind: 'question', text: 'AIの使いどころは後で決める？', topic: { type: 'existing', id: topicId } }, LATER)).toBe(true)
+    expect((await readOverlayBoard(db)).topics[0]?.opinions[0]?.text).toBe('AIの使いどころは後で決める？')
+  })
+
+  it('論点の名前を書き換える。前のテーマの論点は書き換えない', async () => {
+    const { theme, topicId } = await prepare()
+
+    expect(await renameTopic(db, topicId, 'AIとの距離感')).toBe(true)
+    expect(await readLatestThemeTopics(db)).toEqual([{ id: topicId, title: 'AIとの距離感' }])
+
+    await closeTheme(db, theme.id, LATER)
+    await open('次のテーマ', LATER + 1000)
+    expect(await renameTopic(db, topicId, '古い論点')).toBe(false)
+  })
+
+  it('2つの論点を1つにまとめ、まとめた側の意見を移して論点を消す', async () => {
+    const { topicId, ids } = await prepare()
+    await saveRescuedOpinion(db, ids.failed, { kind: 'solution', text: '翻訳だけAIに任せる', topic: { type: 'new', title: '使いどころ' } }, LATER)
+    const usage = (await readLatestThemeTopics(db)).find(({ title }) => title === '使いどころ')
+    if (usage === undefined) throw new Error('論点「使いどころ」を作れませんでした')
+
+    expect(await mergeTopics(db, usage.id, topicId)).toBe(true)
+
+    const topics = (await readAdminBoard(db)).topics
+    expect(topics.map(({ title }) => title)).toEqual(['視聴者との距離'])
+    expect(topics[0]?.opinions.map(({ text }) => text)).toEqual(['翻訳だけAIに任せる', 'AIの返事は寂しい'])
+    // 消した論点はもうまとめられない
+    expect(await mergeTopics(db, usage.id, topicId)).toBe(false)
+  })
+
+  it('振り分けの LLM を待つあいだに論点がまとめられたら、その意見を書かずにコメントを振り分け待ちに残す', async () => {
+    const { theme, topicId, ids } = await prepare()
+    await saveRescuedOpinion(db, ids.failed, { kind: 'solution', text: '翻訳だけAIに任せる', topic: { type: 'new', title: '使いどころ' } }, LATER)
+    const usage = (await readLatestThemeTopics(db)).find(({ title }) => title === '使いどころ')
+    if (usage === undefined) throw new Error('論点「使いどころ」を作れませんでした')
+    await mergeTopics(db, usage.id, topicId)
+
+    // LLM は、まとめる前の論点（使いどころ）を指して新しい意見を返した
+    await applySorting(db, theme.id, [{ type: 'new', commentIds: [ids.pending], topic: { type: 'existing', id: usage.id }, kind: 'insight', text: 'あとで考えたい' }], LATER)
+
+    expect((await readPendingComments(db, theme.id)).map(({ id }) => id)).toEqual([ids.pending])
+  })
+
+  it('振り分けの LLM を待つあいだに論点が上限まで増えたら、新しい論点を作らずにコメントを振り分け待ちに残す', async () => {
+    const { theme, ids } = await prepare()
+    const rescued = [ids.reaction, ids.command, ids.filtered, ids.ignored, ids.failed]
+    for (const [index, commentId] of rescued.entries()) {
+      await saveRescuedOpinion(db, commentId, { kind: 'insight', text: `救い出した意見${index}`, topic: { type: 'new', title: `論点${index}` } }, LATER)
+    }
+    expect(await readLatestThemeTopics(db)).toHaveLength(MAX_TOPICS)
+
+    await applySorting(db, theme.id, [{ type: 'new', commentIds: [ids.pending], topic: { type: 'new', title: '七つ目の論点' }, kind: 'insight', text: 'あとで考えたい' }], LATER)
+
+    expect(await readLatestThemeTopics(db)).toHaveLength(MAX_TOPICS)
+    expect((await readPendingComments(db, theme.id)).map(({ id }) => id)).toEqual([ids.pending])
   })
 })

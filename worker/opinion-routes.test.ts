@@ -8,6 +8,8 @@
  * - 押し出しに失敗したら、保存は済んだことを添えて502にすること（黙って成功にしない）
  * - 合成ページ（オーバーレイ用キー）から、人数を含まない意見ボードを読めること
  * - 管理画面から、開いているテーマの問いかけを別のものに替えさせられること（issue #307）
+ * - 管理画面から、意見にならなかったコメントを下書きを見て新しい意見にし・既にある意見に統合し、論点の名前を書き換え・2つの論点を
+ *   まとめられること。食い違い（救い出せないコメント・無い論点・重なる名前・上限）を見分けて返すこと（issue #308）
  *
  * 読み書きの中身は worker/opinion-store.test.ts、振り分けの中身は worker/opinion-run.test.ts が確かめるので、ここでは経路の受け渡しだけを見る。
  */
@@ -26,7 +28,7 @@ import { createTimerInstances } from './fake-timer-instances'
 import { createFakeTokenVault } from './fake-token-vault'
 import { handleRequest, type Env } from './index'
 import { MAX_THEME_LENGTH } from './opinion'
-import { applySorting, openTheme, readOpenTheme, readPendingComments, readSortingBoard, recordOpinionComment, saveThemePrompt } from './opinion-store'
+import { applySorting, openTheme, readAdminBoard, readOpenTheme, readPendingComments, readSortingBoard, recordOpinionComment, saveThemePrompt } from './opinion-store'
 import { OPINION_SORT_INTERVAL_MS } from './opinion-timer'
 import { createSessionToken } from './session'
 
@@ -301,5 +303,122 @@ describe('GET /api/overlay/opinions', () => {
     const { env } = setupEnv()
     const response = await callHandler(new Request(`${SITE}/api/overlay/opinions?key=wrong-key`), env)
     expect(response.status).toBe(401)
+  })
+})
+
+describe('救い出しと論点の整理（issue #308）', () => {
+  const postDraft = (env: Env, id: number | string) => callAsBroadcaster(env, `/api/admin/opinions/comments/${id}/draft`, { method: 'POST' })
+  const postRescue = (env: Env, id: number | string, body: unknown) =>
+    callAsBroadcaster(env, `/api/admin/opinions/comments/${id}/opinion`, { method: 'POST', body: JSON.stringify(body) })
+  const postJoin = (env: Env, id: number | string, body: unknown) =>
+    callAsBroadcaster(env, `/api/admin/opinions/comments/${id}/join`, { method: 'POST', body: JSON.stringify(body) })
+  const putTopic = (env: Env, id: number | string, body: unknown) => callAsBroadcaster(env, `/api/admin/opinions/topics/${id}`, { method: 'PUT', body: JSON.stringify(body) })
+  const postMerge = (env: Env, id: number | string, body: unknown) =>
+    callAsBroadcaster(env, `/api/admin/opinions/topics/${id}/merge`, { method: 'POST', body: JSON.stringify(body) })
+
+  /** 意見1件（論点「視聴者との距離」）と、短い反応として規則で落としたコメント1件を用意する */
+  const prepareRescue = async (db: Env['DB']) => {
+    const prepared = await prepareOpinion(db)
+    await recordOpinionComment(db, { messageId: 'm2', userId: 'id-mugi', userName: 'mugi', text: '声が怖い', replyName: null, replyText: null, dropReason: 'reaction' }, NOW)
+    const board = await readAdminBoard(db)
+    const commentId = board.rescuable[0]?.id
+    const topicId = board.topics[0]?.id
+    if (commentId === undefined || topicId === undefined) throw new Error('救い出すコメントを用意できませんでした')
+    return { ...prepared, commentId, topicId }
+  }
+
+  it('コメントから意見の下書きを LLM に作らせ、保存せずに返す', async () => {
+    const { env } = setupEnv()
+    const { commentId, topicId } = await prepareRescue(env.DB)
+    env.AI = createFakeWorkersAi({ response: `{"topic":"T${topicId}","kind":"気づき","text":"人っぽすぎる声は怖い"}` })
+
+    const response = await postDraft(env, commentId)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ draft: { kind: 'insight', text: '人っぽすぎる声は怖い', topic: { type: 'existing', id: topicId } } })
+    expect(JSON.stringify(env.AI.calls[0]?.input)).toContain('声が怖い')
+    expect((await readAdminBoard(env.DB)).rescuable).toHaveLength(1)
+  })
+
+  it('下書きを作れなければ502、救い出せないコメントなら404にする', async () => {
+    const { env } = setupEnv()
+    const { commentId } = await prepareRescue(env.DB)
+    env.AI = createFakeWorkersAi({ response: '下書きです' })
+    const failed = await postDraft(env, commentId)
+    expect(failed.status).toBe(502)
+    expect(await failed.json()).toMatchObject({ error: { code: 'opinion-draft-failed' } })
+    expect((await postDraft(env, commentId + 100)).status).toBe(404)
+    expect((await postDraft(env, 'abc')).status).toBe(404)
+  })
+
+  it('コメントを新しい論点の意見にして、意見ボードを押し出す', async () => {
+    const { env, channel } = setupEnv()
+    const { commentId } = await prepareRescue(env.DB)
+
+    const response = await postRescue(env, commentId, { kind: 'issue', text: '人っぽすぎる声は怖い', topic: { type: 'new', title: '声と人格' } })
+
+    expect(response.status).toBe(201)
+    expect(channel.pushedOpinions.at(-1)?.topics.map(({ title }) => title)).toEqual(['視聴者との距離', '声と人格'])
+    expect((await readAdminBoard(env.DB)).rescuable).toEqual([])
+    // 一度意見にしたコメントは、もう救い出せない
+    expect((await postRescue(env, commentId, { kind: 'issue', text: '二重に作る', topic: { type: 'new', title: '別の論点' } })).status).toBe(404)
+  })
+
+  it('入力が崩れていれば400、論点がいまの論点と食い違えば409にする', async () => {
+    const { env } = setupEnv()
+    const { commentId, topicId } = await prepareRescue(env.DB)
+    expect((await postRescue(env, commentId, { kind: 'agree', text: '怖い', topic: { type: 'existing', id: topicId } })).status).toBe(400)
+    const conflict = await postRescue(env, commentId, { kind: 'issue', text: '怖い', topic: { type: 'new', title: '視聴者との距離' } })
+    expect(conflict.status).toBe(409)
+    expect(await conflict.json()).toMatchObject({ error: { code: 'opinion-topic-conflict' } })
+    expect((await postRescue(env, commentId, { kind: 'issue', text: '怖い', topic: { type: 'existing', id: topicId + 100 } })).status).toBe(409)
+  })
+
+  it('コメントを既にある意見に統合して、意見ボードを押し出す', async () => {
+    const { env, channel } = setupEnv()
+    const { commentId, opinionId } = await prepareRescue(env.DB)
+
+    const response = await postJoin(env, commentId, { opinionId })
+
+    expect(response.status).toBe(204)
+    expect(channel.pushedOpinions).not.toHaveLength(0)
+    expect((await readAdminBoard(env.DB)).topics[0]?.opinions[0]?.people).toBe(2)
+  })
+
+  it('統合先が崩れていれば400、無い意見・救い出せないコメントなら404にする', async () => {
+    const { env } = setupEnv()
+    const { commentId, opinionId } = await prepareRescue(env.DB)
+    expect((await postJoin(env, commentId, { opinionId: '12' })).status).toBe(400)
+    expect((await postJoin(env, commentId, { opinionId: opinionId + 100 })).status).toBe(404)
+    expect((await postJoin(env, commentId + 100, { opinionId })).status).toBe(404)
+  })
+
+  it('論点の名前を書き換えて、意見ボードを押し出す。重なる名前は409、無い論点は404にする', async () => {
+    const { env, channel } = setupEnv()
+    const { commentId, topicId } = await prepareRescue(env.DB)
+    await postRescue(env, commentId, { kind: 'issue', text: '人っぽすぎる声は怖い', topic: { type: 'new', title: '声と人格' } })
+
+    expect((await putTopic(env, topicId, { title: 'AIとの距離感' })).status).toBe(204)
+    expect(channel.pushedOpinions.at(-1)?.topics[0]?.title).toBe('AIとの距離感')
+    // 同じ名前のまま保存し直すのは受け付ける
+    expect((await putTopic(env, topicId, { title: 'AIとの距離感' })).status).toBe(204)
+
+    expect((await putTopic(env, topicId, { title: '声と人格' })).status).toBe(409)
+    expect((await putTopic(env, topicId, { title: '' })).status).toBe(400)
+    expect((await putTopic(env, topicId + 100, { title: '無い論点' })).status).toBe(404)
+  })
+
+  it('2つの論点をまとめて、意見ボードを押し出す。同じ論点・崩れた指定は400、無い論点は404にする', async () => {
+    const { env, channel } = setupEnv()
+    const { commentId, topicId } = await prepareRescue(env.DB)
+    await postRescue(env, commentId, { kind: 'issue', text: '人っぽすぎる声は怖い', topic: { type: 'new', title: '声と人格' } })
+    const voiceTopicId = (await readAdminBoard(env.DB)).topics[1]?.id ?? 0
+
+    expect((await postMerge(env, voiceTopicId, { into: voiceTopicId })).status).toBe(400)
+    expect((await postMerge(env, voiceTopicId, { into: 'abc' })).status).toBe(400)
+    expect((await postMerge(env, voiceTopicId, { into: topicId + 100 })).status).toBe(404)
+
+    expect((await postMerge(env, voiceTopicId, { into: topicId })).status).toBe(204)
+    expect(channel.pushedOpinions.at(-1)?.topics.map(({ title, opinions }) => ({ title, count: opinions.length }))).toEqual([{ title: '視聴者との距離', count: 2 }])
   })
 })

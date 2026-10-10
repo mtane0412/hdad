@@ -10,6 +10,8 @@
  * - コメントを規則で落とすかの判定（dropReasonOf）。LLM に渡す前に、コマンド・エモートだけ・短い反応を落とす
  * - 保留中のコメントを、LLM に渡す発言にまとめる（readyUtterances）。同じ人が短い間隔で続けて書いたものは1つにつなげる
  * - 合成ページと管理画面へ渡す形（OpinionBoardSnapshot・AdminOpinionBoard）
+ * - 配信者が救い出して作る意見と、論点の名前の検証（parseRescuedOpinionInput・parseTopicTitleInput。issue #308）
+ * - 選んだ論点が、いまの論点と食い違わないかの判定（topicChoiceProblem。issue #308）
  *
  * 読み書きは worker/opinion-store.ts、Jev での絞り込みは worker/opinion-filter.ts、LLM での振り分けは worker/opinion-sort.ts、
  * 問いかけ（観点の提案）は worker/opinion-prompt.ts、経路は worker/opinion-routes.ts が持つ。
@@ -159,10 +161,63 @@ export interface AdminTopic {
   readonly opinions: readonly AdminOpinion[]
 }
 
+/** 救い出せるコメントの状態。pending は、締め切ったときに振り分け待ちだったもの */
+export type RescuableStatus = 'pending' | 'dropped' | 'filtered' | 'ignored' | 'failed'
+
+/**
+ * テーマを出しているあいだに受け取ったコメントの内訳（issue #308）。
+ *
+ * 規則で落としたもの（dropped。理由ごと）・Jev が意見ではないとみたもの（filtered）・LLM が無関係としたもの（ignored）を分けて数える。
+ */
+export interface OpinionCommentCounts {
+  /** 受け取ったコメントの数（落としたものも含む） */
+  readonly received: number
+  /** 意見になった数 */
+  readonly used: number
+  /** 振り分け待ちの数 */
+  readonly pending: number
+  /** 規則で落とした数（理由ごと） */
+  readonly dropped: Readonly<Record<DropReason, number>>
+  readonly filtered: number
+  readonly ignored: number
+  /** 振り分けに失敗した回の数 */
+  readonly failed: number
+}
+
+/** 管理画面へ渡す、意見にならなかったコメント1件。配信者が救い出せる（issue #308） */
+export interface RescuableComment {
+  readonly id: number
+  readonly userName: string
+  readonly text: string
+  readonly replyName: string | null
+  readonly replyText: string | null
+  /** 書かれた時刻（ISO 8601） */
+  readonly sentAt: string
+  readonly status: RescuableStatus
+  /** 規則で落とした理由。規則で落としていなければ null */
+  readonly dropReason: DropReason | null
+  /** Jev の確率。尋ねていなければ null */
+  readonly jevScore: number | null
+}
+
 /** 管理画面へ渡す、いまの意見ボード */
 export interface AdminOpinionBoard {
   readonly theme: OpinionTheme | null
   readonly topics: readonly AdminTopic[]
+  /** コメントの内訳。テーマを開いたことがなければ全部 0 */
+  readonly counts: OpinionCommentCounts
+  /** 救い出せるコメント（新しい順） */
+  readonly rescuable: readonly RescuableComment[]
+}
+
+/** 意見を入れる論点。既にある論点か、新しく作る論点 */
+export type TopicChoice = { readonly type: 'existing'; readonly id: number } | { readonly type: 'new'; readonly title: string }
+
+/** 配信者が、救い出したコメントから作る意見 */
+export interface RescuedOpinionInput {
+  readonly kind: OpinionKind
+  readonly text: string
+  readonly topic: TopicChoice
 }
 
 /** 問題点のメッセージに出す、何の設定かの名前 */
@@ -189,6 +244,87 @@ export const parseThemeInput = (body: unknown): { title: string } => {
   const length = lengthOf(trimmed)
   if (length > MAX_THEME_LENGTH) throw new ConfigError(SUBJECT, [`テーマは${MAX_THEME_LENGTH}文字以内にしてください（いまは${length}文字です）`])
   return { title: trimmed }
+}
+
+/**
+ * 文字の入力を、前後の空白を落として検証する。空・上限を超えるものは切り詰めずに問題点にする（方針4）。
+ *
+ * @returns 落とした文字。問題があれば problems に足して null
+ */
+const readText = (value: unknown, name: string, max: number, problems: string[]): string | null => {
+  if (typeof value !== 'string') {
+    problems.push(`${name}を文字で入力してください`)
+    return null
+  }
+  const trimmed = value.trim()
+  if (trimmed === '') {
+    problems.push(`${name}を入力してください`)
+    return null
+  }
+  const length = lengthOf(trimmed)
+  if (length > max) {
+    problems.push(`${name}は${max}文字以内にしてください（いまは${length}文字です）`)
+    return null
+  }
+  return trimmed
+}
+
+/** 論点の指し方を読む。崩れていれば problems に足して null */
+const readTopicChoice = (value: unknown, problems: string[]): TopicChoice | null => {
+  if (isRecord(value) && value.type === 'existing') {
+    if (typeof value.id === 'number' && Number.isInteger(value.id) && value.id > 0) return { type: 'existing', id: value.id }
+    problems.push('入れる論点を選んでください')
+    return null
+  }
+  if (isRecord(value) && value.type === 'new') {
+    const title = readText(value.title, '新しい論点の名前', MAX_TOPIC_TITLE_LENGTH, problems)
+    return title === null ? null : { type: 'new', title }
+  }
+  problems.push('入れる論点を選ぶか、新しい論点の名前を入力してください')
+  return null
+}
+
+/**
+ * 管理画面から受け取った、救い出したコメントから作る意見を検証する（issue #308）。
+ *
+ * @throws ConfigError 札の種類・1文・論点の指し方に問題がある場合（問題点をまとめて投げる）
+ */
+export const parseRescuedOpinionInput = (body: unknown): RescuedOpinionInput => {
+  const record = isRecord(body) ? body : {}
+  const problems: string[] = []
+  const kind = OPINION_KINDS.find((candidate) => candidate === record.kind)
+  if (kind === undefined) problems.push(`札の種類は ${OPINION_KINDS.join('・')} のどれかにしてください`)
+  const text = readText(record.text, '意見', MAX_OPINION_LENGTH, problems)
+  const topic = readTopicChoice(record.topic, problems)
+  if (kind === undefined || text === null || topic === null) throw new ConfigError('救い出す意見', problems)
+  return { kind, text, topic }
+}
+
+/**
+ * 管理画面から受け取った論点の名前を検証する（issue #308）。
+ *
+ * @throws ConfigError 名前が文字列でない・空・上限を超える場合
+ */
+export const parseTopicTitleInput = (body: unknown): { title: string } => {
+  const problems: string[] = []
+  const title = readText(isRecord(body) ? body.title : undefined, '論点の名前', MAX_TOPIC_TITLE_LENGTH, problems)
+  if (title === null) throw new ConfigError('論点の名前', problems)
+  return { title }
+}
+
+/**
+ * 選んだ論点が、いまの論点と食い違わないかを確かめる（issue #308）。
+ *
+ * @param topics いまの論点
+ * @returns 食い違いの説明。食い違わなければ null
+ */
+export const topicChoiceProblem = (topics: readonly { readonly id: number; readonly title: string }[], choice: TopicChoice): string | null => {
+  if (choice.type === 'existing') {
+    return topics.some(({ id }) => id === choice.id) ? null : '選んだ論点が見つかりません（ほかの窓でまとめられた可能性があります）'
+  }
+  if (topics.some(({ title }) => title === choice.title)) return `論点「${choice.title}」は既にあります。その論点を選んでください`
+  if (topics.length >= MAX_TOPICS) return `論点は${MAX_TOPICS}つまでです。既にある論点を選んでください`
+  return null
 }
 
 /** コマンドの先頭に付ける文字（worker/chat-command.ts と同じ） */
