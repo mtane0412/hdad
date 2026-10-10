@@ -5,7 +5,7 @@
  * WebSocket で押し出す。どの問題を出すかは Worker が問題集（problems.json）から選ぶので、呼び出しは選ばれた1問と、
  * 交換して出題させた人の名前（試し再生は null）を持つ。
  * 同じ経路で、最初の正解者（type: answer。Webhook がチャットの正解を受けたとき）と、出題できなかった理由
- * （type: failure。同じ配信で選べる問題が尽きたときなど）も届く（issue #301）。呼び出しは type を持たない。
+ * （type: failure）も届く（issue #301。いまの Worker は failure を押し出していない）。呼び出しは type を持たない。
  * 時間切れで配信を止めるまでの猶予（type: stopping）と、下部バーでの停止の取り消し（type: stopCancelled）も届く（issue #302）。
  * 下部バー（stop-bar.tsx）も同じ経路につなぎ、同じ読み取りを通す。
  * 裏方のページの「配信の停止」へ届く命令（parseStreamStopOrder）の読み取りもここに置く（形を worker/kanji-quiz-call.ts と合わせる）。

@@ -9,7 +9,7 @@
  * 注意: 応答が想定した形でなければエラーにする。黙って空の一覧にすると、設定や素材が消えたように見えてしまう。
  */
 import { ApiError, createCaller, isRecord, readList } from '@/core/api'
-import { isKankenGrade, kankenGradeLabel, type KankenGrade } from '@/kanji-quiz/grade'
+import { isKankenGrade, isKankenGradeWeights, kankenGradeLabel, type KankenGrade, type KankenGradeWeights } from '@/kanji-quiz/grade'
 import { readTownTourNarration, type TownTourNarration } from '@/town-tour/narration'
 import { readTownTourSound, type TownTourSound } from '@/town-tour/sound'
 import { readTwisterSound, type TwisterSound } from '@/twister/sound'
@@ -138,13 +138,13 @@ export interface TwisterAction {
 }
 
 /**
- * 漢字クイズを出題する動作（issue #300）。出題する級だけを配信者が決める。
+ * 漢字クイズを出題する動作（issue #300）。級ごとの出題の重みだけを配信者が決める（級が選ばれる確率は、その級の重み ÷ 重みの合計）。
  *
  * 置けるのはチャンネルポイントの項目だけである（src/admin/form.ts の supportsKanjiQuiz）。
  */
 export interface KanjiQuizAction {
   type: 'kanjiQuiz'
-  grade: KankenGrade
+  weights: KankenGradeWeights
 }
 
 export type ActionInput = AlertActionInput | ChatAction | AnnounceAction | AiChatAction | ShoutoutAction | TownTourAction | TwisterAction | KanjiQuizAction
@@ -322,8 +322,8 @@ const isStoredAction = (value: unknown): value is StoredAction => {
   if (!isRecord(value)) return false
   // shoutout と townTour と twister は配信者が決める項目を持たないので、種類だけを見る
   if (value.type === 'shoutout' || value.type === 'townTour' || value.type === 'twister') return true
-  // kanjiQuiz は出題する級だけを持つ
-  if (value.type === 'kanjiQuiz') return isKankenGrade(value.grade)
+  // kanjiQuiz は級ごとの出題の重みだけを持つ
+  if (value.type === 'kanjiQuiz') return isKankenGradeWeights(value.weights)
   // aiChat だけは送る文言を持たず、文面の作り方の指示を持つ
   if (value.type === 'aiChat') return typeof value.instruction === 'string'
   if (typeof value.message !== 'string') return false

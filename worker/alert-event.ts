@@ -15,7 +15,7 @@
  * text・firstChatOfStream・firstChatEver・returningAfter はチャットの発言）。ほかのイベントでは満たさないものとして扱う
  * （保存時にも拒否しているが、古い設定が残っていても意図しないイベントで動かないようにする）。
  */
-import type { KankenGrade } from '../src/kanji-quiz/grade'
+import type { KankenGradeWeights } from '../src/kanji-quiz/grade'
 import {
   aiChatActionOf,
   alertActionOf,
@@ -662,9 +662,10 @@ export const twistersFor = (config: AlertConfig, subscriptionType: string, body:
     },
   )
 
-/** 漢字クイズの出題1回ぶん（どの級から出すかと、チャンネルポイントを交換して出題させた人） */
+/** 漢字クイズの出題1回ぶん（級ごとの出題の重みと、チャンネルポイントを交換して出題させた人） */
 export interface KanjiQuizTrigger {
-  readonly grade: KankenGrade
+  /** 級ごとの出題の重み */
+  readonly weights: KankenGradeWeights
   /** 交換した人の表示名 */
   readonly requesterName: string
 }
@@ -685,11 +686,11 @@ export const kanjiQuizzesFor = (config: AlertConfig, subscriptionType: string, b
     body,
     (trigger) => {
       const action = kanjiQuizActionOf(trigger)
-      return action === null ? null : { kind: trigger.kind, grade: action.grade }
+      return action === null ? null : { kind: trigger.kind, weights: action.weights }
     },
     state,
-  ).map(({ action: { kind, grade }, extracted }) => {
-    if (kind === 'reward' && extracted.event === REDEMPTION) return { grade, requesterName: extracted.userName }
+  ).map(({ action: { kind, weights }, extracted }) => {
+    if (kind === 'reward' && extracted.event === REDEMPTION) return { weights, requesterName: extracted.userName }
     throw new Error(`漢字クイズはチャンネルポイントのトリガーにだけ置けます（${kind} のトリガーに置かれています）`)
   })
 

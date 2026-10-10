@@ -18,7 +18,7 @@ import {
   cancelKanjiQuizStops,
   claimKanjiQuizStop,
   openKanjiQuiz,
-  readUsedKanjiQuizWords,
+  readKanjiQuizWordCounts,
   recordKanjiQuiz,
 } from './kanji-quiz-store'
 import { recordStreamOffline, recordStreamOnline } from './stats-store'
@@ -108,14 +108,16 @@ describe('openKanjiQuiz', () => {
   })
 })
 
-describe('readUsedKanjiQuizWords', () => {
-  it('配信中なら、その配信が始まってから選んだ問題の熟語を返す', async () => {
+describe('readKanjiQuizWordCounts', () => {
+  it('配信中なら、その配信が始まってから選んだ問題の熟語と、選んだ回数を返す', async () => {
     const db = createFakeDatabase()
     await recordKanjiQuiz(db, { id: 'quiz-before', word: '納屋', rehearsal: false }, now - 60 * 60 * 1000)
     await recordStreamOnline(db, { id: 'stream-1', startedAt: now - 30 * 60 * 1000 })
     await recordKanjiQuiz(db, keidaiQuiz, now - 10 * 60 * 1000)
+    await recordKanjiQuiz(db, { ...keidaiQuiz, id: 'quiz-keidai-again' }, now - 5 * 60 * 1000)
 
-    expect(await readUsedKanjiQuizWords(db, now)).toEqual(new Set(['境内']))
+    // 配信が始まる前の「納屋」は数えず、配信中に2回選んだ「境内」を2と数える
+    expect(await readKanjiQuizWordCounts(db, now)).toEqual(new Map([['境内', 2]]))
   })
 
   it('配信していなければ、外す熟語は無い', async () => {
@@ -124,7 +126,7 @@ describe('readUsedKanjiQuizWords', () => {
     await recordKanjiQuiz(db, keidaiQuiz, now - 10 * 60 * 1000)
     await recordStreamOffline(db, now - 5 * 60 * 1000)
 
-    expect(await readUsedKanjiQuizWords(db, now)).toEqual(new Set())
+    expect(await readKanjiQuizWordCounts(db, now)).toEqual(new Map())
   })
 })
 

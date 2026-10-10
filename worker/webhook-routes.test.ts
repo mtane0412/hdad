@@ -34,6 +34,8 @@ import { DEFAULT_TOWN_TOUR_SOUND, saveTownTourSound } from './town-tour-sound'
 import { saveTwisterSound } from './twister-sound'
 import { openTownTourQuiz } from './town-tour-quiz'
 import { openKanjiQuiz, recordKanjiQuiz } from './kanji-quiz-store'
+import { singleGradeWeights } from '../src/kanji-quiz/grade'
+import { KANJI_QUIZ_PROBLEMS } from './kanji-quiz-call'
 import { GRADE_INTRO_MS } from '../src/kanji-quiz/scene'
 import { saveTownTourNarration } from './town-tour-narration'
 import { recordTownTourVisit } from './town-tour-visits'
@@ -1767,7 +1769,7 @@ describe('ツイスターで対戦する動作（twister）', () => {
 })
 
 describe('漢字クイズを出題する動作（kanjiQuiz）', () => {
-  const rewardKanjiQuizTrigger: StoredTrigger = { kind: 'reward', rewardId: '報酬ID-漢字クイズ', actions: [{ type: 'kanjiQuiz', grade: 'pre2' }] }
+  const rewardKanjiQuizTrigger: StoredTrigger = { kind: 'reward', rewardId: '報酬ID-漢字クイズ', actions: [{ type: 'kanjiQuiz', weights: singleGradeWeights('pre2') }] }
   const REDEMPTION_NOTIFICATION = {
     subscription: { type: 'channel.channel_points_custom_reward_redemption.add' },
     event: {
@@ -1803,20 +1805,23 @@ describe('漢字クイズを出題する動作（kanjiQuiz）', () => {
     expect(await listFailures(env.DB)).toMatchObject([{ code: 'kanji-quiz-push-failed' }])
   })
 
-  it('同じ配信で選べる問題が尽きたら、黙って重複させず、素材の箱へ失敗を押し出して失敗として記録する', async () => {
+  it('同じ配信で準2級の問題を出しきっても、失敗にせず一巡して出題しつづける', async () => {
     const { env, alertChannel } = createEnv()
     await saveAlertConfig(env.STORE, { triggers: [rewardKanjiQuizTrigger] })
     await recordStreamOnline(env.DB, { id: 'stream-1', startedAt: NOW - 60_000 })
+    const pre2Count = KANJI_QUIZ_PROBLEMS.filter((problem) => problem.grade === 'pre2').length
 
-    // 準2級の問題を出しきるまで交換を続ける（問題集の問題数は変わりうるので、失敗を押し出すまで続ける）
-    for (let attempt = 0; attempt < 100 && alertChannel.pushedKanjiQuizNotices.length === 0; attempt++) {
+    // 準2級の問題数より1回多く交換する
+    for (let attempt = 0; attempt <= pre2Count; attempt++) {
       await callWebhook(createNotification({ body: REDEMPTION_NOTIFICATION, messageId: `notification-${attempt}` }), env)
     }
 
+    // 1巡目は重複させず、出しきったあとの交換は2巡目として出す
     const words = alertChannel.pushedKanjiQuizzes.map(({ problem }) => problem.word)
-    expect(new Set(words).size).toBe(words.length)
-    expect(alertChannel.pushedKanjiQuizNotices).toEqual([{ type: 'failure', message: expect.stringContaining('すべて出しました') }])
-    expect(await listFailures(env.DB)).toMatchObject([{ code: 'kanji-quiz-push-failed' }])
+    expect(words).toHaveLength(pre2Count + 1)
+    expect(new Set(words.slice(0, pre2Count)).size).toBe(pre2Count)
+    expect(alertChannel.pushedKanjiQuizNotices).toEqual([])
+    expect(await listFailures(env.DB)).toEqual([])
   })
 })
 

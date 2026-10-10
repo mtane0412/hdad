@@ -11,7 +11,7 @@
  * 注意: メニュー項目ごとのパラメータは、入力欄ではすべて平たく持つ（動作の入力欄と同じ持ち方）。
  *   Workerへ送るのは、選んでいるメニュー項目が要求するものだけである（選び直す前の値を引きずらない）。
  */
-import { KANKEN_GRADES, kankenGradeLabel, type KankenGrade } from '@/kanji-quiz/grade'
+import { KANKEN_GRADES, kankenGradeLabel, mapKankenGrades, singleGradeWeights, type KankenGrade } from '@/kanji-quiz/grade'
 import {
   ANNOUNCEMENT_COLORS,
   type ActionInput,
@@ -268,8 +268,8 @@ export interface TriggerDraft {
   twisterEnabled: boolean
   /** 漢字クイズを出題するか。チャンネルポイントの項目でだけ選べる */
   kanjiQuizEnabled: boolean
-  /** 漢字クイズで出題する級 */
-  kanjiQuizGrade: KankenGrade
+  /** 漢字クイズの級ごとの出題の重み（入力欄の文字列のまま持ち、送るときに数にする） */
+  kanjiQuizWeights: Record<KankenGrade, string>
 }
 
 /**
@@ -305,6 +305,30 @@ export const supportsKanjiQuiz = (kind: TriggerKind): boolean => kind === 'rewar
 
 /** 漢字クイズを選んだときに、はじめに選ばれている級（中学卒業程度の3級） */
 export const DEFAULT_KANJI_QUIZ_GRADE: KankenGrade = '3'
+
+/** 漢字クイズを選んだときに、はじめに入っている重み（はじめに選ばれている級だけを1にする） */
+const DEFAULT_KANJI_QUIZ_WEIGHTS = mapKankenGrades((grade) => String(singleGradeWeights(DEFAULT_KANJI_QUIZ_GRADE)[grade]))
+
+/**
+ * 入力欄の重みを数にする。範囲（0〜100の整数）と、1つ以上が1以上であることは Worker が確かめる。
+ *
+ * @throws 数として読めない欄がある場合（空欄を0に丸めない）
+ */
+const toWeights = (texts: Readonly<Record<KankenGrade, string>>): Record<KankenGrade, number> =>
+  mapKankenGrades((grade) => toNumber(texts[grade], `${kankenGradeLabel(grade)}の重み`))
+
+/**
+ * 入力欄の重みから、級ごとに出題される割合（%。整数に丸める）を求める。入力欄の横に添えて、確率として読めるようにする。
+ *
+ * @returns 数として読めない欄がある・合計が0以下なら null（入力の途中なので割合を出さない。保存のときは toTriggerInput がエラーにする）
+ */
+export const kanjiQuizSharePercents = (texts: Readonly<Record<KankenGrade, string>>): Record<KankenGrade, number> | null => {
+  const weights = mapKankenGrades((grade) => (texts[grade].trim() === '' ? Number.NaN : Number(texts[grade])))
+  if (!KANKEN_GRADES.every((grade) => Number.isFinite(weights[grade]))) return null
+  const total = KANKEN_GRADES.reduce((sum, grade) => sum + weights[grade], 0)
+  if (total <= 0) return null
+  return mapKankenGrades((grade) => Math.round((weights[grade] / total) * PERCENT))
+}
 
 /** 漢字クイズの級の選択肢（やさしい順。値は保存される識別子、見出しは「準2級」のような画面の言い方） */
 export const KANJI_QUIZ_GRADE_OPTIONS: readonly { value: KankenGrade; label: string }[] = KANKEN_GRADES.map((grade) => ({
@@ -398,7 +422,7 @@ const toActions = (draft: TriggerDraft): ActionInput[] => {
   if (draft.shoutoutEnabled) actions.push({ type: 'shoutout' })
   if (draft.townTourEnabled) actions.push({ type: 'townTour' })
   if (draft.twisterEnabled) actions.push({ type: 'twister' })
-  if (draft.kanjiQuizEnabled) actions.push({ type: 'kanjiQuiz', grade: draft.kanjiQuizGrade })
+  if (draft.kanjiQuizEnabled) actions.push({ type: 'kanjiQuiz', weights: toWeights(draft.kanjiQuizWeights) })
   return actions
 }
 
@@ -508,7 +532,7 @@ export const toDraft = (trigger: StoredTrigger): TriggerDraft => {
     townTourEnabled: townTour !== undefined,
     twisterEnabled: twister !== undefined,
     kanjiQuizEnabled: kanjiQuiz !== undefined,
-    kanjiQuizGrade: kanjiQuiz?.grade ?? DEFAULT_KANJI_QUIZ_GRADE,
+    kanjiQuizWeights: kanjiQuiz === undefined ? DEFAULT_KANJI_QUIZ_WEIGHTS : mapKankenGrades((grade) => String(kanjiQuiz.weights[grade])),
   }
 }
 
@@ -545,7 +569,7 @@ export const createDraft = (kind: TriggerKind, media: readonly MediaItem[]): Tri
     townTourEnabled: false,
     twisterEnabled: false,
     kanjiQuizEnabled: false,
-    kanjiQuizGrade: DEFAULT_KANJI_QUIZ_GRADE,
+    kanjiQuizWeights: DEFAULT_KANJI_QUIZ_WEIGHTS,
   }
 }
 
@@ -571,7 +595,7 @@ export const emptyDraft = (kind: TriggerKind): TriggerDraft => ({
   townTourEnabled: false,
   twisterEnabled: false,
   kanjiQuizEnabled: false,
-  kanjiQuizGrade: DEFAULT_KANJI_QUIZ_GRADE,
+  kanjiQuizWeights: DEFAULT_KANJI_QUIZ_WEIGHTS,
 })
 
 /** その行が効果をひとつでも持つか。持たない行は何も起きないので保存しない */

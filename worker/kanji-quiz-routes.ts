@@ -11,13 +11,12 @@
  *
  * チャンネルポイントの交換での押し出しは alert-actions.ts が行う。どちらも問題は問題集から選び、記録してから押し出す（worker/kanji-quiz-issue.ts）。
  *
- * 注意: 級の指定の誤りは、ほかの級に差し替えずに 400 で返す。同じ配信で出しきったら重複させずに 409、配送先の失敗は黙って成功にせず 502 で返す
+ * 注意: 級の指定の誤りは、ほかの級に差し替えずに 400 で返す。配送先の失敗は黙って成功にせず 502 で返す
  * （管理画面に理由を出す）。
  */
-import { KANKEN_GRADES, isKankenGrade } from '../src/kanji-quiz/grade'
+import { KANKEN_GRADES, isKankenGrade, singleGradeWeights } from '../src/kanji-quiz/grade'
 import { connectKanjiQuizSocket, connectStreamStopSocket } from './alert-channel'
 import { HttpError, STATUS, requireAdmin, requireOverlayKey, type Context } from './http'
-import { KanjiQuizExhaustedError } from './kanji-quiz-call'
 import { issueKanjiQuiz } from './kanji-quiz-issue'
 import { cancelKanjiQuizStopsAndNotify } from './kanji-quiz-stop'
 import { openKanjiQuiz } from './kanji-quiz-store'
@@ -44,6 +43,7 @@ export const kanjiQuizSocket = async (context: Context): Promise<Response> => {
 
 /**
  * POST /api/admin/kanji-quiz/demo: 管理画面の試し再生。本文 { grade } の級の問題を1問選んで素材へ押し出す。
+ * 見栄えを確かめるためのものなので、トリガーの重みではなく、その級だけを出す重みで選ぶ（出しきったら一巡する）。
  *
  * トリガーと同じ配送の経路（AlertChannel）を通すので、合成ページを開いていれば OBS の画面にもそのまま流れる。
  * 何を押し出したかを画面に出せるよう、押し出したものを返す。
@@ -57,11 +57,10 @@ export const postKanjiQuizDemo = async (context: Context): Promise<Response> => 
     // 試し再生は交換した人がいないので、出題させた人を持たない。時間切れでも配信を止めないよう、試し再生として記録する
     const call = await issueKanjiQuiz(
       { db: env.DB, alerts: env.ALERTS, now: context.now, random: Math.random, id: crypto.randomUUID() },
-      { grade, requesterName: null, rehearsal: true },
+      { weights: singleGradeWeights(grade), requesterName: null, rehearsal: true },
     )
     return Response.json(call)
   } catch (error) {
-    if (error instanceof KanjiQuizExhaustedError) throw new HttpError(STATUS.conflict, 'kanji-quiz-exhausted', error.message)
     throw new HttpError(STATUS.badGateway, 'kanji-quiz-push-failed', error instanceof Error ? error.message : String(error))
   }
 }

@@ -24,6 +24,7 @@ import {
   type AlertConfig,
   type StoredTrigger,
 } from './alert-config'
+import { singleGradeWeights } from '../src/kanji-quiz/grade'
 import { createFakeStore } from './fake-store'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
@@ -172,35 +173,31 @@ describe('parseAlertConfig', () => {
     )
   })
 
-  it('チャンネルポイントのトリガーなら、出題する級を持った漢字クイズの動作（kanjiQuiz）を受け付ける', () => {
-    const config = parseAlertConfig({ triggers: [{ kind: 'reward', rewardId: '報酬ID-漢字クイズ', actions: [{ type: 'kanjiQuiz', grade: 'pre2' }] }] }, materialKind)
+  it('チャンネルポイントのトリガーなら、級ごとの出題の重みを持った漢字クイズの動作（kanjiQuiz）を受け付ける', () => {
+    const weights = { ...singleGradeWeights('3'), '3': 2, pre2: 1 }
+    const config = parseAlertConfig({ triggers: [{ kind: 'reward', rewardId: '報酬ID-漢字クイズ', actions: [{ type: 'kanjiQuiz', weights }] }] }, materialKind)
 
-    expect(config.triggers[0]?.actions).toEqual([{ type: 'kanjiQuiz', grade: 'pre2' }])
+    expect(config.triggers[0]?.actions).toEqual([{ type: 'kanjiQuiz', weights }])
   })
 
-  it('漢字クイズの級が無い・知らない値なら拒否する（「準2級」のような画面の言い方も受け付けない）', () => {
+  it('漢字クイズの重みが無い・形が違う・すべて0なら拒否する（級1つだけの古い形 grade も保存では受け付けない）', () => {
+    const problem = (index: number) =>
+      `triggers[${index}].actions[0].weights: 10 / 9 / 8 / 7 / 6 / 5 / 4 / 3 / pre2 / 2 / pre1 / 1 のすべての級に0〜100の整数を指定し、1つ以上を1以上にしてください`
     expect(() =>
       parseAlertConfig(
         {
           triggers: [
-            { kind: 'reward', rewardId: '報酬ID-漢字クイズ', actions: [{ type: 'kanjiQuiz' }] },
-            { kind: 'reward', rewardId: '報酬ID-漢字クイズ', actions: [{ type: 'kanjiQuiz', grade: '準2級' }] },
+            { kind: 'reward', rewardId: '報酬ID-漢字クイズ', actions: [{ type: 'kanjiQuiz', grade: 'pre2' }] },
+            { kind: 'reward', rewardId: '報酬ID-漢字クイズ', actions: [{ type: 'kanjiQuiz', weights: { ...singleGradeWeights('6'), '6': 0 } }] },
           ],
         },
         materialKind,
       ),
-    ).toThrow(
-      expect.objectContaining({
-        problems: [
-          'triggers[0].actions[0].grade: 10 / 9 / 8 / 7 / 6 / 5 / 4 / 3 / pre2 / 2 / pre1 / 1 のいずれかを指定してください',
-          'triggers[1].actions[0].grade: 10 / 9 / 8 / 7 / 6 / 5 / 4 / 3 / pre2 / 2 / pre1 / 1 のいずれかを指定してください',
-        ],
-      }),
-    )
+    ).toThrow(expect.objectContaining({ problems: [problem(0), problem(1)] }))
   })
 
   it('チャンネルポイント以外のトリガーに漢字クイズを置いたら拒否する（交換した人の出題として流すため）', () => {
-    expect(() => parseAlertConfig({ triggers: [{ kind: 'raid', actions: [{ type: 'kanjiQuiz', grade: '6' }] }] }, materialKind)).toThrow(
+    expect(() => parseAlertConfig({ triggers: [{ kind: 'raid', actions: [{ type: 'kanjiQuiz', weights: singleGradeWeights('6') }] }] }, materialKind)).toThrow(
       expect.objectContaining({
         problems: ['triggers[0].actions: 漢字クイズ（kanjiQuiz）はチャンネルポイントのトリガーにだけ置けます'],
       }),
@@ -463,6 +460,16 @@ describe('saveAlertConfig / loadAlertConfig', () => {
     expect(await loadAlertConfig(createFakeStore())).toEqual(EMPTY_CONFIG)
   })
 
+  it('漢字クイズの動作が級1つだけの古い形（grade）で保存されていたら、その級だけ重み1として読む', async () => {
+    const store = createFakeStore()
+    const singleGradeFormat = { triggers: [{ kind: 'reward', rewardId: '報酬ID-漢字クイズ', actions: [storedAlertAction, { type: 'kanjiQuiz', grade: 'pre2' }] }] }
+    await store.put('alert-config', JSON.stringify(singleGradeFormat))
+
+    expect(await loadAlertConfig(store)).toEqual({
+      triggers: [{ kind: 'reward', rewardId: '報酬ID-漢字クイズ', actions: [storedAlertAction, { type: 'kanjiQuiz', weights: singleGradeWeights('pre2') }] }],
+    })
+  })
+
   it('既定メニューにする前の形（event と conditions を直接持つ）で保存されていたら、黙って読み替えずにエラーにする', async () => {
     const store = createFakeStore()
     const legacyFormat = { triggers: [{ event: REDEMPTION, conditions: [{ kind: 'reward', rewardId: '報酬ID-乾杯' }], actions: [storedAlertAction] }] }
@@ -541,9 +548,9 @@ describe('shoutoutActionOf', () => {
 
 describe('kanjiQuizActionOf', () => {
   it('トリガーから漢字クイズの動作を取り出す', () => {
-    const trigger: StoredTrigger = { kind: 'reward', rewardId: '報酬ID-漢字クイズ', actions: [storedAlertAction, { type: 'kanjiQuiz', grade: '2' }] }
+    const trigger: StoredTrigger = { kind: 'reward', rewardId: '報酬ID-漢字クイズ', actions: [storedAlertAction, { type: 'kanjiQuiz', weights: singleGradeWeights('2') }] }
 
-    expect(kanjiQuizActionOf(trigger)).toEqual({ type: 'kanjiQuiz', grade: '2' })
+    expect(kanjiQuizActionOf(trigger)).toEqual({ type: 'kanjiQuiz', weights: singleGradeWeights('2') })
   })
 
   it('漢字クイズの動作が無ければ null を返す', () => {
