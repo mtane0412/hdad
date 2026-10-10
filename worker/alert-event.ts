@@ -15,6 +15,7 @@
  * text・firstChatOfStream・firstChatEver・returningAfter はチャットの発言）。ほかのイベントでは満たさないものとして扱う
  * （保存時にも拒否しているが、古い設定が残っていても意図しないイベントで動かないようにする）。
  */
+import type { KankenGrade } from '../src/kanji-quiz/grade'
 import {
   aiChatActionOf,
   alertActionOf,
@@ -24,6 +25,7 @@ import {
   shoutoutActionOf,
   townTourActionOf,
   twisterActionOf,
+  kanjiQuizActionOf,
   type AlertConfig,
   type MediaKind,
   type StoredAiChatAction,
@@ -659,6 +661,37 @@ export const twistersFor = (config: AlertConfig, subscriptionType: string, body:
       throw new Error(`ツイスターはレイドのトリガーにだけ置けます（${kind} のトリガーに置かれています）`)
     },
   )
+
+/** 漢字クイズの出題1回ぶん（どの級から出すかと、チャンネルポイントを交換して出題させた人） */
+export interface KanjiQuizTrigger {
+  readonly grade: KankenGrade
+  /** 交換した人の表示名 */
+  readonly requesterName: string
+}
+
+/**
+ * 通知に当てはまるトリガーを探し、漢字クイズの出題を返す（issue #300）。
+ *
+ * 置けるのはチャンネルポイントのトリガーだけなので（worker/alert-config.ts の parseAlertConfig が保存時に拒む）、
+ * ほかのトリガーでこの動作が見つかったら、黙って流さずに投げる（Fail-Fast）。問題を選ぶのは呼び出し側（乱数を持たないため）。
+ *
+ * @returns 出題を、当てはまったトリガーの並びの順に返す
+ * @throws 通知の中身が想定した形でない場合、またはチャンネルポイント以外のトリガーにこの動作があった場合
+ */
+export const kanjiQuizzesFor = (config: AlertConfig, subscriptionType: string, body: unknown, state: ConditionState): KanjiQuizTrigger[] =>
+  matchedActionsFor(
+    config,
+    subscriptionType,
+    body,
+    (trigger) => {
+      const action = kanjiQuizActionOf(trigger)
+      return action === null ? null : { kind: trigger.kind, grade: action.grade }
+    },
+    state,
+  ).map(({ action: { kind, grade }, extracted }) => {
+    if (kind === 'reward' && extracted.event === REDEMPTION) return { grade, requesterName: extracted.userName }
+    throw new Error(`漢字クイズはチャンネルポイントのトリガーにだけ置けます（${kind} のトリガーに置かれています）`)
+  })
 
 /**
  * 通知に当てはまるトリガーをすべて探し、チャットへ送る文言を決める。

@@ -35,6 +35,7 @@ import type { BotApi, BotStatus } from '@/bot/api'
 import { ApiError } from '@/core/api'
 import { PlaceholderInput } from '@/core/placeholder-input'
 import { iconButtonName } from '@/core/icon-button'
+import { isKankenGrade } from '@/kanji-quiz/grade'
 import { isAnnouncementColor, type AdminApi, type MediaItem, type Reward, type TriggerKind } from './api'
 import {
   colorOptions,
@@ -51,6 +52,8 @@ import {
   supportsShoutout,
   supportsTownTour,
   supportsTwister,
+  supportsKanjiQuiz,
+  KANJI_QUIZ_GRADE_OPTIONS,
   toDraft,
   toTriggerInputs,
   withFixedRows,
@@ -61,6 +64,7 @@ import {
 } from './form'
 import { errorMessage, usePageActions } from './page-actions'
 import { TownTourSoundCard } from './town-tour-sound-card'
+import { KanjiQuizCard } from './kanji-quiz-card'
 import { TwisterCard } from './twister-card'
 
 /** 文言欄の入力例。メニュー項目ごとに、使える差し込み語だけを使った例を出す */
@@ -480,6 +484,37 @@ const ActionFields = ({ draft, media, heading, onChange }: ActionFieldsProps) =>
             <p className="text-xs text-muted-foreground">
               レイドしてきた配信者と自分が、3Dの人形でツイスターゲームをします。映すには、オーバーレイに「ツイスター」の素材を置いてください。
             </p>
+          )}
+        </div>
+      )}
+
+      {/* 漢字クイズは視聴者がポイントを払って出題させるものなので、チャンネルポイントの項目にだけ出す（Workerも保存時にそれ以外を拒む） */}
+      {supportsKanjiQuiz(draft.kind) && (
+        <div className="flex flex-col gap-4 rounded-md border border-dashed p-3 sm:col-span-2">
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id={`${id}-kanji-quiz-enabled`}
+              checked={draft.kanjiQuizEnabled}
+              onCheckedChange={(checked) => update({ kanjiQuizEnabled: checked === true })}
+            />
+            <Label htmlFor={`${id}-kanji-quiz-enabled`}>漢字クイズを出題する</Label>
+          </div>
+          {draft.kanjiQuizEnabled && (
+            <div className="flex flex-col gap-2 sm:max-w-xs">
+              <Label htmlFor={`${id}-kanji-quiz-grade`}>出題する級</Label>
+              <Select
+                id={`${id}-kanji-quiz-grade`}
+                options={KANJI_QUIZ_GRADE_OPTIONS}
+                value={draft.kanjiQuizGrade}
+                onChange={(value) => {
+                  // 選択肢は級の一覧から作っているので、級でない値は来ない
+                  if (isKankenGrade(value)) update({ kanjiQuizGrade: value })
+                }}
+              />
+              <p className="text-xs text-muted-foreground">
+                交換されるたびに、この級の問題を問題集から1問選んで出します。映すには、オーバーレイに「漢字クイズ」の素材を置いてください。
+              </p>
+            </div>
           )}
         </div>
       )}
@@ -967,6 +1002,9 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
 
       {/* ツイスターの BGM も市町村紹介の音と同じく1つだけ持つので、トリガーの一覧の外に置く（保存も別） */}
       <TwisterCard api={api} media={media} />
+
+      {/* 漢字クイズは設定を持たず、級を選んで試しに流すボタンだけを置く */}
+      <KanjiQuizCard api={api} />
 
       {/* 一覧そのものはカードに入れず、区分（チャット・イベント・開発・ポモドーロ）ごとにカードにする
           （全体を1枚のカードで囲むと、その中に区分の見出しと項目の枠が入れ子で並び、どこまでが1つのまとまりか読み取りにくい） */}

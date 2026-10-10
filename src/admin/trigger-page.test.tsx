@@ -50,6 +50,7 @@ const fakeApi = (overrides: Partial<AdminApi> = {}): AdminApi => ({
   rotateOverlayKey: vi.fn(async () => 'atarashii-key'),
   playTownTourDemo: vi.fn(async () => '試し再生: 本日は北海道石狩郡当別町をご紹介します'),
   playTwisterDemo: vi.fn(async () => 'レイドした人（試し） vs 配信者'),
+  playKanjiQuizDemo: vi.fn(async () => '漢検6級「境内」'),
   townTourSound: vi.fn(async () => ({
     slots: { bgm: null, opening: null, zoom: null, landing: null, item: null, closing: null },
     bgmVolume: 0.3,
@@ -451,6 +452,38 @@ describe('効果の付け外し', () => {
     await userEvent.click(screen.getByRole('button', { name: 'ツイスターを試しに流す' }))
 
     expect(api.playTwisterDemo).toHaveBeenCalledWith('hoshino_yu')
+  })
+
+  test('チャンネルポイントの項目で漢字クイズを選び、級を選んで保存すると、その級の漢字クイズの効果として送る', async () => {
+    const api = fakeApi()
+    render(triggerPage(api))
+
+    const row = await openedSettings('チャンネルポイントが交換された')
+    await userEvent.click(row.getByRole('checkbox', { name: 'アラートを出す' }))
+    await userEvent.click(row.getByRole('checkbox', { name: '漢字クイズを出題する' }))
+    await userEvent.selectOptions(row.getByRole('combobox', { name: '出題する級' }), '準2級')
+    await save()
+
+    expect(api.saveConfig).toHaveBeenCalledWith([{ kind: 'reward', rewardId: 'reward-hakushu', actions: [{ type: 'kanjiQuiz', grade: 'pre2' }] }])
+  })
+
+  test('チャンネルポイント以外の項目には漢字クイズを出さない（視聴者がポイントを払って出題させるもののため）', async () => {
+    render(triggerPage(fakeApi()))
+
+    const row = await openedItem('レイドされた')
+
+    expect(row.queryByRole('checkbox', { name: '漢字クイズを出題する' })).not.toBeInTheDocument()
+  })
+
+  test('漢字クイズの級を選んで試し再生を押すと、その級でWorkerに流させ、出した問題を知らせる', async () => {
+    const api = fakeApi()
+    render(triggerPage(api))
+
+    await userEvent.selectOptions(await screen.findByRole('combobox', { name: '試しに出題する級' }), '6級')
+    await userEvent.click(screen.getByRole('button', { name: '漢字クイズを試しに流す' }))
+
+    expect(api.playKanjiQuizDemo).toHaveBeenCalledWith('6')
+    expect(await notice('漢検6級「境内」')).toBeInTheDocument()
   })
 
   test('レイド以外の項目にはシャウトアウトを出さない（紹介する相手が配信者でないため）', async () => {

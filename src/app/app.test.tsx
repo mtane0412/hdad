@@ -59,6 +59,7 @@ const createFakeAdminApi = (me: AdminApi['me']): AdminApi => ({
   rotateOverlayKey: vi.fn(async () => 'new-overlay-key'),
   playTownTourDemo: vi.fn(async () => '試し再生: 本日は東京都千代田区をご紹介します'),
   playTwisterDemo: vi.fn(async () => 'レイドした人（試し） vs 配信者'),
+  playKanjiQuizDemo: vi.fn(async () => '漢検6級「境内」'),
   townTourSound: vi.fn(async () => ({ slots: { bgm: null, opening: null, zoom: null, landing: null, item: null, closing: null }, bgmVolume: 0.3, effectVolume: 0.6 })),
   saveTownTourSound: vi.fn(async (sound: TownTourSound) => sound),
   twisterSound: vi.fn(async () => ({ bgm: null, bgmVolume: 0.3 })),

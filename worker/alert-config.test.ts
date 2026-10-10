@@ -15,6 +15,7 @@ import {
   shoutoutActionOf,
   townTourActionOf,
   twisterActionOf,
+  kanjiQuizActionOf,
   chatActionOf,
   loadAlertConfig,
   parseAlertConfig,
@@ -167,6 +168,41 @@ describe('parseAlertConfig', () => {
     expect(() => parseAlertConfig({ triggers: [{ kind: 'keyword', contains: '!twister', actions: [{ type: 'twister' }] }] }, materialKind)).toThrow(
       expect.objectContaining({
         problems: ['triggers[0].actions: ツイスター（twister）はレイドのトリガーにだけ置けます'],
+      }),
+    )
+  })
+
+  it('チャンネルポイントのトリガーなら、出題する級を持った漢字クイズの動作（kanjiQuiz）を受け付ける', () => {
+    const config = parseAlertConfig({ triggers: [{ kind: 'reward', rewardId: '報酬ID-漢字クイズ', actions: [{ type: 'kanjiQuiz', grade: 'pre2' }] }] }, materialKind)
+
+    expect(config.triggers[0]?.actions).toEqual([{ type: 'kanjiQuiz', grade: 'pre2' }])
+  })
+
+  it('漢字クイズの級が無い・知らない値なら拒否する（「準2級」のような画面の言い方も受け付けない）', () => {
+    expect(() =>
+      parseAlertConfig(
+        {
+          triggers: [
+            { kind: 'reward', rewardId: '報酬ID-漢字クイズ', actions: [{ type: 'kanjiQuiz' }] },
+            { kind: 'reward', rewardId: '報酬ID-漢字クイズ', actions: [{ type: 'kanjiQuiz', grade: '準2級' }] },
+          ],
+        },
+        materialKind,
+      ),
+    ).toThrow(
+      expect.objectContaining({
+        problems: [
+          'triggers[0].actions[0].grade: 10 / 9 / 8 / 7 / 6 / 5 / 4 / 3 / pre2 / 2 / pre1 / 1 のいずれかを指定してください',
+          'triggers[1].actions[0].grade: 10 / 9 / 8 / 7 / 6 / 5 / 4 / 3 / pre2 / 2 / pre1 / 1 のいずれかを指定してください',
+        ],
+      }),
+    )
+  })
+
+  it('チャンネルポイント以外のトリガーに漢字クイズを置いたら拒否する（交換した人の出題として流すため）', () => {
+    expect(() => parseAlertConfig({ triggers: [{ kind: 'raid', actions: [{ type: 'kanjiQuiz', grade: '6' }] }] }, materialKind)).toThrow(
+      expect.objectContaining({
+        problems: ['triggers[0].actions: 漢字クイズ（kanjiQuiz）はチャンネルポイントのトリガーにだけ置けます'],
       }),
     )
   })
@@ -352,7 +388,7 @@ describe('parseAlertConfig', () => {
 
   it('対応していない動作の種類は拒否する', () => {
     expect(() => parseAlertConfig({ triggers: [receivedTrigger({ actions: [alertAction({ type: 'ban' })] })] }, materialKind)).toThrowError(
-      expect.objectContaining({ problems: ['triggers[0].actions[0].type: alert / chat / announce / aiChat / shoutout / townTour / twister のいずれかを指定してください'] }),
+      expect.objectContaining({ problems: ['triggers[0].actions[0].type: alert / chat / announce / aiChat / shoutout / townTour / twister / kanjiQuiz のいずれかを指定してください'] }),
     )
   })
 
@@ -500,6 +536,18 @@ describe('shoutoutActionOf', () => {
 
   it('シャウトアウトを送る動作がなければ null を返す', () => {
     expect(shoutoutActionOf({ kind: 'raid', actions: [storedAlertAction] })).toBeNull()
+  })
+})
+
+describe('kanjiQuizActionOf', () => {
+  it('トリガーから漢字クイズの動作を取り出す', () => {
+    const trigger: StoredTrigger = { kind: 'reward', rewardId: '報酬ID-漢字クイズ', actions: [storedAlertAction, { type: 'kanjiQuiz', grade: '2' }] }
+
+    expect(kanjiQuizActionOf(trigger)).toEqual({ type: 'kanjiQuiz', grade: '2' })
+  })
+
+  it('漢字クイズの動作が無ければ null を返す', () => {
+    expect(kanjiQuizActionOf({ kind: 'reward', rewardId: null, actions: [storedAlertAction] })).toBeNull()
   })
 })
 

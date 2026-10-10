@@ -1,0 +1,62 @@
+[
+  { "word": "草花", "readings": ["くさばな", "そうか"], "grade": "10", "explanation": "草に咲く花。また、花の咲く草のこと。「そうか」とも読む。" },
+  { "word": "青空", "readings": ["あおぞら"], "grade": "10", "explanation": "よく晴れて青く見える空。" },
+  { "word": "森林", "readings": ["しんりん"], "grade": "10", "explanation": "木がたくさん生い茂っているところ。" },
+  { "word": "一日", "readings": ["ついたち", "いちにち", "いちじつ", "ひとひ", "いっぴ"], "grade": "10", "explanation": "月の最初の日は「ついたち」（「いっぴ」とも）。丸一日の長さは「いちにち」。「いちじつ」「ひとひ」とも読む。" },
+
+  { "word": "合図", "readings": ["あいず"], "grade": "9", "explanation": "前もって決めた方法で、相手に知らせること。" },
+  { "word": "汽車", "readings": ["きしゃ"], "grade": "9", "explanation": "蒸気機関車が引いて走る列車。" },
+  { "word": "市場", "readings": ["いちば", "しじょう"], "grade": "9", "explanation": "物を売り買いする場所は「いちば」。経済の取引の場は「しじょう」とも読む。" },
+  { "word": "黄色", "readings": ["きいろ", "おうしょく", "こうしょく"], "grade": "9", "explanation": "菜の花やレモンのような色。「おうしょく」「こうしょく」とも読む。" },
+
+  { "word": "宿題", "readings": ["しゅくだい"], "grade": "8", "explanation": "家でやるように出された課題。持ち越しの問題のたとえにも使う。" },
+  { "word": "横笛", "readings": ["よこぶえ", "おうてき"], "grade": "8", "explanation": "横に構えて吹く笛。雅楽では「おうてき」とも読む。" },
+  { "word": "港町", "readings": ["みなとまち"], "grade": "8", "explanation": "港を中心に栄えた町。" },
+  { "word": "真昼", "readings": ["まひる", "まっぴる"], "grade": "8", "explanation": "昼のさなか。日が高く昇っているころ。" },
+
+  { "word": "漁港", "readings": ["ぎょこう"], "grade": "7", "explanation": "漁船が出入りし、とれた魚を水揚げする港。" },
+  { "word": "巣箱", "readings": ["すばこ"], "grade": "7", "explanation": "鳥が巣を作れるように木などに掛ける箱。" },
+  { "word": "灯台", "readings": ["とうだい"], "grade": "7", "explanation": "岬や港の入り口で光を出し、船に位置を知らせる塔。" },
+  { "word": "祝辞", "readings": ["しゅくじ"], "grade": "7", "explanation": "お祝いの言葉。式典で述べるあいさつ。" },
+
+  { "word": "銅像", "readings": ["どうぞう"], "grade": "6", "explanation": "銅で作った像。人物などの姿を記念して建てる。" },
+  { "word": "貿易", "readings": ["ぼうえき"], "grade": "6", "explanation": "外国と品物を売り買いすること。" },
+  { "word": "夢中", "readings": ["むちゅう"], "grade": "6", "explanation": "ほかのことを忘れるほど、一つの物事に熱中するさま。" },
+  { "word": "綿雲", "readings": ["わたぐも"], "grade": "6", "explanation": "綿をちぎったように、ふわふわと浮かぶ雲。" },
+
+  { "word": "砂糖", "readings": ["さとう"], "grade": "5", "explanation": "サトウキビやテンサイからとる、甘い調味料。" },
+  { "word": "養蚕", "readings": ["ようさん"], "grade": "5", "explanation": "蚕（かいこ）を飼って繭をとること。" },
+  { "word": "裏腹", "readings": ["うらはら"], "grade": "5", "explanation": "言うこととすることが正反対であるさま。" },
+  { "word": "縦横", "readings": ["じゅうおう", "たてよこ"], "grade": "5", "explanation": "たてとよこ。「縦横無尽」は思う存分に動き回るさま。" },
+
+  { "word": "峠道", "readings": ["とうげみち"], "grade": "4", "explanation": "山の峠を越えていく道。" },
+  { "word": "霧雨", "readings": ["きりさめ", "きりあめ"], "grade": "4", "explanation": "霧のように細かい雨。" },
+  { "word": "稲妻", "readings": ["いなずま", "いなづま"], "grade": "4", "explanation": "雷の光。稲が実るころに多く、稲を実らせると考えられた。" },
+  { "word": "柔和", "readings": ["にゅうわ"], "grade": "4", "explanation": "性質や表情がやさしく、おだやかなさま。" },
+
+  { "word": "湖畔", "readings": ["こはん"], "grade": "3", "explanation": "湖のほとり。" },
+  { "word": "遺恨", "readings": ["いこん"], "grade": "3", "explanation": "いつまでも忘れられない恨み。" },
+  { "word": "吉報", "readings": ["きっぽう"], "grade": "3", "explanation": "よい知らせ。うれしい便り。" },
+  { "word": "掌握", "readings": ["しょうあく"], "grade": "3", "explanation": "手のひらに握るように、思うままに支配すること。" },
+
+  { "word": "渓谷", "readings": ["けいこく"], "grade": "pre2", "explanation": "山にはさまれた、川の流れる谷。" },
+  { "word": "琴線", "readings": ["きんせん"], "grade": "pre2", "explanation": "琴の糸。転じて、物事に感動しやすい心のたとえ。" },
+  { "word": "漆器", "readings": ["しっき"], "grade": "pre2", "explanation": "漆（うるし）を塗って仕上げた器。" },
+  { "word": "寛容", "readings": ["かんよう"], "grade": "pre2", "explanation": "心が広く、人の過ちを受け入れること。" },
+
+  { "word": "語彙", "readings": ["ごい"], "grade": "2", "explanation": "ある人や分野が使う言葉の集まり。" },
+  { "word": "進捗", "readings": ["しんちょく"], "grade": "2", "explanation": "物事の進み具合。「捗る（はかどる）」は常用漢字表にない読み。" },
+  { "word": "破綻", "readings": ["はたん"], "grade": "2", "explanation": "物事がうまくいかなくなり、成り立たなくなること。" },
+  { "word": "憂鬱", "readings": ["ゆううつ"], "grade": "2", "explanation": "気分がふさいで晴れないさま。" },
+
+  { "word": "叡智", "readings": ["えいち"], "grade": "pre1", "explanation": "物事の本質を見通す、すぐれた知恵。" },
+  { "word": "斡旋", "readings": ["あっせん"], "grade": "pre1", "explanation": "間に入って、双方がうまくいくように取り持つこと。" },
+  { "word": "牽引", "readings": ["けんいん"], "grade": "pre1", "explanation": "引っぱること。先頭に立って全体を導くこと。" },
+  { "word": "杜撰", "readings": ["ずさん", "ずざん"], "grade": "pre1", "explanation": "やり方がいい加減で、誤りが多いさま。「ずざん」とも読む。" },
+
+  { "word": "彗星", "readings": ["すいせい"], "grade": "1", "explanation": "太陽に近づくと尾を引いて見える天体。ほうき星。" },
+  { "word": "躊躇", "readings": ["ちゅうちょ"], "grade": "1", "explanation": "決心がつかず、ためらうこと。" },
+  { "word": "檸檬", "readings": ["れもん"], "grade": "1", "explanation": "果物のレモン。梶井基次郎の小説の題名でもある。" },
+  { "word": "蒟蒻", "readings": ["こんにゃく"], "grade": "1", "explanation": "こんにゃく芋から作る食べ物。" },
+  { "word": "薔薇", "readings": ["ばら", "しょうび", "そうび"], "grade": "1", "explanation": "とげのある木に香りの高い花を咲かせる植物。" }
+]

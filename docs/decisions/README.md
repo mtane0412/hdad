@@ -26,6 +26,7 @@
 | [pomodoro.md](pomodoro.md) | ポモドーロ（`/pomodoro/`・素材の種類 `pomodoro`。区切りのトリガーと休憩中のBGM） |
 | [town-tour.md](town-tour.md) | 市町村紹介（レイドとキーワードで流すランダムな市区町村。一覧と日本地図のデータ源・紹介の作り方・素材の流し方） |
 | [twister.md](twister.md) | ツイスター（レイドで流す3Dのツイスターゲーム。物理を先に計算して再生する・指示の選び方） |
+| [kanji-quiz.md](kanji-quiz.md) | 漢字クイズ（自前の問題集・級を手で付ける・チャンネルポイントにだけ置く） |
 | [comments.md](comments.md) | コメントビューアー（`/comments/`） |
 | [focus.md](focus.md) | 注目コメント（素材の種類 `focus`） |
 | [wipe.md](wipe.md) | ワイプ（素材の種類 `wipe`。チャットを1件ずつ出し、自分で読み上げる・裏方の読み上げとの二重読みの防ぎ方） |

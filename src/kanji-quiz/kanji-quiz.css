@@ -1,0 +1,11 @@
+/*
+ * 漢字クイズの見た目
+ *
+ * 級・熟語・残り時間・正解の読みと解説はすべて canvas に描く（src/kanji-quiz/view.ts）ので、ここが持つのは
+ * canvas を箱いっぱいに広げることだけである（市町村紹介と同じ）。
+ */
+[data-kanji-quiz] {
+  display: block;
+  width: 100%;
+  height: 100%;
+}

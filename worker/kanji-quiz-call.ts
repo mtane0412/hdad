@@ -1,0 +1,44 @@
+/**
+ * 漢字クイズの呼び出しの組み立て（issue #300）
+ *
+ * チャンネルポイントのトリガー（alert-actions.ts）と管理画面の試し再生（kanji-quiz-routes.ts）が、合成ページの素材「漢字クイズ」へ
+ * 押し出す呼び出しを作る。問題は問題集（src/kanji-quiz/problems.json）から、動作の設定で選んだ級のものを1問選ぶ。
+ * LLM や辞書からその場で作らない（正答の判定が配信の強制終了に直結するため、配信者が確かめた問題だけを出す。issue #293）。
+ *
+ * 注意: 問題集と級の一覧は合成ページと同じもの（src/kanji-quiz/）を読む。Worker から src/ を読み込む例外の1つで、
+ * 問題集を2か所に持たないためである（.claude/rules/kanji-quiz.md）。形は合成ページの読み取り（src/kanji-quiz/call.ts）と合わせる。
+ */
+import { kankenGradeLabel, type KankenGrade } from '../src/kanji-quiz/grade'
+import { readKanjiQuizProblems, type KanjiQuizProblem } from '../src/kanji-quiz/problems'
+import problemSet from '../src/kanji-quiz/problems.json'
+
+/** リポジトリの問題集。形の誤りは読み込んだ時点で投げる */
+const KANJI_QUIZ_PROBLEMS = readKanjiQuizProblems(problemSet)
+
+/** 1回ぶんの出題 */
+export interface KanjiQuizCall {
+  readonly id: string
+  readonly problem: KanjiQuizProblem
+  /** チャンネルポイントを交換して出題させた人の表示名。試し再生は null */
+  readonly requesterName: string | null
+}
+
+/**
+ * 選んだ級の問題を1問選ぶ。
+ *
+ * @param random 0 以上 1 未満の乱数を返す（呼び出し側は Math.random を渡す）
+ * @param problems 選ぶ元の問題集。省けばリポジトリの問題集
+ * @throws その級の問題が無い場合（ほかの級から黙って出さない）
+ */
+export const pickKanjiQuizProblem = (grade: KankenGrade, random: () => number, problems: readonly KanjiQuizProblem[] = KANJI_QUIZ_PROBLEMS): KanjiQuizProblem => {
+  const candidates = problems.filter((problem) => problem.grade === grade)
+  const problem = candidates[Math.floor(random() * candidates.length)]
+  if (problem === undefined) throw new Error(`漢字クイズの問題集に${kankenGradeLabel(grade)}の問題がありません`)
+  return problem
+}
+
+/** チャンネルポイントの交換での出題の呼び出しを作る */
+export const kanjiQuizCallOf = (problem: KanjiQuizProblem, requesterName: string, id: string): KanjiQuizCall => ({ id, problem, requesterName })
+
+/** 管理画面の試し再生の呼び出しを作る。交換した人がいないので、出題させた人を持たない */
+export const demoKanjiQuizCallOf = (problem: KanjiQuizProblem, id: string): KanjiQuizCall => ({ id, problem, requesterName: null })

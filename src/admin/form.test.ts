@@ -24,6 +24,7 @@ import {
   supportsShoutout,
   supportsTownTour,
   supportsTwister,
+  supportsKanjiQuiz,
   toDraft,
   toTriggerInput,
   type TriggerDraft,
@@ -53,6 +54,8 @@ const inputs = (overrides: Partial<TriggerDraft> = {}): TriggerDraft => ({
   shoutoutEnabled: false,
   townTourEnabled: false,
   twisterEnabled: false,
+  kanjiQuizEnabled: false,
+  kanjiQuizGrade: '3',
   ...overrides,
 })
 
@@ -224,6 +227,12 @@ describe('toTriggerInput', () => {
     expect(toTriggerInput(draft).actions).toEqual([{ type: 'twister' }])
   })
 
+  it('漢字クイズを出題するを選んでいれば、選んだ級を持つ動作として送る', () => {
+    const draft = inputs({ kind: 'reward', alertEnabled: false, kanjiQuizEnabled: true, kanjiQuizGrade: 'pre2' })
+
+    expect(toTriggerInput(draft).actions).toEqual([{ type: 'kanjiQuiz', grade: 'pre2' }])
+  })
+
   it('表示時間が数として読めなければエラーにする（何番目のトリガーかは呼び出し側が添える）', () => {
     expect(() => toTriggerInput(inputs({ durationSeconds: '' }))).toThrowError(/表示時間/)
   })
@@ -290,6 +299,12 @@ describe('toDraft', () => {
     const trigger: StoredTrigger = { kind: 'raid', actions: [{ type: 'twister' }] }
 
     expect(toDraft(trigger)).toMatchObject({ kind: 'raid', alertEnabled: false, twisterEnabled: true })
+  })
+
+  it('漢字クイズの動作を持つトリガーは、その印と級を付けて戻す', () => {
+    const trigger: StoredTrigger = { kind: 'reward', rewardId: '報酬ID-漢字クイズ', actions: [{ type: 'kanjiQuiz', grade: '1' }] }
+
+    expect(toDraft(trigger)).toMatchObject({ kind: 'reward', alertEnabled: false, kanjiQuizEnabled: true, kanjiQuizGrade: '1' })
   })
 
   it('LLMに文面を作らせる動作を持つトリガーは、指示の入力欄を埋めて戻す', () => {
@@ -418,6 +433,7 @@ describe('emptyDraft', () => {
       shoutoutEnabled: false,
       townTourEnabled: false,
       twisterEnabled: false,
+      kanjiQuizEnabled: false,
     })
   })
 })
@@ -468,6 +484,19 @@ describe('rowActionLabels', () => {
     expect(supportsTwister('raid')).toBe(true)
     expect(supportsTwister('keyword')).toBe(false)
     expect(supportsTwister('follow')).toBe(false)
+  })
+
+  it('漢字クイズの効果は「漢字クイズ」として出し、漢字クイズだけを選んだ行も保存する', () => {
+    const draft = inputs({ kind: 'reward', alertEnabled: false, kanjiQuizEnabled: true, kanjiQuizGrade: '6' })
+
+    expect(rowActionLabels(draft)).toEqual(['漢字クイズ'])
+    expect(toTriggerInputs([draft])).toEqual([{ kind: 'reward', rewardId: '報酬ID-乾杯', actions: [{ type: 'kanjiQuiz', grade: '6' }] }])
+  })
+
+  it('漢字クイズはチャンネルポイントの項目にだけ置ける', () => {
+    expect(supportsKanjiQuiz('reward')).toBe(true)
+    expect(supportsKanjiQuiz('raid')).toBe(false)
+    expect(supportsKanjiQuiz('keyword')).toBe(false)
   })
 
   it('AIに文面を作らせる効果は「AIチャット」として出す', () => {

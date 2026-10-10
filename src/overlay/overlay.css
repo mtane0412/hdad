@@ -30,6 +30,7 @@
 @import '../town-tour/town-tour.css';
 @import '../twister/twister.css';
 @import '../wipe/wipe.css';
+@import '../kanji-quiz/kanji-quiz.css';
 
 .overlay {
   position: relative;
