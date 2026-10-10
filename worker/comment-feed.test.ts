@@ -5,7 +5,7 @@
  * 通知の形は Twitch の EventSub のリファレンスにある例に合わせている。
  */
 import { describe, expect, it } from 'vitest'
-import { toFeedItem, type FeedItem } from './comment-feed'
+import { readChatBody, toFeedItem, type FeedItem } from './comment-feed'
 
 /** どの通知にも付ける、フィードの1件としての目印（Webhook の Twitch-Eventsub-Message-Id と届いた時刻） */
 const marker = { id: 'eventsub-message-0001', at: Date.parse('2026-09-29T12:00:00Z') }
@@ -103,6 +103,27 @@ const notice = (notice_type: string, body: Record<string, unknown>): Record<stri
   raid: null,
   announcement: null,
   ...body,
+})
+
+describe('readChatBody: 発言の断片と返信先', () => {
+  it('断片（エモートは画像のIDつき）と、返信でなければ null の返信先を読む', () => {
+    expect(readChatBody(message())).toEqual({
+      fragments: [
+        { text: 'こんばんは ', emoteId: null },
+        { text: 'Kappa', emoteId: '25' },
+      ],
+      reply: null,
+    })
+  })
+
+  it('返信なら返信先の人と発言を読む', () => {
+    const reply = { parent_message_id: 'm0', parent_message_body: 'AIのまとめが間違ってたら困る', parent_user_id: '888', parent_user_login: 'tsukimi_dev', parent_user_name: 'tsukimi_dev', thread_message_id: 'm0', thread_user_id: '888', thread_user_login: 'tsukimi_dev', thread_user_name: 'tsukimi_dev' }
+    expect(readChatBody(message({ reply })).reply).toEqual({ name: 'tsukimi_dev', text: 'AIのまとめが間違ってたら困る' })
+  })
+
+  it('断片が無ければ投げる', () => {
+    expect(() => readChatBody(message({ message: { text: 'こんばんは' } }))).toThrow('fragments')
+  })
 })
 
 describe('toFeedItem: チャットのお知らせ（サブスク・ギフト・レイド・アナウンス）', () => {

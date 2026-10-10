@@ -82,6 +82,10 @@ import { POMODORO_SOCKET_HINT, POMODORO_SOCKET_PATH, createPomodoroOverlayApi } 
 import { demoPomodoroScenes, demoTimerOf } from '../pomodoro/demo'
 import { parsePomodoroSnapshot, type PomodoroTimer } from '../pomodoro/phase'
 import { createPomodoroView } from '../pomodoro/view'
+import { OPINION_SOCKET_HINT, OPINION_SOCKET_PATH, createOpinionOverlayApi } from '../opinions/api'
+import { demoOpinionBoards } from '../opinions/demo'
+import { parseOpinionBoardMessage, type OpinionBoard } from '../opinions/entry'
+import { createOpinionView } from '../opinions/view'
 import { TASK_DESK_SOCKET_HINT, TASK_DESK_SOCKET_PATH, createTaskDeskApi } from '../task-desk/api'
 import { demoTaskDeskScenes } from '../task-desk/demo'
 import { parseTaskDeskSnapshot, type TaskDeskSnapshot, type TaskDeskWorkTime } from '../task-desk/entry'
@@ -151,6 +155,7 @@ const NOUNS: Readonly<Record<ItemKind, string>> = {
   wipe: 'ワイプ',
   text: 'テキスト',
   kanjiQuiz: '漢字クイズ',
+  opinions: '意見ボード',
 }
 
 /** サイドスーパーの文言を読みに行く間隔（ミリ秒）。文言は cron が5分おきに作るので、30秒あれば十分に追いつく */
@@ -174,6 +179,10 @@ const POMODORO_INTERVAL_MS = 300000
  * テキストを読み直す間隔（ミリ秒）。書き換えは押し出しで届くので、読み直しは取りこぼしを拾うためだけにある。作業机と同じく cron の間隔に合わせる
  */
 const TEXT_INTERVAL_MS = 300000
+/**
+ * 意見ボードを読み直す間隔（ミリ秒）。変わった意見ボードは押し出しで届くので、読み直しは取りこぼしを拾うためだけにある。作業机と同じく cron の間隔に合わせる
+ */
+const OPINIONS_INTERVAL_MS = 300000
 /** 取り上げている注目コメントを読みに行く間隔（ミリ秒）。配信中に選び直したとき、待たされすぎない長さにする */
 const FOCUS_INTERVAL_MS = 10000
 /** 市町村紹介の音を鳴らす時刻を迎えたか確かめる間隔（ミリ秒）。場面の切り替わりとずれて聞こえない短さにする */
@@ -1986,6 +1995,104 @@ const mountText = (box: HTMLElement, item: OverlayItem, { key, demo }: MountCont
   }
 }
 
+/**
+ * 意見ボード。配信者が出したテーマについて、視聴者のコメントから取り出した意見を論点ごとに並べる（issue #306）。
+ *
+ * 意見ボードはテーマを開いた・締め切った・振り分けた・意見を隠したたびに、アラートと同じ配送先から WebSocket（/api/overlay/opinions/socket）で
+ * 丸ごと押し出してもらい、開いたとき・つながるたび・定期的に読み直す。読んでいるあいだに押し出しが届いたら、読んだ結果も
+ * 読み出しの失敗も捨てる（作業机と同じ。押し出しのほうが新しい）。中央の「いま紹介している意見」と作ったばかりの印は、
+ * 毎フレーム現在時刻から決める（src/opinions/entry.ts）。
+ */
+const mountOpinions = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
+  // この素材は配信者が決めるパラメータを持たない（映すものはテーマとコメントで決まる）
+  parseParams({}, new URLSearchParams(item.params))
+
+  const root = document.createElement('div')
+  root.className = 'opinions'
+  root.dataset.opinions = ''
+  box.append(root)
+
+  const view = createOpinionView(root)
+  const draw = (): void => view.draw(Date.now())
+
+  if (demo) {
+    // プレビューではWorkerにつながず、意見が増えていく場面を順に流す
+    startSampleCycle(demoOpinionBoards, DEMO_SAMPLE_INTERVAL_MS, (board) => view.setBoard(board))
+    return { draw }
+  }
+
+  const api = createOpinionOverlayApi(callWorker, key)
+  const showReadError = (error: unknown): void => {
+    clearError(box, 'read')
+    showError(error, NOUNS.opinions, box, 'read')
+  }
+  const show = (board: OpinionBoard): void => {
+    view.setBoard(board)
+    // 最新の意見ボードを映せたので、前の失敗が箱に出ていれば消す
+    clearError(box, 'read')
+  }
+  /** いちばん新しく始めた読み出しの世代。重なった読み出しのうち、古いものの結果で新しい意見ボードを上書きしないために使う */
+  let latestRead = 0
+  /** 押し出しを受け取った回数。読んでいるあいだに押し出しが届いたかを見分けるために使う */
+  let pushCount = 0
+  /**
+   * 意見ボードを読み直す。失敗は onError に渡すが、あとから始めた読み出しや押し出しに追い越されていれば捨てる。
+   *
+   * @param onError 追い越されていない失敗の扱い（箱に出す・記録に残すだけ、を呼び出し側が決める）
+   */
+  const read = async (onError: (error: unknown) => void): Promise<void> => {
+    latestRead += 1
+    const generation = latestRead
+    const pushCountAtStart = pushCount
+    const isStale = (): boolean => generation !== latestRead || pushCountAtStart !== pushCount
+    try {
+      const board = await api.read()
+      if (isStale()) return
+      show(board)
+    } catch (error) {
+      if (!isStale()) onError(error)
+    }
+  }
+
+  // 1回目は起動の一部として扱い、失敗はこの箱に出す（ほかの素材は動かし続ける）
+  void read(showReadError)
+
+  connectSocket(
+    socketUrl(OPINION_SOCKET_PATH, { key }),
+    {
+      onMessage: (message) => {
+        try {
+          const board = parseOpinionBoardMessage(message)
+          pushCount += 1
+          show(board)
+        } catch (error) {
+          showReadError(error)
+        }
+      },
+      // つながるたびに読み直す。つながっていない間の変化を取りこぼさないため
+      onOpen: () => void read(showReadError),
+      onStatus: () => {
+        // 切断・再接続は出さない。つながったときの読み直しは onOpen が受け持ち、映している意見ボードはそのまま残す
+      },
+      onWarning: (message) => showReadError(new Error(message)),
+    },
+    OPINION_SOCKET_HINT,
+  )
+
+  return {
+    draw,
+    task: {
+      intervalMs: OPINIONS_INTERVAL_MS,
+      run: () => {
+        void read((error) => {
+          // 一時的な通信の失敗で配信画面を汚さない。映している意見ボードはそのまま残し、原因は記録に残す（作業机と同じ）
+          console.error('意見ボードを読み込めませんでした', error)
+        })
+      },
+    },
+  }
+}
+
 const mountItem = (box: HTMLElement, item: OverlayItem, context: MountContext): MountedItem => {
   switch (item.kind) {
     case 'wallpaper':
@@ -2023,6 +2130,8 @@ const mountItem = (box: HTMLElement, item: OverlayItem, context: MountContext): 
       return mountText(box, item, context)
     case 'kanjiQuiz':
       return mountKanjiQuiz(box, item, context)
+    case 'opinions':
+      return mountOpinions(box, item, context)
   }
 }
 

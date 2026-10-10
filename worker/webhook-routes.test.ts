@@ -17,6 +17,7 @@ import { getSession, listFailures, listSessions, recordLiveStream, recordStreamO
 import { saveBotConfig } from './bot-config'
 import { saveStreamSummary } from './stream-summary-store'
 import { declareTask } from './task-desk-store'
+import { openTheme } from './opinion-store'
 import { saveModerationConfig } from './moderation-config'
 import type { ModerationConfig, ModerationRule } from './chat-moderation'
 import { saveAlertConfig, type StoredTrigger } from './alert-config'
@@ -2097,6 +2098,62 @@ describe('漢字クイズの回答（issue #301）', () => {
     await callWebhook(createNotification({ body: chatFrom('たなか', '11111', 'こんにちは', 'chat-1'), messageId: 'notification-1' }), env)
 
     expect(await listFailures(env.DB)).toEqual([])
+  })
+})
+
+describe('意見ボードのコメント（issue #306）', () => {
+  /** チャットの発言としての通知。返信なら返信先を添える */
+  const chatFrom = (userName: string, chatterUserId: string, text: string, messageId: string, reply: Record<string, unknown> | null = null) => ({
+    subscription: { type: 'channel.chat.message' },
+    event: {
+      broadcaster_user_id: BROADCASTER_ID,
+      chatter_user_id: chatterUserId,
+      chatter_user_login: `viewer${chatterUserId}`,
+      chatter_user_name: userName,
+      message_id: messageId,
+      message: { text, fragments: [{ type: 'text', text }] },
+      reply,
+    },
+  })
+
+  /** 貯まったコメントを読む */
+  const storedComments = (db: ReturnType<typeof createEnv>['db']) =>
+    db.sqlite.prepare('SELECT user_name, text, reply_name, reply_text, status, drop_reason FROM opinion_comments ORDER BY id').all()
+
+  it('テーマを出しているあいだのコメントを貯め、短い反応は理由をつけて落とす', async () => {
+    const { env, db } = createEnv()
+    await openTheme(db, '配信中にAIをどこまで使っていい？', NOW - 60_000)
+
+    await callWebhook(createNotification({ body: chatFrom('aoi', '11111', 'AIのコメ返しはちょっと寂しい', 'chat-1'), messageId: 'notification-1' }), env)
+    await callWebhook(createNotification({ body: chatFrom('nekomaru', '22222', '草', 'chat-2'), messageId: 'notification-2' }), env)
+    const reply = { parent_message_id: 'chat-1', parent_message_body: 'AIのコメ返しはちょっと寂しい', parent_user_id: '11111', parent_user_login: 'viewer11111', parent_user_name: 'aoi', thread_message_id: 'chat-1', thread_user_id: '11111', thread_user_login: 'viewer11111', thread_user_name: 'aoi' }
+    await callWebhook(createNotification({ body: chatFrom('pon_pon', '33333', 'それな', 'chat-3', reply), messageId: 'notification-3' }), env)
+
+    expect(storedComments(db)).toEqual([
+      { user_name: 'aoi', text: 'AIのコメ返しはちょっと寂しい', reply_name: null, reply_text: null, status: 'pending', drop_reason: null },
+      { user_name: 'nekomaru', text: '草', reply_name: null, reply_text: null, status: 'dropped', drop_reason: 'reaction' },
+      { user_name: 'pon_pon', text: 'それな', reply_name: 'aoi', reply_text: 'AIのコメ返しはちょっと寂しい', status: 'pending', drop_reason: null },
+    ])
+  })
+
+  it('テーマを出していなければ貯めない', async () => {
+    const { env, db } = createEnv()
+
+    await callWebhook(createNotification({ body: chatFrom('aoi', '11111', 'AIのコメ返しはちょっと寂しい', 'chat-1'), messageId: 'notification-1' }), env)
+
+    expect(storedComments(db)).toEqual([])
+  })
+
+  it('貯められなくても、Twitchへは2xxを返して失敗として記録する', async () => {
+    const { env, db } = createEnv()
+    await openTheme(db, '配信中にAIをどこまで使っていい？', NOW - 60_000)
+    // 貯める表が壊れている場合を再現する
+    db.sqlite.exec('DROP TABLE opinion_comments')
+
+    const response = await callWebhook(createNotification({ body: chatFrom('aoi', '11111', 'AIのコメ返しはちょっと寂しい', 'chat-1'), messageId: 'notification-1' }), env)
+
+    expect(response.status).toBe(204)
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'opinion-record-failed' }])
   })
 })
 

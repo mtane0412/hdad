@@ -54,6 +54,9 @@
  * 受け取る接続が1つも無ければ409を返す
  * （つながっていない間に止める命令を落とすと、配信が止まらなかったことに誰も気づけないため）。
  *
+ * 合成ページの素材「意見ボード」へ、いまの意見ボード（テーマ・論点・意見の丸ごと）を配るのもこの Durable Object である（issue #306）。
+ * 同じ理由で、13個目の目印（opinions）を付けた接続へだけ配る。
+ *
  * 注意: WebSocketの接続（Upgrade）は Cloudflare のランタイムでしか作れないので、テストでは配送の部分だけを確かめる。
  */
 import type { OverlayAlert } from './alert-event'
@@ -64,6 +67,7 @@ import { broadcast, closeForRevokedKey, type SocketLike } from './socket-broadca
 import type { PomodoroSnapshot } from './pomodoro-timer'
 import type { SpeechMute } from './speech-config'
 import type { KanjiQuizCall, KanjiQuizNotice, StreamStopOrder } from './kanji-quiz-call'
+import type { OpinionBoardSnapshot } from './opinion'
 import type { TaskDeskSnapshot } from './task-desk'
 import type { TextsSnapshot } from './text'
 import type { TownTourAnswerMessage, TownTourCall } from './town-tour-call'
@@ -97,6 +101,8 @@ const PUSH_TEXT_PATH = '/push/text'
 const PUSH_KANJI_QUIZ_PATH = '/push/kanji-quiz'
 /** Worker が配信を止める命令の押し出しに使うパス */
 const PUSH_STREAM_STOP_PATH = '/push/stream-stop'
+/** Worker が意見ボードの押し出しに使うパス */
+const PUSH_OPINIONS_PATH = '/push/opinions'
 /** Worker がオーバーレイ用キーを発行し直したときに、開いている接続を閉じさせるパス */
 const REVOKE_PATH = '/revoke'
 
@@ -124,6 +130,8 @@ const TEXT_TOPIC = 'text'
 const KANJI_QUIZ_TOPIC = 'kanjiQuiz'
 /** 配信を止める命令を受け取る接続（裏方のページ）に付ける目印 */
 const STREAM_STOP_TOPIC = 'streamStop'
+/** 意見ボードを受け取る接続（合成ページの素材「意見ボード」）に付ける目印 */
+const OPINIONS_TOPIC = 'opinions'
 /** 受け入れる接続の目印。知らない値はアラートの接続として受け入れる（Worker が必ずどれかを付けて渡す） */
 const TOPICS: readonly string[] = [
   ALERTS_TOPIC,
@@ -138,6 +146,7 @@ const TOPICS: readonly string[] = [
   TEXT_TOPIC,
   KANJI_QUIZ_TOPIC,
   STREAM_STOP_TOPIC,
+  OPINIONS_TOPIC,
 ]
 /** どちらの目印で受け入れるかを Worker が伝えるためのクエリ。外には出ない */
 const TOPIC_PARAM = 'topic'
@@ -183,7 +192,7 @@ export interface AlertChannelNamespace {
  * - Upgrade: websocket のリクエスト: オーバーレイからの接続を受ける（パスはWorkerのものがそのまま届く）。
  *   クエリの topic が bgm ならBGMの接続、workLog なら作業ログの接続、taskDesk なら作業机の接続、pomodoro ならポモドーロの接続、
  *   townTour なら市町村紹介の接続、bgmDuck なら配信のBGMを下げる知らせの接続、speechMute なら読み上げのミュートの接続、
- *   twister ならツイスターの接続、text ならテキストの接続、kanjiQuiz なら漢字クイズの接続、streamStop なら配信を止める命令の接続、
+ *   twister ならツイスターの接続、text ならテキストの接続、kanjiQuiz なら漢字クイズの接続、streamStop なら配信を止める命令の接続、opinions なら意見ボードの接続、
  *   それ以外はアラートの接続として受け入れる
  * - POST /push: Worker が押し出したアラートを、アラートの接続すべてへ配る
  * - POST /push/bgm: Worker が押し出した「いま流している曲」を、BGMの接続すべてへ配る
@@ -197,6 +206,7 @@ export interface AlertChannelNamespace {
  * - POST /push/text: Worker が押し出したテキストの一覧を、テキストの接続すべてへ配る
  * - POST /push/kanji-quiz: Worker が押し出した漢字クイズの出題を、漢字クイズの接続すべてへ配る
  * - POST /push/stream-stop: Worker が押し出した配信を止める命令を、停止の接続のうち送れた1つへ配る。1つも無ければ409を返す
+ * - POST /push/opinions: Worker が押し出したいまの意見ボードを、意見ボードの接続すべてへ配る
  * - POST /revoke: 新しいキーの目印を覚え、接続をすべて閉じる（オーバーレイ用キーを発行し直したとき。どの接続もオーバーレイ用キーで開かれている）
  *
  * 接続はどれもオーバーレイ用キーで開かれるので、覚えている目印と違うキーの接続は受け入れない（worker/overlay-key.ts）。
@@ -223,6 +233,7 @@ export class AlertChannel {
     if (url.pathname === PUSH_TWISTER_PATH) return this.push(TWISTER_TOPIC, await request.text(), 'ツイスター')
     if (url.pathname === PUSH_TEXT_PATH) return this.push(TEXT_TOPIC, await request.text(), 'テキスト')
     if (url.pathname === PUSH_KANJI_QUIZ_PATH) return this.push(KANJI_QUIZ_TOPIC, await request.text(), '漢字クイズ')
+    if (url.pathname === PUSH_OPINIONS_PATH) return this.push(OPINIONS_TOPIC, await request.text(), '意見ボード')
     if (url.pathname === PUSH_STREAM_STOP_PATH) {
       const payload = await request.text()
       // 裏方を2つ開いていても StopStream を2回送らないよう、送れた1つで止める（送れなかった接続は broadcast が閉じる）
@@ -382,6 +393,16 @@ export const connectSpeechMuteSocket = (namespace: AlertChannelNamespace, reques
   connectWithTopic(namespace, request, SPEECH_MUTE_TOPIC, keyTag)
 
 /** 受け取る側の目印とキーの目印をクエリに載せて接続を引き渡す。利用者の送ってきた値は上書きする */
+/**
+ * 合成ページの素材「意見ボード」からのWebSocketの接続を、意見ボードを受け取る接続として Durable Object へ引き渡す。
+ *
+ * オーバーレイ用キーの確認は呼び出し側（opinion-routes.ts）が済ませている。
+ *
+ * @param keyTag 確かめたキーの目印（overlayKeyTag）
+ */
+export const connectOpinionSocket = (namespace: AlertChannelNamespace, request: Request, keyTag: string): Promise<Response> =>
+  connectWithTopic(namespace, request, OPINIONS_TOPIC, keyTag)
+
 const connectWithTopic = (namespace: AlertChannelNamespace, request: Request, topic: string, keyTag: string): Promise<Response> => {
   const url = new URL(request.url)
   url.searchParams.set(TOPIC_PARAM, topic)
@@ -444,6 +465,14 @@ export const pushPomodoro = (namespace: AlertChannelNamespace, snapshot: Pomodor
  * 注意: 失敗を黙って握りつぶさない。呼び出し側（text-routes.ts）が管理画面へ失敗を返す。
  */
 export const pushTexts = (namespace: AlertChannelNamespace, snapshot: TextsSnapshot): Promise<void> => pushJson(namespace, PUSH_TEXT_PATH, snapshot, 'テキスト')
+
+/**
+ * いまの意見ボードを Durable Object へ押し出す。テーマを開いた・締め切った・振り分けを書いた・意見を隠したときに呼ぶ。
+ *
+ * 注意: 失敗を黙って握りつぶさない。呼び出し側（opinion-routes.ts・opinion-run.ts）が管理画面へ返すか、失敗として記録する。
+ */
+export const pushOpinions = (namespace: AlertChannelNamespace, board: OpinionBoardSnapshot): Promise<void> =>
+  pushJson(namespace, PUSH_OPINIONS_PATH, board, '意見ボード')
 
 /**
  * 漢字クイズの出題を Durable Object へ押し出す。チャンネルポイントのトリガーと管理画面の試し再生で呼ぶ。

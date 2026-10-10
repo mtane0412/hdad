@@ -55,6 +55,10 @@
  * | POST /api/admin/pomodoro/control | セッション     | ポモドーロのタイマーの操作（始める・一時停止・再開・止める） |
  * | GET・POST /api/admin/texts       | セッション     | 配信者が書くテキストの一覧・追加 |
  * | PUT・DELETE /api/admin/texts/:id | セッション     | テキストの書き換え・削除（合成ページへ押し出す） |
+ * | GET  /api/admin/opinions         | セッション     | 意見ボード（最後に開いたテーマ。隠した意見・人数・もとのコメントつき） |
+ * | POST /api/admin/opinions/themes  | セッション     | 意見ボードのテーマを開き、コメントの振り分けを始める |
+ * | POST /api/admin/opinions/themes/:id/close | セッション | 意見ボードのテーマを締め切り、振り分けを止める |
+ * | PUT  /api/admin/opinions/items/:id | セッション   | 意見を隠す・戻す（合成ページへ押し出す） |
  * | POST /api/admin/town-tour/demo   | セッション     | 市町村紹介の試し再生（市町村を1つ引いて合成ページへ押し出す） |
  * | GET  /api/admin/town-tour/sound  | セッション     | 市町村紹介の演出で鳴らす音の設定 |
  * | PUT  /api/admin/town-tour/sound  | セッション     | 市町村紹介の音の設定を検証して保存 |
@@ -103,6 +107,8 @@
  * | GET  /api/overlay/pomodoro/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、ポモドーロのタイマーの配送先へ引き渡す |
  * | GET  /api/overlay/texts          | オーバーレイ用キー | 配信者が書いたテキストの一覧を返す |
  * | GET  /api/overlay/texts/socket   | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、テキストの配送先へ引き渡す |
+ * | GET  /api/overlay/opinions       | オーバーレイ用キー | 意見ボード（人数を含まない）を返す |
+ * | GET  /api/overlay/opinions/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、意見ボードの配送先へ引き渡す |
  * | GET  /api/overlay/town-tour      | オーバーレイ用キー | コードの市町村の紹介を Wikipedia を材料に作って返す |
  * | POST /api/overlay/town-tour/quiz | オーバーレイ用キー | 市町村紹介の冒頭の都道府県当てクイズの出題を開く |
  * | POST /api/overlay/town-tour/visit | オーバーレイ用キー | 市町村紹介を流しきった市町村を、全国制覇マップの記録に残す |
@@ -182,6 +188,7 @@ import { captionSocket } from './caption-routes'
 import { getWorkLog, workLogSocket } from './work-log-routes'
 import { getTaskDesk, taskDeskSocket } from './task-desk-routes'
 import { getOverlayTexts, getTexts, postText, putText, removeText, textSocket } from './text-routes'
+import { getAdminOpinions, getOverlayOpinions, opinionSocket, postCloseOpinionTheme, postOpinionTheme, putOpinion } from './opinion-routes'
 import {
   getTownTour,
   getTownTourNarration,
@@ -312,6 +319,10 @@ const ROUTES: readonly Route[] = [
   { method: 'POST', path: '/api/admin/texts', handle: postText },
   { method: 'PUT', path: '/api/admin/texts/:id', handle: putText },
   { method: 'DELETE', path: '/api/admin/texts/:id', handle: removeText },
+  { method: 'GET', path: '/api/admin/opinions', handle: getAdminOpinions },
+  { method: 'POST', path: '/api/admin/opinions/themes', handle: postOpinionTheme },
+  { method: 'POST', path: '/api/admin/opinions/themes/:id/close', handle: postCloseOpinionTheme },
+  { method: 'PUT', path: '/api/admin/opinions/items/:id', handle: putOpinion },
   { method: 'GET', path: '/api/admin/viewers', handle: getViewers },
   { method: 'PATCH', path: '/api/admin/viewers/:userId', handle: patchViewer },
   { method: 'DELETE', path: '/api/admin/viewers/:userId', handle: deleteViewerRoute },
@@ -347,6 +358,8 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/overlay/pomodoro/socket', handle: pomodoroSocket },
   { method: 'GET', path: '/api/overlay/texts', handle: getOverlayTexts },
   { method: 'GET', path: '/api/overlay/texts/socket', handle: textSocket },
+  { method: 'GET', path: '/api/overlay/opinions', handle: getOverlayOpinions },
+  { method: 'GET', path: '/api/overlay/opinions/socket', handle: opinionSocket },
   { method: 'GET', path: '/api/overlay/focus', handle: getOverlayFocus },
   { method: 'GET', path: '/api/overlay/wipe/icon', handle: getWipeIcon },
   { method: 'GET', path: '/api/overlay/bgm', handle: getOverlayBgm },

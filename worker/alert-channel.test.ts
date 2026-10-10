@@ -18,6 +18,7 @@ import {
   connectKanjiQuizSocket,
   connectStreamStopSocket,
   connectTextSocket,
+  connectOpinionSocket,
   connectTaskDeskSocket,
   connectWorkLogSocket,
   pushAlert,
@@ -155,6 +156,7 @@ describe('AlertChannel', () => {
     textSockets: AlertSocket[] = [],
     kanjiQuizSockets: AlertSocket[] = [],
     streamStopSockets: AlertSocket[] = [],
+    opinionSockets: AlertSocket[] = [],
   ): AlertChannel =>
     new AlertChannel({
       acceptWebSocket: () => undefined,
@@ -171,6 +173,7 @@ describe('AlertChannel', () => {
         if (tag === 'text') return textSockets
         if (tag === 'kanjiQuiz') return kanjiQuizSockets
         if (tag === 'streamStop') return streamStopSockets
+        if (tag === 'opinions') return opinionSockets
         return [
           ...sockets,
           ...bgmSockets,
@@ -184,6 +187,7 @@ describe('AlertChannel', () => {
           ...textSockets,
           ...kanjiQuizSockets,
           ...streamStopSockets,
+          ...opinionSockets,
         ]
       },
       setWebSocketAutoResponse: () => undefined,
@@ -314,6 +318,19 @@ describe('AlertChannel', () => {
     expect(alertItem.sentMessages).toEqual([])
   })
 
+  it('意見ボードは、意見ボードを受け取る接続だけへ送る（アラートとしては読めないため）', async () => {
+    const alertItem = createConnection()
+    const opinionItem = createConnection()
+    const destination = createDestination([alertItem], [], [], [], [], [], [], [], [], [], [], [], [opinionItem])
+    const board = { theme: { id: 1, title: '配信中にAIをどこまで使っていい？', openedAt: '2026-10-10T12:00:00.000Z', closedAt: null }, topics: [] }
+
+    const response = await destination.fetch(new Request('https://alert-channel/push/opinions', { method: 'POST', body: JSON.stringify(board) }))
+
+    expect(response.status).toBe(204)
+    expect(opinionItem.sentMessages).toEqual([JSON.stringify(board)])
+    expect(alertItem.sentMessages).toEqual([])
+  })
+
   it('配信のBGMを下げる知らせは、下げる知らせを受け取る接続（裏方のページ）だけへ送る（曲の切り替えとしては読めないため）', async () => {
     const bgmItem = createConnection()
     const backstageDuck = createConnection()
@@ -419,7 +436,7 @@ describe('pushAlert', () => {
 })
 
 describe('接続の引き渡し', () => {
-  it('アラート・BGM・作業ログ・作業机・ポモドーロ・市町村紹介・BGMを下げる知らせ・読み上げのミュート・ツイスター・テキスト・漢字クイズの接続を、目印を付けて Durable Object へ引き渡す', async () => {
+  it('アラート・BGM・作業ログ・作業机・ポモドーロ・市町村紹介・BGMを下げる知らせ・読み上げのミュート・ツイスター・テキスト・漢字クイズ・意見ボードの接続を、目印を付けて Durable Object へ引き渡す', async () => {
     const delivery = createFakeAlertChannel()
     const connectionRequest = (): Request => new Request('https://hdad.example.com/api/overlay/socket?key=k', { headers: { Upgrade: 'websocket' } })
 
@@ -435,6 +452,7 @@ describe('接続の引き渡し', () => {
     await connectTextSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
     await connectKanjiQuizSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
     await connectStreamStopSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
+    await connectOpinionSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
 
     expect(delivery.forwardedConnections.map((request) => new URL(request.url).searchParams.get('topic'))).toEqual([
       'alerts',
@@ -449,6 +467,7 @@ describe('接続の引き渡し', () => {
       'text',
       'kanjiQuiz',
       'streamStop',
+      'opinions',
     ])
   })
 })

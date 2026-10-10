@@ -25,6 +25,7 @@ import { BgmPlayerProvider, type BgmConnect } from '@/bgm/player-context'
 import type { PomodoroApi } from '@/pomodoro/api'
 import { PomodoroTimerProvider, type PomodoroConnect } from '@/pomodoro/timer-context'
 import type { TextApi } from '@/text/api'
+import type { OpinionApi } from '@/opinions/api'
 import type { BotApi } from '@/bot/api'
 import type { DrawApi } from '@/draw/api'
 import type { CommentApi } from '@/comments/api'
@@ -249,6 +250,7 @@ export const App = ({
   bgmApi,
   pomodoroApi,
   textApi,
+  opinionApi,
   recognitionDeps,
   connectBgm,
   connectPomodoro,
@@ -268,6 +270,7 @@ export const App = ({
   bgmApi: BgmApi
   pomodoroApi: PomodoroApi
   textApi: TextApi
+  opinionApi: OpinionApi
   /** 配信中の文字起こしの音声認識が使うもの（ブラウザでは browserRecognitionDeps が組み立てる） */
   recognitionDeps: RecognitionDeps
   /** BGMの「いま流している曲」の押し出しにつなぐ（ブラウザでは src/bgm/socket.ts の connectBgmWatch） */
@@ -353,6 +356,7 @@ export const App = ({
             bgmApi,
             pomodoroApi,
             textApi,
+            opinionApi,
             me: session.me,
             onOverlayKeyChange: (overlayKey) => setSession({ status: 'signed-in', me: { ...session.me, overlayKey } }),
           }}

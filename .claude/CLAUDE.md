@@ -80,12 +80,13 @@ npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 | `wipe.md` | ワイプ（素材の種類 `wipe`。チャットを1件ずつアイコンの枠と吹き出しで出し、自分で読み上げる） | `src/wipe/**`・`worker/wipe-*.ts`・`src/speech/voice.ts`・`src/speech/task.ts` |
 | `twister.md` | ツイスター（レイドの動作 `twister` と素材の種類 `twister`。three.js の3Dの人形で対戦し、倒れ込みは物理を先に計算して再生する） | `src/twister/**`・`worker/twister-*.ts`・`src/admin/twister-card.tsx` |
 | `kanji-quiz.md` | 漢字クイズ（チャンネルポイントの動作 `kanjiQuiz` と素材の種類 `kanjiQuiz`。自前の問題集から級を選んで出題し、時間切れなら猶予のあと裏方が OBS の配信を止める） | `src/kanji-quiz/**`・`worker/kanji-quiz-*.ts`・`src/admin/kanji-quiz-card.tsx` |
+| `opinions.md` | 意見ボード（`/opinions/`・素材の種類 `opinions`。テーマを出してチャットから意見を取り出し、観点ごとに並べる。多数決に見せない） | `src/opinions/**`・`worker/opinion*.ts`・`worker/webhook-routes.ts`・`worker/comment-feed.ts`・`worker/alert-channel.ts`・`worker/ad-break-timer.ts`・`migrations/*opinion*.sql` |
 | `overlay.md` | 合成ページと構成の管理画面（`overlay/stage/`・`/overlay/`） | `src/overlay/**`・`overlay/**`・`worker/overlay-*.ts` |
 | `speech.md` | チャットの読み上げ（`speech/reader/`。合成先にさくらのAI Engine） | `src/speech/**`・`speech/**`・`worker/speech-*.ts` |
 | `backstage.md` | 裏方をまとめたページ（`overlay/backstage/`）とコネクターのページ（`/connectors/`） | `src/backstage/**`・`overlay/backstage/**` |
 | `bgm.md` | BGM（`/bgm/`・裏方の `?bgm=true`） | `src/bgm/**`・`worker/bgm-*.ts`・`worker/alert-channel.ts` |
 | `screen.md` | 配信画面の取り込み（コネクターの Gyazo） | `src/screen/**`・`worker/screen-*.ts`・`worker/gyazo.ts` |
-| `llm.md` | LLMの呼び先・使用状況・モデルの選択（判定用の Jev を含む） | `src/llm/**`・`worker/llm*.ts`・`worker/jev*.ts`・`worker/ai-chat.ts`・`worker/side-super.ts`・`worker/viewer-summary.ts`・`worker/stream-summary.ts`・`worker/town-tour.ts`・`worker/text-auto.ts` |
+| `llm.md` | LLMの呼び先・使用状況・モデルの選択（判定用の Jev を含む） | `src/llm/**`・`worker/llm*.ts`・`worker/jev*.ts`・`worker/ai-chat.ts`・`worker/side-super.ts`・`worker/viewer-summary.ts`・`worker/stream-summary.ts`・`worker/town-tour.ts`・`worker/text-auto.ts`・`worker/opinion-sort.ts` |
 | `dashboard.md` | ダッシュボード（`/`） | `src/stats/**`・`worker/stats-*.ts` |
 | `triggers-page.md` | トリガーの管理画面（`/triggers/`） | `src/admin/**` |
 | `rewards.md` | チャンネルポイント報酬（`/rewards/`） | `src/admin/reward-*`・`worker/reward-*.ts` |

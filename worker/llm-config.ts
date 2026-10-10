@@ -41,8 +41,9 @@ export const LLM_PROVIDERS = ['workers-ai', 'openrouter'] as const
  * streamTitle は、配信タイトルの候補づくり（worker/stream-title.ts。試験運用）を入れたときだけ呼ばれる。
  * townBond は、市町村紹介でレイド元と市町村の共通点を作るとき（worker/town-bond.ts）だけ呼ばれる。
  * autoText は、自動で書き換えるテキスト（worker/text-auto.ts。issue #295）があるときだけ cron が5分おきに呼ぶ（後から足したので末尾に置く）。
+ * opinionSort は、意見ボード（worker/opinion-sort.ts。issue #306）でテーマを出しているあいだだけ、新しい発言があれば45秒おきに呼ぶ（後から足したので末尾に置く）。
  */
-export const LLM_USAGES = ['translation', 'aiChat', 'sideSuper', 'viewerSummary', 'streamSummary', 'streamTitle', 'townTour', 'townBond', 'autoText'] as const
+export const LLM_USAGES = ['translation', 'aiChat', 'sideSuper', 'viewerSummary', 'streamSummary', 'streamTitle', 'townTour', 'townBond', 'autoText', 'opinionSort'] as const
 
 export type LlmProvider = (typeof LLM_PROVIDERS)[number]
 export type LlmUsage = (typeof LLM_USAGES)[number]
@@ -100,6 +101,9 @@ export const DEFAULT_LLM_SETTINGS: LlmSettings = {
     townBond: { provider: 'openrouter', models: { 'workers-ai': LARGE_MODELS['workers-ai'], openrouter: 'google/gemini-3.8-flash' } },
     // テキストの自動の書き換え（worker/text-auto.ts）は5分おきの収集で自動のテキストごとに呼ぶので、サイドスーパーと同じ軽いモデルにする
     autoText: { provider: 'workers-ai', models: LIGHT_MODELS },
+    // 意見ボードの振り分け（worker/opinion-sort.ts）は JSON の形とラベルを守らせ、発言を40文字の1文にまとめさせるので大きいモデルにする。
+    // テーマを出しているあいだしか呼ばないので、回数は配信者が決められる
+    opinionSort: { provider: 'workers-ai', models: LARGE_MODELS },
   },
 }
 
