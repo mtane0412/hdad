@@ -2,7 +2,7 @@
  * 漢字クイズの出題（issue #301）
  *
  * チャンネルポイントの交換（alert-actions.ts）と管理画面の試し再生（kanji-quiz-routes.ts）が呼ぶ。
- * 級ごとの重みに沿って、同じ配信で出していない問題を1問選び（kanji-quiz-call.ts の pickKanjiQuizProblem）、出題の行を D1 に入れてから（kanji-quiz-store.ts）
+ * 級ごとの重みに沿って、同じ配信で出した回数がいちばん少ない問題を1問選び（kanji-quiz-call.ts の pickKanjiQuizProblem）、出題の行を D1 に入れてから（kanji-quiz-store.ts）
  * 合成ページの素材「漢字クイズ」へ押し出す。行を押し出す前に入れるのは、合成ページが流しはじめて出題を開くまでに行が要るためである。
  * 試し再生で出した問題も、同じ配信で出したものとして数える（配信中の試し再生も OBS の画面に映るため）。
  *
