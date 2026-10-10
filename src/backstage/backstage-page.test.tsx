@@ -74,6 +74,7 @@ const urlValue = () => (urlField() as HTMLInputElement).value
 const speechSwitch = () => screen.getByRole('checkbox', { name: 'VOICEVOX' })
 const screenSwitch = () => screen.getByRole('checkbox', { name: 'Gyazo' })
 const bgmSwitch = () => screen.getByRole('checkbox', { name: 'BGM' })
+const stopSwitch = () => screen.getByRole('checkbox', { name: 'OBS（配信の停止）' })
 
 describe('コネクターのページ', () => {
   test('VOICEVOX・Gyazo・HDAD-tab・Web Speech API の区画を同じページに並べる', async () => {
@@ -124,6 +125,17 @@ describe('コネクターのページ', () => {
     await userEvent.click(bgmSwitch())
 
     expect(urlValue()).toContain('bgm=true')
+  })
+
+  test('配信の停止は既定で外れていて、入れるとURLに書き足される（OBSの用意が要り、配信を止める力を持つため）', async () => {
+    renderPage()
+
+    expect(stopSwitch()).not.toBeChecked()
+    expect(urlValue()).not.toContain('stop=')
+
+    await userEvent.click(stopSwitch())
+
+    expect(urlValue()).toContain('stop=true')
   })
 
   test('URLのコピーはアイコンだけのボタンにし、名前は読み上げとホバー（title）に残す', () => {

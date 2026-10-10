@@ -35,7 +35,7 @@ describe('issueKanjiQuiz', () => {
   it('選んだ問題の行を入れてから、交換した人の名前と一緒に押し出す', async () => {
     const { db, alertChannel } = await createLiveDeps()
 
-    const call = await issueKanjiQuiz({ db, alerts: alertChannel.namespace, now, random: () => 0, id: 'quiz-1' }, { grade: '6', requesterName: '田中太郎' }, problems)
+    const call = await issueKanjiQuiz({ db, alerts: alertChannel.namespace, now, random: () => 0, id: 'quiz-1' }, { grade: '6', requesterName: '田中太郎', rehearsal: false }, problems)
 
     expect(call).toEqual({ id: 'quiz-1', problem: problems[0], requesterName: '田中太郎' })
     expect(alertChannel.pushedKanjiQuizzes).toEqual([call])
@@ -48,8 +48,8 @@ describe('issueKanjiQuiz', () => {
     const { db, alertChannel } = await createLiveDeps()
     const deps = { db, alerts: alertChannel.namespace, now, random: () => 0 }
 
-    await issueKanjiQuiz({ ...deps, id: 'quiz-1' }, { grade: '6', requesterName: '田中太郎' }, problems)
-    const second = await issueKanjiQuiz({ ...deps, id: 'quiz-2' }, { grade: '6', requesterName: null }, problems)
+    await issueKanjiQuiz({ ...deps, id: 'quiz-1' }, { grade: '6', requesterName: '田中太郎', rehearsal: false }, problems)
+    const second = await issueKanjiQuiz({ ...deps, id: 'quiz-2' }, { grade: '6', requesterName: null, rehearsal: true }, problems)
 
     expect(second.problem.word).toBe('仮病')
   })
@@ -57,10 +57,10 @@ describe('issueKanjiQuiz', () => {
   it('選べる問題が尽きたら、素材の箱へ失敗を押し出して投げ、問題は押し出さない', async () => {
     const { db, alertChannel } = await createLiveDeps()
     const deps = { db, alerts: alertChannel.namespace, now, random: () => 0 }
-    await issueKanjiQuiz({ ...deps, id: 'quiz-1' }, { grade: '6', requesterName: '田中太郎' }, problems)
-    await issueKanjiQuiz({ ...deps, id: 'quiz-2' }, { grade: '6', requesterName: '田中太郎' }, problems)
+    await issueKanjiQuiz({ ...deps, id: 'quiz-1' }, { grade: '6', requesterName: '田中太郎', rehearsal: false }, problems)
+    await issueKanjiQuiz({ ...deps, id: 'quiz-2' }, { grade: '6', requesterName: '田中太郎', rehearsal: false }, problems)
 
-    await expect(issueKanjiQuiz({ ...deps, id: 'quiz-3' }, { grade: '6', requesterName: '田中太郎' }, problems)).rejects.toThrow(KanjiQuizExhaustedError)
+    await expect(issueKanjiQuiz({ ...deps, id: 'quiz-3' }, { grade: '6', requesterName: '田中太郎', rehearsal: false }, problems)).rejects.toThrow(KanjiQuizExhaustedError)
 
     expect(alertChannel.pushedKanjiQuizzes.map(({ id }) => id)).toEqual(['quiz-1', 'quiz-2'])
     expect(alertChannel.pushedKanjiQuizNotices).toEqual([{ type: 'failure', message: expect.stringContaining('すべて出しました') }])
@@ -71,7 +71,7 @@ describe('issueKanjiQuiz', () => {
     await recordStreamOnline(db, { id: 'stream-1', startedAt: now - 60_000 })
     const failingChannel = createFakeAlertChannel({ shouldFail: true })
 
-    await expect(issueKanjiQuiz({ db, alerts: failingChannel.namespace, now, random: () => 0, id: 'quiz-1' }, { grade: '6', requesterName: '田中太郎' }, problems)).rejects.toThrow()
+    await expect(issueKanjiQuiz({ db, alerts: failingChannel.namespace, now, random: () => 0, id: 'quiz-1' }, { grade: '6', requesterName: '田中太郎', rehearsal: false }, problems)).rejects.toThrow()
 
     expect(await readUsedKanjiQuizWords(db, now)).toEqual(new Set())
   })

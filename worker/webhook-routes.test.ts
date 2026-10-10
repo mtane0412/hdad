@@ -2018,7 +2018,7 @@ describe('市町村紹介の都道府県当てクイズの回答（issue #251）
 
 describe('漢字クイズの回答（issue #301）', () => {
   /** 問題集の「草花」（読みは「くさばな」「そうか」）の出題。熟語が出てから3秒たっている */
-  const kusabanaQuiz = { id: 'quiz-kusabana', word: '草花' }
+  const kusabanaQuiz = { id: 'quiz-kusabana', word: '草花', rehearsal: false }
   const openKusabanaQuiz = async (db: Parameters<typeof recordKanjiQuiz>[0]) => {
     await recordKanjiQuiz(db, kusabanaQuiz, NOW - GRADE_INTRO_MS - 4000)
     await openKanjiQuiz(db, kusabanaQuiz.id, NOW - GRADE_INTRO_MS - 3000)

@@ -16,6 +16,7 @@ import {
   connectTownTourSocket,
   connectTwisterSocket,
   connectKanjiQuizSocket,
+  connectStreamStopSocket,
   connectTextSocket,
   connectTaskDeskSocket,
   connectWorkLogSocket,
@@ -28,6 +29,7 @@ import {
   pushTownTourAnswer,
   pushTwister,
   pushKanjiQuiz,
+  pushStreamStop,
   pushTaskDesk,
   pushWorkLogEntry,
   revokeAlertSockets,
@@ -40,7 +42,7 @@ import type { OverlayAlert } from './alert-event'
 import type { TaskDeskSnapshot } from './task-desk'
 import type { PomodoroSnapshot } from './pomodoro-timer'
 import type { TownTourCall } from './town-tour-call'
-import type { KanjiQuizCall } from './kanji-quiz-call'
+import type { KanjiQuizCall, StreamStopOrder } from './kanji-quiz-call'
 import type { TwisterCall } from './twister-call'
 import { DEFAULT_TOWN_TOUR_SOUND, playbackSoundOf } from './town-tour-sound'
 import type { WorkLogEntry } from './work-log'
@@ -113,6 +115,9 @@ const raidTwister: TwisterCall = {
 }
 
 /** チャンネルポイントの交換で押し出す漢字クイズの出題 */
+/** 漢字クイズの時間切れで、裏方へ送る配信を止める命令 */
+const stopOrder: StreamStopOrder = { quizId: 'quiz-keidai' }
+
 const redeemedKanjiQuiz: KanjiQuizCall = {
   id: '漢字クイズの呼び出しID',
   problem: { word: '境内', readings: ['けいだい'], grade: '6', explanation: '神社や寺の敷地の中。' },
@@ -149,6 +154,7 @@ describe('AlertChannel', () => {
     twisterSockets: AlertSocket[] = [],
     textSockets: AlertSocket[] = [],
     kanjiQuizSockets: AlertSocket[] = [],
+    streamStopSockets: AlertSocket[] = [],
   ): AlertChannel =>
     new AlertChannel({
       acceptWebSocket: () => undefined,
@@ -164,6 +170,7 @@ describe('AlertChannel', () => {
         if (tag === 'twister') return twisterSockets
         if (tag === 'text') return textSockets
         if (tag === 'kanjiQuiz') return kanjiQuizSockets
+        if (tag === 'streamStop') return streamStopSockets
         return [
           ...sockets,
           ...bgmSockets,
@@ -176,6 +183,7 @@ describe('AlertChannel', () => {
           ...twisterSockets,
           ...textSockets,
           ...kanjiQuizSockets,
+          ...streamStopSockets,
         ]
       },
       setWebSocketAutoResponse: () => undefined,
@@ -330,6 +338,53 @@ describe('AlertChannel', () => {
     expect(alertItem.sentMessages).toEqual([])
   })
 
+  it('配信を止める命令は、停止を受け取る接続（裏方のページ）だけへ送る', async () => {
+    const kanjiQuizItem = createConnection()
+    const backstageStop = createConnection()
+    const destination = createDestination([], [], [], [], [], [], [], [], [], [], [kanjiQuizItem], [backstageStop])
+
+    const response = await destination.fetch(new Request('https://alert-channel/push/stream-stop', { method: 'POST', body: JSON.stringify(stopOrder) }))
+
+    expect(response.status).toBe(204)
+    expect(backstageStop.sentMessages).toEqual([JSON.stringify(stopOrder)])
+    expect(kanjiQuizItem.sentMessages).toEqual([])
+  })
+
+  it('配信を止める命令は、裏方が2つつながっていても1つにだけ送る（StopStream を2回送らない）', async () => {
+    const firstBackstage = createConnection()
+    const secondBackstage = createConnection()
+    const destination = createDestination([], [], [], [], [], [], [], [], [], [], [], [firstBackstage, secondBackstage])
+
+    const response = await destination.fetch(new Request('https://alert-channel/push/stream-stop', { method: 'POST', body: JSON.stringify(stopOrder) }))
+
+    expect(response.status).toBe(204)
+    expect([...firstBackstage.sentMessages, ...secondBackstage.sentMessages]).toEqual([JSON.stringify(stopOrder)])
+  })
+
+  it('配信を止める命令は、送れなかった接続を飛ばして、次の裏方へ送る', async () => {
+    const brokenBackstage: AlertSocket = {
+      send: () => {
+        throw new Error('接続が壊れています')
+      },
+      close: () => undefined,
+    }
+    const workingBackstage = createConnection()
+    const destination = createDestination([], [], [], [], [], [], [], [], [], [], [], [brokenBackstage, workingBackstage])
+
+    const response = await destination.fetch(new Request('https://alert-channel/push/stream-stop', { method: 'POST', body: JSON.stringify(stopOrder) }))
+
+    expect(response.status).toBe(204)
+    expect(workingBackstage.sentMessages).toEqual([JSON.stringify(stopOrder)])
+  })
+
+  it('配信を止める命令は、受け取る裏方が1つもつながっていなければ409で返す（黙って落とさない）', async () => {
+    const destination = createDestination([])
+
+    const response = await destination.fetch(new Request('https://alert-channel/push/stream-stop', { method: 'POST', body: JSON.stringify(stopOrder) }))
+
+    expect(response.status).toBe(409)
+  })
+
   it('接続が1本もなければ、送らずに終わる（オーバーレイを開いていない間のアラートは落とす）', async () => {
     const destination = createDestination([])
 
@@ -379,6 +434,7 @@ describe('接続の引き渡し', () => {
     await connectTwisterSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
     await connectTextSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
     await connectKanjiQuizSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
+    await connectStreamStopSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
 
     expect(delivery.forwardedConnections.map((request) => new URL(request.url).searchParams.get('topic'))).toEqual([
       'alerts',
@@ -392,6 +448,7 @@ describe('接続の引き渡し', () => {
       'twister',
       'text',
       'kanjiQuiz',
+      'streamStop',
     ])
   })
 })
@@ -495,6 +552,28 @@ describe('pushKanjiQuiz', () => {
     const delivery = createFakeAlertChannel({ shouldFail: true })
 
     await expect(pushKanjiQuiz(delivery.namespace, redeemedKanjiQuiz)).rejects.toThrow('漢字クイズ')
+  })
+})
+
+describe('pushStreamStop', () => {
+  it('Durable Object へ、配信を止める命令を送る', async () => {
+    const delivery = createFakeAlertChannel()
+
+    await pushStreamStop(delivery.namespace, stopOrder)
+
+    expect(delivery.pushedStreamStops).toEqual([stopOrder])
+  })
+
+  it('受け取る裏方がつながっていなければ、そのことが分かる理由で投げる', async () => {
+    const delivery = createFakeAlertChannel({ noStreamStopReceiver: true })
+
+    await expect(pushStreamStop(delivery.namespace, stopOrder)).rejects.toThrow('裏方のページ')
+  })
+
+  it('Durable Object が失敗を返したら、黙って成功にせず投げる', async () => {
+    const delivery = createFakeAlertChannel({ shouldFail: true })
+
+    await expect(pushStreamStop(delivery.namespace, stopOrder)).rejects.toThrow('配信を止める命令')
   })
 })
 

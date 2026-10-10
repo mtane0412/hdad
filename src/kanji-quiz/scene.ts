@@ -10,6 +10,10 @@
  * 制限時間のうちに正解者が届いたら（issue #301）、届いた時刻でカウントダウンを止めて 3. へ進み、解説はそこから REVEAL_MS 出す。
  * 正解者が届いた時刻は合成ページの時計で測った、流しはじめてからの経過時間として受け取る（フレーム間の状態ではなく、再生の入力）。
  *
+ * 時間切れで配信を止めるまでの猶予（issue #302）が届いたら、解説に重ねて帯を出す（kanjiQuizStopBannerAt）。猶予のあいだは配信終了までの
+ * 残り秒数、猶予が尽きたら「終了します」（試し再生なら「止めません」）、取り消しが届いたら「取り消されました」を STOP_RESULT_MS 出す。
+ * 1回の出題はその結果を出し終えるまで延ばし、延ばしたあいだは解説を出したままにする。猶予と取り消しも、届いた時刻（経過時間）として受け取る。
+ *
  * 注意: フレーム間の状態を持たない（.claude/CLAUDE.md の「描画とパラメータ」）。描き方は view.ts が受け持つ。
  */
 
@@ -25,6 +29,8 @@ export const COUNTDOWN_SECONDS = 5
 export const REVEAL_MS = 12_000
 /** 1回の出題の長さ（ミリ秒） */
 export const KANJI_QUIZ_TOTAL_MS = GRADE_INTRO_MS + ANSWER_LIMIT_MS + REVEAL_MS
+/** 配信を止めるまでの猶予が尽きた・取り消されたあと、その結果を出しておく長さ（ミリ秒） */
+export const STOP_RESULT_MS = 5_000
 
 /** 熟語が出たときの倍率（奥の小さな点から近づいてくる） */
 const START_SCALE = 0.05
@@ -45,6 +51,25 @@ export type KanjiQuizScene =
   | { readonly kind: 'reveal'; readonly progress: number }
   | { readonly kind: 'done' }
 
+/** 時間切れで配信を止めるまでの猶予（Worker から届いた知らせ。issue #302） */
+export interface KanjiQuizStop {
+  /** 流しはじめてから猶予の知らせが届くまでの経過時間 */
+  readonly announcedAfterMs: number
+  /** 知らせが届いてから配信を止めるまでの猶予（ミリ秒） */
+  readonly graceMs: number
+  /** 試し再生（止めない）か */
+  readonly rehearsal: boolean
+  /** 流しはじめてから取り消しが届くまでの経過時間。届いていなければ null */
+  readonly cancelledAfterMs: number | null
+}
+
+/** 配信を止めるまでの帯に出すもの */
+export type KanjiQuizStopBanner =
+  | { readonly kind: 'countdown'; readonly remainingSeconds: number }
+  | { readonly kind: 'stopping' }
+  | { readonly kind: 'rehearsal' }
+  | { readonly kind: 'cancelled' }
+
 /** 出だしが速く、終わりにゆっくり止まる動き（近づいてくる熟語が手前でふわっと止まるように） */
 const easeOutCubic = (t: number): number => 1 - (1 - t) ** 3
 
@@ -55,19 +80,44 @@ const easeOutCubic = (t: number): number => 1 - (1 - t) ** 3
  */
 export const acceptsAnswerAt = (elapsedMs: number): boolean => elapsedMs >= GRADE_INTRO_MS && elapsedMs < GRADE_INTRO_MS + ANSWER_LIMIT_MS
 
+/** 配信を止める帯の結果（止める・止めない・取り消された）を出しはじめる時刻（流しはじめてからの経過時間） */
+const stopResultFrom = (stop: KanjiQuizStop): number => stop.cancelledAfterMs ?? stop.announcedAfterMs + stop.graceMs
+
 /**
  * 1回の出題の長さ（ミリ秒）。正解者が届いていれば、届いた時刻から解説を出し終えるまで。
+ * 配信を止めるまでの猶予が届いていれば、その結果を出し終えるまで延ばす。
  *
  * @param answeredAfterMs 流しはじめてから正解者が届くまでの経過時間（acceptsAnswerAt が受け入れたもの）。届いていなければ null
+ * @param stop 配信を止めるまでの猶予。届いていなければ null
  */
-export const kanjiQuizEndOf = (answeredAfterMs: number | null): number => (answeredAfterMs === null ? KANJI_QUIZ_TOTAL_MS : answeredAfterMs + REVEAL_MS)
+export const kanjiQuizEndOf = (answeredAfterMs: number | null, stop: KanjiQuizStop | null = null): number => {
+  const base = answeredAfterMs === null ? KANJI_QUIZ_TOTAL_MS : answeredAfterMs + REVEAL_MS
+  return stop === null ? base : Math.max(base, stopResultFrom(stop) + STOP_RESULT_MS)
+}
+
+/**
+ * 流しはじめてから elapsedMs ミリ秒たったときの、配信を止めるまでの帯。出さないときは null。
+ *
+ * @param stop 配信を止めるまでの猶予。届いていなければ null
+ */
+export const kanjiQuizStopBannerAt = (elapsedMs: number, stop: KanjiQuizStop | null): KanjiQuizStopBanner | null => {
+  if (stop === null || elapsedMs < stop.announcedAfterMs) return null
+  const resultFrom = stopResultFrom(stop)
+  if (elapsedMs < resultFrom) {
+    return { kind: 'countdown', remainingSeconds: Math.ceil((stop.announcedAfterMs + stop.graceMs - elapsedMs) / MS_PER_SECOND) }
+  }
+  if (elapsedMs >= resultFrom + STOP_RESULT_MS) return null
+  if (stop.cancelledAfterMs !== null) return { kind: 'cancelled' }
+  return stop.rehearsal ? { kind: 'rehearsal' } : { kind: 'stopping' }
+}
 
 /**
  * 流しはじめてから elapsedMs ミリ秒たったときの場面。
  *
  * @param answeredAfterMs 流しはじめてから正解者が届くまでの経過時間（acceptsAnswerAt が受け入れたもの）。届いていなければ null
+ * @param stop 配信を止めるまでの猶予。届いていなければ null（届いていれば、結果を出し終えるまで解説を出したままにする）
  */
-export const kanjiQuizSceneAt = (elapsedMs: number, answeredAfterMs: number | null): KanjiQuizScene => {
+export const kanjiQuizSceneAt = (elapsedMs: number, answeredAfterMs: number | null, stop: KanjiQuizStop | null = null): KanjiQuizScene => {
   if (elapsedMs < GRADE_INTRO_MS) return { kind: 'grade', progress: elapsedMs / GRADE_INTRO_MS }
 
   // 正解者が届いた時刻、届いていなければ時間切れの時刻から、正解の読みと解説を出す
@@ -84,7 +134,6 @@ export const kanjiQuizSceneAt = (elapsedMs: number, answeredAfterMs: number | nu
     }
   }
 
-  const sinceReveal = elapsedMs - revealAt
-  if (sinceReveal < REVEAL_MS) return { kind: 'reveal', progress: sinceReveal / REVEAL_MS }
-  return { kind: 'done' }
+  if (elapsedMs >= kanjiQuizEndOf(answeredAfterMs, stop)) return { kind: 'done' }
+  return { kind: 'reveal', progress: Math.min(1, (elapsedMs - revealAt) / REVEAL_MS) }
 }

@@ -6,6 +6,9 @@
  * 交換して出題させた人の名前（試し再生は null）を持つ。
  * 同じ経路で、最初の正解者（type: answer。Webhook がチャットの正解を受けたとき）と、出題できなかった理由
  * （type: failure。同じ配信で選べる問題が尽きたときなど）も届く（issue #301）。呼び出しは type を持たない。
+ * 時間切れで配信を止めるまでの猶予（type: stopping）と、下部バーでの停止の取り消し（type: stopCancelled）も届く（issue #302）。
+ * 下部バー（stop-bar.tsx）も同じ経路につなぎ、同じ読み取りを通す。
+ * 裏方のページの「配信の停止」へ届く命令（parseStreamStopOrder）の読み取りもここに置く（形を worker/kanji-quiz-call.ts と合わせる）。
  *
  * 注意: 形が違えば黙って流さずに投げる（素材の箱に失敗を出す）。
  */
@@ -25,6 +28,28 @@ export type KanjiQuizMessage =
   | { readonly type: 'call'; readonly call: KanjiQuizCall }
   | { readonly type: 'answer'; readonly quizId: string; readonly userName: string }
   | { readonly type: 'failure'; readonly message: string }
+  /** graceMs ののちに配信を止める。rehearsal は試し再生（止めない）。時計のずれを避けるため、時刻ではなく長さで届く */
+  | { readonly type: 'stopping'; readonly quizId: string; readonly graceMs: number; readonly rehearsal: boolean }
+  | { readonly type: 'stopCancelled'; readonly quizId: string }
+
+/** 裏方のページへ届く、配信を止める命令 */
+export interface StreamStopOrder {
+  readonly quizId: string
+}
+
+/** JSON として読む。読めなければ subject を添えて投げる */
+const parseJson = (payload: string, subject: string): Record<string, unknown> => {
+  let body: unknown
+  try {
+    body = JSON.parse(payload)
+  } catch {
+    throw new Error(`押し出された${subject}をJSONとして読めません`)
+  }
+  return typeof body === 'object' && body !== null ? { ...body } : {}
+}
+
+/** 出題の識別子として読めるか */
+const isQuizId = (value: unknown): value is string => typeof value === 'string' && value !== ''
 
 /**
  * WebSocket で押し出された文字列を、漢字クイズの呼び出しか知らせとして読む。
@@ -32,15 +57,19 @@ export type KanjiQuizMessage =
  * @throws JSONとして読めない・想定した形でない・知らない type の場合
  */
 export const parseKanjiQuizMessage = (payload: string): KanjiQuizMessage => {
-  let body: unknown
-  try {
-    body = JSON.parse(payload)
-  } catch {
-    throw new Error('押し出された漢字クイズの呼び出しをJSONとして読めません')
+  const { type, id, problem, requesterName, quizId, userName, message, graceMs, rehearsal } = parseJson(payload, '漢字クイズの呼び出し')
+  if (type === 'stopping') {
+    if (!isQuizId(quizId) || typeof graceMs !== 'number' || !Number.isFinite(graceMs) || typeof rehearsal !== 'boolean') {
+      throw new Error('押し出された配信の停止の猶予が想定した形ではありません')
+    }
+    return { type: 'stopping', quizId, graceMs, rehearsal }
   }
-  const { type, id, problem, requesterName, quizId, userName, message }: Record<string, unknown> = typeof body === 'object' && body !== null ? { ...body } : {}
+  if (type === 'stopCancelled') {
+    if (!isQuizId(quizId)) throw new Error('押し出された配信の停止の取り消しが想定した形ではありません')
+    return { type: 'stopCancelled', quizId }
+  }
   if (type === 'answer') {
-    if (typeof quizId !== 'string' || quizId === '' || typeof userName !== 'string' || userName === '') {
+    if (!isQuizId(quizId) || typeof userName !== 'string' || userName === '') {
       throw new Error('押し出された漢字クイズの正解者が想定した形ではありません')
     }
     return { type: 'answer', quizId, userName }
@@ -54,4 +83,15 @@ export const parseKanjiQuizMessage = (payload: string): KanjiQuizMessage => {
     throw new Error('押し出された漢字クイズの呼び出しが想定した形ではありません')
   }
   return { type: 'call', call: { id, problem: readKanjiQuizProblem(problem, '押し出された漢字クイズの問題'), requesterName } }
+}
+
+/**
+ * WebSocket で押し出された文字列を、配信を止める命令として読む（裏方のページの「配信の停止」が使う）。
+ *
+ * @throws JSONとして読めない・想定した形でない場合
+ */
+export const parseStreamStopOrder = (payload: string): StreamStopOrder => {
+  const { quizId } = parseJson(payload, '配信を止める命令')
+  if (!isQuizId(quizId)) throw new Error('押し出された配信を止める命令が想定した形ではありません')
+  return { quizId }
 }

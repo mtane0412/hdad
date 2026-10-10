@@ -11,7 +11,7 @@ import { STATUS } from './http'
 import type { PomodoroSnapshot } from './pomodoro-timer'
 import type { SpeechMute } from './speech-config'
 import type { TaskDeskSnapshot } from './task-desk'
-import type { KanjiQuizCall, KanjiQuizNotice } from './kanji-quiz-call'
+import type { KanjiQuizCall, KanjiQuizNotice, StreamStopOrder } from './kanji-quiz-call'
 import type { TextsSnapshot } from './text'
 import type { TownTourAnswerMessage, TownTourCall } from './town-tour-call'
 import type { TwisterCall } from './twister-call'
@@ -20,10 +20,12 @@ import type { WorkLogEntry } from './work-log'
 interface FakeAlertChannelOptions {
   /** 配送先が失敗を返す場合（押し出し側が失敗を握りつぶさないことを確かめる） */
   shouldFail?: boolean
+  /** 配信を止める命令を受け取る裏方のページがつながっていない場合（配送先は409を返す） */
+  noStreamStopReceiver?: boolean
 }
 
 /** 押し出されたアラート・引き渡された接続を直接確かめられるよう、記録も一緒に返す */
-export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelOptions = {}): {
+export const createFakeAlertChannel = ({ shouldFail = false, noStreamStopReceiver = false }: FakeAlertChannelOptions = {}): {
   namespace: AlertChannelNamespace
   pushedAlerts: OverlayAlert[]
   /** 押し出された「いま流している曲」 */
@@ -50,6 +52,8 @@ export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelO
   pushedKanjiQuizzes: KanjiQuizCall[]
   /** 押し出された漢字クイズの知らせ（正解者・失敗。出題と同じ経路で、type を持つ） */
   pushedKanjiQuizNotices: KanjiQuizNotice[]
+  /** 押し出された配信を止める命令 */
+  pushedStreamStops: StreamStopOrder[]
   /** WebSocketの接続として引き渡されたリクエスト */
   forwardedConnections: Request[]
   /** 接続をすべて閉じるよう頼まれたときに添えられた、新しいキーの目印（オーバーレイ用キーの再発行） */
@@ -68,6 +72,7 @@ export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelO
   const evictedTexts: TextsSnapshot[] = []
   const evictedKanjiQuizzes: KanjiQuizCall[] = []
   const evictedKanjiQuizNotices: KanjiQuizNotice[] = []
+  const evictedStreamStops: StreamStopOrder[] = []
   const handedOverConnections: Request[] = []
   const revokedTags: string[] = []
   const id: DurableObjectId = { toString: () => 'alerts', equals: (other) => other.toString() === 'alerts', name: 'alerts' }
@@ -86,6 +91,7 @@ export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelO
     pushedTexts: evictedTexts,
     pushedKanjiQuizzes: evictedKanjiQuizzes,
     pushedKanjiQuizNotices: evictedKanjiQuizNotices,
+    pushedStreamStops: evictedStreamStops,
     forwardedConnections: handedOverConnections,
     revokedKeyTags: revokedTags,
     namespace: {
@@ -101,6 +107,11 @@ export const createFakeAlertChannel = ({ shouldFail = false }: FakeAlertChannelO
           const { pathname } = new URL(request.url)
           if (pathname === '/revoke') {
             revokedTags.push(((await request.json()) as { keyTag: string }).keyTag)
+            return new Response(null, { status: STATUS.noContent })
+          }
+          if (pathname === '/push/stream-stop') {
+            if (noStreamStopReceiver) return new Response(null, { status: STATUS.conflict })
+            evictedStreamStops.push((await request.json()) as StreamStopOrder)
             return new Response(null, { status: STATUS.noContent })
           }
           if (pathname === '/push/bgm') evictedBgm.push((await request.json()) as BgmNowPlaying)

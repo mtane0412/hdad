@@ -6,14 +6,15 @@
  * - 出題の場面: 上の帯に級と出題させた人と残り秒数、真ん中に熟語（倍率は場面が決め、ctx.scale で奥から近づける）。
  *   最後の数秒は残り秒数を熟語の下に大きく赤で出す
  * - 答えの場面: 「時間切れ」（正解者が届いていれば「○○さん 正解！」。issue #301）と熟語・正解の読み・解説
+ * - 配信を止めるまでの帯（issue #302）: 答えの場面に重ねて、画面の下に配信終了までの残り秒数・結果を出す
  *
  * 文言は captions.ts、文の折り返しは市町村紹介と同じ wrapText が決め、ここは描くだけを受け持つ（通信も状態も持たない）。
  * テストを持たない（canvas に描くだけのため）。
  */
 import { wrapText } from '../town-tour/wrap'
-import { answerLineOf, gradeHeadlineOf, requesterLineOf, winnerLineOf } from './captions'
+import { answerLineOf, gradeHeadlineOf, requesterLineOf, stopBannerLineOf, winnerLineOf } from './captions'
 import type { KanjiQuizCall } from './call'
-import type { KanjiQuizScene } from './scene'
+import type { KanjiQuizScene, KanjiQuizStopBanner } from './scene'
 
 /** 寸法の基準にする配信画面の大きさ（px）。箱がこれより小さければ、文字も帯も同じ割合で小さくする */
 const BASE_WIDTH = 1920
@@ -42,6 +43,8 @@ const SIZES = {
   margin: 48,
   /** 帯の中で、級と出題させた人のあいだに空ける幅 */
   bandGap: 32,
+  stopBannerHeight: 150,
+  stopBannerFont: 80,
 } as const
 
 /** 熟語・カウントダウンの縁取りの太さ（文字の大きさに対する割合） */
@@ -63,6 +66,9 @@ const COLORS = {
   accent: '#ffcf40',
   countdown: '#ff4d4d',
   wordStroke: 'rgba(0, 0, 0, 0.6)',
+  /** 配信を止めるまでの帯。止まる・数えているあいだは赤、止めない（取り消し・試し再生）ときは落ち着いた色 */
+  stopBanner: 'rgba(200, 30, 30, 0.92)',
+  stopBannerCalm: 'rgba(30, 90, 60, 0.92)',
 } as const
 
 /** 級の場面で、見出しがはっきり出るまでにかける割合（場面の長さに対して） */
@@ -192,23 +198,48 @@ const drawReveal = (ctx: CanvasRenderingContext2D, width: number, height: number
   }
 }
 
+/** 配信を止めるまでの帯を、画面の下に重ねて描く */
+const drawStopBanner = (ctx: CanvasRenderingContext2D, width: number, height: number, unit: number, banner: KanjiQuizStopBanner): void => {
+  const margin = SIZES.margin * unit
+  const bannerHeight = SIZES.stopBannerHeight * unit
+  const top = height - margin * 2 - bannerHeight
+  ctx.fillStyle = banner.kind === 'countdown' || banner.kind === 'stopping' ? COLORS.stopBanner : COLORS.stopBannerCalm
+  ctx.beginPath()
+  ctx.roundRect(margin * 3, top, width - margin * 6, bannerHeight, SIZES.panelRadius * unit)
+  ctx.fill()
+  centerText(ctx, stopBannerLineOf(banner), width / 2, top + bannerHeight / 2, `bold ${SIZES.stopBannerFont * unit}px ${SANS_FAMILY}`, COLORS.text)
+}
+
 /**
  * 1フレームぶんを描く。流していなければ（playing が null）何も描かない。
  *
  * @param width 箱のCSS上の幅
  * @param height 箱のCSS上の高さ
- * @param playing 流している出題と場面と、最初の正解者の名前（届いていなければ null）
+ * @param playing 流している出題と場面と、最初の正解者の名前（届いていなければ null）と、配信を止めるまでの帯（出さなければ null）
  */
 export const drawKanjiQuiz = (
   ctx: CanvasRenderingContext2D,
   width: number,
   height: number,
-  playing: { call: KanjiQuizCall; scene: KanjiQuizScene; winnerName: string | null } | null,
+  playing: { call: KanjiQuizCall; scene: KanjiQuizScene; winnerName: string | null; stopBanner: KanjiQuizStopBanner | null } | null,
 ): void => {
   ctx.clearRect(0, 0, width, height)
   if (playing === null) return
   const unit = Math.min(width / BASE_WIDTH, height / BASE_HEIGHT)
-  const { call, scene, winnerName } = playing
+  const { call, scene, winnerName, stopBanner } = playing
+  drawScene(ctx, width, height, unit, call, scene, winnerName)
+  if (stopBanner !== null) drawStopBanner(ctx, width, height, unit, stopBanner)
+}
+
+const drawScene = (
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  unit: number,
+  call: KanjiQuizCall,
+  scene: KanjiQuizScene,
+  winnerName: string | null,
+): void => {
   switch (scene.kind) {
     case 'grade':
       drawGrade(ctx, width, height, unit, call, scene.progress)

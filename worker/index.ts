@@ -62,6 +62,7 @@
  * | PUT  /api/admin/town-tour/narration | セッション  | 市町村紹介のナレーションの設定を検証して保存 |
  * | POST /api/admin/twister/demo     | セッション     | ツイスターの試し再生（試しの相手と配信者の対戦を合成ページへ押し出す） |
  * | POST /api/admin/kanji-quiz/demo  | セッション     | 漢字クイズの試し再生（選んだ級の問題を1問、合成ページへ押し出す） |
+ * | POST /api/admin/kanji-quiz/stop/cancel | セッション | 漢字クイズの時間切れによる配信の停止を、猶予のあいだに取り消す（下部バー） |
  * | GET  /api/admin/twister/sound    | セッション     | ツイスターの対戦のあいだ流す BGM の設定 |
  * | PUT  /api/admin/twister/sound    | セッション     | ツイスターの BGM の設定を検証して保存 |
  * | GET  /api/admin/viewers          | セッション     | 視聴者の記録の一覧（検索・ページ送り） |
@@ -109,6 +110,9 @@
  * | GET  /api/overlay/town-tour/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、市町村紹介の呼び出しの配送先へ引き渡す |
  * | GET  /api/overlay/twister/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、ツイスターの呼び出しの配送先へ引き渡す |
  * | GET  /api/overlay/kanji-quiz/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、漢字クイズの出題の配送先へ引き渡す |
+ * | POST /api/overlay/kanji-quiz/open | オーバーレイ用キー | 合成ページが流しはじめた漢字クイズの出題を開き、時間切れの判定を予約する |
+ * | GET  /api/overlay/kanji-quiz/stop/socket | オーバーレイ用キー | 裏方のページからのWebSocketの接続を受け、配信を止める命令の配送先へ引き渡す |
+ * | POST /api/overlay/kanji-quiz/stop/result | オーバーレイ用キー | 裏方のページが配信を止められたかを知らせる（止められなければ記録する） |
  * | GET  /api/media/:id              | オーバーレイ用キーかセッション | 素材の中身を返す |
  *
  * これとは別に、cron（wrangler.jsonc の triggers.crons）から scheduled が呼ばれ、配信の記録を収集する（collect.ts）。
@@ -190,7 +194,7 @@ import {
   putTownTourSound,
   townTourSocket,
 } from './town-tour-routes'
-import { kanjiQuizSocket, postKanjiQuizDemo, postKanjiQuizOpen } from './kanji-quiz-routes'
+import { kanjiQuizSocket, kanjiQuizStopSocket, postKanjiQuizDemo, postKanjiQuizOpen, postKanjiQuizStopCancel, postKanjiQuizStopResult } from './kanji-quiz-routes'
 import { getTwisterSound, postTwisterDemo, putTwisterSound, twisterSocket } from './twister-routes'
 import { getOverlayPomodoro, getPomodoro, pomodoroSocket, postPomodoroControl, putPomodoroSettings } from './pomodoro-routes'
 import { getDeeplUsage, getTranslation, postTranslation, putTranslation } from './translation-routes'
@@ -366,6 +370,9 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/overlay/kanji-quiz/socket', handle: kanjiQuizSocket },
   { method: 'POST', path: '/api/admin/kanji-quiz/demo', handle: postKanjiQuizDemo },
   { method: 'POST', path: '/api/overlay/kanji-quiz/open', handle: postKanjiQuizOpen },
+  { method: 'POST', path: '/api/admin/kanji-quiz/stop/cancel', handle: postKanjiQuizStopCancel },
+  { method: 'GET', path: '/api/overlay/kanji-quiz/stop/socket', handle: kanjiQuizStopSocket },
+  { method: 'POST', path: '/api/overlay/kanji-quiz/stop/result', handle: postKanjiQuizStopResult },
   { method: 'GET', path: '/api/admin/twister/sound', handle: getTwisterSound },
   { method: 'PUT', path: '/api/admin/twister/sound', handle: putTwisterSound },
   { method: 'GET', path: '/api/media/:id', handle: media },

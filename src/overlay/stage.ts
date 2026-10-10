@@ -76,7 +76,7 @@ import { connectTabViewer } from '../tab/socket'
 import { KANJI_QUIZ_SOCKET_HINT, KANJI_QUIZ_SOCKET_PATH, createKanjiQuizApi } from '../kanji-quiz/api'
 import { parseKanjiQuizMessage, type KanjiQuizCall } from '../kanji-quiz/call'
 import { DEMO_KANJI_QUIZ_CALLS, DEMO_KANJI_QUIZ_INTERVAL_MS } from '../kanji-quiz/demo'
-import { acceptsAnswerAt, kanjiQuizEndOf, kanjiQuizSceneAt } from '../kanji-quiz/scene'
+import { acceptsAnswerAt, kanjiQuizEndOf, kanjiQuizSceneAt, kanjiQuizStopBannerAt, type KanjiQuizStop } from '../kanji-quiz/scene'
 import { drawKanjiQuiz } from '../kanji-quiz/view'
 import { POMODORO_SOCKET_HINT, POMODORO_SOCKET_PATH, createPomodoroOverlayApi } from '../pomodoro/api'
 import { demoPomodoroScenes, demoTimerOf } from '../pomodoro/demo'
@@ -1757,6 +1757,7 @@ const mountTwister = (box: HTMLElement, item: OverlayItem, { key, demo }: MountC
  * 流しはじめてからの経過時間と、正解者が届いた時刻だけから決め（src/kanji-quiz/scene.ts）、canvas 1枚に描く（src/kanji-quiz/view.ts）。
  * 流しはじめたら Worker に出題を開かせ（POST /api/overlay/kanji-quiz/open）、熟語が出てから制限時間のうちに届いた最初の正解者を出す
  * （届いた時刻でカウントダウンを止める。issue #301）。時間切れの後に届いた正解者は出さない。
+ * 時間切れで配信を止めるまでの猶予が届いたら、解説に重ねて配信終了までの残り秒数を出し、取り消し・猶予の終わりの結果を出し終えるまで延ばす（issue #302）。
  *
  * 注意: 出題を開けなかった・選べる問題が尽きた（Worker からの失敗の知らせ）ときは、素材の箱に出す（黙って流し続けない）。
  */
@@ -1769,11 +1770,12 @@ const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo }: Moun
   box.append(canvas)
 
   const api = createKanjiQuizApi(callWorker, key)
-  /** 流している1件。流していなければ null。answer は最初の正解者と、流しはじめてから届くまでの経過時間 */
+  /** 流している1件。流していなければ null。answer は最初の正解者と、流しはじめてから届くまでの経過時間。stop は配信を止めるまでの猶予 */
   let playback: {
     readonly call: KanjiQuizCall
     readonly startedAt: number
     readonly answer: { readonly userName: string; readonly afterMs: number } | null
+    readonly stop: KanjiQuizStop | null
   } | null = null
   /** 流すのを待っている出題（届いた順） */
   let waiting: readonly KanjiQuizCall[] = []
@@ -1790,15 +1792,27 @@ const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo }: Moun
     playback = { ...playback, answer: { userName, afterMs } }
   }
 
+  /** 流している出題の、配信を止めるまでの猶予が届いたら、届いた時刻を記録する（流し終えた出題の猶予は出さない。止める判断は Worker が持つ） */
+  const acceptStopping = (quizId: string, graceMs: number, rehearsal: boolean): void => {
+    if (playback === null || playback.call.id !== quizId || playback.stop !== null) return
+    playback = { ...playback, stop: { announcedAfterMs: Date.now() - playback.startedAt, graceMs, rehearsal, cancelledAfterMs: null } }
+  }
+
+  /** 流している出題の、配信の停止の取り消しが届いたら、届いた時刻を記録する */
+  const acceptStopCancelled = (quizId: string): void => {
+    if (playback === null || playback.call.id !== quizId || playback.stop === null || playback.stop.cancelledAfterMs !== null) return
+    playback = { ...playback, stop: { ...playback.stop, cancelledAfterMs: Date.now() - playback.startedAt } }
+  }
+
   const draw = startCanvasSurface(canvas, (ctx, width, height) => {
     const now = Date.now()
-    if (playback !== null && now - playback.startedAt >= kanjiQuizEndOf(playback.answer?.afterMs ?? null)) playback = null
+    if (playback !== null && now - playback.startedAt >= kanjiQuizEndOf(playback.answer?.afterMs ?? null, playback.stop)) playback = null
     // 流していなければ、待っている出題の先頭を流しはじめる
     if (playback === null) {
       const [next, ...rest] = waiting
       if (next !== undefined) {
         waiting = rest
-        playback = { call: next, startedAt: now, answer: null }
+        playback = { call: next, startedAt: now, answer: null, stop: null }
         // プレビューは Worker の選んだ出題ではないので開かせない
         if (!demo) {
           // 開けなければ回答が届かないまま時間切れまで流れるので、理由を箱に出す（次の出題の読み取りが届けば消す）
@@ -1812,7 +1826,12 @@ const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo }: Moun
       height,
       playback === null
         ? null
-        : { call: playback.call, scene: kanjiQuizSceneAt(now - playback.startedAt, playback.answer?.afterMs ?? null), winnerName: playback.answer?.userName ?? null },
+        : {
+            call: playback.call,
+            scene: kanjiQuizSceneAt(now - playback.startedAt, playback.answer?.afterMs ?? null, playback.stop),
+            winnerName: playback.answer?.userName ?? null,
+            stopBanner: kanjiQuizStopBannerAt(now - playback.startedAt, playback.stop),
+          },
     )
   })
 
@@ -1833,6 +1852,8 @@ const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo }: Moun
             clearError(box, 'read')
             enqueue(message.call)
           } else if (message.type === 'answer') acceptAnswer(message.quizId, message.userName)
+          else if (message.type === 'stopping') acceptStopping(message.quizId, message.graceMs, message.rehearsal)
+          else if (message.type === 'stopCancelled') acceptStopCancelled(message.quizId)
           else showError(new Error(message.message), NOUNS.kanjiQuiz, box, 'read')
         } catch (error) {
           showError(error, NOUNS.kanjiQuiz, box, 'read')

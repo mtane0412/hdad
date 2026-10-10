@@ -8,7 +8,7 @@ import { backstageUrl } from './url'
 
 const overlayKey = 'overlay-key_0123456789abcdefghij'
 const site = 'https://hdad.example.com'
-const defaults = { speech: true, screen: false, bgm: false }
+const defaults = { speech: true, screen: false, bgm: false, stop: false }
 
 describe('backstageUrl', () => {
   it('裏方のページのURLに、オーバーレイ用キーを付ける', () => {
@@ -21,10 +21,11 @@ describe('backstageUrl', () => {
     expect(url).not.toContain('speech=')
     expect(url).not.toContain('screen=')
     expect(url).not.toContain('bgm=')
+    expect(url).not.toContain('stop=')
   })
 
   it('ゆかコネNEO の中継の指定（transcript・port）は書かない（アプリの枠の音声認識に置き換えた）', () => {
-    const url = backstageUrl(site, overlayKey, { speech: true, screen: true, bgm: true })
+    const url = backstageUrl(site, overlayKey, { speech: true, screen: true, bgm: true, stop: false })
 
     expect(url).not.toContain('transcript=')
     expect(url).not.toContain('port=')
@@ -37,7 +38,7 @@ describe('backstageUrl', () => {
   })
 
   it('BGMだけを鳴らすなら、読み上げを切ると書く', () => {
-    expect(backstageUrl(site, overlayKey, { speech: false, screen: false, bgm: true })).toBe(
+    expect(backstageUrl(site, overlayKey, { speech: false, screen: false, bgm: true, stop: false })).toBe(
       `${site}/overlay/backstage/?key=${encodeURIComponent(overlayKey)}&speech=false&bgm=true`,
     )
   })
@@ -49,10 +50,22 @@ describe('backstageUrl', () => {
   })
 
   it('画面の取り込みだけを動かすこともできる', () => {
-    expect(backstageUrl(site, overlayKey, { speech: false, screen: true, bgm: false })).toContain('screen=true')
+    expect(backstageUrl(site, overlayKey, { speech: false, screen: true, bgm: false, stop: false })).toContain('screen=true')
+  })
+
+  it('配信の停止（漢字クイズの時間切れ）は既定で動かさないので、動かすときだけ書き足す', () => {
+    expect(backstageUrl(site, overlayKey, { ...defaults, stop: true })).toBe(
+      `${site}/overlay/backstage/?key=${encodeURIComponent(overlayKey)}&stop=true`,
+    )
+  })
+
+  it('配信の停止だけを動かすこともできる', () => {
+    expect(backstageUrl(site, overlayKey, { speech: false, screen: false, bgm: false, stop: true })).toBe(
+      `${site}/overlay/backstage/?key=${encodeURIComponent(overlayKey)}&speech=false&stop=true`,
+    )
   })
 
   it('裏方をひとつも動かさないURLは組み立てない（貼っても何もしないブラウザソースを作らせない）', () => {
-    expect(() => backstageUrl(site, overlayKey, { speech: false, screen: false, bgm: false })).toThrow(/1つ/)
+    expect(() => backstageUrl(site, overlayKey, { speech: false, screen: false, bgm: false, stop: false })).toThrow(/1つ/)
   })
 })

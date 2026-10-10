@@ -29,10 +29,20 @@ export interface KanjiQuizCall {
  * 出題と同じ素材へ押し出す知らせ。呼び出しと見分けるため type を持つ（呼び出しは type を持たない）。
  * - answer: 最初の正解者（Webhook がチャットの正解を受けたとき）
  * - failure: 出題できなかった理由（素材の箱に出す。選べる問題が尽きたときなど）
+ * - stopping: 時間切れで、graceMs ののちに配信を止める（issue #302）。rehearsal は試し再生（止めない）。
+ *   時刻ではなく長さで送るのは、合成ページと下部バーの時計が Worker とずれていても、残り秒数を正しく数えるためである
+ * - stopCancelled: 下部バーで配信の停止を取り消した
  */
 export type KanjiQuizNotice =
   | { readonly type: 'answer'; readonly quizId: string; readonly userName: string }
   | { readonly type: 'failure'; readonly message: string }
+  | { readonly type: 'stopping'; readonly quizId: string; readonly graceMs: number; readonly rehearsal: boolean }
+  | { readonly type: 'stopCancelled'; readonly quizId: string }
+
+/** 裏方のページへ送る、配信を止める命令（issue #302）。どの出題で止めたかを結果の記録に添えるため、出題の識別子を持つ */
+export interface StreamStopOrder {
+  readonly quizId: string
+}
 
 /** その級の問題を、同じ配信ですべて出し終えた（黙って重複させずに投げる） */
 export class KanjiQuizExhaustedError extends Error {
