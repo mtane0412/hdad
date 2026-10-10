@@ -297,7 +297,8 @@ describe('意見にならなかったコメント（issue #308）', () => {
 
     const item = await screen.findByRole('group', { name: 'コメント「AIの声が人っぽすぎると怖い」' })
     await userEvent.click(within(item).getByRole('button', { name: '既にある意見に統合する' }))
-    await userEvent.selectOptions(within(item).getByRole('combobox', { name: '統合する意見' }), 'AIが返事すると距離を感じる')
+    // 隠した意見は、統合しても配信画面に出ないので、選択肢でそれと分かるようにする
+    await userEvent.selectOptions(within(item).getByRole('combobox', { name: '統合する意見' }), 'AIが返事すると距離を感じる（隠しています）')
     await userEvent.click(within(item).getByRole('button', { name: '統合する' }))
 
     expect(api.joinOpinion).toHaveBeenCalledWith(7, 11)

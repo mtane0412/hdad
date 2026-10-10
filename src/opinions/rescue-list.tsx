@@ -206,7 +206,8 @@ const RescueItem = ({ comment, topics, actions }: { comment: RescuableComment; t
                 <NativeSelectOptGroup key={topic.id} label={topic.title}>
                   {topic.opinions.map((opinion) => (
                     <NativeSelectOption key={opinion.id} value={String(opinion.id)}>
-                      {opinion.text}
+                      {/* 隠した意見に統合しても配信画面には出ないので、それと分かるようにする */}
+                      {opinion.hidden ? `${opinion.text}（隠しています）` : opinion.text}
                     </NativeSelectOption>
                   ))}
                 </NativeSelectOptGroup>
