@@ -1,7 +1,7 @@
 /**
  * 漢字クイズの画面に出す文言
  *
- * 級の見出し（「漢検○級」）・出題させた人（「○○さんからの出題」）・正解の読みの並べ方を決める。
+ * 級の見出し（「漢検○級」）・出題させた人（「○○さんからの出題」）・正解の読みの並べ方・最初の正解者（「○○さん 正解！」）を決める。
  * 描くのは view.ts で、ここは文言だけを受け持つ（テストできるよう canvas を持ち込まない）。
  */
 import { kankenGradeLabel, type KankenGrade } from './grade'
@@ -17,3 +17,6 @@ export const requesterLineOf = (requesterName: string | null): string | null => 
 
 /** 正解の読みを1行に並べる */
 export const answerLineOf = (readings: readonly string[]): string => readings.join(READING_SEPARATOR)
+
+/** 最初の正解者の一文（issue #301） */
+export const winnerLineOf = (userName: string): string => `${userName}さん 正解！`

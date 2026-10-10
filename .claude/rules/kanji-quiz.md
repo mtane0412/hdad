@@ -7,16 +7,19 @@ paths:
 
 # 漢字クイズ（チャンネルポイントで出題する、熟語の読みのクイズ）
 
-視聴者がチャンネルポイントを交換すると、熟語の読みを問う漢字クイズを合成ページに流す（issue #293 の段階1・#300）。流すきっかけはトリガーの動作 `kanjiQuiz`（チャンネルポイントの行だけ。`worker/alert-config.ts` で保存時に拒む）と、トリガー画面の試し再生（`POST /api/admin/kanji-quiz/demo`）。段階1は回答の判定（#301）と配信の停止（#302）を持たない。
+視聴者がチャンネルポイントを交換すると、熟語の読みを問う漢字クイズを合成ページに流し、チャットの回答を判定する（issue #293 の段階1・#300、段階2・#301）。流すきっかけはトリガーの動作 `kanjiQuiz`（チャンネルポイントの行だけ。`worker/alert-config.ts` で保存時に拒む）と、トリガー画面の試し再生（`POST /api/admin/kanji-quiz/demo`）。配信の停止（#302）はまだ持たない。
 
 - 問題は自前の問題集 `src/kanji-quiz/problems.json` だけから出す。LLM・辞書からその場で作らない（正答の判定が配信の強制終了に直結するため、読みの誤りを配信者が目で潰す）。1問は熟語・正解の読み（ひらがなだけ。複数可）・級・解説を持つ。LLM に下書きさせてもよいが、入れる前に配信者が確かめる
 - `readings` の先頭は想定する読みで、問題の級は、熟語の中で最も上の級の字と、先頭の読みが出題される級（中学で習う読みは4級以上、高校で習う読みは準2級以上）のうち高いほうにする。字の級だけで決めない。2つ目以降には、辞書が見出しに挙げるほかの読みをすべて入れる（漏れると正しく答えても不正解になる）。2つ目以降は、級より上で習う読みでも正解として受け付けるために入れるもので、級を決めない。確かめるときは漢検協会の「漢字ペディア」で字ごとの級と読みの「中」「高」の印を引く
 - 級は 10級〜1級（準2級・準1級を含む）の12段階で、識別子（`10`〜`1`・`pre2`・`pre1`）と画面の言い方は `src/kanji-quiz/grade.ts` だけが持つ。級は問題ごとに手で付け、推定させない（漢検の級別漢字表に機械で読める公開データが無いため）
 - 問題集の形（読みがひらがなだけ・級が既知の値・熟語の重複なし・どの級にも1問以上）は `src/kanji-quiz/problems.test.ts` が確かめる。読み取りは `problems.ts` の `readKanjiQuizProblems`（Worker も合成ページもこれを通す）
-- Worker が級から1問を選び（`worker/kanji-quiz-call.ts` の `pickKanjiQuizProblem`。その級の問題が無ければ投げ、ほかの級から出さない）、交換した人の表示名と一緒に `AlertChannel` の目印 `kanjiQuiz` の接続へ押し出す。押し出しの失敗は `kanji-quiz-push-failed`。試し再生は出題させた人を持たない（`requesterName: null`）
+- Worker が級から同じ配信で出していない1問を選び（`worker/kanji-quiz-call.ts` の `pickKanjiQuizProblem`。その級の問題が無ければ投げ、ほかの級から出さない）、出題の行を D1 の `kanji_quizzes` に入れてから、交換した人の表示名と一緒に `AlertChannel` の目印 `kanjiQuiz` の接続へ押し出す（`worker/kanji-quiz-issue.ts` の `issueKanjiQuiz`。交換と試し再生の両方がこれを通す）。押し出しの失敗は `kanji-quiz-push-failed`。試し再生は出題させた人を持たない（`requesterName: null`）
+- 同じ配信（`stream_sessions` の配信中の区切り）で選んだ熟語は選ばない。試し再生で出したものも数え、配信していなければ外さない。選べる問題が尽きたら重複させずに `KanjiQuizExhaustedError` を投げ、素材の箱へ `type: 'failure'` の知らせを押し出す（試し再生は409）
+- 出題の行は Worker が選んだときに入れ（受付期限は空）、合成ページが流しはじめたら `POST /api/overlay/kanji-quiz/open` で開く（熟語は合成ページから受け取らない）。受け付けるのは熟語が出てから（開いて `GRADE_INTRO_MS` 後）、制限時間に遅れの余裕（`KANJI_QUIZ_GRACE_MS`）を足したところまで。読み書きは `worker/kanji-quiz-store.ts`
+- 回答の照合は `worker/kanji-quiz-answer.ts` だけが持つ（前後の空白を除き、カタカナをひらがなに直して、問題集の読みと完全一致。部分一致・ローマ字は受けない）。Webhook（`worker/webhook-routes.ts` の `replyToChatMessage`）は、問題集の読みと一致した発言でだけ D1 を読み、最初の正解者を RETURNING で1人に決めて `type: 'answer'` で同じ接続へ押し出す。配信者の発言も受ける。照らす処理の失敗は黙って不正解にせず `kanji-quiz-answer-failed` として記録し、チャットのほかの処理を続ける
 - 級の一覧と問題集は Worker から `src/kanji-quiz/` を読み込む（ポモドーロの `phase.ts` と同じ例外。2か所に書き分けないため）。そのため `grade.ts`・`problems.ts` は DOM と `src/core/` に頼らない
-- 演出は流しはじめてからの経過時間だけから決める（`scene.ts` の `kanjiQuizSceneAt`）。級 → 熟語が奥から近づく（倍率を `ctx.scale` に渡す）→ 制限時間（`ANSWER_LIMIT_MS`。熟語が出たときから数え、最後の `COUNTDOWN_SECONDS` 秒は大きく出す）→ 正解の読みと解説。文言は `captions.ts`、描画は `view.ts`（テストを持たない）
-- 合成ページの素材の種類は `kanjiQuiz`（`src/overlay/stage.ts` の `mountKanjiQuiz`）。届いた順に1件ずつ流す。プレビューでは `demo.ts` の決まった出題を順にくり返し流す
+- 演出は流しはじめてからの経過時間と正解者が届いた時刻だけから決める（`scene.ts` の `kanjiQuizSceneAt`）。級 → 熟語が奥から近づく（倍率を `ctx.scale` に渡す）→ 制限時間（`ANSWER_LIMIT_MS`。熟語が出たときから数え、最後の `COUNTDOWN_SECONDS` 秒は大きく出す）→ 正解の読みと解説。正解者が届いたら届いた時刻でカウントダウンを止めて正解者の名前と答えを出す。時間切れの後に届いた正解者は出さない（`acceptsAnswerAt`）。文言は `captions.ts`、描画は `view.ts`（テストを持たない）
+- 合成ページの素材の種類は `kanjiQuiz`（`src/overlay/stage.ts` の `mountKanjiQuiz`）。届いた順に1件ずつ流す。押し出されたものの読み取りは `call.ts` の `parseKanjiQuizMessage`（出題は type を持たず、知らせは `answer`・`failure`）。開けなかった・出しきったときは素材の箱に出す。プレビューでは `demo.ts` の決まった出題を順にくり返し流し、出題を開かせない
 - 音は段階1では扱わない
 
 経緯は `docs/decisions/kanji-quiz.md`、使い方は `docs/guide/kanji-quiz.md`。

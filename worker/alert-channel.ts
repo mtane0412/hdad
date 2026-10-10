@@ -58,7 +58,7 @@ import { KEY_TAG_PARAM, isCurrentKeyTag, rememberKeyTag, revokeRequest, type Dur
 import { broadcast, closeForRevokedKey, type SocketLike } from './socket-broadcast'
 import type { PomodoroSnapshot } from './pomodoro-timer'
 import type { SpeechMute } from './speech-config'
-import type { KanjiQuizCall } from './kanji-quiz-call'
+import type { KanjiQuizCall, KanjiQuizNotice } from './kanji-quiz-call'
 import type { TaskDeskSnapshot } from './task-desk'
 import type { TextsSnapshot } from './text'
 import type { TownTourAnswerMessage, TownTourCall } from './town-tour-call'
@@ -424,6 +424,16 @@ export const pushTexts = (namespace: AlertChannelNamespace, snapshot: TextsSnaps
  * 注意: 失敗を黙って握りつぶさない。呼び出し側が失敗として記録する（試し再生は502にする）。
  */
 export const pushKanjiQuiz = (namespace: AlertChannelNamespace, call: KanjiQuizCall): Promise<void> => pushJson(namespace, PUSH_KANJI_QUIZ_PATH, call, '漢字クイズ')
+
+/**
+ * 漢字クイズの知らせ（最初の正解者・出題できなかった理由。issue #301）を Durable Object へ押し出す。
+ *
+ * 受け取るのは出題と同じ素材「漢字クイズ」なので、同じ経路で送り、type で出題と見分けさせる（市町村紹介の正解者と同じ考え方）。
+ *
+ * 注意: 失敗を黙って握りつぶさない。呼び出し側（webhook-routes.ts・kanji-quiz-issue.ts）が失敗として記録するか投げる。
+ */
+export const pushKanjiQuizNotice = (namespace: AlertChannelNamespace, notice: KanjiQuizNotice): Promise<void> =>
+  pushJson(namespace, PUSH_KANJI_QUIZ_PATH, notice, notice.type === 'answer' ? '漢字クイズの正解者' : '漢字クイズの失敗')
 
 /**
  * 市町村紹介の呼び出し（引いた市町村と冒頭の一文）を Durable Object へ押し出す。トリガーと管理画面の試し再生で呼ぶ。

@@ -13,7 +13,7 @@ import { createFakeWorkersAi } from './fake-ai'
 import { createFakeDatabase } from './fake-database'
 import { createFakeStore } from './fake-store'
 import { handleRequest, type Env } from './index'
-import { getSession, listFailures, listSessions, recordLiveStream } from './stats-store'
+import { getSession, listFailures, listSessions, recordLiveStream, recordStreamOnline } from './stats-store'
 import { saveBotConfig } from './bot-config'
 import { saveStreamSummary } from './stream-summary-store'
 import { declareTask } from './task-desk-store'
@@ -32,6 +32,8 @@ import { createFakeTokenVault } from './fake-token-vault'
 import { DEFAULT_TOWN_TOUR_SOUND, saveTownTourSound } from './town-tour-sound'
 import { saveTwisterSound } from './twister-sound'
 import { openTownTourQuiz } from './town-tour-quiz'
+import { openKanjiQuiz, recordKanjiQuiz } from './kanji-quiz-store'
+import { GRADE_INTRO_MS } from '../src/kanji-quiz/scene'
 import { saveTownTourNarration } from './town-tour-narration'
 import { recordTownTourVisit } from './town-tour-visits'
 import towns from '../src/town-tour/towns.json'
@@ -1799,6 +1801,22 @@ describe('漢字クイズを出題する動作（kanjiQuiz）', () => {
     expect(alertChannel.pushedKanjiQuizzes).toHaveLength(0)
     expect(await listFailures(env.DB)).toMatchObject([{ code: 'kanji-quiz-push-failed' }])
   })
+
+  it('同じ配信で選べる問題が尽きたら、黙って重複させず、素材の箱へ失敗を押し出して失敗として記録する', async () => {
+    const { env, alertChannel } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [rewardKanjiQuizTrigger] })
+    await recordStreamOnline(env.DB, { id: 'stream-1', startedAt: NOW - 60_000 })
+
+    // 準2級の問題を出しきるまで交換を続ける（問題集の問題数は変わりうるので、失敗を押し出すまで続ける）
+    for (let attempt = 0; attempt < 100 && alertChannel.pushedKanjiQuizNotices.length === 0; attempt++) {
+      await callWebhook(createNotification({ body: REDEMPTION_NOTIFICATION, messageId: `notification-${attempt}` }), env)
+    }
+
+    const words = alertChannel.pushedKanjiQuizzes.map(({ problem }) => problem.word)
+    expect(new Set(words).size).toBe(words.length)
+    expect(alertChannel.pushedKanjiQuizNotices).toEqual([{ type: 'failure', message: expect.stringContaining('すべて出しました') }])
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'kanji-quiz-push-failed' }])
+  })
 })
 
 describe('市町村紹介を流す動作（townTour）', () => {
@@ -1995,6 +2013,90 @@ describe('市町村紹介の都道府県当てクイズの回答（issue #251）
     await callWebhook(createNotification({ body: chatFrom('たなか', '11111', '北海道', 'chat-1'), messageId: 'notification-1' }), env)
 
     expect(alertChannel.pushedTownTourAnswers).toEqual([])
+  })
+})
+
+describe('漢字クイズの回答（issue #301）', () => {
+  /** 問題集の「草花」（読みは「くさばな」「そうか」）の出題。熟語が出てから3秒たっている */
+  const kusabanaQuiz = { id: 'quiz-kusabana', word: '草花' }
+  const openKusabanaQuiz = async (db: Parameters<typeof recordKanjiQuiz>[0]) => {
+    await recordKanjiQuiz(db, kusabanaQuiz, NOW - GRADE_INTRO_MS - 4000)
+    await openKanjiQuiz(db, kusabanaQuiz.id, NOW - GRADE_INTRO_MS - 3000)
+  }
+
+  /** チャットの発言としての通知 */
+  const chatFrom = (userName: string, chatterUserId: string, text: string, messageId: string) => ({
+    subscription: { type: 'channel.chat.message' },
+    event: {
+      broadcaster_user_id: BROADCASTER_ID,
+      chatter_user_id: chatterUserId,
+      chatter_user_login: `viewer${chatterUserId}`,
+      chatter_user_name: userName,
+      message_id: messageId,
+      message: { text, fragments: [{ type: 'text', text }] },
+    },
+  })
+
+  it('出題中に正しい読みを書いた最初の人を、正解者として合成ページへ押し出す（カタカナ・前後の空白は直して照らす）', async () => {
+    const { env, db, alertChannel } = createEnv()
+    await openKusabanaQuiz(db)
+
+    const response = await callWebhook(createNotification({ body: chatFrom('たなか', '11111', ' ソウカ ', 'chat-1'), messageId: 'notification-1' }), env)
+
+    expect(response.status).toBe(204)
+    expect(alertChannel.pushedKanjiQuizNotices).toEqual([{ type: 'answer', quizId: 'quiz-kusabana', userName: 'たなか' }])
+  })
+
+  it('配信者の発言も回答として受ける', async () => {
+    const { env, db, alertChannel } = createEnv()
+    await openKusabanaQuiz(db)
+
+    await callWebhook(createNotification({ body: chatFrom('配信者', BROADCASTER_ID, 'くさばな', 'chat-1'), messageId: 'notification-1' }), env)
+
+    expect(alertChannel.pushedKanjiQuizNotices).toEqual([{ type: 'answer', quizId: 'quiz-kusabana', userName: '配信者' }])
+  })
+
+  it('違う読み・部分一致の回答と、2人目の正解者は押し出さない', async () => {
+    const { env, db, alertChannel } = createEnv()
+    await openKusabanaQuiz(db)
+
+    await callWebhook(createNotification({ body: chatFrom('すずき', '22222', 'あおぞら', 'chat-1'), messageId: 'notification-1' }), env)
+    await callWebhook(createNotification({ body: chatFrom('さとう', '33333', 'くさばなかな', 'chat-2'), messageId: 'notification-2' }), env)
+    await callWebhook(createNotification({ body: chatFrom('たなか', '11111', 'くさばな', 'chat-3'), messageId: 'notification-3' }), env)
+    await callWebhook(createNotification({ body: chatFrom('やまだ', '44444', 'そうか', 'chat-4'), messageId: 'notification-4' }), env)
+
+    expect(alertChannel.pushedKanjiQuizNotices).toEqual([{ type: 'answer', quizId: 'quiz-kusabana', userName: 'たなか' }])
+  })
+
+  it('照らし合わせに失敗したら、黙って不正解にせず失敗として記録し、Twitchへは2xxを返す', async () => {
+    const { env, db, alertChannel } = createEnv()
+    // マイグレーション 0031 を適用する前を再現する
+    db.sqlite.exec('DROP TABLE kanji_quizzes')
+
+    const response = await callWebhook(createNotification({ body: chatFrom('たなか', '11111', 'くさばな', 'chat-1'), messageId: 'notification-1' }), env)
+
+    expect(response.status).toBe(204)
+    expect(alertChannel.pushedKanjiQuizNotices).toEqual([])
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'kanji-quiz-answer-failed' }])
+  })
+
+  it('正解者を合成ページへ押し出せなくても、Twitchへは2xxを返して失敗として記録する', async () => {
+    const { env, db } = createEnv({ channelShouldFail: true })
+    await openKusabanaQuiz(db)
+
+    const response = await callWebhook(createNotification({ body: chatFrom('たなか', '11111', 'くさばな', 'chat-1'), messageId: 'notification-1' }), env)
+
+    expect(response.status).toBe(204)
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'kanji-quiz-answer-failed' }])
+  })
+
+  it('問題集のどの読みとも一致しない発言では D1 を読まない（テーブルが無くても失敗にならない）', async () => {
+    const { env, db } = createEnv()
+    db.sqlite.exec('DROP TABLE kanji_quizzes')
+
+    await callWebhook(createNotification({ body: chatFrom('たなか', '11111', 'こんにちは', 'chat-1'), messageId: 'notification-1' }), env)
+
+    expect(await listFailures(env.DB)).toEqual([])
   })
 })
 
