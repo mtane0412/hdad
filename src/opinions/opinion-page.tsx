@@ -11,7 +11,7 @@
  *
  * 注意: 入力しかけのテーマがあるあいだは、ページを離れる前に確認を出す（useUnsavedChanges）。
  */
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
 import { Link, useUnsavedChanges } from '@/app/router'
 import { LoadFailure } from '@/components/load-failure'
@@ -67,13 +67,19 @@ export const OpinionPage = ({ api }: { api: OpinionApi }) => {
   const [title, setTitle] = useState('')
   const actions = usePageActions(opinionFailureLines)
   const titleId = useId()
+  /**
+   * 画面の操作の世代。操作で表示を書き換える前に進め、操作より前に始めた読み直しの結果は捨てる
+   * （古い結果で、隠した意見や締め切ったテーマを元に戻さないため）
+   */
+  const generation = useRef(0)
 
   useEffect(() => {
     let cancelled = false
     const load = (): void => {
+      const startedAt = generation.current
       api.read().then(
         (next) => {
-          if (cancelled) return
+          if (cancelled || startedAt !== generation.current) return
           setBoard(next)
           setLoadError(undefined)
         },
@@ -100,6 +106,7 @@ export const OpinionPage = ({ api }: { api: OpinionApi }) => {
   const open = (): Promise<void> =>
     actions.run(async () => {
       const theme = await api.openTheme(title)
+      generation.current += 1
       setBoard({ theme, topics: [] })
       setTitle('')
       return `テーマ「${theme.title}」を出しました`
@@ -112,6 +119,7 @@ export const OpinionPage = ({ api }: { api: OpinionApi }) => {
       actionLabel: 'テーマを締め切る',
       run: async () => {
         const theme = await api.closeTheme(themeId)
+        generation.current += 1
         setBoard((previous) => (previous === undefined ? previous : { ...previous, theme }))
         return `テーマ「${theme.title}」を締め切りました`
       },
@@ -121,6 +129,7 @@ export const OpinionPage = ({ api }: { api: OpinionApi }) => {
     actions.run(async () => {
       const hidden = !opinion.hidden
       await api.setHidden(opinion.id, hidden)
+      generation.current += 1
       setBoard((previous) =>
         previous === undefined
           ? previous

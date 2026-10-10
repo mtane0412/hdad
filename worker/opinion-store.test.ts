@@ -189,6 +189,24 @@ describe('振り分けの反映と読み出し', () => {
     expect(await setOpinionHidden(db, opinionId + 100, true)).toBe(false)
   })
 
+  it('LLM を待つあいだにテーマが締め切られていたら、何も書かずに振り分け待ちのまま残す', async () => {
+    const { theme, ids } = await prepare()
+    await closeTheme(db, theme.id, LATER)
+
+    await applySorting(
+      db,
+      theme.id,
+      [
+        { type: 'new', commentIds: [ids[0]], topic: { type: 'new', title: '視聴者との距離' }, kind: 'issue', text: '寂しい' },
+        { type: 'ignore', commentIds: [ids[2]] },
+      ],
+      LATER,
+    )
+
+    expect(await readSortingBoard(db, theme.id)).toEqual([])
+    expect((await readPendingComments(db, theme.id)).map(({ id }) => id)).toEqual([...ids])
+  })
+
   it('振り分けに失敗した回のコメントは失敗にし、振り分け待ちから外す', async () => {
     const { theme, ids } = await prepare()
     await markCommentsFailed(db, [ids[0], ids[1]])

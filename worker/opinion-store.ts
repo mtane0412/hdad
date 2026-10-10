@@ -164,10 +164,18 @@ export const readSortingBoard = async (db: Database, themeId: number): Promise<S
 }
 
 /**
+ * テーマがまだ開いているかを確かめる条件。振り分けの各文に付け、LLM を待つあいだに締め切られたテーマへは書かない。
+ *
+ * @param placeholder テーマのIDを渡すプレースホルダ（?1 など）
+ */
+const themeIsOpen = (placeholder: string): string => `EXISTS (SELECT 1 FROM opinion_themes WHERE id = ${placeholder} AND closed_at IS NULL)`
+
+/**
  * 振り分けを書く。論点・意見・コメントの状態を1つの batch で書く。
  *
  * 新しい論点は、同じ回に同じ名前で2回出てきたら1つだけ作る。作った意見をコメントから指すために、意見の最初のもとのコメントのID
  * （first_comment_id。表で重ならない）を鍵にする。コメントの状態は振り分け待ちのものだけを書き換える。
+ * LLM を待つあいだにテーマが締め切られていたら、どの文も何も書かない（コメントは振り分け待ちのまま残る）。
  *
  * @param actions 照合を通った振り分け（worker/opinion-sort.ts の parseOpinionSorting）
  */
@@ -175,22 +183,28 @@ export const applySorting = async (db: Database, themeId: number, actions: reado
   const createdAt = toIso(now)
   const newTitles = [...new Set(actions.flatMap((action) => (action.type === 'new' && action.topic.type === 'new' ? [action.topic.title] : [])))]
   const statements = newTitles.map((title) =>
-    db.prepare('INSERT INTO opinion_topics (theme_id, title, created_at) VALUES (?1, ?2, ?3)').bind(themeId, title, createdAt),
+    db
+      .prepare(`INSERT INTO opinion_topics (theme_id, title, created_at) SELECT ?1, ?2, ?3 WHERE ${themeIsOpen('?1')}`)
+      .bind(themeId, title, createdAt),
   )
 
   for (const action of actions) {
     const commentIds = JSON.stringify(action.commentIds)
     if (action.type === 'ignore') {
       statements.push(
-        db.prepare(`UPDATE opinion_comments SET status = 'ignored' WHERE id IN (SELECT value FROM json_each(?1)) AND status = 'pending'`).bind(commentIds),
+        db
+          .prepare(`UPDATE opinion_comments SET status = 'ignored' WHERE id IN (SELECT value FROM json_each(?1)) AND status = 'pending' AND ${themeIsOpen('?2')}`)
+          .bind(commentIds, themeId),
       )
       continue
     }
     if (action.type === 'join') {
       statements.push(
         db
-          .prepare(`UPDATE opinion_comments SET status = 'used', opinion_id = ?1 WHERE id IN (SELECT value FROM json_each(?2)) AND status = 'pending'`)
-          .bind(action.opinionId, commentIds),
+          .prepare(
+            `UPDATE opinion_comments SET status = 'used', opinion_id = ?1 WHERE id IN (SELECT value FROM json_each(?2)) AND status = 'pending' AND ${themeIsOpen('?3')}`,
+          )
+          .bind(action.opinionId, commentIds, themeId),
       )
       continue
     }
@@ -204,15 +218,15 @@ export const applySorting = async (db: Database, themeId: number, actions: reado
       db
         .prepare(
           `INSERT INTO opinions (topic_id, kind, text, first_comment_id, created_at)
-           SELECT id, ?1, ?2, ?3, ?4 FROM opinion_topics WHERE ${topicCondition} AND theme_id = ?6`,
+           SELECT id, ?1, ?2, ?3, ?4 FROM opinion_topics WHERE ${topicCondition} AND theme_id = ?6 AND ${themeIsOpen('?6')}`,
         )
         .bind(action.kind, action.text, firstCommentId, createdAt, topicKey, themeId),
       db
         .prepare(
           `UPDATE opinion_comments SET status = 'used', opinion_id = (SELECT id FROM opinions WHERE first_comment_id = ?1)
-           WHERE id IN (SELECT value FROM json_each(?2)) AND status = 'pending'`,
+           WHERE id IN (SELECT value FROM json_each(?2)) AND status = 'pending' AND ${themeIsOpen('?3')}`,
         )
-        .bind(firstCommentId, commentIds),
+        .bind(firstCommentId, commentIds, themeId),
     )
   }
   if (statements.length > 0) await db.batch(statements)

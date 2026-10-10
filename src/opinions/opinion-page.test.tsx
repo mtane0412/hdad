@@ -11,7 +11,7 @@
  * - 入力しかけのテーマがあるあいだは、ページを離れる前に確認を出すこと（useUnsavedChanges）
  */
 import '@testing-library/jest-dom/vitest'
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { hasUnsavedChanges } from '@/app/router'
@@ -128,6 +128,37 @@ describe('意見', () => {
     await userEvent.click(within(screen.getByRole('group', { name: '意見「初見さんへの挨拶はAIでも嬉しい」' })).getByRole('button', { name: '隠す' }))
     expect(api.setHidden).toHaveBeenCalledWith(12, true)
     await waitFor(() => expect(within(screen.getByRole('group', { name: '意見「初見さんへの挨拶はAIでも嬉しい」' })).getByText('隠しています')).toBeInTheDocument())
+  })
+
+  test('操作の前に始めた読み直しの結果で、操作したあとの表示を古い状態に戻さない', async () => {
+    // 2回目の読み直し（15秒後）は、操作のあとで、操作の前の意見ボードを返す
+    let resolveStale: (stale: AdminOpinionBoard) => void = () => undefined
+    const read = vi
+      .fn<OpinionApi['read']>()
+      .mockResolvedValueOnce(board)
+      .mockImplementationOnce(() => new Promise((resolve) => (resolveStale = resolve)))
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const api = createApi(board, { read })
+      render(<OpinionPage api={api} />)
+      const opinionName = { name: '意見「初見さんへの挨拶はAIでも嬉しい」' }
+      await screen.findByRole('group', opinionName)
+
+      // 読み直しを始めさせてから、意見を隠す
+      await vi.advanceTimersByTimeAsync(15_000)
+      expect(read).toHaveBeenCalledTimes(2)
+      await userEvent.click(within(screen.getByRole('group', opinionName)).getByRole('button', { name: '隠す' }))
+      await waitFor(() => expect(within(screen.getByRole('group', opinionName)).getByText('隠しています')).toBeInTheDocument())
+
+      // 操作の前に始めた読み直しの結果が届いても、隠したままにする
+      await act(async () => {
+        resolveStale(board)
+        await Promise.resolve()
+      })
+      expect(within(screen.getByRole('group', opinionName)).getByText('隠しています')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   test('意見がまだ無ければ、その旨を出す', async () => {
