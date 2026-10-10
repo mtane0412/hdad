@@ -73,6 +73,11 @@ import { layoutCrop, type Rect, type TabCrop } from '../tab/crop'
 import { openReceiverPeer } from '../tab/peer'
 import { createTabReceiver } from '../tab/receiver'
 import { connectTabViewer } from '../tab/socket'
+import { KANJI_QUIZ_SOCKET_HINT, KANJI_QUIZ_SOCKET_PATH } from '../kanji-quiz/api'
+import { parseKanjiQuizCall, type KanjiQuizCall } from '../kanji-quiz/call'
+import { DEMO_KANJI_QUIZ_CALLS, DEMO_KANJI_QUIZ_INTERVAL_MS } from '../kanji-quiz/demo'
+import { KANJI_QUIZ_TOTAL_MS, kanjiQuizSceneAt } from '../kanji-quiz/scene'
+import { drawKanjiQuiz } from '../kanji-quiz/view'
 import { POMODORO_SOCKET_HINT, POMODORO_SOCKET_PATH, createPomodoroOverlayApi } from '../pomodoro/api'
 import { demoPomodoroScenes, demoTimerOf } from '../pomodoro/demo'
 import { parsePomodoroSnapshot, type PomodoroTimer } from '../pomodoro/phase'
@@ -145,6 +150,7 @@ const NOUNS: Readonly<Record<ItemKind, string>> = {
   twister: 'ツイスター',
   wipe: 'ワイプ',
   text: 'テキスト',
+  kanjiQuiz: '漢字クイズ',
 }
 
 /** サイドスーパーの文言を読みに行く間隔（ミリ秒）。文言は cron が5分おきに作るので、30秒あれば十分に追いつく */
@@ -1745,6 +1751,75 @@ const mountTwister = (box: HTMLElement, item: OverlayItem, { key, demo }: MountC
 }
 
 /**
+ * 漢字クイズ（issue #300）。チャンネルポイントの交換で出題された熟語の読みを問う。
+ *
+ * Worker から押し出された出題（問題1問と交換した人）を届いた順に1件ずつ流す。場面（級→熟語が奥から近づく→制限時間→正解と解説）は
+ * 流しはじめてからの経過時間だけから決め（src/kanji-quiz/scene.ts）、canvas 1枚に描く（src/kanji-quiz/view.ts）。
+ * 段階1では回答の判定を持たず、いつも時間切れまで流して正解を出す（判定は issue #301）。
+ */
+const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
+  // この素材は配信者が決めるパラメータを持たない（何を出すかはトリガーと試し再生で決まる）
+  parseParams({}, new URLSearchParams(item.params))
+
+  const canvas = document.createElement('canvas')
+  canvas.dataset.kanjiQuiz = ''
+  box.append(canvas)
+
+  /** 流している1件。流していなければ null */
+  let playback: { readonly call: KanjiQuizCall; readonly startedAt: number } | null = null
+  /** 流すのを待っている出題（届いた順） */
+  let waiting: readonly KanjiQuizCall[] = []
+
+  const enqueue = (call: KanjiQuizCall): void => {
+    waiting = [...waiting, call]
+  }
+
+  const draw = startCanvasSurface(canvas, (ctx, width, height) => {
+    const now = Date.now()
+    if (playback !== null && now - playback.startedAt >= KANJI_QUIZ_TOTAL_MS) playback = null
+    // 流していなければ、待っている出題の先頭を流しはじめる
+    if (playback === null) {
+      const [next, ...rest] = waiting
+      if (next !== undefined) {
+        waiting = rest
+        playback = { call: next, startedAt: now }
+      }
+    }
+    drawKanjiQuiz(ctx, width, height, playback === null ? null : { call: playback.call, scene: kanjiQuizSceneAt(now - playback.startedAt) })
+  })
+
+  if (demo) {
+    // プレビューではWorkerにつながず、決まった出題を順にくり返し流す
+    startSampleCycle(DEMO_KANJI_QUIZ_CALLS, DEMO_KANJI_QUIZ_INTERVAL_MS, enqueue)
+    return { draw }
+  }
+
+  connectSocket(
+    socketUrl(KANJI_QUIZ_SOCKET_PATH, { key }),
+    {
+      onMessage: (text) => {
+        try {
+          enqueue(parseKanjiQuizCall(text))
+          clearError(box, 'read')
+        } catch (error) {
+          showError(error, NOUNS.kanjiQuiz, box, 'read')
+        }
+      },
+      onOpen: () => {
+        // 出題は押し出しでしか届かない（読み直すものを持たない）。つながっていない間の出題は配送先が落とす
+      },
+      onStatus: () => {
+        // 切断・再接続は出さない。流している1件はそのまま流しきる
+      },
+      onWarning: (message) => showError(new Error(message), NOUNS.kanjiQuiz, box, 'read'),
+    },
+    KANJI_QUIZ_SOCKET_HINT,
+  )
+
+  return { draw }
+}
+
+/**
  * テキスト。配信者が書いた文字のうち、パラメータで選んだ1件を札に出す（issue #294）。
  *
  * テキストの一覧は追加・書き換え・削除のたびにアラートと同じ配送先から WebSocket（/api/overlay/texts/socket）で丸ごと押し出してもらい、
@@ -1892,6 +1967,8 @@ const mountItem = (box: HTMLElement, item: OverlayItem, context: MountContext): 
       return mountWipe(box, item, context)
     case 'text':
       return mountText(box, item, context)
+    case 'kanjiQuiz':
+      return mountKanjiQuiz(box, item, context)
   }
 }
 

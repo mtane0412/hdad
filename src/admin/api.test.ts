@@ -100,6 +100,14 @@ describe('config・saveConfig（トリガーの設定）', () => {
     expect(await createAdminApi(fetchImpl).config()).toEqual([raidTrigger])
   })
 
+  it('出題する級を持つ漢字クイズの動作を受け取る。知らない級ならエラーにする', async () => {
+    const rewardTrigger = { kind: 'reward', rewardId: '報酬ID-漢字クイズ', actions: [{ type: 'kanjiQuiz', grade: 'pre1' }] }
+
+    expect(await createAdminApi(fetchReturning(200, { triggers: [rewardTrigger] }).fetchImpl).config()).toEqual([rewardTrigger])
+    const unknownGrade = { ...rewardTrigger, actions: [{ type: 'kanjiQuiz', grade: '準1級' }] }
+    await expect(createAdminApi(fetchReturning(200, { triggers: [unknownGrade] }).fetchImpl).config()).rejects.toThrow('triggers[0]')
+  })
+
   it('知らないメニュー項目のトリガーを受け取ったらエラーにする（黙って無視すると、絞り込みが効かないまま画面に出る）', async () => {
     const { fetchImpl } = fetchReturning(200, { triggers: [{ ...toastTrigger, kind: 'cheer' }] })
     await expect(createAdminApi(fetchImpl).config()).rejects.toThrow('triggers[0]')
@@ -295,6 +303,25 @@ describe('rotateOverlayKey・playTownTourDemo・townTourSound・rewards・logout
 
     expect(await createAdminApi(fetchImpl).playTwisterDemo('hoshino_yu')).toBe('星野ゆう vs 配信者')
     expect(await requests[0]!.json()).toEqual({ userName: 'hoshino_yu' })
+  })
+
+  it('漢字クイズの試し再生を、選んだ級で頼み、押し出された問題を「漢検○級「熟語」」の形で返す', async () => {
+    const { requests, fetchImpl } = fetchReturning(200, {
+      id: '試しID',
+      problem: { word: '境内', readings: ['けいだい'], grade: '6', explanation: '神社や寺の敷地の中。' },
+      requesterName: null,
+    })
+
+    expect(await createAdminApi(fetchImpl).playKanjiQuizDemo('6')).toBe('漢検6級「境内」')
+    expect(requests[0]!.method).toBe('POST')
+    expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/kanji-quiz/demo')
+    expect(await requests[0]!.json()).toEqual({ grade: '6' })
+  })
+
+  it('漢字クイズの試し再生の応答が想定した形でなければエラーにする', async () => {
+    const { fetchImpl } = fetchReturning(200, { id: '試しID' })
+
+    await expect(createAdminApi(fetchImpl).playKanjiQuizDemo('6')).rejects.toThrow()
   })
 
   it('ツイスターの試し再生の応答が想定した形でなければエラーにする', async () => {

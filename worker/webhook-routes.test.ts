@@ -1763,6 +1763,44 @@ describe('ツイスターで対戦する動作（twister）', () => {
   })
 })
 
+describe('漢字クイズを出題する動作（kanjiQuiz）', () => {
+  const rewardKanjiQuizTrigger: StoredTrigger = { kind: 'reward', rewardId: '報酬ID-漢字クイズ', actions: [{ type: 'kanjiQuiz', grade: 'pre2' }] }
+  const REDEMPTION_NOTIFICATION = {
+    subscription: { type: 'channel.channel_points_custom_reward_redemption.add' },
+    event: {
+      user_id: '田中太郎のユーザーID',
+      user_name: '田中太郎',
+      user_login: 'tanaka_taro',
+      user_input: '',
+      reward: { id: '報酬ID-漢字クイズ', title: '漢字クイズを出す', cost: 500 },
+    },
+  }
+
+  it('チャンネルポイントが交換されたら、設定の級の問題を1問選び、交換した人の名前と一緒に合成ページへ押し出す（botを接続していなくても流す）', async () => {
+    const { env, alertChannel } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [rewardKanjiQuizTrigger] })
+
+    const response = await callWebhook(createNotification({ body: REDEMPTION_NOTIFICATION }), env)
+
+    expect(response.status).toBe(204)
+    expect(alertChannel.pushedKanjiQuizzes).toHaveLength(1)
+    // 問題はランダムに選ぶので、設定の級の問題であることと交換した人の名前だけを確かめる
+    expect(alertChannel.pushedKanjiQuizzes[0]?.problem.grade).toBe('pre2')
+    expect(alertChannel.pushedKanjiQuizzes[0]?.requesterName).toBe('田中太郎')
+  })
+
+  it('配送先が失敗したら、失敗として記録する（受け取り自体は成功として返す）', async () => {
+    const { env, alertChannel } = createEnv({ channelShouldFail: true })
+    await saveAlertConfig(env.STORE, { triggers: [rewardKanjiQuizTrigger] })
+
+    const response = await callWebhook(createNotification({ body: REDEMPTION_NOTIFICATION }), env)
+
+    expect(response.status).toBe(204)
+    expect(alertChannel.pushedKanjiQuizzes).toHaveLength(0)
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'kanji-quiz-push-failed' }])
+  })
+})
+
 describe('市町村紹介を流す動作（townTour）', () => {
   const raidTownTourTrigger: StoredTrigger = { kind: 'raid', actions: [{ type: 'townTour' }] }
 

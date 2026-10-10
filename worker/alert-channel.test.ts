@@ -15,6 +15,7 @@ import {
   connectSpeechMuteSocket,
   connectTownTourSocket,
   connectTwisterSocket,
+  connectKanjiQuizSocket,
   connectTextSocket,
   connectTaskDeskSocket,
   connectWorkLogSocket,
@@ -26,6 +27,7 @@ import {
   pushTownTour,
   pushTownTourAnswer,
   pushTwister,
+  pushKanjiQuiz,
   pushTaskDesk,
   pushWorkLogEntry,
   revokeAlertSockets,
@@ -38,6 +40,7 @@ import type { OverlayAlert } from './alert-event'
 import type { TaskDeskSnapshot } from './task-desk'
 import type { PomodoroSnapshot } from './pomodoro-timer'
 import type { TownTourCall } from './town-tour-call'
+import type { KanjiQuizCall } from './kanji-quiz-call'
 import type { TwisterCall } from './twister-call'
 import { DEFAULT_TOWN_TOUR_SOUND, playbackSoundOf } from './town-tour-sound'
 import type { WorkLogEntry } from './work-log'
@@ -109,6 +112,13 @@ const raidTwister: TwisterCall = {
   sound: { bgm: null, bgmVolume: 0.3 },
 }
 
+/** チャンネルポイントの交換で押し出す漢字クイズの出題 */
+const redeemedKanjiQuiz: KanjiQuizCall = {
+  id: '漢字クイズの呼び出しID',
+  problem: { word: '境内', readings: ['けいだい'], grade: '6', explanation: '神社や寺の敷地の中。' },
+  requesterName: '田中太郎',
+}
+
 const duringTownTour: BgmDuck = { holdMs: 42_000 }
 
 /** 下部バーで読み上げをミュートした知らせ */
@@ -138,6 +148,7 @@ describe('AlertChannel', () => {
     speechMuteSockets: AlertSocket[] = [],
     twisterSockets: AlertSocket[] = [],
     textSockets: AlertSocket[] = [],
+    kanjiQuizSockets: AlertSocket[] = [],
   ): AlertChannel =>
     new AlertChannel({
       acceptWebSocket: () => undefined,
@@ -152,6 +163,7 @@ describe('AlertChannel', () => {
         if (tag === 'speechMute') return speechMuteSockets
         if (tag === 'twister') return twisterSockets
         if (tag === 'text') return textSockets
+        if (tag === 'kanjiQuiz') return kanjiQuizSockets
         return [
           ...sockets,
           ...bgmSockets,
@@ -163,6 +175,7 @@ describe('AlertChannel', () => {
           ...speechMuteSockets,
           ...twisterSockets,
           ...textSockets,
+          ...kanjiQuizSockets,
         ]
       },
       setWebSocketAutoResponse: () => undefined,
@@ -264,6 +277,22 @@ describe('AlertChannel', () => {
     expect(townTourItem.sentMessages).toEqual([])
   })
 
+  it('漢字クイズの出題は、漢字クイズを受け取る接続だけへ送る（アラートとしても市町村紹介としても読めないため）', async () => {
+    const alertItem = createConnection()
+    const townTourItem = createConnection()
+    const kanjiQuizItem = createConnection()
+    const destination = createDestination([alertItem], [], [], [], [], [townTourItem], [], [], [], [], [kanjiQuizItem])
+
+    const response = await destination.fetch(
+      new Request('https://alert-channel/push/kanji-quiz', { method: 'POST', body: JSON.stringify(redeemedKanjiQuiz) }),
+    )
+
+    expect(response.status).toBe(204)
+    expect(kanjiQuizItem.sentMessages).toEqual([JSON.stringify(redeemedKanjiQuiz)])
+    expect(alertItem.sentMessages).toEqual([])
+    expect(townTourItem.sentMessages).toEqual([])
+  })
+
   it('テキストの一覧は、テキストを受け取る接続だけへ送る（アラートとしては読めないため）', async () => {
     const alertItem = createConnection()
     const textItem = createConnection()
@@ -335,7 +364,7 @@ describe('pushAlert', () => {
 })
 
 describe('接続の引き渡し', () => {
-  it('アラート・BGM・作業ログ・作業机・ポモドーロ・市町村紹介・BGMを下げる知らせ・読み上げのミュート・ツイスターの接続を、目印を付けて Durable Object へ引き渡す', async () => {
+  it('アラート・BGM・作業ログ・作業机・ポモドーロ・市町村紹介・BGMを下げる知らせ・読み上げのミュート・ツイスター・テキスト・漢字クイズの接続を、目印を付けて Durable Object へ引き渡す', async () => {
     const delivery = createFakeAlertChannel()
     const connectionRequest = (): Request => new Request('https://hdad.example.com/api/overlay/socket?key=k', { headers: { Upgrade: 'websocket' } })
 
@@ -349,6 +378,7 @@ describe('接続の引き渡し', () => {
     await connectSpeechMuteSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
     await connectTwisterSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
     await connectTextSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
+    await connectKanjiQuizSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
 
     expect(delivery.forwardedConnections.map((request) => new URL(request.url).searchParams.get('topic'))).toEqual([
       'alerts',
@@ -361,6 +391,7 @@ describe('接続の引き渡し', () => {
       'speechMute',
       'twister',
       'text',
+      'kanjiQuiz',
     ])
   })
 })
@@ -447,6 +478,23 @@ describe('pushTwister', () => {
     const delivery = createFakeAlertChannel({ shouldFail: true })
 
     await expect(pushTwister(delivery.namespace, raidTwister)).rejects.toThrow('ツイスター')
+  })
+})
+
+describe('pushKanjiQuiz', () => {
+  it('Durable Object へ、漢字クイズの出題を送る', async () => {
+    const delivery = createFakeAlertChannel()
+
+    await pushKanjiQuiz(delivery.namespace, redeemedKanjiQuiz)
+
+    expect(delivery.pushedKanjiQuizzes).toEqual([redeemedKanjiQuiz])
+    expect(delivery.pushedAlerts).toEqual([])
+  })
+
+  it('Durable Object が失敗を返したら、黙って成功にせず投げる', async () => {
+    const delivery = createFakeAlertChannel({ shouldFail: true })
+
+    await expect(pushKanjiQuiz(delivery.namespace, redeemedKanjiQuiz)).rejects.toThrow('漢字クイズ')
   })
 })
 

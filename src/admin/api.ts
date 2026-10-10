@@ -9,6 +9,7 @@
  * 注意: 応答が想定した形でなければエラーにする。黙って空の一覧にすると、設定や素材が消えたように見えてしまう。
  */
 import { ApiError, createCaller, isRecord, readList } from '@/core/api'
+import { isKankenGrade, kankenGradeLabel, type KankenGrade } from '@/kanji-quiz/grade'
 import { readTownTourNarration, type TownTourNarration } from '@/town-tour/narration'
 import { readTownTourSound, type TownTourSound } from '@/town-tour/sound'
 import { readTwisterSound, type TwisterSound } from '@/twister/sound'
@@ -136,7 +137,17 @@ export interface TwisterAction {
   type: 'twister'
 }
 
-export type ActionInput = AlertActionInput | ChatAction | AnnounceAction | AiChatAction | ShoutoutAction | TownTourAction | TwisterAction
+/**
+ * 漢字クイズを出題する動作（issue #300）。出題する級だけを配信者が決める。
+ *
+ * 置けるのはチャンネルポイントの項目だけである（src/admin/form.ts の supportsKanjiQuiz）。
+ */
+export interface KanjiQuizAction {
+  type: 'kanjiQuiz'
+  grade: KankenGrade
+}
+
+export type ActionInput = AlertActionInput | ChatAction | AnnounceAction | AiChatAction | ShoutoutAction | TownTourAction | TwisterAction | KanjiQuizAction
 
 /**
  * 既定メニューの項目。worker/trigger-menu.ts の TRIGGER_KINDS と同じ並び（worker/ の型は読み込めないのでここで定義する）。
@@ -188,7 +199,15 @@ export type TriggerInput = TriggerSource & { actions: ActionInput[] }
 /** 保存済みの「アラートを出す」動作（Workerが素材の種類を書き足したもの） */
 export type StoredAlertAction = AlertActionInput & { mediaKind: MediaKind }
 
-export type StoredAction = StoredAlertAction | ChatAction | AnnounceAction | AiChatAction | ShoutoutAction | TownTourAction | TwisterAction
+export type StoredAction =
+  | StoredAlertAction
+  | ChatAction
+  | AnnounceAction
+  | AiChatAction
+  | ShoutoutAction
+  | TownTourAction
+  | TwisterAction
+  | KanjiQuizAction
 
 /** 保存済みのトリガー */
 export type StoredTrigger = TriggerSource & { actions: StoredAction[] }
@@ -239,6 +258,8 @@ export interface AdminApi {
    * userName に相手とみなす配信者のログイン名を渡すと、その人のアイコンで対戦する。空なら試しの相手で流す
    */
   playTwisterDemo(userName: string): Promise<string>
+  /** 漢字クイズの試し再生。Workerが選んだ級の問題を1問合成ページへ押し出し、「漢検○級「熟語」」の形で出した問題を返す */
+  playKanjiQuizDemo(grade: KankenGrade): Promise<string>
   /** ツイスターの対戦のあいだ流す BGM の設定。未保存なら BGM を流さない設定が返る */
   twisterSound(): Promise<TwisterSound>
   /** ツイスターの BGM の設定を保存する。Workerが保存したものを返す */
@@ -301,6 +322,8 @@ const isStoredAction = (value: unknown): value is StoredAction => {
   if (!isRecord(value)) return false
   // shoutout と townTour と twister は配信者が決める項目を持たないので、種類だけを見る
   if (value.type === 'shoutout' || value.type === 'townTour' || value.type === 'twister') return true
+  // kanjiQuiz は出題する級だけを持つ
+  if (value.type === 'kanjiQuiz') return isKankenGrade(value.grade)
   // aiChat だけは送る文言を持たず、文面の作り方の指示を持つ
   if (value.type === 'aiChat') return typeof value.instruction === 'string'
   if (typeof value.message !== 'string') return false
@@ -398,6 +421,17 @@ export const createAdminApi = (fetchImpl: typeof fetch): AdminApi => {
       })
       if (!isRecord(body) || typeof body.headline !== 'string') throw new Error('Workerの応答に headline がありません')
       return body.headline
+    },
+
+    playKanjiQuizDemo: async (grade) => {
+      const body = await call('/api/admin/kanji-quiz/demo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ grade }),
+      })
+      const problem = isRecord(body) && isRecord(body.problem) ? body.problem : null
+      if (problem === null || typeof problem.word !== 'string' || !isKankenGrade(problem.grade)) throw new Error('Workerの応答に、出題した問題がありません')
+      return `漢検${kankenGradeLabel(problem.grade)}「${problem.word}」`
     },
 
     playTwisterDemo: async (userName) => {

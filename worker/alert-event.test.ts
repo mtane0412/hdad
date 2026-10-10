@@ -24,6 +24,7 @@ import {
   shoutoutsFor,
   townToursFor,
   twistersFor,
+  kanjiQuizzesFor,
   type ConditionState,
 } from './alert-event'
 
@@ -871,6 +872,31 @@ describe('twistersFor', () => {
     const config = alertConfig([{ kind: 'follow', actions: [{ type: 'twister' }] }])
 
     expect(() => twistersFor(config, 'channel.follow', { user_name: '田中太郎', user_login: 'tanaka_taro' }, notFirstTime)).toThrowError(/レイドのトリガーにだけ/)
+  })
+})
+
+describe('kanjiQuizzesFor', () => {
+  const alertConfig = (triggers: StoredTrigger[]): AlertConfig => ({ triggers })
+  const redemption = { user_name: '田中太郎', user_login: 'tanaka_taro', reward: { id: '報酬ID-漢字クイズ', title: '漢字クイズを出す' } }
+
+  it('チャンネルポイントのトリガーの漢字クイズを、出題する級と交換した人の名前と一緒に返す', () => {
+    const config = alertConfig([{ kind: 'reward', rewardId: '報酬ID-漢字クイズ', actions: [{ type: 'kanjiQuiz', grade: 'pre1' }] }])
+
+    expect(kanjiQuizzesFor(config, REDEMPTION, redemption, notFirstTime)).toEqual([{ grade: 'pre1', requesterName: '田中太郎' }])
+  })
+
+  it('別の報酬の交換なら当てはまらない', () => {
+    const config = alertConfig([{ kind: 'reward', rewardId: '報酬ID-別の報酬', actions: [{ type: 'kanjiQuiz', grade: '6' }] }])
+
+    expect(kanjiQuizzesFor(config, REDEMPTION, redemption, notFirstTime)).toEqual([])
+  })
+
+  it('チャンネルポイント以外のトリガーに漢字クイズがあったら投げる（保存時に拒むので、あれば設定の読み違い）', () => {
+    const config = alertConfig([{ kind: 'follow', actions: [{ type: 'kanjiQuiz', grade: '6' }] }])
+
+    expect(() => kanjiQuizzesFor(config, 'channel.follow', { user_name: '田中太郎', user_login: 'tanaka_taro' }, notFirstTime)).toThrowError(
+      /チャンネルポイントのトリガーにだけ/,
+    )
   })
 })
 

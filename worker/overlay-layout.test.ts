@@ -133,6 +133,12 @@ describe('parseOverlayLayout', () => {
     expect(parseOverlayLayout({ overlays: [{ name: 'front', items: [twister] }] })).toEqual({ overlays: [{ name: 'front', items: [twister] }] })
   })
 
+  it('漢字クイズ（kanjiQuiz）はデザインIDを持たない種類として受け取る', () => {
+    const kanjiQuiz: OverlayItem = { kind: 'kanjiQuiz', id: '', params: '', rect: { x: 0, y: 0, width: 100, height: 100 } }
+
+    expect(parseOverlayLayout({ overlays: [{ name: 'front', items: [kanjiQuiz] }] })).toEqual({ overlays: [{ name: 'front', items: [kanjiQuiz] }] })
+  })
+
   it('ワイプ（wipe）はデザインIDを持たない種類として受け取る', () => {
     const wipe: OverlayItem = { kind: 'wipe', id: '', params: '', rect: { x: 70, y: 3, width: 28, height: 30 } }
 

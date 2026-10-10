@@ -46,6 +46,9 @@
  * 合成ページの素材「テキスト」へ、配信者が書いたテキストの一覧（丸ごと）を配るのもこの Durable Object である（issue #294）。
  * 同じ理由で、10個目の目印（text）を付けた接続へだけ配る。
  *
+ * 合成ページの素材「漢字クイズ」へ、チャンネルポイントの交換と試し再生での出題（問題1問と交換した人の名前）を配るのもこの Durable Object である（issue #300）。
+ * 同じ理由で、11個目の目印（kanjiQuiz）を付けた接続へだけ配る。
+ *
  * 注意: WebSocketの接続（Upgrade）は Cloudflare のランタイムでしか作れないので、テストでは配送の部分だけを確かめる。
  */
 import type { OverlayAlert } from './alert-event'
@@ -55,6 +58,7 @@ import { KEY_TAG_PARAM, isCurrentKeyTag, rememberKeyTag, revokeRequest, type Dur
 import { broadcast, closeForRevokedKey, type SocketLike } from './socket-broadcast'
 import type { PomodoroSnapshot } from './pomodoro-timer'
 import type { SpeechMute } from './speech-config'
+import type { KanjiQuizCall } from './kanji-quiz-call'
 import type { TaskDeskSnapshot } from './task-desk'
 import type { TextsSnapshot } from './text'
 import type { TownTourAnswerMessage, TownTourCall } from './town-tour-call'
@@ -84,6 +88,8 @@ const PUSH_SPEECH_MUTE_PATH = '/push/speech-mute'
 const PUSH_TWISTER_PATH = '/push/twister'
 /** Worker がテキストの一覧の押し出しに使うパス */
 const PUSH_TEXT_PATH = '/push/text'
+/** Worker が漢字クイズの出題の押し出しに使うパス */
+const PUSH_KANJI_QUIZ_PATH = '/push/kanji-quiz'
 /** Worker がオーバーレイ用キーを発行し直したときに、開いている接続を閉じさせるパス */
 const REVOKE_PATH = '/revoke'
 
@@ -107,6 +113,8 @@ const SPEECH_MUTE_TOPIC = 'speechMute'
 const TWISTER_TOPIC = 'twister'
 /** テキストの一覧を受け取る接続（合成ページの素材「テキスト」）に付ける目印 */
 const TEXT_TOPIC = 'text'
+/** 漢字クイズの出題を受け取る接続（合成ページの素材「漢字クイズ」）に付ける目印 */
+const KANJI_QUIZ_TOPIC = 'kanjiQuiz'
 /** 受け入れる接続の目印。知らない値はアラートの接続として受け入れる（Worker が必ずどれかを付けて渡す） */
 const TOPICS: readonly string[] = [
   ALERTS_TOPIC,
@@ -119,6 +127,7 @@ const TOPICS: readonly string[] = [
   SPEECH_MUTE_TOPIC,
   TWISTER_TOPIC,
   TEXT_TOPIC,
+  KANJI_QUIZ_TOPIC,
 ]
 /** どちらの目印で受け入れるかを Worker が伝えるためのクエリ。外には出ない */
 const TOPIC_PARAM = 'topic'
@@ -164,7 +173,7 @@ export interface AlertChannelNamespace {
  * - Upgrade: websocket のリクエスト: オーバーレイからの接続を受ける（パスはWorkerのものがそのまま届く）。
  *   クエリの topic が bgm ならBGMの接続、workLog なら作業ログの接続、taskDesk なら作業机の接続、pomodoro ならポモドーロの接続、
  *   townTour なら市町村紹介の接続、bgmDuck なら配信のBGMを下げる知らせの接続、speechMute なら読み上げのミュートの接続、
- *   twister ならツイスターの接続、text ならテキストの接続、それ以外はアラートの接続として受け入れる
+ *   twister ならツイスターの接続、text ならテキストの接続、kanjiQuiz なら漢字クイズの接続、それ以外はアラートの接続として受け入れる
  * - POST /push: Worker が押し出したアラートを、アラートの接続すべてへ配る
  * - POST /push/bgm: Worker が押し出した「いま流している曲」を、BGMの接続すべてへ配る
  * - POST /push/work-log: Worker が押し出した作業ログの1行を、作業ログの接続すべてへ配る
@@ -175,6 +184,7 @@ export interface AlertChannelNamespace {
  * - POST /push/speech-mute: Worker が押し出した読み上げのミュートを、ミュートの接続すべてへ配る
  * - POST /push/twister: Worker が押し出したツイスターの呼び出しを、ツイスターの接続すべてへ配る
  * - POST /push/text: Worker が押し出したテキストの一覧を、テキストの接続すべてへ配る
+ * - POST /push/kanji-quiz: Worker が押し出した漢字クイズの出題を、漢字クイズの接続すべてへ配る
  * - POST /revoke: 新しいキーの目印を覚え、接続をすべて閉じる（オーバーレイ用キーを発行し直したとき。どの接続もオーバーレイ用キーで開かれている）
  *
  * 接続はどれもオーバーレイ用キーで開かれるので、覚えている目印と違うキーの接続は受け入れない（worker/overlay-key.ts）。
@@ -200,6 +210,7 @@ export class AlertChannel {
     if (url.pathname === PUSH_SPEECH_MUTE_PATH) return this.push(SPEECH_MUTE_TOPIC, await request.text(), '読み上げのミュート')
     if (url.pathname === PUSH_TWISTER_PATH) return this.push(TWISTER_TOPIC, await request.text(), 'ツイスター')
     if (url.pathname === PUSH_TEXT_PATH) return this.push(TEXT_TOPIC, await request.text(), 'テキスト')
+    if (url.pathname === PUSH_KANJI_QUIZ_PATH) return this.push(KANJI_QUIZ_TOPIC, await request.text(), '漢字クイズ')
     if (url.pathname === REVOKE_PATH) {
       // 先に目印を覚えてから閉じる。閉じたあとすぐ古いキーでつなぎ直されても受け入れないため
       if (!(await rememberKeyTag(this.ctx.storage, request))) return new Response(null, { status: STATUS.badRequest })
@@ -290,6 +301,16 @@ export const connectPomodoroSocket = (namespace: AlertChannelNamespace, request:
  */
 export const connectTextSocket = (namespace: AlertChannelNamespace, request: Request, keyTag: string): Promise<Response> =>
   connectWithTopic(namespace, request, TEXT_TOPIC, keyTag)
+
+/**
+ * 合成ページの素材「漢字クイズ」からのWebSocketの接続を、漢字クイズの出題を受け取る接続として Durable Object へ引き渡す。
+ *
+ * オーバーレイ用キーの確認は呼び出し側（kanji-quiz-routes.ts）が済ませている。
+ *
+ * @param keyTag 確かめたキーの目印（overlayKeyTag）
+ */
+export const connectKanjiQuizSocket = (namespace: AlertChannelNamespace, request: Request, keyTag: string): Promise<Response> =>
+  connectWithTopic(namespace, request, KANJI_QUIZ_TOPIC, keyTag)
 
 /**
  * 合成ページの素材「市町村紹介」からのWebSocketの接続を、市町村紹介の呼び出しを受け取る接続として Durable Object へ引き渡す。
@@ -394,6 +415,15 @@ export const pushPomodoro = (namespace: AlertChannelNamespace, snapshot: Pomodor
  * 注意: 失敗を黙って握りつぶさない。呼び出し側（text-routes.ts）が管理画面へ失敗を返す。
  */
 export const pushTexts = (namespace: AlertChannelNamespace, snapshot: TextsSnapshot): Promise<void> => pushJson(namespace, PUSH_TEXT_PATH, snapshot, 'テキスト')
+
+/**
+ * 漢字クイズの出題を Durable Object へ押し出す。チャンネルポイントのトリガーと管理画面の試し再生で呼ぶ。
+ *
+ * 合成ページを開いていなければ配る先が無いだけで、失敗ではない（配送先は204を返す。つながっていない間の出題は貯めずに落とす）。
+ *
+ * 注意: 失敗を黙って握りつぶさない。呼び出し側が失敗として記録する（試し再生は502にする）。
+ */
+export const pushKanjiQuiz = (namespace: AlertChannelNamespace, call: KanjiQuizCall): Promise<void> => pushJson(namespace, PUSH_KANJI_QUIZ_PATH, call, '漢字クイズ')
 
 /**
  * 市町村紹介の呼び出し（引いた市町村と冒頭の一文）を Durable Object へ押し出す。トリガーと管理画面の試し再生で呼ぶ。

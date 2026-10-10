@@ -13,7 +13,7 @@
  * 2xx以外を返すとTwitchは同じ通知を再送するので、送信が成功していた場合に二重投稿になってしまう。
  */
 import { loadAlertConfig, type AlertConfig, type StoredAnnounceAction } from './alert-config'
-import { pushAlert, pushTownTour, pushTwister } from './alert-channel'
+import { pushAlert, pushKanjiQuiz, pushTownTour, pushTwister } from './alert-channel'
 import { generateChatMessage } from './ai-chat'
 import {
   aiChatsFor,
@@ -21,6 +21,7 @@ import {
   announcementsFor,
   chatMessagesFor,
   hasAlertAction,
+  kanjiQuizzesFor,
   requiresStreamSummary,
   shoutoutsFor,
   townToursFor,
@@ -39,6 +40,7 @@ import { pickTown, townTourCallOf } from './town-tour-call'
 import { listTownTourVisits } from './town-tour-visits'
 import { loadTownTourNarration } from './town-tour-narration'
 import { loadTownTourSound, playbackSoundOf } from './town-tour-sound'
+import { kanjiQuizCallOf, pickKanjiQuizProblem } from './kanji-quiz-call'
 import { twisterCallOf, twisterSeedOf } from './twister-call'
 import { loadTwisterSound, playbackTwisterSoundOf } from './twister-sound'
 import { readViewer } from './viewer-store'
@@ -173,6 +175,21 @@ export const runAlertActions = async (
         await pushTwister(env.ALERTS, twisterCallOf(twister, icons, env.TWITCH_BROADCASTER_ID, playbackSound, seed, crypto.randomUUID()))
       })
     }
+  }
+
+  // 漢字クイズ（issue #300）も素材が流すので、botの接続を見る前に押し出す。問題は1件ごとに設定の級から選び直す。
+  // その級の問題が問題集に無いときも、押し出しの失敗として記録する（ほかの級から黙って出さない）
+  const kanjiQuizzes = ((): ReturnType<typeof kanjiQuizzesFor> => {
+    try {
+      return kanjiQuizzesFor(config, subscriptionType, body.event, state)
+    } catch (error) {
+      throw invalid(error instanceof Error ? error.message : String(error))
+    }
+  })()
+  for (const [index, kanjiQuiz] of kanjiQuizzes.entries()) {
+    await sendAndRecordFailure(context, messageId, 'kanjiQuiz', index, 'kanji-quiz-push-failed', () =>
+      pushKanjiQuiz(env.ALERTS, kanjiQuizCallOf(pickKanjiQuizProblem(kanjiQuiz.grade, Math.random), kanjiQuiz.requesterName, crypto.randomUUID())),
+    )
   }
 
   if (messages.length === 0 && announcements.length === 0 && aiChats.length === 0 && shoutouts.length === 0) return
@@ -311,7 +328,7 @@ export const recordLateFailure = async (context: AlertActionContext, failureCode
 const sendAndRecordFailure = async (
   context: AlertActionContext,
   messageId: string,
-  actionType: 'chat' | 'announce' | 'alert' | 'aiChat' | 'shoutout' | 'townTour' | 'twister',
+  actionType: 'chat' | 'announce' | 'alert' | 'aiChat' | 'shoutout' | 'townTour' | 'twister' | 'kanjiQuiz',
   index: number,
   failureCode: string,
   send: () => Promise<void>,

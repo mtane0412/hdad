@@ -11,6 +11,7 @@
  * 注意: メニュー項目ごとのパラメータは、入力欄ではすべて平たく持つ（動作の入力欄と同じ持ち方）。
  *   Workerへ送るのは、選んでいるメニュー項目が要求するものだけである（選び直す前の値を引きずらない）。
  */
+import { KANKEN_GRADES, kankenGradeLabel, type KankenGrade } from '@/kanji-quiz/grade'
 import {
   ANNOUNCEMENT_COLORS,
   type ActionInput,
@@ -265,6 +266,10 @@ export interface TriggerDraft {
   townTourEnabled: boolean
   /** レイドした人と配信者に、合成ページでツイスターの対戦をさせるか。レイドの項目でだけ選べる */
   twisterEnabled: boolean
+  /** 漢字クイズを出題するか。チャンネルポイントの項目でだけ選べる */
+  kanjiQuizEnabled: boolean
+  /** 漢字クイズで出題する級 */
+  kanjiQuizGrade: KankenGrade
 }
 
 /**
@@ -290,6 +295,22 @@ export const supportsTownTour = (kind: TriggerKind): boolean => kind === 'raid' 
  * 相手が配信者でなければならない。
  */
 export const supportsTwister = (kind: TriggerKind): boolean => kind === 'raid'
+
+/**
+ * その項目に漢字クイズを置けるか（issue #300）。
+ *
+ * 置けるのはチャンネルポイントの交換だけである（Workerも保存時にそれ以外を拒む）。視聴者がポイントを払って出題させるものだからである。
+ */
+export const supportsKanjiQuiz = (kind: TriggerKind): boolean => kind === 'reward'
+
+/** 漢字クイズを選んだときに、はじめに選ばれている級（中学卒業程度の3級） */
+export const DEFAULT_KANJI_QUIZ_GRADE: KankenGrade = '3'
+
+/** 漢字クイズの級の選択肢（やさしい順。値は保存される識別子、見出しは「準2級」のような画面の言い方） */
+export const KANJI_QUIZ_GRADE_OPTIONS: readonly { value: KankenGrade; label: string }[] = KANKEN_GRADES.map((grade) => ({
+  value: grade,
+  label: kankenGradeLabel(grade),
+}))
 
 export interface SelectOption {
   value: string
@@ -377,6 +398,7 @@ const toActions = (draft: TriggerDraft): ActionInput[] => {
   if (draft.shoutoutEnabled) actions.push({ type: 'shoutout' })
   if (draft.townTourEnabled) actions.push({ type: 'townTour' })
   if (draft.twisterEnabled) actions.push({ type: 'twister' })
+  if (draft.kanjiQuizEnabled) actions.push({ type: 'kanjiQuiz', grade: draft.kanjiQuizGrade })
   return actions
 }
 
@@ -460,6 +482,7 @@ export const toDraft = (trigger: StoredTrigger): TriggerDraft => {
   const shoutout = trigger.actions.find((action) => action.type === 'shoutout')
   const townTour = trigger.actions.find((action) => action.type === 'townTour')
   const twister = trigger.actions.find((action) => action.type === 'twister')
+  const kanjiQuiz = trigger.actions.find((action) => action.type === 'kanjiQuiz')
 
   return {
     kind: trigger.kind,
@@ -484,6 +507,8 @@ export const toDraft = (trigger: StoredTrigger): TriggerDraft => {
     shoutoutEnabled: shoutout !== undefined,
     townTourEnabled: townTour !== undefined,
     twisterEnabled: twister !== undefined,
+    kanjiQuizEnabled: kanjiQuiz !== undefined,
+    kanjiQuizGrade: kanjiQuiz?.grade ?? DEFAULT_KANJI_QUIZ_GRADE,
   }
 }
 
@@ -519,6 +544,8 @@ export const createDraft = (kind: TriggerKind, media: readonly MediaItem[]): Tri
     shoutoutEnabled: false,
     townTourEnabled: false,
     twisterEnabled: false,
+    kanjiQuizEnabled: false,
+    kanjiQuizGrade: DEFAULT_KANJI_QUIZ_GRADE,
   }
 }
 
@@ -543,6 +570,8 @@ export const emptyDraft = (kind: TriggerKind): TriggerDraft => ({
   shoutoutEnabled: false,
   townTourEnabled: false,
   twisterEnabled: false,
+  kanjiQuizEnabled: false,
+  kanjiQuizGrade: DEFAULT_KANJI_QUIZ_GRADE,
 })
 
 /** その行が効果をひとつでも持つか。持たない行は何も起きないので保存しない */
@@ -553,7 +582,8 @@ export const hasAnyAction = (draft: TriggerDraft): boolean =>
   draft.aiChatEnabled ||
   draft.shoutoutEnabled ||
   draft.townTourEnabled ||
-  draft.twisterEnabled
+  draft.twisterEnabled ||
+  draft.kanjiQuizEnabled
 
 /**
  * 保存済みの行に、パラメータを持たない項目の行を追加し、一覧の並び順にそろえる。
@@ -654,6 +684,7 @@ export const rowActionLabels = (draft: TriggerDraft): readonly string[] =>
     draft.shoutoutEnabled ? 'シャウトアウト' : null,
     draft.townTourEnabled ? '市町村紹介' : null,
     draft.twisterEnabled ? 'ツイスター' : null,
+    draft.kanjiQuizEnabled ? '漢字クイズ' : null,
   ].filter((label) => label !== null)
 
 /** 素材の大きさを読みやすい単位で表す */

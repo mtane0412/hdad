@@ -61,6 +61,7 @@
  * | GET  /api/admin/town-tour/narration | セッション  | 市町村紹介のナレーションの設定（読み上げるか・話者・速度） |
  * | PUT  /api/admin/town-tour/narration | セッション  | 市町村紹介のナレーションの設定を検証して保存 |
  * | POST /api/admin/twister/demo     | セッション     | ツイスターの試し再生（試しの相手と配信者の対戦を合成ページへ押し出す） |
+ * | POST /api/admin/kanji-quiz/demo  | セッション     | 漢字クイズの試し再生（選んだ級の問題を1問、合成ページへ押し出す） |
  * | GET  /api/admin/twister/sound    | セッション     | ツイスターの対戦のあいだ流す BGM の設定 |
  * | PUT  /api/admin/twister/sound    | セッション     | ツイスターの BGM の設定を検証して保存 |
  * | GET  /api/admin/viewers          | セッション     | 視聴者の記録の一覧（検索・ページ送り） |
@@ -107,6 +108,7 @@
  * | POST /api/overlay/town-tour/narration | オーバーレイ用キー | 市町村紹介の読み上げる文1件を、ナレーションの設定の話者と速度でさくらのAI Engine に合成させる |
  * | GET  /api/overlay/town-tour/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、市町村紹介の呼び出しの配送先へ引き渡す |
  * | GET  /api/overlay/twister/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、ツイスターの呼び出しの配送先へ引き渡す |
+ * | GET  /api/overlay/kanji-quiz/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、漢字クイズの出題の配送先へ引き渡す |
  * | GET  /api/media/:id              | オーバーレイ用キーかセッション | 素材の中身を返す |
  *
  * これとは別に、cron（wrangler.jsonc の triggers.crons）から scheduled が呼ばれ、配信の記録を収集する（collect.ts）。
@@ -188,6 +190,7 @@ import {
   putTownTourSound,
   townTourSocket,
 } from './town-tour-routes'
+import { kanjiQuizSocket, postKanjiQuizDemo } from './kanji-quiz-routes'
 import { getTwisterSound, postTwisterDemo, putTwisterSound, twisterSocket } from './twister-routes'
 import { getOverlayPomodoro, getPomodoro, pomodoroSocket, postPomodoroControl, putPomodoroSettings } from './pomodoro-routes'
 import { getDeeplUsage, getTranslation, postTranslation, putTranslation } from './translation-routes'
@@ -360,6 +363,8 @@ const ROUTES: readonly Route[] = [
   { method: 'PUT', path: '/api/admin/town-tour/narration', handle: putTownTourNarration },
   { method: 'GET', path: '/api/overlay/twister/socket', handle: twisterSocket },
   { method: 'POST', path: '/api/admin/twister/demo', handle: postTwisterDemo },
+  { method: 'GET', path: '/api/overlay/kanji-quiz/socket', handle: kanjiQuizSocket },
+  { method: 'POST', path: '/api/admin/kanji-quiz/demo', handle: postKanjiQuizDemo },
   { method: 'GET', path: '/api/admin/twister/sound', handle: getTwisterSound },
   { method: 'PUT', path: '/api/admin/twister/sound', handle: putTwisterSound },
   { method: 'GET', path: '/api/media/:id', handle: media },

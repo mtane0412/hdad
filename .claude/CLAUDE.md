@@ -79,6 +79,7 @@ npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 | `town-tour.md` | 市町村紹介（レイド・キーワードの動作 `townTour` と素材の種類 `townTour`。一覧と日本地図は N03 からの生成物、紹介は Wikipedia を材料にその都度作る） | `src/town-tour/**`・`scripts/town-tour/**`・`public/town-tour/**`・`worker/town-*.ts` |
 | `wipe.md` | ワイプ（素材の種類 `wipe`。チャットを1件ずつアイコンの枠と吹き出しで出し、自分で読み上げる） | `src/wipe/**`・`worker/wipe-*.ts`・`src/speech/voice.ts`・`src/speech/task.ts` |
 | `twister.md` | ツイスター（レイドの動作 `twister` と素材の種類 `twister`。three.js の3Dの人形で対戦し、倒れ込みは物理を先に計算して再生する） | `src/twister/**`・`worker/twister-*.ts`・`src/admin/twister-card.tsx` |
+| `kanji-quiz.md` | 漢字クイズ（チャンネルポイントの動作 `kanjiQuiz` と素材の種類 `kanjiQuiz`。自前の問題集から級を選んで出題する） | `src/kanji-quiz/**`・`worker/kanji-quiz-*.ts`・`src/admin/kanji-quiz-card.tsx` |
 | `overlay.md` | 合成ページと構成の管理画面（`overlay/stage/`・`/overlay/`） | `src/overlay/**`・`overlay/**`・`worker/overlay-*.ts` |
 | `speech.md` | チャットの読み上げ（`speech/reader/`。合成先にさくらのAI Engine） | `src/speech/**`・`speech/**`・`worker/speech-*.ts` |
 | `backstage.md` | 裏方をまとめたページ（`overlay/backstage/`）とコネクターのページ（`/connectors/`） | `src/backstage/**`・`overlay/backstage/**` |

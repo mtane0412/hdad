@@ -13,6 +13,7 @@ paths:
 - **値の検証は Worker だけが持つ**（`worker/overlay-layout.ts`・`speech-config.ts`・`focus-config.ts`・`bot-config.ts`・`moderation-config.ts`・`llm-config.ts`。どれも問題点をすべて集めてから拒む）。画面は空欄を 0 に丸めず NaN のまま送り、返ってきた問題点を送った順の名前へ読み替えて並べる（`describeProblem`・`describeOverlayProblem`）
 - **手書きの線1本ぶんとして読めるかの判定は `src/draw/strokes.ts` の `isStroke` だけが持つ**（`worker/draw-config.ts` の検証も `src/draw/api.ts` の応答の確かめもこれを呼ぶ。選べる色と太さの一覧が `src/draw/tools.ts` にあるため、Workerから `src/draw/` を読み込む例外になっている）。→ `.claude/rules/draw.md`
 - **ポモドーロの区間（作業か休憩か・何本目か・残り時間）の計算は `src/pomodoro/phase.ts` だけが持つ**（合成ページ・アプリのページ・Worker のアラームが同じものを呼ぶ。Workerから `src/` を読み込む2例目の例外）。→ `.claude/rules/pomodoro.md`
+- **漢検の級の一覧と漢字クイズの問題集は `src/kanji-quiz/` だけが持つ**（Worker の動作の検証と出題、管理画面、合成ページが同じものを読む。Workerから `src/` を読み込む3例目の例外）。→ `.claude/rules/kanji-quiz.md`
 - **LLMの呼び先を決めるのは `worker/llm.ts` だけ**で、呼び出し側はモデル名ではなく使う箇所（`LLM_USAGES`）を指名する。→ `.claude/rules/llm.md`
 - **トリガーの照合は `worker/alert-event.ts` の `matches` だけが持ち**、展開後の形しか見ない（展開は `trigger-menu.ts` の `expandSource`）。→ `.claude/rules/alerts.md`
 - **何を映すかの判断は `src/focus/focused.ts` だけが持つ**（通信もDOMも持ち込まない）。→ `.claude/rules/focus.md`

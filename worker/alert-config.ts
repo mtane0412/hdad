@@ -15,6 +15,8 @@
  *   冒頭で名前を出す相手が決まるレイドとキーワード（!darts など）のトリガーにだけ置ける
  * - twister: Workerが対戦の種と2人（レイドした人・配信者）の名前とアイコンを、合成ページの素材「ツイスター」へ押し出す（issue #272）。
  *   対戦する相手が配信者であるレイドのトリガーにだけ置ける
+ * - kanjiQuiz: Workerが問題集から設定の級の問題を1問選び、交換した人の名前と一緒に合成ページの素材「漢字クイズ」へ押し出す（issue #300）。
+ *   視聴者がポイントを払って出題させるものなので、チャンネルポイントのトリガーにだけ置ける
  *
  * メニュー項目は17種類（worker/trigger-menu.ts の TRIGGER_KINDS）で、そのうちチャットの発言を対象にするものは
  * botを接続しているときだけ通知が届く。広告の終了（adBreakEnd）だけはTwitchから届く通知ではなく、
@@ -26,6 +28,7 @@
  * 注意: 既定メニューにする前の保存内容（event と conditions を直接持つ形）は読み替えず、読み込みで失敗させる（Fail-Fast）。
  *   トリガーは数件なので、管理画面から入れ直してもらうほうが暗黙の読み替えを増やさずに済む。
  */
+import { KANKEN_GRADES, isKankenGrade, type KankenGrade } from '../src/kanji-quiz/grade'
 import type { KeyValueStore } from './store'
 import { expandSource, TRIGGER_KINDS, type AlertEvent, type StoredCondition, type TriggerKind, type TriggerSource } from './trigger-menu'
 import { ANNOUNCEMENT_COLORS, type AnnouncementColor } from './twitch'
@@ -33,7 +36,7 @@ import { ANNOUNCEMENT_COLORS, type AnnouncementColor } from './twitch'
 const CONFIG_KEY = 'alert-config'
 
 /** 動作の種類。同じ種類は1トリガーに1件まで */
-export const ACTION_TYPES = ['alert', 'chat', 'announce', 'aiChat', 'shoutout', 'townTour', 'twister'] as const
+export const ACTION_TYPES = ['alert', 'chat', 'announce', 'aiChat', 'shoutout', 'townTour', 'twister', 'kanjiQuiz'] as const
 
 export type ActionType = (typeof ACTION_TYPES)[number]
 
@@ -134,6 +137,17 @@ export interface StoredTwisterAction {
   type: 'twister'
 }
 
+/**
+ * 漢字クイズを出題する動作（issue #300）。
+ *
+ * 出題する級だけを配信者が決める。問題はその都度、問題集のその級からランダムに選ぶ（worker/kanji-quiz-call.ts）。
+ * 置けるのはチャンネルポイントのトリガーだけである（視聴者がポイントを払って出題させるもの）。
+ */
+export interface StoredKanjiQuizAction {
+  type: 'kanjiQuiz'
+  grade: KankenGrade
+}
+
 export type StoredAction =
   | StoredAlertAction
   | StoredChatAction
@@ -142,6 +156,7 @@ export type StoredAction =
   | StoredShoutoutAction
   | StoredTownTourAction
   | StoredTwisterAction
+  | StoredKanjiQuizAction
 
 /** 市町村紹介を置けるきっかけ。レイドはレイド元、キーワード（!darts など）は発言した人の名前を冒頭に出す */
 export const TOWN_TOUR_KINDS: readonly TriggerKind[] = ['raid', 'keyword']
@@ -328,6 +343,16 @@ const parseAction = (
   // ツイスターも同じく配信者が決める項目を持たない（レイドにだけ置けることは parseAlertConfig で確かめる）
   if (type === 'twister') return { type }
 
+  // 漢字クイズは出題する級だけを持つ（チャンネルポイントにだけ置けることは parseAlertConfig で確かめる）
+  if (type === 'kanjiQuiz') {
+    const { grade } = candidate
+    if (!isKankenGrade(grade)) {
+      problems.push(`${at}.grade: ${KANKEN_GRADES.join(' / ')} のいずれかを指定してください`)
+      return null
+    }
+    return { type, grade }
+  }
+
   if (type === 'aiChat') {
     const { instruction } = candidate
     if (!isStringWithin(instruction, 1, MAX_AI_INSTRUCTION_LENGTH)) {
@@ -435,7 +460,12 @@ export const parseAlertConfig = (input: unknown, kindOfMedia: (mediaId: string) 
     const twisterOk = !hasTwister || source === null || source.kind === 'raid'
     if (!twisterOk) problems.push(`${at}.actions: ツイスター（twister）はレイドのトリガーにだけ置けます`)
 
-    if (source !== null && actions !== null && shoutoutOk && townTourOk && twisterOk) return [{ ...source, actions }]
+    // 漢字クイズは視聴者がポイントを払って出題させるものなので、チャンネルポイントのトリガーにだけ置かせる
+    const hasKanjiQuiz = actions !== null && actions.some((action) => action.type === 'kanjiQuiz')
+    const kanjiQuizOk = !hasKanjiQuiz || source === null || source.kind === 'reward'
+    if (!kanjiQuizOk) problems.push(`${at}.actions: 漢字クイズ（kanjiQuiz）はチャンネルポイントのトリガーにだけ置けます`)
+
+    if (source !== null && actions !== null && shoutoutOk && townTourOk && twisterOk && kanjiQuizOk) return [{ ...source, actions }]
     return []
   })
 
@@ -517,6 +547,10 @@ export const townTourActionOf = (trigger: WithActions): StoredTownTourAction | n
 /** トリガーからツイスターで対戦する動作を取り出す。なければ null */
 export const twisterActionOf = (trigger: WithActions): StoredTwisterAction | null =>
   trigger.actions.find((action): action is StoredTwisterAction => action.type === 'twister') ?? null
+
+/** トリガーから漢字クイズを出題する動作を取り出す。なければ null */
+export const kanjiQuizActionOf = (trigger: WithActions): StoredKanjiQuizAction | null =>
+  trigger.actions.find((action): action is StoredKanjiQuizAction => action.type === 'kanjiQuiz') ?? null
 
 /** トリガーからアラートを出す動作を取り出す。なければ null */
 export const alertActionOf = (trigger: WithActions): StoredAlertAction | null =>
