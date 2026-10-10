@@ -127,26 +127,36 @@ describe('kanjiQuizStopBannerAt', () => {
     expect(kanjiQuizStopBannerAt(40_000, null)).toBeNull()
   })
 
-  it('猶予のあいだは、配信終了までの残り秒数（切り上げ）を出す', () => {
-    expect(kanjiQuizStopBannerAt(stopAnnounced.announcedAfterMs, stopAnnounced)).toEqual({ kind: 'countdown', remainingSeconds: 10 })
-    expect(kanjiQuizStopBannerAt(stopAt - 1, stopAnnounced)).toEqual({ kind: 'countdown', remainingSeconds: 1 })
+  it('本番では、猶予のあいだも猶予が尽きたあとも何も出さない（予告せずにいきなり配信を止める）', () => {
+    expect(kanjiQuizStopBannerAt(stopAnnounced.announcedAfterMs, stopAnnounced)).toBeNull()
+    expect(kanjiQuizStopBannerAt(stopAt - 1, stopAnnounced)).toBeNull()
+    expect(kanjiQuizStopBannerAt(stopAt, stopAnnounced)).toBeNull()
   })
 
-  it('猶予が尽きたら、止めることを結果の長さだけ出し、そのあとは何も出さない', () => {
-    expect(kanjiQuizStopBannerAt(stopAt, stopAnnounced)).toEqual({ kind: 'stopping' })
-    expect(kanjiQuizStopBannerAt(stopAt + STOP_RESULT_MS, stopAnnounced)).toBeNull()
+  it('試し再生なら、猶予が尽きたら止めないことを結果の長さだけ出し、そのあとは何も出さない', () => {
+    const rehearsal = { ...stopAnnounced, rehearsal: true }
+
+    // 猶予のあいだは本番と同じく何も出さない
+    expect(kanjiQuizStopBannerAt(stopAt - 1, rehearsal)).toBeNull()
+    expect(kanjiQuizStopBannerAt(stopAt, rehearsal)).toEqual({ kind: 'rehearsal' })
+    expect(kanjiQuizStopBannerAt(stopAt + STOP_RESULT_MS, rehearsal)).toBeNull()
   })
 
-  it('試し再生なら、猶予が尽きたら止めないことを出す', () => {
-    expect(kanjiQuizStopBannerAt(stopAt, { ...stopAnnounced, rehearsal: true })).toEqual({ kind: 'rehearsal' })
-  })
-
-  it('取り消しが届いたら、その時刻から取り消されたことを結果の長さだけ出す', () => {
+  it('取り消しが届いても何も出さない（視聴者には停止の予告を見せていないため）', () => {
     const cancelled = { ...stopAnnounced, cancelledAfterMs: 38_000 }
 
-    expect(kanjiQuizStopBannerAt(37_999, cancelled)).toEqual({ kind: 'countdown', remainingSeconds: 7 })
-    expect(kanjiQuizStopBannerAt(38_000, cancelled)).toEqual({ kind: 'cancelled' })
-    expect(kanjiQuizStopBannerAt(38_000 + STOP_RESULT_MS, cancelled)).toBeNull()
+    expect(kanjiQuizStopBannerAt(38_000, cancelled)).toBeNull()
+    expect(kanjiQuizStopBannerAt(stopAt, { ...cancelled, rehearsal: true })).toBeNull()
+  })
+
+  it('試し再生で猶予が尽きたあとに取り消しが届いても、出しはじめた帯は猶予が尽きた時刻から結果の長さだけ出す', () => {
+    // 試し再生は止める命令を送らないので、猶予が尽きたあとでも下部バーから取り消せる
+    const cancelledAfterGrace = { ...stopAnnounced, rehearsal: true, cancelledAfterMs: stopAt + 1_000 }
+
+    expect(kanjiQuizStopBannerAt(stopAt - 1, cancelledAfterGrace)).toBeNull()
+    expect(kanjiQuizStopBannerAt(stopAt + 1_000, cancelledAfterGrace)).toEqual({ kind: 'rehearsal' })
+    expect(kanjiQuizStopBannerAt(stopAt + STOP_RESULT_MS - 1, cancelledAfterGrace)).toEqual({ kind: 'rehearsal' })
+    expect(kanjiQuizStopBannerAt(stopAt + STOP_RESULT_MS, cancelledAfterGrace)).toBeNull()
   })
 })
 
