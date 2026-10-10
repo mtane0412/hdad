@@ -11,6 +11,7 @@
  */
 import type { KankenGradeWeights } from '../src/kanji-quiz/grade'
 import type { KanjiQuizProblem } from '../src/kanji-quiz/problems'
+import type { KanjiQuizSound } from '../src/kanji-quiz/sound'
 import { pushKanjiQuiz, type AlertChannelNamespace } from './alert-channel'
 import type { Database } from './database'
 import { KANJI_QUIZ_PROBLEMS, pickKanjiQuizProblem, type KanjiQuizCall } from './kanji-quiz-call'
@@ -30,20 +31,21 @@ export interface KanjiQuizIssueDeps {
 /**
  * 級ごとの重みに沿って問題を1問選んで記録し、合成ページへ押し出す。
  *
- * @param request 級ごとの出題の重みと、交換して出題させた人の表示名（試し再生は null）と、試し再生か（試し再生は時間切れでも配信を止めない。issue #302）
+ * @param request 級ごとの出題の重みと、交換して出題させた人の表示名（試し再生は null）と、試し再生か（試し再生は時間切れでも配信を止めない。issue #302）と、
+ *   演出で鳴らす音（呼び出し側が kanji-quiz-sound.ts の playbackKanjiQuizSoundOf で音声のURLにしたもの）
  * @param problems 選ぶ元の問題集。省けばリポジトリの問題集
  * @returns 押し出した呼び出し
  * @throws 押し出せなかった場合（出題の行は消してから投げる）
  */
 export const issueKanjiQuiz = async (
   { db, alerts, now, random, id }: KanjiQuizIssueDeps,
-  request: { readonly weights: KankenGradeWeights; readonly requesterName: string | null; readonly rehearsal: boolean },
+  request: { readonly weights: KankenGradeWeights; readonly requesterName: string | null; readonly rehearsal: boolean; readonly sound: KanjiQuizSound },
   problems: readonly KanjiQuizProblem[] = KANJI_QUIZ_PROBLEMS,
 ): Promise<KanjiQuizCall> => {
   const wordCounts = await readKanjiQuizWordCounts(db, now)
   const problem = pickKanjiQuizProblem(request.weights, random, wordCounts, problems)
   await recordKanjiQuiz(db, { id, word: problem.word, rehearsal: request.rehearsal }, now)
-  const call: KanjiQuizCall = { id, problem, requesterName: request.requesterName }
+  const call: KanjiQuizCall = { id, problem, requesterName: request.requesterName, sound: request.sound }
   try {
     await pushKanjiQuiz(alerts, call)
   } catch (error) {

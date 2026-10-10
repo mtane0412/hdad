@@ -15,6 +15,7 @@
 import { KANKEN_GRADES, kankenGradeLabel, type KankenGradeWeights } from '../src/kanji-quiz/grade'
 import { readKanjiQuizProblems, type KanjiQuizProblem } from '../src/kanji-quiz/problems'
 import problemSet from '../src/kanji-quiz/problems.json'
+import type { KanjiQuizSound } from '../src/kanji-quiz/sound'
 
 /** リポジトリの問題集。形の誤りは読み込んだ時点で投げる */
 export const KANJI_QUIZ_PROBLEMS = readKanjiQuizProblems(problemSet)
@@ -25,6 +26,8 @@ export interface KanjiQuizCall {
   readonly problem: KanjiQuizProblem
   /** チャンネルポイントを交換して出題させた人の表示名。試し再生は null */
   readonly requesterName: string | null
+  /** 演出で鳴らす音（kanji-quiz-sound.ts の playbackKanjiQuizSoundOf で音声のURLにしたもの） */
+  readonly sound: KanjiQuizSound
 }
 
 /**

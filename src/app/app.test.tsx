@@ -19,6 +19,7 @@
  */
 import type { TownTourNarration } from '@/town-tour/narration'
 import type { TownTourSound } from '@/town-tour/sound'
+import type { KanjiQuizSound } from '@/kanji-quiz/sound'
 import type { TwisterSound } from '@/twister/sound'
 import '@testing-library/jest-dom/vitest'
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
@@ -66,6 +67,8 @@ const createFakeAdminApi = (me: AdminApi['me']): AdminApi => ({
   saveTownTourSound: vi.fn(async (sound: TownTourSound) => sound),
   twisterSound: vi.fn(async () => ({ bgm: null, bgmVolume: 0.3 })),
   saveTwisterSound: vi.fn(async (sound: TwisterSound) => sound),
+  kanjiQuizSound: vi.fn(async () => ({ slots: { bgm: null, start: null, countdown: null, correct: null, timeUp: null }, bgmVolume: 0.3, effectVolume: 0.6 })),
+  saveKanjiQuizSound: vi.fn(async (sound: KanjiQuizSound) => sound),
   townTourNarration: vi.fn(async () => ({ enabled: false, speaker: 3, speed: 1 })),
   saveTownTourNarration: vi.fn(async (narration: TownTourNarration) => narration),
   rewards: vi.fn(async () => []),

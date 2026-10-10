@@ -41,6 +41,7 @@ import { listTownTourVisits } from './town-tour-visits'
 import { loadTownTourNarration } from './town-tour-narration'
 import { loadTownTourSound, playbackSoundOf } from './town-tour-sound'
 import { issueKanjiQuiz } from './kanji-quiz-issue'
+import { loadKanjiQuizSound, playbackKanjiQuizSoundOf } from './kanji-quiz-sound'
 import { twisterCallOf, twisterSeedOf } from './twister-call'
 import { loadTwisterSound, playbackTwisterSoundOf } from './twister-sound'
 import { readViewer } from './viewer-store'
@@ -186,13 +187,20 @@ export const runAlertActions = async (
       throw invalid(error instanceof Error ? error.message : String(error))
     }
   })()
-  for (const [index, kanjiQuiz] of kanjiQuizzes.entries()) {
-    await sendAndRecordFailure(context, messageId, 'kanjiQuiz', index, 'kanji-quiz-push-failed', () =>
-      // チャンネルポイントの交換での出題は試し再生ではないので、時間切れなら配信を止める
-      issueKanjiQuiz({ db: env.DB, alerts: env.ALERTS, now, random: Math.random, id: crypto.randomUUID() }, { ...kanjiQuiz, rehearsal: false }).then(
-        () => undefined,
-      ),
-    )
+  // 音の設定とオーバーレイ用キーは、当てはまった行があるときだけ読む（チャットの発言のたびにKVを読まないため）
+  if (kanjiQuizzes.length > 0) {
+    const [sound, overlayKey] = await Promise.all([loadKanjiQuizSound(env.STORE), loadOverlayKey(env.STORE)])
+    for (const [index, kanjiQuiz] of kanjiQuizzes.entries()) {
+      await sendAndRecordFailure(context, messageId, 'kanjiQuiz', index, 'kanji-quiz-push-failed', async () => {
+        // キーが未発行で音のURLを作れないときも、押し出しの失敗として記録する（黙って無音で流さない）
+        const playbackSound = playbackKanjiQuizSoundOf(sound, overlayKey)
+        // チャンネルポイントの交換での出題は試し再生ではないので、時間切れなら配信を止める
+        await issueKanjiQuiz(
+          { db: env.DB, alerts: env.ALERTS, now, random: Math.random, id: crypto.randomUUID() },
+          { ...kanjiQuiz, rehearsal: false, sound: playbackSound },
+        )
+      })
+    }
   }
 
   if (messages.length === 0 && announcements.length === 0 && aiChats.length === 0 && shoutouts.length === 0) return

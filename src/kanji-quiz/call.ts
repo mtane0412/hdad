@@ -3,7 +3,7 @@
  *
  * Worker（worker/kanji-quiz-issue.ts）が、チャンネルポイントの交換と管理画面の試し再生で、合成ページの素材「漢字クイズ」へ
  * WebSocket で押し出す。どの問題を出すかは Worker が問題集（problems.json）から選ぶので、呼び出しは選ばれた1問と、
- * 交換して出題させた人の名前（試し再生は null）を持つ。
+ * 交換して出題させた人の名前（試し再生は null）と、演出で鳴らす音の設定（Worker が素材のIDを音声のURLに置き換えたもの）を持つ。
  * 同じ経路で、最初の正解者（type: answer。Webhook がチャットの正解を受けたとき）と、出題できなかった理由
  * （type: failure）も届く（issue #301。いまの Worker は failure を押し出していない）。呼び出しは type を持たない。
  * 時間切れで配信を止めるまでの猶予（type: stopping）と、下部バーでの停止の取り消し（type: stopCancelled）も届く（issue #302）。
@@ -13,6 +13,7 @@
  * 注意: 形が違えば黙って流さずに投げる（素材の箱に失敗を出す）。
  */
 import { readKanjiQuizProblem, type KanjiQuizProblem } from './problems'
+import { readKanjiQuizPlaybackSound, type KanjiQuizSound } from './sound'
 
 /** 1回ぶんの出題 */
 export interface KanjiQuizCall {
@@ -21,6 +22,8 @@ export interface KanjiQuizCall {
   readonly problem: KanjiQuizProblem
   /** チャンネルポイントを交換して出題させた人の表示名。試し再生は null */
   readonly requesterName: string | null
+  /** 演出で鳴らす音（枠ごとの音声のURLと音量）。鳴らさない枠は null */
+  readonly sound: KanjiQuizSound
 }
 
 /** 押し出されたもの1件 */
@@ -57,7 +60,7 @@ const isQuizId = (value: unknown): value is string => typeof value === 'string' 
  * @throws JSONとして読めない・想定した形でない・知らない type の場合
  */
 export const parseKanjiQuizMessage = (payload: string): KanjiQuizMessage => {
-  const { type, id, problem, requesterName, quizId, userName, message, graceMs, rehearsal } = parseJson(payload, '漢字クイズの呼び出し')
+  const { type, id, problem, requesterName, sound, quizId, userName, message, graceMs, rehearsal } = parseJson(payload, '漢字クイズの呼び出し')
   if (type === 'stopping') {
     if (!isQuizId(quizId) || typeof graceMs !== 'number' || !Number.isFinite(graceMs) || typeof rehearsal !== 'boolean') {
       throw new Error('押し出された配信の停止の猶予が想定した形ではありません')
@@ -82,7 +85,10 @@ export const parseKanjiQuizMessage = (payload: string): KanjiQuizMessage => {
   if (typeof id !== 'string' || id === '' || (requesterName !== null && typeof requesterName !== 'string')) {
     throw new Error('押し出された漢字クイズの呼び出しが想定した形ではありません')
   }
-  return { type: 'call', call: { id, problem: readKanjiQuizProblem(problem, '押し出された漢字クイズの問題'), requesterName } }
+  return {
+    type: 'call',
+    call: { id, problem: readKanjiQuizProblem(problem, '押し出された漢字クイズの問題'), requesterName, sound: readKanjiQuizPlaybackSound(sound) },
+  }
 }
 
 /**
