@@ -30,14 +30,14 @@ export interface KanjiQuizIssueDeps {
 /**
  * 級の問題を1問選んで記録し、合成ページへ押し出す。
  *
- * @param request 級と、交換して出題させた人の表示名（試し再生は null）
+ * @param request 級と、交換して出題させた人の表示名（試し再生は null）と、試し再生か（試し再生は時間切れでも配信を止めない。issue #302）
  * @param problems 選ぶ元の問題集。省けばリポジトリの問題集
  * @returns 押し出した呼び出し
  * @throws KanjiQuizExhaustedError 同じ配信でその級の問題をすべて出した場合（素材の箱への知らせは押し出し済み）
  */
 export const issueKanjiQuiz = async (
   { db, alerts, now, random, id }: KanjiQuizIssueDeps,
-  request: { readonly grade: KankenGrade; readonly requesterName: string | null },
+  request: { readonly grade: KankenGrade; readonly requesterName: string | null; readonly rehearsal: boolean },
   problems: readonly KanjiQuizProblem[] = KANJI_QUIZ_PROBLEMS,
 ): Promise<KanjiQuizCall> => {
   const usedWords = await readUsedKanjiQuizWords(db, now)
@@ -48,7 +48,7 @@ export const issueKanjiQuiz = async (
     if (error instanceof KanjiQuizExhaustedError) await pushKanjiQuizNotice(alerts, { type: 'failure', message: error.message })
     throw error
   }
-  await recordKanjiQuiz(db, { id, word: problem.word }, now)
+  await recordKanjiQuiz(db, { id, word: problem.word, rehearsal: request.rehearsal }, now)
   const call: KanjiQuizCall = { id, problem, requesterName: request.requesterName }
   try {
     await pushKanjiQuiz(alerts, call)

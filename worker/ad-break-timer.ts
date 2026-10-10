@@ -22,8 +22,12 @@
  * 1つなので、広告の予約とは取り合わない。新しい Durable Object のクラスを足さないのは、足したPRではプレビューのビルドが失敗するためで、
  * クラス名は広告のまま残す（名前を変えるには Durable Object のマイグレーションが要る）。パス /pomodoro/ と区切りのアラームの中身は
  * worker/pomodoro-timer.ts が持ち、ここは振り分けるだけである。
+ *
+ * 漢字クイズの時間切れの判定と配信の停止の時刻（issue #302）も、別のインスタンス（名前 kanji-quiz）が預かる。
+ * パス /kanji-quiz/ と鳴ったときの中身は worker/kanji-quiz-timer.ts が持つ。
  */
 import { runAlarmActions, type AlarmDependencies } from './alarm-actions'
+import { handleKanjiQuizTimerRequest, runKanjiQuizAlarm } from './kanji-quiz-timer'
 import { handlePomodoroRequest, runPomodoroAlarm } from './pomodoro-timer'
 import { AD_BREAK_END } from './trigger-menu'
 import { STATUS, type Env } from './http'
@@ -127,7 +131,8 @@ const runAdBreakEnd = (env: Env, end: AdBreakEnd, dependencies: AdBreakDependenc
  * 広告の終了の時刻を預かり、そのときに動作を実行する Durable Object。
  *
  * 呼ぶのは Worker だけで、POST /schedule（広告の終了の予約）と、/pomodoro/ で始まるパス（ポモドーロのタイマーの操作。
- * worker/pomodoro-timer.ts の handlePomodoroRequest）を受け付ける。
+ * worker/pomodoro-timer.ts の handlePomodoroRequest）と、POST /kanji-quiz/schedule（漢字クイズの時間切れの判定の予約。
+ * worker/kanji-quiz-timer.ts の handleKanjiQuizTimerRequest）を受け付ける。
  */
 export class AdBreakTimer {
   /**
@@ -143,6 +148,8 @@ export class AdBreakTimer {
   async fetch(request: Request): Promise<Response> {
     const pomodoroResponse = await handlePomodoroRequest(this.ctx.storage, this.env, this.dependencies, request)
     if (pomodoroResponse !== null) return pomodoroResponse
+    const kanjiQuizResponse = await handleKanjiQuizTimerRequest(this.ctx.storage, request)
+    if (kanjiQuizResponse !== null) return kanjiQuizResponse
     if (new URL(request.url).pathname !== SCHEDULE_PATH) return new Response(null, { status: STATUS.notFound })
 
     const end = (await request.json()) as AdBreakEnd
@@ -153,12 +160,14 @@ export class AdBreakTimer {
   }
 
   /**
-   * 広告が終わる時刻か、ポモドーロの区切りの時刻に呼ばれる。
+   * 広告が終わる時刻か、ポモドーロの区切りの時刻か、漢字クイズの判定・停止の時刻に呼ばれる。
    *
-   * どちらのアラームかはインスタンスで決まる（storage はインスタンスごとに別なので、ポモドーロの状態があるのは pomodoro のインスタンスだけ）。
+   * どのアラームかはインスタンスで決まる（storage はインスタンスごとに別なので、ポモドーロの状態があるのは pomodoro のインスタンスだけ、
+   * 漢字クイズの時刻があるのは kanji-quiz のインスタンスだけ）。
    */
   async alarm(): Promise<void> {
     if (await runPomodoroAlarm(this.ctx.storage, this.env, this.dependencies)) return
+    if (await runKanjiQuizAlarm(this.ctx.storage, this.env, this.dependencies)) return
 
     const end = await this.ctx.storage.get<AdBreakEnd>(PENDING_KEY)
     // 予約を消したあとにアラームが鳴ることはないが、鳴っても何もしないでおく（空振りを失敗にしない）

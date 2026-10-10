@@ -2,7 +2,7 @@
  * コネクターのページ（/connectors/）
  *
  * 外部のサービスとつなぐものをまとめたページ。映すものを持たない裏方（VOICEVOX による読み上げ・
- * Gyazo への配信画面の取り込み・BGM）を1つのブラウザソースで動かすための、OBSに貼るURLを出し
+ * Gyazo への配信画面の取り込み・BGM・漢字クイズの時間切れでの OBS の配信の停止）を1つのブラウザソースで動かすための、OBSに貼るURLを出し
  * （issue #108）、その下に各サービスの設定の区画（VOICEVOX・Gyazo・HDAD-tab・Web Speech API）を並べる。
  * Web Speech API の区画は、アプリの枠で動かす音声認識（src/transcript/recognition-context.tsx）のオン・オフと様子を出す
  * （issue #189。認識そのものは枠が持つので、ほかのページに移っても続く）。
@@ -68,17 +68,20 @@ const BackstageUrlCard = ({ overlayKey }: { overlayKey: string | null }) => {
   const [screen, setScreen] = useState(false)
   // BGMも既定で外す。OBSに貼ってある裏方のブラウザソースが、曲を選んだ途端に黙って鳴り出さないようにする
   const [bgm, setBgm] = useState(false)
+  // 配信の停止も既定で外す。OBSのWebSocketサーバーの用意が要るうえ、配信を止める力を持つので、選んだときだけ動かす
+  const [stop, setStop] = useState(false)
   const actions = usePageActions()
   const urlFieldId = useId()
   const speechFieldId = useId()
   const screenFieldId = useId()
   const bgmFieldId = useId()
+  const stopFieldId = useId()
 
   let url: string
   let urlFailure = ''
   try {
     if (overlayKey === null) throw new Error('オーバーレイ用キーが発行されていません。ログアウトしてログインし直してください')
-    url = backstageUrl(window.location.origin, overlayKey, { speech, screen, bgm })
+    url = backstageUrl(window.location.origin, overlayKey, { speech, screen, bgm, stop })
   } catch (error) {
     url = ''
     urlFailure = errorMessage(error)
@@ -105,6 +108,9 @@ const BackstageUrlCard = ({ overlayKey }: { overlayKey: string | null }) => {
                 配信画面には映らないので、見えない位置に置いてかまいません。推奨の大きさは {BACKSTAGE_SIZE.width} × {BACKSTAGE_SIZE.height} px です。
               </p>
               <p>VOICEVOX か BGM を選んだときは、「OBSで音声を制御する」を有効にして音声を配信に乗せます。流すBGMと音量は BGM のページで変えます。</p>
+              <p>
+                OBS（配信の停止）は、漢字クイズが時間切れになったときに OBS の配信を止めます。OBS のつなぎ先は Gyazo の区画の設定を使います。
+              </p>
             </HelpButton>
           </CardAction>
         </CardHeader>
@@ -122,6 +128,11 @@ const BackstageUrlCard = ({ overlayKey }: { overlayKey: string | null }) => {
           <div className="flex items-center gap-2">
             <Checkbox id={bgmFieldId} checked={bgm} onCheckedChange={(checked) => setBgm(checked === true)} />
             <Label htmlFor={bgmFieldId}>BGM</Label>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Checkbox id={stopFieldId} checked={stop} onCheckedChange={(checked) => setStop(checked === true)} />
+            <Label htmlFor={stopFieldId}>OBS（配信の停止）</Label>
           </div>
 
           {urlFailure === '' ? (

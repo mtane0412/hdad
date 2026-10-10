@@ -1,7 +1,7 @@
 /**
  * 裏方のページ（overlay/backstage/index.html）のエントリスクリプト
  *
- * OBSに置くWebのページのうち、映すものを持たないもの（チャットの読み上げ・配信画面の取り込み・BGM）を1枚にまとめる
+ * OBSに置くWebのページのうち、映すものを持たないもの（チャットの読み上げ・配信画面の取り込み・BGM・配信の停止）を1枚にまとめる
  * （issue #108）。ブラウザソースはその数だけ Chromium のレンダラを立ち上げるので、裏方をそれぞれ別のソースに
  * 置くと配信中のメモリを食う。
  *
@@ -11,7 +11,7 @@
  *
  * どの裏方を動かすかは「このブラウザソースが何をするか」という構造の指定なので、合成ページの ?overlay=<名前> と
  * 同じくURLに持たせる（配信中に変える設定ではないため、issue #86 でWorkerへ移した「設定」とは扱いを分ける）。
- * 裏方そのものは src/speech/task.ts・src/screen/task.ts・src/bgm/task.ts にあり、単独ページを持つものは
+ * 裏方そのものは src/speech/task.ts・src/screen/task.ts・src/bgm/task.ts・src/kanji-quiz/stop-task.ts にあり、単独ページを持つものは
  * そのページと同じものを呼ぶ。
  *
  * 注意: 1つの裏方の失敗で、もう一方は動かし続ける（合成ページが素材について設けた例外と同じ。
@@ -21,6 +21,7 @@
 import { BGM_NOUN, startBgm } from '../bgm/task'
 import { showError } from '../core/mount'
 import { ParamError, parseParams, type ParamSchema } from '../core/params'
+import { STOP_NOUN, startStreamStop } from '../kanji-quiz/stop-task'
 import { SCREEN_NOUN, startScreen } from '../screen/task'
 import { SPEECH_NOUN, startSpeech } from '../speech/task'
 
@@ -53,6 +54,12 @@ const schema = {
     // 既定では鳴らさない。OBSに貼ってある裏方のブラウザソースが、曲を選んだ途端に黙って鳴り出さないようにする
     default: false,
     description: 'BGMを鳴らす（流す曲と音量は管理画面の「BGM」で選ぶ）',
+  },
+  stop: {
+    type: 'boolean',
+    // 既定では動かさない。OBSのWebSocketサーバーの用意が要るうえ、配信を止める力を持つので、選んだときだけ動かす
+    default: false,
+    description: '漢字クイズが時間切れのとき、OBS の配信を止める（OBS の obs-websocket を使う）',
   },
 } as const satisfies ParamSchema
 
@@ -95,8 +102,8 @@ const start = async (): Promise<void> => {
   if (params.key === '') {
     throw new ParamError(['key: オーバーレイ用キーを指定してください（例: ?key=<キー>）'])
   }
-  if (!params.speech && !params.screen && !params.bgm) {
-    throw new ParamError(['speech・screen・bgm: 動かす裏方がありません（どれかを true にしてください）'])
+  if (!params.speech && !params.screen && !params.bgm && !params.stop) {
+    throw new ParamError(['speech・screen・bgm・stop: 動かす裏方がありません（どれかを true にしてください）'])
   }
 
   // BGMは待つものが無いので、読み上げの起動より先に始める（読み上げが VOICEVOX を待つあいだに鳴り始められる）
@@ -117,6 +124,13 @@ const start = async (): Promise<void> => {
     await startScreen({ key: params.key, box })
       .then(({ url, intervalSeconds }) => showStatus(box, `${url} につながっています。${intervalSeconds}秒ごとに画面を撮ります`))
       .catch((error: unknown) => showError(error, SCREEN_NOUN, box))
+  }
+
+  if (params.stop) {
+    const box = addTaskBox(root, STOP_NOUN)
+    await startStreamStop({ key: params.key, box })
+      .then(({ url }) => showStatus(box, `${url} につながっています。漢字クイズが時間切れになったら配信を止めます`))
+      .catch((error: unknown) => showError(error, STOP_NOUN, box))
   }
 }
 

@@ -4,7 +4,7 @@
  * 級の見出し・出題させた人・正解の読みの並べ方を決める。描くのは view.ts で、ここは文言だけを受け持つ。
  */
 import { describe, expect, it } from 'vitest'
-import { answerLineOf, gradeHeadlineOf, requesterLineOf, winnerLineOf } from './captions'
+import { answerLineOf, gradeHeadlineOf, requesterLineOf, stopBannerLineOf, winnerLineOf } from './captions'
 
 describe('gradeHeadlineOf', () => {
   it('「漢検○級」の形にする（準のつく級も同じ）', () => {
@@ -36,5 +36,20 @@ describe('answerLineOf', () => {
 describe('winnerLineOf', () => {
   it('最初の正解者の名前を「○○さん 正解！」にする', () => {
     expect(winnerLineOf('山田花子')).toBe('山田花子さん 正解！')
+  })
+})
+
+describe('stopBannerLineOf', () => {
+  it('猶予のあいだは、配信終了までの残り秒数を出す', () => {
+    expect(stopBannerLineOf({ kind: 'countdown', remainingSeconds: 7 })).toBe('配信終了まで 7秒')
+  })
+
+  it('猶予が尽きたら、止めるか（試し再生なら止めないか）を出す', () => {
+    expect(stopBannerLineOf({ kind: 'stopping' })).toBe('配信を終了します')
+    expect(stopBannerLineOf({ kind: 'rehearsal' })).toBe('試し再生なので配信は止めません')
+  })
+
+  it('取り消されたら、取り消されたことを出す', () => {
+    expect(stopBannerLineOf({ kind: 'cancelled' })).toBe('配信の停止は取り消されました')
   })
 })

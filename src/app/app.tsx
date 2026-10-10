@@ -56,6 +56,7 @@ import {
 } from '@/components/ui/sidebar'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import type { KanjiQuizStopDeps } from '@/kanji-quiz/stop-bar'
 import { BottomBar } from './bottom-bar'
 import { PageSearch } from './page-search'
 import { findPage, PAGE_GROUPS, type PageContext } from './pages'
@@ -110,12 +111,14 @@ const Shell = ({
   recognitionDeps,
   connectBgm,
   connectPomodoro,
+  kanjiQuizStop,
   onLogout,
 }: {
   context: PageContext
   recognitionDeps: RecognitionDeps
   connectBgm: BgmConnect
   connectPomodoro: PomodoroConnect
+  kanjiQuizStop: KanjiQuizStopDeps
   onLogout: () => void
 }) => {
   const pathname = usePathname()
@@ -221,7 +224,7 @@ const Shell = ({
                   <div key={`${pathname}#${reloads}`}>{page ? page.render(context) : <NotFound pathname={pathname} />}</div>
                 </div>
               </SidebarInset>
-              <BottomBar apis={context} textApi={context.textApi} />
+              <BottomBar apis={context} textApi={context.textApi} overlayKey={context.me.overlayKey} kanjiQuizStop={kanjiQuizStop} />
             </SidebarProvider>
             <UnsavedChangesDialog />
           </TooltipProvider>
@@ -249,6 +252,7 @@ export const App = ({
   recognitionDeps,
   connectBgm,
   connectPomodoro,
+  kanjiQuizStop,
 }: {
   api: AdminApi
   statsApi: StatsApi
@@ -270,6 +274,8 @@ export const App = ({
   connectBgm: BgmConnect
   /** ポモドーロのタイマーの押し出しにつなぐ（ブラウザでは src/pomodoro/socket.ts の connectPomodoroWatch） */
   connectPomodoro: PomodoroConnect
+  /** 漢字クイズの時間切れによる配信の停止の取り消し（ブラウザでは src/kanji-quiz/socket.ts と api.ts が組み立てる。issue #302） */
+  kanjiQuizStop: KanjiQuizStopDeps
 }) => {
   const [session, setSession] = useState<Session>({ status: 'checking' })
   // 確かめ直すたびに増やし、ログインの確認をもう一度走らせる
@@ -353,6 +359,7 @@ export const App = ({
           recognitionDeps={recognitionDeps}
           connectBgm={connectBgm}
           connectPomodoro={connectPomodoro}
+          kanjiQuizStop={kanjiQuizStop}
           onLogout={logout}
         />
       )

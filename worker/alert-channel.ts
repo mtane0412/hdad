@@ -49,6 +49,10 @@
  * 合成ページの素材「漢字クイズ」へ、チャンネルポイントの交換と試し再生での出題（問題1問と交換した人の名前）を配るのもこの Durable Object である（issue #300）。
  * 同じ理由で、11個目の目印（kanjiQuiz）を付けた接続へだけ配る。
  *
+ * 漢字クイズの時間切れで配信を止める命令（issue #302）を、裏方のページ（overlay/backstage/ の ?stop=true）へ配るのもこの Durable Object である。
+ * 同じ理由で、12個目の目印（streamStop）を付けた接続へだけ配る。この命令だけは、受け取る接続が1つも無ければ409を返す
+ * （つながっていない間に止める命令を落とすと、配信が止まらなかったことに誰も気づけないため）。
+ *
  * 注意: WebSocketの接続（Upgrade）は Cloudflare のランタイムでしか作れないので、テストでは配送の部分だけを確かめる。
  */
 import type { OverlayAlert } from './alert-event'
@@ -58,7 +62,7 @@ import { KEY_TAG_PARAM, isCurrentKeyTag, rememberKeyTag, revokeRequest, type Dur
 import { broadcast, closeForRevokedKey, type SocketLike } from './socket-broadcast'
 import type { PomodoroSnapshot } from './pomodoro-timer'
 import type { SpeechMute } from './speech-config'
-import type { KanjiQuizCall, KanjiQuizNotice } from './kanji-quiz-call'
+import type { KanjiQuizCall, KanjiQuizNotice, StreamStopOrder } from './kanji-quiz-call'
 import type { TaskDeskSnapshot } from './task-desk'
 import type { TextsSnapshot } from './text'
 import type { TownTourAnswerMessage, TownTourCall } from './town-tour-call'
@@ -90,6 +94,8 @@ const PUSH_TWISTER_PATH = '/push/twister'
 const PUSH_TEXT_PATH = '/push/text'
 /** Worker が漢字クイズの出題の押し出しに使うパス */
 const PUSH_KANJI_QUIZ_PATH = '/push/kanji-quiz'
+/** Worker が配信を止める命令の押し出しに使うパス */
+const PUSH_STREAM_STOP_PATH = '/push/stream-stop'
 /** Worker がオーバーレイ用キーを発行し直したときに、開いている接続を閉じさせるパス */
 const REVOKE_PATH = '/revoke'
 
@@ -115,6 +121,8 @@ const TWISTER_TOPIC = 'twister'
 const TEXT_TOPIC = 'text'
 /** 漢字クイズの出題を受け取る接続（合成ページの素材「漢字クイズ」）に付ける目印 */
 const KANJI_QUIZ_TOPIC = 'kanjiQuiz'
+/** 配信を止める命令を受け取る接続（裏方のページ）に付ける目印 */
+const STREAM_STOP_TOPIC = 'streamStop'
 /** 受け入れる接続の目印。知らない値はアラートの接続として受け入れる（Worker が必ずどれかを付けて渡す） */
 const TOPICS: readonly string[] = [
   ALERTS_TOPIC,
@@ -128,6 +136,7 @@ const TOPICS: readonly string[] = [
   TWISTER_TOPIC,
   TEXT_TOPIC,
   KANJI_QUIZ_TOPIC,
+  STREAM_STOP_TOPIC,
 ]
 /** どちらの目印で受け入れるかを Worker が伝えるためのクエリ。外には出ない */
 const TOPIC_PARAM = 'topic'
@@ -173,7 +182,8 @@ export interface AlertChannelNamespace {
  * - Upgrade: websocket のリクエスト: オーバーレイからの接続を受ける（パスはWorkerのものがそのまま届く）。
  *   クエリの topic が bgm ならBGMの接続、workLog なら作業ログの接続、taskDesk なら作業机の接続、pomodoro ならポモドーロの接続、
  *   townTour なら市町村紹介の接続、bgmDuck なら配信のBGMを下げる知らせの接続、speechMute なら読み上げのミュートの接続、
- *   twister ならツイスターの接続、text ならテキストの接続、kanjiQuiz なら漢字クイズの接続、それ以外はアラートの接続として受け入れる
+ *   twister ならツイスターの接続、text ならテキストの接続、kanjiQuiz なら漢字クイズの接続、streamStop なら配信を止める命令の接続、
+ *   それ以外はアラートの接続として受け入れる
  * - POST /push: Worker が押し出したアラートを、アラートの接続すべてへ配る
  * - POST /push/bgm: Worker が押し出した「いま流している曲」を、BGMの接続すべてへ配る
  * - POST /push/work-log: Worker が押し出した作業ログの1行を、作業ログの接続すべてへ配る
@@ -185,6 +195,7 @@ export interface AlertChannelNamespace {
  * - POST /push/twister: Worker が押し出したツイスターの呼び出しを、ツイスターの接続すべてへ配る
  * - POST /push/text: Worker が押し出したテキストの一覧を、テキストの接続すべてへ配る
  * - POST /push/kanji-quiz: Worker が押し出した漢字クイズの出題を、漢字クイズの接続すべてへ配る
+ * - POST /push/stream-stop: Worker が押し出した配信を止める命令を、停止の接続すべてへ配る。1つも無ければ409を返す
  * - POST /revoke: 新しいキーの目印を覚え、接続をすべて閉じる（オーバーレイ用キーを発行し直したとき。どの接続もオーバーレイ用キーで開かれている）
  *
  * 接続はどれもオーバーレイ用キーで開かれるので、覚えている目印と違うキーの接続は受け入れない（worker/overlay-key.ts）。
@@ -211,6 +222,11 @@ export class AlertChannel {
     if (url.pathname === PUSH_TWISTER_PATH) return this.push(TWISTER_TOPIC, await request.text(), 'ツイスター')
     if (url.pathname === PUSH_TEXT_PATH) return this.push(TEXT_TOPIC, await request.text(), 'テキスト')
     if (url.pathname === PUSH_KANJI_QUIZ_PATH) return this.push(KANJI_QUIZ_TOPIC, await request.text(), '漢字クイズ')
+    if (url.pathname === PUSH_STREAM_STOP_PATH) {
+      const delivered = broadcast(this.ctx.getWebSockets(STREAM_STOP_TOPIC), await request.text(), '配信を止める命令')
+      // 受け取る裏方が1つも無ければ、止まらなかったことを Worker に記録させる
+      return new Response(null, { status: delivered === 0 ? STATUS.conflict : STATUS.noContent })
+    }
     if (url.pathname === REVOKE_PATH) {
       // 先に目印を覚えてから閉じる。閉じたあとすぐ古いキーでつなぎ直されても受け入れないため
       if (!(await rememberKeyTag(this.ctx.storage, request))) return new Response(null, { status: STATUS.badRequest })
@@ -311,6 +327,16 @@ export const connectTextSocket = (namespace: AlertChannelNamespace, request: Req
  */
 export const connectKanjiQuizSocket = (namespace: AlertChannelNamespace, request: Request, keyTag: string): Promise<Response> =>
   connectWithTopic(namespace, request, KANJI_QUIZ_TOPIC, keyTag)
+
+/**
+ * 裏方のページの「配信の停止」からのWebSocketの接続を、配信を止める命令を受け取る接続として Durable Object へ引き渡す（issue #302）。
+ *
+ * オーバーレイ用キーの確認は呼び出し側（kanji-quiz-routes.ts）が済ませている。
+ *
+ * @param keyTag 確かめたキーの目印（overlayKeyTag）
+ */
+export const connectStreamStopSocket = (namespace: AlertChannelNamespace, request: Request, keyTag: string): Promise<Response> =>
+  connectWithTopic(namespace, request, STREAM_STOP_TOPIC, keyTag)
 
 /**
  * 合成ページの素材「市町村紹介」からのWebSocketの接続を、市町村紹介の呼び出しを受け取る接続として Durable Object へ引き渡す。
@@ -433,7 +459,31 @@ export const pushKanjiQuiz = (namespace: AlertChannelNamespace, call: KanjiQuizC
  * 注意: 失敗を黙って握りつぶさない。呼び出し側（webhook-routes.ts・kanji-quiz-issue.ts）が失敗として記録するか投げる。
  */
 export const pushKanjiQuizNotice = (namespace: AlertChannelNamespace, notice: KanjiQuizNotice): Promise<void> =>
-  pushJson(namespace, PUSH_KANJI_QUIZ_PATH, notice, notice.type === 'answer' ? '漢字クイズの正解者' : '漢字クイズの失敗')
+  pushJson(namespace, PUSH_KANJI_QUIZ_PATH, notice, KANJI_QUIZ_NOTICE_SUBJECTS[notice.type])
+
+/** 漢字クイズの知らせの種類ごとの、失敗の文面に使う呼び名 */
+const KANJI_QUIZ_NOTICE_SUBJECTS: Record<KanjiQuizNotice['type'], string> = {
+  answer: '漢字クイズの正解者',
+  failure: '漢字クイズの失敗',
+  stopping: '配信の停止の猶予',
+  stopCancelled: '配信の停止の取り消し',
+}
+
+/**
+ * 配信を止める命令を Durable Object へ押し出す（issue #302）。漢字クイズの猶予が尽きたときに、鍵を確保してから呼ぶ。
+ *
+ * 注意: 受け取る裏方のページが1つもつながっていなければ（409）、そのことが分かる理由で投げる。
+ *   呼び出し側（kanji-quiz-stop.ts）が失敗として記録する。
+ */
+export const pushStreamStop = async (namespace: AlertChannelNamespace, order: StreamStopOrder): Promise<void> => {
+  const response = await channelOf(namespace).fetch(
+    new Request(`https://alert-channel${PUSH_STREAM_STOP_PATH}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(order) }),
+  )
+  if (response.status === STATUS.conflict) {
+    throw new Error('配信を止める命令を受け取る裏方のページ（配信の停止）がつながっていないため、配信を止められませんでした')
+  }
+  if (!response.ok) throw new Error(`配信を止める命令を配送先へ送れませんでした（${response.status}）`)
+}
 
 /**
  * 市町村紹介の呼び出し（引いた市町村と冒頭の一文）を Durable Object へ押し出す。トリガーと管理画面の試し再生で呼ぶ。
@@ -483,7 +533,7 @@ export const pushSpeechMute = (namespace: AlertChannelNamespace, mute: SpeechMut
   pushJson(namespace, PUSH_SPEECH_MUTE_PATH, mute, '読み上げのミュート')
 
 /**
- * オーバーレイ用キーを発行し直したときに、新しいキーの目印を覚えさせ、開いている接続（アラート・BGM・作業ログ・作業机・ポモドーロ・市町村紹介・配信のBGMを下げる知らせ・読み上げのミュート・ツイスター・テキスト）をすべて閉じさせる。
+ * オーバーレイ用キーを発行し直したときに、新しいキーの目印を覚えさせ、開いている接続（アラート・BGM・作業ログ・作業机・ポモドーロ・市町村紹介・配信のBGMを下げる知らせ・読み上げのミュート・ツイスター・テキスト・漢字クイズ・配信の停止）をすべて閉じさせる。
  *
  * 注意: 失敗を黙って握りつぶさない。閉じられないと古いキーの接続が残るので、呼び出し側（admin-routes.ts）が失敗を返す。
  *

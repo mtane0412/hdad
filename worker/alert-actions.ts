@@ -188,7 +188,10 @@ export const runAlertActions = async (
   })()
   for (const [index, kanjiQuiz] of kanjiQuizzes.entries()) {
     await sendAndRecordFailure(context, messageId, 'kanjiQuiz', index, 'kanji-quiz-push-failed', () =>
-      issueKanjiQuiz({ db: env.DB, alerts: env.ALERTS, now, random: Math.random, id: crypto.randomUUID() }, kanjiQuiz).then(() => undefined),
+      // チャンネルポイントの交換での出題は試し再生ではないので、時間切れなら配信を止める
+      issueKanjiQuiz({ db: env.DB, alerts: env.ALERTS, now, random: Math.random, id: crypto.randomUUID() }, { ...kanjiQuiz, rehearsal: false }).then(
+        () => undefined,
+      ),
     )
   }
 
