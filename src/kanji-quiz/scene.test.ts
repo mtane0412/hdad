@@ -148,6 +148,16 @@ describe('kanjiQuizStopBannerAt', () => {
     expect(kanjiQuizStopBannerAt(38_000, cancelled)).toBeNull()
     expect(kanjiQuizStopBannerAt(stopAt, { ...cancelled, rehearsal: true })).toBeNull()
   })
+
+  it('試し再生で猶予が尽きたあとに取り消しが届いても、出しはじめた帯は猶予が尽きた時刻から結果の長さだけ出す', () => {
+    // 試し再生は止める命令を送らないので、猶予が尽きたあとでも下部バーから取り消せる
+    const cancelledAfterGrace = { ...stopAnnounced, rehearsal: true, cancelledAfterMs: stopAt + 1_000 }
+
+    expect(kanjiQuizStopBannerAt(stopAt - 1, cancelledAfterGrace)).toBeNull()
+    expect(kanjiQuizStopBannerAt(stopAt + 1_000, cancelledAfterGrace)).toEqual({ kind: 'rehearsal' })
+    expect(kanjiQuizStopBannerAt(stopAt + STOP_RESULT_MS - 1, cancelledAfterGrace)).toEqual({ kind: 'rehearsal' })
+    expect(kanjiQuizStopBannerAt(stopAt + STOP_RESULT_MS, cancelledAfterGrace)).toBeNull()
+  })
 })
 
 describe('配信を止めるまでの猶予が届いたとき', () => {

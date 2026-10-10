@@ -94,9 +94,11 @@ export const kanjiQuizEndOf = (answeredAfterMs: number | null, stop: KanjiQuizSt
  * @param stop 配信を止めるまでの猶予。届いていなければ null
  */
 export const kanjiQuizStopBannerAt = (elapsedMs: number, stop: KanjiQuizStop | null): KanjiQuizStopBanner | null => {
-  if (stop === null || !stop.rehearsal || stop.cancelledAfterMs !== null) return null
-  const resultFrom = stopResultFrom(stop)
-  return elapsedMs >= resultFrom && elapsedMs < resultFrom + STOP_RESULT_MS ? { kind: 'rehearsal' } : null
+  if (stop === null || !stop.rehearsal) return null
+  const graceEndsAt = stop.announcedAfterMs + stop.graceMs
+  // 猶予のうちに取り消されたら出さない。猶予が尽きたあとの取り消し（試し再生は止める命令を送らないので届きうる）では、出しはじめた帯を消さない
+  if (stop.cancelledAfterMs !== null && stop.cancelledAfterMs < graceEndsAt) return null
+  return elapsedMs >= graceEndsAt && elapsedMs < graceEndsAt + STOP_RESULT_MS ? { kind: 'rehearsal' } : null
 }
 
 /**
