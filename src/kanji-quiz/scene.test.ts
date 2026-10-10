@@ -9,7 +9,6 @@
 import { describe, expect, it } from 'vitest'
 import {
   ANSWER_LIMIT_MS,
-  APPROACH_MS,
   COUNTDOWN_SECONDS,
   GRADE_INTRO_MS,
   KANJI_QUIZ_TOTAL_MS,
@@ -31,16 +30,29 @@ describe('kanjiQuizSceneAt', () => {
     expect(kanjiQuizSceneAt(GRADE_INTRO_MS - 1, null)).toMatchObject({ kind: 'grade' })
   })
 
-  it('級のあとは熟語を小さく出し、近づき終えたら等倍にする', () => {
-    const appeared = kanjiQuizSceneAt(afterWord(0), null)
-    const halfway = kanjiQuizSceneAt(afterWord(APPROACH_MS / 2), null)
-    const arrived = kanjiQuizSceneAt(afterWord(APPROACH_MS), null)
+  it('制限時間は15秒にする', () => {
+    expect(ANSWER_LIMIT_MS).toBe(15_000)
+  })
 
-    if (appeared.kind !== 'question' || halfway.kind !== 'question' || arrived.kind !== 'question') throw new Error('出題の場面ではありません')
+  it('熟語は小さく出て、制限時間のあいだ止まらずに近づきつづける', () => {
+    const appeared = kanjiQuizSceneAt(afterWord(0), null)
+    if (appeared.kind !== 'question') throw new Error('出題の場面ではありません')
     expect(appeared.wordScale).toBeLessThan(0.1)
-    expect(halfway.wordScale).toBeGreaterThan(appeared.wordScale)
-    expect(halfway.wordScale).toBeLessThan(1)
-    expect(arrived.wordScale).toBe(1)
+
+    // 1秒ごとに見て、どの1秒でも前より大きくなっている（途中で止まらない）
+    let previous = appeared.wordScale
+    for (let ms = 1_000; ms < ANSWER_LIMIT_MS; ms += 1_000) {
+      const scene = kanjiQuizSceneAt(afterWord(ms), null)
+      if (scene.kind !== 'question') throw new Error('出題の場面ではありません')
+      expect(scene.wordScale).toBeGreaterThan(previous)
+      previous = scene.wordScale
+    }
+
+    // 時間切れの直前まで等倍に届かない
+    const lastMoment = kanjiQuizSceneAt(afterWord(ANSWER_LIMIT_MS - 1), null)
+    if (lastMoment.kind !== 'question') throw new Error('出題の場面ではありません')
+    expect(lastMoment.wordScale).toBeLessThan(1)
+    expect(lastMoment.wordScale).toBeGreaterThan(0.99)
   })
 
   it('残り秒数は熟語が出たときから数え、切り上げて出す', () => {

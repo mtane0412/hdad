@@ -3,8 +3,9 @@
  *
  * 1回の出題は次の順に進む（issue #300）。
  * 1. 級（「漢検○級」）を出す（GRADE_INTRO_MS）
- * 2. 熟語が奥から近づいてくる（APPROACH_MS。ctx.scale に渡す倍率を経過時間から決める。市町村紹介のズームと同じ考え方）。
- *    制限時間（ANSWER_LIMIT_MS）は熟語が出たときから数え、最後の COUNTDOWN_SECONDS 秒は大きなカウントダウンにする
+ * 2. 熟語が奥から近づいてくる（ctx.scale に渡す倍率を経過時間から決める。市町村紹介のズームと同じ考え方）。
+ *    制限時間（ANSWER_LIMIT_MS）は熟語が出たときから数え、熟語は制限時間のあいだ一定の速さで近づきつづけ、時間切れで等倍になる。
+ *    最後の COUNTDOWN_SECONDS 秒は大きなカウントダウンにする
  * 3. 時間切れで正解の読みと解説を出す（REVEAL_MS）
  *
  * 制限時間のうちに正解者が届いたら（issue #301）、届いた時刻でカウントダウンを止めて 3. へ進み、解説はそこから REVEAL_MS 出す。
@@ -19,10 +20,8 @@
 
 /** 級を出しておく長さ（ミリ秒） */
 export const GRADE_INTRO_MS = 2_000
-/** 熟語が奥から近づき終えるまでの長さ（ミリ秒）。制限時間に含む */
-export const APPROACH_MS = 3_000
-/** 制限時間（ミリ秒）。熟語が出たときから数える */
-export const ANSWER_LIMIT_MS = 30_000
+/** 制限時間（ミリ秒）。熟語が出たときから数え、熟語はこのあいだ近づきつづける */
+export const ANSWER_LIMIT_MS = 15_000
 /** 大きく数える最後の秒数 */
 export const COUNTDOWN_SECONDS = 5
 /** 正解の読みと解説を出しておく長さ（ミリ秒） */
@@ -41,7 +40,7 @@ export type KanjiQuizScene =
   | { readonly kind: 'grade'; readonly progress: number }
   | {
       readonly kind: 'question'
-      /** 熟語の倍率（近づき終えたら1） */
+      /** 熟語の倍率（時間切れで1） */
       readonly wordScale: number
       /** 残りの秒数（切り上げ） */
       readonly remainingSeconds: number
@@ -69,9 +68,6 @@ export type KanjiQuizStopBanner =
   | { readonly kind: 'stopping' }
   | { readonly kind: 'rehearsal' }
   | { readonly kind: 'cancelled' }
-
-/** 出だしが速く、終わりにゆっくり止まる動き（近づいてくる熟語が手前でふわっと止まるように） */
-const easeOutCubic = (t: number): number => 1 - (1 - t) ** 3
 
 /**
  * 正解者を受け入れる時間か。熟語が出てから制限時間のあいだだけ受け入れる（時間切れの後に届いた正解者は出さない）。
@@ -124,11 +120,12 @@ export const kanjiQuizSceneAt = (elapsedMs: number, answeredAfterMs: number | nu
   const revealAt = answeredAfterMs ?? GRADE_INTRO_MS + ANSWER_LIMIT_MS
   if (elapsedMs < revealAt) {
     const sinceWord = elapsedMs - GRADE_INTRO_MS
-    const approach = Math.min(1, sinceWord / APPROACH_MS)
+    // 制限時間のあいだ止まらずに近づきつづけるよう、一定の速さで大きくする
+    const approach = sinceWord / ANSWER_LIMIT_MS
     const remainingSeconds = Math.ceil((ANSWER_LIMIT_MS - sinceWord) / MS_PER_SECOND)
     return {
       kind: 'question',
-      wordScale: START_SCALE + (1 - START_SCALE) * easeOutCubic(approach),
+      wordScale: START_SCALE + (1 - START_SCALE) * approach,
       remainingSeconds,
       countdown: remainingSeconds <= COUNTDOWN_SECONDS,
     }
