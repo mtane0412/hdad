@@ -108,6 +108,17 @@ describe('KanjiQuizStopBar', () => {
     await waitFor(() => expect(cancelButton()).not.toBeInTheDocument())
   })
 
+  test('猶予が重なったら、先に尽きるほうの残り秒数を出し、本番が1つでもあれば試し再生とは出さない', () => {
+    const { deps, deliver } = createDeps()
+    render(<KanjiQuizStopBar overlayKey={overlayKey} deps={deps} />)
+
+    deliver({ type: 'stopping', quizId: 'quiz-keidai', graceMs: 5_000, rehearsal: false })
+    deliver({ type: 'stopping', quizId: 'quiz-naya', graceMs: 10_000, rehearsal: true })
+
+    expect(cancelButton()).toHaveTextContent(/残り\s*5秒/)
+    expect(cancelButton()).not.toHaveTextContent('試し再生')
+  })
+
   test('試し再生の猶予は、試し再生と分かるようにする', () => {
     const { deps, deliver } = createDeps()
     render(<KanjiQuizStopBar overlayKey={overlayKey} deps={deps} />)

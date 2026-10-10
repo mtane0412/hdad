@@ -69,10 +69,11 @@ export const KanjiQuizStopBar = ({ overlayKey, deps }: { overlayKey: string | nu
             const at = Date.now()
             setNow(at)
             setProblem(null)
+            // 猶予が重なったら、先に尽きるほうを数える。本番の猶予が1つでもあれば試し再生とは出さない
             setPending((current) => ({
               quizIds: [...(current?.quizIds ?? []), message.quizId],
-              stopAt: at + message.graceMs,
-              rehearsal: message.rehearsal,
+              stopAt: Math.min(current?.stopAt ?? Number.POSITIVE_INFINITY, at + message.graceMs),
+              rehearsal: (current?.rehearsal ?? true) && message.rehearsal,
             }))
           } else if (message.type === 'stopCancelled') {
             setPending((current) => {
