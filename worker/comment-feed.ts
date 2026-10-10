@@ -168,13 +168,41 @@ const readUser = (event: Record<string, unknown>, prefix: string, where: string)
   name: readString(event, `${prefix}_name`, where),
 })
 
+/** 発言の返信先。返信でなければ null */
+export interface ChatReply {
+  /** 返信先の人の表示名 */
+  readonly name: string
+  /** 返信先の発言の本文 */
+  readonly text: string
+}
+
+/**
+ * channel.chat.message の中身から、本文の断片と返信先を読む。
+ *
+ * コメントビューアー（toFeedItem）と意見ボード（worker/webhook-routes.ts がテーマを出しているあいだのコメントを貯めるとき）の
+ * 両方が使う（同じ通知を2か所で読み解かない）。
+ *
+ * @throws 断片が無い・返信先の項目が欠けている場合
+ */
+export const readChatBody = (event: unknown): { fragments: FeedFragment[]; reply: ChatReply | null } => {
+  const where = 'channel.chat.message'
+  if (!isRecord(event)) throw new Error(`${where} の通知に event がありません`)
+  const reply = event.reply
+  return {
+    fragments: readFragments(event.message, where),
+    reply: isRecord(reply)
+      ? { name: readString(reply, 'parent_user_name', `${where} の reply`), text: readString(reply, 'parent_message_body', `${where} の reply`) }
+      : null,
+  }
+}
+
 const toChat = (event: unknown, stamp: FeedStamp, firstOfStream: boolean): FeedItem => {
   const where = 'channel.chat.message'
   // 発言者と本文の読み取りはコマンドの判定と同じものを使う（同じ通知を2か所で読み解かない）
   if (!isRecord(event)) throw new Error(`${where} の通知に event がありません`)
   const message = readChatMessage(event)
   const cheer = event.cheer
-  const reply = event.reply
+  const { fragments, reply } = readChatBody(event)
   return {
     kind: 'chat',
     ...stamp,
@@ -182,11 +210,9 @@ const toChat = (event: unknown, stamp: FeedStamp, firstOfStream: boolean): FeedI
     user: { id: message.chatterUserId, login: message.chatterUserLogin, name: message.chatterUserName },
     color: readColor(event),
     badges: readBadges(event.badges),
-    fragments: readFragments(event.message, where),
+    fragments,
     bits: isRecord(cheer) ? readNumber(cheer, 'bits', `${where} の cheer`) : null,
-    reply: isRecord(reply)
-      ? { name: readString(reply, 'parent_user_name', `${where} の reply`), text: readString(reply, 'parent_message_body', `${where} の reply`) }
-      : null,
+    reply,
     firstOfStream,
   }
 }

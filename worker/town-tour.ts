@@ -146,7 +146,7 @@ export const buildTownTourPrompt = ({ prefecture, county, name, material, image 
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
 
-/** 応答の全体をコードブロック（```json … ```）で囲むモデルがあるので、その囲みだけを外す（town-bond.ts も使う） */
+/** 応答の全体をコードブロック（```json … ```）で囲むモデルがあるので、その囲みだけを外す（town-bond.ts・opinion-sort.ts も使う） */
 export const CODE_FENCE_PATTERN = /^```(?:json)?\s*([\s\S]*?)\s*```$/
 
 /**

@@ -4,7 +4,7 @@
  * サイドバーの項目と、パスごとに描く中身をここで決める。
  * 実ファイルとして配信されるページ（overlay/stage/・overlay/backstage/・speech/reader/）は、ここには載せない。
  */
-import { Bot, BrainCircuit, Gift, Layers, LayoutDashboard, MessagesSquare, Music, NotebookPen, Pencil, Plug, Timer, Upload, Users, Zap, type LucideIcon } from 'lucide-react'
+import { Bot, BrainCircuit, Gift, Layers, LayoutDashboard, Lightbulb, MessagesSquare, Music, NotebookPen, Pencil, Plug, Timer, Upload, Users, Zap, type LucideIcon } from 'lucide-react'
 import type { AdminApi, Me } from '@/admin/api'
 import { BackstagePage } from '@/backstage/backstage-page'
 import type { BgmApi } from '@/bgm/api'
@@ -33,6 +33,8 @@ import type { ViewerApi } from '@/viewers/api'
 import { ViewerPage } from '@/viewers/viewer-page'
 import type { ScreenAdminApi } from '@/screen/api'
 import type { TextApi } from '@/text/api'
+import type { OpinionApi } from '@/opinions/api'
+import { OpinionPage } from '@/opinions/opinion-page'
 import { TextPage } from '@/text/text-page'
 import type { SpeechApi } from '@/speech/api'
 
@@ -65,6 +67,8 @@ export interface PageContext {
   pomodoroApi: PomodoroApi
   /** 配信者が書くテキストの読み書き（テキストのページ・下部バー・オーバーレイのページの素材「テキスト」が使う） */
   textApi: TextApi
+  /** 意見ボードのテーマと意見の読み書き（意見ボードのページが使う） */
+  opinionApi: OpinionApi
   me: Me
   /** オーバーレイ用キーを再発行した。ほかのページから戻ってきても新しいキーを出せるよう、枠が持つログイン情報を書き換える */
   onOverlayKeyChange(overlayKey: string): void
@@ -129,6 +133,14 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
         icon: NotebookPen,
         // 配信画面に映す文字（issue #294）。保存するとすぐ合成ページへ押し出す。本文だけなら下部バーからも書き換えられる
         render: ({ textApi }) => <TextPage api={textApi} />,
+      },
+      {
+        path: '/opinions/',
+        keywords: ['いどばた', '議論', 'テーマ', '意見', 'アンケート'],
+        name: '意見ボード',
+        icon: Lightbulb,
+        // テーマを出しているあいだ、Worker がチャットのコメントを振り分けて意見にする（issue #306）。意見は配信中に増えるので、開いているあいだ読み直す
+        render: ({ opinionApi }) => <OpinionPage api={opinionApi} />,
       },
       { path: '/viewers/', keywords: ['常連', '人物像'], name: '視聴者', icon: Users, render: ({ viewerApi }) => <ViewerPage api={viewerApi} /> },
     ],

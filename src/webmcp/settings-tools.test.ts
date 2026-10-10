@@ -45,6 +45,7 @@ const llm: LlmSettings = {
     townTour: { provider: 'openrouter', models: lightModel },
     townBond: { provider: 'openrouter', models: lightModel },
     autoText: { provider: 'workers-ai', models: lightModel },
+    opinionSort: { provider: 'workers-ai', models: lightModel },
   },
 }
 const overlays: Overlay[] = [{ name: '作業配信', items: [] }]

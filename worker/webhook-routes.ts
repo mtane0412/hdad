@@ -26,6 +26,9 @@ import { pushKanjiQuizNotice, pushTownTourAnswer } from './alert-channel'
 import { answerTownTourQuiz } from './town-tour-quiz'
 import { wordsAnsweredBy } from './kanji-quiz-answer'
 import { answerKanjiQuiz } from './kanji-quiz-store'
+import { readChatBody } from './comment-feed'
+import { dropReasonOf } from './opinion'
+import { readOpenTheme, recordOpinionComment } from './opinion-store'
 import { loadModerationConfig } from './moderation-config'
 import { claimFirstChatOfStream, consumeCooldown, recordAndCountRecentMessage, reserveChatReply } from './chat-store'
 import { pushFeedItem } from './comment-channel'
@@ -212,6 +215,10 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
   // 視聴者の記録と違って自動モデレーションのあとに貯めるのは、処分した発言をLLMの材料に混ぜないためである（issue #202）
   await recordStreamChatMessage(env.DB, { messageId: message.messageId, userId: message.chatterUserId, text: message.text }, now)
 
+  // 意見ボード（issue #306）。テーマを出しているあいだだけ、コメントを振り分け待ちとして貯める（出していなければ1行も書かない）。
+  // 処分した発言を意見に混ぜないよう、自動モデレーションのあとに貯める
+  await recordOpinionCommentFromChat(context, body.event, message)
+
   // botの接続はもう調べ済みなので、判定の関数はその結果を返すだけでよい
   await runAlertActions(context, CHAT_MESSAGE, body, message.messageId, () => Promise.resolve(bot !== null), message)
 
@@ -280,6 +287,42 @@ const answerTownTourQuizFromChat = async (context: Context, message: ChatMessage
       context.env.DB,
       'town-tour-quiz-failed',
       `市町村紹介のクイズの回答（${message.chatterUserName}さん: ${prefecture}）を照らせませんでした: ${error instanceof Error ? error.message : String(error)}`,
+      context.now,
+    )
+  }
+}
+
+/**
+ * チャットの発言を、意見ボードのコメントとして貯める（issue #306）。
+ *
+ * テーマを出しているあいだだけ1行書く。出していなければ通知の断片も読み解かない（コメントビューアーと同じ失敗を二重に記録しないため）。
+ * コマンド・エモートだけ・短い反応は、理由をつけて落としたものとして貯める（worker/opinion.ts の dropReasonOf。LLM には渡さない）。
+ *
+ * 注意: 失敗は投げずに失敗の記録（opinion-record-failed）に残して続ける。投げると Twitch へ2xx以外を返して再送させ、
+ * 作業机のコマンドやコマンドの応答まで止めてしまうためである（マイグレーション 0033 を適用する前にも起きる）。
+ */
+const recordOpinionCommentFromChat = async (context: Context, event: unknown, message: ChatMessage): Promise<void> => {
+  try {
+    if ((await readOpenTheme(context.env.DB)) === null) return
+    const { fragments, reply } = readChatBody(event)
+    await recordOpinionComment(
+      context.env.DB,
+      {
+        messageId: message.messageId,
+        userId: message.chatterUserId,
+        userName: message.chatterUserName,
+        text: message.text,
+        replyName: reply?.name ?? null,
+        replyText: reply?.text ?? null,
+        dropReason: dropReasonOf({ text: message.text, fragments, replied: reply !== null }),
+      },
+      context.now,
+    )
+  } catch (error) {
+    await recordFailure(
+      context.env.DB,
+      'opinion-record-failed',
+      `意見ボードのコメント（${message.chatterUserName}さん: ${message.text}）を貯められませんでした: ${error instanceof Error ? error.message : String(error)}`,
       context.now,
     )
   }

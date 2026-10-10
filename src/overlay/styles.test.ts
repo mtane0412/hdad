@@ -19,8 +19,8 @@ describe('overlay.css', () => {
     }
   })
 
-  it('レジストリを持たない素材（アラート・サイドスーパー・注目コメント・手書き・再生中の曲・タブの映像・字幕・作業ログ・作業机・ポモドーロ・市町村紹介・ツイスター・ワイプ・テキスト・漢字クイズ）のCSSも読み込んでいる', () => {
-    for (const path of ['../alerts/alerts.css', '../side-super/side-super.css', '../focus/focus.css', '../draw/draw.css', '../bgm/bgm.css', '../tab/tab.css', '../caption/caption.css', '../work-log/work-log.css', '../task-desk/task-desk.css', '../pomodoro/pomodoro.css', '../town-tour/town-tour.css', '../twister/twister.css', '../wipe/wipe.css', '../text/text.css', '../kanji-quiz/kanji-quiz.css']) {
+  it('レジストリを持たない素材（アラート・サイドスーパー・注目コメント・手書き・再生中の曲・タブの映像・字幕・作業ログ・作業机・ポモドーロ・市町村紹介・ツイスター・ワイプ・テキスト・漢字クイズ・意見ボード）のCSSも読み込んでいる', () => {
+    for (const path of ['../alerts/alerts.css', '../side-super/side-super.css', '../focus/focus.css', '../draw/draw.css', '../bgm/bgm.css', '../tab/tab.css', '../caption/caption.css', '../work-log/work-log.css', '../task-desk/task-desk.css', '../pomodoro/pomodoro.css', '../town-tour/town-tour.css', '../twister/twister.css', '../wipe/wipe.css', '../text/text.css', '../kanji-quiz/kanji-quiz.css', '../opinions/opinions.css']) {
       expect(overlayCss).toContain(`@import '${path}';`)
     }
   })

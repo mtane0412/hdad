@@ -12,6 +12,7 @@ import type { PomodoroSnapshot } from './pomodoro-timer'
 import type { SpeechMute } from './speech-config'
 import type { TaskDeskSnapshot } from './task-desk'
 import type { KanjiQuizCall, KanjiQuizNotice, StreamStopOrder } from './kanji-quiz-call'
+import type { OpinionBoardSnapshot } from './opinion'
 import type { TextsSnapshot } from './text'
 import type { TownTourAnswerMessage, TownTourCall } from './town-tour-call'
 import type { TwisterCall } from './twister-call'
@@ -54,6 +55,8 @@ export const createFakeAlertChannel = ({ shouldFail = false, noStreamStopReceive
   pushedKanjiQuizNotices: KanjiQuizNotice[]
   /** 押し出された配信を止める命令 */
   pushedStreamStops: StreamStopOrder[]
+  /** 押し出された意見ボード */
+  pushedOpinions: OpinionBoardSnapshot[]
   /** WebSocketの接続として引き渡されたリクエスト */
   forwardedConnections: Request[]
   /** 接続をすべて閉じるよう頼まれたときに添えられた、新しいキーの目印（オーバーレイ用キーの再発行） */
@@ -73,6 +76,7 @@ export const createFakeAlertChannel = ({ shouldFail = false, noStreamStopReceive
   const evictedKanjiQuizzes: KanjiQuizCall[] = []
   const evictedKanjiQuizNotices: KanjiQuizNotice[] = []
   const evictedStreamStops: StreamStopOrder[] = []
+  const evictedOpinions: OpinionBoardSnapshot[] = []
   const handedOverConnections: Request[] = []
   const revokedTags: string[] = []
   const id: DurableObjectId = { toString: () => 'alerts', equals: (other) => other.toString() === 'alerts', name: 'alerts' }
@@ -92,6 +96,7 @@ export const createFakeAlertChannel = ({ shouldFail = false, noStreamStopReceive
     pushedKanjiQuizzes: evictedKanjiQuizzes,
     pushedKanjiQuizNotices: evictedKanjiQuizNotices,
     pushedStreamStops: evictedStreamStops,
+    pushedOpinions: evictedOpinions,
     forwardedConnections: handedOverConnections,
     revokedKeyTags: revokedTags,
     namespace: {
@@ -122,6 +127,7 @@ export const createFakeAlertChannel = ({ shouldFail = false, noStreamStopReceive
           else if (pathname === '/push/bgm-duck') evictedBgmDucks.push((await request.json()) as BgmDuck)
           else if (pathname === '/push/speech-mute') evictedSpeechMutes.push((await request.json()) as SpeechMute)
           else if (pathname === '/push/text') evictedTexts.push((await request.json()) as TextsSnapshot)
+          else if (pathname === '/push/opinions') evictedOpinions.push((await request.json()) as OpinionBoardSnapshot)
           else if (pathname === '/push/kanji-quiz') {
             const body = (await request.json()) as KanjiQuizCall | KanjiQuizNotice
             if ('type' in body) evictedKanjiQuizNotices.push(body)

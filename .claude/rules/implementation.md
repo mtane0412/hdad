@@ -17,7 +17,7 @@ paths:
 - **LLMの呼び先を決めるのは `worker/llm.ts` だけ**で、呼び出し側はモデル名ではなく使う箇所（`LLM_USAGES`）を指名する。→ `.claude/rules/llm.md`
 - **トリガーの照合は `worker/alert-event.ts` の `matches` だけが持ち**、展開後の形しか見ない（展開は `trigger-menu.ts` の `expandSource`）。→ `.claude/rules/alerts.md`
 - **何を映すかの判断は `src/focus/focused.ts` だけが持つ**（通信もDOMも持ち込まない）。→ `.claude/rules/focus.md`
-- **Durable Object は配送者（`AlertChannel`）・時計（`AdBreakTimer`。別のインスタンスでポモドーロの区切りと漢字クイズの時間切れの判定・停止の時刻も預かる）・保管庫（`TokenVault`。Twitchのトークンを持ち、比べてから書くまでを1回の要求で行うだけで、Twitchへの更新はしない）であって判定者ではない**（設定を持たせると管理画面での変更がすぐ反映される性質が壊れる）
+- **Durable Object は配送者（`AlertChannel`）・時計（`AdBreakTimer`。別のインスタンスでポモドーロの区切りと漢字クイズの時間切れの判定・停止の時刻と意見ボードの振り分けの間隔も預かる）・保管庫（`TokenVault`。Twitchのトークンを持ち、比べてから書くまでを1回の要求で行うだけで、Twitchへの更新はしない）であって判定者ではない**（設定を持たせると管理画面での変更がすぐ反映される性質が壊れる）
 - **同じ通知を2か所で読み解かない**（発言の読み取りは `worker/chat-command.ts` の `readChatMessage` に集め、`alert-event.ts` の `extract` からも呼ぶ）。同じ数を2か所に書かない（素材の推奨の大きさは `src/overlay/layout.ts` の `RECOMMENDED_ITEM_SIZES` だけ）
 
 ## 通信とDOMを持たない部分に切り出してテストする

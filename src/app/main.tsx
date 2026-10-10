@@ -13,6 +13,7 @@ import { connectPomodoroWatch } from '@/pomodoro/socket'
 import { createKanjiQuizAdminApi } from '@/kanji-quiz/api'
 import { connectKanjiQuizWatch } from '@/kanji-quiz/socket'
 import { createTextApi } from '@/text/api'
+import { createOpinionApi } from '@/opinions/api'
 import { createBotApi } from '@/bot/api'
 import { createDrawApi } from '@/draw/api'
 import { createCommentApi } from '@/comments/api'
@@ -48,6 +49,7 @@ const overlayApi = createOverlayLayoutAdminApi(callWorker)
 const bgmApi = createBgmApi(callWorker)
 const pomodoroApi = createPomodoroApi(callWorker)
 const textApi = createTextApi(callWorker)
+const opinionApi = createOpinionApi(callWorker)
 const kanjiQuizAdminApi = createKanjiQuizAdminApi(callWorker)
 /** 下部バーの漢字クイズの配信の停止の取り消し（issue #302） */
 const kanjiQuizStop = { connect: connectKanjiQuizWatch, cancel: () => kanjiQuizAdminApi.cancelStop() }
@@ -55,6 +57,6 @@ const recognitionDeps = browserRecognitionDeps(createAppTranscriptApi(callWorker
 
 createRoot(root).render(
   <StrictMode>
-    <App api={api} statsApi={statsApi} botApi={botApi} viewerApi={viewerApi} speechApi={speechApi} screenApi={screenApi} focusApi={focusApi} commentApi={commentApi} drawApi={drawApi} llmApi={llmApi} overlayApi={overlayApi} bgmApi={bgmApi} pomodoroApi={pomodoroApi} textApi={textApi} recognitionDeps={recognitionDeps} connectBgm={connectBgmWatch} connectPomodoro={connectPomodoroWatch} kanjiQuizStop={kanjiQuizStop} />
+    <App api={api} statsApi={statsApi} botApi={botApi} viewerApi={viewerApi} speechApi={speechApi} screenApi={screenApi} focusApi={focusApi} commentApi={commentApi} drawApi={drawApi} llmApi={llmApi} overlayApi={overlayApi} bgmApi={bgmApi} pomodoroApi={pomodoroApi} textApi={textApi} opinionApi={opinionApi} recognitionDeps={recognitionDeps} connectBgm={connectBgmWatch} connectPomodoro={connectPomodoroWatch} kanjiQuizStop={kanjiQuizStop} />
   </StrictMode>,
 )

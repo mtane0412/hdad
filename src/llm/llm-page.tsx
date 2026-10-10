@@ -152,6 +152,10 @@ const USAGE_LABELS: Readonly<Record<LlmUsage, { name: string; description: strin
     name: 'テキストの自動の書き換え',
     description: '「自動で書き換える」を入れたテキストの本文。配信中、前回のあとに喋っていれば5分おきにテキストごとに呼ばれるので軽いモデル向き。',
   },
+  opinionSort: {
+    name: '意見ボードの振り分け',
+    description: '意見ボードでテーマを出しているあいだ、新しいコメントがあれば45秒おきに呼ばれ、意見を取り出して論点ごとに振り分ける。決まった形の JSON を守らせるので大きいモデル向き。',
+  },
 }
 
 /** Jev を使う箇所ごとの、画面に出す名前と説明 */

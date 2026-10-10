@@ -1,0 +1,250 @@
+/*
+ * 意見ボード（合成ページの素材）の見た目
+ *
+ * 配信者が出したテーマについて、視聴者のコメントから取り出した意見を論点ごとに並べる（issue #306）。3列で、中央にテーマと
+ * 「いま紹介している意見」、左右に論点を3つずつ置く。配信画面に重ねるので次の4つを守る。
+ * - 背景を塗りつぶさず、作業ログ・作業机と同じ半透明の暗い板に載せる（下の配信画面が透けて見える）
+ * - どの論点も同じ大きさの枠にし、人数で大きさや並びを変えない（多数決に見せないため。src/opinions/view.ts）
+ * - 札の種類（課題・解決策・問い・気づき）は、文字の印と、明るさの違う色の両方で見分けられるようにする
+ * - 新しく入った札（data-fresh）と、中央で紹介している札（data-lit）だけを目立たせる
+ */
+.opinions {
+  /* 位置は画面ではなく置かれた箱を基準にする（合成ページのレイヤーの箱に入れるため） */
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  color: #fff;
+  font-family: 'Zen Kaku Gothic New', 'Hiragino Sans', 'Yu Gothic UI', sans-serif;
+}
+
+.opinions-board {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 28px;
+  box-sizing: border-box;
+  height: 100%;
+  padding: 36px 40px;
+}
+
+.opinions-board[hidden] {
+  display: none;
+}
+
+.opinions-side {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-height: 0;
+}
+
+.opinions-topic {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.opinions-topic-title {
+  margin: 0;
+  padding: 4px 14px;
+  align-self: flex-start;
+  border-radius: 8px;
+  background: rgb(12 14 20 / 72%);
+  font-size: 24px;
+  font-weight: 900;
+}
+
+.opinions-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.opinions-card {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 10px 16px;
+  border-radius: 12px;
+  background: rgb(12 14 20 / 62%);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 35%);
+  font-size: 20px;
+  line-height: 1.45;
+  transition:
+    box-shadow 500ms ease,
+    background-color 500ms ease;
+  animation: opinions-in 600ms ease-out;
+}
+
+.opinions-text {
+  /* 切れ目のない英数字（URLなど）でも、板からはみ出させずに折り返す */
+  overflow-wrap: anywhere;
+}
+
+/* 中央で紹介している意見と同じ札は、白い縁で示す */
+.opinions-card[data-lit] {
+  background: rgb(36 42 58 / 82%);
+  box-shadow: 0 0 0 2px #fff;
+}
+
+/* 新しく入った札は、緑の縁で一度光らせる */
+.opinions-card[data-fresh] {
+  box-shadow:
+    0 0 0 3px #7ee0c3,
+    0 0 28px rgb(126 224 195 / 45%);
+}
+
+/*
+ * 札の種類の印。色だけに頼らず呼び名を文字で出し、背景の明るさも種類ごとに変える。
+ * 文字と背景は 4.5:1 以上になる組み合わせにする。
+ */
+.opinions-tag,
+.opinions-spotlight-tag {
+  flex-shrink: 0;
+  margin-top: 2px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1.5;
+}
+
+[data-kind='issue'].opinions-tag,
+[data-kind='issue'].opinions-spotlight-tag {
+  background: #ffb36b;
+  color: #2a1600;
+}
+
+[data-kind='solution'].opinions-tag,
+[data-kind='solution'].opinions-spotlight-tag {
+  background: #2f68d8;
+  color: #fff;
+}
+
+[data-kind='question'].opinions-tag,
+[data-kind='question'].opinions-spotlight-tag {
+  background: #c792ff;
+  color: #1d0b33;
+}
+
+[data-kind='insight'].opinions-tag,
+[data-kind='insight'].opinions-spotlight-tag {
+  background: #7ee0c3;
+  color: #062a20;
+}
+
+.opinions-center {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-height: 0;
+}
+
+.opinions-theme {
+  padding: 24px 28px;
+  border-radius: 24px;
+  background: rgb(12 14 20 / 72%);
+  text-align: center;
+}
+
+.opinions-theme-label {
+  margin: 0;
+  color: #7ee0c3;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.opinions-theme-title {
+  margin: 8px 0;
+  font-size: 46px;
+  font-weight: 900;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.opinions-theme-hint {
+  margin: 0;
+  color: rgb(255 255 255 / 80%);
+  font-size: 19px;
+}
+
+.opinions-spotlight {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 24px 28px;
+  border: 2px solid rgb(255 255 255 / 35%);
+  border-radius: 24px;
+  background: rgb(12 14 20 / 62%);
+}
+
+.opinions-spotlight[hidden] {
+  display: none;
+}
+
+.opinions-spotlight--enter {
+  animation: opinions-spotlight-in 600ms ease-out;
+}
+
+.opinions-spotlight-label {
+  margin: 0;
+  color: rgb(255 255 255 / 80%);
+  font-size: 19px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.opinions-spotlight-head {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin: 0;
+}
+
+.opinions-spotlight-topic {
+  color: rgb(255 255 255 / 80%);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.opinions-spotlight-text {
+  margin: 0;
+  font-size: 34px;
+  font-weight: 900;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.opinions-spotlight-author {
+  margin: 0;
+  color: rgb(255 255 255 / 75%);
+  font-size: 18px;
+}
+
+@keyframes opinions-in {
+  from {
+    opacity: 0;
+    transform: translateY(-12px) scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes opinions-spotlight-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
