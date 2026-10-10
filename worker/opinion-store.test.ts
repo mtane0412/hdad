@@ -7,6 +7,8 @@
  * - 振り分けを1つの batch で書き、新しい論点・新しい意見・既にある意見への統合・無関係をコメントの状態に反映すること
  * - 合成ページへは隠した意見と人数を出さず、管理画面へは隠した意見・人数・もとのコメントを出すこと
  * - 締め切ったあとも、次のテーマを開くまで最後のテーマを映すこと
+ * - 視聴者への問いかけを、開いているテーマにだけ書くこと（issue #307）
+ * - Jev の確率をコメントに残し、しきい値に届かなかったコメントだけを振り分け待ちから外すこと（issue #307）
  */
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createFakeDatabase } from './fake-database'
@@ -19,8 +21,11 @@ import {
   readOverlayBoard,
   readPendingComments,
   readSortingBoard,
+  readVisibleBoard,
+  recordFilterResults,
   recordOpinionComment,
   applySorting,
+  saveThemePrompt,
   setOpinionHidden,
   type OpinionCommentInput,
 } from './opinion-store'
@@ -227,5 +232,97 @@ describe('振り分けの反映と読み出し', () => {
     expect((await readOverlayBoard(db)).theme).toMatchObject({ id: theme.id, closedAt: new Date(LATER).toISOString() })
     const next = await open('次のテーマ', LATER + 1000)
     expect(await readOverlayBoard(db)).toEqual({ theme: next, topics: [] })
+  })
+})
+
+describe('問いかけ', () => {
+  it('開いたばかりのテーマは問いかけを持たない', async () => {
+    const theme = await open('配信中にAIをどこまで使っていい？')
+    expect(theme.prompt).toBeNull()
+  })
+
+  it('開いているテーマに問いかけを書き、合成ページと管理画面へ渡す', async () => {
+    const theme = await open('配信中にAIをどこまで使っていい？')
+
+    const saved = await saveThemePrompt(db, theme.id, 'AIの使用料、配信者はどこまで払っていいと思う？')
+
+    expect(saved).toEqual({ ...theme, prompt: 'AIの使用料、配信者はどこまで払っていいと思う？' })
+    expect((await readOverlayBoard(db)).theme?.prompt).toBe('AIの使用料、配信者はどこまで払っていいと思う？')
+    expect((await readAdminBoard(db)).theme?.prompt).toBe('AIの使用料、配信者はどこまで払っていいと思う？')
+  })
+
+  it('LLM を待つあいだにテーマが締め切られていたら書かない', async () => {
+    const theme = await open('配信中にAIをどこまで使っていい？')
+    await closeTheme(db, theme.id, LATER)
+
+    expect(await saveThemePrompt(db, theme.id, 'AIの使用料、配信者はどこまで払っていいと思う？')).toBeNull()
+    expect((await readOverlayBoard(db)).theme?.prompt).toBeNull()
+  })
+})
+
+describe('Jev の確率の記録', () => {
+  /** テーマを開き、2人のコメントを貯めて、コメントのIDを返す */
+  const prepare = async () => {
+    const theme = await open('配信中にAIをどこまで使っていい？')
+    await recordOpinionComment(db, comment('m1', 'aoi', 'AIのコメ返しはちょっと寂しい'), NOW)
+    await recordOpinionComment(db, comment('m2', 'mugi', '今日の晩ごはんはカレー'), NOW + 1000)
+    const [first, second] = (await readPendingComments(db, theme.id)).map(({ id }) => id)
+    if (first === undefined || second === undefined) throw new Error('コメントが2件貯まっていません')
+    return { theme, ids: [first, second] as const }
+  }
+
+  /** コメントの状態と Jev の確率を、IDの順に読む */
+  const statuses = (): unknown[] => db.sqlite.prepare('SELECT status, jev_score FROM opinion_comments ORDER BY id').all().map((row) => ({ ...row }))
+
+  it('確率を残し、しきい値に届かなかったコメントだけを filtered にする', async () => {
+    const { theme, ids } = await prepare()
+
+    await recordFilterResults(db, theme.id, [
+      { commentIds: [ids[0]], score: 0.92, kept: true },
+      { commentIds: [ids[1]], score: 0.03, kept: false },
+    ])
+
+    expect(statuses()).toEqual([
+      { status: 'pending', jev_score: 0.92 },
+      { status: 'filtered', jev_score: 0.03 },
+    ])
+    expect((await readPendingComments(db, theme.id)).map(({ id }) => id)).toEqual([ids[0]])
+  })
+
+  it('Jev を待つあいだにテーマが締め切られていたら書かない', async () => {
+    const { theme, ids } = await prepare()
+    await closeTheme(db, theme.id, LATER)
+
+    await recordFilterResults(db, theme.id, [{ commentIds: [ids[1]], score: 0.03, kept: false }])
+
+    expect(statuses()).toEqual([
+      { status: 'pending', jev_score: null },
+      { status: 'pending', jev_score: null },
+    ])
+  })
+})
+
+describe('readVisibleBoard', () => {
+  it('隠した意見を除いて、論点と意見を作った順に読む', async () => {
+    const theme = await open('配信中にAIをどこまで使っていい？')
+    await recordOpinionComment(db, comment('m1', 'aoi', 'AIのコメ返しはちょっと寂しい'), NOW)
+    await recordOpinionComment(db, comment('m2', 'arashi', '配信者はAIの言いなり'), NOW + 1000)
+    const [first, second] = (await readPendingComments(db, theme.id)).map(({ id }) => id)
+    if (first === undefined || second === undefined) throw new Error('コメントが2件貯まっていません')
+    await applySorting(
+      db,
+      theme.id,
+      [
+        { type: 'new', commentIds: [first], topic: { type: 'new', title: '視聴者との距離' }, kind: 'issue', text: 'AIの返事は寂しい' },
+        { type: 'new', commentIds: [second], topic: { type: 'new', title: '視聴者との距離' }, kind: 'insight', text: '配信者はAIの言いなり' },
+      ],
+      NOW,
+    )
+    const hiddenId = (await readSortingBoard(db, theme.id))[0]?.opinions[1]?.id ?? 0
+    await setOpinionHidden(db, hiddenId, true)
+
+    expect(await readVisibleBoard(db, theme.id)).toEqual([
+      { id: expect.any(Number), title: '視聴者との距離', opinions: [{ id: expect.any(Number), kind: 'issue', text: 'AIの返事は寂しい' }] },
+    ])
   })
 })

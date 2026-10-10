@@ -12,16 +12,18 @@ paths:
   - "worker/stream-title.ts"
   - "worker/text-auto.ts"
   - "worker/opinion-sort.ts"
+  - "worker/opinion-prompt.ts"
+  - "worker/opinion-filter.ts"
 ---
 
 # LLMの呼び先・使用状況・モデルの選択
 
-LLMを呼ぶのは10か所（`LLM_USAGES`: `translation`・`aiChat`・`sideSuper`・`viewerSummary`・`streamSummary`・`streamTitle`・`townTour`・`townBond`・`autoText`・`opinionSort`。`opinionSort` は意見ボードの振り分け（`worker/opinion-sort.ts`。`.claude/rules/opinions.md`）で、テーマを出しているあいだだけ呼ぶ。`autoText` はテキストの自動の書き換え（`worker/text-auto.ts`。`.claude/rules/text.md`）。`townBond` は市町村紹介のレイド元との共通点（`worker/town-bond.ts`）で、既定の提供元が OpenRouter（`google/gemini-3.8-flash`）の唯一の箇所。`streamTitle` は配信タイトルの候補（`worker/stream-title.ts`。試験運用で、設定を入れたときだけ呼ぶ）。`townTour` は市町村紹介（`worker/town-tour.ts`）で、合成ページから呼ばれるたびに作る。配信の章も `streamSummary` を指名する。`translation` は字幕の翻訳の提供元に LLM を選んだときだけ `worker/translation.ts` が指名する）だが、呼び先を決めるのは `worker/llm.ts` だけである。呼び出し側はモデル名ではなくどこで使うかを指名し、提供元（Workers AI・OpenRouter）とモデルは設定（`worker/llm-config.ts`。KVは `llm-settings`）が箇所ごとに決める。失敗は黙って別の提供元へ落とさない。使用状況は `worker/llm-usage-store.ts` が「日（UTC）× 箇所 × 提供元 × モデル」の1行へ足し込む。モデルは入力させず `worker/llm-models.ts` の候補から選ばせる。管理画面は `/llm/`。→ `docs/decisions/llm.md`
+LLMを呼ぶのは11か所（`LLM_USAGES`: `translation`・`aiChat`・`sideSuper`・`viewerSummary`・`streamSummary`・`streamTitle`・`townTour`・`townBond`・`autoText`・`opinionSort`・`opinionPrompt`。`opinionSort` は意見ボードの振り分け（`worker/opinion-sort.ts`。`.claude/rules/opinions.md`）で、テーマを出しているあいだだけ呼ぶ。`opinionPrompt` は意見ボードの視聴者への問いかけ（`worker/opinion-prompt.ts`）で、答えが届いたときと配信者が替えさせたときだけ呼ぶ。`autoText` はテキストの自動の書き換え（`worker/text-auto.ts`。`.claude/rules/text.md`）。`townBond` は市町村紹介のレイド元との共通点（`worker/town-bond.ts`）で、既定の提供元が OpenRouter（`google/gemini-3.8-flash`）の唯一の箇所。`streamTitle` は配信タイトルの候補（`worker/stream-title.ts`。試験運用で、設定を入れたときだけ呼ぶ）。`townTour` は市町村紹介（`worker/town-tour.ts`）で、合成ページから呼ばれるたびに作る。配信の章も `streamSummary` を指名する。`translation` は字幕の翻訳の提供元に LLM を選んだときだけ `worker/translation.ts` が指名する）だが、呼び先を決めるのは `worker/llm.ts` だけである。呼び出し側はモデル名ではなくどこで使うかを指名し、提供元（Workers AI・OpenRouter）とモデルは設定（`worker/llm-config.ts`。KVは `llm-settings`）が箇所ごとに決める。失敗は黙って別の提供元へ落とさない。使用状況は `worker/llm-usage-store.ts` が「日（UTC）× 箇所 × 提供元 × モデル」の1行へ足し込む。モデルは入力させず `worker/llm-models.ts` の候補から選ばせる。管理画面は `/llm/`。→ `docs/decisions/llm.md`
 
 **OpenRouter へは既定で推論を切って送る**（`reasoning: { enabled: false }`）。推論を止められないモデル（`google/gemini-3.8-flash` は400で断る）を既定にする箇所だけが、呼び出しで `LlmRequest.reasoning: 'low'` を指定し、`maxTokens` を思考のぶんまで大きくとる（いまは `townBond` だけ）。
 
 **箇所を足したら、保存済みの `llm-settings` に無い箇所だけ読み出しで既定を補う**（`loadLlmSettings` の `fillAddedUsages`。キーがあって中身が壊れているものは補わず拒む。保存（PUT）の検証は補わない）。字幕の翻訳の m2m100・DeepL は LLM ではないが、使用状況は `llm_usage` の箇所 `translation` へ足し込む（提供元の型は `UsageProvider`。DeepL は `deepl`）。
 
-判定用のモデル Jev（TypeSafe）は文面を作らないので `llm.ts` には載せず、入口を `worker/jev.ts` の1か所に持つ。呼び出し側は使う箇所（`JEV_USAGES`: `bgm`・`streamTitle`）を指名し、Noul・Choice・Score の質問を1回にまとめて渡す。モデルは版を固定した `JEV_MODEL` で、設定で選ばせない。答えが欠けている・型が違う場合は投げる。使用状況は LLM と同じ `llm_usage` へ足し込み、`/llm/` の箇所の表に LLM の箇所と並べて（`src/llm/api.ts` の `JEV_USAGES`）全体の合計にも含める。→ `docs/decisions/llm.md` の「判定には Jev を使う」
+判定用のモデル Jev（TypeSafe）は文面を作らないので `llm.ts` には載せず、入口を `worker/jev.ts` の1か所に持つ。呼び出し側は使う箇所（`JEV_USAGES`: `bgm`・`streamTitle`・`opinionFilter`。`opinionFilter` は意見ボードの振り分けの前の絞り込み（`worker/opinion-filter.ts`）で、質問を発言の数だけ1回にまとめて渡す）を指名し、Noul・Choice・Score の質問を1回にまとめて渡す。モデルは版を固定した `JEV_MODEL` で、設定で選ばせない。答えが欠けている・型が違う場合は投げる。使用状況は LLM と同じ `llm_usage` へ足し込み、`/llm/` の箇所の表に LLM の箇所と並べて（`src/llm/api.ts` の `JEV_USAGES`）全体の合計にも含める。→ `docs/decisions/llm.md` の「判定には Jev を使う」
 
 利用者向けの説明は `docs/guide/llm.md`。

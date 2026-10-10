@@ -39,6 +39,7 @@ const api: LlmApi = {
           townBond: { provider: 'workers-ai', models: { ...lightModel } },
           autoText: { provider: 'workers-ai', models: { ...lightModel } },
           opinionSort: { provider: 'workers-ai', models: { ...lightModel } },
+          opinionPrompt: { provider: 'workers-ai', models: { ...lightModel } },
         },
       },
       apiKeyConfigured: false,

@@ -43,7 +43,7 @@ export const JEV_TIMEOUT_MS = 10_000
 const MAX_ERROR_BODY_LENGTH = 200
 
 /** Jev を使う箇所。使用状況の記録で箇所ごとに分けて数える */
-export const JEV_USAGES = ['bgm', 'streamTitle'] as const
+export const JEV_USAGES = ['bgm', 'streamTitle', 'opinionFilter'] as const
 
 /** Jev を使う箇所の1つ */
 export type JevUsage = (typeof JEV_USAGES)[number]

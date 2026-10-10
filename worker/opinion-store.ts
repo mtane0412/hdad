@@ -7,6 +7,8 @@
  *   テーマを出していないあいだの発言では1行も書かない）
  * - 振り分け（worker/opinion-sort.ts）の結果は、論点・意見・コメントの状態を1つの batch で書く（途中で失敗して、意見だけ
  *   増えてコメントが振り分け待ちのまま残る、といった食い違いを作らないため）
+ * - Jev の絞り込み（worker/opinion-filter.ts）の確率はコメントに残し、しきい値に届かなかったコメントは filtered にする（issue #307）
+ * - 視聴者への問いかけ（worker/opinion-prompt.ts）はテーマの行に持つ（issue #307）
  *
  * 注意: SQLに値を埋め込まず、必ずプレースホルダで渡す。コメントのIDの並びは JSON の配列にして json_each で展開する。
  */
@@ -26,7 +28,7 @@ import type { SortingAction, SortingTopic } from './opinion-sort'
 const toIso = (milliseconds: number): string => new Date(milliseconds).toISOString()
 
 /** テーマを選ぶ列 */
-const THEME_COLUMNS = 'id, title, opened_at AS openedAt, closed_at AS closedAt'
+const THEME_COLUMNS = 'id, title, opened_at AS openedAt, closed_at AS closedAt, prompt'
 
 /** 貯めるコメント（届いた通知から取り出した値） */
 export interface OpinionCommentInput {
@@ -117,6 +119,43 @@ const readTopics = async (db: Database, themeId: number): Promise<{ id: number; 
   return results
 }
 
+/** Jev の絞り込みの結果1件（worker/opinion-filter.ts の FilteredUtterance を、コメントのIDで指したもの） */
+export interface FilterResultInput {
+  /** 発言につなげたコメントのID */
+  readonly commentIds: readonly number[]
+  /** 意見である確率（0〜1） */
+  readonly score: number
+  /** 振り分けの LLM へ渡すか。渡さなければ filtered にする */
+  readonly kept: boolean
+}
+
+/**
+ * Jev の絞り込みの結果を書く。確率はどのコメントにも残し（しきい値を実配信の記録から決めるため）、渡さないコメントは filtered にする。
+ *
+ * 振り分け待ちのコメントだけを書き換え、Jev を待つあいだにテーマが締め切られていたら何も書かない（applySorting と同じ条件）。
+ */
+export const recordFilterResults = async (db: Database, themeId: number, results: readonly FilterResultInput[]): Promise<void> => {
+  if (results.length === 0) return
+  await db.batch(
+    results.map(({ commentIds, score, kept }) =>
+      db
+        .prepare(
+          `UPDATE opinion_comments SET jev_score = ?1, status = ?2
+           WHERE id IN (SELECT value FROM json_each(?3)) AND status = 'pending' AND ${themeIsOpen('?4')}`,
+        )
+        .bind(score, kept ? 'pending' : 'filtered', JSON.stringify(commentIds), themeId),
+    ),
+  )
+}
+
+/**
+ * 開いているテーマに、視聴者への問いかけを書く。
+ *
+ * @returns 書いたテーマ。LLM を待つあいだに締め切られていた（またはそのIDのテーマが開いていない）なら null で、何も書かない
+ */
+export const saveThemePrompt = async (db: Database, themeId: number, prompt: string): Promise<OpinionTheme | null> =>
+  db.prepare(`UPDATE opinion_themes SET prompt = ?2 WHERE id = ?1 AND closed_at IS NULL RETURNING ${THEME_COLUMNS}`).bind(themeId, prompt).first<OpinionTheme>()
+
 /** 意見の行（最初のもとのコメントの書き手を添える） */
 interface OpinionRow {
   id: number
@@ -147,21 +186,35 @@ const readOpinions = async (db: Database, themeId: number): Promise<OpinionRow[]
 const toOverlayOpinion = (row: OpinionRow): OverlayOpinion => ({ id: row.id, kind: row.kind, text: row.text, author: row.author, createdAt: row.createdAt })
 
 /**
- * 振り分けの材料にする、いまの論点と意見を読む（論点は作った順、意見は作った順）。
+ * LLM の材料にする、いまの論点と意見を読む（論点は作った順、意見は作った順）。
  *
- * 隠した意見も含める。同じ意見が書かれたときに、新しい意見として出し直させないため。
+ * @param includeHidden 隠した意見も含めるか
  */
-export const readSortingBoard = async (db: Database, themeId: number): Promise<SortingTopic[]> => {
+const readMaterialBoard = async (db: Database, themeId: number, includeHidden: boolean): Promise<SortingTopic[]> => {
   const [topics, opinions] = await Promise.all([readTopics(db, themeId), readOpinions(db, themeId)])
   return topics.map((topic) => ({
     id: topic.id,
     title: topic.title,
     opinions: opinions
-      .filter(({ topicId }) => topicId === topic.id)
+      .filter(({ topicId, hidden }) => topicId === topic.id && (includeHidden || hidden === 0))
       .reverse()
       .map(({ id, kind, text }) => ({ id, kind, text })),
   }))
 }
+
+/**
+ * 振り分けの材料にする、いまの論点と意見を読む（論点は作った順、意見は作った順）。
+ *
+ * 隠した意見も含める。同じ意見が書かれたときに、新しい意見として出し直させないため。
+ */
+export const readSortingBoard = (db: Database, themeId: number): Promise<SortingTopic[]> => readMaterialBoard(db, themeId, true)
+
+/**
+ * 問いかけの材料にする、いまの論点と意見を読む（論点は作った順、意見は作った順）。
+ *
+ * 隠した意見は含めない（荒らしの文を、合成ページに出す問いかけの材料にしないため）。
+ */
+export const readVisibleBoard = (db: Database, themeId: number): Promise<SortingTopic[]> => readMaterialBoard(db, themeId, false)
 
 /**
  * テーマがまだ開いているかを確かめる条件。振り分けの各文に付け、LLM を待つあいだに締め切られたテーマへは書かない。

@@ -10,12 +10,17 @@
  *
  * Durable Object は時計であって判定者ではない（.claude/rules/implementation.md）。テーマが開いているかは鳴るたびに D1 を読んで決める。
  *
+ * 振り分けの前の Jev の絞り込み（worker/opinion-filter.ts。issue #307）は、OpenRouter の鍵があるときだけ行う。鍵が無い配信者でも
+ * 意見ボードを使えるようにするためで、鍵が無いときは Jev を組み立てずに null を渡す。
+ *
  * 注意: 振り分けの失敗は投げずに記録して、次のアラームを仕掛ける（1回の失敗でテーマを出しているあいだの振り分けを止めない）。
  *   振り分けそのものの失敗（LLM・照合）は worker/opinion-run.ts が記録するので、ここで受け止めるのはその手前の失敗（D1 など）である。
  */
 import type { AlarmDependencies } from './alarm-actions'
 import { STATUS, type Env } from './http'
+import { createJev } from './jev'
 import { createLlm } from './llm'
+import { OPINION_FILTER_THRESHOLD } from './opinion-filter'
 import { runOpinionSorting } from './opinion-run'
 import { recordFailure } from './stats-store'
 
@@ -105,9 +110,11 @@ export const runOpinionAlarm = async (storage: OpinionTimerStorage, env: Env, de
 
   const now = dependencies.now()
   const llm = createLlm({ ai: env.AI, store: env.STORE, fetch: dependencies.fetch, apiKey: env.OPENROUTER_API_KEY, db: env.DB, now: dependencies.now })
+  const apiKey = env.OPENROUTER_API_KEY ?? ''
+  const jev = apiKey === '' ? null : createJev({ fetch: dependencies.fetch, apiKey, db: env.DB, now: dependencies.now })
   let open = true
   try {
-    open = await runOpinionSorting({ db: env.DB, alerts: env.ALERTS, llm, now })
+    open = await runOpinionSorting({ db: env.DB, alerts: env.ALERTS, llm, jev, filterThreshold: OPINION_FILTER_THRESHOLD, now })
   } catch (error) {
     await recordFailure(env.DB, 'opinion-sort-failed', `意見の振り分けが失敗しました: ${error instanceof Error ? error.message : String(error)}`, now)
   }

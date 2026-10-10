@@ -42,8 +42,21 @@ export const LLM_PROVIDERS = ['workers-ai', 'openrouter'] as const
  * townBond は、市町村紹介でレイド元と市町村の共通点を作るとき（worker/town-bond.ts）だけ呼ばれる。
  * autoText は、自動で書き換えるテキスト（worker/text-auto.ts。issue #295）があるときだけ cron が5分おきに呼ぶ（後から足したので末尾に置く）。
  * opinionSort は、意見ボード（worker/opinion-sort.ts。issue #306）でテーマを出しているあいだだけ、新しい発言があれば45秒おきに呼ぶ（後から足したので末尾に置く）。
+ * opinionPrompt は、意見ボードの問いかけ（worker/opinion-prompt.ts。issue #307）を、問いかけに答える意見が届いたときと配信者が替えさせたときだけ呼ぶ（同上）。
  */
-export const LLM_USAGES = ['translation', 'aiChat', 'sideSuper', 'viewerSummary', 'streamSummary', 'streamTitle', 'townTour', 'townBond', 'autoText', 'opinionSort'] as const
+export const LLM_USAGES = [
+  'translation',
+  'aiChat',
+  'sideSuper',
+  'viewerSummary',
+  'streamSummary',
+  'streamTitle',
+  'townTour',
+  'townBond',
+  'autoText',
+  'opinionSort',
+  'opinionPrompt',
+] as const
 
 export type LlmProvider = (typeof LLM_PROVIDERS)[number]
 export type LlmUsage = (typeof LLM_USAGES)[number]
@@ -104,6 +117,9 @@ export const DEFAULT_LLM_SETTINGS: LlmSettings = {
     // 意見ボードの振り分け（worker/opinion-sort.ts）は JSON の形とラベルを守らせ、発言を40文字の1文にまとめさせるので大きいモデルにする。
     // テーマを出しているあいだしか呼ばないので、回数は配信者が決められる
     opinionSort: { provider: 'workers-ai', models: LARGE_MODELS },
+    // 意見ボードの問いかけ（worker/opinion-prompt.ts）は、まだ出ていない切り口を自然な日本語の1文で作らせるので大きいモデルにする。
+    // 問いかけに答える意見が届いたときにしか作り直さないので、回数は振り分けより少ない
+    opinionPrompt: { provider: 'workers-ai', models: LARGE_MODELS },
   },
 }
 

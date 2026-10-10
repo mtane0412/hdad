@@ -9,12 +9,13 @@
  * - 作ったばかりの意見に印を付けること
  * - 締め切ったテーマはそれと分かる見出しにし、テーマが無ければ何も出さないこと
  * - 変わっていない札の要素は作り直さないこと（作り直すと出現のアニメーションが全部の札で走る）
+ * - 視聴者への問いかけを中央下に出し、問いかけが無い・テーマを締め切ったら隠すこと（issue #307）
  */
 import { beforeEach, describe, expect, it } from 'vitest'
 import { FRESH_MS, SPOTLIGHT_MS, type OpinionBoard, type OverlayOpinion } from './entry'
 import { createOpinionView } from './view'
 
-const theme = { id: 1, title: '配信中にAIをどこまで使っていい？', openedAt: '2026-10-10T12:00:00.000Z', closedAt: null }
+const theme = { id: 1, title: '配信中にAIをどこまで使っていい？', openedAt: '2026-10-10T12:00:00.000Z', closedAt: null, prompt: null }
 
 /** 時刻 minute 分に作った意見 */
 const opinion = (id: number, kind: OverlayOpinion['kind'], text: string, author: string, minute: number): OverlayOpinion => ({
@@ -123,5 +124,24 @@ describe('createOpinionView', () => {
     view.setBoard({ ...board })
 
     expect(root.querySelector('.opinions-card')).toBe(before)
+  })
+
+  it('問いかけを「こんな観点からも聞いてみたい」として中央下に出す', () => {
+    createOpinionView(root).setBoard({ ...board, theme: { ...theme, prompt: 'AIの使用料、配信者はどこまで払っていいと思う？' } })
+
+    const prompt = root.querySelector<HTMLElement>('.opinions-center .opinions-prompt')
+    expect(prompt?.hidden).toBe(false)
+    expect(prompt?.querySelector('.opinions-prompt-label')?.textContent).toBe('こんな観点からも聞いてみたい')
+    expect(prompt?.querySelector('.opinions-prompt-text')?.textContent).toBe('AIの使用料、配信者はどこまで払っていいと思う？')
+  })
+
+  it('問いかけが無ければ、問いかけの欄を隠す', () => {
+    createOpinionView(root).setBoard(board)
+    expect(root.querySelector<HTMLElement>('.opinions-prompt')?.hidden).toBe(true)
+  })
+
+  it('テーマを締め切ったら、問いかけの欄を隠す（もう意見を募っていないため）', () => {
+    createOpinionView(root).setBoard({ ...board, theme: { ...theme, closedAt: '2026-10-10T12:30:00.000Z', prompt: 'AIの使用料、配信者はどこまで払っていいと思う？' } })
+    expect(root.querySelector<HTMLElement>('.opinions-prompt')?.hidden).toBe(true)
   })
 })

@@ -7,6 +7,7 @@
  * - 新しい論点は、同じ回に同じ名前で2回出たら1つの論点にまとめること
  * - 照合できない応答（発言の漏れ・重なり・知らないラベル・種類の誤り・上限超え・論点の数の超過・JSON でない）は、
  *   切り詰めたり補ったりせず、問題点をまとめて投げること
+ * - 問いかけを出しているときは、発言が問いかけへの答えか（answersPrompt）も読むこと（issue #307）
  */
 import { describe, expect, it } from 'vitest'
 import { createFakeAi } from './fake-ai'
@@ -25,7 +26,11 @@ const material: SortingMaterial = {
     { commentIds: [102, 104], userName: 'kei_kei', text: '配信者が 最後に確認するならいいと思う', replyName: null, replyText: null },
     { commentIds: [103], userName: 'mochi', text: 'BGMの曲名なに？', replyName: null, replyText: null },
   ],
+  prompt: null,
 }
+
+/** 問いかけを出しているときの材料 */
+const prompted: SortingMaterial = { ...material, prompt: 'AIの使用料、配信者はどこまで払っていいと思う？' }
 
 /** 応答の JSON を文字列にする */
 const respond = (results: unknown[]): string => JSON.stringify({ results })
@@ -60,11 +65,21 @@ describe('buildOpinionSortPrompt', () => {
   it('論点がまだ無いときはその旨を書く', () => {
     expect(buildOpinionSortPrompt({ ...material, board: [] })).toContain('まだありません')
   })
+
+  it('問いかけを出していなければ、問いかけについて書かない', () => {
+    expect(prompt).not.toContain('answersPrompt')
+  })
+
+  it('問いかけを出しているときは、問いかけと answersPrompt の付け方を伝える', () => {
+    const withPrompt = buildOpinionSortPrompt(prompted)
+    expect(withPrompt).toContain('AIの使用料、配信者はどこまで払っていいと思う？')
+    expect(withPrompt).toContain('"answersPrompt":true')
+  })
 })
 
 describe('parseOpinionSorting', () => {
   it('応答を振り分けに読み替え、発言のラベルをコメントのIDへ戻す', () => {
-    const actions = parseOpinionSorting(
+    const { actions } = parseOpinionSorting(
       respond([
         { comments: ['C1'], action: 'join', opinion: 'O21' },
         { comments: ['C2'], action: 'new', topic: 'T2', kind: '解決策', text: '最後に人が確認するなら使ってよい' },
@@ -80,7 +95,7 @@ describe('parseOpinionSorting', () => {
   })
 
   it('同じ新しい意見になる発言は1つにまとめられる', () => {
-    const actions = parseOpinionSorting(
+    const { actions } = parseOpinionSorting(
       respond([
         { comments: ['C1', 'C2'], action: 'new', newTopic: 'AIの確認', kind: '課題', text: 'AIの文は誰かが確認するべき' },
         { comments: ['C3'], action: 'ignore' },
@@ -92,7 +107,7 @@ describe('parseOpinionSorting', () => {
 
   it('コードブロックで囲まれた応答も読む', () => {
     const fenced = '```json\n' + respond([{ comments: ['C1', 'C2', 'C3'], action: 'ignore' }]) + '\n```'
-    expect(parseOpinionSorting(fenced, material)).toEqual([{ type: 'ignore', commentIds: [101, 102, 104, 103] }])
+    expect(parseOpinionSorting(fenced, material).actions).toEqual([{ type: 'ignore', commentIds: [101, 102, 104, 103] }])
   })
 
   it('JSON でなければ投げる', () => {
@@ -196,10 +211,57 @@ describe('parseOpinionSorting', () => {
   })
 })
 
+describe('parseOpinionSorting の問いかけへの答え', () => {
+  it('answersPrompt が無ければ、問いかけには答えていないとする', () => {
+    const { promptAnswered } = parseOpinionSorting(respond([{ comments: ['C1', 'C2', 'C3'], action: 'ignore' }]), prompted)
+    expect(promptAnswered).toBe(false)
+  })
+
+  it('join・new のどれかに answersPrompt が true で付いていれば、問いかけに答えたとする', () => {
+    const { promptAnswered } = parseOpinionSorting(
+      respond([
+        { comments: ['C1'], action: 'join', opinion: 'O21' },
+        { comments: ['C2'], action: 'new', topic: 'T1', kind: '解決策', text: '使用料は月千円までなら払える', answersPrompt: true },
+        { comments: ['C3'], action: 'ignore' },
+      ]),
+      prompted,
+    )
+    expect(promptAnswered).toBe(true)
+  })
+
+  it('問いかけを出していないのに answersPrompt が true なら投げる', () => {
+    expect(() =>
+      parseOpinionSorting(
+        respond([
+          { comments: ['C1'], action: 'join', opinion: 'O21', answersPrompt: true },
+          { comments: ['C2', 'C3'], action: 'ignore' },
+        ]),
+        material,
+      ),
+    ).toThrow('answersPrompt')
+  })
+
+  it('ignore に answersPrompt が true で付いていたら投げる（意見ではない発言は答えにならない）', () => {
+    expect(() => parseOpinionSorting(respond([{ comments: ['C1', 'C2', 'C3'], action: 'ignore', answersPrompt: true }]), prompted)).toThrow('answersPrompt')
+  })
+
+  it('answersPrompt が真偽値でなければ投げる', () => {
+    expect(() =>
+      parseOpinionSorting(
+        respond([
+          { comments: ['C1'], action: 'join', opinion: 'O21', answersPrompt: 'はい' },
+          { comments: ['C2', 'C3'], action: 'ignore' },
+        ]),
+        prompted,
+      ),
+    ).toThrow('answersPrompt')
+  })
+})
+
 describe('sortOpinions', () => {
   it('箇所 opinionSort を指名して呼び、応答を照合して返す', async () => {
     const ai = createFakeAi({ response: respond([{ comments: ['C1', 'C2', 'C3'], action: 'ignore' }]) })
-    await expect(sortOpinions(ai, material)).resolves.toEqual([{ type: 'ignore', commentIds: [101, 102, 104, 103] }])
+    await expect(sortOpinions(ai, material)).resolves.toEqual({ actions: [{ type: 'ignore', commentIds: [101, 102, 104, 103] }], promptAnswered: false })
     expect(ai.calls[0]?.usage).toBe('opinionSort')
   })
 })

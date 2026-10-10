@@ -6,6 +6,7 @@
  * - 「いま紹介している意見」は人数ではなく、意見を作った順に一定の時間ずつ回すこと（少数の意見にも同じだけ出番を回す）
  * - 作ったばかりの意見を見分けられること
  * - 論点を左右の枠（3つずつ）に分けること
+ * - テーマの問いかけ（issue #307）を読み、文字列か null でなければ投げること
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -20,7 +21,7 @@ import {
   type OverlayTopic,
 } from './entry'
 
-const theme = { id: 1, title: '配信中にAIをどこまで使っていい？', openedAt: '2026-10-10T12:00:00.000Z', closedAt: null }
+const theme = { id: 1, title: '配信中にAIをどこまで使っていい？', openedAt: '2026-10-10T12:00:00.000Z', closedAt: null, prompt: null }
 
 /** 論点が2つ、意見が3件ある意見ボード（意見は新しい順） */
 const board: OpinionBoard = {
@@ -48,6 +49,15 @@ describe('readOpinionBoard', () => {
     expect(() => readOpinionBoard({ theme, topics: [{ id: 1, title: '視聴者との距離' }] })).toThrow()
     expect(() => readOpinionBoard({ theme, topics: [{ id: 1, title: '視聴者との距離', opinions: [{ ...board.topics[1]?.opinions[0], kind: '賛成' }] }] })).toThrow()
     expect(() => readOpinionBoard({ topics: [] })).toThrow('theme')
+  })
+
+  it('テーマの問いかけを読み、文字列か null でなければ投げる', () => {
+    const prompted = { ...board, theme: { ...theme, prompt: 'AIの使用料、配信者はどこまで払っていいと思う？' } }
+    expect(readOpinionBoard(JSON.parse(JSON.stringify(prompted)))).toEqual(prompted)
+    expect(() => readOpinionBoard({ theme: { ...theme, prompt: 1 }, topics: [] })).toThrow('theme')
+    // 問いかけを持たない応答（古い Worker）も、形が違うとして投げる
+    const withoutPrompt = { id: theme.id, title: theme.title, openedAt: theme.openedAt, closedAt: theme.closedAt }
+    expect(() => readOpinionBoard({ theme: withoutPrompt, topics: [] })).toThrow('theme')
   })
 
   it('押し出された文字列も読む', () => {

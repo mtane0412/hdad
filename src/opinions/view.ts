@@ -4,7 +4,8 @@
  * 配信画面に出しっぱなしにする素材なので、DOMを扱うのはここだけにして、読み出し（api.ts）・形の確かめと紹介する意見の選び方
  * （entry.ts）・起動（src/overlay/stage.ts）から切り離す。
  *
- * 配置は3列で、中央にテーマと「いま紹介している意見」、左右に論点を3つずつ置く（作った順に左から）。論点の中は新しい意見を
+ * 配置は3列で、中央にテーマと「いま紹介している意見」、中央下に視聴者への問いかけ（issue #307）、左右に論点を3つずつ置く
+ * （作った順に左から）。問いかけは、まだ作っていないときとテーマを締め切ったあと（もう意見を募っていない）は隠す。論点の中は新しい意見を
  * CARDS_PER_TOPIC 件まで、札の種類（課題・解決策・問い・気づき）つきで並べる。人数は出さない（多数決に見せないため）。
  * 札の種類は色だけでなく文字でも出し、見た目（opinions.css）で明るさも変える。
  *
@@ -27,6 +28,9 @@ const HINT = 'チャットに書いた意見が、観点ごとに並んでいき
 
 /** 「いま紹介している意見」の見出し */
 const SPOTLIGHT_LABEL = 'いま紹介している意見'
+
+/** 視聴者への問いかけの見出し */
+const PROMPT_LABEL = 'こんな観点からも聞いてみたい'
 
 export interface OpinionView {
   /** 映す意見ボードを置き換える */
@@ -93,7 +97,10 @@ export const createOpinionView = (root: HTMLElement): OpinionView => {
   const spotlightText = element('p', 'opinions-spotlight-text')
   const spotlightAuthor = element('p', 'opinions-spotlight-author')
   spotlightBox.append(element('p', 'opinions-spotlight-label', SPOTLIGHT_LABEL), spotlightHead, spotlightText, spotlightAuthor)
-  center.append(themeBox, spotlightBox)
+  const promptBox = element('div', 'opinions-prompt')
+  const promptText = element('p', 'opinions-prompt-text')
+  promptBox.append(element('p', 'opinions-prompt-label', PROMPT_LABEL), promptText)
+  center.append(themeBox, spotlightBox, promptBox)
 
   boardElement.append(left, center, right)
   root.append(boardElement)
@@ -139,6 +146,9 @@ export const createOpinionView = (root: HTMLElement): OpinionView => {
       boardElement.hidden = board.theme === null
       themeLabel.textContent = board.theme !== null && board.theme.closedAt !== null ? CLOSED_LABEL : OPEN_LABEL
       themeTitle.textContent = board.theme?.title ?? ''
+      const prompt = board.theme !== null && board.theme.closedAt === null ? board.theme.prompt : null
+      promptBox.hidden = prompt === null
+      promptText.textContent = prompt ?? ''
       topics = board.topics
       const nextCards: typeof cards = new Map()
       const sides = splitTopics(board.topics)
