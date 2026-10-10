@@ -65,4 +65,14 @@ describe('issueKanjiQuiz', () => {
     expect(alertChannel.pushedKanjiQuizzes.map(({ id }) => id)).toEqual(['quiz-1', 'quiz-2'])
     expect(alertChannel.pushedKanjiQuizNotices).toEqual([{ type: 'failure', message: expect.stringContaining('すべて出しました') }])
   })
+
+  it('押し出しに失敗したら、流れなかった問題を「出した」に数えないよう行を消してから投げる', async () => {
+    const db = createFakeDatabase()
+    await recordStreamOnline(db, { id: 'stream-1', startedAt: now - 60_000 })
+    const failingChannel = createFakeAlertChannel({ shouldFail: true })
+
+    await expect(issueKanjiQuiz({ db, alerts: failingChannel.namespace, now, random: () => 0, id: 'quiz-1' }, { grade: '6', requesterName: '田中太郎' }, problems)).rejects.toThrow()
+
+    expect(await readUsedKanjiQuizWords(db, now)).toEqual(new Set())
+  })
 })

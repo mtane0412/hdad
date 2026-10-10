@@ -6,6 +6,7 @@
  * 合成ページの素材「漢字クイズ」へ押し出す。行を押し出す前に入れるのは、合成ページが流しはじめて出題を開くまでに行が要るためである。
  * 試し再生で出した問題も、同じ配信で出したものとして数える（配信中の試し再生も OBS の画面に映るため）。
  *
+ * 注意: 押し出しに失敗したら、流れなかった問題を「出した」に数えないよう行を消してから投げる（消せなければその理由も添える）。
  * 注意: 選べる問題が尽きたら、黙って重複させず、素材の箱に出す知らせを押し出してから投げる（呼び出し側が失敗として記録するか返す）。
  */
 import type { KankenGrade } from '../src/kanji-quiz/grade'
@@ -13,7 +14,7 @@ import type { KanjiQuizProblem } from '../src/kanji-quiz/problems'
 import { pushKanjiQuiz, pushKanjiQuizNotice, type AlertChannelNamespace } from './alert-channel'
 import type { Database } from './database'
 import { KANJI_QUIZ_PROBLEMS, KanjiQuizExhaustedError, pickKanjiQuizProblem, type KanjiQuizCall } from './kanji-quiz-call'
-import { readUsedKanjiQuizWords, recordKanjiQuiz } from './kanji-quiz-store'
+import { readUsedKanjiQuizWords, recordKanjiQuiz, removeKanjiQuiz } from './kanji-quiz-store'
 
 /** 出題に使うもの。乱数と識別子はテストで差し替えるため引数で受け取る */
 export interface KanjiQuizIssueDeps {
@@ -49,6 +50,15 @@ export const issueKanjiQuiz = async (
   }
   await recordKanjiQuiz(db, { id, word: problem.word }, now)
   const call: KanjiQuizCall = { id, problem, requesterName: request.requesterName }
-  await pushKanjiQuiz(alerts, call)
+  try {
+    await pushKanjiQuiz(alerts, call)
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    // 流れなかった問題を「出した」に数えない。消せなかったら黙らず、その理由も添えて投げる
+    await removeKanjiQuiz(db, id).catch((removeError: unknown) => {
+      throw new Error(`${reason}（出題の行も消せませんでした: ${removeError instanceof Error ? removeError.message : String(removeError)}）`)
+    })
+    throw error
+  }
   return call
 }

@@ -47,6 +47,13 @@ export const recordKanjiQuiz = async (db: Database, quiz: KanjiQuizRecord, now: 
 }
 
 /**
+ * 選んだ出題の行を消す。押し出しに失敗して合成ページに流れなかった問題を、同じ配信で出したものとして数えないために使う。
+ */
+export const removeKanjiQuiz = async (db: Database, id: string): Promise<void> => {
+  await db.prepare('DELETE FROM kanji_quizzes WHERE id = ?1').bind(id).run()
+}
+
+/**
  * 合成ページが流しはじめた出題を開く。級を出し終えて熟語が出たときから、制限時間と遅れの余裕のあいだ回答を受け付ける。
  * 同じ出題がもう開いていれば、受け付ける時刻を変えない（合成ページを2つ開いていても長さを延ばさない）。
  *
