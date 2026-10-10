@@ -67,8 +67,7 @@ const COLORS = {
   countdown: '#ff4d4d',
   wordStroke: 'rgba(0, 0, 0, 0.6)',
   /** 配信を止めるまでの帯。止まる・数えているあいだは赤、止めない（取り消し・試し再生）ときは落ち着いた色 */
-  stopBanner: 'rgba(200, 30, 30, 0.92)',
-  stopBannerCalm: 'rgba(30, 90, 60, 0.92)',
+  stopBanner: 'rgba(30, 90, 60, 0.92)',
 } as const
 
 /** 級の場面で、見出しがはっきり出るまでにかける割合（場面の長さに対して） */
@@ -198,12 +197,12 @@ const drawReveal = (ctx: CanvasRenderingContext2D, width: number, height: number
   }
 }
 
-/** 配信を止めるまでの帯を、画面の下に重ねて描く */
+/** 配信を止める時刻の帯（試し再生で止めないこと）を、画面の下に重ねて描く */
 const drawStopBanner = (ctx: CanvasRenderingContext2D, width: number, height: number, unit: number, banner: KanjiQuizStopBanner): void => {
   const margin = SIZES.margin * unit
   const bannerHeight = SIZES.stopBannerHeight * unit
   const top = height - margin * 2 - bannerHeight
-  ctx.fillStyle = banner.kind === 'countdown' || banner.kind === 'stopping' ? COLORS.stopBanner : COLORS.stopBannerCalm
+  ctx.fillStyle = COLORS.stopBanner
   ctx.beginPath()
   ctx.roundRect(margin * 3, top, width - margin * 6, bannerHeight, SIZES.panelRadius * unit)
   ctx.fill()

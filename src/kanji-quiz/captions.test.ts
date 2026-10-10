@@ -40,16 +40,7 @@ describe('winnerLineOf', () => {
 })
 
 describe('stopBannerLineOf', () => {
-  it('猶予のあいだは、配信終了までの残り秒数を出す', () => {
-    expect(stopBannerLineOf({ kind: 'countdown', remainingSeconds: 7 })).toBe('配信終了まで 7秒')
-  })
-
-  it('猶予が尽きたら、止めるか（試し再生なら止めないか）を出す', () => {
-    expect(stopBannerLineOf({ kind: 'stopping' })).toBe('配信を終了します')
+  it('試し再生で猶予が尽きたら、止めないことを出す', () => {
     expect(stopBannerLineOf({ kind: 'rehearsal' })).toBe('試し再生なので配信は止めません')
-  })
-
-  it('取り消されたら、取り消されたことを出す', () => {
-    expect(stopBannerLineOf({ kind: 'cancelled' })).toBe('配信の停止は取り消されました')
   })
 })

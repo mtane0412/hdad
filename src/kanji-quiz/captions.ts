@@ -23,16 +23,10 @@ export const answerLineOf = (readings: readonly string[]): string => readings.jo
 /** 最初の正解者の一文（issue #301） */
 export const winnerLineOf = (userName: string): string => `${userName}さん 正解！`
 
-/** 配信を止めるまでの帯の文言（issue #302） */
+/** 配信を止める時刻の帯の文言（issue #302）。本番は予告せずに止めるので、出すのは試し再生で止めないことだけ */
 export const stopBannerLineOf = (banner: KanjiQuizStopBanner): string => {
   switch (banner.kind) {
-    case 'countdown':
-      return `配信終了まで ${banner.remainingSeconds}秒`
-    case 'stopping':
-      return '配信を終了します'
     case 'rehearsal':
       return '試し再生なので配信は止めません'
-    case 'cancelled':
-      return '配信の停止は取り消されました'
   }
 }

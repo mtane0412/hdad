@@ -11,9 +11,9 @@
  * 制限時間のうちに正解者が届いたら（issue #301）、届いた時刻でカウントダウンを止めて 3. へ進み、解説はそこから REVEAL_MS 出す。
  * 正解者が届いた時刻は合成ページの時計で測った、流しはじめてからの経過時間として受け取る（フレーム間の状態ではなく、再生の入力）。
  *
- * 時間切れで配信を止めるまでの猶予（issue #302）が届いたら、解説に重ねて帯を出す（kanjiQuizStopBannerAt）。猶予のあいだは配信終了までの
- * 残り秒数、猶予が尽きたら「終了します」（試し再生なら「止めません」）、取り消しが届いたら「取り消されました」を STOP_RESULT_MS 出す。
- * 1回の出題はその結果を出し終えるまで延ばし、延ばしたあいだは解説を出したままにする。猶予と取り消しも、届いた時刻（経過時間）として受け取る。
+ * 時間切れで配信を止めるまでの猶予（issue #302）が届いても、本番では何も出さずにいきなり配信を止める（予告しないほうが面白いため）。
+ * 試し再生だけは、猶予が尽きたら解説に重ねて「止めません」の帯を STOP_RESULT_MS 出す（kanjiQuizStopBannerAt）。取り消されたら何も出さない。
+ * 1回の出題は猶予の結果を出し終えるまで延ばし、延ばしたあいだは解説を出したままにする。猶予と取り消しも、届いた時刻（経過時間）として受け取る。
  *
  * 注意: フレーム間の状態を持たない（.claude/CLAUDE.md の「描画とパラメータ」）。描き方は view.ts が受け持つ。
  */
@@ -62,12 +62,8 @@ export interface KanjiQuizStop {
   readonly cancelledAfterMs: number | null
 }
 
-/** 配信を止めるまでの帯に出すもの */
-export type KanjiQuizStopBanner =
-  | { readonly kind: 'countdown'; readonly remainingSeconds: number }
-  | { readonly kind: 'stopping' }
-  | { readonly kind: 'rehearsal' }
-  | { readonly kind: 'cancelled' }
+/** 配信を止める時刻に出す帯。出すのは試し再生で止めないことだけ */
+export type KanjiQuizStopBanner = { readonly kind: 'rehearsal' }
 
 /**
  * 正解者を受け入れる時間か。熟語が出てから制限時間のあいだだけ受け入れる（時間切れの後に届いた正解者は出さない）。
@@ -92,19 +88,15 @@ export const kanjiQuizEndOf = (answeredAfterMs: number | null, stop: KanjiQuizSt
 }
 
 /**
- * 流しはじめてから elapsedMs ミリ秒たったときの、配信を止めるまでの帯。出さないときは null。
+ * 流しはじめてから elapsedMs ミリ秒たったときの、配信を止める時刻の帯。出さないときは null。
+ * 本番は予告せずにいきなり止めるので何も出さず、試し再生で猶予が尽きたときだけ止めないことを出す。
  *
  * @param stop 配信を止めるまでの猶予。届いていなければ null
  */
 export const kanjiQuizStopBannerAt = (elapsedMs: number, stop: KanjiQuizStop | null): KanjiQuizStopBanner | null => {
-  if (stop === null || elapsedMs < stop.announcedAfterMs) return null
+  if (stop === null || !stop.rehearsal || stop.cancelledAfterMs !== null) return null
   const resultFrom = stopResultFrom(stop)
-  if (elapsedMs < resultFrom) {
-    return { kind: 'countdown', remainingSeconds: Math.ceil((stop.announcedAfterMs + stop.graceMs - elapsedMs) / MS_PER_SECOND) }
-  }
-  if (elapsedMs >= resultFrom + STOP_RESULT_MS) return null
-  if (stop.cancelledAfterMs !== null) return { kind: 'cancelled' }
-  return stop.rehearsal ? { kind: 'rehearsal' } : { kind: 'stopping' }
+  return elapsedMs >= resultFrom && elapsedMs < resultFrom + STOP_RESULT_MS ? { kind: 'rehearsal' } : null
 }
 
 /**
