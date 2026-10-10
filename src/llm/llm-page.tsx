@@ -154,7 +154,7 @@ const USAGE_LABELS: Readonly<Record<LlmUsage, { name: string; description: strin
   },
   opinionSort: {
     name: '意見ボードの振り分け',
-    description: '意見ボードでテーマを出しているあいだ、新しいコメントがあれば45秒おきに呼ばれ、意見を取り出して論点ごとに振り分ける。決まった形の JSON を守らせるので大きいモデル向き。',
+    description: '意見ボードでテーマを出しているあいだ、新しいコメントがあれば45秒おきに呼ばれ、意見を取り出して論点ごとに振り分ける。意見にならなかったコメントを救い出すときの下書きも作る。決まった形の JSON を守らせるので大きいモデル向き。',
   },
   opinionPrompt: {
     name: '意見ボードの問いかけ',

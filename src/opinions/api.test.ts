@@ -3,6 +3,7 @@
  *
  * 実際の通信はせず、fetch を差し替える。合成ページの読み出し（オーバーレイ用キー）と、
  * アプリのページ（/opinions/）の読み書きの両方を確かめる。
+ * アプリのページからは、コメントの内訳と救い出せるコメントを読み、救い出し・論点の整理ができることも確かめる（issue #308）。
  */
 import { describe, expect, it } from 'vitest'
 import { ApiError } from '../core/api'
@@ -36,6 +37,20 @@ const adminBoard: AdminOpinionBoard = {
           ],
         },
       ],
+    },
+  ],
+  counts: { received: 5, used: 2, pending: 0, dropped: { command: 1, emote: 0, reaction: 1 }, filtered: 0, ignored: 1, failed: 0 },
+  rescuable: [
+    {
+      id: 7,
+      userName: 'mugi',
+      text: 'AIの声が人っぽすぎると怖い',
+      replyName: null,
+      replyText: null,
+      sentAt: '2026-10-10T12:04:00.000Z',
+      status: 'ignored',
+      dropReason: null,
+      jevScore: 0.41,
     },
   ],
 }
@@ -107,6 +122,52 @@ describe('createOpinionApi', () => {
 
     await createOpinionApi(fetchImpl).setHidden(11, true)
     expect(calls).toEqual([{ path: '/api/admin/opinions/items/11', method: 'PUT', body: { hidden: true } }])
+  })
+
+  it('コメントの内訳が欠けていればエラーにする', async () => {
+    const { fetchImpl } = createFetchWithResponse(200, { ...adminBoard, counts: undefined })
+
+    await expect(createOpinionApi(fetchImpl).read()).rejects.toThrow()
+  })
+
+  it('コメントから意見の下書きを作らせ、下書きを返す', async () => {
+    const draft = { kind: 'insight', text: '人っぽすぎる声は怖い', topic: { type: 'new', title: '声と人格' } }
+    const { calls, fetchImpl } = createFetchWithResponse(200, { draft })
+
+    expect(await createOpinionApi(fetchImpl).draftOpinion(7)).toEqual(draft)
+    expect(calls).toEqual([{ path: '/api/admin/opinions/comments/7/draft', method: 'POST', body: null }])
+  })
+
+  it('下書きの形が違えばエラーにする', async () => {
+    const { fetchImpl } = createFetchWithResponse(200, { draft: { kind: '気づき', text: '人っぽすぎる声は怖い', topic: { type: 'existing', id: 1 } } })
+
+    await expect(createOpinionApi(fetchImpl).draftOpinion(7)).rejects.toThrow()
+  })
+
+  it('コメントを意見にする・既にある意見に統合する', async () => {
+    const { calls, fetchImpl } = createFetchWithResponse(204, null)
+    const api = createOpinionApi(fetchImpl)
+
+    await api.rescueAsOpinion(7, { kind: 'issue', text: '人っぽすぎる声は怖い', topic: { type: 'existing', id: 1 } })
+    await api.joinOpinion(7, 11)
+
+    expect(calls).toEqual([
+      { path: '/api/admin/opinions/comments/7/opinion', method: 'POST', body: { kind: 'issue', text: '人っぽすぎる声は怖い', topic: { type: 'existing', id: 1 } } },
+      { path: '/api/admin/opinions/comments/7/join', method: 'POST', body: { opinionId: 11 } },
+    ])
+  })
+
+  it('論点の名前を書き換える・2つの論点をまとめる', async () => {
+    const { calls, fetchImpl } = createFetchWithResponse(204, null)
+    const api = createOpinionApi(fetchImpl)
+
+    await api.renameTopic(2, 'AIとの距離感')
+    await api.mergeTopics(2, 1)
+
+    expect(calls).toEqual([
+      { path: '/api/admin/opinions/topics/2', method: 'PUT', body: { title: 'AIとの距離感' } },
+      { path: '/api/admin/opinions/topics/2/merge', method: 'POST', body: { into: 1 } },
+    ])
   })
 
   it('検証で拒まれたら、問題点を持つ ApiError にする', async () => {

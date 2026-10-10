@@ -6,8 +6,11 @@
  * - 取り出した意見を論点ごとに、札の種類・人数・もとのコメントつきで確かめる（人数はこのページにだけ出し、合成ページには出さない）
  * - 荒らしや取り違えの意見を隠す・戻す（隠した意見は合成ページに出なくなる）
  * - 合成ページの中央下に出す視聴者への問いかけ（issue #307）を確かめ、別の問いかけに替えさせる（テーマを出しているあいだだけ）
+ * - コメントの内訳を確かめ、意見にならなかったコメントを救い出す。論点の名前を変え、2つの論点をまとめる（issue #308。締め切ったあとも
+ *   できる。部品は rescue-list.tsx・topic-tools.tsx）
  *
- * 意見は配信中に Worker が増やしていくので、開いているあいだは一定の間隔で読み直す（REFRESH_MS）。
+ * 意見は配信中に Worker が増やしていくので、開いているあいだは一定の間隔で読み直す（REFRESH_MS）。救い出しと論点の整理は、
+ * 意見ボードのあちこち（論点・意見・内訳・一覧）を変えるので、保存したら手元で書き換えずに読み直す。
  * 値の検証は Worker（worker/opinion.ts）だけが持ち、画面は返ってきた問題点を並べるだけにする。
  *
  * 注意: 入力しかけのテーマがあるあいだは、ページを離れる前に確認を出す（useUnsavedChanges）。
@@ -23,11 +26,16 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ApiError } from '@/core/api'
-import type { AdminOpinion, AdminOpinionBoard, OpinionApi } from './api'
+import type { AdminOpinion, AdminOpinionBoard, AdminTopic, OpinionApi, OpinionCommentCounts, RescuedOpinion } from './api'
 import { OPINION_KIND_LABELS } from './entry'
+import { CommentCounts, RescueList, type RescueActions } from './rescue-list'
+import { TopicHeader, type TopicActions } from './topic-tools'
 
 /** 開いているあいだに意見ボードを読み直す間隔（ミリ秒）。Worker の振り分け（45秒おき）より短くし、増えた意見を待たせない */
 const REFRESH_MS = 15_000
+
+/** テーマを出した直後の、コメントを1件も受け取っていない内訳 */
+const NO_COUNTS: OpinionCommentCounts = { received: 0, used: 0, pending: 0, dropped: { command: 0, emote: 0, reaction: 0 }, filtered: 0, ignored: 0, failed: 0 }
 
 /**
  * 操作の失敗を、出す行にする。Worker が問題点を返したら（テーマの検証）、問題点を1行ずつ並べる。
@@ -108,7 +116,7 @@ export const OpinionPage = ({ api }: { api: OpinionApi }) => {
     actions.run(async () => {
       const theme = await api.openTheme(title)
       generation.current += 1
-      setBoard({ theme, topics: [] })
+      setBoard({ theme, topics: [], counts: NO_COUNTS, rescuable: [] })
       setTitle('')
       return `テーマ「${theme.title}」を出しました`
     })
@@ -152,6 +160,68 @@ export const OpinionPage = ({ api }: { api: OpinionApi }) => {
       )
       return hidden ? `「${opinion.text}」を隠しました` : `「${opinion.text}」を戻しました`
     })
+
+  /**
+   * 保存したあとに意見ボードを読み直す。読み直せなくても保存は済んでいるので、操作の失敗にはせず読み込みの失敗として出す。
+   */
+  const reload = async (): Promise<void> => {
+    generation.current += 1
+    const startedAt = generation.current
+    try {
+      const next = await api.read()
+      if (startedAt !== generation.current) return
+      setBoard(next)
+      setLoadError(undefined)
+    } catch (error) {
+      setLoadError(errorMessage(error))
+    }
+  }
+
+  /**
+   * 保存の操作を実行し、済んだら意見ボードを読み直す。
+   *
+   * @returns 保存できたか（書きかけの欄を閉じるかを、呼び出し側が決めるため）
+   */
+  const saveAndReload = async (save: () => Promise<void>, notice: string): Promise<boolean> => {
+    let saved = false
+    await actions.run(async () => {
+      await save()
+      saved = true
+      await reload()
+      return notice
+    })
+    return saved
+  }
+
+  const rescueActions: RescueActions = {
+    busy: actions.busy,
+    draft: async (commentId) => {
+      let draft: RescuedOpinion | undefined
+      await actions.run(async () => {
+        draft = await api.draftOpinion(commentId)
+        return '下書きを作りました。直してから「意見にする」を押してください'
+      })
+      return draft
+    },
+    rescue: (commentId, opinion) => saveAndReload(() => api.rescueAsOpinion(commentId, opinion), `「${opinion.text}」を意見にしました`),
+    join: (commentId, opinionId) => saveAndReload(() => api.joinOpinion(commentId, opinionId), 'コメントを意見に統合しました'),
+  }
+
+  const topicActions: TopicActions = {
+    busy: actions.busy,
+    rename: (topicId, title) => saveAndReload(() => api.renameTopic(topicId, title), `論点の名前を「${title}」にしました`),
+    merge: (topic: AdminTopic, into: AdminTopic) =>
+      actions.ask({
+        title: '論点をまとめますか？',
+        description: `「${topic.title}」の意見を「${into.title}」へ移し、「${topic.title}」を消します。元には戻せません。`,
+        actionLabel: '論点をまとめる',
+        run: async () => {
+          await api.mergeTopics(topic.id, into.id)
+          await reload()
+          return `「${topic.title}」を「${into.title}」にまとめました`
+        },
+      }),
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -208,13 +278,15 @@ export const OpinionPage = ({ api }: { api: OpinionApi }) => {
         <Card>
           <CardHeader>
             <CardTitle>意見</CardTitle>
-            <CardDescription>コメントから取り出した意見です。荒らしや取り違えの意見は「隠す」と合成ページに出なくなります。</CardDescription>
+            <CardDescription>
+              コメントから取り出した意見です。荒らしや取り違えの意見は「隠す」と合成ページに出なくなります。細かく分かれすぎた論点は、名前を変えたり、ほかの論点とまとめたりできます。
+            </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             {board.topics.length === 0 && <p className="text-sm text-muted-foreground">まだ意見がありません。コメントは45秒ほどおきにまとめて振り分けます。</p>}
             {board.topics.map((topic) => (
               <section key={topic.id} role="group" aria-label={`論点「${topic.title}」`} className="flex flex-col gap-2">
-                <h2 className="font-semibold">{topic.title}</h2>
+                <TopicHeader topic={topic} topics={board.topics} actions={topicActions} />
                 <ul className="flex flex-col gap-2">
                   {topic.opinions.map((opinion) => (
                     <OpinionItem key={opinion.id} opinion={opinion} busy={actions.busy} onToggle={() => void toggle(opinion)} />
@@ -222,6 +294,20 @@ export const OpinionPage = ({ api }: { api: OpinionApi }) => {
                 </ul>
               </section>
             ))}
+          </CardContent>
+        </Card>
+      )}
+      {board.theme !== null && (
+        <Card>
+          <CardHeader>
+            <CardTitle>意見にならなかったコメント</CardTitle>
+            <CardDescription>
+              規則・Jev・LLM が落としたコメントと、振り分けに失敗したコメントです。拾いたいものは、新しい意見にするか、既にある意見に統合してください。
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <CommentCounts counts={board.counts} />
+            <RescueList comments={board.rescuable} topics={board.topics} actions={rescueActions} />
           </CardContent>
         </Card>
       )}

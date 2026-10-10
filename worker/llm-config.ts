@@ -42,6 +42,7 @@ export const LLM_PROVIDERS = ['workers-ai', 'openrouter'] as const
  * townBond は、市町村紹介でレイド元と市町村の共通点を作るとき（worker/town-bond.ts）だけ呼ばれる。
  * autoText は、自動で書き換えるテキスト（worker/text-auto.ts。issue #295）があるときだけ cron が5分おきに呼ぶ（後から足したので末尾に置く）。
  * opinionSort は、意見ボード（worker/opinion-sort.ts。issue #306）でテーマを出しているあいだだけ、新しい発言があれば45秒おきに呼ぶ（後から足したので末尾に置く）。
+ * 配信者が意見にならなかったコメントを救い出すときの意見の下書き（worker/opinion-draft.ts。issue #308）も、同じ仕事なのでこの箇所を指名する。
  * opinionPrompt は、意見ボードの問いかけ（worker/opinion-prompt.ts。issue #307）を、問いかけに答える意見が届いたときと配信者が替えさせたときだけ呼ぶ（同上）。
  */
 export const LLM_USAGES = [
