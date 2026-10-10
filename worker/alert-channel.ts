@@ -50,7 +50,8 @@
  * 同じ理由で、11個目の目印（kanjiQuiz）を付けた接続へだけ配る。
  *
  * 漢字クイズの時間切れで配信を止める命令（issue #302）を、裏方のページ（overlay/backstage/ の ?stop=true）へ配るのもこの Durable Object である。
- * 同じ理由で、12個目の目印（streamStop）を付けた接続へだけ配る。この命令だけは、受け取る接続が1つも無ければ409を返す
+ * 同じ理由で、12個目の目印（streamStop）を付けた接続へ配る。この命令だけは、すべての接続ではなく送れた1つにだけ送り（StopStream を2回送らない）、
+ * 受け取る接続が1つも無ければ409を返す
  * （つながっていない間に止める命令を落とすと、配信が止まらなかったことに誰も気づけないため）。
  *
  * 注意: WebSocketの接続（Upgrade）は Cloudflare のランタイムでしか作れないので、テストでは配送の部分だけを確かめる。
@@ -195,7 +196,7 @@ export interface AlertChannelNamespace {
  * - POST /push/twister: Worker が押し出したツイスターの呼び出しを、ツイスターの接続すべてへ配る
  * - POST /push/text: Worker が押し出したテキストの一覧を、テキストの接続すべてへ配る
  * - POST /push/kanji-quiz: Worker が押し出した漢字クイズの出題を、漢字クイズの接続すべてへ配る
- * - POST /push/stream-stop: Worker が押し出した配信を止める命令を、停止の接続すべてへ配る。1つも無ければ409を返す
+ * - POST /push/stream-stop: Worker が押し出した配信を止める命令を、停止の接続のうち送れた1つへ配る。1つも無ければ409を返す
  * - POST /revoke: 新しいキーの目印を覚え、接続をすべて閉じる（オーバーレイ用キーを発行し直したとき。どの接続もオーバーレイ用キーで開かれている）
  *
  * 接続はどれもオーバーレイ用キーで開かれるので、覚えている目印と違うキーの接続は受け入れない（worker/overlay-key.ts）。
@@ -223,9 +224,11 @@ export class AlertChannel {
     if (url.pathname === PUSH_TEXT_PATH) return this.push(TEXT_TOPIC, await request.text(), 'テキスト')
     if (url.pathname === PUSH_KANJI_QUIZ_PATH) return this.push(KANJI_QUIZ_TOPIC, await request.text(), '漢字クイズ')
     if (url.pathname === PUSH_STREAM_STOP_PATH) {
-      const delivered = broadcast(this.ctx.getWebSockets(STREAM_STOP_TOPIC), await request.text(), '配信を止める命令')
+      const payload = await request.text()
+      // 裏方を2つ開いていても StopStream を2回送らないよう、送れた1つで止める（送れなかった接続は broadcast が閉じる）
+      const delivered = this.ctx.getWebSockets(STREAM_STOP_TOPIC).some((socket) => broadcast([socket], payload, '配信を止める命令') > 0)
       // 受け取る裏方が1つも無ければ、止まらなかったことを Worker に記録させる
-      return new Response(null, { status: delivered === 0 ? STATUS.conflict : STATUS.noContent })
+      return new Response(null, { status: delivered ? STATUS.noContent : STATUS.conflict })
     }
     if (url.pathname === REVOKE_PATH) {
       // 先に目印を覚えてから閉じる。閉じたあとすぐ古いキーでつなぎ直されても受け入れないため

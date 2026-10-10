@@ -21,11 +21,11 @@ paths:
 - 演出は流しはじめてからの経過時間と正解者が届いた時刻だけから決める（`scene.ts` の `kanjiQuizSceneAt`）。級 → 熟語が奥から近づく（倍率を `ctx.scale` に渡す）→ 制限時間（`ANSWER_LIMIT_MS`。熟語が出たときから数え、最後の `COUNTDOWN_SECONDS` 秒は大きく出す）→ 正解の読みと解説。正解者が届いたら届いた時刻でカウントダウンを止めて正解者の名前と答えを出す。時間切れの後に届いた正解者は出さない（`acceptsAnswerAt`）。文言は `captions.ts`、描画は `view.ts`（テストを持たない）
 - 合成ページの素材の種類は `kanjiQuiz`（`src/overlay/stage.ts` の `mountKanjiQuiz`）。届いた順に1件ずつ流す。押し出されたものの読み取りは `call.ts` の `parseKanjiQuizMessage`（出題は type を持たず、知らせは `answer`・`failure`・`stopping`・`stopCancelled`）。開けなかった・出しきった・判定を予約できなかったときは素材の箱に出す。プレビューでは `demo.ts` の決まった出題を順にくり返し流し、出題を開かせない
 - **時間切れの判定は Worker が持つ**（合成ページの数え方では止めない）。出題を開いたら（`POST /api/overlay/kanji-quiz/open`）受付の締め切りを `AdBreakTimer` の別のインスタンス（名前 `kanji-quiz`。中身は `worker/kanji-quiz-timer.ts`）へ預け、アラームで締め切りに正解者がいなければ停止を始めて猶予（`KANJI_QUIZ_STOP_GRACE_MS`。10秒）を `type: 'stopping'` で押し出し、猶予の終わりにもう一度鳴らして止める。時刻が来たときにすることは `worker/kanji-quiz-stop.ts` が持つ。失敗は投げずに `kanji-quiz-stop-failed` として記録する
-- 停止の状態は `kanji_quizzes` の `stop_at`・`stop_cancelled_at`・`stop_sent_at`（`migrations/0032_kanji_quiz_stop.sql`）に持ち、始める・取り消す・鍵を確保するをそれぞれ「まだ書かれていない行」だけを書き換える1つの文で行う（取り消しと停止は一方しか通らず、同じ出題で2回止めない）。猶予を押し出せなければ止める時刻を仕掛けない（取り消せないまま止めない）
+- 停止の状態は `kanji_quizzes` の `stop_at`・`stop_cancelled_at`・`stop_sent_at`（`migrations/0032_kanji_quiz_stop.sql`）に持ち、始める・取り消す・鍵を確保するをそれぞれ「まだ書かれていない行」だけを書き換える1つの文で行う（取り消しと停止は一方しか通らず、同じ出題で2回止めない）。猶予を押し出せなければ始めた停止を戻し、止める時刻を仕掛けない（取り消せないまま止めない）
 - 試し再生の出題は `rehearsal` を持ち、猶予の演出と取り消しまでは同じ道を通すが止めない（演出の最後に「止めません」と出すのは合成ページ）
-- 止める命令は `AlertChannel` の目印 `streamStop` で裏方のページ（`?stop=true`。`src/kanji-quiz/stop-task.ts`）へ押し出し、受け取る接続が1つも無ければ配送先が409を返して失敗として記録する。裏方は OBS（つなぎ先は画面の取り込みの設定）へ `StopStream` を送り、結果を `POST /api/overlay/kanji-quiz/stop/result` で知らせる（理由があれば記録）
+- 止める命令は `AlertChannel` の目印 `streamStop` で裏方のページ（`?stop=true`。`src/kanji-quiz/stop-task.ts`）へ押し出し（裏方を2つ開いていても、送れた1つにだけ送る）、受け取る接続が1つも無ければ配送先が409を返して失敗として記録する。裏方は OBS（つなぎ先は画面の取り込みの設定）へ `StopStream` を送り、結果を `POST /api/overlay/kanji-quiz/stop/result` で知らせる（理由があれば記録）
 - 猶予は時刻ではなく長さ（`graceMs`）で押し出し、合成ページと下部バーは届いた時刻から自分の時計で数える。合成ページは解説に重ねて帯を出し（`scene.ts` の `kanjiQuizStopBannerAt`。文言は `captions.ts` の `stopBannerLineOf`）、結果を出し終えるまで1回の出題を延ばす
-- 下部バーの取り消しボタンは `src/kanji-quiz/stop-bar.tsx`（猶予のあいだだけ出す）。合成ページと同じ押し出しにオーバーレイ用キーでつなぎ（`socket.ts`）、取り消しは `POST /api/admin/kanji-quiz/stop/cancel`（出題を指定せず、猶予のあいだのものをすべて取り消す）。接続と取り消しはアプリの枠から `KanjiQuizStopDeps` で受け取る
+- 下部バーの取り消しボタンは `src/kanji-quiz/stop-bar.tsx`（猶予のあいだだけ出す。猶予は出題ごとに持ち、尽きたものだけを外す）。合成ページと同じ押し出しにオーバーレイ用キーでつなぎ（`socket.ts`）、取り消しは `POST /api/admin/kanji-quiz/stop/cancel`（出題を指定せず、猶予のあいだのものをすべて取り消す）。接続と取り消しはアプリの枠から `KanjiQuizStopDeps` で受け取る
 - 音は扱わない
 
 経緯は `docs/decisions/kanji-quiz.md`、使い方は `docs/guide/kanji-quiz.md`。

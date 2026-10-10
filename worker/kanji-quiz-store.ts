@@ -135,6 +135,17 @@ export const beginKanjiQuizStop = async (db: Database, id: string, now: number, 
 }
 
 /**
+ * 始めた停止を、なかったことにする。猶予を合成ページと下部バーへ知らせられなかったときに使う
+ * （止めないうえ、あとで下部バーから「取り消せた」ことにならないように）。命令を送った・取り消した出題には触れない。
+ */
+export const abandonKanjiQuizStop = async (db: Database, id: string): Promise<void> => {
+  await db
+    .prepare('UPDATE kanji_quizzes SET stop_at = NULL WHERE id = ?1 AND stop_cancelled_at IS NULL AND stop_sent_at IS NULL')
+    .bind(id)
+    .run()
+}
+
+/**
  * 猶予のあいだの停止をすべて取り消す（下部バーの取り消しボタン）。止める命令をもう送った出題は取り消せない。
  *
  * 猶予が尽きたあとでも、命令を送る前（アラームの遅れのあいだ）なら取り消せる。止めないほうに倒すためである。

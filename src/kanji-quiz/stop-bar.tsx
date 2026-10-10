@@ -42,9 +42,9 @@ export interface KanjiQuizStopDeps {
   cancel(): Promise<string[]>
 }
 
-/** 猶予のあいだの停止。stopAt はこの画面の時計で、猶予が尽きる時刻 */
+/** 猶予のあいだの停止1つ。stopAt はこの画面の時計で、猶予が尽きる時刻。猶予が重なっても出題ごとに持ち、尽きたものだけを外す */
 interface PendingStop {
-  readonly quizIds: readonly string[]
+  readonly quizId: string
   readonly stopAt: number
   readonly rehearsal: boolean
 }
@@ -53,7 +53,7 @@ interface PendingStop {
  * @param overlayKey ログイン中の配信者のオーバーレイ用キー。未発行（null）ならつながない
  */
 export const KanjiQuizStopBar = ({ overlayKey, deps }: { overlayKey: string | null; deps: KanjiQuizStopDeps }) => {
-  const [pending, setPending] = useState<PendingStop | null>(null)
+  const [pending, setPending] = useState<readonly PendingStop[]>([])
   const [now, setNow] = useState(() => Date.now())
   const [busy, setBusy] = useState(false)
   /** 断られた・受け取れていない理由。次の猶予が届いた・つなぎ直したら消す */
@@ -69,17 +69,12 @@ export const KanjiQuizStopBar = ({ overlayKey, deps }: { overlayKey: string | nu
             const at = Date.now()
             setNow(at)
             setProblem(null)
-            // 猶予が重なったら、先に尽きるほうを数える。本番の猶予が1つでもあれば試し再生とは出さない
-            setPending((current) => ({
-              quizIds: [...(current?.quizIds ?? []), message.quizId],
-              stopAt: Math.min(current?.stopAt ?? Number.POSITIVE_INFINITY, at + message.graceMs),
-              rehearsal: (current?.rehearsal ?? true) && message.rehearsal,
-            }))
+            setPending((current) => [
+              ...current.filter(({ quizId }) => quizId !== message.quizId),
+              { quizId: message.quizId, stopAt: at + message.graceMs, rehearsal: message.rehearsal },
+            ])
           } else if (message.type === 'stopCancelled') {
-            setPending((current) => {
-              const quizIds = current?.quizIds.filter((quizId) => quizId !== message.quizId) ?? []
-              return current === null || quizIds.length === 0 ? null : { ...current, quizIds }
-            })
+            setPending((current) => current.filter(({ quizId }) => quizId !== message.quizId))
           }
         } catch (error) {
           setProblem(errorMessage(error))
@@ -91,22 +86,26 @@ export const KanjiQuizStopBar = ({ overlayKey, deps }: { overlayKey: string | nu
     return () => connection.close()
   }, [overlayKey, deps])
 
-  // 猶予のあいだは残り秒数を数え直し、尽きたらボタンを消す
+  // 猶予のあいだは残り秒数を数え直し、尽きた猶予だけを外す（残った猶予の取り消しボタンは出し続ける）
+  const hasPending = pending.length > 0
   useEffect(() => {
-    if (pending === null) return undefined
+    if (!hasPending) return undefined
     const interval = setInterval(() => {
       const at = Date.now()
       setNow(at)
-      if (at >= pending.stopAt) setPending(null)
+      setPending((current) => {
+        const rest = current.filter(({ stopAt }) => stopAt > at)
+        return rest.length === current.length ? current : rest
+      })
     }, TICK_MS)
     return () => clearInterval(interval)
-  }, [pending])
+  }, [hasPending])
 
   const cancel = async (): Promise<void> => {
     setBusy(true)
     try {
       await deps.cancel()
-      setPending(null)
+      setPending([])
       setProblem(null)
     } catch (error) {
       setProblem(errorMessage(error))
@@ -115,15 +114,18 @@ export const KanjiQuizStopBar = ({ overlayKey, deps }: { overlayKey: string | nu
     }
   }
 
-  if (pending === null && problem === null) return null
-  const remainingSeconds = pending === null ? 0 : Math.max(0, Math.ceil((pending.stopAt - now) / MS_PER_SECOND))
+  if (!hasPending && problem === null) return null
+  // 猶予が重なったら、先に尽きるほうを数える。本番の猶予が1つでもあれば試し再生とは出さない
+  const stopAt = Math.min(...pending.map((entry) => entry.stopAt))
+  const rehearsal = pending.every((entry) => entry.rehearsal)
+  const remainingSeconds = Math.max(0, Math.ceil((stopAt - now) / MS_PER_SECOND))
 
   return (
     <div className="flex min-w-0 items-center gap-1">
-      {pending !== null && (
+      {hasPending && (
         <Button type="button" variant="destructive" size="sm" className="shrink-0" disabled={busy} onClick={() => void cancel()}>
           <OctagonX aria-hidden="true" />
-          配信の停止を取り消す（残り {remainingSeconds}秒{pending.rehearsal ? '・試し再生' : ''}）
+          配信の停止を取り消す（残り {remainingSeconds}秒{rehearsal ? '・試し再生' : ''}）
         </Button>
       )}
       {problem !== null && (

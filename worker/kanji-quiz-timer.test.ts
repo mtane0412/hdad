@@ -180,5 +180,7 @@ describe('時間切れの判定', () => {
     expect(timers.alarmOf(TIMER_NAME)).toBeNull()
     expect(alerts.pushedStreamStops).toEqual([])
     expect((await listFailures(env.DB)).map(({ code }) => code)).toEqual(['kanji-quiz-stop-failed'])
+    // 停止を始めたことも取り消す（あとで下部バーから「取り消せた」ことにならないように）
+    expect(await cancelKanjiQuizStopsAndNotify({ db: env.DB, alerts: env.ALERTS, now: Date.parse('2026-10-10T12:01:00Z') })).toEqual([])
   })
 })

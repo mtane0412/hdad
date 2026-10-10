@@ -350,6 +350,33 @@ describe('AlertChannel', () => {
     expect(kanjiQuizItem.sentMessages).toEqual([])
   })
 
+  it('配信を止める命令は、裏方が2つつながっていても1つにだけ送る（StopStream を2回送らない）', async () => {
+    const firstBackstage = createConnection()
+    const secondBackstage = createConnection()
+    const destination = createDestination([], [], [], [], [], [], [], [], [], [], [], [firstBackstage, secondBackstage])
+
+    const response = await destination.fetch(new Request('https://alert-channel/push/stream-stop', { method: 'POST', body: JSON.stringify(stopOrder) }))
+
+    expect(response.status).toBe(204)
+    expect([...firstBackstage.sentMessages, ...secondBackstage.sentMessages]).toEqual([JSON.stringify(stopOrder)])
+  })
+
+  it('配信を止める命令は、送れなかった接続を飛ばして、次の裏方へ送る', async () => {
+    const brokenBackstage: AlertSocket = {
+      send: () => {
+        throw new Error('接続が壊れています')
+      },
+      close: () => undefined,
+    }
+    const workingBackstage = createConnection()
+    const destination = createDestination([], [], [], [], [], [], [], [], [], [], [], [brokenBackstage, workingBackstage])
+
+    const response = await destination.fetch(new Request('https://alert-channel/push/stream-stop', { method: 'POST', body: JSON.stringify(stopOrder) }))
+
+    expect(response.status).toBe(204)
+    expect(workingBackstage.sentMessages).toEqual([JSON.stringify(stopOrder)])
+  })
+
   it('配信を止める命令は、受け取る裏方が1つもつながっていなければ409で返す（黙って落とさない）', async () => {
     const destination = createDestination([])
 

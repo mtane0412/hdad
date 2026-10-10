@@ -119,6 +119,18 @@ describe('KanjiQuizStopBar', () => {
     expect(cancelButton()).not.toHaveTextContent('試し再生')
   })
 
+  test('猶予が重なったとき、先に尽きた猶予だけを外し、残った本番の取り消しボタンは出し続ける', async () => {
+    const { deps, deliver } = createDeps()
+    render(<KanjiQuizStopBar overlayKey={overlayKey} deps={deps} />)
+
+    // 試し再生の猶予がすぐ尽き、本番の猶予が残る
+    deliver({ type: 'stopping', quizId: 'quiz-demo', graceMs: 50, rehearsal: true })
+    deliver({ type: 'stopping', quizId: 'quiz-keidai', graceMs: 10_000, rehearsal: false })
+
+    await waitFor(() => expect(cancelButton()).toHaveTextContent(/残り\s*(10|9)秒/))
+    expect(cancelButton()).not.toHaveTextContent('試し再生')
+  })
+
   test('試し再生の猶予は、試し再生と分かるようにする', () => {
     const { deps, deliver } = createDeps()
     render(<KanjiQuizStopBar overlayKey={overlayKey} deps={deps} />)

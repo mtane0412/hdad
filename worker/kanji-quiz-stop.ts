@@ -14,7 +14,7 @@
  */
 import { pushKanjiQuizNotice, pushStreamStop, type AlertChannelNamespace } from './alert-channel'
 import type { Database } from './database'
-import { beginKanjiQuizStop, cancelKanjiQuizStops, claimKanjiQuizStop } from './kanji-quiz-store'
+import { abandonKanjiQuizStop, beginKanjiQuizStop, cancelKanjiQuizStops, claimKanjiQuizStop } from './kanji-quiz-store'
 
 /** 時間切れから配信を止めるまでの猶予（ミリ秒）。このあいだ下部バーから取り消せる。設定にはしない */
 export const KANJI_QUIZ_STOP_GRACE_MS = 10_000
@@ -40,8 +40,16 @@ export const judgeKanjiQuizTimeout = async (
   const started = await beginKanjiQuizStop(db, quizId, now, KANJI_QUIZ_STOP_GRACE_MS)
   // 正解者がいた・もう始めたなどで始めなかったら、何もしない
   if (started === null) return
-  // 先に知らせる。知らせられなければ投げて、止める時刻を仕掛けない（取り消せないまま止めない）
-  await pushKanjiQuizNotice(alerts, { type: 'stopping', quizId, graceMs: KANJI_QUIZ_STOP_GRACE_MS, rehearsal: started.rehearsal })
+  // 先に知らせる。知らせられなければ始めた停止を戻して投げ、止める時刻を仕掛けない（取り消せないまま止めない）
+  try {
+    await pushKanjiQuizNotice(alerts, { type: 'stopping', quizId, graceMs: KANJI_QUIZ_STOP_GRACE_MS, rehearsal: started.rehearsal })
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    await abandonKanjiQuizStop(db, quizId).catch((abandonError: unknown) => {
+      throw new Error(`${reason}（始めた停止も戻せませんでした: ${abandonError instanceof Error ? abandonError.message : String(abandonError)}）`)
+    })
+    throw error
+  }
   if (started.rehearsal) return
   await scheduleStop({ quizId, at: now + KANJI_QUIZ_STOP_GRACE_MS })
 }
