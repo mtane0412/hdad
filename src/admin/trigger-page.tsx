@@ -35,7 +35,7 @@ import type { BotApi, BotStatus } from '@/bot/api'
 import { ApiError } from '@/core/api'
 import { PlaceholderInput } from '@/core/placeholder-input'
 import { iconButtonName } from '@/core/icon-button'
-import { isKankenGrade } from '@/kanji-quiz/grade'
+import { KANKEN_GRADES, MAX_KANKEN_GRADE_WEIGHT, kankenGradeLabel } from '@/kanji-quiz/grade'
 import { isAnnouncementColor, type AdminApi, type MediaItem, type Reward, type TriggerKind } from './api'
 import {
   colorOptions,
@@ -53,7 +53,7 @@ import {
   supportsTownTour,
   supportsTwister,
   supportsKanjiQuiz,
-  KANJI_QUIZ_GRADE_OPTIONS,
+  kanjiQuizSharePercents,
   toDraft,
   toTriggerInputs,
   withFixedRows,
@@ -274,6 +274,8 @@ const ActionFields = ({ draft, media, heading, onChange }: ActionFieldsProps) =>
   const id = useId()
   const update = (patch: Partial<TriggerDraft>): void => onChange({ ...draft, ...patch })
   const mediaOptions = media.map((item) => ({ value: item.id, label: `${item.name}（${kindLabels[item.kind]}）` }))
+  /** 漢字クイズの級ごとに出題される割合（%）。入力の途中で求められなければ null */
+  const kanjiQuizShares = kanjiQuizSharePercents(draft.kanjiQuizWeights)
 
   const fields = (
     <>
@@ -500,21 +502,35 @@ const ActionFields = ({ draft, media, heading, onChange }: ActionFieldsProps) =>
             <Label htmlFor={`${id}-kanji-quiz-enabled`}>漢字クイズを出題する</Label>
           </div>
           {draft.kanjiQuizEnabled && (
-            <div className="flex flex-col gap-2 sm:max-w-xs">
-              <Label htmlFor={`${id}-kanji-quiz-grade`}>出題する級</Label>
-              <Select
-                id={`${id}-kanji-quiz-grade`}
-                options={KANJI_QUIZ_GRADE_OPTIONS}
-                value={draft.kanjiQuizGrade}
-                onChange={(value) => {
-                  // 選択肢は級の一覧から作っているので、級でない値は来ない
-                  if (isKankenGrade(value)) update({ kanjiQuizGrade: value })
-                }}
-              />
+            <fieldset className="flex flex-col gap-2">
+              <legend className="mb-2 text-sm leading-none font-medium">級ごとの出題の重み</legend>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
+                {KANKEN_GRADES.map((grade) => (
+                  <div key={grade} className="flex items-center gap-2">
+                    <Label htmlFor={`${id}-kanji-quiz-weight-${grade}`} className="w-12 shrink-0">
+                      {kankenGradeLabel(grade)}
+                      <span className="sr-only">の重み</span>
+                    </Label>
+                    <Input
+                      id={`${id}-kanji-quiz-weight-${grade}`}
+                      type="number"
+                      min={0}
+                      max={MAX_KANKEN_GRADE_WEIGHT}
+                      step={1}
+                      className="w-16"
+                      value={draft.kanjiQuizWeights[grade]}
+                      onChange={(event) => update({ kanjiQuizWeights: { ...draft.kanjiQuizWeights, [grade]: event.currentTarget.value } })}
+                    />
+                    <span className="w-10 text-right text-xs text-muted-foreground tabular-nums">
+                      {kanjiQuizShares === null ? '—' : `${kanjiQuizShares[grade]}%`}
+                    </span>
+                  </div>
+                ))}
+              </div>
               <p className="text-xs text-muted-foreground">
-                交換されるたびに、この級の問題を問題集から1問選んで出します。映すには、オーバーレイに「漢字クイズ」の素材を置いてください。
+                交換されるたびに、重みの割合で級を選び、その級の問題を問題集から1問選んで出します（0の級は出しません）。同じ配信で出し終えた級は外して残りの級から選び、すべて出し終えたら最初から選び直します。映すには、オーバーレイに「漢字クイズ」の素材を置いてください。
               </p>
-            </div>
+            </fieldset>
           )}
         </div>
       )}

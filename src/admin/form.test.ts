@@ -25,11 +25,30 @@ import {
   supportsTownTour,
   supportsTwister,
   supportsKanjiQuiz,
+  kanjiQuizSharePercents,
   toDraft,
   toTriggerInput,
   type TriggerDraft,
 } from './form'
+import { singleGradeWeights } from '@/kanji-quiz/grade'
 import { TRIGGER_KINDS, type MediaItem, type StoredTrigger } from './api'
+
+/** 入力欄の漢字クイズの重み。どの級も「0」で、渡した級だけ書き換える */
+const weightTexts = (overrides: Partial<TriggerDraft['kanjiQuizWeights']> = {}): TriggerDraft['kanjiQuizWeights'] => ({
+  '10': '0',
+  '9': '0',
+  '8': '0',
+  '7': '0',
+  '6': '0',
+  '5': '0',
+  '4': '0',
+  '3': '0',
+  pre2: '0',
+  '2': '0',
+  pre1: '0',
+  '1': '0',
+  ...overrides,
+})
 
 /** トリガー1件分の入力欄の値。テストでは違いのある項目だけを重ねて書く */
 const inputs = (overrides: Partial<TriggerDraft> = {}): TriggerDraft => ({
@@ -55,7 +74,7 @@ const inputs = (overrides: Partial<TriggerDraft> = {}): TriggerDraft => ({
   townTourEnabled: false,
   twisterEnabled: false,
   kanjiQuizEnabled: false,
-  kanjiQuizGrade: '3',
+  kanjiQuizWeights: weightTexts({ '3': '1' }),
   ...overrides,
 })
 
@@ -227,10 +246,16 @@ describe('toTriggerInput', () => {
     expect(toTriggerInput(draft).actions).toEqual([{ type: 'twister' }])
   })
 
-  it('漢字クイズを出題するを選んでいれば、選んだ級を持つ動作として送る', () => {
-    const draft = inputs({ kind: 'reward', alertEnabled: false, kanjiQuizEnabled: true, kanjiQuizGrade: 'pre2' })
+  it('漢字クイズを出題するを選んでいれば、級ごとの重みを数にして持つ動作として送る', () => {
+    const draft = inputs({ kind: 'reward', alertEnabled: false, kanjiQuizEnabled: true, kanjiQuizWeights: weightTexts({ '3': '3', pre2: '1' }) })
 
-    expect(toTriggerInput(draft).actions).toEqual([{ type: 'kanjiQuiz', grade: 'pre2' }])
+    expect(toTriggerInput(draft).actions).toEqual([{ type: 'kanjiQuiz', weights: { ...singleGradeWeights('3'), '3': 3, pre2: 1 } }])
+  })
+
+  it('漢字クイズの重みが空欄なら、0に丸めずにエラーにする', () => {
+    const draft = inputs({ kind: 'reward', alertEnabled: false, kanjiQuizEnabled: true, kanjiQuizWeights: weightTexts({ pre2: '' }) })
+
+    expect(() => toTriggerInput(draft)).toThrowError('準2級の重みを数で入力してください')
   })
 
   it('表示時間が数として読めなければエラーにする（何番目のトリガーかは呼び出し側が添える）', () => {
@@ -301,10 +326,10 @@ describe('toDraft', () => {
     expect(toDraft(trigger)).toMatchObject({ kind: 'raid', alertEnabled: false, twisterEnabled: true })
   })
 
-  it('漢字クイズの動作を持つトリガーは、その印と級を付けて戻す', () => {
-    const trigger: StoredTrigger = { kind: 'reward', rewardId: '報酬ID-漢字クイズ', actions: [{ type: 'kanjiQuiz', grade: '1' }] }
+  it('漢字クイズの動作を持つトリガーは、その印と級ごとの重みを付けて戻す', () => {
+    const trigger: StoredTrigger = { kind: 'reward', rewardId: '報酬ID-漢字クイズ', actions: [{ type: 'kanjiQuiz', weights: { ...singleGradeWeights('1'), '2': 4 } }] }
 
-    expect(toDraft(trigger)).toMatchObject({ kind: 'reward', alertEnabled: false, kanjiQuizEnabled: true, kanjiQuizGrade: '1' })
+    expect(toDraft(trigger)).toMatchObject({ kind: 'reward', alertEnabled: false, kanjiQuizEnabled: true, kanjiQuizWeights: weightTexts({ '2': '4', '1': '1' }) })
   })
 
   it('LLMに文面を作らせる動作を持つトリガーは、指示の入力欄を埋めて戻す', () => {
@@ -487,10 +512,10 @@ describe('rowActionLabels', () => {
   })
 
   it('漢字クイズの効果は「漢字クイズ」として出し、漢字クイズだけを選んだ行も保存する', () => {
-    const draft = inputs({ kind: 'reward', alertEnabled: false, kanjiQuizEnabled: true, kanjiQuizGrade: '6' })
+    const draft = inputs({ kind: 'reward', alertEnabled: false, kanjiQuizEnabled: true, kanjiQuizWeights: weightTexts({ '6': '1' }) })
 
     expect(rowActionLabels(draft)).toEqual(['漢字クイズ'])
-    expect(toTriggerInputs([draft])).toEqual([{ kind: 'reward', rewardId: '報酬ID-乾杯', actions: [{ type: 'kanjiQuiz', grade: '6' }] }])
+    expect(toTriggerInputs([draft])).toEqual([{ kind: 'reward', rewardId: '報酬ID-乾杯', actions: [{ type: 'kanjiQuiz', weights: singleGradeWeights('6') }] }])
   })
 
   it('漢字クイズはチャンネルポイントの項目にだけ置ける', () => {
@@ -627,5 +652,18 @@ describe('describeProblem', () => {
 
   it('トリガーの位置を含まない問題点は、そのまま返す', () => {
     expect(describeProblem('triggers: 100件以内にしてください')).toBe('triggers: 100件以内にしてください')
+  })
+})
+
+describe('kanjiQuizSharePercents', () => {
+  it('級ごとの重みを、合計に対する割合（%。整数に丸める）にする', () => {
+    const shares = kanjiQuizSharePercents(weightTexts({ '3': '3', pre2: '1' }))
+
+    expect(shares).toMatchObject({ '3': 75, pre2: 25, '10': 0 })
+  })
+
+  it('数として読めない欄がある・合計が0なら、割合を出さない（null）', () => {
+    expect(kanjiQuizSharePercents(weightTexts({ '3': '1', pre2: '' }))).toBeNull()
+    expect(kanjiQuizSharePercents(weightTexts())).toBeNull()
   })
 })

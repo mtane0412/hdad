@@ -3,7 +3,7 @@
  *
  * Worker が問題を選んだら押し出す前に出題の行を入れ（recordKanjiQuiz）、合成ページが流しはじめたら受け付ける時刻を書き（openKanjiQuiz）、
  * Webhook がチャットの発言を受けるたびに受け付けている出題と照らして、最初に正解した人を決める（answerKanjiQuiz）。
- * 同じ配信で出した問題を選ばないよう、配信中に選んだ熟語も読み出す（readUsedKanjiQuizWords）。
+ * 同じ配信で出した問題を選ばないよう、配信中に選んだ熟語と選んだ回数も読み出す（readKanjiQuizWordCounts）。
  * 時間切れ（正解者なし）で配信を止める流れ（issue #302）の状態もこの行に持つ。停止を始め（beginKanjiQuizStop）、
  * 猶予のあいだに取り消されなければ、鍵を確保してから止める（claimKanjiQuizStop）。取り消しは cancelKanjiQuizStops。
  * テーブルの定義は migrations/0031_kanji_quizzes.sql と 0032_kanji_quiz_stop.sql にある。日時は UTC の ISO 8601 の文字列で持つ。
@@ -102,14 +102,15 @@ export const answerKanjiQuiz = async (db: Database, answer: { words: readonly st
 }
 
 /**
- * いまの配信が始まってから選んだ出題の熟語を読む。配信していなければ空（外すものが無い）。
+ * いまの配信が始まってから選んだ出題の熟語と、選んだ回数を読む。配信していなければ空（外すものが無い）。
+ * 回数は、問題をすべて出し終えたあとに一巡させる（出した回数がいちばん少ないものから選ぶ）ために使う。
  */
-export const readUsedKanjiQuizWords = async (db: Database, now: number): Promise<ReadonlySet<string>> => {
+export const readKanjiQuizWordCounts = async (db: Database, now: number): Promise<ReadonlyMap<string, number>> => {
   const { results } = await db
-    .prepare(`SELECT DISTINCT word FROM kanji_quizzes WHERE issued_at >= (${CURRENT_SESSION_STARTED_AT})`)
+    .prepare(`SELECT word, COUNT(*) AS count FROM kanji_quizzes WHERE issued_at >= (${CURRENT_SESSION_STARTED_AT}) GROUP BY word`)
     .bind(toIso(now))
-    .all<{ word: string }>()
-  return new Set(results.map(({ word }) => word))
+    .all<{ word: string; count: number }>()
+  return new Map(results.map(({ word, count }) => [word, count]))
 }
 
 /**

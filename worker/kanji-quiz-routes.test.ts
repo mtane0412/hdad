@@ -3,7 +3,7 @@
  *
  * - 合成ページの接続（GET /api/overlay/kanji-quiz/socket）は、漢字クイズを受け取る接続として配送先へ引き渡す
  * - 管理画面の試し再生（POST /api/admin/kanji-quiz/demo）は、ログインした配信者にだけ、本文の級の問題を1問選んで押し出す。
- *   級が無い・知らない値なら400にして押し出さない。配送先の失敗は502にする。同じ配信で選べる問題が尽きたら409にする
+ *   級が無い・知らない値なら400にして押し出さない。配送先の失敗は502にする。同じ配信でその級を出しきっても一巡して出題しつづける
  * - 出題を開く（POST /api/overlay/kanji-quiz/open）は、合成ページが流しはじめたときに呼び、Worker が選んだ出題の行に受付期限を書く。
  *   選んでいない出題の識別子なら404にする（合成ページから熟語を受け取って作らない）。開いたら、受付の締め切りに時間切れの判定を予約する（issue #302）
  * - 配信の停止の取り消し（POST /api/admin/kanji-quiz/stop/cancel）は、ログインした配信者にだけ、猶予のあいだの停止を取り消す。
@@ -25,6 +25,7 @@ import { createFakeDrawChannel } from './fake-draw-channel'
 import { createFakeStore } from './fake-store'
 import { createFakeTabChannel } from './fake-tab-channel'
 import { createFakeTokenVault } from './fake-token-vault'
+import { KANJI_QUIZ_PROBLEMS } from './kanji-quiz-call'
 import { KANJI_QUIZ_STOP_GRACE_MS } from './kanji-quiz-stop'
 import { KANJI_QUIZ_GRACE_MS, answerKanjiQuiz, beginKanjiQuizStop, openKanjiQuiz, recordKanjiQuiz } from './kanji-quiz-store'
 import { listFailures, recordStreamOnline } from './stats-store'
@@ -155,18 +156,21 @@ describe('POST /api/admin/kanji-quiz/demo', () => {
     expect(response.status).toBe(502)
   })
 
-  it('同じ配信で選べる問題が尽きたら、押し出さずに409にする', async () => {
+  it('同じ配信でその級の問題を出しきっても、エラーにせず一巡して出題しつづける', async () => {
     const alertChannel = createFakeAlertChannel()
     const env = createEnv(alertChannel)
     await recordStreamOnline(env.DB, { id: 'stream-1', startedAt: now - 60_000 })
+    const gradeOneCount = KANJI_QUIZ_PROBLEMS.filter((problem) => problem.grade === '1').length
 
-    // 1級の問題を出しきるまで試し再生する（問題集の1級の問題数は変わりうるので、409が返るまで続ける）
+    // 1級の問題数より1回多く試し再生する
     const statuses: number[] = []
-    for (let attempt = 0; attempt < 100 && !statuses.includes(409); attempt++) statuses.push((await callAsBroadcaster(env, { grade: '1' })).status)
+    for (let attempt = 0; attempt <= gradeOneCount; attempt++) statuses.push((await callAsBroadcaster(env, { grade: '1' })).status)
 
-    expect(statuses.at(-1)).toBe(409)
+    expect(statuses.every((status) => status === 200)).toBe(true)
+    // 1巡目は重複させず、出しきったあとの1問は2巡目として出す
     const words = alertChannel.pushedKanjiQuizzes.map(({ problem }) => problem.word)
-    expect(new Set(words).size).toBe(words.length)
+    expect(new Set(words.slice(0, gradeOneCount)).size).toBe(gradeOneCount)
+    expect(words).toHaveLength(gradeOneCount + 1)
   })
 })
 

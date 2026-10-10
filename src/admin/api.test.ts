@@ -6,6 +6,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { ApiError } from '@/core/api'
+import { singleGradeWeights } from '@/kanji-quiz/grade'
 import { createAdminApi, type TriggerInput } from './api'
 
 const site = 'https://hdad.example.com'
@@ -100,12 +101,12 @@ describe('config・saveConfig（トリガーの設定）', () => {
     expect(await createAdminApi(fetchImpl).config()).toEqual([raidTrigger])
   })
 
-  it('出題する級を持つ漢字クイズの動作を受け取る。知らない級ならエラーにする', async () => {
-    const rewardTrigger = { kind: 'reward', rewardId: '報酬ID-漢字クイズ', actions: [{ type: 'kanjiQuiz', grade: 'pre1' }] }
+  it('級ごとの出題の重みを持つ漢字クイズの動作を受け取る。重みの形が違えばエラーにする', async () => {
+    const rewardTrigger = { kind: 'reward', rewardId: '報酬ID-漢字クイズ', actions: [{ type: 'kanjiQuiz', weights: singleGradeWeights('pre1') }] }
 
     expect(await createAdminApi(fetchReturning(200, { triggers: [rewardTrigger] }).fetchImpl).config()).toEqual([rewardTrigger])
-    const unknownGrade = { ...rewardTrigger, actions: [{ type: 'kanjiQuiz', grade: '準1級' }] }
-    await expect(createAdminApi(fetchReturning(200, { triggers: [unknownGrade] }).fetchImpl).config()).rejects.toThrow('triggers[0]')
+    const singleGrade = { ...rewardTrigger, actions: [{ type: 'kanjiQuiz', grade: 'pre1' }] }
+    await expect(createAdminApi(fetchReturning(200, { triggers: [singleGrade] }).fetchImpl).config()).rejects.toThrow('triggers[0]')
   })
 
   it('知らないメニュー項目のトリガーを受け取ったらエラーにする（黙って無視すると、絞り込みが効かないまま画面に出る）', async () => {

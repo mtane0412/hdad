@@ -25,6 +25,7 @@ import { TriggerPage } from './trigger-page'
 import { ApiError } from '@/core/api'
 import { type AdminApi, type MediaItem, type Reward, type StoredTrigger } from './api'
 import type { BotStatus } from '@/bot/api'
+import { singleGradeWeights } from '@/kanji-quiz/grade'
 
 /** 接続済みのbotアカウント */
 const connectedBot: BotStatus = { userId: 'bot-user-id', login: 'haishinsha_bot', missingScopes: [], isModerator: true }
@@ -454,17 +455,28 @@ describe('効果の付け外し', () => {
     expect(api.playTwisterDemo).toHaveBeenCalledWith('hoshino_yu')
   })
 
-  test('チャンネルポイントの項目で漢字クイズを選び、級を選んで保存すると、その級の漢字クイズの効果として送る', async () => {
+  test('チャンネルポイントの項目で漢字クイズを選び、級ごとの重みを入れて保存すると、その重みの漢字クイズの効果として送る', async () => {
     const api = fakeApi()
     render(triggerPage(api))
 
     const row = await openedSettings('チャンネルポイントが交換された')
     await userEvent.click(row.getByRole('checkbox', { name: 'アラートを出す' }))
     await userEvent.click(row.getByRole('checkbox', { name: '漢字クイズを出題する' }))
-    await userEvent.selectOptions(row.getByRole('combobox', { name: '出題する級' }), '準2級')
+    // はじめは3級だけが重み1になっている。3級を3、準2級を1にして、3級75%・準2級25%で出す
+    const thirdGrade = row.getByRole('spinbutton', { name: '3級の重み' })
+    await userEvent.clear(thirdGrade)
+    await userEvent.type(thirdGrade, '3')
+    const semiSecondGrade = row.getByRole('spinbutton', { name: '準2級の重み' })
+    await userEvent.clear(semiSecondGrade)
+    await userEvent.type(semiSecondGrade, '1')
+
+    expect(row.getByText('75%')).toBeInTheDocument()
+    expect(row.getByText('25%')).toBeInTheDocument()
     await save()
 
-    expect(api.saveConfig).toHaveBeenCalledWith([{ kind: 'reward', rewardId: 'reward-hakushu', actions: [{ type: 'kanjiQuiz', grade: 'pre2' }] }])
+    expect(api.saveConfig).toHaveBeenCalledWith([
+      { kind: 'reward', rewardId: 'reward-hakushu', actions: [{ type: 'kanjiQuiz', weights: { ...singleGradeWeights('3'), '3': 3, pre2: 1 } }] },
+    ])
   })
 
   test('チャンネルポイント以外の項目には漢字クイズを出さない（視聴者がポイントを払って出題させるもののため）', async () => {

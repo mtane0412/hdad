@@ -37,7 +37,7 @@ export const KanjiQuizCard = ({ api }: KanjiQuizCardProps) => {
       <CardHeader>
         <CardTitle>漢字クイズ</CardTitle>
         <CardDescription>
-          チャンネルポイントが交換されたら、熟語の読みを問う漢字クイズを流す。問題はリポジトリの問題集から、トリガーで選んだ級のものを1問選ぶ。
+          チャンネルポイントが交換されたら、熟語の読みを問う漢字クイズを流す。問題はリポジトリの問題集から、トリガーで決めた級ごとの重みに沿って1問選ぶ。
           制限時間が過ぎると正解の読みと解説を出す。
         </CardDescription>
       </CardHeader>

@@ -28,7 +28,7 @@
  * 注意: 既定メニューにする前の保存内容（event と conditions を直接持つ形）は読み替えず、読み込みで失敗させる（Fail-Fast）。
  *   トリガーは数件なので、管理画面から入れ直してもらうほうが暗黙の読み替えを増やさずに済む。
  */
-import { KANKEN_GRADES, isKankenGrade, type KankenGrade } from '../src/kanji-quiz/grade'
+import { KANKEN_GRADES, MAX_KANKEN_GRADE_WEIGHT, isKankenGrade, isKankenGradeWeights, singleGradeWeights, type KankenGradeWeights } from '../src/kanji-quiz/grade'
 import type { KeyValueStore } from './store'
 import { expandSource, TRIGGER_KINDS, type AlertEvent, type StoredCondition, type TriggerKind, type TriggerSource } from './trigger-menu'
 import { ANNOUNCEMENT_COLORS, type AnnouncementColor } from './twitch'
@@ -140,12 +140,12 @@ export interface StoredTwisterAction {
 /**
  * 漢字クイズを出題する動作（issue #300）。
  *
- * 出題する級だけを配信者が決める。問題はその都度、問題集のその級からランダムに選ぶ（worker/kanji-quiz-call.ts）。
+ * 級ごとの出題の重みだけを配信者が決める。問題はその都度、重みに沿って級を選び、問題集のその級からランダムに選ぶ（worker/kanji-quiz-call.ts）。
  * 置けるのはチャンネルポイントのトリガーだけである（視聴者がポイントを払って出題させるもの）。
  */
 export interface StoredKanjiQuizAction {
   type: 'kanjiQuiz'
-  grade: KankenGrade
+  weights: KankenGradeWeights
 }
 
 export type StoredAction =
@@ -343,14 +343,14 @@ const parseAction = (
   // ツイスターも同じく配信者が決める項目を持たない（レイドにだけ置けることは parseAlertConfig で確かめる）
   if (type === 'twister') return { type }
 
-  // 漢字クイズは出題する級だけを持つ（チャンネルポイントにだけ置けることは parseAlertConfig で確かめる）
+  // 漢字クイズは級ごとの出題の重みだけを持つ（チャンネルポイントにだけ置けることは parseAlertConfig で確かめる）
   if (type === 'kanjiQuiz') {
-    const { grade } = candidate
-    if (!isKankenGrade(grade)) {
-      problems.push(`${at}.grade: ${KANKEN_GRADES.join(' / ')} のいずれかを指定してください`)
+    const { weights } = candidate
+    if (!isKankenGradeWeights(weights)) {
+      problems.push(`${at}.weights: ${KANKEN_GRADES.join(' / ')} のすべての級に0〜${MAX_KANKEN_GRADE_WEIGHT}の整数を指定し、1つ以上を1以上にしてください`)
       return null
     }
-    return { type, grade }
+    return { type, weights }
   }
 
   if (type === 'aiChat') {
@@ -495,10 +495,25 @@ const unreadableProblem = (candidate: unknown, at: string): string => {
 }
 
 /**
+ * 漢字クイズの動作が、級1つだけを持つ古い形（{ type: 'kanjiQuiz', grade }）なら、その級だけを出す重みの形に読み替える。
+ * ほかの動作と、いまの形の漢字クイズはそのまま返す。
+ *
+ * 注意: 古い形は読み替えないのが原則だが（loadAlertConfig）、漢字クイズの重み化は配信者の了承を得て例外にした。
+ * 読み替えないとトリガーの画面ごと読めなくなり、ほかのトリガーまで KV から入れ直すことになるためである。
+ * 読み替えた結果は同じ意味（その級だけから出す）で、次に保存すれば新しい形で書かれる。保存（parseAlertConfig）では古い形を受け付けない。
+ */
+const withKanjiQuizWeights = (action: StoredAction): StoredAction => {
+  // 保存されている中身は型どおりとは限らない（古い形を含む）ので、項目を読める形に広げて確かめる
+  const stored: Record<string, unknown> = { ...action }
+  if (stored.type !== 'kanjiQuiz' || 'weights' in stored || !isKankenGrade(stored.grade)) return action
+  return { type: 'kanjiQuiz', weights: singleGradeWeights(stored.grade) }
+}
+
+/**
  * 保存済みの設定を読む。未保存ならトリガーなしの設定を返す。
  *
  * 注意: 古い形で保存されていたら、黙って読み替えずにエラーにする（Fail-Fast）。開発中で後方互換を保つ必要がないため、
- * 暗黙の読み替えを増やさず、KVの設定を消して入れ直す方針を採る。
+ * 暗黙の読み替えを増やさず、KVの設定を消して入れ直す方針を採る。例外は漢字クイズの級1つだけの形（withKanjiQuizWeights）だけである。
  *
  * @throws ConfigError 保存されている内容がいまの形でない場合
  */
@@ -511,7 +526,7 @@ export const loadAlertConfig = async (store: KeyValueStore): Promise<AlertConfig
 
   const triggers = config.triggers.map((candidate: unknown, index): StoredTrigger => {
     if (!hasCurrentShape(candidate)) throw new ConfigError(SUBJECT, [unreadableProblem(candidate, `triggers[${index}]`)])
-    return candidate
+    return { ...candidate, actions: candidate.actions.map(withKanjiQuizWeights) }
   })
   return { triggers }
 }
