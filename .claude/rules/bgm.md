@@ -21,7 +21,7 @@ BGMは配信で流す曲を管理画面（`/bgm/`）で管理し、裏方のペ�
 
 **ポモドーロの休憩中は、`worker/pomodoro-bgm.ts` が休憩の曲（繰り返し）へ切り替え、休憩が明けたら前の曲と繰り返しの設定へ戻す。** どちらも切り替えた時刻を記録するので、Jev の控える時間が休憩を覆う（`.claude/rules/pomodoro.md`）。
 
-**市町村紹介とツイスターの BGM が鳴るあいだは、配信の BGM を下げる。** 合成ページが `POST /api/overlay/bgm/duck` に「受け取ってから下げておく長さ」（`holdMs`。0 は戻す。検証は `parseBgmDuck`）を送り、Worker は保存せずに `AlertChannel` の目印 `bgmDuck` の接続へ押し出す（`pushBgmDuck`。目印 `bgm` には混ぜない。素材「再生中の曲」と管理画面が読まないため）。裏方のページは別の WebSocket（`/api/overlay/bgm/duck/socket`）で受け取り、届いてから数えて自分で戻す。下げる量は `src/bgm/player.ts` の `DUCK_RATIO` で固定し、設定項目にしない（`.claude/rules/town-tour.md`・`.claude/rules/twister.md`）。
+**市町村紹介・ツイスター・漢字クイズの BGM が鳴るあいだは、配信の BGM を下げる。** 合成ページが `POST /api/overlay/bgm/duck` に「受け取ってから下げておく長さ」（`holdMs`。0 は戻す。検証は `parseBgmDuck`）を送り、Worker は保存せずに `AlertChannel` の目印 `bgmDuck` の接続へ押し出す（`pushBgmDuck`。目印 `bgm` には混ぜない。素材「再生中の曲」と管理画面が読まないため）。裏方のページは別の WebSocket（`/api/overlay/bgm/duck/socket`）で受け取り、届いてから数えて自分で戻す。下げる量は `src/bgm/player.ts` の `DUCK_RATIO` で固定し、設定項目にしない（`.claude/rules/town-tour.md`・`.claude/rules/twister.md`・`.claude/rules/kanji-quiz.md`）。
 
 何をするか（切り替える・音量とループを変える・止める・何もしない）の判断は `src/bgm/change.ts` の `bgmChangeOf` だけが持ち、曲が同じかは素材のIDで見る（曲名を直しただけで頭から流れ直さない）。鳴らすのは `src/bgm/player.ts`（リピート中だけループ、切り替えは2秒のフェードでつなぐ。次の曲を鳴らせなければ前の曲を流したままにする）。起動の失敗は投げ、配信中の切り替えの1回の失敗では止めずにその裏方の箱に出す。→ `docs/decisions/bgm.md`
 

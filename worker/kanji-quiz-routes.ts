@@ -3,6 +3,7 @@
  *
  * - GET /api/overlay/kanji-quiz/socket?key=: 合成ページの素材「漢字クイズ」の WebSocket の接続を配送先（AlertChannel）へ引き渡す
  * - POST /api/admin/kanji-quiz/demo: 管理画面の試し再生。本文の grade の級の問題を1問選んで素材へ押し出す（トリガーと同じ配送の経路を通す）
+ * - GET・PUT /api/admin/kanji-quiz/sound: 演出で鳴らす音の設定を読み書きする（検証と保存は kanji-quiz-sound.ts）
  * - POST /api/overlay/kanji-quiz/open?key=: 合成ページが出題を流しはじめたときに、出題を開く（回答を受け付けはじめる。issue #301）。
  *   あわせて、受付の締め切りに時間切れの判定を予約する（issue #302）
  * - POST /api/admin/kanji-quiz/stop/cancel: 下部バーの取り消しボタン。猶予のあいだの配信の停止を取り消す（issue #302）
@@ -18,10 +19,12 @@ import { KANKEN_GRADES, isKankenGrade, singleGradeWeights } from '../src/kanji-q
 import { connectKanjiQuizSocket, connectStreamStopSocket } from './alert-channel'
 import { HttpError, STATUS, requireAdmin, requireOverlayKey, type Context } from './http'
 import { issueKanjiQuiz } from './kanji-quiz-issue'
+import { loadKanjiQuizSound, parseKanjiQuizSound, playbackKanjiQuizSoundOf, saveKanjiQuizSound } from './kanji-quiz-sound'
 import { cancelKanjiQuizStopsAndNotify } from './kanji-quiz-stop'
 import { openKanjiQuiz } from './kanji-quiz-store'
 import { scheduleKanjiQuizJudge } from './kanji-quiz-timer'
-import { overlayKeyTag } from './overlay-key'
+import { listMedia } from './media'
+import { loadOverlayKey, overlayKeyTag } from './overlay-key'
 import { recordFailure } from './stats-store'
 
 /** 本文を JSON として読み、オブジェクトでなければ空のオブジェクトとして返す（項目の確かめは呼び出し側） */
@@ -46,23 +49,55 @@ export const kanjiQuizSocket = async (context: Context): Promise<Response> => {
  * 見栄えを確かめるためのものなので、トリガーの重みではなく、その級だけを出す重みで選ぶ（出しきったら一巡する）。
  *
  * トリガーと同じ配送の経路（AlertChannel）を通すので、合成ページを開いていれば OBS の画面にもそのまま流れる。
- * 何を押し出したかを画面に出せるよう、押し出したものを返す。
+ * 何を押し出したかを画面に出せるよう、押し出したものを返す。音は交換と同じく保存済みの設定で鳴らし、
+ * 音を選んでいるのにオーバーレイ用キーが未発行なら押し出さずに409で返す。
  */
 export const postKanjiQuizDemo = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
   const { env } = context
   const { grade } = await readBody(context)
   if (!isKankenGrade(grade)) throw new HttpError(STATUS.badRequest, 'invalid-grade', `級は ${KANKEN_GRADES.join(' / ')} のいずれかで指定してください`)
+  const [sound, overlayKey] = await Promise.all([loadKanjiQuizSound(env.STORE), loadOverlayKey(env.STORE)])
+  const playbackSound = ((): ReturnType<typeof playbackKanjiQuizSoundOf> => {
+    try {
+      return playbackKanjiQuizSoundOf(sound, overlayKey)
+    } catch (error) {
+      throw new HttpError(STATUS.conflict, 'overlay-key-missing', error instanceof Error ? error.message : String(error))
+    }
+  })()
   try {
     // 試し再生は交換した人がいないので、出題させた人を持たない。時間切れでも配信を止めないよう、試し再生として記録する
     const call = await issueKanjiQuiz(
       { db: env.DB, alerts: env.ALERTS, now: context.now, random: Math.random, id: crypto.randomUUID() },
-      { weights: singleGradeWeights(grade), requesterName: null, rehearsal: true },
+      { weights: singleGradeWeights(grade), requesterName: null, rehearsal: true, sound: playbackSound },
     )
     return Response.json(call)
   } catch (error) {
     throw new HttpError(STATUS.badGateway, 'kanji-quiz-push-failed', error instanceof Error ? error.message : String(error))
   }
+}
+
+/** GET /api/admin/kanji-quiz/sound: 演出で鳴らす音の設定。未保存ならどの枠も鳴らさない設定が返る */
+export const getKanjiQuizSound = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  return Response.json(await loadKanjiQuizSound(context.env.STORE))
+}
+
+/**
+ * PUT /api/admin/kanji-quiz/sound: 音の設定を検証して保存し、保存したものを返す。
+ *
+ * @throws ConfigError 設定に問題がある場合（index.ts が問題点付きの400にする）
+ */
+export const putKanjiQuizSound = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  const body: unknown = await context.request.json().catch(() => {
+    throw new HttpError(STATUS.badRequest, 'invalid-body', '本文はJSONにしてください')
+  })
+  const { env } = context
+  const kinds = new Map((await listMedia(env.MEDIA)).map((item) => [item.id, item.kind]))
+  const sound = parseKanjiQuizSound(body, (mediaId) => kinds.get(mediaId) ?? null)
+  await saveKanjiQuizSound(env.STORE, sound)
+  return Response.json(sound)
 }
 
 /**

@@ -123,6 +123,7 @@ const redeemedKanjiQuiz: KanjiQuizCall = {
   id: '漢字クイズの呼び出しID',
   problem: { word: '境内', readings: ['けいだい'], grade: '6', explanation: '神社や寺の敷地の中。' },
   requesterName: '田中太郎',
+  sound: { slots: { bgm: null, start: null, countdown: null, correct: null, timeUp: null }, bgmVolume: 0.3, effectVolume: 0.6 },
 }
 
 const duringTownTour: BgmDuck = { holdMs: 42_000 }

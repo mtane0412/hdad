@@ -331,6 +331,30 @@ describe('rotateOverlayKey・playTownTourDemo・townTourSound・rewards・logout
     await expect(createAdminApi(fetchImpl).playTwisterDemo('')).rejects.toThrow()
   })
 
+  it('漢字クイズの音の設定を読み、枠ごとの素材のIDと音量を返す', async () => {
+    const sound = { slots: { bgm: 'media-thinking', start: null, countdown: null, correct: 'media-pinpon', timeUp: null }, bgmVolume: 0.3, effectVolume: 0.6 }
+    const { requests, fetchImpl } = fetchReturning(200, sound)
+
+    expect(await createAdminApi(fetchImpl).kanjiQuizSound()).toEqual(sound)
+    expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/kanji-quiz/sound')
+  })
+
+  it('漢字クイズの音の設定を PUT で保存し、Workerが保存したものを返す', async () => {
+    const sound = { slots: { bgm: null, start: null, countdown: 'media-tick', correct: null, timeUp: null }, bgmVolume: 0.3, effectVolume: 0.8 }
+    const { requests, fetchImpl } = fetchReturning(200, sound)
+
+    expect(await createAdminApi(fetchImpl).saveKanjiQuizSound(sound)).toEqual(sound)
+    expect(requests[0]!.method).toBe('PUT')
+    expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/kanji-quiz/sound')
+    expect(await requests[0]!.json()).toEqual(sound)
+  })
+
+  it('漢字クイズの音の設定の応答に枠が欠けていれば、エラーにする', async () => {
+    const { fetchImpl } = fetchReturning(200, { slots: { bgm: null }, bgmVolume: 0.3, effectVolume: 0.6 })
+
+    await expect(createAdminApi(fetchImpl).kanjiQuizSound()).rejects.toThrow('漢字クイズの音の設定')
+  })
+
   it('ツイスターの BGM の設定を読み、素材のIDと音量を返す', async () => {
     const sound = { bgm: 'media-taisen', bgmVolume: 0.3 }
     const { requests, fetchImpl } = fetchReturning(200, sound)

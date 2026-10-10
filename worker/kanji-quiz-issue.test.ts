@@ -26,6 +26,13 @@ const problems: readonly KanjiQuizProblem[] = [
 /** 6級だけを出す重み */
 const sixOnly = singleGradeWeights('6')
 
+/** BGM だけを選んだ音の設定（呼び出し側が音声のURLに置き換えたもの） */
+const sound = {
+  slots: { bgm: '/api/media/media-thinking?key=overlay-key', start: null, countdown: null, correct: null, timeUp: null },
+  bgmVolume: 0.3,
+  effectVolume: 0.6,
+}
+
 /** 配信中の D1 と配送先 */
 const createLiveDeps = async () => {
   const db = createFakeDatabase()
@@ -35,12 +42,12 @@ const createLiveDeps = async () => {
 }
 
 describe('issueKanjiQuiz', () => {
-  it('選んだ問題の行を入れてから、交換した人の名前と一緒に押し出す', async () => {
+  it('選んだ問題の行を入れてから、交換した人の名前と音の設定と一緒に押し出す', async () => {
     const { db, alertChannel } = await createLiveDeps()
 
-    const call = await issueKanjiQuiz({ db, alerts: alertChannel.namespace, now, random: () => 0, id: 'quiz-1' }, { weights: sixOnly, requesterName: '田中太郎', rehearsal: false }, problems)
+    const call = await issueKanjiQuiz({ db, alerts: alertChannel.namespace, now, random: () => 0, id: 'quiz-1' }, { weights: sixOnly, requesterName: '田中太郎', rehearsal: false, sound }, problems)
 
-    expect(call).toEqual({ id: 'quiz-1', problem: problems[0], requesterName: '田中太郎' })
+    expect(call).toEqual({ id: 'quiz-1', problem: problems[0], requesterName: '田中太郎', sound })
     expect(alertChannel.pushedKanjiQuizzes).toEqual([call])
     // 合成ページの読み取りがそのまま読める形で押し出す
     expect(parseKanjiQuizMessage(JSON.stringify(call))).toEqual({ type: 'call', call })
@@ -51,8 +58,8 @@ describe('issueKanjiQuiz', () => {
     const { db, alertChannel } = await createLiveDeps()
     const deps = { db, alerts: alertChannel.namespace, now, random: () => 0 }
 
-    await issueKanjiQuiz({ ...deps, id: 'quiz-1' }, { weights: sixOnly, requesterName: '田中太郎', rehearsal: false }, problems)
-    const second = await issueKanjiQuiz({ ...deps, id: 'quiz-2' }, { weights: sixOnly, requesterName: null, rehearsal: true }, problems)
+    await issueKanjiQuiz({ ...deps, id: 'quiz-1' }, { weights: sixOnly, requesterName: '田中太郎', rehearsal: false, sound }, problems)
+    const second = await issueKanjiQuiz({ ...deps, id: 'quiz-2' }, { weights: sixOnly, requesterName: null, rehearsal: true, sound }, problems)
 
     expect(second.problem.word).toBe('仮病')
   })
@@ -60,10 +67,10 @@ describe('issueKanjiQuiz', () => {
   it('選べる問題をすべて出し終えても、エラーにせず一巡して出題する', async () => {
     const { db, alertChannel } = await createLiveDeps()
     const deps = { db, alerts: alertChannel.namespace, now, random: () => 0 }
-    await issueKanjiQuiz({ ...deps, id: 'quiz-1' }, { weights: sixOnly, requesterName: '田中太郎', rehearsal: false }, problems)
-    await issueKanjiQuiz({ ...deps, id: 'quiz-2' }, { weights: sixOnly, requesterName: '田中太郎', rehearsal: false }, problems)
+    await issueKanjiQuiz({ ...deps, id: 'quiz-1' }, { weights: sixOnly, requesterName: '田中太郎', rehearsal: false, sound }, problems)
+    await issueKanjiQuiz({ ...deps, id: 'quiz-2' }, { weights: sixOnly, requesterName: '田中太郎', rehearsal: false, sound }, problems)
 
-    const call = await issueKanjiQuiz({ ...deps, id: 'quiz-3' }, { weights: sixOnly, requesterName: '田中太郎', rehearsal: false }, problems)
+    const call = await issueKanjiQuiz({ ...deps, id: 'quiz-3' }, { weights: sixOnly, requesterName: '田中太郎', rehearsal: false, sound }, problems)
 
     // 2問とも1回ずつ出したので、2巡目の先頭の「境内」を出す
     expect(call.problem.word).toBe('境内')
@@ -76,7 +83,7 @@ describe('issueKanjiQuiz', () => {
     await recordStreamOnline(db, { id: 'stream-1', startedAt: now - 60_000 })
     const failingChannel = createFakeAlertChannel({ shouldFail: true })
 
-    await expect(issueKanjiQuiz({ db, alerts: failingChannel.namespace, now, random: () => 0, id: 'quiz-1' }, { weights: sixOnly, requesterName: '田中太郎', rehearsal: false }, problems)).rejects.toThrow()
+    await expect(issueKanjiQuiz({ db, alerts: failingChannel.namespace, now, random: () => 0, id: 'quiz-1' }, { weights: sixOnly, requesterName: '田中太郎', rehearsal: false, sound }, problems)).rejects.toThrow()
 
     expect(await readKanjiQuizWordCounts(db, now)).toEqual(new Map())
   })

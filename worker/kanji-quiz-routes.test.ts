@@ -26,6 +26,7 @@ import { createFakeStore } from './fake-store'
 import { createFakeTabChannel } from './fake-tab-channel'
 import { createFakeTokenVault } from './fake-token-vault'
 import { KANJI_QUIZ_PROBLEMS } from './kanji-quiz-call'
+import { DEFAULT_KANJI_QUIZ_SOUND, loadKanjiQuizSound, saveKanjiQuizSound } from './kanji-quiz-sound'
 import { KANJI_QUIZ_STOP_GRACE_MS } from './kanji-quiz-stop'
 import { KANJI_QUIZ_GRACE_MS, answerKanjiQuiz, beginKanjiQuizStop, openKanjiQuiz, recordKanjiQuiz } from './kanji-quiz-store'
 import { listFailures, recordStreamOnline } from './stats-store'
@@ -130,6 +131,35 @@ describe('POST /api/admin/kanji-quiz/demo', () => {
     expect(await response.json()).toEqual(call)
   })
 
+  it('音を選んでいなければ、どの枠も鳴らさない設定のまま押し出す', async () => {
+    const alertChannel = createFakeAlertChannel()
+
+    await callAsBroadcaster(createEnv(alertChannel), { grade: '6' })
+
+    expect(alertChannel.pushedKanjiQuizzes[0]?.sound).toEqual(DEFAULT_KANJI_QUIZ_SOUND)
+  })
+
+  it('音を選んでいれば、交換と同じく音声のURL（オーバーレイ用キーつき）と音量を添えて押し出す', async () => {
+    const alertChannel = createFakeAlertChannel()
+    const env = createEnv(alertChannel)
+    await saveKanjiQuizSound(env.STORE, { ...DEFAULT_KANJI_QUIZ_SOUND, slots: { ...DEFAULT_KANJI_QUIZ_SOUND.slots, timeUp: 'media-buzzer' } })
+
+    await callAsBroadcaster(env, { grade: '6' })
+
+    expect(alertChannel.pushedKanjiQuizzes[0]?.sound.slots.timeUp).toBe(`/api/media/media-buzzer?key=${overlayKey}`)
+  })
+
+  it('音を選んでいるのにオーバーレイ用キーが未発行なら、押し出さずに409にする', async () => {
+    const alertChannel = createFakeAlertChannel()
+    const env = createEnv(alertChannel, createFakeStore())
+    await saveKanjiQuizSound(env.STORE, { ...DEFAULT_KANJI_QUIZ_SOUND, slots: { ...DEFAULT_KANJI_QUIZ_SOUND.slots, timeUp: 'media-buzzer' } })
+
+    const response = await callAsBroadcaster(env, { grade: '6' })
+
+    expect(response.status).toBe(409)
+    expect(alertChannel.pushedKanjiQuizzes).toEqual([])
+  })
+
   it('試し再生の出題として記録する（時間切れでも配信を止めない）', async () => {
     const alertChannel = createFakeAlertChannel()
     const env = createEnv(alertChannel)
@@ -171,6 +201,59 @@ describe('POST /api/admin/kanji-quiz/demo', () => {
     const words = alertChannel.pushedKanjiQuizzes.map(({ problem }) => problem.word)
     expect(new Set(words.slice(0, gradeOneCount)).size).toBe(gradeOneCount)
     expect(words).toHaveLength(gradeOneCount + 1)
+  })
+})
+
+describe('GET・PUT /api/admin/kanji-quiz/sound', () => {
+  /** 配信者としてログインした状態で呼ぶ。書き換えのときは Origin も付ける（ブラウザが付けるのと同じ） */
+  const callAsBroadcaster = async (env: Env, init: RequestInit = {}): Promise<Response> => {
+    const session = await createSessionToken(env.TWITCH_BROADCASTER_ID, env.SESSION_SECRET, now)
+    return invoke('/api/admin/kanji-quiz/sound', env, { ...init, headers: { Cookie: `__Host-session=${session}`, Origin: site } })
+  }
+
+  /** 正解の音（音声）と、背景の画像を上げておいた環境 */
+  const createEnvWithMedia = async (): Promise<Env> => {
+    const env = createEnv()
+    await env.MEDIA.put('media-pinpon', new ArrayBuffer(8), { httpMetadata: { contentType: 'audio/mpeg' }, customMetadata: { name: 'pinpon.mp3' } })
+    await env.MEDIA.put('media-haikei', new ArrayBuffer(8), { httpMetadata: { contentType: 'image/png' }, customMetadata: { name: 'haikei.png' } })
+    return env
+  }
+
+  it('ログインしていなければ読ませない', async () => {
+    const response = await invoke('/api/admin/kanji-quiz/sound', createEnv())
+
+    expect(response.status).toBe(401)
+  })
+
+  it('未保存なら、どの枠も鳴らさない設定を返す', async () => {
+    const response = await callAsBroadcaster(createEnv())
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual(DEFAULT_KANJI_QUIZ_SOUND)
+  })
+
+  it('保存した設定を返し、次に読んだときも同じものを返す', async () => {
+    const env = await createEnvWithMedia()
+    const sound = { ...DEFAULT_KANJI_QUIZ_SOUND, slots: { ...DEFAULT_KANJI_QUIZ_SOUND.slots, correct: 'media-pinpon' }, effectVolume: 0.8 }
+
+    const saved = await callAsBroadcaster(env, { method: 'PUT', body: JSON.stringify(sound) })
+    const loaded = await callAsBroadcaster(env)
+
+    expect(saved.status).toBe(200)
+    expect(await saved.json()).toEqual(sound)
+    expect(await loaded.json()).toEqual(sound)
+  })
+
+  it('音声でない素材を選んだ設定は、問題点つきの400で断って保存しない', async () => {
+    const env = await createEnvWithMedia()
+    const sound = { ...DEFAULT_KANJI_QUIZ_SOUND, slots: { ...DEFAULT_KANJI_QUIZ_SOUND.slots, start: 'media-haikei' } }
+
+    const response = await callAsBroadcaster(env, { method: 'PUT', body: JSON.stringify(sound) })
+
+    expect(response.status).toBe(400)
+    const body = (await response.json()) as { error: { problems: string[] } }
+    expect(body.error.problems).toEqual(['slots.start: 素材「media-haikei」は音声ではありません'])
+    expect(await loadKanjiQuizSound(env.STORE)).toEqual(DEFAULT_KANJI_QUIZ_SOUND)
   })
 })
 

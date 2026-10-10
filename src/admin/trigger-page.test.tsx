@@ -52,6 +52,12 @@ const fakeApi = (overrides: Partial<AdminApi> = {}): AdminApi => ({
   playTownTourDemo: vi.fn(async () => '試し再生: 本日は北海道石狩郡当別町をご紹介します'),
   playTwisterDemo: vi.fn(async () => 'レイドした人（試し） vs 配信者'),
   playKanjiQuizDemo: vi.fn(async () => '漢検6級「境内」'),
+  kanjiQuizSound: vi.fn(async () => ({
+    slots: { bgm: null, start: null, countdown: null, correct: null, timeUp: null },
+    bgmVolume: 0.3,
+    effectVolume: 0.6,
+  })),
+  saveKanjiQuizSound: vi.fn(async (sound) => sound),
   townTourSound: vi.fn(async () => ({
     slots: { bgm: null, opening: null, zoom: null, landing: null, item: null, closing: null },
     bgmVolume: 0.3,

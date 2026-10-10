@@ -62,6 +62,8 @@ const fakeApi = (overrides: Partial<AdminApi> = {}): AdminApi => {
     saveTownTourSound: vi.fn(unused),
     twisterSound: vi.fn(unused),
     saveTwisterSound: vi.fn(unused),
+    kanjiQuizSound: vi.fn(unused),
+    saveKanjiQuizSound: vi.fn(unused),
     townTourNarration: vi.fn(unused),
     saveTownTourNarration: vi.fn(unused),
     rewards: vi.fn(async () => [toastReward, hydrateReward]),

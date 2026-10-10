@@ -32,6 +32,7 @@ import { createFakeAdBreakTimer } from './fake-ad-break-timer'
 import { createFakeTokenVault } from './fake-token-vault'
 import { DEFAULT_TOWN_TOUR_SOUND, saveTownTourSound } from './town-tour-sound'
 import { saveTwisterSound } from './twister-sound'
+import { DEFAULT_KANJI_QUIZ_SOUND, saveKanjiQuizSound } from './kanji-quiz-sound'
 import { openTownTourQuiz } from './town-tour-quiz'
 import { openKanjiQuiz, recordKanjiQuiz } from './kanji-quiz-store'
 import { singleGradeWeights } from '../src/kanji-quiz/grade'
@@ -1797,6 +1798,32 @@ describe('漢字クイズを出題する動作（kanjiQuiz）', () => {
   it('配送先が失敗したら、失敗として記録する（受け取り自体は成功として返す）', async () => {
     const { env, alertChannel } = createEnv({ channelShouldFail: true })
     await saveAlertConfig(env.STORE, { triggers: [rewardKanjiQuizTrigger] })
+
+    const response = await callWebhook(createNotification({ body: REDEMPTION_NOTIFICATION }), env)
+
+    expect(response.status).toBe(204)
+    expect(alertChannel.pushedKanjiQuizzes).toHaveLength(0)
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'kanji-quiz-push-failed' }])
+  })
+
+  it('音を選んでいれば、音声のURL（オーバーレイ用キーつき）と音量を添えて押し出す', async () => {
+    const { env, alertChannel } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [rewardKanjiQuizTrigger] })
+    // 検証（音声であること）は kanji-quiz-sound.test.ts が確かめるので、ここでは保存済みの設定として直接置く
+    await saveKanjiQuizSound(env.STORE, { ...DEFAULT_KANJI_QUIZ_SOUND, slots: { ...DEFAULT_KANJI_QUIZ_SOUND.slots, bgm: 'media-thinking' } })
+
+    await callWebhook(createNotification({ body: REDEMPTION_NOTIFICATION }), env)
+
+    expect(alertChannel.pushedKanjiQuizzes[0]?.sound).toEqual({
+      ...DEFAULT_KANJI_QUIZ_SOUND,
+      slots: { ...DEFAULT_KANJI_QUIZ_SOUND.slots, bgm: `/api/media/media-thinking?key=${ISSUED_OVERLAY_KEY}` },
+    })
+  })
+
+  it('音を選んでいるのにオーバーレイ用キーが未発行なら、押し出さずに失敗として記録する（黙って無音で流さない）', async () => {
+    const { env, alertChannel } = createEnv({ overlayKey: null })
+    await saveAlertConfig(env.STORE, { triggers: [rewardKanjiQuizTrigger] })
+    await saveKanjiQuizSound(env.STORE, { ...DEFAULT_KANJI_QUIZ_SOUND, slots: { ...DEFAULT_KANJI_QUIZ_SOUND.slots, bgm: 'media-thinking' } })
 
     const response = await callWebhook(createNotification({ body: REDEMPTION_NOTIFICATION }), env)
 

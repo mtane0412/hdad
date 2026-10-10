@@ -10,6 +10,7 @@
  */
 import { ApiError, createCaller, isRecord, readList } from '@/core/api'
 import { isKankenGrade, isKankenGradeWeights, kankenGradeLabel, type KankenGrade, type KankenGradeWeights } from '@/kanji-quiz/grade'
+import { readKanjiQuizSound, type KanjiQuizSound } from '@/kanji-quiz/sound'
 import { readTownTourNarration, type TownTourNarration } from '@/town-tour/narration'
 import { readTownTourSound, type TownTourSound } from '@/town-tour/sound'
 import { readTwisterSound, type TwisterSound } from '@/twister/sound'
@@ -260,6 +261,10 @@ export interface AdminApi {
   playTwisterDemo(userName: string): Promise<string>
   /** 漢字クイズの試し再生。Workerが選んだ級の問題を1問合成ページへ押し出し、「漢検○級「熟語」」の形で出した問題を返す */
   playKanjiQuizDemo(grade: KankenGrade): Promise<string>
+  /** 漢字クイズの演出で鳴らす音の設定。未保存ならどの枠も鳴らさない設定が返る */
+  kanjiQuizSound(): Promise<KanjiQuizSound>
+  /** 漢字クイズの音の設定を保存する。Workerが保存したものを返す */
+  saveKanjiQuizSound(sound: KanjiQuizSound): Promise<KanjiQuizSound>
   /** ツイスターの対戦のあいだ流す BGM の設定。未保存なら BGM を流さない設定が返る */
   twisterSound(): Promise<TwisterSound>
   /** ツイスターの BGM の設定を保存する。Workerが保存したものを返す */
@@ -363,6 +368,7 @@ const REWARDS_PATH = '/api/admin/rewards'
 const TOWN_TOUR_SOUND_PATH = '/api/admin/town-tour/sound'
 const TOWN_TOUR_NARRATION_PATH = '/api/admin/town-tour/narration'
 const TWISTER_SOUND_PATH = '/api/admin/twister/sound'
+const KANJI_QUIZ_SOUND_PATH = '/api/admin/kanji-quiz/sound'
 
 export const createAdminApi = (fetchImpl: typeof fetch): AdminApi => {
   const call = createCaller(fetchImpl)
@@ -445,6 +451,11 @@ export const createAdminApi = (fetchImpl: typeof fetch): AdminApi => {
       if (players.length !== 2 || typeof raider !== 'string' || typeof streamer !== 'string') throw new Error('Workerの応答に、対戦する2人の名前がありません')
       return `${raider} vs ${streamer}`
     },
+
+    kanjiQuizSound: async () => readKanjiQuizSound(await call(KANJI_QUIZ_SOUND_PATH)),
+
+    saveKanjiQuizSound: async (sound) =>
+      readKanjiQuizSound(await call(KANJI_QUIZ_SOUND_PATH, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sound) })),
 
     twisterSound: async () => readTwisterSound(await call(TWISTER_SOUND_PATH)),
 

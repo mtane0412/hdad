@@ -77,6 +77,8 @@ import { KANJI_QUIZ_SOCKET_HINT, KANJI_QUIZ_SOCKET_PATH, createKanjiQuizApi } fr
 import { parseKanjiQuizMessage, type KanjiQuizCall } from '../kanji-quiz/call'
 import { DEMO_KANJI_QUIZ_CALLS, DEMO_KANJI_QUIZ_INTERVAL_MS } from '../kanji-quiz/demo'
 import { acceptsAnswerAt, kanjiQuizEndOf, kanjiQuizSceneAt, kanjiQuizStopBannerAt, type KanjiQuizStop } from '../kanji-quiz/scene'
+import { KANJI_QUIZ_BGM_START_CUE_ID, dueKanjiQuizSoundCues, kanjiQuizBgmDuckHoldOf } from '../kanji-quiz/sound-cues'
+import { createKanjiQuizSoundPlayer } from '../kanji-quiz/sound-player'
 import { drawKanjiQuiz } from '../kanji-quiz/view'
 import { POMODORO_SOCKET_HINT, POMODORO_SOCKET_PATH, createPomodoroOverlayApi } from '../pomodoro/api'
 import { demoPomodoroScenes, demoTimerOf } from '../pomodoro/demo'
@@ -187,6 +189,8 @@ const OPINIONS_INTERVAL_MS = 300000
 const FOCUS_INTERVAL_MS = 10000
 /** 市町村紹介の音を鳴らす時刻を迎えたか確かめる間隔（ミリ秒）。場面の切り替わりとずれて聞こえない短さにする */
 const TOWN_TOUR_SOUND_TICK_MS = 50
+/** 漢字クイズの音を鳴らす時刻を迎えたか確かめる間隔（ミリ秒）。カウントダウンの数字の切り替わりとずれて聞こえない短さにする */
+const KANJI_QUIZ_SOUND_TICK_MS = 50
 
 /** プレビューでサンプルのアラートを流す間隔（ミリ秒）。アラート1件の再生が終わるだけの間を置く */
 const DEMO_ALERT_INTERVAL_MS = 9000
@@ -1768,7 +1772,11 @@ const mountTwister = (box: HTMLElement, item: OverlayItem, { key, demo }: MountC
  * （届いた時刻でカウントダウンを止める。issue #301）。時間切れの後に届いた正解者は出さない。
  * 時間切れで配信を止めるまでの猶予が届いたら、解説に重ねて配信終了までの残り秒数を出し、取り消し・猶予の終わりの結果を出し終えるまで延ばす（issue #302）。
  *
- * 注意: 出題を開けなかった・選べる問題が尽きた（Worker からの失敗の知らせ）ときは、素材の箱に出す（黙って流し続けない）。
+ * 音は出題に添えられた設定の枠ごとに、鳴らす時刻の表（src/kanji-quiz/sound-cues.ts）に沿って鳴らす。時刻はタイマーで確かめ
+ * （OBS が描画を間引いても鳴らすため）、1回の出題を流し終えたら止める。BGM を鳴らした出題では、配信の BGM を下げておく長さを
+ * 鳴らしはじめたときと正解者が届いたときに送る（プレビューでは送らない）。
+ *
+ * 注意: 出題を開けなかった・選べる問題が尽きた（Worker からの失敗の知らせ）・音を鳴らせなかったときは、素材の箱に出す（黙って流し続けない）。
  */
 const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
   // この素材は配信者が決めるパラメータを持たない（何を出すかはトリガーと試し再生で決まる）
@@ -1788,9 +1796,25 @@ const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo }: Moun
   } | null = null
   /** 流すのを待っている出題（届いた順） */
   let waiting: readonly KanjiQuizCall[] = []
+  /** 流している出題で鳴らした音の id（sound-cues.ts の KanjiQuizSoundCue.id） */
+  let played = new Set<string>()
+  const sound = createKanjiQuizSoundPlayer((error) => showError(error, NOUNS.kanjiQuiz, box, 'read'))
+  const bgmApi = createBgmOverlayApi(callWorker, key)
 
   const enqueue = (call: KanjiQuizCall): void => {
     waiting = [...waiting, call]
+  }
+
+  /**
+   * クイズの BGM を鳴らしている出題なら、配信の BGM を下げておく長さを裏方のページへ知らせる。
+   * プレビューでは配信の BGM を動かさないので送らない。知らせに失敗しても出題は止めず、箱に出すだけにする
+   * （下げられなくても、配信の BGM が下がったまま残ることはない）。
+   */
+  const duckStreamBgm = (now: number): void => {
+    if (demo || playback === null || !played.has(KANJI_QUIZ_BGM_START_CUE_ID)) return
+    const holdMs = kanjiQuizBgmDuckHoldOf(playback.call.sound, now - playback.startedAt, playback.answer?.afterMs ?? null)
+    if (holdMs === null) return
+    bgmApi.duck(holdMs).catch((error: unknown) => showError(error, NOUNS.kanjiQuiz, box, 'read'))
   }
 
   /** 流している出題の正解者が届いたら、届いた時刻を記録する（最初の1人だけ。熟語が出てから制限時間のうちだけ受け入れる） */
@@ -1799,6 +1823,8 @@ const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo }: Moun
     const afterMs = Date.now() - playback.startedAt
     if (!acceptsAnswerAt(afterMs)) return
     playback = { ...playback, answer: { userName, afterMs } }
+    // クイズの BGM は正解者が届いた時刻で下げるので、配信の BGM を下げておく長さも縮める
+    duckStreamBgm(Date.now())
   }
 
   /** 流している出題の、配信を止めるまでの猶予が届いたら、届いた時刻を記録する（流し終えた出題の猶予は出さない。止める判断は Worker が持つ） */
@@ -1813,22 +1839,40 @@ const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo }: Moun
     playback = { ...playback, stop: { ...playback.stop, cancelledAfterMs: Date.now() - playback.startedAt } }
   }
 
+  /** 流している出題を流し終えていれば終えて音を止め、流していなければ待っている出題の先頭を流しはじめる */
+  const advance = (now: number): void => {
+    if (playback !== null && now - playback.startedAt >= kanjiQuizEndOf(playback.answer?.afterMs ?? null, playback.stop)) {
+      playback = null
+      sound.stop()
+    }
+    if (playback !== null) return
+    const [next, ...rest] = waiting
+    if (next === undefined) return
+    waiting = rest
+    playback = { call: next, startedAt: now, answer: null, stop: null }
+    played = new Set()
+    // プレビューは Worker の選んだ出題ではないので開かせない
+    if (!demo) {
+      // 開けなければ回答が届かないまま時間切れまで流れるので、理由を箱に出す（次の出題の読み取りが届けば消す）
+      api.openQuiz(next.id).catch((error: unknown) => showError(error, NOUNS.kanjiQuiz, box, 'read'))
+    }
+  }
+
+  window.setInterval(() => {
+    const now = Date.now()
+    // 描画が間引かれていても、音を鳴らして次へ進めるよう、ここでも進める
+    advance(now)
+    if (playback === null) return
+    for (const cue of dueKanjiQuizSoundCues(playback.call.sound, now - playback.startedAt, playback.answer?.afterMs ?? null, played)) {
+      played.add(cue.id)
+      sound.play(cue)
+      if (cue.type === 'bgmStart') duckStreamBgm(now)
+    }
+  }, KANJI_QUIZ_SOUND_TICK_MS)
+
   const draw = startCanvasSurface(canvas, (ctx, width, height) => {
     const now = Date.now()
-    if (playback !== null && now - playback.startedAt >= kanjiQuizEndOf(playback.answer?.afterMs ?? null, playback.stop)) playback = null
-    // 流していなければ、待っている出題の先頭を流しはじめる
-    if (playback === null) {
-      const [next, ...rest] = waiting
-      if (next !== undefined) {
-        waiting = rest
-        playback = { call: next, startedAt: now, answer: null, stop: null }
-        // プレビューは Worker の選んだ出題ではないので開かせない
-        if (!demo) {
-          // 開けなければ回答が届かないまま時間切れまで流れるので、理由を箱に出す（次の出題の読み取りが届けば消す）
-          api.openQuiz(next.id).catch((error: unknown) => showError(error, NOUNS.kanjiQuiz, box, 'read'))
-        }
-      }
-    }
+    advance(now)
     drawKanjiQuiz(
       ctx,
       width,

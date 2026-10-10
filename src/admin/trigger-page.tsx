@@ -1020,7 +1020,7 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
       <TwisterCard api={api} media={media} />
 
       {/* 漢字クイズは設定を持たず、級を選んで試しに流すボタンだけを置く */}
-      <KanjiQuizCard api={api} />
+      <KanjiQuizCard api={api} media={media} />
 
       {/* 一覧そのものはカードに入れず、区分（チャット・イベント・開発・ポモドーロ）ごとにカードにする
           （全体を1枚のカードで囲むと、その中に区分の見出しと項目の枠が入れ子で並び、どこまでが1つのまとまりか読み取りにくい） */}

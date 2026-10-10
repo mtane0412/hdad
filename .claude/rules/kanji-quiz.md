@@ -27,6 +27,8 @@ paths:
 - 止める命令は `AlertChannel` の目印 `streamStop` で裏方のページ（`?stop=true`。`src/kanji-quiz/stop-task.ts`）へ押し出し（裏方を2つ開いていても、送れた1つにだけ送る）、受け取る接続が1つも無ければ配送先が409を返して失敗として記録する。裏方は OBS（つなぎ先は画面の取り込みの設定）へ `StopStream` を送り、結果を `POST /api/overlay/kanji-quiz/stop/result` で知らせる（理由があれば記録）
 - 猶予は時刻ではなく長さ（`graceMs`）で押し出し、合成ページと下部バーは届いた時刻から自分の時計で数える。合成ページは停止を予告しない（猶予の残り秒数・「終了します」・取り消しを出さない）。帯を出すのは試し再生で猶予が尽きたときだけ（`scene.ts` の `kanjiQuizStopBannerAt`。文言は `captions.ts` の `stopBannerLineOf`）。猶予の結果を出し終えるまで1回の出題を延ばす
 - 下部バーの取り消しボタンは `src/kanji-quiz/stop-bar.tsx`（猶予のあいだだけ出す。猶予は出題ごとに持ち、尽きたものだけを外す）。合成ページと同じ押し出しにオーバーレイ用キーでつなぎ（`socket.ts`）、取り消しは `POST /api/admin/kanji-quiz/stop/cancel`（出題を指定せず、猶予のあいだのものをすべて取り消す）。接続と取り消しはアプリの枠から `KanjiQuizStopDeps` で受け取る
-- 音は扱わない
+- 演出で鳴らす音の枠は `src/kanji-quiz/sound.ts` の `KANJI_QUIZ_SOUND_SLOTS`（BGM・出題・カウントダウン・正解・時間切れ）で固定し（Worker もここから読む）、配信者は枠ごとにアップロード済みの音声を選ぶか「鳴らさない」にするだけにする。音量は BGM と効果音の2つ。設定は漢字クイズとして1つ（`worker/kanji-quiz-sound.ts`。KV の `kanji-quiz-sound`。経路は `GET・PUT /api/admin/kanji-quiz/sound`）で、画面はトリガーのページの「漢字クイズ」のカード（`src/admin/kanji-quiz-card.tsx`）。Worker は交換と試し再生の両方で出題に音声の URL にして載せ（`playbackKanjiQuizSoundOf`。`KanjiQuizCall.sound`）、音を選んでいるのにオーバーレイ用キーが無ければ押し出さない（交換は `kanji-quiz-push-failed`、試し再生は409）。選ばれている素材は削除させない（`worker/admin-routes.ts`）
+- 合成ページで鳴らす時刻は `src/kanji-quiz/sound-cues.ts` の表（`kanjiQuizSoundCuesOf`）だけが決め、秒数は `scene.ts` の定数から取る。BGM は流しはじめから正解者が届くか時間切れになるまでループし、そこで短く下げて止める（解説のあいだは流さない）。カウントダウンは最後の `COUNTDOWN_SECONDS` 秒の数字が切り替わるたびに鳴らし、正解者が届いた後は鳴らさない。鳴らしたことの記録と止める判断（1回の出題の終わり）は `mountKanjiQuiz`、Audio 要素の操作は `sound-player.ts`（テストを持たない）。刻むのは描画のループではなくタイマーにする。プレビューの出題（`demo.ts`）は音を鳴らさない
+- クイズの BGM を鳴らした出題では、配信の BGM を下げておく長さ（`sound-cues.ts` の `kanjiQuizBgmDuckHoldOf`）を、鳴らしはじめたときと正解者が届いたときに `POST /api/overlay/bgm/duck` へ送る（市町村紹介・ツイスターと同じ。プレビューでは送らない。送れなくても出題は止めない）
 
 経緯は `docs/decisions/kanji-quiz.md`、使い方は `docs/guide/kanji-quiz.md`。
