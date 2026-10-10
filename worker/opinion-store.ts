@@ -232,11 +232,16 @@ export const applySorting = async (db: Database, themeId: number, actions: reado
   if (statements.length > 0) await db.batch(statements)
 }
 
-/** 振り分けに失敗した回のコメントを失敗にし、振り分け待ちから外す（同じ発言で失敗し続けないため） */
-export const markCommentsFailed = async (db: Database, commentIds: readonly number[]): Promise<void> => {
+/**
+ * 振り分けに失敗した回のコメントを失敗にし、振り分け待ちから外す（同じ発言で失敗し続けないため）。
+ *
+ * LLM を待つあいだにテーマが締め切られていたら、失敗にせず振り分け待ちのまま残す（締め切りで残ったコメントと、
+ * 振り分けの失敗を混ぜないため。applySorting と同じ条件）。
+ */
+export const markCommentsFailed = async (db: Database, themeId: number, commentIds: readonly number[]): Promise<void> => {
   await db
-    .prepare(`UPDATE opinion_comments SET status = 'failed' WHERE id IN (SELECT value FROM json_each(?1)) AND status = 'pending'`)
-    .bind(JSON.stringify(commentIds))
+    .prepare(`UPDATE opinion_comments SET status = 'failed' WHERE id IN (SELECT value FROM json_each(?1)) AND status = 'pending' AND ${themeIsOpen('?2')}`)
+    .bind(JSON.stringify(commentIds), themeId)
     .run()
 }
 

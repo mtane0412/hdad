@@ -62,7 +62,7 @@ export const runOpinionSorting = async (dependencies: OpinionSortingDependencies
     const actions = await sortOpinions(llm, { theme: theme.title, board: await readSortingBoard(db, theme.id), utterances })
     await applySorting(db, theme.id, actions, now)
   } catch (error) {
-    await markCommentsFailed(db, commentIds)
+    await markCommentsFailed(db, theme.id, commentIds)
     await recordFailure(db, 'opinion-sort-failed', `意見ボードのコメント${commentIds.length}件を振り分けられませんでした: ${reasonOf(error)}`, now)
     return true
   }

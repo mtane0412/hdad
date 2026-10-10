@@ -145,6 +145,37 @@ describe('POST /api/admin/opinions/themes', () => {
   })
 })
 
+/** 振り分けのアラームを預けようとすると失敗を返す Durable Object の入口 */
+const failingTimers = (): AdBreakTimerNamespace => ({
+  idFromName: (name) => ({ toString: () => name, equals: (other) => other.toString() === name, name }),
+  get: () => ({ fetch: async () => new Response(null, { status: 500 }) }),
+})
+
+describe('振り分けのアラームを操作できなかったとき', () => {
+  it('テーマを開いたら、意見ボードを押し出してから502にする', async () => {
+    const { env, channel } = setupEnv()
+    env.AD_BREAKS = failingTimers()
+
+    const response = await postTheme(env, { title: '配信中にAIをどこまで使っていい？' })
+
+    expect(response.status).toBe(502)
+    expect(await response.json()).toMatchObject({ error: { code: 'opinion-timer-failed' } })
+    expect(channel.pushedOpinions.map(({ theme }) => theme?.title)).toEqual(['配信中にAIをどこまで使っていい？'])
+  })
+
+  it('テーマを締め切ったら、意見ボードを押し出してから502にする', async () => {
+    const { env, channel } = setupEnv()
+    const theme = await openTheme(env.DB, '配信中にAIをどこまで使っていい？', NOW)
+    env.AD_BREAKS = failingTimers()
+
+    const response = await closeThemeRoute(env, theme?.id ?? 0)
+
+    expect(response.status).toBe(502)
+    expect(await response.json()).toMatchObject({ error: { code: 'opinion-timer-failed' } })
+    expect(channel.pushedOpinions.at(-1)?.theme?.closedAt).toBe(new Date(NOW).toISOString())
+  })
+})
+
 describe('POST /api/admin/opinions/themes/:id/close', () => {
   it('テーマを締め切り、振り分けのアラームを外して、意見ボードを押し出す', async () => {
     const { env, channel, timers } = setupEnv()

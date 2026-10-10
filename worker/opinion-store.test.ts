@@ -209,8 +209,15 @@ describe('振り分けの反映と読み出し', () => {
 
   it('振り分けに失敗した回のコメントは失敗にし、振り分け待ちから外す', async () => {
     const { theme, ids } = await prepare()
-    await markCommentsFailed(db, [ids[0], ids[1]])
+    await markCommentsFailed(db, theme.id, [ids[0], ids[1]])
     expect((await readPendingComments(db, theme.id)).map(({ id }) => id)).toEqual([ids[2]])
+  })
+
+  it('LLM を待つあいだにテーマが締め切られていたら、失敗にせず振り分け待ちのまま残す', async () => {
+    const { theme, ids } = await prepare()
+    await closeTheme(db, theme.id, LATER)
+    await markCommentsFailed(db, theme.id, [ids[0], ids[1]])
+    expect((await readPendingComments(db, theme.id)).map(({ id }) => id)).toEqual([...ids])
   })
 
   it('締め切ったあとも、次のテーマを開くまで最後のテーマを映す', async () => {

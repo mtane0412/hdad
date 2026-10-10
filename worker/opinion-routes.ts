@@ -12,7 +12,7 @@
  *
  * 開く・締め切る・隠すたびに、いまの意見ボードを丸ごと合成ページへ押し出す（テキストと同じ形）。
  *
- * 注意: 押し出し・アラームの操作に失敗しても、保存は取り消さない。ただし黙って成功にもせず、保存は済んだことを添えて502で返す（方針4）。
+ * 注意: 押し出し・アラームの操作に失敗しても、保存は取り消さない。アラームの操作に失敗したときも、先に意見ボードを押し出す。ただし黙って成功にもせず、保存は済んだことを添えて502で返す（方針4）。
  */
 import { ConfigError } from './alert-config'
 import { connectOpinionSocket, pushOpinions } from './alert-channel'
@@ -86,16 +86,19 @@ export const postOpinionTheme = async (context: Context): Promise<Response> => {
   if (theme === null) {
     throw new HttpError(STATUS.conflict, 'opinion-theme-open', 'ほかのテーマが開いています。締め切ってから新しいテーマを開いてください')
   }
-  try {
-    await startOpinionTimer(context.env.AD_BREAKS)
-  } catch (error) {
+  // アラームを仕掛けられなくても、テーマは開いたので、先に合成ページへ押し出してから失敗を返す（配信画面を古いままにしない）
+  const timerError = await startOpinionTimer(context.env.AD_BREAKS).then(
+    () => null,
+    (error: unknown) => error,
+  )
+  await pushCurrentBoard(context, 'テーマを開きました')
+  if (timerError !== null) {
     throw new HttpError(
       STATUS.badGateway,
       'opinion-timer-failed',
-      `テーマを開きましたが、コメントの振り分けを始められませんでした。いったん締め切って開き直してください（${reasonOf(error)}）`,
+      `テーマを開きましたが、コメントの振り分けを始められませんでした。いったん締め切って開き直してください（${reasonOf(timerError)}）`,
     )
   }
-  await pushCurrentBoard(context, 'テーマを開きました')
   return Response.json({ theme } satisfies { theme: OpinionTheme }, { status: STATUS.created })
 }
 
@@ -111,13 +114,16 @@ export const postCloseOpinionTheme = async (context: Context): Promise<Response>
   const id = idOf(context, themeNotFound)
   const theme = await closeTheme(context.env.DB, id, context.now)
   if (theme === null) throw themeNotFound(String(id))
-  try {
-    await stopOpinionTimer(context.env.AD_BREAKS)
-  } catch (error) {
-    // 止められなくても、次のアラームがテーマの締め切りを読んで止まるので、振り分けが続くことはない。黙らずに知らせる
-    throw new HttpError(STATUS.badGateway, 'opinion-timer-failed', `テーマを締め切りましたが、振り分けのアラームを外せませんでした（${reasonOf(error)}）`)
-  }
+  // アラームを外せなくても、テーマは締め切ったので、先に合成ページへ押し出してから失敗を返す（配信画面を古いままにしない）
+  const timerError = await stopOpinionTimer(context.env.AD_BREAKS).then(
+    () => null,
+    (error: unknown) => error,
+  )
   await pushCurrentBoard(context, 'テーマを締め切りました')
+  if (timerError !== null) {
+    // 止められなくても、次のアラームがテーマの締め切りを読んで止まるので、振り分けが続くことはない。黙らずに知らせる
+    throw new HttpError(STATUS.badGateway, 'opinion-timer-failed', `テーマを締め切りましたが、振り分けのアラームを外せませんでした（${reasonOf(timerError)}）`)
+  }
   return Response.json({ theme } satisfies { theme: OpinionTheme })
 }
 
