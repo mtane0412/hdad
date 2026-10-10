@@ -11,8 +11,8 @@ import { KANJI_QUIZ_TOTAL_MS } from './scene'
 /** プレビューで流す出題 */
 export const DEMO_KANJI_QUIZ_CALLS: readonly KanjiQuizCall[] = [
   {
-    id: 'demo-keidai',
-    problem: { word: '境内', readings: ['けいだい'], grade: '6', explanation: '神社や寺の敷地の中。' },
+    id: 'demo-muchu',
+    problem: { word: '夢中', readings: ['むちゅう'], grade: '6', explanation: 'ほかのことを忘れるほど、一つの物事に熱中するさま。' },
     requesterName: '視聴者',
   },
   {
