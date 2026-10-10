@@ -5,12 +5,13 @@
  * - GET /api/admin/opinions: 最後に開いたテーマの意見ボードを、隠した意見・人数・もとのコメントを添えて返す
  * - POST /api/admin/opinions/themes: テーマを開き（{ title }）、振り分けのアラームを仕掛ける。ほかのテーマが開いていれば409
  * - POST /api/admin/opinions/themes/:id/close: テーマを締め切り、振り分けのアラームを外す。開いていないテーマなら404
+ * - POST /api/admin/opinions/themes/:id/prompt: 開いているテーマの、視聴者への問いかけを別のものに替える（LLM に作らせる。issue #307）
  * - PUT /api/admin/opinions/items/:id: 意見を隠す・隠すのをやめる（{ hidden }）。荒らし対策
  * - GET /api/overlay/opinions: 合成ページへ、人数を含まない意見ボードを返す（オーバーレイ用キー）
  * - GET /api/overlay/opinions/socket: 意見ボードが変わるたびに丸ごと押し出してもらう WebSocket。接続を保持するのはアラートと同じ
  *   Durable Object（worker/alert-channel.ts）で、ここはキーを確かめて引き渡すだけである
  *
- * 開く・締め切る・隠すたびに、いまの意見ボードを丸ごと合成ページへ押し出す（テキストと同じ形）。
+ * 開く・締め切る・問いかけを替える・隠すたびに、いまの意見ボードを丸ごと合成ページへ押し出す（テキストと同じ形）。
  *
  * 注意: 押し出し・アラームの操作に失敗しても、保存は取り消さない。アラームの操作に失敗したときも、先に意見ボードを押し出す。ただし黙って成功にもせず、保存は済んだことを添えて502で返す（方針4）。
  */
@@ -18,7 +19,8 @@ import { ConfigError } from './alert-config'
 import { connectOpinionSocket, pushOpinions } from './alert-channel'
 import { HttpError, STATUS, requireAdmin, requireOverlayKey, type Context } from './http'
 import { parseThemeInput, type OpinionTheme } from './opinion'
-import { closeTheme, openTheme, readAdminBoard, readOverlayBoard, setOpinionHidden } from './opinion-store'
+import { replaceOpinionPrompt } from './opinion-run'
+import { closeTheme, openTheme, readAdminBoard, readOpenTheme, readOverlayBoard, setOpinionHidden } from './opinion-store'
 import { startOpinionTimer, stopOpinionTimer } from './opinion-timer'
 import { overlayKeyTag } from './overlay-key'
 
@@ -125,6 +127,28 @@ export const postCloseOpinionTheme = async (context: Context): Promise<Response>
     throw new HttpError(STATUS.badGateway, 'opinion-timer-failed', `テーマを締め切りましたが、振り分けのアラームを外せませんでした（${reasonOf(timerError)}）`)
   }
   return Response.json({ theme } satisfies { theme: OpinionTheme })
+}
+
+/**
+ * POST /api/admin/opinions/themes/:id/prompt: 開いているテーマの問いかけを、いまの問いかけとは違う切り口で LLM に作り直させ、
+ * 書いて意見ボードを押し出す。
+ *
+ * 作れなかったら前の問いかけを残す（切り詰めない。方針4）。
+ *
+ * @throws HttpError 開いていないテーマなら404。問いかけを作れなければ502（opinion-prompt-failed）。押し出せなければ502
+ */
+export const postOpinionPrompt = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  const id = idOf(context, themeNotFound)
+  const theme = await readOpenTheme(context.env.DB)
+  if (theme?.id !== id) throw themeNotFound(String(id))
+  const saved = await replaceOpinionPrompt(context.env.DB, context.llm, theme).catch((error: unknown) => {
+    throw new HttpError(STATUS.badGateway, 'opinion-prompt-failed', `問いかけを作り直せませんでした。前の問いかけを残しています（${reasonOf(error)}）`)
+  })
+  // LLM を待つあいだに締め切られていたら、何も書いていない
+  if (saved === null) throw themeNotFound(String(id))
+  await pushCurrentBoard(context, '問いかけを替えました')
+  return Response.json({ theme: saved } satisfies { theme: OpinionTheme })
 }
 
 /**

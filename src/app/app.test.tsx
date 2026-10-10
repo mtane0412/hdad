@@ -139,7 +139,7 @@ const noKanjiQuizStop: KanjiQuizStopDeps = {
 }
 const createFakeTextApi: TextApi = { list: vi.fn(async () => []), create: vi.fn(), update: vi.fn(), remove: vi.fn() }
 
-const createFakeOpinionApi: OpinionApi = { read: vi.fn(async () => ({ theme: null, topics: [] })), openTheme: vi.fn(), closeTheme: vi.fn(), setHidden: vi.fn() }
+const createFakeOpinionApi: OpinionApi = { read: vi.fn(async () => ({ theme: null, topics: [] })), openTheme: vi.fn(), closeTheme: vi.fn(), setHidden: vi.fn(), replacePrompt: vi.fn() }
 
 const createFakeOverlayApi: OverlayLayoutAdminApi = {
   load: vi.fn(async () => []),
@@ -175,6 +175,7 @@ const fakeLlmApi: LlmApi = {
           },
           autoText: usageSetting,
           opinionSort: usageSetting,
+          opinionPrompt: usageSetting,
         },
       },
       apiKeyConfigured: true,

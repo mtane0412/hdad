@@ -2,7 +2,7 @@
  * 意見ボード（合成ページの素材）の見た目
  *
  * 配信者が出したテーマについて、視聴者のコメントから取り出した意見を論点ごとに並べる（issue #306）。3列で、中央にテーマと
- * 「いま紹介している意見」、左右に論点を3つずつ置く。配信画面に重ねるので次の4つを守る。
+ * 「いま紹介している意見」、中央下に視聴者への問いかけ（issue #307）、左右に論点を3つずつ置く。配信画面に重ねるので次の4つを守る。
  * - 背景を塗りつぶさず、作業ログ・作業机と同じ半透明の暗い板に載せる（下の配信画面が透けて見える）
  * - どの論点も同じ大きさの枠にし、人数で大きさや並びを変えない（多数決に見せないため。src/opinions/view.ts）
  * - 札の種類（課題・解決策・問い・気づき）は、文字の印と、明るさの違う色の両方で見分けられるようにする
@@ -223,6 +223,38 @@
   margin: 0;
   color: rgb(255 255 255 / 75%);
   font-size: 18px;
+}
+
+/* 視聴者への問いかけ。中央の列の下端に寄せ、意見の札と見分けられるよう点線の縁にする */
+.opinions-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: auto;
+  padding: 18px 24px;
+  border: 2px dashed #7ee0c3;
+  border-radius: 20px;
+  background: rgb(12 14 20 / 72%);
+}
+
+.opinions-prompt[hidden] {
+  display: none;
+}
+
+.opinions-prompt-label {
+  margin: 0;
+  color: #7ee0c3;
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.opinions-prompt-text {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 900;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 @keyframes opinions-in {

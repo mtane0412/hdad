@@ -156,6 +156,10 @@ const USAGE_LABELS: Readonly<Record<LlmUsage, { name: string; description: strin
     name: '意見ボードの振り分け',
     description: '意見ボードでテーマを出しているあいだ、新しいコメントがあれば45秒おきに呼ばれ、意見を取り出して論点ごとに振り分ける。決まった形の JSON を守らせるので大きいモデル向き。',
   },
+  opinionPrompt: {
+    name: '意見ボードの問いかけ',
+    description: '意見ボードの中央下に出す「こんな観点からも聞いてみたい」の1文。最初の意見が出たとき・問いかけに答える意見が届いたとき・配信者が替えさせたときだけ呼ばれる。自然な日本語の問いが要るので大きいモデル向き。',
+  },
 }
 
 /** Jev を使う箇所ごとの、画面に出す名前と説明 */
@@ -167,6 +171,10 @@ const JEV_USAGE_LABELS: Readonly<Record<JevUsage, { name: string; description: s
   streamTitle: {
     name: '配信タイトルの候補の判定（Jev）',
     description: '配信タイトルの候補を作るたびに、配信タイトルとして公開してよいかを尋ねる（試験運用）。',
+  },
+  opinionFilter: {
+    name: '意見ボードの絞り込み（Jev）',
+    description: '意見ボードでテーマを出しているあいだ、振り分けの前に、コメントがテーマについての意見かをまとめて尋ねる。いまは確率を記録するだけで、コメントを落とさない。',
   },
 }
 

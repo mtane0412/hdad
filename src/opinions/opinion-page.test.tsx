@@ -9,6 +9,7 @@
  * - 意見を隠す・戻すことができ、隠した意見はそれと分かること
  * - 読み込めなかった理由を黙らずに出すこと
  * - 入力しかけのテーマがあるあいだは、ページを離れる前に確認を出すこと（useUnsavedChanges）
+ * - テーマを出しているあいだは、いまの問いかけを確かめ、別の問いかけに替えさせられること（issue #307）
  */
 import '@testing-library/jest-dom/vitest'
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
@@ -22,7 +23,7 @@ import { OpinionPage } from './opinion-page'
 
 afterEach(cleanup)
 
-const openTheme: OpinionTheme = { id: 1, title: '配信中にAIをどこまで使っていい？', openedAt: '2026-10-10T12:00:00.000Z', closedAt: null }
+const openTheme: OpinionTheme = { id: 1, title: '配信中にAIをどこまで使っていい？', openedAt: '2026-10-10T12:00:00.000Z', closedAt: null, prompt: null }
 
 /** テーマを出していて、論点が1つ・意見が2件ある意見ボード */
 const board: AdminOpinionBoard = {
@@ -66,6 +67,7 @@ const createApi = (initial: AdminOpinionBoard = board, overrides: Partial<Opinio
   openTheme: vi.fn(async (title: string) => ({ ...openTheme, id: 2, title })),
   closeTheme: vi.fn(async (id: number) => ({ ...openTheme, id, closedAt: '2026-10-10T12:30:00.000Z' })),
   setHidden: vi.fn(async () => undefined),
+  replacePrompt: vi.fn(async (id: number) => ({ ...openTheme, id, prompt: 'AIの使用料、配信者はどこまで払っていいと思う？' })),
   ...overrides,
 })
 
@@ -102,6 +104,40 @@ describe('テーマ', () => {
 
     expect(api.closeTheme).toHaveBeenCalledWith(1)
     expect(await screen.findByRole('button', { name: 'テーマを出す' })).toBeInTheDocument()
+  })
+})
+
+describe('問いかけ', () => {
+  test('まだ問いかけが無ければ、その旨を出す', async () => {
+    render(<OpinionPage api={createApi()} />)
+    expect(await screen.findByText(/まだ問いかけはありません/)).toBeInTheDocument()
+  })
+
+  test('いまの問いかけを出し、別の問いかけに替えさせられる', async () => {
+    const api = createApi({ ...board, theme: { ...openTheme, prompt: 'AIに任せたくない作業はどれ？' } })
+    render(<OpinionPage api={api} />)
+
+    const section = await screen.findByRole('group', { name: '視聴者への問いかけ' })
+    expect(within(section).getByText('AIに任せたくない作業はどれ？')).toBeInTheDocument()
+    await userEvent.click(within(section).getByRole('button', { name: '別の問いかけにする' }))
+
+    expect(api.replacePrompt).toHaveBeenCalledWith(1)
+    expect(await within(section).findByText('AIの使用料、配信者はどこまで払っていいと思う？')).toBeInTheDocument()
+  })
+
+  test('問いかけを作れなければ理由を出す', async () => {
+    const failed = new ApiError(502, 'opinion-prompt-failed', '問いかけを作り直せませんでした。前の問いかけを残しています', [])
+    render(<OpinionPage api={createApi(board, { replacePrompt: vi.fn(async () => Promise.reject(failed)) })} />)
+
+    await userEvent.click(await screen.findByRole('button', { name: '別の問いかけにする' }))
+
+    expect(await screen.findByText(/問いかけを作り直せませんでした/)).toBeInTheDocument()
+  })
+
+  test('締め切ったテーマでは、問いかけを替えさせない', async () => {
+    render(<OpinionPage api={createApi({ ...board, theme: { ...openTheme, closedAt: '2026-10-10T12:30:00.000Z', prompt: 'AIに任せたくない作業はどれ？' } })} />)
+    await screen.findByText(/締め切ったテーマ/)
+    expect(screen.queryByRole('button', { name: '別の問いかけにする' })).not.toBeInTheDocument()
   })
 })
 

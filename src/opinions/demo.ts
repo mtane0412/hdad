@@ -7,10 +7,20 @@
  *
  * 注意: 意見の文言は上限（40文字）ちょうどのものを1件入れ、折り返したときの高さを確かめられるようにする。
  * 札の種類は4つとも出す（色と文字の見分けを確かめられるようにする）。
+ * 注意: 問いかけ（issue #307）は、最初の意見が出るまでは無く、そのあと切り替わっていく。最後は上限（40文字）ちょうどのものにする。
  */
 import type { OpinionBoard, OverlayOpinion, OverlayTopic } from './entry'
 
 const theme = { id: 1, title: '配信中にAIをどこまで使っていい？', openedAt: '2026-10-10T12:00:00.000Z', closedAt: null }
+
+/** 最初の意見が出たあとの問いかけ */
+const FIRST_PROMPT = 'AIの使用料、配信者はどこまで払っていいと思う？'
+
+/** 問いかけに答える意見が出たあとの問いかけ（上限の40文字ちょうど） */
+const LONGEST_PROMPT = 'AIに手伝ってもらった配信、視聴者にはどこまで知らせてほしいと思う？それはなぜ？'
+
+/** 何件目の意見まで届いたときに、最初の問いかけから切り替えるか */
+const PROMPT_SWITCH_COUNT = 5
 
 /** 時刻 minute 分に作った意見 */
 const opinion = (id: number, kind: OverlayOpinion['kind'], text: string, author: string, minute: number): OverlayOpinion => ({
@@ -41,7 +51,8 @@ const boardAfter = (count: number): OpinionBoard => {
     if (topic === undefined) topics.push({ title: arrival.topic, opinions: [arrival.opinion] })
     else topic.opinions.unshift(arrival.opinion)
   }
-  return { theme, topics: topics.map((topic, index): OverlayTopic => ({ id: index + 1, ...topic })) }
+  const prompt = count <= 1 ? null : count < PROMPT_SWITCH_COUNT ? FIRST_PROMPT : LONGEST_PROMPT
+  return { theme: { ...theme, prompt }, topics: topics.map((topic, index): OverlayTopic => ({ id: index + 1, ...topic })) }
 }
 
 /** プレビューで順に流す場面。意見が届くたびに1場面 */

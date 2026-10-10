@@ -138,6 +138,7 @@ R2は無料枠（保存10GB・転送無料）だけを使う場合でも、デ�
 | `GET /api/admin/opinions` | 最後に出したテーマの意見ボード（隠した意見・人数・もとのコメントつき。要セッション） |
 | `POST /api/admin/opinions/themes` | テーマを出す（`{ title }`。40文字を超えたら400、ほかのテーマを出していれば409、振り分けを始められない・押し出せなければ502。要セッション） |
 | `POST /api/admin/opinions/themes/:id/close` | テーマを締め切り、振り分けを止める（出していないテーマなら404。要セッション） |
+| `POST /api/admin/opinions/themes/:id/prompt` | 視聴者への問いかけを LLM に作り直させる（出していないテーマなら404、作れなければ前の問いかけを残して502。要セッション） |
 | `PUT /api/admin/opinions/items/:id` | 意見を隠す・戻す（`{ hidden }`。無い意見なら404。要セッション） |
 | `POST /api/admin/pomodoro/control` | ポモドーロのタイマーの操作（`command` は `start`・`pause`・`resume`・`stop`。今の状態でできない操作は409。要セッション） |
 | `GET`・`PUT /api/admin/focus` | 注目コメント（いま取り上げているもの）の取得・保存（要セッション） |

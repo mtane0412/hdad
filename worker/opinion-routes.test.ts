@@ -7,6 +7,7 @@
  * - ほかのテーマが開いているのに開こうとした・開いていないテーマを締め切ろうとした・無い意見を指した、を見分けて返すこと
  * - 押し出しに失敗したら、保存は済んだことを添えて502にすること（黙って成功にしない）
  * - 合成ページ（オーバーレイ用キー）から、人数を含まない意見ボードを読めること
+ * - 管理画面から、開いているテーマの問いかけを別のものに替えさせられること（issue #307）
  *
  * 読み書きの中身は worker/opinion-store.test.ts、振り分けの中身は worker/opinion-run.test.ts が確かめるので、ここでは経路の受け渡しだけを見る。
  */
@@ -25,7 +26,7 @@ import { createTimerInstances } from './fake-timer-instances'
 import { createFakeTokenVault } from './fake-token-vault'
 import { handleRequest, type Env } from './index'
 import { MAX_THEME_LENGTH } from './opinion'
-import { applySorting, openTheme, readPendingComments, readSortingBoard, recordOpinionComment } from './opinion-store'
+import { applySorting, openTheme, readOpenTheme, readPendingComments, readSortingBoard, recordOpinionComment, saveThemePrompt } from './opinion-store'
 import { OPINION_SORT_INTERVAL_MS } from './opinion-timer'
 import { createSessionToken } from './session'
 
@@ -110,7 +111,9 @@ describe('POST /api/admin/opinions/themes', () => {
     const response = await postTheme(env, { title: '配信中にAIをどこまで使っていい？' })
 
     expect(response.status).toBe(201)
-    expect(await response.json()).toEqual({ theme: { id: expect.any(Number), title: '配信中にAIをどこまで使っていい？', openedAt: new Date(NOW).toISOString(), closedAt: null } })
+    expect(await response.json()).toEqual({
+      theme: { id: expect.any(Number), title: '配信中にAIをどこまで使っていい？', openedAt: new Date(NOW).toISOString(), closedAt: null, prompt: null },
+    })
     expect(timers.alarmOf('opinions')).toBe(NOW + OPINION_SORT_INTERVAL_MS)
     expect(channel.pushedOpinions.map(({ theme }) => theme?.title)).toEqual(['配信中にAIをどこまで使っていい？'])
   })
@@ -173,6 +176,60 @@ describe('振り分けのアラームを操作できなかったとき', () => {
     expect(response.status).toBe(502)
     expect(await response.json()).toMatchObject({ error: { code: 'opinion-timer-failed' } })
     expect(channel.pushedOpinions.at(-1)?.theme?.closedAt).toBe(new Date(NOW).toISOString())
+  })
+})
+
+const replacePrompt = (env: Env, id: number | string) => callAsBroadcaster(env, `/api/admin/opinions/themes/${id}/prompt`, { method: 'POST' })
+
+describe('POST /api/admin/opinions/themes/:id/prompt', () => {
+  /** LLM（Workers AI の代役）が返す問いかけ */
+  const NEXT_PROMPT = 'AIの使用料、配信者はどこまで払っていいと思う？'
+
+  it('前の問いかけとは違う問いかけを作らせ、書いて押し出し、テーマを返す', async () => {
+    const { env, channel } = setupEnv()
+    env.AI = createFakeWorkersAi({ response: NEXT_PROMPT })
+    const { theme } = await prepareOpinion(env.DB)
+    await saveThemePrompt(env.DB, theme.id, 'AIに任せたくない作業はどれ？')
+
+    const response = await replacePrompt(env, theme.id)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ theme: { id: theme.id, prompt: NEXT_PROMPT } })
+    expect(channel.pushedOpinions.at(-1)?.theme?.prompt).toBe(NEXT_PROMPT)
+    // 材料に前の問いかけと、いまの意見を渡す
+    expect(JSON.stringify(env.AI.calls[0]?.input)).toContain('AIに任せたくない作業はどれ？')
+    expect(JSON.stringify(env.AI.calls[0]?.input)).toContain('AIの返事は寂しい')
+  })
+
+  it('開いていないテーマなら404にする', async () => {
+    const { env } = setupEnv()
+    expect((await replacePrompt(env, 99)).status).toBe(404)
+    expect((await replacePrompt(env, 'abc')).status).toBe(404)
+  })
+
+  it('問いかけを作れなければ、前の問いかけを残して502にする', async () => {
+    const { env } = setupEnv()
+    env.AI = createFakeWorkersAi({ shouldFail: true })
+    const { theme } = await prepareOpinion(env.DB)
+    await saveThemePrompt(env.DB, theme.id, 'AIに任せたくない作業はどれ？')
+
+    const response = await replacePrompt(env, theme.id)
+
+    expect(response.status).toBe(502)
+    expect(await response.json()).toMatchObject({ error: { code: 'opinion-prompt-failed' } })
+    expect((await readOpenTheme(env.DB))?.prompt).toBe('AIに任せたくない作業はどれ？')
+  })
+
+  it('押し出しに失敗したら、書いたことを添えて502にする', async () => {
+    const { env } = setupEnv(true)
+    env.AI = createFakeWorkersAi({ response: NEXT_PROMPT })
+    const { theme } = await prepareOpinion(env.DB)
+
+    const response = await replacePrompt(env, theme.id)
+
+    expect(response.status).toBe(502)
+    expect(await response.json()).toMatchObject({ error: { code: 'opinion-push-failed' } })
+    expect((await readOpenTheme(env.DB))?.prompt).toBe(NEXT_PROMPT)
   })
 })
 

@@ -5,7 +5,7 @@
  * - 合成ページの素材「意見ボード」: ログインを持たないので、オーバーレイ用キー（URLの ?key=）で Worker に受け付けてもらう。
  *   意見ボードが変わるたびに WebSocket（OPINION_SOCKET_PATH）で丸ごと押し出してもらい、ここで読むのは開いたとき・つなぎ直したとき・
  *   定期的に取り戻す分だけである。人数は受け取らない（多数決に見せないため）
- * - アプリのページ（/opinions/）: ログインのセッションで、テーマを開き・締め切り、意見を隠す。人数ともとのコメントも読む
+ * - アプリのページ（/opinions/）: ログインのセッションで、テーマを開き・締め切り、問いかけを替え、意見を隠す。人数ともとのコメントも読む
  *
  * 呼び出しと失敗の扱いは `../core/api` に任せ、fetch を引数で受け取るのはテストで差し替えるためである。
  *
@@ -63,6 +63,8 @@ export interface OpinionApi {
   openTheme(title: string): Promise<OpinionTheme>
   /** テーマを締め切り、締め切ったテーマを返す */
   closeTheme(id: number): Promise<OpinionTheme>
+  /** 開いているテーマの、視聴者への問いかけを別のものに替え（Worker が LLM に作り直させる）、替えたテーマを返す */
+  replacePrompt(id: number): Promise<OpinionTheme>
   /** 意見を隠す・隠すのをやめる */
   setHidden(id: number, hidden: boolean): Promise<void>
 }
@@ -130,6 +132,7 @@ export const createOpinionApi = (fetchImpl: typeof fetch): OpinionApi => {
     read: async () => readAdminBoard(await call(ADMIN_PATH)),
     openTheme: async (title) => readTheme(await send(`${ADMIN_PATH}/themes`, 'POST', { title })),
     closeTheme: async (id) => readTheme(await send(`${ADMIN_PATH}/themes/${id}/close`, 'POST')),
+    replacePrompt: async (id) => readTheme(await send(`${ADMIN_PATH}/themes/${id}/prompt`, 'POST')),
     setHidden: async (id, hidden) => {
       await send(`${ADMIN_PATH}/items/${id}`, 'PUT', { hidden })
     },

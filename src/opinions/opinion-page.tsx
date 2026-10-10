@@ -5,6 +5,7 @@
  * - テーマを出す・締め切る。出しているあいだだけ、Worker がチャットのコメントを振り分けて意見にする
  * - 取り出した意見を論点ごとに、札の種類・人数・もとのコメントつきで確かめる（人数はこのページにだけ出し、合成ページには出さない）
  * - 荒らしや取り違えの意見を隠す・戻す（隠した意見は合成ページに出なくなる）
+ * - 合成ページの中央下に出す視聴者への問いかけ（issue #307）を確かめ、別の問いかけに替えさせる（テーマを出しているあいだだけ）
  *
  * 意見は配信中に Worker が増やしていくので、開いているあいだは一定の間隔で読み直す（REFRESH_MS）。
  * 値の検証は Worker（worker/opinion.ts）だけが持ち、画面は返ってきた問題点を並べるだけにする。
@@ -125,6 +126,14 @@ export const OpinionPage = ({ api }: { api: OpinionApi }) => {
       },
     })
 
+  const replacePrompt = (themeId: number): Promise<void> =>
+    actions.run(async () => {
+      const theme = await api.replacePrompt(themeId)
+      generation.current += 1
+      setBoard((previous) => (previous === undefined ? previous : { ...previous, theme }))
+      return '問いかけを替えました'
+    })
+
   const toggle = (opinion: AdminOpinion): Promise<void> =>
     actions.run(async () => {
       const hidden = !opinion.hidden
@@ -158,12 +167,27 @@ export const OpinionPage = ({ api }: { api: OpinionApi }) => {
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           {openTheme !== null ? (
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="text-lg font-semibold">{openTheme.title}</span>
-              <Button type="button" variant="outline" disabled={actions.busy} onClick={() => askClose(openTheme.id)}>
-                締め切る
-              </Button>
-            </div>
+            <>
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-lg font-semibold">{openTheme.title}</span>
+                <Button type="button" variant="outline" disabled={actions.busy} onClick={() => askClose(openTheme.id)}>
+                  締め切る
+                </Button>
+              </div>
+              <section role="group" aria-label="視聴者への問いかけ" className="flex flex-col gap-2 rounded-lg border border-dashed p-3">
+                <h2 className="text-sm font-semibold text-muted-foreground">こんな観点からも聞いてみたい（合成ページの中央下に出ます）</h2>
+                {openTheme.prompt !== null ? (
+                  <p className="font-medium">{openTheme.prompt}</p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">まだ問いかけはありません。最初の意見が出たら作ります。</p>
+                )}
+                <div>
+                  <Button type="button" size="sm" variant="outline" disabled={actions.busy} onClick={() => void replacePrompt(openTheme.id)}>
+                    別の問いかけにする
+                  </Button>
+                </div>
+              </section>
+            </>
           ) : (
             <>
               {board.theme !== null && <p className="text-sm text-muted-foreground">{`締め切ったテーマ: ${board.theme.title}`}</p>}

@@ -58,6 +58,7 @@
  * | GET  /api/admin/opinions         | セッション     | 意見ボード（最後に開いたテーマ。隠した意見・人数・もとのコメントつき） |
  * | POST /api/admin/opinions/themes  | セッション     | 意見ボードのテーマを開き、コメントの振り分けを始める |
  * | POST /api/admin/opinions/themes/:id/close | セッション | 意見ボードのテーマを締め切り、振り分けを止める |
+ * | POST /api/admin/opinions/themes/:id/prompt | セッション | 意見ボードの視聴者への問いかけを、LLM に別のものへ作り直させる |
  * | PUT  /api/admin/opinions/items/:id | セッション   | 意見を隠す・戻す（合成ページへ押し出す） |
  * | POST /api/admin/town-tour/demo   | セッション     | 市町村紹介の試し再生（市町村を1つ引いて合成ページへ押し出す） |
  * | GET  /api/admin/town-tour/sound  | セッション     | 市町村紹介の演出で鳴らす音の設定 |
@@ -188,7 +189,7 @@ import { captionSocket } from './caption-routes'
 import { getWorkLog, workLogSocket } from './work-log-routes'
 import { getTaskDesk, taskDeskSocket } from './task-desk-routes'
 import { getOverlayTexts, getTexts, postText, putText, removeText, textSocket } from './text-routes'
-import { getAdminOpinions, getOverlayOpinions, opinionSocket, postCloseOpinionTheme, postOpinionTheme, putOpinion } from './opinion-routes'
+import { getAdminOpinions, getOverlayOpinions, opinionSocket, postCloseOpinionTheme, postOpinionPrompt, postOpinionTheme, putOpinion } from './opinion-routes'
 import {
   getTownTour,
   getTownTourNarration,
@@ -322,6 +323,7 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/admin/opinions', handle: getAdminOpinions },
   { method: 'POST', path: '/api/admin/opinions/themes', handle: postOpinionTheme },
   { method: 'POST', path: '/api/admin/opinions/themes/:id/close', handle: postCloseOpinionTheme },
+  { method: 'POST', path: '/api/admin/opinions/themes/:id/prompt', handle: postOpinionPrompt },
   { method: 'PUT', path: '/api/admin/opinions/items/:id', handle: putOpinion },
   { method: 'GET', path: '/api/admin/viewers', handle: getViewers },
   { method: 'PATCH', path: '/api/admin/viewers/:userId', handle: patchViewer },

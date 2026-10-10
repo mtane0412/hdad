@@ -11,7 +11,8 @@
  * - 保留中のコメントを、LLM に渡す発言にまとめる（readyUtterances）。同じ人が短い間隔で続けて書いたものは1つにつなげる
  * - 合成ページと管理画面へ渡す形（OpinionBoardSnapshot・AdminOpinionBoard）
  *
- * 読み書きは worker/opinion-store.ts、LLM での振り分けは worker/opinion-sort.ts、経路は worker/opinion-routes.ts が持つ。
+ * 読み書きは worker/opinion-store.ts、Jev での絞り込みは worker/opinion-filter.ts、LLM での振り分けは worker/opinion-sort.ts、
+ * 問いかけ（観点の提案）は worker/opinion-prompt.ts、経路は worker/opinion-routes.ts が持つ。
  *
  * 注意: テーマが上限を超えたら、切り詰めずに受け付けない（方針4）。
  */
@@ -40,6 +41,9 @@ export const MAX_TOPIC_TITLE_LENGTH = 12
 
 /** 意見1件の上限（見た目の文字数）。合成ページの札に2行で収まる長さにする */
 export const MAX_OPINION_LENGTH = 40
+
+/** 視聴者への問いかけ（観点の提案。issue #307）の上限（見た目の文字数）。合成ページの中央下に2行で収まる長さにする */
+export const MAX_PROMPT_LENGTH = 40
 
 /**
  * 同じ人のコメントを1つの発言につなげる間隔（ミリ秒）。
@@ -99,6 +103,8 @@ export interface OpinionTheme {
   readonly openedAt: string
   /** 締め切った時刻（ISO 8601）。開いているあいだは null */
   readonly closedAt: string | null
+  /** 合成ページの中央下に出す、視聴者への問いかけ（issue #307）。まだ作っていなければ null */
+  readonly prompt: string | null
 }
 
 /** 合成ページへ渡す意見1件。人数は持たない（多数決に見せないため） */

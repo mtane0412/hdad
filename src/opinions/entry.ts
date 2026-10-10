@@ -42,6 +42,8 @@ export interface OpinionTheme {
   readonly openedAt: string
   /** 締め切った時刻（ISO 8601）。開いているあいだは null */
   readonly closedAt: string | null
+  /** 中央下に出す、視聴者への問いかけ（issue #307）。まだ作っていなければ null */
+  readonly prompt: string | null
 }
 
 /** 合成ページに出す意見1件。人数は持たない */
@@ -83,7 +85,8 @@ export const isOpinionTheme = (value: unknown): value is OpinionTheme =>
   typeof value.id === 'number' &&
   typeof value.title === 'string' &&
   typeof value.openedAt === 'string' &&
-  (typeof value.closedAt === 'string' || value.closedAt === null)
+  (typeof value.closedAt === 'string' || value.closedAt === null) &&
+  (typeof value.prompt === 'string' || value.prompt === null)
 
 /** 合成ページに出す意見1件として読めるか */
 export const isOverlayOpinion = (value: unknown): value is OverlayOpinion =>

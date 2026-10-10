@@ -10,7 +10,7 @@ import { createOpinionApi, createOpinionOverlayApi, type AdminOpinionBoard } fro
 import type { OpinionBoard } from './entry'
 
 const OVERLAY_KEY = 'overlay-key_0123456789abcdefghij'
-const theme = { id: 1, title: '配信中にAIをどこまで使っていい？', openedAt: '2026-10-10T12:00:00.000Z', closedAt: null }
+const theme = { id: 1, title: '配信中にAIをどこまで使っていい？', openedAt: '2026-10-10T12:00:00.000Z', closedAt: null, prompt: null }
 const overlayBoard: OpinionBoard = {
   theme,
   topics: [{ id: 1, title: '視聴者との距離', opinions: [{ id: 11, kind: 'issue', text: 'AIが返事すると距離を感じる', author: 'aoi', createdAt: '2026-10-10T12:01:00.000Z' }] }],
@@ -92,6 +92,14 @@ describe('createOpinionApi', () => {
 
     expect(await createOpinionApi(fetchImpl).closeTheme(1)).toEqual(closed)
     expect(calls).toEqual([{ path: '/api/admin/opinions/themes/1/close', method: 'POST', body: null }])
+  })
+
+  it('問いかけを替え、替えたテーマを返す', async () => {
+    const prompted = { ...theme, prompt: 'AIの使用料、配信者はどこまで払っていいと思う？' }
+    const { calls, fetchImpl } = createFetchWithResponse(200, { theme: prompted })
+
+    expect(await createOpinionApi(fetchImpl).replacePrompt(1)).toEqual(prompted)
+    expect(calls).toEqual([{ path: '/api/admin/opinions/themes/1/prompt', method: 'POST', body: null }])
   })
 
   it('意見を隠す', async () => {

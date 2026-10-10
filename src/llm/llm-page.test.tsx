@@ -76,6 +76,7 @@ const savedSettings: LlmSettings = {
     townBond: { provider: 'workers-ai', models: { ...largeModel } },
     autoText: { provider: 'workers-ai', models: { ...largeModel } },
     opinionSort: { provider: 'workers-ai', models: { ...largeModel } },
+    opinionPrompt: { provider: 'workers-ai', models: { ...largeModel } },
   },
 }
 
