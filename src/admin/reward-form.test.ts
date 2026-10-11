@@ -55,6 +55,12 @@ describe('toRewardDraft・toRewardInput', () => {
     expect(input).toMatchObject({ maxPerStream: null, maxPerUserPerStream: null, globalCooldownSeconds: null })
   })
 
+  it('待機時間・上限回数が数として扱えない値（1e309 が Infinity になるなど）なら、制限なしとして送らずに投げる', () => {
+    // Infinity・NaN はJSONで null（制限なし）になってしまい、Workerでは拒めないため、ここで止める
+    expect(() => toRewardInput({ ...EMPTY_REWARD_DRAFT, maxPerStream: '1e309' })).toThrow('1配信あたりの上限回数')
+    expect(() => toRewardInput({ ...EMPTY_REWARD_DRAFT, globalCooldownSeconds: 'あ' })).toThrow('待機時間（秒）')
+  })
+
   it('新しく作る報酬の下書きは、Twitchの既定の紫・待ち行列あり・制限なしから始める', () => {
     expect(toRewardInput({ ...EMPTY_REWARD_DRAFT, cost: '100' })).toMatchObject({
       backgroundColor: '#9147FF',

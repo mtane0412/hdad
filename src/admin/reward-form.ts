@@ -43,12 +43,38 @@ export const EMPTY_REWARD_DRAFT: RewardDraft = {
 /** 制限（null は制限なし）を入力欄の文字列にする。制限なしは空欄 */
 const toLimitText = (limit: number | null): string => (limit === null ? '' : String(limit))
 
+/** Workerの問題点に出る項目名と、画面の欄の名前 */
+const FIELD_LABELS: Record<string, string> = {
+  title: '名前',
+  cost: '必要ポイント',
+  prompt: '説明',
+  isEnabled: '交換できる',
+  isUserInputRequired: 'メッセージの入力を求める',
+  backgroundColor: '背景色',
+  shouldRedemptionsSkipRequestQueue: '交換したらすぐ完了にする',
+  maxPerStream: '1配信あたりの上限回数',
+  maxPerUserPerStream: '1人あたりの上限回数',
+  globalCooldownSeconds: '待機時間（秒）',
+}
+
+/** 制限（待機時間・上限回数）の欄 */
+type LimitKey = 'maxPerStream' | 'maxPerUserPerStream' | 'globalCooldownSeconds'
+
 /**
  * 入力欄の文字列を制限にする。空欄は null（制限なし）。
  *
- * 数として読めない値は NaN のまま送り、Workerに拒ませる（ここで丸めない）。
+ * 範囲の検証はWorkerに任せるが、数として扱えない値（NaN・1e309 から作られる Infinity）はJSONで null になり、
+ * Workerには制限なしと見分けがつかないので、ここで投げる（制限なしとして黙って保存しない）。
+ *
+ * @throws Error 空欄でも有限の数でもない場合
  */
-const toLimit = (text: string): number | null => (text.trim() === '' ? null : Number(text))
+const toLimit = (draft: RewardDraft, key: LimitKey): number | null => {
+  const text = draft[key]
+  if (text.trim() === '') return null
+  const limit = Number(text)
+  if (!Number.isFinite(limit)) throw new Error(`${FIELD_LABELS[key]}は数で入力してください（空欄なら制限なし）`)
+  return limit
+}
 
 /** 報酬を入力欄の下書きにする */
 export const toRewardDraft = (reward: Reward): RewardDraft => ({
@@ -69,6 +95,8 @@ export const toRewardDraft = (reward: Reward): RewardDraft => ({
  *
  * 必要ポイントの空欄は NaN にする（Number('') は 0 になってしまい、空欄のまま「0ポイント」として拒まれて気づきにくいため）。
  * NaN はJSONでは null になり、Workerが「1以上の整数で指定してください」と拒む。
+ *
+ * @throws Error 待機時間・上限回数が空欄でも有限の数でもない場合（toLimit）
  */
 export const toRewardInput = (draft: RewardDraft): RewardInput => ({
   title: draft.title,
@@ -78,24 +106,10 @@ export const toRewardInput = (draft: RewardDraft): RewardInput => ({
   isUserInputRequired: draft.isUserInputRequired,
   backgroundColor: draft.backgroundColor,
   shouldRedemptionsSkipRequestQueue: draft.shouldRedemptionsSkipRequestQueue,
-  maxPerStream: toLimit(draft.maxPerStream),
-  maxPerUserPerStream: toLimit(draft.maxPerUserPerStream),
-  globalCooldownSeconds: toLimit(draft.globalCooldownSeconds),
+  maxPerStream: toLimit(draft, 'maxPerStream'),
+  maxPerUserPerStream: toLimit(draft, 'maxPerUserPerStream'),
+  globalCooldownSeconds: toLimit(draft, 'globalCooldownSeconds'),
 })
-
-/** Workerの問題点に出る項目名と、画面の欄の名前 */
-const FIELD_LABELS: Record<string, string> = {
-  title: '名前',
-  cost: '必要ポイント',
-  prompt: '説明',
-  isEnabled: '交換できる',
-  isUserInputRequired: 'メッセージの入力を求める',
-  backgroundColor: '背景色',
-  shouldRedemptionsSkipRequestQueue: '交換したらすぐ完了にする',
-  maxPerStream: '1配信あたりの上限回数',
-  maxPerUserPerStream: '1人あたりの上限回数',
-  globalCooldownSeconds: '待機時間（秒）',
-}
 
 /** Workerの問題点（「項目名: 内容」）の項目名を、画面の欄の名前に読み替える。知らない形はそのまま返す */
 export const describeRewardProblem = (problem: string): string => {
