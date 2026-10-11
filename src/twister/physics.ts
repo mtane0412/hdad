@@ -17,7 +17,7 @@
  *
  * 注意: 同じ入力からは必ず同じ結果になる（乱数を使わず、時間の刻みも固定）。勝敗をこの計算だけで決めるためである。
  */
-import { BONES, JOINT_RADII, JOINTS, LIMBS, LOSING_JOINTS, poseFrom, type Joint, type Limb, type Pose } from './body'
+import { BONES, JOINT_RADII, JOINTS, LIMB_CHAINS, LIMBS, LOSING_JOINTS, poseFrom, type Joint, type Limb, type Pose } from './body'
 import { opponentOf, type PlayerIndex } from './players'
 import { UP, add, distance, length, lerp, scale, sub, vec, type Vec3 } from './vec'
 
@@ -103,13 +103,11 @@ const BRACES: readonly (readonly [Joint, Joint])[] = [
   ['hipR', 'kneeR'],
   ['kneeR', 'footR'],
 ]
-/** 折りたたみすぎないよう、これより近づけない関節の組と距離（m）。手が肩に、足が腰にめり込むのを防ぐ */
-const MIN_SPANS: readonly (readonly [Joint, Joint, number])[] = [
-  ['shoulderL', 'handL', 0.2],
-  ['shoulderR', 'handR', 0.2],
-  ['hipL', 'footL', 0.25],
-  ['hipR', 'footR', 0.25],
-]
+/**
+ * 折りたたみすぎないよう、これより近づけない関節の組と距離（m）。手が肩に、足が腰にめり込むのを防ぐ。
+ * 距離は IK（pose.ts）と同じ body.ts の LIMB_CHAINS の minSpan を使う
+ */
+const MIN_SPANS: readonly (readonly [Joint, Joint, number])[] = LIMBS.map((limb) => [LIMB_CHAINS[limb].root, limb, LIMB_CHAINS[limb].minSpan] as const)
 
 /** 粒（関節1つ）。位置と1刻み前の位置を持つ（Verlet 積分では差が速度になる） */
 interface Particle {

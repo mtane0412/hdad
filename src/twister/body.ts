@@ -77,14 +77,28 @@ export const HIP_HALF = 0.11
 export const HEAD_FORWARD = 0.06
 export const HEAD_UP = 0.14
 
-/** 手足ごとの付け根・中間の関節と骨の長さ（二関節の IK に渡す） */
+/**
+ * 手を肩へ、足を脚の付け根へ寄せてよい距離の下限（m）。これより折りたたむと、手が肩に・足が腰にめり込んで見える。
+ * 腕は、伏せきった人（pose.ts の CROUCH_SHOULDER_HEIGHT）の手が円に届く距離（約 0.2m）より少し短くする
+ */
+export const MIN_ARM_SPAN = 0.18
+export const MIN_LEG_SPAN = 0.25
+
+/**
+ * 手足ごとの付け根・中間の関節と骨の長さ（二関節の IK に渡す）。
+ * minSpan は付け根と先を近づけてよい距離の下限で、IK（pose.ts）と物理（physics.ts）の両方がこの値を使う
+ * （食い違うと、手が肩の近くを通るときに目標の姿勢と押し出した姿勢が別の形を求める）
+ */
 export const LIMB_CHAINS: Readonly<
-  Record<Limb, { readonly root: Joint; readonly middle: Joint; readonly upper: number; readonly lower: number; readonly side: 1 | -1; readonly arm: boolean }>
+  Record<
+    Limb,
+    { readonly root: Joint; readonly middle: Joint; readonly upper: number; readonly lower: number; readonly minSpan: number; readonly side: 1 | -1; readonly arm: boolean }
+  >
 > = {
-  handL: { root: 'shoulderL', middle: 'elbowL', upper: UPPER_ARM, lower: FOREARM, side: -1, arm: true },
-  handR: { root: 'shoulderR', middle: 'elbowR', upper: UPPER_ARM, lower: FOREARM, side: 1, arm: true },
-  footL: { root: 'hipL', middle: 'kneeL', upper: THIGH, lower: SHIN, side: -1, arm: false },
-  footR: { root: 'hipR', middle: 'kneeR', upper: THIGH, lower: SHIN, side: 1, arm: false },
+  handL: { root: 'shoulderL', middle: 'elbowL', upper: UPPER_ARM, lower: FOREARM, minSpan: MIN_ARM_SPAN, side: -1, arm: true },
+  handR: { root: 'shoulderR', middle: 'elbowR', upper: UPPER_ARM, lower: FOREARM, minSpan: MIN_ARM_SPAN, side: 1, arm: true },
+  footL: { root: 'hipL', middle: 'kneeL', upper: THIGH, lower: SHIN, minSpan: MIN_LEG_SPAN, side: -1, arm: false },
+  footR: { root: 'hipR', middle: 'kneeR', upper: THIGH, lower: SHIN, minSpan: MIN_LEG_SPAN, side: 1, arm: false },
 }
 
 /** 関節を粒としたときの半径（m）。床と相手の体へのめり込みを防ぐ大きさで、描画の太さとも合わせる */
