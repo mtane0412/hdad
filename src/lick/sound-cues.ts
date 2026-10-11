@@ -2,7 +2,8 @@
  * ペロペロの効果音を鳴らす時刻と音程（issue #340）
  *
  * 舌先がアイコンに触れはじめるたびに（1回の舐め上げにつき1回）効果音を鳴らし、音程（再生の速さ）を毎回少し変えて、
- * 同じ音の繰り返しに聞こえないようにする。時刻は舐め方（motion.ts）から、音程は種から決める（鳴らすのは sound-player.ts）。
+ * 同じ音の繰り返しに聞こえないようにする。1回の音は、その回で舌を離し終えるまでで止める（長い音声を選んでも、次の回や演出の終わりのあとまで鳴り続けない）。
+ *時刻は舐め方（motion.ts）から、音程は種から決める（鳴らすのは sound-player.ts）。
  *
  * 注意: DOM も Audio も扱わない（いつ・どの音程で鳴らすかだけを決める）。乱数は src/core/background.ts の createRandom だけを使う。
  */
@@ -17,6 +18,8 @@ export const MAX_PITCH = 1.22
 export interface LickSoundCue {
   /** 流しはじめてから鳴らすまで（ミリ秒） */
   readonly atMs: number
+  /** 鳴らしはじめてから止めるまで（ミリ秒）。その回で舌を離し終えるまで */
+  readonly durationMs: number
   /** 再生の速さ（音程も一緒に変わる） */
   readonly pitch: number
 }
@@ -28,5 +31,8 @@ export interface LickSoundCue {
  */
 export const lickSoundCuesOf = (plan: LickPlan, seed: number): readonly LickSoundCue[] => {
   const random = createRandom(seed ^ 0x9e3779b9)
-  return plan.strokes.map((stroke) => ({ atMs: strokeContactMs(stroke), pitch: MIN_PITCH + (MAX_PITCH - MIN_PITCH) * random() }))
+  return plan.strokes.map((stroke) => {
+    const atMs = strokeContactMs(stroke)
+    return { atMs, durationMs: stroke.startMs + stroke.durationMs - atMs, pitch: MIN_PITCH + (MAX_PITCH - MIN_PITCH) * random() }
+  })
 }

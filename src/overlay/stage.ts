@@ -1844,6 +1844,8 @@ const mountLick = (box: HTMLElement, item: OverlayItem, { key, demo }: MountCont
     ctx.clearRect(0, 0, width, height)
     const now = Date.now()
     if (playback !== null && now - playback.startedAt >= playback.plan.totalMs) {
+      // 演出が終わったら、鳴っている効果音も止める（次の1件で鳴らすときは start が止め直す）
+      soundPlayer.stop()
       playback = null
       startNext()
     }
