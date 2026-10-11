@@ -21,7 +21,7 @@
  * 倒れ込みの計算は、この求め方で出した倒れはじめの姿勢から始めるので、場面の切り替わりで姿勢が飛ばない。
  */
 import { createRandom } from '../core/background'
-import { LIMB_CHAINS, LIMBS, type Joint, type Limb, type Pose } from './body'
+import { JOINTS, LIMB_CHAINS, LIMBS, type Joint, type Limb, type Pose } from './body'
 import { FLIP_ARC_HEIGHT, crouchOf, placementsAfter, planGame, rollSideOf, supineAfter, type Move, type Plan } from './plan'
 import {
   COLLAPSE_FRAME_MS,
@@ -36,7 +36,7 @@ import {
   type PosePair,
   type Touchdown,
 } from './physics'
-import { PLAYER_FACINGS, opponentOf, type PlayerIndex } from './players'
+import { PLAYER_FACINGS, PLAYER_INDEXES, opponentOf, type PlayerIndex } from './players'
 import { contactsOf, restingOn, solvePose, type Contacts, type Posture } from './pose'
 import { UP, add, flat, length, lerp, normalize, scale, sub, type Vec3 } from './vec'
 
@@ -177,6 +177,9 @@ interface Motion {
   readonly supine: number | null
 }
 
+/** 倒れ込むまでの時刻に運んでいる途中の手足（運んでいなければ null） */
+type StandingMoving = { readonly player: PlayerIndex; readonly limb: Limb } | null
+
 /** 倒れ込むまでの時刻の、終えた指示と動かしている途中の手足 */
 const motionAt = (plan: Plan, elapsedMs: number): { done: readonly Move[]; motion: Motion | null } => {
   const { moves, finalMove } = plan
@@ -242,7 +245,7 @@ const standingTargetAt = (
   plan: Plan,
   under: PlayerIndex | null,
   elapsedMs: number,
-): { target: PosePair; stacking: Stacking | null; moving: { readonly player: PlayerIndex; readonly limb: Limb } | null } => {
+): { target: PosePair; stacking: Stacking | null; moving: StandingMoving } => {
   const { done, motion } = motionAt(plan, elapsedMs)
   const placements = placementsAfter(done)
   const contactsFor = (player: PlayerIndex): Contacts => {
@@ -281,7 +284,7 @@ const standingTargetAt = (
  * 相手の体を押しのけて飛ばす）。運び終えた手足は、前のコマの位置から目標の円へ LANDING_STEP まで近づけた位置に留める。
  * 押し返されて遅れていても、相手の体を少しずつ押しのけながら数コマで円に着く（いきなり円へ留めると、その瞬間に飛ぶ）。
  */
-const pinsOfPair = (target: PosePair, previous: PosePair, moving: { readonly player: PlayerIndex; readonly limb: Limb } | null): readonly [Pins, Pins] => {
+const pinsOfPair = (target: PosePair, previous: PosePair, moving: StandingMoving): readonly [Pins, Pins] => {
   const pinsFor = (player: PlayerIndex): Pins => {
     const pins: Partial<Record<Limb, Vec3>> = {}
     for (const limb of LIMBS) {
@@ -296,11 +299,29 @@ const pinsOfPair = (target: PosePair, previous: PosePair, moving: { readonly pla
   return [pinsFor(0), pinsFor(1)]
 }
 
+/** 2人の姿勢が、すべての関節でまったく同じ位置か（誤差を許さない。使い回しても記録が1ビットも変わらないことを保つため） */
+const samePosePair = (a: PosePair, b: PosePair): boolean =>
+  PLAYER_INDEXES.every((player) =>
+    JOINTS.every((joint) => {
+      const p = a[player][joint]
+      const q = b[player][joint]
+      return p.x === q.x && p.y === q.y && p.z === q.z
+    }),
+  )
+
+/** 運んでいる途中の手足が同じか（どちらも運んでいない場合を含む） */
+const sameMoving = (a: StandingMoving, b: StandingMoving): boolean =>
+  a === null || b === null ? a === b : a.player === b.player && a.limb === b.limb
+
 /**
  * 倒れはじめるまでの姿勢を、1コマずつ記録する。
  *
  * 先頭のコマは目標の姿勢からめり込みを押し出し、それより後のコマは前のコマの結果から目標を追いかけて押し出す（relaxFollowing）。
  * 記録の間隔は STANDING_FRAME_MS を目安に、倒れはじめる時刻をちょうど割り切る長さにする（最後のコマが倒れはじめの姿勢になる）。
+ *
+ * 押し出しが落ち着いた（前のコマの姿勢から押し出しても1ビットも動かなかった）あと、目標の姿勢と運んでいる手足が前のコマと
+ * まったく同じあいだは、押し出しを省いて前のコマの記録を使い回す（#325）。relaxFollowing は同じ入力から必ず同じ結果を返すので、
+ * 省いても記録は変わらない。登場とスピナーを回すあいだ（手足を動かさない区間）が該当し、記録するコマの半分ほどを省ける。
  */
 const bakeStanding = (plan: Plan, under: PlayerIndex | null, collapseStartMs: number): StandingRecord => {
   const count = Math.ceil(collapseStartMs / STANDING_FRAME_MS)
@@ -308,9 +329,20 @@ const bakeStanding = (plan: Plan, under: PlayerIndex | null, collapseStartMs: nu
   const first = standingTargetAt(plan, under, 0)
   let previous = relaxPoses(first.target, pinsOfPair(first.target, first.target, first.moving))
   const frames: PosePair[] = [previous]
+  let previousTarget = first.target
+  let previousMoving = first.moving
+  // 前のコマで、押し出しても姿勢が動かなかったか
+  let settled = false
   for (let index = 1; index <= count; index += 1) {
     const { target, moving } = standingTargetAt(plan, under, index * frameMs)
-    previous = relaxFollowing(previous, target, pinsOfPair(target, previous, moving))
+    const unchanged = settled && sameMoving(moving, previousMoving) && samePosePair(target, previousTarget)
+    if (!unchanged) {
+      const next = relaxFollowing(previous, target, pinsOfPair(target, previous, moving))
+      settled = samePosePair(next, previous)
+      if (!settled) previous = next
+    }
+    previousTarget = target
+    previousMoving = moving
     frames.push(previous)
   }
   return { frames, frameMs }

@@ -109,6 +109,15 @@ describe('createGame', () => {
     }
   })
 
+  it('手足を動かさない登場の場面では、押し出しが落ち着いたら前のコマの記録をそのまま使い回す（計算を省く）', () => {
+    for (const game of games) {
+      const { frames, frameMs } = game.standing
+      // 登場の場面の終わりのコマ。登場のあいだは手足を動かさないので、ここまでに押し出しは落ち着いている
+      const lastIntroFrame = Math.floor(INTRO_MS / frameMs) - 1
+      expect(frames[lastIntroFrame], `種${game.seed}`).toBe(frames[lastIntroFrame - 1])
+    }
+  })
+
   it('どの種でも、倒れはじめた瞬間には誰の部位もマットに着いていない（体を支えた高さから倒れ込む）', () => {
     for (const game of games) {
       const start = game.collapse.frames[0]

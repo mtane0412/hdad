@@ -63,6 +63,11 @@ export const STANDING_CLEARANCE = 0.05
  * 運んでいる途中の手足もこの速さで追いかけるので、手足を運ぶいちばん速い速さ（1コマ 3〜4cm）に合わせる
  */
 const MAX_FOLLOW_STEP = 0.04
+/**
+ * 粒と骨が触れていないとみなして測らずに除くとき、半径の和に足す余裕（m）。
+ * 除いてよいのは測っても必ずめり込みが無い組だけなので、境目で丸め誤差が出ても除き過ぎないよう、わずかに広げる
+ */
+const REJECT_MARGIN = 1e-6
 /** 倒れる人とぶつかった相手が、手足を離すめり込みの深さ（m） */
 const KNOCK_DEPTH = 0.015
 /** ぶつからなくても相手が手足を離す時刻（ミリ秒）。倒れる人の揺れで体勢を崩す */
@@ -130,7 +135,6 @@ interface Span {
 
 /** 相手の体とのぶつかりに使う骨 */
 interface Segment {
-  readonly player: PlayerIndex
   readonly a: number
   readonly b: number
   readonly radius: number
@@ -139,7 +143,6 @@ interface Segment {
 interface World {
   readonly particles: readonly Particle[]
   readonly spans: readonly Span[]
-  readonly segments: readonly Segment[]
 }
 
 /** 粒の並びでの位置（1人あたり JOINTS の数だけ並ぶ） */
@@ -147,13 +150,26 @@ const indexOf = (player: PlayerIndex, joint: Joint): number => player * JOINTS.l
 
 const playerOfIndex = (index: number): PlayerIndex => (index < JOINTS.length ? 0 : 1)
 
+/**
+ * 人ごとの、相手の体とのぶつかりに使う骨。姿勢によらず決まるので、押し出すたびに作らず1度だけ作る（#325）
+ */
+const segmentsOf = (player: PlayerIndex): readonly Segment[] => BONES.map((bone) => ({ a: indexOf(player, bone.from), b: indexOf(player, bone.to), radius: bone.radius }))
+const SEGMENTS_OF: readonly [readonly Segment[], readonly Segment[]] = [segmentsOf(0), segmentsOf(1)]
+
 const at = <T,>(items: readonly T[], index: number): T => {
   const item = items[index]
   if (item === undefined) throw new Error(`物理の粒 ${index} がありません`)
   return item
 }
 
-const gap = (a: Particle, b: Particle): number => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z)
+/**
+ * 3成分の長さ。Math.hypot ではなく Math.sqrt で測る（#325）。
+ * 押し出しでいちばん多く呼ぶ計算で、Math.hypot は桁あふれを避ける手間のぶん Math.sqrt より遅い。扱う長さは数 m までなので桁あふれはしない。
+ * 結果は最後の桁で Math.hypot と違いうるが、Math.sqrt も正しく丸めると決まっているので、同じ入力からは必ず同じ結果になる
+ */
+const norm3 = (x: number, y: number, z: number): number => Math.sqrt(x * x + y * y + z * z)
+
+const gap = (a: Particle, b: Particle): number => norm3(a.x - b.x, a.y - b.y, a.z - b.z)
 
 /**
  * 2人の姿勢から、粒と長さの組を作る。長さは shape の姿勢での長さを保つ。
@@ -174,7 +190,6 @@ const createWorld = (poses: PosePair, previous: PosePair, pins: readonly [Pins, 
     }
   }
   const spans: Span[] = []
-  const segments: Segment[] = []
   for (const player of [0, 1] as const) {
     for (const [from, to] of BRACES) {
       const a = indexOf(player, from)
@@ -182,9 +197,8 @@ const createWorld = (poses: PosePair, previous: PosePair, pins: readonly [Pins, 
       spans.push({ a, b, rest: distance(shape[player][from], shape[player][to]), min: false })
     }
     for (const [from, to, rest] of MIN_SPANS) spans.push({ a: indexOf(player, from), b: indexOf(player, to), rest, min: true })
-    for (const bone of BONES) segments.push({ player, a: indexOf(player, bone.from), b: indexOf(player, bone.to), radius: bone.radius })
   }
-  return { particles, spans, segments }
+  return { particles, spans }
 }
 
 /** 長さの組を満たすよう、両端を半分ずつ動かす（留めた粒は動かさず、相手が全部動く） */
@@ -218,12 +232,26 @@ const satisfySpans = (world: World): void => {
  */
 const separatePlayers = (world: World): number => {
   let deepest = 0
-  world.particles.forEach((particle, index) => {
-    const player = playerOfIndex(index)
-    for (const segment of world.segments) {
-      if (segment.player === player) continue
-      const a = at(world.particles, segment.a)
-      const b = at(world.particles, segment.b)
+  const { particles } = world
+  // 毎コマ・毎反復で呼ぶいちばん重い処理なので、forEach の代わりに添え字で回し、相手の骨だけをたどる
+  for (let index = 0; index < particles.length; index += 1) {
+    const particle = at(particles, index)
+    for (const segment of SEGMENTS_OF[opponentOf(playerOfIndex(index))]) {
+      const a = at(particles, segment.a)
+      const b = at(particles, segment.b)
+      // 骨の両端を囲む箱を、粒と骨の半径の和だけ広げても粒が外にあれば、触れていないので測らずに次へ（#325）。
+      // 箱の外なら必ず depth <= 0 になる組だけを除くので、押し出しの結果は変わらない（境目の丸め誤差のぶん REJECT_MARGIN だけ余分に測る）
+      const reach = particle.radius + segment.radius + REJECT_MARGIN
+      if (
+        particle.x < Math.min(a.x, b.x) - reach ||
+        particle.x > Math.max(a.x, b.x) + reach ||
+        particle.y < Math.min(a.y, b.y) - reach ||
+        particle.y > Math.max(a.y, b.y) + reach ||
+        particle.z < Math.min(a.z, b.z) - reach ||
+        particle.z > Math.max(a.z, b.z) + reach
+      ) {
+        continue
+      }
       // 骨の上で粒にいちばん近い位置
       const abx = b.x - a.x
       const aby = b.y - a.y
@@ -233,7 +261,7 @@ const separatePlayers = (world: World): number => {
       const cx = a.x + abx * ratio
       const cy = a.y + aby * ratio
       const cz = a.z + abz * ratio
-      const dist = Math.hypot(particle.x - cx, particle.y - cy, particle.z - cz)
+      const dist = norm3(particle.x - cx, particle.y - cy, particle.z - cz)
       const depth = particle.radius + segment.radius - dist
       if (depth <= 0) continue
       deepest = Math.max(deepest, depth)
@@ -257,7 +285,7 @@ const separatePlayers = (world: World): number => {
       b.y -= ny * share * moveB
       b.z -= nz * share * moveB
     }
-  })
+  }
   return deepest
 }
 
