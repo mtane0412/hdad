@@ -187,7 +187,7 @@ const isRescuableComment = (value: unknown): value is RescuableComment =>
 
 const isStringList = (value: unknown): value is string[] => Array.isArray(value) && value.every((item) => typeof item === 'string')
 
-const isStoredSummary = (value: unknown): value is StoredOpinionSummary =>
+export const isStoredSummary = (value: unknown): value is StoredOpinionSummary =>
   isRecord(value) &&
   isStringList(value.agreements) &&
   isStringList(value.disagreements) &&

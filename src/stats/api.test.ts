@@ -183,6 +183,7 @@ const REVIEW_THEME = {
     },
   ],
   counts: { received: 12, used: 5, pending: 0, dropped: { command: 1, emote: 2, reaction: 3 }, filtered: 0, ignored: 1, failed: 0 },
+  summary: { agreements: ['AIの返事は寂しい'], disagreements: [], openQuestions: ['どこまでAIに任せるか'], createdAt: '2026-09-19T12:51:00.000Z' },
 }
 
 describe('sessionOpinions（配信の時間に開いた意見ボードのテーマ）', () => {
@@ -202,6 +203,8 @@ describe('sessionOpinions（配信の時間に開いた意見ボードのテー�
     await expect(createStatsApi(fetchReturning(200, { themes: [brokenOpinion] }).fetchImpl).sessionOpinions('配信ID')).rejects.toThrow('themes[0]')
     const brokenCounts = { ...REVIEW_THEME, counts: { received: '多い' } }
     await expect(createStatsApi(fetchReturning(200, { themes: [brokenCounts] }).fetchImpl).sessionOpinions('配信ID')).rejects.toThrow('themes[0]')
+    const brokenSummary = { ...REVIEW_THEME, summary: { agreements: '合意の文' } }
+    await expect(createStatsApi(fetchReturning(200, { themes: [brokenSummary] }).fetchImpl).sessionOpinions('配信ID')).rejects.toThrow('themes[0]')
   })
 })
 

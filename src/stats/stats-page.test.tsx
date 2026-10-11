@@ -322,6 +322,7 @@ describe('配信ごとの詳細の意見ボードの振り返り', () => {
           theme: { id: 3, title: '配信中にAIをどこまで使っていい？', openedAt: '2026-09-19T12:10:00.000Z', closedAt: null, prompt: null },
           topics: [],
           counts: { received: 0, used: 0, pending: 0, dropped: { command: 0, emote: 0, reaction: 0 }, filtered: 0, ignored: 0, failed: 0 },
+          summary: null,
         },
       ]),
     })

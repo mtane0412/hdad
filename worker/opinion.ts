@@ -239,6 +239,8 @@ export interface OpinionThemeReview {
   readonly theme: OpinionTheme
   readonly topics: readonly AdminTopic[]
   readonly counts: OpinionCommentCounts
+  /** 締め切ったときに作った機械のまとめ。まだ作っていない・作れなかった・開いているテーマなら null */
+  readonly summary: StoredOpinionSummary | null
 }
 
 /** 意見を入れる論点。既にある論点か、新しく作る論点 */

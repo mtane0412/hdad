@@ -8,6 +8,7 @@
  * - テーマごとの区切りに、全論点・全意見・札の種類・人数・もとのコメントの原文を出すこと
  * - 隠した意見は「隠しています」と分かる形で出すこと
  * - 意見にならなかったコメントは、件数の内訳だけを出すこと
+ * - 締め切ったテーマには、機械が作ったまとめを機械のものと分かる枠で出し、作り直しの操作は置かないこと
  *
  * 日時はブラウザのタイムゾーンで出す決まりなので、TZ を東京に固定する。
  */
@@ -54,12 +55,19 @@ const AI_THEME: OpinionThemeReview = {
     { id: 6, title: '使いどころ', opinions: [] },
   ],
   counts: { received: 12, used: 3, pending: 0, dropped: { command: 1, emote: 2, reaction: 3 }, filtered: 1, ignored: 2, failed: 0 },
+  summary: {
+    agreements: ['AIの返事は距離を感じさせる'],
+    disagreements: ['AIだと明記すれば気にならない人もいる'],
+    openQuestions: ['どこまでAIに任せてよいか'],
+    createdAt: '2026-09-19T12:51:00.000Z',
+  },
 }
 
 const BGM_THEME: OpinionThemeReview = {
   theme: { id: 4, title: '作業用BGMの好み', openedAt: '2026-09-19T13:00:00.000Z', closedAt: null, prompt: null },
   topics: [],
   counts: { received: 0, used: 0, pending: 0, dropped: { command: 0, emote: 0, reaction: 0 }, filtered: 0, ignored: 0, failed: 0 },
+  summary: null,
 }
 
 afterEach(cleanup)
@@ -132,5 +140,27 @@ describe('テーマごとの振り返り', () => {
     expect(counts).toHaveTextContent('規則で落とした6件')
     expect(counts).toHaveTextContent('Jevが意見ではないとみた1件')
     expect(counts).toHaveTextContent('無関係とした2件')
+  })
+})
+
+describe('機械が作ったまとめ', () => {
+  it('締め切ったテーマの区切りに、AIのまとめを機械が作ったと分かる枠で出す', async () => {
+    renderReview(vi.fn(async () => [AI_THEME]))
+
+    const aiTheme = await screen.findByRole('group', { name: 'テーマ「配信中にAIをどこまで使っていい？」の振り返り' })
+    const summary = within(aiTheme).getByRole('group', { name: 'AIのまとめ' })
+    expect(summary).toHaveTextContent('機械が作成')
+    expect(summary).toHaveTextContent('AIの返事は距離を感じさせる')
+    expect(summary).toHaveTextContent('AIだと明記すれば気にならない人もいる')
+    expect(summary).toHaveTextContent('どこまでAIに任せてよいか')
+    // 振り返りは読むだけの場所なので、作り直しの操作は置かない（作り直しは /opinions/ で行う）
+    expect(within(summary).queryByRole('button')).not.toBeInTheDocument()
+  })
+
+  it('締め切っていないテーマには、まとめの枠を出さない', async () => {
+    renderReview(vi.fn(async () => [BGM_THEME]))
+
+    const bgmTheme = await screen.findByRole('group', { name: 'テーマ「作業用BGMの好み」の振り返り' })
+    expect(within(bgmTheme).queryByRole('group', { name: 'AIのまとめ' })).not.toBeInTheDocument()
   })
 })
