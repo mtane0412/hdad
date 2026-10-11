@@ -32,6 +32,7 @@ import { createFakeAdBreakTimer } from './fake-ad-break-timer'
 import { createFakeTokenVault } from './fake-token-vault'
 import { DEFAULT_TOWN_TOUR_SOUND, saveTownTourSound } from './town-tour-sound'
 import { saveTwisterSound } from './twister-sound'
+import { saveLickSound } from './lick-sound'
 import { DEFAULT_KANJI_QUIZ_SOUND, saveKanjiQuizSound } from './kanji-quiz-sound'
 import { openTownTourQuiz } from './town-tour-quiz'
 import { openKanjiQuiz, recordKanjiQuiz } from './kanji-quiz-store'
@@ -1816,6 +1817,31 @@ describe('ペロペロの動作（lick）', () => {
     expect(call?.seed).toBeGreaterThanOrEqual(0)
     expect(call?.seed).toBeLessThan(2 ** 32)
     expect(call?.target).toEqual({ name: '田中太郎', iconUrl: TANAKA_ICON })
+    // 効果音を選んでいなければ、鳴らさない設定のまま押し出す
+    expect(call?.sound).toEqual({ sound: null, volume: 0.6 })
+  })
+
+  it('効果音を選んでいれば、音声のURL（オーバーレイ用キーつき）と音量を添えて押し出す', async () => {
+    const { env, alertChannel } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [rewardLickTrigger] })
+    // 検証（音声であること）は lick-sound.test.ts が確かめるので、ここでは保存済みの設定として直接置く
+    await saveLickSound(env.STORE, { sound: 'media-juru', volume: 0.8 })
+
+    await callWebhook(createNotification({ body: REDEMPTION_NOTIFICATION }), env, fakeTwitchKnowingTanaka().fetchImpl)
+
+    expect(alertChannel.pushedLicks[0]?.sound).toEqual({ sound: `/api/media/media-juru?key=${ISSUED_OVERLAY_KEY}`, volume: 0.8 })
+  })
+
+  it('効果音を選んでいるのにオーバーレイ用キーが未発行なら、押し出さずに失敗として記録する（黙って無音で流さない）', async () => {
+    const { env, alertChannel } = createEnv({ overlayKey: null })
+    await saveAlertConfig(env.STORE, { triggers: [rewardLickTrigger] })
+    await saveLickSound(env.STORE, { sound: 'media-juru', volume: 0.8 })
+
+    const response = await callWebhook(createNotification({ body: REDEMPTION_NOTIFICATION }), env, fakeTwitchKnowingTanaka().fetchImpl)
+
+    expect(response.status).toBe(204)
+    expect(alertChannel.pushedLicks).toHaveLength(0)
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'lick-push-failed' }])
   })
 
   it('Twitch にその人がいなければ（消えたアカウントなど）、アイコン無しで押し出す（頭文字の顔で流す）', async () => {

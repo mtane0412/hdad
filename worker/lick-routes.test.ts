@@ -5,6 +5,8 @@
  * - 管理画面の試し再生（POST /api/admin/lick/demo）は、ログインした配信者にだけ、ペロペロを押し出す。
  *   本文で相手のログイン名を渡せば、Twitch で引いたその人の表示名とアイコンを舐める。省けばアイコンの無い試しの相手を舐める。
  *   ログイン名の形でなければ400、Twitch にいなければ404にし、どちらも押し出さない
+ * - 試し再生もトリガーと同じ効果音の設定を添えて押し出す。効果音を選んでいるのにオーバーレイ用キーが未発行なら409にして押し出さない
+ * - 効果音の設定（GET・PUT /api/admin/lick/sound）は、ログインした配信者にだけ読み書きさせ、音声でない素材を選んだ設定は400で断る
  */
 import { describe, expect, it } from 'vitest'
 import { parseLickCall } from '../src/lick/call'
@@ -21,15 +23,16 @@ import { createFakeTabChannel } from './fake-tab-channel'
 import { createFakeTokenVault } from './fake-token-vault'
 import { handleRequest, type Env } from './index'
 import { createSessionToken } from './session'
+import { DEFAULT_LICK_SOUND, loadLickSound, saveLickSound } from './lick-sound'
 
 const now = Date.parse('2026-10-11T12:00:00Z')
 const site = 'https://hdad.example.com'
 const overlayKey = 'issued-overlay-key-0123456789abcdefghij'
 const BROADCASTER_ID = '12345'
 
-const createEnv = (alertChannel = createFakeAlertChannel()) =>
+const createEnv = (alertChannel = createFakeAlertChannel(), store = createFakeStore({ 'overlay-key': overlayKey })) =>
   ({
-    STORE: createFakeStore({ 'overlay-key': overlayKey }),
+    STORE: store,
     MEDIA: createFakeBucket(),
     DB: createFakeDatabase(),
     ASSETS: createFakeAssets(),
@@ -157,11 +160,85 @@ describe('POST /api/admin/lick/demo', () => {
     expect(alertChannel.pushedLicks).toEqual([])
   })
 
+  it('効果音を選んでいれば、トリガーと同じく音声のURL（オーバーレイ用キーつき）と音量を添えて押し出す', async () => {
+    const alertChannel = createFakeAlertChannel()
+    const env = createEnv(alertChannel)
+    await saveLickSound(env.STORE, { sound: 'media-juru', volume: 0.8 })
+
+    const response = await callAsBroadcaster(env, noFetch)
+
+    expect(response.status).toBe(200)
+    expect(alertChannel.pushedLicks[0]?.sound).toEqual({ sound: `/api/media/media-juru?key=${overlayKey}`, volume: 0.8 })
+  })
+
+  it('効果音を選んでいるのにオーバーレイ用キーが未発行なら、押し出さずに409にする', async () => {
+    const alertChannel = createFakeAlertChannel()
+    const env = createEnv(alertChannel, createFakeStore())
+    await saveLickSound(env.STORE, { sound: 'media-juru', volume: 0.8 })
+
+    const response = await callAsBroadcaster(env, noFetch)
+
+    expect(response.status).toBe(409)
+    expect(alertChannel.pushedLicks).toEqual([])
+  })
+
   it('配送先が失敗したら502にする', async () => {
     const alertChannel = createFakeAlertChannel({ shouldFail: true })
 
     const response = await callAsBroadcaster(createEnv(alertChannel), noFetch)
 
     expect(response.status).toBe(502)
+  })
+})
+
+describe('GET・PUT /api/admin/lick/sound', () => {
+  /** 配信者としてログインした状態で呼ぶ。書き換えのときは Origin も付ける（ブラウザが付けるのと同じ） */
+  const callAsBroadcaster = async (env: Env, init: RequestInit = {}): Promise<Response> => {
+    const session = await createSessionToken(env.TWITCH_BROADCASTER_ID, env.SESSION_SECRET, now)
+    return invoke('/api/admin/lick/sound', env, noFetch, { ...init, headers: { Cookie: `__Host-session=${session}`, Origin: site } })
+  }
+
+  /** ジュルジュルの音声と、写真の画像を上げておいた環境 */
+  const createEnvWithMedia = async (): Promise<Env> => {
+    const env = createEnv()
+    await env.MEDIA.put('media-juru', new ArrayBuffer(8), { httpMetadata: { contentType: 'audio/mpeg' }, customMetadata: { name: 'juru.mp3' } })
+    await env.MEDIA.put('media-photo', new ArrayBuffer(8), { httpMetadata: { contentType: 'image/png' }, customMetadata: { name: 'photo.png' } })
+    return env
+  }
+
+  it('ログインしていなければ読ませない', async () => {
+    const response = await invoke('/api/admin/lick/sound', createEnv(), noFetch)
+
+    expect(response.status).toBe(401)
+  })
+
+  it('未保存なら、効果音を鳴らさない設定を返す', async () => {
+    const response = await callAsBroadcaster(createEnv())
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual(DEFAULT_LICK_SOUND)
+  })
+
+  it('保存した設定を返し、次に読んだときも同じものを返す', async () => {
+    const env = await createEnvWithMedia()
+    const sound = { sound: 'media-juru', volume: 0.75 }
+
+    const saved = await callAsBroadcaster(env, { method: 'PUT', body: JSON.stringify(sound) })
+    const loaded = await callAsBroadcaster(env)
+
+    expect(saved.status).toBe(200)
+    expect(await saved.json()).toEqual(sound)
+    expect(await loaded.json()).toEqual(sound)
+  })
+
+  it('音声でない素材を選んだ設定は、問題点つきの400で断って保存しない', async () => {
+    const env = await createEnvWithMedia()
+
+    const response = await callAsBroadcaster(env, { method: 'PUT', body: JSON.stringify({ sound: 'media-photo', volume: 0.5 }) })
+
+    expect(response.status).toBe(400)
+    const body = (await response.json()) as { error: { problems: string[] } }
+    expect(body.error.problems).toEqual(['sound: 素材「media-photo」は音声ではありません'])
+    expect(await loadLickSound(env.STORE)).toEqual(DEFAULT_LICK_SOUND)
   })
 })

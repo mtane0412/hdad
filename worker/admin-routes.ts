@@ -14,6 +14,7 @@ import { loadBgmTracks } from './bgm-config'
 import { loadTownTourSound, townTourSoundUses } from './town-tour-sound'
 import { loadTwisterSound, twisterSoundUses } from './twister-sound'
 import { kanjiQuizSoundUses, loadKanjiQuizSound } from './kanji-quiz-sound'
+import { lickSoundUses, loadLickSound } from './lick-sound'
 import { overlayKeyTag, rotateOverlayKey } from './overlay-key'
 import { revokeTabViewers } from './tab-channel'
 import { loadOverlayLayout, parseOverlayLayout, saveOverlayLayout } from './overlay-layout'
@@ -82,6 +83,9 @@ export const deleteMedia = async (context: Context): Promise<Response> => {
   }
   if (twisterSoundUses(await loadTwisterSound(env.STORE), id)) {
     throw new HttpError(STATUS.conflict, 'media-in-use', 'この素材はツイスターの BGM に使われています。先にトリガーのページの「ツイスター」で外してください')
+  }
+  if (lickSoundUses(await loadLickSound(env.STORE), id)) {
+    throw new HttpError(STATUS.conflict, 'media-in-use', 'この素材はペロペロの効果音に使われています。先にトリガーのページの「ペロペロ」で外してください')
   }
   if (kanjiQuizSoundUses(await loadKanjiQuizSound(env.STORE), id)) {
     throw new HttpError(STATUS.conflict, 'media-in-use', 'この素材は漢字クイズの音に使われています。先にトリガーのページの「漢字クイズ」で外してください')

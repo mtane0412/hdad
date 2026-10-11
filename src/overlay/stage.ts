@@ -115,6 +115,8 @@ import { LICK_SOCKET_HINT, LICK_SOCKET_PATH } from '../lick/api'
 import { parseLickCall, type LickCall } from '../lick/call'
 import { DEMO_LICK_CALLS, DEMO_LICK_INTERVAL_MS } from '../lick/demo'
 import { createLickPlan, lickSceneAt, type LickPlan } from '../lick/motion'
+import { lickSoundCuesOf } from '../lick/sound-cues'
+import { createLickSoundPlayer } from '../lick/sound-player'
 import { createLickRenderer } from '../lick/view'
 import { TWISTER_SOCKET_HINT, TWISTER_SOCKET_PATH } from '../twister/api'
 import { twisterBgmPlanOf } from '../twister/bgm'
@@ -1777,6 +1779,7 @@ const mountTwister = (box: HTMLElement, item: OverlayItem, { key, demo }: MountC
  * 読み込めなかったら失敗をこの箱に出して名前の頭文字の顔で流す（止めない）。
  *
  * 3Dは WebGL の canvas に、文言はその上の2Dの canvas に描く（src/lick/view.ts）。
+ * 効果音を選んでいれば、舌がアイコンに触れるたびに音程を変えて鳴らす（issue #340。鳴らせなければこの箱に失敗を出し、流すのは止めない）。
  */
 const mountLick = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
   // この素材は配信者が決めるパラメータを持たない（誰を舐めるかはトリガーと試し再生で決まる）
@@ -1788,6 +1791,7 @@ const mountLick = (box: HTMLElement, item: OverlayItem, { key, demo }: MountCont
   hudCanvas.dataset.lick = 'hud'
   box.append(glCanvas, hudCanvas)
   const renderer = createLickRenderer(glCanvas)
+  const soundPlayer = createLickSoundPlayer((error) => showError(error, NOUNS.lick, box, 'read'))
 
   /** 流している1件。流していなければ null */
   let playback: { readonly call: LickCall; readonly plan: LickPlan; readonly startedAt: number } | null = null
@@ -1816,7 +1820,10 @@ const mountLick = (box: HTMLElement, item: OverlayItem, { key, demo }: MountCont
     void loadIcon()
       .then((image) => {
         renderer.setIcon(call, image)
-        playback = { call, plan: createLickPlan(call.seed), startedAt: Date.now() }
+        const plan = createLickPlan(call.seed)
+        playback = { call, plan, startedAt: Date.now() }
+        if (call.sound.sound === null) soundPlayer.stop()
+        else soundPlayer.start(call.sound.sound, call.sound.volume, lickSoundCuesOf(plan, call.seed))
       })
       .catch((error: unknown) => {
         // アイコンの絵を作れなかった1件は流さず、失敗を出して次へ進む（待っている呼び出しを止めない）

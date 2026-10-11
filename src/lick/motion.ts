@@ -51,6 +51,8 @@ const STRING_AFTER_MS = 350
 /** 跡が乾いていく速さ（ミリ秒。この長さで濡れ具合が 1/e に近づく）と、乾ききっても残る濡れ具合 */
 const DRY_MS = 4000
 const MIN_WETNESS = 0.35
+/** 触れはじめる時刻を探す二分法の回数（ミリ秒より十分に細かくなる） */
+const CONTACT_SEARCH_STEPS = 30
 /** 1回の跡から垂れる数の下限と上限 */
 const MIN_DRIPS = 1
 const MAX_DRIPS = 3
@@ -159,6 +161,21 @@ const contactAt = (reach: number): number =>
 const reachAt = (progress: number): number => smooth(clamp01(progress / PULL_START))
 
 const endOf = (stroke: LickStroke): number => stroke.startMs + stroke.durationMs
+
+/**
+ * その回で舌先がアイコンに触れはじめる時刻（流しはじめてからのミリ秒）を求める（効果音を鳴らす時刻に使う）。
+ * 舐め上げた高さ（reachAt）は進み具合に対して増えていくだけなので、触れはじめる高さになる進み具合を二分法で探す。
+ */
+export const strokeContactMs = (stroke: LickStroke): number => {
+  let low = 0
+  let high = PULL_START
+  for (let step = 0; step < CONTACT_SEARCH_STEPS; step += 1) {
+    const middle = (low + high) / 2
+    if (reachAt(middle) < CONTACT_FROM) low = middle
+    else high = middle
+  }
+  return stroke.startMs + stroke.durationMs * high
+}
 
 /** 種から舐め方を決める */
 export const createLickPlan = (seed: number): LickPlan => {

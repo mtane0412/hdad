@@ -44,6 +44,7 @@ import { loadTownTourSound, playbackSoundOf } from './town-tour-sound'
 import { issueKanjiQuiz } from './kanji-quiz-issue'
 import { loadKanjiQuizSound, playbackKanjiQuizSoundOf } from './kanji-quiz-sound'
 import { lickCallOf, lickSeedOf } from './lick-call'
+import { loadLickSound, playbackLickSoundOf } from './lick-sound'
 import { twisterCallOf, twisterSeedOf } from './twister-call'
 import { loadTwisterSound, playbackTwisterSoundOf } from './twister-sound'
 import { readViewer } from './viewer-store'
@@ -214,13 +215,19 @@ export const runAlertActions = async (
       throw invalid(error instanceof Error ? error.message : String(error))
     }
   })()
-  for (const [index, lick] of licks.entries()) {
-    await sendAndRecordFailure(context, messageId, 'lick', index, 'lick-push-failed', async () => {
-      const { twitch } = context
-      const user = await twitch.getUserByLogin(await twitch.getAppAccessToken(), lick.userLogin)
-      const seed = lickSeedOf(crypto.getRandomValues(new Uint32Array(1)))
-      await pushLick(env.ALERTS, lickCallOf({ name: lick.userName, iconUrl: user?.profileImageUrl ?? null }, seed, crypto.randomUUID()))
-    })
+  // 効果音の設定とオーバーレイ用キーは、当てはまった行があるときだけ読む（チャットの発言のたびにKVを読まないため）
+  if (licks.length > 0) {
+    const [sound, overlayKey] = await Promise.all([loadLickSound(env.STORE), loadOverlayKey(env.STORE)])
+    for (const [index, lick] of licks.entries()) {
+      await sendAndRecordFailure(context, messageId, 'lick', index, 'lick-push-failed', async () => {
+        // キーが未発行で効果音のURLを作れないときも、押し出しの失敗として記録する（黙って無音で流さない）
+        const playbackSound = playbackLickSoundOf(sound, overlayKey)
+        const { twitch } = context
+        const user = await twitch.getUserByLogin(await twitch.getAppAccessToken(), lick.userLogin)
+        const seed = lickSeedOf(crypto.getRandomValues(new Uint32Array(1)))
+        await pushLick(env.ALERTS, lickCallOf({ name: lick.userName, iconUrl: user?.profileImageUrl ?? null }, playbackSound, seed, crypto.randomUUID()))
+      })
+    }
   }
 
   if (messages.length === 0 && announcements.length === 0 && aiChats.length === 0 && shoutouts.length === 0) return

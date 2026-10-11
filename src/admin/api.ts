@@ -14,6 +14,7 @@ import { readKanjiQuizSound, type KanjiQuizSound } from '@/kanji-quiz/sound'
 import { readTownTourNarration, type TownTourNarration } from '@/town-tour/narration'
 import { readTownTourSound, type TownTourSound } from '@/town-tour/sound'
 import { readTwisterSound, type TwisterSound } from '@/twister/sound'
+import { readLickSound, type LickSound } from '@/lick/sound'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const CHAT_MESSAGE = 'channel.chat.message'
@@ -295,6 +296,10 @@ export interface AdminApi {
    * userName に相手とみなす人のログイン名を渡すと、その人のアイコンを舐める。空なら試しの相手を舐める
    */
   playLickDemo(userName: string): Promise<string>
+  /** ペロペロで舌が触れるたびに鳴らす効果音の設定。未保存なら鳴らさない設定が返る */
+  lickSound(): Promise<LickSound>
+  /** ペロペロの効果音の設定を保存する。Workerが保存したものを返す */
+  saveLickSound(sound: LickSound): Promise<LickSound>
   /** 漢字クイズの試し再生。Workerが選んだ級の問題を1問合成ページへ押し出し、「漢検○級「熟語」」の形で出した問題を返す */
   playKanjiQuizDemo(grade: KankenGrade): Promise<string>
   /** 漢字クイズの演出で鳴らす音の設定。未保存ならどの枠も鳴らさない設定が返る */
@@ -412,6 +417,7 @@ const REWARDS_PATH = '/api/admin/rewards'
 const TOWN_TOUR_SOUND_PATH = '/api/admin/town-tour/sound'
 const TOWN_TOUR_NARRATION_PATH = '/api/admin/town-tour/narration'
 const TWISTER_SOUND_PATH = '/api/admin/twister/sound'
+const LICK_SOUND_PATH = '/api/admin/lick/sound'
 const KANJI_QUIZ_SOUND_PATH = '/api/admin/kanji-quiz/sound'
 
 export const createAdminApi = (fetchImpl: typeof fetch): AdminApi => {
@@ -506,6 +512,11 @@ export const createAdminApi = (fetchImpl: typeof fetch): AdminApi => {
       if (target === null || typeof target.name !== 'string') throw new Error('Workerの応答に、舐めた相手の名前がありません')
       return target.name
     },
+
+    lickSound: async () => readLickSound(await call(LICK_SOUND_PATH)),
+
+    saveLickSound: async (sound) =>
+      readLickSound(await call(LICK_SOUND_PATH, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sound) })),
 
     kanjiQuizSound: async () => readKanjiQuizSound(await call(KANJI_QUIZ_SOUND_PATH)),
 
