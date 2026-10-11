@@ -148,7 +148,26 @@ export interface KanjiQuizAction {
   weights: KankenGradeWeights
 }
 
-export type ActionInput = AlertActionInput | ChatAction | AnnounceAction | AiChatAction | ShoutoutAction | TownTourAction | TwisterAction | KanjiQuizAction
+/**
+ * 相手の Twitch のアイコンを、合成ページの素材「ペロペロ」で舌に舐めさせる動作（issue #338）。
+ *
+ * 舐め方の種はその都度ランダムなので、配信者が決める項目を持たない。
+ * 置けるのはチャンネルポイントと決まった人のその配信で最初の発言の項目だけである（src/admin/form.ts の supportsLick）。
+ */
+export interface LickAction {
+  type: 'lick'
+}
+
+export type ActionInput =
+  | AlertActionInput
+  | ChatAction
+  | AnnounceAction
+  | AiChatAction
+  | ShoutoutAction
+  | TownTourAction
+  | TwisterAction
+  | KanjiQuizAction
+  | LickAction
 
 /**
  * 既定メニューの項目。worker/trigger-menu.ts の TRIGGER_KINDS と同じ並び（worker/ の型は読み込めないのでここで定義する）。
@@ -210,6 +229,7 @@ export type StoredAction =
   | TownTourAction
   | TwisterAction
   | KanjiQuizAction
+  | LickAction
 
 /** 保存済みのトリガー */
 export type StoredTrigger = TriggerSource & { actions: StoredAction[] }
@@ -270,6 +290,11 @@ export interface AdminApi {
    * userName に相手とみなす配信者のログイン名を渡すと、その人のアイコンで対戦する。空なら試しの相手で流す
    */
   playTwisterDemo(userName: string): Promise<string>
+  /**
+   * ペロペロの試し再生。Workerが相手を舐める呼び出しを合成ページへ押し出し、舐めた相手の名前を返す。
+   * userName に相手とみなす人のログイン名を渡すと、その人のアイコンを舐める。空なら試しの相手を舐める
+   */
+  playLickDemo(userName: string): Promise<string>
   /** 漢字クイズの試し再生。Workerが選んだ級の問題を1問合成ページへ押し出し、「漢検○級「熟語」」の形で出した問題を返す */
   playKanjiQuizDemo(grade: KankenGrade): Promise<string>
   /** 漢字クイズの演出で鳴らす音の設定。未保存ならどの枠も鳴らさない設定が返る */
@@ -336,8 +361,8 @@ const isTriggerSource = (value: unknown): value is TriggerSource => {
 /** 保存済みの動作1件の形。種類ごとに持つ項目が違う */
 const isStoredAction = (value: unknown): value is StoredAction => {
   if (!isRecord(value)) return false
-  // shoutout と townTour と twister は配信者が決める項目を持たないので、種類だけを見る
-  if (value.type === 'shoutout' || value.type === 'townTour' || value.type === 'twister') return true
+  // shoutout と townTour と twister と lick は配信者が決める項目を持たないので、種類だけを見る
+  if (value.type === 'shoutout' || value.type === 'townTour' || value.type === 'twister' || value.type === 'lick') return true
   // kanjiQuiz は級ごとの出題の重みだけを持つ
   if (value.type === 'kanjiQuiz') return isKankenGradeWeights(value.weights)
   // aiChat だけは送る文言を持たず、文面の作り方の指示を持つ
@@ -469,6 +494,17 @@ export const createAdminApi = (fetchImpl: typeof fetch): AdminApi => {
       const [raider, streamer] = players
       if (players.length !== 2 || typeof raider !== 'string' || typeof streamer !== 'string') throw new Error('Workerの応答に、対戦する2人の名前がありません')
       return `${raider} vs ${streamer}`
+    },
+
+    playLickDemo: async (userName) => {
+      const body = await call('/api/admin/lick/demo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userName }),
+      })
+      const target = isRecord(body) && isRecord(body.target) ? body.target : null
+      if (target === null || typeof target.name !== 'string') throw new Error('Workerの応答に、舐めた相手の名前がありません')
+      return target.name
     },
 
     kanjiQuizSound: async () => readKanjiQuizSound(await call(KANJI_QUIZ_SOUND_PATH)),

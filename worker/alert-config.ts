@@ -17,6 +17,8 @@
  *   対戦する相手が配信者であるレイドのトリガーにだけ置ける
  * - kanjiQuiz: Workerが問題集から設定の級の問題を1問選び、交換した人の名前と一緒に合成ページの素材「漢字クイズ」へ押し出す（issue #300）。
  *   視聴者がポイントを払って出題させるものなので、チャンネルポイントのトリガーにだけ置ける
+ * - lick: Workerが相手の名前とアイコンを、合成ページの素材「ペロペロ」へ押し出す（issue #338）。
+ *   舐める相手を1人に決めるため、チャンネルポイントと「決まった人のその配信で最初の発言」のトリガーにだけ置ける
  *
  * メニュー項目は17種類（worker/trigger-menu.ts の TRIGGER_KINDS）で、そのうちチャットの発言を対象にするものは
  * botを接続しているときだけ通知が届く。広告の終了（adBreakEnd）だけはTwitchから届く通知ではなく、
@@ -36,7 +38,7 @@ import { ANNOUNCEMENT_COLORS, type AnnouncementColor } from './twitch'
 const CONFIG_KEY = 'alert-config'
 
 /** 動作の種類。同じ種類は1トリガーに1件まで */
-export const ACTION_TYPES = ['alert', 'chat', 'announce', 'aiChat', 'shoutout', 'townTour', 'twister', 'kanjiQuiz'] as const
+export const ACTION_TYPES = ['alert', 'chat', 'announce', 'aiChat', 'shoutout', 'townTour', 'twister', 'kanjiQuiz', 'lick'] as const
 
 export type ActionType = (typeof ACTION_TYPES)[number]
 
@@ -148,6 +150,19 @@ export interface StoredKanjiQuizAction {
   weights: KankenGradeWeights
 }
 
+/**
+ * 相手の Twitch のアイコンを、合成ページの素材「ペロペロ」で舌に舐めさせる動作（issue #338）。
+ *
+ * 舐め方は種から決まり、種はその都度ランダムに引くので、配信者が決める項目を持たない。
+ * 置けるのはチャンネルポイントと「決まった人のその配信で最初の発言」のトリガーだけである（舐める相手を1人に決めるため）。
+ */
+export interface StoredLickAction {
+  type: 'lick'
+}
+
+/** ペロペロを置けるトリガーの項目 */
+export const LICK_KINDS: readonly TriggerKind[] = ['reward', 'fromUserFirstOfStream']
+
 export type StoredAction =
   | StoredAlertAction
   | StoredChatAction
@@ -157,6 +172,7 @@ export type StoredAction =
   | StoredTownTourAction
   | StoredTwisterAction
   | StoredKanjiQuizAction
+  | StoredLickAction
 
 /** 市町村紹介を置けるきっかけ。レイドはレイド元、キーワード（!darts など）は発言した人の名前を冒頭に出す */
 export const TOWN_TOUR_KINDS: readonly TriggerKind[] = ['raid', 'keyword']
@@ -343,6 +359,8 @@ const parseAction = (
   if (type === 'townTour') return { type }
   // ツイスターも同じく配信者が決める項目を持たない（レイドにだけ置けることは parseAlertConfig で確かめる）
   if (type === 'twister') return { type }
+  // ペロペロも同じく配信者が決める項目を持たない（置けるきっかけは parseAlertConfig で確かめる）
+  if (type === 'lick') return { type }
 
   // 漢字クイズは級ごとの出題の重みだけを持つ（チャンネルポイントにだけ置けることは parseAlertConfig で確かめる）
   if (type === 'kanjiQuiz') {
@@ -466,7 +484,12 @@ export const parseAlertConfig = (input: unknown, kindOfMedia: (mediaId: string) 
     const kanjiQuizOk = !hasKanjiQuiz || source === null || source.kind === 'reward'
     if (!kanjiQuizOk) problems.push(`${at}.actions: 漢字クイズ（kanjiQuiz）はチャンネルポイントのトリガーにだけ置けます`)
 
-    if (source !== null && actions !== null && shoutoutOk && townTourOk && twisterOk && kanjiQuizOk) return [{ ...source, actions }]
+    // ペロペロは相手1人のアイコンを舐めるので、相手が1人に決まるきっかけにだけ置かせる
+    const hasLick = actions !== null && actions.some((action) => action.type === 'lick')
+    const lickOk = !hasLick || source === null || LICK_KINDS.includes(source.kind)
+    if (!lickOk) problems.push(`${at}.actions: ペロペロ（lick）はチャンネルポイントと「決まった人のその配信で最初の発言」のトリガーにだけ置けます`)
+
+    if (source !== null && actions !== null && shoutoutOk && townTourOk && twisterOk && kanjiQuizOk && lickOk) return [{ ...source, actions }]
     return []
   })
 
@@ -567,6 +590,10 @@ export const twisterActionOf = (trigger: WithActions): StoredTwisterAction | nul
 /** トリガーから漢字クイズを出題する動作を取り出す。なければ null */
 export const kanjiQuizActionOf = (trigger: WithActions): StoredKanjiQuizAction | null =>
   trigger.actions.find((action): action is StoredKanjiQuizAction => action.type === 'kanjiQuiz') ?? null
+
+/** トリガーからペロペロの動作を取り出す。なければ null */
+export const lickActionOf = (trigger: WithActions): StoredLickAction | null =>
+  trigger.actions.find((action): action is StoredLickAction => action.type === 'lick') ?? null
 
 /** トリガーからアラートを出す動作を取り出す。なければ null */
 export const alertActionOf = (trigger: WithActions): StoredAlertAction | null =>

@@ -173,6 +173,41 @@ describe('parseAlertConfig', () => {
     )
   })
 
+  it('チャンネルポイントと「決まった人のその配信で最初の発言」のトリガーなら、ペロペロの動作（lick）を受け付ける', () => {
+    const config = parseAlertConfig(
+      {
+        triggers: [
+          { kind: 'reward', rewardId: '報酬ID-ペロペロ', actions: [{ type: 'lick' }] },
+          { kind: 'fromUserFirstOfStream', login: 'tanaka_taro', actions: [{ type: 'lick' }] },
+        ],
+      },
+      materialKind,
+    )
+
+    expect(config.triggers.map((trigger) => trigger.actions)).toEqual([[{ type: 'lick' }], [{ type: 'lick' }]])
+  })
+
+  it('チャンネルポイントと「決まった人のその配信で最初の発言」以外のトリガーにペロペロを置いたら拒否する（舐める相手を1人に決めるため）', () => {
+    expect(() =>
+      parseAlertConfig(
+        {
+          triggers: [
+            { kind: 'raid', actions: [{ type: 'lick' }] },
+            { kind: 'keyword', contains: '!lick', actions: [{ type: 'lick' }] },
+          ],
+        },
+        materialKind,
+      ),
+    ).toThrow(
+      expect.objectContaining({
+        problems: [
+          'triggers[0].actions: ペロペロ（lick）はチャンネルポイントと「決まった人のその配信で最初の発言」のトリガーにだけ置けます',
+          'triggers[1].actions: ペロペロ（lick）はチャンネルポイントと「決まった人のその配信で最初の発言」のトリガーにだけ置けます',
+        ],
+      }),
+    )
+  })
+
   it('チャンネルポイントのトリガーなら、級ごとの出題の重みを持った漢字クイズの動作（kanjiQuiz）を受け付ける', () => {
     const weights = { ...singleGradeWeights('3'), '3': 2, pre2: 1 }
     const config = parseAlertConfig({ triggers: [{ kind: 'reward', rewardId: '報酬ID-漢字クイズ', actions: [{ type: 'kanjiQuiz', weights }] }] }, materialKind)
@@ -397,7 +432,7 @@ describe('parseAlertConfig', () => {
 
   it('対応していない動作の種類は拒否する', () => {
     expect(() => parseAlertConfig({ triggers: [receivedTrigger({ actions: [alertAction({ type: 'ban' })] })] }, materialKind)).toThrowError(
-      expect.objectContaining({ problems: ['triggers[0].actions[0].type: alert / chat / announce / aiChat / shoutout / townTour / twister / kanjiQuiz のいずれかを指定してください'] }),
+      expect.objectContaining({ problems: ['triggers[0].actions[0].type: alert / chat / announce / aiChat / shoutout / townTour / twister / kanjiQuiz / lick のいずれかを指定してください'] }),
     )
   })
 

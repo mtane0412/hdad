@@ -26,6 +26,7 @@ import {
   townToursFor,
   twistersFor,
   kanjiQuizzesFor,
+  licksFor,
   type ConditionState,
 } from './alert-event'
 
@@ -931,6 +932,45 @@ describe('kanjiQuizzesFor', () => {
 
     expect(() => kanjiQuizzesFor(config, 'channel.follow', { user_name: '田中太郎', user_login: 'tanaka_taro' }, notFirstTime)).toThrowError(
       /チャンネルポイントのトリガーにだけ/,
+    )
+  })
+})
+
+describe('licksFor', () => {
+  const alertConfig = (triggers: StoredTrigger[]): AlertConfig => ({ triggers })
+  const redemption = { user_name: '田中太郎', user_login: 'tanaka_taro', reward: { id: '報酬ID-ペロペロ', title: 'ペロペロする' } }
+  const chatNotification = {
+    broadcaster_user_id: '配信者ID',
+    chatter_user_id: '発言者ID',
+    chatter_user_login: 'tanaka_taro',
+    chatter_user_name: '田中太郎',
+    message_id: '発言ID-1',
+    message: { text: 'こんばんは' },
+  }
+
+  it('チャンネルポイントの交換では、交換した人を舐める相手として返す', () => {
+    const config = alertConfig([{ kind: 'reward', rewardId: '報酬ID-ペロペロ', actions: [{ type: 'lick' }] }])
+
+    expect(licksFor(config, REDEMPTION, redemption, notFirstTime)).toEqual([{ userName: '田中太郎', userLogin: 'tanaka_taro' }])
+  })
+
+  it('決まった人のその配信で最初の発言では、発言した人を舐める相手として返す', () => {
+    const config = alertConfig([{ kind: 'fromUserFirstOfStream', login: 'tanaka_taro', actions: [{ type: 'lick' }] }])
+
+    expect(licksFor(config, CHAT_MESSAGE, chatNotification, isFirstTime)).toEqual([{ userName: '田中太郎', userLogin: 'tanaka_taro' }])
+  })
+
+  it('決まった人でも、その配信で2通目以降の発言では舐めない', () => {
+    const config = alertConfig([{ kind: 'fromUserFirstOfStream', login: 'tanaka_taro', actions: [{ type: 'lick' }] }])
+
+    expect(licksFor(config, CHAT_MESSAGE, chatNotification, notFirstTime)).toEqual([])
+  })
+
+  it('チャンネルポイントと「決まった人のその配信で最初の発言」以外のトリガーにペロペロがあったら投げる（保存時に拒むので、あれば設定の読み違い）', () => {
+    const config = alertConfig([{ kind: 'follow', actions: [{ type: 'lick' }] }])
+
+    expect(() => licksFor(config, 'channel.follow', { user_name: '田中太郎', user_login: 'tanaka_taro' }, notFirstTime)).toThrowError(
+      /チャンネルポイントと「決まった人のその配信で最初の発言」のトリガーにだけ/,
     )
   })
 })

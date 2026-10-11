@@ -111,6 +111,11 @@ import { sceneAt, visitRecordAtOf, type Playback } from '../town-tour/timeline'
 import { decodeTownBorders, decodeTownShapes, type TownBorders } from '../town-tour/topo'
 import { parseTownTourMessage, tourLinesOf, type TownTourCall, type TownTourIntro } from '../town-tour/tour'
 import { createTownTourRenderer, type TownTourRenderer } from '../town-tour/view'
+import { LICK_SOCKET_HINT, LICK_SOCKET_PATH } from '../lick/api'
+import { parseLickCall, type LickCall } from '../lick/call'
+import { DEMO_LICK_CALLS, DEMO_LICK_INTERVAL_MS } from '../lick/demo'
+import { createLickPlan, lickSceneAt, type LickPlan } from '../lick/motion'
+import { createLickRenderer } from '../lick/view'
 import { TWISTER_SOCKET_HINT, TWISTER_SOCKET_PATH } from '../twister/api'
 import { twisterBgmPlanOf } from '../twister/bgm'
 import { createTwisterBgmPlayer } from '../twister/bgm-player'
@@ -158,6 +163,7 @@ const NOUNS: Readonly<Record<ItemKind, string>> = {
   text: 'テキスト',
   kanjiQuiz: '漢字クイズ',
   opinions: '意見ボード',
+  lick: 'ペロペロ',
 }
 
 /** サイドスーパーの文言を読みに行く間隔（ミリ秒）。文言は cron が5分おきに作るので、30秒あれば十分に追いつく */
@@ -1764,6 +1770,110 @@ const mountTwister = (box: HTMLElement, item: OverlayItem, { key, demo }: MountC
 }
 
 /**
+ * ペロペロ（issue #338）。チャンネルポイントの交換や決まった人のその配信で最初の発言で、相手の Twitch のアイコンを舌で舐める。
+ *
+ * Worker から押し出された呼び出し（種と相手の名前・アイコン）を届いた順に1件ずつ流す。舐め方は種から決め（src/lick/motion.ts）、
+ * 場面は流しはじめてからの経過時間だけから決める。アイコンは流しはじめる前に読み込み（ツイスターと同じ読み込みを使う）、
+ * 読み込めなかったら失敗をこの箱に出して名前の頭文字の顔で流す（止めない）。
+ *
+ * 3Dは WebGL の canvas に、文言はその上の2Dの canvas に描く（src/lick/view.ts）。
+ */
+const mountLick = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
+  // この素材は配信者が決めるパラメータを持たない（誰を舐めるかはトリガーと試し再生で決まる）
+  parseParams({}, new URLSearchParams(item.params))
+
+  const glCanvas = document.createElement('canvas')
+  glCanvas.dataset.lick = 'stage'
+  const hudCanvas = document.createElement('canvas')
+  hudCanvas.dataset.lick = 'hud'
+  box.append(glCanvas, hudCanvas)
+  const renderer = createLickRenderer(glCanvas)
+
+  /** 流している1件。流していなければ null */
+  let playback: { readonly call: LickCall; readonly plan: LickPlan; readonly startedAt: number } | null = null
+  /** 流すのを待っている呼び出し（届いた順） */
+  let waiting: readonly LickCall[] = []
+  /** 次の1件のアイコンを読み込んでいる最中か */
+  let preparing = false
+
+  /** 流していなければ、待っている呼び出しの先頭を準備して流しはじめる */
+  const startNext = (): void => {
+    if (playback !== null || preparing) return
+    const [call, ...rest] = waiting
+    if (call === undefined) return
+    waiting = rest
+    clearError(box, 'read')
+    preparing = true
+    const loadIcon = async (): Promise<HTMLImageElement | null> => {
+      if (call.target.iconUrl === null) return null
+      try {
+        return await loadFaceImage(call.target.iconUrl)
+      } catch (error) {
+        showError(error, NOUNS.lick, box, 'read')
+        return null
+      }
+    }
+    void loadIcon()
+      .then((image) => {
+        renderer.setIcon(call, image)
+        playback = { call, plan: createLickPlan(call.seed), startedAt: Date.now() }
+      })
+      .catch((error: unknown) => {
+        // アイコンの絵を作れなかった1件は流さず、失敗を出して次へ進む（待っている呼び出しを止めない）
+        showError(error, NOUNS.lick, box, 'read')
+      })
+      .finally(() => {
+        preparing = false
+        if (playback === null) startNext()
+      })
+  }
+
+  const enqueue = (call: LickCall): void => {
+    waiting = [...waiting, call]
+    startNext()
+  }
+
+  const draw = startCanvasSurface(hudCanvas, (ctx, width, height) => {
+    ctx.clearRect(0, 0, width, height)
+    const now = Date.now()
+    if (playback !== null && now - playback.startedAt >= playback.plan.totalMs) {
+      playback = null
+      startNext()
+    }
+    renderer.render(ctx, width, height, playback === null ? null : { call: playback.call, scene: lickSceneAt(playback.plan, now - playback.startedAt) })
+  })
+
+  if (demo) {
+    // プレビューではWorkerにつながず、決まった呼び出しを順にくり返し流す
+    startSampleCycle(DEMO_LICK_CALLS, DEMO_LICK_INTERVAL_MS, enqueue)
+    return { draw }
+  }
+
+  connectSocket(
+    socketUrl(LICK_SOCKET_PATH, { key }),
+    {
+      onMessage: (text) => {
+        try {
+          enqueue(parseLickCall(text))
+        } catch (error) {
+          showError(error, NOUNS.lick, box, 'read')
+        }
+      },
+      onOpen: () => {
+        // 呼び出しは押し出しでしか届かない（読み直すものを持たない）。つながっていない間の呼び出しは配送先が落とす
+      },
+      onStatus: () => {
+        // 切断・再接続は出さない。流している1件はそのまま流しきる
+      },
+      onWarning: (message) => showError(new Error(message), NOUNS.lick, box, 'read'),
+    },
+    LICK_SOCKET_HINT,
+  )
+
+  return { draw }
+}
+
+/**
  * 漢字クイズ（issue #300）。チャンネルポイントの交換で出題された熟語の読みを問う。
  *
  * Worker から押し出された出題（問題1問と交換した人）を届いた順に1件ずつ流す。場面（級→熟語が奥から近づく→制限時間→正解と解説）は
@@ -2176,6 +2286,8 @@ const mountItem = (box: HTMLElement, item: OverlayItem, context: MountContext): 
       return mountKanjiQuiz(box, item, context)
     case 'opinions':
       return mountOpinions(box, item, context)
+    case 'lick':
+      return mountLick(box, item, context)
   }
 }
 

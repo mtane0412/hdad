@@ -272,6 +272,8 @@ export interface TriggerDraft {
   kanjiQuizEnabled: boolean
   /** 漢字クイズの級ごとの出題の重み（入力欄の文字列のまま持ち、送るときに数にする） */
   kanjiQuizWeights: Record<KankenGrade, string>
+  /** 相手のアイコンを合成ページでペロペロするか。チャンネルポイントと決まった人のその配信で最初の発言の項目でだけ選べる */
+  lickEnabled: boolean
 }
 
 /**
@@ -304,6 +306,14 @@ export const supportsTwister = (kind: TriggerKind): boolean => kind === 'raid'
  * 置けるのはチャンネルポイントの交換だけである（Workerも保存時にそれ以外を拒む）。視聴者がポイントを払って出題させるものだからである。
  */
 export const supportsKanjiQuiz = (kind: TriggerKind): boolean => kind === 'reward'
+
+/**
+ * その項目にペロペロを置けるか（issue #338）。
+ *
+ * 置けるのはチャンネルポイントの交換と、決まった人のその配信で最初の発言だけである（Workerも保存時にそれ以外を拒む）。
+ * 舐める相手を1人に決め、その人のアイコンを舐めるため。
+ */
+export const supportsLick = (kind: TriggerKind): boolean => kind === 'reward' || kind === 'fromUserFirstOfStream'
 
 /** 漢字クイズを選んだときに、はじめに選ばれている級（中学卒業程度の3級） */
 export const DEFAULT_KANJI_QUIZ_GRADE: KankenGrade = '3'
@@ -426,6 +436,7 @@ const toActions = (draft: TriggerDraft): ActionInput[] => {
   if (draft.townTourEnabled) actions.push({ type: 'townTour' })
   if (draft.twisterEnabled) actions.push({ type: 'twister' })
   if (draft.kanjiQuizEnabled) actions.push({ type: 'kanjiQuiz', weights: toWeights(draft.kanjiQuizWeights) })
+  if (draft.lickEnabled) actions.push({ type: 'lick' })
   return actions
 }
 
@@ -512,6 +523,7 @@ export const toDraft = (trigger: StoredTrigger): TriggerDraft => {
   const townTour = trigger.actions.find((action) => action.type === 'townTour')
   const twister = trigger.actions.find((action) => action.type === 'twister')
   const kanjiQuiz = trigger.actions.find((action) => action.type === 'kanjiQuiz')
+  const lick = trigger.actions.find((action) => action.type === 'lick')
 
   return {
     kind: trigger.kind,
@@ -538,6 +550,7 @@ export const toDraft = (trigger: StoredTrigger): TriggerDraft => {
     twisterEnabled: twister !== undefined,
     kanjiQuizEnabled: kanjiQuiz !== undefined,
     kanjiQuizWeights: kanjiQuiz === undefined ? DEFAULT_KANJI_QUIZ_WEIGHTS : mapKankenGrades((grade) => String(kanjiQuiz.weights[grade])),
+    lickEnabled: lick !== undefined,
   }
 }
 
@@ -575,6 +588,7 @@ export const createDraft = (kind: TriggerKind, media: readonly MediaItem[]): Tri
     twisterEnabled: false,
     kanjiQuizEnabled: false,
     kanjiQuizWeights: DEFAULT_KANJI_QUIZ_WEIGHTS,
+    lickEnabled: false,
   }
 }
 
@@ -601,6 +615,7 @@ export const emptyDraft = (kind: TriggerKind): TriggerDraft => ({
   twisterEnabled: false,
   kanjiQuizEnabled: false,
   kanjiQuizWeights: DEFAULT_KANJI_QUIZ_WEIGHTS,
+  lickEnabled: false,
 })
 
 /** その行が効果をひとつでも持つか。持たない行は何も起きないので保存しない */
@@ -612,7 +627,8 @@ export const hasAnyAction = (draft: TriggerDraft): boolean =>
   draft.shoutoutEnabled ||
   draft.townTourEnabled ||
   draft.twisterEnabled ||
-  draft.kanjiQuizEnabled
+  draft.kanjiQuizEnabled ||
+  draft.lickEnabled
 
 /**
  * 保存済みの行に、パラメータを持たない項目の行を追加し、一覧の並び順にそろえる。
@@ -715,6 +731,7 @@ export const rowActionLabels = (draft: TriggerDraft): readonly string[] =>
     draft.townTourEnabled ? '市町村紹介' : null,
     draft.twisterEnabled ? 'ツイスター' : null,
     draft.kanjiQuizEnabled ? '漢字クイズ' : null,
+    draft.lickEnabled ? 'ペロペロ' : null,
   ].filter((label) => label !== null)
 
 /** 素材の大きさを読みやすい単位で表す */

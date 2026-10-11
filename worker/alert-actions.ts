@@ -13,7 +13,7 @@
  * 2xx以外を返すとTwitchは同じ通知を再送するので、送信が成功していた場合に二重投稿になってしまう。
  */
 import { loadAlertConfig, type AlertConfig, type StoredAnnounceAction } from './alert-config'
-import { pushAlert, pushTownTour, pushTwister } from './alert-channel'
+import { pushAlert, pushLick, pushTownTour, pushTwister } from './alert-channel'
 import { generateChatMessage } from './ai-chat'
 import {
   aiChatsFor,
@@ -22,6 +22,7 @@ import {
   chatMessagesFor,
   hasAlertAction,
   kanjiQuizzesFor,
+  licksFor,
   requiresStreamSummary,
   shoutoutsFor,
   townToursFor,
@@ -42,6 +43,7 @@ import { loadTownTourNarration } from './town-tour-narration'
 import { loadTownTourSound, playbackSoundOf } from './town-tour-sound'
 import { issueKanjiQuiz } from './kanji-quiz-issue'
 import { loadKanjiQuizSound, playbackKanjiQuizSoundOf } from './kanji-quiz-sound'
+import { lickCallOf, lickSeedOf } from './lick-call'
 import { twisterCallOf, twisterSeedOf } from './twister-call'
 import { loadTwisterSound, playbackTwisterSoundOf } from './twister-sound'
 import { readViewer } from './viewer-store'
@@ -203,6 +205,24 @@ export const runAlertActions = async (
     }
   }
 
+  // ペロペロ（issue #338）も素材が流すので、botの接続を見る前に押し出す。相手のアイコンは1件ごとにログイン名から引く。
+  // Twitch にその人がいなければ（消えたアカウントなど）アイコン無しで流し、Twitch を呼べなければ押し出しの失敗として記録する
+  const licks = ((): ReturnType<typeof licksFor> => {
+    try {
+      return licksFor(config, subscriptionType, body.event, state)
+    } catch (error) {
+      throw invalid(error instanceof Error ? error.message : String(error))
+    }
+  })()
+  for (const [index, lick] of licks.entries()) {
+    await sendAndRecordFailure(context, messageId, 'lick', index, 'lick-push-failed', async () => {
+      const { twitch } = context
+      const user = await twitch.getUserByLogin(await twitch.getAppAccessToken(), lick.userLogin)
+      const seed = lickSeedOf(crypto.getRandomValues(new Uint32Array(1)))
+      await pushLick(env.ALERTS, lickCallOf({ name: lick.userName, iconUrl: user?.profileImageUrl ?? null }, seed, crypto.randomUUID()))
+    })
+  }
+
   if (messages.length === 0 && announcements.length === 0 && aiChats.length === 0 && shoutouts.length === 0) return
 
   // botを切断していれば送る先がない。受け取り自体は成功として返す
@@ -339,7 +359,7 @@ export const recordLateFailure = async (context: AlertActionContext, failureCode
 const sendAndRecordFailure = async (
   context: AlertActionContext,
   messageId: string,
-  actionType: 'chat' | 'announce' | 'alert' | 'aiChat' | 'shoutout' | 'townTour' | 'twister' | 'kanjiQuiz',
+  actionType: 'chat' | 'announce' | 'alert' | 'aiChat' | 'shoutout' | 'townTour' | 'twister' | 'kanjiQuiz' | 'lick',
   index: number,
   failureCode: string,
   send: () => Promise<void>,
