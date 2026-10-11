@@ -19,17 +19,23 @@ const sameLines = (a: readonly CaptionLine[], b: readonly CaptionLine[]): boolea
   a.length === b.length &&
   a.every((line, index) => line.text === b[index]?.text && line.final === b[index]?.final && line.translation === b[index]?.translation)
 
-/** 1行ぶんの要素。訳文があれば、原文のすぐ下に別の要素として置く */
+/** 1行ぶんの要素。訳文があれば、原文のすぐ下に別の要素として置く（原文が無ければ訳文だけ） */
 const lineElements = (line: CaptionLine): HTMLElement[] => {
-  const original = document.createElement('p')
-  original.className = 'caption-line'
-  original.dataset.final = String(line.final)
-  original.textContent = line.text
-  if (line.translation === null) return [original]
-  const translation = document.createElement('p')
-  translation.className = 'caption-translation'
-  translation.textContent = line.translation
-  return [original, translation]
+  const elements: HTMLElement[] = []
+  if (line.text !== null) {
+    const original = document.createElement('p')
+    original.className = 'caption-line'
+    original.dataset.final = String(line.final)
+    original.textContent = line.text
+    elements.push(original)
+  }
+  if (line.translation !== null) {
+    const translation = document.createElement('p')
+    translation.className = 'caption-translation'
+    translation.textContent = line.translation
+    elements.push(translation)
+  }
+  return elements
 }
 
 /**
