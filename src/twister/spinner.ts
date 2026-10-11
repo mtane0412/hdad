@@ -3,13 +3,12 @@
  *
  * 盤は手足ごとに4つに分かれ（LIMBS の順）、それぞれが4色に分かれる（MAT_COLORS の順）。全部で16区画。
  * 角度は盤の真上を 0 とし、時計回りに増える（ラジアン）。
- * 針は勢いよく回ってから減速し、指示の手足と色の区画の真ん中で止まる。角度は回しはじめからの経過時間だけから決まる。
+ * 針は勢いよく回ってから減速し、指示の手足と色の区画の真ん中で止まる。角度は回しはじめからの経過時間と、針が回る長さだけから決まる。
+ * 針が回る長さは手番ごとに違う（はじめの手番はゆっくり、後半は速い。game.ts の paceOf）ので、呼び出し側が渡す。
  */
 import { LIMBS, type Limb } from './body'
 import { MAT_COLORS, type MatColor } from './mat'
 
-/** 針が回っている長さ（ミリ秒）。これを過ぎたら止まっている */
-export const SPIN_TURN_MS = 1800
 /** 止まるまでに回る回数 */
 const SPIN_TURNS = 3
 const FULL_TURN = Math.PI * 2
@@ -39,9 +38,13 @@ export const spinnerSegmentAt = (angle: number): SpinnerPick => {
   return { limb, color }
 }
 
-/** 回しはじめから elapsedMs 後の針の角度。減速しながら進み、SPIN_TURN_MS で止まる */
-export const spinnerAngleAt = (pick: SpinnerPick, elapsedMs: number): number => {
-  const progress = Math.min(Math.max(elapsedMs / SPIN_TURN_MS, 0), 1)
+/**
+ * 回しはじめから elapsedMs 後の針の角度。減速しながら進み、turnMs で止まる。
+ *
+ * @param turnMs 針が回っている長さ（ミリ秒）。これを過ぎたら止まっている。短いほど同じ回数を速く回る
+ */
+export const spinnerAngleAt = (pick: SpinnerPick, elapsedMs: number, turnMs: number): number => {
+  const progress = Math.min(Math.max(elapsedMs / turnMs, 0), 1)
   const eased = 1 - (1 - progress) ** 3
   return spinnerTargetAngle(pick.limb, pick.color) - SPIN_TURNS * FULL_TURN * (1 - eased)
 }

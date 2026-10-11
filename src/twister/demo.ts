@@ -21,5 +21,5 @@ export const DEMO_TWISTER_CALLS: readonly TwisterCall[] = [20261006, 272, 8128].
   sound: { bgm: null, bgmVolume: 0 },
 }))
 
-/** プレビューで次の呼び出しを流す間隔（ミリ秒）。1回の対戦（30秒前後）を流しきるだけの間を置く */
-export const DEMO_TWISTER_INTERVAL_MS = 34_000
+/** プレビューで次の呼び出しを流す間隔（ミリ秒）。1回の対戦（35秒前後）を流しきるだけの間を置く */
+export const DEMO_TWISTER_INTERVAL_MS = 40_000

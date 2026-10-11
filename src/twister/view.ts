@@ -38,7 +38,7 @@ import type { GameScene } from './game'
 import { hudTextOf } from './hud'
 import { ALL_SPOTS, COLOR_HEX, MAT_COLORS, MAT_DEPTH, MAT_WIDTH, SPOT_RADIUS, spotPosition } from './mat'
 import { PLAYER_INDEXES } from './players'
-import { SEGMENT_ANGLE, SPIN_TURN_MS, SPINNER_SEGMENTS, spinnerAngleAt } from './spinner'
+import { SEGMENT_ANGLE, SPINNER_SEGMENTS, spinnerAngleAt } from './spinner'
 
 /** 画面に出す文字の書体（市町村紹介と同じ） */
 const FONT_FAMILY = '"Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif'
@@ -312,7 +312,7 @@ const drawHud = (ctx: CanvasRenderingContext2D, width: number, height: number, f
   const radius = SIZES.spinnerRadius * unit
   const centerX = width - (SIZES.spinnerMargin + SIZES.spinnerRadius) * unit
   const centerY = height - (SIZES.spinnerMargin + SIZES.spinnerRadius) * unit
-  drawSpinner(ctx, centerX, centerY, radius, spinnerAngleAt({ limb: spin.move.limb, color: spin.move.spot.color }, spin.elapsedMs), unit)
+  drawSpinner(ctx, centerX, centerY, radius, spinnerAngleAt({ limb: spin.move.limb, color: spin.move.spot.color }, spin.elapsedMs, spin.turnMs), unit)
   // 番と指示は、スピナーの左に右寄せで出す
   ctx.textAlign = 'right'
   const textRight = centerX - radius - 30 * unit
@@ -405,7 +405,7 @@ export const createTwisterRenderer = (glCanvas: HTMLCanvasElement): TwisterRende
 /** 指された円の輪を、針が止まってから手足を運び終えるまで点滅させる */
 const updateHighlight = (highlight: Mesh, frame: TwisterFrame): void => {
   const { spin } = frame.scene
-  const showing = spin !== null && spin.elapsedMs >= SPIN_TURN_MS && frame.scene.phase !== 'collapse'
+  const showing = spin !== null && spin.elapsedMs >= spin.turnMs && frame.scene.phase !== 'collapse'
   highlight.visible = showing
   if (!showing) return
   const position = spotPosition(spin.move.spot)

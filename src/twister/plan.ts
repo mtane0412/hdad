@@ -4,7 +4,7 @@
  * 本物のツイスターではスピナーが手足と色を決め、どの円に置くかを人が選ぶ。ここでは「できるだけ絡み合う」ように、
  * 手足・色・円の組み合わせをまとめて選び、スピナーはその手足と色に止まる演出にする（純粋な乱数にはしない）。
  *
- * - 絡ませる指示（2回か3回）: 空いていて届く円のうち、相手の胴に近い円を優先する。同じ人が同じ手足を続けて動かすのは避ける。
+ * - 絡ませる指示（5〜7回）: 空いていて届く円のうち、相手の胴に近い円を優先する。同じ人が同じ手足を続けて動かすのは避ける。
  *   体の向きが急に裏返らないよう、両手が両足より前にある置き場所だけを候補にする
  * - 最後の指示: 空いているが届かない円を指す。届かなさが小さい（あと少しで届きそうな）円と、相手の胴に近い円を優先する
  *   （手を伸ばして、相手の上へ倒れ込むように）
@@ -26,7 +26,7 @@ export interface Move {
 
 /** 1回の対戦の指示の並び */
 export interface Plan {
-  /** 絡ませる指示（2回か3回） */
+  /** 絡ませる指示（5〜7回） */
   readonly moves: readonly Move[]
   /** 倒れ込ませる最後の指示（届かない円を指す） */
   readonly finalMove: Move
@@ -45,8 +45,12 @@ const SAME_LIMB_PENALTY = 0.2
 /** 最後の指示で、相手の胴への近さに掛ける重みと揺らぎの大きさ */
 const FINAL_OPPONENT_WEIGHT = 0.5
 const FINAL_JITTER = 0.2
-/** 絡ませる指示の回数（MIN_MOVES か MIN_MOVES + 1 回） */
-const MIN_MOVES = 2
+/**
+ * 絡ませる指示の回数（MIN_MOVES 〜 MIN_MOVES + MOVE_COUNT_SPREAD 回）。
+ * はじめの数手は自分の側で手足を動かすだけで、相手の胴に近い円へ届くのは4手目あたりからなので、触れ合うまで手数を重ねる
+ */
+const MIN_MOVES = 5
+const MOVE_COUNT_SPREAD = 2
 
 /** 指示の順に手足を動かした、2人の置き場所 */
 export const placementsAfter = (moves: readonly Move[]): readonly [Placement, Placement] =>
@@ -127,7 +131,7 @@ const chooseFinalMove = (placements: readonly [Placement, Placement], player: Pl
  * @throws 置ける候補が無い場合（始めの置き場所と円の並びでは起きない。起きたら計算の誤り）
  */
 export const planGame = (random: () => number): Plan => {
-  const count = MIN_MOVES + (random() < 0.5 ? 0 : 1)
+  const count = MIN_MOVES + Math.floor(random() * (MOVE_COUNT_SPREAD + 1))
   const moves: Move[] = []
   const lastLimbs: [Limb | null, Limb | null] = [null, null]
   for (let index = 0; index < count; index += 1) {

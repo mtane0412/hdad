@@ -6,8 +6,9 @@
  *
  * 流れ:
  * 1. 登場（INTRO_MS）: 2人が四つんばいで向かい合う
- * 2. 絡ませる指示を2回か3回: スピナーを回し（SPIN_MS）、指された手足を弧を描いて指された円へ運ぶ（MOVE_MS）
- * 3. 最後の指示: スピナーを回し（SPIN_MS）、届かない円へ手足を伸ばし（REACH_MS）、倒れ込む（記録をスローモーションで再生する）
+ * 2. 絡ませる指示を5〜7回: スピナーを回し、指された手足を弧を描いて指された円へ運ぶ。
+ *    はじめの SLOW_TURN_COUNT 手はゆっくり（SLOW_PACE）、それより後は速く（FAST_PACE）回して運ぶ（paceOf）
+ * 3. 最後の指示: 速くスピナーを回し、届かない円へ手足を伸ばし（REACH_MS）、倒れ込む（記録をスローモーションで再生する）
  * 4. 結果（RESULT_MS）: 先にマットに着いた人の負けとして、勝者を出す
  *
  * 倒れ込むまでの姿勢は、その時刻の手足の位置から IK で解き（pose.ts）、2人の体のめり込みを押し出して求める（relaxPoses）。
@@ -23,10 +24,21 @@ import { UP, add, flat, lerp, normalize, scale, sub, type Vec3 } from './vec'
 
 /** 登場の長さ（ミリ秒） */
 export const INTRO_MS = 3000
-/** スピナーを回して結果を見せる長さ（ミリ秒）。針が止まってから（spinner.ts の SPIN_TURN_MS の後）結果を読む間を含む */
-export const SPIN_MS = 2600
-/** 指された手足を運ぶ長さ（ミリ秒） */
-export const MOVE_MS = 1400
+/** 1手の速さ */
+export interface TurnPace {
+  /** スピナーの針が回っている長さ（ミリ秒） */
+  readonly turnMs: number
+  /** スピナーを回して結果を見せる長さ（ミリ秒）。針が止まってから（turnMs の後）結果を読む間を含む */
+  readonly spinMs: number
+  /** 指された手足を運ぶ長さ（ミリ秒）。最後の指示では使わない（REACH_MS で伸ばす） */
+  readonly moveMs: number
+}
+/** はじめの手番の速さ。スピナーと指示の読み方を、見ている人がつかめるようにゆっくり見せる */
+export const SLOW_PACE: TurnPace = { turnMs: 1800, spinMs: 2600, moveMs: 1400 }
+/** 後半の手番の速さ。手数を重ねても対戦が長くなりすぎないよう、テンポを上げる */
+export const FAST_PACE: TurnPace = { turnMs: 1000, spinMs: 1600, moveMs: 1000 }
+/** ゆっくり見せる手番の数 */
+const SLOW_TURN_COUNT = 2
 /** 最後の指示で、届かない円へ手足を伸ばす長さ（ミリ秒） */
 export const REACH_MS = 900
 /**
@@ -66,6 +78,8 @@ export interface SpinState {
   readonly final: boolean
   /** スピナーを回しはじめてからのミリ秒 */
   readonly elapsedMs: number
+  /** この手番でスピナーの針が回っている長さ（ミリ秒）。これを過ぎたら針は止まり、指示を読める */
+  readonly turnMs: number
 }
 
 /** 勝敗 */
@@ -99,8 +113,18 @@ const arcBetween = (from: Vec3, to: Vec3, progress: number, height: number): Vec
   return add(lerp(from, to, eased), scale(UP, height * Math.sin(Math.PI * eased)))
 }
 
-/** i 回目（0から）の絡ませる指示のスピナーを回しはじめる時刻 */
-const spinStartOf = (index: number): number => INTRO_MS + index * (SPIN_MS + MOVE_MS)
+/** i 回目（0から）の指示の速さ。最後の指示も、絡ませる指示の続きの番号で決める */
+export const paceOf = (index: number): TurnPace => (index < SLOW_TURN_COUNT ? SLOW_PACE : FAST_PACE)
+
+/** i 回目（0から）の指示のスピナーを回しはじめる時刻。それより前の手番の長さを足していく */
+export const spinStartOf = (index: number): number => {
+  let start = INTRO_MS
+  for (let previous = 0; previous < index; previous += 1) {
+    const pace = paceOf(previous)
+    start += pace.spinMs + pace.moveMs
+  }
+  return start
+}
 
 /** 手足を動かしている途中の1本（動かしていなければ null） */
 interface Motion {
@@ -112,19 +136,20 @@ interface Motion {
 /** 倒れ込むまでの時刻の、終えた指示と動かしている途中の手足 */
 const motionAt = (plan: Plan, elapsedMs: number): { done: readonly Move[]; motion: Motion | null } => {
   const { moves, finalMove } = plan
-  const doneCount = moves.filter((_, index) => elapsedMs >= spinStartOf(index) + SPIN_MS + MOVE_MS).length
+  const doneCount = moves.filter((_, index) => elapsedMs >= spinStartOf(index + 1)).length
   const done = moves.slice(0, doneCount)
   const before = placementsAfter(done)
   const moving = moves[doneCount]
   if (moving !== undefined) {
-    const moveStart = spinStartOf(doneCount) + SPIN_MS
+    const pace = paceOf(doneCount)
+    const moveStart = spinStartOf(doneCount) + pace.spinMs
     if (elapsedMs < moveStart) return { done, motion: null }
     const from = restingOn(before[moving.player][moving.limb], moving.limb)
     const to = restingOn(moving.spot, moving.limb)
-    return { done, motion: { player: moving.player, limb: moving.limb, position: arcBetween(from, to, clampProgress(elapsedMs - moveStart, MOVE_MS), MOVE_ARC_HEIGHT) } }
+    return { done, motion: { player: moving.player, limb: moving.limb, position: arcBetween(from, to, clampProgress(elapsedMs - moveStart, pace.moveMs), MOVE_ARC_HEIGHT) } }
   }
   // 絡ませる指示を終えたら、最後の指示で届かない円へ手足を伸ばす
-  const reachStart = spinStartOf(moves.length) + SPIN_MS
+  const reachStart = spinStartOf(moves.length) + paceOf(moves.length).spinMs
   if (elapsedMs < reachStart) return { done, motion: null }
   const from = restingOn(before[finalMove.player][finalMove.limb], finalMove.limb)
   const to = restingOn(finalMove.spot, finalMove.limb)
@@ -154,7 +179,7 @@ const standingPosesAt = (plan: Plan, elapsedMs: number): PosePair => {
  */
 export const createGame = (seed: number): Game => {
   const plan = planGame(createRandom(seed))
-  const collapseStartMs = spinStartOf(plan.moves.length) + SPIN_MS + REACH_MS
+  const collapseStartMs = spinStartOf(plan.moves.length) + paceOf(plan.moves.length).spinMs + REACH_MS
   const poses = standingPosesAt(plan, collapseStartMs)
   const previous = standingPosesAt(plan, collapseStartMs - PHYSICS_STEP_MS)
   const { player, limb, spot } = plan.finalMove
@@ -170,10 +195,12 @@ const spinAt = (game: Game, elapsedMs: number): SpinState | null => {
   const { moves, finalMove } = game.plan
   for (const [index, move] of moves.entries()) {
     const start = spinStartOf(index)
-    if (elapsedMs >= start && elapsedMs < start + SPIN_MS + MOVE_MS) return { move, index, final: false, elapsedMs: elapsedMs - start }
+    if (elapsedMs >= start && elapsedMs < spinStartOf(index + 1)) return { move, index, final: false, elapsedMs: elapsedMs - start, turnMs: paceOf(index).turnMs }
   }
   const finalStart = spinStartOf(moves.length)
-  if (elapsedMs >= finalStart && elapsedMs < game.collapseStartMs) return { move: finalMove, index: moves.length, final: true, elapsedMs: elapsedMs - finalStart }
+  if (elapsedMs >= finalStart && elapsedMs < game.collapseStartMs) {
+    return { move: finalMove, index: moves.length, final: true, elapsedMs: elapsedMs - finalStart, turnMs: paceOf(moves.length).turnMs }
+  }
   return null
 }
 
@@ -190,6 +217,6 @@ export const gameSceneAt = (game: Game, elapsedMs: number): GameScene => {
   const poses = standingPosesAt(game.plan, elapsedMs)
   const spin = spinAt(game, elapsedMs)
   if (spin === null) return { phase: 'intro', poses, spin, result: null, done }
-  const phase: GamePhase = spin.elapsedMs < SPIN_MS ? 'spin' : spin.final ? 'reach' : 'move'
+  const phase: GamePhase = spin.elapsedMs < paceOf(spin.index).spinMs ? 'spin' : spin.final ? 'reach' : 'move'
   return { phase, poses, spin, result: null, done }
 }
