@@ -9,7 +9,11 @@
  * 5. 胴の長さが変わらないよう、高さの差から胴の水平の長さを決める
  * 6. 伏せる度合い（crouch）が与えられたら、肩と脚の付け根を伏せた高さ（CROUCH_SHOULDER_HEIGHT・CROUCH_HIP_HEIGHT）へ向けて下げる。
  *    相手が上に重なってきた人が、相手の胴の下へもぐり込むのに使う（game.ts）。下げても手足の先は円に届く
- * 7. 肘・膝は二関節の IK で曲げる。肘は後ろ外へ、膝は前上へ曲げる（ひじ・ひざがマットに着いて負けにならないように）
+ * 7. 仰向けに裏返った度合い（supine）が与えられたら、人形自身の右を反対にして（仰向けでは左右が入れ替わる）同じように解き、
+ *    うつ伏せの解と高さ・傾きを混ぜる。肩と脚の付け根の線は、背骨のまわりに同じ角度（π × 度合い）だけ回す（rollSide の側が上がる）。
+ *    回すと低いほうの付け根が下がるので、その分だけ胴を持ち上げる。仰向けでは脚の付け根を SUPINE_HIP_HEIGHT まで下げて膝を立てる（ブリッジ）
+ * 8. 肘・膝は二関節の IK で曲げる。うつ伏せでは肘は後ろ外へ、膝は前上へ、仰向けでは肘は頭の側へ、膝は足の側へ曲げる
+ *    （ひじ・ひざがマットに着いて負けにならないように）。裏返る途中は横と上へ逃がす
  *
  * 届かない位置を指された手足は、伸びきった位置で止まる（指された円の上に浮かない）。
  * 相手の体とのめり込みはここでは扱わない（physics.ts の relaxPoses が押し出す）。
@@ -35,6 +39,8 @@ const MIN_SHOULDER_HEIGHT = 0.22
 const MIN_HIP_HEIGHT = 0.26
 /** 胴の水平の長さの下限（m）。高さの差がこれ以上つくと胴が立ちすぎるので、差を縮める */
 const MIN_TORSO_RUN = 0.2
+/** 肩と脚の付け根の高さの差の上限（m）。胴の水平の長さが MIN_TORSO_RUN より短くならないようにする */
+const MAX_RISE = Math.sqrt(TORSO * TORSO - MIN_TORSO_RUN * MIN_TORSO_RUN)
 /** 肩・脚の付け根の線を水平に回してよい角度の上限（ラジアン）。これより大きく回すと胴がねじ切れて見える */
 export const MAX_TWIST_YAW = Math.PI / 6
 /** 肩・脚の付け根の線を傾けてよい角度の上限（ラジアン） */
@@ -45,6 +51,10 @@ export const MAX_TWIST_ROLL = Math.PI / 6
  */
 export const CROUCH_SHOULDER_HEIGHT = 0.16
 export const CROUCH_HIP_HEIGHT = 0.17
+/**
+ * 仰向けのときの、脚の付け根の中点の高さの上限（m）。脚が届くいちばん高い位置より下げて、膝を立てたブリッジにする
+ */
+export const SUPINE_HIP_HEIGHT = 0.45
 /** 高さを決め直す回数（胴の位置と高さは互いに影響するので、2回で落ち着かせる） */
 const HEIGHT_PASSES = 2
 /** 肘・膝を曲げる向きの混ぜ方（後ろ・横・上の重み） */
@@ -54,6 +64,9 @@ const ELBOW_UP = 0.3
 const KNEE_FORWARD = 1
 const KNEE_OUT = 0.3
 const KNEE_UP = 0.4
+/** 裏返る途中に、肘・膝を横と上へ逃がす重み */
+const POLE_SWING_OUT = 1.0
+const POLE_SWING_UP = 0.5
 
 /** 円の上に置いた手足の先の位置。先の太さ（半径）だけ浮かせて、マットに埋まらないようにする */
 export const restingOn = (spot: Spot, limb: Limb): Vec3 => add(spotPosition(spot), scale(UP, JOINT_RADII[limb]))
@@ -153,14 +166,88 @@ const sideHeightsOf = (
 /** 水平の向き axis の線を、roll だけ傾けた向き（長さ1）。右が上がるほど正 */
 const tiltedAxis = (axis: Vec3, roll: number): Vec3 => add(scale(axis, Math.cos(roll)), scale(UP, Math.sin(roll)))
 
+/** 姿勢の解き方の調整（伏せる・裏返る） */
+export interface Posture {
+  /**
+   * 伏せる度合い（0〜1）。0 なら手足が届くいちばん高い位置に胴を置き、1 なら伏せた高さまで下げる。
+   * あいだの値では、置いてよい高さの上限を手足の長さから伏せた高さへ向けて少しずつ下げる（度合いが変わっても胴が飛ばない）
+   */
+  readonly crouch?: number
+  /**
+   * 仰向けに裏返った度合い（0〜1）。0 ならうつ伏せ（四つんばい）、1 なら仰向け（ブリッジ）。
+   * あいだの値では、肩と脚の付け根の線を背骨のまわりに同じ角度（π × 度合い）だけ回す
+   */
+  readonly supine?: number
+  /** 裏返るときに上がる側（1 なら右側、-1 なら左側）。裏返りきるまで変えない */
+  readonly rollSide?: 1 | -1
+}
+
+/** 肩・脚の付け根の線の、高さと傾きと水平の向き（うつ伏せ・仰向けそれぞれで解く） */
+interface Frame {
+  readonly shoulders: SideHeights
+  readonly hips: SideHeights
+  /** 肩・脚の付け根の線の、ひねった水平の向き（人形自身の左から右。長さ1） */
+  readonly shoulderAxis: Vec3
+  readonly hipAxis: Vec3
+}
+
+/**
+ * 肩・脚の付け根の線の向きと高さを解く。
+ *
+ * @param right 人形自身の右（水平。うつ伏せでは前向きと上向きの外積、仰向けではその反対）
+ */
+const solveFrame = (
+  contacts: Contacts,
+  center: Vec3,
+  forward: Vec3,
+  right: Vec3,
+  shoulderLimits: { readonly min: number; readonly max: number },
+  hipLimits: { readonly min: number; readonly max: number },
+): Frame => {
+  const armLength = LIMB_CHAINS.handL.upper + LIMB_CHAINS.handL.lower
+  const legLength = LIMB_CHAINS.footL.upper + LIMB_CHAINS.footL.lower
+  // 肩・脚の付け根の線の水平の向き（ひねり）。手足の先の位置だけから決まる
+  const yawOf = (angle: number): Vec3 => add(scale(right, Math.cos(angle)), scale(forward, Math.sin(angle)))
+  const shoulderAxis = yawOf(twistYaw(contacts.handL, contacts.handR, forward, right))
+  const hipAxis = yawOf(twistYaw(contacts.footL, contacts.footR, forward, right))
+  // 胴の水平の位置と、肩・脚の付け根の高さは互いに影響するので、交互に決め直す
+  let shoulders: SideHeights = { center: Math.min(shoulderLimits.min, shoulderLimits.max), roll: 0 }
+  let hips: SideHeights = { center: Math.min(hipLimits.min, hipLimits.max), roll: 0 }
+  for (let pass = 0; pass < HEIGHT_PASSES; pass += 1) {
+    const rise = Math.min(Math.max(shoulders.center - hips.center, -MAX_RISE), MAX_RISE)
+    const run = Math.sqrt(TORSO * TORSO - rise * rise)
+    const neckFlat = add(center, scale(forward, run / 2))
+    const pelvisFlat = sub(center, scale(forward, run / 2))
+    shoulders = sideHeightsOf(neckFlat, shoulderAxis, SHOULDER_HALF, [contacts.handL, contacts.handR], armLength, shoulderLimits)
+    hips = sideHeightsOf(pelvisFlat, hipAxis, HIP_HALF, [contacts.footL, contacts.footR], legLength, hipLimits)
+  }
+  return { shoulders, hips, shoulderAxis, hipAxis }
+}
+
+/**
+ * 付け根の線の向き（長さ1）。うつ伏せの向きを、前向きの軸のまわりに angle だけ回し（rollSide の側を上げる）、
+ * 高さの差による傾き roll を加える。angle が π なら、仰向けで解いた向きと一致する（前向きの成分は回しても変わらない）
+ */
+const rolledAxis = (proneAxis: Vec3, forward: Vec3, right: Vec3, angle: number, rollSide: 1 | -1, roll: number): Vec3 => {
+  const along = dot(proneAxis, forward)
+  const across = dot(proneAxis, right)
+  const lateral = add(scale(right, Math.cos(angle)), scale(UP, Math.sin(angle) * rollSide))
+  const base = add(scale(forward, along), scale(lateral, across))
+  // 回した線は上向きの成分を持つので、傾けた後に長さ1へ戻す（肩幅・腰幅を変えない）
+  return normalize(tiltedAxis(base, roll), base)
+}
+
+/** 2つの数を割合で混ぜる */
+const mix = (a: number, b: number, ratio: number): number => a + (b - a) * ratio
+
 /**
  * 手足の先の位置から、人形1人の姿勢を解く。
  *
  * @param facing 始めに向いていた向き（手を足の真上に寄せても体の向きが決まるよう少し混ぜる）
- * @param crouch 伏せる度合い（0〜1）。0 なら手足が届くいちばん高い位置に胴を置き、1 なら伏せた高さまで下げる。
- *   あいだの値では、置いてよい高さの上限を手足の長さから伏せた高さへ向けて少しずつ下げる（度合いが変わっても胴が飛ばない）
+ * @param posture 伏せる度合いと裏返った度合い（省略すれば、うつ伏せで伏せない）
  */
-export const solvePose = (contacts: Contacts, facing: Vec3, crouch = 0): Pose => {
+export const solvePose = (contacts: Contacts, facing: Vec3, posture: Posture = {}): Pose => {
+  const { crouch = 0, supine = 0, rollSide = 1 } = posture
   const hands = flat(midpoint(contacts.handL, contacts.handR))
   const feet = flat(midpoint(contacts.footL, contacts.footR))
   const forward = normalize(add(normalize(sub(hands, feet), facing), scale(facing, FACING_BIAS)), facing)
@@ -168,50 +255,57 @@ export const solvePose = (contacts: Contacts, facing: Vec3, crouch = 0): Pose =>
   const center = midpoint(sub(hands, scale(forward, SHOULDER_BEHIND_HANDS)), add(feet, scale(forward, HIP_AHEAD_OF_FEET)))
   const armLength = LIMB_CHAINS.handL.upper + LIMB_CHAINS.handL.lower
   const legLength = LIMB_CHAINS.footL.upper + LIMB_CHAINS.footL.lower
-  const maxRise = Math.sqrt(TORSO * TORSO - MIN_TORSO_RUN * MIN_TORSO_RUN)
   const shoulderLimits = { min: MIN_SHOULDER_HEIGHT, max: armLength + (CROUCH_SHOULDER_HEIGHT - armLength) * crouch }
-  const hipLimits = { min: MIN_HIP_HEIGHT, max: legLength + (CROUCH_HIP_HEIGHT - legLength) * crouch }
-  // 肩・脚の付け根の線の水平の向き（ひねり）。手足の先の位置だけから決まる
-  const yawOf = (angle: number): Vec3 => add(scale(right, Math.cos(angle)), scale(forward, Math.sin(angle)))
-  const shoulderAxis = yawOf(twistYaw(contacts.handL, contacts.handR, forward, right))
-  const hipAxis = yawOf(twistYaw(contacts.footL, contacts.footR, forward, right))
-
-  // 胴の水平の位置と、肩・脚の付け根の高さは互いに影響するので、交互に決め直す
-  let shoulders: SideHeights = { center: Math.min(shoulderLimits.min, shoulderLimits.max), roll: 0 }
-  let hips: SideHeights = { center: Math.min(hipLimits.min, hipLimits.max), roll: 0 }
-  for (let pass = 0; pass < HEIGHT_PASSES; pass += 1) {
-    const rise = Math.min(Math.max(shoulders.center - hips.center, -maxRise), maxRise)
-    const run = Math.sqrt(TORSO * TORSO - rise * rise)
-    const neckFlat = add(center, scale(forward, run / 2))
-    const pelvisFlat = sub(center, scale(forward, run / 2))
-    shoulders = sideHeightsOf(neckFlat, shoulderAxis, SHOULDER_HALF, [contacts.handL, contacts.handR], armLength, shoulderLimits)
-    hips = sideHeightsOf(pelvisFlat, hipAxis, HIP_HALF, [contacts.footL, contacts.footR], legLength, hipLimits)
+  // 仰向けでは、脚の付け根を SUPINE_HIP_HEIGHT まで下げて膝を立てる（裏返る度合いに応じて少しずつ下げる）
+  const hipLimits = {
+    min: MIN_HIP_HEIGHT,
+    max: Math.min(legLength + (CROUCH_HIP_HEIGHT - legLength) * crouch, legLength + (SUPINE_HIP_HEIGHT - legLength) * supine),
   }
-  let shoulderHeight = shoulders.center
-  const hipHeight = hips.center
+
+  // うつ伏せと仰向けをそれぞれ解き、高さと傾きは裏返った度合いで混ぜる。線の向きは背骨のまわりに回す
+  const prone = solveFrame(contacts, center, forward, right, shoulderLimits, hipLimits)
+  const back = supine > 0 ? solveFrame(contacts, center, forward, scale(right, -1), shoulderLimits, hipLimits) : prone
+  const angle = Math.PI * supine
+  const shoulderDir = rolledAxis(prone.shoulderAxis, forward, right, angle, rollSide, mix(prone.shoulders.roll, back.shoulders.roll, supine))
+  const hipDir = rolledAxis(prone.hipAxis, forward, right, angle, rollSide, mix(prone.hips.roll, back.hips.roll, supine))
+  // 背骨のまわりに回すと低いほうの付け根が下がるので、回した分だけ中点を持ち上げ、低いほうの付け根も下限の高さに保つ
+  // （回していない向きの傾きは解いた高さに含まれているので足さない。裏返りはじめと終わりで高さが飛ばない）
+  const liftFor = (axis: Vec3, half: number, limits: { readonly min: number; readonly max: number }): number =>
+    Math.min(limits.min, limits.max) + half * Math.abs(Math.sin(angle) * dot(axis, right))
+  let shoulderHeight = Math.max(mix(prone.shoulders.center, back.shoulders.center, supine), liftFor(prone.shoulderAxis, SHOULDER_HALF, shoulderLimits))
+  const hipHeight = Math.max(mix(prone.hips.center, back.hips.center, supine), liftFor(prone.hipAxis, HIP_HALF, hipLimits))
   // 決め直した高さで、胴の長さがちょうどになるよう水平の位置を置き直す
-  shoulderHeight = hipHeight + Math.min(Math.max(shoulderHeight - hipHeight, -maxRise), maxRise)
+  shoulderHeight = hipHeight + Math.min(Math.max(shoulderHeight - hipHeight, -MAX_RISE), MAX_RISE)
   const run = Math.sqrt(TORSO * TORSO - (shoulderHeight - hipHeight) ** 2)
   const neck = add(add(center, scale(forward, run / 2)), scale(UP, shoulderHeight))
   const pelvis = add(sub(center, scale(forward, run / 2)), scale(UP, hipHeight))
 
-  const shoulderLine = scale(tiltedAxis(shoulderAxis, shoulders.roll), SHOULDER_HALF)
-  const hipLine = scale(tiltedAxis(hipAxis, hips.roll), HIP_HALF)
+  const shoulderLine = scale(shoulderDir, SHOULDER_HALF)
+  const hipLine = scale(hipDir, HIP_HALF)
+  // 頭は、うつ伏せでは首の前上、仰向けでは背骨の延長の少し上に出す（首からの距離は変えない）
+  const headOffset = scale(
+    normalize(add(scale(forward, mix(HEAD_FORWARD, HEAD_UP, supine)), scale(UP, mix(HEAD_UP, HEAD_FORWARD, supine))), UP),
+    Math.hypot(HEAD_FORWARD, HEAD_UP),
+  )
   const joints: Partial<Record<Joint, Vec3>> = {
     neck,
     pelvis,
-    head: add(add(neck, scale(forward, HEAD_FORWARD)), scale(UP, HEAD_UP)),
+    head: add(neck, headOffset),
     shoulderL: sub(neck, shoulderLine),
     shoulderR: add(neck, shoulderLine),
     hipL: sub(pelvis, hipLine),
     hipR: add(pelvis, hipLine),
   }
+  // 肘・膝を曲げる向き。前後（肘はうつ伏せで後ろ・仰向けで頭の側、膝はその逆）と外側は裏返る角度の余弦で入れ替え、
+  // 途中は横（POLE_SWING）へ逃がす。前後と外側を直線で混ぜると途中で曲げる向きが消え、肘・膝が飛ぶため
+  const turn = Math.cos(angle)
+  const swing = Math.sin(angle)
   for (const limb of LIMBS) {
     const chain = LIMB_CHAINS[limb]
     const outward = scale(right, chain.side)
     const pole = chain.arm
-      ? add(add(scale(forward, -ELBOW_BACK), scale(outward, ELBOW_OUT)), scale(UP, ELBOW_UP))
-      : add(add(scale(forward, KNEE_FORWARD), scale(outward, KNEE_OUT)), scale(UP, KNEE_UP))
+      ? add(add(scale(forward, -ELBOW_BACK * turn), scale(outward, (ELBOW_OUT * turn + POLE_SWING_OUT * swing))), scale(UP, ELBOW_UP + POLE_SWING_UP * swing))
+      : add(add(scale(forward, KNEE_FORWARD * turn), scale(outward, KNEE_OUT * turn + POLE_SWING_OUT * swing)), scale(UP, KNEE_UP + POLE_SWING_UP * swing))
     const root = joints[chain.root]
     if (root === undefined) throw new Error(`${chain.root} の位置が決まっていません`)
     const { middle, end } = solveTwoBone(root, contacts[limb], chain.upper, chain.lower, pole)

@@ -62,3 +62,34 @@ export const segmentDistanceFlat = (a1: Vec3, a2: Vec3, b1: Vec3, b2: Vec3): num
   // 交差しない2本のいちばん近い位置は、どちらかの端にある
   return Math.min(distanceToSegment(fa1, fb1, fb2), distanceToSegment(fa2, fb1, fb2), distanceToSegment(fb1, fa1, fa2), distanceToSegment(fb2, fa1, fa2))
 }
+
+/**
+ * 線分 a1→a2 と b1→b2 のあいだのいちばん近い距離（3次元）。
+ * 2本の上でいちばん近い位置の割合を、片方を固定して求め、もう片方を範囲に収めてから求め直す（よく使われる求め方）
+ */
+export const segmentDistance = (a1: Vec3, a2: Vec3, b1: Vec3, b2: Vec3): number => {
+  const d1 = sub(a2, a1)
+  const d2 = sub(b2, b1)
+  const r = sub(a1, b1)
+  const a = dot(d1, d1)
+  const e = dot(d2, d2)
+  const f = dot(d2, r)
+  if (a < 1e-12 && e < 1e-12) return length(r)
+  if (a < 1e-12) return distanceToSegment(a1, b1, b2)
+  if (e < 1e-12) return distanceToSegment(b1, a1, a2)
+  const c = dot(d1, r)
+  const b = dot(d1, d2)
+  const denominator = a * e - b * b
+  const clamp01 = (value: number): number => Math.min(Math.max(value, 0), 1)
+  // 平行なときは、片方の端から始める
+  let s = denominator > 1e-12 ? clamp01((b * f - c * e) / denominator) : 0
+  let t = (b * s + f) / e
+  if (t < 0) {
+    t = 0
+    s = clamp01(-c / a)
+  } else if (t > 1) {
+    t = 1
+    s = clamp01((b - c) / a)
+  }
+  return distance(add(a1, scale(d1, s)), add(b1, scale(d2, t)))
+}

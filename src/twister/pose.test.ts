@@ -6,11 +6,11 @@
  * 両手（両足）の前後や遠さに差があると、肩（脚の付け根）の線を回して傾け、体をひねる（上限の角度まで）。
  */
 import { describe, expect, it } from 'vitest'
-import { FOREARM, HIP_HALF, JOINT_RADII, LIMB_CHAINS, LIMBS, LOSING_JOINTS, SHIN, SHOULDER_HALF, THIGH, TORSO, UPPER_ARM, type Limb } from './body'
+import { FOREARM, HIP_HALF, JOINT_RADII, JOINTS, LIMB_CHAINS, LIMBS, LOSING_JOINTS, SHIN, SHOULDER_HALF, THIGH, TORSO, UPPER_ARM, type Limb, type Pose } from './body'
 import { spotPosition } from './mat'
 import { INITIAL_SPOTS, PLAYER_FACINGS } from './players'
-import { CROUCH_HIP_HEIGHT, CROUCH_SHOULDER_HEIGHT, MAX_TWIST_ROLL, MAX_TWIST_YAW, contactsOf, solvePose, type Contacts } from './pose'
-import { add, distance, sub, vec, type Vec3 } from './vec'
+import { CROUCH_HIP_HEIGHT, CROUCH_SHOULDER_HEIGHT, MAX_TWIST_ROLL, MAX_TWIST_YAW, SUPINE_HIP_HEIGHT, contactsOf, solvePose, type Contacts } from './pose'
+import { add, distance, lerp, sub, vec, type Vec3 } from './vec'
 
 /** レイドした人（0番）の始めの置き場所の位置 */
 const raiderContacts: Contacts = contactsOf(INITIAL_SPOTS[0])
@@ -120,11 +120,11 @@ describe('solvePose の体のひねり', () => {
 
 describe('solvePose で伏せる', () => {
   it('伏せる度合いが 0 なら、ふつうに解いた姿勢と同じになる', () => {
-    expect(solvePose(raiderContacts, PLAYER_FACINGS[0], 0)).toEqual(solvePose(raiderContacts, PLAYER_FACINGS[0]))
+    expect(solvePose(raiderContacts, PLAYER_FACINGS[0], { crouch: 0 })).toEqual(solvePose(raiderContacts, PLAYER_FACINGS[0]))
   })
 
   it('伏せきると、首と腰は伏せた高さまで下がり、手足はそのまま円に届く', () => {
-    const pose = solvePose(raiderContacts, PLAYER_FACINGS[0], 1)
+    const pose = solvePose(raiderContacts, PLAYER_FACINGS[0], { crouch: 1 })
     expect(pose.neck.y).toBeLessThanOrEqual(CROUCH_SHOULDER_HEIGHT + 1e-6)
     expect(pose.pelvis.y).toBeLessThanOrEqual(CROUCH_HIP_HEIGHT + 1e-6)
     expect(distance(pose.neck, pose.pelvis)).toBeCloseTo(TORSO, 6)
@@ -134,11 +134,102 @@ describe('solvePose で伏せる', () => {
   })
 
   it('伏せる度合いを上げるほど、胴は低くなる（度合いに応じて少しずつ下がる）', () => {
-    const heights = [0, 0.25, 0.5, 0.75, 1].map((crouch) => solvePose(raiderContacts, PLAYER_FACINGS[0], crouch).neck.y)
+    const heights = [0, 0.25, 0.5, 0.75, 1].map((crouch) => solvePose(raiderContacts, PLAYER_FACINGS[0], { crouch }).neck.y)
     for (let index = 1; index < heights.length; index += 1) {
       expect(heights[index]).toBeLessThanOrEqual((heights[index - 1] ?? 0) + 1e-9)
     }
     expect(heights[heights.length - 1]).toBeLessThan((heights[0] ?? 0) - 0.1)
+  })
+})
+
+describe('solvePose で仰向けに裏返る', () => {
+  /**
+   * 右手を背中の向こう側（青の列）へ回した置き場所。0番は +z を向き、うつ伏せでは右が x の負の側、
+   * 仰向けでは右が x の正の側になるので、右手は仰向けの右側に来る
+   */
+  const flipped: Contacts = contactsOf({ ...INITIAL_SPOTS[0], handR: { color: 'blue', row: 2 } })
+  /** 左肩から右肩への線と、腰から首への背骨の外積の高さの成分。うつ伏せでは負（背中が上）、仰向けでは正（腹が上） */
+  const bellyUpOf = (pose: Pose): number => {
+    const across = sub(pose.shoulderR, pose.shoulderL)
+    const spine = sub(pose.neck, pose.pelvis)
+    return spine.z * across.x - spine.x * across.z
+  }
+  /**
+   * 裏返る度合いを 0 から 1 まで細かく刻んだ姿勢（右側が上がる向きに回す）。
+   * 対戦と同じく、右手は裏返る度合いに合わせて始めの円（黄）から青の円へ、持ち上げながら運ぶ
+   */
+  const steps = Array.from({ length: 21 }, (_, index) => index / 20)
+  const rolling = steps.map((supine) => {
+    const handR = add(lerp(raiderContacts.handR, flipped.handR, supine), vec(0, 0.25 * Math.sin(Math.PI * supine), 0))
+    return solvePose({ ...flipped, handR }, PLAYER_FACINGS[0], { supine, rollSide: 1 })
+  })
+
+  it('裏返る度合いが 0 なら、ふつうに解いた姿勢と同じになる', () => {
+    expect(solvePose(flipped, PLAYER_FACINGS[0], { supine: 0, rollSide: 1 })).toEqual(solvePose(flipped, PLAYER_FACINGS[0]))
+  })
+
+  it('仰向けでは腹が上を向き、人形の右肩は x の正の側に来る', () => {
+    const prone = solvePose(flipped, PLAYER_FACINGS[0])
+    const supine = solvePose(flipped, PLAYER_FACINGS[0], { supine: 1, rollSide: 1 })
+    expect(bellyUpOf(prone)).toBeLessThan(0)
+    expect(bellyUpOf(supine)).toBeGreaterThan(0)
+    expect(supine.shoulderR.x).toBeGreaterThan(supine.shoulderL.x)
+  })
+
+  it('仰向けでも手足は円に届き、膝はうつ伏せとは逆の足の側へ曲がる（ブリッジ）', () => {
+    const pose = solvePose(flipped, PLAYER_FACINGS[0], { supine: 1, rollSide: 1 })
+    for (const limb of LIMBS) {
+      expect(distance(pose[limb], flipped[limb]), limb).toBeLessThan(0.01)
+    }
+    // 0番の前は +z なので、足の側は z の負の側
+    expect(pose.kneeL.z - pose.hipL.z).toBeLessThan(-0.15)
+    expect(pose.kneeR.z - pose.hipR.z).toBeLessThan(-0.15)
+    expect(pose.pelvis.y).toBeLessThanOrEqual(SUPINE_HIP_HEIGHT + 1e-6)
+  })
+
+  it('裏返る途中も、骨の長さ・肩幅・腰幅・胴の長さ・頭の付き方は変わらない', () => {
+    const headReach = distance(rolling[0]?.head ?? vec(0, 0, 0), rolling[0]?.neck ?? vec(0, 0, 0))
+    for (const [index, pose] of rolling.entries()) {
+      const label = `裏返る度合い ${steps[index]}`
+      expect(distance(pose.shoulderL, pose.elbowL), label).toBeCloseTo(UPPER_ARM, 6)
+      expect(distance(pose.hipR, pose.kneeR), label).toBeCloseTo(THIGH, 6)
+      expect(distance(pose.shoulderL, pose.shoulderR), label).toBeCloseTo(SHOULDER_HALF * 2, 6)
+      expect(distance(pose.hipL, pose.hipR), label).toBeCloseTo(HIP_HALF * 2, 6)
+      expect(distance(pose.neck, pose.pelvis), label).toBeCloseTo(TORSO, 6)
+      expect(distance(pose.head, pose.neck), label).toBeCloseTo(headReach, 6)
+    }
+  })
+
+  it('裏返る途中も、手足の先のほかの部位はマットから浮いている（太さに 5cm を足した高さより上）', () => {
+    for (const [index, pose] of rolling.entries()) {
+      for (const joint of LOSING_JOINTS) {
+        expect(pose[joint].y, `裏返る度合い ${steps[index]} の${joint}`).toBeGreaterThanOrEqual(JOINT_RADII[joint] + 0.05 - 1e-6)
+      }
+    }
+  })
+
+  it('裏返る度合いを少しずつ変えると、関節も少しずつ動く（途中で飛ばない）', () => {
+    for (let index = 1; index < rolling.length; index += 1) {
+      const before = rolling[index - 1]
+      const after = rolling[index]
+      if (before === undefined || after === undefined) throw new Error('姿勢がありません')
+      for (const joint of JOINTS) {
+        expect(distance(before[joint], after[joint]), `裏返る度合い ${steps[index]} の${joint}`).toBeLessThan(0.12)
+      }
+    }
+  })
+
+  it('仰向けでも、伏せきれば首と腰は伏せた高さまで下がる（相手の下になったとき）', () => {
+    const pose = solvePose(flipped, PLAYER_FACINGS[0], { supine: 1, crouch: 1 })
+    expect(pose.neck.y).toBeLessThanOrEqual(CROUCH_SHOULDER_HEIGHT + 1e-6)
+    expect(pose.pelvis.y).toBeLessThanOrEqual(CROUCH_HIP_HEIGHT + 1e-6)
+  })
+
+  it('半分まで裏返ったとき、回す向きの側の肩が上がる', () => {
+    const rightUp = solvePose(flipped, PLAYER_FACINGS[0], { supine: 0.5, rollSide: 1 })
+    const leftUp = solvePose(flipped, PLAYER_FACINGS[0], { supine: 0.5, rollSide: -1 })
+    expect(rightUp.shoulderR.y).toBeGreaterThan(rightUp.shoulderL.y + 0.2)
+    expect(leftUp.shoulderL.y).toBeGreaterThan(leftUp.shoulderR.y + 0.2)
   })
 })
 
