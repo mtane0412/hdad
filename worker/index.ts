@@ -81,6 +81,7 @@
  * | DELETE /api/admin/viewers/:userId | セッション    | 視聴者の記録の削除 |
  * | GET  /api/admin/stats/sessions   | セッション     | 配信セッションの一覧 |
  * | GET  /api/admin/stats/sessions/:id | セッション   | 配信セッションと視聴者数の時系列 |
+ * | GET  /api/admin/stats/sessions/:id/opinions | セッション | 配信の時間に開いた意見ボードのテーマ（振り返り） |
  * | GET  /api/admin/stats/followers  | セッション     | フォロワー数の時系列 |
  * | GET  /api/admin/stats/failures   | セッション     | 記録の収集の失敗の一覧 |
  * | GET  /api/admin/stream-title/settings | セッション | 配信タイトルの候補を作るかの設定（試験運用） |
@@ -228,7 +229,7 @@ import { getDeeplUsage, getTranslation, postTranslation, putTranslation } from '
 import { drawSocket, getDrawBackground, getDrawStrokes, putDrawStrokes } from './draw-routes'
 import { deleteTabBlockedHost, getTabBlockedHosts, postTabBlockedHost, tabExtensionZip, tabSocket } from './tab-routes'
 import { commentSocket, getCommentIcons, postCommentGreeting, postCommentMessage, postCommentModeration } from './comment-routes'
-import { getStatsFailures, getStatsFollowers, getStatsSession, getStatsSessions } from './stats-routes'
+import { getStatsFailures, getStatsFollowers, getStatsSession, getStatsSessionOpinions, getStatsSessions } from './stats-routes'
 import { getStreamTitleSettings, putStreamTitleSettings } from './stream-title-routes'
 import { AuthError } from './token'
 import { WEBHOOK_PATH, eventsubWebhook } from './webhook-routes'
@@ -354,6 +355,7 @@ const ROUTES: readonly Route[] = [
   { method: 'DELETE', path: '/api/admin/viewers/:userId', handle: deleteViewerRoute },
   { method: 'GET', path: '/api/admin/stats/sessions', handle: getStatsSessions },
   { method: 'GET', path: '/api/admin/stats/sessions/:id', handle: getStatsSession },
+  { method: 'GET', path: '/api/admin/stats/sessions/:id/opinions', handle: getStatsSessionOpinions },
   { method: 'GET', path: '/api/admin/stats/followers', handle: getStatsFollowers },
   { method: 'GET', path: '/api/admin/stats/failures', handle: getStatsFailures },
   { method: 'GET', path: '/api/admin/stream-title/settings', handle: getStreamTitleSettings },

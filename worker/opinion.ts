@@ -210,6 +210,19 @@ export interface AdminOpinionBoard {
   readonly rescuable: readonly RescuableComment[]
 }
 
+/**
+ * 配信後の振り返りに渡す、テーマ1つぶん（issue #309）。
+ *
+ * 全論点・全意見（隠したものも hidden つき）・人数ともとのコメントと、コメントの内訳を持つ。合成ページには人数を出さない方針は
+ * 変えず、人数を出すのは管理画面とダッシュボードだけである。テーマごとの区切りなので、テーマに紐づく情報（締め切ったときのまとめなど）は
+ * ここに足す。
+ */
+export interface OpinionThemeReview {
+  readonly theme: OpinionTheme
+  readonly topics: readonly AdminTopic[]
+  readonly counts: OpinionCommentCounts
+}
+
 /** 意見を入れる論点。既にある論点か、新しく作る論点 */
 export type TopicChoice = { readonly type: 'existing'; readonly id: number } | { readonly type: 'new'; readonly title: string }
 

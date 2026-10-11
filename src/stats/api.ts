@@ -9,6 +9,8 @@
  * 注意: 応答が想定した形でなければエラーにする。黙って空の一覧にすると、記録が無いように見えてしまう（Fail-Fast）。
  */
 import { createCaller, isRecord, readList } from '@/core/api'
+import { isAdminTopic, isCommentCounts, type AdminTopic, type OpinionCommentCounts } from '@/opinions/api'
+import { isOpinionTheme, type OpinionTheme } from '@/opinions/entry'
 
 const STATS_PATH = '/api/admin/stats'
 const TITLE_SETTINGS_PATH = '/api/admin/stream-title/settings'
@@ -98,11 +100,24 @@ export interface FollowerSample {
   followerTotal: number
 }
 
+/**
+ * 配信の時間に開いた意見ボードのテーマ1つぶんの振り返り（worker/opinion.ts の OpinionThemeReview と合わせる）。
+ *
+ * 全論点・全意見（隠したものも hidden つき）・人数ともとのコメントと、コメントの内訳を持つ。
+ */
+export interface OpinionThemeReview {
+  readonly theme: OpinionTheme
+  readonly topics: readonly AdminTopic[]
+  readonly counts: OpinionCommentCounts
+}
+
 export interface StatsApi {
   /** 配信セッションの一覧（新しい順） */
   sessions(): Promise<SessionSummary[]>
   /** 配信セッションと視聴者数の時系列・章・あらすじ */
   session(id: string): Promise<SessionDetail>
+  /** 配信の時間（開始から終了、配信中なら現在）に開いた意見ボードのテーマの振り返り（開いた順） */
+  sessionOpinions(id: string): Promise<OpinionThemeReview[]>
   /** フォロワー数の時系列（古い順） */
   followers(): Promise<FollowerSample[]>
   /** 配信タイトルの候補を作るかの設定 */
@@ -140,6 +155,9 @@ const readTitleSettings = (body: unknown): StreamTitleSettings => {
 }
 
 const isWorkTime = (value: unknown): value is WorkTime => isRecord(value) && typeof value.people === 'number' && typeof value.totalMs === 'number'
+
+const isOpinionThemeReview = (value: unknown): value is OpinionThemeReview =>
+  isRecord(value) && isOpinionTheme(value.theme) && Array.isArray(value.topics) && value.topics.every(isAdminTopic) && isCommentCounts(value.counts)
 
 const isFollowerSample = (value: unknown): value is FollowerSample =>
   isRecord(value) && typeof value.sampledAt === 'string' && typeof value.followerTotal === 'number'
@@ -192,6 +210,8 @@ export const createStatsApi = (fetchImpl: typeof fetch): StatsApi => {
         workTime: body.workTime,
       }
     },
+
+    sessionOpinions: async (id) => readList(await call(`${STATS_PATH}/sessions/${encodeURIComponent(id)}/opinions`), 'themes', isOpinionThemeReview),
 
     followers: async () => readList(await call(`${STATS_PATH}/followers`), 'samples', isFollowerSample),
 

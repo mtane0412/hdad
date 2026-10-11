@@ -9,6 +9,7 @@
  *   増えてコメントが振り分け待ちのまま残る、といった食い違いを作らないため）
  * - Jev の絞り込み（worker/opinion-filter.ts）の確率はコメントに残し、しきい値に届かなかったコメントは filtered にする（issue #307）
  * - 視聴者への問いかけ（worker/opinion-prompt.ts）はテーマの行に持つ（issue #307）
+ * - 配信後の振り返り（issue #309）は、配信の時間に開いたテーマを時刻で結んで読む（読むだけで、何も書かない）
  * - 配信者の救い出し・論点の名前の書き換え・論点の統合（issue #308）は、最後に開いたテーマ（管理画面に出ているもの）にだけ書く。
  *   締め切ったあとも書ける。振り分け待ちのコメントは、締め切ったあとにだけ救い出せる（開いているあいだは振り分けと取り合うため）
  *
@@ -19,11 +20,13 @@ import {
   MAX_TOPICS,
   type AdminOpinion,
   type AdminOpinionBoard,
+  type AdminTopic,
   type DropReason,
   type OpinionBoardSnapshot,
   type OpinionCommentCounts,
   type OpinionKind,
   type OpinionTheme,
+  type OpinionThemeReview,
   type OverlayOpinion,
   type PendingComment,
   type RescuableComment,
@@ -344,6 +347,32 @@ interface SourceRow {
   text: string
 }
 
+/** テーマの、意見になったコメントを書かれた順に読む */
+const readSources = async (db: Database, themeId: number): Promise<SourceRow[]> => {
+  const { results } = await db
+    .prepare(
+      `SELECT opinion_id AS opinionId, user_id AS userId, user_name AS userName, text FROM opinion_comments
+       WHERE theme_id = ?1 AND opinion_id IS NOT NULL ORDER BY sent_at, id`,
+    )
+    .bind(themeId)
+    .all<SourceRow>()
+  return results
+}
+
+/** 論点・意見・もとのコメントの行から、管理画面と振り返りに渡す論点の並びを組み立てる（隠した意見も含む） */
+const toAdminTopics = (topics: readonly { id: number; title: string }[], opinions: readonly OpinionRow[], sources: readonly SourceRow[]): AdminTopic[] => {
+  const toAdminOpinion = (row: OpinionRow): AdminOpinion => {
+    const own = sources.filter(({ opinionId }) => opinionId === row.id)
+    return {
+      ...toOverlayOpinion(row),
+      hidden: row.hidden === 1,
+      people: new Set(own.map(({ userId }) => userId)).size,
+      sources: own.map(({ userName, text }) => ({ userName, text })),
+    }
+  }
+  return topics.map((topic) => ({ ...topic, opinions: opinions.filter(({ topicId }) => topicId === topic.id).map(toAdminOpinion) }))
+}
+
 /** 内訳を数えはじめる値（テーマを開いたことがないときもこのまま返す） */
 const emptyCounts = (): OpinionCommentCounts => ({
   received: 0,
@@ -520,28 +549,35 @@ export const readAdminBoard = async (db: Database): Promise<AdminOpinionBoard> =
     readOpinions(db, theme.id),
     readCommentCounts(db, theme.id),
     readRescuableComments(db),
-    db
-      .prepare(
-        `SELECT opinion_id AS opinionId, user_id AS userId, user_name AS userName, text FROM opinion_comments
-         WHERE theme_id = ?1 AND opinion_id IS NOT NULL ORDER BY sent_at, id`,
-      )
-      .bind(theme.id)
-      .all<SourceRow>()
-      .then(({ results }) => results),
+    readSources(db, theme.id),
   ])
-  const toAdminOpinion = (row: OpinionRow): AdminOpinion => {
-    const own = sources.filter(({ opinionId }) => opinionId === row.id)
-    return {
-      ...toOverlayOpinion(row),
-      hidden: row.hidden === 1,
-      people: new Set(own.map(({ userId }) => userId)).size,
-      sources: own.map(({ userName, text }) => ({ userName, text })),
-    }
-  }
-  return {
-    theme,
-    topics: topics.map((topic) => ({ ...topic, opinions: opinions.filter(({ topicId }) => topicId === topic.id).map(toAdminOpinion) })),
-    counts,
-    rescuable: rescuableComments,
-  }
+  return { theme, topics: toAdminTopics(topics, opinions, sources), counts, rescuable: rescuableComments }
+}
+
+/**
+ * 配信後の振り返り用に、配信の時間に開いたテーマを古い順に読む（issue #309）。
+ *
+ * テーマと配信は直接つながっていないので、テーマを開いた時刻（opened_at）が配信の開始から終了（配信中なら現在）までに入るかで結ぶ。
+ * 隠した意見も hidden つきで含め、人数ともとのコメントを添える。
+ *
+ * @param fromMs 配信の開始（ミリ秒）
+ * @param toMs 配信の終了（ミリ秒。配信中なら現在）。この時刻ちょうどに開いたテーマも含む
+ */
+export const readThemeReviews = async (db: Database, fromMs: number, toMs: number): Promise<OpinionThemeReview[]> => {
+  // 日時は UTC の ISO 8601（ミリ秒つき）で持つので、同じ書式にそろえてから文字列として比べる
+  const { results: themes } = await db
+    .prepare(`SELECT ${THEME_COLUMNS} FROM opinion_themes WHERE opened_at >= ?1 AND opened_at <= ?2 ORDER BY opened_at, id`)
+    .bind(toIso(fromMs), toIso(toMs))
+    .all<OpinionTheme>()
+  return Promise.all(
+    themes.map(async (theme) => {
+      const [topics, opinions, counts, sources] = await Promise.all([
+        readTopics(db, theme.id),
+        readOpinions(db, theme.id),
+        readCommentCounts(db, theme.id),
+        readSources(db, theme.id),
+      ])
+      return { theme, topics: toAdminTopics(topics, opinions, sources), counts }
+    }),
+  )
 }

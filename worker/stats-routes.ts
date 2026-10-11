@@ -4,6 +4,7 @@
  * 配信者のセッションが必要。cron（collect.ts）が貯めた記録を、ダッシュボードのために返す。
  */
 import { HttpError, STATUS, requireAdmin, type Context } from './http'
+import { readThemeReviews } from './opinion-store'
 import { getSession, listFailures, listFollowerSamples, listSessions } from './stats-store'
 
 /** GET /api/admin/stats/sessions: 配信セッションの一覧（新しい順。平均・最大視聴者数、フォロワー増減、イベント件数つき） */
@@ -19,6 +20,19 @@ export const getStatsSession = async (context: Context): Promise<Response> => {
   const session = await getSession(context.env.DB, id, context.now)
   if (!session) throw new HttpError(STATUS.notFound, 'session-not-found', `配信「${id}」の記録が存在しません`)
   return Response.json(session)
+}
+
+/**
+ * GET /api/admin/stats/sessions/:id/opinions: 配信の時間（開始から終了、配信中なら現在まで）に開いた意見ボードのテーマを古い順に返す。
+ * 全論点・全意見（隠したものも hidden つき）・人数ともとのコメントを添える（issue #309）。
+ */
+export const getStatsSessionOpinions = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  const id = context.params.id ?? ''
+  const session = await getSession(context.env.DB, id, context.now)
+  if (!session) throw new HttpError(STATUS.notFound, 'session-not-found', `配信「${id}」の記録が存在しません`)
+  const endedAt = session.endedAt === null ? context.now : Date.parse(session.endedAt)
+  return Response.json({ themes: await readThemeReviews(context.env.DB, Date.parse(session.startedAt), endedAt) })
 }
 
 /** GET /api/admin/stats/followers: フォロワー数の時系列（値が変わった時点だけが並ぶ） */

@@ -103,6 +103,7 @@ const createFakeRecordApi: StatsApi = {
   session: vi.fn(async () => {
     throw new Error('このテストでは配信の詳細を読みません')
   }),
+  sessionOpinions: vi.fn(async () => []),
   followers: vi.fn(async () => []),
   titleSettings: vi.fn(async () => ({ enabled: false })),
   saveTitleSettings: vi.fn(async (settings) => settings),
