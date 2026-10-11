@@ -13,6 +13,9 @@
  * - 配信者の救い出し・論点の名前の書き換え・論点の統合（issue #308）は、最後に開いたテーマ（管理画面に出ているもの）にだけ書く。
  *   締め切ったあとも書ける。振り分け待ちのコメントは、締め切ったあとにだけ救い出せる（開いているあいだは振り分けと取り合うため）
  *
+ * - 締め切ったテーマの配信後のまとめ（worker/opinion-summary.ts。migrations/0035_opinion_summaries.sql）は、テーマのIDで読み書きする（issue #309）。
+ *   管理画面の意見ボードには添えるが、合成ページ（readOverlayBoard）には渡さない
+ *
  * 注意: SQLに値を埋め込まず、必ずプレースホルダで渡す。コメントのIDの並びは JSON の配列にして json_each で展開する。
  */
 import type { Database, DatabaseStatement } from './database'
@@ -25,12 +28,14 @@ import {
   type OpinionBoardSnapshot,
   type OpinionCommentCounts,
   type OpinionKind,
+  type OpinionSummary,
   type OpinionTheme,
   type OpinionThemeReview,
   type OverlayOpinion,
   type PendingComment,
   type RescuableComment,
   type RescuedOpinionInput,
+  type StoredOpinionSummary,
 } from './opinion'
 import type { SortingAction, SortingTopic } from './opinion-sort'
 
@@ -164,6 +169,66 @@ export const recordFilterResults = async (db: Database, themeId: number, results
  */
 export const saveThemePrompt = async (db: Database, themeId: number, prompt: string): Promise<OpinionTheme | null> =>
   db.prepare(`UPDATE opinion_themes SET prompt = ?2 WHERE id = ?1 AND closed_at IS NULL RETURNING ${THEME_COLUMNS}`).bind(themeId, prompt).first<OpinionTheme>()
+
+/**
+ * 締め切ったテーマに、配信後のまとめを書く（あれば置き換える）。
+ *
+ * @returns 書いたか。テーマがまだ開いている・そのIDのテーマが無いときは false で、何も書かない
+ */
+export const saveThemeSummary = async (db: Database, themeId: number, summary: OpinionSummary, now: number): Promise<boolean> => {
+  const row = await db
+    .prepare(
+      `INSERT INTO opinion_summaries (theme_id, agreements, disagreements, open_questions, created_at)
+       SELECT id, ?2, ?3, ?4, ?5 FROM opinion_themes WHERE id = ?1 AND closed_at IS NOT NULL
+       ON CONFLICT (theme_id) DO UPDATE SET agreements = excluded.agreements, disagreements = excluded.disagreements,
+         open_questions = excluded.open_questions, created_at = excluded.created_at
+       RETURNING theme_id`,
+    )
+    .bind(themeId, JSON.stringify(summary.agreements), JSON.stringify(summary.disagreements), JSON.stringify(summary.openQuestions), toIso(now))
+    .first()
+  return row !== null
+}
+
+interface SummaryRow {
+  agreements: string
+  disagreements: string
+  openQuestions: string
+  createdAt: string
+}
+
+/** 保存した欄（JSON の配列）を読む。文字列の配列でなければ、黙って空にせず投げる */
+const parseSummaryItems = (themeId: number, column: string, json: string): string[] => {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(json)
+  } catch {
+    throw new Error(`テーマ${themeId}の配信後のまとめの${column}が JSON ではありません`)
+  }
+  if (!Array.isArray(parsed) || !parsed.every((item): item is string => typeof item === 'string')) {
+    throw new Error(`テーマ${themeId}の配信後のまとめの${column}が文字列の配列ではありません`)
+  }
+  return parsed
+}
+
+/**
+ * テーマの配信後のまとめを読む。
+ *
+ * @returns まとめ。まだ作っていなければ null
+ * @throws Error 保存した中身が想定した形でない場合
+ */
+export const readThemeSummary = async (db: Database, themeId: number): Promise<StoredOpinionSummary | null> => {
+  const row = await db
+    .prepare('SELECT agreements, disagreements, open_questions AS openQuestions, created_at AS createdAt FROM opinion_summaries WHERE theme_id = ?1')
+    .bind(themeId)
+    .first<SummaryRow>()
+  if (row === null) return null
+  return {
+    agreements: parseSummaryItems(themeId, 'agreements', row.agreements),
+    disagreements: parseSummaryItems(themeId, 'disagreements', row.disagreements),
+    openQuestions: parseSummaryItems(themeId, 'open_questions', row.openQuestions),
+    createdAt: row.createdAt,
+  }
+}
 
 /** 意見の行（最初のもとのコメントの書き手を添える） */
 interface OpinionRow {
@@ -543,15 +608,16 @@ export const mergeTopics = async (db: Database, fromId: number, intoId: number):
  */
 export const readAdminBoard = async (db: Database): Promise<AdminOpinionBoard> => {
   const theme = await readLatestTheme(db)
-  if (theme === null) return { theme: null, topics: [], counts: emptyCounts(), rescuable: [] }
-  const [topics, opinions, counts, rescuableComments, sources] = await Promise.all([
+  if (theme === null) return { theme: null, topics: [], counts: emptyCounts(), rescuable: [], summary: null }
+  const [topics, opinions, counts, rescuableComments, summary, sources] = await Promise.all([
     readTopics(db, theme.id),
     readOpinions(db, theme.id),
     readCommentCounts(db, theme.id),
     readRescuableComments(db),
+    readThemeSummary(db, theme.id),
     readSources(db, theme.id),
   ])
-  return { theme, topics: toAdminTopics(topics, opinions, sources), counts, rescuable: rescuableComments }
+  return { theme, topics: toAdminTopics(topics, opinions, sources), counts, rescuable: rescuableComments, summary }
 }
 
 /**

@@ -44,6 +44,7 @@ export const LLM_PROVIDERS = ['workers-ai', 'openrouter'] as const
  * opinionSort は、意見ボード（worker/opinion-sort.ts。issue #306）でテーマを出しているあいだだけ、新しい発言があれば45秒おきに呼ぶ（後から足したので末尾に置く）。
  * 配信者が意見にならなかったコメントを救い出すときの意見の下書き（worker/opinion-draft.ts。issue #308）も、同じ仕事なのでこの箇所を指名する。
  * opinionPrompt は、意見ボードの問いかけ（worker/opinion-prompt.ts。issue #307）を、問いかけに答える意見が届いたときと配信者が替えさせたときだけ呼ぶ（同上）。
+ * opinionSummary は、意見ボードのテーマを締め切ったときと配信者が作り直させたときだけ、配信後のまとめ（worker/opinion-summary.ts。issue #309）のために呼ぶ（同上）。
  */
 export const LLM_USAGES = [
   'translation',
@@ -57,6 +58,7 @@ export const LLM_USAGES = [
   'autoText',
   'opinionSort',
   'opinionPrompt',
+  'opinionSummary',
 ] as const
 
 export type LlmProvider = (typeof LLM_PROVIDERS)[number]
@@ -121,6 +123,9 @@ export const DEFAULT_LLM_SETTINGS: LlmSettings = {
     // 意見ボードの問いかけ（worker/opinion-prompt.ts）は、まだ出ていない切り口を自然な日本語の1文で作らせるので大きいモデルにする。
     // 問いかけに答える意見が届いたときにしか作り直さないので、回数は振り分けより少ない
     opinionPrompt: { provider: 'workers-ai', models: LARGE_MODELS },
+    // 意見ボードの配信後のまとめ（worker/opinion-summary.ts）は、論点と意見の全体を読んで合意・対立・問いに分ける JSON を作らせるので大きいモデルにする。
+    // テーマを締め切ったときと作り直させたときにしか呼ばないので、回数は少ない
+    opinionSummary: { provider: 'workers-ai', models: LARGE_MODELS },
   },
 }
 

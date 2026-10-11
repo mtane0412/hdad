@@ -6,6 +6,8 @@
  * - 取り出した意見を論点ごとに、札の種類・人数・もとのコメントつきで確かめる（人数はこのページにだけ出し、合成ページには出さない）
  * - 荒らしや取り違えの意見を隠す・戻す（隠した意見は合成ページに出なくなる）
  * - 合成ページの中央下に出す視聴者への問いかけ（issue #307）を確かめ、別の問いかけに替えさせる（テーマを出しているあいだだけ）
+ * - 締め切ったテーマの配信後のまとめ（LLM が作った「合意が見える点・意見が分かれた点・残った問い」。issue #309）を、機械が作ったものと
+ *   分かる枠（summary-card.tsx）に出し、作り直させる。意見や配信者の操作とは混ぜない
  * - コメントの内訳を確かめ、意見にならなかったコメントを救い出す。論点の名前を変え、2つの論点をまとめる（issue #308。締め切ったあとも
  *   できる。部品は rescue-list.tsx・topic-tools.tsx）
  *
@@ -29,6 +31,7 @@ import { ApiError } from '@/core/api'
 import type { AdminOpinion, AdminOpinionBoard, AdminTopic, OpinionApi, OpinionCommentCounts, RescuedOpinion } from './api'
 import { OPINION_KIND_LABELS } from './entry'
 import { CommentCounts, RescueList, type RescueActions } from './rescue-list'
+import { SummaryCard } from './summary-card'
 import { TopicHeader, type TopicActions } from './topic-tools'
 
 /** 開いているあいだに意見ボードを読み直す間隔（ミリ秒）。Worker の振り分け（45秒おき）より短くし、増えた意見を待たせない */
@@ -116,7 +119,7 @@ export const OpinionPage = ({ api }: { api: OpinionApi }) => {
     actions.run(async () => {
       const theme = await api.openTheme(title)
       generation.current += 1
-      setBoard({ theme, topics: [], counts: NO_COUNTS, rescuable: [] })
+      setBoard({ theme, topics: [], counts: NO_COUNTS, rescuable: [], summary: null })
       setTitle('')
       return `テーマ「${theme.title}」を出しました`
     })
@@ -140,6 +143,14 @@ export const OpinionPage = ({ api }: { api: OpinionApi }) => {
       generation.current += 1
       setBoard((previous) => (previous === undefined ? previous : { ...previous, theme }))
       return '問いかけを替えました'
+    })
+
+  const remakeSummary = (themeId: number): Promise<void> =>
+    actions.run(async () => {
+      const summary = await api.remakeSummary(themeId)
+      generation.current += 1
+      setBoard((previous) => (previous === undefined ? previous : { ...previous, summary }))
+      return '配信後のまとめを作りました'
     })
 
   const toggle = (opinion: AdminOpinion): Promise<void> =>
@@ -296,6 +307,9 @@ export const OpinionPage = ({ api }: { api: OpinionApi }) => {
             ))}
           </CardContent>
         </Card>
+      )}
+      {board.theme !== null && board.theme.closedAt !== null && (
+        <SummaryCard summary={board.summary} busy={actions.busy} onRemake={() => void remakeSummary(board.theme?.id ?? 0)} />
       )}
       {board.theme !== null && (
         <Card>

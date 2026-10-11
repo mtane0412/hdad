@@ -6,6 +6,7 @@
  * - POST /api/admin/opinions/themes: テーマを開き（{ title }）、振り分けのアラームを仕掛ける。ほかのテーマが開いていれば409
  * - POST /api/admin/opinions/themes/:id/close: テーマを締め切り、振り分けのアラームを外す。開いていないテーマなら404
  * - POST /api/admin/opinions/themes/:id/prompt: 開いているテーマの、視聴者への問いかけを別のものに替える（LLM に作らせる。issue #307）
+ * - POST /api/admin/opinions/themes/:id/summary: 締め切ったテーマの配信後のまとめを、LLM に作り直させて保存する（issue #309）
  * - PUT /api/admin/opinions/items/:id: 意見を隠す・隠すのをやめる（{ hidden }）。荒らし対策
  * - POST /api/admin/opinions/comments/:id/draft: 意見にならなかったコメントから、意見の下書きを LLM に作らせて返す（保存しない。issue #308）
  * - POST /api/admin/opinions/comments/:id/opinion: 意見にならなかったコメントを、配信者が直した意見にする（{ kind, text, topic }。issue #308）
@@ -25,9 +26,9 @@
 import { ConfigError } from './alert-config'
 import { connectOpinionSocket, pushOpinions } from './alert-channel'
 import { HttpError, STATUS, requireAdmin, requireOverlayKey, type Context } from './http'
-import { parseRescuedOpinionInput, parseThemeInput, parseTopicTitleInput, topicChoiceProblem, type OpinionTheme, type RescuedOpinionInput } from './opinion'
+import { parseRescuedOpinionInput, parseThemeInput, parseTopicTitleInput, topicChoiceProblem, type OpinionTheme, type RescuedOpinionInput, type StoredOpinionSummary } from './opinion'
 import { draftOpinion } from './opinion-draft'
-import { replaceOpinionPrompt } from './opinion-run'
+import { replaceOpinionPrompt, replaceOpinionSummary, runClosedThemeSummary } from './opinion-run'
 import {
   closeTheme,
   joinRescuedComment,
@@ -44,6 +45,7 @@ import {
   saveRescuedOpinion,
   setOpinionHidden,
 } from './opinion-store'
+import { recordFailure } from './stats-store'
 import { startOpinionTimer, stopOpinionTimer } from './opinion-timer'
 import { overlayKeyTag } from './overlay-key'
 
@@ -72,6 +74,9 @@ const idOf = (context: Context, notFound: (raw: string) => HttpError): number =>
 
 const themeNotFound = (raw: string): HttpError =>
   new HttpError(STATUS.notFound, 'opinion-theme-not-open', `テーマ「${raw}」は開いていません（別の窓で締め切られた可能性があります）`)
+
+const summaryThemeNotFound = (raw: string): HttpError =>
+  new HttpError(STATUS.notFound, 'opinion-theme-not-closed', `テーマ「${raw}」は、まとめを作れません（締め切っていない・次のテーマを開いた可能性があります）`)
 
 const opinionNotFound = (raw: string): HttpError => new HttpError(STATUS.notFound, 'opinion-not-found', `意見「${raw}」はありません`)
 
@@ -156,6 +161,8 @@ export const postOpinionTheme = async (context: Context): Promise<Response> => {
  * POST /api/admin/opinions/themes/:id/close: テーマを締め切り、振り分けのアラームを外して、意見ボードを押し出す。
  *
  * まだ振り分けていないコメントは振り分け待ちのまま残す（締め切ったあとは振り分けない）。
+ * 配信後のまとめ（issue #309）は応答を待たせず、応答のあとに作る（LLM は数秒かかるため。waitUntil）。作れなくても締め切りは取り消さず、
+ * `opinion-summary-failed` を記録する。配信者は `/opinions/` から作り直せる。
  *
  * @throws HttpError 開いていないテーマなら404。押し出せなければ502
  */
@@ -164,6 +171,8 @@ export const postCloseOpinionTheme = async (context: Context): Promise<Response>
   const id = idOf(context, themeNotFound)
   const theme = await closeTheme(context.env.DB, id, context.now)
   if (theme === null) throw themeNotFound(String(id))
+  // 先に預ける。このあとの押し出し・アラームの失敗で502を返しても、締め切ったテーマのまとめは作る
+  context.waitUntil(runClosedThemeSummary(context.env.DB, context.llm, theme, context.now))
   // アラームを外せなくても、テーマは締め切ったので、先に合成ページへ押し出してから失敗を返す（配信画面を古いままにしない）
   const timerError = await stopOpinionTimer(context.env.AD_BREAKS).then(
     () => null,
@@ -197,6 +206,27 @@ export const postOpinionPrompt = async (context: Context): Promise<Response> => 
   if (saved === null) throw themeNotFound(String(id))
   await pushCurrentBoard(context, '問いかけを替えました')
   return Response.json({ theme: saved } satisfies { theme: OpinionTheme })
+}
+
+/**
+ * POST /api/admin/opinions/themes/:id/summary: 締め切ったテーマ（最後に開いたもの）の配信後のまとめを、LLM に作り直させて保存し、返す。
+ *
+ * 作れなかったら前のまとめを残す（切り詰めない。方針4）。合成ページには出さないので、押し出しはしない。
+ *
+ * @throws HttpError 最後に開いたテーマでない・まだ開いているテーマなら404。隠していない意見が無ければ409（opinion-summary-empty）。
+ *   まとめを作れなければ502（opinion-summary-failed）
+ */
+export const postOpinionSummary = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  const id = idOf(context, summaryThemeNotFound)
+  const theme = await readLatestTheme(context.env.DB)
+  if (theme?.id !== id || theme.closedAt === null) throw summaryThemeNotFound(String(id))
+  const saved = await replaceOpinionSummary(context.env.DB, context.llm, theme, context.now).catch(async (error: unknown) => {
+    await recordFailure(context.env.DB, 'opinion-summary-failed', `意見ボードのテーマ「${theme.title}」の配信後のまとめを作り直せませんでした: ${reasonOf(error)}`, context.now)
+    throw new HttpError(STATUS.badGateway, 'opinion-summary-failed', `配信後のまとめを作り直せませんでした。前のまとめを残しています（${reasonOf(error)}）`)
+  })
+  if (saved === null) throw new HttpError(STATUS.conflict, 'opinion-summary-empty', 'まとめる意見がありません（意見が無いか、すべて隠しています）')
+  return Response.json({ summary: saved } satisfies { summary: StoredOpinionSummary })
 }
 
 /**

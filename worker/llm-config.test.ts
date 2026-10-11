@@ -105,7 +105,7 @@ describe('parseLlmSettings', () => {
   })
 
   it('問題点は最初の1件で止めず、すべて集めてから拒否する', () => {
-    expect(issues({ usages: { aiChat: { provider: 'openai', models: { 'workers-ai': 1, openrouter: '' } } } })).toHaveLength(13)
+    expect(issues({ usages: { aiChat: { provider: 'openai', models: { 'workers-ai': 1, openrouter: '' } } } })).toHaveLength(14)
   })
 
   it('使う箇所は11つで、市町村紹介の共通点のほかは既定の提供元が Workers AI である', () => {
@@ -121,6 +121,7 @@ describe('parseLlmSettings', () => {
       'autoText',
       'opinionSort',
       'opinionPrompt',
+      'opinionSummary',
     ])
     for (const usage of LLM_USAGES.filter((candidate) => candidate !== 'townBond')) expect(DEFAULT_LLM_SETTINGS.usages[usage].provider).toBe('workers-ai')
   })
@@ -135,6 +136,10 @@ describe('parseLlmSettings', () => {
 
   it('意見ボードの問いかけは、まだ出ていない切り口を自然な日本語の1文で作らせるので、あらすじと同じ大きいモデルを既定にする', () => {
     expect(DEFAULT_LLM_SETTINGS.usages.opinionPrompt.models).toEqual(DEFAULT_LLM_SETTINGS.usages.streamSummary.models)
+  })
+
+  it('意見ボードの配信後のまとめは、JSON の形を守らせて全体を読ませるので、あらすじと同じ大きいモデルを既定にする', () => {
+    expect(DEFAULT_LLM_SETTINGS.usages.opinionSummary.models).toEqual(DEFAULT_LLM_SETTINGS.usages.streamSummary.models)
   })
 
   it('市町村紹介の共通点は、試作でいちばん良かった OpenRouter の google/gemini-3.8-flash を既定にする', () => {

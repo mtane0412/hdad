@@ -77,6 +77,7 @@ const savedSettings: LlmSettings = {
     autoText: { provider: 'workers-ai', models: { ...largeModel } },
     opinionSort: { provider: 'workers-ai', models: { ...largeModel } },
     opinionPrompt: { provider: 'workers-ai', models: { ...largeModel } },
+    opinionSummary: { provider: 'workers-ai', models: { ...largeModel } },
   },
 }
 

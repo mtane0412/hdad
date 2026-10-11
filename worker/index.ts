@@ -59,6 +59,7 @@
  * | POST /api/admin/opinions/themes  | セッション     | 意見ボードのテーマを開き、コメントの振り分けを始める |
  * | POST /api/admin/opinions/themes/:id/close | セッション | 意見ボードのテーマを締め切り、振り分けを止める |
  * | POST /api/admin/opinions/themes/:id/prompt | セッション | 意見ボードの視聴者への問いかけを、LLM に別のものへ作り直させる |
+ * | POST /api/admin/opinions/themes/:id/summary | セッション | 締め切った意見ボードのテーマの配信後のまとめを、LLM に作り直させる |
  * | PUT  /api/admin/opinions/items/:id | セッション   | 意見を隠す・戻す（合成ページへ押し出す） |
  * | POST /api/admin/opinions/comments/:id/draft | セッション | 意見にならなかったコメントから、意見の下書きを LLM に作らせる（保存しない） |
  * | POST /api/admin/opinions/comments/:id/opinion | セッション | 意見にならなかったコメントを、配信者が直した意見にする |
@@ -205,6 +206,7 @@ import {
   postMergeOpinionTopics,
   postOpinionDraft,
   postOpinionPrompt,
+  postOpinionSummary,
   postOpinionTheme,
   postRescuedOpinion,
   putOpinion,
@@ -344,6 +346,7 @@ const ROUTES: readonly Route[] = [
   { method: 'POST', path: '/api/admin/opinions/themes', handle: postOpinionTheme },
   { method: 'POST', path: '/api/admin/opinions/themes/:id/close', handle: postCloseOpinionTheme },
   { method: 'POST', path: '/api/admin/opinions/themes/:id/prompt', handle: postOpinionPrompt },
+  { method: 'POST', path: '/api/admin/opinions/themes/:id/summary', handle: postOpinionSummary },
   { method: 'PUT', path: '/api/admin/opinions/items/:id', handle: putOpinion },
   { method: 'POST', path: '/api/admin/opinions/comments/:id/draft', handle: postOpinionDraft },
   { method: 'POST', path: '/api/admin/opinions/comments/:id/opinion', handle: postRescuedOpinion },
