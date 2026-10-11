@@ -29,6 +29,8 @@ export const createLickSoundPlayer = (onError: (error: Error) => void): LickSoun
   /** 鳴らす予定のタイマーと、鳴らした Audio 要素（止めるときに使う） */
   let timers: number[] = []
   let playing: HTMLAudioElement[] = []
+  /** この1回のペロペロで、鳴らせなかったことをもう知らせたか（自動再生を拒まれると合図ごとに失敗するので、知らせるのは1回にする） */
+  let reported = false
 
   const stop = (): void => {
     for (const timer of timers) window.clearTimeout(timer)
@@ -48,12 +50,15 @@ export const createLickSoundPlayer = (onError: (error: Error) => void): LickSoun
       playing = playing.filter((item) => item !== audio)
     })
     audio.play().catch((error: unknown) => {
+      if (reported) return
+      reported = true
       onError(new Error(`ペロペロの効果音を鳴らせませんでした: ${error instanceof Error ? error.message : String(error)}`, { cause: error }))
     })
   }
 
   const start: LickSoundPlayer['start'] = (url, volume, cues) => {
     stop()
+    reported = false
     timers = cues.map((cue) => window.setTimeout(() => play(url, volume, cue), cue.atMs))
   }
 
