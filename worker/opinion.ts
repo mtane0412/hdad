@@ -200,6 +200,22 @@ export interface RescuableComment {
   readonly jevScore: number | null
 }
 
+/** 配信後のまとめ（issue #309）。LLM が作る。欄ごとに短い文を並べる（worker/opinion-summary.ts が照合する） */
+export interface OpinionSummary {
+  /** 合意が見える点 */
+  readonly agreements: readonly string[]
+  /** 意見が分かれた点 */
+  readonly disagreements: readonly string[]
+  /** 残った問い */
+  readonly openQuestions: readonly string[]
+}
+
+/** 保存したまとめ。いつ作ったかを添える */
+export interface StoredOpinionSummary extends OpinionSummary {
+  /** 作った時刻（ISO 8601） */
+  readonly createdAt: string
+}
+
 /** 管理画面へ渡す、いまの意見ボード */
 export interface AdminOpinionBoard {
   readonly theme: OpinionTheme | null
@@ -208,6 +224,8 @@ export interface AdminOpinionBoard {
   readonly counts: OpinionCommentCounts
   /** 救い出せるコメント（新しい順） */
   readonly rescuable: readonly RescuableComment[]
+  /** 締め切ったテーマのまとめ（機械が作ったもの）。まだ作っていない・開いているテーマなら null。合成ページには渡さない */
+  readonly summary: StoredOpinionSummary | null
 }
 
 /**

@@ -11,6 +11,8 @@
  * - 入力しかけのテーマがあるあいだは、ページを離れる前に確認を出すこと（useUnsavedChanges）
  * - テーマを出しているあいだは、いまの問いかけを確かめ、別の問いかけに替えさせられること（issue #307）
  * - コメントの内訳を出し、意見にならなかったコメントを、下書きを直して新しい意見にし・既にある意見に統合できること（issue #308）
+ * - 締め切ったテーマの配信後のまとめを、機械が作ったものと分かる見出し・注記つきで、意見とは別の枠に出し、作り直せること。
+ *   テーマを出しているあいだと、まとめが無いあいだ（作っている途中・作れなかった）の出し方（issue #309）
  * - 論点の名前を書き換え、確かめてから2つの論点をまとめられること。書きかけのあいだは離れる前に確認を出すこと（issue #308）
  */
 import '@testing-library/jest-dom/vitest'
@@ -19,7 +21,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { hasUnsavedChanges } from '@/app/router'
 import { ApiError } from '@/core/api'
-import type { AdminOpinionBoard, OpinionApi, OpinionCommentCounts, RescuableComment } from './api'
+import type { AdminOpinionBoard, OpinionApi, OpinionCommentCounts, RescuableComment, StoredOpinionSummary } from './api'
 import type { OpinionTheme } from './entry'
 import { OpinionPage } from './opinion-page'
 
@@ -79,7 +81,18 @@ const board: AdminOpinionBoard = {
   ],
   counts: { received: 6, used: 3, pending: 0, dropped: { command: 1, emote: 0, reaction: 1 }, filtered: 0, ignored: 1, failed: 0 },
   rescuable: [ignoredComment],
+  summary: null,
 }
+
+/** 配信後のまとめ（LLM が作ったもの） */
+const madeSummary: StoredOpinionSummary = {
+  agreements: ['初見への挨拶ならAIでもよい'],
+  disagreements: ['コメ返しをAIに任せるかは意見が分かれた'],
+  openQuestions: ['AIの使用料はどこまで払うか'],
+  createdAt: '2026-10-10T12:31:00.000Z',
+}
+
+const closedTheme: OpinionTheme = { ...openTheme, closedAt: '2026-10-10T12:30:00.000Z' }
 
 /** 操作を記録する代役 */
 const createApi = (initial: AdminOpinionBoard = board, overrides: Partial<OpinionApi> = {}): OpinionApi => ({
@@ -87,6 +100,7 @@ const createApi = (initial: AdminOpinionBoard = board, overrides: Partial<Opinio
   openTheme: vi.fn(async (title: string) => ({ ...openTheme, id: 2, title })),
   closeTheme: vi.fn(async (id: number) => ({ ...openTheme, id, closedAt: '2026-10-10T12:30:00.000Z' })),
   setHidden: vi.fn(async () => undefined),
+  remakeSummary: vi.fn(async () => madeSummary),
   replacePrompt: vi.fn(async (id: number) => ({ ...openTheme, id, prompt: 'AIの使用料、配信者はどこまで払っていいと思う？' })),
   draftOpinion: vi.fn(async () => ({ kind: 'insight' as const, text: '人っぽすぎる声は怖い', topic: { type: 'existing' as const, id: 1 } })),
   rescueAsOpinion: vi.fn(async () => undefined),
@@ -98,7 +112,7 @@ const createApi = (initial: AdminOpinionBoard = board, overrides: Partial<Opinio
 
 describe('テーマ', () => {
   test('テーマを出していなければ、入力して出せる', async () => {
-    const api = createApi({ theme: null, topics: [], counts: noCounts, rescuable: [] })
+    const api = createApi({ theme: null, topics: [], counts: noCounts, rescuable: [], summary: null })
     render(<OpinionPage api={api} />)
 
     await userEvent.type(await screen.findByRole('textbox', { name: 'テーマ' }), '配信中にAIをどこまで使っていい？')
@@ -113,7 +127,7 @@ describe('テーマ', () => {
 
   test('Worker が拒んだ理由を出す', async () => {
     const rejected = new ApiError(400, 'invalid-config', '意見ボードのテーマに問題があります', ['テーマを入力してください'])
-    render(<OpinionPage api={createApi({ theme: null, topics: [], counts: noCounts, rescuable: [] }, { openTheme: vi.fn(async () => Promise.reject(rejected)) })} />)
+    render(<OpinionPage api={createApi({ theme: null, topics: [], counts: noCounts, rescuable: [], summary: null }, { openTheme: vi.fn(async () => Promise.reject(rejected)) })} />)
 
     await userEvent.click(await screen.findByRole('button', { name: 'テーマを出す' }))
 
@@ -223,7 +237,7 @@ describe('意見', () => {
   })
 
   test('意見がまだ無ければ、その旨を出す', async () => {
-    render(<OpinionPage api={createApi({ theme: openTheme, topics: [], counts: noCounts, rescuable: [] })} />)
+    render(<OpinionPage api={createApi({ theme: openTheme, topics: [], counts: noCounts, rescuable: [], summary: null })} />)
     expect(await screen.findByText(/まだ意見がありません/)).toBeInTheDocument()
   })
 
@@ -305,7 +319,7 @@ describe('意見にならなかったコメント（issue #308）', () => {
   })
 
   test('意見にならなかったコメントが無ければ、その旨を出す', async () => {
-    render(<OpinionPage api={createApi({ ...board, rescuable: [] })} />)
+    render(<OpinionPage api={createApi({ ...board, rescuable: [], summary: null })} />)
     expect(await screen.findByText(/意見にならなかったコメントはありません/)).toBeInTheDocument()
   })
 })
@@ -367,5 +381,68 @@ describe('論点の整理（issue #308）', () => {
     await userEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: '論点をまとめる' }))
 
     expect(api.mergeTopics).toHaveBeenCalledWith(2, 1)
+  })
+})
+
+describe('配信後のまとめ', () => {
+  test('締め切ったテーマのまとめを、AIが作ったものと分かる枠に、3つの見出しで出す', async () => {
+    render(<OpinionPage api={createApi({ ...board, theme: closedTheme, summary: madeSummary })} />)
+
+    const section = await screen.findByRole('group', { name: 'AIのまとめ' })
+    expect(within(section).getByText(/AIが作ったまとめ/)).toBeInTheDocument()
+    expect(within(section).getByRole('heading', { name: '合意が見える点' })).toBeInTheDocument()
+    expect(within(section).getByText('初見への挨拶ならAIでもよい')).toBeInTheDocument()
+    expect(within(section).getByRole('heading', { name: '意見が分かれた点' })).toBeInTheDocument()
+    expect(within(section).getByText('コメ返しをAIに任せるかは意見が分かれた')).toBeInTheDocument()
+    expect(within(section).getByRole('heading', { name: '残った問い' })).toBeInTheDocument()
+    expect(within(section).getByText('AIの使用料はどこまで払うか')).toBeInTheDocument()
+  })
+
+  test('項目の無い欄は、無いと書く', async () => {
+    render(<OpinionPage api={createApi({ ...board, theme: closedTheme, summary: { ...madeSummary, disagreements: [] } })} />)
+
+    const section = await screen.findByRole('group', { name: 'AIのまとめ' })
+    expect(within(section).getByText('なし')).toBeInTheDocument()
+  })
+
+  test('作り直すと、作ったまとめに置き換える', async () => {
+    const remade = { ...madeSummary, agreements: ['挨拶ならAIでもよい（作り直し）'] }
+    const api = createApi({ ...board, theme: closedTheme, summary: madeSummary }, { remakeSummary: vi.fn(async () => remade) })
+    render(<OpinionPage api={api} />)
+
+    const section = await screen.findByRole('group', { name: 'AIのまとめ' })
+    await userEvent.click(within(section).getByRole('button', { name: 'まとめを作り直す' }))
+
+    expect(api.remakeSummary).toHaveBeenCalledWith(1)
+    expect(await within(section).findByText('挨拶ならAIでもよい（作り直し）')).toBeInTheDocument()
+  })
+
+  test('まとめがまだ無ければ、その旨を出して、作らせられる', async () => {
+    const api = createApi({ ...board, theme: closedTheme })
+    render(<OpinionPage api={api} />)
+
+    const section = await screen.findByRole('group', { name: 'AIのまとめ' })
+    expect(within(section).getByText(/まとめはまだありません/)).toBeInTheDocument()
+    await userEvent.click(within(section).getByRole('button', { name: 'まとめを作る' }))
+
+    expect(api.remakeSummary).toHaveBeenCalledWith(1)
+    expect(await within(section).findByText('初見への挨拶ならAIでもよい')).toBeInTheDocument()
+  })
+
+  test('作り直せなければ理由を出し、前のまとめを残す', async () => {
+    const failed = new ApiError(502, 'opinion-summary-failed', '配信後のまとめを作り直せませんでした。前のまとめを残しています', [])
+    render(<OpinionPage api={createApi({ ...board, theme: closedTheme, summary: madeSummary }, { remakeSummary: vi.fn(async () => Promise.reject(failed)) })} />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'まとめを作り直す' }))
+
+    expect(await screen.findByText(/配信後のまとめを作り直せませんでした/)).toBeInTheDocument()
+    expect(screen.getByText('初見への挨拶ならAIでもよい')).toBeInTheDocument()
+  })
+
+  test('テーマを出しているあいだは、まとめの枠を出さない', async () => {
+    render(<OpinionPage api={createApi()} />)
+
+    await screen.findByText('配信中にAIをどこまで使っていい？')
+    expect(screen.queryByRole('group', { name: 'AIのまとめ' })).not.toBeInTheDocument()
   })
 })

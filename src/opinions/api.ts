@@ -8,6 +8,8 @@
  * - アプリのページ（/opinions/）: ログインのセッションで、テーマを開き・締め切り、問いかけを替え、意見を隠す。人数ともとのコメントも読む。
  *   コメントの内訳と意見にならなかったコメントも読み、救い出し（下書き・意見にする・統合する）と論点の整理（名前・まとめる）を行う（issue #308）
  *
+ * 締め切ったテーマの配信後のまとめ（issue #309）も読み、作り直させる。
+ *
  * 呼び出しと失敗の扱いは `../core/api` に任せ、fetch を引数で受け取るのはテストで差し替えるためである。
  *
  * 注意: 想定した形でなければエラーにする（Fail-Fast）。
@@ -87,6 +89,18 @@ export interface RescuableComment {
   readonly jevScore: number | null
 }
 
+/** 配信後のまとめ（worker/opinion.ts の StoredOpinionSummary と合わせる。issue #309）。LLM が作った機械のまとめで、配信者のメモではない */
+export interface StoredOpinionSummary {
+  /** 合意が見える点 */
+  readonly agreements: readonly string[]
+  /** 意見が分かれた点 */
+  readonly disagreements: readonly string[]
+  /** 残った問い */
+  readonly openQuestions: readonly string[]
+  /** 作った時刻（ISO 8601） */
+  readonly createdAt: string
+}
+
 /** 管理画面に出す意見ボード。まだ一度もテーマを開いていなければ theme は null */
 export interface AdminOpinionBoard {
   readonly theme: OpinionTheme | null
@@ -95,6 +109,8 @@ export interface AdminOpinionBoard {
   readonly counts: OpinionCommentCounts
   /** 意見にならなかったコメント（新しい順） */
   readonly rescuable: readonly RescuableComment[]
+  /** 締め切ったテーマの配信後のまとめ。まだ作っていない・テーマを出しているあいだは null */
+  readonly summary: StoredOpinionSummary | null
 }
 
 /** 意見を入れる論点。既にある論点か、新しく作る論点（worker/opinion.ts の TopicChoice と合わせる） */
@@ -121,6 +137,8 @@ export interface OpinionApi {
   closeTheme(id: number): Promise<OpinionTheme>
   /** 開いているテーマの、視聴者への問いかけを別のものに替え（Worker が LLM に作り直させる）、替えたテーマを返す */
   replacePrompt(id: number): Promise<OpinionTheme>
+  /** 締め切ったテーマの配信後のまとめを、Worker（LLM）に作り直させ、作ったまとめを返す。作れなければ前のまとめが残る */
+  remakeSummary(id: number): Promise<StoredOpinionSummary>
   /** 意見を隠す・隠すのをやめる */
   setHidden(id: number, hidden: boolean): Promise<void>
   /** 意見にならなかったコメントから、意見の下書きを Worker（LLM）に作らせる。保存はしない */
@@ -167,6 +185,15 @@ const isRescuableComment = (value: unknown): value is RescuableComment =>
   (value.dropReason === null || isOneOf(DROP_REASONS, value.dropReason)) &&
   (value.jevScore === null || typeof value.jevScore === 'number')
 
+const isStringList = (value: unknown): value is string[] => Array.isArray(value) && value.every((item) => typeof item === 'string')
+
+const isStoredSummary = (value: unknown): value is StoredOpinionSummary =>
+  isRecord(value) &&
+  isStringList(value.agreements) &&
+  isStringList(value.disagreements) &&
+  isStringList(value.openQuestions) &&
+  typeof value.createdAt === 'string'
+
 const isTopicChoice = (value: unknown): value is TopicChoice =>
   isRecord(value) && ((value.type === 'existing' && typeof value.id === 'number') || (value.type === 'new' && typeof value.title === 'string'))
 
@@ -186,7 +213,20 @@ const readAdminBoard = (body: unknown): AdminOpinionBoard => {
   if (!(theme === null || isOpinionTheme(theme))) throw new Error('Workerの応答の theme が想定した形ではありません')
   const counts: unknown = isRecord(body) ? body.counts : undefined
   if (!isCommentCounts(counts)) throw new Error('Workerの応答の counts が想定した形ではありません')
-  return { theme, topics: readList(body, 'topics', isAdminTopic), counts, rescuable: readList(body, 'rescuable', isRescuableComment) }
+  const summary: unknown = isRecord(body) ? body.summary : undefined
+  if (!(summary === null || isStoredSummary(summary))) throw new Error('Workerの応答の summary が想定した形ではありません')
+  return { theme, topics: readList(body, 'topics', isAdminTopic), counts, rescuable: readList(body, 'rescuable', isRescuableComment), summary }
+}
+
+/**
+ * 応答の summary を読む。
+ *
+ * @throws 想定した形でない場合
+ */
+const readSummary = (body: unknown): StoredOpinionSummary => {
+  const summary = isRecord(body) ? body.summary : undefined
+  if (!isStoredSummary(summary)) throw new Error('配信後のまとめの応答の形が想定と違います')
+  return summary
 }
 
 /**
@@ -240,6 +280,7 @@ export const createOpinionApi = (fetchImpl: typeof fetch): OpinionApi => {
     openTheme: async (title) => readTheme(await send(`${ADMIN_PATH}/themes`, 'POST', { title })),
     closeTheme: async (id) => readTheme(await send(`${ADMIN_PATH}/themes/${id}/close`, 'POST')),
     replacePrompt: async (id) => readTheme(await send(`${ADMIN_PATH}/themes/${id}/prompt`, 'POST')),
+    remakeSummary: async (id) => readSummary(await send(`${ADMIN_PATH}/themes/${id}/summary`, 'POST')),
     setHidden: async (id, hidden) => {
       await send(`${ADMIN_PATH}/items/${id}`, 'PUT', { hidden })
     },

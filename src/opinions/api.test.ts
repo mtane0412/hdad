@@ -53,6 +53,12 @@ const adminBoard: AdminOpinionBoard = {
       jevScore: 0.41,
     },
   ],
+  summary: {
+    agreements: ['初見への挨拶ならAIでもよい'],
+    disagreements: ['コメ返しをAIに任せるかは意見が分かれた'],
+    openQuestions: ['AIの使用料はどこまで払うか'],
+    createdAt: '2026-10-10T12:31:00.000Z',
+  },
 }
 
 /** 呼ばれた内容を記録し、決めた応答を返す fetch（本文が null なら本文の無い応答にする） */
@@ -115,6 +121,26 @@ describe('createOpinionApi', () => {
 
     expect(await createOpinionApi(fetchImpl).replacePrompt(1)).toEqual(prompted)
     expect(calls).toEqual([{ path: '/api/admin/opinions/themes/1/prompt', method: 'POST', body: null }])
+  })
+
+  it('配信後のまとめを作り直させ、作ったまとめを返す', async () => {
+    const summary = adminBoard.summary
+    const { calls, fetchImpl } = createFetchWithResponse(200, { summary })
+
+    expect(await createOpinionApi(fetchImpl).remakeSummary(1)).toEqual(summary)
+    expect(calls).toEqual([{ path: '/api/admin/opinions/themes/1/summary', method: 'POST', body: null }])
+  })
+
+  it('配信後のまとめの形が想定と違えば、エラーにする', async () => {
+    const { fetchImpl } = createFetchWithResponse(200, { summary: { agreements: 'x' } })
+
+    await expect(createOpinionApi(fetchImpl).remakeSummary(1)).rejects.toThrow('まとめ')
+  })
+
+  it('まとめの形が想定と違う意見ボードは、エラーにする', async () => {
+    const { fetchImpl } = createFetchWithResponse(200, { ...adminBoard, summary: { agreements: [1] } })
+
+    await expect(createOpinionApi(fetchImpl).read()).rejects.toThrow('summary')
   })
 
   it('意見を隠す', async () => {

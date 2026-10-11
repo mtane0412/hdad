@@ -17,6 +17,9 @@
  * 注意: Jev は OpenRouter の鍵が無ければ呼べない。鍵が無い配信者では jev を null にして、絞り込みを飛ばす（配信者が決めたこと。
  *   鍵の有無で決まる分岐で、Jev の失敗を飛ばすのとは違う）。
  * 注意: 問いかけを作れなかったときは前の問いかけを残し、失敗を記録する（opinion-prompt-failed）。振り分けは取り消さない。
+ * 配信後のまとめ（issue #309）は、振り分けとは別に、テーマを締め切ったとき（worker/opinion-routes.ts）にここの replaceOpinionSummary・
+ * runClosedThemeSummary が作る。
+ *
  * 注意: 押し出しに失敗しても書いた振り分けは取り消さず、失敗を記録する（opinion-push-failed）。合成ページは定期的に読み直すので、
  *   いずれ映る。
  */
@@ -24,10 +27,11 @@ import { pushOpinions, type AlertChannelNamespace } from './alert-channel'
 import type { Database } from './database'
 import type { JevClient } from './jev'
 import type { TextGenerator } from './llm'
-import { readyUtterances, type OpinionTheme, type Utterance } from './opinion'
+import { readyUtterances, type OpinionTheme, type StoredOpinionSummary, type Utterance } from './opinion'
 import { filterUtterances } from './opinion-filter'
 import { proposeOpinionPrompt } from './opinion-prompt'
 import { sortOpinions } from './opinion-sort'
+import { summarizeOpinions } from './opinion-summary'
 import {
   applySorting,
   markCommentsFailed,
@@ -38,6 +42,7 @@ import {
   readVisibleBoard,
   recordFilterResults,
   saveThemePrompt,
+  saveThemeSummary,
 } from './opinion-store'
 import { recordFailure } from './stats-store'
 
@@ -76,6 +81,33 @@ export const pushCurrentOpinions = async ({ db, alerts, now }: Pick<OpinionSorti
 export const replaceOpinionPrompt = async (db: Database, llm: TextGenerator, theme: OpinionTheme): Promise<OpinionTheme | null> => {
   const prompt = await proposeOpinionPrompt(llm, { theme: theme.title, board: await readVisibleBoard(db, theme.id), previous: theme.prompt })
   return saveThemePrompt(db, theme.id, prompt)
+}
+
+/**
+ * 締め切ったテーマの配信後のまとめを作り直して書く。隠していない意見をもとに、LLM に作らせる。
+ *
+ * @returns 書いたまとめ。隠していない意見が1件も無ければ null（LLM を呼ばず、何も書かない）
+ * @throws Error LLM が失敗した・まとめが照合を通らなかった・テーマがまだ開いている場合（前のまとめは残る）
+ */
+export const replaceOpinionSummary = async (db: Database, llm: TextGenerator, theme: OpinionTheme, now: number): Promise<StoredOpinionSummary | null> => {
+  const board = await readVisibleBoard(db, theme.id)
+  if (board.every(({ opinions }) => opinions.length === 0)) return null
+  const summary = await summarizeOpinions(llm, { theme: theme.title, board })
+  if (!(await saveThemeSummary(db, theme.id, summary, now))) throw new Error(`テーマ「${theme.title}」はまだ開いているので、まとめを書けません`)
+  return { ...summary, createdAt: new Date(now).toISOString() }
+}
+
+/**
+ * テーマを締め切ったあとに、配信後のまとめを作る。失敗は投げずに記録する（締め切りは取り消さないため）。
+ *
+ * 作れなかったときは行を書かない。配信者は `/opinions/` から作り直せる。
+ */
+export const runClosedThemeSummary = async (db: Database, llm: TextGenerator, theme: OpinionTheme, now: number): Promise<void> => {
+  try {
+    await replaceOpinionSummary(db, llm, theme, now)
+  } catch (error) {
+    await recordFailure(db, 'opinion-summary-failed', `意見ボードのテーマ「${theme.title}」の配信後のまとめを作れませんでした: ${reasonOf(error)}`, now)
+  }
 }
 
 /**

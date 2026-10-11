@@ -28,6 +28,7 @@ import {
   readPendingComments,
   readRescuableComment,
   readSortingBoard,
+  readThemeSummary,
   readVisibleBoard,
   recordFilterResults,
   recordOpinionComment,
@@ -35,6 +36,7 @@ import {
   renameTopic,
   saveRescuedOpinion,
   saveThemePrompt,
+  saveThemeSummary,
   setOpinionHidden,
   type OpinionCommentInput,
 } from './opinion-store'
@@ -267,6 +269,65 @@ describe('問いかけ', () => {
 
     expect(await saveThemePrompt(db, theme.id, 'AIの使用料、配信者はどこまで払っていいと思う？')).toBeNull()
     expect((await readOverlayBoard(db)).theme?.prompt).toBeNull()
+  })
+})
+
+describe('配信後のまとめ（issue #309）', () => {
+  const summary = {
+    agreements: ['初見への挨拶ならAIでもよい'],
+    disagreements: ['コメ返しをAIに任せるかは意見が分かれた'],
+    openQuestions: ['AIの使用料はどこまで払うか'],
+  }
+
+  it('締め切ったテーマにまとめを書き、テーマのIDと管理画面から読める', async () => {
+    const theme = await open('配信中にAIをどこまで使っていい？')
+    await closeTheme(db, theme.id, LATER)
+
+    expect(await saveThemeSummary(db, theme.id, summary, LATER)).toBe(true)
+
+    const expected = { ...summary, createdAt: new Date(LATER).toISOString() }
+    expect(await readThemeSummary(db, theme.id)).toEqual(expected)
+    expect((await readAdminBoard(db)).summary).toEqual(expected)
+  })
+
+  it('作り直したら置き換える', async () => {
+    const theme = await open('配信中にAIをどこまで使っていい？')
+    await closeTheme(db, theme.id, LATER)
+    await saveThemeSummary(db, theme.id, summary, LATER)
+
+    await saveThemeSummary(db, theme.id, { agreements: [], disagreements: ['分かれた'], openQuestions: [] }, LATER + 1000)
+
+    expect(await readThemeSummary(db, theme.id)).toEqual({
+      agreements: [],
+      disagreements: ['分かれた'],
+      openQuestions: [],
+      createdAt: new Date(LATER + 1000).toISOString(),
+    })
+  })
+
+  it('開いているテーマには書かない', async () => {
+    const theme = await open('配信中にAIをどこまで使っていい？')
+
+    expect(await saveThemeSummary(db, theme.id, summary, LATER)).toBe(false)
+    expect(await readThemeSummary(db, theme.id)).toBeNull()
+  })
+
+  it('まとめがなければ null で、合成ページには渡さない', async () => {
+    const theme = await open('配信中にAIをどこまで使っていい？')
+    await closeTheme(db, theme.id, LATER)
+
+    expect(await readThemeSummary(db, theme.id)).toBeNull()
+    expect((await readAdminBoard(db)).summary).toBeNull()
+    await saveThemeSummary(db, theme.id, summary, LATER)
+    expect(JSON.stringify(await readOverlayBoard(db))).not.toContain('初見への挨拶')
+  })
+
+  it('保存した中身が壊れていたら、黙って空にせず投げる', async () => {
+    const theme = await open('配信中にAIをどこまで使っていい？')
+    await closeTheme(db, theme.id, LATER)
+    db.sqlite.prepare("INSERT INTO opinion_summaries (theme_id, agreements, disagreements, open_questions, created_at) VALUES (?, 'x', '[]', '[]', 'now')").run(theme.id)
+
+    await expect(readThemeSummary(db, theme.id)).rejects.toThrow('まとめ')
   })
 })
 

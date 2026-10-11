@@ -11,6 +11,9 @@
  * - 管理画面から、意見にならなかったコメントを下書きを見て新しい意見にし・既にある意見に統合し、論点の名前を書き換え・2つの論点を
  *   まとめられること。食い違い（救い出せないコメント・無い論点・重なる名前・上限）を見分けて返すこと（issue #308）
  *
+ * - テーマを締め切ったら、応答のあとに配信後のまとめを LLM に作らせて保存し、まとめが作れなくても締め切りは取り消さず失敗を記録すること。
+ *   管理画面から、締め切ったテーマのまとめを作り直させられること（issue #309）
+ *
  * 読み書きの中身は worker/opinion-store.test.ts、振り分けの中身は worker/opinion-run.test.ts が確かめるので、ここでは経路の受け渡しだけを見る。
  */
 import { describe, expect, it } from 'vitest'
@@ -28,7 +31,7 @@ import { createTimerInstances } from './fake-timer-instances'
 import { createFakeTokenVault } from './fake-token-vault'
 import { handleRequest, type Env } from './index'
 import { MAX_THEME_LENGTH } from './opinion'
-import { applySorting, openTheme, readAdminBoard, readOpenTheme, readPendingComments, readSortingBoard, recordOpinionComment, saveThemePrompt } from './opinion-store'
+import { applySorting, closeTheme, openTheme, readAdminBoard, readOpenTheme, readPendingComments, readSortingBoard, readThemeSummary, recordOpinionComment, saveThemePrompt } from './opinion-store'
 import { OPINION_SORT_INTERVAL_MS } from './opinion-timer'
 import { createSessionToken } from './session'
 
@@ -71,15 +74,24 @@ const setupEnv = (failPush = false) => {
   return { env, channel, timers }
 }
 
+/** setupEnv が作る環境（テスト用のD1を直接読めるよう、Env ではなくこの型で受け取る） */
+type TestEnv = ReturnType<typeof setupEnv>['env']
+
 const callHandler = (request: Request, env: Env) =>
   handleRequest(request, env, {
     fetch: noTwitchFetch,
     now: () => NOW,
     wait: async () => {},
-    waitUntil: () => {
-      throw new Error('このテストでは、応答のあとに続く処理を使いません')
+    waitUntil: (promise) => {
+      deferred.push(promise)
     },
   })
+
+/** 応答のあとに続けるよう預けられた処理（テーマを締め切ったあとのまとめ）。settleDeferred で終わりを待つ */
+const deferred: Promise<unknown>[] = []
+const settleDeferred = async (): Promise<void> => {
+  await Promise.all(deferred.splice(0))
+}
 
 /** 配信者としてログインした状態で呼ぶ。書き換えのときは Origin も付ける（ブラウザが付けるのと同じ） */
 const callAsBroadcaster = async (env: Env, path: string, init: RequestInit = {}): Promise<Response> => {
@@ -248,10 +260,131 @@ describe('POST /api/admin/opinions/themes/:id/close', () => {
     expect(channel.pushedOpinions.at(-1)?.theme?.closedAt).toBe(new Date(NOW).toISOString())
   })
 
+  describe('配信後のまとめ', () => {
+    const SUMMARY_RESPONSE = JSON.stringify({
+      agreements: ['初見への挨拶ならAIでもよい'],
+      disagreements: ['コメ返しをAIに任せるかは意見が分かれた'],
+      openQuestions: ['AIの使用料はどこまで払うか'],
+    })
+
+    const failureCodes = (env: TestEnv): unknown[] => env.DB.sqlite.prepare('SELECT code FROM collection_failures').all().map((row) => row.code)
+
+    it('応答のあとに、意見から配信後のまとめを作って保存する', async () => {
+      const { env } = setupEnv()
+      env.AI = createFakeWorkersAi({ response: SUMMARY_RESPONSE })
+      const { theme } = await prepareOpinion(env.DB)
+
+      const response = await closeThemeRoute(env, theme.id)
+      await settleDeferred()
+
+      expect(response.status).toBe(200)
+      expect(await readThemeSummary(env.DB, theme.id)).toMatchObject({ agreements: ['初見への挨拶ならAIでもよい'], openQuestions: ['AIの使用料はどこまで払うか'] })
+      // 材料に意見を渡し、指示ではなく材料だと伝える
+      expect(JSON.stringify(env.AI.calls[0]?.input)).toContain('AIの返事は寂しい')
+    })
+
+    it('意見が1件も無ければ LLM を呼ばず、失敗にもしない', async () => {
+      const { env } = setupEnv()
+      env.AI = createFakeWorkersAi({ response: SUMMARY_RESPONSE })
+      const opened = (await (await postTheme(env, { title: '配信中にAIをどこまで使っていい？' })).json()) as { theme: { id: number } }
+
+      await closeThemeRoute(env, opened.theme.id)
+      await settleDeferred()
+
+      expect(env.AI.calls).toEqual([])
+      expect(await readThemeSummary(env.DB, opened.theme.id)).toBeNull()
+      expect(failureCodes(env)).toEqual([])
+    })
+
+    it('まとめが照合を通らなくても、締め切りは取り消さず失敗を記録する', async () => {
+      const { env } = setupEnv()
+      env.AI = createFakeWorkersAi({ response: '意見は割れました' })
+      const { theme } = await prepareOpinion(env.DB)
+
+      const response = await closeThemeRoute(env, theme.id)
+      await settleDeferred()
+
+      expect(response.status).toBe(200)
+      expect(await readThemeSummary(env.DB, theme.id)).toBeNull()
+      expect(failureCodes(env)).toEqual(['opinion-summary-failed'])
+    })
+
+    it('LLM が失敗しても、締め切りは取り消さず失敗を記録する', async () => {
+      const { env } = setupEnv()
+      env.AI = createFakeWorkersAi({ shouldFail: true })
+      const { theme } = await prepareOpinion(env.DB)
+
+      expect((await closeThemeRoute(env, theme.id)).status).toBe(200)
+      await settleDeferred()
+
+      expect(failureCodes(env)).toEqual(['opinion-summary-failed'])
+    })
+  })
+
   it('開いていないテーマなら404にする', async () => {
     const { env } = setupEnv()
     expect((await closeThemeRoute(env, 99)).status).toBe(404)
     expect((await closeThemeRoute(env, 'abc')).status).toBe(404)
+  })
+})
+
+describe('POST /api/admin/opinions/themes/:id/summary', () => {
+  const SUMMARY_RESPONSE = JSON.stringify({ agreements: ['初見への挨拶ならAIでもよい'], disagreements: [], openQuestions: [] })
+  const remakeSummary = (env: Env, id: number | string) => callAsBroadcaster(env, `/api/admin/opinions/themes/${id}/summary`, { method: 'POST' })
+
+  /** 意見のあるテーマを作って締め切る（締め切りに続くまとめは、ここでは作らせない） */
+  const prepareClosedTheme = async (env: TestEnv) => {
+    const { theme } = await prepareOpinion(env.DB)
+    await closeTheme(env.DB, theme.id, NOW)
+    return theme
+  }
+
+  it('締め切ったテーマのまとめを作り直して保存し、返す', async () => {
+    const { env } = setupEnv()
+    env.AI = createFakeWorkersAi({ response: SUMMARY_RESPONSE })
+    const theme = await prepareClosedTheme(env)
+
+    const response = await remakeSummary(env, theme.id)
+
+    expect(response.status).toBe(200)
+    const expected = { agreements: ['初見への挨拶ならAIでもよい'], disagreements: [], openQuestions: [], createdAt: new Date(NOW).toISOString() }
+    expect(await response.json()).toEqual({ summary: expected })
+    expect(await readThemeSummary(env.DB, theme.id)).toEqual(expected)
+  })
+
+  it('開いているテーマ・最後ではないテーマ・IDでないものは404にする', async () => {
+    const { env } = setupEnv()
+    const { theme } = await prepareOpinion(env.DB)
+
+    expect((await remakeSummary(env, theme.id)).status).toBe(404)
+    expect((await remakeSummary(env, 99)).status).toBe(404)
+    expect((await remakeSummary(env, 'abc')).status).toBe(404)
+  })
+
+  it('意見が1件も無ければ409にする', async () => {
+    const { env } = setupEnv()
+    const theme = await openTheme(env.DB, '配信中にAIをどこまで使っていい？', NOW)
+    await closeTheme(env.DB, theme?.id ?? 0, NOW)
+
+    const response = await remakeSummary(env, theme?.id ?? 0)
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toMatchObject({ error: { code: 'opinion-summary-empty' } })
+  })
+
+  it('まとめを作れなければ、前のまとめを残して502にし、失敗を記録する', async () => {
+    const { env } = setupEnv()
+    env.AI = createFakeWorkersAi({ response: SUMMARY_RESPONSE })
+    const theme = await prepareClosedTheme(env)
+    await remakeSummary(env, theme.id)
+    env.AI = createFakeWorkersAi({ response: '意見は割れました' })
+
+    const response = await remakeSummary(env, theme.id)
+
+    expect(response.status).toBe(502)
+    expect(await response.json()).toMatchObject({ error: { code: 'opinion-summary-failed' } })
+    expect((await readThemeSummary(env.DB, theme.id))?.agreements).toEqual(['初見への挨拶ならAIでもよい'])
+    expect(env.DB.sqlite.prepare('SELECT code FROM collection_failures').all().map((row) => row.code)).toEqual(['opinion-summary-failed'])
   })
 })
 
