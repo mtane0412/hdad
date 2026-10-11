@@ -14,6 +14,7 @@
  * 倒れ込むまでの姿勢は、その時刻の手足の位置から IK で解いた姿勢（pose.ts）を目標にし、2人の体のめり込みを押し出して求める。
  * 押し出しは前のコマの結果から続けて解く（physics.ts の relaxFollowing）ので、倒れ込みと同じく対戦を作るときに1コマずつ記録し、
  * 再生ではその記録を経過時間で引く（bakeStanding）。毎コマ押し出し直すと、関節が相手の骨の中心線をまたぐたびに姿勢が飛ぶためである。
+ * 手足を運ぶ経路は、いまの弧で運んで関節が速く動いたり運び終えるのが遅れたりしたら、経路の候補（path.ts）を記録し直して選ぶ（bakeStanding）。
  * 裏返る指示（plan.ts の flip）では、手を運ぶ進み具合に合わせて体を背骨のまわりに回し、うつ伏せから仰向けへ裏返す（運ぶ手の側が上がる）。
  * 裏返った人は、その対戦のあいだ仰向けのまま解く。
  * 2人の胴が上から見て近づいたら、片方を下にして伏せさせ、もう片方がその上に重なるようにする（stackingAt）。
@@ -37,8 +38,9 @@ import {
   type Touchdown,
 } from './physics'
 import { PLAYER_FACINGS, PLAYER_INDEXES, opponentOf, type PlayerIndex } from './players'
+import { PATH_SHAPES, easeInOut, pointOnPath, shapedPath, windowScore, type Landing, type LimbPath } from './path'
 import { contactsOf, restingOn, solvePose, type Contacts, type Posture } from './pose'
-import { UP, add, flat, length, lerp, normalize, scale, sub, type Vec3 } from './vec'
+import { add, distance, flat, length, normalize, scale, sub, type Vec3 } from './vec'
 
 /** 登場の長さ（ミリ秒） */
 export const INTRO_MS = 3000
@@ -70,9 +72,9 @@ export const RESULT_MS = 5500
 const LANDING_STEP = 0.04
 /** 倒れはじめるまでの姿勢を記録する間隔の目安（ミリ秒）。60fps の1コマ。実際の間隔は、倒れはじめる時刻をちょうど割り切る長さにする */
 const STANDING_FRAME_MS = 1000 / 60
-/** 手足を運ぶときに持ち上げる高さ（m） */
+/** 手足を運ぶときに持ち上げる高さ（m）。経路の候補（path.ts の PATH_SHAPES）の高さはこれに足す */
 const MOVE_ARC_HEIGHT = 0.25
-/** 最後の指示で手足を伸ばすときに持ち上げる高さ（m） */
+/** 最後の指示で手足を伸ばすときに持ち上げる高さ（m）。経路の候補の高さはこれに足す */
 const REACH_ARC_HEIGHT = 0.15
 
 /** 1回の対戦（種から決まり、再生のあいだ変わらない） */
@@ -91,6 +93,8 @@ export interface Game {
   readonly under: PlayerIndex | null
   /** 先に計算した、倒れはじめるまでの姿勢（bakeStanding） */
   readonly standing: StandingRecord
+  /** 指示ごとに選んだ、手足を運ぶ経路（plan.moves の順に並び、最後に最後の指示の経路が続く。bakeStanding が選ぶ） */
+  readonly paths: readonly LimbPath[]
 }
 
 /** 倒れはじめるまでの姿勢の記録 */
@@ -144,16 +148,7 @@ export interface GameScene {
   readonly done: boolean
 }
 
-/** ゆっくり動きだし、ゆっくり止まる（0〜1 → 0〜1） */
-const easeInOut = (progress: number): number => (progress < 0.5 ? 2 * progress * progress : 1 - (-2 * progress + 2) ** 2 / 2)
-
 const clampProgress = (elapsedMs: number, spanMs: number): number => Math.min(Math.max(elapsedMs / spanMs, 0), 1)
-
-/** 手足を from から to へ、弧を描いて運ぶ途中の位置 */
-const arcBetween = (from: Vec3, to: Vec3, progress: number, height: number): Vec3 => {
-  const eased = easeInOut(progress)
-  return add(lerp(from, to, eased), scale(UP, height * Math.sin(Math.PI * eased)))
-}
 
 /** i 回目（0から）の指示の速さ。最後の指示も、絡ませる指示の続きの番号で決める */
 export const paceOf = (index: number): TurnPace => (index < SLOW_TURN_COUNT ? SLOW_PACE : FAST_PACE)
@@ -180,32 +175,44 @@ interface Motion {
 /** 倒れ込むまでの時刻に運んでいる途中の手足（運んでいなければ null） */
 type StandingMoving = { readonly player: PlayerIndex; readonly limb: Limb } | null
 
-/** 倒れ込むまでの時刻の、終えた指示と動かしている途中の手足 */
-const motionAt = (plan: Plan, elapsedMs: number): { done: readonly Move[]; motion: Motion | null } => {
+/**
+ * 指示ごと（最後の指示を含む）の、いまの弧（path.ts の PATH_SHAPES の先頭の形）。
+ * 裏返る指示は FLIP_ARC_HEIGHT の弧で運ぶ（plan.ts が、その弧の頂点で体を半分回した姿勢（flipMidPose）を見て、
+ * 裏返る指示として成り立つかを決めているため、ほかの経路の候補も試さない）
+ */
+const basePathsOf = (plan: Plan): readonly LimbPath[] =>
+  [...plan.moves, plan.finalMove].map((move, index) => {
+    const before = placementsAfter(plan.moves.slice(0, index))
+    const height = move.flip ? FLIP_ARC_HEIGHT : index === plan.moves.length ? REACH_ARC_HEIGHT : MOVE_ARC_HEIGHT
+    return { from: restingOn(before[move.player][move.limb], move.limb), to: restingOn(move.spot, move.limb), height, swing: 0 }
+  })
+
+/** i 番目（0から。最後の指示は plan.moves の数）の経路。無ければ計算の誤りとして投げる */
+const pathAt = (paths: readonly LimbPath[], index: number): LimbPath => {
+  const path = paths[index]
+  if (path === undefined) throw new Error(`${index + 1}回目の指示の経路がありません`)
+  return path
+}
+
+/** 倒れ込むまでの時刻の、終えた指示と動かしている途中の手足（手足は paths の経路の上を運ぶ） */
+const motionAt = (plan: Plan, paths: readonly LimbPath[], elapsedMs: number): { done: readonly Move[]; motion: Motion | null } => {
   const { moves, finalMove } = plan
   const doneCount = moves.filter((_, index) => elapsedMs >= spinStartOf(index + 1)).length
   const done = moves.slice(0, doneCount)
-  const before = placementsAfter(done)
   const moving = moves[doneCount]
   if (moving !== undefined) {
     const pace = paceOf(doneCount)
     const moveStart = spinStartOf(doneCount) + pace.spinMs
     if (elapsedMs < moveStart) return { done, motion: null }
-    const from = restingOn(before[moving.player][moving.limb], moving.limb)
-    const to = restingOn(moving.spot, moving.limb)
     const progress = clampProgress(elapsedMs - moveStart, pace.moveMs)
-    const position = arcBetween(from, to, progress, moving.flip ? FLIP_ARC_HEIGHT : MOVE_ARC_HEIGHT)
+    const position = pointOnPath(pathAt(paths, doneCount), progress)
     return { done, motion: { player: moving.player, limb: moving.limb, position, supine: moving.flip ? easeInOut(progress) : null } }
   }
   // 絡ませる指示を終えたら、最後の指示で届かない円へ手足を伸ばす
   const reachStart = spinStartOf(moves.length) + paceOf(moves.length).spinMs
   if (elapsedMs < reachStart) return { done, motion: null }
-  const from = restingOn(before[finalMove.player][finalMove.limb], finalMove.limb)
-  const to = restingOn(finalMove.spot, finalMove.limb)
-  return {
-    done,
-    motion: { player: finalMove.player, limb: finalMove.limb, position: arcBetween(from, to, clampProgress(elapsedMs - reachStart, REACH_MS), REACH_ARC_HEIGHT), supine: null },
-  }
+  const position = pointOnPath(pathAt(paths, moves.length), clampProgress(elapsedMs - reachStart, REACH_MS))
+  return { done, motion: { player: finalMove.player, limb: finalMove.limb, position, supine: null } }
 }
 
 /** 姿勢の手足の先を、そのまま留める位置にする（めり込みを押し出すときに手足を動かさない） */
@@ -243,10 +250,11 @@ const underOf = (plan: Plan): PlayerIndex | null => {
  */
 const standingTargetAt = (
   plan: Plan,
+  paths: readonly LimbPath[],
   under: PlayerIndex | null,
   elapsedMs: number,
 ): { target: PosePair; stacking: Stacking | null; moving: StandingMoving } => {
-  const { done, motion } = motionAt(plan, elapsedMs)
+  const { done, motion } = motionAt(plan, paths, elapsedMs)
   const placements = placementsAfter(done)
   const contactsFor = (player: PlayerIndex): Contacts => {
     const contacts = contactsOf(placements[player])
@@ -313,28 +321,38 @@ const samePosePair = (a: PosePair, b: PosePair): boolean =>
 const sameMoving = (a: StandingMoving, b: StandingMoving): boolean =>
   a === null || b === null ? a === b : a.player === b.player && a.limb === b.limb
 
+/** 記録を続けるのに要る、直前のコマの状態 */
+interface BakeState {
+  /** 直前のコマで記録した姿勢 */
+  readonly poses: PosePair
+  /** 直前のコマの目標の姿勢と、運んでいた手足 */
+  readonly target: PosePair
+  readonly moving: StandingMoving
+  /** 直前のコマで、押し出しても姿勢が動かなかったか */
+  readonly settled: boolean
+}
+
 /**
- * 倒れはじめるまでの姿勢を、1コマずつ記録する。
- *
- * 先頭のコマは目標の姿勢からめり込みを押し出し、それより後のコマは前のコマの結果から目標を追いかけて押し出す（relaxFollowing）。
- * 記録の間隔は STANDING_FRAME_MS を目安に、倒れはじめる時刻をちょうど割り切る長さにする（最後のコマが倒れはじめの姿勢になる）。
+ * from 番目から to 番目（どちらも含む）のコマを、直前のコマの状態から続けて記録し、frames に足す。
  *
  * 押し出しが落ち着いた（前のコマの姿勢から押し出しても1ビットも動かなかった）あと、目標の姿勢と運んでいる手足が前のコマと
  * まったく同じあいだは、押し出しを省いて前のコマの記録を使い回す（#325）。relaxFollowing は同じ入力から必ず同じ結果を返すので、
  * 省いても記録は変わらない。登場とスピナーを回すあいだ（手足を動かさない区間）が該当し、記録するコマの半分ほどを省ける。
+ *
+ * @returns to 番目のコマの状態
  */
-const bakeStanding = (plan: Plan, under: PlayerIndex | null, collapseStartMs: number): StandingRecord => {
-  const count = Math.ceil(collapseStartMs / STANDING_FRAME_MS)
-  const frameMs = collapseStartMs / count
-  const first = standingTargetAt(plan, under, 0)
-  let previous = relaxPoses(first.target, pinsOfPair(first.target, first.target, first.moving))
-  const frames: PosePair[] = [previous]
-  let previousTarget = first.target
-  let previousMoving = first.moving
-  // 前のコマで、押し出しても姿勢が動かなかったか
-  let settled = false
-  for (let index = 1; index <= count; index += 1) {
-    const { target, moving } = standingTargetAt(plan, under, index * frameMs)
+const bakeFrames = (
+  plan: Plan,
+  paths: readonly LimbPath[],
+  under: PlayerIndex | null,
+  frameMs: number,
+  state: BakeState,
+  range: { readonly from: number; readonly to: number },
+  frames: PosePair[],
+): BakeState => {
+  let { poses: previous, target: previousTarget, moving: previousMoving, settled } = state
+  for (let index = range.from; index <= range.to; index += 1) {
+    const { target, moving } = standingTargetAt(plan, paths, under, index * frameMs)
     const unchanged = settled && sameMoving(moving, previousMoving) && samePosePair(target, previousTarget)
     if (!unchanged) {
       const next = relaxFollowing(previous, target, pinsOfPair(target, previous, moving))
@@ -345,14 +363,76 @@ const bakeStanding = (plan: Plan, under: PlayerIndex | null, collapseStartMs: nu
     previousMoving = moving
     frames.push(previous)
   }
-  return { frames, frameMs }
+  return { poses: previous, target: previousTarget, moving: previousMoving, settled }
+}
+
+/**
+ * 倒れはじめるまでの姿勢を1コマずつ記録し、指示ごとに手足を運ぶ経路を選ぶ。
+ *
+ * 先頭のコマは目標の姿勢からめり込みを押し出し、それより後のコマは前のコマの結果から目標を追いかけて押し出す（relaxFollowing）。
+ * 記録の間隔は STANDING_FRAME_MS を目安に、倒れはじめる時刻をちょうど割り切る長さにする（最後のコマが倒れはじめの姿勢になる）。
+ *
+ * 手足を運ぶ区間（運びはじめから、次の指示のスピナーの針が止まるまで。最後の指示は倒れはじめるまで）では、まずいまの弧で運んで記録する。
+ * 関節が速く動いたか運び終えるのが遅れたら、経路の候補（path.ts の PATH_SHAPES）を順に、同じ直前の状態から記録し直し、
+ * 悪さ（path.ts の windowScore。骨どうしの突き抜けも数える）がいちばん小さい経路の記録を残す（同点なら先の候補）。
+ * 関節が速く動かず遅れもしない候補が見つかったら、残りの候補は試さない（対戦を作る時間を抑えるため）。
+ * 候補の順と比べ方は決まっていて乱数を使わないので、記録は種だけから決まる。裏返る指示はいまの弧のまま運ぶ（basePathsOf）。
+ */
+const bakeStanding = (plan: Plan, under: PlayerIndex | null, collapseStartMs: number): { record: StandingRecord; paths: readonly LimbPath[] } => {
+  const count = Math.ceil(collapseStartMs / STANDING_FRAME_MS)
+  const frameMs = collapseStartMs / count
+  const paths = [...basePathsOf(plan)]
+  const first = standingTargetAt(plan, paths, under, 0)
+  const firstPoses = relaxPoses(first.target, pinsOfPair(first.target, first.target, first.moving))
+  const frames: PosePair[] = [firstPoses]
+  let state: BakeState = { poses: firstPoses, target: first.target, moving: first.moving, settled: false }
+  let next = 1
+  const moves = [...plan.moves, plan.finalMove]
+  moves.forEach((move, index) => {
+    const final = index === plan.moves.length
+    // 運ぶ区間のコマの範囲と、運び終えた時刻のコマ
+    const startFrame = Math.ceil((spinStartOf(index) + paceOf(index).spinMs) / frameMs)
+    const endFrame = final ? count : Math.min(Math.floor((spinStartOf(index + 1) + paceOf(index + 1).turnMs) / frameMs), count)
+    const landedFrame = Math.floor(spinStartOf(index + 1) / frameMs)
+    if (next < startFrame) {
+      state = bakeFrames(plan, paths, under, frameMs, state, { from: next, to: startFrame - 1 }, frames)
+      next = startFrame
+    }
+    const landing: Landing | null = final ? null : { frame: landedFrame - next, gapOf: (poses) => distance(poses[move.player][move.limb], restingOn(move.spot, move.limb)) }
+    const tryPath = (path: LimbPath): { path: LimbPath; window: PosePair[]; end: BakeState } => {
+      const window: PosePair[] = []
+      const trial = paths.map((original, at) => (at === index ? path : original))
+      return { path, window, end: bakeFrames(plan, trial, under, frameMs, state, { from: next, to: endFrame }, window) }
+    }
+    const base = tryPath(pathAt(paths, index))
+    let chosen = base
+    if (!move.flip && !windowScore(state.poses, base.window, landing, false).clean) {
+      let bestCost = windowScore(state.poses, base.window, landing, true).cost
+      for (const shape of PATH_SHAPES.slice(1)) {
+        const candidate = tryPath(shapedPath(pathAt(paths, index), shape))
+        const score = windowScore(state.poses, candidate.window, landing, true)
+        if (score.cost < bestCost) {
+          bestCost = score.cost
+          chosen = candidate
+        }
+        // 関節が速く動かず遅れもしない候補が見つかれば、残りの候補は試さない
+        if (score.clean) break
+      }
+    }
+    paths[index] = chosen.path
+    frames.push(...chosen.window)
+    state = chosen.end
+    next = endFrame + 1
+  })
+  if (next <= count) bakeFrames(plan, paths, under, frameMs, state, { from: next, to: count }, frames)
+  return { record: { frames, frameMs }, paths }
 }
 
 /**
  * 倒れはじめるまでの時刻の、胴が重なったときの上下。胴が離れていれば null。倒れはじめた後は扱わない（null）。
  */
 export const stackingAt = (game: Game, elapsedMs: number): Stacking | null =>
-  elapsedMs >= game.collapseStartMs ? null : standingTargetAt(game.plan, game.under, elapsedMs).stacking
+  elapsedMs >= game.collapseStartMs ? null : standingTargetAt(game.plan, game.paths, game.under, elapsedMs).stacking
 
 /**
  * 種から1回の対戦を作る（指示を決め、倒れ込みを先に計算する）。
@@ -363,7 +443,7 @@ export const createGame = (seed: number): Game => {
   const plan = planGame(createRandom(seed))
   const under = underOf(plan)
   const collapseStartMs = spinStartOf(plan.moves.length) + paceOf(plan.moves.length).spinMs + REACH_MS
-  const standing = bakeStanding(plan, under, collapseStartMs)
+  const { record: standing, paths } = bakeStanding(plan, under, collapseStartMs)
   const poses = recordedPosesAt(standing.frames, standing.frameMs, collapseStartMs)
   const previous = recordedPosesAt(standing.frames, standing.frameMs, collapseStartMs - PHYSICS_STEP_MS)
   const { player, limb, spot } = plan.finalMove
@@ -371,7 +451,7 @@ export const createGame = (seed: number): Game => {
   const push = normalize(flat(sub(restingOn(spot, limb), poses[player][LIMB_CHAINS[limb].root])), PLAYER_FACINGS[player])
   const collapse = bakeCollapse({ poses, previous, pins: [pinsOf(poses[0]), pinsOf(poses[1])], faller: player, push })
   const collapseMs = ((collapse.frames.length - 1) * COLLAPSE_FRAME_MS) / COLLAPSE_PLAYBACK_RATE
-  return { seed, plan, collapse, collapseStartMs, touchdown: collapse.touchdown, totalMs: collapseStartMs + collapseMs + RESULT_MS, under, standing }
+  return { seed, plan, collapse, collapseStartMs, touchdown: collapse.touchdown, totalMs: collapseStartMs + collapseMs + RESULT_MS, under, standing, paths }
 }
 
 /** スピナーを出す場面なら、その指示 */

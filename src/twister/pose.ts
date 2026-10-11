@@ -15,7 +15,8 @@
  * 8. 肘・膝は二関節の IK で曲げる。うつ伏せでは肘は後ろ外へ、膝は前上へ、仰向けでは肘は頭の側へ、膝は足の側へ曲げる
  *    （ひじ・ひざがマットに着いて負けにならないように）。裏返る途中は横と上へ逃がす
  *
- * 届かない位置を指された手足は、伸びきった位置で止まる（指された円の上に浮かない）。
+ * 届かない位置を指された手足は、伸びきった位置で止まる（指された円の上に浮かない）。付け根に近すぎる位置を指された手足は、
+ * 付け根から body.ts の minSpan だけ離れた位置で止まる（物理が許す折りたたみと合わせる）。
  * 相手の体とのめり込みはここでは扱わない（physics.ts の relaxPoses が押し出す）。
  */
 import { HEAD_FORWARD, HEAD_UP, HIP_HALF, JOINT_RADII, LIMB_CHAINS, LIMBS, SHOULDER_HALF, TORSO, poseFrom, type Joint, type Limb, type Pose } from './body'
@@ -86,13 +87,14 @@ const anyPerpendicular = (dir: Vec3): Vec3 => normalize(cross(dir, UP), normaliz
  * 二関節の IK。付け根から先までを、上・下の骨の長さを保って結ぶ。
  *
  * @param pole 中間の関節を曲げる向きの目安（付け根→先の向きに垂直な成分だけを使う）
- * @returns 中間の関節と先の位置。先は届かなければ伸びきった位置になる
+ * @param minSpan 付け根と先を近づけてよい距離の下限（m）。物理（physics.ts）が許す距離に合わせる
+ * @returns 中間の関節と先の位置。先は届かなければ伸びきった位置、近すぎれば付け根から minSpan 離れた位置になる
  */
-export const solveTwoBone = (root: Vec3, target: Vec3, upper: number, lower: number, pole: Vec3): { middle: Vec3; end: Vec3 } => {
+export const solveTwoBone = (root: Vec3, target: Vec3, upper: number, lower: number, pole: Vec3, minSpan = 0): { middle: Vec3; end: Vec3 } => {
   const toTarget = sub(target, root)
   const dir = normalize(toTarget, anyPerpendicular(pole))
-  // 届かない・近すぎるときは、骨の長さで作れる範囲に収める（伸びきり・折りたたみ）
-  const reach = Math.min(Math.max(length(toTarget), Math.abs(upper - lower) + 1e-4), upper + lower - 1e-9)
+  // 届かない・近すぎるときは、骨の長さと下限で作れる範囲に収める（伸びきり・折りたたみ）
+  const reach = Math.min(Math.max(length(toTarget), Math.abs(upper - lower) + 1e-4, minSpan), upper + lower - 1e-9)
   // 余弦定理で、付け根での曲げの角度を求める
   const cosAngle = Math.min(1, Math.max(-1, (upper * upper + reach * reach - lower * lower) / (2 * upper * reach)))
   const sinAngle = Math.sqrt(1 - cosAngle * cosAngle)
@@ -308,7 +310,7 @@ export const solvePose = (contacts: Contacts, facing: Vec3, posture: Posture = {
       : add(add(scale(forward, KNEE_FORWARD * turn), scale(outward, KNEE_OUT * turn + POLE_SWING_OUT * swing)), scale(UP, KNEE_UP + POLE_SWING_UP * swing))
     const root = joints[chain.root]
     if (root === undefined) throw new Error(`${chain.root} の位置が決まっていません`)
-    const { middle, end } = solveTwoBone(root, contacts[limb], chain.upper, chain.lower, pole)
+    const { middle, end } = solveTwoBone(root, contacts[limb], chain.upper, chain.lower, pole, chain.minSpan)
     joints[chain.middle] = middle
     joints[limb] = end
   }

@@ -49,6 +49,18 @@ describe('solvePose', () => {
     expect(distance(pose.handR, farAway.handR)).toBeGreaterThan(1)
   })
 
+  it('手足の先を付け根のすぐ近くへ寄せても、付け根と先は物理が許す距離（minSpan）より近づかない', () => {
+    // 手を肩のすぐ横へ持ち上げる（運ぶ途中の手が肩の近くを通る場面）。物理（physics.ts）は肩と手を minSpan より近づけないので、
+    // IK も同じ距離で止めないと、目標の姿勢と押し出した姿勢が食い違う
+    const pose = solvePose(raiderContacts, PLAYER_FACINGS[0])
+    for (const limb of LIMBS) {
+      const chain = LIMB_CHAINS[limb]
+      const nearRoot = add(pose[chain.root], vec(0.02, -0.02, 0))
+      const folded = solvePose({ ...raiderContacts, [limb]: nearRoot }, PLAYER_FACINGS[0])
+      expect(distance(folded[chain.root], folded[limb]), limb).toBeGreaterThanOrEqual(chain.minSpan - 1e-6)
+    }
+  })
+
   it('手を胸の下へ寄せても、胴の長さは変わらず向きが決まる', () => {
     const tucked: Contacts = { ...raiderContacts, handL: raiderContacts.footL, handR: raiderContacts.footR }
     const pose = solvePose(tucked, PLAYER_FACINGS[0])
