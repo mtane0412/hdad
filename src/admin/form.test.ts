@@ -131,7 +131,7 @@ describe('menuGroups', () => {
     // 「すべての発言」は挨拶と同時に動くので、挨拶のあとに置いて別のものだと分かるようにする
     const chat = menuGroups[0]?.items.map((item) => item.kind)
 
-    expect(chat).toEqual(['newViewer', 'comeback', 'welcome', 'everyMessage', 'keyword', 'fromUser'])
+    expect(chat).toEqual(['newViewer', 'comeback', 'welcome', 'everyMessage', 'keyword', 'fromUser', 'fromUserFirstOfStream'])
   })
 
   it('挨拶が排他であることを、区分の説明で知らせる', () => {
@@ -143,12 +143,13 @@ describe('menuGroups', () => {
     // （「どちらでも」の行と「自動だけ」の行が並ぶと、同じ重複の分かりにくさが戻ってしまう）
     const allowsMultiple = menuGroups.flatMap((group) => group.items.filter((item) => item.multiple).map((item) => item.kind))
 
-    expect([...allowsMultiple].sort()).toEqual(['fromUser', 'keyword', 'reward'])
+    expect([...allowsMultiple].sort()).toEqual(['fromUser', 'fromUserFirstOfStream', 'keyword', 'reward'])
   })
 
   it('メニュー項目には日本語の名前が付く', () => {
     expect(menuLabel('newViewer')).toBe('初めて来た人の発言')
     expect(menuLabel('adBreakEnd')).toBe('広告が終わった')
+    expect(menuLabel('fromUserFirstOfStream')).toBe('決まった人のその配信で最初の発言')
   })
 })
 
@@ -183,6 +184,10 @@ describe('toTriggerInput', () => {
 
   it('決まった人が発言したメニュー項目は、ユーザー名を送る', () => {
     expect(toTriggerInput(inputs({ kind: 'fromUser', login: 'tanenobu' }))).toMatchObject({ kind: 'fromUser', login: 'tanenobu' })
+  })
+
+  it('決まった人のその配信で最初の発言のメニュー項目は、ユーザー名を送る', () => {
+    expect(toTriggerInput(inputs({ kind: 'fromUserFirstOfStream', login: 'tanenobu' }))).toMatchObject({ kind: 'fromUserFirstOfStream', login: 'tanenobu' })
   })
 
   it('決まった言葉を含む発言のメニュー項目は、言葉を送る', () => {
@@ -598,6 +603,10 @@ describe('rowParamSummary', () => {
 
   it('決まった人が発言した行は、ユーザー名を出す', () => {
     expect(rowParamSummary(inputs({ kind: 'fromUser', login: 'tanenobu' }), [])).toBe('tanenobu')
+  })
+
+  it('決まった人のその配信で最初の発言の行も、ユーザー名を出す', () => {
+    expect(rowParamSummary(inputs({ kind: 'fromUserFirstOfStream', login: 'tanenobu' }), [])).toBe('tanenobu')
   })
 
   it('決まった言葉を含む発言の行は、その言葉を出す', () => {

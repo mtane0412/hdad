@@ -4,13 +4,13 @@
 
 **イベント種別と条件を自由に組み合わせる形は採らない。** このツールは Firebot のような汎用ノーコードを目指していないためで、組み合わせを画面で組み立てさせると、「初見さんに反応したい」だけでも2段の手順が要り、意味を持たない組み合わせも作れてしまう。
 
-メニュー項目は15種類（`worker/trigger-menu.ts` の `TRIGGER_KINDS`）で、`newViewer`（初めて来た人の発言）・`comeback`（`days` 日以上空いた人の発言。1〜365の整数）・`welcome`（その配信で最初の発言）・`everyMessage`（すべての発言）・`keyword`（`contains`。大文字小文字を区別しない部分一致）・`fromUser`（`login`。大文字小文字を区別しない）・`reward`（`rewardId`。`null` はすべての報酬）・`follow`・`subscribe`・`resubscribe`・`raid`・`adBreakBegin`／`adBreakEnd`（`automatic`。`null` は自動・手動のどちらでも）・`commitPushed`・`pullRequestMerged`（GitHub の Webhook から届く開発の出来事。[GitHub の Webhook](github-webhook.md)）である。
+メニュー項目は18種類（`worker/trigger-menu.ts` の `TRIGGER_KINDS`）で、`newViewer`（初めて来た人の発言）・`comeback`（`days` 日以上空いた人の発言。1〜365の整数）・`welcome`（その配信で最初の発言）・`everyMessage`（すべての発言）・`keyword`（`contains`。大文字小文字を区別しない部分一致）・`fromUser`（`login`。大文字小文字を区別しない）・`fromUserFirstOfStream`（`login`。その人のその配信で最初の発言）・`reward`（`rewardId`。`null` はすべての報酬）・`follow`・`subscribe`・`resubscribe`・`raid`・`adBreakBegin`／`adBreakEnd`（`automatic`。`null` は自動・手動のどちらでも）・`commitPushed`・`pullRequestMerged`（GitHub の Webhook から届く開発の出来事。[GitHub の Webhook](github-webhook.md)）・`pomodoroWorkBegin`・`pomodoroBreakBegin` である。
 
 ## 挨拶は排他にする
 
 **最初の3つは「挨拶」（`GREETING_KINDS`）で、1通の発言に当てはまるのは最も細かい1つだけである**（`alert-event.ts` の `applyGreetingRule`）。初めて来た人の発言は必ず「その配信で最初の発言」でもあり、久しぶりの人の発言もそうなので、すべて発動させると挨拶が二重・三重に飛ぶ。
 
-優先順位は `GREETING_KINDS` の並びで決め、保存されている並びには頼らない（KVを手で直しても挨拶が入れ替わらないため）。**`everyMessage` は挨拶に入れない**（読み上げや効果音は初めて来た人の発言でも鳴ってほしいため）。
+優先順位は `GREETING_KINDS` の並びで決め、保存されている並びには頼らない（KVを手で直しても挨拶が入れ替わらないため）。**`everyMessage` は挨拶に入れない**（読み上げや効果音は初めて来た人の発言でも鳴ってほしいため）。**`fromUserFirstOfStream` も挨拶に入れない**（その人だけに向けた演出は、ふつうの挨拶を打ち消さずに同時に動いてほしいため。挨拶に入れて最も細かい段にすると、その人にだけふつうの挨拶が飛ばなくなる）。
 
 挨拶の絞り込みは動作の種類をまたいで効かせる必要があるので、当てはまるトリガーを決めるのは動作の種類ごとではなく1回だけにしてある（`matchedTriggers`）。動作ごとに選ぶと、初めて来た人にAIチャット・その配信で最初の人にチャットを付けたときに両方送られてしまう。
 
@@ -20,7 +20,11 @@
 
 項目からイベント種別と条件への展開は `worker/trigger-menu.ts` の `expandSource`（`alert-config.ts` の `resolveTrigger` が動作を添えて `ResolvedTrigger` にする）だけが行い、**照合（`worker/alert-event.ts` の `matches`）と要否の判定は展開後の形しか見ない**。メニュー項目を増やしても照合を書き換えずに済み、「判定は `matches` だけが持つ」という約束も守れるためである。
 
-条件（`StoredCondition`）は展開の結果として内部にだけ現れ、1つのメニュー項目が持つ条件は0件か1件である。
+条件（`StoredCondition`）は展開の結果として内部にだけ現れ、1つのメニュー項目が持つ条件はほとんどが0件か1件である。2件持つのは `fromUserFirstOfStream`（`user` と `firstChatOfStream`）だけで、どちらも満たしたときだけ当てはまる（`matches` は条件を `every` で見る）。
+
+### 「決まった人のその配信で最初の発言」を項目として足した理由（issue #337）
+
+ジョーク演出「ペロペロ」（#337〜#340）を常連の来訪で出すために足した。`fromUser` は `user` だけ、`welcome` は `firstChatOfStream` だけに展開され、1行が持てる項目は1つなので、両方を満たす条件は作れなかった。`fromUser` に「初回だけ」の印を足す案もあったが、項目の意味がパラメータで変わると一覧の見出しから当てはまり方が読めなくなるので、項目を分けた（展開が条件を2件持つことは、照合が `every` で見るのでそのまま扱える。`requiresFirstChatOfStream` も展開後の条件を見るので変更は要らない）。
 
 ## 条件の状態（ConditionState）
 

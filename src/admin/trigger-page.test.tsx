@@ -627,6 +627,20 @@ describe('絞り込みのパラメータ', () => {
     expect(api.saveConfig).toHaveBeenCalledWith([{ kind: 'fromUser', login: 'yamada_hanako', actions: [{ type: 'chat', message: 'やあ' }] }])
   })
 
+  test('決まった人のその配信で最初の発言の設定は、ユーザー名を書き換えて保存できる', async () => {
+    const api = fakeApi({
+      config: async (): Promise<StoredTrigger[]> => [{ kind: 'fromUserFirstOfStream', login: 'tanenobu', actions: [{ type: 'chat', message: 'いらっしゃい' }] }],
+    })
+    render(triggerPage(api))
+
+    const row = await openedSettings('決まった人のその配信で最初の発言')
+    await userEvent.clear(row.getByLabelText('対象のユーザー名'))
+    await userEvent.type(row.getByLabelText('対象のユーザー名'), 'yamada_hanako')
+    await save()
+
+    expect(api.saveConfig).toHaveBeenCalledWith([{ kind: 'fromUserFirstOfStream', login: 'yamada_hanako', actions: [{ type: 'chat', message: 'いらっしゃい' }] }])
+  })
+
   test('決まった言葉を含む発言の設定は、言葉を書き換えて保存できる', async () => {
     const api = fakeApi({ config: async (): Promise<StoredTrigger[]> => [{ kind: 'keyword', contains: 'おはよう', actions: [{ type: 'chat', message: 'おはよう！' }] }] })
     render(triggerPage(api))

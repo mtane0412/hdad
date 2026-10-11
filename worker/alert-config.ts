@@ -273,7 +273,8 @@ const parseSource = (candidate: Record<string, unknown>, at: string, problems: s
       }
       return { kind, days }
     }
-    case 'fromUser': {
+    case 'fromUser':
+    case 'fromUserFirstOfStream': {
       const { login } = candidate
       if (!isStringWithin(login, 1, MAX_LOGIN_LENGTH)) {
         problems.push(`${at}.login: 1〜${MAX_LOGIN_LENGTH}文字のTwitchのユーザー名で指定してください`)

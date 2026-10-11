@@ -277,6 +277,18 @@ describe('parseAlertConfig', () => {
     expect(config.triggers[0]).toMatchObject({ kind: 'fromUser', login: 'tanenobu' })
   })
 
+  it('決まった人のその配信で最初の発言のメニュー項目は、ユーザー名を受け取る', () => {
+    const config = parseAlertConfig({ triggers: [{ kind: 'fromUserFirstOfStream', login: 'tanenobu', actions: [chatAction()] }] }, materialKind)
+
+    expect(config.triggers[0]).toMatchObject({ kind: 'fromUserFirstOfStream', login: 'tanenobu' })
+  })
+
+  it('決まった人のその配信で最初の発言で、ユーザー名が空文字なら拒否する', () => {
+    expect(() => parseAlertConfig({ triggers: [{ kind: 'fromUserFirstOfStream', login: '', actions: [chatAction()] }] }, materialKind)).toThrowError(
+      expect.objectContaining({ problems: ['triggers[0].login: 1〜25文字のTwitchのユーザー名で指定してください'] }),
+    )
+  })
+
   it('ユーザー名が空文字なら拒否する', () => {
     expect(() => parseAlertConfig({ triggers: [{ kind: 'fromUser', login: '', actions: [chatAction()] }] }, materialKind)).toThrowError(
       expect.objectContaining({ problems: ['triggers[0].login: 1〜25文字のTwitchのユーザー名で指定してください'] }),
