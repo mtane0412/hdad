@@ -7,7 +7,6 @@ import { JOINT_LABELS, LIMB_LABELS } from './body'
 import type { TwisterCall } from './call'
 import type { GameScene } from './game'
 import { COLOR_LABELS } from './mat'
-import { SPIN_TURN_MS } from './spinner'
 
 /** 場面ごとの文言。出さないものは null */
 export interface HudText {
@@ -38,10 +37,10 @@ export const hudTextOf = (scene: GameScene, call: TwisterCall): HudText => {
     return { ...EMPTY, headline: `${nameOf(winner)}の勝ち！`, detail: `${nameOf(loser)}の${JOINT_LABELS[joint]}がマットに着きました` }
   }
   if (scene.spin === null) return EMPTY
-  const { move, final, elapsedMs } = scene.spin
+  const { move, final, elapsedMs, turnMs } = scene.spin
   return {
     ...EMPTY,
     turn: `${nameOf(move.player)}の番${final ? '（最後の指示）' : ''}`,
-    instruction: elapsedMs >= SPIN_TURN_MS ? `${LIMB_LABELS[move.limb]}を${COLOR_LABELS[move.spot.color]}へ` : null,
+    instruction: elapsedMs >= turnMs ? `${LIMB_LABELS[move.limb]}を${COLOR_LABELS[move.spot.color]}へ` : null,
   }
 }

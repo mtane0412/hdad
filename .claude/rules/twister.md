@@ -15,7 +15,8 @@ paths:
 - 対戦は種だけから決まる。`src/twister/game.ts` の `createGame` が指示の並びを決め（`plan.ts`）、倒れ込みを物理で先に計算して記録する（`physics.ts` の `bakeCollapse`）。場面と姿勢は再生を始めてからの経過時間だけから求める（`gameSceneAt`）。乱数は `src/core/background.ts` の `createRandom` だけを使い、`Math.random` を使わない
 - 倒れ込むまでの姿勢は、その時刻の手足の位置から IK で解き（`pose.ts` の `solvePose`）、2人の体のめり込みを押し出して求める（`physics.ts` の `relaxPoses`。重力も速度も持たない）。倒れ込むまでは、手足の先のほかの部位をマットから `STANDING_CLEARANCE` だけ浮かせておく
 - 勝敗は「手足の先のほかの部位（`body.ts` の `LOSING_JOINTS`）が先にマットに着いた人の負け」で、`bakeCollapse` だけが決める。倒れる人の相手は、ぶつかられるか一定の時間が過ぎるまで体を支えている
-- 指示の選び方は `plan.ts` だけが持つ。絡ませる指示（2回か3回）は、空いていて届く円のうち相手の胴に近い円を優先し、最後の指示は届かない円を指す（純粋な乱数にしない）
+- 指示の選び方は `plan.ts` だけが持つ。絡ませる指示（5〜7回）は、空いていて届く円のうち相手の胴に近い円を優先し、最後の指示は届かない円を指す（純粋な乱数にしない）
+- 1手の長さは `game.ts` の `paceOf` だけが決める（はじめの2手はゆっくり、3手目からと最後の指示は速い）。スピナーの針が止まる時刻は場面の `spin.turnMs` で渡し、文言とスピナーの描画はそれを見る
 - 倒れ込みは記録を `COLLAPSE_PLAYBACK_RATE` の速さ（スローモーション）で再生する
 - 画面に重ねる文言は `hud.ts`、スピナーの角度は `spinner.ts` が決める。描画は `view.ts`（3Dは WebGL の canvas、名札・スピナー・文言は上に重ねた2Dの canvas）で、`view.ts`・`face-loader.ts`・`bgm-player.ts` だけがテストを持たない
 - アイコンは合成ページが Twitch の画像配信元から直接読む（`Access-Control-Allow-Origin: *` を返すので WebGL のテクスチャにできる）。読み込めなかった人は素材の箱に失敗を出し、頭文字の顔で流す（対戦は止めない）
