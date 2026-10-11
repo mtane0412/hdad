@@ -68,6 +68,15 @@ const saveBroadcasterToken = (tokens: TokenVaultNamespace, scopes: string[] = ['
 /** Twitchが用意している既定の報酬画像 */
 const defaultImage = { url_1x: 'https://static-cdn.jtvnw.net/custom-reward-images/default-1.png', url_2x: 'https://static-cdn.jtvnw.net/custom-reward-images/default-2.png', url_4x: 'https://static-cdn.jtvnw.net/custom-reward-images/default-4.png' }
 
+/** Twitchが返す、背景色と制限の設定（Twitchの既定の紫で、待ち行列あり・制限なし） */
+const defaultRewardSettings = {
+  background_color: '#9147FF',
+  should_redemptions_skip_request_queue: false,
+  max_per_stream_setting: { is_enabled: false, max_per_stream: 0 },
+  max_per_user_per_stream_setting: { is_enabled: false, max_per_user_per_stream: 0 },
+  global_cooldown_setting: { is_enabled: false, global_cooldown_seconds: 0 },
+}
+
 /** Twitchが返す報酬（HDADが作ったもの） */
 const toastReward = {
   id: '報酬ID-乾杯',
@@ -78,6 +87,7 @@ const toastReward = {
   is_user_input_required: false,
   image: null,
   default_image: defaultImage,
+  ...defaultRewardSettings,
 }
 
 /** Twitchが返す報酬（Twitchのダッシュボードで作ったもの。HDADからは変更できない） */
@@ -90,10 +100,11 @@ const hydrateReward = {
   is_user_input_required: false,
   image: null,
   default_image: defaultImage,
+  ...defaultRewardSettings,
 }
 
 /** 管理画面が送る報酬の内容 */
-const rewardInput = { title: '乾杯する', cost: 500, prompt: 'おつまみも添えて', isEnabled: true, isUserInputRequired: false }
+const rewardInput = { title: '乾杯する', cost: 500, prompt: 'おつまみも添えて', isEnabled: true, isUserInputRequired: false, backgroundColor: '#9147FF', shouldRedemptionsSkipRequestQueue: false, maxPerStream: null, maxPerUserPerStream: null, globalCooldownSeconds: null }
 
 /** Twitchの代役。報酬の経路にだけ答え、受け取ったリクエストを記録する */
 const createFakeTwitch = (respond: (request: Request) => Response | Promise<Response>) => {
@@ -162,7 +173,7 @@ describe('チャンネルポイント報酬の一覧（GET /api/admin/rewards）
     expect(await response.json()).toEqual({
       rewards: [
         { ...rewardInput, id: '報酬ID-乾杯', imageUrl: 'https://static-cdn.jtvnw.net/custom-reward-images/default-2.png', manageable: true },
-        { id: '報酬ID-水分補給', title: '水分補給させる', cost: 100, prompt: '', isEnabled: true, isUserInputRequired: false, imageUrl: 'https://static-cdn.jtvnw.net/custom-reward-images/default-2.png', manageable: false },
+        { id: '報酬ID-水分補給', title: '水分補給させる', cost: 100, prompt: '', isEnabled: true, isUserInputRequired: false, backgroundColor: '#9147FF', shouldRedemptionsSkipRequestQueue: false, maxPerStream: null, maxPerUserPerStream: null, globalCooldownSeconds: null, imageUrl: 'https://static-cdn.jtvnw.net/custom-reward-images/default-2.png', manageable: false },
       ],
     })
     expect(new URL(twitch.requests[0]!.url).searchParams.get('broadcaster_id')).toBe(broadcasterId)

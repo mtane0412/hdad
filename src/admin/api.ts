@@ -225,6 +225,16 @@ export interface RewardInput {
   isEnabled: boolean
   /** 交換するときにメッセージの入力を求めるか */
   isUserInputRequired: boolean
+  /** 背景色（#RRGGBB） */
+  backgroundColor: string
+  /** 交換をすぐ完了にし、Twitchの交換の待ち行列に入れないか */
+  shouldRedemptionsSkipRequestQueue: boolean
+  /** 1配信あたりの交換の上限回数。null なら制限なし */
+  maxPerStream: number | null
+  /** 1配信で1人が交換できる上限回数。null なら制限なし */
+  maxPerUserPerStream: number | null
+  /** 交換のあと、次に交換できるまでの待機時間（秒。60〜604800）。null なら待機なし */
+  globalCooldownSeconds: number | null
 }
 
 /** チャンネルポイント報酬 */
@@ -347,6 +357,9 @@ const isStoredAction = (value: unknown): value is StoredAction => {
 const isStoredTrigger = (value: unknown): value is StoredTrigger =>
   isRecord(value) && Array.isArray(value.actions) && value.actions.every(isStoredAction) && isTriggerSource(value)
 
+/** 報酬の制限（上限回数・待機時間）。null は制限なし */
+const isLimit = (value: unknown): value is number | null => value === null || typeof value === 'number'
+
 const isReward = (value: unknown): value is Reward =>
   isRecord(value) &&
   typeof value.id === 'string' &&
@@ -355,6 +368,11 @@ const isReward = (value: unknown): value is Reward =>
   typeof value.prompt === 'string' &&
   typeof value.isEnabled === 'boolean' &&
   typeof value.isUserInputRequired === 'boolean' &&
+  typeof value.backgroundColor === 'string' &&
+  typeof value.shouldRedemptionsSkipRequestQueue === 'boolean' &&
+  isLimit(value.maxPerStream) &&
+  isLimit(value.maxPerUserPerStream) &&
+  isLimit(value.globalCooldownSeconds) &&
   typeof value.imageUrl === 'string' &&
   typeof value.manageable === 'boolean'
 

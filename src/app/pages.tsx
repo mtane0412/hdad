@@ -191,7 +191,7 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
         name: 'チャンネルポイント',
         icon: Gift,
         // 報酬の作成・編集・削除（issue #160）。交換されたときに何をするかはトリガーのページで決める
-        render: ({ api }) => <RewardPage api={api} />,
+        render: ({ api, me }) => <RewardPage api={api} broadcasterLogin={me.login} />,
       },
       { path: '/llm/', keywords: ['AI', 'モデル', 'OpenRouter', 'Workers AI'], name: 'LLM', icon: BrainCircuit, render: ({ llmApi }) => <LlmPage api={llmApi} /> },
     ],

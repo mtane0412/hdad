@@ -8,14 +8,15 @@
  *
  * 注意: Twitchは、HDADが作った報酬以外の変更を拒む。Twitchのダッシュボードで作った報酬（manageable が false）は
  * 一覧に出すだけにして、編集欄も削除のボタンも出さない（押せるのに必ず失敗するボタンを置かない）。
- * 注意: 報酬の画像はTwitchのダッシュボードでしか登録・変更できない（Helixが画像を受け付けない）ので、表示だけを行う。
+ * 注意: 報酬の画像はTwitchのダッシュボードでしか登録・変更できない（Helixが画像を受け付けない）ので、表示だけを行い、
+ * Twitchの報酬のページ（クリエイターダッシュボード）へのリンクを添える。
  * 注意: 失敗は黙って無視せず、画面の上部に理由を出す（Fail-Fast）。一覧を取得できなければ操作盤を出さない。
  */
-import { Plus, Trash2 } from 'lucide-react'
+import { ExternalLink, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
 import { LoadFailure } from '@/components/load-failure'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button, buttonVariants } from '@/components/ui/button'
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -26,6 +27,10 @@ import { iconButtonName } from '@/core/icon-button'
 import type { AdminApi, Reward } from './api'
 import { errorMessage, usePageActions } from './page-actions'
 import { EMPTY_REWARD_DRAFT, describeRewardProblem, toRewardDraft, toRewardInput, type RewardDraft } from './reward-form'
+
+/** 配信者のチャンネルポイント報酬を管理する、Twitchのクリエイターダッシュボードのページ */
+const twitchRewardsUrl = (broadcasterLogin: string): string =>
+  `https://dashboard.twitch.tv/u/${encodeURIComponent(broadcasterLogin)}/viewer-rewards/channel-points/rewards`
 
 /** 失敗を画面に出す行にする。Workerが入力の問題点を返したら、欄の名前で1行ずつ並べる */
 const toFailureLines = (error: unknown): string[] =>
@@ -38,6 +43,26 @@ interface RewardFieldsProps {
   disabled: boolean
   onChange(patch: Partial<RewardDraft>): void
 }
+
+/** 待機時間の入力欄の下限（秒）。検証はWorkerが持ち、ここでは入力欄の矢印の始まりにだけ使う */
+const MIN_COOLDOWN_SECONDS = 60
+
+interface LimitFieldProps {
+  id: string
+  label: string
+  min: number
+  value: string
+  disabled: boolean
+  onChange(value: string): void
+}
+
+/** 待機時間・上限回数の入力欄。空欄は制限なしを表す */
+const LimitField = ({ id, label, min, value, disabled, onChange }: LimitFieldProps) => (
+  <div className="flex flex-col gap-2">
+    <Label htmlFor={id}>{label}</Label>
+    <Input id={id} type="number" min={min} step={1} placeholder="制限なし" value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} />
+  </div>
+)
 
 /** 報酬の入力欄（追加と編集で共通） */
 const RewardFields = ({ draft, disabled, onChange }: RewardFieldsProps) => {
@@ -85,6 +110,32 @@ const RewardFields = ({ draft, disabled, onChange }: RewardFieldsProps) => {
           />
           <Label htmlFor={`${id}-input`}>メッセージの入力を求める</Label>
         </div>
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id={`${id}-skip-queue`}
+            checked={draft.shouldRedemptionsSkipRequestQueue}
+            disabled={disabled}
+            onCheckedChange={(checked) => onChange({ shouldRedemptionsSkipRequestQueue: checked === true })}
+          />
+          <Label htmlFor={`${id}-skip-queue`}>交換したらすぐ完了にする（待ち行列に入れない）</Label>
+        </div>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-[auto_1fr_1fr_1fr]">
+        <div className="flex flex-col gap-2">
+          <Label htmlFor={`${id}-color`}>背景色</Label>
+          <Input
+            id={`${id}-color`}
+            type="color"
+            className="w-16 p-1"
+            value={draft.backgroundColor}
+            disabled={disabled}
+            onChange={(event) => onChange({ backgroundColor: event.target.value })}
+          />
+        </div>
+        {/* 待機時間・上限回数は空欄なら制限なし（Workerへ null で送る） */}
+        <LimitField id={`${id}-cooldown`} label="待機時間（秒）" min={MIN_COOLDOWN_SECONDS} value={draft.globalCooldownSeconds} disabled={disabled} onChange={(globalCooldownSeconds) => onChange({ globalCooldownSeconds })} />
+        <LimitField id={`${id}-max-per-stream`} label="1配信あたりの上限回数" min={1} value={draft.maxPerStream} disabled={disabled} onChange={(maxPerStream) => onChange({ maxPerStream })} />
+        <LimitField id={`${id}-max-per-user`} label="1人あたりの上限回数" min={1} value={draft.maxPerUserPerStream} disabled={disabled} onChange={(maxPerUserPerStream) => onChange({ maxPerUserPerStream })} />
       </div>
     </div>
   )
@@ -105,7 +156,13 @@ const RewardImage = ({ reward }: { reward: Reward }) => (
 
 type Loaded = { status: 'loading' } | { status: 'ready' } | { status: 'failed'; message: string }
 
-export const RewardPage = ({ api }: { api: AdminApi }) => {
+interface RewardPageProps {
+  api: AdminApi
+  /** ログイン中の配信者のログイン名（Twitchの報酬のページのURLに使う） */
+  broadcasterLogin: string
+}
+
+export const RewardPage = ({ api, broadcasterLogin }: RewardPageProps) => {
   const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' })
   const [rewards, setRewards] = useState<readonly Reward[]>([])
   /** 追加する報酬の下書き */
@@ -192,7 +249,13 @@ export const RewardPage = ({ api }: { api: AdminApi }) => {
       <Card>
         <CardHeader>
           <CardTitle>チャンネルポイント報酬</CardTitle>
-          <CardDescription>Twitchのダッシュボードで作った報酬は、ここでは変更できません。</CardDescription>
+          <CardDescription>Twitchのダッシュボードで作った報酬は、ここでは変更できません。画像はTwitchで設定してください。</CardDescription>
+          <CardAction>
+            <a href={twitchRewardsUrl(broadcasterLogin)} target="_blank" rel="noreferrer" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+              <ExternalLink aria-hidden="true" />
+              Twitchで報酬を開く
+            </a>
+          </CardAction>
         </CardHeader>
         <CardContent>
           {rewards.length === 0 ? (

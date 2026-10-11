@@ -190,10 +190,10 @@ describe('media・upload・removeMedia（素材）', () => {
 })
 
 /** Workerが返すチャンネルポイント報酬（HDADが作ったもの） */
-const toastReward = { id: '報酬ID-乾杯', title: '乾杯する', cost: 500, prompt: 'おつまみも添えて', isEnabled: true, isUserInputRequired: false, imageUrl: 'https://static-cdn.jtvnw.net/custom-reward-images/default-2.png', manageable: true }
+const toastReward = { id: '報酬ID-乾杯', title: '乾杯する', cost: 500, prompt: 'おつまみも添えて', isEnabled: true, isUserInputRequired: false, backgroundColor: '#9147FF', shouldRedemptionsSkipRequestQueue: false, maxPerStream: null, maxPerUserPerStream: null, globalCooldownSeconds: null, imageUrl: 'https://static-cdn.jtvnw.net/custom-reward-images/default-2.png', manageable: true }
 
 /** 管理画面から送る報酬の内容 */
-const toastRewardInput = { title: '乾杯する', cost: 500, prompt: 'おつまみも添えて', isEnabled: true, isUserInputRequired: false }
+const toastRewardInput = { title: '乾杯する', cost: 500, prompt: 'おつまみも添えて', isEnabled: true, isUserInputRequired: false, backgroundColor: '#9147FF', shouldRedemptionsSkipRequestQueue: false, maxPerStream: null, maxPerUserPerStream: null, globalCooldownSeconds: null }
 
 describe('createReward・updateReward・removeReward（チャンネルポイント報酬）', () => {
   it('報酬の内容をJSONでPOSTし、作られた報酬を返す', async () => {
@@ -454,6 +454,15 @@ describe('rotateOverlayKey・playTownTourDemo・townTourSound・rewards・logout
     delete withoutManageable.manageable
     const { fetchImpl } = fetchReturning(200, { rewards: [withoutManageable] })
     await expect(createAdminApi(fetchImpl).rewards()).rejects.toThrow('rewards[0]')
+  })
+
+  it('報酬の一覧に背景色・待機時間・上限回数が無ければエラーにする（制限なしとして黙って扱わない）', async () => {
+    for (const key of ['backgroundColor', 'shouldRedemptionsSkipRequestQueue', 'maxPerStream', 'maxPerUserPerStream', 'globalCooldownSeconds']) {
+      const withoutSetting: Record<string, unknown> = { ...toastReward }
+      delete withoutSetting[key]
+      const { fetchImpl } = fetchReturning(200, { rewards: [withoutSetting] })
+      await expect(createAdminApi(fetchImpl).rewards()).rejects.toThrow('rewards[0]')
+    }
   })
 
   it('ログアウトはPOSTで依頼する', async () => {

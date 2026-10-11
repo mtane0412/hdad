@@ -9,17 +9,46 @@
  */
 import type { Reward, RewardInput } from './api'
 
-/** 入力欄の値。必要ポイントは入力欄の文字列のまま持つ */
+/** 入力欄の値。必要ポイント・待機時間・上限回数は入力欄の文字列のまま持つ（待機時間・上限回数の空欄は制限なし） */
 export interface RewardDraft {
   title: string
   cost: string
   prompt: string
   isEnabled: boolean
   isUserInputRequired: boolean
+  backgroundColor: string
+  shouldRedemptionsSkipRequestQueue: boolean
+  maxPerStream: string
+  maxPerUserPerStream: string
+  globalCooldownSeconds: string
 }
 
-/** 新しく作る報酬の下書き。作ったらすぐ交換できる状態から始める */
-export const EMPTY_REWARD_DRAFT: RewardDraft = { title: '', cost: '', prompt: '', isEnabled: true, isUserInputRequired: false }
+/** Twitchの既定の背景色（Twitchの紫） */
+const DEFAULT_BACKGROUND_COLOR = '#9147FF'
+
+/** 新しく作る報酬の下書き。作ったらすぐ交換できる状態から始め、背景色はTwitchの紫・待ち行列あり・制限なしにする */
+export const EMPTY_REWARD_DRAFT: RewardDraft = {
+  title: '',
+  cost: '',
+  prompt: '',
+  isEnabled: true,
+  isUserInputRequired: false,
+  backgroundColor: DEFAULT_BACKGROUND_COLOR,
+  shouldRedemptionsSkipRequestQueue: false,
+  maxPerStream: '',
+  maxPerUserPerStream: '',
+  globalCooldownSeconds: '',
+}
+
+/** 制限（null は制限なし）を入力欄の文字列にする。制限なしは空欄 */
+const toLimitText = (limit: number | null): string => (limit === null ? '' : String(limit))
+
+/**
+ * 入力欄の文字列を制限にする。空欄は null（制限なし）。
+ *
+ * 数として読めない値は NaN のまま送り、Workerに拒ませる（ここで丸めない）。
+ */
+const toLimit = (text: string): number | null => (text.trim() === '' ? null : Number(text))
 
 /** 報酬を入力欄の下書きにする */
 export const toRewardDraft = (reward: Reward): RewardDraft => ({
@@ -28,6 +57,11 @@ export const toRewardDraft = (reward: Reward): RewardDraft => ({
   prompt: reward.prompt,
   isEnabled: reward.isEnabled,
   isUserInputRequired: reward.isUserInputRequired,
+  backgroundColor: reward.backgroundColor,
+  shouldRedemptionsSkipRequestQueue: reward.shouldRedemptionsSkipRequestQueue,
+  maxPerStream: toLimitText(reward.maxPerStream),
+  maxPerUserPerStream: toLimitText(reward.maxPerUserPerStream),
+  globalCooldownSeconds: toLimitText(reward.globalCooldownSeconds),
 })
 
 /**
@@ -42,6 +76,11 @@ export const toRewardInput = (draft: RewardDraft): RewardInput => ({
   prompt: draft.prompt,
   isEnabled: draft.isEnabled,
   isUserInputRequired: draft.isUserInputRequired,
+  backgroundColor: draft.backgroundColor,
+  shouldRedemptionsSkipRequestQueue: draft.shouldRedemptionsSkipRequestQueue,
+  maxPerStream: toLimit(draft.maxPerStream),
+  maxPerUserPerStream: toLimit(draft.maxPerUserPerStream),
+  globalCooldownSeconds: toLimit(draft.globalCooldownSeconds),
 })
 
 /** Workerの問題点に出る項目名と、画面の欄の名前 */
@@ -51,6 +90,11 @@ const FIELD_LABELS: Record<string, string> = {
   prompt: '説明',
   isEnabled: '交換できる',
   isUserInputRequired: 'メッセージの入力を求める',
+  backgroundColor: '背景色',
+  shouldRedemptionsSkipRequestQueue: '交換したらすぐ完了にする',
+  maxPerStream: '1配信あたりの上限回数',
+  maxPerUserPerStream: '1人あたりの上限回数',
+  globalCooldownSeconds: '待機時間（秒）',
 }
 
 /** Workerの問題点（「項目名: 内容」）の項目名を、画面の欄の名前に読み替える。知らない形はそのまま返す */

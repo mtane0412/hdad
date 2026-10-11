@@ -195,8 +195,8 @@ describe('listCustomRewards', () => {
   it('Helixから配信者のチャンネルポイント報酬を取得し、管理画面で扱う項目だけを返す', async () => {
     const { requests, fetchImpl } = fetchReturning(200, {
       data: [
-        { id: '報酬ID-乾杯', title: '乾杯する', cost: 500, is_enabled: true, prompt: '', is_user_input_required: false, is_paused: false, image: uploadedImage, default_image: defaultImage },
-        { id: '報酬ID-おみくじ', title: 'おみくじを引く', cost: 100, is_enabled: false, prompt: '一言どうぞ', is_user_input_required: true, image: null, default_image: defaultImage },
+        { id: '報酬ID-乾杯', title: '乾杯する', cost: 500, is_enabled: true, prompt: '', is_user_input_required: false, is_paused: false, image: uploadedImage, default_image: defaultImage, background_color: '#9147FF', should_redemptions_skip_request_queue: false, max_per_stream_setting: { is_enabled: false, max_per_stream: 0 }, max_per_user_per_stream_setting: { is_enabled: false, max_per_user_per_stream: 0 }, global_cooldown_setting: { is_enabled: false, global_cooldown_seconds: 0 } },
+        { id: '報酬ID-おみくじ', title: 'おみくじを引く', cost: 100, is_enabled: false, prompt: '一言どうぞ', is_user_input_required: true, image: null, default_image: defaultImage, background_color: '#00E5CB', should_redemptions_skip_request_queue: true, max_per_stream_setting: { is_enabled: true, max_per_stream: 10 }, max_per_user_per_stream_setting: { is_enabled: true, max_per_user_per_stream: 1 }, global_cooldown_setting: { is_enabled: true, global_cooldown_seconds: 300 } },
       ],
     })
 
@@ -204,8 +204,35 @@ describe('listCustomRewards', () => {
 
     expect(rewards).toEqual([
       // 画像は、配信者がアップロードしたものがあればそれを、なければTwitchの既定の画像を使う（2倍の大きさ）
-      { id: '報酬ID-乾杯', title: '乾杯する', cost: 500, prompt: '', isEnabled: true, isUserInputRequired: false, imageUrl: 'https://static-cdn.jtvnw.net/custom-reward-images/12345/kanpai-2.png' },
-      { id: '報酬ID-おみくじ', title: 'おみくじを引く', cost: 100, prompt: '一言どうぞ', isEnabled: false, isUserInputRequired: true, imageUrl: 'https://static-cdn.jtvnw.net/custom-reward-images/default-2.png' },
+      // 制限が無効の項目は、Twitchが返す 0 ではなく null（制限なし）にする
+      {
+        id: '報酬ID-乾杯',
+        title: '乾杯する',
+        cost: 500,
+        prompt: '',
+        isEnabled: true,
+        isUserInputRequired: false,
+        backgroundColor: '#9147FF',
+        shouldRedemptionsSkipRequestQueue: false,
+        maxPerStream: null,
+        maxPerUserPerStream: null,
+        globalCooldownSeconds: null,
+        imageUrl: 'https://static-cdn.jtvnw.net/custom-reward-images/12345/kanpai-2.png',
+      },
+      {
+        id: '報酬ID-おみくじ',
+        title: 'おみくじを引く',
+        cost: 100,
+        prompt: '一言どうぞ',
+        isEnabled: false,
+        isUserInputRequired: true,
+        backgroundColor: '#00E5CB',
+        shouldRedemptionsSkipRequestQueue: true,
+        maxPerStream: 10,
+        maxPerUserPerStream: 1,
+        globalCooldownSeconds: 300,
+        imageUrl: 'https://static-cdn.jtvnw.net/custom-reward-images/default-2.png',
+      },
     ])
     const request = requests[0]!
     expect(request.url).toBe('https://api.twitch.tv/helix/channel_points/custom_rewards?broadcaster_id=12345')
@@ -231,7 +258,14 @@ describe('listCustomRewards', () => {
 
   it('既定の画像も無い報酬が届いたらエラーになる（画像の無い報酬として黙って扱わない）', async () => {
     const { fetchImpl } = fetchReturning(200, {
-      data: [{ id: '報酬ID-乾杯', title: '乾杯する', cost: 500, is_enabled: true, prompt: '', is_user_input_required: false, image: null, default_image: null }],
+      data: [{ id: '報酬ID-乾杯', title: '乾杯する', cost: 500, is_enabled: true, prompt: '', is_user_input_required: false, image: null, default_image: null, background_color: '#9147FF', should_redemptions_skip_request_queue: false, max_per_stream_setting: { is_enabled: false, max_per_stream: 0 }, max_per_user_per_stream_setting: { is_enabled: false, max_per_user_per_stream: 0 }, global_cooldown_setting: { is_enabled: false, global_cooldown_seconds: 0 } }],
+    })
+    await expect(createClient(fetchImpl).listCustomRewards('test-access-token', '12345')).rejects.toBeInstanceOf(TwitchApiError)
+  })
+
+  it('背景色・待機時間・上限回数の設定が欠けた報酬が届いたらエラーになる（制限なしとして黙って扱わない）', async () => {
+    const { fetchImpl } = fetchReturning(200, {
+      data: [{ id: '報酬ID-乾杯', title: '乾杯する', cost: 500, is_enabled: true, prompt: '', is_user_input_required: false, image: null, default_image: defaultImage }],
     })
     await expect(createClient(fetchImpl).listCustomRewards('test-access-token', '12345')).rejects.toBeInstanceOf(TwitchApiError)
   })
@@ -243,7 +277,34 @@ describe('listCustomRewards', () => {
 })
 
 /** 報酬の作成・更新で送る内容の例 */
-const rewardInput = { title: '乾杯する', cost: 500, prompt: 'おつまみも添えて', isEnabled: true, isUserInputRequired: false }
+const rewardInput = {
+  title: '乾杯する',
+  cost: 500,
+  prompt: 'おつまみも添えて',
+  isEnabled: true,
+  isUserInputRequired: false,
+  backgroundColor: '#00E5CB',
+  shouldRedemptionsSkipRequestQueue: true,
+  maxPerStream: null,
+  maxPerUserPerStream: 1,
+  globalCooldownSeconds: 300,
+}
+
+/** rewardInput をTwitchの項目名にした本文。制限なし（null）の項目は無効の印だけを送り、回数は送らない */
+const rewardBody = {
+  title: '乾杯する',
+  cost: 500,
+  prompt: 'おつまみも添えて',
+  is_enabled: true,
+  is_user_input_required: false,
+  background_color: '#00E5CB',
+  should_redemptions_skip_request_queue: true,
+  is_max_per_stream_enabled: false,
+  is_max_per_user_per_stream_enabled: true,
+  max_per_user_per_stream: 1,
+  is_global_cooldown_enabled: true,
+  global_cooldown_seconds: 300,
+}
 
 /** Twitchが作成・更新の応答として返す報酬の例 */
 const twitchReward = {
@@ -256,6 +317,11 @@ const twitchReward = {
   is_paused: false,
   image: null,
   default_image: defaultImage,
+  background_color: '#00E5CB',
+  should_redemptions_skip_request_queue: true,
+  max_per_stream_setting: { is_enabled: false, max_per_stream: 0 },
+  max_per_user_per_stream_setting: { is_enabled: true, max_per_user_per_stream: 1 },
+  global_cooldown_setting: { is_enabled: true, global_cooldown_seconds: 300 },
 }
 
 describe('createCustomReward', () => {
@@ -271,13 +337,7 @@ describe('createCustomReward', () => {
     expect(request.headers.get('Authorization')).toBe('Bearer test-access-token')
     expect(request.headers.get('Client-Id')).toBe('test-client-id')
     expect(request.headers.get('Content-Type')).toBe('application/json')
-    expect(await request.json()).toEqual({
-      title: '乾杯する',
-      cost: 500,
-      prompt: 'おつまみも添えて',
-      is_enabled: true,
-      is_user_input_required: false,
-    })
+    expect(await request.json()).toEqual(rewardBody)
   })
 
   it('Twitchが失敗を返したら、状態コードとメッセージを持つエラーになる（同じ名前の報酬があるなど）', async () => {
@@ -306,13 +366,7 @@ describe('updateCustomReward', () => {
     const url = new URL(request.url)
     expect(url.searchParams.get('broadcaster_id')).toBe('12345')
     expect(url.searchParams.get('id')).toBe('報酬ID-乾杯')
-    expect(await request.json()).toEqual({
-      title: '乾杯する',
-      cost: 800,
-      prompt: 'おつまみも添えて',
-      is_enabled: true,
-      is_user_input_required: false,
-    })
+    expect(await request.json()).toEqual({ ...rewardBody, cost: 800 })
   })
 
   it('このアプリが作っていない報酬ではTwitchが403を返し、エラーになる', async () => {

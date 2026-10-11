@@ -113,7 +113,8 @@ export interface RegisteredSubscription {
 /**
  * チャンネルポイント報酬の、管理画面から作成・編集する項目。
  *
- * 待機時間・上限回数・背景色などはTwitchの既定のままにし、ここでは扱わない（issue #160）。
+ * 画像だけはHelixが受け付けないので扱わない（issue #160）。
+ * 注意: 待機時間・上限回数の null は「制限なし」を表す。Twitchは制限が無効の項目を 0 で返すが、0 は送れない値なので null に読み替える。
  */
 export interface CustomRewardInput {
   /** 名前（Twitchの上限は45文字。チャンネル内で重複できない） */
@@ -126,6 +127,16 @@ export interface CustomRewardInput {
   isEnabled: boolean
   /** 交換するときにメッセージの入力を求めるか */
   isUserInputRequired: boolean
+  /** 背景色（#RRGGBB） */
+  backgroundColor: string
+  /** 交換をすぐ完了（FULFILLED）にし、Twitchの交換の待ち行列に入れないか */
+  shouldRedemptionsSkipRequestQueue: boolean
+  /** 1配信あたりの交換の上限回数。null なら制限なし */
+  maxPerStream: number | null
+  /** 1配信で1人が交換できる上限回数。null なら制限なし */
+  maxPerUserPerStream: number | null
+  /** 交換のあと、次に交換できるまでの待機時間（秒）。null なら待機なし */
+  globalCooldownSeconds: number | null
 }
 
 /** チャンネルポイント報酬のうち、管理画面で扱う項目 */
@@ -509,6 +520,18 @@ const toTokenGrant = (body: Record<string, unknown>): TokenGrant => {
 const readRewardImageUrl = (image: unknown): string | null =>
   isRecord(image) && typeof image[`url_${IMAGE_SCALE}x`] === 'string' ? String(image[`url_${IMAGE_SCALE}x`]) : null
 
+/**
+ * 報酬の制限の設定（max_per_stream_setting など）を読み、有効なら回数・秒数を、無効なら null を返す。
+ *
+ * 設定が欠けている応答は想定した形でないので、制限なしとして黙って扱わずに投げる。
+ */
+const readRewardLimit = (setting: unknown, settingName: string, valueName: string): number | null => {
+  if (!isRecord(setting) || typeof setting.is_enabled !== 'boolean' || typeof setting[valueName] !== 'number') {
+    throw new TwitchApiError(BAD_GATEWAY, `Twitchの報酬の応答に ${settingName} の is_enabled・${valueName} が揃っていません`)
+  }
+  return setting.is_enabled ? setting[valueName] : null
+}
+
 const toCustomReward = (value: unknown): CustomReward => {
   if (
     !isRecord(value) ||
@@ -517,9 +540,14 @@ const toCustomReward = (value: unknown): CustomReward => {
     typeof value.cost !== 'number' ||
     typeof value.prompt !== 'string' ||
     typeof value.is_enabled !== 'boolean' ||
-    typeof value.is_user_input_required !== 'boolean'
+    typeof value.is_user_input_required !== 'boolean' ||
+    typeof value.background_color !== 'string' ||
+    typeof value.should_redemptions_skip_request_queue !== 'boolean'
   ) {
-    throw new TwitchApiError(BAD_GATEWAY, 'Twitchの報酬の応答に id・title・cost・prompt・is_enabled・is_user_input_required が揃っていません')
+    throw new TwitchApiError(
+      BAD_GATEWAY,
+      'Twitchの報酬の応答に id・title・cost・prompt・is_enabled・is_user_input_required・background_color・should_redemptions_skip_request_queue が揃っていません',
+    )
   }
   // アップロードした画像が無い報酬（image が null）では、Twitchの既定の画像を使う。既定の画像まで無ければ応答の形が違う
   const imageUrl = readRewardImageUrl(value.image) ?? readRewardImageUrl(value.default_image)
@@ -531,11 +559,20 @@ const toCustomReward = (value: unknown): CustomReward => {
     prompt: value.prompt,
     isEnabled: value.is_enabled,
     isUserInputRequired: value.is_user_input_required,
+    backgroundColor: value.background_color,
+    shouldRedemptionsSkipRequestQueue: value.should_redemptions_skip_request_queue,
+    maxPerStream: readRewardLimit(value.max_per_stream_setting, 'max_per_stream_setting', 'max_per_stream'),
+    maxPerUserPerStream: readRewardLimit(value.max_per_user_per_stream_setting, 'max_per_user_per_stream_setting', 'max_per_user_per_stream'),
+    globalCooldownSeconds: readRewardLimit(value.global_cooldown_setting, 'global_cooldown_setting', 'global_cooldown_seconds'),
     imageUrl,
   }
 }
 
-/** 報酬の作成・更新で送る本文（Twitchの項目名にする） */
+/**
+ * 報酬の作成・更新で送る本文（Twitchの項目名にする）。
+ *
+ * 制限なし（null）の項目は無効の印だけを送り、回数・秒数は送らない（Twitchは有効なときだけ1以上を求める）。
+ */
 const toCustomRewardBody = (input: CustomRewardInput): string =>
   JSON.stringify({
     title: input.title,
@@ -543,6 +580,14 @@ const toCustomRewardBody = (input: CustomRewardInput): string =>
     prompt: input.prompt,
     is_enabled: input.isEnabled,
     is_user_input_required: input.isUserInputRequired,
+    background_color: input.backgroundColor,
+    should_redemptions_skip_request_queue: input.shouldRedemptionsSkipRequestQueue,
+    is_max_per_stream_enabled: input.maxPerStream !== null,
+    ...(input.maxPerStream !== null && { max_per_stream: input.maxPerStream }),
+    is_max_per_user_per_stream_enabled: input.maxPerUserPerStream !== null,
+    ...(input.maxPerUserPerStream !== null && { max_per_user_per_stream: input.maxPerUserPerStream }),
+    is_global_cooldown_enabled: input.globalCooldownSeconds !== null,
+    ...(input.globalCooldownSeconds !== null && { global_cooldown_seconds: input.globalCooldownSeconds }),
   })
 
 /** 報酬の作成・更新の応答から、作られた（更新された）報酬1件を取り出す */

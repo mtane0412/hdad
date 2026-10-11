@@ -4,6 +4,7 @@
  * 確かめること:
  * - 報酬を入力欄の下書きにし、下書きをWorkerへ送る内容に戻せること
  * - 必要ポイントの空欄を 0 に丸めず、Workerに拒ませる値（NaN）にすること
+ * - 待機時間・上限回数の空欄は null（制限なし）にすること
  * - Workerの問題点に出る項目名を、画面の欄の名前に読み替えること
  */
 import { describe, expect, it } from 'vitest'
@@ -17,6 +18,11 @@ const toastReward: Reward = {
   prompt: 'おつまみも添えて',
   isEnabled: true,
   isUserInputRequired: false,
+  backgroundColor: '#00E5CB',
+  shouldRedemptionsSkipRequestQueue: true,
+  maxPerStream: null,
+  maxPerUserPerStream: 1,
+  globalCooldownSeconds: 300,
   imageUrl: 'https://static-cdn.jtvnw.net/custom-reward-images/default-2.png',
   manageable: true,
 }
@@ -29,6 +35,33 @@ describe('toRewardDraft・toRewardInput', () => {
       prompt: 'おつまみも添えて',
       isEnabled: true,
       isUserInputRequired: false,
+      backgroundColor: '#00E5CB',
+      shouldRedemptionsSkipRequestQueue: true,
+      maxPerStream: null,
+      maxPerUserPerStream: 1,
+      globalCooldownSeconds: 300,
+    })
+  })
+
+  it('待機時間・上限回数は入力欄の文字列として持ち、制限なし（null）は空欄にする', () => {
+    const draft = toRewardDraft(toastReward)
+    expect(draft.maxPerStream).toBe('')
+    expect(draft.maxPerUserPerStream).toBe('1')
+    expect(draft.globalCooldownSeconds).toBe('300')
+  })
+
+  it('待機時間・上限回数の空欄は null（制限なし）にする', () => {
+    const input = toRewardInput({ ...EMPTY_REWARD_DRAFT, maxPerStream: ' ', maxPerUserPerStream: '', globalCooldownSeconds: '' })
+    expect(input).toMatchObject({ maxPerStream: null, maxPerUserPerStream: null, globalCooldownSeconds: null })
+  })
+
+  it('新しく作る報酬の下書きは、Twitchの既定の紫・待ち行列あり・制限なしから始める', () => {
+    expect(toRewardInput({ ...EMPTY_REWARD_DRAFT, cost: '100' })).toMatchObject({
+      backgroundColor: '#9147FF',
+      shouldRedemptionsSkipRequestQueue: false,
+      maxPerStream: null,
+      maxPerUserPerStream: null,
+      globalCooldownSeconds: null,
     })
   })
 
@@ -52,6 +85,9 @@ describe('describeRewardProblem', () => {
       '名前: 名前は空でない45文字までの文字列で指定してください',
     )
     expect(describeRewardProblem('cost: 必要ポイントは1以上の整数で指定してください')).toBe('必要ポイント: 必要ポイントは1以上の整数で指定してください')
+    expect(describeRewardProblem('globalCooldownSeconds: 待機時間は60〜604800秒の整数で指定してください（空欄なら待機なし）')).toBe(
+      '待機時間（秒）: 待機時間は60〜604800秒の整数で指定してください（空欄なら待機なし）',
+    )
   })
 
   it('知らない項目名の問題点は、そのまま出す（黙って消さない）', () => {
