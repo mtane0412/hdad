@@ -7,7 +7,8 @@
  *
  * 注意: 長さは見た目の文字数（コードポイント）で数える。報酬の名前には絵文字がよく使われ、UTF-16の単位のまま数えると
  * 上限内の名前まで拒んでしまうため（focus-config.ts と同じ数え方）。
- * 注意: 上限はTwitchの制約に合わせてある。ここで先に拒むのは、Twitchの英語のエラーより先に
+ * 注意: 待機時間・上限回数の null は「制限なし」を表す（画面の空欄）。
+ * 注意: 上限はTwitchの制約に合わせてある（待機時間の下限だけはTwitchの画面に出る60秒にしてある）。ここで先に拒むのは、Twitchの英語のエラーより先に
  * どの欄をどう直せばよいかを日本語で示すためである。同じ名前の報酬があるかどうかはTwitchにしか分からないので、ここでは見ない。
  */
 import { ConfigError } from './alert-config'
@@ -22,6 +23,18 @@ export const MAX_REWARD_TITLE_LENGTH = 45
 export const MAX_REWARD_PROMPT_LENGTH = 200
 /** 必要ポイントの下限（Twitchの制約） */
 const MIN_REWARD_COST = 1
+/** 上限回数の下限（Twitchの制約） */
+const MIN_REWARD_LIMIT = 1
+/**
+ * 待機時間の下限（秒）。
+ *
+ * Helixは1秒から受け付けるが、60秒未満はTwitchの画面に出ず、視聴者から待機中だと分からないため、Twitchのダッシュボードと同じ1分からにする。
+ */
+const MIN_REWARD_COOLDOWN_SECONDS = 60
+/** 待機時間の上限（秒。7日。Twitchの制約） */
+const MAX_REWARD_COOLDOWN_SECONDS = 604_800
+/** 背景色の形（#RRGGBB。Twitchが受け付ける16進数の形） */
+const BACKGROUND_COLOR_PATTERN = /^#[0-9A-Fa-f]{6}$/
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
 
@@ -63,11 +76,27 @@ export const parseRewardInput = (input: unknown): CustomRewardInput => {
     return ''
   }
 
-  const readFlag = (name: 'isEnabled' | 'isUserInputRequired'): boolean => {
+  const readFlag = (name: 'isEnabled' | 'isUserInputRequired' | 'shouldRedemptionsSkipRequestQueue'): boolean => {
     const value = input[name]
     if (typeof value === 'boolean') return value
     problems.push(`${name}: true か false で指定してください`)
     return false
+  }
+
+  const readBackgroundColor = (): string => {
+    const value = input.backgroundColor
+    if (typeof value === 'string' && BACKGROUND_COLOR_PATTERN.test(value)) return value
+    problems.push('backgroundColor: 背景色は #9147FF のような #RRGGBB の形で指定してください')
+    return ''
+  }
+
+  /** 制限（上限回数・待機時間）を読む。null は制限なし。範囲外は問題点に加える */
+  const readLimit = (name: 'maxPerStream' | 'maxPerUserPerStream' | 'globalCooldownSeconds', min: number, max: number, message: string): number | null => {
+    const value = input[name]
+    if (value === null) return null
+    if (typeof value === 'number' && Number.isSafeInteger(value) && value >= min && value <= max) return value
+    problems.push(`${name}: ${message}`)
+    return null
   }
 
   // 呼ぶ順番が、問題点に並ぶ順番になる
@@ -76,6 +105,17 @@ export const parseRewardInput = (input: unknown): CustomRewardInput => {
   const prompt = readPrompt()
   const isEnabled = readFlag('isEnabled')
   const isUserInputRequired = readFlag('isUserInputRequired')
+  const backgroundColor = readBackgroundColor()
+  const shouldRedemptionsSkipRequestQueue = readFlag('shouldRedemptionsSkipRequestQueue')
+  const limitMessage = `上限回数は${MIN_REWARD_LIMIT}以上の整数で指定してください（空欄なら制限なし）`
+  const maxPerStream = readLimit('maxPerStream', MIN_REWARD_LIMIT, Number.MAX_SAFE_INTEGER, limitMessage)
+  const maxPerUserPerStream = readLimit('maxPerUserPerStream', MIN_REWARD_LIMIT, Number.MAX_SAFE_INTEGER, limitMessage)
+  const globalCooldownSeconds = readLimit(
+    'globalCooldownSeconds',
+    MIN_REWARD_COOLDOWN_SECONDS,
+    MAX_REWARD_COOLDOWN_SECONDS,
+    `待機時間は${MIN_REWARD_COOLDOWN_SECONDS}〜${MAX_REWARD_COOLDOWN_SECONDS}秒の整数で指定してください（空欄なら待機なし）`,
+  )
   if (problems.length > 0) throw new ConfigError(SUBJECT, problems)
-  return { title, cost, prompt, isEnabled, isUserInputRequired }
+  return { title, cost, prompt, isEnabled, isUserInputRequired, backgroundColor, shouldRedemptionsSkipRequestQueue, maxPerStream, maxPerUserPerStream, globalCooldownSeconds }
 }
