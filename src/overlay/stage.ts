@@ -1840,7 +1840,12 @@ const mountLick = (box: HTMLElement, item: OverlayItem, { key, demo }: MountCont
       playback = null
       startNext()
     }
-    renderer.render(ctx, width, height, playback === null ? null : { call: playback.call, scene: lickSceneAt(playback.plan, now - playback.startedAt) })
+    if (playback === null) {
+      renderer.render(ctx, width, height, null)
+      return
+    }
+    const elapsedMs = now - playback.startedAt
+    renderer.render(ctx, width, height, { call: playback.call, plan: playback.plan, scene: lickSceneAt(playback.plan, elapsedMs), elapsedMs })
   })
 
   if (demo) {

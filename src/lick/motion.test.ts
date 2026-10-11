@@ -5,9 +5,22 @@
  * - 同じ種なら同じ舐め方、違う種なら違う舐め方になる
  * - 舐める回数は決まった範囲に収まり、1回ごとに速くなる（しつこさ）
  * - アイコンが出てから舐めはじめ、舐め終えてからアイコンが消える
+ * - 舌先はアイコンに当たると押しつぶれ、最後の1回は舌先を丸めてすくう（issue #339）
+ * - 舐めた跡は濡れた筋として残って乾いていき、垂れが下へ伸び、舌が離れるときに糸を引いて切れる（issue #339）
  */
 import { describe, expect, it } from 'vitest'
-import { createLickPlan, lickSceneAt, LICK_ENTER_MS, LICK_EXIT_MS, MAX_LICK_STROKES, MAX_STROKE_OFFSET, MIN_LICK_STROKES } from './motion'
+import {
+  createLickPlan,
+  lickSceneAt,
+  salivaStringAt,
+  trailsAt,
+  LICK_ENTER_MS,
+  LICK_EXIT_MS,
+  MAX_LICK_STROKES,
+  MAX_STROKE_OFFSET,
+  MIN_LICK_STROKES,
+  type LickStroke,
+} from './motion'
 
 /** いろいろな種（テストで舐め方の幅を見るため） */
 const SEEDS = [0, 1, 42, 338, 20261011, 4294967295]
@@ -88,5 +101,95 @@ describe('lickSceneAt', () => {
     const done = lickSceneAt(plan, plan.totalMs)
     expect(done.phase).toBe('done')
     expect(done.iconOpacity).toBe(0)
+  })
+})
+
+describe('キモさの動き（舌先の押しつぶれ・最後のすくい上げ）', () => {
+  const plan = createLickPlan(20261011)
+  const [first] = plan.strokes
+  const last = plan.strokes.at(-1)
+  if (first === undefined || last === undefined) throw new Error('舐め方がありません')
+  /** その回の進み具合（0〜1）の時刻 */
+  const at = (stroke: LickStroke, progress: number): number => stroke.startMs + stroke.durationMs * progress
+
+  it('最後の1回だけが、舌先を丸めてアイコンをすくう回になる', () => {
+    expect(plan.strokes.map((stroke) => stroke.scoop)).toEqual([...plan.strokes.slice(1).map(() => false), true])
+  })
+
+  it('舌先がアイコンに当たっているあいだは押しつぶれ、アイコンの下にいるうちはつぶれない', () => {
+    expect(lickSceneAt(plan, at(first, 0.02)).tongue?.squash).toBe(0)
+    expect(lickSceneAt(plan, at(first, 0.45)).tongue?.squash ?? 0).toBeGreaterThan(0.5)
+  })
+
+  it('すくう回の終わりでは舌先を丸め、ほかの回では丸めない', () => {
+    expect(lickSceneAt(plan, at(last, 0.9)).tongue?.curl ?? 0).toBeGreaterThan(0.5)
+    expect(lickSceneAt(plan, at(first, 0.9)).tongue?.curl).toBe(0)
+  })
+})
+
+describe('trailsAt（舐めた跡）', () => {
+  const plan = createLickPlan(338)
+  const [first, second] = plan.strokes
+  if (first === undefined || second === undefined) throw new Error('舐め方が2回ありません')
+
+  it('舐めはじめる前は跡が無い', () => {
+    expect(trailsAt(plan, first.startMs - 1)).toEqual([])
+  })
+
+  it('舐めているあいだは、舌先が通ったところまで跡が伸びる', () => {
+    const middle = first.startMs + first.durationMs / 2
+    const trails = trailsAt(plan, middle)
+    expect(trails).toHaveLength(1)
+    expect(trails[0]?.toReach).toBeCloseTo(lickSceneAt(plan, middle).tongue?.reach ?? -1)
+    expect(trails[0]?.offset).toBe(first.offset)
+  })
+
+  it('舐め終えた回の跡は上まで残り、回を重ねるごとに増える', () => {
+    const trails = trailsAt(plan, second.startMs + 1)
+    expect(trails).toHaveLength(2)
+    expect(trails[0]?.toReach).toBe(1)
+  })
+
+  it('跡は時間がたつと乾いていく（濡れ具合が下がる）', () => {
+    const end = first.startMs + first.durationMs
+    const fresh = trailsAt(plan, end)[0]?.wetness ?? 0
+    const later = trailsAt(plan, end + 3000)[0]?.wetness ?? 1
+    expect(later).toBeLessThan(fresh)
+    expect(later).toBeGreaterThan(0)
+  })
+
+  it('垂れは舐めた直後には無く、時間がたつほど下へ伸びる', () => {
+    const end = first.startMs + first.durationMs
+    const lengthsAt = (time: number): number[] => (trailsAt(plan, time)[0]?.drips ?? []).map((drip) => drip.length)
+    expect(lengthsAt(end).every((length) => length === 0)).toBe(true)
+    const soon = lengthsAt(end + 1500)
+    const later = lengthsAt(end + 4000)
+    expect(soon.length).toBeGreaterThan(0)
+    later.forEach((length, index) => expect(length).toBeGreaterThanOrEqual(soon[index] ?? Number.POSITIVE_INFINITY))
+    expect(later.some((length, index) => length > (soon[index] ?? 0))).toBe(true)
+  })
+
+  it('同じ時刻なら何度求めても同じ跡になる（フレーム間の状態を持たない）', () => {
+    const time = second.startMs + second.durationMs / 3
+    expect(trailsAt(plan, time)).toEqual(trailsAt(plan, time))
+  })
+})
+
+describe('salivaStringAt（唾液の糸）', () => {
+  const plan = createLickPlan(338)
+  const [first] = plan.strokes
+  if (first === undefined) throw new Error('舐め方がありません')
+  const end = first.startMs + first.durationMs
+
+  it('舌をアイコンに押し当てているあいだは糸が無い', () => {
+    expect(salivaStringAt(plan, first.startMs + first.durationMs / 2)).toBeNull()
+  })
+
+  it('舌が離れるときに糸が伸び、細くなって切れる', () => {
+    const early = salivaStringAt(plan, end - 50)
+    const late = salivaStringAt(plan, end + 150)
+    expect(early).not.toBeNull()
+    expect(late?.stretch ?? 0).toBeGreaterThan(early?.stretch ?? 1)
+    expect(salivaStringAt(plan, first.startMs + first.durationMs + 5000)).toBeNull()
   })
 })
