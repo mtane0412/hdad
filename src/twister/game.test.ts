@@ -14,11 +14,10 @@
 import { describe, expect, it } from 'vitest'
 import { JOINT_RADII, JOINTS, LIMBS, LOSING_JOINTS, type Pose } from './body'
 import { DEMO_TWISTER_CALLS, DEMO_TWISTER_INTERVAL_MS } from './demo'
-import { createRandom } from '../core/background'
 import { COLLAPSE_PLAYBACK_RATE, FAST_PACE, INTRO_MS, REACH_MS, RESULT_MS, SLOW_PACE, createGame, gameSceneAt, paceOf, spinStartOf, stackingAt, type Game } from './game'
 import { COLLAPSE_FRAME_MS, STANDING_CLEARANCE, collapsePosesAt } from './physics'
 import { INITIAL_SPOTS, PLAYER_INDEXES, opponentOf } from './players'
-import { planGame, supineAfter } from './plan'
+import { supineAfter } from './plan'
 import { restingOn } from './pose'
 import { distance, lerp, midpoint, segmentDistanceFlat, sub } from './vec'
 
@@ -72,9 +71,20 @@ const torsosOverlapFromAbove = (a: Pose, b: Pose): boolean => segmentDistanceFla
 /** 種1〜SEED_COUNT の対戦。1回の対戦を作るのに時間がかかる（倒れはじめるまでの姿勢を1コマずつ記録する）ので、ファイルの中で一度だけ作る */
 const games = Array.from({ length: SEED_COUNT }, (_, index) => createGame(index + 1))
 
+/** 種ごとの対戦の控え。同じ種の対戦を複数のテストで作り直さない（1回あたり 0.3 秒ほどかかる） */
+const gameCache = new Map<number, Game>()
+const cachedGame = (seed: number): Game => {
+  const cached = gameCache.get(seed)
+  if (cached) return cached
+  const created = createGame(seed)
+  gameCache.set(seed, created)
+  return created
+}
+
 describe('createGame', () => {
   it('同じ種からは、同じ指示・同じ勝敗・同じ長さになる', () => {
-    const first = createGame(20261006)
+    // 片方は控えを使い、もう片方だけを作り直して見比べる（毎回2回作らない）
+    const first = cachedGame(20261006)
     const second = createGame(20261006)
     expect(second.plan).toEqual(first.plan)
     expect(second.touchdown).toEqual(first.touchdown)
@@ -95,7 +105,7 @@ describe('createGame', () => {
 
   it('プレビューの対戦は、次の対戦を流すまでに流しきる', () => {
     for (const call of DEMO_TWISTER_CALLS) {
-      expect(createGame(call.seed).totalMs + DEMO_MIN_GAP_MS, `種${call.seed}`).toBeLessThanOrEqual(DEMO_TWISTER_INTERVAL_MS)
+      expect(cachedGame(call.seed).totalMs + DEMO_MIN_GAP_MS, `種${call.seed}`).toBeLessThanOrEqual(DEMO_TWISTER_INTERVAL_MS)
     }
   })
 
@@ -200,18 +210,13 @@ describe('仰向けに裏返る', () => {
   })
 
   it('仰向けの人が最後の指示で倒れ込んでも、先にマットに着いた人が決まる', () => {
-    // 最後の指示を受ける人が仰向けになっている種を、指示の並びだけから探す（対戦を作るより速い）
-    const seeds = Array.from({ length: 200 }, (_, seed) => seed)
-      .filter((seed) => {
-        const plan = planGame(createRandom(seed))
-        return supineAfter(plan.moves, plan.finalMove.player)
-      })
-      .slice(0, 3)
-    expect(seeds.length).toBeGreaterThan(0)
-    for (const seed of seeds) {
-      const game = createGame(seed)
-      expect(LOSING_JOINTS, `種${seed}`).toContain(game.touchdown.joint)
-      expect(game.touchdown.atMs, `種${seed}`).toBeGreaterThan(0)
+    // 最後の指示を受ける人が仰向けになっている対戦を、作ってある対戦（種1〜SEED_COUNT）から選ぶ。
+    // 対戦を作り直さないので、物理の計算は走らない
+    const supineFinalGames = games.filter((game) => supineAfter(game.plan.moves, game.plan.finalMove.player)).slice(0, 3)
+    expect(supineFinalGames.length).toBeGreaterThan(0)
+    for (const game of supineFinalGames) {
+      expect(LOSING_JOINTS, `種${game.seed}`).toContain(game.touchdown.joint)
+      expect(game.touchdown.atMs, `種${game.seed}`).toBeGreaterThan(0)
     }
   })
 })
