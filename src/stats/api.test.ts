@@ -162,6 +162,49 @@ describe('titleSettings（配信タイトルの候補を作るかの設定）', 
   })
 })
 
+const REVIEW_THEME = {
+  theme: { id: 3, title: '配信中にAIをどこまで使っていい？', openedAt: '2026-09-19T12:10:00.000Z', closedAt: '2026-09-19T12:50:00.000Z', prompt: null },
+  topics: [
+    {
+      id: 5,
+      title: '視聴者との距離',
+      opinions: [
+        {
+          id: 8,
+          kind: 'issue',
+          text: 'AIが返事すると距離を感じる',
+          author: 'aoi',
+          createdAt: '2026-09-19T12:20:00.000Z',
+          hidden: true,
+          people: 2,
+          sources: [{ userName: 'aoi', text: 'AIのコメ返しは寂しい' }],
+        },
+      ],
+    },
+  ],
+  counts: { received: 12, used: 5, pending: 0, dropped: { command: 1, emote: 2, reaction: 3 }, filtered: 0, ignored: 1, failed: 0 },
+}
+
+describe('sessionOpinions（配信の時間に開いた意見ボードのテーマ）', () => {
+  it('配信IDを経路に入れて呼び、テーマごとの論点・意見・人数・内訳を返す', async () => {
+    const { requests, fetchImpl } = fetchReturning(200, { themes: [REVIEW_THEME] })
+
+    expect(await createStatsApi(fetchImpl).sessionOpinions('配信ID-2026-09-19')).toEqual([REVIEW_THEME])
+    expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/stats/sessions/%E9%85%8D%E4%BF%A1ID-2026-09-19/opinions')
+  })
+
+  it('テーマが無ければ空の一覧を返す', async () => {
+    expect(await createStatsApi(fetchReturning(200, { themes: [] }).fetchImpl).sessionOpinions('配信ID')).toEqual([])
+  })
+
+  it('意見の形やコメントの内訳が想定と違えば、黙って捨てずにエラーにする', async () => {
+    const brokenOpinion = { ...REVIEW_THEME, topics: [{ id: 5, title: '視聴者との距離', opinions: [{ id: 8, text: '種類がない' }] }] }
+    await expect(createStatsApi(fetchReturning(200, { themes: [brokenOpinion] }).fetchImpl).sessionOpinions('配信ID')).rejects.toThrow('themes[0]')
+    const brokenCounts = { ...REVIEW_THEME, counts: { received: '多い' } }
+    await expect(createStatsApi(fetchReturning(200, { themes: [brokenCounts] }).fetchImpl).sessionOpinions('配信ID')).rejects.toThrow('themes[0]')
+  })
+})
+
 describe('followers（フォロワー数の推移）', () => {
   it('フォロワー数の経路を呼び、時系列を返す', async () => {
     const trend = [

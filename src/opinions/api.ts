@@ -149,7 +149,7 @@ const isOneOf = <T extends string>(choices: readonly T[], value: unknown): value
 
 const isCount = (value: unknown): value is number => typeof value === 'number' && Number.isInteger(value) && value >= 0
 
-const isCommentCounts = (value: unknown): value is OpinionCommentCounts =>
+export const isCommentCounts = (value: unknown): value is OpinionCommentCounts =>
   isRecord(value) &&
   isRecord(value.dropped) &&
   DROP_REASONS.every((reason) => isRecord(value.dropped) && isCount(value.dropped[reason])) &&
@@ -173,7 +173,7 @@ const isTopicChoice = (value: unknown): value is TopicChoice =>
 const isRescuedOpinion = (value: unknown): value is RescuedOpinion =>
   isRecord(value) && isOneOf(OPINION_KINDS, value.kind) && typeof value.text === 'string' && isTopicChoice(value.topic)
 
-const isAdminTopic = (value: unknown): value is AdminTopic =>
+export const isAdminTopic = (value: unknown): value is AdminTopic =>
   isRecord(value) && typeof value.id === 'number' && typeof value.title === 'string' && Array.isArray(value.opinions) && value.opinions.every(isAdminOpinion)
 
 /**

@@ -23,6 +23,7 @@ import {
   readAdminBoard,
   readOpenTheme,
   readOverlayBoard,
+  readThemeReviews,
   readLatestThemeTopics,
   readPendingComments,
   readRescuableComment,
@@ -509,5 +510,81 @@ describe('救い出しと論点の整理（issue #308）', () => {
 
     expect(await readLatestThemeTopics(db)).toHaveLength(MAX_TOPICS)
     expect((await readPendingComments(db, theme.id)).map(({ id }) => id)).toEqual([ids.pending])
+  })
+})
+
+describe('配信後の振り返り（issue #309）', () => {
+  const HOUR = 60 * 60 * 1000
+
+  /** テーマを開いてコメントを貯め、2件を1つの意見にして、テーマを締め切る */
+  const runTheme = async (title: string, openedAt: number, userName: string, text: string) => {
+    const theme = await open(title, openedAt)
+    await recordOpinionComment(db, comment(`m-${title}-1`, userName, text), openedAt + 1000)
+    await recordOpinionComment(db, comment(`m-${title}-2`, `${userName}の友人`, `${text}（同意）`), openedAt + 2000)
+    await recordOpinionComment(db, { ...comment(`m-${title}-3`, 'nekomaru', '草'), dropReason: 'reaction' }, openedAt + 3000)
+    const [first, second] = (await readPendingComments(db, theme.id)).map(({ id }) => id)
+    if (first === undefined || second === undefined) throw new Error('コメントが貯まっていません')
+    await applySorting(db, theme.id, [{ type: 'new', commentIds: [first, second], topic: { type: 'new', title: `${title}の論点` }, kind: 'issue', text: `${text}という課題` }], openedAt + 4000)
+    await closeTheme(db, theme.id, openedAt + 5000)
+    return theme
+  }
+
+  it('配信の時間に開いたテーマだけを、古い順に、全論点・全意見・人数・原文つきで返す', async () => {
+    await runTheme('配信の前に開いたテーマ', NOW - 2 * HOUR, 'aoi', '前の配信の話')
+    const first = await runTheme('AIの使いどころ', NOW + HOUR, 'riku', '返事が遅いと寂しい')
+    const second = await runTheme('BGMの好み', NOW + 2 * HOUR, 'mochi', '作業用の曲がいい')
+    await runTheme('配信のあとに開いたテーマ', NOW + 5 * HOUR, 'yuki', '次の配信の話')
+
+    const reviews = await readThemeReviews(db, NOW, NOW + 3 * HOUR)
+
+    expect(reviews.map(({ theme }) => theme.id)).toEqual([first.id, second.id])
+    expect(reviews[0]?.topics).toEqual([
+      {
+        id: expect.any(Number),
+        title: 'AIの使いどころの論点',
+        opinions: [
+          {
+            id: expect.any(Number),
+            kind: 'issue',
+            text: '返事が遅いと寂しいという課題',
+            author: 'riku',
+            createdAt: new Date(NOW + HOUR + 4000).toISOString(),
+            hidden: false,
+            people: 2,
+            sources: [
+              { userName: 'riku', text: '返事が遅いと寂しい' },
+              { userName: 'rikuの友人', text: '返事が遅いと寂しい（同意）' },
+            ],
+          },
+        ],
+      },
+    ])
+  })
+
+  it('隠した意見も hidden つきで返し、コメントの内訳を添える', async () => {
+    const theme = await runTheme('AIの使いどころ', NOW + HOUR, 'riku', '返事が遅いと寂しい')
+    const opinionId = (await readSortingBoard(db, theme.id))[0]?.opinions[0]?.id ?? 0
+    await setOpinionHidden(db, opinionId, true)
+
+    const [review] = await readThemeReviews(db, NOW, NOW + 3 * HOUR)
+
+    expect(review?.topics[0]?.opinions[0]).toMatchObject({ id: opinionId, hidden: true })
+    expect(review?.counts).toMatchObject({ received: 3, used: 2, dropped: { reaction: 1, command: 0, emote: 0 } })
+  })
+
+  it('配信の時間の終わりちょうどに開いたテーマも含め、時間の外は含めない', async () => {
+    const edge = await runTheme('終わりぎわのテーマ', NOW + HOUR, 'riku', '返事が遅いと寂しい')
+
+    expect((await readThemeReviews(db, NOW, NOW + HOUR)).map(({ theme }) => theme.id)).toEqual([edge.id])
+    expect(await readThemeReviews(db, NOW, NOW + HOUR - 1)).toEqual([])
+    expect(await readThemeReviews(db, NOW + HOUR + 1, NOW + 2 * HOUR)).toEqual([])
+  })
+
+  it('開いているテーマ（まだ意見が無い）も、論点なしで返す', async () => {
+    const theme = await open('いま開いているテーマ', NOW + HOUR)
+
+    const reviews = await readThemeReviews(db, NOW, NOW + 3 * HOUR)
+
+    expect(reviews).toEqual([{ theme, topics: [], counts: expect.objectContaining({ received: 0 }) }])
   })
 })

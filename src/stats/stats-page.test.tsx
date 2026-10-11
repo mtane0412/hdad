@@ -96,6 +96,7 @@ const createFakeApi = (patch: Partial<StatsApi> = {}): StatsApi => ({
   followers: vi.fn(async () => FOLLOWER_TREND),
   titleSettings: vi.fn(async () => ({ enabled: false })),
   saveTitleSettings: vi.fn(async (settings) => settings),
+  sessionOpinions: vi.fn(async () => []),
   ...patch,
 })
 
@@ -309,6 +310,28 @@ describe('配信ごとの詳細（視聴者数の推移と話されたこと）'
     await user.click(screen.getByRole('button', { name: '金曜夜のもくもく配信 の詳細を見る' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('配信「配信ID-金曜」の記録が存在しません')
+  })
+})
+
+describe('配信ごとの詳細の意見ボードの振り返り', () => {
+  it('配信を選ぶと、その配信の意見ボードの振り返りを読み込んで出す', async () => {
+    const user = userEvent.setup()
+    const api = createFakeApi({
+      sessionOpinions: vi.fn(async () => [
+        {
+          theme: { id: 3, title: '配信中にAIをどこまで使っていい？', openedAt: '2026-09-19T12:10:00.000Z', closedAt: null, prompt: null },
+          topics: [],
+          counts: { received: 0, used: 0, pending: 0, dropped: { command: 0, emote: 0, reaction: 0 }, filtered: 0, ignored: 0, failed: 0 },
+        },
+      ]),
+    })
+    render(<StatsPage api={api} now={NOW} />)
+    await waitForDisplay()
+
+    await user.click(screen.getByRole('button', { name: '金曜夜のもくもく配信 の詳細を見る' }))
+
+    expect(await screen.findByRole('group', { name: 'テーマ「配信中にAIをどこまで使っていい？」の振り返り' })).toBeInTheDocument()
+    expect(api.sessionOpinions).toHaveBeenCalledWith('配信ID-金曜')
   })
 })
 

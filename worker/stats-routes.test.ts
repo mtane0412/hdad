@@ -17,6 +17,7 @@ import { createFakeCommentChannel } from './fake-comment-channel'
 import { createFakeStore } from './fake-store'
 import { handleRequest, handleScheduled, type Env } from './index'
 import { createSessionToken } from './session'
+import { applySorting, openTheme, readPendingComments, recordOpinionComment } from './opinion-store'
 import { recordFailure, recordFollowerTotal, recordLiveStream } from './stats-store'
 import { saveToken } from './token'
 
@@ -79,7 +80,7 @@ const recordChatStream = async (env: Env): Promise<void> => {
 }
 
 describe('読み出し用APIの保護', () => {
-  it.each(['/api/admin/stats/sessions', '/api/admin/stats/sessions/40000000001', '/api/admin/stats/followers', '/api/admin/stats/failures'])(
+  it.each(['/api/admin/stats/sessions', '/api/admin/stats/sessions/40000000001', '/api/admin/stats/sessions/40000000001/opinions', '/api/admin/stats/followers', '/api/admin/stats/failures'])(
     '%s は配信者のセッションがなければ401になる',
     async (path) => {
       const { env } = createEnv()
@@ -218,5 +219,39 @@ describe('handleScheduled（cron の入口）', () => {
   it('Workerの環境変数が足りなければエラーにする', async () => {
     const { env } = createEnv()
     await expect(handleScheduled({ ...env, TWITCH_CLIENT_SECRET: '' }, { fetch: fakeHelix, now: () => NOW })).rejects.toThrow('TWITCH_CLIENT_SECRET')
+  })
+})
+
+describe('GET /api/admin/stats/sessions/:id/opinions', () => {
+  it('配信の時間に開いたテーマの論点・意見・人数・原文を返し、時間の外のテーマは返さない', async () => {
+    const { env } = createEnv()
+    await recordChatStream(env)
+    // 配信の前（10:00）に開いて締め切ったテーマと、配信中（12:02）に開いたテーマ
+    await openTheme(env.DB, '配信前のテーマ', Date.parse('2026-09-21T10:00:00Z'))
+    await env.DB.prepare('UPDATE opinion_themes SET closed_at = ?1').bind('2026-09-21T10:30:00.000Z').run()
+    const theme = await openTheme(env.DB, '配信中にAIをどこまで使っていい？', Date.parse('2026-09-21T12:02:00Z'))
+    if (theme === null) throw new Error('テーマを開けませんでした')
+    await recordOpinionComment(
+      env.DB,
+      { messageId: 'm1', userId: 'u1', userName: 'aoi', text: 'AIの返事は寂しい', replyName: null, replyText: null, dropReason: null },
+      Date.parse('2026-09-21T12:03:00Z'),
+    )
+    const [commentId] = (await readPendingComments(env.DB, theme.id)).map(({ id }) => id)
+    if (commentId === undefined) throw new Error('コメントが貯まっていません')
+    await applySorting(env.DB, theme.id, [{ type: 'new', commentIds: [commentId], topic: { type: 'new', title: '視聴者との距離' }, kind: 'issue', text: '距離を感じる' }], Date.parse('2026-09-21T12:04:00Z'))
+
+    const response = await fetchAsBroadcaster(env, '/api/admin/stats/sessions/40000000001/opinions')
+
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as { themes: { theme: { title: string }; topics: { title: string; opinions: { people: number; sources: unknown[] }[] }[] }[] }
+    expect(body.themes.map(({ theme: { title } }) => title)).toEqual(['配信中にAIをどこまで使っていい？'])
+    expect(body.themes[0]?.topics[0]).toMatchObject({ title: '視聴者との距離', opinions: [{ people: 1, sources: [{ userName: 'aoi', text: 'AIの返事は寂しい' }] }] })
+  })
+
+  it('配信の記録が無ければ404になる', async () => {
+    const { env } = createEnv()
+    const response = await fetchAsBroadcaster(env, '/api/admin/stats/sessions/99999/opinions')
+    expect(response.status).toBe(404)
+    expect(await response.json()).toMatchObject({ error: { code: 'session-not-found' } })
   })
 })

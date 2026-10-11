@@ -3,7 +3,7 @@
  *
  * ログイン後に最初に出す画面。Workerが貯めた記録（/api/admin/stats/*）を読み、
  * 期間の概要・フォロワー数の推移・配信の一覧を出す。配信を選ぶと、その配信の視聴者数の推移と、
- * 何が話されたか（約30分ごとの章）・最後のあらすじを読み込んで一覧の中に出す。
+ * 何が話されたか（約30分ごとの章）・最後のあらすじ・その配信の時間に開いた意見ボードのテーマの振り返りを読み込んで一覧の中に出す。
  * 配信タイトルの候補（試験運用。issue #268）を作るかの設定もここで切り替え、作った候補は章の下に出す。
  * 集計と整形は summary.ts、Workerの呼び出しは api.ts に任せ、ここは表示だけを受け持つ。
  *
@@ -38,6 +38,7 @@ import {
   viewerPoints,
   withinPeriod,
 } from './summary'
+import { SessionOpinions } from './session-opinions'
 import type { TimeChartProps } from './time-chart'
 
 /** グラフ本体。Recharts ごと別のファイルに分け、ダッシュボードを開いたときに初めて読み込む */
@@ -206,7 +207,7 @@ const TitleCandidateSetting = ({ api }: { api: StatsApi }) => {
 }
 
 /** 配信の一覧の1行と、選ばれていればその配信の詳細（視聴者数の推移・話されたこと） */
-const SessionRow = ({ session, now, selected, onSelect }: { session: SessionSummary; now: number; selected?: Selected; onSelect(): void }) => {
+const SessionRow = ({ api, session, now, selected, onSelect }: { api: StatsApi; session: SessionSummary; now: number; selected?: Selected; onSelect(): void }) => {
   const totals = eventTotals(session)
   const isSelected = selected?.id === session.id
   // EventSubの通知で始まった配信は、次の収集までタイトルが空のことがある。表示と読み上げで同じ呼び方にする
@@ -257,6 +258,7 @@ const SessionRow = ({ session, now, selected, onSelect }: { session: SessionSumm
                   <LazyTimeChart label={`${displayTitle} の視聴者数の推移`} dataKey="viewers" points={viewerPoints(selected.state.detail.samples)} />
                 )}
                 <SessionTalk detail={selected.state.detail} displayTitle={displayTitle} />
+                <SessionOpinions api={api} sessionId={session.id} />
                 <p role="group" aria-label="みんなの作業時間" className="flex items-baseline gap-2 text-sm">
                   <span className="text-muted-foreground">みんなの作業時間</span>
                   <strong className="font-medium tabular-nums">{formatWorkTime(selected.state.detail.workTime)}</strong>
@@ -405,7 +407,7 @@ export const StatsPage = ({ api, now }: StatsPageProps) => {
               </TableHeader>
               <TableBody>
                 {sessionsInPeriod.map((session) => (
-                  <SessionRow key={session.id} session={session} now={currentTime} selected={selected} onSelect={() => select(session)} />
+                  <SessionRow key={session.id} api={api} session={session} now={currentTime} selected={selected} onSelect={() => select(session)} />
                 ))}
               </TableBody>
             </Table>
