@@ -2,13 +2,15 @@
  * 人形の物理（physics.ts）のテスト
  *
  * 物理は関節を粒、骨を長さの決まった棒として動かす（Verlet 積分）。使いみちは2つある。
- * - relaxPoses: 動かしている最中の2人の体のめり込みを押し出す（重力は掛けない。毎フレーム、その時刻の姿勢だけから求める）
+ * - relaxPoses: 動かしている最中の2人の体のめり込みを押し出す（重力は掛けない。毎フレーム、その時刻の姿勢だけから求める）。
+ * - relaxFollowing: 前のコマで押し出し終えた姿勢から続けて押し出す（倒れはじめるまでを記録するときに、1コマずつ使う）。
+ *   前のコマから続けて解くので、関節が相手の骨の中心線をまたいでも押す向きが裏返らず、姿勢が飛ばない
  * - bakeCollapse: 最後の指示で倒れ込むところを、始めから終わりまで先に計算して記録する（描画はその記録を経過時間で引くだけ）
  */
 import { describe, expect, it } from 'vitest'
 import { BONES, JOINT_RADII, JOINTS, LIMBS, LOSING_JOINTS, poseFrom, type Pose } from './body'
 import { INITIAL_SPOTS, PLAYER_FACINGS } from './players'
-import { COLLAPSE_AFTER_TOUCHDOWN_MS, COLLAPSE_FRAME_MS, STANDING_CLEARANCE, bakeCollapse, collapsePosesAt, relaxPoses, type CollapseInput, type Pins } from './physics'
+import { COLLAPSE_AFTER_TOUCHDOWN_MS, COLLAPSE_FRAME_MS, STANDING_CLEARANCE, bakeCollapse, collapsePosesAt, recordedPosesAt, relaxFollowing, relaxPoses, type CollapseInput, type Pins, type PosePair } from './physics'
 import { contactsOf, solvePose } from './pose'
 import { add, distance, distanceToSegment, vec, type Vec3 } from './vec'
 
@@ -51,6 +53,74 @@ describe('relaxPoses', () => {
     for (const limb of LIMBS) {
       expect(distance(raider[limb], startPins[0][limb])).toBeLessThan(1e-9)
     }
+  })
+})
+
+describe('relaxFollowing', () => {
+  /** 配信者を、レイドした人の少し上に重ねる（配信者の手足は留めない） */
+  const stackedAt = (offsetX: number): PosePair => [startPoses[0], shifted(startPoses[0], vec(offsetX, 0.1, 0))]
+  const pins: readonly [Pins, Pins] = [startPins[0], {}]
+
+  it('体が離れていて、前のコマも目標と同じなら、目標をそのまま返す', () => {
+    const [raider, streamer] = relaxFollowing(startPoses, startPoses, startPins)
+    for (const joint of JOINTS) {
+      expect(distance(raider[joint], startPoses[0][joint])).toBeLessThan(1e-9)
+      expect(distance(streamer[joint], startPoses[1][joint])).toBeLessThan(1e-9)
+    }
+  })
+
+  it('体が離れていれば、前のコマの姿勢が目標からずれていても、数コマで目標に追いつく', () => {
+    // 前のコマで、配信者が目標から 10cm 横にずれていた
+    let previous: PosePair = [startPoses[0], shifted(startPoses[1], vec(0.1, 0, 0))]
+    for (let frame = 0; frame < 40; frame += 1) previous = relaxFollowing(previous, startPoses, [startPins[0], {}])
+    for (const joint of JOINTS) {
+      expect(distance(previous[1][joint], startPoses[1][joint]), joint).toBeLessThan(0.001)
+    }
+  })
+
+  it('目標が1コマで大きく動いても、留めていない関節は少しずつ追いかける（飛ばない）', () => {
+    // 目標の配信者が、1コマで 50cm 横へ動いた（配信者の手足は留めない）
+    const jumped: PosePair = [startPoses[0], shifted(startPoses[1], vec(0.5, 0, 0))]
+    const [, streamer] = relaxFollowing(startPoses, jumped, [startPins[0], {}])
+    for (const joint of JOINTS) {
+      expect(distance(streamer[joint], startPoses[1][joint]), joint).toBeLessThan(0.05)
+    }
+  })
+
+  it('留めた手足は、前のコマの姿勢にかかわらず目標の位置に置く', () => {
+    const drifted: PosePair = [shifted(startPoses[0], vec(0, 0, 0.2)), startPoses[1]]
+    const [raider] = relaxFollowing(drifted, startPoses, startPins)
+    for (const limb of LIMBS) {
+      expect(distance(raider[limb], startPins[0][limb])).toBeLessThan(1e-9)
+    }
+  })
+
+  it('重なる位置を1コマごとに少しずつずらしても、押し出した姿勢は飛ばない（関節が相手の骨の中心線をまたいでも押す向きが裏返らない）', () => {
+    // 配信者を、レイドした人の胴の真上を横切るように、1コマに 5mm ずつずらす
+    const offsets = Array.from({ length: 41 }, (_, index) => -0.1 + index * 0.005)
+    const first = stackedAt(offsets[0] ?? 0)
+    let previous = relaxPoses(first, pins)
+    // 体まるごと重ねた深いめり込みから始めるので、はじめの位置で押し出しきるまで落ち着かせてから、ずらしはじめる
+    for (let frame = 0; frame < 30; frame += 1) previous = relaxFollowing(previous, first, pins)
+    for (const offset of offsets.slice(1)) {
+      const target = stackedAt(offset)
+      const current = relaxFollowing(previous, target, pins)
+      for (const joint of JOINTS) {
+        expect(distance(current[0][joint], previous[0][joint]), `${offset}m のレイドした人の${joint}`).toBeLessThan(0.03)
+        expect(distance(current[1][joint], previous[1][joint]), `${offset}m の配信者の${joint}`).toBeLessThan(0.03)
+      }
+      previous = current
+    }
+  })
+})
+
+describe('recordedPosesAt', () => {
+  it('記録の間隔を渡すと、その間隔で記録を引き、あいだは前後を混ぜる', () => {
+    const later: PosePair = [shifted(startPoses[0], vec(0, 0, 0.1)), startPoses[1]]
+    const frames = [startPoses, later]
+    expect(recordedPosesAt(frames, 20, 0)).toEqual(startPoses)
+    expect(distance(recordedPosesAt(frames, 20, 10)[0].neck, add(startPoses[0].neck, vec(0, 0, 0.05)))).toBeLessThan(1e-9)
+    expect(recordedPosesAt(frames, 20, 100)).toEqual(later)
   })
 })
 

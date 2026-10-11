@@ -11,16 +11,32 @@
  * 3. 最後の指示: 速くスピナーを回し、届かない円へ手足を伸ばし（REACH_MS）、倒れ込む（記録をスローモーションで再生する）
  * 4. 結果（RESULT_MS）: 先にマットに着いた人の負けとして、勝者を出す
  *
- * 倒れ込むまでの姿勢は、その時刻の手足の位置から IK で解き（pose.ts）、2人の体のめり込みを押し出して求める（relaxPoses）。
+ * 倒れ込むまでの姿勢は、その時刻の手足の位置から IK で解いた姿勢（pose.ts）を目標にし、2人の体のめり込みを押し出して求める。
+ * 押し出しは前のコマの結果から続けて解く（physics.ts の relaxFollowing）ので、倒れ込みと同じく対戦を作るときに1コマずつ記録し、
+ * 再生ではその記録を経過時間で引く（bakeStanding）。毎コマ押し出し直すと、関節が相手の骨の中心線をまたぐたびに姿勢が飛ぶためである。
+ * 2人の胴が上から見て近づいたら、片方を下にして伏せさせ、もう片方がその上に重なるようにする（stackingAt）。
+ * 下になるのは、対戦のなかで最初に胴が重なった指示で手足を動かした人の相手（上に乗り込まれた人）で、その対戦のあいだ入れ替えない。
  * 倒れ込みの計算は、この求め方で出した倒れはじめの姿勢から始めるので、場面の切り替わりで姿勢が飛ばない。
  */
 import { createRandom } from '../core/background'
-import { LIMB_CHAINS, type Joint, type Limb, type Pose } from './body'
+import { LIMB_CHAINS, LIMBS, type Joint, type Limb, type Pose } from './body'
 import { placementsAfter, planGame, type Move, type Plan } from './plan'
-import { COLLAPSE_FRAME_MS, PHYSICS_STEP_MS, bakeCollapse, collapsePosesAt, relaxPoses, type Collapse, type Pins, type PosePair, type Touchdown } from './physics'
+import {
+  COLLAPSE_FRAME_MS,
+  PHYSICS_STEP_MS,
+  bakeCollapse,
+  collapsePosesAt,
+  recordedPosesAt,
+  relaxFollowing,
+  relaxPoses,
+  type Collapse,
+  type Pins,
+  type PosePair,
+  type Touchdown,
+} from './physics'
 import { PLAYER_FACINGS, opponentOf, type PlayerIndex } from './players'
 import { contactsOf, restingOn, solvePose, type Contacts } from './pose'
-import { UP, add, flat, lerp, normalize, scale, sub, type Vec3 } from './vec'
+import { UP, add, flat, length, lerp, normalize, scale, segmentDistanceFlat, sub, type Vec3 } from './vec'
 
 /** 登場の長さ（ミリ秒） */
 export const INTRO_MS = 3000
@@ -48,6 +64,14 @@ export const REACH_MS = 900
 export const COLLAPSE_PLAYBACK_RATE = 0.4
 /** 勝者を出す長さ（ミリ秒） */
 export const RESULT_MS = 5500
+/** 運び終えた手足が遅れていたとき、円へ近づける1コマの距離（m）。手足を運ぶいちばん速い速さ（1コマ 3〜4cm）に合わせる */
+const LANDING_STEP = 0.04
+/** 倒れはじめるまでの姿勢を記録する間隔の目安（ミリ秒）。60fps の1コマ。実際の間隔は、倒れはじめる時刻をちょうど割り切る長さにする */
+const STANDING_FRAME_MS = 1000 / 60
+/** 2人の胴（首から腰）が上から見てこの距離（m）まで近づいたら、下になる人が伏せはじめる */
+const CROUCH_START_GAP = 0.3
+/** 2人の胴が上から見てこの距離（m）まで近づいたら、下になる人は伏せきる */
+const CROUCH_FULL_GAP = 0.12
 /** 手足を運ぶときに持ち上げる高さ（m） */
 const MOVE_ARC_HEIGHT = 0.25
 /** 最後の指示で手足を伸ばすときに持ち上げる高さ（m） */
@@ -65,6 +89,26 @@ export interface Game {
   readonly touchdown: Touchdown
   /** 再生の長さ（ミリ秒） */
   readonly totalMs: number
+  /** 胴が重なったときに下になる人。一度も重ならない対戦では null（underOf） */
+  readonly under: PlayerIndex | null
+  /** 先に計算した、倒れはじめるまでの姿勢（bakeStanding） */
+  readonly standing: StandingRecord
+}
+
+/** 倒れはじめるまでの姿勢の記録 */
+export interface StandingRecord {
+  /** frameMs ごとの2人の姿勢。先頭は再生を始めた時刻、最後は倒れはじめる時刻の姿勢 */
+  readonly frames: readonly PosePair[]
+  /** 記録の間隔（ミリ秒） */
+  readonly frameMs: number
+}
+
+/** 胴が重なったときの上下 */
+export interface Stacking {
+  /** 下になって伏せる人 */
+  readonly bottom: PlayerIndex
+  /** 伏せる度合い（0より大きく1以下）。胴が近いほど大きい */
+  readonly crouch: number
 }
 
 export type GamePhase = 'intro' | 'spin' | 'move' | 'reach' | 'collapse' | 'result'
@@ -159,18 +203,112 @@ const motionAt = (plan: Plan, elapsedMs: number): { done: readonly Move[]; motio
 /** 姿勢の手足の先を、そのまま留める位置にする（めり込みを押し出すときに手足を動かさない） */
 const pinsOf = (pose: Pose): Pins => ({ handL: pose.handL, handR: pose.handR, footL: pose.footL, footR: pose.footR })
 
-/** 倒れ込むまでの時刻の、2人の姿勢 */
-const standingPosesAt = (plan: Plan, elapsedMs: number): PosePair => {
+/** 胴の近さ（上から見た距離）から、下になる人を伏せさせる度合い（0〜1） */
+const crouchOf = (poses: PosePair): number => {
+  const gap = segmentDistanceFlat(poses[0].neck, poses[0].pelvis, poses[1].neck, poses[1].pelvis)
+  return Math.min(Math.max((CROUCH_START_GAP - gap) / (CROUCH_START_GAP - CROUCH_FULL_GAP), 0), 1)
+}
+
+/** 手足の先の位置から、伏せさせる前の2人の姿勢を解く */
+const solvePair = (contacts: readonly [Contacts, Contacts]): PosePair => [solvePose(contacts[0], PLAYER_FACINGS[0]), solvePose(contacts[1], PLAYER_FACINGS[1])]
+
+/**
+ * 胴が重なったときに下になる人を決める。指示（最後の指示を含む）を順にたどり、手足を運び終えた姿勢で胴が近づいた最初の指示で
+ * 動いた人の相手を下にする。一度も近づかなければ null。
+ *
+ * 運ぶ途中で近づき、運び終えたら離れる指示は見ない（その途中では、下になる人を動かしている人の相手として決める。standingAt）。
+ */
+const underOf = (plan: Plan): PlayerIndex | null => {
+  const moves = [...plan.moves, plan.finalMove]
+  const index = moves.findIndex((_, done) => {
+    const placements = placementsAfter(moves.slice(0, done + 1))
+    return crouchOf(solvePair([contactsOf(placements[0]), contactsOf(placements[1])])) > 0
+  })
+  const first = moves[index]
+  return first === undefined ? null : opponentOf(first.player)
+}
+
+/**
+ * 倒れ込むまでの時刻の、2人の目標の姿勢（IK で解き、下になる人を伏せさせたもの。めり込みは押し出していない）と、
+ * 胴が重なったときの上下と、運んでいる途中の手足
+ */
+const standingTargetAt = (
+  plan: Plan,
+  under: PlayerIndex | null,
+  elapsedMs: number,
+): { target: PosePair; stacking: Stacking | null; moving: { readonly player: PlayerIndex; readonly limb: Limb } | null } => {
   const { done, motion } = motionAt(plan, elapsedMs)
   const placements = placementsAfter(done)
   const contactsFor = (player: PlayerIndex): Contacts => {
     const contacts = contactsOf(placements[player])
     return motion !== null && motion.player === player ? { ...contacts, [motion.limb]: motion.position } : contacts
   }
-  const raider = solvePose(contactsFor(0), PLAYER_FACINGS[0])
-  const streamer = solvePose(contactsFor(1), PLAYER_FACINGS[1])
-  return relaxPoses([raider, streamer], [pinsOf(raider), pinsOf(streamer)])
+  const contacts: readonly [Contacts, Contacts] = [contactsFor(0), contactsFor(1)]
+  const upright = solvePair(contacts)
+  const crouch = crouchOf(upright)
+  let stacking: Stacking | null = null
+  if (crouch > 0) {
+    // 運び終えた姿勢では一度も重ならない対戦でも、運ぶ途中でかすめることがある。そのときは動かしている人の相手を下にする
+    const bottom = under ?? (motion === null ? null : opponentOf(motion.player))
+    if (bottom === null) throw new Error(`経過 ${elapsedMs} ミリ秒で胴が重なっているのに、下になる人が決まっていません`)
+    stacking = { bottom, crouch }
+  }
+  const target: PosePair =
+    stacking === null
+      ? upright
+      : stacking.bottom === 0
+        ? [solvePose(contacts[0], PLAYER_FACINGS[0], stacking.crouch), upright[1]]
+        : [upright[0], solvePose(contacts[1], PLAYER_FACINGS[1], stacking.crouch)]
+  return { target, stacking, moving: motion === null ? null : { player: motion.player, limb: motion.limb } }
 }
+
+/**
+ * 手足の先を留める位置。
+ *
+ * 運んでいる途中の手足は留めず、相手の体に当たったら押し返されながら目標を追いかけさせる（弧の上に留めると相手の体を突き抜け、
+ * 相手の体を押しのけて飛ばす）。運び終えた手足は、前のコマの位置から目標の円へ LANDING_STEP まで近づけた位置に留める。
+ * 押し返されて遅れていても、相手の体を少しずつ押しのけながら数コマで円に着く（いきなり円へ留めると、その瞬間に飛ぶ）。
+ */
+const pinsOfPair = (target: PosePair, previous: PosePair, moving: { readonly player: PlayerIndex; readonly limb: Limb } | null): readonly [Pins, Pins] => {
+  const pinsFor = (player: PlayerIndex): Pins => {
+    const pins: Partial<Record<Limb, Vec3>> = {}
+    for (const limb of LIMBS) {
+      if (moving !== null && moving.player === player && moving.limb === limb) continue
+      const from = previous[player][limb]
+      const toward = sub(target[player][limb], from)
+      const gap = length(toward)
+      pins[limb] = gap <= LANDING_STEP ? target[player][limb] : add(from, scale(toward, LANDING_STEP / gap))
+    }
+    return pins
+  }
+  return [pinsFor(0), pinsFor(1)]
+}
+
+/**
+ * 倒れはじめるまでの姿勢を、1コマずつ記録する。
+ *
+ * 先頭のコマは目標の姿勢からめり込みを押し出し、それより後のコマは前のコマの結果から目標を追いかけて押し出す（relaxFollowing）。
+ * 記録の間隔は STANDING_FRAME_MS を目安に、倒れはじめる時刻をちょうど割り切る長さにする（最後のコマが倒れはじめの姿勢になる）。
+ */
+const bakeStanding = (plan: Plan, under: PlayerIndex | null, collapseStartMs: number): StandingRecord => {
+  const count = Math.ceil(collapseStartMs / STANDING_FRAME_MS)
+  const frameMs = collapseStartMs / count
+  const first = standingTargetAt(plan, under, 0)
+  let previous = relaxPoses(first.target, pinsOfPair(first.target, first.target, first.moving))
+  const frames: PosePair[] = [previous]
+  for (let index = 1; index <= count; index += 1) {
+    const { target, moving } = standingTargetAt(plan, under, index * frameMs)
+    previous = relaxFollowing(previous, target, pinsOfPair(target, previous, moving))
+    frames.push(previous)
+  }
+  return { frames, frameMs }
+}
+
+/**
+ * 倒れはじめるまでの時刻の、胴が重なったときの上下。胴が離れていれば null。倒れはじめた後は扱わない（null）。
+ */
+export const stackingAt = (game: Game, elapsedMs: number): Stacking | null =>
+  elapsedMs >= game.collapseStartMs ? null : standingTargetAt(game.plan, game.under, elapsedMs).stacking
 
 /**
  * 種から1回の対戦を作る（指示を決め、倒れ込みを先に計算する）。
@@ -179,15 +317,17 @@ const standingPosesAt = (plan: Plan, elapsedMs: number): PosePair => {
  */
 export const createGame = (seed: number): Game => {
   const plan = planGame(createRandom(seed))
+  const under = underOf(plan)
   const collapseStartMs = spinStartOf(plan.moves.length) + paceOf(plan.moves.length).spinMs + REACH_MS
-  const poses = standingPosesAt(plan, collapseStartMs)
-  const previous = standingPosesAt(plan, collapseStartMs - PHYSICS_STEP_MS)
+  const standing = bakeStanding(plan, under, collapseStartMs)
+  const poses = recordedPosesAt(standing.frames, standing.frameMs, collapseStartMs)
+  const previous = recordedPosesAt(standing.frames, standing.frameMs, collapseStartMs - PHYSICS_STEP_MS)
   const { player, limb, spot } = plan.finalMove
   // 倒れる人は、伸ばした手足の付け根から指された円の向きへ倒れる
   const push = normalize(flat(sub(restingOn(spot, limb), poses[player][LIMB_CHAINS[limb].root])), PLAYER_FACINGS[player])
   const collapse = bakeCollapse({ poses, previous, pins: [pinsOf(poses[0]), pinsOf(poses[1])], faller: player, push })
   const collapseMs = ((collapse.frames.length - 1) * COLLAPSE_FRAME_MS) / COLLAPSE_PLAYBACK_RATE
-  return { seed, plan, collapse, collapseStartMs, touchdown: collapse.touchdown, totalMs: collapseStartMs + collapseMs + RESULT_MS }
+  return { seed, plan, collapse, collapseStartMs, touchdown: collapse.touchdown, totalMs: collapseStartMs + collapseMs + RESULT_MS, under, standing }
 }
 
 /** スピナーを出す場面なら、その指示 */
@@ -214,7 +354,7 @@ export const gameSceneAt = (game: Game, elapsedMs: number): GameScene => {
     const loser = game.touchdown.player
     return { phase: 'result', poses, spin: null, result: { loser, winner: opponentOf(loser), joint: game.touchdown.joint }, done }
   }
-  const poses = standingPosesAt(game.plan, elapsedMs)
+  const poses = recordedPosesAt(game.standing.frames, game.standing.frameMs, elapsedMs)
   const spin = spinAt(game, elapsedMs)
   if (spin === null) return { phase: 'intro', poses, spin, result: null, done }
   const phase: GamePhase = spin.elapsedMs < paceOf(spin.index).spinMs ? 'spin' : spin.final ? 'reach' : 'move'

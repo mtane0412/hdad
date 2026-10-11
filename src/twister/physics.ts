@@ -1,11 +1,15 @@
 /**
  * 人形の物理（関節を粒、骨を長さの決まった棒として動かす Verlet 積分）
  *
- * 使いみちは2つある。
- * - relaxPoses: 手足を動かしている最中の2人の体のめり込みを押し出す。重力も速度も持たず、その時刻の姿勢だけから求めるので、
- *   描画は経過時間だけから決まる（フレーム間の状態を持たない）という約束を守れる
+ * 使いみちは3つある。
+ * - relaxPoses: 2人の体のめり込みを押し出す（重力も速度も持たない）。倒れはじめるまでを記録するときの先頭のコマに使う
+ * - relaxFollowing: 前のコマで押し出し終えた姿勢から続けて押し出す。倒れはじめるまでを1コマずつ記録するときに使う（game.ts）。
+ *   毎コマ IK の姿勢から押し出し直すと、関節が相手の骨の中心線をまたぐたびに押す向きが裏返り、前のコマと別の形に落ち着いて
+ *   姿勢が飛ぶ。前のコマから続けて解けば、めり込みは浅いうちに同じ側へ押し出され続けるので飛ばない
  * - bakeCollapse: 最後の指示で倒れ込むところを、始めから終わりまで先に計算して記録する。物理はフレームごとに状態を持つので、
  *   再生のたびに計算せず、記録を経過時間で引く（collapsePosesAt）。勝敗（先にマットに着いた人と部位）もここで決まる
+ *
+ * どちらの記録も、対戦を作るときに計算し、描画は記録を経過時間で引くだけなので、描画は経過時間だけから決まる（recordedPosesAt）。
  *
  * 骨の長さ（と胴の形を保つための対角の長さ）は、渡された姿勢での長さをそのまま保つ。肘・膝の曲がる向きは縛らないので、
  * 倒れ込むときは関節が逆に曲がることもある（人形の動きとして許す）。
@@ -15,7 +19,7 @@
  */
 import { BONES, JOINT_RADII, JOINTS, LIMBS, LOSING_JOINTS, poseFrom, type Joint, type Limb, type Pose } from './body'
 import { opponentOf, type PlayerIndex } from './players'
-import { UP, lerp, vec, type Vec3 } from './vec'
+import { UP, add, distance, length, lerp, scale, sub, vec, type Vec3 } from './vec'
 
 /** 手足を留めておく位置（留めない手足は書かない） */
 export type Pins = Readonly<Partial<Record<Limb, Vec3>>>
@@ -53,6 +57,12 @@ const DROP_SPEED = 0.3
  * 絡み合って相手の体に押し下げられても、倒れ込む前にひじ・ひざがマットに着いて決着してしまわないようにする
  */
 export const STANDING_CLEARANCE = 0.05
+/**
+ * 続けて押し出すとき（relaxFollowing）に、前のコマの姿勢から目標の姿勢へ、1コマで関節を動かす距離の上限（m）。
+ * 目標（IK の姿勢）は、手が肩のすぐ近くを通るときなどに肘が1コマで大きく振れることがあるので、追いかける速さを抑えて飛ばないようにする。
+ * 運んでいる途中の手足もこの速さで追いかけるので、手足を運ぶいちばん速い速さ（1コマ 3〜4cm）に合わせる
+ */
+const MAX_FOLLOW_STEP = 0.04
 /** 倒れる人とぶつかった相手が、手足を離すめり込みの深さ（m） */
 const KNOCK_DEPTH = 0.015
 /** ぶつからなくても相手が手足を離す時刻（ミリ秒）。倒れる人の揺れで体勢を崩す */
@@ -146,11 +156,12 @@ const at = <T,>(items: readonly T[], index: number): T => {
 const gap = (a: Particle, b: Particle): number => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z)
 
 /**
- * 2人の姿勢から、粒と長さの組を作る。長さは渡された姿勢での長さを保つ。
+ * 2人の姿勢から、粒と長さの組を作る。長さは shape の姿勢での長さを保つ。
  *
  * @param clearances 人ごとの、手足の先のほかの部位をマットから浮かせておく高さ（m）
+ * @param shape 骨の長さ・胴の形を取る姿勢。粒の位置（poses）と分けて渡せる（続けて押し出すときは、前のコマから動かした位置に、目標の形を当てる）
  */
-const createWorld = (poses: PosePair, previous: PosePair, pins: readonly [Pins, Pins], clearances: readonly [number, number]): World => {
+const createWorld = (poses: PosePair, previous: PosePair, pins: readonly [Pins, Pins], clearances: readonly [number, number], shape: PosePair = poses): World => {
   const particles: Particle[] = []
   for (const player of [0, 1] as const) {
     for (const joint of JOINTS) {
@@ -168,7 +179,7 @@ const createWorld = (poses: PosePair, previous: PosePair, pins: readonly [Pins, 
     for (const [from, to] of BRACES) {
       const a = indexOf(player, from)
       const b = indexOf(player, to)
-      spans.push({ a, b, rest: gap(at(particles, a), at(particles, b)), min: false })
+      spans.push({ a, b, rest: distance(shape[player][from], shape[player][to]), min: false })
     }
     for (const [from, to, rest] of MIN_SPANS) spans.push({ a: indexOf(player, from), b: indexOf(player, to), rest, min: true })
     for (const bone of BONES) segments.push({ player, a: indexOf(player, bone.from), b: indexOf(player, bone.to), radius: bone.radius })
@@ -265,6 +276,8 @@ const keepOnMatAndPins = (world: World): void => {
 /** 長さ・ぶつかり・マット・留め具を満たし直す。いちばん深かっためり込みを返す */
 const solveConstraints = (world: World, iterations: number): number => {
   let deepest = 0
+  // 留めた粒は、長さやめり込みを解く前に留める位置へ置く（留める位置が離れていても、その位置を基準に解く）
+  keepOnMatAndPins(world)
   for (let iteration = 0; iteration < iterations; iteration += 1) {
     satisfySpans(world)
     deepest = Math.max(deepest, separatePlayers(world))
@@ -287,9 +300,32 @@ const posesOf = (world: World): PosePair => {
  * 2人の体のめり込みを押し出す（重力も速度も持たない）。
  *
  * 体が離れていれば姿勢をそのまま返す。留めた手足は動かさない。手足の先のほかの部位は、マットから STANDING_CLEARANCE だけ浮かせる。
+
  */
 export const relaxPoses = (poses: PosePair, pins: readonly [Pins, Pins]): PosePair => {
   const world = createWorld(poses, poses, pins, [STANDING_CLEARANCE, STANDING_CLEARANCE])
+  solveConstraints(world, RELAX_ITERATIONS)
+  return posesOf(world)
+}
+
+/**
+ * 前のコマで押し出し終えた姿勢から続けて、2人の体のめり込みを押し出す（重力も速度も持たない）。
+ *
+ * 前のコマの姿勢の関節を、目標の姿勢（IK で解いたもの）へ向けて MAX_FOLLOW_STEP まで動かしてから押し出す。
+ * 骨の長さ・胴の形は目標の姿勢から取り、留めた手足は pins の位置に置く。体が離れていれば、数コマで目標に追いつく。
+ *
+ * @param previous 前のコマで押し出し終えた姿勢
+ * @param target このコマの目標の姿勢
+ */
+export const relaxFollowing = (previous: PosePair, target: PosePair, pins: readonly [Pins, Pins]): PosePair => {
+  const startOf = (player: PlayerIndex): Pose =>
+    poseFrom((joint) => {
+      const toward = sub(target[player][joint], previous[player][joint])
+      const size = length(toward)
+      return size <= MAX_FOLLOW_STEP ? target[player][joint] : add(previous[player][joint], scale(toward, MAX_FOLLOW_STEP / size))
+    })
+  const start: PosePair = [startOf(0), startOf(1)]
+  const world = createWorld(start, start, pins, [STANDING_CLEARANCE, STANDING_CLEARANCE], target)
   solveConstraints(world, RELAX_ITERATIONS)
   return posesOf(world)
 }
@@ -407,14 +443,20 @@ export const bakeCollapse = (input: CollapseInput): Collapse => {
 /** 2つの姿勢を混ぜる */
 const blendPose = (a: Pose, b: Pose, ratio: number): Pose => poseFrom((joint) => lerp(a[joint], b[joint], ratio))
 
-/** 倒れはじめから elapsedMs 後の2人の姿勢。記録のあいだは前後を混ぜ、記録の終わりより後は最後の記録で止める */
-export const collapsePosesAt = (collapse: Collapse, elapsedMs: number): PosePair => {
-  const position = Math.max(0, elapsedMs) / COLLAPSE_FRAME_MS
+/**
+ * frameMs ごとに記録した姿勢の、記録の始めから elapsedMs 後の2人の姿勢。
+ * 記録のあいだは前後を混ぜ、記録の終わりより後は最後の記録で止める。
+ */
+export const recordedPosesAt = (frames: readonly PosePair[], frameMs: number, elapsedMs: number): PosePair => {
+  const position = Math.max(0, elapsedMs) / frameMs
   const index = Math.floor(position)
-  const last = collapse.frames.length - 1
-  if (index >= last) return at(collapse.frames, last)
-  const before = at(collapse.frames, index)
-  const after = at(collapse.frames, index + 1)
+  const last = frames.length - 1
+  if (index >= last) return at(frames, last)
+  const before = at(frames, index)
+  const after = at(frames, index + 1)
   const ratio = position - index
   return [blendPose(before[0], after[0], ratio), blendPose(before[1], after[1], ratio)]
 }
+
+/** 倒れはじめから elapsedMs 後の2人の姿勢。記録のあいだは前後を混ぜ、記録の終わりより後は最後の記録で止める */
+export const collapsePosesAt = (collapse: Collapse, elapsedMs: number): PosePair => recordedPosesAt(collapse.frames, COLLAPSE_FRAME_MS, elapsedMs)
