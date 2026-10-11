@@ -646,6 +646,17 @@ describe('配信後の振り返り（issue #309）', () => {
 
     const reviews = await readThemeReviews(db, NOW, NOW + 3 * HOUR)
 
-    expect(reviews).toEqual([{ theme, topics: [], counts: expect.objectContaining({ received: 0 }) }])
+    expect(reviews).toEqual([{ theme, topics: [], counts: expect.objectContaining({ received: 0 }), summary: null }])
+  })
+
+  it('締め切ったときに作ったまとめをテーマごとに添え、作っていないテーマは null にする', async () => {
+    const summarized = await runTheme('AIの使いどころ', NOW + HOUR, 'riku', '返事が遅いと寂しい')
+    await runTheme('BGMの好み', NOW + 2 * HOUR, 'mochi', '作業用の曲がいい')
+    const summary = { agreements: ['返事の遅さは寂しい'], disagreements: [], openQuestions: ['どこまでAIに任せるか'] }
+    await saveThemeSummary(db, summarized.id, summary, NOW + 3 * HOUR)
+
+    const reviews = await readThemeReviews(db, NOW, NOW + 3 * HOUR)
+
+    expect(reviews.map((review) => review.summary)).toEqual([{ ...summary, createdAt: new Date(NOW + 3 * HOUR).toISOString() }, null])
   })
 })

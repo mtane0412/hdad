@@ -4,7 +4,8 @@
  * その配信の時間に開いたテーマ（Worker が時刻で結ぶ）を、テーマごとの区切りで出す。区切りの中に、全論点・全意見（札の種類・
  * 人数・もとのコメントの原文）と、コメントの件数の内訳を置く。合成ページには出さない人数も、振り返りでは出してよい。
  * 隠した意見は「隠しています」と分かる形で残し、意見にならなかったコメントは件数の内訳だけを出す。
- * テーマの区切りを持つので、テーマごとの情報（締め切ったときの機械のまとめなど）は区切りの中に足せる。
+ * 締め切ったテーマには、締め切ったときに作った機械のまとめを、意見の一覧とは別の「AIのまとめ」の枠（src/opinions/summary-card.tsx）で
+ * 出す。ここは読むだけの場所なので作り直しの操作は置かない（作り直しは /opinions/ で行う）。
  *
  * 注意: 読み込みに失敗したら、テーマが無いように見せず理由を出す（Fail-Fast）。日時はブラウザのタイムゾーンで出す。
  */
@@ -14,6 +15,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { AdminOpinion, AdminTopic, OpinionCommentCounts } from '@/opinions/api'
 import { OPINION_KIND_LABELS } from '@/opinions/entry'
+import { SummaryCard } from '@/opinions/summary-card'
 import type { OpinionThemeReview, StatsApi } from './api'
 import { formatClockTime } from './summary'
 
@@ -74,7 +76,7 @@ const ReviewTopic = ({ topic }: { topic: AdminTopic }) => (
   </div>
 )
 
-/** テーマ1つぶんの区切り。時間・コメントの内訳・論点の順に出す */
+/** テーマ1つぶんの区切り。時間・コメントの内訳・機械のまとめ（締め切ったテーマだけ）・論点の順に出す */
 const ReviewTheme = ({ review }: { review: OpinionThemeReview }) => {
   const { theme } = review
   return (
@@ -87,6 +89,7 @@ const ReviewTheme = ({ review }: { review: OpinionThemeReview }) => {
         {theme.closedAt === null && <span className="text-sm font-normal text-muted-foreground">締め切っていません</span>}
       </h4>
       <CommentBreakdown themeTitle={theme.title} counts={review.counts} />
+      {theme.closedAt !== null && <SummaryCard summary={review.summary} />}
       {review.topics.map((topic) => (
         <ReviewTopic key={topic.id} topic={topic} />
       ))}

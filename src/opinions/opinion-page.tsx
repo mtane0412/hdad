@@ -309,7 +309,7 @@ export const OpinionPage = ({ api }: { api: OpinionApi }) => {
         </Card>
       )}
       {board.theme !== null && board.theme.closedAt !== null && (
-        <SummaryCard summary={board.summary} busy={actions.busy} onRemake={() => void remakeSummary(board.theme?.id ?? 0)} />
+        <SummaryCard summary={board.summary} remake={{ busy: actions.busy, onRemake: () => void remakeSummary(board.theme?.id ?? 0) }} />
       )}
       {board.theme !== null && (
         <Card>

@@ -6,6 +6,7 @@
  * 配信者のメモは混ぜない。まとめが無ければ（作っている途中・作れなかった・意見が無かった）その旨を出し、いつでも作らせられる。
  *
  * 人数は出さない。作り直しの操作と通信は呼び出し側（opinion-page.tsx）が持ち、ここは表示と、押されたことの通知だけを持つ。
+ * 作り直しを渡さなければ（ダッシュボードの振り返り。src/stats/session-opinions.tsx）、読むだけの枠にしてボタンを置かない。
  */
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -19,7 +20,13 @@ const SECTIONS = [
   { key: 'openQuestions', label: '残った問い' },
 ] as const
 
-export const SummaryCard = ({ summary, busy, onRemake }: { summary: StoredOpinionSummary | null; busy: boolean; onRemake(): void }) => (
+export interface SummaryCardProps {
+  summary: StoredOpinionSummary | null
+  /** 作り直し。渡さなければ読むだけの枠にする（ボタンを置かない） */
+  remake?: { busy: boolean; onRemake(): void }
+}
+
+export const SummaryCard = ({ summary, remake }: SummaryCardProps) => (
   <Card role="group" aria-label="AIのまとめ" className="border-dashed">
     <CardHeader>
       <CardTitle className="flex items-center gap-2">
@@ -51,11 +58,13 @@ export const SummaryCard = ({ summary, busy, onRemake }: { summary: StoredOpinio
         ))
       )}
       {summary !== null && <p className="text-xs text-muted-foreground">{`作成: ${new Date(summary.createdAt).toLocaleString('ja-JP')}`}</p>}
-      <div>
-        <Button type="button" size="sm" variant="outline" disabled={busy} onClick={onRemake}>
-          {summary === null ? 'まとめを作る' : 'まとめを作り直す'}
-        </Button>
-      </div>
+      {remake !== undefined && (
+        <div>
+          <Button type="button" size="sm" variant="outline" disabled={remake.busy} onClick={remake.onRemake}>
+            {summary === null ? 'まとめを作る' : 'まとめを作り直す'}
+          </Button>
+        </div>
+      )}
     </CardContent>
   </Card>
 )

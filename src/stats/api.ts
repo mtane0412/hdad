@@ -9,7 +9,7 @@
  * 注意: 応答が想定した形でなければエラーにする。黙って空の一覧にすると、記録が無いように見えてしまう（Fail-Fast）。
  */
 import { createCaller, isRecord, readList } from '@/core/api'
-import { isAdminTopic, isCommentCounts, type AdminTopic, type OpinionCommentCounts } from '@/opinions/api'
+import { isAdminTopic, isCommentCounts, isStoredSummary, type AdminTopic, type OpinionCommentCounts, type StoredOpinionSummary } from '@/opinions/api'
 import { isOpinionTheme, type OpinionTheme } from '@/opinions/entry'
 
 const STATS_PATH = '/api/admin/stats'
@@ -103,12 +103,14 @@ export interface FollowerSample {
 /**
  * 配信の時間に開いた意見ボードのテーマ1つぶんの振り返り（worker/opinion.ts の OpinionThemeReview と合わせる）。
  *
- * 全論点・全意見（隠したものも hidden つき）・人数ともとのコメントと、コメントの内訳を持つ。
+ * 全論点・全意見（隠したものも hidden つき）・人数ともとのコメントと、コメントの内訳、締め切ったときの機械のまとめを持つ。
  */
 export interface OpinionThemeReview {
   readonly theme: OpinionTheme
   readonly topics: readonly AdminTopic[]
   readonly counts: OpinionCommentCounts
+  /** 締め切ったときに作った機械のまとめ。まだ作っていなければ null */
+  readonly summary: StoredOpinionSummary | null
 }
 
 export interface StatsApi {
@@ -157,7 +159,9 @@ const readTitleSettings = (body: unknown): StreamTitleSettings => {
 const isWorkTime = (value: unknown): value is WorkTime => isRecord(value) && typeof value.people === 'number' && typeof value.totalMs === 'number'
 
 const isOpinionThemeReview = (value: unknown): value is OpinionThemeReview =>
-  isRecord(value) && isOpinionTheme(value.theme) && Array.isArray(value.topics) && value.topics.every(isAdminTopic) && isCommentCounts(value.counts)
+  isRecord(value) && isOpinionTheme(value.theme) && Array.isArray(value.topics) && value.topics.every(isAdminTopic) &&
+  isCommentCounts(value.counts) &&
+  (value.summary === null || isStoredSummary(value.summary))
 
 const isFollowerSample = (value: unknown): value is FollowerSample =>
   isRecord(value) && typeof value.sampledAt === 'string' && typeof value.followerTotal === 'number'

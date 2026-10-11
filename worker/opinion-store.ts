@@ -624,7 +624,7 @@ export const readAdminBoard = async (db: Database): Promise<AdminOpinionBoard> =
  * 配信後の振り返り用に、配信の時間に開いたテーマを古い順に読む（issue #309）。
  *
  * テーマと配信は直接つながっていないので、テーマを開いた時刻（opened_at）が配信の開始から終了（配信中なら現在）までに入るかで結ぶ。
- * 隠した意見も hidden つきで含め、人数ともとのコメントを添える。
+ * 隠した意見も hidden つきで含め、人数ともとのコメントと、締め切ったときに作ったまとめ（無ければ null）を添える。
  *
  * @param fromMs 配信の開始（ミリ秒）
  * @param toMs 配信の終了（ミリ秒。配信中なら現在）。この時刻ちょうどに開いたテーマも含む
@@ -637,13 +637,14 @@ export const readThemeReviews = async (db: Database, fromMs: number, toMs: numbe
     .all<OpinionTheme>()
   return Promise.all(
     themes.map(async (theme) => {
-      const [topics, opinions, counts, sources] = await Promise.all([
+      const [topics, opinions, counts, sources, summary] = await Promise.all([
         readTopics(db, theme.id),
         readOpinions(db, theme.id),
         readCommentCounts(db, theme.id),
         readSources(db, theme.id),
+        readThemeSummary(db, theme.id),
       ])
-      return { theme, topics: toAdminTopics(topics, opinions, sources), counts }
+      return { theme, topics: toAdminTopics(topics, opinions, sources), counts, summary }
     }),
   )
 }
