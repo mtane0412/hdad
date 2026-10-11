@@ -1,17 +1,16 @@
 /**
  * 映す字幕の決め方（captions.ts）のテスト
  *
- * 確かめるのは次の5点である。
+ * 確かめるのは次の点である。
  * - 暫定の文は届くたびに書き換わり、確定したら確定の行へ移ること
- * - 訳文は、同じIDの確定した行に添えること（添える先が消えていれば捨てる）
+ * - 訳文は、同じIDの確定した行に結び付けること（添える先が消えていれば捨てる）
  * - 確定した行は一定時間で消えること
  * - 暫定の文が長く書き換わらなければ消えること（認識していたタブが閉じられたとき、話しかけの文が残り続けないため）
- * - 映す行数に上限があり、新しいものを残すこと
+ * - 映すのはいちばん新しい1文と、いちばん新しく届いた1つの訳文だけであること（文が積み上がって配信画面を埋めないため）
  * - 長い行は末尾（新しく話した部分）だけを残し、先頭を「…」で落とすこと（長い発話が配信画面を埋めないため）
  */
 import { describe, expect, it } from 'vitest'
 import {
-  CAPTION_LINES,
   CAPTION_MAX_CHARS,
   FINAL_LIFETIME_MS,
   INTERIM_LIFETIME_MS,
@@ -45,13 +44,10 @@ describe('applyCaptionMessage と visibleCaptions', () => {
     expect(visibleCaptions(state, 1000 + FINAL_LIFETIME_MS)).toEqual([])
   })
 
-  it('確定した行のあとに話し始めた暫定の文は、確定した行の下に並べる', () => {
+  it('確定した行のあとに話し始めた暫定の文は、確定した行と入れ替えて映す（原文は1文だけ）', () => {
     let state = applyCaptionMessage(NO_CAPTIONS, { type: 'final', id: 'utterance-3', text: 'こんばんは' }, 1000)
     state = applyCaptionMessage(state, { type: 'interim', text: '今日は' }, 1500)
-    expect(visibleCaptions(state, 1600)).toEqual([
-      { text: 'こんばんは', final: true, translation: null },
-      { text: '今日は', final: false, translation: null },
-    ])
+    expect(visibleCaptions(state, 1600)).toEqual([{ text: '今日は', final: false, translation: null }])
   })
 
   it('暫定の文が空で届いたら消す', () => {
@@ -66,14 +62,32 @@ describe('applyCaptionMessage と visibleCaptions', () => {
     expect(visibleCaptions(state, 1000 + INTERIM_LIFETIME_MS)).toEqual([])
   })
 
-  it('訳文が届いたら、同じIDの確定した行に添える', () => {
+  it('訳文が届いたら、その確定した行の下に添える', () => {
+    let state = applyCaptionMessage(NO_CAPTIONS, { type: 'final', id: 'utterance-a', text: 'こんばんは' }, 1000)
+    state = applyCaptionMessage(state, { type: 'translation', id: 'utterance-a', text: 'Good evening' }, 1500)
+    expect(visibleCaptions(state, 1600)).toEqual([{ text: 'こんばんは', final: true, translation: 'Good evening' }])
+  })
+
+  it('訳文が遅れて届いたあいだに次の文を話していれば、いまの文の下に直前の文の訳を添える', () => {
+    let state = applyCaptionMessage(NO_CAPTIONS, { type: 'final', id: 'utterance-a', text: 'こんばんは' }, 1000)
+    state = applyCaptionMessage(state, { type: 'interim', text: '今日はゲームを' }, 1200)
+    state = applyCaptionMessage(state, { type: 'translation', id: 'utterance-a', text: 'Good evening' }, 1500)
+    expect(visibleCaptions(state, 1600)).toEqual([{ text: '今日はゲームを', final: false, translation: 'Good evening' }])
+  })
+
+  it('次の文が確定したあとに届いた前の文の訳も捨てずに添える', () => {
     let state = applyCaptionMessage(NO_CAPTIONS, { type: 'final', id: 'utterance-a', text: 'こんばんは' }, 1000)
     state = applyCaptionMessage(state, { type: 'final', id: 'utterance-b', text: '今日はゲームをします' }, 1200)
     state = applyCaptionMessage(state, { type: 'translation', id: 'utterance-a', text: 'Good evening' }, 1500)
-    expect(visibleCaptions(state, 1600)).toEqual([
-      { text: 'こんばんは', final: true, translation: 'Good evening' },
-      { text: '今日はゲームをします', final: true, translation: null },
-    ])
+    expect(visibleCaptions(state, 1600)).toEqual([{ text: '今日はゲームをします', final: true, translation: 'Good evening' }])
+  })
+
+  it('訳文が複数あれば、いちばん新しく届いたものだけを添える', () => {
+    let state = applyCaptionMessage(NO_CAPTIONS, { type: 'final', id: 'utterance-a', text: 'こんばんは' }, 1000)
+    state = applyCaptionMessage(state, { type: 'final', id: 'utterance-b', text: '今日はゲームをします' }, 1200)
+    state = applyCaptionMessage(state, { type: 'translation', id: 'utterance-b', text: "I'm playing a game today" }, 1500)
+    state = applyCaptionMessage(state, { type: 'translation', id: 'utterance-a', text: 'Good evening' }, 1800)
+    expect(visibleCaptions(state, 1900)).toEqual([{ text: '今日はゲームをします', final: true, translation: 'Good evening' }])
   })
 
   it('訳文を添えた行は、訳文が届いてから一定時間映す（訳を読む時間を取る）', () => {
@@ -90,17 +104,15 @@ describe('applyCaptionMessage と visibleCaptions', () => {
     expect(visibleCaptions(expired, 1000 + FINAL_LIFETIME_MS)).toEqual([])
   })
 
-  it('映すのは新しいものから決まった行数まで', () => {
+  it('原文は、いくつ確定していてもいちばん新しい1文だけを映す', () => {
     let state = NO_CAPTIONS
     const texts = ['一つ目の発話', '二つ目の発話', '三つ目の発話', '四つ目の発話']
     texts.forEach((text, index) => {
       state = applyCaptionMessage(state, { type: 'final', id: `utterance-${index}`, text }, 1000 + index)
     })
+    expect(visibleCaptions(state, 1020)).toEqual([{ text: '四つ目の発話', final: true, translation: null }])
     state = applyCaptionMessage(state, { type: 'interim', text: '話している途中' }, 1010)
-    const shown = visibleCaptions(state, 1020)
-    expect(shown).toHaveLength(CAPTION_LINES)
-    expect(shown.at(-1)).toEqual({ text: '話している途中', final: false, translation: null })
-    expect(shown.at(-2)).toEqual({ text: '四つ目の発話', final: true, translation: null })
+    expect(visibleCaptions(state, 1020)).toEqual([{ text: '話している途中', final: false, translation: null }])
   })
 })
 
