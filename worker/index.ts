@@ -77,6 +77,7 @@
  * | POST /api/admin/kanji-quiz/stop/cancel | セッション | 漢字クイズの時間切れによる配信の停止を、猶予のあいだに取り消す（下部バー） |
  * | GET  /api/admin/twister/sound    | セッション     | ツイスターの対戦のあいだ流す BGM の設定 |
  * | PUT  /api/admin/twister/sound    | セッション     | ツイスターの BGM の設定を検証して保存 |
+ * | POST /api/admin/lick/demo        | セッション     | ペロペロの試し再生（指定した相手か試しの相手を舐める呼び出しを合成ページへ押し出す） |
  * | GET  /api/admin/viewers          | セッション     | 視聴者の記録の一覧（検索・ページ送り） |
  * | PATCH /api/admin/viewers/:userId | セッション     | 視聴者へのメモの保存 |
  * | DELETE /api/admin/viewers/:userId | セッション    | 視聴者の記録の削除 |
@@ -124,6 +125,7 @@
  * | POST /api/overlay/town-tour/narration | オーバーレイ用キー | 市町村紹介の読み上げる文1件を、ナレーションの設定の話者と速度でさくらのAI Engine に合成させる |
  * | GET  /api/overlay/town-tour/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、市町村紹介の呼び出しの配送先へ引き渡す |
  * | GET  /api/overlay/twister/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、ツイスターの呼び出しの配送先へ引き渡す |
+ * | GET  /api/overlay/lick/socket    | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、ペロペロの呼び出しの配送先へ引き渡す |
  * | GET  /api/overlay/kanji-quiz/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、漢字クイズの出題の配送先へ引き渡す |
  * | POST /api/overlay/kanji-quiz/open | オーバーレイ用キー | 合成ページが流しはじめた漢字クイズの出題を開き、時間切れの判定を予約する |
  * | GET  /api/overlay/kanji-quiz/stop/socket | オーバーレイ用キー | 裏方のページからのWebSocketの接続を受け、配信を止める命令の配送先へ引き渡す |
@@ -226,6 +228,7 @@ import {
 } from './town-tour-routes'
 import { getKanjiQuizSound, kanjiQuizSocket, kanjiQuizStopSocket, postKanjiQuizDemo, postKanjiQuizOpen, postKanjiQuizStopCancel, postKanjiQuizStopResult, putKanjiQuizSound } from './kanji-quiz-routes'
 import { getTwisterSound, postTwisterDemo, putTwisterSound, twisterSocket } from './twister-routes'
+import { lickSocket, postLickDemo } from './lick-routes'
 import { getOverlayPomodoro, getPomodoro, pomodoroSocket, postPomodoroControl, putPomodoroSettings } from './pomodoro-routes'
 import { getDeeplUsage, getTranslation, postTranslation, putTranslation } from './translation-routes'
 import { drawSocket, getDrawBackground, getDrawStrokes, putDrawStrokes } from './draw-routes'
@@ -421,6 +424,8 @@ const ROUTES: readonly Route[] = [
   { method: 'POST', path: '/api/overlay/kanji-quiz/stop/result', handle: postKanjiQuizStopResult },
   { method: 'GET', path: '/api/admin/twister/sound', handle: getTwisterSound },
   { method: 'PUT', path: '/api/admin/twister/sound', handle: putTwisterSound },
+  { method: 'GET', path: '/api/overlay/lick/socket', handle: lickSocket },
+  { method: 'POST', path: '/api/admin/lick/demo', handle: postLickDemo },
   { method: 'GET', path: '/api/media/:id', handle: media },
 ]
 

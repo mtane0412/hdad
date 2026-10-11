@@ -337,6 +337,27 @@ describe('rotateOverlayKey・playTownTourDemo・townTourSound・rewards・logout
     await expect(createAdminApi(fetchImpl).playKanjiQuizDemo('6')).rejects.toThrow()
   })
 
+  it('ペロペロの試し再生を、相手とみなすユーザー名と一緒に頼み、舐めた相手の名前を返す', async () => {
+    const { requests, fetchImpl } = fetchReturning(200, { id: '試しID', seed: 42, target: { name: '星野ゆう', iconUrl: null } })
+
+    expect(await createAdminApi(fetchImpl).playLickDemo('hoshino_yu')).toBe('星野ゆう')
+    expect(requests[0]!.method).toBe('POST')
+    expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/lick/demo')
+    expect(await requests[0]!.json()).toEqual({ userName: 'hoshino_yu' })
+  })
+
+  it('ペロペロの試し再生の応答が想定した形でなければエラーにする', async () => {
+    const { fetchImpl } = fetchReturning(200, { id: '試しID' })
+
+    await expect(createAdminApi(fetchImpl).playLickDemo('')).rejects.toThrow()
+  })
+
+  it('保存済みのペロペロの動作を持つトリガーも受け取る', async () => {
+    const rewardTrigger = { kind: 'reward', rewardId: '報酬ID-ペロペロ', actions: [{ type: 'lick' }] }
+
+    expect(await createAdminApi(fetchReturning(200, { triggers: [rewardTrigger] }).fetchImpl).config()).toEqual([rewardTrigger])
+  })
+
   it('ツイスターの試し再生の応答が想定した形でなければエラーにする', async () => {
     const { fetchImpl } = fetchReturning(200, { id: '試しID' })
 

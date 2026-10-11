@@ -1769,6 +1769,88 @@ describe('ツイスターで対戦する動作（twister）', () => {
   })
 })
 
+describe('ペロペロの動作（lick）', () => {
+  const rewardLickTrigger: StoredTrigger = { kind: 'reward', rewardId: '報酬ID-ペロペロ', actions: [{ type: 'lick' }] }
+  const REDEMPTION_NOTIFICATION = {
+    subscription: { type: 'channel.channel_points_custom_reward_redemption.add' },
+    event: {
+      user_id: '田中太郎のユーザーID',
+      user_name: '田中太郎',
+      user_login: 'tanaka_taro',
+      user_input: '',
+      reward: { id: '報酬ID-ペロペロ', title: 'ペロペロされる', cost: 500 },
+    },
+  }
+  const TANAKA_ICON = 'https://static-cdn.jtvnw.net/jtv_user_pictures/tanaka.png'
+  /** ログイン名から表示名とアイコンを返す Twitch の代役。tanaka_taro 以外はいないことにする。引かれたログイン名を控える */
+  const fakeTwitchKnowingTanaka = () => {
+    const requestedLogins: string[] = []
+    const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const request = new Request(input, init)
+      if (request.url === 'https://id.twitch.tv/oauth2/token') return Response.json({ access_token: 'test-app-token' })
+      const url = new URL(request.url)
+      const login = url.searchParams.get('login')
+      if (url.origin + url.pathname === 'https://api.twitch.tv/helix/users' && login !== null) {
+        requestedLogins.push(login)
+        if (login !== 'tanaka_taro') return Response.json({ data: [] })
+        return Response.json({ data: [{ id: '田中太郎のユーザーID', login, display_name: '田中太郎', description: '', profile_image_url: TANAKA_ICON }] })
+      }
+      return new Response(null, { status: 404 })
+    }
+    return { requestedLogins, fetchImpl }
+  }
+
+  it('チャンネルポイントが交換されたら、種と交換した人の名前・アイコンを合成ページへ押し出す（botを接続していなくても流す）', async () => {
+    const { env, alertChannel } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [rewardLickTrigger] })
+    const twitch = fakeTwitchKnowingTanaka()
+
+    const response = await callWebhook(createNotification({ body: REDEMPTION_NOTIFICATION }), env, twitch.fetchImpl)
+
+    expect(response.status).toBe(204)
+    expect(twitch.requestedLogins).toEqual(['tanaka_taro'])
+    expect(alertChannel.pushedLicks).toHaveLength(1)
+    // 種はランダムに引くので、0以上2^32未満の整数であることだけを確かめる
+    const call = alertChannel.pushedLicks[0]
+    expect(Number.isInteger(call?.seed)).toBe(true)
+    expect(call?.seed).toBeGreaterThanOrEqual(0)
+    expect(call?.seed).toBeLessThan(2 ** 32)
+    expect(call?.target).toEqual({ name: '田中太郎', iconUrl: TANAKA_ICON })
+  })
+
+  it('Twitch にその人がいなければ（消えたアカウントなど）、アイコン無しで押し出す（頭文字の顔で流す）', async () => {
+    const { env, alertChannel } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [rewardLickTrigger] })
+    const renamed = { ...REDEMPTION_NOTIFICATION, event: { ...REDEMPTION_NOTIFICATION.event, user_login: 'kieta_hito' } }
+
+    await callWebhook(createNotification({ body: renamed }), env, fakeTwitchKnowingTanaka().fetchImpl)
+
+    expect(alertChannel.pushedLicks.map((call) => call.target)).toEqual([{ name: '田中太郎', iconUrl: null }])
+  })
+
+  it('アイコンを引けなければ押し出さず、失敗として記録する', async () => {
+    const { env, alertChannel } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [rewardLickTrigger] })
+
+    const response = await callWebhook(createNotification({ body: REDEMPTION_NOTIFICATION }), env, async () => new Response(null, { status: 500 }))
+
+    expect(response.status).toBe(204)
+    expect(alertChannel.pushedLicks).toHaveLength(0)
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'lick-push-failed' }])
+  })
+
+  it('ペロペロを置いていなければ、Twitch にアイコンを引きに行かない', async () => {
+    const { env, alertChannel } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [{ kind: 'reward', rewardId: '報酬ID-ペロペロ', actions: [{ type: 'kanjiQuiz', weights: singleGradeWeights('6') }] }] })
+    const twitch = fakeTwitchKnowingTanaka()
+
+    await callWebhook(createNotification({ body: REDEMPTION_NOTIFICATION }), env, twitch.fetchImpl)
+
+    expect(twitch.requestedLogins).toEqual([])
+    expect(alertChannel.pushedLicks).toHaveLength(0)
+  })
+})
+
 describe('漢字クイズを出題する動作（kanjiQuiz）', () => {
   const rewardKanjiQuizTrigger: StoredTrigger = { kind: 'reward', rewardId: '報酬ID-漢字クイズ', actions: [{ type: 'kanjiQuiz', weights: singleGradeWeights('pre2') }] }
   const REDEMPTION_NOTIFICATION = {

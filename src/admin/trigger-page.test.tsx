@@ -51,6 +51,7 @@ const fakeApi = (overrides: Partial<AdminApi> = {}): AdminApi => ({
   rotateOverlayKey: vi.fn(async () => 'atarashii-key'),
   playTownTourDemo: vi.fn(async () => '試し再生: 本日は北海道石狩郡当別町をご紹介します'),
   playTwisterDemo: vi.fn(async () => 'レイドした人（試し） vs 配信者'),
+  playLickDemo: vi.fn(async () => '視聴者（試し）'),
   playKanjiQuizDemo: vi.fn(async () => '漢検6級「境内」'),
   kanjiQuizSound: vi.fn(async () => ({
     slots: { bgm: null, start: null, countdown: null, correct: null, timeUp: null },
@@ -459,6 +460,40 @@ describe('効果の付け外し', () => {
     await userEvent.click(screen.getByRole('button', { name: 'ツイスターを試しに流す' }))
 
     expect(api.playTwisterDemo).toHaveBeenCalledWith('hoshino_yu')
+  })
+
+  test('決まった人のその配信で最初の発言の項目でペロペロを選んで保存すると、ペロペロの効果として送る', async () => {
+    const api = fakeApi({
+      config: async (): Promise<StoredTrigger[]> => [{ kind: 'fromUserFirstOfStream', login: 'tanaka_taro', actions: [{ type: 'chat', message: 'いらっしゃい' }] }],
+    })
+    render(triggerPage(api))
+
+    const row = await openedSettings('決まった人のその配信で最初の発言')
+    await userEvent.click(row.getByRole('checkbox', { name: 'ペロペロする' }))
+    await save()
+
+    expect(api.saveConfig).toHaveBeenCalledWith([
+      { kind: 'fromUserFirstOfStream', login: 'tanaka_taro', actions: [{ type: 'chat', message: 'いらっしゃい' }, { type: 'lick' }] },
+    ])
+  })
+
+  test('チャンネルポイントと決まった人のその配信で最初の発言以外の項目にはペロペロを出さない（舐める相手が1人に決まらないため）', async () => {
+    render(triggerPage(fakeApi()))
+
+    const row = await openedItem('レイドされた')
+
+    expect(row.queryByRole('checkbox', { name: 'ペロペロする' })).not.toBeInTheDocument()
+  })
+
+  test('ペロペロの相手とみなすユーザー名を入れて試し再生を押すと、その名前を送り、舐めた相手を知らせる', async () => {
+    const api = fakeApi({ playLickDemo: vi.fn(async () => '星野ゆう') })
+    render(triggerPage(api))
+
+    await userEvent.type(await screen.findByRole('textbox', { name: 'ペロペロの相手とみなすユーザー名（任意）' }), ' hoshino_yu ')
+    await userEvent.click(screen.getByRole('button', { name: 'ペロペロを試しに流す' }))
+
+    expect(api.playLickDemo).toHaveBeenCalledWith('hoshino_yu')
+    expect(await notice('星野ゆう')).toBeInTheDocument()
   })
 
   test('チャンネルポイントの項目で漢字クイズを選び、級ごとの重みを入れて保存すると、その重みの漢字クイズの効果として送る', async () => {

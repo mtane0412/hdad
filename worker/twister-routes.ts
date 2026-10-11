@@ -15,14 +15,12 @@
  * 注意: BGM を選んでいるのにオーバーレイ用キーが未発行なら、黙って無音で流さずに 409 で返す。
  */
 import { connectTwisterSocket, pushTwister } from './alert-channel'
+import { readDemoUser } from './demo-user'
 import { HttpError, STATUS, requireAdmin, requireOverlayKey, type Context } from './http'
 import { listMedia } from './media'
 import { loadOverlayKey, overlayKeyTag } from './overlay-key'
 import { demoTwisterCallOf, twisterSeedOf, type TwisterPlayer } from './twister-call'
 import { loadTwisterSound, parseTwisterSound, playbackTwisterSoundOf, saveTwisterSound } from './twister-sound'
-
-/** Twitch のログイン名の形（英数字とアンダースコアの25文字まで） */
-const TWITCH_LOGIN_PATTERN = /^[A-Za-z0-9_]{1,25}$/
 
 /** GET /api/overlay/twister/socket?key=: 合成ページからのWebSocketの接続を、ツイスターの呼び出しを受け取る接続として配送先へ引き渡す */
 export const twisterSocket = async (context: Context): Promise<Response> => {
@@ -31,38 +29,6 @@ export const twisterSocket = async (context: Context): Promise<Response> => {
     throw new HttpError(STATUS.badRequest, 'expected-websocket', 'この経路はWebSocketの接続にだけ使えます')
   }
   return connectTwisterSocket(context.env.ALERTS, context.request, await overlayKeyTag(key))
-}
-
-/**
- * 試し再生の本文から、レイドしてきたとみなす相手を読む。本文が空か、ユーザー名が空なら null（試しの相手で流す）。
- * 打ち間違いに気づけるよう、Twitch にいるかをここで確かめ、表示名とアイコンを引く。
- *
- * @throws HttpError 本文が JSON でない・ユーザー名がログイン名の形でない（400）・そのログイン名の配信者がいない（404）・Twitch の失敗（502）
- */
-const readDemoRaider = async (context: Context): Promise<TwisterPlayer | null> => {
-  const text = await context.request.text()
-  if (text.trim() === '') return null
-  let body: unknown
-  try {
-    body = JSON.parse(text)
-  } catch {
-    throw new HttpError(STATUS.badRequest, 'invalid-body', '本文はJSONにしてください')
-  }
-  const fields: Record<string, unknown> = typeof body === 'object' && body !== null ? { ...body } : {}
-  const { userName } = fields
-  if (userName === undefined || userName === '') return null
-  if (typeof userName !== 'string' || !TWITCH_LOGIN_PATTERN.test(userName)) {
-    throw new HttpError(STATUS.badRequest, 'invalid-user-name', '相手とみなすユーザー名は、Twitch のログイン名（英数字とアンダースコア）で入れてください')
-  }
-  const user = await (async () => {
-    try {
-      return await context.twitch.getUserByLogin(await context.twitch.getAppAccessToken(), userName)
-    } catch (error) {
-      throw new HttpError(STATUS.badGateway, 'twitch-user-failed', `Twitch から ${userName} を引けませんでした: ${error instanceof Error ? error.message : String(error)}`)
-    }
-  })()
-  if (user === null) throw new HttpError(STATUS.notFound, 'unknown-twitch-user', `Twitch にログイン名 ${userName} の配信者がいません`)
-  return { name: user.displayName, iconUrl: user.profileImageUrl }
 }
 
 /**
@@ -75,7 +41,7 @@ const readDemoRaider = async (context: Context): Promise<TwisterPlayer | null> =
 export const postTwisterDemo = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
   const { env, twitch } = context
-  const raider = await readDemoRaider(context)
+  const raider = await readDemoUser(context)
   const [sound, overlayKey] = await Promise.all([loadTwisterSound(env.STORE), loadOverlayKey(env.STORE)])
   const playbackSound = ((): ReturnType<typeof playbackTwisterSoundOf> => {
     try {

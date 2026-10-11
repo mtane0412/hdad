@@ -26,6 +26,7 @@ import {
   townTourActionOf,
   twisterActionOf,
   kanjiQuizActionOf,
+  lickActionOf,
   type AlertConfig,
   type MediaKind,
   type StoredAiChatAction,
@@ -693,6 +694,34 @@ export const kanjiQuizzesFor = (config: AlertConfig, subscriptionType: string, b
     if (kind === 'reward' && extracted.event === REDEMPTION) return { weights, requesterName: extracted.userName }
     throw new Error(`漢字クイズはチャンネルポイントのトリガーにだけ置けます（${kind} のトリガーに置かれています）`)
   })
+
+/** ペロペロで舐める相手（チャンネルポイントを交換した人か、その配信で最初に発言した人） */
+export interface LickTrigger {
+  /** 相手の表示名（Twitch がアイコンを返さなかったときの頭文字にも使う） */
+  readonly userName: string
+  /** 相手のログイン名（アイコンを引くのに使う） */
+  readonly userLogin: string
+}
+
+/**
+ * 通知に当てはまるトリガーを探し、ペロペロで舐める相手を返す（issue #338）。
+ *
+ * 置けるのはチャンネルポイントと「決まった人のその配信で最初の発言」のトリガーだけなので（worker/alert-config.ts の parseAlertConfig が保存時に拒む）、
+ * ほかのトリガーでこの動作が見つかったら、黙って流さずに投げる（Fail-Fast。舐める相手が1人に決まらないため）。
+ * 種とアイコンは呼び出し側が決める（このファイルは乱数も通信も持たないため）。
+ *
+ * @returns 舐める相手を、当てはまったトリガーの並びの順に返す
+ * @throws 通知の中身が想定した形でない場合、または置けないトリガーにこの動作があった場合
+ */
+export const licksFor = (config: AlertConfig, subscriptionType: string, body: unknown, state: ConditionState): LickTrigger[] =>
+  matchedActionsFor(config, subscriptionType, body, (trigger) => (lickActionOf(trigger) === null ? null : trigger.kind), state).map(
+    ({ action: kind, extracted }) => {
+      if ((kind === 'reward' && extracted.event === REDEMPTION) || (kind === 'fromUserFirstOfStream' && extracted.event === CHAT_MESSAGE)) {
+        return { userName: extracted.userName, userLogin: extracted.userLogin }
+      }
+      throw new Error(`ペロペロはチャンネルポイントと「決まった人のその配信で最初の発言」のトリガーにだけ置けます（${kind} のトリガーに置かれています）`)
+    },
+  )
 
 /**
  * 通知に当てはまるトリガーをすべて探し、チャットへ送る文言を決める。

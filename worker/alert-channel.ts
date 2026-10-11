@@ -57,6 +57,9 @@
  * 合成ページの素材「意見ボード」へ、いまの意見ボード（テーマ・論点・意見の丸ごと）を配るのもこの Durable Object である（issue #306）。
  * 同じ理由で、13個目の目印（opinions）を付けた接続へだけ配る。
  *
+ * 合成ページの素材「ペロペロ」へ、舐め方の種と舐める相手の名前・アイコンを配るのもこの Durable Object である（issue #338）。
+ * 同じ理由で、14個目の目印（lick）を付けた接続へだけ配る。
+ *
  * 注意: WebSocketの接続（Upgrade）は Cloudflare のランタイムでしか作れないので、テストでは配送の部分だけを確かめる。
  */
 import type { OverlayAlert } from './alert-event'
@@ -67,6 +70,7 @@ import { broadcast, closeForRevokedKey, type SocketLike } from './socket-broadca
 import type { PomodoroSnapshot } from './pomodoro-timer'
 import type { SpeechMute } from './speech-config'
 import type { KanjiQuizCall, KanjiQuizNotice, StreamStopOrder } from './kanji-quiz-call'
+import type { LickCall } from './lick-call'
 import type { OpinionBoardSnapshot } from './opinion'
 import type { TaskDeskSnapshot } from './task-desk'
 import type { TextsSnapshot } from './text'
@@ -103,6 +107,8 @@ const PUSH_KANJI_QUIZ_PATH = '/push/kanji-quiz'
 const PUSH_STREAM_STOP_PATH = '/push/stream-stop'
 /** Worker が意見ボードの押し出しに使うパス */
 const PUSH_OPINIONS_PATH = '/push/opinions'
+/** Worker がペロペロの呼び出しの押し出しに使うパス */
+const PUSH_LICK_PATH = '/push/lick'
 /** Worker がオーバーレイ用キーを発行し直したときに、開いている接続を閉じさせるパス */
 const REVOKE_PATH = '/revoke'
 
@@ -132,6 +138,8 @@ const KANJI_QUIZ_TOPIC = 'kanjiQuiz'
 const STREAM_STOP_TOPIC = 'streamStop'
 /** 意見ボードを受け取る接続（合成ページの素材「意見ボード」）に付ける目印 */
 const OPINIONS_TOPIC = 'opinions'
+/** ペロペロの呼び出しを受け取る接続（合成ページの素材「ペロペロ」）に付ける目印 */
+const LICK_TOPIC = 'lick'
 /** 受け入れる接続の目印。知らない値はアラートの接続として受け入れる（Worker が必ずどれかを付けて渡す） */
 const TOPICS: readonly string[] = [
   ALERTS_TOPIC,
@@ -147,6 +155,7 @@ const TOPICS: readonly string[] = [
   KANJI_QUIZ_TOPIC,
   STREAM_STOP_TOPIC,
   OPINIONS_TOPIC,
+  LICK_TOPIC,
 ]
 /** どちらの目印で受け入れるかを Worker が伝えるためのクエリ。外には出ない */
 const TOPIC_PARAM = 'topic'
@@ -193,7 +202,7 @@ export interface AlertChannelNamespace {
  *   クエリの topic が bgm ならBGMの接続、workLog なら作業ログの接続、taskDesk なら作業机の接続、pomodoro ならポモドーロの接続、
  *   townTour なら市町村紹介の接続、bgmDuck なら配信のBGMを下げる知らせの接続、speechMute なら読み上げのミュートの接続、
  *   twister ならツイスターの接続、text ならテキストの接続、kanjiQuiz なら漢字クイズの接続、streamStop なら配信を止める命令の接続、opinions なら意見ボードの接続、
- *   それ以外はアラートの接続として受け入れる
+ *   lick ならペロペロの接続、それ以外はアラートの接続として受け入れる
  * - POST /push: Worker が押し出したアラートを、アラートの接続すべてへ配る
  * - POST /push/bgm: Worker が押し出した「いま流している曲」を、BGMの接続すべてへ配る
  * - POST /push/work-log: Worker が押し出した作業ログの1行を、作業ログの接続すべてへ配る
@@ -207,6 +216,7 @@ export interface AlertChannelNamespace {
  * - POST /push/kanji-quiz: Worker が押し出した漢字クイズの出題を、漢字クイズの接続すべてへ配る
  * - POST /push/stream-stop: Worker が押し出した配信を止める命令を、停止の接続のうち送れた1つへ配る。1つも無ければ409を返す
  * - POST /push/opinions: Worker が押し出したいまの意見ボードを、意見ボードの接続すべてへ配る
+ * - POST /push/lick: Worker が押し出したペロペロの呼び出しを、ペロペロの接続すべてへ配る
  * - POST /revoke: 新しいキーの目印を覚え、接続をすべて閉じる（オーバーレイ用キーを発行し直したとき。どの接続もオーバーレイ用キーで開かれている）
  *
  * 接続はどれもオーバーレイ用キーで開かれるので、覚えている目印と違うキーの接続は受け入れない（worker/overlay-key.ts）。
@@ -234,6 +244,7 @@ export class AlertChannel {
     if (url.pathname === PUSH_TEXT_PATH) return this.push(TEXT_TOPIC, await request.text(), 'テキスト')
     if (url.pathname === PUSH_KANJI_QUIZ_PATH) return this.push(KANJI_QUIZ_TOPIC, await request.text(), '漢字クイズ')
     if (url.pathname === PUSH_OPINIONS_PATH) return this.push(OPINIONS_TOPIC, await request.text(), '意見ボード')
+    if (url.pathname === PUSH_LICK_PATH) return this.push(LICK_TOPIC, await request.text(), 'ペロペロ')
     if (url.pathname === PUSH_STREAM_STOP_PATH) {
       const payload = await request.text()
       // 裏方を2つ開いていても StopStream を2回送らないよう、送れた1つで止める（送れなかった接続は broadcast が閉じる）
@@ -371,6 +382,16 @@ export const connectTownTourSocket = (namespace: AlertChannelNamespace, request:
  */
 export const connectTwisterSocket = (namespace: AlertChannelNamespace, request: Request, keyTag: string): Promise<Response> =>
   connectWithTopic(namespace, request, TWISTER_TOPIC, keyTag)
+
+/**
+ * 合成ページの素材「ペロペロ」からのWebSocketの接続を、ペロペロの呼び出しを受け取る接続として Durable Object へ引き渡す。
+ *
+ * オーバーレイ用キーの確認は呼び出し側（lick-routes.ts）が済ませている。
+ *
+ * @param keyTag 確かめたキーの目印（overlayKeyTag）
+ */
+export const connectLickSocket = (namespace: AlertChannelNamespace, request: Request, keyTag: string): Promise<Response> =>
+  connectWithTopic(namespace, request, LICK_TOPIC, keyTag)
 
 /**
  * 裏方のページからのWebSocketの接続を、配信のBGMを下げる知らせを受け取る接続として Durable Object へ引き渡す。
@@ -543,6 +564,15 @@ export const pushTownTourAnswer = (namespace: AlertChannelNamespace, answer: Omi
  * 注意: 失敗を黙って握りつぶさない。呼び出し側が失敗として記録する（試し再生は502にする）。
  */
 export const pushTwister = (namespace: AlertChannelNamespace, call: TwisterCall): Promise<void> => pushJson(namespace, PUSH_TWISTER_PATH, call, 'ツイスター')
+
+/**
+ * ペロペロの呼び出し（舐め方の種と舐める相手）を Durable Object へ押し出す。トリガーと管理画面の試し再生で呼ぶ。
+ *
+ * 合成ページを開いていなければ配る先が無いだけで、失敗ではない（配送先は204を返す。つながっていない間の呼び出しは貯めずに落とす）。
+ *
+ * 注意: 失敗を黙って握りつぶさない。呼び出し側が失敗として記録する（試し再生は502にする）。
+ */
+export const pushLick = (namespace: AlertChannelNamespace, call: LickCall): Promise<void> => pushJson(namespace, PUSH_LICK_PATH, call, 'ペロペロ')
 
 /**
  * 配信のBGMを下げる知らせを Durable Object へ押し出す。合成ページが市町村紹介のBGMを鳴らすあいだに呼ぶ。

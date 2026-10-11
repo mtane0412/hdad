@@ -45,6 +45,7 @@ export const ITEM_KIND_LABELS: Readonly<Record<ItemKind, string>> = {
   text: 'テキスト',
   kanjiQuiz: '漢字クイズ',
   opinions: '意見ボード',
+  lick: 'ペロペロ',
 }
 
 /** Workerが返す問題点に出る項目の名前を、画面の言い方にする */
@@ -82,6 +83,7 @@ const DESIGNS: Readonly<Record<ItemKind, readonly DesignItem[]>> = {
   text: [],
   kanjiQuiz: [],
   opinions: [],
+  lick: [],
 }
 
 /**

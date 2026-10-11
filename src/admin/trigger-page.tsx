@@ -7,7 +7,7 @@
  * アプリの枠（src/app/app.tsx）が受け持つので、ここではログイン済みを前提にする。
  * 画面の状態（素材・報酬・入力中のトリガー）はここで持ち、Workerの呼び出しは api.ts、入力欄の値の変換は form.ts、
  * 操作の実行と結果の表示は page-actions.tsx に任せる。市町村紹介の音の設定と試し再生は town-tour-sound-card.tsx が受け持つ。
- * ツイスターの BGM の設定と試し再生は twister-card.tsx が受け持つ。
+ * ツイスターの BGM の設定と試し再生は twister-card.tsx が受け持つ。ペロペロの試し再生は lick-card.tsx が受け持つ。
  *
  * アラートを配信画面に出すURLはここでは配らない。アラート専用のオーバーレイ（alerts/）は消したので
  * （issue #107）、出すには合成オーバーレイの管理画面（/overlay/）で「アラート」の素材を置く。
@@ -53,6 +53,7 @@ import {
   supportsTownTour,
   supportsTwister,
   supportsKanjiQuiz,
+  supportsLick,
   kanjiQuizSharePercents,
   toDraft,
   toTriggerInputs,
@@ -65,6 +66,7 @@ import {
 import { errorMessage, usePageActions } from './page-actions'
 import { TownTourSoundCard } from './town-tour-sound-card'
 import { KanjiQuizCard } from './kanji-quiz-card'
+import { LickCard } from './lick-card'
 import { TwisterCard } from './twister-card'
 
 /** 文言欄の入力例。メニュー項目ごとに、使える差し込み語だけを使った例を出す */
@@ -532,6 +534,22 @@ const ActionFields = ({ draft, media, heading, onChange }: ActionFieldsProps) =>
                 交換されるたびに、重みの割合で級を選び、その級の問題を問題集から1問選んで出します（0の級は出しません）。同じ配信で出し終えた級は外して残りの級から選び、すべて出し終えたら最初から選び直します。映すには、オーバーレイに「漢字クイズ」の素材を置いてください。
               </p>
             </fieldset>
+          )}
+        </div>
+      )}
+
+      {/* ペロペロは相手1人のアイコンを舐めるので、相手が1人に決まる項目にだけ出す（Workerも保存時にそれ以外を拒む） */}
+      {supportsLick(draft.kind) && (
+        <div className="flex flex-col gap-4 rounded-md border border-dashed p-3 sm:col-span-2">
+          <div className="flex items-center gap-2">
+            <Checkbox id={`${id}-lick-enabled`} checked={draft.lickEnabled} onCheckedChange={(checked) => update({ lickEnabled: checked === true })} />
+            <Label htmlFor={`${id}-lick-enabled`}>ペロペロする</Label>
+          </div>
+          {draft.lickEnabled && (
+            // 舐め方は種からその都度決まるので、配信者が決める項目を持たない
+            <p className="text-xs text-muted-foreground">
+              相手の Twitch のアイコンを、3Dの舌が舐め上げます。映すには、オーバーレイに「ペロペロ」の素材を置いてください。
+            </p>
           )}
         </div>
       )}
@@ -1019,6 +1037,9 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
 
       {/* ツイスターの BGM も市町村紹介の音と同じく1つだけ持つので、トリガーの一覧の外に置く（保存も別） */}
       <TwisterCard api={api} media={media} />
+
+      {/* ペロペロは設定を持たず、相手を指定して試しに流すボタンだけを置く */}
+      <LickCard api={api} />
 
       {/* 漢字クイズは設定を持たず、級を選んで試しに流すボタンだけを置く */}
       <KanjiQuizCard api={api} media={media} />

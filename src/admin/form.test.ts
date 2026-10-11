@@ -24,6 +24,7 @@ import {
   supportsShoutout,
   supportsTownTour,
   supportsTwister,
+  supportsLick,
   supportsKanjiQuiz,
   kanjiQuizSharePercents,
   toDraft,
@@ -75,6 +76,7 @@ const inputs = (overrides: Partial<TriggerDraft> = {}): TriggerDraft => ({
   twisterEnabled: false,
   kanjiQuizEnabled: false,
   kanjiQuizWeights: weightTexts({ '3': '1' }),
+  lickEnabled: false,
   ...overrides,
 })
 
@@ -464,6 +466,7 @@ describe('emptyDraft', () => {
       townTourEnabled: false,
       twisterEnabled: false,
       kanjiQuizEnabled: false,
+      lickEnabled: false,
     })
   })
 })
@@ -508,6 +511,26 @@ describe('rowActionLabels', () => {
 
   it('ツイスターだけを選んだ行も、効果を持つ行として保存する', () => {
     expect(toTriggerInputs([inputs({ kind: 'raid', alertEnabled: false, twisterEnabled: true })])).toEqual([{ kind: 'raid', actions: [{ type: 'twister' }] }])
+  })
+
+  it('ペロペロの効果は「ペロペロ」として出し、ペロペロだけを選んだ行も項目を持たない動作として保存する', () => {
+    const draft = inputs({ kind: 'reward', rewardId: '報酬ID-ペロペロ', alertEnabled: false, lickEnabled: true })
+
+    expect(rowActionLabels(draft)).toEqual(['ペロペロ'])
+    expect(toTriggerInputs([draft])).toEqual([{ kind: 'reward', rewardId: '報酬ID-ペロペロ', actions: [{ type: 'lick' }] }])
+  })
+
+  it('保存済みのペロペロの動作を、選んだ状態の入力欄に戻す', () => {
+    const trigger: StoredTrigger = { kind: 'fromUserFirstOfStream', login: 'tanaka_taro', actions: [{ type: 'lick' }] }
+
+    expect(toDraft(trigger)).toMatchObject({ kind: 'fromUserFirstOfStream', alertEnabled: false, lickEnabled: true })
+  })
+
+  it('ペロペロはチャンネルポイントと決まった人のその配信で最初の発言の項目にだけ置ける', () => {
+    expect(supportsLick('reward')).toBe(true)
+    expect(supportsLick('fromUserFirstOfStream')).toBe(true)
+    expect(supportsLick('fromUser')).toBe(false)
+    expect(supportsLick('raid')).toBe(false)
   })
 
   it('ツイスターはレイドの項目にだけ置ける', () => {

@@ -32,6 +32,7 @@
 @import '../wipe/wipe.css';
 @import '../kanji-quiz/kanji-quiz.css';
 @import '../opinions/opinions.css';
+@import '../lick/lick.css';
 
 .overlay {
   position: relative;
