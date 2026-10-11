@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest'
 import { FOREARM, HIP_HALF, JOINT_RADII, LIMB_CHAINS, LIMBS, LOSING_JOINTS, SHIN, SHOULDER_HALF, THIGH, TORSO, UPPER_ARM, type Limb } from './body'
 import { spotPosition } from './mat'
 import { INITIAL_SPOTS, PLAYER_FACINGS } from './players'
-import { MAX_TWIST_ROLL, MAX_TWIST_YAW, contactsOf, solvePose, type Contacts } from './pose'
+import { CROUCH_HIP_HEIGHT, CROUCH_SHOULDER_HEIGHT, MAX_TWIST_ROLL, MAX_TWIST_YAW, contactsOf, solvePose, type Contacts } from './pose'
 import { add, distance, sub, vec, type Vec3 } from './vec'
 
 /** レイドした人（0番）の始めの置き場所の位置 */
@@ -115,6 +115,30 @@ describe('solvePose の体のひねり', () => {
     for (const joint of LOSING_JOINTS) {
       expect(pose[joint].y, joint).toBeGreaterThan(0.1)
     }
+  })
+})
+
+describe('solvePose で伏せる', () => {
+  it('伏せる度合いが 0 なら、ふつうに解いた姿勢と同じになる', () => {
+    expect(solvePose(raiderContacts, PLAYER_FACINGS[0], 0)).toEqual(solvePose(raiderContacts, PLAYER_FACINGS[0]))
+  })
+
+  it('伏せきると、首と腰は伏せた高さまで下がり、手足はそのまま円に届く', () => {
+    const pose = solvePose(raiderContacts, PLAYER_FACINGS[0], 1)
+    expect(pose.neck.y).toBeLessThanOrEqual(CROUCH_SHOULDER_HEIGHT + 1e-6)
+    expect(pose.pelvis.y).toBeLessThanOrEqual(CROUCH_HIP_HEIGHT + 1e-6)
+    expect(distance(pose.neck, pose.pelvis)).toBeCloseTo(TORSO, 6)
+    for (const limb of LIMBS) {
+      expect(distance(pose[limb], raiderContacts[limb]), limb).toBeLessThan(1e-6)
+    }
+  })
+
+  it('伏せる度合いを上げるほど、胴は低くなる（度合いに応じて少しずつ下がる）', () => {
+    const heights = [0, 0.25, 0.5, 0.75, 1].map((crouch) => solvePose(raiderContacts, PLAYER_FACINGS[0], crouch).neck.y)
+    for (let index = 1; index < heights.length; index += 1) {
+      expect(heights[index]).toBeLessThanOrEqual((heights[index - 1] ?? 0) + 1e-9)
+    }
+    expect(heights[heights.length - 1]).toBeLessThan((heights[0] ?? 0) - 0.1)
   })
 })
 

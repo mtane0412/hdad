@@ -10,13 +10,13 @@
  * 4. 先にマットに着いた人の負けとして、勝者を出す（RESULT_MS）
  */
 import { describe, expect, it } from 'vitest'
-import { JOINT_RADII, LIMBS, LOSING_JOINTS } from './body'
+import { JOINT_RADII, JOINTS, LIMBS, LOSING_JOINTS, type Pose } from './body'
 import { DEMO_TWISTER_CALLS, DEMO_TWISTER_INTERVAL_MS } from './demo'
-import { COLLAPSE_PLAYBACK_RATE, FAST_PACE, INTRO_MS, REACH_MS, RESULT_MS, SLOW_PACE, createGame, gameSceneAt, paceOf, spinStartOf } from './game'
+import { COLLAPSE_PLAYBACK_RATE, FAST_PACE, INTRO_MS, REACH_MS, RESULT_MS, SLOW_PACE, createGame, gameSceneAt, paceOf, spinStartOf, stackingAt } from './game'
 import { COLLAPSE_FRAME_MS, STANDING_CLEARANCE, collapsePosesAt } from './physics'
-import { INITIAL_SPOTS, opponentOf } from './players'
+import { INITIAL_SPOTS, PLAYER_INDEXES, opponentOf } from './players'
 import { restingOn } from './pose'
-import { distance } from './vec'
+import { distance, lerp, midpoint, segmentDistanceFlat } from './vec'
 
 /** 試す種の数 */
 const SEED_COUNT = 30
@@ -27,11 +27,48 @@ const MAX_TOTAL_MS = 42_000
 const MIN_FALLER_LOSS_RATIO = 0.6
 /** プレビューで次の対戦を流すまでに、対戦を流しきってから空ける間の下限（ミリ秒） */
 const DEMO_MIN_GAP_MS = 1000
+/** 胴（首から腰のカプセル）の太さの2人ぶん（m）。胴どうしがこれより近ければめり込んでいる */
+const TORSO_CONTACT = 0.22
+/** 深いとみなす胴どうしのめり込み（m） */
+const DEEP_TORSO_PENETRATION = 0.05
+/** 胴が上から見て重なった場面のうち、深くめり込んでいてよい割合の上限。上下に重ねる前は2割ほどあった */
+const MAX_DEEP_PENETRATION_RATIO = 0.03
+/** 倒れはじめるまでの姿勢を調べる間隔（ミリ秒） */
+const SAMPLE_MS = 100
+/**
+ * 1コマ（60fps）で関節が速く動いたとみなす距離（m。秒速 3m）。いちばん速く手足を運ぶ場面でも1コマ 4cm に収まる
+ */
+const FAST_FRAME_STEP = 0.05
+/**
+ * 速く動いた関節の数（コマと関節の組）の上限。手足が相手の体に押されて、ときどき速く動くのは許す。
+ * 毎コマ押し出し直していた（記録しなかった）ころは、SEED_COUNT 対戦で 4800 ほどあった
+ */
+const MAX_FAST_STEPS = 250
+/** 1コマで関節が動いてよい距離の上限（m）。これを超えたら姿勢が飛んで見える */
+const MAX_FRAME_STEP = 0.2
+const FRAME_MS = 1000 / 60
+/** 全コマを調べるテストの時間の上限（ミリ秒）。SEED_COUNT 対戦の全コマ（4万コマほど）を引くので、既定の5秒では足りない */
+const SLOW_TEST_TIMEOUT_MS = 30_000
+
+/** 胴（首から腰）どうしの、高さも含めたいちばん近い距離（m）。線分の上を細かく区切って測る */
+const torsoDistance = (a: Pose, b: Pose): number => {
+  const steps = 20
+  let nearest = Number.POSITIVE_INFINITY
+  for (let i = 0; i <= steps; i += 1) {
+    for (let j = 0; j <= steps; j += 1) {
+      nearest = Math.min(nearest, distance(lerp(a.neck, a.pelvis, i / steps), lerp(b.neck, b.pelvis, j / steps)))
+    }
+  }
+  return nearest
+}
+
+/** 胴が上から見て重なっているか（上から見た胴どうしの距離が、2人ぶんの太さより近い） */
+const torsosOverlapFromAbove = (a: Pose, b: Pose): boolean => segmentDistanceFlat(a.neck, a.pelvis, b.neck, b.pelvis) < TORSO_CONTACT
+
+/** 種1〜SEED_COUNT の対戦。1回の対戦を作るのに時間がかかる（倒れはじめるまでの姿勢を1コマずつ記録する）ので、ファイルの中で一度だけ作る */
+const games = Array.from({ length: SEED_COUNT }, (_, index) => createGame(index + 1))
 
 describe('createGame', () => {
-  /** 種1〜SEED_COUNT の対戦。1回の対戦を作るのに時間がかかるので、テストごとに作り直さず一度だけ作る */
-  const games = Array.from({ length: SEED_COUNT }, (_, index) => createGame(index + 1))
-
   it('同じ種からは、同じ指示・同じ勝敗・同じ長さになる', () => {
     const first = createGame(20261006)
     const second = createGame(20261006)
@@ -69,6 +106,66 @@ describe('createGame', () => {
       }
     }
   })
+})
+
+describe('胴が重なったときの上下', () => {
+  it('胴が上から見て重なった場面の多くで、胴どうしは深くめり込まない（どちらかが下に伏せる）', () => {
+    let overlapping = 0
+    let deep = 0
+    for (const game of games) {
+      for (let elapsed = 0; elapsed < game.collapseStartMs; elapsed += SAMPLE_MS) {
+        const [raider, streamer] = gameSceneAt(game, elapsed).poses
+        if (!torsosOverlapFromAbove(raider, streamer)) continue
+        overlapping += 1
+        if (TORSO_CONTACT - torsoDistance(raider, streamer) > DEEP_TORSO_PENETRATION) deep += 1
+      }
+    }
+    expect(overlapping).toBeGreaterThan(0)
+    expect(deep / overlapping).toBeLessThanOrEqual(MAX_DEEP_PENETRATION_RATIO)
+  })
+
+  it('下になる人が伏せきった場面では、その人の胴の中ほどが相手の胴の中ほどより低い', () => {
+    for (const game of games) {
+      for (let elapsed = 0; elapsed < game.collapseStartMs; elapsed += SAMPLE_MS) {
+        const stacking = stackingAt(game, elapsed)
+        // 伏せはじめたばかりの場面は、まだ高さが入れ替わりきっていないので見ない
+        if (stacking === null || stacking.crouch < 1) continue
+        const poses = gameSceneAt(game, elapsed).poses
+        const heightOf = (pose: Pose): number => midpoint(pose.neck, pose.pelvis).y
+        expect(heightOf(poses[stacking.bottom]), `種${game.seed}の${elapsed}ミリ秒`).toBeLessThan(heightOf(poses[opponentOf(stacking.bottom)]))
+      }
+    }
+  })
+
+  it('胴が重なっているあいだは、下になる人が入れ替わらない', () => {
+    for (const game of games) {
+      let previous: ReturnType<typeof stackingAt> = null
+      for (let elapsed = 0; elapsed < game.collapseStartMs; elapsed += SAMPLE_MS) {
+        const stacking = stackingAt(game, elapsed)
+        if (previous !== null && stacking !== null) expect(stacking.bottom, `種${game.seed}の${elapsed}ミリ秒`).toBe(previous.bottom)
+        previous = stacking
+      }
+    }
+  })
+
+  it('倒れはじめるまで、関節は飛ばずに動き、速く動くこともまれ（伏せるときも少しずつ下がる）', () => {
+    let fastSteps = 0
+    for (const game of games) {
+      let previous = gameSceneAt(game, 0).poses
+      for (let elapsed = FRAME_MS; elapsed <= game.collapseStartMs; elapsed += FRAME_MS) {
+        const current = gameSceneAt(game, elapsed).poses
+        for (const player of PLAYER_INDEXES) {
+          for (const joint of JOINTS) {
+            const step = distance(current[player][joint], previous[player][joint])
+            expect(step, `種${game.seed}の${Math.round(elapsed)}ミリ秒の${player}番の${joint}`).toBeLessThan(MAX_FRAME_STEP)
+            if (step > FAST_FRAME_STEP) fastSteps += 1
+          }
+        }
+        previous = current
+      }
+    }
+    expect(fastSteps).toBeLessThanOrEqual(MAX_FAST_STEPS)
+  }, SLOW_TEST_TIMEOUT_MS)
 })
 
 describe('gameSceneAt', () => {
@@ -116,10 +213,11 @@ describe('gameSceneAt', () => {
     })
   })
 
-  it('運び終えた手足は、指された円に乗っている', () => {
+  it('運んだ手足は、次の指示のスピナーの針が止まるまでに、指された円に乗っている', () => {
+    // 運ぶ途中で相手の体に押し返されると少し遅れるので、運び終えた時刻ではなく、次の指示を読む時刻までに乗ればよい
     game.plan.moves.forEach((move, index) => {
-      const movedAt = spinStartOf(index + 1)
-      const pose = gameSceneAt(game, movedAt).poses[move.player]
+      const landedAt = spinStartOf(index + 1) + paceOf(index + 1).turnMs
+      const pose = gameSceneAt(game, landedAt).poses[move.player]
       expect(distance(pose[move.limb], restingOn(move.spot, move.limb))).toBeLessThan(0.02)
     })
   })

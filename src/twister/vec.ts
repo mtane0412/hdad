@@ -54,3 +54,11 @@ const turnFlat = (o: Vec3, a: Vec3, b: Vec3): number => (a.x - o.x) * (b.z - o.z
  */
 export const segmentsCrossFlat = (a1: Vec3, a2: Vec3, b1: Vec3, b2: Vec3): boolean =>
   turnFlat(a1, a2, b1) * turnFlat(a1, a2, b2) < 0 && turnFlat(b1, b2, a1) * turnFlat(b1, b2, a2) < 0
+
+/** 上から見て（高さを無視して）、線分 a1→a2 と b1→b2 のあいだのいちばん近い距離。交差していれば 0 */
+export const segmentDistanceFlat = (a1: Vec3, a2: Vec3, b1: Vec3, b2: Vec3): number => {
+  const [fa1, fa2, fb1, fb2] = [flat(a1), flat(a2), flat(b1), flat(b2)]
+  if (segmentsCrossFlat(fa1, fa2, fb1, fb2)) return 0
+  // 交差しない2本のいちばん近い位置は、どちらかの端にある
+  return Math.min(distanceToSegment(fa1, fb1, fb2), distanceToSegment(fa2, fb1, fb2), distanceToSegment(fb1, fa1, fa2), distanceToSegment(fb2, fa1, fa2))
+}
