@@ -10,7 +10,7 @@
  * レイドでの押し出しは alert-actions.ts が行う。どちらも Worker は対戦の種と2人の名前・アイコンを押し出すだけで、
  * 対戦の中身は合成ページが種から計算する（worker/twister-call.ts）。
  *
- * 注意: 配信者のアイコンを引けない・配送先の失敗は、黙って成功にせず 502 で返す（管理画面に理由を出す）。
+ * 注意: 配信者の表示名とアイコンを引けない・配送先の失敗は、黙って成功にせず 502 で返す（管理画面に理由を出す）。
  * 注意: 相手のログイン名の打ち間違いは、試しの相手に差し替えずに 400・404 で返す。
  * 注意: BGM を選んでいるのにオーバーレイ用キーが未発行なら、黙って無音で流さずに 409 で返す。
  */
@@ -66,7 +66,7 @@ const readDemoRaider = async (context: Context): Promise<TwisterPlayer | null> =
 }
 
 /**
- * POST /api/admin/twister/demo: 管理画面の試し再生。相手と、自分のアイコンの配信者の対戦を素材へ押し出す。
+ * POST /api/admin/twister/demo: 管理画面の試し再生。相手と、自分の表示名とアイコンの配信者の対戦を素材へ押し出す。
  * 相手は本文の userName のログイン名の人で、省けば試しの相手（アイコンなし）にする。
  *
  * トリガーと同じ配送の経路（AlertChannel）を通すので、合成ページを開いていれば OBS の画面にもそのまま流れる。
@@ -84,14 +84,19 @@ export const postTwisterDemo = async (context: Context): Promise<Response> => {
       throw new HttpError(STATUS.conflict, 'overlay-key-missing', error instanceof Error ? error.message : String(error))
     }
   })()
-  const icons = await (async (): Promise<Readonly<Record<string, string>>> => {
+  // セッションは配信者のユーザーIDしか持たない。保管庫のトークンのログイン名は、Twitch でログイン名を変えると古くなる（別人を引きうる）ので使わず、
+  // ユーザーIDからいまのログイン名を引いてから、表示名とアイコンを引く
+  const broadcaster = await (async (): Promise<TwisterPlayer> => {
     try {
-      return await twitch.getProfileImageUrls(await twitch.getAppAccessToken(), [env.TWITCH_BROADCASTER_ID])
+      const accessToken = await twitch.getAppAccessToken()
+      const user = await twitch.getUserByLogin(accessToken, await twitch.getUserLogin(accessToken, env.TWITCH_BROADCASTER_ID))
+      if (user === null) throw new Error(`ユーザーID ${env.TWITCH_BROADCASTER_ID} のログイン名のユーザーがいません`)
+      return { name: user.displayName, iconUrl: user.profileImageUrl }
     } catch (error) {
-      throw new HttpError(STATUS.badGateway, 'twister-icon-failed', `配信者のアイコンを Twitch から引けませんでした: ${error instanceof Error ? error.message : String(error)}`)
+      throw new HttpError(STATUS.badGateway, 'twister-broadcaster-failed', `配信者の表示名とアイコンを Twitch から引けませんでした: ${error instanceof Error ? error.message : String(error)}`)
     }
   })()
-  const call = demoTwisterCallOf(raider, icons[env.TWITCH_BROADCASTER_ID] ?? null, playbackSound, twisterSeedOf(crypto.getRandomValues(new Uint32Array(1))), crypto.randomUUID())
+  const call = demoTwisterCallOf(raider, broadcaster, playbackSound, twisterSeedOf(crypto.getRandomValues(new Uint32Array(1))), crypto.randomUUID())
   try {
     await pushTwister(env.ALERTS, call)
   } catch (error) {

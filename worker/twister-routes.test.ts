@@ -56,13 +56,24 @@ const noFetch: typeof fetch = async () => {
   throw new Error('このテストでは外へ通信しません')
 }
 
-/** 配信者のアイコンを返す Twitch の代役 */
+/** ログインした配信者の Twitch の表示名 */
+const BROADCASTER_DISPLAY_NAME = 'たねのぶ'
+
+/** 配信者のログイン名 */
+const BROADCASTER_LOGIN = 'tanenobu'
+
+/** 配信者のユーザーIDからログイン名を、ログイン名から表示名とアイコンを返す Twitch の代役 */
 const twitchReturningBroadcasterIcon: typeof fetch = async (input, init) => {
   const request = new Request(input, init)
   if (request.url === 'https://id.twitch.tv/oauth2/token') return Response.json({ access_token: 'test-app-token' })
   const url = new URL(request.url)
   if (url.origin + url.pathname === 'https://api.twitch.tv/helix/users' && url.searchParams.getAll('id').join() === BROADCASTER_ID) {
-    return Response.json({ data: [{ id: BROADCASTER_ID, login: 'tanenobu', profile_image_url: BROADCASTER_ICON }] })
+    return Response.json({ data: [{ id: BROADCASTER_ID, login: BROADCASTER_LOGIN, profile_image_url: BROADCASTER_ICON }] })
+  }
+  if (url.origin + url.pathname === 'https://api.twitch.tv/helix/users' && url.searchParams.get('login') === BROADCASTER_LOGIN) {
+    return Response.json({
+      data: [{ id: BROADCASTER_ID, login: BROADCASTER_LOGIN, display_name: BROADCASTER_DISPLAY_NAME, description: '', profile_image_url: BROADCASTER_ICON }],
+    })
   }
   throw new Error(`テストで想定していない通信です: ${request.url}`)
 }
@@ -74,7 +85,7 @@ const RAIDER_ICON = 'https://static-cdn.jtvnw.net/jtv_user_pictures/yamada.png'
 const twitchKnowingRaider: typeof fetch = async (input, init) => {
   const request = new Request(input, init)
   const url = new URL(request.url)
-  if (url.origin + url.pathname === 'https://api.twitch.tv/helix/users' && url.searchParams.has('login')) {
+  if (url.origin + url.pathname === 'https://api.twitch.tv/helix/users' && url.searchParams.has('login') && url.searchParams.get('login') !== BROADCASTER_LOGIN) {
     if (url.searchParams.get('login') !== RAIDER_LOGIN) return Response.json({ data: [] })
     return Response.json({
       data: [{ id: '1111', login: RAIDER_LOGIN, display_name: '山田花子', description: '', profile_image_url: RAIDER_ICON }],
@@ -134,7 +145,7 @@ describe('POST /api/admin/twister/demo', () => {
     expect(alertChannel.pushedTwisters).toEqual([])
   })
 
-  it('試しの相手と、自分のアイコンの配信者の対戦を押し出し、押し出したものを返す', async () => {
+  it('試しの相手と、自分の表示名とアイコンの配信者の対戦を押し出し、押し出したものを返す', async () => {
     const alertChannel = createFakeAlertChannel()
 
     const response = await callAsBroadcaster(createEnv(alertChannel), twitchReturningBroadcasterIcon)
@@ -144,7 +155,7 @@ describe('POST /api/admin/twister/demo', () => {
     const call = alertChannel.pushedTwisters[0]
     expect(call?.players).toEqual([
       { name: 'レイドした人（試し）', iconUrl: null },
-      { name: '配信者', iconUrl: BROADCASTER_ICON },
+      { name: BROADCASTER_DISPLAY_NAME, iconUrl: BROADCASTER_ICON },
     ])
     // 合成ページの読み取りがそのまま読める形で押し出す
     expect(parseTwisterCall(JSON.stringify(call))).toEqual(call)
@@ -192,7 +203,7 @@ describe('POST /api/admin/twister/demo', () => {
     expect(response.status).toBe(200)
     expect(alertChannel.pushedTwisters[0]?.players).toEqual([
       { name: '山田花子', iconUrl: RAIDER_ICON },
-      { name: '配信者', iconUrl: BROADCASTER_ICON },
+      { name: BROADCASTER_DISPLAY_NAME, iconUrl: BROADCASTER_ICON },
     ])
   })
 
@@ -228,7 +239,7 @@ describe('POST /api/admin/twister/demo', () => {
     expect(alertChannel.pushedTwisters).toEqual([])
   })
 
-  it('配信者のアイコンを引けなければ、押し出さずに502にする', async () => {
+  it('配信者の表示名とアイコンを引けなければ、押し出さずに502にする', async () => {
     const alertChannel = createFakeAlertChannel()
 
     const response = await callAsBroadcaster(createEnv(alertChannel), async () => new Response(null, { status: 500 }))

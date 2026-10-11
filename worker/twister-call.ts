@@ -31,8 +31,6 @@ export interface TwisterCall {
 
 /** 試し再生で、レイドした人の代わりに出す名前 */
 const DEMO_RAIDER_NAME = 'レイドした人（試し）'
-/** 試し再生で、配信者に出す名前（試し再生はレイドの通知を持たないので、配信者の表示名を知らない） */
-const DEMO_BROADCASTER_NAME = '配信者'
 
 /**
  * レイドで対戦する2人から呼び出しを作る。
@@ -58,13 +56,14 @@ export const twisterCallOf = (
 })
 
 /**
- * 管理画面の試し再生の呼び出しを作る。配信者は自分のアイコンで対戦し、BGM はレイドと同じ設定で流す。
+ * 管理画面の試し再生の呼び出しを作る。配信者は自分の表示名とアイコンで対戦し、BGM はレイドと同じ設定で流す。
  *
  * @param raider レイドしてきたとみなす相手。null なら試しの相手（アイコンなし）で対戦する
+ * @param broadcaster ログインした配信者（Twitch から引いた表示名とアイコン）
  */
 export const demoTwisterCallOf = (
   raider: TwisterPlayer | null,
-  broadcasterIcon: string | null,
+  broadcaster: TwisterPlayer,
   sound: TwisterPlaybackSound,
   seed: number,
   id: string,
@@ -73,7 +72,7 @@ export const demoTwisterCallOf = (
   seed,
   players: [
     raider ?? { name: DEMO_RAIDER_NAME, iconUrl: null },
-    { name: DEMO_BROADCASTER_NAME, iconUrl: broadcasterIcon },
+    broadcaster,
   ],
   sound,
 })
