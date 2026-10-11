@@ -3,9 +3,11 @@
  *
  * 1. 両手の中点と両足の中点から体の向き（足から手へ）を決める。手を足の真上に寄せると向きが決まらないので、始めに向いていた向きを少し混ぜる
  * 2. 肩の中点を手の少し後ろ、脚の付け根の中点を足の少し前に置き、その中点を胴の中心にする
- * 3. 肩と脚の付け根の高さは、手足が届く高さのうち低いほうに合わせる（どちらの手足も伸びきらずに届くように）
- * 4. 胴の長さが変わらないよう、高さの差から胴の水平の長さを決める
- * 5. 肘・膝は二関節の IK で曲げる。肘は後ろ外へ、膝は前上へ曲げる（ひじ・ひざがマットに着いて負けにならないように）
+ * 3. 肩の線は、両手の前後の差に合わせて水平に回す（右手が前なら右肩が前へ出る）。脚の付け根の線も両足で同じようにする（体のひねり）
+ * 4. 肩と脚の付け根の高さは、左右それぞれの手足が届く高さに合わせ、差があれば線を傾ける（遠いほうの肩が下がる）。
+ *    回す角度・傾ける角度には上限（MAX_TWIST_YAW・MAX_TWIST_ROLL）があり、超える分は高さを低いほうに合わせて届かせる
+ * 5. 胴の長さが変わらないよう、高さの差から胴の水平の長さを決める
+ * 6. 肘・膝は二関節の IK で曲げる。肘は後ろ外へ、膝は前上へ曲げる（ひじ・ひざがマットに着いて負けにならないように）
  *
  * 届かない位置を指された手足は、伸びきった位置で止まる（指された円の上に浮かない）。
  * 相手の体とのめり込みはここでは扱わない（physics.ts の relaxPoses が押し出す）。
@@ -31,6 +33,10 @@ const MIN_SHOULDER_HEIGHT = 0.22
 const MIN_HIP_HEIGHT = 0.26
 /** 胴の水平の長さの下限（m）。高さの差がこれ以上つくと胴が立ちすぎるので、差を縮める */
 const MIN_TORSO_RUN = 0.2
+/** 肩・脚の付け根の線を水平に回してよい角度の上限（ラジアン）。これより大きく回すと胴がねじ切れて見える */
+export const MAX_TWIST_YAW = Math.PI / 6
+/** 肩・脚の付け根の線を傾けてよい角度の上限（ラジアン） */
+export const MAX_TWIST_ROLL = Math.PI / 6
 /** 高さを決め直す回数（胴の位置と高さは互いに影響するので、2回で落ち着かせる） */
 const HEIGHT_PASSES = 2
 /** 肘・膝を曲げる向きの混ぜ方（後ろ・横・上の重み） */
@@ -76,21 +82,57 @@ export const solveTwoBone = (root: Vec3, target: Vec3, upper: number, lower: num
   }
 }
 
+const clampAngle = (angle: number, limit: number): number => Math.min(Math.max(angle, -limit), limit)
+
 /**
- * 付け根を置ける高さのうち、2本の手足がどちらも届く高さ。
+ * 左右の付け根の線を水平に回す角度（ラジアン）。右の先が前にあるほど正（右の付け根が前へ出る）。
  *
- * 手足を伸ばしきらない長さ（REACH_RATIO）で、水平の距離から届く高さを求め、低いほうを採る。
- * 水平の距離だけで届かないときは下限の高さにする（その手足は伸びきって先が円から離れる）。
+ * 左の先から右の先への線が、体の右向きからどれだけ前へ回っているかを求め、上限で止める。
+ * 右の先が左の先より左へ交差しているときは回す向きが180°近くになるが、上限で止まるので大きくひねった姿勢になる。
  */
-const reachableHeight = (roots: readonly [Vec3, Vec3], tips: readonly [Vec3, Vec3], limbLength: number, minHeight: number): number => {
-  const reach = limbLength * REACH_RATIO
-  const heights = roots.map((root, index) => {
-    const tip = tips[index] ?? root
-    const run = length(sub(flat(tip), flat(root)))
-    return tip.y + Math.sqrt(Math.max(reach * reach - run * run, 0))
-  })
-  return Math.min(Math.max(Math.min(...heights), minHeight), reach)
+const twistYaw = (tipL: Vec3, tipR: Vec3, forward: Vec3, right: Vec3): number => {
+  const across = sub(flat(tipR), flat(tipL))
+  return clampAngle(Math.atan2(dot(across, forward), dot(across, right)), MAX_TWIST_YAW)
 }
+
+/** 付け根の線の、左右の付け根の高さと傾き */
+interface SideHeights {
+  /** 線の中点の高さ（m） */
+  readonly center: number
+  /** 線の傾き（ラジアン）。右が高いほど正 */
+  readonly roll: number
+}
+
+/**
+ * 手足を伸ばしきらない長さ（REACH_RATIO）で、付け根から先までの水平の距離から、先に届く付け根の高さを求める。
+ * 水平の距離だけで届かないときは先の高さにする（呼び出し側が下限の高さで止め、その手足は伸びきって先が円から離れる）。
+ */
+const reachHeightOf = (root: Vec3, tip: Vec3, reach: number): number => {
+  const run = length(sub(flat(tip), flat(root)))
+  return tip.y + Math.sqrt(Math.max(reach * reach - run * run, 0))
+}
+
+/**
+ * 付け根の線の高さと傾き。左右それぞれの手足が届く高さに合わせ、差があれば線を傾ける。
+ *
+ * 傾きは上限（MAX_TWIST_ROLL）で止め、そのうえで左右どちらの付け根も届く高さを超えないように中点の高さを決める。
+ *
+ * @param center 線の中点（水平の位置）
+ * @param axis 線の水平の向き（左から右。長さ1）
+ * @param half 線の長さの半分（肩幅・腰幅の半分）
+ */
+const sideHeightsOf = (center: Vec3, axis: Vec3, half: number, tips: readonly [Vec3, Vec3], limbLength: number, minHeight: number): SideHeights => {
+  const reach = limbLength * REACH_RATIO
+  const [tipL, tipR] = tips
+  const heightL = Math.min(Math.max(reachHeightOf(sub(center, scale(axis, half)), tipL, reach), minHeight), reach)
+  const heightR = Math.min(Math.max(reachHeightOf(add(center, scale(axis, half)), tipR, reach), minHeight), reach)
+  const roll = clampAngle(Math.asin(Math.min(Math.max((heightR - heightL) / (2 * half), -1), 1)), MAX_TWIST_ROLL)
+  const rise = half * Math.sin(roll)
+  return { center: Math.max(Math.min(heightL + rise, heightR - rise), minHeight), roll }
+}
+
+/** 水平の向き axis の線を、roll だけ傾けた向き（長さ1）。右が上がるほど正 */
+const tiltedAxis = (axis: Vec3, roll: number): Vec3 => add(scale(axis, Math.cos(roll)), scale(UP, Math.sin(roll)))
 
 /**
  * 手足の先の位置から、人形1人の姿勢を解く。
@@ -106,42 +148,40 @@ export const solvePose = (contacts: Contacts, facing: Vec3): Pose => {
   const armLength = LIMB_CHAINS.handL.upper + LIMB_CHAINS.handL.lower
   const legLength = LIMB_CHAINS.footL.upper + LIMB_CHAINS.footL.lower
   const maxRise = Math.sqrt(TORSO * TORSO - MIN_TORSO_RUN * MIN_TORSO_RUN)
+  // 肩・脚の付け根の線の水平の向き（ひねり）。手足の先の位置だけから決まる
+  const yawOf = (angle: number): Vec3 => add(scale(right, Math.cos(angle)), scale(forward, Math.sin(angle)))
+  const shoulderAxis = yawOf(twistYaw(contacts.handL, contacts.handR, forward, right))
+  const hipAxis = yawOf(twistYaw(contacts.footL, contacts.footR, forward, right))
 
   // 胴の水平の位置と、肩・脚の付け根の高さは互いに影響するので、交互に決め直す
-  let shoulderHeight = MIN_SHOULDER_HEIGHT
-  let hipHeight = MIN_HIP_HEIGHT
+  let shoulders: SideHeights = { center: MIN_SHOULDER_HEIGHT, roll: 0 }
+  let hips: SideHeights = { center: MIN_HIP_HEIGHT, roll: 0 }
   for (let pass = 0; pass < HEIGHT_PASSES; pass += 1) {
-    const rise = Math.min(Math.max(shoulderHeight - hipHeight, -maxRise), maxRise)
+    const rise = Math.min(Math.max(shoulders.center - hips.center, -maxRise), maxRise)
     const run = Math.sqrt(TORSO * TORSO - rise * rise)
     const neckFlat = add(center, scale(forward, run / 2))
     const pelvisFlat = sub(center, scale(forward, run / 2))
-    shoulderHeight = reachableHeight(
-      [sub(neckFlat, scale(right, SHOULDER_HALF)), add(neckFlat, scale(right, SHOULDER_HALF))],
-      [contacts.handL, contacts.handR],
-      armLength,
-      MIN_SHOULDER_HEIGHT,
-    )
-    hipHeight = reachableHeight(
-      [sub(pelvisFlat, scale(right, HIP_HALF)), add(pelvisFlat, scale(right, HIP_HALF))],
-      [contacts.footL, contacts.footR],
-      legLength,
-      MIN_HIP_HEIGHT,
-    )
+    shoulders = sideHeightsOf(neckFlat, shoulderAxis, SHOULDER_HALF, [contacts.handL, contacts.handR], armLength, MIN_SHOULDER_HEIGHT)
+    hips = sideHeightsOf(pelvisFlat, hipAxis, HIP_HALF, [contacts.footL, contacts.footR], legLength, MIN_HIP_HEIGHT)
   }
+  let shoulderHeight = shoulders.center
+  const hipHeight = hips.center
   // 決め直した高さで、胴の長さがちょうどになるよう水平の位置を置き直す
   shoulderHeight = hipHeight + Math.min(Math.max(shoulderHeight - hipHeight, -maxRise), maxRise)
   const run = Math.sqrt(TORSO * TORSO - (shoulderHeight - hipHeight) ** 2)
   const neck = add(add(center, scale(forward, run / 2)), scale(UP, shoulderHeight))
   const pelvis = add(sub(center, scale(forward, run / 2)), scale(UP, hipHeight))
 
+  const shoulderLine = scale(tiltedAxis(shoulderAxis, shoulders.roll), SHOULDER_HALF)
+  const hipLine = scale(tiltedAxis(hipAxis, hips.roll), HIP_HALF)
   const joints: Partial<Record<Joint, Vec3>> = {
     neck,
     pelvis,
     head: add(add(neck, scale(forward, HEAD_FORWARD)), scale(UP, HEAD_UP)),
-    shoulderL: sub(neck, scale(right, SHOULDER_HALF)),
-    shoulderR: add(neck, scale(right, SHOULDER_HALF)),
-    hipL: sub(pelvis, scale(right, HIP_HALF)),
-    hipR: add(pelvis, scale(right, HIP_HALF)),
+    shoulderL: sub(neck, shoulderLine),
+    shoulderR: add(neck, shoulderLine),
+    hipL: sub(pelvis, hipLine),
+    hipR: add(pelvis, hipLine),
   }
   for (const limb of LIMBS) {
     const chain = LIMB_CHAINS[limb]

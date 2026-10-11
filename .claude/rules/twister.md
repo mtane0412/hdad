@@ -13,9 +13,9 @@ paths:
 - レイドでは、アイコンは Worker が Twitch の `getProfileImageUrls` で2人ぶんを1回で引く。引けなければ押し出さずに `twister-push-failed` として記録する（試し再生は502）。Twitch が返さなかった人は `iconUrl: null` にし、合成ページは名前の頭文字の顔で流す
 - 配信者の表示名はレイドの通知の `to_broadcaster_user_name` から取る（読み取りは `worker/alert-event.ts` の `extract` だけ）。試し再生はレイドの通知を持たないので、ログインした配信者の表示名とアイコンを Twitch から引く（ユーザーIDから `getUserLogin` でいまのログイン名を引き、`getUserByLogin` で引く。保管庫のトークンのログイン名は改名で古くなるので使わない。引けなければ502）。合成ページのプレビュー（`demo.ts`）だけは Worker を通らないので「配信者」と出す。試し再生の相手は、本文の `userName`（ログイン名）があれば `getUserByLogin` で引いた表示名とアイコン、無ければ「レイドした人（試し）」（アイコンなし）にする。いないログイン名は試しの相手に差し替えずに404で返す
 - 対戦は種だけから決まる。`src/twister/game.ts` の `createGame` が指示の並びを決め（`plan.ts`）、倒れ込みを物理で先に計算して記録する（`physics.ts` の `bakeCollapse`）。場面と姿勢は再生を始めてからの経過時間だけから求める（`gameSceneAt`）。乱数は `src/core/background.ts` の `createRandom` だけを使い、`Math.random` を使わない
-- 倒れ込むまでの姿勢は、その時刻の手足の位置から IK で解き（`pose.ts` の `solvePose`）、2人の体のめり込みを押し出して求める（`physics.ts` の `relaxPoses`。重力も速度も持たない）。倒れ込むまでは、手足の先のほかの部位をマットから `STANDING_CLEARANCE` だけ浮かせておく
+- 倒れ込むまでの姿勢は、その時刻の手足の位置から IK で解き（`pose.ts` の `solvePose`。肩・脚の付け根の線は手足の先の位置に合わせて回し傾け、角度は `MAX_TWIST_YAW`・`MAX_TWIST_ROLL` で止める）、2人の体のめり込みを押し出して求める（`physics.ts` の `relaxPoses`。重力も速度も持たない）。倒れ込むまでは、手足の先のほかの部位をマットから `STANDING_CLEARANCE` だけ浮かせておく
 - 勝敗は「手足の先のほかの部位（`body.ts` の `LOSING_JOINTS`）が先にマットに着いた人の負け」で、`bakeCollapse` だけが決める。倒れる人の相手は、ぶつかられるか一定の時間が過ぎるまで体を支えている
-- 指示の選び方は `plan.ts` だけが持つ。絡ませる指示（5〜7回）は、空いていて届く円のうち相手の胴に近い円を優先し、最後の指示は届かない円を指す（純粋な乱数にしない）
+- 指示の選び方は `plan.ts` だけが持つ。絡ませる指示（5〜7回）は、空いていて届く円のうち相手の胴に近い円と、手足が上から見て交差する円（`crossingCount`）を優先し、最後の指示は届かない円を指す（純粋な乱数にしない）。体の向き（足から手へ）が始めの向きから `MAX_HEADING_TURN` を超える置き場所は候補にしない
 - 1手の長さは `game.ts` の `paceOf` だけが決める（はじめの2手はゆっくり、3手目からと最後の指示は速い）。スピナーの針が止まる時刻は場面の `spin.turnMs` で渡し、文言とスピナーの描画はそれを見る
 - 倒れ込みは記録を `COLLAPSE_PLAYBACK_RATE` の速さ（スローモーション）で再生する
 - 画面に重ねる文言は `hud.ts`、スピナーの角度は `spinner.ts` が決める。描画は `view.ts`（3Dは WebGL の canvas、名札・スピナー・文言は上に重ねた2Dの canvas）で、`view.ts`・`face-loader.ts`・`bgm-player.ts` だけがテストを持たない

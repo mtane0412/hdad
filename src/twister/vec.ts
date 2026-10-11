@@ -44,3 +44,13 @@ export const closestRatioOnSegment = (p: Vec3, a: Vec3, b: Vec3): number => {
 
 /** 点 p から線分 a→b までの距離 */
 export const distanceToSegment = (p: Vec3, a: Vec3, b: Vec3): number => distance(p, lerp(a, b, closestRatioOnSegment(p, a, b)))
+
+/** 上から見た、o→a と o→b の外積（左回りなら正） */
+const turnFlat = (o: Vec3, a: Vec3, b: Vec3): number => (a.x - o.x) * (b.z - o.z) - (a.z - o.z) * (b.x - o.x)
+
+/**
+ * 上から見て（高さを無視して）、線分 a1→a2 と b1→b2 が交差するか。
+ * 端が相手の線分の上に乗っているだけ・端どうしが触れているだけのときは交差とみなさない。
+ */
+export const segmentsCrossFlat = (a1: Vec3, a2: Vec3, b1: Vec3, b2: Vec3): boolean =>
+  turnFlat(a1, a2, b1) * turnFlat(a1, a2, b2) < 0 && turnFlat(b1, b2, a1) * turnFlat(b1, b2, a2) < 0
