@@ -8,6 +8,10 @@
  *   同じ人が同じ手足を続けて動かすのは避ける。
  *   体の向き（足から手へ）は始めの向きから MAX_HEADING_TURN まで回してよい（横を向く姿勢を許す）。それより回る置き場所は、
  *   体が裏返ってしまうので候補にしない
+ * - 裏返る指示: 手の指示のうち、仰向けに裏返れば届く円へ手を運ぶ指示を、1人1回まで候補に加える（FLIP_BONUS を加点して混ぜる）。
+ *   裏返った人は、その対戦のあいだ仰向け（ブリッジ）のままで、それより後の指示も仰向けの姿勢で届くかを見る。
+ *   裏返ると人形の左右が入れ替わるので、腕が胴の下をくぐる・脚どうしがめり込む置き場所（isSelfClear）と、半分まで回したときに
+ *   ほかの3本が円から離れる置き場所と、相手の胴が近くて下で回ることになる置き場所は候補にしない
  * - 最後の指示: 空いているが届かない円を指す。届かなさが小さい（あと少しで届きそうな）円と、相手の胴に近い円を優先する
  *   （手を伸ばして、相手の上へ倒れ込むように）
  *
@@ -17,14 +21,16 @@ import { LIMB_CHAINS, LIMBS, type Limb, type Pose } from './body'
 import { ALL_SPOTS, sameSpot, spotPosition, type Spot } from './mat'
 import type { PosePair } from './physics'
 import { INITIAL_SPOTS, PLAYER_FACINGS, opponentOf, type Placement, type PlayerIndex } from './players'
-import { contactsOf, solvePose } from './pose'
-import { cross, distance, distanceToSegment, dot, flat, length, midpoint, segmentsCrossFlat, sub, type Vec3 } from './vec'
+import { contactsOf, restingOn, solvePose, type Contacts } from './pose'
+import { UP, add, cross, distance, distanceToSegment, dot, flat, length, midpoint, scale, segmentDistance, segmentDistanceFlat, segmentsCrossFlat, sub, type Vec3 } from './vec'
 
 /** 1回の指示（だれの・どの手足を・どの円へ） */
 export interface Move {
   readonly player: PlayerIndex
   readonly limb: Limb
   readonly spot: Spot
+  /** 手を運びながら、うつ伏せから仰向けに裏返る指示か */
+  readonly flip: boolean
 }
 
 /** 1回の対戦の指示の並び */
@@ -61,6 +67,20 @@ const FINAL_JITTER = 0.2
  */
 const MIN_MOVES = 5
 const MOVE_COUNT_SPREAD = 2
+/** 裏返る指示の候補への加点（m 相当） */
+const FLIP_BONUS = 0.8
+/** 裏返る途中（半分まで回したとき）に、ほかの3本の手足の先が円から離れてよい距離（m） */
+const FLIP_REACH_TOLERANCE = 0.02
+/** 裏返る手を運ぶときに持ち上げる高さ（m）。仰向けへ回る体の上を越えさせる */
+export const FLIP_ARC_HEIGHT = 0.5
+/** 腕の骨（肩→肘・肘→手）と背骨（首→腰）を、これより近づけない（m。背骨と腕の太さの和）。近いと腕が胴の下をくぐって見える */
+const ARM_TORSO_CLEARANCE = 0.16
+/** 左右の脚の骨（付け根→膝・膝→足）を、これより近づけない（m。太ももの太さの和）。物理は自分の体どうしのぶつかりを持たないため、置き場所で避ける */
+const LEG_CLEARANCE = 0.13
+/** 2人の胴（首から腰）が上から見てこの距離（m）まで近づいたら、下になる人が伏せはじめる（game.ts） */
+export const CROUCH_START_GAP = 0.3
+/** 2人の胴が上から見てこの距離（m）まで近づいたら、下になる人は伏せきる */
+export const CROUCH_FULL_GAP = 0.12
 
 /** 指示の順に手足を動かした、2人の置き場所 */
 export const placementsAfter = (moves: readonly Move[]): readonly [Placement, Placement] =>
@@ -69,29 +89,66 @@ export const placementsAfter = (moves: readonly Move[]): readonly [Placement, Pl
     return move.player === 0 ? [moved, placements[1]] : [placements[0], moved]
   }, INITIAL_SPOTS)
 
-/** 置き場所に手足を置いたとき、手足の先がいちばん離れてしまう円とのずれ（m） */
-export const reachMiss = (placement: Placement, player: PlayerIndex): number => {
+/** 指示を終えた時点で、その人が仰向けに裏返っているか（裏返る指示を一度でも終えていれば、その後ずっと仰向け） */
+export const supineAfter = (moves: readonly Move[], player: PlayerIndex): boolean => moves.some((move) => move.player === player && move.flip)
+
+/** 指示を終えた時点の、2人それぞれが仰向けか */
+const supinesAfter = (moves: readonly Move[]): Supines => [supineAfter(moves, 0), supineAfter(moves, 1)]
+
+/** 置き場所に手足を置いた姿勢（仰向けなら裏返りきった姿勢） */
+const poseAt = (placement: Placement, player: PlayerIndex, supine: boolean): Pose => solvePose(contactsOf(placement), PLAYER_FACINGS[player], { supine: supine ? 1 : 0 })
+
+/** 姿勢の手足の先が、置き場所の円からいちばん離れてしまう距離（m） */
+const missOf = (pose: Pose, placement: Placement): number => {
   const contacts = contactsOf(placement)
-  const pose = solvePose(contacts, PLAYER_FACINGS[player])
   return Math.max(...LIMBS.map((limb) => distance(pose[limb], contacts[limb])))
 }
 
-/** 両足の中点から両手の中点への水平の向き（長さはそのまま） */
-const bodySpanOf = (placement: Placement): Vec3 => {
-  const contacts = contactsOf(placement)
-  return sub(flat(midpoint(contacts.handL, contacts.handR)), flat(midpoint(contacts.footL, contacts.footR)))
+/** 置き場所に手足を置いたとき、手足の先がいちばん離れてしまう円とのずれ（m）。仰向けの人は仰向けの姿勢で見る */
+export const reachMiss = (placement: Placement, player: PlayerIndex, supine = false): number => missOf(poseAt(placement, player, supine), placement)
+
+/**
+ * 腕が胴の下をくぐらず、左右の脚どうしもめり込んでいないか。
+ * 仰向けでは人形の左右が入れ替わるので、置いたままの手足が反対側の付け根から伸びて、胴の下や反対の脚を通ることがある
+ */
+export const isSelfClear = (pose: Pose): boolean => {
+  const armBones = (['L', 'R'] as const).flatMap((side) => [
+    [pose[`shoulder${side}`], pose[`elbow${side}`]] as const,
+    [pose[`elbow${side}`], pose[`hand${side}`]] as const,
+  ])
+  const armsClear = armBones.every(([from, to]) => segmentDistance(from, to, pose.neck, pose.pelvis) >= ARM_TORSO_CLEARANCE)
+  const legBones = (side: 'L' | 'R') => [[pose[`hip${side}`], pose[`knee${side}`]] as const, [pose[`knee${side}`], pose[`foot${side}`]] as const]
+  const legsClear = legBones('L').every(([a1, a2]) => legBones('R').every(([b1, b2]) => segmentDistance(a1, a2, b1, b2) >= LEG_CLEARANCE))
+  return armsClear && legsClear
 }
 
-/** 置き場所での体の向き（両足の中点から両手の中点へ）が、始めの向きからどれだけ回っているか（ラジアン、0〜π） */
-export const headingTurnOf = (placement: Placement, player: PlayerIndex): number => {
-  const span = bodySpanOf(placement)
+/** 両足の中点から両手の中点への水平の向き（長さはそのまま） */
+const bodySpanOf = (contacts: Contacts): Vec3 => sub(flat(midpoint(contacts.handL, contacts.handR)), flat(midpoint(contacts.footL, contacts.footR)))
+
+/** 体の向き（両足の中点から両手の中点へ）が、始めの向きからどれだけ回っているか（ラジアン、0〜π） */
+const turnOf = (span: Vec3, player: PlayerIndex): number => {
   const facing = PLAYER_FACINGS[player]
   return Math.abs(Math.atan2(length(cross(facing, span)), dot(facing, span)))
 }
 
-/** 置き場所のすべての手足が円に届き、体の向きが始めの向きから回りすぎていないか */
-export const isReachable = (placement: Placement, player: PlayerIndex): boolean =>
-  length(bodySpanOf(placement)) >= MIN_BODY_SPAN && headingTurnOf(placement, player) <= MAX_HEADING_TURN && reachMiss(placement, player) <= REACH_TOLERANCE
+/** 置き場所での体の向き（両足の中点から両手の中点へ）が、始めの向きからどれだけ回っているか（ラジアン、0〜π） */
+export const headingTurnOf = (placement: Placement, player: PlayerIndex): number => turnOf(bodySpanOf(contactsOf(placement)), player)
+
+/** 手足の先の位置で、両手と両足が重ならず（体の向きが決まり）、体の向きが回りすぎていないか */
+const keepsHeading = (contacts: Contacts, player: PlayerIndex): boolean => {
+  const span = bodySpanOf(contacts)
+  return length(span) >= MIN_BODY_SPAN && turnOf(span, player) <= MAX_HEADING_TURN
+}
+
+/**
+ * 置き場所のすべての手足が円に届き、体の向きが始めの向きから回りすぎていないか。
+ * 仰向けの人は仰向けの姿勢で見て、腕が胴の下をくぐる・脚どうしがめり込む置き場所も除く
+ */
+export const isReachable = (placement: Placement, player: PlayerIndex, supine = false): boolean => {
+  if (!keepsHeading(contactsOf(placement), player)) return false
+  const pose = poseAt(placement, player, supine)
+  return missOf(pose, placement) <= REACH_TOLERANCE && (!supine || isSelfClear(pose))
+}
 
 /** 姿勢の手足1本ぶんの線分（付け根から先まで） */
 const limbSegmentsOf = (pose: Pose): readonly (readonly [Vec3, Vec3])[] =>
@@ -119,16 +176,56 @@ export const crossingsWithin = (poses: PosePair): number =>
 /** 上から見て交差している手足の組の数。2人のあいだの組と、同じ人の手足どうしの組の両方を数える */
 export const crossingCount = (poses: PosePair): number => crossingsBetween(poses) + crossingsWithin(poses)
 
-/** 置き場所から2人の姿勢を解く */
-const posesOf = (placements: readonly [Placement, Placement]): PosePair => [
-  solvePose(contactsOf(placements[0]), PLAYER_FACINGS[0]),
-  solvePose(contactsOf(placements[1]), PLAYER_FACINGS[1]),
+/** 2人それぞれが仰向けか */
+type Supines = readonly [boolean, boolean]
+const PRONE: Supines = [false, false]
+
+/** 置き場所から2人の姿勢を解く（仰向けの人は仰向けで） */
+const posesOf = (placements: readonly [Placement, Placement], supines: Supines = PRONE): PosePair => [
+  poseAt(placements[0], 0, supines[0]),
+  poseAt(placements[1], 1, supines[1]),
 ]
 
 /** 円から、相手の胴（首の付け根から脚の付け根まで）の真下までの水平の距離（m）。小さいほど絡み合う */
-export const entanglementDistance = (placements: readonly [Placement, Placement], opponent: PlayerIndex, spot: Spot): number => {
-  const pose = solvePose(contactsOf(placements[opponent]), PLAYER_FACINGS[opponent])
+export const entanglementDistance = (placements: readonly [Placement, Placement], opponent: PlayerIndex, spot: Spot, supines: Supines = PRONE): number => {
+  const pose = poseAt(placements[opponent], opponent, supines[opponent])
   return distanceToSegment(spotPosition(spot), flat(pose.neck), flat(pose.pelvis))
+}
+
+/** 胴の近さ（上から見た距離）から、下になる人を伏せさせる度合い（0〜1）。0 なら2人の胴は離れている */
+export const crouchOf = (poses: PosePair): number => {
+  const gap = segmentDistanceFlat(poses[0].neck, poses[0].pelvis, poses[1].neck, poses[1].pelvis)
+  return Math.min(Math.max((CROUCH_START_GAP - gap) / (CROUCH_START_GAP - CROUCH_FULL_GAP), 0), 1)
+}
+
+/** 裏返るときに上がる側（運ぶ手の側） */
+export const rollSideOf = (limb: Limb): 1 | -1 => LIMB_CHAINS[limb].side
+
+/**
+ * 裏返る指示で、半分まで回したときの姿勢。運ぶ手は、もとの円と指された円の中点の FLIP_ARC_HEIGHT 上にある
+ * （game.ts が手を運ぶ弧の頂点と同じ位置）
+ */
+export const flipMidPose = (placement: Placement, move: Move): Pose => {
+  const contacts = contactsOf(placement)
+  const hand = add(midpoint(restingOn(placement[move.limb], move.limb), restingOn(move.spot, move.limb)), scale(UP, FLIP_ARC_HEIGHT))
+  return solvePose({ ...contacts, [move.limb]: hand }, PLAYER_FACINGS[move.player], { supine: 0.5, rollSide: rollSideOf(move.limb) })
+}
+
+/**
+ * 裏返る指示として成り立つか。仰向けの姿勢で届き（腕が胴をくぐらず脚もめり込まない）、半分まで回したときにほかの3本が円に届き、
+ * 回す前後で2人の胴が離れている（相手の下で回らない）
+ */
+const isFlipPossible = (placements: readonly [Placement, Placement], move: Move, opponentSupine: boolean): boolean => {
+  const { player, limb, spot } = move
+  const moved = { ...placements[player], [limb]: spot }
+  if (!isReachable(moved, player, true)) return false
+  const contacts = contactsOf(placements[player])
+  const middle = flipMidPose(placements[player], move)
+  if (LIMBS.some((other) => other !== limb && distance(middle[other], contacts[other]) > FLIP_REACH_TOLERANCE)) return false
+  const supinesBefore: Supines = player === 0 ? [false, opponentSupine] : [opponentSupine, false]
+  const supinesAfter: Supines = player === 0 ? [true, opponentSupine] : [opponentSupine, true]
+  const after: readonly [Placement, Placement] = player === 0 ? [moved, placements[1]] : [placements[0], moved]
+  return crouchOf(posesOf(placements, supinesBefore)) === 0 && crouchOf(posesOf(after, supinesAfter)) === 0
 }
 
 /** だれの手足も置かれていない円 */
@@ -142,42 +239,45 @@ const best = <T,>(candidates: readonly { readonly item: T; readonly score: numbe
   return top.item
 }
 
-/** 絡ませる指示を1つ選ぶ */
-const chooseEntanglingMove = (placements: readonly [Placement, Placement], player: PlayerIndex, lastLimb: Limb | null, random: () => number): Move => {
+/** 絡ませる指示を1つ選ぶ。まだ裏返っていない人の手の指示には、裏返る指示の候補も加える */
+const chooseEntanglingMove = (placements: readonly [Placement, Placement], supines: Supines, player: PlayerIndex, lastLimb: Limb | null, random: () => number): Move => {
   const opponent = opponentOf(player)
   const spots = freeSpots(placements)
-  const crossingsBefore = crossingCount(posesOf(placements))
+  const crossingsBefore = crossingCount(posesOf(placements, supines))
+  const supineAfterMove: Supines = player === 0 ? [true, supines[1]] : [supines[0], true]
   const candidates = LIMBS.flatMap((limb) =>
-    spots
-      .filter((spot) => isReachable({ ...placements[player], [limb]: spot }, player))
-      .map((spot) => {
-        const moved = { ...placements[player], [limb]: spot }
-        const crossingGain = crossingCount(posesOf(player === 0 ? [moved, placements[1]] : [placements[0], moved])) - crossingsBefore
-        return {
-          item: { player, limb, spot },
-          score:
-            -entanglementDistance(placements, opponent, spot) +
-            crossingGain * CROSSING_BONUS -
-            (limb === lastLimb ? SAME_LIMB_PENALTY : 0) +
-            random() * ENTANGLE_JITTER,
-        }
-      }),
+    spots.flatMap((spot) => {
+      const moved = { ...placements[player], [limb]: spot }
+      const after: readonly [Placement, Placement] = player === 0 ? [moved, placements[1]] : [placements[0], moved]
+      const scoreOf = (flip: boolean): number =>
+        -entanglementDistance(placements, opponent, spot, supines) +
+        (crossingCount(posesOf(after, flip ? supineAfterMove : supines)) - crossingsBefore) * CROSSING_BONUS -
+        (limb === lastLimb ? SAME_LIMB_PENALTY : 0) +
+        (flip ? FLIP_BONUS : 0) +
+        random() * ENTANGLE_JITTER
+      const plain = isReachable(moved, player, supines[player]) ? [{ item: { player, limb, spot, flip: false }, score: scoreOf(false) }] : []
+      const canFlip = !supines[player] && LIMB_CHAINS[limb].arm && isFlipPossible(placements, { player, limb, spot, flip: true }, supines[opponent])
+      return canFlip ? [...plain, { item: { player, limb, spot, flip: true }, score: scoreOf(true) }] : plain
+    }),
   )
   return best(candidates, '絡ませる指示')
 }
 
 /** 倒れ込ませる最後の指示を選ぶ */
-const chooseFinalMove = (placements: readonly [Placement, Placement], player: PlayerIndex, random: () => number): Move => {
+const chooseFinalMove = (placements: readonly [Placement, Placement], supines: Supines, player: PlayerIndex, random: () => number): Move => {
   const opponent = opponentOf(player)
   const spots = freeSpots(placements)
   const candidates = LIMBS.flatMap((limb) =>
     spots.flatMap((spot) => {
-      const miss = reachMiss({ ...placements[player], [limb]: spot }, player)
+      // 届かない円でも、伸ばしきったところで体の向きが保たれる円にする。両手と両足の中点が重なると、体の向き（pose.ts の forward）が
+      // 一瞬で裏返り、姿勢が飛ぶ（運ぶ前と運び終えた向きがどちらも回りすぎていなければ、途中も回りすぎない）
+      if (!keepsHeading({ ...contactsOf(placements[player]), [limb]: restingOn(spot, limb) }, player)) return []
+      const miss = reachMiss({ ...placements[player], [limb]: spot }, player, supines[player])
       if (miss < UNREACHABLE_MISS) return []
       return [
         {
-          item: { player, limb, spot },
-          score: -miss - entanglementDistance(placements, opponent, spot) * FINAL_OPPONENT_WEIGHT + random() * FINAL_JITTER,
+          item: { player, limb, spot, flip: false },
+          score: -miss - entanglementDistance(placements, opponent, spot, supines) * FINAL_OPPONENT_WEIGHT + random() * FINAL_JITTER,
         },
       ]
     }),
@@ -197,10 +297,10 @@ export const planGame = (random: () => number): Plan => {
   const lastLimbs: [Limb | null, Limb | null] = [null, null]
   for (let index = 0; index < count; index += 1) {
     const player: PlayerIndex = index % 2 === 0 ? 0 : 1
-    const move = chooseEntanglingMove(placementsAfter(moves), player, lastLimbs[player], random)
+    const move = chooseEntanglingMove(placementsAfter(moves), supinesAfter(moves), player, lastLimbs[player], random)
     moves.push(move)
     lastLimbs[player] = move.limb
   }
   const finalPlayer: PlayerIndex = count % 2 === 0 ? 0 : 1
-  return { moves, finalMove: chooseFinalMove(placementsAfter(moves), finalPlayer, random) }
+  return { moves, finalMove: chooseFinalMove(placementsAfter(moves), supinesAfter(moves), finalPlayer, random) }
 }

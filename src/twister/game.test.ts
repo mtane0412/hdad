@@ -8,15 +8,19 @@
  *    3手目からは速く（FAST_PACE）回して運ぶ（手数を増やしても対戦が長くなりすぎないように）
  * 3. 最後の指示: 速くスピナーを回し、届かない円へ手足を伸ばし（REACH_MS）、倒れ込む（先に計算した記録を再生する）
  * 4. 先にマットに着いた人の負けとして、勝者を出す（RESULT_MS）
+ *
+ * 裏返る指示（plan.ts の flip）では、手を運びながら体を仰向けに回し、その後は仰向け（ブリッジ）のまま続ける。
  */
 import { describe, expect, it } from 'vitest'
 import { JOINT_RADII, JOINTS, LIMBS, LOSING_JOINTS, type Pose } from './body'
 import { DEMO_TWISTER_CALLS, DEMO_TWISTER_INTERVAL_MS } from './demo'
-import { COLLAPSE_PLAYBACK_RATE, FAST_PACE, INTRO_MS, REACH_MS, RESULT_MS, SLOW_PACE, createGame, gameSceneAt, paceOf, spinStartOf, stackingAt } from './game'
+import { createRandom } from '../core/background'
+import { COLLAPSE_PLAYBACK_RATE, FAST_PACE, INTRO_MS, REACH_MS, RESULT_MS, SLOW_PACE, createGame, gameSceneAt, paceOf, spinStartOf, stackingAt, type Game } from './game'
 import { COLLAPSE_FRAME_MS, STANDING_CLEARANCE, collapsePosesAt } from './physics'
 import { INITIAL_SPOTS, PLAYER_INDEXES, opponentOf } from './players'
+import { planGame, supineAfter } from './plan'
 import { restingOn } from './pose'
-import { distance, lerp, midpoint, segmentDistanceFlat } from './vec'
+import { distance, lerp, midpoint, segmentDistanceFlat, sub } from './vec'
 
 /** 試す種の数 */
 const SEED_COUNT = 30
@@ -166,6 +170,50 @@ describe('胴が重なったときの上下', () => {
     }
     expect(fastSteps).toBeLessThanOrEqual(MAX_FAST_STEPS)
   }, SLOW_TEST_TIMEOUT_MS)
+})
+
+describe('仰向けに裏返る', () => {
+  /** 左肩から右肩への線と、腰から首への背骨の外積の高さの成分。うつ伏せでは負（背中が上）、仰向けでは正（腹が上） */
+  const bellyUpOf = (pose: Pose): number => {
+    const across = sub(pose.shoulderR, pose.shoulderL)
+    const spine = sub(pose.neck, pose.pelvis)
+    return spine.z * across.x - spine.x * across.z
+  }
+  /** 対戦の裏返る指示と、その番号 */
+  const flipsOf = (game: Game) => game.plan.moves.flatMap((move, index) => (move.flip ? [{ move, index }] : []))
+
+  it('試す対戦のなかに、裏返る対戦がある', () => {
+    expect(games.filter((game) => flipsOf(game).length > 0).length).toBeGreaterThan(0)
+  })
+
+  it('裏返る指示の前はうつ伏せで、手を運び終えてから倒れはじめるまでは仰向けのまま', () => {
+    for (const game of games) {
+      for (const { move, index } of flipsOf(game)) {
+        const before = gameSceneAt(game, spinStartOf(index)).poses[move.player]
+        expect(bellyUpOf(before), `種${game.seed}の${index + 1}回目の前`).toBeLessThan(0)
+        for (let elapsed = spinStartOf(index + 1); elapsed < game.collapseStartMs; elapsed += SAMPLE_MS) {
+          const pose = gameSceneAt(game, elapsed).poses[move.player]
+          expect(bellyUpOf(pose), `種${game.seed}の${elapsed}ミリ秒`).toBeGreaterThan(0)
+        }
+      }
+    }
+  })
+
+  it('仰向けの人が最後の指示で倒れ込んでも、先にマットに着いた人が決まる', () => {
+    // 最後の指示を受ける人が仰向けになっている種を、指示の並びだけから探す（対戦を作るより速い）
+    const seeds = Array.from({ length: 200 }, (_, seed) => seed)
+      .filter((seed) => {
+        const plan = planGame(createRandom(seed))
+        return supineAfter(plan.moves, plan.finalMove.player)
+      })
+      .slice(0, 3)
+    expect(seeds.length).toBeGreaterThan(0)
+    for (const seed of seeds) {
+      const game = createGame(seed)
+      expect(LOSING_JOINTS, `種${seed}`).toContain(game.touchdown.joint)
+      expect(game.touchdown.atMs, `種${seed}`).toBeGreaterThan(0)
+    }
+  })
 })
 
 describe('gameSceneAt', () => {

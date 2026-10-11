@@ -14,13 +14,15 @@
  * 倒れ込むまでの姿勢は、その時刻の手足の位置から IK で解いた姿勢（pose.ts）を目標にし、2人の体のめり込みを押し出して求める。
  * 押し出しは前のコマの結果から続けて解く（physics.ts の relaxFollowing）ので、倒れ込みと同じく対戦を作るときに1コマずつ記録し、
  * 再生ではその記録を経過時間で引く（bakeStanding）。毎コマ押し出し直すと、関節が相手の骨の中心線をまたぐたびに姿勢が飛ぶためである。
+ * 裏返る指示（plan.ts の flip）では、手を運ぶ進み具合に合わせて体を背骨のまわりに回し、うつ伏せから仰向けへ裏返す（運ぶ手の側が上がる）。
+ * 裏返った人は、その対戦のあいだ仰向けのまま解く。
  * 2人の胴が上から見て近づいたら、片方を下にして伏せさせ、もう片方がその上に重なるようにする（stackingAt）。
  * 下になるのは、対戦のなかで最初に胴が重なった指示で手足を動かした人の相手（上に乗り込まれた人）で、その対戦のあいだ入れ替えない。
  * 倒れ込みの計算は、この求め方で出した倒れはじめの姿勢から始めるので、場面の切り替わりで姿勢が飛ばない。
  */
 import { createRandom } from '../core/background'
 import { LIMB_CHAINS, LIMBS, type Joint, type Limb, type Pose } from './body'
-import { placementsAfter, planGame, type Move, type Plan } from './plan'
+import { FLIP_ARC_HEIGHT, crouchOf, placementsAfter, planGame, rollSideOf, supineAfter, type Move, type Plan } from './plan'
 import {
   COLLAPSE_FRAME_MS,
   PHYSICS_STEP_MS,
@@ -35,8 +37,8 @@ import {
   type Touchdown,
 } from './physics'
 import { PLAYER_FACINGS, opponentOf, type PlayerIndex } from './players'
-import { contactsOf, restingOn, solvePose, type Contacts } from './pose'
-import { UP, add, flat, length, lerp, normalize, scale, segmentDistanceFlat, sub, type Vec3 } from './vec'
+import { contactsOf, restingOn, solvePose, type Contacts, type Posture } from './pose'
+import { UP, add, flat, length, lerp, normalize, scale, sub, type Vec3 } from './vec'
 
 /** 登場の長さ（ミリ秒） */
 export const INTRO_MS = 3000
@@ -68,10 +70,6 @@ export const RESULT_MS = 5500
 const LANDING_STEP = 0.04
 /** 倒れはじめるまでの姿勢を記録する間隔の目安（ミリ秒）。60fps の1コマ。実際の間隔は、倒れはじめる時刻をちょうど割り切る長さにする */
 const STANDING_FRAME_MS = 1000 / 60
-/** 2人の胴（首から腰）が上から見てこの距離（m）まで近づいたら、下になる人が伏せはじめる */
-const CROUCH_START_GAP = 0.3
-/** 2人の胴が上から見てこの距離（m）まで近づいたら、下になる人は伏せきる */
-const CROUCH_FULL_GAP = 0.12
 /** 手足を運ぶときに持ち上げる高さ（m） */
 const MOVE_ARC_HEIGHT = 0.25
 /** 最後の指示で手足を伸ばすときに持ち上げる高さ（m） */
@@ -175,6 +173,8 @@ interface Motion {
   readonly player: PlayerIndex
   readonly limb: Limb
   readonly position: Vec3
+  /** 裏返る指示なら、裏返った度合い（0〜1。手を運ぶ進み具合と同じ緩急で進む）。裏返らない指示なら null */
+  readonly supine: number | null
 }
 
 /** 倒れ込むまでの時刻の、終えた指示と動かしている途中の手足 */
@@ -190,27 +190,32 @@ const motionAt = (plan: Plan, elapsedMs: number): { done: readonly Move[]; motio
     if (elapsedMs < moveStart) return { done, motion: null }
     const from = restingOn(before[moving.player][moving.limb], moving.limb)
     const to = restingOn(moving.spot, moving.limb)
-    return { done, motion: { player: moving.player, limb: moving.limb, position: arcBetween(from, to, clampProgress(elapsedMs - moveStart, pace.moveMs), MOVE_ARC_HEIGHT) } }
+    const progress = clampProgress(elapsedMs - moveStart, pace.moveMs)
+    const position = arcBetween(from, to, progress, moving.flip ? FLIP_ARC_HEIGHT : MOVE_ARC_HEIGHT)
+    return { done, motion: { player: moving.player, limb: moving.limb, position, supine: moving.flip ? easeInOut(progress) : null } }
   }
   // 絡ませる指示を終えたら、最後の指示で届かない円へ手足を伸ばす
   const reachStart = spinStartOf(moves.length) + paceOf(moves.length).spinMs
   if (elapsedMs < reachStart) return { done, motion: null }
   const from = restingOn(before[finalMove.player][finalMove.limb], finalMove.limb)
   const to = restingOn(finalMove.spot, finalMove.limb)
-  return { done, motion: { player: finalMove.player, limb: finalMove.limb, position: arcBetween(from, to, clampProgress(elapsedMs - reachStart, REACH_MS), REACH_ARC_HEIGHT) } }
+  return {
+    done,
+    motion: { player: finalMove.player, limb: finalMove.limb, position: arcBetween(from, to, clampProgress(elapsedMs - reachStart, REACH_MS), REACH_ARC_HEIGHT), supine: null },
+  }
 }
 
 /** 姿勢の手足の先を、そのまま留める位置にする（めり込みを押し出すときに手足を動かさない） */
 const pinsOf = (pose: Pose): Pins => ({ handL: pose.handL, handR: pose.handR, footL: pose.footL, footR: pose.footR })
 
-/** 胴の近さ（上から見た距離）から、下になる人を伏せさせる度合い（0〜1） */
-const crouchOf = (poses: PosePair): number => {
-  const gap = segmentDistanceFlat(poses[0].neck, poses[0].pelvis, poses[1].neck, poses[1].pelvis)
-  return Math.min(Math.max((CROUCH_START_GAP - gap) / (CROUCH_START_GAP - CROUCH_FULL_GAP), 0), 1)
-}
+/** 手足の先の位置から、伏せさせる前の2人の姿勢を解く（裏返った人・裏返る途中の人はその向きで） */
+const solvePair = (contacts: readonly [Contacts, Contacts], postures: readonly [Posture, Posture]): PosePair => [
+  solvePose(contacts[0], PLAYER_FACINGS[0], postures[0]),
+  solvePose(contacts[1], PLAYER_FACINGS[1], postures[1]),
+]
 
-/** 手足の先の位置から、伏せさせる前の2人の姿勢を解く */
-const solvePair = (contacts: readonly [Contacts, Contacts]): PosePair => [solvePose(contacts[0], PLAYER_FACINGS[0]), solvePose(contacts[1], PLAYER_FACINGS[1])]
+/** 指示を終えた時点の2人の向き（裏返った人は仰向け） */
+const posturesAfter = (moves: readonly Move[]): readonly [Posture, Posture] => [{ supine: supineAfter(moves, 0) ? 1 : 0 }, { supine: supineAfter(moves, 1) ? 1 : 0 }]
 
 /**
  * 胴が重なったときに下になる人を決める。指示（最後の指示を含む）を順にたどり、手足を運び終えた姿勢で胴が近づいた最初の指示で
@@ -221,8 +226,9 @@ const solvePair = (contacts: readonly [Contacts, Contacts]): PosePair => [solveP
 const underOf = (plan: Plan): PlayerIndex | null => {
   const moves = [...plan.moves, plan.finalMove]
   const index = moves.findIndex((_, done) => {
-    const placements = placementsAfter(moves.slice(0, done + 1))
-    return crouchOf(solvePair([contactsOf(placements[0]), contactsOf(placements[1])])) > 0
+    const finished = moves.slice(0, done + 1)
+    const placements = placementsAfter(finished)
+    return crouchOf(solvePair([contactsOf(placements[0]), contactsOf(placements[1])], posturesAfter(finished))) > 0
   })
   const first = moves[index]
   return first === undefined ? null : opponentOf(first.player)
@@ -244,7 +250,13 @@ const standingTargetAt = (
     return motion !== null && motion.player === player ? { ...contacts, [motion.limb]: motion.position } : contacts
   }
   const contacts: readonly [Contacts, Contacts] = [contactsFor(0), contactsFor(1)]
-  const upright = solvePair(contacts)
+  // 裏返る途中の人は、運ぶ手の側を上げながら回す
+  const postureFor = (player: PlayerIndex): Posture =>
+    motion !== null && motion.player === player && motion.supine !== null
+      ? { supine: motion.supine, rollSide: rollSideOf(motion.limb) }
+      : { supine: supineAfter(done, player) ? 1 : 0 }
+  const postures: readonly [Posture, Posture] = [postureFor(0), postureFor(1)]
+  const upright = solvePair(contacts, postures)
   const crouch = crouchOf(upright)
   let stacking: Stacking | null = null
   if (crouch > 0) {
@@ -257,8 +269,8 @@ const standingTargetAt = (
     stacking === null
       ? upright
       : stacking.bottom === 0
-        ? [solvePose(contacts[0], PLAYER_FACINGS[0], stacking.crouch), upright[1]]
-        : [upright[0], solvePose(contacts[1], PLAYER_FACINGS[1], stacking.crouch)]
+        ? [solvePose(contacts[0], PLAYER_FACINGS[0], { ...postures[0], crouch: stacking.crouch }), upright[1]]
+        : [upright[0], solvePose(contacts[1], PLAYER_FACINGS[1], { ...postures[1], crouch: stacking.crouch })]
   return { target, stacking, moving: motion === null ? null : { player: motion.player, limb: motion.limb } }
 }
 
