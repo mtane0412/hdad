@@ -388,6 +388,24 @@ describe('rotateOverlayKey・playTownTourDemo・townTourSound・rewards・logout
     await expect(createAdminApi(fetchImpl).kanjiQuizSound()).rejects.toThrow('漢字クイズの音の設定')
   })
 
+  it('ペロペロの効果音の設定を読み、保存し、Workerが保存したものを返す', async () => {
+    const sound = { sound: 'media-juru', volume: 0.6 }
+    const { requests, fetchImpl } = fetchReturning(200, sound)
+    const api = createAdminApi(fetchImpl)
+
+    expect(await api.lickSound()).toEqual(sound)
+    expect(await api.saveLickSound(sound)).toEqual(sound)
+    expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/lick/sound')
+    expect(requests[1]!.method).toBe('PUT')
+    expect(await requests[1]!.json()).toEqual(sound)
+  })
+
+  it('ペロペロの効果音の設定の応答が想定した形でなければ、エラーにする', async () => {
+    const { fetchImpl } = fetchReturning(200, { sound: 1, volume: 0.6 })
+
+    await expect(createAdminApi(fetchImpl).lickSound()).rejects.toThrow('ペロペロの効果音')
+  })
+
   it('ツイスターの BGM の設定を読み、素材のIDと音量を返す', async () => {
     const sound = { bgm: 'media-taisen', bgmVolume: 0.3 }
     const { requests, fetchImpl } = fetchReturning(200, sound)

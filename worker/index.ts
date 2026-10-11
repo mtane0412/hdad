@@ -77,6 +77,7 @@
  * | POST /api/admin/kanji-quiz/stop/cancel | セッション | 漢字クイズの時間切れによる配信の停止を、猶予のあいだに取り消す（下部バー） |
  * | GET  /api/admin/twister/sound    | セッション     | ツイスターの対戦のあいだ流す BGM の設定 |
  * | PUT  /api/admin/twister/sound    | セッション     | ツイスターの BGM の設定を検証して保存 |
+ * | GET・PUT /api/admin/lick/sound   | セッション     | ペロペロで舌が触れるたびに鳴らす効果音の設定の読み書き |
  * | POST /api/admin/lick/demo        | セッション     | ペロペロの試し再生（指定した相手か試しの相手を舐める呼び出しを合成ページへ押し出す） |
  * | GET  /api/admin/viewers          | セッション     | 視聴者の記録の一覧（検索・ページ送り） |
  * | PATCH /api/admin/viewers/:userId | セッション     | 視聴者へのメモの保存 |
@@ -228,7 +229,7 @@ import {
 } from './town-tour-routes'
 import { getKanjiQuizSound, kanjiQuizSocket, kanjiQuizStopSocket, postKanjiQuizDemo, postKanjiQuizOpen, postKanjiQuizStopCancel, postKanjiQuizStopResult, putKanjiQuizSound } from './kanji-quiz-routes'
 import { getTwisterSound, postTwisterDemo, putTwisterSound, twisterSocket } from './twister-routes'
-import { lickSocket, postLickDemo } from './lick-routes'
+import { getLickSound, lickSocket, postLickDemo, putLickSound } from './lick-routes'
 import { getOverlayPomodoro, getPomodoro, pomodoroSocket, postPomodoroControl, putPomodoroSettings } from './pomodoro-routes'
 import { getDeeplUsage, getTranslation, postTranslation, putTranslation } from './translation-routes'
 import { drawSocket, getDrawBackground, getDrawStrokes, putDrawStrokes } from './draw-routes'
@@ -426,6 +427,8 @@ const ROUTES: readonly Route[] = [
   { method: 'PUT', path: '/api/admin/twister/sound', handle: putTwisterSound },
   { method: 'GET', path: '/api/overlay/lick/socket', handle: lickSocket },
   { method: 'POST', path: '/api/admin/lick/demo', handle: postLickDemo },
+  { method: 'GET', path: '/api/admin/lick/sound', handle: getLickSound },
+  { method: 'PUT', path: '/api/admin/lick/sound', handle: putLickSound },
   { method: 'GET', path: '/api/media/:id', handle: media },
 ]
 

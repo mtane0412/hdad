@@ -15,6 +15,8 @@ paths:
 - 舐め方は種だけから決まる。`src/lick/motion.ts` の `createLickPlan` が舐める回数・横の位置・傾き・跡から垂れる唾液を決め（回を重ねるごとに1回の長さを縮め、速く・しつこくする。最後の1回だけ舌先を丸めてすくう `scoop`）、場面は流しはじめてからの経過時間だけから求める（`lickSceneAt`。舌先の押しつぶれ `squash` と丸め `curl` もここで決める）。舐めた跡（`trailsAt`。濡れ具合が下がり、垂れが伸びる）と唾液の糸（`salivaStringAt`。舌を離しはじめてから伸びて切れる）も経過時間だけから求め、フレーム間の状態を持たない。乱数は `src/core/background.ts` の `createRandom` だけを使う
 - 舌の形は `src/lick/tongue-shape.ts` の `tongueSurfacePoint`（中央の溝・丸い舌先・押しつぶれ・丸め）、模様は `src/lick/texture.ts`（表は乳頭のブツブツ・溝・奥の苔の色と凹凸、裏は青い血管）がコードで作る。画像の素材は使わない
 - 描画は `src/lick/view.ts` で、テストを持たない。奥から「アイコン → 舌 → ガラス」の順に置き、舌は表をカメラへ向けてガラス越しにアイコンを舐める（舐めた跡はガラスの板に毎コマ描き直す）。舌は clearcoat を持つ物理ベースの材質で、部屋の照り返しを映して濡れて見せる。唾液の糸と名前の文言は上に重ねた2Dの canvas に描く。アイコンはツイスターと同じ `src/twister/face-loader.ts` で読み、読み込めなければ素材の箱に失敗を出して頭文字の顔で流す
+- 舌が触れるたびに鳴らす効果音は、配信者がアップロードした音声1つと音量だけを設定に持つ（KV `lick-sound`。検証・保存・URL への置き換えは `worker/lick-sound.ts` だけ、管理画面は `src/admin/lick-card.tsx`）。Worker は呼び出しの `sound` に音声の URL（オーバーレイ用キーつき）を添える。効果音を選んでいるのにキーが無ければ押し出さない（トリガーは `lick-push-failed`、試し再生は409）。選ばれている素材は削除させない（`worker/admin-routes.ts`）
+- 鳴らす時刻と音程は `src/lick/sound-cues.ts` の `lickSoundCuesOf` だけが決める（舌先が触れはじめる時刻 `strokeContactMs` に1回ずつ、音程は種から `MIN_PITCH`〜`MAX_PITCH`）。鳴らすのは `src/lick/sound-player.ts`（タイマーで数え、合図ごとに Audio 要素を作って重ねて鳴らす。`preservesPitch` を切って速さで音程を変える。テストを持たない）
 - 合成ページの素材の種類は `lick`（`src/overlay/stage.ts` の `mountLick`）。届いた順に1件ずつ流す。プレビューでは `src/lick/demo.ts` の決まった種をくり返し流す
 
 経緯は `docs/decisions/lick.md`、使い方は `docs/guide/lick.md`。
