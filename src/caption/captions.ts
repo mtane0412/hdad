@@ -8,7 +8,10 @@
  * - 映すのは原文1文と訳文1つだけ。原文はいちばん新しい文（話している途中の文があればそれ、無ければ直前に確定した文）、
  *   訳文はいちばん新しく届いたもので、原文と別の文の訳のことがある。文を積み上げると、折り返した行が配信画面を埋める
  * - 確定した行は、確定してから FINAL_LIFETIME_MS で消す。訳文（issue #191）が届いたら同じIDの行に結び付け、
- *   訳文が届いてから数え直す（訳は原文より遅れて届くので、訳を読む時間を取る）。結び付ける先の行がもう無い訳文は捨てる
+ *   訳文は届いてから FINAL_LIFETIME_MS 映す（訳は原文より遅れて届くので、訳を読む時間を取る）。いちばん新しい確定した行は、
+ *   自分の訳文が映っているあいだ原文も残す。結び付ける先の行がもう無い訳文は捨てる
+ * - 原文に選ぶのはいちばん新しい確定した行だけで、それが消えたあとに前の行を原文として映し直さない（話の流れが逆戻りして見える）。
+ *   そのあいだに前の行の訳文がまだ映っていれば、訳文だけを映す
  * - 話している途中の文は、書き換わらないまま INTERIM_LIFETIME_MS が経ったら消す。認識していたタブが閉じられると
  *   「途中の文が無くなった」知らせが届かないので、話しかけの文が配信画面に残り続けないようにする
  * - 長い行は末尾（新しく話した部分）だけを CAPTION_MAX_CHARS 字まで映し、先頭を「…」で落とす（訳文は TRANSLATION_MAX_CHARS 字）。
@@ -68,11 +71,13 @@ interface TimedLine {
 interface FinalLine extends TimedLine {
   readonly id: string
   readonly translation: string | null
+  /** 訳文が届いた時刻（ミリ秒。まだ届いていなければ null）。原文の時刻 at とは別に数える */
+  readonly translatedAt: number | null
 }
 
 /** 届いた字幕の積み上げ */
 export interface CaptionState {
-  /** 確定した行（古いものから。FINAL_LIFETIME_MS を過ぎたものは次の確定のときに捨てる） */
+  /** 確定した行（古いものから。原文も訳文も FINAL_LIFETIME_MS を過ぎたものは次の確定のときに捨てる） */
   readonly finals: readonly FinalLine[]
   /** 話している途中の文（無ければ null） */
   readonly interim: TimedLine | null
@@ -80,8 +85,9 @@ export interface CaptionState {
 
 /** 映す1行 */
 export interface CaptionLine {
-  readonly text: string
-  /** 確定した行なら true、話している途中の文なら false */
+  /** 原文。映す原文が無く、訳文だけが残っているときは null */
+  readonly text: string | null
+  /** 確定した行（または原文が無い）なら true、話している途中の文なら false */
   readonly final: boolean
   /** 原文の下に添える訳文（いちばん新しく届いたもの。原文と別の文の訳のことがある）。映す訳文が無ければ null */
   readonly translation: string | null
@@ -103,29 +109,40 @@ export const applyCaptionMessage = (state: CaptionState, message: CaptionMessage
     // 添える先がもう消えていれば捨てる。消えた行を訳文で呼び戻すと、話の流れから遅れた字幕が現れて紛らわしい
     const index = state.finals.findIndex((line) => line.id === message.id && now - line.at < FINAL_LIFETIME_MS)
     if (index === -1) return state
-    return { ...state, finals: state.finals.map((line, at) => (at === index ? { ...line, translation: message.text, at: now } : line)) }
+    return {
+      ...state,
+      finals: state.finals.map((line, at) => (at === index ? { ...line, translation: message.text, translatedAt: now } : line)),
+    }
   }
   // 確定した文は、それまで話していた途中の文の続きなので、途中の文と入れ替える。
   // 訳文は次の文が確定したあとにも届くので、映しておく時間のうちは前の行も持っておく
-  const line: FinalLine = { id: message.id, text: message.text, at: now, translation: null }
-  return { finals: [...state.finals.filter((final) => now - final.at < FINAL_LIFETIME_MS), line], interim: null }
+  const line: FinalLine = { id: message.id, text: message.text, at: now, translation: null, translatedAt: null }
+  return { finals: [...state.finals.filter((final) => isShown(final, now)), line], interim: null }
 }
 
-/** いま映す行（いちばん新しい1文だけ。何も映さないなら空） */
+/** 訳文がまだ映っているか */
+const translationShown = (line: FinalLine, now: number): boolean =>
+  line.translatedAt !== null && now - line.translatedAt < FINAL_LIFETIME_MS
+
+/** 原文か訳文のどちらかがまだ映りうるか */
+const isShown = (line: FinalLine, now: number): boolean => now - line.at < FINAL_LIFETIME_MS || translationShown(line, now)
+
+/** いま映す行（いちばん新しい1文と、いちばん新しく届いた訳文の1行だけ。何も映さないなら空） */
 export const visibleCaptions = (state: CaptionState, now: number): CaptionLine[] => {
-  const finals = state.finals.filter((line) => now - line.at < FINAL_LIFETIME_MS)
   const interim = state.interim !== null && now - state.interim.at < INTERIM_LIFETIME_MS ? state.interim : null
-  const latest = interim ?? finals.at(-1)
-  if (latest === undefined) return []
-  // 訳文を添えた行は訳文が届いた時刻を持つので、時刻がいちばん新しいものが最後に届いた訳文である
-  const translated = finals
-    .filter((line) => line.translation !== null)
-    .reduce<FinalLine | null>((newest, line) => (newest === null || line.at >= newest.at ? line : newest), null)
+  // 原文はいちばん新しい確定した行だけから選ぶ。それより前の行を原文に戻すと話の流れが逆戻りして見える
+  const lastFinal = state.finals.at(-1)
+  const final = lastFinal !== undefined && isShown(lastFinal, now) ? lastFinal : null
+  const translated = state.finals
+    .filter((line) => translationShown(line, now))
+    .reduce<FinalLine | null>((newest, line) => (newest === null || (line.translatedAt ?? 0) >= (newest.translatedAt ?? 0) ? line : newest), null)
+  const text = interim?.text ?? final?.text ?? null
   const translation = translated?.translation ?? null
+  if (text === null && translation === null) return []
   return [
     {
-      text: tailOf(latest.text, CAPTION_MAX_CHARS),
-      final: latest !== interim,
+      text: text === null ? null : tailOf(text, CAPTION_MAX_CHARS),
+      final: interim === null,
       translation: translation === null ? null : tailOf(translation, TRANSLATION_MAX_CHARS),
     },
   ]

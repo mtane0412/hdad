@@ -97,6 +97,14 @@ describe('applyCaptionMessage と visibleCaptions', () => {
     expect(visibleCaptions(state, 3000 + FINAL_LIFETIME_MS)).toEqual([])
   })
 
+  it('新しい文が先に消えても、前の文の訳が届いたからといって前の文を原文として映し直さない', () => {
+    let state = applyCaptionMessage(NO_CAPTIONS, { type: 'final', id: 'utterance-a', text: 'こんばんは' }, 1000)
+    state = applyCaptionMessage(state, { type: 'final', id: 'utterance-b', text: '今日はゲームをします' }, 2000)
+    state = applyCaptionMessage(state, { type: 'translation', id: 'utterance-a', text: 'Good evening' }, 6500)
+    expect(visibleCaptions(state, 2000 + FINAL_LIFETIME_MS)).toEqual([{ text: null, final: true, translation: 'Good evening' }])
+    expect(visibleCaptions(state, 6500 + FINAL_LIFETIME_MS)).toEqual([])
+  })
+
   it('添える先の行がもう無い訳文は捨てる（消えた行を訳文で呼び戻さない）', () => {
     const state = applyCaptionMessage(NO_CAPTIONS, { type: 'final', id: 'utterance-a', text: 'こんばんは' }, 1000)
     expect(applyCaptionMessage(state, { type: 'translation', id: 'utterance-z', text: 'Good evening' }, 1500)).toBe(state)
@@ -145,8 +153,8 @@ describe('長い行を切る', () => {
     const state = applyCaptionMessage(NO_CAPTIONS, { type: 'interim', text: longSpeech }, 1000)
     const [line] = visibleCaptions(state, 1100)
     expect(Array.from(line?.text ?? '').length).toBeLessThanOrEqual(CAPTION_MAX_CHARS)
-    expect(line?.text.startsWith('…')).toBe(true)
-    expect(line?.text.endsWith('持ってる可能性が高いので')).toBe(true)
+    expect(line?.text?.startsWith('…')).toBe(true)
+    expect(line?.text?.endsWith('持ってる可能性が高いので')).toBe(true)
   })
 
   it('長い確定の行と訳文も、それぞれの上限で末尾を残して映す', () => {

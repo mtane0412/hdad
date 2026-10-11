@@ -4,7 +4,7 @@
  *
  * 合成ページは毎フレーム映す行を渡すので、次の3点を確かめる。
  * - 映す行を上から順に、確定したかどうかの印を付けて出すこと
- * - 訳文があれば、原文のすぐ下に出すこと
+ * - 訳文があれば、原文のすぐ下に出すこと（原文が無ければ訳文だけを出すこと）
  * - 映す行が無ければ何も映さないこと（OBSでは透過の枠だけが残る）
  * - 同じ行を渡し直されたときにDOMを作り直さないこと（毎フレーム作り直すと重い）
  */
@@ -50,6 +50,14 @@ describe('createCaptionView', () => {
     view.render([{ text: 'こんばんは', final: true, translation: 'Good evening' }])
 
     expect(root.querySelector('.caption-translation')?.textContent).toBe('Good evening')
+  })
+
+  it('原文が無く訳文だけが残っていれば、訳文だけを出す', () => {
+    createCaptionView(root).render([{ text: null, final: true, translation: 'Good evening' }])
+
+    expect([...root.children].map((element) => [element.className, element.textContent])).toEqual([
+      ['caption-translation', 'Good evening'],
+    ])
   })
 
   it('映す行が無ければ何も映さない', () => {
