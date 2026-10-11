@@ -8,10 +8,16 @@
  *
  * 時刻は requestAnimationFrame ではなくタイマーで数える（OBSのブラウザソースは画面に映っていないと描画を間引くことがあるため）。
  * 合図ごとに Audio 要素を作り直すのは、前の音が鳴り終わる前に次を重ねて鳴らすため（同じ音声はブラウザの読み込みを使い回す）。
+ * 1回の音は合図の長さ（その回で舌を離し終えるまで）の終わりに向けて音量を下げて止める。長い音声を選んでも、演出のあとまで鳴り続けない。
  *
  * 注意: 鳴らせなかった（ブラウザが自動再生を拒んだ・音声を読めなかった）ら onError で知らせる。黙って無音のまま続けない。
  */
 import type { LickSoundCue } from './sound-cues'
+
+/** 1回の音を止める前に、音量を下げていく長さ（ミリ秒）。合図の長さがこれより短ければ合図の長さぶんで下げる */
+const FADE_OUT_MS = 250
+/** 音量を刻む間隔（ミリ秒） */
+const FADE_STEP_MS = 30
 
 export interface LickSoundPlayer {
   /** 1回のペロペロの効果音を、流しはじめた今から合図の時刻に鳴らしていく。鳴らしている途中のものがあれば止めてから始める */
@@ -26,14 +32,17 @@ export interface LickSoundPlayer {
  * @param onError 鳴らせなかったときに呼ぶ
  */
 export const createLickSoundPlayer = (onError: (error: Error) => void): LickSoundPlayer => {
-  /** 鳴らす予定のタイマーと、鳴らした Audio 要素（止めるときに使う） */
+  /** 鳴らす予定・止める予定のタイマーと、鳴らした Audio 要素（止めるときに使う） */
   let timers: number[] = []
   let playing: HTMLAudioElement[] = []
   /** この1回のペロペロで、鳴らせなかったことをもう知らせたか（自動再生を拒まれると合図ごとに失敗するので、知らせるのは1回にする） */
   let reported = false
 
   const stop = (): void => {
-    for (const timer of timers) window.clearTimeout(timer)
+    for (const timer of timers) {
+      window.clearTimeout(timer)
+      window.clearInterval(timer)
+    }
     for (const audio of playing) audio.pause()
     timers = []
     playing = []
@@ -46,9 +55,27 @@ export const createLickSoundPlayer = (onError: (error: Error) => void): LickSoun
     audio.playbackRate = cue.pitch
     playing = [...playing, audio]
     // 鳴り終えた音は持ち続けない（配信中に何度も流すため）
-    audio.addEventListener('ended', () => {
+    const release = (): void => {
+      audio.pause()
       playing = playing.filter((item) => item !== audio)
-    })
+    }
+    audio.addEventListener('ended', release)
+    // 合図の長さの終わりに向けて音量を下げ、下げ終えたら止める（音声が長くても、その回のぶんだけ鳴らす）
+    const fadeMs = Math.min(FADE_OUT_MS, cue.durationMs)
+    timers = [
+      ...timers,
+      window.setTimeout(() => {
+        const startedAt = performance.now()
+        const fade = window.setInterval(() => {
+          const progress = fadeMs === 0 ? 1 : Math.min((performance.now() - startedAt) / fadeMs, 1)
+          audio.volume = volume * (1 - progress)
+          if (progress < 1) return
+          window.clearInterval(fade)
+          release()
+        }, FADE_STEP_MS)
+        timers = [...timers, fade]
+      }, cue.durationMs - fadeMs),
+    ]
     audio.play().catch((error: unknown) => {
       if (reported) return
       reported = true
