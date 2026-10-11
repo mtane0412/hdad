@@ -163,6 +163,7 @@ export const TRIGGER_KINDS = [
   'everyMessage',
   'keyword',
   'fromUser',
+  'fromUserFirstOfStream',
   'reward',
   'follow',
   'subscribe',
@@ -186,7 +187,7 @@ export type TriggerKind = (typeof TRIGGER_KINDS)[number]
 export type TriggerSource =
   | { kind: 'newViewer' | 'welcome' | 'everyMessage' }
   | { kind: 'comeback'; days: number }
-  | { kind: 'fromUser'; login: string }
+  | { kind: 'fromUser' | 'fromUserFirstOfStream'; login: string }
   | { kind: 'keyword'; contains: string }
   | { kind: 'reward'; rewardId: string | null }
   | { kind: 'follow' | 'subscribe' | 'resubscribe' | 'raid' }
@@ -322,7 +323,7 @@ const isMediaItem = (value: unknown): value is MediaItem =>
 const isTriggerSource = (value: unknown): value is TriggerSource => {
   if (!isRecord(value)) return false
   if (value.kind === 'comeback') return typeof value.days === 'number'
-  if (value.kind === 'fromUser') return typeof value.login === 'string'
+  if (value.kind === 'fromUser' || value.kind === 'fromUserFirstOfStream') return typeof value.login === 'string'
   if (value.kind === 'keyword') return typeof value.contains === 'string'
   // null は「すべての報酬」を表す
   if (value.kind === 'reward') return value.rewardId === null || typeof value.rewardId === 'string'

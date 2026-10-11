@@ -74,6 +74,7 @@ const MENU_LABELS: Readonly<Record<TriggerKind, string>> = {
   everyMessage: 'すべての発言',
   keyword: '決まった言葉を含む発言',
   fromUser: '決まった人の発言',
+  fromUserFirstOfStream: '決まった人のその配信で最初の発言',
   reward: 'チャンネルポイントが交換された',
   follow: 'フォローされた',
   subscribe: 'サブスクされた（新規）',
@@ -184,6 +185,7 @@ export const menuGroups: readonly MenuGroup[] = [
       item('everyMessage', '発言があるたび。挨拶とも同時に動く'),
       item('keyword', '決めた言葉を含む発言', '言葉を追加する'),
       item('fromUser', '決めた人の発言', 'ユーザーを追加する'),
+      item('fromUserFirstOfStream', '決めた人のその配信での1回目の発言。挨拶とも同時に動く', 'ユーザーを追加する'),
     ],
   },
   {
@@ -349,6 +351,7 @@ const EVENT_OF_KIND: Readonly<Record<TriggerKind, AlertEvent>> = {
   everyMessage: CHAT_MESSAGE,
   keyword: CHAT_MESSAGE,
   fromUser: CHAT_MESSAGE,
+  fromUserFirstOfStream: CHAT_MESSAGE,
   reward: REDEMPTION,
   follow: 'channel.follow',
   subscribe: 'channel.subscribe',
@@ -436,6 +439,7 @@ const toSource = (draft: TriggerDraft): TriggerSource => {
     case 'comeback':
       return { kind: draft.kind, days: toNumber(draft.days, '日数') }
     case 'fromUser':
+    case 'fromUserFirstOfStream':
       return { kind: draft.kind, login: draft.login }
     case 'keyword':
       return { kind: draft.kind, contains: draft.contains }
@@ -480,6 +484,7 @@ const toParams = (trigger: StoredTrigger): Partial<typeof DEFAULT_PARAMS> => {
     case 'comeback':
       return { days: String(trigger.days) }
     case 'fromUser':
+    case 'fromUserFirstOfStream':
       return { login: trigger.login }
     case 'keyword':
       return { contains: trigger.contains }
@@ -676,6 +681,7 @@ export const rowParamSummary = (draft: TriggerDraft, rewards: readonly Reward[])
       if (draft.rewardId === ALL_REWARDS) return 'すべての報酬'
       return rewards.find((reward) => reward.id === draft.rewardId)?.title ?? draft.rewardId
     case 'fromUser':
+    case 'fromUserFirstOfStream':
       return draft.login
     case 'keyword':
       return draft.contains

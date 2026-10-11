@@ -75,6 +75,7 @@ const MESSAGE_PLACEHOLDERS: Readonly<Record<TriggerKind, string>> = {
   everyMessage: '{user} さんが「{message}」と言いました',
   keyword: '{user} さんが「{message}」と言いました',
   fromUser: '{user} さんが来ました',
+  fromUserFirstOfStream: '{user} さん、今日も来てくれてありがとう！',
   reward: '{user} さんが「{reward}」を交換しました',
   follow: '{user} さんがフォローしました',
   subscribe: '{user} さんがティア{tier}でサブスクしました',
@@ -170,7 +171,7 @@ const TriggerParamField = ({ idPrefix, draft, rewards, onChange }: TriggerParamF
       </div>
     )}
 
-    {draft.kind === 'fromUser' && (
+    {(draft.kind === 'fromUser' || draft.kind === 'fromUserFirstOfStream') && (
       <div className="flex flex-col gap-2 sm:col-span-2">
         <Label htmlFor={`${idPrefix}-login`}>対象のユーザー名</Label>
         <Input

@@ -72,7 +72,8 @@ export type AlertEvent = (typeof ALERT_EVENTS)[number]
  * 照合に使う条件1件。
  *
  * メニュー項目から展開して作るもので、配信者が直接組み立てることはない。
- * 1つのメニュー項目が持つ条件は0件か1件で、複数の条件を and でつなぐ形はこのツールでは作れない。
+ * 1つのメニュー項目が持つ条件はほとんどが0件か1件で、2件持つのは「決まった人のその配信で最初の発言」（user と firstChatOfStream）だけである。
+ * 複数の条件はすべて満たしたときだけ当てはまる（and）。配信者が条件を自由に and でつなぐ形はこのツールでは作れない。
  *
  * - reward: 対象の報酬ID。チャンネルポイントの交換にしか意味を持たない
  * - user: そのイベントの相手のTwitchのユーザー名（login）
@@ -107,6 +108,7 @@ export const TRIGGER_KINDS = [
   'everyMessage',
   'keyword',
   'fromUser',
+  'fromUserFirstOfStream',
   'reward',
   'follow',
   'subscribe',
@@ -130,6 +132,8 @@ export type TriggerKind = (typeof TRIGGER_KINDS)[number]
  * （判定は worker/alert-event.ts の matchedTriggers）。
  *
  * 「すべての発言」（everyMessage）はこの段に入れない。読み上げや効果音は、初めて来た人の発言でも鳴ってほしいためである。
+ * 「決まった人のその配信で最初の発言」（fromUserFirstOfStream）も入れない。その人だけに向けた演出（チャンネルポイントの
+ * 演出と同じものを常連の来訪で出す、など）は、ふつうの挨拶を打ち消さずに同時に動いてほしいためである。
  */
 export const GREETING_KINDS: readonly TriggerKind[] = ['newViewer', 'comeback', 'welcome']
 
@@ -145,7 +149,7 @@ export const isGreeting = (kind: TriggerKind): boolean => GREETING_KINDS.include
 export type TriggerSource =
   | { kind: 'newViewer' | 'welcome' | 'everyMessage' }
   | { kind: 'comeback'; days: number }
-  | { kind: 'fromUser'; login: string }
+  | { kind: 'fromUser' | 'fromUserFirstOfStream'; login: string }
   | { kind: 'keyword'; contains: string }
   | { kind: 'reward'; rewardId: string | null }
   | { kind: 'follow' | 'subscribe' | 'resubscribe' | 'raid' }
@@ -161,6 +165,7 @@ const EVENT_OF_KIND: Readonly<Record<TriggerKind, AlertEvent>> = {
   everyMessage: CHAT_MESSAGE,
   keyword: CHAT_MESSAGE,
   fromUser: CHAT_MESSAGE,
+  fromUserFirstOfStream: CHAT_MESSAGE,
   reward: REDEMPTION,
   follow: FOLLOW,
   subscribe: SUBSCRIBE,
@@ -208,6 +213,8 @@ export const expandSource = (source: TriggerSource): { event: AlertEvent; condit
       return { event, conditions: [{ kind: 'returningAfter', days: source.days }] }
     case 'fromUser':
       return { event, conditions: [{ kind: 'user', login: source.login }] }
+    case 'fromUserFirstOfStream':
+      return { event, conditions: [{ kind: 'user', login: source.login }, { kind: 'firstChatOfStream' }] }
     case 'keyword':
       return { event, conditions: [{ kind: 'text', contains: source.contains }] }
     // 報酬を選んでいなければ（null）すべての報酬が対象なので、絞り込みを付けない

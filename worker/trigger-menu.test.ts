@@ -20,6 +20,10 @@ describe('GREETING_KINDS', () => {
     expect(isGreeting('everyMessage')).toBe(false)
     expect(isGreeting('newViewer')).toBe(true)
   })
+
+  it('「決まった人のその配信で最初の発言」は挨拶の段に入れない（その人への演出は、ふつうの挨拶と同時に動いてほしいため）', () => {
+    expect(isGreeting('fromUserFirstOfStream')).toBe(false)
+  })
 })
 
 describe('expandSource', () => {
@@ -52,6 +56,14 @@ describe('expandSource', () => {
 
   it('決まった人が発言したメニュー項目は、ユーザー名の条件になる', () => {
     expect(expandSource({ kind: 'fromUser', login: 'tanenobu' })).toEqual({ event: CHAT_MESSAGE, conditions: [{ kind: 'user', login: 'tanenobu' }] })
+  })
+
+  it('決まった人のその配信で最初の発言のメニュー項目は、ユーザー名とその配信で初めての発言の2つの条件になる', () => {
+    // 2つの条件はどちらも満たしたときだけ当てはまる（alert-event.ts の matches は every で見る）
+    expect(expandSource({ kind: 'fromUserFirstOfStream', login: 'tanenobu' })).toEqual({
+      event: CHAT_MESSAGE,
+      conditions: [{ kind: 'user', login: 'tanenobu' }, { kind: 'firstChatOfStream' }],
+    })
   })
 
   it('決まった言葉を含む発言のメニュー項目は、文面の条件になる', () => {
@@ -94,6 +106,7 @@ describe('expandSource', () => {
       everyMessage: { kind: 'everyMessage' },
       keyword: { kind: 'keyword', contains: 'おはよう' },
       fromUser: { kind: 'fromUser', login: 'tanenobu' },
+      fromUserFirstOfStream: { kind: 'fromUserFirstOfStream', login: 'tanenobu' },
       reward: { kind: 'reward', rewardId: null },
       follow: { kind: 'follow' },
       subscribe: { kind: 'subscribe' },

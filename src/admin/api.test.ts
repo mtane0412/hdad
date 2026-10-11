@@ -56,6 +56,18 @@ describe('config・saveConfig（トリガーの設定）', () => {
     expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/config')
   })
 
+  it('決まった人のその配信で最初の発言のトリガーは、ユーザー名ごと受け取る', async () => {
+    const fromUserFirstOfStream = { kind: 'fromUserFirstOfStream', login: 'tanenobu', actions: [{ type: 'chat', message: 'いらっしゃい' }] }
+
+    expect(await createAdminApi(fetchReturning(200, { triggers: [fromUserFirstOfStream] }).fetchImpl).config()).toEqual([fromUserFirstOfStream])
+  })
+
+  it('決まった人のその配信で最初の発言のトリガーにユーザー名が無ければエラーにする', async () => {
+    const withoutLogin = { kind: 'fromUserFirstOfStream', actions: [{ type: 'chat', message: 'いらっしゃい' }] }
+
+    await expect(createAdminApi(fetchReturning(200, { triggers: [withoutLogin] }).fetchImpl).config()).rejects.toThrow('triggers[0]')
+  })
+
   it('応答が想定した形でなければエラーにする（黙って空の設定にしない）', async () => {
     const triggerWithoutKind = { ...toastTrigger, actions: [{ ...toastTrigger.actions[0], mediaKind: 'pdf' }] }
     await expect(createAdminApi(fetchReturning(200, { triggers: [triggerWithoutKind] }).fetchImpl).config()).rejects.toThrow('triggers[0]')

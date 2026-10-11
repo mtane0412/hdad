@@ -695,6 +695,40 @@ describe('挨拶の段（当てはまったうち最も細かい1つだけが発
     expect(chatMessagesFor(reversedOrder, CHAT_MESSAGE, chatNotification, firstSight, null)).toEqual(['はじめまして！'])
   })
 
+  /** 田中太郎さん（tanaka_taro）がその配信で最初に発言したときだけ動くトリガー */
+  const tanakaFirstOfStream: StoredTrigger = {
+    kind: 'fromUserFirstOfStream',
+    login: 'tanaka_taro',
+    actions: [{ type: 'chat', message: '田中さん専用の出迎え' }],
+  }
+
+  it('決まった人のその配信で最初の発言では、その人向けの動作を返す（ユーザー名は大文字小文字を区別しない）', () => {
+    const config: AlertConfig = { triggers: [{ ...tanakaFirstOfStream, login: 'Tanaka_Taro' }] }
+    const regularFirstTime = { firstChatOfStream: true, firstChatEver: false, daysSinceLastChat: 1 }
+
+    expect(chatMessagesFor(config, CHAT_MESSAGE, chatNotification, regularFirstTime, null)).toEqual(['田中さん専用の出迎え'])
+  })
+
+  it('決まった人でも、その配信で2通目以降の発言では動かない', () => {
+    const secondMessage = { firstChatOfStream: false, firstChatEver: false, daysSinceLastChat: 1 }
+
+    expect(chatMessagesFor({ triggers: [tanakaFirstOfStream] }, CHAT_MESSAGE, chatNotification, secondMessage, null)).toEqual([])
+  })
+
+  it('その配信で最初の発言でも、決めた人と違う人なら動かない', () => {
+    const config: AlertConfig = { triggers: [{ ...tanakaFirstOfStream, login: 'yamada_hanako' }] }
+    const regularFirstTime = { firstChatOfStream: true, firstChatEver: false, daysSinceLastChat: 1 }
+
+    expect(chatMessagesFor(config, CHAT_MESSAGE, chatNotification, regularFirstTime, null)).toEqual([])
+  })
+
+  it('決まった人のその配信で最初の発言は、挨拶の段と同時に動く（挨拶を打ち消さない）', () => {
+    const config: AlertConfig = { triggers: [...allGreetingsFilled.triggers, tanakaFirstOfStream] }
+    const firstSight = { firstChatOfStream: true, firstChatEver: true, daysSinceLastChat: null }
+
+    expect(chatMessagesFor(config, CHAT_MESSAGE, chatNotification, firstSight, null)).toEqual(['はじめまして！', '田中さん専用の出迎え'])
+  })
+
   it('挨拶と合言葉は同時に発動する（絞り込みの向きが違うので打ち消さない）', () => {
     const config: AlertConfig = {
       triggers: [
@@ -1022,6 +1056,12 @@ describe('requiresFirstChatOfStream', () => {
 
   it('そのイベントに firstChatOfStream の条件を持つトリガーがあれば true', () => {
     expect(requiresFirstChatOfStream({ triggers: [unconditionalTrigger, firstTimeTrigger] }, CHAT_MESSAGE)).toBe(true)
+  })
+
+  it('決まった人のその配信で最初の発言のトリガーがあれば true（その配信で初めてかの判定が要る）', () => {
+    const fromUserFirstOfStream: StoredTrigger = { kind: 'fromUserFirstOfStream', login: 'tanenobu', actions: [{ type: 'chat', message: 'いらっしゃい' }] }
+
+    expect(requiresFirstChatOfStream({ triggers: [fromUserFirstOfStream] }, CHAT_MESSAGE)).toBe(true)
   })
 
   it('その条件を持つトリガーが1件もなければ false（データベースを触らずに済ませるため）', () => {
