@@ -17,8 +17,9 @@
  * - countdown: 最後の数秒の大きなカウントダウンが切り替わるたび
  * - correct: 正解者が届いたとき
  * - timeUp: 時間切れになったとき
+ * - explanation: 正解者・時間切れを見せたあと、解説の帯を出したとき
  */
-export const KANJI_QUIZ_SOUND_SLOTS = ['bgm', 'start', 'countdown', 'correct', 'timeUp'] as const
+export const KANJI_QUIZ_SOUND_SLOTS = ['bgm', 'start', 'countdown', 'correct', 'timeUp', 'explanation'] as const
 
 export type KanjiQuizSoundSlot = (typeof KANJI_QUIZ_SOUND_SLOTS)[number]
 
@@ -57,6 +58,7 @@ const readSoundShape = (value: unknown, subject: string): KanjiQuizSound => {
       countdown: slotOf('countdown'),
       correct: slotOf('correct'),
       timeUp: slotOf('timeUp'),
+      explanation: slotOf('explanation'),
     },
     bgmVolume,
     effectVolume,

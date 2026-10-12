@@ -6,6 +6,7 @@
  * - BGM と「出題」は流しはじめ（級を出したとき）に鳴らす
  * - 「カウントダウン」は最後の COUNTDOWN_SECONDS 秒の大きな数字が切り替わるたびに鳴らす
  * - 正解者が届いたら「正解」、届かなければ時間切れの時刻に「時間切れ」を鳴らす
+ * - 結果を REVEAL_RESULT_MS 見せたあと、解説の帯を出す時刻に「解説」を鳴らす
  * - BGM は正解者が届いた時刻か時間切れの時刻で、KANJI_QUIZ_BGM_FADE_OUT_MS かけて下げて止める（結果の音を際立たせるため、解説のあいだは流さない）
  *
  * 描画は経過時間だけから決める約束だが、効果音は「もう鳴らしたか」を覚えないと二重に鳴る。そこで判断（この表と、
@@ -15,8 +16,8 @@
  * 注意: 通信も DOM も持ち込まない。
  * 注意: 「鳴らさない」にした枠（null）は表に載せない。
  */
-import { ANSWER_LIMIT_MS, COUNTDOWN_SECONDS, GRADE_INTRO_MS } from './scene'
-import type { KanjiQuizSound } from './sound'
+import { ANSWER_LIMIT_MS, COUNTDOWN_SECONDS, GRADE_INTRO_MS, REVEAL_RESULT_MS } from './scene'
+import type { KanjiQuizSound, KanjiQuizSoundSlot } from './sound'
 
 /** BGM を下げて止める長さ（ミリ秒）。正解・時間切れの音を際立たせるよう短くする */
 export const KANJI_QUIZ_BGM_FADE_OUT_MS = 500
@@ -51,7 +52,7 @@ export const kanjiQuizSoundCuesOf = (sound: KanjiQuizSound, answeredAfterMs: num
   const bgmEnd = bgmEndOf(answeredAfterMs)
 
   /** 枠に音声が選ばれていれば効果音の1行を作る。「鳴らさない」なら作らない */
-  const effect = (slot: 'start' | 'countdown' | 'correct' | 'timeUp', id: string, at: number): KanjiQuizSoundCue[] => {
+  const effect = (slot: Exclude<KanjiQuizSoundSlot, 'bgm'>, id: string, at: number): KanjiQuizSoundCue[] => {
     const url = slots[slot]
     return url === null ? [] : [{ id, at, type: 'effect', url, volume: effectVolume }]
   }
@@ -68,6 +69,8 @@ export const kanjiQuizSoundCuesOf = (sound: KanjiQuizSound, answeredAfterMs: num
     ...countdowns,
     ...(answeredAfterMs === null ? effect('timeUp', 'timeUp', TIME_UP_AT) : effect('correct', 'correct', answeredAfterMs)),
     ...(slots.bgm === null ? [] : [{ id: 'bgm-end', at: bgmEnd, type: 'bgmFadeOut', duration: KANJI_QUIZ_BGM_FADE_OUT_MS } as const]),
+    // 解説の帯は、正解者が届いた時刻か時間切れの時刻から REVEAL_RESULT_MS たって出る（scene.ts の kanjiQuizSceneAt と同じ時刻）
+    ...effect('explanation', 'explanation', bgmEnd + REVEAL_RESULT_MS),
   ]
 }
 
