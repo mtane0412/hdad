@@ -258,7 +258,11 @@ const drawReveal = (
   ctx.fillRect(bandX + wordPanelWidth, bandY, bandWidth - wordPanelWidth, bandHeight)
   const contentTop = bandY + (bandHeight - contentHeight) / 2
   const answerY = contentTop + answerBlockHeight / 2
-  centerText(ctx, answerLineOf(call.problem.readings), textX + textWidth / 2, answerY, `bold ${SIZES.answerFont * unit}px ${SANS_FAMILY}`, COLORS.reading)
+  // 読みが多い・長い問題は、右側の幅に収まるよう縮める
+  const answer = answerLineOf(call.problem.readings)
+  ctx.font = `bold ${SIZES.answerFont * unit}px ${SANS_FAMILY}`
+  const answerSize = SIZES.answerFont * unit * Math.min(1, textWidth / ctx.measureText(answer).width)
+  centerText(ctx, answer, textX + textWidth / 2, answerY, `bold ${answerSize}px ${SANS_FAMILY}`, COLORS.reading)
   const explanationTop = contentTop + answerBlockHeight + SIZES.panelPadding * unit
   ctx.font = explanationFont
   ctx.fillStyle = COLORS.text
