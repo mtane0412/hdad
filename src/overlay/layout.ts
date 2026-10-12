@@ -100,6 +100,8 @@ export interface OverlayItem {
   /** その素材のパラメータ（クエリ文字列のまま。解析は素材のスキーマで行う） */
   readonly params: string
   readonly rect: ItemRect
+  /** 隠しているか。隠した素材は合成ページが起動しない。表示する素材では持たない */
+  readonly hidden?: boolean
 }
 
 /** オーバーレイ1つ（＝OBSのブラウザソース1つ）。worker/overlay-layout.ts の Overlay と合わせる */
@@ -125,6 +127,22 @@ export interface RectStyle {
  */
 export const itemsInOverlay = (overlays: readonly Overlay[], name: string): readonly OverlayItem[] =>
   overlays.find((overlay) => overlay.name === name)?.items ?? []
+
+/**
+ * 隠した素材を除いた素材を、並びの順のまま返す。
+ *
+ * 合成ページは隠した素材を起動しない（箱を見えなくするだけだと、音を出す素材や読み上げが裏で動き続けるため）。
+ */
+export const shownItems = (items: readonly OverlayItem[]): readonly OverlayItem[] => items.filter((item) => item.hidden !== true)
+
+/**
+ * 押し出された構成で、自分のオーバーレイの中身が変わったかを見分ける。
+ *
+ * 合成ページは変わっていれば読み込み直す（素材ごとに止める仕掛けを持たないため）。ほかのオーバーレイだけの
+ * 変化では読み込み直さない（同じ構成を見ているほかのブラウザソースの切り替えで、映しているものを途切れさせない）。
+ */
+export const overlayChanged = (before: readonly Overlay[], after: readonly Overlay[], name: string): boolean =>
+  JSON.stringify(itemsInOverlay(before, name)) !== JSON.stringify(itemsInOverlay(after, name))
 
 /** 位置と大きさを、箱に当てるCSSの値（％）にする */
 export const rectStyle = ({ x, y, width, height }: ItemRect): RectStyle => ({

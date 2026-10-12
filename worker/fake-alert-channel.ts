@@ -14,6 +14,7 @@ import type { TaskDeskSnapshot } from './task-desk'
 import type { KanjiQuizCall, KanjiQuizNotice, StreamStopOrder } from './kanji-quiz-call'
 import type { LickCall } from './lick-call'
 import type { OpinionBoardSnapshot } from './opinion'
+import type { OverlayLayout } from './overlay-layout'
 import type { TextsSnapshot } from './text'
 import type { TownTourAnswerMessage, TownTourCall } from './town-tour-call'
 import type { TwisterCall } from './twister-call'
@@ -60,6 +61,8 @@ export const createFakeAlertChannel = ({ shouldFail = false, noStreamStopReceive
   pushedOpinions: OpinionBoardSnapshot[]
   /** 押し出されたペロペロの呼び出し */
   pushedLicks: LickCall[]
+  /** 押し出された合成オーバーレイの構成 */
+  pushedOverlayLayouts: OverlayLayout[]
   /** WebSocketの接続として引き渡されたリクエスト */
   forwardedConnections: Request[]
   /** 接続をすべて閉じるよう頼まれたときに添えられた、新しいキーの目印（オーバーレイ用キーの再発行） */
@@ -81,6 +84,7 @@ export const createFakeAlertChannel = ({ shouldFail = false, noStreamStopReceive
   const evictedStreamStops: StreamStopOrder[] = []
   const evictedOpinions: OpinionBoardSnapshot[] = []
   const evictedLicks: LickCall[] = []
+  const evictedOverlayLayouts: OverlayLayout[] = []
   const handedOverConnections: Request[] = []
   const revokedTags: string[] = []
   const id: DurableObjectId = { toString: () => 'alerts', equals: (other) => other.toString() === 'alerts', name: 'alerts' }
@@ -102,6 +106,7 @@ export const createFakeAlertChannel = ({ shouldFail = false, noStreamStopReceive
     pushedStreamStops: evictedStreamStops,
     pushedOpinions: evictedOpinions,
     pushedLicks: evictedLicks,
+    pushedOverlayLayouts: evictedOverlayLayouts,
     forwardedConnections: handedOverConnections,
     revokedKeyTags: revokedTags,
     namespace: {
@@ -134,6 +139,7 @@ export const createFakeAlertChannel = ({ shouldFail = false, noStreamStopReceive
           else if (pathname === '/push/text') evictedTexts.push((await request.json()) as TextsSnapshot)
           else if (pathname === '/push/opinions') evictedOpinions.push((await request.json()) as OpinionBoardSnapshot)
           else if (pathname === '/push/lick') evictedLicks.push((await request.json()) as LickCall)
+          else if (pathname === '/push/overlay-layout') evictedOverlayLayouts.push((await request.json()) as OverlayLayout)
           else if (pathname === '/push/kanji-quiz') {
             const body = (await request.json()) as KanjiQuizCall | KanjiQuizNotice
             if ('type' in body) evictedKanjiQuizNotices.push(body)

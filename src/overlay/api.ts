@@ -14,17 +14,24 @@ import { ITEM_KINDS, type ItemKind, type Overlay, type OverlayItem } from './lay
 
 const PATH = '/api/overlay/layout'
 
+/** 管理画面で保存した・素材の表示を切り替えたあとの構成が押し出されてくる経路（WebSocket） */
+export const OVERLAY_LAYOUT_SOCKET_PATH = '/api/overlay/layout/socket'
+
+/** 一度もつながらないまま閉じたときに出す、いちばんありそうな原因 */
+export const OVERLAY_LAYOUT_SOCKET_HINT = '構成の配送先につながりません（素材の表示の切り替えが届きません）。URLのオーバーレイ用キーが正しいか確かめてください'
+
 /** 位置と大きさとして読めるか */
 const isRect = (value: unknown): boolean =>
   isRecord(value) && typeof value.x === 'number' && typeof value.y === 'number' && typeof value.width === 'number' && typeof value.height === 'number'
 
-/** 素材1件として読めるか。種類は描ける6つだけを通す */
+/** 素材1件として読めるか。種類は描けるものだけを通す。隠しているか（hidden）は無くてもよい */
 const isOverlayItem = (value: unknown): value is OverlayItem =>
   isRecord(value) &&
   (ITEM_KINDS as readonly string[]).includes(value.kind as ItemKind) &&
   typeof value.id === 'string' &&
   typeof value.params === 'string' &&
-  isRect(value.rect)
+  isRect(value.rect) &&
+  (value.hidden === undefined || typeof value.hidden === 'boolean')
 
 /** オーバーレイ1つとして読めるか（中の素材まで確かめる） */
 const isOverlay = (value: unknown): value is Overlay =>

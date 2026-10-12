@@ -15,9 +15,22 @@
  */
 import { createCaller } from '../core/api'
 import { readOverlays } from './api'
-import type { Overlay } from './layout'
+import type { ItemKind, Overlay } from './layout'
 
 const PATH = '/api/admin/overlay/layout'
+const VISIBILITY_PATH = '/api/admin/overlay/visibility'
+
+/** 素材1件の表示の切り替え。保存済みの構成での位置で指し、取り違えを防ぐために種類とデザインIDを添える */
+export interface ItemVisibility {
+  /** 保存済みの構成でのオーバーレイの名前 */
+  readonly overlay: string
+  /** 保存済みの構成での位置（0 が最も後ろ） */
+  readonly position: number
+  readonly kind: ItemKind
+  readonly id: string
+  /** 隠すなら true、表示するなら false */
+  readonly hidden: boolean
+}
 
 /** 管理画面からの読み書き */
 export interface OverlayLayoutAdminApi {
@@ -29,6 +42,12 @@ export interface OverlayLayoutAdminApi {
    * @returns 保存された構成（Workerが検証して返したもの）
    */
   save(overlays: readonly Overlay[]): Promise<Overlay[]>
+  /**
+   * 保存済みの構成のうち素材1件の表示を切り替える。保存ボタンを待たずにすぐ保存し、合成ページへ反映する。
+   *
+   * @returns 切り替えたあとの構成（Workerが保存したもの）
+   */
+  setVisibility(change: ItemVisibility): Promise<Overlay[]>
 }
 
 /**
@@ -50,6 +69,15 @@ export const createOverlayLayoutAdminApi = (fetchImpl: typeof fetch): OverlayLay
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ overlays }),
+        }),
+      ),
+
+    setVisibility: async (change) =>
+      readOverlays(
+        await call(VISIBILITY_PATH, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(change),
         }),
       ),
   }

@@ -18,6 +18,7 @@ import {
   savableOverlayDrafts,
   schemaFor,
   textOptionsFor,
+  savedVisibilityTarget,
   toOverlayDrafts,
   toOverlays,
 } from './form'
@@ -172,6 +173,45 @@ describe('toOverlayDrafts', () => {
 
     expect(overlay?.items[0]).toMatchObject({ kind: 'clock', id: 'sundial' })
     expect(overlay?.items[0]?.problem).toMatch(/sundial/)
+  })
+})
+
+describe('素材の表示・非表示', () => {
+  it('隠した素材は hidden を立てて読み替え、保存の形に戻すと hidden: true を持つ', () => {
+    const hiddenClock = { ...front.items[0]!, hidden: true as const }
+    const [overlay] = toOverlayDrafts([{ name: 'front', items: [hiddenClock] }])
+    if (!overlay) throw new Error('読み替えたオーバーレイがありません')
+
+    expect(overlay.items[0]?.hidden).toBe(true)
+    expect(toOverlays([overlay])).toEqual([{ name: 'front', items: [hiddenClock] }])
+  })
+
+  it('表示する素材は、保存の形に hidden を持たせない（保存の形を変えない）', () => {
+    const [overlay] = toOverlayDrafts([front])
+    if (!overlay) throw new Error('読み替えたオーバーレイがありません')
+
+    expect(overlay.items[0]?.hidden).toBe(false)
+    expect(toOverlays([overlay])[0]?.items[0]).not.toHaveProperty('hidden')
+  })
+
+  it('追加したばかりの素材は表示する素材にする', () => {
+    expect(newItemDraft('clock', 'analog').hidden).toBe(false)
+  })
+})
+
+describe('savedVisibilityTarget', () => {
+  it('保存済みの構成で、その素材がどのオーバーレイの何番目にあるかと、保存済みの種類・デザインIDを返す', () => {
+    const saved = toOverlayDrafts([{ name: 'back', items: [front.items[0]!] }, { name: 'front', items: [front.items[0]!, { ...front.items[0]!, id: 'digital' }] }])
+    const target = saved[1]?.items[1]
+    if (!target) throw new Error('読み替えた素材がありません')
+
+    expect(savedVisibilityTarget(saved, target.key)).toEqual({ overlay: 'front', position: 1, kind: 'clock', id: 'digital' })
+  })
+
+  it('保存済みの構成に無い素材（追加したばかり）は undefined', () => {
+    const saved = toOverlayDrafts([front])
+
+    expect(savedVisibilityTarget(saved, newItemDraft('clock', 'analog').key)).toBeUndefined()
   })
 })
 

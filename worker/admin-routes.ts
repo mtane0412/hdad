@@ -6,7 +6,7 @@
  * 合成オーバーレイの構成（どのオーバーレイにどの素材を置くか）の取得と保存、LLMの設定とその使用状況を受け持つ。
  */
 import { alertActionOf, loadAlertConfig, parseAlertConfig, saveAlertConfig } from './alert-config'
-import { revokeAlertSockets } from './alert-channel'
+import { pushOverlayLayout, revokeAlertSockets } from './alert-channel'
 import { revokeRelayViewers } from './draw-channel'
 import { HttpError, STATUS, requireAdmin, type Context } from './http'
 import { listMedia, uploadMedia } from './media'
@@ -17,7 +17,7 @@ import { kanjiQuizSoundUses, loadKanjiQuizSound } from './kanji-quiz-sound'
 import { lickSoundUses, loadLickSound } from './lick-sound'
 import { overlayKeyTag, rotateOverlayKey } from './overlay-key'
 import { revokeTabViewers } from './tab-channel'
-import { loadOverlayLayout, parseOverlayLayout, saveOverlayLayout } from './overlay-layout'
+import { loadOverlayLayout, parseItemVisibility, parseOverlayLayout, saveOverlayLayout, withItemVisibility, type OverlayLayout } from './overlay-layout'
 import { LLM_PROVIDERS, loadLlmSettings, parseLlmSettings, saveLlmSettings, type LlmProvider } from './llm-config'
 import { readOpenRouterCredits } from './llm-credits'
 import { listLlmModels } from './llm-models'
@@ -186,12 +186,13 @@ export const getOverlayLayout = async (context: Context): Promise<Response> => {
 }
 
 /**
- * PUT /api/admin/overlay/layout: 合成オーバーレイの構成を検証して保存する。
+ * PUT /api/admin/overlay/layout: 合成オーバーレイの構成を検証して保存し、合成ページへ構成を押し出す。
  *
  * 素材のパラメータはクエリ文字列のまま預かり、中身は検証しない（素材のスキーマは src/ にあり、
  * Worker からは読み込めない。worker/overlay-layout.ts）。
  *
  * @throws ConfigError 構成に問題がある場合（index.ts が問題点付きの400にする）
+ * @throws HttpError 合成ページへ送れなければ502（保存は済んでいる）
  */
 export const putOverlayLayout = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
@@ -200,6 +201,54 @@ export const putOverlayLayout = async (context: Context): Promise<Response> => {
   })
   const layout = parseOverlayLayout(body)
   await saveOverlayLayout(context.env.STORE, layout)
+  await pushSavedOverlayLayout(context, layout)
+  return Response.json(layout)
+}
+
+/**
+ * 保存した構成を合成ページへ押し出す。合成ページは自分のオーバーレイの中身が変わっていれば読み込み直すので、
+ * OBSのブラウザソースを手で読み込み直さなくても反映される。
+ *
+ * @throws HttpError 送れなければ502（保存は済んでいるので、そのことを添える）
+ */
+const pushSavedOverlayLayout = async (context: Context, layout: OverlayLayout): Promise<void> => {
+  try {
+    await pushOverlayLayout(context.env.ALERTS, layout)
+  } catch (error) {
+    throw new HttpError(
+      STATUS.badGateway,
+      'overlay-layout-push-failed',
+      `保存しましたが、合成ページへすぐには送れませんでした。OBSのブラウザソースを読み込み直すと反映されます（${error instanceof Error ? error.message : String(error)}）`,
+    )
+  }
+}
+
+/**
+ * PUT /api/admin/overlay/visibility: 保存済みの構成のうち素材1件の表示を切り替え、合成ページへ構成を押し出す。
+ *
+ * 配信中に押した瞬間に配信画面へ反映させるためのもので、管理画面の保存（構成を丸ごと送る）とは別にしてある
+ * （画面に未保存の編集が残っていても、それを巻き込まない）。合成ページは届いた構成で自分のオーバーレイの中身が
+ * 変わっていれば読み込み直す。
+ *
+ * @throws ConfigError 本文の形に問題がある場合
+ * @throws HttpError 指した素材が保存済みの構成と食い違えば409、合成ページへ送れなければ502（保存は済んでいる）
+ */
+export const putOverlayItemVisibility = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  const body: unknown = await context.request.json().catch(() => {
+    throw new HttpError(STATUS.badRequest, 'invalid-body', '本文はJSONにしてください')
+  })
+  const change = parseItemVisibility(body)
+  const layout = withItemVisibility(await loadOverlayLayout(context.env.STORE), change)
+  if (layout === undefined) {
+    throw new HttpError(
+      STATUS.conflict,
+      'overlay-item-mismatch',
+      `オーバーレイ「${change.overlay}」の素材が、保存されている構成と食い違っています（ほかの画面で構成が変わった可能性があります）。ページを読み込み直してください`,
+    )
+  }
+  await saveOverlayLayout(context.env.STORE, layout)
+  await pushSavedOverlayLayout(context, layout)
   return Response.json(layout)
 }
 

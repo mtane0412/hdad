@@ -33,6 +33,7 @@
  * | GET・PUT /api/admin/speech/mute  | セッション     | チャットの読み上げのミュートの取得・切り替え（切り替えたら読み上げのページへ押し出す） |
  * | GET・PUT /api/admin/screen       | セッション     | 配信画面の取り込みの設定の取得・保存 |
  * | GET・PUT /api/admin/overlay/layout | セッション   | 合成オーバーレイの構成（オーバーレイと素材）の取得・保存 |
+ * | PUT  /api/admin/overlay/visibility | セッション   | 素材1件の表示・非表示を切り替えて保存し、合成ページへ構成を押し出す |
  * | GET・PUT /api/admin/draw/strokes | セッション     | 手書きで描いたものの取得・保存 |
  * | GET  /api/admin/draw/background  | セッション     | 描く画面の背景に敷く、配信画面を撮った最新の1枚 |
  * | GET  /api/admin/caption/socket   | セッション     | アプリの枠の音声認識からのWebSocketの接続を受け、字幕の中継先へ引き渡す |
@@ -101,6 +102,7 @@
  * | GET  /api/overlay/screen         | オーバーレイ用キー | 配信画面の取り込みの設定を返す |
  * | POST /api/overlay/screen         | オーバーレイ用キー | 配信画面を撮った1枚を受け取り、Gyazo へ上げて記録する |
  * | GET  /api/overlay/layout         | オーバーレイ用キー | 合成オーバーレイの構成を返す（合成ページから） |
+ * | GET  /api/overlay/layout/socket  | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、構成の配送先へ引き渡す |
  * | GET  /api/overlay/focus          | オーバーレイ用キー | いま取り上げている注目コメントを返す |
  * | GET  /api/overlay/wipe/icon      | オーバーレイ用キー | ワイプに映す、発言した人のアイコンのURLをログイン名から引く |
  * | GET  /api/overlay/bgm            | オーバーレイ用キー | いま流しているBGMを返す（裏方のページから） |
@@ -153,6 +155,7 @@ import {
   postOverlayKey,
   putConfig,
   putLlm,
+  putOverlayItemVisibility,
   putOverlayLayout,
   putScreenSettings,
   putSpeech,
@@ -190,6 +193,7 @@ import {
   getScreen as getOverlayScreen,
   overlayCaptionSocket,
   overlayDrawSocket,
+  overlayLayoutSocket,
   overlayTabSocket,
   overlaySocket,
   postScreen,
@@ -317,6 +321,7 @@ const ROUTES: readonly Route[] = [
   { method: 'PUT', path: '/api/admin/speech/mute', handle: putSpeechMute },
   { method: 'GET', path: '/api/admin/overlay/layout', handle: getOverlayLayout },
   { method: 'PUT', path: '/api/admin/overlay/layout', handle: putOverlayLayout },
+  { method: 'PUT', path: '/api/admin/overlay/visibility', handle: putOverlayItemVisibility },
   { method: 'GET', path: '/api/admin/draw/socket', handle: drawSocket },
   { method: 'GET', path: '/api/admin/draw/strokes', handle: getDrawStrokes },
   { method: 'PUT', path: '/api/admin/draw/strokes', handle: putDrawStrokes },
@@ -403,6 +408,7 @@ const ROUTES: readonly Route[] = [
   { method: 'POST', path: '/api/overlay/bgm/duck', handle: postOverlayBgmDuck },
   { method: 'GET', path: '/api/overlay/bgm/duck/socket', handle: overlayBgmDuckSocket },
   { method: 'GET', path: '/api/overlay/layout', handle: getOverlayLayoutForPage },
+  { method: 'GET', path: '/api/overlay/layout/socket', handle: overlayLayoutSocket },
   { method: 'GET', path: '/api/overlay/town-tour', handle: getTownTour },
   { method: 'POST', path: '/api/overlay/town-tour/quiz', handle: postTownTourQuiz },
   { method: 'POST', path: '/api/overlay/town-tour/visit', handle: postTownTourVisit },

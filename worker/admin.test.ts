@@ -569,12 +569,12 @@ describe('POST /api/admin/overlay-key（キーの再発行）', () => {
     const issuedTag = await overlayKeyTag(issuedKey)
     const connect = (path: string) => invoke(new Request(`${origin}${path}?key=${issuedKey}&keyTag=forged`, { headers: { Upgrade: 'websocket' } }), env)
 
-    for (const path of ['/api/overlay/socket', '/api/overlay/bgm/socket', '/api/overlay/draw', '/api/overlay/caption', '/api/overlay/tab']) {
+    for (const path of ['/api/overlay/socket', '/api/overlay/bgm/socket', '/api/overlay/layout/socket', '/api/overlay/draw', '/api/overlay/caption', '/api/overlay/tab']) {
       expect((await connect(path)).status).toBe(200)
     }
 
     const tagsOf = (requests: Request[]) => requests.map((request) => new URL(request.url).searchParams.getAll('keyTag'))
-    expect(tagsOf(delivery.forwardedConnections)).toEqual([[issuedTag], [issuedTag]])
+    expect(tagsOf(delivery.forwardedConnections)).toEqual([[issuedTag], [issuedTag], [issuedTag]])
     expect(tagsOf(relay.forwardedConnections)).toEqual([[issuedTag], [issuedTag]])
     expect(tagsOf(tabRelay.forwardedConnections)).toEqual([[issuedTag]])
   })
@@ -1139,6 +1139,25 @@ describe('オーバーレイの構成（/api/admin/overlay/layout・/api/overlay
     expect(await (await stagePageReads(env)).json()).toEqual(broadcasterLayout)
   })
 
+  it('構成を保存すると、合成ページへ構成を押し出す（OBSのブラウザソースを読み込み直さなくても反映される）', async () => {
+    const { env, delivery } = createEnv()
+
+    expect((await save(env, broadcasterLayout)).status).toBe(200)
+
+    expect(delivery.pushedOverlayLayouts).toEqual([broadcasterLayout])
+  })
+
+  it('構成を保存したが合成ページへ送れなければ、保存は済んだことを添えて502を返す', async () => {
+    const { env } = createEnv()
+    const failingEnv = { ...env, ALERTS: createFakeAlertChannel({ shouldFail: true }).namespace }
+
+    const response = await save(failingEnv, broadcasterLayout)
+
+    expect(response.status).toBe(502)
+    expect(await errorCode(response)).toBe('overlay-layout-push-failed')
+    expect(await (await stagePageReads(env)).json()).toEqual(broadcasterLayout)
+  })
+
   it('まだ保存していなければ、オーバーレイが1つもない構成を返す', async () => {
     const { env } = createEnv()
 
@@ -1161,6 +1180,69 @@ describe('オーバーレイの構成（/api/admin/overlay/layout・/api/overlay
     expect(response.status).toBe(400)
     const body = (await response.json()) as { error: { problems: string[] } }
     expect(body.error.problems).toHaveLength(2)
+  })
+
+  /** 表示の切り替えを頼む（前面のオーバーレイの2番目＝アラートを指す） */
+  const setVisibility = async (env: Env, change: unknown) =>
+    invoke(
+      await broadcasterRequest(env, '/api/admin/overlay/visibility', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(change),
+      }),
+      env,
+    )
+  const hideAlerts = { overlay: 'front', position: 1, kind: 'alerts', id: '', hidden: true }
+
+  it('素材を隠すと、すぐに保存して合成ページへ構成を押し出す', async () => {
+    const { env, delivery } = createEnv()
+    await save(env, broadcasterLayout)
+
+    const response = await setVisibility(env, hideAlerts)
+
+    expect(response.status).toBe(200)
+    const front = broadcasterLayout.overlays[1]
+    const hiddenLayout = {
+      overlays: [broadcasterLayout.overlays[0], { name: 'front', items: [front?.items[0], { ...front?.items[1], hidden: true }] }],
+    }
+    expect(await response.json()).toEqual(hiddenLayout)
+    expect(await (await stagePageReads(env)).json()).toEqual(hiddenLayout)
+    // 1件目は前準備の保存で押し出したもの
+    expect(delivery.pushedOverlayLayouts).toEqual([broadcasterLayout, hiddenLayout])
+  })
+
+  it('セッションがなければ、表示の切り替えは401を返す', async () => {
+    const { env } = createEnv()
+
+    const response = await invoke(new Request(`${origin}/api/admin/overlay/visibility`, { method: 'PUT', body: JSON.stringify(hideAlerts) }), env)
+
+    expect(response.status).toBe(401)
+  })
+
+  it('指した素材が保存済みの構成と食い違えば409で拒み、書き換えない（ほかの窓で構成が変わった場合）', async () => {
+    const { env, delivery } = createEnv()
+    await save(env, broadcasterLayout)
+
+    const response = await setVisibility(env, { ...hideAlerts, kind: 'clock', id: 'analog' })
+
+    expect(response.status).toBe(409)
+    expect(await errorCode(response)).toBe('overlay-item-mismatch')
+    expect(await (await stagePageReads(env)).json()).toEqual(broadcasterLayout)
+    // 前準備の保存で押し出した1件だけで、切り替えでは押し出さない
+    expect(delivery.pushedOverlayLayouts).toEqual([broadcasterLayout])
+  })
+
+  it('合成ページへ送れなければ、保存は済んだことを添えて502を返す', async () => {
+    const { env } = createEnv()
+    await save(env, broadcasterLayout)
+    const failingEnv = { ...env, ALERTS: createFakeAlertChannel({ shouldFail: true }).namespace }
+
+    const response = await setVisibility(failingEnv, hideAlerts)
+
+    expect(response.status).toBe(502)
+    expect(await errorCode(response)).toBe('overlay-layout-push-failed')
+    const stored = (await (await stagePageReads(env)).json()) as { overlays: { items: { hidden?: boolean }[] }[] }
+    expect(stored.overlays[1]?.items[1]?.hidden).toBe(true)
   })
 
   it('合成ページのキーが違えば401を返す', async () => {

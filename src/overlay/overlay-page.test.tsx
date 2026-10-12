@@ -4,9 +4,10 @@
  *
  * 確かめること:
  * - 保存済みのオーバーレイと、その中の素材を前に出るものから出すこと（一覧の上が前）
- * - 素材を追加する・外す・並べ替える・別のオーバーレイへ移す・位置と大きさを直せること
+ * - 素材を追加する・外す・並べ替える（ボタンとドラッグ&ドロップ）・別のオーバーレイへ移す・位置と大きさを直せること
  * - 配置用の枠に素材を四角として描き、ドラッグで動かす・端をつまんで大きさを変えられること
  * - オーバーレイ同士を一覧の中で並べ替えられること
+ * - 目のアイコンで素材を隠す・表示すること（保存済みの素材はすぐ反映し、ほかの未保存の編集は巻き込まない）
  * - 素材のパラメータをスキーマの入力欄で調整でき、保存ではクエリ文字列になること
  * - オーバーレイを追加できること・オーバーレイごとのOBS用URLを出すこと
  * - 素材を1つも持たないオーバーレイは送らないこと
@@ -15,7 +16,7 @@
  * - テキストの素材は、映すテキストを名前の選択欄から選ばせること（IDを手で打たせない）。枠と、本文が収まらないときの扱いも選ばせること
  */
 import '@testing-library/jest-dom/vitest'
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { ApiError } from '../core/api'
@@ -42,6 +43,7 @@ const front: Overlay = { name: 'front', items: [clock] }
 const fakeApi = (overrides: Partial<OverlayLayoutAdminApi> = {}): OverlayLayoutAdminApi => ({
   load: vi.fn(async () => [back, front]),
   save: vi.fn(async (overlays: readonly Overlay[]) => [...overlays]),
+  setVisibility: vi.fn(async () => [back, front]),
   ...overrides,
 })
 
@@ -77,7 +79,104 @@ const save = async (): Promise<void> => {
   await userEvent.click(screen.getByRole('button', { name: '構成を保存する' }))
 }
 
+/**
+ * ドラッグ&ドロップで受け渡す中身の代役。jsdom はドラッグのイベントに dataTransfer を持たせないので、
+ * 画面が呼ぶ setData・setDragImage と effectAllowed だけを持たせる
+ */
+class FakeDataTransfer {
+  effectAllowed = 'all'
+  dropEffect = 'none'
+  setData(): void {}
+  setDragImage(): void {}
+}
+
 afterEach(cleanup)
+
+describe('素材の表示・非表示', () => {
+  test('目のアイコンで隠すと、保存ボタンを待たずに表示の切り替えを送る', async () => {
+    const api = fakeApi()
+    renderPage(api)
+
+    const region = await materialRegion('front', '時計（Analog）')
+    await userEvent.click(within(region).getByRole('button', { name: '時計（Analog）を隠す' }))
+
+    // 保存済みの構成で front の0番目にある時計を隠す
+    expect(api.setVisibility).toHaveBeenCalledWith({ overlay: 'front', position: 0, kind: 'clock', id: 'analog', hidden: true })
+    expect(await within(region).findByRole('button', { name: '時計（Analog）を表示する' })).toBeInTheDocument()
+    // すぐ反映したので、未保存の変更にはならない
+    expect(screen.queryByText(/未保存の変更があります/)).not.toBeInTheDocument()
+  })
+
+  test('保存しているあいだは、目のアイコンを押せない（保存と切り替えが行き違わないようにする）', async () => {
+    // 保存の応答をテストの側で返すまで止めておく
+    let finishSave: (overlays: Overlay[]) => void = () => {}
+    const api = fakeApi({ save: vi.fn(() => new Promise<Overlay[]>((resolve) => (finishSave = resolve))) })
+    renderPage(api)
+
+    const region = await materialRegion('front', '時計（Analog）')
+    await save()
+
+    expect(within(region).getByRole('button', { name: '時計（Analog）を隠す' })).toBeDisabled()
+    // 保存が終われば、また押せるようになる
+    finishSave([back, front])
+    await waitFor(async () =>
+      expect(within(await materialRegion('front', '時計（Analog）')).getByRole('button', { name: '時計（Analog）を隠す' })).toBeEnabled(),
+    )
+  })
+
+  test('隠した素材は、もう一度押すと表示へ戻す', async () => {
+    const api = fakeApi({ load: vi.fn(async () => [{ name: 'front', items: [{ ...clock, hidden: true as const }] }]) })
+    renderPage(api)
+
+    const region = await materialRegion('front', '時計（Analog）')
+    await userEvent.click(within(region).getByRole('button', { name: '時計（Analog）を表示する' }))
+
+    expect(api.setVisibility).toHaveBeenCalledWith({ overlay: 'front', position: 0, kind: 'clock', id: 'analog', hidden: false })
+  })
+
+  test('ほかに未保存の編集があっても、表示の切り替えはそれを巻き込まない（未保存のまま残る）', async () => {
+    const api = fakeApi({ load: vi.fn(async () => [{ name: 'front', items: [clock, wallpaper] }]) })
+    renderPage(api)
+
+    // 並べ替えて未保存の状態にしてから、時計を隠す
+    const region = await materialRegion('front', '時計（Analog）')
+    await userEvent.click(within(region).getByRole('button', { name: '時計（Analog）をひとつ前面へ' }))
+    await userEvent.click(within(await materialRegion('front', '時計（Analog）')).getByRole('button', { name: '時計（Analog）を隠す' }))
+
+    // 並べ替える前の（保存済みの）位置で指す
+    expect(api.setVisibility).toHaveBeenCalledWith({ overlay: 'front', position: 0, kind: 'clock', id: 'analog', hidden: true })
+    expect(screen.getByText(/未保存の変更があります/)).toBeInTheDocument()
+    await save()
+    expect(api.save).toHaveBeenCalledWith([{ name: 'front', items: [wallpaper, { ...clock, hidden: true }] }])
+  })
+
+  test('切り替えに失敗したら理由を出し、表示のままにする', async () => {
+    const api = fakeApi({ setVisibility: vi.fn(async () => Promise.reject(new Error('構成が食い違っています'))) })
+    renderPage(api)
+
+    const region = await materialRegion('front', '時計（Analog）')
+    await userEvent.click(within(region).getByRole('button', { name: '時計（Analog）を隠す' }))
+
+    expect(await screen.findByText(/構成が食い違っています/)).toBeInTheDocument()
+    expect(within(region).getByRole('button', { name: '時計（Analog）を隠す' })).toBeInTheDocument()
+  })
+
+  test('まだ保存していない素材は、隠しても送らず、保存したときに隠した状態で保存する', async () => {
+    const api = fakeApi()
+    renderPage(api)
+
+    const region = await overlayRegion('front')
+    await userEvent.selectOptions(within(region).getByLabelText('追加する素材の種類'), 'alerts')
+    await userEvent.click(within(region).getByRole('button', { name: '素材を追加する' }))
+    const added = await materialRegion('front', 'アラート')
+    await userEvent.click(within(added).getByRole('button', { name: 'アラートを隠す' }))
+
+    expect(api.setVisibility).not.toHaveBeenCalled()
+    await save()
+    const [[saved]] = vi.mocked(api.save).mock.calls as [[Overlay[]]]
+    expect(saved.find((overlay) => overlay.name === 'front')?.items.at(-1)).toMatchObject({ kind: 'alerts', hidden: true })
+  })
+})
 
 describe('オーバーレイと素材の一覧', () => {
   test('保存済みのオーバーレイを、その中の素材とともに出す', async () => {
@@ -267,6 +366,40 @@ describe('素材の編集', () => {
     await save()
 
     expect(api.save).toHaveBeenCalledWith([{ name: 'front', items: [wallpaper, clock] }])
+  })
+
+  test('素材の行をつまんで別の行へ落とすと、その行の位置へ移る', async () => {
+    // 構成では「あとのものが前」。一覧では上から 時計（Analog）・背景（Grid）・背景（Contour） の順に並ぶ
+    const grid: OverlayItem = { ...wallpaper, id: 'grid' }
+    const api = fakeApi({ load: vi.fn(async () => [{ name: 'front', items: [wallpaper, grid, clock] }]) })
+    renderPage(api)
+
+    // いちばん後ろの背景（Contour）をつまみ、いちばん前の時計（Analog）の行へ落とす
+    const dragged = await materialRegion('front', '背景（Contour）')
+    const target = await materialRegion('front', '時計（Analog）')
+    fireEvent.dragStart(within(dragged).getByRole('button', { name: '背景（Contour）をつまんで並べ替える' }), { dataTransfer: new FakeDataTransfer() })
+    fireEvent.dragOver(target, { dataTransfer: new FakeDataTransfer() })
+    fireEvent.drop(target)
+
+    // 一覧の上から 背景（Contour）・時計（Analog）・背景（Grid） になる
+    const material = within(await overlayRegion('front')).getAllByRole('group')
+    expect(material.map((element) => element.getAttribute('aria-label'))).toEqual(['背景（Contour）', '時計（Analog）', '背景（Grid）'])
+    await save()
+    expect(api.save).toHaveBeenCalledWith([{ name: 'front', items: [grid, clock, wallpaper] }])
+  })
+
+  test('別のオーバーレイの行へ落としても、並びは変わらない（オーバーレイをまたぐ移動は選択欄で行う）', async () => {
+    const api = fakeApi()
+    renderPage(api)
+
+    const dragged = await materialRegion('back', '背景（Contour）')
+    const target = await materialRegion('front', '時計（Analog）')
+    fireEvent.dragStart(within(dragged).getByRole('button', { name: '背景（Contour）をつまんで並べ替える' }), { dataTransfer: new FakeDataTransfer() })
+    fireEvent.dragOver(target, { dataTransfer: new FakeDataTransfer() })
+    fireEvent.drop(target)
+
+    await save()
+    expect(api.save).toHaveBeenCalledWith([back, front])
   })
 
   test('素材を別のオーバーレイへ移せる', async () => {
