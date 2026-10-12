@@ -4,7 +4,7 @@
  * 1フレームぶんの場面（scene.ts の kanjiQuizSceneAt）と出題を受け取り、次を描く。
  * - 級の場面: 画面の真ん中に「漢検○級」と、出題させた人
  * - 出題の場面: 上の帯に級と出題させた人と残り秒数、真ん中に熟語（倍率は場面が決め、ctx.scale で奥から近づける）。
- *   最後の数秒は残り秒数を熟語の下に大きく赤で出す。チャットの不正解の回答が届いていれば、最後の1件を上の帯の下に「直前の回答」として出す
+ *   最後の数秒は残り秒数を熟語の下に大きく赤で出す。チャットの不正解の回答が届いていれば、最後の1件を熟語のすぐ下（いまの倍率での下端の下）に「直前の回答」として出す
  * - 答えの場面: はじめは「時間切れ！」（正解者が届いていれば「○○さん 正解！」。issue #301）だけを真ん中に大きく出し、
  *   解説の場面（scene.explanation）になったら、見出しを小さくして画面の真ん中の横帯の上に載せる。
  *   横帯は左に熟語、右に正解の読みと解説を並べ、画面を覆いすぎないコンパクトな形にする
@@ -51,7 +51,7 @@ const SIZES = {
   bandGap: 32,
   stopBannerHeight: 150,
   stopBannerFont: 80,
-  /** 上の帯の下に出す、直前の回答の板 */
+  /** 熟語の下に出す、直前の回答の板 */
   wrongAnswerFont: 44,
   wrongAnswerHeight: 76,
   wrongAnswerGap: 16,
@@ -167,8 +167,12 @@ const drawWord = (ctx: CanvasRenderingContext2D, word: string, centerX: number, 
   ctx.restore()
 }
 
-/** 直前の回答（不正解）を、上の帯のすぐ下の真ん中に、文字の幅に合わせた板に載せて描く。長ければ箱の幅に収まるよう縮める */
-const drawWrongAnswer = (ctx: CanvasRenderingContext2D, width: number, unit: number, wrongAnswer: KanjiQuizWrongAnswer): void => {
+/**
+ * 直前の回答（不正解）を、熟語のすぐ下の真ん中に、文字の幅に合わせた板に載せて描く。長ければ箱の幅に収まるよう縮める
+ *
+ * @param top 板の上端（熟語のいまの下端に間を空けた位置。熟語が近づくにつれて下がる）
+ */
+const drawWrongAnswer = (ctx: CanvasRenderingContext2D, width: number, unit: number, top: number, wrongAnswer: KanjiQuizWrongAnswer): void => {
   const margin = SIZES.margin * unit
   const line = wrongAnswerLineOf(wrongAnswer)
   ctx.font = `bold ${SIZES.wrongAnswerFont * unit}px ${SANS_FAMILY}`
@@ -177,7 +181,6 @@ const drawWrongAnswer = (ctx: CanvasRenderingContext2D, width: number, unit: num
   const fontSize = SIZES.wrongAnswerFont * unit * fit
   const panelWidth = ctx.measureText(line).width * fit + padding * 2
   const panelHeight = SIZES.wrongAnswerHeight * unit
-  const top = margin + (SIZES.bandHeight + SIZES.wrongAnswerGap) * unit
   fillPanel(ctx, (width - panelWidth) / 2, top, panelWidth, panelHeight, SIZES.panelRadius * unit)
   centerText(ctx, line, width / 2, top + panelHeight / 2, `bold ${fontSize}px ${SANS_FAMILY}`, COLORS.sub)
 }
@@ -193,9 +196,13 @@ const drawQuestion = (
 ): void => {
   // 大きなカウントダウンを出しているあいだは、帯の残り秒数を重ねて出さない
   drawBand(ctx, width, unit, call, scene.countdown ? null : scene.remainingSeconds)
-  if (wrongAnswer !== null) drawWrongAnswer(ctx, width, unit, wrongAnswer)
   const wordY = scene.countdown ? height * COUNTDOWN_WORD_Y_RATIO : height / 2
   drawWord(ctx, call.problem.word, width / 2, wordY, SIZES.wordFont * unit, scene.wordScale)
+  if (wrongAnswer !== null) {
+    // 熟語は真ん中を中心に倍率を掛けて描くので、いまの下端は文字の大きさの半分に倍率を掛けたところ
+    const wordBottom = wordY + (SIZES.wordFont * unit * scene.wordScale) / 2
+    drawWrongAnswer(ctx, width, unit, wordBottom + SIZES.wrongAnswerGap * unit, wrongAnswer)
+  }
   if (scene.countdown) {
     const font = `bold ${SIZES.countdownFont * unit}px ${SANS_FAMILY}`
     const countdownY = height * COUNTDOWN_Y_RATIO
