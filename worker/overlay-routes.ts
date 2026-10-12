@@ -276,7 +276,7 @@ export const getLayout = async (context: Context): Promise<Response> => {
 /**
  * GET /api/overlay/layout/socket?key=: 合成ページからのWebSocketの接続を、構成を受け取る接続として配送先へ引き渡す。
  *
- * 管理画面で素材の表示を切り替えると、切り替えたあとの構成がここへ流れてくる（admin-routes.ts の putOverlayItemVisibility）。
+ * 管理画面で構成を保存する・素材の表示を切り替えると、そのあとの構成がここへ流れてくる（admin-routes.ts の putOverlayLayout・putOverlayItemVisibility）。
  */
 export const overlayLayoutSocket = async (context: Context): Promise<Response> => {
   const key = await requireOverlayKey(context)

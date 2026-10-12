@@ -17,7 +17,7 @@ import { kanjiQuizSoundUses, loadKanjiQuizSound } from './kanji-quiz-sound'
 import { lickSoundUses, loadLickSound } from './lick-sound'
 import { overlayKeyTag, rotateOverlayKey } from './overlay-key'
 import { revokeTabViewers } from './tab-channel'
-import { loadOverlayLayout, parseItemVisibility, parseOverlayLayout, saveOverlayLayout, withItemVisibility } from './overlay-layout'
+import { loadOverlayLayout, parseItemVisibility, parseOverlayLayout, saveOverlayLayout, withItemVisibility, type OverlayLayout } from './overlay-layout'
 import { LLM_PROVIDERS, loadLlmSettings, parseLlmSettings, saveLlmSettings, type LlmProvider } from './llm-config'
 import { readOpenRouterCredits } from './llm-credits'
 import { listLlmModels } from './llm-models'
@@ -186,12 +186,13 @@ export const getOverlayLayout = async (context: Context): Promise<Response> => {
 }
 
 /**
- * PUT /api/admin/overlay/layout: 合成オーバーレイの構成を検証して保存する。
+ * PUT /api/admin/overlay/layout: 合成オーバーレイの構成を検証して保存し、合成ページへ構成を押し出す。
  *
  * 素材のパラメータはクエリ文字列のまま預かり、中身は検証しない（素材のスキーマは src/ にあり、
  * Worker からは読み込めない。worker/overlay-layout.ts）。
  *
  * @throws ConfigError 構成に問題がある場合（index.ts が問題点付きの400にする）
+ * @throws HttpError 合成ページへ送れなければ502（保存は済んでいる）
  */
 export const putOverlayLayout = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
@@ -200,7 +201,26 @@ export const putOverlayLayout = async (context: Context): Promise<Response> => {
   })
   const layout = parseOverlayLayout(body)
   await saveOverlayLayout(context.env.STORE, layout)
+  await pushSavedOverlayLayout(context, layout)
   return Response.json(layout)
+}
+
+/**
+ * 保存した構成を合成ページへ押し出す。合成ページは自分のオーバーレイの中身が変わっていれば読み込み直すので、
+ * OBSのブラウザソースを手で読み込み直さなくても反映される。
+ *
+ * @throws HttpError 送れなければ502（保存は済んでいるので、そのことを添える）
+ */
+const pushSavedOverlayLayout = async (context: Context, layout: OverlayLayout): Promise<void> => {
+  try {
+    await pushOverlayLayout(context.env.ALERTS, layout)
+  } catch (error) {
+    throw new HttpError(
+      STATUS.badGateway,
+      'overlay-layout-push-failed',
+      `保存しましたが、合成ページへすぐには送れませんでした。OBSのブラウザソースを読み込み直すと反映されます（${error instanceof Error ? error.message : String(error)}）`,
+    )
+  }
 }
 
 /**
@@ -228,15 +248,7 @@ export const putOverlayItemVisibility = async (context: Context): Promise<Respon
     )
   }
   await saveOverlayLayout(context.env.STORE, layout)
-  try {
-    await pushOverlayLayout(context.env.ALERTS, layout)
-  } catch (error) {
-    throw new HttpError(
-      STATUS.badGateway,
-      'overlay-layout-push-failed',
-      `保存しましたが、合成ページへすぐには送れませんでした。OBSのブラウザソースを読み込み直すと反映されます（${error instanceof Error ? error.message : String(error)}）`,
-    )
-  }
+  await pushSavedOverlayLayout(context, layout)
   return Response.json(layout)
 }
 

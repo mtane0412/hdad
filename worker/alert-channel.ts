@@ -60,7 +60,7 @@
  * 合成ページの素材「ペロペロ」へ、舐め方の種と舐める相手の名前・アイコンを配るのもこの Durable Object である（issue #338）。
  * 同じ理由で、14個目の目印（lick）を付けた接続へだけ配る。
  *
- * 合成ページへ、素材の表示を切り替えたあとの構成（丸ごと）を配るのもこの Durable Object である。
+ * 合成ページへ、管理画面で保存した・素材の表示を切り替えたあとの構成（丸ごと）を配るのもこの Durable Object である。
  * 同じ理由で、15個目の目印（overlayLayout）を付けた接続へだけ配る。
  *
  * 注意: WebSocketの接続（Upgrade）は Cloudflare のランタイムでしか作れないので、テストでは配送の部分だけを確かめる。
@@ -596,7 +596,7 @@ export const pushTwister = (namespace: AlertChannelNamespace, call: TwisterCall)
 export const pushLick = (namespace: AlertChannelNamespace, call: LickCall): Promise<void> => pushJson(namespace, PUSH_LICK_PATH, call, 'ペロペロ')
 
 /**
- * 合成オーバーレイの構成（丸ごと）を Durable Object へ押し出す。管理画面で素材の表示を切り替えたときに呼ぶ。
+ * 合成オーバーレイの構成（丸ごと）を Durable Object へ押し出す。管理画面で構成を保存したとき・素材の表示を切り替えたときに呼ぶ。
  *
  * 合成ページを開いていなければ配る先が無いだけで、失敗ではない（配送先は204を返す）。
  *

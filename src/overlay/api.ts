@@ -14,7 +14,7 @@ import { ITEM_KINDS, type ItemKind, type Overlay, type OverlayItem } from './lay
 
 const PATH = '/api/overlay/layout'
 
-/** 素材の表示を切り替えたあとの構成が押し出されてくる経路（WebSocket） */
+/** 管理画面で保存した・素材の表示を切り替えたあとの構成が押し出されてくる経路（WebSocket） */
 export const OVERLAY_LAYOUT_SOCKET_PATH = '/api/overlay/layout/socket'
 
 /** 一度もつながらないまま閉じたときに出す、いちばんありそうな原因 */
