@@ -320,6 +320,8 @@ interface ItemRowProps {
   onRemove(): void
   /** 隠す・表示するを切り替える（保存済みの素材はすぐ配信画面へ反映する） */
   onToggleHidden(): void
+  /** 保存・表示の切り替えが進んでいるか。そのあいだは目のアイコンを押せなくする（送る構成が行き違わないようにする） */
+  busy: boolean
   /** テキストの素材で選べるテキスト */
   textChoices: TextChoices
   /** 一覧の中でのドラッグ&ドロップによる並べ替え（つまみ・落とし先としての受け持ち） */
@@ -388,6 +390,7 @@ const ItemRow = ({
   onMoveToOverlay,
   onRemove,
   onToggleHidden,
+  busy,
   textChoices,
   reorder,
 }: ItemRowProps) => {
@@ -456,6 +459,7 @@ const ItemRow = ({
           size="icon"
           {...iconButtonName(draft.hidden ? `${label}を表示する` : `${label}を隠す`)}
           className={draft.hidden ? 'text-muted-foreground' : ''}
+          disabled={busy}
           onClick={onToggleHidden}
         >
           {draft.hidden ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
@@ -576,6 +580,8 @@ interface OverlayCardProps {
   onMoveItemToOverlay(item: ItemDraft, to: string): void
   onAskRemoveItem(item: ItemDraft): void
   onToggleItemHidden(item: ItemDraft): void
+  /** 保存・表示の切り替えが進んでいるか（目のアイコンを押せなくする） */
+  busy: boolean
   onAskRemove(): void
   onCopyUrl(url: string): void
   /** 一覧の中でこのオーバーレイを動かせるか（端のオーバーレイでは押せなくする） */
@@ -599,6 +605,7 @@ const OverlayCard = ({
   onMoveItemToOverlay,
   onAskRemoveItem,
   onToggleItemHidden,
+  busy,
   onAskRemove,
   onCopyUrl,
   canMoveUp,
@@ -740,6 +747,7 @@ const OverlayCard = ({
                 onMoveToOverlay={(to) => onMoveItemToOverlay(item, to)}
                 onRemove={() => onAskRemoveItem(item)}
                 onToggleHidden={() => onToggleItemHidden(item)}
+                busy={busy}
                 textChoices={textChoices}
                 reorder={reorderFor(item, position)}
               />
@@ -986,6 +994,7 @@ export const OverlayPage = ({ api, overlayKey, textApi }: { api: OverlayLayoutAd
               })
             }
             onToggleItemHidden={toggleItemHidden}
+            busy={actions.busy}
             onAskRemove={() =>
               actions.ask({
                 title: `オーバーレイ「${draft.name}」を外しますか？`,

@@ -16,7 +16,7 @@
  * - テキストの素材は、映すテキストを名前の選択欄から選ばせること（IDを手で打たせない）。枠と、本文が収まらないときの扱いも選ばせること
  */
 import '@testing-library/jest-dom/vitest'
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { ApiError } from '../core/api'
@@ -105,6 +105,23 @@ describe('素材の表示・非表示', () => {
     expect(await within(region).findByRole('button', { name: '時計（Analog）を表示する' })).toBeInTheDocument()
     // すぐ反映したので、未保存の変更にはならない
     expect(screen.queryByText(/未保存の変更があります/)).not.toBeInTheDocument()
+  })
+
+  test('保存しているあいだは、目のアイコンを押せない（保存と切り替えが行き違わないようにする）', async () => {
+    // 保存の応答をテストの側で返すまで止めておく
+    let finishSave: (overlays: Overlay[]) => void = () => {}
+    const api = fakeApi({ save: vi.fn(() => new Promise<Overlay[]>((resolve) => (finishSave = resolve))) })
+    renderPage(api)
+
+    const region = await materialRegion('front', '時計（Analog）')
+    await save()
+
+    expect(within(region).getByRole('button', { name: '時計（Analog）を隠す' })).toBeDisabled()
+    // 保存が終われば、また押せるようになる
+    finishSave([back, front])
+    await waitFor(async () =>
+      expect(within(await materialRegion('front', '時計（Analog）')).getByRole('button', { name: '時計（Analog）を隠す' })).toBeEnabled(),
+    )
   })
 
   test('隠した素材は、もう一度押すと表示へ戻す', async () => {
