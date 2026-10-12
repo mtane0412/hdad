@@ -12,7 +12,7 @@ import type { KanjiQuizSound } from './sound'
 
 /** プレビューの音の設定。どの枠も鳴らさない */
 const SILENT_SOUND: KanjiQuizSound = {
-  slots: { bgm: null, start: null, countdown: null, correct: null, timeUp: null, explanation: null },
+  slots: { bgm: null, start: null, wrongAnswer: null, countdown: null, correct: null, timeUp: null, explanation: null },
   bgmVolume: 0,
   effectVolume: 0,
 }

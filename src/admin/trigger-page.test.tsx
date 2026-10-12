@@ -56,7 +56,7 @@ const fakeApi = (overrides: Partial<AdminApi> = {}): AdminApi => ({
   saveLickSound: vi.fn(async (sound) => sound),
   playKanjiQuizDemo: vi.fn(async () => '漢検6級「境内」'),
   kanjiQuizSound: vi.fn(async () => ({
-    slots: { bgm: null, start: null, countdown: null, correct: null, timeUp: null, explanation: null },
+    slots: { bgm: null, start: null, wrongAnswer: null, countdown: null, correct: null, timeUp: null, explanation: null },
     bgmVolume: 0.3,
     effectVolume: 0.6,
   })),

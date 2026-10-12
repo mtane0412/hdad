@@ -365,7 +365,7 @@ describe('rotateOverlayKey・playTownTourDemo・townTourSound・rewards・logout
   })
 
   it('漢字クイズの音の設定を読み、枠ごとの素材のIDと音量を返す', async () => {
-    const sound = { slots: { bgm: 'media-thinking', start: null, countdown: null, correct: 'media-pinpon', timeUp: null, explanation: null }, bgmVolume: 0.3, effectVolume: 0.6 }
+    const sound = { slots: { bgm: 'media-thinking', start: null, wrongAnswer: null, countdown: null, correct: 'media-pinpon', timeUp: null, explanation: null }, bgmVolume: 0.3, effectVolume: 0.6 }
     const { requests, fetchImpl } = fetchReturning(200, sound)
 
     expect(await createAdminApi(fetchImpl).kanjiQuizSound()).toEqual(sound)
@@ -373,7 +373,7 @@ describe('rotateOverlayKey・playTownTourDemo・townTourSound・rewards・logout
   })
 
   it('漢字クイズの音の設定を PUT で保存し、Workerが保存したものを返す', async () => {
-    const sound = { slots: { bgm: null, start: null, countdown: 'media-tick', correct: null, timeUp: null, explanation: null }, bgmVolume: 0.3, effectVolume: 0.8 }
+    const sound = { slots: { bgm: null, start: null, wrongAnswer: null, countdown: 'media-tick', correct: null, timeUp: null, explanation: null }, bgmVolume: 0.3, effectVolume: 0.8 }
     const { requests, fetchImpl } = fetchReturning(200, sound)
 
     expect(await createAdminApi(fetchImpl).saveKanjiQuizSound(sound)).toEqual(sound)

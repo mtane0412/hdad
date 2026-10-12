@@ -12,6 +12,7 @@ const bgmAndCorrect = {
   slots: {
     bgm: '/api/media/media-thinking?key=overlay-key',
     start: null,
+    wrongAnswer: null,
     countdown: null,
     correct: '/api/media/media-pinpon?key=overlay-key',
     timeUp: null,
@@ -23,7 +24,7 @@ const bgmAndCorrect = {
 
 describe('KANJI_QUIZ_SOUND_SLOTS', () => {
   it('枠は演出で鳴る順に並んでいる（管理画面の並びにも使う）', () => {
-    expect(KANJI_QUIZ_SOUND_SLOTS).toEqual(['bgm', 'start', 'countdown', 'correct', 'timeUp', 'explanation'])
+    expect(KANJI_QUIZ_SOUND_SLOTS).toEqual(['bgm', 'start', 'wrongAnswer', 'countdown', 'correct', 'timeUp', 'explanation'])
   })
 })
 
@@ -34,9 +35,15 @@ describe('readKanjiQuizPlaybackSound', () => {
 
   it('枠が欠けていれば、鳴らさない枠として補わずに投げる', () => {
     // 解説（explanation）の枠を書き忘れた設定
-    const { bgm, start, countdown, correct, timeUp } = bgmAndCorrect.slots
+    const { bgm, start, wrongAnswer, countdown, correct, timeUp } = bgmAndCorrect.slots
 
-    expect(() => readKanjiQuizPlaybackSound({ ...bgmAndCorrect, slots: { bgm, start, countdown, correct, timeUp } })).toThrow('explanation')
+    expect(() => readKanjiQuizPlaybackSound({ ...bgmAndCorrect, slots: { bgm, start, wrongAnswer, countdown, correct, timeUp } })).toThrow('explanation')
+  })
+
+  it('直前の回答（wrongAnswer）の枠が欠けていても、鳴らさない枠として補わずに投げる', () => {
+    const { bgm, start, countdown, correct, timeUp, explanation } = bgmAndCorrect.slots
+
+    expect(() => readKanjiQuizPlaybackSound({ ...bgmAndCorrect, slots: { bgm, start, countdown, correct, timeUp, explanation } })).toThrow('wrongAnswer')
   })
 
   it('音量が数でなければ投げる', () => {

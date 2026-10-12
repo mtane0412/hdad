@@ -1,7 +1,8 @@
 /**
  * 漢字クイズの画面に出す文言
  *
- * 級の見出し（「漢検○級」）・出題させた人（「○○さんからの出題」）・正解の読みの並べ方・最初の正解者（「○○さん 正解！」）と、
+ * 級の見出し（「漢検○級」）・出題させた人（「○○さんからの出題」）・正解の読みの並べ方・最初の正解者（「○○さん 正解！」）・
+ * 不正解の回答（「直前の回答：○○（○○さん）」）と、
  * 時間切れで配信を止めるまでの帯の文言（issue #302）を決める。
  * 描くのは view.ts で、ここは文言だけを受け持つ（テストできるよう canvas を持ち込まない）。
  */
@@ -22,6 +23,10 @@ export const answerLineOf = (readings: readonly string[]): string => readings.jo
 
 /** 最初の正解者の一文（issue #301） */
 export const winnerLineOf = (userName: string): string => `${userName}さん 正解！`
+
+/** 合成ページが出す不正解の回答（直前の回答）の一文。答えた人の名前を添える */
+export const wrongAnswerLineOf = ({ userName, answer }: { readonly userName: string; readonly answer: string }): string =>
+  `直前の回答：${answer}（${userName}さん）`
 
 /** 配信を止める時刻の帯の文言（issue #302）。本番は予告せずに止めるので、出すのは試し再生で止めないことだけ */
 export const stopBannerLineOf = (banner: KanjiQuizStopBanner): string => {

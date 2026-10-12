@@ -36,6 +36,7 @@ export type KanjiQuizApi = Pick<AdminApi, 'kanjiQuizSound' | 'saveKanjiQuizSound
 const SLOT_LABELS: Readonly<Record<KanjiQuizSoundSlot, string>> = {
   bgm: 'BGM（級が出てから、正解か時間切れまで流す）',
   start: '出題（級が出たとき）',
+  wrongAnswer: '直前の回答（不正解の回答が届くたび）',
   countdown: 'カウントダウン（最後の5秒、1秒ごと）',
   correct: '正解（正解者が出たとき）',
   timeUp: '時間切れ',

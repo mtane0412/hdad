@@ -28,7 +28,7 @@ const sixOnly = singleGradeWeights('6')
 
 /** BGM だけを選んだ音の設定（呼び出し側が音声のURLに置き換えたもの） */
 const sound = {
-  slots: { bgm: '/api/media/media-thinking?key=overlay-key', start: null, countdown: null, correct: null, timeUp: null, explanation: null },
+  slots: { bgm: '/api/media/media-thinking?key=overlay-key', start: null, wrongAnswer: null, countdown: null, correct: null, timeUp: null, explanation: null },
   bgmVolume: 0.3,
   effectVolume: 0.6,
 }

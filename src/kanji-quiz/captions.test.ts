@@ -4,7 +4,7 @@
  * 級の見出し・出題させた人・正解の読みの並べ方を決める。描くのは view.ts で、ここは文言だけを受け持つ。
  */
 import { describe, expect, it } from 'vitest'
-import { answerLineOf, gradeHeadlineOf, requesterLineOf, stopBannerLineOf, winnerLineOf } from './captions'
+import { answerLineOf, gradeHeadlineOf, requesterLineOf, stopBannerLineOf, winnerLineOf, wrongAnswerLineOf } from './captions'
 
 describe('gradeHeadlineOf', () => {
   it('「漢検○級」の形にする（準のつく級も同じ）', () => {
@@ -42,5 +42,11 @@ describe('winnerLineOf', () => {
 describe('stopBannerLineOf', () => {
   it('試し再生で猶予が尽きたら、止めないことを出す', () => {
     expect(stopBannerLineOf({ kind: 'rehearsal' })).toBe('試し再生なので配信は止めません')
+  })
+})
+
+describe('wrongAnswerLineOf', () => {
+  it('不正解の回答を、答えた人の名前と一緒に「直前の回答」として1行にする', () => {
+    expect(wrongAnswerLineOf({ userName: '田中太郎', answer: 'いちじょう' })).toBe('直前の回答：いちじょう（田中太郎さん）')
   })
 })

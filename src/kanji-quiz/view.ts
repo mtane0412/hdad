@@ -4,7 +4,7 @@
  * 1フレームぶんの場面（scene.ts の kanjiQuizSceneAt）と出題を受け取り、次を描く。
  * - 級の場面: 画面の真ん中に「漢検○級」と、出題させた人
  * - 出題の場面: 上の帯に級と出題させた人と残り秒数、真ん中に熟語（倍率は場面が決め、ctx.scale で奥から近づける）。
- *   最後の数秒は残り秒数を熟語の下に大きく赤で出す
+ *   最後の数秒は残り秒数を熟語の下に大きく赤で出す。チャットの不正解の回答が届いていれば、最後の1件を上の帯の下に「直前の回答」として出す
  * - 答えの場面: はじめは「時間切れ！」（正解者が届いていれば「○○さん 正解！」。issue #301）だけを真ん中に大きく出し、
  *   解説の場面（scene.explanation）になったら、見出しを小さくして画面の真ん中の横帯の上に載せる。
  *   横帯は左に熟語、右に正解の読みと解説を並べ、画面を覆いすぎないコンパクトな形にする
@@ -14,7 +14,7 @@
  * テストを持たない（canvas に描くだけのため）。
  */
 import { wrapText } from '../town-tour/wrap'
-import { answerLineOf, gradeHeadlineOf, requesterLineOf, stopBannerLineOf, winnerLineOf } from './captions'
+import { answerLineOf, gradeHeadlineOf, requesterLineOf, stopBannerLineOf, winnerLineOf, wrongAnswerLineOf } from './captions'
 import type { KanjiQuizCall } from './call'
 import type { KanjiQuizScene, KanjiQuizStopBanner } from './scene'
 
@@ -51,6 +51,10 @@ const SIZES = {
   bandGap: 32,
   stopBannerHeight: 150,
   stopBannerFont: 80,
+  /** 上の帯の下に出す、直前の回答の板 */
+  wrongAnswerFont: 44,
+  wrongAnswerHeight: 76,
+  wrongAnswerGap: 16,
 } as const
 
 /** 熟語・カウントダウンの縁取りの太さ（文字の大きさに対する割合） */
@@ -163,6 +167,21 @@ const drawWord = (ctx: CanvasRenderingContext2D, word: string, centerX: number, 
   ctx.restore()
 }
 
+/** 直前の回答（不正解）を、上の帯のすぐ下の真ん中に、文字の幅に合わせた板に載せて描く。長ければ箱の幅に収まるよう縮める */
+const drawWrongAnswer = (ctx: CanvasRenderingContext2D, width: number, unit: number, wrongAnswer: KanjiQuizWrongAnswer): void => {
+  const margin = SIZES.margin * unit
+  const line = wrongAnswerLineOf(wrongAnswer)
+  ctx.font = `bold ${SIZES.wrongAnswerFont * unit}px ${SANS_FAMILY}`
+  const padding = SIZES.panelPadding * unit
+  const fit = Math.min(1, (width - margin * 2 - padding * 2) / ctx.measureText(line).width)
+  const fontSize = SIZES.wrongAnswerFont * unit * fit
+  const panelWidth = ctx.measureText(line).width * fit + padding * 2
+  const panelHeight = SIZES.wrongAnswerHeight * unit
+  const top = margin + (SIZES.bandHeight + SIZES.wrongAnswerGap) * unit
+  fillPanel(ctx, (width - panelWidth) / 2, top, panelWidth, panelHeight, SIZES.panelRadius * unit)
+  centerText(ctx, line, width / 2, top + panelHeight / 2, `bold ${fontSize}px ${SANS_FAMILY}`, COLORS.sub)
+}
+
 const drawQuestion = (
   ctx: CanvasRenderingContext2D,
   width: number,
@@ -170,9 +189,11 @@ const drawQuestion = (
   unit: number,
   call: KanjiQuizCall,
   scene: Extract<KanjiQuizScene, { kind: 'question' }>,
+  wrongAnswer: KanjiQuizWrongAnswer | null,
 ): void => {
   // 大きなカウントダウンを出しているあいだは、帯の残り秒数を重ねて出さない
   drawBand(ctx, width, unit, call, scene.countdown ? null : scene.remainingSeconds)
+  if (wrongAnswer !== null) drawWrongAnswer(ctx, width, unit, wrongAnswer)
   const wordY = scene.countdown ? height * COUNTDOWN_WORD_Y_RATIO : height / 2
   drawWord(ctx, call.problem.word, width / 2, wordY, SIZES.wordFont * unit, scene.wordScale)
   if (scene.countdown) {
@@ -288,24 +309,37 @@ const drawStopBanner = (ctx: CanvasRenderingContext2D, width: number, height: nu
   centerText(ctx, stopBannerLineOf(banner), width / 2, top + bannerHeight / 2, `bold ${SIZES.stopBannerFont * unit}px ${SANS_FAMILY}`, COLORS.text)
 }
 
+/** 直前の回答（チャットの不正解の回答）。答えた人の表示名と、書かれたままの回答 */
+export interface KanjiQuizWrongAnswer {
+  readonly userName: string
+  readonly answer: string
+}
+
 /**
  * 1フレームぶんを描く。流していなければ（playing が null）何も描かない。
  *
  * @param width 箱のCSS上の幅
  * @param height 箱のCSS上の高さ
- * @param playing 流している出題と場面と、最初の正解者の名前（届いていなければ null）と、配信を止めるまでの帯（出さなければ null）
+ * @param playing 流している出題と場面と、最初の正解者の名前（届いていなければ null）と、配信を止めるまでの帯（出さなければ null）と、
+ *   直前の回答（届いていなければ null。出題の場面でだけ出す）
  */
 export const drawKanjiQuiz = (
   ctx: CanvasRenderingContext2D,
   width: number,
   height: number,
-  playing: { call: KanjiQuizCall; scene: KanjiQuizScene; winnerName: string | null; stopBanner: KanjiQuizStopBanner | null } | null,
+  playing: {
+    call: KanjiQuizCall
+    scene: KanjiQuizScene
+    winnerName: string | null
+    stopBanner: KanjiQuizStopBanner | null
+    wrongAnswer: KanjiQuizWrongAnswer | null
+  } | null,
 ): void => {
   ctx.clearRect(0, 0, width, height)
   if (playing === null) return
   const unit = Math.min(width / BASE_WIDTH, height / BASE_HEIGHT)
-  const { call, scene, winnerName, stopBanner } = playing
-  drawScene(ctx, width, height, unit, call, scene, winnerName)
+  const { call, scene, winnerName, stopBanner, wrongAnswer } = playing
+  drawScene(ctx, width, height, unit, call, scene, winnerName, wrongAnswer)
   if (stopBanner !== null) drawStopBanner(ctx, width, height, unit, stopBanner)
 }
 
@@ -317,13 +351,14 @@ const drawScene = (
   call: KanjiQuizCall,
   scene: KanjiQuizScene,
   winnerName: string | null,
+  wrongAnswer: KanjiQuizWrongAnswer | null,
 ): void => {
   switch (scene.kind) {
     case 'grade':
       drawGrade(ctx, width, height, unit, call, scene.progress)
       return
     case 'question':
-      drawQuestion(ctx, width, height, unit, call, scene)
+      drawQuestion(ctx, width, height, unit, call, scene, wrongAnswer)
       return
     case 'reveal':
       drawReveal(ctx, width, height, unit, call, scene, winnerName)

@@ -35,10 +35,11 @@ describe('kanjiQuizSceneAt', () => {
     expect(ANSWER_LIMIT_MS).toBe(15_000)
   })
 
-  it('熟語は小さく出て、制限時間のあいだ止まらずに近づきつづける', () => {
+  it('熟語は等倍の5分の1の大きさで出て、制限時間のあいだ止まらずに近づきつづける', () => {
+    // 出たばかりの熟語が小さすぎて読めない、ということがないよう、等倍の0.2倍から近づけはじめる
     const appeared = kanjiQuizSceneAt(afterWord(0), null)
     if (appeared.kind !== 'question') throw new Error('出題の場面ではありません')
-    expect(appeared.wordScale).toBeLessThan(0.1)
+    expect(appeared.wordScale).toBeCloseTo(0.2)
 
     // 1秒ごとに見て、どの1秒でも前より大きくなっている（途中で止まらない）
     let previous = appeared.wordScale

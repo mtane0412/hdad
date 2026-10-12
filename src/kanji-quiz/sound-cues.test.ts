@@ -4,6 +4,7 @@
  * 1回の出題で、どの枠の音をいつ鳴らすかが、場面の進み方（scene.ts の定数）とずれないことを確かめる。
  * - BGM と「出題」は流しはじめに鳴らし、BGM は正解者が届いた時刻か時間切れの時刻で下げて止める
  * - カウントダウンは大きな数字が切り替わるたびに鳴らし、正解者が届いたらその先は鳴らさない
+ * - 不正解の回答（直前の回答）が届くたびに「直前の回答」を鳴らす
  * - 正解者が届いたら「正解」、届かなければ時間切れの時刻に「時間切れ」を鳴らし、結果を見せたあと解説の帯を出すときに「解説」を鳴らす
  * - 確かめるタイマーが遅れても、過ぎた効果音をまとめて鳴らさない
  */
@@ -12,11 +13,12 @@ import { ANSWER_LIMIT_MS, GRADE_INTRO_MS, REVEAL_RESULT_MS } from './scene'
 import type { KanjiQuizSound } from './sound'
 import { KANJI_QUIZ_BGM_FADE_OUT_MS, dueKanjiQuizSoundCues, kanjiQuizBgmDuckHoldOf, kanjiQuizSoundCuesOf } from './sound-cues'
 
-/** 6つの枠すべてに音を選んだ設定（合成ページが受け取る、音声のURLの形） */
+/** 7つの枠すべてに音を選んだ設定（合成ページが受け取る、音声のURLの形） */
 const fullSound: KanjiQuizSound = {
   slots: {
     bgm: '/api/media/media-thinking?key=k',
     start: '/api/media/media-dodon?key=k',
+    wrongAnswer: '/api/media/media-bubu?key=k',
     countdown: '/api/media/media-tick?key=k',
     correct: '/api/media/media-pinpon?key=k',
     timeUp: '/api/media/media-buzzer?key=k',
@@ -28,7 +30,7 @@ const fullSound: KanjiQuizSound = {
 
 /** どの枠も鳴らさない設定 */
 const silentSound: KanjiQuizSound = {
-  slots: { bgm: null, start: null, countdown: null, correct: null, timeUp: null, explanation: null },
+  slots: { bgm: null, start: null, wrongAnswer: null, countdown: null, correct: null, timeUp: null, explanation: null },
   bgmVolume: 0.3,
   effectVolume: 0.6,
 }
@@ -69,6 +71,27 @@ describe('kanjiQuizSoundCuesOf', () => {
     ])
   })
 
+  it('不正解の回答が届くたびに、届いた時刻に「直前の回答」の音を鳴らす（ほかの音と時刻の順に並べる）', () => {
+    // 前提: 5秒と12.5秒に不正解の回答が届き、13.5秒に正解者が届いた
+    expect(timingsOf(kanjiQuizSoundCuesOf(fullSound, 13_500, [5_000, 12_500]))).toEqual([
+      ['bgm', 0],
+      ['start', 0],
+      ['wrongAnswer-0', 5_000],
+      ['countdown-5', 12_000],
+      ['wrongAnswer-1', 12_500],
+      ['countdown-4', 13_000],
+      ['correct', 13_500],
+      ['bgm-end', 13_500],
+      ['explanation', 13_500 + REVEAL_RESULT_MS],
+    ])
+  })
+
+  it('「直前の回答」の枠を鳴らさない設定なら、不正解の回答が届いても表に載せない', () => {
+    const withoutWrongAnswer = { ...fullSound, slots: { ...fullSound.slots, wrongAnswer: null } }
+
+    expect(kanjiQuizSoundCuesOf(withoutWrongAnswer, null, [5_000]).some((cue) => cue.id.startsWith('wrongAnswer'))).toBe(false)
+  })
+
   it('BGM と効果音にそれぞれの音量を付け、BGM は決まった長さで下げる', () => {
     const cues = kanjiQuizSoundCuesOf(fullSound, null)
 
@@ -105,6 +128,13 @@ describe('dueKanjiQuizSoundCues', () => {
     const due = dueKanjiQuizSoundCues(fullSound, 14_000, 13_500, new Set())
 
     expect(due.map((cue) => cue.id)).toEqual(['correct', 'bgm-end'])
+  })
+
+  it('不正解の回答が届いたら、その時刻を迎えた「直前の回答」の音を返す', () => {
+    // 前提: 出だしの音は鳴らし終え、5秒に不正解の回答が届いて、5.05秒にタイマーが確かめた
+    const due = dueKanjiQuizSoundCues(fullSound, 5_050, null, new Set(['bgm', 'start']), [5_000])
+
+    expect(due.map((cue) => cue.id)).toEqual(['wrongAnswer-0'])
   })
 
   it('解説の音は、結果を見せ終えて解説の帯を出す時刻を迎えてから返す', () => {
