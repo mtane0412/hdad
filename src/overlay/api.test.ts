@@ -41,6 +41,18 @@ describe('createOverlayLayoutApi', () => {
     await expect(createOverlayLayoutApi(response(unknownKind), key).read()).rejects.toThrow(/overlays\[0\]/)
   })
 
+  it('隠した素材（hidden: true）も読める', async () => {
+    const hidden = { overlays: [{ name: 'front', items: [{ ...config.overlays[0]?.items[0], hidden: true }] }] }
+
+    expect(await createOverlayLayoutApi(response(hidden), key).read()).toEqual(hidden.overlays)
+  })
+
+  it('hidden が真偽値でなければエラーにする', async () => {
+    const broken = { overlays: [{ name: 'front', items: [{ ...config.overlays[0]?.items[0], hidden: 'はい' }] }] }
+
+    await expect(createOverlayLayoutApi(response(broken), key).read()).rejects.toThrow(/overlays\[0\]/)
+  })
+
   it('オーバーレイの形が想定と違えばエラーにする', async () => {
     await expect(createOverlayLayoutApi(response({ overlays: [{ name: 'front' }] }), key).read()).rejects.toThrow(/overlays\[0\]/)
   })

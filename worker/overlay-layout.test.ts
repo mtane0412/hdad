@@ -7,11 +7,21 @@
  * - デザインIDを持つ種類（壁紙・時計・チャット）とそれ以外で、IDの要否が逆になること
  * - パラメータはクエリ文字列のまま持ち、中身（素材のスキーマ）は検証しないこと
  * - 保存されている形が古ければ、読み替えずに直し方を添えてエラーにすること
+ * - 素材ごとの表示・非表示（hidden）を持ち、表示の切り替えでは保存済みの素材と食い違えば書き換えないこと
  */
 import { describe, expect, it } from 'vitest'
 import { ConfigError } from './alert-config'
 import { createFakeStore } from './fake-store'
-import { DEFAULT_OVERLAY_LAYOUT, loadOverlayLayout, parseOverlayLayout, saveOverlayLayout, type Overlay, type OverlayItem } from './overlay-layout'
+import {
+  DEFAULT_OVERLAY_LAYOUT,
+  loadOverlayLayout,
+  parseItemVisibility,
+  parseOverlayLayout,
+  saveOverlayLayout,
+  withItemVisibility,
+  type Overlay,
+  type OverlayItem,
+} from './overlay-layout'
 
 /** 背面いっぱいに広げた壁紙 */
 const wallpaper: OverlayItem = {
@@ -237,6 +247,72 @@ describe('parseOverlayLayout', () => {
     const [problem] = issues({ overlays: Array.from({ length: 11 }, (_, index) => ({ name: `stage-${index}`, items: [alert] })) })
 
     expect(problem).toContain('overlays: ')
+  })
+})
+
+describe('素材の表示・非表示（hidden）', () => {
+  it('隠した素材は hidden: true のまま受け取る', () => {
+    const layout = parseOverlayLayout({ overlays: [{ name: 'front', items: [{ ...clock, hidden: true }] }] })
+
+    expect(layout.overlays[0]?.items[0]).toEqual({ ...clock, hidden: true })
+  })
+
+  it('hidden が無い・false の素材は、表示する素材として hidden を持たせない（保存の形を変えない）', () => {
+    const layout = parseOverlayLayout({ overlays: [{ name: 'front', items: [clock, { ...alert, hidden: false }] }] })
+
+    expect(layout.overlays[0]?.items).toEqual([clock, alert])
+  })
+
+  it('hidden が真偽値でなければ拒む', () => {
+    expect(issues({ overlays: [{ name: 'front', items: [{ ...clock, hidden: 'はい' }] }] })).toEqual([
+      'overlays[0].items[0].hidden: true か false で指定してください',
+    ])
+  })
+})
+
+describe('parseItemVisibility', () => {
+  it('どのオーバーレイの何番目の素材を、どちらへ切り替えるかを読む', () => {
+    expect(parseItemVisibility({ overlay: 'front', position: 1, kind: 'alerts', id: '', hidden: true })).toEqual({
+      overlay: 'front',
+      position: 1,
+      kind: 'alerts',
+      id: '',
+      hidden: true,
+    })
+  })
+
+  it('形に問題があれば、問題点をすべて集めて拒む', () => {
+    try {
+      parseItemVisibility({ overlay: 3, position: -1, kind: 'ねこ', id: 1, hidden: 'はい' })
+      expect.unreachable('検証を通ってしまいました')
+    } catch (error) {
+      expect(error).toBeInstanceOf(ConfigError)
+      expect((error as ConfigError).problems).toHaveLength(5)
+    }
+  })
+})
+
+describe('withItemVisibility', () => {
+  const layout = { overlays: [backOverlay, frontOverlay] }
+
+  it('指した素材だけを隠した構成を返す（ほかの素材とオーバーレイはそのまま）', () => {
+    const next = withItemVisibility(layout, { overlay: 'front', position: 1, kind: 'alerts', id: '', hidden: true })
+
+    expect(next).toEqual({ overlays: [backOverlay, { name: 'front', items: [clock, { ...alert, hidden: true }] }] })
+  })
+
+  it('表示へ戻すと hidden を外す', () => {
+    const hiddenLayout = { overlays: [{ name: 'front', items: [{ ...clock, hidden: true as const }] }] }
+
+    expect(withItemVisibility(hiddenLayout, { overlay: 'front', position: 0, kind: 'clock', id: 'analog', hidden: false })).toEqual({
+      overlays: [{ name: 'front', items: [clock] }],
+    })
+  })
+
+  it('指した位置の素材が種類・デザインIDと食い違えば undefined を返す（ほかの窓で構成が変わったときに別の素材を隠さない）', () => {
+    expect(withItemVisibility(layout, { overlay: 'front', position: 0, kind: 'alerts', id: '', hidden: true })).toBeUndefined()
+    expect(withItemVisibility(layout, { overlay: 'front', position: 5, kind: 'clock', id: 'analog', hidden: true })).toBeUndefined()
+    expect(withItemVisibility(layout, { overlay: 'side', position: 0, kind: 'clock', id: 'analog', hidden: true })).toBeUndefined()
   })
 })
 

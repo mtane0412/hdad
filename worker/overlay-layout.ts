@@ -23,6 +23,9 @@
  * 注意: 位置と大きさは割合（％）で持つ。配信解像度が変わっても崩れないようにするためである。
  * 注意: 素材を1つも持たないオーバーレイは拒む。OBSに貼っても何も映らないURLを作らせないためで、
  * 管理画面は素材のないオーバーレイを送らない（「効果をひとつも持たない行は保存しない」と同じ考え方）。
+ * 注意: 素材は隠せる（hidden: true。合成ページは隠した素材を起動しない）。表示する素材には hidden を持たせない
+ * （隠せるようにする前に保存した構成がそのまま読めるようにし、保存の形も変えないため）。表示の切り替えは
+ * 管理画面の保存とは別に、保存済みの構成の1件だけを書き換える（withItemVisibility）。
  */
 import { ConfigError } from './alert-config'
 import type { KeyValueStore } from './store'
@@ -89,6 +92,8 @@ export interface OverlayItem {
   readonly params: string
   /** オーバーレイの中での位置と大きさ（％） */
   readonly rect: ItemRect
+  /** 隠しているか。隠した素材は合成ページが起動しない。表示する素材では持たない */
+  readonly hidden?: true
 }
 
 /** オーバーレイ1つ（＝OBSのブラウザソース1つ）。items の並びがそのまま重ねる順（あとのものが前）になる */
@@ -212,11 +217,20 @@ export const parseOverlayLayout = (input: unknown): OverlayLayout => {
       }
     }
 
+    /** 隠しているかを読む。無ければ表示する素材とする（隠せるようにする前に保存した構成も読めるようにする） */
+    const readHidden = (): boolean => {
+      const value = raw.hidden
+      if (value === undefined || typeof value === 'boolean') return value === true
+      problems.push(`${at}.hidden: true か false で指定してください`)
+      return false
+    }
+
     // 呼ぶ順番が、問題点に並ぶ順番になる
     const id = readId()
     const params = readParams()
     const rect = readRect()
-    return [{ kind: itemKind, id, params, rect }]
+    const hidden = readHidden()
+    return [{ kind: itemKind, id, params, rect, ...(hidden ? { hidden: true as const } : {}) }]
   }
 
   /** オーバーレイ1つを読む。名前が読めなければ問題点を積んで空を返し、並びから外す */
@@ -260,6 +274,70 @@ export const parseOverlayLayout = (input: unknown): OverlayLayout => {
 
   if (problems.length > 0) throw new ConfigError(SUBJECT, problems)
   return { overlays }
+}
+
+/** 素材1件の表示の切り替え。どのオーバーレイの何番目かで指し、取り違えを防ぐために種類とデザインIDを添える */
+export interface ItemVisibility {
+  /** オーバーレイの名前 */
+  readonly overlay: string
+  /** そのオーバーレイの中での位置（構成での並び。0 が最も後ろ） */
+  readonly position: number
+  /** 指した素材の種類（保存済みの素材と食い違えば書き換えない） */
+  readonly kind: ItemKind
+  /** 指した素材のデザインID（保存済みの素材と食い違えば書き換えない） */
+  readonly id: string
+  /** 隠すなら true、表示するなら false */
+  readonly hidden: boolean
+}
+
+/** 問題点のメッセージに出す、表示の切り替えの名前 */
+const VISIBILITY_SUBJECT = '素材の表示の切り替え'
+
+/**
+ * 管理画面から送られてきた表示の切り替えを検証する。
+ *
+ * @throws ConfigError 問題が1件でもある場合
+ */
+export const parseItemVisibility = (input: unknown): ItemVisibility => {
+  if (!isRecord(input)) throw new ConfigError(VISIBILITY_SUBJECT, ['表示の切り替えはオブジェクトで指定してください'])
+  const problems: string[] = []
+  const { overlay, position, kind, id, hidden } = input
+  if (typeof overlay !== 'string') problems.push('overlay: オーバーレイの名前を文字列で指定してください')
+  if (typeof position !== 'number' || !Number.isInteger(position) || position < 0) problems.push('position: 0以上の整数で指定してください')
+  if (typeof kind !== 'string' || !(ITEM_KINDS as readonly string[]).includes(kind)) problems.push(`kind: ${ITEM_KINDS.join(' / ')} のいずれかで指定してください`)
+  if (typeof id !== 'string') problems.push('id: 文字列で指定してください')
+  if (typeof hidden !== 'boolean') problems.push('hidden: true か false で指定してください')
+  if (problems.length > 0) throw new ConfigError(VISIBILITY_SUBJECT, problems)
+  return { overlay: overlay as string, position: position as number, kind: kind as ItemKind, id: id as string, hidden: hidden as boolean }
+}
+
+/**
+ * 保存済みの構成のうち、指した素材1件だけの表示を切り替えた構成を返す。
+ *
+ * 管理画面の保存（構成を丸ごと送る）を経ないのは、配信中に押した瞬間に反映させたいためで、画面に
+ * 未保存の編集が残っていても、それを巻き込まずに1件だけを書き換える。
+ *
+ * @returns 指した位置に素材が無い・種類とデザインIDが食い違う場合は undefined（ほかの窓で構成が変わったときに、
+ *   別の素材を隠さないため。呼び出し側が409にする）
+ */
+export const withItemVisibility = (layout: OverlayLayout, change: ItemVisibility): OverlayLayout | undefined => {
+  const target = layout.overlays.find((overlay) => overlay.name === change.overlay)?.items[change.position]
+  if (target === undefined || target.kind !== change.kind || target.id !== change.id) return undefined
+  return {
+    overlays: layout.overlays.map((overlay) =>
+      overlay.name !== change.overlay
+        ? overlay
+        : {
+            ...overlay,
+            items: overlay.items.map((item, index) => {
+              if (index !== change.position) return item
+              // 表示する素材には hidden を持たせない（保存の形を変えない）
+              const shown: OverlayItem = { kind: item.kind, id: item.id, params: item.params, rect: item.rect }
+              return change.hidden ? { ...shown, hidden: true as const } : shown
+            }),
+          },
+    ),
+  }
 }
 
 export const saveOverlayLayout = (store: KeyValueStore, layout: OverlayLayout): Promise<void> =>

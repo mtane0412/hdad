@@ -26,6 +26,8 @@
  * 注意: 1つの素材の失敗で、同じオーバーレイのほかの素材は動かし続ける（issue #101 で決めた、Fail-Fast に
  * 意識して設けた例外）。理由は「配信中に片方が壊れたときの被害を、配信画面の全損から1素材の欠落に
  * 留めるため」で、失敗はその素材の箱の中だけに表示する。
+ * 隠した素材（hidden）は起動しない。管理画面で表示を切り替えると構成が押し出されてくるので、自分のオーバーレイの
+ * 中身が変わっていれば読み込み直す（watchLayout。素材ごとに止める仕掛けを持たないため）。
  * 注意: OBSに載せるページの約束どおり、React もログインも持ち込まない。
  */
 import type { Alert } from '../alerts/alert'
@@ -137,8 +139,8 @@ import { WORK_LOG_SOCKET_HINT, WORK_LOG_SOCKET_PATH, createWorkLogApi } from '..
 import { demoWorkLogScenes } from '../work-log/demo'
 import { WORK_LOG_LIMIT, mergeEntries, parseWorkLogEntry, type WorkLogEntry } from '../work-log/entry'
 import { createWorkLogView } from '../work-log/view'
-import { createOverlayLayoutApi } from './api'
-import { itemsInOverlay, overlayNamesOf, rectStyle, type ItemKind, type Overlay, type OverlayItem } from './layout'
+import { OVERLAY_LAYOUT_SOCKET_HINT, OVERLAY_LAYOUT_SOCKET_PATH, createOverlayLayoutApi, readOverlays } from './api'
+import { itemsInOverlay, overlayChanged, overlayNamesOf, rectStyle, shownItems, type ItemKind, type Overlay, type OverlayItem } from './layout'
 import { dueTasks, pollTickMs, type PollInterval } from './poll'
 import { previewReadyMessage, readPreviewLayout } from './preview'
 
@@ -2448,6 +2450,44 @@ const startPolling = (tasks: readonly PollTask[]): void => {
   }, tickMs)
 }
 
+/**
+ * 管理画面で素材の表示を切り替えたら、自分のオーバーレイの中身が変わったときだけ読み込み直す。
+ *
+ * 素材ごとに止める仕掛け（接続・タイマー・音）を持たないので、隠した素材を確実に止めるには読み込み直すのが
+ * いちばん確かである。ほかのオーバーレイだけの変化では読み込み直さない（映しているものを途切れさせない）。
+ * つなぎ直したときは Worker から読み直して比べる（つながっていない間の切り替えを取りこぼさないため）。
+ *
+ * @param started 起動したときに読んだ構成
+ */
+const watchLayout = (key: string, overlayName: string, started: readonly Overlay[]): void => {
+  const reloadIfChanged = (next: readonly Overlay[]): void => {
+    if (overlayChanged(started, next, overlayName)) location.reload()
+  }
+
+  connectSocket(
+    socketUrl(OVERLAY_LAYOUT_SOCKET_PATH, { key }),
+    {
+      onMessage: (text) => {
+        try {
+          reloadIfChanged(readOverlays(JSON.parse(text)))
+        } catch (error) {
+          showError(error, NOUN)
+        }
+      },
+      onOpen: () => {
+        createOverlayLayoutApi(callWorker, key)
+          .read()
+          .then(reloadIfChanged, (error: unknown) => showError(error, NOUN))
+      },
+      onStatus: () => {
+        // 切断・再接続は出さない。つながったときの読み直しは onOpen が受け持ち、映している素材はそのまま残す
+      },
+      onWarning: (message) => showError(new Error(message), NOUN),
+    },
+    OVERLAY_LAYOUT_SOCKET_HINT,
+  )
+}
+
 const start = async (): Promise<void> => {
   const root = document.querySelector<HTMLElement>('[data-overlay]')
   if (!root) throw new Error('data-overlay 属性を持つ要素が見つかりません')
@@ -2475,8 +2515,8 @@ const start = async (): Promise<void> => {
   /** チャットの受け取りを使う素材の箱。つなげなかったときに、そこへ失敗を出す */
   const chatBoxes: HTMLElement[] = []
 
-  // 箱は構成の並びの順に置く（あとのものが前に重なる）
-  for (const item of items) {
+  // 箱は構成の並びの順に置く（あとのものが前に重なる）。隠した素材は起動しない（音や読み上げを裏で動かさないため）
+  for (const item of shownItems(items)) {
     const box = document.createElement('div')
     box.className = 'overlay-item'
     box.dataset.item = item.kind
@@ -2497,6 +2537,8 @@ const start = async (): Promise<void> => {
 
   startDrawLoop(drawing)
   startPolling(tasks)
+  // プレビューは編集中の構成を映すだけなので、配信画面への切り替えは待たない
+  if (!params.demo) watchLayout(params.key, params.overlay, all)
 
   if (chatBoxes.length > 0) {
     await hub.start().catch((error: unknown) => {

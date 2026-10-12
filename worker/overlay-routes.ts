@@ -4,7 +4,7 @@
  * どれもTwitchのトークンではなくオーバーレイ用キーで守る。素材だけは、管理画面でのプレビューのために配信者のセッションでも読める。
  */
 import { overlayKeyTag } from './overlay-key'
-import { connectAlertSocket } from './alert-channel'
+import { connectAlertSocket, connectOverlayLayoutSocket } from './alert-channel'
 import { connectDrawSocket } from './draw-channel'
 import { connectTabSocket } from './tab-channel'
 import { loadStrokes } from './draw-config'
@@ -271,4 +271,17 @@ export const getFocus = async (context: Context): Promise<Response> => {
 export const getLayout = async (context: Context): Promise<Response> => {
   await requireOverlayKey(context)
   return Response.json(await loadOverlayLayout(context.env.STORE))
+}
+
+/**
+ * GET /api/overlay/layout/socket?key=: 合成ページからのWebSocketの接続を、構成を受け取る接続として配送先へ引き渡す。
+ *
+ * 管理画面で素材の表示を切り替えると、切り替えたあとの構成がここへ流れてくる（admin-routes.ts の putOverlayItemVisibility）。
+ */
+export const overlayLayoutSocket = async (context: Context): Promise<Response> => {
+  const key = await requireOverlayKey(context)
+  if (context.request.headers.get('Upgrade') !== 'websocket') {
+    throw new HttpError(STATUS.badRequest, 'expected-websocket', 'この経路はWebSocketの接続にだけ使えます')
+  }
+  return connectOverlayLayoutSocket(context.env.ALERTS, context.request, await overlayKeyTag(key))
 }

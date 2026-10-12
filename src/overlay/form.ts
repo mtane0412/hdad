@@ -135,6 +135,8 @@ export interface ItemDraft {
   /** 保存されていたパラメータ（クエリ文字列）。スキーマが分からない素材ではこれをそのまま持ち越す */
   readonly savedParams: string
   readonly rect: RectDraft
+  /** 隠しているか（合成ページが起動しない） */
+  readonly hidden: boolean
   /** 保存済みの値を読めなかった理由（読めた素材では undefined） */
   readonly problem?: string
 }
@@ -248,6 +250,7 @@ export const newItemDraft = (kind: ItemKind, id: string): ItemDraft => {
     values: schema ? defaultValuesOf(schema) : {},
     savedParams: '',
     rect: defaultRectFor(kind),
+    hidden: false,
   }
 }
 
@@ -262,6 +265,7 @@ const toItemDraft = (item: Overlay['items'][number]): ItemDraft => {
     id: item.id,
     savedParams: item.params,
     rect: { x: String(item.rect.x), y: String(item.rect.y), width: String(item.rect.width), height: String(item.rect.height) },
+    hidden: item.hidden === true,
   }
   const schema = schemaFor(item.kind, item.id)
   if (!schema) {
@@ -313,9 +317,36 @@ export const toOverlays = (drafts: readonly OverlayDraft[]): Overlay[] =>
           width: numberOf(item.rect.width),
           height: numberOf(item.rect.height),
         },
+        // 表示する素材には hidden を持たせない（保存の形を変えない）
+        ...(item.hidden ? { hidden: true } : {}),
       }
     }),
   }))
+
+/**
+ * 表示の切り替えで指す、保存済みの構成でのその素材の場所と、保存済みの種類・デザインID。
+ *
+ * 表示の切り替えは保存ボタンを待たずに保存済みの構成の1件だけを書き換えるので、画面で並べ替えたり
+ * デザインを選び直したりしたあとでも、読み込んだ（保存した）時点の中身で指す。
+ *
+ * @param saved 読み込んだ（保存した）時点の入力欄の中身（識別子 key は画面の中身と共通）
+ * @returns 保存済みの構成に無い素材（追加したばかり）は undefined
+ */
+export const savedVisibilityTarget = (
+  saved: readonly OverlayDraft[],
+  key: number,
+): { overlay: string; position: number; kind: ItemKind; id: string } | undefined => {
+  for (const overlay of saved) {
+    const position = overlay.items.findIndex((item) => item.key === key)
+    const item = overlay.items[position]
+    if (item) return { overlay: overlay.name, position, kind: item.kind, id: item.id }
+  }
+  return undefined
+}
+
+/** 素材の隠す・表示するを、識別子 key の素材にだけ当てた中身を返す */
+export const withDraftHidden = (drafts: readonly OverlayDraft[], key: number, hidden: boolean): OverlayDraft[] =>
+  drafts.map((overlay) => ({ ...overlay, items: overlay.items.map((item) => (item.key === key ? { ...item, hidden } : item)) }))
 
 /** 素材を一覧の見出しや問題点で指す名前。デザインを持つ種類にはデザイン名を添える */
 export const itemLabel = (draft: ItemDraft): string => {

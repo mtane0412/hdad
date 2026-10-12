@@ -169,6 +169,7 @@ const createFakeOpinionApi: OpinionApi = {
 const createFakeOverlayApi: OverlayLayoutAdminApi = {
   load: vi.fn(async () => []),
   save: vi.fn(async () => []),
+  setVisibility: vi.fn(async () => []),
 }
 
 const fakeLlmApi: LlmApi = {

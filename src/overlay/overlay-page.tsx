@@ -15,6 +15,8 @@
  * （OBSのソース一覧と同じく、上にあるものが前に出る）。オーバーレイ同士も一覧の中で並べ替えられる。
  * 素材の並べ替えは「前面へ」「背面へ」のボタンのほか、行の左端のつまみをドラッグして別の行へ落としても行える
  * （落とせるのは同じオーバーレイの中だけ。オーバーレイをまたぐ移動は「置くオーバーレイ」の選択欄で行う）。
+ * 素材は行の目のアイコンで隠せる。保存済みの素材は保存ボタンを待たずにすぐ保存し、合成ページへ押し出す
+ * （admin-api.ts の setVisibility。ほかの未保存の編集は巻き込まない）。
  * Workerの呼び出しは admin-api.ts、入力欄の値の変換とデザインのスキーマの引き当ては form.ts、
  * URLの組み立ては url.ts に分けてテストする。素材のパラメータの入力欄は、ギャラリーと同じ
  * 自動生成（src/core/fields.tsx の ParamField）を使う。
@@ -39,7 +41,7 @@
  * 注意: テキストの素材（issue #294）が映すテキストはパラメータにIDで持つが、IDの入力欄は出さず、テキストの名前の選択欄で選ばせる
  *   （docs/principles.md の2）。そのため開いたときにテキストの一覧も読み、読めなければ選択欄の代わりに理由を出す。
  */
-import { ArrowDown, ArrowUp, ChevronDown, Copy, GripVertical, Plus, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, ChevronDown, Copy, Eye, EyeOff, GripVertical, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { Link, useUnsavedChanges } from '@/app/router'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
@@ -62,6 +64,8 @@ import {
   describeOverlayProblem,
   designsFor,
   frontFirstItems,
+  savedVisibilityTarget,
+  withDraftHidden,
   itemLabel,
   ITEM_KIND_LABELS,
   moveDraft,
@@ -211,7 +215,8 @@ const PlacementBox = ({ items, openItemKey, onOpenItem, onChangeRect }: Placemen
         {drawable.map(({ item, rect }) => {
           const label = itemLabel(item)
           return (
-            <div key={item.key} className="absolute" style={rectStyle(rect)}>
+            // 隠した素材も動かせるよう枠には残し、薄く描いて配信画面に出ていないことを示す
+            <div key={item.key} className={`absolute ${item.hidden ? 'opacity-40' : ''}`} style={rectStyle(rect)}>
               <button
                 type="button"
                 aria-label={`${label}を動かす`}
@@ -313,6 +318,8 @@ interface ItemRowProps {
   onMove(offset: number): void
   onMoveToOverlay(name: string): void
   onRemove(): void
+  /** 隠す・表示するを切り替える（保存済みの素材はすぐ配信画面へ反映する） */
+  onToggleHidden(): void
   /** テキストの素材で選べるテキスト */
   textChoices: TextChoices
   /** 一覧の中でのドラッグ&ドロップによる並べ替え（つまみ・落とし先としての受け持ち） */
@@ -380,6 +387,7 @@ const ItemRow = ({
   onMove,
   onMoveToOverlay,
   onRemove,
+  onToggleHidden,
   textChoices,
   reorder,
 }: ItemRowProps) => {
@@ -437,9 +445,20 @@ const ItemRow = ({
         >
           <ChevronDown aria-hidden="true" className={open ? 'rotate-180' : ''} />
           <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
-            <span className="truncate font-medium">{label}</span>
+            <span className={`truncate font-medium ${draft.hidden ? 'text-muted-foreground line-through' : ''}`}>{label}</span>
             <span className="truncate text-xs font-normal text-muted-foreground">{rectSummary(draft)}</span>
           </span>
+        </Button>
+        {/* OBSのソース一覧の目のアイコンと同じく、押した瞬間に配信画面から消す・戻す（保存ボタンを待たない） */}
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          {...iconButtonName(draft.hidden ? `${label}を表示する` : `${label}を隠す`)}
+          className={draft.hidden ? 'text-muted-foreground' : ''}
+          onClick={onToggleHidden}
+        >
+          {draft.hidden ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
         </Button>
         {/* 一覧では上にあるものが前なので、「前面へ」がひとつ上、「背面へ」がひとつ下に当たる */}
         <Button type="button" variant="ghost" size="icon" {...iconButtonName(`${label}をひとつ前面へ`)} disabled={!canMoveFront} onClick={() => onMove(1)}>
@@ -556,6 +575,7 @@ interface OverlayCardProps {
   onChange(draft: OverlayDraft): void
   onMoveItemToOverlay(item: ItemDraft, to: string): void
   onAskRemoveItem(item: ItemDraft): void
+  onToggleItemHidden(item: ItemDraft): void
   onAskRemove(): void
   onCopyUrl(url: string): void
   /** 一覧の中でこのオーバーレイを動かせるか（端のオーバーレイでは押せなくする） */
@@ -578,6 +598,7 @@ const OverlayCard = ({
   onChange,
   onMoveItemToOverlay,
   onAskRemoveItem,
+  onToggleItemHidden,
   onAskRemove,
   onCopyUrl,
   canMoveUp,
@@ -718,6 +739,7 @@ const OverlayCard = ({
                 onMove={(offset) => moveItem(position, offset)}
                 onMoveToOverlay={(to) => onMoveItemToOverlay(item, to)}
                 onRemove={() => onAskRemoveItem(item)}
+                onToggleHidden={() => onToggleItemHidden(item)}
                 textChoices={textChoices}
                 reorder={reorderFor(item, position)}
               />
@@ -801,8 +823,11 @@ const OverlayCard = ({
 export const OverlayPage = ({ api, overlayKey, textApi }: { api: OverlayLayoutAdminApi; overlayKey: string | null; textApi: TextApi }) => {
   const [drafts, setDrafts] = useState<readonly OverlayDraft[]>([])
   const [textChoices, setTextChoices] = useState<TextChoices>({ status: 'loading' })
-  /** 読み込んだ（保存した）時点の中身。いまの中身と食い違えば「未保存の変更があります」と添える */
-  const [savedJson, setSavedJson] = useState<string>()
+  /**
+   * 読み込んだ（保存した）時点の中身。いまの中身と食い違えば「未保存の変更があります」と添える。
+   * 表示の切り替えでは、保存済みの構成でどこにある素材かをここから引く（savedVisibilityTarget）。
+   */
+  const [savedDrafts, setSavedDrafts] = useState<readonly OverlayDraft[]>()
   const [newName, setNewName] = useState('')
   /** 開いている素材の識別子。オーバーレイをまたいで1つだけ開く（一覧が長くなりすぎないようにする） */
   const [openItemKey, setOpenItemKey] = useState<number>()
@@ -826,7 +851,7 @@ export const OverlayPage = ({ api, overlayKey, textApi }: { api: OverlayLayoutAd
       if (cancelled) return ''
       const loaded = toOverlayDrafts(overlays)
       setDrafts(loaded)
-      setSavedJson(JSON.stringify(loaded))
+      setSavedDrafts(loaded)
       return ''
     })
     return () => {
@@ -852,7 +877,7 @@ export const OverlayPage = ({ api, overlayKey, textApi }: { api: OverlayLayoutAd
   }, [textApi])
 
   const overlayNames = overlayNameChoices(drafts)
-  const changed = savedJson !== undefined && savedJson !== JSON.stringify(drafts)
+  const changed = savedDrafts !== undefined && JSON.stringify(savedDrafts) !== JSON.stringify(drafts)
   useUnsavedChanges(changed)
   /** 追加しようとしている名前（前後の空白を落としたもの）と、それがすでに使われているか */
   const trimmedNewName = newName.trim()
@@ -877,8 +902,31 @@ export const OverlayPage = ({ api, overlayKey, textApi }: { api: OverlayLayoutAd
     submittedLabelsRef.current = overlayLabelsOf(savable)
     const saved = toOverlayDrafts(await api.save(toOverlays(savable)))
     setDrafts(saved)
-    setSavedJson(JSON.stringify(saved))
+    setSavedDrafts(saved)
     return '構成を保存しました'
+  }
+
+  /**
+   * 素材を隠す・表示する。
+   *
+   * 保存済みの素材は保存ボタンを待たずに保存済みの構成の1件だけを書き換え、合成ページへすぐ反映させる
+   * （OBSの目のアイコンと同じく、押した瞬間に配信画面から消したいため）。ほかの未保存の編集は巻き込まず、
+   * 保存済みの中身（savedDrafts）にも同じ切り替えを当てて、未保存の変更として数えないようにする。
+   * 追加したばかりでまだ保存していない素材は、画面の中身だけを切り替える（保存したときに反映される）。
+   */
+  const toggleItemHidden = (item: ItemDraft): void => {
+    const hidden = !item.hidden
+    const target = savedDrafts === undefined ? undefined : savedVisibilityTarget(savedDrafts, item.key)
+    if (target === undefined) {
+      setDrafts(withDraftHidden(drafts, item.key, hidden))
+      return
+    }
+    void actions.run(async () => {
+      await api.setVisibility({ ...target, hidden })
+      setDrafts((current) => withDraftHidden(current, item.key, hidden))
+      setSavedDrafts((current) => current && withDraftHidden(current, item.key, hidden))
+      return `${itemLabel(item)}を${hidden ? '隠しました' : '表示しました'}`
+    })
   }
 
   const copyUrl = async (url: string): Promise<string> => {
@@ -937,6 +985,7 @@ export const OverlayPage = ({ api, overlayKey, textApi }: { api: OverlayLayoutAd
                 },
               })
             }
+            onToggleItemHidden={toggleItemHidden}
             onAskRemove={() =>
               actions.ask({
                 title: `オーバーレイ「${draft.name}」を外しますか？`,

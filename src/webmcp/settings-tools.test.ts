@@ -85,7 +85,7 @@ const createDeps = ({ currentPath = '/', unsaved = false }: { currentPath?: stri
       },
       speechApi: { load: async () => speech, save: recordSave('speech') },
       llmApi: { load: async () => ({ settings: llm }), save: recordSave('llm') },
-      overlayApi: { load: async () => overlays, save: async (next) => recordSave<Overlay[]>('overlays')([...next]) },
+      overlayApi: { load: async () => overlays, save: async (next) => recordSave<Overlay[]>('overlays')([...next]), setVisibility: async () => overlays },
       pomodoroApi: { read: async () => ({ timer: null, settings: pomodoro }), saveSettings: recordSave('pomodoro') },
       statsApi: { titleSettings: async () => streamTitle, saveTitleSettings: recordSave('streamTitle') },
     },

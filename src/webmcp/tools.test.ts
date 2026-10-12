@@ -103,7 +103,7 @@ const createDeps = (overrides: Partial<WebMcpDeps> = {}) => {
         loadCredits: async () => ({ totalCredits: 0, totalUsage: 0, remaining: 0 }),
       },
       speechApi: { load: async () => Promise.reject(new Error('読み上げの設定を読めません')), save: async (next) => next },
-      overlayApi: { load: async () => [], save: async (next) => [...next] },
+      overlayApi: { load: async () => [], save: async (next) => [...next], setVisibility: async () => [] },
       pomodoroApi: { read: async () => ({ timer: null, settings: { breakMediaId: null } }), saveSettings: async (next) => next },
     },
     hasUnsavedChanges: () => false,

@@ -49,6 +49,18 @@ describe('createOverlayLayoutAdminApi', () => {
     expect(fetchImpl).toHaveBeenCalledWith('/api/admin/overlay/layout', expect.objectContaining({ body: expect.stringContaining('"width":null') }))
   })
 
+  it('素材1件の表示を切り替え、切り替えたあとの構成を読み返す', async () => {
+    const fetchImpl = response({ overlays: [frontOverlay] })
+    const change = { overlay: 'front', position: 0, kind: 'clock' as const, id: 'analog', hidden: true }
+
+    expect(await createOverlayLayoutAdminApi(fetchImpl).setVisibility(change)).toEqual([frontOverlay])
+    expect(fetchImpl).toHaveBeenCalledWith('/api/admin/overlay/visibility', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(change),
+    })
+  })
+
   it('想定した形でなければエラーにする（黙って空の構成にしない）', async () => {
     await expect(createOverlayLayoutAdminApi(response({ overlays: [{ name: 'front', items: [{ kind: 'clock' }] }] })).load()).rejects.toThrow(/overlays\[0\]/)
   })
