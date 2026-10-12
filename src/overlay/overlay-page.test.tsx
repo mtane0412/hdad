@@ -4,7 +4,7 @@
  *
  * 確かめること:
  * - 保存済みのオーバーレイと、その中の素材を前に出るものから出すこと（一覧の上が前）
- * - 素材を追加する・外す・並べ替える・別のオーバーレイへ移す・位置と大きさを直せること
+ * - 素材を追加する・外す・並べ替える（ボタンとドラッグ&ドロップ）・別のオーバーレイへ移す・位置と大きさを直せること
  * - 配置用の枠に素材を四角として描き、ドラッグで動かす・端をつまんで大きさを変えられること
  * - オーバーレイ同士を一覧の中で並べ替えられること
  * - 素材のパラメータをスキーマの入力欄で調整でき、保存ではクエリ文字列になること
@@ -75,6 +75,17 @@ const openMaterial = async (overlayName: string, label: string): Promise<HTMLEle
 
 const save = async (): Promise<void> => {
   await userEvent.click(screen.getByRole('button', { name: '構成を保存する' }))
+}
+
+/**
+ * ドラッグ&ドロップで受け渡す中身の代役。jsdom はドラッグのイベントに dataTransfer を持たせないので、
+ * 画面が呼ぶ setData・setDragImage と effectAllowed だけを持たせる
+ */
+class FakeDataTransfer {
+  effectAllowed = 'all'
+  dropEffect = 'none'
+  setData(): void {}
+  setDragImage(): void {}
 }
 
 afterEach(cleanup)
@@ -267,6 +278,40 @@ describe('素材の編集', () => {
     await save()
 
     expect(api.save).toHaveBeenCalledWith([{ name: 'front', items: [wallpaper, clock] }])
+  })
+
+  test('素材の行をつまんで別の行へ落とすと、その行の位置へ移る', async () => {
+    // 構成では「あとのものが前」。一覧では上から 時計（Analog）・背景（Grid）・背景（Contour） の順に並ぶ
+    const grid: OverlayItem = { ...wallpaper, id: 'grid' }
+    const api = fakeApi({ load: vi.fn(async () => [{ name: 'front', items: [wallpaper, grid, clock] }]) })
+    renderPage(api)
+
+    // いちばん後ろの背景（Contour）をつまみ、いちばん前の時計（Analog）の行へ落とす
+    const dragged = await materialRegion('front', '背景（Contour）')
+    const target = await materialRegion('front', '時計（Analog）')
+    fireEvent.dragStart(within(dragged).getByRole('button', { name: '背景（Contour）をつまんで並べ替える' }), { dataTransfer: new FakeDataTransfer() })
+    fireEvent.dragOver(target)
+    fireEvent.drop(target)
+
+    // 一覧の上から 背景（Contour）・時計（Analog）・背景（Grid） になる
+    const material = within(await overlayRegion('front')).getAllByRole('group')
+    expect(material.map((element) => element.getAttribute('aria-label'))).toEqual(['背景（Contour）', '時計（Analog）', '背景（Grid）'])
+    await save()
+    expect(api.save).toHaveBeenCalledWith([{ name: 'front', items: [grid, clock, wallpaper] }])
+  })
+
+  test('別のオーバーレイの行へ落としても、並びは変わらない（オーバーレイをまたぐ移動は選択欄で行う）', async () => {
+    const api = fakeApi()
+    renderPage(api)
+
+    const dragged = await materialRegion('back', '背景（Contour）')
+    const target = await materialRegion('front', '時計（Analog）')
+    fireEvent.dragStart(within(dragged).getByRole('button', { name: '背景（Contour）をつまんで並べ替える' }), { dataTransfer: new FakeDataTransfer() })
+    fireEvent.dragOver(target)
+    fireEvent.drop(target)
+
+    await save()
+    expect(api.save).toHaveBeenCalledWith([back, front])
   })
 
   test('素材を別のオーバーレイへ移せる', async () => {

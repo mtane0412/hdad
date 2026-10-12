@@ -13,6 +13,8 @@
  *
  * 素材の並びがそのまま重ねる順（あとのものが前）だが、一覧では並びを逆にして「前面 → 背面」で並べる
  * （OBSのソース一覧と同じく、上にあるものが前に出る）。オーバーレイ同士も一覧の中で並べ替えられる。
+ * 素材の並べ替えは「前面へ」「背面へ」のボタンのほか、行の左端のつまみをドラッグして別の行へ落としても行える
+ * （落とせるのは同じオーバーレイの中だけ。オーバーレイをまたぐ移動は「置くオーバーレイ」の選択欄で行う）。
  * Workerの呼び出しは admin-api.ts、入力欄の値の変換とデザインのスキーマの引き当ては form.ts、
  * URLの組み立ては url.ts に分けてテストする。素材のパラメータの入力欄は、ギャラリーと同じ
  * 自動生成（src/core/fields.tsx の ParamField）を使う。
@@ -37,8 +39,8 @@
  * 注意: テキストの素材（issue #294）が映すテキストはパラメータにIDで持つが、IDの入力欄は出さず、テキストの名前の選択欄で選ばせる
  *   （docs/principles.md の2）。そのため開いたときにテキストの一覧も読み、読めなければ選択欄の代わりに理由を出す。
  */
-import { ArrowDown, ArrowUp, ChevronDown, Copy, Plus, Trash2 } from 'lucide-react'
-import { useEffect, useId, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { ArrowDown, ArrowUp, ChevronDown, Copy, GripVertical, Plus, Trash2 } from 'lucide-react'
+import { useEffect, useId, useRef, useState, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { Link, useUnsavedChanges } from '@/app/router'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -313,6 +315,24 @@ interface ItemRowProps {
   onRemove(): void
   /** テキストの素材で選べるテキスト */
   textChoices: TextChoices
+  /** 一覧の中でのドラッグ&ドロップによる並べ替え（つまみ・落とし先としての受け持ち） */
+  reorder: ItemReorder
+}
+
+/**
+ * 素材の行1つぶんの、ドラッグ&ドロップによる並べ替えの受け持ち。
+ *
+ * つまむのは行の左端のつまみだけにする（行全体をつまめるようにすると、入力欄の文字を選ぶ操作と取り合う）。
+ * 落とし先は行全体にする。
+ */
+interface ItemReorder {
+  /** この行が、いまつまんでいる素材の落とし先として指されているか（目印を出す） */
+  dropTarget: boolean
+  onDragStart(event: ReactDragEvent<HTMLElement>): void
+  onDragEnd(): void
+  onDragOver(event: ReactDragEvent<HTMLElement>): void
+  onDragLeave(): void
+  onDrop(event: ReactDragEvent<HTMLElement>): void
 }
 
 /**
@@ -361,6 +381,7 @@ const ItemRow = ({
   onMoveToOverlay,
   onRemove,
   textChoices,
+  reorder,
 }: ItemRowProps) => {
   const id = useId()
   const label = itemLabel(draft)
@@ -384,8 +405,27 @@ const ItemRow = ({
     : [...designs, { id: draft.id, title: `${draft.id}（登録されていません）` }]
 
   return (
-    <li role="group" aria-label={label} className={ITEM_BOX}>
+    <li
+      role="group"
+      aria-label={label}
+      className={`${ITEM_BOX} ${reorder.dropTarget ? 'border-primary ring-2 ring-primary/40' : ''}`}
+      onDragOver={reorder.onDragOver}
+      onDragLeave={reorder.onDragLeave}
+      onDrop={reorder.onDrop}
+    >
       <div className="flex items-center gap-1 p-2">
+        {/* キーボードでは「前面へ」「背面へ」のボタンで並べ替えるので、つまみはタブで止まらないようにする */}
+        <span
+          role="button"
+          aria-label={`${label}をつまんで並べ替える`}
+          title="ドラッグして重なりの順を変える"
+          draggable
+          className="flex size-8 shrink-0 cursor-grab items-center justify-center text-muted-foreground active:cursor-grabbing"
+          onDragStart={reorder.onDragStart}
+          onDragEnd={reorder.onDragEnd}
+        >
+          <GripVertical aria-hidden="true" className="size-4" />
+        </span>
         <Button
           type="button"
           variant="ghost"
@@ -555,6 +595,53 @@ const OverlayCard = ({
   /** 素材を1つ動かす（構成での並びがそのまま重ねる順。offset が正なら前へ） */
   const moveItem = (position: number, offset: number): void => onChange({ ...draft, items: moveDraft(draft.items, position, offset) })
 
+  /**
+   * いまつまんでいる素材の識別子（ItemDraft.key）。このカードの中でつまんだときだけ入る。
+   *
+   * カードごとに持つので、別のオーバーレイの行から運ばれてきたものは落としても受け付けない
+   * （オーバーレイをまたぐ移動は「置くオーバーレイ」の選択欄で行う）。
+   */
+  const draggingKeyRef = useRef<number>(undefined)
+  /** 落とし先として指されている行の識別子（目印を出すため） */
+  const [dropTargetKey, setDropTargetKey] = useState<number>()
+
+  /** ドラッグ&ドロップでの並べ替えの受け持ちを、行ごとに組み立てる */
+  const reorderFor = (item: ItemDraft, position: number): ItemReorder => ({
+    dropTarget: dropTargetKey === item.key,
+    onDragStart: (event) => {
+      draggingKeyRef.current = item.key
+      event.dataTransfer.effectAllowed = 'move'
+      // Firefox は何かを載せないとドラッグを始めない。中身は使わない（つまんだ素材は draggingKeyRef で覚える）
+      event.dataTransfer.setData('text/plain', '')
+      // つまみだけでなく行ごと運んでいるように見せる
+      const row = event.currentTarget.closest('li')
+      if (row) event.dataTransfer.setDragImage(row, 0, 0)
+    },
+    onDragEnd: () => {
+      draggingKeyRef.current = undefined
+      setDropTargetKey(undefined)
+    },
+    onDragOver: (event) => {
+      if (draggingKeyRef.current === undefined) return
+      // 既定の動き（落とせない）を止めて、ここへ落とせるようにする
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'move'
+      setDropTargetKey(item.key)
+    },
+    onDragLeave: () => setDropTargetKey((current) => (current === item.key ? undefined : current)),
+    onDrop: (event) => {
+      const draggingKey = draggingKeyRef.current
+      draggingKeyRef.current = undefined
+      setDropTargetKey(undefined)
+      if (draggingKey === undefined) return
+      event.preventDefault()
+      const from = draft.items.findIndex((current) => current.key === draggingKey)
+      if (from < 0) return
+      // 落とした行の位置へ移す（構成での位置どうしの差だけずらす）
+      moveItem(from, position - from)
+    },
+  })
+
   /** 配置用の枠でドラッグした結果を、その素材の位置と大きさへ書き戻す */
   const changeRect = (key: number, rect: RectDraft): void =>
     onChange({ ...draft, items: draft.items.map((current) => (current.key === key ? { ...current, rect } : current)) })
@@ -632,6 +719,7 @@ const OverlayCard = ({
                 onMoveToOverlay={(to) => onMoveItemToOverlay(item, to)}
                 onRemove={() => onAskRemoveItem(item)}
                 textChoices={textChoices}
+                reorder={reorderFor(item, position)}
               />
             ))}
             </ul>
