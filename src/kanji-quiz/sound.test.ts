@@ -15,6 +15,7 @@ const bgmAndCorrect = {
     countdown: null,
     correct: '/api/media/media-pinpon?key=overlay-key',
     timeUp: null,
+    explanation: null,
   },
   bgmVolume: 0.3,
   effectVolume: 0.6,
@@ -22,7 +23,7 @@ const bgmAndCorrect = {
 
 describe('KANJI_QUIZ_SOUND_SLOTS', () => {
   it('枠は演出で鳴る順に並んでいる（管理画面の並びにも使う）', () => {
-    expect(KANJI_QUIZ_SOUND_SLOTS).toEqual(['bgm', 'start', 'countdown', 'correct', 'timeUp'])
+    expect(KANJI_QUIZ_SOUND_SLOTS).toEqual(['bgm', 'start', 'countdown', 'correct', 'timeUp', 'explanation'])
   })
 })
 
@@ -32,10 +33,10 @@ describe('readKanjiQuizPlaybackSound', () => {
   })
 
   it('枠が欠けていれば、鳴らさない枠として補わずに投げる', () => {
-    // 時間切れ（timeUp）の枠を書き忘れた設定
-    const { bgm, start, countdown, correct } = bgmAndCorrect.slots
+    // 解説（explanation）の枠を書き忘れた設定
+    const { bgm, start, countdown, correct, timeUp } = bgmAndCorrect.slots
 
-    expect(() => readKanjiQuizPlaybackSound({ ...bgmAndCorrect, slots: { bgm, start, countdown, correct } })).toThrow('timeUp')
+    expect(() => readKanjiQuizPlaybackSound({ ...bgmAndCorrect, slots: { bgm, start, countdown, correct, timeUp } })).toThrow('explanation')
   })
 
   it('音量が数でなければ投げる', () => {

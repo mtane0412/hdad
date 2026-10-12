@@ -15,7 +15,7 @@ const call = {
   requesterName: '田中太郎',
   // 正解の音だけを選んだ音の設定（Worker が素材のIDを音声のURLに置き換えたもの）
   sound: {
-    slots: { bgm: null, start: null, countdown: null, correct: '/api/media/media-pinpon?key=overlay-key', timeUp: null },
+    slots: { bgm: null, start: null, countdown: null, correct: '/api/media/media-pinpon?key=overlay-key', timeUp: null, explanation: null },
     bgmVolume: 0.3,
     effectVolume: 0.6,
   },

@@ -13,6 +13,7 @@ import {
   GRADE_INTRO_MS,
   KANJI_QUIZ_TOTAL_MS,
   REVEAL_MS,
+  REVEAL_RESULT_MS,
   STOP_RESULT_MS,
   acceptsAnswerAt,
   kanjiQuizEndOf,
@@ -79,7 +80,13 @@ describe('kanjiQuizSceneAt', () => {
 
   it('各場面の進み具合は 0〜1 にする（出だしのふわっとした出し方に使う）', () => {
     expect(kanjiQuizSceneAt(GRADE_INTRO_MS / 2, null)).toEqual({ kind: 'grade', progress: 0.5 })
-    expect(kanjiQuizSceneAt(afterWord(ANSWER_LIMIT_MS + REVEAL_MS / 4), null)).toEqual({ kind: 'reveal', progress: 0.25 })
+    expect(kanjiQuizSceneAt(afterWord(ANSWER_LIMIT_MS + REVEAL_MS / 4), null)).toEqual({ kind: 'reveal', progress: 0.25, explanation: true })
+  })
+
+  it('時間切れのあと、まず結果だけを見せ、REVEAL_RESULT_MS たってから解説の帯を出す', () => {
+    expect(kanjiQuizSceneAt(afterWord(ANSWER_LIMIT_MS), null)).toMatchObject({ kind: 'reveal', explanation: false })
+    expect(kanjiQuizSceneAt(afterWord(ANSWER_LIMIT_MS + REVEAL_RESULT_MS - 1), null)).toMatchObject({ kind: 'reveal', explanation: false })
+    expect(kanjiQuizSceneAt(afterWord(ANSWER_LIMIT_MS + REVEAL_RESULT_MS), null)).toMatchObject({ kind: 'reveal', explanation: true })
   })
 })
 
@@ -92,8 +99,13 @@ describe('正解者が届いたとき（issue #301）', () => {
   })
 
   it('届いた時刻でカウントダウンを止め、正解の読みと解説を出す場面にする', () => {
-    expect(kanjiQuizSceneAt(answeredAfterMs, answeredAfterMs)).toEqual({ kind: 'reveal', progress: 0 })
-    expect(kanjiQuizSceneAt(answeredAfterMs + REVEAL_MS / 2, answeredAfterMs)).toEqual({ kind: 'reveal', progress: 0.5 })
+    expect(kanjiQuizSceneAt(answeredAfterMs, answeredAfterMs)).toEqual({ kind: 'reveal', progress: 0, explanation: false })
+    expect(kanjiQuizSceneAt(answeredAfterMs + REVEAL_MS / 2, answeredAfterMs)).toEqual({ kind: 'reveal', progress: 0.5, explanation: true })
+  })
+
+  it('解説の帯は、正解者が届いた時刻から REVEAL_RESULT_MS たってから出す', () => {
+    expect(kanjiQuizSceneAt(answeredAfterMs + REVEAL_RESULT_MS - 1, answeredAfterMs)).toMatchObject({ explanation: false })
+    expect(kanjiQuizSceneAt(answeredAfterMs + REVEAL_RESULT_MS, answeredAfterMs)).toMatchObject({ explanation: true })
   })
 
   it('解説は届いた時刻から数えて出し終え、1回の出題はそのぶん短くなる', () => {
@@ -168,7 +180,7 @@ describe('配信を止めるまでの猶予が届いたとき', () => {
   })
 
   it('解説を出し終えても、延ばしたあいだは解説を出したままにする', () => {
-    expect(kanjiQuizSceneAt(KANJI_QUIZ_TOTAL_MS + 1000, null, stopAnnounced)).toEqual({ kind: 'reveal', progress: 1 })
+    expect(kanjiQuizSceneAt(KANJI_QUIZ_TOTAL_MS + 1000, null, stopAnnounced)).toEqual({ kind: 'reveal', progress: 1, explanation: true })
     expect(kanjiQuizSceneAt(stopAt + STOP_RESULT_MS, null, stopAnnounced)).toEqual({ kind: 'done' })
   })
 })

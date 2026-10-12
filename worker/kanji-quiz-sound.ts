@@ -13,6 +13,8 @@
  *
  * 注意: 空（null）の枠は「鳴らさない」という配信者の選択であり、ほかの音で埋めない。
  * 注意: 保存時に検証済みの内容しか書き込まないため、読み出し時の再検証はしない。選ばれている素材は削除させない（admin-routes.ts）。
+ * 注意: 解説の枠（explanation）は後から足した枠なので、それより前に保存した設定にだけは欠けている。読み出しのときだけ「鳴らさない」として補う
+ *       （その枠を配信者がまだ選んでいないことと同じ意味のため。漢字クイズの級の重み（alert-config.ts の withKanjiQuizWeights）と同じ扱い）。
  */
 import { KANJI_QUIZ_SOUND_SLOTS, type KanjiQuizSound, type KanjiQuizSoundSlot } from '../src/kanji-quiz/sound'
 import { ConfigError, mediaPath, type MediaKind } from './alert-config'
@@ -31,7 +33,7 @@ const MAX_VOLUME = 1
  * 音量は市町村紹介（town-tour-sound.ts の DEFAULT_TOWN_TOUR_SOUND）と同じく、BGM は声を邪魔しない大きさにし、効果音は BGM より上げておく
  */
 export const DEFAULT_KANJI_QUIZ_SOUND: KanjiQuizSound = {
-  slots: { bgm: null, start: null, countdown: null, correct: null, timeUp: null },
+  slots: { bgm: null, start: null, countdown: null, correct: null, timeUp: null, explanation: null },
   bgmVolume: 0.3,
   effectVolume: 0.6,
 }
@@ -46,7 +48,7 @@ const isVolume = (value: unknown): value is number =>
 /**
  * 管理画面から送られてきた音の設定を検証し、保存用の形にする。
  *
- * @param input `{ slots: { bgm, start, countdown, correct, timeUp }, bgmVolume, effectVolume }`
+ * @param input `{ slots: { bgm, start, countdown, correct, timeUp, explanation }, bgmVolume, effectVolume }`
  * @param kindOfMedia 素材のIDから種類を引く。無い素材なら null
  * @throws ConfigError 問題が1件でもある場合
  */
@@ -89,10 +91,17 @@ export const parseKanjiQuizSound = (input: unknown, kindOfMedia: (mediaId: strin
 
 export const saveKanjiQuizSound = (store: KeyValueStore, sound: KanjiQuizSound): Promise<void> => store.put(SOUND_KEY, JSON.stringify(sound))
 
-/** 保存済みの音の設定を読む。未保存ならどの枠も鳴らさない */
+/** 解説の枠を足す前に保存した設定の形。解説の枠だけが欠けている */
+type KanjiQuizSoundBeforeExplanation = Omit<KanjiQuizSound, 'slots'> & {
+  readonly slots: Omit<KanjiQuizSound['slots'], 'explanation'> & { readonly explanation?: string | null }
+}
+
+/** 保存済みの音の設定を読む。未保存ならどの枠も鳴らさない。解説の枠を足す前に保存した設定は、解説の枠を鳴らさないとして読む */
 export const loadKanjiQuizSound = async (store: KeyValueStore): Promise<KanjiQuizSound> => {
   const text = await store.get(SOUND_KEY)
-  return text === null ? DEFAULT_KANJI_QUIZ_SOUND : (JSON.parse(text) as KanjiQuizSound)
+  if (text === null) return DEFAULT_KANJI_QUIZ_SOUND
+  const saved = JSON.parse(text) as KanjiQuizSoundBeforeExplanation
+  return { ...saved, slots: { ...saved.slots, explanation: saved.slots.explanation ?? null } }
 }
 
 /** その素材がどれかの枠に選ばれているか（選ばれている素材は削除させない） */

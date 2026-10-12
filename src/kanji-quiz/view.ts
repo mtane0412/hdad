@@ -5,7 +5,9 @@
  * - 級の場面: 画面の真ん中に「漢検○級」と、出題させた人
  * - 出題の場面: 上の帯に級と出題させた人と残り秒数、真ん中に熟語（倍率は場面が決め、ctx.scale で奥から近づける）。
  *   最後の数秒は残り秒数を熟語の下に大きく赤で出す
- * - 答えの場面: 「時間切れ」（正解者が届いていれば「○○さん 正解！」。issue #301）と熟語・正解の読み・解説
+ * - 答えの場面: はじめは「時間切れ！」（正解者が届いていれば「○○さん 正解！」。issue #301）だけを真ん中に大きく出し、
+ *   解説の場面（scene.explanation）になったら、見出しを小さくして画面の真ん中の横帯の上に載せる。
+ *   横帯は左に熟語、右に正解の読みと解説を並べ、画面を覆いすぎないコンパクトな形にする
  * - 配信を止めるまでの帯（issue #302）: 答えの場面に重ねて、画面の下に配信終了までの残り秒数・結果を出す
  *
  * 文言は captions.ts、文の折り返しは市町村紹介と同じ wrapText が決め、ここは描くだけを受け持つ（通信も状態も持たない）。
@@ -32,11 +34,15 @@ const SIZES = {
   bandFont: 48,
   wordFont: 300,
   countdownFont: 260,
-  timeUpFont: 64,
-  revealWordFont: 150,
-  answerFont: 110,
-  explanationFont: 46,
-  explanationWidth: 1400,
+  /** 結果だけを見せるあいだの見出し */
+  resultFont: 120,
+  /** 解説の帯の上に載せる見出し */
+  timeUpFont: 56,
+  /** 解説の帯の高さ（解説が3行以上に折り返したら、そのぶん伸ばす） */
+  revealBandHeight: 240,
+  revealWordFont: 130,
+  answerFont: 60,
+  explanationFont: 48,
   lineGap: 1.4,
   panelPadding: 48,
   panelRadius: 32,
@@ -56,8 +62,12 @@ const COUNTDOWN_WORD_Y_RATIO = 0.42
 const COUNTDOWN_Y_RATIO = 0.78
 /** 文字の中心から上下の端までの目安（文字の大きさに対する割合）。級の場面で、見出しと出題させた人を縦に並べる間隔に使う */
 const HALF_LINE_RATIO = 0.6
-/** 時間切れの場面で、熟語・読み・解説を縦に並べるときの、文字の中心から次の行までの目安（文字の大きさに対する割合） */
-const REVEAL_LINE_RATIO = 0.7
+/** 解説の帯のうち、熟語を置く左側の幅（帯の幅に対する割合） */
+const REVEAL_WORD_PANEL_RATIO = 0.32
+/** 熟語が左側に収まらないときに縮める目安（左側の幅に対する、熟語の幅の上限の割合） */
+const REVEAL_WORD_FIT_RATIO = 0.85
+/** 解説の帯の中で、読みの行と解説の行のあいだに引く線の太さ（px。基準の大きさで） */
+const REVEAL_RULE_WIDTH = 3
 
 const COLORS = {
   panel: 'rgba(16, 20, 32, 0.82)',
@@ -66,6 +76,11 @@ const COLORS = {
   accent: '#ffcf40',
   countdown: '#ff4d4d',
   wordStroke: 'rgba(0, 0, 0, 0.6)',
+  /** 解説の帯の、熟語を置く左側と、読みと解説を置く右側 */
+  revealWordPanel: 'rgba(20, 28, 80, 0.88)',
+  revealTextPanel: 'rgba(8, 8, 12, 0.85)',
+  reading: '#f0a0ff',
+  revealRule: 'rgba(255, 255, 255, 0.7)',
   /** 配信を止めるまでの帯。止まる・数えているあいだは赤、止めない（取り消し・試し再生）ときは落ち着いた色 */
   stopBanner: 'rgba(30, 90, 60, 0.92)',
 } as const
@@ -173,28 +188,88 @@ const drawQuestion = (
   }
 }
 
-const drawReveal = (ctx: CanvasRenderingContext2D, width: number, height: number, unit: number, call: KanjiQuizCall, winnerName: string | null): void => {
+/** 答えの場面の見出し（正解者がいれば名前を祝い、いなければ時間切れを告げる）と、その色 */
+const revealHeadlineOf = (winnerName: string | null): { text: string; color: string } =>
+  winnerName === null ? { text: '時間切れ！', color: COLORS.countdown } : { text: winnerLineOf(winnerName), color: COLORS.accent }
+
+/** 縁取りしてから塗る1行（背景の映像に負けないように）。textAlign と textBaseline は呼び出し側が決める */
+const outlinedText = (ctx: CanvasRenderingContext2D, text: string, x: number, y: number, fontSize: number, font: string, color: string): void => {
+  ctx.font = font
+  ctx.lineWidth = fontSize * STROKE_RATIO
+  ctx.lineJoin = 'round'
+  ctx.strokeStyle = COLORS.wordStroke
+  ctx.strokeText(text, x, y)
+  ctx.fillStyle = color
+  ctx.fillText(text, x, y)
+}
+
+const drawReveal = (
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  unit: number,
+  call: KanjiQuizCall,
+  scene: Extract<KanjiQuizScene, { kind: 'reveal' }>,
+  winnerName: string | null,
+): void => {
   drawBand(ctx, width, unit, call, null)
-  const margin = SIZES.margin * unit
-  const top = (SIZES.margin * 2 + SIZES.bandHeight) * unit
-  fillPanel(ctx, margin * 2, top, width - margin * 4, height - top - margin, SIZES.panelRadius * unit)
+  const headline = revealHeadlineOf(winnerName)
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
 
-  let y = top + (SIZES.panelPadding + SIZES.timeUpFont / 2) * unit
-  // 正解者がいれば名前を祝い、いなければ時間切れを告げる
-  const headline = winnerName === null ? '時間切れ！ 正解は…' : winnerLineOf(winnerName)
-  centerText(ctx, headline, width / 2, y, `bold ${SIZES.timeUpFont * unit}px ${SANS_FAMILY}`, winnerName === null ? COLORS.countdown : COLORS.accent)
-  y += (SIZES.timeUpFont / 2 + SIZES.revealWordFont * REVEAL_LINE_RATIO) * unit
-  drawWord(ctx, call.problem.word, width / 2, y, SIZES.revealWordFont * unit, 1)
-  y += (SIZES.revealWordFont * REVEAL_LINE_RATIO + SIZES.answerFont * REVEAL_LINE_RATIO) * unit
-  centerText(ctx, answerLineOf(call.problem.readings), width / 2, y, `bold ${SIZES.answerFont * unit}px ${SANS_FAMILY}`, COLORS.accent)
-  y += (SIZES.answerFont * REVEAL_LINE_RATIO + SIZES.explanationFont * SIZES.lineGap) * unit
-
-  const explanationFont = `${SIZES.explanationFont * unit}px ${SANS_FAMILY}`
-  ctx.font = explanationFont
-  const lines = wrapText(call.problem.explanation, SIZES.explanationWidth * unit, (text) => ctx.measureText(text).width)
-  for (const [index, line] of lines.entries()) {
-    centerText(ctx, line, width / 2, y + index * SIZES.explanationFont * SIZES.lineGap * unit, explanationFont, COLORS.text)
+  // 結果だけを見せるあいだは、見出しを真ん中に大きく出す
+  if (!scene.explanation) {
+    const fontSize = SIZES.resultFont * unit
+    outlinedText(ctx, headline.text, width / 2, height / 2, fontSize, `bold ${fontSize}px ${SANS_FAMILY}`, headline.color)
+    return
   }
+
+  // 解説は帯の右側に折り返す。3行以上になったら、そのぶん帯を伸ばす
+  const margin = SIZES.margin * unit
+  const bandX = margin
+  const bandWidth = width - margin * 2
+  const wordPanelWidth = bandWidth * REVEAL_WORD_PANEL_RATIO
+  const textX = bandX + wordPanelWidth + SIZES.panelPadding * unit
+  const textWidth = bandWidth - wordPanelWidth - SIZES.panelPadding * 2 * unit
+  const explanationFont = `bold ${SIZES.explanationFont * unit}px ${SANS_FAMILY}`
+  ctx.font = explanationFont
+  const lines = wrapText(call.problem.explanation, textWidth, (text) => ctx.measureText(text).width)
+  const explanationLineHeight = SIZES.explanationFont * SIZES.lineGap * unit
+  const answerBlockHeight = SIZES.answerFont * SIZES.lineGap * unit
+  // 読み・読みと解説のあいだ・解説・解説の下の線までの高さ
+  const contentHeight = answerBlockHeight + SIZES.panelPadding * unit + lines.length * explanationLineHeight + (SIZES.panelPadding / 2 + REVEAL_RULE_WIDTH) * unit
+  const bandHeight = Math.max(SIZES.revealBandHeight * unit, contentHeight + SIZES.panelPadding * unit)
+  const bandY = (height - bandHeight) / 2
+
+  // 帯の上に、見出しを小さく載せる
+  const headlineSize = SIZES.timeUpFont * unit
+  outlinedText(ctx, headline.text, width / 2, bandY - headlineSize, headlineSize, `bold ${headlineSize}px ${SANS_FAMILY}`, headline.color)
+
+  // 左側: 熟語。長い熟語は左側に収まるよう縮める
+  ctx.fillStyle = COLORS.revealWordPanel
+  ctx.fillRect(bandX, bandY, wordPanelWidth, bandHeight)
+  ctx.font = `bold ${SIZES.revealWordFont * unit}px ${WORD_FAMILY}`
+  const wordFit = Math.min(1, (wordPanelWidth * REVEAL_WORD_FIT_RATIO) / ctx.measureText(call.problem.word).width)
+  const wordSize = SIZES.revealWordFont * unit * wordFit
+  outlinedText(ctx, call.problem.word, bandX + wordPanelWidth / 2, bandY + bandHeight / 2, wordSize, `bold ${wordSize}px ${WORD_FAMILY}`, COLORS.accent)
+
+  // 右側: 正解の読み（真ん中寄せ）と、線で区切った解説（左寄せ）
+  ctx.fillStyle = COLORS.revealTextPanel
+  ctx.fillRect(bandX + wordPanelWidth, bandY, bandWidth - wordPanelWidth, bandHeight)
+  const contentTop = bandY + (bandHeight - contentHeight) / 2
+  const answerY = contentTop + answerBlockHeight / 2
+  centerText(ctx, answerLineOf(call.problem.readings), textX + textWidth / 2, answerY, `bold ${SIZES.answerFont * unit}px ${SANS_FAMILY}`, COLORS.reading)
+  const explanationTop = contentTop + answerBlockHeight + SIZES.panelPadding * unit
+  ctx.font = explanationFont
+  ctx.fillStyle = COLORS.text
+  ctx.textAlign = 'left'
+  for (const [index, line] of lines.entries()) {
+    ctx.fillText(line, textX, explanationTop + (index + 0.5) * explanationLineHeight)
+  }
+  // 解説の下に線を引く（参考にした番組の字幕の形）
+  const ruleY = explanationTop + lines.length * explanationLineHeight + (SIZES.panelPadding / 2) * unit
+  ctx.fillStyle = COLORS.revealRule
+  ctx.fillRect(textX, ruleY, textWidth, REVEAL_RULE_WIDTH * unit)
 }
 
 /** 配信を止める時刻の帯（試し再生で止めないこと）を、画面の下に重ねて描く */
@@ -247,7 +322,7 @@ const drawScene = (
       drawQuestion(ctx, width, height, unit, call, scene)
       return
     case 'reveal':
-      drawReveal(ctx, width, height, unit, call, winnerName)
+      drawReveal(ctx, width, height, unit, call, scene, winnerName)
       return
     case 'done':
       return

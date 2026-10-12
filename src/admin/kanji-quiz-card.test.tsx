@@ -3,7 +3,7 @@
  * 漢字クイズのカード（音の設定と試し再生）のテスト
  *
  * 確かめること:
- * - 枠（BGM・出題・カウントダウン・正解・時間切れ）ごとに選べるのはアップロード済みの音声と「鳴らさない」だけで、保存してある音が選ばれていること
+ * - 枠（BGM・出題・カウントダウン・正解・時間切れ・解説）ごとに選べるのはアップロード済みの音声と「鳴らさない」だけで、保存してある音が選ばれていること
  * - 選んだ音と音量をWorkerへ送って保存し、保存したことを知らせること
  * - 保存を断られたら、問題点を枠の名前に読み替えて1行ずつ出すこと
  * - 設定を読めなければ、選択欄を出さずに理由を出すこと
@@ -27,7 +27,7 @@ const media = [thinkingBgm, pinponSound, applauseVideo]
 
 /** BGM に考える曲を選んで保存してある設定 */
 const savedSound: KanjiQuizSound = {
-  slots: { bgm: 'media-thinking', start: null, countdown: null, correct: null, timeUp: null },
+  slots: { bgm: 'media-thinking', start: null, countdown: null, correct: null, timeUp: null, explanation: null },
   bgmVolume: 0.3,
   effectVolume: 0.6,
 }
@@ -53,6 +53,12 @@ describe('KanjiQuizCard', () => {
     expect(screen.getByLabelText(CORRECT_LABEL)).toHaveValue('')
     const options = within(select).getAllByRole('option').map((option) => option.textContent)
     expect(options).toEqual(['鳴らさない', '考え中.mp3', 'ピンポン.mp3'])
+  })
+
+  test('解説の帯を出すときの音も選べる', async () => {
+    render(<KanjiQuizCard api={fakeApi()} media={media} />)
+
+    expect(await screen.findByLabelText('解説（正解・時間切れのあと、解説の帯を出したとき）')).toHaveValue('')
   })
 
   test('正解の音を選んで保存すると、選んだ音と音量をWorkerへ送り、保存したことを知らせる', async () => {

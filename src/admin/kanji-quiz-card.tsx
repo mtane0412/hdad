@@ -39,6 +39,7 @@ const SLOT_LABELS: Readonly<Record<KanjiQuizSoundSlot, string>> = {
   countdown: 'カウントダウン（最後の5秒、1秒ごと）',
   correct: '正解（正解者が出たとき）',
   timeUp: '時間切れ',
+  explanation: '解説（正解・時間切れのあと、解説の帯を出したとき）',
 }
 
 /** 音量の項目の名前（Worker の問題点の読み替えにも使う） */

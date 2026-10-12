@@ -6,9 +6,10 @@
  * 2. 熟語が奥から近づいてくる（ctx.scale に渡す倍率を経過時間から決める。市町村紹介のズームと同じ考え方）。
  *    制限時間（ANSWER_LIMIT_MS）は熟語が出たときから数え、熟語は制限時間のあいだ一定の速さで近づきつづけ、時間切れで等倍になる。
  *    最後の COUNTDOWN_SECONDS 秒は大きなカウントダウンにする
- * 3. 時間切れで正解の読みと解説を出す（REVEAL_MS）
+ * 3. 時間切れで正解の読みと解説を出す（REVEAL_MS）。はじめの REVEAL_RESULT_MS は「時間切れ」だけを見せ、そのあと解説の帯を出す
  *
  * 制限時間のうちに正解者が届いたら（issue #301）、届いた時刻でカウントダウンを止めて 3. へ進み、解説はそこから REVEAL_MS 出す。
+ * 正解者が届いたときも、はじめの REVEAL_RESULT_MS は「○○さん 正解！」だけを見せてから解説の帯を出す（帯を出すときに解説の音を鳴らすため）。
  * 正解者が届いた時刻は合成ページの時計で測った、流しはじめてからの経過時間として受け取る（フレーム間の状態ではなく、再生の入力）。
  *
  * 時間切れで配信を止めるまでの猶予（issue #302）が届いても、本番では何も出さずにいきなり配信を止める（予告しないほうが面白いため）。
@@ -26,6 +27,8 @@ export const ANSWER_LIMIT_MS = 15_000
 export const COUNTDOWN_SECONDS = 5
 /** 正解の読みと解説を出しておく長さ（ミリ秒） */
 export const REVEAL_MS = 12_000
+/** 正解の読みと解説を出す場面のうち、はじめに結果（正解者・時間切れ）だけを見せる長さ（ミリ秒）。これを過ぎたら解説の帯を出す */
+export const REVEAL_RESULT_MS = 1_500
 /** 1回の出題の長さ（ミリ秒） */
 export const KANJI_QUIZ_TOTAL_MS = GRADE_INTRO_MS + ANSWER_LIMIT_MS + REVEAL_MS
 /** 配信を止めるまでの猶予が尽きた・取り消されたあと、その結果を出しておく長さ（ミリ秒） */
@@ -47,7 +50,12 @@ export type KanjiQuizScene =
       /** 最後の数秒の、大きなカウントダウンを出すか */
       readonly countdown: boolean
     }
-  | { readonly kind: 'reveal'; readonly progress: number }
+  | {
+      readonly kind: 'reveal'
+      readonly progress: number
+      /** 解説の帯（熟語・正解の読み・解説）を出すか。はじめの REVEAL_RESULT_MS は結果だけを見せるので false */
+      readonly explanation: boolean
+    }
   | { readonly kind: 'done' }
 
 /** 時間切れで配信を止めるまでの猶予（Worker から届いた知らせ。issue #302） */
@@ -126,5 +134,6 @@ export const kanjiQuizSceneAt = (elapsedMs: number, answeredAfterMs: number | nu
   }
 
   if (elapsedMs >= kanjiQuizEndOf(answeredAfterMs, stop)) return { kind: 'done' }
-  return { kind: 'reveal', progress: Math.min(1, (elapsedMs - revealAt) / REVEAL_MS) }
+  const sinceReveal = elapsedMs - revealAt
+  return { kind: 'reveal', progress: Math.min(1, sinceReveal / REVEAL_MS), explanation: sinceReveal >= REVEAL_RESULT_MS }
 }
