@@ -75,11 +75,12 @@ import { createTabReceiver } from '../tab/receiver'
 import { connectTabViewer } from '../tab/socket'
 import { KANJI_QUIZ_SOCKET_HINT, KANJI_QUIZ_SOCKET_PATH, createKanjiQuizApi } from '../kanji-quiz/api'
 import { parseKanjiQuizMessage, type KanjiQuizCall } from '../kanji-quiz/call'
+import { wrongKanjiQuizAnswerOf } from '../kanji-quiz/answer'
 import { DEMO_KANJI_QUIZ_CALLS, DEMO_KANJI_QUIZ_INTERVAL_MS } from '../kanji-quiz/demo'
 import { acceptsAnswerAt, kanjiQuizEndOf, kanjiQuizSceneAt, kanjiQuizStopBannerAt, type KanjiQuizStop } from '../kanji-quiz/scene'
 import { KANJI_QUIZ_BGM_START_CUE_ID, dueKanjiQuizSoundCues, kanjiQuizBgmDuckHoldOf } from '../kanji-quiz/sound-cues'
 import { createKanjiQuizSoundPlayer } from '../kanji-quiz/sound-player'
-import { drawKanjiQuiz } from '../kanji-quiz/view'
+import { drawKanjiQuiz, type KanjiQuizWrongAnswer } from '../kanji-quiz/view'
 import { POMODORO_SOCKET_HINT, POMODORO_SOCKET_PATH, createPomodoroOverlayApi } from '../pomodoro/api'
 import { demoPomodoroScenes, demoTimerOf } from '../pomodoro/demo'
 import { parsePomodoroSnapshot, type PomodoroTimer } from '../pomodoro/phase'
@@ -1900,9 +1901,13 @@ const mountLick = (box: HTMLElement, item: OverlayItem, { key, demo }: MountCont
  * （OBS が描画を間引いても鳴らすため）、1回の出題を流し終えたら止める。BGM を鳴らした出題では、配信の BGM を下げておく長さを
  * 鳴らしはじめたときと正解者が届いたときに送る（プレビューでは送らない）。
  *
+ * 熟語が出てから正解者が届くまでのあいだにチャット（匿名IRC。同じオーバーレイのチャットの受け取りを共有する）で届いた、
+ * ひらがな・カタカナだけの不正解の回答は、最後の1件を「直前の回答」として出し、届くたびに「直前の回答」の音を鳴らす
+ * （判定は src/kanji-quiz/answer.ts の wrongKanjiQuizAnswerOf。正解の判定は Worker が持ち、ここでは正解者を決めない）。
+ *
  * 注意: 出題を開けなかった・選べる問題が尽きた（Worker からの失敗の知らせ）・音を鳴らせなかったときは、素材の箱に出す（黙って流し続けない）。
  */
-const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
+const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo, hub }: MountContext): MountedItem => {
   // この素材は配信者が決めるパラメータを持たない（何を出すかはトリガーと試し再生で決まる）
   parseParams({}, new URLSearchParams(item.params))
 
@@ -1911,12 +1916,22 @@ const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo }: Moun
   box.append(canvas)
 
   const api = createKanjiQuizApi(callWorker, key)
-  /** 流している1件。流していなければ null。answer は最初の正解者と、流しはじめてから届くまでの経過時間。stop は配信を止めるまでの猶予 */
+  /**
+   * 流している1件。流していなければ null。answer は最初の正解者と、流しはじめてから届くまでの経過時間。stop は配信を止めるまでの猶予。
+   * wrongAnswers はチャットで届いた不正解の回答と、流しはじめてから届くまでの経過時間（届いた順）。
+   * モデレーターに消された発言は、鳴らす音の番号（sound-cues.ts の wrongAnswer-<番号>）がずれないよう、取り除かずに hidden にする
+   */
   let playback: {
     readonly call: KanjiQuizCall
     readonly startedAt: number
     readonly answer: { readonly userName: string; readonly afterMs: number } | null
     readonly stop: KanjiQuizStop | null
+    readonly wrongAnswers: readonly (KanjiQuizWrongAnswer & {
+      readonly afterMs: number
+      readonly messageId: string
+      readonly login: string
+      readonly hidden: boolean
+    })[]
   } | null = null
   /** 流すのを待っている出題（届いた順） */
   let waiting: readonly KanjiQuizCall[] = []
@@ -1951,6 +1966,28 @@ const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo }: Moun
     duckStreamBgm(Date.now())
   }
 
+  /**
+   * チャットの発言が、流している出題への不正解の回答なら、直前の回答として届いた時刻と一緒に記録する。
+   * 熟語が出てから、正解者が届くか時間切れになるまでのあいだだけ受け入れる。エモートを含む発言は回答とみなさない
+   */
+  const acceptChatAnswer = (message: ChatMessage): void => {
+    if (playback === null || playback.answer !== null) return
+    const afterMs = Date.now() - playback.startedAt
+    if (!acceptsAnswerAt(afterMs)) return
+    const texts = message.fragments.flatMap((fragment) => (fragment.type === 'text' ? [fragment.text] : []))
+    if (texts.length !== message.fragments.length) return
+    const answer = wrongKanjiQuizAnswerOf(texts.join(''), playback.call.problem.readings)
+    if (answer === null) return
+    const wrongAnswer = { userName: message.displayName, answer, afterMs, messageId: message.id, login: message.login, hidden: false }
+    playback = { ...playback, wrongAnswers: [...playback.wrongAnswers, wrongAnswer] }
+  }
+
+  /** モデレーターに消された発言（1件・その人の全部・すべて）を、直前の回答に出さないようにする */
+  const hideWrongAnswers = (removed: (wrongAnswer: { readonly messageId: string; readonly login: string }) => boolean): void => {
+    if (playback === null) return
+    playback = { ...playback, wrongAnswers: playback.wrongAnswers.map((wrongAnswer) => (removed(wrongAnswer) ? { ...wrongAnswer, hidden: true } : wrongAnswer)) }
+  }
+
   /** 流している出題の、配信を止めるまでの猶予が届いたら、届いた時刻を記録する（流し終えた出題の猶予は出さない。止める判断は Worker が持つ） */
   const acceptStopping = (quizId: string, graceMs: number, rehearsal: boolean): void => {
     if (playback === null || playback.call.id !== quizId || playback.stop !== null) return
@@ -1973,7 +2010,7 @@ const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo }: Moun
     const [next, ...rest] = waiting
     if (next === undefined) return
     waiting = rest
-    playback = { call: next, startedAt: now, answer: null, stop: null }
+    playback = { call: next, startedAt: now, answer: null, stop: null, wrongAnswers: [] }
     played = new Set()
     // プレビューは Worker の選んだ出題ではないので開かせない
     if (!demo) {
@@ -1987,7 +2024,8 @@ const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo }: Moun
     // 描画が間引かれていても、音を鳴らして次へ進めるよう、ここでも進める
     advance(now)
     if (playback === null) return
-    for (const cue of dueKanjiQuizSoundCues(playback.call.sound, now - playback.startedAt, playback.answer?.afterMs ?? null, played)) {
+    const wrongAnswersAfterMs = playback.wrongAnswers.map(({ afterMs }) => afterMs)
+    for (const cue of dueKanjiQuizSoundCues(playback.call.sound, now - playback.startedAt, playback.answer?.afterMs ?? null, played, wrongAnswersAfterMs)) {
       played.add(cue.id)
       sound.play(cue)
       if (cue.type === 'bgmStart') duckStreamBgm(now)
@@ -2008,6 +2046,7 @@ const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo }: Moun
             scene: kanjiQuizSceneAt(now - playback.startedAt, playback.answer?.afterMs ?? null, playback.stop),
             winnerName: playback.answer?.userName ?? null,
             stopBanner: kanjiQuizStopBannerAt(now - playback.startedAt, playback.stop),
+            wrongAnswer: playback.wrongAnswers.filter(({ hidden }) => !hidden).at(-1) ?? null,
           },
     )
   })
@@ -2047,7 +2086,34 @@ const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo }: Moun
     KANJI_QUIZ_SOCKET_HINT,
   )
 
-  return { draw }
+  // 要るものを伝えないのは、回答の文字だけを使い、バッジもエモートも映さないためである
+  hub.listen({
+    onEvent: (event) => {
+      switch (event.type) {
+        case 'message':
+          acceptChatAnswer(event.message)
+          break
+        case 'delete':
+          hideWrongAnswers(({ messageId }) => messageId === event.id)
+          break
+        case 'clear-user':
+          hideWrongAnswers(({ login }) => login === event.login)
+          break
+        case 'clear-all':
+          hideWrongAnswers(() => true)
+          break
+        case 'room':
+        case 'notice':
+          // 接続の知らせは回答に関係しない
+          break
+      }
+    },
+    onStatus: () => {
+      // 切断・再接続は出さない。届かなかったあいだの回答は出せないが、正解の判定は Worker が持つので出題は止めない
+    },
+  })
+
+  return { draw, usesChat: true }
 }
 
 /**

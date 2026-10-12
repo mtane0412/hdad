@@ -4,6 +4,7 @@
  * 1回の出題で、どの枠の音をいつ鳴らすかを、音の設定と正解者が届いた時刻（流しはじめてからの経過時間）だけから決める。
  * 秒数は場面の進み方（scene.ts）と同じ定数から決め、場面と音の時刻がずれないようにする。
  * - BGM と「出題」は流しはじめ（級を出したとき）に鳴らす
+ * - 「直前の回答」は、制限時間のうちにチャットの不正解の回答が届くたびに、届いた時刻に鳴らす
  * - 「カウントダウン」は最後の COUNTDOWN_SECONDS 秒の大きな数字が切り替わるたびに鳴らす
  * - 正解者が届いたら「正解」、届かなければ時間切れの時刻に「時間切れ」を鳴らす
  * - 結果を REVEAL_RESULT_MS 見せたあと、解説の帯を出す時刻に「解説」を鳴らす
@@ -43,11 +44,16 @@ export type KanjiQuizSoundCue =
 const bgmEndOf = (answeredAfterMs: number | null): number => answeredAfterMs ?? TIME_UP_AT
 
 /**
- * 1回の出題で鳴らす音の表を、鳴らす順に作る。
+ * 1回の出題で鳴らす音の表を、鳴らす順（時刻の順）に作る。
  *
  * @param answeredAfterMs 流しはじめてから正解者が届くまでの経過時間（scene.ts の acceptsAnswerAt が受け入れたもの）。届いていなければ null
+ * @param wrongAnswersAfterMs 流しはじめてから不正解の回答（直前の回答）がそれぞれ届くまでの経過時間（届いた順）
  */
-export const kanjiQuizSoundCuesOf = (sound: KanjiQuizSound, answeredAfterMs: number | null): KanjiQuizSoundCue[] => {
+export const kanjiQuizSoundCuesOf = (
+  sound: KanjiQuizSound,
+  answeredAfterMs: number | null,
+  wrongAnswersAfterMs: readonly number[] = [],
+): KanjiQuizSoundCue[] => {
   const { slots, bgmVolume, effectVolume } = sound
   const bgmEnd = bgmEndOf(answeredAfterMs)
 
@@ -63,7 +69,10 @@ export const kanjiQuizSoundCuesOf = (sound: KanjiQuizSound, answeredAfterMs: num
     .filter(({ at }) => at < bgmEnd)
     .flatMap(({ second, at }) => effect('countdown', `countdown-${second}`, at))
 
-  return [
+  // 不正解の回答は届いた順に番号を振り、1回ずつ鳴らす
+  const wrongAnswers = wrongAnswersAfterMs.flatMap((at, index) => effect('wrongAnswer', `wrongAnswer-${index}`, at))
+
+  const cues: KanjiQuizSoundCue[] = [
     ...(slots.bgm === null ? [] : [{ id: KANJI_QUIZ_BGM_START_CUE_ID, at: 0, type: 'bgmStart', url: slots.bgm, volume: bgmVolume } as const]),
     ...effect('start', 'start', 0),
     ...countdowns,
@@ -72,6 +81,8 @@ export const kanjiQuizSoundCuesOf = (sound: KanjiQuizSound, answeredAfterMs: num
     // 解説の帯は、正解者が届いた時刻か時間切れの時刻から REVEAL_RESULT_MS たって出る（scene.ts の kanjiQuizSceneAt と同じ時刻）
     ...effect('explanation', 'explanation', bgmEnd + REVEAL_RESULT_MS),
   ]
+  // 不正解の回答はほかの音のあいだに届くので、時刻の順に並べ直す（同じ時刻のものは上の並びを保つ）
+  return [...cues, ...wrongAnswers].sort((a, b) => a.at - b.at)
 }
 
 /**
@@ -84,15 +95,17 @@ export const kanjiQuizSoundCuesOf = (sound: KanjiQuizSound, answeredAfterMs: num
  * @param elapsedMs 流しはじめてからの経過時間
  * @param answeredAfterMs 流しはじめてから正解者が届くまでの経過時間。届いていなければ null
  * @param played この出題で鳴らした音の id
+ * @param wrongAnswersAfterMs 流しはじめてから不正解の回答（直前の回答）がそれぞれ届くまでの経過時間（届いた順）
  */
 export const dueKanjiQuizSoundCues = (
   sound: KanjiQuizSound,
   elapsedMs: number,
   answeredAfterMs: number | null,
   played: ReadonlySet<string>,
+  wrongAnswersAfterMs: readonly number[] = [],
 ): KanjiQuizSoundCue[] => {
   const bgmEnded = bgmEndOf(answeredAfterMs) <= elapsedMs
-  return kanjiQuizSoundCuesOf(sound, answeredAfterMs).filter((cue) => {
+  return kanjiQuizSoundCuesOf(sound, answeredAfterMs, wrongAnswersAfterMs).filter((cue) => {
     if (cue.at > elapsedMs || played.has(cue.id)) return false
     if (cue.type === 'effect') return elapsedMs - cue.at <= EFFECT_LATE_LIMIT_MS
     if (cue.type === 'bgmStart') return !bgmEnded

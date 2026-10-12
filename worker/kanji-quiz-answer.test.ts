@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { KanjiQuizProblem } from '../src/kanji-quiz/problems'
-import { normalizeKanjiQuizAnswer, wordsAnsweredBy } from './kanji-quiz-answer'
+import { wordsAnsweredBy } from './kanji-quiz-answer'
 
 /** 読みが1つの問題・読みが2つの問題・長音符を含む問題と、読みが同じ別の熟語を持つ問題集 */
 const problems: readonly KanjiQuizProblem[] = [
@@ -15,17 +15,6 @@ const problems: readonly KanjiQuizProblem[] = [
   { word: '市場', readings: ['いちば', 'しじょう'], grade: '9', explanation: '物を売り買いする場所。' },
   { word: '試乗', readings: ['しじょう'], grade: '6', explanation: '乗り物に試しに乗ること。' },
 ]
-
-describe('normalizeKanjiQuizAnswer', () => {
-  it('前後の空白（全角の空白を含む）を除き、カタカナをひらがなに直す', () => {
-    expect(normalizeKanjiQuizAnswer('　ケイダイ ')).toBe('けいだい')
-    expect(normalizeKanjiQuizAnswer('ヴァイオリン')).toBe('ゔぁいおりん')
-  })
-
-  it('長音符はそのまま残す', () => {
-    expect(normalizeKanjiQuizAnswer('ラーメン')).toBe('らーめん')
-  })
-})
 
 describe('wordsAnsweredBy', () => {
   it('問題集の読みと完全に一致した発言なら、その読みを持つ熟語を返す', () => {

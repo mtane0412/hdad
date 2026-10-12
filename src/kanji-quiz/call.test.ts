@@ -15,7 +15,7 @@ const call = {
   requesterName: '田中太郎',
   // 正解の音だけを選んだ音の設定（Worker が素材のIDを音声のURLに置き換えたもの）
   sound: {
-    slots: { bgm: null, start: null, countdown: null, correct: '/api/media/media-pinpon?key=overlay-key', timeUp: null, explanation: null },
+    slots: { bgm: null, start: null, wrongAnswer: null, countdown: null, correct: '/api/media/media-pinpon?key=overlay-key', timeUp: null, explanation: null },
     bgmVolume: 0.3,
     effectVolume: 0.6,
   },
@@ -45,8 +45,8 @@ describe('parseKanjiQuizMessage', () => {
   it('音の設定が無い・枠が欠けている出題は、黙って無音で流さずに投げる', () => {
     const withoutSound = { id: call.id, problem: call.problem, requesterName: call.requesterName }
     // 時間切れ（timeUp）の枠を書き忘れた音の設定
-    const { bgm, start, countdown, correct } = call.sound.slots
-    const slotsWithoutTimeUp = { bgm, start, countdown, correct }
+    const { bgm, start, wrongAnswer, countdown, correct } = call.sound.slots
+    const slotsWithoutTimeUp = { bgm, start, wrongAnswer, countdown, correct }
 
     expect(() => parseKanjiQuizMessage(JSON.stringify(withoutSound))).toThrowError(/音の設定/)
     expect(() => parseKanjiQuizMessage(JSON.stringify({ ...call, sound: { ...call.sound, slots: slotsWithoutTimeUp } }))).toThrowError(/timeUp/)

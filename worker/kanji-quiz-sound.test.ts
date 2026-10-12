@@ -25,6 +25,7 @@ import {
 const uploaded: ReadonlyMap<string, MediaKind> = new Map([
   ['media-thinking', 'audio'],
   ['media-dodon', 'audio'],
+  ['media-bubu', 'audio'],
   ['media-tick', 'audio'],
   ['media-pinpon', 'audio'],
   ['media-buzzer', 'audio'],
@@ -33,9 +34,9 @@ const uploaded: ReadonlyMap<string, MediaKind> = new Map([
 ])
 const kindOfMedia = (mediaId: string): MediaKind | null => uploaded.get(mediaId) ?? null
 
-/** 6つの枠すべてに音を選んだ設定 */
+/** 7つの枠すべてに音を選んだ設定 */
 const fullSound: KanjiQuizSound = {
-  slots: { bgm: 'media-thinking', start: 'media-dodon', countdown: 'media-tick', correct: 'media-pinpon', timeUp: 'media-buzzer', explanation: 'media-kaisetsu' },
+  slots: { bgm: 'media-thinking', start: 'media-dodon', wrongAnswer: 'media-bubu', countdown: 'media-tick', correct: 'media-pinpon', timeUp: 'media-buzzer', explanation: 'media-kaisetsu' },
   bgmVolume: 0.3,
   effectVolume: 0.7,
 }
@@ -52,7 +53,7 @@ const problemsOf = (input: unknown): readonly string[] => {
 }
 
 describe('parseKanjiQuizSound', () => {
-  it('6つの枠すべてに音声を選んだ設定を通す', () => {
+  it('7つの枠すべてに音声を選んだ設定を通す', () => {
     expect(parseKanjiQuizSound(fullSound, kindOfMedia)).toEqual(fullSound)
   })
 
@@ -70,9 +71,9 @@ describe('parseKanjiQuizSound', () => {
 
   it('枠が欠けている・素材のIDが文字列でない設定は断る', () => {
     // 時間切れ（timeUp）の枠を書き忘れ、カウントダウン（countdown）の枠に数を入れた設定
-    const { bgm, start, correct, explanation } = fullSound.slots
+    const { bgm, start, wrongAnswer, correct, explanation } = fullSound.slots
 
-    expect(problemsOf({ ...fullSound, slots: { bgm, start, countdown: 5, correct, explanation } })).toEqual([
+    expect(problemsOf({ ...fullSound, slots: { bgm, start, wrongAnswer, countdown: 5, correct, explanation } })).toEqual([
       'slots.countdown: 素材のIDか null で指定してください',
       'slots.timeUp: 素材のIDか null で指定してください',
     ])
@@ -118,7 +119,17 @@ describe('saveKanjiQuizSound と loadKanjiQuizSound', () => {
     const slotsBeforeExplanation = { bgm, start, countdown, correct, timeUp }
     await store.put('kanji-quiz-sound', JSON.stringify({ ...fullSound, slots: slotsBeforeExplanation }))
 
-    expect(await loadKanjiQuizSound(store)).toEqual({ ...fullSound, slots: { ...slotsBeforeExplanation, explanation: null } })
+    expect(await loadKanjiQuizSound(store)).toEqual({ ...fullSound, slots: { ...slotsBeforeExplanation, wrongAnswer: null, explanation: null } })
+  })
+
+  it('直前の回答の枠ができる前に保存した設定は、直前の回答の枠を「鳴らさない」として読み出す', async () => {
+    // 前提: 直前の回答の枠（wrongAnswer）を足す前に、6つの枠で保存した設定が KV に残っている
+    const store = createFakeStore()
+    const { bgm, start, countdown, correct, timeUp, explanation } = fullSound.slots
+    const slotsBeforeWrongAnswer = { bgm, start, countdown, correct, timeUp, explanation }
+    await store.put('kanji-quiz-sound', JSON.stringify({ ...fullSound, slots: slotsBeforeWrongAnswer }))
+
+    expect(await loadKanjiQuizSound(store)).toEqual({ ...fullSound, slots: { ...slotsBeforeWrongAnswer, wrongAnswer: null } })
   })
 })
 
@@ -140,6 +151,7 @@ describe('playbackKanjiQuizSoundOf', () => {
       slots: {
         bgm: '/api/media/media-thinking?key=overlay-key',
         start: null,
+        wrongAnswer: null,
         countdown: null,
         correct: '/api/media/media-pinpon?key=overlay-key',
         timeUp: null,

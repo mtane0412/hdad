@@ -14,12 +14,13 @@
  * 音を鳴らす枠。並びは演出で鳴る順で、管理画面の並びにも使う。
  * - bgm: 級を出してから、正解者が届くか時間切れになるまでループで流す
  * - start: 級を出したとき（出題の始まり）
+ * - wrongAnswer: 制限時間のうちに、チャットの不正解の回答（直前の回答）が届くたび
  * - countdown: 最後の数秒の大きなカウントダウンが切り替わるたび
  * - correct: 正解者が届いたとき
  * - timeUp: 時間切れになったとき
  * - explanation: 正解者・時間切れを見せたあと、解説の帯を出したとき
  */
-export const KANJI_QUIZ_SOUND_SLOTS = ['bgm', 'start', 'countdown', 'correct', 'timeUp', 'explanation'] as const
+export const KANJI_QUIZ_SOUND_SLOTS = ['bgm', 'start', 'wrongAnswer', 'countdown', 'correct', 'timeUp', 'explanation'] as const
 
 export type KanjiQuizSoundSlot = (typeof KANJI_QUIZ_SOUND_SLOTS)[number]
 
@@ -55,6 +56,7 @@ const readSoundShape = (value: unknown, subject: string): KanjiQuizSound => {
     slots: {
       bgm: slotOf('bgm'),
       start: slotOf('start'),
+      wrongAnswer: slotOf('wrongAnswer'),
       countdown: slotOf('countdown'),
       correct: slotOf('correct'),
       timeUp: slotOf('timeUp'),

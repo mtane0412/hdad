@@ -34,8 +34,8 @@ export const KANJI_QUIZ_TOTAL_MS = GRADE_INTRO_MS + ANSWER_LIMIT_MS + REVEAL_MS
 /** 配信を止めるまでの猶予が尽きた・取り消されたあと、その結果を出しておく長さ（ミリ秒） */
 export const STOP_RESULT_MS = 5_000
 
-/** 熟語が出たときの倍率（奥の小さな点から近づいてくる） */
-const START_SCALE = 0.05
+/** 熟語が出たときの倍率（奥から近づいてくる。小さすぎると出たばかりの熟語が点にしか見えないので、読める大きさから始める） */
+const START_SCALE = 0.2
 const MS_PER_SECOND = 1_000
 
 export type KanjiQuizScene =
