@@ -45,7 +45,8 @@ import { loadTownTourSound, playbackSoundOf } from './town-tour-sound'
 import { issueKanjiQuiz } from './kanji-quiz-issue'
 import { loadKanjiQuizSound, playbackKanjiQuizSoundOf } from './kanji-quiz-sound'
 import { lickCallOf, lickSeedOf } from './lick-call'
-import { vrmCallOf, vrmSeedOf } from './vrm-call'
+import type { TriggerKind } from './trigger-menu'
+import { vrmCallOf, vrmReactionOf, vrmSeedOf } from './vrm-call'
 import { loadVrmModel, playbackVrmModelOf } from './vrm-model'
 import { loadLickSound, playbackLickSoundOf } from './lick-sound'
 import { twisterCallOf, twisterSeedOf } from './twister-call'
@@ -233,8 +234,9 @@ export const runAlertActions = async (
     }
   }
 
-  // VRMの演出（issue #358）も素材が流すので、botの接続を見る前に押し出す。出す VRM は全体で1つで、種は1件ごとに引く
-  const vrmCount = ((): number => {
+  // VRMのマスコットの反応（issue #358・#359）も素材が流すので、botの接続を見る前に押し出す。出す VRM は全体で1つで、
+  // 反応の種類は当てはまった行の項目から決め、種は1件ごとに引く
+  const vrmKinds = ((): TriggerKind[] => {
     try {
       return vrmsFor(config, subscriptionType, body.event, state)
     } catch (error) {
@@ -242,13 +244,14 @@ export const runAlertActions = async (
     }
   })()
   // VRM の設定とオーバーレイ用キーは、当てはまった行があるときだけ読む（チャットの発言のたびにKVを読まないため）
-  if (vrmCount > 0) {
+  if (vrmKinds.length > 0) {
     const [model, overlayKey] = await Promise.all([loadVrmModel(env.STORE), loadOverlayKey(env.STORE)])
-    for (let index = 0; index < vrmCount; index += 1) {
+    for (const [index, kind] of vrmKinds.entries()) {
       await sendAndRecordFailure(context, messageId, 'vrm', index, 'vrm-push-failed', async () => {
         // VRM を選んでいない・キーが未発行で URL を作れないときも、押し出しの失敗として記録する（黙って何も出さずに済ませない）
         const modelUrl = playbackVrmModelOf(model, overlayKey)
-        await pushVrm(env.ALERTS, vrmCallOf(modelUrl, vrmSeedOf(crypto.getRandomValues(new Uint32Array(1))), crypto.randomUUID()))
+        const seed = vrmSeedOf(crypto.getRandomValues(new Uint32Array(1)))
+        await pushVrm(env.ALERTS, vrmCallOf(modelUrl, seed, vrmReactionOf(kind), crypto.randomUUID()))
       })
     }
   }

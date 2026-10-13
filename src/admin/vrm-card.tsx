@@ -142,7 +142,7 @@ export const VrmCard = ({ api, media }: VrmCardProps) => {
       <CardHeader>
         <CardTitle>VRM</CardTitle>
         <CardDescription>
-          選んだ VRM のキャラクターを、オーバーレイの素材「VRM」にマスコットとして立たせておく。トリガーの項目で「VRMを出す」を選ぶと、その場で手を振ってお辞儀する（どの項目にも置ける）。
+          選んだ VRM のキャラクターを、オーバーレイの素材「VRM」にマスコットとして立たせておく。トリガーの項目で「VRMを出す」を選ぶと、その項目に合った反応（お礼・大喜び・手を振る・うなずく）をその場でする（どの項目にも置ける）。
           VRM はアップロードのページで追加する。
         </CardDescription>
       </CardHeader>
@@ -150,7 +150,7 @@ export const VrmCard = ({ api, media }: VrmCardProps) => {
         {actions.feedback}
         {body}
         <p className="text-sm text-muted-foreground">
-          トリガーを待たずに試しに反応させられる（動き方は毎回ランダム。オーバーレイに「VRM」の素材を置いておく）。VRM は保存したものが出るので、未保存の変更があるあいだと、VRM
+          トリガーを待たずに試しに反応させられる（反応の種類と動き方は毎回ランダム。オーバーレイに「VRM」の素材を置いておく）。VRM は保存したものが出るので、未保存の変更があるあいだと、VRM
           を選んでいないあいだは押せない。
         </p>
         {/* 試し再生は保存済みの VRM で流れる。選び直した VRM を保存せずに流すと、見比べたつもりのものと食い違うので押させない */}
