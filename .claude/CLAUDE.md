@@ -45,7 +45,7 @@ npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 ### 描画とパラメータ
 
 - URLパラメータは `src/core/params.ts` のスキーマで宣言する。不正値は既定値に戻さずエラー表示する（Fail-Fast）
-- 描画は経過時間だけから決まる形にする（フレーム間の状態を持たない）。時計は経過時間の代わりに `frame.now`（現在時刻）だけから決める
+- 描画は経過時間だけから決まる形にする（フレーム間の状態を持たない）。時計は経過時間の代わりに `frame.now`（現在時刻）だけから決める（`docs/decisions/rendering.md`）
 
 ### 型チェックとデプロイ
 
