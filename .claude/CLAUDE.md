@@ -80,7 +80,7 @@ npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 | `twister.md` | ツイスター（レイドの動作 `twister` と素材の種類 `twister`。three.js の3Dの人形で対戦し、倒れ込みは物理を先に計算して再生する） | `src/twister/**`・`worker/twister-*.ts`・`src/admin/twister-card.tsx` |
 | `kanji-quiz.md` | 漢字クイズ（チャンネルポイントの動作 `kanjiQuiz` と素材の種類 `kanjiQuiz`。自前の問題集から級を選んで出題し、時間切れなら猶予のあと裏方が OBS の配信を止める） | `src/kanji-quiz/**`・`worker/kanji-quiz-*.ts`・`src/admin/kanji-quiz-card.tsx` |
 | `lick.md` | ペロペロ（動作 `lick` と素材の種類 `lick`。相手のアイコンを three.js の舌が舐め上げる。キモさ優先） | `src/lick/**`・`worker/lick-*.ts`・`src/admin/lick-card.tsx` |
-| `vrm.md` | VRMの演出（動作 `vrm` と素材の種類 `vrm`。配信者がアップロードした VRM が短いあいだだけ出て動く。動きは手で作り SpringBone は使わない） | `src/vrm/**`・`worker/vrm-*.ts`・`src/admin/vrm-card.tsx` |
+| `vrm.md` | VRMのマスコット（動作 `vrm` と素材の種類 `vrm`。配信者がアップロードした VRM を出しっぱなしで立たせ、トリガーでその場で反応させる。動きは手で作り SpringBone は使わない） | `src/vrm/**`・`worker/vrm-*.ts`・`src/admin/vrm-card.tsx` |
 | `opinions.md` | 意見ボード（`/opinions/`・素材の種類 `opinions`。テーマを出してチャットから意見を取り出し、観点ごとに並べる。多数決に見せない） | `src/opinions/**`・`src/stats/session-opinions*.tsx`・`worker/opinion*.ts`・`worker/webhook-routes.ts`・`worker/comment-feed.ts`・`worker/alert-channel.ts`・`worker/ad-break-timer.ts`・`migrations/*opinion*.sql` |
 | `overlay.md` | 合成ページと構成の管理画面（`overlay/stage/`・`/overlay/`） | `src/overlay/**`・`overlay/**`・`worker/overlay-*.ts` |
 | `speech.md` | チャットの読み上げ（`speech/reader/`。合成先にさくらのAI Engine） | `src/speech/**`・`speech/**`・`worker/speech-*.ts` |

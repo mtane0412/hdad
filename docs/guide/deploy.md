@@ -87,6 +87,7 @@ R2は無料枠（保存10GB・転送無料）だけを使う場合でも、デ�
 | `GET /api/overlay/kanji-quiz/stop/socket?key=` | 裏方のページ（`?stop=true`）からのWebSocketの接続を受け、漢字クイズの時間切れで配信を止める命令を押し出す（要オーバーレイ用キー） |
 | `POST /api/overlay/kanji-quiz/stop/result?key=` | 裏方のページが、配信を止める命令を受けて OBS の配信を止められたかを知らせる。本文は `{ quizId, error }` で、`error` が文字列なら失敗として記録する（要オーバーレイ用キー） |
 | `GET /api/overlay/vrm/socket?key=` | 合成ページからのWebSocketの接続を受け、VRMの演出の呼び出し（動き方の種と VRM のURL）を、トリガーと試し再生のときに押し出す（要オーバーレイ用キー） |
+| `GET /api/overlay/vrm/model?key=` | 出しっぱなしのマスコットとして読み込む VRM のURL。VRM を選んでいなければ409（要オーバーレイ用キー） |
 | `GET /api/overlay/lick/socket?key=` | 合成ページからのWebSocketの接続を受け、ペロペロの呼び出し（舐め方の種と相手の名前・アイコン）を、トリガーと試し再生のときに押し出す（要オーバーレイ用キー） |
 | `GET /api/overlay/twister/socket?key=` | 合成ページからのWebSocketの接続を受け、ツイスターの呼び出し（対戦の種と2人の名前・アイコンと BGM）を、レイドと試し再生のときに押し出す（要オーバーレイ用キー） |
 | `GET /api/overlay/town-tour?key=&code=[&raider=&viewers=]` | 市町村紹介。一覧のコード（5桁）の市町村について、Wikipedia の記事を材料に LLM で紹介を作り、出典の URL と一緒に返す。レイド元のログイン名（`raider`）と連れてきた人数（`viewers`）を添えると、その配信者との共通点も作る（OpenRouter の鍵が無ければ作らない。共通点だけの失敗は理由を添えて返し、紹介は止めない）。一覧に無いコードは404、レイド元の形が違えば400、紹介を作れなければ502で、ダッシュボードの失敗の記録にも残す（要オーバーレイ用キー） |

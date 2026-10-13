@@ -2,6 +2,7 @@
  * VRMの演出の経路（issue #358）
  *
  * - GET /api/overlay/vrm/socket?key=: 合成ページの素材「VRM」の WebSocket の接続を配送先（AlertChannel）へ引き渡す
+ * - GET /api/overlay/vrm/model?key=: 合成ページの素材「VRM」が、出しっぱなしにするマスコットの VRM のURLを読む（issue #359）
  * - POST /api/admin/vrm/demo: 管理画面の試し再生。選んである VRM の演出を素材へ押し出す（トリガーと同じ配送の経路を通す）
  * - GET /api/admin/vrm/model: 出す VRM の設定。未保存なら選んでいない設定
  * - PUT /api/admin/vrm/model: 出す VRM の設定を検証して保存する（問題があれば index.ts が問題点付きの400にする）
@@ -26,6 +27,23 @@ export const vrmSocket = async (context: Context): Promise<Response> => {
     throw new HttpError(STATUS.badRequest, 'expected-websocket', 'この経路はWebSocketの接続にだけ使えます')
   }
   return connectVrmSocket(context.env.ALERTS, context.request, await overlayKeyTag(key))
+}
+
+/**
+ * GET /api/overlay/vrm/model?key=: 出しっぱなしのマスコットとして読み込む VRM のURL（オーバーレイ用キーつき）を返す。
+ *
+ * 呼び出しが届く前からマスコットを立たせておくため、合成ページは起動したときと再接続したときにここを読む。
+ *
+ * @throws HttpError VRM を選んでいない場合は409（何も映らないマスコットを黙って出さない）
+ */
+export const getOverlayVrmModel = async (context: Context): Promise<Response> => {
+  const key = await requireOverlayKey(context)
+  const model = await loadVrmModel(context.env.STORE)
+  try {
+    return Response.json({ model: playbackVrmModelOf(model, key) })
+  } catch (error) {
+    throw new HttpError(STATUS.conflict, 'vrm-not-ready', error instanceof Error ? error.message : String(error))
+  }
 }
 
 /**
