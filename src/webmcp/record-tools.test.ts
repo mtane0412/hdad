@@ -36,7 +36,6 @@ const eveningStreamDetail: SessionDetail = {
     { sampledAt: '2026-10-07T10:10:00Z', viewerCount: 14 },
   ],
   chapters: [{ startedAt: '2026-10-07T10:00:00Z', endedAt: '2026-10-07T10:30:00Z', title: '段階2のツール', summary: 'チャットの送信をツールにした', chatCount: 4, chatterCount: 2 }],
-  titleCandidates: [{ chapterStartedAt: '2026-10-07T10:00:00Z', candidate: 'ツールを増やす', publishable: 0.82 }],
   summary: 'WebMCP のツールを段階ごとに増やしている',
   workTime: { people: 3, totalMs: 5_400_000 },
   raids: [],
@@ -147,7 +146,6 @@ describe('配信の記録', () => {
     expect(detail).toMatchObject({
       id: 'stream-1007',
       chapters: eveningStreamDetail.chapters,
-      titleCandidates: eveningStreamDetail.titleCandidates,
       summary: 'WebMCP のツールを段階ごとに増やしている',
       workTime: { people: 3, totalMs: 5_400_000 },
     })

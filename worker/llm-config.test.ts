@@ -105,7 +105,7 @@ describe('parseLlmSettings', () => {
   })
 
   it('問題点は最初の1件で止めず、すべて集めてから拒否する', () => {
-    expect(issues({ usages: { aiChat: { provider: 'openai', models: { 'workers-ai': 1, openrouter: '' } } } })).toHaveLength(14)
+    expect(issues({ usages: { aiChat: { provider: 'openai', models: { 'workers-ai': 1, openrouter: '' } } } })).toHaveLength(13)
   })
 
   it('使う箇所は11つで、市町村紹介の共通点のほかは既定の提供元が Workers AI である', () => {
@@ -115,7 +115,6 @@ describe('parseLlmSettings', () => {
       'sideSuper',
       'viewerSummary',
       'streamSummary',
-      'streamTitle',
       'townTour',
       'townBond',
       'autoText',
@@ -163,10 +162,6 @@ describe('parseLlmSettings', () => {
   it('市町村紹介は、レイドのときだけ呼ばれ材料にない内容を書かせたくないので、あらすじと同じ大きいモデルを既定にする', () => {
     expect(DEFAULT_LLM_SETTINGS.usages.townTour.models).toEqual(DEFAULT_LLM_SETTINGS.usages.streamSummary.models)
   })
-
-  it('配信タイトルの候補は、8bでは日本語の言い回しが弱いと見込むので、あらすじと同じ大きいモデルを既定にする', () => {
-    expect(DEFAULT_LLM_SETTINGS.usages.streamTitle.models).toEqual(DEFAULT_LLM_SETTINGS.usages.streamSummary.models)
-  })
 })
 
 describe('loadLlmSettings', () => {
@@ -195,6 +190,14 @@ describe('loadLlmSettings', () => {
     const store = createFakeStore({ 'llm-settings': JSON.stringify({ usages: savedBeforeTranslation }) })
 
     expect(await loadLlmSettings(store)).toEqual({ usages: { ...broadcasterConfig.usages, translation: DEFAULT_LLM_SETTINGS.usages.translation } })
+  })
+
+  it('廃止した箇所（配信タイトルの候補の streamTitle）が残っている設定も、その箇所を落として読み出す', async () => {
+    // 前提: 配信タイトルの候補（issue #268）を廃止する前に保存された設定には、streamTitle のキーが残っている
+    const streamTitle = { provider: 'workers-ai', models: { 'workers-ai': '@cf/meta/llama-3.3-70b-instruct-fp8-fast', openrouter: 'meta-llama/llama-3.3-70b-instruct' } }
+    const store = createFakeStore({ 'llm-settings': JSON.stringify({ usages: { ...broadcasterConfig.usages, streamTitle } }) })
+
+    expect(await loadLlmSettings(store)).toEqual(broadcasterConfig)
   })
 
   it('保存されている箇所の中身が壊れていれば、補わずにエラーにする', async () => {

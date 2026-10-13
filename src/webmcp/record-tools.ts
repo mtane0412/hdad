@@ -4,7 +4,7 @@
  * ダッシュボード・視聴者・LLM のページで見られる記録（配信の一覧と詳細・視聴者の記録・LLM の使用状況と残高）を
  * エージェントが読めるようにする。視聴者のメモの保存だけは書き込みで、ほかは readOnlyHint を付ける。
  *
- * 視聴者が書いた文や、それを材料に LLM が作った文（章の要約・あらすじ・タイトルの候補・人物像・メモ）を返すツールには
+ * 視聴者が書いた文や、それを材料に LLM が作った文（章の要約・あらすじ・人物像・メモ）を返すツールには
  * untrustedContentHint を付ける。エージェントがその文の中の指示に従ってしまわないよう、出どころを知らせるためである。
  *
  * 注意: メモを保存しても、開いている視聴者のページの表示はページを開き直すまで変わらない（ページが一覧を開いたときに
@@ -64,7 +64,7 @@ export const buildRecordTools = (apis: RecordApis, now: () => number): WebMCP.Mo
     name: 'get_stream',
     title: '配信の詳細',
     description:
-      '配信1回ぶんの詳細を返します。約30分ごとの章（見出しと何が話されたかの要約）・章ごとの配信タイトルの候補と公開してよい確率・これまでのあらすじ・作業机の作業時間の合計を含みます。視聴者数の時系列は返しません。id には list_streams が返した id を指定します。',
+      '配信1回ぶんの詳細を返します。約30分ごとの章（見出しと何が話されたかの要約）・これまでのあらすじ・作業机の作業時間の合計を含みます。視聴者数の時系列は返しません。id には list_streams が返した id を指定します。',
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string', description: 'list_streams が返した配信の id' } },
@@ -81,7 +81,6 @@ export const buildRecordTools = (apis: RecordApis, now: () => number): WebMCP.Mo
         title: detail.title,
         categoryName: detail.categoryName,
         chapters: detail.chapters,
-        titleCandidates: detail.titleCandidates,
         summary: detail.summary,
         workTime: detail.workTime,
       })

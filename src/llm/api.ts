@@ -39,7 +39,6 @@ export const LLM_USAGES = [
   'sideSuper',
   'viewerSummary',
   'streamSummary',
-  'streamTitle',
   'townTour',
   'townBond',
   'autoText',
@@ -73,7 +72,7 @@ export interface DeeplUsage {
  *
  * Jev はモデルを選ばせない（worker/jev.ts が版を固定している）ので、設定には含まれず、使用状況にだけ並ぶ。
  */
-export const JEV_USAGES = ['bgm', 'streamTitle', 'opinionFilter'] as const
+export const JEV_USAGES = ['bgm', 'opinionFilter'] as const
 
 export type LlmProvider = (typeof LLM_PROVIDERS)[number]
 export type LlmUsage = (typeof LLM_USAGES)[number]

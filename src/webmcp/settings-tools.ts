@@ -26,7 +26,6 @@ import type { LlmApi, LlmState } from '@/llm/api'
 import type { OverlayLayoutAdminApi } from '@/overlay/admin-api'
 import type { PomodoroApi } from '@/pomodoro/api'
 import type { SpeechApi } from '@/speech/api'
-import type { StatsApi } from '@/stats/api'
 import { readChoice } from './input'
 
 /** 設定を読み書きするツールが使う Worker の Api（名前はアプリの枠の PageContext と同じ） */
@@ -38,7 +37,6 @@ export interface SettingsApis {
   llmApi: Pick<LlmApi, 'save'> & { load(): Promise<Pick<LlmState, 'settings'>> }
   overlayApi: OverlayLayoutAdminApi
   pomodoroApi: Pick<PomodoroApi, 'read' | 'saveSettings'>
-  statsApi: Pick<StatsApi, 'titleSettings' | 'saveTitleSettings'>
 }
 
 /** 設定を読み書きするツールが使う、Worker の Api とアプリの枠の状態 */
@@ -54,7 +52,7 @@ export interface SettingsDeps {
 }
 
 /** 読み書きできる設定の種類 */
-const SETTING_TARGETS = ['triggers', 'botCommands', 'moderation', 'speech', 'llm', 'overlays', 'bgmTracks', 'bgmSettings', 'pomodoro', 'streamTitle'] as const
+const SETTING_TARGETS = ['triggers', 'botCommands', 'moderation', 'speech', 'llm', 'overlays', 'bgmTracks', 'bgmSettings', 'pomodoro'] as const
 type SettingTarget = (typeof SETTING_TARGETS)[number]
 
 /** 設定1種類ぶんの読み書き */
@@ -85,7 +83,7 @@ const loadedBgm = (deps: SettingsDeps) => {
 
 /** 設定の種類ごとの読み書き */
 const buildSettings = (deps: SettingsDeps): Record<SettingTarget, Setting> => {
-  const { api, botApi, speechApi, llmApi, overlayApi, pomodoroApi, statsApi } = deps.apis
+  const { api, botApi, speechApi, llmApi, overlayApi, pomodoroApi } = deps.apis
   return {
     triggers: { label: 'トリガー', pagePath: '/triggers/', load: () => api.config(), save: (value) => api.saveConfig(asSubmitted(value)) },
     botCommands: { label: 'チャットボット', pagePath: '/bot/', load: () => botApi.commands(), save: (value) => botApi.saveCommands(asSubmitted(value)) },
@@ -111,12 +109,6 @@ const buildSettings = (deps: SettingsDeps): Record<SettingTarget, Setting> => {
       load: async () => (await pomodoroApi.read()).settings,
       save: (value) => pomodoroApi.saveSettings(asSubmitted(value)),
     },
-    streamTitle: {
-      label: 'ダッシュボード',
-      pagePath: '/',
-      load: () => statsApi.titleSettings(),
-      save: (value) => statsApi.saveTitleSettings(asSubmitted(value)),
-    },
   }
 }
 
@@ -137,7 +129,7 @@ const TARGET_SCHEMA = {
   type: 'string',
   enum: SETTING_TARGETS,
   description:
-    'triggers（トリガー）・botCommands（チャットボットのコマンド）・moderation（モデレーション）・speech（チャットの読み上げ）・llm（LLMのモデル）・overlays（オーバーレイの構成）・bgmTracks（BGMの曲）・bgmSettings（BGMの設定）・pomodoro（ポモドーロの休憩の曲）・streamTitle（配信タイトルの候補を作るか）',
+    'triggers（トリガー）・botCommands（チャットボットのコマンド）・moderation（モデレーション）・speech（チャットの読み上げ）・llm（LLMのモデル）・overlays（オーバーレイの構成）・bgmTracks（BGMの曲）・bgmSettings（BGMの設定）・pomodoro（ポモドーロの休憩の曲）',
 } as const
 
 /**

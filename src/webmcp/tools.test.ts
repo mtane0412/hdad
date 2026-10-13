@@ -92,8 +92,6 @@ const createDeps = (overrides: Partial<WebMcpDeps> = {}) => {
       statsApi: {
         sessions: async () => [],
         session: async () => Promise.reject(new Error('配信の記録がありません')),
-        titleSettings: async () => ({ enabled: false }),
-        saveTitleSettings: async (next) => next,
       },
       viewerApi: { list: async () => [], saveNote: async (_userId, note) => note },
       llmApi: {
