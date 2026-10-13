@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest'
 import type { FollowerSample, SessionSummary } from './api'
 import {
+  formatChapterChat,
   formatProbability,
   eventTotals,
   followerPoints,
@@ -221,6 +222,17 @@ describe('formatDuration・formatDateTime・formatCount（表示用の整形）'
 describe('formatTimeRange（章の区間の時刻）', () => {
   it('始まりと終わりを、ブラウザのタイムゾーンの時刻で「21:00〜21:30」のように表す', () => {
     expect(formatTimeRange('2026-09-18T12:00:00.000Z', '2026-09-18T12:30:00.000Z')).toBe('21:00〜21:30')
+  })
+})
+
+describe('formatChapterChat（章のチャットの件数と発言者数）', () => {
+  it('件数と人数を「12件・5人」のように表す', () => {
+    expect(formatChapterChat({ chatCount: 12, chatterCount: 5 })).toBe('12件・5人')
+    expect(formatChapterChat({ chatCount: 0, chatterCount: 0 })).toBe('0件・0人')
+  })
+
+  it('数を残す前に作った章（null）は、0件と取り違えないよう「記録なし」にする', () => {
+    expect(formatChapterChat({ chatCount: null, chatterCount: null })).toBe('記録なし')
   })
 })
 

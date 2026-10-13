@@ -7,7 +7,7 @@
  * 注意: 記録が無いことと 0 は別物として扱う。記録が無い値は null のまま持ち、表示のときに「—」にする（Fail-Fast）。
  * 日時は配信者のブラウザのタイムゾーンで表示する（Date の既定のタイムゾーンに任せる）。
  */
-import type { FollowerSample, SessionSummary, ViewerSample, WorkTime } from './api'
+import type { FollowerSample, SessionSummary, StreamChapter, ViewerSample, WorkTime } from './api'
 
 /** サブスク（新規）のイベントの種類 */
 const SUBSCRIBE = 'channel.subscribe'
@@ -148,6 +148,15 @@ export const formatDuration = (milliseconds: number): string => {
 /** 作業机でみんなが作業した時間の合計を「14時間32分（5人）」のように表す。記録が無ければ 0 ではなく「—」にする */
 export const formatWorkTime = (workTime: WorkTime | null): string =>
   workTime === null ? '—' : `${formatDuration(workTime.totalMs)}（${workTime.people}人）`
+
+/**
+ * 章のチャットの件数と発言者数を「12件・5人」のように表す。
+ *
+ * 数を残す前（migrations/0036_chapter_chat_counts.sql より前）に作った章は null なので、0件と取り違えないよう「記録なし」にする。
+ * ほかの値の「—」と違って言葉にするのは、「チャット —」だけでは何が無いのかが読み取りにくいためである。
+ */
+export const formatChapterChat = ({ chatCount, chatterCount }: Pick<StreamChapter, 'chatCount' | 'chatterCount'>): string =>
+  chatCount === null || chatterCount === null ? '記録なし' : `${chatCount}件・${chatterCount}人`
 
 /** Jev が返した確率（0〜1）を、整数に丸めた百分率（「93%」）で表す */
 export const formatProbability = (probability: number): string => `${Math.round(probability * 100)}%`

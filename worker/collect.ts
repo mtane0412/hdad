@@ -6,7 +6,7 @@
  * あわせて終わった配信の発言から視聴者の人物像を作り（そのついでにその人自身のチャンネルの内容も観測して記録し）、
  * 配信画面を撮った1枚から Gyazo が読み取った文字を取りに行き、
  * あらすじを作り直せたら、そのあらすじに合う BGM を Jev に選ばせ（issue #153。worker/bgm-jev.ts）、
- * 区間が閉じた配信の章（見出しと要約。worker/stream-chapter.ts）を作り、
+ * 区間が閉じた配信の章（見出しと要約。worker/stream-chapter.ts）を、その区間のチャットの件数と発言者数とともに作り、
  * 設定を入れていれば配信中の最後の章から配信タイトルの候補（試験運用。worker/stream-title.ts）を作って Jev に判定させ、
  * 古くなった記録（first_chatters・stream_chat_messages・transcripts）を消す。
  *
@@ -15,6 +15,9 @@
  * 注意: 1回ぶんに時間の予算を持つ（COLLECT_BUDGET_MS。issue #126）。外への呼び出し1回ずつには時間制限が
  * あるが（worker/timeout.ts）、Gyazo を最大30枚とLLMを5か所ぶん逐次に呼ぶので、遅い相手が続くと1回の収集が
  * 積み上がって長くなる。予算を過ぎたら配信の記録は残したまま、材料づくりだけを次の収集へ回す。
+ * 注意: 章のチャットの件数と発言者数（issue #352）は、章を保存するときに stream_chat_messages から数える。
+ * そのため発言を消す処理（人物像の作成のあとの deleteStreamChatMessages と、保持期間切れの deleteOldStreamChatMessages）は、
+ * どちらも章立てより後ろに置く。
  */
 import { pushTexts, pushWorkLogEntry, type AlertChannelNamespace } from './alert-channel'
 import { BGM_TRANSCRIPT_CONTEXT, chooseBgm } from './bgm-jev'
@@ -129,6 +132,7 @@ const STREAM_SUMMARY_SCREEN_LIMIT = 50
  * ふつうは人物像を作った時点で消える（deleteStreamChatMessages）ので、ここで消えるのは、
  * LLMを呼べないまま残った材料（無料枠を使い切った日など）だけである。
  * 配信中の発言まで巻き添えにしないよう、1回の配信より十分に長くとる。
+ * 章はこの材料からチャットの件数と発言者数を数えるので、消すのは章立てのあとにする（collect の処理順）。
  */
 export const STREAM_CHAT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -845,9 +849,9 @@ const collect = async ({ db, store, tokens, twitch, ai, jev, alerts, gyazo, broa
   const followerTotal = await callTwitch((accessToken) => twitch.getFollowerTotal(accessToken, broadcasterId))
   await recordFollowerTotal(db, followerTotal, now)
 
-  // 配信を重ねるほど行が積み上がるので、収集のついでに古いぶんを消す
+  // 配信を重ねるほど行が積み上がるので、収集のついでに古いぶんを消す。
+  // 発言（stream_chat_messages）だけは章立てのあとで消す（下の章立ての注記を参照）
   await deleteOldFirstChatters(db, now - FIRST_CHATTER_RETENTION_MS)
-  await deleteOldStreamChatMessages(db, now - STREAM_CHAT_RETENTION_MS)
   await deleteOldTranscripts(db, now - TRANSCRIPT_RETENTION_MS)
   await deleteOldScreenCaptures(db, now - SCREEN_CAPTURE_RETENTION_MS)
   await deleteOldScreenLines(db, now - SCREEN_CAPTURE_RETENTION_MS)
@@ -879,8 +883,10 @@ const collect = async ({ db, store, tokens, twitch, ai, jev, alerts, gyazo, broa
 
   // 章立ては人物像より先に行う。人物像を作ると発言の材料が消えるので、配信が終わった回の最後の章から
   // 視聴者の反応が抜けないようにするためである（人物像は、章にし終えた配信の発言だけを材料にする）
+  // 章はチャットの件数と発言者数も数えて残す（issue #352）ので、保持期間切れの発言を消すのも章立てのあとにする
   const chapterDeferred = await withinBudget('章立て', () => makeStreamChapter(db, ai, alerts, now, budgetExhausted))
   if (chapterDeferred === true) deferredToNextCollect.push('章立て（残りの配信）')
+  await deleteOldStreamChatMessages(db, now - STREAM_CHAT_RETENTION_MS)
   // タイトルの候補は章を材料にするので、章立てのあとに行う。配信中のタイトルにしか使い道が無いので、配信中だけ作る
   if (stream) await withinBudget('配信タイトルの候補', () => proposeStreamTitle({ db, store, ai, jev }, stream, now))
   if (budgetExhausted()) {

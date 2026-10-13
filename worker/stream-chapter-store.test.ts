@@ -28,10 +28,11 @@ const insertTranscript = (messageId: string, sessionId: string, minutes: number,
     .run(messageId, sessionId, iso(startedAt + minutes * MINUTE), text)
 }
 
-const insertChat = (messageId: string, sessionId: string, minutes: number, text: string): void => {
+/** 発言を1件置く。userId を省くと、いつも同じ人（ユーザーID 100）の発言になる */
+const insertChat = (messageId: string, sessionId: string, minutes: number, text: string, userId = '100'): void => {
   db.sqlite
     .prepare('INSERT INTO stream_chat_messages (message_id, session_id, user_id, sent_at, text) VALUES (?, ?, ?, ?, ?)')
-    .run(messageId, sessionId, '100', iso(startedAt + minutes * MINUTE), text)
+    .run(messageId, sessionId, userId, iso(startedAt + minutes * MINUTE), text)
 }
 
 const insertScreenLine = (imageId: string, lineNo: number, sessionId: string, minutes: number, text: string): void => {
@@ -127,9 +128,42 @@ describe('saveStreamChapter', () => {
     })
 
     expect(await listStreamChapters(db, '配信1')).toEqual([
-      { startedAt: STARTED_AT, endedAt: iso(startedAt + 30 * MINUTE), title: '新しいマイクのお披露目', summary: '配信者が買い替えたマイクの音を聞かせた。' },
+      {
+        startedAt: STARTED_AT,
+        endedAt: iso(startedAt + 30 * MINUTE),
+        title: '新しいマイクのお披露目',
+        summary: '配信者が買い替えたマイクの音を聞かせた。',
+        chatCount: 0,
+        chatterCount: 0,
+      },
     ])
     expect(db.sqlite.prepare('SELECT chaptered_until FROM stream_sessions WHERE id = ?').get('配信1')).toEqual({ chaptered_until: iso(startedAt + 30 * MINUTE) })
+  })
+
+  it('章の区間の中のチャットの件数と発言者数（重複を除いた人数）を数えて一緒に残し、本文は残さない', async () => {
+    createStream('配信1')
+    createStream('別の配信')
+    // 区間（12:00〜12:30）の中: 花子（ID 100）が2回、太郎（ID 200）が1回発言した
+    insertChat('hatsugen-1', '配信1', 0, 'こんばんは！', '100')
+    insertChat('hatsugen-2', '配信1', 10, 'マイクの音いいですね', '100')
+    insertChat('hatsugen-3', '配信1', 29, 'どこのメーカーですか？', '200')
+    // 区間の終わりちょうど（次の区間）・別の配信の発言は数えない
+    insertChat('hatsugen-4', '配信1', 30, '次の話題だ', '300')
+    insertChat('hatsugen-5', '別の配信', 10, '別の配信の発言', '400')
+
+    await saveStreamChapter(db, {
+      sessionId: '配信1',
+      startedAt: STARTED_AT,
+      endedAt: iso(startedAt + 30 * MINUTE),
+      title: '新しいマイクのお披露目',
+      summary: '配信者が買い替えたマイクの音を聞かせた。',
+    })
+
+    const [chapter] = await listStreamChapters(db, '配信1')
+    expect(chapter).toMatchObject({ chatCount: 3, chatterCount: 2 })
+    // 章の行に本文の列は無い（数だけを残す）
+    const columns = db.sqlite.prepare('SELECT name FROM pragma_table_info(?)').all('stream_chapters') as { name: string }[]
+    expect(columns.map((column) => column.name)).not.toContain('text')
   })
 })
 
@@ -151,5 +185,17 @@ describe('listStreamChapters', () => {
     await saveStreamChapter(db, { sessionId: '配信1', startedAt: STARTED_AT, endedAt: iso(startedAt + 30 * MINUTE), title: '新しいマイクのお披露目', summary: 'マイクの音を聞かせた。' })
 
     expect((await listStreamChapters(db, '配信1')).map((chapter) => chapter.title)).toEqual(['新しいマイクのお披露目', 'ゲームの攻略'])
+  })
+
+  it('チャットの数を残す前に作った章は、件数と発言者数を null で返す（0件と取り違えないため）', async () => {
+    createStream('配信1')
+    // 0036 より前に作った章は、数の列が NULL のまま残っている
+    db.sqlite
+      .prepare('INSERT INTO stream_chapters (session_id, started_at, ended_at, title, summary) VALUES (?, ?, ?, ?, ?)')
+      .run('配信1', STARTED_AT, iso(startedAt + 30 * MINUTE), '昔の章', '数を残す前に作った章。')
+
+    expect(await listStreamChapters(db, '配信1')).toEqual([
+      { startedAt: STARTED_AT, endedAt: iso(startedAt + 30 * MINUTE), title: '昔の章', summary: '数を残す前に作った章。', chatCount: null, chatterCount: null },
+    ])
   })
 })

@@ -4,6 +4,7 @@
  * Twitchのクライアント・Gyazo・KV・D1を差し替え、「配信中か」「トークンが使えるか」に応じて何が記録されるかを確かめる。
  */
 import { describe, expect, it } from 'vitest'
+import type { Database } from './database'
 import type { TextGenerator } from './llm'
 import type { LlmUsage } from './llm-config'
 import { MAX_VIEWER_SUMMARY_LENGTH } from './viewer-summary'
@@ -668,7 +669,14 @@ describe('章立ての生成', () => {
     await collectStats({ db, store, tokens, twitch: fakeTwitch(), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now: afterFirstWindow })
 
     expect(await listStreamChapters(db, chatStream.id)).toEqual([
-      { startedAt: at('12:00:00'), endedAt: at('12:30:00'), title: '新しいゲームの導入', summary: '配信者が新しいゲームを始め、視聴者が期待を寄せた。' },
+      {
+        startedAt: at('12:00:00'),
+        endedAt: at('12:30:00'),
+        title: '新しいゲームの導入',
+        summary: '配信者が新しいゲームを始め、視聴者が期待を寄せた。',
+        chatCount: 1,
+        chatterCount: 1,
+      },
     ])
     const [prompt] = chapterPrompts(ai)
     expect(prompt).toContain('配信者: ここから新しいゲームを始めます')
@@ -754,7 +762,14 @@ describe('章立ての生成', () => {
     await collectStats({ db, store, tokens, twitch: fakeTwitch({ getLiveStream: async () => null }), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now: ended })
 
     expect(await listStreamChapters(db, chatStream.id)).toEqual([
-      { startedAt: at('12:00:00'), endedAt: at('12:20:00'), title: '新しいゲームの導入', summary: '配信者が新しいゲームを始め、視聴者が期待を寄せた。' },
+      {
+        startedAt: at('12:00:00'),
+        endedAt: at('12:20:00'),
+        title: '新しいゲームの導入',
+        summary: '配信者が新しいゲームを始め、視聴者が期待を寄せた。',
+        chatCount: 1,
+        chatterCount: 1,
+      },
     ])
     const chapterIndex = prompts.findIndex(({ prompt }) => prompt.includes('見出しと要約'))
     const viewerIndex = prompts.findIndex(({ usage }) => usage === 'viewerSummary')
@@ -803,7 +818,14 @@ describe('章立ての生成', () => {
 
     expect((await listFailures(db)).map((failure) => failure.code)).not.toContain('stream-chapter-failed')
     expect(await listStreamChapters(db, chatStream.id)).toEqual([
-      { startedAt: at('12:00:00.001'), endedAt: at('12:30:00.001'), title: '新しいゲームの導入', summary: '配信者が新しいゲームを始め、視聴者が期待を寄せた。' },
+      {
+        startedAt: at('12:00:00.001'),
+        endedAt: at('12:30:00.001'),
+        title: '新しいゲームの導入',
+        summary: '配信者が新しいゲームを始め、視聴者が期待を寄せた。',
+        chatCount: 0,
+        chatterCount: 0,
+      },
     ])
     expect(chapterPrompts(ai)[0]).toContain('配信者: ここから新しいゲームを始めます')
   })
@@ -900,6 +922,52 @@ describe('章立ての生成', () => {
     expect(await listStreamChapters(db, chatStream.id)).toEqual([])
     expect(chapteredUntil(db)).toBeNull()
     expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM stream_chat_messages').get()).toEqual({ count: 1 })
+  })
+
+  it('配信が終わった回は、人物像を作って発言を消すより前に、章のチャットの件数と発言者数を数えて残す', async () => {
+    const { db, store, tokens } = await createEnv()
+    createLiveSession(db)
+    await recordViewerMessage(db, { userId: '100', login: 'hanako', displayName: '花子', badges: [], messageId: 'hatsugen-1' }, Date.parse(at('12:11:00')))
+    await recordViewerMessage(db, { userId: '200', login: 'taro', displayName: '太郎', badges: [], messageId: 'hatsugen-3' }, Date.parse(at('12:13:00')))
+    insertTranscript(db, 'hatsuwa-1', '12:10:00', 'ここから新しいゲームを始めます')
+    // 花子（ID 100）が2回、太郎（ID 200）が1回発言した
+    insertChat(db, 'hatsugen-1', '12:11:00', 'たのしみ！')
+    insertChat(db, 'hatsugen-2', '12:12:00', 'どんなゲーム？')
+    db.sqlite
+      .prepare('INSERT INTO stream_chat_messages (message_id, session_id, user_id, sent_at, text) VALUES (?, ?, ?, ?, ?)')
+      .run('hatsugen-3', chatStream.id, '200', at('12:13:00'), 'はじめまして')
+    const ai: TextGenerator = { run: async (usage) => (usage === 'streamSummary' ? chapterResponse : 'ゲームの話をよくする常連さん') }
+
+    await collectStats({ db, store, tokens, twitch: fakeTwitch({ getLiveStream: async () => null }), ai, ...withoutBgmJudgment, broadcasterId: streamerId, now: Date.parse('2026-09-21T12:20:00Z') })
+
+    // 同じ収集の中で人物像を作り、発言の本文はすべて消えている
+    expect((await readViewer(db, '100'))?.summary).toBe('ゲームの話をよくする常連さん')
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS count FROM stream_chat_messages').get()).toEqual({ count: 0 })
+    // それでも章には、消える前に数えた件数と人数が残っている
+    expect(await listStreamChapters(db, chatStream.id)).toEqual([expect.objectContaining({ chatCount: 3, chatterCount: 2 })])
+  })
+
+  it('保持期間切れの発言を消すのは、章を作ったあとにする（章が数える前に発言を消さないため）', async () => {
+    const { db, store, tokens } = await createEnv()
+    createLiveSession(db)
+    insertTranscript(db, 'hatsuwa-1', '12:10:00', 'ここから新しいゲームを始めます')
+    insertChat(db, 'hatsugen-1', '12:11:00', 'たのしみ！')
+    // D1 に送られたSQLを順に控える代役（どの順で書いたり消したりしたかを確かめるため）
+    const executed: string[] = []
+    const recordingDb: Database = {
+      prepare: (sql) => {
+        executed.push(sql)
+        return db.prepare(sql)
+      },
+      batch: (statements) => db.batch(statements),
+    }
+
+    await collectStats({ db: recordingDb, store, tokens, twitch: fakeTwitch(), ai: fakeAi(chapterResponse), ...withoutBgmJudgment, broadcasterId: streamerId, now: afterFirstWindow })
+
+    const savedChapterAt = executed.findIndex((sql) => sql.includes('INSERT INTO stream_chapters'))
+    const deletedOldChatAt = executed.findIndex((sql) => sql.startsWith('DELETE FROM stream_chat_messages WHERE sent_at <'))
+    expect(savedChapterAt).toBeGreaterThanOrEqual(0)
+    expect(deletedOldChatAt).toBeGreaterThan(savedChapterAt)
   })
 })
 

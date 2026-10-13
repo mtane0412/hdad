@@ -67,7 +67,7 @@ export const devEventOf = (extracted: Extracted): Pick<DevEventInput, 'kind' | '
  * 出すのは見出しだけで、要約は出さない（配信画面の1行に収まらず、読み返すのはダッシュボードの配信の詳細で足りるため）。
  * 時刻は区間の始まりにする。区間の終わりは章ができた時刻に近く、その間の出来事より上に並ぶと「この話のあとにマージした」と読めなくなる。
  */
-export const chapterEntryOf = (chapter: StreamChapter): WorkLogEntry => ({
+export const chapterEntryOf = (chapter: Omit<StreamChapter, 'chatCount' | 'chatterCount'>): WorkLogEntry => ({
   id: `chapter:${chapter.startedAt}`,
   kind: 'chapter',
   at: chapter.startedAt,

@@ -4,6 +4,7 @@
  * ログイン後に最初に出す画面。Workerが貯めた記録（/api/admin/stats/*）を読み、
  * 期間の概要・フォロワー数の推移・配信の一覧を出す。配信を選ぶと、その配信の視聴者数の推移と、
  * 何が話されたか（約30分ごとの章）・最後のあらすじ・その配信の時間に開いた意見ボードのテーマの振り返りを読み込んで一覧の中に出す。
+ * 章にはその区間のチャットの件数と発言者数を添える（issue #352。数を残す前の章は「記録なし」）。
  * 配信タイトルの候補（試験運用。issue #268）を作るかの設定もここで切り替え、作った候補は章の下に出す。
  * 集計と整形は summary.ts、Workerの呼び出しは api.ts に任せ、ここは表示だけを受け持つ。
  *
@@ -25,6 +26,7 @@ import type { FollowerSample, SessionDetail, SessionSummary, StatsApi, StreamTit
 import {
   eventTotals,
   followerPoints,
+  formatChapterChat,
   formatCount,
   formatDateTime,
   formatDelta,
@@ -107,6 +109,7 @@ const SessionTalk = ({ detail, displayTitle }: { detail: SessionDetail; displayT
                   <strong className="font-medium">{chapter.title}</strong>
                 </p>
                 <p className="text-sm">{chapter.summary}</p>
+                <p className="text-sm text-muted-foreground tabular-nums">チャット {formatChapterChat(chapter)}</p>
                 {titleCandidate !== undefined && (
                   // 機械が作った文なので、配信者が書いたものと見分けられる見出しを付ける（docs/principles.md の方針11）
                   <p className="flex flex-wrap items-baseline gap-x-2 text-sm">

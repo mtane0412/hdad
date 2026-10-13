@@ -79,6 +79,18 @@ describe('session（配信ごとの視聴者数の推移）', () => {
           endedAt: '2026-09-19T12:30:00.000Z',
           title: 'エディタの設定を見直す',
           summary: '配信者がエディタの拡張機能を整理し、視聴者からおすすめの拡張が寄せられた。',
+          // この章では5人が合わせて12回チャットした
+          chatCount: 12,
+          chatterCount: 5,
+        },
+        {
+          startedAt: '2026-09-19T12:30:00.000Z',
+          endedAt: '2026-09-19T13:00:00.000Z',
+          title: 'ログイン機能の実装',
+          summary: '配信者がログイン画面を作りはじめた。',
+          // チャットの数を残す前に作った章は null（記録なし）
+          chatCount: null,
+          chatterCount: null,
         },
       ],
       // 章ごとに作った配信タイトルの候補と、公開してよいかの Jev の判定（試験運用）
@@ -102,6 +114,22 @@ describe('session（配信ごとの視聴者数の推移）', () => {
       categoryName: 'Just Chatting',
       samples: [],
       chapters: [{ startedAt: '2026-09-19T12:00:00.000Z', title: '見出しだけの章' }],
+      titleCandidates: [],
+      summary: null,
+      workTime: null,
+    }
+    await expect(createStatsApi(fetchReturning(200, detail).fetchImpl).session('配信ID-2026-09-19')).rejects.toThrow('chapters[0]')
+  })
+
+  it('章のチャットの件数が数でも null でもなければ、0件に読み替えずにエラーにする', async () => {
+    const detail = {
+      id: '配信ID-2026-09-19',
+      startedAt: '2026-09-19T12:00:00.000Z',
+      endedAt: null,
+      title: '配信',
+      categoryName: 'Just Chatting',
+      samples: [],
+      chapters: [{ startedAt: '2026-09-19T12:00:00.000Z', endedAt: '2026-09-19T12:30:00.000Z', title: '雑談', summary: '雑談した。', chatCount: '12件', chatterCount: 5 }],
       titleCandidates: [],
       summary: null,
       workTime: null,
