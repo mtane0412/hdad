@@ -1942,16 +1942,18 @@ const mountVrm = (box: HTMLElement, item: OverlayItem, { key, demo }: MountConte
     (error) => showError(error, NOUNS.vrm, box, 'read'),
   )
 
-  /** マスコットの VRM のURLを読み、その VRM を読み込む。どちらかに失敗したら失敗をこの箱に出す */
-  const loadMascot = (readModelUrl: () => Promise<string>): Promise<string> => {
-    const model = readModelUrl()
-    void model
-      .then((url) => renderer.load(url))
-      .then(
-        () => clearError(box, 'read'),
-        (error: unknown) => showError(error, NOUNS.vrm, box, 'read'),
-      )
-    return model
+  /** マスコットの VRM のURLを読み、その VRM を読み込み終えたら URL を返す。どちらかに失敗したら失敗をこの箱に出して投げる */
+  const loadMascot = async (readModelUrl: () => Promise<string>): Promise<string> => {
+    try {
+      const url = await readModelUrl()
+      await renderer.load(url)
+      clearError(box, 'read')
+      // 読み込み終えてから URL を返す（プレビューの反応は、マスコットが立ってから流しはじめる）
+      return url
+    } catch (error) {
+      showError(error, NOUNS.vrm, box, 'read')
+      throw error
+    }
   }
 
   /** 流していなければ、待っている呼び出しの先頭の VRM を読み込んで反応を流しはじめる */
