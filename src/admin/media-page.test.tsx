@@ -37,6 +37,9 @@ const fakeApi = (overrides: Partial<AdminApi> = {}): AdminApi => ({
   playLickDemo: vi.fn(async () => '視聴者（試し）'),
   lickSound: vi.fn(async () => ({ sound: null, volume: 0.6 })),
   saveLickSound: vi.fn(async (sound) => sound),
+  playVrmDemo: vi.fn(async () => '試しID'),
+  vrmModel: vi.fn(async () => ({ model: null })),
+  saveVrmModel: vi.fn(async (model) => model),
   playKanjiQuizDemo: vi.fn(async () => '漢検6級「境内」'),
   townTourSound: vi.fn(async () => ({ slots: { bgm: null, opening: null, zoom: null, landing: null, item: null, closing: null }, bgmVolume: 0.3, effectVolume: 0.6 })),
   saveTownTourSound: vi.fn(async (sound: TownTourSound) => sound),
@@ -73,6 +76,16 @@ describe('素材の一覧', () => {
     expect(within(list).getByText('画像・2.0 KB')).toBeInTheDocument()
   })
 
+  test('VRM も種類と大きさを一覧に出す（中身は3Dなので、小さな見本の代わりに種類の名前を出す）', async () => {
+    const kanbanVrm: MediaItem = { id: 'media-kanban', name: '看板娘.vrm', kind: 'vrm', contentType: 'model/gltf-binary', size: 12 * 1024 * 1024, uploadedAt: '2026-10-13T00:00:00Z' }
+    render(<MediaPage api={fakeApi({ media: async () => [kanbanVrm] })} />)
+
+    const item = within(await screen.findByRole('list', { name: '素材の一覧' })).getByRole('listitem')
+    expect(within(item).getByText('看板娘.vrm')).toBeInTheDocument()
+    expect(within(item).getByText('VRM・12.0 MB')).toBeInTheDocument()
+    expect(within(item).getByText('VRM', { exact: true })).toBeInTheDocument()
+  })
+
   test('素材がなければ、まだないことを伝える', async () => {
     render(<MediaPage api={fakeApi({ media: async () => [] })} />)
 
@@ -94,6 +107,12 @@ describe('アップロード', () => {
     expect(api.upload).toHaveBeenCalledWith(file)
     const items = within(screen.getByRole('list', { name: '素材の一覧' })).getAllByRole('listitem')
     expect(items[0]).toHaveTextContent('紙吹雪.png')
+  })
+
+  test('VRM（.vrm）もファイルの選択に出す', async () => {
+    render(<MediaPage api={fakeApi()} />)
+
+    expect(await screen.findByLabelText('ファイル（1つ50MBまで）')).toHaveAttribute('accept', expect.stringContaining('.vrm'))
   })
 
   test('ファイルを選ばずにアップロードしようとしたら、理由を出す', async () => {

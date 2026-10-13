@@ -54,6 +54,9 @@ const fakeApi = (overrides: Partial<AdminApi> = {}): AdminApi => ({
   playLickDemo: vi.fn(async () => '視聴者（試し）'),
   lickSound: vi.fn(async () => ({ sound: null, volume: 0.6 })),
   saveLickSound: vi.fn(async (sound) => sound),
+  playVrmDemo: vi.fn(async () => '試しID'),
+  vrmModel: vi.fn(async () => ({ model: null })),
+  saveVrmModel: vi.fn(async (model) => model),
   playKanjiQuizDemo: vi.fn(async () => '漢検6級「境内」'),
   kanjiQuizSound: vi.fn(async () => ({
     slots: { bgm: null, start: null, wrongAnswer: null, countdown: null, correct: null, timeUp: null, explanation: null },
@@ -496,6 +499,44 @@ describe('効果の付け外し', () => {
 
     expect(api.playLickDemo).toHaveBeenCalledWith('hoshino_yu')
     expect(await notice('星野ゆう')).toBeInTheDocument()
+  })
+
+  test('どの項目でもVRMの演出を選べ、選んで保存するとVRMの効果として送る（相手を必要としない演出のため）', async () => {
+    const api = fakeApi()
+    render(triggerPage(api))
+
+    const row = await openedItem('レイドされた')
+    await userEvent.click(row.getByRole('checkbox', { name: 'VRMを出す' }))
+    await save()
+
+    expect(api.saveConfig).toHaveBeenCalledWith(expect.arrayContaining([{ kind: 'raid', actions: [{ type: 'vrm' }] }]))
+  })
+
+  test('アラートの素材の選択欄に VRM を出さない（VRM はアラートで流せないため）', async () => {
+    const kanbanVrm: MediaItem = { id: 'media-kanban', name: '看板娘.vrm', kind: 'vrm', contentType: 'model/gltf-binary', size: 12 * 1024 * 1024, uploadedAt: '2026-10-13T00:00:00Z' }
+    render(triggerPage(fakeApi({ media: vi.fn(async () => [kanbanVrm, applauseVideo]) })))
+
+    const row = await openedSettings('チャンネルポイントが交換された')
+
+    expect(row.getByRole('option', { name: '拍手.webm（動画）' })).toBeInTheDocument()
+    expect(row.queryByRole('option', { name: '看板娘.vrm（VRM）' })).not.toBeInTheDocument()
+  })
+
+  test('VRM しか上げていなければ、アラートを出す効果は選べないと案内する', async () => {
+    const kanbanVrm: MediaItem = { id: 'media-kanban', name: '看板娘.vrm', kind: 'vrm', contentType: 'model/gltf-binary', size: 12 * 1024 * 1024, uploadedAt: '2026-10-13T00:00:00Z' }
+    render(triggerPage(fakeApi({ media: vi.fn(async () => [kanbanVrm]) })))
+
+    expect(await screen.findByText(/アラートを出す効果は選べません/)).toBeInTheDocument()
+  })
+
+  test('VRMの演出を試しに流すと、Workerに試し再生を頼み、流したことを知らせる', async () => {
+    const api = fakeApi({ vrmModel: vi.fn(async () => ({ model: 'media-kanban' })) })
+    render(triggerPage(api))
+
+    await userEvent.click(await screen.findByRole('button', { name: 'VRMを試しに流す' }))
+
+    expect(api.playVrmDemo).toHaveBeenCalled()
+    expect(await notice('VRMの演出を流しました')).toBeInTheDocument()
   })
 
   test('チャンネルポイントの項目で漢字クイズを選び、級ごとの重みを入れて保存すると、その重みの漢字クイズの効果として送る', async () => {

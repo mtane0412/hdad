@@ -137,6 +137,12 @@ describe('parseOverlayLayout', () => {
     expect(parseOverlayLayout({ overlays: [{ name: 'front', items: [townTour] }] })).toEqual({ overlays: [{ name: 'front', items: [townTour] }] })
   })
 
+  it('VRM（vrm）はデザインIDを持たない種類として受け取る', () => {
+    const vrm: OverlayItem = { kind: 'vrm', id: '', params: '', rect: { x: 0, y: 0, width: 100, height: 100 } }
+
+    expect(parseOverlayLayout({ overlays: [{ name: 'front', items: [vrm] }] })).toEqual({ overlays: [{ name: 'front', items: [vrm] }] })
+  })
+
   it('ペロペロ（lick）はデザインIDを持たない種類として受け取る', () => {
     const lick: OverlayItem = { kind: 'lick', id: '', params: '', rect: { x: 0, y: 0, width: 100, height: 100 } }
 

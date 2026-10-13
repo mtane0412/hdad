@@ -47,7 +47,10 @@ const DEFAULT_RETURNING_DAYS = 30
 const DEFAULT_ANNOUNCEMENT_COLOR: AnnouncementColor = 'primary'
 
 /** 素材の種類の日本語のラベル */
-export const kindLabels: Readonly<Record<MediaItem['kind'], string>> = { image: '画像', video: '動画', audio: '音声' }
+export const kindLabels: Readonly<Record<MediaItem['kind'], string>> = { image: '画像', video: '動画', audio: '音声', vrm: 'VRM' }
+
+/** アラートで流せる素材（画像・動画・音声）だけを残す。VRM（issue #358）はVRMの演出のモデルにだけ使う */
+export const alertMediaOf = (media: readonly MediaItem[]): MediaItem[] => media.filter((item) => item.kind !== 'vrm')
 
 /** アナウンスの色の日本語のラベル */
 const COLOR_LABELS: Readonly<Record<AnnouncementColor, string>> = {
@@ -274,6 +277,8 @@ export interface TriggerDraft {
   kanjiQuizWeights: Record<KankenGrade, string>
   /** 相手のアイコンを合成ページでペロペロするか。チャンネルポイントと決まった人のその配信で最初の発言の項目でだけ選べる */
   lickEnabled: boolean
+  /** 選んである VRM のキャラクターを合成ページで短いあいだだけ出すか（issue #358）。どの項目でも選べる */
+  vrmEnabled: boolean
 }
 
 /**
@@ -437,6 +442,7 @@ const toActions = (draft: TriggerDraft): ActionInput[] => {
   if (draft.twisterEnabled) actions.push({ type: 'twister' })
   if (draft.kanjiQuizEnabled) actions.push({ type: 'kanjiQuiz', weights: toWeights(draft.kanjiQuizWeights) })
   if (draft.lickEnabled) actions.push({ type: 'lick' })
+  if (draft.vrmEnabled) actions.push({ type: 'vrm' })
   return actions
 }
 
@@ -524,6 +530,7 @@ export const toDraft = (trigger: StoredTrigger): TriggerDraft => {
   const twister = trigger.actions.find((action) => action.type === 'twister')
   const kanjiQuiz = trigger.actions.find((action) => action.type === 'kanjiQuiz')
   const lick = trigger.actions.find((action) => action.type === 'lick')
+  const vrm = trigger.actions.find((action) => action.type === 'vrm')
 
   return {
     kind: trigger.kind,
@@ -551,6 +558,7 @@ export const toDraft = (trigger: StoredTrigger): TriggerDraft => {
     kanjiQuizEnabled: kanjiQuiz !== undefined,
     kanjiQuizWeights: kanjiQuiz === undefined ? DEFAULT_KANJI_QUIZ_WEIGHTS : mapKankenGrades((grade) => String(kanjiQuiz.weights[grade])),
     lickEnabled: lick !== undefined,
+    vrmEnabled: vrm !== undefined,
   }
 }
 
@@ -565,7 +573,7 @@ export const toDraft = (trigger: StoredTrigger): TriggerDraft => {
  * 先頭の報酬を勝手に選ぶと、選んだつもりのない報酬だけで動くトリガーができてしまう。
  */
 export const createDraft = (kind: TriggerKind, media: readonly MediaItem[]): TriggerDraft => {
-  const first = media[0]
+  const first = alertMediaOf(media)[0]
   return {
     kind,
     ...DEFAULT_PARAMS,
@@ -589,6 +597,7 @@ export const createDraft = (kind: TriggerKind, media: readonly MediaItem[]): Tri
     kanjiQuizEnabled: false,
     kanjiQuizWeights: DEFAULT_KANJI_QUIZ_WEIGHTS,
     lickEnabled: false,
+    vrmEnabled: false,
   }
 }
 
@@ -616,6 +625,7 @@ export const emptyDraft = (kind: TriggerKind): TriggerDraft => ({
   kanjiQuizEnabled: false,
   kanjiQuizWeights: DEFAULT_KANJI_QUIZ_WEIGHTS,
   lickEnabled: false,
+  vrmEnabled: false,
 })
 
 /** その行が効果をひとつでも持つか。持たない行は何も起きないので保存しない */
@@ -628,7 +638,8 @@ export const hasAnyAction = (draft: TriggerDraft): boolean =>
   draft.townTourEnabled ||
   draft.twisterEnabled ||
   draft.kanjiQuizEnabled ||
-  draft.lickEnabled
+  draft.lickEnabled ||
+  draft.vrmEnabled
 
 /**
  * 保存済みの行に、パラメータを持たない項目の行を追加し、一覧の並び順にそろえる。
@@ -732,6 +743,7 @@ export const rowActionLabels = (draft: TriggerDraft): readonly string[] =>
     draft.twisterEnabled ? 'ツイスター' : null,
     draft.kanjiQuizEnabled ? '漢字クイズ' : null,
     draft.lickEnabled ? 'ペロペロ' : null,
+    draft.vrmEnabled ? 'VRM' : null,
   ].filter((label) => label !== null)
 
 /** 素材の大きさを読みやすい単位で表す */

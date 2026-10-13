@@ -16,7 +16,7 @@
  */
 
 /** オーバーレイに置ける素材の種類。worker/overlay-layout.ts の ITEM_KINDS と合わせる */
-export const ITEM_KINDS = ['wallpaper', 'clock', 'chat', 'alerts', 'sideSuper', 'focus', 'draw', 'bgm', 'tab', 'caption', 'workLog', 'taskDesk', 'pomodoro', 'townTour', 'twister', 'wipe', 'text', 'kanjiQuiz', 'opinions', 'lick'] as const
+export const ITEM_KINDS = ['wallpaper', 'clock', 'chat', 'alerts', 'sideSuper', 'focus', 'draw', 'bgm', 'tab', 'caption', 'workLog', 'taskDesk', 'pomodoro', 'townTour', 'twister', 'wipe', 'text', 'kanjiQuiz', 'opinions', 'lick', 'vrm'] as const
 
 /** オーバーレイに置ける素材の種類 */
 export type ItemKind = (typeof ITEM_KINDS)[number]
@@ -56,6 +56,7 @@ export const STAGE_SIZE = { width: 1920, height: 1080 } as const
  * 市町村紹介は日本地図を画面いっぱいに映してからズームするので、配信画面と同じ大きさにする。
  * ツイスターもマットを画面の真ん中に、スピナーと文言を画面の隅と上に出すので、配信画面と同じ大きさにする。
  * ペロペロはアイコンを画面の真ん中に大きく出し、舌が下から伸びてくるので、配信画面と同じ大きさにする。
+ * VRMはキャラクターが箱の端の外から歩いて出てきて帰るので、配信画面と同じ大きさにする（キャラクターの背の高さは箱の高さで決まる）。
  * ワイプは右上に寄せた小さなアイコンの枠と、その下に出す吹き出しが収まる大きさにする（画面の右上に置く前提）。
  * テキストは画面の隅に置く札なので、本文の上限（4行）が収まる高さと、1行が折り返しすぎない幅にする。
  * 漢字クイズは熟語を画面の真ん中に大きく出し、奥から近づけるので、配信画面と同じ大きさにする。
@@ -82,6 +83,7 @@ export const RECOMMENDED_ITEM_SIZES: Readonly<Record<ItemKind, { readonly width:
   kanjiQuiz: STAGE_SIZE,
   opinions: STAGE_SIZE,
   lick: STAGE_SIZE,
+  vrm: STAGE_SIZE,
 }
 
 /** オーバーレイの中での位置と大きさ（オーバーレイの幅・高さに対する割合。％） */

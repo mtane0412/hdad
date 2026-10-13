@@ -180,6 +180,15 @@ describe('media・upload・removeMedia（素材）', () => {
     expect(new Uint8Array(await request.arrayBuffer())).toEqual(new Uint8Array([26, 69, 223, 163]))
   })
 
+  it('VRM（.vrm）は、ブラウザが種類を付けないので、glTF のバイナリの種類を付けて送る（issue #358）', async () => {
+    const kanbanVrm = { id: 'sozai-vrm', name: '看板娘.vrm', kind: 'vrm', contentType: 'model/gltf-binary', size: 12_345_678, uploadedAt: '2026-10-13T12:00:00.000Z' }
+    const { requests, fetchImpl } = fetchReturning(201, kanbanVrm)
+    const file = new File([new Uint8Array([103, 108, 84, 70])], '看板娘.vrm', { type: '' })
+
+    expect(await createAdminApi(fetchImpl).upload(file)).toEqual(kanbanVrm)
+    expect(requests[0]!.headers.get('Content-Type')).toBe('model/gltf-binary')
+  })
+
   it('大きすぎる素材などWorkerが断った場合は、Workerのメッセージを持つエラーにする', async () => {
     const { fetchImpl } = fetchReturning(413, { error: { code: 'too-large', message: '素材は50MBまでです' } })
     const file = new File([new Uint8Array([1])], '長い動画.mp4', { type: 'video/mp4' })
@@ -350,6 +359,36 @@ describe('rotateOverlayKey・playTownTourDemo・townTourSound・rewards・logout
     const { fetchImpl } = fetchReturning(200, { id: '試しID' })
 
     await expect(createAdminApi(fetchImpl).playLickDemo('')).rejects.toThrow()
+  })
+
+  it('VRMの演出の試し再生を頼み、押し出した呼び出しのIDを返す', async () => {
+    const { requests, fetchImpl } = fetchReturning(200, { id: '試しID', seed: 42, model: '/api/media/media-kanban?key=overlay-key' })
+
+    expect(await createAdminApi(fetchImpl).playVrmDemo()).toBe('試しID')
+    expect(requests[0]!.method).toBe('POST')
+    expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/vrm/demo')
+  })
+
+  it('VRMの演出の試し再生の応答が想定した形でなければエラーにする', async () => {
+    await expect(createAdminApi(fetchReturning(200, { seed: 42 }).fetchImpl).playVrmDemo()).rejects.toThrow()
+  })
+
+  it('VRMの演出で出すモデルの設定を読み、保存し、Workerが保存したものを返す', async () => {
+    const model = { model: 'media-kanban' }
+    const { requests, fetchImpl } = fetchReturning(200, model)
+    const api = createAdminApi(fetchImpl)
+
+    expect(await api.vrmModel()).toEqual(model)
+    expect(await api.saveVrmModel(model)).toEqual(model)
+    expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/vrm/model')
+    expect(requests[1]!.method).toBe('PUT')
+    expect(await requests[1]!.json()).toEqual(model)
+  })
+
+  it('保存済みのVRMの演出の動作を持つトリガーも受け取る', async () => {
+    const followTrigger = { kind: 'follow', actions: [{ type: 'vrm' }] }
+
+    expect(await createAdminApi(fetchReturning(200, { triggers: [followTrigger] }).fetchImpl).config()).toEqual([followTrigger])
   })
 
   it('保存済みのペロペロの動作を持つトリガーも受け取る', async () => {

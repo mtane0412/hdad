@@ -8,6 +8,7 @@
  * 画面の状態（素材・報酬・入力中のトリガー）はここで持ち、Workerの呼び出しは api.ts、入力欄の値の変換は form.ts、
  * 操作の実行と結果の表示は page-actions.tsx に任せる。市町村紹介の音の設定と試し再生は town-tour-sound-card.tsx が受け持つ。
  * ツイスターの BGM の設定と試し再生は twister-card.tsx が受け持つ。ペロペロの効果音の設定と試し再生は lick-card.tsx が受け持つ。
+ * VRMの演出で出す VRM の選択と試し再生は vrm-card.tsx が受け持つ。
  *
  * アラートを配信画面に出すURLはここでは配らない。アラート専用のオーバーレイ（alerts/）は消したので
  * （issue #107）、出すには合成オーバーレイの管理画面（/overlay/）で「アラート」の素材を置く。
@@ -42,6 +43,7 @@ import {
   createDraft,
   describeProblem,
   kindLabels,
+  alertMediaOf,
   menuGroups,
   menuLabel,
   placeholdersFor,
@@ -67,6 +69,7 @@ import { errorMessage, usePageActions } from './page-actions'
 import { TownTourSoundCard } from './town-tour-sound-card'
 import { KanjiQuizCard } from './kanji-quiz-card'
 import { LickCard } from './lick-card'
+import { VrmCard } from './vrm-card'
 import { TwisterCard } from './twister-card'
 
 /** 文言欄の入力例。メニュー項目ごとに、使える差し込み語だけを使った例を出す */
@@ -276,7 +279,8 @@ interface ActionFieldsProps {
 const ActionFields = ({ draft, media, heading, onChange }: ActionFieldsProps) => {
   const id = useId()
   const update = (patch: Partial<TriggerDraft>): void => onChange({ ...draft, ...patch })
-  const mediaOptions = media.map((item) => ({ value: item.id, label: `${item.name}（${kindLabels[item.kind]}）` }))
+  // VRM はアラートで流せないので、アラートの素材の選択肢に出さない
+  const mediaOptions = alertMediaOf(media).map((item) => ({ value: item.id, label: `${item.name}（${kindLabels[item.kind]}）` }))
   /** 漢字クイズの級ごとに出題される割合（%）。入力の途中で求められなければ null */
   const kanjiQuizShares = kanjiQuizSharePercents(draft.kanjiQuizWeights)
 
@@ -291,7 +295,7 @@ const ActionFields = ({ draft, media, heading, onChange }: ActionFieldsProps) =>
             // 素材が未選択のまま出すことにすると、選択欄には最初の素材が見えているのに保存時に拒まれる。
             // そこで、出すことにした時点で選択欄が見せているとおりの素材（先頭）を選んでおく
             onCheckedChange={(checked) =>
-              update(checked === true ? { alertEnabled: true, mediaId: draft.mediaId === '' ? (media[0]?.id ?? '') : draft.mediaId } : { alertEnabled: false })
+              update(checked === true ? { alertEnabled: true, mediaId: draft.mediaId === '' ? (mediaOptions[0]?.value ?? '') : draft.mediaId } : { alertEnabled: false })
             }
           />
           <Label htmlFor={`${id}-alert-enabled`}>アラートを出す</Label>
@@ -553,6 +557,20 @@ const ActionFields = ({ draft, media, heading, onChange }: ActionFieldsProps) =>
           )}
         </div>
       )}
+
+      {/* VRMの演出は相手を必要としないので、どの項目にも出す */}
+      <div className="flex flex-col gap-4 rounded-md border border-dashed p-3 sm:col-span-2">
+        <div className="flex items-center gap-2">
+          <Checkbox id={`${id}-vrm-enabled`} checked={draft.vrmEnabled} onCheckedChange={(checked) => update({ vrmEnabled: checked === true })} />
+          <Label htmlFor={`${id}-vrm-enabled`}>VRMを出す</Label>
+        </div>
+        {draft.vrmEnabled && (
+          // 動き方は種からその都度決まり、出す VRM は「VRM」のカードで1つ選ぶので、ここでは決める項目を持たない
+          <p className="text-xs text-muted-foreground">
+            「VRM」のカードで選んだキャラクターが、歩いて出てきて手を振り、お辞儀をして帰ります。映すには、オーバーレイに「VRM」の素材を置いてください。
+          </p>
+        )}
+      </div>
     </>
   )
 
@@ -1041,6 +1059,9 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
       {/* ペロペロの効果音もツイスターの BGM と同じく1つだけ持つので、トリガーの一覧の外に置く（保存も別） */}
       <LickCard api={api} media={media} />
 
+      {/* VRMの演出も出す VRM を1つだけ持つので、トリガーの一覧の外に置く（保存も別） */}
+      <VrmCard api={api} media={media} />
+
       {/* 漢字クイズは設定を持たず、級を選んで試しに流すボタンだけを置く */}
       <KanjiQuizCard api={api} media={media} />
 
@@ -1053,9 +1074,9 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
             効果を付けたい出来事を開いて、何をするかを決める。当てはまった出来事の効果はすべて行われる。
           </p>
         </div>
-          {media.length === 0 && (
+          {alertMediaOf(media).length === 0 && (
             <p className="text-sm text-muted-foreground">
-              素材が1つもないので、アラートを出す効果は選べません。
+              アラートで流せる素材（画像・動画・音声）が1つもないので、アラートを出す効果は選べません。
               <Link href="/media/" className="underline underline-offset-4">
                 アップロード
               </Link>

@@ -1,0 +1,13 @@
+/*
+ * VRMの演出の見た目
+ *
+ * キャラクターは WebGL の canvas に描く（src/vrm/view.ts）。重ねた2Dの canvas は箱の大きさを測るためだけに使い、何も描かない。
+ * ここが持つのは、2枚の canvas を箱いっぱいに広げて重ねることだけである。
+ */
+[data-vrm] {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}

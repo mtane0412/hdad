@@ -33,6 +33,7 @@
 @import '../kanji-quiz/kanji-quiz.css';
 @import '../opinions/opinions.css';
 @import '../lick/lick.css';
+@import '../vrm/vrm.css';
 
 .overlay {
   position: relative;

@@ -27,8 +27,9 @@ import {
   twisterActionOf,
   kanjiQuizActionOf,
   lickActionOf,
+  vrmActionOf,
   type AlertConfig,
-  type MediaKind,
+  type AlertMediaKind,
   type StoredAiChatAction,
   type StoredAnnounceAction,
   resolveTrigger,
@@ -724,6 +725,17 @@ export const licksFor = (config: AlertConfig, subscriptionType: string, body: un
   )
 
 /**
+ * 通知に当てはまるトリガーを探し、VRMの演出を何回流すかを返す（issue #358）。
+ *
+ * VRMの演出は相手を必要とせず、どのトリガーにも置けるので、当てはまった数だけを数える。
+ * 種と出す VRM は呼び出し側が決める（このファイルは乱数も設定の読み込みも持たないため）。
+ *
+ * @throws 通知の中身が想定した形でない場合
+ */
+export const vrmsFor = (config: AlertConfig, subscriptionType: string, body: unknown, state: ConditionState): number =>
+  matchedActionsFor(config, subscriptionType, body, vrmActionOf, state).length
+
+/**
  * 通知に当てはまるトリガーをすべて探し、チャットへ送る文言を決める。
  *
  * 差し込みの結果がTwitchの上限（500文字）を超えていれば、末尾を … にして収める。
@@ -770,7 +782,7 @@ export const announcementsFor = (
 
 /** オーバーレイが再生するアラート1件（src/alerts/resolve.ts の Alert に対応する） */
 export interface OverlayAlert {
-  media: { kind: MediaKind; url: string }
+  media: { kind: AlertMediaKind; url: string }
   durationSeconds: number
   volume: number
   /** 画面に出す文言。差し込み語を置き換えたあとの文字列。空文字なら文言を出さない */

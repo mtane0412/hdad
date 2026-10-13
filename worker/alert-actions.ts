@@ -13,7 +13,7 @@
  * 2xx以外を返すとTwitchは同じ通知を再送するので、送信が成功していた場合に二重投稿になってしまう。
  */
 import { loadAlertConfig, type AlertConfig, type StoredAnnounceAction } from './alert-config'
-import { pushAlert, pushLick, pushTownTour, pushTwister } from './alert-channel'
+import { pushAlert, pushLick, pushVrm, pushTownTour, pushTwister } from './alert-channel'
 import { generateChatMessage } from './ai-chat'
 import {
   aiChatsFor,
@@ -23,6 +23,7 @@ import {
   hasAlertAction,
   kanjiQuizzesFor,
   licksFor,
+  vrmsFor,
   requiresStreamSummary,
   shoutoutsFor,
   townToursFor,
@@ -44,6 +45,8 @@ import { loadTownTourSound, playbackSoundOf } from './town-tour-sound'
 import { issueKanjiQuiz } from './kanji-quiz-issue'
 import { loadKanjiQuizSound, playbackKanjiQuizSoundOf } from './kanji-quiz-sound'
 import { lickCallOf, lickSeedOf } from './lick-call'
+import { vrmCallOf, vrmSeedOf } from './vrm-call'
+import { loadVrmModel, playbackVrmModelOf } from './vrm-model'
 import { loadLickSound, playbackLickSoundOf } from './lick-sound'
 import { twisterCallOf, twisterSeedOf } from './twister-call'
 import { loadTwisterSound, playbackTwisterSoundOf } from './twister-sound'
@@ -230,6 +233,26 @@ export const runAlertActions = async (
     }
   }
 
+  // VRMの演出（issue #358）も素材が流すので、botの接続を見る前に押し出す。出す VRM は全体で1つで、種は1件ごとに引く
+  const vrmCount = ((): number => {
+    try {
+      return vrmsFor(config, subscriptionType, body.event, state)
+    } catch (error) {
+      throw invalid(error instanceof Error ? error.message : String(error))
+    }
+  })()
+  // VRM の設定とオーバーレイ用キーは、当てはまった行があるときだけ読む（チャットの発言のたびにKVを読まないため）
+  if (vrmCount > 0) {
+    const [model, overlayKey] = await Promise.all([loadVrmModel(env.STORE), loadOverlayKey(env.STORE)])
+    for (let index = 0; index < vrmCount; index += 1) {
+      await sendAndRecordFailure(context, messageId, 'vrm', index, 'vrm-push-failed', async () => {
+        // VRM を選んでいない・キーが未発行で URL を作れないときも、押し出しの失敗として記録する（黙って何も出さずに済ませない）
+        const modelUrl = playbackVrmModelOf(model, overlayKey)
+        await pushVrm(env.ALERTS, vrmCallOf(modelUrl, vrmSeedOf(crypto.getRandomValues(new Uint32Array(1))), crypto.randomUUID()))
+      })
+    }
+  }
+
   if (messages.length === 0 && announcements.length === 0 && aiChats.length === 0 && shoutouts.length === 0) return
 
   // botを切断していれば送る先がない。受け取り自体は成功として返す
@@ -366,7 +389,7 @@ export const recordLateFailure = async (context: AlertActionContext, failureCode
 const sendAndRecordFailure = async (
   context: AlertActionContext,
   messageId: string,
-  actionType: 'chat' | 'announce' | 'alert' | 'aiChat' | 'shoutout' | 'townTour' | 'twister' | 'kanjiQuiz' | 'lick',
+  actionType: 'chat' | 'announce' | 'alert' | 'aiChat' | 'shoutout' | 'townTour' | 'twister' | 'kanjiQuiz' | 'lick' | 'vrm',
   index: number,
   failureCode: string,
   send: () => Promise<void>,

@@ -33,6 +33,7 @@ import { createFakeTokenVault } from './fake-token-vault'
 import { DEFAULT_TOWN_TOUR_SOUND, saveTownTourSound } from './town-tour-sound'
 import { saveTwisterSound } from './twister-sound'
 import { saveLickSound } from './lick-sound'
+import { saveVrmModel } from './vrm-model'
 import { DEFAULT_KANJI_QUIZ_SOUND, saveKanjiQuizSound } from './kanji-quiz-sound'
 import { openTownTourQuiz } from './town-tour-quiz'
 import { openKanjiQuiz, recordKanjiQuiz } from './kanji-quiz-store'
@@ -1903,6 +1904,51 @@ describe('ペロペロの動作（lick）', () => {
 
     expect(twitch.requestedLogins).toEqual([])
     expect(alertChannel.pushedLicks).toHaveLength(0)
+  })
+})
+
+describe('VRMの演出の動作（vrm）', () => {
+  const followVrmTrigger: StoredTrigger = { kind: 'follow', actions: [{ type: 'vrm' }] }
+  const FOLLOW_NOTIFICATION = { subscription: { type: 'channel.follow' }, event: { user_id: '22222', user_name: '田中太郎', user_login: 'tanaka_taro' } }
+
+  it('当てはまったら、種と選んである VRM のURL（オーバーレイ用キーつき）を合成ページへ押し出す（botを接続していなくても流す）', async () => {
+    const { env, alertChannel } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [followVrmTrigger] })
+    // 検証（VRM であること）は vrm-model.test.ts が確かめるので、ここでは保存済みの設定として直接置く
+    await saveVrmModel(env.STORE, { model: 'media-kanban' })
+
+    const response = await callWebhook(createNotification({ body: FOLLOW_NOTIFICATION }), env)
+
+    expect(response.status).toBe(204)
+    expect(alertChannel.pushedVrms).toHaveLength(1)
+    // 種はランダムに引くので、0以上2^32未満の整数であることだけを確かめる
+    const call = alertChannel.pushedVrms[0]
+    expect(Number.isInteger(call?.seed)).toBe(true)
+    expect(call?.seed).toBeGreaterThanOrEqual(0)
+    expect(call?.seed).toBeLessThan(2 ** 32)
+    expect(call?.model).toBe(`/api/media/media-kanban?key=${ISSUED_OVERLAY_KEY}`)
+  })
+
+  it('VRM を選んでいなければ、押し出さずに失敗として記録する（黙って何も出さずに済ませない）', async () => {
+    const { env, alertChannel } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [followVrmTrigger] })
+
+    const response = await callWebhook(createNotification({ body: FOLLOW_NOTIFICATION }), env)
+
+    expect(response.status).toBe(204)
+    expect(alertChannel.pushedVrms).toHaveLength(0)
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'vrm-push-failed' }])
+  })
+
+  it('オーバーレイ用キーが未発行なら、押し出さずに失敗として記録する', async () => {
+    const { env, alertChannel } = createEnv({ overlayKey: null })
+    await saveAlertConfig(env.STORE, { triggers: [followVrmTrigger] })
+    await saveVrmModel(env.STORE, { model: 'media-kanban' })
+
+    await callWebhook(createNotification({ body: FOLLOW_NOTIFICATION }), env)
+
+    expect(alertChannel.pushedVrms).toHaveLength(0)
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'vrm-push-failed' }])
   })
 })
 

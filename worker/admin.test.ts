@@ -27,6 +27,7 @@ import { SPEECH_TEXT_MAX_LENGTH } from './speech-config'
 import { DEFAULT_TOWN_TOUR_SOUND, saveTownTourSound } from './town-tour-sound'
 import { saveTwisterSound } from './twister-sound'
 import { saveLickSound } from './lick-sound'
+import { saveVrmModel } from './vrm-model'
 import { DEFAULT_KANJI_QUIZ_SOUND, saveKanjiQuizSound } from './kanji-quiz-sound'
 
 const now = Date.UTC(2026, 8, 21, 12, 0, 0)
@@ -154,7 +155,26 @@ describe('素材（/api/admin/media）', () => {
     })
   })
 
-  it('画像・動画・音声以外のファイルは415で拒否する', async () => {
+  it('VRM（model/gltf-binary）はVRMの素材として受け付け、中身もその種類のまま返す（issue #358）', async () => {
+    const { env } = createEnv()
+    const uploaded = await invoke(
+      await broadcasterRequest(env, '/api/admin/media', {
+        method: 'POST',
+        headers: { 'Content-Type': 'model/gltf-binary', 'X-File-Name': encodeURIComponent('看板娘.vrm') },
+        body: new Uint8Array([103, 108, 84, 70]),
+      }),
+      env,
+    )
+    expect(uploaded.status).toBe(201)
+    const { id, kind } = (await uploaded.json()) as { id: string; kind: string }
+    expect(kind).toBe('vrm')
+
+    const served = await invoke(new Request(`${origin}/api/media/${id}?key=${issuedKey}`), env)
+    expect(served.status).toBe(200)
+    expect(served.headers.get('Content-Type')).toBe('model/gltf-binary')
+  })
+
+  it('画像・動画・音声・VRM以外のファイルは415で拒否する', async () => {
     const { env, bucket } = createEnv()
     const response = await invoke(
       await broadcasterRequest(env, '/api/admin/media', {
@@ -229,6 +249,18 @@ describe('素材（/api/admin/media）', () => {
     const { id } = await uploadImage(env)
     // 検証（音声であること）は lick-sound.test.ts が確かめるので、ここでは保存済みの設定として直接置く
     await saveLickSound(env.STORE, { sound: id, volume: 0.6 })
+
+    const response = await invoke(await broadcasterRequest(env, `/api/admin/media/${id}`, { method: 'DELETE' }), env)
+
+    expect(response.status).toBe(409)
+    expect(bucket.entries.size).toBe(1)
+  })
+
+  it('VRMの演出に選ばれている素材は409で削除を拒否する（演出が黙って出なくなるのを防ぐ）', async () => {
+    const { env, bucket } = createEnv()
+    const { id } = await uploadImage(env)
+    // 検証（VRM であること）は vrm-model.test.ts が確かめるので、ここでは保存済みの設定として直接置く
+    await saveVrmModel(env.STORE, { model: id })
 
     const response = await invoke(await broadcasterRequest(env, `/api/admin/media/${id}`, { method: 'DELETE' }), env)
 
