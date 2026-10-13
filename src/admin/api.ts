@@ -15,6 +15,7 @@ import { readTownTourNarration, type TownTourNarration } from '@/town-tour/narra
 import { readTownTourSound, type TownTourSound } from '@/town-tour/sound'
 import { readTwisterSound, type TwisterSound } from '@/twister/sound'
 import { readLickSound, type LickSound } from '@/lick/sound'
+import { readVrmModel, type VrmModel } from '@/vrm/model'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const CHAT_MESSAGE = 'channel.chat.message'
@@ -46,10 +47,21 @@ export const ALERT_EVENTS = [
 
 export type AlertEvent = (typeof ALERT_EVENTS)[number]
 
-const MEDIA_KINDS = ['image', 'video', 'audio'] as const
+/** 素材の種類。vrm（issue #358）はVRMの演出のモデルにだけ使い、アラートでは流さない */
+const MEDIA_KINDS = ['image', 'video', 'audio', 'vrm'] as const
 const UNAUTHORIZED = 401
 
 export type MediaKind = (typeof MEDIA_KINDS)[number]
+
+/** アラートで流せる素材の種類 */
+export type AlertMediaKind = Exclude<MediaKind, 'vrm'>
+
+/**
+ * VRM のファイルを送るときの Content-Type（worker/media.ts の VRM_CONTENT_TYPE）。
+ * ブラウザは .vrm に種類を付けない（File.type が空になる）ので、拡張子を見てこれを付ける
+ */
+const VRM_CONTENT_TYPE = 'model/gltf-binary'
+const VRM_EXTENSION = '.vrm'
 
 /** ログイン中の配信者。overlayKey は未発行なら null */
 export interface Me {
@@ -159,6 +171,15 @@ export interface LickAction {
   type: 'lick'
 }
 
+/**
+ * 配信者が選んだ VRM のキャラクターを、合成ページの素材「VRM」で短いあいだだけ出して動かす動作（issue #358）。
+ *
+ * 動き方の種はその都度ランダムで、出す VRM は全体で1つ（vrm-card.tsx で選ぶ）なので、配信者が決める項目を持たない。どの項目にも置ける。
+ */
+export interface VrmAction {
+  type: 'vrm'
+}
+
 export type ActionInput =
   | AlertActionInput
   | ChatAction
@@ -169,6 +190,7 @@ export type ActionInput =
   | TwisterAction
   | KanjiQuizAction
   | LickAction
+  | VrmAction
 
 /**
  * 既定メニューの項目。worker/trigger-menu.ts の TRIGGER_KINDS と同じ並び（worker/ の型は読み込めないのでここで定義する）。
@@ -219,7 +241,7 @@ export type TriggerSource =
 export type TriggerInput = TriggerSource & { actions: ActionInput[] }
 
 /** 保存済みの「アラートを出す」動作（Workerが素材の種類を書き足したもの） */
-export type StoredAlertAction = AlertActionInput & { mediaKind: MediaKind }
+export type StoredAlertAction = AlertActionInput & { mediaKind: AlertMediaKind }
 
 export type StoredAction =
   | StoredAlertAction
@@ -231,6 +253,7 @@ export type StoredAction =
   | TwisterAction
   | KanjiQuizAction
   | LickAction
+  | VrmAction
 
 /** 保存済みのトリガー */
 export type StoredTrigger = TriggerSource & { actions: StoredAction[] }
@@ -300,6 +323,12 @@ export interface AdminApi {
   lickSound(): Promise<LickSound>
   /** ペロペロの効果音の設定を保存する。Workerが保存したものを返す */
   saveLickSound(sound: LickSound): Promise<LickSound>
+  /** VRMの演出の試し再生。Workerが選んである VRM の演出を合成ページへ押し出し、押し出した呼び出しのIDを返す */
+  playVrmDemo(): Promise<string>
+  /** VRMの演出で出す VRM の設定。未保存なら選んでいない設定が返る */
+  vrmModel(): Promise<VrmModel>
+  /** VRMの演出で出す VRM の設定を保存する。Workerが保存したものを返す */
+  saveVrmModel(model: VrmModel): Promise<VrmModel>
   /** 漢字クイズの試し再生。Workerが選んだ級の問題を1問合成ページへ押し出し、「漢検○級「熟語」」の形で出した問題を返す */
   playKanjiQuizDemo(grade: KankenGrade): Promise<string>
   /** 漢字クイズの演出で鳴らす音の設定。未保存ならどの枠も鳴らさない設定が返る */
@@ -366,8 +395,8 @@ const isTriggerSource = (value: unknown): value is TriggerSource => {
 /** 保存済みの動作1件の形。種類ごとに持つ項目が違う */
 const isStoredAction = (value: unknown): value is StoredAction => {
   if (!isRecord(value)) return false
-  // shoutout と townTour と twister と lick は配信者が決める項目を持たないので、種類だけを見る
-  if (value.type === 'shoutout' || value.type === 'townTour' || value.type === 'twister' || value.type === 'lick') return true
+  // shoutout と townTour と twister と lick と vrm は配信者が決める項目を持たないので、種類だけを見る
+  if (value.type === 'shoutout' || value.type === 'townTour' || value.type === 'twister' || value.type === 'lick' || value.type === 'vrm') return true
   // kanjiQuiz は級ごとの出題の重みだけを持つ
   if (value.type === 'kanjiQuiz') return isKankenGradeWeights(value.weights)
   // aiChat だけは送る文言を持たず、文面の作り方の指示を持つ
@@ -379,6 +408,7 @@ const isStoredAction = (value: unknown): value is StoredAction => {
     value.type === 'alert' &&
     typeof value.mediaId === 'string' &&
     isMediaKind(value.mediaKind) &&
+    value.mediaKind !== 'vrm' &&
     typeof value.durationSeconds === 'number' &&
     typeof value.volume === 'number'
   )
@@ -418,7 +448,11 @@ const TOWN_TOUR_SOUND_PATH = '/api/admin/town-tour/sound'
 const TOWN_TOUR_NARRATION_PATH = '/api/admin/town-tour/narration'
 const TWISTER_SOUND_PATH = '/api/admin/twister/sound'
 const LICK_SOUND_PATH = '/api/admin/lick/sound'
+const VRM_MODEL_PATH = '/api/admin/vrm/model'
 const KANJI_QUIZ_SOUND_PATH = '/api/admin/kanji-quiz/sound'
+
+/** アップロードで送る Content-Type。.vrm だけはブラウザが種類を付けないので、こちらで付ける */
+const contentTypeOf = (file: File): string => (file.name.toLowerCase().endsWith(VRM_EXTENSION) ? VRM_CONTENT_TYPE : file.type)
 
 export const createAdminApi = (fetchImpl: typeof fetch): AdminApi => {
   const call = createCaller(fetchImpl)
@@ -452,7 +486,7 @@ export const createAdminApi = (fetchImpl: typeof fetch): AdminApi => {
       const body = await call('/api/admin/media', {
         method: 'POST',
         // ヘッダーには日本語をそのまま入れられないので、ファイル名はURLエンコードする（Worker側で戻す）
-        headers: { 'Content-Type': file.type, 'X-File-Name': encodeURIComponent(file.name) },
+        headers: { 'Content-Type': contentTypeOf(file), 'X-File-Name': encodeURIComponent(file.name) },
         body: file,
       })
       if (!isMediaItem(body)) throw new Error('Workerのアップロードの応答が想定した形ではありません')
@@ -517,6 +551,17 @@ export const createAdminApi = (fetchImpl: typeof fetch): AdminApi => {
 
     saveLickSound: async (sound) =>
       readLickSound(await call(LICK_SOUND_PATH, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sound) })),
+
+    playVrmDemo: async () => {
+      const body = await call('/api/admin/vrm/demo', { method: 'POST' })
+      if (!isRecord(body) || typeof body.id !== 'string') throw new Error('Workerの応答に、VRMの演出の呼び出しのIDがありません')
+      return body.id
+    },
+
+    vrmModel: async () => readVrmModel(await call(VRM_MODEL_PATH)),
+
+    saveVrmModel: async (model) =>
+      readVrmModel(await call(VRM_MODEL_PATH, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(model) })),
 
     kanjiQuizSound: async () => readKanjiQuizSound(await call(KANJI_QUIZ_SOUND_PATH)),
 

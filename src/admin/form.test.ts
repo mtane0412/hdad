@@ -12,6 +12,7 @@ import {
   emptyDraft,
   hasAnyAction,
   rowActionLabels,
+  alertMediaOf,
   rowParamSummary,
   toTriggerInputs,
   withFixedRows,
@@ -77,6 +78,7 @@ const inputs = (overrides: Partial<TriggerDraft> = {}): TriggerDraft => ({
   kanjiQuizEnabled: false,
   kanjiQuizWeights: weightTexts({ '3': '1' }),
   lickEnabled: false,
+  vrmEnabled: false,
   ...overrides,
 })
 
@@ -372,6 +374,12 @@ describe('createDraft', () => {
     expect(createDraft('follow', material)).toMatchObject({ kind: 'follow', alertEnabled: true, mediaId: 'sozai-1' })
   })
 
+  it('VRM しか無ければ、アラートの素材に選ばずチャットに送る動作を選んだ状態で作る（VRM はアラートで流せないため）', () => {
+    const vrmOnly: MediaItem[] = [{ id: 'sozai-vrm', name: '看板娘.vrm', kind: 'vrm', contentType: 'model/gltf-binary', size: 100, uploadedAt: '2026-10-13T00:00:00Z' }]
+
+    expect(createDraft('follow', vrmOnly)).toMatchObject({ alertEnabled: false, mediaId: '', chatEnabled: true })
+  })
+
   it('素材が1つもなければ、チャットに送る動作を選んだ状態で作る（アラートは出せないため）', () => {
     expect(createDraft('follow', [])).toMatchObject({ alertEnabled: false, chatEnabled: true })
   })
@@ -467,6 +475,7 @@ describe('emptyDraft', () => {
       twisterEnabled: false,
       kanjiQuizEnabled: false,
       lickEnabled: false,
+      vrmEnabled: false,
     })
   })
 })
@@ -531,6 +540,19 @@ describe('rowActionLabels', () => {
     expect(supportsLick('fromUserFirstOfStream')).toBe(true)
     expect(supportsLick('fromUser')).toBe(false)
     expect(supportsLick('raid')).toBe(false)
+  })
+
+  it('VRMの演出の効果は「VRM」として出し、VRMだけを選んだ行も項目を持たない動作として保存する', () => {
+    const draft = inputs({ kind: 'follow', alertEnabled: false, vrmEnabled: true })
+
+    expect(rowActionLabels(draft)).toEqual(['VRM'])
+    expect(toTriggerInputs([draft])).toEqual([{ kind: 'follow', actions: [{ type: 'vrm' }] }])
+  })
+
+  it('保存済みのVRMの演出の動作を、選んだ状態の入力欄に戻す', () => {
+    const trigger: StoredTrigger = { kind: 'raid', actions: [{ type: 'vrm' }] }
+
+    expect(toDraft(trigger)).toMatchObject({ kind: 'raid', alertEnabled: false, vrmEnabled: true })
   })
 
   it('ツイスターはレイドの項目にだけ置ける', () => {
@@ -697,5 +719,14 @@ describe('kanjiQuizSharePercents', () => {
   it('数として読めない欄がある・合計が0なら、割合を出さない（null）', () => {
     expect(kanjiQuizSharePercents(weightTexts({ '3': '1', pre2: '' }))).toBeNull()
     expect(kanjiQuizSharePercents(weightTexts())).toBeNull()
+  })
+})
+
+describe('alertMediaOf', () => {
+  it('アラートで流せる素材（画像・動画・音声）だけを残し、VRM を外す', () => {
+    const video: MediaItem = { id: 'sozai-1', name: '乾杯.webm', kind: 'video', contentType: 'video/webm', size: 100, uploadedAt: '2026-09-26T00:00:00Z' }
+    const vrm: MediaItem = { id: 'sozai-vrm', name: '看板娘.vrm', kind: 'vrm', contentType: 'model/gltf-binary', size: 100, uploadedAt: '2026-10-13T00:00:00Z' }
+
+    expect(alertMediaOf([vrm, video])).toEqual([video])
   })
 })

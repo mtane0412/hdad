@@ -1,7 +1,7 @@
 /**
  * アップロードのページ
  *
- * アラートで流す素材（画像・動画・音声）を置き、一覧と削除を受け持つ。どの素材をどのイベントで流すかは
+ * アラートで流す素材（画像・動画・音声）と、VRMの演出で出す VRM（issue #358）を置き、一覧と削除を受け持つ。どの素材をどのイベントで流すかは
  * トリガーのページ（trigger-page.tsx）が決める。ログインの確認とログアウトはアプリの枠（src/app/app.tsx）が
  * 受け持つので、ここではログイン済みを前提にする。
  * Workerの呼び出しは api.ts、操作の実行と結果の表示は page-actions.tsx に任せる。
@@ -37,6 +37,9 @@ const MediaPreview = ({ item }: { item: MediaItem }) => {
       return <video src={mediaUrl(item.id)} controls preload="none" aria-label={`${item.name} の再生`} className={className} />
     case 'audio':
       return <audio src={mediaUrl(item.id)} controls preload="none" aria-label={`${item.name} の再生`} className="w-full" />
+    // VRM は3Dのモデルで、小さく見せるには three.js での読み込みが要る。一覧を開くたびに重いモデルを読まないよう、種類の名前だけを出す
+    case 'vrm':
+      return <span className="text-sm font-medium text-muted-foreground">{kindLabels.vrm}</span>
   }
 }
 
@@ -95,12 +98,12 @@ export const MediaPage = ({ api }: { api: AdminApi }) => {
       <Card>
         <CardHeader>
           <CardTitle>素材</CardTitle>
-          <CardDescription>アラートで流す画像・動画・音声。どの出来事で流すかは「トリガー」で決める。</CardDescription>
+          <CardDescription>アラートで流す画像・動画・音声と、VRMの演出で出す VRM。どの出来事で流すかは「トリガー」で決める。</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <Label htmlFor={fileFieldId}>ファイル（1つ50MBまで）</Label>
           <div className="flex gap-2">
-            <Input ref={fileRef} id={fileFieldId} type="file" accept="image/*,video/*,audio/*" />
+            <Input ref={fileRef} id={fileFieldId} type="file" accept="image/*,video/*,audio/*,.vrm" />
             <Button type="button" disabled={actions.busy} onClick={() => void actions.run(upload)}>
               アップロード
             </Button>

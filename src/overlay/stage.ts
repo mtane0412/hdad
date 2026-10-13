@@ -121,6 +121,11 @@ import { createLickPlan, lickSceneAt, type LickPlan } from '../lick/motion'
 import { lickSoundCuesOf } from '../lick/sound-cues'
 import { createLickSoundPlayer } from '../lick/sound-player'
 import { createLickRenderer } from '../lick/view'
+import { VRM_SOCKET_HINT, VRM_SOCKET_PATH, fetchPreviewModelUrl } from '../vrm/api'
+import { parseVrmCall, type VrmCall } from '../vrm/call'
+import { DEMO_VRM_INTERVAL_MS, DEMO_VRM_SEEDS } from '../vrm/demo'
+import { createVrmPlan, vrmSceneAt, type VrmPlan } from '../vrm/motion'
+import { createVrmRenderer } from '../vrm/view'
 import { TWISTER_SOCKET_HINT, TWISTER_SOCKET_PATH } from '../twister/api'
 import { twisterBgmPlanOf } from '../twister/bgm'
 import { createTwisterBgmPlayer } from '../twister/bgm-player'
@@ -169,6 +174,7 @@ const NOUNS: Readonly<Record<ItemKind, string>> = {
   kanjiQuiz: '漢字クイズ',
   opinions: '意見ボード',
   lick: 'ペロペロ',
+  vrm: 'VRM',
 }
 
 /** サイドスーパーの文言を読みに行く間隔（ミリ秒）。文言は cron が5分おきに作るので、30秒あれば十分に追いつく */
@@ -1891,6 +1897,103 @@ const mountLick = (box: HTMLElement, item: OverlayItem, { key, demo }: MountCont
 }
 
 /**
+ * VRMの演出（issue #358）。トリガーや試し再生で、配信者が選んだ VRM のキャラクターが短いあいだだけ出てきて動く。
+ *
+ * Worker から押し出された呼び出し（種と VRM のURL）を届いた順に1件ずつ流す。VRM は流しはじめる前に読み込み（同じURLなら読み直さない）、
+ * 読み込めなかった1件は流さずに失敗をこの箱に出して次へ進む。動き方は種から決め（src/vrm/motion.ts）、場面は流しはじめてからの経過時間だけから決める。
+ *
+ * 3Dは WebGL の canvas に描く（src/vrm/view.ts）。その上の2Dの canvas は箱の大きさを測るためだけに使う。
+ * プレビューでは押し出しにつながず、配信者のセッションで出す VRM の設定を1回読み、決まった種の演出をくり返す（src/vrm/api.ts）。
+ */
+const mountVrm = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
+  // この素材は配信者が決めるパラメータを持たない（出す VRM はトリガーのページで1つ選ぶ）
+  parseParams({}, new URLSearchParams(item.params))
+
+  const glCanvas = document.createElement('canvas')
+  glCanvas.dataset.vrm = 'stage'
+  const sizeCanvas = document.createElement('canvas')
+  sizeCanvas.dataset.vrm = 'size'
+  box.append(glCanvas, sizeCanvas)
+  const renderer = createVrmRenderer(glCanvas)
+
+  /** 流している1件。流していなければ null */
+  let playback: { readonly plan: VrmPlan; readonly startedAt: number } | null = null
+  /** 流すのを待っている呼び出し（届いた順） */
+  let waiting: readonly VrmCall[] = []
+  /** 次の1件の VRM を読み込んでいる最中か */
+  let preparing = false
+
+  /** 流していなければ、待っている呼び出しの先頭の VRM を読み込んで流しはじめる */
+  const startNext = (): void => {
+    if (playback !== null || preparing) return
+    const [call, ...rest] = waiting
+    if (call === undefined) return
+    waiting = rest
+    preparing = true
+    void renderer
+      .load(call.model)
+      .then(() => {
+        clearError(box, 'read')
+        playback = { plan: createVrmPlan(call.seed), startedAt: Date.now() }
+      })
+      .catch((error: unknown) => {
+        // 読み込めなかった1件は流さず、失敗を出して次へ進む（待っている呼び出しを止めない）
+        showError(error, NOUNS.vrm, box, 'read')
+      })
+      .finally(() => {
+        preparing = false
+        if (playback === null) startNext()
+      })
+  }
+
+  const enqueue = (call: VrmCall): void => {
+    waiting = [...waiting, call]
+    startNext()
+  }
+
+  const draw = startCanvasSurface(sizeCanvas, (_ctx, width, height) => {
+    const now = Date.now()
+    if (playback !== null && now - playback.startedAt >= playback.plan.totalMs) {
+      playback = null
+      startNext()
+    }
+    renderer.render(width, height, playback === null ? null : vrmSceneAt(playback.plan, now - playback.startedAt))
+  })
+
+  if (demo) {
+    // プレビューでは押し出しにつながず、配信者のセッションで読んだ VRM で決まった種の演出をくり返す
+    void fetchPreviewModelUrl(fetch).then(
+      (model) => startSampleCycle(DEMO_VRM_SEEDS.map((seed) => ({ id: `demo-${seed}`, seed, model })), DEMO_VRM_INTERVAL_MS, enqueue),
+      (error: unknown) => showError(error, NOUNS.vrm, box, 'read'),
+    )
+    return { draw }
+  }
+
+  connectSocket(
+    socketUrl(VRM_SOCKET_PATH, { key }),
+    {
+      onMessage: (text) => {
+        try {
+          enqueue(parseVrmCall(text))
+        } catch (error) {
+          showError(error, NOUNS.vrm, box, 'read')
+        }
+      },
+      onOpen: () => {
+        // 呼び出しは押し出しでしか届かない（読み直すものを持たない）。つながっていない間の呼び出しは配送先が落とす
+      },
+      onStatus: () => {
+        // 切断・再接続は出さない。流している1件はそのまま流しきる
+      },
+      onWarning: (message) => showError(new Error(message), NOUNS.vrm, box, 'read'),
+    },
+    VRM_SOCKET_HINT,
+  )
+
+  return { draw }
+}
+
+/**
  * 漢字クイズ（issue #300）。チャンネルポイントの交換で出題された熟語の読みを問う。
  *
  * Worker から押し出された出題（問題1問と交換した人）を届いた順に1件ずつ流す。場面（級→熟語が奥から近づく→制限時間→正解と解説）は
@@ -2370,6 +2473,8 @@ const mountItem = (box: HTMLElement, item: OverlayItem, context: MountContext): 
       return mountOpinions(box, item, context)
     case 'lick':
       return mountLick(box, item, context)
+    case 'vrm':
+      return mountVrm(box, item, context)
   }
 }
 

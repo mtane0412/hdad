@@ -19,6 +19,8 @@
  *   視聴者がポイントを払って出題させるものなので、チャンネルポイントのトリガーにだけ置ける
  * - lick: Workerが相手の名前とアイコンを、合成ページの素材「ペロペロ」へ押し出す（issue #338）。
  *   舐める相手を1人に決めるため、チャンネルポイントと「決まった人のその配信で最初の発言」のトリガーにだけ置ける
+ * - vrm: Workerが動き方の種と、配信者が選んだ VRM のURLを、合成ページの素材「VRM」へ押し出す（issue #358）。
+ *   相手を必要としない演出なので、どのトリガーにも置ける
  *
  * メニュー項目は17種類（worker/trigger-menu.ts の TRIGGER_KINDS）で、そのうちチャットの発言を対象にするものは
  * botを接続しているときだけ通知が届く。広告の終了（adBreakEnd）だけはTwitchから届く通知ではなく、
@@ -38,7 +40,7 @@ import { ANNOUNCEMENT_COLORS, type AnnouncementColor } from './twitch'
 const CONFIG_KEY = 'alert-config'
 
 /** 動作の種類。同じ種類は1トリガーに1件まで */
-export const ACTION_TYPES = ['alert', 'chat', 'announce', 'aiChat', 'shoutout', 'townTour', 'twister', 'kanjiQuiz', 'lick'] as const
+export const ACTION_TYPES = ['alert', 'chat', 'announce', 'aiChat', 'shoutout', 'townTour', 'twister', 'kanjiQuiz', 'lick', 'vrm'] as const
 
 export type ActionType = (typeof ACTION_TYPES)[number]
 
@@ -59,14 +61,18 @@ const MAX_LOGIN_LENGTH = 25
 /** 色を指定しなかったアナウンスの色（チャンネルの色） */
 const DEFAULT_ANNOUNCEMENT_COLOR: AnnouncementColor = 'primary'
 
-export type MediaKind = 'image' | 'video' | 'audio'
+/** R2 に置いた素材の種類。VRM（issue #358）はVRMの演出のモデルにだけ使い、アラートでは流さない */
+export type MediaKind = 'image' | 'video' | 'audio' | 'vrm'
+
+/** アラートで流せる素材の種類 */
+export type AlertMediaKind = Exclude<MediaKind, 'vrm'>
 
 /** オーバーレイに素材を出す動作 */
 export interface StoredAlertAction {
   type: 'alert'
   mediaId: string
   /** 素材の種類。保存時にサーバーが素材から調べて書き足す（オーバーレイへ渡すたびに素材を調べ直さないため） */
-  mediaKind: MediaKind
+  mediaKind: AlertMediaKind
   durationSeconds: number
   /** 音量（0〜1） */
   volume: number
@@ -163,6 +169,16 @@ export interface StoredLickAction {
 /** ペロペロを置けるトリガーの項目 */
 export const LICK_KINDS: readonly TriggerKind[] = ['reward', 'fromUserFirstOfStream']
 
+/**
+ * 配信者が選んだ VRM のキャラクターを、合成ページの素材「VRM」で短いあいだだけ出して動かす動作（issue #358）。
+ *
+ * 動き方は種から決まり、種はその都度ランダムに引く。出す VRM は動作ごとではなく全体で1つ（worker/vrm-model.ts）なので、
+ * 配信者が決める項目を持たない。相手を必要としない演出なので、どのトリガーにも置ける。
+ */
+export interface StoredVrmAction {
+  type: 'vrm'
+}
+
 export type StoredAction =
   | StoredAlertAction
   | StoredChatAction
@@ -173,6 +189,7 @@ export type StoredAction =
   | StoredTwisterAction
   | StoredKanjiQuizAction
   | StoredLickAction
+  | StoredVrmAction
 
 /** 市町村紹介を置けるきっかけ。レイドはレイド元、キーワード（!darts など）は発言した人の名前を冒頭に出す */
 export const TOWN_TOUR_KINDS: readonly TriggerKind[] = ['raid', 'keyword']
@@ -361,6 +378,8 @@ const parseAction = (
   if (type === 'twister') return { type }
   // ペロペロも同じく配信者が決める項目を持たない（置けるきっかけは parseAlertConfig で確かめる）
   if (type === 'lick') return { type }
+  // VRMの演出も同じく配信者が決める項目を持たず、どのトリガーにも置ける
+  if (type === 'vrm') return { type }
 
   // 漢字クイズは級ごとの出題の重みだけを持つ（チャンネルポイントにだけ置けることは parseAlertConfig で確かめる）
   if (type === 'kanjiQuiz') {
@@ -397,7 +416,10 @@ const parseAction = (
   }
 
   const { mediaId, durationSeconds, volume, message } = candidate
-  const mediaKind = typeof mediaId === 'string' ? kindOfMedia(mediaId) : null
+  const foundKind = typeof mediaId === 'string' ? kindOfMedia(mediaId) : null
+  // VRM はアラートで流せないので、ほかの素材と分けて断る（存在しないとは言わない）
+  const isVrm = foundKind === 'vrm'
+  const mediaKind = isVrm ? null : foundKind
 
   // 判定結果を変数に置くのは、問題点の記録と、下の if での型の絞り込みの両方に使うため
   const mediaOk = typeof mediaId === 'string' && mediaKind !== null
@@ -405,7 +427,8 @@ const parseAction = (
   const volumeOk = isNumberBetween(volume, 0, 1)
   const messageOk = isStringWithin(message, 0, MAX_ALERT_MESSAGE_LENGTH)
 
-  if (!mediaOk) problems.push(`${at}.mediaId: 素材「${String(mediaId)}」が存在しません`)
+  if (isVrm) problems.push(`${at}.mediaId: 素材「${String(mediaId)}」は VRM なのでアラートには使えません`)
+  else if (!mediaOk) problems.push(`${at}.mediaId: 素材「${String(mediaId)}」が存在しません`)
   if (!durationOk) problems.push(`${at}.durationSeconds: ${MIN_DURATION_SECONDS}〜${MAX_DURATION_SECONDS} の数値で指定してください`)
   if (!volumeOk) problems.push(`${at}.volume: 0〜1 の数値で指定してください`)
   if (!messageOk) problems.push(`${at}.message: ${MAX_ALERT_MESSAGE_LENGTH}文字以内の文字列で指定してください`)
@@ -594,6 +617,10 @@ export const kanjiQuizActionOf = (trigger: WithActions): StoredKanjiQuizAction |
 /** トリガーからペロペロの動作を取り出す。なければ null */
 export const lickActionOf = (trigger: WithActions): StoredLickAction | null =>
   trigger.actions.find((action): action is StoredLickAction => action.type === 'lick') ?? null
+
+/** トリガーからVRMの演出の動作を取り出す。なければ null */
+export const vrmActionOf = (trigger: WithActions): StoredVrmAction | null =>
+  trigger.actions.find((action): action is StoredVrmAction => action.type === 'vrm') ?? null
 
 /** トリガーからアラートを出す動作を取り出す。なければ null */
 export const alertActionOf = (trigger: WithActions): StoredAlertAction | null =>

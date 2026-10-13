@@ -13,6 +13,7 @@ import type { SpeechMute } from './speech-config'
 import type { TaskDeskSnapshot } from './task-desk'
 import type { KanjiQuizCall, KanjiQuizNotice, StreamStopOrder } from './kanji-quiz-call'
 import type { LickCall } from './lick-call'
+import type { VrmCall } from './vrm-call'
 import type { OpinionBoardSnapshot } from './opinion'
 import type { OverlayLayout } from './overlay-layout'
 import type { TextsSnapshot } from './text'
@@ -61,6 +62,8 @@ export const createFakeAlertChannel = ({ shouldFail = false, noStreamStopReceive
   pushedOpinions: OpinionBoardSnapshot[]
   /** 押し出されたペロペロの呼び出し */
   pushedLicks: LickCall[]
+  /** 押し出されたVRMの演出の呼び出し */
+  pushedVrms: VrmCall[]
   /** 押し出された合成オーバーレイの構成 */
   pushedOverlayLayouts: OverlayLayout[]
   /** WebSocketの接続として引き渡されたリクエスト */
@@ -84,6 +87,7 @@ export const createFakeAlertChannel = ({ shouldFail = false, noStreamStopReceive
   const evictedStreamStops: StreamStopOrder[] = []
   const evictedOpinions: OpinionBoardSnapshot[] = []
   const evictedLicks: LickCall[] = []
+  const evictedVrms: VrmCall[] = []
   const evictedOverlayLayouts: OverlayLayout[] = []
   const handedOverConnections: Request[] = []
   const revokedTags: string[] = []
@@ -106,6 +110,7 @@ export const createFakeAlertChannel = ({ shouldFail = false, noStreamStopReceive
     pushedStreamStops: evictedStreamStops,
     pushedOpinions: evictedOpinions,
     pushedLicks: evictedLicks,
+    pushedVrms: evictedVrms,
     pushedOverlayLayouts: evictedOverlayLayouts,
     forwardedConnections: handedOverConnections,
     revokedKeyTags: revokedTags,
@@ -139,6 +144,7 @@ export const createFakeAlertChannel = ({ shouldFail = false, noStreamStopReceive
           else if (pathname === '/push/text') evictedTexts.push((await request.json()) as TextsSnapshot)
           else if (pathname === '/push/opinions') evictedOpinions.push((await request.json()) as OpinionBoardSnapshot)
           else if (pathname === '/push/lick') evictedLicks.push((await request.json()) as LickCall)
+          else if (pathname === '/push/vrm') evictedVrms.push((await request.json()) as VrmCall)
           else if (pathname === '/push/overlay-layout') evictedOverlayLayouts.push((await request.json()) as OverlayLayout)
           else if (pathname === '/push/kanji-quiz') {
             const body = (await request.json()) as KanjiQuizCall | KanjiQuizNotice

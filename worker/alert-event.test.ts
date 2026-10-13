@@ -27,6 +27,7 @@ import {
   twistersFor,
   kanjiQuizzesFor,
   licksFor,
+  vrmsFor,
   type ConditionState,
 } from './alert-event'
 
@@ -972,6 +973,26 @@ describe('licksFor', () => {
     expect(() => licksFor(config, 'channel.follow', { user_name: '田中太郎', user_login: 'tanaka_taro' }, notFirstTime)).toThrowError(
       /チャンネルポイントと「決まった人のその配信で最初の発言」のトリガーにだけ/,
     )
+  })
+})
+
+describe('vrmsFor', () => {
+  const alertConfig = (triggers: StoredTrigger[]): AlertConfig => ({ triggers })
+  const follow = { user_name: '田中太郎', user_login: 'tanaka_taro' }
+
+  it('VRMの演出を置いたトリガーに当てはまった数だけ、演出の回数を返す', () => {
+    const config = alertConfig([
+      { kind: 'follow', actions: [{ type: 'vrm' }] },
+      { kind: 'follow', actions: [{ type: 'chat', message: 'フォローありがとう' }] },
+    ])
+
+    expect(vrmsFor(config, 'channel.follow', follow, notFirstTime)).toBe(1)
+  })
+
+  it('当てはまるトリガーにVRMの演出が無ければ0を返す', () => {
+    const config = alertConfig([{ kind: 'follow', actions: [{ type: 'chat', message: 'フォローありがとう' }] }])
+
+    expect(vrmsFor(config, 'channel.follow', follow, notFirstTime)).toBe(0)
   })
 })
 

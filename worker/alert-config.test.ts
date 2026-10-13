@@ -173,6 +173,29 @@ describe('parseAlertConfig', () => {
     )
   })
 
+  it('VRMの演出（vrm）は、どのトリガーにも置ける（相手を必要としない演出のため）', () => {
+    const config = parseAlertConfig(
+      {
+        triggers: [
+          { kind: 'follow', actions: [{ type: 'vrm' }] },
+          { kind: 'raid', actions: [{ type: 'vrm' }] },
+          { kind: 'keyword', contains: '!kanban', actions: [{ type: 'vrm' }] },
+        ],
+      },
+      materialKind,
+    )
+
+    expect(config.triggers.map((trigger) => trigger.actions)).toEqual([[{ type: 'vrm' }], [{ type: 'vrm' }], [{ type: 'vrm' }]])
+  })
+
+  it('アラートの素材に VRM を選んだら拒否する（アラートは画像・動画・音声しか流せないため）', () => {
+    const kindWithVrm = (mediaId: string) => (mediaId === '素材ID-看板娘' ? 'vrm' : null)
+
+    expect(() => parseAlertConfig({ triggers: [receivedTrigger({ actions: [alertAction({ mediaId: '素材ID-看板娘' })] })] }, kindWithVrm)).toThrow(
+      expect.objectContaining({ problems: ['triggers[0].actions[0].mediaId: 素材「素材ID-看板娘」は VRM なのでアラートには使えません'] }),
+    )
+  })
+
   it('チャンネルポイントと「決まった人のその配信で最初の発言」のトリガーなら、ペロペロの動作（lick）を受け付ける', () => {
     const config = parseAlertConfig(
       {
@@ -432,7 +455,7 @@ describe('parseAlertConfig', () => {
 
   it('対応していない動作の種類は拒否する', () => {
     expect(() => parseAlertConfig({ triggers: [receivedTrigger({ actions: [alertAction({ type: 'ban' })] })] }, materialKind)).toThrowError(
-      expect.objectContaining({ problems: ['triggers[0].actions[0].type: alert / chat / announce / aiChat / shoutout / townTour / twister / kanjiQuiz / lick のいずれかを指定してください'] }),
+      expect.objectContaining({ problems: ['triggers[0].actions[0].type: alert / chat / announce / aiChat / shoutout / townTour / twister / kanjiQuiz / lick / vrm のいずれかを指定してください'] }),
     )
   })
 

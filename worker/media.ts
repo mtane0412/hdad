@@ -1,5 +1,5 @@
 /**
- * アラートの素材（画像・動画・音声）
+ * アラートの素材（画像・動画・音声）と、VRMの演出のモデル（VRM。issue #358）
  *
  * 素材はR2（MEDIA）に置き、IDはアップロードのたびに新しく振る（同じIDの中身が変わらないので、ブラウザに長くキャッシュさせられる）。
  * 再配布できない素材をリポジトリに入れずに済むよう、配信者が管理画面からアップロードする。
@@ -11,7 +11,14 @@ import type { MediaBucket, MediaObject } from './media-bucket'
 /** 1ファイルの上限（バイト）。Workerのメモリ（128MB）に収まり、数十秒の動画が入る大きさ */
 export const MAX_MEDIA_BYTES = 50 * 1024 * 1024
 const MAX_FILE_NAME_LENGTH = 200
-const KINDS: readonly MediaKind[] = ['image', 'video', 'audio']
+/** Content-Type の前半（image/png の image）で種類が決まる素材 */
+const KINDS_BY_TYPE: readonly MediaKind[] = ['image', 'video', 'audio']
+/**
+ * VRM として受け付ける Content-Type。VRM は glTF のバイナリ（.glb）と同じ形なので、その Content-Type で受け取る。
+ * ブラウザは .vrm に Content-Type を付けないため、管理画面（src/admin/api.ts）がこの値を付けて送る。
+ * application/octet-stream は何のファイルでも付きうるので受け付けない
+ */
+export const VRM_CONTENT_TYPE = 'model/gltf-binary'
 
 /** 管理画面に見せる素材1件 */
 export interface MediaItem {
@@ -24,10 +31,12 @@ export interface MediaItem {
   uploadedAt: string
 }
 
-/** Content-Type（image/png; charset=... など）から素材の種類を決める。画像・動画・音声でなければ null */
+/** Content-Type（image/png; charset=... など）から素材の種類を決める。画像・動画・音声・VRMでなければ null */
 export const kindOfContentType = (contentType: string): MediaKind | null => {
-  const [type] = contentType.trim().toLowerCase().split('/')
-  return KINDS.find((kind) => kind === type) ?? null
+  const [essence = ''] = contentType.trim().toLowerCase().split(';')
+  if (essence.trim() === VRM_CONTENT_TYPE) return 'vrm'
+  const [type] = essence.split('/')
+  return KINDS_BY_TYPE.find((kind) => kind === type) ?? null
 }
 
 /** R2のオブジェクトを素材1件に変換する。このWorker以外が置いた、種類の分からないオブジェクトは null */
@@ -61,12 +70,12 @@ export const listMedia = async (bucket: MediaBucket): Promise<MediaItem[]> => {
 /**
  * アップロードのリクエスト（本文がファイルの中身、Content-Type が種類、X-File-Name がURLエンコードしたファイル名）を保存する。
  *
- * @throws HttpError ファイル名なし（400）・画像/動画/音声以外（415）・大きすぎる（413）・空（400）
+ * @throws HttpError ファイル名なし（400）・画像/動画/音声/VRM以外（415）・大きすぎる（413）・空（400）
  */
 export const uploadMedia = async (bucket: MediaBucket, request: Request): Promise<MediaItem> => {
   const contentType = request.headers.get('Content-Type') ?? ''
   if (kindOfContentType(contentType) === null) {
-    throw new HttpError(STATUS.unsupportedMediaType, 'unsupported-media', `画像・動画・音声のファイルだけをアップロードできます（Content-Type: ${contentType || 'なし'}）`)
+    throw new HttpError(STATUS.unsupportedMediaType, 'unsupported-media', `画像・動画・音声・VRMのファイルだけをアップロードできます（Content-Type: ${contentType || 'なし'}）`)
   }
 
   let name: string

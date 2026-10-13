@@ -15,6 +15,7 @@ import { loadTownTourSound, townTourSoundUses } from './town-tour-sound'
 import { loadTwisterSound, twisterSoundUses } from './twister-sound'
 import { kanjiQuizSoundUses, loadKanjiQuizSound } from './kanji-quiz-sound'
 import { lickSoundUses, loadLickSound } from './lick-sound'
+import { loadVrmModel, vrmModelUses } from './vrm-model'
 import { overlayKeyTag, rotateOverlayKey } from './overlay-key'
 import { revokeTabViewers } from './tab-channel'
 import { loadOverlayLayout, parseItemVisibility, parseOverlayLayout, saveOverlayLayout, withItemVisibility, type OverlayLayout } from './overlay-layout'
@@ -86,6 +87,9 @@ export const deleteMedia = async (context: Context): Promise<Response> => {
   }
   if (lickSoundUses(await loadLickSound(env.STORE), id)) {
     throw new HttpError(STATUS.conflict, 'media-in-use', 'この素材はペロペロの効果音に使われています。先にトリガーのページの「ペロペロ」で外してください')
+  }
+  if (vrmModelUses(await loadVrmModel(env.STORE), id)) {
+    throw new HttpError(STATUS.conflict, 'media-in-use', 'この素材はVRMの演出に使われています。先にトリガーのページの「VRM」で外してください')
   }
   if (kanjiQuizSoundUses(await loadKanjiQuizSound(env.STORE), id)) {
     throw new HttpError(STATUS.conflict, 'media-in-use', 'この素材は漢字クイズの音に使われています。先にトリガーのページの「漢字クイズ」で外してください')

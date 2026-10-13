@@ -80,6 +80,8 @@
  * | PUT  /api/admin/twister/sound    | セッション     | ツイスターの BGM の設定を検証して保存 |
  * | GET・PUT /api/admin/lick/sound   | セッション     | ペロペロで舌が触れるたびに鳴らす効果音の設定の読み書き |
  * | POST /api/admin/lick/demo        | セッション     | ペロペロの試し再生（指定した相手か試しの相手を舐める呼び出しを合成ページへ押し出す） |
+ * | GET・PUT /api/admin/vrm/model    | セッション     | VRMの演出で出す VRM の設定の読み書き |
+ * | POST /api/admin/vrm/demo         | セッション     | VRMの演出の試し再生（選んである VRM の演出を合成ページへ押し出す） |
  * | GET  /api/admin/viewers          | セッション     | 視聴者の記録の一覧（検索・ページ送り） |
  * | PATCH /api/admin/viewers/:userId | セッション     | 視聴者へのメモの保存 |
  * | DELETE /api/admin/viewers/:userId | セッション    | 視聴者の記録の削除 |
@@ -127,6 +129,7 @@
  * | GET  /api/overlay/town-tour/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、市町村紹介の呼び出しの配送先へ引き渡す |
  * | GET  /api/overlay/twister/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、ツイスターの呼び出しの配送先へ引き渡す |
  * | GET  /api/overlay/lick/socket    | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、ペロペロの呼び出しの配送先へ引き渡す |
+ * | GET  /api/overlay/vrm/socket     | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、VRMの演出の呼び出しの配送先へ引き渡す |
  * | GET  /api/overlay/kanji-quiz/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、漢字クイズの出題の配送先へ引き渡す |
  * | POST /api/overlay/kanji-quiz/open | オーバーレイ用キー | 合成ページが流しはじめた漢字クイズの出題を開き、時間切れの判定を予約する |
  * | GET  /api/overlay/kanji-quiz/stop/socket | オーバーレイ用キー | 裏方のページからのWebSocketの接続を受け、配信を止める命令の配送先へ引き渡す |
@@ -232,6 +235,7 @@ import {
 import { getKanjiQuizSound, kanjiQuizSocket, kanjiQuizStopSocket, postKanjiQuizDemo, postKanjiQuizOpen, postKanjiQuizStopCancel, postKanjiQuizStopResult, putKanjiQuizSound } from './kanji-quiz-routes'
 import { getTwisterSound, postTwisterDemo, putTwisterSound, twisterSocket } from './twister-routes'
 import { getLickSound, lickSocket, postLickDemo, putLickSound } from './lick-routes'
+import { getVrmModel, postVrmDemo, putVrmModel, vrmSocket } from './vrm-routes'
 import { getOverlayPomodoro, getPomodoro, pomodoroSocket, postPomodoroControl, putPomodoroSettings } from './pomodoro-routes'
 import { getDeeplUsage, getTranslation, postTranslation, putTranslation } from './translation-routes'
 import { drawSocket, getDrawBackground, getDrawStrokes, putDrawStrokes } from './draw-routes'
@@ -430,6 +434,10 @@ const ROUTES: readonly Route[] = [
   { method: 'POST', path: '/api/admin/lick/demo', handle: postLickDemo },
   { method: 'GET', path: '/api/admin/lick/sound', handle: getLickSound },
   { method: 'PUT', path: '/api/admin/lick/sound', handle: putLickSound },
+  { method: 'GET', path: '/api/overlay/vrm/socket', handle: vrmSocket },
+  { method: 'POST', path: '/api/admin/vrm/demo', handle: postVrmDemo },
+  { method: 'GET', path: '/api/admin/vrm/model', handle: getVrmModel },
+  { method: 'PUT', path: '/api/admin/vrm/model', handle: putVrmModel },
   { method: 'GET', path: '/api/media/:id', handle: media },
 ]
 
