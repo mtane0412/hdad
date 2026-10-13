@@ -254,6 +254,8 @@ describe('getSession', () => {
         endedAt: '2026-09-21T12:30:00.000Z',
         title: '新しいマイクのお披露目',
         summary: '配信者が買い替えたマイクの音を聞かせ、視聴者からメーカーを尋ねられた。',
+        chatCount: 0,
+        chatterCount: 0,
       },
     ])
     expect(session?.summary).toBe('マイクを新調した配信者。いまはその音を聞かせているところ。')

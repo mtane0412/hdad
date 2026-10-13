@@ -49,6 +49,10 @@ export interface StreamChapter {
   title: string
   /** 何が話されたかの要約 */
   summary: string
+  /** 区間の中のチャットの件数。数を残す前に作った章では null（0件ではなく「記録なし」） */
+  chatCount: number | null
+  /** 区間の中でチャットした人数（重複を除く）。null の意味は chatCount と同じ */
+  chatterCount: number | null
 }
 
 /**
@@ -142,7 +146,9 @@ const isStreamChapter = (value: unknown): value is StreamChapter =>
   typeof value.startedAt === 'string' &&
   typeof value.endedAt === 'string' &&
   typeof value.title === 'string' &&
-  typeof value.summary === 'string'
+  typeof value.summary === 'string' &&
+  isNumberOrNull(value.chatCount) &&
+  isNumberOrNull(value.chatterCount)
 
 const isStreamTitleCandidate = (value: unknown): value is StreamTitleCandidate =>
   isRecord(value) && typeof value.chapterStartedAt === 'string' && typeof value.candidate === 'string' && typeof value.publishable === 'number'

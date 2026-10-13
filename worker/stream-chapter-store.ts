@@ -5,6 +5,9 @@
  * stream_chapters に持つ。どこまでを章にしたかは stream_sessions.chaptered_until に持つ
  * （発話の無い区間は章を作らずに目印だけを進めるので、章の行からは分からないため）。
  *
+ * 章を保存するときに、区間の中のチャットの件数と発言者数（重複を除いた人数）も数えて一緒に残す
+ * （migrations/0036_chapter_chat_counts.sql。本文は残さない）。
+ *
  * 区間の材料（発話・発言・画面の文字）の読み出しもここに置く。3つのテーブルを同じ区間で切って読むのは章立てだけで、
  * あらすじ（目印より後ろを読む）やサイドスーパー（直近を読む）とは切り口が違うためである。
  *
@@ -30,6 +33,10 @@ export interface StreamChapter {
   endedAt: string
   title: string
   summary: string
+  /** 区間の中のチャットの件数。数を残す前（0036 より前）に作った章では null（0件ではなく「記録なし」） */
+  chatCount: number | null
+  /** 区間の中でチャットした人数（重複を除く）。null の意味は chatCount と同じ */
+  chatterCount: number | null
 }
 
 /**
@@ -119,13 +126,22 @@ export const readChapterLinesAt = async (db: Database, sessionId: string, at: st
   }
 }
 
-/** 章を保存し、どこまでを章にしたかを章の終わりまで進める（片方だけが書かれないよう、ひとつのトランザクションで行う） */
+/**
+ * 章を保存し、どこまでを章にしたかを章の終わりまで進める（片方だけが書かれないよう、ひとつのトランザクションで行う）。
+ *
+ * 区間の中のチャットの件数と発言者数は、INSERT ... SELECT の中で stream_chat_messages から数える。
+ * 読み出し（readChapterLines）は件数の上限で切るので、そこから数えると多い区間で数が頭打ちになるためである。
+ *
+ * 注意: 数えられるのは、まだ消えていない発言だけである。呼び出し側（worker/collect.ts）は、人物像の作成と
+ * 保持期間切れで発言を消すより前に章を保存する。
+ */
 export const saveStreamChapter = async (db: Database, chapter: StreamChapterInput): Promise<void> => {
   await db.batch([
     db
       .prepare(
-        `INSERT INTO stream_chapters (session_id, started_at, ended_at, title, summary)
-         VALUES (?1, ?2, ?3, ?4, ?5)`,
+        `INSERT INTO stream_chapters (session_id, started_at, ended_at, title, summary, chat_count, chatter_count)
+         SELECT ?1, ?2, ?3, ?4, ?5, COUNT(*), COUNT(DISTINCT user_id) FROM stream_chat_messages
+         WHERE session_id = ?1 AND sent_at >= ?2 AND sent_at < ?3`,
       )
       .bind(chapter.sessionId, chapter.startedAt, chapter.endedAt, chapter.title, chapter.summary),
     db.prepare('UPDATE stream_sessions SET chaptered_until = ?2 WHERE id = ?1').bind(chapter.sessionId, chapter.endedAt),
@@ -141,7 +157,8 @@ export const skipChapterWindow = async (db: Database, sessionId: string, until: 
 export const listStreamChapters = async (db: Database, sessionId: string): Promise<StreamChapter[]> => {
   const { results } = await db
     .prepare(
-      `SELECT started_at AS startedAt, ended_at AS endedAt, title, summary FROM stream_chapters
+      `SELECT started_at AS startedAt, ended_at AS endedAt, title, summary, chat_count AS chatCount, chatter_count AS chatterCount
+       FROM stream_chapters
        WHERE session_id = ?1 ORDER BY started_at`,
     )
     .bind(sessionId)

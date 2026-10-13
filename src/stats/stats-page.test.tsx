@@ -11,6 +11,7 @@
  * - 期間を切り替えると、対象の配信だけに変わること
  * - 配信を選ぶと、その配信の視聴者数の推移を読み込んで出すこと
  * - 配信を選ぶと、その配信で何が話されたか（章）と最後のあらすじを出すこと
+ * - 章ごとのチャットの件数と発言者数を添え、数を残す前の章は 0 ではなく「記録なし」と出すこと
  * - 章ごとに作った配信タイトルの候補と Jev の判定を、機械が作ったものと分かる形で章の下に出すこと（試験運用）
  * - 配信タイトルの候補を作るかを、スイッチで切り替えて保存できること
  *
@@ -74,12 +75,18 @@ const FRIDAY_SESSION_DETAIL: SessionDetail = {
       endedAt: '2026-09-18T12:30:00.000Z',
       title: 'エディタの設定を見直す',
       summary: '配信者がエディタの拡張機能を整理し、視聴者からおすすめの拡張が寄せられた。',
+      // この章では5人が合わせて12回チャットした
+      chatCount: 12,
+      chatterCount: 5,
     },
     {
       startedAt: '2026-09-18T12:30:00.000Z',
       endedAt: '2026-09-18T13:00:00.000Z',
       title: 'ログイン機能の実装',
       summary: '配信者がログイン画面を作りはじめ、セッションの持ち方で視聴者と相談した。',
+      // チャットの数を残す前に作った章（記録なし）
+      chatCount: null,
+      chatterCount: null,
     },
   ],
   // 2つ目の章にだけ配信タイトルの候補がある（1つ目は作れなかった）
@@ -250,6 +257,19 @@ describe('配信ごとの詳細（視聴者数の推移と話されたこと）'
     expect(chapters[0]).toHaveTextContent('配信者がエディタの拡張機能を整理し、視聴者からおすすめの拡張が寄せられた。')
     expect(chapters[1]).toHaveTextContent('ログイン機能の実装')
     expect(screen.getByText('エディタを整えた配信者。ログイン機能に取りかかり、いまはセッションの持ち方を決めているところ。')).toBeInTheDocument()
+  })
+
+  it('章ごとにチャットの件数と発言者数を添え、数を残す前の章は 0 と見分けられるよう「記録なし」と出す', async () => {
+    const user = userEvent.setup()
+    render(<StatsPage api={createFakeApi()} now={NOW} />)
+    await waitForDisplay()
+
+    await user.click(screen.getByRole('button', { name: '金曜夜のもくもく配信 の詳細を見る' }))
+
+    const chapters = within(await screen.findByRole('list', { name: '金曜夜のもくもく配信 で話されたこと' })).getAllByRole('listitem')
+    expect(chapters[0]).toHaveTextContent('チャット 12件・5人')
+    expect(chapters[1]).toHaveTextContent('チャット 記録なし')
+    expect(chapters[1]).not.toHaveTextContent('0件')
   })
 
   it('章の下に、その章で作った配信タイトルの候補と、公開してよいかの判定を出す（候補の無い章には出さない）', async () => {
