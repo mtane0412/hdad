@@ -5,10 +5,14 @@
  * 日時はブラウザのタイムゾーンで表示する決まりなので、テストでは TZ を東京に固定して確かめる。
  */
 import { describe, expect, it } from 'vitest'
-import type { FollowerSample, SessionSummary } from './api'
+import type { FollowerSample, SessionSummary, StreamRaid, ViewerSample } from './api'
 import {
   formatChapterChat,
   formatProbability,
+  formatRaidSource,
+  formatRaidViewers,
+  formatRetention,
+  raidRetention,
   eventTotals,
   followerPoints,
   formatCount,
@@ -251,5 +255,80 @@ describe('formatWorkTime（作業机でみんなが作業した時間の合計�
 
   it('記録が無ければ 0 ではなく「—」にする', () => {
     expect(formatWorkTime(null)).toBe('—')
+  })
+})
+
+describe('raidRetention（レイドの後の定着）', () => {
+  /** 12:41（UTC）に「まつもと」が20人でレイドしてきた */
+  const RAID: StreamRaid = {
+    occurredAt: '2026-09-23T12:41:00.000Z',
+    fromUserId: '33333',
+    fromUserLogin: 'matsumoto_dev',
+    fromUserName: 'まつもと',
+    viewers: 20,
+  }
+  /** 5分おきの視聴者数。レイドの直前は9人、30分後は28人、60分後は17人 */
+  const SAMPLES: ViewerSample[] = [
+    { sampledAt: '2026-09-23T12:30:00.000Z', viewerCount: 7 },
+    { sampledAt: '2026-09-23T12:40:00.000Z', viewerCount: 9 },
+    { sampledAt: '2026-09-23T12:45:00.000Z', viewerCount: 36 },
+    { sampledAt: '2026-09-23T13:10:00.000Z', viewerCount: 28 },
+    { sampledAt: '2026-09-23T13:40:00.000Z', viewerCount: 17 },
+  ]
+  /** 配信がとうに終わったあとの時刻 */
+  const LATER = Date.parse('2026-09-24T00:00:00.000Z')
+
+  it('直前・30分後・60分後の視聴者数を、それぞれいちばん近い記録から読む', () => {
+    expect(raidRetention(RAID, SAMPLES, '2026-09-23T15:00:00.000Z', LATER)).toEqual({
+      before: { status: 'recorded', viewers: 9 },
+      after30: { status: 'recorded', viewers: 28 },
+      after60: { status: 'recorded', viewers: 17 },
+    })
+  })
+
+  it('30分後・60分後より先に配信が終わっていたら、値を作らず「配信終了」にする', () => {
+    expect(raidRetention(RAID, SAMPLES, '2026-09-23T13:20:00.000Z', LATER)).toMatchObject({
+      after30: { status: 'recorded', viewers: 28 },
+      after60: { status: 'ended' },
+    })
+  })
+
+  it('配信中で、まだその時刻になっていなければ「まだ」にする', () => {
+    expect(raidRetention(RAID, SAMPLES.slice(0, 3), null, Date.parse('2026-09-23T12:50:00.000Z'))).toMatchObject({
+      after30: { status: 'pending' },
+      after60: { status: 'pending' },
+    })
+  })
+
+  it('その時刻の近くに記録が無ければ、前後の値で埋めずに「記録なし」にする', () => {
+    // 13:10 の記録が欠けている（収集が止まっていた）
+    const withGap = SAMPLES.filter((sample) => sample.sampledAt !== '2026-09-23T13:10:00.000Z')
+    expect(raidRetention(RAID, withGap, '2026-09-23T15:00:00.000Z', LATER)).toMatchObject({ after30: { status: 'missing' } })
+  })
+
+  it('レイドより前の近くに記録が無ければ、直前の視聴者数も「記録なし」にする（レイドのあとの記録は使わない）', () => {
+    const afterRaidOnly = SAMPLES.filter((sample) => sample.sampledAt >= '2026-09-23T12:45:00.000Z')
+    expect(raidRetention(RAID, afterRaidOnly, '2026-09-23T15:00:00.000Z', LATER).before).toEqual({ status: 'missing' })
+  })
+})
+
+describe('レイドの整形', () => {
+  it('レイド元は表示名とログイン名を並べる。表示名がログイン名と同じ綴りなら1つだけにする', () => {
+    expect(formatRaidSource({ occurredAt: '', fromUserId: '1', fromUserLogin: 'matsumoto_dev', fromUserName: 'まつもと', viewers: 20 })).toBe('まつもと（matsumoto_dev）')
+    expect(formatRaidSource({ occurredAt: '', fromUserId: '1', fromUserLogin: 'matsumoto_dev', fromUserName: 'Matsumoto_Dev', viewers: 20 })).toBe('Matsumoto_Dev')
+  })
+
+  it('レイド元を残す前のレイドは、レイド元も人数も「—」にする', () => {
+    const oldRaid: StreamRaid = { occurredAt: '', fromUserId: null, fromUserLogin: null, fromUserName: null, viewers: null }
+    expect(formatRaidSource(oldRaid)).toBe('—')
+    expect(formatRaidViewers(oldRaid)).toBe('—')
+    expect(formatRaidViewers({ ...oldRaid, viewers: 20 })).toBe('20人')
+  })
+
+  it('視聴者数は人数で、無いときは理由を出す', () => {
+    expect(formatRetention({ status: 'recorded', viewers: 28 })).toBe('28人')
+    expect(formatRetention({ status: 'ended' })).toBe('配信終了')
+    expect(formatRetention({ status: 'pending' })).toBe('まだ')
+    expect(formatRetention({ status: 'missing' })).toBe('記録なし')
   })
 })

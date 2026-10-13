@@ -39,6 +39,22 @@ export interface ViewerSample {
   viewerCount: number
 }
 
+/**
+ * 配信中に受けたレイド1件（worker/stats-store.ts の StreamRaid と合わせる）。
+ *
+ * レイド元と人数を残しはじめる前に記録したレイドは、時刻だけを持ち、ほかは null になる。
+ */
+export interface StreamRaid {
+  /** 受けた日時（ISO 8601・UTC） */
+  occurredAt: string
+  fromUserId: string | null
+  fromUserLogin: string | null
+  /** レイド元の表示名 */
+  fromUserName: string | null
+  /** 連れてきた人数 */
+  viewers: number | null
+}
+
 /** 配信の約30分ぶんで何が話されたかの記録（1章） */
 export interface StreamChapter {
   /** 区間の始まり（ISO 8601・UTC） */
@@ -74,7 +90,7 @@ export interface StreamTitleSettings {
   enabled: boolean
 }
 
-/** 配信セッションと、その視聴者数の時系列（古い順）・章・あらすじ */
+/** 配信セッションと、その視聴者数の時系列（古い順）・章・あらすじ・受けたレイド */
 export interface SessionDetail {
   id: string
   startedAt: string
@@ -90,6 +106,8 @@ export interface SessionDetail {
   summary: string | null
   /** 作業机でみんなが作業した時間の合計（ミリ秒）と人数。誰も宣言しなかった配信では null */
   workTime: WorkTime | null
+  /** この配信で受けたレイド（受けた順）。無ければ空 */
+  raids: StreamRaid[]
 }
 
 /** 作業机でみんなが作業した時間の合計（worker/stats-store.ts の SessionDetail の workTime と合わせる） */
@@ -140,6 +158,17 @@ const isEventCounts = (value: unknown): value is Record<string, number> => isRec
 
 const isViewerSample = (value: unknown): value is ViewerSample =>
   isRecord(value) && typeof value.sampledAt === 'string' && typeof value.viewerCount === 'number'
+
+/** 文字列または null */
+const isStringOrNull = (value: unknown): boolean => value === null || typeof value === 'string'
+
+const isStreamRaid = (value: unknown): value is StreamRaid =>
+  isRecord(value) &&
+  typeof value.occurredAt === 'string' &&
+  isStringOrNull(value.fromUserId) &&
+  isStringOrNull(value.fromUserLogin) &&
+  isStringOrNull(value.fromUserName) &&
+  isNumberOrNull(value.viewers)
 
 const isStreamChapter = (value: unknown): value is StreamChapter =>
   isRecord(value) &&
@@ -195,6 +224,7 @@ export const createStatsApi = (fetchImpl: typeof fetch): StatsApi => {
       const samples = readList(body, 'samples', isViewerSample)
       const chapters = readList(body, 'chapters', isStreamChapter)
       const titleCandidates = readList(body, 'titleCandidates', isStreamTitleCandidate)
+      const raids = readList(body, 'raids', isStreamRaid)
       if (
         !isRecord(body) ||
         typeof body.id !== 'string' ||
@@ -218,6 +248,7 @@ export const createStatsApi = (fetchImpl: typeof fetch): StatsApi => {
         titleCandidates,
         summary: body.summary,
         workTime: body.workTime,
+        raids,
       }
     },
 

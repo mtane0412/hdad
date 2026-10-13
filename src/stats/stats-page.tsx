@@ -5,6 +5,7 @@
  * 期間の概要・フォロワー数の推移・配信の一覧を出す。配信を選ぶと、その配信の視聴者数の推移と、
  * 何が話されたか（約30分ごとの章）・最後のあらすじ・その配信の時間に開いた意見ボードのテーマの振り返りを読み込んで一覧の中に出す。
  * 章にはその区間のチャットの件数と発言者数を添える（issue #352。数を残す前の章は「記録なし」）。
+ * 受けたレイドがあれば、レイドごとにレイド元・人数・直前と30分後・60分後の視聴者数（レイドの後の定着）も出す。
  * 配信タイトルの候補（試験運用。issue #268）を作るかの設定もここで切り替え、作った候補は章の下に出す。
  * 集計と整形は summary.ts、Workerの呼び出しは api.ts に任せ、ここは表示だけを受け持つ。
  *
@@ -30,11 +31,16 @@ import {
   formatCount,
   formatDateTime,
   formatDelta,
+  formatClockTime,
   formatDuration,
   formatProbability,
+  formatRaidSource,
+  formatRaidViewers,
+  formatRetention,
   formatTimeRange,
   formatWorkTime,
   PERIOD_DAYS,
+  raidRetention,
   sessionDurationMs,
   summarize,
   viewerPoints,
@@ -130,6 +136,46 @@ const SessionTalk = ({ detail, displayTitle }: { detail: SessionDetail; displayT
         </div>
       )}
     </div>
+  )
+}
+
+/**
+ * 配信中に受けたレイドと、その後の定着（issue #353）。
+ *
+ * レイドごとに、レイド元・連れてきた人数・直前と30分後・60分後の視聴者数を1行で出す。
+ * 視聴者数が無いときは、値を作らずに理由（配信終了・まだ・記録なし）を出す（summary.ts の raidRetention）。
+ * レイドを受けていない配信では何も出さない。
+ */
+const SessionRaids = ({ detail, displayTitle, now }: { detail: SessionDetail; displayTitle: string; now: number }) => {
+  if (detail.raids.length === 0) return null
+  return (
+    <Table aria-label={`${displayTitle} で受けたレイド`}>
+      <TableHeader>
+        <TableRow>
+          <TableHead>レイドの時刻</TableHead>
+          <TableHead>レイド元</TableHead>
+          <TableHead className="text-right">人数</TableHead>
+          <TableHead className="text-right">直前</TableHead>
+          <TableHead className="text-right">30分後</TableHead>
+          <TableHead className="text-right">60分後</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {detail.raids.map((raid) => {
+          const retention = raidRetention(raid, detail.samples, detail.endedAt, now)
+          return (
+            <TableRow key={raid.occurredAt}>
+              <TableCell className="tabular-nums">{formatClockTime(raid.occurredAt)}</TableCell>
+              <TableCell>{formatRaidSource(raid)}</TableCell>
+              <TableCell className="text-right tabular-nums">{formatRaidViewers(raid)}</TableCell>
+              <TableCell className="text-right tabular-nums">{formatRetention(retention.before)}</TableCell>
+              <TableCell className="text-right tabular-nums">{formatRetention(retention.after30)}</TableCell>
+              <TableCell className="text-right tabular-nums">{formatRetention(retention.after60)}</TableCell>
+            </TableRow>
+          )
+        })}
+      </TableBody>
+    </Table>
   )
 }
 
@@ -260,6 +306,7 @@ const SessionRow = ({ api, session, now, selected, onSelect }: { api: StatsApi; 
                 ) : (
                   <LazyTimeChart label={`${displayTitle} の視聴者数の推移`} dataKey="viewers" points={viewerPoints(selected.state.detail.samples)} />
                 )}
+                <SessionRaids detail={selected.state.detail} displayTitle={displayTitle} now={now} />
                 <SessionTalk detail={selected.state.detail} displayTitle={displayTitle} />
                 <SessionOpinions api={api} sessionId={session.id} />
                 <p role="group" aria-label="みんなの作業時間" className="flex items-baseline gap-2 text-sm">

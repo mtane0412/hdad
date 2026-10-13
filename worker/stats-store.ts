@@ -1,7 +1,8 @@
 /**
  * 配信の記録の読み書き
  *
- * 配信セッション・視聴者数・フォロワー数・イベント（サブスクなど）・収集の失敗をデータベース（D1）へ書き、管理用APIのために読み出す。
+ * 配信セッション・視聴者数・フォロワー数・イベント（サブスクなど）・受けたレイドのレイド元と人数・収集の失敗を
+ * データベース（D1）へ書き、管理用APIのために読み出す。
  * テーブルの定義は migrations/ にある。日時は UTC の ISO 8601 の文字列で持ち、文字列のまま大小を比べる。
  *
  * 注意: SQLに値を埋め込まず、必ずプレースホルダで渡す。
@@ -59,6 +60,31 @@ export interface SessionDetail {
    * 誰も宣言しなかった配信では null（0 と出すと「誰も作業しなかった」と「作業机を使っていなかった」が見分けられないため）
    */
   workTime: { people: number; totalMs: number } | null
+  /** この配信で受けたレイド（受けた順）。無ければ空 */
+  raids: StreamRaid[]
+}
+
+/** レイドを受けたときにレイド元から届いた中身（EventSub の channel.raid） */
+export interface RaidDetail {
+  fromUserId: string
+  fromUserLogin: string
+  /** 表示名 */
+  fromUserName: string
+  /** 連れてきた人数 */
+  viewers: number
+}
+
+/**
+ * 配信の詳細に並べるレイド1件。
+ *
+ * レイド元と人数を残し始める前（migrations/0037_raid_details.sql より前）に記録したレイドは、時刻だけを持ち、ほかは null になる。
+ */
+export interface StreamRaid {
+  occurredAt: string
+  fromUserId: string | null
+  fromUserLogin: string | null
+  fromUserName: string | null
+  viewers: number | null
 }
 
 export interface FollowerSample {
@@ -143,6 +169,33 @@ export const recordEvent = async (db: Database, event: { id: string; type: strin
     )
     .bind(event.id, event.type, toIso(event.occurredAt))
     .run()
+}
+
+/** レイドを数えるときのイベントの種類（EventSub の channel.raid） */
+const RAID_EVENT_TYPE = 'channel.raid'
+
+/**
+ * 受けたレイドを1件記録する。イベントとして数える行（stream_events）と、レイド元と人数の行（raid_details）を1つの batch で書く。
+ *
+ * @param event id はEventSubのメッセージID。再送で同じIDが届いたら、どちらの行も書き換えない
+ */
+export const recordRaid = async (db: Database, event: { id: string; occurredAt: number; raid: RaidDetail }): Promise<void> => {
+  const { raid } = event
+  await db.batch([
+    db
+      .prepare(
+        `INSERT INTO stream_events (id, session_id, type, occurred_at)
+         VALUES (?1, (SELECT id FROM stream_sessions WHERE ended_at IS NULL AND started_at <= ?3 ORDER BY started_at DESC LIMIT 1), ?2, ?3)
+         ON CONFLICT DO NOTHING`,
+      )
+      .bind(event.id, RAID_EVENT_TYPE, toIso(event.occurredAt)),
+    db
+      .prepare(
+        `INSERT INTO raid_details (event_id, from_user_id, from_user_login, from_user_name, viewers) VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT DO NOTHING`,
+      )
+      .bind(event.id, raid.fromUserId, raid.fromUserLogin, raid.fromUserName, raid.viewers),
+  ])
 }
 
 /** フォロワー数を記録する。直前の記録と同じ値なら何も追加しない（行数を抑えるため） */
@@ -251,7 +304,7 @@ export const latestViewerCount = async (db: Database): Promise<number | null> =>
 }
 
 /**
- * 配信セッションと、その視聴者数の時系列（古い順）・章・あらすじ・作業した時間の合計。存在しなければ null
+ * 配信セッションと、その視聴者数の時系列（古い順）・章・あらすじ・作業した時間の合計・受けたレイド。存在しなければ null
  *
  * @param now 現在時刻（ミリ秒）。配信中の配信の作業した時間の合計を、この時刻までで数える
  */
@@ -267,6 +320,17 @@ export const getSession = async (db: Database, id: string, now: number): Promise
   const titleCandidates = await listStreamTitleCandidates(db, id)
   const summary = await readStreamSummary(db, id)
   const workTime = await readSessionWorkTime(db, id, session.endedAt === null ? now : Date.parse(session.endedAt))
+  // レイド元を残す前のレイドも時刻だけで並べるため、raid_details は LEFT JOIN で添える
+  const { results: raids } = await db
+    .prepare(
+      `SELECT e.occurred_at AS occurredAt, r.from_user_id AS fromUserId, r.from_user_login AS fromUserLogin,
+         r.from_user_name AS fromUserName, r.viewers AS viewers
+       FROM stream_events AS e LEFT JOIN raid_details AS r ON r.event_id = e.id
+       WHERE e.session_id = ?1 AND e.type = ?2
+       ORDER BY e.occurred_at ASC`,
+    )
+    .bind(id, RAID_EVENT_TYPE)
+    .all<StreamRaid>()
   return {
     ...session,
     samples,
@@ -275,6 +339,7 @@ export const getSession = async (db: Database, id: string, now: number): Promise
     summary: summary?.summary ?? null,
     // 作業中の人数は合成ページが合計を進めるためのものなので、配信の記録には持ち出さない
     workTime: workTime === null ? null : { people: workTime.people, totalMs: workTime.totalMs },
+    raids,
   }
 }
 

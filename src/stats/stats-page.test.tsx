@@ -94,6 +94,7 @@ const FRIDAY_SESSION_DETAIL: SessionDetail = {
   summary: 'エディタを整えた配信者。ログイン機能に取りかかり、いまはセッションの持ち方を決めているところ。',
   // 作業机で5人が合わせて14時間32分作業した
   workTime: { people: 5, totalMs: (14 * 60 + 32) * 60 * 1000 },
+  raids: [],
 }
 
 /** 決めた記録を返す代役のAPI。個別に差し替えたいものだけ patch で渡す */
@@ -305,6 +306,37 @@ describe('配信ごとの詳細（視聴者数の推移と話されたこと）'
     await user.click(screen.getByRole('button', { name: '金曜夜のもくもく配信 の詳細を見る' }))
 
     expect(await screen.findByRole('group', { name: 'みんなの作業時間' })).toHaveTextContent('14時間32分（5人）')
+  })
+
+  it('配信を選ぶと、受けたレイドごとにレイド元・人数・直前と30分後・60分後の視聴者数を出す', async () => {
+    const user = userEvent.setup()
+    const detail: SessionDetail = {
+      ...FRIDAY_SESSION_DETAIL,
+      // 配信は 14:30（UTC）に終わった。13:35 のレイドは60分後を待たずに配信が終わっている
+      endedAt: '2026-09-18T14:30:00.000Z',
+      samples: [
+        { sampledAt: '2026-09-18T12:40:00.000Z', viewerCount: 9 },
+        { sampledAt: '2026-09-18T13:10:00.000Z', viewerCount: 28 },
+        { sampledAt: '2026-09-18T13:30:00.000Z', viewerCount: 20 },
+        { sampledAt: '2026-09-18T13:40:00.000Z', viewerCount: 17 },
+        { sampledAt: '2026-09-18T14:05:00.000Z', viewerCount: 12 },
+      ],
+      raids: [
+        { occurredAt: '2026-09-18T12:41:00.000Z', fromUserId: '33333', fromUserLogin: 'matsumoto_dev', fromUserName: 'まつもと', viewers: 20 },
+        // レイド元を残しはじめる前に記録したレイド
+        { occurredAt: '2026-09-18T13:35:00.000Z', fromUserId: null, fromUserLogin: null, fromUserName: null, viewers: null },
+      ],
+    }
+    render(<StatsPage api={createFakeApi({ session: vi.fn(async () => detail) })} now={NOW} />)
+    await waitForDisplay()
+
+    await user.click(screen.getByRole('button', { name: '金曜夜のもくもく配信 の詳細を見る' }))
+
+    const table = await screen.findByRole('table', { name: '金曜夜のもくもく配信 で受けたレイド' })
+    const rows = within(table).getAllByRole('row')
+    // 見出しの行のあとに、受けた順に1行ずつ並ぶ（時刻は東京）
+    expect(rows[1]).toHaveTextContent(/21:41.*まつもと（matsumoto_dev）.*20人.*9人.*28人.*17人/)
+    expect(rows[2]).toHaveTextContent(/22:35.*—.*—.*20人.*12人.*配信終了/)
   })
 
   it('誰も作業を宣言しなかった配信では、作業時間を 0 ではなく「—」と出す', async () => {
