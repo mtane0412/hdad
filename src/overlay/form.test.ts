@@ -51,6 +51,10 @@ describe('schemaFor', () => {
     expect(schemaFor('sideSuper', '')).toHaveProperty('position')
   })
 
+  it('VRMは髪や服を揺らすかのスキーマを返す', () => {
+    expect(schemaFor('vrm', '')).toHaveProperty('spring')
+  })
+
   it('アラート・注目コメント・再生中の曲・タブの映像は、配信者が決めるパラメータを持たない', () => {
     expect(schemaFor('alerts', '')).toEqual({})
     expect(schemaFor('focus', '')).toEqual({})
