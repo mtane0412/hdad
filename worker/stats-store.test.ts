@@ -17,6 +17,7 @@ import {
   recordFollowerTotal,
   recordLiveStream,
   recordStreamOffline,
+  recordRaid,
   recordStreamOnline,
 } from './stats-store'
 import type { LiveStream } from './twitch'
@@ -53,6 +54,7 @@ describe('recordLiveStream', () => {
       titleCandidates: [],
       summary: null,
       workTime: null,
+      raids: [],
     })
   })
 
@@ -360,6 +362,7 @@ describe('recordStreamOnline', () => {
       titleCandidates: [],
       summary: null,
       workTime: null,
+      raids: [],
     })
 
     await recordLiveStream(db, CHAT_STREAM, at('2026-09-21T12:05:00Z'))
@@ -434,5 +437,47 @@ describe('recordEvent', () => {
     await recordEvent(db, { id: 'メッセージ1', type: 'channel.subscribe', occurredAt: at('2026-09-21T20:00:00Z') })
 
     expect(eventRows(db)).toHaveLength(1)
+  })
+})
+
+describe('recordRaid', () => {
+  const RAID = { fromUserId: '22222', fromUserLogin: 'raid_moto', fromUserName: 'レイド元の配信者', viewers: 30 }
+
+  it('レイドをイベントとして数え、レイド元と人数も残す。配信の詳細でレイドごとに読める', async () => {
+    const db = createFakeDatabase()
+    await recordLiveStream(db, CHAT_STREAM, at('2026-09-21T12:05:00Z'))
+    await recordRaid(db, { id: 'メッセージ1', occurredAt: at('2026-09-21T12:41:00Z'), raid: RAID })
+
+    expect((await listSessions(db, at('2026-09-21T13:00:00Z')))[0]?.eventCounts).toEqual({ 'channel.raid': 1 })
+    expect((await getSession(db, CHAT_STREAM.id, READ_AT))?.raids).toEqual([{ occurredAt: '2026-09-21T12:41:00.000Z', ...RAID }])
+  })
+
+  it('同じメッセージIDが再送されても、二重に記録しない', async () => {
+    const db = createFakeDatabase()
+    await recordLiveStream(db, CHAT_STREAM, at('2026-09-21T12:05:00Z'))
+    await recordRaid(db, { id: 'メッセージ1', occurredAt: at('2026-09-21T12:41:00Z'), raid: RAID })
+    await recordRaid(db, { id: 'メッセージ1', occurredAt: at('2026-09-21T12:41:00Z'), raid: RAID })
+
+    expect((await getSession(db, CHAT_STREAM.id, READ_AT))?.raids).toHaveLength(1)
+  })
+
+  it('レイド元を残す前に記録したレイドも、時刻だけで並べる（レイド元と人数は null）', async () => {
+    const db = createFakeDatabase()
+    await recordLiveStream(db, CHAT_STREAM, at('2026-09-21T12:05:00Z'))
+    await recordEvent(db, { id: '前からあるレイド', type: 'channel.raid', occurredAt: at('2026-09-21T12:20:00Z') })
+    await recordRaid(db, { id: 'メッセージ1', occurredAt: at('2026-09-21T12:41:00Z'), raid: RAID })
+    await recordEvent(db, { id: 'サブスク', type: 'channel.subscribe', occurredAt: at('2026-09-21T12:30:00Z') })
+
+    expect((await getSession(db, CHAT_STREAM.id, READ_AT))?.raids).toEqual([
+      { occurredAt: '2026-09-21T12:20:00.000Z', fromUserId: null, fromUserLogin: null, fromUserName: null, viewers: null },
+      { occurredAt: '2026-09-21T12:41:00.000Z', ...RAID },
+    ])
+  })
+
+  it('レイドの無い配信では空の一覧にする', async () => {
+    const db = createFakeDatabase()
+    await recordLiveStream(db, CHAT_STREAM, at('2026-09-21T12:05:00Z'))
+
+    expect((await getSession(db, CHAT_STREAM.id, READ_AT))?.raids).toEqual([])
   })
 })

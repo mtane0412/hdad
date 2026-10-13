@@ -98,6 +98,11 @@ describe('session（配信ごとの視聴者数の推移）', () => {
       summary: 'エディタを整えた配信者。いまは新しい機能の実装に取りかかったところ。',
       // 作業机で3人が合わせて2時間作業した
       workTime: { people: 3, totalMs: 2 * 60 * 60 * 1000 },
+      // 「まつもと」が20人でレイドしてきた。レイド元を残す前のレイドは時刻だけを持つ
+      raids: [
+        { occurredAt: '2026-09-19T12:41:00.000Z', fromUserId: '33333', fromUserLogin: 'matsumoto_dev', fromUserName: 'まつもと', viewers: 20 },
+        { occurredAt: '2026-09-19T13:00:00.000Z', fromUserId: null, fromUserLogin: null, fromUserName: null, viewers: null },
+      ],
     }
     const { requests, fetchImpl } = fetchReturning(200, detail)
 
@@ -117,6 +122,7 @@ describe('session（配信ごとの視聴者数の推移）', () => {
       titleCandidates: [],
       summary: null,
       workTime: null,
+      raids: [],
     }
     await expect(createStatsApi(fetchReturning(200, detail).fetchImpl).session('配信ID-2026-09-19')).rejects.toThrow('chapters[0]')
   })
@@ -149,17 +155,35 @@ describe('session（配信ごとの視聴者数の推移）', () => {
       titleCandidates: [{ chapterStartedAt: '2026-09-19T12:00:00.000Z', candidate: 'エディタを整理中', publishable: '高い' }],
       summary: null,
       workTime: null,
+      raids: [],
     }
     await expect(createStatsApi(fetchReturning(200, detail).fetchImpl).session('配信ID-2026-09-19')).rejects.toThrow('titleCandidates[0]')
   })
 
+  it('レイドの人数が数でも null でもなければ、黙って捨てずにエラーにする', async () => {
+    const detail = {
+      id: '配信ID-2026-09-19',
+      startedAt: '2026-09-19T12:00:00.000Z',
+      endedAt: null,
+      title: '配信',
+      categoryName: 'Just Chatting',
+      samples: [],
+      chapters: [],
+      titleCandidates: [],
+      summary: null,
+      workTime: null,
+      raids: [{ occurredAt: '2026-09-19T12:41:00.000Z', fromUserId: '33333', fromUserLogin: 'matsumoto_dev', fromUserName: 'まつもと', viewers: '20人' }],
+    }
+    await expect(createStatsApi(fetchReturning(200, detail).fetchImpl).session('配信ID-2026-09-19')).rejects.toThrow('raids[0]')
+  })
+
   it('あらすじが文字列でも null でもなければエラーにする', async () => {
-    const detail = { id: '配信ID-2026-09-19', startedAt: '2026-09-19T12:00:00.000Z', endedAt: null, title: '配信', categoryName: 'Just Chatting', samples: [], chapters: [], titleCandidates: [], summary: 0, workTime: null }
+    const detail = { id: '配信ID-2026-09-19', startedAt: '2026-09-19T12:00:00.000Z', endedAt: null, title: '配信', categoryName: 'Just Chatting', samples: [], chapters: [], titleCandidates: [], summary: 0, workTime: null, raids: [] }
     await expect(createStatsApi(fetchReturning(200, detail).fetchImpl).session('配信ID-2026-09-19')).rejects.toThrow('配信セッション')
   })
 
   it('作業した時間の合計が人数と時間の組でも null でもなければエラーにする（0 に読み替えない）', async () => {
-    const detail = { id: '配信ID-2026-09-19', startedAt: '2026-09-19T12:00:00.000Z', endedAt: null, title: '配信', categoryName: 'Just Chatting', samples: [], chapters: [], titleCandidates: [], summary: null, workTime: { people: 3 } }
+    const detail = { id: '配信ID-2026-09-19', startedAt: '2026-09-19T12:00:00.000Z', endedAt: null, title: '配信', categoryName: 'Just Chatting', samples: [], chapters: [], titleCandidates: [], summary: null, workTime: { people: 3 }, raids: [] }
     await expect(createStatsApi(fetchReturning(200, detail).fetchImpl).session('配信ID-2026-09-19')).rejects.toThrow('配信セッション')
   })
 

@@ -39,6 +39,7 @@ const eveningStreamDetail: SessionDetail = {
   titleCandidates: [{ chapterStartedAt: '2026-10-07T10:00:00Z', candidate: 'ツールを増やす', publishable: 0.82 }],
   summary: 'WebMCP のツールを段階ごとに増やしている',
   workTime: { people: 3, totalMs: 5_400_000 },
+  raids: [],
 }
 
 const regularViewer: Viewer = {

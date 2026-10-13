@@ -6,8 +6,10 @@
  *
  * 注意: 記録が無いことと 0 は別物として扱う。記録が無い値は null のまま持ち、表示のときに「—」にする（Fail-Fast）。
  * 日時は配信者のブラウザのタイムゾーンで表示する（Date の既定のタイムゾーンに任せる）。
+ * レイドの後の定着（直前・30分後・60分後の視聴者数）は、Worker が5分おきに記録した視聴者数（samples）から求め、
+ * 配信が先に終わった・記録が欠けたときは値を作らず理由を持つ（raidRetention）。
  */
-import type { FollowerSample, SessionSummary, StreamChapter, ViewerSample, WorkTime } from './api'
+import type { FollowerSample, SessionSummary, StreamChapter, StreamRaid, ViewerSample, WorkTime } from './api'
 
 /** サブスク（新規）のイベントの種類 */
 const SUBSCRIBE = 'channel.subscribe'
@@ -180,3 +182,95 @@ export const formatCount = (value: number | null): string => (value === null ? '
 
 /** 増減を「+4」「-2」のように符号付きで表す。記録が無ければ「—」 */
 export const formatDelta = (value: number | null): string => (value === null ? '—' : value > 0 ? `+${value}` : String(value))
+
+/** レイドの後の定着を見る時点（レイドから何分後か） */
+const RETENTION_MINUTES = { after30: 30, after60: 60 } as const
+/**
+ * ある時刻の視聴者数として読む記録の、時刻とのずれの上限（ミリ秒）。
+ *
+ * 記録は cron で5分おきなので、1回取りこぼしても読めるよう2回ぶん（10分）まで許す。
+ * これを超えて離れた記録は別の時点の値なので使わず「記録なし」にする（前後の値で埋めない）。
+ */
+const RETENTION_SAMPLE_TOLERANCE_MS = 10 * MS_PER_MINUTE
+
+/**
+ * ある時点の視聴者数。値が無いときは理由を持つ。
+ *
+ * - recorded: 記録から読めた
+ * - ended: その時点より先に配信が終わっていた
+ * - pending: 配信中で、まだその時点になっていない
+ * - missing: その時点の近くに記録が無い（収集が止まっていたなど）
+ */
+export type RetentionCount = { status: 'recorded'; viewers: number } | { status: 'ended' } | { status: 'pending' } | { status: 'missing' }
+
+/** レイド1件の、直前・30分後・60分後の視聴者数 */
+export interface RaidRetention {
+  before: RetentionCount
+  after30: RetentionCount
+  after60: RetentionCount
+}
+
+/** 時刻 at にいちばん近い記録を、ずれの上限の内から選ぶ。filter で選べる記録を絞る */
+const nearestSample = (samples: readonly ViewerSample[], at: number, filter: (sampledAt: number) => boolean): RetentionCount => {
+  let nearest: { distance: number; viewers: number } | null = null
+  for (const sample of samples) {
+    const sampledAt = Date.parse(sample.sampledAt)
+    const distance = Math.abs(sampledAt - at)
+    if (!filter(sampledAt) || distance > RETENTION_SAMPLE_TOLERANCE_MS) continue
+    if (nearest === null || distance < nearest.distance) nearest = { distance, viewers: sample.viewerCount }
+  }
+  return nearest === null ? { status: 'missing' } : { status: 'recorded', viewers: nearest.viewers }
+}
+
+/**
+ * レイドの後の定着を求める（issue #353）。
+ *
+ * 直前の視聴者数は、レイドの時刻以前の記録だけから選ぶ（レイドで増えたあとの値を「直前」にしない）。
+ * 30分後・60分後は、その時刻にいちばん近い記録を読む。配信がその時刻より先に終わっていたら「配信終了」、
+ * 配信中でまだその時刻になっていなければ「まだ」とし、どちらも値を作らない。
+ *
+ * @param samples その配信の視聴者数の記録
+ * @param endedAt 配信の終わり。配信中なら null
+ * @param now 現在時刻（ミリ秒）
+ */
+export const raidRetention = (raid: StreamRaid, samples: readonly ViewerSample[], endedAt: string | null, now: number): RaidRetention => {
+  const raidAt = Date.parse(raid.occurredAt)
+  const endedAtMs = endedAt === null ? null : Date.parse(endedAt)
+  const after = (minutes: number): RetentionCount => {
+    const at = raidAt + minutes * MS_PER_MINUTE
+    if (endedAtMs !== null && endedAtMs < at) return { status: 'ended' }
+    if (endedAtMs === null && now < at) return { status: 'pending' }
+    return nearestSample(samples, at, () => true)
+  }
+  return {
+    before: nearestSample(samples, raidAt, (sampledAt) => sampledAt <= raidAt),
+    after30: after(RETENTION_MINUTES.after30),
+    after60: after(RETENTION_MINUTES.after60),
+  }
+}
+
+/** ある時点の視聴者数を「28人」のように表す。値が無ければ理由（配信終了・まだ・記録なし）を出す */
+export const formatRetention = (count: RetentionCount): string => {
+  switch (count.status) {
+    case 'recorded':
+      return `${count.viewers}人`
+    case 'ended':
+      return '配信終了'
+    case 'pending':
+      return 'まだ'
+    case 'missing':
+      return '記録なし'
+  }
+}
+
+/**
+ * レイド元を「まつもと（matsumoto_dev）」のように表す。表示名がログイン名と大文字小文字の違いだけなら表示名だけにする。
+ * レイド元を残しはじめる前のレイドは「—」
+ */
+export const formatRaidSource = (raid: StreamRaid): string => {
+  if (raid.fromUserName === null || raid.fromUserLogin === null) return '—'
+  return raid.fromUserName.toLowerCase() === raid.fromUserLogin.toLowerCase() ? raid.fromUserName : `${raid.fromUserName}（${raid.fromUserLogin}）`
+}
+
+/** レイドで連れてきた人数を「20人」のように表す。記録が無ければ「—」 */
+export const formatRaidViewers = (raid: StreamRaid): string => (raid.viewers === null ? '—' : `${raid.viewers}人`)

@@ -329,17 +329,46 @@ describe('購読の確認', () => {
 })
 
 describe('イベントの記録', () => {
-  it.each(['channel.subscribe', 'channel.subscription.message', 'channel.channel_points_custom_reward_redemption.add', 'channel.raid'])(
-    '%s を、配信中のセッションに結び付けて1件記録する',
-    async (type) => {
+  it.each([
+    { type: 'channel.subscribe', event: {} },
+    { type: 'channel.subscription.message', event: {} },
+    { type: 'channel.channel_points_custom_reward_redemption.add', event: {} },
+    { type: 'channel.raid', event: RAID_NOTIFICATION.event },
+  ])(
+    '$type を、配信中のセッションに結び付けて1件記録する',
+    async ({ type, event }) => {
       const { env, db } = createEnv()
       await recordLiveStream(db, CHAT_STREAM, Date.parse('2026-09-21T12:05:00Z'))
-      const response = await callWebhook(createNotification({ body: { subscription: { type }, event: {} } }), env)
+      const response = await callWebhook(createNotification({ body: { subscription: { type }, event } }), env)
 
       expect(response.status).toBe(204)
       expect((await listSessions(db, NOW))[0]?.eventCounts).toEqual({ [type]: 1 })
     },
   )
+
+  it('レイドは、レイド元のユーザーID・ログイン名・表示名と人数も残す', async () => {
+    const { env, db } = createEnv()
+    await recordLiveStream(db, CHAT_STREAM, Date.parse('2026-09-21T12:05:00Z'))
+    const response = await callWebhook(createNotification({ body: RAID_NOTIFICATION }), env)
+
+    expect(response.status).toBe(204)
+    expect((await getSession(db, CHAT_STREAM.id, NOW))?.raids).toMatchObject([
+      { fromUserId: 'レイド元の配信者のユーザーID', fromUserLogin: 'raid_moto', fromUserName: 'レイド元の配信者', viewers: 30 },
+    ])
+  })
+
+  it('レイド元か人数が欠けたレイドの通知は400にし、何も記録しない（黙って時刻だけを残さない）', async () => {
+    const { env, db } = createEnv()
+    await recordLiveStream(db, CHAT_STREAM, Date.parse('2026-09-21T12:05:00Z'))
+    const response = await callWebhook(
+      createNotification({ body: { ...RAID_NOTIFICATION, event: { ...RAID_NOTIFICATION.event, viewers: '30人' } } }),
+      env,
+    )
+
+    expect(response.status).toBe(400)
+    expect(await errorCode(response)).toBe('invalid-webhook')
+    expect((await listSessions(db, NOW))[0]?.eventCounts).toEqual({})
+  })
 
   it('同じメッセージIDの通知が再送されても、二重に数えない', async () => {
     const { env, db } = createEnv()

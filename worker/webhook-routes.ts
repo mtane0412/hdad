@@ -44,7 +44,8 @@ import {
   verifyWebhookSignature,
 } from './eventsub-webhook'
 import { HttpError, STATUS, type Context } from './http'
-import { recordEvent, recordFailure, recordStreamOffline, recordStreamOnline } from './stats-store'
+import { recordEvent, recordFailure, recordRaid, recordStreamOffline, recordStreamOnline, type RaidDetail } from './stats-store'
+import { extract } from './alert-event'
 import { loadToken, type StoredToken } from './token'
 
 export const WEBHOOK_PATH = '/api/eventsub/webhook'
@@ -92,6 +93,26 @@ interface Notification {
   body: Record<string, unknown>
 }
 
+/** 件数を数えるイベントのうち、レイド元と人数も残すもの */
+const RAID = 'channel.raid'
+
+/**
+ * レイドの通知から、レイド元と人数を取り出す。
+ *
+ * 読み取りはトリガーの照合と同じ extract（worker/alert-event.ts）に任せる（同じ通知を2か所で読み解かないため）。
+ * 欠けていたら時刻だけを記録せず400にする（Fail-Fast。レイド元の分からないレイドを黙って増やさない）。
+ */
+const readRaidDetail = (body: Record<string, unknown>): RaidDetail => {
+  let extracted
+  try {
+    extracted = extract(RAID, body.event)
+  } catch (error) {
+    throw invalid(`channel.raid の通知を読めません: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  if (extracted?.event !== RAID) throw invalid('channel.raid の通知をレイドとして読めません')
+  return { fromUserId: extracted.userId, fromUserLogin: extracted.userLogin, fromUserName: extracted.userName, viewers: extracted.viewers }
+}
+
 const recordNotification = async ({ db, messageId, occurredAt, body }: Notification): Promise<void> => {
   const { type } = readSubscription(body)
 
@@ -106,6 +127,10 @@ const recordNotification = async ({ db, messageId, occurredAt, body }: Notificat
   }
   if (type === STREAM_OFFLINE) {
     await recordStreamOffline(db, occurredAt)
+    return
+  }
+  if (type === RAID) {
+    await recordRaid(db, { id: messageId, occurredAt, raid: readRaidDetail(body) })
     return
   }
   if (COUNTED_EVENT_TYPES.includes(type)) {
