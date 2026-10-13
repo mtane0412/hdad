@@ -2,7 +2,8 @@
  * VRMのマスコットの動き方（motion.ts）のテスト
  *
  * 確かめること:
- * - 反応の動き方（どちらの手で何回振るか・お辞儀の深さ）は種だけから決まり、同じ種なら同じになること
+ * - 反応の動き方（どちらの手で何回振るか・お辞儀の深さ・うなずく回数）は種と反応の種類だけから決まり、同じなら同じになること
+ * - 反応の種類ごとの姿（お礼は手を振ってお辞儀、手を振るはお辞儀しない、うなずくは首を縦に振る、大喜びは両手を上げる）
  * - その時刻の場面は、時刻と流している反応だけから決まること（フレーム間の状態を持たない）
  * - 反応が無いあいだは待機の姿勢で、呼吸・瞬き・視線のゆらぎが時刻とともに変わること
  * - 瞬きはときどき一瞬だけ目を閉じ、ほとんどの時間は目を開けていること
@@ -10,6 +11,7 @@
  * - 口の開きは、読み上げを鳴らしはじめた時刻と区切りごとの音量の列から、その時刻の音量で決まること
  */
 import { describe, expect, it } from 'vitest'
+import { VRM_REACTIONS } from './call'
 import { ARM_REST_Z, BLINK_SLOT_MS, MAX_WAVES, MIN_WAVES, createVrmPlan, vrmSceneAt, type VrmPlan } from './motion'
 import type { SpeechLevels } from '../speech/level'
 
@@ -19,8 +21,8 @@ const SEEDS = Array.from({ length: 200 }, (_, index) => index * 7919 + 358)
 /** 確かめる時刻の起点（配信中のある時刻。ミリ秒） */
 const BASE_TIME = Date.parse('2026-10-13T20:00:00+09:00')
 
-/** 右手で3回振る動き方（種に頼らずに場面を確かめるため、作った計画の手だけを差し替える） */
-const rightHandedPlan = (overrides: Partial<VrmPlan> = {}): VrmPlan => ({ ...createVrmPlan(359), wavingHand: 'right', ...overrides })
+/** 右手で振ってお辞儀するお礼の動き方（種に頼らずに場面を確かめるため、作った計画の手だけを差し替える） */
+const rightHandedPlan = (overrides: Partial<VrmPlan> = {}): VrmPlan => ({ ...createVrmPlan(359, 'thanks'), wavingHand: 'right', ...overrides })
 
 /** 起点から決まった間隔で時刻を並べる */
 const timesFrom = (start: number, durationMs: number, stepMs: number): number[] =>
@@ -28,11 +30,11 @@ const timesFrom = (start: number, durationMs: number, stepMs: number): number[] 
 
 describe('createVrmPlan', () => {
   it('同じ種からは同じ動き方を作る', () => {
-    expect(createVrmPlan(20261013)).toEqual(createVrmPlan(20261013))
+    expect(createVrmPlan(20261013, 'thanks')).toEqual(createVrmPlan(20261013, 'thanks'))
   })
 
   it('振る回数は決まった範囲に収まり、振る手は左右どちらにもなりうる', () => {
-    const plans = SEEDS.map(createVrmPlan)
+    const plans = SEEDS.map((seed) => createVrmPlan(seed, 'thanks'))
 
     for (const plan of plans) {
       expect(plan.waveCount).toBeGreaterThanOrEqual(MIN_WAVES)
@@ -44,7 +46,7 @@ describe('createVrmPlan', () => {
   })
 
   it('振る回数が多いほど、全体が長くなる', () => {
-    const plans = SEEDS.map(createVrmPlan)
+    const plans = SEEDS.map((seed) => createVrmPlan(seed, 'thanks'))
     const fewer = plans.find((plan) => plan.waveCount === MIN_WAVES)
     const more = plans.find((plan) => plan.waveCount === MAX_WAVES)
 
@@ -178,5 +180,61 @@ describe('vrmSceneAt（口パク）', () => {
     const plan = rightHandedPlan()
 
     expect(vrmSceneAt(BASE_TIME + 20, { plan, elapsedMs: plan.bowStartMs / 2 }, speech).mouth).toBeCloseTo(1, 5)
+  })
+})
+
+describe('vrmSceneAt（反応の種類）', () => {
+  /** 反応の最初から最後までを細かく区切った場面 */
+  const scenesOf = (plan: VrmPlan) => timesFrom(0, plan.totalMs, 20).map((elapsedMs) => vrmSceneAt(BASE_TIME, { plan, elapsedMs }, null))
+
+  it('どの反応も、はじめと終わりが同じ時刻の待機の姿勢とつながる', () => {
+    const idle = vrmSceneAt(BASE_TIME, null, null).bones
+    for (const reaction of VRM_REACTIONS) {
+      const plan = createVrmPlan(359, reaction)
+      expect(plan.totalMs).toBeGreaterThan(0)
+      expect(vrmSceneAt(BASE_TIME, { plan, elapsedMs: 0 }, null).bones).toEqual(idle)
+      const ending = vrmSceneAt(BASE_TIME, { plan, elapsedMs: plan.totalMs - 1 }, null).bones
+      for (const bone of ['spine', 'neck', 'head', 'rightUpperArm', 'leftUpperArm', 'rightLowerArm', 'leftLowerArm'] as const) {
+        expect(ending[bone].x).toBeCloseTo(idle[bone].x, 2)
+        expect(ending[bone].z).toBeCloseTo(idle[bone].z, 2)
+      }
+    }
+  })
+
+  it('手を振るだけの反応は、お辞儀をしない', () => {
+    const plan = { ...createVrmPlan(359, 'wave'), wavingHand: 'right' as const }
+    const scenes = scenesOf(plan)
+
+    expect(scenes.some((scene) => scene.bones.rightUpperArm.z < 0)).toBe(true)
+    expect(scenes.every((scene) => scene.phase !== 'bow')).toBe(true)
+    expect(Math.max(...scenes.map((scene) => scene.bones.spine.x))).toBeLessThan(0.1)
+  })
+
+  it('うなずく反応は、首を前へ倒し、腕は下ろしたまま', () => {
+    const idleNeck = vrmSceneAt(BASE_TIME, null, null).bones.neck.x
+    const scenes = scenesOf(createVrmPlan(359, 'nod'))
+
+    expect(scenes.slice(1).every((scene) => scene.phase === 'nod')).toBe(true)
+    expect(Math.max(...scenes.map((scene) => scene.bones.neck.x))).toBeGreaterThan(idleNeck + 0.1)
+    for (const scene of scenes) {
+      expect(scene.bones.rightUpperArm.z).toBeCloseTo(ARM_REST_Z, 1)
+      expect(scene.bones.leftUpperArm.z).toBeCloseTo(-ARM_REST_Z, 1)
+    }
+  })
+
+  it('うなずく反応は短く、お礼より早く終わる', () => {
+    expect(createVrmPlan(359, 'nod').totalMs).toBeLessThan(createVrmPlan(359, 'thanks').totalMs)
+    expect(createVrmPlan(359, 'nod').totalMs).toBeLessThanOrEqual(1500)
+  })
+
+  it('大喜びの反応は、両手を上げてにっこりする', () => {
+    const plan = createVrmPlan(359, 'cheer')
+    const middle = vrmSceneAt(BASE_TIME, { plan, elapsedMs: plan.totalMs / 2 }, null)
+
+    expect(middle.phase).toBe('cheer')
+    // 右腕は上げると負の向き、左腕は正の向きに回る
+    expect(middle.bones.rightUpperArm.z).toBeLessThan(0)
+    expect(middle.bones.leftUpperArm.z).toBeGreaterThan(0)
+    expect(middle.happy).toBeGreaterThan(0.5)
   })
 })

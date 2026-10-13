@@ -980,19 +980,19 @@ describe('vrmsFor', () => {
   const alertConfig = (triggers: StoredTrigger[]): AlertConfig => ({ triggers })
   const follow = { user_name: '田中太郎', user_login: 'tanaka_taro' }
 
-  it('VRMの演出を置いたトリガーに当てはまった数だけ、演出の回数を返す', () => {
+  it('VRMの反応を置いたトリガーに当てはまったぶんだけ、その項目を並べて返す（反応の種類は項目から決まる）', () => {
     const config = alertConfig([
       { kind: 'follow', actions: [{ type: 'vrm' }] },
       { kind: 'follow', actions: [{ type: 'chat', message: 'フォローありがとう' }] },
     ])
 
-    expect(vrmsFor(config, 'channel.follow', follow, notFirstTime)).toBe(1)
+    expect(vrmsFor(config, 'channel.follow', follow, notFirstTime)).toEqual(['follow'])
   })
 
-  it('当てはまるトリガーにVRMの演出が無ければ0を返す', () => {
+  it('当てはまるトリガーにVRMの反応が無ければ空を返す', () => {
     const config = alertConfig([{ kind: 'follow', actions: [{ type: 'chat', message: 'フォローありがとう' }] }])
 
-    expect(vrmsFor(config, 'channel.follow', follow, notFirstTime)).toBe(0)
+    expect(vrmsFor(config, 'channel.follow', follow, notFirstTime)).toEqual([])
   })
 })
 

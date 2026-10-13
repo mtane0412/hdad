@@ -2,8 +2,12 @@
  * VRMのマスコットの動き方（時刻と反応から場面を決める）
  *
  * マスコットは配信中ずっと立っていて、待機の動き（呼吸・瞬き・視線のゆらぎ）を続ける（issue #359）。
- * トリガーや試し再生の呼び出しが届くと、その場で「片手を上げて何回か振る → お辞儀する」反応を待機の動きに重ねる。
- * どちらの手で何回振るか・お辞儀の深さは種だけから決め（createVrmPlan）、その時刻の場面（骨ごとの回転・表情）は
+ * トリガーや試し再生の呼び出しが届くと、その場で反応を待機の動きに重ねる。反応の種類は4つで、トリガーの項目から Worker が決める。
+ * - お礼（thanks）: 片手を上げて何回か振り、お辞儀する
+ * - 手を振る（wave）: 片手を上げて何回か振る（お辞儀はしない）
+ * - うなずく（nod）: 首を縦に1〜2回振る（短い。たくさん届く出来事に当てる）
+ * - 大喜び（cheer）: 両手を上げて揺らし、少し反ってにっこりする
+ * どちらの手で何回振るか・お辞儀の深さ・うなずく回数は種と反応の種類だけから決め（createVrmPlan）、その時刻の場面（骨ごとの回転・表情）は
  * 現在時刻と、流している反応の経過時間だけから求める（vrmSceneAt。フレーム間の状態を持たない）。
  * 口は読み上げに合わせて開け閉めする。読み上げのページが配った「鳴らしはじめた時刻と区切りごとの音量の列」（src/speech/level.ts）から、
  * その時刻の音量を引いて口の開きにする（口の形は合わせず、音量で開け閉めするだけ）。
@@ -19,6 +23,7 @@
  */
 import { createRandom } from '../core/background'
 import type { SpeechLevels } from '../speech/level'
+import type { VrmReactionKind } from './call'
 
 /** 動かす骨（VRM の humanoid の骨の名前） */
 export const VRM_BONES = [
@@ -49,15 +54,19 @@ export interface BoneRotation {
 /** 手の左右（キャラクター自身の左右） */
 export type VrmSide = 'left' | 'right'
 
-/** 種から決めた1回ぶんの反応の動き方 */
+/** 種と反応の種類から決めた1回ぶんの反応の動き方 */
 export interface VrmPlan {
+  /** 反応の種類 */
+  readonly reaction: VrmReactionKind
   /** どちらの手で振るか（キャラクター自身の左右） */
   readonly wavingHand: VrmSide
   /** 手を振る回数（往復の数） */
   readonly waveCount: number
   /** お辞儀の深さ（1 で既定の深さ） */
   readonly bowDepth: number
-  /** お辞儀を始める時刻（反応を流しはじめてから。ミリ秒） */
+  /** うなずく回数 */
+  readonly nodCount: number
+  /** お辞儀を始める時刻（反応を流しはじめてから。ミリ秒）。お辞儀をしない反応では反応全体の長さと同じ */
   readonly bowStartMs: number
   /** 反応全体の長さ（ミリ秒）。これを過ぎたら待機に戻る */
   readonly totalMs: number
@@ -70,7 +79,7 @@ export interface VrmReaction {
   readonly elapsedMs: number
 }
 
-export type VrmPhase = 'idle' | 'wave' | 'bow'
+export type VrmPhase = 'idle' | 'wave' | 'bow' | 'nod' | 'cheer'
 
 /** その時刻の場面 */
 export interface VrmScene {
@@ -113,6 +122,20 @@ const HEAD_TILT = 0.08
 const BOW_SPINE = 0.45
 const BOW_CHEST = 0.2
 const BOW_NECK = 0.2
+
+/** うなずく回数の下限と上限と、1回の長さ（ミリ秒）。首と頭を前へ倒す大きさ（ラジアン） */
+const MIN_NODS = 1
+const MAX_NODS = 2
+const NOD_MS = 500
+const NOD_NECK = 0.18
+const NOD_HEAD = 0.12
+/** 大喜びで両手を上げたまま揺らす長さ（ミリ秒）と、上腕を上げきった回転・前腕の曲げ・揺らす振れ幅と周期・体を反らす大きさ（ラジアン。右手の向き） */
+const CHEER_HOLD_MS = 1400
+const CHEER_ARM_Z = 1.1
+const CHEER_FOREARM_Z = 0.3
+const CHEER_SHAKE = 0.25
+const CHEER_SHAKE_MS = 350
+const CHEER_LEAN = 0.08
 
 /** 待機の動きの種。マスコットは1体だけなので固定にする（どの合成ページでも同じ時刻には同じ姿になる） */
 const IDLE_SEED = 359
@@ -164,20 +187,38 @@ const idlePhases = (() => {
   return { breath: random(), gazeSlow: random(), gazeFast: random(), pitch: random(), sway: random() }
 })()
 
+/** 反応の種類ごとの長さ（お辞儀を始める時刻と全体の長さ。ミリ秒） */
+const durationOf = (reaction: VrmReactionKind, waveCount: number, nodCount: number): { bowStartMs: number; totalMs: number } => {
+  const waveMs = RAISE_MS + waveCount * WAVE_CYCLE_MS + RAISE_MS
+  switch (reaction) {
+    case 'thanks': {
+      const bowStartMs = waveMs + BOW_GAP_MS
+      return { bowStartMs, totalMs: bowStartMs + BOW_DOWN_MS + BOW_HOLD_MS + BOW_UP_MS }
+    }
+    case 'wave':
+      return { bowStartMs: waveMs, totalMs: waveMs }
+    case 'nod':
+      return { bowStartMs: nodCount * NOD_MS, totalMs: nodCount * NOD_MS }
+    case 'cheer': {
+      const cheerMs = RAISE_MS + CHEER_HOLD_MS + RAISE_MS
+      return { bowStartMs: cheerMs, totalMs: cheerMs }
+    }
+  }
+}
+
 /**
- * 種から1回ぶんの反応の動き方を決める。
+ * 種と反応の種類から1回ぶんの反応の動き方を決める。
  *
  * @param seed 0 以上 2^32 未満の整数（Worker が押し出す呼び出しの種）
+ * @param reaction 反応の種類（トリガーの項目から Worker が決めたもの）
  */
-export const createVrmPlan = (seed: number): VrmPlan => {
+export const createVrmPlan = (seed: number, reaction: VrmReactionKind): VrmPlan => {
   const random = createRandom(seed)
   const wavingHand: VrmSide = random() < 0.5 ? 'left' : 'right'
   const waveCount = MIN_WAVES + Math.floor(random() * (MAX_WAVES - MIN_WAVES + 1))
   const bowDepth = between(random, MIN_BOW_DEPTH, MAX_BOW_DEPTH)
-
-  const bowStartMs = RAISE_MS + waveCount * WAVE_CYCLE_MS + RAISE_MS + BOW_GAP_MS
-  const totalMs = bowStartMs + BOW_DOWN_MS + BOW_HOLD_MS + BOW_UP_MS
-  return { wavingHand, waveCount, bowDepth, bowStartMs, totalMs }
+  const nodCount = MIN_NODS + Math.floor(random() * (MAX_NODS - MIN_NODS + 1))
+  return { reaction, wavingHand, waveCount, bowDepth, nodCount, ...durationOf(reaction, waveCount, nodCount) }
 }
 
 /**
@@ -236,7 +277,8 @@ const applyWave = (bones: Record<VrmBone, BoneRotation>, plan: VrmPlan, waveMs: 
   const upperZ = restZ + (-ARM_RAISED_Z - restZ) * raise
   const lowerZ = -FOREARM_UP_Z * raise + WAVE_SWING * swing
   bones[upperArm] = { x: 0, y: 0, z: mirror * upperZ }
-  bones[lowerArm] = { x: 0, y: 0, z: mirror * lowerZ }
+  // 鏡写しで 0 が −0 にならないよう、+ 0 で正の 0 にそろえる（待機の姿勢と同じ値になるように）
+  bones[lowerArm] = { x: 0, y: 0, z: mirror * lowerZ + 0 }
   bones.head = add(bones.head, { z: mirror * HEAD_TILT * swing })
   return raise
 }
@@ -253,6 +295,41 @@ const applyBow = (bones: Record<VrmBone, BoneRotation>, plan: VrmPlan, bowMs: nu
   bones.spine = add(bones.spine, { x: BOW_SPINE * bend })
   bones.chest = add(bones.chest, { x: BOW_CHEST * bend })
   bones.neck = add(bones.neck, { x: BOW_NECK * bend })
+}
+
+/**
+ * うなずく姿勢を重ねる。1回ごとに首と頭を前へ倒して戻す（待機の向きに足す）。
+ *
+ * @param nodMs 反応を流しはじめてからの経過時間（ミリ秒）
+ */
+const applyNod = (bones: Record<VrmBone, BoneRotation>, nodMs: number): void => {
+  // 1回の中で 0 → 1 → 0 と動く（1回の始まりと終わりで首がまっすぐに戻る）
+  const dip = (1 - Math.cos((2 * Math.PI * nodMs) / NOD_MS)) / 2
+  bones.neck = add(bones.neck, { x: NOD_NECK * dip })
+  bones.head = add(bones.head, { x: NOD_HEAD * dip })
+}
+
+/**
+ * 大喜びの姿勢を重ねる。両腕を待機の姿勢から上げて揺らし、体を少し反らす。
+ *
+ * @param cheerMs 反応を流しはじめてからの経過時間（ミリ秒）
+ * @returns 腕の上がり具合（0〜1。表情の強さにも使う）
+ */
+const applyCheer = (bones: Record<VrmBone, BoneRotation>, cheerMs: number): number => {
+  const raise = smooth(cheerMs / RAISE_MS) * (1 - smooth((cheerMs - RAISE_MS - CHEER_HOLD_MS) / RAISE_MS))
+  const shake = CHEER_SHAKE * raise * Math.sin((2 * Math.PI * cheerMs) / CHEER_SHAKE_MS)
+  // 右腕で計算し、左腕は Z 軸まわりの回転を反転する（体の左右で鏡写しになるため）
+  for (const [upperArm, lowerArm, mirror] of [
+    ['rightUpperArm', 'rightLowerArm', 1],
+    ['leftUpperArm', 'leftLowerArm', -1],
+  ] as const) {
+    const restZ = mirror * bones[upperArm].z
+    bones[upperArm] = { x: 0, y: 0, z: mirror * (restZ + (-CHEER_ARM_Z - restZ) * raise) }
+    // 鏡写しで 0 が −0 にならないよう、+ 0 で正の 0 にそろえる（待機の姿勢と同じ値になるように）
+    bones[lowerArm] = { x: 0, y: 0, z: mirror * (-CHEER_FOREARM_Z * raise + shake) + 0 }
+  }
+  bones.spine = add(bones.spine, { x: -CHEER_LEAN * raise })
+  return raise
 }
 
 /**
@@ -284,6 +361,15 @@ export const vrmSceneAt = (timeMs: number, reaction: VrmReaction | null, speech:
   if (reaction === null || reaction.elapsedMs >= reaction.plan.totalMs) return { phase: 'idle', happy: 0, blink, mouth, bones }
 
   const { plan, elapsedMs } = reaction
+  if (plan.reaction === 'nod') {
+    applyNod(bones, elapsedMs)
+    return { phase: 'nod', happy: 0, blink, mouth, bones }
+  }
+  if (plan.reaction === 'cheer') {
+    const raise = applyCheer(bones, elapsedMs)
+    return { phase: 'cheer', happy: raise, blink, mouth, bones }
+  }
+  // お礼と手を振るは、手を振ってから（お礼だけ）お辞儀する。手を振るだけの反応は bowStartMs が全体の長さと同じなので、お辞儀に入らない
   if (elapsedMs < plan.bowStartMs) {
     const raise = applyWave(bones, plan, elapsedMs)
     return { phase: 'wave', happy: raise, blink, mouth, bones }

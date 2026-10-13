@@ -17,7 +17,7 @@ import { connectVrmSocket, pushVrm } from './alert-channel'
 import { HttpError, STATUS, requireAdmin, requireOverlayKey, type Context } from './http'
 import { listMedia } from './media'
 import { loadOverlayKey, overlayKeyTag } from './overlay-key'
-import { vrmCallOf, vrmSeedOf } from './vrm-call'
+import { vrmCallOf, vrmDemoReactionOf, vrmSeedOf } from './vrm-call'
 import { loadVrmModel, parseVrmModel, playbackVrmModelOf, saveVrmModel } from './vrm-model'
 
 /** GET /api/overlay/vrm/socket?key=: 合成ページからのWebSocketの接続を、VRMの演出の呼び出しを受け取る接続として配送先へ引き渡す */
@@ -62,7 +62,9 @@ export const postVrmDemo = async (context: Context): Promise<Response> => {
       throw new HttpError(STATUS.conflict, 'vrm-not-ready', error instanceof Error ? error.message : String(error))
     }
   })()
-  const call = vrmCallOf(modelUrl, vrmSeedOf(crypto.getRandomValues(new Uint32Array(1))), crypto.randomUUID())
+  // 試し再生では、どの反応も見られるよう種から反応を選ぶ
+  const seed = vrmSeedOf(crypto.getRandomValues(new Uint32Array(1)))
+  const call = vrmCallOf(modelUrl, seed, vrmDemoReactionOf(seed), crypto.randomUUID())
   try {
     await pushVrm(context.env.ALERTS, call)
   } catch (error) {

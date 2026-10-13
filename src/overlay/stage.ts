@@ -122,8 +122,8 @@ import { lickSoundCuesOf } from '../lick/sound-cues'
 import { createLickSoundPlayer } from '../lick/sound-player'
 import { createLickRenderer } from '../lick/view'
 import { VRM_SOCKET_HINT, VRM_SOCKET_PATH, fetchMascotModelUrl, fetchPreviewModelUrl } from '../vrm/api'
-import { parseVrmCall, type VrmCall } from '../vrm/call'
-import { DEMO_VRM_INTERVAL_MS, DEMO_VRM_SEEDS } from '../vrm/demo'
+import { isSkippableWhenBusy, parseVrmCall, type VrmCall } from '../vrm/call'
+import { DEMO_VRM_CALLS, DEMO_VRM_INTERVAL_MS } from '../vrm/demo'
 import { createVrmPlan, vrmSceneAt, type VrmPlan } from '../vrm/motion'
 import { vrmParamSchema } from '../vrm/params'
 import { listenSpeechLevels } from '../speech/level-channel'
@@ -1903,7 +1903,8 @@ const mountLick = (box: HTMLElement, item: OverlayItem, { key, demo }: MountCont
  * VRMのマスコット（issue #358・#359）。配信者が選んだ VRM のキャラクターが配信中ずっと立ち、待機の動き（呼吸・瞬き・視線のゆらぎ）を続ける。
  *
  * マスコットの VRM は、配送先につながるたびに Worker から読む（つながっていない間に選び直されても、つなぎ直せば変わる）。
- * Worker から押し出された呼び出し（種と VRM のURL）は届いた順に1件ずつ、その場の反応（手を振る・お辞儀）として待機の動きに重ねる。
+ * Worker から押し出された呼び出し（種と反応の種類と VRM のURL）は届いた順に1件ずつ、その場の反応（お礼・大喜び・手を振る・うなずく）として
+ * 待機の動きに重ねる。反応の最中に届いたうなずきは捨てる（src/vrm/call.ts の isSkippableWhenBusy）。
  * 呼び出しの VRM は反応の前に読み込み（同じURLなら読み直さない）、読み込めなかった1件は流さずに失敗をこの箱に出して次へ進む。
  * 場面は現在時刻と、反応を流しはじめてからの経過時間だけから決める（src/vrm/motion.ts）。髪や服の揺れ（SpringBone）だけは前のコマから決まる例外で、
  * パラメータ spring で揺らすか硬いままにするかを切り替える（OBS で見比べて決めたら消す一時的なもの。issue #359）。
@@ -1964,7 +1965,7 @@ const mountVrm = (box: HTMLElement, item: OverlayItem, { key, demo }: MountConte
       .load(call.model)
       .then(() => {
         clearError(box, 'read')
-        playback = { plan: createVrmPlan(call.seed), startedAt: Date.now() }
+        playback = { plan: createVrmPlan(call.seed, call.reaction), startedAt: Date.now() }
       })
       .catch((error: unknown) => {
         // 読み込めなかった1件は流さず、失敗を出して次へ進む（待っている呼び出しを止めない）
@@ -1977,6 +1978,8 @@ const mountVrm = (box: HTMLElement, item: OverlayItem, { key, demo }: MountConte
   }
 
   const enqueue = (call: VrmCall): void => {
+    // 反応の最中に届いたうなずきは流さずに捨てる（速いチャットで待ちが積もり、前の発言にうなずき続けないように）
+    if (isSkippableWhenBusy(call.reaction) && (playback !== null || preparing || waiting.length > 0)) return
     waiting = [...waiting, call]
     startNext()
   }
@@ -1994,7 +1997,7 @@ const mountVrm = (box: HTMLElement, item: OverlayItem, { key, demo }: MountConte
   if (demo) {
     // プレビューでは押し出しにつながず、配信者のセッションで読んだ VRM を立たせ、決まった種の反応をくり返す
     void loadMascot(() => fetchPreviewModelUrl(fetch)).then(
-      (url) => startSampleCycle(DEMO_VRM_SEEDS.map((seed) => ({ id: `demo-${seed}`, seed, model: url })), DEMO_VRM_INTERVAL_MS, enqueue),
+      (url) => startSampleCycle(DEMO_VRM_CALLS.map(({ seed, reaction }) => ({ id: `demo-${reaction}-${seed}`, seed, reaction, model: url })), DEMO_VRM_INTERVAL_MS, enqueue),
       () => {
         // 読めなかった理由は loadMascot が箱に出している。反応はマスコットが立つまで流さない
       },

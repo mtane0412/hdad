@@ -37,7 +37,7 @@ import {
 } from './alert-config'
 import { readChatMessage } from './chat-command'
 import { BRANCH_REF_PREFIX } from './github-webhook'
-import { GREETING_KINDS, isGreeting, type StoredCondition } from './trigger-menu'
+import { GREETING_KINDS, isGreeting, type StoredCondition, type TriggerKind } from './trigger-menu'
 import { fillStreamSummary, STREAM_SUMMARY_PLACEHOLDER } from './stream-summary'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
@@ -725,15 +725,17 @@ export const licksFor = (config: AlertConfig, subscriptionType: string, body: un
   )
 
 /**
- * 通知に当てはまるトリガーを探し、VRMの演出を何回流すかを返す（issue #358）。
+ * 通知に当てはまるトリガーを探し、VRMのマスコットの反応を置いた行の項目を並びの順に返す（issue #358・#359）。
  *
- * VRMの演出は相手を必要とせず、どのトリガーにも置けるので、当てはまった数だけを数える。
- * 種と出す VRM は呼び出し側が決める（このファイルは乱数も設定の読み込みも持たないため）。
+ * 反応は相手を必要とせず、どのトリガーにも置ける。反応の種類は項目から決まる（worker/vrm-call.ts の vrmReactionOf）ので、
+ * 当てはまった行の項目だけを返す。種と出す VRM は呼び出し側が決める（このファイルは乱数も設定の読み込みも持たないため）。
  *
  * @throws 通知の中身が想定した形でない場合
  */
-export const vrmsFor = (config: AlertConfig, subscriptionType: string, body: unknown, state: ConditionState): number =>
-  matchedActionsFor(config, subscriptionType, body, vrmActionOf, state).length
+export const vrmsFor = (config: AlertConfig, subscriptionType: string, body: unknown, state: ConditionState): TriggerKind[] =>
+  matchedActionsFor(config, subscriptionType, body, (trigger) => (vrmActionOf(trigger) === null ? null : trigger.kind), state).map(
+    ({ action }) => action,
+  )
 
 /**
  * 通知に当てはまるトリガーをすべて探し、チャットへ送る文言を決める。
