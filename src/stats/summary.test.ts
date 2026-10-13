@@ -8,7 +8,6 @@ import { describe, expect, it } from 'vitest'
 import type { FollowerSample, SessionSummary, StreamRaid, ViewerSample } from './api'
 import {
   formatChapterChat,
-  formatProbability,
   formatRaidSource,
   formatRaidViewers,
   formatRetention,
@@ -237,14 +236,6 @@ describe('formatChapterChat（章のチャットの件数と発言者数）', ()
 
   it('数を残す前に作った章（null）は、0件と取り違えないよう「記録なし」にする', () => {
     expect(formatChapterChat({ chatCount: null, chatterCount: null })).toBe('記録なし')
-  })
-})
-
-describe('formatProbability（Jev の確率）', () => {
-  it('0〜1 の確率を、整数に丸めた百分率で表す', () => {
-    expect(formatProbability(0.934)).toBe('93%')
-    expect(formatProbability(0.006)).toBe('1%')
-    expect(formatProbability(1)).toBe('100%')
   })
 })
 

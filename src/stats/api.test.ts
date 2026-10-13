@@ -93,8 +93,6 @@ describe('session（配信ごとの視聴者数の推移）', () => {
           chatterCount: null,
         },
       ],
-      // 章ごとに作った配信タイトルの候補と、公開してよいかの Jev の判定（試験運用）
-      titleCandidates: [{ chapterStartedAt: '2026-09-19T12:00:00.000Z', candidate: 'エディタを整理中', publishable: 0.97 }],
       summary: 'エディタを整えた配信者。いまは新しい機能の実装に取りかかったところ。',
       // 作業机で3人が合わせて2時間作業した
       workTime: { people: 3, totalMs: 2 * 60 * 60 * 1000 },
@@ -119,7 +117,6 @@ describe('session（配信ごとの視聴者数の推移）', () => {
       categoryName: 'Just Chatting',
       samples: [],
       chapters: [{ startedAt: '2026-09-19T12:00:00.000Z', title: '見出しだけの章' }],
-      titleCandidates: [],
       summary: null,
       workTime: null,
       raids: [],
@@ -136,28 +133,10 @@ describe('session（配信ごとの視聴者数の推移）', () => {
       categoryName: 'Just Chatting',
       samples: [],
       chapters: [{ startedAt: '2026-09-19T12:00:00.000Z', endedAt: '2026-09-19T12:30:00.000Z', title: '雑談', summary: '雑談した。', chatCount: '12件', chatterCount: 5 }],
-      titleCandidates: [],
       summary: null,
       workTime: null,
     }
     await expect(createStatsApi(fetchReturning(200, detail).fetchImpl).session('配信ID-2026-09-19')).rejects.toThrow('chapters[0]')
-  })
-
-  it('タイトルの候補の判定が数でなければ、黙って捨てずにエラーにする', async () => {
-    const detail = {
-      id: '配信ID-2026-09-19',
-      startedAt: '2026-09-19T12:00:00.000Z',
-      endedAt: null,
-      title: '配信',
-      categoryName: 'Just Chatting',
-      samples: [],
-      chapters: [],
-      titleCandidates: [{ chapterStartedAt: '2026-09-19T12:00:00.000Z', candidate: 'エディタを整理中', publishable: '高い' }],
-      summary: null,
-      workTime: null,
-      raids: [],
-    }
-    await expect(createStatsApi(fetchReturning(200, detail).fetchImpl).session('配信ID-2026-09-19')).rejects.toThrow('titleCandidates[0]')
   })
 
   it('レイドの人数が数でも null でもなければ、黙って捨てずにエラーにする', async () => {
@@ -169,7 +148,6 @@ describe('session（配信ごとの視聴者数の推移）', () => {
       categoryName: 'Just Chatting',
       samples: [],
       chapters: [],
-      titleCandidates: [],
       summary: null,
       workTime: null,
       raids: [{ occurredAt: '2026-09-19T12:41:00.000Z', fromUserId: '33333', fromUserLogin: 'matsumoto_dev', fromUserName: 'まつもと', viewers: '20人' }],
@@ -178,39 +156,18 @@ describe('session（配信ごとの視聴者数の推移）', () => {
   })
 
   it('あらすじが文字列でも null でもなければエラーにする', async () => {
-    const detail = { id: '配信ID-2026-09-19', startedAt: '2026-09-19T12:00:00.000Z', endedAt: null, title: '配信', categoryName: 'Just Chatting', samples: [], chapters: [], titleCandidates: [], summary: 0, workTime: null, raids: [] }
+    const detail = { id: '配信ID-2026-09-19', startedAt: '2026-09-19T12:00:00.000Z', endedAt: null, title: '配信', categoryName: 'Just Chatting', samples: [], chapters: [], summary: 0, workTime: null, raids: [] }
     await expect(createStatsApi(fetchReturning(200, detail).fetchImpl).session('配信ID-2026-09-19')).rejects.toThrow('配信セッション')
   })
 
   it('作業した時間の合計が人数と時間の組でも null でもなければエラーにする（0 に読み替えない）', async () => {
-    const detail = { id: '配信ID-2026-09-19', startedAt: '2026-09-19T12:00:00.000Z', endedAt: null, title: '配信', categoryName: 'Just Chatting', samples: [], chapters: [], titleCandidates: [], summary: null, workTime: { people: 3 }, raids: [] }
+    const detail = { id: '配信ID-2026-09-19', startedAt: '2026-09-19T12:00:00.000Z', endedAt: null, title: '配信', categoryName: 'Just Chatting', samples: [], chapters: [], summary: null, workTime: { people: 3 }, raids: [] }
     await expect(createStatsApi(fetchReturning(200, detail).fetchImpl).session('配信ID-2026-09-19')).rejects.toThrow('配信セッション')
   })
 
   it('応答が想定した形でなければエラーにする', async () => {
     const detailWithoutSeries = { id: '配信ID-2026-09-19', startedAt: '2026-09-19T12:00:00.000Z', endedAt: null, title: '配信', categoryName: 'Just Chatting' }
     await expect(createStatsApi(fetchReturning(200, detailWithoutSeries).fetchImpl).session('配信ID-2026-09-19')).rejects.toThrow('samples')
-  })
-})
-
-describe('titleSettings（配信タイトルの候補を作るかの設定）', () => {
-  it('設定の経路を呼び、候補を作るかを返す', async () => {
-    const { requests, fetchImpl } = fetchReturning(200, { settings: { enabled: false } })
-
-    expect(await createStatsApi(fetchImpl).titleSettings()).toEqual({ enabled: false })
-    expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/stream-title/settings')
-  })
-
-  it('保存するときは PUT で送り、保存された設定を返す', async () => {
-    const { requests, fetchImpl } = fetchReturning(200, { settings: { enabled: true } })
-
-    expect(await createStatsApi(fetchImpl).saveTitleSettings({ enabled: true })).toEqual({ enabled: true })
-    expect(requests[0]?.method).toBe('PUT')
-    expect(await requests[0]?.json()).toEqual({ enabled: true })
-  })
-
-  it('応答の設定が想定した形でなければエラーにする（黙って「作らない」にしない）', async () => {
-    await expect(createStatsApi(fetchReturning(200, { settings: { enabled: 'はい' } }).fetchImpl).titleSettings()).rejects.toThrow('settings')
   })
 })
 

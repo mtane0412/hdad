@@ -16,7 +16,6 @@ import type { LlmSettings } from '@/llm/api'
 import type { Overlay } from '@/overlay/layout'
 import type { PomodoroSettings } from '@/pomodoro/api'
 import type { SpeechSettings } from '@/speech/api'
-import type { StreamTitleSettings } from '@/stats/api'
 import { buildSettingsTools, type SettingsDeps } from './settings-tools'
 
 const followTrigger: StoredTrigger = { kind: 'follow', actions: [{ type: 'chat', message: '{user} さん、フォローありがとう！' }] }
@@ -41,7 +40,6 @@ const llm: LlmSettings = {
     sideSuper: { provider: 'workers-ai', models: lightModel },
     viewerSummary: { provider: 'workers-ai', models: lightModel },
     streamSummary: { provider: 'workers-ai', models: lightModel },
-    streamTitle: { provider: 'workers-ai', models: lightModel },
     townTour: { provider: 'openrouter', models: lightModel },
     townBond: { provider: 'openrouter', models: lightModel },
     autoText: { provider: 'workers-ai', models: lightModel },
@@ -54,7 +52,6 @@ const overlays: Overlay[] = [{ name: '作業配信', items: [] }]
 const lofiTrack: BgmTrack = { mediaId: 'media-lofi', title: '夜のローファイ', credit: '作曲: 夜更かし', creditUrl: '', mood: '落ち着いた', scene: '作業中' }
 const bgmSettings: BgmSettings = { judgeWithJev: true }
 const pomodoro: PomodoroSettings = { breakMediaId: 'media-lofi' }
-const streamTitle: StreamTitleSettings = { enabled: false }
 
 /** 試験用の Api とアプリの枠の状態。保存されたものと、ページを作り直させた回数を記録する */
 const createDeps = ({ currentPath = '/', unsaved = false }: { currentPath?: string; unsaved?: boolean } = {}) => {
@@ -87,7 +84,6 @@ const createDeps = ({ currentPath = '/', unsaved = false }: { currentPath?: stri
       llmApi: { load: async () => ({ settings: llm }), save: recordSave('llm') },
       overlayApi: { load: async () => overlays, save: async (next) => recordSave<Overlay[]>('overlays')([...next]), setVisibility: async () => overlays },
       pomodoroApi: { read: async () => ({ timer: null, settings: pomodoro }), saveSettings: recordSave('pomodoro') },
-      statsApi: { titleSettings: async () => streamTitle, saveTitleSettings: recordSave('streamTitle') },
     },
     bgm: () => ({
       loaded: { status: 'ready' },
@@ -132,7 +128,6 @@ const SETTINGS: [target: string, value: unknown][] = [
   ['bgmTracks', [lofiTrack]],
   ['bgmSettings', bgmSettings],
   ['pomodoro', pomodoro],
-  ['streamTitle', streamTitle],
 ]
 
 describe('ツールの一覧', () => {

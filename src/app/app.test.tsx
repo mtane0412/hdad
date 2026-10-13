@@ -108,8 +108,6 @@ const createFakeRecordApi: StatsApi = {
   }),
   sessionOpinions: vi.fn(async () => []),
   followers: vi.fn(async () => []),
-  titleSettings: vi.fn(async () => ({ enabled: false })),
-  saveTitleSettings: vi.fn(async (settings) => settings),
 }
 
 const createFakeViewerApi: ViewerApi = {
@@ -184,10 +182,6 @@ const fakeLlmApi: LlmApi = {
           sideSuper: usageSetting,
           viewerSummary: usageSetting,
           streamSummary: {
-            provider: 'workers-ai' as const,
-            models: { 'workers-ai': '@cf/meta/llama-3.3-70b-instruct-fp8-fast', openrouter: 'meta-llama/llama-3.3-70b-instruct' },
-          },
-          streamTitle: {
             provider: 'workers-ai' as const,
             models: { 'workers-ai': '@cf/meta/llama-3.3-70b-instruct-fp8-fast', openrouter: 'meta-llama/llama-3.3-70b-instruct' },
           },

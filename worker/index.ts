@@ -88,8 +88,6 @@
  * | GET  /api/admin/stats/sessions/:id/opinions | セッション | 配信の時間に開いた意見ボードのテーマ（振り返り） |
  * | GET  /api/admin/stats/followers  | セッション     | フォロワー数の時系列 |
  * | GET  /api/admin/stats/failures   | セッション     | 記録の収集の失敗の一覧 |
- * | GET  /api/admin/stream-title/settings | セッション | 配信タイトルの候補を作るかの設定（試験運用） |
- * | PUT  /api/admin/stream-title/settings | セッション | 配信タイトルの候補を作るかの設定の保存 |
  * | POST /api/admin/transcripts      | セッション     | 配信中の文字起こしを1件受け取る（アプリのページの音声認識から） |
  * | POST /api/eventsub/webhook       | Twitchの署名   | EventSubの通知を受け、イベントの件数と配信の開始・終了を記録する |
  * | POST /api/github/webhook         | GitHubの署名   | GitHub の Webhook を受け、配信中ならコミットの push・PR のマージのトリガーを実行する |
@@ -240,7 +238,6 @@ import { drawSocket, getDrawBackground, getDrawStrokes, putDrawStrokes } from '.
 import { deleteTabBlockedHost, getTabBlockedHosts, postTabBlockedHost, tabExtensionZip, tabSocket } from './tab-routes'
 import { commentSocket, getCommentIcons, postCommentGreeting, postCommentMessage, postCommentModeration } from './comment-routes'
 import { getStatsFailures, getStatsFollowers, getStatsSession, getStatsSessionOpinions, getStatsSessions } from './stats-routes'
-import { getStreamTitleSettings, putStreamTitleSettings } from './stream-title-routes'
 import { AuthError } from './token'
 import { WEBHOOK_PATH, eventsubWebhook } from './webhook-routes'
 import { GITHUB_WEBHOOK_PATH, githubWebhook } from './github-routes'
@@ -370,8 +367,6 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/admin/stats/sessions/:id/opinions', handle: getStatsSessionOpinions },
   { method: 'GET', path: '/api/admin/stats/followers', handle: getStatsFollowers },
   { method: 'GET', path: '/api/admin/stats/failures', handle: getStatsFailures },
-  { method: 'GET', path: '/api/admin/stream-title/settings', handle: getStreamTitleSettings },
-  { method: 'PUT', path: '/api/admin/stream-title/settings', handle: putStreamTitleSettings },
   { method: 'POST', path: '/api/admin/transcripts', handle: postAdminTranscript },
   { method: 'POST', path: WEBHOOK_PATH, handle: eventsubWebhook },
   { method: 'POST', path: GITHUB_WEBHOOK_PATH, handle: githubWebhook },
