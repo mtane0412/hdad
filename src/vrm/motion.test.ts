@@ -7,9 +7,11 @@
  * - 反応が無いあいだは待機の姿勢で、呼吸・瞬き・視線のゆらぎが時刻とともに変わること
  * - 瞬きはときどき一瞬だけ目を閉じ、ほとんどの時間は目を開けていること
  * - 反応は手を振る → お辞儀の順に流れ、はじめと終わりは待機の姿勢とつながる（姿勢が飛ばない）こと
+ * - 口の開きは、読み上げを鳴らしはじめた時刻と区切りごとの音量の列から、その時刻の音量で決まること
  */
 import { describe, expect, it } from 'vitest'
 import { ARM_REST_Z, BLINK_SLOT_MS, MAX_WAVES, MIN_WAVES, createVrmPlan, vrmSceneAt, type VrmPlan } from './motion'
+import type { SpeechLevels } from '../speech/level'
 
 /** いろいろな種で確かめるための種の一覧 */
 const SEEDS = Array.from({ length: 200 }, (_, index) => index * 7919 + 358)
@@ -55,11 +57,11 @@ describe('createVrmPlan', () => {
 
 describe('vrmSceneAt（待機）', () => {
   it('同じ時刻からは同じ場面を返す（フレーム間の状態を持たない）', () => {
-    expect(vrmSceneAt(BASE_TIME + 3210, null)).toEqual(vrmSceneAt(BASE_TIME + 3210, null))
+    expect(vrmSceneAt(BASE_TIME + 3210, null, null)).toEqual(vrmSceneAt(BASE_TIME + 3210, null, null))
   })
 
   it('反応が無いあいだは、腕を下ろして立ち、にっこりしない', () => {
-    const scene = vrmSceneAt(BASE_TIME, null)
+    const scene = vrmSceneAt(BASE_TIME, null, null)
 
     expect(scene.phase).toBe('idle')
     expect(scene.bones.rightUpperArm.z).toBeCloseTo(ARM_REST_Z, 1)
@@ -68,14 +70,14 @@ describe('vrmSceneAt（待機）', () => {
   })
 
   it('呼吸で胸がわずかに動き続ける', () => {
-    const chests = timesFrom(BASE_TIME, 10_000, 100).map((time) => vrmSceneAt(time, null).bones.chest.x)
+    const chests = timesFrom(BASE_TIME, 10_000, 100).map((time) => vrmSceneAt(time, null, null).bones.chest.x)
 
     expect(Math.max(...chests) - Math.min(...chests)).toBeGreaterThan(0.01)
     for (const chest of chests) expect(Math.abs(chest)).toBeLessThan(0.1)
   })
 
   it('視線がゆっくりゆらぎ、大きく横を向かない', () => {
-    const yaws = timesFrom(BASE_TIME, 20_000, 100).map((time) => vrmSceneAt(time, null).bones.head.y)
+    const yaws = timesFrom(BASE_TIME, 20_000, 100).map((time) => vrmSceneAt(time, null, null).bones.head.y)
 
     expect(Math.max(...yaws) - Math.min(...yaws)).toBeGreaterThan(0.03)
     for (const yaw of yaws) expect(Math.abs(yaw)).toBeLessThan(0.25)
@@ -84,7 +86,7 @@ describe('vrmSceneAt（待機）', () => {
   it('瞬きは区切りごとに1回ずつ目を閉じ、ほとんどの時間は目を開けている', () => {
     const slotStart = Math.ceil(BASE_TIME / BLINK_SLOT_MS) * BLINK_SLOT_MS
     const slots = 10
-    const blinks = timesFrom(slotStart, BLINK_SLOT_MS * slots, 10).map((time) => vrmSceneAt(time, null).blink)
+    const blinks = timesFrom(slotStart, BLINK_SLOT_MS * slots, 10).map((time) => vrmSceneAt(time, null, null).blink)
 
     for (const blink of blinks) {
       expect(blink).toBeGreaterThanOrEqual(0)
@@ -102,7 +104,7 @@ describe('vrmSceneAt（待機）', () => {
 describe('vrmSceneAt（反応）', () => {
   it('手を振るあいだは、振る側の腕だけが上がり、にっこりする', () => {
     const plan = rightHandedPlan()
-    const middle = vrmSceneAt(BASE_TIME, { plan, elapsedMs: plan.bowStartMs / 2 })
+    const middle = vrmSceneAt(BASE_TIME, { plan, elapsedMs: plan.bowStartMs / 2 }, null)
 
     expect(middle.phase).toBe('wave')
     // 右腕は下ろしたとき +ARM_REST_Z、上げると負の向きに回る
@@ -110,14 +112,14 @@ describe('vrmSceneAt（反応）', () => {
     expect(middle.bones.leftUpperArm.z).toBeCloseTo(-ARM_REST_Z, 1)
     expect(middle.happy).toBeGreaterThan(0)
 
-    const leftHanded = vrmSceneAt(BASE_TIME, { plan: rightHandedPlan({ wavingHand: 'left' }), elapsedMs: plan.bowStartMs / 2 })
+    const leftHanded = vrmSceneAt(BASE_TIME, { plan: rightHandedPlan({ wavingHand: 'left' }), elapsedMs: plan.bowStartMs / 2 }, null)
     expect(leftHanded.bones.leftUpperArm.z).toBeGreaterThan(0)
     expect(leftHanded.bones.rightUpperArm.z).toBeCloseTo(ARM_REST_Z, 1)
   })
 
   it('お辞儀のあいだは背中が前へ曲がり、腕は下ろしている', () => {
     const plan = rightHandedPlan()
-    const middle = vrmSceneAt(BASE_TIME, { plan, elapsedMs: (plan.bowStartMs + plan.totalMs) / 2 })
+    const middle = vrmSceneAt(BASE_TIME, { plan, elapsedMs: (plan.bowStartMs + plan.totalMs) / 2 }, null)
 
     expect(middle.phase).toBe('bow')
     expect(middle.bones.spine.x).toBeGreaterThan(0.2)
@@ -128,9 +130,9 @@ describe('vrmSceneAt（反応）', () => {
   it('反応のはじめと終わりは、同じ時刻の待機の姿勢とつながる', () => {
     const plan = rightHandedPlan()
 
-    expect(vrmSceneAt(BASE_TIME, { plan, elapsedMs: 0 }).bones).toEqual(vrmSceneAt(BASE_TIME, null).bones)
-    const ending = vrmSceneAt(BASE_TIME, { plan, elapsedMs: plan.totalMs - 1 }).bones
-    const idle = vrmSceneAt(BASE_TIME, null).bones
+    expect(vrmSceneAt(BASE_TIME, { plan, elapsedMs: 0 }, null).bones).toEqual(vrmSceneAt(BASE_TIME, null, null).bones)
+    const ending = vrmSceneAt(BASE_TIME, { plan, elapsedMs: plan.totalMs - 1 }, null).bones
+    const idle = vrmSceneAt(BASE_TIME, null, null).bones
     expect(ending.spine.x).toBeCloseTo(idle.spine.x, 3)
     expect(ending.rightUpperArm.z).toBeCloseTo(idle.rightUpperArm.z, 3)
   })
@@ -138,14 +140,43 @@ describe('vrmSceneAt（反応）', () => {
   it('反応の長さを過ぎたら待機に戻る', () => {
     const plan = rightHandedPlan()
 
-    expect(vrmSceneAt(BASE_TIME, { plan, elapsedMs: plan.totalMs }).phase).toBe('idle')
+    expect(vrmSceneAt(BASE_TIME, { plan, elapsedMs: plan.totalMs }, null).phase).toBe('idle')
   })
 
   it('反応のあいだも瞬きは続く', () => {
     const plan = rightHandedPlan()
     const slotStart = Math.ceil(BASE_TIME / BLINK_SLOT_MS) * BLINK_SLOT_MS
-    const blinks = timesFrom(slotStart, BLINK_SLOT_MS, 10).map((time) => vrmSceneAt(time, { plan, elapsedMs: plan.bowStartMs / 2 }).blink)
+    const blinks = timesFrom(slotStart, BLINK_SLOT_MS, 10).map((time) => vrmSceneAt(time, { plan, elapsedMs: plan.bowStartMs / 2 }, null).blink)
 
     expect(Math.max(...blinks)).toBeGreaterThan(0.8)
+  })
+})
+
+describe('vrmSceneAt（口パク）', () => {
+  /** 起点の時刻に鳴らしはじめた、20ミリ秒ごとの音量の列 */
+  const speech: SpeechLevels = { startedAt: BASE_TIME, frameMs: 20, levels: [0, 1, 0.5, 0] }
+
+  it('読み上げが無ければ口を閉じている', () => {
+    expect(vrmSceneAt(BASE_TIME, null, null).mouth).toBe(0)
+  })
+
+  it('鳴らしはじめてからの時間に当たる区切りの音量で口を開ける', () => {
+    expect(vrmSceneAt(BASE_TIME + 20, null, speech).mouth).toBeCloseTo(1, 5)
+    expect(vrmSceneAt(BASE_TIME + 40, null, speech).mouth).toBeCloseTo(0.5, 5)
+  })
+
+  it('区切りのあいだは、前後の音量のあいだをなめらかにつなぐ', () => {
+    expect(vrmSceneAt(BASE_TIME + 30, null, speech).mouth).toBeCloseTo(0.75, 5)
+  })
+
+  it('鳴らしはじめる前と、鳴り終えたあとは口を閉じている', () => {
+    expect(vrmSceneAt(BASE_TIME - 10, null, speech).mouth).toBe(0)
+    expect(vrmSceneAt(BASE_TIME + 1000, null, speech).mouth).toBe(0)
+  })
+
+  it('反応のあいだも読み上げに合わせて口を動かす', () => {
+    const plan = rightHandedPlan()
+
+    expect(vrmSceneAt(BASE_TIME + 20, { plan, elapsedMs: plan.bowStartMs / 2 }, speech).mouth).toBeCloseTo(1, 5)
   })
 })

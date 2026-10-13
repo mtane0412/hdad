@@ -9,6 +9,7 @@
  * - 合成は同じPCの VOICEVOX ENGINE か、さくらのAI Engine（Worker 経由。issue #225）に任せる
  * - 下部バーのミュート（issue #238）は、Worker から WebSocket（/api/overlay/speech/mute/socket）で押し出してもらう。
  *   起動のときとつなぎ直したときは、保存済みのミュートを設定と一緒に読む
+ * - 鳴らす前に音声の音量の変化を測り、鳴らしはじめと止まったときに同じPCのほかのページへ配る（VRMのマスコットの口パク。issue #359）
  *
  * 注意: 合成先・ホスト・ポートだけは起動のときにしか使えない。つなぎ先が変わるとつなぎ直しが要るためで、
  * 変わったことに気づいたらOBSの再読み込みが要ることを画面に出す（黙って古いつなぎ先のまま読み続けない）。
@@ -19,6 +20,7 @@ import { showError } from '../core/mount'
 import { connectSocket, socketUrl } from '../core/socket'
 import { createSpeechOverlayApi, parseSpeechMute, SPEECH_MUTE_SOCKET_HINT, SPEECH_MUTE_SOCKET_PATH, type SpeechSettings } from './api'
 import { playSpeech } from './audio'
+import { createSpeechLevelSender, measureSpeechLevels } from './level-channel'
 import { speechEndpointOf } from './engine'
 import { createSakuraSpeech } from './sakura'
 import { createVoicevox, voicevoxOrigin, type Voicevox } from './voicevox'
@@ -160,6 +162,8 @@ export const startSpeechVoice = async ({ key, box, noun, onMute }: SpeechVoiceOp
     SPEECH_MUTE_SOCKET_HINT,
   )
 
+  const levelSender = createSpeechLevelSender()
+
   const voice: SpeechVoice = {
     settings: () => settings,
     muted: () => muted,
@@ -167,9 +171,16 @@ export const startSpeechVoice = async ({ key, box, noun, onMute }: SpeechVoiceOp
       // 声と音量は、その1件を鳴らす時点の設定で決める（読み上げの途中で変えても次の1件から効く）
       const { speaker, speed, volume } = settings
       const audio = await voicevox.synthesize(text, { speaker, speed })
-      // 合成を待つあいだに止められたら鳴らさない
+      const levels = await measureSpeechLevels(audio)
+      // 合成と音量の測定を待つあいだに止められたら鳴らさない
       if (signal.aborted) return
-      await playSpeech(audio, volume, signal)
+      const id = crypto.randomUUID()
+      try {
+        await playSpeech(audio, volume, signal, () => levelSender.start(id, levels, Date.now()))
+      } finally {
+        // 鳴り終えても、止められても、失敗しても、口を閉じさせる
+        levelSender.stop(id)
+      }
     },
   }
   return { voice, origin }

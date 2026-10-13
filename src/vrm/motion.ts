@@ -5,6 +5,8 @@
  * トリガーや試し再生の呼び出しが届くと、その場で「片手を上げて何回か振る → お辞儀する」反応を待機の動きに重ねる。
  * どちらの手で何回振るか・お辞儀の深さは種だけから決め（createVrmPlan）、その時刻の場面（骨ごとの回転・表情）は
  * 現在時刻と、流している反応の経過時間だけから求める（vrmSceneAt。フレーム間の状態を持たない）。
+ * 口は読み上げに合わせて開け閉めする。読み上げのページが配った「鳴らしはじめた時刻と区切りごとの音量の列」（src/speech/level.ts）から、
+ * その時刻の音量を引いて口の開きにする（口の形は合わせず、音量で開け閉めするだけ）。
  *
  * 骨の回転は VRM の正規化された骨（three-vrm の normalized bone）に当てる値で、どの骨も初期の姿勢（T ポーズ）では回転 0 である。
  * キャラクターはカメラのほう（+Z）を向き、キャラクターの左手は +X 側にある。そのため
@@ -16,6 +18,7 @@
  * 注意: DOM も three.js も読み込まない（描画は view.ts が受け持つ）。髪や服の揺れ（SpringBone）は時刻だけから決められないので、ここでは扱わない。
  */
 import { createRandom } from '../core/background'
+import type { SpeechLevels } from '../speech/level'
 
 /** 動かす骨（VRM の humanoid の骨の名前） */
 export const VRM_BONES = [
@@ -76,6 +79,8 @@ export interface VrmScene {
   readonly happy: number
   /** 瞬きの表情の強さ（0〜1。1 で目を閉じている） */
   readonly blink: number
+  /** 口の開き（0〜1。読み上げの音量） */
+  readonly mouth: number
   readonly bones: Readonly<Record<VrmBone, BoneRotation>>
 }
 
@@ -251,24 +256,41 @@ const applyBow = (bones: Record<VrmBone, BoneRotation>, plan: VrmPlan, bowMs: nu
 }
 
 /**
- * 現在時刻と流している反応から、その時刻の場面を求める。
+ * その時刻の口の開き。鳴らしはじめてからの時間に当たる区切りの前後の音量を、なめらかにつなぐ。
  *
- * @param timeMs 現在時刻（ミリ秒。待機の動きはこれだけから決まる）
- * @param reaction 流している反応。流していなければ null。経過時間が反応の長さを過ぎていれば待機として扱う
+ * @returns 0〜1。読み上げが無い・鳴らしはじめる前・鳴り終えたあとは 0
  */
-export const vrmSceneAt = (timeMs: number, reaction: VrmReaction | null): VrmScene => {
+const mouthAt = (timeMs: number, speech: SpeechLevels | null): number => {
+  if (speech === null) return 0
+  const position = (timeMs - speech.startedAt) / speech.frameMs
+  if (position < 0 || position >= speech.levels.length) return 0
+  const frame = Math.floor(position)
+  const current = speech.levels[frame] ?? 0
+  const next = speech.levels[frame + 1] ?? 0
+  return current + (next - current) * (position - frame)
+}
+
+/**
+ * 現在時刻と流している反応・読み上げから、その時刻の場面を求める。
+ *
+ * @param timeMs 現在時刻（ミリ秒。待機の動きと口の開きはこれから決まる）
+ * @param reaction 流している反応。流していなければ null。経過時間が反応の長さを過ぎていれば待機として扱う
+ * @param speech 鳴っている読み上げの音量の列。鳴っていなければ null
+ */
+export const vrmSceneAt = (timeMs: number, reaction: VrmReaction | null, speech: SpeechLevels | null): VrmScene => {
   const bones = idleBones(timeMs)
   const blink = blinkAt(timeMs)
-  if (reaction === null || reaction.elapsedMs >= reaction.plan.totalMs) return { phase: 'idle', happy: 0, blink, bones }
+  const mouth = mouthAt(timeMs, speech)
+  if (reaction === null || reaction.elapsedMs >= reaction.plan.totalMs) return { phase: 'idle', happy: 0, blink, mouth, bones }
 
   const { plan, elapsedMs } = reaction
   if (elapsedMs < plan.bowStartMs) {
     const raise = applyWave(bones, plan, elapsedMs)
-    return { phase: 'wave', happy: raise, blink, bones }
+    return { phase: 'wave', happy: raise, blink, mouth, bones }
   }
 
   applyBow(bones, plan, elapsedMs - plan.bowStartMs)
   // にっこりはお辞儀を戻しながら消していく（待機へ戻ったときに表情が飛ばないように）
   const happy = 1 - smooth((elapsedMs - plan.bowStartMs - BOW_DOWN_MS - BOW_HOLD_MS) / BOW_UP_MS)
-  return { phase: 'bow', happy, blink, bones }
+  return { phase: 'bow', happy, blink, mouth, bones }
 }
