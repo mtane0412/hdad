@@ -130,6 +130,7 @@
  * | GET  /api/overlay/twister/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、ツイスターの呼び出しの配送先へ引き渡す |
  * | GET  /api/overlay/lick/socket    | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、ペロペロの呼び出しの配送先へ引き渡す |
  * | GET  /api/overlay/vrm/socket     | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、VRMの演出の呼び出しの配送先へ引き渡す |
+ * | GET  /api/overlay/vrm/model      | オーバーレイ用キー | 出しっぱなしのマスコットとして読み込む VRM のURL |
  * | GET  /api/overlay/kanji-quiz/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、漢字クイズの出題の配送先へ引き渡す |
  * | POST /api/overlay/kanji-quiz/open | オーバーレイ用キー | 合成ページが流しはじめた漢字クイズの出題を開き、時間切れの判定を予約する |
  * | GET  /api/overlay/kanji-quiz/stop/socket | オーバーレイ用キー | 裏方のページからのWebSocketの接続を受け、配信を止める命令の配送先へ引き渡す |
@@ -235,7 +236,7 @@ import {
 import { getKanjiQuizSound, kanjiQuizSocket, kanjiQuizStopSocket, postKanjiQuizDemo, postKanjiQuizOpen, postKanjiQuizStopCancel, postKanjiQuizStopResult, putKanjiQuizSound } from './kanji-quiz-routes'
 import { getTwisterSound, postTwisterDemo, putTwisterSound, twisterSocket } from './twister-routes'
 import { getLickSound, lickSocket, postLickDemo, putLickSound } from './lick-routes'
-import { getVrmModel, postVrmDemo, putVrmModel, vrmSocket } from './vrm-routes'
+import { getOverlayVrmModel, getVrmModel, postVrmDemo, putVrmModel, vrmSocket } from './vrm-routes'
 import { getOverlayPomodoro, getPomodoro, pomodoroSocket, postPomodoroControl, putPomodoroSettings } from './pomodoro-routes'
 import { getDeeplUsage, getTranslation, postTranslation, putTranslation } from './translation-routes'
 import { drawSocket, getDrawBackground, getDrawStrokes, putDrawStrokes } from './draw-routes'
@@ -435,6 +436,7 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/admin/lick/sound', handle: getLickSound },
   { method: 'PUT', path: '/api/admin/lick/sound', handle: putLickSound },
   { method: 'GET', path: '/api/overlay/vrm/socket', handle: vrmSocket },
+  { method: 'GET', path: '/api/overlay/vrm/model', handle: getOverlayVrmModel },
   { method: 'POST', path: '/api/admin/vrm/demo', handle: postVrmDemo },
   { method: 'GET', path: '/api/admin/vrm/model', handle: getVrmModel },
   { method: 'PUT', path: '/api/admin/vrm/model', handle: putVrmModel },

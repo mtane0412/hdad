@@ -147,6 +147,36 @@ describe('POST /api/admin/vrm/demo', () => {
   })
 })
 
+describe('GET /api/overlay/vrm/model', () => {
+  const read = (env: Env, key = overlayKey) => invoke(`/api/overlay/vrm/model?key=${key}`, env)
+
+  it('オーバーレイ用キーが違えば断る', async () => {
+    const env = createEnv()
+    await saveVrmModel(env.STORE, { model: 'media-kanban' })
+
+    const response = await read(env, 'wrong-key-0123456789abcdefghijklmn')
+
+    expect(response.status).toBe(401)
+  })
+
+  it('選んである VRM のURL（オーバーレイ用キーつき）を返す', async () => {
+    const env = createEnv()
+    await saveVrmModel(env.STORE, { model: 'media-kanban' })
+
+    const response = await read(env)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ model: `/api/media/media-kanban?key=${overlayKey}` })
+  })
+
+  it('VRM を選んでいなければ、何も映らないマスコットを黙って出さず409にする', async () => {
+    const response = await read(createEnv())
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toMatchObject({ error: { code: 'vrm-not-ready' } })
+  })
+})
+
 describe('GET・PUT /api/admin/vrm/model', () => {
   /** 看板娘の VRM と、写真の画像を上げておいた環境 */
   const createEnvWithMedia = async (): Promise<Env> => {

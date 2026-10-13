@@ -1,12 +1,12 @@
 /**
- * VRMの演出の描画（three.js と @pixiv/three-vrm）
+ * VRMのマスコットの描画（three.js と @pixiv/three-vrm）
  *
- * 配信者がアップロードした VRM を読み込み、motion.ts が決めた場面（位置・向き・骨の回転・表情）をそのまま当てて描く。
+ * 配信者がアップロードした VRM を読み込み、motion.ts が決めた場面（骨の回転・表情）をそのまま当てて描く。
  * 背景は透明にし、配信画面の上にキャラクターが浮かぶように重ねる。カメラはキャラクターの背の高さに合わせて引き、
  * 足もとが箱の下端の近くに来るようにする（キャラクターの大きさと置き場所は、配信者が素材の箱の大きさと位置で決める）。
  *
- * - 読み込んだ VRM は URL ごとに1つだけ持ち、同じ URL の演出では読み直さない（演出のたびに数MB〜数十MBを読み直さないため）。
- *   別の URL が届いたら、前のモデルを捨ててから読み込む
+ * - 読み込んだ VRM は URL ごとに1つだけ持ち、同じ URL では読み直さない（反応のたびに数MB〜数十MBを読み直さないため）。
+ *   読み込んでいる最中に同じ URL を求められたら、同じ読み込みを待つ。別の URL が届いたら、前のモデルを捨ててから読み込む
  * - 骨は正規化された骨（normalized bone）に回転を当て、humanoid.update で実際の骨へ写す。vrm.update は呼ばない
  *   （髪や服の揺れ（SpringBone）が前のフレームの状態から決まり、経過時間だけから描く約束（docs/decisions/rendering.md）を崩すため）
  * - VRM 0.x のモデルは rotateVRM0 で向きをそろえるが、正規化された骨の軸は回したモデルの側に残るので、X と Z の回転を反転して当てる
@@ -15,7 +15,7 @@
  *
  * 注意: 描画だけを受け持つのでテストを持たない（何をどう動かすかは motion.ts が決め、そちらをテストする）。
  */
-import { AmbientLight, Box3, DirectionalLight, Group, PerspectiveCamera, Scene, Vector3, WebGLRenderer } from 'three'
+import { AmbientLight, Box3, DirectionalLight, PerspectiveCamera, Scene, Vector3, WebGLRenderer } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { VRMLoaderPlugin, VRMUtils, type VRM } from '@pixiv/three-vrm'
 import { VRM_BONES, type VrmScene } from './motion'
@@ -26,16 +26,15 @@ const CAMERA_FOV = 30
 const MODEL_SHARE = 0.8
 /** 足もとを箱の下端からどれだけ上に置くか（箱の高さに対する割合） */
 const FOOT_MARGIN = 0.05
-/** 画面の外へ出るとき、箱の端からさらに外へ出す幅（メートル。体の幅の半分より大きくする） */
-const OFFSCREEN_MARGIN = 0.6
-/** にっこりの表情の名前（VRM の既定の表情） */
+/** にっこり・瞬きの表情の名前（VRM の既定の表情。VRM 0.x の名前は three-vrm がこの名前へ読み替える） */
 const HAPPY_EXPRESSION = 'happy'
+const BLINK_EXPRESSION = 'blink'
 /** 読み込みにかかった時間を残す User Timing の名前 */
 const LOAD_MEASURE = 'vrm-load'
 
 export interface VrmRenderer {
   /**
-   * VRM を読み込んで、次に描く演出のモデルにする。直前と同じ URL なら読み直さない。
+   * VRM を読み込んで、描くモデルにする。直前と同じ URL なら読み直さない。
    *
    * @throws 読み込めない・VRM として読めない場合
    */
@@ -43,9 +42,9 @@ export interface VrmRenderer {
   /**
    * 1コマ描く。
    *
-   * @param scene その時刻の場面。流していなければ null（何も映さない）
+   * @param scene その時刻の場面。モデルを読み込むまでは何も映さない
    */
-  render(width: number, height: number, scene: VrmScene | null): void
+  render(width: number, height: number, scene: VrmScene): void
 }
 
 /** 読み込んだモデルと、それに合わせたカメラの置き方 */
@@ -73,19 +72,27 @@ export const createVrmRenderer = (glCanvas: HTMLCanvasElement): VrmRenderer => {
   key.position.set(1, 2, 3)
   scene.add(key)
 
-  // 体の向きと位置は、VRM の scene（VRM 0.x では rotateVRM0 が回している）を包む入れ物に当てる
-  const holder = new Group()
-  scene.add(holder)
 
   const camera = new PerspectiveCamera(CAMERA_FOV, 16 / 9, 0.1, 50)
   const loader = new GLTFLoader()
   loader.register((parser) => new VRMLoaderPlugin(parser))
 
   let loaded: LoadedModel | null = null
+  /** 読み込んでいる最中の URL と、その読み込み */
+  let pending: { readonly url: string; readonly done: Promise<void> } | null = null
   let size = { width: 0, height: 0, ratio: 0 }
 
-  const load: VrmRenderer['load'] = async (url) => {
-    if (loaded?.url === url) return
+  const load: VrmRenderer['load'] = (url) => {
+    if (loaded?.url === url) return Promise.resolve()
+    if (pending?.url === url) return pending.done
+    const done = loadModel(url).finally(() => {
+      if (pending?.done === done) pending = null
+    })
+    pending = { url, done }
+    return done
+  }
+
+  const loadModel = async (url: string): Promise<void> => {
     const startMark = `${LOAD_MEASURE}-start-${url}`
     performance.mark(startMark)
     const gltf = await loader.loadAsync(url)
@@ -101,10 +108,10 @@ export const createVrmRenderer = (glCanvas: HTMLCanvasElement): VrmRenderer => {
     performance.measure(LOAD_MEASURE, startMark)
 
     if (loaded !== null) {
-      holder.remove(loaded.vrm.scene)
+      scene.remove(loaded.vrm.scene)
       VRMUtils.deepDispose(loaded.vrm.scene)
     }
-    holder.add(vrm.scene)
+    scene.add(vrm.scene)
     const bounds = new Box3().setFromObject(vrm.scene)
     loaded = { url, vrm, height: bounds.getSize(new Vector3()).y, axisSign: vrm.meta.metaVersion === '0' ? -1 : 1 }
     size = { width: 0, height: 0, ratio: 0 }
@@ -125,16 +132,10 @@ export const createVrmRenderer = (glCanvas: HTMLCanvasElement): VrmRenderer => {
       camera.updateProjectionMatrix()
       size = { width, height, ratio }
     }
-    holder.visible = loaded !== null && frame !== null && frame.phase !== 'done'
-    if (loaded === null || frame === null || !holder.visible) {
+    if (loaded === null) {
       renderer.render(scene, camera)
       return
     }
-
-    const viewHeight = loaded.height / MODEL_SHARE
-    const halfWidth = (viewHeight * camera.aspect) / 2
-    holder.position.set(frame.slide * (halfWidth + OFFSCREEN_MARGIN), frame.bob, 0)
-    holder.rotation.y = frame.facing
 
     const { humanoid, expressionManager } = loaded.vrm
     for (const bone of VRM_BONES) {
@@ -147,6 +148,7 @@ export const createVrmRenderer = (glCanvas: HTMLCanvasElement): VrmRenderer => {
     humanoid.update()
     if (expressionManager !== undefined) {
       expressionManager.setValue(HAPPY_EXPRESSION, frame.happy)
+      expressionManager.setValue(BLINK_EXPRESSION, frame.blink)
       expressionManager.update()
     }
     renderer.render(scene, camera)

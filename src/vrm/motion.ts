@@ -1,17 +1,19 @@
 /**
- * VRMの演出の動き方（種と経過時間から場面を決める）
+ * VRMのマスコットの動き方（時刻と反応から場面を決める）
  *
- * 1回の演出は「画面の外から歩いて出てくる → 正面を向く → 片手を上げて何回か振る → お辞儀する → 横を向いて歩いて帰る」の順に流れる。
- * どちらから出てくるか・どちらへ帰るか・どちらの手で何回振るか・お辞儀の深さは種だけから決め（createVrmPlan）、
- * その時刻の場面（位置・向き・骨ごとの回転・表情）は流しはじめてからの経過時間だけから求める（vrmSceneAt。フレーム間の状態を持たない）。
+ * マスコットは配信中ずっと立っていて、待機の動き（呼吸・瞬き・視線のゆらぎ）を続ける（issue #359）。
+ * トリガーや試し再生の呼び出しが届くと、その場で「片手を上げて何回か振る → お辞儀する」反応を待機の動きに重ねる。
+ * どちらの手で何回振るか・お辞儀の深さは種だけから決め（createVrmPlan）、その時刻の場面（骨ごとの回転・表情）は
+ * 現在時刻と、流している反応の経過時間だけから求める（vrmSceneAt。フレーム間の状態を持たない）。
  *
  * 骨の回転は VRM の正規化された骨（three-vrm の normalized bone）に当てる値で、どの骨も初期の姿勢（T ポーズ）では回転 0 である。
  * キャラクターはカメラのほう（+Z）を向き、キャラクターの左手は +X 側にある。そのため
  * - 腕を下ろすには、右腕は Z 軸まわりに +、左腕は − に回す（ARM_REST_Z）。上げるのはその逆向き
- * - 前へ曲げる（お辞儀・脚を前へ出す）のは X 軸まわりの回転で、背中は +、脚を前へ出すのは − である
+ * - 前へ曲げる（お辞儀）のは X 軸まわりの + の回転、後ろへ反らすのは − である
+ * - 首を横へ向けるのは Y 軸まわりの回転である
  *
- * 注意: 乱数は src/core/background.ts の createRandom だけを使い、Math.random を使わない（同じ種から同じ動きを再現するため）。
- * 注意: DOM も three.js も読み込まない（描画は view.ts が受け持つ）。髪や服の揺れ（SpringBone）は経過時間だけから決められないので使わない。
+ * 注意: 乱数は src/core/background.ts の createRandom だけを使い、Math.random を使わない（同じ種・時刻から同じ姿を再現するため）。
+ * 注意: DOM も three.js も読み込まない（描画は view.ts が受け持つ）。髪や服の揺れ（SpringBone）は時刻だけから決められないので、ここでは扱わない。
  */
 import { createRandom } from '../core/background'
 
@@ -41,44 +43,39 @@ export interface BoneRotation {
   readonly z: number
 }
 
-/** 左右（キャラクターから見た向きではなく、画面の左右。手だけはキャラクター自身の左右） */
+/** 手の左右（キャラクター自身の左右） */
 export type VrmSide = 'left' | 'right'
 
-/** 種から決めた1回ぶんの動き方 */
+/** 種から決めた1回ぶんの反応の動き方 */
 export interface VrmPlan {
-  /** 画面のどちら側から歩いて出てくるか */
-  readonly enterFrom: VrmSide
-  /** 画面のどちら側へ歩いて帰るか */
-  readonly exitTo: VrmSide
   /** どちらの手で振るか（キャラクター自身の左右） */
   readonly wavingHand: VrmSide
   /** 手を振る回数（往復の数） */
   readonly waveCount: number
   /** お辞儀の深さ（1 で既定の深さ） */
   readonly bowDepth: number
-  /** 手を振りはじめる時刻（登場が終わる時刻。ミリ秒） */
-  readonly waveStartMs: number
-  /** お辞儀を始める時刻（ミリ秒） */
+  /** お辞儀を始める時刻（反応を流しはじめてから。ミリ秒） */
   readonly bowStartMs: number
-  /** 帰りはじめる時刻（ミリ秒） */
-  readonly exitStartMs: number
-  /** 演出全体の長さ（ミリ秒）。これを過ぎたら終わり */
+  /** 反応全体の長さ（ミリ秒）。これを過ぎたら待機に戻る */
   readonly totalMs: number
 }
 
-export type VrmPhase = 'enter' | 'wave' | 'bow' | 'exit' | 'done'
+/** 流している反応と、流しはじめてからの経過時間 */
+export interface VrmReaction {
+  readonly plan: VrmPlan
+  /** 流しはじめてからの経過時間（ミリ秒） */
+  readonly elapsedMs: number
+}
+
+export type VrmPhase = 'idle' | 'wave' | 'bow'
 
 /** その時刻の場面 */
 export interface VrmScene {
   readonly phase: VrmPhase
-  /** 立つ位置からのずれ。-1 で画面の左の外、0 で立つ位置、1 で画面の右の外 */
-  readonly slide: number
-  /** 体の向き（Y 軸まわりの回転。ラジアン）。0 で正面（カメラ）、+ で画面の右を向く */
-  readonly facing: number
-  /** 歩くときの上下の揺れ（3Dの単位。メートル） */
-  readonly bob: number
   /** にっこりの表情の強さ（0〜1） */
   readonly happy: number
+  /** 瞬きの表情の強さ（0〜1。1 で目を閉じている） */
+  readonly blink: number
   readonly bones: Readonly<Record<VrmBone, BoneRotation>>
 }
 
@@ -91,9 +88,6 @@ export const MAX_WAVES = 4
 const MIN_BOW_DEPTH = 0.8
 const MAX_BOW_DEPTH = 1.1
 
-/** 画面の外から立つ位置まで歩く長さと、立ち止まって正面を向く長さ（ミリ秒）。帰りは同じ長さで逆順にする */
-const WALK_MS = 1600
-const TURN_MS = 400
 /** 腕を上げる・下ろす長さと、1往復振る長さ（ミリ秒） */
 const RAISE_MS = 400
 const WAVE_CYCLE_MS = 600
@@ -104,14 +98,6 @@ const BOW_UP_MS = 600
 /** 手を下ろしてからお辞儀を始めるまでの間（ミリ秒） */
 const BOW_GAP_MS = 200
 
-/** 歩くときに進む向きへ体を回す大きさ（ラジアン）。真横（π/2）まで回すと顔が見えなくなるので、斜めにとどめる */
-const WALK_FACING = 1.1
-/** 歩くときの1歩の長さ（ミリ秒。左右の2歩で1周）と、脚・膝・腕の振れ幅（ラジアン）、上下の揺れ（メートル） */
-const STEP_MS = 400
-const LEG_SWING = 0.45
-const KNEE_BEND = 0.6
-const ARM_SWING = 0.35
-const WALK_BOB = 0.025
 /** 手を振るとき、上腕を上げきった回転と、前腕を立てる回転、前腕を左右に振る振れ幅（ラジアン。右手の向き） */
 const ARM_RAISED_Z = 0.25
 const FOREARM_UP_Z = 1.1
@@ -123,6 +109,29 @@ const BOW_SPINE = 0.45
 const BOW_CHEST = 0.2
 const BOW_NECK = 0.2
 
+/** 待機の動きの種。マスコットは1体だけなので固定にする（どの合成ページでも同じ時刻には同じ姿になる） */
+const IDLE_SEED = 359
+/** 呼吸1回の長さ（ミリ秒）と、息を吸うときに胸・背中を反らす大きさ（ラジアン）、腕が開く大きさ（ラジアン） */
+const BREATH_MS = 4200
+const BREATH_CHEST = 0.03
+const BREATH_SPINE = 0.015
+const BREATH_ARM = 0.02
+/** 瞬きの区切りの長さ（ミリ秒）。区切りごとに1回、種と区切りの番号から決めた時刻に瞬く */
+export const BLINK_SLOT_MS = 3500
+/** 瞬きで目を閉じきるまでの長さと、開ききるまでの長さ（ミリ秒） */
+const BLINK_CLOSE_MS = 60
+const BLINK_OPEN_MS = 100
+/** 視線のゆらぎ（首と頭を向ける）の、ゆっくりした波と速い波の周期（ミリ秒）と振れ幅（ラジアン） */
+const GAZE_SLOW_MS = 9100
+const GAZE_FAST_MS = 3700
+const GAZE_YAW = 0.12
+const GAZE_PITCH = 0.04
+/** 呼吸に合わせて体の重心をわずかに左右へ傾ける大きさ（ラジアン）と周期（ミリ秒） */
+const SWAY_ROLL = 0.015
+const SWAY_MS = 7300
+/** 区切りの番号を種に混ぜるときの掛け数（32ビットの黄金比。番号が隣り合っても種が離れるようにする） */
+const SLOT_MIX = 0x9e3779b9
+
 const ZERO: BoneRotation = { x: 0, y: 0, z: 0 }
 
 /** 0〜1 の進み具合を、はじめと終わりをなだらかにした進み具合にする */
@@ -131,65 +140,81 @@ const smooth = (progress: number): number => {
   return clamped * clamped * (3 - 2 * clamped)
 }
 
-/** 画面の左右を、位置のずれ・向きの符号にする（左が −、右が +） */
-const signOf = (side: VrmSide): number => (side === 'left' ? -1 : 1)
-
 /** 下限から上限までの値を、0〜1 の乱数で選ぶ */
 const between = (random: () => number, min: number, max: number): number => min + (max - min) * random()
 
+/** 周期の波（−1〜1）。位相は 0〜1 で与える */
+const wave = (timeMs: number, periodMs: number, phase: number): number => Math.sin(2 * Math.PI * (timeMs / periodMs + phase))
+
+/** 骨の回転に、別の回転を足す */
+const add = (base: BoneRotation, delta: Partial<BoneRotation>): BoneRotation => ({
+  x: base.x + (delta.x ?? 0),
+  y: base.y + (delta.y ?? 0),
+  z: base.z + (delta.z ?? 0),
+})
+
+/** 待機の動きの位相（種だけから決まる。毎コマ作り直しても同じ値になる） */
+const idlePhases = (() => {
+  const random = createRandom(IDLE_SEED)
+  return { breath: random(), gazeSlow: random(), gazeFast: random(), pitch: random(), sway: random() }
+})()
+
 /**
- * 種から1回ぶんの動き方を決める。
+ * 種から1回ぶんの反応の動き方を決める。
  *
  * @param seed 0 以上 2^32 未満の整数（Worker が押し出す呼び出しの種）
  */
 export const createVrmPlan = (seed: number): VrmPlan => {
   const random = createRandom(seed)
-  const pickSide = (): VrmSide => (random() < 0.5 ? 'left' : 'right')
-  const enterFrom = pickSide()
-  const exitTo = pickSide()
-  const wavingHand = pickSide()
+  const wavingHand: VrmSide = random() < 0.5 ? 'left' : 'right'
   const waveCount = MIN_WAVES + Math.floor(random() * (MAX_WAVES - MIN_WAVES + 1))
   const bowDepth = between(random, MIN_BOW_DEPTH, MAX_BOW_DEPTH)
 
-  const waveStartMs = WALK_MS + TURN_MS
-  const bowStartMs = waveStartMs + RAISE_MS + waveCount * WAVE_CYCLE_MS + RAISE_MS + BOW_GAP_MS
-  const exitStartMs = bowStartMs + BOW_DOWN_MS + BOW_HOLD_MS + BOW_UP_MS
-  const totalMs = exitStartMs + TURN_MS + WALK_MS
-  return { enterFrom, exitTo, wavingHand, waveCount, bowDepth, waveStartMs, bowStartMs, exitStartMs, totalMs }
+  const bowStartMs = RAISE_MS + waveCount * WAVE_CYCLE_MS + RAISE_MS + BOW_GAP_MS
+  const totalMs = bowStartMs + BOW_DOWN_MS + BOW_HOLD_MS + BOW_UP_MS
+  return { wavingHand, waveCount, bowDepth, bowStartMs, totalMs }
 }
 
-/** 腕を下ろして立った姿勢の骨の回転 */
-const standingBones = (): Record<VrmBone, BoneRotation> => {
+/**
+ * その時刻の瞬きの強さ。区切り（BLINK_SLOT_MS）ごとに1回、種と区切りの番号から決めた時刻に目を閉じて開ける。
+ * 区切りの番号から毎回求め直すので、前のコマの状態を持たない。
+ */
+const blinkAt = (timeMs: number): number => {
+  const slot = Math.floor(timeMs / BLINK_SLOT_MS)
+  const blinkMs = BLINK_CLOSE_MS + BLINK_OPEN_MS
+  // 瞬きが区切りの境目をまたがないよう、始める時刻は区切りの長さから瞬きの長さを引いた範囲で選ぶ
+  const startMs = createRandom((IDLE_SEED + Math.imul(slot, SLOT_MIX)) >>> 0)() * (BLINK_SLOT_MS - blinkMs)
+  const sinceStart = timeMs - slot * BLINK_SLOT_MS - startMs
+  if (sinceStart < 0 || sinceStart >= blinkMs) return 0
+  return sinceStart < BLINK_CLOSE_MS ? sinceStart / BLINK_CLOSE_MS : 1 - (sinceStart - BLINK_CLOSE_MS) / BLINK_OPEN_MS
+}
+
+/**
+ * 待機の姿勢（腕を下ろして立ち、呼吸と視線のゆらぎを加えた姿勢）の骨の回転。
+ *
+ * @param timeMs 現在時刻（ミリ秒）
+ */
+const idleBones = (timeMs: number): Record<VrmBone, BoneRotation> => {
   const bones = Object.fromEntries(VRM_BONES.map((bone) => [bone, ZERO])) as Record<VrmBone, BoneRotation>
-  bones.rightUpperArm = { x: 0, y: 0, z: ARM_REST_Z }
-  bones.leftUpperArm = { x: 0, y: 0, z: -ARM_REST_Z }
+  // 息を吸うと胸と背中がわずかに反り（− の回転）、腕が少し開く
+  const breath = (wave(timeMs, BREATH_MS, idlePhases.breath) + 1) / 2
+  bones.spine = { x: -BREATH_SPINE * breath, y: 0, z: 0 }
+  bones.chest = { x: -BREATH_CHEST * breath, y: 0, z: 0 }
+  bones.rightUpperArm = { x: 0, y: 0, z: ARM_REST_Z - BREATH_ARM * breath }
+  bones.leftUpperArm = { x: 0, y: 0, z: -(ARM_REST_Z - BREATH_ARM * breath) }
+  bones.hips = { x: 0, y: 0, z: SWAY_ROLL * wave(timeMs, SWAY_MS, idlePhases.sway) }
+  // 視線はゆっくりした波と速い波を重ね、首と頭に分けて向ける（首だけで向くと不自然に見えるため）
+  const yaw = GAZE_YAW * (0.7 * wave(timeMs, GAZE_SLOW_MS, idlePhases.gazeSlow) + 0.3 * wave(timeMs, GAZE_FAST_MS, idlePhases.gazeFast))
+  const pitch = GAZE_PITCH * wave(timeMs, GAZE_SLOW_MS * 0.7, idlePhases.pitch)
+  bones.neck = { x: pitch / 2, y: yaw / 3, z: 0 }
+  bones.head = { x: pitch / 2, y: (yaw * 2) / 3, z: 0 }
   return bones
 }
 
 /**
- * 歩いている姿勢にする。脚を前後に振り、膝を曲げ、腕を脚と逆に振る。
+ * 手を振る姿勢を重ねる。振る側の腕は待機の姿勢から振り上げる姿勢へ移し、首のかしげは待機の向きに足す。
  *
- * @param walkedMs 歩きはじめてからの経過時間（ミリ秒）
- * @returns 上下の揺れ（メートル）
- */
-const applyWalk = (bones: Record<VrmBone, BoneRotation>, walkedMs: number): number => {
-  const swing = Math.sin((Math.PI * walkedMs) / STEP_MS)
-  // 脚を前へ出すのは − の回転。左右は逆に振る
-  bones.leftUpperLeg = { x: -LEG_SWING * swing, y: 0, z: 0 }
-  bones.rightUpperLeg = { x: LEG_SWING * swing, y: 0, z: 0 }
-  // 膝は後ろへだけ曲がる（+ の回転）。脚を後ろへ送っている側の膝を曲げる
-  bones.leftLowerLeg = { x: KNEE_BEND * Math.max(0, swing), y: 0, z: 0 }
-  bones.rightLowerLeg = { x: KNEE_BEND * Math.max(0, -swing), y: 0, z: 0 }
-  // 腕は同じ側の脚と逆に振る
-  bones.leftUpperArm = { ...bones.leftUpperArm, x: ARM_SWING * swing }
-  bones.rightUpperArm = { ...bones.rightUpperArm, x: -ARM_SWING * swing }
-  return WALK_BOB * Math.abs(swing)
-}
-
-/**
- * 手を振る姿勢にする。
- *
- * @param waveMs 手を振る区間に入ってからの経過時間（ミリ秒）
+ * @param waveMs 反応を流しはじめてからの経過時間（ミリ秒）
  * @returns 腕の上がり具合（0〜1。表情の強さにも使う）
  */
 const applyWave = (bones: Record<VrmBone, BoneRotation>, plan: VrmPlan, waveMs: number): number => {
@@ -200,21 +225,19 @@ const applyWave = (bones: Record<VrmBone, BoneRotation>, plan: VrmPlan, waveMs: 
   const swing = wavingElapsed >= 0 && wavingElapsed <= wavingMs ? Math.sin((2 * Math.PI * wavingElapsed) / WAVE_CYCLE_MS) : 0
   // 右手の向きで計算し、左手なら Z 軸まわりの回転を反転する（体の左右で鏡写しになるため）
   const mirror = plan.wavingHand === 'right' ? 1 : -1
-  const upperZ = ARM_REST_Z + (-ARM_RAISED_Z - ARM_REST_Z) * raise
+  const upperArm = plan.wavingHand === 'right' ? 'rightUpperArm' : 'leftUpperArm'
+  const lowerArm = plan.wavingHand === 'right' ? 'rightLowerArm' : 'leftLowerArm'
+  const restZ = mirror * bones[upperArm].z
+  const upperZ = restZ + (-ARM_RAISED_Z - restZ) * raise
   const lowerZ = -FOREARM_UP_Z * raise + WAVE_SWING * swing
-  if (plan.wavingHand === 'right') {
-    bones.rightUpperArm = { x: 0, y: 0, z: upperZ }
-    bones.rightLowerArm = { x: 0, y: 0, z: lowerZ }
-  } else {
-    bones.leftUpperArm = { x: 0, y: 0, z: -upperZ }
-    bones.leftLowerArm = { x: 0, y: 0, z: -lowerZ }
-  }
-  bones.head = { x: 0, y: 0, z: mirror * HEAD_TILT * swing }
+  bones[upperArm] = { x: 0, y: 0, z: mirror * upperZ }
+  bones[lowerArm] = { x: 0, y: 0, z: mirror * lowerZ }
+  bones.head = add(bones.head, { z: mirror * HEAD_TILT * swing })
   return raise
 }
 
 /**
- * お辞儀の姿勢にする。
+ * お辞儀の姿勢を重ねる（待機の呼吸の反りに、前への曲げを足す）。
  *
  * @param bowMs お辞儀を始めてからの経過時間（ミリ秒）
  */
@@ -222,45 +245,30 @@ const applyBow = (bones: Record<VrmBone, BoneRotation>, plan: VrmPlan, bowMs: nu
   const down = smooth(bowMs / BOW_DOWN_MS)
   const up = smooth((bowMs - BOW_DOWN_MS - BOW_HOLD_MS) / BOW_UP_MS)
   const bend = (down - up) * plan.bowDepth
-  bones.spine = { x: BOW_SPINE * bend, y: 0, z: 0 }
-  bones.chest = { x: BOW_CHEST * bend, y: 0, z: 0 }
-  bones.neck = { x: BOW_NECK * bend, y: 0, z: 0 }
+  bones.spine = add(bones.spine, { x: BOW_SPINE * bend })
+  bones.chest = add(bones.chest, { x: BOW_CHEST * bend })
+  bones.neck = add(bones.neck, { x: BOW_NECK * bend })
 }
 
 /**
- * 流しはじめてからの経過時間から、その時刻の場面を求める。
+ * 現在時刻と流している反応から、その時刻の場面を求める。
  *
- * @param elapsedMs 流しはじめてからの経過時間（ミリ秒）
+ * @param timeMs 現在時刻（ミリ秒。待機の動きはこれだけから決まる）
+ * @param reaction 流している反応。流していなければ null。経過時間が反応の長さを過ぎていれば待機として扱う
  */
-export const vrmSceneAt = (plan: VrmPlan, elapsedMs: number): VrmScene => {
-  const bones = standingBones()
-  const enterSign = signOf(plan.enterFrom)
-  const exitSign = signOf(plan.exitTo)
+export const vrmSceneAt = (timeMs: number, reaction: VrmReaction | null): VrmScene => {
+  const bones = idleBones(timeMs)
+  const blink = blinkAt(timeMs)
+  if (reaction === null || reaction.elapsedMs >= reaction.plan.totalMs) return { phase: 'idle', happy: 0, blink, bones }
 
-  if (elapsedMs >= plan.totalMs) return { phase: 'done', slide: exitSign, facing: 0, bob: 0, happy: 0, bones }
-
-  if (elapsedMs < plan.waveStartMs) {
-    // 画面の外から立つ位置まで同じ速さで歩き、立ち止まったら正面へ向き直る。進む向きは出てくる側の逆
-    const walked = Math.min(elapsedMs, WALK_MS)
-    const bob = elapsedMs < WALK_MS ? applyWalk(bones, walked) : 0
-    const turned = smooth((elapsedMs - WALK_MS) / TURN_MS)
-    return { phase: 'enter', slide: enterSign * (1 - walked / WALK_MS), facing: -enterSign * WALK_FACING * (1 - turned), bob, happy: 0, bones }
-  }
-
+  const { plan, elapsedMs } = reaction
   if (elapsedMs < plan.bowStartMs) {
-    const raise = applyWave(bones, plan, elapsedMs - plan.waveStartMs)
-    return { phase: 'wave', slide: 0, facing: 0, bob: 0, happy: raise, bones }
+    const raise = applyWave(bones, plan, elapsedMs)
+    return { phase: 'wave', happy: raise, blink, bones }
   }
 
-  if (elapsedMs < plan.exitStartMs) {
-    applyBow(bones, plan, elapsedMs - plan.bowStartMs)
-    return { phase: 'bow', slide: 0, facing: 0, bob: 0, happy: 1, bones }
-  }
-
-  // 帰る向きへ体を回してから、画面の外まで歩く。向き直るあいだに表情を戻す
-  const exitMs = elapsedMs - plan.exitStartMs
-  const turned = smooth(exitMs / TURN_MS)
-  const walked = Math.max(0, exitMs - TURN_MS)
-  const bob = walked > 0 ? applyWalk(bones, walked) : 0
-  return { phase: 'exit', slide: exitSign * (walked / WALK_MS), facing: exitSign * WALK_FACING * turned, bob, happy: 1 - turned, bones }
+  applyBow(bones, plan, elapsedMs - plan.bowStartMs)
+  // にっこりはお辞儀を戻しながら消していく（待機へ戻ったときに表情が飛ばないように）
+  const happy = 1 - smooth((elapsedMs - plan.bowStartMs - BOW_DOWN_MS - BOW_HOLD_MS) / BOW_UP_MS)
+  return { phase: 'bow', happy, blink, bones }
 }

@@ -121,7 +121,7 @@ import { createLickPlan, lickSceneAt, type LickPlan } from '../lick/motion'
 import { lickSoundCuesOf } from '../lick/sound-cues'
 import { createLickSoundPlayer } from '../lick/sound-player'
 import { createLickRenderer } from '../lick/view'
-import { VRM_SOCKET_HINT, VRM_SOCKET_PATH, fetchPreviewModelUrl } from '../vrm/api'
+import { VRM_SOCKET_HINT, VRM_SOCKET_PATH, fetchMascotModelUrl, fetchPreviewModelUrl } from '../vrm/api'
 import { parseVrmCall, type VrmCall } from '../vrm/call'
 import { DEMO_VRM_INTERVAL_MS, DEMO_VRM_SEEDS } from '../vrm/demo'
 import { createVrmPlan, vrmSceneAt, type VrmPlan } from '../vrm/motion'
@@ -1897,13 +1897,15 @@ const mountLick = (box: HTMLElement, item: OverlayItem, { key, demo }: MountCont
 }
 
 /**
- * VRMの演出（issue #358）。トリガーや試し再生で、配信者が選んだ VRM のキャラクターが短いあいだだけ出てきて動く。
+ * VRMのマスコット（issue #358・#359）。配信者が選んだ VRM のキャラクターが配信中ずっと立ち、待機の動き（呼吸・瞬き・視線のゆらぎ）を続ける。
  *
- * Worker から押し出された呼び出し（種と VRM のURL）を届いた順に1件ずつ流す。VRM は流しはじめる前に読み込み（同じURLなら読み直さない）、
- * 読み込めなかった1件は流さずに失敗をこの箱に出して次へ進む。動き方は種から決め（src/vrm/motion.ts）、場面は流しはじめてからの経過時間だけから決める。
+ * マスコットの VRM は、配送先につながるたびに Worker から読む（つながっていない間に選び直されても、つなぎ直せば変わる）。
+ * Worker から押し出された呼び出し（種と VRM のURL）は届いた順に1件ずつ、その場の反応（手を振る・お辞儀）として待機の動きに重ねる。
+ * 呼び出しの VRM は反応の前に読み込み（同じURLなら読み直さない）、読み込めなかった1件は流さずに失敗をこの箱に出して次へ進む。
+ * 場面は現在時刻と、反応を流しはじめてからの経過時間だけから決める（src/vrm/motion.ts）。
  *
  * 3Dは WebGL の canvas に描く（src/vrm/view.ts）。その上の2Dの canvas は箱の大きさを測るためだけに使う。
- * プレビューでは押し出しにつながず、配信者のセッションで出す VRM の設定を1回読み、決まった種の演出をくり返す（src/vrm/api.ts）。
+ * プレビューでは押し出しにつながず、配信者のセッションで出す VRM の設定を1回読み、決まった種の反応をくり返す（src/vrm/api.ts）。
  */
 const mountVrm = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
   // この素材は配信者が決めるパラメータを持たない（出す VRM はトリガーのページで1つ選ぶ）
@@ -1916,14 +1918,26 @@ const mountVrm = (box: HTMLElement, item: OverlayItem, { key, demo }: MountConte
   box.append(glCanvas, sizeCanvas)
   const renderer = createVrmRenderer(glCanvas)
 
-  /** 流している1件。流していなければ null */
+  /** 流している反応。流していなければ null */
   let playback: { readonly plan: VrmPlan; readonly startedAt: number } | null = null
   /** 流すのを待っている呼び出し（届いた順） */
   let waiting: readonly VrmCall[] = []
   /** 次の1件の VRM を読み込んでいる最中か */
   let preparing = false
 
-  /** 流していなければ、待っている呼び出しの先頭の VRM を読み込んで流しはじめる */
+  /** マスコットの VRM のURLを読み、その VRM を読み込む。どちらかに失敗したら失敗をこの箱に出す */
+  const loadMascot = (readModelUrl: () => Promise<string>): Promise<string> => {
+    const model = readModelUrl()
+    void model
+      .then((url) => renderer.load(url))
+      .then(
+        () => clearError(box, 'read'),
+        (error: unknown) => showError(error, NOUNS.vrm, box, 'read'),
+      )
+    return model
+  }
+
+  /** 流していなければ、待っている呼び出しの先頭の VRM を読み込んで反応を流しはじめる */
   const startNext = (): void => {
     if (playback !== null || preparing) return
     const [call, ...rest] = waiting
@@ -1957,14 +1971,16 @@ const mountVrm = (box: HTMLElement, item: OverlayItem, { key, demo }: MountConte
       playback = null
       startNext()
     }
-    renderer.render(width, height, playback === null ? null : vrmSceneAt(playback.plan, now - playback.startedAt))
+    renderer.render(width, height, vrmSceneAt(now, playback === null ? null : { plan: playback.plan, elapsedMs: now - playback.startedAt }))
   })
 
   if (demo) {
-    // プレビューでは押し出しにつながず、配信者のセッションで読んだ VRM で決まった種の演出をくり返す
-    void fetchPreviewModelUrl(fetch).then(
-      (model) => startSampleCycle(DEMO_VRM_SEEDS.map((seed) => ({ id: `demo-${seed}`, seed, model })), DEMO_VRM_INTERVAL_MS, enqueue),
-      (error: unknown) => showError(error, NOUNS.vrm, box, 'read'),
+    // プレビューでは押し出しにつながず、配信者のセッションで読んだ VRM を立たせ、決まった種の反応をくり返す
+    void loadMascot(() => fetchPreviewModelUrl(fetch)).then(
+      (url) => startSampleCycle(DEMO_VRM_SEEDS.map((seed) => ({ id: `demo-${seed}`, seed, model: url })), DEMO_VRM_INTERVAL_MS, enqueue),
+      () => {
+        // 読めなかった理由は loadMascot が箱に出している。反応はマスコットが立つまで流さない
+      },
     )
     return { draw }
   }
@@ -1980,10 +1996,13 @@ const mountVrm = (box: HTMLElement, item: OverlayItem, { key, demo }: MountConte
         }
       },
       onOpen: () => {
-        // 呼び出しは押し出しでしか届かない（読み直すものを持たない）。つながっていない間の呼び出しは配送先が落とす
+        // つながるたびにマスコットの VRM を読み直す（つながっていない間に選び直されていても追いつく。同じURLなら読み込み直さない）
+        void loadMascot(() => fetchMascotModelUrl(fetch, key)).catch(() => {
+          // 読めなかった理由は loadMascot が箱に出している
+        })
       },
       onStatus: () => {
-        // 切断・再接続は出さない。流している1件はそのまま流しきる
+        // 切断・再接続は出さない。マスコットは立たせたまま、流している反応もそのまま流しきる
       },
       onWarning: (message) => showError(new Error(message), NOUNS.vrm, box, 'read'),
     },
