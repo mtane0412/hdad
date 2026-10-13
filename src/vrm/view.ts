@@ -6,7 +6,8 @@
  * 足もとが箱の下端の近くに来るようにする（キャラクターの大きさと置き場所は、配信者が素材の箱の大きさと位置で決める）。
  *
  * - 読み込んだ VRM は URL ごとに1つだけ持ち、同じ URL では読み直さない（反応のたびに数MB〜数十MBを読み直さないため）。
- *   読み込んでいる最中に同じ URL を求められたら、同じ読み込みを待つ。別の URL が届いたら、前のモデルを捨ててから読み込む
+ *   読み込んでいる最中に同じ URL を求められたら、同じ読み込みを待つ。別の URL が届いたら、前のモデルを捨ててから読み込む。
+ *   読み込みが重なったときは最後に求められたものだけを使い、それより前に求められて後から読み終えたモデルは捨てる（古いモデルで上書きしない）
  * - 骨は正規化された骨（normalized bone）に回転を当て、humanoid.update で実際の骨へ写す。vrm.update は呼ばない
  *   （髪や服の揺れ（SpringBone）が前のフレームの状態から決まり、経過時間だけから描く約束（docs/decisions/rendering.md）を崩すため）
  * - VRM 0.x のモデルは rotateVRM0 で向きをそろえるが、正規化された骨の軸は回したモデルの側に残るので、X と Z の回転を反転して当てる
@@ -72,7 +73,6 @@ export const createVrmRenderer = (glCanvas: HTMLCanvasElement): VrmRenderer => {
   key.position.set(1, 2, 3)
   scene.add(key)
 
-
   const camera = new PerspectiveCamera(CAMERA_FOV, 16 / 9, 0.1, 50)
   const loader = new GLTFLoader()
   loader.register((parser) => new VRMLoaderPlugin(parser))
@@ -80,19 +80,27 @@ export const createVrmRenderer = (glCanvas: HTMLCanvasElement): VrmRenderer => {
   let loaded: LoadedModel | null = null
   /** 読み込んでいる最中の URL と、その読み込み */
   let pending: { readonly url: string; readonly done: Promise<void> } | null = null
+  /** 読み込みを求められた回数。読み終えたとき、自分が最後に求められた読み込みかを見分けるのに使う */
+  let generation = 0
   let size = { width: 0, height: 0, ratio: 0 }
 
   const load: VrmRenderer['load'] = (url) => {
     if (loaded?.url === url) return Promise.resolve()
     if (pending?.url === url) return pending.done
-    const done = loadModel(url).finally(() => {
+    generation += 1
+    const done = loadModel(url, generation).finally(() => {
       if (pending?.done === done) pending = null
     })
     pending = { url, done }
     return done
   }
 
-  const loadModel = async (url: string): Promise<void> => {
+  /**
+   * VRM を読み込み、最後に求められた読み込みであれば描くモデルにする。
+   *
+   * @param requested この読み込みを求めたときの世代
+   */
+  const loadModel = async (url: string, requested: number): Promise<void> => {
     const startMark = `${LOAD_MEASURE}-start-${url}`
     performance.mark(startMark)
     const gltf = await loader.loadAsync(url)
@@ -107,6 +115,11 @@ export const createVrmRenderer = (glCanvas: HTMLCanvasElement): VrmRenderer => {
     })
     performance.measure(LOAD_MEASURE, startMark)
 
+    // 読み込んでいるあいだに別の URL が求められていたら、このモデルは使わずに捨てる
+    if (requested !== generation) {
+      VRMUtils.deepDispose(vrm.scene)
+      return
+    }
     if (loaded !== null) {
       scene.remove(loaded.vrm.scene)
       VRMUtils.deepDispose(loaded.vrm.scene)
