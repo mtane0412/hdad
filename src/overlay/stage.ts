@@ -126,6 +126,8 @@ import { parseVrmCall, type VrmCall } from '../vrm/call'
 import { DEMO_VRM_INTERVAL_MS, DEMO_VRM_SEEDS } from '../vrm/demo'
 import { createVrmPlan, vrmSceneAt, type VrmPlan } from '../vrm/motion'
 import { vrmParamSchema } from '../vrm/params'
+import { listenSpeechLevels } from '../speech/level-channel'
+import type { SpeechLevels } from '../speech/level'
 import { createVrmRenderer } from '../vrm/view'
 import { TWISTER_SOCKET_HINT, TWISTER_SOCKET_PATH } from '../twister/api'
 import { twisterBgmPlanOf } from '../twister/bgm'
@@ -1905,6 +1907,7 @@ const mountLick = (box: HTMLElement, item: OverlayItem, { key, demo }: MountCont
  * 呼び出しの VRM は反応の前に読み込み（同じURLなら読み直さない）、読み込めなかった1件は流さずに失敗をこの箱に出して次へ進む。
  * 場面は現在時刻と、反応を流しはじめてからの経過時間だけから決める（src/vrm/motion.ts）。髪や服の揺れ（SpringBone）だけは前のコマから決まる例外で、
  * パラメータ spring で揺らすか硬いままにするかを切り替える（OBS で見比べて決めたら消す一時的なもの。issue #359）。
+ * 口は、同じPCの読み上げ（裏方の読み上げ・ワイプ）が BroadcastChannel で配る音量の列に合わせて開け閉めする（src/speech/level-channel.ts）。
  *
  * 3Dは WebGL の canvas に描く（src/vrm/view.ts）。その上の2Dの canvas は箱の大きさを測るためだけに使う。
  * プレビューでは押し出しにつながず、配信者のセッションで出す VRM の設定を1回読み、決まった種の反応をくり返す（src/vrm/api.ts）。
@@ -1926,6 +1929,17 @@ const mountVrm = (box: HTMLElement, item: OverlayItem, { key, demo }: MountConte
   let waiting: readonly VrmCall[] = []
   /** 次の1件の VRM を読み込んでいる最中か */
   let preparing = false
+  /** 鳴っている読み上げの識別子と音量の列。鳴っていなければ null */
+  let speech: ({ readonly id: string } & SpeechLevels) | null = null
+
+  // 読み上げのページから届く知らせで、口を開け閉めする列を差し替える（プレビューでも同じPCの読み上げに合わせる）
+  listenSpeechLevels(
+    (message) => {
+      if (message.type === 'start') speech = message
+      else if (speech?.id === message.id) speech = null
+    },
+    (error) => showError(error, NOUNS.vrm, box, 'read'),
+  )
 
   /** マスコットの VRM のURLを読み、その VRM を読み込む。どちらかに失敗したら失敗をこの箱に出す */
   const loadMascot = (readModelUrl: () => Promise<string>): Promise<string> => {
@@ -1973,7 +1987,8 @@ const mountVrm = (box: HTMLElement, item: OverlayItem, { key, demo }: MountConte
       playback = null
       startNext()
     }
-    renderer.render(width, height, vrmSceneAt(now, playback === null ? null : { plan: playback.plan, elapsedMs: now - playback.startedAt }), now)
+    const reaction = playback === null ? null : { plan: playback.plan, elapsedMs: now - playback.startedAt }
+    renderer.render(width, height, vrmSceneAt(now, reaction, speech), now)
   })
 
   if (demo) {

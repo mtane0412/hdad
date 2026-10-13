@@ -9,6 +9,7 @@
  * 変わってしまうので合成の時点で指定する ＝ voicevox.ts が持つ）。
  * 作った Blob のURLは、鳴り終わっても失敗しても止められても必ず捨てる（配信中は何百回も鳴るため、溜めると漏れる）。
  * 下部バーでミュートしたときは、鳴っている途中の1件もその場で止める（issue #238。止めたら鳴り終わったのと同じく解決する）。
+ * 鳴りはじめた瞬間を知らせる（VRMのマスコットの口パクが、鳴らしはじめた時刻から口の開きを決めるため。issue #359）。
  */
 
 /**
@@ -17,9 +18,10 @@
  * @param audio VOICEVOX が返した wav
  * @param volume 音量（0〜1）
  * @param signal 途中で止める合図。止めたらその場で音を止めて解決する
+ * @param onPlaying 鳴りはじめたときに1回だけ呼ばれる
  * @throws 再生できなかった場合（ブラウザが音の自動再生を拒んだ場合を含む）
  */
-export const playSpeech = (audio: Blob, volume: number, signal: AbortSignal): Promise<void> =>
+export const playSpeech = (audio: Blob, volume: number, signal: AbortSignal, onPlaying: () => void): Promise<void> =>
   new Promise((resolve, reject) => {
     const url = URL.createObjectURL(audio)
     const player = new Audio(url)
@@ -41,6 +43,7 @@ export const playSpeech = (audio: Blob, volume: number, signal: AbortSignal): Pr
     }
     signal.addEventListener('abort', stop)
 
+    player.addEventListener('playing', onPlaying, { once: true })
     player.addEventListener('ended', () => finish())
     player.addEventListener('error', () => finish(new Error('読み上げの音声を再生できませんでした')))
     // OBSのブラウザソースでは自動再生が許されるが、普通のブラウザのタブでは操作前の再生を拒まれることがある

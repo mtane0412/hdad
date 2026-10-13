@@ -31,9 +31,10 @@ const CAMERA_FOV = 30
 const MODEL_SHARE = 0.8
 /** 足もとを箱の下端からどれだけ上に置くか（箱の高さに対する割合） */
 const FOOT_MARGIN = 0.05
-/** にっこり・瞬きの表情の名前（VRM の既定の表情。VRM 0.x の名前は three-vrm がこの名前へ読み替える） */
+/** にっこり・瞬き・口を「あ」に開ける表情の名前（VRM の既定の表情。VRM 0.x の名前は three-vrm がこの名前へ読み替える） */
 const HAPPY_EXPRESSION = 'happy'
 const BLINK_EXPRESSION = 'blink'
+const MOUTH_EXPRESSION = 'aa'
 /** 読み込みにかかった時間を残す User Timing の名前 */
 const LOAD_MEASURE = 'vrm-load'
 
@@ -176,6 +177,7 @@ export const createVrmRenderer = (glCanvas: HTMLCanvasElement, { spring }: VrmRe
     if (expressionManager !== undefined) {
       expressionManager.setValue(HAPPY_EXPRESSION, frame.happy)
       expressionManager.setValue(BLINK_EXPRESSION, frame.blink)
+      expressionManager.setValue(MOUTH_EXPRESSION, frame.mouth)
       expressionManager.update()
     }
     // 揺れ物は骨を写したあとに進める（体の動きに引っぱられて揺れるように）
