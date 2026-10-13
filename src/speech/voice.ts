@@ -171,7 +171,11 @@ export const startSpeechVoice = async ({ key, box, noun, onMute }: SpeechVoiceOp
       // 声と音量は、その1件を鳴らす時点の設定で決める（読み上げの途中で変えても次の1件から効く）
       const { speaker, speed, volume } = settings
       const audio = await voicevox.synthesize(text, { speaker, speed })
-      const levels = await measureSpeechLevels(audio)
+      // 口パクの列を作れなくても読み上げは止めない（口を閉じたまま鳴らす）。気づけるよう失敗は画面に出す
+      const levels = await measureSpeechLevels(audio).catch((error: unknown) => {
+        showError(error, noun, box)
+        return []
+      })
       // 合成と音量の測定を待つあいだに止められたら鳴らさない
       if (signal.aborted) return
       const id = crypto.randomUUID()
