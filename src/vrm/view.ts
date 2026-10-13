@@ -9,7 +9,10 @@
  *   読み込んでいる最中に同じ URL を求められたら、同じ読み込みを待つ。別の URL が届いたら、前のモデルを捨ててから読み込む。
  *   読み込みが重なったときは最後に求められたものだけを使い、それより前に求められて後から読み終えたモデルは捨てる（古いモデルで上書きしない）
  * - 骨は正規化された骨（normalized bone）に回転を当て、humanoid.update で実際の骨へ写す。vrm.update は呼ばない
- *   （髪や服の揺れ（SpringBone）が前のフレームの状態から決まり、経過時間だけから描く約束（docs/decisions/rendering.md）を崩すため）
+ * - 髪や服の揺れ（SpringBone）は、揺らす設定のときだけ humanoid.update のあとに springBoneManager.update で進める。
+ *   揺れ物は前のコマの状態から決まるので、経過時間だけから描く約束（docs/decisions/rendering.md）の例外である（issue #359）。
+ *   1コマで進める時間は spring.ts の springStepSeconds で上限を設け、コマが落ちても遅れて追いつくだけにする。
+ *   前のコマの時刻はここだけが持ち、モデルを読み替えたら持ち直す
  * - VRM 0.x のモデルは rotateVRM0 で向きをそろえるが、正規化された骨の軸は回したモデルの側に残るので、X と Z の回転を反転して当てる
  * - 読み込みにかかった時間は User Timing（performance.measure の「vrm-load」）に残す。OBS のブラウザソースの負荷を測るとき、
  *   開発者ツールの Performance で読める（issue #358 の検証）
@@ -20,6 +23,7 @@ import { AmbientLight, Box3, DirectionalLight, PerspectiveCamera, Scene, Vector3
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { VRMLoaderPlugin, VRMUtils, type VRM } from '@pixiv/three-vrm'
 import { VRM_BONES, type VrmScene } from './motion'
+import { springStepSeconds } from './spring'
 
 /** カメラの視野角（度） */
 const CAMERA_FOV = 30
@@ -44,8 +48,9 @@ export interface VrmRenderer {
    * 1コマ描く。
    *
    * @param scene その時刻の場面。モデルを読み込むまでは何も映さない
+   * @param nowMs このコマを描く時刻（ミリ秒）。揺れ物を進める時間に使う
    */
-  render(width: number, height: number, scene: VrmScene): void
+  render(width: number, height: number, scene: VrmScene, nowMs: number): void
 }
 
 /** 読み込んだモデルと、それに合わせたカメラの置き方 */
@@ -58,12 +63,18 @@ interface LoadedModel {
   readonly axisSign: number
 }
 
+/** 描画の設定 */
+export interface VrmRendererOptions {
+  /** 髪や服を揺らすか（SpringBone を使うか） */
+  readonly spring: boolean
+}
+
 /**
- * VRMの演出の描画を作る。
+ * VRMのマスコットの描画を作る。
  *
  * @throws WebGL を使えない場合（three.js の WebGLRenderer が投げる）
  */
-export const createVrmRenderer = (glCanvas: HTMLCanvasElement): VrmRenderer => {
+export const createVrmRenderer = (glCanvas: HTMLCanvasElement, { spring }: VrmRendererOptions): VrmRenderer => {
   const renderer = new WebGLRenderer({ canvas: glCanvas, alpha: true, antialias: true })
   renderer.setClearColor(0x000000, 0)
 
@@ -82,6 +93,8 @@ export const createVrmRenderer = (glCanvas: HTMLCanvasElement): VrmRenderer => {
   let pending: { readonly url: string; readonly done: Promise<void> } | null = null
   /** 読み込みを求められた回数。読み終えたとき、自分が最後に求められた読み込みかを見分けるのに使う */
   let generation = 0
+  /** 揺れ物を前に進めたコマの時刻（ミリ秒）。まだ進めていなければ null */
+  let lastSpringMs: number | null = null
   let size = { width: 0, height: 0, ratio: 0 }
 
   const load: VrmRenderer['load'] = (url) => {
@@ -128,9 +141,10 @@ export const createVrmRenderer = (glCanvas: HTMLCanvasElement): VrmRenderer => {
     const bounds = new Box3().setFromObject(vrm.scene)
     loaded = { url, vrm, height: bounds.getSize(new Vector3()).y, axisSign: vrm.meta.metaVersion === '0' ? -1 : 1 }
     size = { width: 0, height: 0, ratio: 0 }
+    lastSpringMs = null
   }
 
-  const render: VrmRenderer['render'] = (width, height, frame) => {
+  const render: VrmRenderer['render'] = (width, height, frame, nowMs) => {
     const ratio = window.devicePixelRatio
     if (loaded !== null && (size.width !== width || size.height !== height || size.ratio !== ratio)) {
       renderer.setPixelRatio(ratio)
@@ -163,6 +177,11 @@ export const createVrmRenderer = (glCanvas: HTMLCanvasElement): VrmRenderer => {
       expressionManager.setValue(HAPPY_EXPRESSION, frame.happy)
       expressionManager.setValue(BLINK_EXPRESSION, frame.blink)
       expressionManager.update()
+    }
+    // 揺れ物は骨を写したあとに進める（体の動きに引っぱられて揺れるように）
+    if (spring && loaded.vrm.springBoneManager !== undefined) {
+      loaded.vrm.springBoneManager.update(springStepSeconds(lastSpringMs, nowMs))
+      lastSpringMs = nowMs
     }
     renderer.render(scene, camera)
   }
