@@ -19,7 +19,6 @@ import type { DesignItem } from '../core/background'
 import { serializeParams } from '../core/url'
 import { ParamError, parseParams, type AnyParamValue, type ParamSchema } from '../core/params'
 import { sideSuperParamSchema } from '../side-super/params'
-import { vrmParamSchema } from '../vrm/params'
 import { textParamSchema } from '../text/params'
 import { backgrounds } from '../wallpaper/registry'
 import { roundPercent } from './drag'
@@ -210,9 +209,8 @@ export const designsFor = (kind: ItemKind): readonly DesignItem[] => DESIGNS[kin
 export const schemaFor = (kind: ItemKind, id: string): ParamSchema | undefined => {
   if (kind === 'sideSuper') return sideSuperParamSchema
   if (kind === 'text') return textParamSchema
-  if (kind === 'vrm') return vrmParamSchema
   const designs = designsFor(kind)
-  // アラート・注目コメント・手書き・再生中の曲・タブの映像は配信者が決めるパラメータを持たない（取り上げる相手も設定はWorkerが持つ）
+  // アラート・注目コメント・手書き・再生中の曲・タブの映像・VRMは配信者が決めるパラメータを持たない（取り上げる相手も設定はWorkerが持つ）
   if (designs.length === 0) return {}
   return designs.find((design) => design.id === id)?.schema
 }
