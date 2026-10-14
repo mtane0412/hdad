@@ -15,7 +15,7 @@
  * 素材の並びがそのまま重ねる順（あとのものが前）だが、レイヤーの一覧では並びを逆にして「前面 → 背面」で並べる
  * （OBSのソース一覧と同じく、上にあるものが前に出る）。オーバーレイ同士はタブの並びの中で並べ替えられる。
  * 素材の並べ替えは「前面へ」「背面へ」のボタンのほか、行の左端のつまみをドラッグして別の行へ落としても行える
- * （落とせるのは同じオーバーレイの中だけ。オーバーレイをまたぐ移動は「置くオーバーレイ」の選択欄で行う）。
+ * （落とせるのは同じオーバーレイの中だけ。素材はいま開いているオーバーレイに置き、オーバーレイをまたいでは移さない）。
  * 素材は行の目のアイコンで隠せる。保存済みの素材は保存ボタンを待たずにすぐ保存し、合成ページへ押し出す
  * （admin-api.ts の setVisibility。ほかの未保存の編集は巻き込まない）。
  * Workerの呼び出しは admin-api.ts、入力欄の値の変換とデザインのスキーマの引き当ては form.ts、
@@ -60,6 +60,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ApiError } from '../core/api'
 import { iconButtonName } from '../core/icon-button'
@@ -82,7 +83,6 @@ import {
   newItemDraft,
   newOverlayDraft,
   overlayLabelsOf,
-  overlayNameChoices,
   savableOverlayDrafts,
   schemaFor,
   textOptionsFor,
@@ -362,9 +362,6 @@ const StageEditor = ({ draft, selectedItemKey, onSelectItem, onChangeRect }: Sta
 
 interface ItemRowProps {
   draft: ItemDraft
-  /** 素材を移せる先（構成にあるオーバーレイの名前） */
-  overlayNames: readonly string[]
-  overlayName: string
   open: boolean
   /** 前面へ・背面へ動かせるか（端の素材では押せなくする） */
   canMoveFront: boolean
@@ -372,7 +369,6 @@ interface ItemRowProps {
   onToggle(): void
   onChange(draft: ItemDraft): void
   onMove(offset: number): void
-  onMoveToOverlay(name: string): void
   onRemove(): void
   /** 隠す・表示するを切り替える（保存済みの素材はすぐ配信画面へ反映する） */
   onToggleHidden(): void
@@ -435,15 +431,12 @@ const TextSelectField = ({ id, value, choices, onChange }: { id: string; value: 
  */
 const ItemRow = ({
   draft,
-  overlayNames,
-  overlayName,
   open,
   canMoveFront,
   canMoveBack,
   onToggle,
   onChange,
   onMove,
-  onMoveToOverlay,
   onRemove,
   onToggleHidden,
   busy,
@@ -559,18 +552,6 @@ const ItemRow = ({
               </div>
             )}
 
-            <div className="flex flex-col gap-2">
-              <Label htmlFor={`${id}-overlay`}>置くオーバーレイ</Label>
-              {/* 選んだオーバーレイのいちばん前へ移す（OBSでは、そのブラウザソースへ移ることになる） */}
-              <NativeSelect id={`${id}-overlay`} className="w-full" value={overlayName} onChange={(event) => onMoveToOverlay(event.currentTarget.value)}>
-                {overlayNames.map((name) => (
-                  <NativeSelectOption key={name} value={name}>
-                    {name}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-            </div>
-
             <fieldset className="grid grid-cols-2 gap-3">
               {/* 単位（％）は見出しに1度だけ出し、入力欄ごとには繰り返さない */}
               <legend className="mb-2 text-sm font-medium">オーバーレイの中での位置と大きさ（％）</legend>
@@ -622,7 +603,6 @@ interface OverlayCardProps {
   draft: OverlayDraft
   /** テキストの素材で選べるテキスト */
   textChoices: TextChoices
-  overlayNames: readonly string[]
   overlayKey: string | null
   /** 開いている素材の識別子（オーバーレイをまたいで1つだけ開く） */
   openItemKey: number | undefined
@@ -630,7 +610,6 @@ interface OverlayCardProps {
   /** 素材を選んで設定を開く（畳まない。表示領域で選んだときに使う）。undefined なら選択を外す */
   onSelectItem(key: number | undefined): void
   onChange(draft: OverlayDraft): void
-  onMoveItemToOverlay(item: ItemDraft, to: string): void
   onAskRemoveItem(item: ItemDraft): void
   onToggleItemHidden(item: ItemDraft): void
   /** 保存・表示の切り替えが進んでいるか（目のアイコンを押せなくする） */
@@ -647,13 +626,11 @@ interface OverlayCardProps {
 const OverlayCard = ({
   draft,
   textChoices,
-  overlayNames,
   overlayKey,
   openItemKey,
   onToggleItem,
   onSelectItem,
   onChange,
-  onMoveItemToOverlay,
   onAskRemoveItem,
   onToggleItemHidden,
   busy,
@@ -678,7 +655,7 @@ const OverlayCard = ({
    * いまつまんでいる素材の識別子（ItemDraft.key）。このカードの中でつまんだときだけ入る。
    *
    * カードごとに持つので、別のオーバーレイの行から運ばれてきたものは落としても受け付けない
-   * （オーバーレイをまたぐ移動は「置くオーバーレイ」の選択欄で行う）。
+   * （素材はオーバーレイをまたいでは移さない）。
    */
   const draggingKeyRef = useRef<number>(undefined)
   /** 落とし先として指されている行の識別子（目印を出すため） */
@@ -726,11 +703,30 @@ const OverlayCard = ({
     onChange({ ...draft, items: draft.items.map((current) => (current.key === key ? { ...current, rect } : current)) })
 
   return (
-    <Card role="group" aria-label={`オーバーレイ「${draft.name}」`}>
+    // Card は既定で overflow-hidden を持ち、中の sticky（表示領域の追従）を効かなくするので外す
+    <Card role="group" aria-label={`オーバーレイ「${draft.name}」`} className="overflow-visible">
+      {/* 貼る先のURLはタブのすぐ下に置き、どのブラウザソースを編集しているかを先に見せる */}
+      {/* キーが無いときの理由はページの先頭に1度だけ出す（カードごとに繰り返さない） */}
+      {url !== null && (
+        <div className="flex flex-col gap-2 px-(--card-spacing)">
+          <Label htmlFor={`${id}-url`}>OBSのブラウザソースに貼るURL</Label>
+          {/* 中の位置と大きさが割合であることは、素材ごとの入力欄（％）が示すので書かない */}
+          <p id={`${id}-size`} className="text-sm text-muted-foreground">
+            推奨の大きさ: {STAGE_SIZE.width} × {STAGE_SIZE.height} px（配信画面と同じ）
+          </p>
+          <div className="flex gap-2">
+            {/* URLにはオーバーレイ用キーが含まれる。配信画面に映り込んでも読めないよう、伏せ字で表示する */}
+            <Input id={`${id}-url`} type="password" readOnly autoComplete="off" value={url} aria-describedby={`${id}-size`} />
+            <Button type="button" size="icon" {...iconButtonName('URLをコピー')} onClick={() => onCopyUrl(url)}>
+              <Copy aria-hidden="true" />
+            </Button>
+          </div>
+        </div>
+      )}
       <CardHeader>
         <div className="flex items-start justify-between gap-2">
           <div className="flex flex-col gap-1">
-            {/* 「OBSのブラウザソース1つぶん」は、カードの下のURL欄（貼る先そのもの）が示すので文章にしない */}
+            {/* 「OBSのブラウザソース1つぶん」は、カードの先頭のURL欄（貼る先そのもの）が示すので文章にしない */}
             <CardTitle>
               オーバーレイ <code className="font-mono">{draft.name}</code>
             </CardTitle>
@@ -781,15 +777,12 @@ const OverlayCard = ({
                       // 入力欄が覚えている内容（透過にする前の色）が混ざる。そのため素材ごとの識別子を使う
                       key={item.key}
                       draft={item}
-                      overlayNames={overlayNames}
-                      overlayName={draft.name}
                       open={openItemKey === item.key}
                       canMoveBack={position > 0}
                       canMoveFront={position < draft.items.length - 1}
                       onToggle={() => onToggleItem(item.key)}
                       onChange={(next) => updateItem(position, next)}
                       onMove={(offset) => moveItem(position, offset)}
-                      onMoveToOverlay={(to) => onMoveItemToOverlay(item, to)}
                       onRemove={() => onAskRemoveItem(item)}
                       onToggleHidden={() => onToggleItemHidden(item)}
                       busy={busy}
@@ -861,25 +854,83 @@ const OverlayCard = ({
           </section>
         </div>
 
-        {/* キーが無いときの理由はページの先頭に1度だけ出す（カードごとに繰り返さない） */}
-        {url !== null && (
-          <div className="flex flex-col gap-2">
-            <Label htmlFor={`${id}-url`}>OBSのブラウザソースに貼るURL</Label>
-            {/* 中の位置と大きさが割合であることは、素材ごとの入力欄（％）が示すので書かない */}
-            <p id={`${id}-size`} className="text-sm text-muted-foreground">
-              推奨の大きさ: {STAGE_SIZE.width} × {STAGE_SIZE.height} px（配信画面と同じ）
-            </p>
-            <div className="flex gap-2">
-              {/* URLにはオーバーレイ用キーが含まれる。配信画面に映り込んでも読めないよう、伏せ字で表示する */}
-              <Input id={`${id}-url`} type="password" readOnly autoComplete="off" value={url} aria-describedby={`${id}-size`} />
-              <Button type="button" size="icon" {...iconButtonName('URLをコピー')} onClick={() => onCopyUrl(url)}>
-                <Copy aria-hidden="true" />
-              </Button>
-            </div>
-          </div>
-        )}
       </CardContent>
     </Card>
+  )
+}
+
+/**
+ * オーバーレイを追加するプラスボタン。押すと名前を打つ小さな窓を開く（タブの並びの横に置く）。
+ *
+ * 注意: 名前はOBSに貼るURLに載るので、打っているあいだにそのURLを見せ、すでにある名前なら理由を出して追加させない。
+ * 名前の書式（英小文字・数字・ハイフン）は Worker が確かめる。
+ *
+ * @param names いま構成にあるオーバーレイの名前
+ * @param onAdd 追加する名前（前後の空白を落としたもの）を受け取る
+ */
+const AddOverlayButton = ({ names, onAdd }: { names: readonly string[]; onAdd(name: string): void }) => {
+  const nameFieldId = useId()
+  const [open, setOpen] = useState(false)
+  const [newName, setNewName] = useState('')
+  /** 追加しようとしている名前（前後の空白を落としたもの）と、それがすでに使われているか */
+  const trimmedNewName = newName.trim()
+  const nameTaken = names.includes(trimmedNewName)
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next: boolean) => {
+        setOpen(next)
+        // 閉じたら書きかけは捨て、次に開いたときは空欄から打てるようにする
+        if (!next) setNewName('')
+      }}
+    >
+      <PopoverTrigger render={<Button type="button" variant="ghost" size="icon" {...iconButtonName('オーバーレイを追加する')} />}>
+        <Plus aria-hidden="true" />
+      </PopoverTrigger>
+      {/* 窓は role="dialog" になるので、開いたボタンと同じ名前を付けて目的を読み上げに伝える */}
+      <PopoverContent align="start" className="w-80" aria-label="オーバーレイを追加する">
+        {/* フォームにして、名前を打って Enter でも追加できるようにする（日本語の変換を確定する Enter ではブラウザは送信しない） */}
+        <form
+          className="flex items-center gap-2"
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (trimmedNewName === '' || nameTaken) return
+            onAdd(trimmedNewName)
+            setOpen(false)
+            setNewName('')
+          }}
+        >
+          {/* 窓を開いたボタンの名前が「オーバーレイを追加する」なので、入力欄の見出しは画面には出さず、読み上げにだけ残す */}
+          <Input
+            id={nameFieldId}
+            aria-label="追加するオーバーレイの名前"
+            aria-describedby={`${nameFieldId}-outline`}
+            value={newName}
+            placeholder="talk"
+            spellCheck={false}
+            autoCapitalize="off"
+            onChange={(event) => setNewName(event.currentTarget.value)}
+          />
+          <Button type="submit" disabled={trimmedNewName === '' || nameTaken}>
+            追加
+          </Button>
+        </form>
+        {/* どちらも1行に収め、打ち始めても行がずれないよう高さを確保しておく */}
+        <div className="min-h-5 text-sm">
+          {/* 名前がOBSに貼るURLに載ることは、文章で説明せずURLそのものを見せて分からせる。
+              ただしURLは1文字打つたびに変わるので読み上げの通知には載せない（打鍵ごとにURL全体を読み上げさせない）。
+              入力欄からは aria-describedby で指しているので、欄へ移ったときには読まれる */}
+          <p id={`${nameFieldId}-outline`} className="text-muted-foreground">
+            {!nameTaken && trimmedNewName !== '' && <code className="font-mono break-all">{overlayStageUrlOutline(window.location.origin, trimmedNewName)}</code>}
+          </p>
+          {/* 追加できない理由だけは、打っている手を止めずに伝わるよう通知に載せる（空でも置いたままにする） */}
+          <p aria-live="polite" className="text-destructive">
+            {nameTaken && 'この名前のオーバーレイはすでにあります。別の名前にしてください。'}
+          </p>
+        </div>
+      </PopoverContent>
+    </Popover>
   )
 }
 
@@ -894,7 +945,6 @@ export const OverlayPage = ({ api, overlayKey, textApi }: { api: OverlayLayoutAd
    * 表示の切り替えでは、保存済みの構成でどこにある素材かをここから引く（savedVisibilityTarget）。
    */
   const [savedDrafts, setSavedDrafts] = useState<readonly OverlayDraft[]>()
-  const [newName, setNewName] = useState('')
   /** 開いている素材の識別子。オーバーレイをまたいで1つだけ開く（一覧が長くなりすぎないようにする） */
   const [openItemKey, setOpenItemKey] = useState<number>()
   /**
@@ -910,7 +960,6 @@ export const OverlayPage = ({ api, overlayKey, textApi }: { api: OverlayLayoutAd
   /** 送ったオーバーレイと素材の名前（送った順）。Workerが返した問題点の位置を読み替えるのに使う */
   const submittedLabelsRef = useRef<readonly OverlayLabels[]>([])
   const actions = usePageActions((error) => failureLines(error, submittedLabelsRef.current))
-  const nameFieldId = useId()
 
   // 開いたときに保存済みの構成を読む
   useEffect(() => {
@@ -945,27 +994,16 @@ export const OverlayPage = ({ api, overlayKey, textApi }: { api: OverlayLayoutAd
     }
   }, [textApi])
 
-  const overlayNames = overlayNameChoices(drafts)
   const activeDraft = drafts.find((draft) => draft.name === activeOverlayName) ?? drafts[0]
   const changed = savedDrafts !== undefined && JSON.stringify(savedDrafts) !== JSON.stringify(drafts)
   useUnsavedChanges(changed)
-  /** 追加しようとしている名前（前後の空白を落としたもの）と、それがすでに使われているか */
-  const trimmedNewName = newName.trim()
-  const nameTaken = drafts.some((draft) => draft.name === trimmedNewName)
+  /** オーバーレイを追加し、そのタブを開いてそのまま素材を置けるようにする */
+  const addOverlay = (name: string): void => {
+    setDrafts([...drafts, newOverlayDraft(name)])
+    setActiveOverlayName(name)
+  }
 
   const update = (position: number, draft: OverlayDraft): void => setDrafts(drafts.map((current, index) => (index === position ? draft : current)))
-
-  /** 素材を別のオーバーレイのいちばん前へ移し、移した先のタブを開く（素材は選んだまま） */
-  const moveItemToOverlay = (item: ItemDraft, to: string): void => {
-    if (!drafts.some((draft) => draft.name === to)) return
-    setActiveOverlayName(to)
-    setDrafts(
-      drafts.map((draft) => {
-        if (draft.name === to) return { ...draft, items: [...draft.items, item] }
-        return { ...draft, items: draft.items.filter((current) => current.key !== item.key) }
-      }),
-    )
-  }
 
   const save = async (): Promise<string> => {
     // 素材を1つも持たないオーバーレイは送らない（Workerが拒む）。問題点を読み替える名前も同じ並びから作る
@@ -1018,126 +1056,80 @@ export const OverlayPage = ({ api, overlayKey, textApi }: { api: OverlayLayoutAd
         </Alert>
       )}
 
-      {drafts.length === 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>オーバーレイ</CardTitle>
-            <CardDescription>
-              OBSのブラウザソース1つぶんが「オーバーレイ」で、その中に素材を積む。アバターやゲーム画面を挟みたいところで分ける。
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground">まだオーバーレイがありません。</p>
-          </CardContent>
-        </Card>
-      ) : (
-        // オーバーレイはタブで1つずつ開く（描くのもプレビューを動かすのも、開いているものだけ）
-        <Tabs value={activeDraft?.name} onValueChange={(value: string) => setActiveOverlayName(value)} className="gap-4">
-          <TabsList aria-label="オーバーレイ">
-            {drafts.map((draft) => (
-              <TabsTrigger key={draft.key} value={draft.name} className="px-3 font-mono">
-                {draft.name}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-          {drafts.map((draft, position) => (
-            <TabsContent key={draft.key} value={draft.name}>
-              <OverlayCard
-                key={draft.key}
-                draft={draft}
-                textChoices={textChoices}
-                overlayNames={overlayNames}
-                overlayKey={overlayKey}
-                openItemKey={openItemKey}
-                onToggleItem={(key) => setOpenItemKey(openItemKey === key ? undefined : key)}
-                onSelectItem={setOpenItemKey}
-                onChange={(next) => update(position, next)}
-                onMoveItemToOverlay={moveItemToOverlay}
-                onAskRemoveItem={(item) =>
-                  actions.ask({
-                    title: `${itemLabel(item)}を外しますか？`,
-                    description: 'この素材の位置とパラメータは失われます。保存するまでは構成に反映されません。',
-                    actionLabel: '素材を外す',
-                    run: async () => {
-                      update(position, { ...draft, items: draft.items.filter((current) => current.key !== item.key) })
-                      return '素材を外しました（保存すると反映されます）'
-                    },
-                  })
-                }
-                onToggleItemHidden={toggleItemHidden}
-                busy={actions.busy}
-                onAskRemove={() =>
-                  actions.ask({
-                    title: `オーバーレイ「${draft.name}」を外しますか？`,
-                    description: '積んでいる素材もすべて外れます。OBSに貼ったこのオーバーレイのブラウザソースは何も映さなくなります。',
-                    actionLabel: 'オーバーレイを外す',
-                    run: async () => {
-                      setDrafts(drafts.filter((current) => current.key !== draft.key))
-                      return 'オーバーレイを外しました（保存すると反映されます）'
-                    },
-                  })
-                }
-                onCopyUrl={(url) => void actions.run(() => copyUrl(url))}
-                canMoveLeft={position > 0}
-                canMoveRight={position < drafts.length - 1}
-                onMove={(offset) => setDrafts(moveDraft(drafts, position, offset))}
-              />
-            </TabsContent>
-          ))}
-        </Tabs>
-      )}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>オーバーレイを追加する</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-2">
-          {/* フォームにして、名前を打って Enter でも追加できるようにする（日本語の変換を確定する Enter ではブラウザは送信しない） */}
-          <form
-            className="flex flex-wrap items-center gap-3"
-            onSubmit={(event) => {
-              event.preventDefault()
-              if (trimmedNewName === '' || nameTaken) return
-              setDrafts([...drafts, newOverlayDraft(trimmedNewName)])
-              // 追加したオーバーレイのタブを開き、そのまま素材を置けるようにする
-              setActiveOverlayName(trimmedNewName)
-              setNewName('')
-            }}
-          >
-            {/* 見出しが「オーバーレイを追加する」なので、入力欄の見出しは画面には出さず、読み上げにだけ残す */}
-            {/* 名前の書式（英小文字・数字・ハイフン）は Worker が確かめる */}
-            <Input
-              id={nameFieldId}
-              aria-label="追加するオーバーレイの名前"
-              aria-describedby={`${nameFieldId}-outline`}
-              className="w-44"
-              value={newName}
-              placeholder="talk"
-              spellCheck={false}
-              autoCapitalize="off"
-              onChange={(event) => setNewName(event.currentTarget.value)}
+      {/* オーバーレイはタブで1つずつ開く（描くのもプレビューを動かすのも、開いているものだけ）。
+          まだ1つも無いときも同じ Tabs の中に置き、プラスボタンを同じ位置に保つ
+          （最初の1つを追加して画面が切り替わっても、ボタンが作り直されずフォーカスがそこへ戻るようにする）。
+          無いときも value は null で渡し、制御されたまま保つ（undefined だと非制御になり、読み込んだあとの値を受け付けない） */}
+      <Tabs value={activeDraft?.name ?? null} onValueChange={(value: string) => setActiveOverlayName(value)} className="gap-4">
+        <div className="flex flex-wrap items-center gap-2">
+          {drafts.length > 0 && (
+            <TabsList aria-label="オーバーレイ">
+              {drafts.map((draft) => (
+                <TabsTrigger key={draft.key} value={draft.name} className="px-3 font-mono">
+                  {draft.name}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          )}
+          {/* 追加のボタンはタブの並びの外に置く（tablist の中にタブでないものを混ぜない） */}
+          <AddOverlayButton names={drafts.map((draft) => draft.name)} onAdd={addOverlay} />
+        </div>
+        {drafts.length === 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>オーバーレイ</CardTitle>
+              <CardDescription>
+                OBSのブラウザソース1つぶんが「オーバーレイ」で、その中に素材を積む。アバターやゲーム画面を挟みたいところで分ける。
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">まだオーバーレイがありません。上の＋から追加してください。</p>
+            </CardContent>
+          </Card>
+        )}
+        {drafts.map((draft, position) => (
+          <TabsContent key={draft.key} value={draft.name}>
+            <OverlayCard
+              key={draft.key}
+              draft={draft}
+              textChoices={textChoices}
+              overlayKey={overlayKey}
+              openItemKey={openItemKey}
+              onToggleItem={(key) => setOpenItemKey(openItemKey === key ? undefined : key)}
+              onSelectItem={setOpenItemKey}
+              onChange={(next) => update(position, next)}
+              onAskRemoveItem={(item) =>
+                actions.ask({
+                  title: `${itemLabel(item)}を外しますか？`,
+                  description: 'この素材の位置とパラメータは失われます。保存するまでは構成に反映されません。',
+                  actionLabel: '素材を外す',
+                  run: async () => {
+                    update(position, { ...draft, items: draft.items.filter((current) => current.key !== item.key) })
+                    return '素材を外しました（保存すると反映されます）'
+                  },
+                })
+              }
+              onToggleItemHidden={toggleItemHidden}
+              busy={actions.busy}
+              onAskRemove={() =>
+                actions.ask({
+                  title: `オーバーレイ「${draft.name}」を外しますか？`,
+                  description: '積んでいる素材もすべて外れます。OBSに貼ったこのオーバーレイのブラウザソースは何も映さなくなります。',
+                  actionLabel: 'オーバーレイを外す',
+                  run: async () => {
+                    setDrafts(drafts.filter((current) => current.key !== draft.key))
+                    return 'オーバーレイを外しました（保存すると反映されます）'
+                  },
+                })
+              }
+              onCopyUrl={(url) => void actions.run(() => copyUrl(url))}
+              canMoveLeft={position > 0}
+              canMoveRight={position < drafts.length - 1}
+              onMove={(offset) => setDrafts(moveDraft(drafts, position, offset))}
             />
-            <Button type="submit" size="icon" {...iconButtonName('オーバーレイを追加する')} disabled={trimmedNewName === '' || nameTaken}>
-              <Plus aria-hidden="true" />
-            </Button>
-          </form>
-          {/* どちらも1行に収め、打ち始めても行がずれないよう高さを確保しておく */}
-          <div className="min-h-5 text-sm">
-            {/* 名前がOBSに貼るURLに載ることは、文章で説明せずURLそのものを見せて分からせる。
-                ただしURLは1文字打つたびに変わるので読み上げの通知には載せない（打鍵ごとにURL全体を読み上げさせない）。
-                入力欄からは aria-describedby で指しているので、欄へ移ったときには読まれる */}
-            <p id={`${nameFieldId}-outline`} className="text-muted-foreground">
-              {!nameTaken && trimmedNewName !== '' && (
-                <code className="font-mono break-all">{overlayStageUrlOutline(window.location.origin, trimmedNewName)}</code>
-              )}
-            </p>
-            {/* 追加できない理由だけは、打っている手を止めずに伝わるよう通知に載せる（空でも置いたままにする） */}
-            <p aria-live="polite" className="text-destructive">
-              {nameTaken && 'この名前のオーバーレイはすでにあります。別の名前にしてください。'}
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+          </TabsContent>
+        ))}
+      </Tabs>
 
       {/* 一覧が長いので、保存は貼り付けて常に押せるようにする（/triggers/ と同じ扱い） */}
       <div className="sticky bottom-0 flex items-center gap-3 border-t bg-background py-3">

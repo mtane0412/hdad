@@ -22,14 +22,6 @@ export const ITEM_KINDS = ['wallpaper', 'clock', 'chat', 'alerts', 'sideSuper', 
 export type ItemKind = (typeof ITEM_KINDS)[number]
 
 /**
- * 既定で用意するオーバーレイの名前。worker/overlay-layout.ts の DEFAULT_OVERLAY_NAMES と合わせる。
- *
- * 背面（ゲーム画面・アバターより後ろ）と前面（アバターより前）の2つで、配信者が増やせる。
- * 管理画面（src/overlay/form.ts の overlayNameChoices）が名前の選択肢の出発点に使う。
- */
-export const DEFAULT_OVERLAY_NAMES = ['back', 'front'] as const
-
-/**
  * オーバーレイ（＝OBSのブラウザソース1つ）に設定する推奨の大きさ（px）。
  *
  * 配信画面と同じ大きさにして、中の素材は割合（％）で置く。素材の推奨の大きさを割合へ直すときの

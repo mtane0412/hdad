@@ -14,7 +14,6 @@ import {
   moveDraft,
   newItemDraft,
   newOverlayDraft,
-  overlayNameChoices,
   savableOverlayDrafts,
   schemaFor,
   textOptionsFor,
@@ -267,14 +266,6 @@ describe('itemLabel', () => {
 
   it('デザインを持たない種類は、種類の名前だけを出す', () => {
     expect(itemLabel(newItemDraft('alerts', ''))).toBe('アラート')
-  })
-})
-
-describe('overlayNameChoices', () => {
-  it('既定の名前（back・front）と、使われている名前を重複なく並べる', () => {
-    const drafts = [newOverlayDraft('back'), newOverlayDraft('game')]
-
-    expect(overlayNameChoices(drafts)).toEqual(['back', 'front', 'game'])
   })
 })
 
