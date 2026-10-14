@@ -10,7 +10,8 @@
  * 2. 親（管理画面）がそれを受けて、いまの編集中の構成を渡す（previewLayoutMessage）
  *
  * 待つ側から先に知らせるのは、iframe の読み込みが終わる時期を親からは決められないためである。
- * 編集が進んだときは親が iframe を作り直すので、この受け渡しは開くたびに1回で済む。
+ * 3. 編集が進んだら、親は知らせてきた相手へ同じ知らせ（previewLayoutMessage）を送り直す。プレビューは
+ *    位置と大きさだけの変化なら箱を動かし、それ以外なら読み込み直して 1. からやり直す（layout.ts の rectsOnlyChanged）
  *
  * 注意: 同じ窓には他の知らせ（開発サーバーの再読み込みなど）も届くので、自分たちの知らせでなければ
  * 読まずに undefined を返す。いっぽう自分たちの知らせなのに形が違えばエラーにする（Fail-Fast。
@@ -47,7 +48,7 @@ export const previewLayoutMessage = (overlays: readonly Overlay[]): { type: stri
 })
 
 /** 構成を渡す相手（プレビューの窓）。送る口だけを見る */
-interface PreviewTarget {
+export interface PreviewTarget {
   postMessage(message: unknown, targetOrigin: string): void
 }
 
@@ -73,18 +74,18 @@ const senderOf = (source: unknown): PreviewTarget | undefined => {
  * @param event 届いた知らせ（window の message から受け取ったもの）
  * @param origin このサイトの起点（window.location.origin）
  * @param overlays いま編集中の構成（プレビューに映すオーバーレイ）
- * @returns 渡したか
+ * @returns 渡した相手（そのあとの編集も同じ相手へ渡し続ける）。渡さなかったときは undefined
  */
 export const replyPreviewLayout = (
   { data, origin: from, source }: { data: unknown; origin: string; source: unknown },
   origin: string,
   overlays: readonly Overlay[],
-): boolean => {
-  if (from !== origin || typeOf(data) !== READY) return false
+): PreviewTarget | undefined => {
+  if (from !== origin || typeOf(data) !== READY) return undefined
   const sender = senderOf(source)
-  if (sender === undefined) return false
+  if (sender === undefined) return undefined
   sender.postMessage(previewLayoutMessage(overlays), origin)
-  return true
+  return sender
 }
 
 /**

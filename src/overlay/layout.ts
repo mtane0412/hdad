@@ -146,6 +146,21 @@ export const shownItems = (items: readonly OverlayItem[]): readonly OverlayItem[
 export const overlayChanged = (before: readonly Overlay[], after: readonly Overlay[], name: string): boolean =>
   JSON.stringify(itemsInOverlay(before, name)) !== JSON.stringify(itemsInOverlay(after, name))
 
+/**
+ * 自分のオーバーレイの変化が、素材の位置と大きさだけかを見分ける。
+ *
+ * 管理画面のプレビュー（?demo=true）は、位置と大きさだけの変化なら素材の箱を動かすだけにし、
+ * それ以外（素材の数・並び・デザイン・パラメータ・隠す）なら読み込み直す。ドラッグのたびに素材を
+ * 起動し直すと、動かしているあいだ中身が映らないためである（箱の大きさの変化には素材の側が追従する）。
+ *
+ * @returns 素材の数と並びが同じで、位置と大きさを除いて同じなら真（何も変わっていなくても真）
+ */
+export const rectsOnlyChanged = (before: readonly Overlay[], after: readonly Overlay[], name: string): boolean => {
+  const withoutRects = (overlays: readonly Overlay[]): string =>
+    JSON.stringify(itemsInOverlay(overlays, name).map((item) => ({ ...item, rect: null })))
+  return withoutRects(before) === withoutRects(after)
+}
+
 /** 位置と大きさを、箱に当てるCSSの値（％）にする */
 export const rectStyle = ({ x, y, width, height }: ItemRect): RectStyle => ({
   left: `${x}%`,
