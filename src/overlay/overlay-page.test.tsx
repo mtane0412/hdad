@@ -322,14 +322,15 @@ describe('オーバーレイのタブ', () => {
     expect(within(region).queryByLabelText('置くオーバーレイ')).not.toBeInTheDocument()
   })
 
-  test('OBSのブラウザソースに貼るURLは、タブのすぐ下（レイヤーと表示領域より上）に出す', async () => {
+  test('OBSのブラウザソースに貼るURLは、タブのすぐ下（カードの見出しと操作のボタンより上）に出す', async () => {
     renderPage(fakeApi())
 
     const region = await overlayRegion('front')
     const url = within(region).getByLabelText('OBSのブラウザソースに貼るURL')
-    const layers = within(region).getByRole('region', { name: 'レイヤー' })
+    // カードの見出しと操作のボタンより前（＝カードの先頭）に出す
+    const moveLeft = within(region).getByRole('button', { name: 'オーバーレイ「front」をひとつ左へ' })
 
-    expect(url.compareDocumentPosition(layers) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(url.compareDocumentPosition(moveLeft) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })
 

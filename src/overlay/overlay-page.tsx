@@ -705,10 +705,28 @@ const OverlayCard = ({
   return (
     // Card は既定で overflow-hidden を持ち、中の sticky（表示領域の追従）を効かなくするので外す
     <Card role="group" aria-label={`オーバーレイ「${draft.name}」`} className="overflow-visible">
+      {/* 貼る先のURLはタブのすぐ下に置き、どのブラウザソースを編集しているかを先に見せる */}
+      {/* キーが無いときの理由はページの先頭に1度だけ出す（カードごとに繰り返さない） */}
+      {url !== null && (
+        <div className="flex flex-col gap-2 px-(--card-spacing)">
+          <Label htmlFor={`${id}-url`}>OBSのブラウザソースに貼るURL</Label>
+          {/* 中の位置と大きさが割合であることは、素材ごとの入力欄（％）が示すので書かない */}
+          <p id={`${id}-size`} className="text-sm text-muted-foreground">
+            推奨の大きさ: {STAGE_SIZE.width} × {STAGE_SIZE.height} px（配信画面と同じ）
+          </p>
+          <div className="flex gap-2">
+            {/* URLにはオーバーレイ用キーが含まれる。配信画面に映り込んでも読めないよう、伏せ字で表示する */}
+            <Input id={`${id}-url`} type="password" readOnly autoComplete="off" value={url} aria-describedby={`${id}-size`} />
+            <Button type="button" size="icon" {...iconButtonName('URLをコピー')} onClick={() => onCopyUrl(url)}>
+              <Copy aria-hidden="true" />
+            </Button>
+          </div>
+        </div>
+      )}
       <CardHeader>
         <div className="flex items-start justify-between gap-2">
           <div className="flex flex-col gap-1">
-            {/* 「OBSのブラウザソース1つぶん」は、タブのすぐ下のURL欄（貼る先そのもの）が示すので文章にしない */}
+            {/* 「OBSのブラウザソース1つぶん」は、カードの先頭のURL欄（貼る先そのもの）が示すので文章にしない */}
             <CardTitle>
               オーバーレイ <code className="font-mono">{draft.name}</code>
             </CardTitle>
@@ -743,24 +761,6 @@ const OverlayCard = ({
       </CardHeader>
       <CardContent className="flex flex-col gap-6">
         {/* 左にレイヤーの一覧（選んだ素材の設定もここで開く）、右に表示領域。表示領域は追従させ、設定を下へたどっても見えたままにする */}
-        {/* 貼る先のURLはタブのすぐ下に置き、どのブラウザソースを編集しているかを先に見せる */}
-        {/* キーが無いときの理由はページの先頭に1度だけ出す（カードごとに繰り返さない） */}
-        {url !== null && (
-          <div className="flex flex-col gap-2">
-            <Label htmlFor={`${id}-url`}>OBSのブラウザソースに貼るURL</Label>
-            {/* 中の位置と大きさが割合であることは、素材ごとの入力欄（％）が示すので書かない */}
-            <p id={`${id}-size`} className="text-sm text-muted-foreground">
-              推奨の大きさ: {STAGE_SIZE.width} × {STAGE_SIZE.height} px（配信画面と同じ）
-            </p>
-            <div className="flex gap-2">
-              {/* URLにはオーバーレイ用キーが含まれる。配信画面に映り込んでも読めないよう、伏せ字で表示する */}
-              <Input id={`${id}-url`} type="password" readOnly autoComplete="off" value={url} aria-describedby={`${id}-size`} />
-              <Button type="button" size="icon" {...iconButtonName('URLをコピー')} onClick={() => onCopyUrl(url)}>
-                <Copy aria-hidden="true" />
-              </Button>
-            </div>
-          </div>
-        )}
         <div className="grid gap-6 lg:grid-cols-[minmax(20rem,26rem)_minmax(0,1fr)]">
           <section aria-label="レイヤー" className="flex min-w-0 flex-col gap-3">
             <h3 className="text-sm font-medium">レイヤー</h3>
