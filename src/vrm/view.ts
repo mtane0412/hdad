@@ -9,7 +9,7 @@
  *   読み込んでいる最中に同じ URL を求められたら、同じ読み込みを待つ。別の URL が届いたら、前のモデルを捨ててから読み込む。
  *   読み込みが重なったときは最後に求められたものだけを使い、それより前に求められて後から読み終えたモデルは捨てる（古いモデルで上書きしない）
  * - 骨は正規化された骨（normalized bone）に回転を当て、humanoid.update で実際の骨へ写す。vrm.update は呼ばない
- * - 髪や服の揺れ（SpringBone）は、揺らす設定のときだけ humanoid.update のあとに springBoneManager.update で進める。
+ * - 髪や服の揺れ（SpringBone）は、humanoid.update のあとに springBoneManager.update で進める。
  *   揺れ物は前のコマの状態から決まるので、経過時間だけから描く約束（docs/decisions/rendering.md）の例外である（issue #359）。
  *   1コマで進める時間は spring.ts の springStepSeconds で上限を設け、コマが落ちても遅れて追いつくだけにする。
  *   前のコマの時刻はここだけが持ち、モデルを読み替えたら持ち直す
@@ -64,18 +64,12 @@ interface LoadedModel {
   readonly axisSign: number
 }
 
-/** 描画の設定 */
-export interface VrmRendererOptions {
-  /** 髪や服を揺らすか（SpringBone を使うか） */
-  readonly spring: boolean
-}
-
 /**
  * VRMのマスコットの描画を作る。
  *
  * @throws WebGL を使えない場合（three.js の WebGLRenderer が投げる）
  */
-export const createVrmRenderer = (glCanvas: HTMLCanvasElement, { spring }: VrmRendererOptions): VrmRenderer => {
+export const createVrmRenderer = (glCanvas: HTMLCanvasElement): VrmRenderer => {
   const renderer = new WebGLRenderer({ canvas: glCanvas, alpha: true, antialias: true })
   renderer.setClearColor(0x000000, 0)
 
@@ -181,7 +175,7 @@ export const createVrmRenderer = (glCanvas: HTMLCanvasElement, { spring }: VrmRe
       expressionManager.update()
     }
     // 揺れ物は骨を写したあとに進める（体の動きに引っぱられて揺れるように）
-    if (spring && loaded.vrm.springBoneManager !== undefined) {
+    if (loaded.vrm.springBoneManager !== undefined) {
       loaded.vrm.springBoneManager.update(springStepSeconds(lastSpringMs, nowMs))
       lastSpringMs = nowMs
     }

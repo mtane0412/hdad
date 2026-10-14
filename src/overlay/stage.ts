@@ -125,7 +125,6 @@ import { VRM_SOCKET_HINT, VRM_SOCKET_PATH, fetchMascotModelUrl, fetchPreviewMode
 import { isSkippableWhenBusy, parseVrmCall, type VrmCall } from '../vrm/call'
 import { DEMO_VRM_CALLS, DEMO_VRM_INTERVAL_MS } from '../vrm/demo'
 import { createVrmPlan, vrmSceneAt, type VrmPlan } from '../vrm/motion'
-import { vrmParamSchema } from '../vrm/params'
 import { listenSpeechLevels } from '../speech/level-channel'
 import type { SpeechLevels } from '../speech/level'
 import { createVrmRenderer } from '../vrm/view'
@@ -1906,23 +1905,22 @@ const mountLick = (box: HTMLElement, item: OverlayItem, { key, demo }: MountCont
  * Worker から押し出された呼び出し（種と反応の種類と VRM のURL）は届いた順に1件ずつ、その場の反応（お礼・大喜び・手を振る・うなずく）として
  * 待機の動きに重ねる。反応の最中に届いたうなずきは捨てる（src/vrm/call.ts の isSkippableWhenBusy）。
  * 呼び出しの VRM は反応の前に読み込み（同じURLなら読み直さない）、読み込めなかった1件は流さずに失敗をこの箱に出して次へ進む。
- * 場面は現在時刻と、反応を流しはじめてからの経過時間だけから決める（src/vrm/motion.ts）。髪や服の揺れ（SpringBone）だけは前のコマから決まる例外で、
- * パラメータ spring で揺らすか硬いままにするかを切り替える（OBS で見比べて決めたら消す一時的なもの。issue #359）。
+ * 場面は現在時刻と、反応を流しはじめてからの経過時間だけから決める（src/vrm/motion.ts）。髪や服の揺れ（SpringBone）だけは前のコマから決まる例外である。
  * 口は、同じPCの読み上げ（裏方の読み上げ・ワイプ）が BroadcastChannel で配る音量の列に合わせて開け閉めする（src/speech/level-channel.ts）。
  *
  * 3Dは WebGL の canvas に描く（src/vrm/view.ts）。その上の2Dの canvas は箱の大きさを測るためだけに使う。
  * プレビューでは押し出しにつながず、配信者のセッションで出す VRM の設定を1回読み、決まった種の反応をくり返す（src/vrm/api.ts）。
  */
 const mountVrm = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
-  // 出す VRM はトリガーのページで1つ選ぶ。箱ごとに決めるのは、揺らすか硬いままにするかの一時的な切り替えだけ
-  const params = parseParams(vrmParamSchema, new URLSearchParams(item.params))
+  // この素材は配信者が決めるパラメータを持たない（出す VRM はトリガーのページで1つ選ぶ。空でないクエリは誤りとして知らせる）
+  parseParams({}, new URLSearchParams(item.params))
 
   const glCanvas = document.createElement('canvas')
   glCanvas.dataset.vrm = 'stage'
   const sizeCanvas = document.createElement('canvas')
   sizeCanvas.dataset.vrm = 'size'
   box.append(glCanvas, sizeCanvas)
-  const renderer = createVrmRenderer(glCanvas, { spring: params.spring })
+  const renderer = createVrmRenderer(glCanvas)
 
   /** 流している反応。流していなければ null */
   let playback: { readonly plan: VrmPlan; readonly startedAt: number } | null = null
