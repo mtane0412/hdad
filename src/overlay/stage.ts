@@ -2686,6 +2686,11 @@ const start = async (): Promise<void> => {
   // 構成の受け取りは起動の一部。ここで失敗したらこのオーバーレイには何も描けないので、ページ全体に出す。
   // プレビュー（?demo=true）では編集中の構成を親の窓から受け取り、ふだんは Worker から読む
   const all = params.demo ? await receivePreviewLayout() : await createOverlayLayoutApi(callWorker, params.key).read()
+  /** 起動した素材の箱（並びの順）。プレビューで位置と大きさだけが変わったときに動かす */
+  const boxes: HTMLElement[] = []
+  // プレビューは管理画面が送り直してくる編集中の構成に合わせる。起動に失敗しても（素材が0件など）、
+  // 直した構成が届けば読み込み直して立ち直れるよう、起動より先に待ち受ける
+  if (params.demo) watchPreviewLayout(params.overlay, all, boxes)
   const items = itemsInOverlay(all, params.overlay)
   if (items.length === 0) {
     const overlayNames = overlayNamesOf(all)
@@ -2700,8 +2705,6 @@ const start = async (): Promise<void> => {
   const tasks: PollTask[] = []
   /** チャットの受け取りを使う素材の箱。つなげなかったときに、そこへ失敗を出す */
   const chatBoxes: HTMLElement[] = []
-  /** 起動した素材の箱（並びの順）。プレビューで位置と大きさだけが変わったときに動かす */
-  const boxes: HTMLElement[] = []
 
   // 箱は構成の並びの順に置く（あとのものが前に重なる）。隠した素材は起動しない（音や読み上げを裏で動かさないため）
   for (const item of shownItems(items)) {
@@ -2726,9 +2729,8 @@ const start = async (): Promise<void> => {
 
   startDrawLoop(drawing)
   startPolling(tasks)
-  // プレビューは配信画面への切り替えを待たず、管理画面が送り直してくる編集中の構成に合わせる
-  if (params.demo) watchPreviewLayout(params.overlay, all, boxes)
-  else watchLayout(params.key, params.overlay, all)
+  // プレビューは配信画面への切り替えを待たない（編集中の構成は上で待ち受けている）
+  if (!params.demo) watchLayout(params.key, params.overlay, all)
 
   if (chatBoxes.length > 0) {
     await hub.start().catch((error: unknown) => {
