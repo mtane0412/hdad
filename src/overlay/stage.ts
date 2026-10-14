@@ -22,6 +22,8 @@
  * つながない。編集中の構成をそのまま映せるようにするためで、保存はその時点で配信画面へ反映されるため
  * 「保存してから確かめる」ではプレビューの意味が無くなる。つながないので、配信中のオーバーレイに加えて
  * 匿名IRC・アラートのWebSocket・ポーリングがもう1組動くこともない。
+ * 編集が進むと親が構成を送り直してくる。位置と大きさだけの変化なら箱を動かすだけにし（ドラッグのあいだも
+ * 中身を映し続けるため）、それ以外の変化なら読み込み直す（watchPreviewLayout）。
  *
  * 注意: 1つの素材の失敗で、同じオーバーレイのほかの素材は動かし続ける（issue #101 で決めた、Fail-Fast に
  * 意識して設けた例外）。理由は「配信中に片方が壊れたときの被害を、配信画面の全損から1素材の欠落に
@@ -147,7 +149,7 @@ import { demoWorkLogScenes } from '../work-log/demo'
 import { WORK_LOG_LIMIT, mergeEntries, parseWorkLogEntry, type WorkLogEntry } from '../work-log/entry'
 import { createWorkLogView } from '../work-log/view'
 import { OVERLAY_LAYOUT_SOCKET_HINT, OVERLAY_LAYOUT_SOCKET_PATH, createOverlayLayoutApi, readOverlays } from './api'
-import { itemsInOverlay, overlayChanged, overlayNamesOf, rectStyle, shownItems, type ItemKind, type Overlay, type OverlayItem } from './layout'
+import { itemsInOverlay, overlayChanged, overlayNamesOf, rectsOnlyChanged, rectStyle, shownItems, type ItemKind, type Overlay, type OverlayItem } from './layout'
 import { dueTasks, pollTickMs, type PollInterval } from './poll'
 import { previewReadyMessage, readPreviewLayout } from './preview'
 
@@ -219,6 +221,8 @@ const DEMO_SAMPLE_INTERVAL_MS = 6000
 const DEMO_CAPTION_INTERVAL_MS = 1200
 /** プレビューが親の窓から構成を受け取るまで待つ上限（ミリ秒）。届かなければ理由を画面に出す */
 const PREVIEW_WAIT_MS = 5000
+/** プレビューで、位置と大きさ以外が変わってから読み込み直すまで待つ時間（ミリ秒）。打っている途中で何度も起動し直さない */
+const PREVIEW_RELOAD_DELAY_MS = 150
 
 const schema = {
   key: {
@@ -2563,6 +2567,44 @@ const receivePreviewLayout = async (): Promise<readonly Overlay[]> =>
   })
 
 /**
+ * プレビュー（?demo=true）で、親の窓が送り直してくる編集中の構成に合わせる。
+ *
+ * 位置と大きさだけの変化なら、素材の箱を動かすだけにする（素材は箱の大きさの変化に追従する。
+ * src/core/mount.ts）。ドラッグのたびに起動し直すと、動かしているあいだ中身が映らないためである。
+ * それ以外の変化（素材の数・並び・デザイン・パラメータ・隠す）は読み込み直して起動し直す
+ * （素材ごとに止める仕掛けを持たないため。読み込み直すと親から最新の構成を受け取り直す）。
+ * 打っている途中で何度も読み込み直さないよう、読み込み直しは少し待ってからにする。
+ *
+ * @param started 起動したときに受け取った構成
+ * @param boxes 起動した素材の箱（隠していない素材の並びの順）
+ */
+const watchPreviewLayout = (overlayName: string, started: readonly Overlay[], boxes: readonly HTMLElement[]): void => {
+  let current = started
+  let reloadTimer: number | undefined
+  window.addEventListener('message', (event: MessageEvent) => {
+    // 構成にはこの配信の素材の並びが入るので、同じサイトの窓からの知らせだけを読む
+    if (event.origin !== location.origin) return
+    try {
+      const next = readPreviewLayout(event.data)
+      if (next === undefined || !overlayChanged(current, next, overlayName)) return
+      if (!rectsOnlyChanged(current, next, overlayName)) {
+        window.clearTimeout(reloadTimer)
+        reloadTimer = window.setTimeout(() => location.reload(), PREVIEW_RELOAD_DELAY_MS)
+        return
+      }
+      // 位置と大きさだけの変化なので、隠していない素材の並びと箱の並びは同じである
+      shownItems(itemsInOverlay(next, overlayName)).forEach((item, index) => {
+        const box = boxes[index]
+        if (box) Object.assign(box.style, rectStyle(item.rect))
+      })
+      current = next
+    } catch (error) {
+      showError(error, NOUN)
+    }
+  })
+}
+
+/**
  * オーバーレイで1本の描画ループを回す。
  *
  * 描画中に投げた素材は、その箱に失敗を出して一覧から外す（毎フレーム同じ失敗を出さないため）。
@@ -2644,6 +2686,11 @@ const start = async (): Promise<void> => {
   // 構成の受け取りは起動の一部。ここで失敗したらこのオーバーレイには何も描けないので、ページ全体に出す。
   // プレビュー（?demo=true）では編集中の構成を親の窓から受け取り、ふだんは Worker から読む
   const all = params.demo ? await receivePreviewLayout() : await createOverlayLayoutApi(callWorker, params.key).read()
+  /** 起動した素材の箱（並びの順）。プレビューで位置と大きさだけが変わったときに動かす */
+  const boxes: HTMLElement[] = []
+  // プレビューは管理画面が送り直してくる編集中の構成に合わせる。起動に失敗しても（素材が0件など）、
+  // 直した構成が届けば読み込み直して立ち直れるよう、起動より先に待ち受ける
+  if (params.demo) watchPreviewLayout(params.overlay, all, boxes)
   const items = itemsInOverlay(all, params.overlay)
   if (items.length === 0) {
     const overlayNames = overlayNamesOf(all)
@@ -2666,6 +2713,7 @@ const start = async (): Promise<void> => {
     box.dataset.item = item.kind
     Object.assign(box.style, rectStyle(item.rect))
     root.append(box)
+    boxes.push(box)
 
     const noun = NOUNS[item.kind]
     try {
@@ -2681,7 +2729,7 @@ const start = async (): Promise<void> => {
 
   startDrawLoop(drawing)
   startPolling(tasks)
-  // プレビューは編集中の構成を映すだけなので、配信画面への切り替えは待たない
+  // プレビューは配信画面への切り替えを待たない（編集中の構成は上で待ち受けている）
   if (!params.demo) watchLayout(params.key, params.overlay, all)
 
   if (chatBoxes.length > 0) {

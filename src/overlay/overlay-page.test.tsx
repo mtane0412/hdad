@@ -5,8 +5,11 @@
  * 確かめること:
  * - 保存済みのオーバーレイと、その中の素材を前に出るものから出すこと（一覧の上が前）
  * - 素材を追加する・外す・並べ替える（ボタンとドラッグ&ドロップ）・別のオーバーレイへ移す・位置と大きさを直せること
- * - 配置用の枠に素材を四角として描き、ドラッグで動かす・端をつまんで大きさを変えられること
- * - オーバーレイ同士を一覧の中で並べ替えられること
+ * - オーバーレイはタブで1つずつ開き、左にレイヤーの一覧、右に表示領域（プレビューの上で選ぶ・動かす）を並べること
+ * - 表示領域では、選んだ素材だけにつまみを出し、ドラッグで動かす・端をつまんで大きさを変えられること（矢印キーでも動かせること）
+ * - レイヤーで選んだ素材は表示領域でも選ばれ、表示領域で選んだ素材はレイヤーの設定が開くこと
+ * - 位置と大きさだけの編集は、プレビューを作り直さずに送り直すこと
+ * - オーバーレイ同士をタブの並びの中で並べ替えられること
  * - 目のアイコンで素材を隠す・表示すること（保存済みの素材はすぐ反映し、ほかの未保存の編集は巻き込まない）
  * - 素材のパラメータをスキーマの入力欄で調整でき、保存ではクエリ文字列になること
  * - オーバーレイを追加できること・オーバーレイごとのOBS用URLを出すこと
@@ -61,8 +64,11 @@ const fakeTextApi = (list: TextApi['list'] = async () => [goalText, doingText]):
 const renderPage = (api: OverlayLayoutAdminApi, overlayKey: string | null = ISSUED_OVERLAY_KEY, textApi: TextApi = fakeTextApi()) =>
   render(<OverlayPage api={api} overlayKey={overlayKey} textApi={textApi} />)
 
-/** オーバーレイ1つの領域（OBSのブラウザソース1つぶん） */
-const overlayRegion = (name: string): Promise<HTMLElement> => screen.findByRole('group', { name: `オーバーレイ「${name}」` })
+/** オーバーレイ1つの領域（OBSのブラウザソース1つぶん）。オーバーレイはタブで1つずつ開くので、そのタブを開いてから探す */
+const overlayRegion = async (name: string): Promise<HTMLElement> => {
+  await userEvent.click(await screen.findByRole('tab', { name }))
+  return screen.findByRole('group', { name: `オーバーレイ「${name}」` })
+}
 
 /** 素材1件の領域。呼び名（種類とデザイン名）で探す */
 const materialRegion = async (overlayName: string, label: string): Promise<HTMLElement> =>
@@ -90,7 +96,30 @@ class FakeDataTransfer {
   setDragImage(): void {}
 }
 
-afterEach(cleanup)
+/** プレビューの縮小に使う ResizeObserver は jsdom に無いので、何も観測しない代役を置く */
+class FakeResizeObserver {
+  observe(): void {
+    // 縮小の倍率は見た目だけの話なので、テストでは観測しない
+  }
+  unobserve(): void {
+    // 同上
+  }
+  disconnect(): void {
+    // 同上
+  }
+}
+
+beforeEach(() => {
+  vi.stubGlobal('ResizeObserver', FakeResizeObserver)
+  // jsdom はポインタの捕まえ（pointer capture）を持たないので、呼ばれたことだけを覚える代役を置く
+  HTMLElement.prototype.setPointerCapture = vi.fn()
+  HTMLElement.prototype.releasePointerCapture = vi.fn()
+})
+
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 
 describe('素材の表示・非表示', () => {
   test('目のアイコンで隠すと、保存ボタンを待たずに表示の切り替えを送る', async () => {
@@ -208,26 +237,85 @@ describe('オーバーレイと素材の一覧', () => {
   })
 })
 
-/** 配置用の枠の大きさ（画素）。jsdom は要素の大きさを持たないので、ドラッグのテストでは差し替える */
+/** 表示領域の大きさ（画素）。jsdom は要素の大きさを持たないので、ドラッグのテストでは差し替える */
 const frameSize = { width: 400, height: 300 }
 
+/** 表示領域で、素材を選んだり動かしたりする層（ポインタを捕まえる要素） */
+const stageLayer = (element: HTMLElement): HTMLElement => {
+  const layer = element.closest<HTMLElement>('[data-stage-layer]')
+  if (!layer) throw new Error('表示領域の層が見つかりません')
+  return layer
+}
+
+/** 表示領域の素材を押して選ぶ（押して離すだけ） */
+const selectOnStage = async (overlayName: string, label: string): Promise<HTMLElement> => {
+  const target = within(await overlayRegion(overlayName)).getByRole('button', { name: `${label}を動かす` })
+  fireEvent.pointerDown(target, { clientX: 100, clientY: 100, pointerId: 1 })
+  fireEvent.pointerUp(stageLayer(target), { clientX: 100, clientY: 100, pointerId: 1 })
+  return target
+}
+
 /**
- * 配置用の枠で四角をつまんで動かす。
+ * 表示領域でつまんで動かす。つまんだあとの動きは、ポインタを捕まえた層に届く。
  *
  * @param name つまむところの読み上げ名（「時計（Analog）を動かす」「時計（Analog）の右下をつまむ」）
- * @param dx 横に動かす画素（枠は 400px 幅なので、40px が 10％に当たる）
- * @param dy 縦に動かす画素（枠は 300px 高なので、30px が 10％に当たる）
+ * @param dx 横に動かす画素（表示領域は 400px 幅なので、40px が 10％に当たる）
+ * @param dy 縦に動かす画素（表示領域は 300px 高なので、30px が 10％に当たる）
  */
 const dragHandle = async (overlayName: string, name: string, dx: number, dy: number): Promise<void> => {
   const handle = within(await overlayRegion(overlayName)).getByRole('button', { name })
+  const layer = stageLayer(handle)
   fireEvent.pointerDown(handle, { clientX: 100, clientY: 100, pointerId: 1 })
-  fireEvent.pointerMove(window, { clientX: 100 + dx, clientY: 100 + dy, pointerId: 1 })
-  fireEvent.pointerUp(window, { clientX: 100 + dx, clientY: 100 + dy, pointerId: 1 })
+  fireEvent.pointerMove(layer, { clientX: 100 + dx, clientY: 100 + dy, pointerId: 1 })
+  fireEvent.pointerUp(layer, { clientX: 100 + dx, clientY: 100 + dy, pointerId: 1 })
 }
 
-describe('配置用の枠', () => {
+describe('オーバーレイのタブ', () => {
+  test('はじめは先頭のオーバーレイを開き、ほかのオーバーレイの中身は出さない', async () => {
+    renderPage(fakeApi())
+
+    expect(await screen.findByRole('group', { name: 'オーバーレイ「back」' })).toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'オーバーレイ「front」' })).not.toBeInTheDocument()
+  })
+
+  test('タブを選ぶと、そのオーバーレイを編集できる', async () => {
+    renderPage(fakeApi())
+
+    expect(within(await overlayRegion('front')).getByRole('group', { name: '時計（Analog）' })).toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'オーバーレイ「back」' })).not.toBeInTheDocument()
+  })
+
+  test('保存しても、開いているタブはそのままにする（保存のたびに先頭へ戻さない）', async () => {
+    renderPage(fakeApi())
+    await overlayRegion('front')
+
+    await save()
+
+    expect(await screen.findByRole('group', { name: 'オーバーレイ「front」' })).toBeInTheDocument()
+  })
+
+  test('オーバーレイを追加すると、そのタブを開く', async () => {
+    renderPage(fakeApi())
+
+    await userEvent.type(await screen.findByLabelText('追加するオーバーレイの名前'), 'talk{Enter}')
+
+    expect(await screen.findByRole('group', { name: 'オーバーレイ「talk」' })).toBeInTheDocument()
+  })
+
+  test('素材を別のオーバーレイへ移すと、移した先のタブを開き、その素材を選んだままにする', async () => {
+    renderPage(fakeApi())
+
+    const region = await openMaterial('front', '時計（Analog）')
+    await userEvent.selectOptions(within(region).getByLabelText('置くオーバーレイ'), 'back')
+
+    const moved = within(await screen.findByRole('group', { name: 'オーバーレイ「back」' })).getByRole('group', { name: '時計（Analog）' })
+    expect(within(moved).getByLabelText('左端の位置（％）')).toBeInTheDocument()
+  })
+})
+
+describe('レイヤーと表示領域', () => {
   beforeEach(() => {
-    // jsdom はレイアウトを行わないので、枠の大きさ（画素 → ％の変換に要る）を差し替える
+    // jsdom はレイアウトを行わないので、表示領域の大きさ（画素 → ％の変換に要る）を差し替える
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
       ...frameSize,
       x: 0,
@@ -244,27 +332,82 @@ describe('配置用の枠', () => {
     vi.restoreAllMocks()
   })
 
-  test('そのオーバーレイの素材を四角として描き、保存されている割合（％）を当てる', async () => {
+  test('左にレイヤーの一覧、右に表示領域を並べる', async () => {
+    const region = await (async () => {
+      renderPage(fakeApi())
+      return overlayRegion('front')
+    })()
+
+    expect(within(within(region).getByRole('region', { name: 'レイヤー' })).getByRole('group', { name: '時計（Analog）' })).toBeInTheDocument()
+    expect(within(within(region).getByRole('region', { name: '表示領域' })).getByRole('button', { name: '時計（Analog）を動かす' })).toBeInTheDocument()
+  })
+
+  test('表示領域には合成ページのプレビューを出す。素材の中身はサンプルで、オーバーレイ用キーは載せない', async () => {
+    renderPage(fakeApi())
+    const region = await overlayRegion('front')
+
+    expect(within(region).getByTitle('オーバーレイ「front」のプレビュー')).toHaveAttribute(
+      'src',
+      `${window.location.origin}/overlay/stage/?overlay=front&demo=true`,
+    )
+    expect(within(region).getByText(/中身はサンプルです/)).toBeInTheDocument()
+  })
+
+  test('素材を保存されている割合（％）の位置に置く', async () => {
     renderPage(fakeApi())
 
     const rect = within(await overlayRegion('front')).getByRole('button', { name: '時計（Analog）を動かす' })
     expect(rect.parentElement).toHaveStyle({ left: '78%', top: '70%', width: '20%', height: '26%' })
   })
 
-  test('四角をドラッグすると、位置が数値欄にも出る（保存の形は割合のまま）', async () => {
+  test('選んでいない素材には、大きさを変えるつまみを出さない', async () => {
+    renderPage(fakeApi())
+
+    expect(within(await overlayRegion('front')).queryByRole('button', { name: '時計（Analog）の右下をつまむ' })).not.toBeInTheDocument()
+  })
+
+  test('レイヤーで素材を選ぶと、表示領域でもその素材を選び、つまみを出す', async () => {
+    renderPage(fakeApi())
+
+    await openMaterial('front', '時計（Analog）')
+
+    const region = await overlayRegion('front')
+    expect(within(region).getByRole('button', { name: '時計（Analog）を動かす' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(region).getByRole('button', { name: '時計（Analog）の右下をつまむ' })).toBeInTheDocument()
+  })
+
+  test('表示領域で素材を押すと選び、レイヤーでその素材の設定が開く', async () => {
+    renderPage(fakeApi())
+
+    await selectOnStage('front', '時計（Analog）')
+
+    expect(within(await materialRegion('front', '時計（Analog）')).getByLabelText('左端の位置（％）')).toBeInTheDocument()
+  })
+
+  test('表示領域の何もないところを押すと、選択を外す', async () => {
+    renderPage(fakeApi())
+    const target = await selectOnStage('front', '時計（Analog）')
+
+    fireEvent.pointerDown(stageLayer(target), { clientX: 10, clientY: 10, pointerId: 2 })
+
+    expect(within(await materialRegion('front', '時計（Analog）')).queryByLabelText('左端の位置（％）')).not.toBeInTheDocument()
+  })
+
+  test('素材をドラッグすると、位置が数値欄にも出る（保存の形は割合のまま）', async () => {
     const api = fakeApi()
     renderPage(api)
 
-    // 枠は 400 × 300px なので、40px 左へ・30px 上へ動かすと 10％ずつ動く
+    // 表示領域は 400 × 300px なので、40px 左へ・30px 上へ動かすと 10％ずつ動く
     await dragHandle('front', '時計（Analog）を動かす', -40, -30)
     await save()
 
     expect(api.save).toHaveBeenCalledWith([back, { name: 'front', items: [{ ...clock, rect: { x: 68, y: 60, width: 20, height: 26 } }] }])
   })
 
-  test('端をつまむと大きさが変わる（つまんでいない側の端は動かない）', async () => {
+  test('選んだ素材の端をつまむと大きさが変わる（つまんでいない側の端は動かない）', async () => {
     const api = fakeApi()
     renderPage(api)
+    await selectOnStage('front', '時計（Analog）')
 
     // 右下を左上へ 20px・30px（＝5％・10％）つまみ寄せる。左端と上端は動かない
     await dragHandle('front', '時計（Analog）の右下をつまむ', -20, -30)
@@ -273,37 +416,125 @@ describe('配置用の枠', () => {
     expect(api.save).toHaveBeenCalledWith([back, { name: 'front', items: [{ ...clock, rect: { x: 78, y: 70, width: 15, height: 16 } }] }])
   })
 
-  test('ドラッグが取り消されたら（指が離れずに中断されたら）そこで追うのをやめる', async () => {
+  test('つまんだ時点で、文字の選択やブラウザのドラッグを始めさせない（始まるとポインタが取り消されて手から離れる）', async () => {
+    renderPage(fakeApi())
+
+    const target = within(await overlayRegion('front')).getByRole('button', { name: '時計（Analog）を動かす' })
+    // fireEvent は既定の動きが止められたときに false を返す
+    expect(fireEvent.pointerDown(target, { clientX: 100, clientY: 100, pointerId: 1 })).toBe(false)
+  })
+
+  test('つまんだら表示領域がポインタを捕まえる（プレビューの上や画面の外へ出ても追い続ける）', async () => {
+    renderPage(fakeApi())
+
+    const target = within(await overlayRegion('front')).getByRole('button', { name: '時計（Analog）を動かす' })
+    fireEvent.pointerDown(target, { clientX: 100, clientY: 100, pointerId: 7 })
+
+    expect(stageLayer(target).setPointerCapture).toHaveBeenCalledWith(7)
+  })
+
+  test('ポインタの捕まえが外れたら（指が離れずに中断されたら）そこで追うのをやめる', async () => {
     const api = fakeApi()
     renderPage(api)
 
-    const handle = within(await overlayRegion('front')).getByRole('button', { name: '時計（Analog）を動かす' })
-    fireEvent.pointerDown(handle, { clientX: 100, clientY: 100, pointerId: 1 })
-    fireEvent.pointerMove(window, { clientX: 60, clientY: 100, pointerId: 1 })
-    fireEvent.pointerCancel(window, { clientX: 60, clientY: 100, pointerId: 1 })
-    // 取り消されたあとの動きは、つまんでいない指の動きなので位置を変えない
-    fireEvent.pointerMove(window, { clientX: 300, clientY: 100, pointerId: 1 })
+    const target = within(await overlayRegion('front')).getByRole('button', { name: '時計（Analog）を動かす' })
+    const layer = stageLayer(target)
+    fireEvent.pointerDown(target, { clientX: 100, clientY: 100, pointerId: 1 })
+    fireEvent.pointerMove(layer, { clientX: 60, clientY: 100, pointerId: 1 })
+    fireEvent.lostPointerCapture(layer, { pointerId: 1 })
+    // 外れたあとの動きは、つまんでいない指の動きなので位置を変えない
+    fireEvent.pointerMove(layer, { clientX: 300, clientY: 100, pointerId: 1 })
     await save()
 
     expect(api.save).toHaveBeenCalledWith([back, { name: 'front', items: [{ ...clock, rect: { x: 68, y: 70, width: 20, height: 26 } }] }])
   })
 
-  test('四角をつまむと、その素材の設定が開く（どの四角がどの素材かを確かめられる）', async () => {
-    renderPage(fakeApi())
+  test('選んだ素材は矢印キーで少しずつ動かせる（Shift を押すと大きく動く）', async () => {
+    const api = fakeApi()
+    renderPage(api)
+    const target = await selectOnStage('front', '時計（Analog）')
 
-    await dragHandle('front', '時計（Analog）を動かす', 0, 0)
+    // 矢印キーは 0.1％、Shift を押しながらなら 1％ずつ動かす
+    fireEvent.keyDown(target, { key: 'ArrowLeft', shiftKey: true })
+    fireEvent.keyDown(target, { key: 'ArrowUp' })
+    await save()
 
-    expect(within(await materialRegion('front', '時計（Analog）')).getByLabelText('左端の位置（％）')).toBeInTheDocument()
+    expect(api.save).toHaveBeenCalledWith([back, { name: 'front', items: [{ ...clock, rect: { x: 77, y: 69.9, width: 20, height: 26 } }] }])
   })
 
-  test('位置を数として読めない素材は四角にせず、その理由を出す', async () => {
+  test('位置を数として読めない素材は表示領域にもプレビューにも出さず、その理由を出す', async () => {
     renderPage(fakeApi())
 
     const region = await openMaterial('front', '時計（Analog）')
     await userEvent.clear(within(region).getByLabelText('左端の位置（％）'))
 
     expect(within(await overlayRegion('front')).queryByRole('button', { name: '時計（Analog）を動かす' })).not.toBeInTheDocument()
-    expect(within(await overlayRegion('front')).getByText(/枠に出せない素材があります/)).toBeInTheDocument()
+    expect(within(await overlayRegion('front')).getByText(/表示領域に出せない素材があります/)).toBeInTheDocument()
+  })
+})
+
+describe('プレビューとの受け渡し', () => {
+  beforeEach(() => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      ...frameSize,
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: frameSize.width,
+      bottom: frameSize.height,
+      toJSON: () => ({}),
+    })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  /** プレビューから「構成を待っている」と知らせる */
+  const announceReady = (source: { postMessage: (message: unknown, origin: string) => void }, origin = window.location.origin): void => {
+    window.dispatchEvent(new MessageEvent('message', { data: { type: 'hdad-overlay-preview-ready' }, origin, source: source as unknown as Window }))
+  }
+
+  test('プレビューが構成を待っていると知らせたら、編集中の構成を渡す（保存しなくても映る）', async () => {
+    renderPage(fakeApi())
+    const region = await openMaterial('front', '時計（Analog）')
+    await userEvent.clear(within(region).getByLabelText('幅（％）'))
+    await userEvent.type(within(region).getByLabelText('幅（％）'), '40')
+
+    const previewWindow = { postMessage: vi.fn() }
+    announceReady(previewWindow)
+
+    expect(previewWindow.postMessage).toHaveBeenCalledWith(
+      { type: 'hdad-overlay-preview-layout', overlays: [{ name: 'front', items: [{ ...clock, rect: { ...clock.rect, width: 40 } }] }] },
+      window.location.origin,
+    )
+  })
+
+  test('別のサイトからの知らせには構成を渡さない', async () => {
+    renderPage(fakeApi())
+    await overlayRegion('front')
+
+    const foreignWindow = { postMessage: vi.fn() }
+    announceReady(foreignWindow, 'https://evil.example.com')
+
+    expect(foreignWindow.postMessage).not.toHaveBeenCalled()
+  })
+
+  test('ドラッグで動かすと、プレビューを作り直さずに、動かした構成を送り直す（動かしながら中身を見られる）', async () => {
+    renderPage(fakeApi())
+    await overlayRegion('front')
+    const previewWindow = { postMessage: vi.fn() }
+    announceReady(previewWindow)
+    const frame = within(await overlayRegion('front')).getByTitle('オーバーレイ「front」のプレビュー')
+
+    await dragHandle('front', '時計（Analog）を動かす', -40, -30)
+
+    expect(previewWindow.postMessage).toHaveBeenLastCalledWith(
+      { type: 'hdad-overlay-preview-layout', overlays: [{ name: 'front', items: [{ ...clock, rect: { x: 68, y: 60, width: 20, height: 26 } }] }] },
+      window.location.origin,
+    )
+    expect(within(await overlayRegion('front')).getByTitle('オーバーレイ「front」のプレビュー')).toBe(frame)
   })
 })
 
@@ -386,20 +617,6 @@ describe('素材の編集', () => {
     expect(material.map((element) => element.getAttribute('aria-label'))).toEqual(['背景（Contour）', '時計（Analog）', '背景（Grid）'])
     await save()
     expect(api.save).toHaveBeenCalledWith([{ name: 'front', items: [grid, clock, wallpaper] }])
-  })
-
-  test('別のオーバーレイの行へ落としても、並びは変わらない（オーバーレイをまたぐ移動は選択欄で行う）', async () => {
-    const api = fakeApi()
-    renderPage(api)
-
-    const dragged = await materialRegion('back', '背景（Contour）')
-    const target = await materialRegion('front', '時計（Analog）')
-    fireEvent.dragStart(within(dragged).getByRole('button', { name: '背景（Contour）をつまんで並べ替える' }), { dataTransfer: new FakeDataTransfer() })
-    fireEvent.dragOver(target, { dataTransfer: new FakeDataTransfer() })
-    fireEvent.drop(target)
-
-    await save()
-    expect(api.save).toHaveBeenCalledWith([back, front])
   })
 
   test('素材を別のオーバーレイへ移せる', async () => {
@@ -542,7 +759,7 @@ describe('オーバーレイ', () => {
     const region = await overlayRegion('front')
 
     // 文字を出さないぶん、名前が読み上げからもホバーからも失われないことを確かめる
-    for (const typedName of ['素材を追加する', 'URLをコピー', 'オーバーレイ「front」をひとつ上へ']) {
+    for (const typedName of ['素材を追加する', 'URLをコピー', 'オーバーレイ「front」をひとつ左へ']) {
       const button = within(region).getByRole('button', { name: typedName })
       expect(button).toHaveTextContent('')
       expect(button).toHaveAttribute('title', typedName)
@@ -565,11 +782,11 @@ describe('オーバーレイ', () => {
     expect(within(region).queryByText('背面')).not.toBeInTheDocument()
   })
 
-  test('オーバーレイを並べ替えられる', async () => {
+  test('オーバーレイをタブの並びの中で並べ替えられる', async () => {
     const api = fakeApi()
     renderPage(api)
 
-    await userEvent.click(within(await overlayRegion('front')).getByRole('button', { name: 'オーバーレイ「front」をひとつ上へ' }))
+    await userEvent.click(within(await overlayRegion('front')).getByRole('button', { name: 'オーバーレイ「front」をひとつ左へ' }))
     await save()
 
     expect(api.save).toHaveBeenCalledWith([front, back])
@@ -578,8 +795,8 @@ describe('オーバーレイ', () => {
   test('端のオーバーレイは、その向きへは動かせない', async () => {
     renderPage(fakeApi())
 
-    expect(within(await overlayRegion('back')).getByRole('button', { name: 'オーバーレイ「back」をひとつ上へ' })).toBeDisabled()
-    expect(within(await overlayRegion('front')).getByRole('button', { name: 'オーバーレイ「front」をひとつ下へ' })).toBeDisabled()
+    expect(within(await overlayRegion('back')).getByRole('button', { name: 'オーバーレイ「back」をひとつ左へ' })).toBeDisabled()
+    expect(within(await overlayRegion('front')).getByRole('button', { name: 'オーバーレイ「front」をひとつ右へ' })).toBeDisabled()
   })
 
   test('オーバーレイを外すときは、確かめてから外す', async () => {
@@ -634,116 +851,6 @@ describe('保存済みの値が読めない素材', () => {
 
     expect(await screen.findByText(/デザイン「sundial」は登録されていません/)).toBeInTheDocument()
     expect(await materialRegion('front', '時計（sundial）')).toBeInTheDocument()
-  })
-})
-
-describe('プレビュー', () => {
-  /** 枠の幅に合わせた縮小に使う ResizeObserver は jsdom に無いので、何も観測しない代役を置く */
-  class fakeResizeObserver {
-    observe(): void {
-      // 縮小の倍率は見た目だけの話なので、テストでは観測しない
-    }
-    unobserve(): void {
-      // 同上
-    }
-    disconnect(): void {
-      // 同上
-    }
-  }
-
-  beforeEach(() => {
-    vi.stubGlobal('ResizeObserver', fakeResizeObserver)
-  })
-
-  afterEach(() => {
-    vi.unstubAllGlobals()
-  })
-
-  /** そのオーバーレイのプレビューを開く（見ているあいだだけ動かすため、既定では閉じている） */
-  const openPreview = async (name: string): Promise<HTMLElement> => {
-    renderPage(fakeApi())
-    const region = await overlayRegion(name)
-    await userEvent.click(within(region).getByRole('button', { name: 'プレビューを見る' }))
-    return region
-  }
-
-  test('開くまでは動かさない（配信中のものに加えてもう1組動かさないため）', async () => {
-    renderPage(fakeApi())
-
-    expect(within(await overlayRegion('front')).queryByTitle('オーバーレイ「front」のプレビュー')).not.toBeInTheDocument()
-  })
-
-  test('開くと合成ページを出す。素材の中身はサンプルで、オーバーレイ用キーは載せない', async () => {
-    const region = await openPreview('front')
-
-    expect(within(region).getByTitle('オーバーレイ「front」のプレビュー')).toHaveAttribute(
-      'src',
-      `${window.location.origin}/overlay/stage/?overlay=front&demo=true`,
-    )
-  })
-
-  test('注意書きは開いているあいだだけ出す（閉じているカードで場所を取らない）', async () => {
-    renderPage(fakeApi())
-    expect(within(await overlayRegion('front')).queryByText(/中身はサンプルです/)).not.toBeInTheDocument()
-    cleanup()
-
-    const region = await openPreview('front')
-
-    expect(within(region).getByText(/中身はサンプルです/)).toBeInTheDocument()
-  })
-
-  test('閉じると外す（見ているあいだだけ動かす）', async () => {
-    const region = await openPreview('front')
-
-    await userEvent.click(within(region).getByRole('button', { name: 'プレビューを閉じる' }))
-
-    expect(within(region).queryByTitle('オーバーレイ「front」のプレビュー')).not.toBeInTheDocument()
-  })
-
-  test('プレビューが構成を待っていると知らせたら、編集中の構成を渡す（保存しなくても映る）', async () => {
-    await openPreview('front')
-    const region = await openMaterial('front', '時計（Analog）')
-    await userEvent.clear(within(region).getByLabelText('幅（％）'))
-    await userEvent.type(within(region).getByLabelText('幅（％）'), '40')
-
-    const previewWindow = { postMessage: vi.fn() }
-    window.dispatchEvent(
-      new MessageEvent('message', { data: { type: 'hdad-overlay-preview-ready' }, origin: window.location.origin, source: previewWindow as unknown as Window }),
-    )
-
-    expect(previewWindow.postMessage).toHaveBeenCalledWith(
-      { type: 'hdad-overlay-preview-layout', overlays: [{ name: 'front', items: [{ ...clock, rect: { ...clock.rect, width: 40 } }] }] },
-      window.location.origin,
-    )
-  })
-
-  test('別のサイトからの知らせには構成を渡さない', async () => {
-    await openPreview('front')
-
-    const foreignWindow = { postMessage: vi.fn() }
-    window.dispatchEvent(
-      new MessageEvent('message', { data: { type: 'hdad-overlay-preview-ready' }, origin: 'https://evil.example.com', source: foreignWindow as unknown as Window }),
-    )
-
-    expect(foreignWindow.postMessage).not.toHaveBeenCalled()
-  })
-
-  test('別のオーバーレイのプレビューを開くと、前のプレビューは閉じる（同時に動かすのは1つだけ）', async () => {
-    await openPreview('front')
-
-    const backRegion = await overlayRegion('back')
-    await userEvent.click(within(backRegion).getByRole('button', { name: 'プレビューを見る' }))
-
-    expect(within(backRegion).getByTitle('オーバーレイ「back」のプレビュー')).toBeInTheDocument()
-    expect(within(await overlayRegion('front')).queryByTitle('オーバーレイ「front」のプレビュー')).not.toBeInTheDocument()
-  })
-
-  test('位置と大きさを数として読めない素材は映さず、その理由を出す', async () => {
-    const region = await openPreview('front')
-    await openMaterial('front', '時計（Analog）')
-    await userEvent.clear(within(region).getByLabelText('幅（％）'))
-
-    expect(within(region).getByText(/プレビューに出せない素材があります/)).toBeInTheDocument()
   })
 })
 

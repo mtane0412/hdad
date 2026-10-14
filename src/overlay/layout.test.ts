@@ -6,9 +6,10 @@
  * - 位置と大きさ（％）を、箱に当てるCSSの値へ直すこと
  * - 構成にどんなオーバーレイがあるかを取り出すこと（名前を間違えたときに知らせるため）
  * - 隠した素材を除くこと・押し出された構成で自分のオーバーレイの中身が変わったかを見分けること
+ * - 変わったのが位置と大きさだけかを見分けること（プレビューが箱だけを動かし、素材を起動し直さないため）
  */
 import { describe, expect, it } from 'vitest'
-import { itemsInOverlay, overlayChanged, overlayNamesOf, rectStyle, shownItems, type Overlay, type OverlayItem } from './layout'
+import { itemsInOverlay, overlayChanged, overlayNamesOf, rectsOnlyChanged, rectStyle, shownItems, type Overlay, type OverlayItem } from './layout'
 
 const wallpaper: OverlayItem = { kind: 'wallpaper', id: 'aurora', params: 'speed=2', rect: { x: 0, y: 0, width: 100, height: 100 } }
 const chat: OverlayItem = { kind: 'chat', id: 'plain', params: 'max=10', rect: { x: 2, y: 40, width: 30, height: 58 } }
@@ -65,5 +66,30 @@ describe('overlayChanged', () => {
     const hiddenWallpaper: Overlay = { name: 'back', items: [{ ...wallpaper, hidden: true }] }
 
     expect(overlayChanged([back, front], [hiddenWallpaper, front], 'front')).toBe(false)
+  })
+})
+
+describe('rectsOnlyChanged', () => {
+  it('素材の位置と大きさだけが変わったなら真（箱を動かすだけで済む）', () => {
+    const moved: Overlay = { name: 'front', items: [chat, { ...clock, rect: { x: 10, y: 10, width: 30, height: 30 } }] }
+
+    expect(rectsOnlyChanged([back, front], [back, moved], 'front')).toBe(true)
+  })
+
+  it('パラメータが変わったなら偽（素材を起動し直さないと映らない）', () => {
+    const tuned: Overlay = { name: 'front', items: [chat, { ...clock, params: 'size=0.8' }] }
+
+    expect(rectsOnlyChanged([back, front], [back, tuned], 'front')).toBe(false)
+  })
+
+  it('素材の数や並びが変わったなら偽', () => {
+    expect(rectsOnlyChanged([back, front], [back, { name: 'front', items: [clock, chat] }], 'front')).toBe(false)
+    expect(rectsOnlyChanged([back, front], [back, { name: 'front', items: [chat] }], 'front')).toBe(false)
+  })
+
+  it('隠す・表示するが変わったなら偽（隠した素材は起動しないため、起動し直す）', () => {
+    const hidden: Overlay = { name: 'front', items: [chat, { ...clock, hidden: true }] }
+
+    expect(rectsOnlyChanged([back, front], [back, hidden], 'front')).toBe(false)
   })
 })

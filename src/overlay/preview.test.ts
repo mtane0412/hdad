@@ -53,30 +53,31 @@ describe('replyPreviewLayout', () => {
   it('構成を待っているプレビューへ、いまの編集中の構成を渡す', () => {
     const previewWindow = win()
 
-    const passed = replyPreviewLayout({ data: previewReadyMessage(), origin: site, source: previewWindow }, site, [front])
+    const target = replyPreviewLayout({ data: previewReadyMessage(), origin: site, source: previewWindow }, site, [front])
 
-    expect(passed).toBe(true)
+    // 渡した相手を返す（そのあとの編集も同じ相手へ渡し続けるため）
+    expect(target).toBe(previewWindow)
     expect(previewWindow.postMessage).toHaveBeenCalledWith(previewLayoutMessage([front]), site)
   })
 
   it('よそのサイトからの知らせには渡さない', () => {
     const foreignWindow = win()
 
-    const passed = replyPreviewLayout({ data: previewReadyMessage(), origin: 'https://evil.example.com', source: foreignWindow }, site, [front])
+    const target = replyPreviewLayout({ data: previewReadyMessage(), origin: 'https://evil.example.com', source: foreignWindow }, site, [front])
 
-    expect(passed).toBe(false)
+    expect(target).toBeUndefined()
     expect(foreignWindow.postMessage).not.toHaveBeenCalled()
   })
 
   it('自分たちの知らせでなければ何もしない（同じ窓に届く他の知らせに応えない）', () => {
     const fakeWindow = win()
 
-    expect(replyPreviewLayout({ data: { type: 'vite:beforeUpdate' }, origin: site, source: fakeWindow }, site, [front])).toBe(false)
+    expect(replyPreviewLayout({ data: { type: 'vite:beforeUpdate' }, origin: site, source: fakeWindow }, site, [front])).toBeUndefined()
     expect(fakeWindow.postMessage).not.toHaveBeenCalled()
   })
 
   it('送る口を持たない相手には渡さない', () => {
-    expect(replyPreviewLayout({ data: previewReadyMessage(), origin: site, source: null }, site, [front])).toBe(false)
-    expect(replyPreviewLayout({ data: previewReadyMessage(), origin: site, source: {} }, site, [front])).toBe(false)
+    expect(replyPreviewLayout({ data: previewReadyMessage(), origin: site, source: null }, site, [front])).toBeUndefined()
+    expect(replyPreviewLayout({ data: previewReadyMessage(), origin: site, source: {} }, site, [front])).toBeUndefined()
   })
 })
