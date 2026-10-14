@@ -888,7 +888,8 @@ const AddOverlayButton = ({ names, onAdd }: { names: readonly string[]; onAdd(na
       <PopoverTrigger render={<Button type="button" variant="ghost" size="icon" {...iconButtonName('オーバーレイを追加する')} />}>
         <Plus aria-hidden="true" />
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-80">
+      {/* 窓は role="dialog" になるので、開いたボタンと同じ名前を付けて目的を読み上げに伝える */}
+      <PopoverContent align="start" className="w-80" aria-label="オーバーレイを追加する">
         {/* フォームにして、名前を打って Enter でも追加できるようにする（日本語の変換を確定する Enter ではブラウザは送信しない） */}
         <form
           className="flex items-center gap-2"
@@ -1001,7 +1002,6 @@ export const OverlayPage = ({ api, overlayKey, textApi }: { api: OverlayLayoutAd
     setDrafts([...drafts, newOverlayDraft(name)])
     setActiveOverlayName(name)
   }
-  const addButton = <AddOverlayButton names={drafts.map((draft) => draft.name)} onAdd={addOverlay} />
 
   const update = (position: number, draft: OverlayDraft): void => setDrafts(drafts.map((current, index) => (index === position ? draft : current)))
 
@@ -1056,23 +1056,13 @@ export const OverlayPage = ({ api, overlayKey, textApi }: { api: OverlayLayoutAd
         </Alert>
       )}
 
-      {drafts.length === 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>オーバーレイ</CardTitle>
-            <CardDescription>
-              OBSのブラウザソース1つぶんが「オーバーレイ」で、その中に素材を積む。アバターやゲーム画面を挟みたいところで分ける。
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex items-center gap-2">
-            <p className="text-sm text-muted-foreground">まだオーバーレイがありません。</p>
-            {addButton}
-          </CardContent>
-        </Card>
-      ) : (
-        // オーバーレイはタブで1つずつ開く（描くのもプレビューを動かすのも、開いているものだけ）
-        <Tabs value={activeDraft?.name} onValueChange={(value: string) => setActiveOverlayName(value)} className="gap-4">
-          <div className="flex flex-wrap items-center gap-2">
+      {/* オーバーレイはタブで1つずつ開く（描くのもプレビューを動かすのも、開いているものだけ）。
+          まだ1つも無いときも同じ Tabs の中に置き、プラスボタンを同じ位置に保つ
+          （最初の1つを追加して画面が切り替わっても、ボタンが作り直されずフォーカスがそこへ戻るようにする）。
+          無いときも value は null で渡し、制御されたまま保つ（undefined だと非制御になり、読み込んだあとの値を受け付けない） */}
+      <Tabs value={activeDraft?.name ?? null} onValueChange={(value: string) => setActiveOverlayName(value)} className="gap-4">
+        <div className="flex flex-wrap items-center gap-2">
+          {drafts.length > 0 && (
             <TabsList aria-label="オーバーレイ">
               {drafts.map((draft) => (
                 <TabsTrigger key={draft.key} value={draft.name} className="px-3 font-mono">
@@ -1080,53 +1070,66 @@ export const OverlayPage = ({ api, overlayKey, textApi }: { api: OverlayLayoutAd
                 </TabsTrigger>
               ))}
             </TabsList>
-            {/* 追加のボタンはタブの並びの外に置く（tablist の中にタブでないものを混ぜない） */}
-            {addButton}
-          </div>
-          {drafts.map((draft, position) => (
-            <TabsContent key={draft.key} value={draft.name}>
-              <OverlayCard
-                key={draft.key}
-                draft={draft}
-                textChoices={textChoices}
-                overlayKey={overlayKey}
-                openItemKey={openItemKey}
-                onToggleItem={(key) => setOpenItemKey(openItemKey === key ? undefined : key)}
-                onSelectItem={setOpenItemKey}
-                onChange={(next) => update(position, next)}
-                onAskRemoveItem={(item) =>
-                  actions.ask({
-                    title: `${itemLabel(item)}を外しますか？`,
-                    description: 'この素材の位置とパラメータは失われます。保存するまでは構成に反映されません。',
-                    actionLabel: '素材を外す',
-                    run: async () => {
-                      update(position, { ...draft, items: draft.items.filter((current) => current.key !== item.key) })
-                      return '素材を外しました（保存すると反映されます）'
-                    },
-                  })
-                }
-                onToggleItemHidden={toggleItemHidden}
-                busy={actions.busy}
-                onAskRemove={() =>
-                  actions.ask({
-                    title: `オーバーレイ「${draft.name}」を外しますか？`,
-                    description: '積んでいる素材もすべて外れます。OBSに貼ったこのオーバーレイのブラウザソースは何も映さなくなります。',
-                    actionLabel: 'オーバーレイを外す',
-                    run: async () => {
-                      setDrafts(drafts.filter((current) => current.key !== draft.key))
-                      return 'オーバーレイを外しました（保存すると反映されます）'
-                    },
-                  })
-                }
-                onCopyUrl={(url) => void actions.run(() => copyUrl(url))}
-                canMoveLeft={position > 0}
-                canMoveRight={position < drafts.length - 1}
-                onMove={(offset) => setDrafts(moveDraft(drafts, position, offset))}
-              />
-            </TabsContent>
-          ))}
-        </Tabs>
-      )}
+          )}
+          {/* 追加のボタンはタブの並びの外に置く（tablist の中にタブでないものを混ぜない） */}
+          <AddOverlayButton names={drafts.map((draft) => draft.name)} onAdd={addOverlay} />
+        </div>
+        {drafts.length === 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>オーバーレイ</CardTitle>
+              <CardDescription>
+                OBSのブラウザソース1つぶんが「オーバーレイ」で、その中に素材を積む。アバターやゲーム画面を挟みたいところで分ける。
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">まだオーバーレイがありません。上の＋から追加してください。</p>
+            </CardContent>
+          </Card>
+        )}
+        {drafts.map((draft, position) => (
+          <TabsContent key={draft.key} value={draft.name}>
+            <OverlayCard
+              key={draft.key}
+              draft={draft}
+              textChoices={textChoices}
+              overlayKey={overlayKey}
+              openItemKey={openItemKey}
+              onToggleItem={(key) => setOpenItemKey(openItemKey === key ? undefined : key)}
+              onSelectItem={setOpenItemKey}
+              onChange={(next) => update(position, next)}
+              onAskRemoveItem={(item) =>
+                actions.ask({
+                  title: `${itemLabel(item)}を外しますか？`,
+                  description: 'この素材の位置とパラメータは失われます。保存するまでは構成に反映されません。',
+                  actionLabel: '素材を外す',
+                  run: async () => {
+                    update(position, { ...draft, items: draft.items.filter((current) => current.key !== item.key) })
+                    return '素材を外しました（保存すると反映されます）'
+                  },
+                })
+              }
+              onToggleItemHidden={toggleItemHidden}
+              busy={actions.busy}
+              onAskRemove={() =>
+                actions.ask({
+                  title: `オーバーレイ「${draft.name}」を外しますか？`,
+                  description: '積んでいる素材もすべて外れます。OBSに貼ったこのオーバーレイのブラウザソースは何も映さなくなります。',
+                  actionLabel: 'オーバーレイを外す',
+                  run: async () => {
+                    setDrafts(drafts.filter((current) => current.key !== draft.key))
+                    return 'オーバーレイを外しました（保存すると反映されます）'
+                  },
+                })
+              }
+              onCopyUrl={(url) => void actions.run(() => copyUrl(url))}
+              canMoveLeft={position > 0}
+              canMoveRight={position < drafts.length - 1}
+              onMove={(offset) => setDrafts(moveDraft(drafts, position, offset))}
+            />
+          </TabsContent>
+        ))}
+      </Tabs>
 
       {/* 一覧が長いので、保存は貼り付けて常に押せるようにする（/triggers/ と同じ扱い） */}
       <div className="sticky bottom-0 flex items-center gap-3 border-t bg-background py-3">

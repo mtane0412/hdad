@@ -718,7 +718,9 @@ describe('オーバーレイ', () => {
 
     await userEvent.type(await openAddOverlay(), 'talk{Enter}')
 
-    expect(await overlayRegion('talk')).toBeInTheDocument()
+    // タブを押さなくても、追加したオーバーレイのタブが開いている
+    expect(await screen.findByRole('tab', { name: 'talk', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'オーバーレイ「talk」' })).toBeInTheDocument()
     // 追加したら窓を閉じ、次に開いたときは空欄から打てるようにする
     await waitFor(() => expect(screen.queryByLabelText('追加するオーバーレイの名前')).not.toBeInTheDocument())
     expect(await openAddOverlay()).toHaveValue('')
@@ -743,7 +745,18 @@ describe('オーバーレイ', () => {
     await userEvent.click(screen.getByRole('button', { name: 'オーバーレイを追加する' }))
     await userEvent.type(await screen.findByLabelText('追加するオーバーレイの名前'), 'talk{Enter}')
 
-    expect(await overlayRegion('talk')).toBeInTheDocument()
+    expect(await screen.findByRole('tab', { name: 'talk', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'オーバーレイ「talk」' })).toBeInTheDocument()
+    // タブが並ぶ画面に切り替わっても、フォーカスは開いたプラスボタンへ戻る（キーボードで続けて操作できる）
+    await waitFor(() => expect(screen.getByRole('button', { name: 'オーバーレイを追加する' })).toHaveFocus())
+  })
+
+  test('追加の窓には、読み上げで目的の分かる名前を付ける', async () => {
+    renderPage(fakeApi())
+
+    await openAddOverlay()
+
+    expect(screen.getByRole('dialog', { name: 'オーバーレイを追加する' })).toBeInTheDocument()
   })
 
   test('レイヤーが長くても表示領域が追従するよう、表示領域の外側ではみ出しを切らない（切ると sticky が効かない）', async () => {
