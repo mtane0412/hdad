@@ -4,7 +4,8 @@
  *
  * 確かめること:
  * - 保存済みのオーバーレイと、その中の素材を前に出るものから出すこと（一覧の上が前）
- * - 素材を追加する・外す・並べ替える（ボタンとドラッグ&ドロップ）・別のオーバーレイへ移す・位置と大きさを直せること
+ * - 素材を追加する・外す・並べ替える（ボタンとドラッグ&ドロップ）・位置と大きさを直せること（別のオーバーレイへ移す選択欄は出さない）
+ * - OBS用URLはタブのすぐ下に出すこと
  * - オーバーレイはタブで1つずつ開き、左にレイヤーの一覧、右に表示領域（プレビューの上で選ぶ・動かす）を並べること
  * - 表示領域では、選んだ素材だけにつまみを出し、ドラッグで動かす・端をつまんで大きさを変えられること（矢印キーでも動かせること）
  * - レイヤーで選んだ素材は表示領域でも選ばれ、表示領域で選んだ素材はレイヤーの設定が開くこと
@@ -12,7 +13,8 @@
  * - オーバーレイ同士をタブの並びの中で並べ替えられること
  * - 目のアイコンで素材を隠す・表示すること（保存済みの素材はすぐ反映し、ほかの未保存の編集は巻き込まない）
  * - 素材のパラメータをスキーマの入力欄で調整でき、保存ではクエリ文字列になること
- * - オーバーレイを追加できること・オーバーレイごとのOBS用URLを出すこと
+ * - オーバーレイはタブの並びの横のプラスボタンから追加できること・オーバーレイごとのOBS用URLを出すこと
+ * - レイヤーが長くても表示領域が追従できるよう、表示領域の外側ではみ出しを切らないこと
  * - 素材を1つも持たないオーバーレイは送らないこと
  * - Workerが返した問題点を、オーバーレイと素材の名前へ読み替えて並べること
  * - 保存済みの値が読めない素材でも、黙って捨てず理由を出すこと
@@ -79,6 +81,16 @@ const openMaterial = async (overlayName: string, label: string): Promise<HTMLEle
   const region = await materialRegion(overlayName, label)
   await userEvent.click(within(region).getByRole('button', { name: `${label}の設定` }))
   return region
+}
+
+/**
+ * タブの並びの横のプラスボタンで追加の窓を開き、名前の入力欄を返す。
+ * 構成を読み終えてタブが並ぶのを待ってから押す（読み込み中のボタンは、タブが並ぶと別のボタンに置き換わる）
+ */
+const openAddOverlay = async (): Promise<HTMLElement> => {
+  await screen.findByRole('tablist', { name: 'オーバーレイ' })
+  await userEvent.click(screen.getByRole('button', { name: 'オーバーレイを追加する' }))
+  return screen.findByLabelText('追加するオーバーレイの名前')
 }
 
 const save = async (): Promise<void> => {
@@ -297,19 +309,27 @@ describe('オーバーレイのタブ', () => {
   test('オーバーレイを追加すると、そのタブを開く', async () => {
     renderPage(fakeApi())
 
-    await userEvent.type(await screen.findByLabelText('追加するオーバーレイの名前'), 'talk{Enter}')
+    await userEvent.type(await openAddOverlay(), 'talk{Enter}')
 
     expect(await screen.findByRole('group', { name: 'オーバーレイ「talk」' })).toBeInTheDocument()
   })
 
-  test('素材を別のオーバーレイへ移すと、移した先のタブを開き、その素材を選んだままにする', async () => {
+  test('素材の設定には、置くオーバーレイの選択欄を出さない（素材はいま開いているオーバーレイに置く）', async () => {
     renderPage(fakeApi())
 
     const region = await openMaterial('front', '時計（Analog）')
-    await userEvent.selectOptions(within(region).getByLabelText('置くオーバーレイ'), 'back')
 
-    const moved = within(await screen.findByRole('group', { name: 'オーバーレイ「back」' })).getByRole('group', { name: '時計（Analog）' })
-    expect(within(moved).getByLabelText('左端の位置（％）')).toBeInTheDocument()
+    expect(within(region).queryByLabelText('置くオーバーレイ')).not.toBeInTheDocument()
+  })
+
+  test('OBSのブラウザソースに貼るURLは、タブのすぐ下（レイヤーと表示領域より上）に出す', async () => {
+    renderPage(fakeApi())
+
+    const region = await overlayRegion('front')
+    const url = within(region).getByLabelText('OBSのブラウザソースに貼るURL')
+    const layers = within(region).getByRole('region', { name: 'レイヤー' })
+
+    expect(url.compareDocumentPosition(layers) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })
 
@@ -619,18 +639,6 @@ describe('素材の編集', () => {
     expect(api.save).toHaveBeenCalledWith([{ name: 'front', items: [grid, clock, wallpaper] }])
   })
 
-  test('素材を別のオーバーレイへ移せる', async () => {
-    const api = fakeApi()
-    renderPage(api)
-
-    const region = await openMaterial('front', '時計（Analog）')
-    await userEvent.selectOptions(within(region).getByLabelText('置くオーバーレイ'), 'back')
-    await save()
-
-    // 移したあとの front は素材を持たなくなるので送らない
-    expect(api.save).toHaveBeenCalledWith([{ name: 'back', items: [wallpaper, clock] }])
-  })
-
   test('素材を外すときは、確かめてから外す', async () => {
     const api = fakeApi()
     renderPage(api)
@@ -689,8 +697,8 @@ describe('オーバーレイ', () => {
     const api = fakeApi()
     renderPage(api)
 
-    await userEvent.type(await screen.findByLabelText('追加するオーバーレイの名前'), 'talk')
-    await userEvent.click(screen.getByRole('button', { name: 'オーバーレイを追加する' }))
+    await userEvent.type(await openAddOverlay(), 'talk')
+    await userEvent.click(screen.getByRole('button', { name: '追加' }))
 
     const region = await overlayRegion('talk')
     await userEvent.selectOptions(within(region).getByLabelText('追加する素材の種類'), 'focus')
@@ -707,23 +715,56 @@ describe('オーバーレイ', () => {
   test('名前を打って Enter を押しても、オーバーレイを追加できる', async () => {
     renderPage(fakeApi())
 
+    await userEvent.type(await openAddOverlay(), 'talk{Enter}')
+
+    expect(await overlayRegion('talk')).toBeInTheDocument()
+    // 追加したら窓を閉じ、次に開いたときは空欄から打てるようにする
+    await waitFor(() => expect(screen.queryByLabelText('追加するオーバーレイの名前')).not.toBeInTheDocument())
+    expect(await openAddOverlay()).toHaveValue('')
+  })
+
+  test('オーバーレイの追加は、タブの並びの横のアイコンだけのプラスボタンから窓を開いて行う（ページの下に追加の欄を置かない）', async () => {
+    renderPage(fakeApi())
+
+    await screen.findByRole('tablist', { name: 'オーバーレイ' })
+    const button = screen.getByRole('button', { name: 'オーバーレイを追加する' })
+    expect(button).toHaveTextContent('')
+    expect(button).toHaveAttribute('title', 'オーバーレイを追加する')
+    expect(button.parentElement).toContainElement(screen.getByRole('tablist', { name: 'オーバーレイ' }))
+    expect(screen.queryByLabelText('追加するオーバーレイの名前')).not.toBeInTheDocument()
+  })
+
+  test('オーバーレイがまだ1つも無くても、プラスボタンから追加できる', async () => {
+    const api = fakeApi({ load: vi.fn(async () => []) })
+    renderPage(api)
+    await waitFor(() => expect(api.load).toHaveBeenCalled())
+
+    await userEvent.click(screen.getByRole('button', { name: 'オーバーレイを追加する' }))
     await userEvent.type(await screen.findByLabelText('追加するオーバーレイの名前'), 'talk{Enter}')
 
     expect(await overlayRegion('talk')).toBeInTheDocument()
-    expect(screen.getByLabelText('追加するオーバーレイの名前')).toHaveValue('')
+  })
+
+  test('レイヤーが長くても表示領域が追従するよう、表示領域の外側ではみ出しを切らない（切ると sticky が効かない）', async () => {
+    renderPage(fakeApi())
+
+    const stage = within(await overlayRegion('front')).getByRole('region', { name: '表示領域' })
+    for (let element = stage.parentElement; element !== null; element = element.parentElement) {
+      expect(element).not.toHaveClass('overflow-hidden')
+    }
   })
 
   test('名前を打つと、その名前の載ったOBS用URLをその場で見せる（名前とURLの関わりを文章で説明しない）', async () => {
     renderPage(fakeApi())
 
-    await userEvent.type(await screen.findByLabelText('追加するオーバーレイの名前'), 'talk')
+    await userEvent.type(await openAddOverlay(), 'talk')
 
     expect(screen.getByText(`${window.location.origin}/overlay/stage/?key=…&overlay=talk`)).toBeInTheDocument()
   })
 
   test('URLは読み上げの通知に載せず、追加できない理由だけを通知する（1文字ごとにURL全体を読み上げさせない）', async () => {
     renderPage(fakeApi())
-    const nameField = await screen.findByLabelText('追加するオーバーレイの名前')
+    const nameField = await openAddOverlay()
 
     await userEvent.type(nameField, 'talk')
     expect(screen.getByText(`${window.location.origin}/overlay/stage/?key=…&overlay=talk`).closest('[aria-live]')).toBeNull()
@@ -737,18 +778,18 @@ describe('オーバーレイ', () => {
   test('すでにある名前を打つと、追加できない理由をその場で出す（押せないボタンを黙って出さない）', async () => {
     renderPage(fakeApi())
 
-    await userEvent.type(await screen.findByLabelText('追加するオーバーレイの名前'), 'back')
+    await userEvent.type(await openAddOverlay(), 'back')
 
     expect(screen.getByText(/この名前のオーバーレイはすでにあります/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'オーバーレイを追加する' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '追加' })).toBeDisabled()
   })
 
   test('素材を1つも持たないオーバーレイは送らない（貼っても何も映らないURLを作らせない）', async () => {
     const api = fakeApi()
     renderPage(api)
 
-    await userEvent.type(await screen.findByLabelText('追加するオーバーレイの名前'), 'talk')
-    await userEvent.click(screen.getByRole('button', { name: 'オーバーレイを追加する' }))
+    await userEvent.type(await openAddOverlay(), 'talk')
+    await userEvent.click(screen.getByRole('button', { name: '追加' }))
     await save()
 
     expect(api.save).toHaveBeenCalledWith([back, front])

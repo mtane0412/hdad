@@ -22,7 +22,7 @@ import { sideSuperParamSchema } from '../side-super/params'
 import { textParamSchema } from '../text/params'
 import { backgrounds } from '../wallpaper/registry'
 import { roundPercent } from './drag'
-import { DEFAULT_OVERLAY_NAMES, RECOMMENDED_ITEM_SIZES, STAGE_SIZE, type ItemKind, type Overlay } from './layout'
+import { RECOMMENDED_ITEM_SIZES, STAGE_SIZE, type ItemKind, type Overlay } from './layout'
 
 /** 素材の種類の、画面に出す名前。worker/ の型は読み込めないのでここで持ち直す（src/admin/form.ts と同じ扱い） */
 export const ITEM_KIND_LABELS: Readonly<Record<ItemKind, string>> = {
@@ -363,16 +363,6 @@ export const itemLabel = (draft: ItemDraft): string => {
 /** 問題点の位置を読み替えるための、送った順の名前を作る */
 export const overlayLabelsOf = (drafts: readonly OverlayDraft[]): OverlayLabels[] =>
   drafts.map((draft) => ({ name: draft.name, items: draft.items.map(itemLabel) }))
-
-/**
- * 素材を置くオーバーレイの選択肢。既定の2つと、いま構成にある名前を重複なく並べる。
- *
- * 選択欄から選ばせるのは、名前がOBSに貼るURLに載るためである（手で打つと、打ち間違いに気づくのが
- * 「配信中に何も映らなかったとき」になる）。新しい名前は「オーバーレイを追加する」だけで作る。
- */
-export const overlayNameChoices = (drafts: readonly OverlayDraft[]): string[] => [
-  ...new Set([...DEFAULT_OVERLAY_NAMES, ...drafts.map((draft) => draft.name)]),
-]
 
 /** Workerが問題点の先頭に付ける位置（overlays[0].items[1].rect.width の形。番号は0始まり） */
 const PROBLEM_POSITION = /^overlays\[(\d+)\]\.(?:items\[(\d+)\]\.)?([A-Za-z.]+)(?=:)/
