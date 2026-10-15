@@ -10,7 +10,7 @@ paths:
 
 - Twitchは同じ Client ID で作った報酬しか更新・削除させないので、一覧には `manageable` を添え、`false` の報酬には編集欄も削除のボタンも出さない
 - 書き換えには配信者のトークンの `channel:manage:redemptions` が要る。無ければTwitchへ送る前に `missing-scope` で断り、ログインし直しを求める。一覧は `channel:read:redemptions` で読めるので、トリガーの管理画面はスコープが無くても使える
-- トリガーに使われている報酬は削除させない（`reward-in-use`。素材の削除と同じ）
+- トリガーに使われている報酬と、チャットで推理の「質問」「解答」の報酬は削除させない（`reward-in-use`。素材の削除と同じ。チャットで推理は `.claude/rules/chat-deduction.md`）
 - 待機時間・上限回数は `null` を「制限なし」とする（画面の空欄。Twitchへは `is_*_enabled: false` だけを送る）。Twitchは無効の項目を 0 で返すので、応答を読むときに `null` へ読み替える。待機時間は60〜604800秒（60秒未満はTwitchの画面に出ないため）
 - 画面にはTwitchの報酬のページ（`dashboard.twitch.tv/u/<login>/viewer-rewards/channel-points/rewards`）へのリンクを置く（画像などHDADで扱えない設定のため）
 - 報酬の画像は表示だけにする（`imageUrl`。アップロードした画像が無ければTwitchの既定の画像。どちらも無ければ応答の形が違うとして投げる）。Helixは画像の登録・変更を受け付けない

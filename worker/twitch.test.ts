@@ -386,6 +386,27 @@ describe('updateCustomReward', () => {
   })
 })
 
+describe('setCustomRewardEnabled', () => {
+  it('報酬のIDを指定して、交換できるかどうか（is_enabled）だけをHelixへ送り、更新後の報酬を返す', async () => {
+    const { requests, fetchImpl } = fetchReturning(200, { data: [{ ...twitchReward, is_enabled: false }] })
+
+    const reward = await createClient(fetchImpl).setCustomRewardEnabled('test-access-token', '12345', '報酬ID-乾杯', false)
+
+    expect(reward.isEnabled).toBe(false)
+    const request = requests[0]!
+    expect(request.method).toBe('PATCH')
+    const url = new URL(request.url)
+    expect(url.searchParams.get('broadcaster_id')).toBe('12345')
+    expect(url.searchParams.get('id')).toBe('報酬ID-乾杯')
+    expect(await request.json()).toEqual({ is_enabled: false })
+  })
+
+  it('報酬が消されていればTwitchが404を返し、エラーになる', async () => {
+    const { fetchImpl } = fetchReturning(404, { error: 'Not Found', status: 404, message: 'reward not found' })
+    await expect(createClient(fetchImpl).setCustomRewardEnabled('test-access-token', '12345', '報酬ID-乾杯', true)).rejects.toMatchObject({ status: 404 })
+  })
+})
+
 describe('deleteCustomReward', () => {
   it('報酬のIDを指定してHelixへ削除を送る（成功の応答は本文のない204）', async () => {
     const { requests, fetchImpl } = fetchReturningNoBody(204)
