@@ -15,6 +15,7 @@ import type { KanjiQuizCall, KanjiQuizNotice, StreamStopOrder } from './kanji-qu
 import type { LickCall } from './lick-call'
 import type { VrmCall } from './vrm-call'
 import type { OpinionBoardSnapshot } from './opinion'
+import type { ChatDeductionBoard } from './chat-deduction-board'
 import type { OverlayLayout } from './overlay-layout'
 import type { TextsSnapshot } from './text'
 import type { TownTourAnswerMessage, TownTourCall } from './town-tour-call'
@@ -60,6 +61,8 @@ export const createFakeAlertChannel = ({ shouldFail = false, noStreamStopReceive
   pushedStreamStops: StreamStopOrder[]
   /** 押し出された意見ボード */
   pushedOpinions: OpinionBoardSnapshot[]
+  /** 押し出されたチャットで推理のカードの一覧 */
+  pushedChatDeductions: ChatDeductionBoard[]
   /** 押し出されたペロペロの呼び出し */
   pushedLicks: LickCall[]
   /** 押し出されたVRMの演出の呼び出し */
@@ -86,6 +89,7 @@ export const createFakeAlertChannel = ({ shouldFail = false, noStreamStopReceive
   const evictedKanjiQuizNotices: KanjiQuizNotice[] = []
   const evictedStreamStops: StreamStopOrder[] = []
   const evictedOpinions: OpinionBoardSnapshot[] = []
+  const evictedChatDeductions: ChatDeductionBoard[] = []
   const evictedLicks: LickCall[] = []
   const evictedVrms: VrmCall[] = []
   const evictedOverlayLayouts: OverlayLayout[] = []
@@ -109,6 +113,7 @@ export const createFakeAlertChannel = ({ shouldFail = false, noStreamStopReceive
     pushedKanjiQuizNotices: evictedKanjiQuizNotices,
     pushedStreamStops: evictedStreamStops,
     pushedOpinions: evictedOpinions,
+    pushedChatDeductions: evictedChatDeductions,
     pushedLicks: evictedLicks,
     pushedVrms: evictedVrms,
     pushedOverlayLayouts: evictedOverlayLayouts,
@@ -143,6 +148,7 @@ export const createFakeAlertChannel = ({ shouldFail = false, noStreamStopReceive
           else if (pathname === '/push/speech-mute') evictedSpeechMutes.push((await request.json()) as SpeechMute)
           else if (pathname === '/push/text') evictedTexts.push((await request.json()) as TextsSnapshot)
           else if (pathname === '/push/opinions') evictedOpinions.push((await request.json()) as OpinionBoardSnapshot)
+          else if (pathname === '/push/chat-deduction') evictedChatDeductions.push((await request.json()) as ChatDeductionBoard)
           else if (pathname === '/push/lick') evictedLicks.push((await request.json()) as LickCall)
           else if (pathname === '/push/vrm') evictedVrms.push((await request.json()) as VrmCall)
           else if (pathname === '/push/overlay-layout') evictedOverlayLayouts.push((await request.json()) as OverlayLayout)

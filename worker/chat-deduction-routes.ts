@@ -7,13 +7,22 @@
  * - POST /api/admin/chat-deduction/games: 問題（{ problemId }）を選んでゲームを始め、2つの報酬を交換できるようにする
  * - POST /api/admin/chat-deduction/games/:id/end: 2つの報酬を交換できないようにしてから、ゲームを終える（配信者が打ち切った）
  *
+ * 合成ページの素材「チャットで推理」（issue #378）は、オーバーレイ用キーで次の経路を使う。
+ * - GET /api/overlay/chat-deduction: 最後に始めたゲームのカードの一覧を返す（worker/chat-deduction-board.ts）
+ * - GET /api/overlay/chat-deduction/socket: 変わったカードの一覧を押し出してもらう WebSocket の接続を、配送先へ引き渡す
+ * ゲームを始めた・終えたら、カードの一覧を押し出す。押し出せなくても始めた・終えたことは取り消さず、502で知らせる
+ * （報酬の切り替えはもう済んでいるため。意見ボードと同じ扱い）。
+ *
  * 注意: 報酬の切り替えに失敗したら、開始・終了を黙って進めない（方針4）。開始ではゲームを始めなかったことにし、
  * 終了ではゲームを開催中のまま残して、配信者がやり直せるようにする。
  */
 import { CHAT_DEDUCTION_PROBLEMS } from '../src/chat-deduction/problem-set'
+import { connectChatDeductionSocket } from './alert-channel'
+import { pushLatestChatDeductionBoard, readChatDeductionBoard } from './chat-deduction-board'
 import { createChatDeductionRewards, loadChatDeductionRewards, setChatDeductionRewardsEnabled, type ChatDeductionRewards } from './chat-deduction-rewards'
 import { cancelGame, endGame, readCurrentGame, readLatestGame, startGame, type ChatDeductionGame } from './chat-deduction-store'
-import { HttpError, STATUS, requireAdmin, type Context } from './http'
+import { HttpError, STATUS, requireAdmin, requireOverlayKey, type Context } from './http'
+import { overlayKeyTag } from './overlay-key'
 import { getManageToken } from './reward-routes'
 
 /** 経路の :id として受け付ける書式（1以上の整数） */
@@ -25,6 +34,18 @@ const readJson = (context: Context): Promise<unknown> =>
   context.request.json().catch(() => {
     throw new HttpError(STATUS.badRequest, 'invalid-body', '本文はJSONにしてください')
   })
+
+/**
+ * 最後に始めたゲームのカードの一覧を合成ページへ押し出す。
+ *
+ * @param done 押し出せなかったときのメッセージに添える、もう済んだこと（「ゲームを始めました」など）
+ * @throws HttpError 押し出せなければ502（済んだことは取り消さない）
+ */
+const pushBoard = async (context: Context, done: string): Promise<void> => {
+  await pushLatestChatDeductionBoard(context.env.DB, context.env.ALERTS, CHAT_DEDUCTION_PROBLEMS).catch((error: unknown) => {
+    throw new HttpError(STATUS.badGateway, 'chat-deduction-push-failed', `${done}が、合成ページへ知らせられませんでした（${reasonOf(error)}）`)
+  })
+}
 
 /**
  * 控えた報酬のIDを読む。
@@ -95,6 +116,7 @@ export const postChatDeductionGame = async (context: Context): Promise<Response>
       )
     throw new HttpError(STATUS.badGateway, 'chat-deduction-rewards-failed', `報酬を交換できるようにできなかったので、ゲームを始めませんでした（${reasonOf(error)}）${rollback}`)
   }
+  await pushBoard(context, 'ゲームを始めました')
   return Response.json({ game } satisfies { game: ChatDeductionGame }, { status: STATUS.created })
 }
 
@@ -121,5 +143,21 @@ export const postEndChatDeductionGame = async (context: Context): Promise<Respon
   })
   const game = await endGame(env.DB, current.id, 'stopped', now)
   if (game === null) throw new HttpError(STATUS.notFound, 'chat-deduction-game-not-open', `ゲーム「${raw}」は開催中ではありません（別の窓で終えられた可能性があります）`)
+  await pushBoard(context, 'ゲームを終えました')
   return Response.json({ game } satisfies { game: ChatDeductionGame })
+}
+
+/** GET /api/overlay/chat-deduction?key=: 最後に始めたゲームのカードの一覧を返す（開催中は正解の表記を伏せる） */
+export const getOverlayChatDeduction = async (context: Context): Promise<Response> => {
+  await requireOverlayKey(context)
+  return Response.json(await readChatDeductionBoard(context.env.DB, CHAT_DEDUCTION_PROBLEMS))
+}
+
+/** GET /api/overlay/chat-deduction/socket?key=: 合成ページからのWebSocketの接続を、カードの一覧を受け取る接続として配送先へ引き渡す */
+export const chatDeductionSocket = async (context: Context): Promise<Response> => {
+  const key = await requireOverlayKey(context)
+  if (context.request.headers.get('Upgrade') !== 'websocket') {
+    throw new HttpError(STATUS.badRequest, 'expected-websocket', 'この経路はWebSocketの接続にだけ使えます')
+  }
+  return connectChatDeductionSocket(context.env.ALERTS, context.request, await overlayKeyTag(key))
 }

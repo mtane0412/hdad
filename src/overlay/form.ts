@@ -47,6 +47,7 @@ export const ITEM_KIND_LABELS: Readonly<Record<ItemKind, string>> = {
   opinions: '意見ボード',
   lick: 'ペロペロ',
   vrm: 'VRM',
+  chatDeduction: 'チャットで推理',
 }
 
 /** Workerが返す問題点に出る項目の名前を、画面の言い方にする */
@@ -86,6 +87,7 @@ const DESIGNS: Readonly<Record<ItemKind, readonly DesignItem[]>> = {
   opinions: [],
   lick: [],
   vrm: [],
+  chatDeduction: [],
 }
 
 /**

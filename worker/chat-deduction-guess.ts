@@ -7,7 +7,8 @@
  *    行がもうあれば再送なので何もしない（二重に照合しない）
  * 2. Twitch へ2xxを返したあとで（waitUntil）、問題集の別名と照合する（src/chat-deduction/guess.ts。LLM は使わない）。
  *    正解なら正解者を1人に決めてゲームを終え（solveGame）、2つの報酬を交換できないようにする。不正解なら記録する
- * 3. 正解・不正解の交換は FULFILLED、受け付けなかった交換（開催中でない・照合までにゲームが終わった）は CANCELED にしてポイントを返す
+ * 3. 正解・不正解の交換は FULFILLED、受け付けなかった交換（開催中でない・照合までにゲームが終わった）は CANCELED にしてポイントを返す。
+ *    正誤を決めた解答はカードになるので、照合のすぐあとに合成ページへカードの一覧を押し出す（issue #378。worker/chat-deduction-board.ts）
  *
  * 注意: 終了の経路（配信者の打ち切り）と違い、ここではゲームを先に終えてから報酬を交換できないようにする。正解者は通知が届いた
  *   順に決まるので、報酬の切り替えの成否で正解を取り消さないためである。切り替えに失敗したら収集の失敗として残し、交換の更新は続ける
@@ -16,6 +17,7 @@
 import { isCorrectChatDeductionGuess } from '../src/chat-deduction/guess'
 import { CHAT_DEDUCTION_PROBLEMS } from '../src/chat-deduction/problem-set'
 import { recordLateFailure } from './alert-actions'
+import { pushBoardAfterRedemption } from './chat-deduction-board'
 import { setChatDeductionRewardsEnabled, type ChatDeductionRewards } from './chat-deduction-rewards'
 import { markGuessWrong, readGame, reserveGuess, solveGame, type ChatDeductionGuess } from './chat-deduction-store'
 import { HttpError, STATUS, type Context } from './http'
@@ -65,6 +67,8 @@ const settle = async (context: Context, rewards: ChatDeductionRewards, guess: Ch
   const { env, twitch, now } = context
   // 正誤はトークンの有無にかかわらず決める（トークンが古いだけで正解者が出なかったことにしない）
   const { status, solved } = await judge(context, guess)
+  // 正誤を決めた解答だけがカードになる（受け付けなかった解答では、映すものが変わらない）
+  if (status === 'FULFILLED') await pushBoardAfterRedemption(context, `${guess.userName}さんの解答「${guess.guess}」の正誤`)
   /** 正解でゲームを終えたのに報酬を止められなかったことを、配信者が /rewards/ で直せるよう残す */
   const recordRewardsFailure = (error: unknown) =>
     recordFailure(env.DB, 'chat-deduction-rewards-failed', `${guess.userName}さんの正解でゲームを終えましたが、報酬を交換できないようにできませんでした。/rewards/ で確かめてください: ${reasonOf(error)}`, now)

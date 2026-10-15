@@ -284,4 +284,56 @@ describe('チャットで推理の解答の受け口', () => {
     expect(response.status).toBe(400)
     expect(storedGuesses(env)).toEqual([])
   })
+
+  it('不正解なら、不正解のカードを合成ページへ押し出す（issue #378）', async () => {
+    const env = createEnv()
+    const delivery = createFakeAlertChannel()
+    env.ALERTS = delivery.namespace
+    await prepare(env)
+    await startGame(env.DB, 'mount-fuji', NOW - 60 * 1000)
+
+    await deliver(env, notificationOf(guessOf({ user_input: '阿蘇山' })), fakeTwitch().fetchImpl)
+
+    expect(delivery.pushedChatDeductions).toMatchObject([
+      { game: { endedAt: null, answer: null }, cards: [{ kind: 'guess', id: 1, userName: '田中太郎', text: '阿蘇山', correct: false }] },
+    ])
+  })
+
+  it('正解なら、正解のカードと正解の表記を合成ページへ押し出す（「正解は富士山でした」を出すため）', async () => {
+    const env = createEnv()
+    const delivery = createFakeAlertChannel()
+    env.ALERTS = delivery.namespace
+    await prepare(env)
+    await startGame(env.DB, 'mount-fuji', NOW - 60 * 1000)
+
+    await deliver(env, notificationOf(guessOf()), fakeTwitch().fetchImpl)
+
+    expect(delivery.pushedChatDeductions).toMatchObject([
+      { game: { endReason: 'solved', answer: '富士山' }, cards: [{ kind: 'guess', userName: '田中太郎', text: '富士山', correct: true }] },
+    ])
+  })
+
+  it('受け付けなかった解答では押し出さない（映すものが変わらないため）', async () => {
+    const env = createEnv()
+    const delivery = createFakeAlertChannel()
+    env.ALERTS = delivery.namespace
+    await prepare(env)
+
+    await deliver(env, notificationOf(guessOf()), fakeTwitch().fetchImpl)
+
+    expect(delivery.pushedChatDeductions).toEqual([])
+  })
+
+  it('合成ページへ押し出せなくても、交換は FULFILLED にし、押し出せなかったことを収集の失敗として残す', async () => {
+    const env = createEnv()
+    env.ALERTS = createFakeAlertChannel({ shouldFail: true }).namespace
+    await prepare(env)
+    await startGame(env.DB, 'mount-fuji', NOW - 60 * 1000)
+    const twitch = fakeTwitch()
+
+    await deliver(env, notificationOf(guessOf({ user_input: '阿蘇山' })), twitch.fetchImpl)
+
+    expect(twitch.updates).toEqual([{ rewardId: ANSWER_REWARD_ID, redemptionId: '交換ID-1', status: 'FULFILLED' }])
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'chat-deduction-push-failed' }])
+  })
 })

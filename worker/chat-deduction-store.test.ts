@@ -13,6 +13,7 @@ import {
   markGuessWrong,
   readCurrentGame,
   readGame,
+  readGameCards,
   readLatestGame,
   reserveGuess,
   reserveQuestion,
@@ -315,5 +316,58 @@ describe('解答の受け付けと正誤の記録（reserveGuess・markGuessWron
 
     expect(await solveGame(db, guess!.id, LATER)).toMatchObject({ status: 'rejected', rejectReason: 'closed' })
     expect(await readGame(db, game!.id)).toMatchObject({ endReason: 'stopped' })
+  })
+})
+
+describe('合成ページに並べるカードの読み取り（readGameCards。issue #378）', () => {
+  const LIMITS = { maxQuestionsPerGame: 30, cooldownMs: 0 }
+  /** 田中太郎さんの交換（質問・解答の両方に使う） */
+  const tanaka = { userId: '田中太郎のユーザーID', userLogin: 'tanaka_taro', userName: '田中太郎' }
+  const suzuki = { userId: '鈴木花子のユーザーID', userLogin: 'suzuki_hanako', userName: '鈴木花子' }
+
+  it('答えた質問と正誤を決めた解答を、答え・正誤を決めた順に並べる', async () => {
+    const db = createFakeDatabase()
+    const game = await startGame(db, 'mount-fuji', NOW)
+    const first = await reserveQuestion(db, { ...tanaka, redemptionId: '交換ID-1', question: '生き物ですか？' }, LIMITS, NOW)
+    const second = await reserveQuestion(db, { ...suzuki, redemptionId: '交換ID-2', question: '日本にありますか？' }, LIMITS, NOW + 1000)
+    const wrong = await reserveGuess(db, { ...tanaka, redemptionId: '交換ID-3', guess: '琵琶湖' }, NOW + 2000)
+    const correct = await reserveGuess(db, { ...suzuki, redemptionId: '交換ID-4', guess: '富士山' }, NOW + 3000)
+    // 答えた順は受けた順と違ってよい（2つ目の質問のほうが先に答えが出た）
+    await answerQuestion(db, second!.id, { verdict: 'yes', reply: '日本にあります。' }, NOW + 1500)
+    await answerQuestion(db, first!.id, { verdict: 'no', reply: '生き物ではありません。' }, NOW + 1800)
+    await markGuessWrong(db, wrong!.id, NOW + 2500)
+    await solveGame(db, correct!.id, NOW + 3500)
+
+    expect(await readGameCards(db, game!.id)).toEqual([
+      { kind: 'question', id: second!.id, userName: '鈴木花子', text: '日本にありますか？', verdict: 'yes', reply: '日本にあります。' },
+      { kind: 'question', id: first!.id, userName: '田中太郎', text: '生き物ですか？', verdict: 'no', reply: '生き物ではありません。' },
+      { kind: 'guess', id: wrong!.id, userName: '田中太郎', text: '琵琶湖', correct: false },
+      { kind: 'guess', id: correct!.id, userName: '鈴木花子', text: '富士山', correct: true },
+    ])
+  })
+
+  it('答え待ち・失敗した・受け付けなかった質問と、照合待ち・受け付けなかった解答は並べない（ポイントを返したものは映さない）', async () => {
+    const db = createFakeDatabase()
+    const game = await startGame(db, 'mount-fuji', NOW)
+    await reserveQuestion(db, { ...tanaka, redemptionId: '交換ID-1', question: '答え待ちの質問' }, LIMITS, NOW)
+    const failed = await reserveQuestion(db, { ...suzuki, redemptionId: '交換ID-2', question: 'LLM が答えられなかった質問' }, LIMITS, NOW)
+    await failQuestion(db, failed!.id, 'LLM の返事が2行ではありません', NOW + 1000)
+    await reserveGuess(db, { ...tanaka, redemptionId: '交換ID-3', guess: '照合待ちの解答' }, NOW)
+    const late = await reserveGuess(db, { ...suzuki, redemptionId: '交換ID-4', guess: '富士山' }, NOW)
+    await endGame(db, game!.id, 'stopped', NOW + 1000)
+    await solveGame(db, late!.id, NOW + 2000)
+
+    expect(await readGameCards(db, game!.id)).toEqual([])
+  })
+
+  it('ほかのゲームの質問と解答は並べない', async () => {
+    const db = createFakeDatabase()
+    const before = await startGame(db, 'mount-fuji', NOW)
+    const question = await reserveQuestion(db, { ...tanaka, redemptionId: '交換ID-1', question: '生き物ですか？' }, LIMITS, NOW)
+    await answerQuestion(db, question!.id, { verdict: 'no', reply: '生き物ではありません。' }, NOW)
+    await endGame(db, before!.id, 'stopped', NOW + 1000)
+    const after = await startGame(db, 'natsume-soseki', LATER)
+
+    expect(await readGameCards(db, after!.id)).toEqual([])
   })
 })

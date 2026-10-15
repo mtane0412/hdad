@@ -16,7 +16,7 @@
  */
 
 /** オーバーレイに置ける素材の種類。worker/overlay-layout.ts の ITEM_KINDS と合わせる */
-export const ITEM_KINDS = ['wallpaper', 'clock', 'chat', 'alerts', 'sideSuper', 'focus', 'draw', 'bgm', 'tab', 'caption', 'workLog', 'taskDesk', 'pomodoro', 'townTour', 'twister', 'wipe', 'text', 'kanjiQuiz', 'opinions', 'lick', 'vrm'] as const
+export const ITEM_KINDS = ['wallpaper', 'clock', 'chat', 'alerts', 'sideSuper', 'focus', 'draw', 'bgm', 'tab', 'caption', 'workLog', 'taskDesk', 'pomodoro', 'townTour', 'twister', 'wipe', 'text', 'kanjiQuiz', 'opinions', 'lick', 'vrm', 'chatDeduction'] as const
 
 /** オーバーレイに置ける素材の種類 */
 export type ItemKind = (typeof ITEM_KINDS)[number]
@@ -53,6 +53,7 @@ export const STAGE_SIZE = { width: 1920, height: 1080 } as const
  * テキストは画面の隅に置く札なので、本文の上限（4行）が収まる高さと、1行が折り返しすぎない幅にする。
  * 漢字クイズは熟語を画面の真ん中に大きく出し、奥から近づけるので、配信画面と同じ大きさにする。
  * 意見ボードはテーマを中央に、論点を左右に3つずつ並べるので、配信画面と同じ大きさにする。
+ * チャットで推理は画面の横の余白にカードを縦に積むので、カード6枚と見出し・下の帯が収まる縦長の大きさにする。
  */
 export const RECOMMENDED_ITEM_SIZES: Readonly<Record<ItemKind, { readonly width: number; readonly height: number }>> = {
   wallpaper: STAGE_SIZE,
@@ -76,6 +77,7 @@ export const RECOMMENDED_ITEM_SIZES: Readonly<Record<ItemKind, { readonly width:
   opinions: STAGE_SIZE,
   lick: STAGE_SIZE,
   vrm: { width: 480, height: 720 },
+  chatDeduction: { width: 600, height: 760 },
 }
 
 /** オーバーレイの中での位置と大きさ（オーバーレイの幅・高さに対する割合。％） */

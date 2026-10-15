@@ -8,6 +8,7 @@
  * - 同じ通知の再送で二重に答えないこと
  * - ほかの報酬・ほかのチャンネルの交換、報酬をまだ作っていないときは何もしないこと
  * - 交換の状態を更新できなかったら、収集の失敗として残すこと
+ * - 答えた質問を合成ページへ押し出し、押し出せなくても交換の更新は続けて失敗として残すこと（issue #378）
  */
 import { createHmac } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
@@ -309,5 +310,47 @@ describe('チャットで推理の質問の受け口', () => {
 
     expect(storedQuestions(env)).toMatchObject([{ status: 'answered' }])
     expect(await listFailures(env.DB)).toMatchObject([{ code: 'chat-deduction-redemption-failed', message: expect.stringContaining('404') }])
+  })
+
+  it('答えたら、カードの一覧を合成ページへ押し出す（issue #378）', async () => {
+    const { env } = createEnv()
+    const delivery = createFakeAlertChannel()
+    env.ALERTS = delivery.namespace
+    await prepare(env)
+    await startGame(env.DB, 'mount-fuji', NOW - 60 * 1000)
+
+    await deliver(env, notificationOf(redemptionOf()), fakeTwitch().fetchImpl)
+
+    expect(delivery.pushedChatDeductions.map(({ cards }) => cards)).toEqual([
+      [{ kind: 'question', id: 1, userName: '田中太郎', text: '日本にありますか？', verdict: 'yes', reply: '静岡県と山梨県にまたがっています。' }],
+    ])
+  })
+
+  it('受け付けなかった・答えられなかった質問では押し出さない（映すものが変わらないため）', async () => {
+    const { env } = createEnv({ llmShouldFail: true })
+    const delivery = createFakeAlertChannel()
+    env.ALERTS = delivery.namespace
+    await prepare(env)
+    const twitch = fakeTwitch()
+    // 開催中のゲームが無いときの質問
+    await deliver(env, notificationOf(redemptionOf()), twitch.fetchImpl)
+    // LLM が答えられなかった質問
+    await startGame(env.DB, 'mount-fuji', NOW - 60 * 1000)
+    await deliver(env, notificationOf(redemptionOf({ id: '交換ID-2' }), 'message-2'), twitch.fetchImpl)
+
+    expect(delivery.pushedChatDeductions).toEqual([])
+  })
+
+  it('合成ページへ押し出せなくても、交換は FULFILLED にし、押し出せなかったことを収集の失敗として残す', async () => {
+    const { env } = createEnv()
+    env.ALERTS = createFakeAlertChannel({ shouldFail: true }).namespace
+    await prepare(env)
+    await startGame(env.DB, 'mount-fuji', NOW - 60 * 1000)
+    const twitch = fakeTwitch()
+
+    await deliver(env, notificationOf(redemptionOf()), twitch.fetchImpl)
+
+    expect(twitch.updates).toEqual([{ rewardId: QUESTION_REWARD_ID, redemptionId: '交換ID-1', status: 'FULFILLED' }])
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'chat-deduction-push-failed' }])
   })
 })

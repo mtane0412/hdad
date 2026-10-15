@@ -3,10 +3,11 @@
  *
  * 実際の通信はせず、fetch を差し替える。アプリのページ（/chat-deduction/）が、報酬のIDと最後のゲームを読み、
  * 報酬を作り、ゲームを始め・終えられることを確かめる（issue #375）。
+ * 合成ページの素材がオーバーレイ用キーでカードの一覧を読めることも確かめる（issue #378）。
  */
 import { describe, expect, it } from 'vitest'
 import { ApiError } from '../core/api'
-import { createChatDeductionApi, type ChatDeductionGame } from './api'
+import { createChatDeductionApi, createChatDeductionOverlayApi, type ChatDeductionGame } from './api'
 
 const rewards = { questionRewardId: '報酬ID-質問', answerRewardId: '報酬ID-解答' }
 const game: ChatDeductionGame = { id: 1, problemId: 'mount-fuji', startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null }
@@ -67,5 +68,26 @@ describe('createChatDeductionApi', () => {
     const { fetchImpl } = createFetchWithResponse(502, { error: { code: 'chat-deduction-rewards-failed', message: '報酬を交換できるようにできなかったので、ゲームを始めませんでした' } })
 
     await expect(createChatDeductionApi(fetchImpl).startGame('mount-fuji')).rejects.toThrow(ApiError)
+  })
+})
+
+describe('createChatDeductionOverlayApi', () => {
+  const OVERLAY_KEY = 'overlay-key_0123456789abcdefghij'
+  const board = {
+    game: { id: 1, category: 'place', startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null },
+    cards: [{ kind: 'question', id: 1, userName: '田中太郎', text: '日本にありますか？', verdict: 'yes', reply: '静岡県と山梨県にまたがっています。' }],
+  }
+
+  it('オーバーレイ用キー付きの経路から、カードの一覧を読む', async () => {
+    const { calls, fetchImpl } = createFetchWithResponse(200, board)
+
+    expect(await createChatDeductionOverlayApi(fetchImpl, OVERLAY_KEY).read()).toEqual(board)
+    expect(calls.map((call) => call.path)).toEqual([`/api/overlay/chat-deduction?key=${encodeURIComponent(OVERLAY_KEY)}`])
+  })
+
+  it('カードの形が違えばエラーにする', async () => {
+    const { fetchImpl } = createFetchWithResponse(200, { ...board, cards: [{ kind: 'question', id: 1 }] })
+
+    await expect(createChatDeductionOverlayApi(fetchImpl, OVERLAY_KEY).read()).rejects.toThrow('cards')
   })
 })
