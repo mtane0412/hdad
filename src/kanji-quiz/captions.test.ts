@@ -4,7 +4,8 @@
  * 級の見出し・出題させた人・正解の読みの並べ方を決める。描くのは view.ts で、ここは文言だけを受け持つ。
  */
 import { describe, expect, it } from 'vitest'
-import { answerLineOf, gradeHeadlineOf, requesterLineOf, stopBannerLineOf, winnerLineOf, wrongAnswerLineOf } from './captions'
+import { answerLineOf, gradeHeadlineOf, requesterLineOf, stakesLineOf, stopBannerLineOf, winnerLineOf, wrongAnswerLineOf } from './captions'
+import { ANSWER_LIMIT_MS } from './scene'
 
 describe('gradeHeadlineOf', () => {
   it('「漢検○級」の形にする（準のつく級も同じ）', () => {
@@ -48,5 +49,13 @@ describe('stopBannerLineOf', () => {
 describe('wrongAnswerLineOf', () => {
   it('不正解の回答を、答えた人の名前と一緒に「直前の回答」として1行にする', () => {
     expect(wrongAnswerLineOf({ userName: '田中太郎', answer: 'いちじょう' })).toBe('直前の回答：いちじょう（田中太郎さん）')
+  })
+})
+
+describe('stakesLineOf', () => {
+  it('制限時間の秒数を添えて、誰も正解しなければ配信が終わることを告げる', () => {
+    // 前提: 制限時間は scene.ts の ANSWER_LIMIT_MS（15秒）から取る
+    expect(ANSWER_LIMIT_MS).toBe(15_000)
+    expect(stakesLineOf()).toBe('15秒以内に誰も正解できなければ配信終了')
   })
 })
