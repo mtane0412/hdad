@@ -14,7 +14,7 @@ paths:
 - 待機時間・上限回数は `null` を「制限なし」とする（画面の空欄。Twitchへは `is_*_enabled: false` だけを送る）。Twitchは無効の項目を 0 で返すので、応答を読むときに `null` へ読み替える。待機時間は60〜604800秒（60秒未満はTwitchの画面に出ないため）
 - 画面にはTwitchの報酬のページ（`dashboard.twitch.tv/u/<login>/viewer-rewards/channel-points/rewards`）へのリンクを置く（画像などHDADで扱えない設定のため）
 - 報酬の画像は表示だけにする（`imageUrl`。アップロードした画像が無ければTwitchの既定の画像。どちらも無ければ応答の形が違うとして投げる）。Helixは画像の登録・変更を受け付けない
-- 交換の完了・返金（`PATCH .../redemptions`）は持たない
+- 交換の完了・返金（`PATCH .../redemptions`）は持たない。例外はチャットで推理の「質問」の報酬だけで、答えたら完了・受け付けなかったら取り消しにする（`twitch.ts` の `updateRedemptionStatus`。`.claude/rules/chat-deduction.md`）
 
 → `docs/decisions/rewards.md`
 

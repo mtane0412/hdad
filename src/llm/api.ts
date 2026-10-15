@@ -45,6 +45,7 @@ export const LLM_USAGES = [
   'opinionSort',
   'opinionPrompt',
   'opinionSummary',
+  'chatDeductionAnswer',
 ] as const
 
 /** 字幕の翻訳の提供元。worker/translation-config.ts の TRANSLATION_PROVIDERS と合わせる（画面の選択欄に出す順になる） */

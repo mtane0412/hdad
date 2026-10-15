@@ -17,6 +17,7 @@ const VALIDATE_URL = 'https://id.twitch.tv/oauth2/validate'
 const REVOKE_URL = 'https://id.twitch.tv/oauth2/revoke'
 const SUBSCRIPTIONS_URL = 'https://api.twitch.tv/helix/eventsub/subscriptions'
 const CUSTOM_REWARDS_URL = 'https://api.twitch.tv/helix/channel_points/custom_rewards'
+const REDEMPTIONS_URL = 'https://api.twitch.tv/helix/channel_points/custom_rewards/redemptions'
 const STREAMS_URL = 'https://api.twitch.tv/helix/streams'
 /** チャンネルの情報。配信していなくても、最後に配信したカテゴリとタイトルが返る */
 const CHANNELS_URL = 'https://api.twitch.tv/helix/channels'
@@ -149,6 +150,9 @@ export interface CustomReward extends CustomRewardInput {
    */
   imageUrl: string
 }
+
+/** チャンネルポイントの交換を更新するときの状態（FULFILLED: 完了。CANCELED: 取り消してポイントを返す） */
+export type RedemptionStatus = 'FULFILLED' | 'CANCELED'
 
 /** 報酬の一覧を取るときの絞り込み */
 export interface CustomRewardQuery {
@@ -325,6 +329,16 @@ export interface TwitchClient {
    * @throws TwitchApiError Twitchが拒否した（このアプリが作っていない報酬には403、消された報酬には404が返る）
    */
   setCustomRewardEnabled(accessToken: string, broadcasterId: string, rewardId: string, isEnabled: boolean): Promise<CustomReward>
+  /**
+   * チャンネルポイントの交換を、完了（FULFILLED）か取り消し（CANCELED。視聴者へポイントを返す）にする。
+   * 配信者のトークンと channel:manage:redemptions が必要。
+   *
+   * 待ち行列に残っている（未完了の）交換だけを更新できる。チャットで推理の質問の交換を、答えたら完了に、
+   * 受け付けなかったら取り消しにするために使う（issue #376）。
+   *
+   * @throws TwitchApiError Twitchが拒否した（このアプリが作っていない報酬には403、処理済みの交換には404が返る）
+   */
+  updateRedemptionStatus(accessToken: string, broadcasterId: string, rewardId: string, redemptionId: string, status: RedemptionStatus): Promise<void>
   /** 配信者がいま行っている配信。配信していなければ null */
   getLiveStream(accessToken: string, broadcasterId: string): Promise<LiveStream | null>
   /**
@@ -858,6 +872,21 @@ export const createTwitchClient = ({
         body: JSON.stringify({ is_enabled: isEnabled }),
       })
       return readSingleReward(await readJson(response))
+    },
+
+    updateRedemptionStatus: async (accessToken, broadcasterId, rewardId, redemptionId, status) => {
+      const url = new URL(REDEMPTIONS_URL)
+      url.searchParams.set('broadcaster_id', broadcasterId)
+      url.searchParams.set('reward_id', rewardId)
+      url.searchParams.set('id', redemptionId)
+      // 応答の本文（更新後の交換）は使わないので、成否だけを確かめる
+      await ensureOk(
+        await fetchImpl(url, {
+          method: 'PATCH',
+          headers: { ...helixHeaders(accessToken), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status }),
+        }),
+      )
     },
 
     deleteCustomReward: async (accessToken, broadcasterId, rewardId) => {

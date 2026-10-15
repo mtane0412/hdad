@@ -909,6 +909,10 @@ describe('LLMの設定（/api/admin/llm）', () => {
         provider: 'workers-ai',
         models: { 'workers-ai': '@cf/meta/llama-3.3-70b-instruct-fp8-fast', openrouter: 'meta-llama/llama-3.3-70b-instruct' },
       },
+      chatDeductionAnswer: {
+        provider: 'workers-ai',
+        models: { 'workers-ai': '@cf/meta/llama-3.3-70b-instruct-fp8-fast', openrouter: 'meta-llama/llama-3.3-70b-instruct' },
+      },
     },
   }
 
@@ -954,6 +958,7 @@ describe('LLMの設定（/api/admin/llm）', () => {
       'workers-ai',
       'workers-ai',
       'openrouter',
+      'workers-ai',
       'workers-ai',
       'workers-ai',
       'workers-ai',

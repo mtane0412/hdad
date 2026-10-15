@@ -46,6 +46,7 @@ import {
 import { HttpError, STATUS, type Context } from './http'
 import { recordEvent, recordFailure, recordRaid, recordStreamOffline, recordStreamOnline, type RaidDetail } from './stats-store'
 import { extract } from './alert-event'
+import { handleChatDeductionRedemption } from './chat-deduction-question'
 import { loadToken, type StoredToken } from './token'
 
 export const WEBHOOK_PATH = '/api/eventsub/webhook'
@@ -543,6 +544,8 @@ export const eventsubWebhook = async (context: Context): Promise<Response> => {
       else {
         await recordNotification({ db: env.DB, messageId, occurredAt, body })
         await runAlertActions(context, type, body, messageId, async () => (await loadToken(env.TOKENS, 'bot')) !== null, null)
+        // チャットで推理の「質問」の報酬の交換なら、質問として受ける（答えと交換の更新は応答のあとに回る）
+        await handleChatDeductionRedemption(context, type, body.event)
         // 広告は開始しか届かないので、終了の告知に使う時刻をここで預ける（開始の告知そのものは上で済んでいる）
         if (type === AD_BREAK_BEGIN) await scheduleAdBreakEndIfNeeded(context, body, messageId)
       }
