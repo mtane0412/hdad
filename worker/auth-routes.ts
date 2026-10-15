@@ -55,17 +55,33 @@ const roleFromState = (state: string): TokenRole => {
   return role
 }
 
+/**
+ * 認可の開始が、このサイト自身からの遷移（リンク・アドレスバー）であることを確かめる。
+ *
+ * 注意: 開始は GET で、セッションのクッキーは SameSite=Lax なので、他のサイトからのリンク遷移にもクッキーが付く。
+ * そのため Origin ではなくブラウザが付ける Sec-Fetch-Site を見る。ヘッダーがない場合も、送信元を確かめられないので拒否する（Fail-Fast）。
+ */
+const requireSameSiteNavigation = (request: Request): void => {
+  const site = request.headers.get('Sec-Fetch-Site')
+  if (site !== 'same-origin' && site !== 'none') {
+    throw new HttpError(STATUS.forbidden, 'cross-origin', 'botの接続は、このサイトの画面（チャットボットのページ）から始めてください')
+  }
+}
+
 export const login = async (context: Context): Promise<Response> => {
   const { url, twitch } = context
   const role = readRole(url)
-  // botの接続は、配信者本人しか始められないようにする（Twitchの認可画面まで進ませない）
-  if (role === 'bot') await requireSession(context)
+  // botの接続は、配信者本人が自分のサイトから始めたときだけ受け付ける（Twitchの認可画面まで進ませない）
+  if (role === 'bot') {
+    await requireSession(context)
+    requireSameSiteNavigation(context.request)
+  }
 
   const state = `${role}${STATE_SEPARATOR}${randomToken()}`
   return new Response(null, {
     status: STATUS.found,
     headers: {
-      Location: twitch.authorizeUrl(`${url.origin}${CALLBACK_PATH}`, state, ROLES[role].scopes),
+      Location: twitch.authorizeUrl(`${url.origin}${CALLBACK_PATH}`, state, ROLES[role].scopes, role === 'bot'),
       'Set-Cookie': setCookie(STATE_COOKIE, state, STATE_TTL_SECONDS),
     },
   })
