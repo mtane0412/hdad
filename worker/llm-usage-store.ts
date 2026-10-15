@@ -109,3 +109,16 @@ export const listLlmUsage = async (db: Database, sinceDay: string): Promise<LlmU
     .all<LlmUsageRow>()
   return results
 }
+
+/**
+ * 指定した日（UTC）に、ある箇所のLLMを呼んだ回数（成功と失敗の合計。提供元・モデルをまたいで足す）を読む。
+ *
+ * 呼び出しの歯止め（aiChat の1日の上限）の判定に使う。
+ */
+export const countLlmCalls = async (db: Database, usage: string, day: string): Promise<number> => {
+  const row = await db
+    .prepare('SELECT COALESCE(SUM(calls + failures), 0) AS total FROM llm_usage WHERE day = ?1 AND usage = ?2')
+    .bind(day, usage)
+    .first<{ total: number }>()
+  return row?.total ?? 0
+}

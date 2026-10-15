@@ -14,7 +14,7 @@
  */
 import { loadAlertConfig, type AlertConfig, type StoredAnnounceAction } from './alert-config'
 import { pushAlert, pushLick, pushVrm, pushTownTour, pushTwister } from './alert-channel'
-import { generateChatMessage } from './ai-chat'
+import { AI_CHAT_COOLDOWN_SECONDS, AI_CHAT_DAILY_LIMIT, generateChatMessage } from './ai-chat'
 import {
   aiChatsFor,
   alertsFor,
@@ -33,7 +33,8 @@ import { resolveConditionState } from './alert-state'
 import type { ConditionState } from './alert-event'
 import { announceAsBot, sendAsBot, shoutoutAsBot } from './bot-chat'
 import type { ChatMessage } from './chat-command'
-import { reserveChatReply } from './chat-store'
+import { consumeCooldown, reserveChatReply } from './chat-store'
+import { countLlmCalls, toUtcDay } from './llm-usage-store'
 import { HttpError, STATUS, type Context } from './http'
 import { loadOverlayKey } from './overlay-key'
 import { latestViewerCount, recordFailure } from './stats-store'
@@ -275,11 +276,18 @@ export const runAlertActions = async (
     // LLMの応答を待つとTwitchへの2xxが遅れ、同じ通知を再送されてしまう。応答を返してから続きを走らせる
     context.waitUntil(
       recordLateFailure(context, 'alert-aichat-failed', () =>
-        sendAndRecordFailure(context, messageId, 'aiChat', index, 'alert-aichat-failed', () => sendAiChat(context, aiChat, state, chatMessage, summary)),
+        sendAndRecordFailure(context, messageId, 'aiChat', index, 'alert-aichat-failed', () =>
+          sendAiChat(context, aiChat, subscriptionType, index, state, chatMessage, summary),
+        ),
       ),
     )
   }
 }
+
+/** 1日の上限に達したことを失敗として記録した時刻を持つ鍵（command_uses の行。コマンド名と重ならない形にしてある） */
+const AI_CHAT_LIMIT_NOTICE_KEY = 'aiChat:limit-notice'
+/** 上限に達したことの記録を繰り返さない秒数 */
+const AI_CHAT_LIMIT_NOTICE_SECONDS = 60 * 60
 
 /**
  * LLMに文面を作らせて、botとしてチャットへ送る。
@@ -298,11 +306,27 @@ export const runAlertActions = async (
 const sendAiChat = async (
   context: AlertActionContext,
   aiChat: ReturnType<typeof aiChatsFor>[number],
+  subscriptionType: string,
+  index: number,
   state: ConditionState,
   chatMessage: ChatMessage | null,
   streamSummary: string | null,
 ): Promise<void> => {
-  const { env, llm } = context
+  const { env, llm, now } = context
+
+  // 費用の歯止め。LLMを呼ぶ前に、同じ人への続けての返信と、その日の呼び出しの総量を止める
+  const cooldownKey = `aiChat:${subscriptionType}:${index}:${chatMessage?.chatterUserId ?? 'event'}`
+  // クールダウン中は想定どおりの抑止なので、失敗としては記録せず黙って見送る
+  if (!(await consumeCooldown(env.DB, cooldownKey, AI_CHAT_COOLDOWN_SECONDS, now))) return
+  const todayCalls = await countLlmCalls(env.DB, 'aiChat', toUtcDay(now))
+  if (todayCalls >= AI_CHAT_DAILY_LIMIT) {
+    // 上限を超えた日は発言のたびにここへ来るので、失敗の記録は一定時間に1回だけにする（最新50件のほかの失敗を押し流さないため）
+    if (await consumeCooldown(env.DB, AI_CHAT_LIMIT_NOTICE_KEY, AI_CHAT_LIMIT_NOTICE_SECONDS, now)) {
+      throw new Error(`aiChat の1日の上限（${AI_CHAT_DAILY_LIMIT}回）に達したため、LLMを呼ばずに見送りました。上限を超えた間は、この記録は1時間に1回だけ残します`)
+    }
+    return
+  }
+
   const viewer = chatMessage === null ? null : await readViewer(env.DB, chatMessage.chatterUserId)
   const message = await generateChatMessage(llm, { instruction: aiChat.instruction, extracted: aiChat.extracted, viewer, state, streamSummary })
   await sendAsBot(context, message)

@@ -25,6 +25,22 @@ const MAX_TOKENS = 300
 /** Twitchへ送る1通の上限（worker/alert-config.ts・worker/alert-event.ts と同じ値） */
 const MAX_CHAT_MESSAGE_LENGTH = 500
 
+/**
+ * 同じ人の発言に続けて文面を作らない秒数。
+ *
+ * 発言のたびにLLMを呼ぶと、連投する人1人で無料枠や残高を使い切れてしまう。
+ * 数える単位は「トリガーの位置 × 発言した人」で、発言者のいないイベント（フォローなど）は「トリガーの位置 × イベントの種類」とする。
+ */
+export const AI_CHAT_COOLDOWN_SECONDS = 60
+
+/**
+ * 1日（UTC）に文面を作ってよい回数の上限。失敗した呼び出しも数える。
+ *
+ * 無料枠（Workers AI の1日10,000 Neurons）は字幕の翻訳やあらすじなど他の箇所と共有なので、
+ * aiChat だけで食い尽くさないための歯止めである。設定項目にはせず、変えるときはこの値を直す（docs/principles.md の方針）。
+ */
+export const AI_CHAT_DAILY_LIMIT = 200
+
 /** 文面を作るための材料 */
 export interface AiChatMaterial {
   /** 配信者が書いた、文面の作り方の指示 */
