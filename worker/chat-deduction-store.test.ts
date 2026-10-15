@@ -5,7 +5,20 @@
  * 報酬をONにできなかったときに開始を取り消せることを、migrations/ を適用したメモリ上の SQLite で確かめる（issue #375）。
  */
 import { describe, expect, it } from 'vitest'
-import { answerQuestion, cancelGame, endGame, failQuestion, readCurrentGame, readGame, readLatestGame, reserveQuestion, startGame } from './chat-deduction-store'
+import {
+  answerQuestion,
+  cancelGame,
+  endGame,
+  failQuestion,
+  markGuessWrong,
+  readCurrentGame,
+  readGame,
+  readLatestGame,
+  reserveGuess,
+  reserveQuestion,
+  solveGame,
+  startGame,
+} from './chat-deduction-store'
 import { createFakeDatabase } from './fake-database'
 
 const NOW = Date.parse('2026-10-15T12:00:00.000Z')
@@ -213,5 +226,94 @@ describe('ゲームの読み取り（readGame）', () => {
 
     expect(await readGame(db, game!.id)).toEqual(game)
     expect(await readGame(db, 999)).toBeNull()
+  })
+})
+
+describe('解答の受け付けと正誤の記録（reserveGuess・markGuessWrong・solveGame。issue #377）', () => {
+  /** 田中太郎さんの解答の交換 */
+  const tanakaGuesses = (redemptionId: string, guess = '富士山') => ({
+    redemptionId,
+    userId: '田中太郎のユーザーID',
+    userLogin: 'tanaka_taro',
+    userName: '田中太郎',
+    guess,
+  })
+  const suzukiGuesses = (redemptionId: string) => ({ ...tanakaGuesses(redemptionId), userId: '鈴木花子のユーザーID', userLogin: 'suzuki_hanako', userName: '鈴木花子' })
+
+  it('開催中のゲームがあれば、照合待ち（pending）として残し、ゲームのIDを添えて返す', async () => {
+    const db = createFakeDatabase()
+    const game = await startGame(db, 'mount-fuji', NOW)
+
+    const guess = await reserveGuess(db, tanakaGuesses('交換ID-1'), NOW)
+
+    expect(guess).toEqual({
+      id: 1,
+      gameId: game!.id,
+      redemptionId: '交換ID-1',
+      userId: '田中太郎のユーザーID',
+      userLogin: 'tanaka_taro',
+      userName: '田中太郎',
+      guess: '富士山',
+      status: 'pending',
+      rejectReason: null,
+      guessedAt: '2026-10-15T12:00:00.000Z',
+      settledAt: null,
+    })
+  })
+
+  it('同じ交換のIDが再送されたら何も書かず null を返す（二重に照合しない）', async () => {
+    const db = createFakeDatabase()
+    await startGame(db, 'mount-fuji', NOW)
+    await reserveGuess(db, tanakaGuesses('交換ID-1'), NOW)
+
+    expect(await reserveGuess(db, tanakaGuesses('交換ID-1'), LATER)).toBeNull()
+  })
+
+  it('開催中のゲームが無ければ、理由 no-game で受け付けなかった（rejected）として残す', async () => {
+    const db = createFakeDatabase()
+
+    expect(await reserveGuess(db, tanakaGuesses('交換ID-1'), NOW)).toMatchObject({ gameId: null, status: 'rejected', rejectReason: 'no-game', settledAt: '2026-10-15T12:00:00.000Z' })
+  })
+
+  it('不正解の解答は、不正解（wrong）として残す', async () => {
+    const db = createFakeDatabase()
+    await startGame(db, 'mount-fuji', NOW)
+    const guess = await reserveGuess(db, tanakaGuesses('交換ID-1', '阿蘇山'), NOW)
+
+    expect(await markGuessWrong(db, guess!.id, LATER)).toMatchObject({ status: 'wrong', settledAt: new Date(LATER).toISOString() })
+  })
+
+  it('正解の解答は、正解（correct）にしたうえでゲームを solved で終える', async () => {
+    const db = createFakeDatabase()
+    const game = await startGame(db, 'mount-fuji', NOW)
+    const guess = await reserveGuess(db, tanakaGuesses('交換ID-1'), NOW)
+
+    expect(await solveGame(db, guess!.id, LATER)).toMatchObject({ status: 'correct', settledAt: new Date(LATER).toISOString() })
+    expect(await readGame(db, game!.id)).toMatchObject({ endedAt: new Date(LATER).toISOString(), endReason: 'solved' })
+  })
+
+  it('受けたあとにほかの人が先に正解したら、正解にせず理由 closed で受け付けなかったことにする（正解者は1人だけ）', async () => {
+    const db = createFakeDatabase()
+    const game = await startGame(db, 'mount-fuji', NOW)
+    // 2人の正解がほぼ同時に届き、どちらもゲームの開催中に受けた
+    const tanaka = await reserveGuess(db, tanakaGuesses('交換ID-1'), NOW)
+    const suzuki = await reserveGuess(db, suzukiGuesses('交換ID-2'), NOW)
+
+    await solveGame(db, tanaka!.id, NOW + 1000)
+    const late = await solveGame(db, suzuki!.id, NOW + 2000)
+
+    expect(late).toMatchObject({ status: 'rejected', rejectReason: 'closed' })
+    // ゲームを終えた時刻は先に正解した田中太郎さんのもの
+    expect(await readGame(db, game!.id)).toMatchObject({ endedAt: new Date(NOW + 1000).toISOString(), endReason: 'solved' })
+  })
+
+  it('受けたあとに配信者がゲームを打ち切っていたら、正解にせず理由 closed で受け付けなかったことにする', async () => {
+    const db = createFakeDatabase()
+    const game = await startGame(db, 'mount-fuji', NOW)
+    const guess = await reserveGuess(db, tanakaGuesses('交換ID-1'), NOW)
+    await endGame(db, game!.id, 'stopped', NOW + 1000)
+
+    expect(await solveGame(db, guess!.id, LATER)).toMatchObject({ status: 'rejected', rejectReason: 'closed' })
+    expect(await readGame(db, game!.id)).toMatchObject({ endReason: 'stopped' })
   })
 })
