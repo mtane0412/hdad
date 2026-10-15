@@ -2,8 +2,8 @@
  * 漢字クイズの描画（Canvas 2D）
  *
  * 1フレームぶんの場面（scene.ts の kanjiQuizSceneAt）と出題を受け取り、次を描く。
- * - 級の場面: 画面の真ん中に「漢検○級」と、出題させた人
- * - 出題の場面: 上の帯に級と出題させた人と残り秒数、真ん中に熟語（倍率は場面が決め、ctx.scale で奥から近づける）。
+ * - 級の場面: 画面の真ん中に「漢検○級」と、出題させた人と、誰も正解しなければ配信が終わること
+ * - 出題の場面: 上の帯に級と出題させた人と残り秒数、その下に誰も正解しなければ配信が終わること、真ん中に熟語（倍率は場面が決め、ctx.scale で奥から近づける）。
  *   最後の数秒は残り秒数を熟語の下に大きく赤で出す。チャットの不正解の回答が届いていれば、最後の1件を熟語のすぐ下（いまの倍率での下端の下）に「直前の回答」として出す
  * - 答えの場面: はじめは「時間切れ！」（正解者が届いていれば「○○さん 正解！」。issue #301）だけを真ん中に大きく出し、
  *   解説の場面（scene.explanation）になったら、見出しを小さくして画面の真ん中の横帯の上に載せる。
@@ -14,7 +14,7 @@
  * テストを持たない（canvas に描くだけのため）。
  */
 import { wrapText } from '../town-tour/wrap'
-import { answerLineOf, gradeHeadlineOf, requesterLineOf, stopBannerLineOf, winnerLineOf, wrongAnswerLineOf } from './captions'
+import { answerLineOf, gradeHeadlineOf, requesterLineOf, stakesLineOf, stopBannerLineOf, winnerLineOf, wrongAnswerLineOf } from './captions'
 import type { KanjiQuizCall } from './call'
 import type { KanjiQuizScene, KanjiQuizStopBanner } from './scene'
 
@@ -55,6 +55,10 @@ const SIZES = {
   wrongAnswerFont: 44,
   wrongAnswerHeight: 76,
   wrongAnswerGap: 16,
+  /** 誰も正解しなければ配信が終わることを告げる一文（級の場面と、出題の場面の上の帯の下） */
+  stakesFont: 44,
+  stakesHeight: 76,
+  stakesGap: 16,
 } as const
 
 /** 熟語・カウントダウンの縁取りの太さ（文字の大きさに対する割合） */
@@ -112,13 +116,18 @@ const centerText = (ctx: CanvasRenderingContext2D, text: string, x: number, y: n
 const drawGrade = (ctx: CanvasRenderingContext2D, width: number, height: number, unit: number, call: KanjiQuizCall, progress: number): void => {
   ctx.globalAlpha = Math.min(1, progress / GRADE_FADE_PORTION)
   const panelWidth = width * GRADE_PANEL_WIDTH_RATIO
-  const panelHeight = (SIZES.gradeFont + SIZES.requesterFont * 2 + SIZES.panelPadding * 2) * unit
+  // 見出しと出題させた人の下に、配信が終わることを告げる一文のぶんだけ板を伸ばし、全体を上へずらす
+  const stakesBlock = SIZES.stakesFont * SIZES.lineGap * unit
+  const panelHeight = (SIZES.gradeFont + SIZES.requesterFont * 2 + SIZES.panelPadding * 2) * unit + stakesBlock
+  const centerY = height / 2 - stakesBlock / 2
   fillPanel(ctx, (width - panelWidth) / 2, (height - panelHeight) / 2, panelWidth, panelHeight, SIZES.panelRadius * unit)
-  centerText(ctx, gradeHeadlineOf(call.problem.grade), width / 2, height / 2 - SIZES.requesterFont * HALF_LINE_RATIO * unit, `bold ${SIZES.gradeFont * unit}px ${SANS_FAMILY}`, COLORS.accent)
+  centerText(ctx, gradeHeadlineOf(call.problem.grade), width / 2, centerY - SIZES.requesterFont * HALF_LINE_RATIO * unit, `bold ${SIZES.gradeFont * unit}px ${SANS_FAMILY}`, COLORS.accent)
   const requester = requesterLineOf(call.requesterName)
   if (requester !== null) {
-    centerText(ctx, requester, width / 2, height / 2 + SIZES.gradeFont * HALF_LINE_RATIO * unit, `${SIZES.requesterFont * unit}px ${SANS_FAMILY}`, COLORS.sub)
+    centerText(ctx, requester, width / 2, centerY + SIZES.gradeFont * HALF_LINE_RATIO * unit, `${SIZES.requesterFont * unit}px ${SANS_FAMILY}`, COLORS.sub)
   }
+  const stakesY = centerY + SIZES.gradeFont * HALF_LINE_RATIO * unit + SIZES.requesterFont * unit + stakesBlock / 2
+  centerText(ctx, stakesLineOf(), width / 2, stakesY, `bold ${SIZES.stakesFont * unit}px ${SANS_FAMILY}`, COLORS.countdown)
   ctx.globalAlpha = 1
 }
 
@@ -147,6 +156,18 @@ const drawBand = (ctx: CanvasRenderingContext2D, width: number, unit: number, ca
     ctx.textAlign = 'right'
     ctx.fillText(`残り ${remainingSeconds}秒`, width - margin * 2, middle)
   }
+}
+
+/** 上の帯のすぐ下に、誰も正解しなければ配信が終わることを、文字の幅に合わせた板に載せて描く */
+const drawStakes = (ctx: CanvasRenderingContext2D, width: number, unit: number): void => {
+  const line = stakesLineOf()
+  const font = `bold ${SIZES.stakesFont * unit}px ${SANS_FAMILY}`
+  ctx.font = font
+  const panelWidth = ctx.measureText(line).width + SIZES.panelPadding * 2 * unit
+  const panelHeight = SIZES.stakesHeight * unit
+  const top = (SIZES.margin + SIZES.bandHeight + SIZES.stakesGap) * unit
+  fillPanel(ctx, (width - panelWidth) / 2, top, panelWidth, panelHeight, SIZES.panelRadius * unit)
+  centerText(ctx, line, width / 2, top + panelHeight / 2, font, COLORS.countdown)
 }
 
 /** 熟語を、真ん中を中心に倍率を掛けて描く（奥から近づいてくる） */
@@ -196,6 +217,7 @@ const drawQuestion = (
 ): void => {
   // 大きなカウントダウンを出しているあいだは、帯の残り秒数を重ねて出さない
   drawBand(ctx, width, unit, call, scene.countdown ? null : scene.remainingSeconds)
+  drawStakes(ctx, width, unit)
   const wordY = scene.countdown ? height * COUNTDOWN_WORD_Y_RATIO : height / 2
   drawWord(ctx, call.problem.word, width / 2, wordY, SIZES.wordFont * unit, scene.wordScale)
   if (wrongAnswer !== null) {
