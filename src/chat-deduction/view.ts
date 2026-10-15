@@ -9,15 +9,20 @@
  *   data-verdict で見た目（chat-deduction.css）を分ける
  * - 解答のカード: 正解・不正解の印と解答・送った人の名前。data-result で見た目を分け、正解のカードは目立たせる
  * 下の帯は、開催中は参加のしかた、終えたら「正解は○○でした」（正解者が出たら名前も）を出す。ゲームが無ければ何も出さない。
+ * 終えたゲームは、終えてから ENDED_GAME_REVEAL_MS のあいだだけ映して消す（次のゲームまで画面に残し続けないため）。
  *
  * 注意: 変わっていないカードの要素は作り直さない（ゲームとカードの種類・IDごとに使い回す）。作り直すと、出現のアニメーションが
  * 新しいカードだけでなく全部のカードで走ってしまう。
+ * 注意: 消す時刻は Worker が決めた終えた時刻（endedAt）と、この端末の時計から決める。時計が数秒ずれていれば、映す長さも数秒ずれる。
  */
 import { categoryLabelOf } from './category'
 import type { ChatDeductionBoard, ChatDeductionBoardGame, ChatDeductionCard, ChatDeductionVerdict } from './board'
 
 /** 並べるカードの数。返事が2行に折り返しても、中央の板（src/chat-deduction/chat-deduction.css）に収まる数にする */
 export const MAX_VISIBLE_CARDS = 5
+
+/** 終えたゲームの正解を映しておく長さ（ミリ秒）。過ぎたら板ごと消す */
+export const ENDED_GAME_REVEAL_MS = 60_000
 
 /** 見出しの素材の名前 */
 const TITLE = 'チャットで推理'
@@ -29,6 +34,11 @@ const VERDICT_LABELS: Readonly<Record<ChatDeductionVerdict, string>> = {
   yes: 'はい',
   no: 'いいえ',
   unknown: '分からない',
+}
+
+export interface ChatDeductionViewOptions {
+  /** 終えたゲームを ENDED_GAME_REVEAL_MS ののちに消すか。プレビューのサンプル（終えた時刻が固定）では消さない */
+  readonly hideEndedGame: boolean
 }
 
 export interface ChatDeductionView {
@@ -69,8 +79,9 @@ const keyOf = (game: ChatDeductionBoardGame, card: ChatDeductionCard): string =>
  * 表示を組み立てる。
  *
  * @param root 表示を入れる要素（合成ページが作る [data-chat-deduction] の要素）
+ * @param options 終えたゲームを消すか（既定は消す）
  */
-export const createChatDeductionView = (root: HTMLElement): ChatDeductionView => {
+export const createChatDeductionView = (root: HTMLElement, { hideEndedGame }: ChatDeductionViewOptions = { hideEndedGame: true }): ChatDeductionView => {
   const board = element('div', 'chat-deduction-board')
   board.hidden = true
   const header = element('header', 'chat-deduction-header')
@@ -87,15 +98,33 @@ export const createChatDeductionView = (root: HTMLElement): ChatDeductionView =>
 
   /** いま並べているカードの要素（鍵ごと） */
   let shown = new Map<string, HTMLLIElement>()
+  /** 終えたゲームを消す予約。新しい一覧を受け取るたびに取り消して決め直す */
+  let hideTimer: ReturnType<typeof setTimeout> | undefined
+
+  /** 板を隠して、並べていたカードを捨てる */
+  const clear = (): void => {
+    board.hidden = true
+    list.replaceChildren()
+    shown = new Map()
+  }
 
   return {
     setBoard: ({ game, cards }) => {
-      board.hidden = game === null
+      clearTimeout(hideTimer)
+      hideTimer = undefined
       if (game === null) {
-        list.replaceChildren()
-        shown = new Map()
+        clear()
         return
       }
+      if (hideEndedGame && game.endedAt !== null) {
+        const remaining = Date.parse(game.endedAt) + ENDED_GAME_REVEAL_MS - Date.now()
+        if (remaining <= 0) {
+          clear()
+          return
+        }
+        hideTimer = setTimeout(clear, remaining)
+      }
+      board.hidden = false
       category.textContent = `お題: ${categoryLabelOf(game.category)}`
 
       const next = new Map<string, HTMLLIElement>()
