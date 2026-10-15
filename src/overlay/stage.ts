@@ -2050,8 +2050,8 @@ const mountVrm = (box: HTMLElement, item: OverlayItem, { key, demo }: MountConte
  *
  * Worker から押し出された出題（問題1問と交換した人）を届いた順に1件ずつ流す。場面（級→熟語が奥から近づく→制限時間→正解と解説）は
  * 流しはじめてからの経過時間と、正解者が届いた時刻だけから決め（src/kanji-quiz/scene.ts）、canvas 1枚に描く（src/kanji-quiz/view.ts）。
- * 流しはじめたら Worker に出題を開かせ（POST /api/overlay/kanji-quiz/open）、熟語が出てから制限時間のうちに届いた最初の正解者を出す
- * （届いた時刻でカウントダウンを止める。issue #301）。時間切れの後に届いた正解者は出さない。
+ * 流しはじめたら Worker に出題を開かせ（POST /api/overlay/kanji-quiz/open）、届いた最初の正解者を出す（時間切れの判定は Worker が持つので、時間切れのあとに届いた正解者も出す）
+ * （届いた時刻でカウントダウンを止める。issue #301）。
  * 時間切れで配信を止めるまでの猶予が届いたら、解説に重ねて配信終了までの残り秒数を出し、取り消し・猶予の終わりの結果を出し終えるまで延ばす（issue #302）。
  *
  * 音は出題に添えられた設定の枠ごとに、鳴らす時刻の表（src/kanji-quiz/sound-cues.ts）に沿って鳴らす。時刻はタイマーで確かめ
@@ -2113,12 +2113,14 @@ const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo, hub }:
     bgmApi.duck(holdMs).catch((error: unknown) => showError(error, NOUNS.kanjiQuiz, box, 'read'))
   }
 
-  /** 流している出題の正解者が届いたら、届いた時刻を記録する（最初の1人だけ。熟語が出てから制限時間のうちだけ受け入れる） */
+  /**
+   * 流している出題の正解者が届いたら、届いた時刻を記録する（最初の1人だけ）。
+   * 時間切れの判定は Worker が持つので、合成ページの時間切れのあとに届いた正解者も出す
+   * （Worker は遅れの余裕を足して受け付け、正解者を決めた出題では配信を止めない。捨てると「時間切れなのに止まらない」に見える）
+   */
   const acceptAnswer = (quizId: string, userName: string): void => {
     if (playback === null || playback.call.id !== quizId || playback.answer !== null) return
-    const afterMs = Date.now() - playback.startedAt
-    if (!acceptsAnswerAt(afterMs)) return
-    playback = { ...playback, answer: { userName, afterMs } }
+    playback = { ...playback, answer: { userName, afterMs: Date.now() - playback.startedAt } }
     // クイズの BGM は正解者が届いた時刻で下げるので、配信の BGM を下げておく長さも縮める
     duckStreamBgm(Date.now())
   }

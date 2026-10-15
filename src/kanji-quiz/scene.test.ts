@@ -119,12 +119,37 @@ describe('正解者が届いたとき（issue #301）', () => {
   })
 })
 
+describe('時間切れのあとに正解者が届いたとき', () => {
+  // 前提: 時間切れの判定は Worker が持ち、Worker は遅れの余裕を足して受け付けるので、合成ページでは時間切れのあとに正解者が届くことがある。
+  //   Worker が正解者を決めた出題では配信が止まらないので、画面も時間切れのままにせず正解者を出す
+  /** 時間切れの0.8秒後に正解者が届いた */
+  const lateAnsweredAfterMs = afterWord(ANSWER_LIMIT_MS + 800)
+
+  it('時間切れまでは出題の場面で、熟語は時間切れの先へは近づかない', () => {
+    expect(kanjiQuizSceneAt(afterWord(ANSWER_LIMIT_MS - 1), lateAnsweredAfterMs)).toEqual(kanjiQuizSceneAt(afterWord(ANSWER_LIMIT_MS - 1), null))
+  })
+
+  it('届くまでは時間切れの結果を見せる', () => {
+    expect(kanjiQuizSceneAt(lateAnsweredAfterMs - 1, lateAnsweredAfterMs)).toEqual(kanjiQuizSceneAt(lateAnsweredAfterMs - 1, null))
+  })
+
+  it('届いたら、届いた時刻から正解者の結果を見せ直し、REVEAL_RESULT_MS たってから解説の帯を出す', () => {
+    expect(kanjiQuizSceneAt(lateAnsweredAfterMs, lateAnsweredAfterMs)).toEqual({ kind: 'reveal', progress: 0, explanation: false })
+    expect(kanjiQuizSceneAt(lateAnsweredAfterMs + REVEAL_RESULT_MS, lateAnsweredAfterMs)).toMatchObject({ kind: 'reveal', explanation: true })
+  })
+
+  it('解説は届いた時刻から数えて出し終える', () => {
+    expect(kanjiQuizEndOf(lateAnsweredAfterMs)).toBe(lateAnsweredAfterMs + REVEAL_MS)
+    expect(kanjiQuizSceneAt(lateAnsweredAfterMs + REVEAL_MS, lateAnsweredAfterMs)).toEqual({ kind: 'done' })
+  })
+})
+
 describe('acceptsAnswerAt', () => {
-  it('熟語が出てから制限時間のあいだだけ、正解者を受け入れる', () => {
+  it('熟語が出てから制限時間のあいだだけ、不正解の回答（直前の回答）を受け入れる', () => {
     expect(acceptsAnswerAt(GRADE_INTRO_MS - 1)).toBe(false)
     expect(acceptsAnswerAt(afterWord(0))).toBe(true)
     expect(acceptsAnswerAt(afterWord(ANSWER_LIMIT_MS - 1))).toBe(true)
-    // 時間切れのあとに届いた正解者は出さない（答えと解説の演出は時間切れのまま）
+    // 時間切れのあとに届いた不正解の回答は出さない
     expect(acceptsAnswerAt(afterWord(ANSWER_LIMIT_MS))).toBe(false)
   })
 })

@@ -6,7 +6,7 @@
  * - BGM と「出題」は流しはじめ（級を出したとき）に鳴らす
  * - 「直前の回答」は、制限時間のうちにチャットの不正解の回答が届くたびに、届いた時刻に鳴らす
  * - 「カウントダウン」は最後の COUNTDOWN_SECONDS 秒の大きな数字が切り替わるたびに鳴らす
- * - 正解者が届いたら「正解」、届かなければ時間切れの時刻に「時間切れ」を鳴らす
+ * - 正解者が届いたら「正解」、届かなければ時間切れの時刻に「時間切れ」を鳴らす（時間切れのあとに届いたら、両方を鳴らす）
  * - 結果を REVEAL_RESULT_MS 見せたあと、解説の帯を出す時刻に「解説」を鳴らす
  * - BGM は正解者が届いた時刻か時間切れの時刻で、KANJI_QUIZ_BGM_FADE_OUT_MS かけて下げて止める（結果の音を際立たせるため、解説のあいだは流さない）
  *
@@ -40,13 +40,13 @@ export type KanjiQuizSoundCue =
   /** BGM を duration ミリ秒かけて下げ、止める */
   | { readonly id: string; readonly at: number; readonly type: 'bgmFadeOut'; readonly duration: number }
 
-/** BGM を下げはじめる時刻。正解者が届いていればその時刻、届いていなければ時間切れの時刻 */
-const bgmEndOf = (answeredAfterMs: number | null): number => answeredAfterMs ?? TIME_UP_AT
+/** BGM を下げはじめる時刻。正解者が制限時間のうちに届いていればその時刻、届いていない・時間切れのあとに届いたなら時間切れの時刻 */
+const bgmEndOf = (answeredAfterMs: number | null): number => Math.min(answeredAfterMs ?? TIME_UP_AT, TIME_UP_AT)
 
 /**
  * 1回の出題で鳴らす音の表を、鳴らす順（時刻の順）に作る。
  *
- * @param answeredAfterMs 流しはじめてから正解者が届くまでの経過時間（scene.ts の acceptsAnswerAt が受け入れたもの）。届いていなければ null
+ * @param answeredAfterMs 流しはじめてから正解者が届くまでの経過時間。届いていなければ null
  * @param wrongAnswersAfterMs 流しはじめてから不正解の回答（直前の回答）がそれぞれ届くまでの経過時間（届いた順）
  */
 export const kanjiQuizSoundCuesOf = (
@@ -56,6 +56,8 @@ export const kanjiQuizSoundCuesOf = (
 ): KanjiQuizSoundCue[] => {
   const { slots, bgmVolume, effectVolume } = sound
   const bgmEnd = bgmEndOf(answeredAfterMs)
+  // 時間切れのあとに正解者が届いたら、時間切れの音は時間切れの時刻に鳴らしたままにし、正解の音を届いた時刻に足す
+  const timedOut = answeredAfterMs === null || answeredAfterMs >= TIME_UP_AT
 
   /** 枠に音声が選ばれていれば効果音の1行を作る。「鳴らさない」なら作らない */
   const effect = (slot: Exclude<KanjiQuizSoundSlot, 'bgm'>, id: string, at: number): KanjiQuizSoundCue[] => {
@@ -76,10 +78,11 @@ export const kanjiQuizSoundCuesOf = (
     ...(slots.bgm === null ? [] : [{ id: KANJI_QUIZ_BGM_START_CUE_ID, at: 0, type: 'bgmStart', url: slots.bgm, volume: bgmVolume } as const]),
     ...effect('start', 'start', 0),
     ...countdowns,
-    ...(answeredAfterMs === null ? effect('timeUp', 'timeUp', TIME_UP_AT) : effect('correct', 'correct', answeredAfterMs)),
+    ...(timedOut ? effect('timeUp', 'timeUp', TIME_UP_AT) : []),
+    ...(answeredAfterMs === null ? [] : effect('correct', 'correct', answeredAfterMs)),
     ...(slots.bgm === null ? [] : [{ id: 'bgm-end', at: bgmEnd, type: 'bgmFadeOut', duration: KANJI_QUIZ_BGM_FADE_OUT_MS } as const]),
     // 解説の帯は、正解者が届いた時刻か時間切れの時刻から REVEAL_RESULT_MS たって出る（scene.ts の kanjiQuizSceneAt と同じ時刻）
-    ...effect('explanation', 'explanation', bgmEnd + REVEAL_RESULT_MS),
+    ...effect('explanation', 'explanation', (answeredAfterMs ?? TIME_UP_AT) + REVEAL_RESULT_MS),
   ]
   // 不正解の回答はほかの音のあいだに届くので、時刻の順に並べ直す（同じ時刻のものは上の並びを保つ）
   return [...cues, ...wrongAnswers].sort((a, b) => a.at - b.at)
