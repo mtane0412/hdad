@@ -183,7 +183,7 @@ const drawWord = (ctx: CanvasRenderingContext2D, word: string, centerX: number, 
   ctx.lineJoin = 'round'
   ctx.strokeStyle = COLORS.wordStroke
   ctx.strokeText(word, 0, 0)
-  ctx.fillStyle = COLORS.text
+  ctx.fillStyle = COLORS.accent
   ctx.fillText(word, 0, 0)
   ctx.restore()
 }
