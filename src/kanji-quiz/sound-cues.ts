@@ -81,8 +81,9 @@ export const kanjiQuizSoundCuesOf = (
     ...(timedOut ? effect('timeUp', 'timeUp', TIME_UP_AT) : []),
     ...(answeredAfterMs === null ? [] : effect('correct', 'correct', answeredAfterMs)),
     ...(slots.bgm === null ? [] : [{ id: 'bgm-end', at: bgmEnd, type: 'bgmFadeOut', duration: KANJI_QUIZ_BGM_FADE_OUT_MS } as const]),
-    // 解説の帯は、正解者が届いた時刻か時間切れの時刻から REVEAL_RESULT_MS たって出る（scene.ts の kanjiQuizSceneAt と同じ時刻）
-    ...effect('explanation', 'explanation', (answeredAfterMs ?? TIME_UP_AT) + REVEAL_RESULT_MS),
+    // 解説の帯は、正解者が届いた時刻か時間切れの時刻から REVEAL_RESULT_MS たって出る（scene.ts の kanjiQuizSceneAt と同じ時刻）。
+    // 時間切れのあとに正解者が届いたら帯を見せ直すので、時間切れの解説の音を鳴らし終えていても鳴るよう、別の id にする
+    ...effect('explanation', timedOut && answeredAfterMs !== null ? 'explanation-correct' : 'explanation', (answeredAfterMs ?? TIME_UP_AT) + REVEAL_RESULT_MS),
   ]
   // 不正解の回答はほかの音のあいだに届くので、時刻の順に並べ直す（同じ時刻のものは上の並びを保つ）
   return [...cues, ...wrongAnswers].sort((a, b) => a.at - b.at)

@@ -89,8 +89,16 @@ describe('kanjiQuizSoundCuesOf', () => {
       ['timeUp', timeUpAt],
       ['bgm-end', timeUpAt],
       ['correct', lateAnsweredAt],
-      ['explanation', lateAnsweredAt + REVEAL_RESULT_MS],
+      ['explanation-correct', lateAnsweredAt + REVEAL_RESULT_MS],
     ])
+  })
+
+  it('時間切れの解説の音を鳴らしたあとに正解者が届いても、解説を見せ直すときにもう一度解説の音を鳴らす', () => {
+    // 前提: 時間切れの解説の帯が出て音を鳴らした（REVEAL_RESULT_MS 後）さらに0.5秒後に正解者が届いた
+    const lateAnsweredAt = timeUpAt + REVEAL_RESULT_MS + 500
+    const played = new Set(['bgm', 'start', 'countdown-5', 'countdown-4', 'countdown-3', 'countdown-2', 'countdown-1', 'timeUp', 'bgm-end', 'explanation'])
+    const due = dueKanjiQuizSoundCues(fullSound, lateAnsweredAt + REVEAL_RESULT_MS, lateAnsweredAt, played)
+    expect(due.map((cue) => cue.id)).toEqual(['explanation-correct'])
   })
 
   it('不正解の回答が届くたびに、届いた時刻に「直前の回答」の音を鳴らす（ほかの音と時刻の順に並べる）', () => {
