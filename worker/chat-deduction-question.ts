@@ -2,7 +2,7 @@
  * チャットで推理の質問の受け口（issue #376）
  *
  * EventSub の Webhook に届いたチャンネルポイントの交換のうち、HDAD が作った「質問」の報酬（worker/chat-deduction-rewards.ts）
- * の交換だけを受ける。流れは次のとおり。
+ * の交換を受ける（「解答」の報酬の交換は worker/chat-deduction-guess.ts へ振り分ける。issue #377）。流れは次のとおり。
  * 1. 交換のIDを鍵に質問の行を作り、受け付けるかどうか（開催中のゲーム・1問あたりの上限・同じ人の待ち時間）を同じ1つの文で決める
  *    （worker/chat-deduction-store.ts の reserveQuestion）。行がもうあれば再送なので何もしない（二重に答えない）
  * 2. Twitch へ2xxを返したあとで（waitUntil）、受け付けた質問には LLM に答えさせて D1 に書き、交換を FULFILLED にする。
@@ -16,6 +16,7 @@
 import { CHAT_DEDUCTION_PROBLEMS } from '../src/chat-deduction/problem-set'
 import { recordLateFailure } from './alert-actions'
 import { answerChatDeductionQuestion } from './chat-deduction-answer'
+import { receiveChatDeductionGuess } from './chat-deduction-guess'
 import { loadChatDeductionRewards, type ChatDeductionRewards } from './chat-deduction-rewards'
 import { answerQuestion, failQuestion, readGame, reserveQuestion, type ChatDeductionQuestion, type ChatDeductionQuestionLimits } from './chat-deduction-store'
 import { HttpError, STATUS, type Context } from './http'
@@ -91,15 +92,18 @@ const settle = async (context: Context, rewards: ChatDeductionRewards, question:
 }
 
 /**
- * 届いた通知が「質問」の報酬の交換なら、質問として受ける。ほかの通知・ほかの報酬・ほかのチャンネルの交換では何もしない。
+ * 届いた通知が「質問」の報酬の交換なら質問として受け、「解答」の報酬の交換なら解答として受ける（worker/chat-deduction-guess.ts）。
+ * ほかの通知・ほかの報酬・ほかのチャンネルの交換では何もしない。
  *
- * @throws HttpError 「質問」の交換に必要な項目が揃っていない場合（400）
+ * @throws HttpError 「質問」「解答」の交換に必要な項目が揃っていない場合（400）
  */
 export const handleChatDeductionRedemption = async (context: Context, type: string, event: unknown): Promise<void> => {
   const { env, now } = context
   if (type !== REDEMPTION || !isRecord(event) || event.broadcaster_user_id !== env.TWITCH_BROADCASTER_ID) return
   const rewards = await loadChatDeductionRewards(env.STORE)
-  if (rewards === null || !isRecord(event.reward) || event.reward.id !== rewards.questionRewardId) return
+  if (rewards === null || !isRecord(event.reward)) return
+  if (event.reward.id === rewards.answerRewardId) return receiveChatDeductionGuess(context, rewards, event)
+  if (event.reward.id !== rewards.questionRewardId) return
 
   const question = await reserveQuestion(env.DB, readQuestionRedemption(event), CHAT_DEDUCTION_QUESTION_LIMITS, now)
   // 行がもうある（同じ通知の再送）なら、最初に届いたときに答えている

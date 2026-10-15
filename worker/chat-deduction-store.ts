@@ -1,9 +1,10 @@
 /**
- * チャットで推理のゲームと質問の読み書き（D1 の chat_deduction_games・chat_deduction_questions。issue #375・#376）
+ * チャットで推理のゲームと質問と解答の読み書き（D1 の chat_deduction_games・chat_deduction_questions・chat_deduction_guesses。issue #375〜#377）
  *
  * 開催中のゲーム（ended_at が NULL）は1つだけで、開始のときに1つの文の中で確かめる（意見ボードのテーマと同じ形）。
  * 報酬をONにできなかったときに開始を無かったことにできるよう、開催中のゲームの行は消せる（cancelGame）。
  * 質問は、交換のIDを鍵に行を作るのと、受け付けるかどうか（開催中のゲーム・上限・待ち時間）の判断を1つの文で行う（reserveQuestion）。
+ * 解答も交換のIDを鍵に行を作り（reserveGuess）、正解なら正解者を1人に決めてゲームを終えるまでを1つのトランザクションで行う（solveGame）。
  *
  * 注意: SQL はこのファイルだけが持ち、必ずプレースホルダを使う。
  */
@@ -200,3 +201,107 @@ export const failQuestion = async (db: Database, id: number, failure: string, no
     .prepare(`UPDATE chat_deduction_questions SET status = 'failed', failure = ?2, settled_at = ?3 WHERE id = ?1 AND status = 'pending' RETURNING ${QUESTION_COLUMNS}`)
     .bind(id, failure, toIso(now))
     .first<ChatDeductionQuestion>()
+
+/** 解答の状態（pending: 照合待ち。correct: 正解。wrong: 不正解。rejected: 受け付けなかった） */
+export type ChatDeductionGuessStatus = 'pending' | 'correct' | 'wrong' | 'rejected'
+
+/** 解答を受け付けなかった理由（no-game: 届いたときに開催中のゲームが無い。closed: 照合するまでにゲームが終わった） */
+export type ChatDeductionGuessRejectReason = 'no-game' | 'closed'
+
+/** 視聴者が「解答」の報酬で送った交換 */
+export interface ChatDeductionGuessInput {
+  /** Twitch の交換のID。再送で二重に照合しないための鍵 */
+  redemptionId: string
+  userId: string
+  userLogin: string
+  userName: string
+  /** 交換で書かれた解答（user_input） */
+  guess: string
+}
+
+/** 解答1件 */
+export interface ChatDeductionGuess {
+  id: number
+  /** 解答を受けたゲーム。開催中のゲームが無かったときは null */
+  gameId: number | null
+  redemptionId: string
+  userId: string
+  userLogin: string
+  userName: string
+  guess: string
+  status: ChatDeductionGuessStatus
+  /** 受け付けなかった理由。rejected のときだけ入る */
+  rejectReason: ChatDeductionGuessRejectReason | null
+  guessedAt: string
+  /** 正誤を決めた・受け付けなかった時刻。照合待ちなら null */
+  settledAt: string | null
+}
+
+const GUESS_COLUMNS = `id, game_id AS gameId, redemption_id AS redemptionId, user_id AS userId, user_login AS userLogin, user_name AS userName,
+  guess, status, reject_reason AS rejectReason, guessed_at AS guessedAt, settled_at AS settledAt`
+
+/**
+ * 解答の交換を受けて行を作る。開催中のゲームがあれば照合待ち（pending）、無ければ理由 no-game で受け付けなかった（rejected）にする。
+ *
+ * @returns 作った解答。同じ交換のIDの行がもうあれば（再送）null
+ */
+export const reserveGuess = async (db: Database, input: ChatDeductionGuessInput, now: number): Promise<ChatDeductionGuess | null> =>
+  db
+    .prepare(
+      `INSERT INTO chat_deduction_guesses (game_id, redemption_id, user_id, user_login, user_name, guess, status, reject_reason, guessed_at, settled_at)
+       SELECT game.id, ?1, ?2, ?3, ?4, ?5,
+              CASE WHEN game.id IS NULL THEN 'rejected' ELSE 'pending' END, CASE WHEN game.id IS NULL THEN 'no-game' END,
+              ?6, CASE WHEN game.id IS NULL THEN ?6 END
+       FROM (SELECT 1) AS one LEFT JOIN chat_deduction_games AS game ON game.ended_at IS NULL
+       WHERE true
+       ON CONFLICT (redemption_id) DO NOTHING
+       RETURNING ${GUESS_COLUMNS}`,
+    )
+    .bind(input.redemptionId, input.userId, input.userLogin, input.userName, input.guess, toIso(now))
+    .first<ChatDeductionGuess>()
+
+/**
+ * 照合待ちの解答を不正解（wrong）にする。
+ *
+ * @returns 書いた解答。照合待ちでなければ何も書かず null
+ */
+export const markGuessWrong = async (db: Database, id: number, now: number): Promise<ChatDeductionGuess | null> =>
+  db
+    .prepare(`UPDATE chat_deduction_guesses SET status = 'wrong', settled_at = ?2 WHERE id = ?1 AND status = 'pending' RETURNING ${GUESS_COLUMNS}`)
+    .bind(id, toIso(now))
+    .first<ChatDeductionGuess>()
+
+/**
+ * 照合して正解だった解答で、ゲームを終える。
+ *
+ * 次の3つの文を1つのトランザクション（batch）で行う。
+ * 1. 解答を受けたゲームがまだ開催中なら、解答を正解（correct）にする（ここで正解者が1人に決まる。先に正解した人がいれば、
+ *    その時点でゲームは終わっているので正解にならない）
+ * 2. 解答が正解になったなら、そのゲームを solved で終える
+ * 3. 正解にならなかった（照合待ちのまま残った）なら、理由 closed で受け付けなかった（rejected）にする
+ *
+ * @returns 書いたあとの解答（correct か rejected）
+ * @throws 解答の行が無い場合（呼び出し側の誤り）
+ */
+export const solveGame = async (db: Database, id: number, now: number): Promise<ChatDeductionGuess> => {
+  const settledAt = toIso(now)
+  await db.batch([
+    db
+      .prepare(
+        `UPDATE chat_deduction_guesses SET status = 'correct', settled_at = ?2
+         WHERE id = ?1 AND status = 'pending'
+           AND EXISTS (SELECT 1 FROM chat_deduction_games AS game WHERE game.id = chat_deduction_guesses.game_id AND game.ended_at IS NULL)`,
+      )
+      .bind(id, settledAt),
+    db
+      .prepare(
+        `UPDATE chat_deduction_games SET ended_at = ?2, end_reason = 'solved'
+         WHERE ended_at IS NULL AND id = (SELECT game_id FROM chat_deduction_guesses WHERE id = ?1 AND status = 'correct')`,
+      )
+      .bind(id, settledAt),
+    db.prepare(`UPDATE chat_deduction_guesses SET status = 'rejected', reject_reason = 'closed', settled_at = ?2 WHERE id = ?1 AND status = 'pending'`).bind(id, settledAt),
+  ])
+  const guess = await db.prepare(`SELECT ${GUESS_COLUMNS} FROM chat_deduction_guesses WHERE id = ?1`).bind(id).first<ChatDeductionGuess>()
+  if (guess === null) throw new Error(`チャットで推理の解答（${id}）がありません`)
+  return guess
+}

@@ -241,7 +241,6 @@ describe('チャットで推理の質問の受け口', () => {
   })
 
   it.each([
-    { name: '「解答」の報酬', overrides: { reward: { id: ANSWER_REWARD_ID, title: 'チャットで推理: 解答', cost: 300, prompt: '' } } },
     { name: 'ほかの報酬', overrides: { reward: { id: '報酬ID-乾杯', title: '乾杯', cost: 100, prompt: '' } } },
     { name: 'ほかのチャンネルの「質問」', overrides: { broadcaster_user_id: '99999' } },
   ])('$name の交換では何もしない', async ({ overrides }) => {
