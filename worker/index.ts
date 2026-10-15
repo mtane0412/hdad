@@ -126,6 +126,8 @@
  * | GET  /api/overlay/texts/socket   | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、テキストの配送先へ引き渡す |
  * | GET  /api/overlay/opinions       | オーバーレイ用キー | 意見ボード（人数を含まない）を返す |
  * | GET  /api/overlay/opinions/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、意見ボードの配送先へ引き渡す |
+ * | GET  /api/overlay/chat-deduction | オーバーレイ用キー | チャットで推理の最後に始めたゲームのカードの一覧（開催中は正解を伏せる）を返す |
+ * | GET  /api/overlay/chat-deduction/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、チャットで推理の配送先へ引き渡す |
  * | GET  /api/overlay/town-tour      | オーバーレイ用キー | コードの市町村の紹介を Wikipedia を材料に作って返す |
  * | POST /api/overlay/town-tour/quiz | オーバーレイ用キー | 市町村紹介の冒頭の都道府県当てクイズの出題を開く |
  * | POST /api/overlay/town-tour/visit | オーバーレイ用キー | 市町村紹介を流しきった市町村を、全国制覇マップの記録に残す |
@@ -225,7 +227,14 @@ import {
   putOpinion,
   putOpinionTopic,
 } from './opinion-routes'
-import { getChatDeduction, postChatDeductionGame, postChatDeductionRewards, postEndChatDeductionGame } from './chat-deduction-routes'
+import {
+  chatDeductionSocket,
+  getChatDeduction,
+  getOverlayChatDeduction,
+  postChatDeductionGame,
+  postChatDeductionRewards,
+  postEndChatDeductionGame,
+} from './chat-deduction-routes'
 import {
   getTownTour,
   getTownTourNarration,
@@ -409,6 +418,8 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/overlay/texts/socket', handle: textSocket },
   { method: 'GET', path: '/api/overlay/opinions', handle: getOverlayOpinions },
   { method: 'GET', path: '/api/overlay/opinions/socket', handle: opinionSocket },
+  { method: 'GET', path: '/api/overlay/chat-deduction', handle: getOverlayChatDeduction },
+  { method: 'GET', path: '/api/overlay/chat-deduction/socket', handle: chatDeductionSocket },
   { method: 'GET', path: '/api/overlay/focus', handle: getOverlayFocus },
   { method: 'GET', path: '/api/overlay/wipe/icon', handle: getWipeIcon },
   { method: 'GET', path: '/api/overlay/bgm', handle: getOverlayBgm },

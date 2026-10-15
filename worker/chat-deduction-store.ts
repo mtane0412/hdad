@@ -305,3 +305,46 @@ export const solveGame = async (db: Database, id: number, now: number): Promise<
   if (guess === null) throw new Error(`チャットで推理の解答（${id}）がありません`)
   return guess
 }
+
+/** 合成ページに並べるカード1枚（答えた質問か、正誤を決めた解答） */
+export type ChatDeductionCard =
+  | { kind: 'question'; id: number; userName: string; text: string; verdict: ChatDeductionVerdict; reply: string }
+  | { kind: 'guess'; id: number; userName: string; text: string; correct: boolean }
+
+/** readGameCards の1行。質問と解答を1つの問い合わせで読むため、使わない列は NULL になる */
+interface CardRow {
+  kind: 'question' | 'guess'
+  id: number
+  userName: string
+  text: string
+  verdict: ChatDeductionVerdict | null
+  reply: string | null
+  status: string
+}
+
+/**
+ * ゲームの、合成ページに並べるカードを読む（issue #378）。
+ *
+ * 並べるのは答えた質問（answered）と正誤を決めた解答（correct・wrong）だけで、答え・正誤を決めた順（settled_at）に並べる。
+ * 答え待ち・照合待ちと、ポイントを返したもの（受け付けなかった・答えられなかった）は映さない。
+ *
+ * @throws 答えた質問に答えが無い場合（書き込みの誤り。黙って空の答えを映さない）
+ */
+export const readGameCards = async (db: Database, gameId: number): Promise<ChatDeductionCard[]> => {
+  const { results } = await db
+    .prepare(
+      `SELECT 'question' AS kind, id, user_name AS userName, question AS text, verdict, reply, status, settled_at AS settledAt
+       FROM chat_deduction_questions WHERE game_id = ?1 AND status = 'answered'
+       UNION ALL
+       SELECT 'guess' AS kind, id, user_name AS userName, guess AS text, NULL AS verdict, NULL AS reply, status, settled_at AS settledAt
+       FROM chat_deduction_guesses WHERE game_id = ?1 AND status IN ('correct', 'wrong')
+       ORDER BY settledAt, kind DESC, id`,
+    )
+    .bind(gameId)
+    .all<CardRow>()
+  return results.map(({ kind, id, userName, text, verdict, reply, status }): ChatDeductionCard => {
+    if (kind === 'guess') return { kind, id, userName, text, correct: status === 'correct' }
+    if (verdict === null || reply === null) throw new Error(`答えた質問（${id}）に答えがありません`)
+    return { kind, id, userName, text, verdict, reply }
+  })
+}

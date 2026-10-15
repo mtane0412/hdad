@@ -9,6 +9,8 @@
  * - 報酬をOFFにできなければ、ゲームを終えずに502を返すこと（交換できるまま終わったことにしない）
  * - 知らない問題・報酬がまだ無い・ほかのゲームが開催中、を見分けて返すこと
  * - チャットで推理の報酬は /rewards/ から削除させないこと
+ * - 始めた・終えたゲームを合成ページへ押し出し、押し出せなければ始めた・終えたことを取り消さずに502を返すこと（issue #378）
+ * - 合成ページがオーバーレイ用キーで、最後に始めたゲームのカードの一覧を読めること（issue #378）
  */
 import { describe, expect, it } from 'vitest'
 import { readCurrentGame, readLatestGame } from './chat-deduction-store'
@@ -27,6 +29,7 @@ import { handleRequest, type Env } from './index'
 import { createSessionToken } from './session'
 import { saveToken } from './token'
 
+const ISSUED_KEY = 'issued-overlay-key-0123456789abcdefghij'
 const NOW = Date.parse('2026-10-15T12:00:00.000Z')
 const BROADCASTER_ID = '12345'
 const ORIGIN = 'https://hdad.example.com'
@@ -36,7 +39,7 @@ const ANSWER_REWARD_ID = '報酬ID-解答'
 
 const createEnv = () => {
   const env = {
-    STORE: createFakeStore({ 'overlay-key': 'issued-overlay-key-0123456789abcdefghij' }),
+    STORE: createFakeStore({ 'overlay-key': ISSUED_KEY }),
     MEDIA: createFakeBucket(),
     DB: createFakeDatabase(),
     ASSETS: createFakeAssets(),
@@ -248,6 +251,31 @@ describe('ゲームの開始（POST /api/admin/chat-deduction/games）', () => {
     ])
   })
 
+  it('始めたゲームを、正解の表記を伏せて合成ページへ押し出す', async () => {
+    const env = createEnv()
+    const delivery = createFakeAlertChannel()
+    env.ALERTS = delivery.namespace
+
+    await startFuji(env)
+
+    expect(delivery.pushedChatDeductions).toEqual([
+      { game: { id: 1, category: 'place', startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null }, cards: [] },
+    ])
+  })
+
+  it('合成ページへ押し出せなければ、ゲームは始めたまま502を返す（報酬はもう交換できるため）', async () => {
+    const env = createEnv()
+    env.ALERTS = createFakeAlertChannel({ shouldFail: true }).namespace
+    await saveRewards(env)
+    await saveBroadcasterToken(env)
+
+    const response = await invoke(await broadcasterRequest(env, '/api/admin/chat-deduction/games', postJson({ problemId: 'mount-fuji' })), env, createFakeTwitch().fetchImpl)
+
+    expect(response.status).toBe(502)
+    expect((await readError(response)).code).toBe('chat-deduction-push-failed')
+    expect((await readCurrentGame(env.DB))?.problemId).toBe('mount-fuji')
+  })
+
   it('問題集に無い問題なら400を返す', async () => {
     const env = createEnv()
     await saveRewards(env)
@@ -318,6 +346,34 @@ describe('ゲームの終了（POST /api/admin/chat-deduction/games/:id/end）',
     ])
   })
 
+  it('終えたゲームを、正解の表記を添えて合成ページへ押し出す（「正解は富士山でした」を出すため）', async () => {
+    const env = createEnv()
+    const game = await startFuji(env)
+    const delivery = createFakeAlertChannel()
+    env.ALERTS = delivery.namespace
+
+    await invoke(await broadcasterRequest(env, `/api/admin/chat-deduction/games/${game.id}/end`, { method: 'POST' }), env, createFakeTwitch().fetchImpl)
+
+    expect(delivery.pushedChatDeductions).toEqual([
+      {
+        game: { id: game.id, category: 'place', startedAt: '2026-10-15T12:00:00.000Z', endedAt: '2026-10-15T12:00:00.000Z', endReason: 'stopped', answer: '富士山' },
+        cards: [],
+      },
+    ])
+  })
+
+  it('合成ページへ押し出せなければ、ゲームは終えたまま502を返す', async () => {
+    const env = createEnv()
+    const game = await startFuji(env)
+    env.ALERTS = createFakeAlertChannel({ shouldFail: true }).namespace
+
+    const response = await invoke(await broadcasterRequest(env, `/api/admin/chat-deduction/games/${game.id}/end`, { method: 'POST' }), env, createFakeTwitch().fetchImpl)
+
+    expect(response.status).toBe(502)
+    expect((await readError(response)).code).toBe('chat-deduction-push-failed')
+    expect(await readCurrentGame(env.DB)).toBeNull()
+  })
+
   it('開催中でないゲームなら、Twitchへ送らず404を返す', async () => {
     const env = createEnv()
     await saveRewards(env)
@@ -336,6 +392,38 @@ describe('ゲームの終了（POST /api/admin/chat-deduction/games/:id/end）',
 
     expect(response.status).toBe(502)
     expect((await readCurrentGame(env.DB))?.id).toBe(game.id)
+  })
+})
+
+describe('合成ページのカードの一覧（GET /api/overlay/chat-deduction。issue #378）', () => {
+  it('オーバーレイ用キーで、最後に始めたゲームのカードの一覧を読める（開催中は正解の表記を伏せる）', async () => {
+    const env = createEnv()
+    const game = await startFuji(env)
+
+    const response = await invoke(new Request(`${ORIGIN}/api/overlay/chat-deduction?key=${ISSUED_KEY}`), env)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      game: { id: game.id, category: 'place', startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null },
+      cards: [],
+    })
+  })
+
+  it('キーが違えば401を返す', async () => {
+    const env = createEnv()
+
+    const response = await invoke(new Request(`${ORIGIN}/api/overlay/chat-deduction?key=wrong-key`), env)
+
+    expect(response.status).toBe(401)
+  })
+
+  it('WebSocket の接続でなければ、配送先へ引き渡さず400を返す', async () => {
+    const env = createEnv()
+
+    const response = await invoke(new Request(`${ORIGIN}/api/overlay/chat-deduction/socket?key=${ISSUED_KEY}`), env)
+
+    expect(response.status).toBe(400)
+    expect((await readError(response)).code).toBe('expected-websocket')
   })
 })
 

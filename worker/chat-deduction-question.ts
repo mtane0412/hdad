@@ -6,7 +6,8 @@
  * 1. 交換のIDを鍵に質問の行を作り、受け付けるかどうか（開催中のゲーム・1問あたりの上限・同じ人の待ち時間）を同じ1つの文で決める
  *    （worker/chat-deduction-store.ts の reserveQuestion）。行がもうあれば再送なので何もしない（二重に答えない）
  * 2. Twitch へ2xxを返したあとで（waitUntil）、受け付けた質問には LLM に答えさせて D1 に書き、交換を FULFILLED にする。
- *    受け付けなかった質問と答えられなかった質問は、交換を CANCELED にして視聴者へポイントを返す
+ *    受け付けなかった質問と答えられなかった質問は、交換を CANCELED にして視聴者へポイントを返す。
+ *    答えた質問はカードになるので、合成ページへカードの一覧を押し出す（issue #378。worker/chat-deduction-board.ts）
  *
  * 注意: LLM の応答を待つと Twitch への2xxが遅れて同じ通知を再送されるので、LLM と交換の更新は応答のあとに回す（aiChat と同じ）。
  *   応答のあとの失敗は投げても受け取る人がいないので、収集の失敗（collection_failures）として残す。
@@ -16,6 +17,7 @@
 import { CHAT_DEDUCTION_PROBLEMS } from '../src/chat-deduction/problem-set'
 import { recordLateFailure } from './alert-actions'
 import { answerChatDeductionQuestion } from './chat-deduction-answer'
+import { pushBoardAfterRedemption } from './chat-deduction-board'
 import { receiveChatDeductionGuess } from './chat-deduction-guess'
 import { loadChatDeductionRewards, type ChatDeductionRewards } from './chat-deduction-rewards'
 import { answerQuestion, failQuestion, readGame, reserveQuestion, type ChatDeductionQuestion, type ChatDeductionQuestionLimits } from './chat-deduction-store'
@@ -88,6 +90,8 @@ const settle = async (context: Context, rewards: ChatDeductionRewards, question:
     throw error
   })
   const status = question.status === 'pending' ? await answer(context, question) : 'CANCELED'
+  // 答えられた質問だけがカードになる（受け付けなかった・答えられなかった質問では、映すものが変わらない）
+  if (status === 'FULFILLED') await pushBoardAfterRedemption(context, `${question.userName}さんの質問「${question.question}」の答え`)
   await context.twitch.updateRedemptionStatus(accessToken, context.env.TWITCH_BROADCASTER_ID, rewards.questionRewardId, question.redemptionId, status)
 }
 

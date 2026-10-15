@@ -66,6 +66,9 @@
  * 合成ページの素材「VRM」へ、動き方の種と出す VRM のURLを配るのもこの Durable Object である（issue #358）。
  * 同じ理由で、16個目の目印（vrm）を付けた接続へだけ配る。
  *
+ * 合成ページの素材「チャットで推理」へ、最後に始めたゲームの質問と解答のカードの一覧（丸ごと）を配るのもこの Durable Object である（issue #378）。
+ * 同じ理由で、17個目の目印（chatDeduction）を付けた接続へだけ配る。
+ *
  * 注意: WebSocketの接続（Upgrade）は Cloudflare のランタイムでしか作れないので、テストでは配送の部分だけを確かめる。
  */
 import type { OverlayAlert } from './alert-event'
@@ -80,6 +83,7 @@ import type { KanjiQuizCall, KanjiQuizNotice, StreamStopOrder } from './kanji-qu
 import type { LickCall } from './lick-call'
 import type { VrmCall } from './vrm-call'
 import type { OpinionBoardSnapshot } from './opinion'
+import type { ChatDeductionBoard } from './chat-deduction-board'
 import type { TaskDeskSnapshot } from './task-desk'
 import type { TextsSnapshot } from './text'
 import type { TownTourAnswerMessage, TownTourCall } from './town-tour-call'
@@ -115,6 +119,8 @@ const PUSH_KANJI_QUIZ_PATH = '/push/kanji-quiz'
 const PUSH_STREAM_STOP_PATH = '/push/stream-stop'
 /** Worker が意見ボードの押し出しに使うパス */
 const PUSH_OPINIONS_PATH = '/push/opinions'
+/** Worker がチャットで推理のカードの一覧の押し出しに使うパス */
+const PUSH_CHAT_DEDUCTION_PATH = '/push/chat-deduction'
 /** Worker がペロペロの呼び出しの押し出しに使うパス */
 const PUSH_LICK_PATH = '/push/lick'
 /** Worker がVRMの演出の呼び出しの押し出しに使うパス */
@@ -150,6 +156,8 @@ const KANJI_QUIZ_TOPIC = 'kanjiQuiz'
 const STREAM_STOP_TOPIC = 'streamStop'
 /** 意見ボードを受け取る接続（合成ページの素材「意見ボード」）に付ける目印 */
 const OPINIONS_TOPIC = 'opinions'
+/** チャットで推理のカードの一覧を受け取る接続（合成ページの素材「チャットで推理」）に付ける目印 */
+const CHAT_DEDUCTION_TOPIC = 'chatDeduction'
 /** ペロペロの呼び出しを受け取る接続（合成ページの素材「ペロペロ」）に付ける目印 */
 const LICK_TOPIC = 'lick'
 /** VRMの演出の呼び出しを受け取る接続（合成ページの素材「VRM」）に付ける目印 */
@@ -174,6 +182,7 @@ const TOPICS: readonly string[] = [
   LICK_TOPIC,
   OVERLAY_LAYOUT_TOPIC,
   VRM_TOPIC,
+  CHAT_DEDUCTION_TOPIC,
 ]
 /** どちらの目印で受け入れるかを Worker が伝えるためのクエリ。外には出ない */
 const TOPIC_PARAM = 'topic'
@@ -220,7 +229,8 @@ export interface AlertChannelNamespace {
  *   クエリの topic が bgm ならBGMの接続、workLog なら作業ログの接続、taskDesk なら作業机の接続、pomodoro ならポモドーロの接続、
  *   townTour なら市町村紹介の接続、bgmDuck なら配信のBGMを下げる知らせの接続、speechMute なら読み上げのミュートの接続、
  *   twister ならツイスターの接続、text ならテキストの接続、kanjiQuiz なら漢字クイズの接続、streamStop なら配信を止める命令の接続、opinions なら意見ボードの接続、
- *   lick ならペロペロの接続、overlayLayout なら構成の接続、vrm ならVRMの演出の接続、それ以外はアラートの接続として受け入れる
+ *   lick ならペロペロの接続、overlayLayout なら構成の接続、vrm ならVRMの演出の接続、
+ *   chatDeduction ならチャットで推理の接続、それ以外はアラートの接続として受け入れる
  * - POST /push: Worker が押し出したアラートを、アラートの接続すべてへ配る
  * - POST /push/bgm: Worker が押し出した「いま流している曲」を、BGMの接続すべてへ配る
  * - POST /push/work-log: Worker が押し出した作業ログの1行を、作業ログの接続すべてへ配る
@@ -234,6 +244,7 @@ export interface AlertChannelNamespace {
  * - POST /push/kanji-quiz: Worker が押し出した漢字クイズの出題を、漢字クイズの接続すべてへ配る
  * - POST /push/stream-stop: Worker が押し出した配信を止める命令を、停止の接続のうち送れた1つへ配る。1つも無ければ409を返す
  * - POST /push/opinions: Worker が押し出したいまの意見ボードを、意見ボードの接続すべてへ配る
+ * - POST /push/chat-deduction: Worker が押し出したチャットで推理のカードの一覧を、チャットで推理の接続すべてへ配る
  * - POST /push/lick: Worker が押し出したペロペロの呼び出しを、ペロペロの接続すべてへ配る
  * - POST /push/vrm: Worker が押し出したVRMの演出の呼び出しを、VRMの演出の接続すべてへ配る
  * - POST /push/overlay-layout: Worker が押し出した合成オーバーレイの構成を、構成の接続すべてへ配る
@@ -264,6 +275,7 @@ export class AlertChannel {
     if (url.pathname === PUSH_TEXT_PATH) return this.push(TEXT_TOPIC, await request.text(), 'テキスト')
     if (url.pathname === PUSH_KANJI_QUIZ_PATH) return this.push(KANJI_QUIZ_TOPIC, await request.text(), '漢字クイズ')
     if (url.pathname === PUSH_OPINIONS_PATH) return this.push(OPINIONS_TOPIC, await request.text(), '意見ボード')
+    if (url.pathname === PUSH_CHAT_DEDUCTION_PATH) return this.push(CHAT_DEDUCTION_TOPIC, await request.text(), 'チャットで推理')
     if (url.pathname === PUSH_LICK_PATH) return this.push(LICK_TOPIC, await request.text(), 'ペロペロ')
     if (url.pathname === PUSH_VRM_PATH) return this.push(VRM_TOPIC, await request.text(), 'VRMの演出')
     if (url.pathname === PUSH_OVERLAY_LAYOUT_PATH) return this.push(OVERLAY_LAYOUT_TOPIC, await request.text(), 'オーバーレイの構成')
@@ -457,6 +469,16 @@ export const connectOpinionSocket = (namespace: AlertChannelNamespace, request: 
   connectWithTopic(namespace, request, OPINIONS_TOPIC, keyTag)
 
 /**
+ * 合成ページの素材「チャットで推理」からのWebSocketの接続を、カードの一覧を受け取る接続として Durable Object へ引き渡す。
+ *
+ * オーバーレイ用キーの確認は呼び出し側（chat-deduction-routes.ts）が済ませている。
+ *
+ * @param keyTag 確かめたキーの目印（overlayKeyTag）
+ */
+export const connectChatDeductionSocket = (namespace: AlertChannelNamespace, request: Request, keyTag: string): Promise<Response> =>
+  connectWithTopic(namespace, request, CHAT_DEDUCTION_TOPIC, keyTag)
+
+/**
  * 合成ページからのWebSocketの接続を、合成オーバーレイの構成を受け取る接続として Durable Object へ引き渡す。
  *
  * オーバーレイ用キーの確認は呼び出し側（overlay-routes.ts）が済ませている。
@@ -536,6 +558,15 @@ export const pushTexts = (namespace: AlertChannelNamespace, snapshot: TextsSnaps
  */
 export const pushOpinions = (namespace: AlertChannelNamespace, board: OpinionBoardSnapshot): Promise<void> =>
   pushJson(namespace, PUSH_OPINIONS_PATH, board, '意見ボード')
+
+/**
+ * 最後に始めたゲームのカードの一覧を Durable Object へ押し出す。ゲームを始めた・終えた・質問に答えた・解答の正誤を決めたときに呼ぶ。
+ *
+ * 注意: 失敗を黙って握りつぶさない。呼び出し側（chat-deduction-routes.ts・chat-deduction-question.ts・chat-deduction-guess.ts）が
+ * 管理画面へ返すか、失敗として記録する。
+ */
+export const pushChatDeduction = (namespace: AlertChannelNamespace, board: ChatDeductionBoard): Promise<void> =>
+  pushJson(namespace, PUSH_CHAT_DEDUCTION_PATH, board, 'チャットで推理')
 
 /**
  * 漢字クイズの出題を Durable Object へ押し出す。チャンネルポイントのトリガーと管理画面の試し再生で呼ぶ。

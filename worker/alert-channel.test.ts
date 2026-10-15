@@ -18,12 +18,14 @@ import {
   connectKanjiQuizSocket,
   connectStreamStopSocket,
   connectTextSocket,
+  connectChatDeductionSocket,
   connectOpinionSocket,
   connectTaskDeskSocket,
   connectWorkLogSocket,
   pushAlert,
   pushBgm,
   pushBgmDuck,
+  pushChatDeduction,
   pushPomodoro,
   pushSpeechMute,
   pushTownTour,
@@ -158,6 +160,7 @@ describe('AlertChannel', () => {
     kanjiQuizSockets: AlertSocket[] = [],
     streamStopSockets: AlertSocket[] = [],
     opinionSockets: AlertSocket[] = [],
+    chatDeductionSockets: AlertSocket[] = [],
   ): AlertChannel =>
     new AlertChannel({
       acceptWebSocket: () => undefined,
@@ -175,6 +178,7 @@ describe('AlertChannel', () => {
         if (tag === 'kanjiQuiz') return kanjiQuizSockets
         if (tag === 'streamStop') return streamStopSockets
         if (tag === 'opinions') return opinionSockets
+        if (tag === 'chatDeduction') return chatDeductionSockets
         return [
           ...sockets,
           ...bgmSockets,
@@ -189,6 +193,7 @@ describe('AlertChannel', () => {
           ...kanjiQuizSockets,
           ...streamStopSockets,
           ...opinionSockets,
+          ...chatDeductionSockets,
         ]
       },
       setWebSocketAutoResponse: () => undefined,
@@ -332,6 +337,19 @@ describe('AlertChannel', () => {
     expect(alertItem.sentMessages).toEqual([])
   })
 
+  it('チャットで推理のカードの一覧は、チャットで推理を受け取る接続だけへ送る（アラートとしては読めないため）', async () => {
+    const alertItem = createConnection()
+    const chatDeductionItem = createConnection()
+    const destination = createDestination([alertItem], [], [], [], [], [], [], [], [], [], [], [], [], [chatDeductionItem])
+    const board = { game: null, cards: [] }
+
+    const response = await destination.fetch(new Request('https://alert-channel/push/chat-deduction', { method: 'POST', body: JSON.stringify(board) }))
+
+    expect(response.status).toBe(204)
+    expect(chatDeductionItem.sentMessages).toEqual([JSON.stringify(board)])
+    expect(alertItem.sentMessages).toEqual([])
+  })
+
   it('配信のBGMを下げる知らせは、下げる知らせを受け取る接続（裏方のページ）だけへ送る（曲の切り替えとしては読めないため）', async () => {
     const bgmItem = createConnection()
     const backstageDuck = createConnection()
@@ -437,7 +455,7 @@ describe('pushAlert', () => {
 })
 
 describe('接続の引き渡し', () => {
-  it('アラート・BGM・作業ログ・作業机・ポモドーロ・市町村紹介・BGMを下げる知らせ・読み上げのミュート・ツイスター・テキスト・漢字クイズ・意見ボードの接続を、目印を付けて Durable Object へ引き渡す', async () => {
+  it('アラート・BGM・作業ログ・作業机・ポモドーロ・市町村紹介・BGMを下げる知らせ・読み上げのミュート・ツイスター・テキスト・漢字クイズ・意見ボード・チャットで推理の接続を、目印を付けて Durable Object へ引き渡す', async () => {
     const delivery = createFakeAlertChannel()
     const connectionRequest = (): Request => new Request('https://hdad.example.com/api/overlay/socket?key=k', { headers: { Upgrade: 'websocket' } })
 
@@ -454,6 +472,7 @@ describe('接続の引き渡し', () => {
     await connectKanjiQuizSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
     await connectStreamStopSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
     await connectOpinionSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
+    await connectChatDeductionSocket(delivery.namespace, connectionRequest(), 'tag-of-key')
 
     expect(delivery.forwardedConnections.map((request) => new URL(request.url).searchParams.get('topic'))).toEqual([
       'alerts',
@@ -469,6 +488,7 @@ describe('接続の引き渡し', () => {
       'kanjiQuiz',
       'streamStop',
       'opinions',
+      'chatDeduction',
     ])
   })
 })
@@ -738,5 +758,24 @@ describe('オーバーレイ用キーの再発行に伴う切断', () => {
     expect(delivery.pushedAlerts).toEqual([])
 
     await expect(revokeAlertSockets(createFakeAlertChannel({ shouldFail: true }).namespace, 'tag-new')).rejects.toThrow('切断')
+  })
+})
+
+describe('pushChatDeduction', () => {
+  const board = { game: null, cards: [] }
+
+  it('Durable Object へ、チャットで推理のカードの一覧を送る', async () => {
+    const delivery = createFakeAlertChannel()
+
+    await pushChatDeduction(delivery.namespace, board)
+
+    expect(delivery.pushedChatDeductions).toEqual([board])
+    expect(delivery.pushedAlerts).toEqual([])
+  })
+
+  it('Durable Object が失敗を返したら、黙って成功にせず投げる', async () => {
+    const delivery = createFakeAlertChannel({ shouldFail: true })
+
+    await expect(pushChatDeduction(delivery.namespace, board)).rejects.toThrow('チャットで推理')
   })
 })

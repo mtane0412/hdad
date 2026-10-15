@@ -89,6 +89,10 @@ import { POMODORO_SOCKET_HINT, POMODORO_SOCKET_PATH, createPomodoroOverlayApi } 
 import { demoPomodoroScenes, demoTimerOf } from '../pomodoro/demo'
 import { parsePomodoroSnapshot, type PomodoroTimer } from '../pomodoro/phase'
 import { createPomodoroView } from '../pomodoro/view'
+import { CHAT_DEDUCTION_SOCKET_HINT, CHAT_DEDUCTION_SOCKET_PATH, createChatDeductionOverlayApi } from '../chat-deduction/api'
+import { parseChatDeductionBoardMessage, type ChatDeductionBoard } from '../chat-deduction/board'
+import { demoChatDeductionBoards } from '../chat-deduction/demo'
+import { createChatDeductionView } from '../chat-deduction/view'
 import { OPINION_SOCKET_HINT, OPINION_SOCKET_PATH, createOpinionOverlayApi } from '../opinions/api'
 import { demoOpinionBoards } from '../opinions/demo'
 import { parseOpinionBoardMessage, type OpinionBoard } from '../opinions/entry'
@@ -179,6 +183,7 @@ const NOUNS: Readonly<Record<ItemKind, string>> = {
   opinions: '意見ボード',
   lick: 'ペロペロ',
   vrm: 'VRM',
+  chatDeduction: 'チャットで推理',
 }
 
 /** サイドスーパーの文言を読みに行く間隔（ミリ秒）。文言は cron が5分おきに作るので、30秒あれば十分に追いつく */
@@ -206,6 +211,10 @@ const TEXT_INTERVAL_MS = 300000
  * 意見ボードを読み直す間隔（ミリ秒）。変わった意見ボードは押し出しで届くので、読み直しは取りこぼしを拾うためだけにある。作業机と同じく cron の間隔に合わせる
  */
 const OPINIONS_INTERVAL_MS = 300000
+/**
+ * チャットで推理のカードの一覧を読み直す間隔（ミリ秒）。変わった一覧は押し出しで届くので、読み直しは取りこぼしを拾うためだけにある。意見ボードと同じ間隔にする
+ */
+const CHAT_DEDUCTION_INTERVAL_MS = 300000
 /** 取り上げている注目コメントを読みに行く間隔（ミリ秒）。配信中に選び直したとき、待たされすぎない長さにする */
 const FOCUS_INTERVAL_MS = 10000
 /** 市町村紹介の音を鳴らす時刻を迎えたか確かめる間隔（ミリ秒）。場面の切り替わりとずれて聞こえない短さにする */
@@ -2475,6 +2484,101 @@ const mountOpinions = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
   }
 }
 
+/**
+ * チャットで推理。視聴者の質問と答え・解答をカードで並べ、ゲームを終えたら正解を出す（issue #378）。
+ *
+ * ゲームを始めた・終えた・質問に答えた・解答の正誤を決めたたびに、アラートと同じ配送先から WebSocket
+ * （/api/overlay/chat-deduction/socket）で丸ごと押し出してもらい、開いたとき・つながるたび・定期的に読み直す。
+ * 読んでいるあいだに押し出しが届いたら、読んだ結果も読み出しの失敗も捨てる（意見ボードと同じ。押し出しのほうが新しい）。
+ */
+const mountChatDeduction = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
+  // この素材は配信者が決めるパラメータを持たない（映すものはゲームと視聴者の交換で決まる）
+  parseParams({}, new URLSearchParams(item.params))
+
+  const root = document.createElement('div')
+  root.className = 'chat-deduction'
+  root.dataset.chatDeduction = ''
+  box.append(root)
+
+  const view = createChatDeductionView(root)
+
+  if (demo) {
+    // プレビューではWorkerにつながず、カードが増えて正解で終わる場面を順に流す
+    startSampleCycle(demoChatDeductionBoards, DEMO_SAMPLE_INTERVAL_MS, (board) => view.setBoard(board))
+    return {}
+  }
+
+  const api = createChatDeductionOverlayApi(callWorker, key)
+  const showReadError = (error: unknown): void => {
+    clearError(box, 'read')
+    showError(error, NOUNS.chatDeduction, box, 'read')
+  }
+  const show = (board: ChatDeductionBoard): void => {
+    view.setBoard(board)
+    // 最新の一覧を映せたので、前の失敗が箱に出ていれば消す
+    clearError(box, 'read')
+  }
+  /** いちばん新しく始めた読み出しの世代。重なった読み出しのうち、古いものの結果で新しい一覧を上書きしないために使う */
+  let latestRead = 0
+  /** 押し出しを受け取った回数。読んでいるあいだに押し出しが届いたかを見分けるために使う */
+  let pushCount = 0
+  /**
+   * カードの一覧を読み直す。失敗は onError に渡すが、あとから始めた読み出しや押し出しに追い越されていれば捨てる。
+   *
+   * @param onError 追い越されていない失敗の扱い（箱に出す・記録に残すだけ、を呼び出し側が決める）
+   */
+  const read = async (onError: (error: unknown) => void): Promise<void> => {
+    latestRead += 1
+    const generation = latestRead
+    const pushCountAtStart = pushCount
+    const isStale = (): boolean => generation !== latestRead || pushCountAtStart !== pushCount
+    try {
+      const board = await api.read()
+      if (isStale()) return
+      show(board)
+    } catch (error) {
+      if (!isStale()) onError(error)
+    }
+  }
+
+  // 1回目は起動の一部として扱い、失敗はこの箱に出す（ほかの素材は動かし続ける）
+  void read(showReadError)
+
+  connectSocket(
+    socketUrl(CHAT_DEDUCTION_SOCKET_PATH, { key }),
+    {
+      onMessage: (message) => {
+        try {
+          const board = parseChatDeductionBoardMessage(message)
+          pushCount += 1
+          show(board)
+        } catch (error) {
+          showReadError(error)
+        }
+      },
+      // つながるたびに読み直す。つながっていない間の変化を取りこぼさないため
+      onOpen: () => void read(showReadError),
+      onStatus: () => {
+        // 切断・再接続は出さない。つながったときの読み直しは onOpen が受け持ち、映している一覧はそのまま残す
+      },
+      onWarning: (message) => showReadError(new Error(message)),
+    },
+    CHAT_DEDUCTION_SOCKET_HINT,
+  )
+
+  return {
+    task: {
+      intervalMs: CHAT_DEDUCTION_INTERVAL_MS,
+      run: () => {
+        void read((error) => {
+          // 一時的な通信の失敗で配信画面を汚さない。映している一覧はそのまま残し、原因は記録に残す（意見ボードと同じ）
+          console.error('チャットで推理のカードの一覧を読み込めませんでした', error)
+        })
+      },
+    },
+  }
+}
+
 const mountItem = (box: HTMLElement, item: OverlayItem, context: MountContext): MountedItem => {
   switch (item.kind) {
     case 'wallpaper':
@@ -2518,6 +2622,8 @@ const mountItem = (box: HTMLElement, item: OverlayItem, context: MountContext): 
       return mountLick(box, item, context)
     case 'vrm':
       return mountVrm(box, item, context)
+    case 'chatDeduction':
+      return mountChatDeduction(box, item, context)
   }
 }
 

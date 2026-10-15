@@ -34,6 +34,7 @@
 @import '../opinions/opinions.css';
 @import '../lick/lick.css';
 @import '../vrm/vrm.css';
+@import '../chat-deduction/chat-deduction.css';
 
 .overlay {
   position: relative;

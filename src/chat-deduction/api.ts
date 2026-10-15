@@ -1,14 +1,26 @@
 /**
  * チャットで推理の Worker の呼び出し（issue #375）
  *
- * アプリのページ（/chat-deduction/）が、ログインのセッションで報酬のIDと最後のゲームを読み、報酬を作り、ゲームを始め・終える。
+ * 2つの呼び出し手がある。
+ * - アプリのページ（/chat-deduction/）: ログインのセッションで報酬のIDと最後のゲームを読み、報酬を作り、ゲームを始め・終える
+ * - 合成ページの素材「チャットで推理」（issue #378）: ログインを持たないので、オーバーレイ用キー（URLの ?key=）でカードの一覧を読む。
+ *   変わるたびに WebSocket（CHAT_DEDUCTION_SOCKET_PATH）で丸ごと押し出してもらい、ここで読むのは開いたとき・つなぎ直したとき・
+ *   定期的に取り戻す分だけである
  * 呼び出しと失敗の扱いは `../core/api` に任せ、fetch を引数で受け取るのはテストで差し替えるためである。
  *
  * 注意: 想定した形でなければエラーにする（Fail-Fast）。
  */
 import { createCaller, isRecord } from '../core/api'
+import { readChatDeductionBoard, type ChatDeductionBoard } from './board'
 
 const ADMIN_PATH = '/api/admin/chat-deduction'
+const OVERLAY_PATH = '/api/overlay/chat-deduction'
+
+/** 変わったカードの一覧を押し出してもらう WebSocket のパス */
+export const CHAT_DEDUCTION_SOCKET_PATH = '/api/overlay/chat-deduction/socket'
+
+/** 一度もつながらないまま閉じたときに出す、いちばんありそうな原因 */
+export const CHAT_DEDUCTION_SOCKET_HINT = 'チャットで推理の配送先につながりません。URLのオーバーレイ用キーが正しいか確かめてください'
 
 /** 控えた「質問」「解答」の報酬のID（worker/chat-deduction-rewards.ts の ChatDeductionRewards と合わせる） */
 export interface ChatDeductionRewards {
@@ -86,5 +98,24 @@ export const createChatDeductionApi = (fetchImpl: typeof fetch): ChatDeductionAp
     createRewards: async () => readField(await send(`${ADMIN_PATH}/rewards`), 'rewards', isRewards),
     startGame: async (problemId) => readField(await send(`${ADMIN_PATH}/games`, { problemId }), 'game', isGame),
     endGame: async (id) => readField(await send(`${ADMIN_PATH}/games/${id}/end`), 'game', isGame),
+  }
+}
+
+export interface ChatDeductionOverlayApi {
+  /** 最後に始めたゲームのカードの一覧を読む */
+  read(): Promise<ChatDeductionBoard>
+}
+
+/**
+ * 合成ページの素材「チャットで推理」の呼び出しを作る。
+ *
+ * @param fetchImpl 通信の実装。fetch をそのまま渡すと this が外れるブラウザがあるため、包んだものを受け取る
+ * @param key オーバーレイ用キー
+ */
+export const createChatDeductionOverlayApi = (fetchImpl: typeof fetch, key: string): ChatDeductionOverlayApi => {
+  const call = createCaller(fetchImpl)
+  const path = `${OVERLAY_PATH}?key=${encodeURIComponent(key)}`
+  return {
+    read: async () => readChatDeductionBoard(await call(path)),
   }
 }
