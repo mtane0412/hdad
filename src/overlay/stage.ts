@@ -2500,7 +2500,8 @@ const mountChatDeduction = (box: HTMLElement, item: OverlayItem, { key, demo }: 
   root.dataset.chatDeduction = ''
   box.append(root)
 
-  const view = createChatDeductionView(root)
+  // プレビューのサンプルは終えた時刻が固定なので、終えたゲームを消すと正解の場面が映らない
+  const view = createChatDeductionView(root, { hideEndedGame: !demo })
 
   if (demo) {
     // プレビューではWorkerにつながず、カードが増えて正解で終わる場面を順に流す
