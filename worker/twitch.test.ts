@@ -407,6 +407,31 @@ describe('setCustomRewardEnabled', () => {
   })
 })
 
+describe('updateRedemptionStatus', () => {
+  it('報酬と交換のIDを指定して、交換の状態（status）だけをHelixへ送る', async () => {
+    const { requests, fetchImpl } = fetchReturning(200, { data: [{ id: '交換ID-1', status: 'CANCELED' }] })
+
+    await createClient(fetchImpl).updateRedemptionStatus('test-access-token', '12345', '報酬ID-質問', '交換ID-1', 'CANCELED')
+
+    const request = requests[0]!
+    expect(request.method).toBe('PATCH')
+    const url = new URL(request.url)
+    expect(url.origin + url.pathname).toBe('https://api.twitch.tv/helix/channel_points/custom_rewards/redemptions')
+    expect(url.searchParams.get('broadcaster_id')).toBe('12345')
+    expect(url.searchParams.get('reward_id')).toBe('報酬ID-質問')
+    expect(url.searchParams.get('id')).toBe('交換ID-1')
+    expect(request.headers.get('Authorization')).toBe('Bearer test-access-token')
+    expect(await request.json()).toEqual({ status: 'CANCELED' })
+  })
+
+  it('交換がもう処理済みならTwitchが404を返し、エラーになる', async () => {
+    const { fetchImpl } = fetchReturning(404, { error: 'Not Found', status: 404, message: 'redemption not found' })
+    await expect(createClient(fetchImpl).updateRedemptionStatus('test-access-token', '12345', '報酬ID-質問', '交換ID-1', 'FULFILLED')).rejects.toMatchObject({
+      status: 404,
+    })
+  })
+})
+
 describe('deleteCustomReward', () => {
   it('報酬のIDを指定してHelixへ削除を送る（成功の応答は本文のない204）', async () => {
     const { requests, fetchImpl } = fetchReturningNoBody(204)

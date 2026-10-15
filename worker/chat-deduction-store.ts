@@ -1,8 +1,9 @@
 /**
- * チャットで推理のゲームの読み書き（D1 の chat_deduction_games。issue #375）
+ * チャットで推理のゲームと質問の読み書き（D1 の chat_deduction_games・chat_deduction_questions。issue #375・#376）
  *
  * 開催中のゲーム（ended_at が NULL）は1つだけで、開始のときに1つの文の中で確かめる（意見ボードのテーマと同じ形）。
  * 報酬をONにできなかったときに開始を無かったことにできるよう、開催中のゲームの行は消せる（cancelGame）。
+ * 質問は、交換のIDを鍵に行を作るのと、受け付けるかどうか（開催中のゲーム・上限・待ち時間）の判断を1つの文で行う（reserveQuestion）。
  *
  * 注意: SQL はこのファイルだけが持ち、必ずプレースホルダを使う。
  */
@@ -26,6 +27,61 @@ export interface ChatDeductionGame {
 const GAME_COLUMNS = 'id, problem_id AS problemId, started_at AS startedAt, ended_at AS endedAt, end_reason AS endReason'
 
 const toIso = (milliseconds: number): string => new Date(milliseconds).toISOString()
+
+/** 質問の状態（pending: 答え待ち。answered: 答えた。rejected: 受け付けなかった。failed: LLM が答えられなかった） */
+export type ChatDeductionQuestionStatus = 'pending' | 'answered' | 'rejected' | 'failed'
+
+/** 質問を受け付けなかった理由（no-game: 開催中のゲームが無い。limit: 1問あたりの上限。cooldown: 同じ人の待ち時間の内） */
+export type ChatDeductionRejectReason = 'no-game' | 'limit' | 'cooldown'
+
+/** 質問への答え（yes: はい。no: いいえ。unknown: 分からない） */
+export type ChatDeductionVerdict = 'yes' | 'no' | 'unknown'
+
+/** 視聴者が「質問」の報酬で送った交換 */
+export interface ChatDeductionQuestionInput {
+  /** Twitch の交換のID。再送で二重に答えないための鍵 */
+  redemptionId: string
+  userId: string
+  userLogin: string
+  userName: string
+  /** 交換で書かれた質問（user_input） */
+  question: string
+}
+
+/** 質問を受け付ける上限 */
+export interface ChatDeductionQuestionLimits {
+  /** 1問（ゲーム1つ）あたりに受け付ける質問の数 */
+  maxQuestionsPerGame: number
+  /** 同じ人が続けて質問するまでに空ける時間（ミリ秒） */
+  cooldownMs: number
+}
+
+/** 質問1件 */
+export interface ChatDeductionQuestion {
+  id: number
+  /** 質問を受けたゲーム。開催中のゲームが無かったときは null */
+  gameId: number | null
+  redemptionId: string
+  userId: string
+  userLogin: string
+  userName: string
+  question: string
+  status: ChatDeductionQuestionStatus
+  /** 受け付けなかった理由。rejected のときだけ入る */
+  rejectReason: ChatDeductionRejectReason | null
+  /** はい・いいえ・分からない。answered のときだけ入る */
+  verdict: ChatDeductionVerdict | null
+  /** 答えに添える1文。answered のときだけ入る */
+  reply: string | null
+  /** 答えられなかった理由。failed のときだけ入る */
+  failure: string | null
+  askedAt: string
+  /** 答えた・受け付けなかった・失敗した時刻。答え待ちなら null */
+  settledAt: string | null
+}
+
+const QUESTION_COLUMNS = `id, game_id AS gameId, redemption_id AS redemptionId, user_id AS userId, user_login AS userLogin, user_name AS userName,
+  question, status, reject_reason AS rejectReason, verdict, reply, failure, asked_at AS askedAt, settled_at AS settledAt`
 
 /**
  * ゲームを始める。
@@ -69,3 +125,78 @@ export const readCurrentGame = async (db: Database): Promise<ChatDeductionGame |
 /** 最後に始めたゲームを読む（終えたものも含む）。一度も始めていなければ null */
 export const readLatestGame = async (db: Database): Promise<ChatDeductionGame | null> =>
   db.prepare(`SELECT ${GAME_COLUMNS} FROM chat_deduction_games ORDER BY id DESC LIMIT 1`).first<ChatDeductionGame>()
+
+/** IDでゲームを読む（終えたものも含む）。無ければ null */
+export const readGame = async (db: Database, id: number): Promise<ChatDeductionGame | null> =>
+  db.prepare(`SELECT ${GAME_COLUMNS} FROM chat_deduction_games WHERE id = ?1`).bind(id).first<ChatDeductionGame>()
+
+/**
+ * 質問の交換を受け、受け付けるかどうかを決めて行を作る。
+ *
+ * 受け付けるかどうかは次の順に、行を作るのと同じ1つの文の中で決める（同時に届いた交換が上限を越えて通らないようにするため）。
+ * 1. 開催中のゲームが無い → no-game
+ * 2. そのゲームの答え待ち・答えた質問が上限に達している → limit
+ * 3. 同じ人が、そのゲームで待ち時間の内に答え待ち・答えた質問を送っている → cooldown
+ * 受け付けなかった質問と答えられなかった質問（failed）はポイントを返すので、上限と待ち時間に数えない。
+ *
+ * @returns 作った質問（受け付けたなら pending、受け付けなかったなら rejected）。同じ交換のIDの行がもうあれば（再送）null
+ */
+export const reserveQuestion = async (
+  db: Database,
+  input: ChatDeductionQuestionInput,
+  { maxQuestionsPerGame, cooldownMs }: ChatDeductionQuestionLimits,
+  now: number,
+): Promise<ChatDeductionQuestion | null> =>
+  db
+    .prepare(
+      `INSERT INTO chat_deduction_questions (game_id, redemption_id, user_id, user_login, user_name, question, status, reject_reason, asked_at, settled_at)
+       SELECT judged.game_id, ?1, ?2, ?3, ?4, ?5,
+              CASE WHEN judged.reason IS NULL THEN 'pending' ELSE 'rejected' END, judged.reason,
+              ?6, CASE WHEN judged.reason IS NULL THEN NULL ELSE ?6 END
+       FROM (
+         SELECT game.id AS game_id,
+                CASE
+                  WHEN game.id IS NULL THEN 'no-game'
+                  WHEN (SELECT COUNT(*) FROM chat_deduction_questions AS asked
+                        WHERE asked.game_id = game.id AND asked.status IN ('pending', 'answered')) >= ?7 THEN 'limit'
+                  WHEN EXISTS (SELECT 1 FROM chat_deduction_questions AS asked
+                               WHERE asked.game_id = game.id AND asked.user_id = ?2 AND asked.status IN ('pending', 'answered') AND asked.asked_at > ?8) THEN 'cooldown'
+                END AS reason
+         FROM (SELECT 1) AS one LEFT JOIN chat_deduction_games AS game ON game.ended_at IS NULL
+       ) AS judged
+       WHERE true
+       ON CONFLICT (redemption_id) DO NOTHING
+       RETURNING ${QUESTION_COLUMNS}`,
+    )
+    .bind(input.redemptionId, input.userId, input.userLogin, input.userName, input.question, toIso(now), maxQuestionsPerGame, toIso(now - cooldownMs))
+    .first<ChatDeductionQuestion>()
+
+/**
+ * 答え待ちの質問に答えを書き、答えた（answered）にする。
+ *
+ * @returns 書いた質問。答え待ちでなければ（受け付けなかった・もう答えた）何も書かず null
+ */
+export const answerQuestion = async (
+  db: Database,
+  id: number,
+  { verdict, reply }: { verdict: ChatDeductionVerdict; reply: string },
+  now: number,
+): Promise<ChatDeductionQuestion | null> =>
+  db
+    .prepare(
+      `UPDATE chat_deduction_questions SET status = 'answered', verdict = ?2, reply = ?3, settled_at = ?4
+       WHERE id = ?1 AND status = 'pending' RETURNING ${QUESTION_COLUMNS}`,
+    )
+    .bind(id, verdict, reply, toIso(now))
+    .first<ChatDeductionQuestion>()
+
+/**
+ * 答え待ちの質問を、理由を添えて失敗（failed）にする。
+ *
+ * @returns 書いた質問。答え待ちでなければ何も書かず null
+ */
+export const failQuestion = async (db: Database, id: number, failure: string, now: number): Promise<ChatDeductionQuestion | null> =>
+  db
+    .prepare(`UPDATE chat_deduction_questions SET status = 'failed', failure = ?2, settled_at = ?3 WHERE id = ?1 AND status = 'pending' RETURNING ${QUESTION_COLUMNS}`)
+    .bind(id, failure, toIso(now))
+    .first<ChatDeductionQuestion>()

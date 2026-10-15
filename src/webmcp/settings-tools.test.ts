@@ -46,6 +46,7 @@ const llm: LlmSettings = {
     opinionSort: { provider: 'workers-ai', models: lightModel },
     opinionPrompt: { provider: 'workers-ai', models: lightModel },
     opinionSummary: { provider: 'workers-ai', models: lightModel },
+    chatDeductionAnswer: { provider: 'workers-ai', models: lightModel },
   },
 }
 const overlays: Overlay[] = [{ name: '作業配信', items: [] }]
