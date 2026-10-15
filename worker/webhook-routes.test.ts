@@ -21,6 +21,7 @@ import { openTheme } from './opinion-store'
 import { saveModerationConfig } from './moderation-config'
 import type { ModerationConfig, ModerationRule } from './chat-moderation'
 import { saveAlertConfig, type StoredTrigger } from './alert-config'
+import { AI_CHAT_DAILY_LIMIT } from './ai-chat'
 import { saveToken } from './token'
 import { listViewers, recordViewerMessage, updateViewerNote } from './viewer-store'
 import { createFakeAlertChannel } from './fake-alert-channel'
@@ -2600,6 +2601,135 @@ describe('LLMに文面を作らせる動作（aiChat）', () => {
 
     expect(response.status).toBe(204)
     expect(ai.calls).toHaveLength(0)
+  })
+
+  describe('呼び出しの歯止め（クールダウンと1日の上限）', () => {
+    const everyMessageTrigger: StoredTrigger = { kind: 'everyMessage', actions: [{ type: 'aiChat', instruction: '一言返してください' }] }
+
+    /** その日（UTC）の aiChat の呼び出し回数が、指定した回数になっている状態を作る */
+    const recordLlmUsageCalls = async (db: ReturnType<typeof createFakeDatabase>, calls: number) => {
+      db.sqlite
+        .prepare(
+          `INSERT INTO llm_usage (day, usage, provider, model, calls, failures, prompt_tokens, completion_tokens, cost_usd, updated_at)
+           VALUES (?1, 'aiChat', 'workers-ai', 'テスト用モデル', ?2, 0, 0, 0, 0, ?3)`,
+        )
+        .run(new Date(NOW).toISOString().slice(0, 10), calls, new Date(NOW).toISOString())
+    }
+
+    /** 指定した人・メッセージIDの発言を、通知のIDも変えて届ける */
+    const sendChatFrom = async (env: Env, fetchImpl: typeof fetch, chatterUserId: string, messageId: string) => {
+      await callWebhook(
+        createNotification({
+          messageId: `eventsub-${messageId}`,
+          body: {
+            subscription: { type: 'channel.chat.message' },
+            event: {
+              ...firstTimerMessage.event,
+              chatter_user_id: chatterUserId,
+              message_id: messageId,
+              message: { text: 'こんばんは', fragments: [{ type: 'text', text: 'こんばんは' }] },
+            },
+          },
+        }),
+        env,
+        fetchImpl,
+      )
+      await flushDeferredTasks()
+    }
+
+    it('同じ人が続けて発言しても、クールダウンの間は2回目の文面を作らない', async () => {
+      const { env, ai } = createEnv()
+      await saveAlertConfig(env.STORE, { triggers: [everyMessageTrigger] })
+      await connectBot(env)
+      const twitch = fakeTwitchAcceptingSends()
+
+      await sendChatFrom(env, twitch.fetchImpl, '11111', 'chat-message-1')
+      await sendChatFrom(env, twitch.fetchImpl, '11111', 'chat-message-2')
+
+      expect(ai.calls).toHaveLength(1)
+      expect(twitch.sentChats).toHaveLength(1)
+      // クールダウンは想定どおりの抑止なので、失敗としては記録しない
+      expect(await listFailures(env.DB)).toEqual([])
+    })
+
+    it('別の人の発言にはクールダウンが効かない（人ごとに数える）', async () => {
+      const { env, ai } = createEnv()
+      await saveAlertConfig(env.STORE, { triggers: [everyMessageTrigger] })
+      await connectBot(env)
+      const twitch = fakeTwitchAcceptingSends()
+
+      await sendChatFrom(env, twitch.fetchImpl, '11111', 'chat-message-1')
+      await sendChatFrom(env, twitch.fetchImpl, '22222', 'chat-message-2')
+
+      expect(ai.calls).toHaveLength(2)
+    })
+
+    it('クールダウンが明けていれば、同じ人の発言にもう一度文面を作る', async () => {
+      const { env, ai } = createEnv()
+      await saveAlertConfig(env.STORE, { triggers: [everyMessageTrigger] })
+      await connectBot(env)
+      const twitch = fakeTwitchAcceptingSends()
+
+      await sendChatFrom(env, twitch.fetchImpl, '11111', 'chat-message-1')
+      // 最後に作った時刻を1時間前へ戻して、クールダウンが明けた状態にする
+      env.DB.sqlite.prepare('UPDATE command_uses SET used_at = ?1').run(new Date(NOW - 60 * 60 * 1000).toISOString())
+      await sendChatFrom(env, twitch.fetchImpl, '11111', 'chat-message-2')
+
+      expect(ai.calls).toHaveLength(2)
+    })
+
+    it('その日の呼び出しが上限に達していたら、LLMを呼ばずに失敗として記録する', async () => {
+      const { env, ai } = createEnv()
+      await saveAlertConfig(env.STORE, { triggers: [everyMessageTrigger] })
+      await connectBot(env)
+      const twitch = fakeTwitchAcceptingSends()
+      await recordLlmUsageCalls(env.DB, AI_CHAT_DAILY_LIMIT)
+
+      await sendChatFrom(env, twitch.fetchImpl, '11111', 'chat-message-1')
+
+      expect(ai.calls).toHaveLength(0)
+      expect(twitch.sentChats).toHaveLength(0)
+      expect(await listFailures(env.DB)).toMatchObject([{ code: 'alert-aichat-failed', message: expect.stringContaining('1日の上限') }])
+    })
+
+    it('上限を超えた状態が続いても、失敗の記録は一定時間に1回だけにする（ほかの失敗を押し流さないため）', async () => {
+      const { env } = createEnv()
+      await saveAlertConfig(env.STORE, { triggers: [everyMessageTrigger] })
+      await connectBot(env)
+      const twitch = fakeTwitchAcceptingSends()
+      await recordLlmUsageCalls(env.DB, AI_CHAT_DAILY_LIMIT)
+
+      await sendChatFrom(env, twitch.fetchImpl, '11111', 'chat-message-1')
+      await sendChatFrom(env, twitch.fetchImpl, '22222', 'chat-message-2')
+
+      expect(await listFailures(env.DB)).toHaveLength(1)
+    })
+
+    it('上限に満たなければ、通常どおり文面を作る', async () => {
+      const { env, ai } = createEnv()
+      await saveAlertConfig(env.STORE, { triggers: [everyMessageTrigger] })
+      await connectBot(env)
+      const twitch = fakeTwitchAcceptingSends()
+      await recordLlmUsageCalls(env.DB, AI_CHAT_DAILY_LIMIT - 1)
+
+      await sendChatFrom(env, twitch.fetchImpl, '11111', 'chat-message-1')
+
+      expect(ai.calls).toHaveLength(1)
+    })
+
+    it('チャットの発言でないイベント（フォロー）は、発言者がいないのでイベントの種類ごとにクールダウンを数える', async () => {
+      const { env, ai } = createEnv()
+      await saveAlertConfig(env.STORE, { triggers: [generatedTextTrigger] })
+      await connectBot(env)
+      const twitch = fakeTwitchAcceptingSends()
+
+      await callWebhook(createNotification({ messageId: 'follow-1', body: createFollowNotification }), env, twitch.fetchImpl)
+      await flushDeferredTasks()
+      await callWebhook(createNotification({ messageId: 'follow-2', body: createFollowNotification }), env, twitch.fetchImpl)
+      await flushDeferredTasks()
+
+      expect(ai.calls).toHaveLength(1)
+    })
   })
 })
 
