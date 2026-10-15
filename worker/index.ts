@@ -56,6 +56,10 @@
  * | POST /api/admin/pomodoro/control | セッション     | ポモドーロのタイマーの操作（始める・一時停止・再開・止める） |
  * | GET・POST /api/admin/texts       | セッション     | 配信者が書くテキストの一覧・追加 |
  * | PUT・DELETE /api/admin/texts/:id | セッション     | テキストの書き換え・削除（合成ページへ押し出す） |
+ * | GET  /api/admin/chat-deduction  | セッション     | チャットで推理の報酬のIDと、最後に始めたゲーム |
+ * | POST /api/admin/chat-deduction/rewards | セッション | チャットで推理の「質問」「解答」の報酬をTwitchで作る |
+ * | POST /api/admin/chat-deduction/games | セッション | チャットで推理のゲームを始め、2つの報酬を交換できるようにする |
+ * | POST /api/admin/chat-deduction/games/:id/end | セッション | 2つの報酬を交換できないようにしてから、チャットで推理のゲームを終える |
  * | GET  /api/admin/opinions         | セッション     | 意見ボード（最後に開いたテーマ。隠した意見・人数・もとのコメントつき） |
  * | POST /api/admin/opinions/themes  | セッション     | 意見ボードのテーマを開き、コメントの振り分けを始める |
  * | POST /api/admin/opinions/themes/:id/close | セッション | 意見ボードのテーマを締め切り、振り分けを止める |
@@ -221,6 +225,7 @@ import {
   putOpinion,
   putOpinionTopic,
 } from './opinion-routes'
+import { getChatDeduction, postChatDeductionGame, postChatDeductionRewards, postEndChatDeductionGame } from './chat-deduction-routes'
 import {
   getTownTour,
   getTownTourNarration,
@@ -353,6 +358,10 @@ const ROUTES: readonly Route[] = [
   { method: 'POST', path: '/api/admin/texts', handle: postText },
   { method: 'PUT', path: '/api/admin/texts/:id', handle: putText },
   { method: 'DELETE', path: '/api/admin/texts/:id', handle: removeText },
+  { method: 'GET', path: '/api/admin/chat-deduction', handle: getChatDeduction },
+  { method: 'POST', path: '/api/admin/chat-deduction/rewards', handle: postChatDeductionRewards },
+  { method: 'POST', path: '/api/admin/chat-deduction/games', handle: postChatDeductionGame },
+  { method: 'POST', path: '/api/admin/chat-deduction/games/:id/end', handle: postEndChatDeductionGame },
   { method: 'GET', path: '/api/admin/opinions', handle: getAdminOpinions },
   { method: 'POST', path: '/api/admin/opinions/themes', handle: postOpinionTheme },
   { method: 'POST', path: '/api/admin/opinions/themes/:id/close', handle: postCloseOpinionTheme },

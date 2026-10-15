@@ -10,6 +10,7 @@
  * ログインしたトークンには無いので、Twitchへ送る前に確かめて、ログインし直しを求める（Twitchの英語の403で気づかせない）。
  */
 import { loadAlertConfig } from './alert-config'
+import { isChatDeductionReward, loadChatDeductionRewards } from './chat-deduction-rewards'
 import { HttpError, STATUS, requireAdmin, type Context } from './http'
 import { parseRewardInput } from './reward-input'
 import { AuthError, getAccessToken, type StoredToken } from './token'
@@ -43,7 +44,7 @@ const requireRewardId = ({ params }: Context): string => {
  *
  * @throws AuthError トークンが保管されていない・更新できない・channel:manage:redemptions が無い
  */
-const getManageToken = async ({ env, twitch, now }: Context): Promise<StoredToken> => {
+export const getManageToken = async ({ env, twitch, now }: Context): Promise<StoredToken> => {
   const token = await getAccessToken(env.TOKENS, 'broadcaster', twitch, now)
   if (!token.scopes.includes(MANAGE_SCOPE)) {
     throw new AuthError('missing-scope', `配信者のトークンに ${MANAGE_SCOPE} がありません。ログインし直してください（チャンネルポイント報酬を変更できません）`)
@@ -109,8 +110,9 @@ export const patchReward = async (context: Context): Promise<Response> => {
  * DELETE /api/admin/rewards/:id: Twitchでチャンネルポイント報酬を削除する。
  *
  * トリガーに使われている報酬は消させない（配信中にアラートが黙って出なくなるのを防ぐ。素材の削除と同じ扱い）。
+ * チャットで推理の報酬も消させない（ゲームの開始と終了で切り替える相手が無くなるため。issue #375）。
  *
- * @throws HttpError トリガーに使われている場合（409）
+ * @throws HttpError トリガー・チャットで推理に使われている場合（409）
  * @throws AuthError channel:manage:redemptions の無いトークンしか無い
  * @throws TwitchApiError Twitchが拒否した（このアプリが作っていない報酬など）
  */
@@ -120,6 +122,9 @@ export const deleteReward = async (context: Context): Promise<Response> => {
   const { triggers } = await loadAlertConfig(context.env.STORE)
   if (triggers.some((trigger) => trigger.kind === 'reward' && trigger.rewardId === id)) {
     throw new HttpError(STATUS.conflict, 'reward-in-use', 'この報酬はトリガーに使われています。先にトリガーの設定から外してください')
+  }
+  if (isChatDeductionReward(await loadChatDeductionRewards(context.env.STORE), id)) {
+    throw new HttpError(STATUS.conflict, 'reward-in-use', 'この報酬はチャットで推理に使われています（ゲームの開始と終了で交換できるかどうかを切り替えるため、消せません）')
   }
   const { accessToken } = await getManageToken(context)
   await context.twitch.deleteCustomReward(accessToken, context.env.TWITCH_BROADCASTER_ID, id)

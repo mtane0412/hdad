@@ -165,7 +165,11 @@ R2は無料枠（保存10GB・転送無料）だけを使う場合でも、デ�
 | `POST /api/admin/translations` | アプリのページの音声認識が確定した1件を英語に訳して返す（訳さない設定なら `null`。訳せなければ502。要セッション） |
 | `GET /api/admin/rewards` | 配信者のチャンネルポイント報酬の一覧（名前・必要ポイント・説明・画像のURLなど）。HDADから変更できる報酬には `manageable: true` が付く。トリガーの報酬を選ぶのにも使う（要セッション） |
 | `POST /api/admin/rewards` | チャンネルポイント報酬を作る（`channel:manage:redemptions` が要る。要セッション） |
-| `PATCH`・`DELETE /api/admin/rewards/<報酬ID>` | チャンネルポイント報酬の更新・削除。HDADが作った報酬だけで、トリガーに使われている報酬は削除できない（要セッション） |
+| `PATCH`・`DELETE /api/admin/rewards/<報酬ID>` | チャンネルポイント報酬の更新・削除。HDADが作った報酬だけで、トリガー・チャットで推理に使われている報酬は削除できない（要セッション） |
+| `GET /api/admin/chat-deduction` | チャットで推理の「質問」「解答」の報酬のIDと、最後に始めたゲーム（要セッション） |
+| `POST /api/admin/chat-deduction/rewards` | チャットで推理の「質問」「解答」の報酬を作る（もう作ってあれば409。`channel:manage:redemptions` が要る。要セッション） |
+| `POST /api/admin/chat-deduction/games` | 問題（`{ problemId }`）を選んでゲームを始め、2つの報酬を交換できるようにする（問題集に無ければ400、報酬が無い・ほかのゲームが開催中なら409、報酬を切り替えられなければ始めずに502。要セッション） |
+| `POST /api/admin/chat-deduction/games/:id/end` | 2つの報酬を交換できないようにしてからゲームを終える（開催中でなければ404、報酬を切り替えられなければ終えずに502。要セッション） |
 | `GET /api/admin/viewers` | 視聴者の記録の一覧（最後に発言した順）。`?search`（ログイン名の前方一致）・`?before`（この日時より前に発言した人）・`?limit`（1〜200。既定50）で絞る（要セッション） |
 | `PATCH /api/admin/viewers/<ユーザーID>` | 本文 `{ "note": メモ }` を受け取り、その人へのメモを保存する（2000文字まで。要セッション） |
 | `DELETE /api/admin/viewers/<ユーザーID>` | 視聴者の記録の削除（本人から求められたときに応じるためのもの。要セッション） |

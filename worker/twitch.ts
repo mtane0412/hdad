@@ -317,6 +317,14 @@ export interface TwitchClient {
    * @throws TwitchApiError Twitchが拒否した（このアプリが作っていない報酬には403が返る）
    */
   deleteCustomReward(accessToken: string, broadcasterId: string, rewardId: string): Promise<void>
+  /**
+   * チャンネルポイント報酬の、交換できるかどうか（is_enabled）だけを切り替える。配信者のトークンと channel:manage:redemptions が必要。
+   *
+   * ほかの項目は送らないので、配信者が /rewards/ で変えた必要ポイントなどを上書きしない（チャットで推理の開始と終了。issue #375）。
+   *
+   * @throws TwitchApiError Twitchが拒否した（このアプリが作っていない報酬には403、消された報酬には404が返る）
+   */
+  setCustomRewardEnabled(accessToken: string, broadcasterId: string, rewardId: string, isEnabled: boolean): Promise<CustomReward>
   /** 配信者がいま行っている配信。配信していなければ null */
   getLiveStream(accessToken: string, broadcasterId: string): Promise<LiveStream | null>
   /**
@@ -836,6 +844,18 @@ export const createTwitchClient = ({
         method: 'PATCH',
         headers: { ...helixHeaders(accessToken), 'Content-Type': 'application/json' },
         body: toCustomRewardBody(input),
+      })
+      return readSingleReward(await readJson(response))
+    },
+
+    setCustomRewardEnabled: async (accessToken, broadcasterId, rewardId, isEnabled) => {
+      const url = new URL(CUSTOM_REWARDS_URL)
+      url.searchParams.set('broadcaster_id', broadcasterId)
+      url.searchParams.set('id', rewardId)
+      const response = await fetchImpl(url, {
+        method: 'PATCH',
+        headers: { ...helixHeaders(accessToken), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_enabled: isEnabled }),
       })
       return readSingleReward(await readJson(response))
     },
