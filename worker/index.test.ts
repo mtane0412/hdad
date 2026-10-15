@@ -114,7 +114,7 @@ const broadcasterSessionCookie = async (env: Env) => `__Host-session=${await cre
 /** botの接続を開始 → 返ってきた state を使ってコールバックを呼ぶ、までをまとめて行う */
 const connectBot = async (env: Env, fetchImpl: typeof fetch) => {
   const session = await broadcasterSessionCookie(env)
-  const login = await call(new Request(`${site}/api/auth/login?role=bot`, { headers: { Cookie: session } }), env, fetchImpl)
+  const login = await call(new Request(`${site}/api/auth/login?role=bot`, { headers: { Cookie: session, 'Sec-Fetch-Site': 'same-origin' } }), env, fetchImpl)
   const state = new URL(login.headers.get('Location')!).searchParams.get('state')!
   const stateCookie = login.headers.getSetCookie()[0]!.split(';')[0]!
   return call(
@@ -166,13 +166,60 @@ describe('GET /api/auth/login?role=bot', () => {
   it('配信者のセッションがあれば、botのスコープでTwitchの認可ページへ送る', async () => {
     const { env } = createEnv()
     const response = await call(
-      new Request(`${site}/api/auth/login?role=bot`, { headers: { Cookie: await broadcasterSessionCookie(env) } }),
+      new Request(`${site}/api/auth/login?role=bot`, {
+        headers: { Cookie: await broadcasterSessionCookie(env), 'Sec-Fetch-Site': 'same-origin' },
+      }),
       env,
     )
 
     expect(response.status).toBe(302)
     const location = new URL(response.headers.get('Location')!)
     expect(location.searchParams.get('scope')).toBe(BOT_SCOPES.join(' '))
+  })
+
+  it('アドレスバーからの直接の遷移（Sec-Fetch-Site: none）でも開始できる', async () => {
+    const { env } = createEnv()
+    const response = await call(
+      new Request(`${site}/api/auth/login?role=bot`, { headers: { Cookie: await broadcasterSessionCookie(env), 'Sec-Fetch-Site': 'none' } }),
+      env,
+    )
+
+    expect(response.status).toBe(302)
+  })
+
+  it.each(['cross-site', 'same-site'])('他のサイトからの遷移（Sec-Fetch-Site: %s）ではセッションがあっても403で拒否する', async (fetchSite) => {
+    const { env } = createEnv()
+    const response = await call(
+      new Request(`${site}/api/auth/login?role=bot`, { headers: { Cookie: await broadcasterSessionCookie(env), 'Sec-Fetch-Site': fetchSite } }),
+      env,
+    )
+
+    expect(response.status).toBe(403)
+    expect(await errorCode(response)).toBe('cross-origin')
+    expect(response.headers.get('Location')).toBeNull()
+  })
+
+  it('Sec-Fetch-Site がないリクエストは、送信元を確かめられないので403で拒否する', async () => {
+    const { env } = createEnv()
+    const response = await call(
+      new Request(`${site}/api/auth/login?role=bot`, { headers: { Cookie: await broadcasterSessionCookie(env) } }),
+      env,
+    )
+
+    expect(response.status).toBe(403)
+    expect(await errorCode(response)).toBe('cross-origin')
+  })
+
+  it('botの認可ページには force_verify を付け、同意画面を省略させない', async () => {
+    const { env } = createEnv()
+    const response = await call(
+      new Request(`${site}/api/auth/login?role=bot`, {
+        headers: { Cookie: await broadcasterSessionCookie(env), 'Sec-Fetch-Site': 'same-origin' },
+      }),
+      env,
+    )
+
+    expect(new URL(response.headers.get('Location')!).searchParams.get('force_verify')).toBe('true')
   })
 
   it('知らない役割を指定されたら400で拒否する', async () => {
@@ -250,7 +297,7 @@ describe('GET /api/auth/callback（botの接続）', () => {
     const { env } = createEnv()
     const twitch = fakeTwitch('67890', { login: 'haishinsha_bot', scopes: BOT_SCOPES })
     const session = await broadcasterSessionCookie(env)
-    const login = await call(new Request(`${site}/api/auth/login?role=bot`, { headers: { Cookie: session } }), env, twitch.fetchImpl)
+    const login = await call(new Request(`${site}/api/auth/login?role=bot`, { headers: { Cookie: session, 'Sec-Fetch-Site': 'same-origin' } }), env, twitch.fetchImpl)
     const state = new URL(login.headers.get('Location')!).searchParams.get('state')!
     const stateCookie = login.headers.getSetCookie()[0]!.split(';')[0]!
 

@@ -47,6 +47,15 @@ describe('authorizeUrl', () => {
     expect(url.searchParams.get('scope')).toBe('channel:read:redemptions moderator:read:followers')
     expect(url.searchParams.get('state')).toBe('ランダムなstate')
   })
+
+  it('既定では force_verify を付けず、forceVerify を指定したときだけ付ける', () => {
+    const { fetchImpl } = fetchReturning(200, {})
+    const client = createClient(fetchImpl)
+    const redirectUri = 'https://example.com/api/auth/callback'
+
+    expect(new URL(client.authorizeUrl(redirectUri, 'state', ['a'])).searchParams.has('force_verify')).toBe(false)
+    expect(new URL(client.authorizeUrl(redirectUri, 'state', ['a'], true)).searchParams.get('force_verify')).toBe('true')
+  })
 })
 
 describe('exchangeCode', () => {

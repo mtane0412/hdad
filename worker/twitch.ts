@@ -272,8 +272,12 @@ export interface ShoutoutToSend extends ModerationTarget {
 }
 
 export interface TwitchClient {
-  /** ユーザーをTwitchの認可ページへ送るためのURL */
-  authorizeUrl(redirectUri: string, state: string, scopes: readonly string[]): string
+  /**
+   * ユーザーをTwitchの認可ページへ送るためのURL。
+   *
+   * 注意: forceVerify を true にすると、許可済みのスコープでも Twitch が同意画面を省略せず毎回出す（force_verify）。
+   */
+  authorizeUrl(redirectUri: string, state: string, scopes: readonly string[], forceVerify?: boolean): string
   exchangeCode(code: string, redirectUri: string): Promise<TokenGrant>
   refresh(refreshToken: string): Promise<TokenGrant>
   validate(accessToken: string): Promise<TokenOwner>
@@ -725,7 +729,7 @@ export const createTwitchClient = ({
   }
 
   return {
-    authorizeUrl: (redirectUri, state, scopes) => {
+    authorizeUrl: (redirectUri, state, scopes, forceVerify = false) => {
       const url = new URL(AUTHORIZE_URL)
       url.search = new URLSearchParams({
         response_type: 'code',
@@ -733,6 +737,7 @@ export const createTwitchClient = ({
         redirect_uri: redirectUri,
         scope: scopes.join(' '),
         state,
+        ...(forceVerify ? { force_verify: 'true' } : {}),
       }).toString()
       return url.toString()
     },
