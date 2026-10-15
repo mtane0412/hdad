@@ -277,6 +277,18 @@ describe('ゲームの開始（POST /api/admin/chat-deduction/games）', () => {
     expect((await readError(response)).code).toBe('chat-deduction-game-open')
   })
 
+  it('channel:manage:redemptions の無いトークンしか無ければ、ゲームの行を作らずにログインし直しを求める', async () => {
+    const env = createEnv()
+    await saveRewards(env)
+    await saveBroadcasterToken(env, ['channel:read:redemptions'])
+
+    const response = await invoke(await broadcasterRequest(env, '/api/admin/chat-deduction/games', postJson({ problemId: 'mount-fuji' })), env)
+
+    expect(response.status).toBe(401)
+    expect((await readError(response)).code).toBe('missing-scope')
+    expect(await readLatestGame(env.DB)).toBeNull()
+  })
+
   it('報酬を交換できるようにできなければ、ゲームを始めなかったことにして502を返す', async () => {
     const env = createEnv()
     await saveRewards(env)

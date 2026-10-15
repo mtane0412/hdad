@@ -78,17 +78,17 @@ export const postChatDeductionGame = async (context: Context): Promise<Response>
   }
   const rewards = await requireRewards(context)
   const { env, twitch, now } = context
+  // 行を作る前にトークンを確かめる（スコープが足りなければ、行を作らずにログインし直しを求める）
+  const { accessToken } = await getManageToken(context)
   const game = await startGame(env.DB, problemId, now)
   if (game === null) throw new HttpError(STATUS.conflict, 'chat-deduction-game-open', 'ほかのゲームが開催中です。先に終えてください')
 
   try {
-    const { accessToken } = await getManageToken(context)
     await setChatDeductionRewardsEnabled(twitch, accessToken, env.TWITCH_BROADCASTER_ID, rewards, true)
   } catch (error) {
     await cancelGame(env.DB, game.id)
     // 片方だけ交換できるようになっているかもしれないので戻す。戻せなければ、そのことも添えて知らせる
-    const rollback = await getManageToken(context)
-      .then(({ accessToken }) => setChatDeductionRewardsEnabled(twitch, accessToken, env.TWITCH_BROADCASTER_ID, rewards, false))
+    const rollback = await setChatDeductionRewardsEnabled(twitch, accessToken, env.TWITCH_BROADCASTER_ID, rewards, false)
       .then(
         () => '',
         (rollbackError: unknown) => `。報酬を交換できない状態にも戻せませんでした（${reasonOf(rollbackError)}）。/rewards/ で確かめてください`,
