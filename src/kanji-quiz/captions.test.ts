@@ -54,8 +54,8 @@ describe('wrongAnswerLineOf', () => {
 
 describe('stakesLineOf', () => {
   it('制限時間の秒数を添えて、誰も正解しなければ配信が終わることを告げる', () => {
-    // 前提: 制限時間は scene.ts の ANSWER_LIMIT_MS（15秒）から取る
-    expect(ANSWER_LIMIT_MS).toBe(15_000)
-    expect(stakesLineOf()).toBe('15秒以内に誰も正解できなければ配信終了')
+    // 前提: 制限時間は scene.ts の ANSWER_LIMIT_MS（60秒）から取る
+    expect(ANSWER_LIMIT_MS).toBe(60_000)
+    expect(stakesLineOf()).toBe('60秒以内に誰も正解できなければ配信終了')
   })
 })

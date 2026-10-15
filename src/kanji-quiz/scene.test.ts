@@ -31,8 +31,8 @@ describe('kanjiQuizSceneAt', () => {
     expect(kanjiQuizSceneAt(GRADE_INTRO_MS - 1, null)).toMatchObject({ kind: 'grade' })
   })
 
-  it('制限時間は15秒にする', () => {
-    expect(ANSWER_LIMIT_MS).toBe(15_000)
+  it('制限時間は視聴者が大喜利できるよう60秒にする', () => {
+    expect(ANSWER_LIMIT_MS).toBe(60_000)
   })
 
   it('熟語は等倍の5分の1の大きさで出て、制限時間のあいだ止まらずに近づきつづける', () => {
@@ -129,8 +129,8 @@ describe('acceptsAnswerAt', () => {
   })
 })
 
-/** 時間切れから少しして（流しはじめて34秒後に）、10秒の猶予が届いた */
-const stopAnnounced: KanjiQuizStop = { announcedAfterMs: 34_000, graceMs: 10_000, rehearsal: false, cancelledAfterMs: null }
+/** 時間切れから少しして（時間切れの17秒後に）、10秒の猶予が届いた */
+const stopAnnounced: KanjiQuizStop = { announcedAfterMs: GRADE_INTRO_MS + ANSWER_LIMIT_MS + 17_000, graceMs: 10_000, rehearsal: false, cancelledAfterMs: null }
 /** 猶予が尽きる時刻（流しはじめてから） */
 const stopAt = stopAnnounced.announcedAfterMs + stopAnnounced.graceMs
 
@@ -156,9 +156,9 @@ describe('kanjiQuizStopBannerAt', () => {
   })
 
   it('取り消しが届いても何も出さない（視聴者には停止の予告を見せていないため）', () => {
-    const cancelled = { ...stopAnnounced, cancelledAfterMs: 38_000 }
+    const cancelled = { ...stopAnnounced, cancelledAfterMs: stopAnnounced.announcedAfterMs + 4_000 }
 
-    expect(kanjiQuizStopBannerAt(38_000, cancelled)).toBeNull()
+    expect(kanjiQuizStopBannerAt(cancelled.cancelledAfterMs, cancelled)).toBeNull()
     expect(kanjiQuizStopBannerAt(stopAt, { ...cancelled, rehearsal: true })).toBeNull()
   })
 
@@ -177,7 +177,7 @@ describe('配信を止めるまでの猶予が届いたとき', () => {
   it('結果を出し終えるまで、1回の出題を延ばす', () => {
     expect(kanjiQuizEndOf(null, stopAnnounced)).toBe(stopAt + STOP_RESULT_MS)
     // 取り消されたら、取り消しが届いてから結果を出し終えるまで
-    expect(kanjiQuizEndOf(null, { ...stopAnnounced, cancelledAfterMs: 38_000 })).toBe(Math.max(KANJI_QUIZ_TOTAL_MS, 38_000 + STOP_RESULT_MS))
+    expect(kanjiQuizEndOf(null, { ...stopAnnounced, cancelledAfterMs: stopAnnounced.announcedAfterMs + 4_000 })).toBe(Math.max(KANJI_QUIZ_TOTAL_MS, stopAnnounced.announcedAfterMs + 4_000 + STOP_RESULT_MS))
   })
 
   it('解説を出し終えても、延ばしたあいだは解説を出したままにする', () => {
