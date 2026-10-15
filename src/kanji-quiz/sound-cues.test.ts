@@ -75,6 +75,32 @@ describe('kanjiQuizSoundCuesOf', () => {
     ])
   })
 
+  it('時間切れのあとに正解者が届いたら、時間切れの音と BGM の下げは時間切れの時刻のままにし、届いた時刻に正解の音を鳴らし、解説の音は届いた時刻から数える', () => {
+    // 前提: Worker は遅れの余裕を足して受け付けるので、時間切れの0.8秒後に正解者が届いた
+    const lateAnsweredAt = timeUpAt + 800
+    expect(timingsOf(kanjiQuizSoundCuesOf(fullSound, lateAnsweredAt))).toEqual([
+      ['bgm', 0],
+      ['start', 0],
+      ['countdown-5', countdownAt(5)],
+      ['countdown-4', countdownAt(4)],
+      ['countdown-3', countdownAt(3)],
+      ['countdown-2', countdownAt(2)],
+      ['countdown-1', countdownAt(1)],
+      ['timeUp', timeUpAt],
+      ['bgm-end', timeUpAt],
+      ['correct', lateAnsweredAt],
+      ['explanation-correct', lateAnsweredAt + REVEAL_RESULT_MS],
+    ])
+  })
+
+  it('時間切れの解説の音を鳴らしたあとに正解者が届いても、解説を見せ直すときにもう一度解説の音を鳴らす', () => {
+    // 前提: 時間切れの解説の帯が出て音を鳴らした（REVEAL_RESULT_MS 後）さらに0.5秒後に正解者が届いた
+    const lateAnsweredAt = timeUpAt + REVEAL_RESULT_MS + 500
+    const played = new Set(['bgm', 'start', 'countdown-5', 'countdown-4', 'countdown-3', 'countdown-2', 'countdown-1', 'timeUp', 'bgm-end', 'explanation'])
+    const due = dueKanjiQuizSoundCues(fullSound, lateAnsweredAt + REVEAL_RESULT_MS, lateAnsweredAt, played)
+    expect(due.map((cue) => cue.id)).toEqual(['explanation-correct'])
+  })
+
   it('不正解の回答が届くたびに、届いた時刻に「直前の回答」の音を鳴らす（ほかの音と時刻の順に並べる）', () => {
     // 前提: 5秒とカウントダウンの 5 の0.5秒後に不正解の回答が届き、そのあと正解者が届いた
     expect(timingsOf(kanjiQuizSoundCuesOf(fullSound, answeredAt, [5_000, countdownAt(5) + 500]))).toEqual([
@@ -162,6 +188,11 @@ describe('kanjiQuizBgmDuckHoldOf', () => {
   it('正解者が届いたら、届いた時刻から BGM を下げ終えるまでの残りに縮める', () => {
     // 前提: 正解者が届き、その0.1秒後に知らせる
     expect(kanjiQuizBgmDuckHoldOf(fullSound, answeredAt + 100, answeredAt)).toBe(answeredAt + KANJI_QUIZ_BGM_FADE_OUT_MS - (answeredAt + 100))
+  })
+
+  it('時間切れのあとに正解者が届いても、BGM は時間切れで下げ終えているので、すぐ戻す（0）', () => {
+    // 前提: 時間切れの0.8秒後に正解者が届き、その時刻に知らせる
+    expect(kanjiQuizBgmDuckHoldOf(fullSound, timeUpAt + 800, timeUpAt + 800)).toBe(0)
   })
 
   it('BGM を下げ終えた後なら、すぐ戻す（0）', () => {
