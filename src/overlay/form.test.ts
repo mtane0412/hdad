@@ -108,6 +108,10 @@ describe('defaultRectFor', () => {
     expect(defaultRectFor('tab')).toEqual(full)
   })
 
+  it('チャットで推理は画面の中央に大きく出すので、オーバーレイいっぱいにする', () => {
+    expect(defaultRectFor('chatDeduction')).toEqual({ x: '0', y: '0', width: '100', height: '100' })
+  })
+
   it('小さく置く素材は、推奨の大きさ（時計は600×240px・チャットは480×800px）を割合にする', () => {
     // 1920×1080 に対する割合。0.1％まで丸める（入力欄に長い小数を残さないため）
     expect(defaultRectFor('clock')).toEqual({ x: '0', y: '0', width: '31.3', height: '22.2' })
