@@ -1,7 +1,8 @@
 /*
  * チャットで推理（合成ページの素材）の見た目（issue #378）
  *
- * 配信画面の横に、視聴者の質問と答え・解答をカードで縦に積む。出しっぱなしにするので次のことを守る。
+ * 配信画面の中央に板を大きく置き、視聴者の質問と答え・解答をカードで縦に積む。次のことを守る。
+ * - 箱は配信画面と同じ大きさ（src/overlay/layout.ts）にして、板を箱の中央に寄せる。板は箱より大きくならない
  * - 主役の画面の邪魔をしないよう、半透明の暗い板にカードを置く（作業机 src/task-desk/task-desk.css と同じ板）
  * - 答えは印の文字（はい・いいえ・分からない）と色の両方で分ける（data-verdict）。はいは緑、いいえは赤、分からないは灰
  * - 解答は正解・不正解で分け（data-result）、正解のカードは金色の枠で目立たせる
@@ -13,6 +14,9 @@
   /* 位置は画面ではなく置かれた箱を基準にする（合成ページのレイヤーの箱に入れるため。issue #101） */
   position: absolute;
   inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   overflow: hidden;
   font-family: 'Zen Kaku Gothic New', 'Hiragino Sans', 'Yu Gothic UI', sans-serif;
 }
@@ -20,8 +24,9 @@
 .chat-deduction-board {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  height: 100%;
+  gap: 12px;
+  width: min(1280px, 100%);
+  height: min(1040px, 100%);
 }
 
 /* display を指定した要素でも hidden を効かせる */
@@ -33,26 +38,26 @@
   display: flex;
   gap: 12px;
   align-items: baseline;
-  padding: 8px 14px;
-  border-radius: 8px;
+  padding: 10px 20px;
+  border-radius: 10px;
   background: rgb(12 14 20 / 78%);
   color: #fff;
 }
 
 .chat-deduction-title {
-  font-size: 22px;
+  font-size: 36px;
   font-weight: 700;
 }
 
 .chat-deduction-category {
-  font-size: 18px;
+  font-size: 30px;
   color: #ffd166;
 }
 
 .chat-deduction-cards {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 10px;
   min-height: 0;
   margin: 0;
   padding: 0;
@@ -63,23 +68,23 @@
 .chat-deduction-card {
   display: grid;
   grid-template-columns: 5.5em 1fr;
-  gap: 4px 12px;
+  gap: 4px 18px;
   align-items: center;
-  padding: 8px 14px;
-  border-left: 6px solid #8b95a5;
-  border-radius: 8px;
+  padding: 10px 20px;
+  border-left: 8px solid #8b95a5;
+  border-radius: 10px;
   background: rgb(12 14 20 / 62%);
   box-shadow: 0 4px 14px rgb(0 0 0 / 35%);
   color: #fff;
-  font-size: 18px;
+  font-size: 26px;
   line-height: 1.4;
   animation: chat-deduction-in 400ms ease-out;
 }
 
 .chat-deduction-badge {
   grid-row: span 2;
-  padding: 4px 0;
-  border-radius: 6px;
+  padding: 6px 0;
+  border-radius: 8px;
   background: #8b95a5;
   color: #10131a;
   font-weight: 700;
@@ -98,14 +103,14 @@
 }
 
 .chat-deduction-reply {
-  font-size: 16px;
+  font-size: 22px;
   color: rgb(255 255 255 / 82%);
   overflow-wrap: anywhere;
 }
 
 .chat-deduction-name {
   grid-column: 2;
-  font-size: 14px;
+  font-size: 18px;
   color: rgb(255 255 255 / 62%);
 }
 
@@ -132,8 +137,8 @@
 
 /* 正解のカードは金色の枠と光で、ほかのカードと見分けられるようにする */
 .chat-deduction-card[data-result='correct'] {
-  border: 2px solid #ffd166;
-  border-left-width: 6px;
+  border: 3px solid #ffd166;
+  border-left-width: 8px;
   background: rgb(60 44 4 / 82%);
   box-shadow: 0 0 18px rgb(255 209 102 / 55%);
 }
@@ -144,17 +149,17 @@
 
 .chat-deduction-hint {
   margin: auto 0 0;
-  padding: 6px 14px;
-  border-radius: 8px;
+  padding: 10px 20px;
+  border-radius: 10px;
   background: rgb(12 14 20 / 62%);
   color: rgb(255 255 255 / 85%);
-  font-size: 15px;
+  font-size: 24px;
 }
 
 .chat-deduction-result {
   margin-top: auto;
-  padding: 10px 14px;
-  border-radius: 8px;
+  padding: 14px 20px;
+  border-radius: 10px;
   background: rgb(12 14 20 / 85%);
   color: #fff;
   text-align: center;
@@ -163,14 +168,14 @@
 
 .chat-deduction-answer {
   margin: 0;
-  font-size: 26px;
+  font-size: 44px;
   font-weight: 700;
   color: #ffd166;
 }
 
 .chat-deduction-solver {
-  margin: 4px 0 0;
-  font-size: 18px;
+  margin: 6px 0 0;
+  font-size: 30px;
 }
 
 @keyframes chat-deduction-in {

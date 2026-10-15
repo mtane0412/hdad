@@ -16,8 +16,8 @@
 import { categoryLabelOf } from './category'
 import type { ChatDeductionBoard, ChatDeductionBoardGame, ChatDeductionCard, ChatDeductionVerdict } from './board'
 
-/** 並べるカードの数。素材の推奨の大きさ（src/overlay/layout.ts）に収まる数にする */
-export const MAX_VISIBLE_CARDS = 6
+/** 並べるカードの数。返事が2行に折り返しても、中央の板（src/chat-deduction/chat-deduction.css）に収まる数にする */
+export const MAX_VISIBLE_CARDS = 5
 
 /** 見出しの素材の名前 */
 const TITLE = 'チャットで推理'
