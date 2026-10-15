@@ -74,10 +74,19 @@ const answer = async (context: Context, question: ChatDeductionQuestion): Promis
   }
 }
 
-/** 質問に答える（受け付けなかったなら答えない）。そのうえで交換を完了か取り消しにする */
+/**
+ * 質問に答える（受け付けなかったなら答えない）。そのうえで交換を完了か取り消しにする。
+ *
+ * 交換を更新するトークンは LLM より先に取る。取れないまま LLM を呼ぶと、配信中にトークンが古いだけで
+ * 質問ごとに LLM の枠を使い、交換は1件も処理されないためである。取れなければ答え待ちの質問を失敗として閉じてから投げる
+ * （答え待ちのまま残すと、上限と待ち時間に数え続けてしまう）。
+ */
 const settle = async (context: Context, rewards: ChatDeductionRewards, question: ChatDeductionQuestion): Promise<void> => {
+  const { accessToken } = await getManageToken(context).catch(async (error: unknown) => {
+    if (question.status === 'pending') await failQuestion(context.env.DB, question.id, reasonOf(error), context.now)
+    throw error
+  })
   const status = question.status === 'pending' ? await answer(context, question) : 'CANCELED'
-  const { accessToken } = await getManageToken(context)
   await context.twitch.updateRedemptionStatus(accessToken, context.env.TWITCH_BROADCASTER_ID, rewards.questionRewardId, question.redemptionId, status)
 }
 

@@ -278,6 +278,29 @@ describe('チャットで推理の質問の受け口', () => {
     expect(storedQuestions(env)).toEqual([])
   })
 
+  it('交換を更新できるトークンが無ければ、LLM を呼ばずに質問を失敗として閉じ、収集の失敗を残す', async () => {
+    const { env, ai } = createEnv()
+    await prepare(env)
+    // 報酬を書き換えるスコープ（channel:manage:redemptions）の無いトークンに置き換える
+    await saveToken(env.TOKENS, 'broadcaster', {
+      accessToken: 'test-access-token',
+      refreshToken: 'リフレッシュトークン',
+      expiresAt: NOW + 60 * 60 * 1000,
+      userId: BROADCASTER_ID,
+      login: 'haishinsha',
+      scopes: ['channel:read:redemptions'],
+    })
+    await startGame(env.DB, 'mount-fuji', NOW - 60 * 1000)
+    const twitch = fakeTwitch()
+
+    expect((await deliver(env, notificationOf(redemptionOf()), twitch.fetchImpl)).status).toBe(204)
+
+    expect(ai.calls).toHaveLength(0)
+    expect(storedQuestions(env)).toMatchObject([{ status: 'failed', failure: expect.stringContaining('channel:manage:redemptions') }])
+    expect(twitch.updates).toEqual([])
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'chat-deduction-redemption-failed' }])
+  })
+
   it('交換の状態を更新できなければ、収集の失敗として残す（D1 の答えは残す）', async () => {
     const { env } = createEnv()
     await prepare(env)
