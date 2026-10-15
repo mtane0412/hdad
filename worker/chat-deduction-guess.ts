@@ -65,12 +65,15 @@ const settle = async (context: Context, rewards: ChatDeductionRewards, guess: Ch
   const { env, twitch, now } = context
   // 正誤はトークンの有無にかかわらず決める（トークンが古いだけで正解者が出なかったことにしない）
   const { status, solved } = await judge(context, guess)
-  const { accessToken } = await getManageToken(context)
-  if (solved) {
-    await setChatDeductionRewardsEnabled(twitch, accessToken, env.TWITCH_BROADCASTER_ID, rewards, false).catch((error: unknown) =>
-      recordFailure(env.DB, 'chat-deduction-rewards-failed', `${guess.userName}さんの正解でゲームを終えましたが、報酬を交換できないようにできませんでした。/rewards/ で確かめてください: ${reasonOf(error)}`, now),
-    )
-  }
+  /** 正解でゲームを終えたのに報酬を止められなかったことを、配信者が /rewards/ で直せるよう残す */
+  const recordRewardsFailure = (error: unknown) =>
+    recordFailure(env.DB, 'chat-deduction-rewards-failed', `${guess.userName}さんの正解でゲームを終えましたが、報酬を交換できないようにできませんでした。/rewards/ で確かめてください: ${reasonOf(error)}`, now)
+  const { accessToken } = await getManageToken(context).catch(async (error: unknown) => {
+    // トークンを取れなければ報酬も止められないので、そのことも残してから投げ直す（交換を更新できなかったことは呼び出し側が残す）
+    if (solved) await recordRewardsFailure(error)
+    throw error
+  })
+  if (solved) await setChatDeductionRewardsEnabled(twitch, accessToken, env.TWITCH_BROADCASTER_ID, rewards, false).catch(recordRewardsFailure)
   await twitch.updateRedemptionStatus(accessToken, env.TWITCH_BROADCASTER_ID, rewards.answerRewardId, guess.redemptionId, status)
 }
 
