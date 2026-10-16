@@ -165,6 +165,17 @@ describe('タブ', () => {
     expect(screen.queryByRole('region', { name: 'チャット' })).not.toBeInTheDocument()
   })
 
+  test('タブを移って戻っても、演出の設定のカードに入れた値は消えない（保存前の変更を失わない）', async () => {
+    render(triggerPage(fakeApi()))
+    await openTab('演出の設定')
+    await userEvent.type(await screen.findByRole('textbox', { name: 'ツイスターの相手とみなすユーザー名（任意）' }), 'hoshino_yu')
+
+    await openTab('トリガー')
+    await openTab('演出の設定')
+
+    expect(screen.getByRole('textbox', { name: 'ツイスターの相手とみなすユーザー名（任意）' })).toHaveValue('hoshino_yu')
+  })
+
   test('タブを移って戻っても、トリガーの未保存の変更は消えない', async () => {
     render(triggerPage(fakeApi()))
     const row = await openedItem('フォローされた')

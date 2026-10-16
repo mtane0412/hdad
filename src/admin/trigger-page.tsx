@@ -1138,7 +1138,9 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
           </section>
 
         </TabsContent>
-        <TabsContent value="effects" className="flex flex-col">
+        {/* 演出のカードはそれぞれ保存前の下書きと未保存の確認（useUnsavedChanges）を持つので、
+            タブを離れても消さずに隠すだけにする（消すと保存前の変更が黙って失われ、移動の確認も外れる） */}
+        <TabsContent value="effects" keepMounted className="flex flex-col">
           {/* 市町村紹介の音はトリガーの行ごとではなく1つだけ持つので、トリガーの一覧の外に置く（保存も別） */}
           <TownTourSoundCard api={api} media={media} />
 
