@@ -222,7 +222,8 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
 
 /**
  * サイドバーとページを探す窓には出さず、URLで開いたときだけ出すページ。
- * 配信者が配信中に開くページではなく、見た目を確かめるための開発用のページを置く。
+ * 配信者が配信中に開くページではなく、見た目を確かめるためのページを置く。
+ * 本番でも開ける（本番の明暗で部品を確かめるため）。ログインが要るのはほかのページと同じである。
  */
 export const UNLISTED_PAGES: readonly Page[] = [
   { path: '/design/', name: '部品の見本', icon: Palette, render: () => <DesignPage /> },

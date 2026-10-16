@@ -59,6 +59,15 @@ describe('Quantity', () => {
     expect(screen.getByText('制限なし')).toBeTruthy()
   })
 
+  test.each([
+    ['NaN', Number.NaN],
+    ['無限大', Number.POSITIVE_INFINITY],
+  ])('数ではない値（%s）は、数のように見せず「数ではない値」と知らせる', (_label, value) => {
+    render(<Quantity value={value} unit="pt" />)
+    expect(screen.getByText('数ではない値')).toBeTruthy()
+    expect(screen.queryByText('pt')).toBeNull()
+  })
+
   test('0 は値として出す（無いこととは区別する）', () => {
     const { container } = render(<Quantity value={0} unit="秒" />)
     expect(container.textContent).toBe('0秒')

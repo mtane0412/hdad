@@ -39,10 +39,23 @@ describe('見た目の約束の Lint', () => {
     expect(await designErrors('export const dot = (on: boolean) => `size-2 ${on ? "bg-emerald-500" : ""}`')).toBe(1)
   })
 
-  test('トークンの色・段の大きさ・配置の任意の値はエラーにならない', async () => {
+  test.each([
+    ['方向付きの枠線の色', 'border-t-red-500'],
+    ['左右の枠線の色', 'border-x-amber-500'],
+    ['リングのずれの色', 'ring-offset-white'],
+    ['重要度の修飾子（!）付きの色', '!bg-red-500'],
+    ['状態の修飾子（hover:）付きの色', 'hover:bg-red-500'],
+    ['種類を明示した任意の値の大きさ', 'text-[length:12px]'],
+    ['CSS 変数を使った任意の値の色', 'bg-[var(--brand)]'],
+    ['色の関数（lch）で書いた任意の値の色', 'text-[lch(50%_40_30)]'],
+  ])('%s（%s）もエラーになる', async (_label, className) => {
+    expect(await designErrors(`export const Box = () => <div className="${className}" />`)).toBe(1)
+  })
+
+  test('トークンの色・段の大きさ・配置や模様の任意の値はエラーにならない', async () => {
     expect(
       await designErrors(
-        `export const Row = () => <div className="grid grid-cols-[minmax(0,1fr)_auto] bg-attention text-xs text-muted-foreground">行</div>`,
+        `export const Row = () => <div className="grid grid-cols-[minmax(0,1fr)_auto] bg-attention text-xs text-muted-foreground bg-[repeating-conic-gradient(var(--muted)_0%_25%,transparent_0%_50%)]">行</div>`,
       ),
     ).toBe(0)
   })

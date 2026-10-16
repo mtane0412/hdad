@@ -52,6 +52,13 @@ describe('DataTable', () => {
     expect(within(group).getByText('2件')).toBeTruthy()
   })
 
+  test('セルは中身を切り取らず折り返す（札が半分で切れたり、フォーカスの印が切れたりしないように）', () => {
+    renderRewardTable()
+    const cell = screen.getAllByRole('cell')[0] as HTMLElement
+    expect(cell.className).not.toMatch(/\btruncate\b|overflow-hidden/)
+    expect(cell.className).toMatch(/\bflex-wrap\b/)
+  })
+
   test('列の幅は表に1回だけ渡し、行はそれを共有する', () => {
     renderRewardTable()
     const table = screen.getByRole('table')

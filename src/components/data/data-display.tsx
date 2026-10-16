@@ -20,7 +20,8 @@ const STATUS_DOT_CLASS: Readonly<Record<StatusTone, string>> = {
   positive: 'bg-positive',
   attention: 'bg-attention',
   negative: 'bg-destructive',
-  neutral: 'bg-muted-foreground/40',
+  // 透明度を付けた色はコントラスト比を確かめられないので、テスト済みの灰色（tag-gray）を使う
+  neutral: 'bg-tag-gray',
 }
 
 /**
@@ -53,9 +54,11 @@ const ABSENT = '—'
  * 数量を、3桁区切りの等幅の数字と小さな単位で出す。
  *
  * 値が null のときは 0 にせず absent（既定は「—」）を薄く出す。0 は値として出す（「無い」と「0」を同じ見た目にしない）。
+ * NaN・無限大は数のように見せず「数ではない値」と赤で出す（黙って「NaN pt」と出さない。呼び出し側の誤りに気づけるようにする）。
  */
 export const Quantity = ({ value, unit, absent = ABSENT, className }: { value: number | null; unit?: string; absent?: string; className?: string }) => {
   if (value === null) return <span className={cn('text-muted-foreground', className)}>{absent}</span>
+  if (!Number.isFinite(value)) return <span className={cn('text-destructive', className)}>数ではない値</span>
   return (
     <span className={cn('font-medium whitespace-nowrap tabular-nums', className)}>
       {value.toLocaleString('ja-JP')}

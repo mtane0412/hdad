@@ -65,9 +65,12 @@ export const DataTableRow = ({ dimmed = false, children, className }: { dimmed?:
   </div>
 )
 
-/** データのセル。長い値は1行で省略する */
+/**
+ * データのセル。中身は切り取らず折り返す（札が半分で切れたり、ボタンのフォーカスの印が切れたりしないように）。
+ * 長い文字を1行で省略したいときは、中の文字を <span className="truncate"> で包む。
+ */
 export const DataTableCell = ({ align = 'start', children, className }: { align?: Align; children?: ReactNode; className?: string }) => (
-  <div role="cell" className={cn('flex min-w-0 items-center gap-1 truncate', ALIGN_CLASS[align], className)}>
+  <div role="cell" className={cn('flex min-w-0 flex-wrap items-center gap-1', ALIGN_CLASS[align], className)}>
     {children}
   </div>
 )

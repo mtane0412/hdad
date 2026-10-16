@@ -80,6 +80,8 @@ const NON_TEXT_PAIRS: readonly (readonly [mark: string, background: string])[] =
   ['sidebar-ring', 'sidebar'],
   ['positive', 'background'],
   ['attention', 'background'],
+  // 失敗の点（StatusDot の negative）。文字としての 4.5:1 は TEXT_PAIRS で確かめているが、点として使うことも明示する
+  ['destructive', 'background'],
   ...TAG_TONES.map((tone) => [`tag-${tone}`, 'background'] as const),
 ]
 
