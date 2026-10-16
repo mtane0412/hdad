@@ -80,7 +80,9 @@ describe('素材の一覧', () => {
   })
 
   test('上げた日を行に出す', async () => {
-    render(<MediaPage api={fakeApi()} />)
+    // 日付はブラウザのタイムゾーンで出すので、どのタイムゾーン（UTC−12〜UTC+11）でも同じ日になる正午 UTC にする
+    const noonFireworks: MediaItem = { id: 'media-hanabi', name: '花火.png', kind: 'image', contentType: 'image/png', size: 2048, uploadedAt: '2026-09-02T12:00:00Z' }
+    render(<MediaPage api={fakeApi({ media: async () => [noonFireworks] })} />)
 
     const list = await screen.findByRole('list', { name: '素材の一覧' })
     const fireworks = within(within(list).getByText('花火.png').closest('li') as HTMLElement)
