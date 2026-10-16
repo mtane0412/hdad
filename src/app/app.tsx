@@ -167,7 +167,8 @@ const Shell = ({
                   <div className="flex items-center gap-1">
                     <div className="min-w-0 flex-1 px-2 py-1 group-data-[collapsible=icon]:hidden">
                       <span className="font-mono text-sm font-semibold">HDAD</span>
-                      <span className="block text-[10px] leading-tight text-muted-foreground">Hyperfocus-Driven Assistant Director</span>
+                      {/* Inter は Geist より字幅が広く、折り返すとサイドバーの項目が1行ぶん隠れるので1行に収める */}
+                      <span className="block truncate text-[10px] leading-tight text-muted-foreground" title="Hyperfocus-Driven Assistant Director">Hyperfocus-Driven Assistant Director</span>
                     </div>
                     <SidebarTrigger aria-label="サイドバーを開閉する" />
                   </div>
