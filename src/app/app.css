@@ -34,6 +34,19 @@
     --color-input: var(--input);
     --color-border: var(--border);
     --color-destructive: var(--destructive);
+    --color-positive: var(--positive);
+    --color-attention: var(--attention);
+    --color-attention-foreground: var(--attention-foreground);
+    --color-tag-orange: var(--tag-orange);
+    --color-tag-blue: var(--tag-blue);
+    --color-tag-purple: var(--tag-purple);
+    --color-tag-teal: var(--tag-teal);
+    --color-tag-pink: var(--tag-pink);
+    --color-tag-green: var(--tag-green);
+    --color-tag-red: var(--tag-red);
+    --color-tag-yellow: var(--tag-yellow);
+    --color-tag-indigo: var(--tag-indigo);
+    --color-tag-gray: var(--tag-gray);
     --color-accent-foreground: var(--accent-foreground);
     --color-accent: var(--accent);
     --color-muted-foreground: var(--muted-foreground);
@@ -79,6 +92,21 @@
     --input: oklch(0.88 0.005 285);
     /* フォーカスの印の色。背景との差が 3:1 を超えるよう、灰色ではなく青にする */
     --ring: oklch(0.55 0.2 260);
+    /* 意味の色。成功（保存できた・状態が良い）と注意（対応を待っている）。文字でなく点や印に使う */
+    --positive: oklch(0.6 0.15 150);
+    --attention: oklch(0.55 0.14 60);
+    --attention-foreground: oklch(1 0 0);
+    /* 種類の札（Tag）の点の色。トリガーの効果の種類などを見分ける。意味（良い・悪い）は持たせない */
+    --tag-orange: oklch(0.6 0.16 50);
+    --tag-blue: oklch(0.6 0.16 250);
+    --tag-purple: oklch(0.6 0.16 300);
+    --tag-teal: oklch(0.6 0.16 190);
+    --tag-pink: oklch(0.6 0.16 350);
+    --tag-green: oklch(0.6 0.16 145);
+    --tag-red: oklch(0.6 0.16 25);
+    --tag-yellow: oklch(0.6 0.16 90);
+    --tag-indigo: oklch(0.6 0.16 275);
+    --tag-gray: oklch(0.6 0.01 285);
     --chart-1: oklch(0.87 0 0);
     --chart-2: oklch(0.556 0 0);
     --chart-3: oklch(0.439 0 0);
@@ -116,6 +144,19 @@
       --border: oklch(1 0 0 / 9%);
       --input: oklch(1 0 0 / 14%);
       --ring: oklch(0.72 0.15 250);
+      --positive: oklch(0.72 0.15 150);
+      --attention: oklch(0.75 0.14 70);
+      --attention-foreground: oklch(0.2 0.01 70);
+      --tag-orange: oklch(0.72 0.15 50);
+      --tag-blue: oklch(0.72 0.15 250);
+      --tag-purple: oklch(0.72 0.15 300);
+      --tag-teal: oklch(0.72 0.15 190);
+      --tag-pink: oklch(0.72 0.15 350);
+      --tag-green: oklch(0.72 0.15 145);
+      --tag-red: oklch(0.72 0.15 25);
+      --tag-yellow: oklch(0.72 0.15 90);
+      --tag-indigo: oklch(0.72 0.15 275);
+      --tag-gray: oklch(0.72 0.01 285);
       --chart-1: oklch(0.87 0 0);
       --chart-2: oklch(0.556 0 0);
       --chart-3: oklch(0.439 0 0);

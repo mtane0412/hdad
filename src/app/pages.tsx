@@ -4,11 +4,12 @@
  * サイドバーの項目と、パスごとに描く中身をここで決める。
  * 実ファイルとして配信されるページ（overlay/stage/・overlay/backstage/・speech/reader/）は、ここには載せない。
  */
-import { Bot, BrainCircuit, CircleHelp, Gift, Layers, LayoutDashboard, Lightbulb, MessagesSquare, Music, NotebookPen, Pencil, Plug, Timer, Upload, Users, Zap, type LucideIcon } from 'lucide-react'
+import { Bot, BrainCircuit, CircleHelp, Gift, Layers, LayoutDashboard, Lightbulb, MessagesSquare, Music, NotebookPen, Palette, Pencil, Plug, Timer, Upload, Users, Zap, type LucideIcon } from 'lucide-react'
 import type { AdminApi, Me } from '@/admin/api'
 import { BackstagePage } from '@/backstage/backstage-page'
 import type { BgmApi } from '@/bgm/api'
 import { BgmPage } from '@/bgm/bgm-page'
+import { DesignPage } from '@/app/design-page'
 import { MediaPage } from '@/admin/media-page'
 import { RewardPage } from '@/admin/reward-page'
 import { TriggerPage } from '@/admin/trigger-page'
@@ -219,5 +220,15 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
   },
 ]
 
+/**
+ * サイドバーとページを探す窓には出さず、URLで開いたときだけ出すページ。
+ * 配信者が配信中に開くページではなく、見た目を確かめるためのページを置く。
+ * 本番でも開ける（本番の明暗で部品を確かめるため）。ログインが要るのはほかのページと同じである。
+ */
+export const UNLISTED_PAGES: readonly Page[] = [
+  { path: '/design/', name: '部品の見本', icon: Palette, render: () => <DesignPage /> },
+]
+
 /** パスに当たるページ。なければ undefined（呼び出し側が「見つからない」画面を出す） */
-export const findPage = (pathname: string): Page | undefined => PAGE_GROUPS.flatMap((group) => group.pages).find((page) => page.path === pathname)
+export const findPage = (pathname: string): Page | undefined =>
+  [...PAGE_GROUPS.flatMap((group) => group.pages), ...UNLISTED_PAGES].find((page) => page.path === pathname)

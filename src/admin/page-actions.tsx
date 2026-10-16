@@ -96,7 +96,7 @@ export const usePageActions = (toFailureLines: (error: unknown) => string[] = (e
           notice === '' ? 'translate-y-2 opacity-0' : 'translate-y-0 opacity-100'
         }`}
       >
-        {notice !== '' && <CircleCheck aria-hidden="true" className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />}
+        {notice !== '' && <CircleCheck aria-hidden="true" className="size-4 shrink-0 text-positive" />}
         {notice}
       </p>
       {failure.length > 0 && (
