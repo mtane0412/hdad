@@ -150,6 +150,20 @@ describe('createChatDeductionView', () => {
     expect(cardsOf()[0]).toBe(before)
   })
 
+  it('あとから前の位置に質問が入ったら、使い回すカードの通し番号を付け直す', () => {
+    const view = createChatDeductionView(root)
+    // 前提: 鈴木さんの質問だけが届き、Q1 として出ている
+    view.setBoard({ game: openGame, cards: [noCard] })
+    const before = cardsOf()[0]
+
+    // 答えた時刻が先だった田中さんの質問が、あとから前の位置に入った
+    view.setBoard({ game: openGame, cards: [yesCard, noCard] })
+
+    // 検証: 鈴木さんのカードは作り直さず、番号だけが Q2 になる
+    expect(cardsOf()[1]).toBe(before)
+    expect(cardsOf().map((card) => card.querySelector('.chat-deduction-number')?.textContent)).toEqual(['Q1', 'Q2'])
+  })
+
   it('次のゲームでは、IDが同じでも前のゲームのカードを使い回さない', () => {
     const view = createChatDeductionView(root)
     view.setBoard({ game: openGame, cards: [yesCard] })

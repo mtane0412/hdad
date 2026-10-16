@@ -14,7 +14,7 @@
  * 終えたゲームは、終えてから ENDED_GAME_REVEAL_MS のあいだだけ映して消す（次のゲームまで画面に残し続けないため）。
  *
  * 注意: 変わっていないカードの要素は作り直さない（ゲームとカードの種類・IDごとに使い回す）。作り直すと、出現のアニメーションが
- * 新しいカードだけでなく全部のカードで走ってしまう。
+ * 新しいカードだけでなく全部のカードで走ってしまう。使い回すカードも、通し番号だけは届くたびに付け直す。
  * 注意: 消す時刻は Worker が決めた終えた時刻（endedAt）と、この端末の時計から決める。時計が数秒ずれていれば、映す長さも数秒ずれる。
  */
 import { categoryLabelOf } from './category'
@@ -149,7 +149,15 @@ export const createChatDeductionView = (root: HTMLElement, { hideEndedGame }: Ch
       const visible = numberCards(cards).slice(-MAX_VISIBLE_CARDS)
       for (const numbered of visible) {
         const key = keyOf(game, numbered.card)
-        next.set(key, shown.get(key) ?? createCard(numbered))
+        const reused = shown.get(key)
+        if (reused === undefined) {
+          next.set(key, createCard(numbered))
+          continue
+        }
+        // 答えた時刻が先の質問があとから前の位置に入ると番号がずれるので、使い回すカードも番号だけは付け直す
+        const number = reused.querySelector('.chat-deduction-number')
+        if (number !== null && numbered.number !== null) number.textContent = `Q${numbered.number}`
+        next.set(key, reused)
       }
       list.replaceChildren(...next.values())
       shown = next
