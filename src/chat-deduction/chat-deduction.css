@@ -7,6 +7,8 @@
  * - 箱は配信画面と同じ大きさ（src/overlay/layout.ts）にして、板は箱いっぱいに広げる。板は背景を持たず、上下左右に
  *   配信画面のおよそ5%の余白を取る。余白とカードの隙間・空いた行からは配信画面が見える。どんな画面の上でも読めるよう、
  *   見出しとカードには影を付ける
+ * - 大きさは 1920×1080 の配信画面での画素数で決め、--u（1画素ぶん）を掛けて使う。--u は配信画面（OBS のブラウザソース。
+ *   素材の箱はオーバーレイいっぱいに置く）が 1920×1080 より小さければ同じ割合で縮む（1280×720 でもカードがあふれない）
  * - 値は下の .chat-deduction で宣言したトークンだけを使う。色はライトの値に固定する（OBS のブラウザソースは OS の明暗と
  *   関係なく映るため、明暗の切り替えを持たない）。文字の大きさは配信画面（1920×1080 を縮小して見る）向けに大きくしてある
  * - 答えは印の文字（はい・いいえ・分からない）と色面の両方で分ける（data-verdict）。はいは緑、いいえは赤、分からないは灰。
@@ -44,37 +46,37 @@
   --color-accent-purple-text: #8f3fd6;
   --color-shadow: rgb(0 0 0 / 35%);
 
+  /* 1920×1080 での1画素ぶんの長さ。配信画面が小さければ、縦と横のきつい方に合わせて縮める（大きくはしない） */
+  --u: min(1px, calc(100vh / 1080), calc(100vw / 1920));
+
   /* 書体と大きさ（配信画面向け。スキルの大きさをおよそ1.35倍にしたもの。上下左右の余白を取っても4行に収まる大きさ） */
   --font-family-base: nunito, 'Zen Maru Gothic', 'Hiragino Maru Gothic ProN', ui-rounded, sans-serif;
-  --font-size-meta: 20px;
-  --font-size-reply: 25px;
-  --font-size-badge: 23px;
-  --font-size-text: 31px;
-  --font-size-eyebrow: 25px;
-  --font-size-hint: 22px;
-  --font-size-title: 43px;
-  --font-size-answer: 50px;
+  --font-size-meta: calc(20 * var(--u));
+  --font-size-reply: calc(25 * var(--u));
+  --font-size-badge: calc(23 * var(--u));
+  --font-size-text: calc(31 * var(--u));
+  --font-size-eyebrow: calc(25 * var(--u));
+  --font-size-hint: calc(22 * var(--u));
+  --font-size-title: calc(43 * var(--u));
   --font-weight-regular: 500;
   --font-weight-bold: 700;
   --line-height-tight: 1.3;
 
   /* 余白・角丸・厚み・動き */
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-6: 24px;
-  --space-8: 32px;
-  --space-10: 40px;
-  /* 板の外側の余白（1920×1080 の配信画面のおよそ5%。上下は高さの、左右は幅の5%） */
-  --space-board-y: 54px;
-  --space-board-x: 96px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --radius-xl: 24px;
+  --space-1: calc(4 * var(--u));
+  --space-2: calc(8 * var(--u));
+  --space-3: calc(12 * var(--u));
+  --space-4: calc(16 * var(--u));
+  --space-6: calc(24 * var(--u));
+  /* 板の外側の余白（配信画面のおよそ5%。上下は高さの、左右は幅の5%） */
+  --space-board-y: calc(54 * var(--u));
+  --space-board-x: calc(96 * var(--u));
+  --radius-md: calc(12 * var(--u));
+  --radius-lg: calc(16 * var(--u));
+  --radius-xl: calc(24 * var(--u));
   --radius-pill: 9999px;
-  --border-width-default: 3px;
-  --lip: 5px;
+  --border-width-default: calc(3 * var(--u));
+  --lip: calc(5 * var(--u));
   --shadow-float: 0 var(--space-2) var(--space-6) var(--color-shadow);
   --rows: 4;
   --duration-enter: 400ms;
@@ -302,9 +304,10 @@
   right: var(--space-board-x);
   left: var(--space-board-x);
   display: flex;
-  gap: var(--space-8);
+  gap: var(--space-4);
   align-items: baseline;
-  padding: var(--space-3) var(--space-6);
+  /* 見出しの帯と同じ形にする（枠のぶん内側の余白を詰め、正解の文字も見出しと同じ大きさにして、帯の高さをそろえる） */
+  padding: calc(var(--space-3) - var(--border-width-default)) calc(var(--space-6) - var(--border-width-default));
   border: var(--border-width-default) solid var(--result-border);
   border-radius: var(--radius-xl);
   background: var(--result-fill);
@@ -321,7 +324,7 @@
 
 .chat-deduction-answer {
   margin: 0;
-  font-size: var(--font-size-answer);
+  font-size: var(--font-size-title);
   font-weight: var(--font-weight-bold);
   line-height: var(--line-height-tight);
 }
