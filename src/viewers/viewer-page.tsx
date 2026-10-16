@@ -108,6 +108,12 @@ export const ViewerPage = ({ api }: { api: ViewerApi }) => {
     const note = drafts[viewer.userId] ?? viewer.note
     const saved = await api.saveNote(viewer.userId, note)
     setViewers((current) => current.map((other) => (other.userId === viewer.userId ? { ...other, note: saved } : other)))
+    // 保存したら書きかけを捨て、Workerが返した値（整えたあとのメモ）を入力欄に出す（書きかけを残すと未保存と取り違えるため）
+    setDrafts((current) => {
+      const next = { ...current }
+      delete next[viewer.userId]
+      return next
+    })
     return `${viewer.displayName} へのメモを保存しました`
   }
 

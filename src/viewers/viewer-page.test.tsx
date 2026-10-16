@@ -166,6 +166,23 @@ describe('メモ', () => {
     expect(await findNotice('2000文字までにしてください')).toBeInTheDocument()
   })
 
+  test('保存したら書きかけを捨て、Workerが整えて返したメモを未保存と取り違えない', async () => {
+    // Workerは前後の空白を落として保存し、保存した値を返す
+    const api = createFakeApi({ saveNote: vi.fn(async (_userId: string, note: string) => note.trim()) })
+    render(<ViewerPage api={api} />)
+    await screen.findByRole('list', { name: '視聴者の一覧' })
+    await openViewer('花子')
+
+    const memoInput = screen.getByRole('textbox', { name: '花子 へのメモ' })
+    await userEvent.clear(memoInput)
+    await userEvent.type(memoInput, '常連さん ')
+    await userEvent.click(screen.getByRole('button', { name: '花子 のメモを保存する' }))
+
+    expect(await findNotice('メモを保存しました')).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: '花子 へのメモ' })).toHaveValue('常連さん')
+    expect(screen.queryByText('未保存の変更があります')).not.toBeInTheDocument()
+  })
+
   test('書いたメモを保存していないあいだは、保存のボタンの横と閉じた行に印を出す', async () => {
     render(<ViewerPage api={createFakeApi()} />)
     await screen.findByRole('list', { name: '視聴者の一覧' })

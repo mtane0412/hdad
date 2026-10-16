@@ -81,6 +81,24 @@ describe('DataTable', () => {
     expect(within(item).queryByRole('button')).not.toBeInTheDocument()
   })
 
+  test('薄く出す行は、開ける行でも薄いままにする（指しても通常の色に戻さない）', () => {
+    render(
+      <DataTable label="トリガー" columns="minmax(0,1fr)" headings={[{ label: '出来事' }]}>
+        <DataTableRow label="すべての発言" dimmed expand={{ open: false, onToggle: () => undefined, detail: null }}>
+          <DataTableCell>すべての発言</DataTableCell>
+        </DataTableRow>
+      </DataTable>,
+    )
+
+    expect(screen.getByRole('button', { name: /^すべての発言/ }).className).toMatch(/\btext-muted-foreground\b.*\bhover:text-muted-foreground\b/)
+  })
+
+  test('どの行も、指すと地の色を変える（開けない行でも、どの行を見ているか追えるように）', () => {
+    render(<ExpandableTable />)
+
+    for (const item of screen.getAllByRole('listitem')) expect((item.firstElementChild as HTMLElement).className).toMatch(/\bhover:bg-muted\/50\b/)
+  })
+
   test('セルは中身を切り取らず折り返す（札が半分で切れたり、フォーカスの印が切れたりしないように）', () => {
     render(<ExpandableTable />)
 

@@ -117,14 +117,20 @@ export const DataTableRow = ({
   const open = expand?.open === true
   return (
     <li aria-label={label} className={cn('flex flex-col border-b border-border/60', dimmed && 'text-muted-foreground')}>
-      <div className="flex min-h-9.5 items-center gap-2">
+      {/* 指すと地の色を変え、開けない行でもどの行を見ているか追えるようにする */}
+      <div className="flex min-h-9.5 items-center gap-2 hover:bg-muted/50">
         {expand === undefined ? (
           <div className={cn(COLUMNS_CLASS, 'py-1.5')}>{children}</div>
         ) : (
           <Button
             type="button"
             variant="ghost"
-            className={cn(COLUMNS_CLASS, 'h-auto py-1.5 text-left font-normal whitespace-normal')}
+            // 地の色は行が変えるので、ボタン自身は指しても色を変えない。薄く出す行は、指しても通常の色に戻さない
+            className={cn(
+              COLUMNS_CLASS,
+              'h-auto py-1.5 text-left font-normal whitespace-normal hover:bg-transparent',
+              dimmed && 'text-muted-foreground hover:text-muted-foreground',
+            )}
             aria-expanded={open}
             // 閉じているあいだは詳細が無いので、無い要素を指さないよう開いているときだけ付ける
             aria-controls={open ? detailId : undefined}

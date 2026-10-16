@@ -129,9 +129,11 @@ export const DesignPage = () => (
       <DataTableSample />
     </Section>
 
-    <Section title="保存のバー（SaveBar）" description="文言は「〜を保存する」。未保存の変更があれば点と語で知らせ、変更が無いあいだは押せない。">
+    <Section title="保存のバー（SaveBar）" description="文言は「〜を保存する」。未保存の変更があれば点と語で知らせる。押せないのは保存の最中だけ。">
       <SaveBar label="音を保存する" busy={false} unsaved={true} onSave={() => undefined} />
       <SaveBar label="設定を保存する" busy={false} unsaved={false} onSave={() => undefined} />
+      {/* 保存の最中だけ押せない */}
+      <SaveBar label="曲の一覧を保存する" busy={true} onSave={() => undefined} />
     </Section>
   </div>
 )
