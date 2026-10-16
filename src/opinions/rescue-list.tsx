@@ -13,7 +13,7 @@
  */
 import { useId, useState } from 'react'
 import { useUnsavedChanges } from '@/app/router'
-import { Badge } from '@/components/ui/badge'
+import { StatusDot } from '@/components/data/data-display'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -133,7 +133,7 @@ const RescueItem = ({ comment, topics, actions }: { comment: RescuableComment; t
   return (
     <li role="group" aria-label={`コメント「${comment.text}」`} className="flex flex-col gap-2 rounded-lg border p-3">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge variant="outline">{statusLabel(comment)}</Badge>
+        <StatusDot tone={comment.status === 'failed' ? 'negative' : 'neutral'}>{statusLabel(comment)}</StatusDot>
         <span>{`${comment.userName}: ${comment.text}`}</span>
       </div>
       {comment.replyName !== null && <p className="text-sm text-muted-foreground">{`${comment.replyName}さんの「${comment.replyText ?? ''}」への返信`}</p>}

@@ -7,7 +7,7 @@
  */
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, test } from 'vitest'
-import { ColorSwatch, Identifier, Quantity, StatusDot, Tag } from './data-display'
+import { ColorSwatch, Identifier, Quantity, StatTile, StatusDot, Tag } from './data-display'
 
 afterEach(cleanup)
 
@@ -90,5 +90,20 @@ describe('Tag', () => {
     expect(screen.getByText('アラート')).toBeTruthy()
     expect(container.firstElementChild?.getAttribute('data-tone')).toBe('orange')
     expect(container.querySelector('[aria-hidden="true"]')).not.toBeNull()
+  })
+})
+
+describe('StatTile', () => {
+  test('見出しを名前にしたひとまとまりとして読ませ、値を見出しより大きく出す', () => {
+    render(
+      <StatTile label="平均視聴者数">
+        <Quantity value={12} unit="人" />
+      </StatTile>,
+    )
+
+    const tile = screen.getByRole('group', { name: '平均視聴者数' })
+    expect(tile.textContent).toBe('平均視聴者数12人')
+    // ダッシュボードと LLM のページで同じ大きさにそろえる
+    expect((screen.getByText('12').closest('[data-slot="stat-value"]') as HTMLElement).className).toMatch(/\btext-xl\b/)
   })
 })

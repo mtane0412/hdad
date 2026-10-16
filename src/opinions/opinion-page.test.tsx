@@ -186,7 +186,8 @@ describe('意見', () => {
 
     const topic = await screen.findByRole('group', { name: '論点「視聴者との距離」' })
     const opinion = within(topic).getByRole('group', { name: '意見「AIが返事すると距離を感じる」' })
-    expect(within(opinion).getByText('課題')).toBeInTheDocument()
+    // 札の種類は種類の札（Tag）で出し、色は合成ページの札と同じ系統にする（課題は橙）
+    expect(within(opinion).getByText('課題').closest('[data-tone]')).toHaveAttribute('data-tone', 'orange')
     expect(within(opinion).getByText('2人')).toBeInTheDocument()
     expect(within(opinion).getByText('riku: AIの返事だと距離を感じる')).toBeInTheDocument()
   })
@@ -196,7 +197,8 @@ describe('意見', () => {
     render(<OpinionPage api={api} />)
 
     const hiddenOpinion = await screen.findByRole('group', { name: '意見「AIが返事すると距離を感じる」' })
-    expect(within(hiddenOpinion).getByText('隠しています')).toBeInTheDocument()
+    // 隠しているのは意見の状態なので、状態の点（StatusDot）で出す
+    expect(within(hiddenOpinion).getByText('隠しています').closest('[data-tone]')).toHaveAttribute('data-tone', 'neutral')
     await userEvent.click(within(hiddenOpinion).getByRole('button', { name: '戻す' }))
     expect(api.setHidden).toHaveBeenCalledWith(11, false)
 
@@ -263,7 +265,8 @@ describe('意見にならなかったコメント（issue #308）', () => {
     render(<OpinionPage api={api} />)
 
     const item = await screen.findByRole('group', { name: 'コメント「AIの声が人っぽすぎると怖い」' })
-    expect(within(item).getByText('LLM が無関係とした')).toBeInTheDocument()
+    // 意見にならなかった理由はコメントの状態なので、状態の点（StatusDot）で出す
+    expect(within(item).getByText('LLM が無関係とした').closest('[data-tone]')).toHaveAttribute('data-tone', 'neutral')
     await userEvent.click(within(item).getByRole('button', { name: '新しい意見にする' }))
     expect(api.draftOpinion).toHaveBeenCalledWith(7)
 

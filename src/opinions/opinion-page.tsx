@@ -21,7 +21,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
 import { Link, useUnsavedChanges } from '@/app/router'
 import { LoadFailure } from '@/components/load-failure'
-import { Badge } from '@/components/ui/badge'
+import { StatusDot } from '@/components/data/data-display'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -29,7 +29,7 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ApiError } from '@/core/api'
 import type { AdminOpinion, AdminOpinionBoard, AdminTopic, OpinionApi, OpinionCommentCounts, RescuedOpinion } from './api'
-import { OPINION_KIND_LABELS } from './entry'
+import { OpinionKindTag } from './kind-tag'
 import { CommentCounts, RescueList, type RescueActions } from './rescue-list'
 import { SummaryCard } from './summary-card'
 import { TopicHeader, type TopicActions } from './topic-tools'
@@ -52,10 +52,10 @@ const opinionFailureLines = (error: unknown): string[] =>
 const OpinionItem = ({ opinion, busy, onToggle }: { opinion: AdminOpinion; busy: boolean; onToggle(): void }) => (
   <li role="group" aria-label={`意見「${opinion.text}」`} className={`flex flex-col gap-2 rounded-lg border p-3 ${opinion.hidden ? 'opacity-60' : ''}`}>
     <div className="flex flex-wrap items-center gap-2">
-      <Badge variant="secondary">{OPINION_KIND_LABELS[opinion.kind]}</Badge>
+      <OpinionKindTag kind={opinion.kind} />
       <span className="font-medium">{opinion.text}</span>
       <span className="text-sm text-muted-foreground">{opinion.people}人</span>
-      {opinion.hidden && <Badge variant="outline">隠しています</Badge>}
+      {opinion.hidden && <StatusDot tone="neutral">隠しています</StatusDot>}
     </div>
     <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
       {opinion.sources.map((source, index) => (

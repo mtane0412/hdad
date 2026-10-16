@@ -18,6 +18,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { LoadFailure } from '@/components/load-failure'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { StatTile } from '@/components/data/data-display'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import type { FollowerSample, SessionDetail, SessionSummary, StatsApi } from './api'
@@ -75,17 +76,14 @@ type Loaded =
 /** 選んだ配信の詳細（視聴者数の推移・章・あらすじ・みんなの作業時間） */
 type Selected = { id: string; state: { status: 'loading' } | { status: 'ready'; detail: SessionDetail } | { status: 'failed'; message: string } }
 
-/** 概要の数値をひとつ出す枠 */
+/** 概要の数値をひとつ出す枠。note は値の後ろに小さく添える単位や増減 */
 const StatCard = ({ label, value, note }: { label: string; value: string; note?: string }) => (
-  <Card role="group" aria-label={label} className="gap-2 py-4">
-    <CardHeader className="px-4">
-      <CardDescription>{label}</CardDescription>
-    </CardHeader>
-    <CardContent className="flex items-baseline gap-2 px-4">
-      <strong className="text-2xl font-semibold tabular-nums">{value}</strong>
-      {note !== undefined && <span className="text-sm text-muted-foreground tabular-nums">{note}</span>}
-    </CardContent>
-  </Card>
+  <StatTile label={label}>
+    <span className="flex items-baseline gap-2">
+      {value}
+      {note !== undefined && <span className="text-sm font-normal text-muted-foreground">{note}</span>}
+    </span>
+  </StatTile>
 )
 
 /**
@@ -313,7 +311,7 @@ export const StatsPage = ({ api, now }: StatsPageProps) => {
       </div>
 
       <section aria-labelledby="overview-heading" className="flex flex-col gap-3">
-        <h2 id="overview-heading" className="text-lg font-semibold">
+        <h2 id="overview-heading" className="text-sm font-semibold">
           直近{days}日の概要
         </h2>
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-5">
@@ -340,7 +338,7 @@ export const StatsPage = ({ api, now }: StatsPageProps) => {
       </Card>
 
       <section aria-labelledby="sessions-heading" className="flex flex-col gap-3">
-        <h2 id="sessions-heading" className="text-lg font-semibold">
+        <h2 id="sessions-heading" className="text-sm font-semibold">
           配信の一覧
         </h2>
         {sessionsInPeriod.length === 0 ? (

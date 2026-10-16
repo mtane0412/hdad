@@ -47,6 +47,7 @@ import { HelpButton } from '@/components/help-button'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { LoadFailure } from '@/components/load-failure'
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { StatTile } from '@/components/data/data-display'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -195,15 +196,7 @@ const formatCalls = (totals: LlmUsageTotals): string =>
 const UsageFigure = ({ totals }: { totals: LlmUsageTotals }) => (
   <div className="flex flex-col">
     <span className="tabular-nums">{formatCalls(totals)}</span>
-    <span className="text-xs text-muted-foreground tabular-nums">{formatTokens(totals.promptTokens + totals.completionTokens)}トークン</span>
-  </div>
-)
-
-/** 集計のタイル。読み上げでは見出し（label）を名前にしたひとまとまりとして読ませる */
-const StatTile = ({ label, children }: { label: string; children: ReactNode }) => (
-  <div role="group" aria-label={label} className="flex flex-col gap-1 rounded-md border p-3">
-    <span className="text-xs text-muted-foreground">{label}</span>
-    <div className="text-lg font-medium">{children}</div>
+    <span className="text-xs font-normal text-muted-foreground tabular-nums">{formatTokens(totals.promptTokens + totals.completionTokens)}トークン</span>
   </div>
 )
 
@@ -445,7 +438,7 @@ export const LlmPage = ({ api }: LlmPageProps) => {
               <StatTile label="OpenRouter の残高">
                 <div className="flex flex-col">
                   <span className="tabular-nums">{formatCredits(credits.remaining)}</span>
-                  <span className="text-xs text-muted-foreground tabular-nums">
+                  <span className="text-xs font-normal text-muted-foreground tabular-nums">
                     付与 {formatCredits(credits.totalCredits)}・使用 {formatCredits(credits.totalUsage)}
                   </span>
                 </div>

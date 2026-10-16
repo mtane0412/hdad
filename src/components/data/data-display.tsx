@@ -7,6 +7,7 @@
  * - Quantity: 数量（右揃えに向く等幅の数字＋小さな単位。値が無ければ「—」）
  * - ColorSwatch: 色の見本
  * - Tag: 種類（色の点＋名前の札）
+ * - StatTile: 集計の数（見出し＋大きな値）。ダッシュボードの概要と LLM の使用状況で同じ形にする
  *
  * 色はすべて src/app/app.css のトークンから取る。点の色は飾りなので読み上げず、意味は必ず文字で添える。
  */
@@ -102,4 +103,17 @@ export const Tag = ({ tone, children, className }: { tone: TagTone; children: Re
     <span aria-hidden="true" className={cn('size-2 shrink-0 rounded-full', TAG_DOT_CLASS[tone])} />
     {children}
   </span>
+)
+
+/**
+ * 集計の数を1つ出すタイル。読み上げでは見出し（label）を名前にしたひとまとまりとして読ませる。
+ * children には値を渡す（Quantity・時間の文字列・2行の値など）。値の大きさはここで決め、ページごとに変えない。
+ */
+export const StatTile = ({ label, children, className }: { label: string; children: ReactNode; className?: string }) => (
+  <div role="group" aria-label={label} className={cn('flex flex-col gap-1 rounded-md border p-3', className)}>
+    <span className="text-xs text-muted-foreground">{label}</span>
+    <div data-slot="stat-value" className="text-xl font-semibold tabular-nums">
+      {children}
+    </div>
+  </div>
 )

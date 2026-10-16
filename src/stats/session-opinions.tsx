@@ -11,10 +11,10 @@
  */
 import { useEffect, useState } from 'react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Badge } from '@/components/ui/badge'
+import { StatusDot } from '@/components/data/data-display'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { AdminOpinion, AdminTopic, OpinionCommentCounts } from '@/opinions/api'
-import { OPINION_KIND_LABELS } from '@/opinions/entry'
+import { OpinionKindTag } from '@/opinions/kind-tag'
 import { SummaryCard } from '@/opinions/summary-card'
 import type { OpinionThemeReview, StatsApi } from './api'
 import { formatClockTime } from './summary'
@@ -46,10 +46,10 @@ const CommentBreakdown = ({ themeTitle, counts }: { themeTitle: string; counts: 
 const ReviewOpinion = ({ opinion }: { opinion: AdminOpinion }) => (
   <li role="group" aria-label={`意見「${opinion.text}」`} className={`space-y-1 rounded-lg border p-3 ${opinion.hidden ? 'opacity-60' : ''}`}>
     <p className="flex flex-wrap items-center gap-2">
-      <Badge variant="secondary">{OPINION_KIND_LABELS[opinion.kind]}</Badge>
+      <OpinionKindTag kind={opinion.kind} />
       <span className="font-medium">{opinion.text}</span>
       <span className="text-sm text-muted-foreground tabular-nums">{opinion.people}人</span>
-      {opinion.hidden && <Badge variant="outline">隠しています</Badge>}
+      {opinion.hidden && <StatusDot tone="neutral">隠しています</StatusDot>}
     </p>
     <ul className="text-sm text-muted-foreground">
       {opinion.sources.map((source, index) => (
@@ -63,7 +63,7 @@ const ReviewOpinion = ({ opinion }: { opinion: AdminOpinion }) => (
 /** 論点1つと、その中の意見 */
 const ReviewTopic = ({ topic }: { topic: AdminTopic }) => (
   <div role="group" aria-label={`論点「${topic.title}」`} className="space-y-2">
-    <h5 className="text-sm font-medium">{topic.title}</h5>
+    <h5 className="text-sm font-semibold">{topic.title}</h5>
     {topic.opinions.length === 0 ? (
       <p className="text-sm text-muted-foreground">意見はありません。</p>
     ) : (
@@ -125,7 +125,7 @@ export const SessionOpinions = ({ api, sessionId }: SessionOpinionsProps) => {
   return (
     // 一覧のセルは折り返さない（whitespace-nowrap）ので、文章を出すここだけ折り返させる
     <div className="space-y-3 whitespace-normal">
-      <h3 className="text-sm font-medium">意見ボードの振り返り</h3>
+      <h3 className="text-sm font-semibold">意見ボードの振り返り</h3>
       {loaded.status === 'loading' && <Skeleton className="h-24 w-full" aria-label="意見ボードの振り返りを読み込んでいます" />}
       {loaded.status === 'failed' && (
         <Alert variant="destructive">

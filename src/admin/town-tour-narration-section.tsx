@@ -108,7 +108,7 @@ export const TownTourNarrationSection = ({ api, onUnsavedChange }: TownTourNarra
 
   return (
     <section className="flex flex-col gap-4" aria-labelledby={`${id}-heading`}>
-      <h3 id={`${id}-heading`} className="text-sm font-medium">
+      <h3 id={`${id}-heading`} className="text-sm font-semibold">
         ナレーション
       </h3>
       {actions.feedback}

@@ -126,7 +126,7 @@ describe('テーマごとの振り返り', () => {
     renderReview(vi.fn(async () => [AI_THEME]))
 
     const hidden = await screen.findByRole('group', { name: '意見「返事はAIだと明記する」' })
-    expect(hidden).toHaveTextContent('隠しています')
+    expect(within(hidden).getByText('隠しています').closest('[data-tone]')).toHaveAttribute('data-tone', 'neutral')
     expect(screen.getByRole('group', { name: '意見「AIが返事すると距離を感じる」' })).not.toHaveTextContent('隠しています')
   })
 
@@ -149,7 +149,8 @@ describe('機械が作ったまとめ', () => {
 
     const aiTheme = await screen.findByRole('group', { name: 'テーマ「配信中にAIをどこまで使っていい？」の振り返り' })
     const summary = within(aiTheme).getByRole('group', { name: 'AIのまとめ' })
-    expect(summary).toHaveTextContent('機械が作成')
+    // 誰が作ったかは種類なので、種類の札（Tag）で出す
+    expect(within(summary).getByText('機械が作成').closest('[data-tone]')).toHaveAttribute('data-tone', 'gray')
     expect(summary).toHaveTextContent('AIの返事は距離を感じさせる')
     expect(summary).toHaveTextContent('AIだと明記すれば気にならない人もいる')
     expect(summary).toHaveTextContent('どこまでAIに任せてよいか')
