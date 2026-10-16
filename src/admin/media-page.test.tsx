@@ -66,24 +66,35 @@ const notice = (text: string): Promise<HTMLElement> => screen.findByText(new Reg
 afterEach(cleanup)
 
 describe('素材の一覧', () => {
-  test('素材の名前・種類・大きさを一覧に出す', async () => {
+  test('素材の名前・種類・大きさを一覧の行に出す（名前は等幅、種類は色の札、大きさは単位付き）', async () => {
     render(<MediaPage api={fakeApi()} />)
 
     const list = await screen.findByRole('list', { name: '素材の一覧' })
-    expect(within(list).getByText('拍手.webm')).toBeInTheDocument()
-    expect(within(list).getByText('動画・2.0 MB')).toBeInTheDocument()
-    expect(within(list).getByText('花火.png')).toBeInTheDocument()
-    expect(within(list).getByText('画像・2.0 KB')).toBeInTheDocument()
+    const applause = within(within(list).getByText('拍手.webm').closest('li') as HTMLElement)
+    expect(applause.getByText('拍手.webm').tagName).toBe('CODE')
+    expect(applause.getByText('動画').closest('[data-tone]')).toHaveAttribute('data-tone', 'purple')
+    expect(applause.getByText('2.0 MB')).toBeInTheDocument()
+    const fireworks = within(within(list).getByText('花火.png').closest('li') as HTMLElement)
+    expect(fireworks.getByText('画像').closest('[data-tone]')).toHaveAttribute('data-tone', 'blue')
+    expect(fireworks.getByText('2.0 KB')).toBeInTheDocument()
   })
 
-  test('VRM も種類と大きさを一覧に出す（中身は3Dなので、小さな見本の代わりに種類の名前を出す）', async () => {
+  test('上げた日を行に出す', async () => {
+    render(<MediaPage api={fakeApi()} />)
+
+    const list = await screen.findByRole('list', { name: '素材の一覧' })
+    const fireworks = within(within(list).getByText('花火.png').closest('li') as HTMLElement)
+    expect(fireworks.getByText('2026/9/2')).toBeInTheDocument()
+  })
+
+  test('VRM も種類と大きさを一覧に出す（中身は3Dなので、小さな見本は描かない）', async () => {
     const kanbanVrm: MediaItem = { id: 'media-kanban', name: '看板娘.vrm', kind: 'vrm', contentType: 'model/gltf-binary', size: 12 * 1024 * 1024, uploadedAt: '2026-10-13T00:00:00Z' }
     render(<MediaPage api={fakeApi({ media: async () => [kanbanVrm] })} />)
 
-    const item = within(await screen.findByRole('list', { name: '素材の一覧' })).getByRole('listitem')
-    expect(within(item).getByText('看板娘.vrm')).toBeInTheDocument()
-    expect(within(item).getByText('VRM・12.0 MB')).toBeInTheDocument()
-    expect(within(item).getByText('VRM', { exact: true })).toBeInTheDocument()
+    const item = within(within(await screen.findByRole('list', { name: '素材の一覧' })).getByRole('listitem'))
+    expect(item.getByText('看板娘.vrm')).toBeInTheDocument()
+    expect(item.getByText('VRM', { exact: true }).closest('[data-tone]')).toHaveAttribute('data-tone', 'indigo')
+    expect(item.getByText('12.0 MB')).toBeInTheDocument()
   })
 
   test('素材がなければ、まだないことを伝える', async () => {
