@@ -3,14 +3,15 @@
  *
  * 視聴者がチャンネルポイントの「質問」で答えを絞り込み、「解答」で当てるゲーム（issue #375）を、配信者が操作する画面である。
  * - 「質問」「解答」の2つの報酬を作る（Twitch が交換できるかどうかの切り替えを許すのは HDAD が作った報酬だけなので、既存の報酬は選ばせない）
- * - 問題集から問題を選んでゲームを始める（2つの報酬を交換できるようにする）
- * - 開催中のゲームを、確かめてから終える（2つの報酬を交換できないようにする）
+ * - 問題集を選んでゲームを始める（どの問題を出すかは Worker が決める。2つの報酬を交換できるようにする）
+ * - 開催中のゲームを、確かめてから終える（2つの報酬を交換できないようにする）。終えたら正解を知らせる
  * - 場面ごとに合成ページで鳴らす音を選ぶ（sound-card.tsx）
  *
  * 問題集は引数で受け取る（テストで決まった問題を渡すため。アプリでは src/chat-deduction/problem-set.ts を渡す）。
  * 素材の一覧の読み出し（音の選択肢）も引数で受け取る（アプリでは AdminApi の media を渡す）。
  *
- * 注意: 問題を選ぶ欄と開催中の問題には正解をそのまま出す（配信者が選ぶため）。このページを配信に映さないこと。
+ * 注意: 開催中は問題集の名前と区分だけを出し、正解は出さない（配信者も視聴者と一緒に推理するため）。
+ * 正解はゲームを終えたときの知らせにだけ出す。
  */
 import { useEffect, useId, useState } from 'react'
 import type { MediaItem } from '@/admin/api'
@@ -24,27 +25,27 @@ import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { ChatDeductionApi, ChatDeductionState } from './api'
 import { categoryLabelOf } from './category'
-import type { ChatDeductionProblem } from './problems'
+import type { ChatDeductionProblemSet } from './problems'
 import { ChatDeductionSoundCard } from './sound-card'
 
-/** 問題の画面の言い方（例: 【場所】富士山） */
-const problemLabelOf = (problem: ChatDeductionProblem): string => `【${categoryLabelOf(problem.category)}】${problem.answer}`
+/** 問題集を選ぶ欄の言い方（例: 古代史の人物（12問）） */
+const problemSetLabelOf = (set: ChatDeductionProblemSet): string => `${set.name}（${set.problems.length}問）`
 
 interface ChatDeductionPageProps {
   api: ChatDeductionApi
-  problems: readonly ChatDeductionProblem[]
+  problemSets: readonly ChatDeductionProblemSet[]
   /** アップロード済みの素材を読む（音のカードの選択肢）。読み直しを繰り返さないよう、描き直しても同じ関数を渡す */
   loadMedia: () => Promise<MediaItem[]>
 }
 
-export const ChatDeductionPage = ({ api, problems, loadMedia }: ChatDeductionPageProps) => {
+export const ChatDeductionPage = ({ api, problemSets, loadMedia }: ChatDeductionPageProps) => {
   /** 最後に読んだ状態。読み込むまでは undefined */
   const [state, setState] = useState<ChatDeductionState>()
   const [loadError, setLoadError] = useState<string>()
-  /** 選んでいる問題のID（問題集が空なら空文字） */
-  const [problemId, setProblemId] = useState(problems[0]?.id ?? '')
+  /** 選んでいる問題集のID（問題集が1つも無ければ空文字） */
+  const [setId, setSetId] = useState(problemSets[0]?.id ?? '')
   const actions = usePageActions()
-  const problemSelectId = useId()
+  const setSelectId = useId()
 
   useEffect(() => {
     let cancelled = false
@@ -66,10 +67,15 @@ export const ChatDeductionPage = ({ api, problems, loadMedia }: ChatDeductionPag
 
   /** 開催中のゲーム。開催中でなければ null */
   const openGame = state.game !== null && state.game.endedAt === null ? state.game : null
-  const problemOf = (id: string): string => {
-    const problem = problems.find((candidate) => candidate.id === id)
-    return problem === undefined ? `問題集に無い問題（${id}）` : problemLabelOf(problem)
+  /** 開催中の問題の、正解を伏せた言い方（例: 【人物】古代史の人物） */
+  const hiddenProblemOf = (problemId: string): string => {
+    const set = problemSets.find((candidate) => candidate.problems.some((problem) => problem.id === problemId))
+    const problem = set?.problems.find((candidate) => candidate.id === problemId)
+    return set === undefined || problem === undefined ? `問題集に無い問題（${problemId}）` : `【${categoryLabelOf(problem.category)}】${set.name}`
   }
+  /** 終えたゲームの正解の表記（問題集から消した問題なら ID のまま） */
+  const answerOf = (problemId: string): string =>
+    problemSets.flatMap((set) => set.problems).find((problem) => problem.id === problemId)?.answer ?? `問題集に無い問題（${problemId}）`
 
   const createRewards = (): Promise<void> =>
     actions.run(async () => {
@@ -80,9 +86,9 @@ export const ChatDeductionPage = ({ api, problems, loadMedia }: ChatDeductionPag
 
   const start = (): Promise<void> =>
     actions.run(async () => {
-      const game = await api.startGame(problemId)
+      const game = await api.startGame(setId)
       setState((previous) => (previous === undefined ? previous : { ...previous, game }))
-      return `ゲームを始めました（${problemOf(game.problemId)}）`
+      return `ゲームを始めました（${hiddenProblemOf(game.problemId)}）`
     })
 
   const askEnd = (id: number): void =>
@@ -93,7 +99,7 @@ export const ChatDeductionPage = ({ api, problems, loadMedia }: ChatDeductionPag
       run: async () => {
         const game = await api.endGame(id)
         setState((previous) => (previous === undefined ? previous : { ...previous, game }))
-        return 'ゲームを終えました'
+        return `ゲームを終えました（正解は${answerOf(game.problemId)}でした）`
       },
     })
 
@@ -124,12 +130,12 @@ export const ChatDeductionPage = ({ api, problems, loadMedia }: ChatDeductionPag
       <Card>
         <CardHeader>
           <CardTitle>ゲーム</CardTitle>
-          <CardDescription>問題を選んで始めます。問題を選ぶ欄には正解が出るので、このページは配信に映さないでください。</CardDescription>
+          <CardDescription>問題集を選んで始めます。問題は問題集の中から HDAD が決め、正解はゲームを終えるまでこのページにも出しません。</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           {openGame !== null ? (
             <div className="flex flex-wrap items-center gap-3">
-              <span className="text-lg font-semibold">{problemOf(openGame.problemId)}</span>
+              <span className="text-lg font-semibold">{hiddenProblemOf(openGame.problemId)}</span>
               <Button type="button" variant="outline" disabled={actions.busy} onClick={() => askEnd(openGame.id)}>
                 終える
               </Button>
@@ -137,17 +143,17 @@ export const ChatDeductionPage = ({ api, problems, loadMedia }: ChatDeductionPag
           ) : (
             <>
               <div className="flex flex-col gap-2">
-                <Label htmlFor={problemSelectId}>問題</Label>
-                <NativeSelect id={problemSelectId} className="w-full" value={problemId} onChange={(event) => setProblemId(event.currentTarget.value)}>
-                  {problems.map((problem) => (
-                    <NativeSelectOption key={problem.id} value={problem.id}>
-                      {problemLabelOf(problem)}
+                <Label htmlFor={setSelectId}>問題集</Label>
+                <NativeSelect id={setSelectId} className="w-full" value={setId} onChange={(event) => setSetId(event.currentTarget.value)}>
+                  {problemSets.map((set) => (
+                    <NativeSelectOption key={set.id} value={set.id}>
+                      {problemSetLabelOf(set)}
                     </NativeSelectOption>
                   ))}
                 </NativeSelect>
               </div>
               <div>
-                <Button type="button" disabled={actions.busy || state.rewards === null || problemId === ''} onClick={() => void start()}>
+                <Button type="button" disabled={actions.busy || state.rewards === null || setId === ''} onClick={() => void start()}>
                   ゲームを始める
                 </Button>
               </div>

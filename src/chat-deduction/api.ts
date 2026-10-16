@@ -56,8 +56,8 @@ export interface ChatDeductionApi {
   read(): Promise<ChatDeductionState>
   /** 「質問」「解答」の報酬をTwitchで作る */
   createRewards(): Promise<ChatDeductionRewards>
-  /** 問題を選んでゲームを始める（2つの報酬を交換できるようにする） */
-  startGame(problemId: string): Promise<ChatDeductionGame>
+  /** 問題集を選んでゲームを始める（どの問題を出すかは Worker が決める。2つの報酬を交換できるようにする） */
+  startGame(setId: string): Promise<ChatDeductionGame>
   /** ゲームを終える（2つの報酬を交換できないようにする） */
   endGame(id: number): Promise<ChatDeductionGame>
   /** 場面ごとに鳴らす音の設定。未保存ならどの枠も鳴らさない設定が返る */
@@ -102,7 +102,7 @@ export const createChatDeductionApi = (fetchImpl: typeof fetch): ChatDeductionAp
       return { rewards: readField(body, 'rewards', nullable(isRewards)), game: readField(body, 'game', nullable(isGame)) }
     },
     createRewards: async () => readField(await send(`${ADMIN_PATH}/rewards`), 'rewards', isRewards),
-    startGame: async (problemId) => readField(await send(`${ADMIN_PATH}/games`, { problemId }), 'game', isGame),
+    startGame: async (setId) => readField(await send(`${ADMIN_PATH}/games`, { setId }), 'game', isGame),
     endGame: async (id) => readField(await send(`${ADMIN_PATH}/games/${id}/end`), 'game', isGame),
     sound: async () => readChatDeductionSound(await call(`${ADMIN_PATH}/sound`)),
     saveSound: async (sound) =>

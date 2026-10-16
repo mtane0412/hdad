@@ -55,11 +55,11 @@ describe('createChatDeductionApi', () => {
     expect(calls).toEqual([{ path: '/api/admin/chat-deduction/rewards', method: 'POST', body: null }])
   })
 
-  it('問題を選んでゲームを始め、始めたゲームを返す', async () => {
+  it('問題集を選んでゲームを始め、始めたゲームを返す', async () => {
     const { calls, fetchImpl } = createFetchWithResponse(201, { game })
 
-    expect(await createChatDeductionApi(fetchImpl).startGame('mount-fuji')).toEqual(game)
-    expect(calls).toEqual([{ path: '/api/admin/chat-deduction/games', method: 'POST', body: { problemId: 'mount-fuji' } }])
+    expect(await createChatDeductionApi(fetchImpl).startGame('misc')).toEqual(game)
+    expect(calls).toEqual([{ path: '/api/admin/chat-deduction/games', method: 'POST', body: { setId: 'misc' } }])
   })
 
   it('ゲームを終え、終えたゲームを返す', async () => {
@@ -87,7 +87,7 @@ describe('createChatDeductionApi', () => {
   it('Workerが失敗を返したら ApiError にする（報酬を切り替えられなかったなど）', async () => {
     const { fetchImpl } = createFetchWithResponse(502, { error: { code: 'chat-deduction-rewards-failed', message: '報酬を交換できるようにできなかったので、ゲームを始めませんでした' } })
 
-    await expect(createChatDeductionApi(fetchImpl).startGame('mount-fuji')).rejects.toThrow(ApiError)
+    await expect(createChatDeductionApi(fetchImpl).startGame('misc')).rejects.toThrow(ApiError)
   })
 })
 

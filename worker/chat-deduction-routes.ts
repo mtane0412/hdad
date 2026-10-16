@@ -1,10 +1,11 @@
 /**
  * チャットで推理の経路（issue #375）
  *
- * 配信者がアプリのページ（/chat-deduction/）から、報酬を作り、問題を選んでゲームを始め、終える。
+ * 配信者がアプリのページ（/chat-deduction/）から、報酬を作り、問題集を選んでゲームを始め、終える。
  * - GET /api/admin/chat-deduction: 控えた報酬のIDと、最後に始めたゲーム（終えたものも含む）を返す
  * - POST /api/admin/chat-deduction/rewards: 「質問」「解答」の報酬をTwitchで作り、IDを控える。もう作ってあれば409
- * - POST /api/admin/chat-deduction/games: 問題（{ problemId }）を選んでゲームを始め、2つの報酬を交換できるようにする
+ * - POST /api/admin/chat-deduction/games: 問題集（{ setId }）を選んでゲームを始め、2つの報酬を交換できるようにする。
+ *   どの問題を出すかは Worker が問題集の中から決める（worker/chat-deduction-pick.ts。配信者も答えを知らずに参加するため）
  * - POST /api/admin/chat-deduction/games/:id/end: 2つの報酬を交換できないようにしてから、ゲームを終える（配信者が打ち切った）
  * - GET・PUT /api/admin/chat-deduction/sound: 場面ごとに鳴らす音の設定を読む・検証して保存する（worker/chat-deduction-sound.ts）
  *
@@ -17,10 +18,11 @@
  * 注意: 報酬の切り替えに失敗したら、開始・終了を黙って進めない（方針4）。開始ではゲームを始めなかったことにし、
  * 終了ではゲームを開催中のまま残して、配信者がやり直せるようにする。
  */
-import { CHAT_DEDUCTION_PROBLEMS } from '../src/chat-deduction/problem-set'
+import { CHAT_DEDUCTION_PROBLEMS, CHAT_DEDUCTION_PROBLEM_SETS } from '../src/chat-deduction/problem-set'
 import { connectChatDeductionSocket } from './alert-channel'
 import { pushLatestChatDeductionBoard, readChatDeductionBoard } from './chat-deduction-board'
 import { loadChatDeductionSound, parseChatDeductionSound, saveChatDeductionSound } from './chat-deduction-sound'
+import { pickChatDeductionProblem } from './chat-deduction-pick'
 import { createChatDeductionRewards, loadChatDeductionRewards, setChatDeductionRewardsEnabled, type ChatDeductionRewards } from './chat-deduction-rewards'
 import { cancelGame, endGame, readCurrentGame, readLatestGame, startGame, type ChatDeductionGame } from './chat-deduction-store'
 import { HttpError, STATUS, requireAdmin, requireOverlayKey, type Context } from './http'
@@ -86,25 +88,27 @@ export const postChatDeductionRewards = async (context: Context): Promise<Respon
 }
 
 /**
- * POST /api/admin/chat-deduction/games: 問題を選んでゲームを始め、2つの報酬を交換できるようにする。
+ * POST /api/admin/chat-deduction/games: 問題集を選んでゲームを始め、2つの報酬を交換できるようにする。
  *
+ * 問題は選んだ問題集の中から、最後に始めたゲームの問題を除いて乱数で決める。
  * 報酬を交換できるようにできなければ、ゲームを始めなかったことにし、報酬を交換できない状態へ戻してから502を返す。
  *
- * @throws HttpError 問題集に無い問題なら400、報酬が無い・ほかのゲームが開催中なら409、報酬を切り替えられなければ502
+ * @throws HttpError 知らない問題集なら400、報酬が無い・ほかのゲームが開催中なら409、報酬を切り替えられなければ502
  * @throws AuthError channel:manage:redemptions の無いトークンしか無い
  */
 export const postChatDeductionGame = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
   const body = await readJson(context)
-  const problemId = typeof body === 'object' && body !== null && 'problemId' in body ? body.problemId : undefined
-  if (typeof problemId !== 'string' || !CHAT_DEDUCTION_PROBLEMS.some((problem) => problem.id === problemId)) {
-    throw new HttpError(STATUS.badRequest, 'unknown-problem', `問題「${String(problemId)}」は問題集にありません`)
-  }
+  const setId = typeof body === 'object' && body !== null && 'setId' in body ? body.setId : undefined
+  const set = CHAT_DEDUCTION_PROBLEM_SETS.find((candidate) => candidate.id === setId)
+  if (set === undefined) throw new HttpError(STATUS.badRequest, 'unknown-problem-set', `問題集「${String(setId)}」はありません`)
   const rewards = await requireRewards(context)
   const { env, twitch, now } = context
   // 行を作る前にトークンを確かめる（スコープが足りなければ、行を作らずにログインし直しを求める）
   const { accessToken } = await getManageToken(context)
-  const game = await startGame(env.DB, problemId, now)
+  const previous = await readLatestGame(env.DB)
+  const problem = pickChatDeductionProblem(set, previous?.problemId ?? null, Math.random)
+  const game = await startGame(env.DB, problem.id, now)
   if (game === null) throw new HttpError(STATUS.conflict, 'chat-deduction-game-open', 'ほかのゲームが開催中です。先に終えてください')
 
   try {

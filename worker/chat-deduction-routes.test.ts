@@ -7,15 +7,16 @@
  * - ゲームを始めたら2つの報酬をONにし、終えたらOFFにすること
  * - 報酬をONにできなければ、ゲームを始めなかったことにして502を返すこと（黙って開催中にしない）
  * - 報酬をOFFにできなければ、ゲームを終えずに502を返すこと（交換できるまま終わったことにしない）
- * - 知らない問題・報酬がまだ無い・ほかのゲームが開催中、を見分けて返すこと
+ * - 配信者が選んだ問題集から、直前のゲームと違う問題を Worker が決めて始めること
+ * - 知らない問題集・報酬がまだ無い・ほかのゲームが開催中、を見分けて返すこと
  * - チャットで推理の報酬は /rewards/ から削除させないこと
  * - 始めた・終えたゲームを合成ページへ押し出し、押し出せなければ始めた・終えたことを取り消さずに502を返すこと（issue #378）
  * - 合成ページがオーバーレイ用キーで、最後に始めたゲームのカードの一覧を読めること（issue #378）
  * - 場面ごとに鳴らす音の設定を読み書きでき、合成ページへは音声のURLにして一覧と一緒に渡すこと
  */
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_CHAT_DEDUCTION_SOUND, loadChatDeductionSound } from './chat-deduction-sound'
-import { readCurrentGame, readLatestGame } from './chat-deduction-store'
+import { endGame, readCurrentGame, readLatestGame } from './chat-deduction-store'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
 import { createFakeWorkersAi } from './fake-ai'
 import { createFakeAlertChannel } from './fake-alert-channel'
@@ -146,11 +147,19 @@ const postJson = (body: unknown): RequestInit => ({ method: 'POST', headers: { '
 const readError = async (response: Response): Promise<{ code: string; message: string }> =>
   ((await response.json()) as { error: { code: string; message: string } }).error
 
-/** ゲームを始める（報酬は作り終えてあり、Twitchは成功を返す） */
+// 問題は乱数で決まるので、乱数を0に固定する（「いろいろ」の問題集では先頭の富士山になる）
+beforeEach(() => {
+  vi.spyOn(Math, 'random').mockReturnValue(0)
+})
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
+/** 「いろいろ」の問題集でゲームを始める（報酬は作り終えてあり、Twitchは成功を返す。乱数が0なら富士山になる） */
 const startFuji = async (env: TestEnv) => {
   await saveRewards(env)
   await saveBroadcasterToken(env)
-  const response = await invoke(await broadcasterRequest(env, '/api/admin/chat-deduction/games', postJson({ problemId: 'mount-fuji' })), env, createFakeTwitch().fetchImpl)
+  const response = await invoke(await broadcasterRequest(env, '/api/admin/chat-deduction/games', postJson({ setId: 'misc' })), env, createFakeTwitch().fetchImpl)
   expect(response.status).toBe(201)
   return ((await response.json()) as { game: { id: number } }).game
 }
@@ -237,13 +246,13 @@ describe('報酬の作成（POST /api/admin/chat-deduction/rewards）', () => {
 })
 
 describe('ゲームの開始（POST /api/admin/chat-deduction/games）', () => {
-  it('ゲームを始め、2つの報酬を交換できるようにする', async () => {
+  it('選んだ問題集から問題を決めてゲームを始め、2つの報酬を交換できるようにする', async () => {
     const env = createEnv()
     await saveRewards(env)
     await saveBroadcasterToken(env)
     const twitch = createFakeTwitch()
 
-    const response = await invoke(await broadcasterRequest(env, '/api/admin/chat-deduction/games', postJson({ problemId: 'mount-fuji' })), env, twitch.fetchImpl)
+    const response = await invoke(await broadcasterRequest(env, '/api/admin/chat-deduction/games', postJson({ setId: 'misc' })), env, twitch.fetchImpl)
 
     expect(response.status).toBe(201)
     expect(await response.json()).toEqual({ game: { id: 1, problemId: 'mount-fuji', startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null } })
@@ -271,27 +280,41 @@ describe('ゲームの開始（POST /api/admin/chat-deduction/games）', () => {
     await saveRewards(env)
     await saveBroadcasterToken(env)
 
-    const response = await invoke(await broadcasterRequest(env, '/api/admin/chat-deduction/games', postJson({ problemId: 'mount-fuji' })), env, createFakeTwitch().fetchImpl)
+    const response = await invoke(await broadcasterRequest(env, '/api/admin/chat-deduction/games', postJson({ setId: 'misc' })), env, createFakeTwitch().fetchImpl)
 
     expect(response.status).toBe(502)
     expect((await readError(response)).code).toBe('chat-deduction-push-failed')
     expect((await readCurrentGame(env.DB))?.problemId).toBe('mount-fuji')
   })
 
-  it('問題集に無い問題なら400を返す', async () => {
+  it('直前のゲームの問題は出さず、問題集の残りの問題から選ぶ', async () => {
+    const env = createEnv()
+    const fuji = await startFuji(env)
+    await endGame(env.DB, fuji.id, 'stopped', Date.parse('2026-10-15T12:10:00.000Z'))
+
+    // 乱数は0なので、直前の富士山を除いた「いろいろ」の先頭（夏目漱石）になる
+    const response = await invoke(await broadcasterRequest(env, '/api/admin/chat-deduction/games', postJson({ setId: 'misc' })), env, createFakeTwitch().fetchImpl)
+
+    expect(response.status).toBe(201)
+    expect(((await response.json()) as { game: { problemId: string } }).game.problemId).toBe('natsume-soseki')
+  })
+
+  it('知らない問題集なら400を返す（問題のIDを直接指定しても受け付けない）', async () => {
     const env = createEnv()
     await saveRewards(env)
 
-    const response = await invoke(await broadcasterRequest(env, '/api/admin/chat-deduction/games', postJson({ problemId: 'no-such-problem' })), env)
+    for (const body of [{ setId: 'no-such-set' }, { problemId: 'mount-fuji' }]) {
+      const response = await invoke(await broadcasterRequest(env, '/api/admin/chat-deduction/games', postJson(body)), env)
 
-    expect(response.status).toBe(400)
-    expect((await readError(response)).code).toBe('unknown-problem')
+      expect(response.status).toBe(400)
+      expect((await readError(response)).code).toBe('unknown-problem-set')
+    }
   })
 
   it('報酬をまだ作っていなければ409を返す', async () => {
     const env = createEnv()
 
-    const response = await invoke(await broadcasterRequest(env, '/api/admin/chat-deduction/games', postJson({ problemId: 'mount-fuji' })), env)
+    const response = await invoke(await broadcasterRequest(env, '/api/admin/chat-deduction/games', postJson({ setId: 'misc' })), env)
 
     expect(response.status).toBe(409)
     expect((await readError(response)).code).toBe('chat-deduction-rewards-missing')
@@ -301,7 +324,7 @@ describe('ゲームの開始（POST /api/admin/chat-deduction/games）', () => {
     const env = createEnv()
     await startFuji(env)
 
-    const response = await invoke(await broadcasterRequest(env, '/api/admin/chat-deduction/games', postJson({ problemId: 'natsume-soseki' })), env)
+    const response = await invoke(await broadcasterRequest(env, '/api/admin/chat-deduction/games', postJson({ setId: 'misc' })), env)
 
     expect(response.status).toBe(409)
     expect((await readError(response)).code).toBe('chat-deduction-game-open')
@@ -312,7 +335,7 @@ describe('ゲームの開始（POST /api/admin/chat-deduction/games）', () => {
     await saveRewards(env)
     await saveBroadcasterToken(env, ['channel:read:redemptions'])
 
-    const response = await invoke(await broadcasterRequest(env, '/api/admin/chat-deduction/games', postJson({ problemId: 'mount-fuji' })), env)
+    const response = await invoke(await broadcasterRequest(env, '/api/admin/chat-deduction/games', postJson({ setId: 'misc' })), env)
 
     expect(response.status).toBe(401)
     expect((await readError(response)).code).toBe('missing-scope')
@@ -325,7 +348,7 @@ describe('ゲームの開始（POST /api/admin/chat-deduction/games）', () => {
     await saveBroadcasterToken(env)
     const twitch = createFakeTwitch((method) => method === 'PATCH')
 
-    const response = await invoke(await broadcasterRequest(env, '/api/admin/chat-deduction/games', postJson({ problemId: 'mount-fuji' })), env, twitch.fetchImpl)
+    const response = await invoke(await broadcasterRequest(env, '/api/admin/chat-deduction/games', postJson({ setId: 'misc' })), env, twitch.fetchImpl)
 
     expect(response.status).toBe(502)
     expect(await readLatestGame(env.DB)).toBeNull()
