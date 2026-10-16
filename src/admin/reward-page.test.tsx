@@ -104,6 +104,16 @@ const findRewardItem = async (title: string): Promise<HTMLElement> => {
   return item
 }
 
+/**
+ * HDADが作った報酬の行を開き、編集欄を出す。
+ * 一覧はふだん1行ずつの要約で並び、行（名前から始まるボタン）を押したときだけ、その場で下に編集欄が開く
+ */
+const openRewardItem = async (title: string): Promise<HTMLElement> => {
+  const item = await findRewardItem(title)
+  await userEvent.click(within(item).getByRole('button', { name: new RegExp(`^${title}`), expanded: false }))
+  return item
+}
+
 /** 報酬を追加する欄 */
 const findAddForm = async (): Promise<HTMLElement> => screen.findByRole('form', { name: '報酬を追加する' })
 
@@ -113,11 +123,58 @@ describe('報酬の一覧', () => {
   test('HDADが作った報酬には、編集欄と削除のボタンを出す', async () => {
     render(<RewardPage broadcasterLogin={broadcasterLogin} api={fakeApi()} />)
 
-    const item = await findRewardItem('乾杯する')
+    const item = await openRewardItem('乾杯する')
     expect(within(item).getByRole('textbox', { name: '名前' })).toHaveValue('乾杯する')
     expect(within(item).getByRole('spinbutton', { name: '必要ポイント' })).toHaveValue(500)
     expect(within(item).getByRole('textbox', { name: '説明' })).toHaveValue('おつまみも添えて')
     expect(within(item).getByRole('button', { name: '乾杯する を削除' })).toBeInTheDocument()
+  })
+
+  test('一覧の行に、ポイントを数で、交換の状態を点と語で出す', async () => {
+    render(<RewardPage broadcasterLogin={broadcasterLogin} api={fakeApi()} />)
+
+    const item = within(await findRewardItem('乾杯する'))
+    expect(item.getByText('500')).toBeInTheDocument()
+    expect(item.getByText('pt')).toBeInTheDocument()
+    expect(item.getByText('交換できる').closest('[data-tone]')).toHaveAttribute('data-tone', 'positive')
+  })
+
+  test('交換を止めている報酬は、止めていることを点と語で出す', async () => {
+    const paused: Reward = { ...toastReward, isEnabled: false }
+    render(<RewardPage broadcasterLogin={broadcasterLogin} api={fakeApi({ rewards: vi.fn(async () => [paused]) })} />)
+
+    const item = within(await findRewardItem('乾杯する'))
+    expect(item.getByText('止めている').closest('[data-tone]')).toHaveAttribute('data-tone', 'neutral')
+  })
+
+  test('行に、制限を数と単位で出し、どれも無ければ「制限なし」と書く', async () => {
+    const limitedReward: Reward = { ...toastReward, maxPerStream: 10, globalCooldownSeconds: 300 }
+    render(<RewardPage broadcasterLogin={broadcasterLogin} api={fakeApi({ rewards: vi.fn(async () => [limitedReward, hydrateReward]) })} />)
+
+    const limited = within(await findRewardItem('乾杯する'))
+    expect(limited.getByText('10')).toBeInTheDocument()
+    expect(limited.getByText('300')).toBeInTheDocument()
+    expect(within(await findRewardItem('水分補給させる')).getByText('制限なし')).toBeInTheDocument()
+  })
+
+  test('背景色の上に画像を載せた印を、背景色の名前で読める画像として出す', async () => {
+    render(<RewardPage broadcasterLogin={broadcasterLogin} api={fakeApi()} />)
+
+    expect(within(await findRewardItem('乾杯する')).getByRole('img', { name: `背景色 ${toastReward.backgroundColor}` })).toBeInTheDocument()
+  })
+
+  test('HDADが作った報酬の編集欄は、行を押すまで出さない（一覧を見渡せるようにする）', async () => {
+    render(<RewardPage broadcasterLogin={broadcasterLogin} api={fakeApi()} />)
+
+    const item = await findRewardItem('乾杯する')
+    expect(within(item).queryByRole('textbox', { name: '名前' })).not.toBeInTheDocument()
+
+    await userEvent.click(within(item).getByRole('button', { name: /^乾杯する/, expanded: false }))
+    expect(within(item).getByRole('textbox', { name: '名前' })).toHaveValue('乾杯する')
+
+    // もう一度押すと閉じる（開いた欄の「乾杯する を保存する」と取り違えないよう、開いている行のボタンを押す）
+    await userEvent.click(within(item).getByRole('button', { name: /^乾杯する/, expanded: true }))
+    expect(within(item).queryByRole('textbox', { name: '名前' })).not.toBeInTheDocument()
   })
 
   test('Twitchで作った報酬は、変更できないことを示し、編集欄も削除のボタンも出さない', async () => {
@@ -152,7 +209,7 @@ describe('報酬の一覧', () => {
     const limitedReward: Reward = { ...toastReward, backgroundColor: '#00E5CB', shouldRedemptionsSkipRequestQueue: true, maxPerStream: 10, globalCooldownSeconds: 300 }
     render(<RewardPage broadcasterLogin={broadcasterLogin} api={fakeApi({ rewards: vi.fn(async () => [limitedReward]) })} />)
 
-    const item = await findRewardItem('乾杯する')
+    const item = await openRewardItem('乾杯する')
     // <input type="color"> は小文字で値を持つ
     expect(within(item).getByLabelText('背景色')).toHaveValue('#00e5cb')
     expect(within(item).getByRole('spinbutton', { name: '待機時間（秒）' })).toHaveValue(300)
@@ -263,7 +320,7 @@ describe('報酬の編集', () => {
     const api = fakeApi()
     render(<RewardPage broadcasterLogin={broadcasterLogin} api={api} />)
 
-    const item = await findRewardItem('乾杯する')
+    const item = await openRewardItem('乾杯する')
     const cost = within(item).getByRole('spinbutton', { name: '必要ポイント' })
     await user.clear(cost)
     await user.type(cost, '800')
@@ -293,7 +350,7 @@ describe('報酬の削除', () => {
     const api = fakeApi()
     render(<RewardPage broadcasterLogin={broadcasterLogin} api={api} />)
 
-    const item = await findRewardItem('乾杯する')
+    const item = await openRewardItem('乾杯する')
     await user.click(within(item).getByRole('button', { name: '乾杯する を削除' }))
     expect(api.removeReward).not.toHaveBeenCalled()
     await user.click(await screen.findByRole('button', { name: '削除する' }))
@@ -312,7 +369,7 @@ describe('報酬の削除', () => {
     })
     render(<RewardPage broadcasterLogin={broadcasterLogin} api={api} />)
 
-    const item = await findRewardItem('乾杯する')
+    const item = await openRewardItem('乾杯する')
     await user.click(within(item).getByRole('button', { name: '乾杯する を削除' }))
     await user.click(await screen.findByRole('button', { name: '削除する' }))
 
