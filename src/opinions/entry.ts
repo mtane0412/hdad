@@ -145,8 +145,15 @@ export const spotlightAt = (topics: readonly OverlayTopic[], now: number): Spotl
 /** 作ったばかりの意見か（作ってから FRESH_MS のあいだ） */
 export const isFresh = (opinion: OverlayOpinion, now: number): boolean => now - Date.parse(opinion.createdAt) < FRESH_MS
 
-/** 論点を作った順に、左の枠（最初の3つ）と右の枠（次の3つ）に分ける */
-export const splitTopics = (topics: readonly OverlayTopic[]): { left: OverlayTopic[]; right: OverlayTopic[] } => ({
-  left: topics.slice(0, TOPICS_PER_SIDE),
-  right: topics.slice(TOPICS_PER_SIDE, TOPICS_PER_SIDE * 2),
-})
+/**
+ * 論点を作った順に、左右の枠へ交互に分ける（1つ目は左、2つ目は右、3つ目は左…）。各側 TOPICS_PER_SIDE 個まで。
+ *
+ * 注意: 前から3つずつ詰めると、論点が3つ以下のときに右の枠が空になり、画面の左だけが埋まる（issue #403）。
+ */
+export const splitTopics = (topics: readonly OverlayTopic[]): { left: OverlayTopic[]; right: OverlayTopic[] } => {
+  const placed = topics.slice(0, TOPICS_PER_SIDE * 2)
+  return {
+    left: placed.filter((_, index) => index % 2 === 0),
+    right: placed.filter((_, index) => index % 2 === 1),
+  }
+}

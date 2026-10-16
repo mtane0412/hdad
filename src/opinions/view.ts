@@ -5,8 +5,9 @@
  * （entry.ts）・起動（src/overlay/stage.ts）から切り離す。
  *
  * 配置は3列で、中央にテーマと「いま紹介している意見」、中央下に視聴者への問いかけ（issue #307）、左右に論点を3つずつ置く
- * （作った順に左から）。問いかけは、まだ作っていないときとテーマを締め切ったあと（もう意見を募っていない）は隠す。論点の中は新しい意見を
- * CARDS_PER_TOPIC 件まで、札の種類（課題・解決策・問い・気づき）つきで並べる。人数は出さない（多数決に見せないため）。
+ * （作った順に左右へ交互に。entry.ts の splitTopics）。問いかけは、まだ作っていないときとテーマを締め切ったあと（もう意見を募っていない）は
+ * 隠す。論点の中は意見をすべて新しい順に、札の種類（課題・解決策・問い・気づき）つきで並べる。列に収まらない古い札を隠すのは見た目
+ * （opinions.css）が行い、件数では切らない（issue #403）。人数は出さない（多数決に見せないため）。
  * 札の種類は色だけでなく文字でも出し、見た目（opinions.css）で明るさも変える。
  *
  * 毎フレーム（draw）は、現在時刻から「いま紹介している意見」と作ったばかりの意見を決め直し、変わったところだけ書き換える。
@@ -15,9 +16,6 @@
  * 全部の札で走ってしまう。
  */
 import { OPINION_KIND_LABELS, isFresh, spotlightAt, splitTopics, type OpinionBoard, type OverlayOpinion, type OverlayTopic, type Spotlight } from './entry'
-
-/** 論点の中に並べる意見の数。古い意見も「いま紹介している意見」で順に回ってくる */
-export const CARDS_PER_TOPIC = 3
 
 /** テーマの見出し。開いているあいだと締め切ったあとで変える */
 const OPEN_LABEL = 'いまのテーマ'
@@ -111,11 +109,11 @@ export const createOpinionView = (root: HTMLElement): OpinionView => {
   /** 中央に出している意見のID（無ければ null）。変わったときだけ書き換える。undefined は「次の draw で必ず決め直す」 */
   let spotlightId: number | null | undefined
 
-  /** 論点1つの要素を作る（札は使い回す） */
+  /** 論点1つの要素を作る（札は使い回す）。収まらない古い札も「いま紹介している意見」で順に回ってくる */
   const renderTopic = (topic: OverlayTopic, nextCards: typeof cards): HTMLElement => {
     const section = element('section', 'opinions-topic')
     const list = element('ul', 'opinions-cards')
-    for (const opinion of topic.opinions.slice(0, CARDS_PER_TOPIC)) {
+    for (const opinion of topic.opinions) {
       const previous = cards.get(opinion.id)
       const entry = previous !== undefined && sameOpinion(previous.opinion, opinion) ? previous : { opinion, card: createCard(opinion) }
       nextCards.set(opinion.id, entry)
