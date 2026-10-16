@@ -12,6 +12,8 @@ import {
   emptyDraft,
   hasAnyAction,
   rowActionLabels,
+  rowActions,
+  rowParam,
   alertMediaOf,
   rowParamSummary,
   toTriggerInputs,
@@ -728,5 +730,71 @@ describe('alertMediaOf', () => {
     const vrm: MediaItem = { id: 'sozai-vrm', name: '看板娘.vrm', kind: 'vrm', contentType: 'model/gltf-binary', size: 100, uploadedAt: '2026-10-13T00:00:00Z' }
 
     expect(alertMediaOf([vrm, video])).toEqual([video])
+  })
+})
+
+describe('rowActions', () => {
+  it('付けた効果を、種類と名前の組で決まった順に並べる（画面では種類ごとの色の札で出す）', () => {
+    // 前提: フォローにアラートとチャットを付けた行
+    const input = inputs({ kind: 'follow', chatEnabled: true })
+
+    expect(rowActions(input)).toEqual([
+      { kind: 'alert', label: 'アラート' },
+      { kind: 'chat', label: 'チャット' },
+    ])
+  })
+
+  it('名前の並びは rowActionLabels と同じになる', () => {
+    const input = inputs({ kind: 'raid', townTourEnabled: true, vrmEnabled: true })
+
+    expect(rowActions(input).map((action) => action.label)).toEqual(rowActionLabels(input))
+  })
+})
+
+describe('rowParam', () => {
+  const rewards = [
+    { id: '報酬ID-乾杯', title: '乾杯する', cost: 500, prompt: '', isEnabled: true, isUserInputRequired: false, backgroundColor: '#9147FF', shouldRedemptionsSkipRequestQueue: false, maxPerStream: null, maxPerUserPerStream: null, globalCooldownSeconds: null, imageUrl: 'https://static-cdn.jtvnw.net/custom-reward-images/default-2.png', manageable: true },
+  ]
+
+  it('報酬は名前と背景色で返す（画面では色の見本を添える）', () => {
+    expect(rowParam(inputs({ kind: 'reward', rewardId: '報酬ID-乾杯' }), rewards)).toEqual({ type: 'reward', title: '乾杯する', color: '#9147FF' })
+  })
+
+  it('Twitchの一覧にない報酬は、IDをそのまま名前にして色は持たない（取り違えないため）', () => {
+    expect(rowParam(inputs({ kind: 'reward', rewardId: '報酬ID-消えた報酬' }), rewards)).toEqual({ type: 'reward', title: '報酬ID-消えた報酬', color: null })
+  })
+
+  it('すべての報酬は言葉で返す', () => {
+    expect(rowParam(inputs({ kind: 'reward', rewardId: '' }), rewards)).toEqual({ type: 'text', text: 'すべての報酬' })
+  })
+
+  it('決まった人はログイン名で返す（画面では @ を付けた等幅で出す）', () => {
+    expect(rowParam(inputs({ kind: 'fromUser', login: 'hoshino_yu' }), rewards)).toEqual({ type: 'login', login: 'hoshino_yu' })
+  })
+
+  it('キーワードは言葉そのもので返す', () => {
+    expect(rowParam(inputs({ kind: 'keyword', contains: 'おはよう' }), rewards)).toEqual({ type: 'keyword', text: 'おはよう' })
+  })
+
+  it('久しぶりの日数は数で返す', () => {
+    expect(rowParam(inputs({ kind: 'comeback', days: '30' }), rewards)).toEqual({ type: 'days', days: 30 })
+  })
+
+  it('日数が数として読めないときは、黙って直さず入力のまま言葉で返す', () => {
+    expect(rowParam(inputs({ kind: 'comeback', days: '' }), rewards)).toEqual({ type: 'text', text: '日数が未入力' })
+  })
+
+  it('広告の絞り込みは言葉で返し、絞り込まないときは null', () => {
+    expect(rowParam(inputs({ kind: 'adBreakBegin', automatic: 'true' }), rewards)).toEqual({ type: 'text', text: '自動で入った広告' })
+    expect(rowParam(inputs({ kind: 'adBreakBegin', automatic: '' }), rewards)).toBeNull()
+  })
+
+  it('まだ決めていない（空の）ログイン名とキーワードは null', () => {
+    expect(rowParam(inputs({ kind: 'fromUser', login: '' }), rewards)).toBeNull()
+    expect(rowParam(inputs({ kind: 'keyword', contains: '' }), rewards)).toBeNull()
+  })
+
+  it('絞り込みを持たない項目は null', () => {
+    expect(rowParam(inputs({ kind: 'follow' }), rewards)).toBeNull()
   })
 })
