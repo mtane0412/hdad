@@ -104,7 +104,7 @@ describe('RecognitionSectionView', () => {
     render(<RecognitionSectionView value={value} />)
 
     fireEvent.change(screen.getByLabelText('ミュートを見張るOBSの入力'), { target: { value: ' マイク ' } })
-    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    fireEvent.click(screen.getByRole('button', { name: '入力の名前を保存する' }))
 
     expect(value.setObsMuteInputName).toHaveBeenCalledWith('マイク')
   })
@@ -113,7 +113,7 @@ describe('RecognitionSectionView', () => {
     render(<RecognitionSectionView value={baseValue({ obsMuteInputName: 'マイク' })} />)
 
     expect(screen.getByLabelText('ミュートを見張るOBSの入力')).toHaveProperty('value', 'マイク')
-    expect(screen.getByRole('button', { name: '保存' })).toHaveProperty('disabled', true)
+    expect(screen.getByRole('button', { name: '入力の名前を保存する' })).toHaveProperty('disabled', true)
   })
 
   it('OBS のミュートを見張れていなければ、その理由を出す', () => {

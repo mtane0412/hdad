@@ -42,10 +42,10 @@
  */
 import { Component, lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
+import { SaveBar } from '@/components/save-bar'
 import { HelpButton } from '@/components/help-button'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { LoadFailure } from '@/components/load-failure'
-import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -543,11 +543,7 @@ export const LlmPage = ({ api }: LlmPageProps) => {
         </CardContent>
       </Card>
 
-      <div>
-        <Button type="button" disabled={actions.busy} onClick={() => void actions.run(save)}>
-          設定を保存
-        </Button>
-      </div>
+      <SaveBar label="LLMの設定を保存する" busy={actions.busy} onSave={() => void actions.run(save)} />
 
     </div>
   )

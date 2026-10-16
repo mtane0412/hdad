@@ -148,7 +148,7 @@ export const TextBar = ({ api }: { api: TextApi }) => {
                 テキストのページ
               </Link>
               <Button type="button" size="sm" disabled={busy || body === selected.body} onClick={() => void save()}>
-                保存する
+                本文を保存する
               </Button>
             </div>
           </div>

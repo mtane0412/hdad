@@ -11,6 +11,7 @@
  * 注意: 値の検証は Worker だけが持つ（.claude/rules/implementation.md）。ここでは返ってきた問題点を項目の名前に読み替えて並べる。
  */
 import { useEffect, useId, useState } from 'react'
+import { SaveBar } from '@/components/save-bar'
 import { LoadFailure } from '@/components/load-failure'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -127,12 +128,7 @@ export const VrmCard = ({ api, media }: VrmCardProps) => {
             ))}
           </NativeSelect>
         </div>
-        <div className="flex items-center gap-3">
-          <Button type="button" disabled={actions.busy} onClick={() => void actions.run(() => save(draft))}>
-            VRM を保存
-          </Button>
-          {unsaved && <span className="text-sm text-muted-foreground">未保存の変更があります</span>}
-        </div>
+        <SaveBar label="VRMを保存する" busy={actions.busy} unsaved={unsaved} onSave={() => void actions.run(() => save(draft))} />
       </>
     )
   })()

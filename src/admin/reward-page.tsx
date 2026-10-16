@@ -12,13 +12,15 @@
  * Twitchの報酬のページ（クリエイターダッシュボード）へのリンクを添える。
  * 注意: 失敗は黙って無視せず、画面の上部に理由を出す（Fail-Fast）。一覧を取得できなければ操作盤を出さない。
  */
-import { ChevronDown, ExternalLink, Plus, Trash2 } from 'lucide-react'
+import { ExternalLink, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
 import { LoadFailure } from '@/components/load-failure'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Quantity, StatusDot } from '@/components/data/data-display'
+import { DataTable, DataTableCell, DataTableRow } from '@/components/data/data-table'
+import { SaveBar } from '@/components/save-bar'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -27,7 +29,7 @@ import { ApiError } from '@/core/api'
 import { iconButtonName } from '@/core/icon-button'
 import type { AdminApi, Reward } from './api'
 import { errorMessage, usePageActions } from './page-actions'
-import { EMPTY_REWARD_DRAFT, describeRewardProblem, toRewardDraft, toRewardInput, type RewardDraft } from './reward-form'
+import { EMPTY_REWARD_DRAFT, describeRewardProblem, sameRewardDraft, toRewardDraft, toRewardInput, type RewardDraft } from './reward-form'
 
 /** 配信者のチャンネルポイント報酬を管理する、Twitchのクリエイターダッシュボードのページ */
 const twitchRewardsUrl = (broadcasterLogin: string): string =>
@@ -164,7 +166,9 @@ const RewardIcon = ({ reward }: { reward: Reward }) => (
 )
 
 /** 行の列（名前・ポイント・状態・制限）。見出しの行と報酬の行で同じ幅にし、上下で列をそろえる */
-const REWARD_COLUMNS = 'grid-cols-[minmax(0,1.6fr)_5rem_7rem_minmax(0,1.4fr)]'
+const REWARD_COLUMNS = 'minmax(0,1.6fr) 5rem 7rem minmax(0,1.4fr)'
+
+const REWARD_HEADINGS = [{ label: '名前' }, { label: 'ポイント', align: 'end' }, { label: '状態' }, { label: '制限' }] as const
 
 /** 制限（上限回数・待機時間）を数と単位で並べる。どれも無ければ「制限なし」を薄く出す（0 と取り違えないため） */
 const RewardLimits = ({ reward }: { reward: Reward }) => {
@@ -186,26 +190,42 @@ const RewardLimits = ({ reward }: { reward: Reward }) => {
 }
 
 /** 報酬1件の要約（名前・ポイント・状態・制限の4列）。行を開くボタンの中と、Twitchで作った報酬の押せない行で共通に使う */
-const RewardSummary = ({ reward }: { reward: Reward }) => (
+const RewardSummary = ({ reward, unsaved = false }: { reward: Reward; unsaved?: boolean }) => (
   <>
-    <span className="flex min-w-0 flex-col gap-0.5">
-      <span className="flex min-w-0 items-baseline gap-2">
-        <span className="truncate font-medium">{reward.title}</span>
-        {reward.isUserInputRequired && <span className="shrink-0 text-xs font-normal text-muted-foreground">入力あり</span>}
-        {/* 行ごとに長い注記を繰り返すと読みにくいので、見た目は短い札にし、理由は読み上げにだけ残す */}
-        {!reward.manageable && (
-          <span className="shrink-0 rounded-sm border px-1 text-xs font-normal text-muted-foreground">
-            Twitch<span className="sr-only">で作った報酬なので、ここでは変更できません。</span>
-          </span>
-        )}
+    <DataTableCell className="flex-nowrap gap-3">
+      {/* アイコンは名前の左に見せるが、読み上げは名前から始める（行のボタンの名前を報酬の名前から始めるため） */}
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className="flex min-w-0 items-baseline gap-2">
+          <span className="truncate font-medium">{reward.title}</span>
+          {/* 閉じた行でも、保存していない書きかけがあることを見落とさないようにする */}
+          {unsaved && (
+            <StatusDot tone="attention" className="shrink-0 text-xs font-normal">
+              未保存
+            </StatusDot>
+          )}
+          {reward.isUserInputRequired && <span className="shrink-0 text-xs font-normal text-muted-foreground">入力あり</span>}
+          {/* 行ごとに長い注記を繰り返すと読みにくいので、見た目は短い札にし、理由は読み上げにだけ残す */}
+          {!reward.manageable && (
+            <span className="shrink-0 rounded-sm border px-1 text-xs font-normal text-muted-foreground">
+              Twitch<span className="sr-only">で作った報酬なので、ここでは変更できません。</span>
+            </span>
+          )}
+        </span>
+        {reward.prompt !== '' && <span className="truncate text-xs font-normal text-muted-foreground">{reward.prompt}</span>}
       </span>
-      {reward.prompt !== '' && <span className="truncate text-xs font-normal text-muted-foreground">{reward.prompt}</span>}
-    </span>
-    <span className="text-right">
+      <span className="order-first">
+        <RewardIcon reward={reward} />
+      </span>
+    </DataTableCell>
+    <DataTableCell align="end">
       <Quantity value={reward.cost} unit="pt" />
-    </span>
-    <StatusDot tone={reward.isEnabled ? 'positive' : 'neutral'}>{reward.isEnabled ? '交換できる' : '止めている'}</StatusDot>
-    <RewardLimits reward={reward} />
+    </DataTableCell>
+    <DataTableCell>
+      <StatusDot tone={reward.isEnabled ? 'positive' : 'neutral'}>{reward.isEnabled ? '交換できる' : '止めている'}</StatusDot>
+    </DataTableCell>
+    <DataTableCell>
+      <RewardLimits reward={reward} />
+    </DataTableCell>
   </>
 )
 
@@ -226,7 +246,6 @@ export const RewardPage = ({ api, broadcasterLogin }: RewardPageProps) => {
   const [drafts, setDrafts] = useState<Record<string, RewardDraft>>({})
   /** 編集欄を開いている報酬のID。一覧を見渡せるよう、開くのは1件ずつにする */
   const [openId, setOpenId] = useState<string | null>(null)
-  const listId = useId()
   const actions = usePageActions(toFailureLines)
 
   useEffect(() => {
@@ -319,66 +338,34 @@ export const RewardPage = ({ api, broadcasterLogin }: RewardPageProps) => {
           {rewards.length === 0 ? (
             <p className="text-sm text-muted-foreground">報酬はまだありません。</p>
           ) : (
-            <div className="flex flex-col">
-              {/* 列の見出し。読み上げでは各行の要約がそのまま読まれるので、見た目だけの見出しにする */}
-              <div aria-hidden="true" className={`grid ${REWARD_COLUMNS} gap-3 border-b py-1.5 pr-10 pl-13 text-xs font-medium text-muted-foreground`}>
-                <span>名前</span>
-                <span className="text-right">ポイント</span>
-                <span>状態</span>
-                <span>制限</span>
-              </div>
-              <ul aria-label="報酬の一覧" className="flex flex-col">
-                {rewards.map((reward) => {
-                  const open = openId === reward.id
-                  const detailId = `${listId}-${reward.id}`
-                  return (
-                    <li key={reward.id} className="border-b">
-                      <div className="flex items-center gap-3 px-3 py-1.5">
-                        <RewardIcon reward={reward} />
-                        {reward.manageable ? (
-                          // HDADが作った報酬は、行を押すとその場で下に編集欄が開く（もう一度押すと閉じる）
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            className={`grid h-auto min-w-0 flex-1 ${REWARD_COLUMNS} items-center gap-3 px-0 py-1 text-left font-normal whitespace-normal hover:bg-transparent`}
-                            aria-expanded={open}
-                            // 閉じているあいだは欄が無いので、無い要素を指さないよう開いているときだけ付ける
-                            aria-controls={open ? detailId : undefined}
-                            onClick={() => setOpenId(open ? null : reward.id)}
-                          >
-                            <RewardSummary reward={reward} />
-                          </Button>
-                        ) : (
-                          // Twitchで作った報酬はHDADから変更できないので、押せない行にする（押せるのに必ず失敗する操作を置かない）
-                          <div className={`grid min-w-0 flex-1 ${REWARD_COLUMNS} items-center gap-3 py-1`}>
-                            <RewardSummary reward={reward} />
-                          </div>
-                        )}
-                        {/* 開閉の矢印の場所はどの行でも取り、押せない行と押せる行で列の位置をそろえる */}
-                        {reward.manageable ? (
-                          <ChevronDown aria-hidden="true" className={open ? 'size-4 shrink-0 rotate-180 text-muted-foreground' : 'size-4 shrink-0 text-muted-foreground'} />
-                        ) : (
-                          <span aria-hidden="true" className="size-4 shrink-0" />
-                        )}
-                      </div>
-                      {reward.manageable && open && (
-                        <div id={detailId} className="flex flex-col gap-3 border-t px-3 py-4 pl-13">
+            <DataTable label="報酬の一覧" columns={REWARD_COLUMNS} headings={REWARD_HEADINGS}>
+              {rewards.map((reward) =>
+                // Twitchで作った報酬はHDADから変更できないので、押せない行にする（押せるのに必ず失敗する操作を置かない）
+                !reward.manageable ? (
+                  <DataTableRow key={reward.id} label={reward.title}>
+                    <RewardSummary reward={reward} />
+                  </DataTableRow>
+                ) : (
+                  // HDADが作った報酬は、行を押すとその場で下に編集欄が開く（もう一度押すと閉じる）
+                  <DataTableRow
+                    key={reward.id}
+                    label={reward.title}
+                    expand={{
+                      open: openId === reward.id,
+                      onToggle: () => setOpenId(openId === reward.id ? null : reward.id),
+                      detail: (
+                        <>
                           <RewardFields
                             draft={draftOf(reward)}
                             disabled={actions.busy}
                             onChange={(patch) => setDrafts((current) => ({ ...current, [reward.id]: { ...draftOf(reward), ...patch } }))}
                           />
-                          <div className="flex gap-2">
-                            <Button
-                              type="button"
-                              size="sm"
-                              // 読み上げの名前には、画面に見えている「保存する」をそのまま含める（WCAG 2.5.3）
-                              aria-label={`${reward.title} を保存する`}
-                              disabled={actions.busy}
-                              onClick={() => void actions.run(() => saveReward(reward))}
-                            >
-                              保存する
-                            </Button>
+                          <SaveBar
+                            label="保存する"
+                            name={`${reward.title} を保存する`}
+                            busy={actions.busy}
+                            unsaved={!sameRewardDraft(draftOf(reward), toRewardDraft(reward))}
+                            onSave={() => void actions.run(() => saveReward(reward))}>
                             <Button
                               type="button"
                               variant="ghost"
@@ -397,14 +384,16 @@ export const RewardPage = ({ api, broadcasterLogin }: RewardPageProps) => {
                             >
                               <Trash2 aria-hidden="true" />
                             </Button>
-                          </div>
-                        </div>
-                      )}
-                    </li>
-                  )
-                })}
-              </ul>
-            </div>
+                          </SaveBar>
+                        </>
+                      ),
+                    }}
+                  >
+                    <RewardSummary reward={reward} unsaved={!sameRewardDraft(draftOf(reward), toRewardDraft(reward))} />
+                  </DataTableRow>
+                ),
+              )}
+            </DataTable>
           )}
         </CardContent>
       </Card>

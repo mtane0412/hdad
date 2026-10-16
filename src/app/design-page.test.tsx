@@ -6,6 +6,7 @@
  * 中身は、データの型ごとの表示部品をすべての状態で並べたものになっていることを確かめる。
  */
 import { cleanup, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, test } from 'vitest'
 import { DesignPage } from './design-page'
 import { findPage, PAGE_GROUPS } from './pages'
@@ -42,8 +43,21 @@ describe('見本ページの中身', () => {
     expect(screen.getByText('制限なし')).toBeTruthy()
   })
 
-  test('一覧の表の見本を出す', () => {
+  test('一覧の表の見本を出し、開ける行を押すとその場で下に詳細が開く', async () => {
     render(<DesignPage />)
-    expect(screen.getByRole('table', { name: '一覧の見本' })).toBeTruthy()
+    expect(screen.getByRole('list', { name: '一覧の見本' })).toBeTruthy()
+
+    await userEvent.click(screen.getByRole('button', { name: /^決まった人の発言/ }))
+
+    // 開くと、行のボタンは開いた状態になり、下に保存のボタン（名前は「決まった人の発言 を保存する」）が出る
+    expect(screen.getByRole('button', { name: /^決まった人の発言/, expanded: true })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '決まった人の発言 を保存する' })).toBeTruthy()
+  })
+
+  test('保存のバーの見本は、未保存の印がある状態と無い状態を並べる', () => {
+    render(<DesignPage />)
+    expect(screen.getByText('未保存の変更があります').closest('[data-tone]')?.getAttribute('data-tone')).toBe('attention')
+    expect(screen.getByRole('button', { name: '設定を保存する' })).toBeTruthy()
+    expect(screen.getAllByText('未保存の変更があります')).toHaveLength(1)
   })
 })

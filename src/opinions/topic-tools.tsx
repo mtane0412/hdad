@@ -78,7 +78,7 @@ export const TopicHeader = ({ topic, topics, actions }: { topic: AdminTopic; top
             <Input id={titleId} value={form.title} onChange={(event) => setForm({ type: 'rename', title: event.currentTarget.value })} />
           </div>
           <Button type="button" size="sm" disabled={actions.busy} onClick={() => void rename(form.title)}>
-            名前を保存
+            名前を保存する
           </Button>
           <Button type="button" size="sm" variant="ghost" disabled={actions.busy} onClick={() => setForm(null)}>
             やめる

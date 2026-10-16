@@ -48,7 +48,7 @@ describe('TownTourNarrationSection', () => {
     await userEvent.type(speaker, '13')
     expect(screen.getByText('未保存の変更があります')).toBeInTheDocument()
     expect(onUnsavedChange).toHaveBeenLastCalledWith(true)
-    await userEvent.click(screen.getByRole('button', { name: 'ナレーションを保存' }))
+    await userEvent.click(screen.getByRole('button', { name: 'ナレーションを保存する' }))
 
     expect(api.saveTownTourNarration).toHaveBeenCalledWith({ enabled: true, speaker: 13, speed: 1 })
     expect(await screen.findByText('市町村紹介のナレーションを保存しました')).toBeInTheDocument()
@@ -66,7 +66,7 @@ describe('TownTourNarrationSection', () => {
     const speed = await screen.findByLabelText('ナレーションの読み上げ速度')
     await userEvent.clear(speed)
     await userEvent.type(speed, '5')
-    await userEvent.click(screen.getByRole('button', { name: 'ナレーションを保存' }))
+    await userEvent.click(screen.getByRole('button', { name: 'ナレーションを保存する' }))
 
     expect(await screen.findByText(/・ナレーションの読み上げ速度: 0.5〜2 の数で指定してください/)).toBeInTheDocument()
   })

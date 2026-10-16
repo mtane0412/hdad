@@ -17,9 +17,9 @@
  */
 import { useEffect, useId, useState } from 'react'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
+import { SaveBar } from '@/components/save-bar'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { LoadFailure } from '@/components/load-failure'
-import { Button } from '@/components/ui/button'
 import { HelpButton } from '@/components/help-button'
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -228,9 +228,7 @@ export const ScreenSection = ({ api }: ScreenSectionProps) => {
           )}
 
           <div className="sm:col-span-2">
-            <Button type="button" disabled={actions.busy} onClick={() => void actions.run(save)}>
-              Gyazoの設定を保存
-            </Button>
+            <SaveBar label="Gyazoの設定を保存する" busy={actions.busy} onSave={() => void actions.run(save)} />
           </div>
         </CardContent>
       </Card>

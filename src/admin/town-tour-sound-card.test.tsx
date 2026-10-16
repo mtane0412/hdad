@@ -79,7 +79,7 @@ describe('TownTourSoundCard', () => {
 
     await userEvent.selectOptions(await screen.findByLabelText('始まり（日本全体を映したとき）'), 'media-jajean')
     expect(screen.getByText('未保存の変更があります')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: '音を保存' }))
+    await userEvent.click(screen.getByRole('button', { name: '市町村紹介の音を保存する' }))
 
     expect(api.saveTownTourSound).toHaveBeenCalledWith({ ...savedSound, slots: { ...savedSound.slots, opening: 'media-jajean' } })
     expect(await screen.findByText('市町村紹介の音を保存しました')).toBeInTheDocument()
@@ -97,7 +97,7 @@ describe('TownTourSoundCard', () => {
     })
     render(<TownTourSoundCard api={api} media={media} />)
 
-    await userEvent.click(await screen.findByRole('button', { name: '音を保存' }))
+    await userEvent.click(await screen.findByRole('button', { name: '市町村紹介の音を保存する' }))
 
     expect(await screen.findByText(/・ズーム（市町村へ寄り始めたとき）: 素材「media-kesareta」が存在しません/)).toBeInTheDocument()
     expect(screen.getByText(/・効果音の音量: 0〜1 の数で指定してください/)).toBeInTheDocument()

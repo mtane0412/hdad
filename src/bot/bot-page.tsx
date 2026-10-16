@@ -13,6 +13,7 @@ import { Plus, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { LoadFailure } from '@/components/load-failure'
+import { SaveBar } from '@/components/save-bar'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -621,12 +622,6 @@ export const BotPage = ({ api }: BotPageProps) => {
             <Button type="button" variant="outline" size="icon" {...iconButtonName('コマンドを追加する')} disabled={busy} onClick={() => void run(addCommand)}>
               <Plus aria-hidden="true" />
             </Button>
-            {/* 保存するものが無いときにボタンを出さない。変更したときだけ出す */}
-            {dirty && (
-              <Button type="button" disabled={busy} onClick={() => void run(saveCommands)}>
-                コマンドを保存する
-              </Button>
-            )}
           </div>
           {drafts.length > 0 && (
             <p className="text-xs text-muted-foreground">
@@ -634,6 +629,8 @@ export const BotPage = ({ api }: BotPageProps) => {
               は流しているBGMの曲名とクレジットに、{'{worktime}'} は作業机でみんなが作業した時間の合計に置き換わります
             </p>
           )}
+          {/* 保存は区画の末尾に置く（どの区画でも同じ位置） */}
+          <SaveBar label="コマンドを保存する" busy={busy} unsaved={dirty} onSave={() => void run(saveCommands)} />
         </CardContent>
       </Card>
 
@@ -704,13 +701,8 @@ export const BotPage = ({ api }: BotPageProps) => {
             <Button type="button" variant="outline" size="icon" {...iconButtonName('ルールを追加する')} disabled={busy} onClick={() => void run(addModerationRule)}>
               <Plus aria-hidden="true" />
             </Button>
-            {/* 保存するものが無いときにボタンを出さない。変更したときだけ出す */}
-            {moderationDirty && (
-              <Button type="button" disabled={busy} onClick={() => void run(saveModeration)}>
-                自動モデレーションを保存する
-              </Button>
-            )}
           </div>
+          <SaveBar label="自動モデレーションを保存する" busy={busy} unsaved={moderationDirty} onSave={() => void run(saveModeration)} />
         </CardContent>
       </Card>
 

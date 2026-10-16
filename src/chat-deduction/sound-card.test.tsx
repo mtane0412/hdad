@@ -68,7 +68,7 @@ describe('ChatDeductionSoundCard', () => {
 
     await userEvent.selectOptions(await screen.findByLabelText(CORRECT_LABEL), 'media-pinpon')
     expect(screen.getByText('未保存の変更があります')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: '音を保存' }))
+    await userEvent.click(screen.getByRole('button', { name: '音を保存する' }))
 
     expect(api.saveSound).toHaveBeenCalledWith({ ...savedSound, slots: { ...savedSound.slots, correct: 'media-pinpon' } })
     expect(await screen.findByText('チャットで推理の音を保存しました')).toBeInTheDocument()
@@ -84,7 +84,7 @@ describe('ChatDeductionSoundCard', () => {
     render(<ChatDeductionSoundCard api={api} loadMedia={loadMedia} />)
 
     await userEvent.selectOptions(await screen.findByLabelText(CORRECT_LABEL), 'media-pinpon')
-    await userEvent.click(screen.getByRole('button', { name: '音を保存' }))
+    await userEvent.click(screen.getByRole('button', { name: '音を保存する' }))
 
     expect(await screen.findByText(/・正解（正解の解答が出たとき）: 素材「media-pinpon」が存在しません/)).toBeInTheDocument()
     expect(screen.getByText(/・効果音の音量: 0〜1 の数で指定してください/)).toBeInTheDocument()

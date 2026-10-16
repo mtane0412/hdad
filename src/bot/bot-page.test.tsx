@@ -312,22 +312,24 @@ describe('コマンドの編集', () => {
     expect(screen.queryByRole('table', { name: 'コマンドの一覧' })).not.toBeInTheDocument()
   })
 
-  test('変更していないあいだは、保存ボタンを出さない', async () => {
+  test('変更していないあいだも保存ボタンは出し、未保存の印は出さない', async () => {
     render(<BotPage api={fakeApi()} />)
     await screen.findByDisplayValue('aisatsu')
 
-    expect(screen.queryByRole('button', { name: 'コマンドを保存する' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'コマンドを保存する' })).toBeInTheDocument()
+    expect(screen.queryByText('未保存の変更があります')).not.toBeInTheDocument()
   })
 
-  test('入力を変えると保存ボタンが出て、保存すると消える', async () => {
+  test('入力を変えると未保存の印が出て、保存すると消える', async () => {
     render(<BotPage api={fakeApi()} />)
     await screen.findByDisplayValue('aisatsu')
 
     await userEvent.type(screen.getByLabelText('1番目の応答文'), 'です')
-    await userEvent.click(await screen.findByRole('button', { name: 'コマンドを保存する' }))
+    expect(screen.getByText('未保存の変更があります').closest('[data-tone]')).toHaveAttribute('data-tone', 'attention')
+    await userEvent.click(screen.getByRole('button', { name: 'コマンドを保存する' }))
 
     expect(await notice('保存しました')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'コマンドを保存する' })).not.toBeInTheDocument()
+    expect(screen.queryByText('未保存の変更があります')).not.toBeInTheDocument()
   })
 
   test('応答文の差し込み語（{user}・{summary}・{bgm}・{worktime}）をボタンで入れられる', async () => {
@@ -456,11 +458,15 @@ describe('自動モデレーション', () => {
     expect(screen.getByRole('checkbox', { name: '自動モデレーションを有効にする' })).toBeChecked()
   })
 
-  test('変更していないあいだは、保存ボタンを出さない', async () => {
+  test('変更していないあいだも保存ボタンは出し、有効にすると未保存の印を出す', async () => {
     render(<BotPage api={moderationApi()} />)
     await screen.findByRole('button', { name: 'ルールを追加する' })
+    expect(screen.getByRole('button', { name: '自動モデレーションを保存する' })).toBeInTheDocument()
+    expect(screen.queryByText('未保存の変更があります')).not.toBeInTheDocument()
 
-    expect(screen.queryByRole('button', { name: '自動モデレーションを保存する' })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('checkbox', { name: '自動モデレーションを有効にする' }))
+
+    expect(screen.getByText('未保存の変更があります')).toBeInTheDocument()
   })
 
   test('有効にして保存すると、Workerへ送られる', async () => {

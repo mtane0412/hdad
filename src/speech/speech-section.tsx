@@ -23,6 +23,7 @@ import { Plus } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
 import type { BotApi } from '@/bot/api'
+import { SaveBar } from '@/components/save-bar'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { LoadFailure } from '@/components/load-failure'
 import { Button } from '@/components/ui/button'
@@ -346,9 +347,7 @@ export const SpeechSection = ({ api, botApi }: SpeechSectionProps) => {
           )}
 
           <div className="sm:col-span-2">
-            <Button type="button" disabled={actions.busy} onClick={() => void actions.run(save)}>
-              VOICEVOXの設定を保存
-            </Button>
+            <SaveBar label="VOICEVOXの設定を保存する" busy={actions.busy} onSave={() => void actions.run(save)} />
           </div>
         </CardContent>
       </Card>

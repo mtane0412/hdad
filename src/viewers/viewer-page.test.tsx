@@ -146,7 +146,7 @@ describe('メモ', () => {
     const memoInput = screen.getByRole('textbox', { name: '花子 へのメモ' })
     await userEvent.clear(memoInput)
     await userEvent.type(memoInput, '常連さん')
-    await userEvent.click(screen.getByRole('button', { name: '花子 のメモを保存' }))
+    await userEvent.click(screen.getByRole('button', { name: '花子 のメモを保存する' }))
 
     expect(api.saveNote).toHaveBeenCalledWith('100', '常連さん')
     expect(await findNotice('メモを保存しました')).toBeInTheDocument()
@@ -161,10 +161,62 @@ describe('メモ', () => {
     render(<ViewerPage api={api} />)
     await screen.findByRole('list', { name: '視聴者の一覧' })
     await openViewer('花子')
-
-    await userEvent.click(screen.getByRole('button', { name: '花子 のメモを保存' }))
+    await userEvent.click(screen.getByRole('button', { name: '花子 のメモを保存する' }))
 
     expect(await findNotice('2000文字までにしてください')).toBeInTheDocument()
+  })
+
+  test('保存したら書きかけを捨て、Workerが整えて返したメモを未保存と取り違えない', async () => {
+    // Workerは前後の空白を落として保存し、保存した値を返す
+    const api = createFakeApi({ saveNote: vi.fn(async (_userId: string, note: string) => note.trim()) })
+    render(<ViewerPage api={api} />)
+    await screen.findByRole('list', { name: '視聴者の一覧' })
+    await openViewer('花子')
+
+    const memoInput = screen.getByRole('textbox', { name: '花子 へのメモ' })
+    await userEvent.clear(memoInput)
+    await userEvent.type(memoInput, '常連さん ')
+    await userEvent.click(screen.getByRole('button', { name: '花子 のメモを保存する' }))
+
+    expect(await findNotice('メモを保存しました')).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: '花子 へのメモ' })).toHaveValue('常連さん')
+    expect(screen.queryByText('未保存の変更があります')).not.toBeInTheDocument()
+  })
+
+  test('保存を待っているあいだに書き足したメモは、保存が終わっても書きかけとして残す', async () => {
+    // 保存の応答を、テストが決めた時点まで返さない
+    let finishSave: (saved: string) => void = () => undefined
+    const api = createFakeApi({ saveNote: vi.fn(() => new Promise<string>((resolve) => (finishSave = resolve))) })
+    render(<ViewerPage api={api} />)
+    await screen.findByRole('list', { name: '視聴者の一覧' })
+    await openViewer('花子')
+    const memoInput = screen.getByRole('textbox', { name: '花子 へのメモ' })
+    await userEvent.clear(memoInput)
+    await userEvent.type(memoInput, '常連さん')
+    await userEvent.click(screen.getByRole('button', { name: '花子 のメモを保存する' }))
+
+    // 保存を待っているあいだに書き足し、そのあと保存が終わる
+    await userEvent.type(memoInput, '。歌が好き')
+    finishSave('常連さん')
+
+    expect(await findNotice('メモを保存しました')).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: '花子 へのメモ' })).toHaveValue('常連さん。歌が好き')
+    expect(screen.getByText('未保存の変更があります')).toBeInTheDocument()
+  })
+
+  test('書いたメモを保存していないあいだは、保存のボタンの横と閉じた行に印を出す', async () => {
+    render(<ViewerPage api={createFakeApi()} />)
+    await screen.findByRole('list', { name: '視聴者の一覧' })
+    await openViewer('花子')
+    expect(screen.queryByText('未保存の変更があります')).not.toBeInTheDocument()
+
+    await userEvent.type(screen.getByRole('textbox', { name: '花子 へのメモ' }), '！')
+    expect(screen.getByText('未保存の変更があります').closest('[data-tone]')).toHaveAttribute('data-tone', 'attention')
+
+    // 行を閉じても、書きかけがあることを行に残す
+    await userEvent.click(screen.getByRole('button', { name: /^花子/, expanded: true }))
+    const row = within((await screen.findByText('花子')).closest('li') as HTMLElement)
+    expect(row.getByText('未保存').closest('[data-tone]')).toHaveAttribute('data-tone', 'attention')
   })
 })
 

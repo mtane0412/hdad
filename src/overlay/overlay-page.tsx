@@ -54,6 +54,7 @@ import {
 } from 'react'
 import { Link, useUnsavedChanges } from '@/app/router'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
+import { SaveBar } from '@/components/save-bar'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -1132,12 +1133,7 @@ export const OverlayPage = ({ api, overlayKey, textApi }: { api: OverlayLayoutAd
       </Tabs>
 
       {/* 一覧が長いので、保存は貼り付けて常に押せるようにする（/triggers/ と同じ扱い） */}
-      <div className="sticky bottom-0 flex items-center gap-3 border-t bg-background py-3">
-        <Button type="button" disabled={actions.busy} onClick={() => void actions.run(save)}>
-          構成を保存する
-        </Button>
-        {changed && <p className="text-sm text-muted-foreground">未保存の変更があります</p>}
-      </div>
+      <SaveBar label="構成を保存する" busy={actions.busy} unsaved={changed} sticky onSave={() => void actions.run(save)} />
     </div>
   )
 }

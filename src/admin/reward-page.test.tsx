@@ -119,6 +119,21 @@ const findAddForm = async (): Promise<HTMLElement> => screen.findByRole('form', 
 
 afterEach(cleanup)
 
+describe('報酬の未保存の印', () => {
+  test('書き換えると保存のボタンの横に印を出し、行を閉じても行に印を残す', async () => {
+    render(<RewardPage broadcasterLogin={broadcasterLogin} api={fakeApi()} />)
+    const item = await openRewardItem('乾杯する')
+    expect(within(item).queryByText('未保存の変更があります')).not.toBeInTheDocument()
+
+    await userEvent.type(within(item).getByRole('textbox', { name: '名前' }), '！')
+    expect(within(item).getByText('未保存の変更があります').closest('[data-tone]')).toHaveAttribute('data-tone', 'attention')
+
+    // 行を閉じても、書きかけがあることを行に残す
+    await userEvent.click(within(item).getByRole('button', { name: /^乾杯する/, expanded: true }))
+    expect(within(item).getByText('未保存').closest('[data-tone]')).toHaveAttribute('data-tone', 'attention')
+  })
+})
+
 describe('報酬の一覧', () => {
   test('HDADが作った報酬には、編集欄と削除のボタンを出す', async () => {
     render(<RewardPage broadcasterLogin={broadcasterLogin} api={fakeApi()} />)

@@ -359,7 +359,7 @@ describe('論点の整理（issue #308）', () => {
     expect(input).toHaveValue('視聴者との距離')
     await userEvent.clear(input)
     await userEvent.type(input, 'AIとの距離感')
-    await userEvent.click(within(topic).getByRole('button', { name: '名前を保存' }))
+    await userEvent.click(within(topic).getByRole('button', { name: '名前を保存する' }))
 
     expect(api.renameTopic).toHaveBeenCalledWith(1, 'AIとの距離感')
   })

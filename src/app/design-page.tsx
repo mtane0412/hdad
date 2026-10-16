@@ -2,14 +2,17 @@
  * 部品の見本ページ（/design/）。
  *
  * データの型ごとの表示部品（src/components/data/）を、すべての状態で並べる。
+ * 保存のバー（src/components/save-bar.tsx）も、とりうる状態を並べる。
  * 部品の見た目を変えたときや、新しいページで使う前に、明暗の両方で目で確かめるためのページである。
  * 配信者が配信中に開くページではないので、サイドバーとページを探す窓には出さない（pages.tsx の UNLISTED_PAGES）。本番でも開ける。
  *
  * 注意: 並べる値は見本のための固定の文字で、Workerから読んだデータではない。
  */
+import { useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { ColorSwatch, Identifier, Quantity, StatusDot, Tag, type TagTone } from '@/components/data/data-display'
-import { DataTable, DataTableCell, DataTableGroup, DataTableHead, DataTableHeader, DataTableRow } from '@/components/data/data-table'
+import { DataTable, DataTableCell, DataTableGroup, DataTableRow } from '@/components/data/data-table'
+import { SaveBar } from '@/components/save-bar'
 
 /** 種類の札の色と、見本に添える色の名前 */
 const TAG_SAMPLES: readonly (readonly [tone: TagTone, name: string])[] = [
@@ -35,6 +38,57 @@ const Section = ({ title, description, children }: { title: string; description:
     <CardContent className="flex flex-wrap items-center gap-x-6 gap-y-3">{children}</CardContent>
   </Card>
 )
+
+/** 一覧の見本。開ける行を1つ持ち、押すとその場で下に入力欄の代わりの保存のバーが開く */
+const DataTableSample = () => {
+  const [open, setOpen] = useState(false)
+  return (
+    <DataTable
+      label="一覧の見本"
+      columns="minmax(0,1.2fr) minmax(0,1fr) minmax(0,1.4fr)"
+      headings={[{ label: '出来事' }, { label: '絞り込み' }, { label: '効果', align: 'end' }]}
+      className="w-full"
+    >
+      <DataTableGroup label="チャット" count="1 / 2">
+        <DataTableRow
+          label="決まった人の発言"
+          expand={{
+            open,
+            onToggle: () => setOpen(!open),
+            detail: <SaveBar label="保存する" name="決まった人の発言 を保存する" busy={false} onSave={() => undefined} />,
+          }}
+        >
+          <DataTableCell className="font-medium">決まった人の発言</DataTableCell>
+          <DataTableCell>
+            <Identifier prefix="@">tanenob</Identifier>
+          </DataTableCell>
+          <DataTableCell align="end">
+            <Tag tone="orange">アラート</Tag>
+            <Tag tone="blue">チャット</Tag>
+          </DataTableCell>
+        </DataTableRow>
+        <DataTableRow label="すべての発言" dimmed>
+          <DataTableCell className="font-medium">すべての発言</DataTableCell>
+          <DataTableCell />
+          <DataTableCell align="end" className="text-xs">
+            効果なし
+          </DataTableCell>
+        </DataTableRow>
+      </DataTableGroup>
+      <DataTableGroup label="イベント" count="1 / 1">
+        <DataTableRow label="レイドされた">
+          <DataTableCell className="font-medium">レイドされた</DataTableCell>
+          <DataTableCell>
+            <Quantity value={10} unit="人以上" />
+          </DataTableCell>
+          <DataTableCell align="end">
+            <Tag tone="green">市町村紹介</Tag>
+          </DataTableCell>
+        </DataTableRow>
+      </DataTableGroup>
+    </DataTable>
+  )
+}
 
 export const DesignPage = () => (
   <div className="flex flex-col">
@@ -71,44 +125,15 @@ export const DesignPage = () => (
       ))}
     </Section>
 
-    <Section title="一覧（DataTable）" description="1項目＝1行。区分の帯に件数を添え、まだ設定していない行は薄く出す。">
-      <DataTable label="一覧の見本" columns="minmax(0,1.2fr) minmax(0,1fr) minmax(0,1.4fr)" className="w-full">
-        <DataTableHeader>
-          <DataTableHead>出来事</DataTableHead>
-          <DataTableHead>絞り込み</DataTableHead>
-          <DataTableHead align="end">効果</DataTableHead>
-        </DataTableHeader>
-        <DataTableGroup label="チャット" count="1 / 2">
-          <DataTableRow>
-            <DataTableCell className="font-medium">決まった人の発言</DataTableCell>
-            <DataTableCell>
-              <Identifier prefix="@">tanenob</Identifier>
-            </DataTableCell>
-            <DataTableCell align="end">
-              <Tag tone="orange">アラート</Tag>
-              <Tag tone="blue">チャット</Tag>
-            </DataTableCell>
-          </DataTableRow>
-          <DataTableRow dimmed>
-            <DataTableCell className="font-medium">すべての発言</DataTableCell>
-            <DataTableCell />
-            <DataTableCell align="end" className="text-xs">
-              効果なし
-            </DataTableCell>
-          </DataTableRow>
-        </DataTableGroup>
-        <DataTableGroup label="イベント" count="1 / 1">
-          <DataTableRow>
-            <DataTableCell className="font-medium">レイドされた</DataTableCell>
-            <DataTableCell>
-              <Quantity value={10} unit="人以上" />
-            </DataTableCell>
-            <DataTableCell align="end">
-              <Tag tone="green">市町村紹介</Tag>
-            </DataTableCell>
-          </DataTableRow>
-        </DataTableGroup>
-      </DataTable>
+    <Section title="一覧（DataTable）" description="1項目＝1行。区分の帯に件数を添え、まだ設定していない行は薄く出す。編集できる行は押すとその場で下に開く。">
+      <DataTableSample />
+    </Section>
+
+    <Section title="保存のバー（SaveBar）" description="文言は「〜を保存する」。未保存の変更があれば点と語で知らせる。押せないのは保存の最中だけ。">
+      <SaveBar label="音を保存する" busy={false} unsaved={true} onSave={() => undefined} />
+      <SaveBar label="設定を保存する" busy={false} unsaved={false} onSave={() => undefined} />
+      {/* 保存の最中だけ押せない */}
+      <SaveBar label="曲の一覧を保存する" busy={true} onSave={() => undefined} />
     </Section>
   </div>
 )

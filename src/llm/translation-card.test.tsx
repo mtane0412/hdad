@@ -66,7 +66,7 @@ describe('TranslationCard', () => {
 
     expect(await providerSelect()).toHaveValue('off')
     await userEvent.selectOptions(await providerSelect(), 'm2m100')
-    await userEvent.click(screen.getByRole('button', { name: '翻訳の設定を保存' }))
+    await userEvent.click(screen.getByRole('button', { name: '翻訳の設定を保存する' }))
 
     await waitFor(() => expect(api.saved).toEqual(['m2m100']))
     expect(await screen.findByText('字幕の翻訳の設定を保存しました')).toBeInTheDocument()
@@ -116,7 +116,7 @@ describe('TranslationCard', () => {
     await userEvent.selectOptions(await providerSelect(), 'deepl')
     expect(blocksUnload()).toBe(true)
 
-    await userEvent.click(screen.getByRole('button', { name: '翻訳の設定を保存' }))
+    await userEvent.click(screen.getByRole('button', { name: '翻訳の設定を保存する' }))
     await screen.findByText('字幕の翻訳の設定を保存しました')
     expect(blocksUnload()).toBe(false)
   })

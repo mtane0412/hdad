@@ -316,7 +316,7 @@ describe('BGMのページ', () => {
     // 曲名はファイル名から下書きされる。クレジットは書いてもらう
     const addedTrack = trackRow('夕暮れの帰り道')
     await userEvent.type(addedTrack.getByRole('textbox', { name: 'クレジット表記' }), '音楽: 魔王魂')
-    await userEvent.click(screen.getByRole('button', { name: '曲の一覧を保存' }))
+    await userEvent.click(screen.getByRole('button', { name: '曲の一覧を保存する' }))
 
     await waitFor(() => expect(api.savedTracks).toHaveLength(1))
     expect(api.savedTracks[0]?.at(-1)).toEqual({ mediaId: 'media-yuugure', title: '夕暮れの帰り道', credit: '音楽: 魔王魂', creditUrl: '', mood: '', scene: '' })
@@ -347,7 +347,7 @@ describe('BGMのページ', () => {
 
     expect(trackRow('ひだまりの午後').getByRole('button', { name: '「ひだまりの午後」を外す' })).toBeDisabled()
     await userEvent.click(trackRow('全力疾走').getByRole('button', { name: '「全力疾走」を外す' }))
-    await userEvent.click(screen.getByRole('button', { name: '曲の一覧を保存' }))
+    await userEvent.click(screen.getByRole('button', { name: '曲の一覧を保存する' }))
 
     await waitFor(() => expect(api.savedTracks).toEqual([[chatTrack]]))
   })
@@ -360,7 +360,7 @@ describe('BGMのページ', () => {
     renderPage(api)
     await waitForLoad()
 
-    await userEvent.click(screen.getByRole('button', { name: '曲の一覧を保存' }))
+    await userEvent.click(screen.getByRole('button', { name: '曲の一覧を保存する' }))
 
     expect(await screen.findByText(/2曲目のクレジット表記: 1〜200文字で指定してください/)).toBeInTheDocument()
   })

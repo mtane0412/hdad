@@ -58,7 +58,7 @@ describe('TextBar', () => {
     const body = await screen.findByRole('textbox', { name: '本文' })
     await userEvent.clear(body)
     await userEvent.type(body, 'ログイン画面をデプロイする')
-    await userEvent.click(screen.getByRole('button', { name: '保存する' }))
+    await userEvent.click(screen.getByRole('button', { name: '本文を保存する' }))
 
     expect(api.update).toHaveBeenCalledWith(1, { name: '目標', mode: 'manual', body: 'ログイン画面をデプロイする', instruction: '' })
     await waitFor(() => expect(screen.queryByRole('textbox', { name: '本文' })).not.toBeInTheDocument())
@@ -74,7 +74,7 @@ describe('TextBar', () => {
     expect(screen.getByText('LLMが自動で書き換えています。保存すると手動に切り替わります')).toBeInTheDocument()
     await userEvent.clear(body)
     await userEvent.type(body, '休憩中')
-    await userEvent.click(screen.getByRole('button', { name: '保存する' }))
+    await userEvent.click(screen.getByRole('button', { name: '本文を保存する' }))
 
     expect(api.update).toHaveBeenCalledWith(3, { name: '今やってること', mode: 'manual', body: '休憩中', instruction: 'いまやっている作業を20字で' })
   })
@@ -84,7 +84,7 @@ describe('TextBar', () => {
     await openBar()
 
     await screen.findByRole('textbox', { name: '本文' })
-    expect(screen.getByRole('button', { name: '保存する' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '本文を保存する' })).toBeDisabled()
   })
 
   test('テキストが無ければ、テキストのページへの行き先を出す', async () => {
@@ -127,7 +127,7 @@ describe('TextBar', () => {
     await openBar()
 
     await userEvent.type(await screen.findByRole('textbox', { name: '本文' }), '！')
-    await userEvent.click(screen.getByRole('button', { name: '保存する' }))
+    await userEvent.click(screen.getByRole('button', { name: '本文を保存する' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('本文: 本文は4行以内にしてください（いまは5行です）')
     expect(screen.getByRole('textbox', { name: '本文' })).toBeInTheDocument()

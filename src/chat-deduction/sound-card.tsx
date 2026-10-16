@@ -16,8 +16,8 @@ import type { MediaItem } from '@/admin/api'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
 import { VolumeField } from '@/admin/volume-field'
 import { useUnsavedChanges } from '@/app/router'
+import { SaveBar } from '@/components/save-bar'
 import { LoadFailure } from '@/components/load-failure'
-import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
@@ -144,12 +144,7 @@ export const ChatDeductionSoundCard = ({ api, loadMedia }: ChatDeductionSoundCar
             onChange={(effectVolume) => setDraft({ ...draft, effectVolume })}
           />
         </div>
-        <div className="flex items-center gap-3">
-          <Button type="button" disabled={actions.busy} onClick={() => void actions.run(() => save(draft))}>
-            音を保存
-          </Button>
-          {unsaved && <span className="text-sm text-muted-foreground">未保存の変更があります</span>}
-        </div>
+        <SaveBar label="音を保存する" busy={actions.busy} unsaved={unsaved} onSave={() => void actions.run(() => save(draft))} />
       </>
     )
   })()

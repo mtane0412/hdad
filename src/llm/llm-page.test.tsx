@@ -170,7 +170,7 @@ const waitForCandidates = async (optionName: string, provider: LlmProvider) => {
 /** 箇所の表から、その箇所の行を取り出す */
 const usageRowOf = (name: string) => within(screen.getByRole('table', { name: 'AIを使う箇所' })).getByRole('row', { name })
 
-const save = async () => userEvent.click(screen.getByRole('button', { name: '設定を保存' }))
+const save = async () => userEvent.click(screen.getByRole('button', { name: 'LLMの設定を保存する' }))
 
 describe('LlmPage', () => {
   test('AIを使う6か所ぶんの提供元とモデルを、表の1行ずつに選択欄として出す', async () => {
