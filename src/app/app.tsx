@@ -78,7 +78,7 @@ const Centered = ({ children }: { children: React.ReactNode }) => (
 
 const LoginScreen = () => (
   <Centered>
-    <Card className="w-full max-w-sm">
+    <Card className="w-full max-w-sm rounded-xl border bg-card px-4">
       <CardHeader>
         {/* このページの見出しなので h1 にする（CardTitle は h2） */}
         <h1 className="font-heading text-base leading-snug font-medium">HDAD</h1>
@@ -161,7 +161,7 @@ const Shell = ({
             {/* 下部バーの高さ。サイドバーの下端・本文の下の余白・バー自身の高さが同じ値を使う */}
             <SidebarProvider className="[--bottom-bar-height:4rem]">
               {/* サイドバーは画面の下端ではなく下部バーの上で終わらせる（下部バーをサイドバーの下まで通すため） */}
-              <Sidebar collapsible="icon" className="bottom-(--bottom-bar-height) h-auto">
+              <Sidebar variant="inset" collapsible="icon" className="bottom-(--bottom-bar-height) h-auto">
                 {/* サイドバーの見出しと末尾も、読み上げソフトの「ランドマーク」で飛べる領域にする */}
                 <SidebarHeader role="banner">
                   <div className="flex items-center gap-1">
@@ -218,7 +218,7 @@ const Shell = ({
               </Sidebar>
               <SidebarInset id="main" className="pb-(--bottom-bar-height)">
                 <div className="mx-auto w-full max-w-5xl flex-1 p-4 sm:p-6">
-                  <h1 ref={headingRef} tabIndex={-1} className="mb-4 truncate text-lg font-semibold tracking-tight outline-none sm:mb-6">
+                  <h1 ref={headingRef} tabIndex={-1} className="mb-4 truncate text-heading font-semibold tracking-tight outline-none sm:mb-6">
                     {title}
                   </h1>
                   {/* ページが変わったら key で作り直し、前のページの状態を持ち越さない。
