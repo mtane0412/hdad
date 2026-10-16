@@ -8,7 +8,7 @@
  * 人数は出さない。作り直しの操作と通信は呼び出し側（opinion-page.tsx）が持ち、ここは表示と、押されたことの通知だけを持つ。
  * 作り直しを渡さなければ（ダッシュボードの振り返り。src/stats/session-opinions.tsx）、読むだけの枠にしてボタンを置かない。
  */
-import { Badge } from '@/components/ui/badge'
+import { Tag } from '@/components/data/data-display'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import type { StoredOpinionSummary } from './api'
@@ -31,7 +31,7 @@ export const SummaryCard = ({ summary, remake }: SummaryCardProps) => (
     <CardHeader>
       <CardTitle className="flex items-center gap-2">
         AIのまとめ
-        <Badge variant="outline">機械が作成</Badge>
+        <Tag tone="gray">機械が作成</Tag>
       </CardTitle>
       <CardDescription>
         意見を読んだAIが作ったまとめです。配信者が確かめたものではなく、間違いや偏りを含むことがあります。人数は数えていません。

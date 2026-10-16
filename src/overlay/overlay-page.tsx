@@ -764,7 +764,7 @@ const OverlayCard = ({
         {/* 左にレイヤーの一覧（選んだ素材の設定もここで開く）、右に表示領域。表示領域は追従させ、設定を下へたどっても見えたままにする */}
         <div className="grid gap-6 lg:grid-cols-[minmax(20rem,26rem)_minmax(0,1fr)]">
           <section aria-label="レイヤー" className="flex min-w-0 flex-col gap-3">
-            <h3 className="text-sm font-medium">レイヤー</h3>
+            <h3 className="text-sm font-semibold">レイヤー</h3>
             {draft.items.length === 0 ? (
               <p className="text-sm text-muted-foreground">まだ素材がありません。素材を置くまでは保存されません（貼っても何も映らないためです）。</p>
             ) : (
@@ -844,7 +844,7 @@ const OverlayCard = ({
 
           {/* 小さい画面では表示領域を先に出す（何を編集しているかを先に見せる） */}
           <section aria-label="表示領域" className="order-first flex min-w-0 flex-col gap-3 self-start lg:sticky lg:top-4 lg:order-none">
-            <h3 className="text-sm font-medium">表示領域</h3>
+            <h3 className="text-sm font-semibold">表示領域</h3>
             {draft.items.length === 0 ? (
               <div className="flex aspect-video w-full items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground">
                 素材を追加すると、ここに映ります

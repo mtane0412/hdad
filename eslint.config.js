@@ -21,6 +21,13 @@ const ARBITRARY_TYPE_OR_COLOR = new RegExp(`${BOUNDARY}(text-\\[|${COLOR_UTILITY
 
 const DESIGN_MESSAGE = '色は app.css のトークン（bg-attention など）から、文字の大きさは text-xs・text-sm・text-heading などの段から選んでください（.claude/rules/design.md）'
 
+/**
+ * ページの中の見出し（h2〜h6）に書いてはいけない大きさと太さ。見出しは大きさではなく太さ（font-semibold）で分ける。
+ * ページの見出し（h1。text-heading）は対象外
+ */
+const HEADING_SIZE_OR_MEDIUM = String.raw`${BOUNDARY}(text-(base|lg|\d?xl)|font-medium)(?=$|\s)`
+const HEADING_MESSAGE = 'ページの中の見出しは大きさではなく太さで分けます。text-base 以上の大きさや font-medium を使わず、font-semibold にしてください（.claude/rules/design.md）'
+
 /** 文字列とテンプレート文字列の両方に同じ禁止をかける */
 const restrict = (pattern) => [
   { selector: `Literal[value=/${pattern.source}/]`, message: DESIGN_MESSAGE },
@@ -35,6 +42,16 @@ export default tseslint.config(
     // ページUIだけに当てる。shadcn が生成した部品と、クラス名を文字列として確かめるテストは除く
     files: ['src/**/*.{ts,tsx}'],
     ignores: ['src/components/ui/**', 'src/**/*.test.{ts,tsx}'],
-    rules: { 'no-restricted-syntax': ['error', ...restrict(RAW_COLOR), ...restrict(ARBITRARY_TYPE_OR_COLOR)] },
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        ...restrict(RAW_COLOR),
+        ...restrict(ARBITRARY_TYPE_OR_COLOR),
+        {
+          selector: `JSXOpeningElement[name.name=/^h[2-6]$/] > JSXAttribute[name.name='className'] > Literal[value=/${HEADING_SIZE_OR_MEDIUM}/]`,
+          message: HEADING_MESSAGE,
+        },
+      ],
+    },
   },
 )

@@ -19,6 +19,7 @@ import { usePageActions, errorMessage } from '@/admin/page-actions'
 import { Link, useUnsavedChanges } from '@/app/router'
 import { LoadFailure } from '@/components/load-failure'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { StatusDot, Tag } from '@/components/data/data-display'
 import { DataTable, DataTableCell, DataTableRow } from '@/components/data/data-table'
@@ -26,7 +27,6 @@ import { SaveBar } from '@/components/save-bar'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import type { TextApi } from './api'
 import type { TextEntry } from './entry'
@@ -79,10 +79,11 @@ const TextFields = ({ value, saved, onChange }: { value: TextDraft; saved?: Text
         {saved !== undefined && <p className="text-xs text-muted-foreground">{writerNote(saved)}</p>}
       </div>
       <div className="flex items-center gap-2">
-        <Switch
+        {/* 保存のボタンで保存するまで効かない欄なので、その場で効く Switch ではなく Checkbox にする（.claude/rules/design.md） */}
+        <Checkbox
           id={`${id}-auto`}
           checked={value.mode === 'auto'}
-          onCheckedChange={(checked) => onChange({ ...value, mode: checked ? 'auto' : 'manual' })}
+          onCheckedChange={(checked) => onChange({ ...value, mode: checked === true ? 'auto' : 'manual' })}
         />
         <Label htmlFor={`${id}-auto`}>自動で書き換える</Label>
       </div>

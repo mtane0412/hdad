@@ -157,7 +157,7 @@ describe('手動と自動', () => {
     // 手動のあいだは指示文の欄を出さない
     expect(within(region).queryByRole('textbox', { name: '指示文' })).not.toBeInTheDocument()
 
-    await userEvent.click(within(region).getByRole('switch', { name: '自動で書き換える' }))
+    await userEvent.click(within(region).getByRole('checkbox', { name: '自動で書き換える' }))
     await userEvent.type(within(region).getByRole('textbox', { name: '指示文' }), 'いまやっている作業を20字で')
     await userEvent.click(within(region).getByRole('button', { name: '今やってること を保存する' }))
 
@@ -168,11 +168,11 @@ describe('手動と自動', () => {
     const api = createApi([goal, autoDoing])
     render(<TextPage api={api} />)
     const region = await textRegion('今やってること')
-    expect(within(region).getByRole('switch', { name: '自動で書き換える' })).toBeChecked()
+    expect(within(region).getByRole('checkbox', { name: '自動で書き換える' })).toBeChecked()
 
     await userEvent.type(within(region).getByRole('textbox', { name: '本文' }), '！')
 
-    expect(within(region).getByRole('switch', { name: '自動で書き換える' })).not.toBeChecked()
+    expect(within(region).getByRole('checkbox', { name: '自動で書き換える' })).not.toBeChecked()
     await userEvent.click(within(region).getByRole('button', { name: '今やってること を保存する' }))
     expect(api.update).toHaveBeenCalledWith(3, {
       name: '今やってること',

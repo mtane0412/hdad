@@ -10,7 +10,7 @@
  */
 import { useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { ColorSwatch, Identifier, Quantity, StatusDot, Tag, type TagTone } from '@/components/data/data-display'
+import { ColorSwatch, Identifier, Quantity, StatTile, StatusDot, Tag, type TagTone } from '@/components/data/data-display'
 import { DataTable, DataTableCell, DataTableGroup, DataTableRow } from '@/components/data/data-table'
 import { SaveBar } from '@/components/save-bar'
 
@@ -123,6 +123,15 @@ export const DesignPage = () => (
           {name}
         </Tag>
       ))}
+    </Section>
+
+    <Section title="集計の数（StatTile）" description="ダッシュボードの概要や LLM の使用状況のように、集計した数を見出しと大きな値で並べる。">
+      <StatTile label="平均視聴者数" className="w-40">
+        <Quantity value={12} unit="人" />
+      </StatTile>
+      <StatTile label="直近7日の実費" className="w-40">
+        $0.42
+      </StatTile>
     </Section>
 
     <Section title="一覧（DataTable）" description="1項目＝1行。区分の帯に件数を添え、まだ設定していない行は薄く出す。編集できる行は押すとその場で下に開く。">

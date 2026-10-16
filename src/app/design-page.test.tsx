@@ -54,6 +54,11 @@ describe('見本ページの中身', () => {
     expect(screen.getByRole('button', { name: '決まった人の発言 を保存する' })).toBeTruthy()
   })
 
+  test('集計の数のタイルの見本を出す', () => {
+    render(<DesignPage />)
+    expect(screen.getByRole('group', { name: '平均視聴者数' }).textContent).toContain('12')
+  })
+
   test('保存のバーの見本は、未保存の印がある状態と無い状態を並べる', () => {
     render(<DesignPage />)
     expect(screen.getByText('未保存の変更があります').closest('[data-tone]')?.getAttribute('data-tone')).toBe('attention')

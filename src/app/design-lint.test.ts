@@ -3,6 +3,7 @@
  *
  * 色は src/app/app.css のトークン（意味の名前）からだけ取り、文字の大きさは text-xs / text-sm / text-heading などの段からだけ選ぶ。
  * Tailwind の生の色（text-amber-500 など）と、任意の値の文字の大きさ・色（text-[10px]・bg-[#fff] など）を書くと Lint のエラーになる。
+ * ページの中の見出し（h2〜h6）は大きさではなく太さで分けるので、text-base 以上の大きさと font-medium を書くと Lint のエラーになる。
  * shadcn が生成した部品（src/components/ui/）は対象外にする。
  */
 import { fileURLToPath } from 'node:url'
@@ -58,6 +59,19 @@ describe('見た目の約束の Lint', () => {
         `export const Row = () => <div className="grid grid-cols-[minmax(0,1fr)_auto] bg-attention text-xs text-muted-foreground bg-[repeating-conic-gradient(var(--muted)_0%_25%,transparent_0%_50%)]">行</div>`,
       ),
     ).toBe(0)
+  })
+
+  test.each([
+    ['大きい文字（text-lg）の h2', '<h2 className="text-lg font-semibold">直近7日の概要</h2>'],
+    ['本文と同じ段より大きい文字（text-base）の h3', '<h3 className="text-base font-semibold">レイヤー</h3>'],
+    ['太さが中くらい（font-medium）の h3', '<h3 className="text-sm font-medium">レイヤー</h3>'],
+    ['大きい文字（text-xl）の h4', '<h4 className="text-xl">意見</h4>'],
+  ])('ページの中の見出しを大きさや中くらいの太さで分けるとエラーになる: %s', async (_label, element) => {
+    expect(await designErrors(`export const Heading = () => ${element}`)).toBe(1)
+  })
+
+  test('ページの中の見出しを本文と同じ大きさ・太字で書くのはエラーにならない（ページの見出し h1 は対象外）', async () => {
+    expect(await designErrors(`export const Heading = () => <><h1 className="text-heading font-medium">HDAD</h1><h2 className="text-sm font-semibold">直近7日の概要</h2><h3 className="font-semibold">レイヤー</h3></>`)).toBe(0)
   })
 
   test('shadcn が生成した部品（src/components/ui/）は対象外', async () => {
