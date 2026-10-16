@@ -52,6 +52,14 @@ const createFakeApi = (overrides: Partial<ViewerApi> = {}): ViewerApi => ({
 })
 
 /** 操作の結果のお知らせ。役割ではなく文言で探す */
+/**
+ * その人の行を開く。一覧はふだん1人1行の要約で並び、行（表示名から始まるボタン）を押したときだけ、
+ * その場で下に人物像・メモ欄・削除のボタンが開く
+ */
+const openViewer = async (displayName: string): Promise<void> => {
+  await userEvent.click(await screen.findByRole('button', { name: new RegExp(`^${displayName}`), expanded: false }))
+}
+
 const findNotice = (text: string): Promise<HTMLElement> => screen.findByText(new RegExp(text))
 
 afterEach(cleanup)
@@ -64,6 +72,23 @@ describe('視聴者の一覧', () => {
     expect(within(list).getByText('花子')).toBeInTheDocument()
     expect(within(list).getByText(/hanako/)).toBeInTheDocument()
     expect(within(list).getByText(/42/)).toBeInTheDocument()
+  })
+
+  test('行に、発言回数を数と単位で、最後の発言の日時を出し、メモ欄は開くまで出さない', async () => {
+    render(<ViewerPage api={createFakeApi()} />)
+
+    const row = within((await screen.findByText('花子')).closest('li') as HTMLElement)
+    expect(row.getByText('42')).toBeInTheDocument()
+    expect(row.getByText('回')).toBeInTheDocument()
+    expect(row.getByText('@hanako').tagName).toBe('CODE')
+    expect(row.queryByRole('textbox', { name: '花子 へのメモ' })).not.toBeInTheDocument()
+  })
+
+  test('メモを書いてある人の行には「メモあり」を出す（開かなくても分かるようにする）', async () => {
+    render(<ViewerPage api={createFakeApi()} />)
+
+    expect(within((await screen.findByText('花子')).closest('li') as HTMLElement).getByText('メモあり')).toBeInTheDocument()
+    expect(within(screen.getByText('太郎').closest('li') as HTMLElement).queryByText('メモあり')).not.toBeInTheDocument()
   })
 
   test('記録が1件もなければ、その旨を出す', async () => {
@@ -101,6 +126,7 @@ describe('アイコンだけのボタン', () => {
   test('検索と削除は文字を出さず、名前は読み上げとホバー（title）に残す', async () => {
     render(<ViewerPage api={createFakeApi()} />)
     await screen.findByRole('list', { name: '視聴者の一覧' })
+    await openViewer('花子')
 
     for (const label of ['検索', '花子 の記録を削除']) {
       const button = screen.getByRole('button', { name: label })
@@ -115,6 +141,7 @@ describe('メモ', () => {
     const api = createFakeApi()
     render(<ViewerPage api={api} />)
     await screen.findByRole('list', { name: '視聴者の一覧' })
+    await openViewer('花子')
 
     const memoInput = screen.getByRole('textbox', { name: '花子 へのメモ' })
     await userEvent.clear(memoInput)
@@ -133,6 +160,7 @@ describe('メモ', () => {
     })
     render(<ViewerPage api={api} />)
     await screen.findByRole('list', { name: '視聴者の一覧' })
+    await openViewer('花子')
 
     await userEvent.click(screen.getByRole('button', { name: '花子 のメモを保存' }))
 
@@ -167,6 +195,7 @@ describe('記録の削除', () => {
     const api = createFakeApi()
     render(<ViewerPage api={api} />)
     await screen.findByRole('list', { name: '視聴者の一覧' })
+    await openViewer('花子')
 
     await userEvent.click(screen.getByRole('button', { name: '花子 の記録を削除' }))
     await userEvent.click(await screen.findByRole('button', { name: '削除する' }))
@@ -180,6 +209,7 @@ describe('記録の削除', () => {
     const api = createFakeApi()
     render(<ViewerPage api={api} />)
     await screen.findByRole('list', { name: '視聴者の一覧' })
+    await openViewer('花子')
 
     await userEvent.click(screen.getByRole('button', { name: '花子 の記録を削除' }))
     await userEvent.click(await screen.findByRole('button', { name: 'やめる' }))
@@ -191,6 +221,7 @@ describe('記録の削除', () => {
 describe('人物像', () => {
   test('LLMが作った人物像を、配信者が書いたメモとは分けて出す', async () => {
     render(<ViewerPage api={createFakeApi()} />)
+    await openViewer('花子')
 
     expect(await screen.findByText('ギターの話をよくする常連さん')).toBeInTheDocument()
     // 人が書いたものと混ざらないよう、機械の推測であることを添える
