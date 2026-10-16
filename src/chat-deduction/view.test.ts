@@ -3,10 +3,11 @@
  * 合成ページの素材「チャットで推理」の表示（view.ts）のテスト
  *
  * 配信画面に出しっぱなしにするものなので、次の点を確かめる（issue #378）。
- * - 区分を見出しに出し、カードを新しい順に並べること（古いカードは MAX_VISIBLE_CARDS 件を超えたら出さない）
+ * - 区分を見出しに出し、カードを古い順（読む順）に並べること（古いカードは MAX_VISIBLE_CARDS 件を超えたら出さない）
+ * - 質問のカードには、ゲームの初めから数えた通し番号を付けること（解答のカードには付けない）
  * - 質問のカードは答え（はい・いいえ・分からない）を文字と data-verdict で分け、送った人の名前と1文を添えること
  * - 解答のカードは正解と不正解を文字と data-result で分けること（正解のカードは別の見た目にする）
- * - 開催中は参加のしかたを出し、終えたら「正解は○○でした」を出すこと（正解者が出たら名前も添える）
+ * - 開催中は参加のしかたを出し、終えたら「正解は○○でした」を出すこと（正解者が出たら名前も添え、終わり方を data-end-reason で分ける）
  * - ゲームが無ければ何も出さないこと
  * - 変わっていないカードの要素は作り直さないこと（作り直すと出現のアニメーションが全部のカードで走る）
  * - 終えたゲームは、終えてから ENDED_GAME_REVEAL_MS のあいだだけ映し、そのあとは消すこと（プレビューのサンプルでは消さない）
@@ -37,13 +38,23 @@ const cardsOf = (): HTMLElement[] => [...root.querySelectorAll<HTMLElement>('.ch
 const textOf = (selector: string): string | null | undefined => root.querySelector(selector)?.textContent
 
 describe('createChatDeductionView', () => {
-  it('区分を見出しに出し、カードを新しい順に並べる', () => {
+  it('区分を見出しに出し、カードを古い順（読む順）に並べる', () => {
     const view = createChatDeductionView(root)
 
     view.setBoard({ game: openGame, cards: [yesCard, noCard, wrongCard] })
 
     expect(textOf('.chat-deduction-category')).toContain('場所')
-    expect(cardsOf().map((card) => card.querySelector('.chat-deduction-text')?.textContent)).toEqual(['阿蘇山', '生き物ですか？', '日本にありますか？'])
+    expect(cardsOf().map((card) => card.querySelector('.chat-deduction-text')?.textContent)).toEqual(['日本にありますか？', '生き物ですか？', '阿蘇山'])
+  })
+
+  it('質問のカードにはゲームの初めから数えた通し番号を付け、解答のカードには付けない', () => {
+    const view = createChatDeductionView(root)
+
+    // 前提: 質問・解答・質問の順に届いている
+    view.setBoard({ game: openGame, cards: [yesCard, wrongCard, noCard] })
+
+    // 検証: 解答を数えずに、質問だけが Q1・Q2 になる
+    expect(cardsOf().map((card) => card.querySelector('.chat-deduction-number')?.textContent ?? null)).toEqual(['Q1', null, 'Q2'])
   })
 
   it('質問のカードは、答えを文字と data-verdict で分け、送った人の名前と1文を添える', () => {
@@ -51,7 +62,7 @@ describe('createChatDeductionView', () => {
 
     view.setBoard({ game: openGame, cards: [yesCard, noCard, { ...yesCard, id: 3, verdict: 'unknown', reply: 'メモにはありません。' }] })
 
-    const [unknown, no, yes] = cardsOf()
+    const [yes, no, unknown] = cardsOf()
     expect(yes?.dataset.verdict).toBe('yes')
     expect(yes?.querySelector('.chat-deduction-badge')?.textContent).toBe('はい')
     expect(yes?.querySelector('.chat-deduction-reply')?.textContent).toBe('静岡県と山梨県にまたがっています。')
@@ -67,21 +78,25 @@ describe('createChatDeductionView', () => {
 
     view.setBoard({ game: { ...openGame, endedAt: '2026-10-15T12:05:00.000Z', endReason: 'solved', answer: '富士山' }, cards: [wrongCard, correctCard] })
 
-    const [correct, wrong] = cardsOf()
+    const [wrong, correct] = cardsOf()
     expect(correct?.dataset.result).toBe('correct')
     expect(correct?.querySelector('.chat-deduction-badge')?.textContent).toBe('正解')
     expect(wrong?.dataset.result).toBe('wrong')
     expect(wrong?.querySelector('.chat-deduction-badge')?.textContent).toBe('不正解')
   })
 
-  it(`カードは新しいものから ${MAX_VISIBLE_CARDS} 件まで出す`, () => {
+  it(`カードは新しいものから ${MAX_VISIBLE_CARDS} 件まで出し、通し番号は隠れたカードも数える`, () => {
     const view = createChatDeductionView(root)
+    // 前提: 並べられる数より2件多い質問が届いている
     const many = Array.from({ length: MAX_VISIBLE_CARDS + 2 }, (_, index): ChatDeductionCard => ({ ...yesCard, id: index + 1, text: `質問${index + 1}` }))
 
     view.setBoard({ game: openGame, cards: many })
 
+    // 検証: 古い2件が外れ、3件目から最新までが読む順に並ぶ
     expect(cardsOf()).toHaveLength(MAX_VISIBLE_CARDS)
-    expect(cardsOf()[0]?.querySelector('.chat-deduction-text')?.textContent).toBe(`質問${MAX_VISIBLE_CARDS + 2}`)
+    expect(cardsOf()[0]?.querySelector('.chat-deduction-text')?.textContent).toBe('質問3')
+    expect(cardsOf()[0]?.querySelector('.chat-deduction-number')?.textContent).toBe('Q3')
+    expect(cardsOf().at(-1)?.querySelector('.chat-deduction-text')?.textContent).toBe(`質問${MAX_VISIBLE_CARDS + 2}`)
   })
 
   it('開催中は参加のしかたを出し、正解は出さない', () => {
@@ -101,6 +116,7 @@ describe('createChatDeductionView', () => {
     expect(root.querySelector<HTMLElement>('.chat-deduction-result')?.hidden).toBe(false)
     expect(textOf('.chat-deduction-answer')).toBe('正解は富士山でした')
     expect(textOf('.chat-deduction-solver')).toBe('田中太郎さんが正解！')
+    expect(root.querySelector<HTMLElement>('.chat-deduction-result')?.dataset.endReason).toBe('solved')
     expect(root.querySelector<HTMLElement>('.chat-deduction-hint')?.hidden).toBe(true)
   })
 
@@ -111,6 +127,7 @@ describe('createChatDeductionView', () => {
 
     expect(textOf('.chat-deduction-answer')).toBe('正解は富士山でした')
     expect(root.querySelector<HTMLElement>('.chat-deduction-solver')?.hidden).toBe(true)
+    expect(root.querySelector<HTMLElement>('.chat-deduction-result')?.dataset.endReason).toBe('stopped')
   })
 
   it('ゲームが無ければ何も出さない', () => {
@@ -130,7 +147,21 @@ describe('createChatDeductionView', () => {
 
     view.setBoard({ ...board, cards: [yesCard, wrongCard] })
 
+    expect(cardsOf()[0]).toBe(before)
+  })
+
+  it('あとから前の位置に質問が入ったら、使い回すカードの通し番号を付け直す', () => {
+    const view = createChatDeductionView(root)
+    // 前提: 鈴木さんの質問だけが届き、Q1 として出ている
+    view.setBoard({ game: openGame, cards: [noCard] })
+    const before = cardsOf()[0]
+
+    // 答えた時刻が先だった田中さんの質問が、あとから前の位置に入った
+    view.setBoard({ game: openGame, cards: [yesCard, noCard] })
+
+    // 検証: 鈴木さんのカードは作り直さず、番号だけが Q2 になる
     expect(cardsOf()[1]).toBe(before)
+    expect(cardsOf().map((card) => card.querySelector('.chat-deduction-number')?.textContent)).toEqual(['Q1', 'Q2'])
   })
 
   it('次のゲームでは、IDが同じでも前のゲームのカードを使い回さない', () => {
