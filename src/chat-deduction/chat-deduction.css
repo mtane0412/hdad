@@ -1,9 +1,11 @@
 /*
  * チャットで推理（合成ページの素材）の見た目（issue #378。画面いっぱいの格子への改良）
  *
- * 配信画面いっぱいに白い板を置き、視聴者の質問と答え・解答のカードを3列の格子に読む順（左上から右へ、行を下へ）で並べる。
+ * 配信画面いっぱいの箱に、視聴者の質問と答え・解答のカードを3列の格子に読む順（左上から右へ、行を下へ）で並べる。
+ * 板の背景は透明にし、見出しとカードだけを白地で浮かせる（画面いっぱいの白い板は配信画面を覆い隠してしまうため）。
  * 見た目は、白地に原色・状態を色面で伝える・下側の厚み・丸みのある形、という型に寄せる。次のことを守る。
- * - 箱は配信画面と同じ大きさ（src/overlay/layout.ts）にして、板は箱いっぱいに広げる
+ * - 箱は配信画面と同じ大きさ（src/overlay/layout.ts）にして、板は箱いっぱいに広げる。板は背景を持たず、カードの隙間と
+ *   空いた行からは配信画面が見える。どんな画面の上でも読めるよう、見出しとカードには影を付ける
  * - 値は下の .chat-deduction で宣言したトークンだけを使う。色はライトの値に固定する（OBS のブラウザソースは OS の明暗と
  *   関係なく映るため、明暗の切り替えを持たない）。文字の大きさは配信画面（1920×1080 を縮小して見る）向けに大きくしてある
  * - 答えは印の文字（はい・いいえ・分からない）と色面の両方で分ける（data-verdict）。はいは緑、いいえは赤、分からないは灰。
@@ -39,6 +41,7 @@
   --color-correct-border: #ffc800;
   --color-correct-lip: #ff9600;
   --color-accent-purple-text: #8f3fd6;
+  --color-shadow: rgb(0 0 0 / 35%);
 
   /* 書体と大きさ（配信画面向け。スキルの大きさをおよそ1.5倍にしたもの） */
   --font-family-base: nunito, 'Zen Maru Gothic', 'Hiragino Maru Gothic ProN', ui-rounded, sans-serif;
@@ -68,6 +71,7 @@
   --radius-pill: 9999px;
   --border-width-default: 3px;
   --lip: 5px;
+  --shadow-float: 0 var(--space-2) var(--space-6) var(--color-shadow);
   --rows: 4;
   --duration-enter: 400ms;
   --easing-out: cubic-bezier(0.22, 1, 0.36, 1);
@@ -98,16 +102,19 @@
   width: 100%;
   height: 100%;
   padding: var(--space-8) var(--space-10);
-  border-radius: var(--radius-xl);
-  background: var(--color-surface-page);
 }
 
 /* ---------- 見出し ---------- */
 
+/* 板に背景が無いので、見出しの行は白地の帯にして浮かせる */
 .chat-deduction-header {
   display: flex;
   gap: var(--space-4);
   align-items: baseline;
+  padding: var(--space-3) var(--space-6);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface-page);
+  box-shadow: var(--shadow-float);
 }
 
 .chat-deduction-title {
@@ -161,7 +168,9 @@
   border: var(--border-width-default) solid var(--card-border);
   border-radius: var(--radius-lg);
   background: var(--card-fill);
-  box-shadow: 0 var(--lip) 0 0 var(--card-lip);
+  box-shadow:
+    0 var(--lip) 0 0 var(--card-lip),
+    var(--shadow-float);
   animation: chat-deduction-in var(--duration-enter) var(--easing-out);
 }
 
@@ -278,23 +287,24 @@
   line-height: var(--line-height-tight);
 }
 
-/* 終えたら、板の上端いっぱいに結果の色面を見出しの代わりに重ねる（正解者が出たら緑、打ち切りは赤） */
+/* 終えたら、見出しの帯の位置に結果の色面を見出しの代わりに重ねる（正解者が出たら緑、打ち切りは赤） */
 .chat-deduction-result {
   --result-fill: var(--color-no-fill);
   --result-text: var(--color-no-text);
   --result-border: var(--color-no-border);
 
   position: absolute;
-  top: 0;
-  right: 0;
-  left: 0;
+  top: var(--space-8);
+  right: var(--space-10);
+  left: var(--space-10);
   display: flex;
   gap: var(--space-8);
   align-items: baseline;
-  padding: var(--space-6) var(--space-10) var(--space-4);
-  border-bottom: var(--border-width-default) solid var(--result-border);
-  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  padding: var(--space-3) var(--space-6);
+  border: var(--border-width-default) solid var(--result-border);
+  border-radius: var(--radius-xl);
   background: var(--result-fill);
+  box-shadow: var(--shadow-float);
   color: var(--result-text);
   animation: chat-deduction-rise var(--duration-enter) var(--easing-out);
 }
