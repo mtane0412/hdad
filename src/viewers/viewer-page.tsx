@@ -10,12 +10,13 @@
  * 注意: 件数が多くなるので全件は出さず、PAGE_SIZE 件ずつ読む。続きは一覧の最後の人の「最後の発言日時」を目印に取る。
  * 注意: 失敗は黙って無視せず、画面の上部に理由を出す（Fail-Fast）。一覧を取得できなければ操作盤を出さない。
  */
-import { Search, Trash2 } from 'lucide-react'
+import { ChevronDown, Search, Trash2 } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
 import { LoadFailure } from '@/components/load-failure'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Identifier, Quantity } from '@/components/data/data-display'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -49,6 +50,9 @@ const channelSummary = (channel: ViewerChannel): string => {
   return `自分でも配信: ${content}（${observedAt}）`
 }
 
+/** 行の列（名前・発言回数・最後の発言・メモの有無）。見出しの行と人の行で同じ幅にし、上下で列をそろえる */
+const VIEWER_COLUMNS = 'grid-cols-[minmax(0,1fr)_4.5rem_8rem_4rem]'
+
 type Loaded = { status: 'loading' } | { status: 'ready' } | { status: 'failed'; message: string }
 
 export const ViewerPage = ({ api }: { api: ViewerApi }) => {
@@ -58,6 +62,9 @@ export const ViewerPage = ({ api }: { api: ViewerApi }) => {
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [search, setSearch] = useState('')
   const [hasMore, setHasMore] = useState(false)
+  /** 人物像とメモ欄を開いている人のユーザーID。一覧を見渡せるよう、開くのは1人ずつにする */
+  const [openId, setOpenId] = useState<string | null>(null)
+  const listId = useId()
   const actions = usePageActions()
   const searchFieldId = useId()
 
@@ -142,69 +149,108 @@ export const ViewerPage = ({ api }: { api: ViewerApi }) => {
           {viewers.length === 0 ? (
             <p className="text-sm text-muted-foreground">記録のある人はまだありません。</p>
           ) : (
-            <ul aria-label="視聴者の一覧" className="flex flex-col gap-3">
-              {viewers.map((viewer) => (
-                <li key={viewer.userId} className="flex flex-col gap-2 rounded-lg border p-3">
-                  <div className="flex flex-wrap items-baseline gap-2">
-                    <strong className="text-sm font-medium">{viewer.displayName}</strong>
-                    <span className="text-xs text-muted-foreground">{`@${viewer.login}`}</span>
-                    {viewer.badges.map((badge) => (
-                      <span key={badge} className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
-                        {badgeLabels[badge] ?? badge}
-                      </span>
-                    ))}
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {`${viewer.messageCount}回発言・初回 ${formatDateTime(viewer.firstSeenAt)}・最後 ${formatDateTime(viewer.lastSeenAt)}`}
-                  </p>
-                  {viewer.channel !== null && <p className="text-xs text-muted-foreground">{channelSummary(viewer.channel)}</p>}
-                  {viewer.summary !== '' && (
-                    <p className="rounded-md bg-muted px-3 py-2 text-xs">
-                      <span className="text-muted-foreground">
-                        {`AIによる人物像${viewer.summarizedAt === null ? '' : `（${formatDateTime(viewer.summarizedAt)}時点）`}: `}
-                      </span>
-                      {viewer.summary}
-                    </p>
-                  )}
-                  <Textarea
-                    aria-label={`${viewer.displayName} へのメモ`}
-                    rows={2}
-                    value={drafts[viewer.userId] ?? viewer.note}
-                    placeholder="どういう人か、何を話したか"
-                    onChange={(event) => setDrafts((current) => ({ ...current, [viewer.userId]: event.target.value }))}
-                  />
-                  <div className="flex gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      aria-label={`${viewer.displayName} のメモを保存`}
-                      disabled={actions.busy}
-                      onClick={() => void actions.run(() => saveNote(viewer))}
-                    >
-                      メモを保存
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="text-destructive"
-                      {...iconButtonName(`${viewer.displayName} の記録を削除`)}
-                      disabled={actions.busy}
-                      onClick={() =>
-                        actions.ask({
-                          title: `${viewer.displayName} の記録を削除しますか？`,
-                          description: 'メモと人物像も消え、元に戻せません。次の発言では初めての人として記録し直します。',
-                          actionLabel: '削除する',
-                          run: () => removeViewer(viewer),
-                        })
-                      }
-                    >
-                      <Trash2 aria-hidden="true" />
-                    </Button>
-                  </div>
-                </li>
-              ))}
-            </ul>
+            <div className="flex flex-col">
+              {/* 列の見出し。読み上げでは各行がそのまま読まれるので、見た目だけの見出しにする */}
+              <div aria-hidden="true" className={`grid ${VIEWER_COLUMNS} gap-3 border-b py-1.5 pr-8 pl-2 text-xs font-medium text-muted-foreground`}>
+                <span>名前</span>
+                <span className="text-right">発言</span>
+                <span>最後の発言</span>
+                <span>メモ</span>
+              </div>
+              <ul aria-label="視聴者の一覧" className="flex flex-col">
+                {viewers.map((viewer) => {
+                  const open = openId === viewer.userId
+                  const detailId = `${listId}-${viewer.userId}`
+                  return (
+                    <li key={viewer.userId} className="flex flex-col border-b">
+                      {/* 行を押すと、その場で下に人物像・メモ欄・削除のボタンが開く（もう一度押すと閉じる） */}
+                      <div className="flex items-center gap-2 py-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className={`grid h-auto min-w-0 flex-1 ${VIEWER_COLUMNS} items-center gap-3 px-2 py-1.5 text-left font-normal whitespace-normal`}
+                          aria-expanded={open}
+                          // 閉じているあいだは欄が無いので、無い要素を指さないよう開いているときだけ付ける
+                          aria-controls={open ? detailId : undefined}
+                          onClick={() => setOpenId(open ? null : viewer.userId)}
+                        >
+                          <span className="flex min-w-0 flex-col gap-0.5">
+                            <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+                              <span className="font-medium">{viewer.displayName}</span>
+                              <Identifier prefix="@" className="text-muted-foreground">
+                                {viewer.login}
+                              </Identifier>
+                              {viewer.badges.map((badge) => (
+                                <span key={badge} className="rounded-sm border px-1 text-xs text-muted-foreground">
+                                  {badgeLabels[badge] ?? badge}
+                                </span>
+                              ))}
+                            </span>
+                            {/* 相手も配信者だと分かるよう、観測したカテゴリとタイトルは閉じた行にも出す */}
+                            {viewer.channel !== null && <span className="truncate text-xs text-muted-foreground">{channelSummary(viewer.channel)}</span>}
+                          </span>
+                          <span className="text-right">
+                            <Quantity value={viewer.messageCount} unit="回" />
+                          </span>
+                          <span className="text-xs text-muted-foreground tabular-nums">{formatDateTime(viewer.lastSeenAt)}</span>
+                          <span className="text-xs text-muted-foreground">{viewer.note !== '' && 'メモあり'}</span>
+                        </Button>
+                        <ChevronDown aria-hidden="true" className={open ? 'size-4 shrink-0 rotate-180 text-muted-foreground' : 'size-4 shrink-0 text-muted-foreground'} />
+                      </div>
+                      {open && (
+                        <div id={detailId} className="flex flex-col gap-2 border-t px-2 py-3">
+                          <p className="text-xs text-muted-foreground">{`初回 ${formatDateTime(viewer.firstSeenAt)}`}</p>
+                          {viewer.summary !== '' && (
+                            <p className="rounded-md bg-muted px-3 py-2 text-xs">
+                              <span className="text-muted-foreground">
+                                {`AIによる人物像${viewer.summarizedAt === null ? '' : `（${formatDateTime(viewer.summarizedAt)}時点）`}: `}
+                              </span>
+                              {viewer.summary}
+                            </p>
+                          )}
+                          <Textarea
+                            aria-label={`${viewer.displayName} へのメモ`}
+                            rows={2}
+                            value={drafts[viewer.userId] ?? viewer.note}
+                            placeholder="どういう人か、何を話したか"
+                            onChange={(event) => setDrafts((current) => ({ ...current, [viewer.userId]: event.target.value }))}
+                          />
+                          <div className="flex gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              aria-label={`${viewer.displayName} のメモを保存`}
+                              disabled={actions.busy}
+                              onClick={() => void actions.run(() => saveNote(viewer))}
+                            >
+                              メモを保存
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="text-destructive"
+                              {...iconButtonName(`${viewer.displayName} の記録を削除`)}
+                              disabled={actions.busy}
+                              onClick={() =>
+                                actions.ask({
+                                  title: `${viewer.displayName} の記録を削除しますか？`,
+                                  description: 'メモと人物像も消え、元に戻せません。次の発言では初めての人として記録し直します。',
+                                  actionLabel: '削除する',
+                                  run: () => removeViewer(viewer),
+                                })
+                              }
+                            >
+                              <Trash2 aria-hidden="true" />
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
           )}
 
           {hasMore && (
