@@ -1,10 +1,10 @@
 /**
- * 漢字クイズの音の再生
+ * BGM と効果音の再生（漢字クイズ・チャットで推理の合成ページの素材が使う）
  *
- * 鳴らす時刻の表（sound-cues.ts）の1行を受け取って、Audio 要素で鳴らす。BGM はループで鳴らし、下げる指示で
+ * 鳴らす音1つ（BGM の鳴らしはじめ・下げて止める・効果音）を受け取って、Audio 要素で鳴らす。BGM はループで鳴らし、下げる指示で
  * 音量を0まで下げてから止める。効果音は1回ずつ鳴らす（カウントダウンのように続けて鳴っても重なってよい）。
- * DOM（Audio 要素）を扱うため、何をいつ鳴らすかの判断（sound-cues.ts）と分けてテストの対象外にしている
- * （市町村紹介の src/town-tour/sound-player.ts と同じ分け方）。
+ * DOM（Audio 要素）を扱うため、何をいつ鳴らすかの判断（src/kanji-quiz/sound-cues.ts・src/chat-deduction/sound-cues.ts）と分けて
+ * テストの対象外にしている（市町村紹介の src/town-tour/sound-player.ts と同じ分け方）。
  *
  * 音量の変化は requestAnimationFrame ではなくタイマーで刻み、刻むたびに経過時間から音量を決める
  * （OBSのブラウザソースは画面に映っていないと描画を間引くことがあるため。src/bgm/player.ts と同じ）。
@@ -12,15 +12,23 @@
  * 注意: 再生を始められなかった（ブラウザが自動再生を拒んだ・音声を読めなかった）ら onError で知らせる。
  * 黙って無音のまま続けない。
  */
-import type { KanjiQuizSoundCue } from './sound-cues'
 
 /** 音量を刻む間隔（ミリ秒） */
 const FADE_STEP_MS = 50
 
-export interface KanjiQuizSoundPlayer {
-  /** 表の1行を行う。失敗は onError で知らせる */
-  play(cue: KanjiQuizSoundCue): void
-  /** 鳴らしている音をすべて止める（1回の出題を流し終えたとき） */
+/** 鳴らす音1つ。素材ごとの音の表の行（id や時刻を持つもの）も、この形を満たせばそのまま渡せる */
+export type SoundCue =
+  /** BGM をループで鳴らしはじめる（鳴らしている BGM があれば替える） */
+  | { readonly type: 'bgmStart'; readonly url: string; readonly volume: number }
+  /** 効果音を1回鳴らす */
+  | { readonly type: 'effect'; readonly url: string; readonly volume: number }
+  /** BGM を duration ミリ秒かけて下げ、止める */
+  | { readonly type: 'bgmFadeOut'; readonly duration: number }
+
+export interface SoundPlayer {
+  /** 音1つを鳴らす・止める。失敗は onError で知らせる */
+  play(cue: SoundCue): void
+  /** 鳴らしている音をすべて止める（1回の出題を流し終えたときなど） */
   stop(): void
 }
 
@@ -31,11 +39,12 @@ interface Playing {
 }
 
 /**
- * 漢字クイズの音の再生を用意する。
+ * BGM と効果音の再生を用意する。
  *
+ * @param subject 失敗を知らせる文に出す、何の音か（「漢字クイズ」など）
  * @param onError 再生を始められなかった・鳴らしている途中で音声を読めなくなったときに呼ぶ
  */
-export const createKanjiQuizSoundPlayer = (onError: (error: Error) => void): KanjiQuizSoundPlayer => {
+export const createSoundPlayer = (subject: string, onError: (error: Error) => void): SoundPlayer => {
   let bgm: (Playing & { fadeTimer: number | undefined }) | null = null
   /** 鳴らしている効果音 */
   const effects = new Set<Playing>()
@@ -87,7 +96,7 @@ export const createKanjiQuizSoundPlayer = (onError: (error: Error) => void): Kan
     const playing = open(
       url,
       volume,
-      '漢字クイズの BGM',
+      `${subject}の BGM`,
       (candidate) => bgm?.audio === candidate.audio,
       () => {
         if (bgm !== null) window.clearInterval(bgm.fadeTimer)
@@ -114,7 +123,7 @@ export const createKanjiQuizSoundPlayer = (onError: (error: Error) => void): Kan
 
   /** 効果音を1回鳴らす。鳴り終えたら手放す（短いので、終わるまで持っていてよい） */
   const playEffect = (url: string, volume: number): void => {
-    const playing = open(url, volume, '漢字クイズの効果音', (candidate) => effects.has(candidate), (candidate) => effects.delete(candidate))
+    const playing = open(url, volume, `${subject}の効果音`, (candidate) => effects.has(candidate), (candidate) => effects.delete(candidate))
     effects.add(playing)
     playing.audio.addEventListener(
       'ended',

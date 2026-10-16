@@ -60,6 +60,8 @@
  * | POST /api/admin/chat-deduction/rewards | セッション | チャットで推理の「質問」「解答」の報酬をTwitchで作る |
  * | POST /api/admin/chat-deduction/games | セッション | チャットで推理のゲームを始め、2つの報酬を交換できるようにする |
  * | POST /api/admin/chat-deduction/games/:id/end | セッション | 2つの報酬を交換できないようにしてから、チャットで推理のゲームを終える |
+ * | GET  /api/admin/chat-deduction/sound | セッション | チャットで推理の場面ごとに鳴らす音の設定 |
+ * | PUT  /api/admin/chat-deduction/sound | セッション | チャットで推理の音の設定を検証して保存する |
  * | GET  /api/admin/opinions         | セッション     | 意見ボード（最後に開いたテーマ。隠した意見・人数・もとのコメントつき） |
  * | POST /api/admin/opinions/themes  | セッション     | 意見ボードのテーマを開き、コメントの振り分けを始める |
  * | POST /api/admin/opinions/themes/:id/close | セッション | 意見ボードのテーマを締め切り、振り分けを止める |
@@ -230,10 +232,12 @@ import {
 import {
   chatDeductionSocket,
   getChatDeduction,
+  getChatDeductionSound,
   getOverlayChatDeduction,
   postChatDeductionGame,
   postChatDeductionRewards,
   postEndChatDeductionGame,
+  putChatDeductionSound,
 } from './chat-deduction-routes'
 import {
   getTownTour,
@@ -371,6 +375,8 @@ const ROUTES: readonly Route[] = [
   { method: 'POST', path: '/api/admin/chat-deduction/rewards', handle: postChatDeductionRewards },
   { method: 'POST', path: '/api/admin/chat-deduction/games', handle: postChatDeductionGame },
   { method: 'POST', path: '/api/admin/chat-deduction/games/:id/end', handle: postEndChatDeductionGame },
+  { method: 'GET', path: '/api/admin/chat-deduction/sound', handle: getChatDeductionSound },
+  { method: 'PUT', path: '/api/admin/chat-deduction/sound', handle: putChatDeductionSound },
   { method: 'GET', path: '/api/admin/opinions', handle: getAdminOpinions },
   { method: 'POST', path: '/api/admin/opinions/themes', handle: postOpinionTheme },
   { method: 'POST', path: '/api/admin/opinions/themes/:id/close', handle: postCloseOpinionTheme },

@@ -124,7 +124,7 @@ describe('createChatDeductionView', () => {
 
   it('変わっていないカードの要素は作り直さない', () => {
     const view = createChatDeductionView(root)
-    const board: ChatDeductionBoard = { game: openGame, cards: [yesCard] }
+    const board: Pick<ChatDeductionBoard, 'game' | 'cards'> = { game: openGame, cards: [yesCard] }
     view.setBoard(board)
     const before = cardsOf()[0]
 

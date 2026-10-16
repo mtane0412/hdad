@@ -6,6 +6,7 @@
  * - POST /api/admin/chat-deduction/rewards: 「質問」「解答」の報酬をTwitchで作り、IDを控える。もう作ってあれば409
  * - POST /api/admin/chat-deduction/games: 問題（{ problemId }）を選んでゲームを始め、2つの報酬を交換できるようにする
  * - POST /api/admin/chat-deduction/games/:id/end: 2つの報酬を交換できないようにしてから、ゲームを終える（配信者が打ち切った）
+ * - GET・PUT /api/admin/chat-deduction/sound: 場面ごとに鳴らす音の設定を読む・検証して保存する（worker/chat-deduction-sound.ts）
  *
  * 合成ページの素材「チャットで推理」（issue #378）は、オーバーレイ用キーで次の経路を使う。
  * - GET /api/overlay/chat-deduction: 最後に始めたゲームのカードの一覧を返す（worker/chat-deduction-board.ts）
@@ -19,9 +20,11 @@
 import { CHAT_DEDUCTION_PROBLEMS } from '../src/chat-deduction/problem-set'
 import { connectChatDeductionSocket } from './alert-channel'
 import { pushLatestChatDeductionBoard, readChatDeductionBoard } from './chat-deduction-board'
+import { loadChatDeductionSound, parseChatDeductionSound, saveChatDeductionSound } from './chat-deduction-sound'
 import { createChatDeductionRewards, loadChatDeductionRewards, setChatDeductionRewardsEnabled, type ChatDeductionRewards } from './chat-deduction-rewards'
 import { cancelGame, endGame, readCurrentGame, readLatestGame, startGame, type ChatDeductionGame } from './chat-deduction-store'
 import { HttpError, STATUS, requireAdmin, requireOverlayKey, type Context } from './http'
+import { listMedia } from './media'
 import { overlayKeyTag } from './overlay-key'
 import { getManageToken } from './reward-routes'
 
@@ -42,7 +45,7 @@ const readJson = (context: Context): Promise<unknown> =>
  * @throws HttpError 押し出せなければ502（済んだことは取り消さない）
  */
 const pushBoard = async (context: Context, done: string): Promise<void> => {
-  await pushLatestChatDeductionBoard(context.env.DB, context.env.ALERTS, CHAT_DEDUCTION_PROBLEMS).catch((error: unknown) => {
+  await pushLatestChatDeductionBoard(context.env.DB, context.env.STORE, context.env.ALERTS, CHAT_DEDUCTION_PROBLEMS).catch((error: unknown) => {
     throw new HttpError(STATUS.badGateway, 'chat-deduction-push-failed', `${done}が、合成ページへ知らせられませんでした（${reasonOf(error)}）`)
   })
 }
@@ -147,10 +150,32 @@ export const postEndChatDeductionGame = async (context: Context): Promise<Respon
   return Response.json({ game } satisfies { game: ChatDeductionGame })
 }
 
+/** GET /api/admin/chat-deduction/sound: 場面ごとに鳴らす音の設定。未保存ならどの枠も鳴らさない設定が返る */
+export const getChatDeductionSound = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  return Response.json(await loadChatDeductionSound(context.env.STORE))
+}
+
+/**
+ * PUT /api/admin/chat-deduction/sound: 音の設定を検証して保存し、保存したものを返す。
+ * 合成ページへは押し出さない（次にゲームが動いたとき・読み直したときの一覧に載る）。
+ *
+ * @throws ConfigError 設定に問題がある場合（index.ts が問題点付きの400にする）
+ */
+export const putChatDeductionSound = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  const body = await readJson(context)
+  const { env } = context
+  const kinds = new Map((await listMedia(env.MEDIA)).map((item) => [item.id, item.kind]))
+  const sound = parseChatDeductionSound(body, (mediaId) => kinds.get(mediaId) ?? null)
+  await saveChatDeductionSound(env.STORE, sound)
+  return Response.json(sound)
+}
+
 /** GET /api/overlay/chat-deduction?key=: 最後に始めたゲームのカードの一覧を返す（開催中は正解の表記を伏せる） */
 export const getOverlayChatDeduction = async (context: Context): Promise<Response> => {
   await requireOverlayKey(context)
-  return Response.json(await readChatDeductionBoard(context.env.DB, CHAT_DEDUCTION_PROBLEMS))
+  return Response.json(await readChatDeductionBoard(context.env.DB, context.env.STORE, CHAT_DEDUCTION_PROBLEMS))
 }
 
 /** GET /api/overlay/chat-deduction/socket?key=: 合成ページからのWebSocketの接続を、カードの一覧を受け取る接続として配送先へ引き渡す */

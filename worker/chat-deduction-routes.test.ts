@@ -11,8 +11,10 @@
  * - チャットで推理の報酬は /rewards/ から削除させないこと
  * - 始めた・終えたゲームを合成ページへ押し出し、押し出せなければ始めた・終えたことを取り消さずに502を返すこと（issue #378）
  * - 合成ページがオーバーレイ用キーで、最後に始めたゲームのカードの一覧を読めること（issue #378）
+ * - 場面ごとに鳴らす音の設定を読み書きでき、合成ページへは音声のURLにして一覧と一緒に渡すこと
  */
 import { describe, expect, it } from 'vitest'
+import { DEFAULT_CHAT_DEDUCTION_SOUND, loadChatDeductionSound } from './chat-deduction-sound'
 import { readCurrentGame, readLatestGame } from './chat-deduction-store'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
 import { createFakeWorkersAi } from './fake-ai'
@@ -259,7 +261,7 @@ describe('ゲームの開始（POST /api/admin/chat-deduction/games）', () => {
     await startFuji(env)
 
     expect(delivery.pushedChatDeductions).toEqual([
-      { game: { id: 1, category: 'place', startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null }, cards: [] },
+      { game: { id: 1, category: 'place', startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null }, cards: [], sound: DEFAULT_CHAT_DEDUCTION_SOUND },
     ])
   })
 
@@ -358,6 +360,7 @@ describe('ゲームの終了（POST /api/admin/chat-deduction/games/:id/end）',
       {
         game: { id: game.id, category: 'place', startedAt: '2026-10-15T12:00:00.000Z', endedAt: '2026-10-15T12:00:00.000Z', endReason: 'stopped', answer: '富士山' },
         cards: [],
+        sound: DEFAULT_CHAT_DEDUCTION_SOUND,
       },
     ])
   })
@@ -406,7 +409,20 @@ describe('合成ページのカードの一覧（GET /api/overlay/chat-deduction
     expect(await response.json()).toEqual({
       game: { id: game.id, category: 'place', startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null },
       cards: [],
+      sound: DEFAULT_CHAT_DEDUCTION_SOUND,
     })
+  })
+
+  it('音を選んだ枠は、オーバーレイ用キーつきの音声のURLにして一覧と一緒に渡す', async () => {
+    // 前提: BGM に音声を選んで保存してある
+    const env = createEnv()
+    await env.STORE.put('chat-deduction-sound', JSON.stringify({ ...DEFAULT_CHAT_DEDUCTION_SOUND, slots: { ...DEFAULT_CHAT_DEDUCTION_SOUND.slots, bgm: 'media-thinking' } }))
+
+    const response = await invoke(new Request(`${ORIGIN}/api/overlay/chat-deduction?key=${ISSUED_KEY}`), env)
+
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as { sound: { slots: { bgm: string | null } } }
+    expect(body.sound.slots.bgm).toBe(`/api/media/media-thinking?key=${ISSUED_KEY}`)
   })
 
   it('キーが違えば401を返す', async () => {
@@ -424,6 +440,67 @@ describe('合成ページのカードの一覧（GET /api/overlay/chat-deduction
 
     expect(response.status).toBe(400)
     expect((await readError(response)).code).toBe('expected-websocket')
+  })
+})
+
+describe('音の設定（GET・PUT /api/admin/chat-deduction/sound）', () => {
+  /** 正解の音（音声）と、背景の画像を上げておいた環境 */
+  const createEnvWithMedia = async () => {
+    const env = createEnv()
+    await env.MEDIA.put('media-pinpon', new ArrayBuffer(8), { httpMetadata: { contentType: 'audio/mpeg' }, customMetadata: { name: 'pinpon.mp3' } })
+    await env.MEDIA.put('media-haikei', new ArrayBuffer(8), { httpMetadata: { contentType: 'image/png' }, customMetadata: { name: 'haikei.png' } })
+    return env
+  }
+
+  const putJson = (body: unknown): RequestInit => ({ method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+
+  it('ログインしていなければ読ませない', async () => {
+    const response = await invoke(new Request(`${ORIGIN}/api/admin/chat-deduction/sound`), createEnv())
+
+    expect(response.status).toBe(401)
+  })
+
+  it('未保存なら、どの枠も鳴らさない設定を返す', async () => {
+    const env = createEnv()
+
+    const response = await invoke(await broadcasterRequest(env, '/api/admin/chat-deduction/sound'), env)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual(DEFAULT_CHAT_DEDUCTION_SOUND)
+  })
+
+  it('保存した設定を返し、次に読んだときも同じものを返す', async () => {
+    const env = await createEnvWithMedia()
+    const sound = { ...DEFAULT_CHAT_DEDUCTION_SOUND, slots: { ...DEFAULT_CHAT_DEDUCTION_SOUND.slots, correct: 'media-pinpon' }, effectVolume: 0.8 }
+
+    const saved = await invoke(await broadcasterRequest(env, '/api/admin/chat-deduction/sound', putJson(sound)), env)
+    const loaded = await invoke(await broadcasterRequest(env, '/api/admin/chat-deduction/sound'), env)
+
+    expect(saved.status).toBe(200)
+    expect(await saved.json()).toEqual(sound)
+    expect(await loaded.json()).toEqual(sound)
+  })
+
+  it('音声でない素材を選んだ設定は、問題点つきの400で断って保存しない', async () => {
+    const env = await createEnvWithMedia()
+    const sound = { ...DEFAULT_CHAT_DEDUCTION_SOUND, slots: { ...DEFAULT_CHAT_DEDUCTION_SOUND.slots, start: 'media-haikei' } }
+
+    const response = await invoke(await broadcasterRequest(env, '/api/admin/chat-deduction/sound', putJson(sound)), env)
+
+    expect(response.status).toBe(400)
+    const body = (await response.json()) as { error: { problems: string[] } }
+    expect(body.error.problems).toEqual(['slots.start: 素材「media-haikei」は音声ではありません'])
+    expect(await loadChatDeductionSound(env.STORE)).toEqual(DEFAULT_CHAT_DEDUCTION_SOUND)
+  })
+
+  it('音に選ばれている素材は削除させない', async () => {
+    // 前提: 正解の音に media-pinpon を選んで保存してある
+    const env = await createEnvWithMedia()
+    await invoke(await broadcasterRequest(env, '/api/admin/chat-deduction/sound', putJson({ ...DEFAULT_CHAT_DEDUCTION_SOUND, slots: { ...DEFAULT_CHAT_DEDUCTION_SOUND.slots, correct: 'media-pinpon' } })), env)
+
+    const response = await invoke(await broadcasterRequest(env, '/api/admin/media/media-pinpon', { method: 'DELETE' }), env)
+
+    expect(response.status).toBe(409)
   })
 })
 

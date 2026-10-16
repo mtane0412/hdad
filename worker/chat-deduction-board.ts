@@ -4,15 +4,20 @@
  * 最後に始めたゲーム（開催中か、最後に終えたもの）の区分と、質問と答え・解答のカードの一覧を丸ごと組み立てる。
  * 正解の表記はゲームを終えたあとにだけ載せる（開催中に合成ページへ渡すと、ページの中身から答えが分かってしまうため）。
  * 変わるたびに AlertChannel の目印 chatDeduction で押し出し、合成ページはつながるたびに GET /api/overlay/chat-deduction で読み直す。
+ * 場面ごとに鳴らす音の設定（chat-deduction-sound.ts）も、音声のURLにして一緒に載せる（合成ページは一覧の差から鳴らす音を決めるため、
+ * 一覧と別に読ませると、設定を読む前に届いた押し出しの音を鳴らせない）。
  */
 import type { ChatDeductionCategory } from '../src/chat-deduction/category'
 import { CHAT_DEDUCTION_PROBLEMS } from '../src/chat-deduction/problem-set'
 import type { ChatDeductionProblem } from '../src/chat-deduction/problems'
 import { pushChatDeduction, type AlertChannelNamespace } from './alert-channel'
+import { loadChatDeductionSound, playbackChatDeductionSoundOf, type ChatDeductionSound } from './chat-deduction-sound'
 import { readGameCards, readLatestGame, type ChatDeductionCard, type ChatDeductionEndReason } from './chat-deduction-store'
 import type { Database } from './database'
 import type { Context } from './http'
+import { loadOverlayKey } from './overlay-key'
 import { recordFailure } from './stats-store'
+import type { KeyValueStore } from './store'
 
 /** 合成ページに映すゲーム */
 export interface ChatDeductionBoardGame {
@@ -32,23 +37,29 @@ export interface ChatDeductionBoard {
   /** 一度もゲームを始めていなければ null */
   game: ChatDeductionBoardGame | null
   cards: ChatDeductionCard[]
+  /** 場面ごとに鳴らす音（素材のIDを音声のURLにしたもの） */
+  sound: ChatDeductionSound
 }
 
 /**
  * 最後に始めたゲームの、合成ページに映すものを読む。
  *
+ * @param store 音の設定とオーバーレイ用キーを読む KV
  * @param problems 問題集（CHAT_DEDUCTION_PROBLEMS。テストで差し替えるため引数で受け取る）
  * @throws 最後のゲームの問題が問題集に無い場合（問題集から消した問題のゲームだった。黙って空にしない）
+ * @throws 音を選んだ枠があるのにオーバーレイ用キーが未発行の場合（黙って無音にしない）
  */
-export const readChatDeductionBoard = async (db: Database, problems: readonly ChatDeductionProblem[]): Promise<ChatDeductionBoard> => {
-  const game = await readLatestGame(db)
-  if (game === null) return { game: null, cards: [] }
+export const readChatDeductionBoard = async (db: Database, store: KeyValueStore, problems: readonly ChatDeductionProblem[]): Promise<ChatDeductionBoard> => {
+  const [game, savedSound, overlayKey] = await Promise.all([readLatestGame(db), loadChatDeductionSound(store), loadOverlayKey(store)])
+  const sound = playbackChatDeductionSoundOf(savedSound, overlayKey)
+  if (game === null) return { game: null, cards: [], sound }
   const problem = problems.find((candidate) => candidate.id === game.problemId)
   if (problem === undefined) throw new Error(`最後のゲーム（${game.id}）の問題「${game.problemId}」が問題集にありません`)
   const { id, startedAt, endedAt, endReason } = game
   return {
     game: { id, category: problem.category, startedAt, endedAt, endReason, answer: endedAt === null ? null : problem.answer },
     cards: await readGameCards(db, game.id),
+    sound,
   }
 }
 
@@ -57,8 +68,12 @@ export const readChatDeductionBoard = async (db: Database, problems: readonly Ch
  *
  * 注意: 失敗を黙って握りつぶさない。呼び出し側が管理画面へ返すか、失敗として記録する。
  */
-export const pushLatestChatDeductionBoard = async (db: Database, namespace: AlertChannelNamespace, problems: readonly ChatDeductionProblem[]): Promise<void> =>
-  pushChatDeduction(namespace, await readChatDeductionBoard(db, problems))
+export const pushLatestChatDeductionBoard = async (
+  db: Database,
+  store: KeyValueStore,
+  namespace: AlertChannelNamespace,
+  problems: readonly ChatDeductionProblem[],
+): Promise<void> => pushChatDeduction(namespace, await readChatDeductionBoard(db, store, problems))
 
 /**
  * Twitch へ2xxを返したあと（質問に答えた・解答の正誤を決めた）に、カードの一覧を押し出す。
@@ -70,7 +85,7 @@ export const pushLatestChatDeductionBoard = async (db: Database, namespace: Aler
  */
 export const pushBoardAfterRedemption = async (context: Context, what: string): Promise<void> => {
   const { env, now } = context
-  await pushLatestChatDeductionBoard(env.DB, env.ALERTS, CHAT_DEDUCTION_PROBLEMS).catch((error: unknown) =>
+  await pushLatestChatDeductionBoard(env.DB, env.STORE, env.ALERTS, CHAT_DEDUCTION_PROBLEMS).catch((error: unknown) =>
     recordFailure(env.DB, 'chat-deduction-push-failed', `${what}を合成ページへ知らせられませんでした: ${error instanceof Error ? error.message : String(error)}`, now),
   )
 }

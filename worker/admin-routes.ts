@@ -14,6 +14,7 @@ import { loadBgmTracks } from './bgm-config'
 import { loadTownTourSound, townTourSoundUses } from './town-tour-sound'
 import { loadTwisterSound, twisterSoundUses } from './twister-sound'
 import { kanjiQuizSoundUses, loadKanjiQuizSound } from './kanji-quiz-sound'
+import { chatDeductionSoundUses, loadChatDeductionSound } from './chat-deduction-sound'
 import { lickSoundUses, loadLickSound } from './lick-sound'
 import { loadVrmModel, vrmModelUses } from './vrm-model'
 import { overlayKeyTag, rotateOverlayKey } from './overlay-key'
@@ -93,6 +94,9 @@ export const deleteMedia = async (context: Context): Promise<Response> => {
   }
   if (kanjiQuizSoundUses(await loadKanjiQuizSound(env.STORE), id)) {
     throw new HttpError(STATUS.conflict, 'media-in-use', 'この素材は漢字クイズの音に使われています。先にトリガーのページの「漢字クイズ」で外してください')
+  }
+  if (chatDeductionSoundUses(await loadChatDeductionSound(env.STORE), id)) {
+    throw new HttpError(STATUS.conflict, 'media-in-use', 'この素材はチャットで推理の音に使われています。先にチャットで推理のページで外してください')
   }
 
   await env.MEDIA.delete(id)

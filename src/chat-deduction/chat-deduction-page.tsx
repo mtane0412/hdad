@@ -5,12 +5,15 @@
  * - 「質問」「解答」の2つの報酬を作る（Twitch が交換できるかどうかの切り替えを許すのは HDAD が作った報酬だけなので、既存の報酬は選ばせない）
  * - 問題集から問題を選んでゲームを始める（2つの報酬を交換できるようにする）
  * - 開催中のゲームを、確かめてから終える（2つの報酬を交換できないようにする）
+ * - 場面ごとに合成ページで鳴らす音を選ぶ（sound-card.tsx）
  *
  * 問題集は引数で受け取る（テストで決まった問題を渡すため。アプリでは src/chat-deduction/problem-set.ts を渡す）。
+ * 素材の一覧の読み出し（音の選択肢）も引数で受け取る（アプリでは AdminApi の media を渡す）。
  *
  * 注意: 問題を選ぶ欄と開催中の問題には正解をそのまま出す（配信者が選ぶため）。このページを配信に映さないこと。
  */
 import { useEffect, useId, useState } from 'react'
+import type { MediaItem } from '@/admin/api'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
 import { Link } from '@/app/router'
 import { LoadFailure } from '@/components/load-failure'
@@ -22,11 +25,19 @@ import { Skeleton } from '@/components/ui/skeleton'
 import type { ChatDeductionApi, ChatDeductionState } from './api'
 import { categoryLabelOf } from './category'
 import type { ChatDeductionProblem } from './problems'
+import { ChatDeductionSoundCard } from './sound-card'
 
 /** 問題の画面の言い方（例: 【場所】富士山） */
 const problemLabelOf = (problem: ChatDeductionProblem): string => `【${categoryLabelOf(problem.category)}】${problem.answer}`
 
-export const ChatDeductionPage = ({ api, problems }: { api: ChatDeductionApi; problems: readonly ChatDeductionProblem[] }) => {
+interface ChatDeductionPageProps {
+  api: ChatDeductionApi
+  problems: readonly ChatDeductionProblem[]
+  /** アップロード済みの素材を読む（音のカードの選択肢）。読み直しを繰り返さないよう、描き直しても同じ関数を渡す */
+  loadMedia: () => Promise<MediaItem[]>
+}
+
+export const ChatDeductionPage = ({ api, problems, loadMedia }: ChatDeductionPageProps) => {
   /** 最後に読んだ状態。読み込むまでは undefined */
   const [state, setState] = useState<ChatDeductionState>()
   const [loadError, setLoadError] = useState<string>()
@@ -144,6 +155,7 @@ export const ChatDeductionPage = ({ api, problems }: { api: ChatDeductionApi; pr
           )}
         </CardContent>
       </Card>
+      <ChatDeductionSoundCard api={api} loadMedia={loadMedia} />
     </div>
   )
 }

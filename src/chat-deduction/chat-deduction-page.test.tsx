@@ -8,6 +8,7 @@
  * - 問題を区分と正解つきで選び、ゲームを始められること
  * - 開催中は、出している問題を出し、確かめてから終えられること
  * - Worker が断った理由（報酬を切り替えられなかったなど）と、読み込めなかった理由を黙らずに出すこと
+ * - 場面ごとに鳴らす音を選ぶカードを出すこと（カードの中身は sound-card.test.tsx が確かめる）
  */
 import '@testing-library/jest-dom/vitest'
 import { cleanup, render, screen, within } from '@testing-library/react'
@@ -17,6 +18,7 @@ import { ApiError } from '@/core/api'
 import type { ChatDeductionApi, ChatDeductionGame, ChatDeductionState } from './api'
 import { ChatDeductionPage } from './chat-deduction-page'
 import type { ChatDeductionProblem } from './problems'
+import type { MediaItem } from '@/admin/api'
 
 afterEach(cleanup)
 
@@ -34,13 +36,26 @@ const createApi = (initial: ChatDeductionState, overrides: Partial<ChatDeduction
   createRewards: vi.fn(async () => rewards),
   startGame: vi.fn(async (problemId: string) => ({ ...openGame, problemId })),
   endGame: vi.fn(async (id: number) => ({ ...openGame, id, endedAt: '2026-10-15T12:10:00.000Z', endReason: 'stopped' as const })),
+  sound: vi.fn(async () => ({ slots: { bgm: null, start: null, answered: null, wrong: null, correct: null, stopped: null }, bgmVolume: 0.2, effectVolume: 0.6 })),
+  saveSound: vi.fn(),
   ...overrides,
+})
+
+/** アップロード済みの素材は無い */
+const loadMedia = vi.fn(async (): Promise<MediaItem[]> => [])
+
+describe('音', () => {
+  test('場面ごとに鳴らす音を選ぶカードを出す', async () => {
+    render(<ChatDeductionPage api={createApi({ rewards, game: null })} problems={problems} loadMedia={loadMedia} />)
+
+    expect(await screen.findByLabelText('BGM（ゲームを始めてから、正解か打ち切りまで流す）')).toHaveValue('')
+  })
 })
 
 describe('報酬', () => {
   test('報酬がまだ無ければ作れる。作るまではゲームを始めさせない', async () => {
     const api = createApi({ rewards: null, game: null })
-    render(<ChatDeductionPage api={api} problems={problems} />)
+    render(<ChatDeductionPage api={api} problems={problems} loadMedia={loadMedia} />)
 
     expect(await screen.findByRole('button', { name: 'ゲームを始める' })).toBeDisabled()
     await userEvent.click(screen.getByRole('button', { name: '報酬を作る' }))
@@ -51,7 +66,7 @@ describe('報酬', () => {
   })
 
   test('報酬があれば、作ってあることと、必要ポイントなどを変えるページへの行き先を出す', async () => {
-    render(<ChatDeductionPage api={createApi({ rewards, game: null })} problems={problems} />)
+    render(<ChatDeductionPage api={createApi({ rewards, game: null })} problems={problems} loadMedia={loadMedia} />)
 
     expect(await screen.findByRole('link', { name: 'チャンネルポイント報酬' })).toHaveAttribute('href', '/rewards/')
     expect(screen.queryByRole('button', { name: '報酬を作る' })).not.toBeInTheDocument()
@@ -61,7 +76,7 @@ describe('報酬', () => {
 describe('ゲーム', () => {
   test('問題を区分と正解つきで選び、ゲームを始められる', async () => {
     const api = createApi({ rewards, game: null })
-    render(<ChatDeductionPage api={api} problems={problems} />)
+    render(<ChatDeductionPage api={api} problems={problems} loadMedia={loadMedia} />)
 
     const select = await screen.findByRole('combobox', { name: '問題' })
     expect(within(select).getAllByRole('option').map((option) => option.textContent)).toEqual(['【場所】富士山', '【人物】夏目漱石'])
@@ -75,7 +90,7 @@ describe('ゲーム', () => {
 
   test('開催中は出している問題を出し、確かめてから終えられる', async () => {
     const api = createApi({ rewards, game: openGame })
-    render(<ChatDeductionPage api={api} problems={problems} />)
+    render(<ChatDeductionPage api={api} problems={problems} loadMedia={loadMedia} />)
 
     expect(await screen.findByText('【人物】夏目漱石')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '終える' }))
@@ -87,7 +102,7 @@ describe('ゲーム', () => {
 
   test('Worker が断った理由を出す', async () => {
     const rejected = new ApiError(502, 'chat-deduction-rewards-failed', '報酬を交換できるようにできなかったので、ゲームを始めませんでした', [])
-    render(<ChatDeductionPage api={createApi({ rewards, game: null }, { startGame: vi.fn(async () => Promise.reject(rejected)) })} problems={problems} />)
+    render(<ChatDeductionPage api={createApi({ rewards, game: null }, { startGame: vi.fn(async () => Promise.reject(rejected)) })} problems={problems} loadMedia={loadMedia} />)
 
     await userEvent.click(await screen.findByRole('button', { name: 'ゲームを始める' }))
 
@@ -95,7 +110,7 @@ describe('ゲーム', () => {
   })
 
   test('開催中のゲームの問題が問題集に無ければ、IDのまま出す（消した問題でも終えられるように）', async () => {
-    render(<ChatDeductionPage api={createApi({ rewards, game: { ...openGame, problemId: 'removed-problem' } })} problems={problems} />)
+    render(<ChatDeductionPage api={createApi({ rewards, game: { ...openGame, problemId: 'removed-problem' } })} problems={problems} loadMedia={loadMedia} />)
 
     expect(await screen.findByText('問題集に無い問題（removed-problem）')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '終える' })).toBeInTheDocument()
@@ -103,7 +118,7 @@ describe('ゲーム', () => {
 })
 
 test('読み込めなければ理由を出す', async () => {
-  render(<ChatDeductionPage api={createApi({ rewards: null, game: null }, { read: vi.fn(async () => Promise.reject(new Error('通信に失敗しました'))) })} problems={problems} />)
+  render(<ChatDeductionPage api={createApi({ rewards: null, game: null }, { read: vi.fn(async () => Promise.reject(new Error('通信に失敗しました'))) })} problems={problems} loadMedia={loadMedia} />)
 
   expect(await screen.findByText('通信に失敗しました')).toBeInTheDocument()
 })

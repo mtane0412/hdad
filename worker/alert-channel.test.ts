@@ -48,6 +48,7 @@ import type { TownTourCall } from './town-tour-call'
 import type { KanjiQuizCall, StreamStopOrder } from './kanji-quiz-call'
 import type { TwisterCall } from './twister-call'
 import { DEFAULT_TOWN_TOUR_SOUND, playbackSoundOf } from './town-tour-sound'
+import { DEFAULT_CHAT_DEDUCTION_SOUND } from './chat-deduction-sound'
 import type { WorkLogEntry } from './work-log'
 
 const alert: OverlayAlert = {
@@ -341,7 +342,7 @@ describe('AlertChannel', () => {
     const alertItem = createConnection()
     const chatDeductionItem = createConnection()
     const destination = createDestination([alertItem], [], [], [], [], [], [], [], [], [], [], [], [], [chatDeductionItem])
-    const board = { game: null, cards: [] }
+    const board = { game: null, cards: [], sound: DEFAULT_CHAT_DEDUCTION_SOUND }
 
     const response = await destination.fetch(new Request('https://alert-channel/push/chat-deduction', { method: 'POST', body: JSON.stringify(board) }))
 
@@ -762,7 +763,7 @@ describe('オーバーレイ用キーの再発行に伴う切断', () => {
 })
 
 describe('pushChatDeduction', () => {
-  const board = { game: null, cards: [] }
+  const board = { game: null, cards: [], sound: DEFAULT_CHAT_DEDUCTION_SOUND }
 
   it('Durable Object へ、チャットで推理のカードの一覧を送る', async () => {
     const delivery = createFakeAlertChannel()
