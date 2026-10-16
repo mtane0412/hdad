@@ -132,15 +132,56 @@ const addSettings = async (label: string): Promise<void> => {
   await userEvent.click(await screen.findByRole('button', { name: label }))
 }
 
+/** ページのタブを選ぶ。演出ごとの設定と配信画面への出し方は、トリガーの一覧とは別のタブにある */
+const openTab = async (name: string): Promise<void> => {
+  await userEvent.click(await screen.findByRole('tab', { name }))
+}
+
 const save = async (): Promise<void> => {
   await userEvent.click(screen.getByRole('button', { name: 'トリガーを保存' }))
 }
 
 afterEach(cleanup)
 
+describe('タブ', () => {
+  test('最初はトリガーの一覧を出し、演出の設定と配信画面への出し方は、タブを選ぶまで出さない', async () => {
+    render(triggerPage(fakeApi()))
+
+    expect(await screen.findByRole('region', { name: 'チャット' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'トリガー' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: '演出の設定' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '配信画面への出し方' })).toBeInTheDocument()
+    // 演出の設定（市町村紹介など）と出し方の案内は、一覧と同じ画面には並べない
+    expect(screen.queryByRole('button', { name: '市町村紹介を試しに流す' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'オーバーレイの構成を開く' })).not.toBeInTheDocument()
+  })
+
+  test('演出の設定のタブには、演出ごとの設定が並ぶ', async () => {
+    render(triggerPage(fakeApi()))
+    await openTab('演出の設定')
+
+    expect(await screen.findByRole('button', { name: '市町村紹介を試しに流す' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'ツイスターを試しに流す' })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'チャット' })).not.toBeInTheDocument()
+  })
+
+  test('タブを移って戻っても、トリガーの未保存の変更は消えない', async () => {
+    render(triggerPage(fakeApi()))
+    const row = await openedItem('フォローされた')
+    await userEvent.click(row.getByRole('checkbox', { name: 'チャットに送る' }))
+    expect(screen.getByText('未保存の変更があります')).toBeInTheDocument()
+
+    await openTab('演出の設定')
+    await openTab('トリガー')
+
+    expect(await screen.findByText('未保存の変更があります')).toBeInTheDocument()
+  })
+})
+
 describe('オーバーレイ用キー', () => {
   test('OBSに貼るURLは出さず、合成オーバーレイの管理画面へ案内する', async () => {
     render(triggerPage(fakeApi()))
+    await openTab('配信画面への出し方')
 
     // アラート専用のページは消したので（issue #107）、この画面はURLを配らない
     expect(screen.queryByLabelText('OBSのブラウザソースに貼るURL')).not.toBeInTheDocument()
@@ -151,6 +192,7 @@ describe('オーバーレイ用キー', () => {
     const api = fakeApi()
     const onOverlayKeyChange = vi.fn()
     render(triggerPage(api, { onOverlayKeyChange }))
+    await openTab('配信画面への出し方')
 
     await userEvent.click(await screen.findByRole('button', { name: 'キーを再発行する' }))
     const dialog = await screen.findByRole('alertdialog')
@@ -166,6 +208,7 @@ describe('オーバーレイ用キー', () => {
   test('確認でやめたら、キーは再発行しない', async () => {
     const api = fakeApi()
     render(triggerPage(api))
+    await openTab('配信画面への出し方')
 
     await userEvent.click(await screen.findByRole('button', { name: 'キーを再発行する' }))
     await userEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'やめる' }))
@@ -421,6 +464,7 @@ describe('効果の付け外し', () => {
   test('市町村紹介の試し再生を押すと、Workerに流させ、送った一文を知らせる', async () => {
     const api = fakeApi()
     render(triggerPage(api))
+    await openTab('演出の設定')
 
     await userEvent.click(await screen.findByRole('button', { name: '市町村紹介を試しに流す' }))
 
@@ -450,6 +494,7 @@ describe('効果の付け外し', () => {
   test('ツイスターの試し再生を押すと、Workerに流させ、対戦する2人を知らせる', async () => {
     const api = fakeApi()
     render(triggerPage(api))
+    await openTab('演出の設定')
 
     await userEvent.click(await screen.findByRole('button', { name: 'ツイスターを試しに流す' }))
 
@@ -460,6 +505,7 @@ describe('効果の付け外し', () => {
   test('ツイスターの相手とみなすユーザー名を入れて試し再生を押すと、その名前を送る', async () => {
     const api = fakeApi()
     render(triggerPage(api))
+    await openTab('演出の設定')
 
     await userEvent.type(await screen.findByRole('textbox', { name: 'ツイスターの相手とみなすユーザー名（任意）' }), ' hoshino_yu ')
     await userEvent.click(screen.getByRole('button', { name: 'ツイスターを試しに流す' }))
@@ -493,6 +539,7 @@ describe('効果の付け外し', () => {
   test('ペロペロの相手とみなすユーザー名を入れて試し再生を押すと、その名前を送り、舐めた相手を知らせる', async () => {
     const api = fakeApi({ playLickDemo: vi.fn(async () => '星野ゆう') })
     render(triggerPage(api))
+    await openTab('演出の設定')
 
     await userEvent.type(await screen.findByRole('textbox', { name: 'ペロペロの相手とみなすユーザー名（任意）' }), ' hoshino_yu ')
     await userEvent.click(screen.getByRole('button', { name: 'ペロペロを試しに流す' }))
@@ -532,6 +579,7 @@ describe('効果の付け外し', () => {
   test('VRMの演出を試しに流すと、Workerに試し再生を頼み、流したことを知らせる', async () => {
     const api = fakeApi({ vrmModel: vi.fn(async () => ({ model: 'media-kanban' })) })
     render(triggerPage(api))
+    await openTab('演出の設定')
 
     await userEvent.click(await screen.findByRole('button', { name: 'VRMを試しに流す' }))
 
@@ -574,6 +622,7 @@ describe('効果の付け外し', () => {
   test('漢字クイズの級を選んで試し再生を押すと、その級でWorkerに流させ、出した問題を知らせる', async () => {
     const api = fakeApi()
     render(triggerPage(api))
+    await openTab('演出の設定')
 
     await userEvent.selectOptions(await screen.findByRole('combobox', { name: '試しに出題する級' }), '6級')
     await userEvent.click(screen.getByRole('button', { name: '漢字クイズを試しに流す' }))

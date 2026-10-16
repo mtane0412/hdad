@@ -30,6 +30,7 @@ import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Slider } from '@/components/ui/slider'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { Link, useUnsavedChanges } from '@/app/router'
 import type { BotApi, BotStatus } from '@/bot/api'
@@ -1015,109 +1016,123 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
           <AlertDescription>{rewardsFailure}</AlertDescription>
         </Alert>
       )}
-      <Card>
-        <CardHeader>
-          <CardTitle>配信画面への出し方</CardTitle>
-          <CardDescription>アラートを映すには、オーバーレイに「アラート」の素材を置く。</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          <p className="text-sm text-muted-foreground">
-            置いたあとは、トリガーをこのページで変えるだけでよい（OBSのURLは貼り替えなくてよい）。
-          </p>
-          {/* オーバーレイの管理画面はアプリのページなので、router.tsx の Link で移る */}
-          <Link href="/overlay/" className={buttonVariants({ variant: 'outline' })}>
-            オーバーレイの構成を開く
-          </Link>
-          <p className="text-sm text-muted-foreground">
-            オーバーレイのURLにはオーバーレイ用キーが含まれる。URLが他人に知られたら、キーを再発行してください（すべてのオーバーレイと裏方で共通のキーなので、貼り替えはそのすべてで必要になる）。
-          </p>
-          <Button
-            type="button"
-            variant="outline"
-            className="self-start text-destructive"
-            disabled={actions.busy}
-            onClick={() =>
-              actions.ask({
-                title: 'キーを再発行しますか？',
-                description: '今のURLは使えなくなるので、OBSのURLを貼り替える必要があります（反映に最大1分かかります）。',
-                actionLabel: '再発行する',
-                run: rotateKey,
-              })
-            }
-          >
-            キーを再発行する
-          </Button>
-        </CardContent>
-      </Card>
-
-      {/* 市町村紹介の音はトリガーの行ごとではなく1つだけ持つので、トリガーの一覧の外に置く（保存も別） */}
-      <TownTourSoundCard api={api} media={media} />
-
-      {/* ツイスターの BGM も市町村紹介の音と同じく1つだけ持つので、トリガーの一覧の外に置く（保存も別） */}
-      <TwisterCard api={api} media={media} />
-
-      {/* ペロペロの効果音もツイスターの BGM と同じく1つだけ持つので、トリガーの一覧の外に置く（保存も別） */}
-      <LickCard api={api} media={media} />
-
-      {/* VRMの演出も出す VRM を1つだけ持つので、トリガーの一覧の外に置く（保存も別） */}
-      <VrmCard api={api} media={media} />
-
-      {/* 漢字クイズは設定を持たず、級を選んで試しに流すボタンだけを置く */}
-      <KanjiQuizCard api={api} media={media} />
-
-      {/* 一覧そのものはカードに入れず、区分（チャット・イベント・開発・ポモドーロ）ごとにカードにする
-          （全体を1枚のカードで囲むと、その中に区分の見出しと項目の枠が入れ子で並び、どこまでが1つのまとまりか読み取りにくい） */}
-      <section className="flex flex-col gap-6">
-        <div className="flex flex-col gap-1.5">
-          <h2 className="text-lg font-semibold">トリガー</h2>
-          <p className="text-sm text-muted-foreground">
-            効果を付けたい出来事を開いて、何をするかを決める。当てはまった出来事の効果はすべて行われる。
-          </p>
-        </div>
-          {alertMediaOf(media).length === 0 && (
+      {/* 一覧と、演出ごとの設定（1つだけ持ち、保存も別）と、配信画面への出し方の案内はタブに分ける。
+          同じ画面に縦に積むと、一覧にたどり着くまでに長い設定の列を送ることになるため（docs/decisions/design.md）。
+          トリガーの入力欄の値はこのページが持つので、タブを移っても未保存の変更は消えない */}
+      <Tabs defaultValue="triggers" className="gap-4">
+        <TabsList>
+          <TabsTrigger value="triggers">トリガー</TabsTrigger>
+          <TabsTrigger value="effects">演出の設定</TabsTrigger>
+          <TabsTrigger value="overlay">配信画面への出し方</TabsTrigger>
+        </TabsList>
+        <TabsContent value="triggers">
+          {/* 一覧そのものはカードに入れず、区分（チャット・イベント・開発・ポモドーロ）ごとにカードにする
+              （全体を1枚のカードで囲むと、その中に区分の見出しと項目の枠が入れ子で並び、どこまでが1つのまとまりか読み取りにくい） */}
+          <section className="flex flex-col gap-6">
+            {/* 見出しはタブの名前（トリガー）が兼ねるので、ここには説明だけを置く */}
             <p className="text-sm text-muted-foreground">
-              アラートで流せる素材（画像・動画・音声）が1つもないので、アラートを出す効果は選べません。
-              <Link href="/media/" className="underline underline-offset-4">
-                アップロード
-              </Link>
-              のページで追加してください。
+              効果を付けたい出来事を開いて、何をするかを決める。当てはまった出来事の効果はすべて行われる。
             </p>
-          )}
-          {menuGroups.map((group) => (
-            <TriggerGroup
-              key={group.label}
-              group={group}
-              collapsed={collapsedGroups.includes(group.label)}
-              onToggle={() =>
-                setCollapsedGroups(collapsedGroups.includes(group.label) ? collapsedGroups.filter((label) => label !== group.label) : [...collapsedGroups, group.label])
-              }
-            >
-              {group.items.map((item) => (
-                <TriggerItem
-                  key={item.kind}
-                  item={item}
-                  rowsByPhase={item.phases.map((phase) => rowsOf(phase.kind))}
-                  media={media}
-                  rewards={rewards}
-                  openPosition={openPosition}
-                  busy={actions.busy}
-                  onToggle={togglePosition}
-                  onChange={changeDraft}
-                  onRemove={removeDraft}
-                  onAdd={() => void actions.run(() => addRow(item.kind))}
-                />
+              {alertMediaOf(media).length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  アラートで流せる素材（画像・動画・音声）が1つもないので、アラートを出す効果は選べません。
+                  <Link href="/media/" className="underline underline-offset-4">
+                    アップロード
+                  </Link>
+                  のページで追加してください。
+                </p>
+              )}
+              {menuGroups.map((group) => (
+                <TriggerGroup
+                  key={group.label}
+                  group={group}
+                  collapsed={collapsedGroups.includes(group.label)}
+                  onToggle={() =>
+                    setCollapsedGroups(collapsedGroups.includes(group.label) ? collapsedGroups.filter((label) => label !== group.label) : [...collapsedGroups, group.label])
+                  }
+                >
+                  {group.items.map((item) => (
+                    <TriggerItem
+                      key={item.kind}
+                      item={item}
+                      rowsByPhase={item.phases.map((phase) => rowsOf(phase.kind))}
+                      media={media}
+                      rewards={rewards}
+                      openPosition={openPosition}
+                      busy={actions.busy}
+                      onToggle={togglePosition}
+                      onChange={changeDraft}
+                      onRemove={removeDraft}
+                      onAdd={() => void actions.run(() => addRow(item.kind))}
+                    />
+                  ))}
+                </TriggerGroup>
               ))}
-            </TriggerGroup>
-          ))}
-        {/* 一覧が長いので、保存ボタンは下に貼り付けておく（一番下まで送らないと保存できない状態を避ける） */}
-        <div className="sticky bottom-0 flex items-center gap-3 border-t bg-background py-3">
-          <Button type="button" disabled={actions.busy} onClick={() => void actions.run(saveTriggers)}>
-            トリガーを保存
-          </Button>
-          {unsaved && <span className="text-sm text-muted-foreground">未保存の変更があります</span>}
-        </div>
-      </section>
+            {/* 一覧が長いので、保存ボタンは下に貼り付けておく（一番下まで送らないと保存できない状態を避ける） */}
+            <div className="sticky bottom-0 flex items-center gap-3 border-t bg-background py-3">
+              <Button type="button" disabled={actions.busy} onClick={() => void actions.run(saveTriggers)}>
+                トリガーを保存
+              </Button>
+              {unsaved && <span className="text-sm text-muted-foreground">未保存の変更があります</span>}
+            </div>
+          </section>
 
+        </TabsContent>
+        <TabsContent value="effects" className="flex flex-col">
+          {/* 市町村紹介の音はトリガーの行ごとではなく1つだけ持つので、トリガーの一覧の外に置く（保存も別） */}
+          <TownTourSoundCard api={api} media={media} />
+
+          {/* ツイスターの BGM も市町村紹介の音と同じく1つだけ持つので、トリガーの一覧の外に置く（保存も別） */}
+          <TwisterCard api={api} media={media} />
+
+          {/* ペロペロの効果音もツイスターの BGM と同じく1つだけ持つので、トリガーの一覧の外に置く（保存も別） */}
+          <LickCard api={api} media={media} />
+
+          {/* VRMの演出も出す VRM を1つだけ持つので、トリガーの一覧の外に置く（保存も別） */}
+          <VrmCard api={api} media={media} />
+
+          {/* 漢字クイズは設定を持たず、級を選んで試しに流すボタンだけを置く */}
+          <KanjiQuizCard api={api} media={media} />
+
+        </TabsContent>
+        <TabsContent value="overlay">
+          <Card>
+            <CardHeader>
+              <CardTitle>配信画面への出し方</CardTitle>
+              <CardDescription>アラートを映すには、オーバーレイに「アラート」の素材を置く。</CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3">
+              <p className="text-sm text-muted-foreground">
+                置いたあとは、トリガーをこのページで変えるだけでよい（OBSのURLは貼り替えなくてよい）。
+              </p>
+              {/* オーバーレイの管理画面はアプリのページなので、router.tsx の Link で移る */}
+              <Link href="/overlay/" className={buttonVariants({ variant: 'outline' })}>
+                オーバーレイの構成を開く
+              </Link>
+              <p className="text-sm text-muted-foreground">
+                オーバーレイのURLにはオーバーレイ用キーが含まれる。URLが他人に知られたら、キーを再発行してください（すべてのオーバーレイと裏方で共通のキーなので、貼り替えはそのすべてで必要になる）。
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                className="self-start text-destructive"
+                disabled={actions.busy}
+                onClick={() =>
+                  actions.ask({
+                    title: 'キーを再発行しますか？',
+                    description: '今のURLは使えなくなるので、OBSのURLを貼り替える必要があります（反映に最大1分かかります）。',
+                    actionLabel: '再発行する',
+                    run: rotateKey,
+                  })
+                }
+              >
+                キーを再発行する
+              </Button>
+            </CardContent>
+          </Card>
+
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }
