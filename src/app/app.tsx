@@ -81,7 +81,7 @@ const LoginScreen = () => (
     <Card className="w-full max-w-sm rounded-xl border bg-card px-4">
       <CardHeader>
         {/* このページの見出しなので h1 にする（CardTitle は h2） */}
-        <h1 className="font-heading text-base leading-snug font-medium">HDAD</h1>
+        <h1 className="font-heading text-heading leading-snug font-medium">HDAD</h1>
         <CardDescription>Hyperfocus-Driven Assistant Director</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -168,7 +168,7 @@ const Shell = ({
                     <div className="min-w-0 flex-1 px-2 py-1 group-data-[collapsible=icon]:hidden">
                       <span className="font-mono text-sm font-semibold">HDAD</span>
                       {/* Inter は Geist より字幅が広く、折り返すとサイドバーの項目が1行ぶん隠れるので1行に収める */}
-                      <span className="block truncate text-[10px] leading-tight text-muted-foreground" title="Hyperfocus-Driven Assistant Director">Hyperfocus-Driven Assistant Director</span>
+                      <span className="block truncate text-xs leading-tight text-muted-foreground" title="Hyperfocus-Driven Assistant Director">Hyperfocus-Driven Assistant Director</span>
                     </div>
                     <SidebarTrigger aria-label="サイドバーを開閉する" />
                   </div>
