@@ -6,7 +6,8 @@
  * - 報酬がまだ無ければ、作れること。作るまではゲームを始めさせないこと
  * - 報酬があれば、作ってあることと、必要ポイントなどを変えるページへの行き先を出すこと
  * - 問題集を選んでゲームを始められること。どの問題かは Worker が決め、正解はこのページにも出さないこと（配信者も一緒に推理するため）
- * - 開催中は、出している問題集と区分だけを出し、確かめてから終えられること。終えたら正解を知らせること
+ * - 開催中は、出している問題集と区分だけを出し、確かめてから終えられること
+ * - 最後のゲームを終えていれば（配信者が打ち切った・視聴者が正解した）、その正解を出すこと
  * - Worker が断った理由（報酬を切り替えられなかったなど）と、読み込めなかった理由を黙らずに出すこと
  * - 場面ごとに鳴らす音を選ぶカードを出すこと（カードの中身は sound-card.test.tsx が確かめる）
  */
@@ -97,7 +98,7 @@ describe('ゲーム', () => {
     expect(screen.getByRole('button', { name: '終える' })).toBeInTheDocument()
   })
 
-  test('開催中は問題集と区分だけを出し、確かめてから終えられる。終えたら正解を知らせる', async () => {
+  test('開催中は問題集と区分だけを出し、確かめてから終えられる。終えたら前回の正解を出す', async () => {
     const api = createApi({ rewards, game: openGame })
     render(<ChatDeductionPage api={api} problemSets={problemSets} loadMedia={loadMedia} />)
 
@@ -107,7 +108,15 @@ describe('ゲーム', () => {
     await userEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'ゲームを終える' }))
 
     expect(api.endGame).toHaveBeenCalledWith(3)
-    expect(await screen.findByText('ゲームを終えました（正解は空海でした）')).toBeInTheDocument()
+    expect(await screen.findByText('前回の正解: 空海（配信者が打ち切りました）')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'ゲームを始める' })).toBeInTheDocument()
+  })
+
+  test('視聴者の正解で終わったゲームを読み込んだら、前回の正解を出す（再読み込みしても答えを確かめられるように）', async () => {
+    const solvedGame: ChatDeductionGame = { ...openGame, endedAt: '2026-10-15T12:10:00.000Z', endReason: 'solved' }
+    render(<ChatDeductionPage api={createApi({ rewards, game: solvedGame })} problemSets={problemSets} loadMedia={loadMedia} />)
+
+    expect(await screen.findByText('前回の正解: 空海（視聴者が正解しました）')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'ゲームを始める' })).toBeInTheDocument()
   })
 
