@@ -256,6 +256,60 @@ describe('一覧', () => {
     expect(frame.queryByText('効果なし')).not.toBeInTheDocument()
   })
 
+  test('効果は種類ごとの色の札で出す（どの効果かを色でも見分けられるようにする）', async () => {
+    const greetingAndAnnouncement: StoredTrigger = {
+      kind: 'follow',
+      actions: [
+        { type: 'chat', message: 'ありがとう' },
+        { type: 'announce', message: 'フォローありがとう', color: 'purple' },
+      ],
+    }
+    render(triggerPage(fakeApi({ config: async () => [greetingAndAnnouncement] })))
+
+    const frame = within(await itemFrame('フォローされた'))
+    expect(frame.getByText('チャット').closest('[data-tone]')).toHaveAttribute('data-tone', 'blue')
+    expect(frame.getByText('アナウンス').closest('[data-tone]')).toHaveAttribute('data-tone', 'purple')
+  })
+
+  test('アラートの札には、流す素材のファイル名を等幅で添える', async () => {
+    render(triggerPage(fakeApi()))
+
+    const row = within(await screen.findByRole('listitem', { name: 'チャンネルポイントが交換されたの1番目の設定' }))
+    expect(row.getByText('拍手.webm').tagName).toBe('CODE')
+  })
+
+  test('報酬の絞り込みは、報酬の色の見本と名前で出す', async () => {
+    render(triggerPage(fakeApi()))
+
+    const row = within(await screen.findByRole('listitem', { name: 'チャンネルポイントが交換されたの1番目の設定' }))
+    expect(row.getByRole('img', { name: '背景色 #9147FF' })).toBeInTheDocument()
+    expect(row.getByText('拍手を送る')).toBeInTheDocument()
+  })
+
+  test('決まった人の絞り込みは、@ を付けたログイン名を等幅で出す', async () => {
+    const fromHoshino: StoredTrigger = { kind: 'fromUser', login: 'hoshino_yu', actions: [{ type: 'chat', message: 'いらっしゃい' }] }
+    render(triggerPage(fakeApi({ config: async () => [fromHoshino] })))
+
+    const row = within(await screen.findByRole('listitem', { name: '決まった人の発言の1番目の設定' }))
+    expect(row.getByText('@hoshino_yu').tagName).toBe('CODE')
+  })
+
+  test('久しぶりの人の日数は、数と単位で出す', async () => {
+    const comeback: StoredTrigger = { kind: 'comeback', days: 14, actions: [{ type: 'chat', message: 'おかえり' }] }
+    render(triggerPage(fakeApi({ config: async () => [comeback] })))
+
+    const frame = within(await itemFrame('久しぶりの人の発言'))
+    expect(frame.getByText('14')).toBeInTheDocument()
+    expect(frame.getByText('日以上')).toBeInTheDocument()
+  })
+
+  test('区分の帯に、効果を付けた項目の数と項目の数を出す', async () => {
+    render(triggerPage(fakeApi()))
+
+    // イベントの区分は6項目（報酬・フォロー・サブスク・継続のサブスク・レイド・広告）で、効果があるのは報酬だけ
+    expect(within(await screen.findByRole('region', { name: 'イベント' })).getByText('1 / 6')).toBeInTheDocument()
+  })
+
   test('複数の設定を持てる項目も、1行だけの項目と同じ枠に入れて並べる（見た目が2種類に分かれないようにする）', async () => {
     render(triggerPage(fakeApi()))
 

@@ -21,7 +21,6 @@ import { ChevronDown, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { LoadFailure } from '@/components/load-failure'
-import { Badge } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -31,6 +30,7 @@ import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Slider } from '@/components/ui/slider'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { ColorSwatch, Identifier, Quantity, Tag, type TagTone } from '@/components/data/data-display'
 import { Textarea } from '@/components/ui/textarea'
 import { Link, useUnsavedChanges } from '@/app/router'
 import type { BotApi, BotStatus } from '@/bot/api'
@@ -38,7 +38,7 @@ import { ApiError } from '@/core/api'
 import { PlaceholderInput } from '@/core/placeholder-input'
 import { iconButtonName } from '@/core/icon-button'
 import { KANKEN_GRADES, MAX_KANKEN_GRADE_WEIGHT, kankenGradeLabel } from '@/kanji-quiz/grade'
-import { isAnnouncementColor, type AdminApi, type MediaItem, type Reward, type TriggerKind } from './api'
+import { isAnnouncementColor, type AdminApi, type MediaItem, type Reward, type StoredAction, type TriggerKind } from './api'
 import {
   colorOptions,
   createDraft,
@@ -50,7 +50,8 @@ import {
   placeholdersFor,
   rewardOptions,
   hasAnyAction,
-  rowActionLabels,
+  rowActions,
+  rowParam,
   rowParamSummary,
   supportsShoutout,
   supportsTownTour,
@@ -62,6 +63,7 @@ import {
   toTriggerInputs,
   withFixedRows,
   type MenuItem,
+  type RowParam,
   type MenuPhase,
   type SelectOption,
   type TriggerDraft,
@@ -146,7 +148,45 @@ const AUTOMATIC_OPTIONS: readonly SelectOption[] = [
  * 1行だけの項目も複数の設定を持てる項目も同じ枠に入れて、一覧の中で見た目が2種類に分かれないようにする。
  * 枠は区分のカードの中に入るので、カードの見た目（地色・影）は持たせない（カードの中にカードが並んで見えてしまう）。
  */
-const ITEM_BOX = 'overflow-hidden rounded-lg border'
+const ITEM_BOX = 'border-b'
+
+/** 効果の種類ごとの札の色。種類を見分けるためだけの色で、良い・悪いの意味は持たせない */
+const ACTION_TONES: Readonly<Record<StoredAction['type'], TagTone>> = {
+  alert: 'orange',
+  chat: 'blue',
+  announce: 'purple',
+  aiChat: 'teal',
+  shoutout: 'pink',
+  townTour: 'green',
+  twister: 'red',
+  kanjiQuiz: 'yellow',
+  lick: 'gray',
+  vrm: 'indigo',
+}
+
+/** 行の見出しの列（出来事・絞り込み・効果）。どの行も同じ幅で並べ、上下で列がそろうようにする */
+const ROW_COLUMNS = 'grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1.6fr)]'
+
+/** 絞り込みを、値の型ごとの部品で出す（報酬は色の見本＋名前、ログイン名とキーワードは等幅、日数は数） */
+const RowParamView = ({ param }: { param: RowParam }) => {
+  switch (param.type) {
+    case 'reward':
+      return (
+        <span className="flex min-w-0 items-center gap-1.5">
+          {param.color !== null && <ColorSwatch color={param.color} label={`背景色 ${param.color}`} />}
+          <span className="truncate">{param.title}</span>
+        </span>
+      )
+    case 'login':
+      return <Identifier prefix="@">{param.login}</Identifier>
+    case 'keyword':
+      return <Identifier>{`「${param.text}」`}</Identifier>
+    case 'days':
+      return <Quantity value={param.days} unit="日以上" />
+    case 'text':
+      return <span className="text-muted-foreground">{param.text}</span>
+  }
+}
 
 /** メニュー項目に添える注意書き。一覧の項目の見出しの下に出す */
 const KIND_NOTES: Partial<Readonly<Record<TriggerKind, string>>> = {
@@ -631,7 +671,10 @@ const TriggerRow = ({ label, heading, description, note, phases, media, rewards,
   // 行の呼び名は、1行だけの項目では項目の名前、複数持てる項目では絞り込みの文言にする
   // （項目の名前は枠の見出しに出ているので、繰り返さない）
   const title = heading ?? (param === null || param === '' ? 'まだ決めていません' : param)
-  const withActions = phases.map((phase) => ({ phase, actions: rowActionLabels(phase.draft) })).filter(({ actions }) => actions.length > 0)
+  const withActions = phases.map((phase) => ({ phase, actions: rowActions(phase.draft) })).filter(({ actions }) => actions.length > 0)
+  const typedParam = first === undefined ? null : rowParam(first.draft, rewards)
+  // アラートで流す素材のファイル名。一覧にない素材（消した素材など）なら null で、札には何も添えない
+  const alertFileName = (draft: TriggerDraft): string | null => media.find((item) => item.id === draft.mediaId)?.name ?? null
   // 絞り込みの入力欄は行に1つしかないので、イベント種別ごとに違う値が保存されていると、先頭の種別の値しか画面に出ない。
   // 保存しても食い違いはそのまま残る（送る値は種別ごとに持っているため）ので、黙って寄せも直しもせず、選び直せば揃うことを知らせる（Fail-Fast）
   const conflicted = new Set(phases.map((phase) => rowParamSummary(phase.draft, rewards))).size > 1
@@ -650,30 +693,44 @@ const TriggerRow = ({ label, heading, description, note, phases, media, rewards,
           <ChevronDown aria-hidden="true" className={open ? 'rotate-180' : ''} />
           {/* 読み上げでは、どの行の見出しかが分かるように呼び名から始める（見出しに出ていない複数持ての行だけ） */}
           {heading === null && <span className="sr-only">{label}:</span>}
-          {/* 狭い画面でも右のバッジと重ならないよう、名前と説明は切り詰めずに折り返す（ボタンの既定は折り返さない） */}
-          <span className="flex min-w-0 flex-1 flex-col gap-0.5 text-left whitespace-normal">
-            <span className="font-medium">{title}</span>
-            {description !== null && <span className="text-xs font-normal text-muted-foreground">{description}</span>}
+          {/* 出来事・絞り込み・効果の3列にそろえ、どの行でも同じ位置に同じ種類の値が来るようにする。
+              1行だけの項目では1列目に項目の名前と説明、複数持ての行では1列目に絞り込みそのものを出す（項目の名前は枠の見出しにある） */}
+          <span className={`grid min-w-0 flex-1 ${ROW_COLUMNS} items-center gap-3 text-left whitespace-normal`}>
+            <span className="flex min-w-0 flex-col gap-0.5">
+              {heading !== null ? (
+                // 効果をひとつも付けていない行は、並んではいるが何も起きないので薄く出す
+                <span className={withActions.length === 0 ? 'font-medium text-muted-foreground' : 'font-medium'}>{title}</span>
+              ) : typedParam !== null ? (
+                <RowParamView param={typedParam} />
+              ) : (
+                <span className="text-muted-foreground">まだ決めていません</span>
+              )}
+              {description !== null && <span className="text-xs font-normal text-muted-foreground">{description}</span>}
+            </span>
             {/* 1行だけの項目でも絞り込みを持つことがある（久しぶりの人の日数・広告の自動と手動） */}
-            {heading !== null && param !== null && <span className="truncate text-xs font-normal text-muted-foreground">{param}</span>}
-          </span>
-          {/* 効果は文につながず、ひとつずつバッジで出す（付いているかどうかを文末まで読まずに済ませる）。
-              広告のように効果のまとまりが2つある行では、どちらのときのものかを短い名前で添える */}
-          <span className="flex shrink-0 flex-wrap items-center justify-end gap-1">
-            {withActions.length === 0 ? (
-              <span className="text-xs text-muted-foreground">効果なし</span>
-            ) : (
-              withActions.map(({ phase, actions }) => (
-                <span key={phase.position} className="flex items-center gap-1">
-                  {phase.phase.summary !== null && <span className="text-xs text-muted-foreground">{phase.phase.summary}</span>}
-                  {actions.map((action) => (
-                    <Badge key={action} variant="secondary">
-                      {action}
-                    </Badge>
-                  ))}
-                </span>
-              ))
-            )}
+            <span className="min-w-0">{heading !== null && typedParam !== null && <RowParamView param={typedParam} />}</span>
+            {/* 効果は文につながず、種類ごとの色の札で1つずつ出す（付いているかどうかを文末まで読まずに済ませる）。
+                広告のように効果のまとまりが2つある行では、どちらのときのものかを短い名前で添える */}
+            <span className="flex flex-wrap items-center justify-end gap-1">
+              {withActions.length === 0 ? (
+                <span className="text-xs text-muted-foreground">効果なし</span>
+              ) : (
+                withActions.map(({ phase, actions }) => (
+                  <span key={phase.position} className="flex flex-wrap items-center justify-end gap-1">
+                    {phase.phase.summary !== null && <span className="text-xs text-muted-foreground">{phase.phase.summary}</span>}
+                    {actions.map((action) => (
+                      <Tag key={action.kind} tone={ACTION_TONES[action.kind]}>
+                        {action.label}
+                        {/* アラートは何を流すかが一番知りたいことなので、素材のファイル名を添える */}
+                        {action.kind === 'alert' && alertFileName(phase.draft) !== null && (
+                          <Identifier className="max-w-32 truncate font-normal text-muted-foreground">{alertFileName(phase.draft)}</Identifier>
+                        )}
+                      </Tag>
+                    ))}
+                  </span>
+                ))
+              )}
+            </span>
           </span>
         </Button>
         {onRemove !== null && (
@@ -803,6 +860,8 @@ const TriggerItem = ({ item, rowsByPhase, media, rewards, openPosition, busy, on
 
 interface TriggerGroupProps {
   group: (typeof menuGroups)[number]
+  /** 帯に添える件数（例: 「1 / 6」は、6項目のうち1項目に効果が付いている） */
+  count: string
   /** 畳んでいるか。使わない区分を閉じておけるようにする */
   collapsed: boolean
   onToggle(): void
@@ -812,28 +871,22 @@ interface TriggerGroupProps {
 /**
  * 区分1つぶん。
  *
- * 区分は画面のまとまりとしてカードに入れ、項目の枠はそのカードの中に並べる
- * （区分と項目を同じ字の大きさで並べていたころは、どこまでが1つのまとまりか見分けが付かなかった）。
- * カードは見出しを押して畳める（使わない区分を閉じておけるようにする）。
+ * 区分の名前と件数を灰色の帯に出し、その下に項目の行を並べる（Linear の課題一覧の区分と同じ組み方。docs/decisions/design.md）。
+ * 帯の名前を押すと区分ごと畳める（使わない区分を閉じておけるようにする）。
  */
-const TriggerGroup = ({ group, collapsed, onToggle, children }: TriggerGroupProps) => (
-  <Card role="region" aria-label={group.label}>
-    <CardHeader>
-      <CardTitle>
-        <Button type="button" variant="ghost" className="-ml-2 h-auto justify-start gap-2 px-2 py-1 text-base font-semibold" aria-expanded={!collapsed} onClick={onToggle}>
-          <ChevronDown aria-hidden="true" className={collapsed ? '-rotate-90' : ''} />
-          {group.label}
-        </Button>
-      </CardTitle>
-      {/* 説明はボタンの外に出す（読み上げの名前が説明で埋まらないようにする） */}
-      {group.description !== null && <CardDescription>{group.description}</CardDescription>}
-    </CardHeader>
-    {!collapsed && (
-      <CardContent>
-        <ul className="flex flex-col gap-3">{children}</ul>
-      </CardContent>
-    )}
-  </Card>
+const TriggerGroup = ({ group, count, collapsed, onToggle, children }: TriggerGroupProps) => (
+  <section role="region" aria-label={group.label} className="flex flex-col gap-1.5">
+    <div className="flex items-center gap-2 rounded-md bg-muted pr-3">
+      <Button type="button" variant="ghost" className="h-8.5 justify-start gap-2 px-3 font-medium hover:bg-transparent" aria-expanded={!collapsed} onClick={onToggle}>
+        <ChevronDown aria-hidden="true" className={collapsed ? '-rotate-90' : ''} />
+        {group.label}
+      </Button>
+      <span className="text-muted-foreground tabular-nums">{count}</span>
+    </div>
+    {/* 説明はボタンの外に出す（読み上げの名前が説明で埋まらないようにする） */}
+    {group.description !== null && <p className="px-3 text-xs text-muted-foreground">{group.description}</p>}
+    {!collapsed && <ul className="flex flex-col">{children}</ul>}
+  </section>
 )
 
 type Loaded = { status: 'loading' } | { status: 'ready' } | { status: 'failed'; message: string }
@@ -971,6 +1024,12 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
     return `「${menuLabel(kind)}」の設定を追加しました。保存するまで反映されません`
   }
 
+  /** 区分の帯の件数。効果を1つでも付けた項目の数と、項目の数（広告の開始と終了は1項目に数える） */
+  const groupCount = (group: (typeof menuGroups)[number]): string => {
+    const active = group.items.filter((item) => drafts.some((draft) => item.phases.some((phase) => phase.kind === draft.kind) && hasAnyAction(draft))).length
+    return `${active} / ${group.items.length}`
+  }
+
   const saveTriggers = async (): Promise<string> => {
     const inputs = toTriggerInputs(drafts)
     // Workerが問題点に付ける位置（triggers[0] など）を、送った順の項目の名前へ読み替えるために覚えておく
@@ -1046,6 +1105,7 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
                 <TriggerGroup
                   key={group.label}
                   group={group}
+                  count={groupCount(group)}
                   collapsed={collapsedGroups.includes(group.label)}
                   onToggle={() =>
                     setCollapsedGroups(collapsedGroups.includes(group.label) ? collapsedGroups.filter((label) => label !== group.label) : [...collapsedGroups, group.label])
