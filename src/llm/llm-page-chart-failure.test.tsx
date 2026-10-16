@@ -60,6 +60,6 @@ describe('グラフの読み込みに失敗したとき', () => {
 
     expect(await screen.findByText(/グラフを読み込めませんでした/)).toBeInTheDocument()
     await waitFor(() => expect(screen.getByLabelText('チャットの文面のモデル')).toBeEnabled())
-    expect(screen.getByRole('button', { name: '設定を保存' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'LLMの設定を保存する' })).toBeEnabled()
   })
 })

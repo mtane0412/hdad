@@ -117,7 +117,7 @@ export const RecognitionSectionView = ({ value }: { value: RecognitionContextVal
             <Input id={inputNameId} value={inputNameDraft} placeholder="空なら見張りません" onChange={(event) => setInputNameDraft(event.target.value)} />
           </div>
           <Button type="submit" variant="outline" disabled={!inputNameChanged}>
-            保存
+            入力の名前を保存する
           </Button>
         </form>
 

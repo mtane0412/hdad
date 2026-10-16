@@ -138,7 +138,7 @@ const openTab = async (name: string): Promise<void> => {
 }
 
 const save = async (): Promise<void> => {
-  await userEvent.click(screen.getByRole('button', { name: 'トリガーを保存' }))
+  await userEvent.click(screen.getByRole('button', { name: 'トリガーを保存する' }))
 }
 
 afterEach(cleanup)
@@ -1101,7 +1101,7 @@ describe('botの接続状態', () => {
   test('botが接続済みなら、その知らせは出さない', async () => {
     render(triggerPage(fakeApi()))
 
-    expect(await screen.findByRole('button', { name: 'トリガーを保存' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'トリガーを保存する' })).toBeInTheDocument()
     expect(screen.queryByText(/botが接続されていません/)).not.toBeInTheDocument()
   })
 
@@ -1131,7 +1131,7 @@ describe('読み込みの失敗', () => {
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent('トリガーを表示できません')
     expect(alert).toHaveTextContent('Workerに接続できません')
-    expect(screen.queryByRole('button', { name: 'トリガーを保存' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'トリガーを保存する' })).not.toBeInTheDocument()
   })
 
   test('報酬の一覧だけ取得できないときは、操作盤は出したまま理由を出す', async () => {
@@ -1146,7 +1146,7 @@ describe('読み込みの失敗', () => {
     )
 
     expect(await screen.findByRole('alert')).toHaveTextContent('チャンネルポイント報酬の一覧を取得できませんでした: チャンネルポイントを使えないチャンネルです')
-    expect(screen.getByRole('button', { name: 'トリガーを保存' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'トリガーを保存する' })).toBeInTheDocument()
     // ほかの操作が成功しても、報酬を選べない理由は出したままにする（報酬の一覧はまだ取得できていない）
     await addSettings('報酬を追加する')
     expect(await notice('の設定を追加しました')).toBeInTheDocument()

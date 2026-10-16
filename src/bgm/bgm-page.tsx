@@ -31,6 +31,7 @@ import { useEffect, useId, useState } from 'react'
 import type { AdminApi, MediaItem } from '@/admin/api'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
 import { Link } from '@/app/router'
+import { SaveBar } from '@/components/save-bar'
 import { LoadFailure } from '@/components/load-failure'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -371,11 +372,7 @@ const BgmPageContent = ({ media }: { media: readonly MediaItem[] }) => {
             </div>
           )}
 
-          <div>
-            <Button type="button" disabled={actions.busy} onClick={() => void saveTracks()}>
-              曲の一覧を保存
-            </Button>
-          </div>
+          <SaveBar label="曲の一覧を保存する" busy={actions.busy} onSave={() => void saveTracks()} />
         </CardContent>
       </Card>
     </div>

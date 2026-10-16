@@ -55,7 +55,7 @@ describe('LickCard', () => {
 
     await userEvent.selectOptions(await screen.findByLabelText(SOUND_LABEL), 'media-pecha')
     expect(screen.getByText('未保存の変更があります')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: '効果音を保存' }))
+    await userEvent.click(screen.getByRole('button', { name: 'ペロペロの効果音を保存する' }))
 
     expect(api.saveLickSound).toHaveBeenCalledWith({ sound: 'media-pecha', volume: 0.6 })
     expect(await screen.findByText('ペロペロの効果音を保存しました')).toBeInTheDocument()
@@ -67,7 +67,7 @@ describe('LickCard', () => {
     render(<LickCard api={api} media={media} />)
 
     await userEvent.selectOptions(await screen.findByLabelText(SOUND_LABEL), '')
-    await userEvent.click(screen.getByRole('button', { name: '効果音を保存' }))
+    await userEvent.click(screen.getByRole('button', { name: 'ペロペロの効果音を保存する' }))
 
     expect(api.saveLickSound).toHaveBeenCalledWith({ sound: null, volume: 0.6 })
   })
@@ -81,7 +81,7 @@ describe('LickCard', () => {
     render(<LickCard api={api} media={media} />)
 
     await userEvent.selectOptions(await screen.findByLabelText(SOUND_LABEL), 'media-pecha')
-    await userEvent.click(screen.getByRole('button', { name: '効果音を保存' }))
+    await userEvent.click(screen.getByRole('button', { name: 'ペロペロの効果音を保存する' }))
 
     expect(await screen.findByText(/・効果音（舌が触れるたびに鳴らす）: 素材「media-pecha」が存在しません/)).toBeInTheDocument()
     expect(screen.getByText(/・効果音の音量: 0〜1 の数で指定してください/)).toBeInTheDocument()

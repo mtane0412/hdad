@@ -62,7 +62,7 @@ const waitForLoad = async () => {
   await waitFor(() => expect(screen.getByLabelText('話者ID')).toBeInTheDocument())
 }
 
-const save = async () => userEvent.click(screen.getByRole('button', { name: 'VOICEVOXの設定を保存' }))
+const save = async () => userEvent.click(screen.getByRole('button', { name: 'VOICEVOXの設定を保存する' }))
 
 describe('VOICEVOX の区画', () => {
   test('見出しはサービス名（VOICEVOX）にする', async () => {

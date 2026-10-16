@@ -14,6 +14,7 @@ import { LoadFailure } from '@/components/load-failure'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Identifier, Tag, type TagTone } from '@/components/data/data-display'
+import { DataTable, DataTableCell, DataTableRow } from '@/components/data/data-table'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -49,7 +50,10 @@ const MediaPreview = ({ item }: { item: MediaItem }) => {
 const KIND_TONES: Readonly<Record<MediaKind, TagTone>> = { image: 'blue', video: 'purple', audio: 'orange', vrm: 'indigo' }
 
 /** 行の列（見本・名前・種類・大きさ・上げた日・削除）。見出しの行と素材の行で同じ幅にし、上下で列をそろえる */
-const MEDIA_COLUMNS = 'grid-cols-[7rem_minmax(0,1fr)_4.5rem_5rem_6rem_2.25rem]'
+const MEDIA_COLUMNS = '7rem minmax(0,1fr) 4.5rem 5rem 6rem 2.25rem'
+
+/** 列の見出し。最後は削除のボタンの列なので見出しを置かない */
+const MEDIA_HEADINGS = [{ label: '見本' }, { label: '名前' }, { label: '種類' }, { label: '大きさ', align: 'end' }, { label: '上げた日' }, { label: '' }] as const
 
 /** 上げた日。ブラウザのタイムゾーンの日付で出す（時刻まで出すと列が広がるだけで、見分けるのに使わないため） */
 const uploadedDate = (uploadedAt: string): string => new Date(uploadedAt).toLocaleDateString('ja-JP')
@@ -122,30 +126,28 @@ export const MediaPage = ({ api }: { api: AdminApi }) => {
           {media.length === 0 ? (
             <p className="text-sm text-muted-foreground">素材はまだありません。</p>
           ) : (
-            <div className="flex flex-col">
-              {/* 列の見出し。読み上げでは各行がそのまま読まれるので、見た目だけの見出しにする */}
-              <div aria-hidden="true" className={`grid ${MEDIA_COLUMNS} gap-3 border-b px-3 py-1.5 text-xs font-medium text-muted-foreground`}>
-                <span>見本</span>
-                <span>名前</span>
-                <span>種類</span>
-                <span className="text-right">大きさ</span>
-                <span>上げた日</span>
-              </div>
-              <ul aria-label="素材の一覧" className="flex flex-col">
-                {media.map((item) => (
-                  <li key={item.id} className={`grid ${MEDIA_COLUMNS} items-center gap-3 border-b px-3 py-1.5`}>
-                    <div className="flex h-10 items-center justify-center overflow-hidden rounded-md bg-muted">
+            <DataTable label="素材の一覧" columns={MEDIA_COLUMNS} headings={MEDIA_HEADINGS}>
+              {media.map((item) => (
+                <DataTableRow key={item.id} label={item.name}>
+                  <DataTableCell>
+                    <span className="flex h-10 w-full items-center justify-center overflow-hidden rounded-md bg-muted">
                       <MediaPreview item={item} />
-                    </div>
-                    {/* 長い名前は1行で省略し、全文はホバー（title）で読めるようにする */}
+                    </span>
+                  </DataTableCell>
+                  {/* 長い名前は1行で省略し、全文はホバー（title）で読めるようにする */}
+                  <DataTableCell>
                     <span className="min-w-0 truncate" title={item.name}>
                       <Identifier>{item.name}</Identifier>
                     </span>
-                    <span>
-                      <Tag tone={KIND_TONES[item.kind]}>{kindLabels[item.kind]}</Tag>
-                    </span>
-                    <span className="text-right whitespace-nowrap tabular-nums">{formatBytes(item.size)}</span>
-                    <span className="text-xs text-muted-foreground tabular-nums">{uploadedDate(item.uploadedAt)}</span>
+                  </DataTableCell>
+                  <DataTableCell>
+                    <Tag tone={KIND_TONES[item.kind]}>{kindLabels[item.kind]}</Tag>
+                  </DataTableCell>
+                  <DataTableCell align="end" className="whitespace-nowrap tabular-nums">
+                    {formatBytes(item.size)}
+                  </DataTableCell>
+                  <DataTableCell className="text-xs text-muted-foreground tabular-nums">{uploadedDate(item.uploadedAt)}</DataTableCell>
+                  <DataTableCell>
                     <Button
                       type="button"
                       variant="ghost"
@@ -164,10 +166,10 @@ export const MediaPage = ({ api }: { api: AdminApi }) => {
                     >
                       <Trash2 aria-hidden="true" />
                     </Button>
-                  </li>
-                ))}
-              </ul>
-            </div>
+                  </DataTableCell>
+                </DataTableRow>
+              ))}
+            </DataTable>
           )}
         </CardContent>
       </Card>

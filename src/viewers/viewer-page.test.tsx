@@ -146,7 +146,7 @@ describe('メモ', () => {
     const memoInput = screen.getByRole('textbox', { name: '花子 へのメモ' })
     await userEvent.clear(memoInput)
     await userEvent.type(memoInput, '常連さん')
-    await userEvent.click(screen.getByRole('button', { name: '花子 のメモを保存' }))
+    await userEvent.click(screen.getByRole('button', { name: '花子 のメモを保存する' }))
 
     expect(api.saveNote).toHaveBeenCalledWith('100', '常連さん')
     expect(await findNotice('メモを保存しました')).toBeInTheDocument()
@@ -161,10 +161,24 @@ describe('メモ', () => {
     render(<ViewerPage api={api} />)
     await screen.findByRole('list', { name: '視聴者の一覧' })
     await openViewer('花子')
-
-    await userEvent.click(screen.getByRole('button', { name: '花子 のメモを保存' }))
+    await userEvent.click(screen.getByRole('button', { name: '花子 のメモを保存する' }))
 
     expect(await findNotice('2000文字までにしてください')).toBeInTheDocument()
+  })
+
+  test('書いたメモを保存していないあいだは、保存のボタンの横と閉じた行に印を出す', async () => {
+    render(<ViewerPage api={createFakeApi()} />)
+    await screen.findByRole('list', { name: '視聴者の一覧' })
+    await openViewer('花子')
+    expect(screen.queryByText('未保存の変更があります')).not.toBeInTheDocument()
+
+    await userEvent.type(screen.getByRole('textbox', { name: '花子 へのメモ' }), '！')
+    expect(screen.getByText('未保存の変更があります').closest('[data-tone]')).toHaveAttribute('data-tone', 'attention')
+
+    // 行を閉じても、書きかけがあることを行に残す
+    await userEvent.click(screen.getByRole('button', { name: /^花子/, expanded: true }))
+    const row = within((await screen.findByText('花子')).closest('li') as HTMLElement)
+    expect(row.getByText('未保存').closest('[data-tone]')).toHaveAttribute('data-tone', 'attention')
   })
 })
 

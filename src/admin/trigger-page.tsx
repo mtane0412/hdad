@@ -19,6 +19,7 @@
  */
 import { ChevronDown, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { SaveBar } from '@/components/save-bar'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { LoadFailure } from '@/components/load-failure'
 import { Button, buttonVariants } from '@/components/ui/button'
@@ -1129,12 +1130,7 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
                 </TriggerGroup>
               ))}
             {/* 一覧が長いので、保存ボタンは下に貼り付けておく（一番下まで送らないと保存できない状態を避ける） */}
-            <div className="sticky bottom-0 flex items-center gap-3 border-t bg-background py-3">
-              <Button type="button" disabled={actions.busy} onClick={() => void actions.run(saveTriggers)}>
-                トリガーを保存
-              </Button>
-              {unsaved && <span className="text-sm text-muted-foreground">未保存の変更があります</span>}
-            </div>
+            <SaveBar label="トリガーを保存する" busy={actions.busy} unsaved={unsaved} sticky onSave={() => void actions.run(saveTriggers)} />
           </section>
 
         </TabsContent>

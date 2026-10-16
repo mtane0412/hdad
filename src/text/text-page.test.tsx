@@ -4,7 +4,7 @@
  *
  * 確かめること:
  * - 保存済みのテキストを、名前と本文の入力欄で1件ずつ出すこと
- * - 本文を書き換えて保存すると Worker に書き換えてもらい、変えていないあいだは保存できないこと
+ * - 本文を書き換えて保存すると Worker に書き換えてもらい、保存していない書きかけには印を出すこと
  * - テキストを追加・削除できること（削除は確かめてから行う）
  * - Worker が拒んだ理由（問題点）と、読み込めなかった理由を黙らずに出すこと
  * - 保存していない変更があるあいだは、ページを離れる前に確認を出すこと（useUnsavedChanges）
@@ -47,14 +47,14 @@ const createApi = (texts: TextEntry[] = [goal, doing], overrides: Partial<TextAp
  * 一覧はふだん1行ずつの要約で並び、行（名前から始まるボタン）を押したときだけ、その場で下に入力欄が開く。すでに開いていれば押さない
  */
 const textRegion = async (name: string): Promise<HTMLElement> => {
-  const region = await screen.findByRole('group', { name: `テキスト「${name}」` })
+  const region = await screen.findByRole('listitem', { name: `テキスト「${name}」` })
   const closed = within(region).queryByRole('button', { name: new RegExp(`^${name}`), expanded: false })
   if (closed !== null) await userEvent.click(closed)
   return region
 }
 
 /** 保存済みのテキスト1件の領域を、開かずに返す（閉じた行の要約を確かめるため） */
-const textRow = (name: string): Promise<HTMLElement> => screen.findByRole('group', { name: `テキスト「${name}」` })
+const textRow = (name: string): Promise<HTMLElement> => screen.findByRole('listitem', { name: `テキスト「${name}」` })
 
 describe('テキストの一覧', () => {
   test('閉じた行に、名前・本文の先頭・手動か自動かの札・書いた人を出し、入力欄は開くまで出さない', async () => {
@@ -104,16 +104,20 @@ describe('書き換え', () => {
     const body = within(region).getByRole('textbox', { name: '本文' })
     await userEvent.clear(body)
     await userEvent.type(body, 'ログイン画面をデプロイする')
-    await userEvent.click(within(region).getByRole('button', { name: '保存する' }))
+    await userEvent.click(within(region).getByRole('button', { name: '目標 を保存する' }))
 
     expect(api.update).toHaveBeenCalledWith(1, { name: '目標', mode: 'manual', body: 'ログイン画面をデプロイする', instruction: '' })
     expect(await screen.findByText('「目標」を保存しました')).toBeInTheDocument()
   })
 
-  test('変えていないあいだは保存できない', async () => {
+  test('変えていないあいだは未保存の印を出さず、書き換えると保存のボタンの横に出す', async () => {
     render(<TextPage api={createApi()} />)
+    const region = await textRegion('目標')
+    expect(within(region).queryByText('未保存の変更があります')).not.toBeInTheDocument()
 
-    expect(within(await textRegion('目標')).getByRole('button', { name: '保存する' })).toBeDisabled()
+    await userEvent.type(within(region).getByRole('textbox', { name: '本文' }), '！')
+
+    expect(within(region).getByText('未保存の変更があります').closest('[data-tone]')).toHaveAttribute('data-tone', 'attention')
   })
 
   test('保存していない変更があるあいだは、ページを離れる前に確認を出す', async () => {
@@ -138,7 +142,7 @@ describe('書き換え', () => {
     const name = within(region).getByRole('textbox', { name: '名前' })
     await userEvent.clear(name)
     await userEvent.type(name, '今やってること')
-    await userEvent.click(within(region).getByRole('button', { name: '保存する' }))
+    await userEvent.click(within(region).getByRole('button', { name: '目標 を保存する' }))
 
     // 失敗の行は改行でつないで1つの要素に出る
     expect(await screen.findByText(/・名前: 「今やってること」という名前のテキストはもうあります/)).toBeInTheDocument()
@@ -155,7 +159,7 @@ describe('手動と自動', () => {
 
     await userEvent.click(within(region).getByRole('switch', { name: '自動で書き換える' }))
     await userEvent.type(within(region).getByRole('textbox', { name: '指示文' }), 'いまやっている作業を20字で')
-    await userEvent.click(within(region).getByRole('button', { name: '保存する' }))
+    await userEvent.click(within(region).getByRole('button', { name: '今やってること を保存する' }))
 
     expect(api.update).toHaveBeenCalledWith(3, { name: '今やってること', mode: 'auto', instruction: 'いまやっている作業を20字で' })
   })
@@ -169,7 +173,7 @@ describe('手動と自動', () => {
     await userEvent.type(within(region).getByRole('textbox', { name: '本文' }), '！')
 
     expect(within(region).getByRole('switch', { name: '自動で書き換える' })).not.toBeChecked()
-    await userEvent.click(within(region).getByRole('button', { name: '保存する' }))
+    await userEvent.click(within(region).getByRole('button', { name: '今やってること を保存する' }))
     expect(api.update).toHaveBeenCalledWith(3, {
       name: '今やってること',
       mode: 'manual',
@@ -210,6 +214,6 @@ describe('追加と削除', () => {
     await userEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'テキストを消す' }))
 
     expect(api.remove).toHaveBeenCalledWith(1)
-    await waitFor(() => expect(screen.queryByRole('group', { name: 'テキスト「目標」' })).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByRole('listitem', { name: 'テキスト「目標」' })).not.toBeInTheDocument())
   })
 })

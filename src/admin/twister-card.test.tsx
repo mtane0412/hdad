@@ -55,7 +55,7 @@ describe('TwisterCard', () => {
 
     await userEvent.selectOptions(await screen.findByLabelText(BGM_LABEL), 'media-jajean')
     expect(screen.getByText('未保存の変更があります')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'BGM を保存' }))
+    await userEvent.click(screen.getByRole('button', { name: 'ツイスターのBGMを保存する' }))
 
     expect(api.saveTwisterSound).toHaveBeenCalledWith({ bgm: 'media-jajean', bgmVolume: 0.3 })
     expect(await screen.findByText('ツイスターの BGM を保存しました')).toBeInTheDocument()
@@ -67,7 +67,7 @@ describe('TwisterCard', () => {
     render(<TwisterCard api={api} media={media} />)
 
     await userEvent.selectOptions(await screen.findByLabelText(BGM_LABEL), '')
-    await userEvent.click(screen.getByRole('button', { name: 'BGM を保存' }))
+    await userEvent.click(screen.getByRole('button', { name: 'ツイスターのBGMを保存する' }))
 
     expect(api.saveTwisterSound).toHaveBeenCalledWith({ bgm: null, bgmVolume: 0.3 })
   })
@@ -81,7 +81,7 @@ describe('TwisterCard', () => {
     render(<TwisterCard api={api} media={media} />)
 
     await userEvent.selectOptions(await screen.findByLabelText(BGM_LABEL), 'media-jajean')
-    await userEvent.click(screen.getByRole('button', { name: 'BGM を保存' }))
+    await userEvent.click(screen.getByRole('button', { name: 'ツイスターのBGMを保存する' }))
 
     expect(await screen.findByText(/・BGM（対戦のあいだ流す）: 素材「media-jajean」が存在しません/)).toBeInTheDocument()
     expect(screen.getByText(/・BGMの音量: 0〜1 の数で指定してください/)).toBeInTheDocument()

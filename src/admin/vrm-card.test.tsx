@@ -55,7 +55,7 @@ describe('VrmCard', () => {
 
     await userEvent.selectOptions(await screen.findByLabelText(MODEL_LABEL), 'media-mahou')
     expect(screen.getByText('未保存の変更があります')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'VRM を保存' }))
+    await userEvent.click(screen.getByRole('button', { name: 'VRMを保存する' }))
 
     expect(api.saveVrmModel).toHaveBeenCalledWith({ model: 'media-mahou' })
     expect(await screen.findByText('VRMの演出で出す VRM を保存しました')).toBeInTheDocument()
@@ -71,7 +71,7 @@ describe('VrmCard', () => {
     render(<VrmCard api={api} media={media} />)
 
     await userEvent.selectOptions(await screen.findByLabelText(MODEL_LABEL), 'media-mahou')
-    await userEvent.click(screen.getByRole('button', { name: 'VRM を保存' }))
+    await userEvent.click(screen.getByRole('button', { name: 'VRMを保存する' }))
 
     expect(await screen.findByText(/・出す VRM: 素材「media-mahou」が存在しません/)).toBeInTheDocument()
   })

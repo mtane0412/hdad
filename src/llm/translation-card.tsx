@@ -18,10 +18,10 @@
 import { useEffect, useState } from 'react'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
 import { useUnsavedChanges } from '@/app/router'
+import { SaveBar } from '@/components/save-bar'
 import { HelpButton } from '@/components/help-button'
 import { LoadFailure } from '@/components/load-failure'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -93,7 +93,8 @@ export const TranslationCard = ({ api }: { api: TranslationCardApi }) => {
   }, [api, deeplKeyConfigured])
 
   // 読み込み中は比べる基準が無いので、未保存として扱わない
-  useUnsavedChanges(state !== undefined && state.provider !== savedProvider)
+  const unsaved = state !== undefined && state.provider !== savedProvider
+  useUnsavedChanges(unsaved)
 
   if (loadFailure !== '') return <LoadFailure title="字幕の翻訳の設定を読み込めませんでした" message={loadFailure} />
   if (!state) return <Skeleton className="h-32 w-full" aria-label="字幕の翻訳の設定を読み込んでいます" />
@@ -157,11 +158,7 @@ export const TranslationCard = ({ api }: { api: TranslationCardApi }) => {
           </Alert>
         )}
 
-        <div>
-          <Button type="button" disabled={actions.busy} onClick={() => void actions.run(save)}>
-            翻訳の設定を保存
-          </Button>
-        </div>
+        <SaveBar label="翻訳の設定を保存する" busy={actions.busy} unsaved={unsaved} onSave={() => void actions.run(save)} />
       </CardContent>
     </Card>
   )
