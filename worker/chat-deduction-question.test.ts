@@ -3,7 +3,8 @@
  *
  * Twitch の代わりに署名付きの通知を作り、handleRequest を通して次の点を確かめる（issue #376）。
  * - 「質問」の報酬の交換だけを受け、LLM の答えを D1 に残して交換を FULFILLED にすること
- * - 開催中のゲームが無い・待ち時間の内・LLM の失敗のときは、交換を CANCELED にしてポイントを返すこと
+ * - 同じ人が続けて送った質問も、間を空けずに答えること
+ * - 開催中のゲームが無い・LLM の失敗のときは、交換を CANCELED にしてポイントを返すこと
  *   （受け付けなかったときは LLM を呼ばない）
  * - 同じ通知の再送で二重に答えないこと
  * - ほかの報酬・ほかのチャンネルの交換、報酬をまだ作っていないときは何もしないこと
@@ -135,7 +136,7 @@ const notificationOf = (body: unknown, messageId = 'message-1'): Request => {
 /**
  * 通知を Webhook に渡し、応答を返したあとに走らせた処理（LLM の答えと交換の更新）まで待つ。
  *
- * @param now 届いた時刻（待ち時間を確かめるときにずらす）
+ * @param now 届いた時刻（続けて届いた交換を確かめるときにずらす）
  */
 const deliver = async (env: TestEnv, request: Request, fetchImpl: typeof fetch, now = NOW): Promise<Response> => {
   const deferred: Promise<unknown>[] = []
@@ -188,7 +189,7 @@ describe('チャットで推理の質問の受け口', () => {
     expect(ai.calls).toHaveLength(0)
   })
 
-  it('同じ人が待ち時間の内に送った質問は、LLM を呼ばずに交換を CANCELED にする', async () => {
+  it('同じ人が続けて送った質問も、間を空けずに LLM に答えさせて交換を FULFILLED にする', async () => {
     const { env, ai } = createEnv()
     await prepare(env)
     await startGame(env.DB, 'mount-fuji', NOW - 60 * 1000)
@@ -197,9 +198,9 @@ describe('チャットで推理の質問の受け口', () => {
 
     await deliver(env, notificationOf(redemptionOf({ id: '交換ID-2', user_input: '山ですか？' }), 'message-2'), twitch.fetchImpl, NOW + 5000)
 
-    expect(storedQuestions(env)).toMatchObject([{ status: 'answered' }, { redemption_id: '交換ID-2', status: 'rejected', reject_reason: 'cooldown' }])
-    expect(twitch.updates.map(({ status }) => status)).toEqual(['FULFILLED', 'CANCELED'])
-    expect(ai.calls).toHaveLength(1)
+    expect(storedQuestions(env)).toMatchObject([{ status: 'answered' }, { redemption_id: '交換ID-2', status: 'answered' }])
+    expect(twitch.updates.map(({ status }) => status)).toEqual(['FULFILLED', 'FULFILLED'])
+    expect(ai.calls).toHaveLength(2)
   })
 
   it('LLM が失敗したら、質問を失敗として残し、交換を CANCELED にする', async () => {
