@@ -14,6 +14,15 @@ npm run dev         # 開発サーバー（@cloudflare/vite-plugin がWorkerも�
 npm run build       # Viteビルド（dist/client/ と dist/hdad/）
 ```
 
+## マージ後の手順
+
+main にマージすると、Workers Builds が `npm run deploy`（`wrangler deploy` のあと D1 のマイグレーションを適用）を自動で走らせ、1〜3分で本番に反映される。手元からデプロイはしない。マージ後は、反映が終わったことを次の2つで確かめる（`~/.claude/rules/pr-policy.md` の「マージ後の手順」）。
+
+1. 最新のデプロイがマージ時刻より後にできている: `npx wrangler deployments list --name hdad --json | jq -r '.[-1].created_on'`（数分待ってもできなければ、Workers Builds のビルドが失敗している）
+2. 本番の D1 に未適用のマイグレーションが無い: `npx wrangler d1 migrations list DB --remote` が `No migrations to apply!` を返す
+
+どちらかが満たされなければ、手で `npm run deploy` をやり直さずに状況を報告する。
+
 ## 構成上の約束
 
 ### 置き場所
