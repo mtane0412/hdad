@@ -42,10 +42,43 @@ const createApi = (texts: TextEntry[] = [goal, doing], overrides: Partial<TextAp
   ...overrides,
 })
 
-/** 保存済みのテキスト1件の領域 */
-const textRegion = (name: string): Promise<HTMLElement> => screen.findByRole('group', { name: `テキスト「${name}」` })
+/**
+ * 保存済みのテキスト1件の領域を、入力欄を開いた状態で返す。
+ * 一覧はふだん1行ずつの要約で並び、行（名前から始まるボタン）を押したときだけ、その場で下に入力欄が開く。すでに開いていれば押さない
+ */
+const textRegion = async (name: string): Promise<HTMLElement> => {
+  const region = await screen.findByRole('group', { name: `テキスト「${name}」` })
+  const closed = within(region).queryByRole('button', { name: new RegExp(`^${name}`), expanded: false })
+  if (closed !== null) await userEvent.click(closed)
+  return region
+}
+
+/** 保存済みのテキスト1件の領域を、開かずに返す（閉じた行の要約を確かめるため） */
+const textRow = (name: string): Promise<HTMLElement> => screen.findByRole('group', { name: `テキスト「${name}」` })
 
 describe('テキストの一覧', () => {
+  test('閉じた行に、名前・本文の先頭・手動か自動かの札・書いた人を出し、入力欄は開くまで出さない', async () => {
+    render(<TextPage api={createApi([goal, autoDoing])} />)
+
+    const goalRow = within(await textRow('目標'))
+    expect(goalRow.getByText('ログイン画面を作り終える')).toBeInTheDocument()
+    expect(goalRow.getByText('手動').closest('[data-tone]')).toBeInTheDocument()
+    expect(goalRow.queryByRole('textbox', { name: '本文' })).not.toBeInTheDocument()
+    const doingRow = within(await textRow('今やってること'))
+    expect(doingRow.getByText('自動').closest('[data-tone]')).toHaveAttribute('data-tone', 'teal')
+    expect(doingRow.getByText(/^LLM/)).toBeInTheDocument()
+  })
+
+  test('書き換えて閉じても、保存していないことを行に出す（閉じた行で見落とさないようにする）', async () => {
+    render(<TextPage api={createApi()} />)
+
+    const region = await textRegion('目標')
+    await userEvent.type(within(region).getByRole('textbox', { name: '本文' }), '！')
+    await userEvent.click(within(region).getByRole('button', { name: /^目標/, expanded: true }))
+
+    expect(within(region).getByText('未保存').closest('[data-tone]')).toHaveAttribute('data-tone', 'attention')
+  })
+
   test('保存済みのテキストを、名前と本文の入力欄で出す', async () => {
     render(<TextPage api={createApi()} />)
 

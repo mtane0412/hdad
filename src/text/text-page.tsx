@@ -14,12 +14,14 @@
  * 注意: 保存していない変更（書きかけの本文・追加しかけのテキスト）があるあいだは、ページを離れる前に確認を出す（useUnsavedChanges）。
  * 注意: テキストを消すと、それを映している素材は合成ページで箱にエラーを出す（黙って空にしない）。消す前に確かめる。
  */
+import { ChevronDown } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
 import { usePageActions, errorMessage } from '@/admin/page-actions'
 import { Link, useUnsavedChanges } from '@/app/router'
 import { LoadFailure } from '@/components/load-failure'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { StatusDot, Tag } from '@/components/data/data-display'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -41,6 +43,12 @@ const writtenAtFormat = new Intl.DateTimeFormat('ja-JP', { hour: '2-digit', minu
 /** いまの本文を誰が書いたか（保存済みのテキストだけ） */
 const writerNote = (text: TextEntry): string =>
   text.writtenBy === 'llm' ? `LLMが書いた本文です（${writtenAtFormat.format(new Date(text.updatedAt))}）` : '手で書いた本文です'
+
+/** 閉じた行で、いまの本文を誰が書いたかを短く出す（LLM なら書いた時刻を添える） */
+const writerShort = (text: TextEntry): string => (text.writtenBy === 'llm' ? `LLM ${writtenAtFormat.format(new Date(text.updatedAt))}` : '手書き')
+
+/** 行の列（名前・本文・手動か自動か・書いた人・未保存の印）。どの行も同じ幅にし、上下で列をそろえる */
+const TEXT_COLUMNS = 'grid-cols-[minmax(0,0.8fr)_minmax(0,2fr)_3.5rem_5.5rem_4.5rem]'
 
 /**
  * 名前・本文・自動の切り替え・指示文の入力欄の組。保存済みのテキストと、追加の入力欄で同じものを使う。
@@ -99,6 +107,9 @@ export const TextPage = ({ api }: { api: TextApi }) => {
   const [drafts, setDrafts] = useState<ReadonlyMap<number, TextDraft>>(new Map())
   /** 追加の入力欄の中身 */
   const [added, setAdded] = useState<TextDraft>(EMPTY_DRAFT)
+  /** 入力欄を開いているテキストのID。一覧を見渡せるよう、開くのは1件ずつにする */
+  const [openId, setOpenId] = useState<number | null>(null)
+  const listId = useId()
   const actions = usePageActions(textFailureLines)
 
   useEffect(() => {
@@ -174,21 +185,51 @@ export const TextPage = ({ api }: { api: TextApi }) => {
             配信画面に映す文字です。<Link href="/overlay/" className="underline underline-offset-4">オーバーレイ</Link>で素材「テキスト」を置いて映すテキストを選ぶと、保存するたびにすぐ映ります。配信中に本文だけを書き換えるなら、下部バーからもできます。
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col gap-4">
+        <CardContent className="flex flex-col">
           {saved.length === 0 && <p className="text-sm text-muted-foreground">まだテキストがありません。下で追加してください。</p>}
           {saved.map((text) => {
             const draft = currentDraft(text)
+            const unsaved = !sameDraft(draft, draftOf(text))
+            const open = openId === text.id
+            const detailId = `${listId}-${text.id}`
             return (
-              <section key={text.id} role="group" aria-label={`テキスト「${text.name}」`} className="flex flex-col gap-3 rounded-lg border p-4">
-                <TextFields value={draft} saved={text} onChange={(next) => setDrafts((previous) => new Map(previous).set(text.id, next))} />
-                <div className="flex flex-wrap gap-2">
-                  <Button type="button" disabled={actions.busy || sameDraft(draft, draftOf(text))} onClick={() => void save(text)}>
-                    保存する
+              <section key={text.id} role="group" aria-label={`テキスト「${text.name}」`} className="flex flex-col border-b">
+                {/* 行を押すと、その場で下に入力欄が開く（もう一度押すと閉じる） */}
+                <div className="flex items-center gap-2 py-1">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className={`grid h-auto min-w-0 flex-1 ${TEXT_COLUMNS} items-center gap-3 px-2 py-1.5 text-left font-normal whitespace-normal`}
+                    aria-expanded={open}
+                    // 閉じているあいだは欄が無いので、無い要素を指さないよう開いているときだけ付ける
+                    aria-controls={open ? detailId : undefined}
+                    onClick={() => setOpenId(open ? null : text.id)}
+                  >
+                    <span className="truncate font-medium">{text.name}</span>
+                    {/* 書きかけも含めた、いま映る（保存すると映る）本文の先頭 */}
+                    {draft.body === '' ? <span className="text-muted-foreground">本文なし</span> : <span className="truncate text-muted-foreground">{draft.body}</span>}
+                    <span>
+                      <Tag tone={draft.mode === 'auto' ? 'teal' : 'gray'}>{draft.mode === 'auto' ? '自動' : '手動'}</Tag>
+                    </span>
+                    <span className="text-xs text-muted-foreground tabular-nums">{writerShort(text)}</span>
+                    {/* 閉じた行でも、保存していない書きかけがあることを見落とさないようにする */}
+                    <span>{unsaved && <StatusDot tone="attention">未保存</StatusDot>}</span>
                   </Button>
-                  <Button type="button" variant="outline" className="text-destructive" disabled={actions.busy} onClick={() => askRemove(text)}>
-                    消す
-                  </Button>
+                  <ChevronDown aria-hidden="true" className={open ? 'size-4 shrink-0 rotate-180 text-muted-foreground' : 'size-4 shrink-0 text-muted-foreground'} />
                 </div>
+                {open && (
+                  <div id={detailId} className="flex flex-col gap-3 border-t px-2 py-4">
+                    <TextFields value={draft} saved={text} onChange={(next) => setDrafts((previous) => new Map(previous).set(text.id, next))} />
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="button" disabled={actions.busy || !unsaved} onClick={() => void save(text)}>
+                        保存する
+                      </Button>
+                      <Button type="button" variant="outline" className="text-destructive" disabled={actions.busy} onClick={() => askRemove(text)}>
+                        消す
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </section>
             )
           })}
