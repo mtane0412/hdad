@@ -20,6 +20,8 @@ const FADE_STEP_MS = 50
 export type SoundCue =
   /** BGM をループで鳴らしはじめる（鳴らしている BGM があれば替える） */
   | { readonly type: 'bgmStart'; readonly url: string; readonly volume: number }
+  /** 流している BGM の音量だけを変える（頭から流し直さない。下げている途中なら下げるのをやめる） */
+  | { readonly type: 'bgmVolume'; readonly volume: number }
   /** 効果音を1回鳴らす */
   | { readonly type: 'effect'; readonly url: string; readonly volume: number }
   /** BGM を duration ミリ秒かけて下げ、止める */
@@ -107,6 +109,14 @@ export const createSoundPlayer = (subject: string, onError: (error: Error) => vo
     bgm = { ...playing, fadeTimer: undefined }
   }
 
+  /** 流している BGM の音量を変える。BGM を流していなければ何もしない */
+  const setBgmVolume = (volume: number): void => {
+    if (bgm === null) return
+    window.clearInterval(bgm.fadeTimer)
+    bgm.fadeTimer = undefined
+    bgm.audio.volume = volume
+  }
+
   /** BGM を duration ミリ秒かけて0まで下げ、止める */
   const fadeOutBgm = (duration: number): void => {
     const playing = bgm
@@ -140,6 +150,9 @@ export const createSoundPlayer = (subject: string, onError: (error: Error) => vo
       switch (cue.type) {
         case 'bgmStart':
           startBgm(cue.url, cue.volume)
+          return
+        case 'bgmVolume':
+          setBgmVolume(cue.volume)
           return
         case 'bgmFadeOut':
           fadeOutBgm(cue.duration)

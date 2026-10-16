@@ -111,6 +111,13 @@ describe('chatDeductionSoundCuesOf', () => {
     ])
   })
 
+  it('BGM の音声はそのままで音量だけを変えた設定が届いたら、BGM を頭から流し直さずに音量だけを変える', () => {
+    // 前提: 開催中で、考える曲を 0.2 で流している。読み直しで、同じ曲を 0.5 にした設定が届いた
+    const louder = { ...fullSound, bgmVolume: 0.5 }
+
+    expect(chatDeductionSoundCuesOf(started, boardOf(runningGame, [], louder), false)).toEqual([{ type: 'bgmVolume', volume: 0.5 }])
+  })
+
   it('「鳴らさない」にした枠は、場面が来ても鳴らさない', () => {
     expect(chatDeductionSoundCuesOf(boardOf(null, [], silentSound), boardOf(runningGame, [question], silentSound), true)).toEqual([])
   })

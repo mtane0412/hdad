@@ -32,6 +32,8 @@ export const CHAT_DEDUCTION_BGM_DUCK_RENEW_MS = CHAT_DEDUCTION_BGM_DUCK_HOLD_MS 
 export type ChatDeductionSoundCue =
   /** BGM をループで鳴らしはじめる（鳴らしている BGM があれば替える） */
   | { readonly type: 'bgmStart'; readonly url: string; readonly volume: number }
+  /** 流している BGM の音量だけを変える（頭から流し直さない） */
+  | { readonly type: 'bgmVolume'; readonly volume: number }
   /** 効果音を1回鳴らす */
   | { readonly type: 'effect'; readonly url: string; readonly volume: number }
   /** BGM を duration ミリ秒かけて下げ、止める */
@@ -87,7 +89,11 @@ export const chatDeductionSoundCuesOf = (previous: ChatDeductionBoard | null, ne
 
   const playingBgm = previous === null ? null : chatDeductionBgmUrlOf(previous)
   const nextBgm = chatDeductionBgmUrlOf(next)
-  if (nextBgm === playingBgm) return effects
+  if (nextBgm === playingBgm) {
+    // 同じ曲のまま音量だけを選び直した設定が届いたら、流している曲の音量を合わせる
+    const volumeChanged = nextBgm !== null && previous !== null && previous.sound.bgmVolume !== bgmVolume
+    return volumeChanged ? [...effects, { type: 'bgmVolume', volume: bgmVolume }] : effects
+  }
   if (nextBgm === null) return [...effects, { type: 'bgmFadeOut', duration: CHAT_DEDUCTION_BGM_FADE_OUT_MS }]
   return [...effects, { type: 'bgmStart', url: nextBgm, volume: bgmVolume }]
 }
