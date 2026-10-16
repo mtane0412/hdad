@@ -1,14 +1,22 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@fontsource-variable/geist";
+@import "@fontsource-variable/inter";
 
 /* 明暗はOSの設定に従う（切り替えの仕組みは持たない） */
 @custom-variant dark (@media (prefers-color-scheme: dark));
 
 @theme inline {
     --font-heading: var(--font-sans);
-    --font-sans: 'Geist Variable', sans-serif;
+    /* 欧文は Inter、和文は OS の角ゴシック（Inter は和文の字形を持たない）。Linear・Cloudflare と同じ欧文に揃える（docs/decisions/design.md） */
+    --font-sans: 'Inter Variable', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', sans-serif;
+    /* 本文は 13px・補足は 12px を基本にし、見出しは大きさでなく太さで分ける（ページの見出しだけ 15px） */
+    --text-xs: 0.75rem;
+    --text-xs--line-height: 1.5;
+    --text-sm: 0.8125rem;
+    --text-sm--line-height: 1.55;
+    --text-heading: 0.9375rem;
+    --text-heading--line-height: 1.4;
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -50,24 +58,25 @@
 }
 
 :root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
+    /* 本文のパネル。灰色の地（--sidebar）の上に浮かせる。色みはごくわずかな青（色相285）を全体で共有する */
+    --background: oklch(0.995 0.002 285);
+    --foreground: oklch(0.21 0.006 285);
+    --card: oklch(0.995 0.002 285);
+    --card-foreground: oklch(0.21 0.006 285);
     --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
+    --popover-foreground: oklch(0.21 0.006 285);
+    --primary: oklch(0.27 0.01 285);
+    --primary-foreground: oklch(0.985 0.002 285);
+    --secondary: oklch(0.955 0.004 285);
+    --secondary-foreground: oklch(0.27 0.01 285);
+    --muted: oklch(0.955 0.004 285);
+    --muted-foreground: oklch(0.47 0.01 285);
+    --accent: oklch(0.94 0.005 285);
+    --accent-foreground: oklch(0.21 0.006 285);
     /* 白地で文字のコントラスト比 4.5:1 を超える濃さにする（shadcn の既定 0.577 は 4.49:1 で足りない） */
     --destructive: oklch(0.53 0.22 27.325);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
+    --border: oklch(0.91 0.004 285);
+    --input: oklch(0.88 0.005 285);
     /* フォーカスの印の色。背景との差が 3:1 を超えるよう、灰色ではなく青にする */
     --ring: oklch(0.55 0.2 260);
     --chart-1: oklch(0.87 0 0);
@@ -75,49 +84,50 @@
     --chart-3: oklch(0.439 0 0);
     --chart-4: oklch(0.371 0 0);
     --chart-5: oklch(0.269 0 0);
-    --radius: 0.625rem;
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.205 0 0);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
+    --radius: 0.5rem;
+    /* サイドバーと、本文のパネルの外側の地 */
+    --sidebar: oklch(0.955 0.003 285);
+    --sidebar-foreground: oklch(0.21 0.006 285);
+    --sidebar-primary: oklch(0.27 0.01 285);
+    --sidebar-primary-foreground: oklch(0.985 0.002 285);
+    --sidebar-accent: oklch(0.915 0.005 285);
+    --sidebar-accent-foreground: oklch(0.21 0.006 285);
+    --sidebar-border: oklch(0.91 0.004 285);
     --sidebar-ring: oklch(0.55 0.2 260);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-      --background: oklch(0.145 0 0);
-      --foreground: oklch(0.985 0 0);
-      --card: oklch(0.205 0 0);
-      --card-foreground: oklch(0.985 0 0);
-      --popover: oklch(0.205 0 0);
-      --popover-foreground: oklch(0.985 0 0);
-      --primary: oklch(0.922 0 0);
-      --primary-foreground: oklch(0.205 0 0);
-      --secondary: oklch(0.269 0 0);
-      --secondary-foreground: oklch(0.985 0 0);
-      --muted: oklch(0.269 0 0);
-      --muted-foreground: oklch(0.708 0 0);
-      --accent: oklch(0.269 0 0);
-      --accent-foreground: oklch(0.985 0 0);
+      --background: oklch(0.2 0.005 285);
+      --foreground: oklch(0.96 0.003 285);
+      --card: oklch(0.2 0.005 285);
+      --card-foreground: oklch(0.96 0.003 285);
+      --popover: oklch(0.23 0.006 285);
+      --popover-foreground: oklch(0.96 0.003 285);
+      --primary: oklch(0.94 0.004 285);
+      --primary-foreground: oklch(0.22 0.006 285);
+      --secondary: oklch(0.27 0.006 285);
+      --secondary-foreground: oklch(0.96 0.003 285);
+      --muted: oklch(0.27 0.006 285);
+      --muted-foreground: oklch(0.72 0.01 285);
+      --accent: oklch(0.27 0.006 285);
+      --accent-foreground: oklch(0.96 0.003 285);
       --destructive: oklch(0.704 0.191 22.216);
-      --border: oklch(1 0 0 / 10%);
-      --input: oklch(1 0 0 / 15%);
+      --border: oklch(1 0 0 / 9%);
+      --input: oklch(1 0 0 / 14%);
       --ring: oklch(0.72 0.15 250);
       --chart-1: oklch(0.87 0 0);
       --chart-2: oklch(0.556 0 0);
       --chart-3: oklch(0.439 0 0);
       --chart-4: oklch(0.371 0 0);
       --chart-5: oklch(0.269 0 0);
-      --sidebar: oklch(0.205 0 0);
-      --sidebar-foreground: oklch(0.985 0 0);
+      --sidebar: oklch(0.16 0.004 285);
+      --sidebar-foreground: oklch(0.96 0.003 285);
       --sidebar-primary: oklch(0.488 0.243 264.376);
       --sidebar-primary-foreground: oklch(0.985 0 0);
-      --sidebar-accent: oklch(0.269 0 0);
-      --sidebar-accent-foreground: oklch(0.985 0 0);
-      --sidebar-border: oklch(1 0 0 / 10%);
+      --sidebar-accent: oklch(0.24 0.006 285);
+      --sidebar-accent-foreground: oklch(0.96 0.003 285);
+      --sidebar-border: oklch(1 0 0 / 8%);
       --sidebar-ring: oklch(0.72 0.15 250);
   }
 }

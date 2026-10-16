@@ -78,10 +78,10 @@ const Centered = ({ children }: { children: React.ReactNode }) => (
 
 const LoginScreen = () => (
   <Centered>
-    <Card className="w-full max-w-sm">
+    <Card className="w-full max-w-sm rounded-xl border bg-card px-4">
       <CardHeader>
         {/* このページの見出しなので h1 にする（CardTitle は h2） */}
-        <h1 className="font-heading text-base leading-snug font-medium">HDAD</h1>
+        <h1 className="font-heading text-heading leading-snug font-medium">HDAD</h1>
         <CardDescription>Hyperfocus-Driven Assistant Director</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -161,13 +161,14 @@ const Shell = ({
             {/* 下部バーの高さ。サイドバーの下端・本文の下の余白・バー自身の高さが同じ値を使う */}
             <SidebarProvider className="[--bottom-bar-height:4rem]">
               {/* サイドバーは画面の下端ではなく下部バーの上で終わらせる（下部バーをサイドバーの下まで通すため） */}
-              <Sidebar collapsible="icon" className="bottom-(--bottom-bar-height) h-auto">
+              <Sidebar variant="inset" collapsible="icon" className="bottom-(--bottom-bar-height) h-auto">
                 {/* サイドバーの見出しと末尾も、読み上げソフトの「ランドマーク」で飛べる領域にする */}
                 <SidebarHeader role="banner">
                   <div className="flex items-center gap-1">
                     <div className="min-w-0 flex-1 px-2 py-1 group-data-[collapsible=icon]:hidden">
                       <span className="font-mono text-sm font-semibold">HDAD</span>
-                      <span className="block text-[10px] leading-tight text-muted-foreground">Hyperfocus-Driven Assistant Director</span>
+                      {/* Inter は Geist より字幅が広く、折り返すとサイドバーの項目が1行ぶん隠れるので1行に収める */}
+                      <span className="block truncate text-xs leading-tight text-muted-foreground" title="Hyperfocus-Driven Assistant Director">Hyperfocus-Driven Assistant Director</span>
                     </div>
                     <SidebarTrigger aria-label="サイドバーを開閉する" />
                   </div>
@@ -218,7 +219,7 @@ const Shell = ({
               </Sidebar>
               <SidebarInset id="main" className="pb-(--bottom-bar-height)">
                 <div className="mx-auto w-full max-w-5xl flex-1 p-4 sm:p-6">
-                  <h1 ref={headingRef} tabIndex={-1} className="mb-4 truncate text-lg font-semibold tracking-tight outline-none sm:mb-6">
+                  <h1 ref={headingRef} tabIndex={-1} className="mb-4 truncate text-heading font-semibold tracking-tight outline-none sm:mb-6">
                     {title}
                   </h1>
                   {/* ページが変わったら key で作り直し、前のページの状態を持ち越さない。
