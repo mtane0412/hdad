@@ -27,8 +27,8 @@ const PLAYER_TOGGLE_CLASS =
 
 const TONE_CLASSES: Readonly<Record<RecognitionTone, string>> = {
   idle: 'bg-muted-foreground',
-  ok: 'bg-emerald-500',
-  warn: 'bg-amber-500',
+  ok: 'bg-positive',
+  warn: 'bg-attention',
   error: 'bg-destructive',
 }
 

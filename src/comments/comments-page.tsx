@@ -167,7 +167,7 @@ const ChatRow = ({
     className={cn(
       'group flex items-start gap-2 border-l-4 border-transparent px-3 py-1.5',
       controls.focused && 'bg-accent',
-      controls.awaitingGreeting && 'border-amber-500 bg-amber-500/10',
+      controls.awaitingGreeting && 'border-attention bg-attention/10',
     )}
   >
     {/* 消された発言はアイコンと本文を薄くするが、操作のボタンは薄くしない（その人のタイムアウト・BANは続けてできる） */}
@@ -190,7 +190,7 @@ const ChatRow = ({
         {removed && <span className="ml-2 text-xs text-muted-foreground">（削除済み）</span>}
         {controls.focused && <span className="ml-2 rounded bg-primary px-1.5 text-xs font-semibold text-primary-foreground">注目中</span>}
         {/* 色だけに頼らず、文字でも挨拶がまだであることを出す */}
-        {controls.awaitingGreeting && <span className="ml-2 rounded bg-amber-500 px-1.5 text-xs font-semibold text-white">未挨拶</span>}
+        {controls.awaitingGreeting && <span className="ml-2 rounded bg-attention px-1.5 text-xs font-semibold text-attention-foreground">未挨拶</span>}
         {item.firstOfStream && !controls.awaitingGreeting && <span className="ml-2 text-xs text-muted-foreground">初コメ</span>}
       </div>
     </div>
@@ -570,7 +570,7 @@ export const CommentsPage = ({ api, focusApi, connect }: CommentsPageProps) => {
           <>
             <span className="font-semibold">未挨拶 {waiting.length}人:</span>
             {waiting.map((item) => (
-              <Button key={item.id} type="button" variant="outline" size="sm" className="border-amber-500" onClick={() => jumpTo(item)}>
+              <Button key={item.id} type="button" variant="outline" size="sm" className="border-attention" onClick={() => jumpTo(item)}>
                 {item.user.name}
               </Button>
             ))}

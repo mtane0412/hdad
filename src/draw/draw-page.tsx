@@ -502,6 +502,8 @@ export const DrawPage = ({ connect, api }: DrawPageProps) => {
 
           {/* 配信画面と同じ縦横比にする（比が違うと、合成ページに出たときに図が歪む）。
               背景はキャンバスの下に敷き、描く操作はキャンバスが受ける */}
+          {/* 下地の黒は配信画面に重ねたときの見え方を真似た色で、ページUIの明暗のトークンには従わせない */}
+          {/* eslint-disable-next-line no-restricted-syntax -- 配信画面の下地を真似た固定の色のため */}
           <div className="relative aspect-video w-full overflow-hidden rounded-md border bg-neutral-900">
             {showBackground && background.kind === 'image' && (
               <img

@@ -2,7 +2,7 @@
  * ページUIの色のトークン（src/app/app.css）が、文字と背景の組み合わせごとに読める濃さの差を持つことを確かめる。
  *
  * 明るい表示（:root）と暗い表示（prefers-color-scheme: dark の :root）の両方を、
- * WCAG 2 のコントラスト比で測る。文字は 4.5:1、フォーカスの印のような文字でないものは 3:1 を下限にする。
+ * WCAG 2 のコントラスト比で測る。文字は 4.5:1、フォーカスの印や状態の点のような文字でないものは 3:1 を下限にする。
  * トークンを書き換えたときに、見た目の好みで読みにくい組み合わせを作ってしまうのを防ぐためのテストである。
  */
 import { readFileSync } from 'node:fs'
@@ -67,6 +67,20 @@ const TEXT_PAIRS: readonly (readonly [text: string, background: string])[] = [
   ['destructive', 'background'],
   ['sidebar-foreground', 'sidebar'],
   ['sidebar-accent-foreground', 'sidebar-accent'],
+  // 注意の札（コメントの「未挨拶」など）の文字
+  ['attention-foreground', 'attention'],
+]
+
+/** 種類の札（Tag）の点の色。文字ではなく点として本文の背景に置く */
+const TAG_TONES = ['orange', 'blue', 'purple', 'teal', 'pink', 'green', 'red', 'yellow', 'indigo', 'gray'] as const
+
+/** 文字でないもの（フォーカスの印・状態の点・種類の点・成功の印）と、その背景の組み合わせ */
+const NON_TEXT_PAIRS: readonly (readonly [mark: string, background: string])[] = [
+  ['ring', 'background'],
+  ['sidebar-ring', 'sidebar'],
+  ['positive', 'background'],
+  ['attention', 'background'],
+  ...TAG_TONES.map((tone) => [`tag-${tone}`, 'background'] as const),
 ]
 
 describe.each([
@@ -86,11 +100,7 @@ describe.each([
     expect(contrast(token(text), token(background))).toBeGreaterThanOrEqual(TEXT_MINIMUM)
   })
 
-  test('フォーカスの印（--ring）は本文の背景の上で 3:1 以上の差がある', () => {
-    expect(contrast(token('ring'), token('background'))).toBeGreaterThanOrEqual(NON_TEXT_MINIMUM)
-  })
-
-  test('フォーカスの印（--sidebar-ring）はサイドバーの背景の上で 3:1 以上の差がある', () => {
-    expect(contrast(token('sidebar-ring'), token('sidebar'))).toBeGreaterThanOrEqual(NON_TEXT_MINIMUM)
+  test.each(NON_TEXT_PAIRS)('印 --%s は背景 --%s の上で 3:1 以上の差がある', (mark, background) => {
+    expect(contrast(token(mark), token(background))).toBeGreaterThanOrEqual(NON_TEXT_MINIMUM)
   })
 })
