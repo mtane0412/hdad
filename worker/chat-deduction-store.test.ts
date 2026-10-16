@@ -94,8 +94,8 @@ describe('最後のゲームの読み取り（readLatestGame）', () => {
 })
 
 describe('質問の受け付け（reserveQuestion）', () => {
-  /** 上限は小さくして確かめる（1問あたり2件・同じ人の待ち時間は1分） */
-  const LIMITS = { maxQuestionsPerGame: 2, cooldownMs: 60 * 1000 }
+  /** 上限は小さくして確かめる（1問あたり2件） */
+  const LIMITS = { maxQuestionsPerGame: 2 }
   /** 田中太郎さんの質問の交換 */
   const tanakaAsks = (redemptionId: string, question = '生き物ですか？') => ({
     redemptionId,
@@ -146,18 +146,16 @@ describe('質問の受け付け（reserveQuestion）', () => {
     expect(question).toMatchObject({ gameId: null, status: 'rejected', rejectReason: 'no-game', settledAt: '2026-10-15T12:00:00.000Z' })
   })
 
-  it('1問あたりの上限に達していれば、理由 limit で受け付けない（受け付けなかった質問は数えない）', async () => {
+  it('1問あたりの上限に達していれば、理由 limit で受け付けない', async () => {
     const db = createFakeDatabase()
     await startGame(db, 'mount-fuji', NOW)
     await reserveQuestion(db, tanakaAsks('交換ID-1'), LIMITS, NOW)
-    // 待ち時間の内に送った2件目は受け付けないので、上限の数には入らない
-    expect(await reserveQuestion(db, tanakaAsks('交換ID-2'), LIMITS, NOW + 1000)).toMatchObject({ status: 'rejected', rejectReason: 'cooldown' })
-    expect(await reserveQuestion(db, suzukiAsks('交換ID-3'), LIMITS, NOW + 2000)).toMatchObject({ status: 'pending' })
+    expect(await reserveQuestion(db, suzukiAsks('交換ID-2'), LIMITS, NOW + 1000)).toMatchObject({ status: 'pending' })
 
-    expect(await reserveQuestion(db, tanakaAsks('交換ID-4'), LIMITS, LATER)).toMatchObject({ status: 'rejected', rejectReason: 'limit' })
+    expect(await reserveQuestion(db, tanakaAsks('交換ID-3'), LIMITS, LATER)).toMatchObject({ status: 'rejected', rejectReason: 'limit' })
   })
 
-  it('答えられなかった（failed）質問は上限の数にも待ち時間にも入れない（ポイントを返したため）', async () => {
+  it('答えられなかった（failed）質問は上限の数に入れない（ポイントを返したため）', async () => {
     const db = createFakeDatabase()
     await startGame(db, 'mount-fuji', NOW)
     const first = await reserveQuestion(db, tanakaAsks('交換ID-1'), LIMITS, NOW)
@@ -167,15 +165,15 @@ describe('質問の受け付け（reserveQuestion）', () => {
     expect(await reserveQuestion(db, suzukiAsks('交換ID-3'), LIMITS, NOW + 2000)).toMatchObject({ status: 'pending' })
   })
 
-  it('同じ人でも待ち時間を過ぎていれば受け付ける', async () => {
+  it('同じ人が続けて送った質問も、間を空けずに受け付ける', async () => {
     const db = createFakeDatabase()
     await startGame(db, 'mount-fuji', NOW)
     await reserveQuestion(db, tanakaAsks('交換ID-1'), LIMITS, NOW)
 
-    expect(await reserveQuestion(db, tanakaAsks('交換ID-2'), LIMITS, NOW + LIMITS.cooldownMs)).toMatchObject({ status: 'pending' })
+    expect(await reserveQuestion(db, tanakaAsks('交換ID-2', '山ですか？'), LIMITS, NOW + 1)).toMatchObject({ status: 'pending' })
   })
 
-  it('前のゲームの質問は、次のゲームの上限にも待ち時間にも入れない', async () => {
+  it('前のゲームの質問は、次のゲームの上限に入れない', async () => {
     const db = createFakeDatabase()
     const first = await startGame(db, 'mount-fuji', NOW)
     await reserveQuestion(db, tanakaAsks('交換ID-1'), LIMITS, NOW)
@@ -188,7 +186,7 @@ describe('質問の受け付け（reserveQuestion）', () => {
 })
 
 describe('質問の答えと失敗の記録（answerQuestion・failQuestion）', () => {
-  const LIMITS = { maxQuestionsPerGame: 30, cooldownMs: 60 * 1000 }
+  const LIMITS = { maxQuestionsPerGame: 30 }
   const tanakaAsks = { redemptionId: '交換ID-1', userId: '田中太郎のユーザーID', userLogin: 'tanaka_taro', userName: '田中太郎', question: '日本にありますか？' }
 
   it('答え待ちの質問に、はい・いいえ・分からないと1文を書き、答えた（answered）にする', async () => {
@@ -320,7 +318,7 @@ describe('解答の受け付けと正誤の記録（reserveGuess・markGuessWron
 })
 
 describe('合成ページに並べるカードの読み取り（readGameCards。issue #378）', () => {
-  const LIMITS = { maxQuestionsPerGame: 30, cooldownMs: 0 }
+  const LIMITS = { maxQuestionsPerGame: 30 }
   /** 田中太郎さんの交換（質問・解答の両方に使う） */
   const tanaka = { userId: '田中太郎のユーザーID', userLogin: 'tanaka_taro', userName: '田中太郎' }
   const suzuki = { userId: '鈴木花子のユーザーID', userLogin: 'suzuki_hanako', userName: '鈴木花子' }

@@ -125,7 +125,7 @@ export const DEFAULT_LLM_SETTINGS: LlmSettings = {
     // テーマを締め切ったときと作り直させたときにしか呼ばないので、回数は少ない
     opinionSummary: { provider: 'workers-ai', models: LARGE_MODELS },
     // チャットで推理の質問への答え（worker/chat-deduction-answer.ts）は、事実メモに無いことを作らせず「分からない」と言わせたいので大きいモデルにする。
-    // 視聴者がポイントを払った質問のうち、1問あたりの上限と同じ人の待ち時間を通ったものにしか呼ばない
+    // 視聴者がポイントを払った質問のうち、1問あたりの上限を通ったものにしか呼ばない
     chatDeductionAnswer: { provider: 'workers-ai', models: LARGE_MODELS },
   },
 }

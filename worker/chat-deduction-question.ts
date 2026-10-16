@@ -3,7 +3,7 @@
  *
  * EventSub の Webhook に届いたチャンネルポイントの交換のうち、HDAD が作った「質問」の報酬（worker/chat-deduction-rewards.ts）
  * の交換を受ける（「解答」の報酬の交換は worker/chat-deduction-guess.ts へ振り分ける。issue #377）。流れは次のとおり。
- * 1. 交換のIDを鍵に質問の行を作り、受け付けるかどうか（開催中のゲーム・1問あたりの上限・同じ人の待ち時間）を同じ1つの文で決める
+ * 1. 交換のIDを鍵に質問の行を作り、受け付けるかどうか（開催中のゲーム・1問あたりの上限）を同じ1つの文で決める
  *    （worker/chat-deduction-store.ts の reserveQuestion）。行がもうあれば再送なので何もしない（二重に答えない）
  * 2. Twitch へ2xxを返したあとで（waitUntil）、受け付けた質問には LLM に答えさせて D1 に書き、交換を FULFILLED にする。
  *    受け付けなかった質問と答えられなかった質問は、交換を CANCELED にして視聴者へポイントを返す。
@@ -32,9 +32,9 @@ const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 /**
  * 質問を受け付ける上限（方針8。LLM の呼び出しの回数を、視聴者の数ではなくゲームの数で抑える）。
  *
- * 1問あたり30件あれば、はい・いいえの絞り込みで答えに届く。同じ人の待ち時間は、1人が続けて質問して上限を使い切らないための間隔。
+ * 1問あたり30件あれば、はい・いいえの絞り込みで答えに届く。同じ人が続けて質問しても受け付ける（待ち時間は設けない）。
  */
-export const CHAT_DEDUCTION_QUESTION_LIMITS: ChatDeductionQuestionLimits = { maxQuestionsPerGame: 30, cooldownMs: 60 * 1000 }
+export const CHAT_DEDUCTION_QUESTION_LIMITS: ChatDeductionQuestionLimits = { maxQuestionsPerGame: 30 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
 
@@ -82,7 +82,7 @@ const answer = async (context: Context, question: ChatDeductionQuestion): Promis
  *
  * 交換を更新するトークンは LLM より先に取る。取れないまま LLM を呼ぶと、配信中にトークンが古いだけで
  * 質問ごとに LLM の枠を使い、交換は1件も処理されないためである。取れなければ答え待ちの質問を失敗として閉じてから投げる
- * （答え待ちのまま残すと、上限と待ち時間に数え続けてしまう）。
+ * （答え待ちのまま残すと、上限に数え続けてしまう）。
  */
 const settle = async (context: Context, rewards: ChatDeductionRewards, question: ChatDeductionQuestion): Promise<void> => {
   const { accessToken } = await getManageToken(context).catch(async (error: unknown) => {

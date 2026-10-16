@@ -29,7 +29,7 @@ const startGameWithOneAnswer = async () => {
   const question = await reserveQuestion(
     db,
     { redemptionId: '交換ID-1', userId: '田中太郎のユーザーID', userLogin: 'tanaka_taro', userName: '田中太郎', question: '生き物ですか？' },
-    { maxQuestionsPerGame: 30, cooldownMs: 0 },
+    { maxQuestionsPerGame: 30 },
     NOW,
   )
   await answerQuestion(db, question!.id, { verdict: 'no', reply: '生き物ではありません。' }, NOW + 1000)

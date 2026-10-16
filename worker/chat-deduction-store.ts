@@ -3,7 +3,7 @@
  *
  * 開催中のゲーム（ended_at が NULL）は1つだけで、開始のときに1つの文の中で確かめる（意見ボードのテーマと同じ形）。
  * 報酬をONにできなかったときに開始を無かったことにできるよう、開催中のゲームの行は消せる（cancelGame）。
- * 質問は、交換のIDを鍵に行を作るのと、受け付けるかどうか（開催中のゲーム・上限・待ち時間）の判断を1つの文で行う（reserveQuestion）。
+ * 質問は、交換のIDを鍵に行を作るのと、受け付けるかどうか（開催中のゲーム・上限）の判断を1つの文で行う（reserveQuestion）。
  * 解答も交換のIDを鍵に行を作り（reserveGuess）、正解なら正解者を1人に決めてゲームを終えるまでを1つのトランザクションで行う（solveGame）。
  *
  * 注意: SQL はこのファイルだけが持ち、必ずプレースホルダを使う。
@@ -32,7 +32,10 @@ const toIso = (milliseconds: number): string => new Date(milliseconds).toISOStri
 /** 質問の状態（pending: 答え待ち。answered: 答えた。rejected: 受け付けなかった。failed: LLM が答えられなかった） */
 export type ChatDeductionQuestionStatus = 'pending' | 'answered' | 'rejected' | 'failed'
 
-/** 質問を受け付けなかった理由（no-game: 開催中のゲームが無い。limit: 1問あたりの上限。cooldown: 同じ人の待ち時間の内） */
+/**
+ * 質問を受け付けなかった理由（no-game: 開催中のゲームが無い。limit: 1問あたりの上限。
+ * cooldown: 同じ人の待ち時間の内。待ち時間は廃止したので新しくは付けず、廃止前の行にだけ残る）
+ */
 export type ChatDeductionRejectReason = 'no-game' | 'limit' | 'cooldown'
 
 /** 質問への答え（yes: はい。no: いいえ。unknown: 分からない） */
@@ -53,8 +56,6 @@ export interface ChatDeductionQuestionInput {
 export interface ChatDeductionQuestionLimits {
   /** 1問（ゲーム1つ）あたりに受け付ける質問の数 */
   maxQuestionsPerGame: number
-  /** 同じ人が続けて質問するまでに空ける時間（ミリ秒） */
-  cooldownMs: number
 }
 
 /** 質問1件 */
@@ -137,15 +138,15 @@ export const readGame = async (db: Database, id: number): Promise<ChatDeductionG
  * 受け付けるかどうかは次の順に、行を作るのと同じ1つの文の中で決める（同時に届いた交換が上限を越えて通らないようにするため）。
  * 1. 開催中のゲームが無い → no-game
  * 2. そのゲームの答え待ち・答えた質問が上限に達している → limit
- * 3. 同じ人が、そのゲームで待ち時間の内に答え待ち・答えた質問を送っている → cooldown
- * 受け付けなかった質問と答えられなかった質問（failed）はポイントを返すので、上限と待ち時間に数えない。
+ * 受け付けなかった質問と答えられなかった質問（failed）はポイントを返すので、上限に数えない。
+ * 同じ人が続けて質問しても受け付ける（待ち時間は設けない）。
  *
  * @returns 作った質問（受け付けたなら pending、受け付けなかったなら rejected）。同じ交換のIDの行がもうあれば（再送）null
  */
 export const reserveQuestion = async (
   db: Database,
   input: ChatDeductionQuestionInput,
-  { maxQuestionsPerGame, cooldownMs }: ChatDeductionQuestionLimits,
+  { maxQuestionsPerGame }: ChatDeductionQuestionLimits,
   now: number,
 ): Promise<ChatDeductionQuestion | null> =>
   db
@@ -160,8 +161,6 @@ export const reserveQuestion = async (
                   WHEN game.id IS NULL THEN 'no-game'
                   WHEN (SELECT COUNT(*) FROM chat_deduction_questions AS asked
                         WHERE asked.game_id = game.id AND asked.status IN ('pending', 'answered')) >= ?7 THEN 'limit'
-                  WHEN EXISTS (SELECT 1 FROM chat_deduction_questions AS asked
-                               WHERE asked.game_id = game.id AND asked.user_id = ?2 AND asked.status IN ('pending', 'answered') AND asked.asked_at > ?8) THEN 'cooldown'
                 END AS reason
          FROM (SELECT 1) AS one LEFT JOIN chat_deduction_games AS game ON game.ended_at IS NULL
        ) AS judged
@@ -169,7 +168,7 @@ export const reserveQuestion = async (
        ON CONFLICT (redemption_id) DO NOTHING
        RETURNING ${QUESTION_COLUMNS}`,
     )
-    .bind(input.redemptionId, input.userId, input.userLogin, input.userName, input.question, toIso(now), maxQuestionsPerGame, toIso(now - cooldownMs))
+    .bind(input.redemptionId, input.userId, input.userLogin, input.userName, input.question, toIso(now), maxQuestionsPerGame)
     .first<ChatDeductionQuestion>()
 
 /**
