@@ -19,6 +19,7 @@ import {
   type AnnouncementColor,
   type MediaItem,
   type Reward,
+  type StoredAction,
   type StoredTrigger,
   type TriggerInput,
   type TriggerKind,
@@ -725,26 +726,80 @@ export const rowParamSummary = (draft: TriggerDraft, rewards: readonly Reward[])
   }
 }
 
+/** 行に出す効果1つ。kind は効果の種類（Workerへ送る動作の type と同じ名前）で、画面は種類ごとに札の色を決める */
+export interface RowAction {
+  kind: StoredAction['type']
+  label: string
+}
+
 /**
- * その行が持つ効果の名前。付けている順ではなく、いつも同じ並びで返す。
+ * その行が持つ効果。付けている順ではなく、いつも同じ並びで返す。
  *
- * 画面ではバッジとして1つずつ出し、絞り込みの文言（rowParamSummary）と見た目で分ける
+ * 画面では種類ごとの色の札として1つずつ出し、絞り込み（rowParam）と見た目で分ける
  * （ひと続きの文にすると、効果が付いているかどうかを読み取るのに文末まで読むことになる）。
  * ひとつも持たない行は保存されず何も起きないので、空の配列を返して呼び出し側に「効果なし」と出させる。
  */
-export const rowActionLabels = (draft: TriggerDraft): readonly string[] =>
-  [
-    draft.alertEnabled ? 'アラート' : null,
-    draft.chatEnabled ? 'チャット' : null,
-    draft.announceEnabled ? 'アナウンス' : null,
-    draft.aiChatEnabled ? 'AIチャット' : null,
-    draft.shoutoutEnabled ? 'シャウトアウト' : null,
-    draft.townTourEnabled ? '市町村紹介' : null,
-    draft.twisterEnabled ? 'ツイスター' : null,
-    draft.kanjiQuizEnabled ? '漢字クイズ' : null,
-    draft.lickEnabled ? 'ペロペロ' : null,
-    draft.vrmEnabled ? 'VRM' : null,
-  ].filter((label) => label !== null)
+export const rowActions = (draft: TriggerDraft): readonly RowAction[] =>
+  (
+    [
+      draft.alertEnabled && { kind: 'alert', label: 'アラート' },
+      draft.chatEnabled && { kind: 'chat', label: 'チャット' },
+      draft.announceEnabled && { kind: 'announce', label: 'アナウンス' },
+      draft.aiChatEnabled && { kind: 'aiChat', label: 'AIチャット' },
+      draft.shoutoutEnabled && { kind: 'shoutout', label: 'シャウトアウト' },
+      draft.townTourEnabled && { kind: 'townTour', label: '市町村紹介' },
+      draft.twisterEnabled && { kind: 'twister', label: 'ツイスター' },
+      draft.kanjiQuizEnabled && { kind: 'kanjiQuiz', label: '漢字クイズ' },
+      draft.lickEnabled && { kind: 'lick', label: 'ペロペロ' },
+      draft.vrmEnabled && { kind: 'vrm', label: 'VRM' },
+    ] satisfies readonly (RowAction | false)[]
+  ).filter((action) => action !== false)
+
+/** その行が持つ効果の名前（rowActions の名前だけ）。読み上げの文言と、問題点の説明に使う */
+export const rowActionLabels = (draft: TriggerDraft): readonly string[] => rowActions(draft).map((action) => action.label)
+
+/**
+ * 行に出す絞り込みを、値の型ごとに分けたもの。画面は型ごとに部品を選ぶ
+ * （報酬は色の見本＋名前、ログイン名とキーワードは等幅、日数は数、それ以外は言葉）。
+ */
+export type RowParam =
+  | { type: 'reward'; title: string; color: string | null }
+  | { type: 'login'; login: string }
+  | { type: 'keyword'; text: string }
+  | { type: 'days'; days: number }
+  | { type: 'text'; text: string }
+
+/**
+ * 行に出す絞り込み。絞り込んでいない・まだ決めていなければ null（何も添えない）。
+ *
+ * Twitchの一覧にない報酬は、黙って省略せずに報酬IDをそのまま名前にし、色は持たせない（設定を取り違えないため）。
+ * 日数が数として読めないときは、黙って直さず「未入力」と言葉で返す（保存するときに toTriggerInputs がエラーにする）。
+ */
+export const rowParam = (draft: TriggerDraft, rewards: readonly Reward[]): RowParam | null => {
+  switch (draft.kind) {
+    case 'reward': {
+      if (draft.rewardId === ALL_REWARDS) return { type: 'text', text: 'すべての報酬' }
+      const reward = rewards.find((candidate) => candidate.id === draft.rewardId)
+      return { type: 'reward', title: reward?.title ?? draft.rewardId, color: reward?.backgroundColor ?? null }
+    }
+    case 'fromUser':
+    case 'fromUserFirstOfStream':
+      return draft.login === '' ? null : { type: 'login', login: draft.login }
+    case 'keyword':
+      return draft.contains === '' ? null : { type: 'keyword', text: draft.contains }
+    case 'comeback': {
+      const days = Number(draft.days)
+      return draft.days.trim() === '' || !Number.isFinite(days) ? { type: 'text', text: '日数が未入力' } : { type: 'days', days }
+    }
+    case 'adBreakBegin':
+    case 'adBreakEnd': {
+      const summary = rowParamSummary(draft, rewards)
+      return summary === null ? null : { type: 'text', text: summary }
+    }
+    default:
+      return null
+  }
+}
 
 /** 素材の大きさを読みやすい単位で表す */
 export const formatBytes = (size: number): string => {

@@ -132,15 +132,67 @@ const addSettings = async (label: string): Promise<void> => {
   await userEvent.click(await screen.findByRole('button', { name: label }))
 }
 
+/** ページのタブを選ぶ。演出ごとの設定と配信画面への出し方は、トリガーの一覧とは別のタブにある */
+const openTab = async (name: string): Promise<void> => {
+  await userEvent.click(await screen.findByRole('tab', { name }))
+}
+
 const save = async (): Promise<void> => {
   await userEvent.click(screen.getByRole('button', { name: 'トリガーを保存' }))
 }
 
 afterEach(cleanup)
 
+describe('タブ', () => {
+  test('最初はトリガーの一覧を出し、演出の設定と配信画面への出し方は、タブを選ぶまで出さない', async () => {
+    render(triggerPage(fakeApi()))
+
+    expect(await screen.findByRole('region', { name: 'チャット' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'トリガー' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: '演出の設定' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '配信画面への出し方' })).toBeInTheDocument()
+    // 演出の設定（市町村紹介など）と出し方の案内は、一覧と同じ画面には並べない
+    expect(screen.queryByRole('button', { name: '市町村紹介を試しに流す' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'オーバーレイの構成を開く' })).not.toBeInTheDocument()
+  })
+
+  test('演出の設定のタブには、演出ごとの設定が並ぶ', async () => {
+    render(triggerPage(fakeApi()))
+    await openTab('演出の設定')
+
+    expect(await screen.findByRole('button', { name: '市町村紹介を試しに流す' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'ツイスターを試しに流す' })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'チャット' })).not.toBeInTheDocument()
+  })
+
+  test('タブを移って戻っても、演出の設定のカードに入れた値は消えない（保存前の変更を失わない）', async () => {
+    render(triggerPage(fakeApi()))
+    await openTab('演出の設定')
+    await userEvent.type(await screen.findByRole('textbox', { name: 'ツイスターの相手とみなすユーザー名（任意）' }), 'hoshino_yu')
+
+    await openTab('トリガー')
+    await openTab('演出の設定')
+
+    expect(screen.getByRole('textbox', { name: 'ツイスターの相手とみなすユーザー名（任意）' })).toHaveValue('hoshino_yu')
+  })
+
+  test('タブを移って戻っても、トリガーの未保存の変更は消えない', async () => {
+    render(triggerPage(fakeApi()))
+    const row = await openedItem('フォローされた')
+    await userEvent.click(row.getByRole('checkbox', { name: 'チャットに送る' }))
+    expect(screen.getByText('未保存の変更があります')).toBeInTheDocument()
+
+    await openTab('演出の設定')
+    await openTab('トリガー')
+
+    expect(await screen.findByText('未保存の変更があります')).toBeInTheDocument()
+  })
+})
+
 describe('オーバーレイ用キー', () => {
   test('OBSに貼るURLは出さず、合成オーバーレイの管理画面へ案内する', async () => {
     render(triggerPage(fakeApi()))
+    await openTab('配信画面への出し方')
 
     // アラート専用のページは消したので（issue #107）、この画面はURLを配らない
     expect(screen.queryByLabelText('OBSのブラウザソースに貼るURL')).not.toBeInTheDocument()
@@ -151,6 +203,7 @@ describe('オーバーレイ用キー', () => {
     const api = fakeApi()
     const onOverlayKeyChange = vi.fn()
     render(triggerPage(api, { onOverlayKeyChange }))
+    await openTab('配信画面への出し方')
 
     await userEvent.click(await screen.findByRole('button', { name: 'キーを再発行する' }))
     const dialog = await screen.findByRole('alertdialog')
@@ -166,6 +219,7 @@ describe('オーバーレイ用キー', () => {
   test('確認でやめたら、キーは再発行しない', async () => {
     const api = fakeApi()
     render(triggerPage(api))
+    await openTab('配信画面への出し方')
 
     await userEvent.click(await screen.findByRole('button', { name: 'キーを再発行する' }))
     await userEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'やめる' }))
@@ -211,6 +265,60 @@ describe('一覧', () => {
     expect(frame.getByText('チャット')).toBeInTheDocument()
     expect(frame.getByText('アナウンス')).toBeInTheDocument()
     expect(frame.queryByText('効果なし')).not.toBeInTheDocument()
+  })
+
+  test('効果は種類ごとの色の札で出す（どの効果かを色でも見分けられるようにする）', async () => {
+    const greetingAndAnnouncement: StoredTrigger = {
+      kind: 'follow',
+      actions: [
+        { type: 'chat', message: 'ありがとう' },
+        { type: 'announce', message: 'フォローありがとう', color: 'purple' },
+      ],
+    }
+    render(triggerPage(fakeApi({ config: async () => [greetingAndAnnouncement] })))
+
+    const frame = within(await itemFrame('フォローされた'))
+    expect(frame.getByText('チャット').closest('[data-tone]')).toHaveAttribute('data-tone', 'blue')
+    expect(frame.getByText('アナウンス').closest('[data-tone]')).toHaveAttribute('data-tone', 'purple')
+  })
+
+  test('アラートの札には、流す素材のファイル名を等幅で添える', async () => {
+    render(triggerPage(fakeApi()))
+
+    const row = within(await screen.findByRole('listitem', { name: 'チャンネルポイントが交換されたの1番目の設定' }))
+    expect(row.getByText('拍手.webm').tagName).toBe('CODE')
+  })
+
+  test('報酬の絞り込みは、報酬の色の見本と名前で出す', async () => {
+    render(triggerPage(fakeApi()))
+
+    const row = within(await screen.findByRole('listitem', { name: 'チャンネルポイントが交換されたの1番目の設定' }))
+    expect(row.getByRole('img', { name: '背景色 #9147FF' })).toBeInTheDocument()
+    expect(row.getByText('拍手を送る')).toBeInTheDocument()
+  })
+
+  test('決まった人の絞り込みは、@ を付けたログイン名を等幅で出す', async () => {
+    const fromHoshino: StoredTrigger = { kind: 'fromUser', login: 'hoshino_yu', actions: [{ type: 'chat', message: 'いらっしゃい' }] }
+    render(triggerPage(fakeApi({ config: async () => [fromHoshino] })))
+
+    const row = within(await screen.findByRole('listitem', { name: '決まった人の発言の1番目の設定' }))
+    expect(row.getByText('@hoshino_yu').tagName).toBe('CODE')
+  })
+
+  test('久しぶりの人の日数は、数と単位で出す', async () => {
+    const comeback: StoredTrigger = { kind: 'comeback', days: 14, actions: [{ type: 'chat', message: 'おかえり' }] }
+    render(triggerPage(fakeApi({ config: async () => [comeback] })))
+
+    const frame = within(await itemFrame('久しぶりの人の発言'))
+    expect(frame.getByText('14')).toBeInTheDocument()
+    expect(frame.getByText('日以上')).toBeInTheDocument()
+  })
+
+  test('区分の帯に、効果を付けた項目の数と項目の数を出す', async () => {
+    render(triggerPage(fakeApi()))
+
+    // イベントの区分は6項目（報酬・フォロー・サブスク・継続のサブスク・レイド・広告）で、効果があるのは報酬だけ
+    expect(within(await screen.findByRole('region', { name: 'イベント' })).getByText('1 / 6')).toBeInTheDocument()
   })
 
   test('複数の設定を持てる項目も、1行だけの項目と同じ枠に入れて並べる（見た目が2種類に分かれないようにする）', async () => {
@@ -421,6 +529,7 @@ describe('効果の付け外し', () => {
   test('市町村紹介の試し再生を押すと、Workerに流させ、送った一文を知らせる', async () => {
     const api = fakeApi()
     render(triggerPage(api))
+    await openTab('演出の設定')
 
     await userEvent.click(await screen.findByRole('button', { name: '市町村紹介を試しに流す' }))
 
@@ -450,6 +559,7 @@ describe('効果の付け外し', () => {
   test('ツイスターの試し再生を押すと、Workerに流させ、対戦する2人を知らせる', async () => {
     const api = fakeApi()
     render(triggerPage(api))
+    await openTab('演出の設定')
 
     await userEvent.click(await screen.findByRole('button', { name: 'ツイスターを試しに流す' }))
 
@@ -460,6 +570,7 @@ describe('効果の付け外し', () => {
   test('ツイスターの相手とみなすユーザー名を入れて試し再生を押すと、その名前を送る', async () => {
     const api = fakeApi()
     render(triggerPage(api))
+    await openTab('演出の設定')
 
     await userEvent.type(await screen.findByRole('textbox', { name: 'ツイスターの相手とみなすユーザー名（任意）' }), ' hoshino_yu ')
     await userEvent.click(screen.getByRole('button', { name: 'ツイスターを試しに流す' }))
@@ -493,6 +604,7 @@ describe('効果の付け外し', () => {
   test('ペロペロの相手とみなすユーザー名を入れて試し再生を押すと、その名前を送り、舐めた相手を知らせる', async () => {
     const api = fakeApi({ playLickDemo: vi.fn(async () => '星野ゆう') })
     render(triggerPage(api))
+    await openTab('演出の設定')
 
     await userEvent.type(await screen.findByRole('textbox', { name: 'ペロペロの相手とみなすユーザー名（任意）' }), ' hoshino_yu ')
     await userEvent.click(screen.getByRole('button', { name: 'ペロペロを試しに流す' }))
@@ -532,6 +644,7 @@ describe('効果の付け外し', () => {
   test('VRMの演出を試しに流すと、Workerに試し再生を頼み、流したことを知らせる', async () => {
     const api = fakeApi({ vrmModel: vi.fn(async () => ({ model: 'media-kanban' })) })
     render(triggerPage(api))
+    await openTab('演出の設定')
 
     await userEvent.click(await screen.findByRole('button', { name: 'VRMを試しに流す' }))
 
@@ -574,6 +687,7 @@ describe('効果の付け外し', () => {
   test('漢字クイズの級を選んで試し再生を押すと、その級でWorkerに流させ、出した問題を知らせる', async () => {
     const api = fakeApi()
     render(triggerPage(api))
+    await openTab('演出の設定')
 
     await userEvent.selectOptions(await screen.findByRole('combobox', { name: '試しに出題する級' }), '6級')
     await userEvent.click(screen.getByRole('button', { name: '漢字クイズを試しに流す' }))
