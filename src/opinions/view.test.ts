@@ -3,7 +3,8 @@
  * 意見ボードの表示（view.ts）のテスト
  *
  * 配信画面に出しっぱなしにするものなので、次の点を確かめる。
- * - 中央にテーマ、左右に論点を3つずつ並べ、論点ごとに新しい意見を3件まで札の種類つきで出すこと
+ * - 中央にテーマ、左右に論点を交互に3つずつ並べ、論点ごとに意見を新しい順にすべて札の種類つきで出すこと
+ *   （列に収まらない札を隠すのは見た目（opinions.css）の仕事なので、ここでは確かめない。issue #403）
  * - 人数を出さないこと（多数決に見せないため）
  * - 「いま紹介している意見」を現在時刻から選んで中央に出し、論点の中の同じ札にも印を付けること
  * - 作ったばかりの意見に印を付けること
@@ -63,18 +64,23 @@ const firstTopicCards = (): string[] =>
   )
 
 describe('createOpinionView', () => {
-  it('中央にテーマ、左右に論点を3つずつ並べる', () => {
+  it('中央にテーマ、左右に論点を作った順に交互に3つずつ並べる', () => {
     createOpinionView(root).setBoard(board)
 
     expect(root.querySelector('.opinions-theme-title')?.textContent).toBe('配信中にAIをどこまで使っていい？')
-    expect(topicTitles('left')).toEqual(['視聴者との距離', '作業のテンポ', '間違いとの付き合い方'])
-    expect(topicTitles('right')).toEqual(['AIだと分かること', '見ていて楽しいか', '学びになるか'])
+    expect(topicTitles('left')).toEqual(['視聴者との距離', '間違いとの付き合い方', '見ていて楽しいか'])
+    expect(topicTitles('right')).toEqual(['作業のテンポ', 'AIだと分かること', '学びになるか'])
   })
 
-  it('論点ごとに新しい意見を3件まで、札の種類つきで出し、人数は出さない', () => {
+  it('論点ごとに意見を新しい順にすべて、札の種類つきで出し、人数は出さない（件数で切らない。issue #403）', () => {
     createOpinionView(root).setBoard(board)
 
-    expect(firstTopicCards()).toEqual(['解決策｜挨拶だけAIに任せる', '気づき｜初見さんへの挨拶はAIでも嬉しい', '問い｜AIの返事は誰の言葉なのか'])
+    expect(firstTopicCards()).toEqual([
+      '解決策｜挨拶だけAIに任せる',
+      '気づき｜初見さんへの挨拶はAIでも嬉しい',
+      '問い｜AIの返事は誰の言葉なのか',
+      '課題｜AIが返事すると距離を感じる',
+    ])
     expect(root.textContent).not.toMatch(/[0-9０-９]+人/)
   })
 

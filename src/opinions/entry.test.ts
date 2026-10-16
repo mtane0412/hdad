@@ -99,9 +99,16 @@ describe('isFresh', () => {
 describe('splitTopics', () => {
   const topic = (id: number): OverlayTopic => ({ id, title: `論点${id}`, opinions: [] })
 
-  it('作った順に、左に3つ・右に3つ並べる', () => {
-    const { left, right } = splitTopics([1, 2, 3, 4, 5].map(topic))
-    expect(left.map(({ id }) => id)).toEqual([1, 2, 3])
-    expect(right.map(({ id }) => id)).toEqual([4, 5])
+  it('作った順に左右へ交互に置き、論点が少なくても片側だけが埋まらないようにする（issue #403）', () => {
+    // 論点が3つのとき: 1つ目と3つ目が左、2つ目が右
+    const { left, right } = splitTopics([1, 2, 3].map(topic))
+    expect(left.map(({ id }) => id)).toEqual([1, 3])
+    expect(right.map(({ id }) => id)).toEqual([2])
+  })
+
+  it('枠は左右3つずつで、7つ目からは置かない', () => {
+    const { left, right } = splitTopics([1, 2, 3, 4, 5, 6, 7].map(topic))
+    expect(left.map(({ id }) => id)).toEqual([1, 3, 5])
+    expect(right.map(({ id }) => id)).toEqual([2, 4, 6])
   })
 })

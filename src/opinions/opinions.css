@@ -4,7 +4,8 @@
  * 配信者が出したテーマについて、視聴者のコメントから取り出した意見を論点ごとに並べる（issue #306）。3列で、中央にテーマと
  * 「いま紹介している意見」、中央下に視聴者への問いかけ（issue #307）、左右に論点を3つずつ置く。配信画面に重ねるので次の4つを守る。
  * - 背景を塗りつぶさず、作業ログ・作業机と同じ半透明の暗い板に載せる（下の配信画面が透けて見える）
- * - どの論点も同じ大きさの枠にし、人数で大きさや並びを変えない（多数決に見せないため。src/opinions/view.ts）
+ * - 論点の枠は左右の列の高さを論点の数で等分し、意見の件数で大きさや並びを変えない（多数決に見せないため。src/opinions/view.ts）。
+ *   枠に収まらない古い札は、途中で切らずに丸ごと隠す（.opinions-cards。issue #403）
  * - 札の種類（課題・解決策・問い・気づき）は、文字の印と、明るさの違う色の両方で見分けられるようにする
  * - 新しく入った札（data-fresh）と、中央で紹介している札（data-lit）だけを目立たせる
  */
@@ -39,6 +40,8 @@
 
 .opinions-topic {
   display: flex;
+  /* 列の高さを論点の数で等分する。意見の件数で枠を伸び縮みさせない（多数決に見せないため） */
+  flex: 1 1 0;
   flex-direction: column;
   gap: 8px;
   min-height: 0;
@@ -54,17 +57,33 @@
   font-weight: 900;
 }
 
+/*
+ * 札は新しい順に上から並べ、枠の高さに収まるだけ見せる（件数で切らない。issue #403）。
+ * 縦向きの flex を折り返させると、収まらない札は丸ごと次の列（枠の右の外）へ送られるので、overflow で隠せる。
+ * 途中で切れた札が見えず、合成ページの箱の大きさや書体の読み込みで高さが変わっても測り直さずに済む。
+ * 隠れた古い意見も「いま紹介している意見」で順に回ってくる。
+ */
 .opinions-cards {
   display: flex;
+  flex: 1 1 0;
   flex-direction: column;
-  gap: 8px;
-  margin: 0;
-  padding: 0;
+  flex-wrap: wrap;
+  /* 次の列を枠の外へ確実に追い出すため、札の光（下の data-fresh）よりも広く空ける */
+  column-gap: 100px;
+  row-gap: 8px;
+  min-height: 0;
+  /* 内側の余白のぶん左右へはみ出させ、札の左端を論点の見出しにそろえる */
+  margin: 0 -6px;
+  /* 札の縁の輪（data-lit・data-fresh）が overflow で切れないよう、枠の内側に余白を取る */
+  padding: 6px;
+  overflow: hidden;
   list-style: none;
 }
 
 .opinions-card {
   display: flex;
+  box-sizing: border-box;
+  width: 100%;
   gap: 12px;
   align-items: flex-start;
   padding: 10px 16px;
