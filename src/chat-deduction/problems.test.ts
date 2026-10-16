@@ -3,18 +3,20 @@
  *
  * 解答の正誤は別名の一覧との照合だけで決め、質問への答えは事実メモだけを材料に LLM に作らせる（issue #375）。
  * そのため、別名か事実メモが空の問題・知らない区分・IDや別名の重複は、ここで止める。
+ * 配信者は問題集（「古代史の人物」など）を選び、問題は Worker がその中から決める。
+ * そのため、問題の無い問題集・問題集のIDの重複・問題集をまたいだ問題のIDの重複も、ここで止める。
  */
 import { describe, expect, it } from 'vitest'
-import { readChatDeductionProblems } from './problems'
-import problems from './problems.json'
+import { readChatDeductionProblemSets, readChatDeductionProblems } from './problems'
+import problemSets from './problems.json'
 
 describe('問題集（problems.json）', () => {
-  it('問題集として読める（区分は既知の値・別名と事実メモは空でない・IDの重複なし）', () => {
-    expect(() => readChatDeductionProblems(problems)).not.toThrow()
+  it('問題集の一覧として読める（区分は既知の値・別名と事実メモは空でない・IDの重複なし）', () => {
+    expect(() => readChatDeductionProblemSets(problemSets)).not.toThrow()
   })
 
-  it('1問以上ある（ページで問題を選べる）', () => {
-    expect(readChatDeductionProblems(problems).length).toBeGreaterThan(0)
+  it('1つ以上の問題集がある（ページで問題集を選べる）', () => {
+    expect(readChatDeductionProblemSets(problemSets).length).toBeGreaterThan(0)
   })
 })
 
@@ -63,5 +65,44 @@ describe('readChatDeductionProblems', () => {
 
   it('配列でなければ投げる', () => {
     expect(() => readChatDeductionProblems({})).toThrowError(/配列/)
+  })
+})
+
+describe('readChatDeductionProblemSets', () => {
+  const fuji = { id: 'mount-fuji', category: 'place', answer: '富士山', aliases: ['富士山'], facts: ['日本でいちばん高い山。'] }
+  const himiko = { id: 'himiko', category: 'person', answer: '卑弥呼', aliases: ['卑弥呼'], facts: ['3世紀前半の倭の女王。'] }
+  const misc = { id: 'misc', name: 'いろいろ', problems: [fuji] }
+  const ancientPeople = { id: 'ancient-people', name: '古代史の人物', problems: [himiko] }
+
+  it('ID・名前・問題の一覧を持つ問題集を読む', () => {
+    expect(readChatDeductionProblemSets([ancientPeople, misc])).toEqual([ancientPeople, misc])
+  })
+
+  it('問題集のIDが英小文字・数字・ハイフン以外を含むなら投げる（経路の本文にそのまま載せるため）', () => {
+    expect(() => readChatDeductionProblemSets([{ ...misc, id: 'いろいろ' }])).toThrowError(/0番目.*ID/)
+  })
+
+  it('問題集の名前が空なら投げる（選ぶ欄に出せないため）', () => {
+    expect(() => readChatDeductionProblemSets([{ ...misc, name: '' }])).toThrowError(/0番目（misc）.*名前/)
+  })
+
+  it('問題が1つも無い問題集なら投げる（選んでも出題できないため）', () => {
+    expect(() => readChatDeductionProblemSets([{ ...misc, problems: [] }])).toThrowError(/0番目（misc）.*問題/)
+  })
+
+  it('問題の形が違えば、どの問題集の何番目の問題かを添えて投げる', () => {
+    expect(() => readChatDeductionProblemSets([{ ...misc, problems: [{ ...fuji, answer: '' }] }])).toThrowError(/misc.*0番目（mount-fuji）.*正解/)
+  })
+
+  it('同じIDの問題集が2つあれば投げる', () => {
+    expect(() => readChatDeductionProblemSets([misc, { ...ancientPeople, id: 'misc' }])).toThrowError(/1番目（misc）.*重複/)
+  })
+
+  it('問題集をまたいで同じIDの問題があれば投げる（ゲームの行は問題のIDだけを持つため）', () => {
+    expect(() => readChatDeductionProblemSets([misc, { ...ancientPeople, problems: [{ ...himiko, id: 'mount-fuji' }] }])).toThrowError(/mount-fuji.*重複/)
+  })
+
+  it('配列でなければ投げる', () => {
+    expect(() => readChatDeductionProblemSets({})).toThrowError(/配列/)
   })
 })
