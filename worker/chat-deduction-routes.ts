@@ -101,7 +101,10 @@ export const postChatDeductionGame = async (context: Context): Promise<Response>
   const body = await readJson(context)
   const setId = typeof body === 'object' && body !== null && 'setId' in body ? body.setId : undefined
   const set = CHAT_DEDUCTION_PROBLEM_SETS.find((candidate) => candidate.id === setId)
-  if (set === undefined) throw new HttpError(STATUS.badRequest, 'unknown-problem-set', `問題集「${String(setId)}」はありません`)
+  if (set === undefined) {
+    // 文字列でない値は文字列にしない（toString を持たない値で文面を作ると、400の前に落ちるため）
+    throw new HttpError(STATUS.badRequest, 'unknown-problem-set', typeof setId === 'string' ? `問題集「${setId}」はありません` : '問題集のID（setId）を文字列で指定してください')
+  }
   const rewards = await requireRewards(context)
   const { env, twitch, now } = context
   // 行を作る前にトークンを確かめる（スコープが足りなければ、行を作らずにログインし直しを求める）

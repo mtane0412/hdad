@@ -303,7 +303,8 @@ describe('ゲームの開始（POST /api/admin/chat-deduction/games）', () => {
     const env = createEnv()
     await saveRewards(env)
 
-    for (const body of [{ setId: 'no-such-set' }, { problemId: 'mount-fuji' }]) {
+    // 文字列でない setId（toString を潰したもの）でも、文面を作るところで落ちずに400を返す
+    for (const body of [{ setId: 'no-such-set' }, { problemId: 'mount-fuji' }, { setId: { toString: null } }]) {
       const response = await invoke(await broadcasterRequest(env, '/api/admin/chat-deduction/games', postJson(body)), env)
 
       expect(response.status).toBe(400)
