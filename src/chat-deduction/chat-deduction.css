@@ -1,32 +1,87 @@
 /*
- * チャットで推理（合成ページの素材）の見た目（issue #378）
+ * チャットで推理（合成ページの素材）の見た目（issue #378。画面いっぱいの格子への改良）
  *
- * 配信画面の中央に板を大きく置き、視聴者の質問と答え・解答をカードで縦に積む。次のことを守る。
- * - 箱は配信画面と同じ大きさ（src/overlay/layout.ts）にして、板を箱の中央に寄せる。板は箱より大きくならない
- * - 主役の画面の邪魔をしないよう、半透明の暗い板にカードを置く（作業机 src/task-desk/task-desk.css と同じ板）
- * - 答えは印の文字（はい・いいえ・分からない）と色の両方で分ける（data-verdict）。はいは緑、いいえは赤、分からないは灰
- * - 解答は正解・不正解で分け（data-result）、正解のカードは金色の枠で目立たせる
+ * 配信画面いっぱいに白い板を置き、視聴者の質問と答え・解答のカードを3列の格子に読む順（左上から右へ、行を下へ）で並べる。
+ * 見た目は、白地に原色・状態を色面で伝える・下側の厚み・丸みのある形、という型に寄せる。次のことを守る。
+ * - 箱は配信画面と同じ大きさ（src/overlay/layout.ts）にして、板は箱いっぱいに広げる
+ * - 値は下の .chat-deduction で宣言したトークンだけを使う。色はライトの値に固定する（OBS のブラウザソースは OS の明暗と
+ *   関係なく映るため、明暗の切り替えを持たない）。文字の大きさは配信画面（1920×1080 を縮小して見る）向けに大きくしてある
+ * - 答えは印の文字（はい・いいえ・分からない）と色面の両方で分ける（data-verdict）。はいは緑、いいえは赤、分からないは灰。
+ *   塗り・枠・下側の厚み・印をひとまとまりで切り替える
+ * - 解答は正解・不正解で分け（data-result）、不正解は取り消し線、正解は黄色の色面と弾む動きで目立たせる
+ * - 格子は3列×4行で固定し（view.ts の MAX_VISIBLE_CARDS と合わせる）、カードが少なくても大きさを変えない。
+ *   質問と答えの1文は2行ずつまでに切る（どちらも2行あってもカードに収まる大きさにしてある。1文は Worker が60文字までに
+ *   抑えるのでほぼ2行に収まるが、視聴者の質問は長いことがある）
  * - 新しいカードだけが動く（変わっていないカードは作り直さない。src/chat-deduction/view.ts）
  *
- * カードは新しいものを上に積み、箱からあふれたカードは見せない。下の帯には、開催中は参加のしかた、終えたら正解を出す。
+ * 見出しは1行（素材の名前・区分・参加のしかた）にして、格子に高さを回す。終えたら見出しの上に正解の帯を重ねる
+ * （格子を押し縮めず、最後に並ぶ正解のカードも隠さない）。帯の色は終わり方（data-end-reason）で分ける。
  */
 .chat-deduction {
+  /* 色（白地に原色の配色。明るい面と、その上で読める濃い文字色を組にしてある） */
+  --color-surface-page: #fff;
+  --color-text-heading: #3c3c3c;
+  --color-text-default: #4b4b4b;
+  --color-text-muted: #6f6f6f;
+  --color-border-default: #e5e5e5;
+  --color-surface-raised: #f7f7f7;
+  --color-yes-fill: #d7ffb8;
+  --color-yes-border: #a5ed6e;
+  --color-yes-badge: #58cc02;
+  --color-yes-text: #2b7000;
+  --color-yes-on-badge: #1f4a00;
+  --color-no-fill: #ffdfe0;
+  --color-no-border: #f5a4a4;
+  --color-no-badge: #dc2121;
+  --color-no-text: #bd1f1f;
+  --color-no-on-badge: #fff;
+  --color-correct-fill: #fff5d3;
+  --color-correct-border: #ffc800;
+  --color-correct-lip: #ff9600;
+  --color-accent-purple-text: #8f3fd6;
+
+  /* 書体と大きさ（配信画面向け。スキルの大きさをおよそ1.5倍にしたもの） */
+  --font-family-base: nunito, 'Zen Maru Gothic', 'Hiragino Maru Gothic ProN', ui-rounded, sans-serif;
+  --font-size-meta: 22px;
+  --font-size-reply: 28px;
+  --font-size-badge: 26px;
+  --font-size-text: 34px;
+  --font-size-eyebrow: 28px;
+  --font-size-hint: 24px;
+  --font-size-title: 48px;
+  --font-size-answer: 56px;
+  --font-weight-regular: 500;
+  --font-weight-bold: 700;
+  --line-height-tight: 1.3;
+
+  /* 余白・角丸・厚み・動き */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-pill: 9999px;
+  --border-width-default: 3px;
+  --lip: 5px;
+  --rows: 4;
+  --duration-enter: 400ms;
+  --easing-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --easing-bounce: cubic-bezier(0.35, 1.8, 0.35, 0.83);
+
   /* 位置は画面ではなく置かれた箱を基準にする（合成ページのレイヤーの箱に入れるため。issue #101） */
   position: absolute;
   inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   overflow: hidden;
-  font-family: 'Zen Kaku Gothic New', 'Hiragino Sans', 'Yu Gothic UI', sans-serif;
-}
-
-.chat-deduction-board {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  width: min(1280px, 100%);
-  height: min(1040px, 100%);
+  color: var(--color-text-default);
+  font-family: var(--font-family-base);
+  font-weight: var(--font-weight-regular);
+  /* 長音や小書きの仮名を行頭に置かない（3列のカードでは折り返しが多いため） */
+  line-break: strict;
 }
 
 /* display を指定した要素でも hidden を効かせる */
@@ -34,159 +89,258 @@
   display: none;
 }
 
+.chat-deduction-board {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: var(--space-8) var(--space-10);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface-page);
+}
+
+/* ---------- 見出し ---------- */
+
 .chat-deduction-header {
   display: flex;
-  gap: 12px;
+  gap: var(--space-4);
   align-items: baseline;
-  padding: 10px 20px;
-  border-radius: 10px;
-  background: rgb(12 14 20 / 78%);
-  color: #fff;
 }
 
 .chat-deduction-title {
-  font-size: 36px;
-  font-weight: 700;
+  color: var(--color-accent-purple-text);
+  font-size: var(--font-size-eyebrow);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
 }
 
 .chat-deduction-category {
-  font-size: 30px;
-  color: #ffd166;
+  color: var(--color-text-heading);
+  font-size: var(--font-size-title);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
 }
 
+/* ---------- カードの格子 ---------- */
+
 .chat-deduction-cards {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  display: grid;
+  flex: 1;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(var(--rows), minmax(0, 1fr));
+  gap: var(--space-4) var(--space-6);
   min-height: 0;
   margin: 0;
   padding: 0;
-  overflow: hidden;
   list-style: none;
 }
 
+/*
+ * カードは押せないが、答え合わせを終えた選択肢のように、状態の色面を塗り・枠・下側の厚みのひとまとまりで見せる。
+ * 色はここで別名の変数に置き、data-verdict・data-result で差し替える。
+ */
 .chat-deduction-card {
-  display: grid;
-  grid-template-columns: 5.5em 1fr;
-  gap: 4px 18px;
-  align-items: center;
-  padding: 10px 20px;
-  border-left: 8px solid #8b95a5;
-  border-radius: 10px;
-  background: rgb(12 14 20 / 62%);
-  box-shadow: 0 4px 14px rgb(0 0 0 / 35%);
-  color: #fff;
-  font-size: 26px;
-  line-height: 1.4;
-  animation: chat-deduction-in 400ms ease-out;
+  --card-fill: var(--color-surface-page);
+  --card-border: var(--color-border-default);
+  --card-lip: var(--color-border-default);
+  --card-badge-fill: var(--color-border-default);
+  --card-badge-text: var(--color-text-default);
+  --card-reply: var(--color-text-default);
+
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  box-sizing: border-box;
+  min-height: 0;
+  margin-bottom: var(--lip);
+  padding: var(--space-3) var(--space-4);
+  overflow: hidden;
+  border: var(--border-width-default) solid var(--card-border);
+  border-radius: var(--radius-lg);
+  background: var(--card-fill);
+  box-shadow: 0 var(--lip) 0 0 var(--card-lip);
+  animation: chat-deduction-in var(--duration-enter) var(--easing-out);
 }
 
 .chat-deduction-badge {
-  grid-row: span 2;
-  padding: 6px 0;
-  border-radius: 8px;
-  background: #8b95a5;
-  color: #10131a;
-  font-weight: 700;
+  flex: none;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--card-badge-fill);
+  color: var(--card-badge-text);
+  font-size: var(--font-size-badge);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
   text-align: center;
+  white-space: nowrap;
 }
 
-.chat-deduction-body {
+.chat-deduction-meta {
+  flex: none;
   display: flex;
-  flex-direction: column;
+  gap: var(--space-3);
+  align-items: center;
   min-width: 0;
-}
-
-.chat-deduction-text {
-  font-weight: 700;
-  overflow-wrap: anywhere;
-}
-
-.chat-deduction-reply {
-  font-size: 22px;
-  color: rgb(255 255 255 / 82%);
-  overflow-wrap: anywhere;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
 }
 
 .chat-deduction-name {
-  grid-column: 2;
-  font-size: 18px;
-  color: rgb(255 255 255 / 62%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-deduction-text {
+  /* 縦に並べたカードの中で縮められると行の切り詰めが効かず行が重なるので、縮めない */
+  flex: none;
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--color-text-heading);
+  font-size: var(--font-size-text);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.chat-deduction-reply {
+  flex: none;
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--card-reply);
+  font-size: var(--font-size-reply);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
 .chat-deduction-card[data-verdict='yes'] {
-  border-left-color: #3ddc84;
-}
-
-.chat-deduction-card[data-verdict='yes'] .chat-deduction-badge {
-  background: #3ddc84;
+  --card-fill: var(--color-yes-fill);
+  --card-border: var(--color-yes-border);
+  --card-lip: var(--color-yes-border);
+  --card-badge-fill: var(--color-yes-badge);
+  --card-badge-text: var(--color-yes-on-badge);
+  --card-reply: var(--color-yes-text);
 }
 
 .chat-deduction-card[data-verdict='no'] {
-  border-left-color: #ff6b6b;
+  --card-fill: var(--color-no-fill);
+  --card-border: var(--color-no-border);
+  --card-lip: var(--color-no-border);
+  --card-badge-fill: var(--color-no-badge);
+  --card-badge-text: var(--color-no-on-badge);
+  --card-reply: var(--color-no-text);
 }
 
-.chat-deduction-card[data-verdict='no'] .chat-deduction-badge {
-  background: #ff6b6b;
+.chat-deduction-card[data-verdict='unknown'] {
+  --card-fill: var(--color-surface-raised);
+  --card-reply: var(--color-text-muted);
+}
+
+.chat-deduction-card[data-result='wrong'] {
+  --card-badge-fill: var(--color-no-fill);
+  --card-badge-text: var(--color-no-text);
 }
 
 .chat-deduction-card[data-result='wrong'] .chat-deduction-text {
+  color: var(--color-text-muted);
   text-decoration: line-through;
-  text-decoration-color: rgb(255 255 255 / 50%);
 }
 
-/* 正解のカードは金色の枠と光で、ほかのカードと見分けられるようにする */
+/* 正解のカードは黄色の色面と弾む動きで、ほかのカードと見分けられるようにする（弾むのは正解の瞬間だけ） */
 .chat-deduction-card[data-result='correct'] {
-  border: 3px solid #ffd166;
-  border-left-width: 8px;
-  background: rgb(60 44 4 / 82%);
-  box-shadow: 0 0 18px rgb(255 209 102 / 55%);
+  --card-fill: var(--color-correct-fill);
+  --card-border: var(--color-correct-border);
+  --card-lip: var(--color-correct-lip);
+  --card-badge-fill: var(--color-correct-border);
+  --card-badge-text: var(--color-text-heading);
+
+  animation: chat-deduction-pop var(--duration-enter) var(--easing-bounce);
 }
 
-.chat-deduction-card[data-result='correct'] .chat-deduction-badge {
-  background: #ffd166;
-}
+/* ---------- 下の帯 ---------- */
 
+/* 参加のしかたは押せないので枠で囲わず、見出しの行の右端に置く */
 .chat-deduction-hint {
-  margin: auto 0 0;
-  padding: 10px 20px;
-  border-radius: 10px;
-  background: rgb(12 14 20 / 62%);
-  color: rgb(255 255 255 / 85%);
-  font-size: 24px;
+  margin: 0 0 0 auto;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-hint);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
 }
 
+/* 終えたら、板の上端いっぱいに結果の色面を見出しの代わりに重ねる（正解者が出たら緑、打ち切りは赤） */
 .chat-deduction-result {
-  margin-top: auto;
-  padding: 14px 20px;
-  border-radius: 10px;
-  background: rgb(12 14 20 / 85%);
-  color: #fff;
-  text-align: center;
-  animation: chat-deduction-in 400ms ease-out;
+  --result-fill: var(--color-no-fill);
+  --result-text: var(--color-no-text);
+  --result-border: var(--color-no-border);
+
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  display: flex;
+  gap: var(--space-8);
+  align-items: baseline;
+  padding: var(--space-6) var(--space-10) var(--space-4);
+  border-bottom: var(--border-width-default) solid var(--result-border);
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  background: var(--result-fill);
+  color: var(--result-text);
+  animation: chat-deduction-rise var(--duration-enter) var(--easing-out);
+}
+
+.chat-deduction-result[data-end-reason='solved'] {
+  --result-fill: var(--color-yes-fill);
+  --result-text: var(--color-yes-text);
+  --result-border: var(--color-yes-border);
 }
 
 .chat-deduction-answer {
   margin: 0;
-  font-size: 44px;
-  font-weight: 700;
-  color: #ffd166;
+  font-size: var(--font-size-answer);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
 }
 
 .chat-deduction-solver {
-  margin: 6px 0 0;
-  font-size: 30px;
+  margin: 0;
+  font-size: var(--font-size-title);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
 }
 
 @keyframes chat-deduction-in {
   from {
     opacity: 0;
-    transform: translateY(-8px);
+    transform: translateY(calc(-1 * var(--space-2)));
+  }
+}
+
+@keyframes chat-deduction-pop {
+  from {
+    transform: scale(0.6);
+  }
+}
+
+@keyframes chat-deduction-rise {
+  from {
+    transform: translateY(-100%);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .chat-deduction-card,
+  .chat-deduction-card[data-result='correct'],
   .chat-deduction-result {
     animation: none;
   }

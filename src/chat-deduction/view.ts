@@ -4,11 +4,13 @@
  * 配信画面に出しっぱなしにする素材なので、DOMを扱うのはここだけにして、読み出し（api.ts）・形の確かめ（board.ts）・
  * 起動（src/overlay/stage.ts）から切り離す。
  *
- * 上から、見出し（区分）・カードの一覧・下の帯の順に置く。カードは新しいものを上にして MAX_VISIBLE_CARDS 件まで並べる。
- * - 質問のカード: 答え（はい・いいえ・分からない）の印と質問・答えの1文・送った人の名前。答えは色だけでなく文字でも出し、
- *   data-verdict で見た目（chat-deduction.css）を分ける
+ * 上から、見出し（素材の名前・区分・参加のしかたの1行）・カードの一覧・下の帯の順に置く。カードは古いものから読む順（左上から右へ、行を下へ）に
+ * 並べ、新しいものから MAX_VISIBLE_CARDS 件までを残す（並べ方の格子は chat-deduction.css が決める）。
+ * - 質問のカード: 通し番号（ゲームの初めから数えた何問目か。画面から外れた質問も数える）・答え（はい・いいえ・分からない）の印と
+ *   質問・答えの1文・送った人の名前。答えは色だけでなく文字でも出し、data-verdict で見た目（chat-deduction.css）を分ける
  * - 解答のカード: 正解・不正解の印と解答・送った人の名前。data-result で見た目を分け、正解のカードは目立たせる
- * 下の帯は、開催中は参加のしかた、終えたら「正解は○○でした」（正解者が出たら名前も）を出す。ゲームが無ければ何も出さない。
+ * 参加のしかたは開催中だけ見出しの行に出す。終えたら下の帯に「正解は○○でした」（正解者が出たら名前も）を出し、
+ * 終わり方を data-end-reason で分ける。ゲームが無ければ何も出さない。
  * 終えたゲームは、終えてから ENDED_GAME_REVEAL_MS のあいだだけ映して消す（次のゲームまで画面に残し続けないため）。
  *
  * 注意: 変わっていないカードの要素は作り直さない（ゲームとカードの種類・IDごとに使い回す）。作り直すと、出現のアニメーションが
@@ -18,8 +20,8 @@
 import { categoryLabelOf } from './category'
 import type { ChatDeductionBoard, ChatDeductionBoardGame, ChatDeductionCard, ChatDeductionVerdict } from './board'
 
-/** 並べるカードの数。返事が2行に折り返しても、中央の板（src/chat-deduction/chat-deduction.css）に収まる数にする */
-export const MAX_VISIBLE_CARDS = 5
+/** 並べるカードの数。質問と返事が2行ずつに折り返しても、画面いっぱいの格子（src/chat-deduction/chat-deduction.css の3列×4行）に収まる数にする */
+export const MAX_VISIBLE_CARDS = 12
 
 /** 終えたゲームの正解を映しておく長さ（ミリ秒）。過ぎたら板ごと消す */
 export const ENDED_GAME_REVEAL_MS = 60_000
@@ -54,21 +56,37 @@ const element = <K extends keyof HTMLElementTagNameMap>(tag: K, className: strin
   return created
 }
 
-/** カード1枚の要素を作る */
-const createCard = (card: ChatDeductionCard): HTMLLIElement => {
+/** 一覧に並べる1件。質問には通し番号（何問目か）を添え、解答は null にする */
+interface NumberedCard {
+  readonly card: ChatDeductionCard
+  readonly number: number | null
+}
+
+/** 届いた順のカードに、質問だけを数えた通し番号を付ける（画面から外れる古い質問も数えるため、切り出す前に数える） */
+const numberCards = (cards: readonly ChatDeductionCard[]): NumberedCard[] => {
+  let questions = 0
+  return cards.map((card) => ({ card, number: card.kind === 'question' ? ++questions : null }))
+}
+
+/**
+ * カード1枚の要素を作る。上の行に答え（正誤）の印・通し番号・送った人の名前、その下に質問（解答）と答えの1文を置く。
+ * 印を上の行に置くのは、3列に並べたときに本文の幅をカードいっぱいに使うため。
+ */
+const createCard = ({ card, number }: NumberedCard): HTMLLIElement => {
   const item = element('li', 'chat-deduction-card')
   item.dataset.kind = card.kind
-  const body = element('div', 'chat-deduction-body')
-  body.append(element('span', 'chat-deduction-text', card.text))
+  const meta = element('div', 'chat-deduction-meta')
+  const badge = card.kind === 'question' ? VERDICT_LABELS[card.verdict] : card.correct ? '正解' : '不正解'
+  meta.append(element('span', 'chat-deduction-badge', badge))
+  if (number !== null) meta.append(element('span', 'chat-deduction-number', `Q${number}`))
+  meta.append(element('span', 'chat-deduction-name', card.userName))
+  item.append(meta, element('span', 'chat-deduction-text', card.text))
   if (card.kind === 'question') {
     item.dataset.verdict = card.verdict
-    body.append(element('span', 'chat-deduction-reply', card.reply))
-    item.append(element('span', 'chat-deduction-badge', VERDICT_LABELS[card.verdict]), body)
+    item.append(element('span', 'chat-deduction-reply', card.reply))
   } else {
     item.dataset.result = card.correct ? 'correct' : 'wrong'
-    item.append(element('span', 'chat-deduction-badge', card.correct ? '正解' : '不正解'), body)
   }
-  item.append(element('span', 'chat-deduction-name', card.userName))
   return item
 }
 
@@ -86,14 +104,14 @@ export const createChatDeductionView = (root: HTMLElement, { hideEndedGame }: Ch
   board.hidden = true
   const header = element('header', 'chat-deduction-header')
   const category = element('span', 'chat-deduction-category')
-  header.append(element('span', 'chat-deduction-title', TITLE), category)
-  const list = element('ol', 'chat-deduction-cards')
   const hint = element('p', 'chat-deduction-hint', HINT)
+  header.append(element('span', 'chat-deduction-title', TITLE), category, hint)
+  const list = element('ol', 'chat-deduction-cards')
   const result = element('div', 'chat-deduction-result')
   const answer = element('p', 'chat-deduction-answer')
   const solver = element('p', 'chat-deduction-solver')
   result.append(answer, solver)
-  board.append(header, list, hint, result)
+  board.append(header, list, result)
   root.append(board)
 
   /** いま並べているカードの要素（鍵ごと） */
@@ -128,10 +146,10 @@ export const createChatDeductionView = (root: HTMLElement, { hideEndedGame }: Ch
       category.textContent = `お題: ${categoryLabelOf(game.category)}`
 
       const next = new Map<string, HTMLLIElement>()
-      const visible = cards.slice(-MAX_VISIBLE_CARDS).reverse()
-      for (const card of visible) {
-        const key = keyOf(game, card)
-        next.set(key, shown.get(key) ?? createCard(card))
+      const visible = numberCards(cards).slice(-MAX_VISIBLE_CARDS)
+      for (const numbered of visible) {
+        const key = keyOf(game, numbered.card)
+        next.set(key, shown.get(key) ?? createCard(numbered))
       }
       list.replaceChildren(...next.values())
       shown = next
@@ -139,6 +157,8 @@ export const createChatDeductionView = (root: HTMLElement, { hideEndedGame }: Ch
       const ended = game.endedAt !== null
       hint.hidden = ended
       result.hidden = !ended
+      if (game.endReason === null) delete result.dataset.endReason
+      else result.dataset.endReason = game.endReason
       answer.textContent = game.answer === null ? '' : `正解は${game.answer}でした`
       const winner = cards.find((card) => card.kind === 'guess' && card.correct)
       solver.hidden = game.endReason !== 'solved' || winner === undefined
