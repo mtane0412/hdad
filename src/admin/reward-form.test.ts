@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { Reward } from './api'
-import { EMPTY_REWARD_DRAFT, describeRewardProblem, toRewardDraft, toRewardInput } from './reward-form'
+import { EMPTY_REWARD_DRAFT, describeRewardProblem, sameRewardDraft, toRewardDraft, toRewardInput } from './reward-form'
 
 const toastReward: Reward = {
   id: '報酬ID-乾杯',
@@ -82,6 +82,17 @@ describe('toRewardDraft・toRewardInput', () => {
 
   it('新しく作る報酬の下書きは、交換できる状態から始める', () => {
     expect(EMPTY_REWARD_DRAFT.isEnabled).toBe(true)
+  })
+})
+
+describe('sameRewardDraft', () => {
+  it('保存済みの報酬から作った入力欄の値どうしは同じとみなす', () => {
+    expect(sameRewardDraft(toRewardDraft(toastReward), toRewardDraft(toastReward))).toBe(true)
+  })
+
+  it('どれか1つの欄でも違えば、違うとみなす（未保存の印を出すため）', () => {
+    expect(sameRewardDraft(toRewardDraft(toastReward), { ...toRewardDraft(toastReward), title: '乾杯する！' })).toBe(false)
+    expect(sameRewardDraft(toRewardDraft(toastReward), { ...toRewardDraft(toastReward), isEnabled: !toastReward.isEnabled })).toBe(false)
   })
 })
 

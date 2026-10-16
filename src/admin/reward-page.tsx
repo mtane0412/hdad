@@ -29,7 +29,7 @@ import { ApiError } from '@/core/api'
 import { iconButtonName } from '@/core/icon-button'
 import type { AdminApi, Reward } from './api'
 import { errorMessage, usePageActions } from './page-actions'
-import { EMPTY_REWARD_DRAFT, describeRewardProblem, toRewardDraft, toRewardInput, type RewardDraft } from './reward-form'
+import { EMPTY_REWARD_DRAFT, describeRewardProblem, sameRewardDraft, toRewardDraft, toRewardInput, type RewardDraft } from './reward-form'
 
 /** 配信者のチャンネルポイント報酬を管理する、Twitchのクリエイターダッシュボードのページ */
 const twitchRewardsUrl = (broadcasterLogin: string): string =>
@@ -190,13 +190,19 @@ const RewardLimits = ({ reward }: { reward: Reward }) => {
 }
 
 /** 報酬1件の要約（名前・ポイント・状態・制限の4列）。行を開くボタンの中と、Twitchで作った報酬の押せない行で共通に使う */
-const RewardSummary = ({ reward }: { reward: Reward }) => (
+const RewardSummary = ({ reward, unsaved = false }: { reward: Reward; unsaved?: boolean }) => (
   <>
     <DataTableCell className="flex-nowrap gap-3">
       {/* アイコンは名前の左に見せるが、読み上げは名前から始める（行のボタンの名前を報酬の名前から始めるため） */}
       <span className="flex min-w-0 flex-col gap-0.5">
         <span className="flex min-w-0 items-baseline gap-2">
           <span className="truncate font-medium">{reward.title}</span>
+          {/* 閉じた行でも、保存していない書きかけがあることを見落とさないようにする */}
+          {unsaved && (
+            <StatusDot tone="attention" className="shrink-0 text-xs font-normal">
+              未保存
+            </StatusDot>
+          )}
           {reward.isUserInputRequired && <span className="shrink-0 text-xs font-normal text-muted-foreground">入力あり</span>}
           {/* 行ごとに長い注記を繰り返すと読みにくいので、見た目は短い札にし、理由は読み上げにだけ残す */}
           {!reward.manageable && (
@@ -354,7 +360,12 @@ export const RewardPage = ({ api, broadcasterLogin }: RewardPageProps) => {
                             disabled={actions.busy}
                             onChange={(patch) => setDrafts((current) => ({ ...current, [reward.id]: { ...draftOf(reward), ...patch } }))}
                           />
-                          <SaveBar label="保存する" name={`${reward.title} を保存する`} busy={actions.busy} onSave={() => void actions.run(() => saveReward(reward))}>
+                          <SaveBar
+                            label="保存する"
+                            name={`${reward.title} を保存する`}
+                            busy={actions.busy}
+                            unsaved={!sameRewardDraft(draftOf(reward), toRewardDraft(reward))}
+                            onSave={() => void actions.run(() => saveReward(reward))}>
                             <Button
                               type="button"
                               variant="ghost"
@@ -378,7 +389,7 @@ export const RewardPage = ({ api, broadcasterLogin }: RewardPageProps) => {
                       ),
                     }}
                   >
-                    <RewardSummary reward={reward} />
+                    <RewardSummary reward={reward} unsaved={!sameRewardDraft(draftOf(reward), toRewardDraft(reward))} />
                   </DataTableRow>
                 ),
               )}

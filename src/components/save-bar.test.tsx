@@ -52,7 +52,10 @@ describe('SaveBar', () => {
   test('ページ全体を保存するバーは、画面の下に貼り付ける', () => {
     const { container } = render(<SaveBar label="構成を保存する" busy={false} sticky onSave={vi.fn()} />)
 
-    expect((container.firstElementChild as HTMLElement).className).toMatch(/\bsticky\b/)
+    const bar = container.firstElementChild as HTMLElement
+    expect(bar.className).toMatch(/\bsticky\b/)
+    // オーバーレイのプレビューで選んだ素材（z-10）がスクロールで重なっても、保存のボタンを覆わないようにする
+    expect(bar.className).toMatch(/\bz-20\b/)
   })
 
   test('ほかのボタン（消すなど）を保存のボタンの横に並べられる', () => {

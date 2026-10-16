@@ -91,6 +91,27 @@ export const toRewardDraft = (reward: Reward): RewardDraft => ({
 })
 
 /**
+ * 下書きの欄の名前。欄を足したのに比べ忘れることがないよう、型のすべての欄を鍵に持つ表から取り出す
+ * （欄が足りなければ型チェックで失敗する）。
+ */
+const REWARD_DRAFT_FIELDS: Readonly<Record<keyof RewardDraft, true>> = {
+  title: true,
+  cost: true,
+  prompt: true,
+  isEnabled: true,
+  isUserInputRequired: true,
+  backgroundColor: true,
+  shouldRedemptionsSkipRequestQueue: true,
+  maxPerStream: true,
+  maxPerUserPerStream: true,
+  globalCooldownSeconds: true,
+}
+const REWARD_DRAFT_KEYS = Object.keys(REWARD_DRAFT_FIELDS) as (keyof RewardDraft)[]
+
+/** 2つの下書きが同じか。保存済みの報酬から作った下書きと比べ、違えば未保存の印を出す */
+export const sameRewardDraft = (left: RewardDraft, right: RewardDraft): boolean => REWARD_DRAFT_KEYS.every((key) => left[key] === right[key])
+
+/**
  * 下書きをWorkerへ送る内容にする。
  *
  * 必要ポイントの空欄は NaN にする（Number('') は 0 になってしまい、空欄のまま「0ポイント」として拒まれて気づきにくいため）。

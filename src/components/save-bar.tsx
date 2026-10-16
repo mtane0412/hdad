@@ -5,7 +5,8 @@
  * - 文言は「〜を保存する」。開いた行の中のように何を保存するかが見えている場所では「保存する」と見せ、読み上げの名前（name）に対象を含める
  * - 未保存の変更があることは、ボタンの横に StatusDot（対応待ちの色の点＋語）で出す
  * - 押せないのは保存の最中だけにする。変更が無くても押せる（読み込んだ値をそのまま保存し直すことにも意味があるため）
- * - 1つのボタンでページ全体を保存するページ（トリガー・オーバーレイ）では、画面の下に貼り付ける（sticky）
+ * - 1つのボタンでページ全体を保存するページ（トリガー・オーバーレイ）では、画面の下に貼り付ける（sticky）。
+ *   オーバーレイのプレビューで選んだ素材（z-10）がスクロールで重なっても覆われないよう、それより前に出す
  *
  * 注意: 保存の最中（busy）は押せなくして、二重の送信を防ぐ。
  */
@@ -31,7 +32,7 @@ interface SaveBarProps {
 }
 
 export const SaveBar = ({ label, name, busy, unsaved, sticky = false, onSave, children }: SaveBarProps) => (
-  <div className={cn('flex flex-wrap items-center gap-3', sticky && 'sticky bottom-0 border-t bg-background py-3')}>
+  <div className={cn('flex flex-wrap items-center gap-3', sticky && 'sticky bottom-0 z-20 border-t bg-background py-3')}>
     <Button type="button" aria-label={name} disabled={busy} onClick={onSave}>
       {label}
     </Button>
