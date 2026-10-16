@@ -5,10 +5,12 @@
  * カードを丸ごと返し・押し出す。ここはその形を確かめて読むだけで、通信も DOM も持たない（表示は view.ts、読み出しは api.ts）。
  *
  * 注意: 想定した形でなければエラーにする（Fail-Fast）。正解の表記はゲームを終えたあとにだけ届く（開催中は null）。
+ * 場面ごとに鳴らす音の設定（sound）も一緒に届く。
  */
 import { isRecord, readList } from '../core/api'
 import { isChatDeductionCategory, type ChatDeductionCategory } from './category'
 import type { ChatDeductionEndReason } from './api'
+import { readChatDeductionPlaybackSound, type ChatDeductionSound } from './sound'
 
 /** 質問への答え（yes: はい。no: いいえ。unknown: 分からない） */
 export const CHAT_DEDUCTION_VERDICTS = ['yes', 'no', 'unknown'] as const
@@ -54,6 +56,8 @@ export interface ChatDeductionBoard {
   /** 一度もゲームを始めていなければ null */
   readonly game: ChatDeductionBoardGame | null
   readonly cards: readonly ChatDeductionCard[]
+  /** 場面ごとに鳴らす音（Worker が素材のIDを音声のURLにしたもの） */
+  readonly sound: ChatDeductionSound
 }
 
 const isNullableString = (value: unknown): value is string | null => value === null || typeof value === 'string'
@@ -83,7 +87,8 @@ const isCard = (value: unknown): value is ChatDeductionCard => {
 export const readChatDeductionBoard = (body: unknown): ChatDeductionBoard => {
   const game: unknown = isRecord(body) ? body.game : undefined
   if (!(game === null || isGame(game))) throw new Error('Workerの応答の game が想定した形ではありません')
-  return { game, cards: readList(body, 'cards', isCard) }
+  const sound: unknown = isRecord(body) ? body.sound : undefined
+  return { game, cards: readList(body, 'cards', isCard), sound: readChatDeductionPlaybackSound(sound) }
 }
 
 /**

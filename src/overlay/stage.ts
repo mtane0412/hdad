@@ -64,6 +64,7 @@ import { clocks } from '../clock/registry'
 import { clearError, findDefinition, showError, startCanvasLayer, startCanvasSurface, type DrawFrame } from '../core/mount'
 import { ParamError, parseParams, type ParamSchema } from '../core/params'
 import { connectSocket, socketUrl } from '../core/socket'
+import { createSoundPlayer } from '../core/sound-player'
 import { createFocusOverlayApi } from '../focus/api'
 import { demoFocused } from '../focus/demo'
 import { NO_FOCUS, withRemoval, withTarget, type FocusState } from '../focus/focused'
@@ -83,7 +84,6 @@ import { wrongKanjiQuizAnswerOf } from '../kanji-quiz/answer'
 import { DEMO_KANJI_QUIZ_CALLS, DEMO_KANJI_QUIZ_INTERVAL_MS } from '../kanji-quiz/demo'
 import { acceptsAnswerAt, kanjiQuizEndOf, kanjiQuizSceneAt, kanjiQuizStopBannerAt, type KanjiQuizStop } from '../kanji-quiz/scene'
 import { KANJI_QUIZ_BGM_START_CUE_ID, dueKanjiQuizSoundCues, kanjiQuizBgmDuckHoldOf } from '../kanji-quiz/sound-cues'
-import { createKanjiQuizSoundPlayer } from '../kanji-quiz/sound-player'
 import { drawKanjiQuiz, type KanjiQuizWrongAnswer } from '../kanji-quiz/view'
 import { POMODORO_SOCKET_HINT, POMODORO_SOCKET_PATH, createPomodoroOverlayApi } from '../pomodoro/api'
 import { demoPomodoroScenes, demoTimerOf } from '../pomodoro/demo'
@@ -92,6 +92,13 @@ import { createPomodoroView } from '../pomodoro/view'
 import { CHAT_DEDUCTION_SOCKET_HINT, CHAT_DEDUCTION_SOCKET_PATH, createChatDeductionOverlayApi } from '../chat-deduction/api'
 import { parseChatDeductionBoardMessage, type ChatDeductionBoard } from '../chat-deduction/board'
 import { demoChatDeductionBoards } from '../chat-deduction/demo'
+import {
+  CHAT_DEDUCTION_BGM_DUCK_HOLD_MS,
+  CHAT_DEDUCTION_BGM_DUCK_RENEW_MS,
+  CHAT_DEDUCTION_BGM_FADE_OUT_MS,
+  chatDeductionBgmUrlOf,
+  chatDeductionSoundCuesOf,
+} from '../chat-deduction/sound-cues'
 import { createChatDeductionView } from '../chat-deduction/view'
 import { OPINION_SOCKET_HINT, OPINION_SOCKET_PATH, createOpinionOverlayApi } from '../opinions/api'
 import { demoOpinionBoards } from '../opinions/demo'
@@ -2094,7 +2101,7 @@ const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo, hub }:
   let waiting: readonly KanjiQuizCall[] = []
   /** 流している出題で鳴らした音の id（sound-cues.ts の KanjiQuizSoundCue.id） */
   let played = new Set<string>()
-  const sound = createKanjiQuizSoundPlayer((error) => showError(error, NOUNS.kanjiQuiz, box, 'read'))
+  const sound = createSoundPlayer(NOUNS.kanjiQuiz, (error) => showError(error, NOUNS.kanjiQuiz, box, 'read'))
   const bgmApi = createBgmOverlayApi(callWorker, key)
 
   const enqueue = (call: KanjiQuizCall): void => {
@@ -2492,6 +2499,11 @@ const mountOpinions = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
  * ゲームを始めた・終えた・質問に答えた・解答の正誤を決めたたびに、アラートと同じ配送先から WebSocket
  * （/api/overlay/chat-deduction/socket）で丸ごと押し出してもらい、開いたとき・つながるたび・定期的に読み直す。
  * 読んでいるあいだに押し出しが届いたら、読んだ結果も読み出しの失敗も捨てる（意見ボードと同じ。押し出しのほうが新しい）。
+ *
+ * 一覧と一緒に届く音の設定で、場面ごとの効果音と、開催中の BGM を鳴らす。何を鳴らすかは前の一覧との差から
+ * src/chat-deduction/sound-cues.ts が決め、効果音は押し出しで届いた一覧でだけ鳴らす（読み直しで昔のカードの音を鳴らさない）。
+ * BGM を流しているあいだは、配信の BGM を下げておく長さを送り直しつづける（合成ページが閉じられたら、裏方が長さの終わりに戻す）。
+ * プレビューでは音を鳴らさない。
  */
 const mountChatDeduction = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
   // この素材は配信者が決めるパラメータを持たない（映すものはゲームと視聴者の交換で決まる）
@@ -2512,11 +2524,38 @@ const mountChatDeduction = (box: HTMLElement, item: OverlayItem, { key, demo }: 
   }
 
   const api = createChatDeductionOverlayApi(callWorker, key)
+  const bgmApi = createBgmOverlayApi(callWorker, key)
   const showReadError = (error: unknown): void => {
     clearError(box, 'read')
     showError(error, NOUNS.chatDeduction, box, 'read')
   }
-  const show = (board: ChatDeductionBoard): void => {
+  const sound = createSoundPlayer(NOUNS.chatDeduction, (error) => showError(error, NOUNS.chatDeduction, box, 'read'))
+  /** 配信の BGM を holdMs ミリ秒下げておくよう裏方へ知らせる。送れなくてもゲームの表示は止めず、箱に出すだけにする */
+  const duckStreamBgm = (holdMs: number): void => {
+    bgmApi.duck(holdMs).catch((error: unknown) => showError(error, NOUNS.chatDeduction, box, 'read'))
+  }
+  /** 配信の BGM を下げておく知らせを送り直すタイマー。ゲームの BGM を流しているあいだだけ動かす */
+  let duckTimer: number | undefined
+  /** 前に映した一覧。鳴らす音を決めるために、新しい一覧と比べる */
+  let shown: ChatDeductionBoard | null = null
+  /**
+   * 一覧を映し、前の一覧との差に合う音を鳴らす。
+   *
+   * @param announce 押し出しで届いた一覧なら true（効果音を鳴らす）。読み直した一覧なら false
+   */
+  const show = (board: ChatDeductionBoard, announce: boolean): void => {
+    for (const cue of chatDeductionSoundCuesOf(shown, board, announce)) sound.play(cue)
+    const wasPlayingBgm = shown !== null && chatDeductionBgmUrlOf(shown) !== null
+    const playingBgm = chatDeductionBgmUrlOf(board) !== null
+    if (playingBgm && !wasPlayingBgm) {
+      duckStreamBgm(CHAT_DEDUCTION_BGM_DUCK_HOLD_MS)
+      duckTimer = window.setInterval(() => duckStreamBgm(CHAT_DEDUCTION_BGM_DUCK_HOLD_MS), CHAT_DEDUCTION_BGM_DUCK_RENEW_MS)
+    } else if (!playingBgm && wasPlayingBgm) {
+      window.clearInterval(duckTimer)
+      // ゲームの BGM を下げ終えたら配信の BGM を戻す
+      duckStreamBgm(CHAT_DEDUCTION_BGM_FADE_OUT_MS)
+    }
+    shown = board
     view.setBoard(board)
     // 最新の一覧を映せたので、前の失敗が箱に出ていれば消す
     clearError(box, 'read')
@@ -2538,7 +2577,7 @@ const mountChatDeduction = (box: HTMLElement, item: OverlayItem, { key, demo }: 
     try {
       const board = await api.read()
       if (isStale()) return
-      show(board)
+      show(board, false)
     } catch (error) {
       if (!isStale()) onError(error)
     }
@@ -2554,7 +2593,7 @@ const mountChatDeduction = (box: HTMLElement, item: OverlayItem, { key, demo }: 
         try {
           const board = parseChatDeductionBoardMessage(message)
           pushCount += 1
-          show(board)
+          show(board, true)
         } catch (error) {
           showReadError(error)
         }

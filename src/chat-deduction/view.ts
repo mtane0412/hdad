@@ -43,7 +43,7 @@ export interface ChatDeductionViewOptions {
 
 export interface ChatDeductionView {
   /** 映すゲームとカードを置き換える */
-  setBoard(board: ChatDeductionBoard): void
+  setBoard(board: Pick<ChatDeductionBoard, 'game' | 'cards'>): void
 }
 
 /** 決まった class を持つ要素を作る */

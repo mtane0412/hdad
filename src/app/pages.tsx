@@ -153,7 +153,8 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
         name: 'チャットで推理',
         icon: CircleHelp,
         // 視聴者がチャンネルポイントの質問で答えを絞り込み、解答で当てるゲーム（issue #375）。報酬はゲームのあいだだけ交換できる
-        render: ({ chatDeductionApi }) => <ChatDeductionPage api={chatDeductionApi} problems={CHAT_DEDUCTION_PROBLEMS} />,
+        // 音のカードの選択肢に素材の一覧を使う。api.media は描き直しても同じ関数なので、読み直しを繰り返さない
+        render: ({ chatDeductionApi, api }) => <ChatDeductionPage api={chatDeductionApi} problems={CHAT_DEDUCTION_PROBLEMS} loadMedia={api.media} />,
       },
       { path: '/viewers/', keywords: ['常連', '人物像'], name: '視聴者', icon: Users, render: ({ viewerApi }) => <ViewerPage api={viewerApi} /> },
     ],

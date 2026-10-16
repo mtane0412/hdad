@@ -10,6 +10,12 @@ import { ApiError } from '../core/api'
 import { createChatDeductionApi, createChatDeductionOverlayApi, type ChatDeductionGame } from './api'
 
 const rewards = { questionRewardId: '報酬ID-質問', answerRewardId: '報酬ID-解答' }
+/** BGM と正解の音だけを選んだ設定（保存済みの形。枠ごとの値は素材のID） */
+const sound = {
+  slots: { bgm: 'media-thinking', start: null, answered: null, wrong: null, correct: 'media-pinpon', stopped: null },
+  bgmVolume: 0.2,
+  effectVolume: 0.6,
+}
 const game: ChatDeductionGame = { id: 1, problemId: 'mount-fuji', startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null }
 
 /** 呼ばれた内容を記録し、決めた応答を返す fetch */
@@ -64,6 +70,20 @@ describe('createChatDeductionApi', () => {
     expect(calls).toEqual([{ path: '/api/admin/chat-deduction/games/1/end', method: 'POST', body: null }])
   })
 
+  it('保存済みの音の設定を読む', async () => {
+    const { calls, fetchImpl } = createFetchWithResponse(200, sound)
+
+    expect(await createChatDeductionApi(fetchImpl).sound()).toEqual(sound)
+    expect(calls.map((call) => call.path)).toEqual(['/api/admin/chat-deduction/sound'])
+  })
+
+  it('音の設定を PUT で保存し、Worker が保存したものを返す', async () => {
+    const { calls, fetchImpl } = createFetchWithResponse(200, sound)
+
+    expect(await createChatDeductionApi(fetchImpl).saveSound(sound)).toEqual(sound)
+    expect(calls).toEqual([{ path: '/api/admin/chat-deduction/sound', method: 'PUT', body: sound }])
+  })
+
   it('Workerが失敗を返したら ApiError にする（報酬を切り替えられなかったなど）', async () => {
     const { fetchImpl } = createFetchWithResponse(502, { error: { code: 'chat-deduction-rewards-failed', message: '報酬を交換できるようにできなかったので、ゲームを始めませんでした' } })
 
@@ -76,6 +96,7 @@ describe('createChatDeductionOverlayApi', () => {
   const board = {
     game: { id: 1, category: 'place', startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null },
     cards: [{ kind: 'question', id: 1, userName: '田中太郎', text: '日本にありますか？', verdict: 'yes', reply: '静岡県と山梨県にまたがっています。' }],
+    sound: { ...sound, slots: { ...sound.slots, bgm: '/api/media/media-thinking?key=overlay-key', correct: '/api/media/media-pinpon?key=overlay-key' } },
   }
 
   it('オーバーレイ用キー付きの経路から、カードの一覧を読む', async () => {

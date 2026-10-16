@@ -2,7 +2,8 @@
  * チャットで推理の Worker の呼び出し（issue #375）
  *
  * 2つの呼び出し手がある。
- * - アプリのページ（/chat-deduction/）: ログインのセッションで報酬のIDと最後のゲームを読み、報酬を作り、ゲームを始め・終える
+ * - アプリのページ（/chat-deduction/）: ログインのセッションで報酬のIDと最後のゲームを読み、報酬を作り、ゲームを始め・終える。
+ *   場面ごとに鳴らす音の設定も読み書きする
  * - 合成ページの素材「チャットで推理」（issue #378）: ログインを持たないので、オーバーレイ用キー（URLの ?key=）でカードの一覧を読む。
  *   変わるたびに WebSocket（CHAT_DEDUCTION_SOCKET_PATH）で丸ごと押し出してもらい、ここで読むのは開いたとき・つなぎ直したとき・
  *   定期的に取り戻す分だけである
@@ -12,6 +13,7 @@
  */
 import { createCaller, isRecord } from '../core/api'
 import { readChatDeductionBoard, type ChatDeductionBoard } from './board'
+import { readChatDeductionSound, type ChatDeductionSound } from './sound'
 
 const ADMIN_PATH = '/api/admin/chat-deduction'
 const OVERLAY_PATH = '/api/overlay/chat-deduction'
@@ -58,6 +60,10 @@ export interface ChatDeductionApi {
   startGame(problemId: string): Promise<ChatDeductionGame>
   /** ゲームを終える（2つの報酬を交換できないようにする） */
   endGame(id: number): Promise<ChatDeductionGame>
+  /** 場面ごとに鳴らす音の設定。未保存ならどの枠も鳴らさない設定が返る */
+  sound(): Promise<ChatDeductionSound>
+  /** 音の設定を保存する。Worker が保存したものを返す */
+  saveSound(sound: ChatDeductionSound): Promise<ChatDeductionSound>
 }
 
 const isNullableString = (value: unknown): value is string | null => value === null || typeof value === 'string'
@@ -98,6 +104,9 @@ export const createChatDeductionApi = (fetchImpl: typeof fetch): ChatDeductionAp
     createRewards: async () => readField(await send(`${ADMIN_PATH}/rewards`), 'rewards', isRewards),
     startGame: async (problemId) => readField(await send(`${ADMIN_PATH}/games`, { problemId }), 'game', isGame),
     endGame: async (id) => readField(await send(`${ADMIN_PATH}/games/${id}/end`), 'game', isGame),
+    sound: async () => readChatDeductionSound(await call(`${ADMIN_PATH}/sound`)),
+    saveSound: async (sound) =>
+      readChatDeductionSound(await call(`${ADMIN_PATH}/sound`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sound) })),
   }
 }
 

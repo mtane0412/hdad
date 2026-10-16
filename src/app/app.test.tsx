@@ -153,6 +153,8 @@ const createFakeChatDeductionApi: ChatDeductionApi = {
   createRewards: vi.fn(),
   startGame: vi.fn(),
   endGame: vi.fn(),
+  sound: vi.fn(async () => ({ slots: { bgm: null, start: null, answered: null, wrong: null, correct: null, stopped: null }, bgmVolume: 0.2, effectVolume: 0.6 })),
+  saveSound: vi.fn(),
 }
 
 const createFakeOpinionApi: OpinionApi = {
