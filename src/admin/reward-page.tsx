@@ -342,7 +342,8 @@ export const RewardPage = ({ api, broadcasterLogin }: RewardPageProps) => {
                             variant="ghost"
                             className={`grid h-auto min-w-0 flex-1 ${REWARD_COLUMNS} items-center gap-3 px-0 py-1 text-left font-normal whitespace-normal hover:bg-transparent`}
                             aria-expanded={open}
-                            aria-controls={detailId}
+                            // 閉じているあいだは欄が無いので、無い要素を指さないよう開いているときだけ付ける
+                            aria-controls={open ? detailId : undefined}
                             onClick={() => setOpenId(open ? null : reward.id)}
                           >
                             <RewardSummary reward={reward} />

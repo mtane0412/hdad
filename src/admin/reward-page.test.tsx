@@ -168,9 +168,14 @@ describe('報酬の一覧', () => {
 
     const item = await findRewardItem('乾杯する')
     expect(within(item).queryByRole('textbox', { name: '名前' })).not.toBeInTheDocument()
+    expect(within(item).getByRole('button', { name: /^乾杯する/, expanded: false })).not.toHaveAttribute('aria-controls')
 
     await userEvent.click(within(item).getByRole('button', { name: /^乾杯する/, expanded: false }))
     expect(within(item).getByRole('textbox', { name: '名前' })).toHaveValue('乾杯する')
+
+    // 開いているあいだだけ、ボタンは開いた欄を指す（閉じているときに無い要素を指さない）
+    const toggle = within(item).getByRole('button', { name: /^乾杯する/, expanded: true })
+    expect(document.getElementById(toggle.getAttribute('aria-controls') ?? '')).not.toBeNull()
 
     // もう一度押すと閉じる（開いた欄の「乾杯する を保存する」と取り違えないよう、開いている行のボタンを押す）
     await userEvent.click(within(item).getByRole('button', { name: /^乾杯する/, expanded: true }))
