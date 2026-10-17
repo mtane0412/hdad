@@ -79,13 +79,16 @@ export interface Spotlight {
 
 const isOneOf = <T extends string>(choices: readonly T[], value: unknown): value is T => choices.some((choice) => choice === value)
 
+/** 時刻として読める文字列か（締め切った時刻から合成ページで消す時刻を決めるため、読めないものは通さない） */
+const isTimestamp = (value: unknown): value is string => typeof value === 'string' && !Number.isNaN(Date.parse(value))
+
 /** テーマとして読めるか */
 export const isOpinionTheme = (value: unknown): value is OpinionTheme =>
   isRecord(value) &&
   typeof value.id === 'number' &&
   typeof value.title === 'string' &&
   typeof value.openedAt === 'string' &&
-  (typeof value.closedAt === 'string' || value.closedAt === null) &&
+  (isTimestamp(value.closedAt) || value.closedAt === null) &&
   (typeof value.prompt === 'string' || value.prompt === null)
 
 /** 合成ページに出す意見1件として読めるか */

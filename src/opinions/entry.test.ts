@@ -60,6 +60,10 @@ describe('readOpinionBoard', () => {
     expect(() => readOpinionBoard({ theme: withoutPrompt, topics: [] })).toThrow('theme')
   })
 
+  it('締め切った時刻が時刻として読めなければ投げる（読めないと、締め切ったボードがいつまでも消えないため）', () => {
+    expect(() => readOpinionBoard({ theme: { ...theme, closedAt: '締め切った' }, topics: [] })).toThrow('theme')
+  })
+
   it('押し出された文字列も読む', () => {
     expect(parseOpinionBoardMessage(JSON.stringify(board))).toEqual(board)
     expect(() => parseOpinionBoardMessage('意見ボード')).toThrow('JSON')

@@ -13,7 +13,7 @@
  * - 視聴者への問いかけを中央下に出し、問いかけが無い・テーマを締め切ったら隠すこと（issue #307）
  * - 締め切ったテーマは、締め切ってから ENDED_REVEAL_MS のあいだだけ映して消すこと（チャットで推理の終えたゲームと揃える。プレビューのサンプルでは消さない）
  */
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FRESH_MS, SPOTLIGHT_MS, type OpinionBoard, type OverlayOpinion } from './entry'
 import { ENDED_REVEAL_MS } from '../core/ended-reveal'
 import { createOpinionView } from './view'
@@ -163,6 +163,27 @@ describe('createOpinionView', () => {
       view.draw(Date.parse(theme.openedAt) + ENDED_REVEAL_MS * 10)
 
       expect(boardHidden()).toBe(false)
+    })
+
+    describe('読み直し・押し出しで同じボードが届いたとき', () => {
+      beforeEach(() => {
+        vi.useFakeTimers()
+      })
+
+      afterEach(() => {
+        vi.useRealTimers()
+      })
+
+      it('消したあとに同じ締め切ったボードが届いても、次の描画を待たずに隠したままにする（一瞬戻らない）', () => {
+        vi.setSystemTime(closedAtMs + ENDED_REVEAL_MS + 1000)
+        const view = createOpinionView(root)
+        view.setBoard(closedBoard)
+        view.draw(Date.now())
+
+        view.setBoard(closedBoard)
+
+        expect(boardHidden()).toBe(true)
+      })
     })
 
     it('プレビューのサンプルでは、締め切ったテーマを消さない', () => {

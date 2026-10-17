@@ -11,7 +11,7 @@
  * - 解答のカード: 正解・不正解の印と解答・送った人の名前。data-result で見た目を分け、正解のカードは目立たせる
  * 参加のしかたは開催中だけ見出しの行に出す。終えたら下の帯に「正解は○○でした」（正解者が出たら名前も）を出し、
  * 終わり方を data-end-reason で分ける。ゲームが無ければ何も出さない。
- * 終えたゲームは、終えてから ENDED_GAME_REVEAL_MS のあいだだけ映して消す（次のゲームまで画面に残し続けないため）。
+ * 終えたゲームは、終えてから ENDED_REVEAL_MS のあいだだけ映して消す（次のゲームまで画面に残し続けないため）。
  * 下部バーの「演出を消す」を受けたら、終えたゲームを待たずに消す（開催中のゲームは消さない）。
  *
  * 注意: 変わっていないカードの要素は作り直さない（ゲームとカードの種類・IDごとに使い回す）。作り直すと、出現のアニメーションが
@@ -24,9 +24,6 @@ import type { ChatDeductionBoard, ChatDeductionBoardGame, ChatDeductionCard, Cha
 
 /** 並べるカードの数。質問と返事が2行ずつに折り返しても、画面いっぱいの格子（src/chat-deduction/chat-deduction.css の3列×4行）に収まる数にする */
 export const MAX_VISIBLE_CARDS = 12
-
-/** 終えたゲームの正解を映しておく長さ（ミリ秒）。過ぎたら板ごと消す（意見ボードの締め切ったテーマと揃える。src/core/ended-reveal.ts） */
-export const ENDED_GAME_REVEAL_MS = ENDED_REVEAL_MS
 
 /** 見出しの素材の名前 */
 const TITLE = 'チャットで推理'
@@ -41,7 +38,7 @@ const VERDICT_LABELS: Readonly<Record<ChatDeductionVerdict, string>> = {
 }
 
 export interface ChatDeductionViewOptions {
-  /** 終えたゲームを ENDED_GAME_REVEAL_MS ののちに消すか。プレビューのサンプル（終えた時刻が固定）では消さない */
+  /** 終えたゲームを ENDED_REVEAL_MS ののちに消すか。プレビューのサンプル（終えた時刻が固定）では消さない */
   readonly hideEndedGame: boolean
 }
 
@@ -49,7 +46,7 @@ export interface ChatDeductionView {
   /** 映すゲームとカードを置き換える */
   setBoard(board: Pick<ChatDeductionBoard, 'game' | 'cards'>): void
   /**
-   * 下部バーの「演出を消す」を受けた。映しているゲームを終えていれば、ENDED_GAME_REVEAL_MS を待たずに消し、
+   * 下部バーの「演出を消す」を受けた。映しているゲームを終えていれば、ENDED_REVEAL_MS を待たずに消し、
    * そのゲームは読み直しで届いても映さない（次のゲームが始まれば映す）。開催中のゲームは消さない。
    */
   dismiss(): void
@@ -147,7 +144,7 @@ export const createChatDeductionView = (root: HTMLElement, { hideEndedGame }: Ch
         return
       }
       if (hideEndedGame && game.endedAt !== null) {
-        const remaining = Date.parse(game.endedAt) + ENDED_GAME_REVEAL_MS - Date.now()
+        const remaining = Date.parse(game.endedAt) + ENDED_REVEAL_MS - Date.now()
         if (remaining <= 0) {
           clear()
           return

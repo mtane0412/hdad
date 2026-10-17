@@ -10,12 +10,13 @@
  * - 開催中は参加のしかたを出し、終えたら「正解は○○でした」を出すこと（正解者が出たら名前も添え、終わり方を data-end-reason で分ける）
  * - ゲームが無ければ何も出さないこと
  * - 変わっていないカードの要素は作り直さないこと（作り直すと出現のアニメーションが全部のカードで走る）
- * - 終えたゲームは、終えてから ENDED_GAME_REVEAL_MS のあいだだけ映し、そのあとは消すこと（プレビューのサンプルでは消さない）
+ * - 終えたゲームは、終えてから ENDED_REVEAL_MS のあいだだけ映し、そのあとは消すこと（プレビューのサンプルでは消さない）
  * - 下部バーの「演出を消す」を受けたら、終えたゲームを待たずに消すこと（開催中のゲームは消さない）
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChatDeductionBoard, ChatDeductionBoardGame, ChatDeductionCard } from './board'
-import { ENDED_GAME_REVEAL_MS, MAX_VISIBLE_CARDS, createChatDeductionView } from './view'
+import { ENDED_REVEAL_MS } from '../core/ended-reveal'
+import { MAX_VISIBLE_CARDS, createChatDeductionView } from './view'
 
 const openGame: ChatDeductionBoardGame = { id: 1, category: 'place', startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null }
 
@@ -189,22 +190,22 @@ describe('createChatDeductionView', () => {
       vi.useRealTimers()
     })
 
-    it('終えた直後は正解を映し、終えてから ENDED_GAME_REVEAL_MS たったら消す', () => {
+    it('終えた直後は正解を映し、終えてから ENDED_REVEAL_MS たったら消す', () => {
       vi.setSystemTime(endedAtMs)
       const view = createChatDeductionView(root)
 
       view.setBoard({ game: solvedGame, cards: [correctCard] })
       expect(boardElement()?.hidden).toBe(false)
 
-      vi.advanceTimersByTime(ENDED_GAME_REVEAL_MS - 1)
+      vi.advanceTimersByTime(ENDED_REVEAL_MS - 1)
       expect(boardElement()?.hidden).toBe(false)
 
       vi.advanceTimersByTime(1)
       expect(boardElement()?.hidden).toBe(true)
     })
 
-    it('開き直したときにもう ENDED_GAME_REVEAL_MS を過ぎていれば、最初から映さない', () => {
-      vi.setSystemTime(endedAtMs + ENDED_GAME_REVEAL_MS)
+    it('開き直したときにもう ENDED_REVEAL_MS を過ぎていれば、最初から映さない', () => {
+      vi.setSystemTime(endedAtMs + ENDED_REVEAL_MS)
       const view = createChatDeductionView(root)
 
       view.setBoard({ game: solvedGame, cards: [correctCard] })
@@ -218,7 +219,7 @@ describe('createChatDeductionView', () => {
       view.setBoard({ game: solvedGame, cards: [correctCard] })
 
       view.setBoard({ game: { ...openGame, id: 2 }, cards: [] })
-      vi.advanceTimersByTime(ENDED_GAME_REVEAL_MS)
+      vi.advanceTimersByTime(ENDED_REVEAL_MS)
 
       expect(boardElement()?.hidden).toBe(false)
     })
@@ -254,7 +255,7 @@ describe('createChatDeductionView', () => {
     })
 
     it('プレビューのサンプルでは、終えたゲームを消さない', () => {
-      vi.setSystemTime(endedAtMs + ENDED_GAME_REVEAL_MS)
+      vi.setSystemTime(endedAtMs + ENDED_REVEAL_MS)
       const view = createChatDeductionView(root, { hideEndedGame: false })
 
       view.setBoard({ game: solvedGame, cards: [correctCard] })
