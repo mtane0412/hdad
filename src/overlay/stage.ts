@@ -1724,7 +1724,7 @@ const mountTwister = (box: HTMLElement, item: OverlayItem, { key, demo }: MountC
   })
 
   /** 流している1件。流していなければ null */
-  let playback: { readonly call: TwisterCall; readonly game: Game; readonly startedAt: number } | null = null
+  let playback: { readonly call: TwisterCall; readonly game: Game; readonly startedAt: number; readonly duckedStreamBgm: boolean } | null = null
   /** 流すのを待っている呼び出し（届いた順） */
   let waiting: readonly TwisterCall[] = []
   /** 次の1件のアイコンを読み込んでいる最中か */
@@ -1762,8 +1762,9 @@ const mountTwister = (box: HTMLElement, item: OverlayItem, { key, demo }: MountC
     void Promise.all([loadFace(call.players[0].iconUrl), loadFace(call.players[1].iconUrl)])
       .then((faces) => {
         renderer.setFaces(call, faces)
-        playback = { call, game, startedAt: Date.now() }
         const plan = twisterBgmPlanOf(call.sound, game.totalMs)
+        // 配信の BGM を下げたかを覚えておく（消したときに、下げていない対戦で戻す知らせを送らないため）
+        playback = { call, game, startedAt: Date.now(), duckedStreamBgm: plan !== null }
         if (plan !== null) {
           duckStreamBgm(plan.duckHoldMs)
           bgm.start(plan)
@@ -1784,12 +1785,16 @@ const mountTwister = (box: HTMLElement, item: OverlayItem, { key, demo }: MountC
     startNext()
   }
 
-  /** 下部バーの「演出を消す」。流している対戦をその場で終え、対戦の BGM を止めて配信の BGM を戻し、待っている次の1件へ進む */
+  /**
+   * 下部バーの「演出を消す」。流している対戦をその場で終え、対戦の BGM を止めて、待っている次の1件へ進む。
+   * 配信の BGM は、この対戦で下げていたときだけ戻す（ほかの素材が下げている配信の BGM を戻してしまわないため）
+   */
   const dismiss = (): void => {
     if (playback === null) return
+    const { duckedStreamBgm } = playback
     playback = null
     bgm.stop()
-    duckStreamBgm(0)
+    if (duckedStreamBgm) duckStreamBgm(0)
     startNext()
   }
 

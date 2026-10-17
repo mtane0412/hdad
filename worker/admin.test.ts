@@ -652,14 +652,27 @@ describe('POST /api/admin/overlay/dismiss（下部バーの「演出を消す」
     expect(await reread.json()).toEqual({ theme: null, topics: [] })
   })
 
-  it('意見を受け付けているテーマは片付けず、意見ボードを押し出さない（視聴者への問いかけを消さない）', async () => {
+  it('意見を受け付けているテーマは片付けず、いまのボードのまま押し出す（視聴者への問いかけを消さない）', async () => {
     const { env, delivery } = createEnv()
-    await openOpinionTheme(env)
+    const theme = await openOpinionTheme(env)
 
     expect((await dismiss(env)).status).toBe(204)
 
-    expect(delivery.pushedOpinions).toEqual([])
+    expect(delivery.pushedOpinions).toEqual([{ theme, topics: [] }])
     expect(delivery.pushedDismissals).toHaveLength(1)
+  })
+
+  it('送れずに押し直したときも、片付けた意見ボードを送り直す（案内どおり押し直せば消える）', async () => {
+    // 前提: 締め切ったテーマを片付けたが、合成ページへ送れなかった
+    const { env, delivery } = createEnv()
+    const theme = await openOpinionTheme(env)
+    await closeTheme(env.DB, theme.id, now - 1000)
+    const failingEnv = { ...env, ALERTS: createFakeAlertChannel({ shouldFail: true }).namespace }
+    expect((await dismiss(failingEnv)).status).toBe(502)
+
+    expect((await dismiss(env)).status).toBe(204)
+
+    expect(delivery.pushedOpinions).toEqual([{ theme: null, topics: [] }])
   })
 
   it('セッションがなければ401を返し、何も押し出さない', async () => {
