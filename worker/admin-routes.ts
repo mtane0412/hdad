@@ -6,7 +6,8 @@
  * 合成オーバーレイの構成（どのオーバーレイにどの素材を置くか）の取得と保存、LLMの設定とその使用状況を受け持つ。
  */
 import { alertActionOf, loadAlertConfig, parseAlertConfig, saveAlertConfig } from './alert-config'
-import { pushOverlayLayout, revokeAlertSockets } from './alert-channel'
+import { pushDismiss, pushOpinions, pushOverlayLayout, revokeAlertSockets } from './alert-channel'
+import { dismissClosedTheme, readOverlayBoard } from './opinion-store'
 import { revokeRelayViewers } from './draw-channel'
 import { HttpError, STATUS, requireAdmin, type Context } from './http'
 import { listMedia, uploadMedia } from './media'
@@ -258,6 +259,31 @@ export const putOverlayItemVisibility = async (context: Context): Promise<Respon
   await saveOverlayLayout(context.env.STORE, layout)
   await pushSavedOverlayLayout(context, layout)
   return Response.json(layout)
+}
+
+/**
+ * POST /api/admin/overlay/dismiss: 合成ページに出ている演出を消す（下部バーの「演出を消す」）。
+ *
+ * 締め切った意見ボードは片付けを D1 に残してからテーマの無いボードを押し出す（合成ページの読み直しで戻さないため）。
+ * 意見を受け付けているテーマは片付けない。そのうえで、合成ページへ消す合図を押し出す。再生中の一時的な演出を
+ * 終わらせるかどうかは素材ごとに合成ページが決める（待っている演出はそのまま流す。src/overlay/stage.ts の watchDismiss）。
+ *
+ * @throws HttpError 合成ページへ送れなければ502（片付けは済んでいる。合成ページは読み直しで映さなくなる）
+ */
+export const postOverlayDismiss = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  const opinionBoardDismissed = await dismissClosedTheme(context.env.DB, context.now)
+  try {
+    if (opinionBoardDismissed) await pushOpinions(context.env.ALERTS, await readOverlayBoard(context.env.DB))
+    await pushDismiss(context.env.ALERTS)
+  } catch (error) {
+    throw new HttpError(
+      STATUS.badGateway,
+      'overlay-dismiss-push-failed',
+      `合成ページへ演出を消す合図を送れませんでした。もう一度押してください（${error instanceof Error ? error.message : String(error)}）`,
+    )
+  }
+  return new Response(null, { status: STATUS.noContent })
 }
 
 /**

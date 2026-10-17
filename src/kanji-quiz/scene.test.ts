@@ -16,6 +16,7 @@ import {
   REVEAL_RESULT_MS,
   STOP_RESULT_MS,
   acceptsAnswerAt,
+  kanjiQuizDismissibleAt,
   kanjiQuizEndOf,
   kanjiQuizSceneAt,
   kanjiQuizStopBannerAt,
@@ -158,6 +159,24 @@ describe('acceptsAnswerAt', () => {
 const stopAnnounced: KanjiQuizStop = { announcedAfterMs: GRADE_INTRO_MS + ANSWER_LIMIT_MS + 17_000, graceMs: 10_000, rehearsal: false, cancelledAfterMs: null }
 /** 猶予が尽きる時刻（流しはじめてから） */
 const stopAt = stopAnnounced.announcedAfterMs + stopAnnounced.graceMs
+
+describe('kanjiQuizDismissibleAt（下部バーの「演出を消す」）', () => {
+  it('級と出題のあいだは消さない（消しても Worker の時間切れで配信が止まり、視聴者には何が起きたか見えないため）', () => {
+    expect(kanjiQuizDismissibleAt(0, null)).toBe(false)
+    expect(kanjiQuizDismissibleAt(afterWord(ANSWER_LIMIT_MS - 1), null)).toBe(false)
+  })
+
+  it('時間切れのあと、正解の読みと解説を出しているあいだは消せる', () => {
+    expect(kanjiQuizDismissibleAt(afterWord(ANSWER_LIMIT_MS), null)).toBe(true)
+  })
+
+  it('正解者が届いたら、制限時間のうちでも消せる', () => {
+    // 前提: 熟語が出て10秒で「山田太郎」さんが正解した
+    const answeredAfterMs = afterWord(10_000)
+    expect(kanjiQuizDismissibleAt(answeredAfterMs - 1, answeredAfterMs)).toBe(false)
+    expect(kanjiQuizDismissibleAt(answeredAfterMs, answeredAfterMs)).toBe(true)
+  })
+})
 
 describe('kanjiQuizStopBannerAt', () => {
   it('猶予が届く前と、猶予が届いていなければ何も出さない', () => {

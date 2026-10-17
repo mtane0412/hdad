@@ -29,6 +29,7 @@ import { saveTwisterSound } from './twister-sound'
 import { saveLickSound } from './lick-sound'
 import { saveVrmModel } from './vrm-model'
 import { DEFAULT_KANJI_QUIZ_SOUND, saveKanjiQuizSound } from './kanji-quiz-sound'
+import { closeTheme, openTheme } from './opinion-store'
 
 const now = Date.UTC(2026, 8, 21, 12, 0, 0)
 const broadcasterId = '12345'
@@ -601,14 +602,83 @@ describe('POST /api/admin/overlay-key（キーの再発行）', () => {
     const issuedTag = await overlayKeyTag(issuedKey)
     const connect = (path: string) => invoke(new Request(`${origin}${path}?key=${issuedKey}&keyTag=forged`, { headers: { Upgrade: 'websocket' } }), env)
 
-    for (const path of ['/api/overlay/socket', '/api/overlay/bgm/socket', '/api/overlay/layout/socket', '/api/overlay/draw', '/api/overlay/caption', '/api/overlay/tab']) {
+    for (const path of [
+      '/api/overlay/socket',
+      '/api/overlay/bgm/socket',
+      '/api/overlay/layout/socket',
+      '/api/overlay/dismiss/socket',
+      '/api/overlay/draw',
+      '/api/overlay/caption',
+      '/api/overlay/tab',
+    ]) {
       expect((await connect(path)).status).toBe(200)
     }
 
     const tagsOf = (requests: Request[]) => requests.map((request) => new URL(request.url).searchParams.getAll('keyTag'))
-    expect(tagsOf(delivery.forwardedConnections)).toEqual([[issuedTag], [issuedTag], [issuedTag]])
+    expect(tagsOf(delivery.forwardedConnections)).toEqual([[issuedTag], [issuedTag], [issuedTag], [issuedTag]])
     expect(tagsOf(relay.forwardedConnections)).toEqual([[issuedTag], [issuedTag]])
     expect(tagsOf(tabRelay.forwardedConnections)).toEqual([[issuedTag]])
+  })
+})
+
+describe('POST /api/admin/overlay/dismiss（下部バーの「演出を消す」）', () => {
+  const dismiss = async (env: Env) => invoke(await broadcasterRequest(env, '/api/admin/overlay/dismiss', { method: 'POST' }), env)
+  /** 意見ボードのテーマを開く（締め切るかどうかはテストごとに決める） */
+  const openOpinionTheme = async (env: Env) => {
+    const theme = await openTheme(env.DB, '配信中にAIをどこまで使っていい？', now - 60_000)
+    if (theme === null) throw new Error('テーマを開けませんでした')
+    return theme
+  }
+
+  it('合成ページへ消す合図を押し出す', async () => {
+    const { env, delivery } = createEnv()
+
+    const response = await dismiss(env)
+
+    expect(response.status).toBe(204)
+    expect(delivery.pushedDismissals).toHaveLength(1)
+  })
+
+  it('締め切った意見ボードは片付けて、テーマの無いボードを押し出す（読み直しても戻らない）', async () => {
+    // 前提: 意見ボードのテーマを締め切ったあと（片付けるまで合成ページに残る）
+    const { env, delivery } = createEnv()
+    const theme = await openOpinionTheme(env)
+    await closeTheme(env.DB, theme.id, now - 1000)
+
+    expect((await dismiss(env)).status).toBe(204)
+
+    expect(delivery.pushedOpinions).toEqual([{ theme: null, topics: [] }])
+    const reread = await invoke(new Request(`${origin}/api/overlay/opinions?key=${issuedKey}`), env)
+    expect(await reread.json()).toEqual({ theme: null, topics: [] })
+  })
+
+  it('意見を受け付けているテーマは片付けず、意見ボードを押し出さない（視聴者への問いかけを消さない）', async () => {
+    const { env, delivery } = createEnv()
+    await openOpinionTheme(env)
+
+    expect((await dismiss(env)).status).toBe(204)
+
+    expect(delivery.pushedOpinions).toEqual([])
+    expect(delivery.pushedDismissals).toHaveLength(1)
+  })
+
+  it('セッションがなければ401を返し、何も押し出さない', async () => {
+    const { env, delivery } = createEnv()
+
+    const response = await invoke(new Request(`${origin}/api/admin/overlay/dismiss`, { method: 'POST' }), env)
+
+    expect(response.status).toBe(401)
+    expect(delivery.pushedDismissals).toEqual([])
+  })
+
+  it('合成ページへ送れなければ502を返す（消せたつもりで配信を続けないため）', async () => {
+    const { env } = createEnv()
+    const failingEnv = { ...env, ALERTS: createFakeAlertChannel({ shouldFail: true }).namespace }
+
+    const response = await dismiss(failingEnv)
+
+    expect(response.status).toBe(502)
+    expect(await errorCode(response)).toBe('overlay-dismiss-push-failed')
   })
 })
 

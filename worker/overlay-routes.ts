@@ -4,7 +4,7 @@
  * どれもTwitchのトークンではなくオーバーレイ用キーで守る。素材だけは、管理画面でのプレビューのために配信者のセッションでも読める。
  */
 import { overlayKeyTag } from './overlay-key'
-import { connectAlertSocket, connectOverlayLayoutSocket } from './alert-channel'
+import { connectAlertSocket, connectDismissSocket, connectOverlayLayoutSocket } from './alert-channel'
 import { connectDrawSocket } from './draw-channel'
 import { connectTabSocket } from './tab-channel'
 import { loadStrokes } from './draw-config'
@@ -284,4 +284,17 @@ export const overlayLayoutSocket = async (context: Context): Promise<Response> =
     throw new HttpError(STATUS.badRequest, 'expected-websocket', 'この経路はWebSocketの接続にだけ使えます')
   }
   return connectOverlayLayoutSocket(context.env.ALERTS, context.request, await overlayKeyTag(key))
+}
+
+/**
+ * GET /api/overlay/dismiss/socket?key=: 合成ページからのWebSocketの接続を、演出を消す合図を受け取る接続として配送先へ引き渡す。
+ *
+ * 下部バーの「演出を消す」を押すと、合図がここへ流れてくる（admin-routes.ts の postOverlayDismiss）。
+ */
+export const overlayDismissSocket = async (context: Context): Promise<Response> => {
+  const key = await requireOverlayKey(context)
+  if (context.request.headers.get('Upgrade') !== 'websocket') {
+    throw new HttpError(STATUS.badRequest, 'expected-websocket', 'この経路はWebSocketの接続にだけ使えます')
+  }
+  return connectDismissSocket(context.env.ALERTS, context.request, await overlayKeyTag(key))
 }

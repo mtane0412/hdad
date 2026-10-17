@@ -14,7 +14,7 @@ paths:
 
 意見ボードは、配信者が出したテーマについて視聴者がチャットに書いたコメントから LLM が意見を取り出し、論点（観点）ごとに並べて映す機能（issue #306。いどばたビジョンにならう。続きは #307 観点の提案・#308 取りこぼしの救い出しと論点の統合・#309 配信後のまとめ）。**多数決に見せない**: 合成ページへは人数を渡さず（`readOverlayBoard`）、論点の大きさ・並びを人数で変えず（左右3つずつの枠へ作った順に交互に置き（`splitTopics`）、枠の高さは列の中の論点の数で等分する。論点の中は新しい順で、件数では切らず、枠に収まらない古い札は見た目（`opinions.css` の `.opinions-cards`）が丸ごと隠す）、意見は賛否ではなく札の種類（`OPINION_KINDS`: 課題・解決策・問い・気づき）で区別する。中央の「いま紹介している意見」は人数ではなく作った順に回す（`src/opinions/entry.ts` の `spotlightAt`）。人数は管理画面（`readAdminBoard`）にだけ出す。
 
-テーマ・論点・意見・コメントは D1（`migrations/0033_opinions.sql`・`0034_opinion_prompts.sql`・`0035_opinion_summaries.sql`・`0042_opinion_regroup.sql`）に持ち、読み書きは `worker/opinion-store.ts` だけが行う。開いているテーマは1つだけで、開くときの確かめは1つの文で行う（`openTheme`）。締め切ったテーマも、次を開くまで合成ページに映し続ける（最後に開いたテーマを読む）。
+テーマ・論点・意見・コメントは D1（`migrations/0033_opinions.sql`・`0034_opinion_prompts.sql`・`0035_opinion_summaries.sql`・`0042_opinion_regroup.sql`・`0043_opinion_theme_dismissed.sql`）に持ち、読み書きは `worker/opinion-store.ts` だけが行う。開いているテーマは1つだけで、開くときの確かめは1つの文で行う（`openTheme`）。締め切ったテーマも、次を開くまで合成ページに映し続ける（最後に開いたテーマを読む）。ただし下部バーの「演出を消す」で片付けたテーマ（`opinion_themes.dismissed_at`。締め切った最後のテーマにだけ書く `dismissClosedTheme`）は、`readOverlayBoard` がテーマの無いボードとして返す（開いているテーマは片付けない）。
 
 コメントは、チャットの受け口（`worker/webhook-routes.ts` の `recordOpinionCommentFromChat`。自動モデレーションと `stream_chat_messages` の記録のあと）が、テーマを開いているときだけ貯める（出していなければ通知の断片も読み解かない）。断片と返信先の読み取りはコメントビューアーと共有する（`worker/comment-feed.ts` の `readChatBody`）。コマンド・エモートだけ・短い反応は規則で落とし（`worker/opinion.ts` の `dropReasonOf`。返信は短くても落とさない）、理由を付けて `dropped` として残す。失敗は投げずに `opinion-record-failed` として記録する。
 

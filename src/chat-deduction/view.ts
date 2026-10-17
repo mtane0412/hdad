@@ -12,6 +12,7 @@
  * 参加のしかたは開催中だけ見出しの行に出す。終えたら下の帯に「正解は○○でした」（正解者が出たら名前も）を出し、
  * 終わり方を data-end-reason で分ける。ゲームが無ければ何も出さない。
  * 終えたゲームは、終えてから ENDED_GAME_REVEAL_MS のあいだだけ映して消す（次のゲームまで画面に残し続けないため）。
+ * 下部バーの「演出を消す」を受けたら、終えたゲームを待たずに消す（開催中のゲームは消さない）。
  *
  * 注意: 変わっていないカードの要素は作り直さない（ゲームとカードの種類・IDごとに使い回す）。作り直すと、出現のアニメーションが
  * 新しいカードだけでなく全部のカードで走ってしまう。使い回すカードも、通し番号だけは届くたびに付け直す。
@@ -46,6 +47,11 @@ export interface ChatDeductionViewOptions {
 export interface ChatDeductionView {
   /** 映すゲームとカードを置き換える */
   setBoard(board: Pick<ChatDeductionBoard, 'game' | 'cards'>): void
+  /**
+   * 下部バーの「演出を消す」を受けた。映しているゲームを終えていれば、ENDED_GAME_REVEAL_MS を待たずに消し、
+   * そのゲームは読み直しで届いても映さない（次のゲームが始まれば映す）。開催中のゲームは消さない。
+   */
+  dismiss(): void
 }
 
 /** 決まった class を持つ要素を作る */
@@ -118,6 +124,10 @@ export const createChatDeductionView = (root: HTMLElement, { hideEndedGame }: Ch
   let shown = new Map<string, HTMLLIElement>()
   /** 終えたゲームを消す予約。新しい一覧を受け取るたびに取り消して決め直す */
   let hideTimer: ReturnType<typeof setTimeout> | undefined
+  /** 最後に受け取ったゲーム。「演出を消す」を受けたときに、終えたゲームかを見るために使う */
+  let currentGame: ChatDeductionBoardGame | null = null
+  /** 「演出を消す」で消した、終えたゲームのID。消していなければ null */
+  let dismissedGameId: number | null = null
 
   /** 板を隠して、並べていたカードを捨てる */
   const clear = (): void => {
@@ -130,7 +140,8 @@ export const createChatDeductionView = (root: HTMLElement, { hideEndedGame }: Ch
     setBoard: ({ game, cards }) => {
       clearTimeout(hideTimer)
       hideTimer = undefined
-      if (game === null) {
+      currentGame = game
+      if (game === null || (game.endedAt !== null && game.id === dismissedGameId)) {
         clear()
         return
       }
@@ -171,6 +182,14 @@ export const createChatDeductionView = (root: HTMLElement, { hideEndedGame }: Ch
       const winner = cards.find((card) => card.kind === 'guess' && card.correct)
       solver.hidden = game.endReason !== 'solved' || winner === undefined
       solver.textContent = winner === undefined ? '' : `${winner.userName}さんが正解！`
+    },
+
+    dismiss: () => {
+      if (currentGame === null || currentGame.endedAt === null) return
+      clearTimeout(hideTimer)
+      hideTimer = undefined
+      dismissedGameId = currentGame.id
+      clear()
     },
   }
 }

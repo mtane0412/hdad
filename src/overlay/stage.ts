@@ -82,7 +82,7 @@ import { KANJI_QUIZ_SOCKET_HINT, KANJI_QUIZ_SOCKET_PATH, createKanjiQuizApi } fr
 import { parseKanjiQuizMessage, type KanjiQuizCall } from '../kanji-quiz/call'
 import { wrongKanjiQuizAnswerOf } from '../kanji-quiz/answer'
 import { DEMO_KANJI_QUIZ_CALLS, DEMO_KANJI_QUIZ_INTERVAL_MS } from '../kanji-quiz/demo'
-import { acceptsAnswerAt, kanjiQuizEndOf, kanjiQuizSceneAt, kanjiQuizStopBannerAt, type KanjiQuizStop } from '../kanji-quiz/scene'
+import { acceptsAnswerAt, kanjiQuizDismissibleAt, kanjiQuizEndOf, kanjiQuizSceneAt, kanjiQuizStopBannerAt, type KanjiQuizStop } from '../kanji-quiz/scene'
 import { KANJI_QUIZ_BGM_START_CUE_ID, dueKanjiQuizSoundCues, kanjiQuizBgmDuckHoldOf } from '../kanji-quiz/sound-cues'
 import { drawKanjiQuiz, type KanjiQuizWrongAnswer } from '../kanji-quiz/view'
 import { POMODORO_SOCKET_HINT, POMODORO_SOCKET_PATH, createPomodoroOverlayApi } from '../pomodoro/api'
@@ -160,6 +160,7 @@ import { demoWorkLogScenes } from '../work-log/demo'
 import { WORK_LOG_LIMIT, mergeEntries, parseWorkLogEntry, type WorkLogEntry } from '../work-log/entry'
 import { createWorkLogView } from '../work-log/view'
 import { OVERLAY_LAYOUT_SOCKET_HINT, OVERLAY_LAYOUT_SOCKET_PATH, createOverlayLayoutApi, readOverlays } from './api'
+import { DISMISS_SOCKET_HINT, DISMISS_SOCKET_PATH, parseOverlayDismiss } from './dismiss'
 import { itemsInOverlay, overlayChanged, overlayNamesOf, rectsOnlyChanged, rectStyle, shownItems, type ItemKind, type Overlay, type OverlayItem } from './layout'
 import { dueTasks, pollTickMs, type PollInterval } from './poll'
 import { previewReadyMessage, readPreviewLayout } from './preview'
@@ -412,6 +413,11 @@ interface MountedItem {
   readonly task?: PollTask
   /** チャットの受け取りを使うか（つなげなかったときに、この箱へ失敗を出す） */
   readonly usesChat?: boolean
+  /**
+   * 下部バーの「演出を消す」を受けたときに呼ぶ。再生中の一時的な演出を終わらせ、待っている演出はそのまま次へ進める。
+   * 消すものを持たない素材（常設の素材・Worker が片付けを持つ意見ボード）は持たない（watchDismiss）
+   */
+  readonly dismiss?: () => void
 }
 
 /** 壁紙・時計。箱の中に canvas を1枚置き、1フレームぶんの描画を受け取る */
@@ -528,7 +534,8 @@ const mountAlerts = (box: HTMLElement, item: OverlayItem, { key, demo }: MountCo
     onStatus: (status) => view.setNotice(status === 'disconnected' ? 'Workerとの接続が切れました。再接続します…' : null),
     onWarning: (message) => view.setNotice(message),
   })
-  return {}
+  // 再生中の1件だけを消えさせる。消え終われば play が待っている次の1件へ進む
+  return { dismiss: () => view.dismiss() }
 }
 
 /** サイドスーパー。cron が作った文言を定期的に読みに行って映す */
@@ -1616,6 +1623,22 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
     startNext()
   }
 
+  /**
+   * 下部バーの「演出を消す」。流している1件をその場で終え、待っている次の1件へ進む。
+   * 紹介した市町村の記録は、記録する時刻を過ぎていたときだけ送る（途中で消した紹介は制覇に数えない）。
+   * 紹介のBGMを鳴らしていたら、下げていた配信のBGMをすぐ戻す
+   */
+  const dismiss = (): void => {
+    if (playback === null) return
+    recordVisitIfDue(playback, Date.now())
+    const duckedStreamBgm = played.has(BGM_START_CUE_ID)
+    playback = null
+    sound.stop()
+    releaseCurrentNarration()
+    if (duckedStreamBgm) bgmApi.duck(0).catch((error: unknown) => showError(error, NOUNS.townTour, box, 'read'))
+    startNext()
+  }
+
   window.setInterval(() => {
     const now = Date.now()
     // 描画が間引かれていても、音を止めて次へ進めるよう、ここでも終わりを確かめる
@@ -1665,7 +1688,7 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
     TOWN_TOUR_SOCKET_HINT,
   )
 
-  return { draw }
+  return { draw, dismiss }
 }
 
 /**
@@ -1761,6 +1784,15 @@ const mountTwister = (box: HTMLElement, item: OverlayItem, { key, demo }: MountC
     startNext()
   }
 
+  /** 下部バーの「演出を消す」。流している対戦をその場で終え、対戦の BGM を止めて配信の BGM を戻し、待っている次の1件へ進む */
+  const dismiss = (): void => {
+    if (playback === null) return
+    playback = null
+    bgm.stop()
+    duckStreamBgm(0)
+    startNext()
+  }
+
   const draw = startCanvasSurface(hudCanvas, (ctx, width, height) => {
     ctx.clearRect(0, 0, width, height)
     const now = Date.now()
@@ -1799,7 +1831,7 @@ const mountTwister = (box: HTMLElement, item: OverlayItem, { key, demo }: MountC
     TWISTER_SOCKET_HINT,
   )
 
-  return { draw }
+  return { draw, dismiss }
 }
 
 /**
@@ -1871,6 +1903,14 @@ const mountLick = (box: HTMLElement, item: OverlayItem, { key, demo }: MountCont
     startNext()
   }
 
+  /** 下部バーの「演出を消す」。流している1件をその場で終え、効果音も止めて、待っている次の1件へ進む */
+  const dismiss = (): void => {
+    if (playback === null) return
+    soundPlayer.stop()
+    playback = null
+    startNext()
+  }
+
   const draw = startCanvasSurface(hudCanvas, (ctx, width, height) => {
     ctx.clearRect(0, 0, width, height)
     const now = Date.now()
@@ -1915,7 +1955,7 @@ const mountLick = (box: HTMLElement, item: OverlayItem, { key, demo }: MountCont
     LICK_SOCKET_HINT,
   )
 
-  return { draw }
+  return { draw, dismiss }
 }
 
 /**
@@ -2185,6 +2225,18 @@ const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo, hub }:
     }
   }
 
+  /**
+   * 下部バーの「演出を消す」。正解の読みと解説に入っていれば、流している出題をその場で終えて音を止め、待っている次の出題へ進む。
+   * 級と出題のあいだは消さない（時間切れで配信を止めるのは Worker なので、消すと問題が見えないまま止まりうる。kanjiQuizDismissibleAt）
+   */
+  const dismiss = (): void => {
+    const now = Date.now()
+    if (playback === null || !kanjiQuizDismissibleAt(now - playback.startedAt, playback.answer?.afterMs ?? null)) return
+    playback = null
+    sound.stop()
+    advance(now)
+  }
+
   window.setInterval(() => {
     const now = Date.now()
     // 描画が間引かれていても、音を鳴らして次へ進めるよう、ここでも進める
@@ -2279,7 +2331,7 @@ const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo, hub }:
     },
   })
 
-  return { draw, usesChat: true }
+  return { draw, usesChat: true, dismiss }
 }
 
 /**
@@ -2609,6 +2661,8 @@ const mountChatDeduction = (box: HTMLElement, item: OverlayItem, { key, demo }: 
   )
 
   return {
+    // 終えたゲームだけを待たずに消す（開催中のゲームは消さない。view.ts の dismiss）
+    dismiss: () => view.dismiss(),
     task: {
       intervalMs: CHAT_DEDUCTION_INTERVAL_MS,
       run: () => {
@@ -2822,6 +2876,40 @@ const watchLayout = (key: string, overlayName: string, started: readonly Overlay
   )
 }
 
+/**
+ * 下部バーの「演出を消す」の合図を待ち受け、届いたら起動した素材それぞれの dismiss を呼ぶ。
+ *
+ * 何をどう消すかは素材ごとに決める（再生中の一時的な演出だけを終わらせ、待っている演出はそのまま流す）。
+ * 締め切った意見ボードの片付けは Worker が持ち、意見ボードの押し出しで届く（ここでは扱わない）。
+ * 合図は押し出しでしか届かない（読み直すものを持たない）。つながっていない間の合図は配送先が落とす。
+ *
+ * @param dismissers 起動した素材の dismiss（持つものだけ）
+ */
+const watchDismiss = (key: string, dismissers: readonly (() => void)[]): void => {
+  connectSocket(
+    socketUrl(DISMISS_SOCKET_PATH, { key }),
+    {
+      onMessage: (text) => {
+        try {
+          parseOverlayDismiss(text)
+        } catch (error) {
+          showError(error, NOUN)
+          return
+        }
+        for (const dismiss of dismissers) dismiss()
+      },
+      onOpen: () => {
+        // 読み直すものを持たない
+      },
+      onStatus: () => {
+        // 切断・再接続は出さない。映している素材はそのまま残す
+      },
+      onWarning: (message) => showError(new Error(message), NOUN),
+    },
+    DISMISS_SOCKET_HINT,
+  )
+}
+
 const start = async (): Promise<void> => {
   const root = document.querySelector<HTMLElement>('[data-overlay]')
   if (!root) throw new Error('data-overlay 属性を持つ要素が見つかりません')
@@ -2853,6 +2941,8 @@ const start = async (): Promise<void> => {
   const tasks: PollTask[] = []
   /** チャットの受け取りを使う素材の箱。つなげなかったときに、そこへ失敗を出す */
   const chatBoxes: HTMLElement[] = []
+  /** 「演出を消す」を受けたときに呼ぶ、素材ごとの消し方 */
+  const dismissers: (() => void)[] = []
 
   // 箱は構成の並びの順に置く（あとのものが前に重なる）。隠した素材は起動しない（音や読み上げを裏で動かさないため）
   for (const item of shownItems(items)) {
@@ -2869,6 +2959,7 @@ const start = async (): Promise<void> => {
       if (mounted.draw) drawing.push({ box, noun, draw: mounted.draw })
       if (mounted.task) tasks.push(mounted.task)
       if (mounted.usesChat) chatBoxes.push(box)
+      if (mounted.dismiss) dismissers.push(mounted.dismiss)
     } catch (error) {
       // 1つの素材の失敗で同じオーバーレイのほかの素材を止めない（issue #101 で決めた例外）
       showError(error, noun, box)
@@ -2879,6 +2970,8 @@ const start = async (): Promise<void> => {
   startPolling(tasks)
   // プレビューは配信画面への切り替えを待たない（編集中の構成は上で待ち受けている）
   if (!params.demo) watchLayout(params.key, params.overlay, all)
+  // プレビューのサンプルは消さない。消すものを持つ素材が無いオーバーレイではつながない
+  if (!params.demo && dismissers.length > 0) watchDismiss(params.key, dismissers)
 
   if (chatBoxes.length > 0) {
     await hub.start().catch((error: unknown) => {

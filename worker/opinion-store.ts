@@ -385,11 +385,32 @@ export const setOpinionHidden = async (db: Database, opinionId: number, hidden: 
   (await db.prepare('UPDATE opinions SET hidden = ?2 WHERE id = ?1 RETURNING id').bind(opinionId, hidden ? 1 : 0).first<{ id: number }>()) !== null
 
 /**
+ * 最後に開いたテーマが締め切ってあれば、合成ページから片付ける（下部バーの「演出を消す」）。
+ *
+ * 開いているテーマは片付けない（視聴者への問いかけを消すと、意見を集められなくなるため）。
+ * 片付けたテーマは次のテーマを開くまで合成ページへ映さない（readOverlayBoard）。管理画面とまとめには残す。
+ *
+ * @returns 片付けたか。一度も開いていない・開いている・もう片付けていれば false
+ */
+export const dismissClosedTheme = async (db: Database, now: number): Promise<boolean> =>
+  (await db
+    .prepare(
+      `UPDATE opinion_themes SET dismissed_at = ?1
+       WHERE id = (SELECT MAX(id) FROM opinion_themes) AND closed_at IS NOT NULL AND dismissed_at IS NULL
+       RETURNING id`,
+    )
+    .bind(toIso(now))
+    .first<{ id: number }>()) !== null
+
+/**
  * 合成ページへ渡す意見ボードを読む。最後に開いたテーマ（締め切ったものも含む）の、隠していない意見だけを人数を付けずに返す。
+ * 最後に開いたテーマを片付けていれば（dismissClosedTheme）、テーマの無いボードを返す。
  */
 export const readOverlayBoard = async (db: Database): Promise<OpinionBoardSnapshot> => {
   const theme = await readLatestTheme(db)
   if (theme === null) return { theme: null, topics: [] }
+  const dismissed = await db.prepare('SELECT 1 AS found FROM opinion_themes WHERE id = ?1 AND dismissed_at IS NOT NULL').bind(theme.id).first<{ found: number }>()
+  if (dismissed !== null) return { theme: null, topics: [] }
   const [topics, opinions] = await Promise.all([readTopics(db, theme.id), readOpinions(db, theme.id)])
   return {
     theme,

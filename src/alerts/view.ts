@@ -2,6 +2,7 @@
  * アラートの表示
  *
  * アラート1件を素材（画像・動画・音声）と文言のHTML要素として表示し、決まった秒数のあとに消す。
+ * 下部バーの「演出を消す」を受けたら、秒数を待たずにその場で消えさせる（dismiss）。
  * 見た目と出入りの動きは alerts.css が受け持つ。どの順で再生するかは呼び出し側（stage.ts と queue.ts）が決める。
  */
 import type { Alert, AlertMedia } from './alert'
@@ -19,6 +20,8 @@ export interface AlertView {
   show(alert: Alert): Promise<void>
   /** 接続の状態などのお知らせを表示する。null で消す */
   setNotice(text: string | null): void
+  /** 表示中のアラートを、決まった秒数を待たずに消えさせる（消え終わったら show が解決する）。表示中でなければ何もしない */
+  dismiss(): void
 }
 
 const createMediaElement = ({ kind, url }: AlertMedia, volume: number): HTMLImageElement | HTMLVideoElement | HTMLAudioElement => {
@@ -44,6 +47,9 @@ export const createAlertView = (root: HTMLElement): AlertView => {
   notice.hidden = true
   root.append(notice)
 
+  /** 表示中のアラートを消えさせる。表示中でなければ null */
+  let leaveNow: (() => void) | null = null
+
   return {
     show: (alert) =>
       new Promise((resolve, reject) => {
@@ -59,16 +65,23 @@ export const createAlertView = (root: HTMLElement): AlertView => {
           item.append(text)
         }
 
-        const leaveTimer = window.setTimeout(() => {
+        /** 消えはじめる。決まった秒数がたったときと「演出を消す」を受けたときの両方から呼ぶので、2回目は何もしない */
+        const leave = (): void => {
+          if (leaveNow !== leave) return
+          leaveNow = null
+          window.clearTimeout(leaveTimer)
           item.classList.add('alert--leaving')
           window.setTimeout(() => {
             item.remove()
             resolve()
           }, LEAVE_MS)
-        }, alert.durationSeconds * MILLISECONDS_PER_SECOND)
+        }
+        const leaveTimer = window.setTimeout(leave, alert.durationSeconds * MILLISECONDS_PER_SECOND)
+        leaveNow = leave
 
         media.addEventListener('error', () => {
           window.clearTimeout(leaveTimer)
+          if (leaveNow === leave) leaveNow = null
           item.remove()
           reject(new Error(`アラートの素材を読み込めませんでした: ${alert.media.url}`))
         })
@@ -80,5 +93,7 @@ export const createAlertView = (root: HTMLElement): AlertView => {
       notice.hidden = text === null
       notice.textContent = text ?? ''
     },
+
+    dismiss: () => leaveNow?.(),
   }
 }

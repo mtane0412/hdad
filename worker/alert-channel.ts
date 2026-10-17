@@ -69,10 +69,14 @@
  * 合成ページの素材「チャットで推理」へ、最後に始めたゲームの質問と解答のカードの一覧（丸ごと）を配るのもこの Durable Object である（issue #378）。
  * 同じ理由で、17個目の目印（chatDeduction）を付けた接続へだけ配る。
  *
+ * 合成ページへ、下部バーの「演出を消す」の合図を配るのもこの Durable Object である。
+ * 同じ理由で、18個目の目印（dismiss）を付けた接続へだけ配る。
+ *
  * 注意: WebSocketの接続（Upgrade）は Cloudflare のランタイムでしか作れないので、テストでは配送の部分だけを確かめる。
  */
 import type { OverlayAlert } from './alert-event'
 import type { OverlayLayout } from './overlay-layout'
+import { OVERLAY_DISMISS } from './overlay-dismiss'
 import type { BgmDuck, BgmNowPlaying } from './bgm-config'
 import { STATUS, errorResponse } from './http'
 import { KEY_TAG_PARAM, isCurrentKeyTag, rememberKeyTag, revokeRequest, type DurableStorage } from './overlay-key'
@@ -127,6 +131,8 @@ const PUSH_LICK_PATH = '/push/lick'
 const PUSH_VRM_PATH = '/push/vrm'
 /** Worker が合成オーバーレイの構成の押し出しに使うパス */
 const PUSH_OVERLAY_LAYOUT_PATH = '/push/overlay-layout'
+/** Worker が演出を消す合図の押し出しに使うパス */
+const PUSH_DISMISS_PATH = '/push/dismiss'
 /** Worker がオーバーレイ用キーを発行し直したときに、開いている接続を閉じさせるパス */
 const REVOKE_PATH = '/revoke'
 
@@ -164,6 +170,8 @@ const LICK_TOPIC = 'lick'
 const VRM_TOPIC = 'vrm'
 /** 合成オーバーレイの構成を受け取る接続（合成ページそのもの）に付ける目印 */
 const OVERLAY_LAYOUT_TOPIC = 'overlayLayout'
+/** 演出を消す合図を受け取る接続（合成ページそのもの）に付ける目印 */
+const DISMISS_TOPIC = 'dismiss'
 /** 受け入れる接続の目印。知らない値はアラートの接続として受け入れる（Worker が必ずどれかを付けて渡す） */
 const TOPICS: readonly string[] = [
   ALERTS_TOPIC,
@@ -183,6 +191,7 @@ const TOPICS: readonly string[] = [
   OVERLAY_LAYOUT_TOPIC,
   VRM_TOPIC,
   CHAT_DEDUCTION_TOPIC,
+  DISMISS_TOPIC,
 ]
 /** どちらの目印で受け入れるかを Worker が伝えるためのクエリ。外には出ない */
 const TOPIC_PARAM = 'topic'
@@ -230,7 +239,7 @@ export interface AlertChannelNamespace {
  *   townTour なら市町村紹介の接続、bgmDuck なら配信のBGMを下げる知らせの接続、speechMute なら読み上げのミュートの接続、
  *   twister ならツイスターの接続、text ならテキストの接続、kanjiQuiz なら漢字クイズの接続、streamStop なら配信を止める命令の接続、opinions なら意見ボードの接続、
  *   lick ならペロペロの接続、overlayLayout なら構成の接続、vrm ならVRMの演出の接続、
- *   chatDeduction ならチャットで推理の接続、それ以外はアラートの接続として受け入れる
+ *   chatDeduction ならチャットで推理の接続、dismiss なら演出を消す合図の接続、それ以外はアラートの接続として受け入れる
  * - POST /push: Worker が押し出したアラートを、アラートの接続すべてへ配る
  * - POST /push/bgm: Worker が押し出した「いま流している曲」を、BGMの接続すべてへ配る
  * - POST /push/work-log: Worker が押し出した作業ログの1行を、作業ログの接続すべてへ配る
@@ -248,6 +257,7 @@ export interface AlertChannelNamespace {
  * - POST /push/lick: Worker が押し出したペロペロの呼び出しを、ペロペロの接続すべてへ配る
  * - POST /push/vrm: Worker が押し出したVRMの演出の呼び出しを、VRMの演出の接続すべてへ配る
  * - POST /push/overlay-layout: Worker が押し出した合成オーバーレイの構成を、構成の接続すべてへ配る
+ * - POST /push/dismiss: Worker が押し出した演出を消す合図を、演出を消す合図の接続すべてへ配る
  * - POST /revoke: 新しいキーの目印を覚え、接続をすべて閉じる（オーバーレイ用キーを発行し直したとき。どの接続もオーバーレイ用キーで開かれている）
  *
  * 接続はどれもオーバーレイ用キーで開かれるので、覚えている目印と違うキーの接続は受け入れない（worker/overlay-key.ts）。
@@ -279,6 +289,7 @@ export class AlertChannel {
     if (url.pathname === PUSH_LICK_PATH) return this.push(LICK_TOPIC, await request.text(), 'ペロペロ')
     if (url.pathname === PUSH_VRM_PATH) return this.push(VRM_TOPIC, await request.text(), 'VRMの演出')
     if (url.pathname === PUSH_OVERLAY_LAYOUT_PATH) return this.push(OVERLAY_LAYOUT_TOPIC, await request.text(), 'オーバーレイの構成')
+    if (url.pathname === PUSH_DISMISS_PATH) return this.push(DISMISS_TOPIC, await request.text(), '演出を消す合図')
     if (url.pathname === PUSH_STREAM_STOP_PATH) {
       const payload = await request.text()
       // 裏方を2つ開いていても StopStream を2回送らないよう、送れた1つで止める（送れなかった接続は broadcast が閉じる）
@@ -488,6 +499,16 @@ export const connectChatDeductionSocket = (namespace: AlertChannelNamespace, req
 export const connectOverlayLayoutSocket = (namespace: AlertChannelNamespace, request: Request, keyTag: string): Promise<Response> =>
   connectWithTopic(namespace, request, OVERLAY_LAYOUT_TOPIC, keyTag)
 
+/**
+ * 合成ページからのWebSocketの接続を、演出を消す合図を受け取る接続として Durable Object へ引き渡す。
+ *
+ * オーバーレイ用キーの確認は呼び出し側（overlay-routes.ts）が済ませている。
+ *
+ * @param keyTag 確かめたキーの目印（overlayKeyTag）
+ */
+export const connectDismissSocket = (namespace: AlertChannelNamespace, request: Request, keyTag: string): Promise<Response> =>
+  connectWithTopic(namespace, request, DISMISS_TOPIC, keyTag)
+
 const connectWithTopic = (namespace: AlertChannelNamespace, request: Request, topic: string, keyTag: string): Promise<Response> => {
   const url = new URL(request.url)
   url.searchParams.set(TOPIC_PARAM, topic)
@@ -665,6 +686,16 @@ export const pushVrm = (namespace: AlertChannelNamespace, call: VrmCall): Promis
  */
 export const pushOverlayLayout = (namespace: AlertChannelNamespace, layout: OverlayLayout): Promise<void> =>
   pushJson(namespace, PUSH_OVERLAY_LAYOUT_PATH, layout, 'オーバーレイの構成')
+
+/**
+ * 演出を消す合図を Durable Object へ押し出す。下部バーの「演出を消す」を押したときに呼ぶ。
+ *
+ * 合成ページを開いていなければ配る先が無いだけで、失敗ではない（配送先は204を返す。つながっていない間の合図は貯めずに落とす）。
+ *
+ * 注意: 失敗を黙って握りつぶさない。呼び出し側（admin-routes.ts）が管理画面へ失敗を返す。
+ */
+export const pushDismiss = (namespace: AlertChannelNamespace): Promise<void> =>
+  pushJson(namespace, PUSH_DISMISS_PATH, OVERLAY_DISMISS, '演出を消す合図')
 
 /**
  * 配信のBGMを下げる知らせを Durable Object へ押し出す。合成ページが市町村紹介のBGMを鳴らすあいだに呼ぶ。
