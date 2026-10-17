@@ -78,6 +78,7 @@ const savedSettings: LlmSettings = {
     opinionPrompt: { provider: 'workers-ai', models: { ...largeModel } },
     opinionSummary: { provider: 'workers-ai', models: { ...largeModel } },
     chatDeductionAnswer: { provider: 'workers-ai', models: { ...largeModel } },
+    opinionRegroup: { provider: 'workers-ai', models: { ...largeModel } },
   },
 }
 

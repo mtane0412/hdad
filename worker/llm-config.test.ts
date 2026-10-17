@@ -105,10 +105,10 @@ describe('parseLlmSettings', () => {
   })
 
   it('問題点は最初の1件で止めず、すべて集めてから拒否する', () => {
-    expect(issues({ usages: { aiChat: { provider: 'openai', models: { 'workers-ai': 1, openrouter: '' } } } })).toHaveLength(14)
+    expect(issues({ usages: { aiChat: { provider: 'openai', models: { 'workers-ai': 1, openrouter: '' } } } })).toHaveLength(15)
   })
 
-  it('使う箇所は12で、市町村紹介の共通点のほかは既定の提供元が Workers AI である', () => {
+  it('使う箇所は13で、市町村紹介の共通点のほかは既定の提供元が Workers AI である', () => {
     expect(LLM_USAGES).toEqual([
       'translation',
       'aiChat',
@@ -122,6 +122,7 @@ describe('parseLlmSettings', () => {
       'opinionPrompt',
       'opinionSummary',
       'chatDeductionAnswer',
+      'opinionRegroup',
     ])
     for (const usage of LLM_USAGES.filter((candidate) => candidate !== 'townBond')) expect(DEFAULT_LLM_SETTINGS.usages[usage].provider).toBe('workers-ai')
   })

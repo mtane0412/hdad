@@ -45,6 +45,7 @@ export const LLM_PROVIDERS = ['workers-ai', 'openrouter'] as const
  * opinionPrompt は、意見ボードの問いかけ（worker/opinion-prompt.ts。issue #307）を、問いかけに答える意見が届いたときと配信者が替えさせたときだけ呼ぶ（同上）。
  * opinionSummary は、意見ボードのテーマを締め切ったときと配信者が作り直させたときだけ、配信後のまとめ（worker/opinion-summary.ts。issue #309）のために呼ぶ（同上）。
  * chatDeductionAnswer は、チャットで推理の「質問」の交換を受け付けたときだけ、はい・いいえ・分からないと1文を作らせる（worker/chat-deduction-answer.ts。issue #376。同上）。
+ * opinionRegroup は、意見ボードの意見が5件増えたときと締め切ったときだけ、論点を意見全体から分け直させる（worker/opinion-regroup.ts。issue #402。同上）。
  */
 export const LLM_USAGES = [
   'translation',
@@ -59,6 +60,7 @@ export const LLM_USAGES = [
   'opinionPrompt',
   'opinionSummary',
   'chatDeductionAnswer',
+  'opinionRegroup',
 ] as const
 
 export type LlmProvider = (typeof LLM_PROVIDERS)[number]
@@ -127,6 +129,9 @@ export const DEFAULT_LLM_SETTINGS: LlmSettings = {
     // チャットで推理の質問への答え（worker/chat-deduction-answer.ts）は、事実メモに無いことを作らせず「分からない」と言わせたいので大きいモデルにする。
     // 視聴者がポイントを払った質問のうち、1問あたりの上限を通ったものにしか呼ばない
     chatDeductionAnswer: { provider: 'workers-ai', models: LARGE_MODELS },
+    // 意見ボードの論点の作り直し（worker/opinion-regroup.ts）は、意見の全体を読んで、全件を漏れなく重ならずに論点へ分ける JSON を作らせるので大きいモデルにする。
+    // 意見が5件増えたときと締め切ったときにしか呼ばないので、回数は振り分けより少ない
+    opinionRegroup: { provider: 'workers-ai', models: LARGE_MODELS },
   },
 }
 

@@ -97,7 +97,7 @@ main にマージすると、Workers Builds が `npm run deploy`（`wrangler dep
 | `backstage.md` | 裏方をまとめたページ（`overlay/backstage/`）とコネクターのページ（`/connectors/`） | `src/backstage/**`・`overlay/backstage/**` |
 | `bgm.md` | BGM（`/bgm/`・裏方の `?bgm=true`） | `src/bgm/**`・`worker/bgm-*.ts`・`worker/alert-channel.ts` |
 | `screen.md` | 配信画面の取り込み（コネクターの Gyazo） | `src/screen/**`・`worker/screen-*.ts`・`worker/gyazo.ts` |
-| `llm.md` | LLMの呼び先・使用状況・モデルの選択（判定用の Jev を含む） | `src/llm/**`・`worker/llm*.ts`・`worker/jev*.ts`・`worker/ai-chat.ts`・`worker/side-super.ts`・`worker/viewer-summary.ts`・`worker/stream-summary.ts`・`worker/town-tour.ts`・`worker/text-auto.ts`・`worker/opinion-sort.ts`・`worker/opinion-prompt.ts`・`worker/opinion-filter.ts`・`worker/opinion-draft.ts`・`worker/chat-deduction-answer.ts` |
+| `llm.md` | LLMの呼び先・使用状況・モデルの選択（判定用の Jev を含む） | `src/llm/**`・`worker/llm*.ts`・`worker/jev*.ts`・`worker/ai-chat.ts`・`worker/side-super.ts`・`worker/viewer-summary.ts`・`worker/stream-summary.ts`・`worker/town-tour.ts`・`worker/text-auto.ts`・`worker/opinion-sort.ts`・`worker/opinion-prompt.ts`・`worker/opinion-filter.ts`・`worker/opinion-draft.ts`・`worker/opinion-regroup.ts`・`worker/chat-deduction-answer.ts` |
 | `design.md` | ページUIの見た目（色のトークン・書体と大きさ・区画の型。Linear に寄せる） | `src/app/**`・`src/components/**`・`src/**/*-page.tsx`・`src/**/*-card.tsx`・`src/**/*-section.tsx` |
 | `dashboard.md` | ダッシュボード（`/`） | `src/stats/**`・`worker/stats-*.ts` |
 | `triggers-page.md` | トリガーの管理画面（`/triggers/`） | `src/admin/**` |

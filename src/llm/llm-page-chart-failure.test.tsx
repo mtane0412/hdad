@@ -41,6 +41,7 @@ const api: LlmApi = {
           opinionPrompt: { provider: 'workers-ai', models: { ...lightModel } },
           opinionSummary: { provider: 'workers-ai', models: { ...lightModel } },
           chatDeductionAnswer: { provider: 'workers-ai', models: { ...lightModel } },
+          opinionRegroup: { provider: 'workers-ai', models: { ...lightModel } },
         },
       },
       apiKeyConfigured: false,
