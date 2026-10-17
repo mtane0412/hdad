@@ -18,14 +18,15 @@
  * 新しいカードだけでなく全部のカードで走ってしまう。使い回すカードも、通し番号だけは届くたびに付け直す。
  * 注意: 消す時刻は Worker が決めた終えた時刻（endedAt）と、この端末の時計から決める。時計が数秒ずれていれば、映す長さも数秒ずれる。
  */
+import { ENDED_REVEAL_MS } from '../core/ended-reveal'
 import { categoryLabelOf } from './category'
 import type { ChatDeductionBoard, ChatDeductionBoardGame, ChatDeductionCard, ChatDeductionVerdict } from './board'
 
 /** 並べるカードの数。質問と返事が2行ずつに折り返しても、画面いっぱいの格子（src/chat-deduction/chat-deduction.css の3列×4行）に収まる数にする */
 export const MAX_VISIBLE_CARDS = 12
 
-/** 終えたゲームの正解を映しておく長さ（ミリ秒）。過ぎたら板ごと消す */
-export const ENDED_GAME_REVEAL_MS = 60_000
+/** 終えたゲームの正解を映しておく長さ（ミリ秒）。過ぎたら板ごと消す（意見ボードの締め切ったテーマと揃える。src/core/ended-reveal.ts） */
+export const ENDED_GAME_REVEAL_MS = ENDED_REVEAL_MS
 
 /** 見出しの素材の名前 */
 const TITLE = 'チャットで推理'

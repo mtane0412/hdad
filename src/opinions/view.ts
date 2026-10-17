@@ -11,10 +11,13 @@
  * 札の種類は色だけでなく文字でも出し、見た目（opinions.css）で明るさも変える。
  *
  * 毎フレーム（draw）は、現在時刻から「いま紹介している意見」と作ったばかりの意見を決め直し、変わったところだけ書き換える。
+ * 締め切ったテーマは、締め切ってから ENDED_REVEAL_MS のあいだだけ映して消す（チャットで推理の終えたゲームと揃える。
+ * 消すかどうかも現在時刻と締め切った時刻だけから決めるので、OBS で読み込み直しても戻らない）。
  *
  * 注意: 変わっていない札の要素は作り直さない（意見のIDごとに使い回す）。作り直すと、出現のアニメーションが新しい札だけでなく
  * 全部の札で走ってしまう。
  */
+import { ENDED_REVEAL_MS } from '../core/ended-reveal'
 import { OPINION_KIND_LABELS, isFresh, spotlightAt, splitTopics, type OpinionBoard, type OverlayOpinion, type OverlayTopic, type Spotlight } from './entry'
 
 /** テーマの見出し。開いているあいだと締め切ったあとで変える */
@@ -29,6 +32,11 @@ const SPOTLIGHT_LABEL = 'いま紹介している意見'
 
 /** 視聴者への問いかけの見出し */
 const PROMPT_LABEL = 'こんな観点からも聞いてみたい'
+
+export interface OpinionViewOptions {
+  /** 締め切ったテーマを ENDED_REVEAL_MS ののちに消すか。プレビューのサンプル（締め切った時刻が固定）では消さない */
+  readonly hideClosedTheme: boolean
+}
 
 export interface OpinionView {
   /** 映す意見ボードを置き換える */
@@ -73,8 +81,9 @@ const toggleFlag = (target: HTMLElement, name: 'lit' | 'fresh', on: boolean): vo
  * 意見ボードの表示を組み立てる。
  *
  * @param root 表示を入れる要素（合成ページが作る [data-opinions] の要素）
+ * @param options 締め切ったテーマを消すか（既定は消す）
  */
-export const createOpinionView = (root: HTMLElement): OpinionView => {
+export const createOpinionView = (root: HTMLElement, { hideClosedTheme }: OpinionViewOptions = { hideClosedTheme: true }): OpinionView => {
   const boardElement = element('div', 'opinions-board')
   const left = element('div', 'opinions-side opinions-side--left')
   const right = element('div', 'opinions-side opinions-side--right')
@@ -104,6 +113,10 @@ export const createOpinionView = (root: HTMLElement): OpinionView => {
   root.append(boardElement)
 
   let topics: readonly OverlayTopic[] = []
+  /** 映しているテーマがあるか */
+  let hasTheme = false
+  /** 映しているテーマを締め切った時刻（ミリ秒）。開いている・テーマが無ければ null */
+  let closedAtMs: number | null = null
   /** 映している札（意見のIDごと）。変わっていない札の要素を使い回す */
   let cards = new Map<number, { opinion: OverlayOpinion; card: HTMLLIElement }>()
   /** 中央に出している意見のID（無ければ null）。変わったときだけ書き換える。undefined は「次の draw で必ず決め直す」 */
@@ -141,7 +154,9 @@ export const createOpinionView = (root: HTMLElement): OpinionView => {
 
   return {
     setBoard(board) {
-      boardElement.hidden = board.theme === null
+      hasTheme = board.theme !== null
+      closedAtMs = board.theme === null || board.theme.closedAt === null ? null : Date.parse(board.theme.closedAt)
+      boardElement.hidden = !hasTheme
       themeLabel.textContent = board.theme !== null && board.theme.closedAt !== null ? CLOSED_LABEL : OPEN_LABEL
       themeTitle.textContent = board.theme?.title ?? ''
       const prompt = board.theme !== null && board.theme.closedAt === null ? board.theme.prompt : null
@@ -157,6 +172,9 @@ export const createOpinionView = (root: HTMLElement): OpinionView => {
       spotlightId = undefined
     },
     draw(now) {
+      const hidden = !hasTheme || (hideClosedTheme && closedAtMs !== null && now >= closedAtMs + ENDED_REVEAL_MS)
+      if (boardElement.hidden !== hidden) boardElement.hidden = hidden
+      if (hidden) return
       const spotlight = spotlightAt(topics, now)
       const nextId = spotlight?.opinion.id ?? null
       if (nextId !== spotlightId) {

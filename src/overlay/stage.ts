@@ -2469,7 +2469,7 @@ const mountOpinions = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
   root.dataset.opinions = ''
   box.append(root)
 
-  const view = createOpinionView(root)
+  const view = createOpinionView(root, { hideClosedTheme: !demo })
   const draw = (): void => view.draw(Date.now())
 
   if (demo) {

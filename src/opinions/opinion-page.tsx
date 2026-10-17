@@ -127,7 +127,7 @@ export const OpinionPage = ({ api }: { api: OpinionApi }) => {
   const askClose = (themeId: number): void =>
     actions.ask({
       title: 'テーマを締め切りますか？',
-      description: '締め切ると、それ以降のコメントは意見にしません。合成ページには、次のテーマを出すまで締め切ったテーマの意見ボードが残ります（下部バーの「演出を消す」で下げられます）。',
+      description: '締め切ると、それ以降のコメントは意見にしません。合成ページには、締め切ってから1分のあいだ意見ボードを残して消します（下部バーの「演出を消す」で早めに下げられます）。',
       actionLabel: 'テーマを締め切る',
       run: async () => {
         const theme = await api.closeTheme(themeId)
