@@ -11,9 +11,11 @@
  * - 締め切ったテーマはそれと分かる見出しにし、テーマが無ければ何も出さないこと
  * - 変わっていない札の要素は作り直さないこと（作り直すと出現のアニメーションが全部の札で走る）
  * - 視聴者への問いかけを中央下に出し、問いかけが無い・テーマを締め切ったら隠すこと（issue #307）
+ * - 締め切ったテーマは、締め切ってから ENDED_REVEAL_MS のあいだだけ映して消すこと（チャットで推理の終えたゲームと揃える。プレビューのサンプルでは消さない）
  */
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FRESH_MS, SPOTLIGHT_MS, type OpinionBoard, type OverlayOpinion } from './entry'
+import { ENDED_REVEAL_MS } from '../core/ended-reveal'
 import { createOpinionView } from './view'
 
 const theme = { id: 1, title: '配信中にAIをどこまで使っていい？', openedAt: '2026-10-10T12:00:00.000Z', closedAt: null, prompt: null }
@@ -115,6 +117,83 @@ describe('createOpinionView', () => {
   it('締め切ったテーマは、締め切ったと分かる見出しにする', () => {
     createOpinionView(root).setBoard({ ...board, theme: { ...theme, closedAt: '2026-10-10T12:30:00.000Z' } })
     expect(root.querySelector('.opinions-theme-label')?.textContent).toBe('締め切ったテーマ')
+  })
+
+  describe('締め切ったテーマを消す', () => {
+    /** 12:30 に締め切ったテーマ */
+    const closedAtMs = Date.parse('2026-10-10T12:30:00.000Z')
+    const closedBoard: OpinionBoard = { ...board, theme: { ...theme, closedAt: '2026-10-10T12:30:00.000Z' } }
+    const boardHidden = (): HTMLElement['hidden'] | undefined => root.querySelector<HTMLElement>('.opinions-board')?.hidden
+
+    it('締め切った直後は映し、締め切ってから ENDED_REVEAL_MS たったら消す', () => {
+      const view = createOpinionView(root)
+      view.setBoard(closedBoard)
+
+      view.draw(closedAtMs + ENDED_REVEAL_MS - 1)
+      expect(boardHidden()).toBe(false)
+
+      view.draw(closedAtMs + ENDED_REVEAL_MS)
+      expect(boardHidden()).toBe(true)
+    })
+
+    it('開き直したときにもう ENDED_REVEAL_MS を過ぎていれば、最初の描画から映さない（OBS で読み込み直しても戻らない）', () => {
+      const view = createOpinionView(root)
+
+      view.setBoard(closedBoard)
+      view.draw(closedAtMs + ENDED_REVEAL_MS * 10)
+
+      expect(boardHidden()).toBe(true)
+    })
+
+    it('次のテーマを開いたら映す', () => {
+      const view = createOpinionView(root)
+      view.setBoard(closedBoard)
+      view.draw(closedAtMs + ENDED_REVEAL_MS)
+
+      view.setBoard({ theme: { ...theme, id: 2, title: '次のテーマ', openedAt: '2026-10-10T13:00:00.000Z' }, topics: [] })
+      view.draw(closedAtMs + ENDED_REVEAL_MS + 1000)
+
+      expect(boardHidden()).toBe(false)
+    })
+
+    it('開いているテーマは、時間がたっても消さない', () => {
+      const view = createOpinionView(root)
+      view.setBoard(board)
+
+      view.draw(Date.parse(theme.openedAt) + ENDED_REVEAL_MS * 10)
+
+      expect(boardHidden()).toBe(false)
+    })
+
+    describe('読み直し・押し出しで同じボードが届いたとき', () => {
+      beforeEach(() => {
+        vi.useFakeTimers()
+      })
+
+      afterEach(() => {
+        vi.useRealTimers()
+      })
+
+      it('消したあとに同じ締め切ったボードが届いても、次の描画を待たずに隠したままにする（一瞬戻らない）', () => {
+        vi.setSystemTime(closedAtMs + ENDED_REVEAL_MS + 1000)
+        const view = createOpinionView(root)
+        view.setBoard(closedBoard)
+        view.draw(Date.now())
+
+        view.setBoard(closedBoard)
+
+        expect(boardHidden()).toBe(true)
+      })
+    })
+
+    it('プレビューのサンプルでは、締め切ったテーマを消さない', () => {
+      const view = createOpinionView(root, { hideClosedTheme: false })
+      view.setBoard(closedBoard)
+
+      view.draw(closedAtMs + ENDED_REVEAL_MS * 10)
+
+      expect(boardHidden()).toBe(false)
+    })
   })
 
   it('テーマが無ければ何も出さない', () => {
