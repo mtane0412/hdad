@@ -144,3 +144,17 @@ export const kanjiQuizSceneAt = (elapsedMs: number, answeredAfterMs: number | nu
   const sinceReveal = elapsedMs - (elapsedMs < revealAt ? TIME_UP_AT : revealAt)
   return { kind: 'reveal', progress: Math.min(1, sinceReveal / REVEAL_MS), explanation: sinceReveal >= REVEAL_RESULT_MS }
 }
+
+/**
+ * 下部バーの「演出を消す」で、流している出題を消してよいか。正解の読みと解説に入ってからだけ消せる。
+ *
+ * 級と出題のあいだは消さない。時間切れの判定と配信の停止は Worker が持つので、消しても出題は続き、
+ * 誰も正解しなければ視聴者には問題が見えないまま配信が止まってしまうため。
+ *
+ * @param elapsedMs 流しはじめてからの経過時間
+ * @param answeredAfterMs 流しはじめてから正解者が届くまでの経過時間。届いていなければ null
+ */
+export const kanjiQuizDismissibleAt = (elapsedMs: number, answeredAfterMs: number | null): boolean => {
+  const { kind } = kanjiQuizSceneAt(elapsedMs, answeredAfterMs)
+  return kind === 'reveal' || kind === 'done'
+}

@@ -11,6 +11,7 @@
  * - ゲームが無ければ何も出さないこと
  * - 変わっていないカードの要素は作り直さないこと（作り直すと出現のアニメーションが全部のカードで走る）
  * - 終えたゲームは、終えてから ENDED_GAME_REVEAL_MS のあいだだけ映し、そのあとは消すこと（プレビューのサンプルでは消さない）
+ * - 下部バーの「演出を消す」を受けたら、終えたゲームを待たずに消すこと（開催中のゲームは消さない）
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChatDeductionBoard, ChatDeductionBoardGame, ChatDeductionCard } from './board'
@@ -219,6 +220,36 @@ describe('createChatDeductionView', () => {
       view.setBoard({ game: { ...openGame, id: 2 }, cards: [] })
       vi.advanceTimersByTime(ENDED_GAME_REVEAL_MS)
 
+      expect(boardElement()?.hidden).toBe(false)
+    })
+
+    it('「演出を消す」を受けたら、終えたゲームを待たずに消し、読み直しで同じゲームが届いても映さない', () => {
+      vi.setSystemTime(endedAtMs)
+      const view = createChatDeductionView(root)
+      view.setBoard({ game: solvedGame, cards: [correctCard] })
+
+      view.dismiss()
+      expect(boardElement()?.hidden).toBe(true)
+
+      // 5分おきの読み直しで、同じ終えたゲームがまた届いた
+      view.setBoard({ game: solvedGame, cards: [correctCard] })
+      expect(boardElement()?.hidden).toBe(true)
+
+      // 次のゲームが始まったら映す
+      view.setBoard({ game: { ...openGame, id: 2 }, cards: [] })
+      expect(boardElement()?.hidden).toBe(false)
+    })
+
+    it('「演出を消す」を受けても、開催中のゲームは消さない（視聴者が参加している最中のため）', () => {
+      vi.setSystemTime(endedAtMs)
+      const view = createChatDeductionView(root)
+      view.setBoard({ game: openGame, cards: [yesCard] })
+
+      view.dismiss()
+
+      expect(boardElement()?.hidden).toBe(false)
+      // 開催中に受けた合図は、そのあと終えたゲームまで消さない
+      view.setBoard({ game: { ...solvedGame, id: openGame.id }, cards: [yesCard, correctCard] })
       expect(boardElement()?.hidden).toBe(false)
     })
 

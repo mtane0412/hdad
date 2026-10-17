@@ -18,6 +18,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { createFakeDatabase } from './fake-database'
 import {
   closeTheme,
+  dismissClosedTheme,
   joinRescuedComment,
   markCommentsFailed,
   mergeTopics,
@@ -250,6 +251,34 @@ describe('振り分けの反映と読み出し', () => {
     expect((await readOverlayBoard(db)).theme).toMatchObject({ id: theme.id, closedAt: new Date(LATER).toISOString() })
     const next = await open('次のテーマ', LATER + 1000)
     expect(await readOverlayBoard(db)).toEqual({ theme: next, topics: [] })
+  })
+
+  it('締め切ったテーマを片付けたら、合成ページへは何も映さない。次のテーマを開けばまた映す', async () => {
+    // 前提: テーマを締め切った（片付けるまでは締め切ったボードが残る）
+    const { theme } = await prepare()
+    await closeTheme(db, theme.id, LATER)
+
+    expect(await dismissClosedTheme(db, LATER + 1000)).toBe(true)
+
+    // 片付けたあとは、読み直しても締め切ったボードが戻らない
+    expect(await readOverlayBoard(db)).toEqual({ theme: null, topics: [] })
+    const next = await open('次のテーマ', LATER + 2000)
+    expect(await readOverlayBoard(db)).toEqual({ theme: next, topics: [] })
+  })
+
+  it('開いているテーマ・一度も開いていない・もう片付けたときは、何も片付けない', async () => {
+    // 前提: 一度もテーマを開いていない
+    expect(await dismissClosedTheme(db, NOW)).toBe(false)
+
+    // 前提: 意見を受け付けている最中（視聴者への問いかけを消さないため、片付けない）
+    const { theme } = await prepare()
+    expect(await dismissClosedTheme(db, NOW)).toBe(false)
+    expect((await readOverlayBoard(db)).theme).toMatchObject({ id: theme.id, closedAt: null })
+
+    // 前提: 締め切って一度片付けた
+    await closeTheme(db, theme.id, LATER)
+    expect(await dismissClosedTheme(db, LATER)).toBe(true)
+    expect(await dismissClosedTheme(db, LATER + 1000)).toBe(false)
   })
 })
 

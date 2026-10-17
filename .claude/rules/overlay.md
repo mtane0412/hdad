@@ -13,4 +13,6 @@ paths:
 
 素材は隠せる（`OverlayItem.hidden`。表示する素材では持たせない）。目のアイコンは保存ボタンを経ずに `PUT /api/admin/overlay/visibility` で保存済みの構成の1件だけを書き換え（指す場所は読み込んだ時点の中身から `form.ts` の `savedVisibilityTarget` で引き、種類とデザインIDが食い違えば Worker が409で拒む）、AlertChannel の目印 `overlayLayout` で合成ページへ構成を押し出す（保存ボタンでの保存も同じく押し出す）。合成ページは隠した素材を起動せず（`layout.ts` の `shownItems`）、押し出された構成で自分のオーバーレイの中身が変わったときだけ読み込み直す（`overlayChanged`）。→ `docs/decisions/overlay-editor.md`
 
+下部バーの「演出を消す」（`src/overlay/dismiss-control.tsx`）は `POST /api/admin/overlay/dismiss` を呼び、Worker は締め切った意見ボードを片付けてから（`worker/opinion-store.ts` の `dismissClosedTheme`）、`AlertChannel` の目印 `dismiss` で合成ページへ中身の無い合図を押し出す（`src/overlay/dismiss.ts`）。合成ページは合図を1本の接続で受け（`stage.ts` の `watchDismiss`。プレビューではつながない）、起動した素材の `MountedItem.dismiss` を順に呼ぶ。消すのは再生中の1件だけで、待っている演出は捨てずに次へ進める。消し方を持つのはアラート・市町村紹介・ツイスター・ペロペロ・漢字クイズ（解説に入ってからだけ。`kanjiQuizDismissibleAt`）・チャットで推理（終えたゲームだけ）で、参加している最中のもの・出しっぱなしの素材・VRM の反応は持たせない。→ `docs/decisions/overlay-stage.md`
+
 利用者向けの説明は `docs/guide/overlay.md`。
