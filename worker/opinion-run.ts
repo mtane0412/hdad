@@ -10,6 +10,8 @@
  * 5. 振り分けを書き（worker/opinion-store.ts）、いまの意見ボードを合成ページへ押し出す
  * 6. 問いかけが無いあいだに新しい意見ができた・問いかけに答える発言が届いたときだけ、問いかけを作り直して押し出す
  *    （worker/opinion-prompt.ts。新しい意見が無いあいだは作り直さない）
+ * 7. 新しい意見ができ、前に作り直してから意見が REGROUP_OPINION_STEP 件増えていれば、論点を意見全体から作り直して押し出す
+ *    （worker/opinion-regroup.ts。issue #402）。LLM に意見の全体を渡して時間がかかるので、問いかけを待たせないよう最後に行う
  *
  * 注意: Jev・LLM が失敗した・応答が照合を通らなかったときは、その回の発言を「失敗」にして失敗を記録する（opinion-filter-failed・
  *   opinion-sort-failed）。振り分け待ちに残すと、同じ発言で毎回失敗し続けて無料枠を食い続けるためである。失敗にした発言は、
@@ -17,8 +19,9 @@
  * 注意: Jev は OpenRouter の鍵が無ければ呼べない。鍵が無い配信者では jev を null にして、絞り込みを飛ばす（配信者が決めたこと。
  *   鍵の有無で決まる分岐で、Jev の失敗を飛ばすのとは違う）。
  * 注意: 問いかけを作れなかったときは前の問いかけを残し、失敗を記録する（opinion-prompt-failed）。振り分けは取り消さない。
- * 配信後のまとめ（issue #309）は、振り分けとは別に、テーマを締め切ったとき（worker/opinion-routes.ts）にここの replaceOpinionSummary・
- * runClosedThemeSummary が作る。
+ * 注意: 論点を作り直せなかったときも前の論点を残し、失敗を記録する（opinion-regroup-failed）。振り分けは取り消さない。
+ * 配信後のまとめ（issue #309）は、振り分けとは別に、テーマを締め切ったとき（worker/opinion-routes.ts）にここの runClosedThemeFinish が、
+ * 論点の作り直しと並べて作る。配信者が作り直させるときは replaceOpinionSummary を通る。
  *
  * 注意: 押し出しに失敗しても書いた振り分けは取り消さず、失敗を記録する（opinion-push-failed）。合成ページは定期的に読み直すので、
  *   いずれ映る。
@@ -30,14 +33,18 @@ import type { TextGenerator } from './llm'
 import { readyUtterances, type OpinionTheme, type StoredOpinionSummary, type Utterance } from './opinion'
 import { filterUtterances } from './opinion-filter'
 import { proposeOpinionPrompt } from './opinion-prompt'
+import { planRegrouping, regroupMaterialOf, regroupOpinions } from './opinion-regroup'
 import { sortOpinions } from './opinion-sort'
 import { summarizeOpinions } from './opinion-summary'
 import {
+  applyRegrouping,
   applySorting,
+  claimRegroup,
   markCommentsFailed,
   readOpenTheme,
   readOverlayBoard,
   readPendingComments,
+  readRegroupBoard,
   readSortingBoard,
   readVisibleBoard,
   recordFilterResults,
@@ -45,6 +52,14 @@ import {
   saveThemeSummary,
 } from './opinion-store'
 import { recordFailure } from './stats-store'
+
+/**
+ * 論点を作り直す、意見の増え方（件）。前に作り直してからこの数だけ意見が増えた回に作り直す（issue #402）。
+ *
+ * 2026-10-16 の本番は1つのテーマで意見が13件だった。作り直しは意見の全体を LLM に渡すので、毎回ではなく、論点の中身が
+ * 変わるほど意見が増えたときに限る（1つのテーマで2〜3回になる）。
+ */
+export const REGROUP_OPINION_STEP = 5
 
 /** 振り分けの1回分に要るもの。テストで差し替えられるよう引数で受け取る */
 export interface OpinionSortingDependencies {
@@ -95,6 +110,45 @@ export const replaceOpinionSummary = async (db: Database, llm: TextGenerator, th
   const summary = await summarizeOpinions(llm, { theme: theme.title, board })
   if (!(await saveThemeSummary(db, theme.id, summary, now))) throw new Error(`テーマ「${theme.title}」はまだ開いているので、まとめを書けません`)
   return { ...summary, createdAt: new Date(now).toISOString() }
+}
+
+/** 論点の作り直しに要るもの */
+type RegroupDependencies = Pick<OpinionSortingDependencies, 'db' | 'alerts' | 'llm' | 'now'>
+
+/**
+ * 前に作り直してから意見が step 件以上増えていれば、論点を意見全体から作り直して書き、押し出す（issue #402）。
+ * 失敗は投げずに記録する（opinion-regroup-failed。前の論点を残す）。
+ *
+ * 引き受けた時点で数を覚えるので、失敗しても同じ盤面で作り直し続けない。LLM を待つあいだに盤面が変わっていたら書かずに記録する
+ * （次は意見がさらに step 件増えたときに作り直す）。
+ */
+const runOpinionRegrouping = async ({ db, alerts, llm, now }: RegroupDependencies, theme: OpinionTheme, step: number): Promise<void> => {
+  try {
+    if (!(await claimRegroup(db, theme.id, step))) return
+    const board = await readRegroupBoard(db, theme.id)
+    const material = regroupMaterialOf(theme.title, board)
+    if (material === null) return
+    const plan = planRegrouping(board, await regroupOpinions(llm, material))
+    if (!(await applyRegrouping(db, theme.id, board, plan, now))) {
+      await recordFailure(db, 'opinion-regroup-failed', `意見ボードのテーマ「${theme.title}」の論点を作り直すあいだに意見ボードが変わったので、書かずに見送りました`, now)
+      return
+    }
+  } catch (error) {
+    await recordFailure(db, 'opinion-regroup-failed', `意見ボードのテーマ「${theme.title}」の論点を作り直せませんでした（前の論点を残します）: ${reasonOf(error)}`, now)
+    return
+  }
+  await pushCurrentOpinions({ db, alerts, now })
+}
+
+/**
+ * テーマを締め切ったあとに、論点の作り直しと配信後のまとめを並べて行う。どちらの失敗も投げずに記録する（締め切りは取り消さないため）。
+ *
+ * 作り直しは、前に作り直してから意見が1件でも増えていれば行う（最後の意見まで論点に反映するため）。
+ * 2つを順に待たないのは、締め切りの経路の waitUntil が応答のあと30秒ほどで打ち切られ、LLM を2回続けて待つと間に合わないことが
+ * あるためである。まとめは論点の名前ではなく意見から作るので、作り直す前の論点を材料にしてよい。作り直せなくてもまとめは作る。
+ */
+export const runClosedThemeFinish = async (dependencies: RegroupDependencies, theme: OpinionTheme): Promise<void> => {
+  await Promise.all([runOpinionRegrouping(dependencies, theme, 1), runClosedThemeSummary(dependencies.db, dependencies.llm, theme, dependencies.now)])
 }
 
 /**
@@ -157,6 +211,7 @@ export const runOpinionSorting = async (dependencies: OpinionSortingDependencies
 
   const commentIds = kept.flatMap(({ commentIds }) => commentIds)
   let promptDue: boolean
+  let createdOpinion: boolean
   try {
     const { actions, promptAnswered } = await sortOpinions(llm, {
       theme: theme.title,
@@ -165,22 +220,31 @@ export const runOpinionSorting = async (dependencies: OpinionSortingDependencies
       prompt: theme.prompt,
     })
     await applySorting(db, theme.id, actions, now)
+    createdOpinion = actions.some(({ type }) => type === 'new')
     // 問いかけを作り直すのは、答えが届いたときと、問いかけが無いあいだに新しい意見ができたときだけ
-    promptDue = promptAnswered || (theme.prompt === null && actions.some(({ type }) => type === 'new'))
+    promptDue = promptAnswered || (theme.prompt === null && createdOpinion)
   } catch (error) {
     await markCommentsFailed(db, theme.id, commentIds)
     await recordFailure(db, 'opinion-sort-failed', `意見ボードのコメント${commentIds.length}件を振り分けられませんでした: ${reasonOf(error)}`, now)
     return true
   }
   await pushCurrentOpinions(dependencies)
-  if (!promptDue) return true
+  if (promptDue) await runOpinionPrompt(dependencies, theme)
+  // 作り直しは LLM に意見の全体を渡すので時間がかかる。問いかけを待たせないよう最後に行う
+  if (createdOpinion) await runOpinionRegrouping(dependencies, theme, REGROUP_OPINION_STEP)
+  return true
+}
 
+/**
+ * 問いかけを作り直して押し出す。失敗は投げずに記録する（opinion-prompt-failed。前の問いかけを残す）。
+ */
+const runOpinionPrompt = async (dependencies: OpinionSortingDependencies, theme: OpinionTheme): Promise<void> => {
+  const { db, llm, now } = dependencies
   try {
-    if ((await replaceOpinionPrompt(db, llm, theme)) === null) return true
+    if ((await replaceOpinionPrompt(db, llm, theme)) === null) return
   } catch (error) {
     await recordFailure(db, 'opinion-prompt-failed', `意見ボードの問いかけを作り直せませんでした（前の問いかけを残します）: ${reasonOf(error)}`, now)
-    return true
+    return
   }
   await pushCurrentOpinions(dependencies)
-  return true
 }

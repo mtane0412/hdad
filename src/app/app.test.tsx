@@ -211,6 +211,7 @@ const fakeLlmApi: LlmApi = {
           opinionPrompt: usageSetting,
           opinionSummary: usageSetting,
           chatDeductionAnswer: usageSetting,
+          opinionRegroup: usageSetting,
         },
       },
       apiKeyConfigured: true,

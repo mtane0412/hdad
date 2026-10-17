@@ -12,7 +12,7 @@
  *   まとめられること。食い違い（救い出せないコメント・無い論点・重なる名前・上限）を見分けて返すこと（issue #308）
  *
  * - テーマを締め切ったら、応答のあとに配信後のまとめを LLM に作らせて保存し、まとめが作れなくても締め切りは取り消さず失敗を記録すること。
- *   管理画面から、締め切ったテーマのまとめを作り直させられること（issue #309）
+ *   管理画面から、締め切ったテーマのまとめを作り直させられること（issue #309）。まとめの前に論点を作り直すこと（issue #402）
  *
  * 読み書きの中身は worker/opinion-store.test.ts、振り分けの中身は worker/opinion-run.test.ts が確かめるので、ここでは経路の受け渡しだけを見る。
  */
@@ -279,8 +279,8 @@ describe('POST /api/admin/opinions/themes/:id/close', () => {
 
       expect(response.status).toBe(200)
       expect(await readThemeSummary(env.DB, theme.id)).toMatchObject({ agreements: ['初見への挨拶ならAIでもよい'], openQuestions: ['AIの使用料はどこまで払うか'] })
-      // 材料に意見を渡し、指示ではなく材料だと伝える
-      expect(JSON.stringify(env.AI.calls[0]?.input)).toContain('AIの返事は寂しい')
+      // 材料に意見を渡す（論点の作り直しと並べて呼ぶので、どちらの呼び出しにも意見が入る）
+      expect(env.AI.calls.every(({ input }) => JSON.stringify(input).includes('AIの返事は寂しい'))).toBe(true)
     })
 
     it('意見が1件も無ければ LLM を呼ばず、失敗にもしない', async () => {
@@ -306,7 +306,8 @@ describe('POST /api/admin/opinions/themes/:id/close', () => {
 
       expect(response.status).toBe(200)
       expect(await readThemeSummary(env.DB, theme.id)).toBeNull()
-      expect(failureCodes(env)).toEqual(['opinion-summary-failed'])
+      // 論点の作り直しも同じ LLM の代役なので失敗する。作り直せなくても、まとめは作ろうとする
+      expect(failureCodes(env)).toEqual(['opinion-regroup-failed', 'opinion-summary-failed'])
     })
 
     it('LLM が失敗しても、締め切りは取り消さず失敗を記録する', async () => {
@@ -317,7 +318,8 @@ describe('POST /api/admin/opinions/themes/:id/close', () => {
       expect((await closeThemeRoute(env, theme.id)).status).toBe(200)
       await settleDeferred()
 
-      expect(failureCodes(env)).toEqual(['opinion-summary-failed'])
+      // 論点の作り直しも同じ LLM の代役なので失敗する。作り直せなくても、まとめは作ろうとする
+      expect(failureCodes(env)).toEqual(['opinion-regroup-failed', 'opinion-summary-failed'])
     })
   })
 

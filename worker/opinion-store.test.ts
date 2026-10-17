@@ -11,6 +11,8 @@
  * - Jev の確率をコメントに残し、しきい値に届かなかったコメントだけを振り分け待ちから外すこと（issue #307）
  * - 管理画面へコメントの内訳と救い出せるコメントを出し、救い出し・論点の名前の書き換え・論点の統合を書けること（issue #308）
  * - 振り分けの LLM を待つあいだに論点がまとめられた・増えたら、その意見を書かずにコメントを振り分け待ちに残すこと（issue #308）
+ * - 論点の作り直しを、意見が決まった数だけ増えたときにだけ1回引き受け、分け直した論点を1つの batch で書くこと。
+ *   LLM を待つあいだに盤面が変わっていたら書かないこと。名前を変えた・まとめ先にした論点の名前を固定すること（issue #402）
  */
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createFakeDatabase } from './fake-database'
@@ -33,6 +35,9 @@ import {
   recordFilterResults,
   recordOpinionComment,
   applySorting,
+  applyRegrouping,
+  claimRegroup,
+  readRegroupBoard,
   renameTopic,
   saveRescuedOpinion,
   saveThemePrompt,
@@ -41,6 +46,7 @@ import {
   type OpinionCommentInput,
 } from './opinion-store'
 import { MAX_TOPICS } from './opinion'
+import { planRegrouping } from './opinion-regroup'
 
 const NOW = Date.parse('2026-10-10T12:00:00.000Z')
 const LATER = Date.parse('2026-10-10T12:10:00.000Z')
@@ -571,6 +577,150 @@ describe('救い出しと論点の整理（issue #308）', () => {
 
     expect(await readLatestThemeTopics(db)).toHaveLength(MAX_TOPICS)
     expect((await readPendingComments(db, theme.id)).map(({ id }) => id)).toEqual([ids.pending])
+  })
+})
+
+describe('論点の作り直し（issue #402）', () => {
+  /**
+   * テーマを開き、論点「指示厨の特徴」に特徴1件・対策2件、論点「ネタバレ」に1件の意見を作る（2026-10-16 の本番に近い盤面）。
+   */
+  const prepare = async () => {
+    const theme = await open('ネタバレ・指示厨対策')
+    const texts = ['初見に多い', 'ハートをつけてもらう', '三度でBANする', 'ネタバレは楽しみを奪う']
+    for (const [index, text] of texts.entries()) await recordOpinionComment(db, comment(`m${index}`, `viewer${index}`, text), NOW + index * 1000)
+    const [first, second, third, fourth] = (await readPendingComments(db, theme.id)).map(({ id }) => id)
+    if (first === undefined || second === undefined || third === undefined || fourth === undefined) throw new Error('コメントが4件貯まっていません')
+    await applySorting(
+      db,
+      theme.id,
+      [
+        { type: 'new', commentIds: [first], topic: { type: 'new', title: '指示厨の特徴' }, kind: 'insight', text: '指示厨は初見に多い' },
+        { type: 'new', commentIds: [second], topic: { type: 'new', title: '指示厨の特徴' }, kind: 'solution', text: '指示コメントにはハートをつけてもらう' },
+        { type: 'new', commentIds: [third], topic: { type: 'new', title: '指示厨の特徴' }, kind: 'solution', text: '強制タイムアウトし、三度でBANする' },
+        { type: 'new', commentIds: [fourth], topic: { type: 'new', title: 'ネタバレ' }, kind: 'issue', text: 'ネタバレは配信の楽しみを奪う' },
+      ],
+      NOW,
+    )
+    const board = await readRegroupBoard(db, theme.id)
+    const ids = board.flatMap(({ opinions }) => opinions.map(({ id }) => id))
+    const [trait, heart, ban, spoiler] = ids
+    const [traitTopic, spoilerTopic] = board.map(({ id }) => id)
+    if (trait === undefined || heart === undefined || ban === undefined || spoiler === undefined || traitTopic === undefined || spoilerTopic === undefined) {
+      throw new Error('意見を作れませんでした')
+    }
+    return { theme, board, opinions: { trait, heart, ban, spoiler }, topics: { trait: traitTopic, spoiler: spoilerTopic } }
+  }
+
+  it('論点と意見を、隠したものと名前の固定を添えて作った順に読む', async () => {
+    const { theme, opinions, topics } = await prepare()
+    await setOpinionHidden(db, opinions.ban, true)
+    await renameTopic(db, topics.spoiler, 'ネタバレの扱い')
+
+    expect(await readRegroupBoard(db, theme.id)).toEqual([
+      {
+        id: topics.trait,
+        title: '指示厨の特徴',
+        titleLocked: false,
+        opinions: [
+          { id: opinions.trait, kind: 'insight', text: '指示厨は初見に多い', hidden: false },
+          { id: opinions.heart, kind: 'solution', text: '指示コメントにはハートをつけてもらう', hidden: false },
+          { id: opinions.ban, kind: 'solution', text: '強制タイムアウトし、三度でBANする', hidden: true },
+        ],
+      },
+      { id: topics.spoiler, title: 'ネタバレの扱い', titleLocked: true, opinions: [{ id: opinions.spoiler, kind: 'issue', text: 'ネタバレは配信の楽しみを奪う', hidden: false }] },
+    ])
+  })
+
+  it('まとめ先にした論点は名前を固定する', async () => {
+    const { theme, topics } = await prepare()
+    await mergeTopics(db, topics.trait, topics.spoiler)
+    expect((await readRegroupBoard(db, theme.id)).map(({ title, titleLocked }) => ({ title, titleLocked }))).toEqual([{ title: 'ネタバレ', titleLocked: true }])
+  })
+
+  it('意見が決まった数だけ増えたときにだけ、作り直しを1回引き受ける', async () => {
+    const { theme } = await prepare()
+    // 前に作り直してから4件増えた。5件ごとなら、まだ作り直さない
+    expect(await claimRegroup(db, theme.id, 5)).toBe(false)
+    // 4件ごとなら作り直す。引き受けたら数を覚え、同じ数のあいだは二度と引き受けない
+    expect(await claimRegroup(db, theme.id, 4)).toBe(true)
+    expect(await claimRegroup(db, theme.id, 1)).toBe(false)
+  })
+
+  it('分け直した論点を書く。IDを継いだ論点は名前だけが変わり、新しい論点は後ろに足す', async () => {
+    const { theme, board, opinions, topics } = await prepare()
+    const plan = planRegrouping(board, [
+      { title: '指示厨の特徴', opinionIds: [opinions.trait] },
+      { title: '指示厨への対策', opinionIds: [opinions.heart, opinions.ban] },
+      { title: 'ネタバレ', opinionIds: [opinions.spoiler] },
+    ])
+
+    expect(await applyRegrouping(db, theme.id, board, plan, LATER)).toBe(true)
+
+    const after = await readRegroupBoard(db, theme.id)
+    expect(after.map(({ id, title, opinions: list }) => ({ id, title, opinions: list.map(({ id: opinionId }) => opinionId) }))).toEqual([
+      // 対策の2件を受け取った論点が、もとの「指示厨の特徴」のIDを継ぐ
+      { id: topics.trait, title: '指示厨への対策', opinions: [opinions.heart, opinions.ban] },
+      { id: topics.spoiler, title: 'ネタバレ', opinions: [opinions.spoiler] },
+      { id: expect.any(Number), title: '指示厨の特徴', opinions: [opinions.trait] },
+    ])
+    // 意見そのもの（1文・札の種類）と人数は変わらない
+    expect((await readAdminBoard(db)).topics.flatMap(({ opinions: list }) => list.map(({ text, people }) => ({ text, people })))).toContainEqual({
+      text: '指示厨は初見に多い',
+      people: 1,
+    })
+  })
+
+  it('対応しなかった論点を消し、残っていた隠した意見を移す', async () => {
+    const { theme, opinions, topics } = await prepare()
+    await setOpinionHidden(db, opinions.spoiler, true)
+    // 「ネタバレ」に隠していない意見を足してから、2つを1つにまとめ直す
+    await recordOpinionComment(db, comment('m9', 'viewer9', '見どころを先に言わない'), NOW + 9000)
+    const [pending] = await readPendingComments(db, theme.id)
+    if (pending === undefined) throw new Error('コメントを貯められませんでした')
+    await applySorting(db, theme.id, [{ type: 'new', commentIds: [pending.id], topic: { type: 'existing', id: topics.spoiler }, kind: 'solution', text: '見どころを先に言わない' }], NOW)
+    const board = await readRegroupBoard(db, theme.id)
+    const added = board[1]?.opinions.find(({ text }) => text === '見どころを先に言わない')?.id
+    if (added === undefined) throw new Error('意見を作れませんでした')
+
+    const plan = planRegrouping(board, [{ title: '配信の荒れ方', opinionIds: [opinions.trait, opinions.heart, opinions.ban, added] }])
+    expect(await applyRegrouping(db, theme.id, board, plan, LATER)).toBe(true)
+
+    const after = await readRegroupBoard(db, theme.id)
+    expect(after.map(({ id, title }) => ({ id, title }))).toEqual([{ id: topics.trait, title: '配信の荒れ方' }])
+    expect(after[0]?.opinions.map(({ id }) => id).sort()).toEqual([opinions.trait, opinions.heart, opinions.ban, opinions.spoiler, added].sort())
+  })
+
+  it('名前を入れ替えるだけの作り直しも書ける（同じ名前の論点を一時的に作らない）', async () => {
+    const { theme, board, opinions, topics } = await prepare()
+    const plan = planRegrouping(board, [
+      { title: 'ネタバレ', opinionIds: [opinions.trait, opinions.heart, opinions.ban] },
+      { title: '指示厨の特徴', opinionIds: [opinions.spoiler] },
+    ])
+    expect(await applyRegrouping(db, theme.id, board, plan, LATER)).toBe(true)
+    expect((await readRegroupBoard(db, theme.id)).map(({ id, title }) => ({ id, title }))).toEqual([
+      { id: topics.trait, title: 'ネタバレ' },
+      { id: topics.spoiler, title: '指示厨の特徴' },
+    ])
+  })
+
+  it('LLM を待つあいだに盤面が変わっていたら、何も書かない', async () => {
+    const { theme, board, opinions, topics } = await prepare()
+    const plan = planRegrouping(board, [{ title: 'ぜんぶ', opinionIds: [opinions.trait, opinions.heart, opinions.ban, opinions.spoiler] }])
+    // 配信者が名前を変えた
+    await renameTopic(db, topics.spoiler, 'ネタバレの扱い')
+
+    expect(await applyRegrouping(db, theme.id, board, plan, LATER)).toBe(false)
+    expect((await readRegroupBoard(db, theme.id)).map(({ title }) => title)).toEqual(['指示厨の特徴', 'ネタバレの扱い'])
+  })
+
+  it('最後に開いたテーマでなくなっていたら、何も書かない', async () => {
+    const { theme, board, opinions } = await prepare()
+    const plan = planRegrouping(board, [{ title: 'ぜんぶ', opinionIds: [opinions.trait, opinions.heart, opinions.ban, opinions.spoiler] }])
+    await closeTheme(db, theme.id, LATER)
+    await open('次のテーマ', LATER + 1000)
+
+    expect(await applyRegrouping(db, theme.id, board, plan, LATER)).toBe(false)
+    expect((await readRegroupBoard(db, theme.id)).map(({ title }) => title)).toEqual(['指示厨の特徴', 'ネタバレ'])
   })
 })
 

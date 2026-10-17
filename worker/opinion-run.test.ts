@@ -9,6 +9,7 @@
  * - 押し出しに失敗しても、書いた振り分けは残して失敗を記録すること
  * - Jev で絞り込んでから振り分けの LLM に渡し、Jev の失敗はその回の発言を失敗にすること。鍵が無ければ絞り込まないこと（issue #307）
  * - 問いかけが無いあいだに新しい意見ができたとき・問いかけに答える発言が届いたときだけ、問いかけを作り直すこと（issue #307）
+ * - 意見が5件増えたときと締め切ったときにだけ論点を作り直し、作れなければ前の論点を残して記録すること（issue #402）
  */
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createFakeAi } from './fake-ai'
@@ -18,8 +19,17 @@ import { createFakeNoulJev } from './fake-jev'
 import type { LlmUsage } from './llm-config'
 import type { LlmRequest, TextGenerator } from './llm'
 import { MERGE_GAP_MS } from './opinion'
-import { runOpinionSorting, type OpinionSortingDependencies } from './opinion-run'
-import { openTheme, readAdminBoard, readOpenTheme, readPendingComments, recordOpinionComment, saveThemePrompt } from './opinion-store'
+import { REGROUP_OPINION_STEP, runClosedThemeFinish, runOpinionSorting, type OpinionSortingDependencies } from './opinion-run'
+import {
+  closeTheme,
+  openTheme,
+  readAdminBoard,
+  readOpenTheme,
+  readPendingComments,
+  readThemeSummary,
+  recordOpinionComment,
+  saveThemePrompt,
+} from './opinion-store'
 
 const NOW = Date.parse('2026-10-10T12:00:00.000Z')
 /** 続きを待つ間隔が過ぎた時刻 */
@@ -279,5 +289,105 @@ describe('runOpinionSorting の問いかけ', () => {
 
     expect((await readOpenTheme(db))?.prompt).toBe('AIに任せたくない作業はどれ？')
     expect(failureCodes()).toEqual(['opinion-prompt-failed'])
+  })
+})
+
+describe('論点の作り直し（issue #402）', () => {
+  /** 2026-10-16 の本番に近い、指示厨の特徴と対策が混ざったコメント */
+  const TEXTS = ['指示厨は初見に多い', '指示コメントにはハートをつけてもらう', '強制タイムアウトし三度でBANする', 'ネタバレは楽しみを奪う', '指示厨は善意のことが多い']
+
+  /** テーマを開き、コメントを件数ぶん貯める */
+  const prepareMany = async (count: number): Promise<number> => {
+    const theme = await openTheme(db, 'ネタバレ・指示厨対策', NOW)
+    if (theme === null) throw new Error('テーマを開けませんでした')
+    for (const [index, text] of TEXTS.slice(0, count).entries()) {
+      await recordOpinionComment(db, { messageId: `m${index}`, userId: `id-${index}`, userName: `viewer${index}`, text, replyName: null, replyText: null, dropReason: null }, NOW)
+    }
+    return theme.id
+  }
+
+  /** 発言を件数ぶん、すべて論点「指示厨の特徴」の新しい意見にする振り分けの応答 */
+  const allInOneTopic = (count: number): string =>
+    JSON.stringify({
+      results: TEXTS.slice(0, count).map((text, index) => ({ comments: [`C${index + 1}`], action: 'new', newTopic: '指示厨の特徴', kind: '気づき', text })),
+    })
+
+  /** 作り直しの応答。意見のIDは表の通し番号（1から） */
+  const splitResponse = JSON.stringify({
+    topics: [
+      { title: '指示厨の特徴', opinions: ['O1', 'O5'] },
+      { title: '指示厨への対策', opinions: ['O2', 'O3'] },
+      { title: 'ネタバレ', opinions: ['O4'] },
+    ],
+  })
+
+  const topicTitles = async (): Promise<string[]> => (await readAdminBoard(db)).topics.map(({ title }) => title)
+
+  it('意見が5件増えた回に、論点を作り直して押し出す', async () => {
+    expect(REGROUP_OPINION_STEP).toBe(5)
+    await prepareMany(5)
+    const llm = createRoutedAi({ opinionSort: allInOneTopic(5), opinionRegroup: splitResponse, opinionPrompt: NEXT_PROMPT })
+    const alerts = createFakeAlertChannel()
+
+    await runOpinionSorting({ db, alerts: alerts.namespace, llm, now: READY, ...withoutJev })
+
+    // 作り直しは時間がかかるので、問いかけを待たせないよう最後にする
+    expect(llm.calls.map(({ usage }) => usage)).toEqual(['opinionSort', 'opinionPrompt', 'opinionRegroup'])
+    // 特徴の2件を残した論点が、もとの論点のIDを継ぐ（作った順で先頭のまま）
+    expect(await topicTitles()).toEqual(['指示厨の特徴', '指示厨への対策', 'ネタバレ'])
+    expect(alerts.pushedOpinions.at(-1)?.topics.map(({ title }) => title)).toEqual(['指示厨の特徴', '指示厨への対策', 'ネタバレ'])
+  })
+
+  it('意見が5件に届かなければ、作り直さない', async () => {
+    await prepareMany(4)
+    const llm = createRoutedAi({ opinionSort: allInOneTopic(4), opinionRegroup: splitResponse, opinionPrompt: NEXT_PROMPT })
+
+    await runOpinionSorting({ db, alerts: createFakeAlertChannel().namespace, llm, now: READY, ...withoutJev })
+
+    expect(llm.calls.map(({ usage }) => usage)).toEqual(['opinionSort', 'opinionPrompt'])
+  })
+
+  it('作り直しの返事が照合を通らなければ、前の論点を残して記録し、問いかけは作る', async () => {
+    await prepareMany(5)
+    // O5 が漏れている
+    const broken = JSON.stringify({ topics: [{ title: '指示厨の特徴', opinions: ['O1', 'O2', 'O3', 'O4'] }] })
+    const llm = createRoutedAi({ opinionSort: allInOneTopic(5), opinionRegroup: broken, opinionPrompt: NEXT_PROMPT })
+
+    await runOpinionSorting({ db, alerts: createFakeAlertChannel().namespace, llm, now: READY, ...withoutJev })
+
+    expect(await topicTitles()).toEqual(['指示厨の特徴'])
+    expect(failureCodes()).toEqual(['opinion-regroup-failed'])
+    expect((await readOpenTheme(db))?.prompt).toBe(NEXT_PROMPT)
+  })
+
+  it('締め切ったら、論点の作り直しと配信後のまとめを並べて行う', async () => {
+    const themeId = await prepareMany(2)
+    await runOpinionSorting({ db, alerts: createFakeAlertChannel().namespace, llm: createRoutedAi({ opinionSort: allInOneTopic(2), opinionPrompt: NEXT_PROMPT }), now: READY, ...withoutJev })
+    const theme = await closeTheme(db, themeId, READY + 1000)
+    if (theme === null) throw new Error('テーマを締め切れませんでした')
+    const summary = JSON.stringify({ agreements: ['指示厨には対策が要る'], disagreements: [], openQuestions: [] })
+    const regroup = JSON.stringify({ topics: [{ title: '指示厨の特徴', opinions: ['O1'] }, { title: '指示厨への対策', opinions: ['O2'] }] })
+    const llm = createRoutedAi({ opinionRegroup: regroup, opinionSummary: summary })
+    const alerts = createFakeAlertChannel()
+
+    await runClosedThemeFinish({ db, alerts: alerts.namespace, llm, now: READY + 2000 }, theme)
+
+    expect(llm.calls.map(({ usage }) => usage).sort()).toEqual(['opinionRegroup', 'opinionSummary'])
+    expect(await topicTitles()).toEqual(['指示厨の特徴', '指示厨への対策'])
+    expect(alerts.pushedOpinions).toHaveLength(1)
+    expect((await readThemeSummary(db, themeId))?.agreements).toEqual(['指示厨には対策が要る'])
+  })
+
+  it('締め切ったときに作り直せなくても、配信後のまとめは作る', async () => {
+    const themeId = await prepareMany(2)
+    await runOpinionSorting({ db, alerts: createFakeAlertChannel().namespace, llm: createRoutedAi({ opinionSort: allInOneTopic(2), opinionPrompt: NEXT_PROMPT }), now: READY, ...withoutJev })
+    const theme = await closeTheme(db, themeId, READY + 1000)
+    if (theme === null) throw new Error('テーマを締め切れませんでした')
+    const summary = JSON.stringify({ agreements: ['指示厨には対策が要る'], disagreements: [], openQuestions: [] })
+
+    await runClosedThemeFinish({ db, alerts: createFakeAlertChannel().namespace, llm: createRoutedAi({ opinionSummary: summary }), now: READY + 2000 }, theme)
+
+    expect(failureCodes()).toEqual(['opinion-regroup-failed'])
+    expect(await readThemeSummary(db, themeId)).not.toBeNull()
   })
 })

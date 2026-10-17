@@ -13,6 +13,8 @@
  * - 配信者の救い出し・論点の名前の書き換え・論点の統合（issue #308）は、最後に開いたテーマ（管理画面に出ているもの）にだけ書く。
  *   締め切ったあとも書ける。振り分け待ちのコメントは、締め切ったあとにだけ救い出せる（開いているあいだは振り分けと取り合うため）
  *
+ * - 論点の作り直し（worker/opinion-regroup.ts。issue #402）は、意見が決まった数だけ増えたときにだけ引き受け（claimRegroup）、
+ *   分け直した論点への割り当てと名前を1つの batch で書く（applyRegrouping）。意見そのものは書き換えない
  * - 締め切ったテーマの配信後のまとめ（worker/opinion-summary.ts。migrations/0035_opinion_summaries.sql）は、テーマのIDで読み書きする（issue #309）。
  *   管理画面の意見ボードには添えるが、合成ページ（readOverlayBoard）には渡さない
  *
@@ -37,7 +39,8 @@ import {
   type RescuedOpinionInput,
   type StoredOpinionSummary,
 } from './opinion'
-import type { SortingAction, SortingTopic } from './opinion-sort'
+import { visibleTopicOf, type RegroupPlan, type RegroupTopic } from './opinion-regroup'
+import type { SortingAction, SortingTopic, SortingTopicRef } from './opinion-sort'
 
 const toIso = (milliseconds: number): string => new Date(milliseconds).toISOString()
 
@@ -264,17 +267,10 @@ const toOverlayOpinion = (row: OpinionRow): OverlayOpinion => ({ id: row.id, kin
  *
  * @param includeHidden 隠した意見も含めるか
  */
-const readMaterialBoard = async (db: Database, themeId: number, includeHidden: boolean): Promise<SortingTopic[]> => {
-  const [topics, opinions] = await Promise.all([readTopics(db, themeId), readOpinions(db, themeId)])
-  return topics.map((topic) => ({
-    id: topic.id,
-    title: topic.title,
-    opinions: opinions
-      .filter(({ topicId, hidden }) => topicId === topic.id && (includeHidden || hidden === 0))
-      .reverse()
-      .map(({ id, kind, text }) => ({ id, kind, text })),
-  }))
-}
+const readMaterialBoard = async (db: Database, themeId: number, includeHidden: boolean): Promise<SortingTopic[]> =>
+  (await readRegroupBoard(db, themeId)).map((topic) =>
+    includeHidden ? { id: topic.id, title: topic.title, opinions: topic.opinions.map(({ id, kind, text }) => ({ id, kind, text })) } : visibleTopicOf(topic),
+  )
 
 /**
  * 振り分けの材料にする、いまの論点と意見を読む（論点は作った順、意見は作った順）。
@@ -579,13 +575,14 @@ export const saveRescuedOpinion = async (db: Database, commentId: number, input:
  */
 export const renameTopic = async (db: Database, topicId: number, title: string): Promise<boolean> =>
   (await db
-    .prepare('UPDATE opinion_topics SET title = ?2 WHERE id = ?1 AND theme_id = (SELECT MAX(id) FROM opinion_themes) RETURNING id')
+    // 配信者が付けた名前なので、論点の作り直し（issue #402）で変えないよう固定する
+    .prepare('UPDATE opinion_topics SET title = ?2, title_locked = 1 WHERE id = ?1 AND theme_id = (SELECT MAX(id) FROM opinion_themes) RETURNING id')
     .bind(topicId, title)
     .first<{ id: number }>()) !== null
 
 /**
  * 最後に開いたテーマの2つの論点を1つにまとめる（issue #308）。まとめる側の意見をまとめ先へ移し、まとめる側の論点を消す。
- * まとめ先の名前を残す（LLM に名前を付け直させない）。
+ * まとめ先の名前を残す。配信者が選んだ名前なので、論点の作り直し（issue #402）でも変えないよう固定する。
  *
  * @param fromId まとめる側（消す論点）
  * @param intoId まとめ先（残す論点）
@@ -598,7 +595,146 @@ export const mergeTopics = async (db: Database, fromId: number, intoId: number):
     db.prepare('UPDATE opinions SET topic_id = ?2 WHERE topic_id = ?1').bind(fromId, intoId),
     // 移しきれなかった意見が残っていれば消さない（意見の行き先が無くならないため）
     db.prepare('DELETE FROM opinion_topics WHERE id = ?1 AND NOT EXISTS (SELECT 1 FROM opinions WHERE topic_id = ?1)').bind(fromId),
+    // まとめきれず、まとめる側の論点が残ったときは固定しない
+    db.prepare('UPDATE opinion_topics SET title_locked = 1 WHERE id = ?1 AND NOT EXISTS (SELECT 1 FROM opinion_topics WHERE id = ?2)').bind(intoId, fromId),
   ])
+  return true
+}
+
+/**
+ * テーマの論点と意見を読む（論点は作った順、意見は作った順。隠した意見と、名前を固定したかも含む）。
+ *
+ * 論点の作り直し（issue #402）の材料と、振り分け・問いかけ・まとめの材料（readMaterialBoard）のもとにする。
+ */
+export const readRegroupBoard = async (db: Database, themeId: number): Promise<RegroupTopic[]> => {
+  const [{ results: topics }, { results: opinions }] = await Promise.all([
+    db
+      .prepare('SELECT id, title, title_locked AS titleLocked FROM opinion_topics WHERE theme_id = ?1 ORDER BY id')
+      .bind(themeId)
+      .all<{ id: number; title: string; titleLocked: number }>(),
+    db
+      .prepare(
+        `SELECT o.id, o.topic_id AS topicId, o.kind, o.text, o.hidden
+         FROM opinions o JOIN opinion_topics t ON t.id = o.topic_id
+         WHERE t.theme_id = ?1
+         ORDER BY o.created_at, o.id`,
+      )
+      .bind(themeId)
+      .all<{ id: number; topicId: number; kind: OpinionKind; text: string; hidden: number }>(),
+  ])
+  return topics.map((topic) => ({
+    id: topic.id,
+    title: topic.title,
+    titleLocked: topic.titleLocked === 1,
+    opinions: opinions.filter(({ topicId }) => topicId === topic.id).map(({ id, kind, text, hidden }) => ({ id, kind, text, hidden: hidden === 1 })),
+  }))
+}
+
+/** テーマの意見の数（隠したものも含む）を数える式。?1 にテーマのIDを渡す */
+const OPINION_COUNT = 'SELECT COUNT(*) FROM opinions o JOIN opinion_topics t ON t.id = o.topic_id WHERE t.theme_id = ?1'
+
+/**
+ * 論点の作り直しを引き受けるか決める。前に引き受けたときから意見が step 件以上増えていれば、いまの数を覚えて引き受ける。
+ *
+ * 確かめと書き込みを1つの文で行う（並んだ呼び出しで二重に引き受けないため）。作り直しに失敗しても覚えた数は戻さない
+ * （同じ盤面で失敗し続けて無料枠を食わないため。次は意見がさらに step 件増えたときに作り直す）。
+ *
+ * @returns 引き受けたか
+ */
+export const claimRegroup = async (db: Database, themeId: number, step: number): Promise<boolean> =>
+  (await db
+    .prepare(`UPDATE opinion_themes SET regrouped_opinions = (${OPINION_COUNT}) WHERE id = ?1 AND (${OPINION_COUNT}) - regrouped_opinions >= ?2 RETURNING id`)
+    .bind(themeId, step)
+    .first<{ id: number }>()) !== null
+
+/**
+ * 作り直しのあいだ論点に付けておく仮の名前。名前を入れ替える作り直しで、表の UNIQUE (theme_id, title) に当たらないようにする。
+ *
+ * 論点の名前は、どこから書くときも12文字以内（MAX_TOPIC_TITLE_LENGTH）に照合してあるので、それより長いこの名前とは重ならない。
+ */
+const temporaryTitle = (topicId: number): string => `regroup-temporary-title-${topicId}`
+
+/**
+ * 盤面（論点の名前と固定・意見の論点と隠したか）を1つの文字列にしたもの。SQL の式（REGROUP_FINGERPRINT）と同じ形に作る。
+ *
+ * 名前は文字の並べ方の違いが出ないよう、UTF-8 のバイト列を大文字の16進にする（SQLite の hex と同じ）。
+ */
+const regroupFingerprint = (board: readonly RegroupTopic[]): string => {
+  const hex = (text: string): string => Array.from(new TextEncoder().encode(text), (byte) => byte.toString(16).padStart(2, '0').toUpperCase()).join('')
+  const topics = [...board].sort((a, b) => a.id - b.id).map(({ id, titleLocked, title }) => `T${id}:${titleLocked ? 1 : 0}:${hex(title)}`)
+  const opinions = board
+    .flatMap(({ id: topicId, opinions: list }) => list.map(({ id, hidden }) => ({ id, topicId, hidden })))
+    .sort((a, b) => a.id - b.id)
+    .map(({ id, topicId, hidden }) => `O${id}:${topicId}:${hidden ? 1 : 0}`)
+  return [...topics, ...opinions].join(',')
+}
+
+/** いまの盤面を regroupFingerprint と同じ形の文字列にする SQL の式。?1 にテーマのIDを渡す */
+const REGROUP_FINGERPRINT = `coalesce((SELECT group_concat(x, ',') FROM (
+  SELECT 0 AS k, id AS n, 'T' || id || ':' || title_locked || ':' || hex(title) AS x FROM opinion_topics WHERE theme_id = ?1
+  UNION ALL
+  SELECT 1, o.id, 'O' || o.id || ':' || o.topic_id || ':' || o.hidden FROM opinions o JOIN opinion_topics t ON t.id = o.topic_id WHERE t.theme_id = ?1
+  ORDER BY k, n)), '')`
+
+/**
+ * 分け直した論点への割り当てと名前を書く（issue #402）。意見そのもの（1文・札の種類・もとのコメント）は書き換えない。
+ *
+ * 1つの batch で、次の順に書く。
+ * 1. IDを継ぐ論点と消す論点に仮の名前を付ける（名前を入れ替えても UNIQUE に当たらないため）
+ * 2. 新しい論点を作る（作った順で枠の位置が決まるので、後ろに足される）
+ * 3. 意見を分け直した論点へ移す。消す論点に残った隠した意見を、移し先へ移してから論点を消す
+ * 4. IDを継ぐ論点に名前を付ける
+ *
+ * LLM を待つあいだに盤面が変わっていた（振り分け・配信者の救い出し・隠す・名前の書き換え・統合）・最後に開いたテーマで
+ * なくなっていたら、何も書かない。計画は読んだときの盤面に対して立てたもので、変わった盤面に書くと意見の行き先が食い違うためである。
+ * 確かめは batch の最初の文で行う（読んでから書くと、そのあいだの変更を見落とすため）。盤面が違えば、その文が NOT NULL に当たる
+ * 行を入れようとして失敗し、batch 全体が取り消される。失敗したら盤面を読み直し、変わっていたら false を返す。
+ *
+ * @param snapshot 計画を立てたときの盤面（readRegroupBoard）
+ * @param plan 書き込みの計画（worker/opinion-regroup.ts の planRegrouping）
+ * @returns 書いたか
+ */
+export const applyRegrouping = async (db: Database, themeId: number, snapshot: readonly RegroupTopic[], plan: RegroupPlan, now: number): Promise<boolean> => {
+  const createdAt = toIso(now)
+  const existingIds = plan.topics.flatMap(({ target }) => (target.type === 'existing' ? [target.id] : []))
+  /** 論点を指す式とその値。新しい論点は名前で引く */
+  const topicIdOf = (target: SortingTopicRef): { sql: string; value: number | string } =>
+    target.type === 'existing'
+      ? { sql: '(SELECT id FROM opinion_topics WHERE theme_id = ?3 AND id = ?1)', value: target.id }
+      : { sql: '(SELECT id FROM opinion_topics WHERE theme_id = ?3 AND title = ?1)', value: target.title }
+
+  const statements: DatabaseStatement[] = [
+    // 最後に開いたテーマでない・盤面が変わっていたら、NULL の行を入れようとして batch 全体を失敗させる
+    db
+      .prepare(
+        `INSERT INTO opinion_topics (theme_id, title, created_at)
+         SELECT NULL, NULL, NULL WHERE ?1 IS NOT (SELECT MAX(id) FROM opinion_themes) OR ${REGROUP_FINGERPRINT} IS NOT ?2`,
+      )
+      .bind(themeId, regroupFingerprint(snapshot)),
+    ...[...existingIds, ...plan.removed.map(({ id }) => id)].map((id) => db.prepare('UPDATE opinion_topics SET title = ?2 WHERE id = ?1').bind(id, temporaryTitle(id))),
+    ...plan.topics.flatMap(({ target }) =>
+      target.type === 'new' ? [db.prepare('INSERT INTO opinion_topics (theme_id, title, created_at) VALUES (?1, ?2, ?3)').bind(themeId, target.title, createdAt)] : [],
+    ),
+    ...plan.topics.map(({ target, opinionIds }) => {
+      const topic = topicIdOf(target)
+      return db.prepare(`UPDATE opinions SET topic_id = ${topic.sql} WHERE id IN (SELECT value FROM json_each(?2))`).bind(topic.value, JSON.stringify(opinionIds), themeId)
+    }),
+    ...plan.removed.flatMap(({ id, successor }) => {
+      const topic = topicIdOf(successor)
+      return [
+        db.prepare(`UPDATE opinions SET topic_id = ${topic.sql} WHERE topic_id = ?2`).bind(topic.value, id, themeId),
+        db.prepare('DELETE FROM opinion_topics WHERE id = ?1').bind(id),
+      ]
+    }),
+    ...plan.topics.flatMap(({ target, title }) => (target.type === 'existing' ? [db.prepare('UPDATE opinion_topics SET title = ?2 WHERE id = ?1').bind(target.id, title)] : [])),
+  ]
+  try {
+    await db.batch(statements)
+  } catch (error) {
+    const latest = await readLatestTheme(db)
+    if (latest?.id !== themeId || regroupFingerprint(await readRegroupBoard(db, themeId)) !== regroupFingerprint(snapshot)) return false
+    throw error
+  }
   return true
 }
 

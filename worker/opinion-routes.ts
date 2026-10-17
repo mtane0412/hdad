@@ -28,7 +28,7 @@ import { connectOpinionSocket, pushOpinions } from './alert-channel'
 import { HttpError, STATUS, requireAdmin, requireOverlayKey, type Context } from './http'
 import { parseRescuedOpinionInput, parseThemeInput, parseTopicTitleInput, topicChoiceProblem, type OpinionTheme, type RescuedOpinionInput, type StoredOpinionSummary } from './opinion'
 import { draftOpinion } from './opinion-draft'
-import { replaceOpinionPrompt, replaceOpinionSummary, runClosedThemeSummary } from './opinion-run'
+import { replaceOpinionPrompt, replaceOpinionSummary, runClosedThemeFinish } from './opinion-run'
 import {
   closeTheme,
   joinRescuedComment,
@@ -161,8 +161,8 @@ export const postOpinionTheme = async (context: Context): Promise<Response> => {
  * POST /api/admin/opinions/themes/:id/close: テーマを締め切り、振り分けのアラームを外して、意見ボードを押し出す。
  *
  * まだ振り分けていないコメントは振り分け待ちのまま残す（締め切ったあとは振り分けない）。
- * 配信後のまとめ（issue #309）は応答を待たせず、応答のあとに作る（LLM は数秒かかるため。waitUntil）。作れなくても締め切りは取り消さず、
- * `opinion-summary-failed` を記録する。配信者は `/opinions/` から作り直せる。
+ * 論点の作り直し（issue #402）と配信後のまとめ（issue #309）は応答を待たせず、応答のあとに並べて行う（LLM は数秒かかるため。waitUntil）。
+ * どちらも失敗しても締め切りは取り消さず、`opinion-regroup-failed`・`opinion-summary-failed` を記録する。まとめは配信者が `/opinions/` から作り直せる。
  *
  * @throws HttpError 開いていないテーマなら404。押し出せなければ502
  */
@@ -171,8 +171,8 @@ export const postCloseOpinionTheme = async (context: Context): Promise<Response>
   const id = idOf(context, themeNotFound)
   const theme = await closeTheme(context.env.DB, id, context.now)
   if (theme === null) throw themeNotFound(String(id))
-  // 先に預ける。このあとの押し出し・アラームの失敗で502を返しても、締め切ったテーマのまとめは作る
-  context.waitUntil(runClosedThemeSummary(context.env.DB, context.llm, theme, context.now))
+  // 先に預ける。このあとの押し出し・アラームの失敗で502を返しても、締め切ったテーマの論点の作り直しとまとめは行う
+  context.waitUntil(runClosedThemeFinish({ db: context.env.DB, alerts: context.env.ALERTS, llm: context.llm, now: context.now }, theme))
   // アラームを外せなくても、テーマは締め切ったので、先に合成ページへ押し出してから失敗を返す（配信画面を古いままにしない）
   const timerError = await stopOpinionTimer(context.env.AD_BREAKS).then(
     () => null,
