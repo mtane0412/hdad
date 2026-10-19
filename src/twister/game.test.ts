@@ -271,7 +271,7 @@ describe('gameSceneAt', () => {
       const spinAt = spinStartOf(index)
       const spin = gameSceneAt(game, spinAt)
       expect(spin.phase).toBe('spin')
-      expect(spin.spin).toMatchObject({ move, index, final: false, turnMs: paceOf(index).turnMs })
+      expect(spin.spin).toMatchObject({ move, index, final: false, turnMs: paceOf(index).turnMs, spinMs: paceOf(index).spinMs })
       expect(gameSceneAt(game, spinAt + paceOf(index).spinMs).phase).toBe('move')
     })
   })
@@ -288,7 +288,7 @@ describe('gameSceneAt', () => {
   it('最後の指示のあと、手を伸ばして倒れ込み、勝者を出して終わる', () => {
     const finalSpin = gameSceneAt(game, finalSpinAt)
     expect(finalSpin.phase).toBe('spin')
-    expect(finalSpin.spin).toMatchObject({ move: game.plan.finalMove, final: true, turnMs: FAST_PACE.turnMs })
+    expect(finalSpin.spin).toMatchObject({ move: game.plan.finalMove, final: true, turnMs: FAST_PACE.turnMs, spinMs: FAST_PACE.spinMs })
     expect(gameSceneAt(game, finalSpinAt + finalSpinMs).phase).toBe('reach')
     expect(gameSceneAt(game, collapseAt).phase).toBe('collapse')
 

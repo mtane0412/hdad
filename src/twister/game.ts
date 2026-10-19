@@ -126,6 +126,8 @@ export interface SpinState {
   readonly elapsedMs: number
   /** この手番でスピナーの針が回っている長さ（ミリ秒）。これを過ぎたら針は止まり、指示を読める */
   readonly turnMs: number
+  /** この手番でスピナーを回して結果を見せる長さ（ミリ秒）。これを過ぎたら手足を運ぶ（最後の指示では伸ばす） */
+  readonly spinMs: number
 }
 
 /** 勝敗 */
@@ -459,11 +461,15 @@ const spinAt = (game: Game, elapsedMs: number): SpinState | null => {
   const { moves, finalMove } = game.plan
   for (const [index, move] of moves.entries()) {
     const start = spinStartOf(index)
-    if (elapsedMs >= start && elapsedMs < spinStartOf(index + 1)) return { move, index, final: false, elapsedMs: elapsedMs - start, turnMs: paceOf(index).turnMs }
+    if (elapsedMs >= start && elapsedMs < spinStartOf(index + 1)) {
+      const { turnMs, spinMs } = paceOf(index)
+      return { move, index, final: false, elapsedMs: elapsedMs - start, turnMs, spinMs }
+    }
   }
   const finalStart = spinStartOf(moves.length)
   if (elapsedMs >= finalStart && elapsedMs < game.collapseStartMs) {
-    return { move: finalMove, index: moves.length, final: true, elapsedMs: elapsedMs - finalStart, turnMs: paceOf(moves.length).turnMs }
+    const { turnMs, spinMs } = paceOf(moves.length)
+    return { move: finalMove, index: moves.length, final: true, elapsedMs: elapsedMs - finalStart, turnMs, spinMs }
   }
   return null
 }
@@ -481,6 +487,6 @@ export const gameSceneAt = (game: Game, elapsedMs: number): GameScene => {
   const poses = recordedPosesAt(game.standing.frames, game.standing.frameMs, elapsedMs)
   const spin = spinAt(game, elapsedMs)
   if (spin === null) return { phase: 'intro', poses, spin, result: null, done }
-  const phase: GamePhase = spin.elapsedMs < paceOf(spin.index).spinMs ? 'spin' : spin.final ? 'reach' : 'move'
+  const phase: GamePhase = spin.elapsedMs < spin.spinMs ? 'spin' : spin.final ? 'reach' : 'move'
   return { phase, poses, spin, result: null, done }
 }

@@ -36,7 +36,7 @@ describe('hudTextOf', () => {
 
   it('スピナーが回っているあいだは、だれの番かだけを出す', () => {
     const text = hudTextOf(
-      sceneOf({ phase: 'spin', spin: { move: { player: 1, limb: 'handR', spot: { color: 'red', row: 2 }, flip: false }, index: 1, final: false, elapsedMs: 100, turnMs: 1800 } }),
+      sceneOf({ phase: 'spin', spin: { move: { player: 1, limb: 'handR', spot: { color: 'red', row: 2 }, flip: false }, index: 1, final: false, elapsedMs: 100, turnMs: 1800, spinMs: 2600 } }),
       call,
     )
     expect(text.turn).toBe('配信者さんの番')
@@ -45,7 +45,7 @@ describe('hudTextOf', () => {
 
   it('針が止まったら、手足と色の指示を出す', () => {
     const text = hudTextOf(
-      sceneOf({ phase: 'spin', spin: { move: { player: 0, limb: 'footL', spot: { color: 'blue', row: 4 }, flip: false }, index: 0, final: false, elapsedMs: 1800, turnMs: 1800 } }),
+      sceneOf({ phase: 'spin', spin: { move: { player: 0, limb: 'footL', spot: { color: 'blue', row: 4 }, flip: false }, index: 0, final: false, elapsedMs: 1800, turnMs: 1800, spinMs: 2600 } }),
       call,
     )
     expect(text.instruction).toBe('左足を青へ')
@@ -54,14 +54,14 @@ describe('hudTextOf', () => {
   it('速く回す手番では、その手番の針が止まった時刻から指示を出す', () => {
     // 3手目以降は針が1秒で止まるので、ゆっくり回す手番の止まる時刻（1.8秒）を待たずに指示を出す
     const fastSpin = (elapsedMs: number): GameScene =>
-      sceneOf({ phase: 'spin', spin: { move: { player: 0, limb: 'handR', spot: { color: 'yellow', row: 1 }, flip: false }, index: 4, final: false, elapsedMs, turnMs: 1000 } })
+      sceneOf({ phase: 'spin', spin: { move: { player: 0, limb: 'handR', spot: { color: 'yellow', row: 1 }, flip: false }, index: 4, final: false, elapsedMs, turnMs: 1000, spinMs: 1600 } })
     expect(hudTextOf(fastSpin(999), call).instruction).toBeNull()
     expect(hudTextOf(fastSpin(1000), call).instruction).toBe('右手を黄へ')
   })
 
   it('最後の指示は、最後と分かるように番を出す', () => {
     const text = hudTextOf(
-      sceneOf({ phase: 'reach', spin: { move: { player: 0, limb: 'handL', spot: { color: 'green', row: 5 }, flip: false }, index: 2, final: true, elapsedMs: 3000, turnMs: 1000 } }),
+      sceneOf({ phase: 'reach', spin: { move: { player: 0, limb: 'handL', spot: { color: 'green', row: 5 }, flip: false }, index: 2, final: true, elapsedMs: 3000, turnMs: 1000, spinMs: 1600 } }),
       call,
     )
     expect(text.turn).toBe('こわい話の人の番（最後の指示）')
