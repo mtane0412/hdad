@@ -16,7 +16,7 @@
  */
 import { CHAT_DEDUCTION_PROBLEMS } from '../src/chat-deduction/problem-set'
 import { recordLateFailure } from './alert-actions'
-import { answerChatDeductionQuestion } from './chat-deduction-answer'
+import { answerChatDeductionQuestion, chatDeductionHintLevelOf } from './chat-deduction-answer'
 import { pushBoardAfterRedemption } from './chat-deduction-board'
 import { receiveChatDeductionGuess } from './chat-deduction-guess'
 import { loadChatDeductionRewards, type ChatDeductionRewards } from './chat-deduction-rewards'
@@ -66,7 +66,8 @@ const answer = async (context: Context, question: ChatDeductionQuestion): Promis
     const game = question.gameId === null ? null : await readGame(env.DB, question.gameId)
     const problem = CHAT_DEDUCTION_PROBLEMS.find((candidate) => candidate.id === game?.problemId)
     if (game === null || problem === undefined) throw new Error(`質問を受けたゲーム（${String(question.gameId)}）の問題が問題集にありません`)
-    const result = await answerChatDeductionQuestion(llm, problem, question.question, await countAnsweredQuestions(env.DB, game.id))
+    const hintLevel = chatDeductionHintLevelOf(await countAnsweredQuestions(env.DB, game.id), CHAT_DEDUCTION_QUESTION_LIMITS.maxQuestionsPerGame)
+    const result = await answerChatDeductionQuestion(llm, problem, question.question, hintLevel)
     if ((await answerQuestion(env.DB, question.id, result, now)) === null) throw new Error(`質問（${question.id}）がもう答え待ちではありませんでした`)
     return 'FULFILLED'
   } catch (error) {
