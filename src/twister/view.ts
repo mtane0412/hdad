@@ -39,7 +39,7 @@ import type { GameScene } from './game'
 import { hudTextOf } from './hud'
 import { ALL_SPOTS, COLOR_HEX, MAT_COLORS, MAT_DEPTH, MAT_WIDTH, SPOT_RADIUS, spotPosition } from './mat'
 import { PLAYER_INDEXES } from './players'
-import { SEGMENT_ANGLE, SPINNER_SEGMENTS, spinnerAngleAt } from './spinner'
+import { SEGMENT_ANGLE, SPINNER_SEGMENTS, spinnerAngleAt, spinnerZoomAt } from './spinner'
 
 /** 画面に出す文字の書体（市町村紹介と同じ） */
 const FONT_FAMILY = '"Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif'
@@ -66,6 +66,11 @@ const SIZES = {
   detailFont: 44,
   spinnerRadius: 150,
   spinnerMargin: 40,
+  /** 針を回しているあいだの、大きいスピナーの半径と画面の右端からの余白。見ている人が針の行方を追えるように、画面の高さの6割ほどにする */
+  bigSpinnerRadius: 330,
+  bigSpinnerMargin: 60,
+  /** 大きいスピナーの横に出す番と指示の文字を、小さいときの何倍にするか */
+  bigTextScale: 1.5,
 } as const
 /** カメラの視野角（度）・注視点の高さ（m）・注視点からの水平の距離（m）・高さ（m） */
 const CAMERA_FOV = 35
@@ -321,15 +326,20 @@ const drawHud = (ctx: CanvasRenderingContext2D, width: number, height: number, f
 
   const { spin } = frame.scene
   if (spin === null) return
-  const radius = SIZES.spinnerRadius * unit
-  const centerX = width - (SIZES.spinnerMargin + SIZES.spinnerRadius) * unit
-  const centerY = height - (SIZES.spinnerMargin + SIZES.spinnerRadius) * unit
-  drawSpinner(ctx, centerX, centerY, radius, spinnerAngleAt({ limb: spin.move.limb, color: spin.move.spot.color }, spin.elapsedMs, spin.turnMs), unit)
+  // 針を回して結果を見せるあいだは画面の右寄りの真ん中に大きく出し、手足を運ぶあいだは右下の角に小さく戻す
+  const zoom = spinnerZoomAt(spin.elapsedMs, spin.spinMs)
+  const between = (small: number, big: number): number => small + (big - small) * zoom
+  const radius = between(SIZES.spinnerRadius, SIZES.bigSpinnerRadius) * unit
+  const centerX = width - between(SIZES.spinnerMargin + SIZES.spinnerRadius, SIZES.bigSpinnerMargin + SIZES.bigSpinnerRadius) * unit
+  const centerY = between(height - (SIZES.spinnerMargin + SIZES.spinnerRadius) * unit, height / 2)
+  // 盤の線・手足の名前・針の太さは、半径と同じ割合で大きくする
+  drawSpinner(ctx, centerX, centerY, radius, spinnerAngleAt({ limb: spin.move.limb, color: spin.move.spot.color }, spin.elapsedMs, spin.turnMs), radius / SIZES.spinnerRadius)
   // 番と指示は、スピナーの左に右寄せで出す
   ctx.textAlign = 'right'
-  const textRight = centerX - radius - 30 * unit
-  if (text.turn !== null) outlinedText(ctx, text.turn, textRight, centerY - 50 * unit, SIZES.turnFont, unit, PLAYER_COLORS[spin.move.player], PLAYER_OUTLINES[spin.move.player])
-  if (text.instruction !== null) outlinedText(ctx, text.instruction, textRight, centerY + 30 * unit, SIZES.instructionFont, unit)
+  const textUnit = unit * between(1, SIZES.bigTextScale)
+  const textRight = centerX - radius - 30 * textUnit
+  if (text.turn !== null) outlinedText(ctx, text.turn, textRight, centerY - 50 * textUnit, SIZES.turnFont, textUnit, PLAYER_COLORS[spin.move.player], PLAYER_OUTLINES[spin.move.player])
+  if (text.instruction !== null) outlinedText(ctx, text.instruction, textRight, centerY + 30 * textUnit, SIZES.instructionFont, textUnit)
 }
 
 /**

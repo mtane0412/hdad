@@ -4,9 +4,9 @@
  * 対戦は種（seed）だけから決まり、場面と2人の姿勢は再生を始めてからの経過時間だけから決まる（フレーム間の状態を持たない）。
  * 決めた流れは次のとおり。
  * 1. 2人が四つんばいで向かい合って登場する（INTRO_MS）
- * 2. 絡ませる指示を5〜7回: スピナーを回し、指された手足を指された円へ運ぶ。はじめの2手はゆっくり（SLOW_PACE）、
- *    3手目からは速く（FAST_PACE）回して運ぶ（手数を増やしても対戦が長くなりすぎないように）
- * 3. 最後の指示: 速くスピナーを回し、届かない円へ手足を伸ばし（REACH_MS）、倒れ込む（先に計算した記録を再生する）
+ * 2. 絡ませる指示を5〜7回: スピナーを回し、指された手足を指された円へ運ぶ。どの手番も同じ速さ（TURN_PACE）で回して運ぶ
+ *    （後半も速くしない。視聴者がスピナーの針の行方を毎回追えるように）
+ * 3. 最後の指示: 同じ速さでスピナーを回し、届かない円へ手足を伸ばし（REACH_MS）、倒れ込む（先に計算した記録を再生する）
  * 4. 先にマットに着いた人の負けとして、勝者を出す（RESULT_MS）
  *
  * 裏返る指示（plan.ts の flip）では、手を運びながら体を仰向けに回し、その後は仰向け（ブリッジ）のまま続ける。
@@ -14,7 +14,7 @@
 import { describe, expect, it } from 'vitest'
 import { JOINT_RADII, JOINTS, LIMBS, LOSING_JOINTS, type Pose } from './body'
 import { DEMO_TWISTER_CALLS, DEMO_TWISTER_INTERVAL_MS } from './demo'
-import { COLLAPSE_PLAYBACK_RATE, FAST_PACE, INTRO_MS, REACH_MS, RESULT_MS, SLOW_PACE, createGame, gameSceneAt, paceOf, spinStartOf, stackingAt, type Game } from './game'
+import { COLLAPSE_PLAYBACK_RATE, INTRO_MS, REACH_MS, RESULT_MS, TURN_PACE, createGame, gameSceneAt, spinStartOf, stackingAt, type Game } from './game'
 import { COLLAPSE_FRAME_MS, STANDING_CLEARANCE, collapsePosesAt } from './physics'
 import { INITIAL_SPOTS, PLAYER_INDEXES, opponentOf } from './players'
 import { supineAfter } from './plan'
@@ -23,9 +23,9 @@ import { distance, lerp, midpoint, segmentDistanceFlat, sub } from './vec'
 
 /** 試す種の数 */
 const SEED_COUNT = 30
-/** どの種でも収まってほしい対戦の長さ（ミリ秒）。手数を増やしても35秒前後に収める */
-const MIN_TOTAL_MS = 28_000
-const MAX_TOTAL_MS = 42_000
+/** どの種でも収まってほしい対戦の長さ（ミリ秒）。後半も速くしないぶん長くなるが、40秒前後に収める */
+const MIN_TOTAL_MS = 34_000
+const MAX_TOTAL_MS = 47_000
 /** 倒れ込ませた人が負ける割合の下限。手数を増やして絡み合っても、最後の指示で倒れた人が負ける決着を主にする */
 const MIN_FALLER_LOSS_RATIO = 0.6
 /** プレビューで次の対戦を流すまでに、対戦を流しきってから空ける間の下限（ミリ秒） */
@@ -51,8 +51,11 @@ const MAX_FAST_STEPS = 80
 /** 1コマで関節が動いてよい距離の上限（m）。これを超えたら姿勢が飛んで見える */
 const MAX_FRAME_STEP = 0.2
 const FRAME_MS = 1000 / 60
-/** 全コマを調べるテストの時間の上限（ミリ秒）。SEED_COUNT 対戦の全コマ（4万コマほど）を引くので、既定の5秒では足りない */
-const SLOW_TEST_TIMEOUT_MS = 30_000
+/**
+ * 全コマを調べるテストの時間の上限（ミリ秒）。SEED_COUNT 対戦の全コマ（5万コマほど）を引くので、既定の5秒では足りない。
+ * 単独では15秒ほどで終わるが、ほかのテストと並べて走らせると倍以上かかる
+ */
+const SLOW_TEST_TIMEOUT_MS = 60_000
 
 /** 胴（首から腰）どうしの、高さも含めたいちばん近い距離（m）。線分の上を細かく区切って測る */
 const torsoDistance = (a: Pose, b: Pose): number => {
@@ -92,7 +95,7 @@ describe('createGame', () => {
     expect(second.totalMs).toBe(first.totalMs)
   })
 
-  it('どの種でも決着がつき、35秒前後に収まる', () => {
+  it('どの種でも決着がつき、40秒前後に収まる', () => {
     for (const game of games) {
       expect(game.totalMs, `種${game.seed}`).toBeGreaterThanOrEqual(MIN_TOTAL_MS)
       expect(game.totalMs, `種${game.seed}`).toBeLessThanOrEqual(MAX_TOTAL_MS)
@@ -237,24 +240,20 @@ describe('gameSceneAt', () => {
   /** 最後の指示のスピナーを回しはじめる時刻 */
   const finalSpinAt = spinStartOf(moveCount)
   /** 最後の指示のスピナーを見せる長さ */
-  const finalSpinMs = paceOf(moveCount).spinMs
+  const finalSpinMs = TURN_PACE.spinMs
   /** 倒れはじめる時刻 */
   const collapseAt = finalSpinAt + finalSpinMs + REACH_MS
 
-  it('はじめの2手はゆっくり、3手目からと最後の指示は速く回して運ぶ', () => {
-    expect(paceOf(0)).toEqual(SLOW_PACE)
-    expect(paceOf(1)).toEqual(SLOW_PACE)
-    expect(paceOf(2)).toEqual(FAST_PACE)
-    expect(paceOf(moveCount)).toEqual(FAST_PACE)
-    // 速い手番は、針が止まってから指示を読む間を残したうえで、ゆっくりの手番より短い
-    expect(FAST_PACE.spinMs).toBeGreaterThan(FAST_PACE.turnMs)
-    expect(FAST_PACE.spinMs + FAST_PACE.moveMs).toBeLessThan(SLOW_PACE.spinMs + SLOW_PACE.moveMs)
+  it('どの手番も、針が止まってから指示を読む間を残して回す', () => {
+    expect(TURN_PACE.spinMs).toBeGreaterThan(TURN_PACE.turnMs)
   })
 
-  it('i 手目のスピナーは、その前の手番の長さを足した時刻に回りはじめる', () => {
+  it('i 手目のスピナーは、登場のあと手番の長さを i 回ぶん足した時刻に回りはじめる（後半も速くしない）', () => {
+    const turnLength = TURN_PACE.spinMs + TURN_PACE.moveMs
     expect(spinStartOf(0)).toBe(INTRO_MS)
-    expect(spinStartOf(1)).toBe(INTRO_MS + SLOW_PACE.spinMs + SLOW_PACE.moveMs)
-    expect(spinStartOf(3)).toBe(INTRO_MS + 2 * (SLOW_PACE.spinMs + SLOW_PACE.moveMs) + FAST_PACE.spinMs + FAST_PACE.moveMs)
+    expect(spinStartOf(1)).toBe(INTRO_MS + turnLength)
+    expect(spinStartOf(3)).toBe(INTRO_MS + 3 * turnLength)
+    expect(spinStartOf(moveCount)).toBe(INTRO_MS + moveCount * turnLength)
   })
 
   it('はじめは登場の場面で、2人の手足は始めの円に乗っている', () => {
@@ -271,15 +270,15 @@ describe('gameSceneAt', () => {
       const spinAt = spinStartOf(index)
       const spin = gameSceneAt(game, spinAt)
       expect(spin.phase).toBe('spin')
-      expect(spin.spin).toMatchObject({ move, index, final: false, turnMs: paceOf(index).turnMs })
-      expect(gameSceneAt(game, spinAt + paceOf(index).spinMs).phase).toBe('move')
+      expect(spin.spin).toMatchObject({ move, index, final: false, turnMs: TURN_PACE.turnMs, spinMs: TURN_PACE.spinMs })
+      expect(gameSceneAt(game, spinAt + TURN_PACE.spinMs).phase).toBe('move')
     })
   })
 
   it('運んだ手足は、次の指示のスピナーの針が止まるまでに、指された円に乗っている', () => {
     // 運ぶ途中で相手の体に押し返されると少し遅れるので、運び終えた時刻ではなく、次の指示を読む時刻までに乗ればよい
     game.plan.moves.forEach((move, index) => {
-      const landedAt = spinStartOf(index + 1) + paceOf(index + 1).turnMs
+      const landedAt = spinStartOf(index + 1) + TURN_PACE.turnMs
       const pose = gameSceneAt(game, landedAt).poses[move.player]
       expect(distance(pose[move.limb], restingOn(move.spot, move.limb))).toBeLessThan(0.02)
     })
@@ -288,7 +287,7 @@ describe('gameSceneAt', () => {
   it('最後の指示のあと、手を伸ばして倒れ込み、勝者を出して終わる', () => {
     const finalSpin = gameSceneAt(game, finalSpinAt)
     expect(finalSpin.phase).toBe('spin')
-    expect(finalSpin.spin).toMatchObject({ move: game.plan.finalMove, final: true, turnMs: FAST_PACE.turnMs })
+    expect(finalSpin.spin).toMatchObject({ move: game.plan.finalMove, final: true, turnMs: TURN_PACE.turnMs, spinMs: TURN_PACE.spinMs })
     expect(gameSceneAt(game, finalSpinAt + finalSpinMs).phase).toBe('reach')
     expect(gameSceneAt(game, collapseAt).phase).toBe('collapse')
 
