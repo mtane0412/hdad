@@ -48,9 +48,10 @@ audio.alert__media {
   line-height: 1.4;
   text-align: center;
   overflow-wrap: anywhere;
-  paint-order: stroke fill;
-  -webkit-text-stroke: 0.22em #3b2a5c;
-  text-shadow: 0 0.12em 0.3em rgb(0 0 0 / 45%);
+  /* 濃い紫の太い縁取り（合成ページ共通の src/core/text-outline.css）。アラートは目立たせたいので、ほかの素材より太くする */
+  --outline-color: #3b2a5c;
+  --outline-width: 0.11em;
+  text-shadow: var(--text-outline);
 }
 
 .alerts__notice {

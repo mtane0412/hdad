@@ -35,6 +35,7 @@ import {
 } from 'three'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { createRandom } from '../core/background'
+import { drawOutlinedText } from '../core/outlined-text'
 import type { LickCall } from './call'
 import { salivaStringAt, trailsAt, type LickPlan, type LickScene, type SalivaTrail } from './motion'
 import { tongueBottomTexture, tongueTopTexture } from './texture'
@@ -44,9 +45,8 @@ import { tongueSurfacePoint, type TonguePose } from './tongue-shape'
 const FONT_FAMILY = '"Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif'
 /** 2Dの大きさの基準にする画面の高さ（px）。配信画面（1080）に合わせて、文字の大きさをこの比で拡大縮小する */
 const BASE_HEIGHT = 1080
-/** 文言の文字の大きさと縁取りの太さ（BASE_HEIGHT のときの px） */
+/** 文言の文字の大きさ（BASE_HEIGHT のときの px） */
 const TITLE_FONT = 72
-const OUTLINE = 8
 /** カメラの視野角（度）と、アイコンからの距離。アイコン（直径2）が画面の高さの6割ほどに映る */
 const CAMERA_FOV = 30
 const CAMERA_DISTANCE = 6
@@ -374,13 +374,9 @@ const drawSalivaString = (ctx: CanvasRenderingContext2D, frame: LickFrame, camer
 
 /** 縁取りした文字を描く（配信画面のどんな背景の上でも読めるように） */
 const outlinedText = (ctx: CanvasRenderingContext2D, text: string, x: number, y: number, unit: number): void => {
-  ctx.font = `bold ${TITLE_FONT * unit}px ${FONT_FAMILY}`
-  ctx.lineJoin = 'round'
-  ctx.lineWidth = OUTLINE * unit
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)'
-  ctx.strokeText(text, x, y)
-  ctx.fillStyle = '#ffffff'
-  ctx.fillText(text, x, y)
+  const fontSize = TITLE_FONT * unit
+  ctx.font = `bold ${fontSize}px ${FONT_FAMILY}`
+  drawOutlinedText(ctx, text, x, y, { fontSize, fill: '#ffffff', outline: '#000000' })
 }
 
 /**

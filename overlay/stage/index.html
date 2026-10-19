@@ -8,10 +8,14 @@
     <title>overlay | HDAD</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <!-- 重ねる素材（チャットボックス・アラート・サイドスーパー・注目コメント）が使う書体をまとめて読み込む -->
+    <!--
+      重ねる素材が使う書体を、素材のCSSが指定する太さまでまとめて読み込む。
+      読み込んでいない太さはブラウザが近い太さで代用したり無理に太らせたりして、細い線や潰れた字になるので、
+      素材のCSSで書体か太さを足したらここにも足す
+    -->
     <link
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@700;800&family=Nunito:wght@500;700&family=Zen+Kaku+Gothic+New:wght@700;900&family=Zen+Maru+Gothic:wght@500;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=M+PLUS+1+Code:wght@400;700&family=M+PLUS+Rounded+1c:wght@700;800&family=Noto+Sans+JP:wght@500;700&family=Nunito:wght@500;700&family=Zen+Kaku+Gothic+New:wght@400;700;900&family=Zen+Maru+Gothic:wght@500;700;900&display=swap"
     />
     <link rel="stylesheet" href="../../src/overlay/overlay.css" />
   </head>

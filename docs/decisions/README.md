@@ -34,6 +34,7 @@
 | [wipe.md](wipe.md) | ワイプ（素材の種類 `wipe`。チャットを1件ずつ出し、自分で読み上げる・裏方の読み上げとの二重読みの防ぎ方） |
 | [rendering.md](rendering.md) | 素材の描画（経過時間だけから決める約束の理由と、状態を持ちたい素材での合わせ方） |
 | [overlay-stage.md](overlay-stage.md) | 素材を重ねる合成ページ（`overlay/stage/`） |
+| [text-outline.md](text-outline.md) | 合成ページの文字の縁取り（16方向の影と角を丸めた strokeText にした理由）と、書体の読み込み |
 | [overlay-editor.md](overlay-editor.md) | 構成を編集する管理画面（`/overlay/`） |
 | [speech.md](speech.md) | チャットの読み上げ（`speech/reader/`） |
 | [screen.md](screen.md) | 配信画面の取り込み（`/screen/`） |
