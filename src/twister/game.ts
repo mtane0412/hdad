@@ -7,8 +7,8 @@
  * 流れ:
  * 1. 登場（INTRO_MS）: 2人が四つんばいで向かい合う
  * 2. 絡ませる指示を5〜7回: スピナーを回し、指された手足を弧を描いて指された円へ運ぶ。
- *    はじめの SLOW_TURN_COUNT 手はゆっくり（SLOW_PACE）、それより後は速く（FAST_PACE）回して運ぶ（paceOf）
- * 3. 最後の指示: 速くスピナーを回し、届かない円へ手足を伸ばし（REACH_MS）、倒れ込む（記録をスローモーションで再生する）
+ *    どの手番も同じ速さ（TURN_PACE）で回して運ぶ（後半も速くしない）
+ * 3. 最後の指示: 同じ速さでスピナーを回し、届かない円へ手足を伸ばし（REACH_MS）、倒れ込む（記録をスローモーションで再生する）
  * 4. 結果（RESULT_MS）: 先にマットに着いた人の負けとして、勝者を出す
  *
  * 倒れ込むまでの姿勢は、その時刻の手足の位置から IK で解いた姿勢（pose.ts）を目標にし、2人の体のめり込みを押し出して求める。
@@ -53,12 +53,11 @@ export interface TurnPace {
   /** 指された手足を運ぶ長さ（ミリ秒）。最後の指示では使わない（REACH_MS で伸ばす） */
   readonly moveMs: number
 }
-/** はじめの手番の速さ。スピナーと指示の読み方を、見ている人がつかめるようにゆっくり見せる */
-export const SLOW_PACE: TurnPace = { turnMs: 1800, spinMs: 2600, moveMs: 1400 }
-/** 後半の手番の速さ。手数を重ねても対戦が長くなりすぎないよう、テンポを上げる */
-export const FAST_PACE: TurnPace = { turnMs: 1000, spinMs: 1600, moveMs: 1000 }
-/** ゆっくり見せる手番の数 */
-const SLOW_TURN_COUNT = 2
+/**
+ * 手番の速さ（最後の指示も同じ）。見ている人が毎回スピナーの針の行方を追い、指示を読めるように、後半も速くしない
+ * （後半を速くしていた経緯は docs/decisions/twister.md）
+ */
+export const TURN_PACE: TurnPace = { turnMs: 1800, spinMs: 2600, moveMs: 1400 }
 /** 最後の指示で、届かない円へ手足を伸ばす長さ（ミリ秒） */
 export const REACH_MS = 900
 /**
@@ -152,18 +151,8 @@ export interface GameScene {
 
 const clampProgress = (elapsedMs: number, spanMs: number): number => Math.min(Math.max(elapsedMs / spanMs, 0), 1)
 
-/** i 回目（0から）の指示の速さ。最後の指示も、絡ませる指示の続きの番号で決める */
-export const paceOf = (index: number): TurnPace => (index < SLOW_TURN_COUNT ? SLOW_PACE : FAST_PACE)
-
-/** i 回目（0から）の指示のスピナーを回しはじめる時刻。それより前の手番の長さを足していく */
-export const spinStartOf = (index: number): number => {
-  let start = INTRO_MS
-  for (let previous = 0; previous < index; previous += 1) {
-    const pace = paceOf(previous)
-    start += pace.spinMs + pace.moveMs
-  }
-  return start
-}
+/** i 回目（0から）の指示のスピナーを回しはじめる時刻。登場のあと、それより前の手番の長さを足す */
+export const spinStartOf = (index: number): number => INTRO_MS + index * (TURN_PACE.spinMs + TURN_PACE.moveMs)
 
 /** 手足を動かしている途中の1本（動かしていなければ null） */
 interface Motion {
@@ -203,15 +192,14 @@ const motionAt = (plan: Plan, paths: readonly LimbPath[], elapsedMs: number): { 
   const done = moves.slice(0, doneCount)
   const moving = moves[doneCount]
   if (moving !== undefined) {
-    const pace = paceOf(doneCount)
-    const moveStart = spinStartOf(doneCount) + pace.spinMs
+    const moveStart = spinStartOf(doneCount) + TURN_PACE.spinMs
     if (elapsedMs < moveStart) return { done, motion: null }
-    const progress = clampProgress(elapsedMs - moveStart, pace.moveMs)
+    const progress = clampProgress(elapsedMs - moveStart, TURN_PACE.moveMs)
     const position = pointOnPath(pathAt(paths, doneCount), progress)
     return { done, motion: { player: moving.player, limb: moving.limb, position, supine: moving.flip ? easeInOut(progress) : null } }
   }
   // 絡ませる指示を終えたら、最後の指示で届かない円へ手足を伸ばす
-  const reachStart = spinStartOf(moves.length) + paceOf(moves.length).spinMs
+  const reachStart = spinStartOf(moves.length) + TURN_PACE.spinMs
   if (elapsedMs < reachStart) return { done, motion: null }
   const position = pointOnPath(pathAt(paths, moves.length), clampProgress(elapsedMs - reachStart, REACH_MS))
   return { done, motion: { player: finalMove.player, limb: finalMove.limb, position, supine: null } }
@@ -393,8 +381,8 @@ const bakeStanding = (plan: Plan, under: PlayerIndex | null, collapseStartMs: nu
   moves.forEach((move, index) => {
     const final = index === plan.moves.length
     // 運ぶ区間のコマの範囲と、運び終えた時刻のコマ
-    const startFrame = Math.ceil((spinStartOf(index) + paceOf(index).spinMs) / frameMs)
-    const endFrame = final ? count : Math.min(Math.floor((spinStartOf(index + 1) + paceOf(index + 1).turnMs) / frameMs), count)
+    const startFrame = Math.ceil((spinStartOf(index) + TURN_PACE.spinMs) / frameMs)
+    const endFrame = final ? count : Math.min(Math.floor((spinStartOf(index + 1) + TURN_PACE.turnMs) / frameMs), count)
     const landedFrame = Math.floor(spinStartOf(index + 1) / frameMs)
     if (next < startFrame) {
       state = bakeFrames(plan, paths, under, frameMs, state, { from: next, to: startFrame - 1 }, frames)
@@ -444,7 +432,7 @@ export const stackingAt = (game: Game, elapsedMs: number): Stacking | null =>
 export const createGame = (seed: number): Game => {
   const plan = planGame(createRandom(seed))
   const under = underOf(plan)
-  const collapseStartMs = spinStartOf(plan.moves.length) + paceOf(plan.moves.length).spinMs + REACH_MS
+  const collapseStartMs = spinStartOf(plan.moves.length) + TURN_PACE.spinMs + REACH_MS
   const { record: standing, paths } = bakeStanding(plan, under, collapseStartMs)
   const poses = recordedPosesAt(standing.frames, standing.frameMs, collapseStartMs)
   const previous = recordedPosesAt(standing.frames, standing.frameMs, collapseStartMs - PHYSICS_STEP_MS)
@@ -462,13 +450,13 @@ const spinAt = (game: Game, elapsedMs: number): SpinState | null => {
   for (const [index, move] of moves.entries()) {
     const start = spinStartOf(index)
     if (elapsedMs >= start && elapsedMs < spinStartOf(index + 1)) {
-      const { turnMs, spinMs } = paceOf(index)
+      const { turnMs, spinMs } = TURN_PACE
       return { move, index, final: false, elapsedMs: elapsedMs - start, turnMs, spinMs }
     }
   }
   const finalStart = spinStartOf(moves.length)
   if (elapsedMs >= finalStart && elapsedMs < game.collapseStartMs) {
-    const { turnMs, spinMs } = paceOf(moves.length)
+    const { turnMs, spinMs } = TURN_PACE
     return { move: finalMove, index: moves.length, final: true, elapsedMs: elapsedMs - finalStart, turnMs, spinMs }
   }
   return null
