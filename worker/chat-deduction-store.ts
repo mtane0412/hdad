@@ -191,6 +191,21 @@ export const answerQuestion = async (
     .first<ChatDeductionQuestion>()
 
 /**
+ * ゲームでこれまでに答えた（answered）質問の数を数える。
+ *
+ * 質問に答えるときの手がかりの段階（worker/chat-deduction-answer.ts の chatDeductionHintLevelOf）に使う。
+ * 答え待ち・失敗・受け付けなかった質問は、視聴者が答えを見ていないので数えない。
+ */
+export const countAnsweredQuestions = async (db: Database, gameId: number): Promise<number> => {
+  const row = await db
+    .prepare(`SELECT COUNT(*) AS count FROM chat_deduction_questions WHERE game_id = ?1 AND status = 'answered'`)
+    .bind(gameId)
+    .first<{ count: number }>()
+  if (row === null) throw new Error(`ゲーム（${gameId}）の答えた質問を数えられませんでした`)
+  return row.count
+}
+
+/**
  * 答え待ちの質問を、理由を添えて失敗（failed）にする。
  *
  * @returns 書いた質問。答え待ちでなければ何も書かず null
