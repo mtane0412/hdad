@@ -99,7 +99,6 @@
 [data-chat='plain'] .chat-notice {
   flex-shrink: 0;
   font-size: 0.7em;
-  opacity: 0.85;
   animation: plain-enter 0.3s ease-out both;
 }
 
