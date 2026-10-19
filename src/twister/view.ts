@@ -32,6 +32,7 @@ import {
   Vector3,
   WebGLRenderer,
 } from 'three'
+import { drawOutlinedText } from '../core/outlined-text'
 import { BONES, JOINT_RADII, JOINTS, LIMB_LABELS, LIMBS, type Joint, type Pose } from './body'
 import type { TwisterCall } from './call'
 import type { GameScene } from './game'
@@ -44,6 +45,13 @@ import { SEGMENT_ANGLE, SPINNER_SEGMENTS, spinnerAngleAt } from './spinner'
 const FONT_FAMILY = '"Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif'
 /** 2人の体の色（0: レイドした人、1: 配信者） */
 const PLAYER_COLORS: readonly [string, string] = ['#8e44ad', '#ff7043']
+/**
+ * 2人の色で書く名札と番の文字の縁の色。塗りと明暗が逆の色にする
+ * （0番の紫は暗く、黒い縁では暗い映像の上で文字ごと沈むので白い縁にする）
+ */
+const PLAYER_OUTLINES: readonly [string, string] = ['#ffffff', '#000000']
+/** 白い文字の縁の色 */
+const TEXT_OUTLINE = '#000000'
 /** マットの地の色 */
 const MAT_BASE_COLOR = '#f5f3ee'
 /** 2Dの大きさの基準にする画面の高さ（px）。配信画面（1080）に合わせて、文字の大きさをこの比で拡大縮小する */
@@ -58,7 +66,6 @@ const SIZES = {
   detailFont: 44,
   spinnerRadius: 150,
   spinnerMargin: 40,
-  outline: 8,
 } as const
 /** カメラの視野角（度）・注視点の高さ（m）・注視点からの水平の距離（m）・高さ（m） */
 const CAMERA_FOV = 35
@@ -220,15 +227,20 @@ const applyPose = (doll: Doll, pose: Pose, camera: PerspectiveCamera): void => {
   doll.face.position.copy(head.add(towardCamera))
 }
 
-/** 縁取りした文字を描く（配信画面のどんな背景の上でも読めるように） */
-const outlinedText = (ctx: CanvasRenderingContext2D, text: string, x: number, y: number, size: number, unit: number, color = '#ffffff'): void => {
-  ctx.font = `bold ${size * unit}px ${FONT_FAMILY}`
-  ctx.lineJoin = 'round'
-  ctx.lineWidth = SIZES.outline * unit
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)'
-  ctx.strokeText(text, x, y)
-  ctx.fillStyle = color
-  ctx.fillText(text, x, y)
+/** 縁取りした文字を描く（配信画面のどんな背景の上でも読めるように）。既定は白い文字に黒い縁 */
+const outlinedText = (
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  size: number,
+  unit: number,
+  color = '#ffffff',
+  outline = TEXT_OUTLINE,
+): void => {
+  const fontSize = size * unit
+  ctx.font = `bold ${fontSize}px ${FONT_FAMILY}`
+  drawOutlinedText(ctx, text, x, y, { fontSize, fill: color, outline })
 }
 
 /** スピナーの盤と針を描く。角度は盤の真上を 0 とした時計回り */
@@ -300,7 +312,7 @@ const drawHud = (ctx: CanvasRenderingContext2D, width: number, height: number, f
     for (const player of PLAYER_INDEXES) {
       const head = frame.scene.poses[player].head
       const at = projectToScreen(camera, new Vector3(head.x, head.y + 0.32, head.z), width, height)
-      outlinedText(ctx, frame.call.players[player].name, at.x, at.y, SIZES.nameFont, unit, PLAYER_COLORS[player])
+      outlinedText(ctx, frame.call.players[player].name, at.x, at.y, SIZES.nameFont, unit, PLAYER_COLORS[player], PLAYER_OUTLINES[player])
     }
   }
   if (text.title !== null) outlinedText(ctx, text.title, width / 2, height * 0.16, SIZES.titleFont, unit)
@@ -316,7 +328,7 @@ const drawHud = (ctx: CanvasRenderingContext2D, width: number, height: number, f
   // 番と指示は、スピナーの左に右寄せで出す
   ctx.textAlign = 'right'
   const textRight = centerX - radius - 30 * unit
-  if (text.turn !== null) outlinedText(ctx, text.turn, textRight, centerY - 50 * unit, SIZES.turnFont, unit, PLAYER_COLORS[spin.move.player])
+  if (text.turn !== null) outlinedText(ctx, text.turn, textRight, centerY - 50 * unit, SIZES.turnFont, unit, PLAYER_COLORS[spin.move.player], PLAYER_OUTLINES[spin.move.player])
   if (text.instruction !== null) outlinedText(ctx, text.instruction, textRight, centerY + 30 * unit, SIZES.instructionFont, unit)
 }
 

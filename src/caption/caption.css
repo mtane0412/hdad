@@ -36,16 +36,8 @@
   text-align: center;
   /* 切れ目のない英数字が続いても、箱からはみ出させずに折り返す */
   overflow-wrap: anywhere;
-  /* 黒の縁取り。8方向に影を置いて、文字の周りをふちどる */
-  text-shadow:
-    3px 0 0 #000,
-    -3px 0 0 #000,
-    0 3px 0 #000,
-    0 -3px 0 #000,
-    2px 2px 0 #000,
-    -2px 2px 0 #000,
-    2px -2px 0 #000,
-    -2px -2px 0 #000;
+  /* 黒の縁取り（合成ページ共通の src/core/text-outline.css） */
+  text-shadow: var(--text-outline);
 }
 
 .caption-translation {

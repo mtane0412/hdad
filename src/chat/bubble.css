@@ -116,3 +116,15 @@
     transform: translateX(-1em);
   }
 }
+
+/*
+ * 返信元はふきだしの外に、地を持たずに映像の上へ載る。文字はふきだしの中と同じ色（既定は暗い色）なので、
+ * ふきだしの色でフチ取り（src/core/text-outline.css の --text-outline）して、暗い映像の上でも読めるようにする。
+ * 薄くするとフチまで透けるので薄くしない。1行に収めるため overflow: hidden なので、左右のフチの幅だけ内側に余白を取る。
+ */
+[data-chat='bubble'] .chat-reply {
+  --outline-color: var(--chat-panel);
+  padding-inline: var(--outline-width);
+  opacity: 1;
+  text-shadow: var(--text-outline);
+}

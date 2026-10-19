@@ -93,6 +93,7 @@ main にマージすると、Workers Builds が `npm run deploy`（`wrangler dep
 | `chat-deduction.md` | チャットで推理（`/chat-deduction/`・素材の種類 `chatDeduction`。視聴者がチャンネルポイントの質問で答えを絞り込み、解答で当てる。報酬は HDAD が作り、ゲームのあいだだけ交換できる。正解は終えるまで合成ページに渡さない） | `src/chat-deduction/**`・`worker/chat-deduction-*.ts`・`worker/reward-routes.ts`・`worker/alert-channel.ts`・`migrations/*chat_deduction*.sql` |
 | `opinions.md` | 意見ボード（`/opinions/`・素材の種類 `opinions`。テーマを出してチャットから意見を取り出し、観点ごとに並べる。多数決に見せない） | `src/opinions/**`・`src/stats/session-opinions*.tsx`・`worker/opinion*.ts`・`worker/webhook-routes.ts`・`worker/comment-feed.ts`・`worker/alert-channel.ts`・`worker/ad-break-timer.ts`・`migrations/*opinion*.sql` |
 | `overlay.md` | 合成ページと構成の管理画面（`overlay/stage/`・`/overlay/`） | `src/overlay/**`・`overlay/**`・`worker/overlay-*.ts` |
+| `text-outline.md` | 合成ページで映像の上に直に置く文字の縁取り（`--text-outline`・`drawOutlinedText`）と書体の読み込み | `src/core/text-outline.css`・`src/core/outlined-text.ts`・`src/**/*.css`・`src/**/view.ts`・`src/clock/**`・`overlay/stage/index.html` |
 | `speech.md` | チャットの読み上げ（`speech/reader/`。合成先にさくらのAI Engine） | `src/speech/**`・`speech/**`・`worker/speech-*.ts` |
 | `backstage.md` | 裏方をまとめたページ（`overlay/backstage/`）とコネクターのページ（`/connectors/`） | `src/backstage/**`・`overlay/backstage/**` |
 | `bgm.md` | BGM（`/bgm/`・裏方の `?bgm=true`） | `src/bgm/**`・`worker/bgm-*.ts`・`worker/alert-channel.ts` |

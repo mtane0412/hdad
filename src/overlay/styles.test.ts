@@ -25,6 +25,21 @@ describe('overlay.css', () => {
     }
   })
 
+  it('直置きの文字の縁取り（src/core/text-outline.css）を、素材のCSSより先に読み込んでいる', () => {
+    const outlineAt = overlayCss.indexOf(`@import '../core/text-outline.css';`)
+    expect(outlineAt).toBeGreaterThanOrEqual(0)
+    expect(outlineAt).toBeLessThan(overlayCss.indexOf(`@import '../chat/`))
+  })
+
+  it('配信の映像の上に地を持たずに文字を置く素材（チャットの plain・アラート・字幕）は、共通の縁取りを使う', () => {
+    // 前提: 縁取りの作り方を素材ごとに書き分けると、太さも作り方もばらつく（8方向の影・text-stroke など）
+    for (const path of ['../chat/plain.css', '../alerts/alerts.css', '../caption/caption.css']) {
+      const css = readFileSync(resolve(import.meta.dirname, path), 'utf8')
+      expect(css, path).toContain('var(--text-outline)')
+      expect(css, path).not.toContain('-webkit-text-stroke')
+    }
+  })
+
   it('素材の箱は、中の素材と失敗の表示の基準になるよう位置を持つ', () => {
     expect(overlayCss).toMatch(/\.overlay-item \{[^}]*position: absolute;/)
   })

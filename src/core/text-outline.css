@@ -1,0 +1,44 @@
+/*
+ * 合成ページで、配信の映像の上に直に置く文字の縁取り（DOM の素材で共通）。
+ *
+ * 配信の背景は明るいことも暗いことも柄があることもあるので、地を持たない文字には必ず縁を付ける。
+ * 使う側は text-shadow: var(--text-outline) と書き、色と太さは --outline-color・--outline-width で変える。
+ * canvas の素材は同じ太さを src/core/outlined-text.ts の OUTLINE_RATIO で描く。
+ *
+ * 縁は text-shadow を16方向にずらして重ねて作る。ほかの作り方を採らない理由は次のとおり。
+ * - -webkit-text-stroke（＋ paint-order: stroke fill）は線の角が miter のまま変えられず、太くすると
+ *   「驚」「M」のような鋭い角から縁が尖って飛び出す
+ * - 8方向の text-shadow は、太くすると斜めの縁が階段状に欠ける
+ * 最後の1つは、白っぽい映像の上でも文字が浮いて見えるための、真下への薄いぼかし。
+ *
+ * --text-outline は要素ごとに組み立て直す（すべての要素に宣言する）。:root で1度だけ組み立てると、
+ * 中の var() が :root の値のまま固まり、要素ごとに変えた色や太さが効かないため。
+ */
+:root {
+  /* 外に見える縁の幅。src/core/outlined-text.ts の OUTLINE_RATIO と同じ割合にする */
+  --outline-width: 0.08em;
+  --outline-color: #000;
+}
+
+*,
+::before,
+::after {
+  --text-outline:
+    var(--outline-width) 0 0 var(--outline-color),
+    calc(var(--outline-width) * 0.924) calc(var(--outline-width) * 0.383) 0 var(--outline-color),
+    calc(var(--outline-width) * 0.707) calc(var(--outline-width) * 0.707) 0 var(--outline-color),
+    calc(var(--outline-width) * 0.383) calc(var(--outline-width) * 0.924) 0 var(--outline-color),
+    0 var(--outline-width) 0 var(--outline-color),
+    calc(var(--outline-width) * -0.383) calc(var(--outline-width) * 0.924) 0 var(--outline-color),
+    calc(var(--outline-width) * -0.707) calc(var(--outline-width) * 0.707) 0 var(--outline-color),
+    calc(var(--outline-width) * -0.924) calc(var(--outline-width) * 0.383) 0 var(--outline-color),
+    calc(var(--outline-width) * -1) 0 0 var(--outline-color),
+    calc(var(--outline-width) * -0.924) calc(var(--outline-width) * -0.383) 0 var(--outline-color),
+    calc(var(--outline-width) * -0.707) calc(var(--outline-width) * -0.707) 0 var(--outline-color),
+    calc(var(--outline-width) * -0.383) calc(var(--outline-width) * -0.924) 0 var(--outline-color),
+    0 calc(var(--outline-width) * -1) 0 var(--outline-color),
+    calc(var(--outline-width) * 0.383) calc(var(--outline-width) * -0.924) 0 var(--outline-color),
+    calc(var(--outline-width) * 0.707) calc(var(--outline-width) * -0.707) 0 var(--outline-color),
+    calc(var(--outline-width) * 0.924) calc(var(--outline-width) * -0.383) 0 var(--outline-color),
+    0 0.08em 0.2em rgb(0 0 0 / 45%);
+}

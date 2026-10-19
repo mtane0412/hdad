@@ -13,6 +13,7 @@
  * 文言は captions.ts、文の折り返しは市町村紹介と同じ wrapText が決め、ここは描くだけを受け持つ（通信も状態も持たない）。
  * テストを持たない（canvas に描くだけのため）。
  */
+import { drawOutlinedText } from '../core/outlined-text'
 import { wrapText } from '../town-tour/wrap'
 import { answerLineOf, gradeHeadlineOf, requesterLineOf, stakesLineOf, stopBannerLineOf, winnerLineOf, wrongAnswerLineOf } from './captions'
 import type { KanjiQuizCall } from './call'
@@ -61,8 +62,6 @@ const SIZES = {
   stakesGap: 16,
 } as const
 
-/** 熟語・カウントダウンの縁取りの太さ（文字の大きさに対する割合） */
-const STROKE_RATIO = 0.06
 /** 級の場面の板の幅（箱の幅に対する割合） */
 const GRADE_PANEL_WIDTH_RATIO = 0.6
 /** 大きなカウントダウンを出すあいだ、熟語を上へずらす位置と、カウントダウンを置く位置（箱の高さに対する割合） */
@@ -83,7 +82,8 @@ const COLORS = {
   sub: '#c8d0e0',
   accent: '#ffcf40',
   countdown: '#ff4d4d',
-  wordStroke: 'rgba(0, 0, 0, 0.6)',
+  /** 映像の上に直に置く文字（熟語・カウントダウン・結果の見出し）の縁。半透明にすると明るい映像の上で縁が薄れるので不透明にする */
+  outline: '#000000',
   /** 解説の帯の、熟語を置く左側と、読みと解説を置く右側 */
   revealWordPanel: 'rgba(20, 28, 80, 0.88)',
   revealTextPanel: 'rgba(8, 8, 12, 0.85)',
@@ -179,12 +179,7 @@ const drawWord = (ctx: CanvasRenderingContext2D, word: string, centerX: number, 
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   // 背景の映像に負けないよう、縁取りしてから塗る
-  ctx.lineWidth = fontSize * STROKE_RATIO
-  ctx.lineJoin = 'round'
-  ctx.strokeStyle = COLORS.wordStroke
-  ctx.strokeText(word, 0, 0)
-  ctx.fillStyle = COLORS.accent
-  ctx.fillText(word, 0, 0)
+  drawOutlinedText(ctx, word, 0, 0, { fontSize, fill: COLORS.accent, outline: COLORS.outline })
   ctx.restore()
 }
 
@@ -226,15 +221,10 @@ const drawQuestion = (
     drawWrongAnswer(ctx, width, unit, wordBottom + SIZES.wrongAnswerGap * unit, wrongAnswer)
   }
   if (scene.countdown) {
-    const font = `bold ${SIZES.countdownFont * unit}px ${SANS_FAMILY}`
-    const countdownY = height * COUNTDOWN_Y_RATIO
-    ctx.lineWidth = SIZES.countdownFont * unit * STROKE_RATIO
-    ctx.strokeStyle = COLORS.wordStroke
-    ctx.font = font
+    const fontSize = SIZES.countdownFont * unit
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    ctx.strokeText(String(scene.remainingSeconds), width / 2, countdownY)
-    centerText(ctx, String(scene.remainingSeconds), width / 2, countdownY, font, COLORS.countdown)
+    outlinedText(ctx, String(scene.remainingSeconds), width / 2, height * COUNTDOWN_Y_RATIO, fontSize, `bold ${fontSize}px ${SANS_FAMILY}`, COLORS.countdown)
   }
 }
 
@@ -245,12 +235,7 @@ const revealHeadlineOf = (winnerName: string | null): { text: string; color: str
 /** 縁取りしてから塗る1行（背景の映像に負けないように）。textAlign と textBaseline は呼び出し側が決める */
 const outlinedText = (ctx: CanvasRenderingContext2D, text: string, x: number, y: number, fontSize: number, font: string, color: string): void => {
   ctx.font = font
-  ctx.lineWidth = fontSize * STROKE_RATIO
-  ctx.lineJoin = 'round'
-  ctx.strokeStyle = COLORS.wordStroke
-  ctx.strokeText(text, x, y)
-  ctx.fillStyle = color
-  ctx.fillText(text, x, y)
+  drawOutlinedText(ctx, text, x, y, { fontSize, fill: color, outline: COLORS.outline })
 }
 
 const drawReveal = (

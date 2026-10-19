@@ -7,13 +7,12 @@
  * 表示内容は frame.now だけから決まり、フレーム間の状態は持たない（文字幅の計測結果だけは、同じ入力に同じ値を返すメモとして覚えておく）。
  */
 import { defineBackground, paintBackdrop } from '../core/background'
+import { drawOutlinedText, OUTLINE_RATIO } from '../core/outlined-text'
 
 /** 時刻の行に対する、日付の行の文字サイズの比率 */
 const DATE_SIZE_RATIO = 0.4
 /** 文字サイズに対する行の高さの比率 */
 const LINE_HEIGHT = 1.2
-/** 文字サイズに対する縁取りの太さの比率 */
-const OUTLINE_RATIO = 0.08
 /** 文字の幅を測るときの基準の文字サイズ（px）。幅は文字サイズに比例するので、この値で割って1pxあたりに直す */
 const MEASURE_FONT_SIZE = 100
 /** 数字の幅がそろう等幅フォント。秒が進むたびに表示が左右に揺れるのを防ぐ */
@@ -128,10 +127,10 @@ export const digital = defineBackground({
       const fontSize = fitFontSize(
         { width, height },
         {
-          // 縁取りは文字の外側にも太さの半分ずつはみ出すので、その分を幅に含める。
-          // 高さは、行の高さによる上下の余白（(LINE_HEIGHT - 1) / 2）が縁取りのはみ出し（OUTLINE_RATIO / 2）より大きいので追加しない
+          // 縁取りは文字の左右の外側に OUTLINE_RATIO ずつはみ出すので、その分を幅に含める。
+          // 高さは、行の高さによる上下の余白（(LINE_HEIGHT - 1) / 2）が縁取りのはみ出し（OUTLINE_RATIO）より大きいので追加しない
           width:
-            Math.max(measure(ctx, timeLine), measure(ctx, dateLine) * DATE_SIZE_RATIO) + OUTLINE_RATIO,
+            Math.max(measure(ctx, timeLine), measure(ctx, dateLine) * DATE_SIZE_RATIO) + OUTLINE_RATIO * 2,
           height: LINE_HEIGHT * (1 + (hasDateLine ? DATE_SIZE_RATIO : 0)),
         },
         size,
@@ -139,14 +138,12 @@ export const digital = defineBackground({
 
       const drawLine = (text: string, lineFontSize: number, centerY: number): void => {
         ctx.font = fontOf(lineFontSize)
-        if (outline !== 'transparent') {
-          ctx.strokeStyle = outline
-          ctx.lineWidth = lineFontSize * OUTLINE_RATIO
-          ctx.lineJoin = 'round'
-          ctx.strokeText(text, width / 2, centerY)
+        if (outline === 'transparent') {
+          ctx.fillStyle = color
+          ctx.fillText(text, width / 2, centerY)
+          return
         }
-        ctx.fillStyle = color
-        ctx.fillText(text, width / 2, centerY)
+        drawOutlinedText(ctx, text, width / 2, centerY, { fontSize: lineFontSize, fill: color, outline })
       }
 
       ctx.textAlign = 'center'

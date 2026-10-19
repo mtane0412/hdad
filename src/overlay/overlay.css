@@ -11,6 +11,8 @@
  * （position: fixed → absolute。箱に position: relative を持たせることで箱が基準になる）。
  */
 @import '../core/stage.css';
+/* 直置きの文字の縁取り（--text-outline）。素材のCSSが使うので先に読み込む */
+@import '../core/text-outline.css';
 @import '../chat/bubble.css';
 @import '../chat/card.css';
 @import '../chat/plain.css';
