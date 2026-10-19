@@ -20,7 +20,7 @@ import { answerChatDeductionQuestion } from './chat-deduction-answer'
 import { pushBoardAfterRedemption } from './chat-deduction-board'
 import { receiveChatDeductionGuess } from './chat-deduction-guess'
 import { loadChatDeductionRewards, type ChatDeductionRewards } from './chat-deduction-rewards'
-import { answerQuestion, failQuestion, readGame, reserveQuestion, type ChatDeductionQuestion, type ChatDeductionQuestionLimits } from './chat-deduction-store'
+import { answerQuestion, countAnsweredQuestions, failQuestion, readGame, reserveQuestion, type ChatDeductionQuestion, type ChatDeductionQuestionLimits } from './chat-deduction-store'
 import { HttpError, STATUS, type Context } from './http'
 import { getManageToken } from './reward-routes'
 import { recordFailure } from './stats-store'
@@ -65,8 +65,8 @@ const answer = async (context: Context, question: ChatDeductionQuestion): Promis
   try {
     const game = question.gameId === null ? null : await readGame(env.DB, question.gameId)
     const problem = CHAT_DEDUCTION_PROBLEMS.find((candidate) => candidate.id === game?.problemId)
-    if (problem === undefined) throw new Error(`質問を受けたゲーム（${String(question.gameId)}）の問題が問題集にありません`)
-    const result = await answerChatDeductionQuestion(llm, problem, question.question)
+    if (game === null || problem === undefined) throw new Error(`質問を受けたゲーム（${String(question.gameId)}）の問題が問題集にありません`)
+    const result = await answerChatDeductionQuestion(llm, problem, question.question, await countAnsweredQuestions(env.DB, game.id))
     if ((await answerQuestion(env.DB, question.id, result, now)) === null) throw new Error(`質問（${question.id}）がもう答え待ちではありませんでした`)
     return 'FULFILLED'
   } catch (error) {

@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import {
   answerQuestion,
   cancelGame,
+  countAnsweredQuestions,
   endGame,
   failQuestion,
   markGuessWrong,
@@ -215,6 +216,28 @@ describe('質問の答えと失敗の記録（answerQuestion・failQuestion）',
 
     expect(await answerQuestion(db, rejected!.id, { verdict: 'no', reply: '違います。' }, NOW)).toBeNull()
     expect(await failQuestion(db, rejected!.id, '失敗', NOW)).toBeNull()
+  })
+})
+
+describe('答えた質問の数え上げ（countAnsweredQuestions）', () => {
+  const LIMITS = { maxQuestionsPerGame: 30 }
+  const asks = (redemptionId: string) => ({ redemptionId, userId: '田中太郎のユーザーID', userLogin: 'tanaka_taro', userName: '田中太郎', question: '日本にありますか？' })
+
+  it('そのゲームで答えた（answered）質問だけを数える（答え待ち・失敗・ほかのゲームの質問は数えない）', async () => {
+    const db = createFakeDatabase()
+    const previous = await startGame(db, 'mount-fuji', NOW)
+    const previousQuestion = await reserveQuestion(db, asks('前のゲームの交換'), LIMITS, NOW)
+    await answerQuestion(db, previousQuestion!.id, { verdict: 'yes', reply: '日本にあります。' }, NOW)
+    await endGame(db, previous!.id, 'stopped', NOW)
+
+    const game = await startGame(db, 'mount-fuji', LATER)
+    const answered = await reserveQuestion(db, asks('答えた交換'), LIMITS, LATER)
+    await answerQuestion(db, answered!.id, { verdict: 'yes', reply: '日本にあります。' }, LATER)
+    const failed = await reserveQuestion(db, asks('失敗した交換'), LIMITS, LATER)
+    await failQuestion(db, failed!.id, 'LLMの返事が2行ではありませんでした', LATER)
+    await reserveQuestion(db, asks('答え待ちの交換'), LIMITS, LATER)
+
+    expect(await countAnsweredQuestions(db, game!.id)).toBe(1)
   })
 })
 
