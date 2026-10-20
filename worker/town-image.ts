@@ -72,11 +72,14 @@ const MAX_CODE_POINT = 0x10ffff
 const NAMED_ENTITIES: Readonly<Record<string, string>> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' }
 
 /**
- * 作者・説明の欄（HTML）を文にする。タグを外し、文字参照を戻し、空白をまとめる。
+ * 作者・説明の欄（HTML）を文にする。見えないように隠された span を中身ごと除き、タグを外し、文字参照を戻し、空白をまとめる。
  * 戻せない文字参照はそのまま残す（作者の名前を黙って欠けさせない）。
+ * 注意: Commons の多言語の定型文（「不明」など）は、ほかの言語の文を display: none の span に入れて添えるので、
+ * 隠された span を残すと「不明Unknown author」のように2つの言語がつながる。
  */
 const textOfHtml = (html: string): string =>
   html
+    .replace(/<span[^>]*display:\s*none[^>]*>[^<]*<\/span>/gi, '')
     .replace(/<[^>]*>/g, '')
     .replace(/&(#x[0-9a-f]+|#[0-9]+|[a-z]+);/gi, (entity, name: string) => {
       if (!name.startsWith('#')) return NAMED_ENTITIES[name.toLowerCase()] ?? entity
