@@ -2,6 +2,7 @@
   {
     "id": "ancient-people",
     "name": "古代史の人物",
+    "topic": "古代史",
     "problems": [
       {
         "id": "himiko",
@@ -250,6 +251,7 @@
   {
     "id": "ancient-events",
     "name": "古代史の出来事",
+    "topic": "古代史",
     "problems": [
       {
         "id": "iwai-rebellion",

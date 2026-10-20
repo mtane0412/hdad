@@ -34,7 +34,7 @@ const silentSound: ChatDeductionSound = {
 }
 
 /** 富士山の問題で開催中のゲーム */
-const runningGame: ChatDeductionBoardGame = { id: 1, category: 'place', startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null }
+const runningGame: ChatDeductionBoardGame = { id: 1, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null }
 
 const question: ChatDeductionCard = { kind: 'question', id: 1, userName: '田中太郎', text: '日本にありますか？', verdict: 'yes', reply: '静岡県と山梨県にまたがっています。' }
 const wrongGuess: ChatDeductionCard = { kind: 'guess', id: 1, userName: '鈴木花子', text: '阿蘇山', correct: false }

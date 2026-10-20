@@ -152,7 +152,8 @@ export const createChatDeductionView = (root: HTMLElement, { hideEndedGame }: Ch
         hideTimer = setTimeout(clear, remaining)
       }
       board.hidden = false
-      category.textContent = `お題: ${categoryLabelOf(game.category)}`
+      // 括りのある問題集は「古代史の人物」のように括りを添える
+      category.textContent = `お題: ${game.topic === null ? '' : `${game.topic}の`}${categoryLabelOf(game.category)}`
 
       const next = new Map<string, HTMLLIElement>()
       const visible = numberCards(cards).slice(-MAX_VISIBLE_CARDS)

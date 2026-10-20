@@ -78,6 +78,15 @@ describe('readChatDeductionProblemSets', () => {
     expect(readChatDeductionProblemSets([ancientPeople, misc])).toEqual([ancientPeople, misc])
   })
 
+  it('時代などの括り（例: 古代史）を持つ問題集は、括りも読む（お題を「古代史の人物」と出すため）', () => {
+    expect(readChatDeductionProblemSets([{ ...ancientPeople, topic: '古代史' }])).toEqual([{ ...ancientPeople, topic: '古代史' }])
+  })
+
+  it('括りが空や文字列以外なら投げる（黙って括りなしにしない）', () => {
+    expect(() => readChatDeductionProblemSets([{ ...ancientPeople, topic: '' }])).toThrowError(/0番目（ancient-people）.*括り/)
+    expect(() => readChatDeductionProblemSets([{ ...ancientPeople, topic: 1 }])).toThrowError(/0番目（ancient-people）.*括り/)
+  })
+
   it('問題集のIDが英小文字・数字・ハイフン以外を含むなら投げる（経路の本文にそのまま載せるため）', () => {
     expect(() => readChatDeductionProblemSets([{ ...misc, id: 'いろいろ' }])).toThrowError(/0番目.*ID/)
   })

@@ -2,7 +2,8 @@
  * チャットで推理の問題集の読み取り
  *
  * 問題集（problems.json）は配信者が目で確かめた問題だけを持つ（issue #375）。problems.json は問題集の一覧で、
- * 問題集は ID（英小文字・数字・ハイフン）・名前（選ぶ欄に出す。例: 古代史の人物）・問題の一覧を持つ。
+ * 問題集は ID（英小文字・数字・ハイフン）・名前（選ぶ欄に出す。例: 古代史の人物）・問題の一覧を持ち、時代などの括り（例: 古代史）を持てる。
+ * 括りは合成ページのお題に区分と合わせて出す（例: お題: 古代史の人物）。時代の混ざる問題集（いろいろ）は持たない。
  * 配信者は問題集だけを選び、どの問題を出すかは Worker が決める（worker/chat-deduction-pick.ts）。1問は次の項目を持つ。
  * - ID: D1 のゲームの行に載せる識別子（英小文字・数字・ハイフン）
  * - 区分: 人物・場所・出来事・もの（category.ts）
@@ -33,6 +34,8 @@ export interface ChatDeductionProblemSet {
   readonly id: string
   /** 選ぶ欄に出す名前（例: 古代史の人物） */
   readonly name: string
+  /** 時代などの括り（例: 古代史）。合成ページのお題に「古代史の人物」と区分の前に添える。無い問題集は区分だけを出す */
+  readonly topic?: string
   /** 出題する候補（1問以上） */
   readonly problems: readonly ChatDeductionProblem[]
 }
@@ -91,12 +94,14 @@ export const readChatDeductionProblems = (value: unknown, at = 'チャットで�
  * @throws 問題集の形・中の問題の形が違う場合
  */
 const readChatDeductionProblemSet = (candidate: unknown, at: string): ChatDeductionProblemSet => {
-  const { id, name, problems }: Record<string, unknown> = typeof candidate === 'object' && candidate !== null ? { ...candidate } : {}
+  const { id, name, topic, problems }: Record<string, unknown> = typeof candidate === 'object' && candidate !== null ? { ...candidate } : {}
   const where = `${at}（${typeof id === 'string' && id !== '' ? id : '?'}）`
   if (typeof id !== 'string' || !ID_PATTERN.test(id)) throw new Error(`${where}: 問題集のIDを英小文字・数字・ハイフンだけの文字列にしてください`)
   if (typeof name !== 'string' || name === '') throw new Error(`${where}: 問題集の名前を空でない文字列にしてください`)
+  if (topic !== undefined && (typeof topic !== 'string' || topic === '')) throw new Error(`${where}: 問題集の括りは空でない文字列にするか、項目ごと省いてください`)
   if (!Array.isArray(problems) || problems.length === 0) throw new Error(`${where}: 問題集には1問以上の問題を入れてください`)
-  return { id, name, problems: readChatDeductionProblems(problems, `問題集「${id}」`) }
+  const read = { id, name, problems: readChatDeductionProblems(problems, `問題集「${id}」`) }
+  return topic === undefined ? read : { ...read, topic }
 }
 
 /**
