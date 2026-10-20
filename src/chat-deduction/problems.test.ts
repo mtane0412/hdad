@@ -5,9 +5,10 @@
  * そのため、別名か事実メモが空の問題・知らない区分・IDや別名の重複は、ここで止める。
  * 配信者は問題集（「古代史の人物」など）を選び、問題は Worker がその中から決める。
  * そのため、問題の無い問題集・問題集のIDの重複・問題集をまたいだ問題のIDの重複も、ここで止める。
+ * ゲームを終えたあとに合成ページで正解の解説を出すので、解説が空・長すぎて板に収まらない問題もここで止める。
  */
 import { describe, expect, it } from 'vitest'
-import { readChatDeductionProblemSets, readChatDeductionProblems } from './problems'
+import { MAX_EXPLANATION_LENGTH, readChatDeductionProblemSets, readChatDeductionProblems } from './problems'
 import problemSets from './problems.json'
 
 describe('問題集（problems.json）', () => {
@@ -27,12 +28,27 @@ describe('readChatDeductionProblems', () => {
     answer: '富士山',
     aliases: ['富士山', 'ふじさん', 'フジヤマ'],
     facts: ['静岡県と山梨県にまたがる山。', '標高は3776メートルで、日本でいちばん高い。'],
+    explanation: '静岡県と山梨県にまたがる、標高3776メートルの日本でいちばん高い山。',
   }
 
   it('ID・区分・正解・別名・事実メモを持つ問題を読む', () => {
-    const person = { id: 'natsume-soseki', category: 'person', answer: '夏目漱石', aliases: ['夏目漱石', '漱石'], facts: ['明治から大正にかけての小説家。'] }
+    const person = { id: 'natsume-soseki', category: 'person', answer: '夏目漱石', aliases: ['夏目漱石', '漱石'], facts: ['明治から大正にかけての小説家。'], explanation: '明治から大正にかけての小説家。' }
 
     expect(readChatDeductionProblems([valid, person])).toEqual([valid, person])
+  })
+
+  it('解説が無い・空・空白だけなら投げる（終えたあとに合成ページで出すため）', () => {
+    const withoutExplanation: Partial<typeof valid> = { ...valid }
+    delete withoutExplanation.explanation
+
+    expect(() => readChatDeductionProblems([withoutExplanation])).toThrowError(/0番目（mount-fuji）.*解説/)
+    expect(() => readChatDeductionProblems([{ ...valid, explanation: '' }])).toThrowError(/解説/)
+    expect(() => readChatDeductionProblems([{ ...valid, explanation: '　' }])).toThrowError(/解説/)
+  })
+
+  it(`解説が ${MAX_EXPLANATION_LENGTH} 文字を超えたら投げる（合成ページの板に収まらないため）`, () => {
+    expect(readChatDeductionProblems([{ ...valid, explanation: 'あ'.repeat(MAX_EXPLANATION_LENGTH) }])).toHaveLength(1)
+    expect(() => readChatDeductionProblems([{ ...valid, explanation: 'あ'.repeat(MAX_EXPLANATION_LENGTH + 1) }])).toThrowError(/解説.*文字/)
   })
 
   it('知らない区分（「場所」のような画面の言い方も）なら、何番目のどの問題かを添えて投げる', () => {
@@ -69,8 +85,8 @@ describe('readChatDeductionProblems', () => {
 })
 
 describe('readChatDeductionProblemSets', () => {
-  const fuji = { id: 'mount-fuji', category: 'place', answer: '富士山', aliases: ['富士山'], facts: ['日本でいちばん高い山。'] }
-  const himiko = { id: 'himiko', category: 'person', answer: '卑弥呼', aliases: ['卑弥呼'], facts: ['3世紀前半の倭の女王。'] }
+  const fuji = { id: 'mount-fuji', category: 'place', answer: '富士山', aliases: ['富士山'], facts: ['日本でいちばん高い山。'], explanation: '日本でいちばん高い山。' }
+  const himiko = { id: 'himiko', category: 'person', answer: '卑弥呼', aliases: ['卑弥呼'], facts: ['3世紀前半の倭の女王。'], explanation: '3世紀前半の倭の女王。' }
   const misc = { id: 'misc', name: 'いろいろ', problems: [fuji] }
   const ancientPeople = { id: 'ancient-people', name: '古代史の人物', problems: [himiko] }
 

@@ -12,13 +12,17 @@
  * - 変わっていないカードの要素は作り直さないこと（作り直すと出現のアニメーションが全部のカードで走る）
  * - 終えたゲームは、終えてから ENDED_REVEAL_MS のあいだだけ映し、そのあとは消すこと（プレビューのサンプルでは消さない）
  * - 下部バーの「演出を消す」を受けたら、終えたゲームを待たずに消すこと（開催中のゲームは消さない）
+ * - 終えてから EXPLANATION_DELAY_MS たったら、カードの格子の代わりに正解の解説を出すこと（まず正解の帯とカードを見せるため）
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChatDeductionBoard, ChatDeductionBoardGame, ChatDeductionCard } from './board'
 import { ENDED_REVEAL_MS } from '../core/ended-reveal'
-import { MAX_VISIBLE_CARDS, createChatDeductionView } from './view'
+import { EXPLANATION_DELAY_MS, MAX_VISIBLE_CARDS, createChatDeductionView } from './view'
 
-const openGame: ChatDeductionBoardGame = { id: 1, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null }
+const openGame: ChatDeductionBoardGame = { id: 1, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null, explanation: null }
+
+/** 富士山の問題の解説 */
+const FUJI_EXPLANATION = '静岡県と山梨県にまたがる、標高3776メートルの日本でいちばん高い山。'
 
 const yesCard: ChatDeductionCard = { kind: 'question', id: 1, userName: '田中太郎', text: '日本にありますか？', verdict: 'yes', reply: '静岡県と山梨県にまたがっています。' }
 const noCard: ChatDeductionCard = { kind: 'question', id: 2, userName: '鈴木花子', text: '生き物ですか？', verdict: 'no', reply: '生き物ではありません。' }
@@ -86,7 +90,7 @@ describe('createChatDeductionView', () => {
   it('解答のカードは、正解と不正解を文字と data-result で分ける', () => {
     const view = createChatDeductionView(root, KEEP_ENDED_GAME)
 
-    view.setBoard({ game: { ...openGame, endedAt: '2026-10-15T12:05:00.000Z', endReason: 'solved', answer: '富士山' }, cards: [wrongCard, correctCard] })
+    view.setBoard({ game: { ...openGame, endedAt: '2026-10-15T12:05:00.000Z', endReason: 'solved', answer: '富士山', explanation: FUJI_EXPLANATION }, cards: [wrongCard, correctCard] })
 
     const [wrong, correct] = cardsOf()
     expect(correct?.dataset.result).toBe('correct')
@@ -121,7 +125,7 @@ describe('createChatDeductionView', () => {
   it('正解者が出て終えたら、「正解は○○でした」と正解者の名前を出し、参加のしかたは隠す', () => {
     const view = createChatDeductionView(root, KEEP_ENDED_GAME)
 
-    view.setBoard({ game: { ...openGame, endedAt: '2026-10-15T12:05:00.000Z', endReason: 'solved', answer: '富士山' }, cards: [wrongCard, correctCard] })
+    view.setBoard({ game: { ...openGame, endedAt: '2026-10-15T12:05:00.000Z', endReason: 'solved', answer: '富士山', explanation: FUJI_EXPLANATION }, cards: [wrongCard, correctCard] })
 
     expect(root.querySelector<HTMLElement>('.chat-deduction-result')?.hidden).toBe(false)
     expect(textOf('.chat-deduction-answer')).toBe('正解は富士山でした')
@@ -133,7 +137,7 @@ describe('createChatDeductionView', () => {
   it('配信者が打ち切って終えたら、「正解は○○でした」だけを出す', () => {
     const view = createChatDeductionView(root, KEEP_ENDED_GAME)
 
-    view.setBoard({ game: { ...openGame, endedAt: '2026-10-15T12:05:00.000Z', endReason: 'stopped', answer: '富士山' }, cards: [wrongCard] })
+    view.setBoard({ game: { ...openGame, endedAt: '2026-10-15T12:05:00.000Z', endReason: 'stopped', answer: '富士山', explanation: FUJI_EXPLANATION }, cards: [wrongCard] })
 
     expect(textOf('.chat-deduction-answer')).toBe('正解は富士山でした')
     expect(root.querySelector<HTMLElement>('.chat-deduction-solver')?.hidden).toBe(true)
@@ -186,7 +190,7 @@ describe('createChatDeductionView', () => {
 
   describe('終えたゲームを消す', () => {
     /** 正解者が出て 12:05 に終えたゲーム */
-    const solvedGame: ChatDeductionBoardGame = { ...openGame, endedAt: '2026-10-15T12:05:00.000Z', endReason: 'solved', answer: '富士山' }
+    const solvedGame: ChatDeductionBoardGame = { ...openGame, endedAt: '2026-10-15T12:05:00.000Z', endReason: 'solved', answer: '富士山', explanation: FUJI_EXPLANATION }
     const endedAtMs = Date.parse('2026-10-15T12:05:00.000Z')
     const boardElement = (): HTMLElement | null => root.querySelector<HTMLElement>('.chat-deduction-board')
 
@@ -269,6 +273,83 @@ describe('createChatDeductionView', () => {
       view.setBoard({ game: solvedGame, cards: [correctCard] })
 
       expect(boardElement()?.hidden).toBe(false)
+    })
+  })
+
+  describe('正解の解説', () => {
+    const solvedGame: ChatDeductionBoardGame = { ...openGame, endedAt: '2026-10-15T12:05:00.000Z', endReason: 'solved', answer: '富士山', explanation: FUJI_EXPLANATION }
+    const endedAtMs = Date.parse('2026-10-15T12:05:00.000Z')
+    const explanationElement = (): HTMLElement | null => root.querySelector<HTMLElement>('.chat-deduction-explanation')
+    const cardList = (): HTMLElement | null => root.querySelector<HTMLElement>('.chat-deduction-cards')
+
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('開催中は解説を出さない', () => {
+      vi.setSystemTime(endedAtMs)
+      const view = createChatDeductionView(root)
+
+      view.setBoard({ game: openGame, cards: [yesCard] })
+      vi.advanceTimersByTime(EXPLANATION_DELAY_MS)
+
+      expect(explanationElement()?.hidden).toBe(true)
+      expect(cardList()?.hidden).toBe(false)
+    })
+
+    it('終えた直後は正解の帯とカードを見せ、終えてから EXPLANATION_DELAY_MS たったらカードの代わりに解説を出す', () => {
+      vi.setSystemTime(endedAtMs)
+      const view = createChatDeductionView(root)
+
+      view.setBoard({ game: solvedGame, cards: [wrongCard, correctCard] })
+      expect(explanationElement()?.hidden).toBe(true)
+      expect(cardList()?.hidden).toBe(false)
+
+      vi.advanceTimersByTime(EXPLANATION_DELAY_MS - 1)
+      expect(explanationElement()?.hidden).toBe(true)
+
+      vi.advanceTimersByTime(1)
+      expect(explanationElement()?.hidden).toBe(false)
+      expect(textOf('.chat-deduction-explanation-text')).toBe(FUJI_EXPLANATION)
+      expect(cardList()?.hidden).toBe(true)
+      // 正解の帯は解説のあいだも残す
+      expect(root.querySelector<HTMLElement>('.chat-deduction-result')?.hidden).toBe(false)
+    })
+
+    it('開き直したときにもう EXPLANATION_DELAY_MS を過ぎていれば、最初から解説を出す', () => {
+      vi.setSystemTime(endedAtMs + EXPLANATION_DELAY_MS)
+      const view = createChatDeductionView(root)
+
+      view.setBoard({ game: solvedGame, cards: [correctCard] })
+
+      expect(explanationElement()?.hidden).toBe(false)
+    })
+
+    it('解説を出す前に次のゲームが始まったら、解説を出さない', () => {
+      vi.setSystemTime(endedAtMs)
+      const view = createChatDeductionView(root)
+      view.setBoard({ game: solvedGame, cards: [correctCard] })
+
+      view.setBoard({ game: { ...openGame, id: 2 }, cards: [] })
+      vi.advanceTimersByTime(EXPLANATION_DELAY_MS)
+
+      expect(explanationElement()?.hidden).toBe(true)
+      expect(cardList()?.hidden).toBe(false)
+    })
+
+    it('解説を出したあとに次のゲームが始まったら、解説を隠してカードの格子に戻す', () => {
+      vi.setSystemTime(endedAtMs + EXPLANATION_DELAY_MS)
+      const view = createChatDeductionView(root)
+      view.setBoard({ game: solvedGame, cards: [correctCard] })
+
+      view.setBoard({ game: { ...openGame, id: 2 }, cards: [] })
+
+      expect(explanationElement()?.hidden).toBe(true)
+      expect(cardList()?.hidden).toBe(false)
     })
   })
 })

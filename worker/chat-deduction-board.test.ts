@@ -19,12 +19,12 @@ const LATER = NOW + 10 * 60 * 1000
 
 /** テスト用の問題集の一覧（括りのない「いろいろ」に富士山、括りが「古代史」の問題集に卑弥呼） */
 const problems: readonly ChatDeductionProblemSet[] = [
-  { id: 'misc', name: 'いろいろ', problems: [{ id: 'mount-fuji', category: 'place', answer: '富士山', aliases: ['富士山'], facts: ['日本でいちばん高い山。'] }] },
+  { id: 'misc', name: 'いろいろ', problems: [{ id: 'mount-fuji', category: 'place', answer: '富士山', aliases: ['富士山'], facts: ['日本でいちばん高い山。'], explanation: '静岡県と山梨県にまたがる日本一の山。' }] },
   {
     id: 'ancient-people',
     name: '古代史の人物',
     topic: '古代史',
-    problems: [{ id: 'himiko', category: 'person', answer: '卑弥呼', aliases: ['卑弥呼'], facts: ['3世紀前半の倭の女王。'] }],
+    problems: [{ id: 'himiko', category: 'person', answer: '卑弥呼', aliases: ['卑弥呼'], facts: ['3世紀前半の倭の女王。'], explanation: '3世紀前半の倭の女王。' }],
   },
 ]
 
@@ -54,22 +54,22 @@ describe('readChatDeductionBoard', () => {
     expect(await readChatDeductionBoard(createFakeDatabase(), createStore(), problems)).toEqual({ game: null, cards: [], sound: DEFAULT_CHAT_DEDUCTION_SOUND })
   })
 
-  it('開催中のゲームは、区分とカードを載せ、正解の表記は載せない（答えを漏らさない）', async () => {
+  it('開催中のゲームは、区分とカードを載せ、正解の表記と解説は載せない（答えを漏らさない）', async () => {
     const { db, game } = await startGameWithOneAnswer()
 
     expect(await readChatDeductionBoard(db, createStore(), problems)).toEqual({
-      game: { id: game.id, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null },
+      game: { id: game.id, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null, explanation: null },
       cards: [card],
       sound: DEFAULT_CHAT_DEDUCTION_SOUND,
     })
   })
 
-  it('終えたゲームは、正解の表記も載せる（「正解は富士山でした」を出すため）', async () => {
+  it('終えたゲームは、正解の表記と解説も載せる（「正解は富士山でした」と解説を出すため）', async () => {
     const { db, game } = await startGameWithOneAnswer()
     await endGame(db, game.id, 'stopped', LATER)
 
     expect(await readChatDeductionBoard(db, createStore(), problems)).toEqual({
-      game: { id: game.id, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', endedAt: '2026-10-15T12:10:00.000Z', endReason: 'stopped', answer: '富士山' },
+      game: { id: game.id, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', endedAt: '2026-10-15T12:10:00.000Z', endReason: 'stopped', answer: '富士山', explanation: '静岡県と山梨県にまたがる日本一の山。' },
       cards: [card],
       sound: DEFAULT_CHAT_DEDUCTION_SOUND,
     })
@@ -87,6 +87,7 @@ describe('readChatDeductionBoard', () => {
       endedAt: null,
       endReason: null,
       answer: null,
+      explanation: null,
     })
   })
 

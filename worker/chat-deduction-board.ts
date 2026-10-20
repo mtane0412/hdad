@@ -2,7 +2,7 @@
  * 合成ページの素材「チャットで推理」に映すもの（issue #378）
  *
  * 最後に始めたゲーム（開催中か、最後に終えたもの）の区分と問題集の括り（例: 古代史）、質問と答え・解答のカードの一覧を丸ごと組み立てる。
- * 正解の表記はゲームを終えたあとにだけ載せる（開催中に合成ページへ渡すと、ページの中身から答えが分かってしまうため）。
+ * 正解の表記と解説はゲームを終えたあとにだけ載せる（開催中に合成ページへ渡すと、ページの中身から答えが分かってしまうため）。
  * 変わるたびに AlertChannel の目印 chatDeduction で押し出し、合成ページはつながるたびに GET /api/overlay/chat-deduction で読み直す。
  * 場面ごとに鳴らす音の設定（chat-deduction-sound.ts）も、音声のURLにして一緒に載せる（合成ページは一覧の差から鳴らす音を決めるため、
  * 一覧と別に読ませると、設定を読む前に届いた押し出しの音を鳴らせない）。
@@ -32,6 +32,8 @@ export interface ChatDeductionBoardGame {
   endReason: ChatDeductionEndReason | null
   /** 正解の表記。開催中なら null（答えを漏らさない） */
   answer: string | null
+  /** 正解の解説。開催中なら null（解説から答えが分かるため） */
+  explanation: string | null
 }
 
 /** 合成ページに映すもの丸ごと */
@@ -60,8 +62,18 @@ export const readChatDeductionBoard = async (db: Database, store: KeyValueStore,
   if (found === undefined) throw new Error(`最後のゲーム（${game.id}）の問題「${game.problemId}」が問題集にありません`)
   const { set, problem } = found
   const { id, startedAt, endedAt, endReason } = game
+  const ended = endedAt !== null
   return {
-    game: { id, category: problem.category, topic: set.topic ?? null, startedAt, endedAt, endReason, answer: endedAt === null ? null : problem.answer },
+    game: {
+      id,
+      category: problem.category,
+      topic: set.topic ?? null,
+      startedAt,
+      endedAt,
+      endReason,
+      answer: ended ? problem.answer : null,
+      explanation: ended ? problem.explanation : null,
+    },
     cards: await readGameCards(db, game.id),
     sound,
   }

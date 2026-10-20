@@ -4,7 +4,7 @@
  * Worker（worker/chat-deduction-board.ts の ChatDeductionBoard）が、最後に始めたゲームの区分と、答えた質問・正誤を決めた解答の
  * カードを丸ごと返し・押し出す。ここはその形を確かめて読むだけで、通信も DOM も持たない（表示は view.ts、読み出しは api.ts）。
  *
- * 注意: 想定した形でなければエラーにする（Fail-Fast）。正解の表記はゲームを終えたあとにだけ届く（開催中は null）。
+ * 注意: 想定した形でなければエラーにする（Fail-Fast）。正解の表記と解説はゲームを終えたあとにだけ届く（開催中は null）。
  * 場面ごとに鳴らす音の設定（sound）も一緒に届く。
  */
 import { isRecord, readList } from '../core/api'
@@ -51,6 +51,8 @@ export interface ChatDeductionBoardGame {
   readonly endReason: ChatDeductionEndReason | null
   /** 正解の表記。開催中なら null */
   readonly answer: string | null
+  /** 正解の解説。開催中なら null */
+  readonly explanation: string | null
 }
 
 /** 合成ページに映すもの丸ごと */
@@ -74,7 +76,8 @@ const isGame = (value: unknown): value is ChatDeductionBoardGame =>
   typeof value.startedAt === 'string' &&
   isNullableString(value.endedAt) &&
   (value.endReason === null || value.endReason === 'stopped' || value.endReason === 'solved') &&
-  isNullableString(value.answer)
+  isNullableString(value.answer) &&
+  isNullableString(value.explanation)
 
 const isCard = (value: unknown): value is ChatDeductionCard => {
   if (!isRecord(value) || typeof value.id !== 'number' || typeof value.userName !== 'string' || typeof value.text !== 'string') return false
