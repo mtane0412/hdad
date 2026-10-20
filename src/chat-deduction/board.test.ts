@@ -15,7 +15,7 @@ const sound = {
 
 /** 富士山の問題で、質問1件・不正解1件・正解1件まで進んで終えたゲーム */
 const solvedBoard: ChatDeductionBoard = {
-  game: { id: 1, category: 'place', startedAt: '2026-10-15T12:00:00.000Z', endedAt: '2026-10-15T12:05:00.000Z', endReason: 'solved', answer: '富士山' },
+  game: { id: 1, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', endedAt: '2026-10-15T12:05:00.000Z', endReason: 'solved', answer: '富士山' },
   cards: [
     { kind: 'question', id: 1, userName: '田中太郎', text: '日本にありますか？', verdict: 'yes', reply: '静岡県と山梨県にまたがっています。' },
     { kind: 'guess', id: 1, userName: '鈴木花子', text: '阿蘇山', correct: false },
@@ -37,6 +37,15 @@ describe('readChatDeductionBoard', () => {
     expect(() => readChatDeductionBoard({ ...solvedBoard, game: { ...solvedBoard.game, category: 'animal' } })).toThrow('game')
     expect(() => readChatDeductionBoard({ ...solvedBoard, cards: [{ ...solvedBoard.cards[0], verdict: 'maybe' }] })).toThrow('cards')
     expect(() => readChatDeductionBoard({ ...solvedBoard, cards: [{ kind: 'hint', id: 1, userName: '田中太郎', text: 'ヒント' }] })).toThrow('cards')
+  })
+
+  it('時代などの括りを読む（括りが無ければ null）', () => {
+    const ancientBoard = { ...solvedBoard, game: { ...solvedBoard.game, category: 'person', topic: '古代史' } }
+    expect(readChatDeductionBoard(structuredClone(ancientBoard))).toEqual(ancientBoard)
+  })
+
+  it('括りが文字列でも null でもなければ投げる', () => {
+    expect(() => readChatDeductionBoard({ ...solvedBoard, game: { ...solvedBoard.game, topic: 1 } })).toThrow('game')
   })
 
   it('音の設定が無い・枠が欠けていれば投げる（黙って無音にしない）', () => {

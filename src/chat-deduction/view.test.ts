@@ -18,7 +18,7 @@ import type { ChatDeductionBoard, ChatDeductionBoardGame, ChatDeductionCard } fr
 import { ENDED_REVEAL_MS } from '../core/ended-reveal'
 import { MAX_VISIBLE_CARDS, createChatDeductionView } from './view'
 
-const openGame: ChatDeductionBoardGame = { id: 1, category: 'place', startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null }
+const openGame: ChatDeductionBoardGame = { id: 1, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null }
 
 const yesCard: ChatDeductionCard = { kind: 'question', id: 1, userName: '田中太郎', text: '日本にありますか？', verdict: 'yes', reply: '静岡県と山梨県にまたがっています。' }
 const noCard: ChatDeductionCard = { kind: 'question', id: 2, userName: '鈴木花子', text: '生き物ですか？', verdict: 'no', reply: '生き物ではありません。' }
@@ -47,6 +47,14 @@ describe('createChatDeductionView', () => {
 
     expect(textOf('.chat-deduction-category')).toContain('場所')
     expect(cardsOf().map((card) => card.querySelector('.chat-deduction-text')?.textContent)).toEqual(['日本にありますか？', '生き物ですか？', '阿蘇山'])
+  })
+
+  it('時代などの括りがある問題では、お題を括りつきで出す（例: 古代史の人物）', () => {
+    const view = createChatDeductionView(root)
+
+    view.setBoard({ game: { ...openGame, category: 'person', topic: '古代史' }, cards: [] })
+
+    expect(textOf('.chat-deduction-category')).toBe('お題: 古代史の人物')
   })
 
   it('質問のカードにはゲームの初めから数えた通し番号を付け、解答のカードには付けない', () => {

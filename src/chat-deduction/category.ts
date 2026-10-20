@@ -24,3 +24,11 @@ export const isChatDeductionCategory = (value: unknown): value is ChatDeductionC
 
 /** 区分の画面の言い方 */
 export const categoryLabelOf = (category: ChatDeductionCategory): string => LABELS[category]
+
+/**
+ * 合成ページのお題の言い方。問題集に時代などの括りがあれば区分の前に添える（例: 古代史の人物）。
+ *
+ * @param topic 問題集の括り（例: 古代史）。括りの無い問題集なら null
+ */
+export const subjectLabelOf = (category: ChatDeductionCategory, topic: string | null): string =>
+  topic === null ? LABELS[category] : `${topic}の${LABELS[category]}`

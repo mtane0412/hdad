@@ -19,7 +19,7 @@
  * 注意: 消す時刻は Worker が決めた終えた時刻（endedAt）と、この端末の時計から決める。時計が数秒ずれていれば、映す長さも数秒ずれる。
  */
 import { ENDED_REVEAL_MS } from '../core/ended-reveal'
-import { categoryLabelOf } from './category'
+import { subjectLabelOf } from './category'
 import type { ChatDeductionBoard, ChatDeductionBoardGame, ChatDeductionCard, ChatDeductionVerdict } from './board'
 
 /** 並べるカードの数。質問と返事が2行ずつに折り返しても、画面いっぱいの格子（src/chat-deduction/chat-deduction.css の3列×4行）に収まる数にする */
@@ -152,7 +152,7 @@ export const createChatDeductionView = (root: HTMLElement, { hideEndedGame }: Ch
         hideTimer = setTimeout(clear, remaining)
       }
       board.hidden = false
-      category.textContent = `お題: ${categoryLabelOf(game.category)}`
+      category.textContent = `お題: ${subjectLabelOf(game.category, game.topic)}`
 
       const next = new Map<string, HTMLLIElement>()
       const visible = numberCards(cards).slice(-MAX_VISIBLE_CARDS)

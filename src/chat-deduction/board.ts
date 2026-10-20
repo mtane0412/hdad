@@ -42,6 +42,8 @@ export type ChatDeductionCard = ChatDeductionQuestionCard | ChatDeductionGuessCa
 export interface ChatDeductionBoardGame {
   readonly id: number
   readonly category: ChatDeductionCategory
+  /** 問題集の時代などの括り（例: 古代史）。括りの無い問題集なら null */
+  readonly topic: string | null
   readonly startedAt: string
   /** 開催中なら null */
   readonly endedAt: string | null
@@ -68,6 +70,7 @@ const isGame = (value: unknown): value is ChatDeductionBoardGame =>
   isRecord(value) &&
   typeof value.id === 'number' &&
   isChatDeductionCategory(value.category) &&
+  isNullableString(value.topic) &&
   typeof value.startedAt === 'string' &&
   isNullableString(value.endedAt) &&
   (value.endReason === null || value.endReason === 'stopped' || value.endReason === 'solved') &&

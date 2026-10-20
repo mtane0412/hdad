@@ -6,7 +6,7 @@
  * 場面ごとに鳴らす音の設定を、音声のURL（オーバーレイ用キーつき）にして一緒に載せることも確かめる。
  */
 import { describe, expect, it } from 'vitest'
-import type { ChatDeductionProblem } from '../src/chat-deduction/problems'
+import type { ChatDeductionProblemSet } from '../src/chat-deduction/problems'
 import { pushLatestChatDeductionBoard, readChatDeductionBoard } from './chat-deduction-board'
 import { DEFAULT_CHAT_DEDUCTION_SOUND } from './chat-deduction-sound'
 import { answerQuestion, endGame, reserveQuestion, startGame } from './chat-deduction-store'
@@ -17,9 +17,15 @@ import { createFakeStore } from './fake-store'
 const NOW = Date.parse('2026-10-15T12:00:00.000Z')
 const LATER = NOW + 10 * 60 * 1000
 
-/** テスト用の問題集（富士山の1問だけ） */
-const problems: readonly ChatDeductionProblem[] = [
-  { id: 'mount-fuji', category: 'place', answer: '富士山', aliases: ['富士山'], facts: ['日本でいちばん高い山。'] },
+/** テスト用の問題集の一覧（括りのない「いろいろ」に富士山、括りが「古代史」の問題集に卑弥呼） */
+const problems: readonly ChatDeductionProblemSet[] = [
+  { id: 'misc', name: 'いろいろ', problems: [{ id: 'mount-fuji', category: 'place', answer: '富士山', aliases: ['富士山'], facts: ['日本でいちばん高い山。'] }] },
+  {
+    id: 'ancient-people',
+    name: '古代史の人物',
+    topic: '古代史',
+    problems: [{ id: 'himiko', category: 'person', answer: '卑弥呼', aliases: ['卑弥呼'], facts: ['3世紀前半の倭の女王。'] }],
+  },
 ]
 
 /** 田中太郎さんの質問「生き物ですか？」に「いいえ」と答えたゲーム */
@@ -52,7 +58,7 @@ describe('readChatDeductionBoard', () => {
     const { db, game } = await startGameWithOneAnswer()
 
     expect(await readChatDeductionBoard(db, createStore(), problems)).toEqual({
-      game: { id: game.id, category: 'place', startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null },
+      game: { id: game.id, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null },
       cards: [card],
       sound: DEFAULT_CHAT_DEDUCTION_SOUND,
     })
@@ -63,9 +69,24 @@ describe('readChatDeductionBoard', () => {
     await endGame(db, game.id, 'stopped', LATER)
 
     expect(await readChatDeductionBoard(db, createStore(), problems)).toEqual({
-      game: { id: game.id, category: 'place', startedAt: '2026-10-15T12:00:00.000Z', endedAt: '2026-10-15T12:10:00.000Z', endReason: 'stopped', answer: '富士山' },
+      game: { id: game.id, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', endedAt: '2026-10-15T12:10:00.000Z', endReason: 'stopped', answer: '富士山' },
       cards: [card],
       sound: DEFAULT_CHAT_DEDUCTION_SOUND,
+    })
+  })
+
+  it('括りを持つ問題集の問題なら、括りも載せる（お題を「古代史の人物」と出すため）', async () => {
+    const db = createFakeDatabase()
+    const game = await startGame(db, 'himiko', NOW)
+
+    expect((await readChatDeductionBoard(db, createStore(), problems)).game).toEqual({
+      id: game!.id,
+      category: 'person',
+      topic: '古代史',
+      startedAt: '2026-10-15T12:00:00.000Z',
+      endedAt: null,
+      endReason: null,
+      answer: null,
     })
   })
 

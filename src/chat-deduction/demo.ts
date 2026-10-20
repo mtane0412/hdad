@@ -8,7 +8,7 @@
 import type { ChatDeductionBoard, ChatDeductionBoardGame, ChatDeductionCard } from './board'
 import type { ChatDeductionSound } from './sound'
 
-const game: ChatDeductionBoardGame = { id: 1, category: 'place', startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null }
+const game: ChatDeductionBoardGame = { id: 1, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null }
 
 const silentSound: ChatDeductionSound = {
   slots: { bgm: null, start: null, answered: null, wrong: null, correct: null, stopped: null },
