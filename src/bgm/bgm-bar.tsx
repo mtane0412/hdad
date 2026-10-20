@@ -76,10 +76,8 @@ export const BgmBar = ({ start, end }: { start?: React.ReactNode; end?: React.Re
         <BgmTransport disabled={disabled} run={run} />
       </div>
       <div className="flex min-w-0 items-center justify-end gap-2">
-        {/* 狭い画面では操作と曲名を優先し、音量は BGM のページで変えてもらう */}
-        <div className="hidden md:block">
-          <BgmVolume disabled={disabled} run={run} />
-        </div>
+        {/* 幅を取らないよう、押すと縦のスライダーが開く形にする */}
+        <BgmVolume disabled={disabled} run={run} />
         {end}
       </div>
     </>
