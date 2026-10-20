@@ -14,6 +14,9 @@
  * - 作者の表記が要るのに作者が無い・画面に収まらないほど長い画像
  *
  * 注意: 問い合わせの失敗（Wikipedia が失敗を返した・画像の情報が無い）は外したのではないので、黙って null にせず投げる。
+ *
+ * 人が指名した画像（チャットで推理の問題集の image）は fetchCommonsImage で取る。ファイル名の型では外さず（地図を選ぶこともある）、
+ * ライセンスと作者の判定だけを行う。
  */
 import { withTimeout } from './timeout'
 import { API_ENDPOINT, TownArticleError, USER_AGENT, WIKIPEDIA_TIMEOUT_MS } from './town-wikipedia'
@@ -101,9 +104,19 @@ const metadataValue = (metadata: Record<string, unknown>, key: string): string =
  * @returns 出す画像。地図・町章のファイル名・ライセンスや作者が条件に合わない画像は null
  * @throws TownArticleError Wikipedia が失敗を返した・画像の情報が無い・応答の形が違うとき
  */
-export const fetchTownImage = async (fetchImpl: typeof fetch, fileName: string): Promise<TownImage | null> => {
-  if (!isShowableImageFile(fileName)) return null
+export const fetchTownImage = async (fetchImpl: typeof fetch, fileName: string): Promise<TownImage | null> =>
+  isShowableImageFile(fileName) ? fetchCommonsImage(fetchImpl, fileName) : null
 
+/**
+ * 画像のファイル名から、出す画像を取ってくる（ファイル名の型では外さない）
+ *
+ * @param fetchImpl 通信（テストでは代役が渡る）。ここで時間制限をかける
+ * @param fileName 画像のファイル名（名前空間の「File:」は付けない）
+ * @param artistOfFilePage Commons の作者の欄が空のときに出す作者（ファイルページの本文から人が読んだもの）。空文字なら使わない
+ * @returns 出す画像。ライセンスや作者が条件に合わない画像は null
+ * @throws TownArticleError Wikipedia が失敗を返した・画像の情報が無い・応答の形が違う・作者の欄があるのに作者を渡したとき
+ */
+export const fetchCommonsImage = async (fetchImpl: typeof fetch, fileName: string, artistOfFilePage = ''): Promise<TownImage | null> => {
   const url = new URL(API_ENDPOINT)
   url.search = new URLSearchParams({
     action: 'query',
@@ -130,7 +143,12 @@ export const fetchTownImage = async (fetchImpl: typeof fetch, fileName: string):
 
   const licenseCode = metadataValue(info.extmetadata, 'License')
   const license = metadataValue(info.extmetadata, 'LicenseShortName')
-  const artist = textOfHtml(metadataValue(info.extmetadata, 'Artist'))
+  const artistOfMetadata = textOfHtml(metadataValue(info.extmetadata, 'Artist'))
+  // どちらを出すかを黙って決めない（Commons に作者が書き足されたら、手で書いた作者は消してもらう）
+  if (artistOfMetadata !== '' && artistOfFilePage !== '') {
+    throw new TownArticleError(`Commons に作者（${artistOfMetadata}）があるので、手で書いた作者（${artistOfFilePage}）は消してください: ${fileName}`)
+  }
+  const artist = artistOfMetadata === '' ? artistOfFilePage : artistOfMetadata
   if (!FREE_LICENSE_PATTERN.test(licenseCode) || license === '') return null
   if (artist === '' && !NO_ATTRIBUTION_LICENSES.has(licenseCode)) return null
   if ([...artist].length > MAX_ARTIST_LENGTH) return null

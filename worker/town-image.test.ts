@@ -9,9 +9,11 @@
  * - 作者の HTML はタグを外し、文字参照を戻して文にする
  * - 画像の説明（日本語を優先）を、紹介を作る LLM の材料として取る
  * - Wikipedia が失敗を返した・画像の情報が無いときはエラーにする（外したのではないので黙って捨てない）
+ * - 人が指名した画像（fetchCommonsImage）は、ファイル名の型で外さず、ライセンスの判定だけを行う。作者の欄が空なら、
+ *   ファイルページから人が読んだ作者を渡せる（Commons に作者があるのに渡したらエラーにする）
  */
 import { describe, expect, it } from 'vitest'
-import { MAX_ARTIST_LENGTH, TOWN_IMAGE_WIDTH, fetchTownImage, isShowableImageFile } from './town-image'
+import { MAX_ARTIST_LENGTH, TOWN_IMAGE_WIDTH, fetchCommonsImage, fetchTownImage, isShowableImageFile } from './town-image'
 import { TownArticleError } from './town-wikipedia'
 
 /** Commons の画像の情報（imageinfo）を返す Wikipedia の応答 */
@@ -193,3 +195,31 @@ describe('fetchTownImage', () => {
     await expect(fetchTownImage(fetchImpl, 'Gone.jpg')).rejects.toThrow(TownArticleError)
   })
 })
+
+describe('fetchCommonsImage', () => {
+  it('地図のファイル名でも、問い合わせて出す（人が指名した画像なので、ファイル名の型では外さない）', async () => {
+    const { fetchImpl, urls } = fakeWikipedia(imageInfoOf('Map_of_the_Battle_of_Baekgang.png', { License: { value: 'cc-by-sa-3.0' }, LicenseShortName: { value: 'CC BY-SA 3.0' }, Artist: { value: 'Stillskywkpd' } }))
+
+    expect(await fetchCommonsImage(fetchImpl, 'Map_of_the_Battle_of_Baekgang.png')).toMatchObject({ artist: 'Stillskywkpd', license: 'CC BY-SA 3.0' })
+    expect(urls).toHaveLength(1)
+  })
+
+  it('作者の欄が空なら、渡した作者（ファイルページから人が読んだもの）を使う', async () => {
+    const { fetchImpl } = fakeWikipedia(imageInfoOf('藤原広嗣の乱.png', { License: { value: 'cc-by-sa-3.0' }, LicenseShortName: { value: 'CC BY-SA 3.0' } }))
+
+    expect(await fetchCommonsImage(fetchImpl, '藤原広嗣の乱.png', '味っ子')).toMatchObject({ artist: '味っ子', license: 'CC BY-SA 3.0' })
+  })
+
+  it('Commons に作者があるのに作者を渡したら、どちらを出すか決められないのでエラーにする', async () => {
+    const { fetchImpl } = fakeWikipedia(imageInfoOf('Map.png', { License: { value: 'cc-by-sa-3.0' }, LicenseShortName: { value: 'CC BY-SA 3.0' }, Artist: { value: 'Stillskywkpd' } }))
+
+    await expect(fetchCommonsImage(fetchImpl, 'Map.png', '味っ子')).rejects.toThrow(TownArticleError)
+  })
+
+  it('ライセンスが合わなければ、指名した画像でも出さない', async () => {
+    const { fetchImpl } = fakeWikipedia(imageInfoOf('Photo.jpg', { License: { value: 'gfdl' }, LicenseShortName: { value: 'GFDL' }, Artist: { value: '山田花子' } }))
+
+    expect(await fetchCommonsImage(fetchImpl, 'Photo.jpg')).toBeNull()
+  })
+})
+

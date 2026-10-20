@@ -6,6 +6,8 @@
  * ファイル名をまとめて引き、市町村紹介と同じ判定（worker/town-image.ts の fetchTownImage。地図・紋章・CC でも PD でもない・
  * 作者の表記が要るのに無い画像は出さない）で、画面に出す大きさの URL・作者・ライセンスを取る。結果は
  * src/chat-deduction/images.json（問題のID → 画像か null）に書き出す。問題を足した・記事名を変えたら作り直す。
+ * 問題が画像を指名していれば（problems.json の image）、代表画像の代わりにそれを取る。人が選んだ画像なのでファイル名の型
+ * （地図・紋章）では外さず、ライセンスの判定だけを行う。指名した画像を出せなければエラーで止める。
  *
  * 配信中に Worker が Wikipedia を引かずにここで固めるのは、どの画像が映るかを配信の前に人が確かめられるようにするためと、
  * 配信中の外部への呼び出しを増やさないためである。
@@ -17,9 +19,9 @@ import { writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { ChatDeductionImage } from '../../src/chat-deduction/images'
-import { readChatDeductionProblemSets } from '../../src/chat-deduction/problems'
+import { readChatDeductionProblemSets, type ChatDeductionProblem } from '../../src/chat-deduction/problems'
 import problemSets from '../../src/chat-deduction/problems.json'
-import { fetchTownImage } from '../../worker/town-image'
+import { fetchCommonsImage, fetchTownImage } from '../../worker/town-image'
 import { API_ENDPOINT, USER_AGENT } from '../../worker/town-wikipedia'
 
 /** 1回の問い合わせで頼める記事名の数（MediaWiki の API の上限） */
@@ -88,16 +90,33 @@ const fetchPageImageFiles = async (titles: readonly string[]): Promise<ReadonlyM
   return files
 }
 
+/**
+ * 問題1問の、解説に添える画像を取る
+ *
+ * @param fetchImpl 通信（テストでは代役が渡る）
+ * @param pageImageFile 記事の代表画像のファイル名（無ければ null）。画像を指名した問題では使わない
+ * @returns 出す画像（画面には出さない Commons の説明は持たない）。指名が無く、出せる代表画像も無ければ null
+ * @throws 指名した画像を出せない（ライセンスが合わない・作者の表記が要るのに無い）とき
+ */
+export const fetchProblemImage = async (fetchImpl: typeof fetch, problem: ChatDeductionProblem, pageImageFile: string | null): Promise<ChatDeductionImage | null> => {
+  if (problem.image !== undefined) {
+    const image = await fetchCommonsImage(fetchImpl, problem.image.file, problem.image.artist)
+    if (image === null) throw new Error(`問題（${problem.id}）が指名した画像「${problem.image.file}」は出せません（ライセンスか作者の表記を確かめてください）`)
+    return { url: image.url, artist: image.artist, license: image.license }
+  }
+  const image = pageImageFile === null ? null : await fetchTownImage(fetchImpl, pageImageFile)
+  return image === null ? null : { url: image.url, artist: image.artist, license: image.license }
+}
+
 const main = async (): Promise<void> => {
   const problems = readChatDeductionProblemSets(problemSets).flatMap((set) => set.problems)
   const files = await fetchPageImageFiles([...new Set(problems.map((problem) => problem.wikipedia))])
   const images: Record<string, ChatDeductionImage | null> = {}
   for (const problem of problems) {
-    const file = files.get(problem.wikipedia) ?? null
-    const image = file === null ? null : await fetchTownImage(fetch, file)
-    // 画面には出さない Commons の説明は持たない
-    images[problem.id] = image === null ? null : { url: image.url, artist: image.artist, license: image.license }
-    console.log(`${problem.id}（${problem.wikipedia}）: ${image === null ? '画像なし' : `${file} / ${image.license}`}`)
+    const file = problem.image?.file ?? files.get(problem.wikipedia) ?? null
+    const image = await fetchProblemImage(fetch, problem, files.get(problem.wikipedia) ?? null)
+    images[problem.id] = image
+    console.log(`${problem.id}（${problem.wikipedia}）: ${image === null ? '画像なし' : `${file}${problem.image === undefined ? '' : '（指名）'} / ${image.license}`}`)
   }
   const repositoryRoot = resolve(import.meta.dirname, '../..')
   writeFileSync(resolve(repositoryRoot, 'src/chat-deduction/images.json'), `${JSON.stringify(images, null, 2)}\n`)

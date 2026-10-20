@@ -1,6 +1,10 @@
 {
   "himiko": null,
-  "shotoku-taishi": null,
+  "shotoku-taishi": {
+    "url": "https://upload.wikimedia.org/wikipedia/commons/9/9e/Prince_Shotoku_with_Two_Princes_by_Kano_Osanobu_1842.png?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
+    "artist": "狩野養信（1796年8月18日 - 1846年6月12日）",
+    "license": "Public domain"
+  },
   "soga-no-iruka": {
     "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/40/Soga_no_Iruka.jpg/1280px-Soga_no_Iruka.jpg?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
     "artist": "住吉如慶",
@@ -62,14 +66,22 @@
     "artist": "Gukei Sumiyoshi",
     "license": "Public domain"
   },
-  "battle-of-hakusukinoe": null,
+  "battle-of-hakusukinoe": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/1b/Map_of_the_Battle_of_Baekgang.png/1280px-Map_of_the_Battle_of_Baekgang.png?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "artist": "Stillskywkpd",
+    "license": "CC BY-SA 3.0"
+  },
   "jinshin-war": {
     "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/f/f3/Fuwanoseki2.JPG/1280px-Fuwanoseki2.JPG?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
     "artist": "Guretaro",
     "license": "Public domain"
   },
   "nagaya-incident": null,
-  "fujiwara-no-hirotsugu-rebellion": null,
+  "fujiwara-no-hirotsugu-rebellion": {
+    "url": "https://upload.wikimedia.org/wikipedia/commons/a/ae/%E8%97%A4%E5%8E%9F%E5%BA%83%E5%97%A3%E3%81%AE%E4%B9%B1.png?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
+    "artist": "味っ子",
+    "license": "CC BY-SA 3.0"
+  },
   "usa-hachiman-oracle-incident": {
     "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ad/Usa_Shrine_Nanchu_Romon.JPG/1280px-Usa_Shrine_Nanchu_Romon.JPG?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
     "artist": "ja:User:Sanjo",

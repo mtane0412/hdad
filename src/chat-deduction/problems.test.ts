@@ -7,6 +7,7 @@
  * そのため、問題の無い問題集・問題集のIDの重複・問題集をまたいだ問題のIDの重複も、ここで止める。
  * ゲームを終えたあとに合成ページで正解の解説を出すので、解説が空・長すぎて板に収まらない問題もここで止める。
  * 解説に添える画像は Wikipedia の記事の代表画像をスクリプトで固めるので、記事名が空の問題も止める。
+ * 代表画像の代わりに人が指名する画像（image）は、ファイル名が空・作者が空文字・知らない項目を持つ形を止める。
  */
 import { describe, expect, it } from 'vitest'
 import { MAX_EXPLANATION_LENGTH, readChatDeductionProblemSets, readChatDeductionProblems } from './problems'
@@ -55,6 +56,22 @@ describe('readChatDeductionProblems', () => {
     expect(() => readChatDeductionProblems([withoutArticle])).toThrowError(/0番目（mount-fuji）.*記事名/)
     expect(() => readChatDeductionProblems([{ ...valid, wikipedia: '' }])).toThrowError(/記事名/)
     expect(() => readChatDeductionProblems([{ ...valid, wikipedia: '　' }])).toThrowError(/記事名/)
+  })
+
+  it('代表画像の代わりに指名した画像（ファイル名と、作者の欄が空のときの作者）を読む', () => {
+    const map = { ...valid, image: { file: 'Map_of_the_Battle_of_Baekgang.png' } }
+    const withArtist = { ...valid, image: { file: '藤原広嗣の乱.png', artist: '味っ子' } }
+
+    expect(readChatDeductionProblems([map])).toEqual([map])
+    expect(readChatDeductionProblems([withArtist])).toEqual([withArtist])
+  })
+
+  it('指名した画像のファイル名が空・「File:」付き・作者が空文字・知らない項目があれば投げる', () => {
+    expect(() => readChatDeductionProblems([{ ...valid, image: { file: '' } }])).toThrowError(/0番目（mount-fuji）.*画像/)
+    expect(() => readChatDeductionProblems([{ ...valid, image: { file: 'File:Mt.Fuji.jpg' } }])).toThrowError(/画像/)
+    expect(() => readChatDeductionProblems([{ ...valid, image: { file: 'Mt.Fuji.jpg', artist: '' } }])).toThrowError(/画像.*作者/)
+    expect(() => readChatDeductionProblems([{ ...valid, image: { file: 'Mt.Fuji.jpg', url: 'https://example.com' } }])).toThrowError(/画像/)
+    expect(() => readChatDeductionProblems([{ ...valid, image: 'Mt.Fuji.jpg' }])).toThrowError(/画像/)
   })
 
   it(`解説が ${MAX_EXPLANATION_LENGTH} 文字を超えたら投げる（合成ページの板に収まらないため）`, () => {
