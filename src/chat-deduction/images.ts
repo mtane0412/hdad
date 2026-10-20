@@ -24,11 +24,21 @@ export interface ChatDeductionImage {
 /** 画像の URL の置き場（Wikimedia の画像の置き場 upload・thumb などだけを https で許す） */
 const IMAGE_HOST_SUFFIX = '.wikimedia.org'
 
-/** Wikimedia の画像の置き場を指す https の URL か */
+/**
+ * Wikimedia の画像の置き場を指す https の URL か
+ *
+ * 注意: URL.canParse は使わない。合成ページの起動時に動くので、URL.canParse の無い古い Chromium（OBS のブラウザソース）だと
+ * 合成ページのすべての素材が起動しなくなる。
+ */
 const isWikimediaUrl = (value: string): boolean => {
-  if (!URL.canParse(value)) return false
-  const { protocol, hostname } = new URL(value)
-  return protocol === 'https:' && hostname.endsWith(IMAGE_HOST_SUFFIX)
+  let parsed: URL
+  try {
+    parsed = new URL(value)
+  } catch {
+    // URL として読めない値は、画像の URL の形が違うとして呼び出し側が投げる
+    return false
+  }
+  return parsed.protocol === 'https:' && parsed.hostname.endsWith(IMAGE_HOST_SUFFIX)
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
