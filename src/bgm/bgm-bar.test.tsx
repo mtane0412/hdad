@@ -138,11 +138,41 @@ describe('下部バーのBGMのプレーヤー', () => {
     renderBar(api)
     await bar().findByRole('link', { name: /ひだまりの午後/ })
 
-    // jsdom では Slider のつまみが隠れたままなので、外枠の名前から中の入力欄を探す
-    const slider = within(bar().getByRole('group', { name: '音量' })).getByRole('slider', { hidden: true })
+    // バーの幅を取らないよう、音量のボタンを押すと縦のスライダーが開く
+    await userEvent.click(bar().getByRole('button', { name: '音量' }))
+    // jsdom では Slider のつまみが隠れたままなので、外枠の名前から中の入力欄を探す（開いた枠はバーの外に描かれる）
+    const slider = within(screen.getByRole('group', { name: '音量' })).getByRole('slider', { hidden: true })
+    expect(slider).toHaveAttribute('aria-orientation', 'vertical')
     fireEvent.change(slider, { target: { value: '45' } })
 
     await waitFor(() => expect(api.sentPlayback.at(-1)).toEqual({ ...playingChat, volume: 0.45 }))
+  })
+
+  test('つまみを動かしている途中で音量の枠を閉じたら、送っていない音量を残さず保存済みの音量に戻す', async () => {
+    const api = bgmApi()
+    renderBar(api)
+    await bar().findByRole('link', { name: /ひだまりの午後/ })
+    const volumeButton = bar().getByRole('button', { name: '音量' })
+    const savedText = volumeButton.textContent
+
+    await userEvent.click(volumeButton)
+    const group = screen.getByRole('group', { name: '音量' })
+    const control = group.firstElementChild
+    if (!(control instanceof HTMLElement)) throw new Error('スライダーの操作面が見つかりません')
+    // jsdom には要素の大きさとポインターの捕捉がないので、高さ100の縦のスライダーとして補う
+    control.getBoundingClientRect = () => DOMRect.fromRect({ x: 0, y: 0, width: 10, height: 100 })
+    control.setPointerCapture = () => undefined
+    control.releasePointerCapture = () => undefined
+    control.hasPointerCapture = () => true
+    // つまみを押したまま（離さずに）下端の近くへ動かす
+    fireEvent.pointerDown(control, { pointerId: 1, clientX: 5, clientY: 90, button: 0, buttons: 1 })
+    fireEvent.pointerMove(control, { pointerId: 1, clientX: 5, clientY: 95, buttons: 1 })
+    const draggingText = volumeButton.textContent
+    await userEvent.keyboard('{Escape}')
+
+    expect(api.sentPlayback).toEqual([])
+    expect(draggingText).not.toBe(savedText)
+    expect(volumeButton).toHaveTextContent(savedText ?? '')
   })
 
   test('リピート・シャッフル・Jev の自動切り替えはバーに出さない（BGM のページだけに置く）', async () => {
@@ -166,7 +196,7 @@ describe('下部バーのBGMのプレーヤー', () => {
     })
 
     expect(bar().getByRole('link', { name: /全力疾走/ })).toBeInTheDocument()
-    expect(bar().getByRole('status', { name: '音量' })).toHaveTextContent('50%')
+    expect(bar().getByRole('button', { name: '音量' })).toHaveTextContent('50%')
   })
 
   test('押し出しが切れたら、切り替えを受け取れていないとバーに出す', async () => {

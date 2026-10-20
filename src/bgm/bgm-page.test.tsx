@@ -232,6 +232,9 @@ describe('BGMのページ', () => {
     renderPage(api)
     await waitForLoad()
 
+    // 音量のボタンを押すと縦のスライダーが開く（開いた枠はプレーヤーの外に描かれる）
+    await userEvent.click(player().getByRole('button', { name: '音量' }))
+    expect(volumeSlider()).toHaveAttribute('aria-orientation', 'vertical')
     fireEvent.change(volumeSlider(), { target: { value: '45' } })
 
     await waitFor(() => expect(api.sentPlayback.at(-1)).toEqual({ ...playingChat, volume: 0.45 }))
@@ -251,7 +254,7 @@ describe('BGMのページ', () => {
     expect(await player().findByText('全力疾走')).toBeInTheDocument()
     expect(trackRow('全力疾走').getByText('流しています')).toBeInTheDocument()
     expect(player().getByRole('button', { name: 'リピート' })).toHaveAttribute('aria-pressed', 'true')
-    expect(player().getByRole('status', { name: '音量' })).toHaveTextContent('50%')
+    expect(player().getByRole('button', { name: '音量' })).toHaveTextContent('50%')
   })
 
   test('次の曲の応答より先に、もっと新しい曲が押し出されてきたら、遅れて届いた応答で巻き戻さない', async () => {
