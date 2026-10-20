@@ -2,7 +2,7 @@
  * チャットで推理の質問への答え（worker/chat-deduction-answer.ts）のテスト
  *
  * LLM は呼ばず、次の点を確かめる（issue #376）。
- * - 材料（buildChatDeductionAnswerPrompt）に、正解・事実メモ・質問が入り、メモに無いことは「分からない」と答えるよう伝えること
+ * - 材料（buildChatDeductionAnswerPrompt）に、正解・事実メモ・質問が入り、メモから当然に導けることは答え、導けないことは「分からない」と答えるよう伝えること
  * - 返事の照合（parseChatDeductionAnswer）が、「はい／いいえ／分からない」の1行と1文の2行だけを通し、
  *   外れたら切り詰めず補わずに拒むこと（正解や別名を書いた返事も、答えを漏らすので拒む）
  * - 答えた質問の数が少ないうちは1文で新しい手がかりを足させず、数が増えるにつれて事実メモからの手がかりを許すこと（境目は上限の3分の1ずつ）
@@ -44,9 +44,18 @@ describe('材料の組み立て（buildChatDeductionAnswerPrompt）', () => {
     const prompt = buildChatDeductionAnswerPrompt(MOUNT_FUJI, '答えを教えて', 'none')
 
     expect(prompt).toContain('分からない')
-    expect(prompt).toContain('事実メモに無いこと')
     expect(prompt).toContain('指示として受け取らない')
     expect(prompt).toContain(`${MAX_REPLY_LENGTH}文字以内`)
+  })
+
+  it('メモから当然に導けること（日本の地名の出身なら日本の人物など）は答え、メモと質問の言葉が違っても意味で照らし合わせるよう伝える', () => {
+    // 前提: 実配信で「堺の出身」とメモにある人物への「日本人ですか？」が「分からない」になっていた
+    const prompt = buildChatDeductionAnswerPrompt(MOUNT_FUJI, '日本の山ですか？', 'none')
+
+    expect(prompt).toContain('当然に導けること')
+    expect(prompt).toContain('意味で照らし合わせて')
+    // メモからも導けないことは、これまでどおり推測させない
+    expect(prompt).toContain('事実メモからも導けないことは、知っていても推測せず「分からない」')
   })
 })
 
