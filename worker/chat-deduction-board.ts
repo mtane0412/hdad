@@ -55,9 +55,10 @@ export const readChatDeductionBoard = async (db: Database, store: KeyValueStore,
   const [game, savedSound, overlayKey] = await Promise.all([readLatestGame(db), loadChatDeductionSound(store), loadOverlayKey(store)])
   const sound = playbackChatDeductionSoundOf(savedSound, overlayKey)
   if (game === null) return { game: null, cards: [], sound }
-  const set = problemSets.find((candidate) => candidate.problems.some((problem) => problem.id === game.problemId))
-  const problem = set?.problems.find((candidate) => candidate.id === game.problemId)
-  if (set === undefined || problem === undefined) throw new Error(`最後のゲーム（${game.id}）の問題「${game.problemId}」が問題集にありません`)
+  // 括りは問題集が持つので、問題とそれを含む問題集を組で引く
+  const found = problemSets.flatMap((set) => set.problems.map((problem) => ({ set, problem }))).find(({ problem }) => problem.id === game.problemId)
+  if (found === undefined) throw new Error(`最後のゲーム（${game.id}）の問題「${game.problemId}」が問題集にありません`)
+  const { set, problem } = found
   const { id, startedAt, endedAt, endReason } = game
   return {
     game: { id, category: problem.category, topic: set.topic ?? null, startedAt, endedAt, endReason, answer: endedAt === null ? null : problem.answer },

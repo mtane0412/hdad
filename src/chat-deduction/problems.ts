@@ -98,7 +98,9 @@ const readChatDeductionProblemSet = (candidate: unknown, at: string): ChatDeduct
   const where = `${at}（${typeof id === 'string' && id !== '' ? id : '?'}）`
   if (typeof id !== 'string' || !ID_PATTERN.test(id)) throw new Error(`${where}: 問題集のIDを英小文字・数字・ハイフンだけの文字列にしてください`)
   if (typeof name !== 'string' || name === '') throw new Error(`${where}: 問題集の名前を空でない文字列にしてください`)
-  if (topic !== undefined && (typeof topic !== 'string' || topic === '')) throw new Error(`${where}: 問題集の括りは空でない文字列にするか、項目ごと省いてください`)
+  if (topic !== undefined && (typeof topic !== 'string' || topic.trim() === '')) throw new Error(`${where}: 問題集の括りは空白だけでない文字列にするか、項目ごと省いてください`)
+  // 選ぶ欄の名前と合成ページのお題が食い違わないよう、括りは名前の一部であることを求める
+  if (typeof topic === 'string' && !name.includes(topic)) throw new Error(`${where}: 問題集の括り「${topic}」を名前「${name}」に含めてください`)
   if (!Array.isArray(problems) || problems.length === 0) throw new Error(`${where}: 問題集には1問以上の問題を入れてください`)
   const read = { id, name, problems: readChatDeductionProblems(problems, `問題集「${id}」`) }
   return topic === undefined ? read : { ...read, topic }

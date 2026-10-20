@@ -85,6 +85,12 @@ describe('readChatDeductionProblemSets', () => {
   it('括りが空や文字列以外なら投げる（黙って括りなしにしない）', () => {
     expect(() => readChatDeductionProblemSets([{ ...ancientPeople, topic: '' }])).toThrowError(/0番目（ancient-people）.*括り/)
     expect(() => readChatDeductionProblemSets([{ ...ancientPeople, topic: 1 }])).toThrowError(/0番目（ancient-people）.*括り/)
+    // 空白だけの括りは、お題が「 の人物」になるため認めない
+    expect(() => readChatDeductionProblemSets([{ ...ancientPeople, topic: '　' }])).toThrowError(/0番目（ancient-people）.*括り/)
+  })
+
+  it('括りが名前に含まれていなければ投げる（選ぶ欄の名前と合成ページのお題が食い違わないため）', () => {
+    expect(() => readChatDeductionProblemSets([{ ...ancientPeople, topic: '飛鳥時代' }])).toThrowError(/0番目（ancient-people）.*括り.*名前/)
   })
 
   it('問題集のIDが英小文字・数字・ハイフン以外を含むなら投げる（経路の本文にそのまま載せるため）', () => {
