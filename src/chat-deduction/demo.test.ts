@@ -12,7 +12,7 @@ import { demoChatDeductionBoards } from './demo'
 describe('demoChatDeductionBoards', () => {
   it('開催中の場面では正解の表記を持たない', () => {
     for (const { game } of demoChatDeductionBoards) {
-      if (game?.endedAt === null) expect(game).toMatchObject({ answer: null, explanation: null })
+      if (game?.endedAt === null) expect(game).toMatchObject({ answer: null, explanation: null, image: null })
     }
   })
 

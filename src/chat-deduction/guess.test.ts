@@ -18,6 +18,7 @@ const problem: ChatDeductionProblem = {
   aliases: ['レオナルド・ダ・ヴィンチ', 'ダヴィンチ', 'Leonardo da Vinci'],
   facts: ['イタリアの画家。'],
   explanation: 'イタリアの画家。',
+  wikipedia: 'レオナルド・ダ・ヴィンチ',
 }
 
 describe('normalizeChatDeductionGuess', () => {

@@ -6,9 +6,13 @@
  * プレビューでは音を鳴らさないので、音の設定はどの枠も鳴らさない形にしておく。
  */
 import type { ChatDeductionBoard, ChatDeductionBoardGame, ChatDeductionCard } from './board'
+import { CHAT_DEDUCTION_IMAGES } from './problem-set'
 import type { ChatDeductionSound } from './sound'
 
-const game: ChatDeductionBoardGame = { id: 1, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null, explanation: null }
+const game: ChatDeductionBoardGame = { id: 1, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null, explanation: null, image: null }
+
+/** 終えた場面で解説に添える画像（問題集の富士山の画像。images.json に画像が無ければ null） */
+const fujiImage = CHAT_DEDUCTION_IMAGES.get('mount-fuji') ?? null
 
 const silentSound: ChatDeductionSound = {
   slots: { bgm: null, start: null, answered: null, wrong: null, correct: null, stopped: null },
@@ -30,7 +34,7 @@ export const demoChatDeductionBoards: readonly ChatDeductionBoard[] = cards.map(
   const shown = cards.slice(0, index + 1)
   const solved = index === cards.length - 1
   return {
-    game: solved ? { ...game, endedAt: '2026-10-15T12:05:00.000Z', endReason: 'solved', answer: '富士山', explanation: '静岡県と山梨県にまたがる、標高3776メートルの日本でいちばん高い山。何度も噴火してきた火山で、2013年に世界文化遺産に登録された。' } : game,
+    game: solved ? { ...game, endedAt: '2026-10-15T12:05:00.000Z', endReason: 'solved', answer: '富士山', explanation: '静岡県と山梨県にまたがる、標高3776メートルの日本でいちばん高い山。何度も噴火してきた火山で、2013年に世界文化遺産に登録された。', image: fujiImage } : game,
     cards: shown,
     sound: silentSound,
   }

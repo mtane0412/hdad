@@ -12,6 +12,8 @@
  * - 事実メモ: 質問に答える LLM へ渡す材料。メモから導けないことは「分からない」と答えさせ、作り話で答えさせない
  * - 解説: ゲームを終えたあとに合成ページで出す、正解についての短い説明（視聴者の知識にするため）。LLM にその場で作らせず、
  *   配信者が確かめた文だけを出す。板に収まるよう MAX_EXPLANATION_LENGTH 文字までにする
+ * - Wikipedia の記事名: 解説に添える画像（記事の代表画像）を引く記事。画像は scripts/chat-deduction/build-images.ts が
+ *   images.json に固め、配信中には問い合わせない
  *
  * 注意: Worker（質問への答え・解答の照合）からも読み込むので、DOM や src/core/ のブラウザ向けの部品に頼らない。
  * 注意: 形の誤りは黙って飛ばさずに投げる（Fail-Fast）。問題集の形はテスト（problems.test.ts）でも確かめる。
@@ -31,6 +33,8 @@ export interface ChatDeductionProblem {
   readonly facts: readonly string[]
   /** ゲームを終えたあとに合成ページで出す解説（MAX_EXPLANATION_LENGTH 文字まで） */
   readonly explanation: string
+  /** 解説に添える画像を引く、日本語版 Wikipedia の記事名 */
+  readonly wikipedia: string
 }
 
 /** 問題集1つ */
@@ -64,7 +68,7 @@ const nonEmptyStrings = (value: unknown): readonly string[] | null => {
  * @throws 問題の形が違う場合
  */
 const readChatDeductionProblem = (candidate: unknown, at: string): ChatDeductionProblem => {
-  const { id, category, answer, aliases, facts, explanation }: Record<string, unknown> = typeof candidate === 'object' && candidate !== null ? { ...candidate } : {}
+  const { id, category, answer, aliases, facts, explanation, wikipedia }: Record<string, unknown> = typeof candidate === 'object' && candidate !== null ? { ...candidate } : {}
   const where = `${at}（${typeof id === 'string' && id !== '' ? id : '?'}）`
   if (typeof id !== 'string' || !ID_PATTERN.test(id)) throw new Error(`${where}: IDを英小文字・数字・ハイフンだけの文字列にしてください`)
   if (!isChatDeductionCategory(category)) throw new Error(`${where}: 区分を既知の値（person・place・event・thing）にしてください`)
@@ -76,7 +80,8 @@ const readChatDeductionProblem = (candidate: unknown, at: string): ChatDeduction
   if (factStrings === null) throw new Error(`${where}: 事実メモを空でない文字列の1つ以上の配列にしてください`)
   if (typeof explanation !== 'string' || explanation.trim() === '') throw new Error(`${where}: 解説を空白だけでない文字列にしてください`)
   if ([...explanation].length > MAX_EXPLANATION_LENGTH) throw new Error(`${where}: 解説を${MAX_EXPLANATION_LENGTH}文字までにしてください（いまは${[...explanation].length}文字）`)
-  return { id, category, answer, aliases: aliasStrings, facts: factStrings, explanation }
+  if (typeof wikipedia !== 'string' || wikipedia.trim() === '') throw new Error(`${where}: Wikipedia の記事名を空白だけでない文字列にしてください`)
+  return { id, category, answer, aliases: aliasStrings, facts: factStrings, explanation, wikipedia }
 }
 
 /**

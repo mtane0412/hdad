@@ -22,7 +22,8 @@
  * 見出しは1行（素材の名前・区分・参加のしかた）にして、格子に高さを回す。終えたら見出しの上に正解の帯を重ねる
  * （格子を押し縮めず、最後に並ぶ正解のカードも隠さない）。帯の色は終わり方（data-end-reason）で分ける。
  * 終えて少したったら（view.ts の EXPLANATION_DELAY_MS）、格子の代わりに同じ場所の上端から解説の白い板を出す。解説は
- * problems.ts の MAX_EXPLANATION_LENGTH 文字までなので、この大きさの文字でも格子の高さに収まる。
+ * problems.ts の MAX_EXPLANATION_LENGTH 文字までなので、この大きさの文字でも格子の高さに収まる。画像（Wikipedia の記事の代表画像）が
+ * あれば、解説の左に縦横比を保って置き、すぐ下に作者とライセンスを小さく添える。
  */
 .chat-deduction {
   /* 色（白地に原色の配色。明るい面と、その上で読める濃い文字色を組にしてある） */
@@ -60,7 +61,7 @@
   --font-size-eyebrow: calc(25 * var(--u));
   --font-size-hint: calc(22 * var(--u));
   --font-size-title: calc(43 * var(--u));
-  --font-size-explanation: calc(60 * var(--u));
+  --font-size-explanation: calc(52 * var(--u));
   --font-weight-regular: 500;
   --font-weight-bold: 700;
   --line-height-tight: 1.3;
@@ -73,6 +74,8 @@
   --space-4: calc(16 * var(--u));
   --space-6: calc(24 * var(--u));
   --space-12: calc(48 * var(--u));
+  /* 解説に添える画像の枠（縦横とも、この大きさに収める） */
+  --size-explanation-image: calc(560 * var(--u));
   /* 板の外側の余白（配信画面のおよそ5%。上下は高さの、左右は幅の5%） */
   --space-board-y: calc(54 * var(--u));
   --space-board-x: calc(96 * var(--u));
@@ -370,7 +373,42 @@
   line-height: var(--line-height-tight);
 }
 
+.chat-deduction-explanation-body {
+  display: flex;
+  gap: var(--space-12);
+  align-items: flex-start;
+  min-height: 0;
+}
+
+.chat-deduction-explanation-figure {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: var(--size-explanation-image);
+  margin: 0;
+}
+
+.chat-deduction-explanation-image {
+  display: block;
+  max-width: var(--size-explanation-image);
+  max-height: var(--size-explanation-image);
+  border-radius: var(--radius-lg);
+  object-fit: contain;
+}
+
+/* 出典は読めれば足りるので、カードの名前と同じ小さな文字にする（作者の名前が長ければ折り返す） */
+.chat-deduction-explanation-credit {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
+  overflow-wrap: anywhere;
+}
+
 .chat-deduction-explanation-text {
+  flex: 1;
+  min-width: 0;
   margin: 0;
   color: var(--color-text-heading);
   font-size: var(--font-size-explanation);

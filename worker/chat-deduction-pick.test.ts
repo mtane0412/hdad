@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest'
 import type { ChatDeductionProblem, ChatDeductionProblemSet } from '../src/chat-deduction/problems'
 import { pickChatDeductionProblem } from './chat-deduction-pick'
 
-const problemOf = (id: string, answer: string): ChatDeductionProblem => ({ id, category: 'person', answer, aliases: [answer], facts: [`${answer}についての事実。`], explanation: `${answer}についての解説。` })
+const problemOf = (id: string, answer: string): ChatDeductionProblem => ({ id, category: 'person', answer, aliases: [answer], facts: [`${answer}についての事実。`], explanation: `${answer}についての解説。`, wikipedia: answer })
 
 const ancientPeople: ChatDeductionProblemSet = {
   id: 'ancient-people',
