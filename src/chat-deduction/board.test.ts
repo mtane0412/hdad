@@ -15,7 +15,17 @@ const sound = {
 
 /** 富士山の問題で、質問1件・不正解1件・正解1件まで進んで終えたゲーム */
 const solvedBoard: ChatDeductionBoard = {
-  game: { id: 1, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', endedAt: '2026-10-15T12:05:00.000Z', endReason: 'solved', answer: '富士山' },
+  game: {
+    id: 1,
+    category: 'place',
+    topic: null,
+    startedAt: '2026-10-15T12:00:00.000Z',
+    endedAt: '2026-10-15T12:05:00.000Z',
+    endReason: 'solved',
+    answer: '富士山',
+    explanation: '静岡県と山梨県にまたがる日本一の山。',
+    image: { url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Mt.Fuji.jpg/1280px-Mt.Fuji.jpg', artist: '山田花子', license: 'CC0' },
+  },
   cards: [
     { kind: 'question', id: 1, userName: '田中太郎', text: '日本にありますか？', verdict: 'yes', reply: '静岡県と山梨県にまたがっています。' },
     { kind: 'guess', id: 1, userName: '鈴木花子', text: '阿蘇山', correct: false },
@@ -35,6 +45,8 @@ describe('readChatDeductionBoard', () => {
 
   it('知らない区分・知らない答え・知らないカードの種類なら投げる（黙って映さない）', () => {
     expect(() => readChatDeductionBoard({ ...solvedBoard, game: { ...solvedBoard.game, category: 'animal' } })).toThrow('game')
+    expect(() => readChatDeductionBoard({ ...solvedBoard, game: { ...solvedBoard.game, explanation: 1 } })).toThrow('game')
+    expect(() => readChatDeductionBoard({ ...solvedBoard, game: { ...solvedBoard.game, image: { url: 'https://upload.wikimedia.org/a.jpg', artist: '山田花子' } } })).toThrow('game')
     expect(() => readChatDeductionBoard({ ...solvedBoard, cards: [{ ...solvedBoard.cards[0], verdict: 'maybe' }] })).toThrow('cards')
     expect(() => readChatDeductionBoard({ ...solvedBoard, cards: [{ kind: 'hint', id: 1, userName: '田中太郎', text: 'ヒント' }] })).toThrow('cards')
   })

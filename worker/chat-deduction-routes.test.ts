@@ -270,7 +270,7 @@ describe('ゲームの開始（POST /api/admin/chat-deduction/games）', () => {
     await startFuji(env)
 
     expect(delivery.pushedChatDeductions).toEqual([
-      { game: { id: 1, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null }, cards: [], sound: DEFAULT_CHAT_DEDUCTION_SOUND },
+      { game: { id: 1, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null, explanation: null, image: null }, cards: [], sound: DEFAULT_CHAT_DEDUCTION_SOUND },
     ])
   })
 
@@ -382,7 +382,7 @@ describe('ゲームの終了（POST /api/admin/chat-deduction/games/:id/end）',
 
     expect(delivery.pushedChatDeductions).toEqual([
       {
-        game: { id: game.id, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', endedAt: '2026-10-15T12:00:00.000Z', endReason: 'stopped', answer: '富士山' },
+        game: { id: game.id, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', endedAt: '2026-10-15T12:00:00.000Z', endReason: 'stopped', answer: '富士山', explanation: expect.any(String), image: expect.anything() },
         cards: [],
         sound: DEFAULT_CHAT_DEDUCTION_SOUND,
       },
@@ -431,7 +431,7 @@ describe('合成ページのカードの一覧（GET /api/overlay/chat-deduction
 
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({
-      game: { id: game.id, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null },
+      game: { id: game.id, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null, explanation: null, image: null },
       cards: [],
       sound: DEFAULT_CHAT_DEDUCTION_SOUND,
     })

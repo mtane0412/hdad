@@ -28,11 +28,11 @@ const problemSets: readonly ChatDeductionProblemSet[] = [
     id: 'ancient-people',
     name: '古代史の人物',
     problems: [
-      { id: 'himiko', category: 'person', answer: '卑弥呼', aliases: ['卑弥呼'], facts: ['3世紀前半の倭の女王。'] },
-      { id: 'kukai', category: 'person', answer: '空海', aliases: ['空海'], facts: ['平安時代前期の僧。'] },
+      { id: 'himiko', category: 'person', answer: '卑弥呼', aliases: ['卑弥呼'], facts: ['3世紀前半の倭の女王。'], explanation: '3世紀前半の倭の女王。', wikipedia: '卑弥呼' },
+      { id: 'kukai', category: 'person', answer: '空海', aliases: ['空海'], facts: ['平安時代前期の僧。'], explanation: '平安時代前期の僧。', wikipedia: '空海' },
     ],
   },
-  { id: 'misc', name: 'いろいろ', problems: [{ id: 'mount-fuji', category: 'place', answer: '富士山', aliases: ['富士山'], facts: ['日本でいちばん高い山。'] }] },
+  { id: 'misc', name: 'いろいろ', problems: [{ id: 'mount-fuji', category: 'place', answer: '富士山', aliases: ['富士山'], facts: ['日本でいちばん高い山。'], explanation: '日本でいちばん高い山。', wikipedia: '富士山' }] },
 ]
 
 const rewards = { questionRewardId: '報酬ID-質問', answerRewardId: '報酬ID-解答' }

@@ -10,6 +10,12 @@
  * - 正解: 画面に出す表記
  * - 別名: 解答の照合に使う表記の一覧。照合は別名との完全一致だけで決め、LLM には判定させない
  * - 事実メモ: 質問に答える LLM へ渡す材料。メモから導けないことは「分からない」と答えさせ、作り話で答えさせない
+ * - 解説: ゲームを終えたあとに合成ページで出す、正解についての短い説明（視聴者の知識にするため）。LLM にその場で作らせず、
+ *   配信者が確かめた文だけを出す。板に収まるよう MAX_EXPLANATION_LENGTH 文字までにする
+ * - Wikipedia の記事名: 解説に添える画像（記事の代表画像）を引く記事。画像は scripts/chat-deduction/build-images.ts が
+ *   images.json に固め、配信中には問い合わせない
+ * - 画像の指名（省ける）: 記事に代表画像が無い・合わないときに、代わりに出す Commons の画像のファイル名。Commons の作者の欄が
+ *   空のファイルに限り、ファイルページの本文から読んだ作者も書く
  *
  * 注意: Worker（質問への答え・解答の照合）からも読み込むので、DOM や src/core/ のブラウザ向けの部品に頼らない。
  * 注意: 形の誤りは黙って飛ばさずに投げる（Fail-Fast）。問題集の形はテスト（problems.test.ts）でも確かめる。
@@ -27,6 +33,20 @@ export interface ChatDeductionProblem {
   readonly aliases: readonly string[]
   /** 質問に答える LLM へ渡す材料（1つ以上） */
   readonly facts: readonly string[]
+  /** ゲームを終えたあとに合成ページで出す解説（MAX_EXPLANATION_LENGTH 文字まで） */
+  readonly explanation: string
+  /** 解説に添える画像を引く、日本語版 Wikipedia の記事名 */
+  readonly wikipedia: string
+  /** 記事の代表画像の代わりに出す画像。無ければ代表画像を使う */
+  readonly image?: ChatDeductionProblemImage
+}
+
+/** 記事の代表画像の代わりに、人が指名した画像 */
+export interface ChatDeductionProblemImage {
+  /** Commons の画像のファイル名（「File:」は付けない） */
+  readonly file: string
+  /** Commons の作者の欄が空のときに出す作者（ファイルページの本文から読んだもの）。欄があれば書かない */
+  readonly artist?: string
 }
 
 /** 問題集1つ */
@@ -43,11 +63,33 @@ export interface ChatDeductionProblemSet {
 /** 問題と問題集のIDに使える文字（D1 の行と経路にそのまま載せるため、英小文字・数字・ハイフンに限る） */
 const ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
+/** 解説の文字数の上限（合成ページで、カードの格子の代わりに出す板へ収まる長さ。chat-deduction.css の解説の文字の大きさと合わせる） */
+export const MAX_EXPLANATION_LENGTH = 150
+
 /** 空でない文字列だけの配列なら、その配列を返す。そうでなければ null */
 const nonEmptyStrings = (value: unknown): readonly string[] | null => {
   if (!Array.isArray(value) || value.length === 0) return null
   const strings = value.filter((item: unknown): item is string => typeof item === 'string' && item !== '')
   return strings.length === value.length ? strings : null
+}
+
+/** 画像の指名が持てる項目 */
+const PROBLEM_IMAGE_KEYS: ReadonlySet<string> = new Set(['file', 'artist'])
+
+/**
+ * 画像の指名を読む。
+ *
+ * @throws 形が違う場合（ファイル名が空・「File:」付き・作者が空文字・知らない項目がある）
+ */
+const readProblemImage = (value: unknown, where: string): ChatDeductionProblemImage => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error(`${where}: 画像の指名は { "file": ファイル名 } の形にしてください`)
+  const { file, artist }: Record<string, unknown> = { ...value }
+  const unknownKey = Object.keys(value).find((key) => !PROBLEM_IMAGE_KEYS.has(key))
+  if (unknownKey !== undefined) throw new Error(`${where}: 画像の指名に知らない項目（${unknownKey}）があります`)
+  if (typeof file !== 'string' || file.trim() === '' || /^(file|ファイル):/i.test(file)) throw new Error(`${where}: 画像のファイル名を「File:」を付けない空でない文字列にしてください`)
+  if (artist === undefined) return { file }
+  if (typeof artist !== 'string' || artist.trim() === '') throw new Error(`${where}: 画像の作者は空白だけでない文字列にするか、項目ごと省いてください`)
+  return { file, artist }
 }
 
 /**
@@ -57,7 +99,7 @@ const nonEmptyStrings = (value: unknown): readonly string[] | null => {
  * @throws 問題の形が違う場合
  */
 const readChatDeductionProblem = (candidate: unknown, at: string): ChatDeductionProblem => {
-  const { id, category, answer, aliases, facts }: Record<string, unknown> = typeof candidate === 'object' && candidate !== null ? { ...candidate } : {}
+  const { id, category, answer, aliases, facts, explanation, wikipedia, image }: Record<string, unknown> = typeof candidate === 'object' && candidate !== null ? { ...candidate } : {}
   const where = `${at}（${typeof id === 'string' && id !== '' ? id : '?'}）`
   if (typeof id !== 'string' || !ID_PATTERN.test(id)) throw new Error(`${where}: IDを英小文字・数字・ハイフンだけの文字列にしてください`)
   if (!isChatDeductionCategory(category)) throw new Error(`${where}: 区分を既知の値（person・place・event・thing）にしてください`)
@@ -67,7 +109,11 @@ const readChatDeductionProblem = (candidate: unknown, at: string): ChatDeduction
   if (new Set(aliasStrings).size !== aliasStrings.length) throw new Error(`${where}: 同じ別名が2回あります`)
   const factStrings = nonEmptyStrings(facts)
   if (factStrings === null) throw new Error(`${where}: 事実メモを空でない文字列の1つ以上の配列にしてください`)
-  return { id, category, answer, aliases: aliasStrings, facts: factStrings }
+  if (typeof explanation !== 'string' || explanation.trim() === '') throw new Error(`${where}: 解説を空白だけでない文字列にしてください`)
+  if ([...explanation].length > MAX_EXPLANATION_LENGTH) throw new Error(`${where}: 解説を${MAX_EXPLANATION_LENGTH}文字までにしてください（いまは${[...explanation].length}文字）`)
+  if (typeof wikipedia !== 'string' || wikipedia.trim() === '') throw new Error(`${where}: Wikipedia の記事名を空白だけでない文字列にしてください`)
+  const read = { id, category, answer, aliases: aliasStrings, facts: factStrings, explanation, wikipedia }
+  return image === undefined ? read : { ...read, image: readProblemImage(image, where) }
 }
 
 /**

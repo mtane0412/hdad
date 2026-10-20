@@ -94,7 +94,7 @@ describe('createChatDeductionApi', () => {
 describe('createChatDeductionOverlayApi', () => {
   const OVERLAY_KEY = 'overlay-key_0123456789abcdefghij'
   const board = {
-    game: { id: 1, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null },
+    game: { id: 1, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null, explanation: null, image: null },
     cards: [{ kind: 'question', id: 1, userName: '田中太郎', text: '日本にありますか？', verdict: 'yes', reply: '静岡県と山梨県にまたがっています。' }],
     sound: { ...sound, slots: { ...sound.slots, bgm: '/api/media/media-thinking?key=overlay-key', correct: '/api/media/media-pinpon?key=overlay-key' } },
   }

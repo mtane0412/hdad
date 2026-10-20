@@ -11,6 +11,9 @@
  * - 解答のカード: 正解・不正解の印と解答・送った人の名前。data-result で見た目を分け、正解のカードは目立たせる
  * 参加のしかたは開催中だけ見出しの行に出す。終えたら下の帯に「正解は○○でした」（正解者が出たら名前も）を出し、
  * 終わり方を data-end-reason で分ける。ゲームが無ければ何も出さない。
+ * 終えてから EXPLANATION_DELAY_MS たったら、カードの格子を隠してその場所に正解の解説を出す（まず正解の帯と正解のカードを
+ * 見せてから、答えについての知識を残すため。正解の帯は解説のあいだも残す）。解説に画像（Wikipedia の記事の代表画像）があれば、
+ * 作者とライセンスを添えて解説の左に出す。読み込めなければ画像を外し、onImageError で知らせる（解説は出したまま）。
  * 終えたゲームは、終えてから ENDED_REVEAL_MS のあいだだけ映して消す（次のゲームまで画面に残し続けないため）。
  * 下部バーの「演出を消す」を受けたら、終えたゲームを待たずに消す（開催中のゲームは消さない）。
  *
@@ -21,15 +24,22 @@
 import { ENDED_REVEAL_MS } from '../core/ended-reveal'
 import { subjectLabelOf } from './category'
 import type { ChatDeductionBoard, ChatDeductionBoardGame, ChatDeductionCard, ChatDeductionVerdict } from './board'
+import type { ChatDeductionImage } from './images'
 
 /** 並べるカードの数。質問と返事が2行ずつに折り返しても、画面いっぱいの格子（src/chat-deduction/chat-deduction.css の3列×4行）に収まる数にする */
 export const MAX_VISIBLE_CARDS = 12
+
+/** 終えてから解説を出すまでの長さ（ミリ秒）。そのあいだは正解の帯と正解のカードを見せる */
+export const EXPLANATION_DELAY_MS = 5_000
 
 /** 見出しの素材の名前 */
 const TITLE = 'チャットで推理'
 
 /** 開催中に出す参加のしかた。報酬の名前（worker/chat-deduction-rewards.ts）と合わせる */
 const HINT = 'チャンネルポイントの「質問」で はい／いいえ を聞いて、「解答」で当てよう'
+
+/** 解説の板の見出し */
+const EXPLANATION_HEADING = '解説'
 
 const VERDICT_LABELS: Readonly<Record<ChatDeductionVerdict, string>> = {
   yes: 'はい',
@@ -40,6 +50,8 @@ const VERDICT_LABELS: Readonly<Record<ChatDeductionVerdict, string>> = {
 export interface ChatDeductionViewOptions {
   /** 終えたゲームを ENDED_REVEAL_MS ののちに消すか。プレビューのサンプル（終えた時刻が固定）では消さない */
   readonly hideEndedGame: boolean
+  /** 解説の画像を読み込めなかった。渡さなければ、失敗を投げて黙らせない（合成ページは素材の箱に出す） */
+  readonly onImageError?: (error: Error) => void
 }
 
 export interface ChatDeductionView {
@@ -51,6 +63,9 @@ export interface ChatDeductionView {
    */
   dismiss(): void
 }
+
+/** 画像に添える出典（作者の表記が要らない画像で作者が空なら、ライセンスだけ） */
+const creditOf = ({ artist, license }: ChatDeductionImage): string => `画像: ${artist === '' ? license : `${artist} / ${license}`}（Wikimedia Commons）`
 
 /** 決まった class を持つ要素を作る */
 const element = <K extends keyof HTMLElementTagNameMap>(tag: K, className: string, text?: string): HTMLElementTagNameMap[K] => {
@@ -103,7 +118,15 @@ const keyOf = (game: ChatDeductionBoardGame, card: ChatDeductionCard): string =>
  * @param root 表示を入れる要素（合成ページが作る [data-chat-deduction] の要素）
  * @param options 終えたゲームを消すか（既定は消す）
  */
-export const createChatDeductionView = (root: HTMLElement, { hideEndedGame }: ChatDeductionViewOptions = { hideEndedGame: true }): ChatDeductionView => {
+export const createChatDeductionView = (
+  root: HTMLElement,
+  {
+    hideEndedGame,
+    onImageError = (error) => {
+      throw error
+    },
+  }: ChatDeductionViewOptions = { hideEndedGame: true },
+): ChatDeductionView => {
   const board = element('div', 'chat-deduction-board')
   board.hidden = true
   const header = element('header', 'chat-deduction-header')
@@ -115,20 +138,63 @@ export const createChatDeductionView = (root: HTMLElement, { hideEndedGame }: Ch
   const answer = element('p', 'chat-deduction-answer')
   const solver = element('p', 'chat-deduction-solver')
   result.append(answer, solver)
-  board.append(header, list, result)
+  const explanation = element('section', 'chat-deduction-explanation')
+  explanation.hidden = true
+  const explanationText = element('p', 'chat-deduction-explanation-text')
+  const figure = element('figure', 'chat-deduction-explanation-figure')
+  figure.hidden = true
+  const credit = element('figcaption', 'chat-deduction-explanation-credit')
+  figure.append(credit)
+  const explanationBody = element('div', 'chat-deduction-explanation-body')
+  explanationBody.append(figure, explanationText)
+  explanation.append(element('h2', 'chat-deduction-explanation-heading', EXPLANATION_HEADING), explanationBody)
+  board.append(header, list, explanation, result)
   root.append(board)
 
   /** いま並べているカードの要素（鍵ごと） */
   let shown = new Map<string, HTMLLIElement>()
   /** 終えたゲームを消す予約。新しい一覧を受け取るたびに取り消して決め直す */
   let hideTimer: ReturnType<typeof setTimeout> | undefined
+  /** 解説を出す予約。新しい一覧を受け取るたびに取り消して決め直す */
+  let explanationTimer: ReturnType<typeof setTimeout> | undefined
   /** 最後に受け取ったゲーム。「演出を消す」を受けたときに、終えたゲームかを見るために使う */
   let currentGame: ChatDeductionBoardGame | null = null
   /** 「演出を消す」で消した、終えたゲームのID。消していなければ null */
   let dismissedGameId: number | null = null
 
+  /** いま置いている画像の URL。読み直しで同じ画像が届いたら要素を作り直さない（読み込み直しでちらつかせない） */
+  let shownImageUrl: string | null = null
+
+  /** 解説の画像を置き換える。画像が無ければ外す */
+  const setImage = (image: ChatDeductionImage | null, answerLabel: string): void => {
+    if (image?.url === shownImageUrl) return
+    figure.querySelector('img')?.remove()
+    shownImageUrl = image?.url ?? null
+    figure.hidden = image === null
+    if (image === null) return
+    const img = element('img', 'chat-deduction-explanation-image')
+    img.alt = `${answerLabel}の画像`
+    img.addEventListener('error', () => {
+      figure.hidden = true
+      onImageError(new Error(`チャットで推理の解説の画像を読み込めませんでした: ${image.url}`))
+    })
+    img.src = image.url
+    figure.prepend(img)
+    credit.textContent = creditOf(image)
+  }
+
+  /** 解説を出すか（出すあいだはカードの格子を隠す） */
+  const showExplanation = (shown: boolean): void => {
+    explanation.hidden = !shown
+    list.hidden = shown
+  }
+
   /** 板を隠して、並べていたカードを捨てる */
   const clear = (): void => {
+    clearTimeout(explanationTimer)
+    explanationTimer = undefined
+    showExplanation(false)
+    setImage(null, '')
     board.hidden = true
     list.replaceChildren()
     shown = new Map()
@@ -138,6 +204,9 @@ export const createChatDeductionView = (root: HTMLElement, { hideEndedGame }: Ch
     setBoard: ({ game, cards }) => {
       clearTimeout(hideTimer)
       hideTimer = undefined
+      clearTimeout(explanationTimer)
+      explanationTimer = undefined
+      showExplanation(false)
       currentGame = game
       if (game === null || (game.endedAt !== null && game.id === dismissedGameId)) {
         clear()
@@ -180,6 +249,14 @@ export const createChatDeductionView = (root: HTMLElement, { hideEndedGame }: Ch
       const winner = cards.find((card) => card.kind === 'guess' && card.correct)
       solver.hidden = game.endReason !== 'solved' || winner === undefined
       solver.textContent = winner === undefined ? '' : `${winner.userName}さんが正解！`
+
+      explanationText.textContent = game.explanation ?? ''
+      setImage(game.image, game.answer ?? '')
+      if (game.endedAt !== null && game.explanation !== null) {
+        const untilExplanation = Date.parse(game.endedAt) + EXPLANATION_DELAY_MS - Date.now()
+        if (untilExplanation <= 0) showExplanation(true)
+        else explanationTimer = setTimeout(() => showExplanation(true), untilExplanation)
+      }
     },
 
     dismiss: () => {

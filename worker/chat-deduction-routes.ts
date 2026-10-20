@@ -18,7 +18,7 @@
  * 注意: 報酬の切り替えに失敗したら、開始・終了を黙って進めない（方針4）。開始ではゲームを始めなかったことにし、
  * 終了ではゲームを開催中のまま残して、配信者がやり直せるようにする。
  */
-import { CHAT_DEDUCTION_PROBLEM_SETS } from '../src/chat-deduction/problem-set'
+import { CHAT_DEDUCTION_IMAGES, CHAT_DEDUCTION_PROBLEM_SETS } from '../src/chat-deduction/problem-set'
 import { connectChatDeductionSocket } from './alert-channel'
 import { pushLatestChatDeductionBoard, readChatDeductionBoard } from './chat-deduction-board'
 import { loadChatDeductionSound, parseChatDeductionSound, saveChatDeductionSound } from './chat-deduction-sound'
@@ -47,7 +47,7 @@ const readJson = (context: Context): Promise<unknown> =>
  * @throws HttpError 押し出せなければ502（済んだことは取り消さない）
  */
 const pushBoard = async (context: Context, done: string): Promise<void> => {
-  await pushLatestChatDeductionBoard(context.env.DB, context.env.STORE, context.env.ALERTS, CHAT_DEDUCTION_PROBLEM_SETS).catch((error: unknown) => {
+  await pushLatestChatDeductionBoard(context.env.DB, context.env.STORE, context.env.ALERTS, CHAT_DEDUCTION_PROBLEM_SETS, CHAT_DEDUCTION_IMAGES).catch((error: unknown) => {
     throw new HttpError(STATUS.badGateway, 'chat-deduction-push-failed', `${done}が、合成ページへ知らせられませんでした（${reasonOf(error)}）`)
   })
 }
@@ -182,7 +182,7 @@ export const putChatDeductionSound = async (context: Context): Promise<Response>
 /** GET /api/overlay/chat-deduction?key=: 最後に始めたゲームのカードの一覧を返す（開催中は正解の表記を伏せる） */
 export const getOverlayChatDeduction = async (context: Context): Promise<Response> => {
   await requireOverlayKey(context)
-  return Response.json(await readChatDeductionBoard(context.env.DB, context.env.STORE, CHAT_DEDUCTION_PROBLEM_SETS))
+  return Response.json(await readChatDeductionBoard(context.env.DB, context.env.STORE, CHAT_DEDUCTION_PROBLEM_SETS, CHAT_DEDUCTION_IMAGES))
 }
 
 /** GET /api/overlay/chat-deduction/socket?key=: 合成ページからのWebSocketの接続を、カードの一覧を受け取る接続として配送先へ引き渡す */

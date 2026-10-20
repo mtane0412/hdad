@@ -27,6 +27,8 @@ const MOUNT_FUJI: ChatDeductionProblem = {
   answer: '富士山',
   aliases: ['富士山', 'ふじさん', '富士'],
   facts: ['静岡県と山梨県にまたがる火山。', '標高は3776メートルで、日本でいちばん高い山。'],
+  explanation: '静岡県と山梨県にまたがる、日本でいちばん高い山。',
+  wikipedia: '富士山',
 }
 
 describe('材料の組み立て（buildChatDeductionAnswerPrompt）', () => {
