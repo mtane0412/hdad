@@ -1,5 +1,9 @@
 {
-  "himiko": null,
+  "himiko": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/63/Text_of_the_Wei_Zhi_%28%E9%AD%8F%E5%BF%97%29%2C_297.jpg/1280px-Text_of_the_Wei_Zhi_%28%E9%AD%8F%E5%BF%97%29%2C_297.jpg?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "artist": "",
+    "license": "Public domain"
+  },
   "shotoku-taishi": {
     "url": "https://upload.wikimedia.org/wikipedia/commons/9/9e/Prince_Shotoku_with_Two_Princes_by_Kano_Osanobu_1842.png?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
     "artist": "狩野養信（1796年8月18日 - 1846年6月12日）",
@@ -55,11 +59,15 @@
     "artist": "不明Unknown author",
     "license": "Public domain"
   },
-  "iwai-rebellion": null,
+  "iwai-rebellion": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/2/29/Iwatoyama-kofun_enkei.JPG/1280px-Iwatoyama-kofun_enkei.JPG?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "artist": "Saigen Jiro",
+    "license": "CC0"
+  },
   "buddhism-introduction": {
-    "url": "https://upload.wikimedia.org/wikipedia/commons/6/62/MahayanaMap-ja.png?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
-    "artist": "Pqks758",
-    "license": "CC BY-SA 3.0"
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/60/Shikishima-Kanasashi_Palace.JPG/1280px-Shikishima-Kanasashi_Palace.JPG?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "artist": "アラツク",
+    "license": "CC BY-SA 4.0"
   },
   "isshi-incident": {
     "url": "https://upload.wikimedia.org/wikipedia/commons/3/32/Irukaansatsuzu.jpg?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
@@ -76,7 +84,11 @@
     "artist": "Guretaro",
     "license": "Public domain"
   },
-  "nagaya-incident": null,
+  "nagaya-incident": {
+    "url": "https://upload.wikimedia.org/wikipedia/commons/4/42/Prince_Nagaya.jpg?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
+    "artist": "不明",
+    "license": "Public domain"
+  },
   "fujiwara-no-hirotsugu-rebellion": {
     "url": "https://upload.wikimedia.org/wikipedia/commons/a/ae/%E8%97%A4%E5%8E%9F%E5%BA%83%E5%97%A3%E3%81%AE%E4%B9%B1.png?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
     "artist": "味っ子",
