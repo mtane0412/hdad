@@ -122,6 +122,20 @@ describe('fetchTownImage', () => {
     expect(image?.artist).toBe('photo: 撮影者 & 友人 (トーク)')
   })
 
+  it('作者の欄で見えないように隠された文字（Commons の多言語の定型文の英語の部分）は読まない', async () => {
+    const { fetchImpl } = fakeWikipedia(
+      imageInfoOf('Portrait.jpg', {
+        License: { value: 'pd' },
+        LicenseShortName: { value: 'Public domain' },
+        Artist: { value: '不明<span style="display: none;">Unknown author</span>' },
+      }),
+    )
+
+    const image = await fetchTownImage(fetchImpl, 'Portrait.jpg')
+
+    expect(image?.artist).toBe('不明')
+  })
+
   it('Unicode の範囲外の文字参照は、投げずにそのまま残す', async () => {
     const { fetchImpl } = fakeWikipedia(
       imageInfoOf('Town.jpg', { License: { value: 'cc-by-3.0' }, LicenseShortName: { value: 'CC BY 3.0' }, Artist: { value: '撮影者&#99999999;&#x110000;' } }),

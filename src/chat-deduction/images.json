@@ -31,7 +31,7 @@
   },
   "shomu-tenno": {
     "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/3f/Emperor_Shomu.jpg/1280px-Emperor_Shomu.jpg?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
-    "artist": "不明Unknown author",
+    "artist": "不明",
     "license": "Public domain"
   },
   "ganjin": {
@@ -51,12 +51,72 @@
   },
   "sugawara-no-michizane": {
     "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/1e/%E6%9D%9F%E5%B8%AF%E5%A4%A9%E7%A5%9E%E5%83%8F.png/1280px-%E6%9D%9F%E5%B8%AF%E5%A4%A9%E7%A5%9E%E5%83%8F.png?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
-    "artist": "不明Unknown author",
+    "artist": "不明",
     "license": "Public domain"
   },
   "sakanoue-no-tamuramaro": {
     "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/8/8d/Sakanoue_Tamuramaro_sw.jpg/1280px-Sakanoue_Tamuramaro_sw.jpg?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
-    "artist": "不明Unknown author",
+    "artist": "不明",
+    "license": "Public domain"
+  },
+  "suiko-tenno": {
+    "url": "https://upload.wikimedia.org/wikipedia/commons/4/40/Empress_Suiko_by_Tosa_Mitsuyoshi_1726_Eifukuji_Osaka.png?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
+    "artist": "土佐光芳",
+    "license": "Public domain"
+  },
+  "ono-no-imoko": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/51/Ono_no_Imoko.jpg/1280px-Ono_no_Imoko.jpg?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "artist": "",
+    "license": "Public domain"
+  },
+  "tenji-tenno": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/54/Emperor_Tenji_%28Kanou_Tanyuu%29.jpg/1280px-Emperor_Tenji_%28Kanou_Tanyuu%29.jpg?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "artist": "狩野探幽",
+    "license": "Public domain"
+  },
+  "fujiwara-no-fuhito": {
+    "url": "https://upload.wikimedia.org/wikipedia/commons/f/ff/Fujiwara-Fuhito.jpg?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
+    "artist": "",
+    "license": "Public domain"
+  },
+  "abe-no-nakamaro": {
+    "url": "https://upload.wikimedia.org/wikipedia/commons/c/c5/Abeno_Nakamaro.jpg?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
+    "artist": "Kikuchi Yosai（菊池容斎）",
+    "license": "Public domain"
+  },
+  "o-no-yasumaro": {
+    "url": "https://upload.wikimedia.org/wikipedia/commons/c/cf/Ono-Yasumaro.jpg?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
+    "artist": "",
+    "license": "Public domain"
+  },
+  "kanmu-tenno": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/40/Emperor_Kammu_large.jpg/1280px-Emperor_Kammu_large.jpg?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "artist": "不明",
+    "license": "Public domain"
+  },
+  "saicho": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/b8/%E6%9C%80%E6%BE%84%E5%83%8F_%E4%B8%80%E4%B9%97%E5%AF%BA%E8%94%B5_%E5%B9%B3%E5%AE%89%E6%99%82%E4%BB%A3.jpg/1280px-%E6%9C%80%E6%BE%84%E5%83%8F_%E4%B8%80%E4%B9%97%E5%AF%BA%E8%94%B5_%E5%B9%B3%E5%AE%89%E6%99%82%E4%BB%A3.jpg?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "artist": "不明",
+    "license": "Public domain"
+  },
+  "abe-no-seimei": {
+    "url": "https://upload.wikimedia.org/wikipedia/commons/5/5a/Abe_Seimei.jpg?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
+    "artist": "",
+    "license": "Public domain"
+  },
+  "fujiwara-no-michinaga": {
+    "url": "https://upload.wikimedia.org/wikipedia/commons/7/72/Fujiwara_no_Michinaga_2.jpg?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
+    "artist": "不明",
+    "license": "Public domain"
+  },
+  "murasaki-shikibu": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a6/Tosa_Mitsuoki_001.jpg/1280px-Tosa_Mitsuoki_001.jpg?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "artist": "Tosa Mitsuoki (1617-1691)",
+    "license": "Public domain"
+  },
+  "sei-shonagon": {
+    "url": "https://upload.wikimedia.org/wikipedia/commons/6/6f/Sei_Shonagon2.jpg?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
+    "artist": "土佐光起 (Tosa Mitsuoki)",
     "license": "Public domain"
   },
   "iwai-rebellion": {
@@ -107,6 +167,54 @@
   "johei-tengyo-rebellion": {
     "url": "https://upload.wikimedia.org/wikipedia/commons/a/a5/Takedono_no_Rakugan_%E9%AB%98%E6%AE%BF%E8%90%BD%E9%9B%81_%28BM_2008%2C3037.19902_1%29.jpg?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
     "artist": "Print artist: Utagawa Kuniyoshi (歌川国芳) Published by: Enshuya Matabei (遠州屋又兵衛)",
+    "license": "Public domain"
+  },
+  "teibi-war": {
+    "url": "https://upload.wikimedia.org/wikipedia/commons/9/9c/Shotoku_killing_Moriya_no_Omuraji.jpg?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
+    "artist": "Tsukioka Yoshitoshi",
+    "license": "Public domain"
+  },
+  "taiho-code": {
+    "url": "https://upload.wikimedia.org/wikipedia/commons/9/91/Fujiwara_no_Fuhito.jpg?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
+    "artist": "unknown pre-modern painter",
+    "license": "Public domain"
+  },
+  "heijo-kyo-relocation": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/d5/Heijokyo_Suzakumon_05.JPG/1280px-Heijokyo_Suzakumon_05.JPG?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "artist": "KENPEI",
+    "license": "CC BY-SA 3.0"
+  },
+  "daibutsu-kaigen": {
+    "url": "https://upload.wikimedia.org/wikipedia/commons/7/7a/Daibutsu_of_Todaiji_4.jpg?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
+    "artist": "Mafue",
+    "license": "CC BY-SA 3.0"
+  },
+  "konden-einen-shizai-ho": null,
+  "emi-no-oshikatsu-rebellion": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/1e/Fujiwara_no_Nakamaro_Rebellion_Map.png/1280px-Fujiwara_no_Nakamaro_Rebellion_Map.png?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "artist": "Bamse",
+    "license": "CC BY-SA 4.0"
+  },
+  "heian-kyo-relocation": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/72/SuzakuOji_street_of_Heiankyo.jpg/1280px-SuzakuOji_street_of_Heiankyo.jpg?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "artist": "Wikiwikiyarou",
+    "license": "Public domain"
+  },
+  "kusuko-incident": {
+    "url": "https://upload.wikimedia.org/wikipedia/commons/b/bf/Emperor_Heizei.jpg?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
+    "artist": "明治天皇聖徳奉讃会",
+    "license": "Public domain"
+  },
+  "jowa-incident": null,
+  "anna-incident": null,
+  "toi-invasion": {
+    "url": "https://upload.wikimedia.org/wikipedia/commons/a/ad/Fujiwara_no_Takaie.png?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
+    "artist": "Kikuchi Yōsai",
+    "license": "Public domain"
+  },
+  "zenkunen-war": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/cb/A-38_C0080776.jpg/1280px-A-38_C0080776.jpg?utm_source=ja.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "artist": "不明",
     "license": "Public domain"
   },
   "mount-fuji": {
