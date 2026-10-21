@@ -7,6 +7,7 @@
  * - 増減はいまの人形に記録され、所持数は組ごと・種類ごとの合計になること。配信中なら配信の ID も控えること
  * - 所持数より多くは減らせず、いまの人形が無ければ増減できないこと（どちらもエラーにして記録しない）
  * - 同じきっかけの ID の増減は2度記録しないこと（Twitch の通知の再送で二重に増減させないため）
+ * - トリガーで渡した増減は、理由を trigger にして、どのトリガーの項目で渡したかを控えること（issue #419）
  * - 視聴者の記録を消すときに、その人の台帳も消せること
  */
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -213,6 +214,27 @@ describe('changeDolls・readDollHoldings', () => {
     expect(rows).toEqual([
       { source_id: 'manual-1', session_id: null },
       { source_id: 'manual-2', session_id: 'stream-1' },
+    ])
+  })
+})
+
+describe('changeDolls の理由', () => {
+  it('手での増減は理由を manual にし、トリガーの項目を持たない。トリガーで渡した増減は理由を trigger にし、項目を控える', async () => {
+    // 前提: いまの人形が選ばれている
+    await addCurrentSet(bears)
+
+    await changeDolls(db, manual(HANAKO, 'normal', 1, 'manual-1'), NOW)
+    await changeDolls(
+      db,
+      { userId: TARO, kind: 'super', delta: 1, reason: 'trigger', triggerKind: 'reward', sourceId: 'trigger:通知ID-1:dollGrant:0' },
+      NOW,
+    )
+
+    // 検証: 台帳の行に、何で増えたかと、どのトリガーの項目で渡したかが残る
+    const rows = db.sqlite.prepare('SELECT user_id, reason, trigger_kind FROM doll_ledger ORDER BY id').all()
+    expect(rows).toEqual([
+      { user_id: HANAKO, reason: 'manual', trigger_kind: null },
+      { user_id: TARO, reason: 'trigger', trigger_kind: 'reward' },
     ])
   })
 })

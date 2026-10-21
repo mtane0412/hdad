@@ -11,7 +11,7 @@
  * 注意: SQLに値を埋め込まず、必ずプレースホルダで渡す。
  */
 import type { Database } from './database'
-import type { DollHolding, DollKind, DollReason, DollSet, DollSetInput } from './doll'
+import type { DollHolding, DollKind, DollOrigin, DollSet, DollSetInput } from './doll'
 
 const toIso = (milliseconds: number): string => new Date(milliseconds).toISOString()
 
@@ -67,14 +67,13 @@ export class DollChangeError extends Error {
   }
 }
 
-/** 人形の増減1件 */
-export interface DollChange {
+/** 人形の増減1件。何で増減したか（reason と、理由ごとに控える項目）は DollOrigin が持つ */
+export type DollChange = DollOrigin & {
   /** Twitch のユーザー ID */
   readonly userId: string
   readonly kind: DollKind
   /** 増やすなら正、減らすなら負（0 は台帳の CHECK 制約が拒む） */
   readonly delta: number
-  readonly reason: DollReason
   /** きっかけの ID。同じ ID の増減は2度記録しない（Twitch の通知の再送への備え） */
   readonly sourceId: string
 }
@@ -164,7 +163,8 @@ export const selectCurrentDollSet = async (db: Database, id: number | null): Pro
 /**
  * いまの人形の増減を台帳に記録する。人形の増減を書くのはこの関数だけである。
  *
- * 記録した時点で配信中なら、その配信（stream_sessions の開いた行）の ID を控える。
+ * 記録した時点で配信中なら、その配信（stream_sessions の開いた行）の ID を控える。トリガーで渡したときは、どのトリガーの項目で
+ * 渡したか（trigger_kind）も控える。
  *
  * @returns applied は記録した、duplicate は同じきっかけの ID をもう記録していた（再送なので何もしない）
  * @throws DollChangeError いまの人形を選んでいない（no-current-set）、減らすだけの所持数が無い（not-enough）場合。どちらも記録しない
@@ -174,8 +174,8 @@ export const changeDolls = async (db: Database, change: DollChange, now: number)
     .prepare(
       // いまの人形が無ければ SELECT が0行を返すので、INSERT も起きない。減らすときは、その人のいまの人形の同じ種類の所持数が
       // 減らす数に足りているときだけ行を返す。「WHERE ... ON CONFLICT」の形にしないと SQLite が ON を結合の条件と読むので、WHERE は外せない
-      `INSERT INTO doll_ledger (user_id, set_id, kind, delta, reason, source_id, session_id, created_at)
-       SELECT ?1, s.id, ?2, ?3, ?4, ?5,
+      `INSERT INTO doll_ledger (user_id, set_id, kind, delta, reason, trigger_kind, source_id, session_id, created_at)
+       SELECT ?1, s.id, ?2, ?3, ?4, ?7, ?5,
          (SELECT id FROM stream_sessions WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT 1), ?6
        FROM doll_sets s
        WHERE s.current = 1
@@ -183,7 +183,7 @@ export const changeDolls = async (db: Database, change: DollChange, now: number)
        ON CONFLICT (source_id) DO NOTHING
        RETURNING set_id`,
     )
-    .bind(change.userId, change.kind, change.delta, change.reason, change.sourceId, toIso(now))
+    .bind(change.userId, change.kind, change.delta, change.reason, change.sourceId, toIso(now), change.reason === 'trigger' ? change.triggerKind : null)
     .first<{ set_id: number }>()
 
   if (inserted === null) {

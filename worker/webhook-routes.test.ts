@@ -46,6 +46,7 @@ import { recordTownTourVisit } from './town-tour-visits'
 import towns from '../src/town-tour/towns.json'
 import { CHAT_DEDUCTION_PROBLEM_SETS } from '../src/chat-deduction/problem-set'
 import { endGame, readCurrentGame, readGameStartReward, startGame } from './chat-deduction-store'
+import { insertDollSet, readDollHoldings, selectCurrentDollSet } from './doll-store'
 
 interface EnvOptions {
   /** アラートの配送先（Durable Object）が失敗を返す場合 */
@@ -1907,6 +1908,88 @@ describe('ペロペロの動作（lick）', () => {
 
     expect(twitch.requestedLogins).toEqual([])
     expect(alertChannel.pushedLicks).toHaveLength(0)
+  })
+})
+
+describe('人形を渡す動作（dollGrant）', () => {
+  const REDEMPTION_NOTIFICATION = {
+    subscription: { type: 'channel.channel_points_custom_reward_redemption.add' },
+    event: {
+      user_id: '田中太郎のユーザーID',
+      user_name: '田中太郎',
+      user_login: 'tanaka_taro',
+      user_input: '',
+      reward: { id: '報酬ID-人形', title: '人形をもらう', cost: 1000 },
+    },
+  }
+  const rewardDollTrigger: StoredTrigger = { kind: 'reward', rewardId: '報酬ID-人形', actions: [{ type: 'dollGrant', kind: 'normal', count: 2 }] }
+  const bears = { normal: { name: 'クマ人形', mediaId: 'image-bear' }, super: { name: 'スーパークマ人形', mediaId: 'image-super-bear' } }
+
+  /** クマの人形の組を追加していまの人形にし、その組の ID を返す */
+  const selectBears = async (env: Env): Promise<number> => {
+    const set = await insertDollSet(env.DB, bears, Date.parse('2026-09-21T12:00:00.000Z'))
+    await selectCurrentDollSet(env.DB, set.id)
+    return set.id
+  }
+
+  it('チャンネルポイントが交換されたら、交換した人にいまの人形を設定の種類と個数だけ渡す（botを接続していなくても渡す）', async () => {
+    // 前提: bot は接続していない。いまの人形はクマの組
+    const { env } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [rewardDollTrigger] })
+    const setId = await selectBears(env)
+
+    const response = await callWebhook(createNotification({ body: REDEMPTION_NOTIFICATION }), env)
+
+    expect(response.status).toBe(204)
+    expect(await readDollHoldings(env.DB)).toEqual([{ userId: '田中太郎のユーザーID', setId, normal: 2, super: 0 }])
+    expect(await listFailures(env.DB)).toEqual([])
+  })
+
+  it('同じ通知が再送されても、二重に渡さない。別の通知なら、もう一度渡す', async () => {
+    const { env } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [rewardDollTrigger] })
+    const setId = await selectBears(env)
+
+    await callWebhook(createNotification({ messageId: 'message-doll-1', body: REDEMPTION_NOTIFICATION }), env)
+    await callWebhook(createNotification({ messageId: 'message-doll-1', body: REDEMPTION_NOTIFICATION }), env)
+    expect(await readDollHoldings(env.DB)).toEqual([{ userId: '田中太郎のユーザーID', setId, normal: 2, super: 0 }])
+
+    await callWebhook(createNotification({ messageId: 'message-doll-2', body: REDEMPTION_NOTIFICATION }), env)
+    expect(await readDollHoldings(env.DB)).toEqual([{ userId: '田中太郎のユーザーID', setId, normal: 4, super: 0 }])
+  })
+
+  it('同じ通知に当てはまった2つの行は、どちらも渡す', async () => {
+    const { env } = createEnv()
+    const allRewardsTrigger: StoredTrigger = { kind: 'reward', rewardId: null, actions: [{ type: 'dollGrant', kind: 'super', count: 1 }] }
+    await saveAlertConfig(env.STORE, { triggers: [rewardDollTrigger, allRewardsTrigger] })
+    const setId = await selectBears(env)
+
+    await callWebhook(createNotification({ body: REDEMPTION_NOTIFICATION }), env)
+
+    expect(await readDollHoldings(env.DB)).toEqual([{ userId: '田中太郎のユーザーID', setId, normal: 2, super: 1 }])
+  })
+
+  it('台帳に、理由をトリガーとして、どのトリガーの項目で渡したかを控える', async () => {
+    const { env } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [rewardDollTrigger] })
+    await selectBears(env)
+
+    await callWebhook(createNotification({ body: REDEMPTION_NOTIFICATION }), env)
+
+    const rows = env.DB.sqlite.prepare('SELECT user_id, kind, delta, reason, trigger_kind FROM doll_ledger').all()
+    expect(rows).toEqual([{ user_id: '田中太郎のユーザーID', kind: 'normal', delta: 2, reason: 'trigger', trigger_kind: 'reward' }])
+  })
+
+  it('いまの人形が選ばれていなければ、渡さずに失敗として記録する（黙って飛ばさない）', async () => {
+    const { env } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [rewardDollTrigger] })
+
+    const response = await callWebhook(createNotification({ body: REDEMPTION_NOTIFICATION }), env)
+
+    // Twitch には受け取れたと返し（再送させない）、失敗の記録に理由を残す
+    expect(response.status).toBe(204)
+    expect(await readDollHoldings(env.DB)).toEqual([])
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'doll-grant-failed', message: expect.stringContaining('いまの人形が選ばれていません') }])
   })
 })
 

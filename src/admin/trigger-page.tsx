@@ -61,6 +61,9 @@ import {
   supportsTwister,
   supportsKanjiQuiz,
   supportsLick,
+  supportsDollGrant,
+  DOLL_GRANT_KIND_OPTIONS,
+  MAX_DOLL_GRANT_COUNT,
   kanjiQuizSharePercents,
   toDraft,
   toTriggerInputs,
@@ -194,6 +197,8 @@ const ACTION_TONES: Readonly<Record<StoredAction['type'], TagTone>> = {
   vrm: 'indigo',
   // 札の色は10色をすべて使っているので、同じ行に並ぶことの少ない市町村紹介と同じ色にする
   chatDeduction: 'green',
+  // 同じく、レイドにしか置けず同じ行に並ぶことの少ないツイスターと同じ色にする
+  dollGrant: 'red',
 }
 
 /** 行の見出しの列（出来事・絞り込み・効果）。どの行も同じ幅で並べ、上下で列がそろうようにする */
@@ -627,6 +632,51 @@ const ActionFields = ({ draft, media, heading, onChange }: ActionFieldsProps) =>
             <p className="text-xs text-muted-foreground">
               相手の Twitch のアイコンを、3Dの舌が舐め上げます。映すには、オーバーレイに「ペロペロ」の素材を置いてください。
             </p>
+          )}
+        </div>
+      )}
+
+      {/* 人形は出来事を起こした視聴者に渡すので、視聴者が決まる項目にだけ出す（Workerも保存時にそれ以外を拒む） */}
+      {supportsDollGrant(draft.kind) && (
+        <div className="flex flex-col gap-4 rounded-md border border-dashed p-3 sm:col-span-2">
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id={`${id}-doll-grant-enabled`}
+              checked={draft.dollGrantEnabled}
+              onCheckedChange={(checked) => update({ dollGrantEnabled: checked === true })}
+            />
+            <Label htmlFor={`${id}-doll-grant-enabled`}>人形を渡す</Label>
+          </div>
+          {draft.dollGrantEnabled && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor={`${id}-doll-grant-kind`}>渡す人形</Label>
+                <Select
+                  id={`${id}-doll-grant-kind`}
+                  options={DOLL_GRANT_KIND_OPTIONS}
+                  value={draft.dollGrantKind}
+                  onChange={(value) => {
+                    const option = DOLL_GRANT_KIND_OPTIONS.find((candidate) => candidate.value === value)
+                    if (option !== undefined) update({ dollGrantKind: option.value })
+                  }}
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor={`${id}-doll-grant-count`}>個数</Label>
+                <Input
+                  id={`${id}-doll-grant-count`}
+                  type="number"
+                  min={1}
+                  max={MAX_DOLL_GRANT_COUNT}
+                  step={1}
+                  value={draft.dollGrantCount}
+                  onChange={(event) => update({ dollGrantCount: event.currentTarget.value })}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground sm:col-span-2">
+                出来事を起こした人（交換した人・発言した人・レイドしてきた配信者など）に、「人形」のページで選んだいまの人形を渡します。いまの人形が選ばれていないときは渡さず、ダッシュボードの失敗の記録に残します。
+              </p>
+            </div>
           )}
         </div>
       )}

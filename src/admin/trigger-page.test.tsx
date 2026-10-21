@@ -613,6 +613,33 @@ describe('効果の付け外し', () => {
     expect(await notice('星野ゆう')).toBeInTheDocument()
   })
 
+  test('レイドの項目で人形を渡すを選び、種類と個数を決めて保存すると、人形を渡す効果として送る', async () => {
+    const api = fakeApi()
+    render(triggerPage(api))
+
+    const raid = await openedItem('レイドされた')
+    await userEvent.click(raid.getByRole('checkbox', { name: '人形を渡す' }))
+    // はじめは、ふつうの人形を1つ渡す
+    expect(raid.getByRole('combobox', { name: '渡す人形' })).toHaveDisplayValue('ふつうの人形')
+    expect(raid.getByRole('spinbutton', { name: '個数' })).toHaveValue(1)
+    await userEvent.selectOptions(raid.getByRole('combobox', { name: '渡す人形' }), 'スーパー人形')
+    await userEvent.clear(raid.getByRole('spinbutton', { name: '個数' }))
+    await userEvent.type(raid.getByRole('spinbutton', { name: '個数' }), '2')
+    await save()
+
+    expect(api.saveConfig).toHaveBeenCalledWith(expect.arrayContaining([{ kind: 'raid', actions: [{ type: 'dollGrant', kind: 'super', count: 2 }] }]))
+  })
+
+  test('出来事を起こした視聴者が決まらない項目（ポモドーロ）には、人形を渡すを出さない', async () => {
+    render(triggerPage(fakeApi()))
+
+    const row = await openedItem('作業が始まった')
+
+    expect(row.queryByRole('checkbox', { name: '人形を渡す' })).not.toBeInTheDocument()
+    // 比べるため: 同じ枠の VRM の演出は出ている（欄そのものは開けている）
+    expect(row.getByRole('checkbox', { name: 'VRMを出す' })).toBeInTheDocument()
+  })
+
   test('どの項目でもVRMの演出を選べ、選んで保存するとVRMの効果として送る（相手を必要としない演出のため）', async () => {
     const api = fakeApi()
     render(triggerPage(api))

@@ -406,6 +406,14 @@ describe('rotateOverlayKey・playTownTourDemo・townTourSound・rewards・logout
     expect(await createAdminApi(fetchReturning(200, { triggers: [rewardTrigger] }).fetchImpl).config()).toEqual([rewardTrigger])
   })
 
+  it('保存済みの人形を渡す動作を持つトリガーも受け取り、種類が normal・super でなければエラーにする', async () => {
+    const raidTrigger = { kind: 'raid', actions: [{ type: 'dollGrant', kind: 'super', count: 2 }] }
+    const unknownKind = { kind: 'raid', actions: [{ type: 'dollGrant', kind: 'golden', count: 2 }] }
+
+    expect(await createAdminApi(fetchReturning(200, { triggers: [raidTrigger] }).fetchImpl).config()).toEqual([raidTrigger])
+    await expect(createAdminApi(fetchReturning(200, { triggers: [unknownKind] }).fetchImpl).config()).rejects.toThrow()
+  })
+
   it('ツイスターの試し再生の応答が想定した形でなければエラーにする', async () => {
     const { fetchImpl } = fetchReturning(200, { id: '試しID' })
 

@@ -28,6 +28,7 @@ import {
   supportsTownTour,
   supportsTwister,
   supportsLick,
+  supportsDollGrant,
   supportsKanjiQuiz,
   kanjiQuizSharePercents,
   toDraft,
@@ -84,6 +85,9 @@ const inputs = (overrides: Partial<TriggerDraft> = {}): TriggerDraft => ({
   chatDeductionEnabled: false,
   chatDeductionSetId: 'ancient-people',
   chatDeductionProblemId: '',
+  dollGrantEnabled: false,
+  dollGrantKind: 'normal',
+  dollGrantCount: '1',
   ...overrides,
 })
 
@@ -546,6 +550,42 @@ describe('rowActionLabels', () => {
     expect(supportsLick('fromUserFirstOfStream')).toBe(true)
     expect(supportsLick('fromUser')).toBe(false)
     expect(supportsLick('raid')).toBe(false)
+  })
+
+  it('人形を渡す効果は「人形」として出し、種類と個数（数）を持つ動作として保存する', () => {
+    // 前提: チャンネルポイントの交換で、スーパー人形を2つ渡す行
+    const draft = inputs({ kind: 'reward', rewardId: '報酬ID-人形', alertEnabled: false, dollGrantEnabled: true, dollGrantKind: 'super', dollGrantCount: '2' })
+
+    expect(rowActionLabels(draft)).toEqual(['人形'])
+    expect(toTriggerInputs([draft])).toEqual([{ kind: 'reward', rewardId: '報酬ID-人形', actions: [{ type: 'dollGrant', kind: 'super', count: 2 }] }])
+  })
+
+  it('人形の個数が空欄なら、0に丸めずに保存を止める', () => {
+    const draft = inputs({ kind: 'reward', alertEnabled: false, dollGrantEnabled: true, dollGrantCount: '' })
+
+    expect(() => toTriggerInputs([draft])).toThrowError(/人形の個数/)
+  })
+
+  it('保存済みの人形を渡す動作を、選んだ状態の入力欄に戻す。持っていない行は、ふつうの人形1つを既定にする', () => {
+    const trigger: StoredTrigger = { kind: 'raid', actions: [{ type: 'dollGrant', kind: 'super', count: 3 }] }
+
+    expect(toDraft(trigger)).toMatchObject({ dollGrantEnabled: true, dollGrantKind: 'super', dollGrantCount: '3' })
+    expect(toDraft({ kind: 'raid', actions: [{ type: 'shoutout' }] })).toMatchObject({ dollGrantEnabled: false, dollGrantKind: 'normal', dollGrantCount: '1' })
+    expect(emptyDraft('follow')).toMatchObject({ dollGrantEnabled: false, dollGrantKind: 'normal', dollGrantCount: '1' })
+    expect(createDraft('follow', [])).toMatchObject({ dollGrantEnabled: false, dollGrantKind: 'normal', dollGrantCount: '1' })
+  })
+
+  it('人形を渡すだけを選んだ行も、効果を持つ行として扱う', () => {
+    expect(hasAnyAction(inputs({ alertEnabled: false, dollGrantEnabled: true }))).toBe(true)
+  })
+
+  it('人形は、出来事を起こした視聴者が決まる項目にだけ置ける（広告・開発・ポモドーロには置けない）', () => {
+    expect(supportsDollGrant('reward')).toBe(true)
+    expect(supportsDollGrant('newViewer')).toBe(true)
+    expect(supportsDollGrant('raid')).toBe(true)
+    expect(supportsDollGrant('adBreakBegin')).toBe(false)
+    expect(supportsDollGrant('commitPushed')).toBe(false)
+    expect(supportsDollGrant('pomodoroWorkBegin')).toBe(false)
   })
 
   it('VRMの演出の効果は「VRM」として出し、VRMだけを選んだ行も項目を持たない動作として保存する', () => {

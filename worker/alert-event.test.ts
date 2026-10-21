@@ -26,6 +26,7 @@ import {
   townToursFor,
   twistersFor,
   kanjiQuizzesFor,
+  dollGrantsFor,
   licksFor,
   vrmsFor,
   type ConditionState,
@@ -56,10 +57,11 @@ const isFirstTime: ConditionState = { firstChatOfStream: true, firstChatEver: fa
 
 describe('extract', () => {
   it('チャンネルポイント交換から、交換した人と報酬を取り出す', () => {
-    const event = { user_name: '田中太郎', user_login: 'tanaka_taro', reward: { id: '報酬ID-乾杯', title: '乾杯する' } }
+    const event = { user_id: '田中太郎のユーザーID', user_name: '田中太郎', user_login: 'tanaka_taro', reward: { id: '報酬ID-乾杯', title: '乾杯する' } }
 
     expect(extract(REDEMPTION, event)).toEqual({
       event: REDEMPTION,
+      userId: '田中太郎のユーザーID',
       userName: '田中太郎',
       userLogin: 'tanaka_taro',
       rewardId: '報酬ID-乾杯',
@@ -68,16 +70,18 @@ describe('extract', () => {
   })
 
   it('フォローから、フォローした人を取り出す', () => {
-    expect(extract('channel.follow', { user_name: '田中太郎', user_login: 'tanaka_taro' })).toEqual({
+    expect(extract('channel.follow', { user_id: '田中太郎のユーザーID', user_name: '田中太郎', user_login: 'tanaka_taro' })).toEqual({
       event: 'channel.follow',
+      userId: '田中太郎のユーザーID',
       userName: '田中太郎',
       userLogin: 'tanaka_taro',
     })
   })
 
   it('新規サブスクから、サブスクした人とティアを取り出す', () => {
-    expect(extract('channel.subscribe', { user_name: '田中太郎', user_login: 'tanaka_taro', tier: '1000' })).toEqual({
+    expect(extract('channel.subscribe', { user_id: '田中太郎のユーザーID', user_name: '田中太郎', user_login: 'tanaka_taro', tier: '1000' })).toEqual({
       event: 'channel.subscribe',
+      userId: '田中太郎のユーザーID',
       userName: '田中太郎',
       userLogin: 'tanaka_taro',
       tier: '1000',
@@ -85,10 +89,11 @@ describe('extract', () => {
   })
 
   it('継続サブスクのメッセージから、継続月数も取り出す', () => {
-    const event = { user_name: '田中太郎', user_login: 'tanaka_taro', tier: '2000', cumulative_months: 12 }
+    const event = { user_id: '田中太郎のユーザーID', user_name: '田中太郎', user_login: 'tanaka_taro', tier: '2000', cumulative_months: 12 }
 
     expect(extract('channel.subscription.message', event)).toEqual({
       event: 'channel.subscription.message',
+      userId: '田中太郎のユーザーID',
       userName: '田中太郎',
       userLogin: 'tanaka_taro',
       tier: '2000',
@@ -125,7 +130,7 @@ describe('extract', () => {
       message: { text: 'おはようございます' },
     }
 
-    expect(extract(CHAT_MESSAGE, event)).toEqual({ event: CHAT_MESSAGE, userName: '田中太郎', userLogin: 'tanaka_taro', text: 'おはようございます' })
+    expect(extract(CHAT_MESSAGE, event)).toEqual({ event: CHAT_MESSAGE, userId: '発言者ID', userName: '田中太郎', userLogin: 'tanaka_taro', text: 'おはようございます' })
   })
 
   it('広告の開始から、長さ（秒）と自動かどうか、打った人を取り出す', () => {
@@ -202,11 +207,11 @@ describe('extract', () => {
   })
 
   it('対応していないイベントの種類は null を返す（Twitchが種類を増やしてもWorkerを止めない）', () => {
-    expect(extract('channel.cheer', { user_name: '田中太郎' })).toBeNull()
+    expect(extract('channel.cheer', { user_id: '視聴者のユーザーID', user_name: '田中太郎' })).toBeNull()
   })
 
   it('通知の中身が想定と違えば、どの項目が足りないかを示してエラーにする', () => {
-    expect(() => extract('channel.follow', { user_login: 'tanaka' })).toThrowError(/user_name/)
+    expect(() => extract('channel.follow', { user_id: '視聴者のユーザーID', user_login: 'tanaka' })).toThrowError(/user_name/)
     expect(() =>
       extract('channel.raid', {
         from_broadcaster_user_id: 'レイド元のユーザーID',
@@ -214,7 +219,7 @@ describe('extract', () => {
         from_broadcaster_user_login: 'yamada_hanako',
       }),
     ).toThrowError(/viewers/)
-    expect(() => extract(REDEMPTION, { user_name: '田中太郎', user_login: 'tanaka_taro' })).toThrowError(/reward/)
+    expect(() => extract(REDEMPTION, { user_id: '視聴者のユーザーID', user_name: '田中太郎', user_login: 'tanaka_taro' })).toThrowError(/reward/)
   })
 })
 
@@ -226,7 +231,7 @@ describe('matches', () => {
     conditions,
     actions: [{ type: 'chat', message: '乾杯！' }],
   })
-  const redeemed = { event: REDEMPTION, userName: '田中太郎', userLogin: 'tanaka_taro', rewardId: '報酬ID-乾杯', rewardTitle: '乾杯する' } as const
+  const redeemed = { event: REDEMPTION, userId: '視聴者のユーザーID', userName: '田中太郎', userLogin: 'tanaka_taro', rewardId: '報酬ID-乾杯', rewardTitle: '乾杯する' } as const
 
   it('イベントの種類が違えば当てはまらない', () => {
     const followTrigger: ResolvedTrigger = { kind: 'follow', event: 'channel.follow', conditions: [], actions: [{ type: 'chat', message: 'ありがとう' }] }
@@ -279,7 +284,7 @@ describe('matches', () => {
 
   it('text の条件は、本文にその文字を含むときだけ当てはまる（部分一致）', () => {
     const chatTrigger = (conditions: StoredCondition[]): ResolvedTrigger => ({ kind: 'everyMessage', event: CHAT_MESSAGE, conditions, actions: [{ type: 'chat', message: 'やあ' }] })
-    const chatted = { event: CHAT_MESSAGE, userName: '田中太郎', userLogin: 'tanaka_taro', text: 'みなさんおはようございます' } as const
+    const chatted = { event: CHAT_MESSAGE, userId: '視聴者のユーザーID', userName: '田中太郎', userLogin: 'tanaka_taro', text: 'みなさんおはようございます' } as const
 
     expect(matches(chatTrigger([{ kind: 'text', contains: 'おはよう' }]), chatted, notFirstTime)).toBe(true)
     expect(matches(chatTrigger([{ kind: 'text', contains: 'こんばんは' }]), chatted, notFirstTime)).toBe(false)
@@ -287,14 +292,14 @@ describe('matches', () => {
 
   it('text の条件は大文字小文字を区別しない', () => {
     const chatTrigger: ResolvedTrigger = { kind: 'everyMessage', event: CHAT_MESSAGE, conditions: [{ kind: 'text', contains: 'Hello' }], actions: [{ type: 'chat', message: 'やあ' }] }
-    const chatted = { event: CHAT_MESSAGE, userName: '田中太郎', userLogin: 'tanaka_taro', text: 'HELLO everyone' } as const
+    const chatted = { event: CHAT_MESSAGE, userId: '視聴者のユーザーID', userName: '田中太郎', userLogin: 'tanaka_taro', text: 'HELLO everyone' } as const
 
     expect(matches(chatTrigger, chatted, notFirstTime)).toBe(true)
   })
 
   it('text の条件はチャットの発言以外には当てはまらない（既定メニューからは作れない組み合わせだが、照合でも通さない）', () => {
     const followWithMessage: ResolvedTrigger = { kind: 'follow', event: 'channel.follow', conditions: [{ kind: 'text', contains: 'おはよう' }], actions: [{ type: 'chat', message: 'ありがとう' }] }
-    const followed = { event: 'channel.follow', userName: '田中太郎', userLogin: 'tanaka_taro' } as const
+    const followed = { event: 'channel.follow', userId: '視聴者のユーザーID', userName: '田中太郎', userLogin: 'tanaka_taro' } as const
 
     expect(matches(followWithMessage, followed, notFirstTime)).toBe(false)
   })
@@ -314,14 +319,14 @@ describe('matches', () => {
       conditions: [{ kind: 'automatic', automatic: true }],
       actions: [{ type: 'chat', message: 'ありがとう' }],
     }
-    const followed = { event: 'channel.follow', userName: '田中太郎', userLogin: 'tanaka_taro' } as const
+    const followed = { event: 'channel.follow', userId: '視聴者のユーザーID', userName: '田中太郎', userLogin: 'tanaka_taro' } as const
 
     expect(matches(followWithAutoFlag, followed, notFirstTime)).toBe(false)
   })
 
   it('reward の条件はチャンネルポイント交換以外には当てはまらない（既定メニューからは作れない組み合わせだが、照合でも通さない）', () => {
     const followWithReward: ResolvedTrigger = { kind: 'follow', event: 'channel.follow', conditions: [{ kind: 'reward', rewardId: '報酬ID-乾杯' }], actions: [{ type: 'chat', message: 'ありがとう' }] }
-    const followed = { event: 'channel.follow', userName: '田中太郎', userLogin: 'tanaka_taro' } as const
+    const followed = { event: 'channel.follow', userId: '視聴者のユーザーID', userName: '田中太郎', userLogin: 'tanaka_taro' } as const
 
     expect(matches(followWithReward, followed, notFirstTime)).toBe(false)
   })
@@ -329,17 +334,17 @@ describe('matches', () => {
 
 describe('fillMessage', () => {
   it('イベントごとの差し込み語を値に置き換える', () => {
-    const resubscription = { event: 'channel.subscription.message', userName: '田中太郎', userLogin: 'tanaka_taro', tier: '2000', cumulativeMonths: 12 } as const
+    const resubscription = { event: 'channel.subscription.message', userId: '視聴者のユーザーID', userName: '田中太郎', userLogin: 'tanaka_taro', tier: '2000', cumulativeMonths: 12 } as const
 
     expect(fillMessage('{user} さん、ティア{tier}で{months}か月ありがとう！', resubscription, null)).toBe('田中太郎 さん、ティア2で12か月ありがとう！')
   })
 
   it('そのイベントにない差し込み語は残す（入力の誤りに配信者が気付けるようにする）', () => {
-    expect(fillMessage('{user} さん、{viewers}人', { event: 'channel.follow', userName: '田中太郎', userLogin: 'tanaka_taro' }, null)).toBe('田中太郎 さん、{viewers}人')
+    expect(fillMessage('{user} さん、{viewers}人', { event: 'channel.follow', userId: '視聴者のユーザーID', userName: '田中太郎', userLogin: 'tanaka_taro' }, null)).toBe('田中太郎 さん、{viewers}人')
   })
 
   it('チャットの発言では、{message} が本文に置き換わる', () => {
-    const chatted = { event: CHAT_MESSAGE, userName: '田中太郎', userLogin: 'tanaka_taro', text: 'おはよう' } as const
+    const chatted = { event: CHAT_MESSAGE, userId: '視聴者のユーザーID', userName: '田中太郎', userLogin: 'tanaka_taro', text: 'おはよう' } as const
 
     expect(fillMessage('{user} さんが「{message}」と言いました', chatted, null)).toBe('田中太郎 さんが「おはよう」と言いました')
   })
@@ -390,13 +395,13 @@ describe('fillMessage', () => {
   })
 
   it('報酬名に $& のような置換の特殊な指定が含まれていても、そのまま差し込む', () => {
-    const redeemed = { event: REDEMPTION, userName: '田中太郎', userLogin: 'tanaka_taro', rewardId: '報酬ID', rewardTitle: '$& と $1 の報酬' } as const
+    const redeemed = { event: REDEMPTION, userId: '視聴者のユーザーID', userName: '田中太郎', userLogin: 'tanaka_taro', rewardId: '報酬ID', rewardTitle: '$& と $1 の報酬' } as const
 
     expect(fillMessage('{reward} を交換しました', redeemed, null)).toBe('$& と $1 の報酬 を交換しました')
   })
 
   it('配信のあらすじを {summary} に差し込む（イベント種別によらず使える）', () => {
-    const followed = { event: 'channel.follow', userName: '田中太郎', userLogin: 'tanaka_taro' } as const
+    const followed = { event: 'channel.follow', userId: '視聴者のユーザーID', userName: '田中太郎', userLogin: 'tanaka_taro' } as const
 
     expect(fillMessage('{user} さん、いらっしゃい。{summary}', followed, '配信者は新しいゲームを遊んでいます')).toBe(
       '田中太郎 さん、いらっしゃい。配信者は新しいゲームを遊んでいます',
@@ -404,19 +409,19 @@ describe('fillMessage', () => {
   })
 
   it('あらすじが無ければ、{summary} を残さずその旨を差し込む（文言が欠けたように見せない）', () => {
-    const followed = { event: 'channel.follow', userName: '田中太郎', userLogin: 'tanaka_taro' } as const
+    const followed = { event: 'channel.follow', userId: '視聴者のユーザーID', userName: '田中太郎', userLogin: 'tanaka_taro' } as const
 
     expect(fillMessage('これまでのあらすじ: {summary}', followed, null)).toBe('これまでのあらすじ: まだあらすじがありません')
   })
 
   it('あらすじに $& のような置換の特殊な指定が含まれていても、そのまま差し込む', () => {
-    const followed = { event: 'channel.follow', userName: '田中太郎', userLogin: 'tanaka_taro' } as const
+    const followed = { event: 'channel.follow', userId: '視聴者のユーザーID', userName: '田中太郎', userLogin: 'tanaka_taro' } as const
 
     expect(fillMessage('{summary}', followed, '$& と $1 の話をしていました')).toBe('$& と $1 の話をしていました')
   })
 
   it('視聴者の発言に書かれた {summary} は、あらすじに置き換えずそのまま残す（差し込んだ値を差し込み語として読まない）', () => {
-    const chatted = { event: CHAT_MESSAGE, userName: '田中太郎', userLogin: 'tanaka_taro', text: '{summary}{summary}' } as const
+    const chatted = { event: CHAT_MESSAGE, userId: '視聴者のユーザーID', userName: '田中太郎', userLogin: 'tanaka_taro', text: '{summary}{summary}' } as const
 
     expect(fillMessage('{user}「{message}」 いまの話: {summary}', chatted, '新しいゲームを遊んでいます')).toBe(
       '田中太郎「{summary}{summary}」 いまの話: 新しいゲームを遊んでいます',
@@ -426,14 +431,14 @@ describe('fillMessage', () => {
 
 describe('aiChatsFor', () => {
   const alertConfig = (triggers: StoredTrigger[]): AlertConfig => ({ triggers })
-  const followNotification = { user_name: '田中太郎', user_login: 'tanaka_taro' }
+  const followNotification = { user_id: '視聴者のユーザーID', user_name: '田中太郎', user_login: 'tanaka_taro' }
 
   it('当てはまるトリガーの指示と、読み取ったイベントの中身を返す（文面づくりの材料になる）', () => {
     const config = alertConfig([{ kind: 'follow', actions: [{ type: 'aiChat', instruction: 'お礼を言ってください' }] }])
 
     expect(aiChatsFor(config, 'channel.follow', followNotification, notFirstTime)).toEqual([{
       instruction: 'お礼を言ってください',
-      extracted: { event: 'channel.follow', userName: '田中太郎', userLogin: 'tanaka_taro' },
+      extracted: { event: 'channel.follow', userId: '視聴者のユーザーID', userName: '田中太郎', userLogin: 'tanaka_taro' },
     }])
   })
 
@@ -469,7 +474,7 @@ describe('aiChatsFor', () => {
 
 describe('chatMessagesFor', () => {
   const alertConfig = (triggers: StoredTrigger[]): AlertConfig => ({ triggers })
-  const followNotification = { user_name: '田中太郎', user_login: 'tanaka_taro' }
+  const followNotification = { user_id: '視聴者のユーザーID', user_name: '田中太郎', user_login: 'tanaka_taro' }
 
   it('当てはまるトリガーのチャットの文言を、差し込み語を置き換えて返す', () => {
     const config = alertConfig([{ kind: 'follow', actions: [{ type: 'chat', message: '{user} さん、フォローありがとうございます！' }] }])
@@ -806,7 +811,7 @@ describe('shoutoutsFor', () => {
   it('レイド以外のイベントのトリガーには反応しない', () => {
     const config = alertConfig([{ kind: 'raid', actions: [{ type: 'shoutout' }] }])
 
-    expect(shoutoutsFor(config, 'channel.follow', { user_name: '田中太郎', user_login: 'tanaka_taro' }, notFirstTime)).toEqual([])
+    expect(shoutoutsFor(config, 'channel.follow', { user_id: '視聴者のユーザーID', user_name: '田中太郎', user_login: 'tanaka_taro' }, notFirstTime)).toEqual([])
   })
 })
 
@@ -875,7 +880,7 @@ describe('townToursFor', () => {
   it('レイドとキーワード以外のトリガーに置かれていたら、黙って流さずに投げる', () => {
     const config = alertConfig([{ kind: 'follow', actions: [{ type: 'townTour' }] }])
 
-    expect(() => townToursFor(config, 'channel.follow', { user_name: '田中太郎', user_login: 'tanaka_taro' }, notFirstTime)).toThrow(
+    expect(() => townToursFor(config, 'channel.follow', { user_id: '視聴者のユーザーID', user_name: '田中太郎', user_login: 'tanaka_taro' }, notFirstTime)).toThrow(
       '市町村紹介はレイドとキーワードのトリガーにだけ置けます',
     )
   })
@@ -908,13 +913,13 @@ describe('twistersFor', () => {
   it('レイド以外のトリガーにツイスターがあったら投げる（保存時に拒むので、あれば設定の読み違い）', () => {
     const config = alertConfig([{ kind: 'follow', actions: [{ type: 'twister' }] }])
 
-    expect(() => twistersFor(config, 'channel.follow', { user_name: '田中太郎', user_login: 'tanaka_taro' }, notFirstTime)).toThrowError(/レイドのトリガーにだけ/)
+    expect(() => twistersFor(config, 'channel.follow', { user_id: '視聴者のユーザーID', user_name: '田中太郎', user_login: 'tanaka_taro' }, notFirstTime)).toThrowError(/レイドのトリガーにだけ/)
   })
 })
 
 describe('kanjiQuizzesFor', () => {
   const alertConfig = (triggers: StoredTrigger[]): AlertConfig => ({ triggers })
-  const redemption = { user_name: '田中太郎', user_login: 'tanaka_taro', reward: { id: '報酬ID-漢字クイズ', title: '漢字クイズを出す' } }
+  const redemption = { user_id: '視聴者のユーザーID', user_name: '田中太郎', user_login: 'tanaka_taro', reward: { id: '報酬ID-漢字クイズ', title: '漢字クイズを出す' } }
 
   it('チャンネルポイントのトリガーの漢字クイズを、級ごとの出題の重みと交換した人の名前と一緒に返す', () => {
     const config = alertConfig([{ kind: 'reward', rewardId: '報酬ID-漢字クイズ', actions: [{ type: 'kanjiQuiz', weights: singleGradeWeights('pre1') }] }])
@@ -931,15 +936,60 @@ describe('kanjiQuizzesFor', () => {
   it('チャンネルポイント以外のトリガーに漢字クイズがあったら投げる（保存時に拒むので、あれば設定の読み違い）', () => {
     const config = alertConfig([{ kind: 'follow', actions: [{ type: 'kanjiQuiz', weights: singleGradeWeights('6') }] }])
 
-    expect(() => kanjiQuizzesFor(config, 'channel.follow', { user_name: '田中太郎', user_login: 'tanaka_taro' }, notFirstTime)).toThrowError(
+    expect(() => kanjiQuizzesFor(config, 'channel.follow', { user_id: '視聴者のユーザーID', user_name: '田中太郎', user_login: 'tanaka_taro' }, notFirstTime)).toThrowError(
       /チャンネルポイントのトリガーにだけ/,
     )
   })
 })
 
+describe('dollGrantsFor', () => {
+  const alertConfig = (triggers: StoredTrigger[]): AlertConfig => ({ triggers })
+  const redemption = { user_id: '田中太郎のユーザーID', user_name: '田中太郎', user_login: 'tanaka_taro', reward: { id: '報酬ID-人形', title: '人形をもらう' } }
+  const raidNotification = {
+    from_broadcaster_user_id: 'レイド元のユーザーID',
+    from_broadcaster_user_name: '山田花子',
+    from_broadcaster_user_login: 'yamada_hanako',
+    to_broadcaster_user_name: 'たねのぶ',
+    viewers: 25,
+  }
+
+  it('当てはまったトリガーの人形を、出来事を起こした人のユーザーIDと、種類・個数・トリガーの項目と一緒に返す', () => {
+    // 前提: チャンネルポイントの行と「すべての報酬」の行の2つが同じ交換に当てはまる
+    const config = alertConfig([
+      { kind: 'reward', rewardId: '報酬ID-人形', actions: [{ type: 'dollGrant', kind: 'normal', count: 1 }] },
+      { kind: 'reward', rewardId: null, actions: [{ type: 'dollGrant', kind: 'super', count: 2 }] },
+    ])
+
+    expect(dollGrantsFor(config, REDEMPTION, redemption, notFirstTime)).toEqual([
+      { userId: '田中太郎のユーザーID', kind: 'normal', count: 1, triggerKind: 'reward' },
+      { userId: '田中太郎のユーザーID', kind: 'super', count: 2, triggerKind: 'reward' },
+    ])
+  })
+
+  it('レイドでは、レイドしてきた配信者に渡す', () => {
+    const config = alertConfig([{ kind: 'raid', actions: [{ type: 'dollGrant', kind: 'super', count: 1 }] }])
+
+    expect(dollGrantsFor(config, 'channel.raid', raidNotification, notFirstTime)).toEqual([
+      { userId: 'レイド元のユーザーID', kind: 'super', count: 1, triggerKind: 'raid' },
+    ])
+  })
+
+  it('人形を渡す動作を置いたトリガーが無ければ空の一覧を返す', () => {
+    const config = alertConfig([{ kind: 'reward', rewardId: '報酬ID-人形', actions: [{ type: 'lick' }] }])
+
+    expect(dollGrantsFor(config, REDEMPTION, redemption, notFirstTime)).toEqual([])
+  })
+
+  it('相手が視聴者に決まらないトリガーに人形を渡す動作があったら投げる（保存時に拒むので、あれば設定の読み違い）', () => {
+    const config = alertConfig([{ kind: 'adBreakBegin', automatic: null, actions: [{ type: 'dollGrant', kind: 'normal', count: 1 }] }])
+
+    expect(() => dollGrantsFor(config, AD_BREAK_BEGIN, adNotification, notFirstTime)).toThrowError(/視聴者が決まるトリガーにだけ/)
+  })
+})
+
 describe('licksFor', () => {
   const alertConfig = (triggers: StoredTrigger[]): AlertConfig => ({ triggers })
-  const redemption = { user_name: '田中太郎', user_login: 'tanaka_taro', reward: { id: '報酬ID-ペロペロ', title: 'ペロペロする' } }
+  const redemption = { user_id: '視聴者のユーザーID', user_name: '田中太郎', user_login: 'tanaka_taro', reward: { id: '報酬ID-ペロペロ', title: 'ペロペロする' } }
   const chatNotification = {
     broadcaster_user_id: '配信者ID',
     chatter_user_id: '発言者ID',
@@ -970,7 +1020,7 @@ describe('licksFor', () => {
   it('チャンネルポイントと「決まった人のその配信で最初の発言」以外のトリガーにペロペロがあったら投げる（保存時に拒むので、あれば設定の読み違い）', () => {
     const config = alertConfig([{ kind: 'follow', actions: [{ type: 'lick' }] }])
 
-    expect(() => licksFor(config, 'channel.follow', { user_name: '田中太郎', user_login: 'tanaka_taro' }, notFirstTime)).toThrowError(
+    expect(() => licksFor(config, 'channel.follow', { user_id: '視聴者のユーザーID', user_name: '田中太郎', user_login: 'tanaka_taro' }, notFirstTime)).toThrowError(
       /チャンネルポイントと「決まった人のその配信で最初の発言」のトリガーにだけ/,
     )
   })
@@ -978,7 +1028,7 @@ describe('licksFor', () => {
 
 describe('vrmsFor', () => {
   const alertConfig = (triggers: StoredTrigger[]): AlertConfig => ({ triggers })
-  const follow = { user_name: '田中太郎', user_login: 'tanaka_taro' }
+  const follow = { user_id: '視聴者のユーザーID', user_name: '田中太郎', user_login: 'tanaka_taro' }
 
   it('VRMの反応を置いたトリガーに当てはまったぶんだけ、その項目を並べて返す（反応の種類は項目から決まる）', () => {
     const config = alertConfig([
@@ -997,7 +1047,7 @@ describe('vrmsFor', () => {
 })
 
 describe('firstChatOfStream の条件', () => {
-  const chatted = { event: CHAT_MESSAGE, userName: '田中太郎', userLogin: 'tanaka_taro', text: 'おはようございます' } as const
+  const chatted = { event: CHAT_MESSAGE, userId: '視聴者のユーザーID', userName: '田中太郎', userLogin: 'tanaka_taro', text: 'おはようございます' } as const
   const firstTimeTrigger = resolveTrigger({ kind: 'welcome', actions: [{ type: 'chat', message: '{user} さん、おかえりなさい！' }] })
 
   it('その配信で初めての発言なら当てはまる', () => {
@@ -1015,14 +1065,14 @@ describe('firstChatOfStream の条件', () => {
       conditions: [{ kind: 'firstChatOfStream' }],
       actions: [{ type: 'chat', message: 'ありがとう' }],
     }
-    const followed = { event: 'channel.follow', userName: '田中太郎', userLogin: 'tanaka_taro' } as const
+    const followed = { event: 'channel.follow', userId: '視聴者のユーザーID', userName: '田中太郎', userLogin: 'tanaka_taro' } as const
 
     expect(matches(followWithFirstTime, followed, isFirstTime)).toBe(false)
   })
 })
 
 describe('firstChatEver の条件', () => {
-  const chatted = { event: CHAT_MESSAGE, userName: '田中太郎', userLogin: 'tanaka_taro', text: 'はじめまして' } as const
+  const chatted = { event: CHAT_MESSAGE, userId: '視聴者のユーザーID', userName: '田中太郎', userLogin: 'tanaka_taro', text: 'はじめまして' } as const
   const firstSightTrigger = resolveTrigger({ kind: 'newViewer', actions: [{ type: 'chat', message: '{user} さん、はじめまして！' }] })
 
   it('このチャンネルで初めての発言なら当てはまる', () => {
@@ -1040,14 +1090,14 @@ describe('firstChatEver の条件', () => {
       conditions: [{ kind: 'firstChatEver' }],
       actions: [{ type: 'chat', message: 'ありがとう' }],
     }
-    const followed = { event: 'channel.follow', userName: '田中太郎', userLogin: 'tanaka_taro' } as const
+    const followed = { event: 'channel.follow', userId: '視聴者のユーザーID', userName: '田中太郎', userLogin: 'tanaka_taro' } as const
 
     expect(matches(followWithFirstSight, followed, { ...notFirstTime, firstChatEver: true })).toBe(false)
   })
 })
 
 describe('returningAfter の条件', () => {
-  const chatted = { event: CHAT_MESSAGE, userName: '田中太郎', userLogin: 'tanaka_taro', text: 'おひさしぶりです' } as const
+  const chatted = { event: CHAT_MESSAGE, userId: '視聴者のユーザーID', userName: '田中太郎', userLogin: 'tanaka_taro', text: 'おひさしぶりです' } as const
   const longAbsenceTrigger = resolveTrigger({ kind: 'comeback', days: 30, actions: [{ type: 'chat', message: '{user} さん、お久しぶりです！' }] })
 
   it('指定した日数ちょうど空いていれば当てはまる', () => {
@@ -1225,7 +1275,7 @@ describe('alertsFor', () => {
   })
 
   const overlayKey = 'overlay-key_1'
-  const followNotification = { user_name: '田中太郎', user_login: 'tanaka_taro' }
+  const followNotification = { user_id: '視聴者のユーザーID', user_name: '田中太郎', user_login: 'tanaka_taro' }
 
   it('視聴者の発言に書かれた {summary} は、あらすじに置き換えずアラート文にそのまま出す（文が際限なく長くならない）', () => {
     const config: AlertConfig = { triggers: [{ kind: 'everyMessage', actions: [{ ...alertAction, message: '{message}' }] }] }

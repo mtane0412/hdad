@@ -231,6 +231,74 @@ describe('parseAlertConfig', () => {
     )
   })
 
+  it('相手が視聴者に決まるトリガーなら、種類と個数を持った「人形を渡す」動作（dollGrant）を受け付ける', () => {
+    // 前提: チャンネルポイント・初見の挨拶・レイドは、どれも出来事を起こした人が1人に決まる
+    const config = parseAlertConfig(
+      {
+        triggers: [
+          { kind: 'reward', rewardId: '報酬ID-人形', actions: [{ type: 'dollGrant', kind: 'normal', count: 1 }] },
+          { kind: 'newViewer', actions: [{ type: 'dollGrant', kind: 'super', count: 2 }] },
+          { kind: 'raid', actions: [{ type: 'dollGrant', kind: 'super', count: 10 }] },
+        ],
+      },
+      materialKind,
+    )
+
+    expect(config.triggers.map((trigger) => trigger.actions)).toEqual([
+      [{ type: 'dollGrant', kind: 'normal', count: 1 }],
+      [{ type: 'dollGrant', kind: 'super', count: 2 }],
+      [{ type: 'dollGrant', kind: 'super', count: 10 }],
+    ])
+  })
+
+  it('人形の種類が normal・super でないとき、個数が1〜10の整数でないときは拒否する', () => {
+    expect(() =>
+      parseAlertConfig(
+        {
+          triggers: [
+            { kind: 'reward', rewardId: '報酬ID-人形', actions: [{ type: 'dollGrant', kind: 'golden', count: 1 }] },
+            { kind: 'reward', rewardId: '報酬ID-人形', actions: [{ type: 'dollGrant', kind: 'normal', count: 0 }] },
+            { kind: 'reward', rewardId: '報酬ID-人形', actions: [{ type: 'dollGrant', kind: 'normal', count: 11 }] },
+            { kind: 'reward', rewardId: '報酬ID-人形', actions: [{ type: 'dollGrant', kind: 'normal', count: 1.5 }] },
+          ],
+        },
+        materialKind,
+      ),
+    ).toThrow(
+      expect.objectContaining({
+        problems: [
+          'triggers[0].actions[0].kind: normal / super のいずれかを指定してください',
+          'triggers[1].actions[0].count: 1〜10 の整数で指定してください',
+          'triggers[2].actions[0].count: 1〜10 の整数で指定してください',
+          'triggers[3].actions[0].count: 1〜10 の整数で指定してください',
+        ],
+      }),
+    )
+  })
+
+  it('相手が視聴者に決まらないトリガー（広告・開発・ポモドーロ）に「人形を渡す」を置いたら拒否する', () => {
+    // 前提: 広告を打った人は配信者自身のことがあり、開発の出来事は GitHub の人、ポモドーロには相手がいない
+    const grant = { type: 'dollGrant', kind: 'normal', count: 1 }
+    expect(() =>
+      parseAlertConfig(
+        {
+          triggers: [
+            { kind: 'adBreakBegin', automatic: null, actions: [grant] },
+            { kind: 'pullRequestMerged', actions: [grant] },
+            { kind: 'pomodoroBreakBegin', actions: [grant] },
+          ],
+        },
+        materialKind,
+      ),
+    ).toThrow(
+      expect.objectContaining({
+        problems: [0, 1, 2].map(
+          (index) => `triggers[${index}].actions: 人形を渡す（dollGrant）は、出来事を起こした視聴者が決まるトリガー（チャット・チャンネルポイント・フォロー・サブスク・レイド）にだけ置けます`,
+        ),
+      }),
+    )
+  })
+
   it('チャンネルポイントのトリガーなら、級ごとの出題の重みを持った漢字クイズの動作（kanjiQuiz）を受け付ける', () => {
     const weights = { ...singleGradeWeights('3'), '3': 2, pre2: 1 }
     const config = parseAlertConfig({ triggers: [{ kind: 'reward', rewardId: '報酬ID-漢字クイズ', actions: [{ type: 'kanjiQuiz', weights }] }] }, materialKind)
@@ -496,7 +564,7 @@ describe('parseAlertConfig', () => {
 
   it('対応していない動作の種類は拒否する', () => {
     expect(() => parseAlertConfig({ triggers: [receivedTrigger({ actions: [alertAction({ type: 'ban' })] })] }, materialKind)).toThrowError(
-      expect.objectContaining({ problems: ['triggers[0].actions[0].type: alert / chat / announce / aiChat / shoutout / townTour / twister / kanjiQuiz / lick / vrm / chatDeduction のいずれかを指定してください'] }),
+      expect.objectContaining({ problems: ['triggers[0].actions[0].type: alert / chat / announce / aiChat / shoutout / townTour / twister / kanjiQuiz / lick / vrm / chatDeduction / dollGrant のいずれかを指定してください'] }),
     )
   })
 
