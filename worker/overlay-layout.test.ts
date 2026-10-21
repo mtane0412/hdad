@@ -167,6 +167,12 @@ describe('parseOverlayLayout', () => {
     expect(parseOverlayLayout({ overlays: [{ name: 'front', items: [opinions] }] })).toEqual({ overlays: [{ name: 'front', items: [opinions] }] })
   })
 
+  it('人形の獲得（dollAward）はデザインIDを持たない種類として受け取る', () => {
+    const dollAward: OverlayItem = { kind: 'dollAward', id: '', params: '', rect: { x: 0, y: 0, width: 100, height: 100 } }
+
+    expect(parseOverlayLayout({ overlays: [{ name: 'front', items: [dollAward] }] })).toEqual({ overlays: [{ name: 'front', items: [dollAward] }] })
+  })
+
   it('チャットで推理（chatDeduction）はデザインIDを持たない種類として受け取る', () => {
     const chatDeduction: OverlayItem = { kind: 'chatDeduction', id: '', params: '', rect: { x: 0, y: 0, width: 100, height: 100 } }
 

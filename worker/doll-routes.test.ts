@@ -310,3 +310,41 @@ describe('ほかの経路とのつながり', () => {
     expect(await readDollHoldings(env.DB)).toEqual([])
   })
 })
+
+describe('GET /api/overlay/doll-award/socket', () => {
+  /** オーバーレイ用キー（合成ページのURLに入っているもの） */
+  const OVERLAY_KEY = 'issued-overlay-key-0123456789abcdefghij'
+
+  /** 合成ページとして接続する（ログインはしない） */
+  const connect = (env: Env, key: string, headers: Record<string, string> = { Upgrade: 'websocket' }) =>
+    callHandler(new Request(`${SITE}/api/overlay/doll-award/socket?key=${key}`, { headers }), env)
+
+  it('オーバーレイ用キーが違えば断る', async () => {
+    const env = await setupEnv()
+    await env.STORE.put('overlay-key', OVERLAY_KEY)
+
+    const response = await connect(env, 'wrong-key-0123456789abcdefghijklmn')
+
+    expect(response.status).toBe(401)
+  })
+
+  it('WebSocketの接続でなければ400にする', async () => {
+    const env = await setupEnv()
+    await env.STORE.put('overlay-key', OVERLAY_KEY)
+
+    const response = await connect(env, OVERLAY_KEY, {})
+
+    expect(response.status).toBe(400)
+  })
+
+  it('WebSocketの接続なら、人形の獲得を受け取る接続として配送先へ引き渡す', async () => {
+    const alertChannel = createFakeAlertChannel()
+    const env = { ...(await setupEnv()), ALERTS: alertChannel.namespace }
+    await env.STORE.put('overlay-key', OVERLAY_KEY)
+
+    const response = await connect(env, OVERLAY_KEY)
+
+    expect(response.status).toBe(200)
+    expect(alertChannel.forwardedConnections.map((request) => new URL(request.url).searchParams.get('topic'))).toEqual(['dollAward'])
+  })
+})

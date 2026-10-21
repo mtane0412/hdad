@@ -48,6 +48,7 @@ export const ITEM_KIND_LABELS: Readonly<Record<ItemKind, string>> = {
   lick: 'ペロペロ',
   vrm: 'VRM',
   chatDeduction: 'チャットで推理',
+  dollAward: '人形の獲得',
 }
 
 /** Workerが返す問題点に出る項目の名前を、画面の言い方にする */
@@ -88,6 +89,7 @@ const DESIGNS: Readonly<Record<ItemKind, readonly DesignItem[]>> = {
   lick: [],
   vrm: [],
   chatDeduction: [],
+  dollAward: [],
 }
 
 /**

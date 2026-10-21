@@ -9,14 +9,18 @@
  * - PUT /api/admin/doll-current: いまの人形を選ぶ（{ setId: 組の ID | null }）。組の一覧を返す
  * - POST /api/admin/viewers/:userId/dolls: 視聴者にいまの人形を手で渡す・取り上げる（{ kind, delta }）。増減したあとの所持数を返す
  * - GET・PUT /api/admin/doll-prizes/:game: ゲーム（chatDeduction・kanjiQuiz）の正解者に渡す人形を読み書きする（{ kind: 'normal' | 'super' | null }。issue #420）
+ * - GET /api/overlay/doll-award/socket?key=: 合成ページの素材「人形の獲得」の WebSocket の接続を配送先（AlertChannel）へ引き渡す。
+ *   オーバーレイ用キーで守る（ほかは配信者のセッション）。押し出すのは worker/doll-award.ts の grantDolls
  *
  * 読み書きは worker/doll-store.ts（正解者に渡す人形は worker/doll-prize.ts）、検証は worker/doll.ts にある。
  */
+import { connectDollAwardSocket } from './alert-channel'
 import { DOLL_PRIZE_GAMES, parseDollChangeInput, parseDollPrize, parseDollSetInput, type DollHolding, type DollPrize, type DollPrizeGame, type DollSet } from './doll'
 import { loadDollPrize, saveDollPrize } from './doll-prize'
 import { DollChangeError, changeDolls, deleteDollSet, insertDollSet, readDollHoldings, readDollSets, selectCurrentDollSet, updateDollSet } from './doll-store'
-import { HttpError, STATUS, requireAdmin, type Context } from './http'
+import { HttpError, STATUS, requireAdmin, requireOverlayKey, type Context } from './http'
 import { listMedia } from './media'
+import { overlayKeyTag } from './overlay-key'
 import { readViewer } from './viewer-store'
 
 /** 経路の :id として受け付ける書式（1以上の整数） */
@@ -173,4 +177,13 @@ export const putDollPrize = async (context: Context): Promise<Response> => {
   const prize = parseDollPrize(await readJson(context))
   await saveDollPrize(context.env.STORE, game, prize)
   return Response.json(prize satisfies DollPrize)
+}
+
+/** GET /api/overlay/doll-award/socket?key=: 合成ページからのWebSocketの接続を、人形の獲得を受け取る接続として配送先へ引き渡す */
+export const dollAwardSocket = async (context: Context): Promise<Response> => {
+  const key = await requireOverlayKey(context)
+  if (context.request.headers.get('Upgrade') !== 'websocket') {
+    throw new HttpError(STATUS.badRequest, 'expected-websocket', 'この経路はWebSocketの接続にだけ使えます')
+  }
+  return connectDollAwardSocket(context.env.ALERTS, context.request, await overlayKeyTag(key))
 }

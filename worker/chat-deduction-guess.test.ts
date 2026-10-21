@@ -382,6 +382,27 @@ describe('チャットで推理の正解者に渡す人形（issue #420）', () 
     expect(env.DB.sqlite.prepare('SELECT reason, trigger_kind FROM doll_ledger').all()).toEqual([{ reason: 'chatDeduction', trigger_kind: null }])
   })
 
+  it('正解者に渡したら、正解者の名前と人形を合成ページの「人形の獲得」へ押し出す', async () => {
+    // 前提: 正解者に渡すのはスーパー人形。押し出しを確かめるため、配送先の代役を手元に持つ
+    const alerts = createFakeAlertChannel()
+    const env = { ...createEnv(), ALERTS: alerts.namespace }
+    await prepare(env)
+    await saveDollPrize(env.STORE, 'chatDeduction', { kind: 'super' })
+    await selectBears(env)
+    await startGame(env.DB, 'mount-fuji', NOW - 60 * 1000)
+
+    await deliver(env, notificationOf(guessOf()), fakeTwitch().fetchImpl)
+
+    expect(alerts.pushedDollAwards).toMatchObject([
+      {
+        userName: '田中太郎',
+        kind: 'super',
+        count: 1,
+        doll: { name: 'スーパークマ人形', imageUrl: '/api/media/image-super-bear?key=issued-overlay-key-0123456789abcdefghij' },
+      },
+    ])
+  })
+
   it('不正解の人と、正解のあとに届いた正解の人には渡さない', async () => {
     const env = createEnv()
     await prepare(env)

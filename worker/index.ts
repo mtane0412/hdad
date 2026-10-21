@@ -144,6 +144,7 @@
  * | GET  /api/overlay/town-tour/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、市町村紹介の呼び出しの配送先へ引き渡す |
  * | GET  /api/overlay/twister/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、ツイスターの呼び出しの配送先へ引き渡す |
  * | GET  /api/overlay/lick/socket    | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、ペロペロの呼び出しの配送先へ引き渡す |
+ * | GET  /api/overlay/doll-award/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、人形の獲得の配送先へ引き渡す |
  * | GET  /api/overlay/vrm/socket     | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、VRMの演出の呼び出しの配送先へ引き渡す |
  * | GET  /api/overlay/vrm/model      | オーバーレイ用キー | 出しっぱなしのマスコットとして読み込む VRM のURL |
  * | GET  /api/overlay/kanji-quiz/socket | オーバーレイ用キー | 合成ページからのWebSocketの接続を受け、漢字クイズの出題の配送先へ引き渡す |
@@ -182,7 +183,7 @@ import { getFocus, putFocus } from './focus-routes'
 import { getWipeIcon } from './wipe-routes'
 import { getBgm, getOverlayBgm, overlayBgmDuckSocket, overlayBgmSocket, postBgmSkip, postOverlayBgmDuck, postOverlayBgmEnded, putBgmPlayback, putBgmSettings, putBgmTracks } from './bgm-routes'
 import { deleteViewerRoute, getViewers, patchViewer } from './viewer-routes'
-import { getDollPrize, getDolls, postDollSet, postViewerDolls, putCurrentDollSet, putDollPrize, putDollSet, removeDollSet } from './doll-routes'
+import { dollAwardSocket, getDollPrize, getDolls, postDollSet, postViewerDolls, putCurrentDollSet, putDollPrize, putDollSet, removeDollSet } from './doll-routes'
 import { deleteReward, getRewards, patchReward, postReward } from './reward-routes'
 import {
   deleteBot,
@@ -478,6 +479,7 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/admin/twister/sound', handle: getTwisterSound },
   { method: 'PUT', path: '/api/admin/twister/sound', handle: putTwisterSound },
   { method: 'GET', path: '/api/overlay/lick/socket', handle: lickSocket },
+  { method: 'GET', path: '/api/overlay/doll-award/socket', handle: dollAwardSocket },
   { method: 'POST', path: '/api/admin/lick/demo', handle: postLickDemo },
   { method: 'GET', path: '/api/admin/lick/sound', handle: getLickSound },
   { method: 'PUT', path: '/api/admin/lick/sound', handle: putLickSound },

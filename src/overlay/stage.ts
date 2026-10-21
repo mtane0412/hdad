@@ -127,6 +127,10 @@ import { sceneAt, visitRecordAtOf, type Playback } from '../town-tour/timeline'
 import { decodeTownBorders, decodeTownShapes, type TownBorders } from '../town-tour/topo'
 import { parseTownTourMessage, tourLinesOf, type TownTourCall, type TownTourIntro } from '../town-tour/tour'
 import { createTownTourRenderer, type TownTourRenderer } from '../town-tour/view'
+import { DOLL_AWARD_SOCKET_HINT, DOLL_AWARD_SOCKET_PATH } from '../doll-award/api'
+import { parseDollAwardCall, type DollAwardCall } from '../doll-award/call'
+import { DEMO_DOLL_AWARDS, DEMO_DOLL_AWARD_INTERVAL_MS } from '../doll-award/demo'
+import { createDollAwardView } from '../doll-award/view'
 import { LICK_SOCKET_HINT, LICK_SOCKET_PATH } from '../lick/api'
 import { parseLickCall, type LickCall } from '../lick/call'
 import { DEMO_LICK_CALLS, DEMO_LICK_INTERVAL_MS } from '../lick/demo'
@@ -192,6 +196,7 @@ const NOUNS: Readonly<Record<ItemKind, string>> = {
   lick: 'ペロペロ',
   vrm: 'VRM',
   chatDeduction: 'チャットで推理',
+  dollAward: '人形の獲得',
 }
 
 /** サイドスーパーの文言を読みに行く間隔（ミリ秒）。文言は cron が5分おきに作るので、30秒あれば十分に追いつく */
@@ -1964,6 +1969,77 @@ const mountLick = (box: HTMLElement, item: OverlayItem, { key, demo }: MountCont
 }
 
 /**
+ * 人形の獲得。Worker が人形を自動で渡したとき（トリガーの動作「人形を渡す」・ゲームの正解者）に押し出す1件ずつを、
+ * 届いた順に人形の画像と「◯◯さんが クマ人形 を獲得！」として出す（表示は src/doll-award/view.ts）。
+ */
+const mountDollAward = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
+  // この素材は配信者が決めるパラメータを持たない（何を出すかは渡した人形で決まる）
+  parseParams({}, new URLSearchParams(item.params))
+
+  const root = document.createElement('div')
+  root.className = 'doll-awards'
+  box.append(root)
+  const view = createDollAwardView(root)
+
+  /** 流すのを待っている獲得（届いた順） */
+  let waiting: readonly DollAwardCall[] = []
+  /** いま1件を出しているか */
+  let playing = false
+
+  /** 出していなければ、待っている獲得の先頭を出す。出し終えたら次へ進む */
+  const startNext = (): void => {
+    if (playing) return
+    const [call, ...rest] = waiting
+    if (call === undefined) return
+    waiting = rest
+    playing = true
+    void view
+      .show(call)
+      // 画像が読めなくても後続の獲得は出すが、黙って飛ばさず素材の箱に知らせる
+      .catch((error: unknown) => showError(error, NOUNS.dollAward, box, 'read'))
+      .finally(() => {
+        playing = false
+        startNext()
+      })
+  }
+
+  const enqueue = (call: DollAwardCall): void => {
+    waiting = [...waiting, call]
+    startNext()
+  }
+
+  if (demo) {
+    // プレビューではWorkerにつながず、決まった獲得を順にくり返し流す
+    startSampleCycle(DEMO_DOLL_AWARDS, DEMO_DOLL_AWARD_INTERVAL_MS, enqueue)
+    return {}
+  }
+
+  connectSocket(
+    socketUrl(DOLL_AWARD_SOCKET_PATH, { key }),
+    {
+      onMessage: (text) => {
+        try {
+          const call = parseDollAwardCall(text)
+          clearError(box, 'read')
+          enqueue(call)
+        } catch (error) {
+          showError(error, NOUNS.dollAward, box, 'read')
+        }
+      },
+      onOpen: () => {
+        // 獲得は押し出しでしか届かない（読み直すものを持たない）。つながっていない間の獲得は配送先が落とす
+      },
+      onStatus: (status) => view.setNotice(status === 'disconnected' ? 'Workerとの接続が切れました。再接続します…' : null),
+      onWarning: (message) => showError(new Error(message), NOUNS.dollAward, box, 'read'),
+    },
+    DOLL_AWARD_SOCKET_HINT,
+  )
+
+  // 出している1件だけを消えさせる。消え終われば startNext が待っている次の1件へ進む
+  return { dismiss: () => view.dismiss() }
+}
+
+/**
  * VRMのマスコット（issue #358・#359）。配信者が選んだ VRM のキャラクターが配信中ずっと立ち、待機の動き（呼吸・瞬き・視線のゆらぎ）を続ける。
  *
  * マスコットの VRM は、配送先につながるたびに Worker から読む（つながっていない間に選び直されても、つなぎ直せば変わる）。
@@ -2728,6 +2804,8 @@ const mountItem = (box: HTMLElement, item: OverlayItem, context: MountContext): 
       return mountVrm(box, item, context)
     case 'chatDeduction':
       return mountChatDeduction(box, item, context)
+    case 'dollAward':
+      return mountDollAward(box, item, context)
   }
 }
 

@@ -2,7 +2,7 @@
  * ゲームの正解者に渡す人形（issue #420）
  *
  * チャットで推理と漢字クイズの正解者に、いまの人形を1つ渡す。何を渡すか（ふつう・スーパー・渡さない）はゲームごとに1つ持ち、
- * ストア（KV）に保存する。検証は worker/doll.ts の parseDollPrize、台帳への書き込みは worker/doll-store.ts の changeDolls が持つ。
+ * ストア（KV）に保存する。検証は worker/doll.ts の parseDollPrize が持ち、渡すのと獲得の演出の押し出しは worker/doll-award.ts の grantDolls が行う。
  *
  * 注意: 保存時に検証済みの内容しか書き込まないため、読み出し時の再検証はしない。
  * 注意: 渡せなかったとき（いまの人形が無いなど）は投げずに `doll-grant-failed` として記録する。ゲームの進行（終了・解説・
@@ -10,7 +10,7 @@
  *   記録そのものに失敗したときも投げず、Worker のログに残す。
  */
 import { type DollPrize, type DollPrizeGame } from './doll'
-import { changeDolls } from './doll-store'
+import { grantDolls } from './doll-award'
 import type { Context } from './http'
 import { recordFailure } from './stats-store'
 import type { KeyValueStore } from './store'
@@ -49,7 +49,7 @@ export const grantDollPrize = async (
   try {
     const { kind } = await loadDollPrize(env.STORE, game)
     if (kind === null) return
-    await changeDolls(env.DB, { userId: winner.userId, kind, delta: 1, reason: game, sourceId }, now)
+    await grantDolls(env, now, { userId: winner.userId, kind, delta: 1, reason: game, sourceId }, winner.userName)
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
     try {

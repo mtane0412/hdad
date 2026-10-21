@@ -35,7 +35,7 @@ const CONFIG_KEY = 'overlay-layout'
 const SUBJECT = 'オーバーレイの構成'
 
 /** オーバーレイに置ける素材の種類 */
-export const ITEM_KINDS = ['wallpaper', 'clock', 'chat', 'alerts', 'sideSuper', 'focus', 'draw', 'bgm', 'tab', 'caption', 'workLog', 'taskDesk', 'pomodoro', 'townTour', 'twister', 'wipe', 'text', 'kanjiQuiz', 'opinions', 'lick', 'vrm', 'chatDeduction'] as const
+export const ITEM_KINDS = ['wallpaper', 'clock', 'chat', 'alerts', 'sideSuper', 'focus', 'draw', 'bgm', 'tab', 'caption', 'workLog', 'taskDesk', 'pomodoro', 'townTour', 'twister', 'wipe', 'text', 'kanjiQuiz', 'opinions', 'lick', 'vrm', 'chatDeduction', 'dollAward'] as const
 
 /** オーバーレイに置ける素材の種類 */
 export type ItemKind = (typeof ITEM_KINDS)[number]

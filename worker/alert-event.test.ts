@@ -961,8 +961,8 @@ describe('dollGrantsFor', () => {
     ])
 
     expect(dollGrantsFor(config, REDEMPTION, redemption, notFirstTime)).toEqual([
-      { userId: '田中太郎のユーザーID', kind: 'normal', count: 1, triggerKind: 'reward' },
-      { userId: '田中太郎のユーザーID', kind: 'super', count: 2, triggerKind: 'reward' },
+      { userId: '田中太郎のユーザーID', userName: '田中太郎', kind: 'normal', count: 1, triggerKind: 'reward' },
+      { userId: '田中太郎のユーザーID', userName: '田中太郎', kind: 'super', count: 2, triggerKind: 'reward' },
     ])
   })
 
@@ -970,7 +970,7 @@ describe('dollGrantsFor', () => {
     const config = alertConfig([{ kind: 'raid', actions: [{ type: 'dollGrant', kind: 'super', count: 1 }] }])
 
     expect(dollGrantsFor(config, 'channel.raid', raidNotification, notFirstTime)).toEqual([
-      { userId: 'レイド元のユーザーID', kind: 'super', count: 1, triggerKind: 'raid' },
+      { userId: 'レイド元のユーザーID', userName: '山田花子', kind: 'super', count: 1, triggerKind: 'raid' },
     ])
   })
 
