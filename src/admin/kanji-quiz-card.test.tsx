@@ -8,6 +8,7 @@
  * - 保存を断られたら、問題点を枠の名前に読み替えて1行ずつ出すこと
  * - 設定を読めなければ、選択欄を出さずに理由を出すこと
  * - 未保存の変更があるあいだは試し再生を押せないこと（試し再生は保存済みの音で鳴るため）
+ * - 漢字クイズの正解者に渡す人形の欄を出すこと（欄の中身は src/dolls/doll-prize-field.test.tsx が確かめる）
  * （試し再生そのものは trigger-page.test.tsx が確かめる）
  */
 import '@testing-library/jest-dom/vitest'
@@ -39,14 +40,26 @@ const fakeApi = (overrides: Partial<KanjiQuizApi> = {}): KanjiQuizApi => ({
   ...overrides,
 })
 
+/** 正解者に渡す人形の読み書きの代役。保存してあるのはスーパー人形 */
+const fakePrizeApi = () => ({ prize: vi.fn(async () => 'super' as const), savePrize: vi.fn() })
+
 const BGM_LABEL = 'BGM（級が出てから、正解か時間切れまで流す）'
 const CORRECT_LABEL = '正解（正解者が出たとき）'
 
 afterEach(cleanup)
 
 describe('KanjiQuizCard', () => {
+  test('漢字クイズの正解者に渡す人形の欄を出す', async () => {
+    const prizeApi = fakePrizeApi()
+
+    render(<KanjiQuizCard api={fakeApi()} prizeApi={prizeApi} media={media} />)
+
+    expect(await screen.findByRole('combobox', { name: '正解者に渡す人形' })).toHaveValue('super')
+    expect(prizeApi.prize).toHaveBeenCalledWith('kanjiQuiz')
+  })
+
   test('枠ごとに選べるのは「鳴らさない」とアップロード済みの音声だけで、保存してある音が選ばれている', async () => {
-    render(<KanjiQuizCard api={fakeApi()} media={media} />)
+    render(<KanjiQuizCard api={fakeApi()} prizeApi={fakePrizeApi()} media={media} />)
 
     const select = await screen.findByLabelText(BGM_LABEL)
     expect(select).toHaveValue('media-thinking')
@@ -56,20 +69,20 @@ describe('KanjiQuizCard', () => {
   })
 
   test('解説の帯を出すときの音も選べる', async () => {
-    render(<KanjiQuizCard api={fakeApi()} media={media} />)
+    render(<KanjiQuizCard api={fakeApi()} prizeApi={fakePrizeApi()} media={media} />)
 
     expect(await screen.findByLabelText('解説（正解・時間切れのあと、解説の帯を出したとき）')).toHaveValue('')
   })
 
   test('不正解の回答（直前の回答）が届いたときの音も選べる', async () => {
-    render(<KanjiQuizCard api={fakeApi()} media={media} />)
+    render(<KanjiQuizCard api={fakeApi()} prizeApi={fakePrizeApi()} media={media} />)
 
     expect(await screen.findByLabelText('直前の回答（不正解の回答が届くたび）')).toHaveValue('')
   })
 
   test('正解の音を選んで保存すると、選んだ音と音量をWorkerへ送り、保存したことを知らせる', async () => {
     const api = fakeApi()
-    render(<KanjiQuizCard api={api} media={media} />)
+    render(<KanjiQuizCard api={api} prizeApi={fakePrizeApi()} media={media} />)
 
     await userEvent.selectOptions(await screen.findByLabelText(CORRECT_LABEL), 'media-pinpon')
     expect(screen.getByText('未保存の変更があります')).toBeInTheDocument()
@@ -86,7 +99,7 @@ describe('KanjiQuizCard', () => {
         throw new ApiError(400, 'invalid_config', '設定に問題があります', ['slots.correct: 素材「media-pinpon」が存在しません', 'effectVolume: 0〜1 の数で指定してください'])
       }),
     })
-    render(<KanjiQuizCard api={api} media={media} />)
+    render(<KanjiQuizCard api={api} prizeApi={fakePrizeApi()} media={media} />)
 
     await userEvent.selectOptions(await screen.findByLabelText(CORRECT_LABEL), 'media-pinpon')
     await userEvent.click(screen.getByRole('button', { name: '漢字クイズの音を保存する' }))
@@ -101,14 +114,14 @@ describe('KanjiQuizCard', () => {
         throw new Error('Workerにつながりません')
       }),
     })
-    render(<KanjiQuizCard api={api} media={media} />)
+    render(<KanjiQuizCard api={api} prizeApi={fakePrizeApi()} media={media} />)
 
     expect(await screen.findByText('Workerにつながりません')).toBeInTheDocument()
     expect(screen.queryByLabelText(BGM_LABEL)).not.toBeInTheDocument()
   })
 
   test('未保存の変更があるあいだは試し再生を押せない（試し再生は保存済みの音で鳴り、選び直した音と食い違うため）', async () => {
-    render(<KanjiQuizCard api={fakeApi()} media={media} />)
+    render(<KanjiQuizCard api={fakeApi()} prizeApi={fakePrizeApi()} media={media} />)
 
     const playButton = screen.getByRole('button', { name: '漢字クイズを試しに流す' })
     await userEvent.selectOptions(await screen.findByLabelText(CORRECT_LABEL), 'media-pinpon')

@@ -8,10 +8,12 @@
  * - DELETE /api/admin/dolls/:id: 人形の組を消す（台帳に記録のある組は409）
  * - PUT /api/admin/doll-current: いまの人形を選ぶ（{ setId: 組の ID | null }）。組の一覧を返す
  * - POST /api/admin/viewers/:userId/dolls: 視聴者にいまの人形を手で渡す・取り上げる（{ kind, delta }）。増減したあとの所持数を返す
+ * - GET・PUT /api/admin/doll-prizes/:game: ゲーム（chatDeduction・kanjiQuiz）の正解者に渡す人形を読み書きする（{ kind: 'normal' | 'super' | null }。issue #420）
  *
- * 読み書きは worker/doll-store.ts、検証は worker/doll.ts にある。
+ * 読み書きは worker/doll-store.ts（正解者に渡す人形は worker/doll-prize.ts）、検証は worker/doll.ts にある。
  */
-import { parseDollChangeInput, parseDollSetInput, type DollHolding, type DollSet } from './doll'
+import { DOLL_PRIZE_GAMES, parseDollChangeInput, parseDollPrize, parseDollSetInput, type DollHolding, type DollPrize, type DollPrizeGame, type DollSet } from './doll'
+import { loadDollPrize, saveDollPrize } from './doll-prize'
 import { DollChangeError, changeDolls, deleteDollSet, insertDollSet, readDollHoldings, readDollSets, selectCurrentDollSet, updateDollSet } from './doll-store'
 import { HttpError, STATUS, requireAdmin, type Context } from './http'
 import { listMedia } from './media'
@@ -139,4 +141,36 @@ export const postViewerDolls = async (context: Context): Promise<Response> => {
     if (error instanceof DollChangeError) throw new HttpError(STATUS.conflict, error.code, error.message)
     throw error
   }
+}
+
+/**
+ * 経路の :game を、正解者に人形を渡せるゲームとして読む。
+ *
+ * @throws HttpError 知らないゲームなら404
+ */
+const prizeGameOf = (context: Context): DollPrizeGame => {
+  const raw = context.params.game ?? ''
+  const game = DOLL_PRIZE_GAMES.find((candidate) => candidate === raw)
+  if (game === undefined) throw new HttpError(STATUS.notFound, 'doll-prize-game-not-found', `ゲーム「${raw}」の正解者には人形を渡せません`)
+  return game
+}
+
+/** GET /api/admin/doll-prizes/:game: そのゲームの正解者に渡す人形。保存していなければ渡さない（kind: null） */
+export const getDollPrize = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  return Response.json((await loadDollPrize(context.env.STORE, prizeGameOf(context))) satisfies DollPrize)
+}
+
+/**
+ * PUT /api/admin/doll-prizes/:game: そのゲームの正解者に渡す人形を検証して保存し、保存したものを返す。
+ *
+ * @throws ConfigError 種類に問題がある場合
+ * @throws HttpError 知らないゲームなら404
+ */
+export const putDollPrize = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  const game = prizeGameOf(context)
+  const prize = parseDollPrize(await readJson(context))
+  await saveDollPrize(context.env.STORE, game, prize)
+  return Response.json(prize satisfies DollPrize)
 }

@@ -87,18 +87,23 @@ export const openKanjiQuiz = async (db: Database, id: string, now: number): Prom
  * チャットの回答を、受け付けている出題と照らす。回答の読みを持つ熟語の出題で、まだ正解者がいなければ、この人を正解者にする。
  *
  * @param answer 回答の読みを持つ熟語（kanji-quiz-answer.ts の wordsAnsweredBy）と、回答した人の表示名
- * @returns この回答で正解者が決まった出題の識別子。正解者にならなかったら空
+ * @returns この回答で正解者が決まった出題の識別子と、試し再生の出題か（試し再生の正解者には人形を渡さない。issue #420）。
+ *   正解者にならなかったら空
  */
-export const answerKanjiQuiz = async (db: Database, answer: { words: readonly string[]; userName: string }, now: number): Promise<string[]> => {
+export const answerKanjiQuiz = async (
+  db: Database,
+  answer: { words: readonly string[]; userName: string },
+  now: number,
+): Promise<{ id: string; rehearsal: boolean }[]> => {
   const { results } = await db
     .prepare(
       `UPDATE kanji_quizzes SET winner_name = ?1, answered_at = ?2
        WHERE word IN (SELECT value FROM json_each(?3)) AND winner_name IS NULL AND accepts_from <= ?2 AND closes_at > ?2
-       RETURNING id`,
+       RETURNING id, rehearsal`,
     )
     .bind(answer.userName, toIso(now), JSON.stringify(answer.words))
-    .all<{ id: string }>()
-  return results.map(({ id }) => id)
+    .all<{ id: string; rehearsal: number }>()
+  return results.map(({ id, rehearsal }) => ({ id, rehearsal: rehearsal === 1 }))
 }
 
 /**

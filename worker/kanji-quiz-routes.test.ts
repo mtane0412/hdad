@@ -274,7 +274,7 @@ describe('POST /api/overlay/kanji-quiz/open', () => {
     const response = await open(env, { quizId: 'quiz-keidai' })
 
     expect(response.status).toBe(204)
-    expect(await answerKanjiQuiz(env.DB, { words: ['境内'], userName: '山田花子' }, now + GRADE_INTRO_MS + 1000)).toEqual(['quiz-keidai'])
+    expect(await answerKanjiQuiz(env.DB, { words: ['境内'], userName: '山田花子' }, now + GRADE_INTRO_MS + 1000)).toEqual([{ id: 'quiz-keidai', rehearsal: false }])
   })
 
   it('開いたら、受付の締め切りに時間切れの判定を予約する', async () => {

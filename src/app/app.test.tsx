@@ -158,7 +158,7 @@ const createFakeChatDeductionApi: ChatDeductionApi = {
   saveSound: vi.fn(),
 }
 
-const createFakeDollApi: DollApi = { list: vi.fn(async () => ({ sets: [], holdings: [] })), create: vi.fn(), update: vi.fn(), remove: vi.fn(), selectCurrent: vi.fn(), change: vi.fn() }
+const createFakeDollApi: DollApi = { list: vi.fn(async () => ({ sets: [], holdings: [] })), create: vi.fn(), update: vi.fn(), remove: vi.fn(), selectCurrent: vi.fn(), change: vi.fn(), prize: vi.fn(async () => null), savePrize: vi.fn() }
 
 const createFakeOpinionApi: OpinionApi = {
   read: vi.fn(async () => ({

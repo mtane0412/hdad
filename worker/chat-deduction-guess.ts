@@ -7,7 +7,8 @@
  *    行がもうあれば再送なので何もしない（二重に照合しない）
  * 2. Twitch へ2xxを返したあとで（waitUntil）、問題集の別名と照合する（src/chat-deduction/guess.ts。LLM は使わない）。
  *    正解なら正解者を1人に決めてゲームを終え（solveGame）、2つの報酬を交換できないようにする（トリガーのチャンネルポイントで
- *    始めたゲームなら、始めた報酬を交換できるように戻す）。不正解なら記録する
+ *    始めたゲームなら、始めた報酬を交換できるように戻す）。正解者に渡す人形を選んでいれば、正解者にいまの人形を1つ渡す
+ *    （issue #420。worker/doll-prize.ts）。不正解なら記録する
  * 3. 正解・不正解の交換は FULFILLED、受け付けなかった交換（開催中でない・照合までにゲームが終わった）は CANCELED にしてポイントを返す。
  *    正誤を決めた解答はカードになるので、照合のすぐあとに合成ページへカードの一覧を押し出す（issue #378。worker/chat-deduction-board.ts）
  *
@@ -21,6 +22,7 @@ import { recordLateFailure } from './alert-actions'
 import { pushBoardAfterRedemption } from './chat-deduction-board'
 import { setChatDeductionRewardsEnabled, type ChatDeductionRewards } from './chat-deduction-rewards'
 import { markGuessWrong, readGame, readGameStartReward, reserveGuess, solveGame, type ChatDeductionGuess } from './chat-deduction-store'
+import { grantDollPrize } from './doll-prize'
 import { HttpError, STATUS, type Context } from './http'
 import { getManageToken } from './reward-routes'
 import { recordFailure } from './stats-store'
@@ -68,6 +70,8 @@ const settle = async (context: Context, rewards: ChatDeductionRewards, guess: Ch
   const { env, twitch, now } = context
   // 正誤はトークンの有無にかかわらず決める（トークンが古いだけで正解者が出なかったことにしない）
   const { status, solved } = await judge(context, guess)
+  // 人形はゲームの1つにつき1回だけ渡す（きっかけの ID をゲームの ID から作る）。渡せなくても投げずに記録し、ゲームの続きは止めない
+  if (solved) await grantDollPrize(context, 'chatDeduction', guess, `chatDeduction:${String(guess.gameId)}`)
   // 正誤を決めた解答だけがカードになる（受け付けなかった解答では、映すものが変わらない）
   if (status === 'FULFILLED') await pushBoardAfterRedemption(context, `${guess.userName}さんの解答「${guess.guess}」の正誤`)
   /** 正解でゲームを終えたのに報酬を止められなかったことを、配信者が /rewards/ で直せるよう残す */

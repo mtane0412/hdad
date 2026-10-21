@@ -7,6 +7,7 @@
  * - 視聴者に手で人形を渡し・取り上げられ、所持数が足りない・いまの人形が無い・記録の無い視聴者、を見分けて返すこと
  * - 人形の組が使っている画像は、素材のページから消せないこと
  * - 視聴者の記録を消すと、その人の人形の台帳も消えること
+ * - チャットで推理・漢字クイズの正解者に渡す人形を、ゲームごとに読み書きできること（issue #420）
  *
  * 検証の中身は worker/doll.test.ts、読み書きの中身は worker/doll-store.test.ts が確かめるので、ここでは経路の受け渡しだけを見る。
  */
@@ -196,6 +197,46 @@ describe('PUT /api/admin/doll-current', () => {
 
     expect((await send(env, 'PUT', '/api/admin/doll-current', { setId: 99 })).status).toBe(404)
     expect((await send(env, 'PUT', '/api/admin/doll-current', { setId: 'クマ' })).status).toBe(400)
+  })
+})
+
+describe('GET・PUT /api/admin/doll-prizes/:game', () => {
+  it('保存する前は、どのゲームも正解者に人形を渡さない（なし）', async () => {
+    const env = await setupEnv()
+
+    const response = await send(env, 'GET', '/api/admin/doll-prizes/chatDeduction')
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ kind: null })
+  })
+
+  it('ゲームごとに保存し、保存したものを返す（片方を保存しても、もう片方は変わらない）', async () => {
+    const env = await setupEnv()
+
+    const saved = await send(env, 'PUT', '/api/admin/doll-prizes/kanjiQuiz', { kind: 'super' })
+
+    expect(saved.status).toBe(200)
+    expect(await saved.json()).toEqual({ kind: 'super' })
+    expect(await (await send(env, 'GET', '/api/admin/doll-prizes/kanjiQuiz')).json()).toEqual({ kind: 'super' })
+    expect(await (await send(env, 'GET', '/api/admin/doll-prizes/chatDeduction')).json()).toEqual({ kind: null })
+  })
+
+  it('知らない種類は問題点を添えて400、知らないゲームは404にする', async () => {
+    const env = await setupEnv()
+
+    const invalid = await send(env, 'PUT', '/api/admin/doll-prizes/chatDeduction', { kind: 'golden' })
+    expect(invalid.status).toBe(400)
+    expect(((await invalid.json()) as { error: { problems: string[] } }).error.problems).toHaveLength(1)
+    expect((await send(env, 'GET', '/api/admin/doll-prizes/bingo')).status).toBe(404)
+    expect((await send(env, 'PUT', '/api/admin/doll-prizes/bingo', { kind: 'normal' })).status).toBe(404)
+  })
+
+  it('ログインしていなければ401にする', async () => {
+    const env = await setupEnv()
+
+    const response = await callHandler(new Request(`${SITE}/api/admin/doll-prizes/chatDeduction`), env)
+
+    expect(response.status).toBe(401)
   })
 })
 

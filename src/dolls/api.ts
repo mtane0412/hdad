@@ -2,15 +2,17 @@
  * 人形の Worker の呼び出し
  *
  * 人形のページ（/dolls/）と視聴者のページ（/viewers/）が、ログインのセッションで人形の組を読み書きし、視聴者に人形を手で渡す。
+ * チャットで推理のページと漢字クイズのカードは、ゲームの正解者に渡す人形を読み書きする（issue #420）。
  * 呼び出しと失敗の扱いは `@/core/api` に任せ、fetch を引数で受け取るのはテストで差し替えるためである。
  *
  * 注意: 応答が想定した形でなければエラーにする。黙って空の一覧にすると、人形が無いように見えてしまう（Fail-Fast）。
  */
 import { createCaller, isRecord, readList } from '@/core/api'
-import { isDollHolding, isDollSet, type DollFigure, type DollHolding, type DollKind, type DollSet } from './doll'
+import { isDollHolding, isDollKind, isDollSet, type DollFigure, type DollHolding, type DollKind, type DollPrizeGame, type DollSet } from './doll'
 
 const DOLLS_PATH = '/api/admin/dolls'
 const CURRENT_PATH = '/api/admin/doll-current'
+const PRIZES_PATH = '/api/admin/doll-prizes'
 
 /** 追加・書き換えで送る、人形の組1組の中身。検証は Worker（worker/doll.ts）だけが持つ */
 export interface DollSetInput {
@@ -37,6 +39,21 @@ export interface DollApi {
   selectCurrent(setId: number | null): Promise<DollSet[]>
   /** 視聴者にいまの人形を渡す（delta が正）・取り上げる（負）。増減したあとの、その人のいまの人形の所持数を返す */
   change(userId: string, kind: DollKind, delta: number): Promise<DollHolding>
+  /** そのゲームの正解者に渡す人形を読む（null なら渡さない） */
+  prize(game: DollPrizeGame): Promise<DollKind | null>
+  /** そのゲームの正解者に渡す人形を保存し（null なら渡さない）、保存したものを返す */
+  savePrize(game: DollPrizeGame, kind: DollKind | null): Promise<DollKind | null>
+}
+
+/**
+ * 正解者に渡す人形の応答の kind を読む。
+ *
+ * @throws 想定した形でない場合（知らない種類を「渡さない」と読み替えない）
+ */
+const readPrize = (body: unknown): DollKind | null => {
+  const kind = isRecord(body) ? body.kind : undefined
+  if (kind !== null && !isDollKind(kind)) throw new Error('Workerの正解者に渡す人形の応答が想定した形ではありません')
+  return kind
 }
 
 /**
@@ -72,5 +89,7 @@ export const createDollApi = (fetchImpl: typeof fetch): DollApi => {
       if (!isDollHolding(holding)) throw new Error('Workerの人形の増減の応答が想定した形ではありません')
       return holding
     },
+    prize: async (game) => readPrize(await call(`${PRIZES_PATH}/${game}`)),
+    savePrize: async (game, kind) => readPrize(await send(`${PRIZES_PATH}/${game}`, 'PUT', { kind })),
   }
 }

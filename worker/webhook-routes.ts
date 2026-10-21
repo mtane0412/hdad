@@ -26,6 +26,7 @@ import { pushKanjiQuizNotice, pushTownTourAnswer } from './alert-channel'
 import { answerTownTourQuiz } from './town-tour-quiz'
 import { wordsAnsweredBy } from './kanji-quiz-answer'
 import { answerKanjiQuiz } from './kanji-quiz-store'
+import { grantDollPrize } from './doll-prize'
 import { readChatBody } from './comment-feed'
 import { dropReasonOf } from './opinion'
 import { readOpenTheme, recordOpinionComment } from './opinion-store'
@@ -359,6 +360,8 @@ const recordOpinionCommentFromChat = async (context: Context, event: unknown, me
  *
  * 発言が問題集の読みのどれかと完全一致すれば（前後の空白とカタカナは直す。worker/kanji-quiz-answer.ts）、受け付けている出題と照らし、
  * 最初の正解者なら合成ページへ押し出す（worker/kanji-quiz-store.ts。2人目以降と、時間切れの後の回答は押し出さない）。
+ * 正解者に渡す人形を選んでいれば、試し再生でない出題の正解者にいまの人形を1つ渡す（issue #420。worker/doll-prize.ts。
+ * 渡せなくても投げずに記録するので、正解者の押し出しは止めない）。
  *
  * 注意: 照らし合わせ（D1）と押し出しの失敗は、黙って不正解にせず失敗の記録（kanji-quiz-answer-failed）に残して続ける（方針4）。
  * 投げると Twitch へ2xx以外を返して再送させ、作業机のコマンドやコマンドの応答まで止めてしまうためである
@@ -368,8 +371,13 @@ const answerKanjiQuizFromChat = async (context: Context, message: ChatMessage): 
   const words = wordsAnsweredBy(message.text)
   if (words.length === 0) return
   try {
-    const quizIds = await answerKanjiQuiz(context.env.DB, { words, userName: message.chatterUserName }, context.now)
-    for (const quizId of quizIds) await pushKanjiQuizNotice(context.env.ALERTS, { type: 'answer', quizId, userName: message.chatterUserName })
+    const winner = { userId: message.chatterUserId, userName: message.chatterUserName }
+    const quizzes = await answerKanjiQuiz(context.env.DB, { words, userName: winner.userName }, context.now)
+    for (const quiz of quizzes) {
+      // 人形は出題の1つにつき1回だけ渡す（きっかけの ID を出題の ID から作る）。試し再生の出題では渡さない
+      if (!quiz.rehearsal) await grantDollPrize(context, 'kanjiQuiz', winner, `kanjiQuiz:${quiz.id}`)
+      await pushKanjiQuizNotice(context.env.ALERTS, { type: 'answer', quizId: quiz.id, userName: winner.userName })
+    }
   } catch (error) {
     await recordFailure(
       context.env.DB,

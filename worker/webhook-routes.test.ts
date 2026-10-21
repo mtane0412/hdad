@@ -46,6 +46,7 @@ import { recordTownTourVisit } from './town-tour-visits'
 import towns from '../src/town-tour/towns.json'
 import { CHAT_DEDUCTION_PROBLEM_SETS } from '../src/chat-deduction/problem-set'
 import { endGame, readCurrentGame, readGameStartReward, startGame } from './chat-deduction-store'
+import { saveDollPrize } from './doll-prize'
 import { insertDollSet, readDollHoldings, selectCurrentDollSet } from './doll-store'
 
 interface EnvOptions {
@@ -2399,6 +2400,69 @@ describe('漢字クイズの回答（issue #301）', () => {
     await callWebhook(createNotification({ body: chatFrom('たなか', '11111', 'こんにちは', 'chat-1'), messageId: 'notification-1' }), env)
 
     expect(await listFailures(env.DB)).toEqual([])
+  })
+
+  describe('正解者に渡す人形（issue #420）', () => {
+    const bears = { normal: { name: 'クマ人形', mediaId: 'image-bear' }, super: { name: 'スーパークマ人形', mediaId: 'image-super-bear' } }
+
+    /** クマの人形の組を登録し、いまの人形に選ぶ */
+    const selectBears = async (env: Env): Promise<number> => {
+      const set = await insertDollSet(env.DB, bears, Date.parse('2026-09-21T12:00:00.000Z'))
+      await selectCurrentDollSet(env.DB, set.id)
+      return set.id
+    }
+
+    it('正解者に渡す人形を選んでいれば、最初の正解者にいまの人形を1つ渡し、理由を漢字クイズとして台帳に残す', async () => {
+      // 前提: 正解者に渡すのはふつうの人形。いまの人形はクマの組
+      const { env, db } = createEnv()
+      await saveDollPrize(env.STORE, 'kanjiQuiz', { kind: 'normal' })
+      const setId = await selectBears(env)
+      await openKusabanaQuiz(db)
+
+      await callWebhook(createNotification({ body: chatFrom('たなか', '11111', 'くさばな', 'chat-1'), messageId: 'notification-1' }), env)
+      // 同じ通知の再送と、2人目の正解者には渡さない
+      await callWebhook(createNotification({ body: chatFrom('たなか', '11111', 'くさばな', 'chat-1'), messageId: 'notification-1' }), env)
+      await callWebhook(createNotification({ body: chatFrom('やまだ', '44444', 'そうか', 'chat-2'), messageId: 'notification-2' }), env)
+
+      expect(await readDollHoldings(env.DB)).toEqual([{ userId: '11111', setId, normal: 1, super: 0 }])
+      expect(env.DB.sqlite.prepare('SELECT reason, trigger_kind FROM doll_ledger').all()).toEqual([{ reason: 'kanjiQuiz', trigger_kind: null }])
+    })
+
+    it('試し再生の出題の正解者には渡さない（正解者は合成ページへ押し出す）', async () => {
+      const { env, db, alertChannel } = createEnv()
+      await saveDollPrize(env.STORE, 'kanjiQuiz', { kind: 'normal' })
+      await selectBears(env)
+      await recordKanjiQuiz(db, { ...kusabanaQuiz, rehearsal: true }, NOW - GRADE_INTRO_MS - 4000)
+      await openKanjiQuiz(db, kusabanaQuiz.id, NOW - GRADE_INTRO_MS - 3000)
+
+      await callWebhook(createNotification({ body: chatFrom('たなか', '11111', 'くさばな', 'chat-1'), messageId: 'notification-1' }), env)
+
+      expect(alertChannel.pushedKanjiQuizNotices).toEqual([{ type: 'answer', quizId: 'quiz-kusabana', userName: 'たなか' }])
+      expect(await readDollHoldings(env.DB)).toEqual([])
+    })
+
+    it('渡す人形が「なし」（保存していない）なら、正解しても渡さない', async () => {
+      const { env, db } = createEnv()
+      await selectBears(env)
+      await openKusabanaQuiz(db)
+
+      await callWebhook(createNotification({ body: chatFrom('たなか', '11111', 'くさばな', 'chat-1'), messageId: 'notification-1' }), env)
+
+      expect(await readDollHoldings(env.DB)).toEqual([])
+      expect(await listFailures(env.DB)).toEqual([])
+    })
+
+    it('いまの人形が選ばれていなくても、正解者は合成ページへ押し出し、渡せなかったことを失敗として残す', async () => {
+      const { env, db, alertChannel } = createEnv()
+      await saveDollPrize(env.STORE, 'kanjiQuiz', { kind: 'super' })
+      await openKusabanaQuiz(db)
+
+      const response = await callWebhook(createNotification({ body: chatFrom('たなか', '11111', 'くさばな', 'chat-1'), messageId: 'notification-1' }), env)
+
+      expect(response.status).toBe(204)
+      expect(alertChannel.pushedKanjiQuizNotices).toEqual([{ type: 'answer', quizId: 'quiz-kusabana', userName: 'たなか' }])
+      expect(await listFailures(env.DB)).toMatchObject([{ code: 'doll-grant-failed', message: expect.stringContaining('いまの人形が選ばれていません') }])
+    })
   })
 })
 
