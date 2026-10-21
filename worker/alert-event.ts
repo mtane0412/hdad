@@ -21,6 +21,7 @@ import {
   alertActionOf,
   announceActionOf,
   chatActionOf,
+  chatDeductionActionOf,
   mediaPath,
   shoutoutActionOf,
   townTourActionOf,
@@ -32,6 +33,7 @@ import {
   type AlertMediaKind,
   type StoredAiChatAction,
   type StoredAnnounceAction,
+  type StoredChatDeductionAction,
   resolveTrigger,
   type ResolvedTrigger,
 } from './alert-config'
@@ -815,3 +817,32 @@ export const alertsFor = (
     volume: action.volume,
     text: action.message,
   }))
+
+/** チャットで推理のゲームの開始1回ぶん（設定の問題の選び方と、ゲームのあいだ交換できないようにする報酬） */
+export interface ChatDeductionTrigger {
+  /** 問題集と、指定した問題（null なら問題集からランダム） */
+  readonly choice: Pick<StoredChatDeductionAction, 'setId' | 'problemId'>
+  /** チャンネルポイントの交換で始めたなら、交換された報酬のID。ほかの出来事で始めたなら null */
+  readonly startRewardId: string | null
+}
+
+/**
+ * 通知に当てはまるトリガーを探し、チャットで推理のゲームの開始を返す。
+ *
+ * どのトリガーにも置ける。チャンネルポイントの交換で始めたときだけ、交換された報酬のIDを添える
+ * （ゲームのあいだその報酬を交換できないようにし、終えたら戻すため。「すべての報酬」の行でも、実際に交換された報酬を止める）。
+ * 問題を選ぶのとゲームを始めるのは呼び出し側（乱数と D1 を持たないため）。
+ *
+ * @throws 通知の中身が想定した形でない場合
+ */
+export const chatDeductionsFor = (config: AlertConfig, subscriptionType: string, body: unknown, state: ConditionState): ChatDeductionTrigger[] =>
+  matchedActionsFor(
+    config,
+    subscriptionType,
+    body,
+    (trigger) => {
+      const action = chatDeductionActionOf(trigger)
+      return action === null ? null : { setId: action.setId, problemId: action.problemId }
+    },
+    state,
+  ).map(({ action, extracted }) => ({ choice: action, startRewardId: extracted.event === REDEMPTION ? extracted.rewardId : null }))

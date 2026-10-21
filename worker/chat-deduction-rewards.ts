@@ -89,6 +89,10 @@ export const createChatDeductionRewards = async (store: KeyValueStore, twitch: T
 /**
  * 2つの報酬を、交換できる（isEnabled: true）・できない状態にする。
  *
+ * ゲームをトリガーのチャンネルポイントで始めたときは、その報酬（startRewardId）を逆向きに切り替える
+ * （ゲームのあいだは交換できないようにし、終えたら交換できるように戻す。同じ報酬で2つ目のゲームを始めさせないため）。
+ *
+ * @param startRewardId ゲームを始めた報酬のID。/chat-deduction/ のページから始めたゲームなら null（切り替えない）
  * @throws TwitchApiError Twitchが拒否した（報酬が消された・このアプリが作っていないなど）
  */
 export const setChatDeductionRewardsEnabled = async (
@@ -97,8 +101,10 @@ export const setChatDeductionRewardsEnabled = async (
   broadcasterId: string,
   rewards: ChatDeductionRewards,
   isEnabled: boolean,
+  startRewardId: string | null,
 ): Promise<void> => {
   // 順に送る（片方の失敗をもう一方の成功で隠さず、どこで止まったかを応答のメッセージで分かるようにする）
   await twitch.setCustomRewardEnabled(accessToken, broadcasterId, rewards.questionRewardId, isEnabled)
   await twitch.setCustomRewardEnabled(accessToken, broadcasterId, rewards.answerRewardId, isEnabled)
+  if (startRewardId !== null) await twitch.setCustomRewardEnabled(accessToken, broadcasterId, startRewardId, !isEnabled)
 }

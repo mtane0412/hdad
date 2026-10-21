@@ -180,6 +180,18 @@ export interface VrmAction {
   type: 'vrm'
 }
 
+/**
+ * チャットで推理のゲームを始める動作。問題集を選び、問題を1つ指定するか null（問題集からランダム）にする。
+ *
+ * どの項目にも置ける。チャンネルポイントで始めたら、ゲームのあいだその報酬を交換できないようにする（Worker が行う）。
+ */
+export interface ChatDeductionAction {
+  type: 'chatDeduction'
+  setId: string
+  /** 出す問題のID。null なら問題集からランダムに選ぶ（直前の問題は除く） */
+  problemId: string | null
+}
+
 export type ActionInput =
   | AlertActionInput
   | ChatAction
@@ -191,6 +203,7 @@ export type ActionInput =
   | KanjiQuizAction
   | LickAction
   | VrmAction
+  | ChatDeductionAction
 
 /**
  * 既定メニューの項目。worker/trigger-menu.ts の TRIGGER_KINDS と同じ並び（worker/ の型は読み込めないのでここで定義する）。
@@ -254,6 +267,7 @@ export type StoredAction =
   | KanjiQuizAction
   | LickAction
   | VrmAction
+  | ChatDeductionAction
 
 /** 保存済みのトリガー */
 export type StoredTrigger = TriggerSource & { actions: StoredAction[] }
@@ -397,6 +411,8 @@ const isStoredAction = (value: unknown): value is StoredAction => {
   if (!isRecord(value)) return false
   // shoutout と townTour と twister と lick と vrm は配信者が決める項目を持たないので、種類だけを見る
   if (value.type === 'shoutout' || value.type === 'townTour' || value.type === 'twister' || value.type === 'lick' || value.type === 'vrm') return true
+  // chatDeduction は問題集と、指定した問題（ランダムなら null）を持つ
+  if (value.type === 'chatDeduction') return typeof value.setId === 'string' && (value.problemId === null || typeof value.problemId === 'string')
   // kanjiQuiz は級ごとの出題の重みだけを持つ
   if (value.type === 'kanjiQuiz') return isKankenGradeWeights(value.weights)
   // aiChat だけは送る文言を持たず、文面の作り方の指示を持つ

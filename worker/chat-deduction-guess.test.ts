@@ -184,6 +184,21 @@ describe('チャットで推理の解答の受け口', () => {
     expect(twitch.updates).toEqual([{ rewardId: ANSWER_REWARD_ID, redemptionId: '交換ID-1', status: 'FULFILLED' }])
   })
 
+  it('トリガーのチャンネルポイントで始めたゲームが正解で終わったら、始めた報酬も交換できるように戻す', async () => {
+    const env = createEnv()
+    await prepare(env)
+    await startGame(env.DB, 'mount-fuji', NOW - 60 * 1000, '報酬ID-推理を始める')
+    const twitch = fakeTwitch()
+
+    await deliver(env, notificationOf(guessOf({ user_input: '富士山' })), twitch.fetchImpl)
+
+    expect(twitch.rewardSwitches).toEqual([
+      { rewardId: QUESTION_REWARD_ID, isEnabled: false },
+      { rewardId: ANSWER_REWARD_ID, isEnabled: false },
+      { rewardId: '報酬ID-推理を始める', isEnabled: true },
+    ])
+  })
+
   it('不正解なら、記録して交換を FULFILLED にし、ゲームは続ける（報酬は切り替えない）', async () => {
     const env = createEnv()
     await prepare(env)

@@ -15,6 +15,7 @@ import {
   readCurrentGame,
   readGame,
   readGameCards,
+  readGameStartReward,
   readLatestGame,
   reserveGuess,
   reserveQuestion,
@@ -50,6 +51,26 @@ describe('ゲームの開始（startGame）', () => {
     await endGame(db, first!.id, 'stopped', LATER)
 
     expect((await startGame(db, 'natsume-soseki', LATER))?.problemId).toBe('natsume-soseki')
+  })
+})
+
+describe('ゲームを始めた報酬（readGameStartReward）', () => {
+  it('トリガーのチャンネルポイントで始めたゲームは、その報酬のIDを控えて返す（終えたら交換できるように戻すため）', async () => {
+    const db = createFakeDatabase()
+    const game = await startGame(db, 'mount-fuji', NOW, '報酬ID-推理を始める')
+
+    expect(await readGameStartReward(db, game!.id)).toBe('報酬ID-推理を始める')
+  })
+
+  it('ページから始めたゲームは、控えた報酬を持たない（null）', async () => {
+    const db = createFakeDatabase()
+    const game = await startGame(db, 'mount-fuji', NOW)
+
+    expect(await readGameStartReward(db, game!.id)).toBeNull()
+  })
+
+  it('無いゲームなら投げる（呼び出し側の誤り）', async () => {
+    await expect(readGameStartReward(createFakeDatabase(), 999)).rejects.toThrowError(/999/)
   })
 })
 

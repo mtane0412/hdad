@@ -44,6 +44,8 @@ import { GRADE_INTRO_MS } from '../src/kanji-quiz/scene'
 import { saveTownTourNarration } from './town-tour-narration'
 import { recordTownTourVisit } from './town-tour-visits'
 import towns from '../src/town-tour/towns.json'
+import { CHAT_DEDUCTION_PROBLEM_SETS } from '../src/chat-deduction/problem-set'
+import { endGame, readCurrentGame, readGameStartReward, startGame } from './chat-deduction-store'
 
 interface EnvOptions {
   /** アラートの配送先（Durable Object）が失敗を返す場合 */
@@ -3086,5 +3088,224 @@ describe('作業机の組み込みコマンド（!task・!done）', () => {
     await callWebhook(createNotification({ body: otherChannelClear, messageId: 'notification-2' }), env)
 
     expect(alertChannel.pushedTaskDesk).toHaveLength(1)
+  })
+})
+
+describe('チャットで推理を始める動作（chatDeduction）', () => {
+  const START_REWARD_ID = '報酬ID-推理を始める'
+  const QUESTION_REWARD_ID = '報酬ID-質問'
+  const ANSWER_REWARD_ID = '報酬ID-解答'
+  const REDEMPTION_NOTIFICATION = {
+    subscription: { type: 'channel.channel_points_custom_reward_redemption.add' },
+    event: {
+      id: '交換ID-推理を始める',
+      user_id: '田中太郎のユーザーID',
+      user_name: '田中太郎',
+      user_login: 'tanaka_taro',
+      user_input: '',
+      reward: { id: START_REWARD_ID, title: 'チャットで推理を始める', cost: 1000 },
+    },
+  }
+  const FOLLOW_NOTIFICATION = { subscription: { type: 'channel.follow' }, event: { user_id: '22222', user_name: '田中太郎', user_login: 'tanaka_taro' } }
+  const ancientPeople = CHAT_DEDUCTION_PROBLEM_SETS.find((set) => set.id === 'ancient-people')!
+
+  /** 報酬の切り替えまでできる配信者のトークンと、チャットで推理の2つの報酬を作り終えた状態にする */
+  const prepare = async (env: Env) => {
+    await saveToken(env.TOKENS, 'broadcaster', {
+      accessToken: 'test-access-token',
+      refreshToken: 'リフレッシュトークン',
+      expiresAt: NOW + 60 * 60 * 1000,
+      userId: BROADCASTER_ID,
+      login: 'haishinsha',
+      scopes: ['channel:read:redemptions', 'channel:manage:redemptions'],
+    })
+    await env.STORE.put('chat-deduction-rewards', JSON.stringify({ questionRewardId: QUESTION_REWARD_ID, answerRewardId: ANSWER_REWARD_ID }))
+  }
+
+  /**
+   * Twitchの報酬の切り替え（PATCH /helix/channel_points/custom_rewards）の代役。切り替えた報酬のIDと値を順に記録する。
+   *
+   * @param failRewardId 切り替えを断る報酬のID（このアプリが作っていない報酬など）
+   */
+  const createRewardTwitch = (failRewardId: string | null = null) => {
+    const toggles: { rewardId: string | null; isEnabled: unknown }[] = []
+    const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const request = new Request(input, init)
+      const url = new URL(request.url)
+      if (request.method !== 'PATCH' || url.pathname !== '/helix/channel_points/custom_rewards') throw new Error(`テストで想定していない通信です: ${request.url}`)
+      const rewardId = url.searchParams.get('id')
+      const { is_enabled: isEnabled } = (await request.json()) as { is_enabled: unknown }
+      toggles.push({ rewardId, isEnabled })
+      if (rewardId === failRewardId) return Response.json({ error: 'Forbidden', status: 403, message: 'not manageable' }, { status: 403 })
+      return Response.json({
+        data: [
+          {
+            id: rewardId,
+            title: 'チャットで推理',
+            cost: 100,
+            prompt: '',
+            is_enabled: isEnabled,
+            is_user_input_required: false,
+            background_color: '#1F6FEB',
+            should_redemptions_skip_request_queue: false,
+            max_per_stream_setting: { is_enabled: false, max_per_stream: 0 },
+            max_per_user_per_stream_setting: { is_enabled: false, max_per_user_per_stream: 0 },
+            global_cooldown_setting: { is_enabled: false, global_cooldown_seconds: 0 },
+            image: null,
+            default_image: { url_1x: 'https://example.com/1.png', url_2x: 'https://example.com/2.png', url_4x: 'https://example.com/4.png' },
+          },
+        ],
+      })
+    }
+    return { toggles, fetchImpl }
+  }
+
+  it('チャンネルポイントで始めたら、問題集から1問選んでゲームを始め、質問・解答を交換できるようにし、始めた報酬は交換できないようにする', async () => {
+    const { env, alertChannel } = createEnv()
+    await prepare(env)
+    await saveAlertConfig(env.STORE, {
+      triggers: [{ kind: 'reward', rewardId: START_REWARD_ID, actions: [{ type: 'chatDeduction', setId: 'ancient-people', problemId: null }] }],
+    })
+    const twitch = createRewardTwitch()
+
+    const response = await callWebhook(createNotification({ body: REDEMPTION_NOTIFICATION }), env, twitch.fetchImpl)
+
+    expect(response.status).toBe(204)
+    const game = await readCurrentGame(env.DB)
+    // 問題はランダムに選ぶので、選んだ問題集の問題であることだけを確かめる
+    expect(ancientPeople.problems.map((problem) => problem.id)).toContain(game?.problemId)
+    expect(twitch.toggles).toEqual([
+      { rewardId: QUESTION_REWARD_ID, isEnabled: true },
+      { rewardId: ANSWER_REWARD_ID, isEnabled: true },
+      { rewardId: START_REWARD_ID, isEnabled: false },
+    ])
+    // 終えたら交換できるように戻すため、始めた報酬をゲームに控える
+    expect(await readGameStartReward(env.DB, game!.id)).toBe(START_REWARD_ID)
+    // 合成ページへ、正解を伏せて押し出す
+    expect(alertChannel.pushedChatDeductions).toHaveLength(1)
+    expect(alertChannel.pushedChatDeductions[0]?.game).toMatchObject({ id: game!.id, answer: null })
+  })
+
+  it('「すべての報酬」の行で「解答」の報酬が交換されて始まったら、その報酬は始めた報酬として止めない（ゲーム中に解答できなくしない）', async () => {
+    const { env } = createEnv()
+    await prepare(env)
+    await saveAlertConfig(env.STORE, { triggers: [{ kind: 'reward', rewardId: null, actions: [{ type: 'chatDeduction', setId: 'ancient-people', problemId: 'kukai' }] }] })
+    const twitch = createRewardTwitch()
+    const answerRedemption = { ...REDEMPTION_NOTIFICATION, event: { ...REDEMPTION_NOTIFICATION.event, user_input: '空海', reward: { id: ANSWER_REWARD_ID, title: 'チャットで推理: 解答', cost: 100 } } }
+
+    await callWebhook(createNotification({ body: answerRedemption }), env, twitch.fetchImpl)
+
+    const game = await readCurrentGame(env.DB)
+    expect(game?.problemId).toBe('kukai')
+    expect(twitch.toggles).toEqual([
+      { rewardId: QUESTION_REWARD_ID, isEnabled: true },
+      { rewardId: ANSWER_REWARD_ID, isEnabled: true },
+    ])
+    expect(await readGameStartReward(env.DB, game!.id)).toBeNull()
+  })
+
+  it('問題を指定していれば、その問題でゲームを始める', async () => {
+    const { env } = createEnv()
+    await prepare(env)
+    await saveAlertConfig(env.STORE, {
+      triggers: [{ kind: 'reward', rewardId: START_REWARD_ID, actions: [{ type: 'chatDeduction', setId: 'ancient-people', problemId: 'kukai' }] }],
+    })
+
+    await callWebhook(createNotification({ body: REDEMPTION_NOTIFICATION }), env, createRewardTwitch().fetchImpl)
+
+    expect((await readCurrentGame(env.DB))?.problemId).toBe('kukai')
+  })
+
+  it('問題を指定していれば、直前のゲームと同じ問題でも始める（配信者が選んだ問題を差し替えない）', async () => {
+    const { env } = createEnv()
+    await prepare(env)
+    const previous = await startGame(env.DB, 'kukai', NOW - 60 * 60 * 1000)
+    await endGame(env.DB, previous!.id, 'stopped', NOW - 30 * 60 * 1000)
+    await saveAlertConfig(env.STORE, {
+      triggers: [{ kind: 'reward', rewardId: START_REWARD_ID, actions: [{ type: 'chatDeduction', setId: 'ancient-people', problemId: 'kukai' }] }],
+    })
+
+    await callWebhook(createNotification({ body: REDEMPTION_NOTIFICATION }), env, createRewardTwitch().fetchImpl)
+
+    expect((await readCurrentGame(env.DB))?.problemId).toBe('kukai')
+  })
+
+  it('チャンネルポイントでないトリガーで始めたら、質問・解答だけを交換できるようにする（止める報酬が無い）', async () => {
+    const { env } = createEnv()
+    await prepare(env)
+    await saveAlertConfig(env.STORE, { triggers: [{ kind: 'follow', actions: [{ type: 'chatDeduction', setId: 'ancient-people', problemId: 'kukai' }] }] })
+    const twitch = createRewardTwitch()
+
+    await callWebhook(createNotification({ body: FOLLOW_NOTIFICATION }), env, twitch.fetchImpl)
+
+    const game = await readCurrentGame(env.DB)
+    expect(game?.problemId).toBe('kukai')
+    expect(twitch.toggles).toEqual([
+      { rewardId: QUESTION_REWARD_ID, isEnabled: true },
+      { rewardId: ANSWER_REWARD_ID, isEnabled: true },
+    ])
+    expect(await readGameStartReward(env.DB, game!.id)).toBeNull()
+  })
+
+  it('ほかのゲームが開催中なら、始めずに失敗として記録する（受け取り自体は成功として返す）', async () => {
+    const { env } = createEnv()
+    await prepare(env)
+    await startGame(env.DB, 'himiko', NOW - 60 * 1000)
+    await saveAlertConfig(env.STORE, {
+      triggers: [{ kind: 'reward', rewardId: START_REWARD_ID, actions: [{ type: 'chatDeduction', setId: 'ancient-people', problemId: 'kukai' }] }],
+    })
+    const twitch = createRewardTwitch()
+
+    const response = await callWebhook(createNotification({ body: REDEMPTION_NOTIFICATION }), env, twitch.fetchImpl)
+
+    expect(response.status).toBe(204)
+    expect((await readCurrentGame(env.DB))?.problemId).toBe('himiko')
+    expect(twitch.toggles).toEqual([])
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'chat-deduction-start-failed' }])
+  })
+
+  it('始めた報酬を交換できないようにできなければ、ゲームを始めなかったことにし、報酬を元に戻して失敗として記録する', async () => {
+    const { env, alertChannel } = createEnv()
+    await prepare(env)
+    await saveAlertConfig(env.STORE, {
+      triggers: [{ kind: 'reward', rewardId: START_REWARD_ID, actions: [{ type: 'chatDeduction', setId: 'ancient-people', problemId: 'kukai' }] }],
+    })
+    // HDAD が作っていない報酬は、Twitch が切り替えを断る
+    const twitch = createRewardTwitch(START_REWARD_ID)
+
+    await callWebhook(createNotification({ body: REDEMPTION_NOTIFICATION }), env, twitch.fetchImpl)
+
+    expect(await readCurrentGame(env.DB)).toBeNull()
+    // 交換できるようにした質問・解答を戻し、始めた報酬も交換できる状態へ戻す
+    expect(twitch.toggles.slice(3)).toEqual([
+      { rewardId: QUESTION_REWARD_ID, isEnabled: false },
+      { rewardId: ANSWER_REWARD_ID, isEnabled: false },
+      { rewardId: START_REWARD_ID, isEnabled: true },
+    ])
+    expect(alertChannel.pushedChatDeductions).toHaveLength(0)
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'chat-deduction-start-failed' }])
+  })
+
+  it('チャットで推理の報酬をまだ作っていなければ、始めずに失敗として記録する', async () => {
+    const { env } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [{ kind: 'follow', actions: [{ type: 'chatDeduction', setId: 'ancient-people', problemId: null }] }] })
+
+    await callWebhook(createNotification({ body: FOLLOW_NOTIFICATION }), env)
+
+    expect(await readCurrentGame(env.DB)).toBeNull()
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'chat-deduction-start-failed' }])
+  })
+
+  it('保存したあとで問題集から消えた問題なら、始めずに失敗として記録する（ほかの問題で黙って始めない）', async () => {
+    const { env } = createEnv()
+    await prepare(env)
+    await saveAlertConfig(env.STORE, { triggers: [{ kind: 'follow', actions: [{ type: 'chatDeduction', setId: 'ancient-people', problemId: '消えた問題' }] }] })
+    const twitch = createRewardTwitch()
+
+    await callWebhook(createNotification({ body: FOLLOW_NOTIFICATION }), env, twitch.fetchImpl)
+
+    expect(await readCurrentGame(env.DB)).toBeNull()
+    expect(twitch.toggles).toEqual([])
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'chat-deduction-start-failed' }])
   })
 })

@@ -88,17 +88,33 @@ const QUESTION_COLUMNS = `id, game_id AS gameId, redemption_id AS redemptionId, 
 /**
  * ゲームを始める。
  *
+ * @param startRewardId トリガーのチャンネルポイントで始めたときの、その報酬のID（終えたら交換できるように戻す）。
+ *   /chat-deduction/ のページから始めたときは null
  * @returns 作ったゲーム。ほかのゲームが開催中なら作らず null
  */
-export const startGame = async (db: Database, problemId: string, now: number): Promise<ChatDeductionGame | null> =>
+export const startGame = async (db: Database, problemId: string, now: number, startRewardId: string | null = null): Promise<ChatDeductionGame | null> =>
   db
     .prepare(
-      `INSERT INTO chat_deduction_games (problem_id, started_at)
-       SELECT ?1, ?2 WHERE NOT EXISTS (SELECT 1 FROM chat_deduction_games WHERE ended_at IS NULL)
+      `INSERT INTO chat_deduction_games (problem_id, started_at, start_reward_id)
+       SELECT ?1, ?2, ?3 WHERE NOT EXISTS (SELECT 1 FROM chat_deduction_games WHERE ended_at IS NULL)
        RETURNING ${GAME_COLUMNS}`,
     )
-    .bind(problemId, toIso(now))
+    .bind(problemId, toIso(now), startRewardId)
     .first<ChatDeductionGame>()
+
+/**
+ * ゲームを始めたチャンネルポイントの報酬のIDを読む（startGame で控えたもの）。
+ *
+ * ゲームの形（ChatDeductionGame）には含めない。アプリのページと合成ページには要らず、報酬を切り替える Worker だけが読むため。
+ *
+ * @returns 報酬のID。ページから始めたゲームなら null
+ * @throws そのIDのゲームが無い場合（呼び出し側の誤り）
+ */
+export const readGameStartReward = async (db: Database, id: number): Promise<string | null> => {
+  const row = await db.prepare('SELECT start_reward_id AS startRewardId FROM chat_deduction_games WHERE id = ?1').bind(id).first<{ startRewardId: string | null }>()
+  if (row === null) throw new Error(`チャットで推理のゲーム（${id}）がありません`)
+  return row.startRewardId
+}
 
 /**
  * 開催中のゲームを終える。

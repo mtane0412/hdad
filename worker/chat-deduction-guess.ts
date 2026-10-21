@@ -6,7 +6,8 @@
  * 1. 交換のIDを鍵に解答の行を作る。開催中のゲームが無ければ受け付けなかったことにする（worker/chat-deduction-store.ts の reserveGuess）。
  *    行がもうあれば再送なので何もしない（二重に照合しない）
  * 2. Twitch へ2xxを返したあとで（waitUntil）、問題集の別名と照合する（src/chat-deduction/guess.ts。LLM は使わない）。
- *    正解なら正解者を1人に決めてゲームを終え（solveGame）、2つの報酬を交換できないようにする。不正解なら記録する
+ *    正解なら正解者を1人に決めてゲームを終え（solveGame）、2つの報酬を交換できないようにする（トリガーのチャンネルポイントで
+ *    始めたゲームなら、始めた報酬を交換できるように戻す）。不正解なら記録する
  * 3. 正解・不正解の交換は FULFILLED、受け付けなかった交換（開催中でない・照合までにゲームが終わった）は CANCELED にしてポイントを返す。
  *    正誤を決めた解答はカードになるので、照合のすぐあとに合成ページへカードの一覧を押し出す（issue #378。worker/chat-deduction-board.ts）
  *
@@ -19,7 +20,7 @@ import { CHAT_DEDUCTION_PROBLEMS } from '../src/chat-deduction/problem-set'
 import { recordLateFailure } from './alert-actions'
 import { pushBoardAfterRedemption } from './chat-deduction-board'
 import { setChatDeductionRewardsEnabled, type ChatDeductionRewards } from './chat-deduction-rewards'
-import { markGuessWrong, readGame, reserveGuess, solveGame, type ChatDeductionGuess } from './chat-deduction-store'
+import { markGuessWrong, readGame, readGameStartReward, reserveGuess, solveGame, type ChatDeductionGuess } from './chat-deduction-store'
 import { HttpError, STATUS, type Context } from './http'
 import { getManageToken } from './reward-routes'
 import { recordFailure } from './stats-store'
@@ -77,7 +78,11 @@ const settle = async (context: Context, rewards: ChatDeductionRewards, guess: Ch
     if (solved) await recordRewardsFailure(error)
     throw error
   })
-  if (solved) await setChatDeductionRewardsEnabled(twitch, accessToken, env.TWITCH_BROADCASTER_ID, rewards, false).catch(recordRewardsFailure)
+  if (solved && guess.gameId !== null) {
+    // トリガーのチャンネルポイントで始めたゲームなら、始めた報酬も交換できるように戻す
+    const startRewardId = await readGameStartReward(env.DB, guess.gameId)
+    await setChatDeductionRewardsEnabled(twitch, accessToken, env.TWITCH_BROADCASTER_ID, rewards, false, startRewardId).catch(recordRewardsFailure)
+  }
   await twitch.updateRedemptionStatus(accessToken, env.TWITCH_BROADCASTER_ID, rewards.answerRewardId, guess.redemptionId, status)
 }
 
