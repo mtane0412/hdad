@@ -133,14 +133,32 @@ const Select = ({ id, options, value, onChange }: { id: string; options: readonl
   </NativeSelect>
 )
 
-/** チャットで推理の問題集の選択肢 */
-const CHAT_DEDUCTION_SET_OPTIONS: readonly SelectOption[] = CHAT_DEDUCTION_PROBLEM_SETS.map((set) => ({ value: set.id, label: set.name }))
+/**
+ * チャットで推理の問題集の選択肢。
+ *
+ * 保存したあとで problems.json から消えた問題集を選んでいる行は、消えたものと分かる選択肢を足して出す
+ * （選択肢が無いと先頭の問題集に見えてしまい、保存で Worker に拒まれたときに原因の行を見分けられないため）。
+ */
+const chatDeductionSetOptions = (setId: string): SelectOption[] => {
+  const options = CHAT_DEDUCTION_PROBLEM_SETS.map((set) => ({ value: set.id, label: set.name }))
+  const missing = !CHAT_DEDUCTION_PROBLEM_SETS.some((set) => set.id === setId)
+  return missing ? [...options, { value: setId, label: `問題集にない問題集（${setId}）` }] : options
+}
 
-/** チャットで推理の出す問題の選択肢。先頭（空）は問題集からランダムに選ぶ */
-const chatDeductionProblemOptions = (setId: string): SelectOption[] => [
-  { value: '', label: 'ランダム（直前の問題は除く）' },
-  ...(CHAT_DEDUCTION_PROBLEM_SETS.find((set) => set.id === setId)?.problems ?? []).map((problem) => ({ value: problem.id, label: problem.answer })),
-]
+/**
+ * チャットで推理の出す問題の選択肢。先頭（空）は問題集からランダムに選ぶ。
+ *
+ * 問題集から消えた問題を指定している行は、問題集と同じく消えたものと分かる選択肢を足して出す。
+ */
+const chatDeductionProblemOptions = (setId: string, problemId: string): SelectOption[] => {
+  const problems = CHAT_DEDUCTION_PROBLEM_SETS.find((set) => set.id === setId)?.problems ?? []
+  const missing = problemId !== '' && !problems.some((problem) => problem.id === problemId)
+  return [
+    { value: '', label: 'ランダム（直前の問題は除く）' },
+    ...problems.map((problem) => ({ value: problem.id, label: problem.answer })),
+    ...(missing ? [{ value: problemId, label: `問題集にない問題（${problemId}）` }] : []),
+  ]
+}
 
 /**
  * 広告の絞り込みの選択肢。
@@ -644,7 +662,7 @@ const ActionFields = ({ draft, media, heading, onChange }: ActionFieldsProps) =>
               {/* 問題集を選び直したら、ほかの問題集の問題を指定したまま残さないよう、出す問題はランダムに戻す */}
               <Select
                 id={`${id}-chat-deduction-set`}
-                options={CHAT_DEDUCTION_SET_OPTIONS}
+                options={chatDeductionSetOptions(draft.chatDeductionSetId)}
                 value={draft.chatDeductionSetId}
                 onChange={(chatDeductionSetId) => update({ chatDeductionSetId, chatDeductionProblemId: '' })}
               />
@@ -653,7 +671,7 @@ const ActionFields = ({ draft, media, heading, onChange }: ActionFieldsProps) =>
               <Label htmlFor={`${id}-chat-deduction-problem`}>出す問題</Label>
               <Select
                 id={`${id}-chat-deduction-problem`}
-                options={chatDeductionProblemOptions(draft.chatDeductionSetId)}
+                options={chatDeductionProblemOptions(draft.chatDeductionSetId, draft.chatDeductionProblemId)}
                 value={draft.chatDeductionProblemId}
                 onChange={(chatDeductionProblemId) => update({ chatDeductionProblemId })}
               />

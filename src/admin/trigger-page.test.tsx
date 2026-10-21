@@ -653,6 +653,16 @@ describe('効果の付け外し', () => {
     expect(api.saveConfig).toHaveBeenCalledWith(expect.arrayContaining([{ kind: 'raid', actions: [{ type: 'chatDeduction', setId: 'misc', problemId: null }] }]))
   })
 
+  test('保存したあとで問題集・問題が消えていたら、消えたものと分かる選択肢で出す（ほかの値に見せかけない）', async () => {
+    const raidTrigger = { kind: 'raid' as const, actions: [{ type: 'chatDeduction' as const, setId: '消えた問題集', problemId: '消えた問題' }] }
+    render(triggerPage(fakeApi({ config: vi.fn(async () => [raidTrigger]) })))
+
+    const raid = await openedItem('レイドされた')
+
+    expect(raid.getByRole('combobox', { name: '問題集' })).toHaveDisplayValue('問題集にない問題集（消えた問題集）')
+    expect(raid.getByRole('combobox', { name: '出す問題' })).toHaveDisplayValue('問題集にない問題（消えた問題）')
+  })
+
   test('アラートの素材の選択欄に VRM を出さない（VRM はアラートで流せないため）', async () => {
     const kanbanVrm: MediaItem = { id: 'media-kanban', name: '看板娘.vrm', kind: 'vrm', contentType: 'model/gltf-binary', size: 12 * 1024 * 1024, uploadedAt: '2026-10-13T00:00:00Z' }
     render(triggerPage(fakeApi({ media: vi.fn(async () => [kanbanVrm, applauseVideo]) })))
