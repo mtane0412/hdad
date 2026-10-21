@@ -7,6 +7,7 @@
  * 注意: 保存時に検証済みの内容しか書き込まないため、読み出し時の再検証はしない。
  * 注意: 渡せなかったとき（いまの人形が無いなど）は投げずに `doll-grant-failed` として記録する。ゲームの進行（終了・解説・
  *   正解者の表示）を人形のために止めないため（docs/principles.md の方針5の例外。docs/decisions/dolls.md）。
+ *   記録そのものに失敗したときも投げず、Worker のログに残す。
  */
 import { type DollPrize, type DollPrizeGame } from './doll'
 import { changeDolls } from './doll-store'
@@ -51,6 +52,12 @@ export const grantDollPrize = async (
     await changeDolls(env.DB, { userId: winner.userId, kind, delta: 1, reason: game, sourceId }, now)
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
-    await recordFailure(env.DB, 'doll-grant-failed', `${GAME_LABELS[game]}の正解者（${winner.userName}さん）に人形を渡せませんでした: ${reason}`, now)
+    try {
+      await recordFailure(env.DB, 'doll-grant-failed', `${GAME_LABELS[game]}の正解者（${winner.userName}さん）に人形を渡せませんでした: ${reason}`, now)
+    } catch (failure) {
+      // 記録にも失敗した（D1 の不調）。ここで投げるとゲームの進行が止まるので、Worker のログに残して続ける
+      // （worker/alert-actions.ts の recordLateFailure と同じ扱い）
+      console.error(failure)
+    }
   }
 }

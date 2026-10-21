@@ -2463,6 +2463,24 @@ describe('漢字クイズの回答（issue #301）', () => {
       expect(alertChannel.pushedKanjiQuizNotices).toEqual([{ type: 'answer', quizId: 'quiz-kusabana', userName: 'たなか' }])
       expect(await listFailures(env.DB)).toMatchObject([{ code: 'doll-grant-failed', message: expect.stringContaining('いまの人形が選ばれていません') }])
     })
+
+    it('渡せなかったことを記録することにも失敗しても、正解者は合成ページへ押し出す', async () => {
+      // 前提: 台帳と失敗の記録のテーブルが無い（D1 の不調を再現する）。出題の行は残っている
+      const { env, db, alertChannel } = createEnv()
+      await saveDollPrize(env.STORE, 'kanjiQuiz', { kind: 'normal' })
+      await openKusabanaQuiz(db)
+      db.sqlite.exec('DROP TABLE doll_ledger')
+      db.sqlite.exec('DROP TABLE collection_failures')
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      const response = await callWebhook(createNotification({ body: chatFrom('たなか', '11111', 'くさばな', 'chat-1'), messageId: 'notification-1' }), env)
+
+      expect(response.status).toBe(204)
+      expect(alertChannel.pushedKanjiQuizNotices).toEqual([{ type: 'answer', quizId: 'quiz-kusabana', userName: 'たなか' }])
+      // 記録できなかったことは、Worker のログに残す（黙って捨てない）
+      expect(consoleError).toHaveBeenCalled()
+      consoleError.mockRestore()
+    })
   })
 })
 
