@@ -15,7 +15,7 @@ import { useEffect, useId, useState } from 'react'
 import type { MediaItem } from '@/admin/api'
 import { errorMessage, usePageActions } from '@/admin/page-actions'
 import { Link, useUnsavedChanges } from '@/app/router'
-import { StatusDot, Tag } from '@/components/data/data-display'
+import { StatusDot } from '@/components/data/data-display'
 import { DataTable, DataTableCell, DataTableRow } from '@/components/data/data-table'
 import { LoadFailure } from '@/components/load-failure'
 import { SaveBar } from '@/components/save-bar'
@@ -245,7 +245,7 @@ export const DollPage = ({ api, loadMedia }: { api: DollApi; loadMedia(): Promis
                     <DataTableCell>
                       <FigureCell figure={set.super} />
                     </DataTableCell>
-                    <DataTableCell>{set.current && <Tag tone="teal">いまの人形</Tag>}</DataTableCell>
+                    <DataTableCell>{set.current && <StatusDot tone="positive">いまの人形</StatusDot>}</DataTableCell>
                     {/* 閉じた行でも、保存していない書きかけがあることを見落とさないようにする */}
                     <DataTableCell>{unsaved && <StatusDot tone="attention">未保存</StatusDot>}</DataTableCell>
                   </DataTableRow>
