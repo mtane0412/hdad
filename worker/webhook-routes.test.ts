@@ -1946,6 +1946,25 @@ describe('人形を渡す動作（dollGrant）', () => {
     expect(await listFailures(env.DB)).toEqual([])
   })
 
+  it('渡したら、交換した人の名前と人形の名前・画像・個数を合成ページの「人形の獲得」へ押し出す。再送では押し出さない', async () => {
+    const { env, alertChannel } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [rewardDollTrigger] })
+    await selectBears(env)
+
+    await callWebhook(createNotification({ messageId: 'message-doll-1', body: REDEMPTION_NOTIFICATION }), env)
+    await callWebhook(createNotification({ messageId: 'message-doll-1', body: REDEMPTION_NOTIFICATION }), env)
+
+    expect(alertChannel.pushedDollAwards).toEqual([
+      {
+        id: 'trigger:message-doll-1:dollGrant:0',
+        userName: '田中太郎',
+        kind: 'normal',
+        count: 2,
+        doll: { name: 'クマ人形', imageUrl: `/api/media/image-bear?key=${ISSUED_OVERLAY_KEY}` },
+      },
+    ])
+  })
+
   it('同じ通知が再送されても、二重に渡さない。別の通知なら、もう一度渡す', async () => {
     const { env } = createEnv()
     await saveAlertConfig(env.STORE, { triggers: [rewardDollTrigger] })
@@ -2426,6 +2445,25 @@ describe('漢字クイズの回答（issue #301）', () => {
 
       expect(await readDollHoldings(env.DB)).toEqual([{ userId: '11111', setId, normal: 1, super: 0 }])
       expect(env.DB.sqlite.prepare('SELECT reason, trigger_kind FROM doll_ledger').all()).toEqual([{ reason: 'kanjiQuiz', trigger_kind: null }])
+    })
+
+    it('正解者に渡したら、正解者の名前と人形を合成ページの「人形の獲得」へ押し出す', async () => {
+      const { env, db, alertChannel } = createEnv()
+      await saveDollPrize(env.STORE, 'kanjiQuiz', { kind: 'normal' })
+      await selectBears(env)
+      await openKusabanaQuiz(db)
+
+      await callWebhook(createNotification({ body: chatFrom('たなか', '11111', 'くさばな', 'chat-1'), messageId: 'notification-1' }), env)
+
+      expect(alertChannel.pushedDollAwards).toEqual([
+        {
+          id: 'kanjiQuiz:quiz-kusabana',
+          userName: 'たなか',
+          kind: 'normal',
+          count: 1,
+          doll: { name: 'クマ人形', imageUrl: `/api/media/image-bear?key=${ISSUED_OVERLAY_KEY}` },
+        },
+      ])
     })
 
     it('試し再生の出題の正解者には渡さない（正解者は合成ページへ押し出す）', async () => {

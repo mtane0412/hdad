@@ -60,6 +60,9 @@
  * 合成ページの素材「ペロペロ」へ、舐め方の種と舐める相手の名前・アイコンを配るのもこの Durable Object である（issue #338）。
  * 同じ理由で、14個目の目印（lick）を付けた接続へだけ配る。
  *
+ * 合成ページの素材「人形の獲得」へ、人形を渡した視聴者の名前と人形の名前・画像を配るのもこの Durable Object である。
+ * 同じ理由で、目印（dollAward）を付けた接続へだけ配る。
+ *
  * 合成ページへ、管理画面で保存した・素材の表示を切り替えたあとの構成（丸ごと）を配るのもこの Durable Object である。
  * 同じ理由で、15個目の目印（overlayLayout）を付けた接続へだけ配る。
  *
@@ -85,6 +88,7 @@ import type { PomodoroSnapshot } from './pomodoro-timer'
 import type { SpeechMute } from './speech-config'
 import type { KanjiQuizCall, KanjiQuizNotice, StreamStopOrder } from './kanji-quiz-call'
 import type { LickCall } from './lick-call'
+import type { DollAwardCall } from './doll-award'
 import type { VrmCall } from './vrm-call'
 import type { OpinionBoardSnapshot } from './opinion'
 import type { ChatDeductionBoard } from './chat-deduction-board'
@@ -129,6 +133,8 @@ const PUSH_CHAT_DEDUCTION_PATH = '/push/chat-deduction'
 const PUSH_LICK_PATH = '/push/lick'
 /** Worker がVRMの演出の呼び出しの押し出しに使うパス */
 const PUSH_VRM_PATH = '/push/vrm'
+/** Worker が人形の獲得の押し出しに使うパス */
+const PUSH_DOLL_AWARD_PATH = '/push/doll-award'
 /** Worker が合成オーバーレイの構成の押し出しに使うパス */
 const PUSH_OVERLAY_LAYOUT_PATH = '/push/overlay-layout'
 /** Worker が演出を消す合図の押し出しに使うパス */
@@ -168,6 +174,8 @@ const CHAT_DEDUCTION_TOPIC = 'chatDeduction'
 const LICK_TOPIC = 'lick'
 /** VRMの演出の呼び出しを受け取る接続（合成ページの素材「VRM」）に付ける目印 */
 const VRM_TOPIC = 'vrm'
+/** 人形の獲得を受け取る接続（合成ページの素材「人形の獲得」）に付ける目印 */
+const DOLL_AWARD_TOPIC = 'dollAward'
 /** 合成オーバーレイの構成を受け取る接続（合成ページそのもの）に付ける目印 */
 const OVERLAY_LAYOUT_TOPIC = 'overlayLayout'
 /** 演出を消す合図を受け取る接続（合成ページそのもの）に付ける目印 */
@@ -190,6 +198,7 @@ const TOPICS: readonly string[] = [
   LICK_TOPIC,
   OVERLAY_LAYOUT_TOPIC,
   VRM_TOPIC,
+  DOLL_AWARD_TOPIC,
   CHAT_DEDUCTION_TOPIC,
   DISMISS_TOPIC,
 ]
@@ -239,7 +248,7 @@ export interface AlertChannelNamespace {
  *   townTour なら市町村紹介の接続、bgmDuck なら配信のBGMを下げる知らせの接続、speechMute なら読み上げのミュートの接続、
  *   twister ならツイスターの接続、text ならテキストの接続、kanjiQuiz なら漢字クイズの接続、streamStop なら配信を止める命令の接続、opinions なら意見ボードの接続、
  *   lick ならペロペロの接続、overlayLayout なら構成の接続、vrm ならVRMの演出の接続、
- *   chatDeduction ならチャットで推理の接続、dismiss なら演出を消す合図の接続、それ以外はアラートの接続として受け入れる
+ *   chatDeduction ならチャットで推理の接続、dollAward なら人形の獲得の接続、dismiss なら演出を消す合図の接続、それ以外はアラートの接続として受け入れる
  * - POST /push: Worker が押し出したアラートを、アラートの接続すべてへ配る
  * - POST /push/bgm: Worker が押し出した「いま流している曲」を、BGMの接続すべてへ配る
  * - POST /push/work-log: Worker が押し出した作業ログの1行を、作業ログの接続すべてへ配る
@@ -256,6 +265,7 @@ export interface AlertChannelNamespace {
  * - POST /push/chat-deduction: Worker が押し出したチャットで推理のカードの一覧を、チャットで推理の接続すべてへ配る
  * - POST /push/lick: Worker が押し出したペロペロの呼び出しを、ペロペロの接続すべてへ配る
  * - POST /push/vrm: Worker が押し出したVRMの演出の呼び出しを、VRMの演出の接続すべてへ配る
+ * - POST /push/doll-award: Worker が押し出した人形の獲得を、人形の獲得の接続すべてへ配る
  * - POST /push/overlay-layout: Worker が押し出した合成オーバーレイの構成を、構成の接続すべてへ配る
  * - POST /push/dismiss: Worker が押し出した演出を消す合図を、演出を消す合図の接続すべてへ配る
  * - POST /revoke: 新しいキーの目印を覚え、接続をすべて閉じる（オーバーレイ用キーを発行し直したとき。どの接続もオーバーレイ用キーで開かれている）
@@ -288,6 +298,7 @@ export class AlertChannel {
     if (url.pathname === PUSH_CHAT_DEDUCTION_PATH) return this.push(CHAT_DEDUCTION_TOPIC, await request.text(), 'チャットで推理')
     if (url.pathname === PUSH_LICK_PATH) return this.push(LICK_TOPIC, await request.text(), 'ペロペロ')
     if (url.pathname === PUSH_VRM_PATH) return this.push(VRM_TOPIC, await request.text(), 'VRMの演出')
+    if (url.pathname === PUSH_DOLL_AWARD_PATH) return this.push(DOLL_AWARD_TOPIC, await request.text(), '人形の獲得')
     if (url.pathname === PUSH_OVERLAY_LAYOUT_PATH) return this.push(OVERLAY_LAYOUT_TOPIC, await request.text(), 'オーバーレイの構成')
     if (url.pathname === PUSH_DISMISS_PATH) return this.push(DISMISS_TOPIC, await request.text(), '演出を消す合図')
     if (url.pathname === PUSH_STREAM_STOP_PATH) {
@@ -437,6 +448,16 @@ export const connectTwisterSocket = (namespace: AlertChannelNamespace, request: 
  */
 export const connectLickSocket = (namespace: AlertChannelNamespace, request: Request, keyTag: string): Promise<Response> =>
   connectWithTopic(namespace, request, LICK_TOPIC, keyTag)
+
+/**
+ * 合成ページの素材「人形の獲得」からのWebSocketの接続を、人形の獲得を受け取る接続として Durable Object へ引き渡す。
+ *
+ * オーバーレイ用キーの確認は呼び出し側（doll-routes.ts）が済ませている。
+ *
+ * @param keyTag 確かめたキーの目印（overlayKeyTag）
+ */
+export const connectDollAwardSocket = (namespace: AlertChannelNamespace, request: Request, keyTag: string): Promise<Response> =>
+  connectWithTopic(namespace, request, DOLL_AWARD_TOPIC, keyTag)
 
 /**
  * 合成ページの素材「VRM」からのWebSocketの接続を、VRMの演出の呼び出しを受け取る接続として Durable Object へ引き渡す。
@@ -667,6 +688,16 @@ export const pushTwister = (namespace: AlertChannelNamespace, call: TwisterCall)
  * 注意: 失敗を黙って握りつぶさない。呼び出し側が失敗として記録する（試し再生は502にする）。
  */
 export const pushLick = (namespace: AlertChannelNamespace, call: LickCall): Promise<void> => pushJson(namespace, PUSH_LICK_PATH, call, 'ペロペロ')
+
+/**
+ * 人形の獲得（渡した視聴者と人形）を Durable Object へ押し出す。人形を自動で渡したとき（worker/doll-award.ts の grantDolls）に呼ぶ。
+ *
+ * 合成ページを開いていなければ配る先が無いだけで、失敗ではない（配送先は204を返す。つながっていない間の獲得は貯めずに落とす）。
+ *
+ * 注意: 失敗を黙って握りつぶさない。呼び出し側が失敗として記録する。
+ */
+export const pushDollAward = (namespace: AlertChannelNamespace, call: DollAwardCall): Promise<void> =>
+  pushJson(namespace, PUSH_DOLL_AWARD_PATH, call, '人形の獲得')
 
 /**
  * VRMの演出の呼び出し（動き方の種と出す VRM のURL）を Durable Object へ押し出す。トリガーと管理画面の試し再生で呼ぶ。

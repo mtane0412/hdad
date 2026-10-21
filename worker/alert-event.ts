@@ -751,6 +751,8 @@ export const licksFor = (config: AlertConfig, subscriptionType: string, body: un
 export interface DollGrantTrigger {
   /** 渡す相手（出来事を起こした視聴者）の Twitch のユーザーID */
   readonly userId: string
+  /** 渡す相手の表示名（獲得の演出に出す） */
+  readonly userName: string
   readonly kind: StoredDollGrantAction['kind']
   readonly count: number
   /** 台帳に控えるトリガーの項目 */
@@ -778,7 +780,7 @@ export const dollGrantsFor = (config: AlertConfig, subscriptionType: string, bod
     },
     state,
   ).map(({ action: { triggerKind, kind, count }, extracted }) => {
-    if (DOLL_GRANT_KINDS.includes(triggerKind) && 'userId' in extracted) return { userId: extracted.userId, kind, count, triggerKind }
+    if (DOLL_GRANT_KINDS.includes(triggerKind) && 'userId' in extracted) return { userId: extracted.userId, userName: extracted.userName, kind, count, triggerKind }
     throw new Error(`人形を渡す動作は、出来事を起こした視聴者が決まるトリガーにだけ置けます（${triggerKind} のトリガーに置かれています）`)
   })
 

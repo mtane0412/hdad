@@ -36,7 +36,7 @@ import type { ConditionState } from './alert-event'
 import { announceAsBot, sendAsBot, shoutoutAsBot } from './bot-chat'
 import type { ChatMessage } from './chat-command'
 import { consumeCooldown, reserveChatReply } from './chat-store'
-import { changeDolls } from './doll-store'
+import { grantDolls } from './doll-award'
 import { countLlmCalls, toUtcDay } from './llm-usage-store'
 import { HttpError, STATUS, type Context } from './http'
 import { loadOverlayKey } from './overlay-key'
@@ -340,8 +340,9 @@ const grantMatchedDolls = async (
   })()
   for (const [index, grant] of grants.entries()) {
     try {
-      await changeDolls(
-        env.DB,
+      await grantDolls(
+        env,
+        now,
         {
           userId: grant.userId,
           kind: grant.kind,
@@ -350,7 +351,7 @@ const grantMatchedDolls = async (
           triggerKind: grant.triggerKind,
           sourceId: `trigger:${messageId}:dollGrant:${index}`,
         },
-        now,
+        grant.userName,
       )
     } catch (error) {
       await recordFailure(env.DB, 'doll-grant-failed', error instanceof Error ? error.message : String(error), now)

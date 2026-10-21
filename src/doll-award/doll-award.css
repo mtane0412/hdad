@@ -1,0 +1,133 @@
+/*
+ * 人形の獲得の見た目
+ *
+ * 人形の画像を画面の真ん中にはずませて出し、その下に「◯◯さんが」「クマ人形 ×3 を獲得！」を置く。背景は透過のまま
+ * （OBSで配信画面に重ねるため）。文言は配信画面の上に直に置くので、合成ページ共通の縁取り（src/core/text-outline.css）を付ける。
+ * スーパー人形（doll-award--super）は、人形の後ろに金色の光を回し、名前を金色にして区別する。
+ */
+.doll-awards {
+  /* 位置は画面ではなく置かれた箱を基準にする（合成ページのレイヤーの箱に入れるため） */
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-family: 'Zen Maru Gothic', 'Hiragino Maru Gothic ProN', 'Yu Gothic UI', sans-serif;
+}
+
+.doll-award {
+  /* 1件ずつ再生するので重ならないが、消える動きの途中で次が出てもずれないよう同じ枠に置く */
+  grid-area: 1 / 1;
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 2vh;
+  max-width: 90%;
+  animation: doll-award-enter 700ms cubic-bezier(0.2, 1.6, 0.4, 1) both;
+}
+
+.doll-award--leaving {
+  /* 長さは view.ts の LEAVE_MS と合わせる */
+  animation: doll-award-leave 400ms ease-in both;
+}
+
+.doll-award__image {
+  max-width: 40vmin;
+  max-height: 40vmin;
+  object-fit: contain;
+  filter: drop-shadow(0 1.2vh 2.4vh rgb(0 0 0 / 35%));
+  animation: doll-award-bob 1.6s ease-in-out 700ms infinite;
+}
+
+.doll-award--super .doll-award__image {
+  filter: drop-shadow(0 0 3vmin rgb(255 214 64 / 90%)) drop-shadow(0 1.2vh 2.4vh rgb(0 0 0 / 35%));
+}
+
+/* スーパー人形の後ろで回る光 */
+.doll-award--super::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: -1;
+  width: 70vmin;
+  height: 70vmin;
+  translate: -50% -60%;
+  background: repeating-conic-gradient(rgb(255 214 64 / 45%) 0deg 12deg, transparent 12deg 30deg);
+  mask-image: radial-gradient(circle, #000 20%, transparent 70%);
+  animation: doll-award-spin 8s linear infinite;
+}
+
+.doll-award__text {
+  display: grid;
+  justify-items: center;
+  margin: 0;
+  color: #ffffff;
+  font-weight: 700;
+  line-height: 1.3;
+  text-align: center;
+  overflow-wrap: anywhere;
+  /* 濃い紫の太い縁取り（アラートと同じく目立たせたいので、ほかの素材より太くする） */
+  --outline-color: #3b2a5c;
+  --outline-width: 0.11em;
+  text-shadow: var(--text-outline);
+}
+
+.doll-award__who {
+  font-size: clamp(16px, 2.8vw, 48px);
+}
+
+.doll-award__line {
+  font-size: clamp(20px, 4.2vw, 72px);
+}
+
+.doll-award__name {
+  color: #ffe9a8;
+}
+
+.doll-award--super .doll-award__name {
+  color: #ffd640;
+}
+
+.doll-award__count {
+  margin-inline: 0.2em;
+  color: #ffd640;
+}
+
+.doll-awards__notice {
+  position: absolute;
+  left: 2vw;
+  bottom: 2vh;
+  margin: 0;
+  padding: 0.5em 0.9em;
+  border-radius: 0.5em;
+  background: rgb(43 10 10 / 88%);
+  color: #ffd7d7;
+  font-size: clamp(14px, 1.6vw, 28px);
+  font-weight: 500;
+}
+
+@keyframes doll-award-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.3) translateY(10vh);
+  }
+}
+
+@keyframes doll-award-leave {
+  to {
+    opacity: 0;
+    transform: scale(0.9) translateY(-4vh);
+  }
+}
+
+@keyframes doll-award-bob {
+  50% {
+    transform: translateY(-1.5vh) rotate(-3deg);
+  }
+}
+
+@keyframes doll-award-spin {
+  to {
+    rotate: 360deg;
+  }
+}
