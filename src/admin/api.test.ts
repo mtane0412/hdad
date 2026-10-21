@@ -391,6 +391,15 @@ describe('rotateOverlayKey・playTownTourDemo・townTourSound・rewards・logout
     expect(await createAdminApi(fetchReturning(200, { triggers: [followTrigger] }).fetchImpl).config()).toEqual([followTrigger])
   })
 
+  it('保存済みのチャットで推理の動作を持つトリガーも受け取る（問題の指定もランダムも）', async () => {
+    const triggers = [
+      { kind: 'reward', rewardId: '報酬ID-推理を始める', actions: [{ type: 'chatDeduction', setId: 'ancient-people', problemId: null }] },
+      { kind: 'follow', actions: [{ type: 'chatDeduction', setId: 'misc', problemId: 'mount-fuji' }] },
+    ]
+
+    expect(await createAdminApi(fetchReturning(200, { triggers }).fetchImpl).config()).toEqual(triggers)
+  })
+
   it('保存済みのペロペロの動作を持つトリガーも受け取る', async () => {
     const rewardTrigger = { kind: 'reward', rewardId: '報酬ID-ペロペロ', actions: [{ type: 'lick' }] }
 

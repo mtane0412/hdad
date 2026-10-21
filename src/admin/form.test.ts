@@ -81,6 +81,9 @@ const inputs = (overrides: Partial<TriggerDraft> = {}): TriggerDraft => ({
   kanjiQuizWeights: weightTexts({ '3': '1' }),
   lickEnabled: false,
   vrmEnabled: false,
+  chatDeductionEnabled: false,
+  chatDeductionSetId: 'ancient-people',
+  chatDeductionProblemId: '',
   ...overrides,
 })
 
@@ -478,6 +481,7 @@ describe('emptyDraft', () => {
       kanjiQuizEnabled: false,
       lickEnabled: false,
       vrmEnabled: false,
+      chatDeductionEnabled: false,
     })
   })
 })
@@ -555,6 +559,27 @@ describe('rowActionLabels', () => {
     const trigger: StoredTrigger = { kind: 'raid', actions: [{ type: 'vrm' }] }
 
     expect(toDraft(trigger)).toMatchObject({ kind: 'raid', alertEnabled: false, vrmEnabled: true })
+  })
+
+  it('チャットで推理の効果は「チャットで推理」として出し、問題を選んでいなければ問題集からランダムに選ぶ動作として保存する', () => {
+    const draft = inputs({ kind: 'follow', alertEnabled: false, chatDeductionEnabled: true, chatDeductionSetId: 'ancient-people', chatDeductionProblemId: '' })
+
+    expect(rowActionLabels(draft)).toEqual(['チャットで推理'])
+    expect(toTriggerInputs([draft])).toEqual([{ kind: 'follow', actions: [{ type: 'chatDeduction', setId: 'ancient-people', problemId: null }] }])
+  })
+
+  it('チャットで推理の問題を選んでいれば、その問題を指定した動作として保存する', () => {
+    const draft = inputs({ kind: 'reward', alertEnabled: false, chatDeductionEnabled: true, chatDeductionSetId: 'ancient-people', chatDeductionProblemId: 'kukai' })
+
+    expect(toTriggerInputs([draft])).toEqual([{ kind: 'reward', rewardId: '報酬ID-乾杯', actions: [{ type: 'chatDeduction', setId: 'ancient-people', problemId: 'kukai' }] }])
+  })
+
+  it('保存済みのチャットで推理の動作を、選んだ状態の入力欄に戻す（ランダムは問題の欄を空にする）', () => {
+    const fixed: StoredTrigger = { kind: 'raid', actions: [{ type: 'chatDeduction', setId: 'misc', problemId: 'mount-fuji' }] }
+    const random: StoredTrigger = { kind: 'raid', actions: [{ type: 'chatDeduction', setId: 'ancient-events', problemId: null }] }
+
+    expect(toDraft(fixed)).toMatchObject({ chatDeductionEnabled: true, chatDeductionSetId: 'misc', chatDeductionProblemId: 'mount-fuji' })
+    expect(toDraft(random)).toMatchObject({ chatDeductionEnabled: true, chatDeductionSetId: 'ancient-events', chatDeductionProblemId: '' })
   })
 
   it('ツイスターはレイドの項目にだけ置ける', () => {

@@ -624,6 +624,35 @@ describe('効果の付け外し', () => {
     expect(api.saveConfig).toHaveBeenCalledWith(expect.arrayContaining([{ kind: 'raid', actions: [{ type: 'vrm' }] }]))
   })
 
+  test('どの項目でもチャットで推理を選べ、問題集を選ぶとランダム、問題も選ぶとその問題で始める効果として送る', async () => {
+    const api = fakeApi()
+    render(triggerPage(api))
+
+    const raid = await openedItem('レイドされた')
+    await userEvent.click(raid.getByRole('checkbox', { name: 'チャットで推理を始める' }))
+    await userEvent.selectOptions(raid.getByRole('combobox', { name: '問題集' }), '古代史の人物')
+    // はじめは問題集からランダムに選ぶ
+    expect(raid.getByRole('combobox', { name: '出す問題' })).toHaveDisplayValue('ランダム（直前の問題は除く）')
+    await userEvent.selectOptions(raid.getByRole('combobox', { name: '出す問題' }), '空海')
+    await save()
+
+    expect(api.saveConfig).toHaveBeenCalledWith(expect.arrayContaining([{ kind: 'raid', actions: [{ type: 'chatDeduction', setId: 'ancient-people', problemId: 'kukai' }] }]))
+  })
+
+  test('チャットで推理の問題集を選び直すと、出す問題はランダムに戻す（ほかの問題集の問題を指定したまま残さない）', async () => {
+    const api = fakeApi()
+    render(triggerPage(api))
+
+    const raid = await openedItem('レイドされた')
+    await userEvent.click(raid.getByRole('checkbox', { name: 'チャットで推理を始める' }))
+    await userEvent.selectOptions(raid.getByRole('combobox', { name: '問題集' }), '古代史の人物')
+    await userEvent.selectOptions(raid.getByRole('combobox', { name: '出す問題' }), '空海')
+    await userEvent.selectOptions(raid.getByRole('combobox', { name: '問題集' }), 'いろいろ')
+    await save()
+
+    expect(api.saveConfig).toHaveBeenCalledWith(expect.arrayContaining([{ kind: 'raid', actions: [{ type: 'chatDeduction', setId: 'misc', problemId: null }] }]))
+  })
+
   test('アラートの素材の選択欄に VRM を出さない（VRM はアラートで流せないため）', async () => {
     const kanbanVrm: MediaItem = { id: 'media-kanban', name: '看板娘.vrm', kind: 'vrm', contentType: 'model/gltf-binary', size: 12 * 1024 * 1024, uploadedAt: '2026-10-13T00:00:00Z' }
     render(triggerPage(fakeApi({ media: vi.fn(async () => [kanbanVrm, applauseVideo]) })))

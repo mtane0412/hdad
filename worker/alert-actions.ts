@@ -19,6 +19,7 @@ import {
   aiChatsFor,
   alertsFor,
   announcementsFor,
+  chatDeductionsFor,
   chatMessagesFor,
   hasAlertAction,
   kanjiQuizzesFor,
@@ -44,6 +45,9 @@ import { listTownTourVisits } from './town-tour-visits'
 import { loadTownTourNarration } from './town-tour-narration'
 import { loadTownTourSound, playbackSoundOf } from './town-tour-sound'
 import { issueKanjiQuiz } from './kanji-quiz-issue'
+import { CHAT_DEDUCTION_PROBLEM_SETS } from '../src/chat-deduction/problem-set'
+import { pickConfiguredChatDeductionProblem } from './chat-deduction-pick'
+import { startChatDeductionGame } from './chat-deduction-start'
 import { loadKanjiQuizSound, playbackKanjiQuizSoundOf } from './kanji-quiz-sound'
 import { lickCallOf, lickSeedOf } from './lick-call'
 import type { TriggerKind } from './trigger-menu'
@@ -257,6 +261,25 @@ export const runAlertActions = async (
     }
   }
 
+  // チャットで推理も合成ページの素材が映すので、botの接続を見る前に始める。開催中のゲームがあれば始めずに失敗として記録する
+  // （開催中は1つだけ。同じ通知で2行が当てはまっても、2つ目は開催中として記録に残る）
+  const chatDeductions = ((): ReturnType<typeof chatDeductionsFor> => {
+    try {
+      return chatDeductionsFor(config, subscriptionType, body.event, state)
+    } catch (error) {
+      throw invalid(error instanceof Error ? error.message : String(error))
+    }
+  })()
+  for (const [index, { choice, startRewardId }] of chatDeductions.entries()) {
+    await sendAndRecordFailure(context, messageId, 'chatDeduction', index, 'chat-deduction-start-failed', async () => {
+      await startChatDeductionGame(
+        context,
+        (previousProblemId) => pickConfiguredChatDeductionProblem(CHAT_DEDUCTION_PROBLEM_SETS, choice, previousProblemId, Math.random),
+        startRewardId,
+      )
+    })
+  }
+
   if (messages.length === 0 && announcements.length === 0 && aiChats.length === 0 && shoutouts.length === 0) return
 
   // botを切断していれば送る先がない。受け取り自体は成功として返す
@@ -416,7 +439,7 @@ export const recordLateFailure = async (context: AlertActionContext, failureCode
 const sendAndRecordFailure = async (
   context: AlertActionContext,
   messageId: string,
-  actionType: 'chat' | 'announce' | 'alert' | 'aiChat' | 'shoutout' | 'townTour' | 'twister' | 'kanjiQuiz' | 'lick' | 'vrm',
+  actionType: 'chat' | 'announce' | 'alert' | 'aiChat' | 'shoutout' | 'townTour' | 'twister' | 'kanjiQuiz' | 'lick' | 'vrm' | 'chatDeduction',
   index: number,
   failureCode: string,
   send: () => Promise<void>,

@@ -9,6 +9,7 @@
  * 操作の実行と結果の表示は page-actions.tsx に任せる。市町村紹介の音の設定と試し再生は town-tour-sound-card.tsx が受け持つ。
  * ツイスターの BGM の設定と試し再生は twister-card.tsx が受け持つ。ペロペロの効果音の設定と試し再生は lick-card.tsx が受け持つ。
  * VRMの演出で出す VRM の選択と試し再生は vrm-card.tsx が受け持つ。
+ * チャットで推理を始める効果は、問題集と出す問題（ランダムか1問の指定）を選ぶ。報酬の作成と打ち切りは /chat-deduction/ のページが受け持つ。
  *
  * アラートを配信画面に出すURLはここでは配らない。アラート専用のオーバーレイ（alerts/）は消したので
  * （issue #107）、出すには合成オーバーレイの管理画面（/overlay/）で「アラート」の素材を置く。
@@ -38,6 +39,7 @@ import type { BotApi, BotStatus } from '@/bot/api'
 import { ApiError } from '@/core/api'
 import { PlaceholderInput } from '@/core/placeholder-input'
 import { iconButtonName } from '@/core/icon-button'
+import { CHAT_DEDUCTION_PROBLEM_SETS } from '@/chat-deduction/problem-set'
 import { KANKEN_GRADES, MAX_KANKEN_GRADE_WEIGHT, kankenGradeLabel } from '@/kanji-quiz/grade'
 import { isAnnouncementColor, type AdminApi, type MediaItem, type Reward, type StoredAction, type TriggerKind } from './api'
 import {
@@ -131,6 +133,15 @@ const Select = ({ id, options, value, onChange }: { id: string; options: readonl
   </NativeSelect>
 )
 
+/** チャットで推理の問題集の選択肢 */
+const CHAT_DEDUCTION_SET_OPTIONS: readonly SelectOption[] = CHAT_DEDUCTION_PROBLEM_SETS.map((set) => ({ value: set.id, label: set.name }))
+
+/** チャットで推理の出す問題の選択肢。先頭（空）は問題集からランダムに選ぶ */
+const chatDeductionProblemOptions = (setId: string): SelectOption[] => [
+  { value: '', label: 'ランダム（直前の問題は除く）' },
+  ...(CHAT_DEDUCTION_PROBLEM_SETS.find((set) => set.id === setId)?.problems ?? []).map((problem) => ({ value: problem.id, label: problem.answer })),
+]
+
 /**
  * 広告の絞り込みの選択肢。
  *
@@ -163,6 +174,8 @@ const ACTION_TONES: Readonly<Record<StoredAction['type'], TagTone>> = {
   kanjiQuiz: 'yellow',
   lick: 'gray',
   vrm: 'indigo',
+  // 札の色は10色をすべて使っているので、同じ行に並ぶことの少ない市町村紹介と同じ色にする
+  chatDeduction: 'green',
 }
 
 /** 行の見出しの列（出来事・絞り込み・効果）。どの行も同じ幅で並べ、上下で列がそろうようにする */
@@ -611,6 +624,44 @@ const ActionFields = ({ draft, media, heading, onChange }: ActionFieldsProps) =>
           <p className="text-xs text-muted-foreground">
             「VRM」のカードで選んだキャラクターが、歩いて出てきて手を振り、お辞儀をして帰ります。映すには、オーバーレイに「VRM」の素材を置いてください。
           </p>
+        )}
+      </div>
+
+      {/* チャットで推理は相手を必要としないので、どの項目にも出す */}
+      <div className="flex flex-col gap-4 rounded-md border border-dashed p-3 sm:col-span-2">
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id={`${id}-chat-deduction-enabled`}
+            checked={draft.chatDeductionEnabled}
+            onCheckedChange={(checked) => update({ chatDeductionEnabled: checked === true })}
+          />
+          <Label htmlFor={`${id}-chat-deduction-enabled`}>チャットで推理を始める</Label>
+        </div>
+        {draft.chatDeductionEnabled && (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor={`${id}-chat-deduction-set`}>問題集</Label>
+              {/* 問題集を選び直したら、ほかの問題集の問題を指定したまま残さないよう、出す問題はランダムに戻す */}
+              <Select
+                id={`${id}-chat-deduction-set`}
+                options={CHAT_DEDUCTION_SET_OPTIONS}
+                value={draft.chatDeductionSetId}
+                onChange={(chatDeductionSetId) => update({ chatDeductionSetId, chatDeductionProblemId: '' })}
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor={`${id}-chat-deduction-problem`}>出す問題</Label>
+              <Select
+                id={`${id}-chat-deduction-problem`}
+                options={chatDeductionProblemOptions(draft.chatDeductionSetId)}
+                value={draft.chatDeductionProblemId}
+                onChange={(chatDeductionProblemId) => update({ chatDeductionProblemId })}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground sm:col-span-2">
+              ゲームを始め、「質問」「解答」の報酬を交換できるようにします。チャンネルポイントで始めたときは、ゲームが終わるまでその報酬を交換できないようにします（HDAD の /rewards/ で作った報酬に限ります）。ほかのゲームが開催中なら始めません。報酬は先に「チャットで推理」のページで作ってください。
+            </p>
+          </div>
         )}
       </div>
     </>

@@ -21,6 +21,9 @@
  *   舐める相手を1人に決めるため、チャンネルポイントと「決まった人のその配信で最初の発言」のトリガーにだけ置ける
  * - vrm: Workerが動き方の種と、配信者が選んだ VRM のURLを、合成ページの素材「VRM」へ押し出す（issue #358）。
  *   相手を必要としない演出なので、どのトリガーにも置ける
+ * - chatDeduction: Workerがチャットで推理のゲームを始める（問題集からランダムに選ぶか、配信者が指定した問題で）。
+ *   相手を必要としないので、どのトリガーにも置ける。チャンネルポイントで始めたら、ゲームのあいだその報酬を交換できないようにする
+ *   （worker/chat-deduction-start.ts）
  *
  * メニュー項目は17種類（worker/trigger-menu.ts の TRIGGER_KINDS）で、そのうちチャットの発言を対象にするものは
  * botを接続しているときだけ通知が届く。広告の終了（adBreakEnd）だけはTwitchから届く通知ではなく、
@@ -32,6 +35,7 @@
  * 注意: 既定メニューにする前の保存内容（event と conditions を直接持つ形）は読み替えず、読み込みで失敗させる（Fail-Fast）。
  *   トリガーは数件なので、管理画面から入れ直してもらうほうが暗黙の読み替えを増やさずに済む。
  */
+import { CHAT_DEDUCTION_PROBLEM_SETS } from '../src/chat-deduction/problem-set'
 import { KANKEN_GRADES, MAX_KANKEN_GRADE_WEIGHT, isKankenGrade, isKankenGradeWeights, singleGradeWeights, type KankenGradeWeights } from '../src/kanji-quiz/grade'
 import type { KeyValueStore } from './store'
 import { expandSource, TRIGGER_KINDS, type AlertEvent, type StoredCondition, type TriggerKind, type TriggerSource } from './trigger-menu'
@@ -40,7 +44,7 @@ import { ANNOUNCEMENT_COLORS, type AnnouncementColor } from './twitch'
 const CONFIG_KEY = 'alert-config'
 
 /** 動作の種類。同じ種類は1トリガーに1件まで */
-export const ACTION_TYPES = ['alert', 'chat', 'announce', 'aiChat', 'shoutout', 'townTour', 'twister', 'kanjiQuiz', 'lick', 'vrm'] as const
+export const ACTION_TYPES = ['alert', 'chat', 'announce', 'aiChat', 'shoutout', 'townTour', 'twister', 'kanjiQuiz', 'lick', 'vrm', 'chatDeduction'] as const
 
 export type ActionType = (typeof ACTION_TYPES)[number]
 
@@ -179,6 +183,19 @@ export interface StoredVrmAction {
   type: 'vrm'
 }
 
+/**
+ * チャットで推理のゲームを始める動作。
+ *
+ * 問題集（setId）を選び、問題（problemId）をその問題集から1つ指定するか、null にして問題集からランダムに選ばせる
+ * （ランダムでは直前のゲームの問題を除く。worker/chat-deduction-pick.ts）。どのトリガーにも置ける。
+ */
+export interface StoredChatDeductionAction {
+  type: 'chatDeduction'
+  setId: string
+  /** 出す問題のID。null なら問題集からランダムに選ぶ */
+  problemId: string | null
+}
+
 export type StoredAction =
   | StoredAlertAction
   | StoredChatAction
@@ -190,6 +207,7 @@ export type StoredAction =
   | StoredKanjiQuizAction
   | StoredLickAction
   | StoredVrmAction
+  | StoredChatDeductionAction
 
 /** 市町村紹介を置けるきっかけ。レイドはレイド元、キーワード（!darts など）は発言した人の名前を冒頭に出す */
 export const TOWN_TOUR_KINDS: readonly TriggerKind[] = ['raid', 'keyword']
@@ -389,6 +407,23 @@ const parseAction = (
       return null
     }
     return { type, weights }
+  }
+
+  // チャットで推理は問題集と、その問題集の問題（ランダムなら null）を持つ。どのトリガーにも置ける
+  if (type === 'chatDeduction') {
+    const { setId, problemId } = candidate
+    const set = CHAT_DEDUCTION_PROBLEM_SETS.find((candidateSet) => candidateSet.id === setId)
+    if (set === undefined) problems.push(`${at}.setId: 問題集「${String(setId)}」はありません`)
+    if (problemId !== null && typeof problemId !== 'string') {
+      problems.push(`${at}.problemId: 問題のIDの文字列か、問題集からランダムに選ぶ null を指定してください`)
+      return null
+    }
+    if (set === undefined) return null
+    if (problemId !== null && !set.problems.some((problem) => problem.id === problemId)) {
+      problems.push(`${at}.problemId: 問題「${problemId}」は問題集「${set.id}」にありません`)
+      return null
+    }
+    return { type, setId: set.id, problemId }
   }
 
   if (type === 'aiChat') {
@@ -621,6 +656,10 @@ export const lickActionOf = (trigger: WithActions): StoredLickAction | null =>
 /** トリガーからVRMの演出の動作を取り出す。なければ null */
 export const vrmActionOf = (trigger: WithActions): StoredVrmAction | null =>
   trigger.actions.find((action): action is StoredVrmAction => action.type === 'vrm') ?? null
+
+/** トリガーからチャットで推理を始める動作を取り出す。なければ null */
+export const chatDeductionActionOf = (trigger: WithActions): StoredChatDeductionAction | null =>
+  trigger.actions.find((action): action is StoredChatDeductionAction => action.type === 'chatDeduction') ?? null
 
 /** トリガーからアラートを出す動作を取り出す。なければ null */
 export const alertActionOf = (trigger: WithActions): StoredAlertAction | null =>

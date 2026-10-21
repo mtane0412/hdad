@@ -262,6 +262,47 @@ describe('parseAlertConfig', () => {
     )
   })
 
+  it('チャットで推理を始める動作（chatDeduction）は、問題集からランダムにも問題の指定にもでき、どのトリガーにも置ける', () => {
+    const config = parseAlertConfig(
+      {
+        triggers: [
+          { kind: 'reward', rewardId: '報酬ID-推理を始める', actions: [{ type: 'chatDeduction', setId: 'ancient-people', problemId: null }] },
+          { kind: 'keyword', contains: '!推理', actions: [{ type: 'chatDeduction', setId: 'ancient-people', problemId: 'kukai' }] },
+        ],
+      },
+      materialKind,
+    )
+
+    expect(config.triggers.map((trigger) => trigger.actions)).toEqual([
+      [{ type: 'chatDeduction', setId: 'ancient-people', problemId: null }],
+      [{ type: 'chatDeduction', setId: 'ancient-people', problemId: 'kukai' }],
+    ])
+  })
+
+  it('チャットで推理の問題集が無い・問題がその問題集に無いなら拒否する（ほかの問題で黙って始めないため）', () => {
+    expect(() =>
+      parseAlertConfig(
+        {
+          triggers: [
+            { kind: 'follow', actions: [{ type: 'chatDeduction', setId: '無い問題集', problemId: null }] },
+            // 空海は「古代史の人物」の問題で、「いろいろ」には無い
+            { kind: 'follow', actions: [{ type: 'chatDeduction', setId: 'misc', problemId: 'kukai' }] },
+            { kind: 'follow', actions: [{ type: 'chatDeduction', setId: 'misc' }] },
+          ],
+        },
+        materialKind,
+      ),
+    ).toThrow(
+      expect.objectContaining({
+        problems: [
+          'triggers[0].actions[0].setId: 問題集「無い問題集」はありません',
+          'triggers[1].actions[0].problemId: 問題「kukai」は問題集「misc」にありません',
+          'triggers[2].actions[0].problemId: 問題のIDの文字列か、問題集からランダムに選ぶ null を指定してください',
+        ],
+      }),
+    )
+  })
+
   it('LLMに文面を作らせる動作（aiChat）を受け付ける', () => {
     const config = parseAlertConfig({ triggers: [receivedTrigger({ actions: [aiChatAction()] })] }, materialKind)
 
@@ -455,7 +496,7 @@ describe('parseAlertConfig', () => {
 
   it('対応していない動作の種類は拒否する', () => {
     expect(() => parseAlertConfig({ triggers: [receivedTrigger({ actions: [alertAction({ type: 'ban' })] })] }, materialKind)).toThrowError(
-      expect.objectContaining({ problems: ['triggers[0].actions[0].type: alert / chat / announce / aiChat / shoutout / townTour / twister / kanjiQuiz / lick / vrm のいずれかを指定してください'] }),
+      expect.objectContaining({ problems: ['triggers[0].actions[0].type: alert / chat / announce / aiChat / shoutout / townTour / twister / kanjiQuiz / lick / vrm / chatDeduction のいずれかを指定してください'] }),
     )
   })
 

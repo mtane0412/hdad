@@ -16,7 +16,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_CHAT_DEDUCTION_SOUND, loadChatDeductionSound } from './chat-deduction-sound'
-import { endGame, readCurrentGame, readLatestGame } from './chat-deduction-store'
+import { endGame, readCurrentGame, readLatestGame, startGame } from './chat-deduction-store'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
 import { createFakeWorkersAi } from './fake-ai'
 import { createFakeAlertChannel } from './fake-alert-channel'
@@ -369,6 +369,23 @@ describe('ゲームの終了（POST /api/admin/chat-deduction/games/:id/end）',
     expect(twitch.requests).toEqual([
       { method: 'PATCH', id: QUESTION_REWARD_ID, body: { is_enabled: false } },
       { method: 'PATCH', id: ANSWER_REWARD_ID, body: { is_enabled: false } },
+    ])
+  })
+
+  it('トリガーのチャンネルポイントで始めたゲームなら、始めた報酬も交換できるように戻す', async () => {
+    const env = createEnv()
+    await saveRewards(env)
+    await saveBroadcasterToken(env)
+    const game = await startGame(env.DB, 'mount-fuji', NOW, '報酬ID-推理を始める')
+    const twitch = createFakeTwitch()
+
+    const response = await invoke(await broadcasterRequest(env, `/api/admin/chat-deduction/games/${game!.id}/end`, { method: 'POST' }), env, twitch.fetchImpl)
+
+    expect(response.status).toBe(200)
+    expect(twitch.requests).toEqual([
+      { method: 'PATCH', id: QUESTION_REWARD_ID, body: { is_enabled: false } },
+      { method: 'PATCH', id: ANSWER_REWARD_ID, body: { is_enabled: false } },
+      { method: 'PATCH', id: '報酬ID-推理を始める', body: { is_enabled: true } },
     ])
   })
 

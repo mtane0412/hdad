@@ -11,6 +11,7 @@
  * 注意: メニュー項目ごとのパラメータは、入力欄ではすべて平たく持つ（動作の入力欄と同じ持ち方）。
  *   Workerへ送るのは、選んでいるメニュー項目が要求するものだけである（選び直す前の値を引きずらない）。
  */
+import { CHAT_DEDUCTION_PROBLEM_SETS } from '@/chat-deduction/problem-set'
 import { KANKEN_GRADES, kankenGradeLabel, mapKankenGrades, singleGradeWeights, type KankenGrade } from '@/kanji-quiz/grade'
 import {
   ANNOUNCEMENT_COLORS,
@@ -280,6 +281,12 @@ export interface TriggerDraft {
   lickEnabled: boolean
   /** 選んである VRM のキャラクターを合成ページで短いあいだだけ出すか（issue #358）。どの項目でも選べる */
   vrmEnabled: boolean
+  /** チャットで推理のゲームを始めるか。どの項目でも選べる */
+  chatDeductionEnabled: boolean
+  /** チャットで推理の問題集のID */
+  chatDeductionSetId: string
+  /** チャットで推理で出す問題のID。空なら問題集からランダムに選ぶ */
+  chatDeductionProblemId: string
 }
 
 /**
@@ -320,6 +327,20 @@ export const supportsKanjiQuiz = (kind: TriggerKind): boolean => kind === 'rewar
  * 舐める相手を1人に決め、その人のアイコンを舐めるため。
  */
 export const supportsLick = (kind: TriggerKind): boolean => kind === 'reward' || kind === 'fromUserFirstOfStream'
+
+/**
+ * チャットで推理を選んだときに、はじめに選ばれている問題集（一覧の先頭）。
+ *
+ * 問題集が1つも無ければ、選べるものが無いまま欄を出さないよう、読み込んだ時点で投げる。
+ */
+const DEFAULT_CHAT_DEDUCTION_SET_ID = ((): string => {
+  const first = CHAT_DEDUCTION_PROBLEM_SETS[0]
+  if (first === undefined) throw new Error('チャットで推理の問題集が1つもありません')
+  return first.id
+})()
+
+/** チャットで推理を選んでいない行の入力欄（問題集は先頭、問題はランダム） */
+const DEFAULT_CHAT_DEDUCTION_DRAFT = { chatDeductionEnabled: false, chatDeductionSetId: DEFAULT_CHAT_DEDUCTION_SET_ID, chatDeductionProblemId: '' } as const
 
 /** 漢字クイズを選んだときに、はじめに選ばれている級（中学卒業程度の3級） */
 export const DEFAULT_KANJI_QUIZ_GRADE: KankenGrade = '3'
@@ -444,6 +465,9 @@ const toActions = (draft: TriggerDraft): ActionInput[] => {
   if (draft.kanjiQuizEnabled) actions.push({ type: 'kanjiQuiz', weights: toWeights(draft.kanjiQuizWeights) })
   if (draft.lickEnabled) actions.push({ type: 'lick' })
   if (draft.vrmEnabled) actions.push({ type: 'vrm' })
+  if (draft.chatDeductionEnabled) {
+    actions.push({ type: 'chatDeduction', setId: draft.chatDeductionSetId, problemId: draft.chatDeductionProblemId === '' ? null : draft.chatDeductionProblemId })
+  }
   return actions
 }
 
@@ -532,6 +556,7 @@ export const toDraft = (trigger: StoredTrigger): TriggerDraft => {
   const kanjiQuiz = trigger.actions.find((action) => action.type === 'kanjiQuiz')
   const lick = trigger.actions.find((action) => action.type === 'lick')
   const vrm = trigger.actions.find((action) => action.type === 'vrm')
+  const chatDeduction = trigger.actions.find((action) => action.type === 'chatDeduction')
 
   return {
     kind: trigger.kind,
@@ -560,6 +585,9 @@ export const toDraft = (trigger: StoredTrigger): TriggerDraft => {
     kanjiQuizWeights: kanjiQuiz === undefined ? DEFAULT_KANJI_QUIZ_WEIGHTS : mapKankenGrades((grade) => String(kanjiQuiz.weights[grade])),
     lickEnabled: lick !== undefined,
     vrmEnabled: vrm !== undefined,
+    chatDeductionEnabled: chatDeduction !== undefined,
+    chatDeductionSetId: chatDeduction?.setId ?? DEFAULT_CHAT_DEDUCTION_SET_ID,
+    chatDeductionProblemId: chatDeduction?.problemId ?? '',
   }
 }
 
@@ -599,6 +627,7 @@ export const createDraft = (kind: TriggerKind, media: readonly MediaItem[]): Tri
     kanjiQuizWeights: DEFAULT_KANJI_QUIZ_WEIGHTS,
     lickEnabled: false,
     vrmEnabled: false,
+    ...DEFAULT_CHAT_DEDUCTION_DRAFT,
   }
 }
 
@@ -627,6 +656,7 @@ export const emptyDraft = (kind: TriggerKind): TriggerDraft => ({
   kanjiQuizWeights: DEFAULT_KANJI_QUIZ_WEIGHTS,
   lickEnabled: false,
   vrmEnabled: false,
+  ...DEFAULT_CHAT_DEDUCTION_DRAFT,
 })
 
 /** その行が効果をひとつでも持つか。持たない行は何も起きないので保存しない */
@@ -640,7 +670,8 @@ export const hasAnyAction = (draft: TriggerDraft): boolean =>
   draft.twisterEnabled ||
   draft.kanjiQuizEnabled ||
   draft.lickEnabled ||
-  draft.vrmEnabled
+  draft.vrmEnabled ||
+  draft.chatDeductionEnabled
 
 /**
  * 保存済みの行に、パラメータを持たない項目の行を追加し、一覧の並び順にそろえる。
@@ -752,6 +783,7 @@ export const rowActions = (draft: TriggerDraft): readonly RowAction[] =>
       draft.kanjiQuizEnabled && { kind: 'kanjiQuiz', label: '漢字クイズ' },
       draft.lickEnabled && { kind: 'lick', label: 'ペロペロ' },
       draft.vrmEnabled && { kind: 'vrm', label: 'VRM' },
+      draft.chatDeductionEnabled && { kind: 'chatDeduction', label: 'チャットで推理' },
     ] satisfies readonly (RowAction | false)[]
   ).filter((action) => action !== false)
 

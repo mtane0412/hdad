@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { ChatDeductionProblem, ChatDeductionProblemSet } from '../src/chat-deduction/problems'
-import { pickChatDeductionProblem } from './chat-deduction-pick'
+import { pickChatDeductionProblem, pickConfiguredChatDeductionProblem } from './chat-deduction-pick'
 
 const problemOf = (id: string, answer: string): ChatDeductionProblem => ({ id, category: 'person', answer, aliases: [answer], facts: [`${answer}についての事実。`], explanation: `${answer}についての解説。`, wikipedia: answer })
 
@@ -40,5 +40,23 @@ describe('pickChatDeductionProblem', () => {
     const single: ChatDeductionProblemSet = { ...ancientPeople, problems: [problemOf('himiko', '卑弥呼')] }
 
     expect(pickChatDeductionProblem(single, 'himiko', () => 0).id).toBe('himiko')
+  })
+})
+
+describe('pickConfiguredChatDeductionProblem（トリガーの動作の設定から決める）', () => {
+  const misc: ChatDeductionProblemSet = { id: 'misc', name: 'いろいろ', problems: [problemOf('mount-fuji', '富士山')] }
+  const sets = [ancientPeople, misc]
+
+  it('問題を指定していなければ、問題集から直前の問題を除いて乱数で選ぶ', () => {
+    expect(pickConfiguredChatDeductionProblem(sets, { setId: 'ancient-people', problemId: null }, 'himiko', () => 0).id).toBe('shotoku-taishi')
+  })
+
+  it('問題を指定していれば、直前のゲームと同じ問題でもその問題を選ぶ（配信者が選んだ問題を差し替えない）', () => {
+    expect(pickConfiguredChatDeductionProblem(sets, { setId: 'ancient-people', problemId: 'kukai' }, 'kukai', () => 0).id).toBe('kukai')
+  })
+
+  it('保存したあとで問題集・問題が消えていたら、ほかの問題で黙って始めずに投げる', () => {
+    expect(() => pickConfiguredChatDeductionProblem(sets, { setId: '消えた問題集', problemId: null }, null, () => 0)).toThrowError(/消えた問題集/)
+    expect(() => pickConfiguredChatDeductionProblem(sets, { setId: 'misc', problemId: 'kukai' }, null, () => 0)).toThrowError(/kukai/)
   })
 })

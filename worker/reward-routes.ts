@@ -44,7 +44,7 @@ const requireRewardId = ({ params }: Context): string => {
  *
  * @throws AuthError トークンが保管されていない・更新できない・channel:manage:redemptions が無い
  */
-export const getManageToken = async ({ env, twitch, now }: Context): Promise<StoredToken> => {
+export const getManageToken = async ({ env, twitch, now }: Pick<Context, 'env' | 'twitch' | 'now'>): Promise<StoredToken> => {
   const token = await getAccessToken(env.TOKENS, 'broadcaster', twitch, now)
   if (!token.scopes.includes(MANAGE_SCOPE)) {
     throw new AuthError('missing-scope', `配信者のトークンに ${MANAGE_SCOPE} がありません。ログインし直してください（チャンネルポイント報酬を変更できません）`)

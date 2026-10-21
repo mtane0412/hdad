@@ -14,17 +14,20 @@
  * - GET /api/overlay/chat-deduction/socket: 変わったカードの一覧を押し出してもらう WebSocket の接続を、配送先へ引き渡す
  * ゲームを始めた・終えたら、カードの一覧を押し出す。押し出せなくても始めた・終えたことは取り消さず、502で知らせる
  * （報酬の切り替えはもう済んでいるため。意見ボードと同じ扱い）。
+ * 開始の中身はトリガーの動作 chatDeduction と共通で、worker/chat-deduction-start.ts が持つ。
  *
  * 注意: 報酬の切り替えに失敗したら、開始・終了を黙って進めない（方針4）。開始ではゲームを始めなかったことにし、
  * 終了ではゲームを開催中のまま残して、配信者がやり直せるようにする。
+ * トリガーのチャンネルポイントで始めたゲームを終えるときは、始めた報酬も交換できるように戻す。
  */
 import { CHAT_DEDUCTION_IMAGES, CHAT_DEDUCTION_PROBLEM_SETS } from '../src/chat-deduction/problem-set'
 import { connectChatDeductionSocket } from './alert-channel'
-import { pushLatestChatDeductionBoard, readChatDeductionBoard } from './chat-deduction-board'
+import { readChatDeductionBoard } from './chat-deduction-board'
 import { loadChatDeductionSound, parseChatDeductionSound, saveChatDeductionSound } from './chat-deduction-sound'
 import { pickChatDeductionProblem } from './chat-deduction-pick'
 import { createChatDeductionRewards, loadChatDeductionRewards, setChatDeductionRewardsEnabled, type ChatDeductionRewards } from './chat-deduction-rewards'
-import { cancelGame, endGame, readCurrentGame, readLatestGame, startGame, type ChatDeductionGame } from './chat-deduction-store'
+import { pushChatDeductionBoard, requireChatDeductionRewards, startChatDeductionGame } from './chat-deduction-start'
+import { endGame, readCurrentGame, readGameStartReward, readLatestGame, type ChatDeductionGame } from './chat-deduction-store'
 import { HttpError, STATUS, requireAdmin, requireOverlayKey, type Context } from './http'
 import { listMedia } from './media'
 import { overlayKeyTag } from './overlay-key'
@@ -39,29 +42,6 @@ const readJson = (context: Context): Promise<unknown> =>
   context.request.json().catch(() => {
     throw new HttpError(STATUS.badRequest, 'invalid-body', '本文はJSONにしてください')
   })
-
-/**
- * 最後に始めたゲームのカードの一覧を合成ページへ押し出す。
- *
- * @param done 押し出せなかったときのメッセージに添える、もう済んだこと（「ゲームを始めました」など）
- * @throws HttpError 押し出せなければ502（済んだことは取り消さない）
- */
-const pushBoard = async (context: Context, done: string): Promise<void> => {
-  await pushLatestChatDeductionBoard(context.env.DB, context.env.STORE, context.env.ALERTS, CHAT_DEDUCTION_PROBLEM_SETS, CHAT_DEDUCTION_IMAGES).catch((error: unknown) => {
-    throw new HttpError(STATUS.badGateway, 'chat-deduction-push-failed', `${done}が、合成ページへ知らせられませんでした（${reasonOf(error)}）`)
-  })
-}
-
-/**
- * 控えた報酬のIDを読む。
- *
- * @throws HttpError まだ作っていなければ409
- */
-const requireRewards = async (context: Context): Promise<ChatDeductionRewards> => {
-  const rewards = await loadChatDeductionRewards(context.env.STORE)
-  if (rewards === null) throw new HttpError(STATUS.conflict, 'chat-deduction-rewards-missing', '先にチャットで推理の報酬を作ってください')
-  return rewards
-}
 
 /** GET /api/admin/chat-deduction: 控えた報酬のIDと、最後に始めたゲームを返す */
 export const getChatDeduction = async (context: Context): Promise<Response> => {
@@ -105,28 +85,7 @@ export const postChatDeductionGame = async (context: Context): Promise<Response>
     // 文字列でない値は文字列にしない（toString を持たない値で文面を作ると、400の前に落ちるため）
     throw new HttpError(STATUS.badRequest, 'unknown-problem-set', typeof setId === 'string' ? `問題集「${setId}」はありません` : '問題集のID（setId）を文字列で指定してください')
   }
-  const rewards = await requireRewards(context)
-  const { env, twitch, now } = context
-  // 行を作る前にトークンを確かめる（スコープが足りなければ、行を作らずにログインし直しを求める）
-  const { accessToken } = await getManageToken(context)
-  const previous = await readLatestGame(env.DB)
-  const problem = pickChatDeductionProblem(set, previous?.problemId ?? null, Math.random)
-  const game = await startGame(env.DB, problem.id, now)
-  if (game === null) throw new HttpError(STATUS.conflict, 'chat-deduction-game-open', 'ほかのゲームが開催中です。先に終えてください')
-
-  try {
-    await setChatDeductionRewardsEnabled(twitch, accessToken, env.TWITCH_BROADCASTER_ID, rewards, true)
-  } catch (error) {
-    await cancelGame(env.DB, game.id)
-    // 片方だけ交換できるようになっているかもしれないので戻す。戻せなければ、そのことも添えて知らせる
-    const rollback = await setChatDeductionRewardsEnabled(twitch, accessToken, env.TWITCH_BROADCASTER_ID, rewards, false)
-      .then(
-        () => '',
-        (rollbackError: unknown) => `。報酬を交換できない状態にも戻せませんでした（${reasonOf(rollbackError)}）。/rewards/ で確かめてください`,
-      )
-    throw new HttpError(STATUS.badGateway, 'chat-deduction-rewards-failed', `報酬を交換できるようにできなかったので、ゲームを始めませんでした（${reasonOf(error)}）${rollback}`)
-  }
-  await pushBoard(context, 'ゲームを始めました')
+  const game = await startChatDeductionGame(context, (previousProblemId) => pickChatDeductionProblem(set, previousProblemId, Math.random), null)
   return Response.json({ game } satisfies { game: ChatDeductionGame }, { status: STATUS.created })
 }
 
@@ -145,15 +104,17 @@ export const postEndChatDeductionGame = async (context: Context): Promise<Respon
   if (!ID.test(raw) || current === null || current.id !== Number(raw)) {
     throw new HttpError(STATUS.notFound, 'chat-deduction-game-not-open', `ゲーム「${raw}」は開催中ではありません（別の窓で終えられた可能性があります）`)
   }
-  const rewards = await requireRewards(context)
+  const rewards = await requireChatDeductionRewards(context)
   const { env, twitch, now } = context
   const { accessToken } = await getManageToken(context)
-  await setChatDeductionRewardsEnabled(twitch, accessToken, env.TWITCH_BROADCASTER_ID, rewards, false).catch((error: unknown) => {
+  // トリガーのチャンネルポイントで始めたゲームなら、始めた報酬も交換できるように戻す
+  const startRewardId = await readGameStartReward(env.DB, current.id)
+  await setChatDeductionRewardsEnabled(twitch, accessToken, env.TWITCH_BROADCASTER_ID, rewards, false, startRewardId).catch((error: unknown) => {
     throw new HttpError(STATUS.badGateway, 'chat-deduction-rewards-failed', `報酬を交換できないようにできなかったので、ゲームを終えていません（${reasonOf(error)}）`)
   })
   const game = await endGame(env.DB, current.id, 'stopped', now)
   if (game === null) throw new HttpError(STATUS.notFound, 'chat-deduction-game-not-open', `ゲーム「${raw}」は開催中ではありません（別の窓で終えられた可能性があります）`)
-  await pushBoard(context, 'ゲームを終えました')
+  await pushChatDeductionBoard(context, 'ゲームを終えました')
   return Response.json({ game } satisfies { game: ChatDeductionGame })
 }
 
