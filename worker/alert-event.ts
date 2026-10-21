@@ -22,6 +22,8 @@ import {
   announceActionOf,
   chatActionOf,
   chatDeductionActionOf,
+  DOLL_GRANT_KINDS,
+  dollGrantActionOf,
   mediaPath,
   shoutoutActionOf,
   townTourActionOf,
@@ -34,6 +36,7 @@ import {
   type StoredAiChatAction,
   type StoredAnnounceAction,
   type StoredChatDeductionAction,
+  type StoredDollGrantAction,
   resolveTrigger,
   type ResolvedTrigger,
 } from './alert-config'
@@ -70,13 +73,23 @@ const TIER_LABELS: Readonly<Record<string, string>> = { '1000': '1', '2000': '2'
  *
  * userName は表示名（文言に差し込む）、userLogin はTwitchのユーザー名（user の条件と照らし合わせる）。
  * 表示名は配信者が変えられるため、条件の照合には変わらない userLogin を使う。
+ * userId は出来事を起こした視聴者の Twitch のユーザーIDで、人形を渡す相手（issue #419）の鍵に使う。
+ * 視聴者が起こす出来事（交換・フォロー・サブスク・レイド・発言）だけが持つ。
  */
 export type Extracted =
-  | { readonly event: typeof REDEMPTION; readonly userName: string; readonly userLogin: string; readonly rewardId: string; readonly rewardTitle: string }
-  | { readonly event: typeof FOLLOW; readonly userName: string; readonly userLogin: string }
-  | { readonly event: typeof SUBSCRIBE; readonly userName: string; readonly userLogin: string; readonly tier: string }
+  | {
+      readonly event: typeof REDEMPTION
+      readonly userId: string
+      readonly userName: string
+      readonly userLogin: string
+      readonly rewardId: string
+      readonly rewardTitle: string
+    }
+  | { readonly event: typeof FOLLOW; readonly userId: string; readonly userName: string; readonly userLogin: string }
+  | { readonly event: typeof SUBSCRIBE; readonly userId: string; readonly userName: string; readonly userLogin: string; readonly tier: string }
   | {
       readonly event: typeof SUBSCRIPTION_MESSAGE
+      readonly userId: string
       readonly userName: string
       readonly userLogin: string
       readonly tier: string
@@ -92,7 +105,7 @@ export type Extracted =
       /** レイドを受け取った配信者の表示名（ツイスターで対戦する配信者の名前に使う。issue #272） */
       readonly broadcasterName: string
     }
-  | { readonly event: typeof CHAT_MESSAGE; readonly userName: string; readonly userLogin: string; readonly text: string }
+  | { readonly event: typeof CHAT_MESSAGE; readonly userId: string; readonly userName: string; readonly userLogin: string; readonly text: string }
   // 広告の開始と終了。userName・userLogin は広告を打った人（自動で入った広告では配信者自身が入る）
   | {
       readonly event: typeof AD_BREAK_BEGIN | typeof AD_BREAK_END
@@ -255,6 +268,13 @@ const readRecord = (event: EventBody, key: string): EventBody => {
  *
  * @param login その出来事を起こした人の GitHub のユーザー名。どこに入っているかは出来事ごとに違うので、呼び出し側が読んで渡す
  */
+/** 交換・フォロー・サブスクの通知から、出来事を起こした視聴者（user_id・user_name・user_login）を読む */
+const readUser = (body: EventBody): { userId: string; userName: string; userLogin: string } => ({
+  userId: readString(body, 'user_id'),
+  userName: readString(body, 'user_name'),
+  userLogin: readString(body, 'user_login'),
+})
+
 const readGithubCommon = (event: EventBody, login: string): { userName: string; userLogin: string; repository: string } => ({
   userName: login,
   userLogin: login,
@@ -277,14 +297,15 @@ export const extract = (subscriptionType: string, body: unknown): Extracted | nu
 
   switch (subscriptionType) {
     case REDEMPTION:
-      return { event: REDEMPTION, userName: readString(body, 'user_name'), userLogin: readString(body, 'user_login'), ...readReward(body) }
+      return { event: REDEMPTION, ...readUser(body), ...readReward(body) }
     case FOLLOW:
-      return { event: FOLLOW, userName: readString(body, 'user_name'), userLogin: readString(body, 'user_login') }
+      return { event: FOLLOW, ...readUser(body) }
     case SUBSCRIBE:
-      return { event: SUBSCRIBE, userName: readString(body, 'user_name'), userLogin: readString(body, 'user_login'), tier: readString(body, 'tier') }
+      return { event: SUBSCRIBE, ...readUser(body), tier: readString(body, 'tier') }
     case SUBSCRIPTION_MESSAGE:
       return {
         event: SUBSCRIPTION_MESSAGE,
+        userId: readString(body, 'user_id'),
         userName: readString(body, 'user_name'),
         userLogin: readString(body, 'user_login'),
         tier: readString(body, 'tier'),
@@ -303,7 +324,7 @@ export const extract = (subscriptionType: string, body: unknown): Extracted | nu
     // 発言の読み取りはチャットボットと同じものを使う（同じ通知を2か所で読み解かないため）
     case CHAT_MESSAGE: {
       const message = readChatMessage(body)
-      return { event: CHAT_MESSAGE, userName: message.chatterUserName, userLogin: message.chatterUserLogin, text: message.text }
+      return { event: CHAT_MESSAGE, userId: message.chatterUserId, userName: message.chatterUserName, userLogin: message.chatterUserLogin, text: message.text }
     }
     // 広告の終了はTwitchから届かない擬似イベントで、開始と同じ中身をWorkerが渡してくる（worker/ad-break-timer.ts）。
     // そのため読み取り方も開始と同じにする
@@ -725,6 +746,41 @@ export const licksFor = (config: AlertConfig, subscriptionType: string, body: un
       throw new Error(`ペロペロはチャンネルポイントと「決まった人のその配信で最初の発言」のトリガーにだけ置けます（${kind} のトリガーに置かれています）`)
     },
   )
+
+/** 人形を渡す1回ぶん（渡す相手と、渡す種類・個数と、どのトリガーの項目で渡すか） */
+export interface DollGrantTrigger {
+  /** 渡す相手（出来事を起こした視聴者）の Twitch のユーザーID */
+  readonly userId: string
+  readonly kind: StoredDollGrantAction['kind']
+  readonly count: number
+  /** 台帳に控えるトリガーの項目 */
+  readonly triggerKind: TriggerKind
+}
+
+/**
+ * 通知に当てはまるトリガーを探し、人形を渡す相手と種類・個数を返す（issue #419）。
+ *
+ * 置けるのは渡す相手が視聴者に決まるトリガーだけなので（worker/alert-config.ts の parseAlertConfig が保存時に拒む）、
+ * ほかのトリガーでこの動作が見つかったら、黙って流さずに投げる（Fail-Fast。渡す相手が決まらないため）。
+ * 台帳に書くのは呼び出し側（このファイルは D1 を持たないため）。
+ *
+ * @returns 人形を渡す1回ぶんを、当てはまったトリガーの並びの順に返す
+ * @throws 通知の中身が想定した形でない場合、または置けないトリガーにこの動作があった場合
+ */
+export const dollGrantsFor = (config: AlertConfig, subscriptionType: string, body: unknown, state: ConditionState): DollGrantTrigger[] =>
+  matchedActionsFor(
+    config,
+    subscriptionType,
+    body,
+    (trigger) => {
+      const action = dollGrantActionOf(trigger)
+      return action === null ? null : { triggerKind: trigger.kind, kind: action.kind, count: action.count }
+    },
+    state,
+  ).map(({ action: { triggerKind, kind, count }, extracted }) => {
+    if (DOLL_GRANT_KINDS.includes(triggerKind) && 'userId' in extracted) return { userId: extracted.userId, kind, count, triggerKind }
+    throw new Error(`人形を渡す動作は、出来事を起こした視聴者が決まるトリガーにだけ置けます（${triggerKind} のトリガーに置かれています）`)
+  })
 
 /**
  * 通知に当てはまるトリガーを探し、VRMのマスコットの反応を置いた行の項目を並びの順に返す（issue #358・#359）。

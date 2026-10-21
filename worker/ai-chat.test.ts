@@ -15,6 +15,7 @@ import type { Viewer } from './viewer-store'
 
 const chatEvent: Extracted = {
   event: 'channel.chat.message',
+  userId: '視聴者のユーザーID',
   userName: '花子',
   userLogin: 'hanako',
   text: 'こんばんは！',
@@ -98,7 +99,7 @@ describe('buildPrompt', () => {
   it('発言以外のイベント（フォローなど）でも、そのイベントが分かるように書く', () => {
     const prompt = buildPrompt({
       instruction: 'お礼を言ってください',
-      extracted: { event: 'channel.follow', userName: '太郎', userLogin: 'taro' },
+      extracted: { event: 'channel.follow', userId: '視聴者のユーザーID', userName: '太郎', userLogin: 'taro' },
       viewer: null,
       state: { firstChatOfStream: false, firstChatEver: false, daysSinceLastChat: null },
       streamSummary: null,

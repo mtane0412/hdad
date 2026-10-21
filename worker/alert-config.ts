@@ -24,6 +24,8 @@
  * - chatDeduction: Workerがチャットで推理のゲームを始める（問題集からランダムに選ぶか、配信者が指定した問題で）。
  *   相手を必要としないので、どのトリガーにも置ける。チャンネルポイントで始めたら、ゲームのあいだその報酬を交換できないようにする
  *   （worker/chat-deduction-start.ts）
+ * - dollGrant: Workerが出来事を起こした視聴者に、いまの人形を設定の種類と個数だけ渡す（issue #419。worker/doll-store.ts の changeDolls）。
+ *   渡す相手が視聴者に決まるトリガー（DOLL_GRANT_KINDS）にだけ置ける
  *
  * メニュー項目は17種類（worker/trigger-menu.ts の TRIGGER_KINDS）で、そのうちチャットの発言を対象にするものは
  * botを接続しているときだけ通知が届く。広告の終了（adBreakEnd）だけはTwitchから届く通知ではなく、
@@ -37,6 +39,7 @@
  */
 import { CHAT_DEDUCTION_PROBLEM_SETS } from '../src/chat-deduction/problem-set'
 import { KANKEN_GRADES, MAX_KANKEN_GRADE_WEIGHT, isKankenGrade, isKankenGradeWeights, singleGradeWeights, type KankenGradeWeights } from '../src/kanji-quiz/grade'
+import { DOLL_KINDS, MAX_DOLL_CHANGE, type DollKind } from './doll'
 import type { KeyValueStore } from './store'
 import { expandSource, TRIGGER_KINDS, type AlertEvent, type StoredCondition, type TriggerKind, type TriggerSource } from './trigger-menu'
 import { ANNOUNCEMENT_COLORS, type AnnouncementColor } from './twitch'
@@ -44,7 +47,7 @@ import { ANNOUNCEMENT_COLORS, type AnnouncementColor } from './twitch'
 const CONFIG_KEY = 'alert-config'
 
 /** 動作の種類。同じ種類は1トリガーに1件まで */
-export const ACTION_TYPES = ['alert', 'chat', 'announce', 'aiChat', 'shoutout', 'townTour', 'twister', 'kanjiQuiz', 'lick', 'vrm', 'chatDeduction'] as const
+export const ACTION_TYPES = ['alert', 'chat', 'announce', 'aiChat', 'shoutout', 'townTour', 'twister', 'kanjiQuiz', 'lick', 'vrm', 'chatDeduction', 'dollGrant'] as const
 
 export type ActionType = (typeof ACTION_TYPES)[number]
 
@@ -196,6 +199,38 @@ export interface StoredChatDeductionAction {
   problemId: string | null
 }
 
+/**
+ * 出来事を起こした視聴者に、いまの人形を渡す動作（issue #419）。
+ *
+ * 配信者は人形の種類（ふつう・スーパー）と個数（1〜MAX_DOLL_CHANGE）を決める。どの組の人形を渡すかは渡す時点の
+ * 「いまの人形」で決まるので、動作には持たない（worker/doll-store.ts の changeDolls）。
+ * 置けるのは渡す相手が視聴者に決まるトリガー（DOLL_GRANT_KINDS）だけである。
+ */
+export interface StoredDollGrantAction {
+  type: 'dollGrant'
+  kind: DollKind
+  count: number
+}
+
+/**
+ * 人形を渡す動作を置けるトリガーの項目。出来事を起こした人が Twitch の視聴者に決まるものだけを並べる。
+ * 広告（打った人が配信者自身のことがある）・開発（GitHub の人）・ポモドーロ（相手がいない）は入れない。
+ */
+export const DOLL_GRANT_KINDS: readonly TriggerKind[] = [
+  'newViewer',
+  'comeback',
+  'welcome',
+  'everyMessage',
+  'keyword',
+  'fromUser',
+  'fromUserFirstOfStream',
+  'reward',
+  'follow',
+  'subscribe',
+  'resubscribe',
+  'raid',
+]
+
 export type StoredAction =
   | StoredAlertAction
   | StoredChatAction
@@ -208,6 +243,7 @@ export type StoredAction =
   | StoredLickAction
   | StoredVrmAction
   | StoredChatDeductionAction
+  | StoredDollGrantAction
 
 /** 市町村紹介を置けるきっかけ。レイドはレイド元、キーワード（!darts など）は発言した人の名前を冒頭に出す */
 export const TOWN_TOUR_KINDS: readonly TriggerKind[] = ['raid', 'keyword']
@@ -271,6 +307,8 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 const isActionType = (value: unknown): value is ActionType => ACTION_TYPES.some((type) => type === value)
 
 const isTriggerKind = (value: unknown): value is TriggerKind => TRIGGER_KINDS.some((kind) => kind === value)
+
+const isDollKind = (value: unknown): value is DollKind => DOLL_KINDS.some((kind) => kind === value)
 
 const isAnnouncementColor = (value: unknown): value is AnnouncementColor => ANNOUNCEMENT_COLORS.some((color) => color === value)
 
@@ -426,6 +464,16 @@ const parseAction = (
     return { type, setId: set.id, problemId }
   }
 
+  // 人形を渡す動作は種類と個数を持つ（置けるきっかけは parseAlertConfig で確かめる）
+  if (type === 'dollGrant') {
+    const { kind, count } = candidate
+    const kindOk = isDollKind(kind)
+    if (!kindOk) problems.push(`${at}.kind: ${DOLL_KINDS.join(' / ')} のいずれかを指定してください`)
+    const countOk = typeof count === 'number' && Number.isInteger(count) && count >= 1 && count <= MAX_DOLL_CHANGE
+    if (!countOk) problems.push(`${at}.count: 1〜${MAX_DOLL_CHANGE} の整数で指定してください`)
+    return kindOk && countOk ? { type, kind, count } : null
+  }
+
   if (type === 'aiChat') {
     const { instruction } = candidate
     if (!isStringWithin(instruction, 1, MAX_AI_INSTRUCTION_LENGTH)) {
@@ -547,7 +595,14 @@ export const parseAlertConfig = (input: unknown, kindOfMedia: (mediaId: string) 
     const lickOk = !hasLick || source === null || LICK_KINDS.includes(source.kind)
     if (!lickOk) problems.push(`${at}.actions: ペロペロ（lick）はチャンネルポイントと「決まった人のその配信で最初の発言」のトリガーにだけ置けます`)
 
-    if (source !== null && actions !== null && shoutoutOk && townTourOk && twisterOk && kanjiQuizOk && lickOk) return [{ ...source, actions }]
+    // 人形は出来事を起こした視聴者に渡すので、相手が視聴者に決まるきっかけにだけ置かせる
+    const hasDollGrant = actions !== null && actions.some((action) => action.type === 'dollGrant')
+    const dollGrantOk = !hasDollGrant || source === null || DOLL_GRANT_KINDS.includes(source.kind)
+    if (!dollGrantOk) {
+      problems.push(`${at}.actions: 人形を渡す（dollGrant）は、出来事を起こした視聴者が決まるトリガー（チャット・チャンネルポイント・フォロー・サブスク・レイド）にだけ置けます`)
+    }
+
+    if (source !== null && actions !== null && shoutoutOk && townTourOk && twisterOk && kanjiQuizOk && lickOk && dollGrantOk) return [{ ...source, actions }]
     return []
   })
 
@@ -660,6 +715,10 @@ export const vrmActionOf = (trigger: WithActions): StoredVrmAction | null =>
 /** トリガーからチャットで推理を始める動作を取り出す。なければ null */
 export const chatDeductionActionOf = (trigger: WithActions): StoredChatDeductionAction | null =>
   trigger.actions.find((action): action is StoredChatDeductionAction => action.type === 'chatDeduction') ?? null
+
+/** トリガーから人形を渡す動作を取り出す。なければ null */
+export const dollGrantActionOf = (trigger: WithActions): StoredDollGrantAction | null =>
+  trigger.actions.find((action): action is StoredDollGrantAction => action.type === 'dollGrant') ?? null
 
 /** トリガーからアラートを出す動作を取り出す。なければ null */
 export const alertActionOf = (trigger: WithActions): StoredAlertAction | null =>

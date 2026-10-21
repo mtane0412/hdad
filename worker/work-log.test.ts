@@ -35,7 +35,7 @@ describe('devEventOf', () => {
   })
 
   it('開発の出来事でないもの（チャットの発言など）は null にする', () => {
-    expect(devEventOf({ event: 'channel.chat.message', userName: '視聴者', userLogin: 'viewer', text: 'こんにちは' })).toBeNull()
+    expect(devEventOf({ event: 'channel.chat.message', userId: '視聴者のユーザーID', userName: '視聴者', userLogin: 'viewer', text: 'こんにちは' })).toBeNull()
   })
 })
 

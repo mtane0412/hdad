@@ -16,6 +16,7 @@ import { readTownTourSound, type TownTourSound } from '@/town-tour/sound'
 import { readTwisterSound, type TwisterSound } from '@/twister/sound'
 import { readLickSound, type LickSound } from '@/lick/sound'
 import { readVrmModel, type VrmModel } from '@/vrm/model'
+import type { DollKind } from '@/dolls/doll'
 
 const REDEMPTION = 'channel.channel_points_custom_reward_redemption.add'
 const CHAT_MESSAGE = 'channel.chat.message'
@@ -192,6 +193,17 @@ export interface ChatDeductionAction {
   problemId: string | null
 }
 
+/**
+ * 出来事を起こした視聴者に、いまの人形を渡す動作（issue #419）。種類（ふつう・スーパー）と個数（1〜10）を配信者が決める。
+ *
+ * 置けるのは出来事を起こした視聴者が決まる項目だけである（src/admin/form.ts の supportsDollGrant）。
+ */
+export interface DollGrantAction {
+  type: 'dollGrant'
+  kind: DollKind
+  count: number
+}
+
 export type ActionInput =
   | AlertActionInput
   | ChatAction
@@ -204,6 +216,7 @@ export type ActionInput =
   | LickAction
   | VrmAction
   | ChatDeductionAction
+  | DollGrantAction
 
 /**
  * 既定メニューの項目。worker/trigger-menu.ts の TRIGGER_KINDS と同じ並び（worker/ の型は読み込めないのでここで定義する）。
@@ -268,6 +281,7 @@ export type StoredAction =
   | LickAction
   | VrmAction
   | ChatDeductionAction
+  | DollGrantAction
 
 /** 保存済みのトリガー */
 export type StoredTrigger = TriggerSource & { actions: StoredAction[] }
@@ -413,6 +427,8 @@ const isStoredAction = (value: unknown): value is StoredAction => {
   if (value.type === 'shoutout' || value.type === 'townTour' || value.type === 'twister' || value.type === 'lick' || value.type === 'vrm') return true
   // chatDeduction は問題集と、指定した問題（ランダムなら null）を持つ
   if (value.type === 'chatDeduction') return typeof value.setId === 'string' && (value.problemId === null || typeof value.problemId === 'string')
+  // dollGrant は人形の種類と個数を持つ
+  if (value.type === 'dollGrant') return (value.kind === 'normal' || value.kind === 'super') && typeof value.count === 'number'
   // kanjiQuiz は級ごとの出題の重みだけを持つ
   if (value.type === 'kanjiQuiz') return isKankenGradeWeights(value.weights)
   // aiChat だけは送る文言を持たず、文面の作り方の指示を持つ

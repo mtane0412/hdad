@@ -21,6 +21,7 @@ import {
   announcementsFor,
   chatDeductionsFor,
   chatMessagesFor,
+  dollGrantsFor,
   hasAlertAction,
   kanjiQuizzesFor,
   licksFor,
@@ -35,6 +36,7 @@ import type { ConditionState } from './alert-event'
 import { announceAsBot, sendAsBot, shoutoutAsBot } from './bot-chat'
 import type { ChatMessage } from './chat-command'
 import { consumeCooldown, reserveChatReply } from './chat-store'
+import { changeDolls } from './doll-store'
 import { countLlmCalls, toUtcDay } from './llm-usage-store'
 import { HttpError, STATUS, type Context } from './http'
 import { loadOverlayKey } from './overlay-key'
@@ -280,6 +282,8 @@ export const runAlertActions = async (
     })
   }
 
+  await grantMatchedDolls(context, config, subscriptionType, body, messageId, state)
+
   if (messages.length === 0 && announcements.length === 0 && aiChats.length === 0 && shoutouts.length === 0) return
 
   // botを切断していれば送る先がない。受け取り自体は成功として返す
@@ -304,6 +308,53 @@ export const runAlertActions = async (
         ),
       ),
     )
+  }
+}
+
+/**
+ * 当てはまった「人形を渡す」動作（issue #419）ごとに、出来事を起こした視聴者へいまの人形を渡す。
+ *
+ * 人形は bot と関わりなく台帳に書くので、bot の接続を見る前に呼ぶ（bot が無くても渡せる）。
+ * 再送での二重の付与は、台帳のきっかけの ID（source_id の UNIQUE）で防ぐ。ID は通知のメッセージIDと、当てはまった動作の
+ * 並びの位置から作る（同じ通知で2行が当てはまったとき、どちらも渡すため。位置の考え方は sendAndRecordFailure と同じ）。
+ * そのため reserveChatReply の鍵は取らない（鍵を取ってから書く形にすると、台帳への書き込みに失敗した再送で渡せなくなる）。
+ *
+ * 注意: いまの人形が選ばれていないなど、渡せなかったときは黙って飛ばさず `doll-grant-failed` として記録する
+ * （Twitch には2xxを返す。再送されても同じ理由で渡せないため）。
+ */
+const grantMatchedDolls = async (
+  context: AlertActionContext,
+  config: AlertConfig,
+  subscriptionType: string,
+  body: Record<string, unknown>,
+  messageId: string,
+  state: ConditionState,
+): Promise<void> => {
+  const { env, now } = context
+  const grants = ((): ReturnType<typeof dollGrantsFor> => {
+    try {
+      return dollGrantsFor(config, subscriptionType, body.event, state)
+    } catch (error) {
+      throw invalid(error instanceof Error ? error.message : String(error))
+    }
+  })()
+  for (const [index, grant] of grants.entries()) {
+    try {
+      await changeDolls(
+        env.DB,
+        {
+          userId: grant.userId,
+          kind: grant.kind,
+          delta: grant.count,
+          reason: 'trigger',
+          triggerKind: grant.triggerKind,
+          sourceId: `trigger:${messageId}:dollGrant:${index}`,
+        },
+        now,
+      )
+    } catch (error) {
+      await recordFailure(env.DB, 'doll-grant-failed', error instanceof Error ? error.message : String(error), now)
+    }
   }
 }
 

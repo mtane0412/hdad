@@ -12,6 +12,7 @@
  *   Workerへ送るのは、選んでいるメニュー項目が要求するものだけである（選び直す前の値を引きずらない）。
  */
 import { CHAT_DEDUCTION_PROBLEM_SETS } from '@/chat-deduction/problem-set'
+import type { DollKind } from '@/dolls/doll'
 import { KANKEN_GRADES, kankenGradeLabel, mapKankenGrades, singleGradeWeights, type KankenGrade } from '@/kanji-quiz/grade'
 import {
   ANNOUNCEMENT_COLORS,
@@ -287,6 +288,12 @@ export interface TriggerDraft {
   chatDeductionSetId: string
   /** チャットで推理で出す問題のID。空なら問題集からランダムに選ぶ */
   chatDeductionProblemId: string
+  /** 出来事を起こした視聴者に、いまの人形を渡すか（issue #419）。視聴者が決まる項目でだけ選べる */
+  dollGrantEnabled: boolean
+  /** 渡す人形の種類 */
+  dollGrantKind: DollKind
+  /** 渡す人形の個数（入力欄の文字列のまま持ち、送るときに数にする。範囲は Worker が確かめる） */
+  dollGrantCount: string
 }
 
 /**
@@ -327,6 +334,42 @@ export const supportsKanjiQuiz = (kind: TriggerKind): boolean => kind === 'rewar
  * 舐める相手を1人に決め、その人のアイコンを舐めるため。
  */
 export const supportsLick = (kind: TriggerKind): boolean => kind === 'reward' || kind === 'fromUserFirstOfStream'
+
+/** 人形を渡す動作を置ける項目（worker/alert-config.ts の DOLL_GRANT_KINDS と同じ並び。worker/ の値は読み込めないのでここで定義する） */
+const DOLL_GRANT_KINDS: readonly TriggerKind[] = [
+  'newViewer',
+  'comeback',
+  'welcome',
+  'everyMessage',
+  'keyword',
+  'fromUser',
+  'fromUserFirstOfStream',
+  'reward',
+  'follow',
+  'subscribe',
+  'resubscribe',
+  'raid',
+]
+
+/**
+ * その項目に人形を渡す動作を置けるか（issue #419）。
+ *
+ * 置けるのは出来事を起こした人が Twitch の視聴者に決まる項目だけである（Workerも保存時にそれ以外を拒む。
+ * worker/alert-config.ts の DOLL_GRANT_KINDS）。広告は打った人が配信者自身のことがあり、開発は GitHub の人、ポモドーロには相手がいない。
+ */
+export const supportsDollGrant = (kind: TriggerKind): boolean => DOLL_GRANT_KINDS.includes(kind)
+
+/** 人形を渡す動作で選べる種類 */
+export const DOLL_GRANT_KIND_OPTIONS: readonly { value: DollKind; label: string }[] = [
+  { value: 'normal', label: 'ふつうの人形' },
+  { value: 'super', label: 'スーパー人形' },
+]
+
+/** 人形を渡す動作の個数の上限（入力欄の max。Worker の worker/doll.ts の MAX_DOLL_CHANGE と同じ値で、範囲を確かめるのは Worker） */
+export const MAX_DOLL_GRANT_COUNT = 10
+
+/** 人形を渡す動作を選んでいない行の入力欄（ふつうの人形を1つ） */
+const DEFAULT_DOLL_GRANT_DRAFT = { dollGrantEnabled: false, dollGrantKind: 'normal', dollGrantCount: '1' } as const
 
 /**
  * チャットで推理を選んだときに、はじめに選ばれている問題集（一覧の先頭）。
@@ -443,7 +486,7 @@ const toNumber = (text: string, label: string): number => {
 /**
  * 入力欄の値を、Workerへ送る動作の一覧にする。外した動作の入力欄の値は送らない（外したのに保存されるのを防ぐ）。
  *
- * @throws 表示時間・音量が数として読めない場合（アラートを出すときだけ確かめる）
+ * @throws 表示時間・音量が数として読めない場合（アラートを出すときだけ確かめる）、人形の個数が数として読めない場合（人形を渡すときだけ確かめる）
  */
 const toActions = (draft: TriggerDraft): ActionInput[] => {
   const actions: ActionInput[] = []
@@ -468,6 +511,7 @@ const toActions = (draft: TriggerDraft): ActionInput[] => {
   if (draft.chatDeductionEnabled) {
     actions.push({ type: 'chatDeduction', setId: draft.chatDeductionSetId, problemId: draft.chatDeductionProblemId === '' ? null : draft.chatDeductionProblemId })
   }
+  if (draft.dollGrantEnabled) actions.push({ type: 'dollGrant', kind: draft.dollGrantKind, count: toNumber(draft.dollGrantCount, '人形の個数') })
   return actions
 }
 
@@ -557,6 +601,7 @@ export const toDraft = (trigger: StoredTrigger): TriggerDraft => {
   const lick = trigger.actions.find((action) => action.type === 'lick')
   const vrm = trigger.actions.find((action) => action.type === 'vrm')
   const chatDeduction = trigger.actions.find((action) => action.type === 'chatDeduction')
+  const dollGrant = trigger.actions.find((action) => action.type === 'dollGrant')
 
   return {
     kind: trigger.kind,
@@ -588,6 +633,9 @@ export const toDraft = (trigger: StoredTrigger): TriggerDraft => {
     chatDeductionEnabled: chatDeduction !== undefined,
     chatDeductionSetId: chatDeduction?.setId ?? DEFAULT_CHAT_DEDUCTION_SET_ID,
     chatDeductionProblemId: chatDeduction?.problemId ?? '',
+    ...(dollGrant === undefined
+      ? DEFAULT_DOLL_GRANT_DRAFT
+      : { dollGrantEnabled: true, dollGrantKind: dollGrant.kind, dollGrantCount: String(dollGrant.count) }),
   }
 }
 
@@ -628,6 +676,7 @@ export const createDraft = (kind: TriggerKind, media: readonly MediaItem[]): Tri
     lickEnabled: false,
     vrmEnabled: false,
     ...DEFAULT_CHAT_DEDUCTION_DRAFT,
+    ...DEFAULT_DOLL_GRANT_DRAFT,
   }
 }
 
@@ -657,6 +706,7 @@ export const emptyDraft = (kind: TriggerKind): TriggerDraft => ({
   lickEnabled: false,
   vrmEnabled: false,
   ...DEFAULT_CHAT_DEDUCTION_DRAFT,
+  ...DEFAULT_DOLL_GRANT_DRAFT,
 })
 
 /** その行が効果をひとつでも持つか。持たない行は何も起きないので保存しない */
@@ -671,7 +721,8 @@ export const hasAnyAction = (draft: TriggerDraft): boolean =>
   draft.kanjiQuizEnabled ||
   draft.lickEnabled ||
   draft.vrmEnabled ||
-  draft.chatDeductionEnabled
+  draft.chatDeductionEnabled ||
+  draft.dollGrantEnabled
 
 /**
  * 保存済みの行に、パラメータを持たない項目の行を追加し、一覧の並び順にそろえる。
@@ -784,6 +835,7 @@ export const rowActions = (draft: TriggerDraft): readonly RowAction[] =>
       draft.lickEnabled && { kind: 'lick', label: 'ペロペロ' },
       draft.vrmEnabled && { kind: 'vrm', label: 'VRM' },
       draft.chatDeductionEnabled && { kind: 'chatDeduction', label: 'チャットで推理' },
+      draft.dollGrantEnabled && { kind: 'dollGrant', label: '人形' },
     ] satisfies readonly (RowAction | false)[]
   ).filter((action) => action !== false)
 

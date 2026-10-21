@@ -11,6 +11,7 @@
  *   後から気付かないため。方針4）。
  */
 import { ConfigError, type MediaKind } from './alert-config'
+import type { TriggerKind } from './trigger-menu'
 
 /** 人形の種類。normal はふつうの人形、super はスーパー人形 */
 export const DOLL_KINDS = ['normal', 'super'] as const
@@ -19,14 +20,22 @@ export type DollKind = (typeof DOLL_KINDS)[number]
 /** 人形の名前の上限（見た目の文字数）。管理画面の一覧に収まる長さにする */
 export const MAX_DOLL_NAME_LENGTH = 20
 
-/** 手で一度に増減させられる数の上限。打ち間違いで桁違いの数を渡さないための歯止め */
+/**
+ * 一度に増減させられる数の上限。打ち間違いで桁違いの数を渡さないための歯止めで、手での増減とトリガーの動作
+ * 「人形を渡す」（worker/alert-config.ts の dollGrant）の個数の両方に使う
+ */
 export const MAX_DOLL_CHANGE = 10
 
 /**
- * 何で増減したか。manual は配信者が管理画面から手で増減させたもの。
- * 段階2（トリガー）・段階3（ゲームの正解）で種類を足す（issue #419・#420）。
+ * 何で増減したか（台帳の reason と、理由ごとに控える項目）。
+ * - manual: 配信者が管理画面から手で増減させたもの
+ * - trigger: トリガーの動作「人形を渡す」で渡したもの（issue #419）。どのトリガーの項目で渡したかを控える
+ *
+ * 段階3（ゲームの正解）で種類を足す（issue #420）。
  */
-export type DollReason = 'manual'
+export type DollOrigin = { readonly reason: 'manual' } | { readonly reason: 'trigger'; readonly triggerKind: TriggerKind }
+
+export type DollReason = DollOrigin['reason']
 
 /** 人形1種類ぶんの名前と画像 */
 export interface DollFigure {
