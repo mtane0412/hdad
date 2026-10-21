@@ -30,6 +30,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
+import type { DollApi } from '@/dolls/api'
 import { Slider } from '@/components/ui/slider'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ColorSwatch, Identifier, Quantity, Tag, type TagTone } from '@/components/data/data-display'
@@ -1018,13 +1019,15 @@ export interface TriggerPageProps {
   api: AdminApi
   /** botの接続状態の読み出し。未接続ならチャットとアナウンスの動作が動かないので、画面で知らせる */
   botApi: Pick<BotApi, 'status'>
+  /** 漢字クイズの正解者に渡す人形の読み書き（漢字クイズのカードが使う） */
+  prizeApi: Pick<DollApi, 'prize' | 'savePrize'>
   /** ログイン中の配信者のオーバーレイ用キー。発行されていなければ null */
   overlayKey: string | null
   /** キーを再発行した。アプリの枠が持つログイン情報を新しいキーに書き換えてもらう */
   onOverlayKeyChange(overlayKey: string): void
 }
 
-export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: TriggerPageProps) => {
+export const TriggerPage = ({ api, botApi, prizeApi, overlayKey, onOverlayKeyChange }: TriggerPageProps) => {
   const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' })
   const [media, setMedia] = useState<readonly MediaItem[]>([])
   const [rewards, setRewards] = useState<readonly Reward[]>([])
@@ -1269,7 +1272,7 @@ export const TriggerPage = ({ api, botApi, overlayKey, onOverlayKeyChange }: Tri
           <VrmCard api={api} media={media} />
 
           {/* 漢字クイズは設定を持たず、級を選んで試しに流すボタンだけを置く */}
-          <KanjiQuizCard api={api} media={media} />
+          <KanjiQuizCard api={api} prizeApi={prizeApi} media={media} />
 
         </TabsContent>
         <TabsContent value="overlay">

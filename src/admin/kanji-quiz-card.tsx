@@ -9,6 +9,8 @@
  * アップロード済みの音声を選ぶか「鳴らさない」にするだけにする（市町村紹介のカード town-tour-sound-card.tsx と同じ作り）。
  * 音声の追加はアップロードのページが受け持つ。設定は漢字クイズとして1つだけで、チャンネルポイントのトリガーと試し再生が共有する。
  *
+ * 正解者に渡す人形もここで選ぶ（src/dolls/doll-prize-field.tsx。選び直したらその場で保存する。issue #420）。
+ *
  * 保存と試し再生の結果・失敗は、トリガーの保存と取り違えないよう、このカードの中に出す。
  *
  * 注意: 値の検証は Worker だけが持つ（.claude/rules/implementation.md）。ここでは返ってきた問題点を枠の名前に読み替えて並べる。
@@ -23,6 +25,8 @@ import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useUnsavedChanges } from '@/app/router'
 import { ApiError } from '@/core/api'
+import type { DollApi } from '@/dolls/api'
+import { DollPrizeField } from '@/dolls/doll-prize-field'
 import { isKankenGrade, type KankenGrade } from '@/kanji-quiz/grade'
 import { KANJI_QUIZ_SOUND_SLOTS, type KanjiQuizSound, type KanjiQuizSoundSlot } from '@/kanji-quiz/sound'
 import type { AdminApi, MediaItem } from './api'
@@ -72,11 +76,13 @@ const failureLines = (error: unknown): string[] =>
 
 interface KanjiQuizCardProps {
   api: KanjiQuizApi
+  /** 正解者に渡す人形の読み書き */
+  prizeApi: Pick<DollApi, 'prize' | 'savePrize'>
   /** アップロード済みの素材（トリガーのページが読んだもの）。音声だけを選択肢にする */
   media: readonly MediaItem[]
 }
 
-export const KanjiQuizCard = ({ api, media }: KanjiQuizCardProps) => {
+export const KanjiQuizCard = ({ api, prizeApi, media }: KanjiQuizCardProps) => {
   const id = useId()
   const actions = usePageActions(failureLines)
   const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' })
@@ -174,6 +180,7 @@ export const KanjiQuizCard = ({ api, media }: KanjiQuizCardProps) => {
       <CardContent className="flex flex-col gap-4">
         {actions.feedback}
         {soundFields}
+        <DollPrizeField api={prizeApi} game="kanjiQuiz" />
         <p className="text-sm text-muted-foreground">交換を待たずに試しに流せる。音は保存したものが鳴るので、未保存の変更があるあいだは押せない。</p>
         <div className="flex flex-col gap-2 sm:max-w-xs">
           <Label htmlFor={`${id}-grade`}>試しに出題する級</Label>

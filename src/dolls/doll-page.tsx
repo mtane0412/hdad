@@ -26,7 +26,7 @@ import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { DollApi } from './api'
-import { SUPER_DOLL_VALUE, type DollFigure, type DollKind, type DollSet } from './doll'
+import { DOLL_KIND_LABELS, SUPER_DOLL_VALUE, type DollFigure, type DollKind, type DollSet } from './doll'
 import { EMPTY_DOLL_DRAFT, dollFailureLines, draftOf, sameDraft, type DollDraft } from './form'
 
 /** 素材の中身の経路。この画面は配信者のセッションで読めるので、オーバーレイ用キーは付けない */
@@ -34,9 +34,6 @@ const MEDIA_PATH = '/api/media/'
 
 /** 選択欄で「選ばない」を表す値（Worker は空の ID を「存在しない素材」として拒む） */
 const NONE = ''
-
-/** 種類ごとの画面の言い方 */
-const KIND_LABELS: Readonly<Record<DollKind, string>> = { normal: 'ふつうの人形', super: 'スーパー人形' }
 
 /** 行の列（ふつうの人形・スーパー人形・いまの人形の印・未保存の印）。どの行も同じ幅にし、上下で列をそろえる */
 const DOLL_COLUMNS = 'minmax(0,1fr) minmax(0,1fr) 6rem 4.5rem'
@@ -63,7 +60,7 @@ const FigureCell = ({ figure }: { figure: DollFigure }) => (
  */
 const FigureFields = ({ kind, value, images, onChange }: { kind: DollKind; value: DollFigure; images: readonly MediaItem[]; onChange(value: DollFigure): void }) => {
   const id = useId()
-  const label = KIND_LABELS[kind]
+  const label = DOLL_KIND_LABELS[kind]
   // 一覧に無い素材が選ばれていれば、別の画像に見せずにそのまま出す（使われている画像は消せないので、ふつうは起きない）
   const missing = value.mediaId !== NONE && !images.some((item) => item.id === value.mediaId)
   return (

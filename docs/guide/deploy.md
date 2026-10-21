@@ -185,6 +185,8 @@ R2は無料枠（保存10GB・転送無料）だけを使う場合でも、デ�
 | `PUT /api/admin/dolls/:id` | 人形の組の名前と画像の書き換え（無い組は404。要セッション） |
 | `DELETE /api/admin/dolls/:id` | 人形の組の削除（無い組は404、視聴者に渡したことのある組は409。要セッション） |
 | `PUT /api/admin/doll-current` | いまの人形を選ぶ（`{ setId }`。`null` でどの組も選ばない。無い組は404。要セッション） |
+| `GET /api/admin/doll-prizes/:game` | ゲーム（`chatDeduction`・`kanjiQuiz`）の正解者に渡す人形（`{ kind }`。`normal`・`super`、渡さないなら `null`。未保存なら `null`。知らないゲームは404。要セッション） |
+| `PUT /api/admin/doll-prizes/:game` | ゲームの正解者に渡す人形を保存する（`{ kind }`。知らない種類は問題点を添えて400。要セッション） |
 | `GET /api/admin/stats/sessions` | 配信セッションの一覧（新しい順に100件まで）。平均・最大視聴者数、フォロワー増減、イベントの種類ごとの件数つき（要セッション） |
 | `GET /api/admin/stats/sessions/<配信ID>` | 配信セッションと、視聴者数の時系列・章（要セッション） |
 | `GET /api/admin/stats/followers` | フォロワー数の時系列。値が変わった時点だけが並ぶ（要セッション） |

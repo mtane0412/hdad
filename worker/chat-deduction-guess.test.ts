@@ -7,10 +7,13 @@
  * - 開催中でないとき・正解のあとに届いた解答は、交換を CANCELED にしてポイントを返すこと
  * - 同じ通知の再送で二重に照合しないこと
  * - 報酬を交換できないようにできなかったら、収集の失敗として残すこと（ゲームは終えたまま、交換は更新する）
+ * - 正解者に渡す人形を選んでいれば、正解者にいまの人形を1つ渡すこと。渡せなくてもゲームは終え、失敗として残すこと（issue #420）
  */
 import { createHmac } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { readGame, startGame } from './chat-deduction-store'
+import { saveDollPrize } from './doll-prize'
+import { insertDollSet, readDollHoldings, selectCurrentDollSet } from './doll-store'
 import { createFakeAdBreakTimer } from './fake-ad-break-timer'
 import { createFakeWorkersAi } from './fake-ai'
 import { createFakeAlertChannel } from './fake-alert-channel'
@@ -350,5 +353,91 @@ describe('チャットで推理の解答の受け口', () => {
 
     expect(twitch.updates).toEqual([{ rewardId: ANSWER_REWARD_ID, redemptionId: '交換ID-1', status: 'FULFILLED' }])
     expect(await listFailures(env.DB)).toMatchObject([{ code: 'chat-deduction-push-failed' }])
+  })
+})
+
+describe('チャットで推理の正解者に渡す人形（issue #420）', () => {
+  /** クマの人形の組を登録し、いまの人形に選ぶ */
+  const selectBears = async (env: TestEnv): Promise<number> => {
+    const set = await insertDollSet(
+      env.DB,
+      { normal: { name: 'クマ人形', mediaId: 'image-bear' }, super: { name: 'スーパークマ人形', mediaId: 'image-super-bear' } },
+      NOW - 24 * 60 * 60 * 1000,
+    )
+    await selectCurrentDollSet(env.DB, set.id)
+    return set.id
+  }
+
+  it('正解者に渡す人形を選んでいれば、正解者にいまの人形を1つ渡し、理由をチャットで推理として台帳に残す', async () => {
+    // 前提: 正解者に渡すのはスーパー人形。いまの人形はクマの組
+    const env = createEnv()
+    await prepare(env)
+    await saveDollPrize(env.STORE, 'chatDeduction', { kind: 'super' })
+    const setId = await selectBears(env)
+    await startGame(env.DB, 'mount-fuji', NOW - 60 * 1000)
+
+    await deliver(env, notificationOf(guessOf()), fakeTwitch().fetchImpl)
+
+    expect(await readDollHoldings(env.DB)).toEqual([{ userId: '田中太郎のユーザーID', setId, normal: 0, super: 1 }])
+    expect(env.DB.sqlite.prepare('SELECT reason, trigger_kind FROM doll_ledger').all()).toEqual([{ reason: 'chatDeduction', trigger_kind: null }])
+  })
+
+  it('不正解の人と、正解のあとに届いた正解の人には渡さない', async () => {
+    const env = createEnv()
+    await prepare(env)
+    await saveDollPrize(env.STORE, 'chatDeduction', { kind: 'normal' })
+    const setId = await selectBears(env)
+    await startGame(env.DB, 'mount-fuji', NOW - 60 * 1000)
+    const twitch = fakeTwitch()
+
+    await deliver(env, notificationOf(suzukiGuessOf('交換ID-1', '阿蘇山'), 'message-1'), twitch.fetchImpl)
+    await deliver(env, notificationOf(guessOf({ id: '交換ID-2' }), 'message-2'), twitch.fetchImpl)
+    await deliver(env, notificationOf(suzukiGuessOf('交換ID-3', '富士山'), 'message-3'), twitch.fetchImpl)
+
+    // 渡したのは最初に正解した田中太郎さんの1つだけ
+    expect(await readDollHoldings(env.DB)).toEqual([{ userId: '田中太郎のユーザーID', setId, normal: 1, super: 0 }])
+  })
+
+  it('次のゲームの正解者にも渡す（ゲームごとに1回ずつ渡す）', async () => {
+    const env = createEnv()
+    await prepare(env)
+    await saveDollPrize(env.STORE, 'chatDeduction', { kind: 'normal' })
+    const setId = await selectBears(env)
+    const twitch = fakeTwitch()
+
+    await startGame(env.DB, 'mount-fuji', NOW - 60 * 1000)
+    await deliver(env, notificationOf(guessOf({ id: '交換ID-1' }), 'message-1'), twitch.fetchImpl)
+    await startGame(env.DB, 'mount-fuji', NOW - 30 * 1000)
+    await deliver(env, notificationOf(guessOf({ id: '交換ID-2' }), 'message-2'), twitch.fetchImpl)
+
+    expect(await readDollHoldings(env.DB)).toEqual([{ userId: '田中太郎のユーザーID', setId, normal: 2, super: 0 }])
+  })
+
+  it('渡す人形が「なし」（保存していない）なら、正解しても渡さない', async () => {
+    const env = createEnv()
+    await prepare(env)
+    await selectBears(env)
+    await startGame(env.DB, 'mount-fuji', NOW - 60 * 1000)
+
+    await deliver(env, notificationOf(guessOf()), fakeTwitch().fetchImpl)
+
+    expect(await readDollHoldings(env.DB)).toEqual([])
+    expect(await listFailures(env.DB)).toEqual([])
+  })
+
+  it('いまの人形が選ばれていなくても、ゲームは正解で終えて交換を FULFILLED にし、渡せなかったことを失敗として残す', async () => {
+    // 前提: 正解者に渡す人形は選んであるが、いまの人形を選んでいない
+    const env = createEnv()
+    await prepare(env)
+    await saveDollPrize(env.STORE, 'chatDeduction', { kind: 'normal' })
+    const game = await startGame(env.DB, 'mount-fuji', NOW - 60 * 1000)
+    const twitch = fakeTwitch()
+
+    await deliver(env, notificationOf(guessOf()), twitch.fetchImpl)
+
+    expect(await readGame(env.DB, game!.id)).toMatchObject({ endReason: 'solved' })
+    expect(twitch.updates).toEqual([{ rewardId: ANSWER_REWARD_ID, redemptionId: '交換ID-1', status: 'FULFILLED' }])
+    expect(await readDollHoldings(env.DB)).toEqual([])
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'doll-grant-failed', message: expect.stringContaining('いまの人形が選ばれていません') }])
   })
 })

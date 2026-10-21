@@ -3,7 +3,7 @@
  *
  * メモリ上のSQLite（fake-database.ts）に migrations/ を適用して確かめる。特に重要なのは次の点。
  * - 回答を受け付けるのは、合成ページが出題を開いてから（熟語が出てから）制限時間と遅れの余裕のあいだだけ
- * - 最初に正解した1人だけが正解者になる（2人目以降は正解者にならない）
+ * - 最初に正解した1人だけが正解者になる（2人目以降は正解者にならない）。正解者を決めた出題が試し再生かどうかも返す
  * - 同じ出題を2回開いても（合成ページを2つ開いていても）、受け付ける長さを延ばさない
  * - 同じ配信で出した問題の熟語を、次の出題から外せるよう読み出せる（配信していなければ外すものは無い）
  * - 時間切れ（正解者なし）のときだけ配信の停止を始め、取り消しと停止はどちらか一方しか通らない。同じ出題で2回止めない（issue #302）
@@ -35,7 +35,15 @@ describe('answerKanjiQuiz', () => {
     await recordKanjiQuiz(db, keidaiQuiz, now)
     await openKanjiQuiz(db, keidaiQuiz.id, now)
 
-    expect(await answerKanjiQuiz(db, { words: ['境内'], userName: '山田花子' }, acceptsFrom + 3000)).toEqual(['quiz-keidai'])
+    expect(await answerKanjiQuiz(db, { words: ['境内'], userName: '山田花子' }, acceptsFrom + 3000)).toEqual([{ id: 'quiz-keidai', rehearsal: false }])
+  })
+
+  it('試し再生の出題で正解者が決まったら、試し再生であることも返す（正解者に人形を渡さないため）', async () => {
+    const db = createFakeDatabase()
+    await recordKanjiQuiz(db, { ...keidaiQuiz, rehearsal: true }, now)
+    await openKanjiQuiz(db, keidaiQuiz.id, now)
+
+    expect(await answerKanjiQuiz(db, { words: ['境内'], userName: '山田花子' }, acceptsFrom + 3000)).toEqual([{ id: 'quiz-keidai', rehearsal: true }])
   })
 
   it('2人目の正解者は返さない（最初の正解者だけを画面に出す）', async () => {

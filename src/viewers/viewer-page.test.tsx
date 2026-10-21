@@ -83,6 +83,8 @@ const createFakeDollApi = (sets: DollSet[] = [bears, cats], overrides: Partial<D
       const current = holdings.find((holding) => holding.userId === userId && holding.setId === 1) ?? { userId, setId: 1, normal: 0, super: 0 }
       return { ...current, [kind]: current[kind] + delta }
     }),
+    prize: vi.fn(),
+    savePrize: vi.fn(),
     ...overrides,
   }
 }

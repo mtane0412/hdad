@@ -30,12 +30,23 @@ export const MAX_DOLL_CHANGE = 10
  * 何で増減したか（台帳の reason と、理由ごとに控える項目）。
  * - manual: 配信者が管理画面から手で増減させたもの
  * - trigger: トリガーの動作「人形を渡す」で渡したもの（issue #419）。どのトリガーの項目で渡したかを控える
- *
- * 段階3（ゲームの正解）で種類を足す（issue #420）。
+ * - chatDeduction・kanjiQuiz: そのゲームの正解者に渡したもの（issue #420。DOLL_PRIZE_GAMES）
  */
-export type DollOrigin = { readonly reason: 'manual' } | { readonly reason: 'trigger'; readonly triggerKind: TriggerKind }
+export type DollOrigin =
+  | { readonly reason: 'manual' }
+  | { readonly reason: 'trigger'; readonly triggerKind: TriggerKind }
+  | { readonly reason: DollPrizeGame }
 
 export type DollReason = DollOrigin['reason']
+
+/** 正解者に人形を渡せるゲーム。chatDeduction はチャットで推理、kanjiQuiz は漢字クイズ。台帳の理由（reason）にもこの名前を書く */
+export const DOLL_PRIZE_GAMES = ['chatDeduction', 'kanjiQuiz'] as const
+export type DollPrizeGame = (typeof DOLL_PRIZE_GAMES)[number]
+
+/** ゲームの正解者に渡す人形。kind が null なら渡さない。個数は1で固定する（issue #420） */
+export interface DollPrize {
+  readonly kind: DollKind | null
+}
 
 /** 人形1種類ぶんの名前と画像 */
 export interface DollFigure {
@@ -148,4 +159,18 @@ export const parseDollChangeInput = (input: unknown): DollChangeInput => {
 
   if (problems.length > 0 || !isDollKind(kind) || typeof delta !== 'number') throw new ConfigError(SUBJECT, problems)
   return { kind, delta }
+}
+
+/**
+ * 管理画面から送られてきた、ゲームの正解者に渡す人形を検証する。
+ *
+ * @param input `{ kind: 'normal' | 'super' | null }`（null は渡さない）
+ * @throws ConfigError 問題がある場合。kind の書き忘れを「渡さない」と読み替えない
+ */
+export const parseDollPrize = (input: unknown): DollPrize => {
+  const kind = isRecord(input) ? input.kind : undefined
+  if (kind !== null && !isDollKind(kind)) {
+    throw new ConfigError(SUBJECT, [`kind: ${DOLL_KINDS.join(' / ')} のいずれか、渡さないなら null を指定してください`])
+  }
+  return { kind }
 }

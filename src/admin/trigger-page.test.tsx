@@ -89,7 +89,14 @@ const fakeApi = (overrides: Partial<AdminApi> = {}): AdminApi => ({
 const fakeBotApi = (status: () => Promise<BotStatus | null> = async () => connectedBot) => ({ status: vi.fn(status) })
 
 const triggerPage = (api: AdminApi, props: Partial<React.ComponentProps<typeof TriggerPage>> = {}) => (
-  <TriggerPage api={api} botApi={fakeBotApi()} overlayKey="ima-no-key" onOverlayKeyChange={() => {}} {...props} />
+  <TriggerPage
+    api={api}
+    botApi={fakeBotApi()}
+    prizeApi={{ prize: vi.fn(async () => null), savePrize: vi.fn() }}
+    overlayKey="ima-no-key"
+    onOverlayKeyChange={() => {}}
+    {...props}
+  />
 )
 
 /** 操作の結果のお知らせ。音量の表示（output 要素）も role="status" を持つので、役割ではなく文言で探す */

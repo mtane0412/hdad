@@ -159,7 +159,7 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
         icon: CircleHelp,
         // 視聴者がチャンネルポイントの質問で答えを絞り込み、解答で当てるゲーム（issue #375）。報酬はゲームのあいだだけ交換できる
         // 音のカードの選択肢に素材の一覧を使う。api.media は描き直しても同じ関数なので、読み直しを繰り返さない
-        render: ({ chatDeductionApi, api }) => <ChatDeductionPage api={chatDeductionApi} problemSets={CHAT_DEDUCTION_PROBLEM_SETS} loadMedia={api.media} />,
+        render: ({ chatDeductionApi, dollApi, api }) => <ChatDeductionPage api={chatDeductionApi} problemSets={CHAT_DEDUCTION_PROBLEM_SETS} prizeApi={dollApi} loadMedia={api.media} />,
       },
       { path: '/viewers/', keywords: ['常連', '人物像', '人形'], name: '視聴者', icon: Users, render: ({ viewerApi, dollApi }) => <ViewerPage api={viewerApi} dollApi={dollApi} /> },
       {
@@ -208,8 +208,8 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
         name: 'トリガー',
         icon: Zap,
         // botの接続状態も読む（未接続だとチャットとアナウンスの動作が動かないので、トリガーのページで知らせる）
-        render: ({ api, botApi, me, onOverlayKeyChange }) => (
-          <TriggerPage api={api} botApi={botApi} overlayKey={me.overlayKey} onOverlayKeyChange={onOverlayKeyChange} />
+        render: ({ api, botApi, dollApi, me, onOverlayKeyChange }) => (
+          <TriggerPage api={api} botApi={botApi} prizeApi={dollApi} overlayKey={me.overlayKey} onOverlayKeyChange={onOverlayKeyChange} />
         ),
       },
       { path: '/bot/', keywords: ['コマンド', 'モデレーション'], name: 'チャットボット', icon: Bot, render: ({ botApi }) => <BotPage api={botApi} /> },

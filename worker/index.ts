@@ -96,6 +96,7 @@
  * | GET・POST /api/admin/dolls       | セッション     | 人形の組と所持数の一覧・組の追加 |
  * | PUT・DELETE /api/admin/dolls/:id | セッション     | 人形の組の書き換え・削除 |
  * | PUT  /api/admin/doll-current     | セッション     | いまの人形を選ぶ |
+ * | GET・PUT /api/admin/doll-prizes/:game | セッション | ゲームの正解者に渡す人形の読み書き |
  * | GET  /api/admin/stats/sessions   | セッション     | 配信セッションの一覧 |
  * | GET  /api/admin/stats/sessions/:id | セッション   | 配信セッションと視聴者数の時系列 |
  * | GET  /api/admin/stats/sessions/:id/opinions | セッション | 配信の時間に開いた意見ボードのテーマ（振り返り） |
@@ -181,7 +182,7 @@ import { getFocus, putFocus } from './focus-routes'
 import { getWipeIcon } from './wipe-routes'
 import { getBgm, getOverlayBgm, overlayBgmDuckSocket, overlayBgmSocket, postBgmSkip, postOverlayBgmDuck, postOverlayBgmEnded, putBgmPlayback, putBgmSettings, putBgmTracks } from './bgm-routes'
 import { deleteViewerRoute, getViewers, patchViewer } from './viewer-routes'
-import { getDolls, postDollSet, postViewerDolls, putCurrentDollSet, putDollSet, removeDollSet } from './doll-routes'
+import { getDollPrize, getDolls, postDollSet, postViewerDolls, putCurrentDollSet, putDollPrize, putDollSet, removeDollSet } from './doll-routes'
 import { deleteReward, getRewards, patchReward, postReward } from './reward-routes'
 import {
   deleteBot,
@@ -407,6 +408,8 @@ const ROUTES: readonly Route[] = [
   { method: 'PUT', path: '/api/admin/dolls/:id', handle: putDollSet },
   { method: 'DELETE', path: '/api/admin/dolls/:id', handle: removeDollSet },
   { method: 'PUT', path: '/api/admin/doll-current', handle: putCurrentDollSet },
+  { method: 'GET', path: '/api/admin/doll-prizes/:game', handle: getDollPrize },
+  { method: 'PUT', path: '/api/admin/doll-prizes/:game', handle: putDollPrize },
   { method: 'GET', path: '/api/admin/stats/sessions', handle: getStatsSessions },
   { method: 'GET', path: '/api/admin/stats/sessions/:id', handle: getStatsSession },
   { method: 'GET', path: '/api/admin/stats/sessions/:id/opinions', handle: getStatsSessionOpinions },

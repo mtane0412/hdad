@@ -54,6 +54,8 @@ const createApi = (sets: DollSet[] = [bears, cats], overrides: Partial<DollApi> 
   remove: vi.fn(async () => undefined),
   selectCurrent: vi.fn(async (setId: number | null) => sets.map((set) => ({ ...set, current: set.id === setId }))),
   change: vi.fn(),
+  prize: vi.fn(),
+  savePrize: vi.fn(),
   ...overrides,
 })
 

@@ -7,6 +7,7 @@
  * - 開催中のゲームを、確かめてから終える（2つの報酬を交換できないようにする）
  * - 最後のゲームを終えていれば、その正解を出す（配信者が打ち切ったときも、視聴者が正解したときも）
  * - 場面ごとに合成ページで鳴らす音を選ぶ（sound-card.tsx）
+ * - 正解者に渡す人形を選ぶ（src/dolls/doll-prize-field.tsx。issue #420）
  *
  * 問題集は引数で受け取る（テストで決まった問題を渡すため。アプリでは src/chat-deduction/problem-set.ts を渡す）。
  * 素材の一覧の読み出し（音の選択肢）も引数で受け取る（アプリでは AdminApi の media を渡す）。
@@ -24,6 +25,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
+import type { DollApi } from '@/dolls/api'
+import { DollPrizeField } from '@/dolls/doll-prize-field'
 import type { ChatDeductionApi, ChatDeductionEndReason, ChatDeductionState } from './api'
 import { categoryLabelOf } from './category'
 import type { ChatDeductionProblemSet } from './problems'
@@ -41,11 +44,13 @@ const END_REASON_LABELS: Record<ChatDeductionEndReason, string> = {
 interface ChatDeductionPageProps {
   api: ChatDeductionApi
   problemSets: readonly ChatDeductionProblemSet[]
+  /** 正解者に渡す人形の読み書き */
+  prizeApi: Pick<DollApi, 'prize' | 'savePrize'>
   /** アップロード済みの素材を読む（音のカードの選択肢）。読み直しを繰り返さないよう、描き直しても同じ関数を渡す */
   loadMedia: () => Promise<MediaItem[]>
 }
 
-export const ChatDeductionPage = ({ api, problemSets, loadMedia }: ChatDeductionPageProps) => {
+export const ChatDeductionPage = ({ api, problemSets, prizeApi, loadMedia }: ChatDeductionPageProps) => {
   /** 最後に読んだ状態。読み込むまでは undefined */
   const [state, setState] = useState<ChatDeductionState>()
   const [loadError, setLoadError] = useState<string>()
@@ -171,6 +176,7 @@ export const ChatDeductionPage = ({ api, problemSets, loadMedia }: ChatDeduction
               </div>
             </>
           )}
+          <DollPrizeField api={prizeApi} game="chatDeduction" />
         </CardContent>
       </Card>
       <ChatDeductionSoundCard api={api} loadMedia={loadMedia} />

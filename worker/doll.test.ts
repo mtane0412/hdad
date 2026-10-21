@@ -5,10 +5,11 @@
  * - ふつうの人形とスーパー人形の名前と画像（素材のID）を受け取り、名前の前後の空白を落とすこと
  * - 名前が空・長すぎる、画像が無い・画像でない素材を指す、をすべて集めて拒むこと（最初の1件で止めない）
  * - 手での増減は、種類（ふつう／スーパー）と0でない整数の増減だけを受け取ること
+ * - ゲームの正解者に渡す人形は、ふつう／スーパー／なし（null）のどれかだけを受け取ること
  */
 import { describe, expect, it } from 'vitest'
 import { ConfigError, type MediaKind } from './alert-config'
-import { MAX_DOLL_CHANGE, MAX_DOLL_NAME_LENGTH, parseDollChangeInput, parseDollSetInput } from './doll'
+import { MAX_DOLL_CHANGE, MAX_DOLL_NAME_LENGTH, parseDollChangeInput, parseDollPrize, parseDollSetInput } from './doll'
 
 /** 素材の種類の引き当て。アップロード済みの画像2枚と効果音1つがある */
 const kindOf = (mediaId: string): MediaKind | null =>
@@ -72,5 +73,20 @@ describe('parseDollChangeInput', () => {
     expect(problemsOf(() => parseDollChangeInput({ kind: 'normal', delta: 0 }))).toHaveLength(1)
     expect(problemsOf(() => parseDollChangeInput({ kind: 'normal', delta: 1.5 }))).toHaveLength(1)
     expect(problemsOf(() => parseDollChangeInput({ kind: 'normal', delta: -(MAX_DOLL_CHANGE + 1) }))).toHaveLength(1)
+  })
+})
+
+describe('parseDollPrize', () => {
+  it('ふつう・スーパー・渡さない（null）のどれかを受け取る', () => {
+    expect(parseDollPrize({ kind: 'normal' })).toEqual({ kind: 'normal' })
+    expect(parseDollPrize({ kind: 'super' })).toEqual({ kind: 'super' })
+    expect(parseDollPrize({ kind: null })).toEqual({ kind: null })
+  })
+
+  it('知らない種類・種類の書き忘れ・オブジェクトでない値を拒む', () => {
+    expect(problemsOf(() => parseDollPrize({ kind: 'golden' }))).toHaveLength(1)
+    // 書き忘れを「渡さない」と読み替えない
+    expect(problemsOf(() => parseDollPrize({}))).toHaveLength(1)
+    expect(problemsOf(() => parseDollPrize('normal'))).toHaveLength(1)
   })
 })

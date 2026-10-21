@@ -1,7 +1,7 @@
 /**
  * 人形の Worker の呼び出し（api.ts）のテスト
  *
- * 実際の通信はせず、fetch を差し替える。人形の組の読み書き・いまの人形の選択・視聴者への手での増減が、
+ * 実際の通信はせず、fetch を差し替える。人形の組の読み書き・いまの人形の選択・視聴者への手での増減・ゲームの正解者に渡す人形の読み書きが、
  * 決まった経路と本文で呼ばれ、応答の形が違えば黙らずにエラーにすることを確かめる。
  */
 import { describe, expect, it } from 'vitest'
@@ -64,6 +64,22 @@ describe('createDollApi', () => {
 
     expect(await createDollApi(fetchImpl).change('1001', 'super', 1)).toEqual(hanakoHolding)
     expect(calls).toEqual([{ path: '/api/admin/viewers/1001/dolls', method: 'POST', body: { kind: 'super', delta: 1 } }])
+  })
+
+  it('ゲームの正解者に渡す人形を読み書きする（渡さないのは null）', async () => {
+    const read = createFetchWithResponse(200, { kind: null })
+    expect(await createDollApi(read.fetchImpl).prize('chatDeduction')).toBeNull()
+    expect(read.calls).toEqual([{ path: '/api/admin/doll-prizes/chatDeduction', method: 'GET', body: null }])
+
+    const saved = createFetchWithResponse(200, { kind: 'super' })
+    expect(await createDollApi(saved.fetchImpl).savePrize('kanjiQuiz', 'super')).toBe('super')
+    expect(saved.calls).toEqual([{ path: '/api/admin/doll-prizes/kanjiQuiz', method: 'PUT', body: { kind: 'super' } }])
+  })
+
+  it('正解者に渡す人形の応答が知らない種類なら、渡さないことにせずエラーにする', async () => {
+    const { fetchImpl } = createFetchWithResponse(200, { kind: 'golden' })
+
+    await expect(createDollApi(fetchImpl).prize('kanjiQuiz')).rejects.toThrow()
   })
 
   it('応答の形が違えば、空の一覧にせずエラーにする', async () => {
