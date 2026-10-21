@@ -28,6 +28,7 @@
 | [twister.md](twister.md) | ツイスター（レイドで流す3Dのツイスターゲーム。物理を先に計算して再生する・指示の選び方） |
 | [kanji-quiz.md](kanji-quiz.md) | 漢字クイズ（自前の問題集・級を手で付ける・チャンネルポイントにだけ置く） |
 | [chat-deduction.md](chat-deduction.md) | チャットで推理（チャンネルポイントで質問と解答を受ける・報酬を HDAD が作って開催中だけ交換できるようにする・問題集を自前で持つ） |
+| [dolls.md](dolls.md) | 人形（2種類を1組にし比を決め切る・手持ちは組ごとに残しいまの人形だけ増減する・所持数ではなく増減を台帳に残す） |
 | [opinions.md](opinions.md) | 意見ボード（人ではなく意見を単位にする・多数決に見せない・振り分けを積み上げて照合する・アラームで刻む） |
 | [comments.md](comments.md) | コメントビューアー（`/comments/`） |
 | [focus.md](focus.md) | 注目コメント（素材の種類 `focus`） |
