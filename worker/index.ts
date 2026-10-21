@@ -92,6 +92,10 @@
  * | GET  /api/admin/viewers          | セッション     | 視聴者の記録の一覧（検索・ページ送り） |
  * | PATCH /api/admin/viewers/:userId | セッション     | 視聴者へのメモの保存 |
  * | DELETE /api/admin/viewers/:userId | セッション    | 視聴者の記録の削除 |
+ * | POST /api/admin/viewers/:userId/dolls | セッション | 視聴者にいまの人形を手で渡す・取り上げる |
+ * | GET・POST /api/admin/dolls       | セッション     | 人形の組と所持数の一覧・組の追加 |
+ * | PUT・DELETE /api/admin/dolls/:id | セッション     | 人形の組の書き換え・削除 |
+ * | PUT  /api/admin/doll-current     | セッション     | いまの人形を選ぶ |
  * | GET  /api/admin/stats/sessions   | セッション     | 配信セッションの一覧 |
  * | GET  /api/admin/stats/sessions/:id | セッション   | 配信セッションと視聴者数の時系列 |
  * | GET  /api/admin/stats/sessions/:id/opinions | セッション | 配信の時間に開いた意見ボードのテーマ（振り返り） |
@@ -177,6 +181,7 @@ import { getFocus, putFocus } from './focus-routes'
 import { getWipeIcon } from './wipe-routes'
 import { getBgm, getOverlayBgm, overlayBgmDuckSocket, overlayBgmSocket, postBgmSkip, postOverlayBgmDuck, postOverlayBgmEnded, putBgmPlayback, putBgmSettings, putBgmTracks } from './bgm-routes'
 import { deleteViewerRoute, getViewers, patchViewer } from './viewer-routes'
+import { getDolls, postDollSet, postViewerDolls, putCurrentDollSet, putDollSet, removeDollSet } from './doll-routes'
 import { deleteReward, getRewards, patchReward, postReward } from './reward-routes'
 import {
   deleteBot,
@@ -396,6 +401,12 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/admin/viewers', handle: getViewers },
   { method: 'PATCH', path: '/api/admin/viewers/:userId', handle: patchViewer },
   { method: 'DELETE', path: '/api/admin/viewers/:userId', handle: deleteViewerRoute },
+  { method: 'POST', path: '/api/admin/viewers/:userId/dolls', handle: postViewerDolls },
+  { method: 'GET', path: '/api/admin/dolls', handle: getDolls },
+  { method: 'POST', path: '/api/admin/dolls', handle: postDollSet },
+  { method: 'PUT', path: '/api/admin/dolls/:id', handle: putDollSet },
+  { method: 'DELETE', path: '/api/admin/dolls/:id', handle: removeDollSet },
+  { method: 'PUT', path: '/api/admin/doll-current', handle: putCurrentDollSet },
   { method: 'GET', path: '/api/admin/stats/sessions', handle: getStatsSessions },
   { method: 'GET', path: '/api/admin/stats/sessions/:id', handle: getStatsSession },
   { method: 'GET', path: '/api/admin/stats/sessions/:id/opinions', handle: getStatsSessionOpinions },

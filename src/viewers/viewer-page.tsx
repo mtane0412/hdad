@@ -4,6 +4,7 @@
  * チャットで発言した人の記録（Workerが貯めたもの）を一覧で出し、配信者がメモを書いたり、記録を消したりする。
  * 配信が終わったあとにLLMが作った人物像（summary）も出すが、配信者が書いたメモ（note）とは別々に出す
  * （機械の推測と人が書いたものを混ぜない。人物像はここからは書き換えられない）。
+ * 開いた行には、その人が持っている人形の数と、いまの人形を手で渡す・取り上げるボタンも出す（issue #418。`@/dolls/viewer-dolls`）。
  * ログインの確認とログアウトはアプリの枠（src/app/app.tsx）が受け持つので、ここではログイン済みを前提にする。
  * Workerの呼び出しは api.ts、操作の実行と結果の表示は `@/admin/page-actions` に任せる。
  *
@@ -25,6 +26,9 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { formatDateTime } from '@/stats/summary'
 import { iconButtonName } from '@/core/icon-button'
+import type { DollApi, DollState } from '@/dolls/api'
+import type { DollKind } from '@/dolls/doll'
+import { ViewerDolls } from '@/dolls/viewer-dolls'
 import type { Viewer, ViewerApi, ViewerChannel, ViewerQuery } from './api'
 
 /** 一度に読む件数。これと同じ件数が返ってきたら、まだ続きがあるとみなす */
@@ -59,9 +63,16 @@ const VIEWER_HEADINGS = [{ label: '名前' }, { label: '発言', align: 'end' },
 
 type Loaded = { status: 'loading' } | { status: 'ready' } | { status: 'failed'; message: string }
 
-export const ViewerPage = ({ api }: { api: ViewerApi }) => {
+/** 人形の組と所持数を、まだ読んでいないときの値（読み込みが終わるまで画面は出さないので、表示には使わない） */
+const NO_DOLLS: DollState = { sets: [], holdings: [] }
+
+/**
+ * @param dollApi 人形の組と所持数の読み出しと、手での増減（`@/dolls/api`）
+ */
+export const ViewerPage = ({ api, dollApi }: { api: ViewerApi; dollApi: DollApi }) => {
   const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' })
   const [viewers, setViewers] = useState<readonly Viewer[]>([])
+  const [dolls, setDolls] = useState<DollState>(NO_DOLLS)
   /** メモの下書き（保存するまでの入力。ユーザーIDごとに持つ） */
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [search, setSearch] = useState('')
@@ -73,10 +84,12 @@ export const ViewerPage = ({ api }: { api: ViewerApi }) => {
 
   useEffect(() => {
     let cancelled = false
-    api.list({ limit: PAGE_SIZE }).then(
-      (firstPage) => {
+    // 人形の組と所持数も一緒に読む。読めなければ、人形が無いように見せず一覧ごと出さない
+    Promise.all([api.list({ limit: PAGE_SIZE }), dollApi.list()]).then(
+      ([firstPage, dollState]) => {
         if (cancelled) return
         setViewers(firstPage)
+        setDolls(dollState)
         setHasMore(firstPage.length === PAGE_SIZE)
         setLoaded({ status: 'ready' })
       },
@@ -87,7 +100,7 @@ export const ViewerPage = ({ api }: { api: ViewerApi }) => {
     return () => {
       cancelled = true
     }
-  }, [api])
+  }, [api, dollApi])
 
   if (loaded.status === 'loading') return <Skeleton className="h-64 w-full" aria-label="視聴者の記録を読み込んでいます" />
   if (loaded.status === 'failed') {
@@ -119,9 +132,22 @@ export const ViewerPage = ({ api }: { api: ViewerApi }) => {
     return `${viewer.displayName} へのメモを保存しました`
   }
 
+  /** いまの人形を手で1つ渡す・取り上げる。Worker が返した、増減したあとの所持数で置き換える */
+  const changeDolls = async (viewer: Viewer, kind: DollKind, delta: number): Promise<string> => {
+    const holding = await dollApi.change(viewer.userId, kind, delta)
+    setDolls((current) => ({
+      ...current,
+      holdings: [...current.holdings.filter((other) => !(other.userId === holding.userId && other.setId === holding.setId)), holding],
+    }))
+    const name = dolls.sets.find((set) => set.id === holding.setId)?.[kind].name ?? '人形'
+    return delta > 0 ? `${viewer.displayName} に${name}を渡しました` : `${viewer.displayName} から${name}を取り上げました`
+  }
+
   const removeViewer = async (viewer: Viewer): Promise<string> => {
     await api.remove(viewer.userId)
     setViewers((current) => current.filter((other) => other.userId !== viewer.userId))
+    // Worker は人形の台帳も一緒に消すので、画面の所持数からも外す
+    setDolls((current) => ({ ...current, holdings: current.holdings.filter((holding) => holding.userId !== viewer.userId) }))
     return `${viewer.displayName} の記録を削除しました`
   }
 
@@ -184,6 +210,13 @@ export const ViewerPage = ({ api }: { api: ViewerApi }) => {
                               {viewer.summary}
                             </p>
                           )}
+                          <ViewerDolls
+                            displayName={viewer.displayName}
+                            sets={dolls.sets}
+                            holdings={dolls.holdings.filter((holding) => holding.userId === viewer.userId)}
+                            busy={actions.busy}
+                            onChange={(kind, delta) => void actions.run(() => changeDolls(viewer, kind, delta))}
+                          />
                           <Textarea
                             aria-label={`${viewer.displayName} へのメモ`}
                             rows={2}
@@ -208,7 +241,7 @@ export const ViewerPage = ({ api }: { api: ViewerApi }) => {
                               onClick={() =>
                                 actions.ask({
                                   title: `${viewer.displayName} の記録を削除しますか？`,
-                                  description: 'メモと人物像も消え、元に戻せません。次の発言では初めての人として記録し直します。',
+                                  description: 'メモと人物像と持っている人形も消え、元に戻せません。次の発言では初めての人として記録し直します。',
                                   actionLabel: '削除する',
                                   run: () => removeViewer(viewer),
                                 })

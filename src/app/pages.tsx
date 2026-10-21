@@ -4,7 +4,7 @@
  * サイドバーの項目と、パスごとに描く中身をここで決める。
  * 実ファイルとして配信されるページ（overlay/stage/・overlay/backstage/・speech/reader/）は、ここには載せない。
  */
-import { Bot, BrainCircuit, CircleHelp, Gift, Layers, LayoutDashboard, Lightbulb, MessagesSquare, Music, NotebookPen, Palette, Pencil, Plug, Timer, Upload, Users, Zap, type LucideIcon } from 'lucide-react'
+import { Award, Bot, BrainCircuit, CircleHelp, Gift, Layers, LayoutDashboard, Lightbulb, MessagesSquare, Music, NotebookPen, Palette, Pencil, Plug, Timer, Upload, Users, Zap, type LucideIcon } from 'lucide-react'
 import type { AdminApi, Me } from '@/admin/api'
 import { BackstagePage } from '@/backstage/backstage-page'
 import type { BgmApi } from '@/bgm/api'
@@ -31,6 +31,8 @@ import { PomodoroPage } from '@/pomodoro/pomodoro-page'
 import type { StatsApi } from '@/stats/api'
 import { StatsPage } from '@/stats/stats-page'
 import type { ViewerApi } from '@/viewers/api'
+import type { DollApi } from '@/dolls/api'
+import { DollPage } from '@/dolls/doll-page'
 import { ViewerPage } from '@/viewers/viewer-page'
 import type { ScreenAdminApi } from '@/screen/api'
 import type { TextApi } from '@/text/api'
@@ -51,6 +53,8 @@ export interface PageContext {
   botApi: BotApi
   /** 視聴者の記録の読み書き（視聴者のページが使う） */
   viewerApi: ViewerApi
+  /** 人形の組と所持数の読み書き（人形のページと視聴者のページが使う） */
+  dollApi: DollApi
   /** 読み上げの設定の読み書き（コネクターのページの VOICEVOX の区画が使う） */
   speechApi: SpeechApi
   /** 画面の取り込みの設定の読み書き（コネクターのページの Gyazo の区画が使う） */
@@ -157,7 +161,16 @@ export const PAGE_GROUPS: readonly { label: string; pages: readonly Page[] }[] =
         // 音のカードの選択肢に素材の一覧を使う。api.media は描き直しても同じ関数なので、読み直しを繰り返さない
         render: ({ chatDeductionApi, api }) => <ChatDeductionPage api={chatDeductionApi} problemSets={CHAT_DEDUCTION_PROBLEM_SETS} loadMedia={api.media} />,
       },
-      { path: '/viewers/', keywords: ['常連', '人物像'], name: '視聴者', icon: Users, render: ({ viewerApi }) => <ViewerPage api={viewerApi} /> },
+      { path: '/viewers/', keywords: ['常連', '人物像', '人形'], name: '視聴者', icon: Users, render: ({ viewerApi, dollApi }) => <ViewerPage api={viewerApi} dollApi={dollApi} /> },
+      {
+        path: '/dolls/',
+        keywords: ['人形', 'スーパー人形', '景品', 'ごほうび'],
+        name: '人形',
+        icon: Award,
+        // 視聴者に渡す人形の組と、配信で使う「いまの人形」（issue #418）。画像はアップロードのページで上げた素材から選ぶ。
+        // api.media は描き直しても同じ関数なので、読み直しを繰り返さない
+        render: ({ dollApi, api }) => <DollPage api={dollApi} loadMedia={api.media} />,
+      },
     ],
   },
   {

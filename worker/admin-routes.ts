@@ -18,6 +18,7 @@ import { kanjiQuizSoundUses, loadKanjiQuizSound } from './kanji-quiz-sound'
 import { chatDeductionSoundUses, loadChatDeductionSound } from './chat-deduction-sound'
 import { lickSoundUses, loadLickSound } from './lick-sound'
 import { loadVrmModel, vrmModelUses } from './vrm-model'
+import { readDollSets } from './doll-store'
 import { overlayKeyTag, rotateOverlayKey } from './overlay-key'
 import { revokeTabViewers } from './tab-channel'
 import { loadOverlayLayout, parseItemVisibility, parseOverlayLayout, saveOverlayLayout, withItemVisibility, type OverlayLayout } from './overlay-layout'
@@ -65,7 +66,7 @@ export const postMedia = async (context: Context): Promise<Response> => {
 }
 
 /**
- * DELETE /api/admin/media/:id: トリガー・BGMの曲・市町村紹介の音・ツイスターの BGM・漢字クイズの音に使われている素材は消させない
+ * DELETE /api/admin/media/:id: トリガー・BGMの曲・市町村紹介の音・ツイスターの BGM・漢字クイズの音・人形の画像に使われている素材は消させない
  * （配信中にアラートが出なくなる・BGMや市町村紹介・漢字クイズが黙って無音になるのを防ぐ）
  */
 export const deleteMedia = async (context: Context): Promise<Response> => {
@@ -98,6 +99,9 @@ export const deleteMedia = async (context: Context): Promise<Response> => {
   }
   if (chatDeductionSoundUses(await loadChatDeductionSound(env.STORE), id)) {
     throw new HttpError(STATUS.conflict, 'media-in-use', 'この素材はチャットで推理の音に使われています。先にチャットで推理のページで外してください')
+  }
+  if ((await readDollSets(env.DB)).some((set) => set.normal.mediaId === id || set.super.mediaId === id)) {
+    throw new HttpError(STATUS.conflict, 'media-in-use', 'この素材は人形の画像に使われています。先に人形のページで別の画像に替えてください')
   }
 
   await env.MEDIA.delete(id)

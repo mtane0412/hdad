@@ -16,6 +16,7 @@
  */
 import type { Database, DatabaseValue } from './database'
 import { deleteAllStreamChatMessages } from './stream-chat-store'
+import { deleteDollsOf } from './doll-store'
 
 /** 同じ人の記録を更新する間隔（ミリ秒）。これより短い間隔で届いた発言では1行も書き込まない */
 const UPDATE_INTERVAL_MS = 10 * 60 * 1000
@@ -349,11 +350,13 @@ export const updateViewerChannel = async (
  * 注意: まだ人物像にしていない発言の本文（stream_chat_messages）も、配信中のぶんまで含めて一緒に消す。
  * 残すと、記録を消したあとも本文が手元に残り続けてしまう（本文はもともと人物像を作るまでの一時的なものである）。
  * 記録が無い人でも消すのは、記録だけを先に消したあとに届いた発言の本文を残さないためである。
+ * 人形の台帳（doll_ledger）も同じ理由で一緒に消す（worker/doll-store.ts の deleteDollsOf）。
  *
  * @returns 記録のある人なら true。無ければ false（呼び出し側が404にする）
  */
 export const deleteViewer = async (db: Database, userId: string): Promise<boolean> => {
   const deleted = await db.prepare('DELETE FROM viewers WHERE user_id = ?1 RETURNING user_id').bind(userId).first<{ user_id: string }>()
   await deleteAllStreamChatMessages(db, userId)
+  await deleteDollsOf(db, userId)
   return deleted !== null
 }
