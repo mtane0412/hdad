@@ -8,8 +8,9 @@
  * - 渡せなかったとき（いまの人形が無い）は押し出さずに投げること（記録は呼び出し側が行う）
  * - 押し出しに失敗しても投げず、渡したことは取り消さずに doll-award-failed を記録すること
  * - オーバーレイ用キーが無ければ画像のURLを作れないので、押し出さずに doll-award-failed を記録すること
+ * - 押し出しの失敗の記録にも失敗したとき（D1 の不調）も投げないこと（渡せたのに「渡せなかった」と呼び出し側に記録させないため）
  */
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DollSetInput } from './doll'
 import { grantDolls } from './doll-award'
 import { DollChangeError, insertDollSet, readDollHoldings, selectCurrentDollSet } from './doll-store'
@@ -128,5 +129,23 @@ describe('grantDolls', () => {
 
     expect(alerts.pushedDollAwards).toEqual([])
     expect((await listFailures(db)).map(({ code }) => code)).toEqual(['doll-award-failed'])
+  })
+
+  it('押し出しの失敗の記録にも失敗したときも投げず、渡したことは残す', async () => {
+    // 前提: 配送先が失敗し、失敗の記録（batch）も D1 の不調で失敗する
+    await chooseBears()
+    const alerts = createFakeAlertChannel({ shouldFail: true })
+    const brokenBatch = Object.assign(Object.create(db) as typeof db, {
+      batch: () => Promise.reject(new Error('D1 が応答しません')),
+    })
+    const env = { DB: brokenBatch, STORE: createFakeStore({ 'overlay-key': 'secret' }), ALERTS: alerts.namespace }
+    // 記録の失敗は Worker のログに残す（テストの出力を汚さないよう黙らせる）
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await expect(grantDolls(env, NOW, kanjiQuizPrize('kanjiQuiz:1'), 'はなこ')).resolves.toBeUndefined()
+
+    expect((await readDollHoldings(db))[0]?.normal).toBe(1)
+    expect(logged).toHaveBeenCalled()
+    logged.mockRestore()
   })
 })

@@ -9,7 +9,7 @@
  * 形は合成ページの読み取り（src/doll-award/call.ts の parseDollAwardCall）と合わせる。worker/ から src/ の型は読み込まない約束なので、ここで持ち直す。
  *
  * 注意: 渡せなかったとき（いまの人形が無いなど）は押し出さずに投げる。記録は呼び出し側が行う（経路ごとに文面が違うため）。
- * 注意: 渡せたあとの押し出しの失敗（オーバーレイ用キーが無い・配送先の失敗）は投げずに `doll-award-failed` として記録する。
+ * 注意: 渡せたあとの押し出しの失敗（オーバーレイ用キーが無い・配送先の失敗）は投げずに `doll-award-failed` として記録する（記録にも失敗したら Worker のログに残す）。
  *   渡したこと（台帳）は取り消さない。演出が出なくても、所持は管理画面で確かめられるため。
  * 注意: 同じきっかけの ID の再送（changeDolls が duplicate を返す）では押し出さない（演出を2度出さない）。
  */
@@ -68,6 +68,12 @@ export const grantDolls = async (env: DollAwardEnv, now: number, change: DollCha
     await pushDollAward(env.ALERTS, await dollAwardCallOf(env, change, userName, result.holding.setId))
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
-    await recordFailure(env.DB, 'doll-award-failed', `${userName}さんに人形を渡しましたが、獲得の演出を出せませんでした: ${reason}`, now)
+    try {
+      await recordFailure(env.DB, 'doll-award-failed', `${userName}さんに人形を渡しましたが、獲得の演出を出せませんでした: ${reason}`, now)
+    } catch (failure) {
+      // 記録にも失敗した（D1 の不調）。ここで投げると、渡せたのに呼び出し側が「渡せなかった」と記録してしまうので、
+      // Worker のログに残して続ける（worker/doll-prize.ts の grantDollPrize と同じ扱い）
+      console.error(failure)
+    }
   }
 }
