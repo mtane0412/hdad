@@ -30,6 +30,7 @@ import { createFakeTabChannel } from './fake-tab-channel'
 import { createFakeTokenVault } from './fake-token-vault'
 import { handleRequest, type Env } from './index'
 import { createSessionToken } from './session'
+import { listFailures } from './stats-store'
 import { saveToken } from './token'
 
 const ISSUED_KEY = 'issued-overlay-key-0123456789abcdefghij'
@@ -387,6 +388,21 @@ describe('ゲームの終了（POST /api/admin/chat-deduction/games/:id/end）',
       { method: 'PATCH', id: ANSWER_REWARD_ID, body: { is_enabled: false } },
       { method: 'PATCH', id: '報酬ID-推理を始める', body: { is_enabled: true } },
     ])
+  })
+
+  it('始めた報酬を交換できるように戻せなくても（報酬が消されたなど）、ゲームは終え、戻せなかったことを記録する（終えられなくしない）', async () => {
+    const env = createEnv()
+    await saveRewards(env)
+    await saveBroadcasterToken(env)
+    const game = await startGame(env.DB, 'mount-fuji', NOW, '報酬ID-推理を始める')
+    // 交換できるように戻す（is_enabled: true）要求だけを Twitch が断る
+    const twitch = createFakeTwitch((_method, body) => body.is_enabled === true)
+
+    const response = await invoke(await broadcasterRequest(env, `/api/admin/chat-deduction/games/${game!.id}/end`, { method: 'POST' }), env, twitch.fetchImpl)
+
+    expect(response.status).toBe(200)
+    expect(await readCurrentGame(env.DB)).toBeNull()
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'chat-deduction-rewards-failed' }])
   })
 
   it('終えたゲームを、正解の表記を添えて合成ページへ押し出す（「正解は富士山でした」を出すため）', async () => {

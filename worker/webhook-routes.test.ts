@@ -3186,6 +3186,24 @@ describe('チャットで推理を始める動作（chatDeduction）', () => {
     expect(alertChannel.pushedChatDeductions[0]?.game).toMatchObject({ id: game!.id, answer: null })
   })
 
+  it('「すべての報酬」の行で「解答」の報酬が交換されて始まったら、その報酬は始めた報酬として止めない（ゲーム中に解答できなくしない）', async () => {
+    const { env } = createEnv()
+    await prepare(env)
+    await saveAlertConfig(env.STORE, { triggers: [{ kind: 'reward', rewardId: null, actions: [{ type: 'chatDeduction', setId: 'ancient-people', problemId: 'kukai' }] }] })
+    const twitch = createRewardTwitch()
+    const answerRedemption = { ...REDEMPTION_NOTIFICATION, event: { ...REDEMPTION_NOTIFICATION.event, user_input: '空海', reward: { id: ANSWER_REWARD_ID, title: 'チャットで推理: 解答', cost: 100 } } }
+
+    await callWebhook(createNotification({ body: answerRedemption }), env, twitch.fetchImpl)
+
+    const game = await readCurrentGame(env.DB)
+    expect(game?.problemId).toBe('kukai')
+    expect(twitch.toggles).toEqual([
+      { rewardId: QUESTION_REWARD_ID, isEnabled: true },
+      { rewardId: ANSWER_REWARD_ID, isEnabled: true },
+    ])
+    expect(await readGameStartReward(env.DB, game!.id)).toBeNull()
+  })
+
   it('問題を指定していれば、その問題でゲームを始める', async () => {
     const { env } = createEnv()
     await prepare(env)

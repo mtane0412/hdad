@@ -18,7 +18,8 @@
  *
  * 注意: 報酬の切り替えに失敗したら、開始・終了を黙って進めない（方針4）。開始ではゲームを始めなかったことにし、
  * 終了ではゲームを開催中のまま残して、配信者がやり直せるようにする。
- * トリガーのチャンネルポイントで始めたゲームを終えるときは、始めた報酬も交換できるように戻す。
+ * トリガーのチャンネルポイントで始めたゲームを終えるときは、終えてから始めた報酬を交換できるように戻す
+ * （戻せなくてもゲームは終え、記録に残す。消された報酬のせいで終えられなくしない）。
  */
 import { CHAT_DEDUCTION_IMAGES, CHAT_DEDUCTION_PROBLEM_SETS } from '../src/chat-deduction/problem-set'
 import { connectChatDeductionSocket } from './alert-channel'
@@ -32,6 +33,7 @@ import { HttpError, STATUS, requireAdmin, requireOverlayKey, type Context } from
 import { listMedia } from './media'
 import { overlayKeyTag } from './overlay-key'
 import { getManageToken } from './reward-routes'
+import { recordFailure } from './stats-store'
 
 /** 経路の :id として受け付ける書式（1以上の整数） */
 const ID = /^[1-9][0-9]*$/
@@ -107,13 +109,20 @@ export const postEndChatDeductionGame = async (context: Context): Promise<Respon
   const rewards = await requireChatDeductionRewards(context)
   const { env, twitch, now } = context
   const { accessToken } = await getManageToken(context)
-  // トリガーのチャンネルポイントで始めたゲームなら、始めた報酬も交換できるように戻す
   const startRewardId = await readGameStartReward(env.DB, current.id)
-  await setChatDeductionRewardsEnabled(twitch, accessToken, env.TWITCH_BROADCASTER_ID, rewards, false, startRewardId).catch((error: unknown) => {
+  // 質問・解答の報酬だけを先に止める（始めた報酬は、戻せなくてもゲームを終える理由にならないので、終えてから戻す）
+  await setChatDeductionRewardsEnabled(twitch, accessToken, env.TWITCH_BROADCASTER_ID, rewards, false, null).catch((error: unknown) => {
     throw new HttpError(STATUS.badGateway, 'chat-deduction-rewards-failed', `報酬を交換できないようにできなかったので、ゲームを終えていません（${reasonOf(error)}）`)
   })
   const game = await endGame(env.DB, current.id, 'stopped', now)
   if (game === null) throw new HttpError(STATUS.notFound, 'chat-deduction-game-not-open', `ゲーム「${raw}」は開催中ではありません（別の窓で終えられた可能性があります）`)
+  // トリガーのチャンネルポイントで始めたゲームなら、始めた報酬を交換できるように戻す。戻せなくても（報酬が消されたなど）
+  // ゲームは終えたままにし、配信者が /rewards/ で直せるよう記録に残す（消された報酬のせいで終えられなくしない）
+  if (startRewardId !== null) {
+    await twitch.setCustomRewardEnabled(accessToken, env.TWITCH_BROADCASTER_ID, startRewardId, true).catch((error: unknown) =>
+      recordFailure(env.DB, 'chat-deduction-rewards-failed', `ゲームを終えましたが、始めた報酬を交換できるように戻せませんでした。/rewards/ で確かめてください: ${reasonOf(error)}`, now),
+    )
+  }
   await pushChatDeductionBoard(context, 'ゲームを終えました')
   return Response.json({ game } satisfies { game: ChatDeductionGame })
 }

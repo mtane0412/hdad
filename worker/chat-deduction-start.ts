@@ -49,7 +49,8 @@ export const requireChatDeductionRewards = async ({ env }: ChatDeductionStartCon
  * ゲームを始め、2つの報酬を交換できるようにする（始めた報酬があれば交換できないようにする）。
  *
  * @param choose 出す問題を決める。直前のゲームの問題のID（一度も始めていなければ null）を受け取る
- * @param startRewardId トリガーのチャンネルポイントで始めたときの、その報酬のID。ページから始めたときは null
+ * @param requestedStartRewardId トリガーのチャンネルポイントで始めたときの、その報酬のID。ページから始めたときは null。
+ *   質問・解答の報酬そのものなら、始めた報酬として扱わない
  * @returns 始めたゲーム
  * @throws HttpError 報酬が無い・ほかのゲームが開催中なら409、報酬を切り替えられない・合成ページへ押し出せなければ502
  * @throws AuthError channel:manage:redemptions の無いトークンしか無い
@@ -58,9 +59,13 @@ export const requireChatDeductionRewards = async ({ env }: ChatDeductionStartCon
 export const startChatDeductionGame = async (
   context: ChatDeductionStartContext,
   choose: (previousProblemId: string | null) => ChatDeductionProblem,
-  startRewardId: string | null,
+  requestedStartRewardId: string | null,
 ): Promise<ChatDeductionGame> => {
   const rewards = await requireChatDeductionRewards(context)
+  // 「すべての報酬」の行で質問・解答の報酬が交換されて始まったときは、それを始めた報酬として止めない
+  // （止めると、ゲームのあいだ質問・解答できなくなり、終えたら逆にゲームの外で交換できるようになってしまう）
+  const isOwnReward = requestedStartRewardId === rewards.questionRewardId || requestedStartRewardId === rewards.answerRewardId
+  const startRewardId = isOwnReward ? null : requestedStartRewardId
   const { env, twitch, now } = context
   // 行を作る前にトークンを確かめる（スコープが足りなければ、行を作らずにログインし直しを求める）
   const { accessToken } = await getManageToken(context)
