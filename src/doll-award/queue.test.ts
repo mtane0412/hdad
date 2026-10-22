@@ -14,9 +14,10 @@ import { MAX_WAITING_DOLL_MESSAGES, enqueueDollAwardMessage } from './queue'
 const figure = { name: 'クマ人形', imageUrl: '/api/media/image-bear?key=k' }
 
 const award = (id: string): DollAwardCall => ({ type: 'award', id, userName: '花子', kind: 'normal', count: 1, doll: figure })
-const standing = (id: string, userName: string, count = 1): DollStandingCall => ({
+const standing = (id: string, userId: string, userName = '花子', count = 1): DollStandingCall => ({
   type: 'standing',
   id,
+  userId,
   userName,
   normal: { ...figure, count },
   super: { ...figure, count: 0 },
@@ -31,9 +32,15 @@ describe('enqueueDollAwardMessage', () => {
   })
 
   it('同じ人の所持数がもう待っていれば、その場所で新しいものに置き換える', () => {
-    const queue = enqueueDollAwardMessage([standing('s1', '花子', 1), award('a1')], standing('s2', '花子', 2))
+    const queue = enqueueDollAwardMessage([standing('s1', '1001', '花子', 1), award('a1')], standing('s2', '1001', '花子', 2))
 
     expect(ids(queue)).toEqual(['s2', 'a1'])
+  })
+
+  it('表示名が同じでも、別の人の所持数は置き換えない', () => {
+    const queue = enqueueDollAwardMessage([standing('s1', '1001', '花子')], standing('s2', '1002', '花子'))
+
+    expect(ids(queue)).toEqual(['s1', 's2'])
   })
 
   it('ランキングがもう待っていれば、新しいものに置き換える', () => {
@@ -41,14 +48,14 @@ describe('enqueueDollAwardMessage', () => {
   })
 
   it('待っているものが上限に達していれば、所持数とランキングは並べない', () => {
-    const full = Array.from({ length: MAX_WAITING_DOLL_MESSAGES }, (_, index) => standing(`s${String(index)}`, `視聴者${String(index)}`))
+    const full = Array.from({ length: MAX_WAITING_DOLL_MESSAGES }, (_, index) => standing(`s${String(index)}`, `10${String(index)}`, `視聴者${String(index)}`))
 
-    expect(enqueueDollAwardMessage(full, standing('new', '太郎'))).toBe(full)
+    expect(enqueueDollAwardMessage(full, standing('new', '2000', '太郎'))).toBe(full)
     expect(enqueueDollAwardMessage(full, ranking('r1'))).toBe(full)
   })
 
   it('獲得は上限に達していても並べる', () => {
-    const full = Array.from({ length: MAX_WAITING_DOLL_MESSAGES }, (_, index) => standing(`s${String(index)}`, `視聴者${String(index)}`))
+    const full = Array.from({ length: MAX_WAITING_DOLL_MESSAGES }, (_, index) => standing(`s${String(index)}`, `10${String(index)}`, `視聴者${String(index)}`))
 
     expect(ids(enqueueDollAwardMessage(full, award('a1'))).at(-1)).toBe('a1')
   })

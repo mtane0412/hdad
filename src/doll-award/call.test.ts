@@ -23,6 +23,7 @@ const tanakaGotBear: DollAwardCall = {
 const tanakaStanding: DollStandingCall = {
   type: 'standing',
   id: 'standing-1',
+  userId: '1001',
   userName: '田中太郎',
   normal: { name: 'クマ人形', imageUrl: '/api/media/image-bear?key=k', count: 2 },
   super: { name: 'スーパークマ人形', imageUrl: '/api/media/image-super-bear?key=k', count: 0 },
@@ -75,6 +76,7 @@ describe('parseDollAwardMessage', () => {
     ['画像が素材の経路でない', { ...tanakaGotBear, doll: { ...tanakaGotBear.doll, imageUrl: 'https://example.com/bear.png' } }],
     ['人形が無い', { ...tanakaGotBear, doll: null }],
     ['所持数の名前が空', { ...tanakaStanding, userName: '' }],
+    ['所持数のユーザーIDが空', { ...tanakaStanding, userId: '' }],
     ['所持数が負', { ...tanakaStanding, normal: { ...tanakaStanding.normal, count: -1 } }],
     ['所持数の画像が素材の経路でない', { ...tanakaStanding, super: { ...tanakaStanding.super, imageUrl: 'https://example.com/bear.png' } }],
     ['ランキングの並びが配列でない', { ...ranking, entries: null }],

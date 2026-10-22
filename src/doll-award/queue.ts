@@ -18,7 +18,7 @@ const replaceKeyOf = (message: DollAwardMessage): string | null => {
     case 'award':
       return null
     case 'standing':
-      return `standing:${message.userName}`
+      return `standing:${message.userId}`
     case 'ranking':
       return 'ranking'
     default: {

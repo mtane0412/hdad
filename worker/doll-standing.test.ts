@@ -64,6 +64,7 @@ describe('showDollStanding', () => {
       {
         type: 'standing',
         id: expect.any(String),
+        userId: HANAKO,
         userName: 'はなこ',
         normal: { name: 'クマ人形', imageUrl: '/api/media/image-bear?key=secret', count: 2 },
         super: { name: 'スーパークマ人形', imageUrl: '/api/media/image-super-bear?key=secret', count: 1 },

@@ -34,6 +34,7 @@ describe('dollStandingCaption', () => {
     const standing: DollStandingCall = {
       type: 'standing',
       id: 'standing-1',
+      userId: '1001',
       userName: '田中太郎',
       normal: { name: 'クマ人形', imageUrl: '/api/media/image-bear?key=k', count: 2 },
       super: { name: 'スーパークマ人形', imageUrl: '/api/media/image-super-bear?key=k', count: 0 },

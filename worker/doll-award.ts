@@ -48,6 +48,8 @@ export interface DollStandingCall {
   readonly type: 'standing'
   /** 表示ごとの識別子 */
   readonly id: string
+  /** 視聴者の Twitch のユーザー ID（合成ページが同じ人の所持数を置き換えるのに使う。表示名は人によって重なりうるため） */
+  readonly userId: string
   /** 視聴者の表示名 */
   readonly userName: string
   /** いまの人形の種類ごとの名前・画像と、持っている数（0 以上） */

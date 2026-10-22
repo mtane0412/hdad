@@ -27,6 +27,7 @@ export const showDollStanding = async (env: DollAwardEnv, userId: string, userNa
   await pushDollAward(env.ALERTS, {
     type: 'standing',
     id: crypto.randomUUID(),
+    userId,
     userName,
     normal: { ...dollFigureViewOf(standing.set.normal, overlayKey), count: standing.normal },
     super: { ...dollFigureViewOf(standing.set.super, overlayKey), count: standing.super },

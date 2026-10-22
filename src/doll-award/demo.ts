@@ -23,7 +23,7 @@ const DEMO_SUPER = { name: 'スーパー人形', imageUrl: DEMO_DOLL_IMAGE }
 export const DEMO_DOLL_AWARDS: readonly DollAwardMessage[] = [
   { type: 'award', id: 'demo-normal', userName: '視聴者', kind: 'normal', count: 1, doll: DEMO_NORMAL },
   { type: 'award', id: 'demo-super', userName: '視聴者', kind: 'super', count: 3, doll: DEMO_SUPER },
-  { type: 'standing', id: 'demo-standing', userName: '視聴者', normal: { ...DEMO_NORMAL, count: 2 }, super: { ...DEMO_SUPER, count: 1 } },
+  { type: 'standing', id: 'demo-standing', userId: 'demo-viewer', userName: '視聴者', normal: { ...DEMO_NORMAL, count: 2 }, super: { ...DEMO_SUPER, count: 1 } },
   {
     type: 'ranking',
     id: 'demo-ranking',
