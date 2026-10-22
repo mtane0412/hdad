@@ -5,11 +5,12 @@
  * - BGM と「出題」は流しはじめに鳴らし、BGM は正解者が届いた時刻か時間切れの時刻で下げて止める
  * - カウントダウンは大きな数字が切り替わるたびに鳴らし、正解者が届いたらその先は鳴らさない
  * - 不正解の回答（直前の回答）が届くたびに「直前の回答」を鳴らす
- * - 正解者が届いたら「正解」、届かなければ時間切れの時刻に「時間切れ」を鳴らし、結果を見せたあと解説の帯を出すときに「解説」を鳴らす
+ * - 正解者が届いたら「正解」、時間切れの知らせが届いたら「時間切れ」を鳴らし、結果を見せたあと解説の帯を出すときに「解説」を鳴らす
+ *   （時間切れは合成ページの時計では決めないので、どちらも届いていなければ結果の音は鳴らさない）
  * - 確かめるタイマーが遅れても、過ぎた効果音をまとめて鳴らさない
  */
 import { describe, expect, it } from 'vitest'
-import { ANSWER_LIMIT_MS, GRADE_INTRO_MS, REVEAL_RESULT_MS } from './scene'
+import { ANSWER_LIMIT_MS, GRADE_INTRO_MS, REVEAL_RESULT_MS, type KanjiQuizResult } from './scene'
 import type { KanjiQuizSound } from './sound'
 import { KANJI_QUIZ_BGM_FADE_OUT_MS, dueKanjiQuizSoundCues, kanjiQuizBgmDuckHoldOf, kanjiQuizSoundCuesOf } from './sound-cues'
 
@@ -41,12 +42,18 @@ const timeUpAt = GRADE_INTRO_MS + ANSWER_LIMIT_MS
 const countdownAt = (n: number): number => timeUpAt - n * 1_000
 /** 正解者が届いた時刻（カウントダウンの 5 と 4 を鳴らし終えた0.5秒後） */
 const answeredAt = countdownAt(4) + 500
+/** 正解者が届いた結果 */
+const correct = (afterMs: number): KanjiQuizResult => ({ kind: 'correct', afterMs })
+/** 時間切れの知らせが届いた結果 */
+const timeUp = (afterMs: number): KanjiQuizResult => ({ kind: 'timeUp', afterMs })
+/** 時間切れの0.6秒後に、Worker から時間切れの知らせが届いた時刻 */
+const notifiedAt = timeUpAt + 600
 
 /** 表から、id と鳴らす時刻だけを取り出す（並び順を確かめるため） */
 const timingsOf = (cues: ReturnType<typeof kanjiQuizSoundCuesOf>): [string, number][] => cues.map((cue) => [cue.id, cue.at])
 
 describe('kanjiQuizSoundCuesOf', () => {
-  it('正解者が届かなければ、出題・最後の5秒のカウントダウン・時間切れを鳴らし、時間切れで BGM を下げ、解説の帯を出すときに解説の音を鳴らす', () => {
+  it('結果が届くまでは、出題・最後の5秒のカウントダウンを鳴らして時間切れで BGM を下げ、結果の音と解説の音は鳴らさない', () => {
     // 前提: 時間切れは級の長さ＋制限時間。大きな数字は時間切れの5秒前から1秒ごとに 5→1 と切り替わる
     expect(timingsOf(kanjiQuizSoundCuesOf(fullSound, null))).toEqual([
       ['bgm', 0],
@@ -56,15 +63,28 @@ describe('kanjiQuizSoundCuesOf', () => {
       ['countdown-3', countdownAt(3)],
       ['countdown-2', countdownAt(2)],
       ['countdown-1', countdownAt(1)],
-      ['timeUp', timeUpAt],
       ['bgm-end', timeUpAt],
-      ['explanation', timeUpAt + REVEAL_RESULT_MS],
     ])
   })
 
-  it('正解者が届いたら、その時刻に正解の音を鳴らして BGM を下げ、それより後のカウントダウンと時間切れは鳴らさず、解説の音は正解者が届いた時刻から数えて鳴らす', () => {
+  it('時間切れの知らせが届いたら、届いた時刻に時間切れの音を鳴らし、解説の音は届いた時刻から数えて鳴らす', () => {
+    expect(timingsOf(kanjiQuizSoundCuesOf(fullSound, timeUp(notifiedAt)))).toEqual([
+      ['bgm', 0],
+      ['start', 0],
+      ['countdown-5', countdownAt(5)],
+      ['countdown-4', countdownAt(4)],
+      ['countdown-3', countdownAt(3)],
+      ['countdown-2', countdownAt(2)],
+      ['countdown-1', countdownAt(1)],
+      ['bgm-end', timeUpAt],
+      ['timeUp', notifiedAt],
+      ['explanation', notifiedAt + REVEAL_RESULT_MS],
+    ])
+  })
+
+  it('正解者が届いたら、その時刻に正解の音を鳴らして BGM を下げ、それより後のカウントダウンは鳴らさず、解説の音は正解者が届いた時刻から数えて鳴らす', () => {
     // 前提: カウントダウンの 5 と 4 が鳴り終えたあとに正解者が届いた
-    expect(timingsOf(kanjiQuizSoundCuesOf(fullSound, answeredAt))).toEqual([
+    expect(timingsOf(kanjiQuizSoundCuesOf(fullSound, correct(answeredAt)))).toEqual([
       ['bgm', 0],
       ['start', 0],
       ['countdown-5', countdownAt(5)],
@@ -75,10 +95,10 @@ describe('kanjiQuizSoundCuesOf', () => {
     ])
   })
 
-  it('時間切れのあとに正解者が届いたら、時間切れの音と BGM の下げは時間切れの時刻のままにし、届いた時刻に正解の音を鳴らし、解説の音は届いた時刻から数える', () => {
-    // 前提: Worker は遅れの余裕を足して受け付けるので、時間切れの0.8秒後に正解者が届いた
+  it('合成ページの時間切れのあとに正解者が届いたら、時間切れの音は鳴らさず、BGM は時間切れで下げ、届いた時刻に正解の音を鳴らす', () => {
+    // 前提: Worker の締め切りは開く要求が届くまでの遅れのぶん合成ページの時間切れより遅いので、時間切れの0.8秒後に正解者が届いた
     const lateAnsweredAt = timeUpAt + 800
-    expect(timingsOf(kanjiQuizSoundCuesOf(fullSound, lateAnsweredAt))).toEqual([
+    expect(timingsOf(kanjiQuizSoundCuesOf(fullSound, correct(lateAnsweredAt)))).toEqual([
       ['bgm', 0],
       ['start', 0],
       ['countdown-5', countdownAt(5)],
@@ -86,24 +106,15 @@ describe('kanjiQuizSoundCuesOf', () => {
       ['countdown-3', countdownAt(3)],
       ['countdown-2', countdownAt(2)],
       ['countdown-1', countdownAt(1)],
-      ['timeUp', timeUpAt],
       ['bgm-end', timeUpAt],
       ['correct', lateAnsweredAt],
-      ['explanation-correct', lateAnsweredAt + REVEAL_RESULT_MS],
+      ['explanation', lateAnsweredAt + REVEAL_RESULT_MS],
     ])
-  })
-
-  it('時間切れの解説の音を鳴らしたあとに正解者が届いても、解説を見せ直すときにもう一度解説の音を鳴らす', () => {
-    // 前提: 時間切れの解説の帯が出て音を鳴らした（REVEAL_RESULT_MS 後）さらに0.5秒後に正解者が届いた
-    const lateAnsweredAt = timeUpAt + REVEAL_RESULT_MS + 500
-    const played = new Set(['bgm', 'start', 'countdown-5', 'countdown-4', 'countdown-3', 'countdown-2', 'countdown-1', 'timeUp', 'bgm-end', 'explanation'])
-    const due = dueKanjiQuizSoundCues(fullSound, lateAnsweredAt + REVEAL_RESULT_MS, lateAnsweredAt, played)
-    expect(due.map((cue) => cue.id)).toEqual(['explanation-correct'])
   })
 
   it('不正解の回答が届くたびに、届いた時刻に「直前の回答」の音を鳴らす（ほかの音と時刻の順に並べる）', () => {
     // 前提: 5秒とカウントダウンの 5 の0.5秒後に不正解の回答が届き、そのあと正解者が届いた
-    expect(timingsOf(kanjiQuizSoundCuesOf(fullSound, answeredAt, [5_000, countdownAt(5) + 500]))).toEqual([
+    expect(timingsOf(kanjiQuizSoundCuesOf(fullSound, correct(answeredAt), [5_000, countdownAt(5) + 500]))).toEqual([
       ['bgm', 0],
       ['start', 0],
       ['wrongAnswer-0', 5_000],
@@ -123,17 +134,17 @@ describe('kanjiQuizSoundCuesOf', () => {
   })
 
   it('BGM と効果音にそれぞれの音量を付け、BGM は決まった長さで下げる', () => {
-    const cues = kanjiQuizSoundCuesOf(fullSound, null)
+    const cues = kanjiQuizSoundCuesOf(fullSound, timeUp(notifiedAt))
 
     expect(cues.find((cue) => cue.id === 'bgm')).toEqual({ id: 'bgm', at: 0, type: 'bgmStart', url: fullSound.slots.bgm, volume: 0.3 })
-    expect(cues.find((cue) => cue.id === 'timeUp')).toEqual({ id: 'timeUp', at: timeUpAt, type: 'effect', url: fullSound.slots.timeUp, volume: 0.6 })
+    expect(cues.find((cue) => cue.id === 'timeUp')).toEqual({ id: 'timeUp', at: notifiedAt, type: 'effect', url: fullSound.slots.timeUp, volume: 0.6 })
     expect(cues.find((cue) => cue.id === 'bgm-end')).toEqual({ id: 'bgm-end', at: timeUpAt, type: 'bgmFadeOut', duration: KANJI_QUIZ_BGM_FADE_OUT_MS })
   })
 
   it('鳴らさない枠は表に載せず、どの枠も鳴らさなければ表は空になる', () => {
     const onlyCorrect = { ...silentSound, slots: { ...silentSound.slots, correct: fullSound.slots.correct } }
 
-    expect(timingsOf(kanjiQuizSoundCuesOf(onlyCorrect, answeredAt))).toEqual([['correct', answeredAt]])
+    expect(timingsOf(kanjiQuizSoundCuesOf(onlyCorrect, correct(answeredAt)))).toEqual([['correct', answeredAt]])
     expect(kanjiQuizSoundCuesOf(silentSound, null)).toEqual([])
   })
 })
@@ -155,7 +166,7 @@ describe('dueKanjiQuizSoundCues', () => {
 
   it('BGM を下げる時刻を過ぎてからは、BGM を鳴らしはじめない', () => {
     // 前提: 流しはじめから一度も確かめられないまま、正解者が届いて BGM を下げる時刻を過ぎた
-    const due = dueKanjiQuizSoundCues(fullSound, answeredAt + 500, answeredAt, new Set())
+    const due = dueKanjiQuizSoundCues(fullSound, answeredAt + 500, correct(answeredAt), new Set())
 
     expect(due.map((cue) => cue.id)).toEqual(['correct', 'bgm-end'])
   })
@@ -171,8 +182,8 @@ describe('dueKanjiQuizSoundCues', () => {
     // 前提: 正解者が届き、正解の音と BGM を下げる処理は済んでいる
     const played = new Set(['bgm', 'start', 'countdown-5', 'countdown-4', 'correct', 'bgm-end'])
 
-    expect(dueKanjiQuizSoundCues(fullSound, answeredAt + REVEAL_RESULT_MS - 1, answeredAt, played)).toEqual([])
-    expect(dueKanjiQuizSoundCues(fullSound, answeredAt + REVEAL_RESULT_MS, answeredAt, played).map((cue) => cue.id)).toEqual(['explanation'])
+    expect(dueKanjiQuizSoundCues(fullSound, answeredAt + REVEAL_RESULT_MS - 1, correct(answeredAt), played)).toEqual([])
+    expect(dueKanjiQuizSoundCues(fullSound, answeredAt + REVEAL_RESULT_MS, correct(answeredAt), played).map((cue) => cue.id)).toEqual(['explanation'])
   })
 })
 
@@ -187,12 +198,12 @@ describe('kanjiQuizBgmDuckHoldOf', () => {
 
   it('正解者が届いたら、届いた時刻から BGM を下げ終えるまでの残りに縮める', () => {
     // 前提: 正解者が届き、その0.1秒後に知らせる
-    expect(kanjiQuizBgmDuckHoldOf(fullSound, answeredAt + 100, answeredAt)).toBe(answeredAt + KANJI_QUIZ_BGM_FADE_OUT_MS - (answeredAt + 100))
+    expect(kanjiQuizBgmDuckHoldOf(fullSound, answeredAt + 100, correct(answeredAt))).toBe(answeredAt + KANJI_QUIZ_BGM_FADE_OUT_MS - (answeredAt + 100))
   })
 
   it('時間切れのあとに正解者が届いても、BGM は時間切れで下げ終えているので、すぐ戻す（0）', () => {
     // 前提: 時間切れの0.8秒後に正解者が届き、その時刻に知らせる
-    expect(kanjiQuizBgmDuckHoldOf(fullSound, timeUpAt + 800, timeUpAt + 800)).toBe(0)
+    expect(kanjiQuizBgmDuckHoldOf(fullSound, timeUpAt + 800, correct(timeUpAt + 800))).toBe(0)
   })
 
   it('BGM を下げ終えた後なら、すぐ戻す（0）', () => {

@@ -17,12 +17,6 @@
 import { ANSWER_LIMIT_MS, GRADE_INTRO_MS } from '../src/kanji-quiz/scene'
 import type { Database } from './database'
 
-/**
- * 回答を受け付ける長さに足す余裕（ミリ秒）。発言が Twitch から Worker に届くまでの遅れの分だけ、
- * 合成ページで時間切れになる直前に書かれた回答を取りこぼさないようにする（市町村紹介のクイズの QUIZ_GRACE_MS と同じ値）
- */
-export const KANJI_QUIZ_GRACE_MS = 2000
-
 /** 出題を残しておく期間（ミリ秒）。同じ配信で出したかの判定に使うので、長い配信でも足りるよう7日にする */
 const KANJI_QUIZ_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -62,10 +56,11 @@ export const removeKanjiQuiz = async (db: Database, id: string): Promise<void> =
 }
 
 /**
- * 合成ページが流しはじめた出題を開く。級を出し終えて熟語が出たときから、制限時間と遅れの余裕のあいだ回答を受け付ける。
+ * 合成ページが流しはじめた出題を開く。級を出し終えて熟語が出たときから、制限時間のあいだ回答を受け付ける。
+ * 遅れの余裕は足さない。足すと、合成ページが「時間切れ」を出したあとに正解者が届き、表示が時間切れから正解に変わってしまうため。
  * 同じ出題がもう開いていれば、受け付ける時刻を変えない（合成ページを2つ開いていても長さを延ばさない）。
  *
- * @param now 合成ページが流しはじめた時刻（Worker が受けた時刻で代える。届くまでの遅れは余裕に含める）
+ * @param now 合成ページが流しはじめた時刻（Worker が受けた時刻で代える。届くまでの遅れのぶん、締め切りは合成ページの時間切れよりわずかに遅い）
  * @returns 回答の受付を締め切る時刻（ミリ秒。2回目に開いたときも最初の時刻）。時間切れの判定をこの時刻に仕掛ける（issue #302）。
  *   選んでいない出題の識別子なら null（合成ページから熟語を受け取って行を作らない）
  */
@@ -77,7 +72,7 @@ export const openKanjiQuiz = async (db: Database, id: string, now: number): Prom
        WHERE id = ?1
        RETURNING closes_at`,
     )
-    .bind(id, toIso(acceptsFrom), toIso(acceptsFrom + ANSWER_LIMIT_MS + KANJI_QUIZ_GRACE_MS))
+    .bind(id, toIso(acceptsFrom), toIso(acceptsFrom + ANSWER_LIMIT_MS))
     .all<{ closes_at: string }>()
   const [row] = results
   return row === undefined ? null : Date.parse(row.closes_at)
@@ -85,6 +80,8 @@ export const openKanjiQuiz = async (db: Database, id: string, now: number): Prom
 
 /**
  * チャットの回答を、受け付けている出題と照らす。回答の読みを持つ熟語の出題で、まだ正解者がいなければ、この人を正解者にする。
+ * 締め切りのアラームが先に停止を始めた出題（stop_at がある）は、締め切り前に受けた回答でも正解者にしない。
+ * 合成ページは正解者か時間切れの知らせのどちらか先に届いたほうを結果として出すので、両方を押し出さないようにするため。
  *
  * @param answer 回答の読みを持つ熟語（kanji-quiz-answer.ts の wordsAnsweredBy）と、回答した人の表示名
  * @returns この回答で正解者が決まった出題の識別子と、試し再生の出題か（試し再生の正解者には人形を渡さない。issue #420）。
@@ -98,7 +95,7 @@ export const answerKanjiQuiz = async (
   const { results } = await db
     .prepare(
       `UPDATE kanji_quizzes SET winner_name = ?1, answered_at = ?2
-       WHERE word IN (SELECT value FROM json_each(?3)) AND winner_name IS NULL AND accepts_from <= ?2 AND closes_at > ?2
+       WHERE word IN (SELECT value FROM json_each(?3)) AND winner_name IS NULL AND stop_at IS NULL AND accepts_from <= ?2 AND closes_at > ?2
        RETURNING id, rehearsal`,
     )
     .bind(answer.userName, toIso(now), JSON.stringify(answer.words))

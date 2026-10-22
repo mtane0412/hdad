@@ -2,7 +2,7 @@
  * 漢字クイズの出題と回答の記録（kanji-quiz-store.ts）のテスト
  *
  * メモリ上のSQLite（fake-database.ts）に migrations/ を適用して確かめる。特に重要なのは次の点。
- * - 回答を受け付けるのは、合成ページが出題を開いてから（熟語が出てから）制限時間と遅れの余裕のあいだだけ
+ * - 回答を受け付けるのは、合成ページが出題を開いてから（熟語が出てから）制限時間のあいだだけ（遅れの余裕は足さない。合成ページの残り0秒で締め切る）
  * - 最初に正解した1人だけが正解者になる（2人目以降は正解者にならない）。正解者を決めた出題が試し再生かどうかも返す
  * - 同じ出題を2回開いても（合成ページを2つ開いていても）、受け付ける長さを延ばさない
  * - 同じ配信で出した問題の熟語を、次の出題から外せるよう読み出せる（配信していなければ外すものは無い）
@@ -12,7 +12,6 @@ import { describe, expect, it } from 'vitest'
 import { ANSWER_LIMIT_MS, GRADE_INTRO_MS } from '../src/kanji-quiz/scene'
 import { createFakeDatabase } from './fake-database'
 import {
-  KANJI_QUIZ_GRACE_MS,
   answerKanjiQuiz,
   beginKanjiQuizStop,
   cancelKanjiQuizStops,
@@ -71,12 +70,30 @@ describe('answerKanjiQuiz', () => {
     expect(await answerKanjiQuiz(db, { words: ['境内'], userName: '山田花子' }, acceptsFrom - 1)).toEqual([])
   })
 
-  it('制限時間と遅れの余裕を過ぎた回答は受け付けない', async () => {
+  it('制限時間ちょうどを過ぎた回答は受け付けない', async () => {
     const db = createFakeDatabase()
     await recordKanjiQuiz(db, keidaiQuiz, now)
     await openKanjiQuiz(db, keidaiQuiz.id, now)
 
-    expect(await answerKanjiQuiz(db, { words: ['境内'], userName: '山田花子' }, acceptsFrom + ANSWER_LIMIT_MS + KANJI_QUIZ_GRACE_MS)).toEqual([])
+    expect(await answerKanjiQuiz(db, { words: ['境内'], userName: '山田花子' }, acceptsFrom + ANSWER_LIMIT_MS)).toEqual([])
+  })
+
+  it('合成ページで時間切れを出した1秒後に届いた回答は、正解者にしない（画面が時間切れから正解に変わらないように）', async () => {
+    const db = createFakeDatabase()
+    await recordKanjiQuiz(db, keidaiQuiz, now)
+    await openKanjiQuiz(db, keidaiQuiz.id, now)
+
+    expect(await answerKanjiQuiz(db, { words: ['境内'], userName: '山田花子' }, acceptsFrom + ANSWER_LIMIT_MS + 1000)).toEqual([])
+  })
+
+  it('制限時間の終わる直前に届いた回答は、正解者にする', async () => {
+    const db = createFakeDatabase()
+    await recordKanjiQuiz(db, keidaiQuiz, now)
+    await openKanjiQuiz(db, keidaiQuiz.id, now)
+
+    expect(await answerKanjiQuiz(db, { words: ['境内'], userName: '山田花子' }, acceptsFrom + ANSWER_LIMIT_MS - 1)).toEqual([
+      { id: keidaiQuiz.id, rehearsal: false },
+    ])
   })
 
   it('選んだだけでまだ開いていない（合成ページが流していない）出題は受け付けない', async () => {
@@ -95,14 +112,14 @@ describe('openKanjiQuiz', () => {
     // 合成ページを2つ開いていると、10秒遅れてもう一方からも開かれることがある
     await openKanjiQuiz(db, keidaiQuiz.id, now + 10_000)
 
-    expect(await answerKanjiQuiz(db, { words: ['境内'], userName: '山田花子' }, acceptsFrom + ANSWER_LIMIT_MS + KANJI_QUIZ_GRACE_MS)).toEqual([])
+    expect(await answerKanjiQuiz(db, { words: ['境内'], userName: '山田花子' }, acceptsFrom + ANSWER_LIMIT_MS)).toEqual([])
   })
 
   it('選んだ出題なら受付の締め切りの時刻を返し、選んでいない出題の識別子なら行を作らずに null を返す', async () => {
     const db = createFakeDatabase()
     await recordKanjiQuiz(db, keidaiQuiz, now)
 
-    expect(await openKanjiQuiz(db, keidaiQuiz.id, now)).toBe(acceptsFrom + ANSWER_LIMIT_MS + KANJI_QUIZ_GRACE_MS)
+    expect(await openKanjiQuiz(db, keidaiQuiz.id, now)).toBe(acceptsFrom + ANSWER_LIMIT_MS)
     // 合成ページから熟語を受け取って作らない
     expect(await openKanjiQuiz(db, 'quiz-unknown', now)).toBeNull()
   })
@@ -112,7 +129,7 @@ describe('openKanjiQuiz', () => {
     await recordKanjiQuiz(db, keidaiQuiz, now)
     await openKanjiQuiz(db, keidaiQuiz.id, now)
 
-    expect(await openKanjiQuiz(db, keidaiQuiz.id, now + 10_000)).toBe(acceptsFrom + ANSWER_LIMIT_MS + KANJI_QUIZ_GRACE_MS)
+    expect(await openKanjiQuiz(db, keidaiQuiz.id, now + 10_000)).toBe(acceptsFrom + ANSWER_LIMIT_MS)
   })
 })
 
@@ -138,8 +155,8 @@ describe('readKanjiQuizWordCounts', () => {
   })
 })
 
-/** 受付の締め切り（開いてから、級・制限時間・遅れの余裕のあと） */
-const closesAt = acceptsFrom + ANSWER_LIMIT_MS + KANJI_QUIZ_GRACE_MS
+/** 受付の締め切り（開いてから、級と制限時間のあと） */
+const closesAt = acceptsFrom + ANSWER_LIMIT_MS
 /** 配信を止めるまでの猶予（テストでの値） */
 const graceMs = 10_000
 
@@ -156,6 +173,14 @@ describe('beginKanjiQuizStop', () => {
     const db = await openedQuiz()
 
     expect(await beginKanjiQuizStop(db, keidaiQuiz.id, closesAt, graceMs)).toEqual({ rehearsal: false })
+  })
+
+  it('停止を始めたあとは、締め切り前に Twitch から受けた回答でも正解者にしない（正解と時間切れの両方を合成ページへ押し出さない）', async () => {
+    // 前提: 締め切りの1ミリ秒前に受けた正解の処理が遅れ、締め切りのアラームが先に停止を始めた
+    const db = await openedQuiz()
+    await beginKanjiQuizStop(db, keidaiQuiz.id, closesAt, graceMs)
+
+    expect(await answerKanjiQuiz(db, { words: ['境内'], userName: '山田花子' }, closesAt - 1)).toEqual([])
   })
 
   it('試し再生の出題なら、試し再生であることを返す', async () => {

@@ -1,14 +1,14 @@
 /**
  * 漢字クイズで音を鳴らす時刻の表
  *
- * 1回の出題で、どの枠の音をいつ鳴らすかを、音の設定と正解者が届いた時刻（流しはじめてからの経過時間）だけから決める。
+ * 1回の出題で、どの枠の音をいつ鳴らすかを、音の設定と Worker から届いた結果（正解者・時間切れ）と届いた時刻（流しはじめてからの経過時間）だけから決める。
  * 秒数は場面の進み方（scene.ts）と同じ定数から決め、場面と音の時刻がずれないようにする。
  * - BGM と「出題」は流しはじめ（級を出したとき）に鳴らす
  * - 「直前の回答」は、制限時間のうちにチャットの不正解の回答が届くたびに、届いた時刻に鳴らす
  * - 「カウントダウン」は最後の COUNTDOWN_SECONDS 秒の大きな数字が切り替わるたびに鳴らす
- * - 正解者が届いたら「正解」、届かなければ時間切れの時刻に「時間切れ」を鳴らす（時間切れのあとに届いたら、両方を鳴らす）
+ * - 正解者が届いたら「正解」、時間切れの知らせが届いたら「時間切れ」を、結果を見せはじめる時刻に鳴らす（Worker はどちらか一方しか押し出さないので、両方は鳴らさない）
  * - 結果を REVEAL_RESULT_MS 見せたあと、解説の帯を出す時刻に「解説」を鳴らす
- * - BGM は正解者が届いた時刻か時間切れの時刻で、KANJI_QUIZ_BGM_FADE_OUT_MS かけて下げて止める（結果の音を際立たせるため、解説のあいだは流さない）
+ * - BGM は正解者が届いた時刻か合成ページの時間切れの時刻のうち早いほうで、KANJI_QUIZ_BGM_FADE_OUT_MS かけて下げて止める（結果を待つあいだと解説のあいだは流さない）
  *
  * 描画は経過時間だけから決める約束だが、効果音は「もう鳴らしたか」を覚えないと二重に鳴る。そこで判断（この表と、
  * 時刻を迎えた音を選ぶ dueKanjiQuizSoundCues）と、鳴らしたことの記録・Audio 要素の操作（合成ページの stage.ts と sound-player.ts）を分ける
@@ -17,7 +17,7 @@
  * 注意: 通信も DOM も持ち込まない。
  * 注意: 「鳴らさない」にした枠（null）は表に載せない。
  */
-import { ANSWER_LIMIT_MS, COUNTDOWN_SECONDS, GRADE_INTRO_MS, REVEAL_RESULT_MS } from './scene'
+import { ANSWER_LIMIT_MS, COUNTDOWN_SECONDS, GRADE_INTRO_MS, REVEAL_RESULT_MS, kanjiQuizRevealAt, type KanjiQuizResult } from './scene'
 import type { KanjiQuizSound, KanjiQuizSoundSlot } from './sound'
 
 /** BGM を下げて止める長さ（ミリ秒）。正解・時間切れの音を際立たせるよう短くする */
@@ -40,24 +40,22 @@ export type KanjiQuizSoundCue =
   /** BGM を duration ミリ秒かけて下げ、止める */
   | { readonly id: string; readonly at: number; readonly type: 'bgmFadeOut'; readonly duration: number }
 
-/** BGM を下げはじめる時刻。正解者が制限時間のうちに届いていればその時刻、届いていない・時間切れのあとに届いたなら時間切れの時刻 */
-const bgmEndOf = (answeredAfterMs: number | null): number => Math.min(answeredAfterMs ?? TIME_UP_AT, TIME_UP_AT)
+/** BGM を下げはじめる時刻。正解者が制限時間のうちに届いていればその時刻、それ以外は合成ページの時間切れの時刻 */
+const bgmEndOf = (result: KanjiQuizResult | null): number => Math.min(result?.kind === 'correct' ? result.afterMs : TIME_UP_AT, TIME_UP_AT)
 
 /**
  * 1回の出題で鳴らす音の表を、鳴らす順（時刻の順）に作る。
  *
- * @param answeredAfterMs 流しはじめてから正解者が届くまでの経過時間。届いていなければ null
+ * @param result Worker から届いた結果。届いていなければ null（結果の音と解説の音は表に載せない）
  * @param wrongAnswersAfterMs 流しはじめてから不正解の回答（直前の回答）がそれぞれ届くまでの経過時間（届いた順）
  */
 export const kanjiQuizSoundCuesOf = (
   sound: KanjiQuizSound,
-  answeredAfterMs: number | null,
+  result: KanjiQuizResult | null,
   wrongAnswersAfterMs: readonly number[] = [],
 ): KanjiQuizSoundCue[] => {
   const { slots, bgmVolume, effectVolume } = sound
-  const bgmEnd = bgmEndOf(answeredAfterMs)
-  // 時間切れのあとに正解者が届いたら、時間切れの音は時間切れの時刻に鳴らしたままにし、正解の音を届いた時刻に足す
-  const timedOut = answeredAfterMs === null || answeredAfterMs >= TIME_UP_AT
+  const bgmEnd = bgmEndOf(result)
 
   /** 枠に音声が選ばれていれば効果音の1行を作る。「鳴らさない」なら作らない */
   const effect = (slot: Exclude<KanjiQuizSoundSlot, 'bgm'>, id: string, at: number): KanjiQuizSoundCue[] => {
@@ -78,12 +76,11 @@ export const kanjiQuizSoundCuesOf = (
     ...(slots.bgm === null ? [] : [{ id: KANJI_QUIZ_BGM_START_CUE_ID, at: 0, type: 'bgmStart', url: slots.bgm, volume: bgmVolume } as const]),
     ...effect('start', 'start', 0),
     ...countdowns,
-    ...(timedOut ? effect('timeUp', 'timeUp', TIME_UP_AT) : []),
-    ...(answeredAfterMs === null ? [] : effect('correct', 'correct', answeredAfterMs)),
+    // 正解・時間切れの音は、結果を見せはじめる時刻に鳴らす（同じ時刻なら BGM を下げるより先に鳴らす）
+    ...(result === null ? [] : effect(result.kind, result.kind, kanjiQuizRevealAt(result))),
     ...(slots.bgm === null ? [] : [{ id: 'bgm-end', at: bgmEnd, type: 'bgmFadeOut', duration: KANJI_QUIZ_BGM_FADE_OUT_MS } as const]),
-    // 解説の帯は、正解者が届いた時刻か時間切れの時刻から REVEAL_RESULT_MS たって出る（scene.ts の kanjiQuizSceneAt と同じ時刻）。
-    // 時間切れのあとに正解者が届いたら帯を見せ直すので、時間切れの解説の音を鳴らし終えていても鳴るよう、別の id にする
-    ...effect('explanation', timedOut && answeredAfterMs !== null ? 'explanation-correct' : 'explanation', (answeredAfterMs ?? TIME_UP_AT) + REVEAL_RESULT_MS),
+    // 解説の帯は、結果を見せはじめてから REVEAL_RESULT_MS たって出る（scene.ts の kanjiQuizSceneAt と同じ時刻）
+    ...(result === null ? [] : effect('explanation', 'explanation', kanjiQuizRevealAt(result) + REVEAL_RESULT_MS)),
   ]
   // 不正解の回答はほかの音のあいだに届くので、時刻の順に並べ直す（同じ時刻のものは上の並びを保つ）
   return [...cues, ...wrongAnswers].sort((a, b) => a.at - b.at)
@@ -97,19 +94,19 @@ export const kanjiQuizSoundCuesOf = (
  * - BGM を下げる時刻を過ぎてからの BGM の鳴らしはじめ
  *
  * @param elapsedMs 流しはじめてからの経過時間
- * @param answeredAfterMs 流しはじめてから正解者が届くまでの経過時間。届いていなければ null
+ * @param result Worker から届いた結果。届いていなければ null
  * @param played この出題で鳴らした音の id
  * @param wrongAnswersAfterMs 流しはじめてから不正解の回答（直前の回答）がそれぞれ届くまでの経過時間（届いた順）
  */
 export const dueKanjiQuizSoundCues = (
   sound: KanjiQuizSound,
   elapsedMs: number,
-  answeredAfterMs: number | null,
+  result: KanjiQuizResult | null,
   played: ReadonlySet<string>,
   wrongAnswersAfterMs: readonly number[] = [],
 ): KanjiQuizSoundCue[] => {
-  const bgmEnded = bgmEndOf(answeredAfterMs) <= elapsedMs
-  return kanjiQuizSoundCuesOf(sound, answeredAfterMs, wrongAnswersAfterMs).filter((cue) => {
+  const bgmEnded = bgmEndOf(result) <= elapsedMs
+  return kanjiQuizSoundCuesOf(sound, result, wrongAnswersAfterMs).filter((cue) => {
     if (cue.at > elapsedMs || played.has(cue.id)) return false
     if (cue.type === 'effect') return elapsedMs - cue.at <= EFFECT_LATE_LIMIT_MS
     if (cue.type === 'bgmStart') return !bgmEnded
@@ -125,11 +122,11 @@ export const dueKanjiQuizSoundCues = (
  * （市町村紹介の src/town-tour/bgm-duck.ts と同じ仕組み）。
  *
  * @param elapsedMs 流しはじめてからの経過時間
- * @param answeredAfterMs 流しはじめてから正解者が届くまでの経過時間。届いていなければ null
+ * @param result Worker から届いた結果。届いていなければ null
  * @returns 下げておく長さ（整数のミリ秒）。0 は「すぐ戻す」。BGM の枠が空なら下げないので null
  */
-export const kanjiQuizBgmDuckHoldOf = (sound: KanjiQuizSound, elapsedMs: number, answeredAfterMs: number | null): number | null => {
+export const kanjiQuizBgmDuckHoldOf = (sound: KanjiQuizSound, elapsedMs: number, result: KanjiQuizResult | null): number | null => {
   if (sound.slots.bgm === null) return null
   // Worker は整数しか受け付けない。切り捨てるとクイズの BGM が消える前に配信の BGM が戻るので切り上げる
-  return Math.max(0, Math.ceil(bgmEndOf(answeredAfterMs) + KANJI_QUIZ_BGM_FADE_OUT_MS - elapsedMs))
+  return Math.max(0, Math.ceil(bgmEndOf(result) + KANJI_QUIZ_BGM_FADE_OUT_MS - elapsedMs))
 }
