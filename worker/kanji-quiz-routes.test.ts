@@ -28,7 +28,7 @@ import { createFakeTokenVault } from './fake-token-vault'
 import { KANJI_QUIZ_PROBLEMS } from './kanji-quiz-call'
 import { DEFAULT_KANJI_QUIZ_SOUND, loadKanjiQuizSound, saveKanjiQuizSound } from './kanji-quiz-sound'
 import { KANJI_QUIZ_STOP_GRACE_MS } from './kanji-quiz-stop'
-import { KANJI_QUIZ_GRACE_MS, answerKanjiQuiz, beginKanjiQuizStop, openKanjiQuiz, recordKanjiQuiz } from './kanji-quiz-store'
+import { answerKanjiQuiz, beginKanjiQuizStop, openKanjiQuiz, recordKanjiQuiz } from './kanji-quiz-store'
 import { listFailures, recordStreamOnline } from './stats-store'
 import { handleRequest, type Env } from './index'
 import { createSessionToken } from './session'
@@ -284,7 +284,7 @@ describe('POST /api/overlay/kanji-quiz/open', () => {
 
     await open(env, { quizId: 'quiz-keidai' })
 
-    expect(adBreakTimer.scheduledEnds).toEqual([{ kind: 'judge', quizId: 'quiz-keidai', at: now + GRADE_INTRO_MS + ANSWER_LIMIT_MS + KANJI_QUIZ_GRACE_MS }])
+    expect(adBreakTimer.scheduledEnds).toEqual([{ kind: 'judge', quizId: 'quiz-keidai', at: now + GRADE_INTRO_MS + ANSWER_LIMIT_MS }])
   })
 
   it('判定を予約できなければ502にする（判定されないので配信は止まらないが、合成ページに理由を出す）', async () => {

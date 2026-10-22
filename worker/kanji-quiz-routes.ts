@@ -104,7 +104,7 @@ export const putKanjiQuizSound = async (context: Context): Promise<Response> => 
  * POST /api/overlay/kanji-quiz/open?key=: 合成ページが出題を流しはじめたときに、出題を開く。本文は { quizId }。
  *
  * 熟語は合成ページから受け取らず、Worker が選んだときに入れた行を開く（kanji-quiz-store.ts）。開いてから級を出し終えた（熟語が出た）ときから、
- * 制限時間と遅れの余裕のあいだ、Webhook が受けたチャットの発言を回答として照らす（webhook-routes.ts）。
+ * 制限時間のあいだ、Webhook が受けたチャットの発言を回答として照らす（webhook-routes.ts）。
  * 合成ページを2つ開いていて同じ出題が2回届いても、受け付ける長さは最初に開いたときから数える。
  *
  * 開いたら、受付の締め切りに時間切れの判定を Durable Object へ予約する（issue #302。同じ出題を2回予約しても判定は1回）。
