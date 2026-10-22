@@ -54,6 +54,8 @@ const createApi = (sets: DollSet[] = [bears, cats], overrides: Partial<DollApi> 
   remove: vi.fn(async () => undefined),
   selectCurrent: vi.fn(async (setId: number | null) => sets.map((set) => ({ ...set, current: set.id === setId }))),
   change: vi.fn(),
+  showStanding: vi.fn(),
+  showRanking: vi.fn(async () => undefined),
   prize: vi.fn(),
   savePrize: vi.fn(),
   ...overrides,
@@ -108,6 +110,25 @@ describe('いまの人形', () => {
     await userEvent.click(within(bearRegion).getByRole('button', { name: 'いまの人形から外す' }))
 
     expect(api.selectCurrent).toHaveBeenCalledWith(null)
+  })
+})
+
+describe('ランキング', () => {
+  test('いまの人形のランキングを、配信画面に出せる', async () => {
+    const api = createApi()
+    renderPage(api)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'ランキングを配信画面に出す' }))
+
+    expect(api.showRanking).toHaveBeenCalled()
+    expect(await screen.findByText(/人形のランキングを配信画面に出しました/)).toBeInTheDocument()
+  })
+
+  test('いまの人形が選ばれていなければ、ランキングのボタンを出さない', async () => {
+    renderPage(createApi([{ ...bears, current: false }, cats]))
+
+    await screen.findByRole('listitem', { name: '人形「クマ人形」' })
+    expect(screen.queryByRole('button', { name: 'ランキングを配信画面に出す' })).not.toBeInTheDocument()
   })
 })
 

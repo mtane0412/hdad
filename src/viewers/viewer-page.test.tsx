@@ -83,6 +83,8 @@ const createFakeDollApi = (sets: DollSet[] = [bears, cats], overrides: Partial<D
       const current = holdings.find((holding) => holding.userId === userId && holding.setId === 1) ?? { userId, setId: 1, normal: 0, super: 0 }
       return { ...current, [kind]: current[kind] + delta }
     }),
+    showStanding: vi.fn(async () => {}),
+    showRanking: vi.fn(async () => {}),
     prize: vi.fn(),
     savePrize: vi.fn(),
     ...overrides,
@@ -387,6 +389,17 @@ describe('人形', () => {
     expect(await screen.findByRole('listitem', { name: 'クマ人形' })).toHaveTextContent(/1つ$/)
   })
 
+  test('その人のいまの人形の所持数を、配信画面に出せる', async () => {
+    const dollApi = createFakeDollApi()
+    render(<ViewerPage dollApi={dollApi} api={createFakeApi()} />)
+    await openViewer('花子')
+
+    await userEvent.click(await screen.findByRole('button', { name: '花子 の人形を配信画面に出す' }))
+
+    expect(dollApi.showStanding).toHaveBeenCalledWith('100')
+    expect(await findNotice('花子 の人形を配信画面に出しました')).toBeInTheDocument()
+  })
+
   test('いまの人形が選ばれていなければ、渡すボタンを出さずにその旨を出す', async () => {
     render(<ViewerPage dollApi={createFakeDollApi([{ ...bears, current: false }])} api={createFakeApi()} />)
     await openViewer('花子')
@@ -394,6 +407,7 @@ describe('人形', () => {
     const dolls = within(await screen.findByRole('group', { name: '花子 の人形' }))
     expect(dolls.getByText(/いまの人形が選ばれていません/)).toBeInTheDocument()
     expect(dolls.queryByRole('button', { name: /渡す$/ })).not.toBeInTheDocument()
+    expect(dolls.queryByRole('button', { name: /配信画面に出す$/ })).not.toBeInTheDocument()
   })
 
   test('人形を読み込めなかったら、理由を出す', async () => {

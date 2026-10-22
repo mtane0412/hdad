@@ -18,6 +18,7 @@ import { punishAsBot } from './bot-moderation'
 import { judge, repeatRuleOf } from './chat-moderation'
 import { recordStreamChatMessage, removeModeratedStreamChat } from './stream-chat-store'
 import { applyModerationToTaskDesk, handleTaskDeskCommand } from './task-desk-command'
+import { handleDollCommand } from './doll-command'
 import { readCurrentWorkTime } from './task-desk-store'
 import { readCurrentStreamSummary } from './stream-summary-store'
 import { recordViewerMessage } from './viewer-store'
@@ -256,6 +257,10 @@ const replyToChatMessage = async (context: Context, body: Record<string, unknown
   // 漢字クイズ（issue #301）。発言が問題集のどれかの読みと一致するときだけ、受け付けている出題と照らす（チャットの全件でD1を読まないため）。
   // 配信者の発言も回答として受ける。bot と処分した発言は上で外れているので、回答にならない
   await answerKanjiQuizFromChat(context, message)
+
+  // 人形の組み込みのコマンド（!人形・!人形ランキング）も、登録したコマンドより先に見る（同じ名前は登録させない）。
+  // 合成ページに出すだけなので bot は要らない
+  if (await handleDollCommand({ env, now }, message)) return
 
   // 作業机の組み込みのコマンド（!task・!done。issue #207）は、登録したコマンドより先に見る（同じ名前は登録させない）。
   // 作業机に並べるのに bot は要らないので、bot が無くても宣言は残す（受け付けない理由だけは返せない）

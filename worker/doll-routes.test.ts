@@ -8,6 +8,7 @@
  * - 人形の組が使っている画像は、素材のページから消せないこと
  * - 視聴者の記録を消すと、その人の人形の台帳も消えること
  * - チャットで推理・漢字クイズの正解者に渡す人形を、ゲームごとに読み書きできること（issue #420）
+ * - 視聴者1人ぶんの所持数と、ランキングを合成ページへ出せること。出せないときは理由を見分けて返すこと
  *
  * 検証の中身は worker/doll.test.ts、読み書きの中身は worker/doll-store.test.ts が確かめるので、ここでは経路の受け渡しだけを見る。
  */
@@ -110,7 +111,7 @@ describe('GET /api/admin/dolls', () => {
   it('人形の組と、持っている人の所持数を返す', async () => {
     const env = await setupEnv()
     const set = await addCurrentSet(env)
-    await changeDolls(env.DB, { userId: HANAKO, kind: 'normal', delta: 2, reason: 'manual', sourceId: 'manual-1' }, NOW)
+    await changeDolls(env.DB, { userId: HANAKO, userName: '花子', kind: 'normal', delta: 2, reason: 'manual', sourceId: 'manual-1' }, NOW)
 
     const response = await callAsBroadcaster(env, '/api/admin/dolls')
 
@@ -169,7 +170,7 @@ describe('POST・PUT・DELETE /api/admin/dolls', () => {
   it('台帳に記録のある組は消さず、409にする', async () => {
     const env = await setupEnv()
     const set = await addCurrentSet(env)
-    await changeDolls(env.DB, { userId: HANAKO, kind: 'normal', delta: 1, reason: 'manual', sourceId: 'manual-1' }, NOW)
+    await changeDolls(env.DB, { userId: HANAKO, userName: '花子', kind: 'normal', delta: 1, reason: 'manual', sourceId: 'manual-1' }, NOW)
 
     const response = await send(env, 'DELETE', `/api/admin/dolls/${set.id}`)
 
@@ -254,6 +255,16 @@ describe('POST /api/admin/viewers/:userId/dolls', () => {
     expect(await taken.json()).toEqual({ holding: { userId: HANAKO, setId: set.id, normal: 0, super: 0 } })
   })
 
+  it('台帳には、視聴者の記録の表示名を控える', async () => {
+    const env = await setupEnv()
+    await addCurrentSet(env)
+    await recordHanako(env)
+
+    await send(env, 'POST', `/api/admin/viewers/${HANAKO}/dolls`, { kind: 'normal', delta: 1 })
+
+    expect(env.DB.sqlite.prepare('SELECT user_name FROM doll_ledger').all()).toEqual([{ user_name: '花子' }])
+  })
+
   it('持っている数より多く取り上げようとしたら409にし、記録しない', async () => {
     const env = await setupEnv()
     await addCurrentSet(env)
@@ -304,7 +315,7 @@ describe('ほかの経路とのつながり', () => {
     const env = await setupEnv()
     await addCurrentSet(env)
     await recordHanako(env)
-    await changeDolls(env.DB, { userId: HANAKO, kind: 'normal', delta: 1, reason: 'manual', sourceId: 'manual-1' }, NOW)
+    await changeDolls(env.DB, { userId: HANAKO, userName: '花子', kind: 'normal', delta: 1, reason: 'manual', sourceId: 'manual-1' }, NOW)
 
     expect((await send(env, 'DELETE', `/api/admin/viewers/${HANAKO}`)).status).toBe(204)
     expect(await readDollHoldings(env.DB)).toEqual([])
@@ -346,5 +357,81 @@ describe('GET /api/overlay/doll-award/socket', () => {
 
     expect(response.status).toBe(200)
     expect(alertChannel.forwardedConnections.map((request) => new URL(request.url).searchParams.get('topic'))).toEqual(['dollAward'])
+  })
+})
+
+/** 押し出しを確かめられる配送先と、発行済みのオーバーレイ用キーを持つ環境 */
+const setupShowEnv = async (options: { shouldFail?: boolean } = {}) => {
+  const alerts = createFakeAlertChannel(options)
+  const env = { ...(await setupEnv()), ALERTS: alerts.namespace }
+  await env.STORE.put('overlay-key', 'secret')
+  return { env, alerts }
+}
+
+describe('POST /api/admin/viewers/:userId/dolls/show', () => {
+  it('その視聴者のいまの人形の所持数を、視聴者の記録の表示名で合成ページへ出し、204を返す', async () => {
+    // 前提: 花子はふつうの人形を2つ持っている
+    const { env, alerts } = await setupShowEnv()
+    await addCurrentSet(env)
+    await recordHanako(env)
+    await changeDolls(env.DB, { userId: HANAKO, userName: '花子', kind: 'normal', delta: 2, reason: 'manual', sourceId: 'manual-1' }, NOW)
+
+    const response = await send(env, 'POST', `/api/admin/viewers/${HANAKO}/dolls/show`)
+
+    expect(response.status).toBe(204)
+    expect(alerts.pushedDollAwards).toEqual([
+      expect.objectContaining({ type: 'standing', userName: '花子', normal: expect.objectContaining({ count: 2 }), super: expect.objectContaining({ count: 0 }) }),
+    ])
+  })
+
+  it('記録の無い視聴者は404、いまの人形が無ければ409、配送先が失敗したら502にする', async () => {
+    const empty = await setupShowEnv()
+    await addCurrentSet(empty.env)
+    expect((await send(empty.env, 'POST', `/api/admin/viewers/${HANAKO}/dolls/show`)).status).toBe(404)
+
+    const noCurrent = await setupShowEnv()
+    await recordHanako(noCurrent.env)
+    const conflict = await send(noCurrent.env, 'POST', `/api/admin/viewers/${HANAKO}/dolls/show`)
+    expect(conflict.status).toBe(409)
+    expect(await conflict.json()).toMatchObject({ error: { code: 'no-current-set' } })
+
+    const failing = await setupShowEnv({ shouldFail: true })
+    await addCurrentSet(failing.env)
+    await recordHanako(failing.env)
+    const badGateway = await send(failing.env, 'POST', `/api/admin/viewers/${HANAKO}/dolls/show`)
+    expect(badGateway.status).toBe(502)
+    expect(await badGateway.json()).toMatchObject({ error: { code: 'doll-show-failed' } })
+  })
+})
+
+describe('POST /api/admin/doll-ranking/show', () => {
+  it('いまの人形のランキングを合成ページへ出し、204を返す', async () => {
+    const { env, alerts } = await setupShowEnv()
+    await addCurrentSet(env)
+    await changeDolls(env.DB, { userId: HANAKO, userName: '花子', kind: 'super', delta: 1, reason: 'manual', sourceId: 'manual-1' }, NOW)
+
+    const response = await send(env, 'POST', '/api/admin/doll-ranking/show')
+
+    expect(response.status).toBe(204)
+    expect(alerts.pushedDollAwards).toEqual([
+      expect.objectContaining({ type: 'ranking', entries: [{ rank: 1, userName: '花子', normal: 0, super: 1, points: 3 }] }),
+    ])
+  })
+
+  it('いまの人形が無ければ409にする', async () => {
+    const { env } = await setupShowEnv()
+
+    const response = await send(env, 'POST', '/api/admin/doll-ranking/show')
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toMatchObject({ error: { code: 'no-current-set' } })
+  })
+
+  it('ログインしていなければ401にする', async () => {
+    const { env } = await setupShowEnv()
+
+    const response = await callHandler(new Request(`${SITE}/api/admin/doll-ranking/show`, { method: 'POST', headers: { Origin: SITE } }), env)
+
+    expect(response.status).toBe(401)
   })
 })

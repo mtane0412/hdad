@@ -13,6 +13,7 @@ import { MAX_WORK_TIME_TEXT_LENGTH, WORK_TIME_PLACEHOLDER } from './task-desk-wo
 import type { BotCommand } from './chat-command'
 import { MAX_STREAM_SUMMARY_LENGTH } from './stream-summary'
 import type { KeyValueStore } from './store'
+import { DOLL_COMMAND_NAMES } from './doll-command'
 import { BUILT_IN_COMMAND_NAMES } from './task-desk'
 
 const CONFIG_KEY = 'bot-commands'
@@ -84,6 +85,7 @@ export const parseBotConfig = (input: unknown): BotConfig => {
     const nameOk = isValidName(name)
     const duplicated = nameOk && seenNames.has(name.toLowerCase())
     const builtIn = nameOk && BUILT_IN_COMMAND_NAMES.some((builtInName) => builtInName === name.toLowerCase())
+    const dollBuiltIn = nameOk && DOLL_COMMAND_NAMES.includes(name.toLowerCase())
     // 空白だけの文言はTwitchが受け付けない。長さは差し込み後で見る
     const replyFilled = typeof reply === 'string' && reply.trim() !== ''
     const replyOk = replyFilled && expandedLength(reply) <= MAX_REPLY_LENGTH
@@ -93,6 +95,7 @@ export const parseBotConfig = (input: unknown): BotConfig => {
     if (!nameOk) problems.push(`${at}.name: 空白と ! を含まない${MAX_NAME_LENGTH}文字以内の文字列で指定してください`)
     else if (duplicated) problems.push(`${at}.name: コマンド名「${name}」が重複しています（大文字小文字は区別しません）`)
     else if (builtIn) problems.push(`${at}.name: 「${name}」は作業机の組み込みのコマンドなので使えません（${BUILT_IN_COMMAND_NAMES.map((builtInName) => `!${builtInName}`).join('・')}）`)
+    else if (dollBuiltIn) problems.push(`${at}.name: 「${name}」は人形の組み込みのコマンドなので使えません（${DOLL_COMMAND_NAMES.map((dollName) => `!${dollName}`).join('・')}）`)
     if (!replyFilled) problems.push(`${at}.reply: 送り返す文言を入力してください`)
     else if (!replyOk) {
       problems.push(

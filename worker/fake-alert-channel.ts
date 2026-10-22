@@ -13,7 +13,7 @@ import type { SpeechMute } from './speech-config'
 import type { TaskDeskSnapshot } from './task-desk'
 import type { KanjiQuizCall, KanjiQuizNotice, StreamStopOrder } from './kanji-quiz-call'
 import type { LickCall } from './lick-call'
-import type { DollAwardCall } from './doll-award'
+import type { DollAwardMessage } from './doll-award'
 import type { VrmCall } from './vrm-call'
 import type { OpinionBoardSnapshot } from './opinion'
 import type { ChatDeductionBoard } from './chat-deduction-board'
@@ -70,7 +70,7 @@ export const createFakeAlertChannel = ({ shouldFail = false, noStreamStopReceive
   /** 押し出されたVRMの演出の呼び出し */
   pushedVrms: VrmCall[]
   /** 押し出された人形の獲得 */
-  pushedDollAwards: DollAwardCall[]
+  pushedDollAwards: DollAwardMessage[]
   /** 押し出された合成オーバーレイの構成 */
   pushedOverlayLayouts: OverlayLayout[]
   /** 押し出された演出を消す合図 */
@@ -98,7 +98,7 @@ export const createFakeAlertChannel = ({ shouldFail = false, noStreamStopReceive
   const evictedChatDeductions: ChatDeductionBoard[] = []
   const evictedLicks: LickCall[] = []
   const evictedVrms: VrmCall[] = []
-  const evictedDollAwards: DollAwardCall[] = []
+  const evictedDollAwards: DollAwardMessage[] = []
   const evictedOverlayLayouts: OverlayLayout[] = []
   const evictedDismissals: OverlayDismiss[] = []
   const handedOverConnections: Request[] = []
@@ -161,7 +161,7 @@ export const createFakeAlertChannel = ({ shouldFail = false, noStreamStopReceive
           else if (pathname === '/push/chat-deduction') evictedChatDeductions.push((await request.json()) as ChatDeductionBoard)
           else if (pathname === '/push/lick') evictedLicks.push((await request.json()) as LickCall)
           else if (pathname === '/push/vrm') evictedVrms.push((await request.json()) as VrmCall)
-          else if (pathname === '/push/doll-award') evictedDollAwards.push((await request.json()) as DollAwardCall)
+          else if (pathname === '/push/doll-award') evictedDollAwards.push((await request.json()) as DollAwardMessage)
           else if (pathname === '/push/overlay-layout') evictedOverlayLayouts.push((await request.json()) as OverlayLayout)
           else if (pathname === '/push/dismiss') evictedDismissals.push((await request.json()) as OverlayDismiss)
           else if (pathname === '/push/kanji-quiz') {

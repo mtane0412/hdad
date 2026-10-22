@@ -9,6 +9,7 @@
  * - 同じきっかけの ID の増減は2度記録しないこと（Twitch の通知の再送で二重に増減させないため）
  * - トリガーで渡した増減は、理由を trigger にして、どのトリガーの項目で渡したかを控えること（issue #419）
  * - 視聴者の記録を消すときに、その人の台帳も消せること
+ * - いまの人形の所持数を1人ぶん読めること、点数（ふつう＝1・スーパー＝3）の順位を名前つきで読めること
  */
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { DollSet, DollSetInput } from './doll'
@@ -19,7 +20,9 @@ import {
   deleteDollsOf,
   insertDollSet,
   readDollHoldings,
+  readDollRanking,
   readDollSets,
+  readDollStanding,
   selectCurrentDollSet,
   updateDollSet,
 } from './doll-store'
@@ -44,6 +47,11 @@ const cats: DollSetInput = {
 const HANAKO = '1001'
 /** 視聴者「taro」の Twitch のユーザー ID */
 const TARO = '1002'
+/** 視聴者「jiro」の Twitch のユーザー ID */
+const JIRO = '1003'
+
+/** 台帳に控える表示名 */
+const NAMES: Readonly<Record<string, string>> = { [HANAKO]: 'はなこ', [TARO]: 'たろう', [JIRO]: 'じろう' }
 
 let db: ReturnType<typeof createFakeDatabase>
 
@@ -55,7 +63,14 @@ const addCurrentSet = async (input: DollSetInput): Promise<DollSet> => {
 }
 
 /** 手での増減。きっかけの ID はテストごとに付ける */
-const manual = (userId: string, kind: 'normal' | 'super', delta: number, sourceId: string) => ({ userId, kind, delta, reason: 'manual' as const, sourceId })
+const manual = (userId: string, kind: 'normal' | 'super', delta: number, sourceId: string) => ({
+  userId,
+  userName: NAMES[userId] ?? '名無し',
+  kind,
+  delta,
+  reason: 'manual' as const,
+  sourceId,
+})
 
 /** 増減が拒まれたときのエラーの種類を取り出す（拒まれなければテストを失敗させる） */
 const rejectionOf = async (run: () => Promise<unknown>): Promise<string> => {
@@ -226,15 +241,15 @@ describe('changeDolls の理由', () => {
     await changeDolls(db, manual(HANAKO, 'normal', 1, 'manual-1'), NOW)
     await changeDolls(
       db,
-      { userId: TARO, kind: 'super', delta: 1, reason: 'trigger', triggerKind: 'reward', sourceId: 'trigger:通知ID-1:dollGrant:0' },
+      { userId: TARO, userName: 'たろう', kind: 'super', delta: 1, reason: 'trigger', triggerKind: 'reward', sourceId: 'trigger:通知ID-1:dollGrant:0' },
       NOW,
     )
 
-    // 検証: 台帳の行に、何で増えたかと、どのトリガーの項目で渡したかが残る
-    const rows = db.sqlite.prepare('SELECT user_id, reason, trigger_kind FROM doll_ledger ORDER BY id').all()
+    // 検証: 台帳の行に、何で増えたかと、どのトリガーの項目で渡したかと、渡した相手の表示名が残る
+    const rows = db.sqlite.prepare('SELECT user_id, user_name, reason, trigger_kind FROM doll_ledger ORDER BY id').all()
     expect(rows).toEqual([
-      { user_id: HANAKO, reason: 'manual', trigger_kind: null },
-      { user_id: TARO, reason: 'trigger', trigger_kind: 'reward' },
+      { user_id: HANAKO, user_name: 'はなこ', reason: 'manual', trigger_kind: null },
+      { user_id: TARO, user_name: 'たろう', reason: 'trigger', trigger_kind: 'reward' },
     ])
   })
 })
@@ -248,5 +263,91 @@ describe('deleteDollsOf', () => {
     await deleteDollsOf(db, HANAKO)
 
     expect(await readDollHoldings(db)).toEqual([{ userId: TARO, setId: bearSet.id, normal: 0, super: 1 }])
+  })
+})
+
+describe('readDollStanding', () => {
+  it('いまの人形の組と、その人のいまの人形の所持数を返す。前の組の人形は数えない', async () => {
+    // 前提: クマを1つ持ったあと、ネコをいまの人形に選び直して、ふつう2つ・スーパー1つを受け取った
+    await addCurrentSet(bears)
+    await changeDolls(db, manual(HANAKO, 'normal', 1, 'manual-1'), NOW)
+    const catSet = await addCurrentSet(cats)
+    await changeDolls(db, manual(HANAKO, 'normal', 2, 'manual-2'), NOW)
+    await changeDolls(db, manual(HANAKO, 'super', 1, 'manual-3'), NOW)
+
+    expect(await readDollStanding(db, HANAKO)).toEqual({ set: { ...catSet, current: true }, normal: 2, super: 1 })
+  })
+
+  it('いまの人形を1つも持っていない人は、0つとして返す', async () => {
+    const bearSet = await addCurrentSet(bears)
+
+    expect(await readDollStanding(db, HANAKO)).toEqual({ set: { ...bearSet, current: true }, normal: 0, super: 0 })
+  })
+
+  it('いまの人形が選ばれていなければ no-current-set で拒む', async () => {
+    await insertDollSet(db, bears, NOW)
+
+    expect(await rejectionOf(() => readDollStanding(db, HANAKO))).toBe('no-current-set')
+  })
+})
+
+describe('readDollRanking', () => {
+  it('いまの人形の点数（ふつう＝1・スーパー＝3）の高い順に、同点は同じ順位で、上限の人数まで返す', async () => {
+    // 前提: はなこ＝スーパー1つ（3点）、たろう＝ふつう3つ（3点）、じろう＝ふつう1つ（1点）。前の組（クマ）の人形は数えない
+    await addCurrentSet(bears)
+    await changeDolls(db, manual(JIRO, 'super', 5, 'manual-0'), NOW)
+    const catSet = await addCurrentSet(cats)
+    await changeDolls(db, manual(HANAKO, 'super', 1, 'manual-1'), NOW)
+    await changeDolls(db, manual(TARO, 'normal', 3, 'manual-2'), NOW)
+    await changeDolls(db, manual(JIRO, 'normal', 1, 'manual-3'), NOW)
+
+    const ranking = await readDollRanking(db, 5)
+
+    expect(ranking.set).toEqual({ ...catSet, current: true })
+    expect(ranking.entries).toEqual([
+      // 同点はスーパー人形の多い人を先に並べる（順位は同じ）
+      { rank: 1, userId: HANAKO, userName: 'はなこ', normal: 0, super: 1, points: 3 },
+      { rank: 1, userId: TARO, userName: 'たろう', normal: 3, super: 0, points: 3 },
+      { rank: 3, userId: JIRO, userName: 'じろう', normal: 1, super: 0, points: 1 },
+    ])
+    expect((await readDollRanking(db, 2)).entries.map((entry) => entry.userName)).toEqual(['はなこ', 'たろう'])
+  })
+
+  it('すべて減らして0点になった人は並べない', async () => {
+    await addCurrentSet(bears)
+    await changeDolls(db, manual(HANAKO, 'normal', 1, 'manual-1'), NOW)
+    await changeDolls(db, manual(HANAKO, 'normal', -1, 'manual-2'), NOW)
+
+    expect((await readDollRanking(db, 5)).entries).toEqual([])
+  })
+
+  it('名前は視聴者の記録の表示名を先に使い、無ければ台帳に控えた最後の表示名を使う', async () => {
+    // 前提: はなこは発言したことがあり、視聴者の記録の表示名は「はなこ（新）」。たろうは発言したことが無い
+    await addCurrentSet(bears)
+    db.sqlite
+      .prepare(
+        `INSERT INTO viewers (user_id, login, display_name, first_seen_at, last_seen_at, message_count, last_badges, last_message_id)
+         VALUES (?, 'hanako', 'はなこ（新）', ?, ?, 1, '[]', 'message-1')`,
+      )
+      .run(HANAKO, '2026-10-21T12:00:00.000Z', '2026-10-21T12:00:00.000Z')
+    await changeDolls(db, manual(HANAKO, 'normal', 1, 'manual-1'), NOW)
+    await changeDolls(db, { ...manual(TARO, 'normal', 1, 'manual-2'), userName: 'たろう（旧）' }, NOW)
+    await changeDolls(db, manual(TARO, 'normal', 1, 'manual-3'), NOW)
+
+    expect((await readDollRanking(db, 5)).entries.map((entry) => entry.userName)).toEqual(['たろう', 'はなこ（新）'])
+  })
+
+  it('名前の分からない人（表示名を控える前の記録だけで、発言もしていない）がいれば、黙って飛ばさず投げる', async () => {
+    await addCurrentSet(bears)
+    await changeDolls(db, manual(HANAKO, 'normal', 1, 'manual-1'), NOW)
+    db.sqlite.prepare('UPDATE doll_ledger SET user_name = NULL').run()
+
+    await expect(readDollRanking(db, 5)).rejects.toThrow(`ユーザーID ${HANAKO}`)
+  })
+
+  it('いまの人形が選ばれていなければ no-current-set で拒む', async () => {
+    await insertDollSet(db, bears, NOW)
+
+    expect(await rejectionOf(() => readDollRanking(db, 5))).toBe('no-current-set')
   })
 })

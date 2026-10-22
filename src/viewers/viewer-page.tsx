@@ -132,6 +132,12 @@ export const ViewerPage = ({ api, dollApi }: { api: ViewerApi; dollApi: DollApi 
     return `${viewer.displayName} へのメモを保存しました`
   }
 
+  /** その人のいまの人形の所持数を、合成ページの素材「人形の獲得」へ出す */
+  const showDolls = async (viewer: Viewer): Promise<string> => {
+    await dollApi.showStanding(viewer.userId)
+    return `${viewer.displayName} の人形を配信画面に出しました`
+  }
+
   /** いまの人形を手で1つ渡す・取り上げる。Worker が返した、増減したあとの所持数で置き換える */
   const changeDolls = async (viewer: Viewer, kind: DollKind, delta: number): Promise<string> => {
     const holding = await dollApi.change(viewer.userId, kind, delta)
@@ -216,6 +222,7 @@ export const ViewerPage = ({ api, dollApi }: { api: ViewerApi; dollApi: DollApi 
                             holdings={dolls.holdings.filter((holding) => holding.userId === viewer.userId)}
                             busy={actions.busy}
                             onChange={(kind, delta) => void actions.run(() => changeDolls(viewer, kind, delta))}
+                            onShow={() => void actions.run(() => showDolls(viewer))}
                           />
                           <Textarea
                             aria-label={`${viewer.displayName} へのメモ`}

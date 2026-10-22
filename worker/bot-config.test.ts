@@ -59,6 +59,12 @@ describe('parseBotConfig', () => {
     expect(issue[0]).toContain('組み込み')
   })
 
+  it('人形の組み込みのコマンド（人形・人形ランキング）と同じ名前も拒否する', () => {
+    const issue = issues({ commands: [{ ...greetingCommand, name: '人形' }, { ...discordCommand, name: '人形ランキング' }] })
+    expect(issue).toEqual([expect.stringContaining('commands[0].name'), expect.stringContaining('commands[1].name')])
+    expect(issue[0]).toContain('組み込み')
+  })
+
   it('応答文が空なら拒否する', () => {
     expect(issues({ commands: [{ ...greetingCommand, reply: '' }] })).toEqual([expect.stringContaining('commands[0].reply')])
   })

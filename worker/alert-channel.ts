@@ -88,7 +88,7 @@ import type { PomodoroSnapshot } from './pomodoro-timer'
 import type { SpeechMute } from './speech-config'
 import type { KanjiQuizCall, KanjiQuizNotice, StreamStopOrder } from './kanji-quiz-call'
 import type { LickCall } from './lick-call'
-import type { DollAwardCall } from './doll-award'
+import type { DollAwardMessage } from './doll-award'
 import type { VrmCall } from './vrm-call'
 import type { OpinionBoardSnapshot } from './opinion'
 import type { ChatDeductionBoard } from './chat-deduction-board'
@@ -690,14 +690,15 @@ export const pushTwister = (namespace: AlertChannelNamespace, call: TwisterCall)
 export const pushLick = (namespace: AlertChannelNamespace, call: LickCall): Promise<void> => pushJson(namespace, PUSH_LICK_PATH, call, 'ペロペロ')
 
 /**
- * 人形の獲得（渡した視聴者と人形）を Durable Object へ押し出す。人形を自動で渡したとき（worker/doll-award.ts の grantDolls）に呼ぶ。
+ * 人形の獲得（渡した視聴者と人形）・1人ぶんの所持数・ランキングを Durable Object へ押し出す。人形を自動で渡したとき
+ * （worker/doll-award.ts の grantDolls）と、所持数・ランキングを出すとき（worker/doll-standing.ts）に呼ぶ。
  *
  * 合成ページを開いていなければ配る先が無いだけで、失敗ではない（配送先は204を返す。つながっていない間の獲得は貯めずに落とす）。
  *
  * 注意: 失敗を黙って握りつぶさない。呼び出し側が失敗として記録する。
  */
-export const pushDollAward = (namespace: AlertChannelNamespace, call: DollAwardCall): Promise<void> =>
-  pushJson(namespace, PUSH_DOLL_AWARD_PATH, call, '人形の獲得')
+export const pushDollAward = (namespace: AlertChannelNamespace, message: DollAwardMessage): Promise<void> =>
+  pushJson(namespace, PUSH_DOLL_AWARD_PATH, message, '人形の獲得')
 
 /**
  * VRMの演出の呼び出し（動き方の種と出す VRM のURL）を Durable Object へ押し出す。トリガーと管理画面の試し再生で呼ぶ。
