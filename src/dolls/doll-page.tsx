@@ -177,7 +177,7 @@ export const DollPage = ({ api, loadMedia }: { api: DollApi; loadMedia(): Promis
   const showRanking = (): Promise<void> =>
     actions.run(async () => {
       await api.showRanking()
-      return '人形のランキングを配信画面に出しました'
+      return '人形のランキングを合成ページへ送りました'
     })
 
   const askRemove = (set: DollSet): void =>
@@ -264,7 +264,7 @@ export const DollPage = ({ api, loadMedia }: { api: DollApi; loadMedia(): Promis
                 ランキングを配信画面に出す
               </Button>
               <p className="text-xs text-muted-foreground">
-                {`合成ページの素材「人形の獲得」に、いまの人形の点数（ふつう＝1点・スーパー＝${SUPER_DOLL_VALUE}点）の上位を出します。視聴者はチャットの !人形ランキング でも出せます。`}
+                {`合成ページの素材「人形の獲得」に、いまの人形の点数（ふつう＝1点・スーパー＝${SUPER_DOLL_VALUE}点）の上位を出します（合成ページを開いていなければ映りません）。視聴者はチャットの !人形ランキング でも出せます。`}
               </p>
             </div>
           )}

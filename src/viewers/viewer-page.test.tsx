@@ -397,7 +397,7 @@ describe('人形', () => {
     await userEvent.click(await screen.findByRole('button', { name: '花子 の人形を配信画面に出す' }))
 
     expect(dollApi.showStanding).toHaveBeenCalledWith('100')
-    expect(await findNotice('花子 の人形を配信画面に出しました')).toBeInTheDocument()
+    expect(await findNotice('花子 の人形を合成ページへ送りました')).toBeInTheDocument()
   })
 
   test('いまの人形が選ばれていなければ、渡すボタンを出さずにその旨を出す', async () => {

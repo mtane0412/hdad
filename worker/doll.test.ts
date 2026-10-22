@@ -9,7 +9,8 @@
  */
 import { describe, expect, it } from 'vitest'
 import { ConfigError, type MediaKind } from './alert-config'
-import { MAX_DOLL_CHANGE, MAX_DOLL_NAME_LENGTH, parseDollChangeInput, parseDollPrize, parseDollSetInput } from './doll'
+import { SUPER_DOLL_VALUE as SCREEN_SUPER_DOLL_VALUE } from '../src/dolls/doll'
+import { MAX_DOLL_CHANGE, MAX_DOLL_NAME_LENGTH, SUPER_DOLL_VALUE, parseDollChangeInput, parseDollPrize, parseDollSetInput } from './doll'
 
 /** 素材の種類の引き当て。アップロード済みの画像2枚と効果音1つがある */
 const kindOf = (mediaId: string): MediaKind | null =>
@@ -88,5 +89,11 @@ describe('parseDollPrize', () => {
     // 書き忘れを「渡さない」と読み替えない
     expect(problemsOf(() => parseDollPrize({}))).toHaveLength(1)
     expect(problemsOf(() => parseDollPrize('normal'))).toHaveLength(1)
+  })
+})
+
+describe('SUPER_DOLL_VALUE', () => {
+  it('ランキングの点数に使う比と、画面の説明に出す比が同じである（片方だけ変えると、出す点数の決まりと実際の点数が食い違うため）', () => {
+    expect(SUPER_DOLL_VALUE).toBe(SCREEN_SUPER_DOLL_VALUE)
   })
 })

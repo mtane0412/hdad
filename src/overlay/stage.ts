@@ -129,6 +129,7 @@ import { parseTownTourMessage, tourLinesOf, type TownTourCall, type TownTourIntr
 import { createTownTourRenderer, type TownTourRenderer } from '../town-tour/view'
 import { DOLL_AWARD_SOCKET_HINT, DOLL_AWARD_SOCKET_PATH } from '../doll-award/api'
 import { parseDollAwardMessage, type DollAwardMessage } from '../doll-award/call'
+import { enqueueDollAwardMessage } from '../doll-award/queue'
 import { DEMO_DOLL_AWARDS, DEMO_DOLL_AWARD_INTERVAL_MS } from '../doll-award/demo'
 import { createDollAwardView } from '../doll-award/view'
 import { LICK_SOCKET_HINT, LICK_SOCKET_PATH } from '../lick/api'
@@ -2012,7 +2013,8 @@ const mountDollAward = (box: HTMLElement, item: OverlayItem, { key, demo }: Moun
   }
 
   const enqueue = (message: DollAwardMessage): void => {
-    waiting = [...waiting, message]
+    // 同じ人の所持数は置き換え、所持数とランキングで待ちが伸びすぎないようにする（src/doll-award/queue.ts）
+    waiting = enqueueDollAwardMessage(waiting, message)
     startNext()
   }
 

@@ -135,7 +135,7 @@ export const ViewerPage = ({ api, dollApi }: { api: ViewerApi; dollApi: DollApi 
   /** その人のいまの人形の所持数を、合成ページの素材「人形の獲得」へ出す */
   const showDolls = async (viewer: Viewer): Promise<string> => {
     await dollApi.showStanding(viewer.userId)
-    return `${viewer.displayName} の人形を配信画面に出しました`
+    return `${viewer.displayName} の人形を合成ページへ送りました`
   }
 
   /** いまの人形を手で1つ渡す・取り上げる。Worker が返した、増減したあとの所持数で置き換える */

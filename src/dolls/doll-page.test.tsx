@@ -121,7 +121,7 @@ describe('ランキング', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'ランキングを配信画面に出す' }))
 
     expect(api.showRanking).toHaveBeenCalled()
-    expect(await screen.findByText(/人形のランキングを配信画面に出しました/)).toBeInTheDocument()
+    expect(await screen.findByText(/人形のランキングを合成ページへ送りました/)).toBeInTheDocument()
   })
 
   test('いまの人形が選ばれていなければ、ランキングのボタンを出さない', async () => {
