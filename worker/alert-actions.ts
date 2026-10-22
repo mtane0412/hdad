@@ -340,19 +340,15 @@ const grantMatchedDolls = async (
   })()
   for (const [index, grant] of grants.entries()) {
     try {
-      await grantDolls(
-        env,
-        now,
-        {
-          userId: grant.userId,
-          kind: grant.kind,
-          delta: grant.count,
-          reason: 'trigger',
-          triggerKind: grant.triggerKind,
-          sourceId: `trigger:${messageId}:dollGrant:${index}`,
-        },
-        grant.userName,
-      )
+      await grantDolls(env, now, {
+        userId: grant.userId,
+        userName: grant.userName,
+        kind: grant.kind,
+        delta: grant.count,
+        reason: 'trigger',
+        triggerKind: grant.triggerKind,
+        sourceId: `trigger:${messageId}:dollGrant:${index}`,
+      })
     } catch (error) {
       await recordFailure(env.DB, 'doll-grant-failed', error instanceof Error ? error.message : String(error), now)
     }

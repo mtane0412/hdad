@@ -1,7 +1,8 @@
 /**
  * 人形の Worker の呼び出し（api.ts）のテスト
  *
- * 実際の通信はせず、fetch を差し替える。人形の組の読み書き・いまの人形の選択・視聴者への手での増減・ゲームの正解者に渡す人形の読み書きが、
+ * 実際の通信はせず、fetch を差し替える。人形の組の読み書き・いまの人形の選択・視聴者への手での増減・ゲームの正解者に渡す人形の読み書き・
+ * 所持数とランキングを合成ページへ出すことが、
  * 決まった経路と本文で呼ばれ、応答の形が違えば黙らずにエラーにすることを確かめる。
  */
 import { describe, expect, it } from 'vitest'
@@ -64,6 +65,16 @@ describe('createDollApi', () => {
 
     expect(await createDollApi(fetchImpl).change('1001', 'super', 1)).toEqual(hanakoHolding)
     expect(calls).toEqual([{ path: '/api/admin/viewers/1001/dolls', method: 'POST', body: { kind: 'super', delta: 1 } }])
+  })
+
+  it('視聴者の所持数とランキングを、合成ページへ出す', async () => {
+    const standing = createFetchWithResponse(204, null)
+    await createDollApi(standing.fetchImpl).showStanding('1001')
+    expect(standing.calls).toEqual([{ path: '/api/admin/viewers/1001/dolls/show', method: 'POST', body: null }])
+
+    const ranking = createFetchWithResponse(204, null)
+    await createDollApi(ranking.fetchImpl).showRanking()
+    expect(ranking.calls).toEqual([{ path: '/api/admin/doll-ranking/show', method: 'POST', body: null }])
   })
 
   it('ゲームの正解者に渡す人形を読み書きする（渡さないのは null）', async () => {

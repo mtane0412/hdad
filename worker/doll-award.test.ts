@@ -31,7 +31,7 @@ const bears: DollSetInput = {
 const HANAKO = '1001'
 
 /** 漢字クイズの正解者に渡す1件（きっかけの ID は出題ごと） */
-const kanjiQuizPrize = (sourceId: string) => ({ userId: HANAKO, kind: 'normal' as const, delta: 1, reason: 'kanjiQuiz' as const, sourceId })
+const kanjiQuizPrize = (sourceId: string) => ({ userId: HANAKO, userName: 'はなこ', kind: 'normal' as const, delta: 1, reason: 'kanjiQuiz' as const, sourceId })
 
 let db: ReturnType<typeof createFakeDatabase>
 
@@ -51,10 +51,11 @@ describe('grantDolls', () => {
     const alerts = createFakeAlertChannel()
     const env = { DB: db, STORE: createFakeStore({ 'overlay-key': 'secret' }), ALERTS: alerts.namespace }
 
-    await grantDolls(env, NOW, kanjiQuizPrize('kanjiQuiz:1'), 'はなこ')
+    await grantDolls(env, NOW, kanjiQuizPrize('kanjiQuiz:1'))
 
     expect(alerts.pushedDollAwards).toEqual([
       {
+        type: 'award',
         id: 'kanjiQuiz:1',
         userName: 'はなこ',
         kind: 'normal',
@@ -73,12 +74,12 @@ describe('grantDolls', () => {
     await grantDolls(
       env,
       NOW,
-      { userId: HANAKO, kind: 'super', delta: 3, reason: 'trigger', triggerKind: 'reward', sourceId: 'trigger:m1:dollGrant:0' },
-      'はなこ',
+      { userId: HANAKO, userName: 'はなこ', kind: 'super', delta: 3, reason: 'trigger', triggerKind: 'reward', sourceId: 'trigger:m1:dollGrant:0' },
     )
 
     expect(alerts.pushedDollAwards).toEqual([
       {
+        type: 'award',
         id: 'trigger:m1:dollGrant:0',
         userName: 'はなこ',
         kind: 'super',
@@ -93,8 +94,8 @@ describe('grantDolls', () => {
     const alerts = createFakeAlertChannel()
     const env = { DB: db, STORE: createFakeStore({ 'overlay-key': 'secret' }), ALERTS: alerts.namespace }
 
-    await grantDolls(env, NOW, kanjiQuizPrize('kanjiQuiz:1'), 'はなこ')
-    await grantDolls(env, NOW, kanjiQuizPrize('kanjiQuiz:1'), 'はなこ')
+    await grantDolls(env, NOW, kanjiQuizPrize('kanjiQuiz:1'))
+    await grantDolls(env, NOW, kanjiQuizPrize('kanjiQuiz:1'))
 
     expect(alerts.pushedDollAwards).toHaveLength(1)
   })
@@ -103,7 +104,7 @@ describe('grantDolls', () => {
     const alerts = createFakeAlertChannel()
     const env = { DB: db, STORE: createFakeStore({ 'overlay-key': 'secret' }), ALERTS: alerts.namespace }
 
-    await expect(grantDolls(env, NOW, kanjiQuizPrize('kanjiQuiz:1'), 'はなこ')).rejects.toBeInstanceOf(DollChangeError)
+    await expect(grantDolls(env, NOW, kanjiQuizPrize('kanjiQuiz:1'))).rejects.toBeInstanceOf(DollChangeError)
     expect(alerts.pushedDollAwards).toEqual([])
   })
 
@@ -112,7 +113,7 @@ describe('grantDolls', () => {
     const alerts = createFakeAlertChannel({ shouldFail: true })
     const env = { DB: db, STORE: createFakeStore({ 'overlay-key': 'secret' }), ALERTS: alerts.namespace }
 
-    await grantDolls(env, NOW, kanjiQuizPrize('kanjiQuiz:1'), 'はなこ')
+    await grantDolls(env, NOW, kanjiQuizPrize('kanjiQuiz:1'))
 
     expect((await readDollHoldings(db))[0]?.normal).toBe(1)
     const failures = await listFailures(db)
@@ -125,7 +126,7 @@ describe('grantDolls', () => {
     const alerts = createFakeAlertChannel()
     const env = { DB: db, STORE: createFakeStore(), ALERTS: alerts.namespace }
 
-    await grantDolls(env, NOW, kanjiQuizPrize('kanjiQuiz:1'), 'はなこ')
+    await grantDolls(env, NOW, kanjiQuizPrize('kanjiQuiz:1'))
 
     expect(alerts.pushedDollAwards).toEqual([])
     expect((await listFailures(db)).map(({ code }) => code)).toEqual(['doll-award-failed'])
@@ -142,7 +143,7 @@ describe('grantDolls', () => {
     // 記録の失敗は Worker のログに残す（テストの出力を汚さないよう黙らせる）
     const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
 
-    await expect(grantDolls(env, NOW, kanjiQuizPrize('kanjiQuiz:1'), 'はなこ')).resolves.toBeUndefined()
+    await expect(grantDolls(env, NOW, kanjiQuizPrize('kanjiQuiz:1'))).resolves.toBeUndefined()
 
     expect((await readDollHoldings(db))[0]?.normal).toBe(1)
     expect(logged).toHaveBeenCalled()

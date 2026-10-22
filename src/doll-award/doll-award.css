@@ -1,9 +1,11 @@
 /*
- * 人形の獲得の見た目
+ * 人形の獲得の素材の見た目
  *
- * 人形の画像を画面の真ん中にはずませて出し、その下に「◯◯さんが」「クマ人形 ×3 を獲得！」を置く。背景は透過のまま
+ * 獲得は、人形の画像を画面の真ん中にはずませて出し、その下に「◯◯さんが」「クマ人形 ×3 を獲得！」を置く。背景は透過のまま
  * （OBSで配信画面に重ねるため）。文言は配信画面の上に直に置くので、合成ページ共通の縁取り（src/core/text-outline.css）を付ける。
  * スーパー人形（doll-award--super）は、人形の後ろに金色の光を回し、名前を金色にして区別する。
+ * 1人ぶんの所持数（doll-standing）は、見出しの下にふつう・スーパーの画像と個数を横に並べる（スーパーの名前は金色）。
+ * ランキング（doll-ranking）は、行が多く縁取りだけでは読みにくいので、半透明の濃い紫の板に載せる。
  *
  * 大きさはすべて素材の箱を基準にする（コンテナクエリの単位 cqw・cqh・cqmin）。漢字クイズの正解などと重ならないよう、
  * 管理画面で箱を小さくして隅に置けば、中身も同じ割合で縮む。値は箱が配信画面いっぱい（1920×1080）のときの画素数から決めてある。
@@ -111,6 +113,144 @@
   /* 箱が 1920×1080 のとき 28px */
   font-size: 2.6cqmin;
   font-weight: 500;
+}
+
+/* 1人ぶんの所持数 */
+.doll-standing {
+  color: #ffffff;
+  font-weight: 700;
+  line-height: 1.3;
+  text-align: center;
+  --outline-color: #3b2a5c;
+  --outline-width: 0.11em;
+  text-shadow: var(--text-outline);
+}
+
+.doll-standing__title {
+  margin: 0;
+  /* 箱が 1920×1080 のとき 56px */
+  font-size: 5.2cqmin;
+  overflow-wrap: anywhere;
+}
+
+.doll-standing__figures {
+  display: flex;
+  gap: 6cqmin;
+  align-items: end;
+}
+
+.doll-standing__figure {
+  display: grid;
+  justify-items: center;
+  gap: 1.5cqh;
+}
+
+.doll-standing__image {
+  /* 文言の幅に引っ張られて2つの人形の大きさが揃わないよう、高さで決める */
+  width: auto;
+  height: 28cqmin;
+  max-width: 28cqmin;
+  object-fit: contain;
+  filter: drop-shadow(0 1.2cqh 2.4cqh rgb(0 0 0 / 35%));
+}
+
+.doll-standing__figure--super .doll-standing__image {
+  filter: drop-shadow(0 0 3cqmin rgb(255 214 64 / 90%)) drop-shadow(0 1.2cqh 2.4cqh rgb(0 0 0 / 35%));
+}
+
+.doll-standing__figure--super .doll-award__name {
+  color: #ffd640;
+}
+
+.doll-standing__label {
+  margin: 0;
+  /* 箱が 1920×1080 のとき 44px */
+  font-size: 4.1cqmin;
+}
+
+/* ランキング */
+.doll-ranking {
+  gap: 2.4cqh;
+  min-width: 60%;
+  padding: 3cqmin 4cqmin;
+  border-radius: 2.4cqmin;
+  background: rgb(43 28 74 / 85%);
+  color: #ffffff;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.doll-ranking__header {
+  display: flex;
+  gap: 2.4cqmin;
+  align-items: center;
+}
+
+.doll-ranking__image {
+  width: auto;
+  height: 12cqmin;
+  max-width: 12cqmin;
+  object-fit: contain;
+}
+
+.doll-ranking__heading {
+  /* 両脇の人形に押されて見出しが折り返さないようにする */
+  flex: 0 0 auto;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.doll-ranking__title {
+  margin: 0;
+  color: #ffd640;
+  /* 箱が 1920×1080 のとき 60px */
+  font-size: 5.6cqmin;
+}
+
+.doll-ranking__note {
+  margin: 0;
+  color: #e6dcff;
+  /* 箱が 1920×1080 のとき 26px */
+  font-size: 2.4cqmin;
+  font-weight: 500;
+}
+
+.doll-ranking__list {
+  display: grid;
+  gap: 1cqh;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  /* 箱が 1920×1080 のとき 40px */
+  font-size: 3.7cqmin;
+}
+
+.doll-ranking__row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 2.4cqmin;
+  align-items: baseline;
+}
+
+.doll-ranking__rank {
+  color: #ffe9a8;
+}
+
+.doll-ranking__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doll-ranking__points {
+  color: #ffd640;
+  font-variant-numeric: tabular-nums;
+}
+
+.doll-ranking__empty {
+  margin: 0;
+  font-size: 3.7cqmin;
 }
 
 @keyframes doll-award-enter {

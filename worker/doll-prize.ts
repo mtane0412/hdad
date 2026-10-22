@@ -49,7 +49,7 @@ export const grantDollPrize = async (
   try {
     const { kind } = await loadDollPrize(env.STORE, game)
     if (kind === null) return
-    await grantDolls(env, now, { userId: winner.userId, kind, delta: 1, reason: game, sourceId }, winner.userName)
+    await grantDolls(env, now, { userId: winner.userId, userName: winner.userName, kind, delta: 1, reason: game, sourceId })
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
     try {

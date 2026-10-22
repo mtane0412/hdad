@@ -128,7 +128,8 @@ import { decodeTownBorders, decodeTownShapes, type TownBorders } from '../town-t
 import { parseTownTourMessage, tourLinesOf, type TownTourCall, type TownTourIntro } from '../town-tour/tour'
 import { createTownTourRenderer, type TownTourRenderer } from '../town-tour/view'
 import { DOLL_AWARD_SOCKET_HINT, DOLL_AWARD_SOCKET_PATH } from '../doll-award/api'
-import { parseDollAwardCall, type DollAwardCall } from '../doll-award/call'
+import { parseDollAwardMessage, type DollAwardMessage } from '../doll-award/call'
+import { enqueueDollAwardMessage } from '../doll-award/queue'
 import { DEMO_DOLL_AWARDS, DEMO_DOLL_AWARD_INTERVAL_MS } from '../doll-award/demo'
 import { createDollAwardView } from '../doll-award/view'
 import { LICK_SOCKET_HINT, LICK_SOCKET_PATH } from '../lick/api'
@@ -1977,7 +1978,8 @@ const mountLick = (box: HTMLElement, item: OverlayItem, { key, demo }: MountCont
 
 /**
  * 人形の獲得。Worker が人形を自動で渡したとき（トリガーの動作「人形を渡す」・ゲームの正解者）に押し出す1件ずつを、
- * 届いた順に人形の画像と「◯◯さんが クマ人形 を獲得！」として出す（表示は src/doll-award/view.ts）。
+ * 届いた順に人形の画像と「◯◯さんが クマ人形 を獲得！」として出す。チャットの !人形・!人形ランキング と管理画面から出す
+ * 1人ぶんの所持数とランキングも、同じ順番待ちに並べて1件ずつ出す（表示は src/doll-award/view.ts）。
  */
 const mountDollAward = (box: HTMLElement, item: OverlayItem, { key, demo }: MountContext): MountedItem => {
   // この素材は配信者が決めるパラメータを持たない（何を出すかは渡した人形で決まる）
@@ -1988,20 +1990,20 @@ const mountDollAward = (box: HTMLElement, item: OverlayItem, { key, demo }: Moun
   box.append(root)
   const view = createDollAwardView(root)
 
-  /** 流すのを待っている獲得（届いた順） */
-  let waiting: readonly DollAwardCall[] = []
+  /** 流すのを待っているもの（届いた順） */
+  let waiting: readonly DollAwardMessage[] = []
   /** いま1件を出しているか */
   let playing = false
 
   /** 出していなければ、待っている獲得の先頭を出す。出し終えたら次へ進む */
   const startNext = (): void => {
     if (playing) return
-    const [call, ...rest] = waiting
-    if (call === undefined) return
+    const [message, ...rest] = waiting
+    if (message === undefined) return
     waiting = rest
     playing = true
     void view
-      .show(call)
+      .show(message)
       // 画像が読めなくても後続の獲得は出すが、黙って飛ばさず素材の箱に知らせる
       .catch((error: unknown) => showError(error, NOUNS.dollAward, box, 'read'))
       .finally(() => {
@@ -2010,8 +2012,9 @@ const mountDollAward = (box: HTMLElement, item: OverlayItem, { key, demo }: Moun
       })
   }
 
-  const enqueue = (call: DollAwardCall): void => {
-    waiting = [...waiting, call]
+  const enqueue = (message: DollAwardMessage): void => {
+    // 同じ人の所持数は置き換え、所持数とランキングで待ちが伸びすぎないようにする（src/doll-award/queue.ts）
+    waiting = enqueueDollAwardMessage(waiting, message)
     startNext()
   }
 
@@ -2026,9 +2029,9 @@ const mountDollAward = (box: HTMLElement, item: OverlayItem, { key, demo }: Moun
     {
       onMessage: (text) => {
         try {
-          const call = parseDollAwardCall(text)
+          const message = parseDollAwardMessage(text)
           clearError(box, 'read')
-          enqueue(call)
+          enqueue(message)
         } catch (error) {
           showError(error, NOUNS.dollAward, box, 'read')
         }

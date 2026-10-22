@@ -3,7 +3,7 @@
  *
  * 視聴者に人形を渡したり使わせたりする仕組みの土台（issue #418）。人形は「ふつうの人形」と「スーパー人形」の2種類を
  * 1組として登録し、1配信で使う組は「いまの人形」として1組だけ選ぶ。スーパー人形はふつうの人形3つ分の価値を持つ
- * （比は設定項目にしない。docs/principles.md の1。画面に出す比は src/dolls/doll.ts の SUPER_DOLL_VALUE）。
+ * （比は設定項目にしない。docs/principles.md の1。ランキングの点数に使う SUPER_DOLL_VALUE。画面の説明は src/dolls/doll.ts）。
  *
  * 通信も時刻も持たない純粋な関数だけを置き、読み書きは worker/doll-store.ts、経路は worker/doll-routes.ts が持つ。
  *
@@ -16,6 +16,12 @@ import type { TriggerKind } from './trigger-menu'
 /** 人形の種類。normal はふつうの人形、super はスーパー人形 */
 export const DOLL_KINDS = ['normal', 'super'] as const
 export type DollKind = (typeof DOLL_KINDS)[number]
+
+/** スーパー人形1つが、ふつうの人形いくつ分の価値を持つか。ランキングの点数（ふつう＝1）に使う */
+export const SUPER_DOLL_VALUE = 3
+
+/** 合成ページに出すランキングの人数の上限 */
+export const DOLL_RANKING_LIMIT = 5
 
 /** 人形の名前の上限（見た目の文字数）。管理画面の一覧に収まる長さにする */
 export const MAX_DOLL_NAME_LENGTH = 20
@@ -78,6 +84,34 @@ export interface DollHolding {
   readonly setId: number
   readonly normal: number
   readonly super: number
+}
+
+/** ある視聴者の、いまの人形の所持数（持っていなければ 0） */
+export interface DollStanding {
+  /** いまの人形の組 */
+  readonly set: DollSet
+  readonly normal: number
+  readonly super: number
+}
+
+/** ランキングの1人ぶん */
+export interface DollRankingEntry {
+  /** 順位（1 から。同点は同じ順位で、次の順位は人数ぶん飛ぶ） */
+  readonly rank: number
+  readonly userId: string
+  readonly userName: string
+  readonly normal: number
+  readonly super: number
+  /** 点数（ふつう＝1・スーパー＝SUPER_DOLL_VALUE） */
+  readonly points: number
+}
+
+/** いまの人形のランキング */
+export interface DollRanking {
+  /** いまの人形の組 */
+  readonly set: DollSet
+  /** 点数の高い順。0 点の人は並べない */
+  readonly entries: readonly DollRankingEntry[]
 }
 
 /** 管理画面から受け取る、手での増減 */

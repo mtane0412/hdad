@@ -10,6 +10,7 @@
  *
  * 注意: 保存していない変更（書きかけの組・追加しかけの組）があるあいだは、ページを離れる前に確認を出す（useUnsavedChanges）。
  * 注意: いまの人形の選び直しは、押したその場で Worker に保存する（保存のボタンを待たない。配信の前に1回選ぶだけの操作なので）。
+ * いまの人形を選んでいれば、その点数のランキングを合成ページの素材「人形の獲得」へ出すボタンも置く（視聴者のチャットの !人形ランキング と同じもの）。
  */
 import { useEffect, useId, useState } from 'react'
 import type { MediaItem } from '@/admin/api'
@@ -172,6 +173,13 @@ export const DollPage = ({ api, loadMedia }: { api: DollApi; loadMedia(): Promis
       return setId === null ? `「${set.normal.name}」をいまの人形から外しました` : `「${set.normal.name}」をいまの人形にしました`
     })
 
+  /** いまの人形のランキングを、合成ページの素材「人形の獲得」へ出す */
+  const showRanking = (): Promise<void> =>
+    actions.run(async () => {
+      await api.showRanking()
+      return '人形のランキングを合成ページへ送りました'
+    })
+
   const askRemove = (set: DollSet): void =>
     actions.ask({
       title: `「${set.normal.name}」を消しますか？`,
@@ -249,6 +257,16 @@ export const DollPage = ({ api, loadMedia }: { api: DollApi; loadMedia(): Promis
                 )
               })}
             </DataTable>
+          )}
+          {saved.some((set) => set.current) && (
+            <div className="flex flex-wrap items-center gap-3 pt-4">
+              <Button type="button" variant="outline" disabled={actions.busy} onClick={() => void showRanking()}>
+                ランキングを配信画面に出す
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                {`合成ページの素材「人形の獲得」に、いまの人形の点数（ふつう＝1点・スーパー＝${SUPER_DOLL_VALUE}点）の上位を出します（合成ページを開いていなければ映りません）。視聴者はチャットの !人形ランキング でも出せます。`}
+              </p>
+            </div>
           )}
         </CardContent>
       </Card>

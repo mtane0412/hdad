@@ -1956,6 +1956,7 @@ describe('人形を渡す動作（dollGrant）', () => {
 
     expect(alertChannel.pushedDollAwards).toEqual([
       {
+        type: 'award',
         id: 'trigger:message-doll-1:dollGrant:0',
         userName: '田中太郎',
         kind: 'normal',
@@ -2457,6 +2458,7 @@ describe('漢字クイズの回答（issue #301）', () => {
 
       expect(alertChannel.pushedDollAwards).toEqual([
         {
+          type: 'award',
           id: 'kanjiQuiz:quiz-kusabana',
           userName: 'たなか',
           kind: 'normal',
@@ -3128,6 +3130,45 @@ describe('コメントビューアーへの配送', () => {
     expect(response.status).toBe(204)
     expect(commentChannel.pushedItems).toEqual([])
     expect(await listFailures(db)).toMatchObject([{ code: 'comment-feed-failed', message: expect.stringContaining('fragments') }])
+  })
+})
+
+describe('人形の組み込みコマンド（!人形・!人形ランキング）', () => {
+  /** 視聴者「たなか」の発言としての通知 */
+  const chatFromTanaka = (text: string, messageId: string) => ({
+    subscription: { type: 'channel.chat.message' },
+    event: {
+      broadcaster_user_id: BROADCASTER_ID,
+      chatter_user_id: '11111',
+      chatter_user_login: 'tanaka',
+      chatter_user_name: 'たなか',
+      message_id: messageId,
+      message: { text, fragments: [{ type: 'text', text }] },
+    },
+  })
+
+  it('bot を接続していなくても、!人形 で発言者のいまの人形の所持数を合成ページへ出す', async () => {
+    // 前提: いまの人形が選ばれていて、bot は接続していない。たなかはまだ人形を持っていない
+    const { env, db, alertChannel } = createEnv()
+    const set = await insertDollSet(db, { normal: { name: 'クマ人形', mediaId: 'image-bear' }, super: { name: 'スーパークマ人形', mediaId: 'image-super-bear' } }, NOW)
+    await selectCurrentDollSet(db, set.id)
+
+    const response = await callWebhook(createNotification({ body: chatFromTanaka('!人形', 'chat-message-1'), messageId: 'notification-1' }), env)
+
+    expect(response.status).toBe(204)
+    expect(alertChannel.pushedDollAwards).toEqual([
+      expect.objectContaining({ type: 'standing', userName: 'たなか', normal: expect.objectContaining({ count: 0 }), super: expect.objectContaining({ count: 0 }) }),
+    ])
+  })
+
+  it('!人形ランキング でランキングを合成ページへ出す', async () => {
+    const { env, db, alertChannel } = createEnv()
+    const set = await insertDollSet(db, { normal: { name: 'クマ人形', mediaId: 'image-bear' }, super: { name: 'スーパークマ人形', mediaId: 'image-super-bear' } }, NOW)
+    await selectCurrentDollSet(db, set.id)
+
+    await callWebhook(createNotification({ body: chatFromTanaka('!人形ランキング', 'chat-message-1'), messageId: 'notification-1' }), env)
+
+    expect(alertChannel.pushedDollAwards).toEqual([expect.objectContaining({ type: 'ranking', entries: [] })])
   })
 })
 

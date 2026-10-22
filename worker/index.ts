@@ -93,9 +93,11 @@
  * | PATCH /api/admin/viewers/:userId | セッション     | 視聴者へのメモの保存 |
  * | DELETE /api/admin/viewers/:userId | セッション    | 視聴者の記録の削除 |
  * | POST /api/admin/viewers/:userId/dolls | セッション | 視聴者にいまの人形を手で渡す・取り上げる |
+ * | POST /api/admin/viewers/:userId/dolls/show | セッション | 視聴者のいまの人形の所持数を合成ページへ出す |
  * | GET・POST /api/admin/dolls       | セッション     | 人形の組と所持数の一覧・組の追加 |
  * | PUT・DELETE /api/admin/dolls/:id | セッション     | 人形の組の書き換え・削除 |
  * | PUT  /api/admin/doll-current     | セッション     | いまの人形を選ぶ |
+ * | POST /api/admin/doll-ranking/show | セッション    | いまの人形のランキングを合成ページへ出す |
  * | GET・PUT /api/admin/doll-prizes/:game | セッション | ゲームの正解者に渡す人形の読み書き |
  * | GET  /api/admin/stats/sessions   | セッション     | 配信セッションの一覧 |
  * | GET  /api/admin/stats/sessions/:id | セッション   | 配信セッションと視聴者数の時系列 |
@@ -183,7 +185,19 @@ import { getFocus, putFocus } from './focus-routes'
 import { getWipeIcon } from './wipe-routes'
 import { getBgm, getOverlayBgm, overlayBgmDuckSocket, overlayBgmSocket, postBgmSkip, postOverlayBgmDuck, postOverlayBgmEnded, putBgmPlayback, putBgmSettings, putBgmTracks } from './bgm-routes'
 import { deleteViewerRoute, getViewers, patchViewer } from './viewer-routes'
-import { dollAwardSocket, getDollPrize, getDolls, postDollSet, postViewerDolls, putCurrentDollSet, putDollPrize, putDollSet, removeDollSet } from './doll-routes'
+import {
+  dollAwardSocket,
+  getDollPrize,
+  getDolls,
+  postDollSet,
+  postViewerDolls,
+  putCurrentDollSet,
+  putDollPrize,
+  putDollSet,
+  removeDollSet,
+  showDollRankingOnOverlay,
+  showViewerDolls,
+} from './doll-routes'
 import { deleteReward, getRewards, patchReward, postReward } from './reward-routes'
 import {
   deleteBot,
@@ -404,11 +418,13 @@ const ROUTES: readonly Route[] = [
   { method: 'PATCH', path: '/api/admin/viewers/:userId', handle: patchViewer },
   { method: 'DELETE', path: '/api/admin/viewers/:userId', handle: deleteViewerRoute },
   { method: 'POST', path: '/api/admin/viewers/:userId/dolls', handle: postViewerDolls },
+  { method: 'POST', path: '/api/admin/viewers/:userId/dolls/show', handle: showViewerDolls },
   { method: 'GET', path: '/api/admin/dolls', handle: getDolls },
   { method: 'POST', path: '/api/admin/dolls', handle: postDollSet },
   { method: 'PUT', path: '/api/admin/dolls/:id', handle: putDollSet },
   { method: 'DELETE', path: '/api/admin/dolls/:id', handle: removeDollSet },
   { method: 'PUT', path: '/api/admin/doll-current', handle: putCurrentDollSet },
+  { method: 'POST', path: '/api/admin/doll-ranking/show', handle: showDollRankingOnOverlay },
   { method: 'GET', path: '/api/admin/doll-prizes/:game', handle: getDollPrize },
   { method: 'PUT', path: '/api/admin/doll-prizes/:game', handle: putDollPrize },
   { method: 'GET', path: '/api/admin/stats/sessions', handle: getStatsSessions },

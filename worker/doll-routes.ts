@@ -8,15 +8,19 @@
  * - DELETE /api/admin/dolls/:id: 人形の組を消す（台帳に記録のある組は409）
  * - PUT /api/admin/doll-current: いまの人形を選ぶ（{ setId: 組の ID | null }）。組の一覧を返す
  * - POST /api/admin/viewers/:userId/dolls: 視聴者にいまの人形を手で渡す・取り上げる（{ kind, delta }）。増減したあとの所持数を返す
+ * - POST /api/admin/viewers/:userId/dolls/show: その視聴者のいまの人形の所持数を、合成ページの素材「人形の獲得」へ出す（本文なし。204）
+ * - POST /api/admin/doll-ranking/show: いまの人形のランキングを、合成ページの素材「人形の獲得」へ出す（本文なし。204）
  * - GET・PUT /api/admin/doll-prizes/:game: ゲーム（chatDeduction・kanjiQuiz）の正解者に渡す人形を読み書きする（{ kind: 'normal' | 'super' | null }。issue #420）
  * - GET /api/overlay/doll-award/socket?key=: 合成ページの素材「人形の獲得」の WebSocket の接続を配送先（AlertChannel）へ引き渡す。
  *   オーバーレイ用キーで守る（ほかは配信者のセッション）。押し出すのは worker/doll-award.ts の grantDolls
  *
- * 読み書きは worker/doll-store.ts（正解者に渡す人形は worker/doll-prize.ts）、検証は worker/doll.ts にある。
+ * 読み書きは worker/doll-store.ts（正解者に渡す人形は worker/doll-prize.ts、所持数とランキングの押し出しは worker/doll-standing.ts）、
+ * 検証は worker/doll.ts にある。
  */
 import { connectDollAwardSocket } from './alert-channel'
 import { DOLL_PRIZE_GAMES, parseDollChangeInput, parseDollPrize, parseDollSetInput, type DollHolding, type DollPrize, type DollPrizeGame, type DollSet } from './doll'
 import { loadDollPrize, saveDollPrize } from './doll-prize'
+import { showDollRanking, showDollStanding } from './doll-standing'
 import { DollChangeError, changeDolls, deleteDollSet, insertDollSet, readDollHoldings, readDollSets, selectCurrentDollSet, updateDollSet } from './doll-store'
 import { HttpError, STATUS, requireAdmin, requireOverlayKey, type Context } from './http'
 import { listMedia } from './media'
@@ -121,6 +125,55 @@ export const putCurrentDollSet = async (context: Context): Promise<Response> => 
 }
 
 /**
+ * 視聴者の記録を読む。
+ *
+ * @throws HttpError 記録が無ければ404
+ */
+const readViewerOf = async (context: Context, userId: string) => {
+  const viewer = await readViewer(context.env.DB, userId)
+  if (viewer === null) throw new HttpError(STATUS.notFound, 'viewer-not-found', `視聴者「${userId}」の記録が存在しません`)
+  return viewer
+}
+
+/**
+ * 所持数・ランキングを合成ページへ出し、204を返す。
+ *
+ * @throws HttpError いまの人形が無ければ409、そのほか出せなければ（オーバーレイ用キーが無い・名前の分からない人がいる・配送先の失敗）502
+ */
+const showOnOverlay = async (show: () => Promise<void>): Promise<Response> => {
+  try {
+    await show()
+  } catch (error) {
+    if (error instanceof DollChangeError) throw new HttpError(STATUS.conflict, error.code, error.message)
+    const reason = error instanceof Error ? error.message : String(error)
+    throw new HttpError(STATUS.badGateway, 'doll-show-failed', `合成ページへ出せませんでした（${reason}）`)
+  }
+  return new Response(null, { status: STATUS.noContent })
+}
+
+/**
+ * POST /api/admin/viewers/:userId/dolls/show: その視聴者のいまの人形の所持数を、視聴者の記録の表示名で合成ページへ出す。
+ *
+ * @throws HttpError 記録の無い視聴者なら404、いまの人形が無ければ409、出せなければ502
+ */
+export const showViewerDolls = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  const userId = context.params.userId ?? ''
+  const viewer = await readViewerOf(context, userId)
+  return showOnOverlay(() => showDollStanding(context.env, userId, viewer.displayName))
+}
+
+/**
+ * POST /api/admin/doll-ranking/show: いまの人形のランキングを合成ページへ出す。
+ *
+ * @throws HttpError いまの人形が無ければ409、出せなければ502
+ */
+export const showDollRankingOnOverlay = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  return showOnOverlay(() => showDollRanking(context.env))
+}
+
+/**
  * POST /api/admin/viewers/:userId/dolls: 視聴者にいまの人形を手で渡す（delta が正）・取り上げる（負）。
  *
  * きっかけの ID は毎回新しく振る（手での増減は、押すたびに別の増減なので）。
@@ -132,12 +185,14 @@ export const postViewerDolls = async (context: Context): Promise<Response> => {
   await requireAdmin(context)
   const userId = context.params.userId ?? ''
   const input = parseDollChangeInput(await readJson(context))
-  if ((await readViewer(context.env.DB, userId)) === null) {
-    throw new HttpError(STATUS.notFound, 'viewer-not-found', `視聴者「${userId}」の記録が存在しません`)
-  }
+  const viewer = await readViewerOf(context, userId)
 
   try {
-    const result = await changeDolls(context.env.DB, { userId, ...input, reason: 'manual', sourceId: `manual:${crypto.randomUUID()}` }, context.now)
+    const result = await changeDolls(
+      context.env.DB,
+      { userId, userName: viewer.displayName, ...input, reason: 'manual', sourceId: `manual:${crypto.randomUUID()}` },
+      context.now,
+    )
     // 毎回新しい ID を振るので、再送として扱われることは無い
     if (result.status === 'duplicate') throw new Error('手での人形の増減が、すでに記録した増減と同じ ID になりました')
     return Response.json({ holding: result.holding } satisfies { holding: DollHolding })

@@ -11,7 +11,7 @@
  * 注意: SQLに値を埋め込まず、必ずプレースホルダで渡す。
  */
 import type { Database } from './database'
-import type { DollHolding, DollKind, DollOrigin, DollSet, DollSetInput } from './doll'
+import { SUPER_DOLL_VALUE, type DollHolding, type DollKind, type DollOrigin, type DollRanking, type DollSet, type DollSetInput, type DollStanding } from './doll'
 
 const toIso = (milliseconds: number): string => new Date(milliseconds).toISOString()
 
@@ -71,6 +71,8 @@ export class DollChangeError extends Error {
 export type DollChange = DollOrigin & {
   /** Twitch のユーザー ID */
   readonly userId: string
+  /** 渡す相手の表示名。台帳に控え、ランキングの名前に使う（発言していない人は視聴者の記録を持たないため） */
+  readonly userName: string
   readonly kind: DollKind
   /** 増やすなら正、減らすなら負（0 は台帳の CHECK 制約が拒む） */
   readonly delta: number
@@ -174,8 +176,8 @@ export const changeDolls = async (db: Database, change: DollChange, now: number)
     .prepare(
       // いまの人形が無ければ SELECT が0行を返すので、INSERT も起きない。減らすときは、その人のいまの人形の同じ種類の所持数が
       // 減らす数に足りているときだけ行を返す。「WHERE ... ON CONFLICT」の形にしないと SQLite が ON を結合の条件と読むので、WHERE は外せない
-      `INSERT INTO doll_ledger (user_id, set_id, kind, delta, reason, trigger_kind, source_id, session_id, created_at)
-       SELECT ?1, s.id, ?2, ?3, ?4, ?7, ?5,
+      `INSERT INTO doll_ledger (user_id, set_id, kind, delta, reason, trigger_kind, user_name, source_id, session_id, created_at)
+       SELECT ?1, s.id, ?2, ?3, ?4, ?7, ?8, ?5,
          (SELECT id FROM stream_sessions WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT 1), ?6
        FROM doll_sets s
        WHERE s.current = 1
@@ -183,7 +185,16 @@ export const changeDolls = async (db: Database, change: DollChange, now: number)
        ON CONFLICT (source_id) DO NOTHING
        RETURNING set_id`,
     )
-    .bind(change.userId, change.kind, change.delta, change.reason, change.sourceId, toIso(now), change.reason === 'trigger' ? change.triggerKind : null)
+    .bind(
+      change.userId,
+      change.kind,
+      change.delta,
+      change.reason,
+      change.sourceId,
+      toIso(now),
+      change.reason === 'trigger' ? change.triggerKind : null,
+      change.userName,
+    )
     .first<{ set_id: number }>()
 
   if (inserted === null) {
@@ -214,6 +225,67 @@ export const readDollHoldings = async (db: Database): Promise<DollHolding[]> => 
     .prepare(`${HOLDING_SELECT} GROUP BY user_id, set_id HAVING normal <> 0 OR super <> 0 ORDER BY user_id, set_id`)
     .all<HoldingRow>()
   return results.map(toHolding)
+}
+
+/** いまの人形の組を読む。選ばれていなければ no-current-set の DollChangeError を投げる */
+const readCurrentDollSet = async (db: Database): Promise<DollSet> => {
+  const row = await db.prepare(`SELECT ${SET_COLUMNS} FROM doll_sets WHERE current = 1`).first<DollSetRow>()
+  if (row === null) throw new DollChangeError('no-current-set', 'いまの人形が選ばれていません。人形のページで選んでください')
+  return toDollSet(row)
+}
+
+/**
+ * その人の、いまの人形の所持数を読む（合成ページに出すため）。持っていなければ 0 つとして返す。
+ *
+ * @throws DollChangeError いまの人形を選んでいない（no-current-set）場合
+ */
+export const readDollStanding = async (db: Database, userId: string): Promise<DollStanding> => {
+  const set = await readCurrentDollSet(db)
+  const holding = await db
+    .prepare(`${HOLDING_SELECT} WHERE user_id = ?1 AND set_id = ?2 GROUP BY user_id, set_id`)
+    .bind(userId, set.id)
+    .first<HoldingRow>()
+  return { set, normal: holding?.normal ?? 0, super: holding?.super ?? 0 }
+}
+
+/** ランキングを読むときの1行 */
+interface RankingRow extends HoldingRow {
+  points: number
+  rank: number
+  user_name: string | null
+}
+
+/**
+ * いまの人形の点数（ふつう＝1・スーパー＝SUPER_DOLL_VALUE）の高い順に、上限の人数まで読む。0 点の人は並べない。
+ *
+ * 同点は同じ順位にし（次の順位は人数ぶん飛ぶ）、並びはスーパー人形の多い人を先にする。
+ * 名前は視聴者の記録（viewers）の表示名を先に使い、無ければ台帳に控えた最後の表示名を使う（発言していない人にもトリガーで渡すため）。
+ *
+ * @throws DollChangeError いまの人形を選んでいない（no-current-set）場合
+ * @throws Error 名前の分からない人がいる場合（表示名を控える前の記録だけで、発言もしていない人。黙って飛ばさない）
+ */
+export const readDollRanking = async (db: Database, limit: number): Promise<DollRanking> => {
+  const set = await readCurrentDollSet(db)
+  const { results } = await db
+    .prepare(
+      `WITH holdings AS (${HOLDING_SELECT} WHERE set_id = ?1 GROUP BY user_id, set_id),
+       scored AS (SELECT *, normal + super * ?2 AS points FROM holdings WHERE normal + super * ?2 > 0)
+       SELECT scored.*, RANK() OVER (ORDER BY points DESC) AS rank,
+         COALESCE(
+           (SELECT display_name FROM viewers WHERE viewers.user_id = scored.user_id),
+           (SELECT user_name FROM doll_ledger WHERE doll_ledger.user_id = scored.user_id AND user_name IS NOT NULL ORDER BY id DESC LIMIT 1)
+         ) AS user_name
+       FROM scored
+       ORDER BY points DESC, super DESC, user_id
+       LIMIT ?3`,
+    )
+    .bind(set.id, SUPER_DOLL_VALUE, limit)
+    .all<RankingRow>()
+  const entries = results.map((row) => {
+    if (row.user_name === null) throw new Error(`人形を持っている視聴者（ユーザーID ${row.user_id}）の名前が分かりません`)
+    return { rank: row.rank, userId: row.user_id, userName: row.user_name, normal: row.normal, super: row.super, points: row.points }
+  })
+  return { set, entries }
 }
 
 /** その人の台帳をすべて消す（視聴者の記録を消すとき。worker/viewer-store.ts の deleteViewer） */

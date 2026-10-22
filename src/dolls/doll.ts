@@ -4,7 +4,7 @@
  * 視聴者が所持する人形（issue #418）の、Worker から受け取る形と、受け取るたびに形を確かめる型ガードを置く。
  * worker/ のコードはブラウザ用のコードから読み込まない約束なので、形は worker/doll.ts と合わせてここにも書く。
  */
-import { isRecord } from '@/core/api'
+import { isRecord } from '../core/api'
 
 /** 人形の種類。normal はふつうの人形、super はスーパー人形 */
 export type DollKind = 'normal' | 'super'

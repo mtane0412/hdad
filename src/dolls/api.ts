@@ -13,6 +13,8 @@ import { isDollHolding, isDollKind, isDollSet, type DollFigure, type DollHolding
 const DOLLS_PATH = '/api/admin/dolls'
 const CURRENT_PATH = '/api/admin/doll-current'
 const PRIZES_PATH = '/api/admin/doll-prizes'
+/** ランキングを合成ページへ出す経路 */
+const RANKING_SHOW_PATH = '/api/admin/doll-ranking/show'
 
 /** 追加・書き換えで送る、人形の組1組の中身。検証は Worker（worker/doll.ts）だけが持つ */
 export interface DollSetInput {
@@ -39,6 +41,10 @@ export interface DollApi {
   selectCurrent(setId: number | null): Promise<DollSet[]>
   /** 視聴者にいまの人形を渡す（delta が正）・取り上げる（負）。増減したあとの、その人のいまの人形の所持数を返す */
   change(userId: string, kind: DollKind, delta: number): Promise<DollHolding>
+  /** その視聴者のいまの人形の所持数を、合成ページの素材「人形の獲得」へ出す */
+  showStanding(userId: string): Promise<void>
+  /** いまの人形のランキングを、合成ページの素材「人形の獲得」へ出す */
+  showRanking(): Promise<void>
   /** そのゲームの正解者に渡す人形を読む（null なら渡さない） */
   prize(game: DollPrizeGame): Promise<DollKind | null>
   /** そのゲームの正解者に渡す人形を保存し（null なら渡さない）、保存したものを返す */
@@ -88,6 +94,12 @@ export const createDollApi = (fetchImpl: typeof fetch): DollApi => {
       const holding = isRecord(body) ? body.holding : undefined
       if (!isDollHolding(holding)) throw new Error('Workerの人形の増減の応答が想定した形ではありません')
       return holding
+    },
+    showStanding: async (userId) => {
+      await call(`/api/admin/viewers/${encodeURIComponent(userId)}/dolls/show`, { method: 'POST' })
+    },
+    showRanking: async () => {
+      await call(RANKING_SHOW_PATH, { method: 'POST' })
     },
     prize: async (game) => readPrize(await call(`${PRIZES_PATH}/${game}`)),
     savePrize: async (game, kind) => readPrize(await send(`${PRIZES_PATH}/${game}`, 'PUT', { kind })),
