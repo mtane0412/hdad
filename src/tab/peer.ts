@@ -6,12 +6,27 @@
  *
  * - 映像は H.264 を優先する（#163 の試作で、Chrome の既定の VP8 はソフトウェアで符号化されて送り手だけで
  *   CPU を 72% 使い、遅延は約 97ms だった。H.264 は Mac のハードウェア符号化（VideoToolbox）に回り、8%・約 28〜52ms）
+ * - 映像のビットレートの上限を Chrome の既定の 2.5Mbps から上げる（既定のままだと帯域に余裕があっても 2.5Mbps に
+ *   張り付き、1080p の動画が粗く圧縮される。同じPCの中を流れるので、上げても帯域は足りる）
  * - ICE の候補は集め終えてから SDP にまとめて送る（同じPCの中でつなぐので、STUN も TURN も使わず、すぐに集まる）
  *
  * 注意: H.264 で送れないブラウザでは、VP8 へ黙って切り替えずに失敗させる（Fail-Fast）。負荷と遅延が大きく変わるため。
  */
 import type { ReceiverPeer, ReceiverPeerHandlers } from './receiver'
 import type { SenderPeer, SenderPeerHandlers } from './sender'
+
+/**
+ * 映像のビットレートの上限（bps）。1920×1080・30fps の動画を粗くせずに送れる値にする
+ * （YouTube が 1080p・30fps のアップロードに勧める 8Mbps に合わせた。H.264 の level 3.1 の上限 14Mbps より低い）
+ */
+export const VIDEO_MAX_BITRATE = 8_000_000
+
+/**
+ * トラックの種類ごとの送り方の指定（RTCRtpTransceiverInit の sendEncodings）を返す。
+ * 音は Chrome の既定のまま送るので、指定しない（undefined）。
+ */
+export const sendEncodingsFor = (kind: string): RTCRtpEncodingParameters[] | undefined =>
+  kind === 'video' ? [{ maxBitrate: VIDEO_MAX_BITRATE }] : undefined
 
 /** ICE の候補を集め終えるまで待つ上限（ミリ秒）。同じPCの中なら一瞬で集まるので、待ち続けるのは異常と見なす */
 const ICE_GATHERING_TIMEOUT_MS = 5000
@@ -55,7 +70,8 @@ const preferH264 = (pc: RTCPeerConnection): void => {
 /** 送り手の接続を1本作る（合成ページ1つぶん） */
 export const openSenderPeer = (stream: MediaStream, handlers: SenderPeerHandlers): SenderPeer => {
   const pc = new RTCPeerConnection()
-  for (const track of stream.getTracks()) pc.addTrack(track, stream)
+  // addTrack と同じく送受信の向きで足し、送り方の指定（ビットレートの上限）を最初から付けておく
+  for (const track of stream.getTracks()) pc.addTransceiver(track, { streams: [stream], sendEncodings: sendEncodingsFor(track.kind) })
   pc.addEventListener('connectionstatechange', () => {
     if (pc.connectionState === 'connected') handlers.onConnected()
     if (pc.connectionState === 'failed') handlers.onFailed()
