@@ -17,15 +17,15 @@ import type { SenderPeer, SenderPeerHandlers } from './sender'
 
 /**
  * 映像のビットレートの上限（bps）。1920×1080・30fps の動画を粗くせずに送れる値にする
- * （YouTube が 1080p・30fps のアップロードに勧める 8Mbps に合わせた。H.264 の level 3.1 の上限 14Mbps より低い）
+ * （YouTube が 1080p・30fps のアップロードに勧める 8Mbps に合わせた）
  */
-export const VIDEO_MAX_BITRATE = 8_000_000
+const VIDEO_MAX_BITRATE = 8_000_000
 
 /**
  * トラックの種類ごとの送り方の指定（RTCRtpTransceiverInit の sendEncodings）を返す。
  * 音は Chrome の既定のまま送るので、指定しない（undefined）。
  */
-export const sendEncodingsFor = (kind: string): RTCRtpEncodingParameters[] | undefined =>
+const sendEncodingsFor = (kind: string): RTCRtpEncodingParameters[] | undefined =>
   kind === 'video' ? [{ maxBitrate: VIDEO_MAX_BITRATE }] : undefined
 
 /** ICE の候補を集め終えるまで待つ上限（ミリ秒）。同じPCの中なら一瞬で集まるので、待ち続けるのは異常と見なす */
