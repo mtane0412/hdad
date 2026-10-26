@@ -74,6 +74,11 @@ export const MAX_TOWN_QUOTE_LENGTH = 20
 export const MAX_RAIDER_QUOTE_LENGTH = 20
 /** 共通点の長さの上限（文字）。合成ページで2行に収め、読み上げても冗長にならない長さにする */
 export const MAX_BOND_LENGTH = 50
+/**
+ * LLM に頼む共通点の長さ（文字）。検証の上限（MAX_BOND_LENGTH）より短くしておく。
+ * LLM は頼んだ長さを数文字はみ出すことがあり、上限ちょうどで頼むと、作り直させても1文字超えて捨てられた（実配信で51文字）
+ */
+export const BOND_PROMPT_LENGTH = 45
 /** 任命理由の長さの上限（文字）。認定証の本文の1〜2行に収める */
 export const MAX_CERTIFICATE_REASON_LENGTH = 40
 
@@ -196,7 +201,7 @@ export const buildTownBondPrompt = ({ prefecture, county, name, material, raider
     `- townQuote: 下の「${name}の材料」から一字一句そのまま抜き出した、${MAX_TOWN_QUOTE_LENGTH}文字以内の語句（固有名詞や短い語句）`,
     `- raiderField: 下の「${raider.displayName}さんの情報」のうち、使った欄の名前（「- 」のあとの欄の名前をそのまま）`,
     `- raiderQuote: その欄の値から一字一句そのまま抜き出した、${MAX_RAIDER_QUOTE_LENGTH}文字以内の語句`,
-    `- bond: 「${raider.displayName}さんとこの${name.slice(-1)}、実は…」に続く、${MAX_BOND_LENGTH}文字以内の言い切りの1文。townQuote と raiderQuote を結ぶ。結び方は、同じ字・同じ音・語呂合わせ・連想・数字の一致・こじつけのどれでもよい`,
+    `- bond: 「${raider.displayName}さんとこの${name.slice(-1)}、実は…」に続く、${BOND_PROMPT_LENGTH}文字以内の言い切りの1文。townQuote と raiderQuote を結ぶ。結び方は、同じ字・同じ音・語呂合わせ・連想・数字の一致・こじつけのどれでもよい`,
     `- certificateReason: 名誉町民の認定証に書く任命の理由。${MAX_CERTIFICATE_REASON_LENGTH}文字以内で、bond と同じ共通点を書き、「〜につき」か「〜と認められるため」で終える`,
     '',
     '# 形だけの例（中身はこの町・この配信者と無関係です。中身を写さないでください）',

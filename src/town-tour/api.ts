@@ -35,7 +35,7 @@ export interface TownTourApi {
    * コードの市町村の紹介を作らせる。レイド元があれば、その配信者との共通点も一緒に作らせる（issue #275）。
    *
    * @param raider 呼び出しの raider（共通点を作らせないなら null）
-   * @throws ApiError 紹介を作れなかった（502）・一覧に無いコード（404）など。Worker の理由を持つ。共通点だけの失敗では投げず、紹介の bondFailure に入る
+   * @throws ApiError 紹介を作れなかった（502）・一覧に無いコード（404）など。Worker の理由を持つ。共通点だけの失敗では投げず、紹介の bond が null になる
    */
   introduce(code: string, raider: TownTourRaider | null): Promise<TownTourIntro>
   /**

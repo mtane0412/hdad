@@ -36,7 +36,6 @@ const chiyodaIntro = {
   },
   image: null,
   bond: null,
-  bondFailure: null,
 }
 
 describe('introduce', () => {
@@ -48,7 +47,6 @@ describe('introduce', () => {
       tour: chiyodaIntro.tour,
       image: null,
       bond: null,
-      bondFailure: null,
     })
     expect(calls).toEqual([`/api/overlay/town-tour?key=${encodeURIComponent(OVERLAY_KEY)}&code=13101`])
   })

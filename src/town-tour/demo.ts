@@ -59,7 +59,6 @@ export const demoTownTourIntro: TownTourIntro = {
     caption: '国会議事堂',
   },
   bond: null,
-  bondFailure: null,
 }
 
 /** 紹介が届くまでの待ち時間（ミリ秒）。Worker に作らせたときの実測（2.7〜5.1秒）に合わせる */
