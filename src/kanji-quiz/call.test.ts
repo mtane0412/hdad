@@ -13,6 +13,8 @@ const call = {
   id: '出題ID',
   problem: { word: '境内', readings: ['けいだい'], grade: '6', explanation: '神社や寺の敷地の中。' },
   requesterName: '田中太郎',
+  // 配信が終わるまでに、あと2回時間切れになれる
+  remainingMisses: 2,
   // 正解の音だけを選んだ音の設定（Worker が素材のIDを音声のURLに置き換えたもの）
   sound: {
     slots: { bgm: null, start: null, wrongAnswer: null, countdown: null, correct: '/api/media/media-pinpon?key=overlay-key', timeUp: null, explanation: null },
@@ -42,8 +44,16 @@ describe('parseKanjiQuizMessage', () => {
     expect(() => parseKanjiQuizMessage(JSON.stringify({ ...call, problem: { ...call.problem, grade: '11' } }))).toThrowError(/級/)
   })
 
+  it('配信が終わるまでの時間切れの残りの回数が無い・1未満・整数でないなら投げる', () => {
+    const withoutRemaining = { id: call.id, problem: call.problem, requesterName: call.requesterName, sound: call.sound }
+
+    expect(() => parseKanjiQuizMessage(JSON.stringify(withoutRemaining))).toThrowError(/形/)
+    expect(() => parseKanjiQuizMessage(JSON.stringify({ ...call, remainingMisses: 0 }))).toThrowError(/形/)
+    expect(() => parseKanjiQuizMessage(JSON.stringify({ ...call, remainingMisses: 1.5 }))).toThrowError(/形/)
+  })
+
   it('音の設定が無い・枠が欠けている出題は、黙って無音で流さずに投げる', () => {
-    const withoutSound = { id: call.id, problem: call.problem, requesterName: call.requesterName }
+    const withoutSound = { id: call.id, problem: call.problem, requesterName: call.requesterName, remainingMisses: call.remainingMisses }
     // 時間切れ（timeUp）の枠を書き忘れた音の設定
     const { bgm, start, wrongAnswer, countdown, correct } = call.sound.slots
     const slotsWithoutTimeUp = { bgm, start, wrongAnswer, countdown, correct }
@@ -73,6 +83,19 @@ describe('parseKanjiQuizMessage', () => {
       graceMs: 10000,
       rehearsal: false,
     })
+  })
+
+  it('配信を止めない時間切れは、出題の識別子と、配信が終わるまでの時間切れの残りの回数を読む', () => {
+    expect(parseKanjiQuizMessage(JSON.stringify({ type: 'missed', quizId: '出題ID', remainingMisses: 2 }))).toEqual({
+      type: 'missed',
+      quizId: '出題ID',
+      remainingMisses: 2,
+    })
+  })
+
+  it('配信を止めない時間切れの残りの回数が無い・1未満なら投げる', () => {
+    expect(() => parseKanjiQuizMessage(JSON.stringify({ type: 'missed', quizId: '出題ID' }))).toThrowError(/時間切れ/)
+    expect(() => parseKanjiQuizMessage(JSON.stringify({ type: 'missed', quizId: '出題ID', remainingMisses: 0 }))).toThrowError(/時間切れ/)
   })
 
   it('配信の停止の取り消しは、出題の識別子を読む', () => {

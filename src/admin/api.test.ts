@@ -428,6 +428,28 @@ describe('rotateOverlayKey・playTownTourDemo・townTourSound・rewards・logout
     expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/kanji-quiz/sound')
   })
 
+  it('漢字クイズで配信を止めるまでの時間切れの回数を読む', async () => {
+    const { requests, fetchImpl } = fetchReturning(200, { missLimit: 3 })
+
+    expect(await createAdminApi(fetchImpl).kanjiQuizMissLimit()).toBe(3)
+    expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/kanji-quiz/miss-limit')
+  })
+
+  it('漢字クイズで配信を止めるまでの時間切れの回数を PUT で保存し、Workerが保存した回数を返す', async () => {
+    const { requests, fetchImpl } = fetchReturning(200, { missLimit: 5 })
+
+    expect(await createAdminApi(fetchImpl).saveKanjiQuizMissLimit(5)).toBe(5)
+    expect(requests[0]!.method).toBe('PUT')
+    expect(new URL(requests[0]!.url).pathname).toBe('/api/admin/kanji-quiz/miss-limit')
+    expect(await requests[0]!.json()).toEqual({ missLimit: 5 })
+  })
+
+  it('漢字クイズの時間切れの回数の応答が範囲の外ならエラーにする', async () => {
+    const { fetchImpl } = fetchReturning(200, { missLimit: 0 })
+
+    await expect(createAdminApi(fetchImpl).kanjiQuizMissLimit()).rejects.toThrow()
+  })
+
   it('漢字クイズの音の設定を PUT で保存し、Workerが保存したものを返す', async () => {
     const sound = { slots: { bgm: null, start: null, wrongAnswer: null, countdown: 'media-tick', correct: null, timeUp: null, explanation: null }, bgmVolume: 0.3, effectVolume: 0.8 }
     const { requests, fetchImpl } = fetchReturning(200, sound)

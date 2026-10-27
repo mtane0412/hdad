@@ -1,7 +1,8 @@
 /**
  * 漢字クイズの時間切れで配信を止める流れ（issue #302）
  *
- * 1. 受付の締め切りに、時間切れ（正解者なし）を確かめて停止を始め、合成ページと下部バーへ猶予を知らせる（judgeKanjiQuizTimeout）
+ * 1. 受付の締め切りに、時間切れ（正解者なし）を確かめて記録する。同じ配信の時間切れの数が設定の回数（kanji-quiz-miss-limit.ts）に届いていなければ、
+ *    止めずに合成ページへ残りの回数を知らせる（type: missed）。届いていれば停止を始め、合成ページと下部バーへ猶予を知らせる（judgeKanjiQuizTimeout）
  * 2. 猶予のあいだに下部バーで取り消されたら、取り消したことを知らせる（cancelKanjiQuizStopsAndNotify）
  * 3. 猶予が尽きたら、鍵を確保してから裏方へ配信を止める命令を送る（sendKanjiQuizStop）
  *
@@ -11,10 +12,12 @@
  * 注意: 猶予を知らせられなかったら止めない（止める時刻を仕掛けない）。配信者が猶予を見られず取り消せないまま配信が止まるより、
  *   止まらないほうに倒す。失敗は投げ、呼び出し側（kanji-quiz-timer.ts）が kanji-quiz-stop-failed として記録する。
  * 注意: 試し再生（rehearsal）の出題は、猶予を知らせるだけで止める時刻を仕掛けない（演出の最後に「止めません」と出すのは合成ページ）。
+ *   回数は本番の時間切れの数に試し再生の1回を足して決め（本番ならどうなるかを見せる）、試し再生の時間切れは本番の数には数えない。
+ * 注意: 時間切れの記録は、知らせられなかったときも戻さない（時間切れになったことは変わらないため。合成ページは結果が届かないことを箱に出す）。
  */
 import { pushKanjiQuizNotice, pushStreamStop, type AlertChannelNamespace } from './alert-channel'
 import type { Database } from './database'
-import { abandonKanjiQuizStop, beginKanjiQuizStop, cancelKanjiQuizStops, claimKanjiQuizStop } from './kanji-quiz-store'
+import { abandonKanjiQuizStop, beginKanjiQuizStop, cancelKanjiQuizStops, claimKanjiQuizStop, missKanjiQuiz, readKanjiQuizMissCount } from './kanji-quiz-store'
 
 /** 時間切れから配信を止めるまでの猶予（ミリ秒）。このあいだ下部バーから取り消せる。設定にはしない */
 export const KANJI_QUIZ_STOP_GRACE_MS = 10_000
@@ -27,16 +30,27 @@ export interface KanjiQuizStopDeps {
 }
 
 /**
- * 受付の締め切りに呼ぶ。正解者がいなければ停止を始め、猶予を知らせて、猶予が尽きる時刻に停止を仕掛ける。
+ * 受付の締め切りに呼ぶ。正解者がいなければ時間切れを記録し、同じ配信の時間切れの数が missLimit に届いていなければ残りの回数を知らせる。
+ * 届いていれば停止を始め、猶予を知らせて、猶予が尽きる時刻に停止を仕掛ける。
  *
+ * @param missLimit 配信を止めるまでの時間切れの回数（kanji-quiz-miss-limit.ts の設定）
  * @param scheduleStop 猶予が尽きる時刻に sendKanjiQuizStop を呼ぶよう仕掛ける（Durable Object のアラーム）
- * @throws 猶予を知らせられなかった・停止を仕掛けられなかった場合
+ * @throws 残りの回数・猶予を知らせられなかった・停止を仕掛けられなかった場合
  */
 export const judgeKanjiQuizTimeout = async (
   { db, alerts, now }: KanjiQuizStopDeps,
   quizId: string,
+  missLimit: number,
   scheduleStop: (stop: { readonly quizId: string; readonly at: number }) => Promise<void>,
 ): Promise<void> => {
+  // 正解者がいた・もう記録したなどで記録しなかったら、何もしない
+  if ((await missKanjiQuiz(db, quizId, now)) === null) return
+  // この出題を含めた同じ配信の時間切れの数（試し再生なら、本番の数にこの1回を足したもの）
+  const misses = await readKanjiQuizMissCount(db, now, quizId)
+  if (misses < missLimit) {
+    await pushKanjiQuizNotice(alerts, { type: 'missed', quizId, remainingMisses: missLimit - misses })
+    return
+  }
   const started = await beginKanjiQuizStop(db, quizId, now, KANJI_QUIZ_STOP_GRACE_MS)
   // 正解者がいた・もう始めたなどで始めなかったら、何もしない
   if (started === null) return

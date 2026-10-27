@@ -15,7 +15,7 @@ import type { KanjiQuizSound } from '../src/kanji-quiz/sound'
 import { pushKanjiQuiz, type AlertChannelNamespace } from './alert-channel'
 import type { Database } from './database'
 import { KANJI_QUIZ_PROBLEMS, pickKanjiQuizProblem, type KanjiQuizCall } from './kanji-quiz-call'
-import { readKanjiQuizWordCounts, recordKanjiQuiz, removeKanjiQuiz } from './kanji-quiz-store'
+import { readKanjiQuizMissCount, readKanjiQuizWordCounts, recordKanjiQuiz, removeKanjiQuiz } from './kanji-quiz-store'
 
 /** 出題に使うもの。乱数と識別子はテストで差し替えるため引数で受け取る */
 export interface KanjiQuizIssueDeps {
@@ -32,20 +32,29 @@ export interface KanjiQuizIssueDeps {
  * 級ごとの重みに沿って問題を1問選んで記録し、合成ページへ押し出す。
  *
  * @param request 級ごとの出題の重みと、交換して出題させた人の表示名（試し再生は null）と、試し再生か（試し再生は時間切れでも配信を止めない。issue #302）と、
- *   演出で鳴らす音（呼び出し側が kanji-quiz-sound.ts の playbackKanjiQuizSoundOf で音声のURLにしたもの）
+ *   演出で鳴らす音（呼び出し側が kanji-quiz-sound.ts の playbackKanjiQuizSoundOf で音声のURLにしたもの）と、配信を止めるまでの時間切れの回数
+ *   （kanji-quiz-miss-limit.ts。同じ配信の時間切れの数を引いて、合成ページに出す残りの回数にする）
  * @param problems 選ぶ元の問題集。省けばリポジトリの問題集
  * @returns 押し出した呼び出し
  * @throws 押し出せなかった場合（出題の行は消してから投げる）
  */
 export const issueKanjiQuiz = async (
   { db, alerts, now, random, id }: KanjiQuizIssueDeps,
-  request: { readonly weights: KankenGradeWeights; readonly requesterName: string | null; readonly rehearsal: boolean; readonly sound: KanjiQuizSound },
+  request: {
+    readonly weights: KankenGradeWeights
+    readonly requesterName: string | null
+    readonly rehearsal: boolean
+    readonly sound: KanjiQuizSound
+    readonly missLimit: number
+  },
   problems: readonly KanjiQuizProblem[] = KANJI_QUIZ_PROBLEMS,
 ): Promise<KanjiQuizCall> => {
-  const wordCounts = await readKanjiQuizWordCounts(db, now)
+  const [wordCounts, misses] = await Promise.all([readKanjiQuizWordCounts(db, now), readKanjiQuizMissCount(db, now, null)])
   const problem = pickKanjiQuizProblem(request.weights, random, wordCounts, problems)
   await recordKanjiQuiz(db, { id, word: problem.word, rehearsal: request.rehearsal }, now)
-  const call: KanjiQuizCall = { id, problem, requesterName: request.requesterName, sound: request.sound }
+  // 停止を取り消したあとなどで、もう回数に届いていても、次の時間切れで止まるので1回とする
+  const remainingMisses = Math.max(1, request.missLimit - misses)
+  const call: KanjiQuizCall = { id, problem, requesterName: request.requesterName, sound: request.sound, remainingMisses }
   try {
     await pushKanjiQuiz(alerts, call)
   } catch (error) {

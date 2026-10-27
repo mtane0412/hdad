@@ -127,6 +127,7 @@ const redeemedKanjiQuiz: KanjiQuizCall = {
   problem: { word: '境内', readings: ['けいだい'], grade: '6', explanation: '神社や寺の敷地の中。' },
   requesterName: '田中太郎',
   sound: { slots: { bgm: null, start: null, wrongAnswer: null, countdown: null, correct: null, timeUp: null, explanation: null }, bgmVolume: 0.3, effectVolume: 0.6 },
+  remainingMisses: 1,
 }
 
 const duringTownTour: BgmDuck = { holdMs: 42_000 }

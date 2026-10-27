@@ -87,7 +87,7 @@ main にマージすると、Workers Builds が `npm run deploy`（`wrangler dep
 | `town-tour.md` | 市町村紹介（レイド・キーワードの動作 `townTour` と素材の種類 `townTour`。一覧と日本地図は N03 からの生成物、紹介は Wikipedia を材料にその都度作る） | `src/town-tour/**`・`scripts/town-tour/**`・`public/town-tour/**`・`worker/town-*.ts` |
 | `wipe.md` | ワイプ（素材の種類 `wipe`。チャットを1件ずつアイコンの枠と吹き出しで出し、自分で読み上げる） | `src/wipe/**`・`worker/wipe-*.ts`・`src/speech/voice.ts`・`src/speech/task.ts` |
 | `twister.md` | ツイスター（レイドの動作 `twister` と素材の種類 `twister`。three.js の3Dの人形で対戦し、倒れ込みは物理を先に計算して再生する） | `src/twister/**`・`worker/twister-*.ts`・`src/admin/twister-card.tsx` |
-| `kanji-quiz.md` | 漢字クイズ（チャンネルポイントの動作 `kanjiQuiz` と素材の種類 `kanjiQuiz`。自前の問題集から級を選んで出題し、時間切れなら猶予のあと裏方が OBS の配信を止める） | `src/kanji-quiz/**`・`worker/kanji-quiz-*.ts`・`src/admin/kanji-quiz-card.tsx` |
+| `kanji-quiz.md` | 漢字クイズ（チャンネルポイントの動作 `kanjiQuiz` と素材の種類 `kanjiQuiz`。自前の問題集から級を選んで出題し、同じ配信の時間切れが設定の回数に届いたら猶予のあと裏方が OBS の配信を止める） | `src/kanji-quiz/**`・`worker/kanji-quiz-*.ts`・`src/admin/kanji-quiz-card.tsx`・`src/admin/kanji-quiz-miss-limit-field.tsx`・`migrations/*kanji_quiz*.sql` |
 | `lick.md` | ペロペロ（動作 `lick` と素材の種類 `lick`。相手のアイコンを three.js の舌が舐め上げる。キモさ優先） | `src/lick/**`・`worker/lick-*.ts`・`src/admin/lick-card.tsx` |
 | `vrm.md` | VRMのマスコット（動作 `vrm` と素材の種類 `vrm`。配信者がアップロードした VRM を出しっぱなしで立たせ、トリガーでその場で反応させ、読み上げに口を合わせる。動きは手で作り、髪や服の揺れ（SpringBone）だけは経過時間だけから描く約束の例外） | `src/vrm/**`・`worker/vrm-*.ts`・`src/admin/vrm-card.tsx`・`src/speech/level*.ts` |
 | `chat-deduction.md` | チャットで推理（`/chat-deduction/`・素材の種類 `chatDeduction`。視聴者がチャンネルポイントの質問で答えを絞り込み、解答で当てる。報酬は HDAD が作り、ゲームのあいだだけ交換できる。正解は終えるまで合成ページに渡さない） | `src/chat-deduction/**`・`worker/chat-deduction-*.ts`・`worker/reward-routes.ts`・`worker/alert-channel.ts`・`migrations/*chat_deduction*.sql` |

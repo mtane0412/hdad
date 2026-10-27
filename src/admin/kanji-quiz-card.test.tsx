@@ -37,6 +37,8 @@ const fakeApi = (overrides: Partial<KanjiQuizApi> = {}): KanjiQuizApi => ({
   kanjiQuizSound: vi.fn(async () => savedSound),
   saveKanjiQuizSound: vi.fn(async (sound: KanjiQuizSound) => sound),
   playKanjiQuizDemo: vi.fn(async () => '漢検6級「境内」'),
+  kanjiQuizMissLimit: vi.fn(async () => 1),
+  saveKanjiQuizMissLimit: vi.fn(async (missLimit: number) => missLimit),
   ...overrides,
 })
 

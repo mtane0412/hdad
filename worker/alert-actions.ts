@@ -50,6 +50,7 @@ import { issueKanjiQuiz } from './kanji-quiz-issue'
 import { CHAT_DEDUCTION_PROBLEM_SETS } from '../src/chat-deduction/problem-set'
 import { pickConfiguredChatDeductionProblem } from './chat-deduction-pick'
 import { startChatDeductionGame } from './chat-deduction-start'
+import { loadKanjiQuizMissLimit } from './kanji-quiz-miss-limit'
 import { loadKanjiQuizSound, playbackKanjiQuizSoundOf } from './kanji-quiz-sound'
 import { lickCallOf, lickSeedOf } from './lick-call'
 import type { TriggerKind } from './trigger-menu'
@@ -201,9 +202,9 @@ export const runAlertActions = async (
       throw invalid(error instanceof Error ? error.message : String(error))
     }
   })()
-  // 音の設定とオーバーレイ用キーは、当てはまった行があるときだけ読む（チャットの発言のたびにKVを読まないため）
+  // 音の設定・配信を止めるまでの時間切れの回数・オーバーレイ用キーは、当てはまった行があるときだけ読む（チャットの発言のたびにKVを読まないため）
   if (kanjiQuizzes.length > 0) {
-    const [sound, overlayKey] = await Promise.all([loadKanjiQuizSound(env.STORE), loadOverlayKey(env.STORE)])
+    const [sound, { missLimit }, overlayKey] = await Promise.all([loadKanjiQuizSound(env.STORE), loadKanjiQuizMissLimit(env.STORE), loadOverlayKey(env.STORE)])
     for (const [index, kanjiQuiz] of kanjiQuizzes.entries()) {
       await sendAndRecordFailure(context, messageId, 'kanjiQuiz', index, 'kanji-quiz-push-failed', async () => {
         // キーが未発行で音のURLを作れないときも、押し出しの失敗として記録する（黙って無音で流さない）
@@ -211,7 +212,7 @@ export const runAlertActions = async (
         // チャンネルポイントの交換での出題は試し再生ではないので、時間切れなら配信を止める
         await issueKanjiQuiz(
           { db: env.DB, alerts: env.ALERTS, now, random: Math.random, id: crypto.randomUUID() },
-          { ...kanjiQuiz, rehearsal: false, sound: playbackSound },
+          { ...kanjiQuiz, rehearsal: false, sound: playbackSound, missLimit },
         )
       })
     }

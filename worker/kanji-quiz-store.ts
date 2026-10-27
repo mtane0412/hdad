@@ -4,9 +4,10 @@
  * Worker が問題を選んだら押し出す前に出題の行を入れ（recordKanjiQuiz）、合成ページが流しはじめたら受け付ける時刻を書き（openKanjiQuiz）、
  * Webhook がチャットの発言を受けるたびに受け付けている出題と照らして、最初に正解した人を決める（answerKanjiQuiz）。
  * 同じ配信で出した問題を選ばないよう、配信中に選んだ熟語と選んだ回数も読み出す（readKanjiQuizWordCounts）。
+ * 時間切れを記録し（missKanjiQuiz）、同じ配信の時間切れの数を読む（readKanjiQuizMissCount）。配信を止めるのは、その数が設定の回数に届いたときだけである。
  * 時間切れ（正解者なし）で配信を止める流れ（issue #302）の状態もこの行に持つ。停止を始め（beginKanjiQuizStop）、
  * 猶予のあいだに取り消されなければ、鍵を確保してから止める（claimKanjiQuizStop）。取り消しは cancelKanjiQuizStops。
- * テーブルの定義は migrations/0031_kanji_quizzes.sql と 0032_kanji_quiz_stop.sql にある。日時は UTC の ISO 8601 の文字列で持つ。
+ * テーブルの定義は migrations/0031_kanji_quizzes.sql・0032_kanji_quiz_stop.sql・0048_kanji_quiz_missed.sql にある。日時は UTC の ISO 8601 の文字列で持つ。
  *
  * 注意: 正解者の判定は SQLite の RETURNING を使い、1つの文の中で「書けたかどうか」を受け取る（town-tour-quiz.ts と同じ考え方）。
  * 「読んでから書く」に分けると、ほぼ同時に届いた2人の正解がどちらも最初の正解者になってしまう。
@@ -80,7 +81,7 @@ export const openKanjiQuiz = async (db: Database, id: string, now: number): Prom
 
 /**
  * チャットの回答を、受け付けている出題と照らす。回答の読みを持つ熟語の出題で、まだ正解者がいなければ、この人を正解者にする。
- * 締め切りのアラームが先に停止を始めた出題（stop_at がある）は、締め切り前に受けた回答でも正解者にしない。
+ * 締め切りのアラームが先に時間切れを記録した出題（missed_at がある）と停止を始めた出題（stop_at がある）は、締め切り前に受けた回答でも正解者にしない。
  * 合成ページは正解者か時間切れの知らせのどちらか先に届いたほうを結果として出すので、両方を押し出さないようにするため。
  *
  * @param answer 回答の読みを持つ熟語（kanji-quiz-answer.ts の wordsAnsweredBy）と、回答した人の表示名
@@ -95,7 +96,7 @@ export const answerKanjiQuiz = async (
   const { results } = await db
     .prepare(
       `UPDATE kanji_quizzes SET winner_name = ?1, answered_at = ?2
-       WHERE word IN (SELECT value FROM json_each(?3)) AND winner_name IS NULL AND stop_at IS NULL AND accepts_from <= ?2 AND closes_at > ?2
+       WHERE word IN (SELECT value FROM json_each(?3)) AND winner_name IS NULL AND missed_at IS NULL AND stop_at IS NULL AND accepts_from <= ?2 AND closes_at > ?2
        RETURNING id, rehearsal`,
     )
     .bind(answer.userName, toIso(now), JSON.stringify(answer.words))
@@ -113,6 +114,45 @@ export const readKanjiQuizWordCounts = async (db: Database, now: number): Promis
     .bind(toIso(now))
     .all<{ word: string; count: number }>()
   return new Map(results.map(({ word, count }) => [word, count]))
+}
+
+/**
+ * 時間切れ（受付を締め切っても正解者がいない）を記録する。同じ配信の時間切れの数を数え、配信を止めるかを決めるために使う。
+ *
+ * 締め切りの前・正解者がいる・開いていない・もう記録した出題では記録しない（アラームが2回鳴っても2回と数えない）。
+ * 記録したあとは answerKanjiQuiz が正解者を書かないので、ここで「正解者なし」が確定する。
+ *
+ * @returns 記録したら試し再生の出題か。記録しなかったら null
+ */
+export const missKanjiQuiz = async (db: Database, id: string, now: number): Promise<{ rehearsal: boolean } | null> => {
+  const { results } = await db
+    .prepare(
+      `UPDATE kanji_quizzes SET missed_at = ?2
+       WHERE id = ?1 AND winner_name IS NULL AND closes_at <= ?2 AND missed_at IS NULL
+       RETURNING rehearsal`,
+    )
+    .bind(id, toIso(now))
+    .all<{ rehearsal: number }>()
+  const [row] = results
+  return row === undefined ? null : { rehearsal: row.rehearsal === 1 }
+}
+
+/**
+ * いまの配信が始まってからの時間切れの数を読む。試し再生の時間切れは数えない。配信していなければ0。
+ *
+ * @param quizId この出題が時間切れなら、試し再生でも配信の前でも1回として足す（時間切れの判定で、その出題を含めた回数で止めるかを決めるため）。
+ *   足さないなら null（出題のときに、それまでの回数を読む）
+ */
+export const readKanjiQuizMissCount = async (db: Database, now: number, quizId: string | null): Promise<number> => {
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS count FROM kanji_quizzes
+       WHERE missed_at IS NOT NULL AND (id = ?2 OR (rehearsal = 0 AND issued_at >= (${CURRENT_SESSION_STARTED_AT})))`,
+    )
+    .bind(toIso(now), quizId)
+    .first<{ count: number }>()
+  if (row === null) throw new Error('漢字クイズの時間切れを数えられませんでした')
+  return row.count
 }
 
 /**

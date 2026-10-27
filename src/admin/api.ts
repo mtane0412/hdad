@@ -10,6 +10,7 @@
  */
 import { ApiError, createCaller, isRecord, readList } from '@/core/api'
 import { isKankenGrade, isKankenGradeWeights, kankenGradeLabel, type KankenGrade, type KankenGradeWeights } from '@/kanji-quiz/grade'
+import { readKanjiQuizMissLimit } from '@/kanji-quiz/miss-limit'
 import { readKanjiQuizSound, type KanjiQuizSound } from '@/kanji-quiz/sound'
 import { readTownTourNarration, type TownTourNarration } from '@/town-tour/narration'
 import { readTownTourSound, type TownTourSound } from '@/town-tour/sound'
@@ -363,6 +364,10 @@ export interface AdminApi {
   kanjiQuizSound(): Promise<KanjiQuizSound>
   /** 漢字クイズの音の設定を保存する。Workerが保存したものを返す */
   saveKanjiQuizSound(sound: KanjiQuizSound): Promise<KanjiQuizSound>
+  /** 漢字クイズで配信を止めるまでの時間切れの回数（1配信あたり）。未保存なら1が返る */
+  kanjiQuizMissLimit(): Promise<number>
+  /** 漢字クイズで配信を止めるまでの時間切れの回数を保存する。Workerが保存した回数を返す */
+  saveKanjiQuizMissLimit(missLimit: number): Promise<number>
   /** ツイスターの対戦のあいだ流す BGM の設定。未保存なら BGM を流さない設定が返る */
   twisterSound(): Promise<TwisterSound>
   /** ツイスターの BGM の設定を保存する。Workerが保存したものを返す */
@@ -482,6 +487,7 @@ const TWISTER_SOUND_PATH = '/api/admin/twister/sound'
 const LICK_SOUND_PATH = '/api/admin/lick/sound'
 const VRM_MODEL_PATH = '/api/admin/vrm/model'
 const KANJI_QUIZ_SOUND_PATH = '/api/admin/kanji-quiz/sound'
+const KANJI_QUIZ_MISS_LIMIT_PATH = '/api/admin/kanji-quiz/miss-limit'
 
 /** アップロードで送る Content-Type。.vrm だけはブラウザが種類を付けないので、こちらで付ける */
 const contentTypeOf = (file: File): string => (file.name.toLowerCase().endsWith(VRM_EXTENSION) ? VRM_CONTENT_TYPE : file.type)
@@ -599,6 +605,13 @@ export const createAdminApi = (fetchImpl: typeof fetch): AdminApi => {
 
     saveKanjiQuizSound: async (sound) =>
       readKanjiQuizSound(await call(KANJI_QUIZ_SOUND_PATH, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sound) })),
+
+    kanjiQuizMissLimit: async () => readKanjiQuizMissLimit(await call(KANJI_QUIZ_MISS_LIMIT_PATH)).missLimit,
+
+    saveKanjiQuizMissLimit: async (missLimit) =>
+      readKanjiQuizMissLimit(
+        await call(KANJI_QUIZ_MISS_LIMIT_PATH, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ missLimit }) }),
+      ).missLimit,
 
     twisterSound: async () => readTwisterSound(await call(TWISTER_SOUND_PATH)),
 

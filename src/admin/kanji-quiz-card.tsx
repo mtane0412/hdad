@@ -9,7 +9,8 @@
  * アップロード済みの音声を選ぶか「鳴らさない」にするだけにする（市町村紹介のカード town-tour-sound-card.tsx と同じ作り）。
  * 音声の追加はアップロードのページが受け持つ。設定は漢字クイズとして1つだけで、チャンネルポイントのトリガーと試し再生が共有する。
  *
- * 正解者に渡す人形もここで選ぶ（src/dolls/doll-prize-field.tsx。選び直したらその場で保存する。issue #420）。
+ * 配信を止めるまでの時間切れの回数（kanji-quiz-miss-limit-field.tsx）と、正解者に渡す人形（src/dolls/doll-prize-field.tsx。issue #420）もここで選ぶ。
+ * どちらも選び直したらその場で保存する。
  *
  * 保存と試し再生の結果・失敗は、トリガーの保存と取り違えないよう、このカードの中に出す。
  *
@@ -31,11 +32,12 @@ import { isKankenGrade, type KankenGrade } from '@/kanji-quiz/grade'
 import { KANJI_QUIZ_SOUND_SLOTS, type KanjiQuizSound, type KanjiQuizSoundSlot } from '@/kanji-quiz/sound'
 import type { AdminApi, MediaItem } from './api'
 import { DEFAULT_KANJI_QUIZ_GRADE, KANJI_QUIZ_GRADE_OPTIONS } from './form'
+import { KanjiQuizMissLimitField, type KanjiQuizMissLimitApi } from './kanji-quiz-miss-limit-field'
 import { errorMessage, usePageActions } from './page-actions'
 import { VolumeField } from './volume-field'
 
 /** このカードが使う Worker の呼び出し */
-export type KanjiQuizApi = Pick<AdminApi, 'kanjiQuizSound' | 'saveKanjiQuizSound' | 'playKanjiQuizDemo'>
+export type KanjiQuizApi = Pick<AdminApi, 'kanjiQuizSound' | 'saveKanjiQuizSound' | 'playKanjiQuizDemo'> & KanjiQuizMissLimitApi
 
 /** 枠ごとの選択欄の名前。括弧の中はいつ鳴るか */
 const SLOT_LABELS: Readonly<Record<KanjiQuizSoundSlot, string>> = {
@@ -174,12 +176,13 @@ export const KanjiQuizCard = ({ api, prizeApi, media }: KanjiQuizCardProps) => {
         <CardTitle>漢字クイズ</CardTitle>
         <CardDescription>
           チャンネルポイントが交換されたら、熟語の読みを問う漢字クイズを流す。問題はリポジトリの問題集から、トリガーで決めた級ごとの重みに沿って1問選ぶ。
-          制限時間が過ぎると正解の読みと解説を出す。場面ごとに鳴らす音を選べる（BGM を流しているあいだ配信の BGM は下がる）。音声はアップロードのページで追加する。
+          制限時間が過ぎると正解の読みと解説を出し、同じ配信の時間切れが決めた回数になったら配信を止める。場面ごとに鳴らす音を選べる（BGM を流しているあいだ配信の BGM は下がる）。音声はアップロードのページで追加する。
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         {actions.feedback}
         {soundFields}
+        <KanjiQuizMissLimitField api={api} />
         <DollPrizeField api={prizeApi} game="kanjiQuiz" />
         <p className="text-sm text-muted-foreground">交換を待たずに試しに流せる。音は保存したものが鳴るので、未保存の変更があるあいだは押せない。</p>
         <div className="flex flex-col gap-2 sm:max-w-xs">

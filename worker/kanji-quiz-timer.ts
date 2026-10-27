@@ -16,6 +16,7 @@
  */
 import type { AlarmDependencies } from './alarm-actions'
 import { STATUS, type Env } from './http'
+import { loadKanjiQuizMissLimit } from './kanji-quiz-miss-limit'
 import { judgeKanjiQuizTimeout, sendKanjiQuizStop } from './kanji-quiz-stop'
 import { recordFailure } from './stats-store'
 
@@ -110,8 +111,10 @@ export const runKanjiQuizAlarm = async (storage: KanjiQuizTimerStorage, env: Env
   for (const step of steps.filter(({ at }) => at <= now)) {
     const deps = { db: env.DB, alerts: env.ALERTS, now }
     try {
-      if (step.kind === 'judge') await judgeKanjiQuizTimeout(deps, step.quizId, ({ quizId, at }) => addStep(storage, { kind: 'stop', quizId, at }))
-      else await sendKanjiQuizStop(deps, step.quizId)
+      if (step.kind === 'judge') {
+        const { missLimit } = await loadKanjiQuizMissLimit(env.STORE)
+        await judgeKanjiQuizTimeout(deps, step.quizId, missLimit, ({ quizId, at }) => addStep(storage, { kind: 'stop', quizId, at }))
+      } else await sendKanjiQuizStop(deps, step.quizId)
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
       await recordFailure(env.DB, FAILURE_CODE, `漢字クイズ（${step.quizId}）で配信を止める流れが失敗しました: ${reason}`, now)
