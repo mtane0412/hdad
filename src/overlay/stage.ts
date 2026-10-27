@@ -81,7 +81,7 @@ import { connectTabViewer } from '../tab/socket'
 import { KANJI_QUIZ_SOCKET_HINT, KANJI_QUIZ_SOCKET_PATH, createKanjiQuizApi } from '../kanji-quiz/api'
 import { parseKanjiQuizMessage, type KanjiQuizCall } from '../kanji-quiz/call'
 import { wrongKanjiQuizAnswerOf } from '../kanji-quiz/answer'
-import { DEMO_KANJI_QUIZ_CALLS, DEMO_KANJI_QUIZ_INTERVAL_MS, DEMO_KANJI_QUIZ_RESULT } from '../kanji-quiz/demo'
+import { DEMO_KANJI_QUIZ_CALLS, DEMO_KANJI_QUIZ_INTERVAL_MS, DEMO_KANJI_QUIZ_RESULT, demoKanjiQuizMissedOf } from '../kanji-quiz/demo'
 import { acceptsAnswerAt, kanjiQuizDismissibleAt, kanjiQuizEndOf, kanjiQuizSceneAt, kanjiQuizStopBannerAt, type KanjiQuizResult, type KanjiQuizStop } from '../kanji-quiz/scene'
 import { KANJI_QUIZ_BGM_START_CUE_ID, dueKanjiQuizSoundCues, kanjiQuizBgmDuckHoldOf } from '../kanji-quiz/sound-cues'
 import { drawKanjiQuiz, type KanjiQuizWrongAnswer } from '../kanji-quiz/view'
@@ -2215,7 +2215,8 @@ const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo, hub }:
   const api = createKanjiQuizApi(callWorker, key)
   /**
    * 流している1件。流していなければ null。result は Worker から届いた結果（正解者か時間切れ）と、流しはじめてから届くまでの経過時間。
-   * winnerName は正解者の表示名（時間切れ・届いていなければ null）。stop は配信を止めるまでの猶予。
+   * winnerName は正解者の表示名（時間切れ・届いていなければ null）。missedRemaining は配信を止めない時間切れなら、配信が終わるまでの時間切れの残りの回数。
+   * stop は配信を止めるまでの猶予。
    * wrongAnswers はチャットで届いた不正解の回答と、流しはじめてから届くまでの経過時間（届いた順）。
    * モデレーターに消された発言は、鳴らす音の番号（sound-cues.ts の wrongAnswer-<番号>）がずれないよう、取り除かずに hidden にする
    */
@@ -2224,6 +2225,7 @@ const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo, hub }:
     readonly startedAt: number
     readonly result: KanjiQuizResult | null
     readonly winnerName: string | null
+    readonly missedRemaining: number | null
     readonly stop: KanjiQuizStop | null
     readonly wrongAnswers: readonly (KanjiQuizWrongAnswer & {
       readonly afterMs: number
@@ -2303,6 +2305,15 @@ const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo, hub }:
     }
   }
 
+  /**
+   * 流している出題の、配信を止めない時間切れ（同じ配信の時間切れが配信を止める回数に届いていない）が届いたら、
+   * 届いた時刻を時間切れの結果として記録し、残りの回数を出す（Worker は正解者・猶予・止めない時間切れのどれか1つだけを押し出す）
+   */
+  const acceptMissed = (quizId: string, remainingMisses: number): void => {
+    if (playback === null || playback.call.id !== quizId || playback.result !== null) return
+    playback = { ...playback, result: { kind: 'timeUp', afterMs: Date.now() - playback.startedAt }, missedRemaining: remainingMisses }
+  }
+
   /** 流している出題の、配信の停止の取り消しが届いたら、届いた時刻を記録する */
   const acceptStopCancelled = (quizId: string): void => {
     if (playback === null || playback.call.id !== quizId || playback.stop === null || playback.stop.cancelledAfterMs !== null) return
@@ -2324,7 +2335,15 @@ const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo, hub }:
     if (next === undefined) return
     waiting = rest
     // プレビューは Worker の結果が届かないので、時間切れちょうどに時間切れが届いたものとして流す
-    playback = { call: next, startedAt: now, result: demo ? DEMO_KANJI_QUIZ_RESULT : null, winnerName: null, stop: null, wrongAnswers: [] }
+    playback = {
+      call: next,
+      startedAt: now,
+      result: demo ? DEMO_KANJI_QUIZ_RESULT : null,
+      winnerName: null,
+      missedRemaining: demo ? demoKanjiQuizMissedOf(next) : null,
+      stop: null,
+      wrongAnswers: [],
+    }
     played = new Set()
     // プレビューは Worker の選んだ出題ではないので開かせない
     if (!demo) {
@@ -2371,6 +2390,7 @@ const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo, hub }:
             call: playback.call,
             scene: kanjiQuizSceneAt(now - playback.startedAt, playback.result, playback.stop),
             winnerName: playback.winnerName,
+            missedRemaining: playback.missedRemaining,
             stopBanner: kanjiQuizStopBannerAt(now - playback.startedAt, playback.stop),
             wrongAnswer: playback.wrongAnswers.filter(({ hidden }) => !hidden).at(-1) ?? null,
           },
@@ -2396,6 +2416,7 @@ const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo, hub }:
           } else if (message.type === 'answer') acceptAnswer(message.quizId, message.userName)
           else if (message.type === 'stopping') acceptStopping(message.quizId, message.graceMs, message.rehearsal)
           else if (message.type === 'stopCancelled') acceptStopCancelled(message.quizId)
+          else if (message.type === 'missed') acceptMissed(message.quizId, message.remainingMisses)
           else showError(new Error(message.message), NOUNS.kanjiQuiz, box, 'transient')
         } catch (error) {
           showError(error, NOUNS.kanjiQuiz, box, 'transient')

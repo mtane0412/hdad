@@ -635,6 +635,7 @@ const KANJI_QUIZ_NOTICE_SUBJECTS: Record<KanjiQuizNotice['type'], string> = {
   failure: '漢字クイズの失敗',
   stopping: '配信の停止の猶予',
   stopCancelled: '配信の停止の取り消し',
+  missed: '配信を止めない時間切れ',
 }
 
 /**

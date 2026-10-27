@@ -26,6 +26,7 @@ import { createFakeStore } from './fake-store'
 import { createFakeTabChannel } from './fake-tab-channel'
 import { createFakeTokenVault } from './fake-token-vault'
 import { KANJI_QUIZ_PROBLEMS } from './kanji-quiz-call'
+import { loadKanjiQuizMissLimit } from './kanji-quiz-miss-limit'
 import { DEFAULT_KANJI_QUIZ_SOUND, loadKanjiQuizSound, saveKanjiQuizSound } from './kanji-quiz-sound'
 import { KANJI_QUIZ_STOP_GRACE_MS } from './kanji-quiz-stop'
 import { answerKanjiQuiz, beginKanjiQuizStop, openKanjiQuiz, recordKanjiQuiz } from './kanji-quiz-store'
@@ -254,6 +255,47 @@ describe('GET・PUT /api/admin/kanji-quiz/sound', () => {
     const body = (await response.json()) as { error: { problems: string[] } }
     expect(body.error.problems).toEqual(['slots.start: 素材「media-haikei」は音声ではありません'])
     expect(await loadKanjiQuizSound(env.STORE)).toEqual(DEFAULT_KANJI_QUIZ_SOUND)
+  })
+})
+
+describe('GET・PUT /api/admin/kanji-quiz/miss-limit', () => {
+  /** 配信者としてログインした状態で呼ぶ。書き換えのときは Origin も付ける（ブラウザが付けるのと同じ） */
+  const callAsBroadcaster = async (env: Env, init: RequestInit = {}): Promise<Response> => {
+    const session = await createSessionToken(env.TWITCH_BROADCASTER_ID, env.SESSION_SECRET, now)
+    return invoke('/api/admin/kanji-quiz/miss-limit', env, { ...init, headers: { Cookie: `__Host-session=${session}`, Origin: site } })
+  }
+
+  it('ログインしていなければ読ませない', async () => {
+    const response = await invoke('/api/admin/kanji-quiz/miss-limit', createEnv())
+
+    expect(response.status).toBe(401)
+  })
+
+  it('未保存なら1回を返す', async () => {
+    const response = await callAsBroadcaster(createEnv())
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ missLimit: 1 })
+  })
+
+  it('保存した回数を返し、次に読んだときも同じものを返す', async () => {
+    const env = createEnv()
+
+    const saved = await callAsBroadcaster(env, { method: 'PUT', body: JSON.stringify({ missLimit: 3 }) })
+    const loaded = await callAsBroadcaster(env)
+
+    expect(saved.status).toBe(200)
+    expect(await saved.json()).toEqual({ missLimit: 3 })
+    expect(await loaded.json()).toEqual({ missLimit: 3 })
+  })
+
+  it('範囲の外の回数は問題点つきの400で断って保存しない', async () => {
+    const env = createEnv()
+
+    const response = await callAsBroadcaster(env, { method: 'PUT', body: JSON.stringify({ missLimit: 0 }) })
+
+    expect(response.status).toBe(400)
+    expect(await loadKanjiQuizMissLimit(env.STORE)).toEqual({ missLimit: 1 })
   })
 })
 

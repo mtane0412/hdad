@@ -64,6 +64,8 @@ const fakeApi = (overrides: Partial<AdminApi> = {}): AdminApi => ({
     effectVolume: 0.6,
   })),
   saveKanjiQuizSound: vi.fn(async (sound) => sound),
+  kanjiQuizMissLimit: vi.fn(async () => 1),
+  saveKanjiQuizMissLimit: vi.fn(async (missLimit) => missLimit),
   townTourSound: vi.fn(async () => ({
     slots: { bgm: null, opening: null, zoom: null, landing: null, item: null, closing: null },
     bgmVolume: 0.3,

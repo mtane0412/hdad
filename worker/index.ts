@@ -82,6 +82,7 @@
  * | POST /api/admin/twister/demo     | セッション     | ツイスターの試し再生（試しの相手と配信者の対戦を合成ページへ押し出す） |
  * | POST /api/admin/kanji-quiz/demo  | セッション     | 漢字クイズの試し再生（選んだ級の問題を1問、合成ページへ押し出す） |
  * | GET・PUT /api/admin/kanji-quiz/sound | セッション | 漢字クイズの演出で鳴らす音の設定の読み書き |
+ * | GET・PUT /api/admin/kanji-quiz/miss-limit | セッション | 漢字クイズで配信を止めるまでの時間切れの回数の読み書き |
  * | POST /api/admin/kanji-quiz/stop/cancel | セッション | 漢字クイズの時間切れによる配信の停止を、猶予のあいだに取り消す（下部バー） |
  * | GET  /api/admin/twister/sound    | セッション     | ツイスターの対戦のあいだ流す BGM の設定 |
  * | PUT  /api/admin/twister/sound    | セッション     | ツイスターの BGM の設定を検証して保存 |
@@ -276,7 +277,7 @@ import {
   putTownTourSound,
   townTourSocket,
 } from './town-tour-routes'
-import { getKanjiQuizSound, kanjiQuizSocket, kanjiQuizStopSocket, postKanjiQuizDemo, postKanjiQuizOpen, postKanjiQuizStopCancel, postKanjiQuizStopResult, putKanjiQuizSound } from './kanji-quiz-routes'
+import { getKanjiQuizMissLimit, getKanjiQuizSound, kanjiQuizSocket, kanjiQuizStopSocket, postKanjiQuizDemo, postKanjiQuizOpen, postKanjiQuizStopCancel, postKanjiQuizStopResult, putKanjiQuizMissLimit, putKanjiQuizSound } from './kanji-quiz-routes'
 import { getTwisterSound, postTwisterDemo, putTwisterSound, twisterSocket } from './twister-routes'
 import { getLickSound, lickSocket, postLickDemo, putLickSound } from './lick-routes'
 import { getOverlayVrmModel, getVrmModel, postVrmDemo, putVrmModel, vrmSocket } from './vrm-routes'
@@ -488,6 +489,8 @@ const ROUTES: readonly Route[] = [
   { method: 'POST', path: '/api/admin/kanji-quiz/demo', handle: postKanjiQuizDemo },
   { method: 'GET', path: '/api/admin/kanji-quiz/sound', handle: getKanjiQuizSound },
   { method: 'PUT', path: '/api/admin/kanji-quiz/sound', handle: putKanjiQuizSound },
+  { method: 'GET', path: '/api/admin/kanji-quiz/miss-limit', handle: getKanjiQuizMissLimit },
+  { method: 'PUT', path: '/api/admin/kanji-quiz/miss-limit', handle: putKanjiQuizMissLimit },
   { method: 'POST', path: '/api/overlay/kanji-quiz/open', handle: postKanjiQuizOpen },
   { method: 'POST', path: '/api/admin/kanji-quiz/stop/cancel', handle: postKanjiQuizStopCancel },
   { method: 'GET', path: '/api/overlay/kanji-quiz/stop/socket', handle: kanjiQuizStopSocket },

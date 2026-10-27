@@ -4,6 +4,7 @@
  * - GET /api/overlay/kanji-quiz/socket?key=: 合成ページの素材「漢字クイズ」の WebSocket の接続を配送先（AlertChannel）へ引き渡す
  * - POST /api/admin/kanji-quiz/demo: 管理画面の試し再生。本文の grade の級の問題を1問選んで素材へ押し出す（トリガーと同じ配送の経路を通す）
  * - GET・PUT /api/admin/kanji-quiz/sound: 演出で鳴らす音の設定を読み書きする（検証と保存は kanji-quiz-sound.ts）
+ * - GET・PUT /api/admin/kanji-quiz/miss-limit: 配信を止めるまでの時間切れの回数を読み書きする（検証と保存は kanji-quiz-miss-limit.ts）
  * - POST /api/overlay/kanji-quiz/open?key=: 合成ページが出題を流しはじめたときに、出題を開く（回答を受け付けはじめる。issue #301）。
  *   あわせて、受付の締め切りに時間切れの判定を予約する（issue #302）
  * - POST /api/admin/kanji-quiz/stop/cancel: 下部バーの取り消しボタン。猶予のあいだの配信の停止を取り消す（issue #302）
@@ -19,6 +20,7 @@ import { KANKEN_GRADES, isKankenGrade, singleGradeWeights } from '../src/kanji-q
 import { connectKanjiQuizSocket, connectStreamStopSocket } from './alert-channel'
 import { HttpError, STATUS, requireAdmin, requireOverlayKey, type Context } from './http'
 import { issueKanjiQuiz } from './kanji-quiz-issue'
+import { loadKanjiQuizMissLimit, parseKanjiQuizMissLimit, saveKanjiQuizMissLimit } from './kanji-quiz-miss-limit'
 import { loadKanjiQuizSound, parseKanjiQuizSound, playbackKanjiQuizSoundOf, saveKanjiQuizSound } from './kanji-quiz-sound'
 import { cancelKanjiQuizStopsAndNotify } from './kanji-quiz-stop'
 import { openKanjiQuiz } from './kanji-quiz-store'
@@ -57,7 +59,7 @@ export const postKanjiQuizDemo = async (context: Context): Promise<Response> => 
   const { env } = context
   const { grade } = await readBody(context)
   if (!isKankenGrade(grade)) throw new HttpError(STATUS.badRequest, 'invalid-grade', `級は ${KANKEN_GRADES.join(' / ')} のいずれかで指定してください`)
-  const [sound, overlayKey] = await Promise.all([loadKanjiQuizSound(env.STORE), loadOverlayKey(env.STORE)])
+  const [sound, { missLimit }, overlayKey] = await Promise.all([loadKanjiQuizSound(env.STORE), loadKanjiQuizMissLimit(env.STORE), loadOverlayKey(env.STORE)])
   const playbackSound = ((): ReturnType<typeof playbackKanjiQuizSoundOf> => {
     try {
       return playbackKanjiQuizSoundOf(sound, overlayKey)
@@ -69,7 +71,7 @@ export const postKanjiQuizDemo = async (context: Context): Promise<Response> => 
     // 試し再生は交換した人がいないので、出題させた人を持たない。時間切れでも配信を止めないよう、試し再生として記録する
     const call = await issueKanjiQuiz(
       { db: env.DB, alerts: env.ALERTS, now: context.now, random: Math.random, id: crypto.randomUUID() },
-      { weights: singleGradeWeights(grade), requesterName: null, rehearsal: true, sound: playbackSound },
+      { weights: singleGradeWeights(grade), requesterName: null, rehearsal: true, sound: playbackSound, missLimit },
     )
     return Response.json(call)
   } catch (error) {
@@ -98,6 +100,24 @@ export const putKanjiQuizSound = async (context: Context): Promise<Response> => 
   const sound = parseKanjiQuizSound(body, (mediaId) => kinds.get(mediaId) ?? null)
   await saveKanjiQuizSound(env.STORE, sound)
   return Response.json(sound)
+}
+
+/** GET /api/admin/kanji-quiz/miss-limit: 配信を止めるまでの時間切れの回数。未保存なら1回が返る */
+export const getKanjiQuizMissLimit = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  return Response.json(await loadKanjiQuizMissLimit(context.env.STORE))
+}
+
+/**
+ * PUT /api/admin/kanji-quiz/miss-limit: 配信を止めるまでの時間切れの回数を検証して保存し、保存したものを返す。
+ *
+ * @throws ConfigError 回数が範囲の外の場合（index.ts が問題点付きの400にする）
+ */
+export const putKanjiQuizMissLimit = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  const setting = parseKanjiQuizMissLimit(await readBody(context))
+  await saveKanjiQuizMissLimit(context.env.STORE, setting)
+  return Response.json(setting)
 }
 
 /**

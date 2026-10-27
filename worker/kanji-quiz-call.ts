@@ -28,6 +28,8 @@ export interface KanjiQuizCall {
   readonly requesterName: string | null
   /** 演出で鳴らす音（kanji-quiz-sound.ts の playbackKanjiQuizSoundOf で音声のURLにしたもの） */
   readonly sound: KanjiQuizSound
+  /** この出題を含めて、配信が終わるまでに時間切れになれる回数（1以上。選んだ時点の回数。合成ページの注意書きに出す） */
+  readonly remainingMisses: number
 }
 
 /**
@@ -37,12 +39,15 @@ export interface KanjiQuizCall {
  * - stopping: 時間切れで、graceMs ののちに配信を止める（issue #302）。rehearsal は試し再生（止めない）。
  *   時刻ではなく長さで送るのは、合成ページと下部バーの時計が Worker とずれていても、残り秒数を正しく数えるためである
  * - stopCancelled: 下部バーで配信の停止を取り消した
+ * - missed: 時間切れだが、同じ配信の時間切れが配信を止める回数に届いていないので止めない。remainingMisses は次の出題から数えて、
+ *   配信が終わるまでに時間切れになれる回数（合成ページの時間切れの場面に出す）
  */
 export type KanjiQuizNotice =
   | { readonly type: 'answer'; readonly quizId: string; readonly userName: string }
   | { readonly type: 'failure'; readonly message: string }
   | { readonly type: 'stopping'; readonly quizId: string; readonly graceMs: number; readonly rehearsal: boolean }
   | { readonly type: 'stopCancelled'; readonly quizId: string }
+  | { readonly type: 'missed'; readonly quizId: string; readonly remainingMisses: number }
 
 /** 裏方のページへ送る、配信を止める命令（issue #302）。どの出題で止めたかを結果の記録に添えるため、出題の識別子を持つ */
 export interface StreamStopOrder {

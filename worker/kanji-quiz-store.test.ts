@@ -6,6 +6,7 @@
  * - 最初に正解した1人だけが正解者になる（2人目以降は正解者にならない）。正解者を決めた出題が試し再生かどうかも返す
  * - 同じ出題を2回開いても（合成ページを2つ開いていても）、受け付ける長さを延ばさない
  * - 同じ配信で出した問題の熟語を、次の出題から外せるよう読み出せる（配信していなければ外すものは無い）
+ * - 時間切れ（正解者なし）を1回だけ記録し、同じ配信の時間切れを数えられる（試し再生は数えない）。記録したあとは正解者にしない
  * - 時間切れ（正解者なし）のときだけ配信の停止を始め、取り消しと停止はどちらか一方しか通らない。同じ出題で2回止めない（issue #302）
  */
 import { describe, expect, it } from 'vitest'
@@ -16,7 +17,9 @@ import {
   beginKanjiQuizStop,
   cancelKanjiQuizStops,
   claimKanjiQuizStop,
+  missKanjiQuiz,
   openKanjiQuiz,
+  readKanjiQuizMissCount,
   readKanjiQuizWordCounts,
   recordKanjiQuiz,
 } from './kanji-quiz-store'
@@ -278,5 +281,89 @@ describe('cancelKanjiQuizStops', () => {
     const db = await openedQuiz()
 
     expect(await cancelKanjiQuizStops(db, closesAt)).toEqual([])
+  })
+})
+
+describe('missKanjiQuiz', () => {
+  it('締め切りを過ぎて正解者がいなければ時間切れを記録し、試し再生かどうかを返す', async () => {
+    const db = await openedQuiz()
+
+    expect(await missKanjiQuiz(db, keidaiQuiz.id, closesAt)).toEqual({ rehearsal: false })
+  })
+
+  it('時間切れを記録したあとは、締め切り前に Twitch から受けた回答でも正解者にしない（正解と時間切れの両方を合成ページへ押し出さない）', async () => {
+    // 前提: 締め切りの1ミリ秒前に受けた正解の処理が遅れ、締め切りのアラームが先に時間切れを記録した
+    const db = await openedQuiz()
+    await missKanjiQuiz(db, keidaiQuiz.id, closesAt)
+
+    expect(await answerKanjiQuiz(db, { words: ['境内'], userName: '山田花子' }, closesAt - 1)).toEqual([])
+  })
+
+  it('正解者がいれば、締め切りの前なら、開いていなければ、時間切れを記録しない', async () => {
+    const answered = await openedQuiz()
+    await answerKanjiQuiz(answered, { words: ['境内'], userName: '山田花子' }, acceptsFrom + 3000)
+    const notOpened = createFakeDatabase()
+    await recordKanjiQuiz(notOpened, keidaiQuiz, now)
+
+    expect(await missKanjiQuiz(answered, keidaiQuiz.id, closesAt)).toBeNull()
+    expect(await missKanjiQuiz(await openedQuiz(), keidaiQuiz.id, closesAt - 1)).toBeNull()
+    expect(await missKanjiQuiz(notOpened, keidaiQuiz.id, closesAt)).toBeNull()
+  })
+
+  it('同じ出題で2回は記録しない（アラームが2回鳴っても2回と数えない）', async () => {
+    const db = await openedQuiz()
+    await missKanjiQuiz(db, keidaiQuiz.id, closesAt)
+
+    expect(await missKanjiQuiz(db, keidaiQuiz.id, closesAt + 1000)).toBeNull()
+  })
+})
+
+describe('readKanjiQuizMissCount', () => {
+  /** 出題を選んで開き、締め切りで時間切れにする */
+  const missQuiz = async (db: ReturnType<typeof createFakeDatabase>, quiz: { id: string; word: string; rehearsal: boolean }, openedAt: number) => {
+    await recordKanjiQuiz(db, quiz, openedAt)
+    await openKanjiQuiz(db, quiz.id, openedAt)
+    await missKanjiQuiz(db, quiz.id, openedAt + GRADE_INTRO_MS + ANSWER_LIMIT_MS)
+  }
+
+  it('配信中なら、その配信が始まってからの時間切れを数える（配信の前の時間切れと試し再生の時間切れは数えない）', async () => {
+    const db = createFakeDatabase()
+    await missQuiz(db, { id: 'quiz-before', word: '納屋', rehearsal: false }, now - 60 * 60 * 1000)
+    await recordStreamOnline(db, { id: 'stream-1', startedAt: now - 30 * 60 * 1000 })
+    await missQuiz(db, { id: 'quiz-1', word: '境内', rehearsal: false }, now - 20 * 60 * 1000)
+    await missQuiz(db, { id: 'quiz-2', word: '仮病', rehearsal: false }, now - 10 * 60 * 1000)
+    await missQuiz(db, { id: 'quiz-rehearsal', word: '会釈', rehearsal: true }, now - 5 * 60 * 1000)
+
+    expect(await readKanjiQuizMissCount(db, now, null)).toBe(2)
+  })
+
+  it('正解者が出た出題は数えない', async () => {
+    const db = createFakeDatabase()
+    await recordStreamOnline(db, { id: 'stream-1', startedAt: now - 30 * 60 * 1000 })
+    await missQuiz(db, { id: 'quiz-1', word: '境内', rehearsal: false }, now - 20 * 60 * 1000)
+    const answeredAt = now - 10 * 60 * 1000
+    await recordKanjiQuiz(db, { id: 'quiz-2', word: '仮病', rehearsal: false }, answeredAt)
+    await openKanjiQuiz(db, 'quiz-2', answeredAt)
+    await answerKanjiQuiz(db, { words: ['仮病'], userName: '山田花子' }, answeredAt + GRADE_INTRO_MS + 1000)
+
+    expect(await readKanjiQuizMissCount(db, now, null)).toBe(1)
+  })
+
+  it('指定した出題が時間切れなら、試し再生でも配信の前でも1回として足す（その出題を含めた回数で止めるかを決めるため）', async () => {
+    const db = createFakeDatabase()
+    await recordStreamOnline(db, { id: 'stream-1', startedAt: now - 30 * 60 * 1000 })
+    await missQuiz(db, { id: 'quiz-1', word: '境内', rehearsal: false }, now - 20 * 60 * 1000)
+    await missQuiz(db, { id: 'quiz-rehearsal', word: '会釈', rehearsal: true }, now - 5 * 60 * 1000)
+
+    expect(await readKanjiQuizMissCount(db, now, 'quiz-rehearsal')).toBe(2)
+  })
+
+  it('配信していなければ、指定した出題の時間切れだけを数える', async () => {
+    const db = createFakeDatabase()
+    await missQuiz(db, { id: 'quiz-1', word: '境内', rehearsal: false }, now - 20 * 60 * 1000)
+    await missQuiz(db, { id: 'quiz-2', word: '仮病', rehearsal: false }, now - 10 * 60 * 1000)
+
+    expect(await readKanjiQuizMissCount(db, now, 'quiz-2')).toBe(1)
+    expect(await readKanjiQuizMissCount(db, now, null)).toBe(0)
   })
 })

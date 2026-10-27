@@ -4,7 +4,7 @@
  * 級の見出し・出題させた人・正解の読みの並べ方を決める。描くのは view.ts で、ここは文言だけを受け持つ。
  */
 import { describe, expect, it } from 'vitest'
-import { answerLineOf, gradeHeadlineOf, requesterLineOf, stakesLineOf, stopBannerLineOf, winnerLineOf, wrongAnswerLineOf } from './captions'
+import { answerLineOf, gradeHeadlineOf, missedLineOf, requesterLineOf, stakesLineOf, stopBannerLineOf, winnerLineOf, wrongAnswerLineOf } from './captions'
 import { ANSWER_LIMIT_MS } from './scene'
 
 describe('gradeHeadlineOf', () => {
@@ -53,9 +53,23 @@ describe('wrongAnswerLineOf', () => {
 })
 
 describe('stakesLineOf', () => {
-  it('制限時間の秒数を添えて、誰も正解しなければ配信が終わることを告げる', () => {
+  it('あと1回の時間切れで配信が終わるなら、制限時間の秒数を添えて、誰も正解しなければ配信が終わることを告げる', () => {
     // 前提: 制限時間は scene.ts の ANSWER_LIMIT_MS（60秒）から取る
     expect(ANSWER_LIMIT_MS).toBe(60_000)
-    expect(stakesLineOf()).toBe('60秒以内に誰も正解できなければ配信終了')
+    expect(stakesLineOf(1)).toBe('60秒以内に誰も正解できなければ配信終了')
+  })
+
+  it('配信が終わるまでに時間切れがまだ何回かあるなら、あと何回で終わるかを告げる', () => {
+    expect(stakesLineOf(3)).toBe('60秒以内に誰も正解できなければ時間切れ（あと3回で配信終了）')
+  })
+})
+
+describe('missedLineOf', () => {
+  it('配信を止めなかった時間切れのあとに、あと何回の時間切れで配信が終わるかを告げる', () => {
+    expect(missedLineOf(2)).toBe('あと2回 時間切れになると配信終了')
+  })
+
+  it('あと1回なら、次の時間切れで配信が終わることを告げる', () => {
+    expect(missedLineOf(1)).toBe('次に時間切れになると配信終了')
   })
 })

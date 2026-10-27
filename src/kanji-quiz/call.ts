@@ -7,6 +7,7 @@
  * 同じ経路で、最初の正解者（type: answer。Webhook がチャットの正解を受けたとき）と、出題できなかった理由
  * （type: failure）も届く（issue #301。いまの Worker は failure を押し出していない）。呼び出しは type を持たない。
  * 時間切れで配信を止めるまでの猶予（type: stopping）と、下部バーでの停止の取り消し（type: stopCancelled）も届く（issue #302）。
+ * 時間切れでも、同じ配信の時間切れの回数が配信を止める回数に届いていなければ、止めない時間切れ（type: missed）が届く。
  * 下部バー（stop-bar.tsx）も同じ経路につなぎ、同じ読み取りを通す。
  * 裏方のページの「配信の停止」へ届く命令（parseStreamStopOrder）の読み取りもここに置く（形を worker/kanji-quiz-call.ts と合わせる）。
  *
@@ -24,6 +25,8 @@ export interface KanjiQuizCall {
   readonly requesterName: string | null
   /** 演出で鳴らす音（枠ごとの音声のURLと音量）。鳴らさない枠は null */
   readonly sound: KanjiQuizSound
+  /** この出題を含めて、配信が終わるまでに時間切れになれる回数（1以上。Worker が選んだ時点の回数） */
+  readonly remainingMisses: number
 }
 
 /** 押し出されたもの1件 */
@@ -34,6 +37,8 @@ export type KanjiQuizMessage =
   /** graceMs ののちに配信を止める。rehearsal は試し再生（止めない）。時計のずれを避けるため、時刻ではなく長さで届く */
   | { readonly type: 'stopping'; readonly quizId: string; readonly graceMs: number; readonly rehearsal: boolean }
   | { readonly type: 'stopCancelled'; readonly quizId: string }
+  /** 時間切れだが、配信を止める回数に届いていないので止めない。remainingMisses は次の出題から数えて、配信が終わるまでに時間切れになれる回数 */
+  | { readonly type: 'missed'; readonly quizId: string; readonly remainingMisses: number }
 
 /** 裏方のページへ届く、配信を止める命令 */
 export interface StreamStopOrder {
@@ -51,6 +56,9 @@ const parseJson = (payload: string, subject: string): Record<string, unknown> =>
   return typeof body === 'object' && body !== null ? { ...body } : {}
 }
 
+/** 配信が終わるまでに時間切れになれる回数（1以上の整数）として読めるか */
+const isRemainingMisses = (value: unknown): value is number => typeof value === 'number' && Number.isInteger(value) && value >= 1
+
 /** 出題の識別子として読めるか */
 const isQuizId = (value: unknown): value is string => typeof value === 'string' && value !== ''
 
@@ -60,7 +68,7 @@ const isQuizId = (value: unknown): value is string => typeof value === 'string' 
  * @throws JSONとして読めない・想定した形でない・知らない type の場合
  */
 export const parseKanjiQuizMessage = (payload: string): KanjiQuizMessage => {
-  const { type, id, problem, requesterName, sound, quizId, userName, message, graceMs, rehearsal } = parseJson(payload, '漢字クイズの呼び出し')
+  const { type, id, problem, requesterName, sound, remainingMisses, quizId, userName, message, graceMs, rehearsal } = parseJson(payload, '漢字クイズの呼び出し')
   if (type === 'stopping') {
     if (!isQuizId(quizId) || typeof graceMs !== 'number' || !Number.isFinite(graceMs) || typeof rehearsal !== 'boolean') {
       throw new Error('押し出された配信の停止の猶予が想定した形ではありません')
@@ -70,6 +78,10 @@ export const parseKanjiQuizMessage = (payload: string): KanjiQuizMessage => {
   if (type === 'stopCancelled') {
     if (!isQuizId(quizId)) throw new Error('押し出された配信の停止の取り消しが想定した形ではありません')
     return { type: 'stopCancelled', quizId }
+  }
+  if (type === 'missed') {
+    if (!isQuizId(quizId) || !isRemainingMisses(remainingMisses)) throw new Error('押し出された配信を止めない時間切れが想定した形ではありません')
+    return { type: 'missed', quizId, remainingMisses }
   }
   if (type === 'answer') {
     if (!isQuizId(quizId) || typeof userName !== 'string' || userName === '') {
@@ -82,12 +94,12 @@ export const parseKanjiQuizMessage = (payload: string): KanjiQuizMessage => {
     return { type: 'failure', message }
   }
   if (type !== undefined) throw new Error(`押し出された漢字クイズの知らせの種類が分かりません: ${String(type)}`)
-  if (typeof id !== 'string' || id === '' || (requesterName !== null && typeof requesterName !== 'string')) {
+  if (typeof id !== 'string' || id === '' || (requesterName !== null && typeof requesterName !== 'string') || !isRemainingMisses(remainingMisses)) {
     throw new Error('押し出された漢字クイズの呼び出しが想定した形ではありません')
   }
   return {
     type: 'call',
-    call: { id, problem: readKanjiQuizProblem(problem, '押し出された漢字クイズの問題'), requesterName, sound: readKanjiQuizPlaybackSound(sound) },
+    call: { id, problem: readKanjiQuizProblem(problem, '押し出された漢字クイズの問題'), requesterName, sound: readKanjiQuizPlaybackSound(sound), remainingMisses },
   }
 }
 
