@@ -158,6 +158,8 @@ const createFakeChatDeductionApi: ChatDeductionApi = {
   endGame: vi.fn(),
   sound: vi.fn(async () => ({ slots: { bgm: null, start: null, answered: null, wrong: null, correct: null, stopped: null }, bgmVolume: 0.2, effectVolume: 0.6 })),
   saveSound: vi.fn(),
+  timeLimit: vi.fn(async () => null),
+  saveTimeLimit: vi.fn(),
 }
 
 const createFakeDollApi: DollApi = { list: vi.fn(async () => ({ sets: [], holdings: [] })), create: vi.fn(), update: vi.fn(), remove: vi.fn(), selectCurrent: vi.fn(), change: vi.fn(), showStanding: vi.fn(), showRanking: vi.fn(), prize: vi.fn(async () => null), savePrize: vi.fn() }

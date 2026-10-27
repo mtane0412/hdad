@@ -9,7 +9,7 @@ import type { ChatDeductionBoard, ChatDeductionBoardGame, ChatDeductionCard } fr
 import { CHAT_DEDUCTION_IMAGES } from './problem-set'
 import type { ChatDeductionSound } from './sound'
 
-const game: ChatDeductionBoardGame = { id: 1, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null, explanation: null, image: null }
+const game: ChatDeductionBoardGame = { id: 1, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', closesAt: null, endedAt: null, endReason: null, answer: null, explanation: null, image: null }
 
 /** 終えた場面で解説に添える画像（問題集の富士山の画像。images.json に画像が無ければ null） */
 const fujiImage = CHAT_DEDUCTION_IMAGES.get('mount-fuji') ?? null

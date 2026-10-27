@@ -28,6 +28,8 @@ export interface ChatDeductionBoardGame {
   /** 問題集の時代などの括り（例: 古代史）。括りの無い問題集なら null */
   topic: string | null
   startedAt: string
+  /** 制限時間の締め切りの時刻。制限時間をなしにして始めたゲームなら null（合成ページが残り時間を出す） */
+  closesAt: string | null
   /** 開催中なら null */
   endedAt: string | null
   /** 開催中なら null */
@@ -74,7 +76,7 @@ export const readChatDeductionBoard = async (
   const { set, problem } = found
   const image = images.get(problem.id)
   if (image === undefined) throw new Error(`最後のゲーム（${game.id}）の問題「${problem.id}」が画像の表（images.json）にありません`)
-  const { id, startedAt, endedAt, endReason } = game
+  const { id, startedAt, closesAt, endedAt, endReason } = game
   const ended = endedAt !== null
   return {
     game: {
@@ -82,6 +84,7 @@ export const readChatDeductionBoard = async (
       category: problem.category,
       topic: set.topic ?? null,
       startedAt,
+      closesAt,
       endedAt,
       endReason,
       answer: ended ? problem.answer : null,

@@ -187,7 +187,7 @@ describe('チャットで推理の状態（GET /api/admin/chat-deduction）', ()
 
     expect(await response.json()).toEqual({
       rewards: { questionRewardId: QUESTION_REWARD_ID, answerRewardId: ANSWER_REWARD_ID },
-      game: { id: game.id, problemId: 'mount-fuji', startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null },
+      game: { id: game.id, problemId: 'mount-fuji', startedAt: '2026-10-15T12:00:00.000Z', closesAt: null, endedAt: null, endReason: null },
     })
   })
 })
@@ -256,7 +256,7 @@ describe('ゲームの開始（POST /api/admin/chat-deduction/games）', () => {
     const response = await invoke(await broadcasterRequest(env, '/api/admin/chat-deduction/games', postJson({ setId: 'misc' })), env, twitch.fetchImpl)
 
     expect(response.status).toBe(201)
-    expect(await response.json()).toEqual({ game: { id: 1, problemId: 'mount-fuji', startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null } })
+    expect(await response.json()).toEqual({ game: { id: 1, problemId: 'mount-fuji', startedAt: '2026-10-15T12:00:00.000Z', closesAt: null, endedAt: null, endReason: null } })
     expect(twitch.requests).toEqual([
       { method: 'PATCH', id: QUESTION_REWARD_ID, body: { is_enabled: true } },
       { method: 'PATCH', id: ANSWER_REWARD_ID, body: { is_enabled: true } },
@@ -271,7 +271,7 @@ describe('ゲームの開始（POST /api/admin/chat-deduction/games）', () => {
     await startFuji(env)
 
     expect(delivery.pushedChatDeductions).toEqual([
-      { game: { id: 1, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null, explanation: null, image: null }, cards: [], sound: DEFAULT_CHAT_DEDUCTION_SOUND },
+      { game: { id: 1, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', closesAt: null, endedAt: null, endReason: null, answer: null, explanation: null, image: null }, cards: [], sound: DEFAULT_CHAT_DEDUCTION_SOUND },
     ])
   })
 
@@ -355,6 +355,22 @@ describe('ゲームの開始（POST /api/admin/chat-deduction/games）', () => {
     expect(response.status).toBe(502)
     expect(await readLatestGame(env.DB)).toBeNull()
   })
+
+  it('制限時間の締め切りを予約できなければ、報酬に触れずにゲームを始めなかったことにして502を返す', async () => {
+    // 前提: 制限時間を10分に設定してあり、締め切りの預け先が失敗を返す
+    const env = { ...createEnv(), AD_BREAKS: createFakeAdBreakTimer({ shouldFail: true }).namespace }
+    await saveRewards(env)
+    await saveBroadcasterToken(env)
+    await env.STORE.put('chat-deduction-time-limit', JSON.stringify({ minutes: 10 }))
+    const twitch = createFakeTwitch()
+
+    const response = await invoke(await broadcasterRequest(env, '/api/admin/chat-deduction/games', postJson({ setId: 'misc' })), env, twitch.fetchImpl)
+
+    expect(response.status).toBe(502)
+    expect((await readError(response)).code).toBe('chat-deduction-timer-failed')
+    expect(await readLatestGame(env.DB)).toBeNull()
+    expect(twitch.requests).toEqual([])
+  })
 })
 
 describe('ゲームの終了（POST /api/admin/chat-deduction/games/:id/end）', () => {
@@ -366,7 +382,7 @@ describe('ゲームの終了（POST /api/admin/chat-deduction/games/:id/end）',
     const response = await invoke(await broadcasterRequest(env, `/api/admin/chat-deduction/games/${game.id}/end`, { method: 'POST' }), env, twitch.fetchImpl)
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ game: { id: game.id, problemId: 'mount-fuji', startedAt: '2026-10-15T12:00:00.000Z', endedAt: '2026-10-15T12:00:00.000Z', endReason: 'stopped' } })
+    expect(await response.json()).toEqual({ game: { id: game.id, problemId: 'mount-fuji', startedAt: '2026-10-15T12:00:00.000Z', closesAt: null, endedAt: '2026-10-15T12:00:00.000Z', endReason: 'stopped' } })
     expect(twitch.requests).toEqual([
       { method: 'PATCH', id: QUESTION_REWARD_ID, body: { is_enabled: false } },
       { method: 'PATCH', id: ANSWER_REWARD_ID, body: { is_enabled: false } },
@@ -415,7 +431,7 @@ describe('ゲームの終了（POST /api/admin/chat-deduction/games/:id/end）',
 
     expect(delivery.pushedChatDeductions).toEqual([
       {
-        game: { id: game.id, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', endedAt: '2026-10-15T12:00:00.000Z', endReason: 'stopped', answer: '富士山', explanation: expect.any(String), image: expect.anything() },
+        game: { id: game.id, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', closesAt: null, endedAt: '2026-10-15T12:00:00.000Z', endReason: 'stopped', answer: '富士山', explanation: expect.any(String), image: expect.anything() },
         cards: [],
         sound: DEFAULT_CHAT_DEDUCTION_SOUND,
       },
@@ -464,7 +480,7 @@ describe('合成ページのカードの一覧（GET /api/overlay/chat-deduction
 
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({
-      game: { id: game.id, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null, explanation: null, image: null },
+      game: { id: game.id, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', closesAt: null, endedAt: null, endReason: null, answer: null, explanation: null, image: null },
       cards: [],
       sound: DEFAULT_CHAT_DEDUCTION_SOUND,
     })
@@ -558,6 +574,46 @@ describe('音の設定（GET・PUT /api/admin/chat-deduction/sound）', () => {
     const response = await invoke(await broadcasterRequest(env, '/api/admin/media/media-pinpon', { method: 'DELETE' }), env)
 
     expect(response.status).toBe(409)
+  })
+})
+
+describe('制限時間の設定（GET・PUT /api/admin/chat-deduction/time-limit）', () => {
+  const putJson = (body: unknown): RequestInit => ({ method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+
+  it('ログインしていなければ読ませない', async () => {
+    const response = await invoke(new Request(`${ORIGIN}/api/admin/chat-deduction/time-limit`), createEnv())
+
+    expect(response.status).toBe(401)
+  })
+
+  it('未保存なら、なし（null）を返す', async () => {
+    const env = createEnv()
+
+    const response = await invoke(await broadcasterRequest(env, '/api/admin/chat-deduction/time-limit'), env)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ minutes: null })
+  })
+
+  it('保存した制限時間を返し、次に読んだときも同じものを返す', async () => {
+    const env = createEnv()
+
+    const saved = await invoke(await broadcasterRequest(env, '/api/admin/chat-deduction/time-limit', putJson({ minutes: 20 })), env)
+    const loaded = await invoke(await broadcasterRequest(env, '/api/admin/chat-deduction/time-limit'), env)
+
+    expect(saved.status).toBe(200)
+    expect(await saved.json()).toEqual({ minutes: 20 })
+    expect(await loaded.json()).toEqual({ minutes: 20 })
+  })
+
+  it('選べない分数は、問題点つきの400で断って保存しない', async () => {
+    const env = createEnv()
+
+    const response = await invoke(await broadcasterRequest(env, '/api/admin/chat-deduction/time-limit', putJson({ minutes: 7 })), env)
+
+    expect(response.status).toBe(400)
+    const loaded = await invoke(await broadcasterRequest(env, '/api/admin/chat-deduction/time-limit'), env)
+    expect(await loaded.json()).toEqual({ minutes: null })
   })
 })
 

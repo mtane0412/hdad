@@ -37,7 +37,7 @@ const fakeApi = (overrides: Partial<ChatDeductionSoundApi> = {}): ChatDeductionS
 
 const loadMedia = vi.fn(async () => [thinkingBgm, pinponSound, applauseVideo])
 
-const BGM_LABEL = 'BGM（ゲームを始めてから、正解か打ち切りまで流す）'
+const BGM_LABEL = 'BGM（ゲームを始めてから、正解・打ち切り・時間切れまで流す）'
 const CORRECT_LABEL = '正解（正解の解答が出たとき）'
 
 afterEach(cleanup)
@@ -59,7 +59,7 @@ describe('ChatDeductionSoundCard', () => {
     expect(await screen.findByLabelText('開始（ゲームを始めたとき）')).toHaveValue('')
     expect(screen.getByLabelText('回答（質問に答えたとき）')).toHaveValue('')
     expect(screen.getByLabelText('不正解（解答が外れたとき）')).toHaveValue('')
-    expect(screen.getByLabelText('打ち切り（ゲームを終えたとき）')).toHaveValue('')
+    expect(screen.getByLabelText('打ち切り・時間切れ（正解者が出ずに終えたとき）')).toHaveValue('')
   })
 
   test('正解の音を選んで保存すると、選んだ音と音量を Worker へ送り、保存したことを知らせる', async () => {

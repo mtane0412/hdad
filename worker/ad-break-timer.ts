@@ -30,6 +30,7 @@
  * パス /opinions/ と鳴ったときの中身は worker/opinion-timer.ts が持つ。
  */
 import { runAlarmActions, type AlarmDependencies } from './alarm-actions'
+import { handleChatDeductionTimerRequest, runChatDeductionAlarm } from './chat-deduction-timer'
 import { handleKanjiQuizTimerRequest, runKanjiQuizAlarm } from './kanji-quiz-timer'
 import { handleOpinionTimerRequest, runOpinionAlarm } from './opinion-timer'
 import { handlePomodoroRequest, runPomodoroAlarm } from './pomodoro-timer'
@@ -137,7 +138,8 @@ const runAdBreakEnd = (env: Env, end: AdBreakEnd, dependencies: AdBreakDependenc
  * 呼ぶのは Worker だけで、POST /schedule（広告の終了の予約）と、/pomodoro/ で始まるパス（ポモドーロのタイマーの操作。
  * worker/pomodoro-timer.ts の handlePomodoroRequest）と、POST /kanji-quiz/schedule（漢字クイズの時間切れの判定の予約。
  * worker/kanji-quiz-timer.ts の handleKanjiQuizTimerRequest）と、POST /opinions/start・/opinions/stop（意見ボードの振り分けの開始と停止。
- * worker/opinion-timer.ts の handleOpinionTimerRequest）を受け付ける。
+ * worker/opinion-timer.ts の handleOpinionTimerRequest）と、POST /chat-deduction/schedule（チャットで推理の制限時間の締め切りの予約。
+ * worker/chat-deduction-timer.ts の handleChatDeductionTimerRequest）を受け付ける。
  */
 export class AdBreakTimer {
   /**
@@ -157,6 +159,8 @@ export class AdBreakTimer {
     if (kanjiQuizResponse !== null) return kanjiQuizResponse
     const opinionResponse = await handleOpinionTimerRequest(this.ctx.storage, this.dependencies, request)
     if (opinionResponse !== null) return opinionResponse
+    const chatDeductionResponse = await handleChatDeductionTimerRequest(this.ctx.storage, request)
+    if (chatDeductionResponse !== null) return chatDeductionResponse
     if (new URL(request.url).pathname !== SCHEDULE_PATH) return new Response(null, { status: STATUS.notFound })
 
     const end = (await request.json()) as AdBreakEnd
@@ -167,7 +171,8 @@ export class AdBreakTimer {
   }
 
   /**
-   * 広告が終わる時刻か、ポモドーロの区切りの時刻か、漢字クイズの判定・停止の時刻か、意見ボードの振り分けの時刻に呼ばれる。
+   * 広告が終わる時刻か、ポモドーロの区切りの時刻か、漢字クイズの判定・停止の時刻か、意見ボードの振り分けの時刻か、
+   * チャットで推理の制限時間の締め切りに呼ばれる。
    *
    * どのアラームかはインスタンスで決まる（storage はインスタンスごとに別なので、ポモドーロの状態があるのは pomodoro のインスタンスだけ、
    * 漢字クイズの時刻があるのは kanji-quiz のインスタンスだけ）。
@@ -176,6 +181,7 @@ export class AdBreakTimer {
     if (await runPomodoroAlarm(this.ctx.storage, this.env, this.dependencies)) return
     if (await runKanjiQuizAlarm(this.ctx.storage, this.env, this.dependencies)) return
     if (await runOpinionAlarm(this.ctx.storage, this.env, this.dependencies)) return
+    if (await runChatDeductionAlarm(this.ctx.storage, this.env, this.dependencies)) return
 
     const end = await this.ctx.storage.get<AdBreakEnd>(PENDING_KEY)
     // 予約を消したあとにアラームが鳴ることはないが、鳴っても何もしないでおく（空振りを失敗にしない）

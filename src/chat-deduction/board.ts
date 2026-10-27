@@ -10,7 +10,7 @@
 import { isRecord, readList } from '../core/api'
 import { isChatDeductionCategory, type ChatDeductionCategory } from './category'
 import type { ChatDeductionImage } from './images'
-import type { ChatDeductionEndReason } from './api'
+import { isChatDeductionEndReason, type ChatDeductionEndReason } from './api'
 import { readChatDeductionPlaybackSound, type ChatDeductionSound } from './sound'
 
 /** 質問への答え（yes: はい。no: いいえ。unknown: 分からない） */
@@ -46,6 +46,8 @@ export interface ChatDeductionBoardGame {
   /** 問題集の時代などの括り（例: 古代史）。括りの無い問題集なら null */
   readonly topic: string | null
   readonly startedAt: string
+  /** 制限時間の締め切りの時刻。制限時間をなしにして始めたゲームなら null（見出しの帯に残り時間を出す） */
+  readonly closesAt: string | null
   /** 開催中なら null */
   readonly endedAt: string | null
   /** 開催中なら null */
@@ -80,8 +82,9 @@ const isGame = (value: unknown): value is ChatDeductionBoardGame =>
   isChatDeductionCategory(value.category) &&
   isNullableString(value.topic) &&
   typeof value.startedAt === 'string' &&
+  isNullableString(value.closesAt) &&
   isNullableString(value.endedAt) &&
-  (value.endReason === null || value.endReason === 'stopped' || value.endReason === 'solved') &&
+  (value.endReason === null || isChatDeductionEndReason(value.endReason)) &&
   isNullableString(value.answer) &&
   isNullableString(value.explanation) &&
   (value.image === null || isImage(value.image))

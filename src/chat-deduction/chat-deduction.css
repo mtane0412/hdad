@@ -19,7 +19,7 @@
  *   抑えるのでほぼ2行に収まるが、視聴者の質問は長いことがある）
  * - 新しいカードだけが動く（変わっていないカードは作り直さない。src/chat-deduction/view.ts）
  *
- * 見出しは1行（素材の名前・区分・参加のしかた）にして、格子に高さを回す。終えたら見出しの上に正解の帯を重ねる
+ * 見出しは1行（素材の名前・区分・制限時間があれば残り時間・参加のしかた）にして、格子に高さを回す。終えたら見出しの上に正解の帯を重ねる
  * （格子を押し縮めず、最後に並ぶ正解のカードも隠さない）。帯の色は終わり方（data-end-reason）で分ける。
  * 終えて少したったら（view.ts の EXPLANATION_DELAY_MS）、格子の代わりに同じ場所の上端から解説の白い板を出す。解説は
  * problems.ts の MAX_EXPLANATION_LENGTH 文字までなので、この大きさの文字でも格子の高さに収まる。画像（Wikipedia の記事の代表画像）が
@@ -141,6 +141,18 @@
 .chat-deduction-category {
   color: var(--color-text-heading);
   font-size: var(--font-size-title);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
+}
+
+/* 制限時間の残り。秒が変わるたびに幅が揺れないよう数字を等幅にし、区分のすぐ右に灰色の丸い札で置く */
+.chat-deduction-remaining {
+  padding: var(--space-1) var(--space-4);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-raised);
+  color: var(--color-text-heading);
+  font-size: var(--font-size-badge);
+  font-variant-numeric: tabular-nums;
   font-weight: var(--font-weight-bold);
   line-height: var(--line-height-tight);
 }
@@ -301,7 +313,7 @@
   line-height: var(--line-height-tight);
 }
 
-/* 終えたら、見出しの帯の位置に結果の色面を見出しの代わりに重ねる（正解者が出たら緑、打ち切りは赤） */
+/* 終えたら、見出しの帯の位置に結果の色面を見出しの代わりに重ねる（正解者が出たら緑、打ち切り・時間切れは赤） */
 .chat-deduction-result {
   --result-fill: var(--color-no-fill);
   --result-text: var(--color-no-text);

@@ -31,12 +31,12 @@ export type ChatDeductionSoundApi = Pick<ChatDeductionApi, 'sound' | 'saveSound'
 
 /** 枠ごとの選択欄の名前。括弧の中はいつ鳴るか */
 const SLOT_LABELS: Readonly<Record<ChatDeductionSoundSlot, string>> = {
-  bgm: 'BGM（ゲームを始めてから、正解か打ち切りまで流す）',
+  bgm: 'BGM（ゲームを始めてから、正解・打ち切り・時間切れまで流す）',
   start: '開始（ゲームを始めたとき）',
   answered: '回答（質問に答えたとき）',
   wrong: '不正解（解答が外れたとき）',
   correct: '正解（正解の解答が出たとき）',
-  stopped: '打ち切り（ゲームを終えたとき）',
+  stopped: '打ち切り・時間切れ（正解者が出ずに終えたとき）',
 }
 
 /** 音量の項目の名前（Worker の問題点の読み替えにも使う） */

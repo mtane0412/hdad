@@ -9,8 +9,9 @@
  * - 質問のカード: 通し番号（ゲームの初めから数えた何問目か。画面から外れた質問も数える）・答え（はい・いいえ・分からない）の印と
  *   質問・答えの1文・送った人の名前。答えは色だけでなく文字でも出し、data-verdict で見た目（chat-deduction.css）を分ける
  * - 解答のカード: 正解・不正解の印と解答・送った人の名前。data-result で見た目を分け、正解のカードは目立たせる
- * 参加のしかたは開催中だけ見出しの行に出す。終えたら下の帯に「正解は○○でした」（正解者が出たら名前も）を出し、
+ * 参加のしかたは開催中だけ見出しの行に出す。終えたら下の帯に「正解は○○でした」（正解者が出たら名前も、制限時間が尽きたら「時間切れ！」も）を出し、
  * 終わり方を data-end-reason で分ける。ゲームが無ければ何も出さない。
+ * 制限時間のある開催中のゲームでは、見出しに締め切り（closesAt）までの残り時間を出し、REMAINING_TICK_MS ごとに書き直す。
  * 終えてから EXPLANATION_DELAY_MS たったら、カードの格子を隠してその場所に正解の解説を出す（まず正解の帯と正解のカードを
  * 見せてから、答えについての知識を残すため。正解の帯は解説のあいだも残す）。解説に画像（Wikipedia の記事の代表画像）があれば、
  * 作者とライセンスを添えて解説の左に出す。読み込めなければ画像を外し、onImageError で知らせる（解説は出したまま）。
@@ -20,17 +21,26 @@
  * 注意: 変わっていないカードの要素は作り直さない（ゲームとカードの種類・IDごとに使い回す）。作り直すと、出現のアニメーションが
  * 新しいカードだけでなく全部のカードで走ってしまう。使い回すカードも、通し番号だけは届くたびに付け直す。
  * 注意: 消す時刻は Worker が決めた終えた時刻（endedAt）と、この端末の時計から決める。時計が数秒ずれていれば、映す長さも数秒ずれる。
+ * 注意: 残り時間は締め切りとこの端末の時計から出すだけで、自分の時計では終えない。締め切りを過ぎても Worker から時間切れで
+ *   終えた一覧が届くまでは、残り 0:00 のまま開催中として映す（終えるかどうかを決めるのは Worker のアラームである）。
  */
 import { ENDED_REVEAL_MS } from '../core/ended-reveal'
 import { subjectLabelOf } from './category'
 import type { ChatDeductionBoard, ChatDeductionBoardGame, ChatDeductionCard, ChatDeductionVerdict } from './board'
 import type { ChatDeductionImage } from './images'
+import { formatChatDeductionRemaining } from './time-limit'
 
 /** 並べるカードの数。質問と返事が2行ずつに折り返しても、画面いっぱいの格子（src/chat-deduction/chat-deduction.css の3列×4行）に収まる数にする */
 export const MAX_VISIBLE_CARDS = 12
 
 /** 終えてから解説を出すまでの長さ（ミリ秒）。そのあいだは正解の帯と正解のカードを見せる */
 export const EXPLANATION_DELAY_MS = 5_000
+
+/** 残り時間を書き直す間隔（ミリ秒） */
+const REMAINING_TICK_MS = 1_000
+
+/** 制限時間が尽きて終えたときに、正解の帯に添える言葉 */
+const TIMEOUT_LABEL = '時間切れ！'
 
 /** 見出しの素材の名前 */
 const TITLE = 'チャットで推理'
@@ -131,8 +141,10 @@ export const createChatDeductionView = (
   board.hidden = true
   const header = element('header', 'chat-deduction-header')
   const category = element('span', 'chat-deduction-category')
+  const remaining = element('span', 'chat-deduction-remaining')
+  remaining.hidden = true
   const hint = element('p', 'chat-deduction-hint', HINT)
-  header.append(element('span', 'chat-deduction-title', TITLE), category, hint)
+  header.append(element('span', 'chat-deduction-title', TITLE), category, remaining, hint)
   const list = element('ol', 'chat-deduction-cards')
   const result = element('div', 'chat-deduction-result')
   const answer = element('p', 'chat-deduction-answer')
@@ -157,6 +169,8 @@ export const createChatDeductionView = (
   let hideTimer: ReturnType<typeof setTimeout> | undefined
   /** 解説を出す予約。新しい一覧を受け取るたびに取り消して決め直す */
   let explanationTimer: ReturnType<typeof setTimeout> | undefined
+  /** 残り時間を書き直す刻み。新しい一覧を受け取るたびに止めて決め直す */
+  let remainingTimer: ReturnType<typeof setInterval> | undefined
   /** 最後に受け取ったゲーム。「演出を消す」を受けたときに、終えたゲームかを見るために使う */
   let currentGame: ChatDeductionBoardGame | null = null
   /** 「演出を消す」で消した、終えたゲームのID。消していなければ null */
@@ -189,8 +203,23 @@ export const createChatDeductionView = (
     list.hidden = shown
   }
 
+  /** 締め切りまでの残り時間を出し、刻みで書き直す。締め切りが無い（制限時間なし・終えたゲーム）なら隠して止める */
+  const showRemaining = (closesAt: string | null): void => {
+    clearInterval(remainingTimer)
+    remainingTimer = undefined
+    remaining.hidden = closesAt === null
+    if (closesAt === null) return
+    const closesAtMs = Date.parse(closesAt)
+    const render = (): void => {
+      remaining.textContent = `残り ${formatChatDeductionRemaining(closesAtMs - Date.now())}`
+    }
+    render()
+    remainingTimer = setInterval(render, REMAINING_TICK_MS)
+  }
+
   /** 板を隠して、並べていたカードを捨てる */
   const clear = (): void => {
+    showRemaining(null)
     clearTimeout(explanationTimer)
     explanationTimer = undefined
     showExplanation(false)
@@ -241,14 +270,20 @@ export const createChatDeductionView = (
       shown = next
 
       const ended = game.endedAt !== null
+      showRemaining(ended ? null : game.closesAt)
       hint.hidden = ended
       result.hidden = !ended
       if (game.endReason === null) delete result.dataset.endReason
       else result.dataset.endReason = game.endReason
       answer.textContent = game.answer === null ? '' : `正解は${game.answer}でした`
       const winner = cards.find((card) => card.kind === 'guess' && card.correct)
-      solver.hidden = game.endReason !== 'solved' || winner === undefined
-      solver.textContent = winner === undefined ? '' : `${winner.userName}さんが正解！`
+      if (game.endReason === 'timeout') {
+        solver.hidden = false
+        solver.textContent = TIMEOUT_LABEL
+      } else {
+        solver.hidden = game.endReason !== 'solved' || winner === undefined
+        solver.textContent = winner === undefined ? '' : `${winner.userName}さんが正解！`
+      }
 
       explanationText.textContent = game.explanation ?? ''
       setImage(game.image, game.answer ?? '')

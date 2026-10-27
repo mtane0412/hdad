@@ -11,6 +11,7 @@
  * - Worker が断った理由（報酬を切り替えられなかったなど）と、読み込めなかった理由を黙らずに出すこと
  * - 場面ごとに鳴らす音を選ぶカードを出すこと（カードの中身は sound-card.test.tsx が確かめる）
  * - チャットで推理の正解者に渡す人形の欄を出すこと（欄の中身は src/dolls/doll-prize-field.test.tsx が確かめる。issue #420）
+ * - 制限時間（なし・5/10/15/20/30分）を選べ、選び直したらその場で保存すること。時間切れで終えたゲームはそう出すこと
  */
 import '@testing-library/jest-dom/vitest'
 import { cleanup, render, screen, within } from '@testing-library/react'
@@ -37,7 +38,7 @@ const problemSets: readonly ChatDeductionProblemSet[] = [
 ]
 
 const rewards = { questionRewardId: '報酬ID-質問', answerRewardId: '報酬ID-解答' }
-const openGame: ChatDeductionGame = { id: 3, problemId: 'kukai', startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null }
+const openGame: ChatDeductionGame = { id: 3, problemId: 'kukai', startedAt: '2026-10-15T12:00:00.000Z', closesAt: null, endedAt: null, endReason: null }
 
 /** 操作を記録する代役 */
 const createApi = (initial: ChatDeductionState, overrides: Partial<ChatDeductionApi> = {}): ChatDeductionApi => ({
@@ -48,6 +49,8 @@ const createApi = (initial: ChatDeductionState, overrides: Partial<ChatDeduction
   endGame: vi.fn(async (id: number) => ({ ...openGame, id, endedAt: '2026-10-15T12:10:00.000Z', endReason: 'stopped' as const })),
   sound: vi.fn(async () => ({ slots: { bgm: null, start: null, answered: null, wrong: null, correct: null, stopped: null }, bgmVolume: 0.2, effectVolume: 0.6 })),
   saveSound: vi.fn(),
+  timeLimit: vi.fn(async () => null),
+  saveTimeLimit: vi.fn(async (minutes: number | null) => minutes),
   ...overrides,
 })
 
@@ -68,11 +71,51 @@ describe('正解者に渡す人形', () => {
   })
 })
 
+describe('制限時間', () => {
+  test('保存した制限時間を出し、選び直したらその場で保存する', async () => {
+    const api = createApi({ rewards, game: null }, { timeLimit: vi.fn(async () => 10) })
+    render(<ChatDeductionPage api={api} problemSets={problemSets} prizeApi={fakePrizeApi()} loadMedia={loadMedia} />)
+
+    const select = await screen.findByRole('combobox', { name: '制限時間' })
+    expect(select).toHaveValue('10')
+    expect(within(select).getAllByRole('option').map((option) => option.textContent)).toEqual(['なし', '5分', '10分', '15分', '20分', '30分'])
+    await userEvent.selectOptions(select, '30')
+
+    expect(api.saveTimeLimit).toHaveBeenCalledWith(30)
+    expect(await screen.findByText('制限時間を保存しました')).toBeInTheDocument()
+    expect(select).toHaveValue('30')
+  })
+
+  test('なしを選んだら null で保存する', async () => {
+    const api = createApi({ rewards, game: null }, { timeLimit: vi.fn(async () => 10) })
+    render(<ChatDeductionPage api={api} problemSets={problemSets} prizeApi={fakePrizeApi()} loadMedia={loadMedia} />)
+
+    await userEvent.selectOptions(await screen.findByRole('combobox', { name: '制限時間' }), '')
+
+    expect(api.saveTimeLimit).toHaveBeenCalledWith(null)
+  })
+
+  test('制限時間を読み込めなければ、なしと見せずに理由を出す', async () => {
+    const api = createApi({ rewards, game: null }, { timeLimit: vi.fn(async () => Promise.reject(new Error('Workerにつながりません'))) })
+    render(<ChatDeductionPage api={api} problemSets={problemSets} prizeApi={fakePrizeApi()} loadMedia={loadMedia} />)
+
+    expect(await screen.findByText('Workerにつながりません')).toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: '制限時間' })).not.toBeInTheDocument()
+  })
+
+  test('制限時間が尽きて終えたゲームを読み込んだら、前回の正解に時間切れと添える', async () => {
+    const timedOut: ChatDeductionGame = { ...openGame, closesAt: '2026-10-15T12:10:00.000Z', endedAt: '2026-10-15T12:10:00.000Z', endReason: 'timeout' }
+    render(<ChatDeductionPage api={createApi({ rewards, game: timedOut })} problemSets={problemSets} prizeApi={fakePrizeApi()} loadMedia={loadMedia} />)
+
+    expect(await screen.findByText('前回の正解: 空海（制限時間が尽きました）')).toBeInTheDocument()
+  })
+})
+
 describe('音', () => {
   test('場面ごとに鳴らす音を選ぶカードを出す', async () => {
     render(<ChatDeductionPage api={createApi({ rewards, game: null })} problemSets={problemSets} prizeApi={fakePrizeApi()} loadMedia={loadMedia} />)
 
-    expect(await screen.findByLabelText('BGM（ゲームを始めてから、正解か打ち切りまで流す）')).toHaveValue('')
+    expect(await screen.findByLabelText('BGM（ゲームを始めてから、正解・打ち切り・時間切れまで流す）')).toHaveValue('')
   })
 })
 
