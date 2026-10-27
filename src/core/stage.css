@@ -38,13 +38,21 @@ canvas {
 }
 
 /*
- * 素材が動き続ける軽い失敗（src/core/mount.ts の ErrorSource の read・chat）の表示。
+ * 素材が動き続ける軽い失敗（src/core/mount.ts の ErrorSource の read・chat・transient）の表示。
  *
- * 箱を覆わず、箱の下端に小さな帯で出す。箱いっぱいに出すと、流れている演出全体が隠れてしまうため。
+ * 箱を覆わず、箱の下端の並び（.stage-notices）に小さな帯で縦に積む。箱いっぱいに出すと、流れている演出全体が
+ * 隠れてしまうため。同じ箱に別の理由の帯が同時に出ても重ならない。
  * 長い理由は見出しと合わせて4行で切る（帯が箱を覆うほど伸びないように）。
  */
-.stage-error-notice {
+.stage-notices {
+  position: absolute;
   inset: auto 0 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.stage-error-notice {
+  position: static;
   /* 中身の高さ（content-box）なので、行の高さ（line-height）の4行ぶんにする */
   max-height: calc(4 * 1.5em);
   overflow: hidden;

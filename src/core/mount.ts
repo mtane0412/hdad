@@ -124,23 +124,35 @@ export const startCanvasSurface = (canvas: HTMLCanvasElement, render: RenderSurf
  * 読み出しとチャットの接続の両方を使う）。直ったものだけを消せるように、表示に出どころを添えておく。
  *
  * - layer: レイヤーの起動・描画の失敗。素材が動けないので箱いっぱいに出し、人が直すまで消えない
- * - read: 素材が動き続ける軽い失敗（読み出し・音・画像・通信の一時的な失敗）。次の読み出しが成功したとき、
- *   または NOTICE_VISIBLE_MS が経ったときに消す
+ * - read: 定期的に読み直すものの失敗。次の読み出しが成功したら消す（直るまで続きうるので、時間では消さない）
  * - chat: チャットの接続の失敗。読み直しでは直らないので、読み出しの成功でも時間でも消さない
+ * - transient: 演出の最中に起きた、その場かぎりの失敗（音を鳴らせない・画像を読めない・BGM を下げられないなど）。
+ *   NOTICE_VISIBLE_MS が経ったら消す（次の演出まで残さない）
  *
- * read と chat は箱を覆わない帯（.stage-error-notice）で出す。箱いっぱいの板で出すと、動き続けている素材
- * （流れている演出）全体が隠れてしまうため（2026-10-26 の実配信で、市町村紹介が板に覆われて見えなくなった）。
+ * layer 以外は箱を覆わない帯（.stage-error-notice）で出し、箱の下端の並び（.stage-notices）に縦に積む。
+ * 箱いっぱいの板で出すと、動き続けている素材（流れている演出）全体が隠れてしまうため
+ * （2026-10-26 の実配信で、市町村紹介が板に覆われて見えなくなった）。
  */
-export type ErrorSource = 'layer' | 'read' | 'chat'
+export type ErrorSource = 'layer' | 'read' | 'chat' | 'transient'
 
 /** 出どころを持たせる data 属性の名前（dataset のキー） */
 const ERROR_SOURCE_KEY = 'errorSource'
 
-/**
- * 読み出しの失敗（read）の帯を出しておく時間（ミリ秒）。
- * 配信者が読める長さにし、一時的な失敗の帯が次の演出まで残らないようにする。続く失敗は、読み直しのたびに出し直される
- */
+/** 帯を縦に積む並び（箱の下端に置く）の class 名 */
+const NOTICE_STACK_CLASS = 'stage-notices'
+
+/** その場かぎりの失敗（transient）の帯を出しておく時間（ミリ秒）。配信者が読める長さにし、次の演出まで残さない */
 export const NOTICE_VISIBLE_MS = 15_000
+
+/** 箱の下端の、帯を縦に積む並びを返す。まだ無ければ作って箱に置く */
+const noticeStackOf = (box: HTMLElement): HTMLElement => {
+  const existing = box.querySelector<HTMLElement>(`:scope > .${NOTICE_STACK_CLASS}`)
+  if (existing !== null) return existing
+  const stack = document.createElement('div')
+  stack.className = NOTICE_STACK_CLASS
+  box.append(stack)
+  return stack
+}
 
 /**
  * 起動に失敗した原因を画面に表示する（OBS上ではコンソールを見られないため）。
@@ -150,7 +162,7 @@ export const NOTICE_VISIBLE_MS = 15_000
  * @param box 表示先。既定はページ全体（body）で、合成ページはそのレイヤーの箱を渡す。
  *   1つのレイヤーの失敗で配信画面のその段全体を赤く染めないためで、同じ段のほかのレイヤーは
  *   動かし続ける（issue #101 で決めた、Fail-Fast に意識して設けた例外）
- * @param source 失敗の出どころ。既定は人が直すまで消さないもの（layer）。read と chat は箱を覆わない帯で出し、
+ * @param source 失敗の出どころ。既定は人が直すまで消さないもの（layer）。それ以外は箱を覆わない帯で出し、
  *   同じ箱の同じ出どころの表示は最新の1件に置き換える（失敗が続いても積み重ねない）
  */
 export const showError = (
@@ -168,13 +180,15 @@ export const showError = (
   panel.setAttribute('role', 'alert')
   panel.dataset[ERROR_SOURCE_KEY] = source
   panel.textContent = lines.join('\n')
-  if (source !== 'layer') {
-    clearError(box, source)
-    panel.classList.add('stage-error-notice')
+  if (source === 'layer') {
+    box.append(panel)
+    return
   }
-  // 置き換えられた古い帯をあとで消しても、box から外れているだけなので新しい帯には触れない
-  if (source === 'read') window.setTimeout(() => panel.remove(), NOTICE_VISIBLE_MS)
-  box.append(panel)
+  clearError(box, source)
+  panel.classList.add('stage-error-notice')
+  // 置き換えられた古い帯をあとで消しても、並びから外れているだけなので新しい帯には触れない
+  if (source === 'transient') window.setTimeout(() => panel.remove(), NOTICE_VISIBLE_MS)
+  noticeStackOf(box).append(panel)
 }
 
 /**
@@ -182,10 +196,12 @@ export const showError = (
  *
  * 合成ページは同じレイヤーを定期的に読み直すので、一度の失敗の表示を消せないと、
  * その後の読み出しが成功しても配信中ずっと赤い panel が残ってしまう。
- * 消すのはその箱に直接置いた、指定した出どころの表示だけである。ほかのレイヤーの箱にも、
+ * 消すのはその箱に置いた（帯なら箱の下端の並びに置いた）、指定した出どころの表示だけである。ほかのレイヤーの箱にも、
  * 同じ箱に出ている別の理由の表示にも手を出さない（読み出しが直っても、まだ直っていない
  * チャットの接続の失敗は残す）。
  */
 export const clearError = (box: HTMLElement, source: ErrorSource): void => {
-  for (const panel of box.querySelectorAll(`:scope > .stage-error[data-error-source="${source}"]`)) panel.remove()
+  const selector = `.stage-error[data-error-source="${source}"]`
+  // 板は箱に直接、帯は箱の下端の並びの中に置いている（ほかの箱の中までは見ない）
+  for (const panel of box.querySelectorAll(`:scope > ${selector}, :scope > .${NOTICE_STACK_CLASS} > ${selector}`)) panel.remove()
 }

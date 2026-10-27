@@ -9,8 +9,8 @@
  *   定期的に読み直すので、消せないと一度の失敗が配信中ずっと残ってしまう）
  * - 消すのは同じ出どころの表示だけであること（1つの箱には、読み出しの失敗とチャットの接続の失敗が
  *   同時に出うる。読み出しが直ったからといって、まだ直っていないチャットの表示まで消してはいけない）
- * - 素材が動き続ける軽い失敗（読み出し・チャット）は箱を覆わない帯で出し、同じ出どころは最新の1件だけにし、
- *   読み出しの失敗は時間が経ったら消すこと（箱いっぱいの板で演出全体を隠さないため）
+ * - 素材が動き続ける軽い失敗（読み出し・チャット・その場かぎり）は箱を覆わない帯で出し、同じ出どころは最新の1件だけにし、
+ *   帯どうしは重ねずに並べ、その場かぎりの失敗だけを時間が経ったら消すこと（箱いっぱいの板で演出全体を隠さないため）
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { NOTICE_VISIBLE_MS, canvasPixels, clearError, showError } from './mount'
@@ -99,32 +99,57 @@ describe('showError・clearError', () => {
       expect(box.querySelector('.stage-error')?.classList.contains('stage-error-notice')).toBe(false)
     })
 
-    it('読み出しとチャットの失敗は、箱を覆わない帯で出す', () => {
+    it('読み出し・チャット・その場かぎりの失敗は、箱を覆わない帯で出す', () => {
       const box = createBox()
 
-      showError(new Error('効果音を鳴らせませんでした'), '市町村紹介', box, 'read')
+      showError(new Error('サイドスーパーを読み込めませんでした'), 'サイドスーパー', box, 'read')
       showError(new Error('チャンネル名を読めませんでした'), 'チャットボックス', box, 'chat')
+      showError(new Error('効果音を鳴らせませんでした'), '市町村紹介', box, 'transient')
 
       const panels = box.querySelectorAll('.stage-error')
-      expect(panels).toHaveLength(2)
+      expect(panels).toHaveLength(3)
       for (const panel of panels) expect(panel.classList.contains('stage-error-notice')).toBe(true)
+    })
+
+    it('同じ箱に出た帯どうしは重ねず、1つの並びにまとめる（読み出しとチャットが同時に失敗しても両方読めるように）', () => {
+      const box = createBox()
+
+      showError(new Error('注目コメントを読み込めませんでした'), '注目コメント', box, 'read')
+      showError(new Error('チャンネル名を読めませんでした'), '注目コメント', box, 'chat')
+
+      // 帯を縦に並べる入れ物が1つだけあり、2つの帯がその中に入っている
+      const stacks = box.querySelectorAll(':scope > .stage-notices')
+      expect(stacks).toHaveLength(1)
+      expect(stacks[0]?.querySelectorAll(':scope > .stage-error-notice')).toHaveLength(2)
+    })
+
+    it('並びの中の帯も、同じ出どころだけを消せる', () => {
+      const box = createBox()
+      showError(new Error('注目コメントを読み込めませんでした'), '注目コメント', box, 'read')
+      showError(new Error('チャンネル名を読めませんでした'), '注目コメント', box, 'chat')
+
+      clearError(box, 'read')
+
+      const remaining = box.querySelectorAll('.stage-error')
+      expect(remaining).toHaveLength(1)
+      expect(remaining[0]?.textContent).toContain('チャンネル名を読めませんでした')
     })
 
     it('同じ出どころの失敗が続いたら、積み重ねずに最新の1件だけを出す', () => {
       const box = createBox()
 
-      showError(new Error('効果音を鳴らせませんでした'), '市町村紹介', box, 'read')
-      showError(new Error('代表画像を読み込めませんでした'), '市町村紹介', box, 'read')
+      showError(new Error('効果音を鳴らせませんでした'), '市町村紹介', box, 'transient')
+      showError(new Error('代表画像を読み込めませんでした'), '市町村紹介', box, 'transient')
 
       const panels = box.querySelectorAll('.stage-error')
       expect(panels).toHaveLength(1)
       expect(panels[0]?.textContent).toContain('代表画像を読み込めませんでした')
     })
 
-    it('読み出しの失敗は、しばらく経ったら消す（一時的な失敗が次の演出まで残らないように）', () => {
+    it('その場かぎりの失敗は、しばらく経ったら消す（演出の最中の失敗が次の演出まで残らないように）', () => {
       vi.useFakeTimers()
       const box = createBox()
-      showError(new Error('配信のBGMを下げられませんでした'), 'ツイスター', box, 'read')
+      showError(new Error('配信のBGMを下げられませんでした'), 'ツイスター', box, 'transient')
 
       // 消える直前までは出ている
       vi.advanceTimersByTime(NOTICE_VISIBLE_MS - 1)
@@ -137,23 +162,24 @@ describe('showError・clearError', () => {
     it('新しい失敗に置き換えたら、消すまでの時間は新しい失敗から数える', () => {
       vi.useFakeTimers()
       const box = createBox()
-      showError(new Error('効果音を鳴らせませんでした'), '市町村紹介', box, 'read')
+      showError(new Error('効果音を鳴らせませんでした'), '市町村紹介', box, 'transient')
       vi.advanceTimersByTime(NOTICE_VISIBLE_MS - 1000)
-      showError(new Error('代表画像を読み込めませんでした'), '市町村紹介', box, 'read')
+      showError(new Error('代表画像を読み込めませんでした'), '市町村紹介', box, 'transient')
 
       // 前の失敗が消えるはずだった時刻を過ぎても、新しい失敗は残っている
       vi.advanceTimersByTime(2000)
       expect(box.querySelector('.stage-error')?.textContent).toContain('代表画像を読み込めませんでした')
     })
 
-    it('チャットの接続の失敗は、直るまで続くので時間が経っても消さない', () => {
+    it('読み出しとチャットの接続の失敗は、直るまで続くので時間が経っても消さない（次の読み出しまで素材も理由も見えなくならないように）', () => {
       vi.useFakeTimers()
       const box = createBox()
+      showError(new Error('選んだテキストが見つかりません'), 'テキスト', box, 'read')
       showError(new Error('チャンネル名を読めませんでした'), 'チャットボックス', box, 'chat')
 
       vi.advanceTimersByTime(NOTICE_VISIBLE_MS * 2)
 
-      expect(box.querySelector('.stage-error')).not.toBeNull()
+      expect(box.querySelectorAll('.stage-error')).toHaveLength(2)
     })
   })
 })

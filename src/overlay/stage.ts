@@ -1421,7 +1421,7 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
   /** 呼び出しの記録に、この箱が記録させた市町村を足して、制覇マップを決める */
   const conquestFor = (call: TownTourCall, townBorders: TownBorders): Playback['conquest'] =>
     conquestOf({ ...call, visited: [...new Set([...call.visited, ...recordedCodes])] }, townBorders)
-  const sound = createTownTourSoundPlayer((error) => showError(error, NOUNS.townTour, box, 'read'))
+  const sound = createTownTourSoundPlayer((error) => showError(error, NOUNS.townTour, box, 'transient'))
   const bgmApi = createBgmOverlayApi(callWorker, key)
 
   /**
@@ -1434,12 +1434,12 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
     if (demo || !played.has(BGM_START_CUE_ID)) return
     const holdMs = bgmDuckHoldOf(target, Date.now())
     if (holdMs === null) return
-    bgmApi.duck(holdMs).catch((error: unknown) => showError(error, NOUNS.townTour, box, 'read'))
+    bgmApi.duck(holdMs).catch((error: unknown) => showError(error, NOUNS.townTour, box, 'transient'))
   }
 
   /** 1件を流しはじめ、紹介を作らせ、クイズの出題を開かせる。作らせている間に別の1件へ進んでいたら、届いた結果は捨てる */
   const start = (call: TownTourCall, townBorders: TownBorders): void => {
-    clearError(box, 'read')
+    clearError(box, 'transient')
     played = new Set()
     visitSent = false
     image = null
@@ -1456,7 +1456,7 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
     const current = (): Playback | null => (playback !== null && playback.call === call && playback.startedAt === startedAt ? playback : null)
     if (!demo) {
       api.openQuiz(call.quizId, call.code).catch((error: unknown) => {
-        showError(error, NOUNS.townTour, box, 'read')
+        showError(error, NOUNS.townTour, box, 'transient')
         // 答えても届かない問いを出し続けないよう、まだクイズの最中ならその場で打ち切る
         const target = current()
         const now = Date.now()
@@ -1477,7 +1477,7 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
       try {
         return { intro, loaded: await loadTownTourImage(intro.image.url) }
       } catch (error) {
-        if (current() !== null) showError(error, NOUNS.townTour, box, 'read')
+        if (current() !== null) showError(error, NOUNS.townTour, box, 'transient')
         return { intro: { ...intro, image: null }, loaded: null }
       }
     }
@@ -1493,7 +1493,7 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
           .narrate(text)
           .then(loadNarrationClip)
           .catch((error: unknown) => {
-            if (current() !== null) showError(error, NOUNS.townTour, box, 'read')
+            if (current() !== null) showError(error, NOUNS.townTour, box, 'transient')
             return null
           })
       const [opening = null, ...lines] = await Promise.all([texts.opening, ...texts.lines].map(clipOf))
@@ -1509,7 +1509,7 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
       try {
         return await loadTownTourImage(intro.bond.raiderIcon)
       } catch (error) {
-        if (current() !== null) showError(error, NOUNS.townTour, box, 'read')
+        if (current() !== null) showError(error, NOUNS.townTour, box, 'transient')
         return null
       }
     }
@@ -1540,7 +1540,7 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
         // 紹介を作れなかった再生では、鳴りはじめていた BGM も止めて何も鳴らさない。下げていた配信のBGMもすぐ戻す
         sound.stop()
         duckStreamBgm(playback)
-        showError(error, NOUNS.townTour, box, 'read')
+        showError(error, NOUNS.townTour, box, 'transient')
       },
     )
   }
@@ -1555,7 +1555,7 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
     } catch (error) {
       // 想定外の呼び出しで1件が黙って消えないよう、失敗を箱に出して次の1件へ進む
       playback = null
-      showError(error, NOUNS.townTour, box, 'read')
+      showError(error, NOUNS.townTour, box, 'transient')
       startNext()
     }
   }
@@ -1620,7 +1620,7 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
             playback = { ...playback, conquest: conquestFor(playback.call, borders) }
           }
         }
-        showError(error, NOUNS.townTour, box, 'read')
+        showError(error, NOUNS.townTour, box, 'transient')
       },
     )
   }
@@ -1648,7 +1648,7 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
     playback = null
     sound.stop()
     releaseCurrentNarration()
-    if (duckedStreamBgm) bgmApi.duck(0).catch((error: unknown) => showError(error, NOUNS.townTour, box, 'read'))
+    if (duckedStreamBgm) bgmApi.duck(0).catch((error: unknown) => showError(error, NOUNS.townTour, box, 'transient'))
     startNext()
   }
 
@@ -1687,7 +1687,7 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
           if (message.type === 'call') enqueue(message.call)
           else acceptAnswer(message.quizId, message.userName)
         } catch (error) {
-          showError(error, NOUNS.townTour, box, 'read')
+          showError(error, NOUNS.townTour, box, 'transient')
         }
       },
       onOpen: () => {
@@ -1696,7 +1696,7 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
       onStatus: () => {
         // 切断・再接続は出さない。流している1件はそのまま流しきる
       },
-      onWarning: (message) => showError(new Error(message), NOUNS.townTour, box, 'read'),
+      onWarning: (message) => showError(new Error(message), NOUNS.townTour, box, 'transient'),
     },
     TOWN_TOUR_SOCKET_HINT,
   )
@@ -1728,11 +1728,11 @@ const mountTwister = (box: HTMLElement, item: OverlayItem, { key, demo }: MountC
   /** 配信の BGM を holdMs ミリ秒下げておくよう裏方へ知らせる（0 は戻す）。プレビューでは配信の BGM を動かさないので送らない */
   const duckStreamBgm = (holdMs: number): void => {
     if (demo) return
-    bgmApi.duck(holdMs).catch((error: unknown) => showError(error, NOUNS.twister, box, 'read'))
+    bgmApi.duck(holdMs).catch((error: unknown) => showError(error, NOUNS.twister, box, 'transient'))
   }
   // 対戦の BGM を鳴らせなかったら、配信の BGM を対戦の終わりまで下げたままにせず、すぐ戻す
   const bgm = createTwisterBgmPlayer((error) => {
-    showError(error, NOUNS.twister, box, 'read')
+    showError(error, NOUNS.twister, box, 'transient')
     duckStreamBgm(0)
   })
 
@@ -1749,12 +1749,12 @@ const mountTwister = (box: HTMLElement, item: OverlayItem, { key, demo }: MountC
     const [call, ...rest] = waiting
     if (call === undefined) return
     waiting = rest
-    clearError(box, 'read')
+    clearError(box, 'transient')
     const game = ((): Game | null => {
       try {
         return createGame(call.seed)
       } catch (error) {
-        showError(error, NOUNS.twister, box, 'read')
+        showError(error, NOUNS.twister, box, 'transient')
         return null
       }
     })()
@@ -1768,7 +1768,7 @@ const mountTwister = (box: HTMLElement, item: OverlayItem, { key, demo }: MountC
       try {
         return await loadFaceImage(iconUrl)
       } catch (error) {
-        showError(error, NOUNS.twister, box, 'read')
+        showError(error, NOUNS.twister, box, 'transient')
         return null
       }
     }
@@ -1785,7 +1785,7 @@ const mountTwister = (box: HTMLElement, item: OverlayItem, { key, demo }: MountC
       })
       .catch((error: unknown) => {
         // 顔を作れなかった1件は流さず、失敗を出して次へ進む（待っている呼び出しを止めない）
-        showError(error, NOUNS.twister, box, 'read')
+        showError(error, NOUNS.twister, box, 'transient')
       })
       .finally(() => {
         preparing = false
@@ -1835,7 +1835,7 @@ const mountTwister = (box: HTMLElement, item: OverlayItem, { key, demo }: MountC
         try {
           enqueue(parseTwisterCall(text))
         } catch (error) {
-          showError(error, NOUNS.twister, box, 'read')
+          showError(error, NOUNS.twister, box, 'transient')
         }
       },
       onOpen: () => {
@@ -1844,7 +1844,7 @@ const mountTwister = (box: HTMLElement, item: OverlayItem, { key, demo }: MountC
       onStatus: () => {
         // 切断・再接続は出さない。流している1件はそのまま流しきる
       },
-      onWarning: (message) => showError(new Error(message), NOUNS.twister, box, 'read'),
+      onWarning: (message) => showError(new Error(message), NOUNS.twister, box, 'transient'),
     },
     TWISTER_SOCKET_HINT,
   )
@@ -1872,7 +1872,7 @@ const mountLick = (box: HTMLElement, item: OverlayItem, { key, demo }: MountCont
   hudCanvas.dataset.lick = 'hud'
   box.append(glCanvas, hudCanvas)
   const renderer = createLickRenderer(glCanvas)
-  const soundPlayer = createLickSoundPlayer((error) => showError(error, NOUNS.lick, box, 'read'))
+  const soundPlayer = createLickSoundPlayer((error) => showError(error, NOUNS.lick, box, 'transient'))
 
   /** 流している1件。流していなければ null */
   let playback: { readonly call: LickCall; readonly plan: LickPlan; readonly startedAt: number } | null = null
@@ -1887,14 +1887,14 @@ const mountLick = (box: HTMLElement, item: OverlayItem, { key, demo }: MountCont
     const [call, ...rest] = waiting
     if (call === undefined) return
     waiting = rest
-    clearError(box, 'read')
+    clearError(box, 'transient')
     preparing = true
     const loadIcon = async (): Promise<HTMLImageElement | null> => {
       if (call.target.iconUrl === null) return null
       try {
         return await loadFaceImage(call.target.iconUrl)
       } catch (error) {
-        showError(error, NOUNS.lick, box, 'read')
+        showError(error, NOUNS.lick, box, 'transient')
         return null
       }
     }
@@ -1908,7 +1908,7 @@ const mountLick = (box: HTMLElement, item: OverlayItem, { key, demo }: MountCont
       })
       .catch((error: unknown) => {
         // アイコンの絵を作れなかった1件は流さず、失敗を出して次へ進む（待っている呼び出しを止めない）
-        showError(error, NOUNS.lick, box, 'read')
+        showError(error, NOUNS.lick, box, 'transient')
       })
       .finally(() => {
         preparing = false
@@ -1959,7 +1959,7 @@ const mountLick = (box: HTMLElement, item: OverlayItem, { key, demo }: MountCont
         try {
           enqueue(parseLickCall(text))
         } catch (error) {
-          showError(error, NOUNS.lick, box, 'read')
+          showError(error, NOUNS.lick, box, 'transient')
         }
       },
       onOpen: () => {
@@ -1968,7 +1968,7 @@ const mountLick = (box: HTMLElement, item: OverlayItem, { key, demo }: MountCont
       onStatus: () => {
         // 切断・再接続は出さない。流している1件はそのまま流しきる
       },
-      onWarning: (message) => showError(new Error(message), NOUNS.lick, box, 'read'),
+      onWarning: (message) => showError(new Error(message), NOUNS.lick, box, 'transient'),
     },
     LICK_SOCKET_HINT,
   )
@@ -2005,7 +2005,7 @@ const mountDollAward = (box: HTMLElement, item: OverlayItem, { key, demo }: Moun
     void view
       .show(message)
       // 画像が読めなくても後続の獲得は出すが、黙って飛ばさず素材の箱に知らせる
-      .catch((error: unknown) => showError(error, NOUNS.dollAward, box, 'read'))
+      .catch((error: unknown) => showError(error, NOUNS.dollAward, box, 'transient'))
       .finally(() => {
         playing = false
         startNext()
@@ -2030,17 +2030,17 @@ const mountDollAward = (box: HTMLElement, item: OverlayItem, { key, demo }: Moun
       onMessage: (text) => {
         try {
           const message = parseDollAwardMessage(text)
-          clearError(box, 'read')
+          clearError(box, 'transient')
           enqueue(message)
         } catch (error) {
-          showError(error, NOUNS.dollAward, box, 'read')
+          showError(error, NOUNS.dollAward, box, 'transient')
         }
       },
       onOpen: () => {
         // 獲得は押し出しでしか届かない（読み直すものを持たない）。つながっていない間の獲得は配送先が落とす
       },
       onStatus: (status) => view.setNotice(status === 'disconnected' ? 'Workerとの接続が切れました。再接続します…' : null),
-      onWarning: (message) => showError(new Error(message), NOUNS.dollAward, box, 'read'),
+      onWarning: (message) => showError(new Error(message), NOUNS.dollAward, box, 'transient'),
     },
     DOLL_AWARD_SOCKET_HINT,
   )
@@ -2088,7 +2088,7 @@ const mountVrm = (box: HTMLElement, item: OverlayItem, { key, demo }: MountConte
       if (message.type === 'start') speech = message
       else if (speech?.id === message.id) speech = null
     },
-    (error) => showError(error, NOUNS.vrm, box, 'read'),
+    (error) => showError(error, NOUNS.vrm, box, 'transient'),
   )
 
   /** マスコットの VRM のURLを読み、その VRM を読み込み終えたら URL を返す。どちらかに失敗したら失敗をこの箱に出して投げる */
@@ -2115,12 +2115,12 @@ const mountVrm = (box: HTMLElement, item: OverlayItem, { key, demo }: MountConte
     void renderer
       .load(call.model)
       .then(() => {
-        clearError(box, 'read')
+        clearError(box, 'transient')
         playback = { plan: createVrmPlan(call.seed, call.reaction), startedAt: Date.now() }
       })
       .catch((error: unknown) => {
         // 読み込めなかった1件は流さず、失敗を出して次へ進む（待っている呼び出しを止めない）
-        showError(error, NOUNS.vrm, box, 'read')
+        showError(error, NOUNS.vrm, box, 'transient')
       })
       .finally(() => {
         preparing = false
@@ -2163,7 +2163,7 @@ const mountVrm = (box: HTMLElement, item: OverlayItem, { key, demo }: MountConte
         try {
           enqueue(parseVrmCall(text))
         } catch (error) {
-          showError(error, NOUNS.vrm, box, 'read')
+          showError(error, NOUNS.vrm, box, 'transient')
         }
       },
       onOpen: () => {
@@ -2175,7 +2175,7 @@ const mountVrm = (box: HTMLElement, item: OverlayItem, { key, demo }: MountConte
       onStatus: () => {
         // 切断・再接続は出さない。マスコットは立たせたまま、流している反応もそのまま流しきる
       },
-      onWarning: (message) => showError(new Error(message), NOUNS.vrm, box, 'read'),
+      onWarning: (message) => showError(new Error(message), NOUNS.vrm, box, 'transient'),
     },
     VRM_SOCKET_HINT,
   )
@@ -2236,7 +2236,7 @@ const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo, hub }:
   let waiting: readonly KanjiQuizCall[] = []
   /** 流している出題で鳴らした音の id（sound-cues.ts の KanjiQuizSoundCue.id） */
   let played = new Set<string>()
-  const sound = createSoundPlayer(NOUNS.kanjiQuiz, (error) => showError(error, NOUNS.kanjiQuiz, box, 'read'))
+  const sound = createSoundPlayer(NOUNS.kanjiQuiz, (error) => showError(error, NOUNS.kanjiQuiz, box, 'transient'))
   const bgmApi = createBgmOverlayApi(callWorker, key)
 
   const enqueue = (call: KanjiQuizCall): void => {
@@ -2252,7 +2252,7 @@ const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo, hub }:
     if (demo || playback === null || !played.has(KANJI_QUIZ_BGM_START_CUE_ID)) return
     const holdMs = kanjiQuizBgmDuckHoldOf(playback.call.sound, now - playback.startedAt, playback.result)
     if (holdMs === null) return
-    bgmApi.duck(holdMs).catch((error: unknown) => showError(error, NOUNS.kanjiQuiz, box, 'read'))
+    bgmApi.duck(holdMs).catch((error: unknown) => showError(error, NOUNS.kanjiQuiz, box, 'transient'))
   }
 
   /**
@@ -2311,11 +2311,11 @@ const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo, hub }:
 
   /**
    * 流している出題を流し終えていれば終えて音を止め、流していなければ待っている出題の先頭を流しはじめる。
-   * 待っても Worker の結果が届かずに終えたら、理由を箱に出す（次の出題の読み取りが届けば消す）
+   * 待っても Worker の結果が届かずに終えたら、理由を箱に出す（15秒経つか、次の出題が届けば消す）
    */
   const advance = (now: number): void => {
     if (playback !== null && now - playback.startedAt >= kanjiQuizEndOf(playback.result, playback.stop)) {
-      if (playback.result === null) showError(new Error(KANJI_QUIZ_NO_RESULT_MESSAGE), NOUNS.kanjiQuiz, box, 'read')
+      if (playback.result === null) showError(new Error(KANJI_QUIZ_NO_RESULT_MESSAGE), NOUNS.kanjiQuiz, box, 'transient')
       playback = null
       sound.stop()
     }
@@ -2328,8 +2328,8 @@ const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo, hub }:
     played = new Set()
     // プレビューは Worker の選んだ出題ではないので開かせない
     if (!demo) {
-      // 開けなければ回答が届かないまま時間切れまで流れるので、理由を箱に出す（次の出題の読み取りが届けば消す）
-      api.openQuiz(next.id).catch((error: unknown) => showError(error, NOUNS.kanjiQuiz, box, 'read'))
+      // 開けなければ回答が届かないまま時間切れまで流れるので、理由を箱に出す（15秒経つか、次の出題が届けば消す）
+      api.openQuiz(next.id).catch((error: unknown) => showError(error, NOUNS.kanjiQuiz, box, 'transient'))
     }
   }
 
@@ -2390,15 +2390,15 @@ const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo, hub }:
         try {
           const message = parseKanjiQuizMessage(text)
           if (message.type === 'call') {
-            // 次の出題が届いたら、前の失敗（読み取り・開けなかった・出しきった）の表示を消す
-            clearError(box, 'read')
+            // 次の出題が届いたら、前の失敗（読み取り・開けなかった・出しきった）の表示を、15秒を待たずに消す
+            clearError(box, 'transient')
             enqueue(message.call)
           } else if (message.type === 'answer') acceptAnswer(message.quizId, message.userName)
           else if (message.type === 'stopping') acceptStopping(message.quizId, message.graceMs, message.rehearsal)
           else if (message.type === 'stopCancelled') acceptStopCancelled(message.quizId)
-          else showError(new Error(message.message), NOUNS.kanjiQuiz, box, 'read')
+          else showError(new Error(message.message), NOUNS.kanjiQuiz, box, 'transient')
         } catch (error) {
-          showError(error, NOUNS.kanjiQuiz, box, 'read')
+          showError(error, NOUNS.kanjiQuiz, box, 'transient')
         }
       },
       onOpen: () => {
@@ -2407,7 +2407,7 @@ const mountKanjiQuiz = (box: HTMLElement, item: OverlayItem, { key, demo, hub }:
       onStatus: () => {
         // 切断・再接続は出さない。流している1件はそのまま流しきる
       },
-      onWarning: (message) => showError(new Error(message), NOUNS.kanjiQuiz, box, 'read'),
+      onWarning: (message) => showError(new Error(message), NOUNS.kanjiQuiz, box, 'transient'),
     },
     KANJI_QUIZ_SOCKET_HINT,
   )
@@ -2677,7 +2677,7 @@ const mountChatDeduction = (box: HTMLElement, item: OverlayItem, { key, demo }: 
   // プレビューのサンプルは終えた時刻が固定なので、終えたゲームを消すと正解の場面が映らない
   const view = createChatDeductionView(root, {
     hideEndedGame: !demo,
-    onImageError: (error) => showError(error, NOUNS.chatDeduction, box, 'read'),
+    onImageError: (error) => showError(error, NOUNS.chatDeduction, box, 'transient'),
   })
 
   if (demo) {
@@ -2692,10 +2692,10 @@ const mountChatDeduction = (box: HTMLElement, item: OverlayItem, { key, demo }: 
     clearError(box, 'read')
     showError(error, NOUNS.chatDeduction, box, 'read')
   }
-  const sound = createSoundPlayer(NOUNS.chatDeduction, (error) => showError(error, NOUNS.chatDeduction, box, 'read'))
+  const sound = createSoundPlayer(NOUNS.chatDeduction, (error) => showError(error, NOUNS.chatDeduction, box, 'transient'))
   /** 配信の BGM を holdMs ミリ秒下げておくよう裏方へ知らせる。送れなくてもゲームの表示は止めず、箱に出すだけにする */
   const duckStreamBgm = (holdMs: number): void => {
-    bgmApi.duck(holdMs).catch((error: unknown) => showError(error, NOUNS.chatDeduction, box, 'read'))
+    bgmApi.duck(holdMs).catch((error: unknown) => showError(error, NOUNS.chatDeduction, box, 'transient'))
   }
   /** 配信の BGM を下げておく知らせを送り直すタイマー。ゲームの BGM を流しているあいだだけ動かす */
   let duckTimer: number | undefined
