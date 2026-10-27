@@ -2122,6 +2122,19 @@ describe('漢字クイズを出題する動作（kanjiQuiz）', () => {
     expect(await listFailures(env.DB)).toMatchObject([{ code: 'kanji-quiz-push-failed' }])
   })
 
+  it('配信を止めるまでの時間切れの回数を読めなければ、押し出さずに漢字クイズの失敗として記録する（受け取り自体は成功として返す）', async () => {
+    const { env, alertChannel } = createEnv()
+    await saveAlertConfig(env.STORE, { triggers: [rewardKanjiQuizTrigger] })
+    // 前提: KV の回数の設定が壊れていて、JSON として読めない
+    await env.STORE.put('kanji-quiz-miss-limit', '{')
+
+    const response = await callWebhook(createNotification({ body: REDEMPTION_NOTIFICATION }), env)
+
+    expect(response.status).toBe(204)
+    expect(alertChannel.pushedKanjiQuizzes).toHaveLength(0)
+    expect(await listFailures(env.DB)).toMatchObject([{ code: 'kanji-quiz-push-failed' }])
+  })
+
   it('同じ配信で準2級の問題を出しきっても、失敗にせず一巡して出題しつづける', async () => {
     const { env, alertChannel } = createEnv()
     await saveAlertConfig(env.STORE, { triggers: [rewardKanjiQuizTrigger] })
