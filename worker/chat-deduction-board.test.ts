@@ -69,7 +69,7 @@ describe('readChatDeductionBoard', () => {
     const { db, game } = await startGameWithOneAnswer()
 
     expect(await readChatDeductionBoard(db, createStore(), problems, images)).toEqual({
-      game: { id: game.id, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null, explanation: null, image: null },
+      game: { id: game.id, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', closesAt: null, endedAt: null, endReason: null, answer: null, explanation: null, image: null },
       cards: [card],
       sound: DEFAULT_CHAT_DEDUCTION_SOUND,
     })
@@ -80,7 +80,7 @@ describe('readChatDeductionBoard', () => {
     await endGame(db, game.id, 'stopped', LATER)
 
     expect(await readChatDeductionBoard(db, createStore(), problems, images)).toEqual({
-      game: { id: game.id, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', endedAt: '2026-10-15T12:10:00.000Z', endReason: 'stopped', answer: '富士山', explanation: '静岡県と山梨県にまたがる日本一の山。', image: fujiImage },
+      game: { id: game.id, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', closesAt: null, endedAt: '2026-10-15T12:10:00.000Z', endReason: 'stopped', answer: '富士山', explanation: '静岡県と山梨県にまたがる日本一の山。', image: fujiImage },
       cards: [card],
       sound: DEFAULT_CHAT_DEDUCTION_SOUND,
     })
@@ -95,12 +95,22 @@ describe('readChatDeductionBoard', () => {
       category: 'person',
       topic: '古代史',
       startedAt: '2026-10-15T12:00:00.000Z',
+      closesAt: null,
       endedAt: null,
       endReason: null,
       answer: null,
       explanation: null,
       image: null,
     })
+  })
+
+  it('制限時間のあるゲームなら、締め切りの時刻を載せる（合成ページが残り時間を出すため）', async () => {
+    const db = createFakeDatabase()
+    await startGame(db, 'mount-fuji', NOW, null, LATER)
+
+    const board = await readChatDeductionBoard(db, createStore(), problems, images)
+
+    expect(board.game?.closesAt).toBe('2026-10-15T12:10:00.000Z')
   })
 
   it('終えたゲームの問題に出せる画像が無ければ、画像は null にする', async () => {

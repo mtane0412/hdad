@@ -2,7 +2,7 @@
  * チャットで推理で鳴らす音の判断
  *
  * 合成ページは、前に映していた一覧と新しく受け取った一覧（board.ts）を比べ、どの音を鳴らすかをここで決める。
- * - 押し出しで届いた一覧なら、ゲームを始めた・質問に答えた・解答の正誤を決めた・打ち切ったことに合う効果音を鳴らす
+ * - 押し出しで届いた一覧なら、ゲームを始めた・質問に答えた・解答の正誤を決めた・打ち切った（制限時間が尽きたときも）ことに合う効果音を鳴らす
  * - 読み直した一覧と、合成ページを開いて最初に受け取った一覧では、効果音を鳴らさない（つなぎ直すたびに昔のカードの音が鳴らないように）
  * - BGM は、ゲームを開催しているあいだだけ流す。読み直しでも合わせる（開催中に合成ページを開き直しても流れ、見逃した終わりでも止まるように）
  *
@@ -65,7 +65,8 @@ const effectSlotsOf = (previous: ChatDeductionBoard, next: ChatDeductionBoard): 
   const sameGame = previous.game?.id === game.id
   const seen = new Set(sameGame ? previous.cards.map(cardKeyOf) : [])
   const startedNow = !sameGame && game.endedAt === null
-  const stoppedNow = sameGame && previous.game?.endedAt === null && game.endReason === 'stopped'
+  // 正解者が出ずに終えた（配信者の打ち切りか、制限時間が尽きた）ときに打ち切りの音を鳴らす
+  const stoppedNow = sameGame && previous.game?.endedAt === null && (game.endReason === 'stopped' || game.endReason === 'timeout')
   return [
     ...(startedNow ? (['start'] as const) : []),
     ...next.cards.filter((card) => !seen.has(cardKeyOf(card))).map(slotOfCard),

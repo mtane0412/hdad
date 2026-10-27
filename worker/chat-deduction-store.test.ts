@@ -33,8 +33,17 @@ describe('ゲームの開始（startGame）', () => {
 
     const game = await startGame(db, 'mount-fuji', NOW)
 
-    expect(game).toEqual({ id: 1, problemId: 'mount-fuji', startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null })
+    expect(game).toEqual({ id: 1, problemId: 'mount-fuji', startedAt: '2026-10-15T12:00:00.000Z', closesAt: null, endedAt: null, endReason: null })
     expect(await readCurrentGame(db)).toEqual(game)
+  })
+
+  it('制限時間があれば、締め切りの時刻を控えたゲームを作る', async () => {
+    const db = createFakeDatabase()
+
+    const game = await startGame(db, 'mount-fuji', NOW, null, LATER)
+
+    expect(game?.closesAt).toBe('2026-10-15T12:10:00.000Z')
+    expect((await readCurrentGame(db))?.closesAt).toBe('2026-10-15T12:10:00.000Z')
   })
 
   it('ほかのゲームが開催中なら作らず null を返す（開催中のゲームは1つだけ）', async () => {
@@ -84,6 +93,15 @@ describe('ゲームの終了（endGame）', () => {
     expect(ended).toEqual({ ...game, endedAt: '2026-10-15T12:10:00.000Z', endReason: 'stopped' })
     expect(await readCurrentGame(db)).toBeNull()
     expect(await readLatestGame(db)).toEqual(ended)
+  })
+
+  it('制限時間が尽きたゲームは、終わり方を時間切れ（timeout）にして終えられる', async () => {
+    const db = createFakeDatabase()
+    const game = await startGame(db, 'mount-fuji', NOW, null, LATER)
+
+    const ended = await endGame(db, game!.id, 'timeout', LATER)
+
+    expect(ended).toEqual({ ...game, endedAt: '2026-10-15T12:10:00.000Z', endReason: 'timeout' })
   })
 
   it('もう終えたゲーム・無いゲームなら何も書かず null を返す', async () => {

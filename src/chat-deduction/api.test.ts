@@ -16,7 +16,7 @@ const sound = {
   bgmVolume: 0.2,
   effectVolume: 0.6,
 }
-const game: ChatDeductionGame = { id: 1, problemId: 'mount-fuji', startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null }
+const game: ChatDeductionGame = { id: 1, problemId: 'mount-fuji', startedAt: '2026-10-15T12:00:00.000Z', closesAt: null, endedAt: null, endReason: null }
 
 /** 呼ばれた内容を記録し、決めた応答を返す fetch */
 const createFetchWithResponse = (status: number, body: unknown) => {
@@ -42,8 +42,18 @@ describe('createChatDeductionApi', () => {
     expect(await createChatDeductionApi(fetchImpl).read()).toEqual({ rewards: null, game: null })
   })
 
-  it('ゲームの形が違えば（終わり方が知らない値など）エラーにする', async () => {
-    const { fetchImpl } = createFetchWithResponse(200, { rewards, game: { ...game, endReason: 'timeout' } })
+  it('時間切れで終えたゲームと、締め切りの時刻を読む', async () => {
+    const timedOut = { ...game, closesAt: '2026-10-15T12:10:00.000Z', endedAt: '2026-10-15T12:10:00.000Z', endReason: 'timeout' }
+    const { fetchImpl } = createFetchWithResponse(200, { rewards, game: timedOut })
+
+    expect(await createChatDeductionApi(fetchImpl).read()).toEqual({ rewards, game: timedOut })
+  })
+
+  it('ゲームの形が違えば（終わり方が知らない値・締め切りが文字列でないなど）エラーにする', async () => {
+    const { fetchImpl } = createFetchWithResponse(200, { rewards, game: { ...game, endReason: 'expired' } })
+    const { fetchImpl: withoutClosesAt } = createFetchWithResponse(200, { rewards, game: { ...game, closesAt: 600 } })
+
+    await expect(createChatDeductionApi(withoutClosesAt).read()).rejects.toThrow()
 
     await expect(createChatDeductionApi(fetchImpl).read()).rejects.toThrow()
   })
@@ -84,6 +94,26 @@ describe('createChatDeductionApi', () => {
     expect(calls).toEqual([{ path: '/api/admin/chat-deduction/sound', method: 'PUT', body: sound }])
   })
 
+  it('制限時間の設定を読む', async () => {
+    const { calls, fetchImpl } = createFetchWithResponse(200, { minutes: 15 })
+
+    expect(await createChatDeductionApi(fetchImpl).timeLimit()).toBe(15)
+    expect(calls.map((call) => call.path)).toEqual(['/api/admin/chat-deduction/time-limit'])
+  })
+
+  it('制限時間の設定を保存し、Worker が保存した値を返す（なしは null）', async () => {
+    const { calls, fetchImpl } = createFetchWithResponse(200, { minutes: null })
+
+    expect(await createChatDeductionApi(fetchImpl).saveTimeLimit(null)).toBeNull()
+    expect(calls).toEqual([{ path: '/api/admin/chat-deduction/time-limit', method: 'PUT', body: { minutes: null } }])
+  })
+
+  it('制限時間の応答が選べない分数なら、なしと見せずにエラーにする', async () => {
+    const { fetchImpl } = createFetchWithResponse(200, { minutes: 7 })
+
+    await expect(createChatDeductionApi(fetchImpl).timeLimit()).rejects.toThrow('制限時間')
+  })
+
   it('Workerが失敗を返したら ApiError にする（報酬を切り替えられなかったなど）', async () => {
     const { fetchImpl } = createFetchWithResponse(502, { error: { code: 'chat-deduction-rewards-failed', message: '報酬を交換できるようにできなかったので、ゲームを始めませんでした' } })
 
@@ -94,7 +124,7 @@ describe('createChatDeductionApi', () => {
 describe('createChatDeductionOverlayApi', () => {
   const OVERLAY_KEY = 'overlay-key_0123456789abcdefghij'
   const board = {
-    game: { id: 1, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null, explanation: null, image: null },
+    game: { id: 1, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', closesAt: null, endedAt: null, endReason: null, answer: null, explanation: null, image: null },
     cards: [{ kind: 'question', id: 1, userName: '田中太郎', text: '日本にありますか？', verdict: 'yes', reply: '静岡県と山梨県にまたがっています。' }],
     sound: { ...sound, slots: { ...sound.slots, bgm: '/api/media/media-thinking?key=overlay-key', correct: '/api/media/media-pinpon?key=overlay-key' } },
   }

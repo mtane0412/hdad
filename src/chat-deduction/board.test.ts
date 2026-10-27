@@ -20,6 +20,7 @@ const solvedBoard: ChatDeductionBoard = {
     category: 'place',
     topic: null,
     startedAt: '2026-10-15T12:00:00.000Z',
+    closesAt: '2026-10-15T12:10:00.000Z',
     endedAt: '2026-10-15T12:05:00.000Z',
     endReason: 'solved',
     answer: '富士山',
@@ -41,6 +42,18 @@ describe('readChatDeductionBoard', () => {
 
   it('一度もゲームを始めていなければ、ゲームは null として読む', () => {
     expect(readChatDeductionBoard({ game: null, cards: [], sound })).toEqual({ game: null, cards: [], sound })
+  })
+
+  it('時間切れで終えたゲームと、締め切りの無いゲームを読む', () => {
+    const timedOut = { ...solvedBoard, game: { ...solvedBoard.game!, endReason: 'timeout' as const } }
+    const unlimited = { ...solvedBoard, game: { ...solvedBoard.game!, closesAt: null } }
+
+    expect(readChatDeductionBoard(structuredClone(timedOut))).toEqual(timedOut)
+    expect(readChatDeductionBoard(structuredClone(unlimited))).toEqual(unlimited)
+  })
+
+  it('締め切りが文字列でも null でもなければ投げる', () => {
+    expect(() => readChatDeductionBoard({ ...solvedBoard, game: { ...solvedBoard.game, closesAt: 600 } })).toThrow('game')
   })
 
   it('知らない区分・知らない答え・知らないカードの種類なら投げる（黙って映さない）', () => {

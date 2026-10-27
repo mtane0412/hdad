@@ -14,13 +14,14 @@
  * - 下部バーの「演出を消す」を受けたら、終えたゲームを待たずに消すこと（開催中のゲームは消さない）
  * - 終えてから EXPLANATION_DELAY_MS たったら、カードの格子の代わりに正解の解説を出すこと（まず正解の帯とカードを見せるため）
  * - 解説に画像があれば、作者とライセンスを添えて解説の横に出すこと（読み込めなければ画像を外し、失敗を知らせる）
+ * - 制限時間のある開催中のゲームでは、見出しに締め切りまでの残り時間を出し、1秒ごとに書き直すこと（時間切れで終えたらそう出す）
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChatDeductionBoard, ChatDeductionBoardGame, ChatDeductionCard } from './board'
 import { ENDED_REVEAL_MS } from '../core/ended-reveal'
 import { EXPLANATION_DELAY_MS, MAX_VISIBLE_CARDS, createChatDeductionView } from './view'
 
-const openGame: ChatDeductionBoardGame = { id: 1, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null, explanation: null, image: null }
+const openGame: ChatDeductionBoardGame = { id: 1, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', closesAt: null, endedAt: null, endReason: null, answer: null, explanation: null, image: null }
 
 /** 富士山の問題の解説 */
 const FUJI_EXPLANATION = '静岡県と山梨県にまたがる、標高3776メートルの日本でいちばん高い山。'
@@ -146,6 +147,76 @@ describe('createChatDeductionView', () => {
     expect(textOf('.chat-deduction-answer')).toBe('正解は富士山でした')
     expect(root.querySelector<HTMLElement>('.chat-deduction-solver')?.hidden).toBe(true)
     expect(root.querySelector<HTMLElement>('.chat-deduction-result')?.dataset.endReason).toBe('stopped')
+  })
+
+  it('制限時間が尽きて終えたら、「時間切れ」と「正解は○○でした」を出す', () => {
+    const view = createChatDeductionView(root, KEEP_ENDED_GAME)
+
+    view.setBoard({ game: { ...openGame, endedAt: '2026-10-15T12:05:00.000Z', endReason: 'timeout', answer: '富士山', explanation: FUJI_EXPLANATION, image: null }, cards: [wrongCard] })
+
+    expect(textOf('.chat-deduction-answer')).toBe('正解は富士山でした')
+    expect(root.querySelector<HTMLElement>('.chat-deduction-solver')?.hidden).toBe(false)
+    expect(textOf('.chat-deduction-solver')).toBe('時間切れ！')
+    expect(root.querySelector<HTMLElement>('.chat-deduction-result')?.dataset.endReason).toBe('timeout')
+  })
+
+  describe('残り時間', () => {
+    /** 12:00 に始め、12:10 が締め切りのゲーム */
+    const limitedGame: ChatDeductionBoardGame = { ...openGame, closesAt: '2026-10-15T12:10:00.000Z' }
+    const remaining = (): HTMLElement | null => root.querySelector<HTMLElement>('.chat-deduction-remaining')
+
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('締め切りのある開催中のゲームでは、見出しに残り時間を出し、1秒ごとに書き直す', () => {
+      // 前提: 締め切りの 4分32秒前に開いた
+      vi.setSystemTime(Date.parse('2026-10-15T12:05:28.000Z'))
+      const view = createChatDeductionView(root)
+
+      view.setBoard({ game: limitedGame, cards: [] })
+      expect(remaining()?.hidden).toBe(false)
+      expect(remaining()?.textContent).toBe('残り 4:32')
+
+      vi.advanceTimersByTime(1_000)
+      expect(remaining()?.textContent).toBe('残り 4:31')
+    })
+
+    it('締め切りを過ぎても Worker から終えた知らせが届くまでは、0:00 のまま出しておく（自分の時計で終えない）', () => {
+      vi.setSystemTime(Date.parse('2026-10-15T12:09:59.000Z'))
+      const view = createChatDeductionView(root)
+
+      view.setBoard({ game: limitedGame, cards: [] })
+      vi.advanceTimersByTime(3_000)
+
+      expect(remaining()?.textContent).toBe('残り 0:00')
+      expect(root.querySelector<HTMLElement>('.chat-deduction-hint')?.hidden).toBe(false)
+    })
+
+    it('制限時間の無いゲームでは、残り時間を出さない', () => {
+      const view = createChatDeductionView(root)
+
+      view.setBoard({ game: openGame, cards: [] })
+
+      expect(remaining()?.hidden).toBe(true)
+    })
+
+    it('終えたゲームでは残り時間を隠し、書き直しも止める', () => {
+      vi.setSystemTime(Date.parse('2026-10-15T12:05:00.000Z'))
+      const view = createChatDeductionView(root, KEEP_ENDED_GAME)
+      view.setBoard({ game: limitedGame, cards: [] })
+
+      view.setBoard({ game: { ...limitedGame, endedAt: '2026-10-15T12:05:00.000Z', endReason: 'stopped', answer: '富士山', explanation: FUJI_EXPLANATION, image: null }, cards: [] })
+      const shown = remaining()?.textContent
+      vi.advanceTimersByTime(5_000)
+
+      expect(remaining()?.hidden).toBe(true)
+      expect(remaining()?.textContent).toBe(shown)
+    })
   })
 
   it('ゲームが無ければ何も出さない', () => {

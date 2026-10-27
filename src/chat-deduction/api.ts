@@ -3,7 +3,7 @@
  *
  * 2つの呼び出し手がある。
  * - アプリのページ（/chat-deduction/）: ログインのセッションで報酬のIDと最後のゲームを読み、報酬を作り、ゲームを始め・終える。
- *   場面ごとに鳴らす音の設定も読み書きする
+ *   場面ごとに鳴らす音の設定と、制限時間の設定も読み書きする
  * - 合成ページの素材「チャットで推理」（issue #378）: ログインを持たないので、オーバーレイ用キー（URLの ?key=）でカードの一覧を読む。
  *   変わるたびに WebSocket（CHAT_DEDUCTION_SOCKET_PATH）で丸ごと押し出してもらい、ここで読むのは開いたとき・つなぎ直したとき・
  *   定期的に取り戻す分だけである
@@ -14,6 +14,7 @@
 import { createCaller, isRecord } from '../core/api'
 import { readChatDeductionBoard, type ChatDeductionBoard } from './board'
 import { readChatDeductionSound, type ChatDeductionSound } from './sound'
+import { readChatDeductionTimeLimit } from './time-limit'
 
 const ADMIN_PATH = '/api/admin/chat-deduction'
 const OVERLAY_PATH = '/api/overlay/chat-deduction'
@@ -30,14 +31,21 @@ export interface ChatDeductionRewards {
   readonly answerRewardId: string
 }
 
-/** ゲームの終わり方（stopped: 配信者が打ち切った。solved: 正解者が出た） */
-export type ChatDeductionEndReason = 'stopped' | 'solved'
+/** ゲームの終わり方（stopped: 配信者が打ち切った。solved: 正解者が出た。timeout: 制限時間が尽きた） */
+const CHAT_DEDUCTION_END_REASONS = ['stopped', 'solved', 'timeout'] as const
+
+export type ChatDeductionEndReason = (typeof CHAT_DEDUCTION_END_REASONS)[number]
+
+/** 値がゲームの終わり方か（アプリのページの応答と、合成ページの一覧（board.ts）の両方で確かめる） */
+export const isChatDeductionEndReason = (value: unknown): value is ChatDeductionEndReason => CHAT_DEDUCTION_END_REASONS.some((reason) => reason === value)
 
 /** ゲーム1つ（worker/chat-deduction-store.ts の ChatDeductionGame と合わせる） */
 export interface ChatDeductionGame {
   readonly id: number
   readonly problemId: string
   readonly startedAt: string
+  /** 制限時間の締め切りの時刻。制限時間をなしにして始めたゲームなら null */
+  readonly closesAt: string | null
   /** 開催中なら null */
   readonly endedAt: string | null
   /** 開催中なら null */
@@ -64,6 +72,10 @@ export interface ChatDeductionApi {
   sound(): Promise<ChatDeductionSound>
   /** 音の設定を保存する。Worker が保存したものを返す */
   saveSound(sound: ChatDeductionSound): Promise<ChatDeductionSound>
+  /** 制限時間（分）。未保存・なしなら null */
+  timeLimit(): Promise<number | null>
+  /** 制限時間を保存する（なしは null）。次に始めるゲームから使う。Worker が保存した値を返す */
+  saveTimeLimit(minutes: number | null): Promise<number | null>
 }
 
 const isNullableString = (value: unknown): value is string | null => value === null || typeof value === 'string'
@@ -76,8 +88,9 @@ const isGame = (value: unknown): value is ChatDeductionGame =>
   typeof value.id === 'number' &&
   typeof value.problemId === 'string' &&
   typeof value.startedAt === 'string' &&
+  isNullableString(value.closesAt) &&
   isNullableString(value.endedAt) &&
-  (value.endReason === null || value.endReason === 'stopped' || value.endReason === 'solved')
+  (value.endReason === null || isChatDeductionEndReason(value.endReason))
 
 /** 応答の本文から name の項目を取り出し、形を確かめる */
 const readField = <T>(body: unknown, name: string, isValue: (value: unknown) => value is T): T => {
@@ -107,6 +120,9 @@ export const createChatDeductionApi = (fetchImpl: typeof fetch): ChatDeductionAp
     sound: async () => readChatDeductionSound(await call(`${ADMIN_PATH}/sound`)),
     saveSound: async (sound) =>
       readChatDeductionSound(await call(`${ADMIN_PATH}/sound`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sound) })),
+    timeLimit: async () => readChatDeductionTimeLimit(await call(`${ADMIN_PATH}/time-limit`)).minutes,
+    saveTimeLimit: async (minutes) =>
+      readChatDeductionTimeLimit(await call(`${ADMIN_PATH}/time-limit`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ minutes }) })).minutes,
   }
 }
 

@@ -3,17 +3,23 @@
  *
  * 行を作ってから「質問」「解答」の2つの報酬を交換できるようにし、合成ページへカードの一覧を押し出す。
  * トリガーのチャンネルポイントで始めたときは、ゲームのあいだその報酬（startRewardId）を交換できないようにし、
- * 行に控えて、終えるとき（打ち切り・正解）に交換できるように戻す。
+ * 行に控えて、終えるとき（打ち切り・正解・時間切れ）に交換できるように戻す。
+ * 制限時間を設定していれば（worker/chat-deduction-time-limit.ts）、締め切りの時刻を行に控えて Durable Object へ預け
+ * （worker/chat-deduction-timer.ts）、締め切りに開催中なら時間切れで終えてもらう。
  *
  * 注意: 報酬の切り替えに失敗したら、開始を黙って進めない（方針4）。ゲームを始めなかったことにし（行を消す）、
  * 報酬を元の状態へ戻してから502を投げる。戻せなかったことも黙らずメッセージに添える。
+ * 注意: 締め切りを預けられなければ、報酬を切り替える前にゲームを始めなかったことにして502を投げる（時間切れにならないまま始めない）。
  * 注意: 合成ページへの押し出しに失敗しても、始めたことは取り消さずに502を投げる（報酬の切り替えはもう済んでいるため）。
  */
 import type { ChatDeductionProblem } from '../src/chat-deduction/problems'
 import { CHAT_DEDUCTION_IMAGES, CHAT_DEDUCTION_PROBLEM_SETS } from '../src/chat-deduction/problem-set'
+import { chatDeductionClosesAtOf } from '../src/chat-deduction/time-limit'
 import { pushLatestChatDeductionBoard } from './chat-deduction-board'
 import { loadChatDeductionRewards, setChatDeductionRewardsEnabled, type ChatDeductionRewards } from './chat-deduction-rewards'
 import { cancelGame, readLatestGame, startGame, type ChatDeductionGame } from './chat-deduction-store'
+import { loadChatDeductionTimeLimit } from './chat-deduction-time-limit'
+import { scheduleChatDeductionTimeout } from './chat-deduction-timer'
 import { HttpError, STATUS, type Context } from './http'
 import { getManageToken } from './reward-routes'
 
@@ -52,7 +58,7 @@ export const requireChatDeductionRewards = async ({ env }: ChatDeductionStartCon
  * @param requestedStartRewardId トリガーのチャンネルポイントで始めたときの、その報酬のID。ページから始めたときは null。
  *   質問・解答の報酬そのものなら、始めた報酬として扱わない
  * @returns 始めたゲーム
- * @throws HttpError 報酬が無い・ほかのゲームが開催中なら409、報酬を切り替えられない・合成ページへ押し出せなければ502
+ * @throws HttpError 報酬が無い・ほかのゲームが開催中なら409、締め切りを預けられない・報酬を切り替えられない・合成ページへ押し出せなければ502
  * @throws AuthError channel:manage:redemptions の無いトークンしか無い
  * @throws Error choose が投げた場合（指定した問題が問題集から消えていたなど）
  */
@@ -71,8 +77,18 @@ export const startChatDeductionGame = async (
   const { accessToken } = await getManageToken(context)
   const previous = await readLatestGame(env.DB)
   const problem = choose(previous?.problemId ?? null)
-  const game = await startGame(env.DB, problem.id, now, startRewardId)
+  const { minutes } = await loadChatDeductionTimeLimit(env.STORE)
+  const closesAt = chatDeductionClosesAtOf(minutes, now)
+  const game = await startGame(env.DB, problem.id, now, startRewardId, closesAt)
   if (game === null) throw new HttpError(STATUS.conflict, 'chat-deduction-game-open', 'ほかのゲームが開催中です。先に終えてください')
+
+  if (closesAt !== null) {
+    // 報酬を切り替える前に預ける（預けられなければ、報酬に触れずに始めなかったことにできる）
+    await scheduleChatDeductionTimeout(env.AD_BREAKS, { gameId: game.id, closesAt }).catch(async (error: unknown) => {
+      await cancelGame(env.DB, game.id)
+      throw new HttpError(STATUS.badGateway, 'chat-deduction-timer-failed', `制限時間の締め切りを予約できなかったので、ゲームを始めませんでした（${reasonOf(error)}）`)
+    })
+  }
 
   try {
     await setChatDeductionRewardsEnabled(twitch, accessToken, env.TWITCH_BROADCASTER_ID, rewards, true, startRewardId)

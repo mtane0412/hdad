@@ -34,7 +34,7 @@ const silentSound: ChatDeductionSound = {
 }
 
 /** 富士山の問題で開催中のゲーム */
-const runningGame: ChatDeductionBoardGame = { id: 1, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', endedAt: null, endReason: null, answer: null, explanation: null, image: null }
+const runningGame: ChatDeductionBoardGame = { id: 1, category: 'place', topic: null, startedAt: '2026-10-15T12:00:00.000Z', closesAt: null, endedAt: null, endReason: null, answer: null, explanation: null, image: null }
 
 const question: ChatDeductionCard = { kind: 'question', id: 1, userName: '田中太郎', text: '日本にありますか？', verdict: 'yes', reply: '静岡県と山梨県にまたがっています。' }
 const wrongGuess: ChatDeductionCard = { kind: 'guess', id: 1, userName: '鈴木花子', text: '阿蘇山', correct: false }
@@ -86,6 +86,12 @@ describe('chatDeductionSoundCuesOf', () => {
     const stopped = boardOf({ ...runningGame, endedAt: '2026-10-15T12:05:00.000Z', endReason: 'stopped', answer: '富士山' }, [question])
 
     expect(chatDeductionSoundCuesOf(boardOf(runningGame, [question]), stopped, true)).toEqual([effect('stopped'), bgmFadeOut])
+  })
+
+  it('制限時間が尽きて終えた押し出しでも、打ち切りの効果音を鳴らして BGM を下げて止める（正解者が出ずに終えたため）', () => {
+    const timedOut = boardOf({ ...runningGame, endedAt: '2026-10-15T12:05:00.000Z', endReason: 'timeout', answer: '富士山' }, [question])
+
+    expect(chatDeductionSoundCuesOf(boardOf(runningGame, [question]), timedOut, true)).toEqual([effect('stopped'), bgmFadeOut])
   })
 
   it('読み直し（announce: false）では、新しいカードがあっても効果音を鳴らさない', () => {

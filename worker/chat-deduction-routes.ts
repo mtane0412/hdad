@@ -8,6 +8,8 @@
  *   どの問題を出すかは Worker が問題集の中から決める（worker/chat-deduction-pick.ts。配信者も答えを知らずに参加するため）
  * - POST /api/admin/chat-deduction/games/:id/end: 2つの報酬を交換できないようにしてから、ゲームを終える（配信者が打ち切った）
  * - GET・PUT /api/admin/chat-deduction/sound: 場面ごとに鳴らす音の設定を読む・検証して保存する（worker/chat-deduction-sound.ts）
+ * - GET・PUT /api/admin/chat-deduction/time-limit: 制限時間の設定を読む・検証して保存する（worker/chat-deduction-time-limit.ts。
+ *   次に始めるゲームから使う。開催中のゲームの締め切りは変えない）
  *
  * 合成ページの素材「チャットで推理」（issue #378）は、オーバーレイ用キーで次の経路を使う。
  * - GET /api/overlay/chat-deduction: 最後に始めたゲームのカードの一覧を返す（worker/chat-deduction-board.ts）
@@ -28,6 +30,7 @@ import { loadChatDeductionSound, parseChatDeductionSound, saveChatDeductionSound
 import { pickChatDeductionProblem } from './chat-deduction-pick'
 import { createChatDeductionRewards, loadChatDeductionRewards, setChatDeductionRewardsEnabled, type ChatDeductionRewards } from './chat-deduction-rewards'
 import { pushChatDeductionBoard, requireChatDeductionRewards, startChatDeductionGame } from './chat-deduction-start'
+import { loadChatDeductionTimeLimit, parseChatDeductionTimeLimit, saveChatDeductionTimeLimit } from './chat-deduction-time-limit'
 import { endGame, readCurrentGame, readGameStartReward, readLatestGame, type ChatDeductionGame } from './chat-deduction-store'
 import { HttpError, STATUS, requireAdmin, requireOverlayKey, type Context } from './http'
 import { listMedia } from './media'
@@ -147,6 +150,25 @@ export const putChatDeductionSound = async (context: Context): Promise<Response>
   const sound = parseChatDeductionSound(body, (mediaId) => kinds.get(mediaId) ?? null)
   await saveChatDeductionSound(env.STORE, sound)
   return Response.json(sound)
+}
+
+/** GET /api/admin/chat-deduction/time-limit: 制限時間の設定。未保存ならなし（null）が返る */
+export const getChatDeductionTimeLimit = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  return Response.json(await loadChatDeductionTimeLimit(context.env.STORE))
+}
+
+/**
+ * PUT /api/admin/chat-deduction/time-limit: 制限時間の設定を検証して保存し、保存したものを返す。
+ * 次に始めるゲームから使う（開催中のゲームの締め切りは、始めたときに決めたまま変えない）。
+ *
+ * @throws ConfigError 設定に問題がある場合（index.ts が問題点付きの400にする）
+ */
+export const putChatDeductionTimeLimit = async (context: Context): Promise<Response> => {
+  await requireAdmin(context)
+  const setting = parseChatDeductionTimeLimit(await readJson(context))
+  await saveChatDeductionTimeLimit(context.env.STORE, setting)
+  return Response.json(setting)
 }
 
 /** GET /api/overlay/chat-deduction?key=: 最後に始めたゲームのカードの一覧を返す（開催中は正解の表記を伏せる） */

@@ -5,9 +5,10 @@
  * - 「質問」「解答」の2つの報酬を作る（Twitch が交換できるかどうかの切り替えを許すのは HDAD が作った報酬だけなので、既存の報酬は選ばせない）
  * - 問題集を選んでゲームを始める（どの問題を出すかは Worker が決める。2つの報酬を交換できるようにする）
  * - 開催中のゲームを、確かめてから終える（2つの報酬を交換できないようにする）
- * - 最後のゲームを終えていれば、その正解を出す（配信者が打ち切ったときも、視聴者が正解したときも）
+ * - 最後のゲームを終えていれば、その正解を出す（配信者が打ち切ったときも、視聴者が正解したときも、制限時間が尽きたときも）
  * - 場面ごとに合成ページで鳴らす音を選ぶ（sound-card.tsx）
  * - 正解者に渡す人形を選ぶ（src/dolls/doll-prize-field.tsx。issue #420）
+ * - 制限時間を選ぶ（time-limit-field.tsx。次に始めるゲームから使い、尽きたら Worker が時間切れで終える）
  *
  * 問題集は引数で受け取る（テストで決まった問題を渡すため。アプリでは src/chat-deduction/problem-set.ts を渡す）。
  * 素材の一覧の読み出し（音の選択肢）も引数で受け取る（アプリでは AdminApi の media を渡す）。
@@ -31,6 +32,7 @@ import type { ChatDeductionApi, ChatDeductionEndReason, ChatDeductionState } fro
 import { categoryLabelOf } from './category'
 import type { ChatDeductionProblemSet } from './problems'
 import { ChatDeductionSoundCard } from './sound-card'
+import { ChatDeductionTimeLimitField } from './time-limit-field'
 
 /** 問題集を選ぶ欄の言い方（例: 古代史の人物（12問）） */
 const problemSetLabelOf = (set: ChatDeductionProblemSet): string => `${set.name}（${set.problems.length}問）`
@@ -39,6 +41,7 @@ const problemSetLabelOf = (set: ChatDeductionProblemSet): string => `${set.name}
 const END_REASON_LABELS: Record<ChatDeductionEndReason, string> = {
   stopped: '配信者が打ち切りました',
   solved: '視聴者が正解しました',
+  timeout: '制限時間が尽きました',
 }
 
 interface ChatDeductionPageProps {
@@ -176,6 +179,7 @@ export const ChatDeductionPage = ({ api, problemSets, prizeApi, loadMedia }: Cha
               </div>
             </>
           )}
+          <ChatDeductionTimeLimitField api={api} />
           <DollPrizeField api={prizeApi} game="chatDeduction" />
         </CardContent>
       </Card>

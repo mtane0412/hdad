@@ -2,6 +2,7 @@
  * チャットで推理のゲームと質問と解答の読み書き（D1 の chat_deduction_games・chat_deduction_questions・chat_deduction_guesses。issue #375〜#377）
  *
  * 開催中のゲーム（ended_at が NULL）は1つだけで、開始のときに1つの文の中で確かめる（意見ボードのテーマと同じ形）。
+ * 制限時間を設定して始めたゲームは締め切りの時刻（closes_at）を持ち、尽きたら worker/chat-deduction-timer.ts が timeout で終える。
  * 報酬をONにできなかったときに開始を無かったことにできるよう、開催中のゲームの行は消せる（cancelGame）。
  * 質問は、交換のIDを鍵に行を作るのと、受け付けるかどうか（開催中のゲーム・上限）の判断を1つの文で行う（reserveQuestion）。
  * 解答も交換のIDを鍵に行を作り（reserveGuess）、正解なら正解者を1人に決めてゲームを終えるまでを1つのトランザクションで行う（solveGame）。
@@ -10,8 +11,8 @@
  */
 import type { Database } from './database'
 
-/** ゲームの終わり方（stopped: 配信者が打ち切った。solved: 正解者が出た） */
-export type ChatDeductionEndReason = 'stopped' | 'solved'
+/** ゲームの終わり方（stopped: 配信者が打ち切った。solved: 正解者が出た。timeout: 制限時間が尽きた） */
+export type ChatDeductionEndReason = 'stopped' | 'solved' | 'timeout'
 
 /** ゲーム1つ */
 export interface ChatDeductionGame {
@@ -19,13 +20,15 @@ export interface ChatDeductionGame {
   /** src/chat-deduction/problems.json の問題のID */
   problemId: string
   startedAt: string
+  /** 制限時間の締め切りの時刻。制限時間をなしにして始めたゲームなら null */
+  closesAt: string | null
   /** 終えた時刻。開催中なら null */
   endedAt: string | null
   /** 終わり方。開催中なら null */
   endReason: ChatDeductionEndReason | null
 }
 
-const GAME_COLUMNS = 'id, problem_id AS problemId, started_at AS startedAt, ended_at AS endedAt, end_reason AS endReason'
+const GAME_COLUMNS = 'id, problem_id AS problemId, started_at AS startedAt, closes_at AS closesAt, ended_at AS endedAt, end_reason AS endReason'
 
 const toIso = (milliseconds: number): string => new Date(milliseconds).toISOString()
 
@@ -90,16 +93,23 @@ const QUESTION_COLUMNS = `id, game_id AS gameId, redemption_id AS redemptionId, 
  *
  * @param startRewardId トリガーのチャンネルポイントで始めたときの、その報酬のID（終えたら交換できるように戻す）。
  *   /chat-deduction/ のページから始めたときは null
+ * @param closesAt 制限時間の締め切りの時刻（ミリ秒）。制限時間がなしなら null
  * @returns 作ったゲーム。ほかのゲームが開催中なら作らず null
  */
-export const startGame = async (db: Database, problemId: string, now: number, startRewardId: string | null = null): Promise<ChatDeductionGame | null> =>
+export const startGame = async (
+  db: Database,
+  problemId: string,
+  now: number,
+  startRewardId: string | null = null,
+  closesAt: number | null = null,
+): Promise<ChatDeductionGame | null> =>
   db
     .prepare(
-      `INSERT INTO chat_deduction_games (problem_id, started_at, start_reward_id)
-       SELECT ?1, ?2, ?3 WHERE NOT EXISTS (SELECT 1 FROM chat_deduction_games WHERE ended_at IS NULL)
+      `INSERT INTO chat_deduction_games (problem_id, started_at, start_reward_id, closes_at)
+       SELECT ?1, ?2, ?3, ?4 WHERE NOT EXISTS (SELECT 1 FROM chat_deduction_games WHERE ended_at IS NULL)
        RETURNING ${GAME_COLUMNS}`,
     )
-    .bind(problemId, toIso(now), startRewardId)
+    .bind(problemId, toIso(now), startRewardId, closesAt === null ? null : toIso(closesAt))
     .first<ChatDeductionGame>()
 
 /**
