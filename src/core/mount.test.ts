@@ -9,9 +9,11 @@
  *   定期的に読み直すので、消せないと一度の失敗が配信中ずっと残ってしまう）
  * - 消すのは同じ出どころの表示だけであること（1つの箱には、読み出しの失敗とチャットの接続の失敗が
  *   同時に出うる。読み出しが直ったからといって、まだ直っていないチャットの表示まで消してはいけない）
+ * - 素材が動き続ける軽い失敗（読み出し・チャット）は箱を覆わない帯で出し、同じ出どころは最新の1件だけにし、
+ *   読み出しの失敗は時間が経ったら消すこと（箱いっぱいの板で演出全体を隠さないため）
  */
-import { describe, expect, it } from 'vitest'
-import { canvasPixels, clearError, showError } from './mount'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { NOTICE_VISIBLE_MS, canvasPixels, clearError, showError } from './mount'
 
 describe('canvasPixels', () => {
   it('箱の大きさに画素比をかけた画素数にする', () => {
@@ -82,5 +84,76 @@ describe('showError・clearError', () => {
     clearError(recoverableBox, 'read')
 
     expect(brokenBox.querySelector('.stage-error')).not.toBeNull()
+  })
+
+  describe('素材が動き続ける軽い失敗', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('素材を起動できない失敗は、いままでどおり箱いっぱいの板で出す', () => {
+      const box = createBox()
+
+      showError(new Error('背景「aurora」はレジストリに登録されていません'), '背景', box)
+
+      expect(box.querySelector('.stage-error')?.classList.contains('stage-error-notice')).toBe(false)
+    })
+
+    it('読み出しとチャットの失敗は、箱を覆わない帯で出す', () => {
+      const box = createBox()
+
+      showError(new Error('効果音を鳴らせませんでした'), '市町村紹介', box, 'read')
+      showError(new Error('チャンネル名を読めませんでした'), 'チャットボックス', box, 'chat')
+
+      const panels = box.querySelectorAll('.stage-error')
+      expect(panels).toHaveLength(2)
+      for (const panel of panels) expect(panel.classList.contains('stage-error-notice')).toBe(true)
+    })
+
+    it('同じ出どころの失敗が続いたら、積み重ねずに最新の1件だけを出す', () => {
+      const box = createBox()
+
+      showError(new Error('効果音を鳴らせませんでした'), '市町村紹介', box, 'read')
+      showError(new Error('代表画像を読み込めませんでした'), '市町村紹介', box, 'read')
+
+      const panels = box.querySelectorAll('.stage-error')
+      expect(panels).toHaveLength(1)
+      expect(panels[0]?.textContent).toContain('代表画像を読み込めませんでした')
+    })
+
+    it('読み出しの失敗は、しばらく経ったら消す（一時的な失敗が次の演出まで残らないように）', () => {
+      vi.useFakeTimers()
+      const box = createBox()
+      showError(new Error('配信のBGMを下げられませんでした'), 'ツイスター', box, 'read')
+
+      // 消える直前までは出ている
+      vi.advanceTimersByTime(NOTICE_VISIBLE_MS - 1)
+      expect(box.querySelector('.stage-error')).not.toBeNull()
+
+      vi.advanceTimersByTime(1)
+      expect(box.querySelector('.stage-error')).toBeNull()
+    })
+
+    it('新しい失敗に置き換えたら、消すまでの時間は新しい失敗から数える', () => {
+      vi.useFakeTimers()
+      const box = createBox()
+      showError(new Error('効果音を鳴らせませんでした'), '市町村紹介', box, 'read')
+      vi.advanceTimersByTime(NOTICE_VISIBLE_MS - 1000)
+      showError(new Error('代表画像を読み込めませんでした'), '市町村紹介', box, 'read')
+
+      // 前の失敗が消えるはずだった時刻を過ぎても、新しい失敗は残っている
+      vi.advanceTimersByTime(2000)
+      expect(box.querySelector('.stage-error')?.textContent).toContain('代表画像を読み込めませんでした')
+    })
+
+    it('チャットの接続の失敗は、直るまで続くので時間が経っても消さない', () => {
+      vi.useFakeTimers()
+      const box = createBox()
+      showError(new Error('チャンネル名を読めませんでした'), 'チャットボックス', box, 'chat')
+
+      vi.advanceTimersByTime(NOTICE_VISIBLE_MS * 2)
+
+      expect(box.querySelector('.stage-error')).not.toBeNull()
+    })
   })
 })

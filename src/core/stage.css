@@ -36,3 +36,23 @@ canvas {
   font: 600 clamp(16px, 2.4vw, 40px) / 1.7 'Hiragino Sans', 'Yu Gothic UI', sans-serif;
   white-space: pre-wrap;
 }
+
+/*
+ * 素材が動き続ける軽い失敗（src/core/mount.ts の ErrorSource の read・chat）の表示。
+ *
+ * 箱を覆わず、箱の下端に小さな帯で出す。箱いっぱいに出すと、流れている演出全体が隠れてしまうため。
+ * 長い理由は見出しと合わせて4行で切る（帯が箱を覆うほど伸びないように）。
+ */
+.stage-error-notice {
+  inset: auto 0 0;
+  /* 中身の高さ（content-box）なので、行の高さ（line-height）の4行ぶんにする */
+  max-height: calc(4 * 1.5em);
+  overflow: hidden;
+  /* 上下の余白は枠線で取る（padding で取ると、切った5行目が余白に覗く。overflow は padding の外側で切るため） */
+  padding: 0 1em;
+  border-block: 0.6em solid rgb(43 10 10 / 85%);
+  background: rgb(43 10 10 / 85%);
+  background-clip: padding-box;
+  font-size: clamp(12px, 1.2vw, 20px);
+  line-height: 1.5;
+}

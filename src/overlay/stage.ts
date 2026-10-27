@@ -2914,7 +2914,7 @@ const watchPreviewLayout = (overlayName: string, started: readonly Overlay[], bo
       })
       current = next
     } catch (error) {
-      showError(error, NOUN)
+      showError(error, NOUN, document.body, 'read')
     }
   })
 }
@@ -2972,18 +2972,18 @@ const watchLayout = (key: string, overlayName: string, started: readonly Overlay
         try {
           reloadIfChanged(readOverlays(JSON.parse(text)))
         } catch (error) {
-          showError(error, NOUN)
+          showError(error, NOUN, document.body, 'read')
         }
       },
       onOpen: () => {
         createOverlayLayoutApi(callWorker, key)
           .read()
-          .then(reloadIfChanged, (error: unknown) => showError(error, NOUN))
+          .then(reloadIfChanged, (error: unknown) => showError(error, NOUN, document.body, 'read'))
       },
       onStatus: () => {
         // 切断・再接続は出さない。つながったときの読み直しは onOpen が受け持ち、映している素材はそのまま残す
       },
-      onWarning: (message) => showError(new Error(message), NOUN),
+      onWarning: (message) => showError(new Error(message), NOUN, document.body, 'read'),
     },
     OVERLAY_LAYOUT_SOCKET_HINT,
   )
@@ -3006,7 +3006,7 @@ const watchDismiss = (key: string, dismissers: readonly (() => void)[]): void =>
         try {
           parseOverlayDismiss(text)
         } catch (error) {
-          showError(error, NOUN)
+          showError(error, NOUN, document.body, 'read')
           return
         }
         for (const dismiss of dismissers) dismiss()
@@ -3017,7 +3017,7 @@ const watchDismiss = (key: string, dismissers: readonly (() => void)[]): void =>
       onStatus: () => {
         // 切断・再接続は出さない。映している素材はそのまま残す
       },
-      onWarning: (message) => showError(new Error(message), NOUN),
+      onWarning: (message) => showError(new Error(message), NOUN, document.body, 'read'),
     },
     DISMISS_SOCKET_HINT,
   )
