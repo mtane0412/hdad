@@ -62,7 +62,6 @@ const tobetsuIntro: TownTourIntro = {
   },
   image: null,
   bond: null,
-  bondFailure: null,
 }
 
 /** 誰も正解しなかったクイズ */

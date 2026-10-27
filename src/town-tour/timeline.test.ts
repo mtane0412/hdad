@@ -82,7 +82,6 @@ const tobetsuIntro: TownTourIntro = {
   },
   image: null,
   bond: null,
-  bondFailure: null,
 }
 
 /** 代表画像のある紹介（作者とライセンス付き） */
@@ -95,7 +94,6 @@ const tobetsuIntroWithImage: TownTourIntro = {
     caption: 'スウェーデンヒルズの家並み',
   },
   bond: null,
-  bondFailure: null,
 }
 
 /** 地図の形から作ったヒント（都道府県の市町村の数 → 地方 → 隣り合う都道府県） */

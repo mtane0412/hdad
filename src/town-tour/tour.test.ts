@@ -49,7 +49,6 @@ const tobetsuIntro = {
   },
   image: null,
   bond: null,
-  bondFailure: null,
 }
 
 /** 当別町と、レイド元の山田花子さんの共通点 */
@@ -183,7 +182,6 @@ describe('readTownTourIntro', () => {
       tour: tobetsuIntro.tour,
       image: null,
       bond: null,
-      bondFailure: null,
     })
   })
 
@@ -191,16 +189,9 @@ describe('readTownTourIntro', () => {
     expect(readTownTourIntro({ ...tobetsuIntro, bond: tobetsuBond }).bond).toEqual(tobetsuBond)
   })
 
-  it('共通点を作れなかった理由があれば読む（合成ページが素材の箱に出す）', () => {
-    expect(readTownTourIntro({ ...tobetsuIntro, bondFailure: '共通点を作れませんでした: 材料に無い語句です' }).bondFailure).toBe(
-      '共通点を作れませんでした: 材料に無い語句です',
-    )
-  })
-
   it('共通点の欄が無い・任命理由が欠けていれば、補わずに投げる', () => {
     expect(() => readTownTourIntro({ ...tobetsuIntro, bond: undefined })).toThrow('共通点')
     expect(() => readTownTourIntro({ ...tobetsuIntro, bond: { ...tobetsuBond, certificateReason: undefined } })).toThrow('共通点')
-    expect(() => readTownTourIntro({ ...tobetsuIntro, bondFailure: undefined })).toThrow('共通点')
   })
 
   it('代表画像があれば、画像の URL・作者・ライセンス・写真の説明も読む（issue #254）', () => {

@@ -119,8 +119,6 @@ export interface TownTourIntro {
   readonly image: TownTourImage | null
   /** 振りの代わりに出す共通点。作らせない・作れなかった回は null で、振りを出す（issue #275） */
   readonly bond: TownTourBond | null
-  /** 共通点を作れなかった理由（素材の箱に出す）。作れた・作らせない回は null */
-  readonly bondFailure: string | null
 }
 
 /** 画面に流す1場面。kind は場面の種類で、長さと描き方を決める（timeline.ts・view.ts）。共通点の場面は左右の枠の語句も持つ */
@@ -305,16 +303,6 @@ const readBond = (value: unknown): TownTourBond | null => {
 }
 
 /**
- * 共通点を作れなかった理由を読む（null は失敗が無いことを表すのでそのまま通す）
- *
- * @throws 欄が無い・文字列でも null でもないとき（欠けた応答を「失敗なし」と読むと、壊れた応答に気づけないため）
- */
-const readBondFailure = (value: unknown): string | null => {
-  if (value !== null && typeof value !== 'string') throw new Error('Workerの応答に、共通点を作れなかった理由の欄がありません')
-  return value
-}
-
-/**
  * Worker の応答（GET /api/overlay/town-tour）を、紹介として読む。
  *
  * @throws 出典（記事名・URL）か、大見出し・項目・振りのどれかが欠けている・代表画像の形が違う場合
@@ -341,7 +329,6 @@ export const readTownTourIntro = (body: unknown): TownTourIntro => {
     tour: { hook: tour.hook, points: points.map(readPoint), cue: tour.cue },
     image: readImage(isRecord(body) ? body.image : undefined),
     bond: readBond(isRecord(body) ? body.bond : undefined),
-    bondFailure: readBondFailure(isRecord(body) ? body.bondFailure : undefined),
   }
 }
 

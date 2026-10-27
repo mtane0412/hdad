@@ -1501,10 +1501,10 @@ const mountTownTour = (box: HTMLElement, item: OverlayItem, { key, demo }: Mount
     }
     /**
      * 共通点のある紹介なら、レイド元のアイコンを読み込んでおく。読み込めなければ失敗を箱に出し、アイコンなしで共通点を流す（issue #275）。
-     * 共通点を作れなかった紹介は、Worker が返した理由を箱に出す（共通点の代わりに振りを流す）
+     * 共通点を作れなかった紹介は、理由（bondFailure）を箱に出さずに共通点の代わりに振りを流す。失敗の表示は箱いっぱいに広がって
+     * 紹介そのものを隠してしまう一方、紹介は作れていて、理由は Worker が失敗の記録（town-tour-bond-failed）に残しているため
      */
     const withIcon = async (intro: TownTourIntro): Promise<HTMLImageElement | null> => {
-      if (intro.bondFailure !== null && current() !== null) showError(new Error(intro.bondFailure), NOUNS.townTour, box, 'read')
       if (intro.bond === null) return null
       try {
         return await loadTownTourImage(intro.bond.raiderIcon)
