@@ -20,7 +20,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
  *
  * @throws HttpError 数でない、または範囲の外のとき
  */
-const readLimit = (raw: string | null): number | undefined => {
+export const readLimit = (raw: string | null): number | undefined => {
   if (raw === null) return undefined
   const limit = Number(raw)
   if (!Number.isInteger(limit) || limit < 1 || limit > VIEWER_LIST_MAX_LIMIT) {

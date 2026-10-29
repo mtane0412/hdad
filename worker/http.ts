@@ -15,6 +15,7 @@ import type { TabChannelNamespace } from './tab-channel'
 import type { Database } from './database'
 import type { MediaBucket } from './media-bucket'
 import { isValidOverlayKey } from './overlay-key'
+import { timingSafeEqual } from './secret'
 import { verifySessionToken } from './session'
 import type { KeyValueStore } from './store'
 import type { TwitchClient } from './twitch'
@@ -119,6 +120,13 @@ export interface Env {
    * 設定していなくてもWorkerは動く。通知が届いたのに無ければ、署名を確かめずに通すことはせず失敗させる（Fail-Fast）。
    */
   GITHUB_WEBHOOK_SECRET?: string
+  /**
+   * エージェント向けAPI（/api/agent/*）の Bearer トークン（issue #434）。
+   *
+   * 外部の AI エージェントに過去の配信の文脈を読ませるときだけ要るので、設定していなくてもWorkerは動く。
+   * 無い（または空の）ときは、どのトークンでも通さず503にする（空のトークンで通してしまわないため。Fail-Fast）。
+   */
+  HDAD_AGENT_TOKEN?: string
 }
 
 /** 経路の処理が受け取る文脈 */
@@ -187,6 +195,7 @@ export const STATUS = {
   unsupportedMediaType: 415,
   internalServerError: 500,
   badGateway: 502,
+  serviceUnavailable: 503,
 } as const
 
 /** 決まった状態コードとエラーコードで応答させるためのエラー */
@@ -238,6 +247,32 @@ export const requireAdmin = async (context: Context): Promise<void> => {
   const { request, url } = context
   if (request.method !== 'GET' && request.headers.get('Origin') !== url.origin) {
     throw new HttpError(STATUS.forbidden, 'cross-origin', '管理画面と同じサイトからのリクエストだけを受け付けます')
+  }
+}
+
+/** Authorization ヘッダーの Bearer トークンの前置き */
+const BEARER_PREFIX = 'Bearer '
+
+/**
+ * エージェント向けAPI（/api/agent/*）の入口。Authorization: Bearer のトークンが HDAD_AGENT_TOKEN と一致しなければ401にする。
+ *
+ * 注意: 管理画面のログインのセッション（Cookie）では通さない。外部のエージェントに渡すのは読み取りだけの道で、
+ *   管理画面の道とは守り方を分けておくためである。
+ * 注意: トークンのシークレットが無い（または空の）ときは、比べる前に503にする（空のトークンで通さないため）。
+ */
+export const requireAgentToken = ({ request, env }: Context): void => {
+  const expected = env.HDAD_AGENT_TOKEN
+  if (!expected) {
+    throw new HttpError(
+      STATUS.serviceUnavailable,
+      'agent-token-not-configured',
+      'エージェント向けAPIのトークン（WorkerのシークレットHDAD_AGENT_TOKEN）が設定されていません',
+    )
+  }
+  const header = request.headers.get('Authorization') ?? ''
+  const token = header.startsWith(BEARER_PREFIX) ? header.slice(BEARER_PREFIX.length) : ''
+  if (!timingSafeEqual(token, expected)) {
+    throw new HttpError(STATUS.unauthorized, 'invalid-agent-token', 'Authorization: Bearer に正しいエージェント向けAPIのトークンを付けてください')
   }
 }
 

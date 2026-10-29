@@ -10,7 +10,7 @@
  */
 import type { Database } from './database'
 import type { StreamChapter } from './stream-chapter-store'
-import { chapterEntryOf, type DevEventInput, type WorkLogEntry } from './work-log'
+import { chapterEntryOf, type DevEventInput, type DevEventKind, type WorkLogEntry } from './work-log'
 
 const toIso = (milliseconds: number): string => new Date(milliseconds).toISOString()
 
@@ -73,4 +73,21 @@ export const readWorkLog = async (db: Database, now: number, limit: number): Pro
     .all<StreamChapter>()
 
   return [...devEvents.results, ...chapters.results.map(chapterEntryOf)].sort(newestFirst).slice(0, limit)
+}
+
+/** 配信の記録として読む、開発の出来事1件 */
+export interface SessionDevEvent {
+  kind: DevEventKind
+  text: string
+  /** 届いた日時（ISO 8601） */
+  occurredAt: string
+}
+
+/** 指定した配信の開発の出来事を、古い順に limit 件まで読む（エージェント向けAPI。issue #434） */
+export const readSessionDevEvents = async (db: Database, sessionId: string, limit: number): Promise<SessionDevEvent[]> => {
+  const { results } = await db
+    .prepare('SELECT kind, text, occurred_at AS occurredAt FROM dev_events WHERE session_id = ?1 ORDER BY occurred_at, id LIMIT ?2')
+    .bind(sessionId, limit)
+    .all<SessionDevEvent>()
+  return results
 }
