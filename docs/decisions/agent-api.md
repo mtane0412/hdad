@@ -70,3 +70,9 @@ MCP の公式 SDK（`@modelcontextprotocol/sdk`）や Cloudflare の `agents` �
 `get_stream` の重さの大部分は REST でも同じなので、MCP の入口ではなく配信の詳細の読み出し（`readAgentStream`）から来ている。MCP の分の約3ms は、ツールの結果を JSON の文字列にしてから応答全体をもう一度 JSON にする二重の直列化と見ている（MCP のツールの結果は文字列で返す決まりなので避けられない）。
 
 いまは軽くしない。打ち切られていないことと、`get_stream` は配信の準備や振り返りで数回呼ぶだけで、続けて何度も呼ぶ使い方ではないことが理由である。`get_stream` が `exceededCpu` で打ち切られる事例が出たら、`readAgentStream` のどこが重いかを測って軽くする。
+
+## Muse には MCP でつなげた
+
+段階3（#436）で、Muse から `/mcp` に MCP でつなげることを確かめた（2026-10-29）。Muse がコネクタ（`custom.hdad`）を作り、トークンは Muse の保管庫に入力して Bearer で送らせ、5つのツールの一覧と `list_streams` の実データを読めた。REST の Custom Connector に切り替える必要はなかったが、REST は Muse 以外のクライアントや MCP を話せない道具のために残す。
+
+つなぐ途中で、Muse のクライアントが Python の既定の User-Agent のまま呼び、Cloudflare に Error 1010（ブラウザの署名での拒否）で断られた。Muse の側で専用の User-Agent を名乗らせて通った。HDAD の Worker に届く前に止まるので、Worker では手当てせず、利用者向けの説明に対処を書くだけにした。

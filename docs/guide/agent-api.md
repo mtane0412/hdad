@@ -35,7 +35,7 @@ curl -H "Authorization: Bearer $HDAD_AGENT_TOKEN" https://<公開先のドメイ
 claude mcp add --transport http hdad https://<公開先のドメイン>/mcp --header "Authorization: Bearer $HDAD_AGENT_TOKEN"
 ```
 
-つないだあとは、Claude Code で `/mcp` を開くと `hdad` が接続済みとして並びます。使えるツールは次の4つで、中身は上の経路と同じです。
+つないだあとは、Claude Code で `/mcp` を開くと `hdad` が接続済みとして並びます。使えるツールは次の5つで、中身は上の経路と同じです。
 
 | ツール | 対応する経路 | 引数 |
 | --- | --- | --- |
@@ -46,6 +46,12 @@ claude mcp add --transport http hdad https://<公開先のドメイン>/mcp --he
 | `get_viewer` | `GET /api/agent/viewers/<ユーザーID>` | `userId`（必須） |
 
 記録の無い配信・視聴者や引数の誤りは、ツールの失敗としてその理由を返します。トークンを差し替えたら、`claude mcp remove hdad` で外してから、新しいトークンで付け直してください（`--header` の値は Claude Code の設定ファイルに書き込まれます）。
+
+## Muse からつなぐ（MCP）
+
+Muse からも、Claude Code と同じ `/mcp` に MCP でつなげます（2026-10-29 に確認）。Muse に「HDAD の MCP（`https://<公開先のドメイン>/mcp`、`Authorization: Bearer` で認証）でコネクタを作って」と頼むと、トークンを入力するリンクが出るので、`HDAD_AGENT_TOKEN` と同じ値を入れます。入れた値は Muse の保管庫に入り、会話には出ません。つないだあとは、上の5つのツールを Muse が自分で呼んで、過去の配信や視聴者の記録を読みます。
+
+Muse が作るクライアントが Python の既定の User-Agent のまま呼ぶと、Cloudflare に Error 1010 で断られることがあります（HDAD ではなく Cloudflare の手前で止まります）。そのときは、クライアントに専用の User-Agent を名乗らせるよう Muse に頼んでください。
 
 ## 返さないもの
 
