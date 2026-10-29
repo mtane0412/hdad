@@ -83,11 +83,11 @@ export interface SessionDevEvent {
   occurredAt: string
 }
 
-/** 指定した配信の開発の出来事を、古い順にすべて読む（エージェント向けAPI。issue #434） */
-export const readSessionDevEvents = async (db: Database, sessionId: string): Promise<SessionDevEvent[]> => {
+/** 指定した配信の開発の出来事を、古い順に limit 件まで読む（エージェント向けAPI。issue #434） */
+export const readSessionDevEvents = async (db: Database, sessionId: string, limit: number): Promise<SessionDevEvent[]> => {
   const { results } = await db
-    .prepare('SELECT kind, text, occurred_at AS occurredAt FROM dev_events WHERE session_id = ?1 ORDER BY occurred_at, id')
-    .bind(sessionId)
+    .prepare('SELECT kind, text, occurred_at AS occurredAt FROM dev_events WHERE session_id = ?1 ORDER BY occurred_at, id LIMIT ?2')
+    .bind(sessionId, limit)
     .all<SessionDevEvent>()
   return results
 }

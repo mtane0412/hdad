@@ -202,17 +202,18 @@ export const readTaskDeskSnapshot = async (db: Database, now: number, limit: num
 }
 
 /**
- * 指定した配信のタスクの宣言を、宣言の古い順にすべて読む（エージェント向けAPI。issue #434）。
+ * 指定した配信のタスクの宣言を、宣言の古い順に limit 件まで読む（エージェント向けAPI。issue #434）。
  *
  * 時刻が同じならユーザーIDで決める（読み直すたびに並びが入れ替わらないため）。
  */
-export const readSessionTasks = async (db: Database, sessionId: string): Promise<TaskDeskEntry[]> => {
+export const readSessionTasks = async (db: Database, sessionId: string, limit: number): Promise<TaskDeskEntry[]> => {
   const { results } = await db
     .prepare(
       `SELECT user_id AS userId, display_name AS name, task, declared_at AS declaredAt, done_at AS doneAt
-       FROM task_declarations WHERE session_id = ?1 ORDER BY declared_at, user_id`,
+       FROM task_declarations WHERE session_id = ?1 ORDER BY declared_at, user_id
+       LIMIT ?2`,
     )
-    .bind(sessionId)
+    .bind(sessionId, limit)
     .all<TaskDeskEntry>()
   return results
 }

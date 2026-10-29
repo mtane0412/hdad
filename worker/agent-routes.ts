@@ -36,6 +36,24 @@ const STREAM_UNTRUSTED_FIELDS = [
   'stream.opinions',
 ] as const
 
+/** 配信の詳細で、作業ログ・タスクの宣言を1回に返す件数の既定と上限 */
+const STREAM_ITEM_LIMIT = 200
+const STREAM_ITEM_MAX_LIMIT = 1000
+
+/**
+ * 配信の詳細の ?limit を読む。指定がなければ既定の件数。
+ *
+ * @throws HttpError 整数でない、または範囲の外のとき（既定に戻さない。Fail-Fast）
+ */
+const readStreamItemLimit = (raw: string | null): number => {
+  if (raw === null) return STREAM_ITEM_LIMIT
+  const limit = Number(raw)
+  if (!Number.isInteger(limit) || limit < 1 || limit > STREAM_ITEM_MAX_LIMIT) {
+    throw new HttpError(STATUS.badRequest, 'invalid-limit', `limit は1〜${STREAM_ITEM_MAX_LIMIT}の整数にしてください`)
+  }
+  return limit
+}
+
 /** 視聴者の記録のうち、本人が決めた文か LLM が作った文の場所（{prefix} は viewers[] か viewer） */
 const viewerUntrustedFields = (prefix: string): string[] => [`${prefix}.displayName`, `${prefix}.summary`, `${prefix}.channel.title`]
 
@@ -50,23 +68,33 @@ export const getAgentStreams = async (context: Context): Promise<Response> => {
  *
  * 章・あらすじ・作業した時間の合計・レイドに加えて、その配信の作業ログ・タスクの宣言と、配信の時間に開いた意見ボードを返す。
  * 視聴者数の時系列（samples）は数が多く、エージェントの文脈を埋めるだけなので返さない（平均と最大は一覧で読める）。
+ *
+ * 作業ログとタスクの宣言は、古い順に ?limit 件（既定 STREAM_ITEM_LIMIT）までにする。1つ多く読んで、切ったかどうかを
+ * 応答の truncated（切った欄の名前）で知らせる（黙って欠けた一覧を渡すと、エージェントがそれを全部だと思い込むため）。
+ * 意見ボードは管理画面の振り返り（/api/admin/stats/sessions/:id/opinions）と同じものを返す。1回の配信で開くテーマは数件である。
  */
 export const getAgentStream = async (context: Context): Promise<Response> => {
   requireAgentToken(context)
   const { env, now } = context
   const id = context.params.id ?? ''
+  const limit = readStreamItemLimit(context.url.searchParams.get('limit'))
   const session = await getSession(env.DB, id, now)
   if (!session) throw new HttpError(STATUS.notFound, 'session-not-found', `配信「${id}」の記録が存在しません`)
 
   const endedAt = session.endedAt === null ? now : Date.parse(session.endedAt)
   const [devEvents, tasks, opinions] = await Promise.all([
-    readSessionDevEvents(env.DB, id),
-    readSessionTasks(env.DB, id),
+    readSessionDevEvents(env.DB, id, limit + 1),
+    readSessionTasks(env.DB, id, limit + 1),
     readThemeReviews(env.DB, Date.parse(session.startedAt), endedAt),
   ])
+  const truncated = [
+    ...(devEvents.length > limit ? ['stream.devEvents'] : []),
+    ...(tasks.length > limit ? ['stream.tasks'] : []),
+  ]
   return Response.json({
     notice: UNTRUSTED_NOTICE,
     untrustedFields: STREAM_UNTRUSTED_FIELDS,
+    truncated,
     stream: {
       id: session.id,
       startedAt: session.startedAt,
@@ -77,8 +105,8 @@ export const getAgentStream = async (context: Context): Promise<Response> => {
       chapters: session.chapters,
       workTime: session.workTime,
       raids: session.raids,
-      devEvents,
-      tasks,
+      devEvents: devEvents.slice(0, limit),
+      tasks: tasks.slice(0, limit),
       opinions,
     },
   })

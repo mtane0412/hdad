@@ -166,6 +166,40 @@ describe('GET /api/agent/streams/:id', () => {
     expect(body.stream).not.toHaveProperty('samples')
   })
 
+  it('作業ログとタスクの宣言は上限の件数までを古い順に返し、切ったことを truncated で知らせる', async () => {
+    const env = createEnv()
+    await recordFinishedStream(env)
+    // 前提: 作業ログ1件・タスクの宣言1件の配信を、上限1件で読む
+    const response = await fetchAsAgent(env, `/api/agent/streams/${STREAM.id}?limit=1`)
+
+    const body = (await response.json()) as { stream: { devEvents: unknown[]; tasks: unknown[] }; truncated: string[] }
+    expect(body.stream.devEvents).toHaveLength(1)
+    expect(body.stream.tasks).toHaveLength(1)
+    // 上限ちょうどで、それ以上は無いので切っていない
+    expect(body.truncated).toEqual([])
+  })
+
+  it('上限を超えた作業ログは切り、truncated にその欄を挙げる', async () => {
+    const env = createEnv()
+    // 前提: 作業ログは配信中に届いたものしか残らないので、配信を終える前にもう1件足して2件にする
+    await recordLiveStream(env.DB, { ...STREAM, viewerCount: 12 }, Date.parse('2026-09-21T12:05:00Z'))
+    await recordDevEvent(env.DB, { id: 'github:1件目のコミット', kind: 'commit', text: 'テストを足す' }, Date.parse('2026-09-21T12:20:00Z'))
+    await recordFinishedStream(env)
+
+    const response = await fetchAsAgent(env, `/api/agent/streams/${STREAM.id}?limit=1`)
+
+    const body = (await response.json()) as { stream: { devEvents: { text: string }[] }; truncated: string[] }
+    // 古い順に上限まで（12:20 のコミットが 12:40 のマージより先）
+    expect(body.stream.devEvents).toEqual([expect.objectContaining({ text: 'テストを足す' })])
+    expect(body.truncated).toEqual(['stream.devEvents'])
+  })
+
+  it('件数の上限が範囲の外なら400を返す', async () => {
+    const response = await fetchAsAgent(createEnv(), `/api/agent/streams/${STREAM.id}?limit=0`)
+
+    expect(response.status).toBe(400)
+  })
+
   it('視聴者由来の文がどこにあるかを、信頼できない内容として知らせる', async () => {
     const env = createEnv()
     await recordFinishedStream(env)
