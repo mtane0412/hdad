@@ -26,6 +26,25 @@ curl -H "Authorization: Bearer $HDAD_AGENT_TOKEN" https://<公開先のドメイ
 
 失敗は `{ "error": { "code", "message" } }` の形で返します（記録の無い配信・視聴者は404、トークンの誤りは401）。
 
+## Claude Code からつなぐ（MCP）
+
+同じ読み出しを、MCP のツールとして `/mcp` に出しています。Claude Code からは次のようにつなぎます（トークンは上で設定したものと同じです）。
+
+```bash
+claude mcp add --transport http hdad https://<公開先のドメイン>/mcp --header "Authorization: Bearer $HDAD_AGENT_TOKEN"
+```
+
+つないだあとは、Claude Code で `/mcp` を開くと `hdad` が接続済みとして並びます。使えるツールは次の4つで、中身は上の経路と同じです。
+
+| ツール | 対応する経路 | 引数 |
+| --- | --- | --- |
+| `list_streams` | `GET /api/agent/streams` | なし |
+| `get_stream` | `GET /api/agent/streams/<配信ID>` | `id`（必須）・`limit` |
+| `search_viewers` | `GET /api/agent/viewers` | `search`・`before`・`beforeUserId`・`limit` |
+| `get_viewer` | `GET /api/agent/viewers/<ユーザーID>` | `userId`（必須） |
+
+記録の無い配信・視聴者や引数の誤りは、ツールの失敗としてその理由を返します。トークンを差し替えたら、`claude mcp remove hdad` で外してから、新しいトークンで付け直してください（`--header` の値は Claude Code の設定ファイルに書き込まれます）。
+
 ## 返さないもの
 
 文字起こしは24時間、チャットの全文は最長7日で消えるので、この API では返しません。過去の配信で何が話されたかは、それを材料にAIがまとめた章とあらすじで読みます。

@@ -1,7 +1,7 @@
 /**
  * Cloudflare Workers の設定
  *
- * Viteのビルド出力を Workers 静的アセットとして配信し、/api/* だけを Worker のコード（worker/index.ts）で処理する。
+ * Viteのビルド出力を Workers 静的アセットとして配信し、/api/* とエージェント向けの MCP の入口（/mcp）だけを Worker のコード（worker/index.ts）で処理する。
  * これはビルドへの入力となる設定で、assets.directory は書かない。@cloudflare/vite-plugin がビルド時に
  * dist/hdad/wrangler.json を出力し、そこに静的アセットの場所（dist/client/）を書き込む。wrangler はそちらを使う。
  * 素材ページは <カテゴリ>/<id>/index.html の形の実ファイルで、末尾スラッシュなしのURLは html_handling によって末尾スラッシュ付きへリダイレクトさせる。
@@ -27,7 +27,7 @@
     "binding": "ASSETS",
     "html_handling": "auto-trailing-slash",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*"]
+    "run_worker_first": ["/api/*", "/mcp"]
   },
   "kv_namespaces": [{ "binding": "STORE" }],
   "r2_buckets": [{ "binding": "MEDIA" }],
