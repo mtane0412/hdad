@@ -41,4 +41,22 @@ MCP の公式 SDK（`@modelcontextprotocol/sdk`）や Cloudflare の `agents` �
 - 認証は REST と同じ固定の Bearer トークンで、MCP の正式な流れである OAuth は作らない（理由は上の「認証は固定の Bearer トークンにする」と同じ）。Claude Code は `--header` でトークンを渡せる
 - 初期化の応答の `instructions` に、信頼できない欄の扱い（`notice` と同じ文）を入れ、各ツールの説明にも添える。ツールの結果は REST と同じ JSON（`untrustedFields` と `notice` を含む）を文字列にして返す
 
-CPU 時間が Workers Free の上限に収まるかは、マージ後に本番で測ってここに書き足す。
+### 本番の CPU 時間（2026-10-29 に測定）
+
+`npx wrangler tail hdad --format json` を流しながら本番の `/mcp` と REST を呼び、要求ごとの `cpuTime` を集めた（1回目は MCP の6つのメソッド（`get_stream` を含む）を5回ずつ、2回目は `get_stream` を REST と MCP で8回ずつ。`get_stream` は MCP が合わせて13回、REST が8回になる。配信はいちばん新しい1回）。
+
+| メソッド | CPU 時間 | 応答の大きさ |
+| --- | --- | --- |
+| `initialize` | 1〜5ms | 357B |
+| `tools/list` | 1〜9ms（9ms は起動直後の1回だけ） | 2.9KB |
+| `list_streams` | 2〜8ms | 9.1KB |
+| `search_viewers`（50人） | 2〜7ms | 37KB |
+| `get_viewer` | 3〜7ms | 1.2KB |
+| `get_stream`（MCP） | 平均11.9ms・最大21ms（13回中9回が10ms超） | 7.1KB |
+| `get_stream`（REST） | 平均8.9ms・最大16ms（8回中3回が10ms超） | 7.1KB |
+
+46回とも `outcome` は `ok` で、今回の測定では10msを超えた要求も打ち切られなかった。cron が10msを超えて `exceededCpu` で止まったこと（`docs/decisions/worker.md`）はあるので、これは今回の観測であって、単発の要求なら超過が許されるという Cloudflare の仕様を確かめたものではない。
+
+`get_stream` の重さの大部分は REST でも同じなので、MCP の入口ではなく配信の詳細の読み出し（`readAgentStream`）から来ている。MCP の分の約3ms は、ツールの結果を JSON の文字列にしてから応答全体をもう一度 JSON にする二重の直列化と見ている（MCP のツールの結果は文字列で返す決まりなので避けられない）。
+
+いまは軽くしない。打ち切られていないことと、`get_stream` は配信の準備や振り返りで数回呼ぶだけで、続けて何度も呼ぶ使い方ではないことが理由である。`get_stream` が `exceededCpu` で打ち切られる事例が出たら、`readAgentStream` のどこが重いかを測って軽くする。
