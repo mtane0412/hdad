@@ -354,3 +354,67 @@ export const listFailures = async (db: Database): Promise<CollectionFailure[]> =
     .all<CollectionFailure>()
   return results
 }
+
+/** 横断検索で見つけた章（どの配信のものかを添える） */
+export interface ChapterMatch {
+  streamId: string
+  streamStartedAt: string
+  streamTitle: string
+  startedAt: string
+  endedAt: string
+  title: string
+  summary: string
+}
+
+/** 横断検索で見つけた配信のあらすじ */
+export interface SummaryMatch {
+  streamId: string
+  streamStartedAt: string
+  streamTitle: string
+  summary: string
+}
+
+/** LIKE の中で特別な意味を持つ文字（% と _ と、逃がしに使う \）を、その文字として探せるように逃がす */
+const escapeLike = (word: string): string => word.replace(/[\\%_]/g, (char) => `\\${char}`)
+
+/**
+ * 章（見出しか要約）とあらすじから、すべての語を含むものを新しい順に探す（エージェント向けAPIの横断検索。issue #436）。
+ *
+ * それぞれ limit 件まで返す。部分一致（LIKE '%...%'）なので索引は効かず全件を読むが、章は配信1回で数件〜十数件、
+ * あらすじは配信1回で1行なので、配信を重ねても D1 の rows read は数千行に収まる。
+ * 大文字小文字は ASCII の範囲だけ区別しない（SQLite の LIKE の性質）。
+ *
+ * @param words 空でない語の並び（確かめは呼び出し側の readAgentChapterSearch が持つ）
+ */
+export const searchStreamRecords = async (
+  db: Database,
+  words: readonly string[],
+  limit: number,
+): Promise<{ chapters: ChapterMatch[]; summaries: SummaryMatch[] }> => {
+  const patterns = words.map((word) => `%${escapeLike(word)}%`)
+  // ?1 は件数、?2 以降が語ごとのパターン
+  const matchAll = (column: (placeholder: string) => string) =>
+    patterns.map((_, index) => column(`?${index + 2}`)).join(' AND ')
+  const [chapters, summaries] = await Promise.all([
+    db
+      .prepare(
+        `SELECT s.id AS streamId, s.started_at AS streamStartedAt, s.title AS streamTitle,
+                c.started_at AS startedAt, c.ended_at AS endedAt, c.title AS title, c.summary AS summary
+         FROM stream_chapters c JOIN stream_sessions s ON s.id = c.session_id
+         WHERE ${matchAll((p) => `(c.title LIKE ${p} ESCAPE '\\' OR c.summary LIKE ${p} ESCAPE '\\')`)}
+         ORDER BY c.started_at DESC, s.id LIMIT ?1`,
+      )
+      .bind(limit, ...patterns)
+      .all<ChapterMatch>(),
+    db
+      .prepare(
+        `SELECT s.id AS streamId, s.started_at AS streamStartedAt, s.title AS streamTitle, m.summary AS summary
+         FROM stream_summaries m JOIN stream_sessions s ON s.id = m.session_id
+         WHERE ${matchAll((p) => `m.summary LIKE ${p} ESCAPE '\\'`)}
+         ORDER BY s.started_at DESC, s.id LIMIT ?1`,
+      )
+      .bind(limit, ...patterns)
+      .all<SummaryMatch>(),
+  ])
+  return { chapters: chapters.results, summaries: summaries.results }
+}

@@ -110,9 +110,10 @@
  * | POST /api/admin/transcripts      | セッション     | 配信中の文字起こしを1件受け取る（アプリのページの音声認識から） |
  * | GET  /api/agent/streams          | エージェント向けのトークン | 配信の一覧（外部の AI エージェント向け） |
  * | GET  /api/agent/streams/:id      | エージェント向けのトークン | 配信1回ぶんの文脈（章・あらすじ・作業ログ・タスクの宣言・レイド・意見ボード） |
+ * | GET  /api/agent/chapters         | エージェント向けのトークン | 章とあらすじの横断検索（キーワード） |
  * | GET  /api/agent/viewers          | エージェント向けのトークン | 視聴者の記録の一覧（検索・ページ送り） |
  * | GET  /api/agent/viewers/:userId  | エージェント向けのトークン | 視聴者1人の記録 |
- * | POST /mcp                        | エージェント向けのトークン | MCP の入口（上の4つと同じ読み出しをツールとして出す。stateless の streamable HTTP） |
+ * | POST /mcp                        | エージェント向けのトークン | MCP の入口（上の5つと同じ読み出しをツールとして出す。stateless の streamable HTTP） |
  * | POST /api/eventsub/webhook       | Twitchの署名   | EventSubの通知を受け、イベントの件数と配信の開始・終了を記録する |
  * | POST /api/github/webhook         | GitHubの署名   | GitHub の Webhook を受け、配信中ならコミットの push・PR のマージのトリガーを実行する |
  * | GET  /api/overlay/socket         | オーバーレイ用キー | オーバーレイからのWebSocketの接続を受け、アラートの配送先へ引き渡す |
@@ -295,7 +296,7 @@ import { getDeeplUsage, getTranslation, postTranslation, putTranslation } from '
 import { drawSocket, getDrawBackground, getDrawStrokes, putDrawStrokes } from './draw-routes'
 import { deleteTabBlockedHost, getTabBlockedHosts, postTabBlockedHost, tabExtensionZip, tabSocket } from './tab-routes'
 import { commentSocket, getCommentIcons, postCommentGreeting, postCommentMessage, postCommentModeration } from './comment-routes'
-import { getAgentStream, getAgentStreams, getAgentViewer, getAgentViewers } from './agent-routes'
+import { getAgentChapterSearch, getAgentStream, getAgentStreams, getAgentViewer, getAgentViewers } from './agent-routes'
 import { postAgentMcp } from './agent-mcp'
 import { getStatsFailures, getStatsFollowers, getStatsSession, getStatsSessionOpinions, getStatsSessions } from './stats-routes'
 import { AuthError } from './token'
@@ -448,6 +449,7 @@ const ROUTES: readonly Route[] = [
   { method: 'GET', path: '/api/admin/stats/failures', handle: getStatsFailures },
   { method: 'GET', path: '/api/agent/streams', handle: getAgentStreams },
   { method: 'GET', path: '/api/agent/streams/:id', handle: getAgentStream },
+  { method: 'GET', path: '/api/agent/chapters', handle: getAgentChapterSearch },
   { method: 'GET', path: '/api/agent/viewers', handle: getAgentViewers },
   { method: 'GET', path: '/api/agent/viewers/:userId', handle: getAgentViewer },
   { method: 'POST', path: '/mcp', handle: postAgentMcp },
