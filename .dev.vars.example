@@ -56,3 +56,10 @@ EVENTSUB_SECRET=
 # （手順は docs/guide/deploy.md の「GitHub の Webhook の設定」）。この行の # を外してローカルの .dev.vars に書くか、
 # 本番では `npx wrangler secret put GITHUB_WEBHOOK_SECRET` で設定してください。
 # GITHUB_WEBHOOK_SECRET=
+
+# エージェント向けAPI（/api/agent/*）の Bearer トークン（任意）。
+# 外部の AI エージェント（Muse・Claude Code など）に過去の配信の記録を読ませるときだけ必要です。使わないなら不要です。
+# 意図的にコメントアウトしてあります（Deploy to Cloudflare ボタンの入力欄に必須の項目として出さないため）。
+# 使うときは `openssl rand -hex 32` で作り（手順は docs/guide/agent-api.md）、この行の # を外してローカルの .dev.vars に書くか、
+# 本番では `npx wrangler secret put HDAD_AGENT_TOKEN` で設定してください。
+# HDAD_AGENT_TOKEN=
