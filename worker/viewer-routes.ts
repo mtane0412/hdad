@@ -20,9 +20,14 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
  *
  * @throws HttpError 数でない、または範囲の外のとき
  */
-export const readLimit = (raw: string | null): number | undefined => {
-  if (raw === null) return undefined
-  const limit = Number(raw)
+export const readLimit = (raw: string | null): number | undefined => (raw === null ? undefined : checkViewerLimit(Number(raw)))
+
+/**
+ * 視聴者の一覧の件数を確かめる（?limit の文字列を数にしたもの、または MCP のツールの引数）。
+ *
+ * @throws HttpError 整数でない、または範囲の外のとき
+ */
+export const checkViewerLimit = (limit: number): number => {
   if (!Number.isInteger(limit) || limit < 1 || limit > VIEWER_LIST_MAX_LIMIT) {
     throw new HttpError(STATUS.badRequest, 'invalid-limit', `limit は1〜${VIEWER_LIST_MAX_LIMIT}の整数にしてください`)
   }

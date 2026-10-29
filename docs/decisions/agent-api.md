@@ -25,3 +25,20 @@ REST には WebMCP の `untrustedContentHint` に当たる仕組みが無いの�
 `GET /api/agent/streams/:id` は、章・あらすじに加えて作業ログ・タスクの宣言・意見ボードもまとめて返す。エージェントは「この配信で何をしたか」を知りたいことが多く、呼び出しを分けると何度も往復させるためである。視聴者数の時系列は数が多く、文脈を埋めるだけなので返さない（WebMCP の `get_stream` と同じ）。
 
 作業ログとタスクの宣言は、古い順に `?limit` 件（既定200、上限1000）までにする。1回の配信の行動の量で決まるので普通は届かないが、上限が無いと D1 の読み出しと応答の大きさに歯止めがない。1つ多く読み、切ったときは `truncated` に欄の名前を挙げる。黙って欠けた一覧を返すと、エージェントがそれを全部だと思い込むためである。意見ボードは管理画面の振り返りと同じ関数で読み、上限は付けない（1回の配信で開くテーマは数件）。
+
+## MCP の入口は stateless にし、SDK を使わない
+
+段階2（#435）で、REST と同じ読み出しを MCP のツール（`list_streams`・`get_stream`・`search_viewers`・`get_viewer`）として `POST /mcp` に出した。読み出しの中身は `worker/agent-routes.ts` の `readAgent*` を REST と共通に使い、入口（`worker/agent-mcp.ts`）は引数を確かめて渡すだけにする。経路が `/api/*` の外なので、`wrangler.jsonc` の `run_worker_first` に `/mcp` を足した（足さないと静的アセットの側が受けてしまう）。
+
+受け方は streamable HTTP の stateless な使い方にした。1回の POST に JSON-RPC のメッセージ1つを受け、応答は SSE ではなく `application/json` で1つ返す。セッション（`Mcp-Session-Id`）も、サーバーから通知を送る GET の SSE も持たない（GET は405。仕様で許されている）。ツールは読み出しだけで、途中経過の通知もサーバーからの問い合わせも要らないので、セッションを覚える場所（Durable Object）を足さずに済む。
+
+MCP の公式 SDK（`@modelcontextprotocol/sdk`）や Cloudflare の `agents` の `createMcpHandler` は使わず、要るメソッド（`initialize`・`ping`・`tools/list`・`tools/call`）だけを自前で受ける。Workers Free の CPU の上限（10ms。`docs/decisions/worker.md`）に対して、SDK とスキーマのライブラリ（zod）を読み込んで組み立てる分の重さを避けるためである。stateless なので要求のたびにサーバーを組み立て直すことになり、その分がそのまま毎回の CPU 時間に乗る。受ける形が小さいので自前でも短く書け、ツールの引数の宣言（`inputSchema`）と確かめも1つの宣言から作っている。
+
+- ツールの引数の誤り・記録の無い配信や視聴者は、JSON-RPC のエラーではなくツールの失敗（`isError: true`）で返す。エージェントが理由を読んで呼び直せるようにするためである。知らないツールの名前と知らないメソッドだけは JSON-RPC のエラーにする
+- 件数の範囲は入口では見ず、`readAgent*` が REST と同じ確かめ方で断る（同じ判定を2か所に書かない）
+- `Origin` が自分のサイトと違う要求は403で断る。MCP の仕様が DNS rebinding への備えとして求めているためである。ブラウザの外のクライアントは `Origin` を付けないので影響しない
+- 版は `2025-11-25`・`2025-06-18`・`2025-03-26` を受け、知らない版を求められたら最新の版を返してクライアントに決めさせる。まとめ送り（JSON-RPC の配列）は `2025-06-18` で仕様から外れたので受けない
+- 認証は REST と同じ固定の Bearer トークンで、MCP の正式な流れである OAuth は作らない（理由は上の「認証は固定の Bearer トークンにする」と同じ）。Claude Code は `--header` でトークンを渡せる
+- 初期化の応答の `instructions` に、信頼できない欄の扱い（`notice` と同じ文）を入れ、各ツールの説明にも添える。ツールの結果は REST と同じ JSON（`untrustedFields` と `notice` を含む）を文字列にして返す
+
+CPU 時間が Workers Free の上限に収まるかは、マージ後に本番で測ってここに書き足す。
