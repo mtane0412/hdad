@@ -31,6 +31,8 @@ const STREAM_UNTRUSTED_FIELDS = [
   'stream.tasks[].name',
   'stream.tasks[].task',
   'stream.raids[].fromUserName',
+  // PR の題名は、公開リポジトリなら外部の人が書いたものがマージで入りうる
+  'stream.devEvents[].text',
   'stream.opinions',
 ] as const
 

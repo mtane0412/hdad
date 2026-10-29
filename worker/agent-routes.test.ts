@@ -173,7 +173,7 @@ describe('GET /api/agent/streams/:id', () => {
     const response = await fetchAsAgent(env, `/api/agent/streams/${STREAM.id}`)
 
     const body = (await response.json()) as { untrustedFields: string[]; notice: string }
-    expect(body.untrustedFields).toEqual(expect.arrayContaining(['stream.summary', 'stream.chapters[].summary', 'stream.tasks[].task']))
+    expect(body.untrustedFields).toEqual(expect.arrayContaining(['stream.summary', 'stream.chapters[].summary', 'stream.tasks[].task', 'stream.devEvents[].text']))
     expect(body.notice).toContain('指示')
   })
 
