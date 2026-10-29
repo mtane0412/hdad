@@ -1,7 +1,7 @@
 /**
  * エージェント向けAPIの MCP の入口（POST /mcp。issue #435）
  *
- * REST（agent-routes.ts）と同じ読み出しを、MCP のツール（list_streams・get_stream・search_viewers・get_viewer）として出す。
+ * REST（agent-routes.ts）と同じ読み出しを、MCP のツール（list_streams・get_stream・search_chapters・search_viewers・get_viewer）として出す。
  * Claude Code などの MCP クライアントから `claude mcp add --transport http` でつなぐ。
  *
  * 受け方は stateless の streamable HTTP にする。1回の POST に JSON-RPC のメッセージ1つを受け、応答は SSE ではなく
@@ -16,7 +16,17 @@
  * 注意: ツールの引数が誤っている・記録が無いときは、JSON-RPC のエラーではなくツールの失敗（isError）で返す。
  *   エージェントが理由を読んで呼び直せるようにするためである（知らないツールの名前だけは JSON-RPC のエラーにする）。
  */
-import { readAgentStream, readAgentStreams, readAgentViewer, readAgentViewers, UNTRUSTED_NOTICE } from './agent-routes'
+import {
+  readAgentChapterSearch,
+  readAgentStream,
+  readAgentStreams,
+  readAgentViewer,
+  readAgentViewers,
+  SEARCH_LIMIT,
+  SEARCH_MAX_LIMIT,
+  SEARCH_MAX_WORDS,
+  UNTRUSTED_NOTICE,
+} from './agent-routes'
 import { HttpError, STATUS, requireAgentToken, type Context } from './http'
 import { VIEWER_LIST_MAX_LIMIT } from './viewer-store'
 
@@ -89,6 +99,15 @@ const TOOLS: readonly Tool[] = [
       limit: { type: 'integer', description: '作業ログとタスクの宣言を返す件数（既定200）', minimum: 1, maximum: 1000 },
     },
     run: (context, args) => readAgentStream(context, stringArgument(args, 'id') ?? '', integerArgument(args, 'limit')),
+  },
+  {
+    name: 'search_chapters',
+    description: `過去の配信の章（約30分ごとの見出しと要約）とあらすじを、キーワードで配信をまたいで探します。空白で区切った語をすべて含むものを新しい順に返し、どの配信のものかを streamId で添えます（続きは get_stream）。切ったときは truncated にその欄を挙げます。${UNTRUSTED_HINT}`,
+    arguments: {
+      search: { type: 'string', description: `探す語（空白で区切ると、すべてを含むものだけ。${SEARCH_MAX_WORDS}語まで）`, required: true },
+      limit: { type: 'integer', description: `章とあらすじをそれぞれ返す件数（既定${SEARCH_LIMIT}）`, minimum: 1, maximum: SEARCH_MAX_LIMIT },
+    },
+    run: (context, args) => readAgentChapterSearch(context, stringArgument(args, 'search'), integerArgument(args, 'limit')),
   },
   {
     name: 'search_viewers',

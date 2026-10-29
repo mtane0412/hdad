@@ -202,11 +202,11 @@ describe('POST /mcp の JSON-RPC', () => {
     expect(await response.json()).toMatchObject({ error: { code: -32600 } })
   })
 
-  it('tools/list には4つの読み取り専用のツールを返す', async () => {
+  it('tools/list には5つの読み取り専用のツールを返す', async () => {
     const response = await postMessage(createEnv(), { jsonrpc: '2.0', id: 1, method: 'tools/list' })
 
     const body = (await response.json()) as { result: { tools: { name: string; inputSchema: unknown; annotations: unknown }[] } }
-    expect(body.result.tools.map((tool) => tool.name)).toEqual(['list_streams', 'get_stream', 'search_viewers', 'get_viewer'])
+    expect(body.result.tools.map((tool) => tool.name)).toEqual(['list_streams', 'get_stream', 'search_chapters', 'search_viewers', 'get_viewer'])
     for (const tool of body.result.tools) {
       expect(tool.inputSchema).toMatchObject({ type: 'object' })
       expect(tool.annotations).toMatchObject({ readOnlyHint: true })
@@ -292,5 +292,27 @@ describe('MCP のツール', () => {
 
     expect(result.isError).toBe(true)
     expect(result.content[0]?.text).toContain('userId')
+  })
+})
+
+describe('MCP のツール search_chapters', () => {
+  it('あらすじからキーワードを含むものを、信頼できない欄の印とともに返す', async () => {
+    const env = createEnv()
+    await recordFinishedStream(env)
+
+    const result = await callTool(env, 'search_chapters', { search: 'ログイン' })
+
+    expect(result.isError).toBeUndefined()
+    expect(readToolJson(result)).toMatchObject({
+      summaries: [{ streamId: STREAM.id, summary: 'ログイン画面の不具合を直している配信。' }],
+      untrustedFields: expect.arrayContaining(['summaries[].summary']),
+    })
+  })
+
+  it('必須の search が無ければ、ツールの失敗にする', async () => {
+    const result = await callTool(createEnv(), 'search_chapters', {})
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0]?.text).toContain('search')
   })
 })

@@ -5,6 +5,7 @@
  * Authorization: Bearer のトークン（HDAD_AGENT_TOKEN）で守り、管理画面のセッションでは通さない（http.ts の requireAgentToken）。
  *
  * 返すのは長く残る記録だけ（配信・章・あらすじ・作業ログ・タスクの宣言・レイド・意見ボード・視聴者の記録）。
+ * 章とあらすじは、配信をまたいでキーワードで探せる（issue #436）。
  * 文字起こし（24時間）とチャット全文（最長7日）は保存期間が短いので返さない。
  *
  * 視聴者が書いた文と、それを材料に LLM が作った文は、応答の untrustedFields にその場所を並べ、notice で扱い方を知らせる
@@ -15,7 +16,7 @@
  */
 import { HttpError, STATUS, requireAgentToken, type Context } from './http'
 import { readThemeReviews } from './opinion-store'
-import { getSession, listSessions } from './stats-store'
+import { getSession, listSessions, searchStreamRecords } from './stats-store'
 import { readSessionTasks } from './task-desk-store'
 import { listViewers, readViewer } from './viewer-store'
 import { checkViewerLimit } from './viewer-routes'
@@ -43,16 +44,39 @@ const STREAM_ITEM_LIMIT = 200
 const STREAM_ITEM_MAX_LIMIT = 1000
 
 /**
- * 配信の詳細の件数を確かめる。指定がなければ既定の件数。
+ * 返す件数を確かめる。指定がなければ既定の件数。
  *
- * @throws HttpError 整数でない、または範囲の外のとき（既定に戻さない。Fail-Fast）
+ * @throws HttpError 整数でない、または1〜上限の範囲の外のとき（既定に戻さない。Fail-Fast）
  */
-const checkStreamItemLimit = (limit: number | undefined): number => {
-  if (limit === undefined) return STREAM_ITEM_LIMIT
-  if (!Number.isInteger(limit) || limit < 1 || limit > STREAM_ITEM_MAX_LIMIT) {
-    throw new HttpError(STATUS.badRequest, 'invalid-limit', `limit は1〜${STREAM_ITEM_MAX_LIMIT}の整数にしてください`)
+const checkLimit = (limit: number | undefined, defaultLimit: number, maxLimit: number): number => {
+  if (limit === undefined) return defaultLimit
+  if (!Number.isInteger(limit) || limit < 1 || limit > maxLimit) {
+    throw new HttpError(STATUS.badRequest, 'invalid-limit', `limit は1〜${maxLimit}の整数にしてください`)
   }
   return limit
+}
+
+/** 横断検索の結果のうち、LLM が視聴者の発言も材料に作った文の場所 */
+const SEARCH_UNTRUSTED_FIELDS = ['chapters[].title', 'chapters[].summary', 'summaries[].summary'] as const
+
+/** 横断検索で、章とあらすじをそれぞれ返す件数の既定と上限 */
+export const SEARCH_LIMIT = 20
+export const SEARCH_MAX_LIMIT = 100
+/** 横断検索で1回に受ける語の数の上限（語ごとに LIKE が増え、全件を読む1回の重さが語の数だけ増えるため） */
+export const SEARCH_MAX_WORDS = 5
+
+/**
+ * 横断検索のキーワードを語に分ける（半角・全角の空白で区切る）。
+ *
+ * @throws HttpError 語が無い、または多すぎるとき（Fail-Fast）
+ */
+const readSearchWords = (search: string | undefined): string[] => {
+  const words = (search ?? '').split(/\s+/u).filter((word) => word !== '')
+  if (words.length === 0) throw new HttpError(STATUS.badRequest, 'invalid-search', 'search に探す語を入れてください')
+  if (words.length > SEARCH_MAX_WORDS) {
+    throw new HttpError(STATUS.badRequest, 'invalid-search', `search の語は${SEARCH_MAX_WORDS}つまでにしてください`)
+  }
+  return words
 }
 
 /** 視聴者の記録のうち、本人が決めた文か LLM が作った文の場所（{prefix} は viewers[] か viewer） */
@@ -88,7 +112,7 @@ export const readAgentStreams = async ({ env, now }: ReadContext) => ({ streams:
  * @throws HttpError 件数が範囲の外（400）、記録の無い配信（404）のとき
  */
 export const readAgentStream = async ({ env, now }: ReadContext, id: string, requestedLimit: number | undefined) => {
-  const limit = checkStreamItemLimit(requestedLimit)
+  const limit = checkLimit(requestedLimit, STREAM_ITEM_LIMIT, STREAM_ITEM_MAX_LIMIT)
   const session = await getSession(env.DB, id, now)
   if (!session) throw new HttpError(STATUS.notFound, 'session-not-found', `配信「${id}」の記録が存在しません`)
 
@@ -120,6 +144,28 @@ export const readAgentStream = async ({ env, now }: ReadContext, id: string, req
       tasks: tasks.slice(0, limit),
       opinions,
     },
+  }
+}
+
+/**
+ * 章（見出しか要約）とあらすじを、配信をまたいでキーワードで探す。
+ *
+ * 空白で区切った語をすべて含むものを、新しい順にそれぞれ limit 件（既定 SEARCH_LIMIT）まで返す。どの配信のものかを
+ * streamId・streamStartedAt・streamTitle で添えるので、続きは get_stream（GET /api/agent/streams/:id）で読める。
+ * 1つ多く読んで、切ったかどうかを truncated（切った欄の名前）で知らせる（readAgentStream と同じ考え方）。
+ *
+ * @throws HttpError 語が無い・多すぎる、または件数が範囲の外のとき（400）
+ */
+export const readAgentChapterSearch = async ({ env }: ReadContext, search: string | undefined, requestedLimit: number | undefined) => {
+  const words = readSearchWords(search)
+  const limit = checkLimit(requestedLimit, SEARCH_LIMIT, SEARCH_MAX_LIMIT)
+  const { chapters, summaries } = await searchStreamRecords(env.DB, words, limit + 1)
+  return {
+    notice: UNTRUSTED_NOTICE,
+    untrustedFields: SEARCH_UNTRUSTED_FIELDS,
+    truncated: [...(chapters.length > limit ? ['chapters'] : []), ...(summaries.length > limit ? ['summaries'] : [])],
+    chapters: chapters.slice(0, limit),
+    summaries: summaries.slice(0, limit),
   }
 }
 
@@ -161,6 +207,13 @@ export const getAgentStreams = async (context: Context): Promise<Response> => {
 export const getAgentStream = async (context: Context): Promise<Response> => {
   requireAgentToken(context)
   return Response.json(await readAgentStream(context, context.params.id ?? '', readNumber(context.url.searchParams.get('limit'))))
+}
+
+/** GET /api/agent/chapters: 章とあらすじの横断検索（?search・?limit） */
+export const getAgentChapterSearch = async (context: Context): Promise<Response> => {
+  requireAgentToken(context)
+  const { searchParams } = context.url
+  return Response.json(await readAgentChapterSearch(context, searchParams.get('search') ?? undefined, readNumber(searchParams.get('limit'))))
 }
 
 /** GET /api/agent/viewers: 視聴者の記録の一覧（?search・?before・?beforeUserId・?limit） */

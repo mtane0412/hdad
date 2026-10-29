@@ -260,3 +260,138 @@ describe('GET /api/agent/viewers/:userId', () => {
     expect(await response.json()).toMatchObject({ error: { code: 'viewer-not-found' } })
   })
 })
+
+describe('GET /api/agent/chapters', () => {
+  /** 前提: 別の日にもう1回、カレーを作った配信を残す（章とあらすじの両方に「カレー」が入る） */
+  const recordCookingStream = async (env: Env): Promise<void> => {
+    await recordLiveStream(env.DB, { id: '40000000002', startedAt: '2026-09-22T12:00:00.000Z', title: '火曜の料理配信', categoryName: 'Food & Drink', viewerCount: 8 }, Date.parse('2026-09-22T12:05:00Z'))
+    await saveStreamChapter(env.DB, {
+      sessionId: '40000000002',
+      startedAt: '2026-09-22T12:00:00.000Z',
+      endedAt: '2026-09-22T12:30:00.000Z',
+      title: 'カレーの下ごしらえ',
+      summary: '玉ねぎを飴色になるまで炒めた。',
+    })
+    await saveStreamSummary(
+      env.DB,
+      {
+        sessionId: '40000000002',
+        summary: '夕飯のカレーを作る配信。',
+        transcriptsUntil: { at: '', messageId: '' },
+        chatUntil: { at: '', messageId: '' },
+        screenUntil: { at: '', imageId: '', lineNo: -1 },
+      },
+      Date.parse('2026-09-22T12:30:00Z'),
+    )
+    await recordStreamOffline(env.DB, Date.parse('2026-09-22T13:00:00Z'))
+  }
+
+  it('章の見出し・要約とあらすじからキーワードを含むものを、配信の情報つきで返す', async () => {
+    const env = createEnv()
+    await recordFinishedStream(env)
+    await recordCookingStream(env)
+
+    const response = await fetchAsAgent(env, `/api/agent/chapters?search=${encodeURIComponent('ログイン')}`)
+
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as { chapters: unknown[]; summaries: unknown[] }
+    // 料理配信の章とあらすじは「ログイン」を含まないので返さない
+    expect(body.chapters).toEqual([
+      {
+        streamId: STREAM.id,
+        streamStartedAt: STREAM.startedAt,
+        streamTitle: '月曜の作業配信',
+        startedAt: '2026-09-21T12:00:00.000Z',
+        endedAt: '2026-09-21T12:30:00.000Z',
+        title: 'ログイン画面の不具合を直す',
+        summary: 'ログインのあとに白い画面になる不具合の原因を探した。',
+      },
+    ])
+    expect(body.summaries).toEqual([
+      { streamId: STREAM.id, streamStartedAt: STREAM.startedAt, streamTitle: '月曜の作業配信', summary: 'ログイン画面の不具合を直している配信。' },
+    ])
+  })
+
+  it('要約だけに含まれる語でも章を見つける', async () => {
+    const env = createEnv()
+    await recordCookingStream(env)
+
+    const response = await fetchAsAgent(env, `/api/agent/chapters?search=${encodeURIComponent('玉ねぎ')}`)
+
+    const body = (await response.json()) as { chapters: { title: string }[]; summaries: unknown[] }
+    expect(body.chapters.map((chapter) => chapter.title)).toEqual(['カレーの下ごしらえ'])
+    expect(body.summaries).toEqual([])
+  })
+
+  it('空白で区切った語は、すべてを含むものだけを返す', async () => {
+    const env = createEnv()
+    await recordFinishedStream(env)
+    await recordCookingStream(env)
+
+    // 前提: 「カレー」は料理配信の章にもあらすじにもあるが、「玉ねぎ」は章の要約にしか無い（全角の空白で区切る）
+    const response = await fetchAsAgent(env, `/api/agent/chapters?search=${encodeURIComponent('カレー　玉ねぎ')}`)
+
+    const body = (await response.json()) as { chapters: { title: string }[]; summaries: unknown[] }
+    expect(body.chapters.map((chapter) => chapter.title)).toEqual(['カレーの下ごしらえ'])
+    expect(body.summaries).toEqual([])
+  })
+
+  it('新しい配信から順に返し、上限を超えたら切って truncated で知らせる', async () => {
+    const env = createEnv()
+    await recordFinishedStream(env)
+    await recordCookingStream(env)
+
+    // 前提: 「配信」は両方の配信のあらすじに含まれる
+    const response = await fetchAsAgent(env, `/api/agent/chapters?search=${encodeURIComponent('配信')}&limit=1`)
+
+    const body = (await response.json()) as { summaries: { streamId: string }[]; truncated: string[] }
+    expect(body.summaries.map((summary) => summary.streamId)).toEqual(['40000000002'])
+    expect(body.truncated).toEqual(['summaries'])
+  })
+
+  it('% や _ は、どの文字にも当たる記号ではなくその文字として探す', async () => {
+    const env = createEnv()
+    await recordFinishedStream(env)
+
+    const response = await fetchAsAgent(env, `/api/agent/chapters?search=${encodeURIComponent('%')}`)
+
+    const body = (await response.json()) as { chapters: unknown[]; summaries: unknown[] }
+    expect(body.chapters).toEqual([])
+    expect(body.summaries).toEqual([])
+  })
+
+  it('章とあらすじの文を、信頼できない内容として知らせる', async () => {
+    const env = createEnv()
+    await recordFinishedStream(env)
+
+    const response = await fetchAsAgent(env, `/api/agent/chapters?search=${encodeURIComponent('ログイン')}`)
+
+    const body = (await response.json()) as { untrustedFields: string[]; notice: string }
+    expect(body.untrustedFields).toEqual(expect.arrayContaining(['chapters[].title', 'chapters[].summary', 'summaries[].summary']))
+    expect(body.notice).toContain('指示')
+  })
+
+  it('キーワードが無い・空白だけなら400を返す', async () => {
+    const env = createEnv()
+
+    for (const path of ['/api/agent/chapters', `/api/agent/chapters?search=${encodeURIComponent('　 ')}`]) {
+      const response = await fetchAsAgent(env, path)
+      expect(response.status).toBe(400)
+      expect(await response.json()).toMatchObject({ error: { code: 'invalid-search' } })
+    }
+  })
+
+  it('語の数が多すぎれば400を返す', async () => {
+    const response = await fetchAsAgent(createEnv(), `/api/agent/chapters?search=${encodeURIComponent('あ い う え お か')}`)
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ error: { code: 'invalid-search' } })
+  })
+
+  it('件数の上限が範囲の外なら400を返す', async () => {
+    const response = await fetchAsAgent(createEnv(), `/api/agent/chapters?search=${encodeURIComponent('ログイン')}&limit=101`)
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ error: { code: 'invalid-limit' } })
+  })
+})

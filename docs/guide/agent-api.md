@@ -21,6 +21,7 @@ curl -H "Authorization: Bearer $HDAD_AGENT_TOKEN" https://<公開先のドメイ
 | --- | --- |
 | `GET /api/agent/streams` | 配信の一覧（新しい順に100件まで）。開始・終了の日時、タイトル、カテゴリ、平均・最大の視聴者数、フォロワーの増減、イベントの種類ごとの件数 |
 | `GET /api/agent/streams/<配信ID>` | 配信1回ぶんの文脈。あらすじ・約30分ごとの章（見出しと要約）・作業時間の合計・レイド・作業ログ（コミット・PRのマージ）・視聴者の `!task` の宣言・配信の時間に開いた意見ボード。作業ログとタスクの宣言は古い順に `?limit=`（1〜1000、既定200）件までで、切ったときは `truncated` にその欄を挙げます。視聴者数の時系列は返しません |
+| `GET /api/agent/chapters?search=<語>` | 章（見出しと要約）とあらすじを、配信をまたいでキーワードで探します。空白（全角も可）で区切った語をすべて含むものだけを、新しい順に章とあらすじそれぞれ `?limit=`（1〜100、既定20）件まで。語は5つまでです。どの配信のものかを `streamId`・`streamStartedAt`・`streamTitle` で添え、切ったときは `truncated` に `chapters`・`summaries` を挙げます |
 | `GET /api/agent/viewers` | 視聴者の記録を最後に発言した順に。`?search=` でログイン名の前方一致、`?limit=`（1〜200）で件数、続きは前の結果の最後の人の `lastSeenAt` を `?before=` に、`userId` を `?beforeUserId=` に渡します |
 | `GET /api/agent/viewers/<ユーザーID>` | 視聴者1人の記録（配信者のメモ・AIが作った人物像・その人自身のチャンネルの内容） |
 
@@ -40,6 +41,7 @@ claude mcp add --transport http hdad https://<公開先のドメイン>/mcp --he
 | --- | --- | --- |
 | `list_streams` | `GET /api/agent/streams` | なし |
 | `get_stream` | `GET /api/agent/streams/<配信ID>` | `id`（必須）・`limit` |
+| `search_chapters` | `GET /api/agent/chapters` | `search`（必須）・`limit` |
 | `search_viewers` | `GET /api/agent/viewers` | `search`・`before`・`beforeUserId`・`limit` |
 | `get_viewer` | `GET /api/agent/viewers/<ユーザーID>` | `userId`（必須） |
 

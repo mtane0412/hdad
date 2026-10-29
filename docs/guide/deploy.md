@@ -197,7 +197,7 @@ R2は無料枠（保存10GB・転送無料）だけを使う場合でも、デ�
 | `GET /api/admin/stats/sessions/<配信ID>` | 配信セッションと、視聴者数の時系列・章（要セッション） |
 | `GET /api/admin/stats/followers` | フォロワー数の時系列。値が変わった時点だけが並ぶ（要セッション） |
 | `GET /api/admin/stats/failures` | 記録の収集の失敗の一覧（新しい順に50件まで。要セッション） |
-| `GET /api/agent/streams`・`/api/agent/streams/<配信ID>`・`/api/agent/viewers`・`/api/agent/viewers/<ユーザーID>` | 外部の AI エージェント向けの読み取り専用の API（要エージェント向けのトークン。[説明](./agent-api.md)） |
+| `GET /api/agent/streams`・`/api/agent/streams/<配信ID>`・`/api/agent/chapters`・`/api/agent/viewers`・`/api/agent/viewers/<ユーザーID>` | 外部の AI エージェント向けの読み取り専用の API（要エージェント向けのトークン。[説明](./agent-api.md)） |
 | `POST /mcp` | 上の API と同じ読み出しを MCP のツールとして出す入口（要エージェント向けのトークン。[説明](./agent-api.md#claude-code-からつなぐmcp)） |
 | `POST /api/admin/transcripts` | アプリのページの音声認識（Web Speech API）から確定した発話を1件受け取り、配信中なら記録する（配信していなければ記録せず、記録しなかったことを応答で返す。要セッション） |
 
