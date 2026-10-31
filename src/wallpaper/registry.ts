@@ -6,6 +6,7 @@
  */
 import type { BackgroundDefinition } from '../core/background'
 import { aurora } from './aurora'
+import { campfire } from './campfire'
 import { clouds } from './clouds'
 import { contour } from './contour'
 import { grid } from './grid'
@@ -20,6 +21,7 @@ import { waves } from './waves'
 
 export const backgrounds: readonly BackgroundDefinition[] = [
   aurora,
+  campfire,
   clouds,
   contour,
   grid,

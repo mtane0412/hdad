@@ -9,6 +9,7 @@
 | 背景ID | 内容 | パラメータ |
 | --- | --- | --- |
 | `aurora` | ぼけた色の霧がゆっくり漂う | `colors`（カンマ区切り2〜6色）, `bg`, `speed` |
+| `campfire` | 夜の焚き火。薪が燃えて火の粉が舞う（雑談でずっと映しておく向け） | `bg`, `speed` |
 | `clouds` | もこもこの雲がゆっくり横へ流れる | `color`, `bg`, `count`（雲の数）, `speed` |
 | `contour` | 地形図の等高線がゆっくり形を変える | `color`, `bg`, `levels`（本数）, `scale`（模様の大きさ）, `speed` |
 | `grid` | 地平線へ伸びる床のグリッドが手前へ流れる | `color`, `bg`, `size`（下端でのマスの幅px）, `speed` |
