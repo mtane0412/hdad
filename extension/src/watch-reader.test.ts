@@ -64,7 +64,7 @@ describe('startWatchReader', () => {
 
     expect(sendMessage).toHaveBeenCalledWith({
       target: WATCH_READER_TARGET,
-      position: { positionSeconds: 34, playing: true, rate: 1, title: '湾岸署の映画', imageUrl: IMAGE_URL },
+      position: { positionSeconds: 34, playing: true, rate: 1, title: '湾岸署の映画', episode: null, imageUrl: IMAGE_URL },
     })
   })
 
@@ -74,7 +74,7 @@ describe('startWatchReader', () => {
 
     startWatchReader(WATCH_READER_TARGET)
 
-    expect(sentPositions()).toEqual([{ positionSeconds: 34, playing: true, rate: 1, title: '湾岸署の映画', imageUrl: null }])
+    expect(sentPositions()).toEqual([{ positionSeconds: 34, playing: true, rate: 1, title: '湾岸署の映画', episode: null, imageUrl: null }])
   })
 
   it.each(IMAGE_HOST_SUFFIXES)('合成ページが受け入れる置き場所（%s）の画像は送る', (suffix) => {
@@ -92,7 +92,7 @@ describe('startWatchReader', () => {
 
     startWatchReader(WATCH_READER_TARGET)
 
-    expect(sentPositions()).toEqual([{ positionSeconds: 34, playing: true, rate: 1, title: null, imageUrl: null }])
+    expect(sentPositions()).toEqual([{ positionSeconds: 34, playing: true, rate: 1, title: null, episode: null, imageUrl: null }])
   })
 
   it('予想どおりに進んでいるあいだは毎秒知らせない', () => {
@@ -194,8 +194,105 @@ describe('startWatchReader', () => {
   })
 })
 
+describe('startWatchReader のその回の情報（実機のプレイヤーの要素）', () => {
+  /** 操作バーの中のその回の表示。バーが隠れると消える */
+  const showEpisode = (text: string): HTMLElement => {
+    const element = document.createElement('span')
+    element.className = 'atvwebplayersdk-episode-info-text f1abc'
+    element.textContent = text
+    document.body.append(element)
+    return element
+  }
+  const sentEpisodes = (): unknown[] => sentPositions().map((position) => (position as { episode: unknown }).episode)
+
+  it('操作バーに出ているその回の情報を読む', () => {
+    addVideo({ currentTime: 40, paused: false })
+    showEpisode('S1 E2 第2話 無愛想な薬師')
+
+    startWatchReader(WATCH_READER_TARGET)
+
+    expect(sentEpisodes()).toEqual(['S1 E2 第2話 無愛想な薬師'])
+  })
+
+  it('操作バーが隠れても、読んだ情報を出し続ける', () => {
+    const video = addVideo({ currentTime: 40, paused: false })
+    const element = showEpisode('S1 E2 第2話 無愛想な薬師')
+    startWatchReader(WATCH_READER_TARGET)
+    element.remove()
+
+    video.currentTime = 500
+    vi.advanceTimersByTime(1000)
+
+    expect(sentEpisodes().at(-1)).toBe('S1 E2 第2話 無愛想な薬師')
+  })
+
+  it('読めていなかった情報が操作バーに出たら、すぐ知らせる', () => {
+    const video = addVideo({ currentTime: 40, paused: false })
+    startWatchReader(WATCH_READER_TARGET)
+    sendMessage.mockClear()
+
+    showEpisode('S1 E2 第2話 無愛想な薬師')
+    video.currentTime = 41
+    vi.advanceTimersByTime(1000)
+
+    expect(sentEpisodes()).toEqual(['S1 E2 第2話 無愛想な薬師'])
+  })
+
+  it('位置が先頭へ戻ったら前の回の情報を出さず、次に読めるまで分からないとする（次の回へ進んでも <video> も長さも変わらないため）', () => {
+    const video = addVideo({ currentTime: 120, paused: false })
+    const element = showEpisode('S1 E2 第2話 無愛想な薬師')
+    startWatchReader(WATCH_READER_TARGET)
+    element.remove()
+
+    video.currentTime = 0.6
+    vi.advanceTimersByTime(1000)
+    expect(sentEpisodes().at(-1)).toBeNull()
+
+    showEpisode('S1 E3 第3話 幽霊騒動')
+    video.currentTime = 3.6
+    vi.advanceTimersByTime(1000)
+    expect(sentEpisodes().at(-1)).toBe('S1 E3 第3話 幽霊騒動')
+  })
+
+  it('知らせていないあいだに進んだ位置から先頭へ戻っても、前の回の情報を消す', () => {
+    const video = addVideo({ currentTime: 0, paused: false })
+    const element = showEpisode('S1 E2 第2話 無愛想な薬師')
+    startWatchReader(WATCH_READER_TARGET)
+    element.remove()
+    for (let second = 1; second <= 20; second += 1) {
+      video.currentTime = second
+      vi.advanceTimersByTime(1000)
+    }
+
+    video.currentTime = 0.6
+    vi.advanceTimersByTime(1000)
+
+    expect(sentEpisodes().at(-1)).toBeNull()
+  })
+
+  it('途中へのシークでは、読んだ情報を消さない', () => {
+    const video = addVideo({ currentTime: 500, paused: false })
+    const element = showEpisode('S1 E2 第2話 無愛想な薬師')
+    startWatchReader(WATCH_READER_TARGET)
+    element.remove()
+
+    video.currentTime = 200
+    vi.advanceTimersByTime(1000)
+
+    expect(sentEpisodes().at(-1)).toBe('S1 E2 第2話 無愛想な薬師')
+  })
+
+  it('映画のようにその回の表示が無ければ null のまま', () => {
+    addVideo({ currentTime: 40, paused: false })
+
+    startWatchReader(WATCH_READER_TARGET)
+
+    expect(sentEpisodes()).toEqual([null])
+  })
+})
+
 describe('parseWatchReaderMessage', () => {
-  const position = { positionSeconds: 34, playing: true, rate: 1, title: '湾岸署の映画', imageUrl: null }
+  const position = { positionSeconds: 34, playing: true, rate: 1, title: '湾岸署の映画', episode: null, imageUrl: null }
 
   it('読み取りからの知らせを読む', () => {
     expect(parseWatchReaderMessage({ target: WATCH_READER_TARGET, position })).toEqual({ position })

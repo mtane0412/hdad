@@ -281,7 +281,7 @@ describe('createTabSender', () => {
 })
 
 describe('createTabSender の再生位置（同時視聴。issue #443）', () => {
-  const position = { positionSeconds: 34, playing: true, rate: 1, title: '湾岸署の映画', imageUrl: null }
+  const position = { positionSeconds: 34, playing: true, rate: 1, title: '湾岸署の映画', episode: null, imageUrl: null }
 
   it('再生位置が変わったら、映像を映していなくても全員へ送る', () => {
     const { sender, sent } = createHarness()

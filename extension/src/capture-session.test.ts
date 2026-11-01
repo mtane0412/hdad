@@ -279,7 +279,7 @@ describe('createCaptureSession', () => {
 })
 
 describe('createCaptureSession の同時視聴（issue #443）', () => {
-  const position = { positionSeconds: 34, playing: true, rate: 1, title: '湾岸署の映画', imageUrl: null }
+  const position = { positionSeconds: 34, playing: true, rate: 1, title: '湾岸署の映画', episode: null, imageUrl: null }
 
   it('同時視聴を始めても、タブを取り込まない', () => {
     const harness = createHarness()

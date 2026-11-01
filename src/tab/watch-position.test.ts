@@ -11,6 +11,7 @@ const playing: WatchPosition = {
   playing: true,
   rate: 1,
   title: '湾岸署の映画',
+  episode: 'S1 E2 第2話 無愛想な薬師',
   imageUrl: 'https://images-fe.ssl-images-amazon.com/images/S/pv-target-images/作品の画像.jpg',
 }
 
@@ -19,8 +20,14 @@ describe('parseWatchPosition', () => {
     expect(parseWatchPosition(playing)).toEqual(playing)
   })
 
+  it('その回の情報が無いもの（古い版の拡張）は、入れ直しを案内するエラーにする', () => {
+    const old = { positionSeconds: 100, playing: true, rate: 1, title: '湾岸署の映画', imageUrl: null }
+
+    expect(() => parseWatchPosition(old)).toThrow('HDAD-tab の拡張が古いので、/connectors/ からダウンロードして入れ直してください')
+  })
+
   it('題名と画像が分からないときは null のまま持つ', () => {
-    expect(parseWatchPosition({ ...playing, title: null, imageUrl: null })).toEqual({ ...playing, title: null, imageUrl: null })
+    expect(parseWatchPosition({ ...playing, title: null, episode: null, imageUrl: null })).toEqual({ ...playing, title: null, episode: null, imageUrl: null })
   })
 
   it('Amazon の画像の置き場所以外の画像はエラーにする（配信画面に任意の画像を出させない）', () => {
