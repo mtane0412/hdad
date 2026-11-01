@@ -62,7 +62,9 @@ const withHostPermission = (manifest: Uint8Array, origin: string): Uint8Array =>
   if (!isRecord(value)) {
     throw new HttpError(STATUS.internalServerError, 'tab-extension-missing', `ビルド済みの拡張（${ASSET_DIR}${MANIFEST_FILE}）を読み取れません。npm run build でデプロイし直してください`)
   }
-  return strToU8(`${JSON.stringify({ ...value, host_permissions: [`${origin}/*`] }, null, 2)}\n`)
+  // manifest.json がもともと持つ権限（同時視聴の Prime Video のホスト）は残す
+  const existing = Array.isArray(value.host_permissions) ? value.host_permissions : []
+  return strToU8(`${JSON.stringify({ ...value, host_permissions: [...existing, `${origin}/*`] }, null, 2)}\n`)
 }
 
 /**

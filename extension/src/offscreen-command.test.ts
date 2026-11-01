@@ -55,3 +55,24 @@ describe('parseOffscreenCommand', () => {
     expect(() => parseOffscreenCommand({ target: OFFSCREEN_COMMAND_TARGET, type: '不明' })).toThrow('サービスワーカーからの頼みの形が想定と違います')
   })
 })
+
+describe('parseOffscreenCommand の同時視聴（issue #443）', () => {
+  it('同時視聴を始める頼みを読み取る', () => {
+    expect(parseOffscreenCommand({ target: 'offscreen', type: 'watchStart', origin: 'https://hdad.example', session: 'セッション' })).toEqual({
+      type: 'watchStart',
+      origin: 'https://hdad.example',
+      session: 'セッション',
+    })
+  })
+
+  it('再生位置を送る頼みを読み取る（null は再生していない）', () => {
+    const position = { positionSeconds: 34, playing: true, rate: 1, title: '湾岸署の映画', imageUrl: null }
+
+    expect(parseOffscreenCommand({ target: 'offscreen', type: 'watch', position })).toEqual({ type: 'watch', position })
+    expect(parseOffscreenCommand({ target: 'offscreen', type: 'watch', position: null })).toEqual({ type: 'watch', position: null })
+  })
+
+  it('形の違う再生位置はエラーにする', () => {
+    expect(() => parseOffscreenCommand({ target: 'offscreen', type: 'watch', position: { positionSeconds: '34' } })).toThrow('再生位置の形が想定と違います')
+  })
+})

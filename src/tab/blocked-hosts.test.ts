@@ -9,7 +9,7 @@
  * - Worker の応答から一覧を読み、形が違えばエラーにする
  */
 import { describe, expect, it } from 'vitest'
-import { hostOfPageUrl, isBlockedUrl, isHostName, parseBlockedHosts } from './blocked-hosts'
+import { hostOfPageUrl, isBlockedUrl, isHostName, classifyWatchPartyPage, isWatchPartyUrl, parseBlockedHosts } from './blocked-hosts'
 
 describe('isHostName', () => {
   it('ホスト名そのものを受け付ける', () => {
@@ -74,5 +74,43 @@ describe('parseBlockedHosts', () => {
     expect(() => parseBlockedHosts(null)).toThrow('映さないサイトの一覧の形が想定と違います')
     expect(() => parseBlockedHosts({ hosts: 'mail.google.com' })).toThrow('映さないサイトの一覧の形が想定と違います')
     expect(() => parseBlockedHosts({ hosts: ['Mail.Google.com'] })).toThrow('映さないサイトの一覧の形が想定と違います')
+  })
+})
+
+describe('isWatchPartyUrl（同時視聴の対象。issue #443）', () => {
+  it('Prime Video を配るホストなら対象にする', () => {
+    expect(isWatchPartyUrl('https://www.amazon.co.jp/gp/video/detail/作品')).toBe(true)
+    expect(isWatchPartyUrl('https://www.primevideo.com/detail/作品')).toBe(true)
+  })
+
+  it('ほかのホストや読めないURLは対象にしない', () => {
+    expect(isWatchPartyUrl('https://www.youtube.com/watch?v=紹介する動画')).toBe(false)
+    expect(isWatchPartyUrl('chrome://extensions')).toBe(false)
+  })
+})
+
+describe('classifyWatchPartyPage（押したタブを同時視聴にするか。issue #443）', () => {
+  const amazon = 'https://www.amazon.co.jp/dp/B0F2ZMZK51'
+
+  it('題名に Prime Video があれば同時視聴にする（実機の題名）', () => {
+    expect(classifyWatchPartyPage({ url: amazon, title: 'Amazon.co.jp: 湾岸署の映画を観る | Prime Video', status: 'complete' })).toBe('watch')
+    expect(classifyWatchPartyPage({ url: 'https://www.amazon.co.jp/gp/video/storefront', title: 'Prime Video：映画、TV番組', status: 'loading' })).toBe('watch')
+  })
+
+  it('読み込みが終わっていて題名に Prime Video が無ければ、映してよいページとする', () => {
+    expect(classifyWatchPartyPage({ url: amazon, title: 'Amazon | 配信で紹介するマイク', status: 'complete' })).toBe('other')
+  })
+
+  it('読み込み中や題名が無いときは、判定できないとする（映像を漏らさないため）', () => {
+    expect(classifyWatchPartyPage({ url: amazon, title: amazon, status: 'loading' })).toBe('unknown')
+    expect(classifyWatchPartyPage({ url: amazon, status: 'complete' })).toBe('unknown')
+  })
+
+  it('www.primevideo.com は題名によらず同時視聴にする', () => {
+    expect(classifyWatchPartyPage({ url: 'https://www.primevideo.com/detail/作品', status: 'loading' })).toBe('watch')
+  })
+
+  it('ほかのホストは題名を見ない', () => {
+    expect(classifyWatchPartyPage({ url: 'https://www.youtube.com/watch?v=紹介する動画', title: 'Prime Video の紹介動画' })).toBe('other')
   })
 })

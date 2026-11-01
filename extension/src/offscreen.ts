@@ -4,6 +4,8 @@
  * サービスワーカー（background.ts）から届いた頼みに応じて、タブを取り込み、HDAD の合成ページへ WebRTC で送る。
  * ふるまいは capture-session.ts にあり、ここは Chrome の API とブラウザの取り込み・接続をつなぐだけにする。
  *
+ * 同時視聴（issue #443）では取り込まず、サービスワーカーから届く再生位置を合成ページへ送るだけにする。
+ *
  * 中継先へは、config.json に書かれた HDAD の置き場所へ配信者のセッションでつなぐ。offscreen document からの WebSocket には
  * クッキーが付かないので、サービスワーカーが chrome.cookies で読んだセッションを WebSocket のプロトコルの欄で渡す
  * （src/tab/socket.ts の connectTabSender）。
@@ -49,7 +51,7 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse: (
     sendResponse({ ok: true })
     return false
   }
-  if (command.type === 'pause' || command.type === 'resume' || command.type === 'crop') {
+  if (command.type === 'pause' || command.type === 'resume' || command.type === 'crop' || command.type === 'watch') {
     if (captureSession === null) {
       // 映していないのに頼まれた（サービスワーカーの記録と食い違っている）。黙らずに返す
       sendResponse({ ok: false, message: 'タブを映していません' })
@@ -57,13 +59,14 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse: (
     }
     if (command.type === 'pause') captureSession.pause()
     else if (command.type === 'resume') captureSession.resume()
-    else captureSession.setCrop(command.crop)
+    else if (command.type === 'crop') captureSession.setCrop(command.crop)
+    else captureSession.setWatch(command.position)
     sendResponse({ ok: true })
     return false
   }
   // 中継先への接続は、最初に映し始めたときの置き場所で作る（止めるまで offscreen document ごと持ち続ける）。
   // セッションはつなぎ直すたびに読むので、切り替えのたびに受け取る新しい値に置き換える
-  const { origin, streamId, session } = command
+  const { origin, session } = command
   latestSession = session
   captureSession ??= createCaptureSession({
     connect: (handlers) => connectTabSender(origin, () => latestSession, handlers),
@@ -71,7 +74,12 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse: (
     openPeer: openSenderPeer,
     report,
   })
-  captureSession.start(streamId).then(
+  if (command.type === 'watchStart') {
+    captureSession.startWatch()
+    sendResponse({ ok: true })
+    return false
+  }
+  captureSession.start(command.streamId).then(
     () => sendResponse({ ok: true }),
     (error: unknown) => sendResponse({ ok: false, message: reasonOf(error) }),
   )

@@ -22,10 +22,14 @@
  * 範囲を選ぶ画面（area-picker.ts の pickArea）を chrome.scripting で差し込む（右クリックの項目を押すと、そのタブへの activeTab の
  * 許可が得られる）。選ばれた範囲はそのタブから知らせが届くので、送り主のタブを添えて handleAreaPicked へ渡す。
  *
+ * 同時視聴（issue #443）: Prime Video のタブでは取り込まず、再生位置の読み取り（watch-reader.ts）を chrome.scripting で差し込み、届いた位置を
+ * offscreen document へ渡す。ページの移動で差し込み直せるよう、manifest.json の host_permissions に Prime Video のホストを持つ。
+ *
  * 注意: うまくいかないときは黙って何もしないのではなくバッジ「!」で知らせ、理由はボタンの説明に出す。
  */
 import { BLOCKED_HOSTS_PATH, isHostName, parseBlockedHosts } from '../../src/tab/blocked-hosts'
 import { AREA_PICKER_TARGET, parseAreaPicked, pickArea } from './area-picker'
+import { parseWatchReaderMessage, startWatchReader, stopWatchReader, WATCH_READER_TARGET } from './watch-reader'
 import { CONFIG_FILE, parseExtensionConfig, type ExtensionConfig } from './config'
 import { OFFSCREEN_PAGE_FILE } from './built-files'
 import {
@@ -39,6 +43,8 @@ import {
   handlePickAreaClick,
   handleSettingsRequest,
   handleSiteMenuClick,
+  handleTabRemoved,
+  handleWatchPosition,
   isCaptureState,
   refreshSiteMenu,
   type ControllerApi,
@@ -125,7 +131,7 @@ const ensureOffscreen = async (): Promise<void> => {
   await chrome.offscreen.createDocument({
     url: OFFSCREEN_PAGE_FILE,
     reasons: [chrome.offscreen.Reason.USER_MEDIA],
-    justification: '映すタブの映像と音を取り込み、HDAD の合成ページへ送り続けるため',
+    justification: '映すタブの映像と音を取り込み、HDAD の合成ページへ送り続けるため。同時視聴では再生位置だけを送り続けるため',
   })
 }
 
@@ -151,6 +157,10 @@ const command = async (message: OffscreenCommandMessage): Promise<OffscreenReply
 const commandWhileCapturing = async (type: 'pause' | 'resume'): Promise<void> => {
   const reply = await command({ target: 'offscreen', type })
   if (!reply.ok) throw new Error(reply.message)
+}
+
+const injectWatchReader = async (tabId: number): Promise<void> => {
+  await chrome.scripting.executeScript({ target: { tabId }, func: startWatchReader, args: [WATCH_READER_TARGET] })
 }
 
 const api: ControllerApi = {
@@ -204,6 +214,25 @@ const api: ControllerApi = {
   },
   setCrop: async (crop) => {
     const reply = await command({ target: 'offscreen', type: 'crop', crop })
+    if (!reply.ok) throw new Error(reply.message)
+  },
+  startWatch: async (tabId) => {
+    const config = await loadConfig()
+    const session = await readSession(config.origin)
+    await ensureOffscreen()
+    const reply = await command({ target: 'offscreen', type: 'watchStart', origin: config.origin, session })
+    if (!reply.ok) throw new Error(reply.message)
+    await injectWatchReader(tabId)
+  },
+  startWatchReader: injectWatchReader,
+  stopWatchReader: async (tabId) => {
+    // タブが閉じられている・差し込めないページへ移ったなら読み取りも動いていない。届いた位置は handleWatchPosition が捨てる
+    await chrome.scripting.executeScript({ target: { tabId }, func: stopWatchReader }).catch((error: unknown) => {
+      console.error('再生位置の読み取りを止められませんでした', error)
+    })
+  },
+  sendWatchPosition: async (position) => {
+    const reply = await command({ target: 'offscreen', type: 'watch', position })
     if (!reply.ok) throw new Error(reply.message)
   },
   show: async (state) => {
@@ -298,7 +327,28 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   })
 })
 
+// 映像を映しているタブの終わりは offscreen document が知らせるが、同時視聴は取り込まないので閉じられたことをここで知る
+chrome.tabs.onRemoved.addListener((tabId) => {
+  void enqueue(() => handleTabRemoved(tabId, api))
+})
+
 chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse: (reply: SettingsReply) => void) => {
+  let watched
+  try {
+    watched = parseWatchReaderMessage(message)
+  } catch (error) {
+    report('再生位置の読み取りからの知らせを読み取れませんでした', error)
+    return false
+  }
+  if (watched !== null) {
+    const tabId = sender.tab?.id
+    if (tabId !== undefined) {
+      const { position } = watched
+      void enqueue(() => handleWatchPosition({ tabId, position }, api))
+    }
+    return false
+  }
+
   let picked
   try {
     picked = parseAreaPicked(message)

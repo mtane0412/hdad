@@ -13,6 +13,7 @@
  */
 import { isRecord } from '../../src/core/api'
 import { parseTabCrop, type TabCrop } from '../../src/tab/crop'
+import { parseWatchPosition, type WatchPosition } from '../../src/tab/watch-position'
 
 /** offscreen document あての頼みに付けるあて先 */
 export const OFFSCREEN_COMMAND_TARGET = 'offscreen'
@@ -32,6 +33,10 @@ export type OffscreenCommand =
   | { type: 'resume' }
   /** 映す範囲を変える（null はタブ全体。issue #166） */
   | { type: 'crop'; crop: TabCrop | null }
+  /** 映していたものを止め、取り込まずに同時視聴を始める（issue #443。origin と session は start と同じ） */
+  | { type: 'watchStart'; origin: string; session: string }
+  /** 同時視聴の再生位置を送る（null は再生していない） */
+  | { type: 'watch'; position: WatchPosition | null }
 
 /** 送るときの形（あて先を付ける） */
 export type OffscreenCommandMessage = OffscreenCommand & { target: typeof OFFSCREEN_COMMAND_TARGET }
@@ -53,6 +58,11 @@ export const parseOffscreenCommand = (value: unknown): OffscreenCommand | null =
   if (!isRecord(value) || value.target !== OFFSCREEN_COMMAND_TARGET) return null
   if (value.type === 'stop' || value.type === 'pause' || value.type === 'resume') return { type: value.type }
   if (value.type === 'crop') return { type: 'crop', crop: value.crop === null ? null : parseTabCrop(value.crop) }
+  if (value.type === 'watch') return { type: 'watch', position: value.position === null ? null : parseWatchPosition(value.position) }
+  if (value.type === 'watchStart') {
+    if (!isText(value.origin) || !isText(value.session)) throw new Error(INVALID)
+    return { type: 'watchStart', origin: value.origin, session: value.session }
+  }
   if (value.type === 'start') {
     if (!isText(value.streamId) || !isText(value.origin) || !isText(value.session)) throw new Error(INVALID)
     return { type: 'start', streamId: value.streamId, origin: value.origin, session: value.session }

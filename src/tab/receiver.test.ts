@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest'
 import type { TabCrop } from './crop'
 import type { FromViewer } from './signal'
 import { createTabReceiver, type ReceiverPeerHandlers } from './receiver'
+import type { WatchPosition } from './watch-position'
 
 /** 作られた接続の n 番目（0 から数える）。無ければテストを失敗させる */
 const nth = <T>(items: readonly T[], index: number): T => {
@@ -28,6 +29,7 @@ const createHarness = () => {
   const sent: FromViewer[] = []
   const shown: (FakeStream | null)[] = []
   const crops: (TabCrop | null)[] = []
+  const watches: (WatchPosition | null)[] = []
   const warnings: string[] = []
   const peers: { offerSdp: string | null; closed: boolean; handlers: ReceiverPeerHandlers<FakeStream> }[] = []
   const receiver = createTabReceiver<FakeStream>({
@@ -48,9 +50,10 @@ const createHarness = () => {
     },
     onStream: (stream) => shown.push(stream),
     onCrop: (crop) => crops.push(crop),
+    onWatch: (position) => watches.push(position),
     onWarning: (message) => warnings.push(message),
   })
-  return { receiver, sent, shown, crops, warnings, peers }
+  return { receiver, sent, shown, crops, watches, warnings, peers }
 }
 
 /** answer を作る非同期の処理が終わるのを待つ */
@@ -199,6 +202,7 @@ describe('createTabReceiver', () => {
       },
       onStream: () => undefined,
       onCrop: () => undefined,
+      onWatch: () => undefined,
       onWarning: () => undefined,
     })
 
@@ -221,6 +225,7 @@ describe('createTabReceiver', () => {
       }),
       onStream: () => undefined,
       onCrop: () => undefined,
+      onWatch: () => undefined,
       onWarning: (message) => warnings.push(message),
     })
 
@@ -228,5 +233,26 @@ describe('createTabReceiver', () => {
     await settle()
 
     expect(warnings).toEqual(['タブの映像を受け取れませんでした: 申し込みの形が壊れています'])
+  })
+})
+
+describe('createTabReceiver の再生位置（同時視聴。issue #443）', () => {
+  const position = { positionSeconds: 34, playing: true, rate: 1, title: '湾岸署の映画', imageUrl: null }
+
+  it('再生位置が届いたら知らせる', () => {
+    const { receiver, watches } = createHarness()
+
+    receiver.receive({ type: 'watch', position })
+
+    expect(watches).toEqual([position])
+  })
+
+  it('送り手がやめたら、再生位置を消す', () => {
+    const { receiver, watches } = createHarness()
+    receiver.receive({ type: 'watch', position })
+
+    receiver.receive({ type: 'stop' })
+
+    expect(watches).toEqual([position, null])
   })
 })

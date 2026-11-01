@@ -72,3 +72,40 @@ export const parseBlockedHosts = (body: unknown): string[] => {
   if (!Array.isArray(hosts) || !hosts.every(isHostName)) throw new Error('映さないサイトの一覧の形が想定と違います')
   return hosts
 }
+
+/**
+ * 同時視聴の対象のホスト（issue #443）。映像と音を送らず、再生位置だけを送る。
+ *
+ * 作品のページは /gp/video/detail/ から /dp/ へ移り、/dp/ は商品のページと同じパスなので、パスでは分けない。
+ * 映しているタブの移動はこのホストの単位で止め（移り始めには題名が分からないため）、押されたタブは classifyWatchPartyPage が題名でも分ける。
+ * extension/public/manifest.json の host_permissions と一致させる（extension/src/manifest.test.ts）。
+ */
+export const WATCH_PARTY_HOSTS: readonly string[] = ['www.amazon.co.jp', 'www.primevideo.com']
+
+/** このページで映像と音を送らず、同時視聴にするか */
+export const isWatchPartyUrl = (url: string): boolean => {
+  const host = hostOfPageUrl(url)
+  return host !== null && WATCH_PARTY_HOSTS.includes(host)
+}
+
+/** 題名によらず Prime Video だけを配るホスト */
+const PRIME_VIDEO_ONLY_HOST = 'www.primevideo.com'
+/** Prime Video のページの題名に含まれる語（実機で作品のページと一覧のページの題名に含まれていた） */
+const PRIME_VIDEO_TITLE = 'Prime Video'
+/** chrome.tabs の、読み込みが終わった状態 */
+const TAB_COMPLETE = 'complete'
+
+/** 押されたタブの扱い。watch は同時視聴、other は映像として映す、unknown は判定できない */
+export type WatchPartyPage = 'watch' | 'other' | 'unknown'
+
+/**
+ * 押されたタブを同時視聴にするかを決める。
+ *
+ * 注意: 読み込み中の題名は前のページや URL のことがあるので、題名に Prime Video が無くても映してよいとはしない
+ * （作品のページで映像と音を送ってしまうため）。呼び出し側は unknown なら何も始めない。
+ */
+export const classifyWatchPartyPage = (page: { readonly url: string; readonly title?: string; readonly status?: string }): WatchPartyPage => {
+  if (!isWatchPartyUrl(page.url)) return 'other'
+  if (hostOfPageUrl(page.url) === PRIME_VIDEO_ONLY_HOST || page.title?.includes(PRIME_VIDEO_TITLE) === true) return 'watch'
+  return page.title !== undefined && page.status === TAB_COMPLETE ? 'other' : 'unknown'
+}

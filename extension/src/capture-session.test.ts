@@ -277,3 +277,48 @@ describe('createCaptureSession', () => {
     expect(harness.sent.at(-1)).toEqual({ type: 'crop', crop: { x: 0.25, y: 0, width: 0.5, height: 1 } })
   })
 })
+
+describe('createCaptureSession の同時視聴（issue #443）', () => {
+  const position = { positionSeconds: 34, playing: true, rate: 1, title: '湾岸署の映画', imageUrl: null }
+
+  it('同時視聴を始めても、タブを取り込まない', () => {
+    const harness = createHarness()
+
+    harness.session.startWatch()
+    harness.session.setWatch(position)
+
+    expect(harness.captured).toEqual([])
+    expect(harness.peerHandlers).toEqual([])
+    expect(harness.sent.at(-1)).toEqual({ type: 'watch', position })
+    expect(harness.sent.some((message) => message.type === 'offer' || message.type === 'who')).toBe(false)
+    expect(harness.events.at(-1)).toEqual({ type: 'state', viewers: 0, warning: null })
+  })
+
+  it('映しているときに同時視聴へ切り替えたら、取り込みを止めて合成ページの映像を消す', async () => {
+    const harness = createHarness()
+    await harness.session.start('ストリームID-1')
+
+    harness.session.startWatch()
+
+    expect(harness.captured[0]?.stopped).toBe(true)
+    expect(harness.sent.at(-1)).toEqual({ type: 'stop' })
+  })
+
+  it('同時視聴から映像へ切り替えたら、再生位置を消す', async () => {
+    const harness = createHarness()
+    harness.session.startWatch()
+    harness.session.setWatch(position)
+
+    await harness.session.start('ストリームID-1')
+
+    expect(harness.sent).toContainEqual({ type: 'watch', position: null })
+  })
+
+  it('同時視聴を始める前に届いた再生位置は送らない（切り替えたあとに古い読み取りが届いても出さない）', () => {
+    const harness = createHarness()
+
+    harness.session.setWatch(position)
+
+    expect(harness.sent).toEqual([])
+  })
+})

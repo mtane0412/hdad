@@ -15,9 +15,12 @@
  * 映す範囲（issue #166）は映像とは別に持ち、名乗った合成ページへ offer の前に送る（OBS がブラウザソースを読み込み直しても
  * 同じ範囲で映るように）。映しているあいだに変わったら全員へすぐ送る。映すタブを切り替えても範囲は外さない
  * （外すかどうかは呼び出し側が決める。送るのを一時的に止めて送り直すときは同じ範囲のまま映すため）。
+ *
+ * 同時視聴の再生位置（issue #443）は接続を作らずに連絡だけで送る。途中から開いた合成ページにも、名乗ったときに送る。
  */
 import type { TabCrop } from './crop'
 import type { FromSender, FromViewer } from './signal'
+import type { WatchPosition } from './watch-position'
 
 /** 送り手の接続1本が知らせること */
 export interface SenderPeerHandlers {
@@ -58,6 +61,8 @@ export interface TabSender<S> {
   stop(): void
   /** 映す範囲を変える（null はタブ全体）。映しているあいだなら合成ページへすぐ送る */
   setCrop(crop: TabCrop | null): void
+  /** 同時視聴の再生位置を変えて全員へ送る（null は再生していない） */
+  setWatch(position: WatchPosition | null): void
   /** 中継先へつながった（つなぎ直しも含む） */
   opened(): void
   /** 合成ページから連絡が届いた */
@@ -72,6 +77,7 @@ interface PeerEntry {
 
 export const createTabSender = <S>(options: TabSenderOptions<S>): TabSender<S> => {
   const { send } = options
+  let watch: WatchPosition | null = null
   let stream: S | null = null
   let crop: TabCrop | null = null
   const peers = new Map<string, PeerEntry>()
@@ -123,6 +129,7 @@ export const createTabSender = <S>(options: TabSenderOptions<S>): TabSender<S> =
   }
 
   const hello = (viewerId: string): void => {
+    if (watch !== null) send({ type: 'watch', position: watch })
     if (stream === null) return
     // 範囲は映像より先に届ける（映った最初のコマからその範囲で映すため）
     send({ type: 'crop', crop })
@@ -152,14 +159,19 @@ export const createTabSender = <S>(options: TabSenderOptions<S>): TabSender<S> =
     stop: () => {
       closeAll()
       stream = null
+      watch = null
       send({ type: 'stop' })
     },
     setCrop: (next) => {
       crop = next
       if (stream !== null) send({ type: 'crop', crop })
     },
+    setWatch: (next) => {
+      watch = next
+      send({ type: 'watch', position: next })
+    },
     opened: () => {
-      if (stream !== null) send({ type: 'who' })
+      if (stream !== null || watch !== null) send({ type: 'who' })
     },
     receive: (message) => {
       switch (message.type) {
