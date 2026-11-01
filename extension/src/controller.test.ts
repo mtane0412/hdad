@@ -775,7 +775,7 @@ describe('同時視聴（issue #443）', () => {
   const shoppingUrl = 'https://www.amazon.co.jp/dp/配信で紹介する商品'
   const shoppingTab = { id: 21, url: shoppingUrl, title: 'Amazon | 配信で紹介するマイク', status: 'complete' }
   const watching = (overrides: Partial<CaptureState> = {}): CaptureState => ({ tabId: primeTab.id, url: primeUrl, pausedAt: null, mode: 'watch', ...overrides })
-  const position = { positionSeconds: 34, playing: true, rate: 1, title: '湾岸署の映画', imageUrl: null }
+  const position = { positionSeconds: 34, playing: true, rate: 1, title: '湾岸署の映画', episode: null, imageUrl: null }
 
   it('Prime Video のタブで押されたら、取り込まずに同時視聴を始める', async () => {
     const { api, calls, shown, capturing } = createApi()

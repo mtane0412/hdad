@@ -9,7 +9,7 @@ import { parseFromSender, parseFromViewer } from './signal'
 
 describe('parseFromSender の再生位置（watch。issue #443）', () => {
   it('再生位置を読み取る', () => {
-    const position = { positionSeconds: 34, playing: true, rate: 1, title: '湾岸署の映画', imageUrl: null }
+    const position = { positionSeconds: 34, playing: true, rate: 1, title: '湾岸署の映画', episode: null, imageUrl: null }
 
     expect(parseFromSender(JSON.stringify({ type: 'watch', position }))).toEqual({ type: 'watch', position })
   })

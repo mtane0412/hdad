@@ -21,6 +21,8 @@ export interface WatchPosition {
   readonly rate: number
   /** 作品の題名（読めなければ null） */
   readonly title: string | null
+  /** その回の情報（例: S1 E2 第2話 無愛想な薬師。映画や、まだ読めていなければ null） */
+  readonly episode: string | null
   /** 作品の画像の URL（読めなければ null） */
   readonly imageUrl: string | null
 }
@@ -48,10 +50,12 @@ const isNonNegative = (value: unknown): value is number => typeof value === 'num
  */
 export const parseWatchPosition = (value: unknown): WatchPosition => {
   if (!isRecord(value) || !isNonNegative(value.positionSeconds) || typeof value.playing !== 'boolean' || !isNonNegative(value.rate)) throw new Error(INVALID)
-  const { title, imageUrl } = value
+  const { title, episode, imageUrl } = value
+  if (episode === undefined) throw new Error('HDAD-tab の拡張が古いので、/connectors/ からダウンロードして入れ直してください')
+  if (episode !== null && typeof episode !== 'string') throw new Error(INVALID)
   if ((title !== null && typeof title !== 'string') || (imageUrl !== null && typeof imageUrl !== 'string')) throw new Error(INVALID)
   if (imageUrl !== null && !isAllowedImageUrl(imageUrl)) throw new Error('作品の画像の置き場所が想定と違います')
-  return { positionSeconds: value.positionSeconds, playing: value.playing, rate: value.rate, title, imageUrl }
+  return { positionSeconds: value.positionSeconds, playing: value.playing, rate: value.rate, title, episode, imageUrl }
 }
 
 /** 受け取ってから elapsedMilliseconds たった時点の再生位置（秒）を求める */

@@ -66,7 +66,7 @@ describe('parseOffscreenCommand の同時視聴（issue #443）', () => {
   })
 
   it('再生位置を送る頼みを読み取る（null は再生していない）', () => {
-    const position = { positionSeconds: 34, playing: true, rate: 1, title: '湾岸署の映画', imageUrl: null }
+    const position = { positionSeconds: 34, playing: true, rate: 1, title: '湾岸署の映画', episode: null, imageUrl: null }
 
     expect(parseOffscreenCommand({ target: 'offscreen', type: 'watch', position })).toEqual({ type: 'watch', position })
     expect(parseOffscreenCommand({ target: 'offscreen', type: 'watch', position: null })).toEqual({ type: 'watch', position: null })

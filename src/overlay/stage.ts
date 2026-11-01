@@ -1028,11 +1028,13 @@ const mountTab = (box: HTMLElement, item: OverlayItem, { key, demo }: MountConte
   })
   const watchTitle = document.createElement('div')
   watchTitle.className = 'tab-watch-title'
+  const watchEpisode = document.createElement('div')
+  watchEpisode.className = 'tab-watch-episode'
   const watchTime = document.createElement('div')
   watchTime.className = 'tab-watch-time'
   const watchState = document.createElement('div')
   watchState.className = 'tab-watch-state'
-  watchCard.append(watchImage, watchTitle, watchTime, watchState)
+  watchCard.append(watchImage, watchTitle, watchEpisode, watchTime, watchState)
   box.append(watchCard)
   /** 時刻を書き直す間隔（秒の表示が飛ばない程度に細かく） */
   const WATCH_TICK_MILLISECONDS = 250
@@ -1049,6 +1051,8 @@ const mountTab = (box: HTMLElement, item: OverlayItem, { key, demo }: MountConte
     if (position.playing) watchTimer = setInterval(drawTime, WATCH_TICK_MILLISECONDS)
     watchTitle.textContent = position.title
     watchTitle.hidden = position.title === null
+    watchEpisode.textContent = position.episode
+    watchEpisode.hidden = position.episode === null
     watchState.textContent = position.playing ? 'この時刻に合わせて一緒に見よう' : '一時停止中'
     // 同じ画像を入れ直すと読み込みがやり直しになるので、変わったときだけ入れる（30秒ごとの補正でちらつかせない）
     if (position.imageUrl === null) {

@@ -8,6 +8,10 @@
  * - <video>.currentTime は画面の時刻と一致した（33.9 秒が 0:00:34。長さは 7163 秒）。10秒送りでも一致した
  * - 画面の時刻の要素のクラス名は意味のない文字列で、読むと画面の更新で壊れやすい。そのため <video> を読む
  * - 作品の og:image は無い。作品の画像は、ページ題名に含まれる alt（作品名）を持つ幅1300の <img> である
+ * その回の情報（issue #443 のあとの追加）も 2026-11-01 に TV アニメで確かめた。
+ * - 操作バーの atvwebplayersdk-episode で始まるクラスの要素に「S1 E2 第2話 無愛想な薬師」と出る。バーが隠れると要素ごと消えるので、読めたら覚えておく
+ * - 次の回へ進んでも <video>・長さ・URL・ページ題名は変わらず、位置が 0 へ戻るだけである。回の開始から数秒でバーが自動で出る
+ * - 合成の mousemove ではバーは出ない（ページを操作して出すことはしない）
  * シークを <video> のイベントで受けずに毎秒の読み取りで見つけるのは、ページの移動で <video> が作り直されても同じ処理で済むため。
  *
  * 注意: startWatchReader と stopWatchReader は文字列にしてタブへ送られるので、関数の外の値（定数を含む）を参照しない。
@@ -45,6 +49,8 @@ export const startWatchReader = (target: string): void => {
   const MIN_IMAGE_WIDTH = 300
   /** 合成ページが受け入れる画像の置き場所（文字列でタブへ送るので読み込めない。watch-position.ts との一致はテストが確かめる） */
   const IMAGE_HOST_SUFFIXES = ['.media-amazon.com', '.ssl-images-amazon.com']
+  /** 位置がこの秒数より前へ、しかもこの秒数を超えて戻ったら、次の回へ進んだかもしれないとみなす（実機では開始から数秒でバーが出る） */
+  const EPISODE_START_SECONDS = 10
 
   const scope = window as unknown as WatchReaderScope
   if (scope.__hdadWatchReaderTimer !== undefined) return
@@ -56,11 +62,31 @@ export const startWatchReader = (target: string): void => {
     delete scope.__hdadWatchReaderTimer
   }
 
+  let last: WatchPosition | null = null
+  let lastAt = 0
+  let sentOnce = false
+  /** 操作バーから最後に読んだその回の情報（バーが隠れると読めなくなるので覚えておく） */
+  let episode: string | null = null
+  /** 直前の読み取りの位置（知らせた位置は最大30秒古いので、先頭へ戻ったかの判定には使わない） */
+  let previousSeconds = 0
+
+  /** その回の情報を読み直す。前の回の情報を出し続けるより「分からない」を選ぶ */
+  const readEpisode = (positionSeconds: number): void => {
+    const text = document.querySelector('[class*="atvwebplayersdk-episode"]')?.textContent?.trim()
+    if (text !== undefined && text !== '') {
+      episode = text
+      return
+    }
+    if (positionSeconds < EPISODE_START_SECONDS && previousSeconds - positionSeconds > EPISODE_START_SECONDS) episode = null
+  }
+
   const readPosition = (): WatchPosition | null => {
     // 作品一覧の短い予告を読まないよう、いちばん長い <video> を本編とする
     const videos = [...document.querySelectorAll('video')].filter((candidate) => Number.isFinite(candidate.duration))
     const video = videos.reduce<HTMLVideoElement | null>((longest, candidate) => (longest === null || candidate.duration > longest.duration ? candidate : longest), null)
     if (video === null) return null
+    readEpisode(video.currentTime)
+    previousSeconds = video.currentTime
     const images = [...document.images].filter((candidate) => candidate.alt !== '' && document.title.includes(candidate.alt) && candidate.naturalWidth >= MIN_IMAGE_WIDTH)
     const image = images.reduce<HTMLImageElement | null>((largest, candidate) => (largest === null || candidate.naturalWidth > largest.naturalWidth ? candidate : largest), null)
     return {
@@ -68,20 +94,17 @@ export const startWatchReader = (target: string): void => {
       playing: !video.paused,
       rate: video.playbackRate,
       title: image?.alt ?? null,
+      episode,
       // 受け入れられない画像を送ると再生位置ごと拒まれるので、画像だけを外す
       imageUrl: image !== null && image.src.startsWith('https://') && IMAGE_HOST_SUFFIXES.some((suffix) => new URL(image.src).hostname.endsWith(suffix)) ? image.src : null,
     }
   }
 
-  let last: WatchPosition | null = null
-  let lastAt = 0
-  let sentOnce = false
-
   /** 前に知らせた内容からの予想と違うか */
   const hasChanged = (next: WatchPosition | null, now: number): boolean => {
     if (!sentOnce) return true
     if (next === null || last === null) return next !== last
-    if (next.playing !== last.playing || next.rate !== last.rate || next.title !== last.title || next.imageUrl !== last.imageUrl) return true
+    if (next.playing !== last.playing || next.rate !== last.rate || next.title !== last.title || next.episode !== last.episode || next.imageUrl !== last.imageUrl) return true
     const expected = last.positionSeconds + (last.playing ? (last.rate * (now - lastAt)) / MILLISECONDS_PER_SECOND : 0)
     return Math.abs(next.positionSeconds - expected) > DRIFT_SECONDS
   }
@@ -117,6 +140,7 @@ const isShallowPosition = (value: unknown): value is WatchPosition =>
   typeof value.playing === 'boolean' &&
   typeof value.rate === 'number' &&
   (value.title === null || typeof value.title === 'string') &&
+  (value.episode === null || typeof value.episode === 'string') &&
   (value.imageUrl === null || typeof value.imageUrl === 'string')
 
 /**
