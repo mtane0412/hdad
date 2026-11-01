@@ -32,7 +32,7 @@ const site = 'https://hdad.example.workers.dev'
 
 /** ビルド済みの拡張（npm run build:extension が public/tab-extension/ に出すもの） */
 const builtExtension = {
-  '/tab-extension/manifest.json': '{"manifest_version":3,"name":"HDAD タブの映像","permissions":["tabCapture","offscreen"]}',
+  '/tab-extension/manifest.json': '{"manifest_version":3,"name":"HDAD タブの映像","permissions":["tabCapture","offscreen"],"host_permissions":["https://www.amazon.co.jp/*"]}',
   '/tab-extension/background.js': 'console.log("ボタンを受ける")',
   '/tab-extension/offscreen.js': 'console.log("取り込んで送る")',
   '/tab-extension/options.js': 'console.log("映さないサイトを管理する")',
@@ -122,7 +122,7 @@ describe('GET /api/admin/tab/extension.zip', () => {
       manifest_version: 3,
       name: 'HDAD タブの映像',
       permissions: ['tabCapture', 'offscreen'],
-      host_permissions: ['https://hdad.example.workers.dev/*'],
+      host_permissions: ['https://www.amazon.co.jp/*', 'https://hdad.example.workers.dev/*'],
     })
   })
 

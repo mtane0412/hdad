@@ -15,6 +15,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { WATCH_PARTY_HOSTS } from '../../src/tab/blocked-hosts'
 import { OPTIONS_PAGE_FILE } from './built-files'
 
 const manifest: unknown = JSON.parse(readFileSync(resolve(import.meta.dirname, '../public/manifest.json'), 'utf8'))
@@ -25,6 +26,12 @@ describe('manifest.json', () => {
     const options = typeof manifest === 'object' && manifest !== null && 'options_ui' in manifest ? manifest.options_ui : undefined
 
     expect(options).toEqual({ page: OPTIONS_PAGE_FILE, open_in_tab: true })
+  })
+
+  it('同時視聴の読み取りを差し込み直せるよう、Prime Video のホストへの権限がある（issue #443）', () => {
+    const hosts = typeof manifest === 'object' && manifest !== null && 'host_permissions' in manifest ? manifest.host_permissions : undefined
+
+    expect(hosts).toEqual(WATCH_PARTY_HOSTS.map((host) => `https://${host}/*`))
   })
 
   it('拡張が使う API の権限がそろっている', () => {

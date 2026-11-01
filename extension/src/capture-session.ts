@@ -18,6 +18,9 @@
  * 映す範囲（issue #166）は setCrop で受け取って送り手（src/tab/sender.ts）に渡す。別のタブを映し始めたら範囲を外す
  * （範囲は1つだけ持ち、選んだタブのためのものなので）。送るのを止めて送り直すときは同じタブなので外さない。
  *
+ * 同時視聴（issue #443）では取り込みも WebRTC の接続も作らず、startWatch のあとに届く再生位置を合成ページへ送るだけにする。
+ * 映像と音を送らないことをここで保証するため、startWatch は映していたものを止めてから始める。
+ *
  * 注意: 取り込んだタブが閉じられたら、エラーにせず「終わった」とだけ知らせる。配信中に普通に起こる操作のため。
  * 注意: IDは数秒で使えなくなる（#163 で、5秒後は使え、10秒後は失敗した）ので、受け取ったらすぐ取り込む。
  */
@@ -26,6 +29,7 @@ import type { TabCrop } from '../../src/tab/crop'
 import { createTabSender, type SenderPeer, type SenderPeerHandlers } from '../../src/tab/sender'
 import type { FromSender, FromViewer } from '../../src/tab/signal'
 import type { TabSocket, TabSocketHandlers } from '../../src/tab/socket'
+import type { WatchPosition } from '../../src/tab/watch-position'
 import type { OffscreenEvent } from './offscreen-event'
 
 /** 中継先との接続が切れたときの知らせ */
@@ -57,6 +61,10 @@ export interface CaptureSession {
   resume(): void
   /** 映す範囲を変える（null はタブ全体） */
   setCrop(crop: TabCrop | null): void
+  /** 映していたものを止め、取り込まずに同時視聴を始める */
+  startWatch(): void
+  /** 同時視聴の再生位置を送る（同時視聴をしていなければ何もしない。切り替えの前に読んだ値が遅れて届くことがあるため） */
+  setWatch(position: WatchPosition | null): void
 }
 
 /** 作った時点で中継先へつなぐ（offscreen document は映し始めるときに作られる） */
@@ -69,9 +77,11 @@ export const createCaptureSession = <S>(options: CaptureSessionOptions<S>): Capt
   let socket: TabSocket<FromSender> | null = null
   /** pause で送るのを止めているか */
   let paused = false
+  /** 同時視聴をしているか */
+  let watching = false
 
   const reportState = (): void => {
-    if (current !== null) options.report({ type: 'state', viewers, warning })
+    if (current !== null || watching) options.report({ type: 'state', viewers, warning })
   }
   const warn = (message: string | null): void => {
     warning = message
@@ -122,6 +132,10 @@ export const createCaptureSession = <S>(options: CaptureSessionOptions<S>): Capt
       current = next
       // 別のタブを映し始めたら、前のタブのために止めていたことは忘れる（映してよいかはサービスワーカーが確かめてから頼む）
       paused = false
+      if (watching) {
+        watching = false
+        sender.setWatch(null)
+      }
       // 範囲は前のタブで選んだものなので外す（新しいタブはまず全体を映す）
       sender.setCrop(null)
       next.onEnded(() => {
@@ -154,5 +168,18 @@ export const createCaptureSession = <S>(options: CaptureSessionOptions<S>): Capt
       if (current !== null) sender.start(current.stream)
     },
     setCrop: (crop) => sender.setCrop(crop),
+    startWatch: () => {
+      latestRequest += 1
+      release()
+      paused = false
+      // 映していた映像を合成ページから消す（映していなくても、前の再生位置が残らないよう必ず送る）
+      sender.stop()
+      sender.setCrop(null)
+      watching = true
+      reportState()
+    },
+    setWatch: (position) => {
+      if (watching) sender.setWatch(position)
+    },
   }
 }

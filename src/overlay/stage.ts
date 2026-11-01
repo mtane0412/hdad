@@ -78,6 +78,7 @@ import { layoutCrop, type Rect, type TabCrop } from '../tab/crop'
 import { openReceiverPeer } from '../tab/peer'
 import { createTabReceiver } from '../tab/receiver'
 import { connectTabViewer } from '../tab/socket'
+import { displayedSeconds, formatWatchTime, type WatchPosition } from '../tab/watch-position'
 import { KANJI_QUIZ_SOCKET_HINT, KANJI_QUIZ_SOCKET_PATH, createKanjiQuizApi } from '../kanji-quiz/api'
 import { parseKanjiQuizMessage, type KanjiQuizCall } from '../kanji-quiz/call'
 import { wrongKanjiQuizAnswerOf } from '../kanji-quiz/answer'
@@ -956,6 +957,8 @@ const mountBgm = (box: HTMLElement, item: OverlayItem, { key, demo }: MountConte
  * 配信者が拡張で映す範囲を選んでいれば（issue #166）、その範囲だけを縦横比を保って箱に収める（src/tab/crop.ts の layoutCrop）。
  * canvas に描き直さず <video> を外枠の中で拡大してずらすので、毎フレームの処理は増えない。
  *
+ * 同時視聴（issue #443）では映像が届かず、再生位置・作品の題名と画像だけが届く。視聴者が同じ時刻に合わせられるよう、箱の左下に札を出す。
+ *
  * 注意: 何も届いていないあいだ（タブを閉じた・映すのをやめた）は透明にするだけで、
  * 箱に失敗を出さない。配信中に普通に起こる操作のため。箱に出すのは中継先につながらないときだけである。
  */
@@ -1009,6 +1012,54 @@ const mountTab = (box: HTMLElement, item: OverlayItem, { key, demo }: MountConte
     showError(new Error(message), NOUNS.tab, box, 'read')
   }
 
+  // 同時視聴の札。時刻は届いた位置から経過時間で進め、届くたびに置き換える
+  const watchCard = document.createElement('div')
+  watchCard.className = 'tab-watch'
+  watchCard.hidden = true
+  const watchImage = document.createElement('img')
+  watchImage.className = 'tab-watch-image'
+  watchImage.alt = ''
+  watchImage.referrerPolicy = 'no-referrer'
+  watchImage.hidden = true
+  watchImage.addEventListener('error', () => {
+    // 画像は飾りなので、配信画面の箱に失敗を出さない（時刻が出ていれば同時視聴は続けられる）
+    watchImage.hidden = true
+    console.error('同時視聴の作品の画像を読み込めませんでした', watchImage.src)
+  })
+  const watchTitle = document.createElement('div')
+  watchTitle.className = 'tab-watch-title'
+  const watchTime = document.createElement('div')
+  watchTime.className = 'tab-watch-time'
+  const watchState = document.createElement('div')
+  watchState.className = 'tab-watch-state'
+  watchCard.append(watchImage, watchTitle, watchTime, watchState)
+  box.append(watchCard)
+  /** 時刻を書き直す間隔（秒の表示が飛ばない程度に細かく） */
+  const WATCH_TICK_MILLISECONDS = 250
+  let watchTimer: ReturnType<typeof setInterval> | undefined
+  const showWatch = (position: WatchPosition | null): void => {
+    clearInterval(watchTimer)
+    watchCard.hidden = position === null
+    if (position === null) return
+    const receivedAt = performance.now()
+    const drawTime = (): void => {
+      watchTime.textContent = formatWatchTime(displayedSeconds(position, performance.now() - receivedAt))
+    }
+    drawTime()
+    if (position.playing) watchTimer = setInterval(drawTime, WATCH_TICK_MILLISECONDS)
+    watchTitle.textContent = position.title
+    watchTitle.hidden = position.title === null
+    watchState.textContent = position.playing ? 'この時刻に合わせて一緒に見よう' : '一時停止中'
+    // 同じ画像を入れ直すと読み込みがやり直しになるので、変わったときだけ入れる（30秒ごとの補正でちらつかせない）
+    if (position.imageUrl === null) {
+      watchImage.removeAttribute('src')
+      watchImage.hidden = true
+    } else if (watchImage.getAttribute('src') !== position.imageUrl) {
+      watchImage.src = position.imageUrl
+      watchImage.hidden = false
+    }
+  }
+
   const receiver = createTabReceiver<MediaStream>({
     // 合成ページごとに名前を分ける（OBSの別のシーンにも置かれていると、送り手は名前ごとに接続を作る）
     viewerId: crypto.randomUUID(),
@@ -1029,6 +1080,7 @@ const mountTab = (box: HTMLElement, item: OverlayItem, { key, demo }: MountConte
       crop = next
       place()
     },
+    onWatch: showWatch,
     onWarning: showWarning,
   })
 

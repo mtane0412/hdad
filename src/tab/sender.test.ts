@@ -279,3 +279,47 @@ describe('createTabSender', () => {
     expect(warnings).toEqual(['合成ページへ映像を送れませんでした: H.264 で送れません'])
   })
 })
+
+describe('createTabSender の再生位置（同時視聴。issue #443）', () => {
+  const position = { positionSeconds: 34, playing: true, rate: 1, title: '湾岸署の映画', imageUrl: null }
+
+  it('再生位置が変わったら、映像を映していなくても全員へ送る', () => {
+    const { sender, sent } = createHarness()
+
+    sender.setWatch(position)
+
+    expect(sent).toEqual([{ type: 'watch', position }])
+  })
+
+  it('名乗った合成ページへ、接続を作らずに再生位置を送る（途中から開いた合成ページのため）', () => {
+    const { sender, sent, peers } = createHarness()
+    sender.setWatch(position)
+    sent.length = 0
+
+    sender.receive({ type: 'hello', viewerId: 'OBSの受け手' })
+
+    expect(sent).toEqual([{ type: 'watch', position }])
+    expect(peers).toEqual([])
+  })
+
+  it('中継先へつなぎ直したら、再生位置を送っているなら名乗り直しを頼む', () => {
+    const { sender, sent } = createHarness()
+    sender.setWatch(position)
+    sent.length = 0
+
+    sender.opened()
+
+    expect(sent).toEqual([{ type: 'who' }])
+  })
+
+  it('止めたら再生位置を忘れ、名乗られても送らない', () => {
+    const { sender, sent } = createHarness()
+    sender.setWatch(position)
+    sender.stop()
+    sent.length = 0
+
+    sender.receive({ type: 'hello', viewerId: 'OBSの受け手' })
+
+    expect(sent).toEqual([])
+  })
+})

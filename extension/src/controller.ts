@@ -18,11 +18,16 @@
  * 選ばれた範囲は、そのタブから知らせが届いたら（handleAreaPicked）offscreen document に送らせる。「範囲を外す」
  * （handleClearAreaClick）でタブ全体に戻す。範囲は offscreen document が1つだけ持ち、別のタブに切り替えたら外れる。
  *
+ * 同時視聴（issue #443）: Prime Video のタブで押されたら取り込まず、タブに再生位置の読み取りを差し込み、届いた位置（handleWatchPosition）を
+ * offscreen document に送らせる。映しているタブが Prime Video へ移ったら、映さないサイトと同じく映像と音を送るのを止める。
+ * 同時視聴中のタブが閉じられた・Prime Video の外へ移ったら終える（読み取りが止まったまま古い時刻を進め続けないため）。
+ *
  * 注意: IDを取れない・取り込めないときは、黙って何もしないのではなくバッジ「!」で知らせ、理由はボタンの説明に出す。
  * 注意: 映さないサイトの一覧を読めないときは映し始めない。保険が読めないまま映し続けるのは危険なので、安全側に倒す。
  */
-import { hostOfPageUrl, isBlockedUrl } from '../../src/tab/blocked-hosts'
+import { hostOfPageUrl, isBlockedUrl, isWatchPartyUrl } from '../../src/tab/blocked-hosts'
 import type { TabCrop } from '../../src/tab/crop'
+import type { WatchPosition } from '../../src/tab/watch-position'
 import { isRecord, reasonOf } from './guards'
 import type { OffscreenEvent } from './offscreen-event'
 import type { SettingsReply, SettingsRequest } from './settings-request'
@@ -31,6 +36,8 @@ import type { SettingsReply, SettingsRequest } from './settings-request'
 export type BadgeState =
   | { kind: 'idle' }
   | { kind: 'capturing'; viewers: number; warning: string | null }
+  /** 同時視聴中（映像と音を送らず、再生位置だけを送っている） */
+  | { kind: 'watching'; warning: string | null }
   | { kind: 'problem'; message: string }
   /** 映さないサイトにいるので、合成ページへ送るのを止めている */
   | { kind: 'paused'; host: string }
@@ -47,6 +54,8 @@ export interface CaptureState {
   readonly url: string
   /** 映さないサイトにいて送るのを止めているなら、そのサイト（止めていなければ null） */
   readonly pausedAt: string | null
+  /** capture は映像と音を送っている。watch は同時視聴で再生位置だけを送っている */
+  readonly mode: 'capture' | 'watch'
 }
 
 /**
@@ -56,7 +65,11 @@ export interface CaptureState {
  * PR #178 で blockedHosts を外したときにここだけ残り、止める・範囲を選ぶが失敗した）。
  */
 export const isCaptureState = (value: unknown): value is CaptureState =>
-  isRecord(value) && typeof value.tabId === 'number' && typeof value.url === 'string' && (value.pausedAt === null || typeof value.pausedAt === 'string')
+  isRecord(value) &&
+  typeof value.tabId === 'number' &&
+  typeof value.url === 'string' &&
+  (value.pausedAt === null || typeof value.pausedAt === 'string') &&
+  (value.mode === 'capture' || value.mode === 'watch')
 
 /** ボタンの右クリックに出す「映さない・映す」の項目 */
 export interface SiteMenuView {
@@ -123,6 +136,22 @@ export interface ControllerApi {
    * @throws offscreen document が応じられなかった場合
    */
   setCrop(crop: TabCrop | null): Promise<void>
+  /**
+   * 映していたものを止め、取り込まずに同時視聴を始めて、このタブに再生位置の読み取りを差し込む。
+   *
+   * @throws 始められなかった場合（ログインしていない・差し込めないなど）
+   */
+  startWatch(tabId: number): Promise<void>
+  /** このタブに再生位置の読み取りを差し込む（動いていれば何もしない） */
+  startWatchReader(tabId: number): Promise<void>
+  /** このタブの再生位置の読み取りを止める（タブが閉じられていても投げない） */
+  stopWatchReader(tabId: number): Promise<void>
+  /**
+   * offscreen document に再生位置を送らせる。
+   *
+   * @throws 応じられなかった場合
+   */
+  sendWatchPosition(position: WatchPosition | null): Promise<void>
   /** ボタンの表示を変える */
   show(state: BadgeState): Promise<void>
   /** 右クリックの「映さない・映す」の項目を変える */
@@ -140,6 +169,13 @@ export interface PickedArea {
 export interface ClickedTab {
   id?: number
   url?: string
+}
+
+/** 読み取りから届いた再生位置 */
+export interface WatchedPosition {
+  /** 読み取っているタブ（知らせの送り主。Chrome が渡す） */
+  readonly tabId: number
+  readonly position: WatchPosition | null
 }
 
 /** 映しているタブの中でページが移ったこと */
@@ -162,6 +198,19 @@ const NOT_A_SITE = 'このページはホスト名で登録できません（登
 
 /** 映さないサイトとして表示する名前（読めないURLはホスト名が無いので、URLのまま出す） */
 const siteOf = (url: string): string => hostOfPageUrl(url) ?? url
+
+/** 映像と音を送ってはいけないページか（登録した映さないサイトと、同時視聴の対象） */
+const mustNotSend = (url: string, hosts: readonly string[]): boolean => isBlockedUrl(url, hosts) || isWatchPartyUrl(url)
+
+/** 同時視聴を終える（通常の操作なのでエラーにしない） */
+const endWatch = async (api: ControllerApi): Promise<void> => {
+  try {
+    await api.stopCapture()
+  } finally {
+    await api.remember(null)
+  }
+  await api.show(IDLE)
+}
 
 /** 止めているあいだ・止められなかったとき・一覧が分からないときに、取り込みごと止めて理由を出す */
 const stopWith = async (message: string, api: ControllerApi): Promise<void> => {
@@ -228,7 +277,13 @@ const applyBlockedHosts = async (hosts: readonly string[], api: ControllerApi): 
   await refreshSiteMenu(api)
   const state = await api.capturing()
   if (state === null) return false
-  const blocked = isBlockedUrl(state.url, hosts)
+  if (state.mode === 'watch') {
+    if (!isBlockedUrl(state.url, hosts)) return false
+    await api.stopWatchReader(state.tabId)
+    await stopWith(`${siteOf(state.url)} を映さないサイトに登録したので、同時視聴をやめました`, api)
+    return true
+  }
+  const blocked = mustNotSend(state.url, hosts)
   if (blocked && state.pausedAt === null) {
     await pauseAt(state, state.url, api)
     return true
@@ -248,6 +303,7 @@ export const handleClick = async (tab: ClickedTab, api: ControllerApi): Promise<
   }
   const capturing = await api.capturing()
   if (capturing?.tabId === tab.id) {
+    if (capturing.mode === 'watch') await api.stopWatchReader(tab.id)
     try {
       await api.stopCapture()
     } finally {
@@ -276,6 +332,19 @@ export const handleClick = async (tab: ClickedTab, api: ControllerApi): Promise<
     return
   }
 
+  if (isWatchPartyUrl(tab.url)) {
+    if (capturing?.mode === 'watch') await api.stopWatchReader(capturing.tabId)
+    try {
+      await api.startWatch(tab.id)
+    } catch (error) {
+      await stopWith(`同時視聴を始められませんでした: ${reasonOf(error)}`, api)
+      return
+    }
+    await api.remember({ tabId: tab.id, url: tab.url, pausedAt: null, mode: 'watch' })
+    await api.show({ kind: 'watching', warning: null })
+    return
+  }
+
   let streamId: string
   try {
     streamId = await api.getMediaStreamId(tab.id)
@@ -299,7 +368,8 @@ export const handleClick = async (tab: ClickedTab, api: ControllerApi): Promise<
     await api.show({ kind: 'problem', message: `タブを取り込めませんでした: ${reasonOf(error)}。もう一度押してください` })
     return
   }
-  await api.remember({ tabId: tab.id, url: tab.url, pausedAt: null })
+  if (capturing?.mode === 'watch') await api.stopWatchReader(capturing.tabId)
+  await api.remember({ tabId: tab.id, url: tab.url, pausedAt: null, mode: 'capture' })
   await api.show(CAPTURING)
 }
 
@@ -312,13 +382,32 @@ export const handleClick = async (tab: ClickedTab, api: ControllerApi): Promise<
 export const handleNavigation = async (navigation: TabNavigation, api: ControllerApi): Promise<void> => {
   const state = await api.capturing()
   if (state === null || state.tabId !== navigation.tabId) return
+  if (state.mode === 'watch') {
+    if (!navigation.committed) return
+    if (!isWatchPartyUrl(navigation.url)) {
+      await endWatch(api)
+      return
+    }
+    const known = await api.knownBlockedHosts()
+    if (known === null) {
+      await stopWith('映さないサイトの一覧が分からなくなったので同時視聴をやめました。もう一度押してください', api)
+      return
+    }
+    if (isBlockedUrl(navigation.url, known)) {
+      await stopWith(`${siteOf(navigation.url)} は映さないサイトに登録されているので、同時視聴をやめました`, api)
+      return
+    }
+    await api.remember({ ...state, url: navigation.url })
+    await api.startWatchReader(state.tabId)
+    return
+  }
   const hosts = await api.knownBlockedHosts()
   if (hosts === null) {
     // 映し始めるときに覚えたはずの一覧が無い。照合できないまま映し続けるのは危険なので止める
     await stopWith('映さないサイトの一覧が分からなくなったので映すのをやめました。もう一度押してください', api)
     return
   }
-  if (isBlockedUrl(navigation.url, hosts)) {
+  if (mustNotSend(navigation.url, hosts)) {
     await pauseAt(state, navigation.url, api)
     return
   }
@@ -328,6 +417,18 @@ export const handleNavigation = async (navigation: TabNavigation, api: Controlle
     return
   }
   await resumeAt(state, navigation.url, api)
+}
+
+/** 同時視聴中のタブが閉じられたら終える（映像を映しているタブは、取り込みの終わりとして offscreen document から知らせが届く） */
+export const handleTabRemoved = async (tabId: number, api: ControllerApi): Promise<void> => {
+  const state = await api.capturing()
+  if (state?.mode === 'watch' && state.tabId === tabId) await endWatch(api)
+}
+
+/** 読み取りから再生位置が届いたら送らせる。同時視聴中のタブ以外からのものは捨てる（止めた直後に遅れて届くことがあるため） */
+export const handleWatchPosition = async (watched: WatchedPosition, api: ControllerApi): Promise<void> => {
+  const state = await api.capturing()
+  if (state?.mode === 'watch' && state.tabId === watched.tabId) await api.sendWatchPosition(watched.position)
 }
 
 /**
@@ -407,6 +508,10 @@ export const handlePickAreaClick = async (tab: ClickedTab, api: ControllerApi): 
     await api.show({ kind: 'problem', message: 'タブを映していません。映したいタブでボタンを押してから、範囲を選んでください' })
     return
   }
+  if (state.mode === 'watch') {
+    await api.show({ kind: 'problem', message: '同時視聴では映像を送っていないので、範囲を選べません' })
+    return
+  }
   // 範囲は映しているタブの見た目に対する割合なので、ほかのタブの上では選ばせない
   if (tab.id !== state.tabId) {
     await api.show({ kind: 'problem', message: '映す範囲は、映しているタブを開いて選んでください' })
@@ -446,6 +551,10 @@ export const handleOffscreenEvent = async (event: OffscreenEvent, api: Controlle
   if (state === null) return
   switch (event.type) {
     case 'state':
+      if (state.mode === 'watch') {
+        await api.show({ kind: 'watching', warning: event.warning })
+        return
+      }
       // 映さないサイトで送るのを止めているあいだは、止めていることのほうを出し続ける
       await api.show(state.pausedAt === null ? { kind: 'capturing', viewers: event.viewers, warning: event.warning } : { kind: 'paused', host: state.pausedAt })
       return
@@ -484,6 +593,7 @@ const PROBLEM_COLOR = '#d93025'
 const PAUSED_BADGE = '止'
 const PAUSED_COLOR = '#e37400'
 const HOW_TO_STOP = '映しているタブでもう一度押すと止めます'
+const WATCHING_BADGE = '時'
 
 /** ボタンに出すもの（color が null ならバッジの色を変えない） */
 export interface BadgeView {
@@ -509,6 +619,9 @@ export const describeBadge = (state: BadgeState): BadgeView => {
       return { text: '', color: null, title: `${state.host} を映さないサイトに登録しました（もう一度右クリックすると外せます。一覧は拡張の設定で見られます）` }
     case 'unregistered':
       return { text: '', color: null, title: `${state.host} を映さないサイトから外しました` }
+    case 'watching':
+      if (state.warning !== null) return { text: PROBLEM_BADGE, color: PROBLEM_COLOR, title: `${state.warning}（このタブでもう一度押すと同時視聴をやめます）` }
+      return { text: WATCHING_BADGE, color: CAPTURING_COLOR, title: '同時視聴中です。再生位置だけを送り、映像と音は送っていません。このタブでもう一度押すとやめます' }
     case 'capturing': {
       if (state.warning !== null) return { text: PROBLEM_BADGE, color: PROBLEM_COLOR, title: `${state.warning}（${HOW_TO_STOP}）` }
       const viewers =

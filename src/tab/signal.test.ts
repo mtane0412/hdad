@@ -7,6 +7,22 @@
 import { describe, expect, it } from 'vitest'
 import { parseFromSender, parseFromViewer } from './signal'
 
+describe('parseFromSender の再生位置（watch。issue #443）', () => {
+  it('再生位置を読み取る', () => {
+    const position = { positionSeconds: 34, playing: true, rate: 1, title: '湾岸署の映画', imageUrl: null }
+
+    expect(parseFromSender(JSON.stringify({ type: 'watch', position }))).toEqual({ type: 'watch', position })
+  })
+
+  it('再生していないこと（null）を読み取る', () => {
+    expect(parseFromSender('{"type":"watch","position":null}')).toEqual({ type: 'watch', position: null })
+  })
+
+  it('形の違う再生位置はエラーにする', () => {
+    expect(() => parseFromSender('{"type":"watch","position":{"positionSeconds":"34"}}')).toThrow('再生位置の形が想定と違います')
+  })
+})
+
 describe('parseFromViewer（送り手が合成ページから受け取る連絡）', () => {
   it('名乗り（hello）を読み取る', () => {
     expect(parseFromViewer('{"type":"hello","viewerId":"OBSの受け手"}')).toEqual({ type: 'hello', viewerId: 'OBSの受け手' })

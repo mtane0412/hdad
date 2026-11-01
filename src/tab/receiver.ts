@@ -14,6 +14,7 @@
  */
 import type { TabCrop } from './crop'
 import type { FromSender, FromViewer } from './signal'
+import type { WatchPosition } from './watch-position'
 
 /** 受け手の接続1本が知らせること */
 export interface ReceiverPeerHandlers<S> {
@@ -45,6 +46,8 @@ export interface TabReceiverOptions<S> {
   onStream(stream: S | null): void
   /** 映す範囲が届いた（null はタブ全体） */
   onCrop(crop: TabCrop | null): void
+  /** 同時視聴の再生位置が届いた（null は再生していない。issue #443） */
+  onWatch(position: WatchPosition | null): void
   /** 待てば直るかもしれない失敗 */
   onWarning(message: string): void
 }
@@ -115,6 +118,10 @@ export const createTabReceiver = <S>(options: TabReceiverOptions<S>): TabReceive
           return
         case 'stop':
           closeCurrent()
+          options.onWatch(null)
+          return
+        case 'watch':
+          options.onWatch(message.position)
           return
         case 'crop':
           options.onCrop(message.crop)

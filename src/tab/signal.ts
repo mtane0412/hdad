@@ -10,11 +10,13 @@
  * 3. 送り手は、映し始めたときと接続が切れたときに名乗り直しを頼む（who）。映すのをやめたら stop を送る
  * 4. 送り手は、名乗った合成ページへ offer の前に映す範囲（crop）を送り、映しているあいだに範囲が変わったらすぐ送る（issue #166）。
  *    範囲は合成ページの名前によらず同じなので、あて先を付けずに全員へ送る
+ * 5. 同時視聴（issue #443）では接続を作らず、再生位置（watch）だけを全員へ送る。名乗った合成ページにも送る
  *
  * ICE の候補は集め終えてから SDP にまとめて送るので、候補を1つずつ送る連絡は持たない（同じPCの中でつなぐため、すぐに集まる）。
  */
 import { isRecord } from '../core/api'
 import { parseTabCrop, type TabCrop } from './crop'
+import { parseWatchPosition, type WatchPosition } from './watch-position'
 
 /**
  * 送り手（拡張）が中継先へつなぐときに WebSocket のプロトコル（Sec-WebSocket-Protocol）の先頭に置く名前。
@@ -36,6 +38,8 @@ export type FromSender =
   | { type: 'stop' }
   /** 映す範囲（null はタブ全体） */
   | { type: 'crop'; crop: TabCrop | null }
+  /** 同時視聴の再生位置（null は再生していない） */
+  | { type: 'watch'; position: WatchPosition | null }
 
 const isText = (value: unknown): value is string => typeof value === 'string' && value !== ''
 
@@ -70,6 +74,7 @@ export const parseFromSender = (payload: string): FromSender => {
   if (value.type === 'who') return { type: 'who' }
   if (value.type === 'stop') return { type: 'stop' }
   if (value.type === 'crop') return { type: 'crop', crop: value.crop === null ? null : parseTabCrop(value.crop) }
+  if (value.type === 'watch') return { type: 'watch', position: value.position === null ? null : parseWatchPosition(value.position) }
   if (value.type === 'offer') {
     if (!isText(value.viewerId) || !isText(value.sdp)) throw new Error('送り手からの連絡の形が想定と違います')
     return { type: 'offer', viewerId: value.viewerId, sdp: value.sdp }

@@ -72,3 +72,17 @@ export const parseBlockedHosts = (body: unknown): string[] => {
   if (!Array.isArray(hosts) || !hosts.every(isHostName)) throw new Error('映さないサイトの一覧の形が想定と違います')
   return hosts
 }
+
+/**
+ * 同時視聴の対象のホスト（issue #443）。映像と音を送らず、再生位置だけを送る。
+ *
+ * 作品のページのパスは /gp/video/ や /dp/ に分かれ、ページの移動でも変わるので、パスでは分けない（Amazon の買い物のページも対象になる）。
+ * extension/public/manifest.json の host_permissions と一致させる（extension/src/manifest.test.ts）。
+ */
+export const WATCH_PARTY_HOSTS: readonly string[] = ['www.amazon.co.jp', 'www.primevideo.com']
+
+/** このページで映像と音を送らず、同時視聴にするか */
+export const isWatchPartyUrl = (url: string): boolean => {
+  const host = hostOfPageUrl(url)
+  return host !== null && WATCH_PARTY_HOSTS.includes(host)
+}

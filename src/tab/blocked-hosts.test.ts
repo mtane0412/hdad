@@ -9,7 +9,7 @@
  * - Worker の応答から一覧を読み、形が違えばエラーにする
  */
 import { describe, expect, it } from 'vitest'
-import { hostOfPageUrl, isBlockedUrl, isHostName, parseBlockedHosts } from './blocked-hosts'
+import { hostOfPageUrl, isBlockedUrl, isHostName, isWatchPartyUrl, parseBlockedHosts } from './blocked-hosts'
 
 describe('isHostName', () => {
   it('ホスト名そのものを受け付ける', () => {
@@ -74,5 +74,17 @@ describe('parseBlockedHosts', () => {
     expect(() => parseBlockedHosts(null)).toThrow('映さないサイトの一覧の形が想定と違います')
     expect(() => parseBlockedHosts({ hosts: 'mail.google.com' })).toThrow('映さないサイトの一覧の形が想定と違います')
     expect(() => parseBlockedHosts({ hosts: ['Mail.Google.com'] })).toThrow('映さないサイトの一覧の形が想定と違います')
+  })
+})
+
+describe('isWatchPartyUrl（同時視聴の対象。issue #443）', () => {
+  it('Prime Video を配るホストなら対象にする', () => {
+    expect(isWatchPartyUrl('https://www.amazon.co.jp/gp/video/detail/作品')).toBe(true)
+    expect(isWatchPartyUrl('https://www.primevideo.com/detail/作品')).toBe(true)
+  })
+
+  it('ほかのホストや読めないURLは対象にしない', () => {
+    expect(isWatchPartyUrl('https://www.youtube.com/watch?v=紹介する動画')).toBe(false)
+    expect(isWatchPartyUrl('chrome://extensions')).toBe(false)
   })
 })

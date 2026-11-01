@@ -28,6 +28,8 @@ import {
   handleOffscreenEvent,
   handleSettingsRequest,
   handleSiteMenuClick,
+  handleTabRemoved,
+  handleWatchPosition,
   isCaptureState,
   refreshSiteMenu,
   type BadgeState,
@@ -49,6 +51,7 @@ const capturingSlide = (overrides: Partial<CaptureState> = {}): CaptureState => 
   tabId: slideTab.id,
   url: slideTab.url,
   pausedAt: null,
+  mode: 'capture',
   ...overrides,
 })
 
@@ -65,6 +68,7 @@ const createApi = (
     failRemoveHost?: string
     failPickArea?: string
     failSetCrop?: string
+    failStartWatch?: string
     /** 拡張が覚えている一覧（null は覚えていない。既定は Worker と同じ一覧） */
     known?: string[] | null
     /** いま前に出ているタブ（右クリックの項目の名前を決める） */
@@ -132,6 +136,19 @@ const createApi = (
     setCrop: async (crop) => {
       calls.push(`範囲を送る:${JSON.stringify(crop)}`)
       if (options.failSetCrop !== undefined) throw new Error(options.failSetCrop)
+    },
+    startWatch: async (tabId) => {
+      calls.push(`同時視聴を始める:${tabId}`)
+      if (options.failStartWatch !== undefined) throw new Error(options.failStartWatch)
+    },
+    startWatchReader: async (tabId) => {
+      calls.push(`読み取りを差し込む:${tabId}`)
+    },
+    stopWatchReader: async (tabId) => {
+      calls.push(`読み取りを止める:${tabId}`)
+    },
+    sendWatchPosition: async (position) => {
+      calls.push(`再生位置を送る:${position === null ? 'なし' : position.positionSeconds}`)
     },
     show: async (state) => {
       shown.push(state)
@@ -749,5 +766,184 @@ describe('createSerialQueue', () => {
 
     expect(failures).toEqual([new Error('1回目の失敗')])
     expect(steps).toEqual(['2回目'])
+  })
+})
+
+describe('同時視聴（issue #443）', () => {
+  const primeUrl = 'https://www.amazon.co.jp/dp/B0F2ZMZK51'
+  const primeTab = { id: 21, url: primeUrl }
+  const watching = (overrides: Partial<CaptureState> = {}): CaptureState => ({ tabId: primeTab.id, url: primeUrl, pausedAt: null, mode: 'watch', ...overrides })
+  const position = { positionSeconds: 34, playing: true, rate: 1, title: '湾岸署の映画', imageUrl: null }
+
+  it('Prime Video のタブで押されたら、取り込まずに同時視聴を始める', async () => {
+    const { api, calls, shown, capturing } = createApi()
+
+    await handleClick(primeTab, api)
+
+    expect(calls).toEqual(['一覧を読む', '同時視聴を始める:21'])
+    expect(capturing()).toEqual(watching())
+    expect(shown.at(-1)).toEqual({ kind: 'watching', warning: null })
+  })
+
+  it('映さないサイトに登録してあれば、同時視聴も始めない', async () => {
+    const { api, calls } = createApi()
+
+    await handleSiteMenuClick(primeTab, api)
+    calls.length = 0
+    await handleClick(primeTab, api)
+
+    expect(calls).toEqual(['一覧を読む'])
+  })
+
+  it('同時視聴を始められなければ、ボタンで知らせて片付ける', async () => {
+    const { api, calls, shown, capturing } = createApi({ failStartWatch: 'ログインしていません' })
+
+    await handleClick(primeTab, api)
+
+    expect(calls).toContain('止める')
+    expect(capturing()).toBeNull()
+    expect(shown.at(-1)).toEqual({ kind: 'problem', message: '同時視聴を始められませんでした: ログインしていません' })
+  })
+
+  it('同時視聴中のタブでもう一度押されたら、読み取りを止めて終える', async () => {
+    const { api, calls, shown, capturing } = createApi({ capturing: watching() })
+
+    await handleClick(primeTab, api)
+
+    expect(calls).toEqual(['読み取りを止める:21', '止める'])
+    expect(capturing()).toBeNull()
+    expect(shown.at(-1)).toEqual({ kind: 'idle' })
+  })
+
+  it('同時視聴中に別のタブで押されたら、前のタブの読み取りを止めて映像へ切り替える', async () => {
+    const { api, calls, capturing } = createApi({ capturing: watching() })
+
+    await handleClick(slideTab, api)
+
+    expect(calls).toContain('読み取りを止める:21')
+    expect(capturing()).toEqual(capturingSlide())
+  })
+
+  it('映している別のタブがあるときに Prime Video で押されたら、同時視聴へ切り替える', async () => {
+    const { api, calls, capturing } = createApi({ capturing: capturingSlide() })
+
+    await handleClick(primeTab, api)
+
+    expect(calls).toContain('同時視聴を始める:21')
+    expect(calls).not.toContain('止める')
+    expect(capturing()).toEqual(watching())
+  })
+
+  it('映しているタブが Prime Video へ移り始めたら、映像と音を送るのを止める', async () => {
+    const { api, calls, capturing } = createApi({ capturing: capturingSlide() })
+
+    await handleNavigation({ tabId: slideTab.id, url: primeUrl, committed: false }, api)
+
+    expect(calls).toEqual(['送るのを止める'])
+    expect(capturing()?.pausedAt).toBe('www.amazon.co.jp')
+  })
+
+  it('同時視聴中に Prime Video の中でページが移ったら、読み取りを差し込み直す', async () => {
+    const next = 'https://www.amazon.co.jp/gp/video/detail/次の作品'
+    const { api, calls, capturing } = createApi({ capturing: watching() })
+
+    await handleNavigation({ tabId: primeTab.id, url: next, committed: true }, api)
+
+    expect(calls).toEqual(['読み取りを差し込む:21'])
+    expect(capturing()?.url).toBe(next)
+  })
+
+  it('同時視聴中に移った先が映さないサイトなら、読み取りを差し込まず理由を出して終える', async () => {
+    const next = 'https://www.primevideo.com/detail/次の作品'
+    const { api, calls, shown, capturing } = createApi({ capturing: watching(), known: ['www.primevideo.com'] })
+
+    await handleNavigation({ tabId: primeTab.id, url: next, committed: true }, api)
+
+    expect(calls).toEqual(['止める'])
+    expect(capturing()).toBeNull()
+    expect(shown.at(-1)).toEqual({ kind: 'problem', message: 'www.primevideo.com は映さないサイトに登録されているので、同時視聴をやめました' })
+  })
+
+  it('同時視聴中に映さないサイトの一覧が分からなくなったら、読み取りを差し込まず終える', async () => {
+    const { api, calls, capturing } = createApi({ capturing: watching(), known: null })
+
+    await handleNavigation({ tabId: primeTab.id, url: primeUrl, committed: true }, api)
+
+    expect(calls).toEqual(['止める'])
+    expect(capturing()).toBeNull()
+  })
+
+  it('同時視聴中に Prime Video の外へ移ったら、古い時刻を出し続けないよう終える', async () => {
+    const { api, calls, shown, capturing } = createApi({ capturing: watching() })
+
+    await handleNavigation({ tabId: primeTab.id, url: slideTab.url, committed: true }, api)
+
+    expect(calls).toEqual(['止める'])
+    expect(capturing()).toBeNull()
+    expect(shown.at(-1)).toEqual({ kind: 'idle' })
+  })
+
+  it('同時視聴中のタブが閉じられたら終える', async () => {
+    const { api, calls, shown, capturing } = createApi({ capturing: watching() })
+
+    await handleTabRemoved(primeTab.id, api)
+
+    expect(calls).toEqual(['止める'])
+    expect(capturing()).toBeNull()
+    expect(shown.at(-1)).toEqual({ kind: 'idle' })
+  })
+
+  it('別のタブが閉じられても終えない', async () => {
+    const { api, calls } = createApi({ capturing: watching() })
+
+    await handleTabRemoved(999, api)
+
+    expect(calls).toEqual([])
+  })
+
+  it('同時視聴中のタブからの再生位置だけを送る', async () => {
+    const { api, calls } = createApi({ capturing: watching() })
+
+    await handleWatchPosition({ tabId: 999, position }, api)
+    await handleWatchPosition({ tabId: primeTab.id, position }, api)
+
+    expect(calls).toEqual(['再生位置を送る:34'])
+  })
+
+  it('映像を映しているときに届いた再生位置は送らない', async () => {
+    const { api, calls } = createApi({ capturing: capturingSlide() })
+
+    await handleWatchPosition({ tabId: slideTab.id, position }, api)
+
+    expect(calls).toEqual([])
+  })
+
+  it('同時視聴中は範囲を選ばせない', async () => {
+    const { api, calls, shown } = createApi({ capturing: watching() })
+
+    await handlePickAreaClick(primeTab, api)
+
+    expect(calls).toEqual([])
+    expect(shown.at(-1)).toEqual({ kind: 'problem', message: '同時視聴では映像を送っていないので、範囲を選べません' })
+  })
+
+  it('同時視聴中に offscreen document の状態が届いたら、同時視聴の表示のまま失敗を添える', async () => {
+    const { api, shown } = createApi({ capturing: watching() })
+
+    await handleOffscreenEvent({ type: 'state', viewers: 0, warning: '中継先との接続が切れました' }, api)
+
+    expect(shown.at(-1)).toEqual({ kind: 'watching', warning: '中継先との接続が切れました' })
+  })
+
+  it('同時視聴のボタンの説明に、映像と音を送っていないことを出す', () => {
+    const view = describeBadge({ kind: 'watching', warning: null })
+
+    expect(view.text).toBe('時')
+    expect(view.title).toContain('映像と音は送っていません')
+  })
+
+  it('記録の形に mode が無ければ読み戻さない', () => {
+    expect(isCaptureState({ tabId: 1, url: primeUrl, pausedAt: null })).toBe(false)
+    expect(isCaptureState(watching())).toBe(true)
   })
 })
