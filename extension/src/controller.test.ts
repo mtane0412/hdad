@@ -771,7 +771,9 @@ describe('createSerialQueue', () => {
 
 describe('同時視聴（issue #443）', () => {
   const primeUrl = 'https://www.amazon.co.jp/dp/B0F2ZMZK51'
-  const primeTab = { id: 21, url: primeUrl }
+  const primeTab = { id: 21, url: primeUrl, title: 'Amazon.co.jp: 湾岸署の映画を観る | Prime Video', status: 'complete' }
+  const shoppingUrl = 'https://www.amazon.co.jp/dp/配信で紹介する商品'
+  const shoppingTab = { id: 21, url: shoppingUrl, title: 'Amazon | 配信で紹介するマイク', status: 'complete' }
   const watching = (overrides: Partial<CaptureState> = {}): CaptureState => ({ tabId: primeTab.id, url: primeUrl, pausedAt: null, mode: 'watch', ...overrides })
   const position = { positionSeconds: 34, playing: true, rate: 1, title: '湾岸署の映画', imageUrl: null }
 
@@ -783,6 +785,42 @@ describe('同時視聴（issue #443）', () => {
     expect(calls).toEqual(['一覧を読む', '同時視聴を始める:21'])
     expect(capturing()).toEqual(watching())
     expect(shown.at(-1)).toEqual({ kind: 'watching', warning: null })
+  })
+
+  it('同じホストでも題名が Prime Video でなければ、映像として映す', async () => {
+    const { api, calls, shown, capturing } = createApi()
+
+    await handleClick(shoppingTab, api)
+
+    expect(calls).toEqual(['一覧を読む', 'IDを取る:21', '取り込む:ストリームID-21'])
+    expect(capturing()).toEqual({ tabId: 21, url: shoppingUrl, pausedAt: null, mode: 'capture' })
+    expect(shown.at(-1)).toEqual({ kind: 'capturing', viewers: 0, warning: null })
+  })
+
+  it('読み込み中で題名を信じられないページは、取り込みも同時視聴も始めず知らせる', async () => {
+    const { api, calls, shown, capturing } = createApi()
+
+    await handleClick({ id: 21, url: primeUrl, title: primeUrl, status: 'loading' }, api)
+
+    expect(calls).toEqual(['一覧を読む'])
+    expect(capturing()).toBeNull()
+    expect(shown.at(-1)).toEqual({ kind: 'problem', message: 'このページが Prime Video か判定できないので映しません。読み込みが終わってからもう一度押してください' })
+  })
+
+  it('映している商品のページは、映さないサイトの一覧が変わっても止めない', async () => {
+    const { api, calls } = createApi({ capturing: { tabId: 21, url: shoppingUrl, pausedAt: null, mode: 'capture' } })
+
+    await handleSettingsRequest({ type: 'add', host: 'bank.example.jp' }, api)
+
+    expect(calls).not.toContain('送るのを止める')
+  })
+
+  it('Prime Video のホストへ移って止めているタブは、一覧が変わっても送り直さない', async () => {
+    const { api, calls } = createApi({ capturing: { tabId: 21, url: primeUrl, pausedAt: 'www.amazon.co.jp', mode: 'capture' } })
+
+    await handleSettingsRequest({ type: 'add', host: 'bank.example.jp' }, api)
+
+    expect(calls).not.toContain('送り直す')
   })
 
   it('映さないサイトに登録してあれば、同時視聴も始めない', async () => {

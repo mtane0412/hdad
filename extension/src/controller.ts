@@ -18,14 +18,14 @@
  * 選ばれた範囲は、そのタブから知らせが届いたら（handleAreaPicked）offscreen document に送らせる。「範囲を外す」
  * （handleClearAreaClick）でタブ全体に戻す。範囲は offscreen document が1つだけ持ち、別のタブに切り替えたら外れる。
  *
- * 同時視聴（issue #443）: Prime Video のタブで押されたら取り込まず、タブに再生位置の読み取りを差し込み、届いた位置（handleWatchPosition）を
- * offscreen document に送らせる。映しているタブが Prime Video へ移ったら、映さないサイトと同じく映像と音を送るのを止める。
+ * 同時視聴（issue #443）: Prime Video のタブ（ホストと題名で判定する。classifyWatchPartyPage）で押されたら取り込まず、タブに再生位置の読み取りを差し込み、届いた位置（handleWatchPosition）を
+ * offscreen document に送らせる。映しているタブが Prime Video のホストへ移ったら（移り始めには題名が分からないのでホストだけで）、映さないサイトと同じく映像と音を送るのを止める。
  * 同時視聴中のタブが閉じられた・Prime Video の外へ移ったら終える（読み取りが止まったまま古い時刻を進め続けないため）。
  *
  * 注意: IDを取れない・取り込めないときは、黙って何もしないのではなくバッジ「!」で知らせ、理由はボタンの説明に出す。
  * 注意: 映さないサイトの一覧を読めないときは映し始めない。保険が読めないまま映し続けるのは危険なので、安全側に倒す。
  */
-import { hostOfPageUrl, isBlockedUrl, isWatchPartyUrl } from '../../src/tab/blocked-hosts'
+import { classifyWatchPartyPage, hostOfPageUrl, isBlockedUrl, isWatchPartyUrl } from '../../src/tab/blocked-hosts'
 import type { TabCrop } from '../../src/tab/crop'
 import type { WatchPosition } from '../../src/tab/watch-position'
 import { isRecord, reasonOf } from './guards'
@@ -169,6 +169,10 @@ export interface PickedArea {
 export interface ClickedTab {
   id?: number
   url?: string
+  /** 同時視聴にするかの判定に使う（権限 tabs があるので Chrome が渡す） */
+  title?: string
+  /** 読み込み中か（読み込み中の題名は信じない） */
+  status?: string
 }
 
 /** 読み取りから届いた再生位置 */
@@ -283,7 +287,8 @@ const applyBlockedHosts = async (hosts: readonly string[], api: ControllerApi): 
     await stopWith(`${siteOf(state.url)} を映さないサイトに登録したので、同時視聴をやめました`, api)
     return true
   }
-  const blocked = mustNotSend(state.url, hosts)
+  // 押して映した商品のページは止めない。Prime Video のホストへ移って止めているタブは、一覧が変わっても送り直さない
+  const blocked = isBlockedUrl(state.url, hosts) || (state.pausedAt !== null && isWatchPartyUrl(state.url))
   if (blocked && state.pausedAt === null) {
     await pauseAt(state, state.url, api)
     return true
@@ -332,7 +337,12 @@ export const handleClick = async (tab: ClickedTab, api: ControllerApi): Promise<
     return
   }
 
-  if (isWatchPartyUrl(tab.url)) {
+  const page = classifyWatchPartyPage({ url: tab.url, title: tab.title, status: tab.status })
+  if (page === 'unknown') {
+    await api.show({ kind: 'problem', message: 'このページが Prime Video か判定できないので映しません。読み込みが終わってからもう一度押してください' })
+    return
+  }
+  if (page === 'watch') {
     if (capturing?.mode === 'watch') await api.stopWatchReader(capturing.tabId)
     try {
       await api.startWatch(tab.id)
