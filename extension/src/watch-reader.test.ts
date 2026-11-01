@@ -13,6 +13,7 @@
  * また、サービスワーカーが受け取った知らせを読み分けられることを確かめる。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { IMAGE_HOST_SUFFIXES } from '../../src/tab/watch-position'
 import { parseWatchReaderMessage, startWatchReader, stopWatchReader, WATCH_READER_TARGET } from './watch-reader'
 
 const IMAGE_URL = 'https://images-fe.ssl-images-amazon.com/images/S/pv-target-images/work-image.jpg'
@@ -65,6 +66,25 @@ describe('startWatchReader', () => {
       target: WATCH_READER_TARGET,
       position: { positionSeconds: 34, playing: true, rate: 1, title: '湾岸署の映画', imageUrl: IMAGE_URL },
     })
+  })
+
+  it('Amazon の置き場所以外の画像は送らず、題名と再生位置は送る（1枚の画像のために時刻を止めない）', () => {
+    addVideo({ currentTime: 34, paused: false })
+    addImage('湾岸署の映画', 1300, 'https://images.example/work.jpg')
+
+    startWatchReader(WATCH_READER_TARGET)
+
+    expect(sentPositions()).toEqual([{ positionSeconds: 34, playing: true, rate: 1, title: '湾岸署の映画', imageUrl: null }])
+  })
+
+  it.each(IMAGE_HOST_SUFFIXES)('合成ページが受け入れる置き場所（%s）の画像は送る', (suffix) => {
+    const url = `https://images${suffix}/work.jpg`
+    addVideo({ currentTime: 34, paused: false })
+    addImage('湾岸署の映画', 1300, url)
+
+    startWatchReader(WATCH_READER_TARGET)
+
+    expect(sentPositions()).toEqual([expect.objectContaining({ imageUrl: url })])
   })
 
   it('題名の画像が無ければ、題名と画像は null のまま知らせる', () => {

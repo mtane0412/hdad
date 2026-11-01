@@ -29,7 +29,7 @@ const SECONDS_PER_MINUTE = 60
 const MINUTES_PER_HOUR = 60
 const MILLISECONDS_PER_SECOND = 1000
 /** 実機の Prime Video で作品の画像が置かれていたホストの末尾 */
-const IMAGE_HOST_SUFFIXES = ['.media-amazon.com', '.ssl-images-amazon.com']
+export const IMAGE_HOST_SUFFIXES = ['.media-amazon.com', '.ssl-images-amazon.com']
 
 const INVALID = '再生位置の形が想定と違います'
 

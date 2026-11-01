@@ -43,6 +43,8 @@ export const startWatchReader = (target: string): void => {
   const DRIFT_SECONDS = 2
   /** 題名の画像とみなす最小の幅（alt が題名に含まれる小さなロゴを除く） */
   const MIN_IMAGE_WIDTH = 300
+  /** 合成ページが受け入れる画像の置き場所（文字列でタブへ送るので読み込めない。watch-position.ts との一致はテストが確かめる） */
+  const IMAGE_HOST_SUFFIXES = ['.media-amazon.com', '.ssl-images-amazon.com']
 
   const scope = window as unknown as WatchReaderScope
   if (scope.__hdadWatchReaderTimer !== undefined) return
@@ -66,7 +68,8 @@ export const startWatchReader = (target: string): void => {
       playing: !video.paused,
       rate: video.playbackRate,
       title: image?.alt ?? null,
-      imageUrl: image?.src ?? null,
+      // 受け入れられない画像を送ると再生位置ごと拒まれるので、画像だけを外す
+      imageUrl: image !== null && image.src.startsWith('https://') && IMAGE_HOST_SUFFIXES.some((suffix) => new URL(image.src).hostname.endsWith(suffix)) ? image.src : null,
     }
   }
 
