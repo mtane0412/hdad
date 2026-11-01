@@ -40,6 +40,7 @@ import type { LickCall } from './call'
 import { salivaStringAt, trailsAt, type LickPlan, type LickScene, type SalivaTrail } from './motion'
 import { tongueBottomTexture, tongueTopTexture } from './texture'
 import { tongueSurfacePoint, type TonguePose } from './tongue-shape'
+import { renderRatio } from '../core/render-ratio'
 
 /** 画面に出す文字の書体（ツイスターと同じ） */
 const FONT_FAMILY = '"Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif'
@@ -451,7 +452,7 @@ export const createLickRenderer = (glCanvas: HTMLCanvasElement): LickRenderer =>
   }
 
   const render: LickRenderer['render'] = (hud, width, height, frame) => {
-    const ratio = window.devicePixelRatio
+    const ratio = renderRatio()
     if (size.width !== width || size.height !== height || size.ratio !== ratio) {
       renderer.setPixelRatio(ratio)
       renderer.setSize(width, height, false)

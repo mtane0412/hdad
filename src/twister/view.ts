@@ -40,6 +40,7 @@ import { hudTextOf } from './hud'
 import { ALL_SPOTS, COLOR_HEX, MAT_COLORS, MAT_DEPTH, MAT_WIDTH, SPOT_RADIUS, spotPosition } from './mat'
 import { PLAYER_INDEXES } from './players'
 import { SEGMENT_ANGLE, SPINNER_SEGMENTS, spinnerAngleAt, spinnerZoomAt } from './spinner'
+import { renderRatio } from '../core/render-ratio'
 
 /** 画面に出す文字の書体（市町村紹介と同じ） */
 const FONT_FAMILY = '"Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif'
@@ -395,7 +396,7 @@ export const createTwisterRenderer = (glCanvas: HTMLCanvasElement): TwisterRende
   }
 
   const render: TwisterRenderer['render'] = (hud, width, height, frame) => {
-    const ratio = window.devicePixelRatio
+    const ratio = renderRatio()
     if (size.width !== width || size.height !== height || size.ratio !== ratio) {
       renderer.setPixelRatio(ratio)
       renderer.setSize(width, height, false)

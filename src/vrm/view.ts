@@ -24,6 +24,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { VRMLoaderPlugin, VRMUtils, type VRM } from '@pixiv/three-vrm'
 import { VRM_BONES, type VrmScene } from './motion'
 import { springStepSeconds } from './spring'
+import { renderRatio } from '../core/render-ratio'
 
 /** カメラの視野角（度） */
 const CAMERA_FOV = 30
@@ -140,7 +141,7 @@ export const createVrmRenderer = (glCanvas: HTMLCanvasElement): VrmRenderer => {
   }
 
   const render: VrmRenderer['render'] = (width, height, frame, nowMs) => {
-    const ratio = window.devicePixelRatio
+    const ratio = renderRatio()
     if (loaded !== null && (size.width !== width || size.height !== height || size.ratio !== ratio)) {
       renderer.setPixelRatio(ratio)
       renderer.setSize(width, height, false)
