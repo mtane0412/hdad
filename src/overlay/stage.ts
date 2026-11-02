@@ -24,6 +24,7 @@
  * 匿名IRC・アラートのWebSocket・ポーリングがもう1組動くこともない。
  * 編集が進むと親が構成を送り直してくる。位置と大きさだけの変化なら箱を動かすだけにし（ドラッグのあいだも
  * 中身を映し続けるため）、それ以外の変化なら読み込み直す（watchPreviewLayout）。
+ * 編集画面の操作を重くしないよう、描画の頻度と画素比を抑える（PREVIEW_FRAMES_PER_SECOND・PREVIEW_MAX_RENDER_RATIO）。
  *
  * 注意: 1つの素材の失敗で、同じオーバーレイのほかの素材は動かし続ける（issue #101 で決めた、Fail-Fast に
  * 意識して設けた例外）。理由は「配信中に片方が壊れたときの被害を、配信画面の全損から1素材の欠落に
@@ -61,6 +62,7 @@ import type { BadgeRef, ChatMessage } from '../chat/message'
 import { chats } from '../chat/registry'
 import { createChatView } from '../chat/view'
 import { clocks } from '../clock/registry'
+import { limitRenderRatio } from '../core/render-ratio'
 import { clearError, findDefinition, showError, startCanvasLayer, startCanvasSurface, type DrawFrame } from '../core/mount'
 import { ParamError, parseParams, type ParamSchema } from '../core/params'
 import { connectSocket, socketUrl } from '../core/socket'
@@ -169,6 +171,7 @@ import { OVERLAY_LAYOUT_SOCKET_HINT, OVERLAY_LAYOUT_SOCKET_PATH, createOverlayLa
 import { DISMISS_SOCKET_HINT, DISMISS_SOCKET_PATH, parseOverlayDismiss } from './dismiss'
 import { itemsInOverlay, overlayChanged, overlayNamesOf, rectsOnlyChanged, rectStyle, shownItems, type ItemKind, type Overlay, type OverlayItem } from './layout'
 import { dueTasks, pollTickMs, type PollInterval } from './poll'
+import { createFrameGate } from './frame-gate'
 import { previewReadyMessage, readPreviewLayout } from './preview'
 
 /** ページ全体の失敗（構成が読めない・オーバーレイに素材が無い）でエラー表示に使う呼び名 */
@@ -254,6 +257,10 @@ const DEMO_CAPTION_INTERVAL_MS = 1200
 const PREVIEW_WAIT_MS = 5000
 /** プレビューで、位置と大きさ以外が変わってから読み込み直すまで待つ時間（ミリ秒）。打っている途中で何度も起動し直さない */
 const PREVIEW_RELOAD_DELAY_MS = 150
+/** プレビューの描画の頻度（回/秒）。編集画面を動かす余裕を残しつつ、演出の動きが分かるだけの数にする */
+const PREVIEW_FRAMES_PER_SECOND = 15
+/** プレビューの画素比の上限。実寸1920×1080を枠の幅に縮小して映すので、1でも表示より細かい */
+const PREVIEW_MAX_RENDER_RATIO = 1
 
 const schema = {
   key: {
@@ -3001,15 +3008,19 @@ const watchPreviewLayout = (overlayName: string, started: readonly Overlay[], bo
  *
  * 描画中に投げた素材は、その箱に失敗を出して一覧から外す（毎フレーム同じ失敗を出さないため）。
  * ほかの素材の描画は続ける。
+ *
+ * @param shouldDraw このフレームを描くかを答える関数（プレビューで間引くために受け取る）
  */
-const startDrawLoop = (items: DrawingItem[]): void => {
+const startDrawLoop = (items: DrawingItem[], shouldDraw: (elapsedMs: number) => boolean): void => {
   const loop = (elapsedMs: number): void => {
-    for (const item of [...items]) {
-      try {
-        item.draw(elapsedMs)
-      } catch (error) {
-        items.splice(items.indexOf(item), 1)
-        showError(error, item.noun, item.box)
+    if (shouldDraw(elapsedMs)) {
+      for (const item of [...items]) {
+        try {
+          item.draw(elapsedMs)
+        } catch (error) {
+          items.splice(items.indexOf(item), 1)
+          showError(error, item.noun, item.box)
+        }
       }
     }
     requestAnimationFrame(loop)
@@ -3109,6 +3120,9 @@ const start = async (): Promise<void> => {
     throw new ParamError(['key: オーバーレイ用キーを指定してください（例: ?key=<キー>&overlay=front）'])
   }
 
+  // プレビューは縮小して映すので、素材が canvas を作る前に画素比を抑える（配信画面は画面の画素比のまま）
+  if (params.demo) limitRenderRatio(PREVIEW_MAX_RENDER_RATIO)
+
   // 構成の受け取りは起動の一部。ここで失敗したらこのオーバーレイには何も描けないので、ページ全体に出す。
   // プレビュー（?demo=true）では編集中の構成を親の窓から受け取り、ふだんは Worker から読む
   const all = params.demo ? await receivePreviewLayout() : await createOverlayLayoutApi(callWorker, params.key).read()
@@ -3156,7 +3170,7 @@ const start = async (): Promise<void> => {
     }
   }
 
-  startDrawLoop(drawing)
+  startDrawLoop(drawing, params.demo ? createFrameGate(PREVIEW_FRAMES_PER_SECOND) : () => true)
   startPolling(tasks)
   // プレビューは配信画面への切り替えを待たない（編集中の構成は上で待ち受けている）
   if (!params.demo) watchLayout(params.key, params.overlay, all)

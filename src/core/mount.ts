@@ -14,6 +14,7 @@
  */
 import type { BackgroundDefinition } from './background'
 import { ParamError, parseParams } from './params'
+import { renderRatio } from './render-ratio'
 
 const MILLISECONDS_PER_SECOND = 1000
 
@@ -104,7 +105,7 @@ export const startCanvasSurface = (canvas: HTMLCanvasElement, render: RenderSurf
     // 大きさを測れていないあいだ（レイアウト前や、箱が隠れているとき）は描かない
     if (width === 0 || height === 0) return
 
-    const ratio = window.devicePixelRatio
+    const ratio = renderRatio()
     const pixelWidth = canvasPixels(width, ratio)
     const pixelHeight = canvasPixels(height, ratio)
     if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
